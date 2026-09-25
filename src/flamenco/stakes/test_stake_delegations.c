@@ -341,8 +341,8 @@ test_shared_forks( ulong max_stake_accounts ) {
 
     ushort rooted[ 2 ] = { forks[ 1 ], forks[ 10 ] };
     fd_stake_delegations_delta_stats_t stats = {0};
-    fd_stake_delegations_advance_root( 1UL, history, &warmup_cooldown_rate_epoch, 1, stake_delegations, rooted[ 0 ], &stats );
-    fd_stake_delegations_advance_root( 1UL, history, &warmup_cooldown_rate_epoch, 1, stake_delegations, rooted[ 1 ], &stats );
+    fd_stake_delegations_advance_root( 1UL, history, &warmup_cooldown_rate_epoch, 1, 0, stake_delegations, rooted[ 0 ], &stats );
+    fd_stake_delegations_advance_root( 1UL, history, &warmup_cooldown_rate_epoch, 1, 0, stake_delegations, rooted[ 1 ], &stats );
     FD_TEST( stats.upserts==6UL );
     FD_TEST( stats.removes==2UL );
     FD_TEST( stats.root_cnt==5UL );
@@ -353,7 +353,7 @@ test_shared_forks( ulong max_stake_accounts ) {
     FD_TEST( found->stake==stakes[ 10 ] );
 
     /* Resident deltas remain available after apply until eviction. */
-    fd_stake_delegations_advance_root( 1UL, history, &warmup_cooldown_rate_epoch, 1, stake_delegations, rooted[ 0 ], &stats );
+    fd_stake_delegations_advance_root( 1UL, history, &warmup_cooldown_rate_epoch, 1, 0, stake_delegations, rooted[ 0 ], &stats );
     FD_TEST( stats.upserts==9UL );
     FD_TEST( stats.removes==3UL );
     FD_TEST( stats.root_cnt==5UL );
@@ -527,7 +527,7 @@ test_disk_delta_links( void ) {
     }
     /* Applying the reinserted list removes adjacent last records. */
     fd_stake_delegations_delta_stats_t stats = {0};
-    fd_stake_delegations_advance_root( 1UL, history, NULL, 1, stake_delegations, recycled, &stats );
+    fd_stake_delegations_advance_root( 1UL, history, NULL, 1, 0, stake_delegations, recycled, &stats );
     FD_TEST( stats.upserts==3UL && !stats.removes && stats.root_cnt==3UL );
     fd_stake_delegations_evict_fork( stake_delegations, recycled );
     for( ulong f=0UL; f<3UL; f++ ) {
@@ -586,7 +586,7 @@ test_ancestry( ulong root_max ) {
     fd_stake_delegations_view_end( sd, history, NULL, 1 );
   }
   fd_stake_delegations_delta_stats_t stats = {0};
-  fd_stake_delegations_advance_root( 1UL, history, NULL, 1, sd, child, &stats );
+  fd_stake_delegations_advance_root( 1UL, history, NULL, 1, 0, sd, child, &stats );
   FD_TEST( stats.upserts==3UL && stats.removes==1UL && stats.root_cnt==1UL );
   FD_TEST( get_fork_pool( sd )[ tip ].parent==USHORT_MAX );
   fd_stake_delegations_evict_fork( sd, child );
@@ -637,7 +637,7 @@ test_ancestry_lifetimes( void ) {
   FD_TEST( test_stake_delegations_find_copy( sd, &key, found ) && found->stake==42UL );
   fd_stake_delegations_view_end( sd, history, NULL, 1 );
   fd_stake_delegations_delta_stats_t stats = {0};
-  fd_stake_delegations_advance_root( 1UL, history, NULL, 1, sd, parent, &stats );
+  fd_stake_delegations_advance_root( 1UL, history, NULL, 1, 0, sd, parent, &stats );
   FD_TEST( stats.upserts==2UL && !stats.removes && stats.root_cnt==1UL );
   for( ulong i=0UL; i<FD_STAKE_DELEGATIONS_FORK_MAX; i++ ) fd_stake_delegations_evict_fork( sd, chain[ i ] );
   FD_TEST( fork_pool_free( get_fork_pool( sd ) )==FD_STAKE_DELEGATIONS_FORK_MAX );
@@ -810,7 +810,7 @@ int main( int argc, char ** argv ) {
   ulong warmup_cooldown_rate_epoch = 0UL;
   int   use_fixed_point_stake_math = 0;
   fd_stake_delegations_delta_stats_t remove_stats = {0};
-  fd_stake_delegations_advance_root( epoch, stake_history, &warmup_cooldown_rate_epoch, use_fixed_point_stake_math, stake_delegations, remove_fork, &remove_stats );
+  fd_stake_delegations_advance_root( epoch, stake_history, &warmup_cooldown_rate_epoch, use_fixed_point_stake_math, 0, stake_delegations, remove_fork, &remove_stats );
   FD_TEST( remove_stats.upserts==0UL );
   FD_TEST( remove_stats.removes==1UL );
   FD_TEST( remove_stats.root_cnt==test_stake_delegations_base_cnt( stake_delegations ) );
@@ -1192,7 +1192,7 @@ int main( int argc, char ** argv ) {
     ushort fork_idx = fd_stake_delegations_new_fork( stake_delegations, USHORT_MAX );
     fd_stake_delegations_fork_update( stake_delegations, fork_idx, 0UL, &stake_account_0, &voter_pubkey_0, 905UL, ULONG_MAX, ULONG_MAX, 0UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN );
     fd_stake_delegations_fork_update( stake_delegations, fork_idx, 0UL, &stake_account_0, &voter_pubkey_1, 906UL, ULONG_MAX, ULONG_MAX, 1UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN );
-    fd_stake_delegations_advance_root( epoch, stake_history, &warmup_cooldown_rate_epoch, use_fixed_point_stake_math, stake_delegations, fork_idx, NULL );
+    fd_stake_delegations_advance_root( epoch, stake_history, &warmup_cooldown_rate_epoch, use_fixed_point_stake_math, 0, stake_delegations, fork_idx, NULL );
     fd_stake_delegation_t d[1];
     FD_TEST( test_stake_delegations_find_copy( stake_delegations, &stake_account_0, d ) );
     assert_delegation( d, &stake_account_0, &voter_pubkey_1, 906UL, USHORT_MAX, USHORT_MAX );
@@ -1253,7 +1253,7 @@ int main( int argc, char ** argv ) {
 
     ushort remove_fork = fd_stake_delegations_new_fork( stake_delegations, USHORT_MAX );
     fd_stake_delegations_fork_remove( stake_delegations, remove_fork, 0UL, &stake_account_0, 0 );
-    fd_stake_delegations_advance_root( epoch, stake_history, &warmup_cooldown_rate_epoch, use_fixed_point_stake_math, stake_delegations, remove_fork, NULL );
+    fd_stake_delegations_advance_root( epoch, stake_history, &warmup_cooldown_rate_epoch, use_fixed_point_stake_math, 0, stake_delegations, remove_fork, NULL );
     fd_stake_delegations_evict_fork( stake_delegations, remove_fork );
     FD_TEST( !test_stake_delegations_disk_cnt( stake_delegations ) );
     FD_TEST( !test_stake_delegations_base_cnt( stake_delegations ) );
@@ -1283,14 +1283,14 @@ int main( int argc, char ** argv ) {
     fd_pubkey_t first       = { .ul = { 5000UL, 6000UL } };
     ushort      remove_fork = fd_stake_delegations_new_fork( stake_delegations, USHORT_MAX );
     fd_stake_delegations_fork_remove( stake_delegations, remove_fork, 0UL, &first, 0 );
-    fd_stake_delegations_advance_root( epoch, stake_history, &warmup_cooldown_rate_epoch, use_fixed_point_stake_math, stake_delegations, remove_fork, NULL );
+    fd_stake_delegations_advance_root( epoch, stake_history, &warmup_cooldown_rate_epoch, use_fixed_point_stake_math, 0, stake_delegations, remove_fork, NULL );
     fd_stake_delegations_evict_fork( stake_delegations, remove_fork );
     FD_TEST( test_stake_delegations_base_cnt( stake_delegations )==max_stake_accounts );
     FD_TEST( test_stake_delegations_disk_cnt( stake_delegations )==1UL );
 
     remove_fork = fd_stake_delegations_new_fork( stake_delegations, USHORT_MAX );
     fd_stake_delegations_fork_remove( stake_delegations, remove_fork, 0UL, &overflow, 0 );
-    fd_stake_delegations_advance_root( epoch, stake_history, &warmup_cooldown_rate_epoch, use_fixed_point_stake_math, stake_delegations, remove_fork, NULL );
+    fd_stake_delegations_advance_root( epoch, stake_history, &warmup_cooldown_rate_epoch, use_fixed_point_stake_math, 0, stake_delegations, remove_fork, NULL );
     fd_stake_delegations_evict_fork( stake_delegations, remove_fork );
     FD_TEST( test_stake_delegations_base_cnt( stake_delegations )==max_stake_accounts-1UL );
     FD_TEST( !test_stake_delegations_disk_cnt( stake_delegations ) );
@@ -1343,7 +1343,7 @@ int main( int argc, char ** argv ) {
     /* Awarding a WARMED tag under the float math sets the flag. */
     ushort fork_idx = fd_stake_delegations_new_fork( stake_delegations, USHORT_MAX );
     fd_stake_delegations_fork_update( stake_delegations, fork_idx, 0UL, &stake_account_0, &voter_pubkey_0, 200UL, ULONG_MAX, ULONG_MAX, 0UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN );
-    fd_stake_delegations_advance_root( epoch, stake_history, &warmup_cooldown_rate_epoch, 0 /* float */, stake_delegations, fork_idx, NULL );
+    fd_stake_delegations_advance_root( epoch, stake_history, &warmup_cooldown_rate_epoch, 0 /* float */, 0, stake_delegations, fork_idx, NULL );
     fd_stake_delegations_evict_fork( stake_delegations, fork_idx );
     FD_TEST( test_stake_delegations_find_copy( stake_delegations, &stake_account_0, stake_delegation_0 ) );
     FD_TEST( stake_delegation_0->state==FD_STAKE_DELEGATION_STATE_WARMED );
@@ -1359,7 +1359,7 @@ int main( int argc, char ** argv ) {
        clear. */
     fork_idx = fd_stake_delegations_new_fork( stake_delegations, USHORT_MAX );
     fd_stake_delegations_fork_update( stake_delegations, fork_idx, 0UL, &stake_account_0, &voter_pubkey_0, 200UL, ULONG_MAX, ULONG_MAX, 0UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN );
-    fd_stake_delegations_advance_root( epoch, stake_history, &warmup_cooldown_rate_epoch, 1 /* fixed */, stake_delegations, fork_idx, NULL );
+    fd_stake_delegations_advance_root( epoch, stake_history, &warmup_cooldown_rate_epoch, 1 /* fixed */, 0, stake_delegations, fork_idx, NULL );
     fd_stake_delegations_evict_fork( stake_delegations, fork_idx );
     FD_TEST( test_stake_delegations_find_copy( stake_delegations, &stake_account_0, stake_delegation_0 ) );
     FD_TEST( stake_delegation_0->state==FD_STAKE_DELEGATION_STATE_WARMED );
@@ -1377,7 +1377,7 @@ int main( int argc, char ** argv ) {
     /* A COOLING award never touches the flag ... */
     fork_idx = fd_stake_delegations_new_fork( stake_delegations, USHORT_MAX );
     fd_stake_delegations_fork_update( stake_delegations, fork_idx, 0UL, &stake_account_0, &voter_pubkey_0, 200UL, ULONG_MAX, 10UL /* deactivating at epoch */, 0UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN );
-    fd_stake_delegations_advance_root( epoch, stake_history, &warmup_cooldown_rate_epoch, 0 /* float */, stake_delegations, fork_idx, NULL );
+    fd_stake_delegations_advance_root( epoch, stake_history, &warmup_cooldown_rate_epoch, 0 /* float */, 0, stake_delegations, fork_idx, NULL );
     fd_stake_delegations_evict_fork( stake_delegations, fork_idx );
     FD_TEST( test_stake_delegations_find_copy( stake_delegations, &stake_account_0, stake_delegation_0 ) );
     FD_TEST( stake_delegation_0->state==FD_STAKE_DELEGATION_STATE_COOLING );
@@ -1386,7 +1386,7 @@ int main( int argc, char ** argv ) {
     /* ... and a later float WARMED re-award sets it again. */
     fork_idx = fd_stake_delegations_new_fork( stake_delegations, USHORT_MAX );
     fd_stake_delegations_fork_update( stake_delegations, fork_idx, 0UL, &stake_account_0, &voter_pubkey_0, 200UL, ULONG_MAX, ULONG_MAX, 0UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN );
-    fd_stake_delegations_advance_root( epoch, stake_history, &warmup_cooldown_rate_epoch, 0 /* float */, stake_delegations, fork_idx, NULL );
+    fd_stake_delegations_advance_root( epoch, stake_history, &warmup_cooldown_rate_epoch, 0 /* float */, 0, stake_delegations, fork_idx, NULL );
     fd_stake_delegations_evict_fork( stake_delegations, fork_idx );
     FD_TEST( stake_delegations->fp_warmed_awarded==1 );
     fd_stake_delegations_invalidate_warmed( stake_delegations, 1 );
@@ -1424,7 +1424,7 @@ int main( int argc, char ** argv ) {
     fd_stake_delegations_root_update( stake_delegations, &stake_account_0, &voter_pubkey_0, 1UL, ULONG_MAX, 2UL, 0UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN );
     ushort fork_idx = fd_stake_delegations_new_fork( stake_delegations, USHORT_MAX );
     fd_stake_delegations_fork_update( stake_delegations, fork_idx, 0UL, &stake_account_0, &voter_pubkey_1, 1UL, ULONG_MAX, ULONG_MAX, 0UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN );
-    fd_stake_delegations_advance_root( prune_epoch, stake_history, &warmup_cooldown_rate_epoch, use_fixed_point_stake_math, stake_delegations, fork_idx, NULL );
+    fd_stake_delegations_advance_root( prune_epoch, stake_history, &warmup_cooldown_rate_epoch, use_fixed_point_stake_math, 0, stake_delegations, fork_idx, NULL );
     fd_stake_delegations_prune_inactive_root(
         stake_delegations,
         prune_epoch,
@@ -1534,7 +1534,7 @@ int main( int argc, char ** argv ) {
     fd_stake_delegations_root_update( stake_delegations, &overflow2, &voter_pubkey_0, 515151UL, 4UL, 10UL, 18UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN );
     ushort remove_fork = fd_stake_delegations_new_fork( stake_delegations, USHORT_MAX );
     fd_stake_delegations_fork_remove( stake_delegations, remove_fork, 0UL, &overflow, 0 );
-    fd_stake_delegations_advance_root( epoch, stake_history, &warmup_cooldown_rate_epoch, use_fixed_point_stake_math, stake_delegations, remove_fork, NULL );
+    fd_stake_delegations_advance_root( epoch, stake_history, &warmup_cooldown_rate_epoch, use_fixed_point_stake_math, 0, stake_delegations, remove_fork, NULL );
     fd_stake_delegations_evict_fork( stake_delegations, remove_fork );
     FD_TEST( !test_stake_delegations_contains( stake_delegations, &overflow ) );
     FD_TEST( test_stake_delegations_find_copy( stake_delegations, &overflow2, found ) );
@@ -1595,7 +1595,7 @@ int main( int argc, char ** argv ) {
 
     fd_stake_delegations_evict_fork( stake_delegations, fork1 );
     fd_stake_delegations_delta_stats_t disk_stats = {0};
-    fd_stake_delegations_advance_root( epoch, stake_history, &warmup_cooldown_rate_epoch, use_fixed_point_stake_math, stake_delegations, fork0, &disk_stats );
+    fd_stake_delegations_advance_root( epoch, stake_history, &warmup_cooldown_rate_epoch, use_fixed_point_stake_math, 0, stake_delegations, fork0, &disk_stats );
     FD_TEST( disk_stats.upserts==3UL );
     FD_TEST( disk_stats.removes==0UL );
     FD_TEST( disk_stats.root_cnt==test_stake_delegations_base_cnt( stake_delegations ) );
@@ -1635,7 +1635,7 @@ int main( int argc, char ** argv ) {
     ushort fork_idx = fd_stake_delegations_new_fork( stake_delegations, USHORT_MAX );
     fd_stake_delegations_fork_remove( stake_delegations, fork_idx, 0UL, &disk_keys[0], 0 );
     fd_stake_delegations_fork_remove( stake_delegations, fork_idx, 0UL, &disk_keys[1], 0 );
-    fd_stake_delegations_advance_root( epoch, stake_history, &warmup_cooldown_rate_epoch, use_fixed_point_stake_math, stake_delegations, fork_idx, NULL );
+    fd_stake_delegations_advance_root( epoch, stake_history, &warmup_cooldown_rate_epoch, use_fixed_point_stake_math, 0, stake_delegations, fork_idx, NULL );
     fd_stake_delegations_evict_fork( stake_delegations, fork_idx );
 
     FD_TEST( stake_delegations->disk_root_cnt_==1UL );
@@ -1646,7 +1646,7 @@ int main( int argc, char ** argv ) {
     root_gen = stake_delegations->disk_root_gen_;
     fork_idx = fd_stake_delegations_new_fork( stake_delegations, USHORT_MAX );
     fd_stake_delegations_fork_remove( stake_delegations, fork_idx, 0UL, &disk_keys[2], 0 );
-    fd_stake_delegations_advance_root( epoch, stake_history, &warmup_cooldown_rate_epoch, use_fixed_point_stake_math, stake_delegations, fork_idx, NULL );
+    fd_stake_delegations_advance_root( epoch, stake_history, &warmup_cooldown_rate_epoch, use_fixed_point_stake_math, 0, stake_delegations, fork_idx, NULL );
     fd_stake_delegations_evict_fork( stake_delegations, fork_idx );
     FD_TEST( !stake_delegations->disk_root_cnt_ );
     FD_TEST( stake_delegations->disk_root_gen_!=root_gen );
@@ -1763,7 +1763,7 @@ int main( int argc, char ** argv ) {
     ushort fork_up = fd_stake_delegations_new_fork( stake_delegations, USHORT_MAX );
     fd_stake_delegations_fork_update( stake_delegations, fork_up, 0UL, &stake_account_3, &voter_pubkey_0, 100UL, 0UL, 0UL, 0UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN );
     fd_stake_delegations_fork_update( stake_delegations, fork_up, 0UL, &stake_account_3, &voter_pubkey_0, 200UL, 0UL, 0UL, 0UL, TEST_STAKE_DELEGATION_LAMPORTS, TEST_STAKE_DELEGATION_ACC_DLEN );
-    fd_stake_delegations_advance_root( epoch, stake_history, &warmup_cooldown_rate_epoch, use_fixed_point_stake_math, stake_delegations, fork_up, &stats );
+    fd_stake_delegations_advance_root( epoch, stake_history, &warmup_cooldown_rate_epoch, use_fixed_point_stake_math, 0, stake_delegations, fork_up, &stats );
     fd_stake_delegations_evict_fork( stake_delegations, fork_up );
     FD_TEST( stats.upserts==1UL ); /* duplicate update to one account dedups to one delta entry */
     FD_TEST( stats.removes==0UL );
@@ -1774,7 +1774,7 @@ int main( int argc, char ** argv ) {
     ushort fork_rm = fd_stake_delegations_new_fork( stake_delegations, USHORT_MAX );
     fd_stake_delegations_fork_remove( stake_delegations, fork_rm, 0UL, &stake_account_3, 0 );
     fd_stake_delegations_fork_remove( stake_delegations, fork_rm, 0UL, &stake_account_3, 0 );
-    fd_stake_delegations_advance_root( epoch, stake_history, &warmup_cooldown_rate_epoch, use_fixed_point_stake_math, stake_delegations, fork_rm, &stats );
+    fd_stake_delegations_advance_root( epoch, stake_history, &warmup_cooldown_rate_epoch, use_fixed_point_stake_math, 0, stake_delegations, fork_rm, &stats );
     fd_stake_delegations_evict_fork( stake_delegations, fork_rm );
     FD_TEST( stats.upserts==1UL );
     FD_TEST( stats.removes==1UL ); /* removal of a root-present account */
@@ -1785,7 +1785,7 @@ int main( int argc, char ** argv ) {
        actual map removal). */
     ushort fork_rm2 = fd_stake_delegations_new_fork( stake_delegations, USHORT_MAX );
     fd_stake_delegations_fork_remove( stake_delegations, fork_rm2, 0UL, &stake_account_3, 0 );
-    fd_stake_delegations_advance_root( epoch, stake_history, &warmup_cooldown_rate_epoch, use_fixed_point_stake_math, stake_delegations, fork_rm2, &stats );
+    fd_stake_delegations_advance_root( epoch, stake_history, &warmup_cooldown_rate_epoch, use_fixed_point_stake_math, 0, stake_delegations, fork_rm2, &stats );
     fd_stake_delegations_evict_fork( stake_delegations, fork_rm2 );
     FD_TEST( stats.upserts==1UL );
     FD_TEST( stats.removes==2UL ); /* tombstone for a root-absent account still counts */
@@ -1902,7 +1902,7 @@ int main( int argc, char ** argv ) {
     fd_stake_delegations_fork_remove( stake_delegations, snap_fork, 300UL, &stake_account_1, 1 ); /* closed, was in root */
     fd_stake_delegations_fork_remove( stake_delegations, snap_fork, 100UL, &stake_account_3, 0 );
     SNAP_UPD( snap_fork, 200UL, &stake_account_3, &voter_pubkey_0, 4UL );                            /* re-created after close */
-    SNAP_UPD( snap_fork, 400UL, &stake_account_2, &voter_pubkey_1, 8UL );                            /* older than root */
+    SNAP_UPD( snap_fork, 400UL, &stake_account_2, &voter_pubkey_1, 8UL );                            /* replaces root */
     for( ulong i=0UL; i<max_delta_accounts+2UL; i++ ) {
       fd_pubkey_t k = { .ul = { 93000UL+i, 1UL } };
       SNAP_UPD( snap_fork, 100UL, &k, &voter_pubkey_0, 10UL+i );
@@ -1915,11 +1915,12 @@ int main( int argc, char ** argv ) {
     SNAP_UPD( snap_fork, 150UL, &spilled_dup, &voter_pubkey_0, 9UL );
     FD_TEST( test_stake_delegations_find_copy( stake_delegations, &stake_account_0, d ) && d->stake==1UL ); /* root untouched */
 
-    fd_stake_delegations_snapshot_publish_fork( stake_delegations, snap_fork );
+    fd_stake_delegations_advance_root( 0UL, NULL, NULL, 0, 1, stake_delegations, snap_fork, NULL );
+    fd_stake_delegations_evict_fork( stake_delegations, snap_fork );
     FD_TEST( !stake_delegations->disk_delta_cnt_ );
     FD_TEST( test_stake_delegations_find_copy( stake_delegations, &stake_account_0, d ) && d->stake==3UL && d->slot==200U );
-    FD_TEST( test_stake_delegations_find_copy( stake_delegations, &stake_account_1, d ) && !d->lamports );
-    FD_TEST( test_stake_delegations_find_copy( stake_delegations, &stake_account_2, d ) && d->stake==1UL && d->slot==500U );
+    FD_TEST( !test_stake_delegations_find_copy( stake_delegations, &stake_account_1, d ) ); /* tombstone removed it */
+    FD_TEST( test_stake_delegations_find_copy( stake_delegations, &stake_account_2, d ) && d->stake==8UL && d->slot==400U );
     FD_TEST( test_stake_delegations_find_copy( stake_delegations, &stake_account_3, d ) && d->stake==4UL );
     for( ulong i=0UL; i<max_delta_accounts+2UL; i++ ) {
       fd_pubkey_t k = { .ul = { 93000UL+i, 1UL } };

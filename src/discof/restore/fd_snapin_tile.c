@@ -1965,7 +1965,9 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         fd_accdb_advance_root( ctx->accdb, ctx->lead.accdb_incr_fork_id );
         ctx->lead.accdb_root_fork_id = ctx->lead.accdb_incr_fork_id;
         ctx->lead.accdb_incr_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
-        fd_stake_delegations_snapshot_publish_fork( ctx->stake_delegations, FD_VOLATILE_CONST( ctx->shmem->stake_fork ) );
+        ushort stake_fork = FD_VOLATILE_CONST( ctx->shmem->stake_fork );
+        fd_stake_delegations_advance_root( 0UL, NULL, NULL, 0, 1, ctx->stake_delegations, stake_fork, NULL );
+        fd_stake_delegations_evict_fork( ctx->stake_delegations, stake_fork );
       }
 
       fd_accdb_snapshot_load_end( ctx->accdb );

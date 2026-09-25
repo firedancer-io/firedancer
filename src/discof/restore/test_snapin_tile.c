@@ -175,7 +175,7 @@ test_stem_publish( fd_stem_context_t * stem,
 #define fd_slot_delta_parser_init                    mock_slot_delta_parser_init
 #define fd_stake_delegations_reset                   mock_stake_delegations_reset
 #define fd_stake_delegations_new_fork                mock_stake_delegations_new_fork
-#define fd_stake_delegations_snapshot_publish_fork   mock_stake_delegations_snapshot_publish_fork
+#define fd_stake_delegations_advance_root            mock_stake_delegations_advance_root
 #define fd_stake_delegations_evict_fork              mock_stake_delegations_evict_fork
 #define fd_features_restore_chunk                    mock_features_restore_chunk
 #define fd_stem_publish                              test_stem_publish
@@ -198,7 +198,7 @@ test_padded_sz( ulong used ) {
 #undef fd_stem_publish
 #undef fd_features_restore_chunk
 #undef fd_stake_delegations_evict_fork
-#undef fd_stake_delegations_snapshot_publish_fork
+#undef fd_stake_delegations_advance_root
 #undef fd_stake_delegations_new_fork
 #undef fd_stake_delegations_reset
 #undef fd_slot_delta_parser_init
@@ -239,7 +239,8 @@ static uchar test_write_result = FD_ACCDB_SNAPSHOT_WRITE_LOADED;
 
 /* The mocks above hide these prototypes; tests reach the real ones. */
 ushort fd_stake_delegations_new_fork( fd_stake_delegations_t * stake_delegations, ushort parent_fork_idx );
-void   fd_stake_delegations_snapshot_publish_fork( fd_stake_delegations_t * stake_delegations, ushort fork_idx );
+void   fd_stake_delegations_advance_root( ulong epoch, fd_stake_history_t const * stake_history, ulong * warmup_cooldown_rate_epoch, int use_fixed_point_stake_math, int skip_stake_math, fd_stake_delegations_t * stake_delegations, ushort fork_idx, fd_stake_delegations_delta_stats_t * stake_delegations_delta_stats );
+void   fd_stake_delegations_evict_fork( fd_stake_delegations_t * stake_delegations, ushort fork_idx );
 
 /* Production per-slot limits (tile->snapin.max_txn_per_slot and its
    derived staging bounds). */
@@ -421,9 +422,16 @@ mock_stake_delegations_new_fork( fd_stake_delegations_t * sd,
 }
 
 void
-mock_stake_delegations_snapshot_publish_fork( fd_stake_delegations_t * sd,
-                                              ushort                   fork_idx ) {
-  (void)sd;
+mock_stake_delegations_advance_root( ulong                                epoch,
+                                     fd_stake_history_t const *           stake_history,
+                                     ulong *                              warmup_cooldown_rate_epoch,
+                                     int                                  use_fixed_point_stake_math,
+                                     int                                  skip_stake_math,
+                                     fd_stake_delegations_t *             sd,
+                                     ushort                               fork_idx,
+                                     fd_stake_delegations_delta_stats_t * stats ) {
+  (void)epoch; (void)stake_history; (void)warmup_cooldown_rate_epoch; (void)use_fixed_point_stake_math; (void)sd; (void)stats;
+  FD_TEST( skip_stake_math );
   test_stake_publish_cnt++;
   test_stake_publish_fork = fork_idx;
 }
@@ -1695,7 +1703,8 @@ test_snoop_incremental_fork( fd_wksp_t * wksp ) {
   write_one( ctx, &acc_a, &fd_solana_stake_program_id, 9000UL, state, stake_sz, 100UL, FD_ACCDB_SNAPSHOT_WRITE_REPLACED_CROSS );
   FD_TEST( test_stake_delegations_find_copy( stake_delegations, &acc_a, d ) && d->lamports==5000UL ); /* root untouched */
 
-  fd_stake_delegations_snapshot_publish_fork( stake_delegations, ctx->shmem->stake_fork );
+  fd_stake_delegations_advance_root( 0UL, NULL, NULL, 0, 1, stake_delegations, ctx->shmem->stake_fork, NULL );
+  fd_stake_delegations_evict_fork( stake_delegations, ctx->shmem->stake_fork );
   FD_TEST( test_stake_delegations_find_copy( stake_delegations, &acc_a, d ) && d->lamports==9000UL && d->slot==100U );
 }
 
@@ -2907,6 +2916,7 @@ test_full_lifecycle_9_tiles( void ) {
   FD_TEST( cl->ctx[ 0 ].lead.accdb_root_fork_id.val==7U );
   FD_TEST( cl->ctx[ 0 ].lead.accdb_incr_fork_id.val==USHORT_MAX );
   FD_TEST( test_stake_publish_cnt==1UL && test_stake_publish_fork==3U ); /* stake fork published */
+  FD_TEST( test_stake_evict_cnt==2UL && test_stake_evict_fork==3U );     /* and released */
   /* n DONE acks plus tile 0's replay notification on snapin_manif. */
   FD_TEST( test_pub_cnt==pub0+n+1UL );
   ulong manif_pubs = 0UL;

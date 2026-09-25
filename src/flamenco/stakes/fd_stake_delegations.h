@@ -347,10 +347,6 @@ fd_stake_delegations_root_update( fd_stake_delegations_t * stake_delegations,
                                   ulong                    lamports,
                                   uint                     acc_dlen );
 
-void
-fd_stake_delegations_snapshot_publish_fork( fd_stake_delegations_t * stake_delegations,
-                                            ushort                   fork_idx );
-
 /* fd_stake_delegations_prune_inactive_root removes root delegations
    that are inactive in both epoch and epoch-1.  This function removes
    all inactive delegations from the in-memory and disk roots.  It is a
@@ -450,6 +446,10 @@ typedef struct fd_stake_delegations_delta_stats fd_stake_delegations_delta_stats
    from rooted state.  The caller frees the applied fork descriptors
    with evict_fork.  USHORT_MAX applies no deltas.
 
+   skip_stake_math applies the deltas without updating totals or state,
+   for the snapshot loader; fd_stake_delegations_refresh recomputes them
+   afterwards and the stake history arguments may be NULL.
+
    If stake_delegations_delta_stats is non-NULL, upserts and removes
    accumulate into it (caller zeroes). */
 
@@ -458,6 +458,7 @@ fd_stake_delegations_advance_root( ulong                                epoch,
                                    fd_stake_history_t const *           stake_history,
                                    ulong *                              warmup_cooldown_rate_epoch,
                                    int                                  use_fixed_point_stake_math,
+                                   int                                  skip_stake_math,
                                    fd_stake_delegations_t *             stake_delegations,
                                    ushort                               fork_idx,
                                    fd_stake_delegations_delta_stats_t * stake_delegations_delta_stats );
