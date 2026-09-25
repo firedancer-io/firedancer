@@ -31,6 +31,16 @@ fd_failover_status_decode( fd_failover_status_t *      out,
                      ( status.status&FD_FAILOVER_STATUS_CATCHUP ) ) ||
                    ( ( status.flags&FD_FAILOVER_FLAG_CAUGHT_UP) &&
                        status.replay_slot==FD_FAILOVER_SLOT_NULL ) ||
+                   /* caught up to a tip you do not know, a leader window
+                      with nothing replayed, and a leader slot at or below
+                      your own final root cannot be true. */
+                   ( ( status.flags&FD_FAILOVER_FLAG_CAUGHT_UP) &&
+                       status.turbine_slot==FD_FAILOVER_SLOT_NULL ) ||
+                   ( ( status.flags&FD_FAILOVER_FLAG_IS_LEADER) &&
+                       status.replay_slot==FD_FAILOVER_SLOT_NULL ) ||
+                   ( status.next_leader_slot!=FD_FAILOVER_SLOT_NULL &&
+                     status.root_slot!=FD_FAILOVER_SLOT_NULL &&
+                     status.next_leader_slot<=status.root_slot ) ||
                    ( status.last_vote_slot!=FD_FAILOVER_SLOT_NULL &&
                      status.replay_slot!=FD_FAILOVER_SLOT_NULL &&
                      status.last_vote_slot>status.replay_slot ) ||

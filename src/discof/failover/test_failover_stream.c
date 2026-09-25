@@ -116,6 +116,29 @@ test_status_decode( void ) {
   status.replay_slot    = 67UL;
   status.root_slot      = 68UL;
   FD_TEST( !fd_failover_status_decode( &out, &peer, 1UL, (uchar const *)&status, sizeof(status) ) );
+
+  /* The readiness fields: caught up needs a known tip, a leader window
+     needs a replayed slot, and a leader slot sits above the root. */
+  status.replay_slot      = 100UL;
+  status.root_slot        = 68UL;
+  status.turbine_slot     = FD_FAILOVER_SLOT_NULL;
+  status.flags            = FD_FAILOVER_FLAG_CAUGHT_UP;
+  FD_TEST( !fd_failover_status_decode( &out, &peer, 1UL, (uchar const *)&status, sizeof(status) ) );
+  status.turbine_slot     = 101UL;
+  FD_TEST(  fd_failover_status_decode( &out, &peer, 1UL, (uchar const *)&status, sizeof(status) ) );
+  status.flags            = FD_FAILOVER_FLAG_IS_LEADER;
+  status.replay_slot      = FD_FAILOVER_SLOT_NULL;
+  status.last_vote_slot   = FD_FAILOVER_SLOT_NULL;
+  status.root_slot        = FD_FAILOVER_SLOT_NULL;
+  FD_TEST( !fd_failover_status_decode( &out, &peer, 1UL, (uchar const *)&status, sizeof(status) ) );
+  status.replay_slot      = 100UL;
+  FD_TEST(  fd_failover_status_decode( &out, &peer, 1UL, (uchar const *)&status, sizeof(status) ) );
+  status.flags            = 0U;
+  status.root_slot        = 68UL;
+  status.next_leader_slot = 68UL;
+  FD_TEST( !fd_failover_status_decode( &out, &peer, 1UL, (uchar const *)&status, sizeof(status) ) );
+  status.next_leader_slot = 69UL;
+  FD_TEST(  fd_failover_status_decode( &out, &peer, 1UL, (uchar const *)&status, sizeof(status) ) );
 }
 
 static void

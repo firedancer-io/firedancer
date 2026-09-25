@@ -191,6 +191,8 @@ test_slot_done_bookkeeping( void ) {
   ctx->replay_slot    = FD_FAILOVER_SLOT_NULL;
   ctx->root_slot      = FD_FAILOVER_SLOT_NULL;
   ctx->last_vote_slot = FD_FAILOVER_SLOT_NULL;
+  ctx->turbine_slot     = FD_FAILOVER_SLOT_NULL;
+  ctx->next_leader_slot = FD_FAILOVER_SLOT_NULL;
 
   fd_tower_slot_done_t done;
   fd_memset( &done, 0, sizeof(done) );
@@ -474,6 +476,8 @@ test_consensus_producer( fd_wksp_t * wksp ) {
   ctx->replay_slot    = FD_FAILOVER_SLOT_NULL;
   ctx->root_slot      = FD_FAILOVER_SLOT_NULL;
   ctx->last_vote_slot = FD_FAILOVER_SLOT_NULL;
+  ctx->turbine_slot     = FD_FAILOVER_SLOT_NULL;
+  ctx->next_leader_slot = FD_FAILOVER_SLOT_NULL;
   ctx->slot_done_seq  = 7UL;
 
   static fd_tower_slot_done_t done;
@@ -582,12 +586,19 @@ test_switch_request( void ) {
 static void
 test_before_frag_admits( void ) {
   fd_memset( ctx, 0, sizeof(ctx) );
-  ctx->tower_in_idx = 0UL;
-  ctx->admin_in_idx = 1UL;
-  ctx->adopt_in_idx = ULONG_MAX;
+  ctx->tower_in_idx  = 0UL;
+  ctx->admin_in_idx  = 1UL;
+  ctx->adopt_in_idx  = ULONG_MAX;
+  ctx->replay_in_idx = 2UL;
 
   FD_TEST( !before_frag( ctx, 0UL, 0UL, FD_TOWER_SIG_SLOT_DONE ) );
   FD_TEST(  before_frag( ctx, 0UL, 0UL, FD_TOWER_SIG_SLOT_DONE+1UL ) );
+
+  /* Of replay's firehose, only the reset and the leader edge are read. */
+  FD_TEST( !before_frag( ctx, 2UL, 0UL, REPLAY_SIG_RESET ) );
+  FD_TEST( !before_frag( ctx, 2UL, 0UL, REPLAY_SIG_BECAME_LEADER ) );
+  FD_TEST(  before_frag( ctx, 2UL, 0UL, REPLAY_SIG_SLOT_COMPLETED ) );
+  FD_TEST(  before_frag( ctx, 2UL, 0UL, REPLAY_SIG_TXN_EXECUTED ) );
 
   FD_TEST( !before_frag( ctx, 1UL, 0UL, FD_FAILOVER_BUS_STATUS_REQ ) );
   FD_TEST( !before_frag( ctx, 1UL, 0UL, FD_FAILOVER_BUS_SWITCH_RESP ) );
@@ -621,6 +632,8 @@ controller_init( ulong saved_state,
   ctx->last_vote_slot        = 99UL;
   ctx->root_slot             = 90UL;
   ctx->switch_pending_key    = FD_FAILOVER_SWITCH_KEY_CNT;
+  ctx->turbine_slot          = FD_FAILOVER_SLOT_NULL;
+  ctx->next_leader_slot      = FD_FAILOVER_SLOT_NULL;
   ctx->demoted_accept_term   = ULONG_MAX;
   ctx->deadline_slot         = FD_FAILOVER_SLOT_NULL;
   ctx->handoff_code          = (uchar)FD_FAILOVER_HANDOFF_CODE_CNT;
@@ -1187,6 +1200,81 @@ test_switch_overdue( void ) {
 
   controller_fini();
   FD_LOG_NOTICE(( "pass: an overdue switch is waited for, not abandoned" ));
+}
+
+/* Replay's reset and leader edge feed the readiness view, and the status
+   that view produces always passes the peer's decoder. */
+static void
+test_readiness_inputs( void ) {
+  controller_init( FD_FAILOVER_STATE_ACTIVE, 4UL );
+  fd_failover_peer_t * peer = &ctx->peers[ 0 ];
+  fd_failover_hello_t  us   = { .term=4UL, .role=FD_FAILOVER_ROLE_ACTIVE };
+  fd_failover_status_t st;
+  fd_failover_status_t out;
+  fd_poh_reset_t reset;
+  fd_memset( &reset, 0, sizeof(reset) );
+
+  /* Nothing from replay yet: unknown, and unknown is not caught up. */
+  st = local_status( ctx, peer );
+  FD_TEST( st.turbine_slot==FD_FAILOVER_SLOT_NULL && st.next_leader_slot==FD_FAILOVER_SLOT_NULL && !st.flags );
+  FD_TEST( fd_failover_status_decode( &out, &us, 1UL, (uchar const *)&st, sizeof(st) ) );
+
+  /* A reset near the replayed slot with the latch set: caught up. */
+  reset.turbine_slot     = 104UL;
+  reset.caught_up        = 1;
+  reset.next_leader_slot = 400UL;
+  consume_reset( ctx, &reset );
+  st = local_status( ctx, peer );
+  FD_TEST( st.turbine_slot==104UL && st.next_leader_slot==400UL );
+  FD_TEST( (st.flags&FD_FAILOVER_FLAG_CAUGHT_UP) && !(st.flags&FD_FAILOVER_FLAG_IS_LEADER) );
+  FD_TEST( fd_failover_status_decode( &out, &us, 1UL, (uchar const *)&st, sizeof(st) ) );
+
+  /* The tip runs ahead past the gap: not caught up, the latch alone is
+     not enough.  The tip is a running maximum, a reorg's lower reset
+     does not pull it back. */
+  reset.turbine_slot = 120UL;
+  consume_reset( ctx, &reset );
+  st = local_status( ctx, peer );
+  FD_TEST( st.turbine_slot==120UL && !(st.flags&FD_FAILOVER_FLAG_CAUGHT_UP) );
+  reset.turbine_slot = 105UL;
+  consume_reset( ctx, &reset );
+  FD_TEST( ctx->turbine_slot==120UL );
+  ctx->replay_slot = 115UL;
+  st = local_status( ctx, peer );
+  FD_TEST( st.flags&FD_FAILOVER_FLAG_CAUGHT_UP );
+
+  /* A leader replays past its own tip and is still caught up. */
+  ctx->replay_slot = 125UL;
+  st = local_status( ctx, peer );
+  FD_TEST( st.flags&FD_FAILOVER_FLAG_CAUGHT_UP );
+
+  /* Becoming leader latches until a reset names a real next leader slot,
+     which replay withholds for exactly that window. */
+  ctx->is_leader = 1;
+  reset.next_leader_slot = FD_FAILOVER_SLOT_NULL;
+  consume_reset( ctx, &reset );
+  st = local_status( ctx, peer );
+  FD_TEST( (st.flags&FD_FAILOVER_FLAG_IS_LEADER) && st.next_leader_slot==FD_FAILOVER_SLOT_NULL );
+  FD_TEST( fd_failover_status_decode( &out, &us, 1UL, (uchar const *)&st, sizeof(st) ) );
+  reset.next_leader_slot = 126UL;
+  consume_reset( ctx, &reset );
+  st = local_status( ctx, peer );
+  FD_TEST( !(st.flags&FD_FAILOVER_FLAG_IS_LEADER) && st.next_leader_slot==126UL );
+
+  /* The view is reduced before it is sent: a leader slot at or below the
+     root goes out as unknown, and a leader window needs a replayed slot. */
+  reset.next_leader_slot = 90UL;
+  consume_reset( ctx, &reset );
+  st = local_status( ctx, peer );
+  FD_TEST( st.next_leader_slot==FD_FAILOVER_SLOT_NULL );
+  FD_TEST( fd_failover_status_decode( &out, &us, 1UL, (uchar const *)&st, sizeof(st) ) );
+  ctx->is_leader   = 1;
+  ctx->replay_slot = FD_FAILOVER_SLOT_NULL;
+  st = local_status( ctx, peer );
+  FD_TEST( !(st.flags&FD_FAILOVER_FLAG_IS_LEADER) && !(st.flags&FD_FAILOVER_FLAG_CAUGHT_UP) );
+  FD_TEST( fd_failover_status_decode( &out, &us, 1UL, (uchar const *)&st, sizeof(st) ) );
+  controller_fini();
+  FD_LOG_NOTICE(( "pass: replay's reset and leader edge make caught up and is leader real, and the view always decodes" ));
 }
 
 /* Test that a promotion whose tower cannot be adopted stands down at a
@@ -2131,6 +2219,7 @@ main( int     argc,
   test_pause_stops_pending_promotion();
   test_pause_resume_coalesce();
   test_demotion_order();
+  test_readiness_inputs();
   test_promotion_reject();
   test_switch_overdue();
   test_demotion_drain();

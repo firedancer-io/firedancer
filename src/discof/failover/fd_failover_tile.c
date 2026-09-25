@@ -10,6 +10,7 @@
 #include "fd_failover_stream.h"
 #include "fd_failover_tls.h"
 #include "../tower/fd_tower_tile.h"
+#include "../replay/fd_replay_tile.h"
 #include "../../choreo/tower/fd_tower_serdes.h"
 #include "../../ballet/txn/fd_txn.h"
 
@@ -223,6 +224,20 @@ struct fd_failover_tile_ctx {
   fd_wksp_t * tower_in_mem;
   ulong       tower_in_chunk0;
   ulong       tower_in_wmark;
+
+  /* Replay's reset message holds the cluster tip, its catch-up latch
+     and the next leader slot, and its became-leader message marks the
+     start of our own leader window.  Together they feed the readiness
+     checks that the tower stream alone cannot. */
+  ulong          replay_in_idx;
+  fd_wksp_t *    replay_in_mem;
+  ulong          replay_in_chunk0;
+  ulong          replay_in_wmark;
+  fd_poh_reset_t reset;
+  ulong          turbine_slot;     /* highest cluster tip seen, SLOT_NULL before any */
+  int            replay_caught_up; /* replay's one way boot latch */
+  ulong          next_leader_slot; /* from the last reset, SLOT_NULL when unknown */
+  int            is_leader;        /* set on became-leader, cleared by the first reset with a real next leader slot */
 
   fd_tower_slot_done_t slot_done;
   ulong                slot_done_seq;
@@ -651,6 +666,8 @@ privileged_init( fd_topo_t const *      topo,
   ctx->replay_slot        = FD_FAILOVER_SLOT_NULL;
   ctx->root_slot          = FD_FAILOVER_SLOT_NULL;
   ctx->last_vote_slot     = FD_FAILOVER_SLOT_NULL;
+  ctx->turbine_slot       = FD_FAILOVER_SLOT_NULL;
+  ctx->next_leader_slot   = FD_FAILOVER_SLOT_NULL;
   ctx->tower_seen_seq     = ULONG_MAX;
 
   if( FD_UNLIKELY( !strcmp( tile->failov.identity_key_path, "" ) ) )
@@ -761,6 +778,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->tower_in_idx  = ULONG_MAX;
   ctx->admin_in_idx  = ULONG_MAX;
   ctx->adopt_in_idx  = ULONG_MAX;
+  ctx->replay_in_idx = ULONG_MAX;
   ctx->adopt_out_idx = fd_topo_find_tile_out_link( topo, tile, "failov_tower", 0UL );
   if( FD_LIKELY( ctx->adopt_out_idx!=ULONG_MAX ) ) {
     fd_topo_link_t const * link = &topo->links[ tile->out_link_id[ ctx->adopt_out_idx ] ];
@@ -798,6 +816,13 @@ unprivileged_init( fd_topo_t const *      topo,
       ctx->tower_in_mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
       ctx->tower_in_chunk0 = fd_dcache_compact_chunk0( ctx->tower_in_mem, link->dcache );
       ctx->tower_in_wmark  = fd_dcache_compact_wmark( ctx->tower_in_mem, link->dcache, link->mtu );
+      continue;
+    }
+    if( FD_LIKELY( !strcmp( link->name, "replay_out" ) ) ) {
+      ctx->replay_in_idx    = i;
+      ctx->replay_in_mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
+      ctx->replay_in_chunk0 = fd_dcache_compact_chunk0( ctx->replay_in_mem, link->dcache );
+      ctx->replay_in_wmark  = fd_dcache_compact_wmark( ctx->replay_in_mem, link->dcache, link->mtu );
       continue;
     }
     FD_LOG_ERR(( "unexpected input link name %s", link->name ));
@@ -955,6 +980,38 @@ consume_slot_done( fd_failover_tile_ctx_t *     ctx,
   }
 }
 
+/* consume_reset folds replay's reset message into the readiness view.
+   The tip is a running maximum since a reset is republished on a reorg,
+   and a reset that names a real next leader slot ends our leader window:
+   replay reports the sentinel from becoming leader until its next reset,
+   which is exactly the interval the leader-near check cannot see. */
+static void
+consume_reset( fd_failover_tile_ctx_t * ctx,
+               fd_poh_reset_t const *   reset ) {
+  if( FD_LIKELY( reset->turbine_slot!=FD_FAILOVER_SLOT_NULL &&
+                 ( ctx->turbine_slot==FD_FAILOVER_SLOT_NULL || reset->turbine_slot>ctx->turbine_slot ) ) ) {
+    ctx->turbine_slot = reset->turbine_slot;
+  }
+  ctx->replay_caught_up |= !!reset->caught_up;
+  ctx->next_leader_slot  = reset->next_leader_slot;
+  if( FD_LIKELY( reset->next_leader_slot!=FD_FAILOVER_SLOT_NULL ) ) ctx->is_leader = 0;
+}
+
+/* caught_up_locally is the live signal: replay's boot latch, which never
+   comes down on its own, together with the tip being within the
+   configured gap of the replayed slot.  Neither alone works, the latch
+   cannot see falling behind and the gap can be fooled right after boot
+   before the tip has moved.  Unknown is not caught up. */
+static int
+caught_up_locally( fd_failover_tile_ctx_t const * ctx ) {
+  if( FD_UNLIKELY( !ctx->replay_caught_up ||
+                   ctx->replay_slot==FD_FAILOVER_SLOT_NULL ||
+                   ctx->turbine_slot==FD_FAILOVER_SLOT_NULL ) ) return 0;
+  /* A leader replays past its own tip, its own blocks are not in it. */
+  return ctx->turbine_slot<=ctx->replay_slot ||
+         ctx->turbine_slot-ctx->replay_slot<=ctx->catchup_gap_limit;
+}
+
 /* Our side of STATUS for one peer. */
 static fd_failover_status_t
 local_status( fd_failover_tile_ctx_t const * ctx,
@@ -964,10 +1021,10 @@ local_status( fd_failover_tile_ctx_t const * ctx,
   status.term             = ctx->hello.term;
   status.role             = (uchar)ctx->role;
   status.replay_slot      = ctx->replay_slot;
-  status.turbine_slot     = FD_FAILOVER_SLOT_NULL;
+  status.turbine_slot     = ctx->turbine_slot;
   status.last_vote_slot   = ctx->last_vote_slot;
   status.root_slot        = ctx->root_slot;
-  status.next_leader_slot = FD_FAILOVER_SLOT_NULL;
+  status.next_leader_slot = ctx->next_leader_slot;
   if( FD_UNLIKELY( peer->lag_slots!=FD_FAILOVER_SLOT_NULL && peer->lag_slots>ctx->replication_lag_limit ) ) {
     status.status |= FD_FAILOVER_STATUS_REPLAG;
   }
@@ -987,6 +1044,23 @@ local_status( fd_failover_tile_ctx_t const * ctx,
                      ( status.last_vote_slot!=FD_FAILOVER_SLOT_NULL &&
                        status.root_slot>status.last_vote_slot ) ) ) ) {
     status.root_slot = FD_FAILOVER_SLOT_NULL;
+  }
+  /* The readiness flags, then the same reductions the peer's decoder
+     demands: a leader slot at or below the final root is impossible, a
+     leader window needs a replayed slot, and caught up needs a known tip,
+     a known replayed slot and a view that was not reduced above.  The
+     rooted-vote flag stays clear, replay keeps that fact to itself. */
+  if( FD_UNLIKELY( ctx->is_leader ) )          status.flags |= FD_FAILOVER_FLAG_IS_LEADER;
+  if( FD_LIKELY( caught_up_locally( ctx ) ) )  status.flags |= FD_FAILOVER_FLAG_CAUGHT_UP;
+  if( FD_UNLIKELY( status.next_leader_slot!=FD_FAILOVER_SLOT_NULL &&
+                   status.root_slot!=FD_FAILOVER_SLOT_NULL &&
+                   status.next_leader_slot<=status.root_slot ) ) {
+    status.next_leader_slot = FD_FAILOVER_SLOT_NULL;
+  }
+  if( FD_UNLIKELY( status.replay_slot==FD_FAILOVER_SLOT_NULL ) ) status.flags &= (uchar)~FD_FAILOVER_FLAG_IS_LEADER;
+  if( FD_UNLIKELY( status.turbine_slot==FD_FAILOVER_SLOT_NULL || status.replay_slot==FD_FAILOVER_SLOT_NULL ||
+                   ( status.status & FD_FAILOVER_STATUS_CATCHUP ) ) ) {
+    status.flags &= (uchar)~FD_FAILOVER_FLAG_CAUGHT_UP;
   }
   /* The peer and the operator both get to see busy, paused and stuck. */
   if( FD_UNLIKELY( ctx->action!=FD_FAILOVER_ACTION_IDLE ) ) status.status |= FD_FAILOVER_STATUS_BUSY;
@@ -2394,6 +2468,11 @@ before_frag( fd_failover_tile_ctx_t * ctx,
     }
     return 0;
   }
+  if( FD_LIKELY( in_idx==ctx->replay_in_idx ) ) {
+    /* Every executed transaction passes here too, so this is the
+       cheapest possible refusal of everything but the two we read. */
+    return sig!=REPLAY_SIG_RESET && sig!=REPLAY_SIG_BECAME_LEADER;
+  }
   if( FD_UNLIKELY( in_idx==ctx->admin_in_idx ) ) {
     /* Status and control requests, and switch replies.  Dropping a switch
        reply here would leave the switch hanging forever. */
@@ -2439,6 +2518,14 @@ during_frag( fd_failover_tile_ctx_t * ctx,
     ctx->bus_req_sig = sig;
     return;
   }
+  if( FD_UNLIKELY( in_idx==ctx->replay_in_idx ) ) {
+    if( FD_LIKELY( sig!=REPLAY_SIG_RESET ) ) return; /* becoming leader is an edge, nothing to copy */
+    if( FD_UNLIKELY( chunk<ctx->replay_in_chunk0 || chunk>ctx->replay_in_wmark || sz!=sizeof(fd_poh_reset_t) ) ) {
+      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->replay_in_chunk0, ctx->replay_in_wmark ));
+    }
+    fd_memcpy( &ctx->reset, fd_chunk_to_laddr_const( ctx->replay_in_mem, chunk ), sizeof(fd_poh_reset_t) );
+    return;
+  }
   if( FD_UNLIKELY( in_idx!=ctx->tower_in_idx ) ) return;
   if( FD_UNLIKELY( chunk<ctx->tower_in_chunk0 || chunk>ctx->tower_in_wmark || sz!=sizeof(fd_tower_msg_t) ) ) {
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->tower_in_chunk0, ctx->tower_in_wmark ));
@@ -2473,6 +2560,11 @@ after_frag( fd_failover_tile_ctx_t * ctx,
     }
     /* Answered from after_credit, where a publish credit is available. */
     ctx->bus_req_fresh = 1;
+    return;
+  }
+  if( FD_UNLIKELY( in_idx==ctx->replay_in_idx ) ) {
+    if( FD_UNLIKELY( sig==REPLAY_SIG_BECAME_LEADER ) ) ctx->is_leader = 1;
+    else consume_reset( ctx, &ctx->reset );
     return;
   }
   if( FD_LIKELY( in_idx!=ctx->tower_in_idx ) ) return;
