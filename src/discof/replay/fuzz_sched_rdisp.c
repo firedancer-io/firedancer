@@ -161,7 +161,7 @@ typedef struct {
   ulong     reclaimed_mask [ TEST_MAX_BLOCKS ];
   uchar     block_added    [ TEST_MAX_BLOCKS ];
   uchar     block_retired  [ TEST_MAX_BLOCKS ];
-  uint      verify_scratch [ TEST_MAX_BLOCKS ][ TEST_RDISP_DEPTH + 1UL ];
+  uint      verify_scratch [ TEST_MAX_BLOCKS ][ TEST_RDISP_DEPTH*(FD_RDISP_MAX_ACCT_PER_TXN+1)+2 ];
 } mirror_t;
 
 static uchar
@@ -1077,7 +1077,8 @@ rdisp_mirror_ingest_block( mirror_t * mirror,
                                       fd_type_pun_const( meta ),
                                       block->txn[ local_txn_idx ].payload,
                                       NULL,
-                                      0 );
+                                      0,
+                                      NULL );
     FD_TEST( txn_idx!=0UL );
     mirror->txn_idx[ slot ][ local_txn_idx ] = txn_idx;
     mirror->txn_added_cnt[ slot ]++;
