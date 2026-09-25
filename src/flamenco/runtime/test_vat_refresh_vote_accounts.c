@@ -222,7 +222,7 @@ add_bank_stake_delegation_entry( test_env_t *        env,
                                  ulong               stake ) {
   fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_modify( env->bank );
   fd_stake_delegations_fork_update( stake_delegations,
-                                    env->bank->stake_delegations_fork_id,
+                                    env->bank->stake_delegations_fork_id, 0UL,
                                     stake_account, vote_account,
                                     stake, 0UL, ULONG_MAX, 0UL,
                                     stake + VOTE_ACCOUNT_LAMPORTS,

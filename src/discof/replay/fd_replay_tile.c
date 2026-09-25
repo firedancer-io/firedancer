@@ -1730,9 +1730,8 @@ restore_default_slot_params( fd_bank_t const * bank ) {
 static void
 init_after_snapshot( fd_replay_tile_t *  ctx,
                      fd_stem_context_t * stem ) {
-  /* snapin seeded the root stake delegations from the account stream.
-     Refresh against the completed accdb to resolve duplicate account
-     versions, remove stale entries, and calculate activation state. */
+  /* snapin built the root stake delegations while writing the accounts
+     db index.  Refresh finalizes them in memory. */
   fd_bank_t * bank = fd_banks_bank_query( ctx->banks, FD_REPLAY_BOOT_BANK_SEQ );
   if( FD_UNLIKELY( !bank ) ) {
     FD_LOG_CRIT(( "invariant violation: replay bank is NULL at bank index %lu", FD_REPLAY_BOOT_BANK_SEQ ));
@@ -1786,9 +1785,7 @@ init_after_snapshot( fd_replay_tile_t *  ctx,
       stake_history, /* may be NULL */
       &bank->f.warmup_cooldown_rate_epoch,
       FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
-      FD_FEATURE_ACTIVE_BANK( bank, remove_inactive_stakes ),
-      ctx->accdb,
-      bank->accdb_fork_id );
+      FD_FEATURE_ACTIVE_BANK( bank, remove_inactive_stakes ) );
   fd_stake_history_entry_t totals = fd_stake_delegations_totals( root_delegations );
   bank->f.total_effective_stake    = totals.effective;
   bank->f.total_activating_stake   = totals.activating;

@@ -90,6 +90,11 @@ static ulong test_accdb_save_whead_cnt;
 static ulong test_accdb_revert_whead_cnt;
 static ulong test_feature_restore_cnt;
 static fd_accdb_fork_id_t test_feature_restore_fork;
+static ulong  test_stake_new_fork_cnt;
+static ulong  test_stake_publish_cnt;
+static ushort test_stake_publish_fork;
+static ulong  test_stake_evict_cnt;
+static ushort test_stake_evict_fork;
 static ulong test_accdb_read_one_cnt;
 static fd_accdb_fork_id_t test_accdb_read_one_fork;
 static ulong test_appendvec_parse_cnt;
@@ -169,6 +174,9 @@ test_stem_publish( fd_stem_context_t * stem,
 #define fd_ssmanifest_parser_init                    mock_ssmanifest_parser_init
 #define fd_slot_delta_parser_init                    mock_slot_delta_parser_init
 #define fd_stake_delegations_reset                   mock_stake_delegations_reset
+#define fd_stake_delegations_new_fork                mock_stake_delegations_new_fork
+#define fd_stake_delegations_advance_root            mock_stake_delegations_advance_root
+#define fd_stake_delegations_evict_fork              mock_stake_delegations_evict_fork
 #define fd_features_restore_chunk                    mock_features_restore_chunk
 #define fd_stem_publish                              test_stem_publish
 #define fd_ssparse_advance                           test_ssparse_advance
@@ -189,6 +197,9 @@ test_padded_sz( ulong used ) {
 #undef fd_ssparse_advance
 #undef fd_stem_publish
 #undef fd_features_restore_chunk
+#undef fd_stake_delegations_evict_fork
+#undef fd_stake_delegations_advance_root
+#undef fd_stake_delegations_new_fork
 #undef fd_stake_delegations_reset
 #undef fd_slot_delta_parser_init
 #undef fd_ssmanifest_parser_init
@@ -222,6 +233,14 @@ struct test_sysvar {
 };
 typedef struct test_sysvar test_sysvar_t;
 static test_sysvar_t test_sysvars[ FD_SYSVAR_CACHE_ENTRY_CNT ];
+
+/* Outcome mock_accdb_snapshot_write_batch reports for every account. */
+static uchar test_write_result = FD_ACCDB_SNAPSHOT_WRITE_LOADED;
+
+/* The mocks above hide these prototypes; tests reach the real ones. */
+ushort fd_stake_delegations_new_fork( fd_stake_delegations_t * stake_delegations, ushort parent_fork_idx );
+void   fd_stake_delegations_advance_root( ulong epoch, fd_stake_history_t const * stake_history, ulong * warmup_cooldown_rate_epoch, int use_fixed_point_stake_math, int skip_stake_math, fd_stake_delegations_t * stake_delegations, ushort fork_idx, fd_stake_delegations_delta_stats_t * stake_delegations_delta_stats );
+void   fd_stake_delegations_evict_fork( fd_stake_delegations_t * stake_delegations, ushort fork_idx );
 
 /* Production per-slot limits (tile->snapin.max_txn_per_slot and its
    derived staging bounds). */
@@ -349,7 +368,8 @@ mock_accdb_snapshot_write_batch( fd_accdb_t *                         accdb,
                                  ulong *                              accounts_replaced,
                                  ulong *                              accounts_loaded,
                                  ulong *                              out_replaced_lamports,
-                                 ulong *                              out_ignored_lamports ) {
+                                 ulong *                              out_ignored_lamports,
+                                 uchar *                              results ) {
   (void)accdb;
   (void)fork_id;
   (void)pubkeys;
@@ -363,6 +383,7 @@ mock_accdb_snapshot_write_batch( fd_accdb_t *                         accdb,
   *accounts_loaded       = cnt;
   *out_replaced_lamports = 0UL;
   *out_ignored_lamports  = 0UL;
+  fd_memset( results, test_write_result, cnt );
   return 0;
 }
 
@@ -391,6 +412,37 @@ mock_slot_delta_parser_init( fd_slot_delta_parser_t * parser ) {
 }
 
 void mock_stake_delegations_reset( fd_stake_delegations_t * sd ) { (void)sd; }
+
+ushort
+mock_stake_delegations_new_fork( fd_stake_delegations_t * sd,
+                                 ushort                   parent_fork_idx ) {
+  (void)sd; (void)parent_fork_idx;
+  test_stake_new_fork_cnt++;
+  return (ushort)3;
+}
+
+void
+mock_stake_delegations_advance_root( ulong                                epoch,
+                                     fd_stake_history_t const *           stake_history,
+                                     ulong *                              warmup_cooldown_rate_epoch,
+                                     int                                  use_fixed_point_stake_math,
+                                     int                                  skip_stake_math,
+                                     fd_stake_delegations_t *             sd,
+                                     ushort                               fork_idx,
+                                     fd_stake_delegations_delta_stats_t * stats ) {
+  (void)epoch; (void)stake_history; (void)warmup_cooldown_rate_epoch; (void)use_fixed_point_stake_math; (void)sd; (void)stats;
+  FD_TEST( skip_stake_math );
+  test_stake_publish_cnt++;
+  test_stake_publish_fork = fork_idx;
+}
+
+void
+mock_stake_delegations_evict_fork( fd_stake_delegations_t * sd,
+                                   ushort                   fork_idx ) {
+  (void)sd;
+  test_stake_evict_cnt++;
+  test_stake_evict_fork = fork_idx;
+}
 
 void
 mock_features_restore_chunk( fd_features_t *             features,
@@ -494,7 +546,8 @@ sync_ctx_init( fd_snapin_tile_t * ctx,
   fd_memset( init_mem, 0, sizeof(init_mem) );
   ctx->shmem = (fd_snapin_shmem_t *)shmem_mem;
   fd_memset( ctx->shmem, 0, sizeof(fd_snapin_shmem_t) );
-  ctx->shmem->fork_id = (ulong)USHORT_MAX;
+  ctx->shmem->fork_id    = (ulong)USHORT_MAX;
+  ctx->shmem->stake_fork = USHORT_MAX;
 
   ctx->state        = state;
   ctx->full         = 1;
@@ -559,6 +612,12 @@ test_counters_reset( void ) {
   test_accdb_revert_whead_cnt   = 0UL;
   test_feature_restore_cnt      = 0UL;
   test_feature_restore_fork     = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
+  test_stake_new_fork_cnt       = 0UL;
+  test_stake_publish_cnt        = 0UL;
+  test_stake_publish_fork       = USHORT_MAX;
+  test_stake_evict_cnt          = 0UL;
+  test_stake_evict_fork         = USHORT_MAX;
+  test_write_result             = FD_ACCDB_SNAPSHOT_WRITE_LOADED;
   test_accdb_read_one_cnt       = 0UL;
   for( ulong i=0UL; i<FD_SYSVAR_CACHE_ENTRY_CNT; i++ ) test_sysvars[ i ].lamports = 0UL;
   test_appendvec_parse_cnt      = 0UL;
@@ -592,7 +651,8 @@ test_cluster_new( ulong tile_cnt,
   FD_TEST( cl->shmem_mem );
   cl->shmem = (fd_snapin_shmem_t *)cl->shmem_mem;
   fd_memset( cl->shmem, 0, sizeof(fd_snapin_shmem_t) );
-  cl->shmem->fork_id = ULONG_MAX;
+  cl->shmem->fork_id    = ULONG_MAX;
+  cl->shmem->stake_fork = USHORT_MAX;
 
   cl->sd_mem = aligned_alloc( fd_slot_delta_parser_align(), fd_ulong_align_up( fd_slot_delta_parser_footprint(), fd_slot_delta_parser_align() ) );
   FD_TEST( cl->sd_mem );
@@ -1482,53 +1542,69 @@ assert_stake_delegation( fd_stake_delegations_t const * stake_delegations,
   FD_TEST( delegation->acc_dlen==sizeof(fd_stake_state_t) );
 }
 
+/* Fresh cache and a full-snapshot tile context writing to its root. */
+static fd_stake_delegations_t *
+stake_test_init( fd_wksp_t * wksp ) {
+  fd_stake_delegations_t * stake_delegations = fd_banks_stake_delegations_root_query( new_banks( wksp ) );
+  sync_ctx_init( test_ctx, 1UL, FD_SNAPSHOT_STATE_PROCESSING );
+  test_ctx->stake_delegations = stake_delegations;
+  return stake_delegations;
+}
+
+/* Writes one account through the snapin write path (136 byte appendvec
+   header + data) with the given index outcome. */
+static void
+write_one( fd_snapin_tile_t *  ctx,
+           fd_pubkey_t const * pubkey,
+           fd_pubkey_t const * owner,
+           ulong               lamports,
+           void const *        data,
+           ulong               data_len,
+           ulong               slot,
+           uchar               outcome ) {
+  static uchar entry[ 136UL + 4008UL ] __attribute__((aligned(8)));
+  FD_TEST( data_len<=4008UL );
+  fd_memset( entry, 0, 136UL );
+  FD_STORE( ulong, entry+8UL,  data_len );
+  fd_memcpy( entry+16UL, pubkey, sizeof(fd_pubkey_t) );
+  FD_STORE( ulong, entry+48UL, lamports );
+  fd_memcpy( entry+64UL, owner,  sizeof(fd_pubkey_t) );
+  if( data_len ) fd_memcpy( entry+136UL, data, data_len );
+
+  test_write_result = outcome;
+  fd_ssparse_advance_result_t result = {
+    .account_batch = {
+      .batch     = { entry },
+      .batch_cnt = 1UL,
+      .slot      = slot,
+    },
+  };
+  FD_TEST( !process_account_batch( ctx, &result ) );
+  FD_TEST( !writer_flush( ctx ) );
+  test_write_result = FD_ACCDB_SNAPSHOT_WRITE_LOADED;
+}
+
 static void
 test_batch_stake_delegation( fd_wksp_t * wksp ) {
-  fd_banks_t * banks = new_banks( wksp );
-  fd_stake_delegations_t * stake_delegations = fd_banks_stake_delegations_root_query( banks );
-
+  fd_stake_delegations_t * stake_delegations = stake_test_init( wksp );
   fd_pubkey_t stake_account = { .ul = { 1UL, 2UL, 3UL, 4UL } };
   fd_pubkey_t vote_account  = { .ul = { 5UL, 6UL, 7UL, 8UL } };
   fd_stake_state_t state[1];
   make_stake_state( state, &vote_account );
 
-  uchar entry[ 136UL + sizeof(fd_stake_state_t) ] __attribute__((aligned(8)));
-  fd_memset( entry, 0, sizeof(entry) );
-  FD_STORE( ulong, entry+8UL,  sizeof(fd_stake_state_t) );
-  fd_memcpy( entry+16UL,  &stake_account,               sizeof(fd_pubkey_t)      );
-  FD_STORE( ulong, entry+48UL, 5000UL );
-  fd_memcpy( entry+64UL,  &fd_solana_stake_program_id,  sizeof(fd_pubkey_t)      );
-  fd_memcpy( entry+136UL, state,                        sizeof(fd_stake_state_t) );
-
-  fd_snapin_tile_t * ctx = test_ctx;
-  sync_ctx_init( ctx, 1UL, FD_SNAPSHOT_STATE_PROCESSING );
-  ctx->stake_delegations = stake_delegations;
-  fd_ssparse_advance_result_t result = {
-    .account_batch = {
-      .batch     = { entry },
-      .batch_cnt = 1UL,
-      .slot      = 10UL,
-    },
-  };
-
-  FD_TEST( !process_account_batch( ctx, &result ) );
-  FD_TEST( !writer_flush( ctx ) );
+  write_one( test_ctx, &stake_account, &fd_solana_stake_program_id, 5000UL, state, sizeof(fd_stake_state_t), 10UL, FD_ACCDB_SNAPSHOT_WRITE_LOADED );
   assert_stake_delegation( stake_delegations, &stake_account, &vote_account );
 }
 
 static void
 test_streaming_stake_delegation( fd_wksp_t * wksp ) {
-  fd_banks_t * banks = new_banks( wksp );
-  fd_stake_delegations_t * stake_delegations = fd_banks_stake_delegations_root_query( banks );
-
+  fd_stake_delegations_t * stake_delegations = stake_test_init( wksp );
   fd_pubkey_t stake_account = { .ul = { 11UL, 12UL, 13UL, 14UL } };
   fd_pubkey_t vote_account  = { .ul = { 15UL, 16UL, 17UL, 18UL } };
   fd_stake_state_t state[1];
   make_stake_state( state, &vote_account );
 
   fd_snapin_tile_t * ctx = test_ctx;
-  sync_ctx_init( ctx, 1UL, FD_SNAPSHOT_STATE_PROCESSING );
-  ctx->stake_delegations = stake_delegations;
   fd_ssparse_advance_result_t header = {
     .account_header = {
       .pubkey     = stake_account.uc,
@@ -1556,6 +1632,80 @@ test_streaming_stake_delegation( fd_wksp_t * wksp ) {
   FD_TEST( !process_account_data( ctx, &data ) );
   FD_TEST( !writer_flush( ctx ) );
   assert_stake_delegation( stake_delegations, &stake_account, &vote_account );
+}
+
+/* Which index outcomes reach the cache, and as what. */
+static void
+test_snoop_outcomes( fd_wksp_t * wksp ) {
+  fd_stake_delegations_t * stake_delegations = stake_test_init( wksp );
+  fd_pubkey_t vote  = { .ul = { 5UL, 6UL, 7UL, 8UL } };
+  fd_pubkey_t acc_a = { .ul = { 101UL } };
+  fd_pubkey_t acc_b = { .ul = { 102UL } };
+  fd_pubkey_t acc_c = { .ul = { 103UL } };
+  fd_pubkey_t acc_d = { .ul = { 104UL } };
+  fd_stake_state_t state[1];
+  make_stake_state( state, &vote );
+  fd_stake_state_t initialized[1] = { { .stake_type = FD_STAKE_STATE_INITIALIZED } };
+  static uchar legacy[ 4008UL ]; /* early mainnet stake accounts are 4008 bytes */
+  fd_memcpy( legacy, state, sizeof(fd_stake_state_t) );
+  ulong const stake_sz = sizeof(fd_stake_state_t);
+  fd_snapin_tile_t * ctx = test_ctx;
+  fd_stake_delegation_t d[1];
+
+  /* loaded: added. */
+  write_one( ctx, &acc_a, &fd_solana_stake_program_id, 5000UL, state, stake_sz, 10UL, FD_ACCDB_SNAPSHOT_WRITE_LOADED );
+  assert_stake_delegation( stake_delegations, &acc_a, &vote );
+
+  /* ignored: no trace. */
+  write_one( ctx, &acc_a, &fd_solana_stake_program_id, 7000UL, state, stake_sz, 5UL, FD_ACCDB_SNAPSHOT_WRITE_IGNORED );
+  FD_TEST( test_stake_delegations_find_copy( stake_delegations, &acc_a, d ) && d->lamports==5000UL );
+
+  /* replaced by a closed account: tombstoned at the closing slot. */
+  write_one( ctx, &acc_a, &fd_solana_system_program_id, 0UL, NULL, 0UL, 30UL, FD_ACCDB_SNAPSHOT_WRITE_REPLACED );
+  FD_TEST( test_stake_delegations_find_copy( stake_delegations, &acc_a, d ) && !d->lamports && d->slot==30U );
+
+  /* replaced a funded version from an earlier load: tombstoned only if
+     present. */
+  write_one( ctx, &acc_b, &vote, 1UL, state, stake_sz, 32UL, FD_ACCDB_SNAPSHOT_WRITE_REPLACED_CROSS );
+  FD_TEST( !test_stake_delegations_contains( stake_delegations, &acc_b ) );
+
+  /* stake-owned but no longer delegated, replacing a funded version:
+     tombstoned like any other non-delegation. */
+  write_one( ctx, &acc_c, &fd_solana_stake_program_id, 5000UL, initialized, stake_sz, 30UL, FD_ACCDB_SNAPSHOT_WRITE_REPLACED );
+  FD_TEST( test_stake_delegations_find_copy( stake_delegations, &acc_c, d ) && !d->lamports );
+
+  /* legacy 4008 byte delegation: added. */
+  write_one( ctx, &acc_d, &fd_solana_stake_program_id, 5000UL, legacy, sizeof(legacy), 30UL, FD_ACCDB_SNAPSHOT_WRITE_LOADED );
+  FD_TEST( test_stake_delegations_find_copy( stake_delegations, &acc_d, d ) && d->acc_dlen==4008U );
+
+  /* loaded non-delegation: nothing. */
+  write_one( ctx, &acc_b, &fd_solana_system_program_id, 0UL, NULL, 0UL, 30UL, FD_ACCDB_SNAPSHOT_WRITE_LOADED );
+  FD_TEST( !test_stake_delegations_contains( stake_delegations, &acc_b ) );
+}
+
+/* Incremental writes go to the fork in shmem, not the root. */
+static void
+test_snoop_incremental_fork( fd_wksp_t * wksp ) {
+  fd_stake_delegations_t * stake_delegations = stake_test_init( wksp );
+  fd_pubkey_t vote  = { .ul = { 5UL, 6UL, 7UL, 8UL } };
+  fd_pubkey_t acc_a = { .ul = { 201UL } };
+  fd_stake_state_t state[1];
+  make_stake_state( state, &vote );
+  ulong const stake_sz = sizeof(fd_stake_state_t);
+  fd_snapin_tile_t * ctx = test_ctx;
+  fd_stake_delegation_t d[1];
+
+  /* Full snapshot left a delegation in the root. */
+  write_one( ctx, &acc_a, &fd_solana_stake_program_id, 5000UL, state, stake_sz, 10UL, FD_ACCDB_SNAPSHOT_WRITE_LOADED );
+
+  ctx->full = 0;
+  ctx->shmem->stake_fork = fd_stake_delegations_new_fork( stake_delegations, USHORT_MAX );
+  write_one( ctx, &acc_a, &fd_solana_stake_program_id, 9000UL, state, stake_sz, 100UL, FD_ACCDB_SNAPSHOT_WRITE_REPLACED_CROSS );
+  FD_TEST( test_stake_delegations_find_copy( stake_delegations, &acc_a, d ) && d->lamports==5000UL ); /* root untouched */
+
+  fd_stake_delegations_advance_root( 0UL, NULL, NULL, 0, 1, stake_delegations, ctx->shmem->stake_fork, NULL );
+  fd_stake_delegations_evict_fork( stake_delegations, ctx->shmem->stake_fork );
+  FD_TEST( test_stake_delegations_find_copy( stake_delegations, &acc_a, d ) && d->lamports==9000UL && d->slot==100U );
 }
 
 static void
@@ -2716,7 +2866,9 @@ test_full_lifecycle_9_tiles( void ) {
   cluster_barrier( cl, FD_SNAPSHOT_MSG_CTRL_INIT_INCR );
   FD_TEST( !test_accdb_reset_cnt );
   FD_TEST( test_accdb_attach_cnt==1UL );          /* child fork for the incremental writes */
+  FD_TEST( test_stake_new_fork_cnt==1UL );        /* stake delegations fork likewise */
   FD_TEST( cl->shmem->fork_id==7UL );
+  FD_TEST( cl->shmem->stake_fork==3 );
   FD_TEST( cl->ctx[ 0 ].incr_fork==ULONG_MAX );
   FD_TEST( !cl->shmem->next_appendvec_ticket );
 
@@ -2728,6 +2880,8 @@ test_full_lifecycle_9_tiles( void ) {
   FD_TEST( cl->ctx[ 0 ].lead.rollback.pending );
   FD_TEST( !cl->ctx[ 0 ].lead.rollback.full );
   FD_TEST( cl->ctx[ 0 ].lead.accdb_incr_fork_id.val==USHORT_MAX );
+  FD_TEST( cl->shmem->stake_fork==3UL );                   /* kept for the rollback at the next INIT */
+  FD_TEST( !test_stake_evict_cnt );
 
   /* --- Incremental retry ---------------------------------------- */
   test_counters_reset();
@@ -2735,6 +2889,8 @@ test_full_lifecycle_9_tiles( void ) {
   cluster_barrier( cl, FD_SNAPSHOT_MSG_CTRL_INIT_INCR );
   FD_TEST( test_accdb_purge_cnt==1UL );                    /* failed fork purged */
   FD_TEST( test_accdb_revert_whead_cnt==1UL );
+  FD_TEST( test_stake_evict_cnt==1UL && test_stake_evict_fork==3U ); /* failed stake fork evicted */
+  FD_TEST( test_stake_new_fork_cnt==1UL );
   FD_TEST( !cl->shmem->next_appendvec_ticket );
 
   cluster_stream( cl, TEST_ORDER_REVERSE, owner );
@@ -2759,6 +2915,8 @@ test_full_lifecycle_9_tiles( void ) {
   FD_TEST( test_accdb_read_one_fork.val==7U );
   FD_TEST( cl->ctx[ 0 ].lead.accdb_root_fork_id.val==7U );
   FD_TEST( cl->ctx[ 0 ].lead.accdb_incr_fork_id.val==USHORT_MAX );
+  FD_TEST( test_stake_publish_cnt==1UL && test_stake_publish_fork==3U ); /* stake fork published */
+  FD_TEST( test_stake_evict_cnt==2UL && test_stake_evict_fork==3U );     /* and released */
   /* n DONE acks plus tile 0's replay notification on snapin_manif. */
   FD_TEST( test_pub_cnt==pub0+n+1UL );
   ulong manif_pubs = 0UL;
@@ -2988,6 +3146,8 @@ main( int     argc,
   test_nonempty_raw_data();
   fd_wksp_reset( wksp, 1UL ); test_batch_stake_delegation( wksp );
   fd_wksp_reset( wksp, 1UL ); test_streaming_stake_delegation( wksp );
+  fd_wksp_reset( wksp, 1UL ); test_snoop_outcomes( wksp );
+  fd_wksp_reset( wksp, 1UL ); test_snoop_incremental_fork( wksp );
   test_txncache_staging_entry_size();
   test_txncache_staging_group_record_size();
   fd_wksp_reset( wksp, 1UL ); test_txncache_staging_groups_fit_txncache_scratch( wksp );

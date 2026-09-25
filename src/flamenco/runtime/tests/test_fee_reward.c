@@ -506,7 +506,7 @@ test_simd0232_fee_stake_account_collector_cache( fd_svm_mini_t * mini ) {
   fd_accdb_unwrite_one( mini->runtime->accdb, &acc );
 
   fd_stake_delegations_fork_update( fd_bank_stake_delegations_modify( bank ),
-                                    bank->stake_delegations_fork_id,
+                                    bank->stake_delegations_fork_id, 0UL,
                                     &stake_key,
                                     &vote_key,
                                     delegated_stake,

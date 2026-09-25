@@ -717,6 +717,7 @@ fd_bank_apply_deltas( fd_banks_t *                         banks,
                                      stake_history,
                                      &bank->f.warmup_cooldown_rate_epoch,
                                      FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
+                                     0,
                                      stake_delegations,
                                      bank->stake_delegations_fork_id,
                                      stake_delegations_delta_stats );

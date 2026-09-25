@@ -544,6 +544,9 @@ fd_accdb_snapshot_reserve_write( fd_accdb_t * accdb,
 
    file_offsets[i] is the pre-reserved on-disk location for pubkeys[i].
 
+   results receives one FD_ACCDB_SNAPSHOT_WRITE_* code per account.
+   Not meaningful when -1 is returned.
+
    fork_id controls recovery behavior:
 
      USHORT_MAX, full-snapshot mode.  Existing entries with the same
@@ -555,6 +558,11 @@ fd_accdb_snapshot_reserve_write( fd_accdb_t * accdb,
                  create a txn record on fork_id, so fd_accdb_purge can
                  revert the incremental writes on failure.  Intra-fork
                  duplicates are replaced in-place. */
+
+#define FD_ACCDB_SNAPSHOT_WRITE_IGNORED        (0) /* a newer version existed, write dropped */
+#define FD_ACCDB_SNAPSHOT_WRITE_LOADED         (1) /* no prior funded version */
+#define FD_ACCDB_SNAPSHOT_WRITE_REPLACED       (2) /* superseded a funded version from this load */
+#define FD_ACCDB_SNAPSHOT_WRITE_REPLACED_CROSS (3) /* superseded a funded version from an earlier snapshot */
 
 int
 fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
@@ -570,7 +578,8 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
                                ulong *             accounts_replaced,
                                ulong *             accounts_loaded,
                                ulong *             out_replaced_lamports,
-                               ulong *             out_ignored_lamports );
+                               ulong *             out_ignored_lamports,
+                               uchar *             results );
 
 /* fd_accdb_background performs one unit of background work.
 

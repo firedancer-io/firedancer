@@ -912,7 +912,7 @@ fd_stakes_update_stake_delegation( fd_pubkey_t const * pubkey,
   if( FD_UNLIKELY( !current_has_delegation ) ) {
     if( FD_LIKELY( !prior_has_delegation ) ) return; /* nothing to remove from */
     fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_modify( bank );
-    fd_stake_delegations_fork_remove( stake_delegations, bank->stake_delegations_fork_id, pubkey );
+    fd_stake_delegations_fork_remove( stake_delegations, bank->stake_delegations_fork_id, 0UL, pubkey, 0 );
     if( FD_UNLIKELY( txn_in && fd_bank_report_runtime_diffs( bank ) ) ) fd_event_runtime_stake_delegation_emit( txn_in, bank, pubkey, NULL );
     return;
   }
@@ -937,14 +937,14 @@ fd_stakes_update_stake_delegation( fd_pubkey_t const * pubkey,
     fd_delegation_t const *    delegation        = &stake_state->stake.stake.delegation;
     if( FD_UNLIKELY( fd_delegation_is_inactive( delegation, bank->f.epoch, stake_history, &bank->f.warmup_cooldown_rate_epoch, use_fp_stake_math ) &&
                      fd_delegation_is_inactive( delegation, fd_ulong_sat_sub( bank->f.epoch, 1UL ), stake_history, &bank->f.warmup_cooldown_rate_epoch, use_fp_stake_math ) ) ) {
-      fd_stake_delegations_fork_remove( stake_delegations, bank->stake_delegations_fork_id, pubkey );
+      fd_stake_delegations_fork_remove( stake_delegations, bank->stake_delegations_fork_id, 0UL, pubkey, 0 );
       if( FD_UNLIKELY( txn_in && fd_bank_report_runtime_diffs( bank ) ) ) fd_event_runtime_stake_delegation_emit( txn_in, bank, pubkey, NULL );
       return;
     }
   }
 
   ulong new_stake = stake_state->stake.stake.delegation.stake;
-  fd_stake_delegations_fork_update( stake_delegations, bank->stake_delegations_fork_id, pubkey,
+  fd_stake_delegations_fork_update( stake_delegations, bank->stake_delegations_fork_id, 0UL, pubkey,
                                     &stake_state->stake.stake.delegation.voter_pubkey,
                                     new_stake,
                                     stake_state->stake.stake.delegation.activation_epoch,

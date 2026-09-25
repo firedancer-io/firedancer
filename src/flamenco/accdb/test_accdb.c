@@ -1241,10 +1241,11 @@ test_snapshot_write_one( fd_accdb_t *       accdb,
     fd_accdb_snapshot_reserve_write( accdb, sizeof(fd_accdb_disk_meta_t)+data_len )
   };
   ulong ignored, replaced, loaded, ignored_lamports;
+  uchar results[ 1 ];
   int result = fd_accdb_snapshot_write_batch( accdb, fork_id, 1UL, pubkeys, slots, lamports_arr,
                                                data_lens, executables, file_offsets, &ignored,
                                                &replaced, &loaded, out_replaced_lamports,
-                                               &ignored_lamports );
+                                               &ignored_lamports, results );
   FD_TEST( !result );
   if( ignored ) return -1;
   if( replaced ) return 2;
@@ -1545,6 +1546,7 @@ typedef struct {
   ulong loaded;
   ulong replaced_lamports;
   ulong ignored_lamports;
+  uchar results[ 8 ];
 } test_batch_result_t;
 
 static test_batch_result_t
@@ -1579,7 +1581,8 @@ test_write_batch( fd_accdb_t *                         accdb,
   test_batch_result_t result = {0};
   result.err = fd_accdb_snapshot_write_batch( accdb, fork_id, cnt, pubkeys, slots, lamports, data_lens,
                                                executables, file_offsets, &result.ignored, &result.replaced,
-                                               &result.loaded, &result.replaced_lamports, &result.ignored_lamports );
+                                               &result.loaded, &result.replaced_lamports, &result.ignored_lamports,
+                                               result.results );
   return result;
 }
 
@@ -2026,6 +2029,49 @@ test_incremental_cross_fork_override( void ) {
   test_teardown( accdb, fd );
 }
 
+/* Per-account outcomes reported by the batch write. */
+static void
+test_snapshot_write_results( void ) {
+  int fd;
+  fd_accdb_t * accdb = test_setup( &fd, 1024UL, 64UL, 8192UL, 8192UL, 11UL<<20UL ); /* small partitions, ten tiny writes */
+  test_store_ctx_t store = { .fd=fd };
+
+  uchar pk0[ 32UL ] = { 0xE0 };
+  uchar pk1[ 32UL ] = { 0xE1 };
+  uchar const * pubkeys[ 2 ] = { pk0, pk1 };
+  int executables[ 2 ] = { 0, 0 };
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( accdb, SENTINEL );
+  test_batch_result_t r;
+
+  fd_accdb_snapshot_load_begin( accdb );
+
+  /* First versions load. */
+  r = test_write_batch( accdb, SENTINEL, 2UL, pubkeys, (ulong[]){ 10UL, 10UL }, (ulong[]){ 100UL, 5UL }, (ulong[]){ 200UL, 64UL }, executables, &store );
+  FD_TEST( !r.err && r.results[0]==FD_ACCDB_SNAPSHOT_WRITE_LOADED && r.results[1]==FD_ACCDB_SNAPSHOT_WRITE_LOADED );
+
+  /* Newer pk0 replaces a funded version, older pk1 is ignored. */
+  r = test_write_batch( accdb, SENTINEL, 2UL, pubkeys, (ulong[]){ 20UL, 5UL }, (ulong[]){ 0UL, 7UL }, (ulong[]){ 0UL, 64UL }, executables, &store );
+  FD_TEST( !r.err && r.results[0]==FD_ACCDB_SNAPSHOT_WRITE_REPLACED && r.results[1]==FD_ACCDB_SNAPSHOT_WRITE_IGNORED );
+  FD_TEST( r.ignored==1UL && r.replaced==1UL && r.loaded==0UL );
+
+  /* Replacing an empty version reports LOADED. */
+  r = test_write_batch( accdb, SENTINEL, 2UL, pubkeys, (ulong[]){ 30UL, 30UL }, (ulong[]){ 9UL, 6UL }, (ulong[]){ 200UL, 64UL }, executables, &store );
+  FD_TEST( !r.err && r.results[0]==FD_ACCDB_SNAPSHOT_WRITE_LOADED && r.results[1]==FD_ACCDB_SNAPSHOT_WRITE_REPLACED );
+  fd_accdb_snapshot_load_end( accdb );
+
+  /* Incremental: replacing the full snapshot's version is cross fork,
+     replacing within the incremental is not. */
+  fd_accdb_fork_id_t incr = fd_accdb_attach_child( accdb, root );
+  fd_accdb_snapshot_load_begin( accdb );
+  r = test_write_batch( accdb, incr, 2UL, pubkeys, (ulong[]){ 40UL, 25UL }, (ulong[]){ 11UL, 8UL }, (ulong[]){ 200UL, 64UL }, executables, &store );
+  FD_TEST( !r.err && r.results[0]==FD_ACCDB_SNAPSHOT_WRITE_REPLACED_CROSS && r.results[1]==FD_ACCDB_SNAPSHOT_WRITE_IGNORED );
+  r = test_write_batch( accdb, incr, 2UL, pubkeys, (ulong[]){ 41UL, 41UL }, (ulong[]){ 12UL, 8UL }, (ulong[]){ 200UL, 64UL }, executables, &store );
+  FD_TEST( !r.err && r.results[0]==FD_ACCDB_SNAPSHOT_WRITE_REPLACED && r.results[1]==FD_ACCDB_SNAPSHOT_WRITE_REPLACED_CROSS );
+  fd_accdb_snapshot_load_end( accdb );
+
+  test_teardown( accdb, fd );
+}
+
 /* Verify a retry reuses entries moved to the free stack after lazy
    allocation is exhausted. */
 static void
@@ -2289,6 +2335,9 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "test_incremental_cross_fork_override ..." ));
   test_incremental_cross_fork_override();
+
+  FD_LOG_NOTICE(( "test_snapshot_write_results ..." ));
+  test_snapshot_write_results();
 
   FD_LOG_NOTICE(( "test_incremental_retry_reuses_acc_pool ..." ));
   test_incremental_retry_reuses_acc_pool();
