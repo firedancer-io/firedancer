@@ -1744,7 +1744,7 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *         bank,
 
   fd_stake_delegations_t * stake_delegations_upd = fd_bank_stake_delegations_modify( bank );
   fd_stake_delegations_fork_update( stake_delegations_upd,
-                                    bank->stake_delegations_fork_id,
+                                    bank->stake_delegations_fork_id, 0UL,
                                     stake_pubkey,
                                     &stake_state->stake.stake.delegation.voter_pubkey,
                                     stake_state->stake.stake.delegation.stake,

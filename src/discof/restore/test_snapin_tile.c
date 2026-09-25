@@ -238,9 +238,8 @@ static test_sysvar_t test_sysvars[ FD_SYSVAR_CACHE_ENTRY_CNT ];
 static uchar test_write_result = FD_ACCDB_SNAPSHOT_WRITE_LOADED;
 
 /* The mocks above hide these prototypes; tests reach the real ones. */
-ushort fd_stake_delegations_new_fork( fd_stake_delegations_t * stake_delegations );
+ushort fd_stake_delegations_new_fork( fd_stake_delegations_t * stake_delegations, ushort parent_fork_idx );
 void   fd_stake_delegations_snapshot_publish_fork( fd_stake_delegations_t * stake_delegations, ushort fork_idx );
-static uchar test_slot_history_data[ FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ ];
 
 /* Production per-slot limits (tile->snapin.max_txn_per_slot and its
    derived staging bounds). */
@@ -414,8 +413,9 @@ mock_slot_delta_parser_init( fd_slot_delta_parser_t * parser ) {
 void mock_stake_delegations_reset( fd_stake_delegations_t * sd ) { (void)sd; }
 
 ushort
-mock_stake_delegations_new_fork( fd_stake_delegations_t * sd ) {
-  (void)sd;
+mock_stake_delegations_new_fork( fd_stake_delegations_t * sd,
+                                 ushort                   parent_fork_idx ) {
+  (void)sd; (void)parent_fork_idx;
   test_stake_new_fork_cnt++;
   return (ushort)3;
 }
@@ -1691,7 +1691,7 @@ test_snoop_incremental_fork( fd_wksp_t * wksp ) {
   write_one( ctx, &acc_a, &fd_solana_stake_program_id, 5000UL, state, stake_sz, 10UL, FD_ACCDB_SNAPSHOT_WRITE_LOADED );
 
   ctx->full = 0;
-  ctx->shmem->stake_fork = fd_stake_delegations_new_fork( stake_delegations );
+  ctx->shmem->stake_fork = fd_stake_delegations_new_fork( stake_delegations, USHORT_MAX );
   write_one( ctx, &acc_a, &fd_solana_stake_program_id, 9000UL, state, stake_sz, 100UL, FD_ACCDB_SNAPSHOT_WRITE_REPLACED_CROSS );
   FD_TEST( test_stake_delegations_find_copy( stake_delegations, &acc_a, d ) && d->lamports==5000UL ); /* root untouched */
 

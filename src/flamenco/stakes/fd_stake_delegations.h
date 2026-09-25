@@ -333,11 +333,8 @@ fd_stake_delegations_set_totals( fd_stake_delegations_t * stake_delegations,
                                  ulong                    activating,
                                  ulong                    deactivating );
 
-/* fd_stake_delegations_root_update will either insert a new stake
-   delegation if the pubkey doesn't exist yet, or it will update the
-   stake delegation for the pubkey if already in the in-memory or disk
-   root, overriding any previous data. fd_stake_delegations_t must be a
-   valid local join. */
+/* fd_stake_delegations_root_update upserts a stake delegation into the
+   in-memory or disk root, overriding any previous data. */
 
 void
 fd_stake_delegations_root_update( fd_stake_delegations_t * stake_delegations,
@@ -349,38 +346,6 @@ fd_stake_delegations_root_update( fd_stake_delegations_t * stake_delegations,
                                   ulong                    credits_observed,
                                   ulong                    lamports,
                                   uint                     acc_dlen );
-
-/* Snapshot loader writes, called by snapin tiles with the slot of the
-   account version the index accepted.  Newest slot wins, so tiles that
-   see versions in any order converge.  fork_idx is USHORT_MAX to write
-   the root (full snapshot) or a fork (incremental),
-   later applied by fd_stake_delegations_snapshot_publish_fork.
-
-   snapshot_remove stores a lamports==0 tombstone for a version that is
-   not a delegation, blocking late upserts of older versions, and then
-   fd_stake_delegations_refresh drops tombstones.  cross_fork means an
-   incremental snapshot is loading and the replaced version was loaded
-   by the full snapshot, so an account not in the root is left alone. */
-
-void
-fd_stake_delegations_snapshot_upsert( fd_stake_delegations_t * stake_delegations,
-                                      ushort                   fork_idx,
-                                      ulong                    slot,
-                                      fd_pubkey_t const *      stake_account,
-                                      fd_pubkey_t const *      vote_account,
-                                      ulong                    stake,
-                                      ulong                    activation_epoch,
-                                      ulong                    deactivation_epoch,
-                                      ulong                    credits_observed,
-                                      ulong                    lamports,
-                                      uint                     acc_dlen );
-
-void
-fd_stake_delegations_snapshot_remove( fd_stake_delegations_t * stake_delegations,
-                                      ushort                   fork_idx,
-                                      ulong                    slot,
-                                      fd_pubkey_t const *      stake_account,
-                                      int                      cross_fork );
 
 void
 fd_stake_delegations_snapshot_publish_fork( fd_stake_delegations_t * stake_delegations,
@@ -424,13 +389,16 @@ ushort
 fd_stake_delegations_new_fork( fd_stake_delegations_t * stake_delegations,
                                 ushort                  parent_fork_idx );
 
-/* fd_stake_delegations_fork_update upserts a stake delegation delta for
-   the fork.  If an entry already exists for the stake account in this
-   fork, it is overwritten in place. */
+/* fd_stake_delegations_fork_update upserts a stake delegation into the
+   fork's deltas, or into the root when fork_idx is USHORT_MAX.  slot is
+   the slot of the account version being written: a write is dropped if
+   the entry already holds a newer slot, so snapin tiles can apply
+   versions in any order.  Runtime callers pass 0. */
 
 void
 fd_stake_delegations_fork_update( fd_stake_delegations_t * stake_delegations,
                                   ushort                   fork_idx,
+                                  ulong                    slot,
                                   fd_pubkey_t const *      stake_account,
                                   fd_pubkey_t const *      vote_account,
                                   ulong                    stake,
@@ -441,16 +409,23 @@ fd_stake_delegations_fork_update( fd_stake_delegations_t * stake_delegations,
                                   uint                     acc_dlen );
 
 /* fd_stake_delegations_fork_remove inserts a tombstone stake delegation
-   entry for the given fork.  The function will not actually remove or
-   free any resources corresponding to the stake account.  The reason a
+   entry for the given fork, or for the root when fork_idx is
+   USHORT_MAX.  The function will not actually remove or free any
+   resources corresponding to the stake account.  The reason a
    tombstone is stored is because each fork corresponds to a set of
-   stake delegation deltas for a given slot.  If an entry already exists
-   for the stake account in this fork, it is overwritten in place. */
+   stake delegation deltas for a given slot.  If an entry already
+   exists for the stake account in this fork, it is overwritten in
+   place.  slot is as in fd_stake_delegations_fork_update.
+   replacing_full_entry means the replaced version was loaded by the
+   full snapshot and this one by the incremental, so an account not in
+   the root is left alone. */
 
 void
 fd_stake_delegations_fork_remove( fd_stake_delegations_t * stake_delegations,
                                   ushort                   fork_idx,
-                                  fd_pubkey_t const *      stake_account );
+                                  ulong                    slot,
+                                  fd_pubkey_t const *      stake_account,
+                                  int                      replacing_full_entry );
 
 /* fd_stake_delegations_evict_fork frees a fork's deltas and its ID.
    The caller must no longer need this fork or query its descendants.

@@ -1252,7 +1252,7 @@ snoop_stake_delegation( fd_snapin_tile_t *       ctx,
   FD_CHECK_ERR( delegation->activation_epoch  ==ULONG_MAX || delegation->activation_epoch  <(ulong)USHORT_MAX, "activation_epoch overflow"   );
   FD_CHECK_ERR( delegation->deactivation_epoch==ULONG_MAX || delegation->deactivation_epoch<(ulong)USHORT_MAX, "deactivation_epoch overflow" );
 
-  fd_stake_delegations_snapshot_upsert(
+  fd_stake_delegations_fork_update(
       ctx->stake_delegations,
       stake_fork,
       slot,
@@ -1365,9 +1365,9 @@ writer_flush( fd_snapin_tile_t * ctx ) {
         }
       }
 
-      int cross_fork = results[ i ]==FD_ACCDB_SNAPSHOT_WRITE_REPLACED_CROSS;
-      if( FD_UNLIKELY( cross_fork || results[ i ]==FD_ACCDB_SNAPSHOT_WRITE_REPLACED ) ) {
-        fd_stake_delegations_snapshot_remove( ctx->stake_delegations, stake_fork, slots[ i ], pubkey, cross_fork );
+      int replacing_full_entry = results[ i ]==FD_ACCDB_SNAPSHOT_WRITE_REPLACED_CROSS;
+      if( FD_UNLIKELY( replacing_full_entry || results[ i ]==FD_ACCDB_SNAPSHOT_WRITE_REPLACED ) ) {
+        fd_stake_delegations_fork_remove( ctx->stake_delegations, stake_fork, slots[ i ], pubkey, replacing_full_entry );
       }
     }
 
@@ -1834,7 +1834,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
            On success, fd_accdb_advance_root(child) promotes them.  The
            stake delegations get a fork likewise. */
         ctx->lead.accdb_incr_fork_id = fd_accdb_attach_child( ctx->accdb, ctx->lead.accdb_root_fork_id );
-        stake_fork                   = fd_stake_delegations_new_fork( ctx->stake_delegations );
+        stake_fork                   = fd_stake_delegations_new_fork( ctx->stake_delegations, USHORT_MAX );
       }
 
       /* Save the slot advertised by the snapshot peer and verify it
