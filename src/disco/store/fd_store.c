@@ -639,6 +639,10 @@ fd_store_fec_data_preevict( fd_store_t                  * store,
   *spill = (fd_store_fec_spill_stats_t){0};
   if( FD_UNLIKELY( !store || disk_fd<0 ) ) return 0;
 
+  /* called every pass: don't take the write lock for nothing */
+  if( FD_LIKELY( !FD_VOLATILE_CONST( store->cache_preevict_active ) &&
+                 FD_VOLATILE_CONST( store->cache_free_cnt )>=store->cache_free_low_water ) ) return 0;
+
   fd_rwlock_write( &store->cache_lock );
   if( FD_UNLIKELY( !store->cache_preevict_active && store->cache_free_cnt<store->cache_free_low_water ) )
     store->cache_preevict_active = 1U;
