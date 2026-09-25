@@ -1864,6 +1864,7 @@ EXAMPLES
     <counter name="AdmissionDrops" summary="Accepted failover sockets closed before TLS setup because a session is already paired, an admission limit was reached, or the source address was invalid" />
     <counter name="HandshakeTimeouts" summary="Failover candidates closed when the absolute TCP, TLS, and HELLO deadline expired" />
     <counter name="SwitchOverdue" summary="Identity switches that outran the controller deadline and were waited for rather than abandoned" />
+    <counter name="TowerRollback" summary="Demotion confirmations refused because their final tower was older than the tower the peer had streamed" />
 </tile>
 
 <tile name="waker">

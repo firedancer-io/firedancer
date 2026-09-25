@@ -1564,8 +1564,60 @@ test_final_tower_regression( void ) {
   handle_control( ctx, peer, (ushort)FD_FAILOVER_MSG_DEMOTED, sizeof(msg)+state_sz, 1000L );
   FD_TEST( ctx->state==FD_FAILOVER_STATE_STANDBY && ctx->action==FD_FAILOVER_ACTION_IDLE ); /* did not promote */
   FD_TEST( peer->channel->metrics.wire_fatal_cnt==dropped+1UL );                            /* session dropped */
+  FD_TEST( ctx->tower_rollback_cnt==1UL );                                                  /* and counted */
   controller_fini();
   FD_LOG_NOTICE(( "pass: a final tower older than the streamed one is refused" ));
+}
+
+/* The operator's promote runs the same check against the durable floor
+   and refuses with its own result, so a confirmation kept on disk cannot
+   roll the streamed tower back either.  With no floor there is nothing to
+   compare against and the promotion goes ahead. */
+static void
+test_promote_refuses_rollback( void ) {
+  controller_init( FD_FAILOVER_STATE_STANDBY, 4UL );
+  fd_failover_peer_t * peer = &ctx->peers[ 0 ];
+  peer->channel->state              = FD_FAILOVER_SESSION_PAIRED;
+  peer->channel->peer_hello.role    = (uchar)FD_FAILOVER_ROLE_STANDBY;
+  peer->channel->peer_hello.term    = 4UL;
+  peer->channel->peer_hello.boot_id = 7UL;
+  peer->consensus_floor.valid         = 1;
+  peer->consensus_floor.peer_boot_id  = 7UL;
+  peer->consensus_floor.msg.term      = 4UL;
+  peer->consensus_floor.msg.vote_slot = 100UL;
+
+  /* A confirmation on disk whose final tower ends at 50. */
+  fd_compact_tower_sync_serde_t serde;
+  fd_memset( &serde, 0, sizeof(serde) );
+  serde.root                             = 48UL;
+  serde.lockouts_cnt                     = 1;
+  serde.lockouts[ 0 ].offset             = 2UL;
+  serde.lockouts[ 0 ].confirmation_count = 1;
+  ulong state_sz;
+  FD_TEST( !fd_compact_tower_sync_ser( &serde, ctx->demoted_record.state, FD_FAILOVER_TOWER_STATE_MAX, &state_sz ) );
+  ctx->demoted_valid                         = 1;
+  ctx->demoted_historical                    = 0;
+  ctx->send_demoted                          = 0;
+  ctx->demoted_record.source                 = FD_FAILOVER_DEMOTED_SOURCE_PEER;
+  ctx->demoted_record.demoted.term           = 4UL;
+  ctx->demoted_record.demoted.last_vote_slot = 50UL;
+  ctx->demoted_record.demoted.watermark      = 90UL;
+  ctx->demoted_record.demoted.mode           = (uchar)FD_FAILOVER_MODE_TOWER;
+  ctx->demoted_record.demoted.state_len      = (ushort)state_sz;
+  fd_sha256_hash( ctx->demoted_record.state, state_sz, ctx->demoted_record.digest );
+
+  fd_adminctl_failover_control_t req;
+  fd_memset( &req, 0, sizeof(req) );
+  req.cmd = FD_ADMINCTL_FAILOVER_CMD_PROMOTE;
+  FD_TEST( apply_control( ctx, stem, &req, 1000L )==FD_FAILOVER_CONTROL_RESULT_TOWER_ROLLBACK );
+  FD_TEST( ctx->state==FD_FAILOVER_STATE_STANDBY && ctx->tower_rollback_cnt==1UL );
+
+  /* Nothing was ever streamed, so there is nothing to roll back. */
+  peer->consensus_floor.valid = 0;
+  FD_TEST( apply_control( ctx, stem, &req, 1000L )==FD_ADMINCTL_RESULT_SUCCESS );
+  FD_TEST( ctx->state==FD_FAILOVER_STATE_PROMOTING && ctx->tower_rollback_cnt==1UL );
+  controller_fini();
+  FD_LOG_NOTICE(( "pass: the operator's promote refuses a final tower that rolls the stream back" ));
 }
 
 /* Test that a role or term change reaches the channel.  The peer checks
@@ -2075,6 +2127,7 @@ main( int     argc,
   test_first_use_refusals();
   test_demoted_payload();
   test_final_tower_regression();
+  test_promote_refuses_rollback();
   test_pause_stops_pending_promotion();
   test_pause_resume_coalesce();
   test_demotion_order();

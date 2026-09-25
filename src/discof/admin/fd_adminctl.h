@@ -212,6 +212,7 @@ typedef struct fd_adminctl_failover_control_resp_v1 fd_adminctl_failover_control
 #define FD_FAILOVER_CONTROL_RESULT_BAD_IDENTITY  (0x5007UL)
 #define FD_FAILOVER_CONTROL_RESULT_UNSUPPORTED   (0x5008UL)
 #define FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY  (0x5009UL) /* the spare's last status says it cannot take the identity */
+#define FD_FAILOVER_CONTROL_RESULT_TOWER_ROLLBACK (0x500BUL) /* the confirmation's final tower is older than the one the peer streamed */
 
 FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_control_t     )<=FD_ADMINCTL_PAYLOAD_MAX, failover_control_req_fits  );
 FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_control_resp_t)<=FD_ADMINCTL_PAYLOAD_MAX, failover_control_resp_fits );

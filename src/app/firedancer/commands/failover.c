@@ -101,6 +101,7 @@ control_result_name( ulong result ) {
     case FD_FAILOVER_CONTROL_RESULT_BAD_IDENTITY: return "--staked-pubkey does not name this pool's identity";
     case FD_FAILOVER_CONTROL_RESULT_UNSUPPORTED:  return "that command cannot be applied here";
     case FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY: return "the spare's last status says it cannot take the identity, check its status";
+    case FD_FAILOVER_CONTROL_RESULT_TOWER_ROLLBACK: return "the confirmation's final tower is older than the tower the peer streamed, so promotion is refused";
     default:                                      return NULL;
   }
 }

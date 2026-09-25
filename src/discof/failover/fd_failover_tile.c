@@ -86,6 +86,7 @@ struct fd_failover_tile_ctx {
   int                          paused;
   int                          stuck;         /* a transition failed, shown to the operator */
   ulong                        switch_overdue_cnt; /* overdue switches, counted for the metric */
+  ulong                        tower_rollback_cnt; /* confirmations whose final tower rolled back the streamed one */
   ulong                        deadline_slot; /* replay slot at which this attempt aborts */
   int                          accept_peer_requests;
   ulong                        min_slots_to_leader;
@@ -1613,6 +1614,7 @@ handle_control( fd_failover_tile_ctx_t * ctx,
                                                          record.demoted.last_vote_slot,
                                                          record.state, (ulong)record.demoted.state_len ) ) ) {
       FD_LOG_WARNING(( "the peer's final tower at term %lu is older than the one it streamed, refusing", record.demoted.term ));
+      ctx->tower_rollback_cnt++;
       fd_failover_channel_protocol_error( peer->channel, now );
       peer_sync_channel_state( peer );
       return;
@@ -2241,6 +2243,21 @@ apply_control( fd_failover_tile_ctx_t *               ctx,
                      ctx->demoted_record.demoted.term!=ctx->hello.term ) ) return FD_FAILOVER_CONTROL_RESULT_NO_EVIDENCE;
     if( FD_UNLIKELY( req->force && !fd_memeq( req->staked_pubkey, ctx->hello.staked_pubkey, 32UL ) ) )
       return FD_FAILOVER_CONTROL_RESULT_BAD_IDENTITY;
+    /* The confirmation on disk may not be older than the tower this peer
+       streamed while it was active, the same check the wire path runs.
+       The floor outlives the session that carried the stream, so a
+       reconnect in between does not lose the history it is checked
+       against. */
+    if( FD_UNLIKELY( !fd_failover_consensus_final_check( &peer->consensus_floor,
+                                                         fd_failover_channel_peer_hello( peer->channel )->boot_id,
+                                                         ctx->demoted_record.demoted.term,
+                                                         ctx->demoted_record.demoted.watermark,
+                                                         ctx->demoted_record.demoted.last_vote_slot,
+                                                         ctx->demoted_record.state,
+                                                         (ulong)ctx->demoted_record.demoted.state_len ) ) ) {
+      ctx->tower_rollback_cnt++;
+      return FD_FAILOVER_CONTROL_RESULT_TOWER_ROLLBACK;
+    }
     start_promotion( ctx, &ctx->demoted_record, ctx->demoted_record.demoted.term );
     return FD_ADMINCTL_RESULT_SUCCESS;
   }
@@ -2333,6 +2350,7 @@ metrics_write( fd_failover_tile_ctx_t * ctx ) {
   FD_MCNT_SET  ( FAILOV, ADMISSION_DROPS,        status.admission_drops );
   FD_MCNT_SET  ( FAILOV, HANDSHAKE_TIMEOUTS,     status.handshake_timeouts );
   FD_MCNT_SET  ( FAILOV, SWITCH_OVERDUE,         ctx->switch_overdue_cnt );
+  FD_MCNT_SET  ( FAILOV, TOWER_ROLLBACK,         ctx->tower_rollback_cnt );
 }
 
 static inline void

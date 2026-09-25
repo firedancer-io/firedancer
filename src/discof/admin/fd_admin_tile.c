@@ -1397,6 +1397,9 @@ failover_status_complete( fd_admin_tile_ctx_t * ctx,
     case FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY:
       report_admin_command_custom_result( &event, "peer_unready" );
       break;
+    case FD_FAILOVER_CONTROL_RESULT_TOWER_ROLLBACK:
+      report_admin_command_custom_result( &event, "tower_rollback" );
+      break;
     default:
       FD_LOG_WARNING(( "unexpected failover-status result %lu", result ));
       report_admin_command_custom_result( &event, "unexpected" );

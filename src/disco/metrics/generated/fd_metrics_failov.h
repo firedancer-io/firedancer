@@ -34,6 +34,7 @@ enum {
   FD_METRICS_COUNTER_FAILOV_ADMISSION_DROPS_OFF,
   FD_METRICS_COUNTER_FAILOV_HANDSHAKE_TIMEOUTS_OFF,
   FD_METRICS_COUNTER_FAILOV_SWITCH_OVERDUE_OFF,
+  FD_METRICS_COUNTER_FAILOV_TOWER_ROLLBACK_OFF,
 };
 
 #define FD_METRICS_GAUGE_FAILOV_LINK_NAME "failov_link"
@@ -171,7 +172,12 @@ enum {
 #define FD_METRICS_COUNTER_FAILOV_SWITCH_OVERDUE_DESC "Identity switches that outran the controller deadline and were waited for rather than abandoned"
 #define FD_METRICS_COUNTER_FAILOV_SWITCH_OVERDUE_CVT  (FD_METRICS_CONVERTER_NONE)
 
-#define FD_METRICS_FAILOV_TOTAL (27UL)
+#define FD_METRICS_COUNTER_FAILOV_TOWER_ROLLBACK_NAME "failov_tower_rollback"
+#define FD_METRICS_COUNTER_FAILOV_TOWER_ROLLBACK_TYPE (FD_METRICS_TYPE_COUNTER)
+#define FD_METRICS_COUNTER_FAILOV_TOWER_ROLLBACK_DESC "Demotion confirmations refused because their final tower was older than the tower the peer had streamed"
+#define FD_METRICS_COUNTER_FAILOV_TOWER_ROLLBACK_CVT  (FD_METRICS_CONVERTER_NONE)
+
+#define FD_METRICS_FAILOV_TOTAL (28UL)
 extern const fd_metrics_meta_t FD_METRICS_FAILOV[FD_METRICS_FAILOV_TOTAL];
 
 #endif /* HEADER_fd_src_disco_metrics_generated_fd_metrics_failov_h */
