@@ -573,14 +573,10 @@ fd_event_alpenglow_cert_fill_max( fd_event_alpenglow_cert_t * msg ) {
   msg->slot = ULONG_MAX;
   fd_memset( msg->block_id, 0xFF, 32UL );
   msg->kind = INT_MAX;
-  msg->voters_cnt = 2000UL;
-  for( ulong k=0UL; k<2000UL; k++ ) {
-    msg->voters[ k ] = 1;
-  }
-  msg->fallback_voters_cnt = 2000UL;
-  for( ulong k=0UL; k<2000UL; k++ ) {
-    msg->fallback_voters[ k ] = 1;
-  }
+  fd_memset( msg->voters, 0xFF, 250UL );
+  msg->voters_len = 250UL;
+  fd_memset( msg->fallback_voters, 0xFF, 250UL );
+  msg->fallback_voters_len = 250UL;
   fd_memset( msg->relayer_ip, 0xFF, 16UL );
   fd_memset( msg->relayer_identity, 0xFF, 32UL );
   msg->our_cert = 1;

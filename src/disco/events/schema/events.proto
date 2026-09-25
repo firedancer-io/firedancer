@@ -488,7 +488,7 @@ enum AlpenglowCertProcessingResult {
   ALPENGLOW_CERT_PROCESSING_RESULT_UNRANKED_PEER = 4;  // The peer has no rank in the slot's epoch.
   ALPENGLOW_CERT_PROCESSING_RESULT_SLOT_TOO_OLD = 5;  // The slot is behind our finality frontier, or in an earlier epoch we have no stake information for.
   ALPENGLOW_CERT_PROCESSING_RESULT_SLOT_TOO_NEW = 6;  // The slot is beyond our look-ahead window, or in an epoch we have no stake information for.
-  ALPENGLOW_CERT_PROCESSING_RESULT_DUPLICATE = 7;  // We already held a cert of this kind for the slot, or for this block if notar_fallback; we keep one per kind (Definition 13), so we dropped the copy without verifying it. The common case: every node broadcasts each cert it accepts.
+  ALPENGLOW_CERT_PROCESSING_RESULT_DUPLICATE = 7;  // We already held a cert of this kind for the slot, or for this block if notar_fallback; we keep one per kind (Definition 13), so we dropped the copy without verifying it. The common case: every node broadcasts each cert it accepts. Recorded for notar certs only.
   ALPENGLOW_CERT_PROCESSING_RESULT_IGNORED_REDUNDANT = 8;  // We already hold a valid cert that supersedes this one, e.g. a fast-finalization cert for the block a notarization cert arrives for; ignored.
   ALPENGLOW_CERT_PROCESSING_RESULT_FAILED_BLS_VERIFY = 9;  // The signers' stake is below the threshold (Table 6), a signer rank is outside the epoch, or the aggregate BLS signature is invalid; peer banned.
   ALPENGLOW_CERT_PROCESSING_RESULT_ACCEPTED = 10;  // BLS verified (stake threshold of Table 6 and aggregate BLS signature) and stored as the first cert of its kind for the slot, then broadcast to our peers (Definition 13); see broadcast_start_time and broadcast_to.
@@ -1740,10 +1740,10 @@ message AlpenglowCert {
   bytes block_id = 2;
   // What kind of cert is this.
   AlpenglowCertKind kind = 3;
-  // Which validators' primary votes the cert aggregates (NotarVote for notar, fast_final and notar_fallback; FinalVote for final; SkipVote for skip), indexed by the voter's rank in the slot's epoch.
-  repeated bool voters = 4;
-  // Fallback signer set (NotarFallbackVote for notar_fallback, SkipFallbackVote for skip) by rank. Empty for other kinds.
-  repeated bool fallback_voters = 5;
+  // Which validators' primary votes the cert aggregates (NotarVote for notar, fast_final and notar_fallback; FinalVote for final; SkipVote for skip), as a bitmap over the voter's rank in the slot's epoch: rank r is bit r%8 of byte r/8, bytes through the highest signer.
+  bytes voters = 4;
+  // Fallback signer set (NotarFallbackVote for notar_fallback, SkipFallbackVote for skip), a bitmap by rank like voters. Empty for other kinds.
+  bytes fallback_voters = 5;
   // IPv4 address of the peer that relayed the cert to us; ourselves if our_cert, stored as an IPv4-mapped IPv6 address (all zeros if unknown).
   bytes relayer_ip = 6;
   // Validator identity of the peer that relayed the cert to us (determined from the QUIC client-side TLS certificate); ourselves if our_cert (all zeros if unknown_peer). Not necessarily the creator of the cert: a node re-broadcasts the first valid cert it obtains (whether from self or others).

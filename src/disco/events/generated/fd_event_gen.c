@@ -1023,8 +1023,8 @@ fd_event_alpenglow_cert_serialize( fd_circq_t *                      circq,
   ok &= !!fd_pb_push_uint64( encoder, 3U, link_seq );
   ok &= !!fd_pb_push_uint64( encoder, 4U, (ulong)timestamp_nanos );
 
-  FD_TEST( msg->voters_cnt<=2000UL );
-  FD_TEST( msg->fallback_voters_cnt<=2000UL );
+  FD_TEST( msg->voters_len<=250UL );
+  FD_TEST( msg->fallback_voters_len<=250UL );
   FD_TEST( msg->broadcast_to_cnt<=2000UL );
 
   uchar const * _dyn = (uchar const *)msg + FD_EVENT_ALPENGLOW_CERT_PREFIX_SZ;
@@ -1037,12 +1037,8 @@ fd_event_alpenglow_cert_serialize( fd_circq_t *                      circq,
   if( msg->slot ) ok &= !!fd_pb_push_uint64( encoder, 1U, (ulong)msg->slot );
   ok &= !!fd_pb_push_bytes ( encoder, 2U, msg->block_id, 32UL );
   if( msg->kind ) ok &= !!fd_pb_push_int32 ( encoder, 3U, msg->kind );
-  for( ulong k=0UL; k<msg->voters_cnt; k++ ) {
-    ok &= !!fd_pb_push_bool  ( encoder, 4U, msg->voters[ k ] );
-  }
-  for( ulong k=0UL; k<msg->fallback_voters_cnt; k++ ) {
-    ok &= !!fd_pb_push_bool  ( encoder, 5U, msg->fallback_voters[ k ] );
-  }
+  if( msg->voters_len ) ok &= !!fd_pb_push_bytes ( encoder, 4U, msg->voters, msg->voters_len );
+  if( msg->fallback_voters_len ) ok &= !!fd_pb_push_bytes ( encoder, 5U, msg->fallback_voters, msg->fallback_voters_len );
   ok &= !!fd_pb_push_bytes ( encoder, 6U, msg->relayer_ip, 16UL );
   ok &= !!fd_pb_push_bytes ( encoder, 7U, msg->relayer_identity, 32UL );
   if( msg->our_cert ) ok &= !!fd_pb_push_bool  ( encoder, 8U, msg->our_cert );

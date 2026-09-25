@@ -374,15 +374,15 @@ report_alpenglow_cert( fd_votor_tile_t * ctx,
     for( ulong rank = fd_bls_set_const_iter_init( agg->set );
                      !fd_bls_set_const_iter_done( rank );
                rank = fd_bls_set_const_iter_next( agg->set, rank ) ) {
-      ev.voters[ rank ] = 1;
-      ev.voters_cnt     = rank+1UL;
+      ev.voters[ rank>>3 ] = (uchar)( ev.voters[ rank>>3 ] | (1U<<(rank&7UL)) );
+      ev.voters_len        = (rank>>3)+1UL;
     }
     if( FD_UNLIKELY( agg2 ) ) {
       for( ulong rank = fd_bls_set_const_iter_init( agg2->set );
                        !fd_bls_set_const_iter_done( rank );
                  rank = fd_bls_set_const_iter_next( agg2->set, rank ) ) {
-        ev.fallback_voters[ rank ] = 1;
-        ev.fallback_voters_cnt     = rank+1UL;
+        ev.fallback_voters[ rank>>3 ] = (uchar)( ev.fallback_voters[ rank>>3 ] | (1U<<(rank&7UL)) );
+        ev.fallback_voters_len        = (rank>>3)+1UL;
       }
     }
   }
@@ -722,7 +722,10 @@ quic_server_datagram_rx( fd_quic_conn_t * conn,
       report_alpenglow_cert( ctx, conn, &ctx->scratch.cert, kind, FD_EVENT_ALPENGLOW_CERT_PROCESSING_RESULT_ACCEPTED, verify_start_time, 0L );
       break;
     case AG_POOL_ERR_SLOT_OUT_OF_BOUNDS: ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_SLOT_OUT_OF_BOUNDS_IDX ]++; break;
-    case AG_POOL_ERR_DUPLICATE:          ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_DUPLICATE_IDX          ]++; break;
+    case AG_POOL_ERR_DUPLICATE:
+      ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_DUPLICATE_IDX ]++;
+      if( FD_LIKELY( ctx->scratch.cert.kind==AG_CERT_KIND_NOTAR ) ) report_alpenglow_cert( ctx, conn, &ctx->scratch.cert, kind, FD_EVENT_ALPENGLOW_CERT_PROCESSING_RESULT_DUPLICATE, 0L, 0L );
+      break;
     case AG_POOL_ERR_CERT_VERIFY:
       ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_FAILED_VERIFY_IDX ]++;
       report_alpenglow_cert( ctx, conn, &ctx->scratch.cert, kind, FD_EVENT_ALPENGLOW_CERT_PROCESSING_RESULT_FAILED_BLS_VERIFY, verify_start_time, 0L );

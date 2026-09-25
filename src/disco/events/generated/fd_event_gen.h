@@ -895,7 +895,7 @@ fd_event_alpenglow_vote_footprint( fd_event_alpenglow_vote_t const * msg ) {
 #define FD_EVENT_ALPENGLOW_CERT_PROCESSING_RESULT_UNRANKED_PEER          (4) /* The peer has no rank in the slot's epoch. */
 #define FD_EVENT_ALPENGLOW_CERT_PROCESSING_RESULT_SLOT_TOO_OLD           (5) /* The slot is behind our finality frontier, or in an earlier epoch we have no stake information for. */
 #define FD_EVENT_ALPENGLOW_CERT_PROCESSING_RESULT_SLOT_TOO_NEW           (6) /* The slot is beyond our look-ahead window, or in an epoch we have no stake information for. */
-#define FD_EVENT_ALPENGLOW_CERT_PROCESSING_RESULT_DUPLICATE              (7) /* We already held a cert of this kind for the slot, or for this block if notar_fallback; we keep one per kind (Definition 13), so we dropped the copy without verifying it. The common case: every node broadcasts each cert it accepts. */
+#define FD_EVENT_ALPENGLOW_CERT_PROCESSING_RESULT_DUPLICATE              (7) /* We already held a cert of this kind for the slot, or for this block if notar_fallback; we keep one per kind (Definition 13), so we dropped the copy without verifying it. The common case: every node broadcasts each cert it accepts. Recorded for notar certs only. */
 #define FD_EVENT_ALPENGLOW_CERT_PROCESSING_RESULT_IGNORED_REDUNDANT      (8) /* We already hold a valid cert that supersedes this one, e.g. a fast-finalization cert for the block a notarization cert arrives for; ignored. */
 #define FD_EVENT_ALPENGLOW_CERT_PROCESSING_RESULT_FAILED_BLS_VERIFY      (9) /* The signers' stake is below the threshold (Table 6), a signer rank is outside the epoch, or the aggregate BLS signature is invalid; peer banned. */
 #define FD_EVENT_ALPENGLOW_CERT_PROCESSING_RESULT_ACCEPTED               (10) /* BLS verified (stake threshold of Table 6 and aggregate BLS signature) and stored as the first cert of its kind for the slot, then broadcast to our peers (Definition 13); see broadcast_start_time and broadcast_to. */
@@ -910,23 +910,23 @@ typedef struct fd_event_alpenglow_cert_broadcast_to fd_event_alpenglow_cert_broa
 
 /* An Alpenglow consensus cert we received from a peer or constructed ourselves (see our_cert). Unparseable certs are not included. The row timestamp is when we received the cert, or constructed it if our_cert; the *_time columns are the phases that followed, each running until the next, ending at done_time. References: Table 6, Definition 12, Algorithm 1, Lemma 48 */
 struct fd_event_alpenglow_cert {
-  ulong                                  slot;                      /* Which slot the cert is for. */
-  uchar                                  block_id[ 32UL ];          /* Which block the cert is for (only for fast_final, notar and notar_fallback, all zeros otherwise). */
-  int                                    kind;                      /* What kind of cert is this. */
-  int                                    voters[ 2000UL ];          /* Which validators' primary votes the cert aggregates (NotarVote for notar, fast_final and notar_fallback; FinalVote for final; SkipVote for skip), indexed by the voter's rank in the slot's epoch. */
-  ulong                                  voters_cnt;                /* Number of voters entries (<= 2000) */
-  int                                    fallback_voters[ 2000UL ]; /* Fallback signer set (NotarFallbackVote for notar_fallback, SkipFallbackVote for skip) by rank. Empty for other kinds. */
-  ulong                                  fallback_voters_cnt;       /* Number of fallback_voters entries (<= 2000) */
-  uchar                                  relayer_ip[ 16UL ];        /* IPv4 address of the peer that relayed the cert to us; ourselves if our_cert, stored as an IPv4-mapped IPv6 address (all zeros if unknown). */
-  uchar                                  relayer_identity[ 32UL ];  /* Validator identity of the peer that relayed the cert to us (determined from the QUIC client-side TLS certificate); ourselves if our_cert (all zeros if unknown_peer). Not necessarily the creator of the cert: a node re-broadcasts the first valid cert it obtains (whether from self or others). */
-  int                                    our_cert;                  /* Whether we constructed the cert ourselves from the votes we had received, rather than a peer delivering it first. Not every cert is self-made; when it is, we reached the threshold before any peer's copy arrived, i.e. we are running fast. */
-  int                                    broadcast_reason;          /* Why we broadcast the cert (based on the Alpenglow certificate rules, see Table 6 and Definition 13) (not_broadcasted if we did not). */
-  ulong                                  broadcast_to_cnt;          /* Number of broadcast_to entries (<= 2000) */
-  int                                    processing_result;         /* What we did with the cert. unknown_peer and banned_peer are decided on the connection before the cert is decoded, shred_version_mismatch and unranked_peer after decoding, in that order; the rest are Alpenglow-specific. */
-  ulong                                  verify_start_time;         /* When we started BLS verifying the cert (unset if our_cert). */
-  ulong                                  broadcast_start_time;      /* When we started broadcasting the cert to our peers, BLS verification having finished (only if broadcast_reason is first_valid, 0 otherwise). */
-  ulong                                  done_time;                 /* When we finished processing the cert, may be any of the above stages including short-circuiting at earlier stages. */
-  fd_event_alpenglow_cert_broadcast_to_t broadcast_to[ 2000UL ];    /* Who we sent the cert to, indexed by rank like voters: identity and address at each rank, all zeros where we did not send (only if broadcast_reason is first_valid, empty otherwise). (dynamic: stored at end, shipped at used length) */
+  ulong                                  slot;                     /* Which slot the cert is for. */
+  uchar                                  block_id[ 32UL ];         /* Which block the cert is for (only for fast_final, notar and notar_fallback, all zeros otherwise). */
+  int                                    kind;                     /* What kind of cert is this. */
+  uchar                                  voters[ 250UL ];          /* Which validators' primary votes the cert aggregates (NotarVote for notar, fast_final and notar_fallback; FinalVote for final; SkipVote for skip), as a bitmap over the voter's rank in the slot's epoch: rank r is bit r%8 of byte r/8, bytes through the highest signer. */
+  ulong                                  voters_len;               /* Length of voters (<= 250) */
+  uchar                                  fallback_voters[ 250UL ]; /* Fallback signer set (NotarFallbackVote for notar_fallback, SkipFallbackVote for skip), a bitmap by rank like voters. Empty for other kinds. */
+  ulong                                  fallback_voters_len;      /* Length of fallback_voters (<= 250) */
+  uchar                                  relayer_ip[ 16UL ];       /* IPv4 address of the peer that relayed the cert to us; ourselves if our_cert, stored as an IPv4-mapped IPv6 address (all zeros if unknown). */
+  uchar                                  relayer_identity[ 32UL ]; /* Validator identity of the peer that relayed the cert to us (determined from the QUIC client-side TLS certificate); ourselves if our_cert (all zeros if unknown_peer). Not necessarily the creator of the cert: a node re-broadcasts the first valid cert it obtains (whether from self or others). */
+  int                                    our_cert;                 /* Whether we constructed the cert ourselves from the votes we had received, rather than a peer delivering it first. Not every cert is self-made; when it is, we reached the threshold before any peer's copy arrived, i.e. we are running fast. */
+  int                                    broadcast_reason;         /* Why we broadcast the cert (based on the Alpenglow certificate rules, see Table 6 and Definition 13) (not_broadcasted if we did not). */
+  ulong                                  broadcast_to_cnt;         /* Number of broadcast_to entries (<= 2000) */
+  int                                    processing_result;        /* What we did with the cert. unknown_peer and banned_peer are decided on the connection before the cert is decoded, shred_version_mismatch and unranked_peer after decoding, in that order; the rest are Alpenglow-specific. */
+  ulong                                  verify_start_time;        /* When we started BLS verifying the cert (unset if our_cert). */
+  ulong                                  broadcast_start_time;     /* When we started broadcasting the cert to our peers, BLS verification having finished (only if broadcast_reason is first_valid, 0 otherwise). */
+  ulong                                  done_time;                /* When we finished processing the cert, may be any of the above stages including short-circuiting at earlier stages. */
+  fd_event_alpenglow_cert_broadcast_to_t broadcast_to[ 2000UL ];   /* Who we sent the cert to, indexed by rank like voters: identity and address at each rank, all zeros where we did not send (only if broadcast_reason is first_valid, empty otherwise). (dynamic: stored at end, shipped at used length) */
 };
 typedef struct fd_event_alpenglow_cert fd_event_alpenglow_cert_t;
 
@@ -948,7 +948,7 @@ fd_event_alpenglow_cert_footprint( fd_event_alpenglow_cert_t const * msg ) {
 
 /* Worst-case encoded size of a alpenglow_cert event (envelope + Event
    submsg + inner submsg + all fields, padded for encoder slack). */
-#define FD_EVENT_ALPENGLOW_CERT_BUF_MAX (200318UL)
+#define FD_EVENT_ALPENGLOW_CERT_BUF_MAX (176838UL)
 
 /* Largest generated event struct; a consumer can stage any incoming
    event in a buffer of this size, aligned to
