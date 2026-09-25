@@ -836,7 +836,7 @@ test_first_use_exchange( void ) {
   switch_answer( ctx, ctx->switch_request_id );
   step_controller( ctx, stem, 2000L );
   FD_TEST( ctx->state==FD_FAILOVER_STATE_ACTIVE && ctx->role_file.term==1UL );
-  FD_TEST( ctx->action==FD_FAILOVER_ACTION_IDLE && !ctx->first_use_promoting && !ctx->pending_valid );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_IDLE && !ctx->pending_valid );
   FD_TEST( fd_failover_state_boot( ctx->role_file.role )==FD_FAILOVER_STATE_RECLAIMING );
   controller_fini();
   FD_LOG_NOTICE(( "pass: a passive pair becomes one holder only after durable peer proof and completed key installation" ));
@@ -1351,6 +1351,68 @@ test_readiness_inputs( void ) {
   FD_LOG_NOTICE(( "pass: replay's reset and leader edge make caught up and is leader real, and the view always decodes" ));
 }
 
+/* A promotion without a confirmation adopts this machine's own signed
+   file, or nothing for a first use, then takes the key, and it answers
+   nobody, since nobody demoted for it. */
+static void
+test_local_promotion( void ) {
+  controller_init( FD_FAILOVER_STATE_RECLAIMING, 4UL );
+  ctx->reply_dem_term = ULONG_MAX;
+
+  /* With a file to offer, the tower tile is asked with an empty frag. */
+  start_local_promotion( ctx, stem, 5UL, 1, 1000L );
+  FD_TEST( ctx->state==FD_FAILOVER_STATE_PROMOTING && ctx->role_file.term==5UL );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_PROMOTE_WAIT_ADOPT && !ctx->promote_from_record );
+  FD_TEST( stem->seqs[ 0 ]==1UL && pub_mcache[ 0 ].sz==0UL && pub_mcache[ 0 ].sig==ctx->adopt_expected_id );
+
+  /* The tower tile's answer moves it to the switch, the switch to active,
+     and no acknowledgement is queued for a peer that is not waiting. */
+  ctx->adopt_result.result = FD_TOWER_ADOPT_SUCCESS;
+  ctx->adopt_result_id     = ctx->adopt_expected_id;
+  ctx->adopt_result_fresh  = 1;
+  step_controller( ctx, stem, 2000L );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_PROMOTE_SWITCH && ctx->switch_pending_key==FD_FAILOVER_SWITCH_KEY_STAKED );
+  ctx->switch_result.result = FD_FAILOVER_SWITCH_OK;
+  switch_answer( ctx, ctx->switch_request_id );
+  step_controller( ctx, stem, 3000L );
+  FD_TEST( ctx->state==FD_FAILOVER_STATE_ACTIVE && ctx->role==FD_FAILOVER_ROLE_ACTIVE );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_IDLE && !ctx->stuck && !ctx->pending_valid );
+  FD_TEST( ctx->reply_dem_term==ULONG_MAX ); /* no outcome cached for a confirmation nobody sent */
+  controller_fini();
+
+  /* A first use has no file, so it goes straight to the switch. */
+  controller_init( FD_FAILOVER_STATE_STANDBY, 0UL );
+  start_local_promotion( ctx, stem, 1UL, 0, 1000L );
+  FD_TEST( ctx->state==FD_FAILOVER_STATE_PROMOTING && ctx->action==FD_FAILOVER_ACTION_PROMOTE_SWITCH );
+  FD_TEST( pub_mcache[ 0 ].sig==FD_FAILOVER_BUS_SWITCH_REQ );
+  controller_fini();
+
+  /* A file the tower tile cannot adopt stands the machine down, and no
+     refusal is sent to a peer that is not waiting for one. */
+  controller_init( FD_FAILOVER_STATE_RECLAIMING, 6UL );
+  ctx->reply_dem_term = ULONG_MAX;
+  start_local_promotion( ctx, stem, 7UL, 1, 1000L );
+  ctx->adopt_result.result = FD_TOWER_ADOPT_ERR_NO_LOCAL_TOWER;
+  ctx->adopt_result_id     = ctx->adopt_expected_id;
+  ctx->adopt_result_fresh  = 1;
+  step_controller( ctx, stem, 2000L );
+  FD_TEST( ctx->state==FD_FAILOVER_STATE_STANDBY && ctx->role==FD_FAILOVER_ROLE_STANDBY );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_IDLE && ctx->stuck && !ctx->pending_valid );
+  FD_TEST( ctx->reject_reason==FD_FAILOVER_REJECT_TOWER_INVALID && ctx->role_file.term==8UL );
+  FD_TEST( ctx->reply_dem_term==ULONG_MAX );
+  controller_fini();
+
+  /* A stream cached from an earlier tenure is dropped, it names a term
+     the peer would refuse, and the adopted file is not here to send. */
+  controller_init( FD_FAILOVER_STATE_STANDBY, 6UL );
+  ctx->cs_valid = 1;
+  ctx->cs_sz    = sizeof(fd_failover_consensus_state_t)+5UL;
+  start_local_promotion( ctx, stem, 7UL, 1, 1000L );
+  FD_TEST( !ctx->cs_valid );
+  controller_fini();
+  FD_LOG_NOTICE(( "pass: a promotion without a confirmation adopts its own file and answers nobody" ));
+}
+
 /* Test that a promotion whose tower cannot be adopted stands down at a
    new term and tells the peer. */
 static void
@@ -1527,7 +1589,8 @@ test_promotion_outcome_resent( void ) {
   peer = &ctx->peers[ 0 ];
   peer->channel->state = FD_FAILOVER_SESSION_PAIRED;
 
-  ctx->action_term = 4UL;
+  ctx->action_term         = 4UL;
+  ctx->promote_from_record = 1; /* a demoter is waiting on this one */
   reject_promotion( ctx, FD_FAILOVER_REJECT_PAUSED, 1000L );
   FD_TEST( ctx->hello.term==5UL && ctx->reply_dem_term==4UL );
   FD_TEST( ctx->pending_valid && ctx->pending_type==(ushort)FD_FAILOVER_MSG_PROMOTE_REJECTED );
@@ -2429,6 +2492,7 @@ main( int     argc,
   test_pause_resume_coalesce();
   test_demotion_order();
   test_readiness_inputs();
+  test_local_promotion();
   test_promotion_reject();
   test_switch_overdue();
   test_demotion_drain();

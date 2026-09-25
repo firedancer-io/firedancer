@@ -143,6 +143,7 @@ struct fd_failover_tile_ctx {
   ulong                        adopt_state_len;
   ulong                        adopt_expected_id;
   uchar                        reject_reason;
+  int                          promote_from_record; /* a demoter is waiting on this promotion's answer */
   fd_failover_handoff_req_t    handoff_req;    /* the request awaiting an answer */
   int                          handoff_pending;
   ulong                        handoff_session;
@@ -159,7 +160,6 @@ struct fd_failover_tile_ctx {
   int                          first_use_tried;
   int                          first_use_pending;
   int                          first_use_sent;
-  int                          first_use_promoting;
   ulong                        first_use_nonce;
   ulong                        first_use_peer_boot;
   fd_failover_reclaim_t         first_use_req;
@@ -1155,6 +1155,7 @@ static void  start_demotion( fd_failover_tile_ctx_t * ctx, fd_stem_context_t * s
 static void  demotion_switched( fd_failover_tile_ctx_t * ctx, long now );
 static void  reject_promotion( fd_failover_tile_ctx_t * ctx, uchar reason, long now );
 static void  start_promotion( fd_failover_tile_ctx_t * ctx, fd_failover_demoted_record_t const * record, ulong term, long now );
+static void  start_local_promotion( fd_failover_tile_ctx_t * ctx, fd_stem_context_t * stem, ulong term, int adopt_local, long now );
 static ulong switch_query( fd_failover_tile_ctx_t * ctx, fd_stem_context_t * stem );
 static void  publish_control_response( fd_failover_tile_ctx_t * ctx, fd_stem_context_t * stem, ulong nonce, ulong result );
 
@@ -1265,6 +1266,21 @@ publish_adopt_state( fd_failover_tile_ctx_t * ctx,
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
   fd_stem_publish( stem, ctx->adopt_out_idx, ctx->adopt_request_id, ctx->adopt_out_chunk, ctx->adopt_state_len, 0UL, tspub, tspub );
   ctx->adopt_out_chunk    = fd_dcache_compact_next( ctx->adopt_out_chunk, ctx->adopt_state_len, ctx->adopt_out_chunk0, ctx->adopt_out_wmark );
+  ctx->adopt_result_fresh = 0;
+  return ctx->adopt_request_id;
+}
+
+/* publish_adopt_local asks the tower tile to adopt the signed tower file
+   it verified at boot.  The request is the empty frag, which no streamed
+   tower can be, and the request id rides in the signature as before. */
+static ulong
+publish_adopt_local( fd_failover_tile_ctx_t * ctx,
+                     fd_stem_context_t *      stem ) {
+  if( FD_UNLIKELY( ctx->adopt_out_idx==ULONG_MAX ) ) return ULONG_MAX;
+
+  if( FD_UNLIKELY( !++ctx->adopt_request_id ) ) ctx->adopt_request_id++;
+  ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+  fd_stem_publish( stem, ctx->adopt_out_idx, ctx->adopt_request_id, ctx->adopt_out_chunk, 0UL, 0UL, tspub, tspub );
   ctx->adopt_result_fresh = 0;
   return ctx->adopt_request_id;
 }
@@ -1400,17 +1416,22 @@ step_controller( fd_failover_tile_ctx_t * ctx,
     ctx->adopt_result_fresh = 0;
     if( FD_UNLIKELY( ctx->adopt_result_id!=ctx->adopt_expected_id ) ) return;
     if( FD_UNLIKELY( ctx->adopt_result.result!=FD_TOWER_ADOPT_SUCCESS ) ) {
-      FD_LOG_WARNING(( "the tower tile refused the received tower with %lu", ctx->adopt_result.result ));
+      FD_LOG_WARNING(( "the tower tile refused the %s tower with %lu",
+                       ctx->promote_from_record ? "received" : "local", ctx->adopt_result.result ));
       reject_promotion( ctx, ( ctx->adopt_result.result==FD_TOWER_ADOPT_ERR_BLOCK_MISMATCH ||
                                ctx->adopt_result.result==FD_TOWER_ADOPT_ERR_STALE )
                              ? FD_FAILOVER_REJECT_ADOPTION_MISMATCH
+                             : ctx->adopt_result.result>=FD_TOWER_ADOPT_ERR_NO_LOCAL_TOWER
+                             ? FD_FAILOVER_REJECT_TOWER_INVALID
                              : FD_FAILOVER_REJECT_ADOPTION_FAILED, now );
       return;
     }
-    if( FD_UNLIKELY( ctx->adopt_result.vote_slot!=ctx->demoted_record.demoted.last_vote_slot ) ) {
+    if( FD_UNLIKELY( ctx->promote_from_record &&
+                     ctx->adopt_result.vote_slot!=ctx->demoted_record.demoted.last_vote_slot ) ) {
       /* The tower tile keeps the prefix replay has produced, so a tower that
          ends short of the confirmed last vote would leave lockouts behind.
-         That is a mismatch, not a promotion. */
+         That is a mismatch, not a promotion.  A local file has no
+         confirmation to match, it ends wherever the tower tile anchored it. */
       FD_LOG_WARNING(( "the adopted tower ends at slot %lu, the confirmation says %lu", ctx->adopt_result.vote_slot, ctx->demoted_record.demoted.last_vote_slot ));
       reject_promotion( ctx, FD_FAILOVER_REJECT_ADOPTION_MISMATCH, now );
       return;
@@ -1442,11 +1463,11 @@ step_controller( fd_failover_tile_ctx_t * ctx,
     }
     persist( ctx, FD_FAILOVER_STATE_ACTIVE, ctx->action_term );
     set_role( ctx, FD_FAILOVER_ROLE_ACTIVE, now );
-    if( FD_UNLIKELY( ctx->first_use_promoting ) ) {
-      ctx->first_use_promoting = 0;
+    if( FD_UNLIKELY( !ctx->promote_from_record ) ) {
+      /* A promotion nobody demoted for owes nobody an acknowledgement. */
       ctx->action = FD_FAILOVER_ACTION_IDLE;
       ctx->stuck  = 0;
-      FD_LOG_NOTICE(( "first use installed the staked identity at term %lu, verify the first landed vote", ctx->action_term ));
+      FD_LOG_NOTICE(( "installed the staked identity at term %lu without a demotion confirmation, verify the first landed vote", ctx->action_term ));
       return;
     }
     /* The ack tells the old active it can drop its confirmation.  Keep it
@@ -1661,16 +1682,8 @@ handle_control( fd_failover_tile_ctx_t * ctx,
     ctx->first_use_pending    = 0;
     ctx->first_use_authorized = 0;
     if( ctx->pending_valid && ctx->pending_type==(ushort)FD_FAILOVER_MSG_RECLAIM ) ctx->pending_valid = 0;
-    persist( ctx, FD_FAILOVER_STATE_PROMOTING, confirm.term );
-    ctx->first_use_promoting = 1;
-    ctx->action_term = confirm.term;
-    ctx->stuck       = 0;
-    deadline_start( ctx, ctx->deadline_slots, now );
-    if( FD_UNLIKELY( request_switch( ctx, ctx->step_stem, FD_FAILOVER_SWITCH_KEY_STAKED )==ULONG_MAX ) ) {
-      reject_promotion( ctx, FD_FAILOVER_REJECT_SWITCH_PENDING, now );
-      return;
-    }
-    ctx->action = FD_FAILOVER_ACTION_PROMOTE_SWITCH;
+    /* A first use adopts nothing, the identity has no history yet. */
+    start_local_promotion( ctx, ctx->step_stem, confirm.term, 0, now );
     return;
   }
 
@@ -1782,6 +1795,9 @@ handle_control( fd_failover_tile_ctx_t * ctx,
       /* A confirmation in the middle of a transition is left for the operator. */
       return;
     }
+    /* From here on a demoter is waiting on the answer, so a refusal is
+       sent to it rather than kept for the operator. */
+    ctx->promote_from_record = 1;
     if( FD_UNLIKELY( ctx->paused ) ) {
       /* reject_promotion builds the refusal from action_term, so set that to
          the record's term first.  That is the term the peer matches against. */
@@ -2221,10 +2237,11 @@ reject_promotion( fd_failover_tile_ctx_t * ctx,
   ctx->reject_reason = reason;
   ctx->stuck         = 1;
   ctx->action        = FD_FAILOVER_ACTION_REJECT;
-  if( FD_UNLIKELY( ctx->first_use_promoting ) ) {
-    ctx->first_use_promoting = 0;
+  if( FD_UNLIKELY( !ctx->promote_from_record ) ) {
+    /* Nobody demoted for this promotion, so nobody is waiting on a
+       refusal.  The operator reads the reason from the status. */
     ctx->action = FD_FAILOVER_ACTION_IDLE;
-    FD_LOG_WARNING(( "first-use identity switch failed, remaining passive at term %lu", term ));
+    FD_LOG_WARNING(( "a promotion without a demotion confirmation failed (reason %u), remaining passive at term %lu", (uint)reason, term ));
     return;
   }
 
@@ -2283,8 +2300,53 @@ start_promotion( fd_failover_tile_ctx_t *             ctx,
   ctx->demoted_accept_term = term;
   ctx->reject_reason       = FD_FAILOVER_REJECT_NONE;
   ctx->stuck               = 0;
+  ctx->promote_from_record = 1;
   deadline_start( ctx, ctx->deadline_slots, now );
   ctx->action = FD_FAILOVER_ACTION_PROMOTE_WAIT_REPLAY;
+}
+
+/* start_local_promotion takes the staked identity without a demotion
+   confirmation.  The authority comes from the caller: a peer that
+   confirmed a reclaim, a first use of a pool that has never had a
+   holder, or an operator attesting that the peer is fenced.  The tower
+   is this machine's own signed file when it has one to offer, and
+   nothing for a first use, whose identity has no history to adopt.  No
+   demoter is waiting, so this path answers nobody. */
+static void
+start_local_promotion( fd_failover_tile_ctx_t * ctx,
+                       fd_stem_context_t *      stem,
+                       ulong                    term,
+                       int                      adopt_local,
+                       long                     now ) {
+  if( FD_UNLIKELY( ctx->demoted_valid ) ) demoted_remove( ctx );
+  persist( ctx, FD_FAILOVER_STATE_PROMOTING, term );
+  ctx->action_term         = term;
+  ctx->reject_reason       = FD_FAILOVER_REJECT_NONE;
+  ctx->stuck               = 0;
+  ctx->promote_from_record = 0;
+  ctx->adopt_state_len     = 0UL;
+  /* The tower this tenure starts from lives in the tower tile, not here,
+     so there is nothing to stream until it votes.  A stream cached from
+     an earlier tenure of this process names an older term, which the
+     peer refuses as behind the HELLO it paired on. */
+  ctx->cs_valid            = 0;
+  deadline_start( ctx, ctx->deadline_slots, now );
+
+  if( FD_LIKELY( adopt_local ) ) {
+    ulong id = publish_adopt_local( ctx, stem );
+    if( FD_UNLIKELY( id==ULONG_MAX ) ) {
+      reject_promotion( ctx, FD_FAILOVER_REJECT_ADOPTION_FAILED, now );
+      return;
+    }
+    ctx->adopt_expected_id = id;
+    ctx->action            = FD_FAILOVER_ACTION_PROMOTE_WAIT_ADOPT;
+    return;
+  }
+  if( FD_UNLIKELY( request_switch( ctx, stem, FD_FAILOVER_SWITCH_KEY_STAKED )==ULONG_MAX ) ) {
+    reject_promotion( ctx, FD_FAILOVER_REJECT_SWITCH_PENDING, now );
+    return;
+  }
+  ctx->action = FD_FAILOVER_ACTION_PROMOTE_SWITCH;
 }
 
 /* Run an operator command.  If we refuse it we say why.  Anything that
