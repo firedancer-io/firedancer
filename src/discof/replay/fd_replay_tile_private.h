@@ -463,6 +463,11 @@ struct fd_replay_tile {
 
   ulong       next_leader_slot;
   long        next_leader_tickcount;
+
+
+  ulong next_leader_query_start;
+  ulong next_leader_query_slot;
+
   double      tick_per_ns;
   ulong       highwater_leader_slot;
   ulong       reset_slot;
