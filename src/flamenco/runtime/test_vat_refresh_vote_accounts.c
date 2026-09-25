@@ -343,7 +343,7 @@ test_env_create( test_env_t * env, fd_wksp_t * wksp ) {
                           accdb_writes_per_slot, accdb_partition_cnt, accdb_partition_sz,
                           accdb_cache_footprint, accdb_cache_min_reserved, 0, 42UL, accdb_joiner_cnt, 0UL ) );
   FD_TEST( shmem );
-  env->accdb = fd_accdb_join( fd_accdb_new( env->accdb_join, shmem, env->accdb_fd, 0UL, NULL ) );
+  env->accdb = fd_accdb_join( fd_accdb_new( env->accdb_join, shmem, env->accdb_fd, 0UL, NULL, NULL, 0UL ) );
   FD_TEST( env->accdb );
 
   void * banks_mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( max_total_banks, max_fork_width, 2048UL, 2048UL ), env->tag );

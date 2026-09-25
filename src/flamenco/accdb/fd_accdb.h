@@ -77,14 +77,23 @@ fd_accdb_footprint( ulong max_live_slots );
    any joiner that is not the compaction tile, or a writer-only
    topology), pass external_epoch_cnt=0 and external_epoch_slots=NULL.
    The pointer array is borrowed and must remain valid for the
-   lifetime of the join. */
+   lifetime of the join.
+
+   sleep, if non-NULL, is the sleep object the accdb tile parks on and
+   sleep_tile_id its tile id there.  The join rings it whenever it hands
+   the tile work (a command, or the cache free list crossing its low
+   water mark).  NULL when the accdb tile spins. */
+
+struct fd_sleep_private;
 
 void *
-fd_accdb_new( void *              ljoin,
-              fd_accdb_shmem_t *  shmem,
-              int                 fd,
-              ulong               external_epoch_cnt,
-              ulong const **      external_epoch_slots );
+fd_accdb_new( void *                    ljoin,
+              fd_accdb_shmem_t *        shmem,
+              int                       fd,
+              ulong                     external_epoch_cnt,
+              ulong const **            external_epoch_slots,
+              struct fd_sleep_private * sleep,
+              ulong                     sleep_tile_id );
 
 fd_accdb_t *
 fd_accdb_join( void * shaccdb );

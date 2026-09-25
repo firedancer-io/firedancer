@@ -86,7 +86,7 @@ test_accdb_new( void ) {
 
   void * accdb_mem = aligned_alloc( fd_accdb_align(), fd_accdb_footprint( 3UL ) );
   FD_TEST( accdb_mem );
-  test.accdb = fd_accdb_join( fd_accdb_new( accdb_mem, shmem, test.fd, 0UL, NULL ) );
+  test.accdb = fd_accdb_join( fd_accdb_new( accdb_mem, shmem, test.fd, 0UL, NULL, NULL, 0UL ) );
   FD_TEST( test.accdb );
   return test;
 }

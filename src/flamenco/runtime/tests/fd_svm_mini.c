@@ -195,7 +195,7 @@ fd_svm_mini_create( fd_wksp_t *                  wksp,
                           TEST_WRITES_PER_SLOT, TEST_PARTITION_CNT,
                           TEST_PARTITION_SZ, TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 0, 42UL, joiner_cnt, 0UL ) );
   FD_TEST( shmem );
-  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_join, shmem, accdb_fd, 0UL, NULL ) );
+  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_join, shmem, accdb_fd, 0UL, NULL, NULL, 0UL ) );
   FD_TEST( accdb );
 
   /* Save accdb init params for reset */
@@ -462,7 +462,7 @@ fd_svm_mini_reset( fd_svm_mini_t *        mini,
   FD_TEST( 0==ftruncate( accdb_fd, 0 ) );
 
   /* Re-initialize accdb join in place */
-  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( mini->accdb_join_mem, shmem, accdb_fd, 0UL, NULL ) );
+  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( mini->accdb_join_mem, shmem, accdb_fd, 0UL, NULL, NULL, 0UL ) );
   FD_TEST( accdb );
   mini->runtime->accdb = accdb;
 
