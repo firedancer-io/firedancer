@@ -82,6 +82,7 @@ typedef struct ag_event_timeout ag_event_timeout_t;
 struct ag_event_vote {
   ulong     seq;
   long      ts;
+  uchar     reason;
   ag_vote_t vote;
 };
 typedef struct ag_event_vote ag_event_vote_t;
