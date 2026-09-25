@@ -867,7 +867,7 @@ test_scratch_layout_fits( void ) {
 
     FD_SCRATCH_ALLOC_INIT( l, NULL );
     FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapin_tile_t), sizeof(fd_snapin_tile_t) );
-    FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),          fd_accdb_footprint( tile->snapin.max_live_slots ) );
+    FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),          fd_accdb_footprint( tile->snapin.max_live_slots, 0 ) );
     if( !kind_id ) {
       FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),               fd_txncache_footprint( tile->snapin.max_live_slots ) );
       FD_SCRATCH_ALLOC_APPEND( l, fd_ssmanifest_parser_align(),      fd_ssmanifest_parser_footprint()                     );

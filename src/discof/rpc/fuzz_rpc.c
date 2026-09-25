@@ -100,11 +100,11 @@ setup_accdb( void ) {
                           0, 42UL, joiner_cnt, 0UL ) );
   FD_TEST( shmem );
 
-  ulong accdb_fp = fd_accdb_footprint( max_live_slots );
+  ulong accdb_fp = fd_accdb_footprint( max_live_slots, 0 );
   FD_TEST( accdb_fp );
   void * accdb_mem = aligned_alloc( fd_accdb_align(), accdb_fp );
   FD_TEST( accdb_mem );
-  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_mem, shmem, fd, 0UL, NULL, NULL, 0UL ) );
+  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_mem, shmem, fd, 0UL, NULL, NULL, 0UL, 0 ) );
   FD_TEST( accdb );
 
   fd_accdb_fork_id_t sentinel  = { .val = USHORT_MAX };

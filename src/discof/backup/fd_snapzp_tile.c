@@ -116,7 +116,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_snapzp_t), sizeof(fd_snapzp_t) );
-  l = FD_LAYOUT_APPEND( l, fd_accdb_align(),     fd_accdb_footprint( tile->snapzp.max_live_slots ) );
+  l = FD_LAYOUT_APPEND( l, fd_accdb_align(),     fd_accdb_footprint( tile->snapzp.max_live_slots, 0 ) );
   l = FD_LAYOUT_APPEND( l, 32UL,                 ZSTD_estimateCStreamSize( FD_BACKUP_ZSTD_LEVEL ) );
   return FD_LAYOUT_FINI( l, FD_SHMEM_HUGE_PAGE_SZ );
 }
@@ -142,7 +142,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, fd_topo_obj_laddr( topo, tile->tile_obj_id ) );
   fd_snapzp_t * ctx      = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapzp_t), sizeof(fd_snapzp_t) );
-  void *        _accdb   = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),     fd_accdb_footprint( tile->snapzp.max_live_slots ) );
+  void *        _accdb   = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),     fd_accdb_footprint( tile->snapzp.max_live_slots, 0 ) );
   void *        _zstd    = FD_SCRATCH_ALLOC_APPEND( l, 32UL,                 ZSTD_estimateCStreamSize( FD_BACKUP_ZSTD_LEVEL ) );
   FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
 

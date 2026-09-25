@@ -362,7 +362,7 @@ static ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_snapin_tile_t),         sizeof(fd_snapin_tile_t)                                          );
-  l = FD_LAYOUT_APPEND( l, fd_accdb_align(),                  fd_accdb_footprint( tile->snapin.max_live_slots ) );
+  l = FD_LAYOUT_APPEND( l, fd_accdb_align(),                  fd_accdb_footprint( tile->snapin.max_live_slots, 0 ) );
 
   /* Only tile 0 publishes the manifest */
   if( FD_LIKELY( !tile->kind_id ) ) {
@@ -2201,7 +2201,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_snapin_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapin_tile_t), sizeof(fd_snapin_tile_t) );
-  void * _accdb          = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),          fd_accdb_footprint( tile->snapin.max_live_slots ) );
+  void * _accdb          = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),          fd_accdb_footprint( tile->snapin.max_live_slots, 0 ) );
 
   ctx->tile_idx = tile->kind_id;
   if( FD_UNLIKELY( ctx->tile_idx>=FD_TOPO_MAX_TILE_IN_LINKS ) ) FD_LOG_ERR(( "tile `" NAME "` has unsupported kind id %lu", tile->kind_id ));
@@ -2217,7 +2217,7 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( accdb_shmem );
 
   fd_sleep_t * accdb_sleep = topo->sleep_obj_id!=ULONG_MAX ? fd_sleep_join( fd_topo_obj_laddr( topo, topo->sleep_obj_id ) ) : NULL;
-  ctx->accdb = fd_accdb_join( fd_accdb_new( _accdb, accdb_shmem, FD_ACCDB_FD_RW, 0UL, NULL, accdb_sleep, fd_topo_find_tile( topo, "accdb", 0UL ) ) );
+  ctx->accdb = fd_accdb_join( fd_accdb_new( _accdb, accdb_shmem, FD_ACCDB_FD_RW, 0UL, NULL, accdb_sleep, fd_topo_find_tile( topo, "accdb", 0UL ), 0 ) );
   FD_TEST( ctx->accdb );
 
   ctx->shmem = fd_topo_obj_laddr( topo, tile->snapin.shmem_obj_id );

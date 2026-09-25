@@ -166,11 +166,11 @@ test_shmem_delete( void ) {
 
 static fd_accdb_t *
 join_new( void ) {
-  ulong accdb_fp = fd_accdb_footprint( T_MAX_LIVE_SLOTS );
+  ulong accdb_fp = fd_accdb_footprint( T_MAX_LIVE_SLOTS, 1 );
   FD_TEST( accdb_fp );
   void * mem = aligned_alloc( fd_accdb_align(), accdb_fp );
   FD_TEST( mem );
-  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( mem, g_shmem, g_fd, 0UL, NULL, NULL, 0UL ) );
+  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( mem, g_shmem, g_fd, 0UL, NULL, NULL, 0UL, 1 ) );
   FD_TEST( accdb );
   return accdb;
 }
@@ -1649,6 +1649,79 @@ test_compact_reloc_integrity( void ) {
   test_shmem_delete();
 }
 
+/* test_compact_batch: a compaction pass relocates a run of live
+   records with one pwritev2, skips the dead ones inside the run, and
+   a run longer than the bounce buffer splits across passes.  Records
+   are 3 MiB (class 7): the tiny cache holds eight, so writing the
+   seven and then eight fillers pushes all seven to disk in order in
+   a 24 MiB partition.  Rewriting three of them frees 37%, above the
+   compaction threshold, leaving live records 0, 2, 3, 4 with dead
+   ones at 1, 5, 6; five records fit the 16 MiB bounce so the run
+   splits after record 4.  Every record is then cold read and checked
+   byte for byte. */
+
+#define BATCH_REC_CNT  (7UL)
+#define BATCH_REC_DATA (3UL<<20)
+
+static void
+test_compact_batch( void ) {
+  test_shmem_new_cfg2( test_tiny_cache_footprint(), TEST_TINY_CACHE_MIN_RESERVED, 24UL<<20 );
+  fd_accdb_t * ctl = join_new();
+  fd_accdb_t * jc  = join_new();
+
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( ctl, SENTINEL );
+  static int const dead[ BATCH_REC_CNT ] = { 0, 1, 0, 0, 0, 1, 1 };
+
+  uchar keys[ BATCH_REC_CNT ][ 32UL ];
+  for( ulong i=0UL; i<BATCH_REC_CNT; i++ ) {
+    mk_key( 3100UL+i, keys[ i ] );
+    uchar owner[ 32UL ]; memset( owner, 0, 32UL ); owner[0] = (uchar)(0x40+i);
+    seq_write_data( ctl, root, keys[ i ], 1000UL+i, owner, BATCH_REC_DATA, (uchar)(0xA0+i) );
+  }
+  /* evict the seven to disk (partition 0) and move the write head on */
+  for( ulong e=0UL; e<12UL; e++ ) {
+    uchar t[ 32UL ]; mk_key( 3200UL+e, t );
+    seq_write_data( ctl, root, t, 1UL, NULL, BIG_DATA, 0xEE );
+  }
+  /* same-fork rewrites free the old records */
+  for( ulong i=0UL; i<BATCH_REC_CNT; i++ ) {
+    if( !dead[ i ] ) continue;
+    uchar owner[ 32UL ]; memset( owner, 0, 32UL ); owner[0] = (uchar)(0xD0+i);
+    seq_write_data( ctl, root, keys[ i ], 2000UL+i, owner, BATCH_REC_DATA, (uchar)(0xB0+i) );
+  }
+  fd_accdb_shmem_metrics_t const * m = fd_accdb_shmetrics( ctl );
+  ulong before_rel = m->accounts_relocated;
+  ulong before_ops = fd_accdb_metrics( jc )->copy_ops;
+  for( int s=0; s<256; s++ ) drain_background( jc );
+  ulong relocated = m->accounts_relocated-before_rel;
+  ulong writes    = fd_accdb_metrics( jc )->copy_ops-before_ops;
+  FD_LOG_NOTICE(( "  test_compact_batch: %lu records relocated by %lu pwritev2 calls in %lu compactions", relocated, writes, m->compactions_completed ));
+  FD_TEST( writes<relocated ); /* batched: fewer writes than records */
+
+  /* evict again, then cold read every record from wherever it lives */
+  for( ulong e=0UL; e<32UL; e++ ) {
+    uchar t[ 32UL ]; mk_key( 3300UL+e, t );
+    seq_write_data( ctl, root, t, 1UL, NULL, BIG_DATA, 0xCC );
+  }
+  for( ulong i=0UL; i<BATCH_REC_CNT; i++ ) {
+    ulong lamports = 0UL; int executable = 0; ulong data_len = 0UL;
+    uchar owner[ 32UL ]; memset( owner, 0xEE, 32UL );
+    g_cold_data[0] = 0xEE; g_cold_data[ BATCH_REC_DATA-1UL ] = 0xEE;
+    fd_accdb_read_one_nocache( ctl, root, keys[ i ], &lamports, &executable, owner, g_cold_data, &data_len );
+    uchar want_fill = dead[ i ] ? (uchar)(0xB0+i) : (uchar)(0xA0+i);
+    ulong want_lamp = dead[ i ] ? 2000UL+i : 1000UL+i;
+    uchar want_own  = dead[ i ] ? (uchar)(0xD0+i) : (uchar)(0x40+i);
+    FD_TEST( lamports==want_lamp && owner[0]==want_own && data_len==BATCH_REC_DATA );
+    for( ulong z=0UL; z<data_len; z+=4093UL ) FD_TEST( g_cold_data[ z ]==want_fill );
+    FD_TEST( g_cold_data[ data_len-1UL ]==want_fill );
+  }
+  FD_TEST( relocated>=4UL ); /* the live records of partition 0 */
+
+  join_delete( ctl );
+  join_delete( jc );
+  test_shmem_delete();
+}
+
 /* test_compact_vs_overwrite: relocate K while a same-fork overwrite of K
    commits concurrently.  After the weave, K MUST read back as the
    overwritten value (LAMP_B/TAG_B) — the newer commit always wins; the
@@ -1926,11 +1999,11 @@ test_setup( int * out_fd,
   test_shmem_mem = shmem_mem;
   test_shmem     = shmem;
 
-  ulong accdb_fp = fd_accdb_footprint( max_live_slots );
+  ulong accdb_fp = fd_accdb_footprint( max_live_slots, 1 );
   FD_TEST( accdb_fp );
   void * accdb_mem = aligned_alloc( fd_accdb_align(), accdb_fp );
   FD_TEST( accdb_mem );
-  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_mem, shmem, fd, 0UL, NULL, NULL, 0UL ) );
+  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_mem, shmem, fd, 0UL, NULL, NULL, 0UL, 1 ) );
   FD_TEST( accdb );
   return accdb;
 }
@@ -1942,10 +2015,10 @@ test_setup( int * out_fd,
    invariant holds because each tile has its own handle. */
 static fd_accdb_t *
 test_join_extra( void ) {
-  ulong accdb_fp = fd_accdb_footprint( test_max_live_slots );
+  ulong accdb_fp = fd_accdb_footprint( test_max_live_slots, 1 );
   void * accdb_mem = aligned_alloc( fd_accdb_align(), accdb_fp );
   FD_TEST( accdb_mem );
-  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_mem, test_shmem, test_fd, 0UL, NULL, NULL, 0UL ) );
+  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_mem, test_shmem, test_fd, 0UL, NULL, NULL, 0UL, 1 ) );
   FD_TEST( accdb );
   return accdb;
 }
@@ -3296,6 +3369,7 @@ main( int     argc,
     TEST( test_epoch_reclaim_pin ),
     TEST( test_nocache_vs_compaction ),
     TEST( test_compact_reloc_integrity ),
+    TEST( test_compact_batch ),
     TEST( test_compact_vs_overwrite ),
     TEST( test_compact_vs_coldread ),
     TEST( test_coldload_vs_overwrite ),

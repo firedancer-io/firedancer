@@ -1409,7 +1409,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_tower_align(),         fd_tower_footprint( slot_max, VTR_MAX )                       );
   l = FD_LAYOUT_APPEND( l, fd_tower_vote_align(),    fd_tower_vote_footprint()                                     );
   l = FD_LAYOUT_APPEND( l, publishes_align(),        publishes_footprint( pub_max )                                );
-  l = FD_LAYOUT_APPEND( l, fd_accdb_align(),         fd_accdb_footprint( tile->tower.max_live_slots )              );
+  l = FD_LAYOUT_APPEND( l, fd_accdb_align(),         fd_accdb_footprint( tile->tower.max_live_slots, 0 )              );
   ulong epoch_vtr_chain_cnt = epoch_vtr_map_chain_cnt_est( VTR_MAX );
   l = FD_LAYOUT_APPEND( l, epoch_vtr_pool_align(),         epoch_vtr_pool_footprint( VTR_MAX )                     );
   l = FD_LAYOUT_APPEND( l, epoch_vtr_map_align(),          epoch_vtr_map_footprint( epoch_vtr_chain_cnt )          );
@@ -1447,7 +1447,7 @@ init_choreo( void                 * scratch,
   void  * tower         = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_align(),         fd_tower_footprint( slot_max, VTR_MAX )                       );
   void  * scratch_tower = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_vote_align(),    fd_tower_vote_footprint()                                     );
   void  * publishes     = FD_SCRATCH_ALLOC_APPEND( l, publishes_align(),        publishes_footprint( pub_max )                                );
-  void  * accdb         = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),         fd_accdb_footprint( tile->tower.max_live_slots )              );
+  void  * accdb         = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),         fd_accdb_footprint( tile->tower.max_live_slots, 0 )              );
   ulong epoch_vtr_chain_cnt = epoch_vtr_map_chain_cnt_est( VTR_MAX );
   void  * root_epoch_vtr_pool   = FD_SCRATCH_ALLOC_APPEND( l, epoch_vtr_pool_align(),         epoch_vtr_pool_footprint( VTR_MAX )             );
   void  * root_epoch_vtr_map    = FD_SCRATCH_ALLOC_APPEND( l, epoch_vtr_map_align(),          epoch_vtr_map_footprint( epoch_vtr_chain_cnt )  );
@@ -1465,7 +1465,7 @@ init_choreo( void                 * scratch,
   ctx->scratch_tower      = fd_tower_vote_join         ( fd_tower_vote_new         ( scratch_tower )                                             );
   ctx->publishes          = publishes_join             ( publishes_new             ( publishes, pub_max )                                        );
   fd_sleep_t * accdb_sleep = topo->sleep_obj_id!=ULONG_MAX ? fd_sleep_join( fd_topo_obj_laddr( topo, topo->sleep_obj_id ) ) : NULL;
-  ctx->accdb              = fd_accdb_join              ( fd_accdb_new              ( accdb, _accdb_shmem, FD_ACCDB_FD_RW, 0UL, NULL, accdb_sleep, fd_topo_find_tile( topo, "accdb", 0UL ) ) );
+  ctx->accdb              = fd_accdb_join              ( fd_accdb_new              ( accdb, _accdb_shmem, FD_ACCDB_FD_RW, 0UL, NULL, accdb_sleep, fd_topo_find_tile( topo, "accdb", 0UL ), 0 ) );
   ctx->mleaders           = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( ctx->mleaders_mem )                                         );
   ctx->root_epoch_vtr_pool = epoch_vtr_pool_join( epoch_vtr_pool_new( root_epoch_vtr_pool, VTR_MAX ) );
   ctx->root_epoch_vtr_map  = epoch_vtr_map_join ( epoch_vtr_map_new ( root_epoch_vtr_map,  epoch_vtr_chain_cnt, ctx->seed ) );

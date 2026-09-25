@@ -58,7 +58,8 @@ FD_FN_CONST ulong
 fd_accdb_align( void );
 
 FD_FN_CONST ulong
-fd_accdb_footprint( ulong max_live_slots );
+fd_accdb_footprint( ulong max_live_slots,
+                    int   compaction );
 
 /* fd_accdb_new constructs the local joiner state for an accdb writer
    (or compaction tile).  fd is an O_RDWR fd of the on-disk file.
@@ -82,7 +83,9 @@ fd_accdb_footprint( ulong max_live_slots );
    sleep, if non-NULL, is the sleep object the accdb tile parks on and
    sleep_tile_id its tile id there.  The join rings it whenever it hands
    the tile work (a command, or the cache free list crossing its low
-   water mark).  NULL when the accdb tile spins. */
+   water mark).  NULL when the accdb tile spins.
+
+   compaction must match the value given to fd_accdb_footprint. */
 
 struct fd_sleep_private;
 
@@ -93,7 +96,8 @@ fd_accdb_new( void *                    ljoin,
               ulong                     external_epoch_cnt,
               ulong const **            external_epoch_slots,
               struct fd_sleep_private * sleep,
-              ulong                     sleep_tile_id );
+              ulong                     sleep_tile_id,
+              int                       compaction );
 
 fd_accdb_t *
 fd_accdb_join( void * shaccdb );

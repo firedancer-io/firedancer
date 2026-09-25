@@ -525,9 +525,9 @@ main( int     argc,
      accounts.  The rpc tile will join read-only against the same shmem. */
   fd_accdb_shmem_t * writer_shmem = fd_accdb_shmem_join( accdb_shmem_mem );
   FD_TEST( writer_shmem );
-  void * writer_ljoin = fd_wksp_alloc_laddr( wksp, fd_accdb_align(), fd_accdb_footprint( max_live_slots ), 1UL );
+  void * writer_ljoin = fd_wksp_alloc_laddr( wksp, fd_accdb_align(), fd_accdb_footprint( max_live_slots, 0 ), 1UL );
   FD_TEST( writer_ljoin );
-  fd_accdb_t * writer_accdb = fd_accdb_join( fd_accdb_new( writer_ljoin, writer_shmem, accdb_data_fd, 0UL, NULL, NULL, 0UL ) );
+  fd_accdb_t * writer_accdb = fd_accdb_join( fd_accdb_new( writer_ljoin, writer_shmem, accdb_data_fd, 0UL, NULL, NULL, 0UL, 0 ) );
   FD_TEST( writer_accdb );
 
   fd_accdb_fork_id_t test_fork_id;

@@ -109,7 +109,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND(   l, alignof(fd_execrp_tile_t),    sizeof(fd_execrp_tile_t)                             );
   l = FD_LAYOUT_APPEND(   l, fd_txncache_align(),          fd_txncache_footprint( tile->execrp.max_live_slots ) );
-  l = FD_LAYOUT_APPEND(   l, fd_accdb_align(),             fd_accdb_footprint( tile->execrp.max_live_slots )    );
+  l = FD_LAYOUT_APPEND(   l, fd_accdb_align(),             fd_accdb_footprint( tile->execrp.max_live_slots, 0 )    );
   l = FD_LAYOUT_APPEND(   l, FD_PROGCACHE_SCRATCH_ALIGN,   FD_PROGCACHE_SCRATCH_FOOTPRINT                       );
 
   if( FD_UNLIKELY( strlen( tile->execrp.solcap_capture ) ) ) {
@@ -357,7 +357,7 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_execrp_tile_t * ctx    = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_execrp_tile_t),    sizeof(fd_execrp_tile_t)                             );
   void * _txncache          = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),          fd_txncache_footprint( tile->execrp.max_live_slots ) );
-  void * _accdb             = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),             fd_accdb_footprint( tile->execrp.max_live_slots )    );
+  void * _accdb             = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),             fd_accdb_footprint( tile->execrp.max_live_slots, 0 )    );
   uchar * pc_scratch        = FD_SCRATCH_ALLOC_APPEND( l, FD_PROGCACHE_SCRATCH_ALIGN,   FD_PROGCACHE_SCRATCH_FOOTPRINT                       );
 
   void * _capture_ctx = NULL;
@@ -403,7 +403,7 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_accdb_shmem_t * accdb_shmem = fd_accdb_shmem_join( _accdb_shmem );
   FD_TEST( accdb_shmem );
   fd_sleep_t * accdb_sleep = topo->sleep_obj_id!=ULONG_MAX ? fd_sleep_join( fd_topo_obj_laddr( topo, topo->sleep_obj_id ) ) : NULL;
-  ctx->accdb = fd_accdb_join( fd_accdb_new( _accdb, accdb_shmem, FD_ACCDB_FD_RW, 0UL, NULL, accdb_sleep, fd_topo_find_tile( topo, "accdb", 0UL ) ) );
+  ctx->accdb = fd_accdb_join( fd_accdb_new( _accdb, accdb_shmem, FD_ACCDB_FD_RW, 0UL, NULL, accdb_sleep, fd_topo_find_tile( topo, "accdb", 0UL ), 0 ) );
   FD_TEST( ctx->accdb );
 
   /* First find and setup the in-link from replay to exec. */
