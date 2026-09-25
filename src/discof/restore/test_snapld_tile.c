@@ -116,7 +116,7 @@ test_start( int file,
     fd_memset( start->path, 'x', sizeof(start->path) );
     start->path_len = sizeof(start->path);
   }
-  long before = fd_log_wallclock();
+  long before = fd_clock_tile_now( ctx->clock );
   FD_TEST( !returnable_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_CTRL_START, 0UL, file ? 0UL : sizeof(*start), 0UL, 0UL, 0UL, NULL ) );
   if( bad_target ) {
     FD_TEST( init_cnt==1UL && !ctx->pipeline_ready && ctx->state==FD_SNAPSHOT_STATE_ERROR );
