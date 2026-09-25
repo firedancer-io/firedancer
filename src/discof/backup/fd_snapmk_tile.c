@@ -178,6 +178,7 @@ struct fd_snapmk {
 
   int   incremental;
   ulong base_slot;
+  int   fail_reason; /* FD_EVENT_SNAPSHOT_CREATED_RESULT_* reported by SNAPMK_STATE_FAIL */
 
   struct {
     fd_accdb_delta_t const * pool;
@@ -731,6 +732,21 @@ snapmk_eof_marker( fd_snapmk_t * ctx ) {
   zip_flush( ctx, ZSTD_e_end );
 }
 
+/* snap_fd_unlock releases the write lock snap_pool_acquire took on the
+   snapshot file being written. */
+
+static void
+snap_fd_unlock( fd_snapmk_t * ctx ) {
+  struct flock lock = {
+    .l_type   = F_UNLCK,
+    .l_whence = SEEK_SET
+  };
+  if( FD_UNLIKELY( fcntl( ctx->snap_fd, F_SETLK, &lock ) ) ) {
+    FD_LOG_ERR(( "fcntl(F_UNLCK, %s) failed: %i-%s",
+                 ctx->pool[ ctx->snap_idx ].name, errno, fd_io_strerror( errno ) ));
+  }
+}
+
 /* snapmk_done_rename renames the "partial" snapshot file to a proper
    "snapshot-*.tar.zst" or "incremental-snapshot-*-*.tar.zst" file. */
 
@@ -744,14 +760,7 @@ snapmk_done_rename( fd_snapmk_t * ctx ) {
   ctx->pool_sz[ ctx->snap_idx ] = ctx->final_sz;
 
   fd_backup_inode_t * inode = &ctx->pool[ ctx->snap_idx ];
-  struct flock lock = {
-    .l_type   = F_UNLCK,
-    .l_whence = SEEK_SET
-  };
-  if( FD_UNLIKELY( fcntl( ctx->snap_fd, F_SETLK, &lock ) ) ) {
-    FD_LOG_ERR(( "fcntl(F_UNLCK, %s) failed: %i-%s",
-                 inode->name, errno, fd_io_strerror( errno ) ));
-  }
+  snap_fd_unlock( ctx );
   if( FD_UNLIKELY( syscall( SYS_renameat2, ctx->snap_dir_fd, inode->name,
                            ctx->snap_dir_fd, ctx->final_name, 0U ) ) ) {
     FD_LOG_ERR(( "renameat2(%s, %s) failed: %s", inode->name, ctx->final_name, fd_io_strerror( errno ) ));
@@ -779,6 +788,26 @@ snapmk_done_rename( fd_snapmk_t * ctx ) {
                 (double)file_sz/1e9 ));
 
   ctx->state = SNAPMK_STATE_DONE;
+}
+
+/* snapmk_abort_discard drops the partially written incremental
+   snapshot file.  Its pool slot already carries the placeholder name
+   and ULONG_MAX slots (see snap_pool_acquire), so only the contents
+   and the lock need cleaning up. */
+
+static void
+snapmk_abort_discard( fd_snapmk_t * ctx ) {
+  if( FD_UNLIKELY( ftruncate( ctx->snap_fd, 0L ) ) ) {
+    FD_LOG_ERR(( "ftruncate(%s) failed: %i-%s", ctx->pool[ ctx->snap_idx ].name, errno, fd_io_strerror( errno ) ));
+  }
+  ctx->pool_sz[ ctx->snap_idx ] = 0UL;
+  snap_fd_unlock( ctx );
+  ctx->snap_fd  = -1;
+  ctx->end_time = fd_log_wallclock();
+  FD_LOG_WARNING(( "incremental snapshot (slot %lu, base slot %lu) discarded after %.3f seconds: needs more than %lu appendvecs",
+                   ctx->bank->f.slot, ctx->base_slot,
+                   (double)( ctx->end_time - ctx->start_time )/1e9,
+                   ctx->bank->f.slot - ctx->base_slot ));
 }
 
 /* snapshot_sync_advance requests replay to advance the snapshot sync
@@ -1355,9 +1384,10 @@ after_credit( fd_snapmk_t *       ctx,
       ulong chunk;
       fd_backup_start_msg_t * frag = zp_alloc( ctx, i, sizeof(fd_backup_start_msg_t), &chunk );
       memset( frag, 0, sizeof(fd_backup_start_msg_t) );
-      frag->slot     = ctx->bank->f.slot;
-      frag->snap_idx = ctx->snap_idx;
-      frag->fork_id  = ctx->bank->accdb_fork_id.val;
+      frag->slot      = ctx->bank->f.slot;
+      frag->base_slot = ctx->base_slot;
+      frag->snap_idx  = ctx->snap_idx;
+      frag->fork_id   = ctx->bank->accdb_fork_id.val;
       ulong ctl = fd_frag_meta_ctl( FD_BACKUP_ORIG_START, 0, 0, 0 );
       zp_publish( ctx, stem, i, 0UL, chunk, sizeof(fd_backup_start_msg_t), ctl, 0UL, 0UL );
       ctx->zp_flush_pending &= ~fd_ulong_mask_bit( (int)i );
@@ -1422,7 +1452,8 @@ after_credit( fd_snapmk_t *       ctx,
   }
   case SNAPMK_STATE_ACCDB_DELTA: {
     *charge_busy = 1;
-    if( FD_UNLIKELY( !snapmk_accdb_delta( ctx, stem ) ) ) {
+    int overflow = !!__atomic_load_n( &ctx->stats->appendvec_overflow, __ATOMIC_RELAXED ); /* no point feeding a doomed archive */
+    if( FD_UNLIKELY( overflow || !snapmk_accdb_delta( ctx, stem ) ) ) {
       barrier_install( ctx, stem );
       broadcast_prepare( ctx );
       ctx->state = SNAPMK_STATE_ACCDB_DELTA_FLUSH;
@@ -1438,7 +1469,18 @@ after_credit( fd_snapmk_t *       ctx,
   }
   case SNAPMK_STATE_ACCDB_DISK_FINISH:
   case SNAPMK_STATE_ACCDB_DELTA_FINISH: {
-    /* accounts done, snapzp workers idle; now process status cache */
+    /* accounts done, snapzp workers idle */
+    if( FD_UNLIKELY( __atomic_load_n( &ctx->stats->appendvec_overflow, __ATOMIC_ACQUIRE ) ) ) {
+      /* archive incomplete (see zip_flush): discard it, then release
+         the workers and accdb like a finished archive */
+      *charge_busy = 1;
+      snapmk_abort_discard( ctx );
+      ctx->fail_reason = FD_EVENT_SNAPSHOT_CREATED_RESULT_TOO_MANY_INCREMENTAL_APPENDVECS;
+      broadcast_prepare( ctx );
+      ctx->state = SNAPMK_STATE_DONE;
+      break;
+    }
+    /* now process status cache */
     long file_sz = lseek( ctx->snap_fd, 0L, SEEK_END );
     if( FD_UNLIKELY( file_sz<0L ) ) {
       FD_LOG_ERR(( "lseek failed: %i-%s", errno, fd_io_strerror( errno ) ));
@@ -1470,6 +1512,10 @@ after_credit( fd_snapmk_t *       ctx,
     ulong ctl = fd_frag_meta_ctl( FD_BACKUP_ORIG_DONE, 0, 1, 0 );
     if( broadcast( ctx, stem, ctl, charge_busy ) ) {
       snapshot_sync_transition( ctx, FD_ACCDB_SNAPSHOT_SYNC_RUNNING, FD_ACCDB_SNAPSHOT_SYNC_DONE, FD_ACCDB_SNAPSHOT_SYNC_IDLE );
+      if( FD_UNLIKELY( ctx->fail_reason ) ) { /* archive was discarded */
+        ctx->state = SNAPMK_STATE_FAIL;
+        break;
+      }
       fd_snapmk_msg_created_t * msg = &snapmk_msg_alloc( ctx )->created;
       *msg = (fd_snapmk_msg_created_t) {
         .slot      = ctx->bank->f.slot,
@@ -1529,7 +1575,7 @@ after_credit( fd_snapmk_t *       ctx,
   }
   case SNAPMK_STATE_FAIL: {
     fd_event_snapshot_created_t ev[1];
-    snapshot_event_init( ctx, FD_EVENT_SNAPSHOT_CREATED_RESULT_TOO_MANY_INCREMENTAL_ACCOUNTS, ev );
+    snapshot_event_init( ctx, ctx->fail_reason, ev );
     snapmk_msg_alloc( ctx )->failed = (fd_snapmk_msg_failed_t) {
       .slot      = ctx->bank->f.slot,
       .base_slot = ctx->base_slot
@@ -1713,8 +1759,9 @@ snap_start( fd_snapmk_t *                  ctx,
   if( FD_UNLIKELY( sync_ack==FD_ACCDB_SNAPSHOT_SYNC_FAIL ) ) {
     FD_LOG_WARNING(( "cannot create incremental snapshot, too many accounts changed (increase [snapshots.max_incremental_snapshot_accounts])" ));
     snapshot_sync_transition( ctx, FD_ACCDB_SNAPSHOT_SYNC_FAIL, FD_ACCDB_SNAPSHOT_SYNC_DONE, FD_ACCDB_SNAPSHOT_SYNC_IDLE );
-    ctx->end_time = fd_log_wallclock();
-    ctx->state = SNAPMK_STATE_FAIL;
+    ctx->end_time    = fd_log_wallclock();
+    ctx->fail_reason = FD_EVENT_SNAPSHOT_CREATED_RESULT_TOO_MANY_INCREMENTAL_ACCOUNTS;
+    ctx->state       = SNAPMK_STATE_FAIL;
     return -1;
   }
   if( FD_UNLIKELY( sync_ack!=FD_ACCDB_SNAPSHOT_SYNC_RUNNING ) ) {
@@ -1796,6 +1843,10 @@ snap_start( fd_snapmk_t *                  ctx,
   ctx->delta.ele_total = incremental ? __atomic_load_n( &ctx->accdb_shmem->delta.head, __ATOMIC_RELAXED ) : 0UL;
 
   visited_set_null( ctx->visited_set );
+
+  /* every snapzp tile is idle here */
+  fd_backup_appendvec_reset( ctx->stats );
+  ctx->fail_reason = 0;
 
   ctx->state              = SNAPMK_STATE_START;
   ctx->zp_ready           = 0UL;
@@ -2128,6 +2179,7 @@ max_event_sz( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   return sizeof(fd_event_snapshot_created_t);
 }
 
+#ifndef FD_TILE_TEST
 fd_topo_run_tile_t fd_tile_snapmk = {
   .name                     = "snapmk",
   .populate_allowed_fds     = populate_allowed_fds,
@@ -2140,3 +2192,4 @@ fd_topo_run_tile_t fd_tile_snapmk = {
   .max_event_sz             = max_event_sz,
   .allow_renameat           = 1
 };
+#endif

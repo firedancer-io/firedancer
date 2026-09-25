@@ -370,6 +370,7 @@ enum SnapshotCreatedResult {
   SNAPSHOT_CREATED_RESULT_UNSPECIFIED = 0;
   SNAPSHOT_CREATED_RESULT_SUCCESS = 1;  // The snapshot was produced and published to the local snapshot directory.
   SNAPSHOT_CREATED_RESULT_TOO_MANY_INCREMENTAL_ACCOUNTS = 2;  // The incremental snapshot could not be produced because more accounts changed than snapshots.max_incremental_snapshot_accounts permits.
+  SNAPSHOT_CREATED_RESULT_TOO_MANY_INCREMENTAL_APPENDVECS = 3;  // The incremental snapshot could not be produced because the changed accounts needed more appendvecs than there are slots between the base slot and the snapshot slot (one slot per appendvec).
 }
 
 // Zstandard compression strategy.
