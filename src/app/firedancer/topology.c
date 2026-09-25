@@ -287,6 +287,7 @@ fd_topo_initialize( config_t * config ) {
   int leader_enabled    = !!config->firedancer.layout.enable_block_production;
   int rserve_enabled    = config->tiles.rserve.enabled;
   int alpenglow_enabled = config->firedancer.development.alpenglow;
+  int efficient_mode    = !strcmp( config->firedancer.layout.mode, "efficient" );
 
   char const * repair = alpenglow_enabled ? "rotor" : "repair";
   char const * poh    = alpenglow_enabled ? "motor" : "poh";
@@ -566,6 +567,8 @@ fd_topo_initialize( config_t * config ) {
                    cpu_idx, cpus->cpu_cnt ));
     tile_to_cpu[ i ] = fd_ulong_if( parsed_tile_to_cpu[ i ]==USHORT_MAX, ULONG_MAX, (ulong)parsed_tile_to_cpu[ i ] );
   }
+
+  if( FD_UNLIKELY( efficient_mode ) ) fd_topob_sleep( topo, "metric_in", tile_to_cpu[ topo->tile_cnt ] );
 
   int xsk_core_dump = config->development.core_dump_level >= FD_TOPO_CORE_DUMP_LEVEL_REGULAR ? 1 : 0;
   fd_topos_net_tiles( topo, net_tile_cnt, &config->net, config->tiles.netlink.max_routes, config->tiles.netlink.max_peer_routes, config->tiles.netlink.max_neighbors, xsk_core_dump, tile_to_cpu );
@@ -1339,6 +1342,8 @@ fd_topo_initialize( config_t * config ) {
 
   fd_topob_waker( topo );
 
+  fd_topob_sleep_finish( topo );
+
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_configure_tile( &topo->tiles[ i ], config );
     if( FD_UNLIKELY( !strcmp( topo->tiles[ i ].name, "gui" ) ) ) topo->tiles[ i ].gui.tile_cnt = topo->tile_cnt;
@@ -1839,6 +1844,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     fd_cstr_ncpy( tile->diag.log_path,       config->log.path,        sizeof(tile->diag.log_path)      );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "waker" ) ) ) {
+
+  } else if( FD_UNLIKELY( !strcmp( tile->name, "mwaitx" ) ) ) {
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "gui" ) ) ) {
 

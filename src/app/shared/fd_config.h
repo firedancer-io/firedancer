@@ -105,6 +105,8 @@ struct fd_configf {
   } accounts;
 
   struct {
+    char mode[ 16 ];
+
     int  enable_block_production;
     int  enable_snapshot_production;
     uint sign_tile_count;

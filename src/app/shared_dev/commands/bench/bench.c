@@ -132,6 +132,7 @@ add_bench_topo( fd_topo_t  * topo,
 
   /* This will blow away previous auto topology layouts and recompute an auto topology. */
   if( FD_UNLIKELY( is_bench_auto_affinity ) ) fd_topob_auto_layout( topo, reserve_agave_cores );
+  fd_topob_sleep_finish( topo );
   fd_topob_finish( topo, CALLBACKS );
 }
 

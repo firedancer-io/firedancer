@@ -99,6 +99,8 @@ backtest_topo( config_t * config ) {
   fd_topob_wksp( topo, "metric_in" );
   fd_topob_tile( topo, "metric", "metric", "metric_in", FLOAT_CPU, 0, 0, 0, 1 );
 
+  if( FD_UNLIKELY( !strcmp( config->firedancer.layout.mode, "efficient" ) ) ) fd_topob_sleep( topo, "metric_in", NEXT_CPU );
+
   fd_topob_wksp( topo, "backt" );
   fd_topo_tile_t * backt_tile = fd_topob_tile( topo, "backt", "backt", "metric_in", NEXT_CPU, 0, 0, 0, 0 );
 
@@ -467,6 +469,7 @@ backtest_topo( config_t * config ) {
   }
 
   fd_topob_waker( topo );
+  fd_topob_sleep_finish( topo );
 
   fd_topob_finish( topo, CALLBACKS );
 }

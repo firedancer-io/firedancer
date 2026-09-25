@@ -97,6 +97,8 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( uint,   layout.snapsv_tile_count                            );
   CFG_POP      ( uint,   layout.snapsv_io_worker_count                       );
 
+  CFG_POP      ( cstr,   layout.mode                                         );
+
   CFG_POP      ( ulong,  accounts.max_accounts                               );
   CFG_POP      ( ulong,  accounts.cache_size_gib                             );
 
