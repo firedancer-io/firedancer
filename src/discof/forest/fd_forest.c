@@ -1611,6 +1611,7 @@ fd_forest_publish( fd_forest_t * forest, ulong new_root_slot ) {
   fd_forest_subtrees_t * subtrees = fd_forest_subtrees( forest );
   fd_forest_subtlist_t * subtlist = fd_forest_subtlist( forest );
   fd_forest_ref_t *      conspool = fd_forest_conspool( forest );
+  fd_forest_ref_t *      reqspool = fd_forest_reqspool( forest );
   fd_forest_blk_t *      pool     = fd_forest_pool( forest );
   ulong                  null     = fd_forest_pool_idx_null( pool );
   ulong *                queue    = fd_forest_deque( forest );
@@ -1639,6 +1640,17 @@ fd_forest_publish( fd_forest_t * forest, ulong new_root_slot ) {
     new_root_ele->buffered_idx = 0;
     requests_insert( forest, fd_forest_requests( forest ), fd_forest_reqslist( forest ), fd_forest_pool_idx( pool, new_root_ele ) );
     advance_consumed_frontier( forest, new_root_slot, 0 ); /* advances consumed frontier if possible */
+  }
+
+  /* If a reqslist ancestor is pruned after the root advances,
+     reseed reqslist with the new root. */
+  int lost_cover = 0;
+  for( fd_forest_blk_t * anc = fd_forest_pool_ele( pool, new_root_ele->parent ); anc; anc = fd_forest_pool_ele( pool, anc->parent ) ) {
+    ulong anc_idx = fd_forest_pool_idx( pool, anc );
+    if( fd_forest_requests_ele_query( fd_forest_requests( forest ), &anc_idx, NULL, fd_forest_reqspool( forest ) ) ) {
+      lost_cover = 1;
+      break;
+    }
   }
 
   /* First, remove the previous root, and add it to a FIFO prune queue.
@@ -1704,21 +1716,33 @@ fd_forest_publish( fd_forest_t * forest, ulong new_root_slot ) {
     }
   }
 
+  /* Check both lists now, consumed_insert below adds to conslist. */
+  int conslist_empty = fd_forest_conslist_is_empty( fd_forest_conslist( forest ), conspool );
+  int reqslist_empty = fd_forest_reqslist_is_empty( fd_forest_reqslist( forest ), reqspool );
+
   /* If there is nothing on the consumed, like in the case where we
      publish to an orphan, or during catchup where all of our repair
      consumed frontiers were < the new root. In that case we need to
      continue repairing from the new root, so add it to the consumed
      map. */
 
-  if( FD_UNLIKELY( fd_forest_conslist_is_empty( fd_forest_conslist( forest ), conspool ) ) ) {
+  if( FD_UNLIKELY( conslist_empty ) ) {
     consumed_insert( forest, fd_forest_pool_idx( pool, new_root_ele ) );
-    requests_insert( forest, fd_forest_requests( forest ), fd_forest_reqslist( forest ), fd_forest_pool_idx( pool, new_root_ele ) );
+
     /* TODO: is there a chance when we actually need to repair the root
        after snapshot expected slot goes in? in this case this is
        invalid */
     new_root_ele->complete_idx = 0;
     new_root_ele->buffered_idx = 0;
     advance_consumed_frontier( forest, new_root_ele->slot, 0 );
+  }
+
+  /* Repair only reaches a slot by walking down from an ele on
+     reqslist, so if the prune emptied it, nothing below the new root
+     will ever be requested again. conslist can stay non-empty while
+     reqslist empties. */
+  if( FD_UNLIKELY( conslist_empty || reqslist_empty || lost_cover ) ) {
+    requests_insert( forest, fd_forest_requests( forest ), fd_forest_reqslist( forest ), fd_forest_pool_idx( pool, new_root_ele ) );
   }
 
   /* Lastly, cleanup orphans if there orphan heads < new_root_slot.
