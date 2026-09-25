@@ -9,10 +9,14 @@
 FD_PROTOTYPES_BEGIN
 
 /* FD_KEYGUARD_SIGN_REQ_MTU is the maximum size (inclusive) of a signing
-   request payload.  The payload in this case is the message byte array
-   passed to fd_ed25519_sign. */
+   request.  Usually the request is exactly the message to sign.  A BLS
+   request instead prepends FD_KEYGUARD_BLS_PUBKEY_SZ selector bytes;
+   the selector is not included in the signed message. */
 
 #define FD_KEYGUARD_SIGN_REQ_MTU (2048UL)
+
+#define FD_KEYGUARD_BLS_PUBKEY_SZ (48UL)
+#define FD_KEYGUARD_BLS_SIG_SZ    (192UL)
 
 /* Role definitions ***************************************************/
 
@@ -58,18 +62,16 @@ FD_PROTOTYPES_BEGIN
 #define FD_KEYGUARD_SIGN_TYPE_ED25519               (0)  /* ed25519_sign(input) */
 #define FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519        (1)  /* ed25519_sign(sha256(data)) */
 #define FD_KEYGUARD_SIGN_TYPE_PUBKEY_CONCAT_ED25519 (2)  /* ed25519_sign(pubkey-data) */
-#define FD_KEYGUARD_SIGN_TYPE_BLS                   (3)  /* bls_sign(vote) */
+#define FD_KEYGUARD_SIGN_TYPE_BLS                   (3)  /* bls_sign(request[48..]) */
 #define FD_KEYGUARD_SIGN_TYPE_CNT                   (4)  /* number of sign types */
-
-
-#define FD_KEYGUARD_BLS_SIG_SZ (192UL) /* matches FD_BLS_SIG_SZ */
 
 /* Type confusion/ambiguity checks ************************************/
 
 /* fd_keyguard_payload_match returns a bitwise OR of
    FD_KEYGUARD_PAYLOAD_{...}.
 
-   [data,data+sz) is the payload that is requested to be signed.
+   [data,data+sz) is the complete signing request.  For BLS, the first
+   FD_KEYGUARD_BLS_PUBKEY_SZ bytes select the key and are not signed.
 
    sign_type is in FD_KEYGUARD_SIGN_TYPE_{...}.
 
@@ -99,7 +101,8 @@ typedef struct fd_keyguard_authority fd_keyguard_authority_t;
 /* fd_keyguard_payload_authorize decides whether the keyguard accepts
    a signing request.
 
-   [data,data+sz) is the payload that is requested to be signed.
+   [data,data+sz) is the complete signing request.  For BLS, the first
+   FD_KEYGUARD_BLS_PUBKEY_SZ bytes select the key and are not signed.
 
    role is one of FD_KEYGUARD_ROLE_{...}.  It is assumed that the origin
    of the request was previously authorized for the given role.

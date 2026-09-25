@@ -337,19 +337,20 @@ fd_keyguard_payload_matches_ag_vote( uchar const * data,
                                      ulong         sz,
                                      int           sign_type ) {
 
-  /* Alpenglow vote payload produced by ag_vote_signing_ser:
+  /* Alpenglow BLS request:
 
+     [48 bytes BLS public key selector, not signed]
      u8  tag            (1..5, WireConsensusMessageKind vote tags)
      u64 slot
      [32 bytes block id] only for notar (1) and notar fallback (4)
      u16 shred_version */
 
   if( sign_type != FD_KEYGUARD_SIGN_TYPE_BLS ) return 0;
-  if( sz!=11UL && sz!=43UL ) return 0;
-  uchar tag = data[ 0 ];
+  if( sz!=FD_KEYGUARD_BLS_PUBKEY_SZ+11UL && sz!=FD_KEYGUARD_BLS_PUBKEY_SZ+43UL ) return 0;
+  uchar tag = data[ FD_KEYGUARD_BLS_PUBKEY_SZ ];
   if( tag<1 || tag>5 ) return 0;
   int has_hash = ( tag==1 ) | ( tag==4 );
-  return has_hash ? ( sz==43UL ) : ( sz==11UL );
+  return has_hash ? ( sz==FD_KEYGUARD_BLS_PUBKEY_SZ+43UL ) : ( sz==FD_KEYGUARD_BLS_PUBKEY_SZ+11UL );
 }
 
 FD_FN_PURE int

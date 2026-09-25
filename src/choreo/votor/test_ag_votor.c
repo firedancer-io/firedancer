@@ -20,8 +20,27 @@
 static uchar scratch[ SCRATCH_MAX ] __attribute__((aligned(128)));
 
 static fd_bls_sec_t      g_sk  [ NV ];
+static uchar             g_bls_selector[ NV ][ FD_BLS_PUB_COMPRESSED_SZ ];
 static ag_validator_info_t g_info[ NV ];
 static ulong               g_hash_ctr = 0UL;
+static uchar               g_last_bls_selector[ FD_BLS_PUB_COMPRESSED_SZ ];
+
+static void
+capture_sign_fn( void *         ctx,
+                 fd_bls_sig_t * sig,
+                 uchar const *  public_key,
+                 uchar const *  msg,
+                 ulong          msg_sz ) {
+  (void)ctx;
+  memcpy( g_last_bls_selector, public_key, FD_BLS_PUB_COMPRESSED_SZ );
+  for( ulong i=0UL; i<NV; i++ ) {
+    if( FD_LIKELY( !memcmp( public_key, g_bls_selector[i], FD_BLS_PUB_COMPRESSED_SZ ) ) ) {
+      fd_bls_sec_sign( &g_sk[i], msg, msg_sz, sig );
+      return;
+    }
+  }
+  FD_LOG_CRIT(( "unknown test BLS selector" ));
+}
 
 static void
 genesis_hash( ag_block_hash_t out ) {
@@ -55,6 +74,7 @@ create_validators( void ) {
     g_info[i].id    = i;
     g_info[i].stake = 1UL;
     fd_bls_sec_to_pub( &g_sk[i], &g_info[i].bls_key );
+    blst_p1_compress( g_bls_selector[i], &g_info[i].bls_key );
   }
 }
 
@@ -123,8 +143,9 @@ setup_votor( long now ) {
   FD_TEST( ag_votor_footprint( TEST_SLOT_MAX )<=sizeof(scratch) );
   ag_votor_t * votor = ag_votor_join( ag_votor_new( scratch, TEST_SLOT_MAX, 42UL ) );
   FD_TEST( votor );
-  ag_votor_init         ( votor, 0UL, now, TEST_NS_PER_SLOT, TEST_SHRED_VERSION, sec_sign_fn, &g_sk[0] );
-  ag_votor_advance_epoch( votor, TEST_NS_PER_SLOT, 0UL, 0UL );
+  memset( g_last_bls_selector, 0, sizeof(g_last_bls_selector) );
+  ag_votor_init         ( votor, 0UL, now, TEST_NS_PER_SLOT, TEST_SHRED_VERSION, capture_sign_fn, &g_sk[0] );
+  ag_votor_advance_epoch( votor, TEST_NS_PER_SLOT, 0UL, 0UL, g_bls_selector[0] );
 
   g_epoch_info = &epoch_info_mem;
   epoch_info_build( g_epoch_info, g_info, NV );
@@ -190,7 +211,7 @@ test_boot_mid_window( void ) {
   ag_votor_t * votor = ag_votor_join( ag_votor_new( scratch, TEST_SLOT_MAX, 42UL ) );
   FD_TEST( votor );
   ag_votor_init         ( votor, 2UL, 0L, TEST_NS_PER_SLOT, TEST_SHRED_VERSION, sec_sign_fn, &g_sk[0] );
-  ag_votor_advance_epoch( votor, TEST_NS_PER_SLOT, 0UL, 0UL );
+  ag_votor_advance_epoch( votor, TEST_NS_PER_SLOT, 0UL, 0UL, g_bls_selector[0] );
 
   handle_timeouts( votor, TEST_WINDOW_ELAPSED_NS );
 
@@ -361,6 +382,95 @@ test_safe_to_skip( void ) {
   teardown_votor( votor );
 }
 
+static void
+test_bls_selector_rotates_with_epoch( void ) {
+  ag_votor_t * votor = setup_votor( 0L );
+  uchar bls_pubkey[ FD_BLS_PUB_COMPRESSED_SZ ];
+  memcpy( bls_pubkey, g_bls_selector[1], sizeof(bls_pubkey) );
+  ag_votor_advance_epoch( votor, TEST_NS_PER_SLOT, 1UL, 2UL, bls_pubkey );
+  memset( bls_pubkey, 0, sizeof(bls_pubkey) );
+  ag_votor_advance_epoch( votor, TEST_NS_PER_SLOT, 0UL, 4UL, g_bls_selector[0] );
+
+  ag_block_id_t parent = genesis_block_id();
+  ag_vote_t vote = send_block_and_expect_notar( votor, 1UL, &parent );
+  FD_TEST( ag_vote_rank( &vote )==0UL );
+  FD_TEST( !memcmp( g_last_bls_selector, g_bls_selector[0], FD_BLS_PUB_COMPRESSED_SZ ) );
+
+  parent = ag_block_id( 1UL, vote.notar.block_hash );
+  vote = send_block_and_expect_notar( votor, 2UL, &parent );
+  FD_TEST( ag_vote_rank( &vote )==1UL );
+  FD_TEST( !memcmp( g_last_bls_selector, g_bls_selector[1], FD_BLS_PUB_COMPRESSED_SZ ) );
+
+  parent = ag_block_id( 2UL, vote.notar.block_hash );
+  vote = send_block_and_expect_notar( votor, 3UL, &parent );
+  FD_TEST( ag_vote_rank( &vote )==1UL );
+  FD_TEST( !memcmp( g_last_bls_selector, g_bls_selector[1], FD_BLS_PUB_COMPRESSED_SZ ) );
+
+  parent = ag_block_id( 3UL, vote.notar.block_hash );
+  ag_event_pool_t parent_ready = { .kind = AG_EVENT_POOL_PARENT_READY };
+  parent_ready.parent_ready.slot   = 4UL;
+  parent_ready.parent_ready.parent = parent;
+  ag_votor_handle_pool_event( votor, &parent_ready, 0L );
+  vote = send_block_and_expect_notar( votor, 4UL, &parent );
+  FD_TEST( ag_vote_rank( &vote )==0UL );
+  FD_TEST( !memcmp( g_last_bls_selector, g_bls_selector[0], FD_BLS_PUB_COMPRESSED_SZ ) );
+
+  teardown_votor( votor );
+}
+
+static void
+test_missing_bls_selector_disables_voting( void ) {
+  for( ulong advances=0UL; advances<3UL; advances++ ) {
+    ag_votor_t * votor = setup_votor( 0L );
+    ag_votor_advance_epoch( votor, TEST_NS_PER_SLOT, 0UL, 2UL, NULL );
+
+    ag_block_id_t parent = genesis_block_id();
+    ag_vote_t vote = send_block_and_expect_notar( votor, 1UL, &parent );
+
+    /* The epoch without a key moves from next to current to previous. */
+    if( advances>0UL ) ag_votor_advance_epoch( votor, TEST_NS_PER_SLOT, 0UL, 4UL, g_bls_selector[0] );
+    if( advances>1UL ) ag_votor_advance_epoch( votor, TEST_NS_PER_SLOT, 1UL, 6UL, g_bls_selector[1] );
+
+    ag_event_block_t first_shred = { .kind = AG_EVENT_BLOCK_FIRST_SHRED, .slot = 2UL };
+    ag_votor_handle_block_event( votor, &first_shred );
+
+    ag_event_replay_t block = { .kind = AG_EVENT_REPLAY_COMPLETED, .slot = 2UL };
+    block.block_info.parent = ag_block_id( 1UL, vote.notar.block_hash );
+    random_hash( block.block_info.hash );
+    ag_votor_handle_replay_event( votor, &block );
+    FD_TEST_NO_MSG( votor );
+
+    teardown_votor( votor );
+  }
+}
+
+static void
+test_missing_bls_selector_still_skips_other_epoch( void ) {
+  for( int notar=0; notar<2; notar++ ) {
+    ag_votor_t * votor = setup_votor( 0L );
+    ag_votor_advance_epoch( votor, TEST_NS_PER_SLOT, 0UL, 2UL, NULL );
+
+    ag_event_pool_t event = { .kind = AG_EVENT_POOL_SAFE_TO_SKIP, .safe_to_skip = 2UL };
+    if( notar ) {
+      event.kind          = AG_EVENT_POOL_SAFE_TO_NOTAR;
+      event.safe_to_notar = random_block_id( 2UL );
+    }
+    ag_votor_handle_pool_event( votor, &event, 0L );
+
+    ag_event_vote_t vote;
+    FD_TEST( ag_votor_poll_vote_event( votor, &vote ) );
+    FD_TEST( vote.vote.kind==AG_VOTE_KIND_SKIP );
+    FD_TEST( ag_vote_slot( &vote.vote )==1UL );
+    FD_TEST( vote.reason==( notar ? AG_VOTOR_REASON_SAFE_TO_NOTAR : AG_VOTOR_REASON_SAFE_TO_SKIP ) );
+    FD_TEST_NO_MSG( votor );
+    ulong slot = 2UL;
+    slot_state_ele_t const * state = slot_state_map_ele_query_const( votor->slot_states->map, &slot, NULL, votor->slot_states->pool );
+    FD_TEST( state && !state->voted && !state->bad_window );
+
+    teardown_votor( votor );
+  }
+}
+
 /* src/consensus/votor.rs::prunes_to_finalized_window */
 
 static void
@@ -385,7 +495,7 @@ test_prunes_to_finalized_window( void ) {
 
   /* finalizing a mid-window slot should drop only the slots before its
      window */
-  ag_vote_t fv; fv = ag_vote_construct_final( sec_sign_fn, &g_sk[1], finalized, (ushort)1, TEST_SHRED_VERSION );
+  ag_vote_t fv; fv = ag_vote_construct_final( sec_sign_fn, &g_sk[1], test_bls_public_key, finalized, (ushort)1, TEST_SHRED_VERSION );
   ag_cert_t cert = cert_build_final( &fv.final, 1UL, g_epoch_info );
   ag_event_pool_t event = { .kind = AG_EVENT_POOL_CERT_CREATED, .cert_created = cert };
   ag_votor_handle_pool_event( votor, &event, 0L );
@@ -417,6 +527,9 @@ main( int     argc,
   test_pending_block_not_notarized_after_skip();
   test_safe_to_notar();
   test_safe_to_skip();
+  test_bls_selector_rotates_with_epoch();
+  test_missing_bls_selector_disables_voting();
+  test_missing_bls_selector_still_skips_other_epoch();
   test_prunes_to_finalized_window();
 
   FD_LOG_NOTICE(( "pass" ));

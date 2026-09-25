@@ -156,8 +156,10 @@ test_vote_txn_oob( void ) {
 static void
 test_ag_vote_authorize( void ) {
   fd_keyguard_authority_t authority = {0};
-  uchar skip[ 11 ]  = { 3 /* skip */ };
-  uchar notar[ 43 ] = { 1 /* notar */ };
+  uchar skip [ FD_KEYGUARD_BLS_PUBKEY_SZ+11UL ] = {0};
+  uchar notar[ FD_KEYGUARD_BLS_PUBKEY_SZ+43UL ] = {0};
+  skip [ FD_KEYGUARD_BLS_PUBKEY_SZ ] = 3; /* skip */
+  notar[ FD_KEYGUARD_BLS_PUBKEY_SZ ] = 1; /* notar */
 
   FD_TEST(  fd_keyguard_payload_authorize( &authority, skip,  sizeof(skip),  FD_KEYGUARD_ROLE_VOTOR,  FD_KEYGUARD_SIGN_TYPE_BLS     ) );
   FD_TEST(  fd_keyguard_payload_authorize( &authority, notar, sizeof(notar), FD_KEYGUARD_ROLE_VOTOR,  FD_KEYGUARD_SIGN_TYPE_BLS     ) );
@@ -169,10 +171,12 @@ test_ag_vote_authorize( void ) {
   /* hash-carrying tag with the short size and vice versa */
   FD_TEST( !fd_keyguard_payload_authorize( &authority, notar, sizeof(skip),  FD_KEYGUARD_ROLE_VOTOR,  FD_KEYGUARD_SIGN_TYPE_BLS     ) );
   FD_TEST( !fd_keyguard_payload_authorize( &authority, skip,  sizeof(notar), FD_KEYGUARD_ROLE_VOTOR,  FD_KEYGUARD_SIGN_TYPE_BLS     ) );
+  /* selector is mandatory */
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, skip+FD_KEYGUARD_BLS_PUBKEY_SZ, 11UL, FD_KEYGUARD_ROLE_VOTOR, FD_KEYGUARD_SIGN_TYPE_BLS ) );
   /* bad tag */
-  skip[ 0 ] = 6;
+  skip[ FD_KEYGUARD_BLS_PUBKEY_SZ ] = 6;
   FD_TEST( !fd_keyguard_payload_authorize( &authority, skip,  sizeof(skip),  FD_KEYGUARD_ROLE_VOTOR,  FD_KEYGUARD_SIGN_TYPE_BLS     ) );
-  skip[ 0 ] = 0;
+  skip[ FD_KEYGUARD_BLS_PUBKEY_SZ ] = 0;
   FD_TEST( !fd_keyguard_payload_authorize( &authority, skip,  sizeof(skip),  FD_KEYGUARD_ROLE_VOTOR,  FD_KEYGUARD_SIGN_TYPE_BLS     ) );
 }
 

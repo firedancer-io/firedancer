@@ -85,16 +85,17 @@ fd_keyguard_client_delete( void * shclient ) { return shclient; }
     will not timeout and instead hangs forever waiting for a response.
     This is currently by design.
 
-    sign_data should be a pointer to a buffer, with length sign_data_len
-    that will be signed.  The data should correspond to one of the
+    sign_data is the complete signing request, with length sign_data_len.
+    For BLS, it starts with FD_KEYGUARD_BLS_PUBKEY_SZ bytes selecting the
+    keyguard-owned BLS key, followed by the message to sign.  The selector
+    is not signed.  The data should correspond to one of the
     roles described in fd_keyguard.h.  If the remote signing tile
     receives a malformed signing request, or one for a role that does
     not correspond to the role assigned to the receiving mcache, it
     will abort the whole program with a critical error.
 
     The response is written into the signature buffer, which must be at
-    least that large: FD_KEYGUARD_BLS_SIG_SZ (192) bytes for
-    FD_KEYGUARD_SIGN_TYPE_BLS, 64 bytes for every other type.
+    least FD_KEYGUARD_BLS_SIG_SZ bytes for BLS, or 64 bytes otherwise.
 
     sign_type is in FD_KEYGUARD_SIGN_TYPE_{...}. */
 
