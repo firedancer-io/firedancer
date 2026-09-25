@@ -186,6 +186,7 @@
 | <span class="metrics-name">failov_&#8203;pending_&#8203;handshakes</span> | gauge | Failover candidate sockets awaiting TCP, TLS, or HELLO completion, excluding paired sessions |
 | <span class="metrics-name">failov_&#8203;admission_&#8203;drops</span> | counter | Accepted failover sockets closed before TLS setup because a session is already paired, an admission limit was reached, or the source address was invalid |
 | <span class="metrics-name">failov_&#8203;handshake_&#8203;timeouts</span> | counter | Failover candidates closed when the absolute TCP, TLS, and HELLO deadline expired |
+| <span class="metrics-name">failov_&#8203;switch_&#8203;overdue</span> | counter | Identity switches that outran the controller deadline and were waited for rather than abandoned |
 
 </div>
 

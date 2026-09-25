@@ -85,6 +85,7 @@ struct fd_failover_tile_ctx {
   ulong                        action_term;
   int                          paused;
   int                          stuck;         /* a transition failed, shown to the operator */
+  ulong                        switch_overdue_cnt; /* overdue switches, counted for the metric */
   ulong                        deadline_slot; /* replay slot at which this attempt aborts */
   int                          accept_peer_requests;
   ulong                        min_slots_to_leader;
@@ -500,6 +501,7 @@ switch_overdue( fd_failover_tile_ctx_t * ctx ) {
   ctx->stuck = 1;
   if( FD_LIKELY( ctx->switch_overdue ) ) return;
   ctx->switch_overdue = 1;
+  ctx->switch_overdue_cnt++;
   FD_LOG_WARNING(( "the identity switch at term %lu has not answered inside its deadline, waiting for it", ctx->action_term ));
 }
 
@@ -1912,6 +1914,7 @@ request_switch( fd_failover_tile_ctx_t * ctx,
   ctx->admin_out_chunk      = fd_dcache_compact_next( ctx->admin_out_chunk, sizeof(*out), ctx->admin_out_chunk0, ctx->admin_out_wmark );
   ctx->switch_pending_key   = key;
   ctx->switch_result_fresh  = 0;
+  ctx->switch_overdue       = 0;
   return ctx->switch_request_id;
 }
 
@@ -2329,6 +2332,7 @@ metrics_write( fd_failover_tile_ctx_t * ctx ) {
   FD_MGAUGE_SET( FAILOV, PENDING_HANDSHAKES,     status.pending_handshakes );
   FD_MCNT_SET  ( FAILOV, ADMISSION_DROPS,        status.admission_drops );
   FD_MCNT_SET  ( FAILOV, HANDSHAKE_TIMEOUTS,     status.handshake_timeouts );
+  FD_MCNT_SET  ( FAILOV, SWITCH_OVERDUE,         ctx->switch_overdue_cnt );
 }
 
 static inline void

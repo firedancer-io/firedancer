@@ -1152,6 +1152,7 @@ test_switch_overdue( void ) {
   step_controller( ctx, stem, 1000L );
   FD_TEST( ctx->state==FD_FAILOVER_STATE_PROMOTING && ctx->action==FD_FAILOVER_ACTION_PROMOTE_SWITCH );
   FD_TEST( ctx->switch_pending_key==FD_FAILOVER_SWITCH_KEY_STAKED && ctx->stuck && ctx->switch_overdue );
+  FD_TEST( ctx->switch_overdue_cnt==1UL ); /* said and counted once */
   FD_TEST( !ctx->pending_valid && ctx->demoted_valid );
 
   /* The late answer is consumed, not dropped, and finishes the promotion. */
@@ -1175,6 +1176,7 @@ test_switch_overdue( void ) {
   step_controller( ctx, stem, 1000L );
   FD_TEST( ctx->state==FD_FAILOVER_STATE_DEMOTING && ctx->action==FD_FAILOVER_ACTION_DEMOTE_SWITCH );
   FD_TEST( ctx->switch_pending_key==FD_FAILOVER_SWITCH_KEY_JUNK && ctx->stuck && !ctx->pending_valid );
+  FD_TEST( ctx->switch_overdue_cnt==2UL );
   ctx->switch_result.result          = FD_FAILOVER_SWITCH_OK;
   ctx->switch_result.tower_watermark = 9UL;
   ctx->tower_seen_seq                = 8UL;
