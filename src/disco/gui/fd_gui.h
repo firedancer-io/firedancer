@@ -598,14 +598,22 @@ typedef struct fd_gui_slot_rankings fd_gui_slot_rankings_t;
 #define FD_GUI_VOTE_LATENCY_NOT_VOTED ((uchar)(UCHAR_MAX))     /* vote missing */
 #define FD_GUI_VOTE_LATENCY_MAX       ((uchar)(UCHAR_MAX-1UL)) /* largest observable vote latency */
 
-#define FD_GUI_TIMELINE_SLOT_STATE_VALID   ((uchar)1U)
-#define FD_GUI_TIMELINE_SLOT_STATE_SKIPPED ((uchar)2U)
-#define FD_GUI_TIMELINE_SLOT_STATE_MINE    ((uchar)4U)
+#define FD_GUI_TIMELINE_SLOT_STATE_VALID     ((uchar)1U)
+#define FD_GUI_TIMELINE_SLOT_STATE_SKIPPED   ((uchar)2U)
+#define FD_GUI_TIMELINE_SLOT_STATE_MINE      ((uchar)4U)
+#define FD_GUI_TIMELINE_SLOT_STATE_STARTED   ((uchar)8U)
+#define FD_GUI_TIMELINE_SLOT_STATE_COMPLETED ((uchar)16U)
 
 struct fd_gui_epoch {
   ulong epoch;
   ulong timeline_slot_lo_idx;
   ulong timeline_slot_hi_idx;
+  /* STARTED marks first_shred_ns; COMPLETED marks an observed replay end
+     in end_ns.  Keep the arrival even while a skipped slot is interpolated
+     so a later completion can replace that interpolation.  VALID marks
+     classification, not timing coverage: replayed slots without an
+     observed start have start_ns==LONG_MAX. */
+  long  timeline_slot_first_shred_ns[ MAX_SLOTS_PER_EPOCH ];
   long  timeline_slot_start_ns[ MAX_SLOTS_PER_EPOCH ];
   long  timeline_slot_end_ns[ MAX_SLOTS_PER_EPOCH ];
   uchar timeline_slot_state[ MAX_SLOTS_PER_EPOCH ];

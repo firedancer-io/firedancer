@@ -3097,9 +3097,25 @@ The other stage-delta arrays from `TimelineTxnTs` are not included.
 | start_ns | `string` | Inclusive lower bound, using the timestamp rules above |
 | end_ns   | `string` | Exclusive upper bound |
 
-Returns one row per numeric slot whose duration overlaps the request
-window, ordered by slot. For skipped slots, boundaries are interpolated
-from their landed ancestors and descendants.
+Returns one row per classified numeric slot whose interval overlaps the
+request window, ordered by slot. A replayed slot starts at the earliest
+recorded turbine/repair shred arrival (first published shred for a locally
+produced slot) and ends at its replay `slot_complete` event timestamp.
+These intervals can overlap: a later slot's first shred can arrive before
+an earlier slot completes. Producer event timestamps are used, not the
+time the GUI receives the events. Replayed slots without an observed start
+or a positive interval are omitted.
+
+Skipped slots that were replayed use these observed boundaries too. If a
+skipped numeric slot completed replay more than once, its earliest recorded
+completion is used. A completion received after skip classification replaces
+the interpolated interval with the observed interval.
+
+Only skipped slots that were not replayed have interpolated boundaries,
+computed by evenly dividing the completion-time gap between their landed
+ancestor and descendant across the numeric slot gap. Arrival and completion
+timestamps are retained in the epoch cache, independently of detailed
+shred-event and replayed-fork history.
 
 **Tower:** classification advances along optimistically confirmed (OC)
 replayed ancestry. **Alpenglow:** it advances along the replayed rooted

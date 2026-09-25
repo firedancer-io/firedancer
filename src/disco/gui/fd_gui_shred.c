@@ -200,6 +200,33 @@ fd_gui_shred_event_append( fd_gui_t * gui,
     gui->shreds.dropped_event_cnt++;
     return;
   }
+  if( (marker && timestamp>=0L && timestamp!=LONG_MAX) ||
+      event==FD_GUI_SLOT_SHRED_SHRED_RECEIVED_TURBINE || event==FD_GUI_SLOT_SHRED_SHRED_RECEIVED_REPAIR ||
+      event==FD_GUI_SLOT_SHRED_SHRED_PUBLISHED ) {
+    /* Retain arrival/completion independently of detailed event and fork
+       eviction.  Producer timestamps need not arrive in timestamp order. */
+    fd_gui_epoch_t * epoch = fd_gui_get_epoch_by_slot( gui, slot );
+    if( epoch && slot>=epoch->start_slot && slot-epoch->start_slot<epoch->slot_cnt && slot-epoch->start_slot<MAX_SLOTS_PER_EPOCH ) {
+      ulong idx = slot-epoch->start_slot;
+      uchar state = epoch->timeline_slot_state[ idx ];
+      if( marker ) {
+        /* A landed slot uses its classified fork's completion.  Skipped
+           slots use the earliest recorded completion across replays,
+           including completions received after skip classification. */
+        if( !(state & FD_GUI_TIMELINE_SLOT_STATE_VALID) || (state & FD_GUI_TIMELINE_SLOT_STATE_SKIPPED) ) {
+          epoch->timeline_slot_end_ns[ idx ] = (state & FD_GUI_TIMELINE_SLOT_STATE_COMPLETED)
+            ? fd_long_min( epoch->timeline_slot_end_ns[ idx ], timestamp ) : timestamp;
+          epoch->timeline_slot_start_ns[ idx ] = (state & FD_GUI_TIMELINE_SLOT_STATE_STARTED)
+            ? epoch->timeline_slot_first_shred_ns[ idx ] : LONG_MAX;
+          epoch->timeline_slot_state[ idx ] = (uchar)(state | FD_GUI_TIMELINE_SLOT_STATE_COMPLETED);
+        }
+      } else if( !(state & FD_GUI_TIMELINE_SLOT_STATE_VALID) ) {
+        epoch->timeline_slot_first_shred_ns[ idx ] = (state & FD_GUI_TIMELINE_SLOT_STATE_STARTED)
+          ? fd_long_min( epoch->timeline_slot_first_shred_ns[ idx ], timestamp ) : timestamp;
+        epoch->timeline_slot_state[ idx ] = (uchar)(state | FD_GUI_TIMELINE_SLOT_STATE_STARTED);
+      }
+    }
+  }
   fd_gui_shred_batch_t * batch = &builder->batch;
   long window_ns = (long)shred_window( now )*FD_GUI_HIST_RES_1S_NS;
   if( batch->event_cnt && batch->insert_time_ns!=window_ns ) batch_flush( gui );

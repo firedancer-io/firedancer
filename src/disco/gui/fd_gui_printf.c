@@ -3669,8 +3669,15 @@ fd_gui_timeline_slot_bounds( fd_gui_t * gui ) {
       fd_gui_epoch_t const * epoch = fd_gui_epoch( gui, e );
       if( epoch && epoch->timeline_slot_lo_idx<=epoch->timeline_slot_hi_idx && epoch->timeline_slot_hi_idx<epoch->slot_cnt &&
           epoch->timeline_slot_hi_idx<MAX_SLOTS_PER_EPOCH ) {
-        first = fd_long_min( first, epoch->timeline_slot_start_ns[ epoch->timeline_slot_lo_idx ] );
-        last  = fd_long_max( last, epoch->timeline_slot_end_ns[ epoch->timeline_slot_hi_idx ] );
+        /* Arrival order need not match slot order.  Scan every retained
+           interval, excluding classified slots with missing timing. */
+        for( ulong i=epoch->timeline_slot_lo_idx; i<=epoch->timeline_slot_hi_idx; i++ ) {
+          long rs = epoch->timeline_slot_start_ns[ i ];
+          long re = epoch->timeline_slot_end_ns[ i ];
+          if( !(epoch->timeline_slot_state[ i ] & FD_GUI_TIMELINE_SLOT_STATE_VALID) || rs<0L || re<=rs ) continue;
+          first = fd_long_min( first, rs );
+          last  = fd_long_max( last, re );
+        }
       }
       if( e==hi ) break;
     }

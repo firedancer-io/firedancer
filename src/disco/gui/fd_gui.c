@@ -3362,6 +3362,7 @@ fd_gui_timeline_skipped_update( fd_gui_t *            gui,
       ulong s       = ps + k;
       int   skipped = k<count;
       int   mine    = landed_mine;
+      long  completed_ns = skipped ? LONG_MAX : c->completed_time;
       if( skipped ) {
         ulong off = (ulong)((((uint128)2UL*k-1UL)*duration)/((uint128)2UL*count));
         long  mid = pt + (long)off;
@@ -3375,6 +3376,7 @@ fd_gui_timeline_skipped_update( fd_gui_t *            gui,
         fd_gui_hist_kv_slot_iter_t it;
         for( fd_gui_hist_kv_iter_begin( gui, &it, FD_GUI_HIST_SLOT, s ); it.rec; fd_gui_hist_kv_iter_next( &it ) ) {
           fd_gui_slot_t * fork = (fd_gui_slot_t *)it.rec;
+          if( fork->completed_time>=0L ) completed_ns = fd_long_min( completed_ns, fork->completed_time );
           if( fork->mine && fork->completed_time>=0L && fork->completed_time!=LONG_MAX ) {
             mine = 1;
             if( !fork->timeline_mine_skipped_accounted ) {
@@ -3395,14 +3397,22 @@ fd_gui_timeline_skipped_update( fd_gui_t *            gui,
       fd_gui_epoch_t * epoch = fd_gui_get_epoch_by_slot( gui, s );
       FD_TEST( epoch );
       ulong idx = s - epoch->start_slot;
-      if( end>begin ) {
-        epoch->timeline_slot_start_ns[ idx ] = pt + (long)begin;
-        epoch->timeline_slot_end_ns[ idx ]   = pt + (long)end;
-        epoch->timeline_slot_state[ idx ]    = (uchar)(FD_GUI_TIMELINE_SLOT_STATE_VALID |
-          (skipped ? FD_GUI_TIMELINE_SLOT_STATE_SKIPPED : 0U) | (mine ? FD_GUI_TIMELINE_SLOT_STATE_MINE : 0U));
-        epoch->timeline_slot_lo_idx = epoch->timeline_slot_lo_idx==ULONG_MAX ? idx : fd_ulong_min( epoch->timeline_slot_lo_idx, idx );
-        epoch->timeline_slot_hi_idx = epoch->timeline_slot_hi_idx==ULONG_MAX ? idx : fd_ulong_max( epoch->timeline_slot_hi_idx, idx );
+      /* Interpolate only skipped slots that were not replayed.  Completed
+         forks use their observed interval even when classified skipped.
+         The cached completion survives eviction of the fork metadata. */
+      uchar state = epoch->timeline_slot_state[ idx ];
+      if( skipped && (state & FD_GUI_TIMELINE_SLOT_STATE_COMPLETED) ) {
+        completed_ns = fd_long_min( completed_ns, epoch->timeline_slot_end_ns[ idx ] );
       }
+      int interpolate = skipped && completed_ns==LONG_MAX;
+      long start_ns = (state & FD_GUI_TIMELINE_SLOT_STATE_STARTED) ? epoch->timeline_slot_first_shred_ns[ idx ] : LONG_MAX;
+      epoch->timeline_slot_start_ns[ idx ] = interpolate ? pt+(long)begin : start_ns;
+      epoch->timeline_slot_end_ns[ idx ]   = interpolate ? pt+(long)end : completed_ns;
+      epoch->timeline_slot_state[ idx ]    = (uchar)(FD_GUI_TIMELINE_SLOT_STATE_VALID |
+        (state & FD_GUI_TIMELINE_SLOT_STATE_STARTED) | (completed_ns!=LONG_MAX ? FD_GUI_TIMELINE_SLOT_STATE_COMPLETED : 0U) |
+        (skipped ? FD_GUI_TIMELINE_SLOT_STATE_SKIPPED : 0U) | (mine ? FD_GUI_TIMELINE_SLOT_STATE_MINE : 0U));
+      epoch->timeline_slot_lo_idx = epoch->timeline_slot_lo_idx==ULONG_MAX ? idx : fd_ulong_min( epoch->timeline_slot_lo_idx, idx );
+      epoch->timeline_slot_hi_idx = epoch->timeline_slot_hi_idx==ULONG_MAX ? idx : fd_ulong_max( epoch->timeline_slot_hi_idx, idx );
     }
     cs = ps;
     cb = pb;

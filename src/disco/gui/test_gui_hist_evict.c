@@ -1945,6 +1945,7 @@ test_timeline_ancestry( fd_gui_t * gui ) {
   fd_gui_slot_t * slot = fd_gui_slot_get( gui, 100UL, BANK_SEQ );
   slot->parent_slot = ULONG_MAX;
   slot->parent_bank_seq = ULONG_MAX;
+  fd_gui_shred_event_append( gui, 103UL, 0UL, FD_GUI_SLOT_SHRED_SHRED_PUBLISHED, ts+6666667L, ts );
   put_slot( gui, 103UL, ts+10000001L );
   slot = fd_gui_slot_get( gui, 103UL, BANK_SEQ );
   slot->parent_slot = 100UL;
@@ -2012,6 +2013,7 @@ test_timeline_ancestry( fd_gui_t * gui ) {
   slot = fd_gui_slot_get( gui, 109UL, BANK_SEQ );
   slot->parent_slot     = 106UL;
   slot->parent_bank_seq = BANK_SEQ;
+  fd_gui_shred_event_append( gui, 112UL, 0UL, FD_GUI_SLOT_SHRED_SHRED_RECEIVED_TURBINE, ts+sec_ns( 1UL )+666666666L, ts+sec_ns( 2UL ) );
   put_slot( gui, 112UL, ts+sec_ns( 2UL ) );
   slot = fd_gui_slot_get( gui, 112UL, BANK_SEQ );
   slot->parent_slot     = 109UL;
@@ -2094,6 +2096,7 @@ test_timeline_day_recovery( fd_gui_t * gui ) {
   fd_gui_slot_t * slot = fd_gui_slot_get( gui, 100UL, BANK_SEQ );
   slot->parent_slot     = ULONG_MAX;
   slot->parent_bank_seq = ULONG_MAX;
+  fd_gui_shred_event_append( gui, 103UL, 0UL, FD_GUI_SLOT_SHRED_SHRED_RECEIVED_TURBINE, ts+666666666L, ts );
   put_slot( gui, 103UL, ts+sec_ns( 1UL ) );
   slot = fd_gui_slot_get( gui, 103UL, BANK_SEQ );
   slot->parent_slot     = 100UL;
@@ -2109,6 +2112,8 @@ test_timeline_day_recovery( fd_gui_t * gui ) {
   ulong parents[] = { 103UL, 106UL, 109UL };
   for( ulong i=0UL; i<3UL; i++ ) {
     long now = FD_GUI_TIMELINE_DAY_NS + sec_ns( i+1UL );
+    fd_gui_shred_event_append( gui, slots[ i ], 0UL, FD_GUI_SLOT_SHRED_SHRED_RECEIVED_TURBINE,
+                              now-(i==2UL ? sec_ns( 1UL ) : 333333334L), now );
     put_slot( gui, slots[ i ], now );
     slot = fd_gui_slot_get( gui, slots[ i ], BANK_SEQ );
     slot->parent_slot     = parents[ i ];
@@ -2568,6 +2573,8 @@ test_timeline_limits( fd_gui_t * gui ) {
   json = timeline_response( gui );
   FD_TEST( test_json_ulong( timeline_value( json, "reference_slot" ) )==10UL );
   FD_TEST( test_json_string_eq( timeline_value( json, "reference_ts" ), "10" ) );
+  FD_TEST( test_json_string_eq( timeline_value( json, "available_start_ns" ), "10" ) );
+  FD_TEST( test_json_string_eq( timeline_value( json, "available_end_ns" ), "40" ) );
   char const * starts[] = { "20", "0", "10" };
   char const * ends[]   = { "30", "10", "20" };
   for( int i=0; i<3; i++ ) {
@@ -2588,6 +2595,167 @@ test_timeline_limits( fd_gui_t * gui ) {
   free( http_mem );
   gui->http = NULL;
   FD_LOG_NOTICE(( "test_timeline_limits: ok" ));
+}
+
+static void
+test_timeline_slot_intervals( fd_gui_t * gui ) {
+  void * http_mem = timeline_http_open( gui );
+  long ts  = sec_ns( 10UL );
+  long now = ts+1000L;
+  FD_TEST( fd_epoch_schedule_derive( &gui->epoch.epoch_schedule, 1024UL, 1024UL, 0 ) );
+  gui->epoch.has_epoch_schedule = 1;
+  gui->epoch.current_epoch = 1UL;
+  gui->summary.is_alpenglow = 1;
+  for( ulong e=0UL; e<2UL; e++ ) {
+    put_epoch( gui, e, e*1024UL, 1024UL );
+    fd_gui_epoch_t * epoch = fd_gui_epoch( gui, e );
+    epoch->timeline_slot_lo_idx = ULONG_MAX;
+    epoch->timeline_slot_hi_idx = ULONG_MAX;
+  }
+
+  /* A repair request is not receipt.  Index zero need not arrive first,
+     and the earlier producer timestamp can reach the GUI later. */
+  fd_gui_handle_repair_request( gui, 1022UL, 0UL, ts+1L, now );
+  fd_gui_handle_shred( gui, 1022UL, 7UL, 0UL, 1, ts+60L, now );
+  fd_gui_handle_shred( gui, 1022UL, 9UL, 0UL, 0, ts+50L, now );
+  fd_gui_handle_shred( gui, 1022UL, 0UL, 0UL, 1, ts+70L, now );
+  fd_gui_handle_shred( gui, 1023UL, 3UL, 0UL, 0, ts+20L, now );
+  fd_gui_handle_leader_fec( gui, 1024UL, 32UL, 0, ts+250L, now );
+  fd_gui_handle_leader_fec( gui, 1024UL, 32UL, 1, ts+280L, now );
+  fd_gui_handle_repair_request( gui, 1025UL, 0UL, ts+2L, now );
+  fd_gui_handle_shred( gui, 1026UL, 0UL, 0UL, 1, ts+700L, now ); /* start after completion */
+  fd_gui_handle_shred( gui, 1028UL, 0UL, 0UL, 1, ts+610L, now );
+
+  ulong slots[]   = { 1021UL, 1022UL, 1023UL, 1024UL, 1025UL, 1026UL, 1028UL, 1029UL };
+  long complete[] = { 10L, 200L, 300L, 400L, 500L, 600L, 800L, 900L };
+  for( ulong i=0UL; i<8UL; i++ ) {
+    put_slot( gui, slots[ i ], ts+complete[ i ] );
+    fd_gui_slot_t * slot = fd_gui_slot_get( gui, slots[ i ], BANK_SEQ );
+    slot->parent_slot     = i ? slots[ i-1UL ] : ULONG_MAX;
+    slot->parent_bank_seq = i ? BANK_SEQ : ULONG_MAX;
+    slot->mine           = slots[ i ]==1024UL;
+    fd_gui_shred_event_slot_complete( gui, slots[ i ], ts+complete[ i ], now );
+  }
+  /* A closed slot cannot have its start revised by late traffic. */
+  fd_gui_handle_shred( gui, 1022UL, 10UL, 0UL, 1, ts+5L, now );
+
+  /* Arrival timestamps survive raw event eviction before classification. */
+  fd_gui_shred_flush( gui, ts+sec_ns( 1UL ) );
+  ulong budget = ULONG_MAX;
+  int drained;
+  FD_TEST( !fd_gui_store_ts_evict( gui->db, FD_GUI_HIST_SHRED_EVENTS, ULONG_MAX, &budget, &drained ) );
+  fd_gui_timeline_skipped_update( gui, fd_gui_slot_get( gui, 1029UL, BANK_SEQ ), now );
+
+  FD_TEST( !fd_gui_printf_timeline_query_slots( gui, ts+100L, ts+150L, 7UL ) );
+  test_json_t json = timeline_response( gui );
+  FD_TEST( test_json_count( timeline_value( json, "slot_delta" ) )==2 );
+  FD_TEST( test_json_ulong( timeline_value( json, "reference_slot" ) )==1022UL );
+  FD_TEST( test_json_string_eq( timeline_value( json, "reference_ts" ), "10000000020" ) );
+  FD_TEST( test_json_string_eq( test_json_index( timeline_value( json, "start_ts_delta" ), 0 ), "30" ) );
+  FD_TEST( test_json_string_eq( test_json_index( timeline_value( json, "start_ts_delta" ), 1 ), "0" ) );
+  FD_TEST( test_json_string_eq( test_json_index( timeline_value( json, "end_ts_delta" ), 0 ), "180" ) );
+  FD_TEST( test_json_string_eq( test_json_index( timeline_value( json, "end_ts_delta" ), 1 ), "280" ) );
+  FD_TEST( test_json_string_eq( timeline_value( json, "available_start_ns" ), "10000000020" ) );
+  FD_TEST( test_json_string_eq( timeline_value( json, "available_end_ns" ), "10000000800" ) );
+
+  fd_gui_timeline_slot_row_t rows[ 8 ];
+  ulong cnt;
+  FD_TEST( !fd_gui_timeline_slots_collect( gui, ts, now, rows, 8UL, &cnt ) && cnt==5UL );
+  FD_TEST( rows[ 2 ].slot==1024UL && rows[ 2 ].mine && rows[ 2 ].start_ns==ts+250L && rows[ 2 ].end_ns==ts+400L );
+  FD_TEST( rows[ 3 ].slot==1027UL && rows[ 3 ].skipped && rows[ 3 ].start_ns==ts+600L && rows[ 3 ].end_ns==ts+700L );
+  FD_TEST( rows[ 4 ].slot==1028UL && !rows[ 4 ].skipped && rows[ 4 ].start_ns==ts+610L && rows[ 4 ].end_ns==ts+800L );
+  FD_TEST( !fd_gui_timeline_slots_collect( gui, ts+200L, ts+250L, rows, 8UL, &cnt ) && cnt==1UL && rows[ 0 ].slot==1023UL );
+  FD_TEST( !fd_gui_timeline_slots_collect( gui, ts+400L, ts+600L, rows, 8UL, &cnt ) && !cnt );
+
+  FD_TEST( fd_http_server_delete( fd_http_server_leave( gui->http ) )==http_mem );
+  free( http_mem );
+  gui->http = NULL;
+  FD_LOG_NOTICE(( "test_timeline_slot_intervals: overlapping arrivals, leader publication, skipped slots, missing starts, eviction: ok" ));
+}
+
+static void
+test_timeline_replayed_skips( fd_gui_t * gui ) {
+  void * http_mem = timeline_http_open( gui );
+  long ts  = sec_ns( 10UL );
+  long now = ts+1000L;
+  FD_TEST( fd_epoch_schedule_derive( &gui->epoch.epoch_schedule, 1024UL, 1024UL, 0 ) );
+  gui->epoch.has_epoch_schedule = 1;
+  gui->epoch.current_epoch = 0UL;
+  put_epoch( gui, 0UL, 0UL, 1024UL );
+  fd_gui_epoch_t * epoch = fd_gui_epoch( gui, 0UL );
+  epoch->timeline_slot_lo_idx = ULONG_MAX;
+  epoch->timeline_slot_hi_idx = ULONG_MAX;
+
+  /* A completed abandoned fork can disappear before classification. */
+  fd_gui_handle_shred( gui, 102UL, 7UL, 0UL, 0, ts+150L, now );
+  fd_gui_shred_event_slot_complete( gui, 102UL, ts+450L, now );
+  fd_gui_shred_event_slot_complete( gui, 102UL, ts+475L, now );
+  put_slot( gui, 102UL, ts+475L );
+  fd_gui_hist_slot_key_t key = { .slot=103UL, .bank_seq=0UL };
+  ulong budget = ULONG_MAX;
+  int drained;
+  FD_TEST( !fd_gui_store_kv_evict( gui->db, FD_GUI_HIST_SLOT, &key, &budget, &drained ) );
+  FD_TEST( !fd_gui_slot_get_any( gui, 102UL ) );
+
+  fd_gui_handle_leader_fec( gui, 101UL, 32UL, 1, ts+50L, now );
+  put_slot( gui, 101UL, ts+350L );
+  fd_gui_slot_get( gui, 101UL, BANK_SEQ )->mine = 1;
+  fd_gui_shred_event_slot_complete( gui, 101UL, ts+350L, now );
+  fd_gui_handle_shred( gui, 103UL, 0UL, 0UL, 1, ts+250L, now );
+  fd_gui_handle_shred( gui, 104UL, 0UL, 0UL, 1, ts+300L, now );
+  fd_gui_shred_event_slot_complete( gui, 105UL, ts+650L, now ); /* missing arrival */
+  put_slot( gui, 107UL, LONG_MAX ); /* replay started but never completed */
+  fd_gui_handle_shred( gui, 108UL, 0UL, 0UL, 1, ts+500L, now );
+  put_slot( gui, 100UL, ts+100L );
+  fd_gui_slot_t * slot = fd_gui_slot_get( gui, 100UL, BANK_SEQ );
+  slot->parent_slot = ULONG_MAX;
+  slot->parent_bank_seq = ULONG_MAX;
+  put_slot( gui, 108UL, ts+900L );
+  slot = fd_gui_slot_get( gui, 108UL, BANK_SEQ );
+  slot->parent_slot = 100UL;
+  slot->parent_bank_seq = BANK_SEQ;
+  fd_gui_shred_event_slot_complete( gui, 108UL, ts+900L, now );
+  fd_gui_shred_flush( gui, ts+sec_ns( 1UL ) );
+  FD_TEST( !fd_gui_store_ts_evict( gui->db, FD_GUI_HIST_SHRED_EVENTS, ULONG_MAX, &budget, &drained ) );
+  fd_gui_timeline_skipped_update( gui, slot, now );
+
+  FD_TEST( !fd_gui_printf_timeline_query_slots( gui, ts+200L, ts+225L, 7UL ) );
+  test_json_t json = timeline_response( gui );
+  FD_TEST( test_json_count( timeline_value( json, "slot_delta" ) )==2 );
+  FD_TEST( test_json_ulong( timeline_value( json, "reference_slot" ) )==101UL );
+  FD_TEST( test_json_string_eq( timeline_value( json, "reference_ts" ), "10000000050" ) );
+  FD_TEST( test_json_string_eq( test_json_index( timeline_value( json, "start_ts_delta" ), 0 ), "0" ) );
+  FD_TEST( test_json_string_eq( test_json_index( timeline_value( json, "start_ts_delta" ), 1 ), "100" ) );
+  FD_TEST( test_json_string_eq( test_json_index( timeline_value( json, "end_ts_delta" ), 0 ), "300" ) );
+  FD_TEST( test_json_string_eq( test_json_index( timeline_value( json, "end_ts_delta" ), 1 ), "400" ) );
+  FD_TEST( test_json_count( timeline_value( json, "skipped" ) )==2 );
+  FD_TEST( test_json_ulong( test_json_index( timeline_value( json, "skipped" ), 0 ) )==0UL );
+  FD_TEST( test_json_ulong( test_json_index( timeline_value( json, "skipped" ), 1 ) )==1UL );
+  FD_TEST( test_json_count( timeline_value( json, "mine" ) )==1 );
+  FD_TEST( test_json_ulong( test_json_index( timeline_value( json, "mine" ), 0 ) )==0UL );
+
+  /* A late completion replaces interpolation, retaining the true start.
+     Duplicate replays deterministically retain the earliest completion. */
+  FD_TEST( epoch->timeline_slot_start_ns[ 103 ]==ts+300L && epoch->timeline_slot_end_ns[ 103 ]==ts+400L );
+  fd_gui_shred_event_slot_complete( gui, 103UL, ts+550L, now );
+  fd_gui_shred_event_slot_complete( gui, 103UL, ts+575L, now );
+  fd_gui_shred_event_slot_complete( gui, 103UL, ts+525L, now );
+  fd_gui_timeline_slot_row_t rows[ 8 ];
+  ulong cnt;
+  FD_TEST( !fd_gui_timeline_slots_collect( gui, ts, now, rows, 8UL, &cnt ) && cnt==7UL );
+  FD_TEST( rows[ 2 ].slot==103UL && rows[ 2 ].skipped && rows[ 2 ].start_ns==ts+250L && rows[ 2 ].end_ns==ts+525L );
+  FD_TEST( rows[ 3 ].slot==104UL && rows[ 3 ].skipped && rows[ 3 ].start_ns==ts+400L && rows[ 3 ].end_ns==ts+500L );
+  FD_TEST( rows[ 4 ].slot==106UL && rows[ 4 ].skipped && rows[ 4 ].start_ns==ts+600L && rows[ 4 ].end_ns==ts+700L );
+  FD_TEST( rows[ 5 ].slot==107UL && rows[ 5 ].skipped && rows[ 5 ].start_ns==ts+700L && rows[ 5 ].end_ns==ts+800L );
+  FD_TEST( rows[ 6 ].slot==108UL && !rows[ 6 ].skipped && rows[ 6 ].start_ns==ts+500L && rows[ 6 ].end_ns==ts+900L );
+  fd_gui_shred_event_slot_complete( gui, 106UL, ts+750L, now ); /* late completion without arrival */
+  FD_TEST( !fd_gui_timeline_slots_collect( gui, ts, now, rows, 8UL, &cnt ) && cnt==6UL );
+  FD_TEST( rows[ 4 ].slot==107UL );
+
+  FD_TEST( fd_http_server_delete( fd_http_server_leave( gui->http ) )==http_mem );
+  free( http_mem );
+  gui->http = NULL;
+  FD_LOG_NOTICE(( "test_timeline_replayed_skips: observed intervals, eviction, late/duplicate completions, unreplayed interpolation: ok" ));
 }
 
 static void
@@ -3287,6 +3455,14 @@ main( int     argc,
   store_close( s11 );
 
   test_store_t s12[ 1 ];
+  store_open( s12, 2UL<<30, 17 );
+  test_timeline_slot_intervals( s12->gui );
+  store_close( s12 );
+
+  store_open( s12, 2UL<<30, 17 );
+  test_timeline_replayed_skips( s12->gui );
+  store_close( s12 );
+
   store_open( s12, 2UL<<30, 17 );
   test_timeline_ancestry( s12->gui );
   store_close( s12 );
