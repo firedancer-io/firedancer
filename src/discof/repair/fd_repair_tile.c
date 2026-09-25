@@ -545,7 +545,7 @@ after_shred( ctx_t      * ctx,
     if( FD_UNLIKELY( !blk_insert_check( ctx, blk, shred->slot, evicted ) ) ) return;
 
     if( FD_LIKELY( fd_forest_data_shred_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, shred->idx, shred->fec_set_idx, slot_complete, ref_tick, src, mr, cmr, rx_tick ) ) ) {
-      if( FD_UNLIKELY( src == SHRED_SRC_REPAIR && ( rtt = fd_inflights_shred_match( ctx->inflights, nonce, shred->slot, shred->idx, NULL, &peer, NULL, fd_clock_tile_now( ctx->clock ) ) ) > 0 ) ) {
+      if( FD_UNLIKELY( src == SHRED_SRC_REPAIR && ( rtt = fd_inflights_shred_match( ctx->inflights, FD_REPAIR_KIND_SHRED, nonce, shred->slot, shred->idx, NULL, &peer, NULL, fd_clock_tile_now( ctx->clock ) ) ) > 0 ) ) {
         fd_policy_peer_response_update( ctx->policy, &peer, rtt );
         fd_histf_sample( ctx->metrics->response_latency, (ulong)rtt );
         blk->response_cnt++;
@@ -919,14 +919,14 @@ defer_inflight_request( ctx_t * ctx, ulong slot, ulong shred_idx, long now ) {
   fd_inflight_key_t inflight_req[1];
   fd_inflight_key_init( inflight_req, FD_REPAIR_KIND_SHRED, slot, shred_idx, 0UL, NULL );
   if( FD_LIKELY( !fd_inflight_map_ele_query( ctx->inflights->map, inflight_req, NULL, ctx->inflights->pool ) ) ) {
-    fd_inflights_shred_insert( ctx->inflights, 0, &hash, slot, shred_idx, NULL, NULL, now );
+    fd_inflights_shred_insert( ctx->inflights, FD_REPAIR_KIND_SHRED, 0, &hash, slot, shred_idx, NULL, NULL, now );
   }
 }
 
 /* Should be called for any regular FD_REPAIR_KIND_SHRED request made. */
 static void
 record_inflight_request( ctx_t * ctx, ulong nonce, fd_pubkey_t const * peer, ulong slot, ulong shred_idx, long now ) {
-  fd_inflights_shred_insert( ctx->inflights, nonce, peer, slot, shred_idx, NULL, NULL, now );
+  fd_inflights_shred_insert( ctx->inflights, FD_REPAIR_KIND_SHRED, nonce, peer, slot, shred_idx, NULL, NULL, now );
   fd_policy_peer_request_update( ctx->policy, peer );
 }
 

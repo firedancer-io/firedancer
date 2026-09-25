@@ -67,7 +67,6 @@ inflight_acquire( fd_inflights_t * table ) {
          impossible in practice: callers gate new requests on
          fd_inflights_outstanding_free. */
       fd_inflight_t * evict = fd_inflight_dlist_ele_pop_head( table->outstanding_dl, table->pool );
-      FD_LOG_WARNING(( "evicting outstanding request kind %u slot %lu idx %u nonce %u", evict->key.kind, evict->key.slot, evict->key.idx, evict->key.nonce ));
       fd_inflight_map_ele_remove_fast( table->map,  evict, table->pool );
       fd_inflight_pool_ele_release   ( table->pool, evict );
     }
@@ -112,6 +111,7 @@ inflight_match( fd_inflights_t *          table,
 
 void
 fd_inflights_shred_insert( fd_inflights_t *    table,
+                           uint                kind,
                            ulong               nonce,
                            fd_pubkey_t const * pubkey,
                            ulong               slot,
@@ -120,7 +120,7 @@ fd_inflights_shred_insert( fd_inflights_t *    table,
                            fd_hash_t const *   fec_root,
                            long                now ) {
   fd_inflight_t * req = inflight_acquire( table );
-  fd_inflight_key_init( &req->key, FD_REPAIR_KIND_SHRED, slot, shred_idx, nonce, fec_root );
+  fd_inflight_key_init( &req->key, kind, slot, shred_idx, nonce, fec_root );
   req->pubkey = *pubkey;
   if( FD_LIKELY( block_id ) ) req->block_id = *block_id;
   else                        fd_memset( &req->block_id, 0, sizeof(fd_hash_t) );
@@ -129,6 +129,7 @@ fd_inflights_shred_insert( fd_inflights_t *    table,
 
 long
 fd_inflights_shred_match( fd_inflights_t *  table,
+                          uint              kind,
                           ulong             nonce,
                           ulong             slot,
                           ulong             shred_idx,
@@ -137,7 +138,7 @@ fd_inflights_shred_match( fd_inflights_t *  table,
                           fd_hash_t *       block_id_out,
                           long              now ) {
   fd_inflight_key_t key[1];
-  fd_inflight_key_init( key, FD_REPAIR_KIND_SHRED, slot, shred_idx, nonce, fec_root );
+  fd_inflight_key_init( key, kind, slot, shred_idx, nonce, fec_root );
   fd_inflight_t req[1];
   if( FD_UNLIKELY( !inflight_match( table, key, req ) ) ) return 0L;
   *peer_out = req->pubkey;

@@ -224,7 +224,7 @@ struct ag_parent_fec_count_res {
 typedef struct ag_parent_fec_count_res ag_parent_fec_count_res_t;
 struct ag_fec_root_res {
   ag_proof_node_t root; /* 20-byte FEC-set merkle root prefix */
-  ulong     proof_len; /* number of proof nodes in fec_proof */
+  ulong           proof_len; /* number of proof nodes in fec_proof */
   ag_proof_node_t fec_proof[ AG_MAX_FEC_PROOF_NODE_CNT ]; /* variable-length */
 };
 typedef struct ag_fec_root_res ag_fec_root_res_t;

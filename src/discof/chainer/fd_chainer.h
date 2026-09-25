@@ -605,6 +605,34 @@ fd_chainer_slotv_fecs( fd_chainer_t const *       chainer,
   return chainer->fec_tbl + fd_slotv_pool_idx( chainer->slotv_pool, slotv )*chainer->fec_blk_max;
 }
 
+/* fd_chainer_turbine_slotv_query returns slot's turbine version, or
+   NULL if none exists.  Its block_id is all-zero until the block is
+   whole and finalized; after that it is the only way to find the
+   version the turbine stream built, since its key has changed. */
+
+FD_FN_PURE static inline fd_chainer_slotv_t *
+fd_chainer_turbine_slotv_query( fd_chainer_t const * chainer,
+                                ulong                slot ) {
+  fd_chainer_slotv_t * slotv_pool = (fd_chainer_slotv_t *)chainer->slotv_pool;
+  fd_slotv_map_t     * slotv_map  = (fd_slotv_map_t     *)chainer->slotv_map;
+  for( ulong idx = fd_slotv_map_idx_query_const( slotv_map, &slot, ULONG_MAX, slotv_pool );
+             idx != ULONG_MAX;
+             idx = fd_slotv_map_idx_next_const( idx, ULONG_MAX, slotv_pool ) ) {
+    fd_chainer_slotv_t * slotv = fd_slotv_pool_ele( slotv_pool, idx );
+    if( FD_LIKELY( slotv->turbine ) ) return slotv;
+  }
+  return NULL;
+}
+
+/* fd_chainer_slotv_complete returns 1 if every FEC set of the version
+   is reconstructable: its tip is known and the complete sets buffered
+   contiguously from 0 reach it. */
+
+FD_FN_PURE static inline int
+fd_chainer_slotv_complete( fd_chainer_slotv_t const * slotv ) {
+  return slotv->complete_idx!=UINT_MAX && slotv->buffered_fec_idx==slotv->complete_idx;
+}
+
 /* fd_chainer_slot_query returns any version of slot, or NULL if the slot
    has no versions in the chainer. */
 
