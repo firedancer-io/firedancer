@@ -26,14 +26,71 @@ static char const * const SESSION_NAMES[] = {
 static char const * const READINESS_NAMES[] = {
   "healthy", "link down", "peer status stale", "role or term conflict",
   "active is unhealthy", "spare is unhealthy", "spare is behind on replication",
-  "failover is disabled"
+  "failover is disabled", "no member holds the identity"
+};
+static char const * const ACTION_NAMES[] = {
+  "idle", "giving up the identity", "waiting for the peer to promote",
+  "waiting for replay to reach the final vote", "waiting for the tower tile",
+  "taking the identity", "standing down", "waiting for the peer to stand down for first use",
+  "proving the junk key before confirming the peer", "proving the installed key before clearing",
+  "asking the peer to stand down"
+};
+static char const * const HANDOFF_CODE_NAMES[] = {
+  "would proceed", "rejected", "already a spare", "stale term"
+};
+static char const * const REJECT_NAMES[] = {
+  "none", "malformed request", "a transition is in flight", "peer-requested handoffs are disabled",
+  "the peer's status is stale", "paused", "this machine is unhealthy", "the peer is unhealthy",
+  "the peer is behind", "this machine is producing a block", "a leader slot is near",
+  "the deadline passed", "replay is behind", "the tower is invalid", "the tower digest does not match",
+  "adoption failed", "adoption does not match the replayed block", "the recorded state does not allow it",
+  "the term space is exhausted", "the confirmer holds the staked key", "the confirmer has a switch in flight"
+};
+static char const * const RECLAIM_CODE_NAMES[] = {
+  "confirmed", "refused", "the peer holds the identity", "stale term"
 };
 
-#define SESSION_NAME_CNT   ( sizeof(SESSION_NAMES  )/sizeof(SESSION_NAMES  [ 0 ]) )
-#define READINESS_NAME_CNT ( sizeof(READINESS_NAMES)/sizeof(READINESS_NAMES[ 0 ]) )
+#define SESSION_NAME_CNT      ( sizeof(SESSION_NAMES     )/sizeof(SESSION_NAMES     [ 0 ]) )
+#define READINESS_NAME_CNT    ( sizeof(READINESS_NAMES   )/sizeof(READINESS_NAMES   [ 0 ]) )
+#define ACTION_NAME_CNT       ( sizeof(ACTION_NAMES      )/sizeof(ACTION_NAMES      [ 0 ]) )
+#define HANDOFF_CODE_NAME_CNT ( sizeof(HANDOFF_CODE_NAMES)/sizeof(HANDOFF_CODE_NAMES[ 0 ]) )
+#define REJECT_NAME_CNT       ( sizeof(REJECT_NAMES      )/sizeof(REJECT_NAMES      [ 0 ]) )
+#define RECLAIM_CODE_NAME_CNT ( sizeof(RECLAIM_CODE_NAMES)/sizeof(RECLAIM_CODE_NAMES[ 0 ]) )
 
-FD_STATIC_ASSERT( SESSION_NAME_CNT  ==FD_FAILOVER_SESSION_CNT,   session_names   );
-FD_STATIC_ASSERT( READINESS_NAME_CNT==FD_FAILOVER_READINESS_CNT, readiness_names );
+FD_STATIC_ASSERT( SESSION_NAME_CNT     ==FD_FAILOVER_SESSION_CNT,      session_names      );
+FD_STATIC_ASSERT( READINESS_NAME_CNT   ==FD_FAILOVER_READINESS_CNT,    readiness_names    );
+FD_STATIC_ASSERT( ACTION_NAME_CNT      ==FD_FAILOVER_ACTION_CNT,       action_names       );
+FD_STATIC_ASSERT( HANDOFF_CODE_NAME_CNT==FD_FAILOVER_HANDOFF_CODE_CNT, handoff_code_names );
+FD_STATIC_ASSERT( REJECT_NAME_CNT      ==FD_FAILOVER_REJECT_CNT,       reject_names       );
+FD_STATIC_ASSERT( RECLAIM_CODE_NAME_CNT==FD_FAILOVER_RECLAIM_CODE_CNT, reclaim_code_names );
+
+static char const *
+reject_name( uchar reason ) {
+  return reason<REJECT_NAME_CNT ? REJECT_NAMES[ reason ] : "unknown";
+}
+
+/* status_bits_str spells out the status bits and flags instead of
+   printing them in hex.  buf holds at least 96 bytes. */
+static char const *
+status_bits_str( uint   status,
+                 uchar  flags,
+                 char * buf ) {
+  char * p = buf;
+  *p = '\0';
+  struct { uint bit; char const * name; } const bits[] = {
+    { FD_FAILOVER_STATUS_CATCHUP, "catching up" }, { FD_FAILOVER_STATUS_REPLAG, "replication lag" },
+    { FD_FAILOVER_STATUS_STUCK,   "stuck"       }, { FD_FAILOVER_STATUS_PAUSED, "paused"          },
+    { FD_FAILOVER_STATUS_BUSY,    "busy"        },
+  };
+  struct { uchar bit; char const * name; } const fl[] = {
+    { FD_FAILOVER_FLAG_CAUGHT_UP, "caught up" }, { FD_FAILOVER_FLAG_IS_LEADER, "leader" },
+    { FD_FAILOVER_FLAG_VOTE_ROOTED, "vote rooted" },
+  };
+  for( ulong i=0UL; i<sizeof(bits)/sizeof(bits[0]); i++ ) if( status&bits[i].bit ) p += sprintf( p, "%s%s", p==buf ? "" : ", ", bits[i].name );
+  for( ulong i=0UL; i<sizeof(fl)/sizeof(fl[0]); i++ )     if( flags&fl[i].bit )    p += sprintf( p, "%s%s", p==buf ? "" : ", ", fl[i].name );
+  if( p==buf ) sprintf( buf, "clean" );
+  return buf;
+}
 
 static void
 failover_cmd_args( int *    pargc,
@@ -106,6 +163,8 @@ control_result_name( ulong result ) {
     case FD_FAILOVER_CONTROL_RESULT_TOWER_ROLLBACK: return "the confirmation's final tower is older than the tower the peer streamed, so promotion is refused";
     case FD_FAILOVER_CONTROL_RESULT_PEER_REACHABLE: return "the peer is reachable, or was until a moment ago, so it is not fenced: use `handoff` or `reclaim` instead";
     case FD_FAILOVER_CONTROL_RESULT_PRECONDITION: return "a handoff pre-check failed, `failover status` names the reason";
+    case FD_FAILOVER_CONTROL_RESULT_CONFIRMATION_OWED:
+      return "a demotion confirmation is still owed to the peer, so stuck cannot be cleared yet";
     default:                                      return NULL;
   }
 }
@@ -165,6 +224,14 @@ failover_control_fn( args_t *        args,
                       resp.state<STATE_NAME_CNT ? STATE_NAMES[ resp.state ] : "unknown",
                       resp.term, resp.paused ? ", paused" : "" ));
       FD_LOG_STDOUT(( "%-22s %s\n", "role:", role_name( resp.role ) ));
+      /* A drill is only its answer, and a handoff on the active has one
+         before it moves anything. */
+      if( FD_UNLIKELY( ( args->failover.cmd==(int)FD_ADMINCTL_FAILOVER_CMD_DRILL ||
+                         args->failover.cmd==(int)FD_ADMINCTL_FAILOVER_CMD_HANDOFF ) &&
+                       resp.code<HANDOFF_CODE_NAME_CNT ) ) {
+        if( FD_LIKELY( resp.code==FD_FAILOVER_HANDOFF_PROCEED ) ) FD_LOG_STDOUT(( "%-22s %s\n", "handoff check:", HANDOFF_CODE_NAMES[ resp.code ] ));
+        else FD_LOG_STDOUT(( "%-22s %s (%s)\n", "handoff check:", HANDOFF_CODE_NAMES[ resp.code ], reject_name( resp.reason ) ));
+      }
       FD_LOG_STDOUT(( "%-22s %s\n", "confirm with:", "failover status" ));
       break;
     case FD_FAILOVER_STATUS_RESULT_BUSY:
@@ -235,14 +302,33 @@ failover_cmd_fn( args_t *   args,
         ? READINESS_NAMES[ resp.readiness_reason ]
         : "unknown";
       FD_LOG_STDOUT(( "%-22s %s\n", "pool health:", health ));
-      FD_LOG_STDOUT(( "%-22s %s\n", "handoff ready:", "not reported" ));
-      FD_LOG_STDOUT(( "%-22s 0x%08x (flags 0x%02x)\n", "status:", resp.status, (uint)resp.flags ));
-      if( FD_LIKELY( resp.peer_status_valid ) ) {
-        FD_LOG_STDOUT(( "%-22s 0x%08x (flags 0x%02x)\n", "peer status:", resp.peer_status, (uint)resp.peer_flags ));
+      FD_LOG_STDOUT(( "%-22s %s, %s\n", "controller:",
+                      resp.state<STATE_NAME_CNT ? STATE_NAMES[ resp.state ] : "unknown",
+                      resp.action<ACTION_NAME_CNT ? ACTION_NAMES[ resp.action ] : "unknown" ));
+      if( FD_LIKELY( resp.handoff_ready ) ) FD_LOG_STDOUT(( "%-22s yes\n", "handoff ready:" ));
+      else FD_LOG_STDOUT(( "%-22s no (%s)\n", "handoff ready:", reject_name( resp.handoff_reject ) ));
+      if( FD_UNLIKELY( resp.last_handoff_code<HANDOFF_CODE_NAME_CNT ) ) {
+        if( FD_LIKELY( resp.last_handoff_reason==FD_FAILOVER_REJECT_NONE ) )
+          FD_LOG_STDOUT(( "%-22s %s at term %lu\n", "last handoff:", HANDOFF_CODE_NAMES[ resp.last_handoff_code ], resp.last_handoff_term ));
+        else
+          FD_LOG_STDOUT(( "%-22s %s at term %lu (%s)\n", "last handoff:", HANDOFF_CODE_NAMES[ resp.last_handoff_code ], resp.last_handoff_term, reject_name( resp.last_handoff_reason ) ));
       }
-      print_slot( "replay slot:",    resp.replay_slot    );
-      print_slot( "root slot:",      resp.root_slot      );
-      print_slot( "last vote slot:", resp.last_vote_slot );
+      if( FD_UNLIKELY( resp.reclaim_code<RECLAIM_CODE_NAME_CNT ) )
+        FD_LOG_STDOUT(( "%-22s %s\n", "last reclaim:", RECLAIM_CODE_NAMES[ resp.reclaim_code ] ));
+      if( FD_UNLIKELY( resp.stuck ) )           FD_LOG_STDOUT(( "%-22s yes, run `failover clear` once the installed identity has been confirmed\n", "stuck:" ));
+      if( FD_UNLIKELY( resp.first_use_armed ) ) FD_LOG_STDOUT(( "%-22s armed, this machine asks the peer for the identity once it pairs\n", "first use:" ));
+      char bits[ 96 ];
+      FD_LOG_STDOUT(( "%-22s %s\n", "status:", status_bits_str( resp.status, resp.flags, bits ) ));
+      if( FD_LIKELY( resp.peer_status_valid ) ) {
+        FD_LOG_STDOUT(( "%-22s %s\n", "peer status:", status_bits_str( resp.peer_status, resp.peer_flags, bits ) ));
+        print_slot( "peer turbine slot:",     resp.peer_turbine_slot     );
+        print_slot( "peer next leader slot:", resp.peer_next_leader_slot );
+      }
+      print_slot( "replay slot:",      resp.replay_slot      );
+      print_slot( "root slot:",        resp.root_slot        );
+      print_slot( "last vote slot:",   resp.last_vote_slot   );
+      print_slot( "turbine slot:",     resp.turbine_slot     );
+      print_slot( "next leader slot:", resp.next_leader_slot );
       if( FD_UNLIKELY( resp.replication_lag_slots==FD_FAILOVER_SLOT_NULL ) ) FD_LOG_STDOUT(( "%-22s unknown\n", "replication lag:" ));
       else FD_LOG_STDOUT(( "%-22s %lu slots\n", "replication lag:", resp.replication_lag_slots ));
       if( FD_UNLIKELY( !resp.rtt_nanos ) ) FD_LOG_STDOUT(( "%-22s unmeasured\n", "round trip:" ));

@@ -1851,8 +1851,13 @@ EXAMPLES
     <gauge name="ReplicationLagValid" summary="Whether failover replication lag is available" />
     <gauge name="MemberCnt" summary="Machines in the failover pool including this one" />
     <gauge name="PeersPaired" summary="Pool peers with an authenticated session right now" />
-    <gauge name="PoolHealthy" summary="Whether every pool session passes the health checks on link, cadence, roles and status bits" />
-    <gauge name="PoolHealthReason" summary="Pool health result (0=pool healthy, 1=link down, 2=peer status stale, 3=role or term conflict, 4=active unhealthy, 5=standby unhealthy, 6=standby behind on replication)" />
+    <gauge name="PoolHealthy" summary="Whether every pool session passes the health checks on link, cadence, roles and status bits, whether a handoff would go through is HandoffReady" />
+    <gauge name="PoolHealthReason" summary="Pool health result (0=pool healthy, 1=link down, 2=peer status stale, 3=role or term conflict, 4=active unhealthy, 5=standby unhealthy, 6=standby behind on replication, 7=failover disabled, 8=no member holds the identity)" />
+    <gauge name="State" summary="Controller state from the role file (0=standby, 1=active, 2=demoting, 3=promoting, 4=reclaiming)" />
+    <gauge name="Action" summary="Controller step in flight (0=idle, 1=demote switch, 2=demote wait ack, 3=promote wait replay, 4=promote wait adopt, 5=promote switch, 6=reject, 7=first use wait, 8=confirm wait query, 9=clear wait query, 10=reclaim wait)" />
+    <gauge name="Stuck" summary="A transition could not finish and clear has not run" />
+    <gauge name="HandoffReady" summary="Whether a handoff asked right now would proceed, from the same pre-checks the command runs" />
+    <gauge name="HandoffReject" summary="The rejection reason a handoff asked right now would get, 0 when it would proceed" />
     <counter name="FramesSent" summary="Complete frames written to TLS, including HELLO frames" />
     <counter name="FramesReceived" summary="Complete frames decoded from TLS before message validation, including HELLO frames" />
     <counter name="TlsFailures" summary="Failover TLS setup or handshake failures, excluding I/O failures after the TLS handshake" />

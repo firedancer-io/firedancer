@@ -174,8 +174,13 @@
 | <span class="metrics-name">failov_&#8203;replication_&#8203;lag_&#8203;valid</span> | gauge | Whether failover replication lag is available |
 | <span class="metrics-name">failov_&#8203;member_&#8203;cnt</span> | gauge | Machines in the failover pool including this one |
 | <span class="metrics-name">failov_&#8203;peers_&#8203;paired</span> | gauge | Pool peers with an authenticated session right now |
-| <span class="metrics-name">failov_&#8203;pool_&#8203;healthy</span> | gauge | Whether every pool session passes the health checks on link, cadence, roles and status bits |
-| <span class="metrics-name">failov_&#8203;pool_&#8203;health_&#8203;reason</span> | gauge | Pool health result (0=pool healthy, 1=link down, 2=peer status stale, 3=role or term conflict, 4=active unhealthy, 5=standby unhealthy, 6=standby behind on replication) |
+| <span class="metrics-name">failov_&#8203;pool_&#8203;healthy</span> | gauge | Whether every pool session passes the health checks on link, cadence, roles and status bits, whether a handoff would go through is HandoffReady |
+| <span class="metrics-name">failov_&#8203;pool_&#8203;health_&#8203;reason</span> | gauge | Pool health result (0=pool healthy, 1=link down, 2=peer status stale, 3=role or term conflict, 4=active unhealthy, 5=standby unhealthy, 6=standby behind on replication, 7=failover disabled, 8=no member holds the identity) |
+| <span class="metrics-name">failov_&#8203;state</span> | gauge | Controller state from the role file (0=standby, 1=active, 2=demoting, 3=promoting, 4=reclaiming) |
+| <span class="metrics-name">failov_&#8203;action</span> | gauge | Controller step in flight (0=idle, 1=demote switch, 2=demote wait ack, 3=promote wait replay, 4=promote wait adopt, 5=promote switch, 6=reject, 7=first use wait, 8=confirm wait query, 9=clear wait query, 10=reclaim wait) |
+| <span class="metrics-name">failov_&#8203;stuck</span> | gauge | A transition could not finish and clear has not run |
+| <span class="metrics-name">failov_&#8203;handoff_&#8203;ready</span> | gauge | Whether a handoff asked right now would proceed, from the same pre-checks the command runs |
+| <span class="metrics-name">failov_&#8203;handoff_&#8203;reject</span> | gauge | The rejection reason a handoff asked right now would get, 0 when it would proceed |
 | <span class="metrics-name">failov_&#8203;frames_&#8203;sent</span> | counter | Complete frames written to TLS, including HELLO frames |
 | <span class="metrics-name">failov_&#8203;frames_&#8203;received</span> | counter | Complete frames decoded from TLS before message validation, including HELLO frames |
 | <span class="metrics-name">failov_&#8203;tls_&#8203;failures</span> | counter | Failover TLS setup or handshake failures, excluding I/O failures after the TLS handshake |

@@ -84,7 +84,13 @@ test_status_abi( void ) {
       FD_TEST( out_sz==sizeof(resp) && resp.version==FD_ADMINCTL_FAILOVER_STATUS_PAYLOAD_VERSION );
       FD_TEST( !resp.enabled && !resp.member_cnt && !resp.self_idx && !resp.peer_idx && !resp.peers_paired );
       FD_TEST( resp.peer_status_age_nanos==ULONG_MAX && resp.replication_lag_slots==ULONG_MAX );
-      for( ulong i=0UL; i<sizeof(resp.reserved); i++ ) FD_TEST( !resp.reserved[i] );
+      for( ulong i=0UL; i<sizeof(resp.reserved);  i++ ) FD_TEST( !resp.reserved[i]  );
+      for( ulong i=0UL; i<sizeof(resp.reserved2); i++ ) FD_TEST( !resp.reserved2[i] );
+      /* The codes are stamped with their none value, the rest are zero
+         with failover off. */
+      FD_TEST( resp.last_handoff_code==(uchar)FD_FAILOVER_HANDOFF_CODE_CNT && resp.last_handoff_term==ULONG_MAX );
+      FD_TEST( resp.reclaim_code==(uchar)FD_FAILOVER_RECLAIM_CODE_CNT && resp.handoff_reject==(uchar)FD_FAILOVER_REJECT_NONE );
+      FD_TEST( !resp.state && !resp.action && !resp.stuck && !resp.handoff_ready && !resp.first_use_armed );
     }
   }
   FD_LOG_NOTICE(( "pass: failover status ABI rejects old versions and malformed sizes" ));

@@ -52,20 +52,8 @@
    many silence windows. */
 #define FD_FAILOVER_TILE_FENCE_SILENCE_MULT (4UL)
 
-/* What we are currently doing within a state.  The state itself is saved
-   in the role file and survives a restart, the action does not. */
-#define FD_FAILOVER_ACTION_IDLE                (0UL)
-#define FD_FAILOVER_ACTION_DEMOTE_SWITCH       (1UL) /* waiting for the junk key to be installed */
-#define FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK     (2UL) /* confirmation sent, waiting for the peer */
-#define FD_FAILOVER_ACTION_PROMOTE_WAIT_REPLAY (3UL) /* waiting for replay to reach the final vote */
-#define FD_FAILOVER_ACTION_PROMOTE_WAIT_ADOPT  (4UL) /* waiting for the tower tile to adopt */
-#define FD_FAILOVER_ACTION_PROMOTE_SWITCH      (5UL) /* waiting for the staked key to be installed */
-#define FD_FAILOVER_ACTION_REJECT              (6UL) /* standing down, telling the peer why */
-#define FD_FAILOVER_ACTION_FIRST_USE_WAIT      (7UL) /* waiting for the peer's stand-down */
-#define FD_FAILOVER_ACTION_CONFIRM_WAIT_QUERY  (8UL) /* proving the installed junk key */
-#define FD_FAILOVER_ACTION_CLEAR_WAIT_QUERY    (9UL) /* proving the installed key matches the record before clearing stuck */
-#define FD_FAILOVER_ACTION_RECLAIM_WAIT        (10UL) /* waiting for the peer's answer to a reclaim */
-#define FD_FAILOVER_ACTION_CNT                 (11UL)
+/* The FD_FAILOVER_ACTION_* steps live in fd_failover_proto.h, they are in
+   the status payload. */
 
 /* apply_control answers with this when the command's answer waits on the
    admin tile.  It never leaves the tile, the parked bus request is
@@ -2120,8 +2108,8 @@ peer_poll( fd_failover_tile_ctx_t * ctx,
   peer_sync_channel_state( peer, now );
 }
 
-/* One peer's view of the pool for the status payload and the metrics.
-   This reports pool health only, not handoff readiness. */
+/* One peer's view of the pool for the status payload and the metrics,
+   the pool health verdict and the answer a handoff would get now. */
 static void
 status_snapshot( fd_failover_tile_ctx_t const *       ctx,
                  ulong                                peer_idx,
@@ -2169,6 +2157,14 @@ status_snapshot( fd_failover_tile_ctx_t const *       ctx,
   resp->pending_handshakes    = fd_failover_channel_pending( peer->channel );
   resp->admission_drops       = m->admission_drop_cnt;
   resp->handshake_timeouts    = m->handshake_timeout_cnt;
+  resp->state                 = (uchar)ctx->state;
+  resp->action                = (uchar)ctx->action;
+  resp->stuck                 = (uchar)!!ctx->stuck;
+  resp->last_handoff_code     = ctx->handoff_code;
+  resp->last_handoff_reason   = ctx->handoff_reason;
+  resp->last_handoff_term     = ctx->handoff_code==(uchar)FD_FAILOVER_HANDOFF_CODE_CNT ? ULONG_MAX : ctx->handoff_term;
+  resp->reclaim_code          = ctx->reclaim_code;
+  resp->first_use_armed       = (uchar)!!ctx->first_use_authorized;
 
   if( FD_LIKELY( peer->status_valid ) ) {
     resp->peer_role             = peer->status.role;
@@ -2188,10 +2184,43 @@ status_snapshot( fd_failover_tile_ctx_t const *       ctx,
 
   int peer_fresh = peer_status_fresh( ctx, peer, now );
 
+  /* The answer a handoff asked right now would get, from the same pure
+     check the command runs.  On the active it is exact.  On a spare it is
+     what we expect the active to answer, judged from the active's last
+     status and our own view, the active judges us from a status we may
+     not have sent yet. */
+  {
+    fd_failover_handoff_req_t msg = {
+      .proposed_term  = fd_ulong_max( local.term, peer->status_valid ? peer->status.term : local.term )+1UL,
+      .reason         = (uchar)( local.role==FD_FAILOVER_ROLE_ACTIVE ? FD_FAILOVER_HANDOFF_REASON_OPERATOR
+                                                                     : FD_FAILOVER_HANDOFF_REASON_STANDBY ),
+      .deadline_slots = (uint)ctx->deadline_slots,
+    };
+    uchar reason = FD_FAILOVER_REJECT_NONE;
+    uchar code;
+    if( FD_LIKELY( local.role==FD_FAILOVER_ROLE_ACTIVE ) ) {
+      code = fd_failover_handoff_check( &msg, &local, &peer->status, peer_fresh, peer->cs_sent,
+                                        ctx->accept_peer_requests, 1, ctx->min_slots_to_leader,
+                                        ctx->deadline_slots, &reason );
+    } else {
+      code = fd_failover_handoff_check( &msg, &peer->status, &local, peer_fresh, peer->consensus.valid,
+                                        ctx->accept_peer_requests, 0, ctx->min_slots_to_leader,
+                                        ctx->deadline_slots, &reason );
+    }
+    resp->handoff_ready  = (uchar)( code==FD_FAILOVER_HANDOFF_PROCEED );
+    resp->handoff_reject = code==FD_FAILOVER_HANDOFF_PROCEED ? (uchar)FD_FAILOVER_REJECT_NONE
+                         : reason!=FD_FAILOVER_REJECT_NONE   ? reason
+                         :                                     (uchar)FD_FAILOVER_REJECT_STATE_MISMATCH;
+  }
+
   if( FD_UNLIKELY( resp->link_state!=FD_FAILOVER_SESSION_PAIRED ) ) {
     resp->readiness_reason = FD_FAILOVER_READINESS_LINK_DOWN;
   } else if( FD_UNLIKELY( !peer_fresh ) ) {
     resp->readiness_reason = FD_FAILOVER_READINESS_STATUS_STALE;
+  } else if( FD_UNLIKELY( resp->role==FD_FAILOVER_ROLE_STANDBY && resp->peer_role==FD_FAILOVER_ROLE_STANDBY ) ) {
+    /* Two standbys is a pool with no holder, a fresh one or one whose
+       reclaim was refused, not a conflict to go looking for. */
+    resp->readiness_reason = FD_FAILOVER_READINESS_NO_ACTIVE;
   } else if( FD_UNLIKELY( resp->term!=resp->peer_term ||
                           !((resp->role==FD_FAILOVER_ROLE_ACTIVE  && resp->peer_role==FD_FAILOVER_ROLE_STANDBY) ||
                             (resp->role==FD_FAILOVER_ROLE_STANDBY && resp->peer_role==FD_FAILOVER_ROLE_ACTIVE )) ) ) {
@@ -2206,8 +2235,8 @@ status_snapshot( fd_failover_tile_ctx_t const *       ctx,
     } else if( FD_UNLIKELY( standby_status&FD_FAILOVER_STATUS_REPLAG ) ) {
       resp->readiness_reason = FD_FAILOVER_READINESS_STANDBY_BEHIND;
     } else {
-      /* Link, cadence, roles and status bits are all in order.  The
-         caught-up check and the handoff verdict are not part of this. */
+      /* Link, cadence, roles and status bits are all in order.  Whether a
+         handoff would go through is handoff_ready, above. */
       resp->pool_healthy     = 1U;
       resp->readiness_reason = FD_FAILOVER_READINESS_POOL_HEALTHY;
     }
@@ -2683,7 +2712,7 @@ apply_control( fd_failover_tile_ctx_t *               ctx,
        and a confirmation still owed keeps its own stuck live. */
     if( FD_UNLIKELY( ctx->action!=FD_FAILOVER_ACTION_IDLE ) ) return FD_FAILOVER_CONTROL_RESULT_BUSY;
     if( FD_UNLIKELY( ctx->switch_pending_key!=FD_FAILOVER_SWITCH_KEY_CNT ) ) return FD_FAILOVER_CONTROL_RESULT_BUSY;
-    if( FD_UNLIKELY( ctx->send_demoted ) ) return FD_FAILOVER_CONTROL_RESULT_NO_EVIDENCE;
+    if( FD_UNLIKELY( ctx->send_demoted ) ) return FD_FAILOVER_CONTROL_RESULT_CONFIRMATION_OWED;
     if( FD_LIKELY( !ctx->stuck ) ) return FD_ADMINCTL_RESULT_SUCCESS;
     if( FD_UNLIKELY( switch_query( ctx, stem )==ULONG_MAX ) ) return FD_FAILOVER_CONTROL_RESULT_BUSY;
     deadline_start( ctx, ctx->deadline_slots, now );
@@ -2728,6 +2757,8 @@ publish_control_response( fd_failover_tile_ctx_t * ctx,
     .state   = (uchar)ctx->state,
     .role    = (uchar)ctx->role,
     .paused  = (uchar)!!ctx->paused,
+    .code    = ctx->handoff_code,
+    .reason  = ctx->handoff_reason,
   };
   fd_failover_bus_msg_t * out = fd_chunk_to_laddr( ctx->admin_out_mem, ctx->admin_out_chunk );
   fd_memset( out, 0, sizeof(*out) );
@@ -2804,6 +2835,11 @@ metrics_write( fd_failover_tile_ctx_t * ctx ) {
   FD_MGAUGE_SET( FAILOV, REPLICATION_LAG_VALID,  (ulong)lag_valid );
   FD_MGAUGE_SET( FAILOV, POOL_HEALTHY,           status.pool_healthy );
   FD_MGAUGE_SET( FAILOV, POOL_HEALTH_REASON,     status.readiness_reason );
+  FD_MGAUGE_SET( FAILOV, STATE,                  status.state );
+  FD_MGAUGE_SET( FAILOV, ACTION,                 status.action );
+  FD_MGAUGE_SET( FAILOV, STUCK,                  status.stuck );
+  FD_MGAUGE_SET( FAILOV, HANDOFF_READY,          status.handoff_ready );
+  FD_MGAUGE_SET( FAILOV, HANDOFF_REJECT,         status.handoff_reject );
   FD_MCNT_SET  ( FAILOV, FRAMES_SENT,            status.frames_sent );
   FD_MCNT_SET  ( FAILOV, FRAMES_RECEIVED,        status.frames_received );
   FD_MCNT_SET  ( FAILOV, TLS_FAILURES,           status.tls_failures );

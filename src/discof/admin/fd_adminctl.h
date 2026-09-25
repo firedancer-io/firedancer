@@ -105,6 +105,10 @@ struct fd_adminctl_remove_all_auth_voters_v1 {
 typedef struct fd_adminctl_remove_all_auth_voters_v1 fd_adminctl_remove_all_auth_voters_t;
 #define FD_ADMINCTL_REMOVE_ALL_AUTH_VOTERS_PAYLOAD_VERSION (1UL)
 
+/* The status payload holds controller states, steps and handoff codes
+   from the protocol header, so those enumerations are part of this ABI. */
+#include "../failover/fd_failover_proto.h"
+
 struct fd_adminctl_failover_status_req_v1 {
   ulong version;  /* ==FD_ADMINCTL_FAILOVER_STATUS_PAYLOAD_VERSION */
   ulong peer_idx; /* which pool peer to report, in member list order without this machine */
@@ -130,7 +134,9 @@ struct fd_adminctl_failover_status_resp_v1 {
   uchar self_idx;            /* this machine's place in the member list */
   uchar peer_idx;            /* the reported peer, in member list order without this machine */
   uchar peers_paired;        /* peers with an authenticated session right now */
-  uchar reserved[ 3 ];
+  uchar state;               /* FD_FAILOVER_STATE_* of this machine, from the role file */
+  uchar action;              /* FD_FAILOVER_ACTION_* in flight, idle when none */
+  uchar reserved[ 1 ];
   ulong peer_status_age_nanos;
   ulong replication_lag_slots; /* ULONG_MAX until measured */
   ulong rtt_nanos;             /* 0 until measured */
@@ -154,10 +160,20 @@ struct fd_adminctl_failover_status_resp_v1 {
   ulong pending_handshakes;
   ulong admission_drops;
   ulong handshake_timeouts;
+  uchar stuck;               /* a transition could not finish and clear has not run */
+  uchar handoff_ready;       /* 1 when a handoff asked right now would proceed, from the same check the command runs */
+  uchar handoff_reject;      /* FD_FAILOVER_REJECT_* when it would not, none otherwise */
+  uchar last_handoff_code;   /* FD_FAILOVER_HANDOFF_* of the last handoff answer, CNT when none */
+  uchar last_handoff_reason; /* FD_FAILOVER_REJECT_* that came with it */
+  uchar reclaim_code;        /* FD_FAILOVER_RECLAIM_* of the last answer to a reclaim, CNT when none */
+  uchar first_use_armed;     /* first use accepted at boot and not yet spent */
+  uchar reserved2[ 1 ];
+  ulong last_handoff_term;   /* the term of the last handoff answer, ULONG_MAX when none */
 };
 typedef struct fd_adminctl_failover_status_resp_v1 fd_adminctl_failover_status_resp_t;
 #define FD_ADMINCTL_FAILOVER_STATUS_PAYLOAD_VERSION (1UL)
 
+/* Pool health, whether a handoff would go through is handoff_ready. */
 #define FD_FAILOVER_READINESS_POOL_HEALTHY      (0U)
 #define FD_FAILOVER_READINESS_LINK_DOWN         (1U)
 #define FD_FAILOVER_READINESS_STATUS_STALE      (2U)
@@ -165,9 +181,9 @@ typedef struct fd_adminctl_failover_status_resp_v1 fd_adminctl_failover_status_r
 #define FD_FAILOVER_READINESS_ACTIVE_UNHEALTHY  (4U)
 #define FD_FAILOVER_READINESS_STANDBY_UNHEALTHY (5U)
 #define FD_FAILOVER_READINESS_STANDBY_BEHIND    (6U)
-#define FD_FAILOVER_READINESS_CNT               (8U)
-
 #define FD_FAILOVER_READINESS_DISABLED          (7U)
+#define FD_FAILOVER_READINESS_NO_ACTIVE         (8U) /* both members stand by, nobody holds the identity */
+#define FD_FAILOVER_READINESS_CNT               (9U)
 
 /* handoff and drill talk to the peer, demote and promote are local, pause
    and resume block and unblock transitions, clear lowers the stuck flag
@@ -198,10 +214,12 @@ typedef struct fd_adminctl_failover_control_v1 fd_adminctl_failover_control_t;
 struct fd_adminctl_failover_control_resp_v1 {
   ulong version;
   ulong term;
-  uchar state; /* FD_FAILOVER_STATE_* after the command was applied */
-  uchar role;  /* FD_FAILOVER_ROLE_* */
+  uchar state;  /* FD_FAILOVER_STATE_* after the command was applied */
+  uchar role;   /* FD_FAILOVER_ROLE_* */
   uchar paused;
-  uchar reserved[ 5 ];
+  uchar code;   /* FD_FAILOVER_HANDOFF_* answer to the last handoff or drill, CNT when none */
+  uchar reason; /* FD_FAILOVER_REJECT_* that came with it */
+  uchar reserved[ 3 ];
 };
 
 typedef struct fd_adminctl_failover_control_resp_v1 fd_adminctl_failover_control_resp_t;
@@ -221,6 +239,7 @@ typedef struct fd_adminctl_failover_control_resp_v1 fd_adminctl_failover_control
 #define FD_FAILOVER_CONTROL_RESULT_TOWER_ROLLBACK (0x500BUL) /* the confirmation's final tower is older than the one the peer streamed */
 #define FD_FAILOVER_CONTROL_RESULT_PEER_REACHABLE (0x500CUL) /* a forced promotion while the peer is, or was recently, reachable */
 #define FD_FAILOVER_CONTROL_RESULT_PRECONDITION  (0x500DUL) /* a handoff pre-check failed, the status names the reason */
+#define FD_FAILOVER_CONTROL_RESULT_CONFIRMATION_OWED (0x500EUL) /* a demotion confirmation is still owed to the peer */
 
 FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_control_t     )<=FD_ADMINCTL_PAYLOAD_MAX, failover_control_req_fits  );
 FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_control_resp_t)<=FD_ADMINCTL_PAYLOAD_MAX, failover_control_resp_fits );
@@ -253,12 +272,19 @@ fd_adminctl_failover_status_resp_init( fd_adminctl_failover_status_resp_t * resp
   resp->peer_turbine_slot     = ULONG_MAX;
   resp->peer_next_leader_slot = ULONG_MAX;
   resp->peer_last_vote_slot   = ULONG_MAX;
+  /* State, stuck, ready and armed are zero with failover off, only the
+     codes need a none value. */
+  resp->last_handoff_code     = (uchar)FD_FAILOVER_HANDOFF_CODE_CNT;
+  resp->last_handoff_reason   = (uchar)FD_FAILOVER_REJECT_NONE;
+  resp->handoff_reject        = (uchar)FD_FAILOVER_REJECT_NONE;
+  resp->reclaim_code          = (uchar)FD_FAILOVER_RECLAIM_CODE_CNT;
+  resp->last_handoff_term     = ULONG_MAX;
 }
 
 FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_status_req_t )<=FD_ADMINCTL_PAYLOAD_MAX, failover_status_req_fits );
 FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_status_resp_t)<=FD_ADMINCTL_PAYLOAD_MAX, failover_status_resp_fits );
 FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_status_req_t )==16UL, failover_status_req_v1_layout );
-FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_status_resp_t)==232UL, failover_status_resp_v1_layout );
+FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_status_resp_t)==248UL, failover_status_resp_v1_layout );
 
 typedef struct fd_adminctl_private fd_adminctl_t;
 

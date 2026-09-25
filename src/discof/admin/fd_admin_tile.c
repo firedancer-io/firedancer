@@ -1419,6 +1419,33 @@ remove_all_authorized_voters( fd_admin_tile_ctx_t * ctx,
    adminctl slot until the response arrives or the deadline passes, like
    snapshot creation waits on replay. */
 
+/* failover_result_event_name gives the event log a name for every
+   result a failover command can answer with, so a refused command is a
+   refusal in the log, not a surprise. */
+static char const *
+failover_result_event_name( ulong result ) {
+  switch( result ) {
+    case FD_FAILOVER_STATUS_RESULT_BUSY:               return "busy";
+    case FD_FAILOVER_STATUS_RESULT_UNRESPONSIVE:       return "unresponsive";
+    case FD_FAILOVER_STATUS_RESULT_NO_SUCH_PEER:       return "no_such_peer";
+    case FD_FAILOVER_CONTROL_RESULT_DISABLED:          return "disabled";
+    case FD_FAILOVER_CONTROL_RESULT_BAD_ROLE:          return "bad_role";
+    case FD_FAILOVER_CONTROL_RESULT_NOT_PAIRED:        return "not_paired";
+    case FD_FAILOVER_CONTROL_RESULT_BUSY:              return "busy";
+    case FD_FAILOVER_CONTROL_RESULT_PAUSED:            return "paused";
+    case FD_FAILOVER_CONTROL_RESULT_NO_EVIDENCE:       return "no_evidence";
+    case FD_FAILOVER_CONTROL_RESULT_BAD_IDENTITY:      return "bad_identity";
+    case FD_FAILOVER_CONTROL_RESULT_UNSUPPORTED:       return "unsupported";
+    case FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY:      return "peer_unready";
+    case FD_FAILOVER_CONTROL_RESULT_IDENTITY_MISMATCH: return "identity_mismatch";
+    case FD_FAILOVER_CONTROL_RESULT_PEER_REACHABLE:    return "peer_reachable";
+    case FD_FAILOVER_CONTROL_RESULT_TOWER_ROLLBACK:    return "tower_rollback";
+    case FD_FAILOVER_CONTROL_RESULT_PRECONDITION:      return "precondition";
+    case FD_FAILOVER_CONTROL_RESULT_CONFIRMATION_OWED: return "confirmation_owed";
+    default:                                           return NULL;
+  }
+}
+
 static void
 failover_status_complete( fd_admin_tile_ctx_t * ctx,
                           ulong                 result,
@@ -1437,59 +1464,15 @@ failover_status_complete( fd_admin_tile_ctx_t * ctx,
     .payload_size        = is_control ? sizeof(fd_adminctl_failover_control_t)
                                       : sizeof(fd_adminctl_failover_status_req_t),
   };
-  switch( result ) {
-    case FD_ADMINCTL_RESULT_SUCCESS:
-      report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_SUCCESS );
-      break;
-    case FD_FAILOVER_STATUS_RESULT_UNRESPONSIVE:
-      report_admin_command_custom_result( &event, "unresponsive" );
-      break;
-    case FD_FAILOVER_STATUS_RESULT_NO_SUCH_PEER:
-      report_admin_command_custom_result( &event, "no_such_peer" );
-      break;
-    case FD_FAILOVER_CONTROL_RESULT_DISABLED:
-      report_admin_command_custom_result( &event, "disabled" );
-      break;
-    case FD_FAILOVER_CONTROL_RESULT_BAD_ROLE:
-      report_admin_command_custom_result( &event, "bad_role" );
-      break;
-    case FD_FAILOVER_CONTROL_RESULT_NOT_PAIRED:
-      report_admin_command_custom_result( &event, "not_paired" );
-      break;
-    case FD_FAILOVER_CONTROL_RESULT_BUSY:
-      report_admin_command_custom_result( &event, "busy" );
-      break;
-    case FD_FAILOVER_CONTROL_RESULT_PAUSED:
-      report_admin_command_custom_result( &event, "paused" );
-      break;
-    case FD_FAILOVER_CONTROL_RESULT_NO_EVIDENCE:
-      report_admin_command_custom_result( &event, "no_evidence" );
-      break;
-    case FD_FAILOVER_CONTROL_RESULT_BAD_IDENTITY:
-      report_admin_command_custom_result( &event, "bad_identity" );
-      break;
-    case FD_FAILOVER_CONTROL_RESULT_UNSUPPORTED:
-      report_admin_command_custom_result( &event, "unsupported" );
-      break;
-    case FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY:
-      report_admin_command_custom_result( &event, "peer_unready" );
-      break;
-    case FD_FAILOVER_CONTROL_RESULT_TOWER_ROLLBACK:
-      report_admin_command_custom_result( &event, "tower_rollback" );
-      break;
-    case FD_FAILOVER_CONTROL_RESULT_PRECONDITION:
-      report_admin_command_custom_result( &event, "precondition" );
-      break;
-    case FD_FAILOVER_CONTROL_RESULT_IDENTITY_MISMATCH:
-      report_admin_command_custom_result( &event, "identity_mismatch" );
-      break;
-    case FD_FAILOVER_CONTROL_RESULT_PEER_REACHABLE:
-      report_admin_command_custom_result( &event, "peer_reachable" );
-      break;
-    default:
-      FD_LOG_WARNING(( "unexpected failover-status result %lu", result ));
-      report_admin_command_custom_result( &event, "unexpected" );
-      break;
+  if( FD_LIKELY( result==FD_ADMINCTL_RESULT_SUCCESS ) ) {
+    report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_SUCCESS );
+  } else {
+    char const * name = failover_result_event_name( result );
+    if( FD_UNLIKELY( !name ) ) {
+      FD_LOG_WARNING(( "unexpected failover result %lu", result ));
+      name = "unexpected";
+    }
+    report_admin_command_custom_result( &event, name );
   }
   fd_adminctl_complete_response( ctx->adminctl, ctx->failover_status_slot_idx, result, resp, resp_sz );
   ctx->failover_status_slot_idx   = ULONG_MAX;

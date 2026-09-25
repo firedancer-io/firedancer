@@ -23,6 +23,11 @@ enum {
   FD_METRICS_GAUGE_FAILOV_PEERS_PAIRED_OFF,
   FD_METRICS_GAUGE_FAILOV_POOL_HEALTHY_OFF,
   FD_METRICS_GAUGE_FAILOV_POOL_HEALTH_REASON_OFF,
+  FD_METRICS_GAUGE_FAILOV_STATE_OFF,
+  FD_METRICS_GAUGE_FAILOV_ACTION_OFF,
+  FD_METRICS_GAUGE_FAILOV_STUCK_OFF,
+  FD_METRICS_GAUGE_FAILOV_HANDOFF_READY_OFF,
+  FD_METRICS_GAUGE_FAILOV_HANDOFF_REJECT_OFF,
   FD_METRICS_COUNTER_FAILOV_FRAMES_SENT_OFF,
   FD_METRICS_COUNTER_FAILOV_FRAMES_RECEIVED_OFF,
   FD_METRICS_COUNTER_FAILOV_TLS_FAILURES_OFF,
@@ -110,13 +115,38 @@ enum {
 
 #define FD_METRICS_GAUGE_FAILOV_POOL_HEALTHY_NAME "failov_pool_healthy"
 #define FD_METRICS_GAUGE_FAILOV_POOL_HEALTHY_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_FAILOV_POOL_HEALTHY_DESC "Whether every pool session passes the health checks on link, cadence, roles and status bits"
+#define FD_METRICS_GAUGE_FAILOV_POOL_HEALTHY_DESC "Whether every pool session passes the health checks on link, cadence, roles and status bits, whether a handoff would go through is HandoffReady"
 #define FD_METRICS_GAUGE_FAILOV_POOL_HEALTHY_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_GAUGE_FAILOV_POOL_HEALTH_REASON_NAME "failov_pool_health_reason"
 #define FD_METRICS_GAUGE_FAILOV_POOL_HEALTH_REASON_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_FAILOV_POOL_HEALTH_REASON_DESC "Pool health result (0=pool healthy, 1=link down, 2=peer status stale, 3=role or term conflict, 4=active unhealthy, 5=standby unhealthy, 6=standby behind on replication)"
+#define FD_METRICS_GAUGE_FAILOV_POOL_HEALTH_REASON_DESC "Pool health result (0=pool healthy, 1=link down, 2=peer status stale, 3=role or term conflict, 4=active unhealthy, 5=standby unhealthy, 6=standby behind on replication, 7=failover disabled, 8=no member holds the identity)"
 #define FD_METRICS_GAUGE_FAILOV_POOL_HEALTH_REASON_CVT  (FD_METRICS_CONVERTER_NONE)
+
+#define FD_METRICS_GAUGE_FAILOV_STATE_NAME "failov_state"
+#define FD_METRICS_GAUGE_FAILOV_STATE_TYPE (FD_METRICS_TYPE_GAUGE)
+#define FD_METRICS_GAUGE_FAILOV_STATE_DESC "Controller state from the role file (0=standby, 1=active, 2=demoting, 3=promoting, 4=reclaiming)"
+#define FD_METRICS_GAUGE_FAILOV_STATE_CVT  (FD_METRICS_CONVERTER_NONE)
+
+#define FD_METRICS_GAUGE_FAILOV_ACTION_NAME "failov_action"
+#define FD_METRICS_GAUGE_FAILOV_ACTION_TYPE (FD_METRICS_TYPE_GAUGE)
+#define FD_METRICS_GAUGE_FAILOV_ACTION_DESC "Controller step in flight (0=idle, 1=demote switch, 2=demote wait ack, 3=promote wait replay, 4=promote wait adopt, 5=promote switch, 6=reject, 7=first use wait, 8=confirm wait query, 9=clear wait query, 10=reclaim wait)"
+#define FD_METRICS_GAUGE_FAILOV_ACTION_CVT  (FD_METRICS_CONVERTER_NONE)
+
+#define FD_METRICS_GAUGE_FAILOV_STUCK_NAME "failov_stuck"
+#define FD_METRICS_GAUGE_FAILOV_STUCK_TYPE (FD_METRICS_TYPE_GAUGE)
+#define FD_METRICS_GAUGE_FAILOV_STUCK_DESC "A transition could not finish and clear has not run"
+#define FD_METRICS_GAUGE_FAILOV_STUCK_CVT  (FD_METRICS_CONVERTER_NONE)
+
+#define FD_METRICS_GAUGE_FAILOV_HANDOFF_READY_NAME "failov_handoff_ready"
+#define FD_METRICS_GAUGE_FAILOV_HANDOFF_READY_TYPE (FD_METRICS_TYPE_GAUGE)
+#define FD_METRICS_GAUGE_FAILOV_HANDOFF_READY_DESC "Whether a handoff asked right now would proceed, from the same pre-checks the command runs"
+#define FD_METRICS_GAUGE_FAILOV_HANDOFF_READY_CVT  (FD_METRICS_CONVERTER_NONE)
+
+#define FD_METRICS_GAUGE_FAILOV_HANDOFF_REJECT_NAME "failov_handoff_reject"
+#define FD_METRICS_GAUGE_FAILOV_HANDOFF_REJECT_TYPE (FD_METRICS_TYPE_GAUGE)
+#define FD_METRICS_GAUGE_FAILOV_HANDOFF_REJECT_DESC "The rejection reason a handoff asked right now would get, 0 when it would proceed"
+#define FD_METRICS_GAUGE_FAILOV_HANDOFF_REJECT_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_COUNTER_FAILOV_FRAMES_SENT_NAME "failov_frames_sent"
 #define FD_METRICS_COUNTER_FAILOV_FRAMES_SENT_TYPE (FD_METRICS_TYPE_COUNTER)
@@ -183,7 +213,7 @@ enum {
 #define FD_METRICS_COUNTER_FAILOV_IDENTITY_MISMATCH_DESC "Times a clear found the installed identity disagreeing with the recorded role, the stuck flag stays set"
 #define FD_METRICS_COUNTER_FAILOV_IDENTITY_MISMATCH_CVT  (FD_METRICS_CONVERTER_NONE)
 
-#define FD_METRICS_FAILOV_TOTAL (29UL)
+#define FD_METRICS_FAILOV_TOTAL (34UL)
 extern const fd_metrics_meta_t FD_METRICS_FAILOV[FD_METRICS_FAILOV_TOTAL];
 
 #endif /* HEADER_fd_src_disco_metrics_generated_fd_metrics_failov_h */

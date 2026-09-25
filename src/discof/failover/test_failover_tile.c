@@ -313,6 +313,11 @@ healthy_peer( long now ) {
   ctx->last_vote_slot        = 99UL;
   ctx->status_interval       = 800L*1000000L;
   ctx->replication_lag_limit = 8UL;
+  ctx->min_slots_to_leader   = 150UL;
+  ctx->deadline_slots        = 64UL;
+  ctx->catchup_gap_limit     = 8UL;
+  ctx->handoff_code          = (uchar)FD_FAILOVER_HANDOFF_CODE_CNT;
+  ctx->reclaim_code          = (uchar)FD_FAILOVER_RECLAIM_CODE_CNT;
 
   fd_failover_peer_t * peer = &ctx->peers[ 0 ];
   peer->member_idx   = 1UL;
@@ -343,6 +348,30 @@ test_status_snapshot( void ) {
   FD_TEST( resp.replay_slot==100UL && resp.root_slot==90UL && resp.last_vote_slot==99UL );
   FD_TEST( resp.replication_lag_slots==2UL && resp.link_state==FD_FAILOVER_SESSION_PAIRED );
   FD_TEST( resp.pool_healthy && resp.readiness_reason==FD_FAILOVER_READINESS_POOL_HEALTHY );
+
+  /* The controller shows in the snapshot, and the handoff answer is the
+     one the command would get.  Healthy links with nobody caught up is
+     not ready. */
+  FD_TEST( resp.state==FD_FAILOVER_STATE_STANDBY && resp.action==FD_FAILOVER_ACTION_IDLE && !resp.stuck );
+  FD_TEST( !resp.handoff_ready && resp.handoff_reject==FD_FAILOVER_REJECT_LOCAL_UNHEALTHY );
+  FD_TEST( resp.last_handoff_code==(uchar)FD_FAILOVER_HANDOFF_CODE_CNT && resp.last_handoff_term==ULONG_MAX );
+  FD_TEST( resp.reclaim_code==(uchar)FD_FAILOVER_RECLAIM_CODE_CNT && !resp.first_use_armed );
+  ctx->turbine_slot     = 104UL;
+  ctx->replay_caught_up = 1;
+  peer->status.flags    = FD_FAILOVER_FLAG_CAUGHT_UP;
+  peer->cs_sent         = 1;
+  status_snapshot( ctx, 0UL, now, &resp );
+  FD_TEST( resp.handoff_ready && resp.handoff_reject==FD_FAILOVER_REJECT_NONE );
+  ctx->stuck = 1;
+  status_snapshot( ctx, 0UL, now, &resp );
+  FD_TEST( resp.stuck && !resp.handoff_ready && resp.handoff_reject==FD_FAILOVER_REJECT_LOCAL_UNHEALTHY );
+  ctx->stuck = 0;
+
+  /* Two standbys is a pool with no holder, not a conflict. */
+  ctx->role = FD_FAILOVER_ROLE_STANDBY;
+  status_snapshot( ctx, 0UL, now, &resp );
+  FD_TEST( !resp.pool_healthy && resp.readiness_reason==FD_FAILOVER_READINESS_NO_ACTIVE );
+  ctx->role = FD_FAILOVER_ROLE_ACTIVE;
 
   /* A stale peer status, a role conflict and a down link each get their
      own reason, and none of them counts as healthy. */
@@ -638,6 +667,7 @@ controller_init( ulong saved_state,
   ctx->deadline_slot         = FD_FAILOVER_SLOT_NULL;
   ctx->deadline_nanos        = LONG_MAX;
   ctx->handoff_code          = (uchar)FD_FAILOVER_HANDOFF_CODE_CNT;
+  ctx->reclaim_code          = (uchar)FD_FAILOVER_RECLAIM_CODE_CNT;
   ctx->admin_out_idx         = 0UL;
   ctx->admin_out_mem         = (fd_wksp_t *)bus_mem;
   ctx->adopt_out_idx         = 0UL;
@@ -2369,7 +2399,7 @@ test_clear_command( void ) {
   FD_TEST( apply_control( ctx, stem, &req, 1000L )==FD_FAILOVER_CONTROL_RESULT_BUSY );
   ctx->switch_pending_key = FD_FAILOVER_SWITCH_KEY_CNT;
   ctx->send_demoted       = 1;
-  FD_TEST( apply_control( ctx, stem, &req, 1000L )==FD_FAILOVER_CONTROL_RESULT_NO_EVIDENCE );
+  FD_TEST( apply_control( ctx, stem, &req, 1000L )==FD_FAILOVER_CONTROL_RESULT_CONFIRMATION_OWED );
   ctx->send_demoted       = 0;
 
   /* Through the bus: the request is parked, the query goes out, and no

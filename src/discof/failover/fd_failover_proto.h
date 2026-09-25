@@ -23,6 +23,22 @@
 #define FD_FAILOVER_MSG_CONFIRM          (11U)
 #define FD_FAILOVER_MSG_RESERVED         (12U)
 
+/* What the controller is currently doing within a state.  The state
+   itself is saved in the role file and survives a restart, the action
+   does not.  The status payload reports it, so it is ABI. */
+#define FD_FAILOVER_ACTION_IDLE                (0UL)
+#define FD_FAILOVER_ACTION_DEMOTE_SWITCH       (1UL) /* waiting for the junk key to be installed */
+#define FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK     (2UL) /* confirmation sent, waiting for the peer */
+#define FD_FAILOVER_ACTION_PROMOTE_WAIT_REPLAY (3UL) /* waiting for replay to reach the final vote */
+#define FD_FAILOVER_ACTION_PROMOTE_WAIT_ADOPT  (4UL) /* waiting for the tower tile to adopt */
+#define FD_FAILOVER_ACTION_PROMOTE_SWITCH      (5UL) /* waiting for the staked key to be installed */
+#define FD_FAILOVER_ACTION_REJECT              (6UL) /* standing down, telling the peer why */
+#define FD_FAILOVER_ACTION_FIRST_USE_WAIT      (7UL) /* waiting for the peer's stand-down */
+#define FD_FAILOVER_ACTION_CONFIRM_WAIT_QUERY  (8UL) /* proving the installed junk key */
+#define FD_FAILOVER_ACTION_CLEAR_WAIT_QUERY    (9UL) /* proving the installed key matches the record before clearing stuck */
+#define FD_FAILOVER_ACTION_RECLAIM_WAIT        (10UL) /* waiting for the peer's answer to a reclaim */
+#define FD_FAILOVER_ACTION_CNT                 (11UL)
+
 /* Sentinel for a slot field with no value */
 #define FD_FAILOVER_SLOT_NULL (ULONG_MAX)
 
