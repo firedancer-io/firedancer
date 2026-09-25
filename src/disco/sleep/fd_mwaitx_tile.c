@@ -149,9 +149,11 @@ before_credit( fd_mwaitx_tile_t *   ctx,
       if( FD_UNLIKELY( (long)FD_VOLATILE_CONST( ctx->sleep->tile[ tid ].deadline )<=now ) ) {
         wake = 1;
         ctx->metrics_deadline++;
-      } else {
+      } else if( FD_LIKELY( !(FD_VOLATILE_CONST( ctx->sleep->credit_bits[ w ] ) & (1UL<<(tid&63UL))) ) ) {
         /* Producer mirror is ahead of the parked tile's snapshot, a
-           pending frag is available, the doorbell was lost or raced. */
+           pending frag is available, the doorbell was lost or raced.
+           A tile parked on backpressure (credit bit) cannot use a
+           frag; only its deadline or a credit ring wakes it. */
         for( ulong i=0UL; i<(ulong)ctx->in_cnt[ tid ]; i++ ) {
           ulong mirror = FD_VOLATILE_CONST( ctx->sleep->seq_mirror[ ctx->in_link[ tid ][ i ] ] );
           if( FD_UNLIKELY( fd_seq_lt( FD_VOLATILE_CONST( ctx->sleep->seq_snap[ tid ][ i ] ), mirror ) ) ) {

@@ -61,6 +61,18 @@ main( int     argc,
   sleep->parked_bits[ 0 ] = 0UL; sleep->doorbell[ 0 ] = 0UL;
   sleep->parked_bits[ 1 ] = 0UL; sleep->doorbell[ 1 ] = 0UL;
 
+  /* a consumer parked on backpressure (credit bit) is not rung by a
+     publish; the other parked consumers in the same word still are */
+  sleep->parked_bits[ 0 ] = 6UL; sleep->credit_bits[ 0 ] = 4UL;
+  sleep->parked_bits[ 1 ] = 1UL; sleep->credit_bits[ 1 ] = 1UL;
+  fd_sleep_wake_check( sleep, wake, 2UL );
+  FD_TEST( sleep->doorbell[ 0 ]==2UL && !sleep->doorbell[ 1 ] );     /* credit masked   */
+  sleep->credit_bits[ 0 ] = 0UL; sleep->credit_bits[ 1 ] = 0UL; sleep->doorbell[ 0 ] = 0UL;
+  fd_sleep_wake_check( sleep, wake, 2UL );
+  FD_TEST( sleep->doorbell[ 0 ]==6UL && sleep->doorbell[ 1 ]==1UL ); /* bit cleared: rung */
+  sleep->parked_bits[ 0 ] = 0UL; sleep->doorbell[ 0 ] = 0UL;
+  sleep->parked_bits[ 1 ] = 0UL; sleep->doorbell[ 1 ] = 0UL;
+
   /* wake_table: polled consumers of one link, as (word,mask) pairs */
   static fd_topo_t topo[ 1 ];
   topo->sleep_obj_id = ULONG_MAX;

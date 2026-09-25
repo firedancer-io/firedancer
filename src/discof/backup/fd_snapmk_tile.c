@@ -121,6 +121,7 @@ struct fd_snapmk {
   /* snaprd worker thread */
 
   atomic_ulong * rd_fseq;
+  ulong          rd_tile_id;   /* snaprd, rung when a credit return finds it parked on backpressure */
   atomic_ulong * rd_ctl;
   ulong          rd_seq;       /* seq of the snaprd frag last parsed */
   ulong          rd_seq_cache; /* last watermark published to snaprd */
@@ -434,6 +435,7 @@ unprivileged_init( fd_topo_t const *      topo,
       FD_CHECK_ERR( fseq, "no fseq for snaprd_out link" );
       ctx->rd_fseq = (atomic_ulong *)fseq;
       ctx->rd_ctl  = fd_fseq_app_laddr( fseq );
+      ctx->rd_tile_id = fd_topo_find_link_producer( topo, link );
       FD_STATIC_ASSERT( sizeof(ulong)<=FD_FSEQ_APP_FOOTPRINT, fseq_app_space );
     } else {
       FD_LOG_ERR(( "Unexpected input link \"%s\"", link->name ));
@@ -945,6 +947,11 @@ rd_ack( fd_snapmk_t *             ctx,
   if( rd_seq != ctx->rd_seq_cache ) {
     ctx->rd_seq_cache = rd_seq;
     atomic_store_explicit( ctx->rd_fseq, rd_seq, memory_order_release );
+    /* early credit return: ring snaprd if it parked on our credits */
+    if( FD_UNLIKELY( stem->sleep ) ) {
+      __atomic_thread_fence( __ATOMIC_SEQ_CST );
+      if( FD_UNLIKELY( FD_VOLATILE_CONST( stem->sleep->credit_bits[ ctx->rd_tile_id>>6 ] ) & (1UL<<(ctx->rd_tile_id&63UL)) ) ) fd_sleep_ring( stem->sleep, ctx->rd_tile_id );
+    }
   }
 }
 
@@ -2105,8 +2112,15 @@ snapmk_run( fd_topo_t *      topo,
     sleep->out_link_id = tile->out_link_id;
 
     ulong polled_idx = 0UL;
-    for( ulong i=0UL; i<tile->in_cnt; i++ )
-      if( FD_LIKELY( tile->in_link_poll[ i ] ) ) sleep->in_link_id[ polled_idx++ ] = tile->in_link_id[ i ];
+    for( ulong i=0UL; i<tile->in_cnt; i++ ) {
+      if( FD_LIKELY( !tile->in_link_poll[ i ] ) ) continue;
+      fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
+      sleep->in_link_id [ polled_idx ] = tile->in_link_id[ i ];
+      /* snaprd_out credits go through rd_ack, which rings snaprd itself;
+         the stem writes a dummy fseq for it and must not ring */
+      sleep->in_producer[ polled_idx ] = tile->in_link_reliable[ i ] && strcmp( link->name, "snaprd_out" ) ? fd_topo_find_link_producer( topo, link ) : ULONG_MAX;
+      polled_idx++;
+    }
 
     ulong pair_cnt = 0UL;
     for( ulong i=0UL; i<tile->out_cnt; i++ ) {

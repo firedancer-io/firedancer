@@ -48,6 +48,11 @@ struct __attribute__((aligned(FD_SLEEP_ALIGN))) fd_sleep_private {
   ulong doorbell[ FD_SLEEP_BITS_CNT ];
   ulong pad1[ 8 ];
 
+  /* Subset of parked_bits: tiles parked on backpressure, which only a
+     consumer's credit return can wake.  Loaded on every credit return. */
+  ulong credit_bits[ FD_SLEEP_BITS_CNT ];
+  ulong pad2[ 8 ];
+
   /* Indexed by tile->id; written by the owner and mwaitx only */
   struct __attribute__((aligned(64UL))) {
     ulong word;      /* futex word: 0 parked, 1 running */
@@ -113,8 +118,10 @@ fd_sleep_ring( fd_sleep_t * sleep,
   __atomic_fetch_or( &sleep->doorbell[ tile_id>>6 ], 1UL<<(tile_id&63UL), __ATOMIC_RELEASE );
 }
 
-/* fd_sleep_wake_check rings the parked consumers of one out link.
-   One load per pair; the locked OR only on a hit. */
+/* fd_sleep_wake_check rings the parked consumers of one out link,
+   except those parked on backpressure (credit_bits): a frag cannot
+   help them, only a credit return can.  One load per pair; the
+   second load and the locked OR only on a hit. */
 
 static inline void
 fd_sleep_wake_check( fd_sleep_t *            sleep,
@@ -122,7 +129,10 @@ fd_sleep_wake_check( fd_sleep_t *            sleep,
                      ulong                   wake_cnt ) {
   for( ulong k=0UL; k<wake_cnt; k++ ) {
     ulong rung = FD_VOLATILE_CONST( sleep->parked_bits[ wake[ k ].w ] ) & wake[ k ].mask;
-    if( FD_UNLIKELY( rung ) ) __atomic_fetch_or( &sleep->doorbell[ wake[ k ].w ], rung, __ATOMIC_RELEASE );
+    if( FD_UNLIKELY( rung ) ) {
+      rung &= ~FD_VOLATILE_CONST( sleep->credit_bits[ wake[ k ].w ] );
+      if( FD_LIKELY( rung ) ) __atomic_fetch_or( &sleep->doorbell[ wake[ k ].w ], rung, __ATOMIC_RELEASE );
+    }
   }
 }
 

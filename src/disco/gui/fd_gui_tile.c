@@ -155,7 +155,6 @@ typedef struct {
 
   ulong           in_kind[ FD_TOPO_MAX_TILE_IN_LINKS ];
   int             in_reliable[ FD_TOPO_MAX_TILE_IN_LINKS ];
-  ulong *         in_fseq    [ FD_TOPO_MAX_TILE_IN_LINKS ];
   ulong           in_bank_idx[ FD_TOPO_MAX_TILE_IN_LINKS ];
   fd_gui_in_ctx_t in[ FD_TOPO_MAX_TILE_IN_LINKS ];
 
@@ -584,7 +583,7 @@ after_frag( fd_gui_ctx_t *      ctx,
         FD_LOG_ERR(( "unexpected poh packet type %lu", fd_disco_poh_sig_pkt_type( sig ) ));
       }
       /* The link is shallow; return the credit now, like the execle. */
-      fd_fseq_update( ctx->in_fseq[ in_idx ], seq+1UL );
+      fd_stem_credit_return( stem, in_idx, seq+1UL );
       break;
     }
     case IN_KIND_EXECLE_POH: {
@@ -985,11 +984,7 @@ unprivileged_init( fd_topo_t const *      topo,
     fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
     fd_topo_wksp_t const * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
 
-    if( FD_LIKELY( !strcmp( link->name, "pack_execle"  ) ) ) {
-      ctx->in_kind[ i ] = IN_KIND_PACK_EXECLE;
-      ctx->in_fseq[ i ] = fd_fseq_join( fd_topo_obj_laddr( topo, tile->in_link_fseq_obj_id[ i ] ) );
-      FD_TEST( ctx->in_fseq[ i ] );
-    }
+    if( FD_LIKELY( !strcmp( link->name, "pack_execle"  ) ) ) ctx->in_kind[ i ] = IN_KIND_PACK_EXECLE;
     else if( FD_LIKELY( !strcmp( link->name, "pack_poh"     ) ) ) ctx->in_kind[ i ] = IN_KIND_PACK_POH;
     else if( FD_LIKELY( !strcmp( link->name, "execle_poh"   ) ) ) ctx->in_kind[ i ] = IN_KIND_EXECLE_POH;
     else if( FD_LIKELY( !strcmp( link->name, "shred_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_SHRED_OUT;
