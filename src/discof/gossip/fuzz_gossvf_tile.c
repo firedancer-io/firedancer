@@ -578,6 +578,8 @@ send_udp_payload( fuzz_env_t * env,
 
   for( ulong i=0UL; i<values_len; i++ ) {
     if( FD_UNLIKELY( failed[ i ] || values[ i ].tag!=FD_GOSSIP_VALUE_CONTACT_INFO ) ) continue;
+    fd_gossip_socket_t const * tvu = &values[ i ].contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_TVU ];
+    FD_TEST( !tvu->port || ( tvu->ip4 && !fd_ip4_addr_is_mcast( tvu->ip4 ) ) );
 
     fd_gossip_update_message_t update[1];
     memset( update, 0, sizeof(update) );
@@ -712,6 +714,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
         long skew_ms = (long)( (int)( fuzz_u8( &cur ) % 41U ) - 20 ) * 1000L;
         int corrupt_sig = !!( fuzz_u8( &cur ) & 1U );
         make_contact_value( value, peer_idx, addr, port, shred_version, env->now, skew_ms );
+        value->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_TVU ].ip4 = fuzz_addr_for_class( fuzz_u8( &cur ), peer_idx );
 
         long value_sz = serialize_signed_value( value,
                                                 peer_idx,

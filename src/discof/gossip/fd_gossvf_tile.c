@@ -663,13 +663,13 @@ verify_addresses( fd_gossvf_tile_ctx_t * ctx,
       .port = value->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].port
     };
 
-    /* Sanitize sockets: zero out any with a multicast address.
+    /* Sanitize sockets: zero out any with a zero or multicast address.
        Matches Agave, which omits bad sockets from the cache but
        still accepts the ContactInfo into CRDS. */
     for( ulong j=0UL; j<FD_GOSSIP_CONTACT_INFO_SOCKET_CNT; j++ ) {
       fd_gossip_socket_t * sock = &values[ i ].contact_info->sockets[ j ];
       if( !sock->port || sock->is_ipv6 ) continue;
-      if( FD_UNLIKELY( fd_ip4_addr_is_mcast( sock->ip4 ) ) ) {
+      if( FD_UNLIKELY( !sock->ip4 || fd_ip4_addr_is_mcast( sock->ip4 ) ) ) {
         sock->ip4  = 0U;
         sock->port = 0;
       }
