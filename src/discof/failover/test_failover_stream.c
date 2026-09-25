@@ -171,6 +171,18 @@ test_consensus_decode( void ) {
   FD_TEST( !fd_failover_consensus_decode( &cache, FD_FAILOVER_ROLE_STANDBY, &peer, payload, payload_sz ) );
   FD_TEST( fd_memeq( &cache, &before, sizeof(cache) ) );
 
+  /* A term one past the paired HELLO is the active mid demotion, still
+     streaming, and is accepted.  A term behind the HELLO is stale. */
+  before = cache;
+  payload_sz = make_consensus( payload, 8UL, 13UL, 109UL, state_b, state_b_sz );
+  FD_TEST( fd_failover_consensus_decode( &cache, FD_FAILOVER_ROLE_STANDBY, &peer, payload, payload_sz ) );
+  FD_TEST( cache.msg.term==8UL && cache.msg.link_seq==13UL );
+  fd_failover_consensus_cache_t advanced = cache;
+  payload_sz = make_consensus( payload, 6UL, 14UL, 109UL, state_b, state_b_sz );
+  FD_TEST( !fd_failover_consensus_decode( &cache, FD_FAILOVER_ROLE_STANDBY, &peer, payload, payload_sz ) );
+  FD_TEST( fd_memeq( &cache, &advanced, sizeof(cache) ) );
+  cache = before; /* the cases below continue from the term 7 stream */
+
   peer.boot_id = 12UL;
   payload_sz = make_consensus( payload, 7UL, 0UL, 109UL, state_b, state_b_sz );
   FD_TEST( fd_failover_consensus_decode( &cache, FD_FAILOVER_ROLE_STANDBY, &peer, payload, payload_sz ) );

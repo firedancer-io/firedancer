@@ -58,7 +58,12 @@ fd_failover_consensus_decode( fd_failover_consensus_cache_t * cache,
   fd_failover_consensus_state_t msg;
   fd_memcpy( &msg, payload, sizeof(msg) );
   ulong state_sz = payload_sz-sizeof(fd_failover_consensus_state_t);
-  if( FD_UNLIKELY( msg.term!=peer->term ||
+  /* A demotion persists and advertises the next term before its switch
+     answers, without hanging the session up, so a tower streamed in that
+     window is stamped one term past the HELLO this session paired on.
+     Anything behind the HELLO is stale, anything at or past it is the
+     same active moving forward, and the cache below keeps it monotonic. */
+  if( FD_UNLIKELY( msg.term<peer->term ||
                    !msg.state_len ||
                    (ulong)msg.state_len!=state_sz ||
                    state_sz>FD_FAILOVER_TOWER_STATE_MAX ||
