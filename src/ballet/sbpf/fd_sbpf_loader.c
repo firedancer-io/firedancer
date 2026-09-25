@@ -178,7 +178,10 @@ fd_sbpf_program_new( void *                     prog_mem,
     .info            = *elf_info,
     .rodata          = rodata,
     .rodata_sz       = 0UL,
-    .text            = (ulong *)((ulong)rodata + elf_info->text_off), /* FIXME: WHAT IF MISALIGNED */
+    /* text_off is .text's sh_addr, so text need not be 8 byte aligned.
+       Agave accepts these, so rejecting would diverge.
+       https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/ebpf.rs#L675-L684 */
+    .text            = (ulong *)((ulong)rodata + elf_info->text_off),
     .entry_pc        = ULONG_MAX,
     .calldests_shmem = NULL,
     .calldests       = NULL,

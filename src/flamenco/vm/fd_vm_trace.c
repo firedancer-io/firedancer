@@ -123,7 +123,7 @@ fd_vm_trace_event_exe( fd_vm_trace_t * trace,
 
   if( FD_UNLIKELY( (!trace) | (!reg) | (!text) | (!text_cnt) ) ) return FD_VM_ERR_INVAL;
 
-  ulong text0     = text[0];
+  ulong text0     = FD_LOAD( ulong, text );
   int   multiword = (text_cnt>1UL) & (fd_sbpf_instr( text0 ).opcode.any.op_class==FD_SBPF_OPCODE_CLASS_LD);
 
   ulong event_footprint = sizeof(fd_vm_trace_event_exe_t) - fd_ulong_if( !multiword, 8UL, 0UL );
@@ -146,7 +146,7 @@ fd_vm_trace_event_exe( fd_vm_trace_t * trace,
   event->text[0] = text0;
   event->ic_correction = ic_correction;
   event->frame_cnt = frame_cnt;
-  if( FD_UNLIKELY( multiword ) ) event->text[1] = text[1];
+  if( FD_UNLIKELY( multiword ) ) event->text[1] = FD_LOAD( ulong, text+1 );
 
   return FD_VM_SUCCESS;
 }
