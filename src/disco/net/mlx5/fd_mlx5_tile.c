@@ -1384,7 +1384,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_METRICS_WRITE       metrics_write
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 #define STEM_NEVER_PARK                   1
-#define STEM_BURST                        FD_MLX5_BATCH_SIZE
+#define STEM_BURST                        (FD_MLX5_BATCH_SIZE+1) /* +1 accounts for possible LB TX packet */
 #define STEM_LAZY                         270000UL /* 270us */
 #include "../../stem/fd_stem.c"
 
