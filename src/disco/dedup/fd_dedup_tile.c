@@ -1,5 +1,6 @@
 
 #include "../fd_txn_m.h"
+#include <linux/futex.h>
 #include "generated/fd_dedup_tile_seccomp.h"
 
 #include "../topo/fd_topo.h"

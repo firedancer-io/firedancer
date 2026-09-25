@@ -1,6 +1,7 @@
 #include "fd_verify_tile.h"
 #include "../fd_txn_m.h"
 #include "../metrics/fd_metrics.h"
+#include <linux/futex.h>
 #include "generated/fd_verify_tile_seccomp.h"
 #include "../../flamenco/gossip/fd_gossip_message.h"
 

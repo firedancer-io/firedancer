@@ -1,5 +1,6 @@
 #include "../tiles.h"
 
+#include <linux/futex.h>
 #include "generated/fd_pack_tile_seccomp.h"
 
 #include "../../util/pod/fd_pod_format.h"
