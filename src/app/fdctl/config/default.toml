@@ -670,14 +670,17 @@ dynamic_port_range = "8900-9000"
     # skipped due to hyperthreading.  You can also have a number
     # preceded by a 'f' like 'f5' which means the next five tiles are
     # not pinned and will float on the original core set that Firedancer
-    # was started with.
+    # was started with, or on the shared cores (below) if the layout
+    # names any.
     #
     # A core preceded by an 's' like 's5' is shared.  The tile is homed
     # at core 5, so its memory is placed on that core's NUMA node, but
     # the kernel may schedule it on any shared core of that node.  A
     # shared core is not claimed exclusively, so more than one tile may
-    # name it.  This is for tiles that are idle in your configuration
-    # and would otherwise hold a core a busy tile could use.
+    # name it, but a pinned core or its hyperthread sibling is never
+    # used as a shared core.  This is for tiles that are idle in your
+    # configuration and would otherwise hold a core a busy tile could
+    # use.
     #
     # For example, if Firedancer has six tiles numbered 0..5, and the
     # affinity is specified as

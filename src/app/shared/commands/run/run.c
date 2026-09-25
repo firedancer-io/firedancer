@@ -270,12 +270,14 @@ execve_tile( char const *           name,
       ulong numa_idx = fd_shmem_numa_idx( tile->cpu_idx );
       for( ulong cpu=0UL; cpu<FD_TILE_MAX; cpu++ )
         if( fd_cpuset_test( float_cpu_set, cpu ) && fd_shmem_numa_idx( cpu )==numa_idx ) fd_cpuset_insert( cpu_set, cpu );
+      if( FD_UNLIKELY( !fd_cpuset_cnt( cpu_set ) ) ) fd_memcpy( cpu_set, float_cpu_set, fd_cpuset_footprint() );
     }
     if( FD_UNLIKELY( !fd_cpuset_cnt( cpu_set ) ) ) fd_cpuset_insert( cpu_set, tile->cpu_idx );
     if( FD_UNLIKELY( -1==setpriority( PRIO_PROCESS, 0, -19 ) ) ) FD_LOG_ERR(( "setpriority() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   } else {
     leave_isolation_cgroup( cg );
-    fd_memcpy( cpu_set, floating_cpu_set, fd_cpuset_footprint() );
+    fd_cpuset_intersect( cpu_set, float_cpu_set, floating_cpu_set );
+    if( FD_UNLIKELY( !fd_cpuset_cnt( cpu_set ) ) ) fd_memcpy( cpu_set, floating_cpu_set, fd_cpuset_footprint() );
     if( FD_UNLIKELY( -1==setpriority( PRIO_PROCESS, 0, floating_priority ) ) ) FD_LOG_ERR(( "setpriority() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
@@ -349,8 +351,13 @@ main_pid_namespace( void * _args ) {
     fd_cpuset_insert( float_cpu_set, config->topo.tiles[ i ].cpu_idx );
     any_floats = 1;
   }
-  for( ulong i=0UL; i<config->topo.tile_cnt; i++ )
-    if( FD_LIKELY( !config->topo.tiles[ i ].floats && config->topo.tiles[ i ].cpu_idx!=ULONG_MAX ) ) fd_cpuset_remove( float_cpu_set, config->topo.tiles[ i ].cpu_idx );
+  for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
+    fd_topo_tile_t const * tile = &config->topo.tiles[ i ];
+    if( FD_UNLIKELY( tile->floats || tile->cpu_idx==ULONG_MAX ) ) continue;
+    fd_cpuset_remove( float_cpu_set, tile->cpu_idx );
+    ulong sibling = fd_tile_private_sibling_idx( tile->cpu_idx );
+    if( FD_LIKELY( sibling!=ULONG_MAX ) ) fd_cpuset_remove( float_cpu_set, sibling );
+  }
 
   pid_t child_pids[ FD_TOPO_MAX_TILES+1 ];
   ulong actual_pids[ FD_TOPO_MAX_TILES+1 ];
