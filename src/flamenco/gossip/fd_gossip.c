@@ -1182,5 +1182,5 @@ fd_gossip_ping_tracker_track( fd_gossip_t * gossip,
   if( FD_UNLIKELY( !memcmp( peer_pubkey, gossip->identity_pubkey, 32UL ) ) ) return;
 
   ulong origin_stake = get_stake( gossip, peer_pubkey );
-  fd_ping_tracker_track( gossip->ping_tracker, peer_pubkey, origin_stake, peer_address, now );
+  fd_ping_tracker_track_strict( gossip->ping_tracker, peer_pubkey, origin_stake, peer_address, now );
 }

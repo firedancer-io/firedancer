@@ -116,6 +116,62 @@ test_basic( void ) {
   free( bytes );
 }
 
+void
+test_staked_return_path( void ) {
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
+  FD_TEST( rng );
+
+  const ulong         entrypoints_len = 1UL;
+  const fd_ip4_port_t entrypoints[1]  = { {.addr=fd_rng_uint(rng), .port=fd_rng_ushort(rng)} };
+
+  void * bytes = aligned_alloc( fd_ping_tracker_align(), fd_ping_tracker_footprint( entrypoints_len ) );
+  FD_TEST( bytes );
+
+  ping_tracker_change_ctx_t change_ctx[1] = {0};
+  fd_ping_tracker_t * ping_tracker = fd_ping_tracker_join( fd_ping_tracker_new( bytes, rng, entrypoints_len, entrypoints, test_change, change_ctx ) );
+  FD_TEST( ping_tracker );
+
+  long now = fd_log_wallclock();
+  peer_t peer = generate_random_peer( rng );
+  peer_t relayer = generate_random_peer( rng );
+
+  /* Ordinary tracking keeps the stake exemption. */
+  fd_ping_tracker_track( ping_tracker, peer.pubkey, FD_GOSSIP_STAKED_THRESHOLD, peer.address, now );
+  FD_TEST( !fd_ping_tracker_pop_request( ping_tracker, now, NULL, NULL, NULL ) );
+
+  /* A response return path is never stake exempt. */
+  fd_ping_tracker_track_strict( ping_tracker, peer.pubkey, FD_GOSSIP_STAKED_THRESHOLD, peer.address, now );
+
+  /* A relayed copy of the peer's ContactInfo must not replace the
+     address being challenged. */
+  fd_ping_tracker_track( ping_tracker, peer.pubkey, FD_GOSSIP_STAKED_THRESHOLD, relayer.address, now );
+
+  uchar const *         out_pubkey;
+  fd_ip4_port_t const * out_address;
+  uchar const *         out_token;
+  FD_TEST( fd_ping_tracker_pop_request( ping_tracker, now, &out_pubkey, &out_address, &out_token ) );
+  FD_TEST( !memcmp( out_pubkey, peer.pubkey, 32UL ) );
+  FD_TEST( out_address->addr==peer.address.addr );
+  FD_TEST( out_address->port==peer.address.port );
+  FD_TEST( !fd_ping_tracker_active( ping_tracker, peer.pubkey, peer.address ) );
+
+  uchar valid_pong_token[ 32UL ];
+  fd_sha256_t sha[1];
+  FD_TEST( fd_sha256_join( fd_sha256_new( sha ) ) );
+  fd_sha256_init( sha );
+  fd_sha256_append( sha, "SOLANA_PING_PONG", 16UL );
+  fd_sha256_append( sha, out_token, 32UL );
+  fd_sha256_fini( sha, valid_pong_token );
+
+  /* Registration must also honor a strict challenge for a staked peer. */
+  fd_ping_tracker_register( ping_tracker, peer.pubkey, FD_GOSSIP_STAKED_THRESHOLD, peer.address, valid_pong_token, now );
+  FD_TEST( change_ctx->invoke_cnt==1UL );
+  FD_TEST( change_ctx->last.change_type==FD_PING_TRACKER_CHANGE_TYPE_ACTIVE );
+  FD_TEST( fd_ping_tracker_active( ping_tracker, peer.pubkey, peer.address ) );
+  FD_TEST( !fd_ping_tracker_active( ping_tracker, peer.pubkey, relayer.address ) );
+
+  free( bytes );
+}
 
 void
 test_register( void ) {
@@ -573,6 +629,9 @@ main( int     argc,
 
   test_basic();
   FD_LOG_NOTICE(( "test_basic() passed" ));
+
+  test_staked_return_path();
+  FD_LOG_NOTICE(( "test_staked_return_path() passed" ));
 
   test_register();
   FD_LOG_NOTICE(( "test_register() passed" ));

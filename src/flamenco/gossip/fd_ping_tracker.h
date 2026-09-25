@@ -15,9 +15,10 @@
    not.
 
    Any peer which has tried to send us a gossip message within the last
-   sixty seconds is eligible to be pinged, except nodes with at least
-   FD_GOSSIP_STAKED_THRESHOLD lamports of stake which are exempt from
-   ping requirements.
+   sixty seconds is eligible to be pinged.  Nodes with at least
+   FD_GOSSIP_STAKED_THRESHOLD lamports of stake are normally exempt,
+   but callers can require a pong when validating a packet's return
+   address.
 
    Once a peer has been pinged, we wait up to twenty seconds for a
    response before trying again.  We repeatedly retry pinging the peer
@@ -104,6 +105,18 @@ fd_ping_tracker_track( fd_ping_tracker_t * ping_tracker,
                        ulong               peer_stake,
                        fd_ip4_port_t       peer_address,
                        long                now );
+
+/* fd_ping_tracker_track_strict is equivalent to fd_ping_tracker_track,
+   except peer_stake does not exempt the peer from ping/pong validation.
+   Use this when peer_address is the return address of a request that can
+   trigger an amplified response. */
+
+void
+fd_ping_tracker_track_strict( fd_ping_tracker_t * ping_tracker,
+                              uchar const *       peer_pubkey,
+                              ulong               peer_stake,
+                              fd_ip4_port_t       peer_address,
+                              long                now );
 
 /* fd_ping_tracker_register registers a response pong from a peer so
    that they can be considered as valid.  It should be called any time
