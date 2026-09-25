@@ -235,9 +235,9 @@ drain_answers( fd_adns_t * adns );
 static void
 pending_io( fd_adns_t * adns,
             long        now ) {
-  if( FD_LIKELY( !adns->pending_cnt ) ) return;
-
   drain_answers( adns );
+
+  if( FD_LIKELY( !adns->pending_cnt ) ) return;
 
   /* Send due (re)tries to all nameservers in parallel */
   for( ulong i=0UL; i<adns->max; i++ ) {
@@ -378,9 +378,9 @@ int
 fd_adns_advance( fd_adns_t *        adns,
                  long               now,
                  fd_adns_result_t * result ) {
-  if( FD_LIKELY( !adns->active_cnt ) ) return 0;
-
   pending_io( adns, now );
+
+  if( FD_LIKELY( !adns->active_cnt ) ) return 0;
 
   for( ulong i=0UL; i<adns->max; i++ ) {
     fd_adns_req_t * req = &adns->reqs[ i ];
