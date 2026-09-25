@@ -170,14 +170,16 @@ typedef struct fd_adminctl_failover_status_resp_v1 fd_adminctl_failover_status_r
 #define FD_FAILOVER_READINESS_DISABLED          (7U)
 
 /* handoff and drill talk to the peer, demote and promote are local, pause
-   and resume block and unblock transitions. */
+   and resume block and unblock transitions, clear lowers the stuck flag
+   once the installed identity is proved to match the record. */
 #define FD_ADMINCTL_FAILOVER_CMD_HANDOFF (0UL)
 #define FD_ADMINCTL_FAILOVER_CMD_DRILL   (1UL)
 #define FD_ADMINCTL_FAILOVER_CMD_DEMOTE  (2UL)
 #define FD_ADMINCTL_FAILOVER_CMD_PROMOTE (3UL)
 #define FD_ADMINCTL_FAILOVER_CMD_PAUSE   (4UL)
 #define FD_ADMINCTL_FAILOVER_CMD_RESUME  (5UL)
-#define FD_ADMINCTL_FAILOVER_CMD_CNT     (6UL)
+#define FD_ADMINCTL_FAILOVER_CMD_CLEAR   (6UL) /* clear stuck once the installed identity is proved to match the record */
+#define FD_ADMINCTL_FAILOVER_CMD_CNT     (7UL)
 
 struct fd_adminctl_failover_control_v1 {
   ulong version; /* ==FD_ADMINCTL_FAILOVER_CONTROL_PAYLOAD_VERSION */
@@ -212,6 +214,7 @@ typedef struct fd_adminctl_failover_control_resp_v1 fd_adminctl_failover_control
 #define FD_FAILOVER_CONTROL_RESULT_BAD_IDENTITY  (0x5007UL)
 #define FD_FAILOVER_CONTROL_RESULT_UNSUPPORTED   (0x5008UL)
 #define FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY  (0x5009UL) /* the spare's last status says it cannot take the identity */
+#define FD_FAILOVER_CONTROL_RESULT_IDENTITY_MISMATCH (0x500AUL) /* the installed identity disagrees with the recorded role */
 #define FD_FAILOVER_CONTROL_RESULT_TOWER_ROLLBACK (0x500BUL) /* the confirmation's final tower is older than the one the peer streamed */
 #define FD_FAILOVER_CONTROL_RESULT_PRECONDITION  (0x500DUL) /* a handoff pre-check failed, the status names the reason */
 

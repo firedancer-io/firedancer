@@ -56,7 +56,13 @@
 #define FD_FAILOVER_ACTION_REJECT              (6UL) /* standing down, telling the peer why */
 #define FD_FAILOVER_ACTION_FIRST_USE_WAIT      (7UL) /* waiting for the peer's stand-down */
 #define FD_FAILOVER_ACTION_CONFIRM_WAIT_QUERY  (8UL) /* proving the installed junk key */
-#define FD_FAILOVER_ACTION_CNT                 (9UL)
+#define FD_FAILOVER_ACTION_CLEAR_WAIT_QUERY    (9UL) /* proving the installed key matches the record before clearing stuck */
+#define FD_FAILOVER_ACTION_CNT                 (10UL)
+
+/* apply_control answers with this when the command's answer waits on the
+   admin tile.  It never leaves the tile, the parked bus request is
+   answered from the controller when the wait ends. */
+#define FD_FAILOVER_TILE_RESULT_DEFERRED (ULONG_MAX)
 
 /* One pool peer, its session and what it last told us. */
 struct fd_failover_peer {
@@ -98,6 +104,7 @@ struct fd_failover_tile_ctx {
   int                          stuck;         /* a transition failed, shown to the operator */
   ulong                        switch_overdue_cnt; /* overdue switches, counted for the metric */
   ulong                        tower_rollback_cnt; /* confirmations whose final tower rolled back the streamed one */
+  ulong                        identity_mismatch_cnt; /* clear found the installed key disagreeing with the record */
   ulong                        deadline_slot; /* replay slot at which this attempt aborts */
   long                         deadline_nanos; /* monotonic time at which it aborts, LONG_MAX when unarmed */
   int                          accept_peer_requests;
@@ -198,6 +205,8 @@ struct fd_failover_tile_ctx {
   fd_failover_bus_msg_t bus_req;
   ulong                 bus_req_sig;
   int                   bus_req_fresh;
+  int                   clear_parked; /* a clear is waiting on the admin tile, its answer goes out from the controller */
+  ulong                 clear_nonce;
 
   /* State of the identity switch we asked the admin tile for.  It selects
      a key preloaded by the signing tile, and success means the old key is
@@ -1147,6 +1156,7 @@ static void  demotion_switched( fd_failover_tile_ctx_t * ctx, long now );
 static void  reject_promotion( fd_failover_tile_ctx_t * ctx, uchar reason, long now );
 static void  start_promotion( fd_failover_tile_ctx_t * ctx, fd_failover_demoted_record_t const * record, ulong term, long now );
 static ulong switch_query( fd_failover_tile_ctx_t * ctx, fd_stem_context_t * stem );
+static void  publish_control_response( fd_failover_tile_ctx_t * ctx, fd_stem_context_t * stem, ulong nonce, ulong result );
 
 /* These new waits have a monotonic bound even before replay starts. */
 static void
@@ -1508,6 +1518,48 @@ step_controller( fd_failover_tile_ctx_t * ctx,
     }
     ctx->action = FD_FAILOVER_ACTION_IDLE;
     if( same_boot ) queue_confirm( ctx, &ctx->confirm_req, code, reason );
+    return;
+  }
+
+  case FD_FAILOVER_ACTION_CLEAR_WAIT_QUERY: {
+    /* stuck says the record may not match reality.  It is lowered only
+       once the admin tile has said which key is installed and that
+       agrees with the recorded role, anything else is the alarm the flag
+       was raised for. */
+    deadline_arm( ctx, ctx->deadline_slots, now );
+    if( FD_LIKELY( !ctx->switch_state_fresh ) ) {
+      if( FD_UNLIKELY( deadline_expired( ctx, now ) ) ) {
+        /* A query has no side effects, so unlike a switch it can be
+           given up on.  A late answer finds no query pending and is
+           dropped. */
+        FD_LOG_WARNING(( "the admin tile did not answer which identity is installed, stuck stays set" ));
+        ctx->switch_query_pending = 0;
+        ctx->clear_parked         = 0;
+        ctx->action               = FD_FAILOVER_ACTION_IDLE;
+      }
+      return;
+    }
+    ctx->switch_state_fresh = 0;
+    ulong want = ctx->state==FD_FAILOVER_STATE_ACTIVE  ? FD_FAILOVER_SWITCH_STATE_STAKED
+               : ctx->state==FD_FAILOVER_STATE_STANDBY ? FD_FAILOVER_SWITCH_STATE_JUNK
+               : FD_FAILOVER_SWITCH_STATE_CNT;
+    ulong result;
+    if( FD_LIKELY( ctx->switch_state.result==want ) ) {
+      ctx->stuck          = 0;
+      ctx->switch_overdue = 0;
+      result = FD_ADMINCTL_RESULT_SUCCESS;
+    } else {
+      FD_BASE58_ENCODE_32_BYTES( ctx->switch_state.identity, installed );
+      FD_LOG_WARNING(( "the record says state %lu but the installed identity is %s (%lu), stuck stays set, do not promote anything",
+                       ctx->state, installed, ctx->switch_state.result ));
+      ctx->identity_mismatch_cnt++;
+      result = FD_FAILOVER_CONTROL_RESULT_IDENTITY_MISMATCH;
+    }
+    ctx->action = FD_FAILOVER_ACTION_IDLE;
+    if( FD_LIKELY( ctx->clear_parked ) ) {
+      ctx->clear_parked = 0;
+      publish_control_response( ctx, stem, ctx->clear_nonce, result );
+    }
     return;
   }
 
@@ -2395,9 +2447,48 @@ apply_control( fd_failover_tile_ctx_t *               ctx,
     return FD_ADMINCTL_RESULT_SUCCESS;
   }
 
+  case FD_ADMINCTL_FAILOVER_CMD_CLEAR: {
+    /* stuck means the record may not match reality, so it is lowered only
+       once reality has been asked.  Nothing may be moving: a switch or a
+       transition in flight is exactly the condition the flag reports,
+       and a confirmation still owed keeps its own stuck live. */
+    if( FD_UNLIKELY( ctx->action!=FD_FAILOVER_ACTION_IDLE ) ) return FD_FAILOVER_CONTROL_RESULT_BUSY;
+    if( FD_UNLIKELY( ctx->switch_pending_key!=FD_FAILOVER_SWITCH_KEY_CNT ) ) return FD_FAILOVER_CONTROL_RESULT_BUSY;
+    if( FD_UNLIKELY( ctx->send_demoted ) ) return FD_FAILOVER_CONTROL_RESULT_NO_EVIDENCE;
+    if( FD_LIKELY( !ctx->stuck ) ) return FD_ADMINCTL_RESULT_SUCCESS;
+    if( FD_UNLIKELY( switch_query( ctx, stem )==ULONG_MAX ) ) return FD_FAILOVER_CONTROL_RESULT_BUSY;
+    deadline_start( ctx, ctx->deadline_slots, now );
+    ctx->action = FD_FAILOVER_ACTION_CLEAR_WAIT_QUERY;
+    return FD_FAILOVER_TILE_RESULT_DEFERRED;
+  }
+
   default: break;
   }
   return FD_FAILOVER_CONTROL_RESULT_UNSUPPORTED;
+}
+
+/* publish_control_response answers a control request on the bus with
+   the controller's state after the command. */
+static void
+publish_control_response( fd_failover_tile_ctx_t * ctx,
+                          fd_stem_context_t *      stem,
+                          ulong                    nonce,
+                          ulong                    result ) {
+  fd_adminctl_failover_control_resp_t answer = {
+    .version = FD_ADMINCTL_FAILOVER_CONTROL_PAYLOAD_VERSION,
+    .term    = ctx->hello.term,
+    .state   = (uchar)ctx->state,
+    .role    = (uchar)ctx->role,
+    .paused  = (uchar)!!ctx->paused,
+  };
+  fd_failover_bus_msg_t * out = fd_chunk_to_laddr( ctx->admin_out_mem, ctx->admin_out_chunk );
+  fd_memset( out, 0, sizeof(*out) );
+  out->nonce  = nonce;
+  out->result = result;
+  fd_memcpy( out->payload, &answer, sizeof(answer) );
+  ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+  fd_stem_publish( stem, ctx->admin_out_idx, FD_FAILOVER_BUS_CONTROL_RESP, ctx->admin_out_chunk, sizeof(*out), 0UL, tspub, tspub );
+  ctx->admin_out_chunk = fd_dcache_compact_next( ctx->admin_out_chunk, sizeof(*out), ctx->admin_out_chunk0, ctx->admin_out_wmark );
 }
 
 /* Answer one bus request.  The admin tile validated the ABI already, so
@@ -2411,41 +2502,34 @@ serve_bus_request( fd_failover_tile_ctx_t * ctx,
   /* Run the command before grabbing the response chunk.  The command itself
      may publish a switch request on this link, which would advance the
      chunk under us. */
-  ulong resp_sig = FD_FAILOVER_BUS_STATUS_RESP;
-  ulong result   = FD_ADMINCTL_RESULT_SUCCESS;
-  fd_adminctl_failover_control_resp_t answer;
-  int   control_req = ( ctx->bus_req_sig==FD_FAILOVER_BUS_CONTROL_REQ );
-  if( FD_UNLIKELY( control_req ) ) {
+  if( FD_UNLIKELY( ctx->bus_req_sig==FD_FAILOVER_BUS_CONTROL_REQ ) ) {
     fd_adminctl_failover_control_t control;
     fd_memcpy( &control, req->payload, sizeof(control) );
-    result = apply_control( ctx, stem, &control, now );
-    answer = (fd_adminctl_failover_control_resp_t){
-      .version = FD_ADMINCTL_FAILOVER_CONTROL_PAYLOAD_VERSION,
-      .term    = ctx->hello.term,
-      .state   = (uchar)ctx->state,
-      .role    = (uchar)ctx->role,
-      .paused  = (uchar)!!ctx->paused,
-    };
-    resp_sig = FD_FAILOVER_BUS_CONTROL_RESP;
+    ulong result = apply_control( ctx, stem, &control, now );
+    if( FD_UNLIKELY( result==FD_FAILOVER_TILE_RESULT_DEFERRED ) ) {
+      /* The command's answer waits on the admin tile.  The nonce is kept
+         apart from the request, which a later frame may overwrite. */
+      ctx->clear_parked = 1;
+      ctx->clear_nonce  = req->nonce;
+      return;
+    }
+    publish_control_response( ctx, stem, req->nonce, result );
+    return;
   }
 
   fd_failover_bus_msg_t * out = fd_chunk_to_laddr( ctx->admin_out_mem, ctx->admin_out_chunk );
   fd_memset( out, 0, sizeof(*out) );
   out->nonce  = req->nonce;
-  out->result = result;
-  if( FD_UNLIKELY( control_req ) ) {
-    fd_memcpy( out->payload, &answer, sizeof(answer) );
+  out->result = FD_ADMINCTL_RESULT_SUCCESS;
+  fd_adminctl_failover_status_req_t const * status_req = (fd_adminctl_failover_status_req_t const *)req->payload;
+  if( FD_UNLIKELY( status_req->peer_idx>=ctx->peer_cnt ) ) {
+    out->result = FD_FAILOVER_STATUS_RESULT_NO_SUCH_PEER;
   } else {
-    fd_adminctl_failover_status_req_t const * status_req = (fd_adminctl_failover_status_req_t const *)req->payload;
-    if( FD_UNLIKELY( status_req->peer_idx>=ctx->peer_cnt ) ) {
-      out->result = FD_FAILOVER_STATUS_RESULT_NO_SUCH_PEER;
-    } else {
-      status_snapshot( ctx, status_req->peer_idx, now, (fd_adminctl_failover_status_resp_t *)out->payload );
-    }
+    status_snapshot( ctx, status_req->peer_idx, now, (fd_adminctl_failover_status_resp_t *)out->payload );
   }
 
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-  fd_stem_publish( stem, ctx->admin_out_idx, resp_sig, ctx->admin_out_chunk, sizeof(*out), 0UL, tspub, tspub );
+  fd_stem_publish( stem, ctx->admin_out_idx, FD_FAILOVER_BUS_STATUS_RESP, ctx->admin_out_chunk, sizeof(*out), 0UL, tspub, tspub );
   ctx->admin_out_chunk = fd_dcache_compact_next( ctx->admin_out_chunk, sizeof(*out), ctx->admin_out_chunk0, ctx->admin_out_wmark );
 }
 
@@ -2484,6 +2568,7 @@ metrics_write( fd_failover_tile_ctx_t * ctx ) {
   FD_MCNT_SET  ( FAILOV, HANDSHAKE_TIMEOUTS,     status.handshake_timeouts );
   FD_MCNT_SET  ( FAILOV, SWITCH_OVERDUE,         ctx->switch_overdue_cnt );
   FD_MCNT_SET  ( FAILOV, TOWER_ROLLBACK,         ctx->tower_rollback_cnt );
+  FD_MCNT_SET  ( FAILOV, IDENTITY_MISMATCH,      ctx->identity_mismatch_cnt );
 }
 
 static inline void

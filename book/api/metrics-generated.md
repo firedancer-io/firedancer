@@ -188,6 +188,7 @@
 | <span class="metrics-name">failov_&#8203;handshake_&#8203;timeouts</span> | counter | Failover candidates closed when the absolute TCP, TLS, and HELLO deadline expired |
 | <span class="metrics-name">failov_&#8203;switch_&#8203;overdue</span> | counter | Identity switches that outran the controller deadline and were waited for rather than abandoned |
 | <span class="metrics-name">failov_&#8203;tower_&#8203;rollback</span> | counter | Demotion confirmations refused because their final tower was older than the tower the peer had streamed |
+| <span class="metrics-name">failov_&#8203;identity_&#8203;mismatch</span> | counter | Times a clear found the installed identity disagreeing with the recorded role, the stuck flag stays set |
 
 </div>
 

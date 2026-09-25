@@ -2046,6 +2046,85 @@ test_operator_commands( void ) {
   FD_LOG_NOTICE(( "pass: refused commands report why" ));
 }
 
+/* stuck comes down only through clear, and clear only once the admin tile
+   has said which key is installed and it agrees with the record.  The
+   answer to the operator waits on that proof. */
+static void
+test_clear_command( void ) {
+  fd_adminctl_failover_control_t req;
+  controller_init( FD_FAILOVER_STATE_STANDBY, 4UL );
+  ctx->admin_out_chunk0 = 0UL;
+  ctx->admin_out_wmark  = 0UL;
+  ctx->admin_out_chunk  = 0UL;
+  fd_memset( &req, 0, sizeof(req) );
+  req.cmd = FD_ADMINCTL_FAILOVER_CMD_CLEAR;
+
+  /* Nothing to clear is a success with nothing asked. */
+  FD_TEST( apply_control( ctx, stem, &req, 1000L )==FD_ADMINCTL_RESULT_SUCCESS );
+  FD_TEST( !ctx->switch_query_pending );
+
+  /* Anything moving refuses. */
+  ctx->stuck  = 1;
+  ctx->action = FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK;
+  FD_TEST( apply_control( ctx, stem, &req, 1000L )==FD_FAILOVER_CONTROL_RESULT_BUSY );
+  ctx->action             = FD_FAILOVER_ACTION_IDLE;
+  ctx->switch_pending_key = FD_FAILOVER_SWITCH_KEY_JUNK;
+  FD_TEST( apply_control( ctx, stem, &req, 1000L )==FD_FAILOVER_CONTROL_RESULT_BUSY );
+  ctx->switch_pending_key = FD_FAILOVER_SWITCH_KEY_CNT;
+  ctx->send_demoted       = 1;
+  FD_TEST( apply_control( ctx, stem, &req, 1000L )==FD_FAILOVER_CONTROL_RESULT_NO_EVIDENCE );
+  ctx->send_demoted       = 0;
+
+  /* Through the bus: the request is parked, the query goes out, and no
+     answer is published until the admin tile has spoken. */
+  fd_memset( &ctx->bus_req, 0, sizeof(ctx->bus_req) );
+  ctx->bus_req.nonce = 42UL;
+  fd_memcpy( ctx->bus_req.payload, &req, sizeof(req) );
+  ctx->bus_req_sig = FD_FAILOVER_BUS_CONTROL_REQ;
+  serve_bus_request( ctx, stem, 1000L );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_CLEAR_WAIT_QUERY && ctx->switch_query_pending );
+  FD_TEST( ctx->clear_parked && ctx->clear_nonce==42UL );
+  FD_TEST( stem->seqs[ 0 ]==1UL && pub_mcache[ 0 ].sig==FD_FAILOVER_BUS_SWITCH_QUERY );
+
+  /* The answer agrees with the record: stuck comes down and the parked
+     answer goes out as a success under the request's nonce. */
+  ctx->switch_state.result = FD_FAILOVER_SWITCH_STATE_JUNK;
+  switch_state_answer( ctx, ctx->switch_query_id );
+  step_controller( ctx, stem, 2000L );
+  FD_TEST( !ctx->stuck && ctx->action==FD_FAILOVER_ACTION_IDLE && !ctx->clear_parked );
+  fd_failover_bus_msg_t * out = (fd_failover_bus_msg_t *)bus_mem;
+  FD_TEST( stem->seqs[ 0 ]==2UL && pub_mcache[ 1 ].sig==FD_FAILOVER_BUS_CONTROL_RESP );
+  FD_TEST( out->nonce==42UL && out->result==FD_ADMINCTL_RESULT_SUCCESS );
+
+  /* An answer that disagrees leaves stuck set, counts, and says so. */
+  ctx->stuck         = 1;
+  ctx->bus_req.nonce = 43UL;
+  serve_bus_request( ctx, stem, 3000L );
+  FD_TEST( ctx->clear_parked && ctx->clear_nonce==43UL );
+  ctx->switch_state.result = FD_FAILOVER_SWITCH_STATE_STAKED;
+  fd_memset( ctx->switch_state.identity, 0x5A, 32UL );
+  switch_state_answer( ctx, ctx->switch_query_id );
+  step_controller( ctx, stem, 4000L );
+  FD_TEST( ctx->stuck && ctx->action==FD_FAILOVER_ACTION_IDLE && ctx->identity_mismatch_cnt==1UL );
+  FD_TEST( stem->seqs[ 0 ]==4UL && pub_mcache[ 3 ].sig==FD_FAILOVER_BUS_CONTROL_RESP );
+  FD_TEST( out->nonce==43UL && out->result==FD_FAILOVER_CONTROL_RESULT_IDENTITY_MISMATCH );
+
+  /* No answer inside the deadline: the query is given up on, since it has
+     no side effects, stuck stays, and nothing is published. */
+  ctx->bus_req.nonce = 44UL;
+  serve_bus_request( ctx, stem, 5000L );
+  FD_TEST( ctx->clear_parked && stem->seqs[ 0 ]==5UL );
+  FD_TEST( ctx->deadline_slot==ctx->replay_slot+ctx->deadline_slots );
+  ctx->replay_slot = ctx->deadline_slot;
+  step_controller( ctx, stem, 5000L );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_CLEAR_WAIT_QUERY );
+  ctx->replay_slot = ctx->deadline_slot+1UL;
+  step_controller( ctx, stem, 5000L );
+  FD_TEST( ctx->stuck && ctx->action==FD_FAILOVER_ACTION_IDLE && !ctx->clear_parked && !ctx->switch_query_pending );
+  FD_TEST( stem->seqs[ 0 ]==5UL );
+  controller_fini();
+  FD_LOG_NOTICE(( "pass: clear lowers stuck only against a proved identity, and answers the operator once it knows" ));
+}
 
 /* The switch request and the command response share a link, make sure
    they land in different chunks. */
@@ -2357,6 +2436,7 @@ main( int     argc,
   test_active_handoff_checks();
   test_active_side_checks();
   test_operator_commands();
+  test_clear_command();
   test_bus_control_ordering();
   test_handoff_response();
   test_handoff_request_lifetime();

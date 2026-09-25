@@ -8,7 +8,7 @@
 #include <unistd.h>
 
 static char const * const CMD_NAMES[] = {
-  "handoff", "drill", "demote", "promote", "pause", "resume"
+  "handoff", "drill", "demote", "promote", "pause", "resume", "clear"
 };
 static char const * const STATE_NAMES[] = {
   "standby", "active", "demoting", "promoting", "reclaiming"
@@ -48,7 +48,7 @@ failover_cmd_args( int *    pargc,
   if( FD_UNLIKELY( staked ) ) fd_cstr_ncpy( args->failover.staked_pubkey, staked, sizeof(args->failover.staked_pubkey) );
 
   if( FD_UNLIKELY( !( *pargc ) ) ) {
-    FD_LOG_ERR(( "missing subcommand, supported: status, handoff, drill, demote, promote, pause, resume" ));
+    FD_LOG_ERR(( "missing subcommand, supported: status, handoff, drill, demote, promote, pause, resume, clear" ));
   }
   char const * cmd = **pargv;
   args->failover.cmd = -1;
@@ -56,7 +56,7 @@ failover_cmd_args( int *    pargc,
     ulong i;
     for( i=0UL; i<CMD_NAME_CNT; i++ ) if( !strcmp( cmd, CMD_NAMES[ i ] ) ) break;
     if( FD_UNLIKELY( i==CMD_NAME_CNT ) ) {
-      FD_LOG_ERR(( "unknown subcommand `%s`, supported: status, handoff, drill, demote, promote, pause, resume", cmd ));
+      FD_LOG_ERR(( "unknown subcommand `%s`, supported: status, handoff, drill, demote, promote, pause, resume, clear", cmd ));
     }
     args->failover.cmd = (int)i;
   }
@@ -101,6 +101,8 @@ control_result_name( ulong result ) {
     case FD_FAILOVER_CONTROL_RESULT_BAD_IDENTITY: return "--staked-pubkey does not name this pool's identity";
     case FD_FAILOVER_CONTROL_RESULT_UNSUPPORTED:  return "that command cannot be applied here";
     case FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY: return "the spare's last status says it cannot take the identity, check its status";
+    case FD_FAILOVER_CONTROL_RESULT_IDENTITY_MISMATCH:
+      return "the installed identity does not match the recorded role, stuck stays set: do not promote anything, investigate";
     case FD_FAILOVER_CONTROL_RESULT_TOWER_ROLLBACK: return "the confirmation's final tower is older than the tower the peer streamed, so promotion is refused";
     case FD_FAILOVER_CONTROL_RESULT_PRECONDITION: return "a handoff pre-check failed, `failover status` names the reason";
     default:                                      return NULL;
@@ -294,10 +296,12 @@ action_t fd_action_failover = {
                     "either machine.  `demote` gives the identity up without promoting anyone\n"
                     "and runs on the active.  `promote` takes it and runs on a spare.  `pause`\n"
                     "and `resume` hold and release every transition, on either machine.\n"
+                    "`clear` lowers the stuck flag, and only once the admin tile has confirmed\n"
+                    "the installed identity matches the recorded role.\n"
                     "\n"
                     "This command does not start a validator; it attaches to one that is already\n"
                     "running.  With no arguments it discovers the running validator automatically.\n"
                     "If multiple validators are running, pass --name to select one.\n",
-  .usage          = "failover status|handoff|drill|demote|promote|pause|resume [--name <name>] [--peer <idx>] [--yes] [--force --staked-pubkey <base58>]",
+  .usage          = "failover status|handoff|drill|demote|promote|pause|resume|clear [--name <name>] [--peer <idx>] [--yes] [--force --staked-pubkey <base58>]",
   .args_help      = failover_args_help,
 };
