@@ -487,6 +487,14 @@ fd_store_disk_query( fd_store_t const * store,
                      uint               shred_idx,
                      uchar              out[ FD_SHRED_MAX_SZ ] );
 
+/* Returns 0 if a query for (slot,shred_idx), or for the highest shred
+   of slot when shred_idx is UINT_MAX, would certainly miss. */
+
+int
+fd_store_disk_probe( fd_store_t const * store,
+                     ulong              slot,
+                     uint               shred_idx );
+
 /* Copies the cached highest stored shred in slot to out.  A shred below
    min_shred_idx is returned only if it completes the slot.  The compact
    hint is conservative and never lowered: a collision can keep returning

@@ -1052,6 +1052,22 @@ fd_store_disk_query( fd_store_t const * store,
 }
 
 int
+fd_store_disk_probe( fd_store_t const * store,
+                     ulong              slot,
+                     uint               shred_idx ) {
+  if( FD_UNLIKELY( !store || !fd_store_has_disk( store ) || slot>=FD_SHREDB_KEY_SLOT_MAX ) ) return 0;
+  if( FD_UNLIKELY( shred_idx==UINT_MAX ) ) {
+    return !!(atomic_load_explicit( disk_slot_hint_laddr( store ) + (slot % store->disk_max_slots), memory_order_acquire ) & FD_SHREDB_HINT_VALID);
+  }
+  if( FD_UNLIKELY( shred_idx>=store->max_shreds_per_block ) ) return 0;
+  fd_shredb_map_key_t map_key = fd_shredb_key_pack( slot, shred_idx );
+  fd_shredb_shred_map_t map[1];
+  FD_TEST( disk_shred_map_ljoin( store, map ) );
+  fd_shredb_shred_map_query_t query[1];
+  return fd_shredb_shred_map_query_try( map, &map_key, NULL, query, 0 )!=FD_MAP_ERR_KEY;
+}
+
+int
 fd_store_disk_query_highest( fd_store_t const * store,
                              int                disk_fd,
                              ulong              slot,
