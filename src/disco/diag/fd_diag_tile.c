@@ -25,6 +25,7 @@
 #include "generated/fd_diag_tile_seccomp.h"
 
 #define REPORT_INTERVAL_MILLIS (100L)
+#define IRQ_REPORT_INTERVAL_NANOS (1000000000L)
 #define SYSTEM_REPORT_INTERVAL_NANOS (30000000000L)
 
 #define DIAG_WKSP_TILE_IDX_SHARED (ULONG_MAX)
@@ -33,6 +34,7 @@
 struct fd_diag_tile {
   fd_clock_tile_t clock[1];
   long next_report_nanos;
+  long next_irq_report_nanos;
 
   ulong tile_cnt;
   int is_voting;
@@ -755,7 +757,10 @@ before_credit( fd_diag_tile_t *    ctx,
   }
 
   check_engine_metric( ctx, now );
-  irq_metrics( ctx );
+  if( FD_UNLIKELY( now>=ctx->next_irq_report_nanos ) ) {
+    ctx->next_irq_report_nanos = now + IRQ_REPORT_INTERVAL_NANOS;
+    irq_metrics( ctx );
+  }
 }
 
 /* Disk mount discovery ************************************************/
@@ -1293,7 +1298,8 @@ unprivileged_init( fd_topo_t const *      topo,
 
   memset( ctx->first_seen_died, 0, sizeof( ctx->first_seen_died ) );
   fd_clock_tile_init( ctx->clock );
-  ctx->next_report_nanos = fd_clock_tile_now( ctx->clock );
+  ctx->next_report_nanos     = fd_clock_tile_now( ctx->clock );
+  ctx->next_irq_report_nanos = ctx->next_report_nanos;
   ctx->next_system_report_nanos = ctx->next_report_nanos;
   if( FD_UNLIKELY( ctx->gui_enabled ) ) {
     ulong out_idx = fd_topo_find_tile_out_link( topo, tile, "diag_gui", 0UL );
