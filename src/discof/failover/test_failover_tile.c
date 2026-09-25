@@ -887,6 +887,161 @@ test_first_use_refusals( void ) {
   FD_LOG_NOTICE(( "pass: first use refuses absent proof, active peers, pause, stale replies and expired attempts" ));
 }
 
+/* A paired peer that stands by at the given term, with a fresh status. */
+static void
+paired_standby_peer( fd_failover_peer_t * peer,
+                     ulong                term,
+                     long                 now ) {
+  peer->channel->state           = FD_FAILOVER_SESSION_PAIRED;
+  peer->channel_state            = FD_FAILOVER_SESSION_PAIRED;
+  peer->channel->peer_hello.role = (uchar)FD_FAILOVER_ROLE_STANDBY;
+  peer->channel->peer_hello.term = term;
+  peer->status_valid = 1;
+  peer->status_time  = now;
+  peer->status.role  = (uchar)FD_FAILOVER_ROLE_STANDBY;
+  peer->status.term  = term;
+}
+
+/* A machine that boots holding the identity asks the peer to stand down,
+   and acts only on the answer to its own attempt. */
+static void
+test_reclaim_exchange( void ) {
+  fd_failover_confirm_t c;
+  fd_failover_reclaim_t r;
+  fd_adminctl_failover_control_t req;
+  fd_memset( &req, 0, sizeof(req) );
+
+  /* A restarted holder asks once, on its own, one past the larger term,
+     and persists nothing until it is answered. */
+  controller_init( FD_FAILOVER_STATE_RECLAIMING, 5UL );
+  ctx->step_stem = stem;
+  fd_failover_peer_t * peer = &ctx->peers[ 0 ];
+  paired_standby_peer( peer, 4UL, 1000L );
+  maybe_reclaim( ctx, 1000L );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_RECLAIM_WAIT && ctx->reclaim_pending && ctx->action_term==6UL );
+  FD_TEST( ctx->pending_valid && ctx->pending_type==(ushort)FD_FAILOVER_MSG_RECLAIM );
+  fd_memcpy( &r, ctx->pending, sizeof(r) );
+  FD_TEST( r.term==6UL && r.nonce==ctx->reclaim_req.nonce && r.nonce );
+  FD_TEST( ctx->state==FD_FAILOVER_STATE_RECLAIMING && ctx->role_file.term==5UL );
+  ctx->pending_valid = 0;
+
+  /* An answer to another attempt is ignored. */
+  c = (fd_failover_confirm_t){ .term=6UL, .nonce=r.nonce+1UL, .code=FD_FAILOVER_RECLAIM_CONFIRMED };
+  fd_memcpy( ctx->rx, &c, sizeof(c) );
+  handle_control( ctx, peer, (ushort)FD_FAILOVER_MSG_CONFIRM, sizeof(c), 1100L );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_RECLAIM_WAIT && ctx->reclaim_pending );
+
+  /* The confirmation starts the promotion, which adopts this machine's
+     own file and answers nobody once the staked key is installed. */
+  c.nonce = r.nonce;
+  fd_memcpy( ctx->rx, &c, sizeof(c) );
+  handle_control( ctx, peer, (ushort)FD_FAILOVER_MSG_CONFIRM, sizeof(c), 1200L );
+  FD_TEST( !ctx->reclaim_pending && ctx->reclaim_code==FD_FAILOVER_RECLAIM_CONFIRMED );
+  FD_TEST( ctx->state==FD_FAILOVER_STATE_PROMOTING && ctx->role_file.term==6UL );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_PROMOTE_WAIT_ADOPT && !ctx->promote_from_record && !ctx->demoted_valid );
+  ctx->adopt_result.result    = FD_TOWER_ADOPT_SUCCESS;
+  ctx->adopt_result.vote_slot = 99UL;
+  ctx->adopt_result_id        = ctx->adopt_expected_id;
+  ctx->adopt_result_fresh     = 1;
+  step_controller( ctx, stem, 1250L );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_PROMOTE_SWITCH && ctx->switch_pending_key==FD_FAILOVER_SWITCH_KEY_STAKED );
+  ctx->switch_result.result = FD_FAILOVER_SWITCH_OK;
+  switch_answer( ctx, ctx->switch_request_id );
+  step_controller( ctx, stem, 1300L );
+  FD_TEST( ctx->state==FD_FAILOVER_STATE_ACTIVE && ctx->role_file.term==6UL && ctx->role==FD_FAILOVER_ROLE_ACTIVE );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_IDLE && !ctx->stuck && !ctx->pending_valid );
+  controller_fini();
+
+  /* Held: the peer has the identity, this machine stands down for good
+     and does not ask again on its own. */
+  controller_init( FD_FAILOVER_STATE_RECLAIMING, 5UL );
+  ctx->step_stem = stem;
+  peer = &ctx->peers[ 0 ];
+  paired_standby_peer( peer, 5UL, 1000L );
+  maybe_reclaim( ctx, 1000L );
+  ctx->pending_valid = 0;
+  c = (fd_failover_confirm_t){ .term=6UL, .nonce=ctx->reclaim_req.nonce, .code=FD_FAILOVER_RECLAIM_HELD };
+  fd_memcpy( ctx->rx, &c, sizeof(c) );
+  handle_control( ctx, peer, (ushort)FD_FAILOVER_MSG_CONFIRM, sizeof(c), 1200L );
+  FD_TEST( ctx->state==FD_FAILOVER_STATE_STANDBY && ctx->role_file.term==5UL && ctx->stuck );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_IDLE && ctx->reclaim_code==FD_FAILOVER_RECLAIM_HELD );
+  maybe_reclaim( ctx, 1300L );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_IDLE );
+  controller_fini();
+
+  /* Refused: a verdict, not a stuck transition.  The automatic attempt
+     ran, so only the operator asks again, with a fresh nonce, and silence
+     on that stands the machine down. */
+  controller_init( FD_FAILOVER_STATE_RECLAIMING, 5UL );
+  ctx->step_stem = stem;
+  peer = &ctx->peers[ 0 ];
+  paired_standby_peer( peer, 5UL, 1000L );
+  maybe_reclaim( ctx, 1000L );
+  ctx->pending_valid = 0;
+  c = (fd_failover_confirm_t){ .term=6UL, .nonce=ctx->reclaim_req.nonce, .code=FD_FAILOVER_RECLAIM_REFUSED, .reason=FD_FAILOVER_REJECT_BUSY };
+  fd_memcpy( ctx->rx, &c, sizeof(c) );
+  handle_control( ctx, peer, (ushort)FD_FAILOVER_MSG_CONFIRM, sizeof(c), 1200L );
+  FD_TEST( ctx->state==FD_FAILOVER_STATE_RECLAIMING && !ctx->stuck && ctx->action==FD_FAILOVER_ACTION_IDLE );
+  FD_TEST( ctx->reclaim_code==FD_FAILOVER_RECLAIM_REFUSED && ctx->reclaim_reason==FD_FAILOVER_REJECT_BUSY );
+  maybe_reclaim( ctx, 1250L );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_IDLE );
+  req.cmd = FD_ADMINCTL_FAILOVER_CMD_RECLAIM;
+  FD_TEST( apply_control( ctx, stem, &req, 1300L )==FD_ADMINCTL_RESULT_SUCCESS );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_RECLAIM_WAIT && ctx->action_term==6UL );
+  FD_TEST( ctx->pending_valid && ctx->pending_type==(ushort)FD_FAILOVER_MSG_RECLAIM );
+  fd_memcpy( &r, ctx->pending, sizeof(r) );
+  FD_TEST( r.term==6UL && r.nonce==ctx->reclaim_req.nonce && r.nonce!=c.nonce );
+  ctx->pending_valid = 0;
+  step_controller( ctx, stem, ctx->claim_deadline );
+  FD_TEST( ctx->state==FD_FAILOVER_STATE_STANDBY && ctx->role_file.term==6UL && ctx->stuck && !ctx->reclaim_pending );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_IDLE && !ctx->pending_valid );
+  /* A confirmation that arrives late installs nothing. */
+  c = (fd_failover_confirm_t){ .term=6UL, .nonce=ctx->reclaim_req.nonce, .code=FD_FAILOVER_RECLAIM_CONFIRMED };
+  fd_memcpy( ctx->rx, &c, sizeof(c) );
+  handle_control( ctx, peer, (ushort)FD_FAILOVER_MSG_CONFIRM, sizeof(c), ctx->claim_deadline+1000L );
+  FD_TEST( ctx->state==FD_FAILOVER_STATE_STANDBY && ctx->action==FD_FAILOVER_ACTION_IDLE );
+  FD_TEST( ctx->switch_pending_key==FD_FAILOVER_SWITCH_KEY_CNT );
+  controller_fini();
+
+  /* The reclaim command from a standby with a standby peer is the way
+     back after a refusal or lost role files.  Nothing asks on its own
+     from there.  It needs the peer, it is not for a peer that holds the
+     identity, and an active does not ask. */
+  controller_init( FD_FAILOVER_STATE_STANDBY, 3UL );
+  peer = &ctx->peers[ 0 ];
+  FD_TEST( apply_control( ctx, stem, &req, 1000L )==FD_FAILOVER_CONTROL_RESULT_NOT_PAIRED );
+  paired_standby_peer( peer, 3UL, 1000L );
+  maybe_reclaim( ctx, 1000L );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_IDLE && !ctx->pending_valid );
+  peer->status.role = (uchar)FD_FAILOVER_ROLE_ACTIVE;
+  FD_TEST( apply_control( ctx, stem, &req, 1000L )==FD_FAILOVER_CONTROL_RESULT_BAD_ROLE );
+  peer->status.role = (uchar)FD_FAILOVER_ROLE_STANDBY;
+  ctx->paused = 1;
+  FD_TEST( apply_control( ctx, stem, &req, 1000L )==FD_FAILOVER_CONTROL_RESULT_PAUSED );
+  ctx->paused = 0;
+  ctx->send_demoted = 1;
+  FD_TEST( apply_control( ctx, stem, &req, 1000L )==FD_FAILOVER_CONTROL_RESULT_NO_EVIDENCE );
+  ctx->send_demoted = 0;
+  FD_TEST( apply_control( ctx, stem, &req, 1000L )==FD_ADMINCTL_RESULT_SUCCESS && ctx->action_term==4UL );
+  FD_TEST( ctx->state==FD_FAILOVER_STATE_STANDBY && ctx->role_file.term==3UL );
+  controller_fini();
+  controller_init( FD_FAILOVER_STATE_ACTIVE, 3UL );
+  paired_standby_peer( &ctx->peers[ 0 ], 3UL, 1000L );
+  FD_TEST( apply_control( ctx, stem, &req, 1000L )==FD_FAILOVER_CONTROL_RESULT_BAD_ROLE );
+  controller_fini();
+
+  /* A handoff or drill from a machine that is neither holder nor spare
+     is refused, not forwarded to the peer as a spare's request. */
+  controller_init( FD_FAILOVER_STATE_RECLAIMING, 3UL );
+  paired_standby_peer( &ctx->peers[ 0 ], 3UL, 1000L );
+  req.cmd = FD_ADMINCTL_FAILOVER_CMD_HANDOFF;
+  FD_TEST( apply_control( ctx, stem, &req, 1000L )==FD_FAILOVER_CONTROL_RESULT_BAD_ROLE && !ctx->pending_valid );
+  req.cmd = FD_ADMINCTL_FAILOVER_CMD_DRILL;
+  FD_TEST( apply_control( ctx, stem, &req, 1000L )==FD_FAILOVER_CONTROL_RESULT_BAD_ROLE && !ctx->pending_valid );
+  controller_fini();
+  FD_LOG_NOTICE(( "pass: a restarted holder asks for the identity back and acts only on the answer to its own attempt" ));
+}
+
 /* Test that we only tell the peer to promote after we have actually
    given up the identity. */
 static void
@@ -2485,6 +2640,7 @@ main( int     argc,
   test_first_use_boot_guard();
   test_first_use_exchange();
   test_first_use_refusals();
+  test_reclaim_exchange();
   test_demoted_payload();
   test_final_tower_regression();
   test_promote_refuses_rollback();

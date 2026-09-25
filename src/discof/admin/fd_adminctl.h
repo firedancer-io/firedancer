@@ -171,7 +171,9 @@ typedef struct fd_adminctl_failover_status_resp_v1 fd_adminctl_failover_status_r
 
 /* handoff and drill talk to the peer, demote and promote are local, pause
    and resume block and unblock transitions, clear lowers the stuck flag
-   once the installed identity is proved to match the record. */
+   once the installed identity is proved to match the record, reclaim asks
+   the peer to stand down so a holder that restarted may take the identity
+   back. */
 #define FD_ADMINCTL_FAILOVER_CMD_HANDOFF (0UL)
 #define FD_ADMINCTL_FAILOVER_CMD_DRILL   (1UL)
 #define FD_ADMINCTL_FAILOVER_CMD_DEMOTE  (2UL)
@@ -179,7 +181,8 @@ typedef struct fd_adminctl_failover_status_resp_v1 fd_adminctl_failover_status_r
 #define FD_ADMINCTL_FAILOVER_CMD_PAUSE   (4UL)
 #define FD_ADMINCTL_FAILOVER_CMD_RESUME  (5UL)
 #define FD_ADMINCTL_FAILOVER_CMD_CLEAR   (6UL) /* clear stuck once the installed identity is proved to match the record */
-#define FD_ADMINCTL_FAILOVER_CMD_CNT     (7UL)
+#define FD_ADMINCTL_FAILOVER_CMD_RECLAIM (7UL) /* ask the peer to stand down so a holder that restarted may take the identity back */
+#define FD_ADMINCTL_FAILOVER_CMD_CNT     (8UL)
 
 struct fd_adminctl_failover_control_v1 {
   ulong version; /* ==FD_ADMINCTL_FAILOVER_CONTROL_PAYLOAD_VERSION */

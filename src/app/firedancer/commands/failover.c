@@ -8,7 +8,7 @@
 #include <unistd.h>
 
 static char const * const CMD_NAMES[] = {
-  "handoff", "drill", "demote", "promote", "pause", "resume", "clear"
+  "handoff", "drill", "demote", "promote", "pause", "resume", "clear", "reclaim"
 };
 static char const * const STATE_NAMES[] = {
   "standby", "active", "demoting", "promoting", "reclaiming"
@@ -48,7 +48,7 @@ failover_cmd_args( int *    pargc,
   if( FD_UNLIKELY( staked ) ) fd_cstr_ncpy( args->failover.staked_pubkey, staked, sizeof(args->failover.staked_pubkey) );
 
   if( FD_UNLIKELY( !( *pargc ) ) ) {
-    FD_LOG_ERR(( "missing subcommand, supported: status, handoff, drill, demote, promote, pause, resume, clear" ));
+    FD_LOG_ERR(( "missing subcommand, supported: status, handoff, drill, demote, promote, pause, resume, clear, reclaim" ));
   }
   char const * cmd = **pargv;
   args->failover.cmd = -1;
@@ -56,7 +56,7 @@ failover_cmd_args( int *    pargc,
     ulong i;
     for( i=0UL; i<CMD_NAME_CNT; i++ ) if( !strcmp( cmd, CMD_NAMES[ i ] ) ) break;
     if( FD_UNLIKELY( i==CMD_NAME_CNT ) ) {
-      FD_LOG_ERR(( "unknown subcommand `%s`, supported: status, handoff, drill, demote, promote, pause, resume, clear", cmd ));
+      FD_LOG_ERR(( "unknown subcommand `%s`, supported: status, handoff, drill, demote, promote, pause, resume, clear, reclaim", cmd ));
     }
     args->failover.cmd = (int)i;
   }
@@ -298,10 +298,12 @@ action_t fd_action_failover = {
                     "and `resume` hold and release every transition, on either machine.\n"
                     "`clear` lowers the stuck flag, and only once the admin tile has confirmed\n"
                     "the installed identity matches the recorded role.\n"
+                    "`reclaim` asks the peer to stand down so a holder that restarted may take\n"
+                    "the identity back, and runs on a spare whose peer also stands by.\n"
                     "\n"
                     "This command does not start a validator; it attaches to one that is already\n"
                     "running.  With no arguments it discovers the running validator automatically.\n"
                     "If multiple validators are running, pass --name to select one.\n",
-  .usage          = "failover status|handoff|drill|demote|promote|pause|resume|clear [--name <name>] [--peer <idx>] [--yes] [--force --staked-pubkey <base58>]",
+  .usage          = "failover status|handoff|drill|demote|promote|pause|resume|clear|reclaim [--name <name>] [--peer <idx>] [--yes] [--force --staked-pubkey <base58>]",
   .args_help      = failover_args_help,
 };

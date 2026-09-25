@@ -57,7 +57,8 @@
 #define FD_FAILOVER_ACTION_FIRST_USE_WAIT      (7UL) /* waiting for the peer's stand-down */
 #define FD_FAILOVER_ACTION_CONFIRM_WAIT_QUERY  (8UL) /* proving the installed junk key */
 #define FD_FAILOVER_ACTION_CLEAR_WAIT_QUERY    (9UL) /* proving the installed key matches the record before clearing stuck */
-#define FD_FAILOVER_ACTION_CNT                 (10UL)
+#define FD_FAILOVER_ACTION_RECLAIM_WAIT        (10UL) /* waiting for the peer's answer to a reclaim */
+#define FD_FAILOVER_ACTION_CNT                 (11UL)
 
 /* apply_control answers with this when the command's answer waits on the
    admin tile.  It never leaves the tile, the parked bus request is
@@ -171,6 +172,18 @@ struct fd_failover_tile_ctx {
   ulong                        confirm_last_boot;
   fd_failover_confirm_t         confirm_reply;
   int                          confirm_owed;
+
+  /* A reclaim this machine asked for.  RECLAIMING asks once per session
+     on its own, the operator's reclaim command asks again, from STANDBY
+     too.  The grant is never stored, the PROMOTING record the promotion
+     writes is its durable consequence. */
+  fd_failover_reclaim_t        reclaim_req;
+  int                          reclaim_pending;   /* asked, waiting for the answer */
+  int                          reclaim_sent;      /* on the wire in this session */
+  int                          reclaim_tried;     /* the automatic attempt ran on this session */
+  ulong                        reclaim_nonce;
+  uchar                        reclaim_code;      /* FD_FAILOVER_RECLAIM_* of the last answer, CNT when none */
+  uchar                        reclaim_reason;
 
   /* The role file and its descriptors.  A role change is written here
      before it takes effect. */
@@ -615,6 +628,7 @@ pending_flush( fd_failover_tile_ctx_t * ctx,
   if( FD_LIKELY( !fd_failover_channel_send( peer->channel, now, ctx->pending_type, ctx->pending, ctx->pending_sz ) ) ) {
     if( FD_UNLIKELY( ctx->pending_type==(ushort)FD_FAILOVER_MSG_DEMOTED ) ) ctx->demoted_sent = 1;
     if( FD_UNLIKELY( ctx->pending_type==(ushort)FD_FAILOVER_MSG_RECLAIM ) ) ctx->first_use_sent = 1;
+    if( FD_UNLIKELY( ctx->pending_type==(ushort)FD_FAILOVER_MSG_RECLAIM ) ) ctx->reclaim_sent = 1;
     ctx->pending_valid = 0;
   }
 }
@@ -778,6 +792,10 @@ privileged_init( fd_topo_t const *      topo,
   restore_records( ctx, role_err, demoted_err, tile->failov.target_uid, tile->failov.target_gid );
   FD_TEST( fd_rng_secure( &ctx->hello.boot_id, 8UL ) );
   ctx->first_use_nonce = ctx->hello.boot_id;
+  /* Reclaim nonces count on from the boot id as well, so a fresh boot never
+     reuses one and no random bytes are needed inside the sandbox. */
+  ctx->reclaim_nonce = ctx->hello.boot_id;
+  ctx->reclaim_code  = (uchar)FD_FAILOVER_RECLAIM_CODE_CNT;
 
   /* One session object per peer, each pinned to that member's junk key.
      The junk keypair is loaded once and copied into every TLS context. */
@@ -1251,6 +1269,84 @@ maybe_first_use( fd_failover_tile_ctx_t * ctx,
   FD_LOG_NOTICE(( "first use requesting the peer's stand-down at term %lu", term ));
 }
 
+/* start_reclaim asks the peer to stand down at the given term.  Nothing
+   is persisted here: the record changes only once the peer has answered,
+   to PROMOTING on a confirmation and to STANDBY on a refusal that says
+   the peer holds the identity or on silence. */
+static void
+start_reclaim( fd_failover_tile_ctx_t * ctx,
+               ulong                    term,
+               long                     now ) {
+  if( FD_UNLIKELY( !++ctx->reclaim_nonce ) ) ctx->reclaim_nonce++;
+  ctx->reclaim_req     = (fd_failover_reclaim_t){ .term=term, .nonce=ctx->reclaim_nonce };
+  ctx->reclaim_pending = 1;
+  ctx->reclaim_sent    = 0;
+  ctx->reclaim_tried   = 1;
+  ctx->reclaim_code    = (uchar)FD_FAILOVER_RECLAIM_CODE_CNT;
+  ctx->reclaim_reason  = FD_FAILOVER_REJECT_NONE;
+  ctx->action_term     = term;
+  ctx->action          = FD_FAILOVER_ACTION_RECLAIM_WAIT;
+  ctx->stuck           = 0;
+  claim_deadline_start( ctx, now );
+  (void)queue_control( ctx, (ushort)FD_FAILOVER_MSG_RECLAIM, &ctx->reclaim_req, sizeof(ctx->reclaim_req) );
+  FD_LOG_NOTICE(( "asking the peer to stand down at term %lu", term ));
+}
+
+/* maybe_reclaim is the automatic path: a machine that booted holding the
+   identity asks for it back on its own, once per session, as soon as the
+   peer is paired and fresh and stands by.  A refusal ends the attempt,
+   the operator retries with the reclaim command. */
+static void
+maybe_reclaim( fd_failover_tile_ctx_t * ctx,
+               long                     now ) {
+  if( FD_LIKELY( ctx->state!=FD_FAILOVER_STATE_RECLAIMING || ctx->action!=FD_FAILOVER_ACTION_IDLE ) ) return;
+  if( FD_UNLIKELY( ctx->paused || ctx->send_demoted || ctx->reclaim_tried || !ctx->peer_cnt ) ) return;
+  fd_failover_peer_t * peer = &ctx->peers[ 0 ];
+  if( FD_UNLIKELY( fd_failover_channel_state( peer->channel )!=FD_FAILOVER_SESSION_PAIRED ) ) return;
+  if( FD_UNLIKELY( !peer_status_fresh( ctx, peer, now ) || peer->status.role!=FD_FAILOVER_ROLE_STANDBY ) ) return;
+  ulong term = fd_failover_reclaim_term( ctx->hello.term, peer->status.term );
+  if( FD_UNLIKELY( term==ULONG_MAX ) ) return;
+  start_reclaim( ctx, term, now );
+}
+
+/* reclaim_answered acts on the peer's answer to this machine's own
+   attempt.  A confirmation starts the promotion, a held answer stands
+   this machine down for good, any other refusal is a verdict the
+   operator reads. */
+static void
+reclaim_answered( fd_failover_tile_ctx_t *      ctx,
+                  fd_failover_confirm_t const * confirm,
+                  long                          now ) {
+  ctx->reclaim_pending = 0;
+  ctx->reclaim_code    = confirm->code;
+  ctx->reclaim_reason  = confirm->reason;
+  if( ctx->pending_valid && ctx->pending_type==(ushort)FD_FAILOVER_MSG_RECLAIM ) ctx->pending_valid = 0;
+  switch( confirm->code ) {
+  case FD_FAILOVER_RECLAIM_CONFIRMED:
+    /* The peer stands down durably at this term.  The durable consequence
+       here is the PROMOTING record, the grant itself is never stored, so
+       it cannot be promoted on twice.  There is no confirmation record to
+       adopt from, so the promotion starts from this machine's own signed
+       tower, the one it voted with before the restart. */
+    if( FD_UNLIKELY( !ctx->step_stem ) ) { ctx->action = FD_FAILOVER_ACTION_IDLE; return; }
+    start_local_promotion( ctx, ctx->step_stem, confirm->term, 1, now );
+    return;
+  case FD_FAILOVER_RECLAIM_HELD:
+    /* The peer holds the identity.  This is the case that must never
+       resume, so the record stops saying it might. */
+    FD_LOG_WARNING(( "the peer holds the identity, standing down at term %lu", ctx->hello.term ));
+    persist( ctx, FD_FAILOVER_STATE_STANDBY, ctx->hello.term );
+    ctx->action = FD_FAILOVER_ACTION_IDLE;
+    ctx->stuck  = 1;
+    return;
+  default:
+    /* A clean refusal is a verdict, not a stuck transition. */
+    FD_LOG_WARNING(( "the peer answered the reclaim at term %lu with code %u and reason %u", confirm->term, (uint)confirm->code, (uint)confirm->reason ));
+    ctx->action = FD_FAILOVER_ACTION_IDLE;
+    return;
+  }
+}
+
 /* Send the tower we are adopting to the tower tile.  This is the final
    tower from the peer's demotion record, not the streamed one, because
    only the record is final.  The reply comes back with the request id so
@@ -1584,6 +1680,27 @@ step_controller( fd_failover_tile_ctx_t * ctx,
     return;
   }
 
+  case FD_FAILOVER_ACTION_RECLAIM_WAIT: {
+    deadline_arm( ctx, ctx->deadline_slots, now );
+    /* The request goes out again on every session that pairs while it is
+       out, since the one it went out on may have died under it. */
+    if( FD_UNLIKELY( ctx->reclaim_pending && !ctx->reclaim_sent && !ctx->pending_valid ) )
+      (void)queue_control( ctx, (ushort)FD_FAILOVER_MSG_RECLAIM, &ctx->reclaim_req, sizeof(ctx->reclaim_req) );
+    if( FD_UNLIKELY( claim_expired( ctx, now ) ) ) {
+      /* Standing down is the safe direction: this machine holds no key
+         and cannot tell whether the peer took over.  A late answer is
+         then ignored, unlike a late acknowledgment, since acting on it
+         would install a key. */
+      FD_LOG_WARNING(( "the peer did not answer the reclaim at term %lu, standing down", ctx->action_term ));
+      persist( ctx, FD_FAILOVER_STATE_STANDBY, ctx->action_term );
+      ctx->reclaim_pending = 0;
+      if( ctx->pending_valid && ctx->pending_type==(ushort)FD_FAILOVER_MSG_RECLAIM ) ctx->pending_valid = 0;
+      ctx->action = FD_FAILOVER_ACTION_IDLE;
+      ctx->stuck  = 1;
+    }
+    return;
+  }
+
   default: FD_LOG_ERR(( "unexpected failover action %lu", ctx->action ));
   }
 }
@@ -1659,6 +1776,14 @@ handle_control( fd_failover_tile_ctx_t * ctx,
     if( FD_UNLIKELY( payload_sz!=sizeof(fd_failover_confirm_t) ) ) break;
     fd_failover_confirm_t confirm;
     fd_memcpy( &confirm, ctx->rx, sizeof(confirm) );
+    /* The answer to a reclaim this machine asked for.  Only the answer to
+       the live attempt counts, a late or foreign one is dropped rather
+       than taken as a protocol error. */
+    if( FD_UNLIKELY( ctx->reclaim_pending && ctx->action==FD_FAILOVER_ACTION_RECLAIM_WAIT &&
+                     fd_failover_confirm_check( &confirm, &ctx->reclaim_req ) ) ) {
+      reclaim_answered( ctx, &confirm, now );
+      return;
+    }
     if( FD_UNLIKELY( !ctx->first_use_pending || ctx->action!=FD_FAILOVER_ACTION_FIRST_USE_WAIT ||
                      !fd_failover_confirm_check( &confirm, &ctx->first_use_req ) ) ) return;
     if( FD_UNLIKELY( ctx->paused || claim_expired( ctx, now ) ) ) {
@@ -1930,6 +2055,8 @@ peer_poll( fd_failover_tile_ctx_t * ctx,
                    peer->channel_state==FD_FAILOVER_SESSION_PAIRED ) ) {
     ctx->demoted_sent = 0;
     ctx->first_use_sent = 0;
+    ctx->reclaim_sent = 0;
+    ctx->reclaim_tried = 0;
   }
 
   if( FD_UNLIKELY( fd_failover_channel_state( peer->channel )!=FD_FAILOVER_SESSION_PAIRED ) ) return;
@@ -2244,7 +2371,6 @@ reject_promotion( fd_failover_tile_ctx_t * ctx,
     FD_LOG_WARNING(( "a promotion without a demotion confirmation failed (reason %u), remaining passive at term %lu", (uint)reason, term ));
     return;
   }
-
   /* Keep the outcome so a confirmation resent at the old term is answered
      with the same refusal instead of failing the term check and dropping
      the session. */
@@ -2402,6 +2528,9 @@ apply_control( fd_failover_tile_ctx_t *               ctx,
     /* Ask the active to hand over.  A drill goes through all the checks but
        stops short of switching. */
     if( FD_UNLIKELY( ctx->action!=FD_FAILOVER_ACTION_IDLE || ctx->pending_valid || ctx->handoff_pending ) ) return FD_FAILOVER_CONTROL_RESULT_BUSY;
+    /* A machine that is neither holder nor spare has nothing to hand
+       over and nothing to ask for. */
+    if( FD_UNLIKELY( ctx->state!=FD_FAILOVER_STATE_ACTIVE && ctx->state!=FD_FAILOVER_STATE_STANDBY ) ) return FD_FAILOVER_CONTROL_RESULT_BAD_ROLE;
     if( FD_UNLIKELY( !paired || !peer->status_valid ) ) return FD_FAILOVER_CONTROL_RESULT_NOT_PAIRED;
     if( FD_UNLIKELY( ctx->paused ) ) return FD_FAILOVER_CONTROL_RESULT_PAUSED;
     if( FD_UNLIKELY( ctx->hello.term>=ULONG_MAX-1UL ) ) return FD_FAILOVER_CONTROL_RESULT_UNSUPPORTED;
@@ -2522,6 +2651,25 @@ apply_control( fd_failover_tile_ctx_t *               ctx,
     deadline_start( ctx, ctx->deadline_slots, now );
     ctx->action = FD_FAILOVER_ACTION_CLEAR_WAIT_QUERY;
     return FD_FAILOVER_TILE_RESULT_DEFERRED;
+  }
+
+  case FD_ADMINCTL_FAILOVER_CMD_RECLAIM: {
+    /* Ask the peer to stand down so this machine may take the identity.
+       The way back for a holder that restarted and was not answered, for
+       a demoter whose peer refused to promote, and for a pool whose role
+       files were lost.  The peer confirms only after proving it holds the
+       junk key, and persists that it stands down before it says so. */
+    if( FD_UNLIKELY( ctx->action!=FD_FAILOVER_ACTION_IDLE ) ) return FD_FAILOVER_CONTROL_RESULT_BUSY;
+    if( FD_UNLIKELY( ctx->state!=FD_FAILOVER_STATE_RECLAIMING && ctx->state!=FD_FAILOVER_STATE_STANDBY ) ) return FD_FAILOVER_CONTROL_RESULT_BAD_ROLE;
+    if( FD_UNLIKELY( ctx->paused ) ) return FD_FAILOVER_CONTROL_RESULT_PAUSED;
+    if( FD_UNLIKELY( ctx->send_demoted ) ) return FD_FAILOVER_CONTROL_RESULT_NO_EVIDENCE;
+    if( FD_UNLIKELY( !paired || !peer_status_fresh( ctx, peer, now ) ) ) return FD_FAILOVER_CONTROL_RESULT_NOT_PAIRED;
+    /* A peer that holds the identity is asked with handoff, not this. */
+    if( FD_UNLIKELY( peer->status.role!=FD_FAILOVER_ROLE_STANDBY ) ) return FD_FAILOVER_CONTROL_RESULT_BAD_ROLE;
+    ulong term = fd_failover_reclaim_term( ctx->hello.term, peer->status.term );
+    if( FD_UNLIKELY( term==ULONG_MAX ) ) return FD_FAILOVER_CONTROL_RESULT_UNSUPPORTED;
+    start_reclaim( ctx, term, now );
+    return FD_ADMINCTL_RESULT_SUCCESS;
   }
 
   default: break;
@@ -2647,6 +2795,7 @@ after_credit( fd_failover_tile_ctx_t * ctx,
   step_controller( ctx, stem, now );
   for( ulong i=0UL; i<ctx->peer_cnt; i++ ) peer_poll( ctx, &ctx->peers[ i ], now, charge_busy );
   maybe_first_use( ctx, now );
+  maybe_reclaim( ctx, now );
   for( ulong i=0UL; i<ctx->peer_cnt; i++ ) pending_flush( ctx, &ctx->peers[ i ], now );
   ctx->step_stem = NULL;
   if( FD_UNLIKELY( ctx->bus_req_fresh ) ) {
