@@ -718,24 +718,35 @@ fd_vote_stakes_refresh( fd_vote_stakes_t * vote_stakes,
                         fd_accdb_fork_id_t  accdb_fork_id ) {
   uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
 
-  for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter_mem );
-       !fd_vote_stakes_iter_done( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter );
-       fd_vote_stakes_iter_next( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter ) ) {
-    fd_pubkey_t pubkey;
-    fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter,
-                             &pubkey, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL );
-
-    fd_acc_t acc = fd_accdb_read_one( accdb, accdb_fork_id, pubkey.uc );
-    if( FD_UNLIKELY( !acc.lamports || !fd_vsv_is_correct_size_owner_and_init( acc.owner, acc.data, acc.data_len ) ) ) {
-      fd_accdb_unread_one( accdb, &acc );
-      fd_vote_stakes_update_state( vote_stakes, fork_id, &pubkey, 0UL, 0L, 0 );
-      continue;
+  fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter_mem );
+  while( !fd_vote_stakes_iter_done( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter ) ) {
+    fd_pubkey_t   vote_pubkeys[ FD_ACCDB_MAX_TX_ACCOUNT_LOCKS ];
+    uchar const * pubkeys     [ FD_ACCDB_MAX_TX_ACCOUNT_LOCKS ];
+    int           writable    [ FD_ACCDB_MAX_TX_ACCOUNT_LOCKS ];
+    fd_acc_t      accs        [ FD_ACCDB_MAX_TX_ACCOUNT_LOCKS ];
+    ulong batch_cnt = 0UL;
+    for( ; !fd_vote_stakes_iter_done( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter ) && batch_cnt<FD_ACCDB_MAX_TX_ACCOUNT_LOCKS;
+         fd_vote_stakes_iter_next( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter ) ) {
+      fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter,
+                               &vote_pubkeys[ batch_cnt ], NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL );
+      pubkeys [ batch_cnt ] = vote_pubkeys[ batch_cnt ].uc;
+      writable[ batch_cnt ] = 0;
+      batch_cnt++;
     }
+    fd_accdb_acquire( accdb, accdb_fork_id, batch_cnt, pubkeys, writable, accs );
 
-    fd_vote_block_timestamp_t last_vote;
-    FD_TEST( !fd_vote_account_last_timestamp( acc.data, acc.data_len, &last_vote ) );
-    fd_vote_stakes_update_state( vote_stakes, fork_id, &pubkey, last_vote.slot, last_vote.timestamp, 1 );
-    fd_accdb_unread_one( accdb, &acc );
+    for( ulong i=0UL; i<batch_cnt; i++ ) {
+      fd_acc_t const * acc = &accs[ i ];
+      if( FD_UNLIKELY( !acc->lamports || !fd_vsv_is_correct_size_owner_and_init( acc->owner, acc->data, acc->data_len ) ) ) {
+        fd_vote_stakes_update_state( vote_stakes, fork_id, &vote_pubkeys[ i ], 0UL, 0L, 0 );
+        continue;
+      }
+
+      fd_vote_block_timestamp_t last_vote;
+      FD_TEST( !fd_vote_account_last_timestamp( acc->data, acc->data_len, &last_vote ) );
+      fd_vote_stakes_update_state( vote_stakes, fork_id, &vote_pubkeys[ i ], last_vote.slot, last_vote.timestamp, 1 );
+    }
+    fd_accdb_release( accdb, batch_cnt, accs );
   }
 }
 

@@ -24,6 +24,7 @@
 #include <time.h> /* CLOCK_REALTIME */
 #include <linux/futex.h>
 #include "generated/fd_snapzp_tile_seccomp.h"
+#include "../../flamenco/accdb/fd_accdb_io_uring.h"
 #include "../../tango/fseq/fd_fseq.h"
 #include <fcntl.h>
 #include <unistd.h>
@@ -34,6 +35,8 @@
 #define COMP_BOUND    ZSTD_COMPRESSBOUND( RAW_BUF_SZ )
 #define COMP_HEAD     522 /* 10 byte Zstandard uncompressed header + 512 byte plaintext tar header */
 #define COMP_BUF_SZ   FD_ULONG_ALIGN_UP( COMP_HEAD+COMP_BOUND+8UL, 4096UL )
+
+#define ACCDB_IO_URING_DEPTH (128UL)
 
 struct fd_snapzp {
   fd_backup_cache_t  acc_cache[1];
@@ -113,18 +116,42 @@ scratch_align( void ) {
 
 FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
-  (void)tile;
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_snapzp_t), sizeof(fd_snapzp_t) );
-  l = FD_LAYOUT_APPEND( l, fd_accdb_align(),     fd_accdb_footprint( tile->snapzp.max_live_slots, 0 ) );
-  l = FD_LAYOUT_APPEND( l, 32UL,                 ZSTD_estimateCStreamSize( FD_BACKUP_ZSTD_LEVEL ) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_snapzp_t),      sizeof(fd_snapzp_t) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_io_uring_t),    sizeof(fd_io_uring_t) );
+  l = FD_LAYOUT_APPEND( l, fd_accdb_io_uring_align(), fd_accdb_io_uring_footprint( ACCDB_IO_URING_DEPTH ) );
+  l = FD_LAYOUT_APPEND( l, fd_accdb_align(),          fd_accdb_footprint( tile->snapzp.max_live_slots, 0 ) );
+  l = FD_LAYOUT_APPEND( l, 32UL,                      ZSTD_estimateCStreamSize( FD_BACKUP_ZSTD_LEVEL ) );
   return FD_LAYOUT_FINI( l, FD_SHMEM_HUGE_PAGE_SZ );
+}
+
+/* snapzp_ring returns the accdb io_uring, which lives outside of ctx
+   because unprivileged_init clears ctx. */
+
+static fd_io_uring_t *
+snapzp_ring( fd_topo_t const *      topo,
+             fd_topo_tile_t const * tile ) {
+  FD_SCRATCH_ALLOC_INIT( l, fd_topo_obj_laddr( topo, tile->tile_obj_id ) );
+  FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapzp_t), sizeof(fd_snapzp_t) );
+  return FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_io_uring_t), sizeof(fd_io_uring_t) );
 }
 
 static void
 privileged_init( fd_topo_t const *      topo,
                  fd_topo_tile_t const * tile ) {
-  (void)topo;
+  FD_SCRATCH_ALLOC_INIT( l, fd_topo_obj_laddr( topo, tile->tile_obj_id ) );
+                           FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapzp_t),      sizeof(fd_snapzp_t) );
+  fd_io_uring_t * ring   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_io_uring_t),    sizeof(fd_io_uring_t) );
+  void *          _ring  = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_io_uring_align(), fd_accdb_io_uring_footprint( ACCDB_IO_URING_DEPTH ) );
+#if defined(__linux__)
+  if( FD_UNLIKELY( !fd_accdb_io_uring_init( ring, _ring, ACCDB_IO_URING_DEPTH, FD_ACCDB_FD_RO, 0 ) ) ) {
+    FD_LOG_WARNING(( "failed to create accounts database io_uring, falling back to blocking reads" ));
+  }
+#else
+  (void)_ring;
+  ring->ioring_fd = -1;
+#endif
+
   ulong snap_fd_max = tile->snapzp.snap_fd_cnt;
   FD_CHECK_ERR( snap_fd_max>0UL && snap_fd_max<=FD_SNAP_MAX,
                 "invalid snap_fd_max" );
@@ -141,9 +168,11 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_CHECK_ERR( tile->kind_id < SNAPZP_TILE_MAX, "too many snapzp tiles" );
 
   FD_SCRATCH_ALLOC_INIT( l, fd_topo_obj_laddr( topo, tile->tile_obj_id ) );
-  fd_snapzp_t * ctx      = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapzp_t), sizeof(fd_snapzp_t) );
-  void *        _accdb   = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),     fd_accdb_footprint( tile->snapzp.max_live_slots, 0 ) );
-  void *        _zstd    = FD_SCRATCH_ALLOC_APPEND( l, 32UL,                 ZSTD_estimateCStreamSize( FD_BACKUP_ZSTD_LEVEL ) );
+  fd_snapzp_t *   ctx    = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapzp_t),      sizeof(fd_snapzp_t) );
+  fd_io_uring_t * ring   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_io_uring_t),    sizeof(fd_io_uring_t) );
+                           FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_io_uring_align(), fd_accdb_io_uring_footprint( ACCDB_IO_URING_DEPTH ) );
+  void *          _accdb = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),          fd_accdb_footprint( tile->snapzp.max_live_slots, 0 ) );
+  void *          _zstd  = FD_SCRATCH_ALLOC_APPEND( l, 32UL,                      ZSTD_estimateCStreamSize( FD_BACKUP_ZSTD_LEVEL ) );
   FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
 
   memset( ctx, 0, sizeof(fd_snapzp_t) );  /* 64 MiB-ish memset */
@@ -211,6 +240,11 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( epoch_fseq );
   ctx->accdb = fd_accdb_join_readonly( _accdb, accdb_shmem_ro, epoch_fseq, FD_ACCDB_FD_RO );
   FD_TEST( ctx->accdb );
+#if defined(__linux__)
+  fd_accdb_attach_io_uring( ctx->accdb, ring->ioring_fd>=0 ? ring : NULL );
+#else
+  (void)ring;
+#endif
   FD_TEST( fd_backup_cache_join( ctx->acc_cache, accdb_shmem_ro, epoch_fseq ) );
   ctx->overrun = fd_backup_overrun( fd_topo_obj_laddr( topo, tile->snapzp.visited_set_obj_id ) );
   ctx->stats   = fd_backup_stats  ( fd_topo_obj_laddr( topo, tile->snapzp.visited_set_obj_id ) );
@@ -227,14 +261,15 @@ populate_allowed_fds( fd_topo_t const *      topo,
                       fd_topo_tile_t const * tile,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
-  (void)topo;
+  fd_io_uring_t const * ring = snapzp_ring( topo, tile );
   ulong snap_fd_cnt = tile->snapzp.snap_fd_cnt;
-  FD_CHECK_ERR( out_fds_cnt>=3UL+snap_fd_cnt, "out_fds[] too small" );
+  FD_CHECK_ERR( out_fds_cnt>=4UL+snap_fd_cnt, "out_fds[] too small" );
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   out_fds[ out_cnt++ ] = FD_ACCDB_FD_RO;
+  if( ring->ioring_fd>=0 ) out_fds[ out_cnt++ ] = ring->ioring_fd; /* accounts db io_uring */
   for( uint i=0U; i<snap_fd_cnt; i++ )
     out_fds[ out_cnt++ ] = FD_SNAP_DIO_FD( i );
   return out_cnt;
@@ -245,14 +280,14 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           fd_topo_tile_t const * tile,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
-  (void)topo;
   ulong snap_fd_cnt = tile->snapzp.snap_fd_cnt;
   populate_sock_filter_policy_fd_snapzp_tile(
       out_cnt, out,
       (uint)fd_log_private_logfile_fd(),
       (uint)FD_SNAP_DIO_FD( 0 ),
       (uint)FD_SNAP_DIO_FD( snap_fd_cnt-1U ),
-      (uint)FD_ACCDB_FD_RO );
+      (uint)FD_ACCDB_FD_RO,
+      (uint)snapzp_ring( topo, tile )->ioring_fd );
   return sock_filter_policy_fd_snapzp_tile_instr_cnt;
 }
 
@@ -532,35 +567,44 @@ msg_acc_delta( fd_snapzp_t *                 ctx,
 
   ulong const rec_max = sizeof(snap_acc_hdr_t) + FD_RUNTIME_ACC_SZ_MAX;
   FD_STATIC_ASSERT( sizeof(snap_acc_hdr_t)+FD_RUNTIME_ACC_SZ_MAX<=RAW_BUF_SZ, raw_buf_too_small );
+  FD_STATIC_ASSERT( FD_BACKUP_CACHE_PARA<=FD_ACCDB_NOCACHE_BATCH_MAX, batch_too_large );
+  FD_STATIC_ASSERT( sizeof(snap_acc_hdr_t)%8UL==0UL, hdr_align );
 
-  for( ulong i=0UL; i<(ulong)batch->cnt; i++ ) {
+  uchar const * pubkeys[ FD_BACKUP_CACHE_PARA ];
+  for( ulong i=0UL; i<(ulong)batch->cnt; i++ ) pubkeys[ i ] = batch->pubkey[ i ].uc;
+
+  /* Read accounts directly into raw_buf as snapshot records (header
+     followed by 8-byte padded data), as many at a time as fit. */
+  fd_accdb_nocache_out_t out[ FD_BACKUP_CACHE_PARA ];
+  for( ulong i=0UL; i<(ulong)batch->cnt; ) {
     if( FD_UNLIKELY( ctx->raw_buf.size + rec_max > RAW_BUF_SZ ) ) zip_flush( ctx );
 
-    ulong            start = ctx->raw_buf.size;
-    snap_acc_hdr_t * hdr   = (snap_acc_hdr_t *)( ctx->raw + start );
-    memset( hdr, 0, sizeof(snap_acc_hdr_t) );
-    hdr->pubkey = batch->pubkey[ i ];
+    uchar * arena = ctx->raw + ctx->raw_buf.size;
+    ulong   n     = fd_accdb_read_nocache_batch( ctx->accdb, ctx->fork_id, (ulong)batch->cnt-i, pubkeys+i,
+                                                 arena, RAW_BUF_SZ-ctx->raw_buf.size,
+                                                 sizeof(snap_acc_hdr_t), 8UL, out );
+    for( ulong j=0UL; j<n; j++ ) {
+      ulong            data_len = out[ j ].data_len;
+      snap_acc_hdr_t * hdr      = (snap_acc_hdr_t *)( out[ j ].data - sizeof(snap_acc_hdr_t) );
+      FD_CHECK_CRIT( data_len<=FD_RUNTIME_ACC_SZ_MAX, "accdb returned oversized account" );
+      memset( hdr, 0, sizeof(snap_acc_hdr_t) );
+      hdr->pubkey     = batch->pubkey[ i+j ];
+      hdr->lamports   = out[ j ].lamports;
+      hdr->executable = (uchar)!!out[ j ].executable;
+      hdr->data_len   = data_len;
+      memcpy( hdr->owner.uc, out[ j ].owner, 32UL );
 
-    ulong lamports   = 0UL;
-    ulong data_len   = 0UL;
-    int   executable = 0;
-    int source = fd_accdb_read_one_nocache( ctx->accdb, ctx->fork_id, batch->pubkey[ i ].uc,
-                                            &lamports, &executable, hdr->owner.uc,
-                                            ctx->raw + start + sizeof(snap_acc_hdr_t), &data_len );
-    FD_CHECK_CRIT( data_len<=FD_RUNTIME_ACC_SZ_MAX, "accdb returned oversized account" );
-    hdr->lamports   = lamports;
-    hdr->executable = (uchar)!!executable;
-    hdr->data_len   = data_len;
-
-    ulong data_pad = fd_ulong_align_up( data_len, 8UL ) - data_len;
-    if( data_pad ) fd_memset( ctx->raw + start + sizeof(snap_acc_hdr_t) + data_len, 0, data_pad );
-    ctx->raw_buf.size = start + sizeof(snap_acc_hdr_t) + data_len + data_pad;
-    ctx->snapshot_account_cnt++;
-    ctx->snapshot_account_sz += sizeof(snap_acc_hdr_t) + data_len + data_pad;
-    ctx->snapshot_tombstone_cnt      += source==FD_ACCDB_READ_ONE_NOCACHE_MISS;
-    ctx->snapshot_cached_account_cnt += source==FD_ACCDB_READ_ONE_NOCACHE_CACHE;
-    ctx->snapshot_disk_account_cnt   += source==FD_ACCDB_READ_ONE_NOCACHE_DISK;
-    ctx->metrics.accounts_compressed++;
+      ulong data_pad = fd_ulong_align_up( data_len, 8UL ) - data_len;
+      if( data_pad ) fd_memset( out[ j ].data + data_len, 0, data_pad );
+      ctx->raw_buf.size += sizeof(snap_acc_hdr_t) + data_len + data_pad;
+      ctx->snapshot_account_cnt++;
+      ctx->snapshot_account_sz += sizeof(snap_acc_hdr_t) + data_len + data_pad;
+      ctx->snapshot_tombstone_cnt      += out[ j ].source==FD_ACCDB_READ_ONE_NOCACHE_MISS;
+      ctx->snapshot_cached_account_cnt += out[ j ].source==FD_ACCDB_READ_ONE_NOCACHE_CACHE;
+      ctx->snapshot_disk_account_cnt   += out[ j ].source==FD_ACCDB_READ_ONE_NOCACHE_DISK;
+      ctx->metrics.accounts_compressed++;
+    }
+    i += n;
   }
 }
 
@@ -896,5 +940,6 @@ fd_topo_run_tile_t fd_tile_snapzp = {
   .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
   .run                      = stem_run,
+  .rlimit_nproc             = FD_ACCDB_IO_URING_RLIMIT_NPROC,
 };
 #endif

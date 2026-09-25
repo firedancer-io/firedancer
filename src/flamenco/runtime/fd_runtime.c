@@ -414,36 +414,21 @@ fd_apply_builtin_program_feature_transitions( fd_bank_t *          bank,
   }
 }
 
+/* fd_feature_activate records the activation slot of feature id (at
+   addr) given its decoded account, activating it now if pending.  Must
+   not be called with an acquire open. */
+
 static void
 fd_feature_activate( fd_bank_t *             bank,
                      fd_accdb_t *            accdb,
                      fd_capture_ctx_t *      capture_ctx,
                      fd_feature_id_t const * id,
-                     fd_pubkey_t const *     addr ) {
-  fd_features_set( &bank->f.features, id, FD_FEATURE_DISABLED );
-
-  if( FD_UNLIKELY( id->reverted==1 ) ) return;
-
-  fd_acc_t acc = fd_accdb_read_one( accdb, bank->accdb_fork_id, addr->uc );
-  if( FD_UNLIKELY( !acc.lamports || memcmp( acc.owner, fd_solana_feature_program_id.uc, 32UL ) ) ) {
-    fd_accdb_unread_one( accdb, &acc ); /* Feature account not yet initialized */
-    return;
-  }
-
-  fd_feature_t feature;
-  if( FD_UNLIKELY( !fd_feature_decode( &feature, acc.data, acc.data_len ) ) ) {
-    FD_BASE58_ENCODE_32_BYTES( addr->uc, addr_b58 );
-    FD_LOG_WARNING(( "cannot activate feature %s, corrupt account data", addr_b58 ));
-    FD_LOG_HEXDUMP_NOTICE(( "corrupt feature account", acc.data, acc.data_len ));
-    fd_accdb_unread_one( accdb, &acc );
-    return;
-  }
-  fd_accdb_unread_one( accdb, &acc );
-
+                     fd_pubkey_t const *     addr,
+                     fd_feature_t const *    feature ) {
   FD_BASE58_ENCODE_32_BYTES( addr->uc, addr_b58 );
-  if( FD_UNLIKELY( feature.is_active ) ) {
-    FD_LOG_DEBUG(( "feature %s already activated at slot %lu", addr_b58, feature.activation_slot ));
-    fd_features_set( &bank->f.features, id, feature.activation_slot);
+  if( FD_UNLIKELY( feature->is_active ) ) {
+    FD_LOG_DEBUG(( "feature %s already activated at slot %lu", addr_b58, feature->activation_slot ));
+    fd_features_set( &bank->f.features, id, feature->activation_slot);
   } else {
     FD_LOG_DEBUG(( "feature %s not activated at slot %lu, activating", addr_b58, bank->f.slot ));
     fd_accdb_svm_update_t update[1];
@@ -451,22 +436,65 @@ fd_feature_activate( fd_bank_t *             bank,
     if( FD_UNLIKELY( !acc.lamports ) ) return;
     FD_TEST( acc.data_len>=sizeof(fd_feature_t) );
 
-    feature.is_active       = 1;
-    feature.activation_slot = bank->f.slot;
-    FD_STORE( fd_feature_t, acc.data, feature );
+    fd_feature_t activated = *feature;
+    activated.is_active       = 1;
+    activated.activation_slot = bank->f.slot;
+    FD_STORE( fd_feature_t, acc.data, activated );
     fd_accdb_svm_close_rw( bank, accdb, capture_ctx, &acc, update );
     if( FD_UNLIKELY( fd_bank_report_runtime_diffs( bank ) ) ) fd_event_runtime_epoch_feature( addr->uc );
   }
+}
+
+/* fd_feature_decode_acc decodes a feature account.  Returns 0 if the
+   account is not an initialized feature account. */
+
+static int
+fd_feature_decode_acc( fd_feature_t *   feature,
+                       fd_acc_t const * acc ) {
+  if( FD_UNLIKELY( !acc->lamports || memcmp( acc->owner, fd_solana_feature_program_id.uc, 32UL ) ) ) {
+    return 0; /* Feature account not yet initialized */
+  }
+  if( FD_UNLIKELY( !fd_feature_decode( feature, acc->data, acc->data_len ) ) ) {
+    FD_BASE58_ENCODE_32_BYTES( acc->pubkey, addr_b58 );
+    FD_LOG_WARNING(( "cannot activate feature %s, corrupt account data", addr_b58 ));
+    FD_LOG_HEXDUMP_NOTICE(( "corrupt feature account", acc->data, acc->data_len ));
+    return 0;
+  }
+  return 1;
 }
 
 static void
 fd_features_activate( fd_bank_t *        bank,
                       fd_accdb_t  *      accdb,
                       fd_capture_ctx_t * capture_ctx ) {
-  for( fd_feature_id_t const * id = fd_feature_iter_init();
-                                   !fd_feature_iter_done( id );
-                               id = fd_feature_iter_next( id ) ) {
-    fd_feature_activate( bank, accdb, capture_ctx, id, &id->id );
+  /* Feature accounts are read in batches so their disk reads are issued
+     together, then activations (rare) are written one by one. */
+  fd_feature_id_t const * id = fd_feature_iter_init();
+  while( !fd_feature_iter_done( id ) ) {
+    fd_feature_id_t const * batch_ids[ FD_ACCDB_MAX_TX_ACCOUNT_LOCKS ];
+    uchar const *           pubkeys  [ FD_ACCDB_MAX_TX_ACCOUNT_LOCKS ];
+    int                     writable [ FD_ACCDB_MAX_TX_ACCOUNT_LOCKS ];
+    fd_acc_t                accs     [ FD_ACCDB_MAX_TX_ACCOUNT_LOCKS ];
+    fd_feature_t            features [ FD_ACCDB_MAX_TX_ACCOUNT_LOCKS ];
+    int                     valid    [ FD_ACCDB_MAX_TX_ACCOUNT_LOCKS ];
+    ulong batch_cnt = 0UL;
+    for( ; !fd_feature_iter_done( id ) && batch_cnt<FD_ACCDB_MAX_TX_ACCOUNT_LOCKS; id=fd_feature_iter_next( id ) ) {
+      fd_features_set( &bank->f.features, id, FD_FEATURE_DISABLED );
+      if( FD_UNLIKELY( id->reverted==1 ) ) continue;
+      batch_ids[ batch_cnt ] = id;
+      pubkeys  [ batch_cnt ] = id->id.uc;
+      writable [ batch_cnt ] = 0;
+      batch_cnt++;
+    }
+    if( !batch_cnt ) continue;
+
+    fd_accdb_acquire( accdb, bank->accdb_fork_id, batch_cnt, pubkeys, writable, accs );
+    for( ulong i=0UL; i<batch_cnt; i++ ) valid[ i ] = fd_feature_decode_acc( &features[ i ], &accs[ i ] );
+    fd_accdb_release( accdb, batch_cnt, accs );
+
+    for( ulong i=0UL; i<batch_cnt; i++ ) {
+      if( valid[ i ] ) fd_feature_activate( bank, accdb, capture_ctx, batch_ids[ i ], &batch_ids[ i ]->id, &features[ i ] );
+    }
   }
 }
 

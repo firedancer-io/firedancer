@@ -13,6 +13,7 @@
 #include "../../disco/events/generated/fd_event_gen.h"
 #include "../../disco/sleep/fd_sleep.h"
 #include "../runtime/fd_runtime_const.h" /* FD_RUNTIME_ACC_SZ_MAX */
+#include "../../util/io_uring/fd_io_uring.h"
 
 FD_STATIC_ASSERT( sizeof(fd_accdb_cache_line_t)==FD_ACCDB_CACHE_META_SZ, cache_meta_sz );
 
@@ -49,6 +50,7 @@ typedef struct fd_accdb_fork fd_accdb_fork_t;
 
 struct __attribute__((aligned(FD_ACCDB_ALIGN))) fd_accdb_private {
   int fd;
+  struct fd_io_uring * ring; /* optional, Linux only */
 
   int acquire_state;
 
@@ -167,6 +169,192 @@ fd_accdb_partition_read_bump( fd_accdb_t * accdb,
   FD_ATOMIC_FETCH_AND_ADD( &p->bytes_read, bytes );
   FD_ATOMIC_FETCH_AND_ADD( &p->read_ops,   1UL   );
 }
+
+/* fd_accdb_io_op_t describes one positional read or write.
+   iov[0,iov_cnt) are the buffers still to be transferred, starting at
+   file offset off, and rem is the sum of their lengths.  iov either
+   points to iov_inline or to a caller-owned array that the op may
+   modify.  iov_cnt is at most IOV_MAX. */
+
+struct fd_accdb_io_op {
+  ulong          off;
+  ulong          rem;
+  struct iovec * iov;
+  uint           iov_cnt;
+  struct iovec   iov_inline[ 2 ];
+};
+
+typedef struct fd_accdb_io_op fd_accdb_io_op_t;
+
+static inline void
+fd_accdb_io_op_init( fd_accdb_io_op_t * op,
+                     ulong              off,
+                     void *             buf0,
+                     ulong              sz0,
+                     void *             buf1,
+                     ulong              sz1 ) {
+  op->off           = off;
+  op->rem           = sz0+sz1;
+  op->iov           = op->iov_inline;
+  op->iov_cnt       = sz1 ? 2U : 1U;
+  op->iov_inline[0] = (struct iovec){ .iov_base = buf0, .iov_len = sz0 };
+  op->iov_inline[1] = (struct iovec){ .iov_base = buf1, .iov_len = sz1 };
+}
+
+/* fd_accdb_io_op_advance consumes sz transferred bytes from op. */
+
+static inline void
+fd_accdb_io_op_advance( fd_accdb_io_op_t * op,
+                        ulong              sz ) {
+  op->off += sz;
+  op->rem -= sz;
+  while( op->iov_cnt && sz>=op->iov[0].iov_len ) {
+    sz -= op->iov[0].iov_len;
+    op->iov++;
+    op->iov_cnt--;
+  }
+  if( sz ) {
+    op->iov[0].iov_base = (uchar *)op->iov[0].iov_base + sz;
+    op->iov[0].iov_len -= sz;
+  }
+}
+
+static inline void
+fd_accdb_io_op_complete( fd_accdb_t *       accdb,
+                         fd_accdb_io_op_t * op,
+                         int                write,
+                         ulong              sz ) {
+  if( write ) {
+    accdb->metrics->bytes_written += sz;
+    accdb->metrics->write_ops++;
+  } else {
+    fd_accdb_partition_read_bump( accdb, op->off, sz );
+    accdb->metrics->bytes_read += sz;
+    accdb->metrics->read_ops++;
+  }
+  fd_accdb_io_op_advance( op, sz );
+}
+
+static void
+fd_accdb_io_batch_sync( fd_accdb_t *       accdb,
+                        fd_accdb_io_op_t * ops,
+                        ulong              cnt,
+                        int                write ) {
+  for( ulong i=0UL; i<cnt; i++ ) {
+    fd_accdb_io_op_t * op = &ops[ i ];
+    while( FD_LIKELY( op->rem ) ) {
+      long result = write ? pwritev2( accdb->fd, op->iov, (int)op->iov_cnt, (long)op->off, 0 )
+                          : preadv2 ( accdb->fd, op->iov, (int)op->iov_cnt, (long)op->off, 0 );
+      if( FD_UNLIKELY( -1==result && (errno==EINTR || errno==EAGAIN || errno==EWOULDBLOCK ) ) ) continue;
+      else if( FD_UNLIKELY( -1==result ) ) FD_LOG_ERR(( "%s() failed (%d-%s)", write ? "pwritev2" : "preadv2", errno, fd_io_strerror( errno ) ));
+      else if( FD_UNLIKELY( !result ) ) FD_LOG_ERR(( "accounts database is corrupt, %s() returned 0 at offset %lu with %lu bytes remaining",
+                                                     write ? "pwritev2" : "preadv2", op->off, op->rem ));
+      fd_accdb_io_op_complete( accdb, op, write, (ulong)result );
+    }
+  }
+}
+
+#if defined(__linux__)
+
+/* FD_ACCDB_IO_URING_INFLIGHT_MAX bounds the number of requests
+   fd_accdb_io_batch_uring keeps in flight, regardless of ring depth. */
+
+#define FD_ACCDB_IO_URING_INFLIGHT_MAX (1024UL)
+
+static void
+fd_accdb_io_batch_uring( fd_accdb_t *       accdb,
+                         fd_accdb_io_op_t * ops,
+                         ulong              cnt,
+                         int                write ) {
+  fd_io_uring_t * ring   = accdb->ring;
+  ulong           cap    = fd_ulong_min( fd_ulong_min( ring->sq->depth, ring->cq->depth ), FD_ACCDB_IO_URING_INFLIGHT_MAX );
+  uchar           opcode = write ? FD_IORING_OP_WRITEV : FD_IORING_OP_READV;
+
+  ulong retry[ FD_ACCDB_IO_URING_INFLIGHT_MAX ];
+  ulong retry_cnt = 0UL;
+  ulong next      = 0UL;
+  ulong inflight  = 0UL;
+  ulong done      = 0UL;
+
+  while( done<cnt ) {
+    ulong space = fd_io_uring_sq_space_left( ring->sq );
+    while( inflight<cap && space && ( retry_cnt || next<cnt ) ) {
+      ulong idx = retry_cnt ? retry[ --retry_cnt ] : next++;
+      if( FD_UNLIKELY( !ops[ idx ].rem ) ) { done++; continue; }
+      fd_io_uring_sqe_t * sqe = fd_io_uring_get_sqe( ring->sq );
+      *sqe = (fd_io_uring_sqe_t){
+        .opcode    = opcode,
+        .flags     = FD_IOSQE_FIXED_FILE,
+        .fd        = 0,
+        .off       = ops[ idx ].off,
+        .addr      = (ulong)ops[ idx ].iov,
+        .len       = ops[ idx ].iov_cnt,
+        .user_data = idx
+      };
+      inflight++;
+      space--;
+    }
+    if( FD_UNLIKELY( !inflight ) ) continue;
+
+    /* Wait for everything once the batch is fully queued, otherwise
+       for one completion so the queue can be refilled. */
+    ulong wait_cnt = ( retry_cnt || next<cnt ) ? 1UL : inflight;
+    int submitted = fd_io_uring_submit( ring->sq, ring->ioring_fd, (uint)wait_cnt, FD_IORING_ENTER_GETEVENTS );
+    if( FD_UNLIKELY( submitted<0 && errno!=EINTR && errno!=EAGAIN && errno!=EBUSY ) ) {
+      FD_LOG_ERR(( "io_uring_enter() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+    }
+    if( FD_UNLIKELY( fd_io_uring_cq_overflow( ring->cq ) ) ) FD_LOG_ERR(( "accdb io_uring completion queue overflowed" ));
+
+    uint ready = fd_io_uring_cq_ready( ring->cq );
+    for( uint i=0U; i<ready; i++ ) {
+      fd_io_uring_cqe_t const * cqe = fd_io_uring_cq_head( ring->cq );
+      ulong idx = cqe->user_data;
+      int   res = cqe->res;
+      fd_io_uring_cq_advance( ring->cq, 1U );
+      FD_CHECK_CRIT( idx<cnt, "accdb io_uring completion for unknown request" );
+      inflight--;
+
+      fd_accdb_io_op_t * op = &ops[ idx ];
+      if( FD_UNLIKELY( res==-EINTR || res==-EAGAIN ) ) { retry[ retry_cnt++ ] = idx; continue; }
+      else if( FD_UNLIKELY( res<0 ) ) FD_LOG_ERR(( "io_uring %s failed (%d-%s)", write ? "writev" : "readv", -res, fd_io_strerror( -res ) ));
+      else if( FD_UNLIKELY( !res ) ) FD_LOG_ERR(( "accounts database is corrupt, io_uring %s returned 0 at offset %lu with %lu bytes remaining",
+                                                  write ? "writev" : "readv", op->off, op->rem ));
+      fd_accdb_io_op_complete( accdb, op, write, (ulong)res );
+      if( FD_UNLIKELY( op->rem ) ) retry[ retry_cnt++ ] = idx;
+      else                         done++;
+    }
+  }
+}
+
+#endif /* defined(__linux__) */
+
+/* fd_accdb_io_batch performs all ops, returning once every one has
+   completed.  Data is visible to the caller on return. */
+
+static void
+fd_accdb_io_batch( fd_accdb_t *       accdb,
+                   fd_accdb_io_op_t * ops,
+                   ulong              cnt,
+                   int                write ) {
+  if( FD_UNLIKELY( !cnt ) ) return;
+#if defined(__linux__)
+  if( accdb->ring ) { fd_accdb_io_batch_uring( accdb, ops, cnt, write ); return; }
+#endif
+  fd_accdb_io_batch_sync( accdb, ops, cnt, write );
+}
+
+#if defined(__linux__)
+
+void
+fd_accdb_attach_io_uring( fd_accdb_t *    accdb,
+                          fd_io_uring_t * ring ) {
+  if( ring ) {
+    FD_TEST( fd_ulong_is_pow2( ring->sq->depth ) && fd_ulong_is_pow2( ring->cq->depth ) );
+  }
+  accdb->ring = ring;
+}
+
+#endif /* defined(__linux__) */
 
 /* Bump the per-partition write counters.  bytes is how much landed on
    this partition, over num_ops reservations. */
@@ -298,6 +486,7 @@ fd_accdb_new( void *              ljoin,
   void * _bounce          = compaction ? FD_SCRATCH_ALLOC_APPEND( l2, FD_ACCDB_ALIGN, FD_ACCDB_BOUNCE_SZ ) : NULL;
 
   accdb->fd = fd;
+  accdb->ring = NULL;
   accdb->acquire_state = FD_ACCDB_ACQUIRE_STATE_IDLE;
   accdb->sleep         = sleep;
   accdb->sleep_tile_id = sleep_tile_id;
@@ -714,6 +903,7 @@ fd_accdb_join_readonly( void *             ljoin,
   void * _local_fork_pool = FD_SCRATCH_ALLOC_APPEND( l2, alignof(fd_accdb_fork_t), max_live_slots*sizeof(fd_accdb_fork_t) );
 
   accdb->fd    = fd_ro;
+  accdb->ring  = NULL;
   accdb->acquire_state = FD_ACCDB_ACQUIRE_STATE_IDLE;
   accdb->shmem = shmem;
   FD_TEST( acc_pool_join( accdb->acc_pool_join, shmem->acc_pool, _acc_pool_ele, max_accounts ) );
@@ -1731,7 +1921,10 @@ change_partition( fd_accdb_t *           accdb,
   if( FD_UNLIKELY( new_partition_idx>=accdb->shmem->partition_max ) ) {
     FD_LOG_INFO(( "growing accounts database from %lu GiB to %lu GiB", accdb->shmem->partition_max*accdb->shmem->partition_sz/(1UL<<30UL), (new_partition_idx+1UL)*accdb->shmem->partition_sz/(1UL<<30UL) ));
 
-    int result = fallocate( accdb->fd, 0, (long)(new_partition_idx*accdb->shmem->partition_sz), (long)accdb->shmem->partition_sz );
+    int result;
+    do {
+      result = fallocate( accdb->fd, 0, (long)(new_partition_idx*accdb->shmem->partition_sz), (long)accdb->shmem->partition_sz );
+    } while( FD_UNLIKELY( -1==result && errno==EINTR ) );
     if( FD_UNLIKELY( -1==result ) ) {
       if( FD_LIKELY( errno==ENOSPC ) ) FD_LOG_ERR(( "fallocate() failed (%d-%s). The accounts database filled "
                                                     "the disk it is on, trying to grow from %lu GiB to %lu GiB. Please "
@@ -2528,12 +2721,7 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
   //   This step does not actually persist the data to disk, it just
   //   constructs a series of iovecs (write instructions) which will be
   //   used later to do the actual write.  The reason is that we want to
-  //   batch all the writes together into a single writev call, to
-  //   minimize overhead, and also keep the actual writes at the end of
-  //   the function and independent of the specific control flow, so
-  //   that they could be offloaded to another thread of made
-  //   asynchronous (e.g. with io_uring) in the future without needing
-  //   to change the rest of the logic.
+  //   issue all the writes together as one batch (see step 9).
 
   int write_ops_cnt = 0;
   int write_meta_cnt = 0;
@@ -2787,66 +2975,20 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
   //   offset!=FD_ACCDB_OFF_INVAL, so publishing evicted offsets first
   //   prevents an intra-batch deadlock where the thread waits on an
   //   offset that only it can resolve.
-  if( FD_LIKELY( batch_contiguous ) ) {
-    /* Fast path: all evictions fit in one contiguous region.  Use the
-       pre-built iovec array for a single batched pwritev2 call. */
-    ulong bytes_written = 0UL;
-    struct iovec * write_ptr = write_ops;
-    while( FD_LIKELY( bytes_written<total_write_sz ) ) {
-      long result = pwritev2( accdb->fd, write_ptr, fd_int_min( write_ops_cnt, IOV_MAX ), (long)(file_offset+bytes_written), 0 );
-      if( FD_UNLIKELY( -1==result && (errno==EINTR || errno==EAGAIN || errno==EWOULDBLOCK ) ) ) continue;
-      else if( FD_UNLIKELY( -1==result ) ) FD_LOG_ERR(( "pwritev2() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
-      else if( FD_UNLIKELY( !result ) ) FD_LOG_ERR(( "accounts database is corrupt, pwritev2() returned 0 at offset %lu with %lu bytes remaining",
-                                                     file_offset+bytes_written, total_write_sz-bytes_written ));
-      bytes_written += (ulong)result;
-      accdb->metrics->bytes_written += (ulong)result;
-      accdb->metrics->write_ops++;
-
-      while( write_ops_cnt && (ulong)result>=(ulong)write_ptr[ 0 ].iov_len ) {
-        result -= (long)write_ptr[ 0 ].iov_len;
-        write_ptr++;
-        write_ops_cnt--;
-      }
-      if( FD_LIKELY( write_ops_cnt ) ) {
-        write_ptr[ 0 ].iov_base = (uchar *)write_ptr[ 0 ].iov_base + result;
-        write_ptr[ 0 ].iov_len -= (ulong)result;
-      }
-    }
-  } else {
-    /* Slow path: total eviction batch exceeds a single partition.
-       Write each entry individually using its own allocated offset.
-       This path is only taken in extreme edge cases (many concurrent
-       dirty 10 MiB evictions). */
-    struct iovec * wp = write_ops;
-    for( int k=0; k<pending_cnt; k++ ) {
-      ulong entry_sz = sizeof(fd_accdb_disk_meta_t) + (ulong)FD_ACCDB_SIZE_DATA( pending_accs[ k ]->executable_size );
-      ulong entry_off = pending_offs[ k ];
-      struct iovec entry_iovs[2] = { wp[0], wp[1] };
-      wp += 2;
-
-      ulong written = 0UL;
-      while( FD_LIKELY( written<entry_sz ) ) {
-        long result = pwritev2( accdb->fd, entry_iovs, 2, (long)(entry_off+written), 0 );
-        if( FD_UNLIKELY( -1==result && (errno==EINTR || errno==EAGAIN || errno==EWOULDBLOCK ) ) ) continue;
-        else if( FD_UNLIKELY( -1==result ) ) FD_LOG_ERR(( "pwritev2() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
-        else if( FD_UNLIKELY( !result ) ) FD_LOG_ERR(( "accounts database is corrupt, pwritev2() returned 0 at offset %lu with %lu bytes remaining", entry_off+written, entry_sz-written ));
-        written += (ulong)result;
-        accdb->metrics->bytes_written += (ulong)result;
-        accdb->metrics->write_ops++;
-
-        for( int v=0; v<2; v++ ) {
-          if( (ulong)result>=(ulong)entry_iovs[ v ].iov_len ) {
-            result -= (long)entry_iovs[ v ].iov_len;
-            entry_iovs[ v ].iov_len = 0UL;
-          } else {
-            entry_iovs[ v ].iov_base = (uchar *)entry_iovs[ v ].iov_base + result;
-            entry_iovs[ v ].iov_len -= (ulong)result;
-            break;
-          }
-        }
-      }
-    }
+  FD_TEST( write_ops_cnt==2*pending_cnt );
+  ulong            write_io_cnt = 0UL;
+  fd_accdb_io_op_t write_io[ (FD_ACCDB_CACHE_CLASS_CNT+1UL)*FD_ACCDB_MAX_ACQUIRE_CNT ];
+  ulong            evict_per_op = batch_contiguous ? (ulong)(IOV_MAX/2) : 1UL;
+  for( ulong k=0UL; k<(ulong)pending_cnt; k+=evict_per_op ) {
+    ulong              n  = fd_ulong_min( evict_per_op, (ulong)pending_cnt-k );
+    fd_accdb_io_op_t * op = &write_io[ write_io_cnt++ ];
+    op->off     = pending_offs[ k ];
+    op->rem     = 0UL;
+    op->iov     = &write_ops[ 2UL*k ];
+    op->iov_cnt = (uint)( 2UL*n );
+    for( ulong v=0UL; v<2UL*n; v++ ) op->rem += op->iov[ v ].iov_len;
   }
+  fd_accdb_io_batch( accdb, write_io, write_io_cnt, 1 );
 
   // STEP 10.
   //   Now that the data is on disk, publish the evicted account offsets
@@ -2869,10 +3011,7 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
   //   being written cold multiple times and every write fails.
 
   ulong read_ops_cnt = 0UL;
-  ulong read_offsets[ FD_ACCDB_CACHE_CLASS_CNT*FD_ACCDB_MAX_ACQUIRE_CNT ];
-  uchar * read_bases[ FD_ACCDB_CACHE_CLASS_CNT*FD_ACCDB_MAX_ACQUIRE_CNT ];
-  ulong read_sizes[ FD_ACCDB_CACHE_CLASS_CNT*FD_ACCDB_MAX_ACQUIRE_CNT ];
-  struct iovec read_ops[ FD_ACCDB_CACHE_CLASS_CNT*FD_ACCDB_MAX_ACQUIRE_CNT ];
+  fd_accdb_io_op_t read_ops[ FD_ACCDB_MAX_ACQUIRE_CNT ];
 
   for( ulong i=0UL; i<pubkeys_cnt; i++ ) {
     if( FD_UNLIKELY( !accmetas[ i ] || exists_in_cache[ i ] ) ) continue;
@@ -2907,18 +3046,17 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
     }
     fd_racesan_hook( "accdb_coldload:pre_iovec" );
 
-    read_offsets[ read_ops_cnt ] = fd_accdb_acc_offset(accmetas[ i ]) + offsetof(fd_accdb_disk_meta_t, owner);
-    read_bases[ read_ops_cnt ]   = original_cache_line[ i ]->owner;
-    read_sizes[ read_ops_cnt ]   = 32UL + FD_ACCDB_SIZE_DATA( accmetas[ i ]->executable_size );
-    read_ops[ read_ops_cnt++ ]   = (struct iovec){ .iov_base = original_cache_line[ i ]->owner, .iov_len = 32UL + FD_ACCDB_SIZE_DATA( accmetas[ i ]->executable_size ) };
+    fd_accdb_io_op_init( &read_ops[ read_ops_cnt++ ],
+                         fd_accdb_acc_offset(accmetas[ i ]) + offsetof(fd_accdb_disk_meta_t, owner),
+                         original_cache_line[ i ]->owner, 32UL + FD_ACCDB_SIZE_DATA( accmetas[ i ]->executable_size ),
+                         NULL, 0UL );
   }
 
   // STEP 12.
   //   Almost done... now do the actual reads of accounts into cache,
-  //   using the iovecs we constructed.  This is basically the same loop
-  //   as the writes, but with preadv2 instead of pwritev2, and that the
-  //   reads are not necessarily all contiguous, but occur at random
-  //   offsets.
+  //   using the ops we constructed.  The reads are issued as one batch
+  //   (in parallel if an io_uring is attached), and all of them have
+  //   completed when this returns.
   //
   //   CONCURRENCY: The compaction tile may concurrently relocate a
   //   record we are about to read (both are epoch-protected).  Epoch-
@@ -2927,28 +3065,12 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
   //   snapshotted the old offset have exited, so the data at the
   //   remains stable for the duration of this read — no post-read
   //   validation or retry is needed.
-  for( ulong i=0UL; i<read_ops_cnt; i++ ) {
-    ulong bytes_read = 0UL;
-    while( FD_LIKELY( bytes_read<read_sizes[ i ] ) ) {
-      long result = preadv2( accdb->fd, &read_ops[ i ], 1, (long)(read_offsets[ i ]+bytes_read), 0 );
-      if( FD_UNLIKELY( -1==result && (errno==EINTR || errno==EAGAIN || errno==EWOULDBLOCK ) ) ) continue;
-      else if( FD_UNLIKELY( -1==result ) ) FD_LOG_ERR(( "preadv2() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
-      else if( FD_UNLIKELY( !result ) ) FD_LOG_ERR(( "accounts database is corrupt, data expected at offset %lu with size %lu exceeded file extents",
-                                                     read_offsets[ i ]+bytes_read, read_sizes[ i ] ));
-      fd_accdb_partition_read_bump( accdb, read_offsets[ i ]+bytes_read, (ulong)result );
-      bytes_read += (ulong)result;
-      accdb->metrics->bytes_read += (ulong)result;
-      accdb->metrics->read_ops++;
-
-      read_ops[ i ].iov_base = read_bases[ i ] + bytes_read;
-      read_ops[ i ].iov_len  = read_sizes[ i ] - bytes_read;
-    }
-  }
+  fd_accdb_io_batch( accdb, read_ops, read_ops_cnt, 0 );
 
   // STEP 13.
   //   Publish the real acc index for any cache lines we just loaded
   //   from disk, so concurrent threads spinning on acc_idx==UINT_MAX
-  //   can proceed.  The fence ensures all preadv2 data is visible
+  //   can proceed.  The fence ensures all read data is visible
   //   before the sentinel is cleared.
   FD_COMPILER_MFENCE();
   for( ulong i=0UL; i<pubkeys_cnt; i++ ) {
@@ -3561,24 +3683,25 @@ fd_accdb_unwrite_one( fd_accdb_t * accdb,
   fd_accdb_release( accdb, 1UL, acc );
 }
 
-int
-fd_accdb_read_one_nocache( fd_accdb_t *       accdb,
-                           fd_accdb_fork_id_t fork_id,
-                           uchar const *      pubkey,
-                           ulong *            out_lamports,
-                           int *              out_executable,
-                           uchar *            out_owner,
-                           uchar *            out_data,
-                           ulong *            out_data_len ) {
-  /* Publish epoch — protects against compaction freeing the partition
-     under us during the preadv2 path.  This is the only write the
-     readonly joiner makes into accdb shmem (and the pointer it stores
-     through is mapped through a separately-mmap'd writable page that
-     aliases shmem->joiner_epochs[idx]). */
-  FD_COMPILER_MFENCE();
-  FD_VOLATILE( *accdb->my_epoch_slot ) = FD_VOLATILE_CONST( accdb->shmem->epoch );
-  FD_HW_MFENCE();
+struct fd_accdb_nocache_snap {
+  fd_accdb_accmeta_t const * accmeta;
+  uint                       es;
+  uint                       gen;
+  uint                       cidx;
+  ulong                      lamports;
+};
 
+typedef struct fd_accdb_nocache_snap fd_accdb_nocache_snap_t;
+
+/* nocache_lookup finds pubkey at fork_id and snapshots its index
+   entry.  Returns 1 if the account exists (non-zero lamports), 0
+   otherwise.  Caller must have published its epoch. */
+
+static int
+nocache_lookup( fd_accdb_t *              accdb,
+                fd_accdb_fork_id_t        fork_id,
+                uchar const *             pubkey,
+                fd_accdb_nocache_snap_t * snap ) {
   /// STEP 1.
   ///   Walk the hash chain at acc_map[hash(pubkey)] using the same
   //    visibility test as fd_accdb_acquire_inner.  See that function
@@ -3604,31 +3727,37 @@ fd_accdb_read_one_nocache( fd_accdb_t *       accdb,
 
   if( FD_UNLIKELY( !accmeta ) ) {
     accdb->metrics->accounts_acquired_per_class[ 0 ]++;
-    *out_lamports = 0UL;
-    FD_COMPILER_MFENCE();
-    FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
-    return FD_ACCDB_READ_ONE_NOCACHE_MISS;
+    return 0;
   }
 
   /// STEP 2.
   ///   Snapshot acc fields.  The acc element's metadata is effectively
   ///   immutable from the perspective of cross-fork readers (see the
   ///   comment block in fd_accdb.h about cross-fork reads). */
-  uint  snap_es       = FD_VOLATILE_CONST( accmeta->executable_size );
-  uint  snap_gen      = accmeta->key.generation;
-  ulong snap_lamports = accmeta->lamports;
-  uint  snap_cidx     = FD_VOLATILE_CONST( accmeta->cache_idx );
-  ulong data_len      = (ulong)FD_ACCDB_SIZE_DATA( snap_es );
-  int   executable    = FD_ACCDB_SIZE_EXEC( snap_es );
+  snap->accmeta  = accmeta;
+  snap->es       = FD_VOLATILE_CONST( accmeta->executable_size );
+  snap->gen      = accmeta->key.generation;
+  snap->lamports = accmeta->lamports;
+  snap->cidx     = FD_VOLATILE_CONST( accmeta->cache_idx );
 
-  accdb->metrics->accounts_acquired_per_class[ fd_accdb_cache_class( data_len ) ]++;
+  accdb->metrics->accounts_acquired_per_class[ fd_accdb_cache_class( FD_ACCDB_SIZE_DATA( snap->es ) ) ]++;
 
-  if( FD_UNLIKELY( !snap_lamports ) ) {
-    *out_lamports = 0UL;
-    FD_COMPILER_MFENCE();
-    FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
-    return FD_ACCDB_READ_ONE_NOCACHE_MISS;
-  }
+  return !!snap->lamports;
+}
+
+/* nocache_copy copies the account described by snap into out_owner and
+   out_data from the cache, returning FD_ACCDB_READ_ONE_NOCACHE_CACHE.
+   If the account is not reliably in cache, fills op with a disk read
+   instead and returns FD_ACCDB_READ_ONE_NOCACHE_DISK. */
+
+static int
+nocache_copy( fd_accdb_t *                    accdb,
+              fd_accdb_nocache_snap_t const * snap,
+              uchar const *                   pubkey,
+              uchar *                         out_owner,
+              uchar *                         out_data,
+              fd_accdb_io_op_t *              op ) {
+  ulong data_len = (ulong)FD_ACCDB_SIZE_DATA( snap->es );
 
   /// STEP 3.
   ///    Cache hit fast path with try-read-test (ABA) loop.  Same
@@ -3637,50 +3766,43 @@ fd_accdb_read_one_nocache( fd_accdb_t *       accdb,
   ///    line was claimed for eviction (refcnt ==
   ///    FD_ACCDB_EVICT_SENTINEL).  No CAS on refcnt, we never pin the
   ///    line.
-  if( FD_LIKELY( FD_ACCDB_SIZE_CACHE_VALID( snap_es ) && snap_cidx!=FD_ACCDB_ACC_CIDX_INVAL ) ) {
-    ulong cls = FD_ACCDB_ACC_CIDX_CLASS( snap_cidx );
-    ulong idx = FD_ACCDB_ACC_CIDX_IDX  ( snap_cidx );
+  if( FD_LIKELY( FD_ACCDB_SIZE_CACHE_VALID( snap->es ) && snap->cidx!=FD_ACCDB_ACC_CIDX_INVAL ) ) {
+    ulong cls = FD_ACCDB_ACC_CIDX_CLASS( snap->cidx );
+    ulong idx = FD_ACCDB_ACC_CIDX_IDX  ( snap->cidx );
     fd_accdb_cache_line_t * line = cache_line( accdb, cls, idx );
 
-    for(;;) {
-      uint gen0 = FD_VOLATILE_CONST( line->key.generation );
-      uint rc0  = FD_VOLATILE_CONST( line->refcnt );
-      uint ai0  = FD_VOLATILE_CONST( line->acc_idx );
-      if( FD_UNLIKELY( rc0==FD_ACCDB_EVICT_SENTINEL ) ) goto miss;
-      if( FD_UNLIKELY( gen0!=snap_gen ) ) goto miss;
-      if( FD_UNLIKELY( memcmp( line->key.pubkey, pubkey, 32UL ) ) ) goto miss;
-      /* acc_idx==UINT_MAX is the "loading" sentinel set by cold_load_acc
-         before the preadv2 fills the line.  CACHE_VALID can be observed
-         set while the bytes are still stale, so fall to the disk path
-         (which spins on offset_fork and reads from the file) rather
-         than copying garbage. */
-      if( FD_UNLIKELY( ai0==UINT_MAX ) ) goto miss;
+    uint gen0 = FD_VOLATILE_CONST( line->key.generation );
+    uint rc0  = FD_VOLATILE_CONST( line->refcnt );
+    uint ai0  = FD_VOLATILE_CONST( line->acc_idx );
+    if( FD_UNLIKELY( rc0==FD_ACCDB_EVICT_SENTINEL ) ) goto miss;
+    if( FD_UNLIKELY( gen0!=snap->gen ) ) goto miss;
+    if( FD_UNLIKELY( memcmp( line->key.pubkey, pubkey, 32UL ) ) ) goto miss;
+    /* acc_idx==UINT_MAX is the "loading" sentinel set by cold_load_acc
+       before the preadv2 fills the line.  CACHE_VALID can be observed
+       set while the bytes are still stale, so fall to the disk path
+       (which spins on offset_fork and reads from the file) rather
+       than copying garbage. */
+    if( FD_UNLIKELY( ai0==UINT_MAX ) ) goto miss;
 
-      FD_COMPILER_MFENCE();
-      memcpy( out_owner, line->owner, 32UL );
-      memcpy( out_data,  (uchar const *)(line+1UL), data_len );
-      FD_COMPILER_MFENCE();
+    FD_COMPILER_MFENCE();
+    memcpy( out_owner, line->owner, 32UL );
+    memcpy( out_data,  (uchar const *)(line+1UL), data_len );
+    FD_COMPILER_MFENCE();
 
-      uint gen1 = FD_VOLATILE_CONST( line->key.generation );
-      uint rc1  = FD_VOLATILE_CONST( line->refcnt );
-      uint ai1  = FD_VOLATILE_CONST( line->acc_idx );
-      if( FD_UNLIKELY( rc1==FD_ACCDB_EVICT_SENTINEL ) ) goto miss;
-      if( FD_UNLIKELY( gen1!=snap_gen ) ) goto miss;
-      if( FD_UNLIKELY( memcmp( line->key.pubkey, pubkey, 32UL ) ) ) goto miss;
-      if( FD_UNLIKELY( ai1==UINT_MAX ) ) goto miss;
+    uint gen1 = FD_VOLATILE_CONST( line->key.generation );
+    uint rc1  = FD_VOLATILE_CONST( line->refcnt );
+    uint ai1  = FD_VOLATILE_CONST( line->acc_idx );
+    if( FD_UNLIKELY( rc1==FD_ACCDB_EVICT_SENTINEL ) ) goto miss;
+    if( FD_UNLIKELY( gen1!=snap->gen ) ) goto miss;
+    if( FD_UNLIKELY( memcmp( line->key.pubkey, pubkey, 32UL ) ) ) goto miss;
+    if( FD_UNLIKELY( ai1==UINT_MAX ) ) goto miss;
 
-      *out_lamports   = snap_lamports;
-      *out_executable = executable;
-      *out_data_len   = data_len;
-      accdb->metrics->bytes_copied += data_len;
-      FD_COMPILER_MFENCE();
-      FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
-      return FD_ACCDB_READ_ONE_NOCACHE_CACHE;
-    }
+    accdb->metrics->bytes_copied += data_len;
+    return FD_ACCDB_READ_ONE_NOCACHE_CACHE;
   }
 
 miss:;
-  accdb->metrics->accounts_not_found_per_class[ fd_accdb_cache_class( FD_ACCDB_SIZE_DATA( snap_es ) ) ]++;
+  accdb->metrics->accounts_not_found_per_class[ fd_accdb_cache_class( data_len ) ]++;
 
   /// STEP 4.
   ///   Disk path.  Spin until the writer publishes a real offset
@@ -3690,52 +3812,105 @@ miss:;
   ///   our critical section, so the bytes at the snapshotted offset
   ///   remain stable for the duration of the read.
   fd_racesan_hook( "accdb_nocache:pre_offset" );
-  ulong off_packed = FD_VOLATILE_CONST( accmeta->offset_fork );
+  ulong off_packed = FD_VOLATILE_CONST( snap->accmeta->offset_fork );
   if( FD_UNLIKELY( (off_packed & FD_ACCDB_OFF_MASK)==FD_ACCDB_OFF_INVAL ) ) {
     accdb->metrics->accounts_waited++;
-    while( FD_UNLIKELY( ((off_packed=FD_VOLATILE_CONST( accmeta->offset_fork )) & FD_ACCDB_OFF_MASK)==FD_ACCDB_OFF_INVAL ) ) FD_SPIN_PAUSE();
+    while( FD_UNLIKELY( ((off_packed=FD_VOLATILE_CONST( snap->accmeta->offset_fork )) & FD_ACCDB_OFF_MASK)==FD_ACCDB_OFF_INVAL ) ) FD_SPIN_PAUSE();
   }
   ulong off = off_packed & FD_ACCDB_OFF_MASK;
   fd_racesan_hook( "accdb_nocache:pre_preadv2" );
 
-  struct iovec iovs[ 2 ] = {
-    { .iov_base = out_owner, .iov_len = 32UL     },
-    { .iov_base = out_data,  .iov_len = data_len },
-  };
-  ulong total = 32UL+data_len;
-  ulong start = off+offsetof( fd_accdb_disk_meta_t, owner );
-  ulong got   = 0UL;
-  int   nio   = data_len ? 2 : 1;
-  while( FD_LIKELY( got<total ) ) {
-    long result = preadv2( accdb->fd, iovs, nio, (long)(start+got), 0 );
-    if( FD_UNLIKELY( -1==result && (errno==EINTR || errno==EAGAIN || errno==EWOULDBLOCK) ) ) continue;
-    else if( FD_UNLIKELY( -1==result ) ) FD_LOG_ERR(( "preadv2() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
-    else if( FD_UNLIKELY( !result ) ) FD_LOG_ERR(( "accounts database is corrupt, data expected at offset %lu with size %lu exceeded file extents", start+got, total ));
-    fd_accdb_partition_read_bump( accdb, start+got, (ulong)result );
-    got += (ulong)result;
-    accdb->metrics->bytes_read += (ulong)result;
-    accdb->metrics->read_ops++;
+  fd_accdb_io_op_init( op, off+offsetof( fd_accdb_disk_meta_t, owner ), out_owner, 32UL, out_data, data_len );
+  return FD_ACCDB_READ_ONE_NOCACHE_DISK;
+}
 
-    long r = result;
-    for( int v=0; v<nio; v++ ) {
-      if( (ulong)r>=iovs[ v ].iov_len ) {
-        r -= (long)iovs[ v ].iov_len;
-        iovs[ v ].iov_len = 0UL;
-      } else {
-        iovs[ v ].iov_base = (uchar *)iovs[ v ].iov_base + r;
-        iovs[ v ].iov_len -= (ulong)r;
-        break;
-      }
-    }
+int
+fd_accdb_read_one_nocache( fd_accdb_t *       accdb,
+                           fd_accdb_fork_id_t fork_id,
+                           uchar const *      pubkey,
+                           ulong *            out_lamports,
+                           int *              out_executable,
+                           uchar *            out_owner,
+                           uchar *            out_data,
+                           ulong *            out_data_len ) {
+  /* Publish epoch — protects against compaction freeing the partition
+     under us during the preadv2 path.  This is the only write the
+     readonly joiner makes into accdb shmem (and the pointer it stores
+     through is mapped through a separately-mmap'd writable page that
+     aliases shmem->joiner_epochs[idx]). */
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( *accdb->my_epoch_slot ) = FD_VOLATILE_CONST( accdb->shmem->epoch );
+  FD_HW_MFENCE();
+
+  fd_accdb_nocache_snap_t snap[1];
+  int source = FD_ACCDB_READ_ONE_NOCACHE_MISS;
+  if( FD_UNLIKELY( !nocache_lookup( accdb, fork_id, pubkey, snap ) ) ) {
+    *out_lamports = 0UL;
+  } else {
+    fd_accdb_io_op_t op[1];
+    source = nocache_copy( accdb, snap, pubkey, out_owner, out_data, op );
+    if( source==FD_ACCDB_READ_ONE_NOCACHE_DISK ) fd_accdb_io_batch( accdb, op, 1UL, 0 );
+    *out_lamports   = snap->lamports;
+    *out_executable = FD_ACCDB_SIZE_EXEC( snap->es );
+    *out_data_len   = (ulong)FD_ACCDB_SIZE_DATA( snap->es );
   }
-
-  *out_lamports   = snap_lamports;
-  *out_executable = executable;
-  *out_data_len   = data_len;
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
-  return FD_ACCDB_READ_ONE_NOCACHE_DISK;
+  return source;
+}
+
+ulong
+fd_accdb_read_nocache_batch( fd_accdb_t *             accdb,
+                             fd_accdb_fork_id_t       fork_id,
+                             ulong                    cnt,
+                             uchar const * const *    pubkeys,
+                             uchar *                  arena,
+                             ulong                    arena_sz,
+                             ulong                    prefix_sz,
+                             ulong                    align,
+                             fd_accdb_nocache_out_t * out ) {
+  FD_TEST( cnt<=FD_ACCDB_NOCACHE_BATCH_MAX );
+  FD_TEST( fd_ulong_is_pow2( align ) );
+
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( *accdb->my_epoch_slot ) = FD_VOLATILE_CONST( accdb->shmem->epoch );
+  FD_HW_MFENCE();
+
+  fd_accdb_io_op_t ops[ FD_ACCDB_NOCACHE_BATCH_MAX ];
+  ulong            op_cnt = 0UL;
+  ulong            cursor = 0UL;
+  ulong            i;
+  for( i=0UL; i<cnt; i++ ) {
+    fd_accdb_nocache_out_t * o = &out[ i ];
+    fd_accdb_nocache_snap_t snap[1] = {0};
+    int   exists   = nocache_lookup( accdb, fork_id, pubkeys[ i ], snap );
+    ulong data_len = exists ? (ulong)FD_ACCDB_SIZE_DATA( snap->es ) : 0UL;
+    ulong rec_sz   = fd_ulong_align_up( prefix_sz+data_len, align );
+    if( FD_UNLIKELY( cursor+rec_sz>arena_sz ) ) break;
+
+    o->data     = arena+cursor+prefix_sz;
+    o->data_len = data_len;
+    cursor     += rec_sz;
+    if( FD_UNLIKELY( !exists ) ) {
+      o->lamports   = 0UL;
+      o->executable = 0;
+      o->source     = FD_ACCDB_READ_ONE_NOCACHE_MISS;
+      memset( o->owner, 0, 32UL );
+      continue;
+    }
+
+    o->lamports   = snap->lamports;
+    o->executable = FD_ACCDB_SIZE_EXEC( snap->es );
+    o->source     = nocache_copy( accdb, snap, pubkeys[ i ], o->owner, o->data, &ops[ op_cnt ] );
+    op_cnt += (ulong)( o->source==FD_ACCDB_READ_ONE_NOCACHE_DISK );
+  }
+
+  fd_accdb_io_batch( accdb, ops, op_cnt, 0 );
+
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
+  return i;
 }
 
 int

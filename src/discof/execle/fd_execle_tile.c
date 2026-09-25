@@ -18,9 +18,12 @@
 #include <time.h>
 #include <linux/futex.h>
 #include "generated/fd_execle_tile_seccomp.h"
+#include "../../flamenco/accdb/fd_accdb_io_uring.h"
 
 #define REBATE_BATCH_IDLE_LOOPS      (128UL)
 #define REBATE_BATCH_MAX_MICROBLOCKS (16UL)
+
+#define ACCDB_IO_URING_DEPTH (128UL)
 
 FD_STATIC_ASSERT( REBATE_BATCH_MAX_MICROBLOCKS*FD_PACK_REBATE_MAX_ENTRIES<=FD_PACK_REBATE_SUM_CAPACITY,
                   rebate_batch_fits_rebater );
@@ -69,6 +72,7 @@ struct fd_execle_tile {
 
   fd_banks_t * banks;
   fd_accdb_t * accdb;
+  fd_io_uring_t accdb_ring[1];
 
   fd_progcache_t  progcache[1];
 
@@ -105,13 +109,14 @@ typedef struct fd_execle_tile fd_execle_tile_t;
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
-  return 128UL;
+  return fd_ulong_max( 128UL, fd_accdb_io_uring_align() );
 }
 
 FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof( fd_execle_tile_t ), sizeof( fd_execle_tile_t ) );
+  l = FD_LAYOUT_APPEND( l, fd_accdb_io_uring_align(), fd_accdb_io_uring_footprint( ACCDB_IO_URING_DEPTH ) );
   l = FD_LAYOUT_APPEND( l, FD_BLAKE3_ALIGN,             FD_BLAKE3_FOOTPRINT );
   l = FD_LAYOUT_APPEND( l, FD_BMTREE_COMMIT_ALIGN,      FD_BMTREE_COMMIT_FOOTPRINT(0) );
   l = FD_LAYOUT_APPEND( l, fd_txncache_align(),         fd_txncache_footprint( tile->execle.max_live_slots ) );
@@ -778,8 +783,17 @@ privileged_init( fd_topo_t const *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_execle_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_execle_tile_t), sizeof(fd_execle_tile_t) );
+  fd_execle_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_execle_tile_t),  sizeof(fd_execle_tile_t) );
+  void * _accdb_ring     = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_io_uring_align(), fd_accdb_io_uring_footprint( ACCDB_IO_URING_DEPTH ) );
   FD_TEST( fd_rng_secure( &ctx->rebate_seed, sizeof(ctx->rebate_seed) ) );
+#if defined(__linux__)
+  if( FD_UNLIKELY( !fd_accdb_io_uring_init( ctx->accdb_ring, _accdb_ring, ACCDB_IO_URING_DEPTH, FD_ACCDB_FD_RW, 1 ) ) ) {
+    FD_LOG_WARNING(( "failed to create accounts database io_uring, falling back to blocking reads" ));
+  }
+#else
+  (void)_accdb_ring;
+  ctx->accdb_ring->ioring_fd = -1;
+#endif
 }
 
 static void
@@ -789,6 +803,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_execle_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_execle_tile_t),  sizeof(fd_execle_tile_t) );
+  FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_io_uring_align(), fd_accdb_io_uring_footprint( ACCDB_IO_URING_DEPTH ) );
   void * blake3          = FD_SCRATCH_ALLOC_APPEND( l, FD_BLAKE3_ALIGN,            FD_BLAKE3_FOOTPRINT );
   void * bmtree          = FD_SCRATCH_ALLOC_APPEND( l, FD_BMTREE_COMMIT_ALIGN,     FD_BMTREE_COMMIT_FOOTPRINT(0) );
   void * _txncache       = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),        fd_txncache_footprint( tile->execle.max_live_slots ) );
@@ -825,6 +840,9 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( accdb_shmem );
   fd_sleep_t * accdb_sleep = topo->sleep_obj_id!=ULONG_MAX ? fd_sleep_join( fd_topo_obj_laddr( topo, topo->sleep_obj_id ) ) : NULL;
   ctx->accdb = fd_accdb_join( fd_accdb_new( _accdb, accdb_shmem, FD_ACCDB_FD_RW, 0UL, NULL, accdb_sleep, fd_topo_find_tile( topo, "accdb", 0UL ), 0 ) );
+#if defined(__linux__)
+  fd_accdb_attach_io_uring( ctx->accdb, ctx->accdb_ring->ioring_fd>=0 ? ctx->accdb_ring : NULL );
+#endif
   FD_TEST( ctx->accdb );
 
   for( ulong i=0UL; i<FD_PACK_MAX_TXN_PER_BUNDLE; i++ ) {
@@ -878,10 +896,8 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           fd_topo_tile_t const * tile,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
-  (void)topo;
-  (void)tile;
-
-  populate_sock_filter_policy_fd_execle_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), FD_ACCDB_FD_RW, FD_STAKE_DELEGATIONS_FD );
+  fd_execle_tile_t const * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  populate_sock_filter_policy_fd_execle_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), FD_ACCDB_FD_RW, FD_STAKE_DELEGATIONS_FD, (uint)ctx->accdb_ring->ioring_fd );
   return sock_filter_policy_fd_execle_tile_instr_cnt;
 }
 
@@ -890,10 +906,9 @@ populate_allowed_fds( fd_topo_t const *      topo,
                       fd_topo_tile_t const * tile,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
-  (void)topo;
-  (void)tile;
+  fd_execle_tile_t const * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
-  if( FD_UNLIKELY( out_fds_cnt<4UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<5UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
@@ -901,6 +916,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   out_fds[ out_cnt++ ] = FD_ACCDB_FD_RW; /* accounts db */
   out_fds[ out_cnt++ ] = FD_STAKE_DELEGATIONS_FD; /* stake delegation disk spill */
+  if( ctx->accdb_ring->ioring_fd>=0 ) out_fds[ out_cnt++ ] = ctx->accdb_ring->ioring_fd; /* accounts db io_uring */
 
   return out_cnt;
 }
@@ -943,4 +959,5 @@ fd_topo_run_tile_t fd_tile_execle = {
   .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
   .run                      = stem_run,
+  .rlimit_nproc             = FD_ACCDB_IO_URING_RLIMIT_NPROC,
 };

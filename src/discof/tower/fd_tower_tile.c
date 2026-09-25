@@ -1,6 +1,7 @@
 #include "fd_tower_tile.h"
 #include <linux/futex.h>
 #include "generated/fd_tower_tile_seccomp.h"
+#include "../../flamenco/accdb/fd_accdb_io_uring.h"
 
 #include "../../choreo/eqvoc/fd_eqvoc.h"
 #include "../../choreo/ghost/fd_ghost.h"
@@ -135,6 +136,8 @@
 #define IN_KIND_SHRED  (5)
 
 #define OUT_IDX 0 /* only a single out link tower_out */
+
+#define ACCDB_IO_URING_DEPTH (128UL)
 
 #include "fd_tower_tile_private.h"
 
@@ -1388,7 +1391,7 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
-  return 128UL;
+  return fd_ulong_max( 128UL, fd_accdb_io_uring_align() );
 }
 
 FD_FN_PURE static inline ulong
@@ -1400,6 +1403,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_tower_tile_t), sizeof(fd_tower_tile_t)                                       );
+  l = FD_LAYOUT_APPEND( l, fd_accdb_io_uring_align(), fd_accdb_io_uring_footprint( ACCDB_IO_URING_DEPTH ) );
   l = FD_LAYOUT_APPEND( l, auth_vtr_align(),         auth_vtr_footprint()                                          );
   /* auth_vtr_keyswitch */
   l = FD_LAYOUT_APPEND( l, fd_eqvoc_align(),         fd_eqvoc_footprint( slot_max, fec_max, PER_VTR_MAX, VTR_MAX ) );
@@ -1439,6 +1443,7 @@ init_choreo( void                 * scratch,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_tower_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_tower_tile_t), sizeof(fd_tower_tile_t)                                       );
+                          FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_io_uring_align(), fd_accdb_io_uring_footprint( ACCDB_IO_URING_DEPTH ) );
   void  * auth_vtr      = FD_SCRATCH_ALLOC_APPEND( l, auth_vtr_align(),         auth_vtr_footprint()                                          );
   void  * eqvoc         = FD_SCRATCH_ALLOC_APPEND( l, fd_eqvoc_align(),         fd_eqvoc_footprint( slot_max, fec_max, PER_VTR_MAX, VTR_MAX ) );
   void  * ghost         = FD_SCRATCH_ALLOC_APPEND( l, fd_ghost_align(),         fd_ghost_footprint( blk_max, VTR_MAX )                        );
@@ -1471,6 +1476,9 @@ init_choreo( void                 * scratch,
   ctx->root_epoch_vtr_map  = epoch_vtr_map_join ( epoch_vtr_map_new ( root_epoch_vtr_map,  epoch_vtr_chain_cnt, ctx->seed ) );
   ctx->next_epoch_vtr_pool = epoch_vtr_pool_join( epoch_vtr_pool_new( next_epoch_vtr_pool, VTR_MAX ) );
   ctx->next_epoch_vtr_map  = epoch_vtr_map_join ( epoch_vtr_map_new ( next_epoch_vtr_map,  epoch_vtr_chain_cnt, ctx->seed ) );
+#if defined(__linux__)
+  fd_accdb_attach_io_uring( ctx->accdb, ctx->accdb_ring->ioring_fd>=0 ? ctx->accdb_ring : NULL );
+#endif
 
   FD_TEST( ctx->eqvoc );
   FD_TEST( ctx->ghost );
@@ -1738,12 +1746,22 @@ privileged_init( fd_topo_t const *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_tower_tile_t * ctx      = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_tower_tile_t),   sizeof(fd_tower_tile_t)        );
+  void * _accdb_ring         = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_io_uring_align(), fd_accdb_io_uring_footprint( ACCDB_IO_URING_DEPTH ) );
   void            * auth_vtr = FD_SCRATCH_ALLOC_APPEND( l, auth_vtr_align(), auth_vtr_footprint() );
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 
   FD_TEST( fd_rng_secure( &ctx->seed, sizeof(ctx->seed) ) );
+
+#if defined(__linux__)
+  if( FD_UNLIKELY( !fd_accdb_io_uring_init( ctx->accdb_ring, _accdb_ring, ACCDB_IO_URING_DEPTH, FD_ACCDB_FD_RW, 1 ) ) ) {
+    FD_LOG_WARNING(( "failed to create accounts database io_uring, falling back to blocking reads" ));
+  }
+#else
+  (void)_accdb_ring;
+  ctx->accdb_ring->ioring_fd = -1;
+#endif
 
   if( FD_UNLIKELY( !strcmp( tile->tower.identity_key, "" ) ) ) FD_LOG_ERR(( "missing [paths.identity_key]" ));
   ctx->identity_key[ 0 ] = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->tower.identity_key, /* pubkey only: */ 1 ) );
@@ -1853,7 +1871,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_tower_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_tower_tile_t), sizeof(fd_tower_tile_t) );
 
-  populate_sock_filter_policy_fd_tower_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->checkpt_fd, (uint)ctx->restore_fd, FD_ACCDB_FD_RW );
+  populate_sock_filter_policy_fd_tower_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->checkpt_fd, (uint)ctx->restore_fd, FD_ACCDB_FD_RW, (uint)ctx->accdb_ring->ioring_fd );
   return sock_filter_policy_fd_tower_tile_instr_cnt;
 }
 
@@ -1866,7 +1884,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_tower_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_tower_tile_t), sizeof(fd_tower_tile_t) );
 
-  if( FD_UNLIKELY( out_fds_cnt<5UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<6UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
@@ -1875,6 +1893,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
   if( FD_LIKELY( ctx->checkpt_fd!=-1 ) ) out_fds[ out_cnt++ ] = ctx->checkpt_fd;
   if( FD_LIKELY( ctx->restore_fd!=-1 ) ) out_fds[ out_cnt++ ] = ctx->restore_fd;
   out_fds[ out_cnt++ ] = FD_ACCDB_FD_RW; /* accounts database */
+  if( ctx->accdb_ring->ioring_fd>=0 ) out_fds[ out_cnt++ ] = ctx->accdb_ring->ioring_fd; /* accounts db io_uring */
 
   return out_cnt;
 }
@@ -1908,4 +1927,5 @@ fd_topo_run_tile_t fd_tile_tower = {
   .unprivileged_init        = unprivileged_init,
   .privileged_init          = privileged_init,
   .run                      = stem_run,
+  .rlimit_nproc             = FD_ACCDB_IO_URING_RLIMIT_NPROC,
 };

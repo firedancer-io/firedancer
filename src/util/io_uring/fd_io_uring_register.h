@@ -4,6 +4,8 @@
 /* fd_io_uring_register.h provides APIs to add file descriptors and
    sandbox restrictions to an ioring. */
 
+#if defined(__linux__)
+
 #include "fd_io_uring_sys.h"
 #include <errno.h>
 #include <sys/uio.h>
@@ -52,5 +54,7 @@ fd_io_uring_enable_rings( int ring_fd ) {
 }
 
 FD_PROTOTYPES_END
+
+#endif /* defined(__linux__) */
 
 #endif /* HEADER_fd_src_util_io_fd_io_uring_register_h */

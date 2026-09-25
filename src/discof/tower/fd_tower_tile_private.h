@@ -5,6 +5,7 @@
    firedancer-dev's tower command, which reads the tile's ctx out of
    shared memory. */
 
+#include "../../util/io_uring/fd_io_uring.h"
 #include "fd_tower_tile.h"
 #include "../../choreo/eqvoc/fd_eqvoc.h"
 #include "../../choreo/ghost/fd_ghost.h"
@@ -150,6 +151,7 @@ struct fd_tower_tile {
 
   fd_banks_t * banks;
   fd_accdb_t * accdb;
+  fd_io_uring_t accdb_ring[1];
 
   /* static structures */
 

@@ -4,7 +4,9 @@
 /* fd_io_uring_sys.h provides the io_uring syscall API. */
 
 #include "../fd_util_base.h"
+#if defined(__linux__)
 #include <sys/syscall.h> /* SYS_* */
+#endif
 
 /* fd_kernel_timespec_t matches struct __kernel_timespec, which
    <linux/time_types.h> only provides since Linux v5.1. */
@@ -260,6 +262,8 @@ struct fd_io_uring_params {
 
 typedef struct fd_io_uring_params fd_io_uring_params_t;
 
+#if defined(__linux__)
+
 FD_PROTOTYPES_BEGIN
 
 /* fd_io_uring_enter wraps the fd_io_uring_enter(2) syscall. */
@@ -287,5 +291,7 @@ fd_io_uring_setup( uint                   entry_cnt,
                    fd_io_uring_params_t * p );
 
 FD_PROTOTYPES_END
+
+#endif /* defined(__linux__) */
 
 #endif /* HEADER_fd_src_util_io_fd_io_uring_sys_h */
