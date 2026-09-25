@@ -59,18 +59,16 @@ typedef struct fd_prune_relayer fd_prune_relayer_t;
 struct fd_prune_origin {
   pubkey_private_t origin_pubkey;
 
+  ulong map_next;
+  ulong map_prev;
+  ulong lru_prev;
+  ulong lru_next;
+  ulong pool_next;
+
   ulong num_upserts;
   ulong origin_stake;
   ulong relayers_cnt;
   fd_prune_relayer_t relayers[ FD_PRUNE_FINDER_RELAYER_MAX ];
-
-  ulong pool_next;
-
-  ulong map_next;
-  ulong map_prev;
-
-  ulong lru_prev;
-  ulong lru_next;
 };
 
 typedef struct fd_prune_origin fd_prune_origin_t;
@@ -300,8 +298,11 @@ fd_prune_finder_record( fd_prune_finder_t * pf,
     origin_map_ele_insert( pf->origins, origin, pf->pool );
     lru_list_ele_push_tail( pf->lru, origin, pf->pool );
   } else {
-    lru_list_ele_remove( pf->lru, origin, pf->pool );
-    lru_list_ele_push_tail( pf->lru, origin, pf->pool );
+    /* already most recent: the move would touch the old tail's line for nothing */
+    if( FD_LIKELY( lru_list_idx_peek_tail( pf->lru, pf->pool )!=pool_idx( pf->pool, origin ) ) ) {
+      lru_list_ele_remove( pf->lru, origin, pf->pool );
+      lru_list_ele_push_tail( pf->lru, origin, pf->pool );
+    }
     origin->origin_stake = origin_stake;
   }
 
