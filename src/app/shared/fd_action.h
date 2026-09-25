@@ -203,6 +203,12 @@ union fdctl_args {
   } tower;
 
   struct {
+    int metrics; /* 1: metrics subcommand, 0: forest (default) */
+    int once;    /* print a single snapshot and exit instead of looping */
+    int chainer; /* forest: also dump the raw chainer slotv list */
+  } rotor;
+
+  struct {
     ulong ready_slot;
   } ready;
 

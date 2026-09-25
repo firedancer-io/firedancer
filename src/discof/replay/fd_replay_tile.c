@@ -847,7 +847,11 @@ try_advance_root_ag( fd_replay_tile_t * ctx,
   } else if( FD_LIKELY( finalized_block_id.slot>ctx->finalized_block_id_hi.slot ) ) {
     ctx->finalized_block_id_hi = finalized_block_id;
   }
-  FD_CHECK_CRIT( ctx->finalized_block_id_hi.slot<=ctx->finalized_block_id_lo.slot+ctx->max_live_slots, "Firedancer has fallen too far behind and cannot catchup. The hi-watermark exceeds the lo-watermark of unreplayed, finalized slots by more than max_live_slots." );
+  if( FD_UNLIKELY( ctx->finalized_block_id_hi.slot>ctx->finalized_block_id_lo.slot+ctx->max_live_slots ) ) {
+    FD_LOG_CRIT(( "Firedancer has fallen too far behind and cannot catchup. The hi-watermark exceeds the lo-watermark of unreplayed, finalized slots by more than max_live_slots. hi %lu, lo %lu, max_live_slots %lu",
+                  ctx->finalized_block_id_hi.slot, ctx->finalized_block_id_lo.slot, ctx->max_live_slots ));
+  }
+  FD_CHECK_CRIT( ctx->finalized_block_id_hi.slot<=ctx->finalized_block_id_lo.slot+ctx->max_live_slots, "Firedancer has fallen too far behind and cannot catchup. The hi-watermark exceeds the lo-watermark of unreplayed, finalized slots by more than max_live_slots. hi %lu, lo %lu, max_live_slots %lu" );
 }
 
 static void

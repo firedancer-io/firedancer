@@ -719,7 +719,7 @@ after_frag( ctx_t *             ctx,
     case IN_KIND_SIGN: {
       after_sign( ctx, in_idx, sig, stem );
       break;
-    }
+  }
     /* Reliable frags read directly from dcache */
     case IN_KIND_SNAP: {
       after_snap( ctx, sig, fd_chunk_to_laddr( ctx->in_links[ in_idx ].mem, ctx->snap_out_chunk ) );
