@@ -1617,6 +1617,19 @@ after_credit( fd_tower_tile_t *   ctx,
 }
 
 static inline int
+before_frag( fd_tower_tile_t * ctx,
+             ulong             in_idx,
+             ulong             seq FD_PARAM_UNUSED,
+             ulong             sig ) {
+  switch( ctx->in_kind[ in_idx ] ) {
+  case IN_KIND_GOSSIP: return sig!=FD_GOSSIP_UPDATE_TAG_DUPLICATE_SHRED;
+  case IN_KIND_REPLAY: return sig!=REPLAY_SIG_SLOT_COMPLETED && sig!=REPLAY_SIG_SLOT_DEAD && sig!=REPLAY_SIG_TXN_EXECUTED;
+  case IN_KIND_SHRED:  return fd_shred_sig_src( sig )!=SHRED_SIG_SRC_TURBINE && fd_shred_sig_src( sig )!=SHRED_SIG_SRC_REPAIR;
+  default:             return 0;
+  }
+}
+
+static inline int
 returnable_frag( fd_tower_tile_t *   ctx,
                  ulong               in_idx,
                  ulong               seq FD_PARAM_UNUSED,
@@ -1874,6 +1887,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 #define STEM_CALLBACK_METRICS_WRITE       metrics_write
 #define STEM_CALLBACK_AFTER_CREDIT        after_credit
+#define STEM_CALLBACK_BEFORE_FRAG         before_frag
 #define STEM_CALLBACK_RETURNABLE_FRAG     returnable_frag
 
 #include "../../disco/stem/fd_stem.c"
