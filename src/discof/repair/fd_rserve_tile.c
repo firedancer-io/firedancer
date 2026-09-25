@@ -309,6 +309,22 @@ handle_net_request( ctx_t             * ctx,
     return;
   }
 
+  /* Most requests are for shreds we never stored, probe before doing
+     a full ed25519 verify. */
+  if( FD_LIKELY( tag==FD_REPAIR_KIND_SHRED || tag==FD_REPAIR_KIND_HIGHEST_SHRED ) ) {
+    fd_repair_shred_req_t msg[1];
+    memcpy( msg, payload+4UL, sizeof(fd_repair_shred_req_t) );
+    if( FD_UNLIKELY( msg->shred_idx>=ctx->max_shreds_per_block ) ) {
+      ctx->metrics->fail_invalid_shred_idx++;
+      return;
+    }
+    if( FD_LIKELY( !fd_store_disk_probe( ctx->store, msg->slot, tag==FD_REPAIR_KIND_SHRED ? (uint)msg->shred_idx : UINT_MAX ) ) ) {
+      ctx->metrics->disk_read_miss++;
+      ctx->metrics->missed_pkt_types[ response_metric_index[tag] ]++;
+      return;
+    }
+  }
+
   /* Verify the signature. */
 
   /* The largest signable payload size is 96 bytes, that being

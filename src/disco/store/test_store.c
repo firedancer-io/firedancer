@@ -759,6 +759,70 @@ test_disk_slot_hint( fd_wksp_t * wksp ) {
   fd_wksp_free_laddr( fd_store_delete( fd_store_leave( store ) ) );
 }
 
+/* The probe must never say miss when the query would hit, return
+   BUSY or return SCAN_LIMIT; it may say maybe when the query misses. */
+
+void
+test_disk_probe( fd_wksp_t * wksp ) {
+  ulong footprint = fd_store_footprint( 8UL, 31840UL, 1UL, 0UL, 0UL );
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_store_align(), footprint, 1UL );
+  fd_store_t * store = fd_store_join( fd_store_new( mem, 8UL, 31840UL, 1UL, 0UL, 0UL, FD_SHRED_BLK_MAX,
+                                                    42UL ) );
+  FD_TEST( store );
+  store->disk_max_shreds = 4UL;
+
+  int disk_fd = store_file_open( store, O_RDWR );
+  FD_TEST( disk_fd>=0 );
+
+  ulong const stride = store->disk_max_slots;
+  ulong const slot_a = 17UL;
+  ulong const slot_b = slot_a + stride;
+  ulong const slot_z = slot_a + 1UL; /* never inserted, own bucket */
+
+  uchar buf[ FD_SHRED_MAX_SZ ];
+  uchar out[ FD_SHRED_MAX_SZ ];
+
+  /* Empty store: everything is a certain miss. */
+  FD_TEST( !fd_store_disk_probe( store, slot_a, 0U ) );
+  FD_TEST( !fd_store_disk_probe( store, slot_a, UINT_MAX ) );
+  FD_TEST( !fd_store_disk_probe( store, slot_a, (uint)store->max_shreds_per_block ) );
+  FD_TEST( !fd_store_disk_probe( store, FD_SHREDB_KEY_SLOT_MAX, 0U ) );
+  FD_TEST( !fd_store_disk_probe( NULL, slot_a, 0U ) );
+
+  /* Exact hit and highest hit; other shreds of the slot still miss. */
+  FD_TEST( fd_store_disk_insert( store, disk_fd,
+                                 disk_make_shred( buf, slot_a, 10U, 0xa1U ) )==FD_STORE_DISK_INSERT_SUCCESS );
+  FD_TEST(  fd_store_disk_probe( store, slot_a, 10U ) );
+  FD_TEST(  fd_store_disk_probe( store, slot_a, UINT_MAX ) );
+  FD_TEST( !fd_store_disk_probe( store, slot_a, 9U ) );
+  FD_TEST( !fd_store_disk_probe( store, slot_z, UINT_MAX ) );
+  FD_TEST( !fd_store_disk_probe( store, slot_z, 10U ) );
+
+  /* A colliding slot takes the hint: the query for slot_a now returns
+     BUSY, so the probe must still say maybe. */
+  FD_TEST( fd_store_disk_insert( store, disk_fd,
+                                 disk_make_shred( buf, slot_b, 5U, 0xb1U ) )==FD_STORE_DISK_INSERT_SUCCESS );
+  FD_TEST( fd_store_disk_query_highest( store, disk_fd, slot_a, 0U, out )==FD_STORE_DISK_QUERY_BUSY );
+  FD_TEST( fd_store_disk_probe( store, slot_a, UINT_MAX ) );
+  FD_TEST( fd_store_disk_probe( store, slot_b, UINT_MAX ) );
+  FD_TEST( fd_store_disk_probe( store, slot_a, 10U ) );
+  FD_TEST( fd_store_disk_probe( store, slot_b, 5U ) );
+
+  /* Evict slot_a:10 through the four-cell ring.  The exact probe now
+     misses for certain; the hint is never lowered, so the highest
+     query returns SCAN_LIMIT and the probe keeps saying maybe. */
+  for( ulong i=0UL; i<4UL; i++ )
+    FD_TEST( fd_store_disk_insert( store, disk_fd,
+                                   disk_make_shred( buf, slot_a+2UL+i, 0U, (uchar)(0xd0U+i) ) )==FD_STORE_DISK_INSERT_SUCCESS );
+  FD_TEST( fd_store_disk_query( store, disk_fd, slot_b, 5U, out )==FD_STORE_DISK_QUERY_MISS );
+  FD_TEST( !fd_store_disk_probe( store, slot_b, 5U ) );
+  FD_TEST( fd_store_disk_query_highest( store, disk_fd, slot_b, 0U, out )==FD_STORE_DISK_QUERY_SCAN_LIMIT );
+  FD_TEST( fd_store_disk_probe( store, slot_b, UINT_MAX ) );
+
+  close( disk_fd );
+  fd_wksp_free_laddr( fd_store_delete( fd_store_leave( store ) ) );
+}
+
 void
 test_disk_lazy_highest( fd_wksp_t * wksp ) {
   ulong footprint = fd_store_footprint( 8UL, 31840UL, 1UL, 0UL, 0UL );
@@ -1029,6 +1093,7 @@ main( int argc, char ** argv ) {
   test_disk_concurrent_writes( wksp );
   test_disk_slot_hint( wksp );
   test_disk_lazy_highest( wksp );
+  test_disk_probe( wksp );
   test_disk_max_shreds_per_block( wksp );
   test_concurrent  ( wksp );
 
