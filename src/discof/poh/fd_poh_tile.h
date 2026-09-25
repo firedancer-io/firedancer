@@ -17,6 +17,14 @@ struct fd_poh_reset {
   uchar completed_cmr[ 32UL ];
   uchar completed_dmr[ 32UL ]; /* ALPENGLOW-ONLY */
   int   wfs_paused;
+
+  /* The cluster tip and the boot catch-up latch, for the failover
+     controller's readiness checks.  turbine_slot is the highest slot
+     seen in a FEC set this validator did not produce, ULONG_MAX before
+     any, and caught_up is the one-way latch replay sets when it first
+     completes a slot near that tip. */
+  ulong turbine_slot;
+  int   caught_up;
 };
 
 typedef struct fd_poh_reset fd_poh_reset_t;
