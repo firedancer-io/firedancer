@@ -155,6 +155,7 @@ struct fd_snapct_tile {
   int           malformed;
   int           load_complete;
   long          deadline_nanos;
+  long          io_due_nanos;
   int           flush_ack;
   int           flush_ack_cnt;
   int           start_sent;
@@ -790,12 +791,8 @@ during_housekeeping( fd_snapct_tile_t * ctx ) {
 }
 
 static long
-next_deadline( fd_snapct_tile_t * ctx ) {
+io_due( fd_snapct_tile_t * ctx ) {
   long next = LONG_MAX;
-  if( FD_UNLIKELY( ctx->state==FD_SNAPCT_STATE_WAITING_FOR_PEERS             ||
-                   ctx->state==FD_SNAPCT_STATE_WAITING_FOR_PEERS_INCREMENTAL ||
-                   ctx->state==FD_SNAPCT_STATE_COLLECTING_PEERS              ||
-                   ctx->state==FD_SNAPCT_STATE_COLLECTING_PEERS_INCREMENTAL ) ) next = ctx->deadline_nanos;
   if( FD_LIKELY( ctx->adns ) ) {
     next = fd_long_min( next, fd_adns_next_deadline( ctx->adns ) );
     for( ulong i=0UL; i<ctx->config.sources.servers_cnt; i++ )
@@ -805,6 +802,16 @@ next_deadline( fd_snapct_tile_t * ctx ) {
   }
   if( FD_LIKELY( ctx->ssping     ) ) next = fd_long_min( next, fd_ssping_next_deadline( ctx->ssping ) );
   if( FD_LIKELY( ctx->ssresolver ) ) next = fd_long_min( next, fd_http_resolver_next_deadline( ctx->ssresolver ) );
+  return next;
+}
+
+static long
+next_deadline( fd_snapct_tile_t * ctx ) {
+  long next = ctx->io_due_nanos;
+  if( FD_UNLIKELY( ctx->state==FD_SNAPCT_STATE_WAITING_FOR_PEERS             ||
+                   ctx->state==FD_SNAPCT_STATE_WAITING_FOR_PEERS_INCREMENTAL ||
+                   ctx->state==FD_SNAPCT_STATE_COLLECTING_PEERS              ||
+                   ctx->state==FD_SNAPCT_STATE_COLLECTING_PEERS_INCREMENTAL ) ) next = fd_long_min( next, ctx->deadline_nanos );
   if( FD_UNLIKELY( next==LONG_MAX ) ) return LONG_MAX;
   if( FD_UNLIKELY( next<=0L ) ) return 0L;
   return fd_clock_tile_wallclock_to_tickcount( ctx->clock, next );
@@ -818,11 +825,14 @@ after_credit( fd_snapct_tile_t *  ctx,
   long now = fd_clock_tile_now( ctx->clock );
 
   int fired = fd_fseq_query( ctx->waker_fseq )==1UL;
-  if( FD_LIKELY( fired ) ) fd_fseq_update( ctx->waker_fseq, 0UL );
-  if( FD_LIKELY( ctx->adns ) ) dns_advance( ctx, now );
-  if( FD_LIKELY( ctx->ssping ) ) fd_ssping_advance( ctx->ssping, now, ctx->selector );
-  if( FD_LIKELY( ctx->ssresolver ) ) fd_http_resolver_advance( ctx->ssresolver, now, ctx->selector );
-  if( FD_LIKELY( fired ) ) fd_waker_client_rearm( ctx->waker_client_idx );
+  if( FD_UNLIKELY( fired || now>=ctx->io_due_nanos ) ) {
+    if( FD_LIKELY( fired ) ) fd_fseq_update( ctx->waker_fseq, 0UL );
+    if( FD_LIKELY( ctx->adns ) ) dns_advance( ctx, now );
+    if( FD_LIKELY( ctx->ssping ) ) fd_ssping_advance( ctx->ssping, now, ctx->selector );
+    if( FD_LIKELY( ctx->ssresolver ) ) fd_http_resolver_advance( ctx->ssresolver, now, ctx->selector );
+    if( FD_LIKELY( fired ) ) fd_waker_client_rearm( ctx->waker_client_idx );
+  }
+  ctx->io_due_nanos = io_due( ctx ); /* frags may have queued peers to ping or resolve */
 
   /* Advances above may remove peers, making cluster_slot dirty.
      Recompute so best() calls below use up-to-date scores.
@@ -2196,6 +2206,8 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->waker_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->waker_fseq_obj_id ) );
   FD_TEST( ctx->waker_fseq );
   fd_clock_tile_init( ctx->clock );
+
+  ctx->io_due_nanos = 0L;
 
   ctx->adns = NULL;
   if( FD_LIKELY( ctx->download_enabled ) ) {
