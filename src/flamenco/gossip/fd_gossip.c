@@ -857,10 +857,12 @@ fd_gossip_rx( fd_gossip_t *       gossip,
               long                now,
               fd_stem_context_t * stem ) {
   /* TODO: Implement traffic shaper / bandwidth limiter */
-  FD_TEST( data_sz>=sizeof(fd_gossip_message_t)+FD_GOSSIP_MESSAGE_MAX_CRDS );
+  FD_TEST( data_sz>=offsetof(fd_gossip_message_t, push)+offsetof(fd_gossip_push_t, values) ); /* tag and values_len readable */
   fd_gossip_message_t const * message = (fd_gossip_message_t const *)data;
-  uchar const *               failed  = data+sizeof(fd_gossip_message_t);
-  uchar const *               payload = data+sizeof(fd_gossip_message_t)+FD_GOSSIP_MESSAGE_MAX_CRDS;
+  ulong                       msg_sz  = fd_gossip_message_used_sz( message );
+  FD_TEST( data_sz>=msg_sz+FD_GOSSIP_MESSAGE_MAX_CRDS );
+  uchar const *               failed  = data+msg_sz;
+  uchar const *               payload = data+msg_sz+FD_GOSSIP_MESSAGE_MAX_CRDS;
 
   switch( message->tag ) {
     case FD_GOSSIP_MESSAGE_PULL_REQUEST:  rx_pull_request( gossip, message->pull_request, peer, stem, now );              break;

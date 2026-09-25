@@ -952,26 +952,13 @@ handle_net( fd_gossvf_tile_ctx_t * ctx,
 
   uchar * dst = fd_chunk_to_laddr( ctx->out->mem, ctx->out->chunk );
 
-  ulong msg_copy_sz;
-  switch( message->tag ) {
-    case FD_GOSSIP_MESSAGE_PULL_RESPONSE:
-      msg_copy_sz = (ulong)((uchar const *)message->pull_response->values-(uchar const *)message)+message->pull_response->values_len*sizeof(fd_gossip_value_t);
-      break;
-    case FD_GOSSIP_MESSAGE_PUSH:
-      msg_copy_sz = (ulong)((uchar const *)message->push->values-(uchar const *)message)+message->push->values_len*sizeof(fd_gossip_value_t);
-      break;
-    case FD_GOSSIP_MESSAGE_PULL_REQUEST: msg_copy_sz = (ulong)((uchar const *)(message->pull_request+1)-(uchar const *)message); break;
-    case FD_GOSSIP_MESSAGE_PRUNE:        msg_copy_sz = (ulong)((uchar const *)(message->prune+1)       -(uchar const *)message); break;
-    case FD_GOSSIP_MESSAGE_PING:         msg_copy_sz = (ulong)((uchar const *)(message->ping+1)        -(uchar const *)message); break;
-    case FD_GOSSIP_MESSAGE_PONG:         msg_copy_sz = (ulong)((uchar const *)(message->pong+1)        -(uchar const *)message); break;
-    default:                             msg_copy_sz = sizeof(fd_gossip_message_t); break;
-  }
-  fd_memcpy( dst, message, msg_copy_sz );
-  fd_memcpy( dst+sizeof(fd_gossip_message_t), failed, FD_GOSSIP_MESSAGE_MAX_CRDS );
-  fd_memcpy( dst+sizeof(fd_gossip_message_t)+FD_GOSSIP_MESSAGE_MAX_CRDS, payload, payload_sz );
+  ulong copy_sz = fd_gossip_message_used_sz( message );
+  fd_memcpy( dst, message, copy_sz );
+  fd_memcpy( dst+copy_sz, failed, FD_GOSSIP_MESSAGE_MAX_CRDS );
+  fd_memcpy( dst+copy_sz+FD_GOSSIP_MESSAGE_MAX_CRDS, payload, payload_sz );
 
   ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
-  ulong out_sz = sizeof(fd_gossip_message_t)+FD_GOSSIP_MESSAGE_MAX_CRDS+payload_sz;
+  ulong out_sz = copy_sz+FD_GOSSIP_MESSAGE_MAX_CRDS+payload_sz;
   fd_stem_publish( stem, 0UL, fd_gossvf_sig( ctx->peer.addr, ctx->peer.port, 0 ), ctx->out->chunk, out_sz, 0UL, tsorig, tspub );
   ctx->out->chunk = fd_dcache_compact_next( ctx->out->chunk, out_sz, ctx->out->chunk0, ctx->out->wmark );
 
