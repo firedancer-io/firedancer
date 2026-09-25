@@ -192,6 +192,82 @@ FD_UNIT_TEST( h2_client_handshake ) {
   FD_TEST( cb_rec.cb_established_cnt==1 );
 }
 
+/* test_h2_server_handshake_wnd checks that a pending WINDOW_UPDATE does
+   not interfere with the handshake state machine.  A server that offers
+   a connection receive window above the 65535 byte initial value has
+   the WINDOW_UPDATE flag set while the SETTINGS exchange is still in
+   flight. */
+
+FD_UNIT_TEST( h2_server_handshake_wnd ) {
+  uchar scratch[256];
+  uchar rbuf_rx_b[128];
+  uchar rbuf_tx_b[128];
+
+  static uchar const settings_empty[ 9 ] = {
+    0x00, 0x00, 0x00,        /* payload size: 0 */
+    0x04,                    /* SETTINGS */
+    0x00,                    /* flags: none */
+    0x00, 0x00, 0x00, 0x00   /* stream id: 0 */
+  };
+  static uchar const settings_ack[ 9 ] = {
+    0x00, 0x00, 0x00, 0x04, 0x01, 0x00, 0x00, 0x00, 0x00
+  };
+
+  fd_h2_conn_t conn[1];
+  FD_TEST( fd_h2_conn_init_server( conn )==conn );
+  conn->self_settings.initial_window_size    = 65535U;
+  conn->self_settings.max_frame_size         = 16384U;
+  conn->self_settings.max_header_list_size   =  4096U;
+  conn->self_settings.max_concurrent_streams =   128U;
+  fd_h2_conn_rx_wnd_set( conn, 1U<<20 );
+  FD_TEST( conn->rx_wnd_max==(1U<<20) );
+  FD_TEST( conn->rx_wnd    ==65535U   );
+
+  fd_h2_callbacks_t cb[1];
+  fd_h2_callbacks_init( cb );
+  cb->conn_established = test_cb_conn_established;
+  cb_rec.cb_established_cnt = 0;
+
+  fd_h2_rbuf_t rbuf_rx[1];
+  fd_h2_rbuf_t rbuf_tx[1];
+  fd_h2_rbuf_init( rbuf_rx, rbuf_rx_b, sizeof(rbuf_rx_b) );
+  fd_h2_rbuf_init( rbuf_tx, rbuf_tx_b, sizeof(rbuf_tx_b) );
+
+  /* Client: SETTINGS.  Server: SETTINGS, SETTINGS ACK */
+  fd_h2_rbuf_push( rbuf_rx, settings_empty, sizeof(settings_empty) );
+  fd_h2_rx( conn, rbuf_rx, rbuf_tx, scratch, sizeof(scratch), cb );
+  FD_TEST( fd_h2_rbuf_used_sz( rbuf_tx )==45+9 );
+  fd_h2_rbuf_skip( rbuf_tx, 45+9 );
+  FD_TEST( conn->flags==FD_H2_CONN_FLAGS_WAIT_SETTINGS_ACK_0 );
+  FD_TEST( cb_rec.cb_established_cnt==0 );
+
+  /* The window increment is requested before the handshake completes */
+  conn->flags |= FD_H2_CONN_FLAGS_WINDOW_UPDATE;
+  fd_h2_tx_control( conn, rbuf_tx, cb );
+  FD_TEST( fd_h2_rbuf_used_sz( rbuf_tx )==0 );
+  FD_TEST( cb_rec.cb_established_cnt==0 );
+
+  /* Client: SETTINGS ACK */
+  fd_h2_rbuf_push( rbuf_rx, settings_ack, sizeof(settings_ack) );
+  fd_h2_rx( conn, rbuf_rx, rbuf_tx, scratch, sizeof(scratch), cb );
+  FD_TEST( cb_rec.cb_established_cnt==1 );
+  FD_TEST( conn->flags==FD_H2_CONN_FLAGS_WINDOW_UPDATE );
+
+  /* Now the increment goes out */
+  fd_h2_tx_control( conn, rbuf_tx, cb );
+  FD_TEST( fd_h2_rbuf_used_sz( rbuf_tx )==sizeof(fd_h2_window_update_t) );
+  fd_h2_window_update_t wu;
+  fd_h2_rbuf_pop_copy( rbuf_tx, &wu, sizeof(wu) );
+  FD_TEST( fd_h2_frame_type( wu.hdr.typlen )==FD_H2_FRAME_TYPE_WINDOW_UPDATE );
+  FD_TEST( fd_uint_bswap( wu.increment )==(1U<<20)-65535U );
+  FD_TEST( conn->rx_wnd==(1U<<20) );
+  FD_TEST( conn->flags==0 );
+
+  /* The callback is not repeated */
+  fd_h2_tx_control( conn, rbuf_tx, cb );
+  FD_TEST( cb_rec.cb_established_cnt==1 );
+}
+
 static ulong test_h2_ping_tx_ack_cnt = 0UL;
 
 static void
