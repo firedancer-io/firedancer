@@ -55,12 +55,17 @@ fd_keyguard_client_new( void *           shmem,
   return shmem;
 }
 
-void
-fd_keyguard_client_sign( fd_keyguard_client_t * client,
-                         uchar *                signature,
-                         uchar const *          sign_data,
-                         ulong                  sign_data_len,
-                         int                    sign_type ) {
+/* fd_keyguard_client_sign_sz is the common request/response path.
+   signature_sz is the size of the signature the sign tile responds
+   with for sign_type. */
+
+static void
+fd_keyguard_client_sign_sz( fd_keyguard_client_t * client,
+                            uchar *                signature,
+                            ulong                  signature_sz,
+                            uchar const *          sign_data,
+                            ulong                  sign_data_len,
+                            int                    sign_type ) {
   FD_TEST( sign_data_len<=client->request_mtu );
 
   uchar * dst = fd_chunk_to_laddr( client->request_mem, client->request_chunk );
@@ -91,7 +96,6 @@ fd_keyguard_client_sign( fd_keyguard_client_t * client,
   ulong chunk = FD_VOLATILE_CONST( mline->chunk );
   FD_TEST( chunk>=client->response_chunk0 && chunk<=client->response_wmark );
 
-  ulong signature_sz = fd_ulong_if( sign_type==FD_KEYGUARD_SIGN_TYPE_BLS, FD_KEYGUARD_BLS_SIG_SZ, 64UL );
   FD_TEST( signature_sz<=client->response_mtu );
   uchar * src = fd_chunk_to_laddr( client->response_mem, chunk );
   fd_memcpy( signature, src, signature_sz );
@@ -100,6 +104,16 @@ fd_keyguard_client_sign( fd_keyguard_client_t * client,
   seq_found = fd_frag_meta_seq_query( mline );
   if( FD_UNLIKELY( fd_seq_ne( seq_found, client->response_seq ) ) ) FD_LOG_ERR(( "sign request was overrun while reading" ));
   client->response_seq = fd_seq_inc( client->response_seq, 1UL );
+}
+
+void
+fd_keyguard_client_sign( fd_keyguard_client_t * client,
+                         uchar *                signature,
+                         uchar const *          sign_data,
+                         ulong                  sign_data_len,
+                         int                    sign_type ) {
+  ulong signature_sz = fd_ulong_if( sign_type==FD_KEYGUARD_SIGN_TYPE_BLS, FD_KEYGUARD_BLS_SIG_SZ, 64UL );
+  fd_keyguard_client_sign_sz( client, signature, signature_sz, sign_data, sign_data_len, sign_type );
 }
 
 void
