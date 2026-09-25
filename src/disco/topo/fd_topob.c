@@ -235,7 +235,8 @@ fd_topob_waker( fd_topo_t * topo ) {
     client->waker_client_idx  = waker_client_cnt++;
     client->waker_fseq_obj_id = fseq_obj->id;
   }
-  FD_TEST( waker_client_cnt<=FD_WAKER_CLIENT_MAX );
+  if( FD_UNLIKELY( waker_client_cnt>FD_WAKER_CLIENT_MAX ) )
+    FD_LOG_ERR(( "%lu tiles wait on file descriptors but the waker serves at most %lu; in the efficient layout mode every net tile is one, reduce [layout.net_tile_count]", waker_client_cnt, FD_WAKER_CLIENT_MAX ));
 }
 
 void
@@ -281,8 +282,7 @@ fd_topob_sleep_finish( fd_topo_t * topo ) {
 
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &topo->tiles[ i ];
-    int pinned = !strcmp( tile->name, "mwaitx" ) || !strcmp( tile->name, "sock" ) || !strcmp( tile->name, "solcap" )
-              || !strcmp( tile->name, "mlx5" ) || !strcmp( tile->name, "snapsv" );
+    int pinned = !strcmp( tile->name, "mwaitx" ) || !strcmp( tile->name, "sock" ) || !strcmp( tile->name, "solcap" ) || !strcmp( tile->name, "snapsv" );
     for( char const ** p = CRITICAL_TILES; *p; p++ ) pinned |= !strcmp( tile->name, *p );
     for( char const ** p = THROUGHPUT_TILES; *p; p++ ) pinned |= !strcmp( tile->name, *p );
     tile->floats = tile->cpu_idx!=ULONG_MAX && !pinned;

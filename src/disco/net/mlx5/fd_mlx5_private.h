@@ -52,8 +52,7 @@ struct fd_uverbs_ctx {
 typedef struct fd_uverbs_ctx fd_uverbs_ctx_t;
 
 /* fd_mlx5_cq_control is the mlx5 CQ doorbell record.  Linux names the
-   words set_ci_db and arm_db.  request_notification is unused because
-   the tile polls completion queues.  Both fields are stored big-endian. */
+   words set_ci_db and arm_db.  Both fields are stored big-endian. */
 struct __attribute__((aligned(8UL))) fd_mlx5_cq_control {
   uint consumer_idx;
   uint request_notification;
@@ -85,6 +84,9 @@ struct fd_mlx5_cq {
   fd_mlx5_cq_control_t * control;
   uint                   depth;
   uint                   cons_idx;
+  uint                   cqn;
+  uint                   arm_sn;
+  int                    armed;
 };
 typedef struct fd_mlx5_cq fd_mlx5_cq_t;
 
@@ -132,6 +134,7 @@ typedef struct fd_mlx5_rss_qp fd_mlx5_rss_qp_t;
 /* fd_mlx5_uverbs_tile identifies one tile's queues and packet-memory region
    during shared uverbs initialization. */
 struct fd_mlx5_uverbs_tile {
+  int               comp_fd;
   fd_mlx5_cq_t *    rx_cq;
   fd_mlx5_cq_t *    tx_cq;
   fd_mlx5_rx_wq_t * rx_wq;

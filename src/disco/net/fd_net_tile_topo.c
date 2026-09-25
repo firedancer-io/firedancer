@@ -46,7 +46,7 @@ setup_mlx5_tile( fd_topo_t *             topo,
                  fd_config_net_t const * net_cfg,
                  ulong                   route_max,
                  ulong                   route_peer_max ) {
-  fd_topo_tile_t * tile = fd_topob_tile( topo, "mlx5", "mlx5", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0, 0 );
+  fd_topo_tile_t * tile = fd_topob_tile( topo, "mlx5", "mlx5", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0, topo->sleep_obj_id!=ULONG_MAX );
   fd_topob_link( topo, "net_netlnk", "net_netlnk", 128UL, 0UL, 0UL );
   fd_topob_tile_in(  topo, "netlnk", 0UL,         "metric_in", "net_netlnk", tile_kind_id, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
   fd_topob_tile_out( topo, "mlx5", tile_kind_id,               "net_netlnk", tile_kind_id );

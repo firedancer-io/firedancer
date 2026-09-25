@@ -6,7 +6,20 @@
 # housekeeping (mostly queue errors and device errors).
 #
 # lo_tx_fd: Send-only raw IPv4 socket bound to lo, owned by mlx5:0.
-uint logfile_fd, uint async_fd, uint lo_tx_fd
+#
+# comp_fd: This is the uverbs completion channel for the tile's RX and
+# TX completion queues.  Readable when an armed CQ gets a completion.
+#
+# epoll_inner_fd: Kernel file descriptors are waited by a separate tile
+#                 (the waker) for scheduling reasons, so the completion
+#                 channel is added to this epoll set before the sandbox
+#                 is entered.
+#
+# epoll_outer_fd: The waker puts our inner set into another set, so it
+#                 can poll all file descriptors across all tiles at once.
+#                 This tile needs access to the outer file descriptor to
+#                 rearm the inner set after a drain.
+uint logfile_fd, uint async_fd, uint lo_tx_fd, uint comp_fd, uint epoll_inner_fd, uint epoll_outer_fd
 
 # Allow mlx5 to send loopback packets with sendmmsg.
 sendmmsg: (and (eq (arg 0) lo_tx_fd)
@@ -29,7 +42,37 @@ write: (or (eq (arg 0) 2)
 fsync: (eq (arg 0) logfile_fd)
 
 # mlx5: drain uverbs async events so device and queue failures are
-#       detected by the tile
+#       detected by the tile, and completion events that woke it
 #
-# arg 0 is the nonblocking uverbs async event descriptor.
-read: (eq (arg 0) async_fd)
+# arg 0 is the nonblocking uverbs async event or completion channel
+# descriptor.
+read: (or (eq (arg 0) async_fd)
+          (eq (arg 0) comp_fd))
+
+# waker: rearm the tile's entry in the waker's outer epoll set after
+# draining the completion channel
+#
+# arg 0 is the epoll fd being modified.  The inner set was populated
+# before the sandbox, so the tile may only touch its own inner fd's
+# entry in the outer set.
+epoll_ctl: (and (eq (arg 0) epoll_outer_fd)
+                (eq (arg 2) epoll_inner_fd))
+
+# power saving: sleep when there is no work to do
+#
+# In the efficient scheduler mode, an idle tile parks on its sleep word
+# with futex_wait until a producer has work for it or its next deadline
+# passes.
+#
+# arg 1 is the futex op, always FUTEX_WAIT_BITSET so the timeout is an
+# absolute deadline.  arg 2 is the expected value of the word, always 0
+# (parked).
+futex: (and (eq (arg 1) FUTEX_WAIT_BITSET)
+            (eq (arg 2) 0))
+
+# power saving: resume an interrupted sleep
+#
+# A signal delivered to a parked tile interrupts its futex_wait, and the
+# kernel resumes the wait with the remaining timeout via restart_syscall
+# when the tile next runs.
+restart_syscall

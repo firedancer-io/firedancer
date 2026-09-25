@@ -167,9 +167,13 @@ fd_mlx5_tile_fib4_join( fd_fib4_t *                 out,
 
 /* fd_mlx5_fds identifies the shared uverbs descriptors retained by the
    supervisor and inherited by mlx5 tiles. */
+#define FD_MLX5_TILE_MAX (128UL)
+
 struct fd_mlx5_fds {
-  int cmd_fd;
-  int async_fd;
+  int   cmd_fd;
+  int   async_fd;
+  ulong tile_cnt;
+  int   comp_fd[ FD_MLX5_TILE_MAX ];
 };
 typedef struct fd_mlx5_fds fd_mlx5_fds_t;
 

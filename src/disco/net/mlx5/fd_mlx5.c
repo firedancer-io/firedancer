@@ -352,6 +352,13 @@ struct fd_uverbs_query_port_req {
 typedef struct fd_uverbs_query_port_req fd_uverbs_query_port_req_t;
 FD_STATIC_ASSERT( sizeof(fd_uverbs_query_port_req_t)==24UL, uverbs_query_port_req_sz );
 
+struct fd_uverbs_create_comp_channel_req {
+  struct ib_uverbs_cmd_hdr hdr;
+  ulong                    response;
+};
+typedef struct fd_uverbs_create_comp_channel_req fd_uverbs_create_comp_channel_req_t;
+FD_STATIC_ASSERT( sizeof(fd_uverbs_create_comp_channel_req_t)==16UL, uverbs_create_comp_channel_req_sz );
+
 struct fd_uverbs_alloc_pd_req {
   struct ib_uverbs_cmd_hdr hdr;
   ulong                    response;
@@ -945,6 +952,19 @@ fd_uverbs_open_context( fd_uverbs_ctx_t * ctx,
   return ctx;
 }
 
+static int
+fd_uverbs_create_comp_channel( fd_uverbs_ctx_t * ctx ) {
+  fd_uverbs_create_comp_channel_req_t     req [1];
+  struct ib_uverbs_create_comp_channel_resp resp[1];
+  fd_memset( req,  0, sizeof(req ) );
+  fd_memset( resp, 0, sizeof(resp) );
+  req->response = (ulong)resp;
+  FD_TEST( !fd_uverbs_init_cmd_hdr( &req->hdr, IB_USER_VERBS_CMD_CREATE_COMP_CHANNEL,
+                                    sizeof(req), sizeof(resp) ) );
+  if( FD_UNLIKELY( fd_uverbs_write_cmd( ctx->cmd_fd, req, sizeof(req) ) ) ) return -1;
+  return (int)resp->fd;
+}
+
 static fd_mlx5_pd_t *
 fd_uverbs_alloc_pd( fd_mlx5_pd_t *      pd,
                     fd_uverbs_ctx_t *   ctx ) {
@@ -1109,7 +1129,8 @@ fd_uverbs_map_uar( fd_uverbs_ctx_t * ctx,
 static uint *
 fd_uverbs_create_cq( uint *               handle,
                      fd_uverbs_ctx_t *    ctx,
-                     fd_mlx5_cq_t const * cq,
+                     fd_mlx5_cq_t *       cq,
+                     int                  comp_fd,
                      uint                 page_id,
                      uint                 max_cqe ) {
   if( FD_UNLIKELY( !handle ) ) {
@@ -1131,7 +1152,7 @@ fd_uverbs_create_cq( uint *               handle,
   req->response                = (ulong)resp;
   req->user_handle             = (ulong)cq;
   req->cqe                     = cq->depth-1U;
-  req->comp_channel            = -1;
+  req->comp_channel            = comp_fd;
   req->mlx5.fields.buf_addr    = (ulong)cq->entries;
   req->mlx5.fields.db_addr     = (ulong)cq->control;
   req->mlx5.fields.cqe_size    = sizeof(fd_mlx5_cqe_t);
@@ -1157,6 +1178,9 @@ fd_uverbs_create_cq( uint *               handle,
   }
 
   *handle = resp->cq_handle;
+  cq->cqn    = resp->mlx5.cqn;
+  cq->arm_sn = 0U;
+  cq->armed  = 0;
   return handle;
 }
 
@@ -1543,9 +1567,11 @@ fd_uverbs_init( fd_uverbs_ctx_t *       uverbs,
     uint uar_page_id;
     uint rx_cq_handle;
     uint tx_cq_handle;
-    if( FD_UNLIKELY( !fd_uverbs_alloc_uar( uverbs, &uar_page_id, &tx_qp->uar_mmap_offset )                  ||
-                     !fd_uverbs_create_cq( &rx_cq_handle, uverbs, tile->rx_cq, uar_page_id, caps->max_cqe ) ||
-                     !fd_uverbs_create_cq( &tx_cq_handle, uverbs, tile->tx_cq, uar_page_id, caps->max_cqe ) ||
+    tile->comp_fd = fd_uverbs_create_comp_channel( uverbs );
+    if( FD_UNLIKELY( tile->comp_fd<0 ) ) return NULL;
+    if( FD_UNLIKELY( !fd_uverbs_alloc_uar( uverbs, &uar_page_id, &tx_qp->uar_mmap_offset )                                 ||
+                     !fd_uverbs_create_cq( &rx_cq_handle, uverbs, tile->rx_cq, tile->comp_fd, uar_page_id, caps->max_cqe ) ||
+                     !fd_uverbs_create_cq( &tx_cq_handle, uverbs, tile->tx_cq, tile->comp_fd, uar_page_id, caps->max_cqe ) ||
                      !fd_uverbs_register_mr( tile->lkey, pd, tile->packet_memory, tile->packet_memory_sz,
                                              tile->packet_iova, caps->max_mr_size )                         ||
                      !fd_uverbs_create_tx_qp( uverbs, tx_qp, pd, tx_cq_handle, uar_page_id )                ||

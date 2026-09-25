@@ -9,6 +9,7 @@
 #include "../../../disco/topo/fd_topob.h"
 
 #include <errno.h>
+#include <fcntl.h>
 #include <signal.h>
 #include <sys/mman.h>
 #include <sys/wait.h>
@@ -447,6 +448,112 @@ tx_comp_batch( fd_mlx5_tile_mock_t * mock,
   test_cqe_push( &tile->tx_cq, mock->tx_cq_prod++, opcode, wqe_counter, 0U );
 }
 
+/* The completion-channel wake protocol in before_credit, with a pipe
+   standing in for the uverbs channel and a mock UAR page catching the
+   CQ arm doorbell.  Only the RX CQ is ever armed, so every event on
+   the channel is an RX event. */
+
+static void
+test_comp_channel( void ) {
+  static fd_mlx5_tile_t tile[1];
+  fd_memset( tile, 0, sizeof(tile) );
+
+  uint const depth = 4U;
+  static fd_mlx5_cqe_t entries[ 4 ] __attribute__((aligned(64)));
+  fd_memset( entries, 0, sizeof(entries) );
+  fd_mlx5_hw_cqe64_t * hw_entries = (fd_mlx5_hw_cqe64_t *)entries;
+  for( uint i=0U; i<depth; i++ ) hw_entries[ i ].op_own = (uchar)(FD_MLX5_CQE_OP_INVALID<<4);
+  static fd_mlx5_cq_control_t control[1];
+  fd_memset( control, 0, sizeof(control) );
+  tile->rx_cq = (fd_mlx5_cq_t){ .entries=entries, .control=control, .depth=depth, .cons_idx=0U, .cqn=77U };
+
+  /* UAR: sq_doorbell sits FD_MLX5_UAR_DB_OFFSET (0x800) past the page
+     and the CQ doorbell at page+0x20 */
+  static uchar uar_page[ 0x1000 ] __attribute__((aligned(4096)));
+  fd_memset( uar_page, 0, sizeof(uar_page) );
+  tile->tx_qp.sq_doorbell = (volatile uchar *)(uar_page+0x800UL);
+  tile->sq_flush_deadline_ticks = LONG_MAX;
+
+  int pipefd[2];
+  FD_TEST( !pipe2( pipefd, O_NONBLOCK ) );
+  tile->comp_fd = pipefd[0];
+
+  fd_waker_install( 1UL );
+  tile->waker_client_idx = 0UL;
+  struct epoll_event ev = { .events = EPOLLIN, .data.fd = tile->comp_fd };
+  FD_TEST( !epoll_ctl( FD_WAKER_INNER_FD( 0 ), EPOLL_CTL_ADD, tile->comp_fd, &ev ) );
+  static uchar waker_fseq_mem[ FD_FSEQ_FOOTPRINT ] __attribute__((aligned(FD_FSEQ_ALIGN)));
+  tile->waker_fseq = fd_fseq_join( fd_fseq_new( waker_fseq_mem, 0UL ) );
+  FD_TEST( tile->waker_fseq );
+
+  fd_stem_context_t stem[1] = {{0}};
+  int charge_busy = 0;
+
+  /* Idle, never armed: the first pass arms the RX CQ. */
+  ulong const * cq_db = (ulong const *)(uar_page+0x20UL);
+  FD_TEST( !tile->rx_cq.armed && !*cq_db );
+  before_credit( tile, stem, &charge_busy );
+  FD_TEST( tile->rx_cq.armed );
+  FD_TEST( fd_ulong_bswap( *cq_db )==((0UL<<28)<<32 | 77UL) ); /* arm_sn 0, ci 0, cqn */
+  FD_TEST( fd_uint_bswap( control->request_notification )==0U );
+  ulong db_after_first = *cq_db;
+
+  /* Armed and idle: no second doorbell. */
+  before_credit( tile, stem, &charge_busy );
+  FD_TEST( *cq_db==db_after_first );
+
+  /* An event arrives while the tile is parked: the waker sets the fseq
+     and the channel becomes readable.  The CQE it announces is ready
+     too.  before_credit drains the event, advances arm_sn, but leaves
+     the fseq set and the CQ unarmed while an RX CQE remains. */
+  struct ib_uverbs_comp_event_desc desc = { .cq_handle = 0xdeadUL }; /* not our address: still RX */
+  struct epoll_event out[1];
+  FD_TEST( write( pipefd[1], &desc, sizeof(desc) )==(long)sizeof(desc) );
+  FD_TEST( epoll_wait( FD_WAKER_OUTER_FD, out, 1, 0 )==1 && out[0].data.u64==0UL ); /* the waker takes the ONESHOT hit */
+  fd_fseq_update( tile->waker_fseq, 1UL );
+  test_cqe_push( &tile->rx_cq, 0U, FD_MLX5_CQE_OP_RX_OK, 0U, 64U );
+  before_credit( tile, stem, &charge_busy );
+  FD_TEST( tile->rx_cq.arm_sn==1U );
+  FD_TEST( !tile->rx_cq.armed );
+  FD_TEST( fd_fseq_query( tile->waker_fseq )==1UL );
+  FD_TEST( *cq_db==db_after_first );
+  uchar buf[ 8 ];
+  FD_TEST( read( pipefd[0], buf, sizeof(buf) )==-1 && errno==EAGAIN ); /* drained */
+  /* not rearmed yet: a new event is invisible to the waker */
+  FD_TEST( write( pipefd[1], &desc, sizeof(desc) )==(long)sizeof(desc) );
+  FD_TEST( !epoll_wait( FD_WAKER_OUTER_FD, out, 1, 0 ) );
+
+  /* The tile consumes the CQE (as after_credit would); the next pass
+     drains the second event, clears and rearms the waker and arms the
+     CQ with the new arm_sn.  The rearm makes the pending readiness
+     visible to the waker again. */
+  tile->rx_cq.cons_idx = 1U;
+  before_credit( tile, stem, &charge_busy );
+  FD_TEST( tile->rx_cq.arm_sn==2U );
+  FD_TEST( fd_fseq_query( tile->waker_fseq )==0UL );
+  FD_TEST( tile->rx_cq.armed );
+  FD_TEST( fd_ulong_bswap( *cq_db )==(((2UL<<28)|1UL)<<32 | 77UL) ); /* arm_sn 2, ci 1 */
+  FD_TEST( fd_uint_bswap( control->request_notification )==((2U<<28)|1U) );
+  FD_TEST( read( pipefd[0], buf, sizeof(buf) )==-1 && errno==EAGAIN );
+  FD_TEST( write( pipefd[1], &desc, sizeof(desc) )==(long)sizeof(desc) );
+  FD_TEST( epoll_wait( FD_WAKER_OUTER_FD, out, 1, 0 )==1 && out[0].data.u64==0UL ); /* rearmed */
+
+  /* Two events pile up before the tile runs: both are drained in one
+     pass and arm_sn advances by two; the rearm is observable again. */
+  FD_TEST( write( pipefd[1], &desc, sizeof(desc) )==(long)sizeof(desc) );
+  fd_fseq_update( tile->waker_fseq, 1UL );
+  before_credit( tile, stem, &charge_busy );
+  FD_TEST( tile->rx_cq.arm_sn==4U );
+  FD_TEST( fd_fseq_query( tile->waker_fseq )==0UL );
+  FD_TEST( tile->rx_cq.armed );
+  FD_TEST( read( pipefd[0], buf, sizeof(buf) )==-1 && errno==EAGAIN );
+  FD_TEST( write( pipefd[1], &desc, sizeof(desc) )==(long)sizeof(desc) );
+  FD_TEST( epoll_wait( FD_WAKER_OUTER_FD, out, 1, 0 )==1 && out[0].data.u64==0UL );
+  FD_TEST( !epoll_wait( FD_WAKER_OUTER_FD, out, 1, 0 ) ); /* ONESHOT: consumed */
+
+  close( pipefd[0] ); close( pipefd[1] );
+}
+
 static void
 add_neighbor( fd_neigh4_hmap_t * join,
               uint               ip4_addr,
@@ -482,6 +589,7 @@ main( int     argc,
   test_rx_cqe_normal();
   test_tx_wqe();
   test_tx_cqe_normal();
+  test_comp_channel();
 
   ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
   if( cpu_idx>fd_shmem_cpu_cnt() ) cpu_idx = 0UL;

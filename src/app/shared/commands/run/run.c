@@ -370,7 +370,7 @@ main_pid_namespace( void * _args ) {
   if( FD_UNLIKELY( -1==config_memfd ) ) FD_LOG_ERR(( "fd_config_to_memfd() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   int need_mlx5 = 0==strcmp( config->net.provider, "mlx5" );
-  fd_mlx5_fds_t mlx5_fds = { .cmd_fd=-1, .async_fd=-1 };
+  fd_mlx5_fds_t mlx5_fds = { .cmd_fd=-1, .async_fd=-1, .tile_cnt=0UL };
   if( need_mlx5 ) {
     fd_topo_install_mlx5( (fd_topo_t *)&config->topo, &mlx5_fds );
   }
@@ -451,6 +451,12 @@ main_pid_namespace( void * _args ) {
         }
         if( FD_UNLIKELY( -1==fcntl( mlx5_fds.async_fd, F_SETFD, fd_flags ) ) ) {
           FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+        }
+        for( ulong i=0UL; i<mlx5_fds.tile_cnt; i++ ) {
+          int const comp_flags = fd_flags || i!=tile->kind_id ? FD_CLOEXEC : 0;
+          if( FD_UNLIKELY( -1==fcntl( mlx5_fds.comp_fd[ i ], F_SETFD, comp_flags ) ) ) {
+            FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+          }
         }
       }
 
@@ -585,7 +591,15 @@ main_pid_namespace( void * _args ) {
     if( FD_UNLIKELY( -1==close( FD_WAKER_INNER_FD( j ) ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
-  int allow_fds[ 6+FD_TOPO_MAX_TILES ];
+  if( need_mlx5 ) {
+    if( FD_UNLIKELY( -1==close( mlx5_fds.cmd_fd   ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==close( mlx5_fds.async_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    for( ulong i=0UL; i<mlx5_fds.tile_cnt; i++ ) {
+      if( FD_UNLIKELY( -1==close( mlx5_fds.comp_fd[ i ] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+  }
+
+  int allow_fds[ 4+FD_TOPO_MAX_TILES ];
   ulong allow_fds_cnt = 0;
   allow_fds[ allow_fds_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( fd_log_private_logfile_fd()!=-1 ) )
@@ -593,10 +607,6 @@ main_pid_namespace( void * _args ) {
   allow_fds[ allow_fds_cnt++ ] = args->pipefd[ 1 ]; /* write end of main pipe */
   for( ulong i=0UL; i<child_cnt; i++ )
     allow_fds[ allow_fds_cnt++ ] = fds[ i ].fd; /* read end of child pipes */
-  if( need_mlx5 ) {
-    allow_fds[ allow_fds_cnt++ ] = mlx5_fds.cmd_fd;
-    allow_fds[ allow_fds_cnt++ ] = mlx5_fds.async_fd;
-  }
 
   struct sock_filter seccomp_filter[ 128UL ];
   unsigned int instr_cnt;
