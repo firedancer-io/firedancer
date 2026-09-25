@@ -28,7 +28,6 @@
 #include "../chainer/fd_chainer.h"
 #include "fd_schedulor.h"
 #include "fd_requestor.h"
-#include "fd_repair_stats.h"
 #include "fd_rotor_tile_private.h"
 
 
@@ -51,14 +50,10 @@ lg_sign_depth( fd_topo_tile_t const * tile ) {
 /* block_max is the chainer's block pool size, which is also the
    schedulor's task count. */
 
-FD_FN_PURE static inline ulong
-block_max( fd_topo_tile_t const * tile ) {
-  return tile->rotor.slot_max * FD_CHAINER_SLOT_VER_MAX;
-}
 
 FD_FN_PURE static inline ulong
 fec_max( fd_topo_tile_t const * tile ) {
-  return block_max( tile ) * ( tile->rotor.max_shreds_per_block / FD_FEC_SHRED_CNT );
+  return fd_chainer_blk_max( tile->rotor.slot_max ) * ( tile->rotor.max_shreds_per_block / FD_FEC_SHRED_CNT );
 }
 
 FD_FN_PURE static inline ulong
@@ -67,11 +62,10 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, alignof(ctx_t),          sizeof(ctx_t)                                                                     );
   l = FD_LAYOUT_APPEND( l, fd_repair_align(),       fd_repair_footprint    ()                                                         );
   l = FD_LAYOUT_APPEND( l, fd_chainer_align(),      fd_chainer_footprint   ( tile->rotor.slot_max, tile->rotor.max_shreds_per_block ) );
-  l = FD_LAYOUT_APPEND( l, fd_schedulor_align(),    fd_schedulor_footprint ( block_max( tile ) )                                      );
+  l = FD_LAYOUT_APPEND( l, fd_schedulor_align(),    fd_schedulor_footprint ( fd_chainer_blk_max( tile->rotor.slot_max ) )             );
   l = FD_LAYOUT_APPEND( l, fd_requestor_align(),    fd_requestor_footprint ()                                                         );
   l = FD_LAYOUT_APPEND( l, fd_policy_align(),       fd_policy_footprint    ( FD_REPAIR_PEER_MAX )                                     );
   l = FD_LAYOUT_APPEND( l, fd_inflights_align(),    fd_inflights_footprint ()                                                         );
-  l = FD_LAYOUT_APPEND( l, fd_repair_stats_align(), fd_repair_stats_footprint( tile->rotor.slot_max )                                 );
   l = FD_LAYOUT_APPEND( l, fd_signs_map_align(),    fd_signs_map_footprint ( lg_sign_depth( tile ) )                                  );
   l = FD_LAYOUT_APPEND( l, toss_queue_align(),      toss_queue_footprint   ()                                                         );
   l = FD_LAYOUT_APPEND( l, out_queue_align(),       out_queue_footprint    ( fec_max( tile ) )                                        );
@@ -235,28 +229,6 @@ dispatch_request( ctx_t *                    ctx,
   fd_policy_peer_request_update( ctx->policy, peer );
 }
 
-/* Repair drivers
-
-   The chainer reports what each call did through its return value, the
-   block it created if any; completion is stamped on the block itself
-   (complete_ts) and read from there.  A new block is checked right
-   away.  A block whose metadata just landed is not pulled forward: its
-   parked check picks the metadata up when it fires, within one parent
-   timeout.  A completed block needs no action: its parked check
-   fires within one timeout and asks for its ancestry if the parent is
-   absent, or answers DONE.  Stale checks, for a turbine block renamed
-   at finalization or a pruned slot, pop, find nothing and are dropped
-   by the requestor.  FEC eviction schedules nothing for now: the block
-   is re-asked on its next timeout. */
-
-static inline void
-block_created( ctx_t *                    ctx,
-               fd_chainer_slotv_t const * block,
-               long                       now ) {
-  fd_repair_stats_slot_start( ctx->stats, block->slot, now );
-  fd_schedulor_block_insert( ctx->schedulor, block->slot, &block->block_id, now );
-}
-
 /* handle_ping answers a repair ping with a signed pong.  ip4/udp point
    at the stripped headers, needed to address the pong. */
 
@@ -320,7 +292,7 @@ handle_meta_response( ctx_t *       ctx,
         return;
       }
       fd_chainer_slotv_t * parent = fd_chainer_verified_parent_fec_count( ctx->chainer, slot, &block_id, res->fec_set_count, res->parent_slot, &res->parent_block_id );
-      if( FD_UNLIKELY( parent ) ) block_created( ctx, parent, now );
+      if( FD_UNLIKELY( parent ) ) fd_schedulor_block_insert( ctx->schedulor, parent->slot, &parent->block_id, now );
       ctx->metrics->meta_ok_parent_fec_count++;
       break;
     }
@@ -336,7 +308,7 @@ handle_meta_response( ctx_t *       ctx,
         return;
       }
       fd_chainer_slotv_t * created = fd_chainer_verified_hash_insert( ctx->chainer, slot, &block_id, fec_set_idx, res->root );
-      if( FD_UNLIKELY( created ) ) block_created( ctx, created, now );
+      if( FD_UNLIKELY( created ) ) fd_schedulor_block_insert( ctx->schedulor, created->slot, &created->block_id, now );
       ctx->metrics->meta_ok_fec_root++;
       break;
     }
@@ -516,7 +488,7 @@ handle_votor( ctx_t *       ctx,
   fd_votor_repair_t const * nf = (fd_votor_repair_t const *)fd_type_pun_const( chunk );
   if( FD_UNLIKELY( nf->slot <= ctx->chainer->root ) ) return;
   fd_chainer_slotv_t * created = fd_chainer_verified_block_insert( ctx->chainer, nf->slot, nf->block_id );
-  if( FD_LIKELY( created ) ) block_created( ctx, created, now );
+  if( FD_LIKELY( created ) ) fd_schedulor_block_insert( ctx->schedulor, created->slot, &created->block_id, now );
 }
 
 /* ag_parse_parent_marker pulls the block's declared parent out of the
@@ -617,8 +589,6 @@ handle_shred( ctx_t *            ctx,
 
   int is_data = fd_shred_is_data( fd_shred_type( shred->variant ) );
 
-  fd_repair_stats_shred_received( ctx->stats, shred->slot, is_data, sig_src, now );
-
   if( FD_UNLIKELY( !is_data ) ) return;
   if( FD_UNLIKELY( sig_src==SHRED_SIG_SRC_REPAIR && fd_rnonce_ss_normal_repair( (uint)nonce ) ) ) {
     /* Credit a repaired shred to the peer that served it.  Try the
@@ -648,7 +618,7 @@ handle_shred( ctx_t *            ctx,
 
   int slot_complete = !!(shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE);
   fd_chainer_slotv_t * created = fd_chainer_shred_insert( ctx->chainer, shred->slot, shred->idx, slot_complete, shred_src( sig_src ), now, mr, parent_slot, &parent_block_id );
-  if( FD_UNLIKELY( created ) ) block_created( ctx, created, now ); /* first turbine shred of the slot */
+  if( FD_UNLIKELY( created ) ) fd_schedulor_block_insert( ctx->schedulor, created->slot, &created->block_id, now ); /* first turbine shred of the slot */
 }
 
 static inline void
@@ -666,7 +636,7 @@ handle_fec_complete( ctx_t *      ctx,
   int data_complete = !!(shred->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE);
   int rejected;
   fd_chainer_slotv_t * created = fd_chainer_fec_complete( ctx->chainer, shred->slot, shred->fec_set_idx, slot_complete, data_complete, sig==SHRED_SIG_FEC_COMPLETE_LEADER, now, mr, &rejected );
-  if( FD_UNLIKELY( created ) ) block_created( ctx, created, now ); /* the block exists even if the set was refused */
+  if( FD_UNLIKELY( created ) ) fd_schedulor_block_insert( ctx->schedulor, created->slot, &created->block_id, now ); /* the block exists even if the set was refused */
   if( FD_UNLIKELY( rejected ) ) {
     fd_store_remove( ctx->store, ctx->store_map, mr );
     return;
@@ -763,7 +733,6 @@ publish_fec( ctx_t *              ctx,
   /* The block is delivered whole: report its repair stats once.  A
      from_root re-delivery replays FECs replay already saw, so it does
      not report again. */
-  if( FD_UNLIKELY( fec->slot_complete && !from_root ) ) fd_repair_stats_print_slot( ctx->stats, block->slot, block->metrics.last_shred_ts );
 
   fd_stem_publish( stem, ctx->replay_out_ctx->idx, ROTOR_SIG_FEC_REPLAY, ctx->replay_out_ctx->chunk, sizeof(fd_rotor_replay_fec_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->replay_out_ctx->chunk = fd_dcache_compact_next( ctx->replay_out_ctx->chunk, sizeof(fd_rotor_replay_fec_t), ctx->replay_out_ctx->chunk0, ctx->replay_out_ctx->wmark );
@@ -984,32 +953,30 @@ unprivileged_init( fd_topo_t const *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   ctx_t * ctx        = FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t),        sizeof(ctx_t)                                                                     );
-  ctx->protocol      = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_align(),     fd_repair_footprint    ()                                                         );
-  ctx->chainer       = FD_SCRATCH_ALLOC_APPEND( l, fd_chainer_align(),    fd_chainer_footprint   ( tile->rotor.slot_max, tile->rotor.max_shreds_per_block ) );
-  ctx->schedulor     = FD_SCRATCH_ALLOC_APPEND( l, fd_schedulor_align(),  fd_schedulor_footprint ( block_max( tile ) )                                      );
-  ctx->requestor     = FD_SCRATCH_ALLOC_APPEND( l, fd_requestor_align(),  fd_requestor_footprint ()                                                         );
-  ctx->policy        = FD_SCRATCH_ALLOC_APPEND( l, fd_policy_align(),     fd_policy_footprint    ( FD_REPAIR_PEER_MAX )                                     );
-  ctx->rtt           = FD_SCRATCH_ALLOC_APPEND( l, fd_inflights_align(),  fd_inflights_footprint ()                                                         );
-  ctx->stats         = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_stats_align(), fd_repair_stats_footprint( tile->rotor.slot_max )                               );
-  ctx->signs_map     = FD_SCRATCH_ALLOC_APPEND( l, fd_signs_map_align(),  fd_signs_map_footprint ( lg_sign_depth( tile ) )                                  );
-  ctx->toss_queue    = FD_SCRATCH_ALLOC_APPEND( l, toss_queue_align(),    toss_queue_footprint   ()                                                         );
-  ctx->redeliver     = FD_SCRATCH_ALLOC_APPEND( l, out_queue_align(),     out_queue_footprint    ( fec_max( tile ) )                                        );
+  ctx->protocol      = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_align(),     fd_repair_footprint   ()                                                         );
+  ctx->chainer       = FD_SCRATCH_ALLOC_APPEND( l, fd_chainer_align(),    fd_chainer_footprint  ( tile->rotor.slot_max, tile->rotor.max_shreds_per_block ) );
+  ctx->schedulor     = FD_SCRATCH_ALLOC_APPEND( l, fd_schedulor_align(),  fd_schedulor_footprint( fd_chainer_blk_max( tile->rotor.slot_max ) )             );
+  ctx->requestor     = FD_SCRATCH_ALLOC_APPEND( l, fd_requestor_align(),  fd_requestor_footprint()                                                         );
+  ctx->policy        = FD_SCRATCH_ALLOC_APPEND( l, fd_policy_align(),     fd_policy_footprint   ( FD_REPAIR_PEER_MAX )                                     );
+  ctx->rtt           = FD_SCRATCH_ALLOC_APPEND( l, fd_inflights_align(),  fd_inflights_footprint()                                                         );
+  ctx->signs_map     = FD_SCRATCH_ALLOC_APPEND( l, fd_signs_map_align(),  fd_signs_map_footprint( lg_sign_depth( tile ) )                                  );
+  ctx->toss_queue    = FD_SCRATCH_ALLOC_APPEND( l, toss_queue_align(),    toss_queue_footprint  ()                                                         );
+  ctx->redeliver     = FD_SCRATCH_ALLOC_APPEND( l, out_queue_align(),     out_queue_footprint   ( fec_max( tile ) )                                        );
   ulong scratch_top  = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 
   ctx->chainer    = fd_chainer_join     ( fd_chainer_new     ( ctx->chainer,   tile->rotor.slot_max, tile->rotor.max_shreds_per_block, ctx->repair_seed ) );
-  ctx->schedulor  = fd_schedulor_join   ( fd_schedulor_new   ( ctx->schedulor, block_max( tile ), ctx->repair_seed                                      ) );
+  ctx->schedulor  = fd_schedulor_join   ( fd_schedulor_new   ( ctx->schedulor, fd_chainer_blk_max( tile->rotor.slot_max ), ctx->repair_seed             ) );
   ctx->requestor  = fd_requestor_join   ( fd_requestor_new   ( ctx->requestor                                                                           ) );
   ctx->protocol   = fd_repair_join      ( fd_repair_new      ( ctx->protocol,  &ctx->identity_public_key                                                ) );
   ctx->policy     = fd_policy_join      ( fd_policy_new      ( ctx->policy,    FD_REPAIR_PEER_MAX, ctx->repair_seed, ctx->repair_nonce_ss               ) );
   ctx->rtt        = fd_inflights_join   ( fd_inflights_new   ( ctx->rtt,       ctx->repair_seed+1234UL                                                  ) );
-  ctx->stats      = fd_repair_stats_join( fd_repair_stats_new( ctx->stats, tile->rotor.slot_max                                                         ) );
   ctx->signs_map  = fd_signs_map_join   ( fd_signs_map_new   ( ctx->signs_map, lg_sign_depth( tile ), 0UL                                               ) );
   ctx->toss_queue = toss_queue_join     ( toss_queue_new     ( ctx->toss_queue                                                                          ) );
   ctx->redeliver  = out_queue_join      ( out_queue_new      ( ctx->redeliver, fec_max( tile )                                                          ) );
-  FD_TEST( ctx->chainer && ctx->schedulor && ctx->requestor && ctx->protocol && ctx->policy && ctx->rtt && ctx->stats && ctx->signs_map && ctx->toss_queue && ctx->redeliver );
-  FD_TEST( fd_slotv_pool_max( ctx->chainer->slotv_pool )==block_max( tile ) );
+  FD_TEST( ctx->chainer && ctx->schedulor && ctx->requestor && ctx->protocol && ctx->policy && ctx->rtt && ctx->signs_map && ctx->toss_queue && ctx->redeliver );
+  FD_TEST( fd_slotv_pool_max( ctx->chainer->slotv_pool )==fd_chainer_blk_max( tile->rotor.slot_max ) );
 
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
   FD_TEST( ctx->keyswitch );

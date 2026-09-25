@@ -11,7 +11,6 @@
 #include "../chainer/fd_chainer.h"
 #include "fd_schedulor.h"
 #include "fd_requestor.h"
-#include "fd_repair_stats.h"
 #include "../../disco/fd_clock_tile.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
 #include "../../disco/metrics/fd_metrics.h"
@@ -123,7 +122,6 @@ struct ctx {
   fd_repair_t *       protocol;  /* repair message construction */
   fd_policy_t *       policy;    /* repair peers and selection */
   fd_inflights_t *    rtt;       /* sent requests by nonce, for response latency only */
-  fd_repair_stats_t * stats;  /* per-slot repair timing, the legacy forest stats */
 
   fd_store_t *     store;     /* rotor publishes/removes FEC sets to/from the store */
   fd_store_map_t   store_map[1];

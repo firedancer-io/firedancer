@@ -1,5 +1,5 @@
-$(call add-hdrs,fd_rotor_tile.h fd_schedulor.h fd_requestor.h fd_repair_stats.h)
-$(call add-objs,fd_schedulor fd_requestor fd_repair_stats,fd_discof)
+$(call add-hdrs,fd_rotor_tile.h fd_schedulor.h fd_requestor.h)
+$(call add-objs,fd_schedulor fd_requestor,fd_discof)
 ifdef FD_HAS_HOSTED
 $(call add-objs,fd_rotor_tile,fd_discof)
 $(call make-unit-test,test_rotor_tile,test_rotor_tile,fd_discof fd_disco fd_choreo fd_flamenco fd_waltz fd_tango fd_ballet fd_util)
