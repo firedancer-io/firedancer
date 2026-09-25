@@ -318,18 +318,24 @@ metrics_snap_take( metrics_snap_t * s, metrics_src_t const * src ) {
 
   for( ulong i=0UL; i<FD_METRICS_ENUM_REPAIR_SENT_REQUEST_TYPE_CNT; i++ ) s->req[ i ] = r[ MIDX( COUNTER, ROTOR, REQUEST_TX )+i ];
   s->pkt_tx      = r[ MIDX( COUNTER, ROTOR, PKT_TX ) ];
-  s->rerequest   = r[ MIDX( COUNTER, ROTOR, SHRED_REREQUESTED ) ];
+  /* SHRED_REREQUESTED is not in this branch's ROTOR metric set -- the
+     per-version repair tally it came from went away with the chainer
+     rewrite.  Reported as 0 until something re-adds it. */
+  s->rerequest   = 0UL;
   s->shred_old   = r[ MIDX( COUNTER, ROTOR, SHRED_OLD ) ];
-  s->meta_failed = r[ MIDX( COUNTER, ROTOR, SHRED_BLOCK_ID_FAILED ) ] + r[ MIDX( COUNTER, ROTOR, FEC_ROOT_FAILED ) ] + r[ MIDX( COUNTER, ROTOR, PARENT_FEC_COUNT_FAILED ) ];
+  s->meta_failed = r[ MIDX( COUNTER, ROTOR, SHRED_RX_UNMATCHED ) ] + r[ MIDX( COUNTER, ROTOR, FEC_ROOT_FAILED ) ] + r[ MIDX( COUNTER, ROTOR, PARENT_FEC_COUNT_FAILED ) ];
   for( ulong k=0UL; k<FD_HISTF_BUCKET_CNT; k++ ) s->resp_cnt += r[ MIDX( HISTOGRAM, ROTOR, RESPONSE_LATENCY_NANOS )+k ];
   s->resp_sum_ns = r[ MIDX( HISTOGRAM, ROTOR, RESPONSE_LATENCY_NANOS )+FD_HISTF_BUCKET_CNT ];
 
   s->inflight              = r[ MIDX( GAUGE, ROTOR, REQUEST_INFLIGHT ) ];
   s->slot_current          = r[ MIDX( GAUGE, ROTOR, SLOT_CURRENT ) ];
   s->slot_highest_repaired = r[ MIDX( GAUGE, ROTOR, SLOT_HIGHEST_REPAIRED ) ];
-  s->slot_last_requested   = r[ MIDX( GAUGE, ROTOR, SLOT_LAST_REQUESTED ) ];
-  s->orphan_last_requested = r[ MIDX( GAUGE, ROTOR, ORPHAN_LAST_REQUESTED ) ];
-  s->peers                 = r[ MIDX( COUNTER, ROTOR, PEER_REQUESTED ) ];
+  /* Likewise SLOT_LAST_REQUESTED, ORPHAN_LAST_REQUESTED and
+     PEER_REQUESTED: published by the older cursor-walk requestor,
+     which this branch no longer has. */
+  s->slot_last_requested   = 0UL;
+  s->orphan_last_requested = 0UL;
+  s->peers                 = 0UL;
 
   for( ulong i=0UL; i<src->shred_cnt; i++ ) {
     volatile ulong * m = src->shred[ i ];

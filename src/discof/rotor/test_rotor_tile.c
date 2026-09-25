@@ -521,7 +521,6 @@ setup_ctx( ctx_t * ctx, fd_wksp_t * wksp ) {
   void * chainer_mem   = fd_wksp_alloc_laddr( wksp, fd_chainer_align(),      fd_chainer_footprint( TEST_SLOT_MAX, FD_SHRED_BLK_MAX ), 1UL );
   void * schedulor_mem = fd_wksp_alloc_laddr( wksp, fd_schedulor_align(),    fd_schedulor_footprint( TEST_BLOCK_MAX ),                1UL );
   void * requestor_mem = fd_wksp_alloc_laddr( wksp, fd_requestor_align(),    fd_requestor_footprint(),                                1UL );
-  void * stats_mem     = fd_wksp_alloc_laddr( wksp, fd_repair_stats_align(), fd_repair_stats_footprint( TEST_SLOT_MAX ),              1UL );
   void * policy_mem    = fd_wksp_alloc_laddr( wksp, fd_policy_align(),       fd_policy_footprint( TEST_PEER_MAX ),                    1UL );
   void * rtt_mem       = fd_wksp_alloc_laddr( wksp, fd_inflights_align(),    fd_inflights_footprint(),                                1UL );
   void * signs_map_mem = fd_wksp_alloc_laddr( wksp, fd_signs_map_align(),    fd_signs_map_footprint( lg_sign_depth_test ),            1UL );
@@ -529,12 +528,11 @@ setup_ctx( ctx_t * ctx, fd_wksp_t * wksp ) {
   void * repair_mem    = fd_wksp_alloc_laddr( wksp, fd_repair_align(),       fd_repair_footprint(),                                   1UL );
   void * redeliver_mem = fd_wksp_alloc_laddr( wksp, out_queue_align(),       out_queue_footprint( redeliver_max ),                    1UL );
   void * store_mem     = fd_wksp_alloc_laddr( wksp, fd_store_align(),        fd_store_footprint( 1024UL, 64UL, 0UL, 0UL, 0UL ),       1UL );
-  FD_TEST( chainer_mem && schedulor_mem && requestor_mem && stats_mem && policy_mem && rtt_mem && signs_map_mem && toss_mem && repair_mem && redeliver_mem && store_mem );
+  FD_TEST( chainer_mem && schedulor_mem && requestor_mem && policy_mem && rtt_mem && signs_map_mem && toss_mem && repair_mem && redeliver_mem && store_mem );
 
   ctx->chainer       = fd_chainer_join     ( fd_chainer_new     ( chainer_mem,   TEST_SLOT_MAX, FD_SHRED_BLK_MAX, ctx->repair_seed     ) );
   ctx->schedulor     = fd_schedulor_join   ( fd_schedulor_new   ( schedulor_mem, TEST_BLOCK_MAX, ctx->repair_seed                      ) );
   ctx->requestor     = fd_requestor_join   ( fd_requestor_new   ( requestor_mem                                                        ) );
-  ctx->stats         = fd_repair_stats_join( fd_repair_stats_new( stats_mem,     TEST_SLOT_MAX                                         ) );
   ctx->policy        = fd_policy_join      ( fd_policy_new      ( policy_mem,    TEST_PEER_MAX, ctx->repair_seed, ctx->repair_nonce_ss ) );
   ctx->rtt           = fd_inflights_join   ( fd_inflights_new   ( rtt_mem,       ctx->repair_seed+1234UL                               ) );
   ctx->signs_map     = fd_signs_map_join   ( fd_signs_map_new   ( signs_map_mem, lg_sign_depth_test, 0UL                               ) );
@@ -542,7 +540,7 @@ setup_ctx( ctx_t * ctx, fd_wksp_t * wksp ) {
   ctx->protocol      = fd_repair_join      ( fd_repair_new      ( repair_mem,    &ctx->identity_public_key                             ) );
   ctx->redeliver     = out_queue_join      ( out_queue_new      ( redeliver_mem, redeliver_max                                         ) );
   ctx->store         = fd_store_join       ( fd_store_new       ( store_mem,     1024UL, 64UL, 0UL, 0UL, 0UL, FD_SHRED_BLK_MAX, 42UL   ) );
-  FD_TEST( ctx->chainer && ctx->schedulor && ctx->requestor && ctx->stats && ctx->policy && ctx->rtt && ctx->signs_map && ctx->toss_queue && ctx->protocol && ctx->redeliver && ctx->store );
+  FD_TEST( ctx->chainer && ctx->schedulor && ctx->requestor && ctx->policy && ctx->rtt && ctx->signs_map && ctx->toss_queue && ctx->protocol && ctx->redeliver && ctx->store );
   FD_TEST( fd_store_map_ljoin( ctx->store, ctx->store_map ) );
 
   /* Out links.  fd_chunk_to_laddr( mem, 0 )==mem, so chunk0=0 over a
@@ -694,7 +692,7 @@ test_catchup_seed( fd_wksp_t * wksp ) {
    parent, the first turbine shred fixes the catchup target, each FEC
    set delivers to replay in order, the block_id is finalized to an
    independently computed double-merkle root, complete_ts is stamped,
-   and the stats record counts the shreds by source. */
+   and the version's tally counts the shreds by source. */
 
 static void
 test_turbine_block( fd_wksp_t * wksp ) {
@@ -735,10 +733,9 @@ test_turbine_block( fd_wksp_t * wksp ) {
   FD_TEST( rep_cnt==2UL );
   rep_expect( 1UL, blk->slot, FD_FEC_SHRED_CNT, &blk->fec_root[ 1 ], &blk->block_id, 1 );
 
-  fd_repair_stats_slot_t rec[1];
-  FD_TEST( fd_repair_stats_query( ctx->stats, blk->slot, rec ) );
-  FD_TEST( rec->turbine_cnt==2U*FD_FEC_SHRED_CNT );
-  FD_TEST( rec->repair_cnt==0U );
+  /* the chainer's own per-version tally replaces the repair stats */
+  FD_TEST( v0->metrics.turbine_cnt==2U*FD_FEC_SHRED_CNT );
+  FD_TEST( v0->metrics.repair_cnt==0U );
   FD_TEST( ctx->metrics->fecs_delivered==2UL );
 
   FD_TEST( !fd_chainer_verify( ctx->chainer ) );
