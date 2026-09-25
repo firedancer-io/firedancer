@@ -573,6 +573,7 @@ struct fd_replay_tile {
     ulong storage_root_behind;
 
     ulong voted_slot; /* monotone, ULONG_MAX if none */
+    ulong is_voting;  /* current identity is eligible to vote under Tower or Alpenglow */
   } metrics;
 
   uchar __attribute__((aligned(FD_MULTI_EPOCH_LEADERS_ALIGN))) mleaders_mem[ FD_MULTI_EPOCH_LEADERS_FOOTPRINT ];

@@ -539,6 +539,7 @@ publish_slot_done( fd_tower_tile_t *            ctx,
      specified in the vote account (hot spare check) */
   int identity_matches = found_authority && fd_pubkey_eq( identity, ctx->identity_key );
   msg->is_voting = found_authority && identity_matches;
+  msg->voter_identity = *ctx->identity_key;
 
   if( FD_LIKELY( out->vote_slot!=ULONG_MAX &&
                  found_authority &&

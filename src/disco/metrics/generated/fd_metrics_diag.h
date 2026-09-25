@@ -31,7 +31,7 @@ enum {
 
 #define FD_METRICS_GAUGE_DIAG_VOTE_STATUS_NAME "diag_vote_status"
 #define FD_METRICS_GAUGE_DIAG_VOTE_STATUS_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_DIAG_VOTE_STATUS_DESC "Precise status of the vote subsystem: 0=disabled (non-voting or no tower tile), 1=not started (tower tile not running or no votes cast yet), 2=delinquent (vote distance exceeds threshold or vote stalled), 3=voting (voting normally)"
+#define FD_METRICS_GAUGE_DIAG_VOTE_STATUS_DESC "Precise status of the vote subsystem: 0=disabled (non-voting or no consensus tile), 1=not started (replay or consensus tile not running or no votes yet), 2=delinquent (vote distance exceeds threshold or vote stalled), 3=voting (voting normally)"
 #define FD_METRICS_GAUGE_DIAG_VOTE_STATUS_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_GAUGE_DIAG_REPLAY_STATUS_NAME "diag_replay_status"
