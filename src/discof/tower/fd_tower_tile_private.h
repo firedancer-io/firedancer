@@ -137,6 +137,11 @@ struct fd_tower_tile {
   int              signed_tower_valid;
   int              epoch_refresh_pending;  /* an adoption advanced the root, refresh the epoch voter caches on the next completed slot */
   int              recovery_initialized;
+  int              recovery_from_adopt;    /* the failover tile asked for this recovery, a stale file follows the vote account */
+  int              local_adopt_pending;    /* answer the zero length adoption once the recovery has run */
+  int              local_adopt_answer;     /* the answer is ready to publish */
+  ulong            local_adopt_sig;
+  fd_tower_adopt_result_t local_adopt_result;
   ulong            recovery_onchain_root;  /* our root in the vote account at the last replayed slot */
   int              first_use_pending;
   int              first_use_authorized;  /* one launch, consumed when the staked key is installed */

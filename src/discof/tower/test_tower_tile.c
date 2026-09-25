@@ -1294,6 +1294,78 @@ test_eqvoc_cre_diff( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_eqvoc_cre_diff" ));
 }
 
+/* A zero length adoption asks for the signed file verified at boot.  It
+   is refused at once when there is nothing to adopt or a recovery is
+   already in flight, otherwise it is deferred to the next completed slot
+   and answered from there, with a result rather than a fatal error when
+   the file cannot be anchored. */
+static void
+test_adopt_local( fd_wksp_t * wksp ) {
+  static fd_tower_tile_t ctx[ 1 ];
+  static uchar scratch_mem[ FD_TOWER_VOTE_FOOTPRINT ] __attribute__((aligned(FD_TOWER_VOTE_ALIGN)));
+  fd_memset( ctx, 0, sizeof(*ctx) );
+  void * tower_mem   = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint( 64UL, 2UL ), 1UL );
+  ctx->tower         = fd_tower_join( fd_tower_new( tower_mem, 64UL, 2UL, 0UL ) );
+  ctx->scratch_tower = fd_tower_vote_join( fd_tower_vote_new( scratch_mem ) );
+  FD_TEST( ctx->tower && ctx->scratch_tower );
+  ctx->tower->root = 7UL;
+
+  fd_tower_adopt_result_t result;
+  /* No file, nothing to adopt. */
+  ctx->tower_file_enabled = 1;
+  FD_TEST( !failover_adopt_local_request( ctx, 11UL, &result ) );
+  FD_TEST( result.result==FD_TOWER_ADOPT_ERR_NO_LOCAL_TOWER && result.root==7UL && result.vote_slot==ULONG_MAX );
+  FD_TEST( !ctx->recovery_pending && !ctx->local_adopt_pending );
+
+  /* A file, but a recovery already installed. */
+  ctx->tower_file_loaded        = 1;
+  ctx->recovery.saved.votes_cnt = 2UL;
+  ctx->recovery_initialized     = 1;
+  FD_TEST( !failover_adopt_local_request( ctx, 11UL, &result ) );
+  FD_TEST( result.result==FD_TOWER_ADOPT_ERR_LOCAL_BUSY );
+  ctx->recovery_initialized = 0;
+
+  /* A file that did not verify at boot is not there to adopt. */
+  ctx->tower_file_loaded = 0;
+  FD_TEST( !failover_adopt_local_request( ctx, 11UL, &result ) );
+  FD_TEST( result.result==FD_TOWER_ADOPT_ERR_NO_LOCAL_TOWER );
+  ctx->tower_file_loaded = 1;
+
+  /* Otherwise the request is deferred and marked as asked for. */
+  FD_TEST( failover_adopt_local_request( ctx, 11UL, &result ) );
+  FD_TEST( ctx->recovery_pending && ctx->recovery_from_adopt && ctx->local_adopt_pending && ctx->local_adopt_sig==11UL );
+  /* And a second one while it is out is busy. */
+  FD_TEST( !failover_adopt_local_request( ctx, 12UL, &result ) );
+  FD_TEST( result.result==FD_TOWER_ADOPT_ERR_LOCAL_BUSY && ctx->local_adopt_sig==11UL );
+
+  /* The outcome of the recovery run at the next completed slot becomes
+     the answer.  A file that cannot be anchored, or that forks from the
+     rooted history, is a result rather than a fatal, and frees the tile
+     to be asked again. */
+  local_adopt_finish( ctx, FD_TOWER_RECOVER_ERR_HISTORY, 100UL );
+  FD_TEST( !ctx->local_adopt_pending && ctx->local_adopt_answer && ctx->local_adopt_sig==11UL );
+  FD_TEST( ctx->local_adopt_result.result==FD_TOWER_ADOPT_ERR_LOCAL_ANCHOR && ctx->local_adopt_result.root==7UL );
+  FD_TEST( !ctx->recovery_pending && !ctx->recovery_from_adopt );
+  ctx->local_adopt_answer = 0;
+
+  FD_TEST( failover_adopt_local_request( ctx, 12UL, &result ) );
+  local_adopt_finish( ctx, FD_TOWER_RECOVER_ERR_FORK, 101UL );
+  FD_TEST( ctx->local_adopt_answer && ctx->local_adopt_result.result==FD_TOWER_ADOPT_ERR_LOCAL_FORK );
+  FD_TEST( !ctx->recovery_pending && !ctx->recovery_from_adopt );
+  ctx->local_adopt_answer = 0;
+
+  /* On success the recovery stays installed and marked as asked for, so
+     a file behind the vote account follows the vote account later. */
+  FD_TEST( failover_adopt_local_request( ctx, 13UL, &result ) );
+  ctx->recovery_initialized = 1; /* what tower_recovery_init sets on success */
+  ctx->recovery_pending     = 0;
+  local_adopt_finish( ctx, 0, 102UL );
+  FD_TEST( ctx->local_adopt_answer && ctx->local_adopt_result.result==FD_TOWER_ADOPT_SUCCESS );
+  FD_TEST( ctx->recovery_initialized && ctx->recovery_from_adopt && !ctx->local_adopt_pending );
+  fd_wksp_free_laddr( tower_mem );
+  FD_LOG_NOTICE(( "pass: a zero length adoption adopts the local signed file, or says why not" ));
+}
+
 static void
 test_failover_adopt_tower( fd_wksp_t * wksp ) {
   static fd_tower_tile_t ctx[ 1 ];
@@ -1558,6 +1630,7 @@ main( int     argc,
   FD_TEST( wksp );
 
   test_failover_adopt_tower( wksp );
+  fd_wksp_reset( wksp, 1UL ); test_adopt_local( wksp );
   fd_wksp_reset( wksp, 1UL ); test_fixture_replay( wksp, 0 );
   fd_wksp_reset( wksp, 1UL ); test_fixture_replay( wksp, 1 );
 

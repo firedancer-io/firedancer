@@ -745,6 +745,7 @@ publish_slot_done( fd_tower_tile_t *            ctx,
       ctx->tower_file_sz = prepare_tower_file( ctx, out, msg->vote_created_nanos/(long)1e9 );
       ctx->first_use_pending = 0;
       ctx->recovery_initialized = 0;
+      ctx->recovery_from_adopt = 0;
     }
   } else {
     msg->has_vote_txn = 0;
@@ -851,7 +852,13 @@ count_vote_acc( fd_tower_tile_t *            ctx,
    2. vote accounts (for each staked voter, which contains their tower)
       from accountsDB. */
 
-static void
+/* tower_recovery_init anchors the signed tower file to the replayed
+   history and installs it.  It returns 0 or the recover error, and the
+   caller decides whether that is fatal: at boot it is, since the
+   validator would otherwise vote without its history, on a request from
+   the failover tile it is an answer, since killing the validator because
+   an operator asked for an unanchorable file is the wrong reaction. */
+static int
 tower_recovery_init( fd_tower_tile_t *            ctx,
                      fd_replay_slot_completed_t * slot_completed,
                      fd_bank_t *                  bank ) {
@@ -862,10 +869,7 @@ tower_recovery_init( fd_tower_tile_t *            ctx,
     h = fd_sysvar_slot_history_view( &history, history_acc.data, history_acc.data_len );
   int result = fd_tower_recover_init( &ctx->recovery, &ctx->recovery.saved, slot_completed->slot, h );
   fd_accdb_unread_one( ctx->accdb, &history_acc );
-  if( FD_UNLIKELY( result==FD_TOWER_RECOVER_ERR_FORK ) )
-    FD_LOG_ERR(( "signed tower disagrees with the snapshot's rooted history at slot %lu: a rooted vote is missing below a found one. Preserve the tower and investigate before restarting.", slot_completed->slot ));
-  if( FD_UNLIKELY( result<0 ) )
-    FD_LOG_ERR(( "signed tower cannot be anchored to snapshot slot %lu (error %d): it is older than the rooted history or shares no slot with it. Preserve the tower and restart with a compatible snapshot.", slot_completed->slot, result ));
+  if( FD_UNLIKELY( result<0 ) ) return result;
 
   /* The retained votes go live now.  Voting resumes as soon as their
      lockouts allow it, a stray tip needs a switch proof first. */
@@ -875,6 +879,74 @@ tower_recovery_init( fd_tower_tile_t *            ctx,
   ctx->metrics.last_vote_slot = ctx->recovery.saved.votes[ ctx->recovery.saved.votes_cnt-1UL ].slot;
   FD_LOG_NOTICE(( "restored signed tower through slot %lu, kept %lu votes as lockouts and retired %lu rooted votes",
                   ctx->metrics.last_vote_slot, ctx->recovery.retained_cnt, ctx->recovery.saved.votes_cnt-ctx->recovery.retained_cnt ));
+  return 0;
+}
+
+/* adopt_result_now describes the tower as it stands, under a result. */
+static fd_tower_adopt_result_t
+adopt_result_now( fd_tower_tile_t const * ctx,
+                  ulong                   code ) {
+  return (fd_tower_adopt_result_t){
+    .result    = code,
+    .root      = ctx->tower->root,
+    .vote_slot = fd_tower_vote_empty( ctx->tower->votes ) ? ULONG_MAX
+               : fd_tower_vote_peek_tail_const( ctx->tower->votes )->slot };
+}
+
+/* failover_adopt_local_request handles a zero length adoption request:
+   adopt the signed tower file verified at boot rather than a streamed
+   tower.  Anchoring it needs a bank, which this tile only has inside a
+   completed slot, so the work is deferred there and the answer follows.
+   Returns 1 when deferred, else 0 with the refusal in out. */
+static int
+failover_adopt_local_request( fd_tower_tile_t *         ctx,
+                              ulong                     sig,
+                              fd_tower_adopt_result_t * out ) {
+  if( FD_UNLIKELY( !ctx->tower_file_loaded || !ctx->recovery.saved.votes_cnt ) ) {
+    *out = adopt_result_now( ctx, FD_TOWER_ADOPT_ERR_NO_LOCAL_TOWER );
+    return 0;
+  }
+  if( FD_UNLIKELY( ctx->recovery_pending || ctx->recovery_initialized || ctx->local_adopt_pending ) ) {
+    *out = adopt_result_now( ctx, FD_TOWER_ADOPT_ERR_LOCAL_BUSY );
+    return 0;
+  }
+  ctx->recovery_pending    = 1;
+  ctx->recovery_from_adopt = 1;
+  ctx->local_adopt_pending = 1;
+  ctx->local_adopt_sig     = sig;
+  return 1;
+}
+
+/* local_adopt_finish turns the outcome of the recovery the failover tile
+   asked for into its answer, ready for the next flush. */
+static void
+local_adopt_finish( fd_tower_tile_t * ctx,
+                    int               err,
+                    ulong             slot ) {
+  ulong code = !err                           ? FD_TOWER_ADOPT_SUCCESS
+             : err==FD_TOWER_RECOVER_ERR_FORK ? FD_TOWER_ADOPT_ERR_LOCAL_FORK
+             :                                  FD_TOWER_ADOPT_ERR_LOCAL_ANCHOR;
+  if( FD_UNLIKELY( err ) ) {
+    FD_LOG_WARNING(( "the signed tower file could not be adopted at slot %lu (error %d), the failover tile is told", slot, err ));
+    ctx->recovery_pending    = 0;
+    ctx->recovery_from_adopt = 0;
+  }
+  ctx->local_adopt_result  = adopt_result_now( ctx, code );
+  ctx->local_adopt_pending = 0;
+  ctx->local_adopt_answer  = 1;
+}
+
+static void
+publish_adopt_result( fd_tower_tile_t *               ctx,
+                      fd_stem_context_t *             stem,
+                      ulong                           sig,
+                      fd_tower_adopt_result_t const * result ) {
+  FD_TEST( ctx->failov_out_idx!=ULONG_MAX );
+  fd_memcpy( fd_chunk_to_laddr( ctx->failov_out_mem, ctx->failov_out_chunk ), result, sizeof(*result) );
+  ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+  fd_stem_publish( stem, ctx->failov_out_idx, sig, ctx->failov_out_chunk, sizeof(*result), 0UL, tspub, tspub );
+  ctx->failov_out_chunk = fd_dcache_compact_next( ctx->failov_out_chunk, sizeof(*result),
+                                                  ctx->failov_out_chunk0, ctx->failov_out_wmark );
 }
 
 static void
@@ -903,8 +975,16 @@ query_towers( fd_tower_tile_t *            ctx,
   fd_bank_t * bank = fd_banks_bank_query( ctx->banks, slot_completed->bank_idx );
   if( FD_UNLIKELY( !bank ) ) FD_LOG_CRIT(( "invariant violation: bank %lu is missing", slot_completed->bank_idx ));
   if( FD_UNLIKELY( ctx->recovery_pending && !ctx->recovery_initialized ) ) {
-    FD_TEST( !ctx->init );
-    tower_recovery_init( ctx, slot_completed, bank );
+    FD_TEST( !ctx->init || ctx->local_adopt_pending );
+    int err = tower_recovery_init( ctx, slot_completed, bank );
+    if( FD_UNLIKELY( ctx->local_adopt_pending ) ) {
+      /* Asked for by the failover tile, so the outcome is its answer. */
+      local_adopt_finish( ctx, err, slot_completed->slot );
+    } else if( FD_UNLIKELY( err==FD_TOWER_RECOVER_ERR_FORK ) ) {
+      FD_LOG_ERR(( "signed tower disagrees with the snapshot's rooted history at slot %lu: a rooted vote is missing below a found one. Preserve the tower and investigate before restarting.", slot_completed->slot ));
+    } else if( FD_UNLIKELY( err ) ) {
+      FD_LOG_ERR(( "signed tower cannot be anchored to snapshot slot %lu (error %d): it is older than the rooted history or shares no slot with it. Preserve the tower and restart with a compatible snapshot.", slot_completed->slot, err ));
+    }
   }
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
@@ -983,13 +1063,19 @@ query_towers( fd_tower_tile_t *            ctx,
            identity that votes for this account.  A machine running
            another identity is not the one voting, so its file is
            expected to fall behind.  Drop the file and follow the vote
-           account, as a boot without a file does. */
+           account, as a boot without a file does.  The same holds when
+           the failover tile asked for the file: it is the tower from
+           this machine's last active stint, the peer has voted past it,
+           and the vote account is the floor for the votes that landed.
+           The file is a floor, not a replacement. */
         fd_pubkey_t node_pubkey[1];
         FD_TEST( 0==fd_vote_account_node_pubkey( ctx->our_vote_acct, ctx->our_vote_acct_sz, node_pubkey ) );
-        if( FD_UNLIKELY( fd_pubkey_eq( node_pubkey, ctx->identity_key ) ) ) FD_LOG_ERR(( "tower file is stale, the vote account has a later vote or root." ));
+        if( FD_UNLIKELY( fd_pubkey_eq( node_pubkey, ctx->identity_key ) && !ctx->recovery_from_adopt ) ) FD_LOG_ERR(( "tower file is stale, the vote account has a later vote or root." ));
         FD_BASE58_ENCODE_32_BYTES( ctx->identity_key->uc, identity_b58 );
-        FD_LOG_WARNING(( "tower file is behind the vote account, but %s is not this account's voting identity: following the vote account instead", identity_b58 ));
+        if( FD_UNLIKELY( ctx->recovery_from_adopt ) ) FD_LOG_WARNING(( "tower file is behind the vote account and was adopted on request: following the vote account instead" ));
+        else                                          FD_LOG_WARNING(( "tower file is behind the vote account, but %s is not this account's voting identity: following the vote account instead", identity_b58 ));
         ctx->recovery_initialized  = 0;
+        ctx->recovery_from_adopt   = 0;
         ctx->recovery.retained_cnt = 0UL;
         ctx->tower->saved_root     = ULONG_MAX;
         skip_reconcile = ( !ctx->init && ctx->wfs );
@@ -1944,6 +2030,11 @@ after_credit( fd_tower_tile_t *   ctx,
               fd_stem_context_t * stem,
               int *               opt_poll_in,
               int *               charge_busy ) {
+  if( FD_UNLIKELY( ctx->local_adopt_answer ) ) {
+    ctx->local_adopt_answer = 0;
+    publish_adopt_result( ctx, stem, ctx->local_adopt_sig, &ctx->local_adopt_result );
+    *charge_busy = 1;
+  }
   if( FD_LIKELY( !publishes_empty( ctx->publishes ) ) ) {
     publish_t * pub = publishes_pop_head_nocopy( ctx->publishes );
     int store_tower = ctx->tower_file_enabled &&
@@ -2155,15 +2246,16 @@ returnable_frag( fd_tower_tile_t *   ctx,
   }
   case IN_KIND_FAILOV: {
     /* The reply echoes the request's sequence number, the failover tile
-       waits for it. */
-    fd_tower_adopt_result_t result = failover_adopt_tower( ctx, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ), sz );
-
-    FD_TEST( ctx->failov_out_idx!=ULONG_MAX );
-    fd_memcpy( fd_chunk_to_laddr( ctx->failov_out_mem, ctx->failov_out_chunk ), &result, sizeof(result) );
-    ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-    fd_stem_publish( stem, ctx->failov_out_idx, sig, ctx->failov_out_chunk, sizeof(result), 0UL, tspub, tspub );
-    ctx->failov_out_chunk = fd_dcache_compact_next( ctx->failov_out_chunk, sizeof(result),
-                                                    ctx->failov_out_chunk0, ctx->failov_out_wmark );
+       waits for it.  An empty request asks for the signed tower file
+       instead of a streamed tower, and is answered once the file has
+       been anchored at a slot. */
+    fd_tower_adopt_result_t result;
+    if( FD_UNLIKELY( !sz ) ) {
+      if( FD_LIKELY( failover_adopt_local_request( ctx, sig, &result ) ) ) return 0;
+    } else {
+      result = failover_adopt_tower( ctx, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ), sz );
+    }
+    publish_adopt_result( ctx, stem, sig, &result );
     return 0;
   }
   default: FD_LOG_ERR(( "unexpected input kind %d", ctx->in_kind[ in_idx ] ));
@@ -2224,6 +2316,9 @@ privileged_init( fd_topo_t const *      topo,
   ctx->signed_tower_valid    = 0;
   ctx->recovery_pending      = 0;
   ctx->recovery_initialized  = 0;
+  ctx->recovery_from_adopt   = 0;
+  ctx->local_adopt_pending   = 0;
+  ctx->local_adopt_answer    = 0;
   ctx->recovery_onchain_root = ULONG_MAX;
   ctx->recovery.retained_cnt = 0UL;
   ctx->first_use_pending    = 0;
@@ -2427,7 +2522,7 @@ rlimit_file_cnt( fd_topo_t const *      topo,
   return fd_ulong_if( ctx->tower_file_enabled, (ulong)ctx->tower_file_fd+1UL, 0UL );
 }
 
-#define STEM_BURST (2UL)        /* MAX( slot_confirmed, slot_rooted AND (slot_done OR slot_ignored) ) */
+#define STEM_BURST (2UL)        /* MAX( slot_confirmed, slot_rooted AND (slot_done OR slot_ignored) ), and after_credit's adopt answer plus one queued frag */
 #define STEM_LAZY  (128L*3000L) /* see explanation in fd_pack */
 
 #define STEM_CALLBACK_CONTEXT_TYPE        fd_tower_tile_t

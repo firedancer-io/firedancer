@@ -19,7 +19,13 @@
 #define FD_TOWER_ADOPT_ERR_UNREPLAYED_ROOT (3UL)
 #define FD_TOWER_ADOPT_ERR_BLOCK_MISMATCH  (4UL)
 #define FD_TOWER_ADOPT_ERR_STALE           (5UL) /* older than the newest tower this identity signed here */
-#define FD_TOWER_ADOPT_RESULT_CNT          (6UL)
+/* A zero length request asks the tower tile to adopt the signed tower
+   file it verified at boot instead of a streamed one.  These answer it. */
+#define FD_TOWER_ADOPT_ERR_NO_LOCAL_TOWER  (6UL) /* no verified signed tower file for the staked identity */
+#define FD_TOWER_ADOPT_ERR_LOCAL_BUSY      (7UL) /* a recovery is already in flight or installed */
+#define FD_TOWER_ADOPT_ERR_LOCAL_FORK      (8UL) /* the file disagrees with the rooted history */
+#define FD_TOWER_ADOPT_ERR_LOCAL_ANCHOR    (9UL) /* the file cannot be anchored to this snapshot */
+#define FD_TOWER_ADOPT_RESULT_CNT          (10UL)
 
 struct fd_tower_adopt_result {
   ulong result;
