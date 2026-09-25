@@ -764,6 +764,8 @@ after_frag( ctx_t *             ctx,
             fd_stem_context_t * stem ) {
   if( FD_UNLIKELY( ctx->skip_frag ) ) return;
 
+  ctx->policy_idle_until = 0L;
+
   long now_tick = fd_tickcount();
   long rx_tick  = fd_frag_meta_ts_decomp( tsorig, now_tick );
   if( FD_UNLIKELY( rx_tick>now_tick ) ) rx_tick -= 1L<<32;
@@ -970,6 +972,16 @@ record_inflight_request( ctx_t * ctx, ulong nonce, fd_pubkey_t const * peer, ulo
    be queued up in inflights table so they can be re-requested after a
    timeout window. */
 
+static long
+next_deadline( ctx_t * ctx ) {
+  long due = ctx->policy_idle_until;
+  if( FD_UNLIKELY( !fd_inflight_dlist_is_empty( ctx->inflights->outstanding_dl, ctx->inflights->pool ) ) ) {
+    due = fd_long_min( due, fd_inflight_dlist_ele_peek_head_const( ctx->inflights->outstanding_dl, ctx->inflights->pool )->timestamp_ns + FD_REQLIM_DEDUP_TIMEOUT );
+  }
+  if( FD_UNLIKELY( due==LONG_MAX || due<=0L ) ) return due==LONG_MAX ? LONG_MAX : 0L;
+  return fd_clock_tile_wallclock_to_tickcount( ctx->clock, due );
+}
+
 static inline void
 after_credit( ctx_t *             ctx,
               fd_stem_context_t * stem FD_PARAM_UNUSED,
@@ -987,6 +999,7 @@ after_credit( ctx_t *             ctx,
   out_ctx_t * sign_out = sign_avail_credits( ctx );
   if( FD_UNLIKELY( !sign_out ) ) {
     ctx->metrics->sign_tile_unavail++;
+    ctx->policy_idle_until = LONG_MAX;
     return;
   }
 
@@ -1029,10 +1042,19 @@ after_credit( ctx_t *             ctx,
     }
   }
 
-  if( FD_UNLIKELY( fd_inflights_outstanding_free( ctx->inflights ) <= fd_signs_map_key_cnt( ctx->signs_map ) ) ) return; /* no new requests allowed */
+  if( FD_UNLIKELY( fd_inflights_outstanding_free( ctx->inflights ) <= fd_signs_map_key_cnt( ctx->signs_map ) ) ) {
+    /* no new requests allowed */
+    ctx->policy_idle_until = LONG_MAX;
+    return;
+  }
+
+  if( FD_LIKELY( now<ctx->policy_idle_until ) ) return;
 
   fd_repair_msg_t const * cout = fd_policy_next( ctx->policy, ctx->dedup, ctx->forest, ctx->protocol, now, ctx->metrics->current_slot, charge_busy );
-  if( FD_UNLIKELY( !cout ) ) return;
+  if( FD_UNLIKELY( !cout ) ) {
+    ctx->policy_idle_until = ctx->policy->next_due;
+    return;
+  }
 
   if( ( cout->kind == FD_REPAIR_KIND_SHRED && fd_reqlim_next( ctx->dedup, fd_reqlim_key( FD_REPAIR_KIND_SHRED, cout->shred.slot, (uint)cout->shred.shred_idx ), now ) ) ) {
     /* Here if policy_next is re-requesting a shred that's already been
@@ -1081,10 +1103,10 @@ during_housekeeping( ctx_t * ctx ) {
   if( FD_UNLIKELY( fd_clock_tile_recal_due( ctx->clock ) ) ) fd_clock_tile_recal( ctx->clock );
 
 # if DEBUG_LOGGING
-  long now = fd_log_wallclock();
+  long now = fd_clock_tile_now( ctx->clock );
   if( FD_UNLIKELY( now - ctx->tsdebug > (long)10e9 ) ) {
     fd_forest_print( ctx->forest );
-    ctx->tsdebug = fd_log_wallclock();
+    ctx->tsdebug = now;
   }
 # endif
 
@@ -1282,7 +1304,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   fd_clock_tile_init( ctx->clock );
 
-  ctx->tsdebug = fd_log_wallclock();
+  ctx->tsdebug = fd_clock_tile_now( ctx->clock );
   ctx->pending_key_next = 0;
 }
 
@@ -1348,9 +1370,9 @@ metrics_write( ctx_t * ctx ) {
    message is published in after_frag. */
 #define STEM_BURST (2UL)
 
-/* Set LAZY to a reasonable value that keeps housekeeping time low.
-   Repair tile's only reliable consumer is replay. */
-#define STEM_LAZY  (64000)
+/* Repair's only reliable consumer is replay, on a deep link, so LAZY
+   just needs to keep housekeeping time low.  384 us, as pack. */
+#define STEM_LAZY  (128L*3000L)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(ctx_t)
@@ -1361,6 +1383,7 @@ metrics_write( ctx_t * ctx ) {
 #define STEM_CALLBACK_AFTER_FRAG          after_frag
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 #define STEM_CALLBACK_METRICS_WRITE       metrics_write
+#define STEM_CALLBACK_NEXT_DEADLINE       next_deadline
 
 #include "../../disco/stem/fd_stem.c"
 
