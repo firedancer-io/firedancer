@@ -12,6 +12,8 @@ static ulong publish_sig;
 static ulong init_cnt;
 static uchar output[ 4UL*FD_SNAPSHOT_DATA_MTU ] __attribute__((aligned(FD_CHUNK_ALIGN)));
 
+static fd_stem_context_t test_stem[1]; /* no sleep object: the tile nanosleeps when idle */
+
 static ulong
 test_stem_publish( fd_stem_context_t * stem FD_PARAM_UNUSED,
                    ulong               out_idx FD_PARAM_UNUSED,
@@ -102,7 +104,7 @@ test_start( int file,
   /* Spend longer than the request deadline waiting for START. */
   fd_log_sleep( FD_SSHTTP_DEADLINE_NANOS+1000000L );
   int busy = 0;
-  for( int i=0; i<3; i++ ) after_credit( ctx, NULL, NULL, &busy );
+  for( int i=0; i<3; i++ ) after_credit( ctx, test_stem, NULL, &busy );
   FD_TEST( publish_cnt==1UL && !init_cnt && !ctx->sent_meta );
   fd_ssctrl_start_t * start = (fd_ssctrl_start_t *)input;
   fd_memset( start, 0, sizeof(*start) );
@@ -121,7 +123,7 @@ test_start( int file,
   if( bad_target ) {
     FD_TEST( init_cnt==1UL && !ctx->pipeline_ready && ctx->state==FD_SNAPSHOT_STATE_ERROR );
     FD_TEST( publish_cnt==2UL && publish_sig==FD_SNAPSHOT_MSG_CTRL_ERROR );
-    after_credit( ctx, NULL, NULL, &busy );
+    after_credit( ctx, test_stem, NULL, &busy );
     FD_TEST( !returnable_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_CTRL_START, 0UL, sizeof(*start), 0UL, 0UL, 0UL, NULL ) );
     FD_TEST( publish_cnt==2UL && init_cnt==1UL );
   } else {
@@ -133,7 +135,7 @@ test_start( int file,
       FD_TEST( !strcmp( http->hostname, "localhost" ) );
       FD_TEST( strstr( http->request, "GET /snapshot.tar.bz2 HTTP/1.1" ) );
     } else {
-      after_credit( ctx, NULL, NULL, &busy );
+      after_credit( ctx, test_stem, NULL, &busy );
       FD_TEST( publish_cnt>1UL && ctx->sent_meta );
     }
   }

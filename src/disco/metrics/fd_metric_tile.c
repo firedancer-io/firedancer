@@ -56,13 +56,11 @@ static inline void
 before_credit( fd_metric_ctx_t *   ctx,
                fd_stem_context_t * stem,
                int *               charge_busy ) {
-  (void)stem;
-
   if( FD_UNLIKELY( fd_fseq_query( ctx->waker_fseq )==1UL ) ) {
     fd_fseq_update( ctx->waker_fseq, 0UL );
     *charge_busy = fd_http_server_epoll_poll( ctx->metrics_server, ULONG_MAX );
     fd_waker_client_rearm( ctx->waker_client_idx );
-  } else {
+  } else if( FD_LIKELY( !stem->sleep ) ) {
     fd_log_sleep( (long)1e6 );
   }
 }

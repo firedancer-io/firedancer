@@ -133,7 +133,7 @@ after_credit( fd_ipecho_tile_ctx_t * ctx,
     fd_fseq_update( ctx->waker_fseq, 0UL );
     fd_ipecho_server_epoll_poll( ctx->server, charge_busy ); /* one batch; the rearm re-fires leftovers */
     fd_waker_client_rearm( ctx->waker_client_idx );
-  } else {
+  } else if( FD_LIKELY( !stem->sleep ) ) {
     fd_log_sleep( (long)1e6 );
   }
 }

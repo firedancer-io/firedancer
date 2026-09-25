@@ -512,7 +512,7 @@ after_credit( fd_netlink_tile_ctx_t * ctx,
   }
 
   ctx->idle_cnt++;
-  if( FD_UNLIKELY( !published && ctx->idle_cnt>=128L ) )
+  if( FD_UNLIKELY( !published && ctx->idle_cnt>=128L && !stem->sleep ) )
     fd_log_sleep( (long)1e6 );
 
   if( FD_UNLIKELY( published ) ) *opt_poll_in = 0;
