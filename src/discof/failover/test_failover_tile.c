@@ -948,6 +948,69 @@ test_demotion_order( void ) {
   FD_LOG_NOTICE(( "pass: a demotion confirms only after the identity is gone" ));
 }
 
+/* The active runs the full pre-checks before it gives the identity up,
+   its own readiness and leader window included, so a spare that cannot
+   take it is not handed it, and a drill on the active runs them and
+   moves nothing. */
+static void
+test_active_side_checks( void ) {
+  fd_adminctl_failover_control_t req;
+  fd_memset( &req, 0, sizeof(req) );
+  controller_init( FD_FAILOVER_STATE_ACTIVE, 4UL );
+  fd_failover_peer_t * peer = &ctx->peers[ 0 ];
+  peer->channel->state      = FD_FAILOVER_SESSION_PAIRED;
+  peer->status_valid        = 1;
+  peer->status.role         = (uchar)FD_FAILOVER_ROLE_STANDBY;
+  peer->status.term         = 4UL;
+  peer->status.replay_slot  = 100UL;
+  peer->status.turbine_slot = 104UL;
+  peer->status.flags        = FD_FAILOVER_FLAG_CAUGHT_UP;
+  peer->cs_sent             = 1;
+  ctx->min_slots_to_leader  = 128UL;
+
+  /* This machine does not know the tip, so it is not caught up, and a
+     handoff is refused rather than demoting blind. */
+  req.cmd = FD_ADMINCTL_FAILOVER_CMD_HANDOFF;
+  FD_TEST( apply_control( ctx, stem, &req, 1000L )==FD_FAILOVER_CONTROL_RESULT_PRECONDITION );
+  FD_TEST( ctx->state==FD_FAILOVER_STATE_ACTIVE && ctx->action==FD_FAILOVER_ACTION_IDLE );
+  FD_TEST( ctx->handoff_code==FD_FAILOVER_HANDOFF_REJECTED && ctx->handoff_reason==FD_FAILOVER_REJECT_LOCAL_UNHEALTHY );
+
+  /* Caught up, but the spare is not, which is the spare's own status
+     refusing and keeps that result. */
+  ctx->replay_slot      = 100UL;
+  ctx->turbine_slot     = 104UL;
+  ctx->replay_caught_up = 1;
+  peer->status.flags    = 0U;
+  FD_TEST( apply_control( ctx, stem, &req, 1000L )==FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY );
+  FD_TEST( ctx->handoff_reason==FD_FAILOVER_REJECT_PEER_BEHIND && ctx->state==FD_FAILOVER_STATE_ACTIVE );
+  peer->status.flags = FD_FAILOVER_FLAG_CAUGHT_UP;
+
+  /* Inside our own leader window. */
+  ctx->is_leader = 1;
+  FD_TEST( apply_control( ctx, stem, &req, 1000L )==FD_FAILOVER_CONTROL_RESULT_PRECONDITION );
+  FD_TEST( ctx->handoff_reason==FD_FAILOVER_REJECT_LEADER_ACTIVE );
+  ctx->is_leader = 0;
+
+  /* A leader slot too near. */
+  ctx->next_leader_slot = 200UL;
+  FD_TEST( apply_control( ctx, stem, &req, 1000L )==FD_FAILOVER_CONTROL_RESULT_PRECONDITION );
+  FD_TEST( ctx->handoff_reason==FD_FAILOVER_REJECT_LEADER_NEAR );
+  ctx->next_leader_slot = 400UL;
+
+  /* A drill on the active runs every check and moves nothing. */
+  req.cmd = FD_ADMINCTL_FAILOVER_CMD_DRILL;
+  FD_TEST( apply_control( ctx, stem, &req, 1000L )==FD_ADMINCTL_RESULT_SUCCESS );
+  FD_TEST( ctx->handoff_code==FD_FAILOVER_HANDOFF_PROCEED && ctx->handoff_term==5UL );
+  FD_TEST( ctx->state==FD_FAILOVER_STATE_ACTIVE && ctx->action==FD_FAILOVER_ACTION_IDLE && !ctx->pending_valid );
+
+  /* Everything passes: the handoff demotes at the checked term. */
+  req.cmd = FD_ADMINCTL_FAILOVER_CMD_HANDOFF;
+  FD_TEST( apply_control( ctx, stem, &req, 1000L )==FD_ADMINCTL_RESULT_SUCCESS );
+  FD_TEST( ctx->state==FD_FAILOVER_STATE_DEMOTING && ctx->role_file.term==5UL && ctx->send_demoted );
+  controller_fini();
+  FD_LOG_NOTICE(( "pass: the active runs the handoff pre-checks before it gives the identity up" ));
+}
+
 /* Test that a handoff asked on the active reads the spare's last status
    before giving the identity up. */
 static void
@@ -963,8 +1026,13 @@ test_active_handoff_checks( void ) {
   peer->status_valid   = 1;
   peer->status.role    = (uchar)FD_FAILOVER_ROLE_STANDBY;
   peer->status.term    = 4UL;
+  peer->status.flags   = FD_FAILOVER_FLAG_CAUGHT_UP;
+  peer->cs_sent        = 1;
+  ctx->replay_slot      = 100UL;
+  ctx->turbine_slot     = 104UL;
+  ctx->replay_caught_up = 1;
   ctx->stuck = 1;
-  FD_TEST( apply_control( ctx, stem, &req, 1000L )==FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY );
+  FD_TEST( apply_control( ctx, stem, &req, 1000L )==FD_FAILOVER_CONTROL_RESULT_PRECONDITION );
   FD_TEST( ctx->state==FD_FAILOVER_STATE_ACTIVE && ctx->action==FD_FAILOVER_ACTION_IDLE );
   ctx->stuck = 0;
   FD_TEST( apply_control( ctx, stem, &req, 1000L )==FD_ADMINCTL_RESULT_SUCCESS );
@@ -976,7 +1044,7 @@ test_active_handoff_checks( void ) {
   uint   statuses[] = { FD_FAILOVER_STATUS_STUCK, FD_FAILOVER_STATUS_REPLAG, 0U,   FD_FAILOVER_STATUS_PAUSED };
   ulong  terms[]    = { 4UL,                      4UL,                       5UL,  4UL };
   ulong  expected[] = { FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY, FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY,
-                        FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY, FD_FAILOVER_CONTROL_RESULT_PAUSED };
+                        FD_FAILOVER_CONTROL_RESULT_PRECONDITION, FD_FAILOVER_CONTROL_RESULT_PAUSED };
   for( ulong i=0UL; i<4UL; i++ ) {
     controller_init( FD_FAILOVER_STATE_ACTIVE, 4UL );
     peer = &ctx->peers[ 0 ];
@@ -985,6 +1053,11 @@ test_active_handoff_checks( void ) {
     peer->status.role     = (uchar)FD_FAILOVER_ROLE_STANDBY;
     peer->status.term     = terms[ i ];
     peer->status.status   = statuses[ i ];
+    peer->status.flags    = FD_FAILOVER_FLAG_CAUGHT_UP;
+    peer->cs_sent         = 1;
+    ctx->replay_slot      = 100UL;
+    ctx->turbine_slot     = 104UL;
+    ctx->replay_caught_up = 1;
     FD_TEST( apply_control( ctx, stem, &req, 1000L )==expected[ i ] );
     FD_TEST( ctx->state==FD_FAILOVER_STATE_ACTIVE && ctx->action==FD_FAILOVER_ACTION_IDLE );
     controller_fini();
@@ -2225,6 +2298,7 @@ main( int     argc,
   test_demotion_drain();
   test_switch_response_integrity();
   test_active_handoff_checks();
+  test_active_side_checks();
   test_operator_commands();
   test_bus_control_ordering();
   test_handoff_response();

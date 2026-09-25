@@ -2260,19 +2260,43 @@ apply_control( fd_failover_tile_ctx_t *               ctx,
     int drill = req->cmd==FD_ADMINCTL_FAILOVER_CMD_DRILL;
     if( FD_UNLIKELY( ctx->state==FD_FAILOVER_STATE_ACTIVE ) ) {
       /* If we are the active, handoff means demote ourselves and let the spare
-         promote, so first ask its last status whether it can.  Giving the
-         identity up to a spare that is paused, stuck or behind leaves nobody
-         voting. */
-      if( FD_UNLIKELY( drill ) ) return FD_FAILOVER_CONTROL_RESULT_UNSUPPORTED;
-      fd_failover_status_t local  = local_status( ctx, peer );
-      uchar                reason = fd_failover_handoff_peer_check( &local, &peer->status, peer_status_fresh( ctx, peer, now ) );
-      if( FD_UNLIKELY( reason==FD_FAILOVER_REJECT_PAUSED ) ) return FD_FAILOVER_CONTROL_RESULT_PAUSED;
-      if( FD_UNLIKELY( reason==FD_FAILOVER_REJECT_BUSY   ) ) return FD_FAILOVER_CONTROL_RESULT_BUSY;
-      if( FD_UNLIKELY( reason!=FD_FAILOVER_REJECT_NONE ) ) {
-        FD_LOG_WARNING(( "handoff refused by local or peer status (reason %u)", (uint)reason ));
-        return FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY;
+         promote.  It runs the same pre-checks a spare's request gets, our
+         own readiness and leader window included, so the identity is not
+         given up to a spare that cannot take it or from a machine that is
+         about to lead, and a drill runs them all and moves nothing. */
+      fd_failover_handoff_req_t msg = {
+        .proposed_term  = ctx->hello.term+1UL,
+        .baton_slot     = 0UL,
+        .attempt        = 0U,
+        .reason         = (uchar)( drill ? FD_FAILOVER_HANDOFF_REASON_DRILL
+                                         : FD_FAILOVER_HANDOFF_REASON_OPERATOR ),
+        .deadline_slots = (uint)ctx->deadline_slots,
+        .drill          = (uchar)!!drill,
+      };
+      fd_failover_status_t local = local_status( ctx, peer );
+      uchar reason;
+      uchar code = fd_failover_handoff_check( &msg, &local, &peer->status, peer_status_fresh( ctx, peer, now ),
+                                              peer->cs_sent, ctx->accept_peer_requests, 1,
+                                              ctx->min_slots_to_leader, ctx->deadline_slots, &reason );
+      ctx->handoff_code   = code;
+      ctx->handoff_reason = reason;
+      ctx->handoff_term   = msg.proposed_term;
+      if( FD_UNLIKELY( code!=FD_FAILOVER_HANDOFF_PROCEED ) ) {
+        /* The spare's own status refusing keeps its result, the reasons
+           this machine adds answer precondition, and the status names the
+           reason either way. */
+        FD_LOG_WARNING(( "handoff refused by a pre-check (reason %u)", (uint)reason ));
+        switch( reason ) {
+        case FD_FAILOVER_REJECT_PAUSED:         return FD_FAILOVER_CONTROL_RESULT_PAUSED;
+        case FD_FAILOVER_REJECT_BUSY:           return FD_FAILOVER_CONTROL_RESULT_BUSY;
+        case FD_FAILOVER_REJECT_STATUS_STALE:
+        case FD_FAILOVER_REJECT_PEER_UNHEALTHY:
+        case FD_FAILOVER_REJECT_PEER_BEHIND:    return FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY;
+        default:                                return FD_FAILOVER_CONTROL_RESULT_PRECONDITION;
+        }
       }
-      start_demotion( ctx, stem, ctx->hello.term+1UL, ctx->deadline_slots, 1 );
+      if( FD_UNLIKELY( drill ) ) return FD_ADMINCTL_RESULT_SUCCESS;
+      start_demotion( ctx, stem, msg.proposed_term, ctx->deadline_slots, 1 );
       return FD_ADMINCTL_RESULT_SUCCESS;
     }
 

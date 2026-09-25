@@ -102,6 +102,7 @@ control_result_name( ulong result ) {
     case FD_FAILOVER_CONTROL_RESULT_UNSUPPORTED:  return "that command cannot be applied here";
     case FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY: return "the spare's last status says it cannot take the identity, check its status";
     case FD_FAILOVER_CONTROL_RESULT_TOWER_ROLLBACK: return "the confirmation's final tower is older than the tower the peer streamed, so promotion is refused";
+    case FD_FAILOVER_CONTROL_RESULT_PRECONDITION: return "a handoff pre-check failed, `failover status` names the reason";
     default:                                      return NULL;
   }
 }
