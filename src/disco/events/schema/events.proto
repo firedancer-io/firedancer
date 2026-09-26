@@ -2143,6 +2143,8 @@ message MetricsVerifyTxnProcessed {
   uint64 duplicate = 4;
   // Transaction failed signature verification
   uint64 signature_failed = 5;
+  // Transaction dropped before signature verification because its recent blockhash expires before our next leader slot
+  uint64 blockhash_expired = 285705080;
 }
 
 // Times the tile tried to park while idle (efficient mode), by result
