@@ -31,7 +31,7 @@
 
   ulong pc        = vm->pc;
   ulong ic        = vm->ic;
-  ulong cu        = vm->cu;
+  long  cu        = vm->cu;
   ulong frame_cnt = vm->frame_cnt;
 
   void const * const * const version_interp_jump_table = interp_jump_table[ sbpf_version ];
@@ -173,10 +173,9 @@
   err = syscall->func( vm, reg[1], reg[2], reg[3], reg[4], reg[5], ret );     \
   reg[0] = ret[0];                                                            \
   /* Error handling */                                                        \
-  ulong cu_req = vm->cu;                                                      \
-  cu = fd_ulong_min( cu_req, cu );                                            \
+  cu = fd_long_min( vm->cu, cu );                                             \
   if( FD_UNLIKELY( err ) ) {                                                  \
-    if( err==FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED ) cu = 0UL; /* cmov */ \
+    if( err==FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED ) cu = 0L; /* cmov */  \
     FD_VM_TEST_ERR_EXISTS( vm );                                              \
     goto sigsyscall;                                                          \
   }                                                                           \
@@ -243,7 +242,7 @@
 
        pc0 + cu + cu + 1 < 1310720 + 1400000 + 1400000 + 1 < ULONG_MAX */
 
-# define FD_VM_INTERP_BLOCK_TEXT_LIMIT fd_ulong_min( text_cnt, pc0+cu+cu+1UL )
+# define FD_VM_INTERP_BLOCK_TEXT_LIMIT fd_ulong_min( text_cnt, pc0+(ulong)(cu+cu)+1UL )
 
   ulong block_text_limit = FD_VM_INTERP_BLOCK_TEXT_LIMIT;
 
@@ -252,9 +251,8 @@
     /* Bill linear text segment and this branch instruction as per the above */                         \
     ic_correction = pc - pc0 + 1UL - ic_correction;                                                     \
     ic += ic_correction;                                                                                \
-    if( FD_UNLIKELY( ic_correction>cu ) ) goto sigcost; /* Note: untaken branches don't consume BTB */  \
-    cu -= ic_correction;                                                                                \
-    /* At this point, cu>=0 */                                                                          \
+    cu -= (long)ic_correction;                                                                          \
+    if( FD_UNLIKELY( cu<0L ) ) goto sigcost; /* Note: untaken branches don't consume BTB */             \
     ic_correction = 0UL;
 
   /* FIXME: debatable if it is better to do pc++ here or have the
@@ -1230,8 +1228,8 @@ interp_exec:
 #define FD_VM_INTERP_FAULT                                                                 \
   ic_correction = pc - pc0 + 1UL - ic_correction;                                          \
   ic += ic_correction;                                                                     \
-  if ( FD_UNLIKELY( ic_correction > cu ) ) err = FD_VM_ERR_EBPF_EXCEEDED_MAX_INSTRUCTIONS; \
-  cu -= fd_ulong_min( ic_correction, cu )
+  cu -= (long)ic_correction;                                                               \
+  if( FD_UNLIKELY( cu<0L ) ) { err = FD_VM_ERR_EBPF_EXCEEDED_MAX_INSTRUCTIONS; cu = 0L; }
 
 sigtext_or_sigcost:
   /* If the block text limit is exceeded, sigtext_or_sigcost will be
@@ -1248,7 +1246,7 @@ sigill:      err = FD_VM_ERR_EBPF_UNSUPPORTED_INSTRUCTION;                      
 sigillbr:    err = FD_VM_ERR_EBPF_UNSUPPORTED_INSTRUCTION;                               /* ic current */     /* cu current */  goto interp_halt;
 siginv:      err = FD_VM_ERR_EBPF_INVALID_INSTRUCTION;                                   /* ic current */     /* cu current */  goto interp_halt;
 sigsegv:     err = fd_vm_generate_access_violation( vm->segv_vaddr, vm->sbpf_version );  FD_VM_INTERP_FAULT;                    goto interp_halt;
-sigcost:     err = FD_VM_ERR_EBPF_EXCEEDED_MAX_INSTRUCTIONS;                             /* ic current */     cu = 0UL;         goto interp_halt;
+sigcost:     err = FD_VM_ERR_EBPF_EXCEEDED_MAX_INSTRUCTIONS;                             /* ic current */     cu = 0L;          goto interp_halt;
 sigsyscall:  err = FD_VM_ERR_EBPF_SYSCALL_ERROR;                                         /* ic current */     /* cu current */  goto interp_halt;
 sigfpe:      err = FD_VM_ERR_EBPF_DIVIDE_BY_ZERO;                                        FD_VM_INTERP_FAULT;                    goto interp_halt;
 sigfpeof:    err = FD_VM_ERR_EBPF_DIVIDE_OVERFLOW;                                       FD_VM_INTERP_FAULT;                    goto interp_halt;

@@ -124,7 +124,7 @@ fd_vm_syscall_sol_log_compute_units( /**/            void *  _vm,
 
   /* Max msg_sz: 40 - 3 + 20 = 57 < 127 => we can use printf */
   fd_log_collector_printf_dangerous_max_127( vm->instr_ctx,
-    "Program consumption: %lu units remaining", vm->cu );
+    "Program consumption: %ld units remaining", vm->cu );
 
   *_ret = 0UL;
   return FD_VM_SUCCESS;
