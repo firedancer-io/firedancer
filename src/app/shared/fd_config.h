@@ -44,6 +44,8 @@ struct fd_configf {
     ulong transaction_cache_size_mib;
     ulong bpf_shared_frames;
     ulong bpf_local_frames;
+    int   jit;
+    ulong jit_arena_size_mib;
   } runtime;
 
   struct {

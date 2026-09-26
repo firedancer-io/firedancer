@@ -568,6 +568,7 @@ struct fd_topo_tile {
       int   dump_txn_as_fixture;
       int   dump_syscall_to_pb;
       int   report_runtime_diffs;
+      ulong jit_arena_sz; /* 0 if the jit is disabled */
     } execrp;
 
     struct {
@@ -732,6 +733,7 @@ struct fd_topo_tile {
       ulong accdb_obj_id;
       ulong bpf_frames_obj_id;
       int   report_runtime_diffs;
+      ulong jit_arena_sz; /* 0 if the jit is disabled */
     } execle;
 
     struct {

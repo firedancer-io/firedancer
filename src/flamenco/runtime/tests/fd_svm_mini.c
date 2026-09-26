@@ -252,6 +252,7 @@ fd_svm_mini_create( fd_wksp_t *                  wksp,
   runtime->accdb        = accdb;
   runtime->status_cache = mini->txncache;
   runtime->progcache    = mini->progcache;
+  runtime->jit          = NULL;
 
   runtime->sysvar_bank_seq         = 0UL;
   runtime->instr.stack_sz          = 0;

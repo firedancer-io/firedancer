@@ -1774,6 +1774,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->execrp.bpf_frames_obj_id = fd_pod_query_ulong( config->topo.props, "bpf_frames", ULONG_MAX ); FD_TEST( tile->execrp.bpf_frames_obj_id!=ULONG_MAX );
 
     tile->execrp.max_live_slots  = config->firedancer.runtime.max_live_slots;
+    tile->execrp.jit_arena_sz    = config->firedancer.runtime.jit ? config->firedancer.runtime.jit_arena_size_mib<<20 : 0UL;
 
     tile->execrp.capture_start_slot = config->capture.capture_start_slot;
     fd_cstr_ncpy( tile->execrp.solcap_capture, config->capture.solcap_capture, sizeof(tile->execrp.solcap_capture) );
@@ -1889,6 +1890,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->execle.accdb_obj_id       = fd_pod_query_ulong( config->topo.props, "accdb",     ULONG_MAX ); FD_TEST( tile->execle.accdb_obj_id    !=ULONG_MAX );
     tile->execle.bpf_frames_obj_id  = fd_pod_query_ulong( config->topo.props, "bpf_frames", ULONG_MAX ); FD_TEST( tile->execle.bpf_frames_obj_id!=ULONG_MAX );
     tile->execle.max_live_slots     = config->firedancer.runtime.max_live_slots;
+    tile->execle.jit_arena_sz       = config->firedancer.runtime.jit ? config->firedancer.runtime.jit_arena_size_mib<<20 : 0UL;
     tile->execle.report_runtime_diffs = config->development.event.report_runtime_diffs;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "motor" ) ) ) {
