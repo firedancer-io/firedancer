@@ -19,8 +19,11 @@ $(call add-objs,commands/reasm,fd_firedancer_dev)
 $(call add-objs,commands/forktest/forktest commands/forktest/fd_forktest_tile,fd_firedancer_dev)
 
 ifdef FD_ARCH_SUPPORTS_SANDBOX
-$(call make-bin,firedancer-dev,main,fd_firedancer_dev fd_firedancer fddev_shared fdctl_shared fdctl_platform fd_discof fd_disco fd_choreo fd_flamenco fd_waltz_test fd_quic fd_tls fd_reedsol fd_waltz fd_tango fd_ballet fd_util_extra fd_util)
-$(call make-integration-test,test_firedancer_dev,tests/test_firedancer_dev,fd_firedancer_dev fd_firedancer fddev_shared fdctl_shared fdctl_platform fd_discof fd_disco fd_choreo fd_flamenco fd_waltz_test fd_quic fd_tls fd_reedsol fd_waltz fd_tango fd_ballet fd_util_extra fd_util)
+# Programs transpiled by `firedancer-dev snapshot-load --transpile`
+FD_TRANSPILED_LIB:=$(wildcard $(BASEDIR)/transpiled/x86/libfd_transpiled.a)
+$(call make-bin,firedancer-dev,main,fd_firedancer_dev fd_firedancer fddev_shared fdctl_shared fdctl_platform fd_discof fd_disco fd_choreo fd_transpiler fd_vm fd_flamenco fd_waltz_test fd_quic fd_tls fd_reedsol fd_waltz fd_tango fd_ballet fd_util_extra fd_util,$(FD_TRANSPILED_LIB))
+$(OBJDIR)/bin/firedancer-dev: $(FD_TRANSPILED_LIB)
+$(call make-integration-test,test_firedancer_dev,tests/test_firedancer_dev,fd_firedancer_dev fd_firedancer fddev_shared fdctl_shared fdctl_platform fd_discof fd_disco fd_choreo fd_transpiler fd_vm fd_flamenco fd_waltz_test fd_quic fd_tls fd_reedsol fd_waltz fd_tango fd_ballet fd_util_extra fd_util)
 $(call run-integration-test,test_firedancer_dev)
 endif
 
