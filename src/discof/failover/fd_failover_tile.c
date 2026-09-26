@@ -182,8 +182,11 @@ unprivileged_init( fd_topo_t const *      topo,
       ctx->gossip_in_mtu    = link->mtu;
       continue;
     }
-    /* We do not answer the admin bus yet, its frags are ignored. */
-    if( FD_LIKELY( !strcmp( link->name, "sign_failov" ) || !strcmp( link->name, "admin_failov" ) ) ) continue;
+    /* We do not answer the admin bus or read adopt results yet, their
+       frags are ignored. */
+    if( FD_LIKELY( !strcmp( link->name, "sign_failov"  ) ||
+                   !strcmp( link->name, "admin_failov" ) ||
+                   !strcmp( link->name, "tower_failov" ) ) ) continue;
     FD_LOG_ERR(( "unexpected input link name %s", link->name ));
   }
 
