@@ -155,6 +155,8 @@ metrics_write( fd_execrp_tile_t * ctx ) {
   FD_MCNT_SET( EXECRP, CU_EXECUTED, runtime->metrics.cu_cum );
   FD_MCNT_SET( EXECRP, INSTRUCTION_EXECUTED, runtime->metrics.instr_cum );
   FD_MCNT_SET( EXECRP, CPI_EXECUTED,         runtime->metrics.cpi_cum   );
+  FD_MCNT_SET( EXECRP, TRANSPILED_EXECUTED,  runtime->metrics.transpiled_exec_cnt );
+  FD_MCNT_SET( EXECRP, TRANSPILED_BAILED,    runtime->metrics.transpiled_bail_cnt );
 
   FD_ACCDB_METRICS_WRITE( EXECRP, fd_accdb_metrics( ctx->accdb ) );
 }

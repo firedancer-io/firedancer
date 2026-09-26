@@ -508,9 +508,9 @@ fd_bpf_loader_v3_upgrade_sizing( int               set_programdata_to_elf_len,
                                  ulong *           out_balance_required );
 
 int
-fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
-                fd_progcache_rec_t const * program,
-                uchar                      is_deprecated );
+fd_bpf_execute( fd_exec_instr_ctx_t * instr_ctx,
+                fd_progcache_rec_t *  program,
+                uchar                 is_deprecated );
 
 int
 fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * instr_ctx );

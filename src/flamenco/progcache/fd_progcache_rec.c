@@ -31,6 +31,7 @@ rec_init_inflight( fd_progcache_join_t * join,
   rec->calldests_off = UINT_MAX;
   rec->rodata_off    = 0U;
   rec->sbpf_version  = 0;
+  rec->transpiled_idx = 0U;
   rec->exists        = 1;
   rec->size_class    = c & 0x7UL; /* c<FD_PROGCACHE_CACHE_CLASS_CNT, checked by callers */
 
@@ -288,5 +289,6 @@ fd_progcache_rec_nx( fd_progcache_rec_t * rec ) {
   rec->calldests_off = UINT_MAX;
   rec->rodata_off    = 0;
   rec->sbpf_version  = 0;
+  rec->transpiled_idx = 0U;
   return rec;
 }
