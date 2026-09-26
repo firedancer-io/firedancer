@@ -36,14 +36,21 @@ fd_vm_transpile_bb_splits( ulong *                   bpf_bb_splits,
 
     ulong cls = opcode & 0x07UL;
     if( cls == 0x05UL || cls == 0x06UL ) {
-      if( opcode == 0x85UL /* CALL */ ) {
-        if( static_syscalls && src == 1UL ) { /* v3 internal call */
+      if( opcode == 0x85UL /* CALL */ || opcode == 0x8dUL /* CALLX */ ) {
+        if( opcode == 0x85UL && static_syscalls && src == 1UL ) { /* v3 internal call */
           long target = (long)pc + (long)(int)imm + 1L;
           if( target >= 0 && (ulong)target < text_cnt &&
               fd_vm_instr_opcode( bpf_text[ target ] ) != 0x00UL /* not inside an LDDW */ ) {
             FD_VM_SET_BB_SPLIT( (ulong)target );
           }
         }
+        /* A function that ends in a call to a noreturn function (e.g.
+           a panic handler) has no exit, so the next function starts
+           right after a call.  Functions only reached through function
+           pointers are not calldests, and callx into the middle of a
+           block would bail.  Calls settle CUs anyway, so this split
+           emits no code (only a jump table entry). */
+        if( pc + 1UL < text_cnt )                     FD_VM_SET_BB_SPLIT( pc + 1UL );
       } else if( opcode == 0x95UL /* EXIT */ ) {
         if( pc + 1UL < text_cnt )                     FD_VM_SET_BB_SPLIT( pc + 1UL );
       } else if( opcode != 0x8dUL /* CALLX */ ) {
