@@ -797,17 +797,6 @@ enum MetricsSnapinStreamState {
   METRICS_SNAPIN_STREAM_STATE_SHUTDOWN = 5;  // Shutdown
 }
 
-// Snapshot account index finalization stage; published synchronously by the lead inserter: 0=idle, 1=count (counting), 2=scatter (scattering), 3=build (building), 4=cleanup, 5=done
-enum MetricsSnapinIndexState {
-  METRICS_SNAPIN_INDEX_STATE_UNSPECIFIED = 0;
-  METRICS_SNAPIN_INDEX_STATE_IDLE = 1;  // idle
-  METRICS_SNAPIN_INDEX_STATE_COUNT = 2;  // counting
-  METRICS_SNAPIN_INDEX_STATE_SCATTER = 3;  // scattering
-  METRICS_SNAPIN_INDEX_STATE_BUILD = 4;  // building
-  METRICS_SNAPIN_INDEX_STATE_CLEANUP = 5;  // cleanup
-  METRICS_SNAPIN_INDEX_STATE_DONE = 6;  // done
-}
-
 // Tile lifecycle state: 0=booting, 1=running, 2=shutdown
 enum MetricsMetricState {
   METRICS_METRIC_STATE_UNSPECIFIED = 0;
@@ -10497,6 +10486,10 @@ message MetricsExecle {
   MetricsExecleTxncacheQueryDurationNanos txncache_query_duration_nanos = 66;
   // Duration of one transaction cache insert
   MetricsExecleTxncacheInsertDurationNanos txncache_insert_duration_nanos = 67;
+  // sBPF program invocations run as ahead-of-time transpiled code
+  uint64 transpiled_executed = 383688624;
+  // Transpiled invocations that bailed to the interpreter
+  uint64 transpiled_bailed = 429405858;
   // Acquires that waited for the accdb tile to bring keys from the on-disk account index into memory
   uint64 accdb_index_residual_waited = 524108498;
   // Time spent waiting for the accdb tile to bring keys from the on-disk account index into memory
@@ -11041,10 +11034,6 @@ message MetricsReplay {
   uint64 stake_delegation_disk_written = 162;
   // Time all tiles spent in stake delegation spill file reads and writes
   uint64 stake_delegation_disk_duration_nanos = 163;
-  // Cost trackers written to the spill file because the RAM window was full
-  uint64 cost_tracker_spilled = 402197561;
-  // Cost trackers read back from the spill file
-  uint64 cost_tracker_spill_read = 526544996;
   // Acquires that waited for the accdb tile to bring keys from the on-disk account index into memory
   uint64 accdb_index_residual_waited = 455049313;
   // Time spent waiting for the accdb tile to bring keys from the on-disk account index into memory
@@ -11840,12 +11829,6 @@ message MetricsSnapin {
   uint64 account_processed = 29;
   // Account batches processed across all snapshots
   uint64 account_batch_processed = 30;
-  // Snapshot account index finalization stage; published synchronously by the lead inserter: 0=idle, 1=count (counting), 2=scatter (scattering), 3=build (building), 4=cleanup, 5=done
-  MetricsSnapinIndexState index_state = 421830292;
-  // Completed index finalization work units (placement ranges, then cleanup); resets on each placement or snapshot attempt
-  uint64 index_progress = 511317753;
-  // Expected index finalization work units (placement ranges plus one for cleanup); work progress is not elapsed-time progress
-  uint64 index_expected = 531162716;
 }
 
 // Metrics of one metric tile instance, one row per sweep
@@ -12534,6 +12517,10 @@ message MetricsExecrp {
   MetricsExecrpTxncacheQueryDurationNanos txncache_query_duration_nanos = 68;
   // Duration of one transaction cache insert
   MetricsExecrpTxncacheInsertDurationNanos txncache_insert_duration_nanos = 69;
+  // sBPF program invocations run as ahead-of-time transpiled code
+  uint64 transpiled_executed = 524961366;
+  // Transpiled invocations that bailed to the interpreter
+  uint64 transpiled_bailed = 489446758;
   // Program executions that found native code in the tile's JIT cache
   uint64 jit_hit = 335920163;
   // Programs compiled to native code

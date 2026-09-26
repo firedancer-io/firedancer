@@ -6,6 +6,10 @@ $(call add-objs,fd_transpile_x86 fd_transpile_runtime fd_vm_jit,fd_flamenco)
 $(call make-unit-test,test_transpile,test_transpile,fd_flamenco fd_ballet fd_util)
 $(call run-unit-test,test_transpile)
 
+# binds program cache records to linked-in transpiled programs
+$(call add-hdrs,fd_transpile_bind.h)
+$(call add-objs,fd_transpile_bind fd_transpile_ext,fd_flamenco)
+
 # transpiler frontend (relocatable objects and static archives)
 ifdef FD_HAS_HOSTED
 $(call make-lib,fd_transpiler)

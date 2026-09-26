@@ -409,6 +409,8 @@
                 "sum": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Sum of samples (nanos)" }
             }
         },
+        "transpiled_executed":                      { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "sBPF program invocations run as ahead-of-time transpiled code", "field_number": 383688624 },
+        "transpiled_bailed":                        { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Transpiled invocations that bailed to the interpreter", "field_number": 429405858 },
         "accdb_index_residual_waited":              { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Acquires that waited for the accdb tile to bring keys from the on-disk account index into memory", "field_number": 524108498 },
         "accdb_index_residual_wait_duration_nanos": { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Time spent waiting for the accdb tile to bring keys from the on-disk account index into memory", "field_number": 366199351 },
         "accdb_index_prefetched":                   { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Keys queued for the accdb tile to bring from the on-disk account index into memory ahead of use", "field_number": 536753434 },
