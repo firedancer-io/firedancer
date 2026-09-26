@@ -87,8 +87,10 @@ text_map_place( ulong ref,
 }
 
 fd_transpiled_live_t *
-fd_transpiled_live_create( fd_sbpf_program_t const * prog,
-                           fd_sbpf_syscalls_t const * syscalls ) {
+fd_transpiled_live_create( fd_sbpf_program_t const *  prog,
+                           fd_sbpf_syscalls_t const * syscalls,
+                           void *                     scratch,
+                           ulong                      scratch_sz ) {
 
   if( FD_UNLIKELY( !prog || !syscalls ) ) {
     FD_LOG_WARNING(( "NULL prog or syscalls" ));
@@ -101,7 +103,7 @@ fd_transpiled_live_create( fd_sbpf_program_t const * prog,
   }
 
   fd_transpiled_live_t * live          = NULL;
-  dasm_State *           d             = NULL;
+  fd_vm_transpile_dasm_t d[1];
   ulong *                bb_splits     = NULL;
   fd_elf64_rela *        reloc         = NULL;
   uchar *                text          = NULL;
@@ -112,7 +114,7 @@ fd_transpiled_live_create( fd_sbpf_program_t const * prog,
   /* Transpile */
 
   ulong bb_word_cnt = (text_cnt+63UL)>>6;
-  ulong reloc_max   = text_cnt*4UL + 1024UL;
+  ulong reloc_max   = FD_VM_TRANSPILE_RELOC_MAX;
   ulong reloc_cnt   = reloc_max;
   bb_splits = malloc( bb_word_cnt*sizeof(ulong) );
   reloc     = malloc( reloc_max*sizeof(fd_elf64_rela) );
@@ -122,15 +124,15 @@ fd_transpiled_live_create( fd_sbpf_program_t const * prog,
   }
   fd_vm_transpile_bb_splits( bb_splits, prog );
 
-  dasm_init( &d, 1 );
-  if( FD_UNLIKELY( fd_vm_transpile_code( &d, prog->info.sbpf_version, (uchar const *)prog->text, text_cnt,
-                                         prog->entry_pc, (ulong const *)prog->calldests, syscalls,
+  if( FD_UNLIKELY( fd_vm_transpile_code( d, scratch, scratch_sz, prog->info.sbpf_version,
+                                         (uchar const *)prog->text, text_cnt, prog->entry_pc,
+                                         (ulong const *)prog->calldests, syscalls,
                                          bb_splits, NULL, reloc, &reloc_cnt ) ) ) {
     FD_LOG_WARNING(( "fd_vm_transpile_code failed" ));
     goto fail;
   }
   size_t code_sz = 0;
-  int link_err = dasm_link( &d, &code_sz );
+  int link_err = dasm_link( d, &code_sz );
   if( FD_UNLIKELY( link_err ) ) {
     FD_LOG_WARNING(( "dasm_link failed (%d)", link_err ));
     goto fail;
@@ -203,7 +205,7 @@ fd_transpiled_live_create( fd_sbpf_program_t const * prog,
   /* Populate .text */
 
   memset( text, 0xcc, text_map_sz ); /* int3 */
-  int enc_err = dasm_encode( &d, text );
+  int enc_err = dasm_encode( d, text );
   if( FD_UNLIKELY( enc_err ) ) {
     FD_LOG_WARNING(( "dasm_encode failed (%d)", enc_err ));
     goto fail;
@@ -217,7 +219,7 @@ fd_transpiled_live_create( fd_sbpf_program_t const * prog,
 
   ulong const lbl_reloc0 = FD_VM_TRANSPILE_DASM_LBL_RELOC0( text_cnt );
   for( ulong i=0UL; i<reloc_cnt; i++ ) {
-    int ofs = dasm_getpclabel( &d, (uint)( lbl_reloc0+i ) );
+    int ofs = dasm_getpclabel( d, (uint)( lbl_reloc0+i ) );
     if( FD_UNLIKELY( ofs<0 || (ulong)ofs+4UL>code_sz ) ) {
       FD_LOG_WARNING(( "failed to resolve relocation %lu PC label (%d)", i, ofs ));
       goto fail;
@@ -255,7 +257,7 @@ fd_transpiled_live_create( fd_sbpf_program_t const * prog,
     while( word ) {
       ulong pc = (w<<6) + (ulong)fd_ulong_find_lsb( word );
       word &= word-1UL;
-      int ofs = dasm_getpclabel( &d, (uint)pc );
+      int ofs = dasm_getpclabel( d, (uint)pc );
       if( FD_UNLIKELY( ofs<0 ) ) {
         FD_LOG_WARNING(( "failed to resolve basic block %lu PC label (%d)", pc, ofs ));
         goto fail;
@@ -286,7 +288,6 @@ fd_transpiled_live_create( fd_sbpf_program_t const * prog,
     goto fail;
   }
 
-  dasm_free( &d );
   free( reloc );
   free( bb_splits );
   return live;
@@ -296,7 +297,6 @@ fail_reach:
 fail:
   if( text   ) munmap( text,   text_map_sz   );
   if( rodata ) munmap( rodata, rodata_map_sz );
-  if( d      ) dasm_free( &d );
   free( reloc );
   free( bb_splits );
   return NULL;
