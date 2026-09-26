@@ -335,6 +335,7 @@ setup_env( fuzz_env_t * env ) {
   ctx->tcache.map     = fd_tcache_map_laddr   ( tcache );
 
   FD_TEST( fd_sha512_join( fd_sha512_new( ctx->sha ) ) );
+  for( ulong i=0UL; i<FD_GOSSVF_BATCH_SIG_MAX+FD_GOSSIP_MESSAGE_MAX_CRDS; i++ ) FD_TEST( (ctx->batch_sha[ i ] = fd_sha512_join( fd_sha512_new( ctx->_batch_sha+i ) )) );
   ctx->ed25519_cache = fd_ed25519_cache_join( fd_ed25519_cache_new( edcache_mem, FUZZ_ED25519_CACHE_ENT_CNT, ctx->seed ) );
   FD_TEST( ctx->ed25519_cache );
 
@@ -563,8 +564,12 @@ send_udp_payload( fuzz_env_t * env,
   ulong old_chunk = env->ctx->out->chunk;
   ulong old_seq   = env->stem_seq[0];
   int result = handle_net( env->ctx, packet_sz, 0UL, env->stem );
-  env->ctx->metrics.message_rx[ result ]++;
-  env->ctx->metrics.message_rx_bytes[ result ] += packet_sz;
+  if( FD_LIKELY( result>=0 ) ) {
+    env->ctx->metrics.message_rx[ result ]++;
+    env->ctx->metrics.message_rx_bytes[ result ] += packet_sz;
+  } else {
+    batch_flush( env->ctx, env->stem ); /* no ins here, so flush each message as the idle tile would */
+  }
 
   if( FD_UNLIKELY( env->ctx->out->chunk==old_chunk ) ) return;
 
