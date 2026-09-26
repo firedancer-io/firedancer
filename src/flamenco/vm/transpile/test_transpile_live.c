@@ -728,6 +728,65 @@ test_fixtures( fd_sbpf_syscalls_t * syscalls ) {
   test_env_fini( env );
 }
 
+/* Large program test: the JIT compiles programs with more slots than
+   its scratch is sized for in the worst case (FD_VM_JIT_SCRATCH_TEXT_CNT).
+   Straight-line ALU code with a forward branch every 64 slots, results
+   identical to the interpreter. */
+
+#define LARGE_TEST_TEXT_CNT (FD_VM_JIT_SCRATCH_TEXT_CNT+(FD_VM_JIT_SCRATCH_TEXT_CNT>>1))
+
+static void
+test_large( fd_sbpf_syscalls_t * syscalls ) {
+  ulong   n    = LARGE_TEST_TEXT_CNT;
+  ulong * text = malloc( n*sizeof(ulong) );
+  FD_TEST( text );
+  for( ulong pc=0UL; pc<n-1UL; pc++ ) {
+    if(      pc%64UL==63UL ) text[pc] = fd_vm_instr( FD_SBPF_OP_JNE_IMM,   0, 0, 1, 0U ); /* r0!=0: skip one */
+    else if( pc%3UL        ) text[pc] = fd_vm_instr( FD_SBPF_OP_ADD64_IMM, 0, 0, 0, (uint)pc );
+    else                     text[pc] = fd_vm_instr( FD_SBPF_OP_XOR64_REG, 0, 1, 0, 0U );
+  }
+  text[n-1UL] = fd_vm_instr( FD_SBPF_OP_EXIT, 0, 0, 0, 0U );
+
+  void * calldests_mem = aligned_alloc( fd_sbpf_calldests_align(), fd_sbpf_calldests_footprint( n ) );
+  FD_TEST( calldests_mem );
+  fd_sbpf_calldests_t * calldests = fd_sbpf_calldests_join( fd_sbpf_calldests_new( calldests_mem, n ) );
+  FD_TEST( calldests );
+
+  static fd_sbpf_program_t prog[1];
+  memset( prog, 0, sizeof(fd_sbpf_program_t) );
+  prog->info.text_cnt     = (uint)n;
+  prog->info.text_sz      = n*8UL;
+  prog->info.sbpf_version = FD_SBPF_V0;
+  prog->rodata            = text;
+  prog->rodata_sz         = n*8UL;
+  prog->text              = text;
+  prog->entry_pc          = 0UL;
+  prog->calldests         = calldests;
+
+  void * jit_mem = aligned_alloc( fd_vm_jit_align(), fd_vm_jit_footprint() );
+  FD_TEST( jit_mem );
+  fd_vm_jit_t * jit = fd_vm_jit_join( fd_vm_jit_new( jit_mem, 64UL<<20 ) );
+  FD_TEST( jit );
+
+  test_env_t env[1];
+  test_env_init( env );
+  static test_result_t res_interp[1];
+  static test_result_t res_jit   [1];
+  fixture_exec    ( env, prog, syscalls, NULL,      res_interp );
+  fixture_exec_jit( env, prog, syscalls, NULL, jit, res_jit    );
+  if( FD_UNLIKELY( res_jit->err!=res_interp->err || res_jit->r0!=res_interp->r0 || res_jit->cu!=res_interp->cu ) )
+    FD_LOG_ERR(( "large: jit mismatch (interp err %d r0 %#lx cu %lu) (jit err %d r0 %#lx cu %lu)",
+                 res_interp->err, res_interp->r0, res_interp->cu, res_jit->err, res_jit->r0, res_jit->cu ));
+  fd_vm_jit_metrics_t const * m = fd_vm_jit_metrics( jit );
+  FD_TEST( m->compile_cnt==1UL && !m->compile_fail_cnt && !m->bail_cnt );
+  FD_LOG_NOTICE(( "large: %lu slots ok (err %d r0 %#lx cu %lu)", n, res_jit->err, res_jit->r0, res_jit->cu ));
+
+  test_env_fini( env );
+  free( jit_mem );
+  free( calldests_mem );
+  free( text );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -791,6 +850,7 @@ main( int     argc,
 
   test_fixtures( syscalls );
   test_callx_after_call( syscalls );
+  test_large( syscalls );
   test_frames();
   test_scratch( syscalls );
 
