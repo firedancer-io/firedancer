@@ -4,6 +4,7 @@
 #include "test_ed25519_cctv.c"
 #include "test_ed25519_wycheproof.c"
 #include <stdio.h>
+#include <stdlib.h>
 
 #if FD_HAS_AVX512
 #include "avx512/fd_ed25519_lane.h"
@@ -238,6 +239,12 @@ test_lane_group( fd_rng_t * rng ) {
 
 #define TEST_MAX 33UL
 
+/* The cached variant shares one signer cache across the whole test so
+   repeated keys get admitted and later batches mix warm, cold and
+   invalid keys at any tail position. */
+
+static fd_ed25519_cache_t * test_cache;
+
 static void
 check_batch( uchar const * const msgs[],
              ulong const           sizes[],
@@ -246,14 +253,17 @@ check_batch( uchar const * const msgs[],
              fd_sha512_t *         shas[],
              ulong                 cnt ) {
   int results[TEST_MAX+2];
-  for( ulong j=0; j<TEST_MAX+2; j++ ) results[j] = 12345;
+  int cached [TEST_MAX+2];
+  for( ulong j=0; j<TEST_MAX+2; j++ ) results[j] = cached[j] = 12345;
   fd_ed25519_verify_batch_multi_msg( msgs, sizes, sigs, pubs, shas, results+1, cnt );
-  FD_TEST( results[0]==12345 );
+  fd_ed25519_verify_batch_multi_msg_cached( msgs, sizes, sigs, pubs, shas, cached+1, cnt, test_cache );
+  FD_TEST( results[0]==12345 && cached[0]==12345 );
   for( ulong j=0; j<cnt; j++ ) {
     int expected = fd_ed25519_verify( msgs[j], sizes[j], sigs[j], pubs[j], shas[j] );
     if( results[j+1]!=expected ) FD_LOG_ERR(( "count %lu lane %lu: got %d expected %d", cnt, j, results[j+1], expected ));
+    if( cached [j+1]!=expected ) FD_LOG_ERR(( "count %lu lane %lu: cached got %d expected %d", cnt, j, cached[j+1], expected ));
   }
-  for( ulong j=cnt+1; j<TEST_MAX+2; j++ ) FD_TEST( results[j]==12345 );
+  for( ulong j=cnt+1; j<TEST_MAX+2; j++ ) FD_TEST( results[j]==12345 && cached[j]==12345 );
 }
 
 static void
@@ -538,6 +548,9 @@ main( int argc, char ** argv ) {
   }
 #endif
   fd_ed25519_verify_batch_multi_msg( NULL, NULL, NULL, NULL, NULL, NULL, 0UL );
+  test_cache = fd_ed25519_cache_join( fd_ed25519_cache_new( aligned_alloc( fd_ed25519_cache_align(), fd_ed25519_cache_footprint( 64UL ) ), 64UL, 1UL ) );
+  FD_TEST( test_cache );
+  fd_ed25519_verify_batch_multi_msg_cached( NULL, NULL, NULL, NULL, NULL, NULL, 0UL, test_cache );
 #if FD_HAS_AVX512
   test_lane_field( rng );
   test_lane_base_table( 0 );
@@ -546,6 +559,9 @@ main( int argc, char ** argv ) {
 #endif
   test_messages( rng, shas, iters );
   test_corpora( shas );
+  FD_LOG_NOTICE(( "cached variant: hit %lu miss %lu insert %lu", fd_ed25519_cache_hit_cnt( test_cache ), fd_ed25519_cache_miss_cnt( test_cache ), fd_ed25519_cache_insert_cnt( test_cache ) ));
+  FD_TEST( fd_ed25519_cache_hit_cnt( test_cache ) && fd_ed25519_cache_insert_cnt( test_cache ) );
+  free( fd_ed25519_cache_delete( fd_ed25519_cache_leave( test_cache ) ) );
   if( bench ) bench_messages( shas, bench );
   for( ulong j=0; j<TEST_MAX; j++ ) fd_sha512_delete( fd_sha512_leave( shas[j] ) );
   fd_rng_delete( fd_rng_leave( rng ) );
