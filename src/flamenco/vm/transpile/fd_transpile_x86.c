@@ -69,7 +69,8 @@
    SVM spec compliant.
 
    BPF-to-BPF and syscalls do not end a basic block.  They only settle
-   CUs, such that syscalls see an accurate vm->cu (possibly negative).
+   CUs, such that syscalls see an accurate vm->cu (possibly negative,
+   in which case the first CU charge in the syscall fails).
    Faults charge the instructions executed so far in the current basic
    block, like the interpreter.
 
@@ -118,56 +119,31 @@
    - x86 protection keys
    - x86 CET shadow stack compatibility
    - x86 CET indirect branch tracking compatibility
-
-  ### Remaining Gaps Still Open
-
-  1. vm->pc is not updated on fault or on program exit.  Only call
-     sites (for the shadow frame) and callx bail (for the interpreter
-     to resume) maintain it.  */
-
-/* DynASM allocates from the session's scratch region (dasm_grow).
-   Nothing is freed individually. */
-
-#define DASM_M_GROW( ctx, t, p, sz, need ) do {           \
-    size_t _need = (need);                                \
-    if( (sz)<_need ) {                                    \
-      (p)  = (t *)dasm_grow( (ctx), (p), (sz), _need );   \
-      (sz) = _need;                                       \
-    }                                                     \
-  } while(0)
-#define DASM_M_FREE( ctx, p, sz ) do { (void)(ctx); (void)(p); (void)(sz); } while(0)
+   - Set vm->pc correctly on fault */
 
 #include "fd_transpile.h"
 #include <setjmp.h>
 
-/* dasm_grow bump allocates need bytes from dasm's scratch region and
-   copies over the sz bytes at p.  The most recent allocation (DynASM's
-   action buffer, once encoding started) grows in place.  Allocations
-   are capped at 64 MiB, the reach of DynASM's 24-bit buffer positions.
-   On failure, unwinds fd_vm_transpile_code with ERR_NOMEM. */
-
-static void *
-dasm_grow( fd_vm_transpile_dasm_t * dasm,
-           void *                   p,
-           ulong                    sz,
-           ulong                    need ) {
-  if( FD_UNLIKELY( !dasm->fail ) ) FD_LOG_CRIT(( "DynASM allocation outside of fd_vm_transpile_code" ));
-  ulong base = (ulong)dasm->mem;
-  ulong end  = base + dasm->mem_used;
-  ulong addr = ( p && (ulong)p+sz==end ) ? (ulong)p : fd_ulong_align_up( end, 16UL );
-  if( FD_UNLIKELY( need>(1UL<<26) || addr-base>dasm->mem_sz || need>dasm->mem_sz-(addr-base) ) ) {
-    FD_LOG_WARNING(( "out of transpiler scratch (%lu bytes, %lu used, %lu needed)", dasm->mem_sz, dasm->mem_used, need ));
-    longjmp( dasm->fail, 1 );
-  }
-  if( p && addr!=(ulong)p ) memcpy( (void *)addr, p, sz );
-  dasm->mem_used = addr + need - base;
-  return (void *)addr;
+static FD_TL jmp_buf dasm_oom;
+__attribute__((noreturn)) static void
+dasm_trap_oom( char const * msg ) {
+  FD_LOG_WARNING(( "transpile scratch buffer out of memory (%s)", msg ));
+  longjmp( dasm_oom, 1 );
 }
+
+/* all DynASM state is preallocated, so just trap to OOM on grow request */
+#define Dst_DECL fd_transpiler_t * Dst
+#define Dst_REF  (Dst->state)
+#define DASM_M_GROW( ctx, t, p, sz, need ) dasm_trap_oom( #t " " #p )
+#define DASM_M_FREE( ctx, p, sz )
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wconversion"
 #pragma GCC diagnostic ignored "-Wsign-conversion"
 #pragma GCC diagnostic ignored "-Wimplicit-fallthrough"
+#pragma GCC diagnostic ignored "-Wunused-parameter"
+#pragma GCC diagnostic ignored "-Wempty-body"
+#include "../../../third_party/luajit/dasm_proto.h"
 #include "../../../third_party/luajit/dasm_x86.h"
 #pragma GCC diagnostic pop
 #include "../fd_vm_private.h"
@@ -179,9 +155,9 @@ dasm_grow( fd_vm_transpile_dasm_t * dasm,
 #if DASM_VERSION != 10500
 #error "Version mismatch between DynASM and included encoding engine"
 #endif
-#line 171 "fd_transpile_x86.dasc"
+#line 147 "fd_transpile_x86.dasc"
 //|.actionlist actions
-static const unsigned char actions[4916] = {
+static const unsigned char actions[4915] = {
   248,10,73,137,132,253,36,233,73,137,180,253,36,233,73,137,148,253,36,233,
   73,137,140,253,36,233,77,137,132,253,36,233,77,137,140,253,36,233,77,137,
   148,253,36,233,77,137,156,253,36,233,73,137,156,253,36,233,77,137,172,253,
@@ -408,23 +384,23 @@ static const unsigned char actions[4916] = {
   240,131,240,51,15,140,245,255,72,129,252,248,240,35,239,15,142,245,255,64,
   129,252,248,240,43,239,15,142,245,255,72,57,192,240,131,240,35,15,142,245,
   255,64,57,192,240,131,240,51,15,142,245,255,73,129,172,253,36,233,239,255,
-  232,245,255,252,233,244,33,255,73,199,132,253,36,233,237,232,245,255,73,129,
-  172,253,36,233,239,73,199,132,253,36,233,237,73,137,199,240,131,232,244,30,
-  255,252,233,244,27,255,232,244,10,65,191,237,49,252,255,252,233,244,12,249,
-  255,249,85,252,255,117,252,248,72,141,108,36,8,72,131,252,236,8,232,244,25,
-  69,133,252,255,15,133,244,29,252,233,245,255,248,32,232,244,10,65,191,237,
-  252,233,244,12,255,248,24,72,139,60,36,139,127,1,232,244,10,252,233,244,12,
-  255,248,33,232,244,10,65,191,237,49,252,255,252,233,244,12,255,248,31,232,
-  244,10,65,191,237,49,252,255,255,248,12,73,41,188,253,36,233,73,139,188,253,
-  36,233,73,43,188,253,36,233,73,137,188,253,36,233,73,131,188,253,36,233,0,
-  15,141,244,247,73,199,132,253,36,233,0,0,0,0,65,191,237,248,1,190,237,252,
-  233,244,28,255,248,28,72,139,109,252,248,49,210,252,243,72,15,30,202,72,133,
-  210,15,132,244,247,72,139,77,200,72,41,209,72,193,252,233,3,133,201,15,132,
-  244,247,72,137,200,252,243,72,15,174,232,248,1,68,137,252,248,72,141,101,
-  208,65,95,65,94,65,93,65,92,91,201,195,255
+  73,199,132,253,36,233,237,232,245,255,252,233,244,33,255,73,129,172,253,36,
+  233,239,73,199,132,253,36,233,237,73,137,199,240,131,232,244,30,255,252,233,
+  244,27,255,232,244,10,65,191,237,191,1,0,0,0,252,233,244,12,249,255,249,85,
+  252,255,117,252,248,72,141,108,36,8,72,131,252,236,8,232,244,25,69,133,252,
+  255,15,133,244,29,252,233,245,255,248,32,232,244,10,65,191,237,252,233,244,
+  12,255,248,24,72,139,60,36,139,127,1,232,244,10,252,233,244,12,255,248,33,
+  232,244,10,65,191,237,49,252,255,252,233,244,12,255,248,31,232,244,10,65,
+  191,237,49,252,255,255,248,12,73,41,188,253,36,233,73,139,188,253,36,233,
+  73,43,188,253,36,233,73,137,188,253,36,233,73,131,188,253,36,233,0,15,141,
+  244,247,73,199,132,253,36,233,0,0,0,0,65,191,237,248,1,190,237,252,233,244,
+  28,255,248,28,72,139,109,252,248,49,210,252,243,72,15,30,202,72,133,210,15,
+  132,244,247,72,139,77,200,72,41,209,72,193,252,233,3,133,201,15,132,244,247,
+  72,137,200,252,243,72,15,174,232,248,1,68,137,252,248,72,141,101,208,65,95,
+  65,94,65,93,65,92,91,201,195,255
 };
 
-#line 172 "fd_transpile_x86.dasc"
+#line 148 "fd_transpile_x86.dasc"
 //|.globals fd_xlat_
 enum {
   fd_xlat_regs_save,
@@ -453,41 +429,48 @@ enum {
   fd_xlat_exception_ill,
   fd_xlat__MAX
 };
-#line 173 "fd_transpile_x86.dasc"
+#line 149 "fd_transpile_x86.dasc"
+//|.globalnames fd_xlat_names
+static const char *const fd_xlat_names[] = {
+  "regs_save",
+  "regs_restore",
+  "exception_charge",
+  "mmu_translate_ld_1",
+  "mmu_tlb_hit",
+  "mmu_translate_check",
+  "mmu_tlb_miss",
+  "mmu_translate_ld_2",
+  "mmu_translate_ld_4",
+  "mmu_translate_ld_8",
+  "mmu_translate_st_1",
+  "mmu_translate_st_2",
+  "mmu_translate_st_4",
+  "mmu_translate_st_8",
+  "exception_segfault",
+  "bpfcall_frame_push",
+  "bpfcall_frame_init",
+  "bpfcall_frame_pop",
+  "unwind",
+  "call_imm_depth",
+  "callx",
+  "exception_cost",
+  "exception_div_zero",
+  "exception_ill",
+  (const char *)0
+};
+#line 150 "fd_transpile_x86.dasc"
 //|.type vm, fd_vm_t, r12
 #define Dt1(_V) (int)(ptrdiff_t)&(((fd_vm_t *)0)_V)
-#line 174 "fd_transpile_x86.dasc"
+#line 151 "fd_transpile_x86.dasc"
 //|.section code
 #define DASM_SECTION_CODE	0
 #define DASM_MAXSECTION		1
-#line 175 "fd_transpile_x86.dasc"
-
-struct fd_transpiler {
-  fd_vm_transpile_dasm_t * Dst;
-
-  ulong bpf_text_cnt;
-
-  /* DynASM dynamic labels enumerate as follows:
-     - [0,dasm_lbl_thunk0)              bpf_text_cnt labels, one for each BPF instruction
-     - [dasm_lbl_thunk0,dasm_lbl_sys0)  thunk_cnt labels, one for each BPF direct call destination
-     - [dasm_lbl_sys0,fd_lbl_reloc0)    one label for each syscall thunk (not all used)
-     - [dasm_lbl_reloc0,dasm_lbl_max)   relocation site labels, one for each `call rel32` x86 instructio n*/
-  ulong dasm_lbl_thunk0;
-  ulong dasm_lbl_sys0;
-  ulong dasm_lbl_reloc0;
-  ulong dasm_lbl_max;
-
-  fd_elf64_rela * reloc0;
-  ulong           reloc_cnt;
-  ulong           reloc_max;
-};
-
-typedef struct fd_transpiler fd_transpiler_t;
+#line 152 "fd_transpile_x86.dasc"
 
 /* emit_regs_subroutines: emit helper functions for reg save/restore */
 
 static void
-emit_regs_subroutines( fd_vm_transpile_dasm_t * Dst ) {
+emit_regs_subroutines( fd_transpiler_t * Dst ) {
   /* regs_save: save BPF register state into fd_vm_t */
   //|->regs_save:
   //| mov vm->reg[0],  rax
@@ -503,7 +486,7 @@ emit_regs_subroutines( fd_vm_transpile_dasm_t * Dst ) {
   //| mov vm->reg[10], r14
   //| ret
   dasm_put(Dst, 0, Dt1(->reg[0]), Dt1(->reg[1]), Dt1(->reg[2]), Dt1(->reg[3]), Dt1(->reg[4]), Dt1(->reg[5]), Dt1(->reg[6]), Dt1(->reg[7]), Dt1(->reg[8]), Dt1(->reg[9]), Dt1(->reg[10]));
-#line 216 "fd_transpile_x86.dasc"
+#line 171 "fd_transpile_x86.dasc"
 
   /* regs_restore: load BPF register state from fd_vm_t */
   //|->regs_restore:
@@ -520,7 +503,7 @@ emit_regs_subroutines( fd_vm_transpile_dasm_t * Dst ) {
   //| mov r14, vm->reg[10]
   //| ret
   dasm_put(Dst, 70, Dt1(->reg[0]), Dt1(->reg[1]), Dt1(->reg[2]), Dt1(->reg[3]), Dt1(->reg[4]), Dt1(->reg[5]), Dt1(->reg[6]), Dt1(->reg[7]), Dt1(->reg[8]), Dt1(->reg[9]), Dt1(->reg[10]));
-#line 231 "fd_transpile_x86.dasc"
+#line 186 "fd_transpile_x86.dasc"
 }
 
 /* CU budgeting math
@@ -589,48 +572,44 @@ sym_id_syscall_handler( ulong syscall_slot_id ) {
 }
 
 /* emit_ffi_call generates a relocatable call to a C function.  Assumes
-   the current CPU state is psABI compliant and rsp is 16 byte aligned.
-   This function must only be called up to FD_VM_TRANSPILE_RELOC_MAX
-   times per program compile. */
+   the current CPU state is psABI compliant and rsp is 16 byte aligned. */
 
 static void
-emit_ffi_call( fd_transpiler_t * t,
+emit_ffi_call( fd_transpiler_t * Dst,
                uint              sym ) {
-  fd_vm_transpile_dasm_t * Dst = t->Dst;
-  ulong idx = t->reloc_cnt++;
-  if( FD_UNLIKELY( idx>=t->reloc_max ) ) {
-    FD_LOG_WARNING(( "too many relocation sites" ));
-    longjmp( t->Dst->fail, 1 );
+  ulong idx = Dst->reloc_cnt++;
+  if( FD_UNLIKELY( idx>=FD_TRANSPILER_RELOC_MAX ) ) {
+    longjmp( dasm_oom, 1 );
   }
-  t->reloc0[ idx ] = (fd_elf64_rela){
+  Dst->reloc[ idx ] = (fd_elf64_rela){
     .r_info   = FD_ELF64_R_INFO( sym, FD_ELF_R_X86_64_PLT32 ),
     .r_addend = -4L,
   };
   //| .byte 0xe8 // CALL rel32
-  //|=>(t->dasm_lbl_reloc0 + idx):
+  //|=>(Dst->dasm_lbl_reloc0 + idx):
   //| .dword 0
-  dasm_put(Dst, 140, (t->dasm_lbl_reloc0 + idx));
-#line 319 "fd_transpile_x86.dasc"
+  dasm_put(Dst, 140, (Dst->dasm_lbl_reloc0 + idx));
+#line 270 "fd_transpile_x86.dasc"
 }
 
+/* emit_rodata_lea generates `lea rax, [rodata+off]` */
+
 static void
-emit_rodata_reloc( fd_transpiler_t * t,
-                   uint              sym ) {
-  fd_vm_transpile_dasm_t * Dst = t->Dst;
-  ulong idx = t->reloc_cnt++;
-  if( FD_UNLIKELY( idx>=t->reloc_max ) ) {
-    FD_LOG_WARNING(( "too many relocation sites" ));
-    longjmp( t->Dst->fail, 1 );
+emit_rodata_lea( fd_transpiler_t * Dst,
+                 ulong             off ) {
+  ulong idx = Dst->reloc_cnt++;
+  if( FD_UNLIKELY( idx>=FD_TRANSPILER_RELOC_MAX ) ) {
+    longjmp( dasm_oom, 1 );
   }
-  t->reloc0[ idx ] = (fd_elf64_rela){
-    .r_info   = FD_ELF64_R_INFO( sym, FD_ELF_R_X86_64_PC32 ),
-    .r_addend = -4L,
+  Dst->reloc[ idx ] = (fd_elf64_rela){
+    .r_info   = FD_ELF64_R_INFO( FD_VM_TRANSPILE_SYM_RODATA, FD_ELF_R_X86_64_PC32 ),
+    .r_addend = (long)off-4L,
   };
   //| .byte 0x48, 0x8d, 0x05 // lea rax, [rip+imm32]
-  //|=>(t->dasm_lbl_reloc0 + idx):
+  //|=>(Dst->dasm_lbl_reloc0 + idx):
   //| .dword 0
-  dasm_put(Dst, 147, (t->dasm_lbl_reloc0 + idx));
-#line 337 "fd_transpile_x86.dasc"
+  dasm_put(Dst, 147, (Dst->dasm_lbl_reloc0 + idx));
+#line 288 "fd_transpile_x86.dasc"
 }
 
 //|.macro mmu_tlb_invalidate
@@ -652,20 +631,19 @@ emit_rodata_reloc( fd_transpiler_t * t,
    Assumes the current CPU state is in transpiled ABI. */
 
 static void
-emit_syscall_call( fd_transpiler_t * t,
+emit_syscall_call( fd_transpiler_t * Dst,
                    ulong             slot_idx ) {
-  fd_vm_transpile_dasm_t * Dst = t->Dst;
   //| sub rsp, 8
   //| mmu_tlb_invalidate
   //| call ->regs_save
   //| cu_save
   dasm_put(Dst, 156, Dt1(->transpiled.tlb_vaddr_lo), Dt1(->transpiled.ic_cu_anchor), Dt1(->cu), Dt1(->ic));
-#line 365 "fd_transpile_x86.dasc"
+#line 315 "fd_transpile_x86.dasc"
   /* TODO a full register file save isn't required for most syscalls */
   //| mov rdi, r12 // fd_vm_t * vm
   dasm_put(Dst, 197);
-#line 367 "fd_transpile_x86.dasc"
-  emit_ffi_call( t, sym_id_syscall_handler( slot_idx ) );
+#line 317 "fd_transpile_x86.dasc"
+  emit_ffi_call( Dst, sym_id_syscall_handler( slot_idx ) );
   //| cu_restore
   //| test eax, eax
   //| jnz >1
@@ -682,7 +660,7 @@ emit_syscall_call( fd_transpiler_t * t,
   //| xor edi, edi
   //| jmp ->exception_charge
   dasm_put(Dst, 201, Dt1(->ic), Dt1(->cu), Dt1(->transpiled.ic_cu_anchor), FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED, Dt1(->cu), FD_VM_ERR_EBPF_SYSCALL_ERROR);
-#line 383 "fd_transpile_x86.dasc"
+#line 333 "fd_transpile_x86.dasc"
 }
 
 /* Software address translation routines
@@ -690,8 +668,7 @@ emit_syscall_call( fd_transpiler_t * t,
    These are called very frequently and are performance critical.  */
 
 static void
-emit_mmu_routines( fd_transpiler_t * t ) {
-  fd_vm_transpile_dasm_t * Dst = t->Dst;
+emit_mmu_routines( fd_transpiler_t * Dst ) {
   //|// mmu_translate_flat: attempt to translate virtual address (in r15) to
   //|// host address in given flat memory region.
   //|.macro mmu_translate_flat, region, limits, width
@@ -786,21 +763,21 @@ emit_mmu_routines( fd_transpiler_t * t ) {
   dasm_put(Dst, 270, Dt1(->transpiled.tlb_vaddr_lo), Dt1(->transpiled.tlb_vaddr_ld_hi), FD_VM_STACK_REGION, Dt1(->stack_push_frame_count));
   dasm_put(Dst, 346, Dt1(->region_ld_sz[FD_VM_STACK_REGION]), Dt1(->region_haddr[FD_VM_STACK_REGION]), FD_VM_PROG_REGION, FD_VM_HEAP_REGION);
   dasm_put(Dst, 437, Dt1(->region_ld_sz[FD_VM_HEAP_REGION]), Dt1(->region_haddr[FD_VM_HEAP_REGION]), Dt1(->region_ld_sz[FD_VM_PROG_REGION]), Dt1(->region_haddr[FD_VM_PROG_REGION]));
-#line 483 "fd_transpile_x86.dasc"
+#line 432 "fd_transpile_x86.dasc"
   //|.align 32
   //|->mmu_translate_ld_2:
   //|  mmu_translate_ld,2
   dasm_put(Dst, 532, (0*0x100)+1, Dt1(->transpiled.tlb_vaddr_lo), Dt1(->transpiled.tlb_vaddr_ld_hi));
   dasm_put(Dst, 592, FD_VM_STACK_REGION, Dt1(->stack_push_frame_count), Dt1(->region_ld_sz[FD_VM_STACK_REGION]), Dt1(->region_haddr[FD_VM_STACK_REGION]));
   dasm_put(Dst, 699, FD_VM_PROG_REGION, FD_VM_HEAP_REGION, Dt1(->region_ld_sz[FD_VM_HEAP_REGION]), Dt1(->region_haddr[FD_VM_HEAP_REGION]), Dt1(->region_ld_sz[FD_VM_PROG_REGION]));
-#line 486 "fd_transpile_x86.dasc"
+#line 435 "fd_transpile_x86.dasc"
   //|.align 32
   //|->mmu_translate_ld_4:
   //|  mmu_translate_ld,4
   dasm_put(Dst, 783, Dt1(->region_haddr[FD_VM_PROG_REGION]), (0*0x100)+2, Dt1(->transpiled.tlb_vaddr_lo), Dt1(->transpiled.tlb_vaddr_ld_hi));
   dasm_put(Dst, 855, FD_VM_STACK_REGION, Dt1(->stack_push_frame_count), Dt1(->region_ld_sz[FD_VM_STACK_REGION]));
   dasm_put(Dst, 953, Dt1(->region_haddr[FD_VM_STACK_REGION]), FD_VM_PROG_REGION, FD_VM_HEAP_REGION, Dt1(->region_ld_sz[FD_VM_HEAP_REGION]), Dt1(->region_haddr[FD_VM_HEAP_REGION]));
-#line 489 "fd_transpile_x86.dasc"
+#line 438 "fd_transpile_x86.dasc"
   //|.align 32
   //|->mmu_translate_ld_8:
   //|  mmu_translate_ld,8
@@ -808,28 +785,28 @@ emit_mmu_routines( fd_transpiler_t * t ) {
   dasm_put(Dst, 1109, Dt1(->transpiled.tlb_vaddr_lo), Dt1(->transpiled.tlb_vaddr_ld_hi), FD_VM_STACK_REGION, Dt1(->stack_push_frame_count));
   dasm_put(Dst, 1192, Dt1(->region_ld_sz[FD_VM_STACK_REGION]), Dt1(->region_haddr[FD_VM_STACK_REGION]), FD_VM_PROG_REGION, FD_VM_HEAP_REGION, Dt1(->region_ld_sz[FD_VM_HEAP_REGION]));
   dasm_put(Dst, 1278, Dt1(->region_haddr[FD_VM_HEAP_REGION]), Dt1(->region_ld_sz[FD_VM_PROG_REGION]), Dt1(->region_haddr[FD_VM_PROG_REGION]));
-#line 492 "fd_transpile_x86.dasc"
+#line 441 "fd_transpile_x86.dasc"
   //|.align 32
   //|->mmu_translate_st_1:
   //|  mmu_translate_st,1
   dasm_put(Dst, 1377, (0*0x100)+8, Dt1(->transpiled.tlb_vaddr_lo), Dt1(->transpiled.tlb_vaddr_st_hi), FD_VM_STACK_REGION);
   dasm_put(Dst, 1444, Dt1(->stack_push_frame_count), Dt1(->region_st_sz[FD_VM_STACK_REGION]), Dt1(->region_haddr[FD_VM_STACK_REGION]), FD_VM_PROG_REGION);
   dasm_put(Dst, 1542, FD_VM_HEAP_REGION, Dt1(->region_st_sz[FD_VM_HEAP_REGION]), Dt1(->region_haddr[FD_VM_HEAP_REGION]), Dt1(->region_st_sz[FD_VM_PROG_REGION]));
-#line 495 "fd_transpile_x86.dasc"
+#line 444 "fd_transpile_x86.dasc"
   //|.align 32
   //|->mmu_translate_st_2:
   //|  mmu_translate_st,2
   dasm_put(Dst, 1631, Dt1(->region_haddr[FD_VM_PROG_REGION]), (1*0x100)+1, Dt1(->transpiled.tlb_vaddr_lo), Dt1(->transpiled.tlb_vaddr_st_hi));
   dasm_put(Dst, 1699, FD_VM_STACK_REGION, Dt1(->stack_push_frame_count), Dt1(->region_st_sz[FD_VM_STACK_REGION]), Dt1(->region_haddr[FD_VM_STACK_REGION]));
   dasm_put(Dst, 1802, FD_VM_PROG_REGION, FD_VM_HEAP_REGION, Dt1(->region_st_sz[FD_VM_HEAP_REGION]), Dt1(->region_haddr[FD_VM_HEAP_REGION]));
-#line 498 "fd_transpile_x86.dasc"
+#line 447 "fd_transpile_x86.dasc"
   //|.align 32
   //|->mmu_translate_st_4:
   //|  mmu_translate_st,4
   dasm_put(Dst, 1881, Dt1(->region_st_sz[FD_VM_PROG_REGION]), Dt1(->region_haddr[FD_VM_PROG_REGION]), (1*0x100)+2, Dt1(->transpiled.tlb_vaddr_lo));
   dasm_put(Dst, 1954, Dt1(->transpiled.tlb_vaddr_st_hi), FD_VM_STACK_REGION, Dt1(->stack_push_frame_count));
   dasm_put(Dst, 2056, Dt1(->region_st_sz[FD_VM_STACK_REGION]), Dt1(->region_haddr[FD_VM_STACK_REGION]), FD_VM_PROG_REGION, FD_VM_HEAP_REGION, Dt1(->region_st_sz[FD_VM_HEAP_REGION]));
-#line 501 "fd_transpile_x86.dasc"
+#line 450 "fd_transpile_x86.dasc"
   //|.align 32
   //|->mmu_translate_st_8:
   //|  mmu_translate_st,8
@@ -837,7 +814,7 @@ emit_mmu_routines( fd_transpiler_t * t ) {
   dasm_put(Dst, 1109, Dt1(->transpiled.tlb_vaddr_lo), Dt1(->transpiled.tlb_vaddr_st_hi), FD_VM_STACK_REGION, Dt1(->stack_push_frame_count));
   dasm_put(Dst, 1192, Dt1(->region_st_sz[FD_VM_STACK_REGION]), Dt1(->region_haddr[FD_VM_STACK_REGION]), FD_VM_PROG_REGION, FD_VM_HEAP_REGION, Dt1(->region_st_sz[FD_VM_HEAP_REGION]));
   dasm_put(Dst, 1278, Dt1(->region_haddr[FD_VM_HEAP_REGION]), Dt1(->region_st_sz[FD_VM_PROG_REGION]), Dt1(->region_haddr[FD_VM_PROG_REGION]));
-#line 504 "fd_transpile_x86.dasc"
+#line 453 "fd_transpile_x86.dasc"
   //|->mmu_tlb_hit:
   //| // mem_translate_* jump to this label on fast path success
   //| sub r15, vm->transpiled.tlb_vaddr_lo
@@ -853,7 +830,7 @@ emit_mmu_routines( fd_transpiler_t * t ) {
   //| // disabled due to Spectre mitigations (e.g. Linux 7.0 Zen5 with
   //| // SEV-SNP enabled).
   dasm_put(Dst, 2222, (1*0x100)+8, Dt1(->transpiled.tlb_vaddr_lo), Dt1(->transpiled.tlb_haddr_lo));
-#line 518 "fd_transpile_x86.dasc"
+#line 467 "fd_transpile_x86.dasc"
 
   //|// mmu_tlb_miss: arbitrary virtual address translation via C fallback.
   //|// Input args:
@@ -878,8 +855,8 @@ emit_mmu_routines( fd_transpiler_t * t ) {
   //| mov rdi, r12  // arg 0: fd_vm_t * vm
   //| mov rsi, r15  // arg 1: ulong     vaddr
   dasm_put(Dst, 2254);
-#line 541 "fd_transpile_x86.dasc"
-  emit_ffi_call( t, FD_VM_TRANSPILE_SYM_MMU_TRANSLATE );
+#line 490 "fd_transpile_x86.dasc"
+  emit_ffi_call( Dst, FD_VM_TRANSPILE_SYM_MMU_TRANSLATE );
   //| mov r15, rax
   //| add rsp, 8
   //| pop r11
@@ -892,7 +869,7 @@ emit_mmu_routines( fd_transpiler_t * t ) {
   //| pop rax
   //| jmp ->mmu_translate_check
   dasm_put(Dst, 2298);
-#line 553 "fd_transpile_x86.dasc"
+#line 502 "fd_transpile_x86.dasc"
 }
 
 /* BPF to BPF calls */
@@ -909,8 +886,7 @@ emit_mmu_routines( fd_transpiler_t * t ) {
 /* emit_frame_helpers: generate subroutines for BPF-to-BPF calls */
 
 static void
-emit_frame_helpers( fd_transpiler_t * t ) {
-  fd_vm_transpile_dasm_t * Dst = t->Dst;
+emit_frame_helpers( fd_transpiler_t * Dst ) {
   //|->bpfcall_frame_push:
   //| mov r15, vm->frame_cnt
   //| imul rdi, r15, (int)sizeof(fd_vm_shadow_t)
@@ -938,10 +914,10 @@ emit_frame_helpers( fd_transpiler_t * t ) {
   //|2:
   //| mov r15d, 1
   dasm_put(Dst, 2322, Dt1(->frame_cnt), (int)sizeof(fd_vm_shadow_t), offsetof(fd_vm_t, shadow), 0, 8, Dt1(->pc), Dt1(->frame_cnt), Dt1(->frame_cnt), FD_VM_STACK_FRAME_MAX, Dt1(->stack_push_frame_count), Dt1(->region_haddr[FD_VM_STACK_REGION]), Dt1(->transpiled.frame_haddr), Dt1(->transpiled.frame_clean_cnt));
-#line 597 "fd_transpile_x86.dasc"
+#line 545 "fd_transpile_x86.dasc"
   //| ret
   dasm_put(Dst, 2448);
-#line 598 "fd_transpile_x86.dasc"
+#line 546 "fd_transpile_x86.dasc"
 
   //|->bpfcall_frame_init:
   //| sub rsp, 8
@@ -950,15 +926,15 @@ emit_frame_helpers( fd_transpiler_t * t ) {
   //| cu_save
   //| mov rdi, r12
   dasm_put(Dst, 2456, Dt1(->transpiled.tlb_vaddr_lo), Dt1(->transpiled.ic_cu_anchor), Dt1(->cu), Dt1(->ic));
-#line 605 "fd_transpile_x86.dasc"
-  emit_ffi_call( t, FD_VM_TRANSPILE_SYM_FRAME_INIT );
+#line 553 "fd_transpile_x86.dasc"
+  emit_ffi_call( Dst, FD_VM_TRANSPILE_SYM_FRAME_INIT );
   //| cu_restore
   //| call ->regs_restore
   //| add rsp, 8
   //| xor r15d, r15d
   //| ret
   dasm_put(Dst, 2502, Dt1(->ic), Dt1(->cu), Dt1(->transpiled.ic_cu_anchor));
-#line 611 "fd_transpile_x86.dasc"
+#line 559 "fd_transpile_x86.dasc"
 
   //|->bpfcall_frame_pop:
   //| mov r15, vm->frame_cnt
@@ -982,7 +958,7 @@ emit_frame_helpers( fd_transpiler_t * t ) {
   //| xor r15d, r15d
   //| jmp ->unwind
   dasm_put(Dst, 2533, Dt1(->frame_cnt), Dt1(->frame_cnt), (int)sizeof(fd_vm_shadow_t), offsetof(fd_vm_t, shadow), 0, 8, Dt1(->region_haddr[FD_VM_STACK_REGION]), Dt1(->transpiled.frame_haddr), Dt1(->transpiled.ic_cu_anchor), Dt1(->cu), Dt1(->ic));
-#line 633 "fd_transpile_x86.dasc"
+#line 581 "fd_transpile_x86.dasc"
 
   //|->call_imm_depth:
   //| call ->regs_save
@@ -990,7 +966,7 @@ emit_frame_helpers( fd_transpiler_t * t ) {
   //| xor edi, edi
   //| jmp ->exception_charge
   dasm_put(Dst, 2644, FD_VM_ERR_EBPF_CALL_DEPTH_EXCEEDED);
-#line 639 "fd_transpile_x86.dasc"
+#line 587 "fd_transpile_x86.dasc"
 }
 
 /* emit_callx_handler: generate subroutine for interpreting callx
@@ -1002,8 +978,7 @@ emit_frame_helpers( fd_transpiler_t * t ) {
    This is equivalent to FD_VM_INTERP_BRANCH_BEGIN(0x8d). */
 
 static void
-emit_callx_handler( fd_transpiler_t * t ) {
-  fd_vm_transpile_dasm_t * Dst = t->Dst;
+emit_callx_handler( fd_transpiler_t * Dst ) {
   //|->callx:
   //| // frame of the callee (the sBPF function jumped to below):
   //| //   [rbp+ 8]: return address
@@ -1041,8 +1016,12 @@ emit_callx_handler( fd_transpiler_t * t ) {
   //| // check if it is a valid call destination (start of BB)
   //|
   dasm_put(Dst, 2660, 0, Dt1(->text_off), Dt1(->text_cnt));
-#line 688 "fd_transpile_x86.dasc"
-  emit_rodata_reloc( t, FD_VM_TRANSPILE_SYM_BB_BITMAP );
+#line 635 "fd_transpile_x86.dasc"
+  ulong bb_word_cnt = (Dst->bpf_text_cnt+63UL)>>6;
+  ulong bitmap_off  = 0UL;
+  ulong seq_off     = bitmap_off + bb_word_cnt*sizeof(ulong);
+  ulong jmp_off     = seq_off    + bb_word_cnt*sizeof(ulong);
+  emit_rodata_lea( Dst, bitmap_off );
   //| bt [rax], rdi
   //| jnc >2 // jump into middle of a basic block, bail to interpreter
   //|
@@ -1056,16 +1035,16 @@ emit_callx_handler( fd_transpiler_t * t ) {
   //| bzhi r15, [rax + rdi*8], r15
   //| popcnt r15, r15
   dasm_put(Dst, 2750);
-#line 701 "fd_transpile_x86.dasc"
-  emit_rodata_reloc( t, FD_VM_TRANSPILE_SYM_BB_SEQ );
+#line 652 "fd_transpile_x86.dasc"
+  emit_rodata_lea( Dst, seq_off );
   //| add r15, qword [rax + rdi*8]
   //|
   //| // r15 contains the BB index
   //| // map it to the address of its first x86 instruction
   //|
   dasm_put(Dst, 2787);
-#line 707 "fd_transpile_x86.dasc"
-  emit_rodata_reloc( t, FD_VM_TRANSPILE_SYM_BB_JMP );
+#line 658 "fd_transpile_x86.dasc"
+  emit_rodata_lea( Dst, jmp_off );
   //| movsxd r15, dword [rax+r15*4]
   //| add r15, rax
   //|
@@ -1084,34 +1063,34 @@ emit_callx_handler( fd_transpiler_t * t ) {
   //|2: // bail to interpreter
   //| mov rdi, [rsp+8]
   //| mov vm->pc, rdi
-  //| mov r15d, FD_VM_ERR_BAIL
+  //| mov r15d, FD_VM_ERR_EBPF_BAIL
   //|3:
   //| mov rax, [rsp+16]
   //| call ->regs_save
   //| xor edi, edi
   //| jmp ->exception_charge
-  dasm_put(Dst, 2793, FD_VM_ERR_EBPF_CALL_OUTSIDE_TEXT_SEGMENT, FD_VM_ERR_EBPF_CALL_DEPTH_EXCEEDED, Dt1(->pc), FD_VM_ERR_BAIL);
-#line 732 "fd_transpile_x86.dasc"
+  dasm_put(Dst, 2793, FD_VM_ERR_EBPF_CALL_OUTSIDE_TEXT_SEGMENT, FD_VM_ERR_EBPF_CALL_DEPTH_EXCEEDED, Dt1(->pc), FD_VM_ERR_EBPF_BAIL);
+#line 683 "fd_transpile_x86.dasc"
 }
 
 /* emit_const64: load a 64-bit immediate into an x86 register. */
 
 static void
-emit_const64( fd_vm_transpile_dasm_t * Dst,
-              uchar                    reg,
-              ulong                    value ) {
+emit_const64( fd_transpiler_t * Dst,
+              uchar             reg,
+              ulong             value ) {
   if( value<=(ulong)UINT_MAX ) {
     //| mov Rd(reg), (uint)value
     dasm_put(Dst, 2866, (reg), (uint)value);
-#line 742 "fd_transpile_x86.dasc"
+#line 693 "fd_transpile_x86.dasc"
   } else if( value==(ulong)(long)(int)(uint)value ) {
     //| mov Rq(reg), (int)(uint)value
     dasm_put(Dst, 2872, (reg), (int)(uint)value);
-#line 744 "fd_transpile_x86.dasc"
+#line 695 "fd_transpile_x86.dasc"
   } else {
     //| mov64 Rq(reg), value
     dasm_put(Dst, 2879, (reg), (unsigned int)(value), (unsigned int)((value)>>32));
-#line 746 "fd_transpile_x86.dasc"
+#line 697 "fd_transpile_x86.dasc"
   }
 }
 
@@ -1119,24 +1098,24 @@ emit_const64( fd_vm_transpile_dasm_t * Dst,
    extended to 64 bits.  d must be non-zero.  Clobbers rdi, r15. */
 
 static void
-emit_udiv32_imm( fd_vm_transpile_dasm_t * Dst,
-                 uchar                    reg,
-                 uint                     d,
-                 int                      is_mod ) {
+emit_udiv32_imm( fd_transpiler_t * Dst,
+                 uchar             reg,
+                 uint              d,
+                 int               is_mod ) {
   if( fd_uint_is_pow2( d ) ) {
     int s = fd_uint_find_msb( d );
     if( is_mod ) {
       //| and Rd(reg), d-1U
       dasm_put(Dst, 2886, (reg), d-1U);
-#line 761 "fd_transpile_x86.dasc"
+#line 712 "fd_transpile_x86.dasc"
     } else if( s==0 ) {
       //| mov Rd(reg), Rd(reg)
       dasm_put(Dst, 2893, (reg), (reg));
-#line 763 "fd_transpile_x86.dasc"
+#line 714 "fd_transpile_x86.dasc"
     } else {
       //| shr Rd(reg), s
       dasm_put(Dst, 2901, (reg), s);
-#line 765 "fd_transpile_x86.dasc"
+#line 716 "fd_transpile_x86.dasc"
     }
     return;
   }
@@ -1145,14 +1124,14 @@ emit_udiv32_imm( fd_vm_transpile_dasm_t * Dst,
   ulong m = fd_transpile_udiv32_magic( d, &k );
   //| mov edi, Rd(reg)
   dasm_put(Dst, 2908, (reg));
-#line 772 "fd_transpile_x86.dasc"
+#line 723 "fd_transpile_x86.dasc"
   if( m<=(ulong)UINT_MAX ) {
     /* q = (n*m)>>k, n*m < 2^64 */
     //| mov r15d, (uint)m
     //| imul rdi, r15
     //| shr rdi, k
     dasm_put(Dst, 2914, (uint)m, k);
-#line 777 "fd_transpile_x86.dasc"
+#line 728 "fd_transpile_x86.dasc"
   } else {
     /* m = 2^32+m', (n*m)>>32 = n + ((n*m')>>32) < 2^33 */
     //| mov r15d, (uint)m
@@ -1161,17 +1140,17 @@ emit_udiv32_imm( fd_vm_transpile_dasm_t * Dst,
     //| add rdi, r15
     //| shr rdi, k-32
     dasm_put(Dst, 2928, (uint)m, k-32);
-#line 784 "fd_transpile_x86.dasc"
+#line 735 "fd_transpile_x86.dasc"
   }
   if( is_mod ) {
     //| imul edi, edi, d
     //| sub Rd(reg), edi
     dasm_put(Dst, 2951, d, (reg));
-#line 788 "fd_transpile_x86.dasc"
+#line 739 "fd_transpile_x86.dasc"
   } else {
     //| mov Rd(reg), edi
     dasm_put(Dst, 2962, (reg));
-#line 790 "fd_transpile_x86.dasc"
+#line 741 "fd_transpile_x86.dasc"
   }
 }
 
@@ -1179,31 +1158,31 @@ emit_udiv32_imm( fd_vm_transpile_dasm_t * Dst,
    extended imm32, and must be non-zero.  Clobbers rdi, r15. */
 
 static void
-emit_udiv64_imm( fd_vm_transpile_dasm_t * Dst,
-                 uchar                    reg,
-                 uint                     imm,
-                 int                      is_mod ) {
+emit_udiv64_imm( fd_transpiler_t * Dst,
+                 uchar             reg,
+                 uint              imm,
+                 int               is_mod ) {
   ulong d = (ulong)(long)(int)imm;
 
   if( (long)d<0L ) {
     /* d>=2^63, so q = n>=d */
     //| mov r15, (int)imm
     dasm_put(Dst, 2969, (int)imm);
-#line 806 "fd_transpile_x86.dasc"
+#line 757 "fd_transpile_x86.dasc"
     if( is_mod ) {
       //| xor edi, edi
       //| cmp Rq(reg), r15
       //| cmovae rdi, r15
       //| sub Rq(reg), rdi
       dasm_put(Dst, 2974, (reg), (reg));
-#line 811 "fd_transpile_x86.dasc"
+#line 762 "fd_transpile_x86.dasc"
     } else {
       //| cmp Rq(reg), r15
       //| sbb rdi, rdi
       //| inc rdi
       //| mov Rq(reg), rdi
       dasm_put(Dst, 2995, (reg), (reg));
-#line 816 "fd_transpile_x86.dasc"
+#line 767 "fd_transpile_x86.dasc"
     }
     return;
   }
@@ -1213,11 +1192,11 @@ emit_udiv64_imm( fd_vm_transpile_dasm_t * Dst,
     if( is_mod ) {
       //| and Rq(reg), (int)(d-1UL)
       dasm_put(Dst, 3016, (reg), (int)(d-1UL));
-#line 824 "fd_transpile_x86.dasc"
+#line 775 "fd_transpile_x86.dasc"
     } else if( s ) {
       //| shr Rq(reg), s
       dasm_put(Dst, 3023, (reg), s);
-#line 826 "fd_transpile_x86.dasc"
+#line 777 "fd_transpile_x86.dasc"
     }
     return;
   }
@@ -1229,42 +1208,42 @@ emit_udiv64_imm( fd_vm_transpile_dasm_t * Dst,
     //| mov r15, rdx
     //| mov rdx, Rq(reg)
     dasm_put(Dst, 3030, (reg));
-#line 836 "fd_transpile_x86.dasc"
+#line 787 "fd_transpile_x86.dasc"
   }
   emit_const64( Dst, 7U, (ulong)m );
   //| mulx rdi, rdi, rdi
   dasm_put(Dst, 3039);
-#line 839 "fd_transpile_x86.dasc"
+#line 790 "fd_transpile_x86.dasc"
   if( reg!=2U ) {
     //| mov rdx, r15
     dasm_put(Dst, 3047);
-#line 841 "fd_transpile_x86.dasc"
+#line 792 "fd_transpile_x86.dasc"
   }
   if( m>>64 ) {
     /* m = 2^64+m', (n*m)>>64 = n + ((n*m')>>64) < 2^65 */
     //| add rdi, Rq(reg)
     //| rcr rdi, 1
     dasm_put(Dst, 3052, (reg));
-#line 846 "fd_transpile_x86.dasc"
+#line 797 "fd_transpile_x86.dasc"
     if( k>65 ) {
       //| shr rdi, k-65
       dasm_put(Dst, 2922, k-65);
-#line 848 "fd_transpile_x86.dasc"
+#line 799 "fd_transpile_x86.dasc"
     }
   } else if( k>64 ) {
     //| shr rdi, k-64
     dasm_put(Dst, 2922, k-64);
-#line 851 "fd_transpile_x86.dasc"
+#line 802 "fd_transpile_x86.dasc"
   }
   if( is_mod ) {
     //| imul rdi, rdi, (int)imm
     //| sub Rq(reg), rdi
     dasm_put(Dst, 3061, (int)imm, (reg));
-#line 855 "fd_transpile_x86.dasc"
+#line 806 "fd_transpile_x86.dasc"
   } else {
     //| mov Rq(reg), rdi
     dasm_put(Dst, 3009, (reg));
-#line 857 "fd_transpile_x86.dasc"
+#line 808 "fd_transpile_x86.dasc"
   }
 }
 
@@ -1279,87 +1258,256 @@ is_stack_frame_access( ulong sbpf_version,
          offset<=-(long)width;
 }
 
-/* FD_VM_TRANSPILE_PUT_{SLOT,FIXED} bound the DynASM action buffer
-   ints (one per dasm_put plus one per argument or label) emitted per
-   instruction slot and otherwise.  Per slot, currently at most 31:
-   block CU charge and label (7), the largest instruction (16,
-   DIV64_REG/MOD64_REG), and a BPF-to-BPF call thunk (8).  Fixed:
-   prologue, epilogue and runtime helpers (~780) plus a thunk per
-   syscall slot (29 each).  Both leave headroom for template changes.
-   Checked by test_transpile_live. */
+/* bb_splits_compute heuristically guesses the bounds of basic blocks.
+   Control flow transitions in transpiled programs are restricted to
+   the starts of basic blocks.  (Otherwise, transpiled execution bails
+   transparently to the interpreter.)  Writes a bit vector of
+   ceil(bpf_text_cnt/64) words to bb_splits and returns the popcount. */
 
-#define FD_VM_TRANSPILE_PUT_SLOT  (40UL)
-#define FD_VM_TRANSPILE_PUT_FIXED (1024UL + 32UL*FD_SBPF_SYSCALLS_SLOT_CNT)
+static ulong
+bb_splits_compute( ulong *       bb_splits,
+                   ulong         sbpf_version,
+                   ulong const * bpf_text,
+                   ulong         bpf_text_cnt,
+                   ulong         bpf_entry_pc,
+                   ulong const * bpf_calldests,
+                   uchar const * bpf_rodata,
+                   ulong         bpf_rodata_sz,
+                   ulong         bpf_text_off ) {
+  ulong word_cnt = (bpf_text_cnt+63UL)>>6;
+  memset( bb_splits, 0, word_cnt*sizeof(ulong) );
 
-/* FD_VM_TRANSPILE_TEXT_CNT_MAX bounds bpf_text_cnt such that DynASM
-   label indices fit an int.  (Every slot takes 2 action buffer ints, so
-   larger programs exceed the 64 MiB action buffer limit anyway.) */
+# define SET_BB_SPLIT( pc ) do {                    \
+    ulong _pc = (pc);                               \
+    if( _pc<bpf_text_cnt )                          \
+      bb_splits[ _pc>>6 ] |= ( 1UL<<( _pc&63UL ) ); \
+  } while(0)
 
-#define FD_VM_TRANSPILE_TEXT_CNT_MAX (1UL<<23)
+  SET_BB_SPLIT( 0UL );
+  SET_BB_SPLIT( bpf_entry_pc );
 
-ulong
-fd_vm_transpile_scratch_footprint( ulong bpf_text_cnt ) {
-  ulong n = fd_ulong_min( bpf_text_cnt, FD_VM_TRANSPILE_TEXT_CNT_MAX );
-  return 16UL*8UL                                                                       /* alignment */
-       + DASM_PSZ( DASM_MAXSECTION )                                                    /* dasm_init */
-       + (10UL+fd_xlat__MAX)*sizeof(int)                                                /* lglabels */
-       + (2UL*n+FD_SBPF_SYSCALLS_SLOT_CNT+1UL+FD_VM_TRANSPILE_RELOC_MAX)*sizeof(int)    /* pclabels */
-       + fd_xlat__MAX*sizeof(void *)                                                    /* globals */
-       + ((n+63UL)>>6)*sizeof(ulong)                                                    /* thunk_used */
-       + fd_ulong_min( (n*FD_VM_TRANSPILE_PUT_SLOT+FD_VM_TRANSPILE_PUT_FIXED+3UL*DASM_MAXSECPOS)*sizeof(int),
-                       1UL<<26 );                                                       /* actions */
+  /* Address-taken functions (vtables, closures) reach callx through
+     pointers the loader relocated into the read-only segment.  Any
+     64-bit word in the loaded image pointing at an instruction slot is
+     treated as a possible call target.  Pointers in .data.rel.ro are
+     only 4-byte aligned, and false positives merely split a block. */
+  ulong text_lo = FD_VM_MEM_MAP_PROGRAM_REGION_START + bpf_text_off;
+  ulong text_hi = text_lo + 8UL*bpf_text_cnt;
+  for( ulong off=0UL; off+8UL<=bpf_rodata_sz; off+=4UL ) {
+    ulong v = FD_LOAD( ulong, bpf_rodata+off );
+    if( v>=text_lo && v<text_hi && !((v-text_lo)&7UL) ) SET_BB_SPLIT( (v-text_lo)>>3 );
+  }
+
+  int static_syscalls = FD_VM_SBPF_STATIC_SYSCALLS( sbpf_version );
+  for( ulong pc=0UL; pc<bpf_text_cnt; pc++ ) {
+    ulong instr  = bpf_text[ pc ];
+    ulong opcode = fd_vm_instr_opcode( instr );
+    ulong src    = fd_vm_instr_src   ( instr );
+    uint  imm    = fd_vm_instr_imm   ( instr );
+    long  offset = (long)fd_vm_instr_offset( instr );
+
+    if( bpf_calldests && fd_sbpf_calldests_test( bpf_calldests, pc ) ) {
+      SET_BB_SPLIT( pc );
+    }
+
+    if( opcode==0x18UL ) { /* LDDW */
+      if( pc+1UL<bpf_text_cnt ) {
+        ulong v = (ulong)imm | ( bpf_text[ pc+1UL ] & 0xffffffff00000000UL );
+        if( v>=text_lo && v<text_hi && !((v-text_lo)&7UL) ) SET_BB_SPLIT( (v-text_lo)>>3 );
+      }
+      pc++;
+      continue;
+    }
+
+    ulong cls = opcode & 0x07UL;
+    if( cls==0x05UL || cls==0x06UL ) {
+      if( opcode==0x85UL /* CALL */ ) {
+        if( static_syscalls && src==1UL ) { /* v3 internal call */
+          long target = (long)pc + (long)(int)imm + 1L;
+          if( target>=0 && (ulong)target<bpf_text_cnt &&
+              fd_vm_instr_opcode( bpf_text[ target ] )!=0x00UL /* not inside an LDDW */ ) {
+            SET_BB_SPLIT( (ulong)target );
+          }
+        }
+      } else if( opcode==0x95UL /* EXIT */ ) {
+        if( pc+1UL<bpf_text_cnt )                    SET_BB_SPLIT( pc+1UL );
+      } else if( opcode!=0x8dUL /* CALLX */ ) {
+        long target = (long)pc + 1L + offset;
+        if( target>=0 && (ulong)target<bpf_text_cnt ) SET_BB_SPLIT( (ulong)target );
+        if( pc+1UL<bpf_text_cnt )                    SET_BB_SPLIT( pc+1UL );
+      }
+    }
+  }
+# undef SET_BB_SPLIT
+
+  for( ulong pc=0UL; pc+1UL<bpf_text_cnt; pc++ ) {
+    if( fd_vm_instr_opcode( bpf_text[ pc ] )==0x18UL ) {
+      bb_splits[ (pc+1UL)>>6 ] &= ~( 1UL<<( (pc+1UL)&63UL ) );
+      pc++;
+    }
+  }
+
+  ulong cnt = 0UL;
+  for( ulong w=0UL; w<word_cnt; w++ ) cnt += (ulong)fd_ulong_popcnt( bb_splits[ w ] );
+  return cnt;
 }
 
-static int
-transpile_code( fd_vm_transpile_dasm_t *   Dst,
-                ulong                      sbpf_version,
-                uchar const *              bpf_text,
-                ulong                      bpf_text_cnt,
-                ulong                      bpf_entry_pc,
-                ulong const *              bpf_calldests,
-                fd_sbpf_syscalls_t const * syscalls,
-                ulong const *              bpf_bb_splits,
-                ulong *                    bpf_func_starts,
-                fd_elf64_rela *            reloc,
-                ulong *                    reloc_cnt ) {
+/* syms_compute names code ranges for debuggers: sBPF functions (any
+   valid call destination, plus the entrypoint), call thunks, syscall
+   stubs, and the fd_xlat_ helper routines.  Sizes extend to the next
+   named offset (helper routines all end in an unconditional transfer
+   and are contiguous, so this is exact for them and an upper bound for
+   sBPF functions whose text contains unreachable slots). */
 
-  fd_transpiler_t t[1] = {{
-    .Dst = Dst,
+#define SORT_NAME        sym_sort
+#define SORT_KEY_T       fd_transpiler_sym_t
+#define SORT_BEFORE(a,b) ( (a).off<(b).off || ( (a).off==(b).off && (a).kind>(b).kind ) )
+#include "../../../util/tmpl/fd_sort.c"
 
-    .bpf_text_cnt = bpf_text_cnt,
+static void
+syms_compute( fd_transpiler_t * Dst,
+              ulong             bpf_text_cnt,
+              ulong             bpf_entry_pc,
+              ulong const *     bpf_calldests,
+              ulong const *     syscall_used,
+              ulong             code_sz ) {
+  ulong cnt = 0UL;
+# define PUSH( _kind, _arg, _lbl ) do {                                  \
+    int _ofs = dasm_getpclabel( Dst, (uint)(_lbl) );                     \
+    if( _ofs>=0 && (ulong)_ofs<code_sz && cnt<FD_TRANSPILER_SYM_MAX ) { \
+      Dst->sym[ cnt++ ] = (fd_transpiler_sym_t){                         \
+        .off=(uint)_ofs, .arg=(uint)(_arg), .kind=(uchar)(_kind) };      \
+    }                                                                    \
+  } while(0)
 
-    .reloc0    = reloc,
-    .reloc_cnt = 0UL,
-    .reloc_max = fd_ulong_min( *reloc_cnt, FD_VM_TRANSPILE_RELOC_MAX ) /* sizes pclabels */
-  }};
+  for( ulong pc=0UL; pc<bpf_text_cnt; pc++ ) {
+    int is_func = pc==bpf_entry_pc || ( bpf_calldests && fd_sbpf_calldests_test( bpf_calldests, pc ) );
+    if( is_func ) PUSH( FD_TRANSPILER_SYM_KIND_FUNC, pc, pc );
+    if( Dst->thunk_bv[ pc>>6 ] & (1UL<<( pc&63UL )) ) {
+      PUSH( FD_TRANSPILER_SYM_KIND_THUNK, pc, Dst->dasm_lbl_thunk0+pc );
+    }
+  }
+  for( ulong slot=0UL; slot<FD_SBPF_SYSCALLS_SLOT_CNT; slot++ ) {
+    if( syscall_used[ slot>>6 ] & (1UL<<( slot&63UL )) ) {
+      PUSH( FD_TRANSPILER_SYM_KIND_SYSCALL, slot, Dst->dasm_lbl_sys0+slot );
+    }
+  }
+# undef PUSH
+  for( ulong g=0UL; g<(ulong)fd_xlat__MAX; g++ ) {
+    void * addr = Dst->glob[ g ];
+    if( !addr ) continue; /* not emitted (e.g. callx) */
+    ulong ofs = (ulong)( (uchar *)addr - Dst->code );
+    if( ofs>=code_sz || cnt>=FD_TRANSPILER_SYM_MAX ) continue;
+    Dst->sym[ cnt++ ] = (fd_transpiler_sym_t){ .off=(uint)ofs, .arg=(uint)g, .kind=FD_TRANSPILER_SYM_KIND_HELPER };
+  }
+
+  sym_sort_inplace( Dst->sym, cnt );
+  for( ulong i=0UL; i<cnt; i++ ) {
+    ulong end = i+1UL<cnt ? Dst->sym[ i+1UL ].off : code_sz;
+    Dst->sym[ i ].sz = (uint)( end - Dst->sym[ i ].off );
+  }
+  Dst->sym_cnt = cnt;
+}
+
+char const *
+fd_transpiler_helper_name( ulong idx ) {
+  if( FD_UNLIKELY( idx>=(ulong)fd_xlat__MAX ) ) return NULL;
+  return fd_xlat_names[ idx ];
+}
+
+static void
+fd_transpiler_init( fd_transpiler_t * Dst,
+                    ulong             bpf_text_cnt ) {
+  memset( Dst, 0, sizeof(fd_transpiler_t) ); /* ~10 MiB :( */
+  Dst->bpf_text_cnt = bpf_text_cnt;
+  Dst->reloc_cnt    = 0UL;
 
   /* Segment DynASM label indices by use case */
   ulong dasm_lbl = bpf_text_cnt;
+
   /* each instruction might be a call destination, which needs a thunk */
-  t->dasm_lbl_thunk0 = dasm_lbl;
+  Dst->dasm_lbl_thunk0 = dasm_lbl;
   dasm_lbl += bpf_text_cnt;
+
   /* up to one thunk for each syscall descriptor */
-  t->dasm_lbl_sys0 = dasm_lbl;
+  Dst->dasm_lbl_sys0 = dasm_lbl;
   dasm_lbl += FD_SBPF_SYSCALLS_SLOT_CNT;
+
   /* end of instruction stream */
   dasm_lbl++;
   /* relocations */
-  t->dasm_lbl_reloc0 = FD_VM_TRANSPILE_DASM_LBL_RELOC0( bpf_text_cnt );
-  FD_TEST( dasm_lbl==t->dasm_lbl_reloc0 );
-  dasm_lbl = t->dasm_lbl_reloc0 + t->reloc_max;
-  /* allocate (the action buffer goes last, so it grows in place) */
-  t->dasm_lbl_max = dasm_lbl;
-  dasm_init( Dst, DASM_MAXSECTION );
-  dasm_growpc( Dst, (uint)t->dasm_lbl_max );
-  void ** glob = dasm_grow( Dst, NULL, 0UL, fd_xlat__MAX * sizeof(void *) );
-  dasm_setupglobal( Dst, glob, fd_xlat__MAX );
-  ulong * thunk_used = dasm_grow( Dst, NULL, 0UL, ((bpf_text_cnt+63UL)>>6)*sizeof(ulong) ); /* call targets */
-  memset( thunk_used, 0, ((bpf_text_cnt+63UL)>>6)*sizeof(ulong) );
-  dasm_setup( Dst, actions );
+  Dst->dasm_lbl_reloc0 = FD_VM_TRANSPILE_DASM_LBL_RELOC0( bpf_text_cnt );
+  FD_TEST( dasm_lbl==Dst->dasm_lbl_reloc0 );
+  dasm_lbl = Dst->dasm_lbl_reloc0 + FD_TRANSPILER_RELOC_MAX;
+
+  Dst->dasm_lbl_max = dasm_lbl;
+  FD_TEST( dasm_lbl<=FD_DASM_PCLABELS_MAX );
+
+  dasm_State * D = Dst->state = (dasm_State *)Dst->state_;
+  D->psize       = sizeof(Dst->state_);
+  D->actionlist  = actions;
+  D->lglabels    = Dst->lglabels;
+  D->lgsize      = sizeof(Dst->lglabels);
+  D->pclabels    = Dst->pclabels;
+  D->pcsize      = sizeof(Dst->pclabels);
+  D->globals     = Dst->glob;
+  D->section     = &D->sections[0];
+  D->codesize    = 0UL;
+  D->maxsection  = 1;
+  D->status      = DASM_S_OK;
+  D->sections[0] = (dasm_Section) {
+    .buf   = Dst->code_bits,
+    .rbuf  = Dst->code_bits - DASM_SEC2POS( 0 ),
+    .bsize = sizeof(Dst->code_bits),
+    .pos   = DASM_SEC2POS( 0 ),
+    .epos  = (int)( sizeof(Dst->code_bits) / sizeof(int) ) - DASM_MAXSECPOS + DASM_POS2BIAS( DASM_SEC2POS( 0 ) ),
+    .ofs   = 0
+  };
+}
+
+int
+fd_vm_transpile_code( fd_transpiler_t *          Dst,
+                      ulong                      sbpf_version,
+                      uchar const *              bpf_text,
+                      ulong                      bpf_text_cnt,
+                      ulong                      bpf_entry_pc,
+                      ulong const *              bpf_calldests,
+                      fd_sbpf_syscalls_t const * syscalls,
+                      uchar const *              bpf_rodata,
+                      ulong                      bpf_rodata_sz,
+                      ulong                      bpf_text_off ) {
+
+  int is_oom = setjmp( dasm_oom );
+  if( FD_UNLIKELY( is_oom ) ) return -1;
+
+  if( FD_UNLIKELY( sbpf_version!=0 && sbpf_version!=1 && sbpf_version!=3 ) ) {
+    FD_LOG_WARNING(( "sBPF v%lu programs are not supported", sbpf_version ));
+    return -1;
+  }
+  if( FD_UNLIKELY( bpf_text_cnt>FD_TRANSPILER_TEXT_CNT_MAX ) ) {
+    FD_LOG_WARNING(( "program too large (%lu instruction slots, max %lu)", bpf_text_cnt, FD_TRANSPILER_TEXT_CNT_MAX ));
+    return -1;
+  }
+
+  fd_transpiler_init( Dst, bpf_text_cnt );
+
+  /* The basic block bitmap is the first rodata table */
+  ulong   bb_word_cnt   = (bpf_text_cnt+63UL)>>6;
+  ulong * bpf_bb_splits = (ulong *)Dst->rodata;
+  Dst->bb_cnt = bb_splits_compute( bpf_bb_splits, sbpf_version, (ulong const *)bpf_text, bpf_text_cnt, bpf_entry_pc, bpf_calldests, bpf_rodata, bpf_rodata_sz, bpf_text_off );
+  if( FD_UNLIKELY( Dst->bb_cnt>FD_TRANSPILER_BB_MAX ) ) {
+    FD_LOG_WARNING(( "program too large (%lu basic blocks, max %lu)", Dst->bb_cnt, FD_TRANSPILER_BB_MAX ));
+    return -1;
+  }
+  ulong rodata_sz = 2UL*bb_word_cnt*sizeof(ulong) + Dst->bb_cnt*sizeof(int);
+  if( FD_UNLIKELY( rodata_sz>FD_TRANSPILER_RODATA_MAX ) ) {
+    FD_LOG_WARNING(( "program too large (%lu rodata bytes, max %lu)", rodata_sz, FD_TRANSPILER_RODATA_MAX ));
+    return -1;
+  }
 
   //|.code
   dasm_put(Dst, 3073);
-#line 950 "fd_transpile_x86.dasc"
+#line 1070 "fd_transpile_x86.dasc"
   //| cmp qword [rdi+offsetof(fd_vm_t, cu)], 0
   //| jns >1
   //| mov eax, FD_VM_ERR_INVAL
@@ -1402,7 +1550,7 @@ transpile_code( fd_vm_transpile_dasm_t *   Dst,
   //| jb >1
   //| call ->bpfcall_frame_init
   dasm_put(Dst, 3075, offsetof(fd_vm_t, cu), FD_VM_ERR_INVAL, Dt1(->ic), Dt1(->cu), Dt1(->transpiled.ic_cu_anchor), Dt1(->transpiled.tlb_vaddr_lo), Dt1(->stack_clean), Dt1(->transpiled.frame_clean_cnt), Dt1(->frame_cnt), Dt1(->region_haddr[FD_VM_STACK_REGION]), Dt1(->transpiled.frame_haddr), Dt1(->transpiled.frame_clean_cnt));
-#line 991 "fd_transpile_x86.dasc"
+#line 1111 "fd_transpile_x86.dasc"
   //|1:
   //| // enter the entrypoint function with a regular sBPF function frame
   //| // (program exit unwinds to the root frame, so the call never returns)
@@ -1413,7 +1561,7 @@ transpile_code( fd_vm_transpile_dasm_t *   Dst,
   //| sub rsp, 8
   //| jmp =>bpf_entry_pc
   dasm_put(Dst, 3210, bpf_entry_pc);
-#line 1000 "fd_transpile_x86.dasc"
+#line 1120 "fd_transpile_x86.dasc"
 
   static uchar const bpf_x86_reg[] = {
     /* r0  - rax */  0U,
@@ -1445,7 +1593,7 @@ transpile_code( fd_vm_transpile_dasm_t *   Dst,
     long  offset  = (long)fd_vm_instr_offset( instr );
     if( FD_UNLIKELY( dst>=11UL || src>=11UL ) ) {
       FD_LOG_WARNING(( "invalid register at pc %lu", pc ));
-      return FD_VM_TRANSPILE_ERR_INVAL;
+      return -1;
     }
     uchar x86_dst = bpf_x86_reg[ dst ];
     uchar x86_src = bpf_x86_reg[ src ];
@@ -1454,14 +1602,14 @@ transpile_code( fd_vm_transpile_dasm_t *   Dst,
       if( pc>bb_start ) {
         //| cu_charge (pc-bb_start-bb_lddw)
         dasm_put(Dst, 3242, Dt1(->cu), (pc-bb_start-bb_lddw));
-#line 1039 "fd_transpile_x86.dasc"
+#line 1159 "fd_transpile_x86.dasc"
       }
       bb_start = pc;
       bb_lddw  = 0UL;
     }
     //|=>pc:
     dasm_put(Dst, 344, pc);
-#line 1044 "fd_transpile_x86.dasc"
+#line 1164 "fd_transpile_x86.dasc"
 
     int is_branch = ( ( (opcode&7UL)==5UL ) |
                       ( (opcode&7UL)==6UL ) ) &
@@ -1470,14 +1618,14 @@ transpile_code( fd_vm_transpile_dasm_t *   Dst,
     if( is_branch ) {
       //| cu_charge (pc+1UL-bb_start-bb_lddw)
       dasm_put(Dst, 3242, Dt1(->cu), (pc+1UL-bb_start-bb_lddw));
-#line 1051 "fd_transpile_x86.dasc"
+#line 1171 "fd_transpile_x86.dasc"
       bb_start = pc+1UL;
       bb_lddw  = 0UL;
     }
 
     if( (opcode&7UL)==6UL && !FD_VM_SBPF_ENABLE_JMP32( sbpf_version ) ) {
       FD_LOG_WARNING(( "invalid opcode 0x%02lx at pc %lu", opcode, pc ));
-      return FD_VM_TRANSPILE_ERR_INVAL;
+      return -1;
     }
 
     if( is_branch && opcode!=0x95UL ) {
@@ -1485,7 +1633,7 @@ transpile_code( fd_vm_transpile_dasm_t *   Dst,
       if( FD_UNLIKELY( jmp_dst<0L || jmp_dst>=(long)bpf_text_cnt ||
                        fd_vm_instr_opcode( FD_LOAD( ulong, bpf_text + (jmp_dst<<3) ) )==0x00UL ) ) {
         FD_LOG_WARNING(( "invalid jump target at pc %lu", pc ));
-        return FD_VM_TRANSPILE_ERR_INVAL;
+        return -1;
       }
     }
 
@@ -1506,14 +1654,14 @@ transpile_code( fd_vm_transpile_dasm_t *   Dst,
         //| mov r15, vm->transpiled.frame_haddr
         //| mov Rd(x86_dst), [r15+offset]
         dasm_put(Dst, 3254, Dt1(->transpiled.frame_haddr), (x86_dst), offset);
-#line 1085 "fd_transpile_x86.dasc"
+#line 1205 "fd_transpile_x86.dasc"
       } else {
         //| lea r15, [Rq(x86_src)+offset]
         //| call ->mmu_translate_ld_4
         //| mov edi, (uint)(pc+1UL-bb_start-bb_lddw)
         //| mov Rd(x86_dst), [r15]
         dasm_put(Dst, 3268, (x86_src), offset, (uint)(pc+1UL-bb_start-bb_lddw), (x86_dst));
-#line 1090 "fd_transpile_x86.dasc"
+#line 1210 "fd_transpile_x86.dasc"
       }
       break;
     case 0x69: /* LDXH */
@@ -1521,14 +1669,14 @@ transpile_code( fd_vm_transpile_dasm_t *   Dst,
         //| mov r15, vm->transpiled.frame_haddr
         //| movzx Rd(x86_dst), word [r15+offset]
         dasm_put(Dst, 3286, Dt1(->transpiled.frame_haddr), (x86_dst), offset);
-#line 1096 "fd_transpile_x86.dasc"
+#line 1216 "fd_transpile_x86.dasc"
       } else {
         //| lea r15, [Rq(x86_src)+offset]
         //| call ->mmu_translate_ld_2
         //| mov edi, (uint)(pc+1UL-bb_start-bb_lddw)
         //| movzx Rd(x86_dst), word [r15]
         dasm_put(Dst, 3301, (x86_src), offset, (uint)(pc+1UL-bb_start-bb_lddw), (x86_dst));
-#line 1101 "fd_transpile_x86.dasc"
+#line 1221 "fd_transpile_x86.dasc"
       }
       break;
     case 0x71: /* LDXB */
@@ -1536,14 +1684,14 @@ transpile_code( fd_vm_transpile_dasm_t *   Dst,
         //| mov r15, vm->transpiled.frame_haddr
         //| movzx Rd(x86_dst), byte [r15+offset]
         dasm_put(Dst, 3320, Dt1(->transpiled.frame_haddr), (x86_dst), offset);
-#line 1107 "fd_transpile_x86.dasc"
+#line 1227 "fd_transpile_x86.dasc"
       } else {
         //| lea r15, [Rq(x86_src)+offset]
         //| call ->mmu_translate_ld_1
         //| mov edi, (uint)(pc+1UL-bb_start-bb_lddw)
         //| movzx Rd(x86_dst), byte [r15]
         dasm_put(Dst, 3335, (x86_src), offset, (uint)(pc+1UL-bb_start-bb_lddw), (x86_dst));
-#line 1112 "fd_transpile_x86.dasc"
+#line 1232 "fd_transpile_x86.dasc"
       }
       break;
     case 0x79: /* LDXDW */
@@ -1551,14 +1699,14 @@ transpile_code( fd_vm_transpile_dasm_t *   Dst,
         //| mov r15, vm->transpiled.frame_haddr
         //| mov Rq(x86_dst), [r15+offset]
         dasm_put(Dst, 3354, Dt1(->transpiled.frame_haddr), (x86_dst), offset);
-#line 1118 "fd_transpile_x86.dasc"
+#line 1238 "fd_transpile_x86.dasc"
       } else {
         //| lea r15, [Rq(x86_src)+offset]
         //| call ->mmu_translate_ld_8
         //| mov edi, (uint)(pc+1UL-bb_start-bb_lddw)
         //| mov Rq(x86_dst), [r15]
         dasm_put(Dst, 3368, (x86_src), offset, (uint)(pc+1UL-bb_start-bb_lddw), (x86_dst));
-#line 1123 "fd_transpile_x86.dasc"
+#line 1243 "fd_transpile_x86.dasc"
       }
       break;
 
@@ -1569,14 +1717,14 @@ transpile_code( fd_vm_transpile_dasm_t *   Dst,
         //| mov r15, vm->transpiled.frame_haddr
         //| mov dword [r15+offset], imm
         dasm_put(Dst, 3386, Dt1(->transpiled.frame_haddr), offset, imm);
-#line 1132 "fd_transpile_x86.dasc"
+#line 1252 "fd_transpile_x86.dasc"
       } else {
         //| lea r15, [Rq(x86_dst)+offset]
         //| call ->mmu_translate_st_4
         //| mov edi, (uint)(pc+1UL-bb_start-bb_lddw)
         //| mov dword [r15], imm
         dasm_put(Dst, 3398, (x86_dst), offset, (uint)(pc+1UL-bb_start-bb_lddw), imm);
-#line 1137 "fd_transpile_x86.dasc"
+#line 1257 "fd_transpile_x86.dasc"
       }
       break;
     case 0x63: /* STXW */
@@ -1584,14 +1732,14 @@ transpile_code( fd_vm_transpile_dasm_t *   Dst,
         //| mov r15, vm->transpiled.frame_haddr
         //| mov [r15+offset], Rd(x86_src)
         dasm_put(Dst, 3415, Dt1(->transpiled.frame_haddr), (x86_src), offset);
-#line 1143 "fd_transpile_x86.dasc"
+#line 1263 "fd_transpile_x86.dasc"
       } else {
         //| lea r15, [Rq(x86_dst)+offset]
         //| call ->mmu_translate_st_4
         //| mov edi, (uint)(pc+1UL-bb_start-bb_lddw)
         //| mov [r15], Rd(x86_src)
         dasm_put(Dst, 3429, (x86_dst), offset, (uint)(pc+1UL-bb_start-bb_lddw), (x86_src));
-#line 1148 "fd_transpile_x86.dasc"
+#line 1268 "fd_transpile_x86.dasc"
       }
       break;
     case 0x6a: /* STH */
@@ -1599,14 +1747,14 @@ transpile_code( fd_vm_transpile_dasm_t *   Dst,
         //| mov r15, vm->transpiled.frame_haddr
         //| mov word [r15+offset], (ushort)imm
         dasm_put(Dst, 3447, Dt1(->transpiled.frame_haddr), offset, (ushort)imm);
-#line 1154 "fd_transpile_x86.dasc"
+#line 1274 "fd_transpile_x86.dasc"
       } else {
         //| lea r15, [Rq(x86_dst)+offset]
         //| call ->mmu_translate_st_2
         //| mov edi, (uint)(pc+1UL-bb_start-bb_lddw)
         //| mov word [r15], (ushort)imm
         dasm_put(Dst, 3460, (x86_dst), offset, (uint)(pc+1UL-bb_start-bb_lddw), (ushort)imm);
-#line 1159 "fd_transpile_x86.dasc"
+#line 1279 "fd_transpile_x86.dasc"
       }
       break;
     case 0x6b: /* STXH */
@@ -1614,14 +1762,14 @@ transpile_code( fd_vm_transpile_dasm_t *   Dst,
         //| mov r15, vm->transpiled.frame_haddr
         //| mov [r15+offset], Rw(x86_src)
         dasm_put(Dst, 3478, Dt1(->transpiled.frame_haddr), (x86_src), offset);
-#line 1165 "fd_transpile_x86.dasc"
+#line 1285 "fd_transpile_x86.dasc"
       } else {
         //| lea r15, [Rq(x86_dst)+offset]
         //| call ->mmu_translate_st_2
         //| mov edi, (uint)(pc+1UL-bb_start-bb_lddw)
         //| mov [r15], Rw(x86_src)
         dasm_put(Dst, 3493, (x86_dst), offset, (uint)(pc+1UL-bb_start-bb_lddw), (x86_src));
-#line 1170 "fd_transpile_x86.dasc"
+#line 1290 "fd_transpile_x86.dasc"
       }
       break;
     case 0x72: /* STB */
@@ -1629,14 +1777,14 @@ transpile_code( fd_vm_transpile_dasm_t *   Dst,
         //| mov r15, vm->transpiled.frame_haddr
         //| mov byte [r15+offset], (uchar)imm
         dasm_put(Dst, 3512, Dt1(->transpiled.frame_haddr), offset, (uchar)imm);
-#line 1176 "fd_transpile_x86.dasc"
+#line 1296 "fd_transpile_x86.dasc"
       } else {
         //| lea r15, [Rq(x86_dst)+offset]
         //| call ->mmu_translate_st_1
         //| mov edi, (uint)(pc+1UL-bb_start-bb_lddw)
         //| mov byte [r15], (uchar)imm
         dasm_put(Dst, 3524, (x86_dst), offset, (uint)(pc+1UL-bb_start-bb_lddw), (uchar)imm);
-#line 1181 "fd_transpile_x86.dasc"
+#line 1301 "fd_transpile_x86.dasc"
       }
       break;
     case 0x73: /* STXB */
@@ -1644,14 +1792,14 @@ transpile_code( fd_vm_transpile_dasm_t *   Dst,
         //| mov r15, vm->transpiled.frame_haddr
         //| mov [r15+offset], Rb(x86_src)
         dasm_put(Dst, 3541, Dt1(->transpiled.frame_haddr), (x86_src), offset);
-#line 1187 "fd_transpile_x86.dasc"
+#line 1307 "fd_transpile_x86.dasc"
       } else {
         //| lea r15, [Rq(x86_dst)+offset]
         //| call ->mmu_translate_st_1
         //| mov edi, (uint)(pc+1UL-bb_start-bb_lddw)
         //| mov [r15], Rb(x86_src)
         dasm_put(Dst, 3555, (x86_dst), offset, (uint)(pc+1UL-bb_start-bb_lddw), (x86_src));
-#line 1192 "fd_transpile_x86.dasc"
+#line 1312 "fd_transpile_x86.dasc"
       }
       break;
     case 0x7a: /* STDW */
@@ -1659,14 +1807,14 @@ transpile_code( fd_vm_transpile_dasm_t *   Dst,
         //| mov r15, vm->transpiled.frame_haddr
         //| mov qword [r15+offset], (int)imm
         dasm_put(Dst, 3573, Dt1(->transpiled.frame_haddr), offset, (int)imm);
-#line 1198 "fd_transpile_x86.dasc"
+#line 1318 "fd_transpile_x86.dasc"
       } else {
         //| lea r15, [Rq(x86_dst)+offset]
         //| call ->mmu_translate_st_8
         //| mov edi, (uint)(pc+1UL-bb_start-bb_lddw)
         //| mov qword [r15], (int)imm
         dasm_put(Dst, 3585, (x86_dst), offset, (uint)(pc+1UL-bb_start-bb_lddw), (int)imm);
-#line 1203 "fd_transpile_x86.dasc"
+#line 1323 "fd_transpile_x86.dasc"
       }
       break;
     case 0x7b: /* STXDW */
@@ -1674,14 +1822,14 @@ transpile_code( fd_vm_transpile_dasm_t *   Dst,
         //| mov r15, vm->transpiled.frame_haddr
         //| mov [r15+offset], Rq(x86_src)
         dasm_put(Dst, 3602, Dt1(->transpiled.frame_haddr), (x86_src), offset);
-#line 1209 "fd_transpile_x86.dasc"
+#line 1329 "fd_transpile_x86.dasc"
       } else {
         //| lea r15, [Rq(x86_dst)+offset]
         //| call ->mmu_translate_st_8
         //| mov edi, (uint)(pc+1UL-bb_start-bb_lddw)
         //| mov [r15], Rq(x86_src)
         dasm_put(Dst, 3616, (x86_dst), offset, (uint)(pc+1UL-bb_start-bb_lddw), (x86_src));
-#line 1214 "fd_transpile_x86.dasc"
+#line 1334 "fd_transpile_x86.dasc"
       }
       break;
 
@@ -1691,67 +1839,67 @@ transpile_code( fd_vm_transpile_dasm_t *   Dst,
       //| add Rd(x86_dst), imm
       //| movsxd Rq(x86_dst), Rd(x86_dst)
       dasm_put(Dst, 3634, (x86_dst), imm, (x86_dst), (x86_dst));
-#line 1222 "fd_transpile_x86.dasc"
+#line 1342 "fd_transpile_x86.dasc"
       break;
     case 0x07: /* ADD64_IMM */
       //| add Rq(x86_dst), (int)imm
       dasm_put(Dst, 3648, (x86_dst), (int)imm);
-#line 1225 "fd_transpile_x86.dasc"
+#line 1345 "fd_transpile_x86.dasc"
       break;
     case 0x0c: /* ADD32_REG */
       //| add Rd(x86_dst), Rd(x86_src)
       //| movsxd Rq(x86_dst), Rd(x86_dst)
       dasm_put(Dst, 3655, (x86_src), (x86_dst), (x86_dst), (x86_dst));
-#line 1229 "fd_transpile_x86.dasc"
+#line 1349 "fd_transpile_x86.dasc"
       break;
     case 0x0f: /* ADD64_REG */
       //| add Rq(x86_dst), Rq(x86_src)
       dasm_put(Dst, 3670, (x86_src), (x86_dst));
-#line 1232 "fd_transpile_x86.dasc"
+#line 1352 "fd_transpile_x86.dasc"
       break;
     case 0x14: /* SUB32_IMM */
       //| sub Rd(x86_dst), imm
       //| movsxd Rq(x86_dst), Rd(x86_dst)
       dasm_put(Dst, 3678, (x86_dst), imm, (x86_dst), (x86_dst));
-#line 1236 "fd_transpile_x86.dasc"
+#line 1356 "fd_transpile_x86.dasc"
       break;
     case 0x17: /* SUB64_IMM */
       //| sub Rq(x86_dst), (int)imm
       dasm_put(Dst, 3692, (x86_dst), (int)imm);
-#line 1239 "fd_transpile_x86.dasc"
+#line 1359 "fd_transpile_x86.dasc"
       break;
     case 0x1c: /* SUB32_REG */
       //| sub Rd(x86_dst), Rd(x86_src)
       //| movsxd Rq(x86_dst), Rd(x86_dst)
       dasm_put(Dst, 3699, (x86_src), (x86_dst), (x86_dst), (x86_dst));
-#line 1243 "fd_transpile_x86.dasc"
+#line 1363 "fd_transpile_x86.dasc"
       break;
     case 0x1f: /* SUB64_REG */
       //| sub Rq(x86_dst), Rq(x86_src)
       dasm_put(Dst, 3714, (x86_src), (x86_dst));
-#line 1246 "fd_transpile_x86.dasc"
+#line 1366 "fd_transpile_x86.dasc"
       break;
     case 0x24: /* MUL32_IMM */
       //| imul Rd(x86_dst), Rd(x86_dst), imm
       //| movsxd Rq(x86_dst), Rd(x86_dst)
       dasm_put(Dst, 3722, (x86_dst), (x86_dst), imm, (x86_dst), (x86_dst));
-#line 1250 "fd_transpile_x86.dasc"
+#line 1370 "fd_transpile_x86.dasc"
       break;
     case 0x27: /* MUL64_IMM */
       //| imul Rq(x86_dst), Rq(x86_dst), (int)imm
       dasm_put(Dst, 3738, (x86_dst), (x86_dst), (int)imm);
-#line 1253 "fd_transpile_x86.dasc"
+#line 1373 "fd_transpile_x86.dasc"
       break;
     case 0x2c: /* MUL32_REG */
       //| imul Rd(x86_dst), Rd(x86_src)
       //| movsxd Rq(x86_dst), Rd(x86_dst)
       dasm_put(Dst, 3747, (x86_dst), (x86_src), (x86_dst), (x86_dst));
-#line 1257 "fd_transpile_x86.dasc"
+#line 1377 "fd_transpile_x86.dasc"
       break;
     case 0x2f: /* MUL64_REG */
       //| imul Rq(x86_dst), Rq(x86_src)
       dasm_put(Dst, 3763, (x86_dst), (x86_src));
-#line 1260 "fd_transpile_x86.dasc"
+#line 1380 "fd_transpile_x86.dasc"
       break;
     case 0x34: /* DIV32_IMM */
       emit_udiv32_imm( Dst, x86_dst, imm, 0 );
@@ -1767,40 +1915,40 @@ transpile_code( fd_vm_transpile_dasm_t *   Dst,
       //| jmp ->exception_div_zero
       //|1:
       dasm_put(Dst, 3772, (x86_src), (uint)(pc+1UL-bb_start-bb_lddw));
-#line 1274 "fd_transpile_x86.dasc"
+#line 1394 "fd_transpile_x86.dasc"
       if( dst!=0UL ) {
         //| mov [rsp-16], rax
         dasm_put(Dst, 3793);
-#line 1276 "fd_transpile_x86.dasc"
+#line 1396 "fd_transpile_x86.dasc"
       }
       if( dst!=2UL ) {
         //| mov [rsp-8], rdx
         dasm_put(Dst, 3800);
-#line 1279 "fd_transpile_x86.dasc"
+#line 1399 "fd_transpile_x86.dasc"
       }
       //| mov eax, Rd(x86_dst)
       //| xor edx, edx
       //| div edi
       dasm_put(Dst, 3807, (x86_dst));
-#line 1283 "fd_transpile_x86.dasc"
+#line 1403 "fd_transpile_x86.dasc"
       if( dst==2UL ) {
         //| mov edx, eax
         dasm_put(Dst, 3819);
-#line 1285 "fd_transpile_x86.dasc"
+#line 1405 "fd_transpile_x86.dasc"
       } else if( dst!=0UL ) {
         //| mov Rd(x86_dst), eax
         dasm_put(Dst, 3822, (x86_dst));
-#line 1287 "fd_transpile_x86.dasc"
+#line 1407 "fd_transpile_x86.dasc"
       }
       if( dst!=0UL ) {
         //| mov rax, [rsp-16]
         dasm_put(Dst, 3828);
-#line 1290 "fd_transpile_x86.dasc"
+#line 1410 "fd_transpile_x86.dasc"
       }
       if( dst!=2UL ) {
         //| mov rdx, [rsp-8]
         dasm_put(Dst, 3835);
-#line 1293 "fd_transpile_x86.dasc"
+#line 1413 "fd_transpile_x86.dasc"
       }
       break;
     case 0x3f: /* DIV64_REG */
@@ -1811,131 +1959,131 @@ transpile_code( fd_vm_transpile_dasm_t *   Dst,
       //| jmp ->exception_div_zero
       //|1:
       dasm_put(Dst, 3842, (x86_src), (uint)(pc+1UL-bb_start-bb_lddw));
-#line 1302 "fd_transpile_x86.dasc"
+#line 1422 "fd_transpile_x86.dasc"
       if( dst!=0UL ) {
         //| mov [rsp-16], rax
         dasm_put(Dst, 3793);
-#line 1304 "fd_transpile_x86.dasc"
+#line 1424 "fd_transpile_x86.dasc"
       }
       if( dst!=2UL ) {
         //| mov [rsp-8], rdx
         dasm_put(Dst, 3800);
-#line 1307 "fd_transpile_x86.dasc"
+#line 1427 "fd_transpile_x86.dasc"
       }
       //| mov rax, Rq(x86_dst)
       //| xor edx, edx
       //| div rdi
       dasm_put(Dst, 3864, (x86_dst));
-#line 1311 "fd_transpile_x86.dasc"
+#line 1431 "fd_transpile_x86.dasc"
       if( dst==2UL ) {
         //| mov rdx, rax
         dasm_put(Dst, 3877);
-#line 1313 "fd_transpile_x86.dasc"
+#line 1433 "fd_transpile_x86.dasc"
       } else if( dst!=0UL ) {
         //| mov Rq(x86_dst), rax
         dasm_put(Dst, 3881, (x86_dst));
-#line 1315 "fd_transpile_x86.dasc"
+#line 1435 "fd_transpile_x86.dasc"
       }
       if( dst!=0UL ) {
         //| mov rax, [rsp-16]
         dasm_put(Dst, 3828);
-#line 1318 "fd_transpile_x86.dasc"
+#line 1438 "fd_transpile_x86.dasc"
       }
       if( dst!=2UL ) {
         //| mov rdx, [rsp-8]
         dasm_put(Dst, 3835);
-#line 1321 "fd_transpile_x86.dasc"
+#line 1441 "fd_transpile_x86.dasc"
       }
       break;
     case 0x44: /* OR32_IMM */
       //| or Rd(x86_dst), imm
       dasm_put(Dst, 3887, (x86_dst), imm);
-#line 1325 "fd_transpile_x86.dasc"
+#line 1445 "fd_transpile_x86.dasc"
       break;
     case 0x47: /* OR64_IMM */
       //| or Rq(x86_dst), (int)imm
       dasm_put(Dst, 3894, (x86_dst), (int)imm);
-#line 1328 "fd_transpile_x86.dasc"
+#line 1448 "fd_transpile_x86.dasc"
       break;
     case 0x4c: /* OR32_REG */
       //| or Rd(x86_dst), Rd(x86_src)
       dasm_put(Dst, 3901, (x86_src), (x86_dst));
-#line 1331 "fd_transpile_x86.dasc"
+#line 1451 "fd_transpile_x86.dasc"
       break;
     case 0x4f: /* OR64_REG */
       //| or Rq(x86_dst), Rq(x86_src)
       dasm_put(Dst, 3909, (x86_src), (x86_dst));
-#line 1334 "fd_transpile_x86.dasc"
+#line 1454 "fd_transpile_x86.dasc"
       break;
     case 0x54: /* AND32_IMM */
       //| and Rd(x86_dst), imm
       dasm_put(Dst, 2886, (x86_dst), imm);
-#line 1337 "fd_transpile_x86.dasc"
+#line 1457 "fd_transpile_x86.dasc"
       break;
     case 0x57: /* AND64_IMM */
       //| and Rq(x86_dst), (int)imm
       dasm_put(Dst, 3016, (x86_dst), (int)imm);
-#line 1340 "fd_transpile_x86.dasc"
+#line 1460 "fd_transpile_x86.dasc"
       break;
     case 0x5c: /* AND32_REG */
       //| and Rd(x86_dst), Rd(x86_src)
       dasm_put(Dst, 3917, (x86_src), (x86_dst));
-#line 1343 "fd_transpile_x86.dasc"
+#line 1463 "fd_transpile_x86.dasc"
       break;
     case 0x5f: /* AND64_REG */
       //| and Rq(x86_dst), Rq(x86_src)
       dasm_put(Dst, 3925, (x86_src), (x86_dst));
-#line 1346 "fd_transpile_x86.dasc"
+#line 1466 "fd_transpile_x86.dasc"
       break;
     case 0x64: /* LSH32_IMM */
       //| shl Rd(x86_dst), imm
       dasm_put(Dst, 3933, (x86_dst), imm);
-#line 1349 "fd_transpile_x86.dasc"
+#line 1469 "fd_transpile_x86.dasc"
       break;
     case 0x67: /* LSH64_IMM */
       //| shl Rq(x86_dst), imm
       dasm_put(Dst, 3940, (x86_dst), imm);
-#line 1352 "fd_transpile_x86.dasc"
+#line 1472 "fd_transpile_x86.dasc"
       break;
     case 0x6c: /* LSH32_REG */
       //| shlx Rd(x86_dst), Rd(x86_dst), Rd(x86_src)
       dasm_put(Dst, 3947, (x86_src), (x86_dst), (x86_dst));
-#line 1355 "fd_transpile_x86.dasc"
+#line 1475 "fd_transpile_x86.dasc"
       break;
     case 0x6f: /* LSH64_REG */
       //| shlx Rq(x86_dst), Rq(x86_dst), Rq(x86_src)
       dasm_put(Dst, 3960, (x86_src), (x86_dst), (x86_dst));
-#line 1358 "fd_transpile_x86.dasc"
+#line 1478 "fd_transpile_x86.dasc"
       break;
     case 0x74: /* RSH32_IMM */
       //| shr Rd(x86_dst), imm
       dasm_put(Dst, 2901, (x86_dst), imm);
-#line 1361 "fd_transpile_x86.dasc"
+#line 1481 "fd_transpile_x86.dasc"
       break;
     case 0x77: /* RSH64_IMM */
       //| shr Rq(x86_dst), imm
       dasm_put(Dst, 3023, (x86_dst), imm);
-#line 1364 "fd_transpile_x86.dasc"
+#line 1484 "fd_transpile_x86.dasc"
       break;
     case 0x7c: /* RSH32_REG */
       //| shrx Rd(x86_dst), Rd(x86_dst), Rd(x86_src)
       dasm_put(Dst, 3974, (x86_src), (x86_dst), (x86_dst));
-#line 1367 "fd_transpile_x86.dasc"
+#line 1487 "fd_transpile_x86.dasc"
       break;
     case 0x7f: /* RSH64_REG */
       //| shrx Rq(x86_dst), Rq(x86_dst), Rq(x86_src)
       dasm_put(Dst, 3987, (x86_src), (x86_dst), (x86_dst));
-#line 1370 "fd_transpile_x86.dasc"
+#line 1490 "fd_transpile_x86.dasc"
       break;
     case 0x84: /* NEG32 */
       //| neg Rd(x86_dst)
       dasm_put(Dst, 4001, (x86_dst));
-#line 1373 "fd_transpile_x86.dasc"
+#line 1493 "fd_transpile_x86.dasc"
       break;
     case 0x87: /* NEG64 */
       //| neg Rq(x86_dst)
       dasm_put(Dst, 4008, (x86_dst));
-#line 1376 "fd_transpile_x86.dasc"
+#line 1496 "fd_transpile_x86.dasc"
       break;
     case 0x97: /* MOD64_IMM */
       emit_udiv64_imm( Dst, x86_dst, imm, 1 );
@@ -1948,40 +2096,40 @@ transpile_code( fd_vm_transpile_dasm_t *   Dst,
       //| jmp ->exception_div_zero
       //|1:
       dasm_put(Dst, 3842, (x86_src), (uint)(pc+1UL-bb_start-bb_lddw));
-#line 1387 "fd_transpile_x86.dasc"
+#line 1507 "fd_transpile_x86.dasc"
       if( dst!=0UL ) {
         //| mov [rsp-16], rax
         dasm_put(Dst, 3793);
-#line 1389 "fd_transpile_x86.dasc"
+#line 1509 "fd_transpile_x86.dasc"
       }
       if( dst!=2UL ) {
         //| mov [rsp-8], rdx
         dasm_put(Dst, 3800);
-#line 1392 "fd_transpile_x86.dasc"
+#line 1512 "fd_transpile_x86.dasc"
       }
       //| mov rax, Rq(x86_dst)
       //| xor edx, edx
       //| div rdi
       dasm_put(Dst, 3864, (x86_dst));
-#line 1396 "fd_transpile_x86.dasc"
+#line 1516 "fd_transpile_x86.dasc"
       if( dst==0UL ) {
         //| mov rax, rdx
         dasm_put(Dst, 4015);
-#line 1398 "fd_transpile_x86.dasc"
+#line 1518 "fd_transpile_x86.dasc"
       } else if( dst!=2UL ) {
         //| mov Rq(x86_dst), rdx
         dasm_put(Dst, 4019, (x86_dst));
-#line 1400 "fd_transpile_x86.dasc"
+#line 1520 "fd_transpile_x86.dasc"
       }
       if( dst!=0UL ) {
         //| mov rax, [rsp-16]
         dasm_put(Dst, 3828);
-#line 1403 "fd_transpile_x86.dasc"
+#line 1523 "fd_transpile_x86.dasc"
       }
       if( dst!=2UL ) {
         //| mov rdx, [rsp-8]
         dasm_put(Dst, 3835);
-#line 1406 "fd_transpile_x86.dasc"
+#line 1526 "fd_transpile_x86.dasc"
       }
       break;
     case 0x94: /* MOD32_IMM */
@@ -1995,72 +2143,72 @@ transpile_code( fd_vm_transpile_dasm_t *   Dst,
       //| jmp ->exception_div_zero
       //|1:
       dasm_put(Dst, 3772, (x86_src), (uint)(pc+1UL-bb_start-bb_lddw));
-#line 1418 "fd_transpile_x86.dasc"
+#line 1538 "fd_transpile_x86.dasc"
       if( dst!=0UL ) {
         //| mov [rsp-16], rax
         dasm_put(Dst, 3793);
-#line 1420 "fd_transpile_x86.dasc"
+#line 1540 "fd_transpile_x86.dasc"
       }
       if( dst!=2UL ) {
         //| mov [rsp-8], rdx
         dasm_put(Dst, 3800);
-#line 1423 "fd_transpile_x86.dasc"
+#line 1543 "fd_transpile_x86.dasc"
       }
       //| mov eax, Rd(x86_dst)
       //| xor edx, edx
       //| div edi
       dasm_put(Dst, 3807, (x86_dst));
-#line 1427 "fd_transpile_x86.dasc"
+#line 1547 "fd_transpile_x86.dasc"
       if( dst==0UL ) {
         //| mov eax, edx
         dasm_put(Dst, 4016);
-#line 1429 "fd_transpile_x86.dasc"
+#line 1549 "fd_transpile_x86.dasc"
       } else if( dst!=2UL ) {
         //| mov Rd(x86_dst), edx
         dasm_put(Dst, 4025, (x86_dst));
-#line 1431 "fd_transpile_x86.dasc"
+#line 1551 "fd_transpile_x86.dasc"
       }
       if( dst!=0UL ) {
         //| mov rax, [rsp-16]
         dasm_put(Dst, 3828);
-#line 1434 "fd_transpile_x86.dasc"
+#line 1554 "fd_transpile_x86.dasc"
       }
       if( dst!=2UL ) {
         //| mov rdx, [rsp-8]
         dasm_put(Dst, 3835);
-#line 1437 "fd_transpile_x86.dasc"
+#line 1557 "fd_transpile_x86.dasc"
       }
       break;
     case 0xa4: /* XOR32_IMM */
       //| xor Rd(x86_dst), imm
       dasm_put(Dst, 4031, (x86_dst), imm);
-#line 1441 "fd_transpile_x86.dasc"
+#line 1561 "fd_transpile_x86.dasc"
       break;
     case 0xa7: /* XOR64_IMM */
       //| xor Rq(x86_dst), (int)imm
       dasm_put(Dst, 4039, (x86_dst), (int)imm);
-#line 1444 "fd_transpile_x86.dasc"
+#line 1564 "fd_transpile_x86.dasc"
       break;
     case 0xac: /* XOR32_REG */
       //| xor Rd(x86_dst), Rd(x86_src)
       dasm_put(Dst, 4047, (x86_src), (x86_dst));
-#line 1447 "fd_transpile_x86.dasc"
+#line 1567 "fd_transpile_x86.dasc"
       break;
     case 0xaf: /* XOR64_REG */
       //| xor Rq(x86_dst), Rq(x86_src)
       dasm_put(Dst, 4055, (x86_src), (x86_dst));
-#line 1450 "fd_transpile_x86.dasc"
+#line 1570 "fd_transpile_x86.dasc"
       break;
     case 0xb4: /* MOV32_IMM */
       //| mov Rd(x86_dst), imm
       dasm_put(Dst, 2866, (x86_dst), imm);
-#line 1453 "fd_transpile_x86.dasc"
+#line 1573 "fd_transpile_x86.dasc"
       break;
     case 0xb7: { /* MOV64_IMM */
       if( !imm ) {
         //| xor Rd(x86_dst), Rd(x86_dst)
         dasm_put(Dst, 4047, (x86_dst), (x86_dst));
-#line 1457 "fd_transpile_x86.dasc"
+#line 1577 "fd_transpile_x86.dasc"
       } else {
         ulong imm64 = (ulong)(long)(int)imm;
         emit_const64( Dst, x86_dst, imm64 );
@@ -2070,42 +2218,42 @@ transpile_code( fd_vm_transpile_dasm_t *   Dst,
     case 0xbc: /* MOV32_REG */
       //| mov Rd(x86_dst), Rd(x86_src)
       dasm_put(Dst, 2893, (x86_src), (x86_dst));
-#line 1465 "fd_transpile_x86.dasc"
+#line 1585 "fd_transpile_x86.dasc"
       break;
     case 0xbf: /* MOV64_REG */
       //| mov Rq(x86_dst), Rq(x86_src)
       dasm_put(Dst, 4063, (x86_src), (x86_dst));
-#line 1468 "fd_transpile_x86.dasc"
+#line 1588 "fd_transpile_x86.dasc"
       break;
     case 0xc4: /* ARSH32_IMM */
       //| sar Rd(x86_dst), imm
       dasm_put(Dst, 4071, (x86_dst), imm);
-#line 1471 "fd_transpile_x86.dasc"
+#line 1591 "fd_transpile_x86.dasc"
       break;
     case 0xc7: /* ARSH64_IMM */
       //| sar Rq(x86_dst), imm
       dasm_put(Dst, 4079, (x86_dst), imm);
-#line 1474 "fd_transpile_x86.dasc"
+#line 1594 "fd_transpile_x86.dasc"
       break;
     case 0xcc: /* ARSH32_REG */
       //| sarx Rd(x86_dst), Rd(x86_dst), Rd(x86_src)
       dasm_put(Dst, 4087, (x86_src), (x86_dst), (x86_dst));
-#line 1477 "fd_transpile_x86.dasc"
+#line 1597 "fd_transpile_x86.dasc"
       break;
     case 0xcf: /* ARSH64_REG */
       //| sarx Rq(x86_dst), Rq(x86_dst), Rq(x86_src)
       dasm_put(Dst, 4100, (x86_src), (x86_dst), (x86_dst));
-#line 1480 "fd_transpile_x86.dasc"
+#line 1600 "fd_transpile_x86.dasc"
       break;
     case 0xd4: /* END_LE */
       if( imm==16U ) {
         //| movzx Rd(x86_dst), Rw(x86_dst)
         dasm_put(Dst, 4114, (x86_dst), (x86_dst));
-#line 1484 "fd_transpile_x86.dasc"
+#line 1604 "fd_transpile_x86.dasc"
       } else if( imm==32U ) {
         //| mov Rd(x86_dst), Rd(x86_dst)
         dasm_put(Dst, 2893, (x86_dst), (x86_dst));
-#line 1486 "fd_transpile_x86.dasc"
+#line 1606 "fd_transpile_x86.dasc"
       }
       break;
     case 0xdc: /* END_BE */
@@ -2113,15 +2261,15 @@ transpile_code( fd_vm_transpile_dasm_t *   Dst,
         //| rol Rw(x86_dst), 8
         //| movzx Rd(x86_dst), Rw(x86_dst)
         dasm_put(Dst, 4123, (x86_dst), (x86_dst), (x86_dst));
-#line 1492 "fd_transpile_x86.dasc"
+#line 1612 "fd_transpile_x86.dasc"
       } else if( imm==32U ) {
         //| bswap Rd(x86_dst)
         dasm_put(Dst, 4139, (x86_dst));
-#line 1494 "fd_transpile_x86.dasc"
+#line 1614 "fd_transpile_x86.dasc"
       } else {
         //| bswap Rq(x86_dst)
         dasm_put(Dst, 4145, (x86_dst));
-#line 1496 "fd_transpile_x86.dasc"
+#line 1616 "fd_transpile_x86.dasc"
       }
       break;
 
@@ -2130,303 +2278,303 @@ transpile_code( fd_vm_transpile_dasm_t *   Dst,
     case 0x05: /* JA */
       //| jmp =>((ulong)((long)pc + 1L + offset))
       dasm_put(Dst, 3238, ((ulong)((long)pc + 1L + offset)));
-#line 1503 "fd_transpile_x86.dasc"
+#line 1623 "fd_transpile_x86.dasc"
       break;
     case 0x15: /* JEQ_IMM */
       if( !imm ) {
         //| test Rq(x86_dst), Rq(x86_dst)
         dasm_put(Dst, 4151, (x86_dst), (x86_dst));
-#line 1507 "fd_transpile_x86.dasc"
+#line 1627 "fd_transpile_x86.dasc"
       } else {
         //| cmp Rq(x86_dst), (int)imm
         dasm_put(Dst, 4159, (x86_dst), (int)imm);
-#line 1509 "fd_transpile_x86.dasc"
+#line 1629 "fd_transpile_x86.dasc"
       }
       //| je =>((ulong)((long)pc + 1L + offset))
       dasm_put(Dst, 4167, ((ulong)((long)pc + 1L + offset)));
-#line 1511 "fd_transpile_x86.dasc"
+#line 1631 "fd_transpile_x86.dasc"
       break;
     case 0x16: /* JEQ32_IMM */
       if( !imm ) {
         //| test Rd(x86_dst), Rd(x86_dst)
         dasm_put(Dst, 4171, (x86_dst), (x86_dst));
-#line 1515 "fd_transpile_x86.dasc"
+#line 1635 "fd_transpile_x86.dasc"
       } else {
         //| cmp Rd(x86_dst), (int)imm
         dasm_put(Dst, 4179, (x86_dst), (int)imm);
-#line 1517 "fd_transpile_x86.dasc"
+#line 1637 "fd_transpile_x86.dasc"
       }
       //| je =>((ulong)((long)pc + 1L + offset))
       dasm_put(Dst, 4167, ((ulong)((long)pc + 1L + offset)));
-#line 1519 "fd_transpile_x86.dasc"
+#line 1639 "fd_transpile_x86.dasc"
       break;
     case 0x1d: /* JEQ_REG */
       //| cmp Rq(x86_dst), Rq(x86_src)
       //| je =>((ulong)((long)pc + 1L + offset))
       dasm_put(Dst, 4187, (x86_src), (x86_dst), ((ulong)((long)pc + 1L + offset)));
-#line 1523 "fd_transpile_x86.dasc"
+#line 1643 "fd_transpile_x86.dasc"
       break;
     case 0x1e: /* JEQ32_REG */
       //| cmp Rd(x86_dst), Rd(x86_src)
       //| je =>((ulong)((long)pc + 1L + offset))
       dasm_put(Dst, 4198, (x86_src), (x86_dst), ((ulong)((long)pc + 1L + offset)));
-#line 1527 "fd_transpile_x86.dasc"
+#line 1647 "fd_transpile_x86.dasc"
       break;
     case 0x25: /* JGT_IMM */
       //| cmp Rq(x86_dst), (int)imm
       //| ja =>((ulong)((long)pc + 1L + offset))
       dasm_put(Dst, 4209, (x86_dst), (int)imm, ((ulong)((long)pc + 1L + offset)));
-#line 1531 "fd_transpile_x86.dasc"
+#line 1651 "fd_transpile_x86.dasc"
       break;
     case 0x26: /* JGT32_IMM */
       //| cmp Rd(x86_dst), (int)imm
       //| ja =>((ulong)((long)pc + 1L + offset))
       dasm_put(Dst, 4220, (x86_dst), (int)imm, ((ulong)((long)pc + 1L + offset)));
-#line 1535 "fd_transpile_x86.dasc"
+#line 1655 "fd_transpile_x86.dasc"
       break;
     case 0x2d: /* JGT_REG */
       //| cmp Rq(x86_dst), Rq(x86_src)
       //| ja =>((ulong)((long)pc + 1L + offset))
       dasm_put(Dst, 4231, (x86_src), (x86_dst), ((ulong)((long)pc + 1L + offset)));
-#line 1539 "fd_transpile_x86.dasc"
+#line 1659 "fd_transpile_x86.dasc"
       break;
     case 0x2e: /* JGT32_REG */
       //| cmp Rd(x86_dst), Rd(x86_src)
       //| ja =>((ulong)((long)pc + 1L + offset))
       dasm_put(Dst, 4242, (x86_src), (x86_dst), ((ulong)((long)pc + 1L + offset)));
-#line 1543 "fd_transpile_x86.dasc"
+#line 1663 "fd_transpile_x86.dasc"
       break;
     case 0x35: /* JGE_IMM */
       //| cmp Rq(x86_dst), (int)imm
       //| jae =>((ulong)((long)pc + 1L + offset))
       dasm_put(Dst, 4253, (x86_dst), (int)imm, ((ulong)((long)pc + 1L + offset)));
-#line 1547 "fd_transpile_x86.dasc"
+#line 1667 "fd_transpile_x86.dasc"
       break;
     case 0x36: /* JGE32_IMM */
       //| cmp Rd(x86_dst), (int)imm
       //| jae =>((ulong)((long)pc + 1L + offset))
       dasm_put(Dst, 4264, (x86_dst), (int)imm, ((ulong)((long)pc + 1L + offset)));
-#line 1551 "fd_transpile_x86.dasc"
+#line 1671 "fd_transpile_x86.dasc"
       break;
     case 0x3d: /* JGE_REG */
       //| cmp Rq(x86_dst), Rq(x86_src)
       //| jae =>((ulong)((long)pc + 1L + offset))
       dasm_put(Dst, 4275, (x86_src), (x86_dst), ((ulong)((long)pc + 1L + offset)));
-#line 1555 "fd_transpile_x86.dasc"
+#line 1675 "fd_transpile_x86.dasc"
       break;
     case 0x3e: /* JGE32_REG */
       //| cmp Rd(x86_dst), Rd(x86_src)
       //| jae =>((ulong)((long)pc + 1L + offset))
       dasm_put(Dst, 4286, (x86_src), (x86_dst), ((ulong)((long)pc + 1L + offset)));
-#line 1559 "fd_transpile_x86.dasc"
+#line 1679 "fd_transpile_x86.dasc"
       break;
     case 0x45: /* JSET_IMM */
       //| test Rq(x86_dst), (int)imm
       //| jnz =>((ulong)((long)pc + 1L + offset))
       dasm_put(Dst, 4297, (x86_dst), (int)imm, ((ulong)((long)pc + 1L + offset)));
-#line 1563 "fd_transpile_x86.dasc"
+#line 1683 "fd_transpile_x86.dasc"
       break;
     case 0x46: /* JSET32_IMM */
       //| test Rd(x86_dst), (int)imm
       //| jnz =>((ulong)((long)pc + 1L + offset))
       dasm_put(Dst, 4308, (x86_dst), (int)imm, ((ulong)((long)pc + 1L + offset)));
-#line 1567 "fd_transpile_x86.dasc"
+#line 1687 "fd_transpile_x86.dasc"
       break;
     case 0x4d: /* JSET_REG */
       //| test Rq(x86_dst), Rq(x86_src)
       //| jnz =>((ulong)((long)pc + 1L + offset))
       dasm_put(Dst, 4319, (x86_src), (x86_dst), ((ulong)((long)pc + 1L + offset)));
-#line 1571 "fd_transpile_x86.dasc"
+#line 1691 "fd_transpile_x86.dasc"
       break;
     case 0x4e: /* JSET32_REG */
       //| test Rd(x86_dst), Rd(x86_src)
       //| jnz =>((ulong)((long)pc + 1L + offset))
       dasm_put(Dst, 4330, (x86_src), (x86_dst), ((ulong)((long)pc + 1L + offset)));
-#line 1575 "fd_transpile_x86.dasc"
+#line 1695 "fd_transpile_x86.dasc"
       break;
     case 0x55: /* JNE_IMM */
       if( !imm ) {
         //| test Rq(x86_dst), Rq(x86_dst)
         dasm_put(Dst, 4151, (x86_dst), (x86_dst));
-#line 1579 "fd_transpile_x86.dasc"
+#line 1699 "fd_transpile_x86.dasc"
       } else {
         //| cmp Rq(x86_dst), (int)imm
         dasm_put(Dst, 4159, (x86_dst), (int)imm);
-#line 1581 "fd_transpile_x86.dasc"
+#line 1701 "fd_transpile_x86.dasc"
       }
       //| jne =>((ulong)((long)pc + 1L + offset))
       dasm_put(Dst, 4304, ((ulong)((long)pc + 1L + offset)));
-#line 1583 "fd_transpile_x86.dasc"
+#line 1703 "fd_transpile_x86.dasc"
       break;
     case 0x56: /* JNE32_IMM */
       if( !imm ) {
         //| test Rd(x86_dst), Rd(x86_dst)
         dasm_put(Dst, 4171, (x86_dst), (x86_dst));
-#line 1587 "fd_transpile_x86.dasc"
+#line 1707 "fd_transpile_x86.dasc"
       } else {
         //| cmp Rd(x86_dst), (int)imm
         dasm_put(Dst, 4179, (x86_dst), (int)imm);
-#line 1589 "fd_transpile_x86.dasc"
+#line 1709 "fd_transpile_x86.dasc"
       }
       //| jne =>((ulong)((long)pc + 1L + offset))
       dasm_put(Dst, 4304, ((ulong)((long)pc + 1L + offset)));
-#line 1591 "fd_transpile_x86.dasc"
+#line 1711 "fd_transpile_x86.dasc"
       break;
     case 0x5d: /* JNE_REG */
       //| cmp Rq(x86_dst), Rq(x86_src)
       //| jne =>((ulong)((long)pc + 1L + offset))
       dasm_put(Dst, 4341, (x86_src), (x86_dst), ((ulong)((long)pc + 1L + offset)));
-#line 1595 "fd_transpile_x86.dasc"
+#line 1715 "fd_transpile_x86.dasc"
       break;
     case 0x5e: /* JNE32_REG */
       //| cmp Rd(x86_dst), Rd(x86_src)
       //| jne =>((ulong)((long)pc + 1L + offset))
       dasm_put(Dst, 4352, (x86_src), (x86_dst), ((ulong)((long)pc + 1L + offset)));
-#line 1599 "fd_transpile_x86.dasc"
+#line 1719 "fd_transpile_x86.dasc"
       break;
     case 0x65: /* JSGT_IMM */
       //| cmp Rq(x86_dst), (int)imm
       //| jg =>((ulong)((long)pc + 1L + offset))
       dasm_put(Dst, 4363, (x86_dst), (int)imm, ((ulong)((long)pc + 1L + offset)));
-#line 1603 "fd_transpile_x86.dasc"
+#line 1723 "fd_transpile_x86.dasc"
       break;
     case 0x66: /* JSGT32_IMM */
       //| cmp Rd(x86_dst), (int)imm
       //| jg =>((ulong)((long)pc + 1L + offset))
       dasm_put(Dst, 4374, (x86_dst), (int)imm, ((ulong)((long)pc + 1L + offset)));
-#line 1607 "fd_transpile_x86.dasc"
+#line 1727 "fd_transpile_x86.dasc"
       break;
     case 0x6d: /* JSGT_REG */
       //| cmp Rq(x86_dst), Rq(x86_src)
       //| jg =>((ulong)((long)pc + 1L + offset))
       dasm_put(Dst, 4385, (x86_src), (x86_dst), ((ulong)((long)pc + 1L + offset)));
-#line 1611 "fd_transpile_x86.dasc"
+#line 1731 "fd_transpile_x86.dasc"
       break;
     case 0x6e: /* JSGT32_REG */
       //| cmp Rd(x86_dst), Rd(x86_src)
       //| jg =>((ulong)((long)pc + 1L + offset))
       dasm_put(Dst, 4396, (x86_src), (x86_dst), ((ulong)((long)pc + 1L + offset)));
-#line 1615 "fd_transpile_x86.dasc"
+#line 1735 "fd_transpile_x86.dasc"
       break;
     case 0x75: /* JSGE_IMM */
       //| cmp Rq(x86_dst), (int)imm
       //| jge =>((ulong)((long)pc + 1L + offset))
       dasm_put(Dst, 4407, (x86_dst), (int)imm, ((ulong)((long)pc + 1L + offset)));
-#line 1619 "fd_transpile_x86.dasc"
+#line 1739 "fd_transpile_x86.dasc"
       break;
     case 0x76: /* JSGE32_IMM */
       //| cmp Rd(x86_dst), (int)imm
       //| jge =>((ulong)((long)pc + 1L + offset))
       dasm_put(Dst, 4418, (x86_dst), (int)imm, ((ulong)((long)pc + 1L + offset)));
-#line 1623 "fd_transpile_x86.dasc"
+#line 1743 "fd_transpile_x86.dasc"
       break;
     case 0x7d: /* JSGE_REG */
       //| cmp Rq(x86_dst), Rq(x86_src)
       //| jge =>((ulong)((long)pc + 1L + offset))
       dasm_put(Dst, 4429, (x86_src), (x86_dst), ((ulong)((long)pc + 1L + offset)));
-#line 1627 "fd_transpile_x86.dasc"
+#line 1747 "fd_transpile_x86.dasc"
       break;
     case 0x7e: /* JSGE32_REG */
       //| cmp Rd(x86_dst), Rd(x86_src)
       //| jge =>((ulong)((long)pc + 1L + offset))
       dasm_put(Dst, 4440, (x86_src), (x86_dst), ((ulong)((long)pc + 1L + offset)));
-#line 1631 "fd_transpile_x86.dasc"
+#line 1751 "fd_transpile_x86.dasc"
       break;
     case 0xa5: /* JLT_IMM */
       //| cmp Rq(x86_dst), (int)imm
       //| jb =>((ulong)((long)pc + 1L + offset))
       dasm_put(Dst, 4451, (x86_dst), (int)imm, ((ulong)((long)pc + 1L + offset)));
-#line 1635 "fd_transpile_x86.dasc"
+#line 1755 "fd_transpile_x86.dasc"
       break;
     case 0xa6: /* JLT32_IMM */
       //| cmp Rd(x86_dst), (int)imm
       //| jb =>((ulong)((long)pc + 1L + offset))
       dasm_put(Dst, 4462, (x86_dst), (int)imm, ((ulong)((long)pc + 1L + offset)));
-#line 1639 "fd_transpile_x86.dasc"
+#line 1759 "fd_transpile_x86.dasc"
       break;
     case 0xad: /* JLT_REG */
       //| cmp Rq(x86_dst), Rq(x86_src)
       //| jb =>((ulong)((long)pc + 1L + offset))
       dasm_put(Dst, 4473, (x86_src), (x86_dst), ((ulong)((long)pc + 1L + offset)));
-#line 1643 "fd_transpile_x86.dasc"
+#line 1763 "fd_transpile_x86.dasc"
       break;
     case 0xae: /* JLT32_REG */
       //| cmp Rd(x86_dst), Rd(x86_src)
       //| jb =>((ulong)((long)pc + 1L + offset))
       dasm_put(Dst, 4484, (x86_src), (x86_dst), ((ulong)((long)pc + 1L + offset)));
-#line 1647 "fd_transpile_x86.dasc"
+#line 1767 "fd_transpile_x86.dasc"
       break;
     case 0xb5: /* JLE_IMM */
       //| cmp Rq(x86_dst), (int)imm
       //| jbe =>((ulong)((long)pc + 1L + offset))
       dasm_put(Dst, 4495, (x86_dst), (int)imm, ((ulong)((long)pc + 1L + offset)));
-#line 1651 "fd_transpile_x86.dasc"
+#line 1771 "fd_transpile_x86.dasc"
       break;
     case 0xb6: /* JLE32_IMM */
       //| cmp Rd(x86_dst), (int)imm
       //| jbe =>((ulong)((long)pc + 1L + offset))
       dasm_put(Dst, 4506, (x86_dst), (int)imm, ((ulong)((long)pc + 1L + offset)));
-#line 1655 "fd_transpile_x86.dasc"
+#line 1775 "fd_transpile_x86.dasc"
       break;
     case 0xbd: /* JLE_REG */
       //| cmp Rq(x86_dst), Rq(x86_src)
       //| jbe =>((ulong)((long)pc + 1L + offset))
       dasm_put(Dst, 4517, (x86_src), (x86_dst), ((ulong)((long)pc + 1L + offset)));
-#line 1659 "fd_transpile_x86.dasc"
+#line 1779 "fd_transpile_x86.dasc"
       break;
     case 0xbe: /* JLE32_REG */
       //| cmp Rd(x86_dst), Rd(x86_src)
       //| jbe =>((ulong)((long)pc + 1L + offset))
       dasm_put(Dst, 4528, (x86_src), (x86_dst), ((ulong)((long)pc + 1L + offset)));
-#line 1663 "fd_transpile_x86.dasc"
+#line 1783 "fd_transpile_x86.dasc"
       break;
     case 0xc5: /* JSLT_IMM */
       //| cmp Rq(x86_dst), (int)imm
       //| jl =>((ulong)((long)pc + 1L + offset))
       dasm_put(Dst, 4539, (x86_dst), (int)imm, ((ulong)((long)pc + 1L + offset)));
-#line 1667 "fd_transpile_x86.dasc"
+#line 1787 "fd_transpile_x86.dasc"
       break;
     case 0xc6: /* JSLT32_IMM */
       //| cmp Rd(x86_dst), (int)imm
       //| jl =>((ulong)((long)pc + 1L + offset))
       dasm_put(Dst, 4550, (x86_dst), (int)imm, ((ulong)((long)pc + 1L + offset)));
-#line 1671 "fd_transpile_x86.dasc"
+#line 1791 "fd_transpile_x86.dasc"
       break;
     case 0xcd: /* JSLT_REG */
       //| cmp Rq(x86_dst), Rq(x86_src)
       //| jl =>((ulong)((long)pc + 1L + offset))
       dasm_put(Dst, 4561, (x86_src), (x86_dst), ((ulong)((long)pc + 1L + offset)));
-#line 1675 "fd_transpile_x86.dasc"
+#line 1795 "fd_transpile_x86.dasc"
       break;
     case 0xce: /* JSLT32_REG */
       //| cmp Rd(x86_dst), Rd(x86_src)
       //| jl =>((ulong)((long)pc + 1L + offset))
       dasm_put(Dst, 4572, (x86_src), (x86_dst), ((ulong)((long)pc + 1L + offset)));
-#line 1679 "fd_transpile_x86.dasc"
+#line 1799 "fd_transpile_x86.dasc"
       break;
     case 0xd5: /* JSLE_IMM */
       //| cmp Rq(x86_dst), (int)imm
       //| jle =>((ulong)((long)pc + 1L + offset))
       dasm_put(Dst, 4583, (x86_dst), (int)imm, ((ulong)((long)pc + 1L + offset)));
-#line 1683 "fd_transpile_x86.dasc"
+#line 1803 "fd_transpile_x86.dasc"
       break;
     case 0xd6: /* JSLE32_IMM */
       //| cmp Rd(x86_dst), (int)imm
       //| jle =>((ulong)((long)pc + 1L + offset))
       dasm_put(Dst, 4594, (x86_dst), (int)imm, ((ulong)((long)pc + 1L + offset)));
-#line 1687 "fd_transpile_x86.dasc"
+#line 1807 "fd_transpile_x86.dasc"
       break;
     case 0xdd: /* JSLE_REG */
       //| cmp Rq(x86_dst), Rq(x86_src)
       //| jle =>((ulong)((long)pc + 1L + offset))
       dasm_put(Dst, 4605, (x86_src), (x86_dst), ((ulong)((long)pc + 1L + offset)));
-#line 1691 "fd_transpile_x86.dasc"
+#line 1811 "fd_transpile_x86.dasc"
       break;
     case 0xde: /* JSLE32_REG */
       //| cmp Rd(x86_dst), Rd(x86_src)
       //| jle =>((ulong)((long)pc + 1L + offset))
       dasm_put(Dst, 4616, (x86_src), (x86_dst), ((ulong)((long)pc + 1L + offset)));
-#line 1695 "fd_transpile_x86.dasc"
+#line 1815 "fd_transpile_x86.dasc"
       break;
 
     /* Call */
@@ -2457,30 +2605,31 @@ transpile_code( fd_vm_transpile_dasm_t *   Dst,
       }
       //| cu_settle (pc+1UL-bb_start-bb_lddw)
       dasm_put(Dst, 4627, Dt1(->cu), (pc+1UL-bb_start-bb_lddw));
-#line 1724 "fd_transpile_x86.dasc"
+#line 1844 "fd_transpile_x86.dasc"
       if( sys ) {
         ulong slot_idx = (ulong)( sys-syscalls );
         syscall_used[ slot_idx >> 6 ] |= 1UL<<( slot_idx & 63UL );
-        //| call =>(t->dasm_lbl_sys0 + slot_idx)
-        dasm_put(Dst, 4635, (t->dasm_lbl_sys0 + slot_idx));
-#line 1728 "fd_transpile_x86.dasc"
+        //| mov qword vm->pc, pc
+        //| call =>(Dst->dasm_lbl_sys0 + slot_idx)
+        dasm_put(Dst, 4635, Dt1(->pc), pc, (Dst->dasm_lbl_sys0 + slot_idx));
+#line 1849 "fd_transpile_x86.dasc"
       } else if( target_pc>=0L ) {
         ulong tpc = (ulong)target_pc;
         if( fd_vm_instr_opcode( FD_LOAD( ulong, bpf_text + (tpc<<3) ) )==0x00UL ) {
           //| jmp ->exception_ill
-          dasm_put(Dst, 4638);
-#line 1732 "fd_transpile_x86.dasc"
+          dasm_put(Dst, 4645);
+#line 1853 "fd_transpile_x86.dasc"
         } else {
-          thunk_used[ tpc >> 6 ] |= 1UL<<( tpc & 63UL );
+          Dst->thunk_bv[ tpc >> 6 ] |= 1UL<<( tpc & 63UL );
           //| mov qword vm->pc, pc
-          //| call =>(t->dasm_lbl_thunk0 + tpc)
-          dasm_put(Dst, 4643, Dt1(->pc), pc, (t->dasm_lbl_thunk0 + tpc));
-#line 1736 "fd_transpile_x86.dasc"
+          //| call =>(Dst->dasm_lbl_thunk0 + tpc)
+          dasm_put(Dst, 4635, Dt1(->pc), pc, (Dst->dasm_lbl_thunk0 + tpc));
+#line 1857 "fd_transpile_x86.dasc"
         }
       } else {
         //| jmp ->exception_ill
-        dasm_put(Dst, 4638);
-#line 1739 "fd_transpile_x86.dasc"
+        dasm_put(Dst, 4645);
+#line 1860 "fd_transpile_x86.dasc"
       }
       bb_start = pc+1UL;
       bb_lddw  = 0UL;
@@ -2494,26 +2643,26 @@ transpile_code( fd_vm_transpile_dasm_t *   Dst,
           (ulong)imm;
       if( FD_UNLIKELY( callx_reg>9UL ) ) {
         FD_LOG_WARNING(( "invalid callx register at pc %lu", pc ));
-        return FD_VM_TRANSPILE_ERR_INVAL;
+        return -1;
       }
       //| cu_settle (pc+1UL-bb_start-bb_lddw)
       //| mov qword vm->pc, pc
       //| mov r15, Rq(bpf_x86_reg[callx_reg])
       //| call ->callx
-      dasm_put(Dst, 4653, Dt1(->cu), (pc+1UL-bb_start-bb_lddw), Dt1(->pc), pc, (bpf_x86_reg[callx_reg]));
-#line 1758 "fd_transpile_x86.dasc"
+      dasm_put(Dst, 4650, Dt1(->cu), (pc+1UL-bb_start-bb_lddw), Dt1(->pc), pc, (bpf_x86_reg[callx_reg]));
+#line 1879 "fd_transpile_x86.dasc"
       bb_start = pc+1UL;
       bb_lddw  = 0UL;
       break;
     case 0x95: /* EXIT */
       //| jmp ->bpfcall_frame_pop
-      dasm_put(Dst, 4676);
-#line 1763 "fd_transpile_x86.dasc"
+      dasm_put(Dst, 4673);
+#line 1884 "fd_transpile_x86.dasc"
       break;
 
     default:
       FD_LOG_WARNING(( "invalid opcode 0x%02lx at pc %lu", opcode, pc ));
-      return FD_VM_TRANSPILE_ERR_INVAL;
+      return -1;
     }
   }
 
@@ -2521,37 +2670,32 @@ transpile_code( fd_vm_transpile_dasm_t *   Dst,
   if( bb_start<bpf_text_cnt ) {
     //| cu_charge (bpf_text_cnt-bb_start-bb_lddw)
     dasm_put(Dst, 3242, Dt1(->cu), (bpf_text_cnt-bb_start-bb_lddw));
-#line 1774 "fd_transpile_x86.dasc"
+#line 1895 "fd_transpile_x86.dasc"
   }
   //| call ->regs_save
   //| mov r15d, FD_VM_ERR_EBPF_EXECUTION_OVERRUN
-  //| xor edi, edi
+  //| mov edi, 1 // bill 1 more CU before faulting
   //| jmp ->exception_charge
-  //|=>(t->dasm_lbl_reloc0-1UL):
-  dasm_put(Dst, 4681, FD_VM_ERR_EBPF_EXECUTION_OVERRUN, (t->dasm_lbl_reloc0-1UL));
-#line 1780 "fd_transpile_x86.dasc"
+  //|=>(Dst->dasm_lbl_reloc0-1UL):
+  dasm_put(Dst, 4678, FD_VM_ERR_EBPF_EXECUTION_OVERRUN, (Dst->dasm_lbl_reloc0-1UL));
+#line 1901 "fd_transpile_x86.dasc"
 
-  if( bpf_func_starts ) {
-    ulong word_cnt = (bpf_text_cnt+63UL)>>6;
-    memcpy( bpf_func_starts, thunk_used, word_cnt*sizeof(ulong) );
-    bpf_func_starts[ bpf_entry_pc>>6 ] |= 1UL<<( bpf_entry_pc&63UL );
-  }
 
-  emit_mmu_routines( t );
+  emit_mmu_routines( Dst );
 
   /* BPF-to-BPF call thunks */
 
   for( ulong pc=0UL; pc<bpf_text_cnt; pc++ ) {
-    if( thunk_used[ pc>>6 ] & (1UL<<( pc&63UL )) ) {
-      //|=>(t->dasm_lbl_thunk0 + pc):
+    if( Dst->thunk_bv[ pc>>6 ] & (1UL<<( pc&63UL )) ) {
+      //|=>(Dst->dasm_lbl_thunk0 + pc):
       //| sbpf_frame_enter
       //| sub rsp, 8
       //| call ->bpfcall_frame_push
       //| test r15d, r15d
       //| jnz ->call_imm_depth
       //| jmp =>pc
-      dasm_put(Dst, 4696, (t->dasm_lbl_thunk0 + pc), pc);
-#line 1800 "fd_transpile_x86.dasc"
+      dasm_put(Dst, 4695, (Dst->dasm_lbl_thunk0 + pc), pc);
+#line 1916 "fd_transpile_x86.dasc"
     }
   }
 
@@ -2561,17 +2705,17 @@ transpile_code( fd_vm_transpile_dasm_t *   Dst,
       int bit = fd_ulong_find_lsb( word );
       word &= ~(1UL<<bit);
       ulong slot_idx = (word_idx<<6) + (ulong)bit;
-      //|=>(t->dasm_lbl_sys0 + slot_idx):
-      dasm_put(Dst, 344, (t->dasm_lbl_sys0 + slot_idx));
-#line 1810 "fd_transpile_x86.dasc"
-      emit_syscall_call( t, slot_idx );
+      //|=>(Dst->dasm_lbl_sys0 + slot_idx):
+      dasm_put(Dst, 344, (Dst->dasm_lbl_sys0 + slot_idx));
+#line 1926 "fd_transpile_x86.dasc"
+      emit_syscall_call( Dst, slot_idx );
     }
   }
 
   emit_regs_subroutines( Dst );
-  emit_frame_helpers( t );
+  emit_frame_helpers( Dst );
   if( has_callx ) {
-    emit_callx_handler( t );
+    emit_callx_handler( Dst );
   }
 
   /* Fault handlers */
@@ -2581,8 +2725,8 @@ transpile_code( fd_vm_transpile_dasm_t *   Dst,
   //| call ->regs_save
   //| mov r15d, FD_VM_ERR_EBPF_DIVIDE_BY_ZERO
   //| jmp ->exception_charge
-  dasm_put(Dst, 4728, FD_VM_ERR_EBPF_DIVIDE_BY_ZERO);
-#line 1827 "fd_transpile_x86.dasc"
+  dasm_put(Dst, 4727, FD_VM_ERR_EBPF_DIVIDE_BY_ZERO);
+#line 1943 "fd_transpile_x86.dasc"
 
   //|->exception_segfault:
   //| // r15: negative FD_VM_ERR_EBPF_* code returned by mmu_tlb_miss
@@ -2592,8 +2736,8 @@ transpile_code( fd_vm_transpile_dasm_t *   Dst,
   //| mov edi, [rdi+1]
   //| call ->regs_save
   //| jmp ->exception_charge
-  dasm_put(Dst, 4741);
-#line 1836 "fd_transpile_x86.dasc"
+  dasm_put(Dst, 4740);
+#line 1952 "fd_transpile_x86.dasc"
 
   //|->exception_ill:
   //| // Call to an invalid target (the verifier does not check call
@@ -2602,8 +2746,8 @@ transpile_code( fd_vm_transpile_dasm_t *   Dst,
   //| mov r15d, FD_VM_ERR_EBPF_UNSUPPORTED_INSTRUCTION
   //| xor edi, edi
   //| jmp ->exception_charge
-  dasm_put(Dst, 4758, FD_VM_ERR_EBPF_UNSUPPORTED_INSTRUCTION);
-#line 1844 "fd_transpile_x86.dasc"
+  dasm_put(Dst, 4757, FD_VM_ERR_EBPF_UNSUPPORTED_INSTRUCTION);
+#line 1960 "fd_transpile_x86.dasc"
 
   //|->exception_cost:
   //| // Reached from cu_charge in the instruction stream when the CU
@@ -2612,8 +2756,8 @@ transpile_code( fd_vm_transpile_dasm_t *   Dst,
   //| mov r15d, FD_VM_ERR_EBPF_EXCEEDED_MAX_INSTRUCTIONS
   //| xor edi, edi
   //| // fall through
-  dasm_put(Dst, 4774, FD_VM_ERR_EBPF_EXCEEDED_MAX_INSTRUCTIONS);
-#line 1852 "fd_transpile_x86.dasc"
+  dasm_put(Dst, 4773, FD_VM_ERR_EBPF_EXCEEDED_MAX_INSTRUCTIONS);
+#line 1968 "fd_transpile_x86.dasc"
 
   //|->exception_charge:
   //| // Bills the pending block and unwinds.  Expects BPF registers to
@@ -2629,8 +2773,8 @@ transpile_code( fd_vm_transpile_dasm_t *   Dst,
   //|1:
   //| mov esi, (FD_VM_STACK_FRAME_MAX-1)*48
   //| jmp ->unwind
-  dasm_put(Dst, 4786, Dt1(->cu), Dt1(->transpiled.ic_cu_anchor), Dt1(->cu), Dt1(->ic), Dt1(->cu), Dt1(->cu), FD_VM_ERR_EBPF_EXCEEDED_MAX_INSTRUCTIONS, (FD_VM_STACK_FRAME_MAX-1)*48);
-#line 1867 "fd_transpile_x86.dasc"
+  dasm_put(Dst, 4785, Dt1(->cu), Dt1(->transpiled.ic_cu_anchor), Dt1(->cu), Dt1(->ic), Dt1(->cu), Dt1(->cu), FD_VM_ERR_EBPF_EXCEEDED_MAX_INSTRUCTIONS, (FD_VM_STACK_FRAME_MAX-1)*48);
+#line 1983 "fd_transpile_x86.dasc"
 
   //|->unwind:
   //| // - r15d: return value
@@ -2657,51 +2801,70 @@ transpile_code( fd_vm_transpile_dasm_t *   Dst,
   //| pop rbx
   //| leave
   //| ret
-  dasm_put(Dst, 4845);
-#line 1893 "fd_transpile_x86.dasc"
+  dasm_put(Dst, 4844);
+#line 2009 "fd_transpile_x86.dasc"
 
-  *reloc_cnt = t->reloc_cnt;
-  return FD_VM_TRANSPILE_SUCCESS;
-}
-
-int
-fd_vm_transpile_code( fd_vm_transpile_dasm_t *   dasm,
-                      void *                     scratch,
-                      ulong                      scratch_sz,
-                      ulong                      sbpf_version,
-                      uchar const *              bpf_text,
-                      ulong                      bpf_text_cnt,
-                      ulong                      bpf_entry_pc,
-                      ulong const *              bpf_calldests,
-                      fd_sbpf_syscalls_t const * syscalls,
-                      ulong const *              bpf_bb_splits,
-                      ulong *                    bpf_func_starts,
-                      fd_elf64_rela *            reloc,
-                      ulong *                    reloc_cnt ) {
-
-  *dasm = (fd_vm_transpile_dasm_t){ .mem = scratch, .mem_sz = scratch_sz };
-
-  if( FD_UNLIKELY( sbpf_version!=0 && sbpf_version!=1 && sbpf_version!=3 ) ) {
-    FD_LOG_WARNING(( "sBPF v%lu programs are not supported", sbpf_version ));
-    return FD_VM_TRANSPILE_ERR_INVAL;
+  size_t code_sz;
+  int link_res = dasm_link( Dst, &code_sz );
+  if( link_res!=0 ) {
+    FD_LOG_WARNING(( "dasm_link failed: %d", link_res ));
+    return -1;
   }
-  if( FD_UNLIKELY( bpf_text_cnt>FD_VM_TRANSPILE_TEXT_CNT_MAX ) ) {
-    FD_LOG_WARNING(( "program too large (%lu slots)", bpf_text_cnt ));
-    return FD_VM_TRANSPILE_ERR_NOMEM;
+  if( FD_UNLIKELY( code_sz > FD_TRANSPILER_CODE_MAX ) ) {
+    FD_LOG_WARNING(( "transpiled code is too big: %lu bytes larger than FD_TRANSPILER_CODE_MAX", code_sz-FD_TRANSPILER_CODE_MAX ));
+    return -1;
   }
 
-  /* Allocation failures deep inside DynASM unwind to here.  Only
-     scratch memory is abandoned. */
-
-  jmp_buf fail;
-  dasm->fail = fail;
-  int err;
-  if( FD_LIKELY( !setjmp( fail ) ) ) {
-    err = transpile_code( dasm, sbpf_version, bpf_text, bpf_text_cnt, bpf_entry_pc, bpf_calldests, syscalls,
-                          bpf_bb_splits, bpf_func_starts, reloc, reloc_cnt );
-  } else {
-    err = FD_VM_TRANSPILE_ERR_NOMEM;
+  int enc_res = dasm_encode( Dst, Dst->code );
+  if( enc_res!=0 ) {
+    FD_LOG_WARNING(( "dasm_encode failed: %d", enc_res ));
+    return -1;
   }
-  dasm->fail = NULL;
-  return err;
+
+  /* Resolve relocation site labels to code offsets */
+  for( ulong i=0UL; i<Dst->reloc_cnt; i++ ) {
+    int ofs = dasm_getpclabel( Dst, (uint)( Dst->dasm_lbl_reloc0+i ) );
+    if( FD_UNLIKELY( ofs<0 || (ulong)ofs+4UL>code_sz ) ) {
+      FD_LOG_WARNING(( "failed to resolve relocation %lu site label (%d)", i, ofs ));
+      return -1;
+    }
+    Dst->reloc[ i ].r_offset = (ulong)ofs;
+  }
+
+  /* Basic block tables (layout documented in fd_transpile.h) */
+  ulong * seq     = bpf_bb_splits + bb_word_cnt;
+  ulong   jmp_off = 2UL*bb_word_cnt*sizeof(ulong);
+  ulong bb_idx = 0UL;
+  for( ulong w=0UL; w<bb_word_cnt; w++ ) {
+    seq[ w ] = bb_idx;
+    ulong word = bpf_bb_splits[ w ];
+    while( word ) {
+      ulong pc = (w<<6) + (ulong)fd_ulong_find_lsb( word );
+      word &= word-1UL;
+      int ofs = dasm_getpclabel( Dst, (uint)pc );
+      if( FD_UNLIKELY( ofs<0 || (ulong)ofs>=code_sz ) ) {
+        FD_LOG_WARNING(( "failed to resolve basic block %lu label (%d)", pc, ofs ));
+        return -1;
+      }
+      /* entry holds text+ofs relative to the table base */
+      Dst->rodata_reloc[ bb_idx ] = (fd_elf64_rela){
+        .r_offset = jmp_off + bb_idx*sizeof(int),
+        .r_info   = FD_ELF64_R_INFO( FD_VM_TRANSPILE_SYM_TEXT, FD_ELF_R_X86_64_PC32 ),
+        .r_addend = (long)( (ulong)ofs + bb_idx*sizeof(int) )
+      };
+      bb_idx++;
+    }
+  }
+  Dst->rodata_reloc_cnt  = bb_idx;
+  Dst->rodata_sz         = jmp_off + bb_idx*sizeof(int);
+
+  Dst->code_sz           = (ulong)code_sz;
+  Dst->entrypoint_off    = 0UL;
+  syms_compute( Dst, bpf_text_cnt, bpf_entry_pc, bpf_calldests, syscall_used, (ulong)code_sz );
+  Dst->meta.text_cnt     = bpf_text_cnt;
+  Dst->meta.text_sz      = bpf_text_cnt * 8UL;
+  Dst->meta.entry_pc     = bpf_entry_pc;
+  Dst->meta.sbpf_version = sbpf_version;
+
+  return 0;
 }

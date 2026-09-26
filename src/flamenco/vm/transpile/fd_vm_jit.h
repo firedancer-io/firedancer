@@ -29,16 +29,13 @@
 #define FD_VM_JIT_SUPPORTED 0
 #endif
 
-/* FD_VM_JIT_TEXT_CNT_MAX bounds the programs the JIT compiles (it
-   covers the largest program a 10 MiB account can hold); larger
-   programs run in the interpreter.  The compile scratch is sized for
-   worst case code of FD_VM_JIT_SCRATCH_TEXT_CNT slots (42 MiB).  Real
-   programs need about a fifth of that per slot (the largest seen on
-   mainnet, 615k slots, uses 20 MiB), so larger programs fit too.  A
-   program that doesn't fails to compile and is interpreted. */
+/* FD_VM_JIT_TEXT_CNT_MAX bounds the programs the JIT compiles (the
+   transpiler handles any program a 10 MiB account can hold, see
+   FD_TRANSPILER_TEXT_CNT_MAX); larger programs run in the interpreter.
+   A program whose code or tables exceed the transpiler's fixed buffers
+   fails to compile and is interpreted. */
 
-#define FD_VM_JIT_TEXT_CNT_MAX     (1UL<<21)
-#define FD_VM_JIT_SCRATCH_TEXT_CNT (1UL<<18)
+#define FD_VM_JIT_TEXT_CNT_MAX FD_TRANSPILER_TEXT_CNT_MAX
 
 #define FD_VM_JIT_ENTRY_MAX (4096UL)
 
