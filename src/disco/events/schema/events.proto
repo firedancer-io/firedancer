@@ -12534,6 +12534,18 @@ message MetricsExecrp {
   MetricsExecrpTxncacheQueryDurationNanos txncache_query_duration_nanos = 68;
   // Duration of one transaction cache insert
   MetricsExecrpTxncacheInsertDurationNanos txncache_insert_duration_nanos = 69;
+  // Program executions that found native code in the tile's JIT cache
+  uint64 jit_hit = 335920163;
+  // Programs compiled to native code
+  uint64 jit_compiled = 431985017;
+  // Programs that could not be compiled and ran in the interpreter
+  uint64 jit_compile_failed = 519145400;
+  // Time spent compiling programs to native code
+  uint64 jit_compile_duration_nanos = 429806210;
+  // Native executions that resumed in the interpreter
+  uint64 jit_bailed = 313142027;
+  // JIT code cache resets (cache full)
+  uint64 jit_cache_cleared = 445426720;
   // Acquires that waited for the accdb tile to bring keys from the on-disk account index into memory
   uint64 accdb_index_residual_waited = 344204989;
   // Time spent waiting for the accdb tile to bring keys from the on-disk account index into memory
