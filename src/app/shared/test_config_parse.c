@@ -239,6 +239,7 @@ main( int     argc,
   config->firedancer.runtime.transaction_cache_size_mib        = 640UL;
   config->firedancer.runtime.bpf_shared_frames                 = 12UL;
   config->firedancer.runtime.bpf_local_frames                  = 2UL;
+  config->firedancer.runtime.jit_arena_size_mib                = 256UL;
   config->firedancer.development.genesis.max_file_size_mib     = 33UL;
   strcpy( config->firedancer.layout.mode, "performance" );
 

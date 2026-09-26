@@ -544,6 +544,7 @@ fd_config_validatef( fd_configf_t const * config ) {
   if( FD_UNLIKELY( config->runtime.transaction_cache_size_mib>(ULONG_MAX>>20) ) ) {
     FD_LOG_ERR(( "runtime.transaction_cache_size_mib is too large: %lu", config->runtime.transaction_cache_size_mib ));
   }
+  CFG_HAS_NON_ZERO( runtime.jit_arena_size_mib );
 }
 
 static void

@@ -47,6 +47,8 @@ fd_config_extract_podf( uchar *        pod,
 
   CFG_POP      ( ulong,  runtime.program_cache_size_mib                      );
   CFG_POP      ( ulong,  runtime.transaction_cache_size_mib                  );
+  CFG_POP      ( bool,   runtime.jit                                         );
+  CFG_POP      ( ulong,  runtime.jit_arena_size_mib                          );
 
   CFG_POP      ( ulong,  runtime.bank_cache_cnt                              );
 

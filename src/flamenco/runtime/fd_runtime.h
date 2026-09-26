@@ -74,11 +74,14 @@
    txn_out (not committable) --> fd_runtime_cancel_txn()
 */
 
+struct fd_vm_jit;
+
 struct fd_runtime {
-  fd_accdb_t *      accdb;
-  fd_txncache_t *   status_cache;
-  fd_progcache_t *  progcache;
-  fd_bpf_frames_t * bpf_frames;
+  fd_accdb_t *       accdb;
+  fd_txncache_t *    status_cache;
+  fd_progcache_t *   progcache;
+  fd_bpf_frames_t *  bpf_frames;
+  struct fd_vm_jit * jit; /* native code cache, NULL to always interpret */
 
   /* Sysvars of the bank with sequence number sysvar_bank_seq (0 if
      none).  Refilled by fd_runtime_sysvar_cache_refresh. */
