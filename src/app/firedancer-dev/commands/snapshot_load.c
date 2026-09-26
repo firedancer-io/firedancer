@@ -1,3 +1,11 @@
+#include "../../../flamenco/progcache/fd_prog_load.h"
+#include "../../../flamenco/runtime/fd_bank.h"
+#include "../../../flamenco/runtime/fd_system_ids.h"
+#include "../../../flamenco/runtime/program/fd_bpf_loader_program.h"
+#include "../../../ballet/blake3/fd_blake3.h"
+#include "../../../flamenco/runtime/sysvar/fd_sysvar_clock.h"
+#include "../../../flamenco/vm/transpile/fd_transpile_obj.h"
+#include "../../../ballet/base58/fd_base58.h"
 #include "../../firedancer/topology.h"
 #include "../../platform/fd_sys_util.h"
 #include "../../shared/commands/configure/configure.h"
@@ -12,7 +20,10 @@
 #include "../../../flamenco/runtime/fd_cost_tracker.h"
 #include "../../../flamenco/accdb/fd_accdb_private.h"
 
+#include <errno.h>
 #include <fcntl.h> /* open */
+#include <limits.h>
+#include <sys/stat.h>
 #include <sys/resource.h>
 #include <linux/capability.h>
 #include <unistd.h> /* close, sleep */
@@ -261,6 +272,8 @@ snapshot_load_args( int *    pargc,
       "  --no-watch           Do not print periodic progress updates\n"
       "  --db-rec-max <num>   Database max record/account count (e.g. 10e6 -> 10M accounts)\n"
       "  --accounts-hist      After loading, analyze account size distribution\n"
+      "  --transpile \"<addr> ...\"  After loading, transpile these programs to x86\n"
+      "  --transpile-list PATH  After loading, transpile programs listed in file\n"
       "\n",
       stderr );
     exit( 0 );
@@ -272,6 +285,8 @@ snapshot_load_args( int *    pargc,
   int          no_incremental= fd_env_strip_cmdline_contains( pargc, pargv, "--no-incremental"             )!=0;
   int          no_watch      = fd_env_strip_cmdline_contains( pargc, pargv, "--no-watch"                   )!=0;
   int          accounts_hist = fd_env_strip_cmdline_contains( pargc, pargv, "--accounts-hist"              )!=0;
+  char const * transpile     = fd_env_strip_cmdline_cstr    ( pargc, pargv, "--transpile",      NULL, NULL );
+  char const * transpile_list= fd_env_strip_cmdline_cstr    ( pargc, pargv, "--transpile-list", NULL, NULL );
   double       db_sz         = fd_env_strip_cmdline_double  ( pargc, pargv, "--db-sz",        NULL, 0.0    );
   double       db_rec_max    = fd_env_strip_cmdline_double  ( pargc, pargv, "--db-rec-max",   NULL, 0.0    );
   if( FD_UNLIKELY( !(db_sz>=0.0 && db_sz<1.8e19) ) )           FD_LOG_ERR(( "--db-sz out of range" ));      /* also rejects NaN */
@@ -284,6 +299,8 @@ snapshot_load_args( int *    pargc,
   args->snapshot_load.no_watch       = no_watch;
   args->snapshot_load.db_rec_max     = (ulong)db_rec_max;
   args->snapshot_load.cache_sz       = (ulong)db_sz;
+  args->snapshot_load.transpile      = transpile;
+  args->snapshot_load.transpile_list = transpile_list;
 }
 
 /* ACCOUNTS_HIST_N (32) is chosen to make the histogram lightweight.
@@ -431,6 +448,287 @@ accounts_hist( accounts_hist_t * hist,
   }
 }
 
+/* Transpile support **************************************************/
+
+#define TRANSPILE_DIR "build/transpiled/x86"
+
+struct transpile_list {
+  fd_pubkey_t * addrs;
+  ulong         cnt;
+  ulong         max;
+};
+typedef struct transpile_list transpile_list_t;
+
+/* transpile_list_add_cstr appends the whitespace separated base58
+   addresses in cstr to list.  '#' starts a comment running to the end
+   of the line.  Duplicates are dropped. */
+
+static void
+transpile_list_add_cstr( transpile_list_t * list,
+                         char const *       cstr ) {
+  char const * p = cstr;
+  for(;;) {
+    while( *p==' ' || *p=='\t' || *p=='\n' || *p=='\r' ) p++;
+    if( !*p ) break;
+    if( *p=='#' ) {
+      while( *p && *p!='\n' ) p++;
+      continue;
+    }
+    char const * tok = p;
+    while( *p && *p!=' ' && *p!='\t' && *p!='\n' && *p!='\r' && *p!='#' ) p++;
+    ulong tok_len = (ulong)( p-tok );
+
+    char b58[ FD_BASE58_ENCODED_32_SZ ];
+    fd_pubkey_t addr;
+    if( FD_UNLIKELY( tok_len>=sizeof(b58) ) ) FD_LOG_ERR(( "invalid transpile address `%.*s`", (int)tok_len, tok ));
+    fd_memcpy( b58, tok, tok_len );
+    b58[ tok_len ] = '\0';
+    if( FD_UNLIKELY( !fd_base58_decode_32( b58, addr.uc ) ) ) FD_LOG_ERR(( "invalid transpile address `%s`", b58 ));
+
+    int dup = 0;
+    for( ulong i=0UL; i<list->cnt; i++ ) dup |= fd_pubkey_eq( &list->addrs[ i ], &addr );
+    if( dup ) continue;
+
+    if( list->cnt==list->max ) {
+      list->max   = fd_ulong_max( 2UL*list->max, 16UL );
+      list->addrs = realloc( list->addrs, list->max*sizeof(fd_pubkey_t) );
+      FD_TEST( list->addrs );
+    }
+    list->addrs[ list->cnt++ ] = addr;
+  }
+}
+
+static void
+transpile_list_add_file( transpile_list_t * list,
+                         char const *       path ) {
+  FILE * f = fopen( path, "r" );
+  if( FD_UNLIKELY( !f ) ) FD_LOG_ERR(( "fopen(%s) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+  char line[ 4096 ];
+  while( fgets( line, sizeof(line), f ) ) {
+    ulong len = strlen( line );
+    if( FD_UNLIKELY( len==sizeof(line)-1UL && line[ len-1UL ]!='\n' && !feof( f ) ) ) FD_LOG_ERR(( "line too long in %s", path ));
+    transpile_list_add_cstr( list, line );
+  }
+  if( FD_UNLIKELY( ferror( f ) ) ) FD_LOG_ERR(( "failed to read %s", path ));
+  fclose( f );
+}
+
+static void
+mkdir_p( char const * path ) {
+  char buf[ PATH_MAX ];
+  FD_TEST( fd_cstr_printf_check( buf, sizeof(buf), NULL, "%s", path ) );
+  for( char * p=buf+1; ; p++ ) {
+    if( *p=='/' || !*p ) {
+      char c = *p;
+      *p = '\0';
+      if( FD_UNLIKELY( mkdir( buf, 0755 ) && errno!=EEXIST ) ) FD_LOG_ERR(( "mkdir(%s) failed (%i-%s)", buf, errno, fd_io_strerror( errno ) ));
+      *p = c;
+      if( !c ) break;
+    }
+  }
+}
+
+/* transpile_env_t holds state shared across programs: the loading
+   environment at the snapshot slot and buffers sized for the largest
+   possible program account. */
+
+struct transpile_env {
+  fd_accdb_t *            accdb;
+  fd_accdb_fork_id_t      fork_id;
+  fd_sbpf_loader_config_t config;
+  fd_sbpf_syscalls_t *    syscalls;
+
+  uchar *           prog;    /* FD_RUNTIME_ACC_SZ_MAX */
+  uchar *           pd;      /* FD_RUNTIME_ACC_SZ_MAX */
+  uchar *           rodata;  /* FD_RUNTIME_ACC_SZ_MAX */
+  uchar *           scratch; /* FD_RUNTIME_ACC_SZ_MAX */
+  void *            prog_mem;
+  ulong             prog_mem_sz;
+  fd_transpiler_t * t;
+  uchar *           obj;
+  ulong             obj_max;
+};
+typedef struct transpile_env transpile_env_t;
+
+/* transpile_one resolves the program at addr, loads its ELF exactly
+   like the program cache will at the snapshot slot, transpiles it, and
+   writes the object to TRANSPILE_DIR.  Returns 0 on success.  On
+   failure, logs warning and returns -1. */
+
+static int
+transpile_one( transpile_env_t *   env,
+               fd_pubkey_t const * addr ) {
+  FD_BASE58_ENCODE_32_BYTES( addr->uc, addr_b58 );
+
+  fd_acc_t prog = {0};
+  fd_memcpy( prog.pubkey, addr->uc, 32UL );
+  prog.data = env->prog;
+  fd_accdb_read_one_nocache( env->accdb, env->fork_id, addr->uc, &prog.lamports, &prog.executable, prog.owner, prog.data, &prog.data_len );
+  if( FD_UNLIKELY( !prog.lamports ) ) {
+    FD_LOG_WARNING(( "transpile %s: account not found", addr_b58 ));
+    return -1;
+  }
+
+  /* Locate the account holding the ELF */
+
+  fd_acc_t const * pd = &prog;
+  fd_acc_t pd_acc = {0};
+  if( fd_pubkey_eq( (fd_pubkey_t const *)prog.owner, &fd_solana_bpf_loader_upgradeable_program_id ) ) {
+    fd_bpf_state_t state;
+    if( FD_UNLIKELY( fd_bpf_loader_program_get_state2( prog.data, prog.data_len, &state ) ||
+                     state.discriminant!=FD_BPF_STATE_PROGRAM ) ) {
+      FD_LOG_WARNING(( "transpile %s: not a loader v3 program account", addr_b58 ));
+      return -1;
+    }
+    fd_memcpy( pd_acc.pubkey, state.inner.program.programdata_address.uc, 32UL );
+    pd_acc.data = env->pd;
+    fd_accdb_read_one_nocache( env->accdb, env->fork_id, pd_acc.pubkey, &pd_acc.lamports, &pd_acc.executable, pd_acc.owner, pd_acc.data, &pd_acc.data_len );
+    if( FD_UNLIKELY( !pd_acc.lamports ) ) {
+      FD_LOG_WARNING(( "transpile %s: program data account not found", addr_b58 ));
+      return -1;
+    }
+    pd = &pd_acc;
+  }
+
+  fd_prog_info_t info[1];
+  if( FD_UNLIKELY( !fd_prog_info( info, pd ) ) ) {
+    FD_LOG_WARNING(( "transpile %s: invalid program data account", addr_b58 ));
+    return -1;
+  }
+  uchar const * bin    = pd->data + info->elf_off;
+  ulong         bin_sz = info->elf_sz;
+
+  fd_sbpf_elf_info_t elf_info;
+  if( FD_UNLIKELY( fd_sbpf_elf_peek( &elf_info, bin, bin_sz, &env->config ) ) ) {
+    FD_LOG_WARNING(( "transpile %s: invalid sBPF ELF", addr_b58 ));
+    return -1;
+  }
+  if( FD_UNLIKELY( fd_sbpf_program_footprint( &elf_info )>env->prog_mem_sz ) ) {
+    FD_LOG_WARNING(( "transpile %s: program too large", addr_b58 ));
+    return -1;
+  }
+  fd_sbpf_program_t * sbpf = fd_sbpf_program_new( env->prog_mem, &elf_info, env->rodata );
+  FD_TEST( sbpf );
+  if( FD_UNLIKELY( fd_sbpf_program_load( sbpf, bin, bin_sz, env->syscalls, &env->config, env->scratch, FD_RUNTIME_ACC_SZ_MAX ) ) ) {
+    FD_LOG_WARNING(( "transpile %s: failed to load sBPF program", addr_b58 ));
+    return -1;
+  }
+
+  if( FD_UNLIKELY( fd_vm_transpile_prog( env->t, sbpf, env->syscalls ) ) ) {
+    FD_LOG_WARNING(( "transpile %s: failed to transpile", addr_b58 ));
+    return -1;
+  }
+  fd_memcpy( env->t->meta.prog_id, addr->uc, 32UL );
+  fd_blake3_hash( bin, bin_sz, env->t->meta.elf_hash );
+
+  ulong obj_sz = fd_transpiler_export_obj( env->t, env->syscalls, env->obj, env->obj_max );
+  if( FD_UNLIKELY( !obj_sz ) ) {
+    FD_LOG_WARNING(( "transpile %s: failed to export object", addr_b58 ));
+    return -1;
+  }
+
+  /* Name matches what fd_transpiler_export_archive expects */
+
+  char path[ PATH_MAX ];
+  FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, TRANSPILE_DIR "/fd_transpiled_%s.o", addr_b58 ) );
+  FILE * f = fopen( path, "wb" );
+  int err = !f;
+  if( f ) {
+    err |= fwrite( env->obj, 1UL, obj_sz, f )!=obj_sz;
+    err |= fclose( f )!=0;
+  }
+  if( FD_UNLIKELY( err ) ) {
+    FD_LOG_WARNING(( "transpile %s: failed to write %s", addr_b58, path ));
+    return -1;
+  }
+  FD_LOG_INFO(( "transpile %s: wrote %s (%lu bytes)", addr_b58, path, obj_sz ));
+  return 0;
+}
+
+static void
+transpile_programs( config_t *               config,
+                    transpile_list_t const * list ) {
+  fd_topo_t * topo = &config->topo;
+  ulong accdb_obj_id = fd_pod_query_ulong( topo->props, "accdb", ULONG_MAX );
+  FD_TEST( accdb_obj_id!=ULONG_MAX );
+  fd_accdb_shmem_t * shmem = fd_accdb_shmem_join( fd_topo_obj_laddr( topo, accdb_obj_id ) );
+  FD_TEST( shmem );
+
+  /* All tiles have shut down, so a private epoch slot suffices */
+  ulong  epoch_slot = ULONG_MAX;
+  void * ljoin = aligned_alloc( fd_accdb_align(), fd_ulong_align_up( fd_accdb_footprint( shmem->max_live_slots, 0 ), fd_accdb_align() ) );
+  FD_TEST( ljoin );
+  fd_accdb_t * accdb = fd_accdb_join_readonly( ljoin, shmem, &epoch_slot, FD_ACCDB_FD_RO );
+  FD_TEST( accdb );
+  fd_accdb_fork_id_t fork_id = shmem->root_fork_id;
+  FD_TEST( fork_id.val!=USHORT_MAX );
+
+  /* Load exactly like the program cache will at the snapshot slot (see
+     fd_progcache_user.c).  snapshot-load does not populate the root
+     bank slot, so take it from the clock sysvar. */
+  ulong banks_obj_id = fd_pod_query_ulong( topo->props, "banks", ULONG_MAX );
+  FD_TEST( banks_obj_id!=ULONG_MAX );
+  fd_banks_t * banks = fd_banks_join( fd_topo_obj_laddr( topo, banks_obj_id ) );
+  FD_TEST( banks );
+  fd_sol_sysvar_clock_t clock[1];
+  FD_TEST( fd_sysvar_clock_read( accdb, fork_id, clock ) );
+  static fd_bank_t bank;
+  memset( &bank, 0, sizeof(bank) );
+  bank.f.features = fd_banks_root( banks )->f.features;
+  bank.f.slot     = clock->slot;
+  fd_prog_load_env_t load_env[1];
+  fd_prog_load_env_from_bank( load_env, &bank );
+  fd_prog_versions_t versions = fd_prog_versions( load_env->features, load_env->feature_slot );
+
+  static fd_sbpf_syscalls_t syscalls_mem[ FD_SBPF_SYSCALLS_SLOT_CNT ];
+  fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_join( fd_sbpf_syscalls_new( syscalls_mem ) );
+  FD_TEST( syscalls );
+  FD_TEST( !fd_vm_syscall_register_slot( syscalls, load_env->feature_slot, load_env->features, 0 ) );
+
+  fd_sbpf_elf_info_t max_info = { .calldests_max = FD_SBPF_TEXT_CNT_MAX };
+  transpile_env_t env = {
+    .accdb       = accdb,
+    .fork_id     = fork_id,
+    .config      = {
+      .sbpf_min_version = versions.min_sbpf_version,
+      .sbpf_max_version = versions.max_sbpf_version
+    },
+    .syscalls    = syscalls,
+    .prog        = malloc( FD_RUNTIME_ACC_SZ_MAX ),
+    .pd          = malloc( FD_RUNTIME_ACC_SZ_MAX ),
+    .rodata      = malloc( FD_RUNTIME_ACC_SZ_MAX ),
+    .scratch     = malloc( FD_RUNTIME_ACC_SZ_MAX ),
+    .prog_mem_sz = fd_sbpf_program_footprint( &max_info ),
+    .t           = aligned_alloc( 64UL, sizeof(fd_transpiler_t) ),
+    .obj_max     = 4UL*FD_TRANSPILER_CODE_MAX
+  };
+  env.prog_mem = aligned_alloc( fd_sbpf_program_align(), fd_ulong_align_up( env.prog_mem_sz, fd_sbpf_program_align() ) );
+  env.obj      = malloc( env.obj_max );
+  FD_TEST( env.prog && env.pd && env.rodata && env.scratch && env.prog_mem && env.t && env.obj );
+
+  mkdir_p( TRANSPILE_DIR );
+
+  long  start  = fd_log_wallclock();
+  ulong ok_cnt = 0UL;
+  for( ulong i=0UL; i<list->cnt; i++ ) {
+    if( !transpile_one( &env, &list->addrs[ i ] ) ) ok_cnt++;
+  }
+  if( FD_UNLIKELY( fd_transpiler_export_archive( TRANSPILE_DIR ) ) ) {
+    FD_LOG_ERR(( "failed to write " TRANSPILE_DIR "/libfd_transpiled.a" ));
+  }
+  FD_LOG_NOTICE(( "transpiled %lu/%lu programs in %.3f s into " TRANSPILE_DIR "/libfd_transpiled.a",
+                  ok_cnt, list->cnt, (double)( fd_log_wallclock()-start )/1e9 ));
+
+  free( env.obj );
+  free( env.t );
+  free( env.prog_mem );
+  free( env.scratch );
+  free( env.rodata );
+  free( env.pd );
+  free( env.prog );
+  free( ljoin );
+}
+
 /* fixup_config applies command-line arguments to config, overriding
    defaults / config file */
 
@@ -475,6 +773,10 @@ static void
 snapshot_load_cmd_fn( args_t *   args,
                       config_t * config ) {
   fixup_config( config, args );
+
+  transpile_list_t transpile_list = {0};
+  if( args->snapshot_load.transpile      ) transpile_list_add_cstr( &transpile_list, args->snapshot_load.transpile      );
+  if( args->snapshot_load.transpile_list ) transpile_list_add_file( &transpile_list, args->snapshot_load.transpile_list );
 
   int watch = !args->snapshot_load.no_watch;
 
@@ -699,6 +1001,9 @@ snapshot_load_cmd_fn( args_t *   args,
     FD_TEST( !accounts_hist_check( hist ) );
     accounts_hist_print( hist );
   }
+
+  if( transpile_list.cnt ) transpile_programs( config, &transpile_list );
+  free( transpile_list.addrs );
 }
 
 static void
@@ -711,6 +1016,8 @@ snapshot_load_args_help( fd_action_help_t * help ) {
   fd_action_help_arg( help, "--db-rec-max",     "<num>",   "Database max record/account count (e.g. 10e6 -> 10M accounts)" );
   fd_action_help_arg( help, "--fsck",           NULL,      "After loading, run database integrity checks" );
   fd_action_help_arg( help, "--accounts-hist",  NULL,      "After loading, analyze account size distribution" );
+  fd_action_help_arg( help, "--transpile",      "\"<addr> ...\"", "After loading, transpile these programs to x86 objects" );
+  fd_action_help_arg( help, "--transpile-list", "<path>",  "After loading, transpile the programs listed in this file" );
 }
 
 action_t fd_action_snapshot_load = {
