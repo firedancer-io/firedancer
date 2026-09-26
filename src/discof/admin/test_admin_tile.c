@@ -367,6 +367,29 @@ test_events( void ) {
   failov_send( FD_FAILOVER_BUS_CONTROL_RESP, nonce, 0x5001UL, &answer, sizeof(answer), 0 );
   FD_TEST( fd_adminctl_wait( ctx.adminctl, idx )==0x5001UL );
   FD_TEST( ev_is( FD_EVENT_ADMIN_COMMAND_TYPE_FAILOVER_CONTROL, "refused", handoff ) );
+
+  /* Each refusal of the failover tile has its own name. */
+  idx   = control( FD_ADMINCTL_FAILOVER_CMD_HANDOFF, 0UL );
+  nonce = ((fd_failover_bus_msg_t const *)out_mem)->nonce;
+  failov_send( FD_FAILOVER_BUS_CONTROL_RESP, nonce, FD_FAILOVER_CONTROL_RESULT_TAKEN, &answer, sizeof(answer), 0 );
+  FD_TEST( fd_adminctl_wait( ctx.adminctl, idx )==FD_FAILOVER_CONTROL_RESULT_TAKEN );
+  FD_TEST( ev_is( FD_EVENT_ADMIN_COMMAND_TYPE_FAILOVER_CONTROL, "taken", handoff ) );
+  struct { ulong result; char const * name; } const names[] = {
+    { FD_FAILOVER_CONTROL_RESULT_BUSY,            "busy"            },
+    { FD_FAILOVER_CONTROL_RESULT_UNRESPONSIVE,    "unresponsive"    },
+    { FD_FAILOVER_CONTROL_RESULT_BAD_ROLE,        "bad_role"        },
+    { FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS,     "in_progress"     },
+    { FD_FAILOVER_CONTROL_RESULT_NOT_PAIRED,      "not_paired"      },
+    { FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY,    "peer_unready"    },
+    { FD_FAILOVER_CONTROL_RESULT_PEER_ACTIVE,     "peer_active"     },
+    { FD_FAILOVER_CONTROL_RESULT_HANDOFF_PENDING, "handoff_pending" },
+    { FD_FAILOVER_CONTROL_RESULT_TAKEN,           "taken"           },
+    { FD_FAILOVER_CONTROL_RESULT_STAKED_SEEN,     "staked_seen"     },
+    { FD_FAILOVER_CONTROL_RESULT_NO_TOWER,        "no_tower"        },
+    { FD_FAILOVER_CONTROL_RESULT_NO_FINAL_TOWER,  "no_final_tower"  },
+    { 0x5001UL,                                   "refused"         },
+  };
+  for( ulong i=0UL; i<sizeof(names)/sizeof(names[0]); i++ ) FD_TEST( !strcmp( failover_result_name( names[ i ].result ), names[ i ].name ) );
   fd_event_tl = NULL;
   FD_LOG_NOTICE(( "pass: failover command events name the command, flags and refusal" ));
 }

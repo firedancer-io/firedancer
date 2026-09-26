@@ -65,6 +65,16 @@
 
 #define FD_FAILOVER_CONTROL_RESULT_BUSY                     (0x4001UL) /* another failover command is waiting on the failover tile */
 #define FD_FAILOVER_CONTROL_RESULT_UNRESPONSIVE             (0x4002UL) /* the failover tile did not answer in time */
+#define FD_FAILOVER_CONTROL_RESULT_BAD_ROLE                 (0x4003UL) /* handoff or demote on a standby, promote on the active */
+#define FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS              (0x4004UL) /* a transition or key switch is running */
+#define FD_FAILOVER_CONTROL_RESULT_NOT_PAIRED               (0x4005UL) /* handoff needs a paired standby */
+#define FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY             (0x4006UL) /* the peer's status is missing, stale, not standby, busy or stuck */
+#define FD_FAILOVER_CONTROL_RESULT_PEER_ACTIVE              (0x4007UL) /* the peer holds the identity or said so within the silence window */
+#define FD_FAILOVER_CONTROL_RESULT_HANDOFF_PENDING          (0x4008UL) /* the peer has not answered our handoff */
+#define FD_FAILOVER_CONTROL_RESULT_TAKEN                    (0x4009UL) /* the peer took our handoff and has not stood by or restarted since */
+#define FD_FAILOVER_CONTROL_RESULT_STAKED_SEEN              (0x400AUL) /* gossip has a fresh contact info for the staked identity from another host */
+#define FD_FAILOVER_CONTROL_RESULT_NO_TOWER                 (0x400BUL) /* no tower to adopt, promote --yes adopts the vote account */
+#define FD_FAILOVER_CONTROL_RESULT_NO_FINAL_TOWER           (0x400CUL) /* handoff before the tower of our last vote is known, retry after the next vote */
 
 struct fd_adminctl_add_auth_voter_v1 {
   ulong version; /* ==FD_ADMINCTL_ADD_AUTH_VOTER_PAYLOAD_VERSION */

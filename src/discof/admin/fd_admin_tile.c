@@ -1323,6 +1323,27 @@ failover_event_args( fd_admin_tile_ctx_t const * ctx,
   return event;
 }
 
+/* failover_result_name is the event's custom result for a failover
+   command that did not succeed. */
+static char const *
+failover_result_name( ulong result ) {
+  switch( result ) {
+    case FD_FAILOVER_CONTROL_RESULT_BUSY:            return "busy";
+    case FD_FAILOVER_CONTROL_RESULT_UNRESPONSIVE:    return "unresponsive";
+    case FD_FAILOVER_CONTROL_RESULT_BAD_ROLE:        return "bad_role";
+    case FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS:     return "in_progress";
+    case FD_FAILOVER_CONTROL_RESULT_NOT_PAIRED:      return "not_paired";
+    case FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY:    return "peer_unready";
+    case FD_FAILOVER_CONTROL_RESULT_PEER_ACTIVE:     return "peer_active";
+    case FD_FAILOVER_CONTROL_RESULT_HANDOFF_PENDING: return "handoff_pending";
+    case FD_FAILOVER_CONTROL_RESULT_TAKEN:           return "taken";
+    case FD_FAILOVER_CONTROL_RESULT_STAKED_SEEN:     return "staked_seen";
+    case FD_FAILOVER_CONTROL_RESULT_NO_TOWER:        return "no_tower";
+    case FD_FAILOVER_CONTROL_RESULT_NO_FINAL_TOWER:  return "no_final_tower";
+    default:                                         return "refused";
+  }
+}
+
 static void
 failover_control_complete( fd_admin_tile_ctx_t * ctx,
                            ulong                 result,
@@ -1345,7 +1366,7 @@ failover_control_complete( fd_admin_tile_ctx_t * ctx,
       report_admin_command_custom_result( failover_event_args( ctx, &event ), "unresponsive" );
       break;
     default:
-      report_admin_command_custom_result( failover_event_args( ctx, &event ), "refused" );
+      report_admin_command_custom_result( failover_event_args( ctx, &event ), failover_result_name( result ) );
       break;
   }
   fd_adminctl_complete_response( ctx->adminctl, ctx->failover_slot_idx, result, resp, resp_sz );
@@ -1353,7 +1374,7 @@ failover_control_complete( fd_admin_tile_ctx_t * ctx,
     if( FD_LIKELY( result==FD_ADMINCTL_RESULT_SUCCESS ) ) {
       FD_LOG_NOTICE(( "`failover %s` accepted by the failover tile, follow it with `failover status`", ctx->failover_cmd_cstr ));
     } else if( FD_UNLIKELY( result!=FD_FAILOVER_CONTROL_RESULT_UNRESPONSIVE ) ) {
-      FD_LOG_WARNING(( "`failover %s` refused by the failover tile (result %lu), nothing was done, the command prints the reason", ctx->failover_cmd_cstr, result ));
+      FD_LOG_WARNING(( "`failover %s` refused by the failover tile (%s), nothing was done, the command prints the reason", ctx->failover_cmd_cstr, failover_result_name( result ) ));
     }
   }
   ctx->failover_slot_idx      = ULONG_MAX;

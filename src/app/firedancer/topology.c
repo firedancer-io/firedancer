@@ -794,6 +794,7 @@ fd_topo_initialize( config_t * config ) {
     /**/               fd_topob_tile_in (   topo, "admin",   0UL,          "metric_in", "failov_admin",  0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
   }
   if( !alpenglow_enabled && failover_enabled ) {
+    /**/               fd_topob_tile_in (   topo, "failov",  0UL,          "metric_in", "tower_out",     0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
     /* Adoption is a request and an answer, so both ends are reliable.
        The tower side is wired after its own output below, which has to
        stay the tower tile's first output link. */
