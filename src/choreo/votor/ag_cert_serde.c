@@ -97,7 +97,6 @@ ag_cert_de( ag_cert_t *   self,
   blst_p2_affine sig_aff[1];
   FAIL( cert.signature[0]&0xA0U,                                      INVAL );
   FAIL( blst_p2_deserialize( sig_aff, cert.signature )!=BLST_SUCCESS, INVAL );
-  FAIL( !blst_p2_affine_in_g2( sig_aff ),                             INVAL );
   blst_p2_from_affine( sig, sig_aff );
   cert.bitmap_sz     = FD_LOAD( ulong, buf+off ); off += sizeof(ulong);
   cert.bitmap        = buf+off;

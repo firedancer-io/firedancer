@@ -694,6 +694,55 @@ test_wire_verify( void ) {
   free( em );
 }
 
+static void
+test_wire_not_g2( void ) {
+  ulong n = 11UL;
+  create_signers( n );
+  void * em; ag_epoch_info_t * e = make_epoch( n, &em );
+  ag_block_hash_t h; memset( h, 0x42, sizeof(ag_block_hash_t) );
+
+  ulong const slot = 7UL;
+
+  ag_vote_notar_t nv[ 11 ];
+  ag_vote_skip_t  sv[ 11 ];
+  ag_cert_t       c, rt;
+  uchar           buf[ AG_CERT_SER_MAX ];
+  ulong           sz;
+
+  ulong          one[6] = { 1UL }, four[6] = { 4UL };
+  blst_fp        fp1[1];
+  blst_fp2       b[1], t[1];
+  blst_p2_affine bad[1];
+  uchar          bad_bytes[ FD_BLS_SIG_SZ ];
+  memset( bad, 0, sizeof(blst_p2_affine) );
+  blst_fp_from_uint64( fp1, one );
+  blst_fp_from_uint64( &b->fp[0], four ); b->fp[1] = b->fp[0];
+  do {
+    blst_fp_add( &bad->x.fp[0], &bad->x.fp[0], fp1 );
+    blst_fp2_sqr( t, &bad->x ); blst_fp2_mul( t, t, &bad->x ); blst_fp2_add( t, t, b );
+  } while( !blst_fp2_sqrt( &bad->y, t ) );
+  FD_TEST( blst_p2_affine_on_curve( bad ) && !blst_p2_affine_in_g2( bad ) );
+  blst_p2_affine_serialize( bad_bytes, bad );
+
+  mk_notar( nv, slot, h, 0UL, 9UL );
+  c  = cert_build_notar( nv, 9UL, e );
+  sz = ag_cert_ser( &c, buf );
+  FD_TEST( ag_cert_de( &rt, buf, sz )==AG_CERT_DE_SUCCESS && cert_verify( &rt, e ) );
+  memcpy( buf+CERT_HDR_SZ( 1 )-8UL-FD_BLS_SIG_SZ, bad_bytes, FD_BLS_SIG_SZ );
+  FD_TEST( ag_cert_de( &rt, buf, sz )==AG_CERT_DE_SUCCESS );
+  FD_TEST( !cert_verify( &rt, e ) );
+
+  mk_skip( sv, slot, 0UL, 9UL );
+  c  = cert_build_skip( sv, 9UL, NULL, 0UL, e );
+  sz = ag_cert_ser( &c, buf );
+  FD_TEST( ag_cert_de( &rt, buf, sz )==AG_CERT_DE_SUCCESS && cert_verify( &rt, e ) );
+  memcpy( buf+CERT_HDR_SZ( 0 )-8UL-FD_BLS_SIG_SZ, bad_bytes, FD_BLS_SIG_SZ );
+  FD_TEST( ag_cert_de( &rt, buf, sz )==AG_CERT_DE_SUCCESS );
+  FD_TEST( !cert_verify( &rt, e ) );
+
+  free( em );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -706,6 +755,7 @@ main( int     argc,
   test_identity_partition();
   test_wire_golden();
   test_wire_verify();
+  test_wire_not_g2();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
