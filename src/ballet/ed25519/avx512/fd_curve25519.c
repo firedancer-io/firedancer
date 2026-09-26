@@ -156,6 +156,14 @@ fd_ed25519_point_frombytes_2x( fd_ed25519_point_t * r1,
   return FD_R43X6_GE_DECODE2( r1->P, buf1, r2->P, buf2 );
 }
 
+int
+fd_ed25519_point_frombytes_1x( fd_ed25519_point_t * r,
+                               uchar const          buf[ 32 ] ) {
+  /* fd_r43x6_ge_decode does the same sequence of operations as each
+     lane of fd_r43x6_ge_decode2 */
+  return FD_R43X6_GE_DECODE( r->P, buf );
+}
+
 /*
   Affine (only for init(), can be slow)
 */

@@ -1,4 +1,5 @@
 #include "../fd_ballet.h"
+#include "fd_ed25519.h"
 
 struct verification_test {
   uchar sig[ 64 ];
@@ -19,9 +20,18 @@ main( int     argc,
   fd_sha512_t *sha = fd_sha512_join(fd_sha512_new(_sha));
   uchar msg[] = "Zcash";
 
+  /* Every vector also goes through the cached verify, 3 times so that
+     keys get cached, and must give the uncached result */
+  static uchar __attribute__((aligned(FD_ED25519_CACHE_ALIGN))) cache_mem[ 1UL<<20 ];
+  FD_TEST( fd_ed25519_cache_footprint( 128UL )<=sizeof(cache_mem) );
+  fd_ed25519_cache_t * cache = fd_ed25519_cache_join( fd_ed25519_cache_new( cache_mem, 128UL, 0UL ) );
+  FD_TEST( cache );
+
   ulong should_fail_cnt = should_fail_bin_sz/sizeof(verification_test_t);
   for( ulong i=0UL; i<should_fail_cnt; i++ ) {
-    if( fd_ed25519_verify( msg, 5, should_fail[i].sig, should_fail[i].pub, sha ) == FD_ED25519_SUCCESS ) {
+    int res = fd_ed25519_verify( msg, 5, should_fail[i].sig, should_fail[i].pub, sha );
+    for( ulong r=0UL; r<3UL; r++ ) FD_TEST( fd_ed25519_verify_cached( msg, 5, should_fail[i].sig, should_fail[i].pub, sha, cache )==res );
+    if( res == FD_ED25519_SUCCESS ) {
       FD_LOG_ERR(("FAIL: verify should have failed\n\t"
                       "index %lu\n\t"
                       "sig: " FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT "\n\t"
@@ -35,7 +45,9 @@ main( int     argc,
 
   ulong should_pass_cnt = should_pass_bin_sz/sizeof(verification_test_t);
   for( ulong i=0UL; i<should_pass_cnt; i++ ) {
-    if( fd_ed25519_verify( msg, 5, should_pass[i].sig, should_pass[i].pub, sha ) != FD_ED25519_SUCCESS ) {
+    int res = fd_ed25519_verify( msg, 5, should_pass[i].sig, should_pass[i].pub, sha );
+    for( ulong r=0UL; r<3UL; r++ ) FD_TEST( fd_ed25519_verify_cached( msg, 5, should_pass[i].sig, should_pass[i].pub, sha, cache )==res );
+    if( res != FD_ED25519_SUCCESS ) {
       FD_LOG_ERR(("FAIL: verify should have passed\n\t"
                   "index %lu\n\t"
                   "sig: " FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT "\n\t"
@@ -47,6 +59,8 @@ main( int     argc,
     }
   }
 
+  FD_LOG_NOTICE(( "cache hit %lu miss %lu insert %lu", fd_ed25519_cache_hit_cnt( cache ), fd_ed25519_cache_miss_cnt( cache ), fd_ed25519_cache_insert_cnt( cache ) ));
+  fd_ed25519_cache_delete( fd_ed25519_cache_leave( cache ) );
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;

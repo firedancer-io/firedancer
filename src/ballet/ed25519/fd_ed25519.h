@@ -168,6 +168,92 @@ fd_ed25519_verify_batch_single_msg( uchar const   msg[], /* msg_sz */
                                     fd_sha512_t * shas[ 1 ],               /* batch_sz */
                                     uchar const   batch_sz );
 
+/* fd_ed25519_cache_t is a bounded cache of per public key
+   precomputation used to speed up verifying signatures of repeated
+   public keys.  An entry holds a split table of odd multiples of -A
+   (see fd_ed25519_double_scalar_mul_base_split), keyed by the full
+   32-byte public key encoding.  The cache is 4-way set associative
+   with LRU replacement.  A key is inserted when a signature by it
+   verifies successfully for the second time within a window of recent
+   misses (tracked by a small tag filter), so only valid, not small
+   order keys are cached and one-time keys don't evict useful entries.
+   Table builds are rate limited relative to the verify rate.
+
+   The results (including error codes) of the cached verify APIs are
+   identical to the uncached ones for all inputs and cache states; the
+   cache only changes how long a verify takes.  A cache is not thread
+   safe and is typically owned by a single tile.  The footprint is
+   ~6.2 KiB per entry (AVX-512 build) plus ~80 KiB of fixed tables. */
+
+struct fd_ed25519_cache;
+typedef struct fd_ed25519_cache fd_ed25519_cache_t;
+
+#define FD_ED25519_CACHE_ALIGN (128UL)
+
+/* fd_ed25519_cache_{align,footprint} give the required alignment and
+   footprint of a memory region suitable for a cache with ent_cnt
+   entries.  ent_cnt must be a power of 2 in [4,2^20].  footprint
+   returns 0 for an invalid ent_cnt. */
+
+FD_FN_CONST ulong
+fd_ed25519_cache_align( void );
+
+FD_FN_CONST ulong
+fd_ed25519_cache_footprint( ulong ent_cnt );
+
+/* fd_ed25519_cache_new formats mem as a cache with ent_cnt entries,
+   seeded with seed (the seed randomizes set placement).  Returns mem on
+   success and NULL on failure (logs details).  fd_ed25519_cache_join
+   joins the caller to the cache.  fd_ed25519_cache_leave and
+   fd_ed25519_cache_delete are the usual inverses. */
+
+void *
+fd_ed25519_cache_new( void * mem,
+                      ulong  ent_cnt,
+                      ulong  seed );
+
+fd_ed25519_cache_t *
+fd_ed25519_cache_join( void * shcache );
+
+void *
+fd_ed25519_cache_leave( fd_ed25519_cache_t * cache );
+
+void *
+fd_ed25519_cache_delete( void * shcache );
+
+/* fd_ed25519_cache_{hit,miss,insert}_cnt return the number of public
+   key lookups that hit, the number that missed and the number of
+   entries inserted, since the cache was created. */
+
+ulong fd_ed25519_cache_hit_cnt   ( fd_ed25519_cache_t const * cache );
+ulong fd_ed25519_cache_miss_cnt  ( fd_ed25519_cache_t const * cache );
+ulong fd_ed25519_cache_insert_cnt( fd_ed25519_cache_t const * cache );
+
+/* fd_ed25519_verify_cached is fd_ed25519_verify using cache.  Returns
+   exactly what fd_ed25519_verify returns for the same msg, sig and
+   public_key. */
+
+int
+fd_ed25519_verify_cached( uchar const          msg[], /* msg_sz */
+                          ulong                msg_sz,
+                          uchar const          sig[ 64 ],
+                          uchar const          public_key[ 32 ],
+                          fd_sha512_t *        sha,
+                          fd_ed25519_cache_t * cache );
+
+/* fd_ed25519_verify_batch_single_msg_cached is
+   fd_ed25519_verify_batch_single_msg using cache.  Returns exactly what
+   fd_ed25519_verify_batch_single_msg returns for the same arguments. */
+
+int
+fd_ed25519_verify_batch_single_msg_cached( uchar const          msg[], /* msg_sz */
+                                           ulong const          msg_sz,
+                                           uchar const          signatures[ 64 ], /* 64 * batch_sz */
+                                           uchar const          pubkeys[ 32 ],    /* 32 * batch_sz */
+                                           fd_sha512_t *        shas[ 1 ],        /* batch_sz */
+                                           uchar const          batch_sz,
+                                           fd_ed25519_cache_t * cache );
+
 /* fd_ed25519_strerror converts an FD_ED25519_SUCCESS / FD_ED25519_ERR_*
    code into a human readable cstr.  The lifetime of the returned
    pointer is infinite.  The returned pointer is always to a non-NULL

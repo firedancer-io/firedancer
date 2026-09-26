@@ -45,6 +45,15 @@ LLVMFuzzerTestOneInput( uchar const * data,
   int result = fd_ed25519_verify( test->msg, sz, test->sig, test->pub, sha );
   assert( result != FD_ED25519_SUCCESS );
 
+  /* The cached verify must agree, cold and warm */
+  static uchar __attribute__((aligned(FD_ED25519_CACHE_ALIGN))) cache_mem[ 1UL<<20 ];
+  static fd_ed25519_cache_t * cache = NULL;
+  if( FD_UNLIKELY( !cache ) ) {
+    assert( fd_ed25519_cache_footprint( 64UL )<=sizeof(cache_mem) );
+    cache = fd_ed25519_cache_join( fd_ed25519_cache_new( cache_mem, 64UL, 0UL ) );
+  }
+  for( ulong i=0UL; i<3UL; i++ ) assert( fd_ed25519_verify_cached( test->msg, sz, test->sig, test->pub, sha, cache )==result );
+
   FD_FUZZ_MUST_BE_COVERED;
   return 0;
 }
