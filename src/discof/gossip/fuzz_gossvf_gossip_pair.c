@@ -776,8 +776,12 @@ pair_deliver_payload( pair_node_t *  dst,
 
   fd_clock_tile_set( dst->vf->clock, now );
   int result = handle_net( dst->vf, packet_sz, (ulong)now, dst->vf_stem );
-  dst->vf->metrics.message_rx[ result ]++;
-  dst->vf->metrics.message_rx_bytes[ result ] += packet_sz;
+  if( FD_LIKELY( result>=0 ) ) {
+    dst->vf->metrics.message_rx[ result ]++;
+    dst->vf->metrics.message_rx_bytes[ result ] += packet_sz;
+  } else {
+    batch_flush( dst->vf, dst->vf_stem ); /* no ins here, so flush each message as the idle tile would */
+  }
   pair_drain_vf_output( dst, now );
 }
 

@@ -562,8 +562,12 @@ send_udp_payload( fuzz_env_t * env,
   ulong old_chunk = env->ctx->out->chunk;
   ulong old_seq   = env->stem_seq[0];
   int result = handle_net( env->ctx, packet_sz, 0UL, env->stem );
-  env->ctx->metrics.message_rx[ result ]++;
-  env->ctx->metrics.message_rx_bytes[ result ] += packet_sz;
+  if( FD_LIKELY( result>=0 ) ) {
+    env->ctx->metrics.message_rx[ result ]++;
+    env->ctx->metrics.message_rx_bytes[ result ] += packet_sz;
+  } else {
+    batch_flush( env->ctx, env->stem ); /* no ins here, so flush each message as the idle tile would */
+  }
 
   if( FD_UNLIKELY( env->ctx->out->chunk==old_chunk ) ) return;
 
