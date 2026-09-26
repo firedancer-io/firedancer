@@ -15,6 +15,8 @@
 #define FD_FAILOVER_BUS_SWITCH_RESP  (2UL) /* admin to failov, fd_failover_switch_resp_t */
 #define FD_FAILOVER_BUS_CONTROL_REQ  (3UL) /* admin to failov, fd_adminctl_failover_control_t */
 #define FD_FAILOVER_BUS_CONTROL_RESP (4UL) /* failov to admin, fd_adminctl_failover_control_resp_t */
+#define FD_FAILOVER_BUS_STATUS_REQ   (5UL) /* admin to failov, fd_adminctl_failover_status_req_t */
+#define FD_FAILOVER_BUS_STATUS_RESP  (6UL) /* failov to admin, fd_adminctl_failover_status_resp_t */
 
 /* Only the public key goes over the bus.  The sign tile only accepts
    a keypair it loaded at boot. */

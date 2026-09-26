@@ -46,34 +46,13 @@
    active is publishing, two gossip refreshes of 7.5s. */
 #define FD_FAILOVER_GOSSIP_FRESH_NANOS (15000000000L)
 
-/* What the controller is doing right now.  It lives only in memory, a
-   restart boots a standby with nothing in flight. */
-#define FD_FAILOVER_ACTION_IDLE                (0UL)
-#define FD_FAILOVER_ACTION_DEMOTE_SWITCH       (1UL) /* waiting for the junk key to be installed */
-#define FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK     (2UL) /* DEMOTED sent, waiting for the peer */
-#define FD_FAILOVER_ACTION_PROMOTE_WAIT_REPLAY (3UL) /* waiting for replay to reach the tower tip */
-#define FD_FAILOVER_ACTION_PROMOTE_WAIT_ADOPT  (4UL) /* waiting for the tower tile to adopt */
-#define FD_FAILOVER_ACTION_PROMOTE_SWITCH      (5UL) /* waiting for the staked key to be installed */
-#define FD_FAILOVER_ACTION_CNT                 (6UL)
+/* The controller actions, promotion sources and handoff results are
+   in fd_adminctl.h, failover status reports them. */
 
 /* Which key a switch installs, CNT while none is in flight */
 #define FD_FAILOVER_SWITCH_KEY_JUNK   (0UL)
 #define FD_FAILOVER_SWITCH_KEY_STAKED (1UL)
 #define FD_FAILOVER_SWITCH_KEY_CNT    (2UL)
-
-/* Where a promotion takes its tower from, best first */
-#define FD_FAILOVER_SOURCE_PEER         (0UL) /* the tower the peer's DEMOTED gave us */
-#define FD_FAILOVER_SOURCE_OWN          (1UL) /* our own final tower from this boot */
-#define FD_FAILOVER_SOURCE_VOTE_ACCOUNT (2UL) /* the vote account, promote --yes only */
-#define FD_FAILOVER_SOURCE_CNT          (3UL)
-
-/* How our last DEMOTED ended */
-#define FD_FAILOVER_HANDOFF_NONE      (0UL)
-#define FD_FAILOVER_HANDOFF_PENDING   (1UL)
-#define FD_FAILOVER_HANDOFF_TAKEN     (2UL) /* the peer acked it */
-#define FD_FAILOVER_HANDOFF_DECLINED  (3UL) /* the peer refused it */
-#define FD_FAILOVER_HANDOFF_RESTARTED (4UL) /* the peer came back with a new boot_id */
-#define FD_FAILOVER_HANDOFF_CANCELLED (5UL) /* promote --force stopped waiting for the peer */
 
 /* A compact tower and the slot of its last vote. */
 struct fd_failover_tower {
@@ -193,6 +172,7 @@ struct fd_failover_tile_ctx {
   ulong                 admin_out_wmark;
   ulong                 admin_out_chunk;
   fd_failover_bus_msg_t bus_req;
+  ulong                 bus_req_sig;   /* FD_FAILOVER_BUS_CONTROL_REQ or STATUS_REQ */
   int                   bus_req_fresh;
 
   /* State of the identity switch we asked the admin tile for.  It
@@ -819,6 +799,7 @@ start_demotion( fd_failover_tile_ctx_t * ctx,
   int send = handoff && fd_failover_channel_state( ctx->channel )==FD_FAILOVER_SESSION_PAIRED;
   ctx->handoff_id     = ctx->handoff_base+(++ctx->handoff_cnt);
   ctx->handoff_target = send ? ctx->peer_boot_id : 0UL;
+  ctx->handoff_result = FD_FAILOVER_HANDOFF_NONE; /* until its DEMOTED goes out */
   ctx->send_demoted   = send;
   ctx->demoted_sent   = 0;
   ctx->drain_logged   = 0;
@@ -1509,6 +1490,57 @@ peer_poll( fd_failover_tile_ctx_t * ctx,
   sync_session( ctx );
 }
 
+/* Whether an operator promote may go ahead now.  Returns the refusal,
+   or FD_ADMINCTL_RESULT_SUCCESS.  failover status asks the same for a
+   plain promote.  force skips every check on the peer and our own
+   unanswered handoff, never a promotion or switch in flight. */
+static ulong
+promote_guard( fd_failover_tile_ctx_t const * ctx,
+               long                           now,
+               int                            force ) {
+  int paired = fd_failover_channel_state( ctx->channel )==FD_FAILOVER_SESSION_PAIRED;
+
+  if( FD_UNLIKELY( ctx->role!=FD_FAILOVER_ROLE_STANDBY ) )                           return FD_FAILOVER_CONTROL_RESULT_BAD_ROLE;
+  if( FD_UNLIKELY( ctx->action==FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK && !force ) )     return FD_FAILOVER_CONTROL_RESULT_HANDOFF_PENDING;
+  if( FD_UNLIKELY( ( ctx->action!=FD_FAILOVER_ACTION_IDLE && ctx->action!=FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK ) ||
+                   ctx->switch_pending_key!=FD_FAILOVER_SWITCH_KEY_CNT ) )           return FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS;
+  if( FD_UNLIKELY( force ) ) return FD_ADMINCTL_RESULT_SUCCESS;
+  /* The peer took our last handoff and has neither stood by nor
+     restarted since, it may still be voting. */
+  if( FD_UNLIKELY( ctx->taken ) ) return FD_FAILOVER_CONTROL_RESULT_TAKEN;
+  /* The peer's own word, its latest STATUS or its HELLO before the
+     first one, or having said ACTIVE within the last silence window,
+     which covers a session that is re-pairing.  A HELLO has no busy
+     bit, so paired we wait for the first STATUS. */
+  if( FD_LIKELY( paired ) ) {
+    uchar peer_role = ctx->peer_status_valid ? ctx->peer_status.role : fd_failover_channel_peer_hello( ctx->channel )->role;
+    if( FD_UNLIKELY( peer_role==(uchar)FD_FAILOVER_ROLE_ACTIVE ) ) return FD_FAILOVER_CONTROL_RESULT_PEER_ACTIVE;
+    if( FD_UNLIKELY( !ctx->peer_status_valid || ( ctx->peer_status.flags & (uchar)FD_FAILOVER_STATUS_BUSY ) ) ) return FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY;
+  }
+  if( FD_UNLIKELY( ctx->active_seen_at && now>=ctx->active_seen_at &&
+                   now-ctx->active_seen_at<FD_FAILOVER_CHANNEL_SILENCE_NANOS ) ) return FD_FAILOVER_CONTROL_RESULT_PEER_ACTIVE;
+  /* Gossip has a fresh contact info for the staked identity from
+     another host, an active is publishing right now. */
+  if( FD_UNLIKELY( ctx->staked_seen_at && now>=ctx->staked_seen_at &&
+                   now-ctx->staked_seen_at<FD_FAILOVER_GOSSIP_FRESH_NANOS ) ) return FD_FAILOVER_CONTROL_RESULT_STAKED_SEEN;
+  return FD_ADMINCTL_RESULT_SUCCESS;
+}
+
+/* The tower a promote would adopt now.  A tower that ends below the
+   floor can never cover it, and one that ends at or under our root
+   would adopt no votes, so we skip either for the vote account. */
+static ulong
+promote_source( fd_failover_tile_ctx_t const * ctx ) {
+  ulong floor   = coverage_floor( ctx );
+  ulong root    = ctx->root_slot;
+  int   peer_ok = ctx->peer_tower.valid && ( floor==FD_FAILOVER_SLOT_NULL || ctx->peer_tower.tip>=floor ) &&
+                                           ( root ==FD_FAILOVER_SLOT_NULL || ctx->peer_tower.tip> root  );
+  int   own_ok  = ctx->own_tower.valid  && ( floor==FD_FAILOVER_SLOT_NULL || ctx->own_tower.tip >=floor ) &&
+                                           ( root ==FD_FAILOVER_SLOT_NULL || ctx->own_tower.tip > root  );
+  return peer_ok ? FD_FAILOVER_SOURCE_PEER :
+         own_ok  ? FD_FAILOVER_SOURCE_OWN  : FD_FAILOVER_SOURCE_VOTE_ACCOUNT;
+}
+
 /* Run an operator command.  If we refuse it we say why. */
 static ulong
 apply_control( fd_failover_tile_ctx_t *               ctx,
@@ -1559,43 +1591,10 @@ apply_control( fd_failover_tile_ctx_t *               ctx,
        peer cannot sign.  It skips every check on the peer and gives up on
        our own handoff, and is still refused while a promotion or switch
        runs. */
-    int force = !!( req->flags & FD_ADMINCTL_FAILOVER_FLAG_FORCE );
-    if( FD_UNLIKELY( ctx->role!=FD_FAILOVER_ROLE_STANDBY ) )                           return FD_FAILOVER_CONTROL_RESULT_BAD_ROLE;
-    if( FD_UNLIKELY( ctx->action==FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK && !force ) )     return FD_FAILOVER_CONTROL_RESULT_HANDOFF_PENDING;
-    if( FD_UNLIKELY( ( ctx->action!=FD_FAILOVER_ACTION_IDLE && ctx->action!=FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK ) ||
-                     ctx->switch_pending_key!=FD_FAILOVER_SWITCH_KEY_CNT ) )           return FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS;
-    if( FD_LIKELY( !force ) ) {
-      /* The peer took our last handoff and has neither stood by nor
-         restarted since, it may still be voting. */
-      if( FD_UNLIKELY( ctx->taken ) ) return FD_FAILOVER_CONTROL_RESULT_TAKEN;
-      /* The peer's own word, its latest STATUS or its HELLO before the
-         first one, or having said ACTIVE within the last silence window,
-         which covers a session that is re-pairing.  A HELLO has no busy
-         bit, so paired we wait for the first STATUS. */
-      if( FD_LIKELY( paired ) ) {
-        uchar peer_role = ctx->peer_status_valid ? ctx->peer_status.role : fd_failover_channel_peer_hello( ctx->channel )->role;
-        if( FD_UNLIKELY( peer_role==(uchar)FD_FAILOVER_ROLE_ACTIVE ) ) return FD_FAILOVER_CONTROL_RESULT_PEER_ACTIVE;
-        if( FD_UNLIKELY( !ctx->peer_status_valid || ( ctx->peer_status.flags & (uchar)FD_FAILOVER_STATUS_BUSY ) ) ) return FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY;
-      }
-      if( FD_UNLIKELY( ctx->active_seen_at && now>=ctx->active_seen_at &&
-                       now-ctx->active_seen_at<FD_FAILOVER_CHANNEL_SILENCE_NANOS ) ) return FD_FAILOVER_CONTROL_RESULT_PEER_ACTIVE;
-      /* Gossip has a fresh contact info for the staked identity from
-         another host, an active is publishing right now. */
-      if( FD_UNLIKELY( ctx->staked_seen_at && now>=ctx->staked_seen_at &&
-                       now-ctx->staked_seen_at<FD_FAILOVER_GOSSIP_FRESH_NANOS ) ) return FD_FAILOVER_CONTROL_RESULT_STAKED_SEEN;
-    }
-
-    /* A tower that ends below the floor can never cover it, and one that
-       ends at or under our root would adopt no votes, so we skip either
-       for the vote account. */
-    ulong floor   = coverage_floor( ctx );
-    ulong root    = ctx->root_slot;
-    int   peer_ok = ctx->peer_tower.valid && ( floor==FD_FAILOVER_SLOT_NULL || ctx->peer_tower.tip>=floor ) &&
-                                             ( root ==FD_FAILOVER_SLOT_NULL || ctx->peer_tower.tip> root  );
-    int   own_ok  = ctx->own_tower.valid  && ( floor==FD_FAILOVER_SLOT_NULL || ctx->own_tower.tip >=floor ) &&
-                                             ( root ==FD_FAILOVER_SLOT_NULL || ctx->own_tower.tip > root  );
-    ulong source  = peer_ok ? FD_FAILOVER_SOURCE_PEER :
-                    own_ok  ? FD_FAILOVER_SOURCE_OWN  : FD_FAILOVER_SOURCE_VOTE_ACCOUNT;
+    int   force  = !!( req->flags & FD_ADMINCTL_FAILOVER_FLAG_FORCE );
+    ulong result = promote_guard( ctx, now, force );
+    if( FD_UNLIKELY( result!=FD_ADMINCTL_RESULT_SUCCESS ) ) return result;
+    ulong source = promote_source( ctx );
     if( FD_UNLIKELY( source==FD_FAILOVER_SOURCE_VOTE_ACCOUNT && !( req->flags & FD_ADMINCTL_FAILOVER_FLAG_YES ) ) ) {
       return FD_FAILOVER_CONTROL_RESULT_NO_TOWER;
     }
@@ -1616,12 +1615,56 @@ apply_control( fd_failover_tile_ctx_t *               ctx,
   return FD_ADMINCTL_RESULT_UNSUPPORTED;
 }
 
+/* The failover status answer, what the controller knows and what
+   promote would do now. */
+static void
+status_snapshot( fd_failover_tile_ctx_t const *       ctx,
+                 long                                 now,
+                 fd_adminctl_failover_status_resp_t * resp ) {
+  fd_adminctl_failover_status_resp_init( resp );
+  resp->enabled    = 1;
+  resp->role       = (uchar)ctx->role;
+  resp->action     = (uchar)ctx->action;
+  resp->stuck      = (uchar)!!ctx->stuck;
+  resp->link_state = (uchar)fd_failover_channel_state( ctx->channel );
+  if( FD_LIKELY( ctx->peer_status_valid ) ) {
+    resp->peer_role_valid = 1;
+    resp->peer_role       = ctx->peer_status.role;
+  }
+  resp->peer_boot_id   = ctx->peer_boot_id;
+  resp->peer_addr      = ctx->config_addr ? ctx->config_addr : ctx->staked_addr;
+  resp->peer_addr_cfg  = (uchar)!!ctx->config_addr;
+  resp->peer_port      = ctx->port;
+  resp->handoff_id     = ctx->handoff_id;
+  resp->handoff_result = (uchar)ctx->handoff_result;
+  resp->promote_source = (uchar)promote_source( ctx );
+  resp->promote_floor  = coverage_floor( ctx );
+  resp->promote_result = promote_guard( ctx, now, 0 );
+  /* Without a tower a plain promote is refused too. */
+  if( FD_UNLIKELY( resp->promote_result==FD_ADMINCTL_RESULT_SUCCESS &&
+                   resp->promote_source==(uchar)FD_FAILOVER_SOURCE_VOTE_ACCOUNT ) ) resp->promote_result = FD_FAILOVER_CONTROL_RESULT_NO_TOWER;
+}
+
 /* Answer one bus request.  The admin tile validated the ABI already.
    The answer goes out in its own chunk, never aliased to the request. */
 static void
 serve_bus_request( fd_failover_tile_ctx_t * ctx,
                    fd_stem_context_t *      stem,
                    long                     now ) {
+  if( FD_UNLIKELY( ctx->bus_req_sig==FD_FAILOVER_BUS_STATUS_REQ ) ) {
+    fd_adminctl_failover_status_resp_t status;
+    status_snapshot( ctx, now, &status );
+    fd_failover_bus_msg_t * out = fd_chunk_to_laddr( ctx->admin_out_mem, ctx->admin_out_chunk );
+    fd_memset( out, 0, sizeof(*out) );
+    out->nonce  = ctx->bus_req.nonce;
+    out->result = FD_ADMINCTL_RESULT_SUCCESS;
+    fd_memcpy( out->payload, &status, sizeof(status) );
+    ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+    fd_stem_publish( stem, ctx->admin_out_idx, FD_FAILOVER_BUS_STATUS_RESP, ctx->admin_out_chunk, sizeof(*out), 0UL, tspub, tspub );
+    ctx->admin_out_chunk = fd_dcache_compact_next( ctx->admin_out_chunk, sizeof(*out), ctx->admin_out_chunk0, ctx->admin_out_wmark );
+    return;
+  }
+
   fd_adminctl_failover_control_t control;
   fd_memcpy( &control, ctx->bus_req.payload, sizeof(control) );
   static char const * const cmd_names[ FD_ADMINCTL_FAILOVER_CMD_CNT ] = { "handoff", "demote", "promote" };
@@ -1705,7 +1748,7 @@ before_frag( fd_failover_tile_ctx_t * ctx,
   if( FD_UNLIKELY( in_idx==ctx->admin_in_idx ) ) {
     /* Commands and switch answers.  Dropping a switch answer here would
        leave the switch hanging forever. */
-    return sig!=FD_FAILOVER_BUS_CONTROL_REQ && sig!=FD_FAILOVER_BUS_SWITCH_RESP;
+    return sig!=FD_FAILOVER_BUS_CONTROL_REQ && sig!=FD_FAILOVER_BUS_STATUS_REQ && sig!=FD_FAILOVER_BUS_SWITCH_RESP;
   }
   return 0;
 }
@@ -1785,6 +1828,7 @@ after_frag( fd_failover_tile_ctx_t * ctx,
       return;
     }
     /* Answered from after_credit, where a publish credit is available. */
+    ctx->bus_req_sig   = sig;
     ctx->bus_req_fresh = 1;
     return;
   }

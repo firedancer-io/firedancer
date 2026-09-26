@@ -910,9 +910,11 @@ test_before_frag_admits( void ) {
   FD_TEST( !before_frag( ctx, 0UL, 0UL, FD_TOWER_SIG_SLOT_DONE     ) );
   FD_TEST(  before_frag( ctx, 0UL, 1UL, FD_TOWER_SIG_SLOT_DONE+1UL ) );
   FD_TEST( !before_frag( ctx, 1UL, 0UL, FD_FAILOVER_BUS_CONTROL_REQ  ) );
+  FD_TEST( !before_frag( ctx, 1UL, 0UL, FD_FAILOVER_BUS_STATUS_REQ   ) );
   FD_TEST( !before_frag( ctx, 1UL, 0UL, FD_FAILOVER_BUS_SWITCH_RESP  ) );
-  /* This tile publishes these two, it never receives them. */
+  /* This tile publishes these, it never receives them. */
   FD_TEST(  before_frag( ctx, 1UL, 0UL, FD_FAILOVER_BUS_CONTROL_RESP ) );
+  FD_TEST(  before_frag( ctx, 1UL, 0UL, FD_FAILOVER_BUS_STATUS_RESP  ) );
   FD_TEST(  before_frag( ctx, 1UL, 0UL, FD_FAILOVER_BUS_SWITCH_REQ   ) );
   controller_fini( ctx );
   FD_LOG_NOTICE(( "pass: before_frag admits every frame the tile acts on" ));
@@ -2676,6 +2678,143 @@ test_switch_response_integrity( void ) {
   FD_LOG_NOTICE(( "pass: stale, repeated and abandoned switch answers keep the accepted watermark" ));
 }
 
+/* test_status_snapshot: failover status reports the controller, the
+   peer and what promote would do, the same answer promote gives. */
+static void
+test_status_snapshot( void ) {
+  long  now = 100L*FD_FAILOVER_GOSSIP_FRESH_NANOS;
+  ulong yes = FD_ADMINCTL_FAILOVER_FLAG_YES;
+  fd_adminctl_failover_status_resp_t resp;
+
+  /* A fresh standby knows nothing about a peer.  A plain promote is
+     refused and promote --yes would adopt the vote account. */
+  fd_failover_tile_ctx_t * ctx = controller_init( FD_FAILOVER_ROLE_STANDBY );
+  ctx->port = (ushort)8010;
+  status_snapshot( ctx, now, &resp );
+  FD_TEST( resp.version==FD_ADMINCTL_FAILOVER_STATUS_PAYLOAD_VERSION && resp.enabled );
+  FD_TEST( resp.role==FD_FAILOVER_ROLE_STANDBY && resp.action==FD_FAILOVER_ACTION_IDLE && !resp.stuck );
+  FD_TEST( resp.link_state==fd_failover_channel_state( ctx->channel ) && resp.link_state!=FD_FAILOVER_SESSION_PAIRED );
+  FD_TEST( !resp.peer_role_valid && !resp.peer_boot_id && !resp.peer_addr && resp.peer_port==8010 );
+  FD_TEST( !resp.handoff_id && resp.handoff_result==FD_FAILOVER_HANDOFF_NONE );
+  FD_TEST( resp.promote_source==FD_FAILOVER_SOURCE_VOTE_ACCOUNT && resp.promote_floor==FD_FAILOVER_SLOT_NULL );
+  FD_TEST( resp.promote_result==FD_FAILOVER_CONTROL_RESULT_NO_TOWER );
+  FD_TEST( control( ctx, FD_ADMINCTL_FAILOVER_CMD_PROMOTE, 0UL, now )==resp.promote_result );
+
+  /* With our own final tower it would go ahead. */
+  make_tower( &ctx->own_tower, 99UL );
+  status_snapshot( ctx, now, &resp );
+  FD_TEST( resp.promote_source==FD_FAILOVER_SOURCE_OWN && resp.promote_result==FD_ADMINCTL_RESULT_SUCCESS );
+  ctx->own_tower.valid = 0;
+
+  /* Gossip gives the active's address, and a fresh staked contact info
+     refuses promote. */
+  fd_memcpy( ctx->gossip_origin, ctx->hello.staked_pubkey, 32UL );
+  ctx->gossip_socket.addr = FD_IP4_ADDR(10,0,0,9);
+  ctx->gossip_socket.port = ctx->own_gossip.port;
+  gossip_commit( ctx, now );
+  status_snapshot( ctx, now, &resp );
+  FD_TEST( resp.peer_addr==FD_IP4_ADDR(10,0,0,9) && !resp.peer_addr_cfg );
+  FD_TEST( resp.promote_result==FD_FAILOVER_CONTROL_RESULT_STAKED_SEEN );
+  FD_TEST( control( ctx, FD_ADMINCTL_FAILOVER_CMD_PROMOTE, yes, now )==resp.promote_result );
+
+  /* A configured peer address is the one we dial and show. */
+  ctx->config_addr = FD_IP4_ADDR(10,0,0,5);
+  status_snapshot( ctx, now, &resp );
+  FD_TEST( resp.peer_addr==FD_IP4_ADDR(10,0,0,5) && resp.peer_addr_cfg );
+  ctx->config_addr = 0U;
+
+  /* Paired with an active that reported votes, the floor is kept and
+     promote is refused. */
+  pair( ctx, 77UL, FD_FAILOVER_ROLE_STANDBY, now );
+  peer_says( ctx, FD_FAILOVER_ROLE_ACTIVE, 150UL, now );
+  status_snapshot( ctx, now, &resp );
+  FD_TEST( resp.link_state==FD_FAILOVER_SESSION_PAIRED && resp.peer_role_valid && resp.peer_role==FD_FAILOVER_ROLE_ACTIVE );
+  FD_TEST( resp.peer_boot_id==77UL && resp.promote_floor==150UL );
+  FD_TEST( resp.promote_result==FD_FAILOVER_CONTROL_RESULT_PEER_ACTIVE );
+  FD_TEST( control( ctx, FD_ADMINCTL_FAILOVER_CMD_PROMOTE, yes, now )==resp.promote_result );
+
+  /* The source is the best tower that reaches the floor. */
+  make_tower( &ctx->own_tower, 140UL );
+  status_snapshot( ctx, now, &resp );
+  FD_TEST( resp.promote_source==FD_FAILOVER_SOURCE_VOTE_ACCOUNT );
+  make_tower( &ctx->own_tower, 150UL );
+  status_snapshot( ctx, now, &resp );
+  FD_TEST( resp.promote_source==FD_FAILOVER_SOURCE_OWN );
+  make_tower( &ctx->peer_tower, 160UL );
+  status_snapshot( ctx, now, &resp );
+  FD_TEST( resp.promote_source==FD_FAILOVER_SOURCE_PEER );
+
+  /* Votes we signed while active raise the floor it shows. */
+  ctx->own_floor = 170UL;
+  status_snapshot( ctx, now, &resp );
+  FD_TEST( resp.promote_floor==170UL && resp.promote_source==FD_FAILOVER_SOURCE_VOTE_ACCOUNT );
+
+  /* A transition in flight and the stuck flag. */
+  unpair( ctx );
+  ctx->action = FD_FAILOVER_ACTION_PROMOTE_WAIT_REPLAY;
+  ctx->stuck  = 1;
+  status_snapshot( ctx, now, &resp );
+  FD_TEST( resp.action==FD_FAILOVER_ACTION_PROMOTE_WAIT_REPLAY && resp.stuck && !resp.peer_role_valid );
+  FD_TEST( resp.peer_boot_id==77UL && resp.promote_result==FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS );
+  controller_fini( ctx );
+
+  /* On the active, our last handoff and how it ended. */
+  ctx = controller_init( FD_FAILOVER_ROLE_ACTIVE );
+  pair( ctx, 77UL, FD_FAILOVER_ROLE_STANDBY, now );
+  make_tower( &ctx->cs, 99UL );
+  status_snapshot( ctx, now, &resp );
+  FD_TEST( resp.role==FD_FAILOVER_ROLE_ACTIVE && resp.promote_result==FD_FAILOVER_CONTROL_RESULT_BAD_ROLE );
+  demote_through( ctx, 1 );
+  status_snapshot( ctx, now, &resp );
+  FD_TEST( resp.role==FD_FAILOVER_ROLE_STANDBY && resp.action==FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK );
+  FD_TEST( resp.handoff_id==5001UL && resp.handoff_result==FD_FAILOVER_HANDOFF_PENDING );
+  FD_TEST( resp.promote_result==FD_FAILOVER_CONTROL_RESULT_HANDOFF_PENDING );
+  deliver_ack( ctx, 5001UL );
+  status_snapshot( ctx, now, &resp );
+  FD_TEST( resp.action==FD_FAILOVER_ACTION_IDLE && resp.handoff_result==FD_FAILOVER_HANDOFF_TAKEN );
+  FD_TEST( resp.promote_result==FD_FAILOVER_CONTROL_RESULT_TAKEN );
+
+  /* A new demotion that has not gone out yet does not show the old
+     result. */
+  set_role( ctx, FD_FAILOVER_ROLE_ACTIVE );
+  unpair( ctx );
+  start_demotion( ctx, 0 );
+  status_snapshot( ctx, now, &resp );
+  FD_TEST( resp.action==FD_FAILOVER_ACTION_DEMOTE_SWITCH );
+  FD_TEST( resp.handoff_id==5002UL && resp.handoff_result==FD_FAILOVER_HANDOFF_NONE );
+  controller_fini( ctx );
+  FD_LOG_NOTICE(( "pass: failover status reports the controller and what promote would do" ));
+}
+
+/* test_bus_status: a status request is answered with the snapshot and
+   its nonce, and changes nothing. */
+static void
+test_bus_status( void ) {
+  fd_failover_tile_ctx_t * ctx = controller_init( FD_FAILOVER_ROLE_ACTIVE );
+  ctx->admin_out_wmark = 16UL;
+  pair( ctx, 77UL, FD_FAILOVER_ROLE_STANDBY, 1000L );
+
+  fd_memset( &ctx->bus_req, 0, sizeof(ctx->bus_req) );
+  ctx->bus_req.nonce = 78UL;
+  ctx->bus_req_sig   = FD_FAILOVER_BUS_STATUS_REQ;
+  fd_adminctl_failover_status_req_t req = { .version=FD_ADMINCTL_FAILOVER_STATUS_PAYLOAD_VERSION };
+  fd_memcpy( ctx->bus_req.payload, &req, sizeof(req) );
+  serve_bus_request( ctx, stem, 1000L );
+
+  FD_TEST( pub_mcache[ 0 ].sig==FD_FAILOVER_BUS_STATUS_RESP && pub_mcache[ 0 ].sz==sizeof(fd_failover_bus_msg_t) );
+  fd_failover_bus_msg_t const * ans = fd_chunk_to_laddr_const( ctx->admin_out_mem, pub_mcache[ 0 ].chunk );
+  FD_TEST( ans->nonce==78UL && ans->result==FD_ADMINCTL_RESULT_SUCCESS );
+  fd_adminctl_failover_status_resp_t got;
+  fd_adminctl_failover_status_resp_t want;
+  fd_memcpy( &got, ans->payload, sizeof(got) );
+  status_snapshot( ctx, 1000L, &want );
+  FD_TEST( fd_memeq( &got, &want, sizeof(got) ) );
+  FD_TEST( got.role==FD_FAILOVER_ROLE_ACTIVE && got.peer_boot_id==77UL );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_IDLE && ctx->role==FD_FAILOVER_ROLE_ACTIVE && !ctx->pending_valid );
+  controller_fini( ctx );
+  FD_LOG_NOTICE(( "pass: a status request is answered with the snapshot" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -2736,6 +2875,8 @@ main( int     argc,
   test_holder_recheck();
   test_switch_request();
   test_switch_response_integrity();
+  test_status_snapshot();
+  test_bus_status();
 
   ulong footprint = scratch_footprint( &tiles[ 0 ] );
   FD_TEST( footprint%scratch_align()==0UL );
