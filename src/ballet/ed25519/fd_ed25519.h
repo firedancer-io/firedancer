@@ -281,6 +281,22 @@ fd_ed25519_verify_batch_multi_msg( uchar const * const msgs[],
                                    int                   results[],
                                    ulong                 batch_sz );
 
+/* fd_ed25519_verify_batch_multi_msg_cached is
+   fd_ed25519_verify_batch_multi_msg with a signer cache: full SIMD
+   groups are verified in lanes, a short tail (fewer signatures than a
+   group amortizes against warm cache hits) through the cache.  The
+   results are identical either way. */
+
+void
+fd_ed25519_verify_batch_multi_msg_cached( uchar const * const  msgs[],
+                                          ulong const          msg_szs[],
+                                          uchar const * const  sigs[],
+                                          uchar const * const  public_keys[],
+                                          fd_sha512_t *        shas[],
+                                          int                  results[],
+                                          ulong                batch_sz,
+                                          fd_ed25519_cache_t * cache );
+
 /* fd_ed25519_strerror converts an FD_ED25519_SUCCESS / FD_ED25519_ERR_*
    code into a human readable cstr.  The lifetime of the returned
    pointer is infinite.  The returned pointer is always to a non-NULL
