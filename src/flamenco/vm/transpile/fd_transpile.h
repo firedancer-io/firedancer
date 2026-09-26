@@ -60,8 +60,8 @@ FD_PROTOTYPES_BEGIN
    for use as fd_vm_transpile_code's bpf_bb_splits.  bpf_bb_splits
    points to a bit vector of ceil(text_cnt/64) words, which is fully
    overwritten.  Marks the entrypoint, calldests, internal call
-   targets, branch targets, and instructions following a branch or
-   exit. */
+   targets, branch targets, and instructions following a branch, call
+   or exit. */
 
 void
 fd_vm_transpile_bb_splits( ulong *                   bpf_bb_splits,
