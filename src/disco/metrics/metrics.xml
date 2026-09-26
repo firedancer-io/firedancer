@@ -1064,6 +1064,8 @@ EXAMPLES
     <counter name="TxnVersion" enum="TxnVersion" summary="Number of transactions executed, broken down by transaction version" />
     <counter name="InstructionExecuted" summary="Number of top-level instructions executed" />
     <counter name="CpiExecuted" summary="Number of cross-program invocations executed" />
+    <counter name="TranspiledExecuted" summary="Number of sBPF program invocations run as ahead-of-time transpiled code" />
+    <counter name="TranspiledBailed" summary="Number of transpiled invocations that bailed to the interpreter" />
     <counter name="CuExecuted" summary="Estimated compute units executed since tile start" />
 
     <counter name="TxnRegimeDurationNanos" converter="nanoseconds" enum="TxnRegime" summary="Mutually exclusive and exhaustive duration spent in transaction execution regimes, in nanoseconds" />
@@ -1889,6 +1891,8 @@ EXAMPLES
     <counter name="PohHashed" summary="PoH SHA-256 calls executed" />
     <counter name="InstructionExecuted" summary="Number of top-level instructions executed" />
     <counter name="CpiExecuted" summary="Number of cross-program invocations executed" />
+    <counter name="TranspiledExecuted" summary="Number of sBPF program invocations run as ahead-of-time transpiled code" />
+    <counter name="TranspiledBailed" summary="Number of transpiled invocations that bailed to the interpreter" />
 
     <counter name="TxnRegimeDurationNanos" converter="nanoseconds" enum="TxnRegime" summary="Mutually exclusive and exhaustive duration spent in transaction execution regimes, in nanoseconds" />
     <counter name="VmRegimeDurationNanos" converter="nanoseconds" enum="VmRegime" summary="Mutually exclusive and exhaustive duration spent in virtual machine execution regimes, in nanoseconds" />

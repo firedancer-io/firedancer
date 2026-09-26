@@ -9,6 +9,10 @@ $(call run-unit-test,test_transpile)
 $(call add-hdrs,fd_transpile_runtime.h)
 $(call add-objs,fd_transpile_runtime,fd_vm)
 
+# binds program cache records to linked-in transpiled programs
+$(call add-hdrs,fd_transpile_bind.h)
+$(call add-objs,fd_transpile_bind,fd_flamenco)
+
 # transpiler frontend
 $(call add-hdrs,fd_transpile_obj.h)
 $(call add-objs,fd_transpile_obj,fd_transpiler)

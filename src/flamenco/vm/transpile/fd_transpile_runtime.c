@@ -1,6 +1,13 @@
 #include "fd_transpile_runtime.h"
 #include "../fd_vm_private.h"
 
+/* Empty default, overridden by fd_transpiled_export.o when transpiled
+   programs are linked in.  This lives apart from fd_transpile_bind.c
+   on purpose: a sized definition visible there lets the compiler assume
+   the array has exactly one element and fold the lookup loop. */
+
+__attribute__((weak)) fd_transpile_export_t const * const fd_transpiled_ext[1] = {NULL};
+
 long
 fd_vm_transpiled_mmu_translate( fd_vm_t * vm,
                                 ulong     vaddr,
@@ -42,5 +49,3 @@ fd_vm_transpiled_frame_init( fd_vm_t * vm ) {
   fd_vm_stack_grow( vm, (vm->frame_cnt+1UL)*FD_VM_STACK_FRAME_SZ );
   vm->transpiled.frame_clean_cnt = vm->stack_clean / FD_VM_STACK_FRAME_SZ;
 }
-
-__attribute__((weak)) fd_transpile_export_t const * const fd_transpiled_ext[1] = {NULL};
