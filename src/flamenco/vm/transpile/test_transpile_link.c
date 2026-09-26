@@ -4,6 +4,7 @@
    --prog PATH pointing to the sBPF ELF the archive was built from. */
 
 #include "fd_transpile.h"
+#include "fd_transpile_bind.h"
 #include "../fd_vm_private.h"
 #include "../../runtime/fd_runtime.h"
 #include "../../runtime/fd_system_ids.h"
@@ -184,6 +185,21 @@ main( int     argc,
   fd_sbpf_program_t * prog = fd_sbpf_program_new( prog_mem, &info, rodata );
   FD_TEST( prog );
   FD_TEST( !fd_sbpf_program_load( prog, bin, bin_sz, syscalls, &config, scratch, bin_sz ) );
+
+  /* The program cache binds the record to this export by program id
+     and ELF hash (fd_transpile_bind_lookup); another id or a different
+     ELF does not bind */
+
+  fd_pubkey_t const * prog_id = (fd_pubkey_t const *)ext->meta.prog_id;
+  FD_TEST( fd_transpile_bind_lookup( prog_id, bin, bin_sz )==1U );
+  FD_TEST( fd_transpile_bind_lookup( prog_id, bin, bin_sz-1UL )==0U );
+  fd_pubkey_t other = *prog_id; other.uc[0]++;
+  FD_TEST( fd_transpile_bind_lookup( &other, bin, bin_sz )==0U );
+  static fd_progcache_rec_t rec;
+  rec.transpiled_idx = 1U;
+  FD_TEST( fd_transpile_bind_exec( &rec )==ext->exec );
+  fd_transpile_bind_unbind( &rec, "test" );
+  FD_TEST( !fd_transpile_bind_exec( &rec ) );
 
   /* Export metadata survived relocation */
 

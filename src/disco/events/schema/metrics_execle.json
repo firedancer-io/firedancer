@@ -408,6 +408,8 @@
                 "b15": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[100000000, inf) nanos" },
                 "sum": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Sum of samples (nanos)" }
             }
-        }
+        },
+        "transpiled_executed":           { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "sBPF program invocations run as ahead-of-time transpiled code", "field_number": 383688624 },
+        "transpiled_bailed":             { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Transpiled invocations that bailed to the interpreter", "field_number": 429405858 }
     }
 }
