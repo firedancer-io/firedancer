@@ -182,7 +182,9 @@ unprivileged_init( fd_topo_t const *      topo,
       ctx->gossip_in_mtu    = link->mtu;
       continue;
     }
-    if( FD_UNLIKELY( strcmp( link->name, "sign_failov" ) ) ) FD_LOG_ERR(( "unexpected input link name %s", link->name ));
+    /* We do not answer the admin bus yet, its frags are ignored. */
+    if( FD_LIKELY( !strcmp( link->name, "sign_failov" ) || !strcmp( link->name, "admin_failov" ) ) ) continue;
+    FD_LOG_ERR(( "unexpected input link name %s", link->name ));
   }
 
   ulong sign_in_idx  = fd_topo_find_tile_in_link ( topo, tile, "sign_failov", tile->kind_id );

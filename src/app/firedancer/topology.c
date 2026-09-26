@@ -11,6 +11,7 @@
 #include "../../discof/replay/fd_replay_tile.h"
 #include "../../discof/votor/fd_votor_tile.h"
 #include "../../disco/keyguard/fd_keyguard.h"
+#include "../../discof/failover/fd_failover_bus.h"
 #include "../../discof/backup/fd_snapmk_tile.h"
 #include "../../discof/backup/fd_snapsv_tile.h"
 #include "../../disco/shred/fd_shred_tile.h"
@@ -425,6 +426,10 @@ fd_topo_initialize( config_t * config ) {
 
   fd_topob_wksp( topo, "execrp_replay" );
   fd_topob_wksp( topo, "admin_replay"  );
+  if( FD_UNLIKELY( failover_enabled ) ) {
+    fd_topob_wksp( topo, "admin_failov" );
+    fd_topob_wksp( topo, "failov_admin" );
+  }
 
   if( FD_LIKELY( snapshots_enabled ) ) {
     fd_topob_wksp( topo, "snapct"      );
@@ -515,6 +520,10 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_link( topo, "replay_execrp", "replay_execrp", 16384UL,                                  sizeof(fd_execrp_task_msg_t),  1UL );
   /**/                 fd_topob_link( topo, "admin_replay",  "admin_replay",  32UL,                                     0UL,                           1UL );
   /**/                 fd_topob_link( topo, "replay_admin",  "admin_replay",  32UL,                                     0UL,                           1UL );
+  if( FD_UNLIKELY( failover_enabled ) ) {
+    /**/               fd_topob_link( topo, "admin_failov",  "admin_failov",  32UL,                                     FD_FAILOVER_BUS_MTU,           1UL );
+    /**/               fd_topob_link( topo, "failov_admin",  "failov_admin",  32UL,                                     FD_FAILOVER_BUS_MTU,           1UL );
+  }
   if( leader_enabled ) {
     /**/                   fd_topob_link( topo, "dedup_resolv",  "dedup_resolv",  16384UL,                                  FD_TPU_PARSED_MTU,             1UL );
     FOR(resolv_tile_cnt)   fd_topob_link( topo, "resolv_pack",   "resolv_pack",   4096UL,                                   FD_TPU_RESOLVED_MTU,           1UL );
@@ -770,6 +779,13 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_in (   topo, "admin",   0UL,          "metric_in", "replay_admin",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   if( FD_UNLIKELY( failover_enabled ) ) {
     /**/               fd_topob_tile_in (   topo, "failov",  0UL,          "metric_in", "gossip_out",    0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* contact infos for the peer's address, an overrun only delays it */
+    /* Command bus between the admin tile and the failover tile.  The admin
+       side reads the answers unreliably so it cannot backpressure the
+       failover tile. */
+    /**/               fd_topob_tile_out(   topo, "admin",   0UL,                       "admin_failov",  0UL                                                );
+    /**/               fd_topob_tile_in (   topo, "failov",  0UL,          "metric_in", "admin_failov",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    /**/               fd_topob_tile_out(   topo, "failov",  0UL,                       "failov_admin",  0UL                                                );
+    /**/               fd_topob_tile_in (   topo, "admin",   0UL,          "metric_in", "failov_admin",  0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
   }
 
   FOR(execrp_tile_cnt) fd_topob_tile_in (   topo, "execrp",  i,            "metric_in", "replay_execrp", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );

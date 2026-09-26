@@ -37,6 +37,7 @@
 #define FD_ADMINCTL_CMD_GET_IDENTITY           (3UL)
 #define FD_ADMINCTL_CMD_REMOVE_ALL_AUTH_VOTERS (4UL)
 #define FD_ADMINCTL_CMD_SNAP_CREATE            (5UL)
+#define FD_ADMINCTL_CMD_FAILOVER_CONTROL       (6UL)
 
 #define FD_ADMINCTL_ALIGN       (8UL)
 #define FD_ADMINCTL_PAYLOAD_MAX (256UL)
@@ -61,6 +62,9 @@
 #define FD_SNAPSHOT_CREATE_RESULT_SLOT_IN_PAST              (0x2004UL)
 
 #define FD_SET_IDENTITY_RESULT_KEYPAIR_MISMATCH             (0x3001UL)
+
+#define FD_FAILOVER_CONTROL_RESULT_BUSY                     (0x4001UL) /* another failover command is waiting on the failover tile */
+#define FD_FAILOVER_CONTROL_RESULT_UNRESPONSIVE             (0x4002UL) /* the failover tile did not answer in time */
 
 struct fd_adminctl_add_auth_voter_v1 {
   ulong version; /* ==FD_ADMINCTL_ADD_AUTH_VOTER_PAYLOAD_VERSION */
@@ -102,6 +106,34 @@ struct fd_adminctl_remove_all_auth_voters_v1 {
 };
 typedef struct fd_adminctl_remove_all_auth_voters_v1 fd_adminctl_remove_all_auth_voters_t;
 #define FD_ADMINCTL_REMOVE_ALL_AUTH_VOTERS_PAYLOAD_VERSION (1UL)
+
+/* Failover commands, forwarded to the failover tile. */
+#define FD_ADMINCTL_FAILOVER_CMD_HANDOFF (0UL)
+#define FD_ADMINCTL_FAILOVER_CMD_DEMOTE  (1UL)
+#define FD_ADMINCTL_FAILOVER_CMD_PROMOTE (2UL)
+#define FD_ADMINCTL_FAILOVER_CMD_CNT     (3UL)
+
+#define FD_ADMINCTL_FAILOVER_FLAG_YES   (1UL) /* --yes, promote may start from the vote account */
+#define FD_ADMINCTL_FAILOVER_FLAG_FORCE (2UL) /* --force, promote skips the guards on the peer */
+
+struct fd_adminctl_failover_control_v1 {
+  ulong version; /* ==FD_ADMINCTL_FAILOVER_CONTROL_PAYLOAD_VERSION */
+  ulong cmd;     /* FD_ADMINCTL_FAILOVER_CMD_* */
+  ulong flags;   /* FD_ADMINCTL_FAILOVER_FLAG_* */
+};
+typedef struct fd_adminctl_failover_control_v1 fd_adminctl_failover_control_t;
+
+struct fd_adminctl_failover_control_resp_v1 {
+  ulong version; /* ==FD_ADMINCTL_FAILOVER_CONTROL_PAYLOAD_VERSION */
+  uchar role;    /* FD_FAILOVER_ROLE_* after the command */
+  uchar action;  /* controller action after the command */
+  uchar reserved[ 6 ];
+};
+typedef struct fd_adminctl_failover_control_resp_v1 fd_adminctl_failover_control_resp_t;
+#define FD_ADMINCTL_FAILOVER_CONTROL_PAYLOAD_VERSION (1UL)
+
+FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_control_t     )==24UL, failover_control_v1_layout      );
+FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_control_resp_t)==16UL, failover_control_resp_v1_layout );
 
 typedef struct fd_adminctl_private fd_adminctl_t;
 
