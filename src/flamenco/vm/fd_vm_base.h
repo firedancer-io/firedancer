@@ -30,7 +30,6 @@
 #define FD_VM_ERR_FULL  (-5) /* storage full */
 #define FD_VM_ERR_EMPTY (-6) /* nothing to do */
 #define FD_VM_ERR_IO    (-7) /* input-output error */
-#define FD_VM_ERR_BAIL  (-8) /* drop back to compatibility mode */
 
 /* VM exec error codes:  These are only produced by the VM itself. */
 
@@ -113,6 +112,7 @@
 #define FD_VM_ERR_EBPF_LIBC_INVOCATION_FAILED                     (-17)
 #define FD_VM_ERR_EBPF_VERIFIER_ERROR                             (-18)
 #define FD_VM_ERR_EBPF_SYSCALL_ERROR                              (-19)
+#define FD_VM_ERR_EBPF_BAIL                                       (-37) /* not an error, switch to interpreter */
 
 
 FD_PROTOTYPES_BEGIN

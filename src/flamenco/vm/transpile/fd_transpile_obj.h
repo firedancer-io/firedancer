@@ -4,38 +4,49 @@
 /* fd_transpile_obj.h is a high-level API to create static object files
    containing sBPF-to-x86 transpiled programs. */
 
-#include "../../../ballet/sbpf/fd_sbpf_loader.h"
-
-/* fd_vm_transpile_obj creates a position-independent relocatable ELF
-   object file.  It contains a sBPF program transpiled to x86.
-   Such object files can be linked into native Linux x86 builds.
-   Object files depend on symbols provided in fd_transpile_runtime.
-
-   elf points a buffer of capacity *elf_sz into which the ELF content is
-   written.  prog the loaded and verified sBPF program to be translated.
-   entrypoint_name_cstr is used as the symbol name of the only global
-   symbol in .text (the entrypoint function of the transpiled program).
-   scratch points to scratch_sz bytes of transpiler scratch memory (see
-   fd_vm_transpile_scratch_footprint).
-
-   This function additionally uses malloc()/free() to build the ELF.
-
-   On failure, logs warning and returns NULL.  There is an arbitrary
-   number of reasons why transpiling can fail.  Only an unspecified
-   subset of programs can be transpiled (the rest can be executed via
-   the interpreter).
-
-   On success, sets *elf_sz to the final size of the binary file. */
+#include "fd_transpile.h"
 
 FD_PROTOTYPES_BEGIN
 
-uchar *
-fd_vm_transpile_obj( uchar *                   elf,
-                     ulong *                   elf_sz,
-                     fd_sbpf_program_t const * prog,
-                     char const *              entrypoint_name_cstr,
-                     void *                    scratch,
-                     ulong                     scratch_sz );
+/* fd_transpiler_export_obj creates a relocatable ELF object file from a
+   transpiled program.  Such object files can be linked into Linux -fPIC
+   x86 builds.  Object files depend on symbols provided in
+   fd_transpile_runtime.  t is a transpiler state previously populated
+   using fd_vm_transpile_code.  syscalls is the syscall table that was
+   passed to fd_vm_transpile_code (relocations reference its slots).
+
+   The ELF file content is written into [elf,elf+elf_max).  Returns 0 on
+   failure (e.g. transpile failed or buffer space exceeded) and logs
+   warning.  On success, returns ELF size.
+
+   This ELF gains a single global symbol of fd_transpile_export with
+   name 'fd_transpiled_ext_<base58(prog_id)>'. */
+
+ulong
+fd_transpiler_export_obj( fd_transpiler_t *          t,
+                          fd_sbpf_syscalls_t const * syscalls,
+                          uchar *                    elf,
+                          ulong                      elf_max );
+
+#if FD_HAS_HOSTED
+
+/* fd_transpiler_export_archive creates a thin archive (.a) of
+   transpiled object files.  obj_dir is the cstr path to a directory
+   containing 'fd_transpiled_<base58(prog_id)>.o' files.  Produces a
+   'fd_transpiled_export.o' object file and a 'libfd_transpiled.a'
+   archive file. */
+
+int
+fd_transpiler_export_archive( char const * obj_dir );
+
+int
+fd_transpile_export_ar( char const *         dir,
+                        char const *         ar_name,
+                        char const * const * names,
+                        char const * const * syms,
+                        ulong                cnt );
+
+#endif /* FD_HAS_HOSTED */
 
 FD_PROTOTYPES_END
 

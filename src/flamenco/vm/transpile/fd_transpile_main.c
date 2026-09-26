@@ -1,11 +1,13 @@
 #include "fd_transpile_obj.h"
-#include "fd_transpile.h"
 #include "../fd_vm.h"
+#include "../../../ballet/base58/fd_base58.h"
+#include "../../../ballet/blake3/fd_blake3.h"
 
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 
 static int
 transpile_file( char const * input_path ) {
@@ -18,20 +20,32 @@ transpile_file( char const * input_path ) {
   void *  syscalls_mem = NULL;
   void *  scratch      = NULL;
   void *  vm_mem       = NULL;
-  void *  xlat_mem     = NULL;
   uchar * obj          = NULL;
+  fd_transpiler_t * t  = NULL;
   char *  output_path  = NULL;
 
-  ulong path_len = strlen( input_path );
-  if( path_len<=3UL || strcmp( input_path+path_len-3UL, ".so" ) ) {
-    FD_LOG_WARNING(( "Expected an input filename ending in .so" ));
+  /* The input is named <base58(prog_id)>.so.  The output object goes
+     next to it, named as fd_transpiler_export_archive expects. */
+
+  char const * slash    = strrchr( input_path, '/' );
+  char const * base     = slash ? slash+1 : input_path;
+  ulong        dir_len  = (ulong)( base-input_path );
+  ulong        base_len = strlen( base );
+  uchar        prog_id[ 32 ];
+  char         prog_id_b58[ FD_BASE58_ENCODED_32_SZ ];
+  if( base_len<=3UL || base_len-3UL>=sizeof(prog_id_b58) || strcmp( base+base_len-3UL, ".so" ) ) {
+    FD_LOG_WARNING(( "Expected an input filename of the form <base58 program id>.so, got %s", input_path ));
     goto done;
   }
-
-  output_path = malloc( path_len+4UL );
+  fd_cstr_fini( fd_cstr_append_text( fd_cstr_init( prog_id_b58 ), base, base_len-3UL ) );
+  if( !fd_base58_decode_32( prog_id_b58, prog_id ) ) {
+    FD_LOG_WARNING(( "Expected an input filename of the form <base58 program id>.so, got %s", input_path ));
+    goto done;
+  }
+  output_path = malloc( dir_len+64UL );
   if( !output_path ) goto done;
-  memcpy( output_path, input_path, path_len-3UL );
-  memcpy( output_path+path_len-3UL, ".x86.o", 7UL );
+  memcpy( output_path, input_path, dir_len );
+  if( !fd_cstr_printf_check( output_path+dir_len, 64UL, NULL, "fd_transpiled_%s.o", prog_id_b58 ) ) goto done;
 
   input = fopen( input_path, "rb" );
   if( !input || fseek( input, 0L, SEEK_END ) ) {
@@ -100,14 +114,25 @@ transpile_file( char const * input_path ) {
     goto done;
   }
 
-  if( bin_sz>(ULONG_MAX-4096UL)/64UL ) goto done;
-  ulong obj_sz = bin_sz*64UL+4096UL;
+  t = aligned_alloc( 64UL, sizeof(fd_transpiler_t) );
+  if( !t ) goto done;
+
+  int trans_err = fd_vm_transpile_prog( t, prog, syscalls );
+  if( trans_err ) {
+    FD_LOG_WARNING(( "fd_vm_transpile_prog failed" ));
+    goto done;
+  }
+
+  memcpy( t->meta.prog_id, prog_id, 32UL );
+  fd_blake3_hash( bin, bin_sz, t->meta.elf_hash );
+
+  ulong obj_sz = 65536UL + t->code_sz + t->rodata_sz + ( t->reloc_cnt + t->rodata_reloc_cnt ) * 64UL;
   obj = malloc( obj_sz );
-  ulong xlat_sz = fd_vm_transpile_scratch_footprint( prog->info.text_cnt );
-  xlat_mem = malloc( xlat_sz );
-  if( !obj || !xlat_mem ) goto done;
-  if( !fd_vm_transpile_obj( obj, &obj_sz, prog, "entrypoint", xlat_mem, xlat_sz ) ) {
-    FD_LOG_WARNING(( "Failed to transpile %s", input_path ));
+  if( !obj ) goto done;
+
+  ulong elf_sz = fd_transpiler_export_obj( t, syscalls, obj, obj_sz );
+  if( !elf_sz ) {
+    FD_LOG_WARNING(( "fd_transpiler_export_obj failed" ));
     goto done;
   }
 
@@ -116,9 +141,9 @@ transpile_file( char const * input_path ) {
     FD_LOG_WARNING(( "Failed to open %s for writing", output_path ));
     goto done;
   }
-  ulong written = fwrite( obj, 1UL, obj_sz, output );
+  ulong written = fwrite( obj, 1UL, elf_sz, output );
   int close_err = fclose( output );
-  if( written!=obj_sz || close_err ) {
+  if( written!=elf_sz || close_err ) {
     output = NULL;
     FD_LOG_WARNING(( "Failed to write %s", output_path ));
     goto done;
@@ -131,8 +156,8 @@ done:
   if( input  ) fclose( input );
   if( output ) fclose( output );
   free( output_path );
+  free( t );
   free( obj );
-  free( xlat_mem );
   free( vm_mem );
   free( scratch );
   free( syscalls_mem );
@@ -148,8 +173,15 @@ main( int    argc,
   fd_boot( &argc, &argv );
   int result = 0;
   for( int idx=1; idx<argc; idx++ ) {
-    if( transpile_file( argv[idx] ) ) {
-      result = 1;
+    struct stat st;
+    if( !stat( argv[idx], &st ) && S_ISDIR( st.st_mode ) ) {
+      if( fd_transpiler_export_archive( argv[idx] ) ) {
+        result = 1;
+      }
+    } else {
+      if( transpile_file( argv[idx] ) ) {
+        result = 1;
+      }
     }
   }
   fd_halt();
