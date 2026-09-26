@@ -319,7 +319,7 @@ run( fd_vm_t *                    vm,
   fd_log_collector_init( logc, 1 );
   txn_out->err.exec_err      = 0;
   txn_out->err.exec_err_kind = 0;
-  int err = fn ? fn( vm ) : fd_vm_exec( vm );
+  int err = fn ? fd_vm_transpiled_exec( fn, vm ) : fd_vm_exec( vm );
   if( fn && err==FD_VM_ERR_EBPF_BAIL ) {
     stat_bail++;
     err = fd_vm_exec( vm );

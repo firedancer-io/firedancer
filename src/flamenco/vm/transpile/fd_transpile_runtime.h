@@ -43,6 +43,21 @@ typedef struct fd_transpile_export fd_transpile_export_t;
 
 FD_PROTOTYPES_BEGIN
 
+/* fd_vm_transpiled_exec runs vm on the transpiled entrypoint fn.
+   Transpiled text is not a C function: it carries no
+   -fsanitize=function signature word in front of the entry, and a live
+   mapping may start right at it, so the indirect call type check is
+   disabled here. */
+
+#if defined(__clang__)
+__attribute__((no_sanitize("function")))
+#endif
+static inline int
+fd_vm_transpiled_exec( fd_vm_transpiled_exec_func_t fn,
+                       fd_vm_t *                    vm ) {
+  return fn( vm );
+}
+
 /* fd_vm_transpiled_mmu_translate maps a memory access at guest virtual
    address vaddr to a host address, and runs access checks.
    access_width is in {1,2,4,8} (only scalar accesses supported), and
