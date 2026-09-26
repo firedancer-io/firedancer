@@ -534,6 +534,7 @@ pair_setup_vf( pair_node_t * node,
   ctx->tcache.map     = fd_tcache_map_laddr   ( tcache );
 
   FD_TEST( fd_sha512_join( fd_sha512_new( ctx->sha ) ) );
+  for( ulong i=0UL; i<FD_GOSSVF_BATCH_SIG_MAX+FD_GOSSIP_MESSAGE_MAX_CRDS; i++ ) FD_TEST( (ctx->batch_sha[ i ] = fd_sha512_join( fd_sha512_new( ctx->_batch_sha+i ) )) );
   ctx->ed25519_cache = fd_ed25519_cache_join( fd_ed25519_cache_new( edcache_mem, PAIR_ED25519_CACHE_ENT_CNT, ctx->seed ) );
   FD_TEST( ctx->ed25519_cache );
 
@@ -777,8 +778,12 @@ pair_deliver_payload( pair_node_t *  dst,
 
   fd_clock_tile_set( dst->vf->clock, now );
   int result = handle_net( dst->vf, packet_sz, (ulong)now, dst->vf_stem );
-  dst->vf->metrics.message_rx[ result ]++;
-  dst->vf->metrics.message_rx_bytes[ result ] += packet_sz;
+  if( FD_LIKELY( result>=0 ) ) {
+    dst->vf->metrics.message_rx[ result ]++;
+    dst->vf->metrics.message_rx_bytes[ result ] += packet_sz;
+  } else {
+    batch_flush( dst->vf, dst->vf_stem ); /* no ins here, so flush each message as the idle tile would */
+  }
   pair_drain_vf_output( dst, now );
 }
 
