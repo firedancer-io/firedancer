@@ -245,6 +245,20 @@ typedef struct {
   ulong       repair_out_wmark;
   ulong       repair_out_chunk;
 
+  /* Batched copy of shred_out for delay tolerant readers, see
+     fd_shred_bat_rec_t.  shred_bat_idx is ULONG_MAX if there is no
+     shred_bat link (performance mode). */
+  ulong       shred_bat_idx;
+  fd_wksp_t * shred_bat_mem;
+  ulong       shred_bat_chunk0;
+  ulong       shred_bat_wmark;
+  ulong       shred_bat_chunk;
+  ulong       shred_bat_cnt;      /* records pending in shred_bat_chunk */
+  ulong       shred_bat_sz;       /* bytes pending in shred_bat_chunk */
+  ulong       shred_bat_tsorig;   /* tsorig of the first pending record */
+  long        shred_bat_deadline; /* tickcount the pending records are due, LONG_MAX if none */
+  long        shred_bat_flush_ticks;
+
   /* Highest slot relayed on turbine, published for rpc
      (getMaxRetransmitSlot).  NULL if rpc is disabled. */
   ulong *     rtx_fseq;
@@ -406,6 +420,65 @@ metrics_write( fd_shred_ctx_t * ctx ) {
   FD_MCNT_SET  ( SHRED, UNCHAINED_REJECTED,     ctx->metrics->shred_rejected_unchained_cnt );
 
   FD_MCNT_ENUM_COPY( SHRED, PROCESSED,      ctx->metrics->shred_processing_result      );
+}
+
+static void
+shred_bat_flush( fd_shred_ctx_t *    ctx,
+                 fd_stem_context_t * stem ) {
+  ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+  fd_stem_publish( stem, ctx->shred_bat_idx, ctx->shred_bat_cnt, ctx->shred_bat_chunk, ctx->shred_bat_sz, 0UL, ctx->shred_bat_tsorig, tspub );
+  ctx->shred_bat_chunk    = fd_dcache_compact_next( ctx->shred_bat_chunk, ctx->shred_bat_sz, ctx->shred_bat_chunk0, ctx->shred_bat_wmark );
+  ctx->shred_bat_cnt      = 0UL;
+  ctx->shred_bat_sz       = 0UL;
+  ctx->shred_bat_deadline = LONG_MAX;
+}
+
+/* shred_bat_append appends a copy of a shred_out message to the
+   pending shred_bat frag, publishing it once full.  At most two
+   publishes per complete_fec_set (32 recovered shreds plus a leader
+   complete) and one per received shred, well within STEM_BURST. */
+
+static inline void
+shred_bat_append( fd_shred_ctx_t *    ctx,
+                  fd_stem_context_t * stem,
+                  ulong               sig,
+                  ulong               tsorig,
+                  uchar const *       merkle_root, /* NULL for a FEC complete */
+                  void const *        payload,
+                  ulong               sz ) {
+  if( FD_LIKELY( ctx->shred_bat_idx==ULONG_MAX ) ) return;
+  if( FD_UNLIKELY( !ctx->shred_bat_cnt ) ) {
+    ctx->shred_bat_deadline = fd_tickcount() + ctx->shred_bat_flush_ticks;
+    ctx->shred_bat_tsorig   = tsorig;
+  }
+  fd_shred_bat_rec_t * rec = (fd_shred_bat_rec_t *)( (uchar *)fd_chunk_to_laddr( ctx->shred_bat_mem, ctx->shred_bat_chunk ) + ctx->shred_bat_sz );
+  rec->sig    = sig;
+  rec->tsorig = (uint)tsorig;
+  rec->sz     = (uint)sz;
+  if( FD_LIKELY( merkle_root ) ) memcpy( rec->merkle_root.uc, merkle_root, sizeof(fd_hash_t) );
+  else                           memset( rec->merkle_root.uc, 0,           sizeof(fd_hash_t) );
+  fd_memcpy( rec+1, payload, sz );
+  ctx->shred_bat_sz += sizeof(fd_shred_bat_rec_t) + fd_ulong_align_up( sz, 8UL );
+  if( FD_UNLIKELY( ++ctx->shred_bat_cnt==FD_SHRED_BAT_REC_MAX ) ) shred_bat_flush( ctx, stem );
+}
+
+/* The pending shred_bat records never keep the tile from parking, it
+   wakes to publish them when they are due. */
+
+static inline long
+next_deadline( fd_shred_ctx_t const * ctx ) {
+  return ctx->shred_bat_deadline;
+}
+
+static void
+after_credit( fd_shred_ctx_t *    ctx,
+              fd_stem_context_t * stem,
+              int *               opt_poll_in FD_PARAM_UNUSED,
+              int *               charge_busy ) {
+  if( FD_UNLIKELY( ctx->shred_bat_cnt && fd_tickcount()>=ctx->shred_bat_deadline ) ) {
+    shred_bat_flush( ctx, stem );
+    *charge_busy = 1;
+  }
 }
 
 static inline int
@@ -968,9 +1041,11 @@ complete_fec_set( fd_shred_ctx_t *         ctx,
     FD_STATIC_ASSERT( FD_SHRED_STEM_BURST>=32UL, shred_out_burst );
     ulong missing_chunk[ 32 ];
     ulong missing_cnt = 0UL;
+    ulong missing_sig = ((ulong)FD_FEC_RESOLVER_SHRED_COMPLETES << 32UL) | ( is_leader ? SHRED_SIG_SRC_LEADER : SHRED_SIG_SRC_RECONSTRUCTED );
     for( int i=0; !again && i<32; i++ ) {
       if( fd_uint_extract_bit( set->data_shred_rcvd, i )==0 ) {
         fd_shred_t * const missing = &set->data_shreds[ i ].s[0];
+        shred_bat_append( ctx, stem, missing_sig, tsorig, merkle_root->hash, missing, fd_shred_sz( missing ) );
 
         fd_shred_base_t * shred_msg = (fd_shred_base_t *)fd_chunk_to_laddr( ctx->shred_out_mem, ctx->shred_out_chunk );
         fd_memcpy_nt_nofence( shred_msg->shred_, missing, fd_shred_sz( missing ) );
@@ -983,9 +1058,8 @@ complete_fec_set( fd_shred_ctx_t *         ctx,
 
     if( FD_LIKELY( missing_cnt ) ) {
       _mm_sfence();
-      ulong sig   = ((ulong)FD_FEC_RESOLVER_SHRED_COMPLETES << 32UL) | ( is_leader ? SHRED_SIG_SRC_LEADER : SHRED_SIG_SRC_RECONSTRUCTED );
       ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-      for( ulong i=0UL; i<missing_cnt; i++ ) fd_stem_publish( stem, ctx->shred_out_idx, sig, missing_chunk[ i ], sizeof(fd_shred_base_t), 0UL, tsorig, tspub );
+      for( ulong i=0UL; i<missing_cnt; i++ ) fd_stem_publish( stem, ctx->shred_out_idx, missing_sig, missing_chunk[ i ], sizeof(fd_shred_base_t), 0UL, tsorig, tspub );
     }
 
     /* Replay requires the FEC payload before this notification.
@@ -1022,6 +1096,7 @@ complete_fec_set( fd_shred_ctx_t *         ctx,
     }
 
     fd_stem_publish( stem, ctx->shred_out_idx, sig, ctx->shred_out_chunk, sizeof(fd_fec_complete_t), 0UL, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
+    if( FD_LIKELY( sig!=SHRED_SIG_FEC_COMPLETE_AGAIN ) ) shred_bat_append( ctx, stem, sig, tsorig, NULL, complete_msg, sizeof(fd_fec_complete_t) );
     ctx->shred_out_chunk = fd_dcache_compact_next( ctx->shred_out_chunk, sizeof(fd_fec_complete_t), ctx->shred_out_chunk0, ctx->shred_out_wmark );
 
   }
@@ -1235,6 +1310,7 @@ after_frag( fd_shred_ctx_t *    ctx,
       ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
       fd_stem_publish( stem, ctx->shred_out_idx, _sig, ctx->shred_out_chunk, sizeof(fd_shred_base_t), 0UL, ctx->tsorig, tspub );
       ctx->shred_out_chunk = fd_dcache_compact_next( ctx->shred_out_chunk, sizeof(fd_shred_base_t), ctx->shred_out_chunk0, ctx->shred_out_wmark );
+      shred_bat_append( ctx, stem, _sig, ctx->tsorig, ctx->out_merkle_roots[0].hash, shred, fd_shred_sz( shred ) );
     }
 
     if( FD_LIKELY( fd_disco_netmux_sig_proto( sig ) != DST_PROTO_REPAIR &&
@@ -1351,6 +1427,20 @@ unprivileged_init( fd_topo_t const *      topo,
   ulong fec_set_cnt            = fd_shred_tile_fec_set_cnt( fec_exposure, tile->shred.fec_resolver_depth );
 
   void * fec_sets_shmem = NULL;
+  ctx->shred_bat_idx         = fd_topo_find_tile_out_link( topo, tile, "shred_bat", ctx->round_robin_id );
+  ctx->shred_bat_cnt         = 0UL;
+  ctx->shred_bat_sz          = 0UL;
+  ctx->shred_bat_deadline    = LONG_MAX;
+  ctx->shred_bat_flush_ticks = (long)((double)FD_SHRED_BAT_FLUSH_NS*fd_tempo_tick_per_ns( NULL ));
+  if( FD_UNLIKELY( ctx->shred_bat_idx!=ULONG_MAX ) ) {
+    fd_topo_link_t const * shred_bat = &topo->links[ tile->out_link_id[ ctx->shred_bat_idx ] ];
+    FD_TEST( shred_bat->mtu>=FD_SHRED_BAT_MTU );
+    ctx->shred_bat_mem    = topo->workspaces[ topo->objs[ shred_bat->dcache_obj_id ].wksp_id ].wksp;
+    ctx->shred_bat_chunk0 = fd_dcache_compact_chunk0( ctx->shred_bat_mem, shred_bat->dcache );
+    ctx->shred_bat_wmark  = fd_dcache_compact_wmark ( ctx->shred_bat_mem, shred_bat->dcache, shred_bat->mtu );
+    ctx->shred_bat_chunk  = ctx->shred_bat_chunk0;
+    FD_TEST( fd_dcache_compact_is_safe( ctx->shred_bat_mem, shred_bat->dcache, shred_bat->mtu, shred_bat->depth ) );
+  }
 
   ctx->rtx_fseq = NULL;
   ctx->rtx_slot = 0UL;
@@ -1616,6 +1706,8 @@ populate_allowed_fds( fd_topo_t const *      topo,
 
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 #define STEM_CALLBACK_METRICS_WRITE       metrics_write
+#define STEM_CALLBACK_AFTER_CREDIT        after_credit
+#define STEM_CALLBACK_NEXT_DEADLINE       next_deadline
 #define STEM_CALLBACK_BEFORE_FRAG         before_frag
 #define STEM_CALLBACK_DURING_FRAG         during_frag
 #define STEM_CALLBACK_AFTER_FRAG          after_frag

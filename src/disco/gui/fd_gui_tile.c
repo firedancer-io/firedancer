@@ -82,6 +82,7 @@ static ulong const gui_db_type_idx[ FD_GUI_HIST_CNT ] = {
 #define IN_KIND_SNAPSV_OUT    (19UL) /* firedancer only */
 #define IN_KIND_DIAG          (20UL) /* firedancer only */
 #define IN_KIND_VOTOR_OUT     (21UL) /* firedancer only */
+#define IN_KIND_SHRED_BAT     (22UL) /* firedancer only */
 
 FD_IMPORT_BINARY( firedancer_svg, "book/public/fire.svg" );
 
@@ -431,6 +432,38 @@ during_frag( fd_gui_ctx_t * ctx,
   ctx->chunk = chunk;
 }
 
+/* handle_shred_msg handles a shred_out message.  For an individual
+   shred hdr is the shred, for a FEC complete it is the
+   last_shred_hdr of the fd_fec_complete_t. */
+
+static void
+handle_shred_msg( fd_gui_ctx_t *     ctx,
+                  ulong              sig,
+                  ulong              tsorig,
+                  ulong              tspub,
+                  uchar const *      hdr ) {
+  /* tsorig is the timestamp when the shred was received by the shred tile */
+  long tsorig_nanos = fd_clock_tile_tickcomp_to_wallclock( ctx->clock, tsorig );
+  uint sig_src      = fd_shred_sig_src( sig );
+  fd_shred_t const * shred = (fd_shred_t const *)fd_type_pun_const( hdr );
+  /* Skip repair shreds that have already been received via turbine. */
+  if( FD_LIKELY( ( sig_src==SHRED_SIG_SRC_TURBINE || sig_src==SHRED_SIG_SRC_REPAIR || sig_src==SHRED_SIG_SRC_BAD_REPAIR ) &&
+                 fd_shred_sig_res( sig )!=SHRED_SIG_RESULT_DUPLICATE ) ) {
+    int is_turbine  = sig_src==SHRED_SIG_SRC_TURBINE;
+    fd_gui_handle_shred( ctx->gui, shred->slot, shred->idx, shred->fec_set_idx, is_turbine, tsorig_nanos, fd_clock_tile_now( ctx->clock ) );
+  }
+  if( FD_UNLIKELY( sig==SHRED_SIG_FEC_COMPLETE || sig==SHRED_SIG_FEC_COMPLETE_LEADER ) ) {
+    fd_fec_complete_t const * msg = (fd_fec_complete_t const *)fd_type_pun_const( hdr-sizeof(fd_hash_t) );
+    fd_gui_timeline_handle_fec( ctx->gui, msg->last_shred_hdr.slot, sig==SHRED_SIG_FEC_COMPLETE_LEADER,
+                                fd_clock_tile_tickcomp_to_wallclock( ctx->clock, tspub ),
+                                msg->turbine_shred_cnt, msg->repair_shred_cnt, msg->reconstructed_shred_cnt,
+                                fd_clock_tile_now( ctx->clock ) );
+  }
+  if( FD_UNLIKELY( sig==SHRED_SIG_FEC_COMPLETE_LEADER ) ) {
+    fd_gui_handle_leader_fec( ctx->gui, shred->slot, FD_FEC_SHRED_CNT, shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE, tsorig_nanos, fd_clock_tile_now( ctx->clock ) );
+  }
+}
+
 static inline void
 after_frag( fd_gui_ctx_t *      ctx,
             ulong               in_idx,
@@ -521,28 +554,16 @@ after_frag( fd_gui_ctx_t *      ctx,
       break;
     }
     case IN_KIND_SHRED_OUT: {
-      long tsorig_nanos = fd_clock_tile_tickcomp_to_wallclock( ctx->clock, tsorig );
-      uint sig_src      = fd_shred_sig_src( sig );
-      /* Skip repair shreds that have already been received via turbine. */
-      if( FD_LIKELY( ( sig_src==SHRED_SIG_SRC_TURBINE || sig_src==SHRED_SIG_SRC_REPAIR || sig_src==SHRED_SIG_SRC_BAD_REPAIR ) &&
-                     fd_shred_sig_res( sig )!=SHRED_SIG_RESULT_DUPLICATE ) ) {
-        fd_shred_base_t const * msg = (fd_shred_base_t const *)fd_type_pun_const( src );
-        ulong slot      = msg->shred.slot;
-        ulong shred_idx = msg->shred.idx;
-        int is_turbine  = sig_src==SHRED_SIG_SRC_TURBINE;
-        /* tsorig is the timestamp when the shred was received by the shred tile */
-        fd_gui_handle_shred( ctx->gui, slot, shred_idx, msg->shred.fec_set_idx, is_turbine, tsorig_nanos, fd_clock_tile_now( ctx->clock ) );
-      }
-      if( FD_UNLIKELY( sig==SHRED_SIG_FEC_COMPLETE || sig==SHRED_SIG_FEC_COMPLETE_LEADER ) ) {
-        fd_fec_complete_t const * msg = (fd_fec_complete_t const *)src;
-        fd_gui_timeline_handle_fec( ctx->gui, msg->last_shred_hdr.slot, sig==SHRED_SIG_FEC_COMPLETE_LEADER,
-                                    fd_clock_tile_tickcomp_to_wallclock( ctx->clock, tspub ),
-                                    msg->turbine_shred_cnt, msg->repair_shred_cnt, msg->reconstructed_shred_cnt,
-                                    fd_clock_tile_now( ctx->clock ) );
-      }
-      if( FD_UNLIKELY( sig==SHRED_SIG_FEC_COMPLETE_LEADER ) ) {
-        fd_fec_complete_t const * complete_msg = (fd_fec_complete_t const *)fd_type_pun_const( src );
-        fd_gui_handle_leader_fec( ctx->gui, complete_msg->last_shred_hdr.slot, FD_FEC_SHRED_CNT, complete_msg->last_shred_hdr.data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE, tsorig_nanos, fd_clock_tile_now( ctx->clock ) );
+      /* fd_shred_base_t starts with the merkle root, as does
+         fd_fec_complete_t */
+      handle_shred_msg( ctx, sig, tsorig, tspub, src+sizeof(fd_hash_t) );
+      break;
+    }
+    case IN_KIND_SHRED_BAT: {
+      FD_TEST( sig<=FD_SHRED_BAT_REC_MAX );
+      fd_shred_bat_rec_t const * rec = (fd_shred_bat_rec_t const *)fd_type_pun_const( src );
+      for( ulong i=0UL; i<sig; i++, rec=fd_shred_bat_rec_next( rec ) ) {
+        handle_shred_msg( ctx, rec->sig, rec->tsorig, rec->tsorig, (uchar const *)fd_shred_bat_rec_payload( rec ) + ( ( rec->sig==SHRED_SIG_FEC_COMPLETE || rec->sig==SHRED_SIG_FEC_COMPLETE_LEADER ) ? sizeof(fd_hash_t) : 0UL ) );
       }
       break;
     }
@@ -984,6 +1005,7 @@ unprivileged_init( fd_topo_t const *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "pack_poh"     ) ) ) ctx->in_kind[ i ] = IN_KIND_PACK_POH;
     else if( FD_LIKELY( !strcmp( link->name, "execle_poh"   ) ) ) ctx->in_kind[ i ] = IN_KIND_EXECLE_POH;
     else if( FD_LIKELY( !strcmp( link->name, "shred_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_SHRED_OUT;
+    else if( FD_LIKELY( !strcmp( link->name, "shred_bat"    ) ) ) ctx->in_kind[ i ] = IN_KIND_SHRED_BAT;
     else if( FD_LIKELY( !strcmp( link->name, "gossvf_gui"   ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSVF_GUI;
     else if( FD_LIKELY( !strcmp( link->name, "gossip_gui"    ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_GUI;
     else if( FD_LIKELY( !strcmp( link->name, "gossip_ciseen" ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_OUT;
