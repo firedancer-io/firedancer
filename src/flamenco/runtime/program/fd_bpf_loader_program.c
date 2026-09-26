@@ -569,7 +569,7 @@ fd_bpf_execute( fd_exec_instr_ctx_t * instr_ctx,
 
   /* Log consumed compute units and return data.
      https://github.com/anza-xyz/agave/blob/v4.3.0/program-runtime/src/vm.rs#L347-L353 */
-  fd_log_collector_program_consumed( instr_ctx, pre_insn_cus-heap_cost-(ulong)cu_left, pre_insn_cus );
+  fd_log_collector_program_consumed( instr_ctx, pre_insn_cus-heap_cost-(ulong)vm->cu, pre_insn_cus );
   if( FD_UNLIKELY( instr_ctx->txn_out->details.return_data.len ) ) {
     fd_log_collector_program_return( instr_ctx );
   }

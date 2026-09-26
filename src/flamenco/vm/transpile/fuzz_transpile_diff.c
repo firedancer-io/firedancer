@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #if !FD_HAS_HOSTED
 #error "This target requires FD_HAS_HOSTED"
 #endif
@@ -264,7 +265,10 @@ link( void ) {
     uchar * site = rodata + r->r_offset;
     FD_STORE( int, site, (int)( (long)code + r->r_addend - (long)site ) );
   }
-  return (fd_vm_transpiled_exec_func_t)( code + t->entrypoint_off );
+  fd_vm_transpiled_exec_func_t fn;
+  void * entry = code + t->entrypoint_off;
+  memcpy( &fn, &entry, sizeof(fn) );
+  return fn;
 }
 
 struct cfg {
