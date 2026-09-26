@@ -40,6 +40,15 @@ case $what in
     TIMEFORMAT='%R %U %S'
     { time taskset -c "$(cat /sys/devices/system/cpu/online)" make -j"$cpus" firedancer > "$out.log" 2>&1 ; } 2> "$out.time"
     make -j"$(nproc)" firedancer-dev >> "$out.log" 2>&1
+    sudo rm -rf build/transpiled  # a stale archive from another checkout must not link
+    if [ -f contrib/ci/bench/transpile.list ]; then  # AOT-transpile the replay ledger's hot programs into firedancer-dev
+      ledger=$DUMP_DIR/${BENCH_LEDGER:-mainnet-424669000-perf-ledger-v4.2.0-beta.1-vat}
+      printf 'telemetry = false\n[paths]\n    snapshots = "%s"\n    accounts = "%s"\n[accounts]\n    max_accounts = 4000000\n' "$ledger" "$DUMP_DIR/accounts.db" > "$out.transpile.toml"
+      sudo "$(make --silent objdir)/bin/firedancer-dev" snapshot-load --offline --no-watch --config "$out.transpile.toml" \
+           --transpile-list contrib/ci/bench/transpile.list --log-path "$out.transpile.log" > /dev/null 2>&1
+      sudo rm -f "$DUMP_DIR/accounts.db"
+      make -j"$(nproc)" firedancer-dev >> "$out.log" 2>&1  # relinks against build/transpiled/x86/libfd_transpiled.a
+    fi
     cp "$(make --silent objdir)"/bin/{firedancer,firedancer-dev} "$bin/"
     cp contrib/ci/bench/bench.toml "$BENCH_DIR/$side/"  # each side runs the config its checkout knows
     size -A -d "$bin/firedancer" > "$out.size"
