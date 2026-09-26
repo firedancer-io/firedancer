@@ -32,16 +32,13 @@ FD_PROTOTYPES_BEGIN
 
 /* fd_transpiled_live_create transpiles prog and loads it into memory.
    CALL_IMM instructions naming a syscall registered in syscalls bind
-   to its handler.  scratch points to scratch_sz bytes of transpiler
-   scratch memory (see fd_vm_transpile_scratch_footprint).  prog,
-   syscalls and scratch are not referenced after this function returns.
-   Returns NULL on failure (logs reason). */
+   to its handler.  prog and syscalls are not referenced after this
+   function returns.  Returns
+   NULL on failure (logs reason). */
 
 fd_transpiled_live_t *
-fd_transpiled_live_create( fd_sbpf_program_t const *  prog,
-                           fd_sbpf_syscalls_t const * syscalls,
-                           void *                     scratch,
-                           ulong                      scratch_sz );
+fd_transpiled_live_create( fd_sbpf_program_t const * prog,
+                           fd_sbpf_syscalls_t const * syscalls );
 
 /* fd_transpiled_live_destroy unmaps a program created by
    fd_transpiled_live_create.  live is invalid after return.  No-op if

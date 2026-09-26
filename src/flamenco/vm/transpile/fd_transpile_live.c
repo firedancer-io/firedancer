@@ -16,9 +16,7 @@
 
    .rodata layout:
      fd_transpiled_live_t
-     bb_bitmap  ulong[ bb_word_cnt ]
-     bb_seq     ulong[ bb_word_cnt ]
-     bb_jmp     int  [ bb_cnt ]       (BB start in .text, relative to bb_jmp)
+     tables     uchar[ t->rodata_sz ] (transpiler rodata, see fd_transpile.h)
      got        ulong[ ext_cnt ]      (absolute addresses of C functions)
 
    .text layout:
@@ -87,10 +85,8 @@ text_map_place( ulong ref,
 }
 
 fd_transpiled_live_t *
-fd_transpiled_live_create( fd_sbpf_program_t const *  prog,
-                           fd_sbpf_syscalls_t const * syscalls,
-                           void *                     scratch,
-                           ulong                      scratch_sz ) {
+fd_transpiled_live_create( fd_sbpf_program_t const * prog,
+                           fd_sbpf_syscalls_t const * syscalls ) {
 
   if( FD_UNLIKELY( !prog || !syscalls ) ) {
     FD_LOG_WARNING(( "NULL prog or syscalls" ));
@@ -103,9 +99,7 @@ fd_transpiled_live_create( fd_sbpf_program_t const *  prog,
   }
 
   fd_transpiled_live_t * live          = NULL;
-  fd_vm_transpile_dasm_t d[1];
-  ulong *                bb_splits     = NULL;
-  fd_elf64_rela *        reloc         = NULL;
+  fd_transpiler_t *      t             = NULL;
   uchar *                text          = NULL;
   uchar *                rodata        = NULL;
   ulong                  text_map_sz   = 0UL;
@@ -113,30 +107,19 @@ fd_transpiled_live_create( fd_sbpf_program_t const *  prog,
 
   /* Transpile */
 
-  ulong bb_word_cnt = (text_cnt+63UL)>>6;
-  ulong reloc_max   = FD_VM_TRANSPILE_RELOC_MAX;
-  ulong reloc_cnt   = reloc_max;
-  bb_splits = malloc( bb_word_cnt*sizeof(ulong) );
-  reloc     = malloc( reloc_max*sizeof(fd_elf64_rela) );
-  if( FD_UNLIKELY( !bb_splits || !reloc ) ) {
+  t = aligned_alloc( 64UL, sizeof(fd_transpiler_t) );
+  if( FD_UNLIKELY( !t ) ) {
     FD_LOG_WARNING(( "malloc failed" ));
     goto fail;
   }
-  fd_vm_transpile_bb_splits( bb_splits, prog );
 
-  if( FD_UNLIKELY( fd_vm_transpile_code( d, scratch, scratch_sz, prog->info.sbpf_version,
-                                         (uchar const *)prog->text, text_cnt, prog->entry_pc,
-                                         (ulong const *)prog->calldests, syscalls,
-                                         bb_splits, NULL, reloc, &reloc_cnt ) ) ) {
-    FD_LOG_WARNING(( "fd_vm_transpile_code failed" ));
+  if( FD_UNLIKELY( fd_vm_transpile_prog( t, prog, syscalls ) ) ) {
+    FD_LOG_WARNING(( "fd_vm_transpile_prog failed" ));
     goto fail;
   }
-  size_t code_sz = 0;
-  int link_err = dasm_link( d, &code_sz );
-  if( FD_UNLIKELY( link_err ) ) {
-    FD_LOG_WARNING(( "dasm_link failed (%d)", link_err ));
-    goto fail;
-  }
+  fd_elf64_rela const * reloc     = t->reloc;
+  ulong                 reloc_cnt = t->reloc_cnt;
+  ulong                 code_sz   = t->code_sz;
 
   /* Resolve external symbols */
 
@@ -169,18 +152,13 @@ fd_transpiled_live_create( fd_sbpf_program_t const *  prog,
     ext_cnt++;
   }
 
-  ulong bb_cnt = 0UL;
-  for( ulong w=0UL; w<bb_word_cnt; w++ ) bb_cnt += (ulong)fd_ulong_popcnt( bb_splits[ w ] );
-
   /* Compute layout */
 
   ulong const veneer_off = fd_ulong_align_up( (ulong)code_sz, 16UL );
   ulong const text_sz    = veneer_off + ext_cnt*FD_TRANSPILED_LIVE_VENEER_SZ;
 
-  ulong const bitmap_off = fd_ulong_align_up( sizeof(fd_transpiled_live_t), 8UL );
-  ulong const seq_off    = bitmap_off + bb_word_cnt*sizeof(ulong);
-  ulong const jmp_off    = seq_off    + bb_word_cnt*sizeof(ulong);
-  ulong const got_off    = fd_ulong_align_up( jmp_off + bb_cnt*sizeof(int), 8UL );
+  ulong const tables_off = fd_ulong_align_up( sizeof(fd_transpiled_live_t), 8UL );
+  ulong const got_off    = fd_ulong_align_up( tables_off + t->rodata_sz, 8UL );
   ulong const rodata_sz  = got_off + ext_cnt*sizeof(ulong);
 
   if( FD_UNLIKELY( text_sz>FD_TRANSPILED_LIVE_MAP_SZ_MAX || rodata_sz>FD_TRANSPILED_LIVE_MAP_SZ_MAX ) ) {
@@ -205,11 +183,7 @@ fd_transpiled_live_create( fd_sbpf_program_t const *  prog,
   /* Populate .text */
 
   memset( text, 0xcc, text_map_sz ); /* int3 */
-  int enc_err = dasm_encode( d, text );
-  if( FD_UNLIKELY( enc_err ) ) {
-    FD_LOG_WARNING(( "dasm_encode failed (%d)", enc_err ));
-    goto fail;
-  }
+  memcpy( text, t->code, code_sz );
 
   for( ulong i=0UL; i<ext_cnt; i++ ) {
     uchar * veneer = text + veneer_off + i*FD_TRANSPILED_LIVE_VENEER_SZ;
@@ -217,11 +191,10 @@ fd_transpiled_live_create( fd_sbpf_program_t const *  prog,
     if( FD_UNLIKELY( rel32_patch( veneer+2, (ulong)( rodata + got_off + i*sizeof(ulong) ), -4L ) ) ) goto fail_reach;
   }
 
-  ulong const lbl_reloc0 = FD_VM_TRANSPILE_DASM_LBL_RELOC0( text_cnt );
   for( ulong i=0UL; i<reloc_cnt; i++ ) {
-    int ofs = dasm_getpclabel( d, (uint)( lbl_reloc0+i ) );
-    if( FD_UNLIKELY( ofs<0 || (ulong)ofs+4UL>code_sz ) ) {
-      FD_LOG_WARNING(( "failed to resolve relocation %lu PC label (%d)", i, ofs ));
+    ulong ofs = reloc[i].r_offset;
+    if( FD_UNLIKELY( ofs+4UL>code_sz ) ) {
+      FD_LOG_WARNING(( "relocation %lu offset %lu out of bounds (code_sz %lu)", i, ofs, code_sz ));
       goto fail;
     }
     uint  sym = FD_ELF64_R_SYM ( reloc[i].r_info );
@@ -229,12 +202,10 @@ fd_transpiled_live_create( fd_sbpf_program_t const *  prog,
     ulong s;
     if( typ==FD_ELF_R_X86_64_PLT32 ) {
       s = (ulong)( text + veneer_off + ext_idx[ sym ]*FD_TRANSPILED_LIVE_VENEER_SZ );
-    } else if( typ==FD_ELF_R_X86_64_PC32 && sym==FD_VM_TRANSPILE_SYM_BB_BITMAP ) {
-      s = (ulong)( rodata + bitmap_off );
-    } else if( typ==FD_ELF_R_X86_64_PC32 && sym==FD_VM_TRANSPILE_SYM_BB_SEQ ) {
-      s = (ulong)( rodata + seq_off );
-    } else if( typ==FD_ELF_R_X86_64_PC32 && sym==FD_VM_TRANSPILE_SYM_BB_JMP ) {
-      s = (ulong)( rodata + jmp_off );
+    } else if( typ==FD_ELF_R_X86_64_PC32 && sym==FD_VM_TRANSPILE_SYM_RODATA ) {
+      s = (ulong)( rodata + tables_off );
+    } else if( typ==FD_ELF_R_X86_64_PC32 && sym==FD_VM_TRANSPILE_SYM_TEXT ) {
+      s = (ulong)text;
     } else {
       FD_LOG_WARNING(( "unsupported relocation (type %u, sym %u)", typ, sym ));
       goto fail;
@@ -244,30 +215,19 @@ fd_transpiled_live_create( fd_sbpf_program_t const *  prog,
 
   /* Populate .rodata */
 
-  ulong * bitmap = (ulong *)( rodata + bitmap_off );
-  ulong * seq    = (ulong *)( rodata + seq_off    );
-  uchar * jmp    =            rodata + jmp_off;
-  ulong * got    = (ulong *)( rodata + got_off    );
-
-  memcpy( bitmap, bb_splits, bb_word_cnt*sizeof(ulong) );
-  ulong bb_idx = 0UL;
-  for( ulong w=0UL; w<bb_word_cnt; w++ ) {
-    seq[ w ] = bb_idx;
-    ulong word = bb_splits[ w ];
-    while( word ) {
-      ulong pc = (w<<6) + (ulong)fd_ulong_find_lsb( word );
-      word &= word-1UL;
-      int ofs = dasm_getpclabel( d, (uint)pc );
-      if( FD_UNLIKELY( ofs<0 ) ) {
-        FD_LOG_WARNING(( "failed to resolve basic block %lu PC label (%d)", pc, ofs ));
-        goto fail;
-      }
-      /* entries are relative to the table base (see emit_callx_handler) */
-      if( FD_UNLIKELY( rel32_patch( jmp + bb_idx*sizeof(int), (ulong)( text+ofs ), (long)( bb_idx*sizeof(int) ) ) ) ) goto fail_reach;
-      bb_idx++;
+  uchar * tables = rodata + tables_off;
+  memcpy( tables, t->rodata, t->rodata_sz );
+  for( ulong i=0UL; i<t->rodata_reloc_cnt; i++ ) {
+    fd_elf64_rela const * r = &t->rodata_reloc[ i ];
+    if( FD_UNLIKELY( FD_ELF64_R_TYPE( r->r_info )!=FD_ELF_R_X86_64_PC32 ||
+                     FD_ELF64_R_SYM ( r->r_info )!=FD_VM_TRANSPILE_SYM_TEXT ||
+                     r->r_offset+4UL>t->rodata_sz ) ) {
+      FD_LOG_WARNING(( "unsupported rodata relocation %lu", i ));
+      goto fail;
     }
+    if( FD_UNLIKELY( rel32_patch( tables+r->r_offset, (ulong)text, r->r_addend ) ) ) goto fail_reach;
   }
-  memcpy( got, ext_addr, ext_cnt*sizeof(ulong) );
+  memcpy( rodata + got_off, ext_addr, ext_cnt*sizeof(ulong) );
 
   live = (fd_transpiled_live_t *)rodata;
   *live = (fd_transpiled_live_t) {
@@ -288,8 +248,7 @@ fd_transpiled_live_create( fd_sbpf_program_t const *  prog,
     goto fail;
   }
 
-  free( reloc );
-  free( bb_splits );
+  free( t );
   return live;
 
 fail_reach:
@@ -297,8 +256,7 @@ fail_reach:
 fail:
   if( text   ) munmap( text,   text_map_sz   );
   if( rodata ) munmap( rodata, rodata_map_sz );
-  free( reloc );
-  free( bb_splits );
+  free( t );
   return NULL;
 }
 

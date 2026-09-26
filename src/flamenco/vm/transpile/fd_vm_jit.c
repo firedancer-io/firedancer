@@ -14,9 +14,7 @@
 
      code       uchar[ code_sz ]      (entrypoint at offset 0)
      veneer     uchar[ ext_cnt ][ 8 ] (jmp qword [rip+got_off]; int3; int3)
-     bb_bitmap  ulong[ bb_word_cnt ]
-     bb_seq     ulong[ bb_word_cnt ]
-     bb_jmp     int  [ bb_cnt ]       (BB start in code, relative to bb_jmp)
+     rodata     uchar[ rodata_sz ]    (transpiler tables, see fd_transpile.h)
      got        ulong[ ext_cnt ]      (absolute addresses of C functions)
 
    DynASM output only uses pc-relative addressing, so code encoded at
@@ -49,9 +47,7 @@ struct __attribute__((aligned(64UL))) fd_vm_jit {
 
   fd_vm_jit_entry_t map[ FD_VM_JIT_MAP_CNT ];
 
-  ulong         bb_splits[ (FD_VM_JIT_TEXT_CNT_MAX+63UL)/64UL ];
-  fd_elf64_rela reloc    [ FD_VM_TRANSPILE_RELOC_MAX ];
-  uchar         scratch  [] __attribute__((aligned(64UL))); /* fd_vm_transpile_scratch_footprint( FD_VM_JIT_SCRATCH_TEXT_CNT ) */
+  fd_transpiler_t transpiler; /* compile state, reused for every program */
 };
 
 FD_FN_CONST ulong
@@ -61,7 +57,7 @@ fd_vm_jit_align( void ) {
 
 FD_FN_CONST ulong
 fd_vm_jit_footprint( void ) {
-  return fd_ulong_align_up( sizeof(fd_vm_jit_t) + fd_vm_transpile_scratch_footprint( FD_VM_JIT_SCRATCH_TEXT_CNT ), alignof(fd_vm_jit_t) );
+  return sizeof(fd_vm_jit_t);
 }
 
 void *
@@ -81,7 +77,7 @@ fd_vm_jit_new( void * shmem,
     return NULL;
   }
 
-  memset( jit, 0, sizeof(fd_vm_jit_t) );
+  memset( jit, 0, offsetof(fd_vm_jit_t, transpiler) ); /* the transpiler initializes its own state */
 
   int fd = memfd_create( "fd_vm_jit", MFD_CLOEXEC );
   if( FD_UNLIKELY( fd<0 ) ) {
@@ -183,25 +179,10 @@ jit_compile( fd_vm_jit_t * jit,
   /* the transpiler handles sBPF v0, v1 and v3 */
   if( FD_UNLIKELY( vm->sbpf_version!=0UL && vm->sbpf_version!=1UL && vm->sbpf_version!=3UL ) ) return 0UL;
 
-  fd_sbpf_program_t prog[1];
-  memset( prog, 0, sizeof(fd_sbpf_program_t) );
-  prog->info.text_cnt     = (uint)text_cnt;
-  prog->info.sbpf_version = (uint)vm->sbpf_version;
-  prog->text              = (ulong *)(ulong)vm->text;
-  prog->entry_pc          = vm->entry_pc;
-  prog->calldests         = (fd_sbpf_calldests_t *)(ulong)vm->calldests;
-
-  ulong bb_word_cnt = (text_cnt+63UL)>>6;
-  fd_vm_transpile_bb_splits( jit->bb_splits, prog );
-
-  fd_vm_transpile_dasm_t d[1];
-  ulong reloc_cnt = FD_VM_TRANSPILE_RELOC_MAX;
-  if( FD_UNLIKELY( fd_vm_transpile_code( d, jit->scratch, fd_vm_transpile_scratch_footprint( FD_VM_JIT_SCRATCH_TEXT_CNT ),
-                                         vm->sbpf_version, (uchar const *)vm->text, text_cnt, vm->entry_pc,
-                                         vm->calldests, vm->syscalls, jit->bb_splits, NULL,
-                                         jit->reloc, &reloc_cnt ) ) ) return 0UL;
-  size_t code_sz = 0;
-  if( FD_UNLIKELY( dasm_link( d, &code_sz ) ) ) return 0UL;
+  fd_transpiler_t * t = &jit->transpiler;
+  if( FD_UNLIKELY( fd_vm_transpile_code( t, vm->sbpf_version, (uchar const *)vm->text, text_cnt, vm->entry_pc,
+                                         vm->calldests, vm->syscalls, vm->rodata, vm->rodata_sz, vm->text_off ) ) ) return 0UL;
+  ulong code_sz = t->code_sz;
 
   /* Resolve external symbols */
 
@@ -209,9 +190,9 @@ jit_compile( fd_vm_jit_t * jit,
   ulong ext_addr[ FD_VM_JIT_EXT_MAX ];
   ulong ext_cnt = 0UL;
   memset( ext_idx, 0xff, sizeof(ext_idx) );
-  for( ulong i=0UL; i<reloc_cnt; i++ ) {
-    if( FD_ELF64_R_TYPE( jit->reloc[i].r_info )!=FD_ELF_R_X86_64_PLT32 ) continue;
-    uint sym = FD_ELF64_R_SYM( jit->reloc[i].r_info );
+  for( ulong i=0UL; i<t->reloc_cnt; i++ ) {
+    if( FD_ELF64_R_TYPE( t->reloc[i].r_info )!=FD_ELF_R_X86_64_PLT32 ) continue;
+    uint sym = FD_ELF64_R_SYM( t->reloc[i].r_info );
     if( FD_UNLIKELY( sym>=FD_VM_JIT_EXT_MAX ) ) return 0UL;
     if( ext_idx[ sym ]!=UINT_MAX ) continue;
     ulong addr = 0UL;
@@ -228,16 +209,11 @@ jit_compile( fd_vm_jit_t * jit,
     ext_cnt++;
   }
 
-  ulong bb_cnt = 0UL;
-  for( ulong w=0UL; w<bb_word_cnt; w++ ) bb_cnt += (ulong)fd_ulong_popcnt( jit->bb_splits[ w ] );
-
   /* Layout */
 
-  ulong const veneer_off = fd_ulong_align_up( (ulong)code_sz, 16UL );
-  ulong const bitmap_off = fd_ulong_align_up( veneer_off + ext_cnt*FD_VM_JIT_VENEER_SZ, 64UL );
-  ulong const seq_off    = bitmap_off + bb_word_cnt*sizeof(ulong);
-  ulong const jmp_off    = seq_off    + bb_word_cnt*sizeof(ulong);
-  ulong const got_off    = fd_ulong_align_up( jmp_off + bb_cnt*sizeof(int), 8UL );
+  ulong const veneer_off = fd_ulong_align_up( code_sz, 16UL );
+  ulong const rodata_off = fd_ulong_align_up( veneer_off + ext_cnt*FD_VM_JIT_VENEER_SZ, 64UL );
+  ulong const got_off    = fd_ulong_align_up( rodata_off + t->rodata_sz, 8UL );
   ulong const total_sz   = fd_ulong_align_up( got_off + ext_cnt*sizeof(ulong), 64UL );
 
   if( FD_UNLIKELY( total_sz>jit->arena_sz ) ) return 0UL;
@@ -251,7 +227,7 @@ jit_compile( fd_vm_jit_t * jit,
   /* Code */
 
   memset( rw, 0xcc, total_sz ); /* int3 */
-  if( FD_UNLIKELY( dasm_encode( d, rw ) ) ) return 0UL;
+  memcpy( rw, t->code, code_sz );
 
   for( ulong i=0UL; i<ext_cnt; i++ ) {
     ulong vo = veneer_off + i*FD_VM_JIT_VENEER_SZ;
@@ -259,47 +235,35 @@ jit_compile( fd_vm_jit_t * jit,
     if( FD_UNLIKELY( rel32_patch( rw+vo+2UL, rx+vo+2UL, rx+got_off+i*sizeof(ulong), -4L ) ) ) return 0UL;
   }
 
-  ulong const lbl_reloc0 = FD_VM_TRANSPILE_DASM_LBL_RELOC0( text_cnt );
-  for( ulong i=0UL; i<reloc_cnt; i++ ) {
-    int ofs = dasm_getpclabel( d, (uint)( lbl_reloc0+i ) );
-    if( FD_UNLIKELY( ofs<0 || (ulong)ofs+4UL>code_sz ) ) return 0UL;
-    uint  sym = FD_ELF64_R_SYM ( jit->reloc[i].r_info );
-    uint  typ = FD_ELF64_R_TYPE( jit->reloc[i].r_info );
+  for( ulong i=0UL; i<t->reloc_cnt; i++ ) {
+    ulong ofs = t->reloc[i].r_offset;
+    if( FD_UNLIKELY( ofs+4UL>code_sz ) ) return 0UL;
+    uint  sym = FD_ELF64_R_SYM ( t->reloc[i].r_info );
+    uint  typ = FD_ELF64_R_TYPE( t->reloc[i].r_info );
     ulong s;
-    if(      typ==FD_ELF_R_X86_64_PLT32                                  ) s = rx + veneer_off + ext_idx[ sym ]*FD_VM_JIT_VENEER_SZ;
-    else if( typ==FD_ELF_R_X86_64_PC32 && sym==FD_VM_TRANSPILE_SYM_BB_BITMAP ) s = rx + bitmap_off;
-    else if( typ==FD_ELF_R_X86_64_PC32 && sym==FD_VM_TRANSPILE_SYM_BB_SEQ    ) s = rx + seq_off;
-    else if( typ==FD_ELF_R_X86_64_PC32 && sym==FD_VM_TRANSPILE_SYM_BB_JMP    ) s = rx + jmp_off;
+    if(      typ==FD_ELF_R_X86_64_PLT32                                 ) s = rx + veneer_off + ext_idx[ sym ]*FD_VM_JIT_VENEER_SZ;
+    else if( typ==FD_ELF_R_X86_64_PC32 && sym==FD_VM_TRANSPILE_SYM_RODATA ) s = rx + rodata_off;
+    else if( typ==FD_ELF_R_X86_64_PC32 && sym==FD_VM_TRANSPILE_SYM_TEXT   ) s = rx;
     else return 0UL;
-    if( FD_UNLIKELY( rel32_patch( rw+ofs, rx+(ulong)ofs, s, jit->reloc[i].r_addend ) ) ) return 0UL;
+    if( FD_UNLIKELY( rel32_patch( rw+ofs, rx+ofs, s, t->reloc[i].r_addend ) ) ) return 0UL;
   }
 
   /* Tables */
 
-  ulong * bitmap = (ulong *)( rw + bitmap_off );
-  ulong * seq    = (ulong *)( rw + seq_off    );
-  ulong * got    = (ulong *)( rw + got_off    );
-  memcpy( bitmap, jit->bb_splits, bb_word_cnt*sizeof(ulong) );
-  ulong bb_idx = 0UL;
-  for( ulong w=0UL; w<bb_word_cnt; w++ ) {
-    seq[ w ] = bb_idx;
-    ulong word = jit->bb_splits[ w ];
-    while( word ) {
-      ulong pc = (w<<6) + (ulong)fd_ulong_find_lsb( word );
-      word &= word-1UL;
-      int ofs = dasm_getpclabel( d, (uint)pc );
-      if( FD_UNLIKELY( ofs<0 ) ) return 0UL;
-      /* entries are relative to the table base (see emit_callx_handler) */
-      ulong eo = jmp_off + bb_idx*sizeof(int);
-      if( FD_UNLIKELY( rel32_patch( rw+eo, rx+eo, rx+(ulong)ofs, (long)( bb_idx*sizeof(int) ) ) ) ) return 0UL;
-      bb_idx++;
-    }
+  memcpy( rw+rodata_off, t->rodata, t->rodata_sz );
+  for( ulong i=0UL; i<t->rodata_reloc_cnt; i++ ) {
+    fd_elf64_rela const * r = &t->rodata_reloc[ i ];
+    if( FD_UNLIKELY( FD_ELF64_R_TYPE( r->r_info )!=FD_ELF_R_X86_64_PC32 ||
+                     FD_ELF64_R_SYM ( r->r_info )!=FD_VM_TRANSPILE_SYM_TEXT ||
+                     r->r_offset+4UL>t->rodata_sz ) ) return 0UL;
+    ulong ro = rodata_off + r->r_offset;
+    if( FD_UNLIKELY( rel32_patch( rw+ro, rx+ro, rx, r->r_addend ) ) ) return 0UL;
   }
-  memcpy( got, ext_addr, ext_cnt*sizeof(ulong) );
+  memcpy( rw+got_off, ext_addr, ext_cnt*sizeof(ulong) );
 
   jit->arena_used += total_sz;
-  FD_LOG_DEBUG(( "jit: compiled %lu slots (sbpf v%lu) to [%#lx,%#lx) code_sz %lu", text_cnt, vm->sbpf_version, rx, rx+total_sz, (ulong)code_sz ));
-  return rx;
+  FD_LOG_DEBUG(( "jit: compiled %lu slots (sbpf v%lu) to [%#lx,%#lx) code_sz %lu", text_cnt, vm->sbpf_version, rx, rx+total_sz, code_sz ));
+  return rx + t->entrypoint_off;
 }
 
 int
@@ -355,7 +319,7 @@ fd_vm_jit_exec( fd_vm_jit_t *           jit,
   jit->depth++;
   int err = ((fd_vm_transpiled_exec_func_t)entry)( vm );
   jit->depth--;
-  if( FD_UNLIKELY( err==FD_VM_ERR_BAIL ) ) {
+  if( FD_UNLIKELY( err==FD_VM_ERR_EBPF_BAIL ) ) {
     jit->metrics.bail_cnt++;
     err = fd_vm_exec( vm );
   }
