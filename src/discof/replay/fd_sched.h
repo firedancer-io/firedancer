@@ -236,10 +236,19 @@ struct fd_sched_txn_exec {
 };
 typedef struct fd_sched_txn_exec fd_sched_txn_exec_t;
 
+/* A sigverify task verifies up to FD_SCHED_SIGVERIFY_PARA consecutive
+   (parse order) transactions of one block.  The scheduler stops a
+   batch at FD_SCHED_SIGVERIFY_PARA transactions, at
+   FD_SCHED_MAX_SIGVERIFY_SIGS_PER_TASK signatures, or when the packed
+   payloads would not fit a task message, so an exec tile is never
+   busy with sigverify for longer than with a PoH task. */
+#define FD_SCHED_SIGVERIFY_PARA               (8UL)
+#define FD_SCHED_MAX_SIGVERIFY_SIGS_PER_TASK  (8UL)
 struct fd_sched_txn_sigverify {
   ulong bank_idx;
-  ulong txn_idx;
   ulong exec_idx;
+  ulong cnt;                              /* In [1,FD_SCHED_SIGVERIFY_PARA] */
+  ulong txn_idx[ FD_SCHED_SIGVERIFY_PARA ];
 };
 typedef struct fd_sched_txn_sigverify fd_sched_txn_sigverify_t;
 
@@ -485,6 +494,11 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out );
    completing.  Then, in the immediate ensuing stem run loop,
    sched_pruned_next() will return the index for the corresponding bank
    so the refcnt can be decremented for sched.
+
+   For a sigverify task, txn_idx is ignored and data points to the
+   fd_execrp_txn_sigverify_done_msg_t of the exec tile (only its cnt
+   is used, the transactions are those dispatched to exec_idx); the
+   per-transaction verification results are applied by the caller.
 
    The transaction at the given index may be freed upon return from this
    function.  Nonetheless, as long as there is no intervening FEC
