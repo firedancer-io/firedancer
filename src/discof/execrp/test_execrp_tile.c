@@ -665,33 +665,69 @@ FD_UNIT_TEST( execrp_metrics_write ) {
   test_env_destroy( env );
 }
 
+/* A sigverify task is a batch of packed transactions (see
+   fd_execrp_txn_sigverify_msg_t) with one result per transaction: a
+   bad signature in the middle of the batch fails only that
+   transaction. */
+
 FD_UNIT_TEST( execrp_sigverify ) {
   test_env_t * env = test_env_create();
   fd_bank_t * bank = fd_svm_mini_bank( env->mini, env->bank_idx );
 
+  /* A real keypair for the validly signed transaction */
+  uchar private_key[ 32 ]; for( ulong i=0UL; i<32UL; i++ ) private_key[ i ] = (uchar)(0x40UL+i);
+  fd_pubkey_t signer;
+  fd_sha512_t sha[ 1 ];
+  FD_TEST( fd_sha512_join( fd_sha512_new( sha ) ) );
+  fd_ed25519_public_from_private( signer.uc, private_key, sha );
+
   fd_pubkey_t fee_payer = { .ul = { 0x9191UL } };
   fd_pubkey_t data_acct = { .ul = { 0x9292UL } };
 
-  fd_txn_p_t txn[1];
-  test_build_empty_txn( txn, bank, fee_payer, data_acct, 91UL, 0 );
+  ulong const cnt = 3UL;
+  fd_txn_p_t txn[ 3 ];
+  test_build_empty_txn( txn+0, bank, fee_payer, data_acct, 91UL, 0 );
+  test_build_empty_txn( txn+1, bank, signer,    data_acct, 92UL, 0 );
+  test_build_empty_txn( txn+2, bank, fee_payer, data_acct, 93UL, 1 );
+  fd_txn_t const * txn1 = TXN( txn+1 );
+  fd_ed25519_sign( txn[ 1 ].payload+txn1->signature_off, txn[ 1 ].payload+txn1->message_off, fd_txn_msg_sz( txn1, txn[ 1 ].payload_sz ), signer.uc, private_key, sha );
 
   ulong in_chunk = env->execrp->replay_in->chunk0;
   fd_execrp_txn_sigverify_msg_t * in_msg = fd_chunk_to_laddr( env->execrp->replay_in->mem, in_chunk );
   fd_memset( in_msg, 0, sizeof(fd_execrp_txn_sigverify_msg_t) );
   in_msg->bank_idx = env->bank_idx;
-  in_msg->txn_idx  = 91UL;
-  fd_memcpy( in_msg->txn, txn, sizeof(fd_txn_p_t) );
+  in_msg->cnt      = cnt;
+  ulong sz = sizeof(*in_msg);
+  ulong sig_cnt = 0UL;
+  for( ulong i=0UL; i<cnt; i++ ) {
+    fd_txn_t const * t = TXN( txn+i );
+    ulong txn_sz = fd_txn_footprint( t->instr_cnt, t->addr_table_lookup_cnt );
+    in_msg->txn_idx   [ i ] = (uint)(91UL+i);
+    in_msg->off       [ i ] = (ushort)sz;
+    in_msg->payload_sz[ i ] = txn[ i ].payload_sz;
+    fd_memcpy( (uchar *)in_msg+sz, txn[ i ].payload, txn[ i ].payload_sz );
+    sz = fd_ulong_align_up( sz+txn[ i ].payload_sz, alignof(fd_txn_t) );
+    in_msg->txn_off   [ i ] = (ushort)sz;
+    fd_memcpy( (uchar *)in_msg+sz, t, txn_sz );
+    sz += txn_sz;
+    sig_cnt += t->signature_cnt;
+  }
+  FD_TEST( sz<=sizeof(fd_execrp_task_msg_t) );
 
   fd_stem_context_t stem[1];
   ulong const sig = (FD_EXECRP_TT_TXN_SIGVERIFY<<32) | env->execrp->tile_idx;
   FD_TEST( !returnable_frag( env->execrp, env->execrp->replay_in->idx, 0UL, sig, in_chunk,
-                             sizeof(fd_execrp_txn_sigverify_msg_t), 0UL, 0UL, 0UL,
+                             sz, 0UL, 0UL, 0UL,
                              test_stem( env->execrp, stem ) ) );
 
   fd_execrp_task_done_msg_t const * out_msg = test_assert_out_msg( env, 0UL, FD_EXECRP_TT_TXN_SIGVERIFY );
-  FD_TEST( out_msg->txn_sigverify->txn_idx==91UL );
-  FD_TEST( out_msg->txn_sigverify->err );
-  FD_TEST( env->execrp->metrics.sigverify_cnt==TXN(txn)->signature_cnt );
+  FD_TEST( out_msg->bank_idx==env->bank_idx );
+  FD_TEST( out_msg->txn_sigverify->cnt==cnt );
+  for( ulong i=0UL; i<cnt; i++ ) FD_TEST( out_msg->txn_sigverify->txn_idx[ i ]==91UL+i );
+  FD_TEST(  out_msg->txn_sigverify->err[ 0 ] );
+  FD_TEST( !out_msg->txn_sigverify->err[ 1 ] );
+  FD_TEST(  out_msg->txn_sigverify->err[ 2 ] );
+  FD_TEST( env->execrp->metrics.sigverify_cnt==sig_cnt );
 
   test_env_destroy( env );
 }
