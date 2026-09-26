@@ -25,6 +25,7 @@ struct slot_state_ele {
   int             pending_block;
   ag_block_info_t pending_block_info;
   int             retired;
+  int             adopted_notar; /* voted_notar came from an adopted history */
 
   long timeout;
 
@@ -89,6 +90,7 @@ struct __attribute__((aligned(128UL))) ag_votor {
 
   slot_states_t * slot_states;
   ulong           highest_final_cert_slot;
+  ulong           vote_bound;              /* we cast no vote at or below this slot, ULONG_MAX when none */
 
   ag_votor_epoch_t prev_epoch;
   ag_votor_epoch_t curr_epoch;
@@ -227,6 +229,7 @@ ag_votor_new( void * mem,
   votor->prev_epoch              = (ag_votor_epoch_t){ .start_slot = ULONG_MAX, .rank = USHORT_MAX };
   votor->curr_epoch              = (ag_votor_epoch_t){ .start_slot = ULONG_MAX, .rank = USHORT_MAX };
   votor->next_epoch              = (ag_votor_epoch_t){ .start_slot = ULONG_MAX, .rank = USHORT_MAX };
+  votor->vote_bound              = ULONG_MAX;
   votor->vote_events             = vote_events_join( vote_events_new( vote_events, events_max ) );
   votor->cert_events             = cert_events_join( cert_events_new( cert_events, events_max ) );
   votor->pending_dlist           = pending_dlist_join( pending_dlist_new( pending_dlist ) );
@@ -340,6 +343,15 @@ first_unpruned_slot( ag_votor_t const * self ) {
   return ag_first_slot_in_window( fd_ulong_sat_sub( self->highest_final_cert_slot, AG_REWARD_SLOT_DELTA ) );
 }
 
+/* The previous holder of our identity may have voted up to the bound
+   of an empty adopted history, so we cast nothing at or below it. */
+
+FD_FN_PURE static int
+below_vote_bound( ag_votor_t const * self,
+                  ulong              slot ) {
+  return self->vote_bound!=ULONG_MAX && slot<=self->vote_bound;
+}
+
 static int
 should_ignore_pool_event( ag_votor_t const *      self,
                           ag_event_pool_t const * event ) {
@@ -367,6 +379,7 @@ try_final( ag_votor_t *          self,
            ulong                 slot,
            ag_block_hash_t const hash ) {
   FD_TEST( slot>=first_unpruned_slot( self ) );
+  if( FD_UNLIKELY( below_vote_bound( self, slot ) ) ) return;
   ag_votor_epoch_t const * epoch = own_epoch( self, slot );
   if( FD_UNLIKELY( !epoch->has_bls_pubkey ) ) return;
 
@@ -391,6 +404,7 @@ try_notar( ag_votor_t *            self,
   ag_votor_epoch_t const * epoch = own_epoch( self, slot );
   if( FD_UNLIKELY( !epoch->has_bls_pubkey ) ) return 0;
   if( FD_UNLIKELY( has_voted( self, slot ) ) ) return 0;
+  if( FD_UNLIKELY( below_vote_bound( self, slot ) ) ) return 0;
 
   ag_block_hash_t hash;
   memcpy( hash, block_info->hash, sizeof(ag_block_hash_t) );
@@ -436,6 +450,7 @@ try_skip_window( ag_votor_t * self,
   ulong window_start = ag_first_slot_in_window( slot );
   for( ulong s=window_start; s<window_start+AG_SLOTS_PER_WINDOW; s++ ) {
     if( FD_UNLIKELY( has_voted( self, s ) ) ) continue;
+    if( FD_UNLIKELY( below_vote_bound( self, s ) ) ) continue;
     ag_votor_epoch_t const * epoch = own_epoch( self, s );
     if( FD_UNLIKELY( !epoch->has_bls_pubkey ) ) continue;
 
@@ -566,6 +581,147 @@ ag_votor_set_keys( ag_votor_t *  self,
   set_epoch_key( &self->next_epoch, next_epoch_rank, next_bls_pubkey );
 }
 
+ulong
+ag_votor_highest_final_cert_slot( ag_votor_t const * self ) {
+  return self->highest_final_cert_slot;
+}
+
+ulong
+ag_votor_first_unpruned_slot( ag_votor_t const * self ) {
+  return first_unpruned_slot( self );
+}
+
+int
+ag_votor_has_voted( ag_votor_t const * self,
+                    ulong              slot ) {
+  return has_voted( self, slot );
+}
+
+void
+ag_votor_set_vote_bound( ag_votor_t * self,
+                         ulong        bound ) {
+  self->vote_bound = self->vote_bound==ULONG_MAX ? bound : fd_ulong_max( self->vote_bound, bound );
+}
+
+ulong
+ag_votor_vote_bound( ag_votor_t const * self ) {
+  return self->vote_bound;
+}
+
+void
+ag_votor_mark_unsent( ag_votor_t *      self,
+                      ag_vote_t const * vote ) {
+  ulong slot = ag_vote_slot( vote );
+  if( FD_UNLIKELY( self->highest_final_cert_slot==ULONG_MAX || slot<first_unpruned_slot( self ) ) ) return;
+  slot_state_ele_t * state = state_mut( self, slot );
+  /* A notar on an adopted notar slot was built by the standby before
+     the adoption and never sent.  The adopted mark is what this identity
+     sent, so it stays and the slot can still get its final. */
+  if( FD_UNLIKELY( vote->kind==AG_VOTE_KIND_NOTAR && state->adopted_notar ) ) return;
+  state->voted      = 1;
+  state->bad_window = 1;
+  /* try_notar builds one notar per slot, so a dropped notar is the one
+     that set voted_notar and nobody saw it.  Clearing the mark keeps the
+     slot from being a parent, it goes out as a plain bad window. */
+  if( FD_UNLIKELY( vote->kind==AG_VOTE_KIND_NOTAR ) ) {
+    state->voted_notar = 0;
+    fd_memset( state->voted_notar_hash, 0, sizeof(ag_block_hash_t) );
+  }
+}
+
+/* advance_root moves the finality anchor up to an adopted history's and
+   prunes below it.  Nothing happens if slot is not past the anchor. */
+
+static void
+advance_root( ag_votor_t * self,
+              ulong        slot ) {
+  if( FD_UNLIKELY( self->highest_final_cert_slot==ULONG_MAX || slot<=self->highest_final_cert_slot ) ) return;
+  self->highest_final_cert_slot = slot;
+  prune( self );
+}
+
+int
+ag_votor_hist_export( ag_votor_t * self,
+                      ulong        last_leader_slot,
+                      ag_hist_t *  out ) {
+  out->last_leader_slot = last_leader_slot;
+  out->vote_bound       = self->vote_bound;
+  out->rec_cnt          = 0UL;
+  if( FD_UNLIKELY( self->highest_final_cert_slot==ULONG_MAX ) ) {
+    out->anchor = 0UL;
+    return 0;
+  }
+
+  slot_state_map_t * map   = self->slot_states->map;
+  slot_state_ele_t * pool  = self->slot_states->pool;
+  ulong *            slots = self->scratch.slots;
+  ulong              first = first_unpruned_slot( self );
+  ulong              cnt   = 0UL;
+  for( slot_state_map_iter_t iter = slot_state_map_iter_init( map, pool );
+                                   !slot_state_map_iter_done( iter, map, pool );
+                             iter = slot_state_map_iter_next( iter, map, pool ) ) {
+    slot_state_ele_t const * ele = slot_state_map_iter_ele_const( iter, map, pool );
+    if( FD_LIKELY( ele->voted && ele->slot>=first && cnt<self->slot_max ) ) slots[ cnt++ ] = ele->slot;
+  }
+  slot_sort_inplace( slots, cnt );
+
+  /* Too many voted slots means finality stalled while we kept voting.
+     Whole windows go from the bottom and the anchor moves up to the
+     first kept window, so everything dropped is below what the reader
+     may vote on. */
+  ulong lo = 0UL;
+  while( cnt-lo>AG_HIST_MAX ) {
+    ulong next_window = ag_first_slot_in_window( slots[ lo ] )+AG_SLOTS_PER_WINDOW;
+    while( lo<cnt && slots[ lo ]<next_window ) lo++;
+  }
+  int truncated = lo>0UL;
+  out->anchor = self->highest_final_cert_slot;
+  if( FD_UNLIKELY( truncated ) ) out->anchor = fd_ulong_max( out->anchor, ag_first_slot_in_window( slots[ lo ] )+AG_REWARD_SLOT_DELTA );
+
+  for( ulong i=lo; i<cnt; i++ ) {
+    slot_state_ele_t const * ele = slot_state_map_ele_query_const( map, &slots[ i ], NULL, pool );
+    ag_hist_rec_t *          rec = &out->rec[ out->rec_cnt++ ];
+    rec->slot  = ele->slot;
+    rec->flags = (uchar)( AG_HIST_FLAG_VOTED |
+                          fd_uint_if( ele->voted_notar, AG_HIST_FLAG_VOTED_NOTAR, 0U ) |
+                          fd_uint_if( ele->bad_window,  AG_HIST_FLAG_BAD_WINDOW,  0U ) |
+                          fd_uint_if( ele->retired,     AG_HIST_FLAG_RETIRED,     0U ) );
+    if( ele->voted_notar ) fd_memcpy( rec->notar_hash, ele->voted_notar_hash, sizeof(ag_block_hash_t) );
+    else                   fd_memset( rec->notar_hash, 0,                     sizeof(ag_block_hash_t) );
+  }
+  return truncated;
+}
+
+ulong
+ag_votor_hist_adopt( ag_votor_t *      self,
+                     ag_hist_t const * hist ) {
+  advance_root( self, hist->anchor );
+  /* The exporter's own bound still holds for us, it marks slots its
+     predecessor may have voted and it never did. */
+  if( FD_UNLIKELY( hist->vote_bound!=ULONG_MAX ) ) ag_votor_set_vote_bound( self, hist->vote_bound );
+  ulong first     = first_unpruned_slot( self );
+  ulong conflicts = 0UL;
+  for( ulong i=0UL; i<hist->rec_cnt; i++ ) {
+    ag_hist_rec_t const * rec = &hist->rec[ i ];
+    if( FD_UNLIKELY( rec->slot<first ) ) continue;
+    slot_state_ele_t * state = state_mut( self, rec->slot );
+    if( rec->flags & AG_HIST_FLAG_VOTED_NOTAR ) {
+      if( FD_UNLIKELY( state->voted_notar && !fd_memeq( state->voted_notar_hash, rec->notar_hash, sizeof(ag_block_hash_t) ) ) ) conflicts++;
+      state->voted_notar   = 1;
+      state->adopted_notar = 1;
+      fd_memcpy( state->voted_notar_hash, rec->notar_hash, sizeof(ag_block_hash_t) );
+    }
+    if( !state->voted ) {
+      if( FD_UNLIKELY( state->pending_block ) ) pending_dlist_ele_remove( self->pending_dlist, state, self->slot_states->pool );
+      state->pending_block = 0;
+      state->voted         = 1;
+    }
+    state->bad_window |= !!( rec->flags & AG_HIST_FLAG_BAD_WINDOW );
+    state->retired    |= !!( rec->flags & AG_HIST_FLAG_RETIRED    );
+  }
+  return conflicts;
+}
+
 void
 ag_votor_handle_pool_event( ag_votor_t *            self,
                             ag_event_pool_t const * event,
@@ -598,6 +754,8 @@ ag_votor_handle_pool_event( ag_votor_t *            self,
   case AG_EVENT_POOL_SAFE_TO_NOTAR: {
     ulong                   slot  = event->safe_to_notar.slot;
     uchar const *           hash  = event->safe_to_notar.hash;
+    /* No fallback vote at or below the bound, the rest of the window may still skip. */
+    if( FD_UNLIKELY( below_vote_bound( self, slot ) ) ) { try_skip_window( self, slot, AG_VOTOR_REASON_SAFE_TO_NOTAR ); break; }
     ag_votor_epoch_t const * epoch = own_epoch( self, slot );
     if( FD_LIKELY( epoch->has_bls_pubkey ) ) {
       ag_vote_t vote = ag_vote_construct_notar_fallback( self->bls_sign_fn, self->bls_sign_ctx, epoch->bls_pubkey, slot, hash, (ushort)epoch->rank, self->shred_version );
@@ -611,6 +769,8 @@ ag_votor_handle_pool_event( ag_votor_t *            self,
 
   case AG_EVENT_POOL_SAFE_TO_SKIP: {
     ulong                   slot  = event->safe_to_skip;
+    /* No fallback vote at or below the bound, the rest of the window may still skip. */
+    if( FD_UNLIKELY( below_vote_bound( self, slot ) ) ) { try_skip_window( self, slot, AG_VOTOR_REASON_SAFE_TO_SKIP ); break; }
     ag_votor_epoch_t const * epoch = own_epoch( self, slot );
     if( FD_LIKELY( epoch->has_bls_pubkey ) ) {
       ag_vote_t vote = ag_vote_construct_skip_fallback( self->bls_sign_fn, self->bls_sign_ctx, epoch->bls_pubkey, slot, (ushort)epoch->rank, self->shred_version );

@@ -4,6 +4,7 @@
 #include "ag_votor_base.h"
 #include "../../ballet/bls/fd_bls.h"
 #include "ag_event.h"
+#include "ag_hist.h"
 
 #define AG_VOTOR_REASON_BLOCK_REPLAYED  (0)
 #define AG_VOTOR_REASON_PARENT_READY    (1)
@@ -70,6 +71,65 @@ ag_votor_set_keys( ag_votor_t *  self,
                    uchar const * curr_bls_pubkey,
                    ulong         next_epoch_rank,
                    uchar const * next_bls_pubkey );
+
+/* ag_votor_highest_final_cert_slot is the finality anchor, ULONG_MAX
+   before init.  ag_votor_first_unpruned_slot is the lowest slot the
+   votor still tracks.  ag_votor_has_voted says whether we cast any vote
+   on slot. */
+
+FD_FN_PURE ulong
+ag_votor_highest_final_cert_slot( ag_votor_t const * self );
+
+FD_FN_PURE ulong
+ag_votor_first_unpruned_slot( ag_votor_t const * self );
+
+FD_FN_PURE int
+ag_votor_has_voted( ag_votor_t const * self,
+                    ulong              slot );
+
+/* ag_votor_set_vote_bound stops us casting any vote, notar, skip,
+   fallback or final, on a slot at or below bound.  An empty adopted
+   history sets it, and an adopted history raises it to the exporter's.
+   The bound only moves up and must not be ULONG_MAX.
+   ag_votor_vote_bound returns it, ULONG_MAX when none is set. */
+
+void
+ag_votor_set_vote_bound( ag_votor_t * self,
+                         ulong        bound );
+
+FD_FN_PURE ulong
+ag_votor_vote_bound( ag_votor_t const * self );
+
+/* ag_votor_mark_unsent records that a vote we built never left the
+   machine.  The slot stays voted and gets the bad window flag, so no
+   final vote follows.  A dropped notar also loses its notar mark, so it
+   cannot become the parent of a later notar nobody saw.  A dropped
+   notar on a slot whose notar mark was adopted changes nothing. */
+
+void
+ag_votor_mark_unsent( ag_votor_t *      self,
+                      ag_vote_t const * vote );
+
+/* ag_votor_hist_export writes our own votes since the anchor into out,
+   with last_leader_slot as given and our vote bound.  If more than
+   AG_HIST_MAX slots were voted it drops whole windows from the bottom
+   and lifts the anchor so the frame stays complete relative to it, and
+   returns 1.  Returns 0 otherwise. */
+
+int
+ag_votor_hist_export( ag_votor_t * self,
+                      ulong        last_leader_slot,
+                      ag_hist_t *  out );
+
+/* ag_votor_hist_adopt moves the anchor to the history's, raises our
+   vote bound to the history's and ORs its records into our slot states,
+   so we never vote against what the exporter already sent as this
+   identity.  Our own marks are kept.  Returns how many notar hashes
+   disagreed with our own, theirs win. */
+
+ulong
+ag_votor_hist_adopt( ag_votor_t *      self,
+                     ag_hist_t const * hist );
 
 /* Algorithm 1, lines 9-25. Votor::handle_pool_event */
 

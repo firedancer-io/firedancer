@@ -442,6 +442,17 @@ fixture_new( fd_pubkey_t const * id_key ) {
 
   ctx->identity_keyswitch = fd_keyswitch_join( fd_keyswitch_new( ks_mem, FD_KEYSWITCH_STATE_UNLOCKED ) );
   FD_TEST( ctx->identity_keyswitch );
+  /* No failover links, as unprivileged_init sets it up. */
+  ctx->vote_authority           = 1;
+  ctx->hist_out_idx             = ULONG_MAX;
+  ctx->failov_out_idx           = ULONG_MAX;
+  ctx->last_leader_slot         = ULONG_MAX;
+  ctx->adopted_last_leader_slot = ULONG_MAX;
+  ctx->last_vote_slot           = ULONG_MAX;
+  ctx->root_slot                = ULONG_MAX;
+  ctx->own_rank[ 0 ]            = USHORT_MAX;
+  ctx->own_rank[ 1 ]            = USHORT_MAX;
+  ctx->own_rank[ 2 ]            = USHORT_MAX;
 
   ctx->auth_vtr = auth_vtr_join( auth_vtr_new( auth_vtr_mem ) );
   FD_TEST( ctx->auth_vtr );
@@ -701,6 +712,86 @@ test_demote_builds_no_vote( void ) {
   FD_LOG_NOTICE(( "pass: a switch to the junk identity votes nothing" ));
 }
 
+/* test_history_raises_the_leader_floor: an adopted history fences the
+   window of the last LEADER it reports and the window of its vote
+   bound, and a lower bound or leader slot never lowers the fence. */
+
+static void
+test_history_raises_the_leader_floor( void ) {
+  fd_pubkey_t a = pubkey( 0x41 );
+  fd_pubkey_t b = pubkey( 0x42 );
+  fd_votor_tile_t * ctx = fixture_new( &a );
+  build_epoch_info( &a, &b );
+  start_consensus( ctx, 0UL );
+  ctx->failover_enabled = 1;
+
+  ag_hist_t hist = { .anchor = 0UL, .last_leader_slot = 12UL, .vote_bound = 17UL, .rec_cnt = 1UL };
+  hist.rec[ 0 ].slot  = 1UL;
+  hist.rec[ 0 ].flags = AG_HIST_FLAG_VOTED;
+  uchar req[ AG_HIST_SER_MAX ];
+  ulong req_sz;
+  FD_TEST( !ag_hist_ser( &hist, req, sizeof(req), &req_sz ) );
+  fd_votor_adopt_result_t result = failover_adopt_hist( ctx, req, req_sz );
+  FD_TEST( result.result==FD_VOTOR_ADOPT_SUCCESS && result.vote_slot==1UL && result.vote_bound==17UL );
+  FD_TEST( ag_votor_vote_bound( ctx->votor )==17UL );
+  FD_TEST( ctx->adopted_last_leader_slot==ag_first_slot_in_window( 17UL ) );
+  FD_TEST( leader_floor( ctx )==ag_first_slot_in_window( 17UL ) );
+
+  hist.last_leader_slot = 4UL;
+  hist.vote_bound       = 6UL;
+  FD_TEST( !ag_hist_ser( &hist, req, sizeof(req), &req_sz ) );
+  result = failover_adopt_hist( ctx, req, req_sz );
+  FD_TEST( result.result==FD_VOTOR_ADOPT_SUCCESS && result.vote_bound==17UL );
+  FD_TEST( ctx->adopted_last_leader_slot==ag_first_slot_in_window( 17UL ) );
+
+  uchar empty[ FD_VOTOR_ADOPT_EMPTY_SZ ];
+  FD_STORE( ulong, empty, 2UL );
+  result = failover_adopt_hist( ctx, empty, sizeof(empty) );
+  FD_TEST( result.result==FD_VOTOR_ADOPT_SUCCESS && result.vote_bound==17UL );
+  FD_TEST( ctx->adopted_last_leader_slot==ag_first_slot_in_window( 17UL ) );
+
+  /* A history older than the votes this machine sent is refused. */
+  ctx->last_vote_slot = 3UL;
+  result = failover_adopt_hist( ctx, req, req_sz );
+  FD_TEST( result.result==FD_VOTOR_ADOPT_ERR_STALE );
+
+  fixture_delete( ctx );
+  FD_LOG_NOTICE(( "pass: an adopted history raises the leader floor" ));
+}
+
+/* test_doppelganger_cert_below_bound: a cert with our rank at or below
+   the vote bound can hold the previous holder's votes and does not stop
+   us.  A vote datagram there does, and so does a cert above the bound. */
+
+static void
+test_doppelganger_cert_below_bound( void ) {
+  fd_pubkey_t a = pubkey( 0x41 );
+  fd_pubkey_t b = pubkey( 0x42 );
+  fd_votor_tile_t * ctx = fixture_new( &a );
+  build_epoch_info( &a, &b );
+  start_consensus( ctx, 0UL );
+  ctx->failover_enabled = 1;
+  ag_votor_set_vote_bound( ctx->votor, 5UL );
+
+  doppelganger_check( ctx, 3UL, 1, 1 );
+  FD_TEST( !ctx->doppelganger && ctx->vote_authority );
+  doppelganger_check( ctx, 5UL, 1, 1 );
+  FD_TEST( !ctx->doppelganger && ctx->vote_authority );
+  doppelganger_check( ctx, 6UL, 0, 1 );
+  FD_TEST( !ctx->doppelganger && ctx->vote_authority );
+
+  doppelganger_check( ctx, 3UL, 1, 0 );
+  FD_TEST( ctx->doppelganger && !ctx->vote_authority );
+
+  ctx->doppelganger   = 0;
+  ctx->vote_authority = 1;
+  doppelganger_check( ctx, 6UL, 1, 1 );
+  FD_TEST( ctx->doppelganger && !ctx->vote_authority );
+
+  fixture_delete( ctx );
+  FD_LOG_NOTICE(( "pass: a cert at or below the vote bound does not stop us" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -735,6 +826,8 @@ main( int     argc,
   test_switch_no_bls_key_until_unhalt();
   test_switch_votes_with_new_key();
   test_demote_builds_no_vote();
+  test_history_raises_the_leader_floor();
+  test_doppelganger_cert_below_bound();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
