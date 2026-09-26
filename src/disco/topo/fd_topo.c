@@ -220,6 +220,10 @@ fd_topo_tile_extra_huge_pages( fd_topo_tile_t const * tile ) {
 FD_FN_PURE static ulong
 fd_topo_tile_extra_normal_pages( fd_topo_tile_t const * tile ) {
   ulong key_pages = 0UL;
+  if( FD_UNLIKELY( !strcmp( tile->name, "sign" ) && tile->sign.failover_enabled ) ) {
+    /* The staked key page and its guards, next to the junk key. */
+    key_pages += 5UL;
+  }
   if( FD_UNLIKELY( tile->id_keyswitch_obj_id!=ULONG_MAX ) ) {
     /* Certain tiles using fd_keyload_load need normal pages to hold
        key material. */

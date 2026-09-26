@@ -4,6 +4,35 @@
 static uchar v1_buf [ FD_TXN_MTU    ];
 static uchar v1_txn [ FD_TXN_MAX_SZ ];
 
+/* test_failov_message: only the failov role gets the exact member
+   certificate message signed. */
+
+static void
+test_failov_message( void ) {
+  fd_keyguard_authority_t authority = {0};
+  uchar msg[ FD_KEYGUARD_MEMBER_CERT_MSG_SZ ];
+  fd_memcpy( msg, FD_KEYGUARD_MEMBER_CERT_PREFIX, FD_KEYGUARD_MEMBER_CERT_PREFIX_SZ );
+  fd_memset( msg+FD_KEYGUARD_MEMBER_CERT_PREFIX_SZ, 0x5a, 32UL );
+
+  FD_TEST( fd_keyguard_payload_match( msg, sizeof(msg), FD_KEYGUARD_SIGN_TYPE_ED25519 )==FD_KEYGUARD_PAYLOAD_FAILOV );
+  FD_TEST(  fd_keyguard_payload_authorize( &authority, msg, sizeof(msg), FD_KEYGUARD_ROLE_FAILOV, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, msg, sizeof(msg), FD_KEYGUARD_ROLE_LEADER, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, msg, sizeof(msg), FD_KEYGUARD_ROLE_GOSSIP, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+
+  /* Only the exact prefix, size and sign type are a member certificate. */
+  FD_TEST( !fd_keyguard_payload_match( msg, sizeof(msg), FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519 ) );
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, msg, sizeof(msg), FD_KEYGUARD_ROLE_FAILOV, FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519 ) );
+  FD_TEST( !(fd_keyguard_payload_match( msg, sizeof(msg)-1UL, FD_KEYGUARD_SIGN_TYPE_ED25519 ) & FD_KEYGUARD_PAYLOAD_FAILOV) );
+  FD_TEST( !(fd_keyguard_payload_match( msg+1, sizeof(msg)-1UL, FD_KEYGUARD_SIGN_TYPE_ED25519 ) & FD_KEYGUARD_PAYLOAD_FAILOV) );
+  msg[ 0 ] ^= 1;
+  FD_TEST( !(fd_keyguard_payload_match( msg, sizeof(msg), FD_KEYGUARD_SIGN_TYPE_ED25519 ) & FD_KEYGUARD_PAYLOAD_FAILOV) );
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, msg, sizeof(msg), FD_KEYGUARD_ROLE_FAILOV, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+  msg[ 0 ] ^= 1;
+
+  /* The failov role cannot get a 32 byte shred root signed. */
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, msg+FD_KEYGUARD_MEMBER_CERT_PREFIX_SZ, 32UL, FD_KEYGUARD_ROLE_FAILOV, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+}
+
 static ulong
 build_txn_v1( uchar * buf,
               ulong   sig_cnt,
@@ -183,6 +212,7 @@ main( int     argc,
   test_vote_txn_oob();
   test_txn_v1_match();
   test_ag_vote_authorize();
+  test_failov_message();
   FD_LOG_NOTICE(( "pass" ));
   return 0;
 }

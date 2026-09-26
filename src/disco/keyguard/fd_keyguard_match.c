@@ -16,6 +16,7 @@
    - Merkle shred roots
    - TLS CertificateVerify challenges
    - Gossip message signed payloads (CrdsData)
+   - Failover member certificates
 
    ### Fake Signing Attacks
 
@@ -379,6 +380,20 @@ fd_keyguard_payload_matches_event( uchar const * data,
   return 1;
 }
 
+/* The failov tile requests a plain Ed25519 signature over a 16 byte
+   domain prefix and a junk pubkey.  The prefix keeps it apart from
+   shred roots and every other raw message, and no other matcher
+   accepts a 48 byte message starting with it. */
+
+FD_FN_PURE static int
+fd_keyguard_payload_matches_failov( uchar const * data,
+                                    ulong         sz,
+                                    int           sign_type ) {
+  return sign_type==FD_KEYGUARD_SIGN_TYPE_ED25519 &&
+         sz==FD_KEYGUARD_MEMBER_CERT_MSG_SZ &&
+         fd_memeq( data, FD_KEYGUARD_MEMBER_CERT_PREFIX, FD_KEYGUARD_MEMBER_CERT_PREFIX_SZ );
+}
+
 FD_FN_PURE ulong
 fd_keyguard_payload_match( uchar const * data,
                            ulong         sz,
@@ -395,5 +410,6 @@ fd_keyguard_payload_match( uchar const * data,
   res |= fd_ulong_if( fd_keyguard_payload_matches_bundle    ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_BUNDLE,  0 );
   res |= fd_ulong_if( fd_keyguard_payload_matches_event     ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_EVENT,   0 );
   res |= fd_ulong_if( fd_keyguard_payload_matches_ag_vote   ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_AG_VOTE, 0 );
+  res |= fd_ulong_if( fd_keyguard_payload_matches_failov    ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_FAILOV,  0 );
   return res;
 }

@@ -20,6 +20,8 @@ struct fd_admin_tile_ctx {
   ulong snap_create_slot_idx;     /* adminctl slot of snapshot-create command */
   ulong snap_create_target_slot;  /* requested slot retained until Replay responds */
   ulong snap_create_start_time;   /* command start retained until Replay responds */
+
+  int   failover_enabled;         /* failover moves the identity, set-identity is refused */
 };
 
 typedef struct fd_admin_tile_ctx fd_admin_tile_ctx_t;
@@ -93,6 +95,7 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_admin_tile_ctx_t * ctx     = (fd_admin_tile_ctx_t *)scratch;
   ctx->replay_out_idx       = ULONG_MAX;
   ctx->snap_create_slot_idx = ULONG_MAX;
+  ctx->failover_enabled     = tile->admin.failover_enabled;
   ctx->topo = topo;
 
   fd_topo_obj_t const * adminctl_obj = fd_topo_find_tile_obj( topo, tile, "adminctl" );
@@ -603,6 +606,14 @@ set_identity( fd_admin_tile_ctx_t * ctx,
   FD_BASE58_ENCODE_32_BYTES( ctx->identity_pubkey, old_identity );
   FD_TEST( fd_cstr_printf_check( (char *)event.args_json, sizeof(event.args_json), &event.args_json_len, "{\"old_identity\":\"%s\"}", old_identity ) );
 
+  /* Under failover the failover tile moves the identity. */
+  if( FD_UNLIKELY( ctx->failover_enabled ) ) {
+    FD_LOG_WARNING(( "set-identity is not supported while [failover.junk_identity_key] is set, move the identity with `failover handoff`, `failover demote` or `failover promote`" ));
+    report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_UNSUPPORTED );
+    fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_UNSUPPORTED );
+    return;
+  }
+
   if( FD_UNLIKELY( data_sz<sizeof(ulong) ) ) {
     FD_LOG_WARNING(( "adminctl set-identity payload too small: %lu", data_sz ));
     report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_ABI_SIZE_MISMATCH );
@@ -915,6 +926,9 @@ add_authorized_voter( fd_admin_tile_ctx_t *     ctx,
       break;
     case FD_ADD_AUTHORIZED_VOTER_RESULT_DUPLICATE_AUTH_VOTER:
       report_admin_command_custom_result( &event, "duplicate_authorized_voter" );
+      break;
+    case FD_ADMINCTL_RESULT_UNSUPPORTED:
+      report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_UNSUPPORTED );
       break;
     default:
       FD_LOG_ERR(( "unexpected add-authorized-voter result %lu", result ));
