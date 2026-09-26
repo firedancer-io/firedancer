@@ -551,7 +551,7 @@ test_execrp_run_alts( test_env_t * env,
 
   fd_execrp_task_done_msg_t const * out_msg = test_assert_out_msg( env, 0UL, FD_EXECRP_TT_TXN_EXEC );
   FD_TEST( out_msg->txn_exec->txn_idx==txn_idx );
-  FD_TEST( out_msg->txn_exec->slot==bank->f.slot );
+  FD_TEST( out_msg->txn_exec->bank_seq==bank->bank_seq );
   FD_TEST( out_msg->txn_exec->alt_writable_cnt==alt_writable_cnt );
   return out_msg;
 }
