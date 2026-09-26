@@ -183,7 +183,7 @@ fd_ed25519_verify_batch_single_msg( uchar const   msg[], /* msg_sz */
    identical to the uncached ones for all inputs and cache states; the
    cache only changes how long a verify takes.  A cache is not thread
    safe and is typically owned by a single tile.  The footprint is
-   ~6.2 KiB per entry (AVX-512 build) plus ~80 KiB of fixed tables. */
+   ~6.2 KiB per entry (AVX-512 build) plus ~170 KiB of fixed tables. */
 
 struct fd_ed25519_cache;
 typedef struct fd_ed25519_cache fd_ed25519_cache_t;
