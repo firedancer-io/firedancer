@@ -1885,6 +1885,43 @@ telemetry = true
         # loading.
         delay_startup = true
 
+# Failover runs one staked identity on a pair of machines.  One machine
+# is active and votes with the staked key, the other follows the cluster
+# under its own identity and can take over.  Failover is not supported
+# with Alpenglow.
+[failover]
+    # Absolute path to this machine's own unstaked keypair, a different
+    # key on each machine.  Setting this turns failover on.  Every tile
+    # then boots under this key, and the staked key is installed only
+    # when the machine is promoted.
+    #
+    # Under failover [paths.identity_key] is the staked identity
+    # keypair, the same key on both machines, and it must be set.  It
+    # must differ from this key and must not be one of the
+    # [paths.authorized_voter_paths].  Both machines also need the same
+    # [paths.vote_account].
+    #
+    # Two substitutions will be performed on this string.  If "{user}"
+    # is present it will be replaced with the user running Firedancer,
+    # as above, and "{name}" will be replaced with the name of the
+    # Firedancer instance.
+    junk_identity_key = ""
+
+    # TCP port the two machines connect on, the same on both.  Every
+    # machine listens on all interfaces, and a standby connects to
+    # [failover.peer_address], or to the active it finds in gossip under
+    # the staked identity when that is empty.  It is not advised to
+    # expose this port to a public network.
+    port = 8010
+
+    # IPv4 address or DNS name of the other failover machine, without a
+    # port.  A standby connects to it on [failover.port], and the
+    # listener keeps room for connections from this address, so other
+    # hosts cannot keep the peer out.  A DNS name is resolved once at
+    # boot.  If none is provided, a standby finds the active through
+    # gossip under the staked identity.
+    peer_address = ""
+
 # These options can be useful for development, but should not be used
 # when connecting to a live cluster, as they may cause the validator to
 # be unstable or have degraded performance or security.  The program

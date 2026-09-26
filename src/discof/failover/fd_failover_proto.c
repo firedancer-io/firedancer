@@ -24,6 +24,21 @@ fd_failover_hello_check( fd_failover_hello_t const * self,
 }
 
 ulong
+fd_failover_cfg_hash( uchar const * staked_pubkey,
+                      uchar const * vote_account,
+                      uchar         mode ) {
+  struct __attribute__((packed)) {
+    ulong layout;
+    uchar staked_pubkey[ 32 ];
+    uchar vote_account[ 32 ];
+    uchar mode;
+  } cfg = { .layout=1UL, .mode=mode };
+  fd_memcpy( cfg.staked_pubkey, staked_pubkey, 32UL );
+  fd_memcpy( cfg.vote_account,  vote_account,  32UL );
+  return fd_hash( 0xF17EDA2CE5FA1C0FUL, &cfg, sizeof(cfg) );
+}
+
+ulong
 fd_failover_session_init( int dial_peer ) {
   return dial_peer ? FD_FAILOVER_SESSION_BACKOFF : FD_FAILOVER_SESSION_LISTENING;
 }

@@ -144,6 +144,15 @@ int
 fd_failover_hello_check( fd_failover_hello_t const * self,
                          fd_failover_hello_t const * peer );
 
+/* fd_failover_cfg_hash returns the cfg_hash both members put in HELLO,
+   layout 1.  It covers the staked pubkey, the vote account and the
+   consensus mode, so both members of a well configured pair compute
+   the same value. */
+ulong
+fd_failover_cfg_hash( uchar const * staked_pubkey,
+                      uchar const * vote_account,
+                      uchar         mode );
+
 /* fd_failover_session_init returns the resting state of an endpoint,
    LISTENING for the listener and BACKOFF for the dialer. */
 ulong

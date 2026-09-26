@@ -146,6 +146,10 @@ fd_config_fillf( fd_config_t * config ) {
     replace( config->firedancer.paths.authorized_voter_paths[ i ], "{user}", config->user );
     replace( config->firedancer.paths.authorized_voter_paths[ i ], "{name}", config->name );
   }
+
+  replace( config->firedancer.failover.junk_identity_key, "{user}", config->user );
+  replace( config->firedancer.failover.junk_identity_key, "{name}", config->name );
+  config->firedancer.failover.enabled = !!config->firedancer.failover.junk_identity_key[ 0 ];
 }
 
 static void
@@ -343,6 +347,12 @@ fd_config_fill( fd_config_t * config,
 
   replace( config->paths.base, "{user}", config->user );
   replace( config->paths.base, "{name}", config->name );
+
+  /* Under failover [paths.identity_key] is the staked key both machines
+     share, a generated one would differ per machine. */
+  if( FD_UNLIKELY( config->is_firedancer && config->firedancer.failover.junk_identity_key[ 0 ] && !strcmp( config->paths.identity_key, "" ) ) ) {
+    FD_LOG_ERR(( "[failover.junk_identity_key] is set, so [paths.identity_key] must name the staked identity keypair both machines share" ));
+  }
 
   if( FD_UNLIKELY( !strcmp( config->paths.identity_key, "" ) ) ) {
     /* Development binaries generate an identity key on boot. */
@@ -558,10 +568,34 @@ fd_config_validateh( fd_configh_t const * config ) {
   CFG_HAS_NON_ZERO ( layout.bank_tile_count );
 }
 
+/* Failover is on when junk_identity_key is set.  Only what the config
+   can decide by itself is checked here, the key checks run where the
+   keys are loaded. */
+
+static void
+fd_config_validate_failover( fd_config_t const * config ) {
+  fd_configf_t const * f = &config->firedancer;
+
+  if( FD_LIKELY( !f->failover.junk_identity_key[ 0 ] ) ) return;
+  if( FD_UNLIKELY( !f->failover.port ) ) {
+    FD_LOG_ERR(( "[failover.port] must not be zero" ));
+  }
+  if( FD_UNLIKELY( f->development.alpenglow ) ) {
+    FD_LOG_ERR(( "failover does not support [development.alpenglow], unset [failover.junk_identity_key]" ));
+  }
+  if( FD_UNLIKELY( !strcmp( f->failover.junk_identity_key, config->paths.identity_key ) ) ) {
+    FD_LOG_ERR(( "[failover.junk_identity_key] must differ from [paths.identity_key], which is the staked identity under failover" ));
+  }
+  if( FD_UNLIKELY( strchr( f->failover.peer_address, ':' ) ) ) {
+    FD_LOG_ERR(( "[failover.peer_address] `%s` must be an IPv4 address or hostname without a port, the port is [failover.port]", f->failover.peer_address ));
+  }
+}
+
 void
 fd_config_validate( fd_config_t const * config ) {
   if( FD_LIKELY( config->is_firedancer ) ) {
     fd_config_validatef( &config->firedancer );
+    fd_config_validate_failover( config );
   } else {
     fd_config_validateh( &config->frankendancer );
   }

@@ -118,6 +118,8 @@ static char const * const jw_redacted_keys[] = {
   "snapshots.sources.servers",
   "snapshots.server.http_listen_address",
   "hugetlbfs.mount_path",
+  "failover.junk_identity_key",
+  "failover.peer_address",
   "net.bind_address",
   "tiles.quic.ssl_key_log_file",
   "tiles.bundle.url",
@@ -408,6 +410,12 @@ fd_config_to_json( fd_config_t const * config,
       jw_ulong( &w, "send_timeout_millis",  f->snapshots.server.send_timeout_millis );
       jw_ulong( &w, "send_buffer_size_kib", f->snapshots.server.send_buffer_size_kib );
     jw_obj_close( &w );
+  jw_obj_close( &w );
+
+  jw_obj_open( &w, "failover" );
+    jw_path ( &w, "junk_identity_key", f->failover.junk_identity_key );
+    jw_ulong( &w, "port",              f->failover.port );
+    jw_path ( &w, "peer_address",      f->failover.peer_address );
   jw_obj_close( &w );
 
   jw_obj_open( &w, "hugetlbfs" );

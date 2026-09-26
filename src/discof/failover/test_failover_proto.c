@@ -185,6 +185,25 @@ test_hello_checks( void ) {
   FD_LOG_NOTICE(( "pass: test_hello_checks" ));
 }
 
+/* test_cfg_hash: the same inputs give the same hash, and every covered
+   field changes it. */
+static void
+test_cfg_hash( void ) {
+  uchar other [ 32 ]; fd_memset( other,  0x03, 32UL );
+  uchar staked[ 32 ]; fd_memset( staked, 0xAA, 32UL );
+  uchar vote  [ 32 ]; fd_memset( vote,   0xBB, 32UL );
+  uchar tower = (uchar)FD_FAILOVER_MODE_TOWER;
+
+  ulong hash = fd_failover_cfg_hash( staked, vote, tower );
+  FD_TEST( fd_failover_cfg_hash( staked, vote,   tower )==hash );
+  FD_TEST( fd_failover_cfg_hash( other,  vote,   tower )!=hash );
+  FD_TEST( fd_failover_cfg_hash( staked, other,  tower )!=hash );
+  FD_TEST( fd_failover_cfg_hash( vote,   staked, tower )!=hash );
+  FD_TEST( fd_failover_cfg_hash( staked, vote,   (uchar)FD_FAILOVER_MODE_CNT )!=hash );
+
+  FD_LOG_NOTICE(( "pass: test_cfg_hash" ));
+}
+
 /* test_status_decode: a sane STATUS decodes, a bad size, role, flag or
    slot order does not and leaves out as it was. */
 static void
@@ -413,6 +432,7 @@ main( int     argc,
   test_session_exhaustive();
   test_session_properties();
   test_hello_checks();
+  test_cfg_hash();
   test_status_decode();
   test_demoted_decode();
   test_promote_replies();
