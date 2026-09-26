@@ -380,6 +380,7 @@ fd_solfuzz_txn_ctx_exec( fd_solfuzz_runner_t * runner,
 
   runtime->accdb                 = runner->accdb;
   runtime->progcache             = runner->progcache;
+  runtime->jit                   = NULL;
   runtime->status_cache          = NULL;
   runtime->log.tracing_mem       = tracing_mem;
   runtime->log.dumping_mem       = NULL;
