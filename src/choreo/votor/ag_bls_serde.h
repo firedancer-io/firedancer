@@ -47,12 +47,14 @@ ag_bls_agg_pair_ser( fd_bls_agg_t const * agg,
 
 int
 ag_bls_agg_de( fd_bls_agg_t * agg,
+               ulong *        bit_cnt,
                uchar const *  buf,
                ulong          buf_sz );
 
 int
 ag_bls_agg_pair_de( fd_bls_agg_t * agg,
                     fd_bls_agg_t * agg_fb,
+                    ulong *        bit_cnt,
                     uchar const *  buf,
                     ulong          buf_sz );
 

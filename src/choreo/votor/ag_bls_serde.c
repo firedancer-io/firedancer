@@ -139,12 +139,14 @@ base3_de( fd_bls_agg_t *             agg,
 
 int
 ag_bls_agg_de( fd_bls_agg_t * agg,
+               ulong *        bit_cnt,
                uchar const *  buf,
                ulong          buf_sz ) {
   ag_bls_agg_serde_t serde[1];
 
   int err = bitmap_hdr( serde, buf, buf_sz );
   if( FD_UNLIKELY( err                       ) ) return err;
+  *bit_cnt = serde->bit_cnt;
   FAIL( serde->version!=BASE2_BITMAP, INVAL );
 
   return base2_de( agg, serde );
@@ -153,12 +155,14 @@ ag_bls_agg_de( fd_bls_agg_t * agg,
 int
 ag_bls_agg_pair_de( fd_bls_agg_t * agg,
                     fd_bls_agg_t * agg_fb,
+                    ulong *        bit_cnt,
                     uchar const *  buf,
                     ulong          buf_sz ) {
   ag_bls_agg_serde_t serde[1];
 
   int err = bitmap_hdr( serde, buf, buf_sz );
   if( FD_UNLIKELY( err ) ) return err;
+  *bit_cnt = serde->bit_cnt;
 
   switch( serde->version ) {
   case BASE2_BITMAP:

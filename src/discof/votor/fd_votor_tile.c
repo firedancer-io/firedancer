@@ -703,7 +703,8 @@ quic_server_datagram_rx( fd_quic_conn_t * conn,
     if( FD_UNLIKELY( !peer ) ) { ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_NOT_A_PEER_IDX ]++; report_alpenglow_cert( ctx, conn, NULL, kind, FD_EVENT_ALPENGLOW_CERT_PROCESSING_RESULT_UNKNOWN_PEER, 0L, 0L ); return; }
     if( FD_UNLIKELY( fd_clock_tile_now( ctx->clock )<peer->ban_ts+QUIC_BAN_TIMEOUT_NS ) ) { ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_BANNED_IDX ]++; report_alpenglow_cert( ctx, conn, NULL, kind, FD_EVENT_ALPENGLOW_CERT_PROCESSING_RESULT_BANNED_PEER, 0L, 0L ); fd_quic_conn_close( conn, QUIC_CLOSE_CODE_BANNED ); return; }
 
-    int err = ag_cert_de( &ctx->scratch.cert, data, data_sz );
+    ulong bit_cnt;
+    int   err = ag_cert_de( &ctx->scratch.cert, &bit_cnt, data, data_sz );
     if( FD_UNLIKELY( err ) ) {
       ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_BAD_SIZE_IDX     ] += (ulong)(err==AG_CERT_DE_ERR_SZ   );
       ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_BAD_ENCODING_IDX ] += (ulong)(err==AG_CERT_DE_ERR_INVAL);
@@ -714,6 +715,8 @@ quic_server_datagram_rx( fd_quic_conn_t * conn,
     ulong  cert_slot = ag_cert_slot( &ctx->scratch.cert );
     ushort rank      = fd_ushort_if( cert_slot>=ctx->next_epoch_slot, peer->next_rank, fd_ushort_if( cert_slot>=ctx->curr_epoch_slot, peer->curr_rank, peer->prev_rank ) );
     if( FD_UNLIKELY( rank==USHORT_MAX ) ) { ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_NOT_RANKED_IDX ]++; report_alpenglow_cert( ctx, conn, &ctx->scratch.cert, kind, FD_EVENT_ALPENGLOW_CERT_PROCESSING_RESULT_UNRANKED_PEER, 0L, 0L ); return; } /* peer is not ranked in this cert slot's epoch */
+    ag_epoch_info_t const * epoch_info = fd_ptr_if( cert_slot>=ctx->next_epoch_slot, ctx->next_epoch_info, fd_ptr_if( cert_slot>=ctx->curr_epoch_slot, ctx->curr_epoch_info, ctx->prev_epoch_info ) );
+    if( FD_UNLIKELY( epoch_info && bit_cnt>epoch_info->validator_cnt ) ) { ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_BAD_ENCODING_IDX ]++; return; }
 
     long verify_start_time = fd_clock_tile_now( ctx->clock );
     switch( ag_pool_add_cert( ctx->pool, &ctx->scratch.cert, ctx->scratch.bad ) ) {
