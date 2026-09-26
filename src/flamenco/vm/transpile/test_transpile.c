@@ -1,9 +1,14 @@
 #include "fd_transpile_idiv.h"
 
+#include "fd_transpile.h"
+#include "../../../util/tmpl/fd_unit_test.c"
+#include <limits.h>
+#include <stdlib.h>
+#include <string.h>
+
 /* udiv magic reference values (Hacker's Delight / Granlund-Montgomery) */
 
-static void
-test_udiv32_magic_known( void ) {
+FD_UNIT_TEST( udiv32_magic_known ) {
   struct { uint d; ulong m; int k; } const cases[] = {
     { 3U,          0xaaaaaaabUL,  33 },
     { 5U,          0xcccccccdUL,  34 },
@@ -29,8 +34,7 @@ test_udiv32_magic_known( void ) {
   }
 }
 
-static void
-test_udiv64_magic_known( void ) {
+FD_UNIT_TEST( udiv64_magic_known ) {
   struct { ulong d; uint128 m; int k; } const cases[] = {
     { 3UL,                  (uint128)0xaaaaaaaaaaaaaaabUL,                65 },
     { 5UL,                  (uint128)0xcccccccccccccccdUL,                66 },
@@ -249,24 +253,18 @@ test_udiv32_exhaustive( uint d ) {
   } while( n!=0U );
 }
 
-int
-main( int     argc,
-      char ** argv ) {
-  fd_boot( &argc, &argv );
-
-  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
-
-  test_udiv32_magic_known();
-  test_udiv64_magic_known();
-  FD_LOG_NOTICE(( "known magic values OK" ));
-
+FD_UNIT_TEST( udiv_contract ) {
   /* every non-pow2 divisor up to 2^20, both widths */
   for( ulong d=3UL; d<(1UL<<20); d++ ) {
     if( fd_ulong_is_pow2( d ) ) continue;
     check_udiv32_contract( (uint)d );
     check_udiv64_contract( d );
   }
-  FD_LOG_NOTICE(( "contract for d<2^20 OK" ));
+}
+
+FD_UNIT_TEST( udiv_boundaries ) {
+  fd_rng_t _rng[1];
+  fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
   /* every non-pow2 divisor in the top 2^16 of the 32-bit range */
   for( ulong d=(1UL<<32)-(1UL<<16); d<(1UL<<32); d++ ) {
@@ -302,7 +300,13 @@ main( int     argc,
     check_udiv64_contract( d );
     check_udiv64_edges( d, rng );
   }
-  FD_LOG_NOTICE(( "contract at power-of-two boundaries OK" ));
+
+  fd_rng_delete( fd_rng_leave( rng ) );
+}
+
+FD_UNIT_TEST( udiv_dividend_sweeps ) {
+  fd_rng_t _rng[1];
+  fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
   /* dividend sweeps for small divisors and random divisors */
   for( ulong d=3UL; d<4096UL; d++ ) {
@@ -328,16 +332,55 @@ main( int     argc,
       check_udiv64_edges( d64, rng );
     }
   }
-  FD_LOG_NOTICE(( "dividend sweeps OK" ));
 
+  fd_rng_delete( fd_rng_leave( rng ) );
+}
+
+FD_UNIT_TEST( udiv32_exhaustive ) {
   /* exhaustive dividend coverage: narrow m (3), wide m (7), and the
      largest divisor (all n>=d give q=1) */
   test_udiv32_exhaustive( 3U );
   test_udiv32_exhaustive( 7U );
   test_udiv32_exhaustive( 0xffffffffU );
-  FD_LOG_NOTICE(( "exhaustive udiv32 OK" ));
+}
 
-  fd_rng_delete( fd_rng_leave( rng ) );
+FD_UNIT_TEST( transpile_meta ) {
+  fd_transpiler_t * t = aligned_alloc( 64UL, sizeof(fd_transpiler_t) );
+  FD_TEST( t );
+
+  ulong bpf_text[ 2 ] = {
+    0x0000002a000000b7UL, /* mov64 r0, 42 */
+    0x0000000000000095UL  /* exit */
+  };
+
+  FD_TEST( !fd_vm_transpile_code( t, FD_SBPF_V0, (uchar const *)bpf_text, 2UL, 0UL, NULL, NULL, NULL, 0UL, 0UL ) );
+  FD_TEST( t->code_sz > 0UL );
+  FD_TEST( t->entrypoint_off == 0UL );
+  FD_TEST( t->meta.text_cnt == 2UL );
+  FD_TEST( t->meta.text_sz == 16UL );
+  FD_TEST( t->meta.entry_pc == 0UL );
+  FD_TEST( t->meta.sbpf_version == FD_SBPF_V0 );
+
+  uchar zero[ 32 ] = { 0 };
+  FD_TEST( !memcmp( t->meta.prog_id, zero, 32UL ) );
+  FD_TEST( !memcmp( t->meta.elf_hash, zero, 32UL ) );
+
+  FD_TEST( !fd_vm_transpile_code( t, FD_SBPF_V1, (uchar const *)bpf_text, 2UL, 1UL, NULL, NULL, NULL, 0UL, 0UL ) );
+  FD_TEST( t->code_sz > 0UL );
+  FD_TEST( t->entrypoint_off == 0UL );
+  FD_TEST( t->meta.text_cnt == 2UL );
+  FD_TEST( t->meta.text_sz == 16UL );
+  FD_TEST( t->meta.entry_pc == 1UL );
+  FD_TEST( t->meta.sbpf_version == FD_SBPF_V1 );
+
+  free( t );
+}
+
+int
+main( int     argc,
+      char ** argv ) {
+  fd_boot( &argc, &argv );
+  fd_unit_tests( argc, argv );
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;
