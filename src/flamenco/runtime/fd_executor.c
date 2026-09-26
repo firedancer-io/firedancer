@@ -1565,6 +1565,58 @@ fd_executor_txn_verify( fd_txn_p_t *         txn_p,
   return fd_executor_txn_verify_raw( TXN( txn_p ), txn_p->payload, txn_p->payload_sz, shas, cache );
 }
 
+void
+fd_executor_txn_verify_batch( fd_txn_t const * const txns[],
+                              uchar const * const    payloads[],
+                              ushort const           payload_szs[],
+                              ulong                  txn_cnt,
+                              fd_sha512_t *          shas[ FD_EXECUTOR_TXN_VERIFY_BATCH_MAX*FD_TXN_SIG_MAX ],
+                              fd_ed25519_cache_t *   cache,
+                              int                    results[] ) {
+  FD_TEST( txn_cnt<=FD_EXECUTOR_TXN_VERIFY_BATCH_MAX );
+
+  /* fd_txn_parse guarantees 1<=signature_cnt<=FD_TXN_SIG_MAX; the
+     single message path rejects anything else, so does this one. */
+  ulong lane = 0UL;
+  for( ulong i=0UL; i<txn_cnt; i++ ) {
+    ulong sig_cnt = txns[i]->signature_cnt;
+    if( FD_UNLIKELY( sig_cnt==0UL || sig_cnt>FD_TXN_SIG_MAX ) ) {
+      for( ulong k=0UL; k<txn_cnt; k++ ) results[k] = fd_executor_txn_verify_raw( txns[k], payloads[k], payload_szs[k], shas, cache );
+      return;
+    }
+    lane += sig_cnt;
+  }
+
+  uchar const * msgs   [ FD_EXECUTOR_TXN_VERIFY_BATCH_MAX*FD_TXN_SIG_MAX ];
+  ulong         msg_szs[ FD_EXECUTOR_TXN_VERIFY_BATCH_MAX*FD_TXN_SIG_MAX ];
+  uchar const * sigs   [ FD_EXECUTOR_TXN_VERIFY_BATCH_MAX*FD_TXN_SIG_MAX ];
+  uchar const * pubkeys[ FD_EXECUTOR_TXN_VERIFY_BATCH_MAX*FD_TXN_SIG_MAX ];
+  int           res    [ FD_EXECUTOR_TXN_VERIFY_BATCH_MAX*FD_TXN_SIG_MAX ];
+
+  lane = 0UL;
+  for( ulong i=0UL; i<txn_cnt; i++ ) {
+    fd_txn_t const * txn    = txns[i];
+    ulong            msg_sz = fd_txn_msg_sz( txn, payload_szs[i] );
+    for( ulong j=0UL; j<txn->signature_cnt; j++ ) {
+      msgs   [ lane ] = payloads[i] + txn->message_off;
+      msg_szs[ lane ] = msg_sz;
+      sigs   [ lane ] = payloads[i] + txn->signature_off + 64UL*j;
+      pubkeys[ lane ] = payloads[i] + txn->acct_addr_off + 32UL*j;
+      lane++;
+    }
+  }
+
+  if( cache ) fd_ed25519_verify_batch_multi_msg_cached( msgs, msg_szs, sigs, pubkeys, shas, res, lane, cache );
+  else        fd_ed25519_verify_batch_multi_msg       ( msgs, msg_szs, sigs, pubkeys, shas, res, lane );
+
+  lane = 0UL;
+  for( ulong i=0UL; i<txn_cnt; i++ ) {
+    int ok = 1;
+    for( ulong j=0UL; j<txns[i]->signature_cnt; j++ ) ok &= (res[ lane++ ]==FD_ED25519_SUCCESS);
+    results[i] = ok ? FD_RUNTIME_EXECUTE_SUCCESS : FD_RUNTIME_TXN_ERR_SIGNATURE_FAILURE;
+  }
+}
+
 static int
 fd_executor_txn_check( fd_bank_t *    bank,
                        fd_txn_out_t * txn_out ) {
