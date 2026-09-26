@@ -51,7 +51,7 @@ struct __attribute__((aligned(64UL))) fd_vm_jit {
 
   ulong         bb_splits[ (FD_VM_JIT_TEXT_CNT_MAX+63UL)/64UL ];
   fd_elf64_rela reloc    [ FD_VM_TRANSPILE_RELOC_MAX ];
-  uchar         scratch  [] __attribute__((aligned(64UL))); /* fd_vm_transpile_scratch_footprint( FD_VM_JIT_TEXT_CNT_MAX ) */
+  uchar         scratch  [] __attribute__((aligned(64UL))); /* fd_vm_transpile_scratch_footprint( FD_VM_JIT_SCRATCH_TEXT_CNT ) */
 };
 
 FD_FN_CONST ulong
@@ -61,7 +61,7 @@ fd_vm_jit_align( void ) {
 
 FD_FN_CONST ulong
 fd_vm_jit_footprint( void ) {
-  return fd_ulong_align_up( sizeof(fd_vm_jit_t) + fd_vm_transpile_scratch_footprint( FD_VM_JIT_TEXT_CNT_MAX ), alignof(fd_vm_jit_t) );
+  return fd_ulong_align_up( sizeof(fd_vm_jit_t) + fd_vm_transpile_scratch_footprint( FD_VM_JIT_SCRATCH_TEXT_CNT ), alignof(fd_vm_jit_t) );
 }
 
 void *
@@ -196,7 +196,7 @@ jit_compile( fd_vm_jit_t * jit,
 
   fd_vm_transpile_dasm_t d[1];
   ulong reloc_cnt = FD_VM_TRANSPILE_RELOC_MAX;
-  if( FD_UNLIKELY( fd_vm_transpile_code( d, jit->scratch, fd_vm_transpile_scratch_footprint( FD_VM_JIT_TEXT_CNT_MAX ),
+  if( FD_UNLIKELY( fd_vm_transpile_code( d, jit->scratch, fd_vm_transpile_scratch_footprint( FD_VM_JIT_SCRATCH_TEXT_CNT ),
                                          vm->sbpf_version, (uchar const *)vm->text, text_cnt, vm->entry_pc,
                                          vm->calldests, vm->syscalls, jit->bb_splits, NULL,
                                          jit->reloc, &reloc_cnt ) ) ) return 0UL;
