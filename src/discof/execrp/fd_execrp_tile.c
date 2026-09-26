@@ -48,8 +48,8 @@ struct fd_execrp_tile {
   link_ctx_t            execrp_replay_out[ 1 ]; /* TODO: Remove with solcap v2 */
   link_ctx_t            gui_out[ 1 ];           /* idx ULONG_MAX if no gui */
 
-  fd_sha512_t           sha_mem[ FD_TXN_SIG_MAX ];
-  fd_sha512_t *         sha_lj[  FD_TXN_SIG_MAX ];
+  fd_sha512_t           sha_mem[ FD_EXECRP_SIGVERIFY_PARA*FD_TXN_SIG_MAX ]; /* one per signature a sigverify batch can hold */
+  fd_sha512_t *         sha_lj [ FD_EXECRP_SIGVERIFY_PARA*FD_TXN_SIG_MAX ];
   fd_ed25519_cache_t *  ed25519_cache;
   fd_footer_cache_t *   footer_cache;
 
@@ -367,13 +367,26 @@ returnable_frag( fd_execrp_tile_t *  ctx,
         fd_execrp_task_done_msg_t * out_msg = fd_chunk_to_laddr( ctx->execrp_replay_out->mem, ctx->execrp_replay_out->chunk );
         out_msg->bank_idx           = msg->bank_idx;
         out_msg->txn_sigverify->cnt = msg->cnt;
+
+        /* The signatures of the whole batch are verified together
+           through the eight-lane kernel; a batch of one transaction
+           takes the signer cache path as before. */
+        fd_txn_t const * txns       [ FD_EXECRP_SIGVERIFY_PARA ];
+        uchar const *    payloads   [ FD_EXECRP_SIGVERIFY_PARA ];
+        ushort           payload_szs[ FD_EXECRP_SIGVERIFY_PARA ];
+        int              res        [ FD_EXECRP_SIGVERIFY_PARA ];
         for( ulong i=0UL; i<msg->cnt; i++ ) {
           fd_txn_t const * txn = fd_execrp_sigverify_txn( msg, i );
           FD_CHECK_CRIT( (ulong)msg->txn_off[ i ]+fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt )<=sz && (ulong)msg->off[ i ]+msg->payload_sz[ i ]<=sz, "invalid sigverify batch" );
-          int res = fd_executor_txn_verify_raw( txn, fd_execrp_sigverify_payload( msg, i ), msg->payload_sz[ i ], ctx->sha_lj, ctx->ed25519_cache );
+          txns       [ i ] = txn;
+          payloads   [ i ] = fd_execrp_sigverify_payload( msg, i );
+          payload_szs[ i ] = msg->payload_sz[ i ];
+        }
+        fd_executor_txn_verify_batch( txns, payloads, payload_szs, msg->cnt, ctx->sha_lj, ctx->ed25519_cache, res );
+        for( ulong i=0UL; i<msg->cnt; i++ ) {
           out_msg->txn_sigverify->txn_idx[ i ] = msg->txn_idx[ i ];
-          out_msg->txn_sigverify->err    [ i ] = (uchar)(res!=FD_RUNTIME_EXECUTE_SUCCESS);
-          ctx->metrics.sigverify_cnt += txn->signature_cnt;
+          out_msg->txn_sigverify->err    [ i ] = (uchar)(res[ i ]!=FD_RUNTIME_EXECUTE_SUCCESS);
+          ctx->metrics.sigverify_cnt += txns[ i ]->signature_cnt;
         }
         fd_stem_publish( stem, ctx->execrp_replay_out->idx, (FD_EXECRP_TT_TXN_SIGVERIFY<<32)|ctx->tile_idx, ctx->execrp_replay_out->chunk, sizeof(*out_msg), 0UL, 0UL, 0UL );
         ctx->execrp_replay_out->chunk = fd_dcache_compact_next( ctx->execrp_replay_out->chunk, sizeof(*out_msg), ctx->execrp_replay_out->chunk0, ctx->execrp_replay_out->wmark );
@@ -531,7 +544,7 @@ unprivileged_init( fd_topo_t const *      topo,
     }
   }
 
-  for( ulong i=0UL; i<FD_TXN_SIG_MAX; i++ ) {
+  for( ulong i=0UL; i<FD_EXECRP_SIGVERIFY_PARA*FD_TXN_SIG_MAX; i++ ) {
     fd_sha512_t * sha = fd_sha512_join( fd_sha512_new( ctx->sha_mem+i ) );
     FD_TEST( sha );
     ctx->sha_lj[ i ] = sha;
