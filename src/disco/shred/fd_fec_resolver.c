@@ -46,6 +46,13 @@ struct __attribute__((aligned(32UL))) set_ctx {
 
   ulong                 total_rx_shred_cnt;
 
+  /* data_rx_ts[ i ] is the fd_tickcount() at which data shred i of
+     this FEC set was accepted.  Only valid for indices with the
+     corresponding bit set in set->data_shred_rcvd.  Used with the
+     set->{turbine,repair}_shred_rcvd bitmaps to measure how far repair
+     shreds lead or trail their turbine copies. */
+  long                  data_rx_ts[ FD_FEC_SHRED_CNT ];
+
   fd_fec_set_t *        set;
 
   fd_bmtree_node_t      root;
@@ -129,9 +136,15 @@ struct done_ele {
      SIG_HASH_EQUIVOC, and we start returning SHRED_IGNORED for any
      non-repair shred for that (slot, FEC set idx). */
   uint           sig_hash;
+  /* fd_tickcount() at which this FEC set completed, if at least one
+     repair shred contributed to completing it; 0 otherwise (including
+     for FEC sets completed from turbine alone and for equivocation
+     markers).  Lets us count and time turbine shreds that arrive for a
+     FEC set repair already finished. */
+  long           repaired_complete_ts;
 };
 typedef struct done_ele done_ele_t;
-FD_STATIC_ASSERT( sizeof(done_ele_t)==32UL, done_ele_t );
+FD_STATIC_ASSERT( sizeof(done_ele_t)==40UL, done_ele_t );
 #define SIG_HASH_EQUIVOC UINT_MAX
 
 #define MAP_NAME              done_map
@@ -215,6 +228,19 @@ struct __attribute__((aligned(FD_FEC_RESOLVER_ALIGN))) fd_fec_resolver {
   /* free_list_cnt: The number of items in free_list. */
   ulong free_list_cnt;
 
+  /* repair_lead_hist: histogram of how long a repair copy of a data
+     shred preceded the turbine copy of the same shred.  Sampled in
+     ticks when a turbine duplicate of a repaired shred arrives for an
+     in-progress FEC set.  Published by the shred tile via
+     fd_fec_resolver_repair_lead_hist. */
+  fd_histf_t repair_lead_hist[1];
+
+  /* turbine_after_repaired_fec_hist: histogram of how long after a
+     repair-completed FEC set finished each turbine shred for it
+     arrived.  Sampled in ticks in the done-map path.  Published by the
+     shred tile via fd_fec_resolver_turbine_after_repaired_fec_hist. */
+  fd_histf_t turbine_after_repaired_fec_hist[1];
+
   /* done_pool: A pool (this time using fd_pool) of the done_ele_t
      elements that back done_map and done_heap.  Invariant: each element
      is either (i) released and in the pool, or (ii) in both the
@@ -292,6 +318,16 @@ fd_fec_resolver_footprint( ulong depth,
 
 FD_FN_CONST ulong fd_fec_resolver_align( void ) { return FD_FEC_RESOLVER_ALIGN; }
 
+fd_histf_t const *
+fd_fec_resolver_repair_lead_hist( fd_fec_resolver_t const * resolver ) {
+  return resolver->repair_lead_hist;
+}
+
+fd_histf_t const *
+fd_fec_resolver_turbine_after_repaired_fec_hist( fd_fec_resolver_t const * resolver ) {
+  return resolver->turbine_after_repaired_fec_hist;
+}
+
 
 void *
 fd_fec_resolver_new( void                    * shmem,
@@ -339,6 +375,11 @@ fd_fec_resolver_new( void                    * shmem,
   if( FD_UNLIKELY( !done_pool_new( _done_pool, done_depth           ) ) ) { FD_LOG_WARNING(( "done_pool_new fail" )); return NULL; }
   if( FD_UNLIKELY( !done_map_new ( _done_map, done_chain_cnt, seed1 ) ) ) { FD_LOG_WARNING(( "done_map_new fail"  )); return NULL; }
   if( FD_UNLIKELY( !done_heap_new( _done_heap, done_depth           ) ) ) { FD_LOG_WARNING(( "done_heap_new fail" )); return NULL; }
+
+  fd_histf_join( fd_histf_new( resolver->repair_lead_hist, FD_MHIST_SECONDS_MIN( SHRED, REPAIR_FRONT_RUN_LEAD_SECONDS ),
+                                                            FD_MHIST_SECONDS_MAX( SHRED, REPAIR_FRONT_RUN_LEAD_SECONDS ) ) );
+  fd_histf_join( fd_histf_new( resolver->turbine_after_repaired_fec_hist, FD_MHIST_SECONDS_MIN( SHRED, TURBINE_AFTER_REPAIRED_FEC_SECONDS ),
+                                                                          FD_MHIST_SECONDS_MAX( SHRED, TURBINE_AFTER_REPAIRED_FEC_SECONDS ) ) );
 
   set_ctx_t * ctx_pool = (set_ctx_t *)_ctx_pool;
   fd_memset( ctx_pool, '\0', sizeof(set_ctx_t)*depth_sum );
@@ -579,13 +620,33 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
          Because the hash is validator specific, it just means we'll
          rely on another node to produce the equivocation proof, and
          we'll act as if we hadn't seen the equivocating shreds. */
-      if( FD_LIKELY( ((uint)sig_hash==done_ele->sig_hash) | (done_ele->sig_hash==SIG_HASH_EQUIVOC) ) ) return FD_FEC_RESOLVER_SHRED_IGNORED;
+      if( FD_LIKELY( ((uint)sig_hash==done_ele->sig_hash) | (done_ele->sig_hash==SIG_HASH_EQUIVOC) ) ) {
+        /* Turbine shred for a FEC set that repair already finished:
+           turbine lost the race for the whole set.  Note this happens
+           before signature verification, so the tally is best-effort. */
+        if( FD_UNLIKELY( (source==FD_FEC_RESOLVER_SHRED_SRC_TURBINE) & (done_ele->repaired_complete_ts!=0L) ) ) {
+          FD_MCNT_INC( SHRED, SHRED_TURBINE_AFTER_REPAIRED_FEC, 1UL );
+          long lag = fd_tickcount() - done_ele->repaired_complete_ts;
+          fd_histf_sample( resolver->turbine_after_repaired_fec_hist, (ulong)fd_long_max( lag, 0L ) );
+        }
+        return FD_FEC_RESOLVER_SHRED_IGNORED;
+      }
       equivoc_or_invalid = 1;
     }
 
     /* If it's not done, then check for the unlikely case we have it
        in progress with a different signature. */
     if( FD_UNLIKELY( ctx_treap_ele_query_const( ctx_treap, slot_fec_pair, ctx_pool ) ) ) equivoc_or_invalid = 1;
+  } else if( FD_UNLIKELY( (ctx==NULL) & (source==FD_FEC_RESOLVER_SHRED_SRC_REPAIR) ) ) {
+    /* Repair bypasses the done map (see the header), so a repair shred
+       for a FEC set we already completed gets a fresh context below.
+       Count it when it's the same version we finished: the repair
+       arrived too late to be useful.  Best-effort, pre-sigverify. */
+    slot_fec_pair_t slot_fec_pair[1] = {{ .slot = shred->slot, .fec_idx = shred->fec_set_idx }};
+    done_ele_t const * done_ele = done_map_ele_query_const( done_map, slot_fec_pair, NULL, done_pool );
+    if( FD_UNLIKELY( done_ele && (uint)fd_hash( resolver->seed, w_sig, sizeof(wrapped_sig_t) )==done_ele->sig_hash ) ) {
+      FD_MCNT_INC( SHRED, SHRED_REPAIR_AFTER_COMPLETED_FEC, 1UL );
+    }
   }
 
   /* If we've made it here, then we'll keep this shred as long as
@@ -702,9 +763,10 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
 
         done = done_pool_ele_acquire( done_pool );
 
-        done->key.slot    = shred->slot;
-        done->key.fec_idx = shred->fec_set_idx;
-        done->sig_hash    = SIG_HASH_EQUIVOC;
+        done->key.slot             = shred->slot;
+        done->key.fec_idx          = shred->fec_set_idx;
+        done->sig_hash             = SIG_HASH_EQUIVOC;
+        done->repaired_complete_ts = 0L;
 
         done_heap_ele_insert( done_heap, done, done_pool );
         done_map_ele_insert ( done_map,  done, done_pool );
@@ -766,6 +828,24 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
     int shred_dup = !!(fd_uint_if( is_data_shred, ctx->set->data_shred_rcvd, ctx->set->parity_shred_rcvd ) & (1U << in_type_idx));
     if( FD_UNLIKELY( shred_dup ) ) {
       *out_shred = is_data_shred ? ctx->set->data_shreds[ in_type_idx ].s : ctx->set->parity_shreds[ in_type_idx ].s;
+
+      /* Repair only serves data shreds, so the repair vs. turbine race
+         is only observable on data shred duplicates.  A turbine copy
+         arriving after the repair copy means repair front-ran turbine;
+         a repair copy arriving after the turbine copy means the repair
+         was wasted. */
+      if( FD_LIKELY( is_data_shred ) ) {
+        ulong shred_bit    = 1UL<<in_type_idx;
+        int   prior_repair = !!(ctx->set->repair_shred_rcvd  & shred_bit);
+        int   prior_turb   = !!(ctx->set->turbine_shred_rcvd & shred_bit);
+        if( FD_UNLIKELY( (source==FD_FEC_RESOLVER_SHRED_SRC_TURBINE) & prior_repair ) ) {
+          FD_MCNT_INC( SHRED, SHRED_REPAIR_FRONT_RUN, 1UL );
+          long lead = fd_tickcount() - ctx->data_rx_ts[ in_type_idx ];
+          fd_histf_sample( resolver->repair_lead_hist, (ulong)fd_long_max( lead, 0L ) );
+        } else if( FD_UNLIKELY( (source==FD_FEC_RESOLVER_SHRED_SRC_REPAIR) & prior_turb ) ) {
+          FD_MCNT_INC( SHRED, SHRED_REPAIR_REDUNDANT, 1UL );
+        }
+      }
       return FD_FEC_RESOLVER_SHRED_DUPLICATE;
     }
   }
@@ -785,6 +865,7 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
 
   ctx->set->data_shred_rcvd   |= (uint)(!!is_data_shred)<<in_type_idx;
   ctx->set->parity_shred_rcvd |= (uint)( !is_data_shred)<<in_type_idx;
+  if( FD_LIKELY( is_data_shred ) ) ctx->data_rx_ts[ in_type_idx ] = fd_tickcount();
   ulong shred_bit = 1UL<<shred_idx;
   if( source==FD_FEC_RESOLVER_SHRED_SRC_TURBINE ) ctx->set->turbine_shred_rcvd |= shred_bit;
   else                                            ctx->set->repair_shred_rcvd  |= shred_bit;
@@ -810,9 +891,10 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
   if( FD_LIKELY( !done_map_ele_query( done_map, done_key, NULL, done_pool ) ) ) {
     done = done_pool_ele_acquire( done_pool );
 
-    done->key.slot    = ctx->slot;
-    done->key.fec_idx = ctx->fec_set_idx;
-    done->sig_hash    = (uint)fd_hash( resolver->seed, w_sig, sizeof(wrapped_sig_t) );
+    done->key.slot             = ctx->slot;
+    done->key.fec_idx          = ctx->fec_set_idx;
+    done->sig_hash             = (uint)fd_hash( resolver->seed, w_sig, sizeof(wrapped_sig_t) );
+    done->repaired_complete_ts = fd_long_if( !!ctx->set->repair_shred_rcvd, fd_tickcount(), 0L );
 
     done_heap_ele_insert( done_heap, done, done_pool );
     done_map_ele_insert ( done_map,  done, done_pool );

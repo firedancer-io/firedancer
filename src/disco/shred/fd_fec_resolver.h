@@ -3,6 +3,7 @@
 #include "fd_fec_set.h"
 #include "../../ballet/bmtree/fd_bmtree.h"
 #include "../../ballet/ed25519/fd_ed25519.h"
+#include "../../util/hist/fd_histf.h"
 
 /* This header defines several methods for building and validating FEC
    sets from received shreds.  It's designed just for use by the shred
@@ -293,6 +294,25 @@ typedef struct fd_fec_resolver_spilled fd_fec_resolver_spilled_t;
    provides the memory for out_spilled_fec_set.  If
    out_spilled_fec_set is NULL, the evicted FEC set metadata will not be
    written even if an in progress FEC set was evicted. */
+
+/* fd_fec_resolver_repair_lead_hist returns a pointer to the resolver's
+   histogram (in ticks) of how long a repair copy of a data shred
+   preceded the turbine copy of the same shred, sampled whenever a
+   turbine duplicate of a repaired shred arrives for an in-progress FEC
+   set.  The caller is expected to publish it, e.g. with FD_MHIST_COPY.
+   Lifetime is that of the resolver join. */
+
+fd_histf_t const *
+fd_fec_resolver_repair_lead_hist( fd_fec_resolver_t const * resolver );
+
+/* fd_fec_resolver_turbine_after_repaired_fec_hist returns a pointer to
+   the resolver's histogram (in ticks) of how long after a FEC set that
+   repair helped complete each turbine shred for that set arrived.
+   Sampled for turbine shreds that hit the done map.  Same publication
+   and lifetime rules as fd_fec_resolver_repair_lead_hist. */
+
+fd_histf_t const *
+fd_fec_resolver_turbine_after_repaired_fec_hist( fd_fec_resolver_t const * resolver );
 
 int
 fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,

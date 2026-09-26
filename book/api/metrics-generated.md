@@ -713,6 +713,12 @@
 | <span class="metrics-name">shred_&#8203;shred_&#8203;repair_&#8203;rx_&#8203;bytes</span> | counter | Bytes received from network packets with repair shreds, including network headers |
 | <span class="metrics-name">shred_&#8203;shred_&#8203;turbine_&#8203;rx</span> | counter | Turbine shreds received |
 | <span class="metrics-name">shred_&#8203;shred_&#8203;turbine_&#8203;rx_&#8203;bytes</span> | counter | Bytes received from network packets with turbine shreds, including network headers |
+| <span class="metrics-name">shred_&#8203;shred_&#8203;repair_&#8203;front_&#8203;run</span> | counter | Turbine data shreds that arrived for an in-progress FEC set after the same shred had already been accepted from a repair response |
+| <span class="metrics-name">shred_&#8203;shred_&#8203;repair_&#8203;redundant</span> | counter | Repair data shreds that arrived for an in-progress FEC set after the same shred had already been accepted from turbine |
+| <span class="metrics-name">shred_&#8203;repair_&#8203;front_&#8203;run_&#8203;lead_&#8203;seconds</span> | histogram | Time by which a repair copy of a data shred preceded the turbine copy of the same shred, for in-progress FEC sets |
+| <span class="metrics-name">shred_&#8203;shred_&#8203;turbine_&#8203;after_&#8203;repaired_&#8203;fec</span> | counter | Turbine shreds that arrived for a FEC set which had already completed with at least one repair shred contributing |
+| <span class="metrics-name">shred_&#8203;shred_&#8203;repair_&#8203;after_&#8203;completed_&#8203;fec</span> | counter | Repair shreds that arrived for a FEC set version which had already completed, from any mix of sources |
+| <span class="metrics-name">shred_&#8203;turbine_&#8203;after_&#8203;repaired_&#8203;fec_&#8203;seconds</span> | histogram | Time between a FEC set completing with repair shreds contributing and a turbine shred for that set arriving |
 | <span class="metrics-name">shred_&#8203;fec_&#8203;fallback_&#8203;write</span> | counter | FEC payloads synchronously spilled by the shred tile |
 | <span class="metrics-name">shred_&#8203;fec_&#8203;fallback_&#8203;write_&#8203;bytes</span> | counter | FEC payload bytes synchronously spilled by the shred tile |
 
