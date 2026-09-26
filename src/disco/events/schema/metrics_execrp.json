@@ -398,6 +398,12 @@
                 "b15": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[100000000, inf) nanos" },
                 "sum": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Sum of samples (nanos)" }
             }
-        }
+        },
+        "jit_hit":                       { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Program executions that found native code in the tile's JIT cache", "field_number": 335920163 },
+        "jit_compiled":                  { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Programs compiled to native code", "field_number": 431985017 },
+        "jit_compile_failed":            { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Programs that could not be compiled and ran in the interpreter", "field_number": 519145400 },
+        "jit_compile_duration_nanos":    { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Time spent compiling programs to native code", "field_number": 429806210 },
+        "jit_bailed":                    { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Native executions that resumed in the interpreter", "field_number": 313142027 },
+        "jit_cache_cleared":             { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "JIT code cache resets (cache full)", "field_number": 445426720 }
     }
 }

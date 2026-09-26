@@ -1850,6 +1850,13 @@ deliberate exception with lint-allow="<rule id>")
 
     <counter name="CuConsumed" summary="Compute units consumed by executed transactions" />
 
+    <counter name="JitHit" summary="Program executions that found native code in the tile's JIT cache" />
+    <counter name="JitCompiled" summary="Programs compiled to native code" />
+    <counter name="JitCompileFailed" summary="Programs that could not be compiled and ran in the interpreter" />
+    <counter name="JitCompileDurationNanos" source="ticks" summary="Time spent compiling programs to native code" />
+    <counter name="JitBailed" summary="Native executions that resumed in the interpreter" />
+    <counter name="JitCacheCleared" summary="JIT code cache resets (cache full)" />
+
     <counter name="ProgcacheLookedUp" summary="Program cache lookups; equals Hit + Miss + lookups of invalid program accounts" />
     <counter name="ProgcacheMiss" summary="Program cache misses, each followed by an insert or a spill" />
     <counter name="ProgcacheWaited" summary="Program cache lookups that waited on another tile's in-flight load of the same program" />
