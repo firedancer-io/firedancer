@@ -712,6 +712,7 @@ test_wire_not_g2( void ) {
   ag_cert_t       c, rt;
   uchar           buf[ AG_CERT_SER_MAX ];
   ulong           sz;
+  ulong           bit_cnt;
 
   ulong          one[6] = { 1UL }, four[6] = { 4UL };
   blst_fp        fp1[1];
@@ -731,17 +732,17 @@ test_wire_not_g2( void ) {
   mk_notar( nv, slot, h, 0UL, 9UL );
   c  = cert_build_notar( nv, 9UL, e );
   sz = ag_cert_ser( &c, buf );
-  FD_TEST( ag_cert_de( &rt, buf, sz )==AG_CERT_DE_SUCCESS && cert_verify( &rt, e ) );
+  FD_TEST( ag_cert_de( &rt, &bit_cnt, buf, sz )==AG_CERT_DE_SUCCESS && cert_verify( &rt, e ) );
   memcpy( buf+CERT_HDR_SZ( 1 )-8UL-FD_BLS_SIG_SZ, bad_bytes, FD_BLS_SIG_SZ );
-  FD_TEST( ag_cert_de( &rt, buf, sz )==AG_CERT_DE_SUCCESS );
+  FD_TEST( ag_cert_de( &rt, &bit_cnt, buf, sz )==AG_CERT_DE_SUCCESS );
   FD_TEST( !cert_verify( &rt, e ) );
 
   mk_skip( sv, slot, 0UL, 9UL );
   c  = cert_build_skip( sv, 9UL, NULL, 0UL, e );
   sz = ag_cert_ser( &c, buf );
-  FD_TEST( ag_cert_de( &rt, buf, sz )==AG_CERT_DE_SUCCESS && cert_verify( &rt, e ) );
+  FD_TEST( ag_cert_de( &rt, &bit_cnt, buf, sz )==AG_CERT_DE_SUCCESS && cert_verify( &rt, e ) );
   memcpy( buf+CERT_HDR_SZ( 0 )-8UL-FD_BLS_SIG_SZ, bad_bytes, FD_BLS_SIG_SZ );
-  FD_TEST( ag_cert_de( &rt, buf, sz )==AG_CERT_DE_SUCCESS );
+  FD_TEST( ag_cert_de( &rt, &bit_cnt, buf, sz )==AG_CERT_DE_SUCCESS );
   FD_TEST( !cert_verify( &rt, e ) );
 
   free( em );
