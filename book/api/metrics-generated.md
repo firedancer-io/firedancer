@@ -1379,6 +1379,12 @@
 | <span class="metrics-name">execrp_&#8203;vm_&#8203;regime_&#8203;duration_&#8203;nanos</span><br/>{vm_&#8203;regime="<span class="metrics-enum">commit_&#8203;cpi</span>"} | counter | Time in top-level BPF invocations, by phase, with CPI setup and commit split out; nested programs, including native CPIs, count as Interpreter; subset of TxnRegime Execute (VM commit (CPI)) |
 | <span class="metrics-name">execrp_&#8203;vm_&#8203;regime_&#8203;duration_&#8203;nanos</span><br/>{vm_&#8203;regime="<span class="metrics-enum">interpreter</span>"} | counter | Time in top-level BPF invocations, by phase, with CPI setup and commit split out; nested programs, including native CPIs, count as Interpreter; subset of TxnRegime Execute (VM interpreter execution) |
 | <span class="metrics-name">execrp_&#8203;cu_&#8203;consumed</span> | counter | Compute units consumed by executed transactions |
+| <span class="metrics-name">execrp_&#8203;jit_&#8203;hit</span> | counter | Program executions that found native code in the tile's JIT cache |
+| <span class="metrics-name">execrp_&#8203;jit_&#8203;compiled</span> | counter | Programs compiled to native code |
+| <span class="metrics-name">execrp_&#8203;jit_&#8203;compile_&#8203;failed</span> | counter | Programs that could not be compiled and ran in the interpreter |
+| <span class="metrics-name">execrp_&#8203;jit_&#8203;compile_&#8203;duration_&#8203;nanos</span> | counter | Time spent compiling programs to native code |
+| <span class="metrics-name">execrp_&#8203;jit_&#8203;bailed</span> | counter | Native executions that resumed in the interpreter |
+| <span class="metrics-name">execrp_&#8203;jit_&#8203;cache_&#8203;cleared</span> | counter | JIT code cache resets (cache full) |
 | <span class="metrics-name">execrp_&#8203;progcache_&#8203;looked_&#8203;up</span> | counter | Program cache lookups; equals Hit + Miss + lookups of invalid program accounts |
 | <span class="metrics-name">execrp_&#8203;progcache_&#8203;miss</span> | counter | Program cache misses, each followed by an insert or a spill |
 | <span class="metrics-name">execrp_&#8203;progcache_&#8203;waited</span> | counter | Program cache lookups that waited on another tile's in-flight load of the same program |
