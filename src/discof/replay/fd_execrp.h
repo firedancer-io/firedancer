@@ -157,12 +157,21 @@ struct fd_execrp_txn_exec_done_msg {
   ulong tips;
 
   /* used by monitoring tools */
+  ulong bank_seq;
+};
+typedef struct fd_execrp_txn_exec_done_msg fd_execrp_txn_exec_done_msg_t;
+
+/* Sent from exec tiles to the gui for each executed transaction, on a
+   link of its own so the gui is not woken by the other completions.
+   Published with the tsorig and tspub of the matching TXN_EXEC
+   completion. */
+
+struct fd_execrp_gui_msg {
   ulong  slot;
-  ulong  bank_seq;
   ushort start_shred_idx;
   ushort end_shred_idx;
 };
-typedef struct fd_execrp_txn_exec_done_msg fd_execrp_txn_exec_done_msg_t;
+typedef struct fd_execrp_gui_msg fd_execrp_gui_msg_t;
 
 struct fd_execrp_txn_sigverify_done_msg {
   ulong txn_idx;
