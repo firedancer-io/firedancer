@@ -43,12 +43,33 @@ struct fd_execrp_txn_exec_msg {
 };
 typedef struct fd_execrp_txn_exec_msg fd_execrp_txn_exec_msg_t;
 
+/* A sigverify task carries up to FD_EXECRP_SIGVERIFY_PARA transactions
+   of one block, packed back to back after the header: each is
+   payload_sz[ i ] bytes of payload followed, at the next
+   alignof(fd_txn_t), by its fd_txn_t descriptor.  The scheduler
+   budgets bytes so a task fits sizeof(fd_execrp_task_msg_t). */
+
+#define FD_EXECRP_SIGVERIFY_PARA (8UL)
+
 struct fd_execrp_txn_sigverify_msg {
-  ulong      bank_idx;
-  ulong      txn_idx;
-  fd_txn_p_t txn[ 1 ];
+  ulong  bank_idx;
+  ulong  cnt;                                    /* In [1,FD_EXECRP_SIGVERIFY_PARA] */
+  uint   txn_idx   [ FD_EXECRP_SIGVERIFY_PARA ];
+  ushort off       [ FD_EXECRP_SIGVERIFY_PARA ]; /* payload offset from the start of the message */
+  ushort payload_sz[ FD_EXECRP_SIGVERIFY_PARA ];
+  ushort txn_off   [ FD_EXECRP_SIGVERIFY_PARA ]; /* fd_txn_t offset from the start of the message */
 };
 typedef struct fd_execrp_txn_sigverify_msg fd_execrp_txn_sigverify_msg_t;
+
+static inline uchar const *
+fd_execrp_sigverify_payload( fd_execrp_txn_sigverify_msg_t const * msg, ulong i ) {
+  return (uchar const *)msg + msg->off[ i ];
+}
+
+static inline fd_txn_t const *
+fd_execrp_sigverify_txn( fd_execrp_txn_sigverify_msg_t const * msg, ulong i ) {
+  return (fd_txn_t const *)( (uchar const *)msg + msg->txn_off[ i ] );
+}
 
 #define FD_EXECRP_POH_PARA 16
 struct fd_execrp_poh_hash_msg {
@@ -174,8 +195,9 @@ struct fd_execrp_gui_msg {
 typedef struct fd_execrp_gui_msg fd_execrp_gui_msg_t;
 
 struct fd_execrp_txn_sigverify_done_msg {
-  ulong txn_idx;
-  int   err;
+  ulong cnt;                                  /* == the task's cnt */
+  uint  txn_idx[ FD_EXECRP_SIGVERIFY_PARA ];  /* in task order */
+  uchar err    [ FD_EXECRP_SIGVERIFY_PARA ];  /* nonzero if that transaction failed to verify */
 };
 typedef struct fd_execrp_txn_sigverify_done_msg fd_execrp_txn_sigverify_done_msg_t;
 
