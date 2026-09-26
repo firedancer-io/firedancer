@@ -58,6 +58,15 @@ fd_executor_txn_verify( fd_txn_p_t *         txn_p,
                         fd_sha512_t *        shas[ FD_TXN_SIG_MAX ],
                         fd_ed25519_cache_t * cache );
 
+/* fd_executor_txn_verify_raw is fd_executor_txn_verify on a parsed
+   descriptor and its payload rather than an fd_txn_p_t. */
+int
+fd_executor_txn_verify_raw( fd_txn_t const *     txn,
+                            uchar const *        payload,
+                            ulong                payload_sz,
+                            fd_sha512_t *        shas[ FD_TXN_SIG_MAX ],
+                            fd_ed25519_cache_t * cache );
+
 /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/rent_calculator.rs#L144-L178 */
 int
 fd_executor_check_static_account_rent_state_transition( ulong             pre_exec_balance,
