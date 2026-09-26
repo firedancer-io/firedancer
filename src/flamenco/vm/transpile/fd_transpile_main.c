@@ -1,4 +1,5 @@
 #include "fd_transpile_obj.h"
+#include "fd_transpile.h"
 #include "../fd_vm.h"
 
 #include <limits.h>
@@ -17,6 +18,7 @@ transpile_file( char const * input_path ) {
   void *  syscalls_mem = NULL;
   void *  scratch      = NULL;
   void *  vm_mem       = NULL;
+  void *  xlat_mem     = NULL;
   uchar * obj          = NULL;
   char *  output_path  = NULL;
 
@@ -101,8 +103,10 @@ transpile_file( char const * input_path ) {
   if( bin_sz>(ULONG_MAX-4096UL)/64UL ) goto done;
   ulong obj_sz = bin_sz*64UL+4096UL;
   obj = malloc( obj_sz );
-  if( !obj ) goto done;
-  if( !fd_vm_transpile_obj( obj, &obj_sz, prog, "entrypoint" ) ) {
+  ulong xlat_sz = fd_vm_transpile_scratch_footprint( prog->info.text_cnt );
+  xlat_mem = malloc( xlat_sz );
+  if( !obj || !xlat_mem ) goto done;
+  if( !fd_vm_transpile_obj( obj, &obj_sz, prog, "entrypoint", xlat_mem, xlat_sz ) ) {
     FD_LOG_WARNING(( "Failed to transpile %s", input_path ));
     goto done;
   }
@@ -128,6 +132,7 @@ done:
   if( output ) fclose( output );
   free( output_path );
   free( obj );
+  free( xlat_mem );
   free( vm_mem );
   free( scratch );
   free( syscalls_mem );

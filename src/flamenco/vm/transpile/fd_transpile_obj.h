@@ -15,8 +15,10 @@
    written.  prog the loaded and verified sBPF program to be translated.
    entrypoint_name_cstr is used as the symbol name of the only global
    symbol in .text (the entrypoint function of the transpiled program).
+   scratch points to scratch_sz bytes of transpiler scratch memory (see
+   fd_vm_transpile_scratch_footprint).
 
-   This function uses malloc()/free().
+   This function additionally uses malloc()/free() to build the ELF.
 
    On failure, logs warning and returns NULL.  There is an arbitrary
    number of reasons why transpiling can fail.  Only an unspecified
@@ -31,7 +33,9 @@ uchar *
 fd_vm_transpile_obj( uchar *                   elf,
                      ulong *                   elf_sz,
                      fd_sbpf_program_t const * prog,
-                     char const *              entrypoint_name_cstr );
+                     char const *              entrypoint_name_cstr,
+                     void *                    scratch,
+                     ulong                     scratch_sz );
 
 FD_PROTOTYPES_END
 

@@ -50,6 +50,20 @@ check_mapping( ulong        addr,
   }
 }
 
+/* live_create transpiles with a heap-backed scratch region of
+   exactly the documented bound. */
+
+static fd_transpiled_live_t *
+live_create( fd_sbpf_program_t const *  prog,
+             fd_sbpf_syscalls_t const * syscalls ) {
+  ulong  scratch_sz = fd_vm_transpile_scratch_footprint( prog ? prog->info.text_cnt : 0UL );
+  void * scratch    = malloc( scratch_sz );
+  FD_TEST( scratch );
+  fd_transpiled_live_t * live = fd_transpiled_live_create( prog, syscalls, scratch, scratch_sz );
+  free( scratch );
+  return live;
+}
+
 /* Test program (sBPF v0):
      0: call sol_memset_         (r3=0 => no-op, sets r0=0)
      1: mov64 r2, 1
@@ -221,7 +235,7 @@ test_frames( void ) {
   FD_TEST( syscalls );
   FD_TEST( !fd_vm_syscall_register( syscalls, "frame_probe", frame_probe ) );
 
-  fd_transpiled_live_t * live = fd_transpiled_live_create( prog, syscalls );
+  fd_transpiled_live_t * live = live_create( prog, syscalls );
   FD_TEST( live );
 
   fd_sha256_t _sha[1];
@@ -273,7 +287,7 @@ test_frames( void ) {
      frame: exhaust the call depth (DEPTH > FD_VM_STACK_FRAME_MAX) */
   frame_test_text[0] = fd_vm_instr( FD_SBPF_OP_MOV64_IMM, 1, 0, 0, (uint)(FD_VM_STACK_FRAME_MAX+8UL) );
   fd_transpiled_live_destroy( live );
-  live = fd_transpiled_live_create( prog, syscalls );
+  live = live_create( prog, syscalls );
   FD_TEST( live );
   fn = (fd_vm_transpiled_exec_func_t)live->text_haddr;
   FD_TEST( fd_vm_init( vm, NULL, FD_VM_HEAP_DEFAULT, FD_VM_COMPUTE_UNIT_LIMIT,
@@ -300,6 +314,115 @@ test_frames( void ) {
   fd_sbpf_syscalls_delete( fd_sbpf_syscalls_leave( syscalls ) );
   free( calldests_mem );
   FD_LOG_NOTICE(( "frame chain ok (%lu hops)", frame_probe_cnt ));
+}
+
+/* Scratch bounds test
+
+   A synthetic program that is expensive to transpile: every slot
+   starts a basic block, and slots alternate between DIV64_REG and a
+   BPF-to-BPF call (each targeting a distinct slot, so half the slots
+   get a call thunk), with syscalls sprinkled in.  Transpiling it must
+   fit fd_vm_transpile_scratch_footprint, and any smaller scratch region
+   (or a too small reloc buffer) must fail cleanly. */
+
+#define SCRATCH_TEST_TEXT_CNT (4096UL)
+
+static ulong scratch_test_text     [ SCRATCH_TEST_TEXT_CNT ];
+static ulong scratch_test_bb_splits[ SCRATCH_TEST_TEXT_CNT/64UL ];
+
+static int
+scratch_test_transpile( fd_sbpf_program_t const *  prog,
+                        fd_sbpf_syscalls_t const * syscalls,
+                        void *                     scratch,
+                        ulong                      scratch_sz,
+                        ulong                      reloc_max,
+                        ulong *                    scratch_used ) {
+  static fd_elf64_rela reloc[ FD_VM_TRANSPILE_RELOC_MAX ];
+  ulong reloc_cnt = reloc_max;
+  fd_vm_transpile_dasm_t d[1];
+  int err = fd_vm_transpile_code( d, scratch, scratch_sz, prog->info.sbpf_version, (uchar const *)prog->text,
+                                  prog->info.text_cnt, prog->entry_pc, (ulong const *)prog->calldests, syscalls,
+                                  scratch_test_bb_splits, NULL, reloc, &reloc_cnt );
+  FD_TEST( d->mem_used<=scratch_sz );
+  if( scratch_used ) *scratch_used = d->mem_used;
+  if( !err ) {
+    size_t code_sz;
+    FD_TEST( !dasm_link( d, &code_sz ) );
+    FD_TEST( code_sz>0UL );
+  }
+  return err;
+}
+
+static void
+test_scratch( fd_sbpf_syscalls_t * syscalls ) {
+  ulong   n    = SCRATCH_TEST_TEXT_CNT;
+  ulong * text = scratch_test_text;
+  uint    syscall_id[3] = {
+    fd_murmur3_32( "sol_memset_", 11UL, 0U ),
+    fd_murmur3_32( "sol_memcpy_", 11UL, 0U ),
+    fd_murmur3_32( "sol_log_",     8UL, 0U )
+  };
+  for( ulong pc=0UL; pc<n-1UL; pc++ ) {
+    if( pc%64UL==1UL ) text[pc] = fd_vm_instr( FD_SBPF_OP_CALL_IMM, 0, 0, 0, syscall_id[ (pc/64UL)%3UL ] );
+    else if( pc&1UL )  text[pc] = fd_vm_instr( FD_SBPF_OP_CALL_IMM, 0, 0, 0, fd_pchash( (uint)pc/2U ) );
+    else               text[pc] = fd_vm_instr( FD_SBPF_OP_DIV64_REG, 1, 2, 0, 0U );
+  }
+  text[n-1UL] = fd_vm_instr( FD_SBPF_OP_EXIT, 0, 0, 0, 0U );
+  memset( scratch_test_bb_splits, 0xff, sizeof(scratch_test_bb_splits) );
+
+  void * calldests_mem = aligned_alloc( fd_sbpf_calldests_align(), fd_sbpf_calldests_footprint( n ) );
+  FD_TEST( calldests_mem );
+  fd_sbpf_calldests_t * calldests = fd_sbpf_calldests_join( fd_sbpf_calldests_new( calldests_mem, n ) );
+  FD_TEST( calldests );
+  for( ulong pc=0UL; pc<n; pc++ ) fd_sbpf_calldests_insert( calldests, pc );
+
+  static fd_sbpf_program_t prog[1];
+  memset( prog, 0, sizeof(fd_sbpf_program_t) );
+  prog->info.text_cnt     = (uint)n;
+  prog->info.text_sz      = n*8UL;
+  prog->info.sbpf_version = FD_SBPF_V0;
+  prog->rodata            = text;
+  prog->rodata_sz         = n*8UL;
+  prog->text              = text;
+  prog->entry_pc          = 0UL;
+  prog->calldests         = calldests;
+
+  ulong  footprint = fd_vm_transpile_scratch_footprint( n );
+  uchar * scratch  = malloc( footprint+1UL );
+  FD_TEST( scratch );
+
+  /* Fits the bound, at any alignment */
+  ulong used;
+  FD_TEST( !scratch_test_transpile( prog, syscalls, scratch,     footprint, FD_VM_TRANSPILE_RELOC_MAX, &used ) );
+  ulong used1;
+  FD_TEST( !scratch_test_transpile( prog, syscalls, scratch+1UL, footprint, FD_VM_TRANSPILE_RELOC_MAX, &used1 ) );
+  FD_LOG_NOTICE(( "scratch: %lu slots use %lu bytes (bound %lu)", n, fd_ulong_max( used, used1 ), footprint ));
+
+  /* Too small scratch fails with ERR_NOMEM */
+  ulong const small_sz[] = { 0UL, 1UL, 64UL, 4096UL, footprint/4UL, used/2UL, used-1UL };
+  for( ulong i=0UL; i<sizeof(small_sz)/sizeof(ulong); i++ ) {
+    FD_TEST( scratch_test_transpile( prog, syscalls, scratch, small_sz[i], FD_VM_TRANSPILE_RELOC_MAX, NULL )==FD_VM_TRANSPILE_ERR_NOMEM );
+    FD_TEST( !fd_transpiled_live_create( prog, syscalls, scratch, small_sz[i] ) );
+  }
+  FD_TEST( scratch_test_transpile( prog, syscalls, NULL, 0UL, FD_VM_TRANSPILE_RELOC_MAX, NULL )==FD_VM_TRANSPILE_ERR_NOMEM );
+
+  /* Too small reloc buffer fails with ERR_NOMEM */
+  FD_TEST( scratch_test_transpile( prog, syscalls, scratch, footprint, 0UL, NULL )==FD_VM_TRANSPILE_ERR_NOMEM );
+  FD_TEST( scratch_test_transpile( prog, syscalls, scratch, footprint, 4UL, NULL )==FD_VM_TRANSPILE_ERR_NOMEM );
+
+  /* Invalid programs still fail with ERR_INVAL */
+  text[0] = fd_vm_instr( FD_SBPF_OP_DIV64_REG, 11, 2, 0, 0U );
+  FD_TEST( scratch_test_transpile( prog, syscalls, scratch, footprint, FD_VM_TRANSPILE_RELOC_MAX, NULL )==FD_VM_TRANSPILE_ERR_INVAL );
+  text[0] = fd_vm_instr( FD_SBPF_OP_DIV64_REG, 1, 2, 0, 0U );
+
+  /* Recovers after failures, and live loads from the same scratch */
+  FD_TEST( !scratch_test_transpile( prog, syscalls, scratch, footprint, FD_VM_TRANSPILE_RELOC_MAX, NULL ) );
+  fd_transpiled_live_t * live = fd_transpiled_live_create( prog, syscalls, scratch, footprint );
+  FD_TEST( live );
+  fd_transpiled_live_destroy( live );
+
+  free( scratch );
+  free( calldests_mem );
 }
 
 /* sBPF program fixtures from the repo.  Each is loaded, executed by
@@ -466,7 +589,7 @@ test_fixtures( fd_sbpf_syscalls_t * syscalls ) {
     FD_TEST( prog );
     FD_TEST( !fd_sbpf_program_load( prog, bin, bin_sz, syscalls, &config, scratch, bin_sz ) );
 
-    fd_transpiled_live_t * live = fd_transpiled_live_create( prog, syscalls );
+    fd_transpiled_live_t * live = live_create( prog, syscalls );
     FD_TEST( live );
 
     fixture_exec( env, prog, syscalls, NULL, res_interp );
@@ -510,11 +633,11 @@ main( int     argc,
   FD_TEST( syscalls );
   FD_TEST( !fd_vm_syscall_register_all( syscalls, 0 ) );
 
-  FD_TEST( !fd_transpiled_live_create( NULL, syscalls ) );
-  FD_TEST( !fd_transpiled_live_create( prog, NULL ) );
+  FD_TEST( !live_create( NULL, syscalls ) );
+  FD_TEST( !live_create( prog, NULL ) );
   fd_transpiled_live_destroy( NULL );
 
-  fd_transpiled_live_t * live = fd_transpiled_live_create( prog, syscalls );
+  fd_transpiled_live_t * live = live_create( prog, syscalls );
   FD_TEST( live );
 
   /* Layout and permissions */
@@ -543,7 +666,7 @@ main( int     argc,
 
   ulong gap_cnt = 0UL;
   for( ulong i=0UL; i<8UL; i++ ) {
-    fd_transpiled_live_t * live2 = fd_transpiled_live_create( prog, syscalls );
+    fd_transpiled_live_t * live2 = live_create( prog, syscalls );
     FD_TEST( live2 );
     if( (long)live2->text_haddr - (long)live2->rodata_haddr != gap ) gap_cnt++;
     fd_transpiled_live_destroy( live2 );
@@ -557,6 +680,7 @@ main( int     argc,
 
   test_fixtures( syscalls );
   test_frames();
+  test_scratch( syscalls );
 
   fd_sbpf_syscalls_delete( fd_sbpf_syscalls_leave( syscalls ) );
   free( calldests_mem );
