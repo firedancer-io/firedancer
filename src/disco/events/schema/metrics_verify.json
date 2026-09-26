@@ -89,7 +89,7 @@
             "type": "Tuple",
             "description": "Transactions processed, by result",
             "aliases": {
-                "all":     ["success", "bundle_peer_failed", "parse_failed", "duplicate", "signature_failed"],
+                "all":     ["success", "bundle_peer_failed", "parse_failed", "duplicate", "signature_failed", "blockhash_expired"],
                 "failure": ["bundle_peer_failed", "parse_failed", "duplicate", "signature_failed"]
             },
             "fields": {
@@ -97,7 +97,8 @@
                 "bundle_peer_failed": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Another transaction in the bundle failed" },
                 "parse_failed":       { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Transaction failed to parse" },
                 "duplicate":          { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Transaction was a duplicate" },
-                "signature_failed":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Transaction failed signature verification" }
+                "signature_failed":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Transaction failed signature verification" },
+                "blockhash_expired":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Transaction dropped before signature verification because its recent blockhash expires before our next leader slot", "field_number": 285705080 }
             }
         },
         "vote_gossip_rx":             { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Gossip vote transactions handled by this verify tile", "deprecated": true },
