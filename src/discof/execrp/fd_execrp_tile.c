@@ -46,6 +46,7 @@ struct fd_execrp_tile {
   /* link-related data structures. */
   link_ctx_t            replay_in[ 1 ];
   link_ctx_t            execrp_replay_out[ 1 ]; /* TODO: Remove with solcap v2 */
+  link_ctx_t            gui_out[ 1 ];           /* idx ULONG_MAX if no gui */
 
   fd_sha512_t           sha_mem[ FD_TXN_SIG_MAX ];
   fd_sha512_t *         sha_lj[  FD_TXN_SIG_MAX ];
@@ -199,6 +200,22 @@ metrics_write( fd_execrp_tile_t * ctx ) {
   FD_ACCDB_METRICS_WRITE( EXECRP, fd_accdb_metrics( ctx->accdb ) );
 }
 
+/* publish_gui_msg tells the gui about the transaction just executed,
+   stamped like its execrp_replay completion. */
+
+static void
+publish_gui_msg( fd_execrp_tile_t *  ctx,
+                 fd_stem_context_t * stem,
+                 ulong               tspub ) {
+  fd_execrp_gui_msg_t * msg = fd_chunk_to_laddr( ctx->gui_out->mem, ctx->gui_out->chunk );
+  msg->slot            = ctx->slot;
+  msg->start_shred_idx = ctx->txn_in.txn->start_shred_idx;
+  msg->end_shred_idx   = ctx->txn_in.txn->end_shred_idx;
+
+  fd_stem_publish( stem, ctx->gui_out->idx, 0UL, ctx->gui_out->chunk, sizeof(*msg), 0UL, ctx->dispatch_time_comp, tspub );
+  ctx->gui_out->chunk = fd_dcache_compact_next( ctx->gui_out->chunk, sizeof(*msg), ctx->gui_out->chunk0, ctx->gui_out->wmark );
+}
+
 static void
 publish_txn_finalized_msg( fd_execrp_tile_t *  ctx,
                            fd_stem_context_t * stem,
@@ -227,10 +244,7 @@ publish_txn_finalized_msg( fd_execrp_tile_t *  ctx,
   msg->txn_exec->transaction_fee        = ctx->txn_out.details.execution_fee;
   msg->txn_exec->priority_fee           = ctx->txn_out.details.priority_fee;
   msg->txn_exec->tips                   = ctx->txn_out.details.tips;
-  msg->txn_exec->slot            = ctx->slot;
-  msg->txn_exec->bank_seq        = ctx->bank->bank_seq;
-  msg->txn_exec->start_shred_idx = ctx->txn_in.txn->start_shred_idx;
-  msg->txn_exec->end_shred_idx   = ctx->txn_in.txn->end_shred_idx;
+  msg->txn_exec->bank_seq               = ctx->bank->bank_seq;
 
   /* Leave the writable ALT accounts in this tile's result buffer if
      replay asked for them.  txn_out.accounts.cnt only exceeds
@@ -256,9 +270,12 @@ publish_txn_finalized_msg( fd_execrp_tile_t *  ctx,
     FD_LOG_WARNING(( "block marked dead (slot=%lu) because of invalid transaction (signature=%s) (txn_err=%d)", ctx->slot, signature_b58, ctx->txn_out.err.txn_err ));
   }
 
-  fd_stem_publish( stem, ctx->execrp_replay_out->idx, (FD_EXECRP_TT_TXN_EXEC<<32)|ctx->tile_idx, ctx->execrp_replay_out->chunk, sizeof(*msg), 0UL, ctx->dispatch_time_comp, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+  fd_stem_publish( stem, ctx->execrp_replay_out->idx, (FD_EXECRP_TT_TXN_EXEC<<32)|ctx->tile_idx, ctx->execrp_replay_out->chunk, sizeof(*msg), 0UL, ctx->dispatch_time_comp, tspub );
 
   ctx->execrp_replay_out->chunk = fd_dcache_compact_next( ctx->execrp_replay_out->chunk, sizeof(*msg), ctx->execrp_replay_out->chunk0, ctx->execrp_replay_out->wmark );
+
+  if( FD_LIKELY( ctx->gui_out->idx!=ULONG_MAX ) ) publish_gui_msg( ctx, stem, tspub );
 }
 
 static inline void
@@ -565,6 +582,15 @@ unprivileged_init( fd_topo_t const *      topo,
     ctx->execrp_replay_out->chunk0 = fd_dcache_compact_chunk0( ctx->execrp_replay_out->mem, execrp_replay_link->dcache );
     ctx->execrp_replay_out->wmark  = fd_dcache_compact_wmark( ctx->execrp_replay_out->mem, execrp_replay_link->dcache, execrp_replay_link->mtu );
     ctx->execrp_replay_out->chunk  = ctx->execrp_replay_out->chunk0;
+  }
+
+  ctx->gui_out->idx = fd_topo_find_tile_out_link( topo, tile, "execrp_gui", ctx->tile_idx );
+  if( FD_UNLIKELY( ctx->gui_out->idx!=ULONG_MAX ) ) {
+    fd_topo_link_t const * gui_link = &topo->links[ tile->out_link_id[ ctx->gui_out->idx ] ];
+    ctx->gui_out->mem    = topo->workspaces[ topo->objs[ gui_link->dcache_obj_id ].wksp_id ].wksp;
+    ctx->gui_out->chunk0 = fd_dcache_compact_chunk0( ctx->gui_out->mem, gui_link->dcache );
+    ctx->gui_out->wmark  = fd_dcache_compact_wmark( ctx->gui_out->mem, gui_link->dcache, gui_link->mtu );
+    ctx->gui_out->chunk  = ctx->gui_out->chunk0;
   }
 
   ctx->capture_ctx = NULL;
