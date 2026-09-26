@@ -134,7 +134,9 @@ uchar *
 fd_vm_transpile_obj( uchar *                   elf,
                      ulong *                   elf_sz,
                      fd_sbpf_program_t const * prog,
-                     char const *              entrypoint_name_cstr ) {
+                     char const *              entrypoint_name_cstr,
+                     void *                    scratch,
+                     ulong                     scratch_sz ) {
 
   if( FD_UNLIKELY( !elf || !elf_sz || !prog || !entrypoint_name_cstr || !entrypoint_name_cstr[0] ) ) {
     FD_LOG_WARNING(( "Invalid arguments to fd_vm_transpile_obj" ));
@@ -173,15 +175,11 @@ fd_vm_transpile_obj( uchar *                   elf,
     return NULL;
   }
 
-  /* Initialize DynASM */
+  fd_vm_transpile_dasm_t d[1];
 
-  dasm_State * d = NULL;
-  dasm_init( &d, 1 );
-
-  ulong reloc_max = text_cnt * 4UL + 1024UL;
+  ulong reloc_max = FD_VM_TRANSPILE_RELOC_MAX;
   fd_elf64_rela * raw_relocs = malloc( reloc_max * sizeof(fd_elf64_rela) );
   if( FD_UNLIKELY( !raw_relocs ) ) {
-    dasm_free( &d );
     free( bpf_func_starts );
     free( bpf_bb_splits );
     FD_LOG_WARNING(( "malloc failed for raw_relocs" ));
@@ -189,7 +187,9 @@ fd_vm_transpile_obj( uchar *                   elf,
   }
   ulong reloc_cnt = reloc_max;
 
-  int trans_err = fd_vm_transpile_code( &d,
+  int trans_err = fd_vm_transpile_code( d,
+                                        scratch,
+                                        scratch_sz,
                                         prog->info.sbpf_version,
                                         (uchar const *)prog->text,
                                         text_cnt,
@@ -206,18 +206,16 @@ fd_vm_transpile_obj( uchar *                   elf,
     free( bpf_func_starts );
     free( bpf_bb_splits );
     free( raw_relocs );
-    dasm_free( &d );
     return NULL;
   }
 
   /* Link DynASM code section */
 
   size_t code_sz = 0;
-  int link_res = dasm_link( &d, &code_sz );
+  int link_res = dasm_link( d, &code_sz );
   if( FD_UNLIKELY( link_res != 0 ) ) {
     FD_LOG_WARNING(( "dasm_link failed: %d", link_res ));
     free( raw_relocs );
-    dasm_free( &d );
     return NULL;
   }
 
@@ -225,16 +223,14 @@ fd_vm_transpile_obj( uchar *                   elf,
   if( FD_UNLIKELY( !text_buf ) ) {
     FD_LOG_WARNING(( "malloc failed for text_buf" ));
     free( raw_relocs );
-    dasm_free( &d );
     return NULL;
   }
 
-  int enc_res = dasm_encode( &d, text_buf );
+  int enc_res = dasm_encode( d, text_buf );
   if( FD_UNLIKELY( enc_res != 0 ) ) {
     FD_LOG_WARNING(( "dasm_encode failed: %d", enc_res ));
     free( text_buf );
     free( raw_relocs );
-    dasm_free( &d );
     return NULL;
   }
 
@@ -242,12 +238,11 @@ fd_vm_transpile_obj( uchar *                   elf,
 
   ulong dasm_lbl_reloc0 = FD_VM_TRANSPILE_DASM_LBL_RELOC0( text_cnt );
   for( ulong i = 0UL; i < reloc_cnt; i++ ) {
-    int ofs = dasm_getpclabel( &d, (uint)(dasm_lbl_reloc0 + i) );
+    int ofs = dasm_getpclabel( d, (uint)(dasm_lbl_reloc0 + i) );
     if( FD_UNLIKELY( ofs < 0 ) ) {
       FD_LOG_WARNING(( "failed to resolve relocation %lu PC label: %d", i, ofs ));
       free( text_buf );
       free( raw_relocs );
-      dasm_free( &d );
       return NULL;
     }
     raw_relocs[ i ].r_offset = (ulong)ofs;
@@ -276,7 +271,6 @@ fd_vm_transpile_obj( uchar *                   elf,
     free( bpf_bb_splits );
     free( text_buf );
     free( raw_relocs );
-    dasm_free( &d );
     return NULL;
   }
 
@@ -291,7 +285,7 @@ fd_vm_transpile_obj( uchar *                   elf,
       int   bit = fd_ulong_find_lsb( word );
       word &= word - 1UL;
       ulong pc  = ( w << 6 ) + (ulong)bit;
-      int   ofs = dasm_getpclabel( &d, (uint)pc );
+      int   ofs = dasm_getpclabel( d, (uint)pc );
       if( FD_UNLIKELY( ofs < 0 ) ) {
         FD_LOG_WARNING(( "failed to resolve basic block %lu PC label: %d", pc, ofs ));
         free( rodata_relocs );
@@ -299,7 +293,6 @@ fd_vm_transpile_obj( uchar *                   elf,
         free( bpf_bb_splits );
         free( text_buf );
         free( raw_relocs );
-        dasm_free( &d );
         return NULL;
       }
       jmp[ bb_idx ] = 0;
@@ -330,7 +323,6 @@ fd_vm_transpile_obj( uchar *                   elf,
     free( rodata );
     free( text_buf );
     free( raw_relocs );
-    dasm_free( &d );
     return NULL;
   }
   ulong func_idx = 0UL;
@@ -339,7 +331,7 @@ fd_vm_transpile_obj( uchar *                   elf,
     while( word ) {
       ulong pc = ( w << 6 ) + (ulong)fd_ulong_find_lsb( word );
       word &= word - 1UL;
-      int ofs = dasm_getpclabel( &d, (uint)pc );
+      int ofs = dasm_getpclabel( d, (uint)pc );
       if( FD_UNLIKELY( ofs < 0 ) ) {
         FD_LOG_WARNING(( "failed to resolve function %lu PC label: %d", pc, ofs ));
         free( funcs );
@@ -348,7 +340,6 @@ fd_vm_transpile_obj( uchar *                   elf,
         free( rodata );
         free( text_buf );
         free( raw_relocs );
-        dasm_free( &d );
         return NULL;
       }
       funcs[ func_idx ].pc  = pc;
@@ -358,7 +349,7 @@ fd_vm_transpile_obj( uchar *                   elf,
   }
   free( bpf_func_starts );
   bpf_func_starts = NULL;
-  int text_end_ofs = dasm_getpclabel( &d, (uint)( FD_VM_TRANSPILE_DASM_LBL_RELOC0( text_cnt )-1UL ) );
+  int text_end_ofs = dasm_getpclabel( d, (uint)( FD_VM_TRANSPILE_DASM_LBL_RELOC0( text_cnt )-1UL ) );
   if( FD_UNLIKELY( text_end_ofs < 0 || (ulong)text_end_ofs > (ulong)code_sz ) ) {
     FD_LOG_WARNING(( "failed to resolve text end PC label: %d", text_end_ofs ));
     free( funcs );
@@ -366,13 +357,9 @@ fd_vm_transpile_obj( uchar *                   elf,
     free( rodata );
     free( text_buf );
     free( raw_relocs );
-    dasm_free( &d );
     return NULL;
   }
   ulong const text_end_off = (ulong)text_end_ofs;
-
-  dasm_free( &d );
-  d = NULL;
 
   /* Build .strtab and .symtab */
 

@@ -6,7 +6,37 @@
 
 #include "../../../ballet/elf/fd_elf64.h"
 #include "../../../ballet/sbpf/fd_sbpf_loader.h"
+
+/* fd_vm_transpile_dasm_t is a DynASM session (the Dst argument of the
+   dasm_* functions).  All of its memory is bump allocated from a
+   caller-provided scratch region, so transpiling never calls malloc
+   and fails gracefully when scratch runs out. */
+
+typedef struct fd_vm_transpile_dasm fd_vm_transpile_dasm_t;
+
+#define Dst_DECL fd_vm_transpile_dasm_t * Dst
+#define Dst_REF  (Dst->D)
 #include "../../../third_party/luajit/dasm_proto.h"
+
+struct fd_vm_transpile_dasm {
+  dasm_State * D;
+  uchar *      mem;      /* scratch region */
+  ulong        mem_sz;
+  ulong        mem_used; /* scratch bytes used */
+  void *       fail;     /* private */
+};
+
+/* fd_vm_transpile_code return codes */
+
+#define FD_VM_TRANSPILE_SUCCESS   ( 0)
+#define FD_VM_TRANSPILE_ERR_INVAL (-1) /* invalid or unsupported program */
+#define FD_VM_TRANSPILE_ERR_NOMEM (-2) /* out of scratch or reloc space */
+
+/* FD_VM_TRANSPILE_RELOC_MAX bounds the number of relocations of a
+   transpiled program: one per syscall thunk plus a few for the runtime
+   helpers. */
+
+#define FD_VM_TRANSPILE_RELOC_MAX (FD_SBPF_SYSCALLS_SLOT_CNT+16UL)
 
 /* FD_VM_TRANSPILE_SYM_* give ELF symbol IDs for use in relocations. */
 
@@ -37,10 +67,26 @@ void
 fd_vm_transpile_bb_splits( ulong *                   bpf_bb_splits,
                            fd_sbpf_program_t const * prog );
 
+/* fd_vm_transpile_scratch_footprint returns an upper bound on the
+   scratch memory fd_vm_transpile_code needs for a program with
+   bpf_text_cnt instruction slots: 168 bytes per slot (40 DynASM action
+   buffer ints and 2 PC labels) plus about 22 KiB (runtime helpers and
+   syscall thunks), with the action buffer part capped at 64 MiB.
+   Programs that need a larger action buffer fail with
+   FD_VM_TRANSPILE_ERR_NOMEM regardless of scratch size. */
+
+FD_FN_CONST ulong
+fd_vm_transpile_scratch_footprint( ulong bpf_text_cnt );
+
 /* fd_vm_transpile_code emits position-independent x86_64 code from sBPF
    text.  Addressing is like `-mcmodel=small`.
 
-   Dst is a LuaJIT dynasm session.
+   dasm is initialized to a LuaJIT DynASM session backed by the
+   scratch_sz bytes at scratch (any alignment).  On success, the caller
+   finishes it with dasm_link, dasm_encode and dasm_getpclabel while
+   scratch is still valid (on failure, dasm is invalid).  There is
+   nothing to free (the caller owns scratch).  fd_vm_transpile_scratch_footprint( bpf_text_cnt ) bytes
+   of scratch always suffice.
 
    sbpf_version is the sBPF version of the program (FD_SBPF_V*).
    bpf_text points to eBPF instructions (indexed with 8-byte stride).
@@ -56,25 +102,31 @@ fd_vm_transpile_bb_splits( ulong *                   bpf_bb_splits,
    ceil(bpf_text_cnt/64) words which is fully overwritten with the
    instruction slots that start an sBPF function (the entrypoint and
    every BPF-to-BPF call destination reached via a direct call).
-   reloc is populated with ELF relocation entries.  *reloc_cnt is set to
-   the number of relocations.  The symbol IDs in reloc[i] are either
+   reloc is populated with ELF relocation entries.  On entry, *reloc_cnt
+   is the capacity of reloc (FD_VM_TRANSPILE_RELOC_MAX suffices).  On
+   success, *reloc_cnt is set to the number of relocations.  The symbol IDs in reloc[i] are either
    - in [0,FD_VM_TRANSPILE_SYM_MAX) for fd_transpile_runtime symbols
    - a syscall Murmur3 hash ID for syscall handlers
 
-   Returns 0 on success, or -1 on failure (logs reason). */
+   Returns FD_VM_TRANSPILE_SUCCESS on success, or on failure (logs
+   reason) FD_VM_TRANSPILE_ERR_INVAL if the program cannot be
+   transpiled, or FD_VM_TRANSPILE_ERR_NOMEM if scratch or reloc ran
+   out.  Never allocates from the heap. */
 
 int
-fd_vm_transpile_code( dasm_State **   Dst,
-                      ulong           sbpf_version,
-                      uchar const *   bpf_text,
-                      ulong           bpf_text_cnt,
-                      ulong           bpf_entry_pc,
-                      ulong const *   bpf_calldests,
+fd_vm_transpile_code( fd_vm_transpile_dasm_t *   dasm,
+                      void *                     scratch,
+                      ulong                      scratch_sz,
+                      ulong                      sbpf_version,
+                      uchar const *              bpf_text,
+                      ulong                      bpf_text_cnt,
+                      ulong                      bpf_entry_pc,
+                      ulong const *              bpf_calldests,
                       fd_sbpf_syscalls_t const * syscalls,
-                      ulong const *   bpf_bb_splits,
-                      ulong *         bpf_func_starts,
-                      fd_elf64_rela * reloc,
-                      ulong *         reloc_cnt );
+                      ulong const *              bpf_bb_splits,
+                      ulong *                    bpf_func_starts,
+                      fd_elf64_rela *            reloc,
+                      ulong *                    reloc_cnt );
 
 FD_PROTOTYPES_END
 
