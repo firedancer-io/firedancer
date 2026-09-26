@@ -1,5 +1,6 @@
 #include "fd_failover_proto.h"
 #include "../../choreo/tower/fd_tower_serdes.h"
+#include "../../ballet/ed25519/fd_ed25519.h"
 #include "../../util/fd_util.h"
 
 static ulong expected[ 2 ][ FD_FAILOVER_SESSION_CNT ][ FD_FAILOVER_EV_CNT ];
@@ -202,6 +203,44 @@ test_cfg_hash( void ) {
   FD_TEST( fd_failover_cfg_hash( staked, vote,   (uchar)FD_FAILOVER_MODE_CNT )!=hash );
 
   FD_LOG_NOTICE(( "pass: test_cfg_hash" ));
+}
+
+/* test_member_cert: the staked key's signature over the prefix and the
+   junk key passes, any other key, junk key or signature does not. */
+static void
+test_member_cert( void ) {
+  fd_sha512_t sha[ 1 ];
+  FD_TEST( fd_sha512_join( fd_sha512_new( sha ) ) );
+  uchar staked[ 64 ] = { 9 };
+  uchar junk  [ 64 ] = { 1 };
+  fd_ed25519_public_from_private( staked+32, staked, sha );
+  fd_ed25519_public_from_private( junk+32,   junk,   sha );
+
+  uchar msg[ 48 ];
+  fd_failover_member_cert_msg( msg, junk+32 );
+  FD_TEST( fd_memeq( msg, "FD_FAILOVER_MBR1", 16UL ) && fd_memeq( msg+16, junk+32, 32UL ) );
+
+  fd_failover_hello_t hello;
+  fd_memset( &hello, 0, sizeof(hello) );
+  fd_memcpy( hello.junk_pubkey,   junk+32,   32UL );
+  fd_memcpy( hello.staked_pubkey, staked+32, 32UL );
+  fd_ed25519_sign( hello.member_cert, msg, sizeof(msg), staked+32, staked, sha );
+  FD_TEST( fd_failover_member_cert_check( &hello, sha )==FD_FAILOVER_HELLO_OK );
+
+  fd_failover_hello_t bad = hello;
+  bad.member_cert[ 0 ] ^= 1;
+  FD_TEST( fd_failover_member_cert_check( &bad, sha )==FD_FAILOVER_HELLO_ERR_CERT );
+  bad = hello;
+  bad.junk_pubkey[ 0 ] ^= 1;
+  FD_TEST( fd_failover_member_cert_check( &bad, sha )==FD_FAILOVER_HELLO_ERR_CERT );
+  bad = hello;
+  fd_memcpy( bad.staked_pubkey, junk+32, 32UL );
+  FD_TEST( fd_failover_member_cert_check( &bad, sha )==FD_FAILOVER_HELLO_ERR_CERT );
+  bad = hello;
+  fd_ed25519_sign( bad.member_cert, msg, sizeof(msg), junk+32, junk, sha );
+  FD_TEST( fd_failover_member_cert_check( &bad, sha )==FD_FAILOVER_HELLO_ERR_CERT );
+
+  FD_LOG_NOTICE(( "pass: test_member_cert" ));
 }
 
 /* test_status_decode: a sane STATUS decodes, a bad size, role, flag or
@@ -433,6 +472,7 @@ main( int     argc,
   test_session_properties();
   test_hello_checks();
   test_cfg_hash();
+  test_member_cert();
   test_status_decode();
   test_demoted_decode();
   test_promote_replies();

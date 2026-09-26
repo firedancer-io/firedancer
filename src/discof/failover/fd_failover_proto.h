@@ -4,6 +4,7 @@
 /* Failover protocol messages and pure session transitions */
 
 #include "../../util/fd_util_base.h"
+#include "../../ballet/sha512/fd_sha512.h"
 
 /* Protocol version */
 #define FD_FAILOVER_VERSION (1U)
@@ -60,6 +61,7 @@
 #define FD_FAILOVER_HELLO_ERR_BOOT_ID    (8)
 #define FD_FAILOVER_HELLO_ERR_CFG        (9)
 #define FD_FAILOVER_HELLO_ERR_MODE       (10)
+#define FD_FAILOVER_HELLO_ERR_CERT       (11)
 
 /* Upper bound on the consensus state payload in tower mode.  A
    CompactTowerSync with block id and bank hash is under 512 bytes. */
@@ -152,6 +154,20 @@ ulong
 fd_failover_cfg_hash( uchar const * staked_pubkey,
                       uchar const * vote_account,
                       uchar         mode );
+
+/* fd_failover_member_cert_msg writes the 48 byte message a member
+   certificate signs, the keyguard's member cert prefix then
+   junk_pubkey.  The sign tile signs exactly this with the staked key. */
+void
+fd_failover_member_cert_msg( uchar       out[ 48 ],
+                             uchar const junk_pubkey[ 32 ] );
+
+/* fd_failover_member_cert_check returns FD_FAILOVER_HELLO_OK if the
+   member_cert in hello is the staked pubkey's signature over the junk
+   pubkey in hello, else FD_FAILOVER_HELLO_ERR_CERT. */
+int
+fd_failover_member_cert_check( fd_failover_hello_t const * hello,
+                               fd_sha512_t *               sha );
 
 /* fd_failover_session_init returns the resting state of an endpoint,
    LISTENING for the listener and BACKOFF for the dialer. */

@@ -2,6 +2,10 @@
 
 #include "../../choreo/tower/fd_tower.h"
 #include "../../choreo/tower/fd_tower_serdes.h"
+#include "../../ballet/ed25519/fd_ed25519.h"
+#include "../../disco/keyguard/fd_keyguard.h"
+
+FD_STATIC_ASSERT( FD_KEYGUARD_MEMBER_CERT_MSG_SZ==FD_KEYGUARD_MEMBER_CERT_PREFIX_SZ+32UL, member_cert_msg );
 
 int
 fd_failover_hello_check( fd_failover_hello_t const * self,
@@ -36,6 +40,24 @@ fd_failover_cfg_hash( uchar const * staked_pubkey,
   fd_memcpy( cfg.staked_pubkey, staked_pubkey, 32UL );
   fd_memcpy( cfg.vote_account,  vote_account,  32UL );
   return fd_hash( 0xF17EDA2CE5FA1C0FUL, &cfg, sizeof(cfg) );
+}
+
+void
+fd_failover_member_cert_msg( uchar       out[ 48 ],
+                             uchar const junk_pubkey[ 32 ] ) {
+  fd_memcpy( out,                                   FD_KEYGUARD_MEMBER_CERT_PREFIX, FD_KEYGUARD_MEMBER_CERT_PREFIX_SZ );
+  fd_memcpy( out+FD_KEYGUARD_MEMBER_CERT_PREFIX_SZ, junk_pubkey,                    32UL                              );
+}
+
+int
+fd_failover_member_cert_check( fd_failover_hello_t const * hello,
+                               fd_sha512_t *               sha ) {
+  uchar msg[ FD_KEYGUARD_MEMBER_CERT_MSG_SZ ];
+  fd_failover_member_cert_msg( msg, hello->junk_pubkey );
+  if( FD_UNLIKELY( fd_ed25519_verify( msg, sizeof(msg), hello->member_cert, hello->staked_pubkey, sha )!=FD_ED25519_SUCCESS ) ) {
+    return FD_FAILOVER_HELLO_ERR_CERT;
+  }
+  return FD_FAILOVER_HELLO_OK;
 }
 
 ulong
