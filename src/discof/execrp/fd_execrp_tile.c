@@ -187,6 +187,8 @@ metrics_write( fd_execrp_tile_t * ctx ) {
   FD_MCNT_SET( EXECRP, CU_CONSUMED, runtime->metrics.cu_cum );
   FD_MCNT_SET( EXECRP, INSTRUCTION_EXECUTED,   runtime->metrics.instr_cum );
   FD_MCNT_SET( EXECRP, CPI_EXECUTED,           runtime->metrics.cpi_cum   );
+  FD_MCNT_SET( EXECRP, TRANSPILED_EXECUTED,    runtime->metrics.transpiled_exec_cnt );
+  FD_MCNT_SET( EXECRP, TRANSPILED_BAILED,      runtime->metrics.transpiled_bail_cnt );
   FD_MCNT_SET( EXECRP, ACCOUNT_LTHASH_SKIPPED, runtime->metrics.lthash_unchanged_cnt );
   FD_MCNT_SET( EXECRP, BANK_SWITCHED, runtime->metrics.bank_switch_cnt );
 
