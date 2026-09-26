@@ -80,64 +80,27 @@ verify_x8( uchar const * const msgs[],
 }
 #endif
 
-void
-fd_ed25519_verify_batch_multi_msg( uchar const * const msgs[],
-                                   ulong const           msg_szs[],
-                                   uchar const * const sigs[],
-                                   uchar const * const public_keys[],
-                                   fd_sha512_t *         shas[],
-                                   int                   results[],
-                                   ulong                 batch_sz ) {
-#if FD_HAS_AVX512
-  while( batch_sz ) {
-    /* One or two remaining signatures do not amortize an x8 group.
-       Keep the small-tail rule independent of message contents. */
-    if( batch_sz<=2UL ) {
-      for( ulong j=0; j<batch_sz; j++ )
-        results[j] = fd_ed25519_verify( msgs[j], msg_szs[j], sigs[j], public_keys[j], shas[j] );
-      return;
-    }
-    ulong cnt = fd_ulong_min( batch_sz, 8UL );
-    verify_x8( msgs, msg_szs, sigs, public_keys, shas, results, cnt );
-    msgs += cnt; msg_szs += cnt; sigs += cnt; public_keys += cnt; shas += cnt; results += cnt;
-    batch_sz -= cnt;
-  }
-#else
-  for( ulong j=0; j<batch_sz; j++ )
-    results[j] = fd_ed25519_verify( msgs[j], msg_szs[j], sigs[j], public_keys[j], shas[j] );
-#endif
-}
+/* Below LANE_MIN items an x8 group does not amortize: the lanes cost
+   the same whatever the count, so one or two signatures verify faster
+   one at a time.  The rule depends only on the count, not on the
+   messages. */
 
-/* An x8 group costs about the same as three verifies against a warm
-   signer cache (Zen 4: ~50 us per group, ~16 us per cached verify, 6.3
-   us per signature in a full group), so a tail of three or fewer goes
-   through the cache. */
-
-#define LANE_MIN_CACHED (4UL)
+#define LANE_MIN (3UL)
 
 void
-fd_ed25519_verify_batch_multi_msg_cached( uchar const * const  msgs[],
-                                          ulong const          msg_szs[],
-                                          uchar const * const  sigs[],
-                                          uchar const * const  public_keys[],
-                                          fd_sha512_t *        shas[],
-                                          int                  results[],
-                                          ulong                batch_sz,
-                                          fd_ed25519_cache_t * cache ) {
+fd_ed25519_verify_batch8( uchar const * const msgs[],        /* n */
+                          ulong const         msg_szs[],     /* n */
+                          uchar const * const sigs[],        /* n */
+                          uchar const * const public_keys[], /* n */
+                          fd_sha512_t *       shas[],        /* n */
+                          int                 results[],     /* n */
+                          ulong               n ) {
+  FD_TEST( 0UL<n && n<=8UL );
 #if FD_HAS_AVX512
-  while( batch_sz ) {
-    if( batch_sz<LANE_MIN_CACHED ) {
-      for( ulong j=0; j<batch_sz; j++ )
-        results[j] = fd_ed25519_verify_cached( msgs[j], msg_szs[j], sigs[j], public_keys[j], shas[j], cache );
-      return;
-    }
-    ulong cnt = fd_ulong_min( batch_sz, 8UL );
-    verify_x8( msgs, msg_szs, sigs, public_keys, shas, results, cnt );
-    msgs += cnt; msg_szs += cnt; sigs += cnt; public_keys += cnt; shas += cnt; results += cnt;
-    batch_sz -= cnt;
+  if( FD_LIKELY( n>=LANE_MIN ) ) {
+    verify_x8( msgs, msg_szs, sigs, public_keys, shas, results, n );
+    return;
   }
-#else
-  for( ulong j=0; j<batch_sz; j++ )
-    results[j] = fd_ed25519_verify_cached( msgs[j], msg_szs[j], sigs[j], public_keys[j], shas[j], cache );
 #endif
+  for( ulong i=0UL; i<n; i++ ) results[i] = fd_ed25519_verify( msgs[i], msg_szs[i], sigs[i], public_keys[i], shas[i] );
 }

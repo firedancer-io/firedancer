@@ -1,4 +1,5 @@
 #include "fd_ed25519.h"
+#include "fd_ed25519_verifier.h"
 #include "fd_curve25519.h"
 #include "../hex/fd_hex.h"
 #include "test_ed25519_cctv.c"
@@ -239,11 +240,40 @@ test_lane_group( fd_rng_t * rng ) {
 
 #define TEST_MAX 33UL
 
-/* The cached variant shares one signer cache across the whole test so
-   repeated keys get admitted and later batches mix warm, cold and
-   invalid keys at any tail position. */
+/* The cached variant shares one verifier with a signer cache across
+   the whole test so repeated keys get admitted and later batches mix
+   warm, cold and invalid keys at any tail position. */
 
-static fd_ed25519_cache_t * test_cache;
+static fd_ed25519_verifier_t * test_verifier;
+
+/* batch8_all verifies cnt items with fd_ed25519_verify_batch8 in calls
+   of at most eight, cached_all with test_verifier in calls of at most
+   FD_ED25519_VERIFIER_SIG_MAX. */
+
+static void
+batch8_all( uchar const * const msgs[],
+            ulong const         sizes[],
+            uchar const * const sigs[],
+            uchar const * const pubs[],
+            fd_sha512_t *       shas[],
+            int                 results[],
+            ulong               cnt ) {
+  for( ulong j=0UL; j<cnt; j+=8UL ) {
+    fd_ed25519_verify_batch8( msgs+j, sizes+j, sigs+j, pubs+j, shas+j, results+j, fd_ulong_min( cnt-j, 8UL ) );
+  }
+}
+
+static void
+cached_all( uchar const * const msgs[],
+            ulong const         sizes[],
+            uchar const * const sigs[],
+            uchar const * const pubs[],
+            int                 results[],
+            ulong               cnt ) {
+  for( ulong j=0UL; j<cnt; j+=FD_ED25519_VERIFIER_SIG_MAX ) {
+    fd_ed25519_verifier_verify_sigs( test_verifier, msgs+j, sizes+j, sigs+j, pubs+j, results+j, fd_ulong_min( cnt-j, FD_ED25519_VERIFIER_SIG_MAX ) );
+  }
+}
 
 static void
 check_batch( uchar const * const msgs[],
@@ -255,8 +285,8 @@ check_batch( uchar const * const msgs[],
   int results[TEST_MAX+2];
   int cached [TEST_MAX+2];
   for( ulong j=0; j<TEST_MAX+2; j++ ) results[j] = cached[j] = 12345;
-  fd_ed25519_verify_batch_multi_msg( msgs, sizes, sigs, pubs, shas, results+1, cnt );
-  fd_ed25519_verify_batch_multi_msg_cached( msgs, sizes, sigs, pubs, shas, cached+1, cnt, test_cache );
+  batch8_all( msgs, sizes, sigs, pubs, shas, results+1, cnt );
+  cached_all( msgs, sizes, sigs, pubs, cached+1, cnt );
   FD_TEST( results[0]==12345 && cached[0]==12345 );
   for( ulong j=0; j<cnt; j++ ) {
     int expected = fd_ed25519_verify( msgs[j], sizes[j], sigs[j], pubs[j], shas[j] );
@@ -504,7 +534,7 @@ bench_messages( fd_sha512_t * shas[],
           ulong mode = which^(round&1UL);
           long start = fd_log_wallclock();
           for( ulong i=0; i<iters; i++ ) {
-            if( mode ) fd_ed25519_verify_batch_multi_msg( msgs, sizes, sigs, pubs, shas, results, cnt );
+            if( mode ) batch8_all( msgs, sizes, sigs, pubs, shas, results, cnt );
             else for( ulong j=0; j<cnt; j++ ) results[j] = fd_ed25519_verify( msgs[j], sizes[j], sigs[j], pubs[j], shas[j] );
             FD_COMPILER_MFENCE();
           }
@@ -547,10 +577,8 @@ main( int argc, char ** argv ) {
     return 0;
   }
 #endif
-  fd_ed25519_verify_batch_multi_msg( NULL, NULL, NULL, NULL, NULL, NULL, 0UL );
-  test_cache = fd_ed25519_cache_join( fd_ed25519_cache_new( aligned_alloc( fd_ed25519_cache_align(), fd_ed25519_cache_footprint( 64UL ) ), 64UL, 1UL ) );
-  FD_TEST( test_cache );
-  fd_ed25519_verify_batch_multi_msg_cached( NULL, NULL, NULL, NULL, NULL, NULL, 0UL, test_cache );
+  test_verifier = fd_ed25519_verifier_join( fd_ed25519_verifier_new( aligned_alloc( fd_ed25519_verifier_align(), fd_ed25519_verifier_footprint( 64UL ) ), 64UL, 1UL ) );
+  FD_TEST( test_verifier );
 #if FD_HAS_AVX512
   test_lane_field( rng );
   test_lane_base_table( 0 );
@@ -559,9 +587,9 @@ main( int argc, char ** argv ) {
 #endif
   test_messages( rng, shas, iters );
   test_corpora( shas );
-  FD_LOG_NOTICE(( "cached variant: hit %lu miss %lu insert %lu", fd_ed25519_cache_hit_cnt( test_cache ), fd_ed25519_cache_miss_cnt( test_cache ), fd_ed25519_cache_insert_cnt( test_cache ) ));
-  FD_TEST( fd_ed25519_cache_hit_cnt( test_cache ) && fd_ed25519_cache_insert_cnt( test_cache ) );
-  free( fd_ed25519_cache_delete( fd_ed25519_cache_leave( test_cache ) ) );
+  FD_LOG_NOTICE(( "cached variant: hit %lu miss %lu insert %lu", fd_ed25519_verifier_hit_cnt( test_verifier ), fd_ed25519_verifier_miss_cnt( test_verifier ), fd_ed25519_verifier_insert_cnt( test_verifier ) ));
+  FD_TEST( fd_ed25519_verifier_hit_cnt( test_verifier ) && fd_ed25519_verifier_insert_cnt( test_verifier ) );
+  free( fd_ed25519_verifier_delete( fd_ed25519_verifier_leave( test_verifier ) ) );
   if( bench ) bench_messages( shas, bench );
   for( ulong j=0; j<TEST_MAX; j++ ) fd_sha512_delete( fd_sha512_leave( shas[j] ) );
   fd_rng_delete( fd_rng_leave( rng ) );

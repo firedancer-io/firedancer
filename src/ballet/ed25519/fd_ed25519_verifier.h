@@ -41,9 +41,15 @@ FD_STATIC_ASSERT( FD_ED25519_VERIFIER_BATCH<=FD_ED25519_VERIFIER_SIG_MAX, verifi
    before one fd_ed25519_verifier_verify_sigs call, in
    [1,FD_ED25519_VERIFIER_BATCH].  It is the group size the Ed25519
    implementation of the build verifies fastest: a caller that has it
-   calls, one that has fewer waits for more unless none can come. */
+   calls, one that has fewer waits for more unless none can come.  On
+   AVX-512 builds that is a full lane group of
+   fd_ed25519_verify_batch8, elsewhere one signature. */
 
+#if FD_HAS_AVX512
+#define FD_ED25519_VERIFIER_GROUP (8UL)
+#else
 #define FD_ED25519_VERIFIER_GROUP (1UL)
+#endif
 FD_STATIC_ASSERT( 1UL<=FD_ED25519_VERIFIER_GROUP && FD_ED25519_VERIFIER_GROUP<=FD_ED25519_VERIFIER_BATCH, verifier_group );
 
 /* A transaction verifier (the exec tiles') keeps the default cache. */

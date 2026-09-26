@@ -5,15 +5,28 @@
 #define FD_ED25519_VERIFIER_CACHE_DEFAULT_ENT_CNT (2048UL)
 
 /* verify_sigs takes the signatures in groups of at most
-   FD_ED25519_VERIFIER_BATCH.  A group of at least BATCH_MIN goes
+   FD_ED25519_VERIFIER_BATCH.  A group of at least batch_min goes
    through fd_ed25519_verify_batch8, a smaller one through
    fd_ed25519_verify_cached (fd_ed25519_verify without a cache) one
-   signature at a time.  BATCH_MIN is the group size from which the
-   fd_ed25519_verify_batch8 of the build beats the one-at-a-time path;
-   a fd_ed25519_verify_batch8 that itself verifies one signature at a
-   time never does, as a cache hit is always the cheaper path. */
+   signature at a time.  batch_min is the group size from which the
+   fd_ed25519_verify_batch8 of the build beats the one-at-a-time path.
 
-#define BATCH_MIN (ULONG_MAX)
+   On AVX-512 builds an x8 lane group costs about what three verifies
+   against a warm signer cache do (Zen 4: ~50 us per group, ~16 us per
+   cached verify, 6.3 us per signature in a full group), so with a
+   cache a group of three or fewer goes through the cache; without one,
+   fd_ed25519_verify_batch8 itself verifies one or two signatures one
+   at a time.  Elsewhere fd_ed25519_verify_batch8 verifies one
+   signature at a time and never wins, as a cache hit is always the
+   cheaper path. */
+
+#if FD_HAS_AVX512
+#define BATCH_MIN_CACHED   (4UL)
+#define BATCH_MIN_UNCACHED (1UL)
+#else
+#define BATCH_MIN_CACHED   (ULONG_MAX)
+#define BATCH_MIN_UNCACHED (ULONG_MAX)
+#endif
 
 /* cache_ent_cnt_resolve maps a FD_ED25519_VERIFIER_CACHE_* value or a
    cache entry count to the entry count to allocate, 0 for no cache
@@ -135,9 +148,10 @@ fd_ed25519_verifier_verify_sigs( fd_ed25519_verifier_t * verifier,
                                  ulong                   sig_cnt ) {
   FD_TEST( 0UL<sig_cnt && sig_cnt<=FD_ED25519_VERIFIER_SIG_MAX );
 
+  ulong batch_min = verifier->cache ? BATCH_MIN_CACHED : BATCH_MIN_UNCACHED;
   for( ulong j=0UL; j<sig_cnt; j+=FD_ED25519_VERIFIER_BATCH ) {
     ulong n = fd_ulong_min( sig_cnt-j, FD_ED25519_VERIFIER_BATCH );
-    if( n>=BATCH_MIN ) {
+    if( n>=batch_min ) {
       fd_ed25519_verify_batch8( msgs+j, msg_szs+j, sigs+j, public_keys+j, verifier->sha_ptr, results+j, n );
       continue;
     }

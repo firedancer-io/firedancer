@@ -149,7 +149,13 @@ fd_ed25519_verify( uchar const   msg[], /* msg_sz */
    error precedence included; nothing is aggregated across items.
    shas[i] is scratch and its state on return is unspecified.  Grouping
    more items into calls of at most eight and deriving a transaction
-   verdict from the codes are the caller's. */
+   verdict from the codes are the caller's.
+
+   On AVX-512 builds a call of three or more items verifies them
+   together in the eight lanes of the IFMA kernel
+   (avx512/fd_ed25519_lane.h), one or two one at a time; elsewhere
+   every item is verified on its own.  The results are the same either
+   way. */
 
 void
 fd_ed25519_verify_batch8( uchar const * const msgs[],        /* n */
@@ -232,49 +238,6 @@ fd_ed25519_verify_cached( uchar const          msg[], /* msg_sz */
                           uchar const          public_key[ 32 ],
                           fd_sha512_t *        sha,
                           fd_ed25519_cache_t * cache );
-
-/* fd_ed25519_verify_batch_multi_msg independently verifies batch_sz
-   messages.  results[j] is exactly the return code of fd_ed25519_verify
-   for (msgs[j], msg_szs[j], sigs[j], public_keys[j], shas[j]), including
-   error precedence.  No equations are aggregated across signatures.
-
-   Each input array and results has batch_sz entries.  Each sigs[j]
-   points to 64 readable bytes, each public_keys[j] to 32 readable bytes,
-   and each msgs[j] to msg_szs[j] readable bytes (NULL is allowed when
-   msg_szs[j] is zero).  Each shas[j] is a distinct joined SHA-512
-   calculator.  The caller grants a read interest in the inputs and a
-   write interest in results and the calculators for the call; writable
-   regions must not overlap inputs or each other.  Does no argument
-   checking.  batch_sz may be any count, including zero, in which case
-   nothing is dereferenced and all arguments may be NULL.
-
-   Uses internal independent SIMD groups and padded tails where
-   supported, otherwise calls fd_ed25519_verify for each item. */
-
-void
-fd_ed25519_verify_batch_multi_msg( uchar const * const msgs[],
-                                   ulong const           msg_szs[],
-                                   uchar const * const sigs[],
-                                   uchar const * const public_keys[],
-                                   fd_sha512_t *         shas[],
-                                   int                   results[],
-                                   ulong                 batch_sz );
-
-/* fd_ed25519_verify_batch_multi_msg_cached is
-   fd_ed25519_verify_batch_multi_msg with a signer cache: full SIMD
-   groups are verified in lanes, a short tail (fewer signatures than a
-   group amortizes against warm cache hits) through the cache.  The
-   results are identical either way. */
-
-void
-fd_ed25519_verify_batch_multi_msg_cached( uchar const * const  msgs[],
-                                          ulong const          msg_szs[],
-                                          uchar const * const  sigs[],
-                                          uchar const * const  public_keys[],
-                                          fd_sha512_t *        shas[],
-                                          int                  results[],
-                                          ulong                batch_sz,
-                                          fd_ed25519_cache_t * cache );
 
 /* fd_ed25519_strerror converts an FD_ED25519_SUCCESS / FD_ED25519_ERR_*
    code into a human readable cstr.  The lifetime of the returned

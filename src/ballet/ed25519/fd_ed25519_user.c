@@ -345,18 +345,6 @@ fd_ed25519_verify( uchar const   msg[], /* msg_sz */
   return FD_ED25519_ERR_MSG;
 }
 
-void
-fd_ed25519_verify_batch8( uchar const * const msgs[],        /* n */
-                          ulong const         msg_szs[],     /* n */
-                          uchar const * const sigs[],        /* n */
-                          uchar const * const public_keys[], /* n */
-                          fd_sha512_t *       shas[],        /* n */
-                          int                 results[],     /* n */
-                          ulong               n ) {
-  FD_TEST( 0UL<n && n<=8UL );
-  for( ulong i=0UL; i<n; i++ ) results[i] = fd_ed25519_verify( msgs[i], msg_szs[i], sigs[i], public_keys[i], shas[i] );
-}
-
 char const *
 fd_ed25519_strerror( int err ) {
   switch( err ) {
