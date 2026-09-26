@@ -412,6 +412,7 @@ fd_topo_initialize( config_t * config ) {
 
   fd_topob_wksp( topo, "shred_out"     );
   fd_topob_wksp( topo, "shred_repair"  );
+  if( efficient_mode ) fd_topob_wksp( topo, "shred_bat" );
   fd_topob_wksp( topo, "repair_out" );
   fd_topob_wksp( topo, "replay_epoch"  );
   fd_topob_wksp( topo, "replay_execrp" );
@@ -620,7 +621,16 @@ fd_topo_initialize( config_t * config ) {
 
   FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_out",     "shred_out",     shred_depth,                              sizeof(fd_shred_message_t),     FD_SHRED_STEM_BURST );
   FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_repair",  "shred_repair",  1024UL,                                   FD_REPAIR_NET_FRAME_MAX,        1UL                 );
-  /**/                 fd_topob_link( topo, "repair_out",    "repair_out",    repair_out_depth,                         sizeof(fd_repair_out_fec_t),    1UL );
+  /* In efficient mode the readers of shred_out that tolerate a few ms
+     (rserve, gui) read it batched on shred_bat instead, so they
+     wake per batch rather than per shred (see fd_shred_bat_rec_t).
+     repair keeps reading shred_out.  2048 batches are 32k-64k shreds,
+     similar backpressure headroom to shred_out. */
+  if( efficient_mode ) {
+    FOR(shred_tile_cnt) fd_topob_link( topo, "shred_bat",    "shred_bat",     2048UL,                                   FD_SHRED_BAT_MTU,              1UL )->permit_no_consumers = 1;
+  }
+  char const * shred_rd = efficient_mode ? "shred_bat" : "shred_out";
+  /**/                 fd_topob_link( topo, "repair_out",    "repair_out",    repair_out_depth,                         sizeof(fd_repair_out_fec_t),   1UL );
 
   FOR(execrp_tile_cnt) fd_topob_link( topo, "execrp_replay", "execrp_replay", 16384UL,                                  sizeof(fd_execrp_task_done_msg_t), 1UL );
   if( FD_LIKELY( config->tiles.gui.enabled ) ) {
@@ -759,7 +769,7 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_out(   topo, "gossip", 0UL,                        "gossip_gossvf", 0UL                                                );
   if( rserve_enabled ) {
     FOR(net_tile_cnt) fd_topob_tile_in(     topo, "rserve",  0UL,          "metric_in", "net_rserve",    i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
-    FOR(shred_tile_cnt) fd_topob_tile_in(   topo, "rserve",  0UL,          "metric_in", "shred_out",     i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    FOR(shred_tile_cnt) fd_topob_tile_in(   topo, "rserve",  0UL,          "metric_in", shred_rd,        i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     /**/              fd_topob_tile_out(    topo, "rserve",  0UL,                       "rserve_net",    0UL                                                );
     /**/              fd_topos_tile_in_net( topo,                          "metric_in", "rserve_net",    0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
     /**/              fd_topob_tile_out(    topo, "repair",  0UL,                       "repair_rserve", 0UL                                                );
@@ -977,6 +987,11 @@ fd_topo_initialize( config_t * config ) {
     /**/               fd_topob_tile_out(   topo, "sign",    0UL,                       "sign_shred",   i                                                    );
     /**/               fd_topob_tile_out(   topo, "shred",   i,                         "shred_repair", i                                                    ); /* after the fixed NET_OUT_IDX and SIGN_OUT_IDX */
   }
+  /* after shred_out, shred_net and shred_sign: the shred tile addresses
+     those outs by index */
+  if( efficient_mode ) {
+    FOR(shred_tile_cnt)  fd_topob_tile_out( topo, "shred",   i,                         "shred_bat",     i                                                  );
+  }
 
   FOR(sign_tile_cnt-1UL) fd_topob_tile_out( topo, "repair",  0UL,                       "repair_sign",  i                                                    );
   FOR(sign_tile_cnt-1UL) fd_topob_tile_in ( topo, "sign",    i+1UL,        "metric_in", "repair_sign",  i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
@@ -1128,7 +1143,7 @@ fd_topo_initialize( config_t * config ) {
     /*                                        topo, tile_name, tile_kind_id, fseq_wksp,   link_name,       link_kind_id, reliable,            polled */
     FOR(gossvf_tile_cnt)   fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "gossvf_gui",    i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
     /**/                   fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "repair_net",    0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
-    FOR(shred_tile_cnt)    fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "shred_out",     i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    FOR(shred_tile_cnt)    fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", shred_rd,        i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     /**/                   fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "gossip_gui",    0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
     /**/                   fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "gossip_ciseen", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     /**/                   fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "replay_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );

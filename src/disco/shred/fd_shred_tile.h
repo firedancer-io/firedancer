@@ -130,4 +130,40 @@ union fd_shred_message {
 };
 typedef union fd_shred_message fd_shred_message_t;
 
+/* shred_bat (efficient mode only) carries, batched, the shred_out
+   records that the delay tolerant readers (rserve, gui) use:
+   every individual shred message (SHRED_SIG_SRC_*, the raw shred
+   bytes, with its FEC set's merkle root in the record) and every
+   SHRED_SIG_FEC_COMPLETE{,_LEADER} (an fd_fec_complete_t), in shred_out
+   order.  A frag has sig==record
+   count and holds the records back to back, each an fd_shred_bat_rec_t
+   followed by sz payload bytes padded to 8.  The shred tile publishes
+   a batch when it has FD_SHRED_BAT_REC_MAX records or
+   FD_SHRED_BAT_FLUSH_NS after its first record, so readers wake once
+   per batch instead of once per shred. */
+
+struct fd_shred_bat_rec {
+  ulong     sig;         /* the shred_out sig */
+  uint      tsorig;      /* the shred_out tsorig */
+  uint      sz;          /* payload bytes */
+  fd_hash_t merkle_root; /* the shred's FEC set (fd_shred_base_t), zero for a FEC complete */
+};
+typedef struct fd_shred_bat_rec fd_shred_bat_rec_t;
+
+#define FD_SHRED_BAT_REC_MAX  (32UL)
+#define FD_SHRED_BAT_MTU      (FD_SHRED_BAT_REC_MAX*(sizeof(fd_shred_bat_rec_t)+((FD_SHRED_MAX_SZ+7UL)&~7UL)))
+#define FD_SHRED_BAT_FLUSH_NS (2L*1000L*1000L)
+
+FD_STATIC_ASSERT( sizeof(fd_fec_complete_t)<=FD_SHRED_MAX_SZ, shred_bat_rec_sz );
+
+static inline void const *
+fd_shred_bat_rec_payload( fd_shred_bat_rec_t const * rec ) {
+  return rec+1;
+}
+
+static inline fd_shred_bat_rec_t const *
+fd_shred_bat_rec_next( fd_shred_bat_rec_t const * rec ) {
+  return (fd_shred_bat_rec_t const *)( (uchar const *)(rec+1) + fd_ulong_align_up( rec->sz, 8UL ) );
+}
+
 #endif /* HEADER_fd_src_disco_shred_fd_shred_tile_h */
