@@ -3,9 +3,11 @@
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/keyguard/fd_keyguard.h"
 #include "../../disco/keyguard/fd_keyguard_client.h"
+#include "../../flamenco/gossip/fd_gossip_message.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../ballet/hex/fd_hex.h"
 #include "../../util/fd_version.h"
+#include "../../util/net/fd_ip4.h"
 
 #include "fd_failover_channel.h"
 
@@ -29,6 +31,7 @@ struct fd_failover_tile_ctx {
   fd_failover_hello_t     hello;
   ulong                   role;
   uint                    config_addr;   /* [failover.peer_address] resolved, 0 when gossip finds the active */
+  ushort                  port;
   fd_failover_channel_t * channel;
   ulong                   channel_state; /* last seen session state, for edge detection */
   long                    poll_at;       /* next idle socket poll */
@@ -37,6 +40,19 @@ struct fd_failover_tile_ctx {
   int                     peer_status_valid; /* one arrived in this session */
   long                    status_at;         /* when we last sent STATUS */
   int                     status_sent;       /* sent in this session */
+
+  /* gossip_out, polled unreliably for contact infos */
+  ulong                   gossip_in_idx;
+  fd_wksp_t *             gossip_in_mem;
+  ulong                   gossip_in_chunk0;
+  ulong                   gossip_in_wmark;
+  ulong                   gossip_in_mtu;
+
+  fd_ip4_port_t           own_gossip;          /* our own gossip socket */
+  uchar                   gossip_origin[ 32 ]; /* copied in during_frag */
+  fd_ip4_port_t           gossip_socket;       /* copied in during_frag, zero for a remove or IPv6 */
+  uint                    staked_addr;         /* from a staked contact info that is not ours, 0 none */
+  long                    staked_seen_at;      /* our clock when that one arrived, 0 never */
 
   uchar                   rx[ FD_FAILOVER_PAYLOAD_MAX ];
 };
@@ -100,6 +116,16 @@ privileged_init( fd_topo_t const *      topo,
     fd_memset( ctx->hello.commit, 0, sizeof(ctx->hello.commit) );
   }
   ctx->hello.cfg_hash = fd_failover_cfg_hash( ctx->hello.staked_pubkey, ctx->hello.vote_account, ctx->hello.mode );
+  ctx->port = tile->failov.port;
+
+  /* Same resolution as the gossip tile, so our own staked contact info
+     is never taken for the peer's. */
+  ctx->own_gossip = tile->failov.gossip_addr;
+  if( FD_UNLIKELY( tile->failov.gossip_host[ 0 ]!='\0' ) ) {
+    if( FD_UNLIKELY( !fd_dns_resolve_address( tile->failov.gossip_host, &ctx->own_gossip.addr ) ) ) {
+      FD_LOG_ERR(( "could not resolve [gossip.host] `%s`", tile->failov.gossip_host ));
+    }
+  }
 
   ctx->channel = fd_failover_channel_join( fd_failover_channel_new( channel_mem ) );
   FD_TEST( ctx->channel );
@@ -117,10 +143,16 @@ privileged_init( fd_topo_t const *      topo,
     if( FD_UNLIKELY( !fd_dns_resolve_address( tile->failov.peer_address, &ctx->config_addr ) || !ctx->config_addr ) ) {
       FD_LOG_ERR(( "could not resolve [failover.peer_address] `%s`", tile->failov.peer_address ));
     }
+    if( FD_UNLIKELY( ctx->config_addr==ctx->own_gossip.addr || ctx->config_addr==tile->failov.gossip_addr.addr ) ) {
+      FD_LOG_ERR(( "[failover.peer_address] `%s` is this machine's own address `" FD_IP4_ADDR_FMT "`, set it to the other failover machine",
+                   tile->failov.peer_address, FD_IP4_ADDR_FMT_ARGS( ctx->config_addr ) ));
+    }
     fd_failover_channel_expect_peer( ctx->channel, ctx->config_addr );
     fd_failover_channel_init_dialer( ctx->channel, ctx->config_addr, tile->failov.port );
     FD_LOG_NOTICE(( "failover peer is `%s` at `" FD_IP4_ADDR_FMT "` from [failover.peer_address], we dial it while we stand by",
                     tile->failov.peer_address, FD_IP4_ADDR_FMT_ARGS( ctx->config_addr ) ));
+  } else {
+    FD_LOG_NOTICE(( "no [failover.peer_address], we find the active through the staked identity's contact info in gossip" ));
   }
   ctx->channel_state = fd_failover_channel_state( ctx->channel );
 
@@ -139,8 +171,17 @@ unprivileged_init( fd_topo_t const *      topo,
                    fd_topo_tile_t const * tile ) {
   fd_failover_tile_ctx_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
+  ctx->gossip_in_idx = ULONG_MAX;
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
+    if( FD_LIKELY( !strcmp( link->name, "gossip_out" ) ) ) {
+      ctx->gossip_in_idx    = i;
+      ctx->gossip_in_mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
+      ctx->gossip_in_chunk0 = fd_dcache_compact_chunk0( ctx->gossip_in_mem, link->dcache );
+      ctx->gossip_in_wmark  = fd_dcache_compact_wmark ( ctx->gossip_in_mem, link->dcache, link->mtu );
+      ctx->gossip_in_mtu    = link->mtu;
+      continue;
+    }
     if( FD_UNLIKELY( strcmp( link->name, "sign_failov" ) ) ) FD_LOG_ERR(( "unexpected input link name %s", link->name ));
   }
 
@@ -256,6 +297,86 @@ peer_poll( fd_failover_tile_ctx_t * ctx,
   sync_session( ctx );
 }
 
+/* Without [failover.peer_address] the peer's address comes from gossip,
+   from the newest staked contact info that is not ours, which is how
+   the active shows up.  A remove, IPv6 or zero address never clears what
+   we know.  The member certificate authenticates the peer, so a wrong
+   address only costs the pairing.  We dial it only while we are a
+   standby.  With a configured address gossip only says when an active
+   last published. */
+static void
+gossip_commit( fd_failover_tile_ctx_t * ctx,
+               long                     now ) {
+  uint addr = ctx->gossip_socket.addr;
+  if( FD_UNLIKELY( !addr ) ) return;
+  if( FD_LIKELY( !fd_memeq( ctx->gossip_origin, ctx->hello.staked_pubkey, 32UL ) ) ) return;
+  if( FD_UNLIKELY( addr==ctx->own_gossip.addr && ctx->gossip_socket.port==ctx->own_gossip.port ) ) return;
+  ctx->staked_seen_at = now;
+
+  if( FD_UNLIKELY( ctx->config_addr ) ) return;
+  if( FD_LIKELY( addr==ctx->staked_addr ) ) return;
+  uint old_addr = ctx->staked_addr;
+  ctx->staked_addr = addr;
+  fd_failover_channel_init_dialer( ctx->channel, addr, ctx->port );
+  sync_session( ctx );
+  if( FD_LIKELY( !old_addr ) ) {
+    FD_LOG_NOTICE(( "gossip shows the staked identity at `" FD_IP4_ADDR_FMT "`, we dial it while we stand by", FD_IP4_ADDR_FMT_ARGS( addr ) ));
+  } else {
+    FD_LOG_NOTICE(( "gossip shows the staked identity moved from `" FD_IP4_ADDR_FMT "` to `" FD_IP4_ADDR_FMT "`, we dial the new address while we stand by",
+                    FD_IP4_ADDR_FMT_ARGS( old_addr ), FD_IP4_ADDR_FMT_ARGS( addr ) ));
+  }
+}
+
+static inline int
+before_frag( fd_failover_tile_ctx_t * ctx,
+             ulong                    in_idx,
+             ulong                    seq FD_PARAM_UNUSED,
+             ulong                    sig ) {
+  if( FD_LIKELY( in_idx==ctx->gossip_in_idx ) ) {
+    return sig!=FD_GOSSIP_UPDATE_TAG_CONTACT_INFO && sig!=FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE;
+  }
+  return 0;
+}
+
+static void
+during_frag( fd_failover_tile_ctx_t * ctx,
+             ulong                    in_idx,
+             ulong                    seq FD_PARAM_UNUSED,
+             ulong                    sig,
+             ulong                    chunk,
+             ulong                    sz,
+             ulong                    ctl FD_PARAM_UNUSED ) {
+  if( FD_UNLIKELY( in_idx!=ctx->gossip_in_idx ) ) return;
+  if( FD_UNLIKELY( chunk<ctx->gossip_in_chunk0 || chunk>ctx->gossip_in_wmark || sz>ctx->gossip_in_mtu ) ) {
+    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->gossip_in_chunk0, ctx->gossip_in_wmark ));
+  }
+  /* The link is unreliable, so we only copy here and after_frag commits
+     once the stem has checked the copy.  A remove leaves the socket
+     zero. */
+  fd_gossip_update_message_t const * msg = fd_chunk_to_laddr_const( ctx->gossip_in_mem, chunk );
+  fd_memcpy( ctx->gossip_origin, msg->origin, 32UL );
+  ctx->gossip_socket.addr = 0U;
+  ctx->gossip_socket.port = (ushort)0;
+  if( FD_LIKELY( sig==FD_GOSSIP_UPDATE_TAG_CONTACT_INFO ) ) {
+    fd_gossip_socket_t const * socket = &msg->contact_info->value->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ];
+    ctx->gossip_socket.addr = fd_uint_if  ( !socket->is_ipv6, socket->ip4,  0U        );
+    ctx->gossip_socket.port = fd_ushort_if( !socket->is_ipv6, socket->port, (ushort)0 );
+  }
+}
+
+static void
+after_frag( fd_failover_tile_ctx_t * ctx,
+            ulong                    in_idx,
+            ulong                    seq    FD_PARAM_UNUSED,
+            ulong                    sig    FD_PARAM_UNUSED,
+            ulong                    sz     FD_PARAM_UNUSED,
+            ulong                    tsorig FD_PARAM_UNUSED,
+            ulong                    tspub  FD_PARAM_UNUSED,
+            fd_stem_context_t *      stem   FD_PARAM_UNUSED ) {
+  if( FD_UNLIKELY( in_idx!=ctx->gossip_in_idx ) ) return;
+  gossip_commit( ctx, fd_failover_clock() );
+}
+
 static inline void
 after_credit( fd_failover_tile_ctx_t * ctx,
               fd_stem_context_t *      stem        FD_PARAM_UNUSED,
@@ -320,6 +441,9 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_failover_tile_ctx_t)
 
 #define STEM_CALLBACK_AFTER_CREDIT after_credit
+#define STEM_CALLBACK_BEFORE_FRAG  before_frag
+#define STEM_CALLBACK_DURING_FRAG  during_frag
+#define STEM_CALLBACK_AFTER_FRAG   after_frag
 
 #include "../../disco/stem/fd_stem.c"
 

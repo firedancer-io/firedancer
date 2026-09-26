@@ -13,4 +13,6 @@ $(call make-unit-test,test_failover_wire,test_failover_wire,fd_discof fd_ballet 
 $(call run-unit-test,test_failover_wire)
 $(call make-unit-test,test_failover_channel,test_failover_channel,fd_discof fd_disco fd_choreo fd_flamenco fd_waltz fd_tls fd_tango fd_ballet fd_util)
 $(call run-unit-test,test_failover_channel)
+$(call make-unit-test,test_failover_tile,test_failover_tile,fd_discof fd_disco fd_choreo fd_flamenco fd_waltz fd_tls fd_tango fd_ballet fd_util)
+$(call run-unit-test,test_failover_tile)
 endif

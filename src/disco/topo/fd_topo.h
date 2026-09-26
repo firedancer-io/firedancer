@@ -258,6 +258,9 @@ struct fd_topo_tile {
       char   vote_account_path[ PATH_MAX ];
       ushort port;
       char   peer_address[ FD_FQDN_BUF_MAX ]; /* empty to find the active through gossip */
+
+      char          gossip_host[ FD_FQDN_BUF_MAX ];
+      fd_ip4_port_t gossip_addr;                    /* our own gossip socket, gossip_host overrides the address */
     } failov;
 
 #define FD_TOPO_GOSSIP_ENTRYPOINTS_MAX 16UL

@@ -768,6 +768,9 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_out(   topo, "replay",  0UL,                       "replay_admin",  0UL                                                );
   /**/                 fd_topob_tile_out(   topo, "admin",   0UL,                       "admin_replay",  0UL                                                );
   /**/                 fd_topob_tile_in (   topo, "admin",   0UL,          "metric_in", "replay_admin",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  if( FD_UNLIKELY( failover_enabled ) ) {
+    /**/               fd_topob_tile_in (   topo, "failov",  0UL,          "metric_in", "gossip_out",    0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* contact infos for the peer's address, an overrun only delays it */
+  }
 
   FOR(execrp_tile_cnt) fd_topob_tile_in (   topo, "execrp",  i,            "metric_in", "replay_execrp", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(execrp_tile_cnt) fd_topob_tile_out(   topo, "execrp",  i,                         "execrp_replay", i                                                  );
@@ -1484,6 +1487,11 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     fd_cstr_ncpy( tile->failov.vote_account_path, config->paths.vote_account, sizeof(tile->failov.vote_account_path) );
     tile->failov.port = config->firedancer.failover.port;
     fd_cstr_ncpy( tile->failov.peer_address, config->firedancer.failover.peer_address, sizeof(tile->failov.peer_address) );
+    /* Our own gossip socket as the gossip tile builds it, a staked
+       contact info from it is ours and not the peer's. */
+    fd_cstr_ncpy( tile->failov.gossip_host, config->firedancer.gossip.host, sizeof(tile->failov.gossip_host) );
+    tile->failov.gossip_addr.addr = config->net.ip_addr;
+    tile->failov.gossip_addr.port = fd_ushort_bswap( config->gossip.port );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "gossvf") ) ) {
 
