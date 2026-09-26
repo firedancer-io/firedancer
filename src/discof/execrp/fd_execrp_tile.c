@@ -360,15 +360,23 @@ returnable_frag( fd_execrp_tile_t *  ctx,
         break;
       }
       case FD_EXECRP_TT_TXN_SIGVERIFY: {
+        /* A batch of transactions of one block, one completion with a
+           result per transaction. */
         fd_execrp_txn_sigverify_msg_t * msg = fd_chunk_to_laddr( ctx->replay_in->mem, chunk );
-        int res = fd_executor_txn_verify( msg->txn, ctx->sha_lj, ctx->ed25519_cache );
+        FD_CHECK_CRIT( msg->cnt && msg->cnt<=FD_EXECRP_SIGVERIFY_PARA, "invalid sigverify batch" );
         fd_execrp_task_done_msg_t * out_msg = fd_chunk_to_laddr( ctx->execrp_replay_out->mem, ctx->execrp_replay_out->chunk );
-        out_msg->bank_idx               = msg->bank_idx;
-        out_msg->txn_sigverify->txn_idx = msg->txn_idx;
-        out_msg->txn_sigverify->err     = (res!=FD_RUNTIME_EXECUTE_SUCCESS);
+        out_msg->bank_idx           = msg->bank_idx;
+        out_msg->txn_sigverify->cnt = msg->cnt;
+        for( ulong i=0UL; i<msg->cnt; i++ ) {
+          fd_txn_t const * txn = fd_execrp_sigverify_txn( msg, i );
+          FD_CHECK_CRIT( (ulong)msg->txn_off[ i ]+fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt )<=sz && (ulong)msg->off[ i ]+msg->payload_sz[ i ]<=sz, "invalid sigverify batch" );
+          int res = fd_executor_txn_verify_raw( txn, fd_execrp_sigverify_payload( msg, i ), msg->payload_sz[ i ], ctx->sha_lj, ctx->ed25519_cache );
+          out_msg->txn_sigverify->txn_idx[ i ] = msg->txn_idx[ i ];
+          out_msg->txn_sigverify->err    [ i ] = (uchar)(res!=FD_RUNTIME_EXECUTE_SUCCESS);
+          ctx->metrics.sigverify_cnt += txn->signature_cnt;
+        }
         fd_stem_publish( stem, ctx->execrp_replay_out->idx, (FD_EXECRP_TT_TXN_SIGVERIFY<<32)|ctx->tile_idx, ctx->execrp_replay_out->chunk, sizeof(*out_msg), 0UL, 0UL, 0UL );
         ctx->execrp_replay_out->chunk = fd_dcache_compact_next( ctx->execrp_replay_out->chunk, sizeof(*out_msg), ctx->execrp_replay_out->chunk0, ctx->execrp_replay_out->wmark );
-        ctx->metrics.sigverify_cnt += TXN( msg->txn )->signature_cnt;
         break;
       }
       case FD_EXECRP_TT_POH_HASH: {

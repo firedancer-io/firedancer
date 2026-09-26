@@ -2892,20 +2892,36 @@ dispatch_task( fd_replay_tile_t *  ctx,
       break;
     }
     case FD_SCHED_TT_TXN_SIGVERIFY: {
-      fd_txn_p_t * txn_p = fd_sched_get_txn( ctx->sched, task->txn_sigverify->txn_idx );
-
+      FD_STATIC_ASSERT( FD_SCHED_SIGVERIFY_PARA==FD_EXECRP_SIGVERIFY_PARA, sigverify batch width mismatch );
       fd_bank_t * bank = fd_banks_bank_query( ctx->banks, task->txn_sigverify->bank_idx );
       FD_TEST( bank );
       bank->refcnt++;
 
+      /* Pack the batch: payload then descriptor per transaction, see
+         fd_execrp_txn_sigverify_msg_t.  The scheduler budgeted the
+         bytes so it fits one task message. */
       FD_TEST( task->txn_sigverify->exec_idx<ctx->exec_cnt );
-      fd_replay_out_link_t * exec_out = &ctx->exec_out[ task->txn_sigverify->exec_idx ];
+      fd_replay_out_link_t *          exec_out = &ctx->exec_out[ task->txn_sigverify->exec_idx ];
       fd_execrp_txn_sigverify_msg_t * exec_msg = fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
-      fd_txn_p_copy( exec_msg->txn, txn_p );
       exec_msg->bank_idx = task->txn_sigverify->bank_idx;
-      exec_msg->txn_idx  = task->txn_sigverify->txn_idx;
-      fd_stem_publish( stem, exec_out->idx, (FD_EXECRP_TT_TXN_SIGVERIFY<<32) | task->txn_sigverify->exec_idx, exec_out->chunk, sizeof(*exec_msg), 0UL, 0UL, 0UL );
-      exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(*exec_msg), exec_out->chunk0, exec_out->wmark );
+      exec_msg->cnt      = task->txn_sigverify->cnt;
+      ulong sz = sizeof(*exec_msg);
+      for( ulong i=0UL; i<task->txn_sigverify->cnt; i++ ) {
+        fd_txn_p_t const * txn_p  = fd_sched_get_txn( ctx->sched, task->txn_sigverify->txn_idx[ i ] );
+        fd_txn_t const *   txn    = TXN( txn_p );
+        ulong              txn_sz = fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt );
+        exec_msg->txn_idx   [ i ] = (uint)task->txn_sigverify->txn_idx[ i ];
+        exec_msg->off       [ i ] = (ushort)sz;
+        exec_msg->payload_sz[ i ] = txn_p->payload_sz;
+        fd_memcpy( (uchar *)exec_msg+sz, txn_p->payload, txn_p->payload_sz );
+        sz = fd_ulong_align_up( sz+txn_p->payload_sz, alignof(fd_txn_t) );
+        exec_msg->txn_off   [ i ] = (ushort)sz;
+        fd_memcpy( (uchar *)exec_msg+sz, txn, txn_sz );
+        sz += txn_sz;
+      }
+      FD_TEST( sz<=sizeof(fd_execrp_task_msg_t) );
+      fd_stem_publish( stem, exec_out->idx, (FD_EXECRP_TT_TXN_SIGVERIFY<<32) | task->txn_sigverify->exec_idx, exec_out->chunk, sz, 0UL, 0UL, 0UL );
+      exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sz, exec_out->chunk0, exec_out->wmark );
       break;
     };
     case FD_SCHED_TT_POH_HASH: {
@@ -3735,26 +3751,36 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
       break;
     }
     case FD_EXECRP_TT_TXN_SIGVERIFY: {
-      ulong txn_idx = msg->txn_sigverify->txn_idx;
-      fd_sched_txn_info_t * txn_info = fd_sched_get_txn_info( ctx->sched, txn_idx );
-      txn_info->flags |= FD_SCHED_TXN_SIGVERIFY_DONE;
-      if( FD_UNLIKELY( msg->txn_sigverify->err ) ) {
-        txn_info->txn_err = FD_RUNTIME_TXN_ERR_SIGNATURE_FAILURE;
-        txn_info->flags  &= ~FD_SCHED_TXN_IS_COMMITTABLE;
-        txn_info->flags  &= ~FD_SCHED_TXN_IS_FEES_ONLY;
-        txn_info->flags  &= ~FD_SCHED_TXN_IS_NOOP;
+      /* One completion per batch, results per transaction (see
+         fd_execrp_txn_sigverify_done_msg_t).  Apply the results, then
+         retire the batch with sched, then publish the transactions
+         that are now fully replayed. */
+      FD_TEST( msg->txn_sigverify->cnt && msg->txn_sigverify->cnt<=FD_EXECRP_SIGVERIFY_PARA );
+      for( ulong i=0UL; i<msg->txn_sigverify->cnt; i++ ) {
+        fd_sched_txn_info_t * txn_info = fd_sched_get_txn_info( ctx->sched, msg->txn_sigverify->txn_idx[ i ] );
+        txn_info->flags |= FD_SCHED_TXN_SIGVERIFY_DONE;
+        if( FD_UNLIKELY( msg->txn_sigverify->err[ i ] ) ) {
+          txn_info->txn_err = FD_RUNTIME_TXN_ERR_SIGNATURE_FAILURE;
+          txn_info->flags  &= ~FD_SCHED_TXN_IS_COMMITTABLE;
+          txn_info->flags  &= ~FD_SCHED_TXN_IS_FEES_ONLY;
+          txn_info->flags  &= ~FD_SCHED_TXN_IS_NOOP;
+        }
+        if( FD_UNLIKELY( msg->txn_sigverify->err[ i ] && bank->state!=FD_BANK_STATE_DEAD ) ) {
+          /* Every transaction in a valid block has to sigverify.
+             Otherwise, we should mark the block as dead.  Also freeze the
+             bank if possible. */
+          mark_bank_dead( ctx, stem, bank->idx, FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_SIGVERIFY_FAILED, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED, NULL );
+          fd_sched_block_abandon( ctx->sched, bank->idx, FD_SCHED_ABANDON_INVALID );
+        }
       }
-      if( FD_UNLIKELY( msg->txn_sigverify->err && bank->state!=FD_BANK_STATE_DEAD ) ) {
-        /* Every transaction in a valid block has to sigverify.
-           Otherwise, we should mark the block as dead.  Also freeze the
-           bank if possible. */
-        mark_bank_dead( ctx, stem, bank->idx, FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_SIGVERIFY_FAILED, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED, NULL );
-        fd_sched_block_abandon( ctx->sched, bank->idx, FD_SCHED_ABANDON_INVALID );
-      }
-      int res = fd_sched_task_done( ctx->sched, FD_SCHED_TT_TXN_SIGVERIFY, txn_idx, exec_tile_idx, NULL );
+      int res = fd_sched_task_done( ctx->sched, FD_SCHED_TT_TXN_SIGVERIFY, ULONG_MAX, exec_tile_idx, msg->txn_sigverify );
       FD_TEST( res==0 );
-      if( FD_LIKELY( (txn_info->flags&FD_SCHED_TXN_REPLAY_DONE)==FD_SCHED_TXN_REPLAY_DONE ) ) {
-        publish_txn_executed( ctx, stem, bank->idx, txn_idx );
+      for( ulong i=0UL; i<msg->txn_sigverify->cnt; i++ ) {
+        ulong txn_idx = msg->txn_sigverify->txn_idx[ i ];
+        fd_sched_txn_info_t const * txn_info = fd_sched_get_txn_info( ctx->sched, txn_idx );
+        if( FD_LIKELY( (txn_info->flags&FD_SCHED_TXN_REPLAY_DONE)==FD_SCHED_TXN_REPLAY_DONE ) ) {
+          publish_txn_executed( ctx, stem, bank->idx, txn_idx );
+        }
       }
       break;
     }
@@ -5124,8 +5150,18 @@ during_housekeeping( fd_replay_tile_t * ctx ) {
    after_credit path that publishes returns nonzero, which skips the
    input poll.  The exception is REPLAY_SIG_SLOT_STATES, which doesn't
    skip the input poll.  replay_bat (efficient mode) sees a copy of
-   every replay_out frag plus at most one batch flush, so 6. */
-#define STEM_BURST (6UL)
+   every replay_out frag plus at most one batch flush, so 6.
+
+   A sigverify completion (process_exec_task_done) covers a batch of up
+   to FD_EXECRP_SIGVERIFY_PARA (8) transactions: at most one
+   mark_bank_dead (the bank is DEAD after the first, telemetry events
+   go on their own non-stem link) and up to 8 publish_txn_executed.  In
+   performance mode that is SLOT_DEAD on replay_out+replay_slot plus 8
+   TXN_EXECUTED on replay_out, 9 frags on replay_out.  In efficient
+   mode replay_bat also gets the SLOT_DEAD copy, a pending batch flush
+   and the 8 TXN_EXECUTED appends that flush at most twice (16 records
+   per batch) when not leader and once each while leader, 10 frags. */
+#define STEM_BURST (10UL)
 
 /* Housekeeping interval in ticks, tuned independently of output-link
    depths. */
