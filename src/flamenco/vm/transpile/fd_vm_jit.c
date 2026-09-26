@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "fd_vm_jit.h"
 #include "../../../ballet/elf/fd_elf.h"
+#include "../../../ballet/base58/fd_base58.h"
 
 #if FD_VM_JIT_SUPPORTED
 
@@ -42,6 +43,7 @@ struct __attribute__((aligned(64UL))) fd_vm_jit {
   ulong   arena_used;
   ulong   gen;       /* bumped on every reset, invalidates all entries */
   ulong   entry_cnt;
+  ulong   depth;     /* transpiled frames running (CPI nests them); code can't move while nonzero */
 
   fd_vm_jit_metrics_t metrics;
 
@@ -123,6 +125,7 @@ fd_vm_jit_syscalls_hash( fd_sbpf_syscalls_t const * syscalls ) {
   ulong h = 0x9e3779b97f4a7c15UL;
   for( ulong i=0UL; i<FD_SBPF_SYSCALLS_SLOT_CNT; i++ ) {
     h = fd_ulong_hash( h ^ syscalls[ i ].key );
+    if( fd_sbpf_syscalls_key_inval( syscalls[ i ].key ) ) continue; /* empty slot, func is garbage */
     h = fd_ulong_hash( h ^ (ulong)syscalls[ i ].func );
   }
   return h;
@@ -140,12 +143,19 @@ key_eq( fd_vm_jit_key_t const * a,
   return !memcmp( a, b, sizeof(fd_vm_jit_key_t) );
 }
 
-static void
+/* jit_reset drops every compiled program.  Only valid while no
+   transpiled code is running (a CPI callee may be compiled while its
+   caller's code is on the stack). */
+
+static int
 jit_reset( fd_vm_jit_t * jit ) {
+  if( FD_UNLIKELY( jit->depth ) ) return 0;
+  FD_LOG_NOTICE(( "jit code cache full (%lu programs, %lu of %lu bytes), resetting", jit->entry_cnt, jit->arena_used, jit->arena_sz ));
   jit->gen++;
   jit->arena_used = 0UL;
   jit->entry_cnt  = 0UL;
   jit->metrics.reset_cnt++;
+  return 1;
 }
 
 static int
@@ -165,10 +175,13 @@ rel32_patch( uchar * site_rw,
 
 static ulong
 jit_compile( fd_vm_jit_t * jit,
-             fd_vm_t *     vm ) {
+             fd_vm_t *     vm,
+             int *         full ) {
 
   ulong text_cnt = vm->text_cnt;
   if( FD_UNLIKELY( !text_cnt || text_cnt>FD_VM_JIT_TEXT_CNT_MAX || vm->entry_pc>=text_cnt ) ) return 0UL;
+  /* the transpiler handles sBPF v0, v1 and v3 */
+  if( FD_UNLIKELY( vm->sbpf_version!=0UL && vm->sbpf_version!=1UL && vm->sbpf_version!=3UL ) ) return 0UL;
 
   fd_sbpf_program_t prog[1];
   memset( prog, 0, sizeof(fd_sbpf_program_t) );
@@ -228,7 +241,9 @@ jit_compile( fd_vm_jit_t * jit,
   ulong const total_sz   = fd_ulong_align_up( got_off + ext_cnt*sizeof(ulong), 64UL );
 
   if( FD_UNLIKELY( total_sz>jit->arena_sz ) ) return 0UL;
-  if( FD_UNLIKELY( jit->arena_used+total_sz>jit->arena_sz || jit->entry_cnt>=FD_VM_JIT_ENTRY_MAX ) ) jit_reset( jit );
+  if( FD_UNLIKELY( jit->arena_used+total_sz>jit->arena_sz ) ) {
+    if( FD_UNLIKELY( !jit_reset( jit ) ) ) { *full = 1; return 0UL; }
+  }
 
   uchar * rw = jit->rw + jit->arena_used;
   ulong   rx = (ulong)jit->rx + jit->arena_used;
@@ -283,6 +298,7 @@ jit_compile( fd_vm_jit_t * jit,
   memcpy( got, ext_addr, ext_cnt*sizeof(ulong) );
 
   jit->arena_used += total_sz;
+  FD_LOG_DEBUG(( "jit: compiled %lu slots (sbpf v%lu) to [%#lx,%#lx) code_sz %lu", text_cnt, vm->sbpf_version, rx, rx+total_sz, (ulong)code_sz ));
   return rx;
 }
 
@@ -306,30 +322,39 @@ fd_vm_jit_exec( fd_vm_jit_t *           jit,
     slot = (slot+1UL) & mask;
   }
 
-  ulong entry;
+  ulong entry = 0UL;
   if( FD_LIKELY( e ) ) {
     entry = e->entry;
     jit->metrics.hit_cnt++;
-  } else {
-    long t0 = fd_tickcount();
+  } else if( FD_LIKELY( jit->entry_cnt<FD_VM_JIT_ENTRY_MAX || jit_reset( jit ) ) ) {
+    long  t0   = fd_tickcount();
     ulong gen0 = jit->gen;
-    entry = jit_compile( jit, vm );
+    int   full = 0;
+    entry = jit_compile( jit, vm, &full );
+    if( entry ) {
+      FD_BASE58_ENCODE_32_BYTES( key->prog.uc, prog_b58 );
+      FD_LOG_DEBUG(( "jit: program %s at %#lx", prog_b58, entry ));
+    }
     jit->metrics.compile_ticks += (ulong)( fd_tickcount()-t0 );
     if( FD_LIKELY( entry ) ) jit->metrics.compile_cnt++;
     else                     jit->metrics.compile_fail_cnt++;
 
-    /* A reset during compilation invalidated the probe position */
-    if( FD_UNLIKELY( jit->gen!=gen0 ) ) slot = key_hash( key ) & mask;
-    while( jit->map[ slot ].gen==jit->gen ) slot = (slot+1UL) & mask;
-    jit->map[ slot ].key   = *key;
-    jit->map[ slot ].gen   = jit->gen;
-    jit->map[ slot ].entry = entry;
-    jit->entry_cnt++;
+    if( FD_LIKELY( !full ) ) { /* else no room until the running code returns; interpret this once */
+      /* a reset during compilation invalidated the probe position */
+      if( FD_UNLIKELY( jit->gen!=gen0 ) ) slot = key_hash( key ) & mask;
+      while( jit->map[ slot ].gen==jit->gen ) slot = (slot+1UL) & mask;
+      jit->map[ slot ].key   = *key;
+      jit->map[ slot ].gen   = jit->gen;
+      jit->map[ slot ].entry = entry;
+      jit->entry_cnt++;
+    }
   }
 
   if( FD_UNLIKELY( !entry ) ) return fd_vm_exec( vm );
 
+  jit->depth++;
   int err = ((fd_vm_transpiled_exec_func_t)entry)( vm );
+  jit->depth--;
   if( FD_UNLIKELY( err==FD_VM_ERR_BAIL ) ) {
     jit->metrics.bail_cnt++;
     err = fd_vm_exec( vm );

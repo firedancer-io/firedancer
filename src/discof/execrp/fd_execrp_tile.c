@@ -157,6 +157,18 @@ metrics_write( fd_execrp_tile_t * ctx ) {
 
   FD_PROGCACHE_METRICS_WRITE( EXECRP, ctx->progcache->metrics );
 
+#if FD_VM_JIT_SUPPORTED
+  if( ctx->runtime->jit ) {
+    fd_vm_jit_metrics_t const * jm = fd_vm_jit_metrics( ctx->runtime->jit );
+    FD_MCNT_SET( EXECRP, JIT_HIT,                    jm->hit_cnt          );
+    FD_MCNT_SET( EXECRP, JIT_COMPILED,               jm->compile_cnt      );
+    FD_MCNT_SET( EXECRP, JIT_COMPILE_FAILED,         jm->compile_fail_cnt );
+    FD_MCNT_SET( EXECRP, JIT_COMPILE_DURATION_NANOS, jm->compile_ticks    );
+    FD_MCNT_SET( EXECRP, JIT_BAILED,                 jm->bail_cnt         );
+    FD_MCNT_SET( EXECRP, JIT_CACHE_CLEARED,          jm->reset_cnt        );
+  }
+#endif
+
   FD_MCNT_SET( EXECRP, TXN_REGIME_DURATION_NANOS_LOAD,    ctx->metrics.txn_load_cum_ticks+ctx->metrics.txn_check_cum_ticks );
   FD_MCNT_SET( EXECRP, TXN_REGIME_DURATION_NANOS_EXECUTE, ctx->metrics.txn_exec_cum_ticks   );
   FD_MCNT_SET( EXECRP, TXN_REGIME_DURATION_NANOS_COMMIT,  ctx->metrics.txn_commit_cum_ticks );
