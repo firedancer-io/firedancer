@@ -50,16 +50,13 @@ fd_executor_check_transactions( fd_runtime_t *      runtime,
                                 fd_txn_in_t const * txn_in,
                                 fd_txn_out_t *      txn_out );
 
-/* fd_execute_instr creates a new fd_exec_instr_ctx_t and performs
-   instruction processing.  Returns an error code in
-   FD_EXECUTOR_INSTR_{ERR_{...},SUCCESS}.
-
-   IMPORTANT: instr_info must have the same lifetime as txn_ctx. This can
-   be achieved by using fd_executor_acquire_instr_info_elem( txn_ctx ) to
-   acquire an fd_instr_info_t element with the same lifetime as the txn_ctx */
+/* fd_executor_txn_verify verifies the signatures of txn_p.  If cache
+   is non-NULL, it is used to speed up verification (the result is the
+   same either way). */
 int
-fd_executor_txn_verify( fd_txn_p_t *  txn_p,
-                        fd_sha512_t * shas[ FD_TXN_SIG_MAX ] );
+fd_executor_txn_verify( fd_txn_p_t *         txn_p,
+                        fd_sha512_t *        shas[ FD_TXN_SIG_MAX ],
+                        fd_ed25519_cache_t * cache );
 
 /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/rent_calculator.rs#L144-L178 */
 int
@@ -68,6 +65,14 @@ fd_executor_check_static_account_rent_state_transition( ulong             pre_ex
                                                         ulong             data_size,
                                                         fd_rent_t const * rent,
                                                         int               relax_post_exec_min_balance_check );
+
+/* fd_execute_instr creates a new fd_exec_instr_ctx_t and performs
+   instruction processing.  Returns an error code in
+   FD_EXECUTOR_INSTR_{ERR_{...},SUCCESS}.
+
+   IMPORTANT: instr_info must have the same lifetime as txn_ctx. This can
+   be achieved by using fd_executor_acquire_instr_info_elem( txn_ctx ) to
+   acquire an fd_instr_info_t element with the same lifetime as the txn_ctx */
 
 int
 fd_execute_instr( fd_runtime_t *      runtime,

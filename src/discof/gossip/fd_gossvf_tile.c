@@ -24,6 +24,11 @@
 #define IN_KIND_PINGS         (3)
 #define IN_KIND_GOSSIP        (4)
 
+/* Signer (CRDS origin, prune/ping/pong sender) precomputation cache.
+   There are a few thousand active origins. */
+
+#define ED25519_CACHE_ENT_CNT (4096UL)
+
 struct peer {
   fd_pubkey_t pubkey;
 
@@ -171,7 +176,8 @@ struct fd_gossvf_tile_ctx {
   ulong round_robin_idx;
   ulong round_robin_cnt;
 
-  fd_sha512_t sha[ 1 ];
+  fd_sha512_t          sha[ 1 ];
+  fd_ed25519_cache_t * ed25519_cache;
 
   struct {
     ulong   depth;
@@ -237,6 +243,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, stake_map_align(),               stake_map_footprint( stake_map_chain_cnt_est( MAX_SHRED_DESTS ) ) );
   l = FD_LAYOUT_APPEND( l, fd_tcache_align(),               fd_tcache_footprint( tile->gossvf.tcache_depth, 0UL )             );
   l = FD_LAYOUT_APPEND( l, fd_gui_gossip_bw_align(),        fd_gui_gossip_bw_footprint()                                      );
+  l = FD_LAYOUT_APPEND( l, fd_ed25519_cache_align(),        fd_ed25519_cache_footprint( ED25519_CACHE_ENT_CNT )               );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -369,7 +376,8 @@ handle_epoch( fd_gossvf_tile_ctx_t *      ctx,
 
 static int
 verify_prune( fd_gossip_prune_t const * view,
-              fd_sha512_t *             sha ) {
+              fd_sha512_t *             sha,
+              fd_ed25519_cache_t *      cache ) {
   uchar sign_data[ FD_NET_MTU ];
   /* Agave serializes the prefix as a bincode length-prefixed &[u8]:
      8-byte LE u64 length (=18) followed by the 18 raw prefix bytes,
@@ -383,9 +391,9 @@ verify_prune( fd_gossip_prune_t const * view,
   FD_STORE( ulong, sign_data+98UL+view->prunes_len*32UL,  view->wallclock );
 
   ulong sign_data_len = 106UL+view->prunes_len*32UL;
-  int err = fd_ed25519_verify( sign_data, sign_data_len, view->signature, view->pubkey, sha );
+  int err = fd_ed25519_verify_cached( sign_data, sign_data_len, view->signature, view->pubkey, sha, cache );
   if( FD_UNLIKELY( err!=FD_ED25519_SUCCESS ) )
-    err = fd_ed25519_verify( sign_data+26UL, sign_data_len-26UL, view->signature, view->pubkey, sha );
+    err = fd_ed25519_verify_cached( sign_data+26UL, sign_data_len-26UL, view->signature, view->pubkey, sha, cache );
 
   if( FD_LIKELY( err==FD_ED25519_SUCCESS ) ) return 0;
   else                                       return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PRUNE_SIGNATURE_IDX;
@@ -395,12 +403,14 @@ static int
 verify_crds_value( fd_gossip_value_t const * value,
                    uchar const *             value_bytes,
                    ulong                     value_bytes_len,
-                   fd_sha512_t *             sha ) {
-  return fd_ed25519_verify( value_bytes+64UL, /* signable data begins after signature */
-                            value_bytes_len-64UL,                /* signable data length */
-                            value->signature,
-                            value->origin,
-                            sha );
+                   fd_sha512_t *             sha,
+                   fd_ed25519_cache_t *      cache ) {
+  return fd_ed25519_verify_cached( value_bytes+64UL,     /* signable data begins after signature */
+                                   value_bytes_len-64UL, /* signable data length */
+                                   value->signature,
+                                   value->origin,
+                                   sha,
+                                   cache );
 }
 
 static int
@@ -411,7 +421,7 @@ verify_signatures( fd_gossvf_tile_ctx_t * ctx,
                    uchar *                failed ) {
   switch( view->tag ) {
     case FD_GOSSIP_MESSAGE_PULL_REQUEST: {
-      if( FD_UNLIKELY( FD_ED25519_SUCCESS!=verify_crds_value( view->pull_request->contact_info, payload+view->pull_request->contact_info->offset, view->pull_request->contact_info->length, sha ) ) ) {
+      if( FD_UNLIKELY( FD_ED25519_SUCCESS!=verify_crds_value( view->pull_request->contact_info, payload+view->pull_request->contact_info->offset, view->pull_request->contact_info->length, sha, ctx->ed25519_cache ) ) ) {
         return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_SIGNATURE_IDX;
       } else {
         return 0;
@@ -431,7 +441,7 @@ verify_signatures( fd_gossvf_tile_ctx_t * ctx,
           continue;
         }
 
-        int err = verify_crds_value( &view->pull_response->values[ i ], payload+view->pull_response->values[ i ].offset, view->pull_response->values[ i ].length, sha );
+        int err = verify_crds_value( &view->pull_response->values[ i ], payload+view->pull_response->values[ i ].offset, view->pull_response->values[ i ].length, sha, ctx->ed25519_cache );
         if( FD_UNLIKELY( err!=FD_ED25519_SUCCESS ) ) {
           if( FD_LIKELY( !failed[ i ] ) ) {
             ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_SIGNATURE_IDX ]++;
@@ -463,7 +473,7 @@ verify_signatures( fd_gossvf_tile_ctx_t * ctx,
           continue;
         }
 
-        int err = verify_crds_value( &view->push->values[ i ], payload+view->push->values[ i ].offset, view->push->values[ i ].length, sha );
+        int err = verify_crds_value( &view->push->values[ i ], payload+view->push->values[ i ].offset, view->push->values[ i ].length, sha, ctx->ed25519_cache );
         if( FD_UNLIKELY( err!=FD_ED25519_SUCCESS ) ) {
           if( FD_LIKELY( !failed[ i ] ) ) {
             ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PUSH_SIGNATURE_IDX ]++;
@@ -481,16 +491,16 @@ verify_signatures( fd_gossvf_tile_ctx_t * ctx,
       if( FD_UNLIKELY( !view->push->values_len ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PUSH_NO_VALID_CRDS_IDX;
       return 0;
     }
-    case FD_GOSSIP_MESSAGE_PRUNE: return verify_prune( view->prune, sha );
+    case FD_GOSSIP_MESSAGE_PRUNE: return verify_prune( view->prune, sha, ctx->ed25519_cache );
     case FD_GOSSIP_MESSAGE_PING: {
-      if( FD_UNLIKELY( FD_ED25519_SUCCESS!=fd_ed25519_verify( view->ping->token, 32UL, view->ping->signature, view->ping->from, sha ) ) ) {
+      if( FD_UNLIKELY( FD_ED25519_SUCCESS!=fd_ed25519_verify_cached( view->ping->token, 32UL, view->ping->signature, view->ping->from, sha, ctx->ed25519_cache ) ) ) {
         return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PING_SIGNATURE_IDX;
       } else {
         return 0;
       }
     }
     case FD_GOSSIP_MESSAGE_PONG: {
-      if( FD_UNLIKELY( FD_ED25519_SUCCESS!=fd_ed25519_verify( view->pong->hash, 32UL, view->pong->signature, view->pong->from, sha ) ) ) {
+      if( FD_UNLIKELY( FD_ED25519_SUCCESS!=fd_ed25519_verify_cached( view->pong->hash, 32UL, view->pong->signature, view->pong->from, sha, ctx->ed25519_cache ) ) ) {
         return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PONG_SIGNATURE_IDX;
       } else {
         return 0;
@@ -1078,6 +1088,7 @@ unprivileged_init( fd_topo_t const *      topo,
   void * _stake_map          = FD_SCRATCH_ALLOC_APPEND( l, stake_map_align(),               stake_map_footprint( stake_map_chain_cnt_est( MAX_SHRED_DESTS ) ) );
   void * _tcache             = FD_SCRATCH_ALLOC_APPEND( l, fd_tcache_align(),               fd_tcache_footprint( tile->gossvf.tcache_depth, 0UL )             );
   void * _gui_bw             = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_gossip_bw_align(),        fd_gui_gossip_bw_footprint()                                      );
+  void * _ed25519_cache      = FD_SCRATCH_ALLOC_APPEND( l, fd_ed25519_cache_align(),        fd_ed25519_cache_footprint( ED25519_CACHE_ENT_CNT )               );
 
   ctx->peers = peer_pool_join( peer_pool_new( _peer_pool, FD_CONTACT_INFO_TABLE_SIZE ) );
   FD_TEST( ctx->peers );
@@ -1112,6 +1123,9 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_clock_tile_init( ctx->clock );
 
   FD_TEST( fd_sha512_join( fd_sha512_new( ctx->sha ) ) );
+
+  ctx->ed25519_cache = fd_ed25519_cache_join( fd_ed25519_cache_new( _ed25519_cache, ED25519_CACHE_ENT_CNT, ctx->seed ) );
+  FD_TEST( ctx->ed25519_cache );
 
   fd_tcache_t * tcache = fd_tcache_join( fd_tcache_new( _tcache, tile->gossvf.tcache_depth, 0UL ) );
   FD_TEST( tcache );

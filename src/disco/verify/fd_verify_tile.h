@@ -8,11 +8,16 @@
 #include "../topo/fd_topo.h"
 #include "../../ballet/txn/fd_txn.h"
 #include "../../ballet/sha512/fd_sha512.h"
+#include "../../ballet/ed25519/fd_ed25519.h"
 #include "../metrics/generated/fd_metrics_enums.h"
 
 #define FD_TXN_VERIFY_SUCCESS  0
 #define FD_TXN_VERIFY_FAILED  -1
 #define FD_TXN_VERIFY_DEDUP   -2
+
+/* Signer precomputation cache entries per verify tile (gossip votes
+   are signed by ~1.5k vote authorities) */
+#define FD_VERIFY_ED25519_CACHE_ENT_CNT (2048UL)
 
 extern fd_topo_run_tile_t fd_tile_verify;
 
@@ -28,6 +33,8 @@ typedef struct {
 typedef struct {
   /* TODO switch to fd_sha512_batch_t? */
   fd_sha512_t * sha[ FD_TXN_SIG_MAX ];
+
+  fd_ed25519_cache_t * ed25519_cache;
 
   int   bundle_failed;
   ulong bundle_id;
@@ -90,7 +97,7 @@ fd_txn_verify( fd_verify_ctx_t * ctx,
   }
 
   /* Verify signatures */
-  int res = fd_ed25519_verify_batch_single_msg( msg, msg_sz, signatures, pubkeys, ctx->sha, signature_cnt );
+  int res = fd_ed25519_verify_batch_single_msg_cached( msg, msg_sz, signatures, pubkeys, ctx->sha, signature_cnt, ctx->ed25519_cache );
   if( FD_UNLIKELY( res != FD_ED25519_SUCCESS ) ) {
     return FD_TXN_VERIFY_FAILED;
   }
