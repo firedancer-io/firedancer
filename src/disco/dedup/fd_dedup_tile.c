@@ -78,6 +78,20 @@ metrics_write( fd_dedup_ctx_t * ctx ) {
   FD_MCNT_ENUM_COPY( DEDUP, TXN_PROCESSED, ctx->metrics.dedup_tile_result );
 }
 
+/* insert_executed inserts the signature of a transaction replay
+   committed into the tcache, so a copy arriving later from TPU or
+   gossip is dropped as a duplicate. */
+
+static inline void
+insert_executed( fd_dedup_ctx_t * ctx,
+                 fd_txn_t const * txn,
+                 uchar const *    payload ) {
+  ulong ha_dedup_tag = fd_hash( ctx->hashmap_seed, fd_txn_get_signatures( txn, payload ), FD_TXN_SIGNATURE_SZ );
+  int _is_dup;
+  FD_TCACHE_INSERT( _is_dup, *ctx->tcache_sync, ctx->tcache_ring, ctx->tcache_depth, ctx->tcache_map, ctx->tcache_map_cnt, ha_dedup_tag );
+  (void)_is_dup;
+}
+
 /* during_frag is called between pairs for sequence number checks, as
    we are reading incoming frags.  We don't actually need to copy the
    fragment here, flow control prevents it getting overrun, and
@@ -114,13 +128,18 @@ during_frag( fd_dedup_ctx_t * ctx,
 
   ctx->tag_ready = 0;
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY ) ) {
+    /* replay_out (performance mode) or replay_bat (efficient mode),
+       the latter with TXN_EXECUTED batched.  Both are reliable, so the
+       records can be read here. */
     if( FD_LIKELY( sig==REPLAY_SIG_TXN_EXECUTED ) ) {
       fd_replay_txn_executed_t * txn_executed = fd_type_pun( src );
       if( FD_UNLIKELY( !txn_executed->is_committable ) ) return;
-      ulong ha_dedup_tag = fd_hash( ctx->hashmap_seed, fd_txn_get_signatures( TXN(txn_executed->txn), txn_executed->txn->payload ), FD_TXN_SIGNATURE_SZ );
-      int _is_dup;
-      FD_TCACHE_INSERT( _is_dup, *ctx->tcache_sync, ctx->tcache_ring, ctx->tcache_depth, ctx->tcache_map, ctx->tcache_map_cnt, ha_dedup_tag );
-      (void)_is_dup;
+      insert_executed( ctx, TXN(txn_executed->txn), txn_executed->txn->payload );
+    } else if( FD_LIKELY( sig==REPLAY_SIG_TXN_EXECUTED_BAT ) ) {
+      fd_replay_bat_rec_t const * rec = fd_type_pun_const( src );
+      for( uchar const * end=src+sz; (uchar const *)rec<end; rec=fd_replay_bat_rec_next( rec ) ) {
+        if( FD_LIKELY( rec->is_committable ) ) insert_executed( ctx, fd_replay_bat_rec_txn( rec ), fd_replay_bat_rec_payload( rec ) );
+      }
     }
   } else {
     /* Hash the signature and warm its tcache map slot before copying,
@@ -266,7 +285,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
     if( !strcmp( link->name, "verify_dedup" ) ) {
       ctx->in_kind[ i ] = IN_KIND_VERIFY;
-    } else if( !strcmp( link->name, "replay_out" ) ) {
+    } else if( !strcmp( link->name, "replay_out" ) || !strcmp( link->name, "replay_bat" ) ) {
       ctx->in_kind[ i ] = IN_KIND_REPLAY;
     } else {
       FD_LOG_ERR(( "unexpected link name %s", link->name ));
