@@ -396,6 +396,7 @@
 | <span class="metrics-name">verify_&#8203;txn_&#8203;processed</span><br/>{verify_&#8203;result="<span class="metrics-enum">parse_&#8203;failed</span>"} | counter | Transactions processed, by result (Transaction failed to parse) |
 | <span class="metrics-name">verify_&#8203;txn_&#8203;processed</span><br/>{verify_&#8203;result="<span class="metrics-enum">duplicate</span>"} | counter | Transactions processed, by result (Transaction was a duplicate) |
 | <span class="metrics-name">verify_&#8203;txn_&#8203;processed</span><br/>{verify_&#8203;result="<span class="metrics-enum">signature_&#8203;failed</span>"} | counter | Transactions processed, by result (Transaction failed signature verification) |
+| <span class="metrics-name">verify_&#8203;txn_&#8203;processed</span><br/>{verify_&#8203;result="<span class="metrics-enum">blockhash_&#8203;expired</span>"} | counter | Transactions processed, by result (Transaction dropped before signature verification because its recent blockhash expires before our next leader slot) |
 
 </div>
 

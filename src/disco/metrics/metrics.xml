@@ -495,6 +495,7 @@ deliberate exception with lint-allow="<rule id>")
     <int value="2" name="ParseFailed" label="Transaction failed to parse" />
     <int value="3" name="Duplicate" label="Transaction was a duplicate" />
     <int value="4" name="SignatureFailed" label="Transaction failed signature verification" />
+    <int value="5" name="BlockhashExpired" label="Transaction dropped before signature verification because its recent blockhash expires before our next leader slot" />
 
     <group name="Failure" values="BundlePeerFailed ParseFailed Duplicate SignatureFailed" />
 </enum>
