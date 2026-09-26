@@ -1,27 +1,34 @@
 ifdef FD_HAS_X86
 
-# the transpiler itself
-$(call add-hdrs,fd_transpile.h)
+# transpiler core, runtime support and code arena JIT
+$(call add-hdrs,fd_transpile.h fd_transpile_runtime.h fd_vm_jit.h)
+$(call add-objs,fd_transpile_x86 fd_transpile_runtime fd_vm_jit,fd_flamenco)
+$(call make-unit-test,test_transpile,test_transpile,fd_flamenco fd_ballet fd_util)
+$(call run-unit-test,test_transpile)
+
+# transpiler frontend (relocatable objects and static archives)
 ifdef FD_HAS_HOSTED
 $(call make-lib,fd_transpiler)
 $(call add-hdrs,fd_transpile_obj.h)
 $(call add-objs,fd_transpile_obj,fd_transpiler)
+$(call make-unit-test,test_transpile_obj,test_transpile_obj,fd_transpiler fd_flamenco fd_ballet fd_util)
+$(call run-unit-test,test_transpile_obj)
 $(call make-bin,fd_transpile,fd_transpile_main,fd_transpiler fd_flamenco fd_ballet fd_util)
-$(call make-unit-test,test_transpile,test_transpile,fd_flamenco fd_ballet fd_util)
-$(call run-unit-test,test_transpile)
+ifdef FD_HAS_AVX
+$(call add-test-scripts,test_transpile_link.sh)
+endif
 endif
 
 # test-only live transpiler
+ifdef FD_HAS_AVX # transpiled code requires X86 and BMI2
 ifdef FD_HAS_HOSTED
 $(call make-lib,fd_transpiler_live)
 $(call add-hdrs,fd_transpile_live.h)
 $(call add-objs,fd_transpile_live,fd_transpiler_live)
-$(call make-unit-test,test_transpile_live,test_transpile_live,fd_transpiler_live fd_transpiler fd_flamenco fd_ballet fd_util)
+$(call make-unit-test,test_transpile_live,test_transpile_live,fd_transpiler_live fd_flamenco fd_ballet fd_util)
 $(call run-unit-test,test_transpile_live)
-endif
-
-# transpiler, runtime support and code arena JIT
-$(call add-hdrs,fd_transpile_runtime.h fd_vm_jit.h)
-$(call add-objs,fd_transpile fd_transpile_x86 fd_transpile_runtime fd_vm_jit,fd_flamenco)
+$(call make-fuzz-test,fuzz_transpile_diff,fuzz_transpile_diff,fd_flamenco fd_ballet fd_util)
+endif # FD_HAS_HOSTED
+endif # FD_HAS_AVX
 
 endif # FD_HAS_X86

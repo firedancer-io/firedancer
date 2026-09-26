@@ -153,7 +153,7 @@ struct __attribute__((aligned(FD_VM_HOST_REGION_ALIGN))) fd_vm {
 
   struct {
     /* materialized stack frame state */
-    ulong frame_haddr;     /* pointer to current stack frame in host address space */
+    ulong frame_haddr;     /* host address of the end of the current stack frame */
     ulong frame_clean_cnt; /* number of initialized stack frames */
 
     /* single slot software TLB */

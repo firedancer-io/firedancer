@@ -61,7 +61,8 @@
    SVM spec compliant.
 
    BPF-to-BPF and syscalls do not end a basic block.  They only settle
-   CUs, such that syscalls see an accurate vm->cu (possibly negative).
+   CUs, such that syscalls see an accurate vm->cu (possibly negative,
+   in which case the first CU charge in the syscall fails).
    Faults charge the instructions executed so far in the current basic
    block, like the interpreter.
 
@@ -110,56 +111,31 @@
    - x86 protection keys
    - x86 CET shadow stack compatibility
    - x86 CET indirect branch tracking compatibility
-
-  ### Remaining Gaps Still Open
-
-  1. vm->pc is not updated on fault or on program exit.  Only call
-     sites (for the shadow frame) and callx bail (for the interpreter
-     to resume) maintain it.  */
-
-/* DynASM allocates from the session's scratch region (dasm_grow).
-   Nothing is freed individually. */
-
-#define DASM_M_GROW( ctx, t, p, sz, need ) do {           \
-    size_t _need = (need);                                \
-    if( (sz)<_need ) {                                    \
-      (p)  = (t *)dasm_grow( (ctx), (p), (sz), _need );   \
-      (sz) = _need;                                       \
-    }                                                     \
-  } while(0)
-#define DASM_M_FREE( ctx, p, sz ) do { (void)(ctx); (void)(p); (void)(sz); } while(0)
+   - Set vm->pc correctly on fault */
 
 #include "fd_transpile.h"
 #include <setjmp.h>
 
-/* dasm_grow bump allocates need bytes from dasm's scratch region and
-   copies over the sz bytes at p.  The most recent allocation (DynASM's
-   action buffer, once encoding started) grows in place.  Allocations
-   are capped at 64 MiB, the reach of DynASM's 24-bit buffer positions.
-   On failure, unwinds fd_vm_transpile_code with ERR_NOMEM. */
-
-static void *
-dasm_grow( fd_vm_transpile_dasm_t * dasm,
-           void *                   p,
-           ulong                    sz,
-           ulong                    need ) {
-  if( FD_UNLIKELY( !dasm->fail ) ) FD_LOG_CRIT(( "DynASM allocation outside of fd_vm_transpile_code" ));
-  ulong base = (ulong)dasm->mem;
-  ulong end  = base + dasm->mem_used;
-  ulong addr = ( p && (ulong)p+sz==end ) ? (ulong)p : fd_ulong_align_up( end, 16UL );
-  if( FD_UNLIKELY( need>(1UL<<26) || addr-base>dasm->mem_sz || need>dasm->mem_sz-(addr-base) ) ) {
-    FD_LOG_WARNING(( "out of transpiler scratch (%lu bytes, %lu used, %lu needed)", dasm->mem_sz, dasm->mem_used, need ));
-    longjmp( dasm->fail, 1 );
-  }
-  if( p && addr!=(ulong)p ) memcpy( (void *)addr, p, sz );
-  dasm->mem_used = addr + need - base;
-  return (void *)addr;
+static FD_TL jmp_buf dasm_oom;
+__attribute__((noreturn)) static void
+dasm_trap_oom( char const * msg ) {
+  FD_LOG_WARNING(( "transpile scratch buffer out of memory (%s)", msg ));
+  longjmp( dasm_oom, 1 );
 }
+
+/* all DynASM state is preallocated, so just trap to OOM on grow request */
+#define Dst_DECL fd_transpiler_t * Dst
+#define Dst_REF  (Dst->state)
+#define DASM_M_GROW( ctx, t, p, sz, need ) dasm_trap_oom( #t " " #p )
+#define DASM_M_FREE( ctx, p, sz )
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wconversion"
 #pragma GCC diagnostic ignored "-Wsign-conversion"
 #pragma GCC diagnostic ignored "-Wimplicit-fallthrough"
+#pragma GCC diagnostic ignored "-Wunused-parameter"
+#pragma GCC diagnostic ignored "-Wempty-body"
+#include "../../../third_party/luajit/dasm_proto.h"
 #include "../../../third_party/luajit/dasm_x86.h"
 #pragma GCC diagnostic pop
 #include "../fd_vm_private.h"
@@ -170,35 +146,14 @@ dasm_grow( fd_vm_transpile_dasm_t * dasm,
 |.arch x64
 |.actionlist actions
 |.globals fd_xlat_
+|.globalnames fd_xlat_names
 |.type vm, fd_vm_t, r12
 |.section code
-
-struct fd_transpiler {
-  fd_vm_transpile_dasm_t * Dst;
-
-  ulong bpf_text_cnt;
-
-  /* DynASM dynamic labels enumerate as follows:
-     - [0,dasm_lbl_thunk0)              bpf_text_cnt labels, one for each BPF instruction
-     - [dasm_lbl_thunk0,dasm_lbl_sys0)  thunk_cnt labels, one for each BPF direct call destination
-     - [dasm_lbl_sys0,fd_lbl_reloc0)    one label for each syscall thunk (not all used)
-     - [dasm_lbl_reloc0,dasm_lbl_max)   relocation site labels, one for each `call rel32` x86 instructio n*/
-  ulong dasm_lbl_thunk0;
-  ulong dasm_lbl_sys0;
-  ulong dasm_lbl_reloc0;
-  ulong dasm_lbl_max;
-
-  fd_elf64_rela * reloc0;
-  ulong           reloc_cnt;
-  ulong           reloc_max;
-};
-
-typedef struct fd_transpiler fd_transpiler_t;
 
 /* emit_regs_subroutines: emit helper functions for reg save/restore */
 
 static void
-emit_regs_subroutines( fd_vm_transpile_dasm_t * Dst ) {
+emit_regs_subroutines( fd_transpiler_t * Dst ) {
   /* regs_save: save BPF register state into fd_vm_t */
   |->regs_save:
   | mov vm->reg[0],  rax
@@ -296,43 +251,39 @@ sym_id_syscall_handler( ulong syscall_slot_id ) {
 }
 
 /* emit_ffi_call generates a relocatable call to a C function.  Assumes
-   the current CPU state is psABI compliant and rsp is 16 byte aligned.
-   This function must only be called up to FD_VM_TRANSPILE_RELOC_MAX
-   times per program compile. */
+   the current CPU state is psABI compliant and rsp is 16 byte aligned. */
 
 static void
-emit_ffi_call( fd_transpiler_t * t,
+emit_ffi_call( fd_transpiler_t * Dst,
                uint              sym ) {
-  fd_vm_transpile_dasm_t * Dst = t->Dst;
-  ulong idx = t->reloc_cnt++;
-  if( FD_UNLIKELY( idx>=t->reloc_max ) ) {
-    FD_LOG_WARNING(( "too many relocation sites" ));
-    longjmp( t->Dst->fail, 1 );
+  ulong idx = Dst->reloc_cnt++;
+  if( FD_UNLIKELY( idx>=FD_TRANSPILER_RELOC_MAX ) ) {
+    longjmp( dasm_oom, 1 );
   }
-  t->reloc0[ idx ] = (fd_elf64_rela){
+  Dst->reloc[ idx ] = (fd_elf64_rela){
     .r_info   = FD_ELF64_R_INFO( sym, FD_ELF_R_X86_64_PLT32 ),
     .r_addend = -4L,
   };
   | .byte 0xe8 // CALL rel32
-  |=>(t->dasm_lbl_reloc0 + idx):
+  |=>(Dst->dasm_lbl_reloc0 + idx):
   | .dword 0
 }
 
+/* emit_rodata_lea generates `lea rax, [rodata+off]` */
+
 static void
-emit_rodata_reloc( fd_transpiler_t * t,
-                   uint              sym ) {
-  fd_vm_transpile_dasm_t * Dst = t->Dst;
-  ulong idx = t->reloc_cnt++;
-  if( FD_UNLIKELY( idx>=t->reloc_max ) ) {
-    FD_LOG_WARNING(( "too many relocation sites" ));
-    longjmp( t->Dst->fail, 1 );
+emit_rodata_lea( fd_transpiler_t * Dst,
+                 ulong             off ) {
+  ulong idx = Dst->reloc_cnt++;
+  if( FD_UNLIKELY( idx>=FD_TRANSPILER_RELOC_MAX ) ) {
+    longjmp( dasm_oom, 1 );
   }
-  t->reloc0[ idx ] = (fd_elf64_rela){
-    .r_info   = FD_ELF64_R_INFO( sym, FD_ELF_R_X86_64_PC32 ),
-    .r_addend = -4L,
+  Dst->reloc[ idx ] = (fd_elf64_rela){
+    .r_info   = FD_ELF64_R_INFO( FD_VM_TRANSPILE_SYM_RODATA, FD_ELF_R_X86_64_PC32 ),
+    .r_addend = (long)off-4L,
   };
   | .byte 0x48, 0x8d, 0x05 // lea rax, [rip+imm32]
-  |=>(t->dasm_lbl_reloc0 + idx):
+  |=>(Dst->dasm_lbl_reloc0 + idx):
   | .dword 0
 }
 
@@ -355,16 +306,15 @@ emit_rodata_reloc( fd_transpiler_t * t,
    Assumes the current CPU state is in transpiled ABI. */
 
 static void
-emit_syscall_call( fd_transpiler_t * t,
+emit_syscall_call( fd_transpiler_t * Dst,
                    ulong             slot_idx ) {
-  fd_vm_transpile_dasm_t * Dst = t->Dst;
   | sub rsp, 8
   | mmu_tlb_invalidate
   | call ->regs_save
   | cu_save
   /* TODO a full register file save isn't required for most syscalls */
   | mov rdi, r12 // fd_vm_t * vm
-  emit_ffi_call( t, sym_id_syscall_handler( slot_idx ) );
+  emit_ffi_call( Dst, sym_id_syscall_handler( slot_idx ) );
   | cu_restore
   | test eax, eax
   | jnz >1
@@ -387,8 +337,7 @@ emit_syscall_call( fd_transpiler_t * t,
    These are called very frequently and are performance critical.  */
 
 static void
-emit_mmu_routines( fd_transpiler_t * t ) {
-  fd_vm_transpile_dasm_t * Dst = t->Dst;
+emit_mmu_routines( fd_transpiler_t * Dst ) {
   |// mmu_translate_flat: attempt to translate virtual address (in r15) to
   |// host address in given flat memory region.
   |.macro mmu_translate_flat, region, limits, width
@@ -538,7 +487,7 @@ emit_mmu_routines( fd_transpiler_t * t ) {
   | mov ecx, edi  // arg 3: bool      is_write
   | mov rdi, r12  // arg 0: fd_vm_t * vm
   | mov rsi, r15  // arg 1: ulong     vaddr
-  emit_ffi_call( t, FD_VM_TRANSPILE_SYM_MMU_TRANSLATE );
+  emit_ffi_call( Dst, FD_VM_TRANSPILE_SYM_MMU_TRANSLATE );
   | mov r15, rax
   | add rsp, 8
   | pop r11
@@ -566,8 +515,7 @@ emit_mmu_routines( fd_transpiler_t * t ) {
 /* emit_frame_helpers: generate subroutines for BPF-to-BPF calls */
 
 static void
-emit_frame_helpers( fd_transpiler_t * t ) {
-  fd_vm_transpile_dasm_t * Dst = t->Dst;
+emit_frame_helpers( fd_transpiler_t * Dst ) {
   |->bpfcall_frame_push:
   | mov r15, vm->frame_cnt
   | imul rdi, r15, (int)sizeof(fd_vm_shadow_t)
@@ -602,7 +550,7 @@ emit_frame_helpers( fd_transpiler_t * t ) {
   | call ->regs_save
   | cu_save
   | mov rdi, r12
-  emit_ffi_call( t, FD_VM_TRANSPILE_SYM_FRAME_INIT );
+  emit_ffi_call( Dst, FD_VM_TRANSPILE_SYM_FRAME_INIT );
   | cu_restore
   | call ->regs_restore
   | add rsp, 8
@@ -647,8 +595,7 @@ emit_frame_helpers( fd_transpiler_t * t ) {
    This is equivalent to FD_VM_INTERP_BRANCH_BEGIN(0x8d). */
 
 static void
-emit_callx_handler( fd_transpiler_t * t ) {
-  fd_vm_transpile_dasm_t * Dst = t->Dst;
+emit_callx_handler( fd_transpiler_t * Dst ) {
   |->callx:
   | // frame of the callee (the sBPF function jumped to below):
   | //   [rbp+ 8]: return address
@@ -685,7 +632,11 @@ emit_callx_handler( fd_transpiler_t * t ) {
   | // rdi contains the BPF program counter
   | // check if it is a valid call destination (start of BB)
   |
-  emit_rodata_reloc( t, FD_VM_TRANSPILE_SYM_BB_BITMAP );
+  ulong bb_word_cnt = (Dst->bpf_text_cnt+63UL)>>6;
+  ulong bitmap_off  = 0UL;
+  ulong seq_off     = bitmap_off + bb_word_cnt*sizeof(ulong);
+  ulong jmp_off     = seq_off    + bb_word_cnt*sizeof(ulong);
+  emit_rodata_lea( Dst, bitmap_off );
   | bt [rax], rdi
   | jnc >2 // jump into middle of a basic block, bail to interpreter
   |
@@ -698,13 +649,13 @@ emit_callx_handler( fd_transpiler_t * t ) {
   | shr rdi, 6
   | bzhi r15, [rax + rdi*8], r15
   | popcnt r15, r15
-  emit_rodata_reloc( t, FD_VM_TRANSPILE_SYM_BB_SEQ );
+  emit_rodata_lea( Dst, seq_off );
   | add r15, qword [rax + rdi*8]
   |
   | // r15 contains the BB index
   | // map it to the address of its first x86 instruction
   |
-  emit_rodata_reloc( t, FD_VM_TRANSPILE_SYM_BB_JMP );
+  emit_rodata_lea( Dst, jmp_off );
   | movsxd r15, dword [rax+r15*4]
   | add r15, rax
   |
@@ -723,7 +674,7 @@ emit_callx_handler( fd_transpiler_t * t ) {
   |2: // bail to interpreter
   | mov rdi, [rsp+8]
   | mov vm->pc, rdi
-  | mov r15d, FD_VM_ERR_BAIL
+  | mov r15d, FD_VM_ERR_EBPF_BAIL
   |3:
   | mov rax, [rsp+16]
   | call ->regs_save
@@ -734,9 +685,9 @@ emit_callx_handler( fd_transpiler_t * t ) {
 /* emit_const64: load a 64-bit immediate into an x86 register. */
 
 static void
-emit_const64( fd_vm_transpile_dasm_t * Dst,
-              uchar                    reg,
-              ulong                    value ) {
+emit_const64( fd_transpiler_t * Dst,
+              uchar             reg,
+              ulong             value ) {
   if( value<=(ulong)UINT_MAX ) {
     | mov Rd(reg), (uint)value
   } else if( value==(ulong)(long)(int)(uint)value ) {
@@ -750,10 +701,10 @@ emit_const64( fd_vm_transpile_dasm_t * Dst,
    extended to 64 bits.  d must be non-zero.  Clobbers rdi, r15. */
 
 static void
-emit_udiv32_imm( fd_vm_transpile_dasm_t * Dst,
-                 uchar                    reg,
-                 uint                     d,
-                 int                      is_mod ) {
+emit_udiv32_imm( fd_transpiler_t * Dst,
+                 uchar             reg,
+                 uint              d,
+                 int               is_mod ) {
   if( fd_uint_is_pow2( d ) ) {
     int s = fd_uint_find_msb( d );
     if( is_mod ) {
@@ -794,10 +745,10 @@ emit_udiv32_imm( fd_vm_transpile_dasm_t * Dst,
    extended imm32, and must be non-zero.  Clobbers rdi, r15. */
 
 static void
-emit_udiv64_imm( fd_vm_transpile_dasm_t * Dst,
-                 uchar                    reg,
-                 uint                     imm,
-                 int                      is_mod ) {
+emit_udiv64_imm( fd_transpiler_t * Dst,
+                 uchar             reg,
+                 uint              imm,
+                 int               is_mod ) {
   ulong d = (ulong)(long)(int)imm;
 
   if( (long)d<0L ) {
@@ -868,83 +819,252 @@ is_stack_frame_access( ulong sbpf_version,
          offset<=-(long)width;
 }
 
-/* FD_VM_TRANSPILE_PUT_{SLOT,FIXED} bound the DynASM action buffer
-   ints (one per dasm_put plus one per argument or label) emitted per
-   instruction slot and otherwise.  Per slot, currently at most 31:
-   block CU charge and label (7), the largest instruction (16,
-   DIV64_REG/MOD64_REG), and a BPF-to-BPF call thunk (8).  Fixed:
-   prologue, epilogue and runtime helpers (~780) plus a thunk per
-   syscall slot (29 each).  Both leave headroom for template changes.
-   Checked by test_transpile_live. */
+/* bb_splits_compute heuristically guesses the bounds of basic blocks.
+   Control flow transitions in transpiled programs are restricted to
+   the starts of basic blocks.  (Otherwise, transpiled execution bails
+   transparently to the interpreter.)  Writes a bit vector of
+   ceil(bpf_text_cnt/64) words to bb_splits and returns the popcount. */
 
-#define FD_VM_TRANSPILE_PUT_SLOT  (40UL)
-#define FD_VM_TRANSPILE_PUT_FIXED (1024UL + 32UL*FD_SBPF_SYSCALLS_SLOT_CNT)
+static ulong
+bb_splits_compute( ulong *       bb_splits,
+                   ulong         sbpf_version,
+                   ulong const * bpf_text,
+                   ulong         bpf_text_cnt,
+                   ulong         bpf_entry_pc,
+                   ulong const * bpf_calldests,
+                   uchar const * bpf_rodata,
+                   ulong         bpf_rodata_sz,
+                   ulong         bpf_text_off ) {
+  ulong word_cnt = (bpf_text_cnt+63UL)>>6;
+  memset( bb_splits, 0, word_cnt*sizeof(ulong) );
 
-/* FD_VM_TRANSPILE_TEXT_CNT_MAX bounds bpf_text_cnt such that DynASM
-   label indices fit an int.  (Every slot takes 2 action buffer ints, so
-   larger programs exceed the 64 MiB action buffer limit anyway.) */
+# define SET_BB_SPLIT( pc ) do {                    \
+    ulong _pc = (pc);                               \
+    if( _pc<bpf_text_cnt )                          \
+      bb_splits[ _pc>>6 ] |= ( 1UL<<( _pc&63UL ) ); \
+  } while(0)
 
-#define FD_VM_TRANSPILE_TEXT_CNT_MAX (1UL<<23)
+  SET_BB_SPLIT( 0UL );
+  SET_BB_SPLIT( bpf_entry_pc );
 
-ulong
-fd_vm_transpile_scratch_footprint( ulong bpf_text_cnt ) {
-  ulong n = fd_ulong_min( bpf_text_cnt, FD_VM_TRANSPILE_TEXT_CNT_MAX );
-  return 16UL*8UL                                                                       /* alignment */
-       + DASM_PSZ( DASM_MAXSECTION )                                                    /* dasm_init */
-       + (10UL+fd_xlat__MAX)*sizeof(int)                                                /* lglabels */
-       + (2UL*n+FD_SBPF_SYSCALLS_SLOT_CNT+1UL+FD_VM_TRANSPILE_RELOC_MAX)*sizeof(int)    /* pclabels */
-       + fd_xlat__MAX*sizeof(void *)                                                    /* globals */
-       + ((n+63UL)>>6)*sizeof(ulong)                                                    /* thunk_used */
-       + fd_ulong_min( (n*FD_VM_TRANSPILE_PUT_SLOT+FD_VM_TRANSPILE_PUT_FIXED+3UL*DASM_MAXSECPOS)*sizeof(int),
-                       1UL<<26 );                                                       /* actions */
+  /* Address-taken functions (vtables, closures) reach callx through
+     pointers the loader relocated into the read-only segment.  Any
+     64-bit word in the loaded image pointing at an instruction slot is
+     treated as a possible call target.  Pointers in .data.rel.ro are
+     only 4-byte aligned, and false positives merely split a block. */
+  ulong text_lo = FD_VM_MEM_MAP_PROGRAM_REGION_START + bpf_text_off;
+  ulong text_hi = text_lo + 8UL*bpf_text_cnt;
+  for( ulong off=0UL; off+8UL<=bpf_rodata_sz; off+=4UL ) {
+    ulong v = FD_LOAD( ulong, bpf_rodata+off );
+    if( v>=text_lo && v<text_hi && !((v-text_lo)&7UL) ) SET_BB_SPLIT( (v-text_lo)>>3 );
+  }
+
+  int static_syscalls = FD_VM_SBPF_STATIC_SYSCALLS( sbpf_version );
+  for( ulong pc=0UL; pc<bpf_text_cnt; pc++ ) {
+    ulong instr  = bpf_text[ pc ];
+    ulong opcode = fd_vm_instr_opcode( instr );
+    ulong src    = fd_vm_instr_src   ( instr );
+    uint  imm    = fd_vm_instr_imm   ( instr );
+    long  offset = (long)fd_vm_instr_offset( instr );
+
+    if( bpf_calldests && fd_sbpf_calldests_test( bpf_calldests, pc ) ) {
+      SET_BB_SPLIT( pc );
+    }
+
+    if( opcode==0x18UL ) { /* LDDW */
+      if( pc+1UL<bpf_text_cnt ) {
+        ulong v = (ulong)imm | ( bpf_text[ pc+1UL ] & 0xffffffff00000000UL );
+        if( v>=text_lo && v<text_hi && !((v-text_lo)&7UL) ) SET_BB_SPLIT( (v-text_lo)>>3 );
+      }
+      pc++;
+      continue;
+    }
+
+    ulong cls = opcode & 0x07UL;
+    if( cls==0x05UL || cls==0x06UL ) {
+      if( opcode==0x85UL /* CALL */ ) {
+        if( static_syscalls && src==1UL ) { /* v3 internal call */
+          long target = (long)pc + (long)(int)imm + 1L;
+          if( target>=0 && (ulong)target<bpf_text_cnt &&
+              fd_vm_instr_opcode( bpf_text[ target ] )!=0x00UL /* not inside an LDDW */ ) {
+            SET_BB_SPLIT( (ulong)target );
+          }
+        }
+      } else if( opcode==0x95UL /* EXIT */ ) {
+        if( pc+1UL<bpf_text_cnt )                    SET_BB_SPLIT( pc+1UL );
+      } else if( opcode!=0x8dUL /* CALLX */ ) {
+        long target = (long)pc + 1L + offset;
+        if( target>=0 && (ulong)target<bpf_text_cnt ) SET_BB_SPLIT( (ulong)target );
+        if( pc+1UL<bpf_text_cnt )                    SET_BB_SPLIT( pc+1UL );
+      }
+    }
+  }
+# undef SET_BB_SPLIT
+
+  for( ulong pc=0UL; pc+1UL<bpf_text_cnt; pc++ ) {
+    if( fd_vm_instr_opcode( bpf_text[ pc ] )==0x18UL ) {
+      bb_splits[ (pc+1UL)>>6 ] &= ~( 1UL<<( (pc+1UL)&63UL ) );
+      pc++;
+    }
+  }
+
+  ulong cnt = 0UL;
+  for( ulong w=0UL; w<word_cnt; w++ ) cnt += (ulong)fd_ulong_popcnt( bb_splits[ w ] );
+  return cnt;
 }
 
-static int
-transpile_code( fd_vm_transpile_dasm_t *   Dst,
-                ulong                      sbpf_version,
-                uchar const *              bpf_text,
-                ulong                      bpf_text_cnt,
-                ulong                      bpf_entry_pc,
-                ulong const *              bpf_calldests,
-                fd_sbpf_syscalls_t const * syscalls,
-                ulong const *              bpf_bb_splits,
-                ulong *                    bpf_func_starts,
-                fd_elf64_rela *            reloc,
-                ulong *                    reloc_cnt ) {
+/* syms_compute names code ranges for debuggers: sBPF functions (any
+   valid call destination, plus the entrypoint), call thunks, syscall
+   stubs, and the fd_xlat_ helper routines.  Sizes extend to the next
+   named offset (helper routines all end in an unconditional transfer
+   and are contiguous, so this is exact for them and an upper bound for
+   sBPF functions whose text contains unreachable slots). */
 
-  fd_transpiler_t t[1] = {{
-    .Dst = Dst,
+#define SORT_NAME        sym_sort
+#define SORT_KEY_T       fd_transpiler_sym_t
+#define SORT_BEFORE(a,b) ( (a).off<(b).off || ( (a).off==(b).off && (a).kind>(b).kind ) )
+#include "../../../util/tmpl/fd_sort.c"
 
-    .bpf_text_cnt = bpf_text_cnt,
+static void
+syms_compute( fd_transpiler_t * Dst,
+              ulong             bpf_text_cnt,
+              ulong             bpf_entry_pc,
+              ulong const *     bpf_calldests,
+              ulong const *     syscall_used,
+              ulong             code_sz ) {
+  ulong cnt = 0UL;
+# define PUSH( _kind, _arg, _lbl ) do {                                  \
+    int _ofs = dasm_getpclabel( Dst, (uint)(_lbl) );                     \
+    if( _ofs>=0 && (ulong)_ofs<code_sz && cnt<FD_TRANSPILER_SYM_MAX ) { \
+      Dst->sym[ cnt++ ] = (fd_transpiler_sym_t){                         \
+        .off=(uint)_ofs, .arg=(uint)(_arg), .kind=(uchar)(_kind) };      \
+    }                                                                    \
+  } while(0)
 
-    .reloc0    = reloc,
-    .reloc_cnt = 0UL,
-    .reloc_max = fd_ulong_min( *reloc_cnt, FD_VM_TRANSPILE_RELOC_MAX ) /* sizes pclabels */
-  }};
+  for( ulong pc=0UL; pc<bpf_text_cnt; pc++ ) {
+    int is_func = pc==bpf_entry_pc || ( bpf_calldests && fd_sbpf_calldests_test( bpf_calldests, pc ) );
+    if( is_func ) PUSH( FD_TRANSPILER_SYM_KIND_FUNC, pc, pc );
+    if( Dst->thunk_bv[ pc>>6 ] & (1UL<<( pc&63UL )) ) {
+      PUSH( FD_TRANSPILER_SYM_KIND_THUNK, pc, Dst->dasm_lbl_thunk0+pc );
+    }
+  }
+  for( ulong slot=0UL; slot<FD_SBPF_SYSCALLS_SLOT_CNT; slot++ ) {
+    if( syscall_used[ slot>>6 ] & (1UL<<( slot&63UL )) ) {
+      PUSH( FD_TRANSPILER_SYM_KIND_SYSCALL, slot, Dst->dasm_lbl_sys0+slot );
+    }
+  }
+# undef PUSH
+  for( ulong g=0UL; g<(ulong)fd_xlat__MAX; g++ ) {
+    void * addr = Dst->glob[ g ];
+    if( !addr ) continue; /* not emitted (e.g. callx) */
+    ulong ofs = (ulong)( (uchar *)addr - Dst->code );
+    if( ofs>=code_sz || cnt>=FD_TRANSPILER_SYM_MAX ) continue;
+    Dst->sym[ cnt++ ] = (fd_transpiler_sym_t){ .off=(uint)ofs, .arg=(uint)g, .kind=FD_TRANSPILER_SYM_KIND_HELPER };
+  }
+
+  sym_sort_inplace( Dst->sym, cnt );
+  for( ulong i=0UL; i<cnt; i++ ) {
+    ulong end = i+1UL<cnt ? Dst->sym[ i+1UL ].off : code_sz;
+    Dst->sym[ i ].sz = (uint)( end - Dst->sym[ i ].off );
+  }
+  Dst->sym_cnt = cnt;
+}
+
+char const *
+fd_transpiler_helper_name( ulong idx ) {
+  if( FD_UNLIKELY( idx>=(ulong)fd_xlat__MAX ) ) return NULL;
+  return fd_xlat_names[ idx ];
+}
+
+static void
+fd_transpiler_init( fd_transpiler_t * Dst,
+                    ulong             bpf_text_cnt ) {
+  memset( Dst, 0, sizeof(fd_transpiler_t) ); /* ~10 MiB :( */
+  Dst->bpf_text_cnt = bpf_text_cnt;
+  Dst->reloc_cnt    = 0UL;
 
   /* Segment DynASM label indices by use case */
   ulong dasm_lbl = bpf_text_cnt;
+
   /* each instruction might be a call destination, which needs a thunk */
-  t->dasm_lbl_thunk0 = dasm_lbl;
+  Dst->dasm_lbl_thunk0 = dasm_lbl;
   dasm_lbl += bpf_text_cnt;
+
   /* up to one thunk for each syscall descriptor */
-  t->dasm_lbl_sys0 = dasm_lbl;
+  Dst->dasm_lbl_sys0 = dasm_lbl;
   dasm_lbl += FD_SBPF_SYSCALLS_SLOT_CNT;
+
   /* end of instruction stream */
   dasm_lbl++;
   /* relocations */
-  t->dasm_lbl_reloc0 = FD_VM_TRANSPILE_DASM_LBL_RELOC0( bpf_text_cnt );
-  FD_TEST( dasm_lbl==t->dasm_lbl_reloc0 );
-  dasm_lbl = t->dasm_lbl_reloc0 + t->reloc_max;
-  /* allocate (the action buffer goes last, so it grows in place) */
-  t->dasm_lbl_max = dasm_lbl;
-  dasm_init( Dst, DASM_MAXSECTION );
-  dasm_growpc( Dst, (uint)t->dasm_lbl_max );
-  void ** glob = dasm_grow( Dst, NULL, 0UL, fd_xlat__MAX * sizeof(void *) );
-  dasm_setupglobal( Dst, glob, fd_xlat__MAX );
-  ulong * thunk_used = dasm_grow( Dst, NULL, 0UL, ((bpf_text_cnt+63UL)>>6)*sizeof(ulong) ); /* call targets */
-  memset( thunk_used, 0, ((bpf_text_cnt+63UL)>>6)*sizeof(ulong) );
-  dasm_setup( Dst, actions );
+  Dst->dasm_lbl_reloc0 = FD_VM_TRANSPILE_DASM_LBL_RELOC0( bpf_text_cnt );
+  FD_TEST( dasm_lbl==Dst->dasm_lbl_reloc0 );
+  dasm_lbl = Dst->dasm_lbl_reloc0 + FD_TRANSPILER_RELOC_MAX;
+
+  Dst->dasm_lbl_max = dasm_lbl;
+  FD_TEST( dasm_lbl<=FD_DASM_PCLABELS_MAX );
+
+  dasm_State * D = Dst->state = (dasm_State *)Dst->state_;
+  D->psize       = sizeof(Dst->state_);
+  D->actionlist  = actions;
+  D->lglabels    = Dst->lglabels;
+  D->lgsize      = sizeof(Dst->lglabels);
+  D->pclabels    = Dst->pclabels;
+  D->pcsize      = sizeof(Dst->pclabels);
+  D->globals     = Dst->glob;
+  D->section     = &D->sections[0];
+  D->codesize    = 0UL;
+  D->maxsection  = 1;
+  D->status      = DASM_S_OK;
+  D->sections[0] = (dasm_Section) {
+    .buf   = Dst->code_bits,
+    .rbuf  = Dst->code_bits - DASM_SEC2POS( 0 ),
+    .bsize = sizeof(Dst->code_bits),
+    .pos   = DASM_SEC2POS( 0 ),
+    .epos  = (int)( sizeof(Dst->code_bits) / sizeof(int) ) - DASM_MAXSECPOS + DASM_POS2BIAS( DASM_SEC2POS( 0 ) ),
+    .ofs   = 0
+  };
+}
+
+int
+fd_vm_transpile_code( fd_transpiler_t *          Dst,
+                      ulong                      sbpf_version,
+                      uchar const *              bpf_text,
+                      ulong                      bpf_text_cnt,
+                      ulong                      bpf_entry_pc,
+                      ulong const *              bpf_calldests,
+                      fd_sbpf_syscalls_t const * syscalls,
+                      uchar const *              bpf_rodata,
+                      ulong                      bpf_rodata_sz,
+                      ulong                      bpf_text_off ) {
+
+  int is_oom = setjmp( dasm_oom );
+  if( FD_UNLIKELY( is_oom ) ) return -1;
+
+  if( FD_UNLIKELY( sbpf_version!=0 && sbpf_version!=1 && sbpf_version!=3 ) ) {
+    FD_LOG_WARNING(( "sBPF v%lu programs are not supported", sbpf_version ));
+    return -1;
+  }
+  if( FD_UNLIKELY( bpf_text_cnt>FD_TRANSPILER_TEXT_CNT_MAX ) ) {
+    FD_LOG_WARNING(( "program too large (%lu instruction slots, max %lu)", bpf_text_cnt, FD_TRANSPILER_TEXT_CNT_MAX ));
+    return -1;
+  }
+
+  fd_transpiler_init( Dst, bpf_text_cnt );
+
+  /* The basic block bitmap is the first rodata table */
+  ulong   bb_word_cnt   = (bpf_text_cnt+63UL)>>6;
+  ulong * bpf_bb_splits = (ulong *)Dst->rodata;
+  Dst->bb_cnt = bb_splits_compute( bpf_bb_splits, sbpf_version, (ulong const *)bpf_text, bpf_text_cnt, bpf_entry_pc, bpf_calldests, bpf_rodata, bpf_rodata_sz, bpf_text_off );
+  if( FD_UNLIKELY( Dst->bb_cnt>FD_TRANSPILER_BB_MAX ) ) {
+    FD_LOG_WARNING(( "program too large (%lu basic blocks, max %lu)", Dst->bb_cnt, FD_TRANSPILER_BB_MAX ));
+    return -1;
+  }
+  ulong rodata_sz = 2UL*bb_word_cnt*sizeof(ulong) + Dst->bb_cnt*sizeof(int);
+  if( FD_UNLIKELY( rodata_sz>FD_TRANSPILER_RODATA_MAX ) ) {
+    FD_LOG_WARNING(( "program too large (%lu rodata bytes, max %lu)", rodata_sz, FD_TRANSPILER_RODATA_MAX ));
+    return -1;
+  }
 
   |.code
   | cmp qword [rdi+offsetof(fd_vm_t, cu)], 0
@@ -1028,7 +1148,7 @@ transpile_code( fd_vm_transpile_dasm_t *   Dst,
     long  offset  = (long)fd_vm_instr_offset( instr );
     if( FD_UNLIKELY( dst>=11UL || src>=11UL ) ) {
       FD_LOG_WARNING(( "invalid register at pc %lu", pc ));
-      return FD_VM_TRANSPILE_ERR_INVAL;
+      return -1;
     }
     uchar x86_dst = bpf_x86_reg[ dst ];
     uchar x86_src = bpf_x86_reg[ src ];
@@ -1054,7 +1174,7 @@ transpile_code( fd_vm_transpile_dasm_t *   Dst,
 
     if( (opcode&7UL)==6UL && !FD_VM_SBPF_ENABLE_JMP32( sbpf_version ) ) {
       FD_LOG_WARNING(( "invalid opcode 0x%02lx at pc %lu", opcode, pc ));
-      return FD_VM_TRANSPILE_ERR_INVAL;
+      return -1;
     }
 
     if( is_branch && opcode!=0x95UL ) {
@@ -1062,7 +1182,7 @@ transpile_code( fd_vm_transpile_dasm_t *   Dst,
       if( FD_UNLIKELY( jmp_dst<0L || jmp_dst>=(long)bpf_text_cnt ||
                        fd_vm_instr_opcode( FD_LOAD( ulong, bpf_text + (jmp_dst<<3) ) )==0x00UL ) ) {
         FD_LOG_WARNING(( "invalid jump target at pc %lu", pc ));
-        return FD_VM_TRANSPILE_ERR_INVAL;
+        return -1;
       }
     }
 
@@ -1724,15 +1844,16 @@ transpile_code( fd_vm_transpile_dasm_t *   Dst,
       if( sys ) {
         ulong slot_idx = (ulong)( sys-syscalls );
         syscall_used[ slot_idx >> 6 ] |= 1UL<<( slot_idx & 63UL );
-        | call =>(t->dasm_lbl_sys0 + slot_idx)
+        | mov qword vm->pc, pc
+        | call =>(Dst->dasm_lbl_sys0 + slot_idx)
       } else if( target_pc>=0L ) {
         ulong tpc = (ulong)target_pc;
         if( fd_vm_instr_opcode( FD_LOAD( ulong, bpf_text + (tpc<<3) ) )==0x00UL ) {
           | jmp ->exception_ill
         } else {
-          thunk_used[ tpc >> 6 ] |= 1UL<<( tpc & 63UL );
+          Dst->thunk_bv[ tpc >> 6 ] |= 1UL<<( tpc & 63UL );
           | mov qword vm->pc, pc
-          | call =>(t->dasm_lbl_thunk0 + tpc)
+          | call =>(Dst->dasm_lbl_thunk0 + tpc)
         }
       } else {
         | jmp ->exception_ill
@@ -1749,7 +1870,7 @@ transpile_code( fd_vm_transpile_dasm_t *   Dst,
           (ulong)imm;
       if( FD_UNLIKELY( callx_reg>9UL ) ) {
         FD_LOG_WARNING(( "invalid callx register at pc %lu", pc ));
-        return FD_VM_TRANSPILE_ERR_INVAL;
+        return -1;
       }
       | cu_settle (pc+1UL-bb_start-bb_lddw)
       | mov qword vm->pc, pc
@@ -1764,7 +1885,7 @@ transpile_code( fd_vm_transpile_dasm_t *   Dst,
 
     default:
       FD_LOG_WARNING(( "invalid opcode 0x%02lx at pc %lu", opcode, pc ));
-      return FD_VM_TRANSPILE_ERR_INVAL;
+      return -1;
     }
   }
 
@@ -1774,23 +1895,18 @@ transpile_code( fd_vm_transpile_dasm_t *   Dst,
   }
   | call ->regs_save
   | mov r15d, FD_VM_ERR_EBPF_EXECUTION_OVERRUN
-  | xor edi, edi
+  | mov edi, 1 // bill 1 more CU before faulting
   | jmp ->exception_charge
-  |=>(t->dasm_lbl_reloc0-1UL):
+  |=>(Dst->dasm_lbl_reloc0-1UL):
 
-  if( bpf_func_starts ) {
-    ulong word_cnt = (bpf_text_cnt+63UL)>>6;
-    memcpy( bpf_func_starts, thunk_used, word_cnt*sizeof(ulong) );
-    bpf_func_starts[ bpf_entry_pc>>6 ] |= 1UL<<( bpf_entry_pc&63UL );
-  }
 
-  emit_mmu_routines( t );
+  emit_mmu_routines( Dst );
 
   /* BPF-to-BPF call thunks */
 
   for( ulong pc=0UL; pc<bpf_text_cnt; pc++ ) {
-    if( thunk_used[ pc>>6 ] & (1UL<<( pc&63UL )) ) {
-      |=>(t->dasm_lbl_thunk0 + pc):
+    if( Dst->thunk_bv[ pc>>6 ] & (1UL<<( pc&63UL )) ) {
+      |=>(Dst->dasm_lbl_thunk0 + pc):
       | sbpf_frame_enter
       | sub rsp, 8
       | call ->bpfcall_frame_push
@@ -1806,15 +1922,15 @@ transpile_code( fd_vm_transpile_dasm_t *   Dst,
       int bit = fd_ulong_find_lsb( word );
       word &= ~(1UL<<bit);
       ulong slot_idx = (word_idx<<6) + (ulong)bit;
-      |=>(t->dasm_lbl_sys0 + slot_idx):
-      emit_syscall_call( t, slot_idx );
+      |=>(Dst->dasm_lbl_sys0 + slot_idx):
+      emit_syscall_call( Dst, slot_idx );
     }
   }
 
   emit_regs_subroutines( Dst );
-  emit_frame_helpers( t );
+  emit_frame_helpers( Dst );
   if( has_callx ) {
-    emit_callx_handler( t );
+    emit_callx_handler( Dst );
   }
 
   /* Fault handlers */
@@ -1891,48 +2007,67 @@ transpile_code( fd_vm_transpile_dasm_t *   Dst,
   | leave
   | ret
 
-  *reloc_cnt = t->reloc_cnt;
-  return FD_VM_TRANSPILE_SUCCESS;
-}
-
-int
-fd_vm_transpile_code( fd_vm_transpile_dasm_t *   dasm,
-                      void *                     scratch,
-                      ulong                      scratch_sz,
-                      ulong                      sbpf_version,
-                      uchar const *              bpf_text,
-                      ulong                      bpf_text_cnt,
-                      ulong                      bpf_entry_pc,
-                      ulong const *              bpf_calldests,
-                      fd_sbpf_syscalls_t const * syscalls,
-                      ulong const *              bpf_bb_splits,
-                      ulong *                    bpf_func_starts,
-                      fd_elf64_rela *            reloc,
-                      ulong *                    reloc_cnt ) {
-
-  *dasm = (fd_vm_transpile_dasm_t){ .mem = scratch, .mem_sz = scratch_sz };
-
-  if( FD_UNLIKELY( sbpf_version!=0 && sbpf_version!=1 && sbpf_version!=3 ) ) {
-    FD_LOG_WARNING(( "sBPF v%lu programs are not supported", sbpf_version ));
-    return FD_VM_TRANSPILE_ERR_INVAL;
+  size_t code_sz;
+  int link_res = dasm_link( Dst, &code_sz );
+  if( link_res!=0 ) {
+    FD_LOG_WARNING(( "dasm_link failed: %d", link_res ));
+    return -1;
   }
-  if( FD_UNLIKELY( bpf_text_cnt>FD_VM_TRANSPILE_TEXT_CNT_MAX ) ) {
-    FD_LOG_WARNING(( "program too large (%lu slots)", bpf_text_cnt ));
-    return FD_VM_TRANSPILE_ERR_NOMEM;
+  if( FD_UNLIKELY( code_sz > FD_TRANSPILER_CODE_MAX ) ) {
+    FD_LOG_WARNING(( "transpiled code is too big: %lu bytes larger than FD_TRANSPILER_CODE_MAX", code_sz-FD_TRANSPILER_CODE_MAX ));
+    return -1;
   }
 
-  /* Allocation failures deep inside DynASM unwind to here.  Only
-     scratch memory is abandoned. */
-
-  jmp_buf fail;
-  dasm->fail = fail;
-  int err;
-  if( FD_LIKELY( !setjmp( fail ) ) ) {
-    err = transpile_code( dasm, sbpf_version, bpf_text, bpf_text_cnt, bpf_entry_pc, bpf_calldests, syscalls,
-                          bpf_bb_splits, bpf_func_starts, reloc, reloc_cnt );
-  } else {
-    err = FD_VM_TRANSPILE_ERR_NOMEM;
+  int enc_res = dasm_encode( Dst, Dst->code );
+  if( enc_res!=0 ) {
+    FD_LOG_WARNING(( "dasm_encode failed: %d", enc_res ));
+    return -1;
   }
-  dasm->fail = NULL;
-  return err;
+
+  /* Resolve relocation site labels to code offsets */
+  for( ulong i=0UL; i<Dst->reloc_cnt; i++ ) {
+    int ofs = dasm_getpclabel( Dst, (uint)( Dst->dasm_lbl_reloc0+i ) );
+    if( FD_UNLIKELY( ofs<0 || (ulong)ofs+4UL>code_sz ) ) {
+      FD_LOG_WARNING(( "failed to resolve relocation %lu site label (%d)", i, ofs ));
+      return -1;
+    }
+    Dst->reloc[ i ].r_offset = (ulong)ofs;
+  }
+
+  /* Basic block tables (layout documented in fd_transpile.h) */
+  ulong * seq     = bpf_bb_splits + bb_word_cnt;
+  ulong   jmp_off = 2UL*bb_word_cnt*sizeof(ulong);
+  ulong bb_idx = 0UL;
+  for( ulong w=0UL; w<bb_word_cnt; w++ ) {
+    seq[ w ] = bb_idx;
+    ulong word = bpf_bb_splits[ w ];
+    while( word ) {
+      ulong pc = (w<<6) + (ulong)fd_ulong_find_lsb( word );
+      word &= word-1UL;
+      int ofs = dasm_getpclabel( Dst, (uint)pc );
+      if( FD_UNLIKELY( ofs<0 || (ulong)ofs>=code_sz ) ) {
+        FD_LOG_WARNING(( "failed to resolve basic block %lu label (%d)", pc, ofs ));
+        return -1;
+      }
+      /* entry holds text+ofs relative to the table base */
+      Dst->rodata_reloc[ bb_idx ] = (fd_elf64_rela){
+        .r_offset = jmp_off + bb_idx*sizeof(int),
+        .r_info   = FD_ELF64_R_INFO( FD_VM_TRANSPILE_SYM_TEXT, FD_ELF_R_X86_64_PC32 ),
+        .r_addend = (long)( (ulong)ofs + bb_idx*sizeof(int) )
+      };
+      bb_idx++;
+    }
+  }
+  Dst->rodata_reloc_cnt  = bb_idx;
+  Dst->rodata_sz         = jmp_off + bb_idx*sizeof(int);
+
+  Dst->code_sz           = (ulong)code_sz;
+  Dst->entrypoint_off    = 0UL;
+  syms_compute( Dst, bpf_text_cnt, bpf_entry_pc, bpf_calldests, syscall_used, (ulong)code_sz );
+  Dst->meta.text_cnt     = bpf_text_cnt;
+  Dst->meta.text_sz      = bpf_text_cnt * 8UL;
+  Dst->meta.entry_pc     = bpf_entry_pc;
+  Dst->meta.sbpf_version = sbpf_version;
+
+  return 0;
 }
