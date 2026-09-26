@@ -14,6 +14,7 @@
 #include "fd_bpf_loader_serialization.h"
 #include "fd_builtin_programs.h"
 #include "fd_native_cpi.h"
+#include "../../vm/transpile/fd_transpile_bind.h"
 
 /* https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/sdk/program/src/program_error.rs#L290-L335 */
 static inline int
@@ -423,9 +424,9 @@ common_close_account( fd_pubkey_t *         authority_address,
 
    https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L1332-L1501 */
 int
-fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
-                fd_progcache_rec_t const * cache_entry,
-                uchar                      is_deprecated ) {
+fd_bpf_execute( fd_exec_instr_ctx_t * instr_ctx,
+                fd_progcache_rec_t *  cache_entry,
+                uchar                 is_deprecated ) {
   long const regime0 = fd_tickcount();
 
   int err = FD_EXECUTOR_INSTR_SUCCESS;
@@ -535,8 +536,20 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
 
   long const regime1 = fd_tickcount();
 
-  int exec_err = fd_vm_exec( vm );
-  instr_ctx->txn_out->details.compute_budget.compute_meter = vm->cu;
+  fd_vm_transpiled_exec_func_t transpiled = vm->trace ? NULL : fd_transpile_bind_exec( cache_entry );
+  int exec_err;
+  if( transpiled ) {
+    instr_ctx->runtime->metrics.transpiled_exec_cnt++;
+    exec_err = transpiled( vm );
+    if( FD_UNLIKELY( exec_err==FD_VM_ERR_EBPF_BAIL ) ) {
+      instr_ctx->runtime->metrics.transpiled_bail_cnt++;
+      fd_transpile_bind_unbind( cache_entry, "bailed to interpreter" );
+      exec_err = fd_vm_exec( vm );
+    }
+  } else {
+    exec_err = fd_vm_exec( vm );
+  }
+  instr_ctx->txn_out->details.compute_budget.compute_meter = (ulong)vm->cu;
 
   long const regime2 = fd_tickcount();
 
@@ -556,7 +569,7 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
 
   /* Log consumed compute units and return data.
      https://github.com/anza-xyz/agave/blob/v4.3.0/program-runtime/src/vm.rs#L347-L353 */
-  fd_log_collector_program_consumed( instr_ctx, pre_insn_cus-heap_cost-vm->cu, pre_insn_cus );
+  fd_log_collector_program_consumed( instr_ctx, pre_insn_cus-heap_cost-(ulong)vm->cu, pre_insn_cus );
   if( FD_UNLIKELY( instr_ctx->txn_out->details.return_data.len ) ) {
     fd_log_collector_program_return( instr_ctx );
   }

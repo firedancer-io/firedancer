@@ -67,6 +67,8 @@ struct __attribute__((aligned(64))) fd_progcache_rec {
   ushort      size_class   : 3; /* the class the record's slot belongs to, set at acquire */
 
   uint free_next; /* next record in the class's free list; a stale popper may read it concurrently */
+
+  uint transpiled_idx; /* 1+index into fd_transpiled_ext of the transpiled program bound to this revision, 0 if none */
 };
 
 FD_STATIC_ASSERT( sizeof(fd_progcache_rec_t)==128, layout );

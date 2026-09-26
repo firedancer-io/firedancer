@@ -650,7 +650,6 @@ Parameters:
 - acct_info_cnt: number of account infos
 - signers_seeds_va: vm address of the signers seeds
 - signers_seeds_cnt: number of signers seeds
-- _ret: pointer to the return value
 */
 #define VM_SYSCALL_CPI_ENTRYPOINT FD_EXPAND_THEN_CONCAT2(fd_vm_syscall_cpi_, VM_SYSCALL_CPI_ABI)
 int
@@ -659,8 +658,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
                            ulong   acct_infos_va,
                            ulong   acct_info_cnt,
                            ulong   signers_seeds_va,
-                           ulong   signers_seeds_cnt,
-                           ulong * _ret ) {
+                           ulong   signers_seeds_cnt ) {
   long const regime0 = fd_tickcount();
 
   fd_vm_t * vm = (fd_vm_t *)_vm;
@@ -887,7 +885,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
 
   /* Set the transaction compute meter to be the same as the VM's compute meter,
      so that the callee cannot use compute units that the caller has already used. */
-  vm->instr_ctx->txn_out->details.compute_budget.compute_meter = vm->cu;
+  vm->instr_ctx->txn_out->details.compute_budget.compute_meter = (ulong)vm->cu;
 
   long const regime1 = fd_tickcount();
 
@@ -900,9 +898,9 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
 
   /* Set the CU meter to the instruction context's transaction context's compute meter,
      so that the caller can't use compute units that the callee has already used. */
-  vm->cu = vm->instr_ctx->txn_out->details.compute_budget.compute_meter;
+  vm->cu = (long)vm->instr_ctx->txn_out->details.compute_budget.compute_meter;
 
-  *_ret = instr_exec_res;
+  vm->reg[0] = instr_exec_res;
 
   /* Errors are propagated in fd_execute_instr. */
   if( FD_UNLIKELY( err_exec ) ) return err_exec;

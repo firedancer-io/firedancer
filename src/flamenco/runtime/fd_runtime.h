@@ -209,6 +209,10 @@ struct fd_runtime {
     ulong cu_cum;
     ulong instr_cum;
     ulong cpi_cum;
+
+    /* sBPF executions via transpiled code */
+    ulong transpiled_exec_cnt;
+    ulong transpiled_bail_cnt;
   } metrics;
 
   struct {

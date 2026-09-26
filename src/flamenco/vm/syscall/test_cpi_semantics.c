@@ -600,7 +600,7 @@ c_cpi_build( fd_vm_t *              vm,
  * Test runners                                                               *
  * -------------------------------------------------------------------------- */
 
-typedef int (* cpi_syscall_fn_t)( void *, ulong, ulong, ulong, ulong, ulong, ulong * );
+typedef int (* cpi_syscall_fn_t)( void *, ulong, ulong, ulong, ulong, ulong );
 
 /* build_signers_in_heap: lay out the signers_seeds argument in vm->heap
    starting at `*h_inout` (heap byte offset), and return the vm vaddr of
@@ -677,8 +677,7 @@ run_one( fd_svm_mini_t *  mini,
   if( cfg->pre_cpi_hook ) cfg->pre_cpi_hook( cfg );
 
   cpi_syscall_fn_t fn = rust_abi ? fd_vm_syscall_cpi_rust : fd_vm_syscall_cpi_c;
-  ulong ret = 0UL;
-  return fn( mini->vm, instr_va, infos_va, n_infos, signers_va, signers_cnt, &ret );
+  return fn( mini->vm, instr_va, infos_va, n_infos, signers_va, signers_cnt );
 }
 
 static void
@@ -1051,13 +1050,12 @@ test_exceed_max_account_infos( fd_svm_mini_t * mini ) {
   fd_vm_t * vm = mini->vm;
   ulong instr_va, infos_va, n_infos;
   rust_cpi_build( vm, cfg, &instr_va, &infos_va, &n_infos );
-  ulong ret = 0UL;
-  int got = fd_vm_syscall_cpi_rust( vm, instr_va, infos_va, 256UL, 0UL, 0UL, &ret );
+  int got = fd_vm_syscall_cpi_rust( vm, instr_va, infos_va, 256UL, 0UL, 0UL );
   FD_TEST( got == FD_VM_SYSCALL_ERR_MAX_INSTRUCTION_ACCOUNT_INFOS_EXCEEDED );
 
   env_build( mini, cfg );
   c_cpi_build( vm, cfg, &instr_va, &infos_va, &n_infos );
-  got = fd_vm_syscall_cpi_c( vm, instr_va, infos_va, 256UL, 0UL, 0UL, &ret );
+  got = fd_vm_syscall_cpi_c( vm, instr_va, infos_va, 256UL, 0UL, 0UL );
   FD_TEST( got == FD_VM_SYSCALL_ERR_MAX_INSTRUCTION_ACCOUNT_INFOS_EXCEEDED );
 }
 
@@ -1089,14 +1087,13 @@ test_exceed_max_instruction_accounts( fd_svm_mini_t * mini ) {
   ulong instr_va, infos_va, n_infos;
   rust_cpi_build( vm, cfg, &instr_va, &infos_va, &n_infos );
   ((fd_vm_rust_instruction_t *)vm->heap)->accounts.len = 256UL;
-  ulong ret = 0UL;
-  int got = fd_vm_syscall_cpi_rust( vm, instr_va, infos_va, n_infos, 0UL, 0UL, &ret );
+  int got = fd_vm_syscall_cpi_rust( vm, instr_va, infos_va, n_infos, 0UL, 0UL );
   FD_TEST( got == FD_VM_SYSCALL_ERR_MAX_INSTRUCTION_ACCOUNTS_EXCEEDED );
 
   env_build( mini, cfg );
   c_cpi_build( vm, cfg, &instr_va, &infos_va, &n_infos );
   ((fd_vm_c_instruction_t *)vm->heap)->accounts_len = 256UL;
-  got = fd_vm_syscall_cpi_c( vm, instr_va, infos_va, n_infos, 0UL, 0UL, &ret );
+  got = fd_vm_syscall_cpi_c( vm, instr_va, infos_va, n_infos, 0UL, 0UL );
   FD_TEST( got == FD_VM_SYSCALL_ERR_MAX_INSTRUCTION_ACCOUNTS_EXCEEDED );
 }
 
@@ -1198,9 +1195,8 @@ test_account_infos_array_in_input_region( fd_svm_mini_t * mini ) {
         else         c_cpi_build   ( vm, cfg, &instr_va, &dummy_infos, &n_infos );
 
         ulong infos_va = FD_VM_MEM_MAP_INPUT_REGION_START;
-        ulong ret = 0UL;
         cpi_syscall_fn_t fn = (abi==0) ? fd_vm_syscall_cpi_rust : fd_vm_syscall_cpi_c;
-        int got = fn( vm, instr_va, infos_va, 1UL, 0UL, 0UL, &ret );
+        int got = fn( vm, instr_va, infos_va, 1UL, 0UL, 0UL );
 
         if( cs[c] ) {
           FD_TEST( got == FD_VM_SYSCALL_ERR_INVALID_POINTER );
@@ -1234,8 +1230,7 @@ test_account_info_struct_in_input_region( fd_svm_mini_t * mini ) {
       fd_vm_rust_account_info_t * info = (fd_vm_rust_account_info_t *)( vm->heap + (infos_va - HEAP_VA(0)) );
       info->lamports_box_addr = FD_VM_MEM_MAP_INPUT_REGION_START;
 
-      ulong ret = 0UL;
-      int got = fd_vm_syscall_cpi_rust( vm, instr_va, infos_va, 1UL, 0UL, 0UL, &ret );
+      int got = fd_vm_syscall_cpi_rust( vm, instr_va, infos_va, 1UL, 0UL, 0UL );
       if( cs[c] ) FD_TEST( got == FD_VM_SYSCALL_ERR_INVALID_POINTER );
       else        (void)got;  /* implementation-specific */
     }
@@ -1262,8 +1257,7 @@ test_data_refcell_vec_in_input_region( fd_svm_mini_t * mini ) {
       fd_vm_rust_account_info_t * info = (fd_vm_rust_account_info_t *)( vm->heap + (infos_va - HEAP_VA(0)) );
       info->data_box_addr = FD_VM_MEM_MAP_INPUT_REGION_START;
 
-      ulong ret = 0UL;
-      int got = fd_vm_syscall_cpi_rust( vm, instr_va, infos_va, 1UL, 0UL, 0UL, &ret );
+      int got = fd_vm_syscall_cpi_rust( vm, instr_va, infos_va, 1UL, 0UL, 0UL );
       if( cs[c] ) FD_TEST( got == FD_VM_SYSCALL_ERR_INVALID_POINTER );
       else        (void)got;
     }
@@ -1298,9 +1292,8 @@ test_data_in_rodata_under_no_spar( fd_svm_mini_t * mini ) {
           info->data_addr = FD_VM_MEM_MAP_RODATA_REGION_START;
         }
 
-        ulong ret = 0UL;
         cpi_syscall_fn_t fn = (abi==0) ? fd_vm_syscall_cpi_rust : fd_vm_syscall_cpi_c;
-        int got = fn( vm, instr_va, infos_va, 1UL, 0UL, 0UL, &ret );
+        int got = fn( vm, instr_va, infos_va, 1UL, 0UL, 0UL );
         if( cs[c] ) FD_TEST( got == FD_VM_SYSCALL_ERR_INVALID_POINTER );
         else        FD_TEST( got != FD_VM_SUCCESS );
       }
@@ -1333,8 +1326,7 @@ test_caller_lamports_box_in_rodata_under_no_spar( fd_svm_mini_t * mini ) {
     }
 
     cpi_syscall_fn_t fn = (abi==0) ? fd_vm_syscall_cpi_rust : fd_vm_syscall_cpi_c;
-    ulong ret = 0UL;
-    int got = fn( vm, instr_va, infos_va, 1UL, 0UL, 0UL, &ret );
+    int got = fn( vm, instr_va, infos_va, 1UL, 0UL, 0UL );
     (void)got;
   }
 }
@@ -1957,16 +1949,15 @@ test_too_many_signers( fd_svm_mini_t * mini ) {
   rust_cpi_build( vm, cfg, &instr_va, &infos_va, &n_infos );
   ulong outer_off = 4096UL;
   memset( vm->heap + outer_off, 0, 17 * FD_VM_VEC_SIZE );
-  ulong ret = 0UL;
   int got = fd_vm_syscall_cpi_rust( vm, instr_va, infos_va, n_infos,
-                                    HEAP_VA( outer_off ), 17UL, &ret );
+                                    HEAP_VA( outer_off ), 17UL );
   FD_TEST( got == FD_VM_SYSCALL_ERR_TOO_MANY_SIGNERS );
 
   env_build( mini, cfg );
   c_cpi_build( vm, cfg, &instr_va, &infos_va, &n_infos );
   memset( vm->heap + outer_off, 0, 17 * FD_VM_VEC_SIZE );
   got = fd_vm_syscall_cpi_c( vm, instr_va, infos_va, n_infos,
-                             HEAP_VA( outer_off ), 17UL, &ret );
+                             HEAP_VA( outer_off ), 17UL );
   FD_TEST( got == FD_VM_SYSCALL_ERR_TOO_MANY_SIGNERS );
 }
 
@@ -1984,9 +1975,8 @@ test_too_many_seeds_per_signer( fd_svm_mini_t * mini ) {
   memset( vm->heap + mid_off, 0, 17 * FD_VM_VEC_SIZE );
   outer->addr = HEAP_VA( mid_off );
   outer->len  = 17UL;
-  ulong ret = 0UL;
   int got = fd_vm_syscall_cpi_rust( vm, instr_va, infos_va, n_infos,
-                                    HEAP_VA( outer_off ), 1UL, &ret );
+                                    HEAP_VA( outer_off ), 1UL );
   FD_TEST( got == FD_EXECUTOR_INSTR_ERR_MAX_SEED_LENGTH_EXCEEDED );
 
   env_build( mini, cfg );
@@ -1996,7 +1986,7 @@ test_too_many_seeds_per_signer( fd_svm_mini_t * mini ) {
   outer->addr = HEAP_VA( mid_off );
   outer->len  = 17UL;
   got = fd_vm_syscall_cpi_c( vm, instr_va, infos_va, n_infos,
-                             HEAP_VA( outer_off ), 1UL, &ret );
+                             HEAP_VA( outer_off ), 1UL );
   FD_TEST( got == FD_EXECUTOR_INSTR_ERR_MAX_SEED_LENGTH_EXCEEDED );
 }
 
@@ -2018,9 +2008,8 @@ test_seed_too_long( fd_svm_mini_t * mini ) {
   mid->len  = 33UL;
   outer->addr = HEAP_VA( mid_off );
   outer->len  = 1UL;
-  ulong ret = 0UL;
   int got = fd_vm_syscall_cpi_rust( vm, instr_va, infos_va, n_infos,
-                                    HEAP_VA( outer_off ), 1UL, &ret );
+                                    HEAP_VA( outer_off ), 1UL );
   FD_TEST( got == FD_VM_SYSCALL_ERR_BAD_SEEDS );
 
   env_build( mini, cfg );
@@ -2033,7 +2022,7 @@ test_seed_too_long( fd_svm_mini_t * mini ) {
   outer->addr = HEAP_VA( mid_off );
   outer->len  = 1UL;
   got = fd_vm_syscall_cpi_c( vm, instr_va, infos_va, n_infos,
-                             HEAP_VA( outer_off ), 1UL, &ret );
+                             HEAP_VA( outer_off ), 1UL );
   FD_TEST( got == FD_VM_SYSCALL_ERR_BAD_SEEDS );
 }
 
@@ -2054,8 +2043,7 @@ test_entry_borrow_conflict( fd_svm_mini_t * mini ) {
     else         c_cpi_build   ( vm, cfg, &instr_va, &infos_va, &n_infos );
 
     cpi_syscall_fn_t fn = (abi==0) ? fd_vm_syscall_cpi_rust : fd_vm_syscall_cpi_c;
-    ulong ret = 0UL;
-    int got = fn( vm, instr_va, infos_va, n_infos, 0UL, 0UL, &ret );
+    int got = fn( vm, instr_va, infos_va, n_infos, 0UL, 0UL );
     FD_TEST( got == FD_EXECUTOR_INSTR_ERR_ACC_BORROW_FAILED );
     fd_borrowed_account_drop( pre_borrow );
   }
@@ -2072,8 +2060,7 @@ test_borrow_lifecycle( fd_svm_mini_t * mini ) {
     else         c_cpi_build   ( vm, cfg, &instr_va, &infos_va, &n_infos );
 
     cpi_syscall_fn_t fn = (abi==0) ? fd_vm_syscall_cpi_rust : fd_vm_syscall_cpi_c;
-    ulong ret = 0UL;
-    int got = fn( vm, instr_va, infos_va, n_infos, 0UL, 0UL, &ret );
+    int got = fn( vm, instr_va, infos_va, n_infos, 0UL, 0UL );
     FD_TEST( got == FD_VM_SUCCESS );
 
     fd_borrowed_account_t pb[1] = {0};
@@ -2096,8 +2083,7 @@ test_callee_borrow_modify_release_lifecycle( fd_svm_mini_t * mini ) {
     else         c_cpi_build   ( vm, cfg, &instr_va, &infos_va, &n_infos );
 
     cpi_syscall_fn_t fn = (abi==0) ? fd_vm_syscall_cpi_rust : fd_vm_syscall_cpi_c;
-    ulong ret = 0UL;
-    int got = fn( vm, instr_va, infos_va, n_infos, 0UL, 0UL, &ret );
+    int got = fn( vm, instr_va, infos_va, n_infos, 0UL, 0UL );
     FD_TEST( got == FD_VM_SUCCESS );
 
     fd_borrowed_account_t pb[1] = {0};
@@ -2126,8 +2112,7 @@ test_caller_borrow_released_before_cpi( fd_svm_mini_t * mini ) {
     else         c_cpi_build   ( vm, cfg, &instr_va, &infos_va, &n_infos );
 
     cpi_syscall_fn_t fn = (abi==0) ? fd_vm_syscall_cpi_rust : fd_vm_syscall_cpi_c;
-    ulong ret = 0UL;
-    int got = fn( vm, instr_va, infos_va, n_infos, 0UL, 0UL, &ret );
+    int got = fn( vm, instr_va, infos_va, n_infos, 0UL, 0UL );
     FD_TEST( got == FD_VM_SUCCESS );
   }
 }
@@ -2143,13 +2128,11 @@ test_sequential_cpis_re_borrow( fd_svm_mini_t * mini ) {
     ulong instr_va, infos_va, n_infos;
     if( abi==0 ) rust_cpi_build( vm, cfg, &instr_va, &infos_va, &n_infos );
     else         c_cpi_build   ( vm, cfg, &instr_va, &infos_va, &n_infos );
-    ulong ret = 0UL;
-    FD_TEST( fn( vm, instr_va, infos_va, n_infos, 0UL, 0UL, &ret ) == FD_VM_SUCCESS );
+    FD_TEST( fn( vm, instr_va, infos_va, n_infos, 0UL, 0UL ) == FD_VM_SUCCESS );
 
     if( abi==0 ) rust_cpi_build( vm, cfg, &instr_va, &infos_va, &n_infos );
     else         c_cpi_build   ( vm, cfg, &instr_va, &infos_va, &n_infos );
-    ret = 0UL;
-    FD_TEST( fn( vm, instr_va, infos_va, n_infos, 0UL, 0UL, &ret ) == FD_VM_SUCCESS );
+    FD_TEST( fn( vm, instr_va, infos_va, n_infos, 0UL, 0UL ) == FD_VM_SUCCESS );
   }
 }
 
@@ -2187,9 +2170,8 @@ test_stack_depth_limit( fd_svm_mini_t * mini ) {
         rt->instr.trace_length = FD_MAX_INSTRUCTION_STACK_DEPTH;
         rt->instr.stack_sz     = (uchar)FD_MAX_INSTRUCTION_STACK_DEPTH;
 
-        ulong ret = 0UL;
         cpi_syscall_fn_t fn = (abi==0) ? fd_vm_syscall_cpi_rust : fd_vm_syscall_cpi_c;
-        int got = fn( vm, instr_va, infos_va, n_infos, 0UL, 0UL, &ret );
+        int got = fn( vm, instr_va, infos_va, n_infos, 0UL, 0UL );
         if( FD_UNLIKELY( got != FD_EXECUTOR_INSTR_ERR_CALL_DEPTH ) ) {
           FD_LOG_ERR(( "test_stack_depth_limit: combo=%d dep=%d abi=%s got=%d", c, dep, abi==0?"rust":"c", got ));
         }
@@ -2287,8 +2269,7 @@ test_cpi_to_authorized_program_restricted( fd_svm_mini_t * mini ) {
     }
 
     cpi_syscall_fn_t fn = (abi==0) ? fd_vm_syscall_cpi_rust : fd_vm_syscall_cpi_c;
-    ulong ret = 0UL;
-    int got = fn( vm, instr_va, infos_va, n_infos, 0UL, 0UL, &ret );
+    int got = fn( vm, instr_va, infos_va, n_infos, 0UL, 0UL );
     FD_TEST( got == FD_VM_SYSCALL_ERR_PROGRAM_NOT_SUPPORTED );
   }
 }
@@ -2306,11 +2287,10 @@ test_callee_cu_exhaustion_during( fd_svm_mini_t * mini ) {
     if( abi==0 ) rust_cpi_build( vm, cfg, &instr_va, &infos_va, &n_infos );
     else         c_cpi_build   ( vm, cfg, &instr_va, &infos_va, &n_infos );
 
-    vm->cu = FD_VM_INVOKE_UNITS + 30UL;
+    vm->cu = FD_VM_INVOKE_UNITS + 30L;
 
     cpi_syscall_fn_t fn = (abi==0) ? fd_vm_syscall_cpi_rust : fd_vm_syscall_cpi_c;
-    ulong ret = 0UL;
-    int got = fn( vm, instr_va, infos_va, n_infos, 0UL, 0UL, &ret );
+    int got = fn( vm, instr_va, infos_va, n_infos, 0UL, 0UL );
     FD_TEST( got != FD_VM_SUCCESS );
   }
 }

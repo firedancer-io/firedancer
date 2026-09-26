@@ -80,8 +80,7 @@ fd_vm_syscall_sol_get_clock_sysvar( /**/            void *  _vm,
                                     FD_PARAM_UNUSED ulong   r2,
                                     FD_PARAM_UNUSED ulong   r3,
                                     FD_PARAM_UNUSED ulong   r4,
-                                    FD_PARAM_UNUSED ulong   r5,
-                                    /**/            ulong * _ret ) {
+                                    FD_PARAM_UNUSED ulong   r5 ) {
   fd_vm_t * vm = _vm;
   fd_exec_instr_ctx_t const * instr_ctx = vm->instr_ctx;
   if( FD_UNLIKELY( !instr_ctx ) ) return FD_VM_SYSCALL_ERR_OUTSIDE_RUNTIME;
@@ -112,7 +111,7 @@ fd_vm_syscall_sol_get_clock_sysvar( /**/            void *  _vm,
   fd_vm_clock_t clock = fd_sysvar_cache_clock_read_nofail( instr_ctx->sysvar_cache );
   memcpy( var_query.haddr, &clock, sizeof(fd_vm_clock_t) );
 
-  *_ret = 0UL;
+  vm->reg[0] = 0UL;
   return FD_VM_SUCCESS;
 }
 
@@ -122,8 +121,7 @@ fd_vm_syscall_sol_get_epoch_schedule_sysvar( /**/            void *  _vm,
                                              FD_PARAM_UNUSED ulong   r2,
                                              FD_PARAM_UNUSED ulong   r3,
                                              FD_PARAM_UNUSED ulong   r4,
-                                             FD_PARAM_UNUSED ulong   r5,
-                                             /**/            ulong * _ret ) {
+                                             FD_PARAM_UNUSED ulong   r5 ) {
   fd_vm_t * vm = _vm;
   fd_exec_instr_ctx_t const * instr_ctx = vm->instr_ctx;
   if( FD_UNLIKELY( !instr_ctx ) ) return FD_VM_SYSCALL_ERR_OUTSIDE_RUNTIME;
@@ -168,7 +166,7 @@ fd_vm_syscall_sol_get_epoch_schedule_sysvar( /**/            void *  _vm,
     .first_normal_slot           = schedule.first_normal_slot,
   };
 
-  *_ret = 0UL;
+  vm->reg[0] = 0UL;
   return FD_VM_SUCCESS;
 }
 
@@ -178,8 +176,7 @@ fd_vm_syscall_sol_get_rent_sysvar( /**/            void *  _vm,
                                    FD_PARAM_UNUSED ulong   r2,
                                    FD_PARAM_UNUSED ulong   r3,
                                    FD_PARAM_UNUSED ulong   r4,
-                                   FD_PARAM_UNUSED ulong   r5,
-                                   /**/            ulong * _ret ) {
+                                   FD_PARAM_UNUSED ulong   r5 ) {
   fd_vm_t * vm = _vm;
 
   /* Unreachable in a real SVM, used for testing */
@@ -221,7 +218,7 @@ fd_vm_syscall_sol_get_rent_sysvar( /**/            void *  _vm,
     .burn_percent            = rent.burn_percent,
   };
 
-  *_ret = 0UL;
+  vm->reg[0] = 0UL;
   return FD_VM_SUCCESS;
 }
 
@@ -232,8 +229,7 @@ fd_vm_syscall_sol_get_last_restart_slot_sysvar( /**/            void *  _vm,
                                                 FD_PARAM_UNUSED ulong   r2,
                                                 FD_PARAM_UNUSED ulong   r3,
                                                 FD_PARAM_UNUSED ulong   r4,
-                                                FD_PARAM_UNUSED ulong   r5,
-                                                /**/            ulong * _ret ) {
+                                                FD_PARAM_UNUSED ulong   r5 ) {
   fd_vm_t * vm = _vm;
   fd_exec_instr_ctx_t const * instr_ctx = vm->instr_ctx;
   if( FD_UNLIKELY( !instr_ctx ) ) return FD_VM_SYSCALL_ERR_OUTSIDE_RUNTIME;
@@ -269,7 +265,7 @@ fd_vm_syscall_sol_get_last_restart_slot_sysvar( /**/            void *  _vm,
 
   memcpy( var_query.haddr, last_restart_slot, sizeof(ulong) );
 
-  *_ret = 0UL;
+  vm->reg[0] = 0UL;
   return FD_VM_SUCCESS;
 }
 
@@ -280,8 +276,7 @@ fd_vm_syscall_sol_get_sysvar( /**/            void *  _vm,
                               /**/            ulong   out_vaddr,
                               /**/            ulong   offset,
                               /**/            ulong   sz,
-                              FD_PARAM_UNUSED ulong   r5,
-                              /**/            ulong * _ret ) {
+                              FD_PARAM_UNUSED ulong   r5 ) {
   fd_vm_t * vm = _vm;
   fd_exec_instr_ctx_t const * instr_ctx = vm->instr_ctx;
   if( FD_UNLIKELY( !instr_ctx ) ) return FD_VM_SYSCALL_ERR_OUTSIDE_RUNTIME;
@@ -335,7 +330,7 @@ fd_vm_syscall_sol_get_sysvar( /**/            void *  _vm,
                    memcmp( sysvar_id->uc, fd_sysvar_slot_hashes_id.uc,       FD_PUBKEY_FOOTPRINT ) &&
                    memcmp( sysvar_id->uc, fd_sysvar_stake_history_id.uc,     FD_PUBKEY_FOOTPRINT ) &&
                    memcmp( sysvar_id->uc, fd_sysvar_last_restart_slot_id.uc, FD_PUBKEY_FOOTPRINT ) ) ) {
-    *_ret = 2UL;
+    vm->reg[0] = 2UL;
     return FD_VM_SUCCESS;
   }
 
@@ -343,7 +338,7 @@ fd_vm_syscall_sol_get_sysvar( /**/            void *  _vm,
   uchar const * sysvar_buf =
     fd_sysvar_cache_data_query( vm->instr_ctx->sysvar_cache, sysvar_id, &sysvar_buf_len );
   if( FD_UNLIKELY( !sysvar_buf ) ) {
-    *_ret = 2UL;
+    vm->reg[0] = 2UL;
     return FD_VM_SUCCESS;
   }
 
@@ -351,17 +346,17 @@ fd_vm_syscall_sol_get_sysvar( /**/            void *  _vm,
      Note the length check is at the very end to fail after performing sufficient checks. */
 
   if( FD_UNLIKELY( offset_length>sysvar_buf_len ) ) {
-    *_ret = 1UL;
+    vm->reg[0] = 1UL;
     return FD_VM_SUCCESS;
   }
 
   if( FD_UNLIKELY( sz==0UL ) ) {
-    *_ret = 0UL;
+    vm->reg[0] = 0UL;
     return FD_VM_SUCCESS;
   }
 
   fd_memcpy( var_query.haddr, sysvar_buf + offset, sz );
-  *_ret = 0;
+  vm->reg[0] = 0UL;
   return FD_VM_SUCCESS;
 }
 
@@ -372,8 +367,7 @@ fd_vm_syscall_sol_get_epoch_stake( /**/            void *  _vm,
                                    FD_PARAM_UNUSED ulong   r2,
                                    FD_PARAM_UNUSED ulong   r3,
                                    FD_PARAM_UNUSED ulong   r4,
-                                   FD_PARAM_UNUSED ulong   r5,
-                                   /**/            ulong * _ret ) {
+                                   FD_PARAM_UNUSED ulong   r5 ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
   /* Var addr of 0 returns the total active stake on the cluster.
@@ -384,7 +378,7 @@ fd_vm_syscall_sol_get_epoch_stake( /**/            void *  _vm,
     FD_VM_CU_UPDATE( vm, FD_VM_SYSCALL_BASE_COST );
 
     /* https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/mod.rs#L2074 */
-    *_ret = vm->instr_ctx->bank->f.total_epoch_stake;
+    vm->reg[0] = vm->instr_ctx->bank->f.total_epoch_stake;
     return FD_VM_SUCCESS;
   }
 
@@ -405,7 +399,7 @@ fd_vm_syscall_sol_get_epoch_stake( /**/            void *  _vm,
   fd_bank_t * bank = vm->instr_ctx->bank;
   fd_vote_stakes_query_t_1( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id, vote_address, NULL, &stake, NULL );
 
-  *_ret = stake;
+  vm->reg[0] = stake;
 
   return FD_VM_SUCCESS;
 }
@@ -416,14 +410,13 @@ fd_vm_syscall_sol_get_stack_height( /**/            void *  _vm,
                                     FD_PARAM_UNUSED ulong   r2,
                                     FD_PARAM_UNUSED ulong   r3,
                                     FD_PARAM_UNUSED ulong   r4,
-                                    FD_PARAM_UNUSED ulong   r5,
-                                    /**/            ulong * _ret ) {
+                                    FD_PARAM_UNUSED ulong   r5 ) {
   /* https://github.com/anza-xyz/agave/blob/v2.0.8/programs/bpf_loader/src/syscalls/mod.rs#L1547 */
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
   FD_VM_CU_UPDATE( vm, FD_VM_SYSCALL_BASE_COST );
 
-  *_ret = vm->instr_ctx->runtime->instr.stack_sz;
+  vm->reg[0] = vm->instr_ctx->runtime->instr.stack_sz;
   return FD_VM_SUCCESS;
 }
 
@@ -433,8 +426,7 @@ fd_vm_syscall_sol_get_return_data( /**/            void *  _vm,
                                    /**/            ulong   sz,
                                    /**/            ulong   program_id_vaddr,
                                    FD_PARAM_UNUSED ulong   r4,
-                                   FD_PARAM_UNUSED ulong   r5,
-                                   /**/            ulong * _ret ) {
+                                   FD_PARAM_UNUSED ulong   r5 ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1465 */
@@ -476,7 +468,7 @@ fd_vm_syscall_sol_get_return_data( /**/            void *  _vm,
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1495 */
-  *_ret = return_data->len;
+  vm->reg[0] = return_data->len;
   return FD_VM_SUCCESS;
 }
 
@@ -486,8 +478,7 @@ fd_vm_syscall_sol_set_return_data( /**/            void *  _vm,
                                    /**/            ulong   src_sz,
                                    FD_PARAM_UNUSED ulong   r3,
                                    FD_PARAM_UNUSED ulong   r4,
-                                   FD_PARAM_UNUSED ulong   r5,
-                                   /**/            ulong * _ret ) {
+                                   FD_PARAM_UNUSED ulong   r5 ) {
   /* https://github.com/anza-xyz/agave/blob/v2.0.8/programs/bpf_loader/src/syscalls/mod.rs#L1297 */
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
@@ -506,7 +497,7 @@ fd_vm_syscall_sol_set_return_data( /**/            void *  _vm,
   if( FD_UNLIKELY( src_sz>FD_VM_RETURN_DATA_MAX ) ) {
     /* TODO: this is a bit annoying, we may want to unify return codes...
        - FD_VM_SYSCALL_ERR_RETURN_DATA_TOO_LARGE is Agave's return code,
-         also used for logging */
+          also used for logging */
     FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_RETURN_DATA_TOO_LARGE );
     return FD_VM_SYSCALL_ERR_RETURN_DATA_TOO_LARGE;
   }
@@ -530,7 +521,7 @@ fd_vm_syscall_sol_set_return_data( /**/            void *  _vm,
   }
   return_data->program_id = *program_id;
 
-  *_ret = 0;
+  vm->reg[0] = 0UL;
   return FD_VM_SUCCESS;
 }
 
@@ -557,8 +548,7 @@ fd_vm_syscall_sol_get_processed_sibling_instruction(
     ulong result_meta_vaddr,
     ulong result_program_id_vaddr,
     ulong result_data_vaddr,
-    ulong result_accounts_vaddr,
-    ulong * _ret
+    ulong result_accounts_vaddr
 ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
@@ -683,13 +673,13 @@ fd_vm_syscall_sol_get_processed_sibling_instruction(
 
     /* Return true as we found a sibling instruction
        https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1588 */
-    *_ret = 1UL;
+    vm->reg[0] = 1UL;
     return FD_VM_SUCCESS;
   }
 
   /* Return false if we didn't find a sibling instruction
      https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1590 */
-  *_ret = 0UL;
+  vm->reg[0] = 0UL;
   return FD_VM_SUCCESS;
 }
 
@@ -700,8 +690,7 @@ fd_vm_syscall_sol_get_epoch_rewards_sysvar( /**/            void *  _vm,
                                             FD_PARAM_UNUSED ulong   r2,
                                             FD_PARAM_UNUSED ulong   r3,
                                             FD_PARAM_UNUSED ulong   r4,
-                                            FD_PARAM_UNUSED ulong   r5,
-                                            /**/            ulong * _ret ) {
+                                            FD_PARAM_UNUSED ulong   r5 ) {
   fd_vm_t * vm = _vm;
   fd_exec_instr_ctx_t const * instr_ctx = vm->instr_ctx;
   if( FD_UNLIKELY( !instr_ctx ) ) return FD_VM_SYSCALL_ERR_OUTSIDE_RUNTIME;
@@ -738,6 +727,6 @@ fd_vm_syscall_sol_get_epoch_rewards_sysvar( /**/            void *  _vm,
     .active                             = epoch_rewards.active,
   };
 
-  *_ret = 0UL;
+  vm->reg[0] = 0UL;
   return FD_VM_SUCCESS;
 }

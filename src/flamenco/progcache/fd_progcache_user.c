@@ -2,6 +2,7 @@
 #include "fd_progcache_user.h"
 #include "fd_progcache_reclaim.h"
 #include "fd_progcache_clock.h"
+#include "../vm/transpile/fd_transpile_bind.h"
 #include "../../util/racesan/fd_racesan_target.h"
 #include "../../disco/metrics/generated/fd_metrics_enums.h"
 
@@ -529,6 +530,8 @@ fd_progcache_insert( fd_progcache_t *        cache,
                                              params->features, params->bin, params->bin_sz, cache->scratch, cache->scratch_sz ) ) ) {
       /* Not a valid program (mark cache entry as non-executable) */
       fd_progcache_rec_nx( rec );
+    } else {
+      rec->transpiled_idx = fd_transpile_bind_lookup( &params->prog_addr, params->bin, params->bin_sz );
     }
     dt += fd_tickcount();
     cache->metrics->cum_load_ticks += (ulong)dt;

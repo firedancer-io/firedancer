@@ -126,6 +126,8 @@ metrics_write( fd_execle_tile_t * ctx ) {
 
   FD_MCNT_SET( EXECLE, INSTRUCTION_EXECUTED, ctx->runtime->metrics.instr_cum );
   FD_MCNT_SET( EXECLE, CPI_EXECUTED,         ctx->runtime->metrics.cpi_cum   );
+  FD_MCNT_SET( EXECLE, TRANSPILED_EXECUTED,  ctx->runtime->metrics.transpiled_exec_cnt );
+  FD_MCNT_SET( EXECLE, TRANSPILED_BAILED,    ctx->runtime->metrics.transpiled_bail_cnt );
 
   FD_MCNT_SET( EXECLE, CU_EXECUTED, ctx->runtime->metrics.cu_cum );
 

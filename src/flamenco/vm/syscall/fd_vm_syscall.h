@@ -56,13 +56,13 @@
    r1,r2,r3,r4,r5 are the values in r1,r2,r3,r4,r5 at time of the
    syscall.
 
-   When a syscall implementation returns FD_VM_SUCCESS, *_r0 should hold
-   the application return error value it wants to place in r0.
+   When a syscall implementation returns FD_VM_SUCCESS, vm->reg[0] holds
+   the application return value.
 
    When an syscall implementation returns FD_VM_SYSCALL_ERR*, the
    syscall is considered to have faulted the VM.  It ideally should not
-   have set *_r0 (or changed any vm state, except vm->cu, though that
-   often isn't practical, and not critical to consensus).
+   have set vm->reg[0] (or changed any vm state, except vm->cu, though
+   that often isn't practical, and not critical to consensus).
 
    It is the syscall's responsibility to deduct from vm->cu its specific
    cost model (not including the syscall instruction itself).  As such,
@@ -90,8 +90,7 @@ fd_vm_syscall_##name( void *  _vm, \
                       ulong   r2,  \
                       ulong   r3,  \
                       ulong   r4,  \
-                      ulong   r5,  \
-                      ulong * _ret )
+                      ulong   r5 )
 
 FD_PROTOTYPES_BEGIN
 

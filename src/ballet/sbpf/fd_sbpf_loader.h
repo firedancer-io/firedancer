@@ -121,8 +121,7 @@ typedef int
                            ulong   arg1,
                            ulong   arg2,
                            ulong   arg3,
-                           ulong   arg4,
-                           ulong * _ret );
+                           ulong   arg4 );
 
 /* fd_sbpf_syscalls_t maps syscall IDs => a name and a VM specific
    context.  FIXME: THIS ALSO PROBABLY BELONGS IN FLAMENCO/VM */
