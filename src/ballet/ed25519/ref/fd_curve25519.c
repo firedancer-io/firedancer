@@ -223,6 +223,12 @@ fd_ed25519_point_frombytes_2x( fd_ed25519_point_t * r1,
   return 0;
 }
 
+int
+fd_ed25519_point_frombytes_1x( fd_ed25519_point_t * r,
+                               uchar const          buf[ 32 ] ) {
+  return fd_ed25519_point_frombytes( r, buf ) ? 0 : -1;
+}
+
 /*
   Affine (only for init(), can be slow)
 */

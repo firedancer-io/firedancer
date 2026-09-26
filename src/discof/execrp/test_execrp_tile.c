@@ -123,6 +123,7 @@ test_env_create( void ) {
   topo_tile->execrp.progcache_obj_id = progcache_obj->id;
   topo_tile->execrp.txncache_obj_id  = txncache_obj->id;
 
+  privileged_init( topo, topo_tile );
   unprivileged_init( topo, topo_tile );
 
   env->execrp = tile_mem;
