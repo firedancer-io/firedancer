@@ -10,8 +10,7 @@ fd_vm_syscall_sol_curve_validate_point( /**/            void *  _vm,
                                         /**/            ulong   point_addr,
                                         FD_PARAM_UNUSED ulong   r3,
                                         FD_PARAM_UNUSED ulong   r4,
-                                        FD_PARAM_UNUSED ulong   r5,
-                                        /**/            ulong * _ret ) {
+                                        FD_PARAM_UNUSED ulong   r5 ) {
   /* https://github.com/anza-xyz/agave/blob/v1.18.8/programs/bpf_loader/src/syscalls/mod.rs#L871 */
   fd_vm_t * vm = (fd_vm_t *)_vm;
   ulong     ret = 1UL; /* by default return Ok(1) == error */
@@ -73,7 +72,7 @@ fd_vm_syscall_sol_curve_validate_point( /**/            void *  _vm,
     return FD_VM_SYSCALL_ERR_INVALID_ATTRIBUTE; /* SyscallError::InvalidAttribute */
   }
 
-  *_ret = ret;
+  vm->reg[0] = ret;
   return FD_VM_SUCCESS;
 }
 
@@ -83,8 +82,7 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
                                   ulong   group_op,
                                   ulong   left_input_addr,
                                   ulong   right_input_addr,
-                                  ulong   result_point_addr,
-                                  ulong * _ret ) {
+                                  ulong   result_point_addr ) {
   /* https://github.com/anza-xyz/agave/blob/v1.18.8/programs/bpf_loader/src/syscalls/mod.rs#L928 */
   fd_vm_t * vm = (fd_vm_t *)_vm;
   ulong     ret = 1UL; /* by default return Ok(1) == error */
@@ -425,7 +423,7 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
   }
 
 soft_error:
-  *_ret = ret;
+  vm->reg[0] = ret;
   return FD_VM_SUCCESS;
 #undef MATCH_ID_OP
 #undef EDWARDS
@@ -538,8 +536,7 @@ fd_vm_syscall_sol_curve_multiscalar_mul( void *  _vm,
                                          ulong   scalars_addr,
                                          ulong   points_addr,
                                          ulong   points_len,
-                                         ulong   result_point_addr,
-                                         ulong * _ret ) {
+                                         ulong   result_point_addr ) {
   /* https://github.com/anza-xyz/agave/blob/v1.18.8/programs/bpf_loader/src/syscalls/mod.rs#L1129 */
   fd_vm_t * vm = (fd_vm_t *)_vm;
   ulong     ret = 1UL; /* by default return Ok(1) == error */
@@ -590,7 +587,7 @@ fd_vm_syscall_sol_curve_multiscalar_mul( void *  _vm,
     uchar * result = FD_VM_MEM_HADDR_ST( vm, result_point_addr, FD_VM_ALIGN_RUST_POD_U8_ARRAY, FD_VM_SYSCALL_SOL_CURVE_CURVE25519_POINT_SZ );
     memset( result, 0, 32 );
     result[0] = curve_id==FD_VM_SYSCALL_SOL_CURVE_CURVE25519_EDWARDS ? 1 : 0;
-    *_ret = 0;
+    vm->reg[0] = 0UL;
     return FD_VM_SUCCESS;
   }
 
@@ -630,7 +627,7 @@ fd_vm_syscall_sol_curve_multiscalar_mul( void *  _vm,
     return FD_VM_SYSCALL_ERR_INVALID_ATTRIBUTE; /* SyscallError::InvalidAttribute */
   }
 
-  *_ret = ret;
+  vm->reg[0] = ret;
   return FD_VM_SUCCESS;
 }
 
@@ -640,8 +637,7 @@ fd_vm_syscall_sol_curve_decompress( /**/            void *  _vm,
                                     /**/            ulong   point_addr,
                                     /**/            ulong   result_addr,
                                     FD_PARAM_UNUSED ulong   r4,
-                                    FD_PARAM_UNUSED ulong   r5,
-                                    /**/            ulong * _ret ) {
+                                    FD_PARAM_UNUSED ulong   r5 ) {
   /* https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/syscalls/src/lib.rs#L1118 */
   fd_vm_t * vm = (fd_vm_t *)_vm;
   ulong     ret = 1UL; /* by default return Ok(1) == error */
@@ -683,7 +679,7 @@ fd_vm_syscall_sol_curve_decompress( /**/            void *  _vm,
     return FD_VM_SYSCALL_ERR_INVALID_ATTRIBUTE; /* SyscallError::InvalidAttribute */
   }
 
-  *_ret = ret;
+  vm->reg[0] = ret;
   return FD_VM_SUCCESS;
 }
 
@@ -693,8 +689,7 @@ fd_vm_syscall_sol_curve_pairing_map( /**/            void *  _vm,
                                      /**/            ulong   num_pairs,
                                      /**/            ulong   g1_points_addr,
                                      /**/            ulong   g2_points_addr,
-                                     /**/            ulong   result_addr,
-                                     /**/            ulong * _ret ) {
+                                     /**/            ulong   result_addr ) {
   /* https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/syscalls/src/lib.rs#L1804 */
   fd_vm_t * vm = (fd_vm_t *)_vm;
   ulong     ret = 1UL; /* by default return Ok(1) == error */
@@ -732,6 +727,6 @@ fd_vm_syscall_sol_curve_pairing_map( /**/            void *  _vm,
     return FD_VM_SYSCALL_ERR_INVALID_ATTRIBUTE; /* SyscallError::InvalidAttribute */
   }
 
-  *_ret = ret;
+  vm->reg[0] = ret;
   return FD_VM_SUCCESS;
 }

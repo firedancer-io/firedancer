@@ -27,8 +27,9 @@ test_vm_syscall_sol_memset( char const * test_case_name,
                             int          expected_err ) {
   set_memory_region( vm->heap, vm->heap_max );
 
-  ulong ret = 0UL;
-  int   err = fd_vm_syscall_sol_memset( vm, dst_vaddr, val, sz, 0, 0, &ret );
+  vm->reg[0] = 0UL;
+  int   err = fd_vm_syscall_sol_memset( vm, dst_vaddr, val, sz, 0, 0 );
+  ulong ret = vm->reg[0];
   FD_TEST( ret==expected_ret );
   FD_TEST( err==expected_err );
 
@@ -54,8 +55,9 @@ test_vm_syscall_sol_memcpy( char const * test_case_name,
                             int          expected_err ) {
   set_memory_region( vm->heap, vm->heap_max );
 
-  ulong ret = 0UL;
-  int   err = fd_vm_syscall_sol_memcpy( vm, dst_vaddr, src_vaddr, sz, 0, 0, &ret );
+  vm->reg[0] = 0UL;
+  int   err = fd_vm_syscall_sol_memcpy( vm, dst_vaddr, src_vaddr, sz, 0, 0 );
+  ulong ret = vm->reg[0];
   FD_TEST( ret==expected_ret );
   FD_TEST( err==expected_err );
 
@@ -90,13 +92,13 @@ test_vm_syscall_sol_memcmp_search( fd_vm_t * vm ) {
       for( ulong i=0UL; i<sz; i++ ) if( m0[i]!=m1[i] ) { want = (int)m0[i] - (int)m1[i]; break; }
 
       *r = -12345;
-      ulong ret = 1UL;
+      vm->reg[0] = 1UL;
       int   err = fd_vm_syscall_sol_memcmp( vm,
                     FD_VM_MEM_MAP_HEAP_REGION_START + OFF0,
                     FD_VM_MEM_MAP_HEAP_REGION_START + OFF1, sz,
-                    FD_VM_MEM_MAP_HEAP_REGION_START + OFFR, 0UL, &ret );
+                    FD_VM_MEM_MAP_HEAP_REGION_START + OFFR, 0UL );
       FD_TEST( err==FD_VM_SUCCESS );
-      FD_TEST( ret==0UL       );
+      FD_TEST( vm->reg[0]==0UL );
       FD_TEST( *r ==want      );
     }
   }
@@ -123,13 +125,13 @@ test_vm_syscall_sol_memcmp_alias( fd_vm_t * vm ) {
     for( ulong i=0UL; i<sz; i++ ) m[i] = (uchar)( i*7UL+1UL );
 
     *r = -12345;
-    ulong ret = 1UL;
+    vm->reg[0] = 1UL;
     int   err = fd_vm_syscall_sol_memcmp( vm,
                   FD_VM_MEM_MAP_HEAP_REGION_START + OFF,
                   FD_VM_MEM_MAP_HEAP_REGION_START + OFF, sz,
-                  FD_VM_MEM_MAP_HEAP_REGION_START + OFFR, 0UL, &ret );
+                  FD_VM_MEM_MAP_HEAP_REGION_START + OFFR, 0UL );
     FD_TEST( err==FD_VM_SUCCESS );
-    FD_TEST( ret==0UL           );
+    FD_TEST( vm->reg[0]==0UL    );
     FD_TEST( *r ==0             );
   }
 
@@ -148,8 +150,9 @@ test_vm_syscall_sol_memcmp( char const * test_case_name,
                             ulong        sz,
                             ulong        expected_ret,
                             int          expected_err ) {
-  ulong ret = 0UL;
-  int   err = fd_vm_syscall_sol_memcmp( vm, vaddr_1, vaddr_2, sz, vm_cmp_result_addr, 0, &ret );
+  vm->reg[0] = 0UL;
+  int   err = fd_vm_syscall_sol_memcmp( vm, vaddr_1, vaddr_2, sz, vm_cmp_result_addr, 0 );
+  ulong ret = vm->reg[0];
   FD_TEST( ret==expected_ret );
   FD_TEST( err==expected_err );
 
@@ -175,8 +178,9 @@ test_vm_syscall_sol_memmove( char const * test_case_name,
   FD_TEST( temp );
   memcpy( temp, (void *)src_haddr, sz );
 
-  ulong ret = 0UL;
-  int   err = fd_vm_syscall_sol_memmove( vm, dst_vaddr, src_vaddr, sz, 0, 0, &ret );
+  vm->reg[0] = 0UL;
+  int   err = fd_vm_syscall_sol_memmove( vm, dst_vaddr, src_vaddr, sz, 0, 0 );
+  ulong ret = vm->reg[0];
   FD_TEST( ret==expected_ret );
   FD_TEST( err==expected_err );
   if( !ret && !err ) FD_TEST( !memcmp( (void *)dst_haddr, temp, sz ) );
@@ -199,8 +203,9 @@ test_vm_syscall_sol_log( char const *            test_case_name,
   fd_log_collector_t * log = vm->instr_ctx->runtime->log.log_collector;
   ulong log_vec_len = fd_log_collector_debug_len( log );
 
-  ulong ret = 0UL;
-  int   err = fd_vm_syscall_sol_log( vm, msg_vaddr, msg_len, 0, 0, 0, &ret );
+  vm->reg[0] = 0UL;
+  int   err = fd_vm_syscall_sol_log( vm, msg_vaddr, msg_len, 0, 0, 0 );
+  ulong ret = vm->reg[0];
   FD_TEST( ret==expected_ret );
   FD_TEST( err==expected_err );
   if( !ret && !err ) {
@@ -228,8 +233,9 @@ test_vm_syscall_sol_log_64( char const *            test_case_name,
   fd_log_collector_t * log = vm->instr_ctx->runtime->log.log_collector;
   ulong log_vec_len = fd_log_collector_debug_len( log );
 
-  ulong ret = 0UL;
-  int   err = fd_vm_syscall_sol_log_64( vm, r1, r2, r3, r4, r5, &ret );
+  vm->reg[0] = 0UL;
+  int   err = fd_vm_syscall_sol_log_64( vm, r1, r2, r3, r4, r5 );
+  ulong ret = vm->reg[0];
   FD_TEST( ret==expected_ret );
   FD_TEST( err==expected_err );
   if( !ret && !err ) {
@@ -254,8 +260,9 @@ test_vm_syscall_sol_log_data( char const *            test_case_name,
   fd_log_collector_t * log = vm->instr_ctx->runtime->log.log_collector;
   ulong log_vec_len = fd_log_collector_debug_len( log );
 
-  ulong ret = 0UL;
-  int   err = fd_vm_syscall_sol_log_data( vm, data_vaddr, data_len, 0, 0, 0, &ret );
+  vm->reg[0] = 0UL;
+  int   err = fd_vm_syscall_sol_log_data( vm, data_vaddr, data_len, 0, 0, 0 );
+  ulong ret = vm->reg[0];
   FD_TEST( ret==expected_ret );
   FD_TEST( err==expected_err );
   if( !ret && !err ) {

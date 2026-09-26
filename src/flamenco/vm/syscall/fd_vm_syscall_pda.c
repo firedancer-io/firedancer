@@ -173,7 +173,6 @@ Parameters:
 - program_id_vaddr: the address of the program id pubkey in VM address space
 - out_vaddr: the address of the memory location where the resulting derived PDA will be written to, in VM address space, if the syscall is successful
 - r5: unused
-- _ret: a pointer to the return value of the syscall
 */
 int
 fd_vm_syscall_sol_create_program_address( /**/            void *  _vm,
@@ -181,8 +180,7 @@ fd_vm_syscall_sol_create_program_address( /**/            void *  _vm,
                                           /**/            ulong   seeds_cnt,
                                           /**/            ulong   program_id_vaddr,
                                           /**/            ulong   out_vaddr,
-                                          FD_PARAM_UNUSED ulong   r5,
-                                          /**/            ulong * _ret )  {
+                                          FD_PARAM_UNUSED ulong   r5 )  {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
 
@@ -201,7 +199,6 @@ fd_vm_syscall_sol_create_program_address( /**/            void *  _vm,
                                                               &program_id,
                                                               1U );
   if( FD_UNLIKELY( err ) ) {
-    *_ret = 0UL;
     return err;
   }
 
@@ -217,7 +214,7 @@ fd_vm_syscall_sol_create_program_address( /**/            void *  _vm,
     /* Place 1 in r0 and successfully exit if we failed to derive a PDA
       https://github.com/anza-xyz/agave/blob/v2.0.8/programs/bpf_loader/src/syscalls/mod.rs#L753 */
     if ( FD_LIKELY( err == FD_VM_SYSCALL_ERR_INVALID_PDA ) ) {
-      *_ret = 1UL;
+      vm->reg[0] = 1UL;
       return FD_VM_SUCCESS;
     }
 
@@ -228,7 +225,7 @@ fd_vm_syscall_sol_create_program_address( /**/            void *  _vm,
   memcpy( address, derived->uc, FD_PUBKEY_FOOTPRINT );
 
   /* Success */
-  *_ret = 0UL;
+  vm->reg[0] = 0UL;
   return FD_VM_SUCCESS;
 }
 
@@ -247,8 +244,7 @@ fd_vm_syscall_sol_try_find_program_address( void *  _vm,
                                             ulong   seeds_cnt,
                                             ulong   program_id_vaddr,
                                             ulong   out_vaddr,
-                                            ulong   out_bump_seed_vaddr,
-                                            ulong * _ret ) {
+                                            ulong   out_bump_seed_vaddr ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
   /* Costs the same as a create_program_address call.. weird but that is the protocol. */
@@ -278,7 +274,6 @@ fd_vm_syscall_sol_try_find_program_address( void *  _vm,
                                                               &program_id,
                                                               1U );
   if( FD_UNLIKELY( err ) ) {
-    *_ret = 0UL;
     return err;
   }
 
@@ -312,7 +307,7 @@ fd_vm_syscall_sol_try_find_program_address( void *  _vm,
       memcpy( address_query.haddr, derived->uc, sizeof(fd_pubkey_t) );
       memcpy( bump_seed_ref_query.haddr, bump_seed, sizeof(uchar) );
 
-      *_ret = 0UL;
+      vm->reg[0] = 0UL;
       return FD_VM_SUCCESS;
     } else if( FD_UNLIKELY( err!=FD_VM_SYSCALL_ERR_INVALID_PDA ) ) {
       return err;
@@ -321,6 +316,6 @@ fd_vm_syscall_sol_try_find_program_address( void *  _vm,
     FD_VM_CU_UPDATE( vm, FD_VM_CREATE_PROGRAM_ADDRESS_UNITS );
   }
 
-  *_ret = 1UL;
+  vm->reg[0] = 1UL;
   return FD_VM_SUCCESS;
 }
