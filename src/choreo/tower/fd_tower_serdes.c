@@ -109,10 +109,11 @@ ser_var_int( uchar * dst, ulong val ) {
   return off + 1;
 }
 
-int
-fd_compact_tower_sync_de( fd_compact_tower_sync_serde_t * serde,
-                          uchar const *                   buf,
-                          ulong                           buf_sz ) {
+static int
+compact_tower_sync_de( fd_compact_tower_sync_serde_t * serde,
+                       uchar const *                   buf,
+                       ulong                           buf_sz,
+                       int                             exact ) {
   DE( ulong, root );
   if( FD_UNLIKELY( de_short_u16( &serde->lockouts_cnt, &buf, &buf_sz ) ) ) return -1;
   if( FD_UNLIKELY( serde->lockouts_cnt > FD_TOWER_VOTE_MAX ) ) return -1;
@@ -127,7 +128,21 @@ fd_compact_tower_sync_de( fd_compact_tower_sync_serde_t * serde,
     DE( long, timestamp );
   }
   DE( fd_hash_t, block_id );
-  return 0;
+  return exact && buf_sz ? -1 : 0;
+}
+
+int
+fd_compact_tower_sync_de( fd_compact_tower_sync_serde_t * serde,
+                          uchar const *                   buf,
+                          ulong                           buf_sz ) {
+  return compact_tower_sync_de( serde, buf, buf_sz, 0 );
+}
+
+int
+fd_compact_tower_sync_de_exact( fd_compact_tower_sync_serde_t * serde,
+                                uchar const *                   buf,
+                                ulong                           buf_sz ) {
+  return compact_tower_sync_de( serde, buf, buf_sz, 1 );
 }
 
 int

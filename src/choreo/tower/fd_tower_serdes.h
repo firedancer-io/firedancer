@@ -67,6 +67,15 @@ fd_compact_tower_sync_de( fd_compact_tower_sync_serde_t * serde,
                           uchar const *                   buf,
                           ulong                           buf_sz );
 
+/* fd_compact_tower_sync_de_exact is fd_compact_tower_sync_de with the
+   whole buffer required, trailing bytes are an error.  Returns 0 on
+   success and -1 otherwise. */
+
+int
+fd_compact_tower_sync_de_exact( fd_compact_tower_sync_serde_t * serde,
+                                uchar const *                   buf,
+                                ulong                           buf_sz );
+
 /* fd_compact_tower_sync_to_votes expands the lockout offsets into
    ascending votes (out holds FD_TOWER_VOTE_MAX), count and root,
    ULONG_MAX if none.  Returns -1 for a repeated or descending slot, a
