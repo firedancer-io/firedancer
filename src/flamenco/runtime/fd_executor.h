@@ -67,6 +67,27 @@ fd_executor_txn_verify_raw( fd_txn_t const *     txn,
                             fd_sha512_t *        shas[ FD_TXN_SIG_MAX ],
                             fd_ed25519_cache_t * cache );
 
+/* fd_executor_txn_verify_batch is fd_executor_txn_verify_raw over
+   txn_cnt<=FD_EXECUTOR_TXN_VERIFY_BATCH_MAX transactions at once:
+   results[i] is set to what fd_executor_txn_verify_raw returns for
+   (txns[i], payloads[i], payload_szs[i]).  The signatures of the
+   whole batch are verified together, eight at a time in SIMD lanes
+   where supported, with a short tail through cache (which may be
+   NULL); a transaction fails if any of its signatures does, as the
+   single transaction path reports.  shas has one calculator per
+   signature the batch can hold. */
+
+#define FD_EXECUTOR_TXN_VERIFY_BATCH_MAX (8UL)
+
+void
+fd_executor_txn_verify_batch( fd_txn_t const * const txns[],
+                              uchar const * const    payloads[],
+                              ushort const           payload_szs[],
+                              ulong                  txn_cnt,
+                              fd_sha512_t *          shas[ FD_EXECUTOR_TXN_VERIFY_BATCH_MAX*FD_TXN_SIG_MAX ],
+                              fd_ed25519_cache_t *   cache,
+                              int                    results[] );
+
 /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/rent_calculator.rs#L144-L178 */
 int
 fd_executor_check_static_account_rent_state_transition( ulong             pre_exec_balance,
