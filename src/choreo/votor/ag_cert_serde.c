@@ -70,6 +70,7 @@ ag_cert_ser( ag_cert_t const * self,
 
 int
 ag_cert_de( ag_cert_t *   self,
+            ulong *       bit_cnt,
             uchar const * buf,
             ulong         buf_sz ) {
   FAIL( buf_sz<2 /* version + tag */, SZ );
@@ -113,21 +114,21 @@ ag_cert_de( ag_cert_t *   self,
   case AG_CERT_KIND_FINAL:
     self->final.slot = cert.slot;
     self->final.shred_version = cert.shred_version;
-    if( FD_UNLIKELY( err = ag_bls_agg_de( &self->final.agg, cert.bitmap, cert.bitmap_sz ) ) ) return err;
+    if( FD_UNLIKELY( err = ag_bls_agg_de( &self->final.agg, bit_cnt, cert.bitmap, cert.bitmap_sz ) ) ) return err;
     self->final.agg.sig = *sig;
     break;
   case AG_CERT_KIND_FAST_FINAL:
     self->fast_final.slot = cert.slot;
     self->fast_final.shred_version = cert.shred_version;
     memcpy( self->fast_final.block_hash, cert.block_id, sizeof(ag_block_hash_t) );
-    if( FD_UNLIKELY( err = ag_bls_agg_de( &self->fast_final.agg, cert.bitmap, cert.bitmap_sz ) ) ) return err;
+    if( FD_UNLIKELY( err = ag_bls_agg_de( &self->fast_final.agg, bit_cnt, cert.bitmap, cert.bitmap_sz ) ) ) return err;
     self->fast_final.agg.sig = *sig;
     break;
   case AG_CERT_KIND_NOTAR:
     self->notar.slot = cert.slot;
     self->notar.shred_version = cert.shred_version;
     memcpy( self->notar.block_hash, cert.block_id, sizeof(ag_block_hash_t) );
-    if( FD_UNLIKELY( err = ag_bls_agg_de( &self->notar.agg, cert.bitmap, cert.bitmap_sz ) ) ) return err;
+    if( FD_UNLIKELY( err = ag_bls_agg_de( &self->notar.agg, bit_cnt, cert.bitmap, cert.bitmap_sz ) ) ) return err;
     self->notar.agg.sig = *sig;
     break;
   case AG_CERT_KIND_NOTAR_FALLBACK: {
@@ -136,7 +137,7 @@ ag_cert_de( ag_cert_t *   self,
     self->notar_fallback.slot = cert.slot;
     self->notar_fallback.shred_version = cert.shred_version;
     memcpy( self->notar_fallback.block_hash, cert.block_id, sizeof(ag_block_hash_t) );
-    if( FD_UNLIKELY( err = ag_bls_agg_pair_de( agg, agg2, cert.bitmap, cert.bitmap_sz ) ) ) return err;
+    if( FD_UNLIKELY( err = ag_bls_agg_pair_de( agg, agg2, bit_cnt, cert.bitmap, cert.bitmap_sz ) ) ) return err;
     agg->sig = *sig;
     break;
   }
@@ -145,7 +146,7 @@ ag_cert_de( ag_cert_t *   self,
     fd_bls_agg_t * agg2 = &self->skip.agg_skip_fallback;
     self->skip.slot = cert.slot;
     self->skip.shred_version = cert.shred_version;
-    if( FD_UNLIKELY( err = ag_bls_agg_pair_de( agg, agg2, cert.bitmap, cert.bitmap_sz ) ) ) return err;
+    if( FD_UNLIKELY( err = ag_bls_agg_pair_de( agg, agg2, bit_cnt, cert.bitmap, cert.bitmap_sz ) ) ) return err;
     agg->sig = *sig;
     break;
   }

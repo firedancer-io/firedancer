@@ -506,7 +506,8 @@ test_reward_wire_cert_base( void ) {
   ag_cert_t cert = cert_build_skip( sv, 5UL, sfv, 4UL, g_epoch_info );
   uchar buf[ AG_CERT_SER_MAX ];
   ulong buf_sz = ag_cert_ser( &cert, buf );
-  FD_TEST( ag_cert_de( &cert, buf, buf_sz )==AG_CERT_DE_SUCCESS );
+  ulong bit_cnt;
+  FD_TEST( ag_cert_de( &cert, &bit_cnt, buf, buf_sz )==AG_CERT_DE_SUCCESS );
   FD_TEST( ag_pool_add_cert( pool, &cert, bad )==AG_POOL_SUCCESS );
   drain_events( pool );
   add_skip_votes( pool, slot, 0UL,  3UL  );
@@ -550,7 +551,7 @@ test_reward_wire_cert_base( void ) {
   for( ulong v=0UL; v<7UL; v++ ) nv[v] = ag_vote_construct_notar( sec_sign_fn, &g_sk[v], slot+1UL, hash, (ushort)v, TEST_SHRED_VERSION ).notar;
   cert   = cert_build_notar( nv, 7UL, g_epoch_info );
   buf_sz = ag_cert_ser( &cert, buf );
-  FD_TEST( ag_cert_de( &cert, buf, buf_sz )==AG_CERT_DE_SUCCESS );
+  FD_TEST( ag_cert_de( &cert, &bit_cnt, buf, buf_sz )==AG_CERT_DE_SUCCESS );
   FD_TEST( ag_pool_add_cert( pool, &cert, bad )==AG_POOL_SUCCESS );
   drain_events( pool );
   state = ag_pool_slot_state( pool, slot+1UL );
@@ -1047,7 +1048,8 @@ test_standstill_recovery( void ) {
     ulong sz;
     sz = ag_cert_ser( &certs[i], buf );
     ag_cert_t rt;
-    FD_TEST( ag_cert_de( &rt, buf, sz )==AG_CERT_DE_SUCCESS );
+    ulong bit_cnt;
+    FD_TEST( ag_cert_de( &rt, &bit_cnt, buf, sz )==AG_CERT_DE_SUCCESS );
     FD_TEST( rt.kind==certs[i].kind );
     FD_TEST( ag_cert_slot( &rt )==ag_cert_slot( &certs[i] ) );
     FD_TEST( ag_cert_shred_version( &rt )==TEST_SHRED_VERSION );
@@ -1062,8 +1064,8 @@ test_standstill_recovery( void ) {
     FD_TEST( !memcmp( rebroadcast, buf, sz ) );
 
     ag_cert_t bad;
-    FD_TEST( ag_cert_de( &bad, buf, sz-1UL )==AG_CERT_DE_ERR_SZ ); /* too few  */
-    FD_TEST( ag_cert_de( &bad, buf, sz+1UL )==AG_CERT_DE_ERR_SZ ); /* trailing */
+    FD_TEST( ag_cert_de( &bad, &bit_cnt, buf, sz-1UL )==AG_CERT_DE_ERR_SZ ); /* too few  */
+    FD_TEST( ag_cert_de( &bad, &bit_cnt, buf, sz+1UL )==AG_CERT_DE_ERR_SZ ); /* trailing */
   }
 
   teardown_pool( pool );

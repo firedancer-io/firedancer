@@ -35,7 +35,9 @@ check_base2( fd_bls_agg_t const * agg,
 
   fd_bls_agg_t back[1];
   fd_memset( &back->sig, 0xAA, sizeof(fd_bls_sig_t) );
-  FD_TEST( ag_bls_agg_de( back, buf, sz )==AG_BLS_DE_SUCCESS );
+  ulong bit_cnt;
+  FD_TEST( ag_bls_agg_de( back, &bit_cnt, buf, sz )==AG_BLS_DE_SUCCESS );
+  FD_TEST( bit_cnt==fd_ulong_min( FD_BLS_SET_MAX, fd_bls_set_last( agg->set )+1UL ) );
   for( ulong i=0UL; i<FD_BLS_SET_MAX; i++ ) FD_TEST( fd_bls_set_test( back->set, i )==fd_bls_set_test( agg->set, i ) );
 
   /* a bitmap carries no signature, so decoding clears the one that was there */
@@ -45,7 +47,7 @@ check_base2( fd_bls_agg_t const * agg,
   /* base2 is legal wherever a fallback partition could be: it says the
      fallback set is empty */
   fd_bls_agg_t b[1], f[1];
-  FD_TEST( ag_bls_agg_pair_de( b, f, buf, sz )==AG_BLS_DE_SUCCESS );
+  FD_TEST( ag_bls_agg_pair_de( b, f, &bit_cnt, buf, sz )==AG_BLS_DE_SUCCESS );
   FD_TEST( !fd_bls_set_cnt( f->set ) );
   for( ulong i=0UL; i<FD_BLS_SET_MAX; i++ ) FD_TEST( fd_bls_set_test( b->set, i )==fd_bls_set_test( agg->set, i ) );
 }
@@ -63,7 +65,8 @@ check_base3( fd_bls_agg_t const * base,
   FD_TEST( !memcmp( buf, exp, sz ) );
 
   fd_bls_agg_t b[1], f[1];
-  FD_TEST( ag_bls_agg_pair_de( b, f, buf, sz )==AG_BLS_DE_SUCCESS );
+  ulong bit_cnt;
+  FD_TEST( ag_bls_agg_pair_de( b, f, &bit_cnt, buf, sz )==AG_BLS_DE_SUCCESS );
   for( ulong i=0UL; i<FD_BLS_SET_MAX; i++ ) {
     FD_TEST( fd_bls_set_test( b->set, i )==fd_bls_set_test( base->set, i ) );
     FD_TEST( fd_bls_set_test( f->set, i )==fd_bls_set_test( fb->set,   i ) );
@@ -72,7 +75,7 @@ check_base3( fd_bls_agg_t const * base,
   /* only the pair decoder takes base3: a message with a single partition
      has no second signer set to decode into */
   fd_bls_agg_t one[1];
-  FD_TEST( ag_bls_agg_de( one, buf, sz )==AG_BLS_DE_ERR_INVAL );
+  FD_TEST( ag_bls_agg_de( one, &bit_cnt, buf, sz )==AG_BLS_DE_ERR_INVAL );
 }
 
 static void
@@ -153,36 +156,37 @@ test_agg_bitmap_errors( void ) {
 
   uchar buf[ AG_BLS_AGG_PAIR_SER_MAX ];
   ulong sz = ag_bls_agg_ser( agg, buf );
+  ulong bit_cnt;
 
   /* short of the framing */
 
   for( ulong n=0UL; n<AG_BLS_AGG_HDR_SZ; n++ ) {
-    FD_TEST( ag_bls_agg_de     ( dst,  buf, n )==AG_BLS_DE_ERR_SZ );
-    FD_TEST( ag_bls_agg_pair_de( b, f, buf, n )==AG_BLS_DE_ERR_SZ );
+    FD_TEST( ag_bls_agg_de     ( dst,  &bit_cnt, buf, n )==AG_BLS_DE_ERR_SZ );
+    FD_TEST( ag_bls_agg_pair_de( b, f, &bit_cnt, buf, n )==AG_BLS_DE_ERR_SZ );
   }
 
   /* a payload the bit count does not call for */
 
-  FD_TEST( ag_bls_agg_de( dst, buf, sz-1UL )==AG_BLS_DE_ERR_INVAL ); /* too few  */
-  FD_TEST( ag_bls_agg_de( dst, buf, sz+1UL )==AG_BLS_DE_ERR_INVAL ); /* trailing */
+  FD_TEST( ag_bls_agg_de( dst, &bit_cnt, buf, sz-1UL )==AG_BLS_DE_ERR_INVAL ); /* too few  */
+  FD_TEST( ag_bls_agg_de( dst, &bit_cnt, buf, sz+1UL )==AG_BLS_DE_ERR_INVAL ); /* trailing */
 
   /* a version tag that is neither base2 nor base3 */
 
   uchar bad[ AG_BLS_AGG_PAIR_SER_MAX ];
   fd_memcpy( bad, buf, sz );
   bad[ 0 ] = 2;
-  FD_TEST( ag_bls_agg_de     ( dst,  bad, sz )==AG_BLS_DE_ERR_INVAL );
-  FD_TEST( ag_bls_agg_pair_de( b, f, bad, sz )==AG_BLS_DE_ERR_INVAL );
+  FD_TEST( ag_bls_agg_de     ( dst,  &bit_cnt, bad, sz )==AG_BLS_DE_ERR_INVAL );
+  FD_TEST( ag_bls_agg_pair_de( b, f, &bit_cnt, bad, sz )==AG_BLS_DE_ERR_INVAL );
 
   /* a bit count past the signer bound */
 
   fd_memcpy( bad, buf, sz );
   FD_STORE( ushort, bad+1UL, (ushort)(FD_BLS_SET_MAX+1UL) );
-  FD_TEST( ag_bls_agg_de( dst, bad, sz )==AG_BLS_DE_ERR_SZ );
+  FD_TEST( ag_bls_agg_de( dst, &bit_cnt, bad, sz )==AG_BLS_DE_ERR_SZ );
 
   ulong sz3 = ag_bls_agg_pair_ser( agg, f, bad );
   FD_STORE( ushort, bad+1UL, (ushort)(FD_BLS_SET_MAX+1UL) );
-  FD_TEST( ag_bls_agg_pair_de( b, f, bad, sz3 )==AG_BLS_DE_ERR_SZ );
+  FD_TEST( ag_bls_agg_pair_de( b, f, &bit_cnt, bad, sz3 )==AG_BLS_DE_ERR_SZ );
 
   FD_LOG_NOTICE(( "signer set bitmap error paths pass" ));
 }

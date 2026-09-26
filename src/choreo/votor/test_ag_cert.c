@@ -555,7 +555,9 @@ check_cert_wire( char const *         name,
   /* the same bytes decode back, and the decoded cert reserializes to them */
 
   ag_cert_t rt;
-  FD_TEST( ag_cert_de( &rt, buf, sz )==AG_CERT_DE_SUCCESS );
+  ulong de_bit_cnt;
+  FD_TEST( ag_cert_de( &rt, &de_bit_cnt, buf, sz )==AG_CERT_DE_SUCCESS );
+  FD_TEST( de_bit_cnt==(ulong)bit_cnt );
   FD_TEST( rt.kind==c->kind );
   FD_TEST( ag_cert_slot( &rt )==slot );
   FD_TEST( ag_cert_shred_version( &rt )==TEST_SHRED_VERSION );
@@ -566,8 +568,8 @@ check_cert_wire( char const *         name,
   FD_TEST( ag_cert_ser( &rt, again )==sz );
   FD_TEST( !memcmp( again, buf, sz ) );
 
-  FD_TEST( ag_cert_de( &rt, buf, sz-1UL )==AG_CERT_DE_ERR_SZ ); /* too few  */
-  FD_TEST( ag_cert_de( &rt, buf, sz+1UL )==AG_CERT_DE_ERR_SZ ); /* trailing */
+  FD_TEST( ag_cert_de( &rt, &de_bit_cnt, buf, sz-1UL )==AG_CERT_DE_ERR_SZ ); /* too few  */
+  FD_TEST( ag_cert_de( &rt, &de_bit_cnt, buf, sz+1UL )==AG_CERT_DE_ERR_SZ ); /* trailing */
 }
 
 static void
@@ -664,7 +666,9 @@ test_wire_verify( void ) {
   mk_nf   ( fv, slot, h, 5UL, 4UL );
   c  = cert_build_notar_fallback( nv, 5UL, fv, 4UL, e );
   sz = ag_cert_ser( &c, buf );
-  FD_TEST( ag_cert_de( &rt, buf, sz )==AG_CERT_DE_SUCCESS );
+  ulong bit_cnt;
+  FD_TEST( ag_cert_de( &rt, &bit_cnt, buf, sz )==AG_CERT_DE_SUCCESS );
+  FD_TEST( bit_cnt==9UL );
   FD_TEST( blst_p2_is_inf( &rt.notar_fallback.agg_notar_fallback.sig ) );
   FD_TEST( cert_verify( &rt, e ) );
   rt.notar_fallback.slot = slot+1UL; FD_TEST( !cert_verify( &rt, e ) );
@@ -673,7 +677,7 @@ test_wire_verify( void ) {
   mk_sf  ( sfv, slot, 5UL, 4UL );
   c  = cert_build_skip( sv, 5UL, sfv, 4UL, e );
   sz = ag_cert_ser( &c, buf );
-  FD_TEST( ag_cert_de( &rt, buf, sz )==AG_CERT_DE_SUCCESS );
+  FD_TEST( ag_cert_de( &rt, &bit_cnt, buf, sz )==AG_CERT_DE_SUCCESS );
   FD_TEST( blst_p2_is_inf( &rt.skip.agg_skip_fallback.sig ) );
   FD_TEST( cert_verify( &rt, e ) );
   rt.skip.slot = slot+1UL; FD_TEST( !cert_verify( &rt, e ) );
@@ -682,7 +686,7 @@ test_wire_verify( void ) {
   mk_nf( fv, slot, h, 0UL, 9UL );
   c  = cert_build_notar_fallback( NULL, 0UL, fv, 9UL, e );
   sz = ag_cert_ser( &c, buf );
-  FD_TEST( ag_cert_de( &rt, buf, sz )==AG_CERT_DE_SUCCESS );
+  FD_TEST( ag_cert_de( &rt, &bit_cnt, buf, sz )==AG_CERT_DE_SUCCESS );
   FD_TEST( cert_verify( &rt, e ) );
 
   /* a rank the epoch does not have */
