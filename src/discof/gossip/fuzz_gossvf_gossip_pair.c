@@ -137,8 +137,11 @@ pair_mem_align( void ) {
   a = fd_ulong_max( a, fd_tcache_align () );
   a = fd_ulong_max( a, FD_CHUNK_ALIGN    );
   a = fd_ulong_max( a, fd_mcache_align() );
+  a = fd_ulong_max( a, fd_ed25519_cache_align() );
   return a;
 }
+
+#define PAIR_ED25519_CACHE_ENT_CNT (8UL)
 
 static ulong
 pair_node_layout_append( ulong l ) {
@@ -153,6 +156,7 @@ pair_node_layout_append( ulong l ) {
   l = FD_LAYOUT_APPEND( l, stake_pool_align(), stake_pool_footprint( PAIR_STAKE_CAP ) );
   l = FD_LAYOUT_APPEND( l, stake_map_align(),  stake_map_footprint( stake_map_chain_cnt_est( PAIR_STAKE_CAP ) ) );
   l = FD_LAYOUT_APPEND( l, fd_tcache_align(),  fd_tcache_footprint( PAIR_TCACHE_DEPTH, 0UL ) );
+  l = FD_LAYOUT_APPEND( l, fd_ed25519_cache_align(), fd_ed25519_cache_footprint( PAIR_ED25519_CACHE_ENT_CNT ) );
   l = FD_LAYOUT_APPEND( l, FD_CHUNK_ALIGN,     PAIR_OUT_DBUF_SZ );
   l = FD_LAYOUT_APPEND( l, fd_mcache_align(),  fd_mcache_footprint( PAIR_OUT_DEPTH, 0UL ) );
   return l;
@@ -510,6 +514,7 @@ pair_setup_vf( pair_node_t * node,
   void * stake_pool_mem = FD_SCRATCH_ALLOC_APPEND( mem, stake_pool_align(), stake_pool_footprint( PAIR_STAKE_CAP ) );
   void * stake_map_mem  = FD_SCRATCH_ALLOC_APPEND( mem, stake_map_align(),  stake_map_footprint( stake_map_chain_cnt_est( PAIR_STAKE_CAP ) ) );
   void * tcache_mem     = FD_SCRATCH_ALLOC_APPEND( mem, fd_tcache_align(),  fd_tcache_footprint( PAIR_TCACHE_DEPTH, 0UL ) );
+  void * edcache_mem    = FD_SCRATCH_ALLOC_APPEND( mem, fd_ed25519_cache_align(), fd_ed25519_cache_footprint( PAIR_ED25519_CACHE_ENT_CNT ) );
 
   ctx->peers      = peer_pool_join( peer_pool_new( peer_pool_mem, PAIR_PEER_CAP ) );
   ctx->peer_map   = peer_map_join ( peer_map_new ( peer_map_mem, 2UL*PAIR_PEER_CAP, ctx->seed ) );
@@ -529,6 +534,8 @@ pair_setup_vf( pair_node_t * node,
   ctx->tcache.map     = fd_tcache_map_laddr   ( tcache );
 
   FD_TEST( fd_sha512_join( fd_sha512_new( ctx->sha ) ) );
+  ctx->ed25519_cache = fd_ed25519_cache_join( fd_ed25519_cache_new( edcache_mem, PAIR_ED25519_CACHE_ENT_CNT, ctx->seed ) );
+  FD_TEST( ctx->ed25519_cache );
 
   void * out_dcache = FD_SCRATCH_ALLOC_APPEND( mem, FD_CHUNK_ALIGN, PAIR_OUT_DBUF_SZ );
   ctx->out->mem     = out_dcache;

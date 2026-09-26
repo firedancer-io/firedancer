@@ -150,12 +150,18 @@ setup_verify_ctx( fd_verify_ctx_t * ctx, void ** mem ) {
     if( FD_UNLIKELY( !sha ) ) FD_LOG_ERR(( "fd_sha512_join failed" ));
     ctx->sha[i] = sha;
   }
+
+  /* ctx->ed25519_cache */
+  void * _cache = aligned_alloc( fd_ed25519_cache_align(), fd_ed25519_cache_footprint( 16UL ) );
+  ctx->ed25519_cache = fd_ed25519_cache_join( fd_ed25519_cache_new( _cache, 16UL, 0UL ) );
+  FD_TEST( ctx->ed25519_cache );
 }
 
 static void
 free_verify_ctx( fd_verify_ctx_t * ctx, void * mem ) {
   free(mem);
   free(ctx->sha[0]); // all sha allocated in a single malloc, the first one has the address
+  free( fd_ed25519_cache_delete( fd_ed25519_cache_leave( ctx->ed25519_cache ) ) );
 }
 
 static void
