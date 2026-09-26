@@ -266,7 +266,7 @@ test_frames( void ) {
     }
   }
   /* Root frame returns to test_frames */
-  ulong self_lo = (ulong)(void *)test_frames;
+  ulong self_lo = (ulong)test_frames;
   FD_TEST( frame_probe_reg[ expect-1UL ]>self_lo && frame_probe_reg[ expect-1UL ]<self_lo+4096UL );
 
   /* Fault unwinding from deep inside the frame chain restores the root
