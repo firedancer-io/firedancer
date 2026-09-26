@@ -110,7 +110,7 @@ run( test_env_t *                 env,
 
   out->bailed = 0;
   if( fn ) {
-    out->err = fn( vm );
+    out->err = fd_vm_transpiled_exec( fn, vm );
     if( out->err==FD_VM_ERR_EBPF_BAIL ) {
       out->bailed = 1;
       out->err = fd_vm_exec( vm );

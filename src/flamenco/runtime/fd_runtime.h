@@ -219,6 +219,9 @@ struct fd_runtime {
     ulong lthash_unchanged_cnt;
 
     ulong bank_switch_cnt;
+    /* sBPF executions via transpiled code */
+    ulong transpiled_exec_cnt;
+    ulong transpiled_bail_cnt;
   } metrics;
 
   struct {

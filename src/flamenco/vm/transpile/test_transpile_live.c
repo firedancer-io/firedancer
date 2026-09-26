@@ -114,7 +114,7 @@ test_exec( fd_sbpf_program_t const *    prog,
                        prog->entry_pc, prog->calldests, prog->info.sbpf_version, syscalls, NULL, sha,
                        NULL, 0UL, NULL, 0, 0, 0, 0, 0, 0UL ) );
 
-  int err = fn ? fn( vm ) : fd_vm_exec( vm );
+  int err = fn ? fd_vm_transpiled_exec( fn, vm ) : fd_vm_exec( vm );
   FD_TEST( vm->reg[0]==42UL );
   *cu = vm->cu;
 
@@ -247,7 +247,7 @@ test_frames( void ) {
   frame_probe_root  = (ulong)__builtin_frame_address( 0 );
   frame_probe_armed = 1;
   fd_vm_transpiled_exec_func_t fn = (fd_vm_transpiled_exec_func_t)live->text_haddr;
-  FD_TEST( fn( vm )==FD_VM_SUCCESS );
+  FD_TEST( fd_vm_transpiled_exec( fn, vm )==FD_VM_SUCCESS );
   frame_probe_armed = 0;
 
   /* Chain: frame_probe, [syscall thunk has no frame], sBPF pc 3
@@ -265,9 +265,13 @@ test_frames( void ) {
       FD_LOG_ERR(( "hop %lu return address %#lx outside transpiled text [%#lx,%#lx)", i, frame_probe_reg[ i ], text_lo, text_hi ));
     }
   }
-  /* Root frame returns to test_frames */
+  /* Root frame returns into test_frames (the exec helper tail-jumps
+     into the transpiled entry, so it leaves no frame of its own).
+     Sanitizer builds inflate the function well past 4 KiB. */
   ulong self_lo = (ulong)test_frames;
-  FD_TEST( frame_probe_reg[ expect-1UL ]>self_lo && frame_probe_reg[ expect-1UL ]<self_lo+4096UL );
+  if( FD_UNLIKELY( frame_probe_reg[ expect-1UL ]<=self_lo || frame_probe_reg[ expect-1UL ]>=self_lo+65536UL ) ) {
+    FD_LOG_ERR(( "root hop %#lx not in test_frames [%#lx,+64KiB)", frame_probe_reg[ expect-1UL ], self_lo ));
+  }
 
   /* Fault unwinding from deep inside the frame chain restores the root
      frame: exhaust the call depth (DEPTH > FD_VM_STACK_FRAME_MAX) */
@@ -287,7 +291,7 @@ test_frames( void ) {
                        prog->entry_pc, prog->calldests, prog->info.sbpf_version, syscalls, NULL, sha,
                        NULL, 0UL, NULL, 0, 0, 0, 0, 0, 0UL ) );
   ulong bp_before = (ulong)__builtin_frame_address( 0 );
-  int err_live = fn( vm );
+  int err_live = fd_vm_transpiled_exec( fn, vm );
   FD_TEST( (ulong)__builtin_frame_address( 0 )==bp_before );
   if( FD_UNLIKELY( err_interp!=err_live || cu_interp!=vm->cu ) ) {
     FD_LOG_ERR(( "depth fault mismatch: interp err %d cu %ld, live err %d cu %ld", err_interp, cu_interp, err_live, vm->cu ));
@@ -415,7 +419,7 @@ slot_test_run( fd_sbpf_program_t const *    prog,
                        prog->rodata, prog->rodata_sz, prog->text, prog->info.text_cnt, 0UL, prog->info.text_sz,
                        prog->entry_pc, prog->calldests, prog->info.sbpf_version, syscalls, NULL, sha,
                        NULL, 0UL, NULL, 0, 0, 0, 0, 0, 0UL ) );
-  FD_TEST( ( fn ? fn( vm ) : fd_vm_exec( vm ) )==FD_VM_SUCCESS );
+  FD_TEST( ( fn ? fd_vm_transpiled_exec( fn, vm ) : fd_vm_exec( vm ) )==FD_VM_SUCCESS );
   FD_TEST( vm->reg[0]==42UL );
   fd_sha256_delete( fd_sha256_leave( sha ) );
 }
@@ -579,7 +583,7 @@ fixture_exec( test_env_t *                 env,
 
   out->bail_cnt = 0UL;
   if( fn ) {
-    out->err = fn( vm );
+    out->err = fd_vm_transpiled_exec( fn, vm );
     if( out->err==FD_VM_ERR_EBPF_BAIL ) {
       out->bail_cnt++;
       out->err = fd_vm_exec( vm );
