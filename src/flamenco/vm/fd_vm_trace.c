@@ -112,7 +112,7 @@ int
 fd_vm_trace_event_exe( fd_vm_trace_t * trace,
                        ulong           pc,
                        ulong           ic,
-                       ulong           cu,
+                       long            cu,
                        ulong           reg[ FD_VM_REG_CNT ],
                        ulong const *   text,
                        ulong           text_cnt,
@@ -245,7 +245,7 @@ fd_vm_trace_printf( fd_vm_trace_t const *      trace,
       else                     printf( "%s", out );
 
       /* Print CUs  */
-      printf( " %lu\n", event->cu );
+      printf( " %ld\n", event->cu );
       fflush( stdout );
       break;
     }

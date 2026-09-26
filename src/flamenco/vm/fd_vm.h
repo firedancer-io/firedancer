@@ -88,7 +88,7 @@ struct __attribute__((aligned(FD_VM_HOST_REGION_ALIGN))) fd_vm {
 
 //ulong frame_max; /* Maximum number of stack frames, in [0,FD_VM_STACK_FRAME_MAX] */
   ulong heap_max;  /* Maximum amount of heap in bytes, in [0,FD_VM_HEAP_MAX] */
-  ulong entry_cu;  /* Initial number of compute units for this program, in [0,FD_VM_COMPUTE_UNIT_LIMIT] */
+  long  entry_cu;  /* Initial number of compute units for this program, in [0,FD_VM_COMPUTE_UNIT_LIMIT] */
 
   /* FIXME: The below are practically an exact match to the
      fields of an fd_sbpf_program_t (sans ELF info) */
@@ -133,7 +133,7 @@ struct __attribute__((aligned(FD_VM_HOST_REGION_ALIGN))) fd_vm {
 
   ulong pc;        /* The current instruction, in [0,text_cnt) in normal execution, may be out of bounds in a fault */
   ulong ic;        /* The number of instructions which have been executed */
-  ulong cu;        /* The remaining CUs left for the transaction, positive in normal execution, may be zero in a fault */
+  long  cu;        /* The remaining CUs left for the transaction, positive in normal execution, may be <=0 in a fault */
   ulong frame_cnt; /* The current number of stack frames pushed, in [0,frame_max] */
 
   ulong heap_sz;     /* Heap size in bytes, in [0,heap_max] */

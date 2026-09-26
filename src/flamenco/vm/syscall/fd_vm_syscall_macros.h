@@ -23,10 +23,10 @@
 
 #define FD_VM_CU_UPDATE( vm, cost ) (__extension__({ \
     fd_vm_t * _vm   = (vm);                          \
-    ulong     _cost = (cost);                        \
-    ulong     _cu   = _vm->cu;                       \
+    long      _cost = (long)(cost);                  \
+    long      _cu   = _vm->cu;                       \
     if( FD_UNLIKELY( _cost>_cu ) ) {                 \
-      _vm->cu = 0UL;                                 \
+      _vm->cu = 0L;                                  \
       FD_VM_ERR_FOR_LOG_INSTR( vm, FD_EXECUTOR_INSTR_ERR_COMPUTE_BUDGET_EXCEEDED ); \
       return FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED; \
     }                                                \

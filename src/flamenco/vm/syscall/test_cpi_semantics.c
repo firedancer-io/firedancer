@@ -2306,7 +2306,7 @@ test_callee_cu_exhaustion_during( fd_svm_mini_t * mini ) {
     if( abi==0 ) rust_cpi_build( vm, cfg, &instr_va, &infos_va, &n_infos );
     else         c_cpi_build   ( vm, cfg, &instr_va, &infos_va, &n_infos );
 
-    vm->cu = FD_VM_INVOKE_UNITS + 30UL;
+    vm->cu = FD_VM_INVOKE_UNITS + 30L;
 
     cpi_syscall_fn_t fn = (abi==0) ? fd_vm_syscall_cpi_rust : fd_vm_syscall_cpi_c;
     ulong ret = 0UL;

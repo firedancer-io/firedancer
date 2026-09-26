@@ -1471,7 +1471,7 @@ fd_dump_vm_syscall_to_protobuf( fd_vm_t const * vm,
   char filename[ PATH_MAX ];
   snprintf( filename,
           PATH_MAX,
-          "%s/syscall-%s-%s-%d-%hhu-%lu.sysctx",
+          "%s/syscall-%s-%s-%d-%hhu-%ld.sysctx",
           vm->instr_ctx->runtime->log.dump_proto_ctx->dump_proto_output_dir,
           fn_name,
           encoded_signature,

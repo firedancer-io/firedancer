@@ -504,7 +504,7 @@ test_0cu_exit( fd_runtime_t * runtime ) {
 
   FD_TEST( fd_vm_validate( vm )==FD_VM_SUCCESS );
   FD_TEST( fd_vm_exec    ( vm )==FD_VM_SUCCESS );
-  FD_TEST( vm->cu == 0UL );
+  FD_TEST( vm->cu == 0L );
 
   /* Ensure the VM exits with failure if CUs are exhausted. */
 
