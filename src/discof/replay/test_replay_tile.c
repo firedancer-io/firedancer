@@ -163,6 +163,7 @@ mock_sched_get_txn_info_fn( fd_sched_t * s FD_PARAM_UNUSED,
 /* ---- Mock leader setup dependencies ---- */
 
 static ulong mock_next_leader_slot = ULONG_MAX;
+static fd_pubkey_t const * mock_slot_leader; /* NULL keeps the real leader schedule */
 static ulong mock_txncache_fork_id_next;
 static ulong mock_progcache_fork_id_next;
 static ushort mock_accdb_fork_id_next;
@@ -229,6 +230,7 @@ mock_runtime_block_execute_prepare_fn( fd_banks_t *         banks FD_PARAM_UNUSE
 }
 
 #define fd_multi_epoch_leaders_get_next_slot mock_multi_epoch_leaders_next_slot_fn
+#define fd_multi_epoch_leaders_get_leader_for_slot(m,s) (mock_slot_leader ? mock_slot_leader : (fd_multi_epoch_leaders_get_leader_for_slot)(m,s))
 #define fd_txncache_attach_child             mock_txncache_attach_child_fn
 #define fd_progcache_attach_child            mock_progcache_attach_child_fn
 #define fd_accdb_attach_child                mock_accdb_attach_child_fn
@@ -1520,6 +1522,129 @@ test_root_from_footer( fd_wksp_t * wksp ) {
   mock_footer_finalize = 0;
 
   FD_LOG_NOTICE(( "pass: test_root_from_footer" ));
+}
+
+/* Feed a votor LEADER frag to replay. */
+
+static void
+deliver_votor_leader( fd_replay_tile_t *        ctx,
+                      fd_votor_leader_t const * leader ) {
+  ulong chunk = ctx->in[ TEST_VOTOR_IN_IDX ].chunk0;
+  fd_votor_leader_t * msg = fd_chunk_to_laddr( ctx->in[ TEST_VOTOR_IN_IDX ].mem, chunk );
+  *msg = *leader;
+  FD_TEST( !returnable_frag( ctx, TEST_VOTOR_IN_IDX, 0UL, FD_VOTOR_SIG_LEADER, chunk, sizeof(fd_votor_msg_t), 0UL, 0UL, 0UL, test_stem ) );
+}
+
+/* The objects maybe_switch_identity writes to, and a keyswitch in the
+   given state. */
+
+static void
+attach_switch_fixtures( fd_replay_tile_t * ctx,
+                        fd_wksp_t *        wksp,
+                        ulong              ks_state ) {
+  void * ks_mem = fd_wksp_alloc_laddr( wksp, fd_keyswitch_align(), fd_keyswitch_footprint(), 1UL );
+  FD_TEST( ks_mem );
+  ctx->keyswitch = fd_keyswitch_join( fd_keyswitch_new( ks_mem, ks_state ) );
+  FD_TEST( ctx->keyswitch );
+
+  void * ni_mem = fd_wksp_alloc_laddr( wksp, alignof(fd_node_info_box_t), sizeof(fd_node_info_box_t), 1UL );
+  FD_TEST( ni_mem );
+  ctx->node_info = fd_node_info_box_join( fd_node_info_box_new( ni_mem ) );
+  FD_TEST( ctx->node_info );
+
+  void * vt_mem = fd_wksp_alloc_laddr( wksp, fd_vote_tracker_align(), fd_vote_tracker_footprint(), 1UL );
+  FD_TEST( vt_mem );
+  ctx->vote_tracker = fd_vote_tracker_join( fd_vote_tracker_new( vt_mem, 99UL ) );
+  FD_TEST( ctx->vote_tracker );
+}
+
+/* test_halted_leader_frag_ignored: while the leader pipeline is halted a
+   votor LEADER frag for a slot of another identity is dropped, and one
+   for the identity replay already switched to is kept for the unhalt.
+   Once unhalted a frag is taken. */
+
+static void
+test_halted_leader_frag_ignored( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  fd_hash_t root_id = { .ul = { 100UL } };
+  setup_rooting_ctx( ctx, wksp, &root_id );
+
+  ctx->next_leader_slot      = ULONG_MAX;
+  ctx->next_leader_tickcount = LONG_MAX;
+
+  /* A sentinel we watch for an unwanted write. */
+  fd_votor_leader_t sentinel = { .slot = 999UL, .parent_slot = 998UL, .parent_block_id = { .ul = { 777UL } } };
+  *ctx->votor_leader = sentinel;
+
+  fd_hash_t         parent_id = { .ul = { 201UL } };
+  fd_votor_leader_t leader    = { .slot = 5UL, .parent_slot = 4UL, .parent_block_id = parent_id };
+
+  /* Halted, a slot of another identity is dropped and nothing is claimed. */
+  fd_pubkey_t other = { .ul = { 1UL, 2UL, 3UL, 4UL } };
+  mock_slot_leader = &other;
+  ctx->halt_leader = 1;
+  deliver_votor_leader( ctx, &leader );
+  FD_TEST( ctx->next_leader_slot==ULONG_MAX );
+  FD_TEST( ctx->votor_leader->slot==sentinel.slot );
+  FD_TEST( ctx->votor_leader->parent_slot==sentinel.parent_slot );
+  FD_TEST( fd_memeq( ctx->votor_leader->parent_block_id.uc, sentinel.parent_block_id.uc, sizeof(fd_hash_t) ) );
+
+  /* Halted, a slot of the identity we switched to waits for the unhalt. */
+  mock_slot_leader = ctx->identity_pubkey;
+  deliver_votor_leader( ctx, &leader );
+  FD_TEST( ctx->next_leader_slot==leader.slot );
+  FD_TEST( ctx->votor_leader->slot==leader.slot );
+  ctx->next_leader_slot = ULONG_MAX;
+  *ctx->votor_leader    = sentinel;
+
+  /* Unhalted, the frag claims the leader window. */
+  mock_slot_leader = &other;
+  ctx->halt_leader = 0;
+  deliver_votor_leader( ctx, &leader );
+  FD_TEST( ctx->next_leader_slot==leader.slot );
+  FD_TEST( ctx->votor_leader->slot==leader.slot );
+  FD_TEST( ctx->votor_leader->parent_slot==leader.parent_slot );
+  FD_TEST( fd_memeq( ctx->votor_leader->parent_block_id.uc, leader.parent_block_id.uc, sizeof(fd_hash_t) ) );
+
+  mock_slot_leader = NULL;
+  FD_LOG_NOTICE(( "pass: test_halted_leader_frag_ignored" ));
+}
+
+/* test_switch_identity_drops_leader_slot: under Alpenglow a switch
+   clears next_leader_slot, under Tower it is recomputed from the leader
+   schedule. */
+
+static void
+test_switch_identity_drops_leader_slot( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  fd_hash_t root_id = { .ul = { 100UL } };
+
+  /* Alpenglow drops the slot at a switch. */
+  setup_rooting_ctx( ctx, wksp, &root_id );
+  attach_switch_fixtures( ctx, wksp, FD_KEYSWITCH_STATE_SWITCH_PENDING );
+  fd_memset( ctx->keyswitch->bytes, 0xab, 32UL );
+
+  ctx->next_leader_slot      = 7UL;
+  ctx->next_leader_tickcount = 123L;
+  maybe_switch_identity( ctx );
+  FD_TEST( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_COMPLETED );
+  FD_TEST( ctx->next_leader_slot==ULONG_MAX );
+  FD_TEST( ctx->next_leader_tickcount==LONG_MAX );
+
+  /* Tower recomputes the slot from the schedule. */
+  setup_rooting_ctx( ctx, wksp, &root_id );
+  attach_switch_fixtures( ctx, wksp, FD_KEYSWITCH_STATE_SWITCH_PENDING );
+  fd_memset( ctx->keyswitch->bytes, 0xcd, 32UL );
+  ctx->alpenglow             = 0;
+  mock_next_leader_slot      = 7UL;
+  ctx->next_leader_slot      = 7UL;
+  ctx->next_leader_tickcount = LONG_MAX;
+  maybe_switch_identity( ctx );
+  FD_TEST( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_COMPLETED );
+  FD_TEST( ctx->next_leader_slot==7UL );
+  FD_TEST( ctx->next_leader_tickcount==LONG_MAX );
+
+  FD_LOG_NOTICE(( "pass: test_switch_identity_drops_leader_slot" ));
 }
 
 static void
@@ -3672,6 +3797,8 @@ main( int     argc,
   test_root_lagging_replay( wksp );                 fd_wksp_reset( wksp, 42U );
   test_root_newer_first( wksp );                    fd_wksp_reset( wksp, 42U );
   test_root_from_footer( wksp );                    fd_wksp_reset( wksp, 42U );
+  test_halted_leader_frag_ignored( wksp );          fd_wksp_reset( wksp, 42U );
+  test_switch_identity_drops_leader_slot( wksp );   fd_wksp_reset( wksp, 42U );
   test_epoch_boundary_fork_width_evict( wksp );     fd_wksp_reset( wksp, 42U );
   test_banks_full_prune_leaf( wksp );               fd_wksp_reset( wksp, 42U );
   test_leader_fec_bypasses_backpressure( wksp, 0 ); fd_wksp_reset( wksp, 42U );

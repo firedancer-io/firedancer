@@ -12,6 +12,8 @@ struct fd_admin_tile_ctx {
   fd_topo_t const * topo;
   fd_adminctl_t *   adminctl;
   uchar             identity_pubkey[ 32UL ];
+  char const *      vote_tile;   /* tower, or votor under Alpenglow */
+  char const *      repair_tile; /* repair, or rotor under Alpenglow */
   fd_keyswitch_t *  tower_av_keyswitch;
   fd_keyswitch_t *  txsend_av_keyswitch;
   fd_keyswitch_t *  sign_av_keyswitch[ FD_TOPO_MAX_TILES ];
@@ -163,6 +165,12 @@ unprivileged_init( fd_topo_t const *      topo,
       FD_LOG_ERR(( "unexpected input link name %s", link->name ));
     }
   }
+
+  /* Under Alpenglow the vote tile is votor and the repair tile is rotor,
+     the switch sequence is otherwise the same. */
+  int alpenglow    = fd_topo_find_tile( topo, "votor", 0UL )!=ULONG_MAX;
+  ctx->vote_tile   = alpenglow ? "votor" : "tower";
+  ctx->repair_tile = alpenglow ? "rotor" : "repair";
 
   ulong tower_idx = fd_topo_find_tile( topo, "tower", 0UL );
   if( FD_LIKELY( tower_idx!=ULONG_MAX ) ) {
@@ -423,9 +431,9 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
       for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
         fd_topo_tile_t const * tile = &topo->tiles[ i ];
         if( FD_LIKELY( tile->id_keyswitch_obj_id==ULONG_MAX ) ) continue;
-        if( strcmp( tile->name, "repair" ) &&
+        if( strcmp( tile->name, ctx->repair_tile ) &&
             strcmp( tile->name, "gossip" ) &&
-            strcmp( tile->name, "tower" ) &&
+            strcmp( tile->name, ctx->vote_tile ) &&
             strcmp( tile->name, "bundle" ) &&
             strcmp( tile->name, "rserve" ) &&
             strcmp( tile->name, "shred"  ) ) {
@@ -449,9 +457,9 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
       for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
         fd_topo_tile_t const * tile = &topo->tiles[ i ];
         if( FD_LIKELY( tile->id_keyswitch_obj_id==ULONG_MAX ) ) continue;
-        if( strcmp( tile->name, "repair" ) &&
+        if( strcmp( tile->name, ctx->repair_tile ) &&
             strcmp( tile->name, "gossip" ) &&
-            strcmp( tile->name, "tower" ) &&
+            strcmp( tile->name, ctx->vote_tile ) &&
             strcmp( tile->name, "bundle" ) &&
             strcmp( tile->name, "rserve" ) &&
             strcmp( tile->name, "shred"  ) ) {
@@ -473,6 +481,12 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
       break;
     }
     case FD_SET_IDENTITY_STATE_SIGNERS_HALTED: {
+      /* Alpenglow runs no txsend tile, so there are no vote
+         transactions to flush. */
+      if( FD_UNLIKELY( fd_topo_find_tile( topo, "txsend", 0UL )==ULONG_MAX ) ) {
+        *state = FD_SET_IDENTITY_STATE_TXSEND_FLUSHED;
+        break;
+      }
       ulong tower_halted_seq = find_identity_keyswitch( ctx, "tower" )->result;
       fd_keyswitch_t * txsend = find_identity_keyswitch( ctx, "txsend" );
       txsend->param = tower_halted_seq;
@@ -520,10 +534,10 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
         if( FD_LIKELY( tile->id_keyswitch_obj_id==ULONG_MAX ) ) continue;
         if( FD_LIKELY( !strcmp( tile->name, "sign" ) ||
                        !strcmp( tile->name, "replay" ) ||
-                       !strcmp( tile->name, "repair" ) ||
+                       !strcmp( tile->name, ctx->repair_tile ) ||
                        !strcmp( tile->name, "gossip" ) ||
                        !strcmp( tile->name, "txsend" ) ||
-                       !strcmp( tile->name, "tower" ) ||
+                       !strcmp( tile->name, ctx->vote_tile ) ||
                        !strcmp( tile->name, "bundle" ) ||
                        !strcmp( tile->name, "rserve" ) ||
                        !strcmp( tile->name, "shred"  ) ) ) continue;
@@ -546,10 +560,10 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
         fd_topo_tile_t const * tile = &topo->tiles[ i ];
         if( FD_LIKELY( tile->id_keyswitch_obj_id==ULONG_MAX ) ) continue;
         if( FD_LIKELY( !strcmp( tile->name, "replay" ) ||
-                       !strcmp( tile->name, "repair" ) ||
+                       !strcmp( tile->name, ctx->repair_tile ) ||
                        !strcmp( tile->name, "gossip" ) ||
                        !strcmp( tile->name, "txsend" ) ||
-                       !strcmp( tile->name, "tower"  ) ||
+                       !strcmp( tile->name, ctx->vote_tile ) ||
                        !strcmp( tile->name, "bundle" ) ||
                        !strcmp( tile->name, "rserve" ) ||
                        !strcmp( tile->name, "shred"  ) ) ) continue;
@@ -582,9 +596,9 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
       for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
         fd_topo_tile_t const * tile = &topo->tiles[ i ];
         if( FD_LIKELY( tile->id_keyswitch_obj_id==ULONG_MAX ) ) continue;
-        if( strcmp( tile->name, "repair" ) &&
+        if( strcmp( tile->name, ctx->repair_tile ) &&
             strcmp( tile->name, "gossip" ) &&
-            strcmp( tile->name, "tower" ) &&
+            strcmp( tile->name, ctx->vote_tile ) &&
             strcmp( tile->name, "txsend" ) &&
             strcmp( tile->name, "bundle" ) &&
             strcmp( tile->name, "rserve" ) ) {
@@ -606,9 +620,9 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
       for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
         fd_topo_tile_t const * tile = &topo->tiles[ i ];
         if( FD_LIKELY( tile->id_keyswitch_obj_id==ULONG_MAX ) ) continue;
-        if( strcmp( tile->name, "repair" ) &&
+        if( strcmp( tile->name, ctx->repair_tile ) &&
             strcmp( tile->name, "gossip" ) &&
-            strcmp( tile->name, "tower" ) &&
+            strcmp( tile->name, ctx->vote_tile ) &&
             strcmp( tile->name, "txsend" ) &&
             strcmp( tile->name, "bundle" ) &&
             strcmp( tile->name, "rserve" ) ) {

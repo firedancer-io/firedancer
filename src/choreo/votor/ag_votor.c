@@ -544,6 +544,28 @@ ag_votor_advance_epoch( ag_votor_t *  self,
   self->ns_per_slot = ns_per_slot;
 }
 
+static void
+set_epoch_key( ag_votor_epoch_t * epoch,
+               ulong              epoch_rank,
+               uchar const *      bls_pubkey ) {
+  epoch->rank           = epoch_rank;
+  epoch->has_bls_pubkey = !!bls_pubkey;
+  if( FD_LIKELY( bls_pubkey ) ) fd_memcpy( epoch->bls_pubkey, bls_pubkey, FD_BLS_PUB_COMPRESSED_SZ );
+}
+
+void
+ag_votor_set_keys( ag_votor_t *  self,
+                   ulong         prev_epoch_rank,
+                   uchar const * prev_bls_pubkey,
+                   ulong         curr_epoch_rank,
+                   uchar const * curr_bls_pubkey,
+                   ulong         next_epoch_rank,
+                   uchar const * next_bls_pubkey ) {
+  set_epoch_key( &self->prev_epoch, prev_epoch_rank, prev_bls_pubkey );
+  set_epoch_key( &self->curr_epoch, curr_epoch_rank, curr_bls_pubkey );
+  set_epoch_key( &self->next_epoch, next_epoch_rank, next_bls_pubkey );
+}
+
 void
 ag_votor_handle_pool_event( ag_votor_t *            self,
                             ag_event_pool_t const * event,

@@ -58,6 +58,19 @@ ag_votor_advance_epoch( ag_votor_t *  self,
                         ulong         epoch_slot,
                         uchar const * bls_pubkey );
 
+/* ag_votor_set_keys replaces our rank and BLS key in the three epochs
+   the votor tracks, for an identity switch.  USHORT_MAX is unranked,
+   and a NULL bls_pubkey disables voting in that epoch. */
+
+void
+ag_votor_set_keys( ag_votor_t *  self,
+                   ulong         prev_epoch_rank,
+                   uchar const * prev_bls_pubkey,
+                   ulong         curr_epoch_rank,
+                   uchar const * curr_bls_pubkey,
+                   ulong         next_epoch_rank,
+                   uchar const * next_bls_pubkey );
+
 /* Algorithm 1, lines 9-25. Votor::handle_pool_event */
 
 void

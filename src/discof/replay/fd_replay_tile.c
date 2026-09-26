@@ -1292,6 +1292,12 @@ maybe_switch_identity( fd_replay_tile_t * ctx ) {
       }
     }
   }
+  /* Under Alpenglow the slot came from votor for the old identity, votor
+     sends a new one once it has switched too. */
+  if( FD_UNLIKELY( ctx->alpenglow ) ) {
+    ctx->next_leader_slot      = ULONG_MAX;
+    ctx->next_leader_tickcount = LONG_MAX;
+  }
 
   ctx->identity_vote_rooted = 0;
   ctx->identity_idx++;
@@ -1653,7 +1659,7 @@ try_fini_leader( fd_replay_tile_t *  ctx,
 
   maybe_switch_identity( ctx );
 
-  if( FD_UNLIKELY( ctx->alpenglow && ctx->next_leader_slot==ULONG_MAX && (curr_slot+1UL)%AG_SLOTS_PER_WINDOW ) ) {
+  if( FD_UNLIKELY( ctx->alpenglow && ctx->next_leader_slot==ULONG_MAX && (curr_slot+1UL)%AG_SLOTS_PER_WINDOW && !ctx->halt_leader ) ) {
     *ctx->votor_leader = (fd_votor_leader_t){
       .slot            = curr_slot+1UL,
       .parent_slot     = curr_slot,
@@ -4653,6 +4659,14 @@ returnable_frag( fd_replay_tile_t *  ctx,
     case IN_KIND_VOTOR: {
       if( FD_UNLIKELY( sig==FD_VOTOR_SIG_LEADER ) ) {
         fd_votor_leader_t const * leader = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
+        /* A slot handed out during an identity switch belongs to the old
+           identity, unless the schedule gives it to the identity we
+           already switched to.  Votor unhalts before us and never sends
+           that one again, so we keep it for the unhalt. */
+        if( FD_UNLIKELY( ctx->halt_leader ) ) {
+          fd_pubkey_t const * scheduled = fd_multi_epoch_leaders_get_leader_for_slot( ctx->mleaders, leader->slot );
+          if( FD_UNLIKELY( !scheduled || !fd_pubkey_eq( scheduled, ctx->identity_pubkey ) ) ) break;
+        }
         *ctx->votor_leader    = *leader;
         ctx->next_leader_slot = leader->slot;
         try_become_leader_ag( ctx, stem );
