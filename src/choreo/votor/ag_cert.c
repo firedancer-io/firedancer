@@ -82,6 +82,7 @@ check_sig_one( fd_bls_agg_t const *    agg,
   if( FD_UNLIKELY( pub_sum( pub, agg->set, epoch_info ) ) ) return 0;
   uchar buf[ AG_VOTE_SIGNING_SER_MAX ];
   ulong sz = ag_vote_signing_ser( kind, slot, block_hash, shred_version, buf );
+  if( FD_UNLIKELY( !blst_p2_in_g2( &agg->sig ) ) ) return 0;
   return fd_bls_agg_verify( buf, sz, pub, &agg->sig );
 }
 
@@ -98,6 +99,7 @@ check_sig_pair( fd_bls_agg_t const *    agg,
   if( FD_UNLIKELY( pub_sum( pub, agg->set, epoch_info ) || pub_sum( pub_fb, agg_fb->set, epoch_info ) ) ) return 0;
   fd_bls_sig_t sig[1];
   blst_p2_add_or_double( sig, &agg->sig, &agg_fb->sig );
+  if( FD_UNLIKELY( !blst_p2_in_g2( sig ) ) ) return 0;
   uchar buf   [ AG_VOTE_SIGNING_SER_MAX ]; ulong sz    = ag_vote_signing_ser( kind,    slot, block_hash, shred_version, buf    );
   uchar buf_fb[ AG_VOTE_SIGNING_SER_MAX ]; ulong sz_fb = ag_vote_signing_ser( kind_fb, slot, block_hash, shred_version, buf_fb );
   if( FD_LIKELY  ( fd_bls_set_is_null( agg_fb->set ) ) ) return fd_bls_agg_verify( buf,    sz,    pub,    sig ); /* one partition is the common case */
