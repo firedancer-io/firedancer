@@ -205,6 +205,7 @@ typedef struct {
 
   uchar executed_txn_sig[ 64UL ];
   uchar txn_committed;
+  ulong replay_chunk; /* chunk of the replay_bat frag in flight, read in after_frag */
 
   /* One of the FD_PACK_STRATEGY_* values defined above */
   int      strategy;
@@ -1053,6 +1054,12 @@ during_frag( fd_pack_ctx_t * ctx,
       memcpy( ctx->executed_txn_sig, fd_txn_get_signatures( TXN(txn_executed->txn), txn_executed->txn->payload ), FD_TXN_SIGNATURE_SZ );
       return;
     }
+    if( FD_LIKELY( sig==REPLAY_SIG_TXN_EXECUTED_BAT ) ) { /* reliable, read in after_frag */
+      if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>FD_REPLAY_BAT_MTU ) )
+        FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
+      ctx->replay_chunk = chunk;
+      return;
+    }
     if( FD_LIKELY( sig!=REPLAY_SIG_BECAME_LEADER ) ) return;
 
     /* There was a leader transition.  Handle it. */
@@ -1190,6 +1197,17 @@ after_frag( fd_pack_ctx_t *     ctx,
         ulong deleted = fd_pack_delete_transaction( ctx->pack, fd_type_pun( ctx->executed_txn_sig ) );
         FD_MCNT_INC( PACK, TXN_DROPPED_ALREADY_EXECUTED, deleted );
         update_metric_state( ctx, now, FD_PACK_METRIC_STATE_TRANSACTIONS, fd_pack_avail_txn_cnt( ctx->pack )>0 );
+      }
+      if( FD_LIKELY( sig==REPLAY_SIG_TXN_EXECUTED_BAT ) ) { /* efficient mode replay_bat, see fd_replay_bat_rec_t */
+        uchar const * src = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, ctx->replay_chunk );
+        fd_replay_bat_rec_t const * rec = fd_type_pun_const( src );
+        for( uchar const * end=src+sz; (uchar const *)rec<end; rec=fd_replay_bat_rec_next( rec ) ) {
+          if( FD_UNLIKELY( !rec->is_committable ) ) continue;
+          ulong deleted = fd_pack_delete_transaction( ctx->pack, fd_txn_get_signatures( fd_replay_bat_rec_txn( rec ), fd_replay_bat_rec_payload( rec ) ) );
+          FD_MCNT_INC( PACK, TXN_DROPPED_ALREADY_EXECUTED, deleted );
+        }
+        update_metric_state( ctx, now, FD_PACK_METRIC_STATE_TRANSACTIONS, fd_pack_avail_txn_cnt( ctx->pack )>0 );
+        return;
       }
       if( FD_UNLIKELY( sig==REPLAY_SIG_RESET && ctx->leader_slot!=ULONG_MAX ) ) {
         fd_done_packing_t * done_packing = fd_chunk_to_laddr( ctx->poh_out.mem, ctx->poh_out.chunk );
@@ -1458,6 +1476,7 @@ unprivileged_init( fd_topo_t const *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "execle_pack"  ) ) ) ctx->in_kind[ i ] = IN_KIND_EXECLE;
     else if( FD_LIKELY( !strcmp( link->name, "sign_pack"    ) ) ) ctx->in_kind[ i ] = IN_KIND_SIGN;
     else if( FD_LIKELY( !strcmp( link->name, "replay_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
+    else if( FD_LIKELY( !strcmp( link->name, "replay_bat"   ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
     else FD_LOG_ERR(( "pack tile has unexpected input link %lu %s", i, link->name ));
   }
 

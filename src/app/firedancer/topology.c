@@ -393,7 +393,7 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "metric_in"    );
   if( FD_LIKELY( config->tiles.gui.enabled ) ) fd_topob_wksp( topo, "diag_gui" );
   if( FD_LIKELY( config->tiles.gui.enabled ) ) fd_topob_wksp( topo, "gossip_gui" );
-  if( FD_LIKELY( config->tiles.gui.enabled ) ) fd_topob_wksp( topo, "execrp_gui" );
+  if( FD_LIKELY( config->tiles.gui.enabled ) && !efficient_mode ) fd_topob_wksp( topo, "execrp_gui" );
 
   fd_topob_wksp( topo, "net_gossip"   );
   fd_topob_wksp( topo, "net_shred"    );
@@ -418,6 +418,7 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "replay_execrp" );
   fd_topob_wksp( topo, "replay_out"    );
   fd_topob_wksp( topo, "replay_slot"   );
+  if( efficient_mode ) fd_topob_wksp( topo, "replay_bat" );
   fd_topob_wksp( topo, "votor_out" );
 
   if( leader_enabled ) {
@@ -574,9 +575,16 @@ fd_topo_initialize( config_t * config ) {
   FOR(quic_tile_cnt)   fd_topob_link( topo, "quic_verify",   "quic_verify",   config->tiles.verify.receive_buffer_size, sizeof(fd_tpu_msg_t),          config->tiles.quic.txn_reassembly_count );
   FOR(verify_tile_cnt) fd_topob_link( topo, "verify_dedup",  "verify_dedup",  1024UL,                                   FD_TPU_PARSED_MTU,             1UL ); /* shallow enough to stay in cache */
   /**/                 fd_topob_link( topo, "replay_epoch",  "replay_epoch",  32UL,                                     FD_EPOCH_OUT_MTU,              1UL ); /* replay publishes two epochs at boot and must keep replay's STEM_BURST credits after */
-  /**/                 fd_topob_link( topo, "replay_out",    "replay_out",    65536UL,                                  sizeof(fd_replay_message_t),   1UL )->permit_no_consumers = 1;
+  /* In efficient mode dedup and pack read replay_bat, which is
+     replay_out with TXN_EXECUTED batched (see fd_replay_bat_rec_t), so
+     they wake per batch rather than per transaction.  Without the gui
+     replay_out then only stages messages; a short depth keeps the
+     memory. */
+  /**/                 fd_topob_link( topo, "replay_out",    "replay_out",    efficient_mode && !config->tiles.gui.enabled ? 64UL : 65536UL, sizeof(fd_replay_message_t),   1UL )->permit_no_consumers = 1;
   /**/                 fd_topob_link( topo, "replay_slot",   "replay_slot",   4096UL,                                   sizeof(fd_replay_message_t),   1UL );
+  if( efficient_mode ) fd_topob_link( topo, "replay_bat",    "replay_bat",    4096UL,                                   FD_REPLAY_BAT_MTU,             1UL )->permit_no_consumers = 1; /* ~330 MB like the old replay_out; 4096 batches are 4k-64k txns */
   /**/                 fd_topob_link( topo, "replay_repair", "replay_slot",   16UL,                                     sizeof(fd_replay_message_t),   1UL ); /* REPLAY_SIG_MISSING_FEC; depth >= replay's STEM_BURST */
+  char const * replay_rd = efficient_mode ? "replay_bat" : "replay_out";
   FOR(execrp_tile_cnt) fd_topob_link( topo, "replay_execrp", "replay_execrp", 256UL,                                    sizeof(fd_execrp_task_msg_t),  1UL );
   /**/                 fd_topob_link( topo, "admin_replay",  "admin_replay",  32UL,                                     0UL,                           1UL );
   /**/                 fd_topob_link( topo, "replay_admin",  "admin_replay",  32UL,                                     0UL,                           1UL );
@@ -639,7 +647,9 @@ fd_topo_initialize( config_t * config ) {
     FOR(gossvf_tile_cnt) fd_topob_link( topo, "gossvf_gui",  "gossip_gui",    256UL,                                    FD_GUI_GOSSIP_BW_MTU,          1UL );
     /* The TXN_EXEC completions of execrp_replay, without the sigverify
        and poh ones. */
+    if( !efficient_mode ) { /* the gui reads the transaction stream on replay_out instead */
     FOR(execrp_tile_cnt) fd_topob_link( topo, "execrp_gui",  "execrp_gui",    16384UL,                                  sizeof(fd_execrp_gui_msg_t),   1UL );
+    }
   }
 
   ushort parsed_tile_to_cpu[ FD_TILE_MAX ];
@@ -825,6 +835,7 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_out(   topo, "replay",  0UL,                       "replay_out",    0UL                                                );
   /**/                 fd_topob_tile_out(   topo, "replay",  0UL,                       "replay_slot",   0UL                                                );
   /**/                 fd_topob_tile_out(   topo, "replay",  0UL,                       "replay_repair", 0UL                                                );
+  if( efficient_mode ) { fd_topob_tile_out( topo, "replay",  0UL,                       "replay_bat",    0UL                                                ); }
   /**/                 fd_topob_tile_out(   topo, "replay",  0UL,                       "replay_epoch",  0UL                                                );
   FOR(execrp_tile_cnt) fd_topob_tile_out(   topo, "replay",  0UL,                       "replay_execrp", i                                                  );
   FOR(execrp_tile_cnt) fd_topob_tile_in (   topo, "replay",  0UL,          "metric_in", "execrp_replay", i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
@@ -863,14 +874,14 @@ fd_topo_initialize( config_t * config ) {
                          fd_topob_tile_in(  topo, "verify",  i,            "metric_in", "quic_verify",   j,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers, verify tiles may be overrun */
     FOR(verify_tile_cnt) fd_topob_tile_out( topo, "verify",  i,                         "verify_dedup",  i                                                  );
     FOR(verify_tile_cnt) fd_topob_tile_in(  topo, "dedup",   0UL,          "metric_in", "verify_dedup",  i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-    /**/                 fd_topob_tile_in(  topo, "dedup",   0UL,          "metric_in", "replay_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    /**/                 fd_topob_tile_in(  topo, "dedup",   0UL,          "metric_in", replay_rd,       0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     /**/                 fd_topob_tile_out( topo, "dedup",   0UL,                       "dedup_resolv",  0UL                                                );
     FOR(resolv_tile_cnt) fd_topob_tile_in(  topo, "resolv",  i,            "metric_in", "dedup_resolv",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     FOR(resolv_tile_cnt) fd_topob_tile_in(  topo, "resolv",  i,            "metric_in", "replay_slot",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     FOR(resolv_tile_cnt) fd_topob_tile_out( topo, "resolv",  i,                         "resolv_pack",   i                                                  );
     FOR(resolv_tile_cnt) fd_topob_tile_out( topo, "resolv",  i,                         "resolv_replay", i                                                  );
     FOR(resolv_tile_cnt) fd_topob_tile_in(  topo, "pack",    0UL,          "metric_in", "resolv_pack",   i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-    /**/                 fd_topob_tile_in(  topo, "pack",    0UL,          "metric_in", "replay_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    /**/                 fd_topob_tile_in(  topo, "pack",    0UL,          "metric_in", replay_rd,       0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     FOR(execle_tile_cnt) fd_topob_tile_out(  topo, "pack",   0UL,                       "pack_execle",   i                                                  );
     /**/                 fd_topob_tile_out(  topo, "pack",   0UL,                       "pack_poh" ,     0UL                                                );
     if( FD_LIKELY( config->tiles.pack.use_consumed_cus ) ) {
@@ -1138,7 +1149,9 @@ fd_topo_initialize( config_t * config ) {
 
     /**/                   fd_topob_tile_out( topo, "gossip", 0UL,                        "gossip_gui",    0UL                                                );
     FOR(gossvf_tile_cnt)   fd_topob_tile_out( topo, "gossvf", i,                          "gossvf_gui",    i                                                  );
+    if( !efficient_mode ) {
     FOR(execrp_tile_cnt)   fd_topob_tile_out( topo, "execrp", i,                          "execrp_gui",    i                                                  );
+    }
 
     /*                                        topo, tile_name, tile_kind_id, fseq_wksp,   link_name,       link_kind_id, reliable,            polled */
     FOR(gossvf_tile_cnt)   fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "gossvf_gui",    i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
@@ -1155,7 +1168,9 @@ fd_topo_initialize( config_t * config ) {
       FOR(execle_tile_cnt) fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "pack_execle",   i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
       FOR(execle_tile_cnt) fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "execle_poh",    i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     }
+    if( !efficient_mode ) {
     FOR(execrp_tile_cnt)   fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "execrp_gui",    i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    }
 
     if( FD_LIKELY( snapshots_enabled ) ) {
     /**/                   fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "snapct_gui",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );

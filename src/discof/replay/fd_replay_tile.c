@@ -619,6 +619,27 @@ publish_epoch_info( fd_replay_tile_t *  ctx,
   ctx->next_leader_query_start = ULONG_MAX;
 }
 
+/* bat_flush publishes the TXN_EXECUTED records pending on replay_bat.
+   No-op if none are pending. */
+
+static void
+bat_flush( fd_replay_tile_t *  ctx,
+           fd_stem_context_t * stem ) {
+  if( FD_LIKELY( !ctx->bat_cnt ) ) return;
+  fd_stem_publish( stem, ctx->bat_out->idx, REPLAY_SIG_TXN_EXECUTED_BAT, ctx->bat_out->chunk, ctx->bat_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->bat_out->chunk = fd_dcache_compact_next( ctx->bat_out->chunk, ctx->bat_sz, ctx->bat_out->chunk0, ctx->bat_out->wmark );
+  ctx->bat_cnt      = 0UL;
+  ctx->bat_sz       = 0UL;
+  ctx->bat_deadline = LONG_MAX;
+}
+
+/* In efficient mode dedup and pack are on replay_bat instead, which
+   carries the same messages with TXN_EXECUTED batched (see
+   fd_replay_bat_rec_t).  TXN_EXECUTED is appended to the batch by
+   publish_txn_executed; every other message is copied to replay_bat
+   behind the pending batch so readers see the same order as on
+   replay_out. */
+
 static void
 publish_replay_out( fd_replay_tile_t *  ctx,
                     fd_stem_context_t * stem,
@@ -633,8 +654,66 @@ publish_replay_out( fd_replay_tile_t *  ctx,
       out->chunk = fd_dcache_compact_next( out->chunk, sz, out->chunk0, out->wmark );
     }
   }
+  if( FD_UNLIKELY( ctx->bat_out->idx!=ULONG_MAX && sig!=REPLAY_SIG_TXN_EXECUTED ) ) {
+    bat_flush( ctx, stem );
+    fd_memcpy( fd_chunk_to_laddr( ctx->bat_out->mem, ctx->bat_out->chunk ), fd_chunk_to_laddr_const( ctx->replay_out->mem, ctx->replay_out->chunk ), sz );
+    fd_stem_publish( stem, ctx->bat_out->idx, sig, ctx->bat_out->chunk, sz, 0UL, 0UL, tspub );
+    ctx->bat_out->chunk = fd_dcache_compact_next( ctx->bat_out->chunk, sz, ctx->bat_out->chunk0, ctx->bat_out->wmark );
+  }
   fd_stem_publish( stem, ctx->replay_out->idx, sig, ctx->replay_out->chunk, sz, 0UL, 0UL, tspub );
   ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sz, ctx->replay_out->chunk0, ctx->replay_out->wmark );
+}
+
+/* bat_append appends an executed transaction to the pending replay_bat
+   batch, publishing it once full.  While we are leader the batch is
+   flushed immediately: pack deletes executed transactions from its
+   pool on TXN_EXECUTED and dedup drops their duplicates, and a delay
+   there while we are packing could let a transaction that just landed
+   in a block on the fork we build on be scheduled again.  When we are
+   not leader, both are advisory (the status cache rejects an already
+   executed transaction if it is ever scheduled) and a 2 ms delay is
+   harmless. */
+
+static void
+bat_append( fd_replay_tile_t *          ctx,
+            fd_stem_context_t *         stem,
+            fd_txn_p_t const *          txn_p,
+            fd_sched_txn_info_t const * txn_info ) {
+  fd_txn_t const * txn    = TXN( txn_p );
+  ulong            txn_sz = fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt );
+  ulong            rec_sz = fd_replay_bat_rec_sz( txn_p->payload_sz, txn_sz );
+  FD_TEST( rec_sz<=FD_REPLAY_BAT_REC_SZ );
+
+  if( FD_UNLIKELY( !ctx->bat_cnt ) ) ctx->bat_deadline = fd_tickcount()+ctx->bat_flush_ticks;
+
+  fd_replay_bat_rec_t * rec = (fd_replay_bat_rec_t *)( (uchar *)fd_chunk_to_laddr( ctx->bat_out->mem, ctx->bat_out->chunk )+ctx->bat_sz );
+  rec->slot            = txn_info->slot;
+  rec->bank_seq        = txn_info->bank_seq;
+  rec->tick_exec_done  = txn_info->tick_exec_done;
+  rec->index_in_slot   = (uint)txn_info->index_in_slot;
+  rec->start_shred_idx = txn_p->start_shred_idx;
+  rec->end_shred_idx   = txn_p->end_shred_idx;
+  rec->payload_sz      = txn_p->payload_sz;
+  rec->txn_sz          = (ushort)txn_sz;
+  rec->is_committable  = (uchar)!!(txn_info->flags&FD_SCHED_TXN_IS_COMMITTABLE);
+  rec->is_fees_only    = (uchar)!!(txn_info->flags&FD_SCHED_TXN_IS_FEES_ONLY);
+  rec->_pad[0]         = 0;
+  rec->_pad[1]         = 0;
+  rec->txn_err         = txn_info->txn_err;
+  fd_memcpy( (uchar *)(rec+1), txn_p->payload, txn_p->payload_sz );
+  fd_memcpy( (void *)fd_replay_bat_rec_txn( rec ), txn, txn_sz );
+
+  ctx->bat_sz += rec_sz;
+  ctx->bat_cnt++;
+  if( FD_UNLIKELY( ctx->bat_cnt==FD_REPLAY_BAT_REC_MAX || ctx->is_leader ) ) bat_flush( ctx, stem );
+}
+
+/* The pending replay_bat records never keep the tile from parking, it
+   wakes to publish them when they are due. */
+
+static inline long
+next_deadline( fd_replay_tile_t const * ctx ) {
+  return ctx->bat_deadline;
 }
 
 /**********************************************************************/
@@ -1378,6 +1457,8 @@ publish_txn_executed( fd_replay_tile_t *  ctx,
     t->exec_done_ticks      = txn_info->tick_exec_done;
     slot->cnt = fd_ulong_max( slot->cnt, txn_info->index_in_slot+1UL );
   }
+
+  if( FD_UNLIKELY( ctx->bat_out->idx!=ULONG_MAX ) ) bat_append( ctx, stem, fd_sched_get_txn( ctx->sched, txn_idx ), txn_info );
 
   fd_replay_txn_executed_t * txn_executed = fd_type_pun( fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk ) );
   *txn_executed->txn = *fd_sched_get_txn( ctx->sched, txn_idx );
@@ -3542,6 +3623,11 @@ after_credit( fd_replay_tile_t *  ctx,
               fd_stem_context_t * stem,
               int *               opt_poll_in,
               int *               charge_busy ) {
+  if( FD_UNLIKELY( ctx->bat_cnt && fd_tickcount()>=ctx->bat_deadline ) ) {
+    bat_flush( ctx, stem );
+    *charge_busy = 1;
+  }
+
   /* Publish slot state intervals before the halt checks. */
   fd_replay_slot_states_t * states = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
   states->cnt = fd_sched_slot_states_drain( ctx->sched, states->states );
@@ -4949,6 +5035,15 @@ unprivileged_init( fd_topo_t const *      topo,
   *ctx->replay_out = out1( topo, tile, "replay_out"   ); FD_TEST( ctx->replay_out->idx!=ULONG_MAX );
   *ctx->slot_out   = out1( topo, tile, "replay_slot"  ); FD_TEST( ctx->slot_out->idx!=ULONG_MAX );
   *ctx->rotor_out  = out1( topo, tile, "replay_repair" );
+  *ctx->bat_out    = out1( topo, tile, "replay_bat"   ); /* efficient mode */
+  ctx->bat_cnt         = 0UL;
+  ctx->bat_sz          = 0UL;
+  ctx->bat_deadline    = LONG_MAX;
+  ctx->bat_flush_ticks = (long)((double)FD_REPLAY_BAT_FLUSH_NS*fd_tempo_tick_per_ns( NULL ));
+  if( FD_UNLIKELY( ctx->bat_out->idx!=ULONG_MAX ) ) {
+    fd_topo_link_t const * bat_link = &topo->links[ tile->out_link_id[ ctx->bat_out->idx ] ];
+    FD_TEST( bat_link->mtu>=FD_REPLAY_BAT_MTU && bat_link->mtu>=sizeof(fd_replay_message_t) );
+  }
   *ctx->snapmk_out = out1( topo, tile, "replay_snapmk" ); FD_TEST( ctx->snapmk.supported == (ctx->snapmk_out->idx!=ULONG_MAX) );
 
   ctx->exec_cnt = 0UL;
@@ -5095,8 +5190,9 @@ during_housekeeping( fd_replay_tile_t * ctx ) {
    returnable_frag never both publish in one iteration: every
    after_credit path that publishes returns nonzero, which skips the
    input poll.  The exception is REPLAY_SIG_SLOT_STATES, which doesn't
-   skip the input poll. */
-#define STEM_BURST (5UL)
+   skip the input poll.  replay_bat (efficient mode) sees a copy of
+   every replay_out frag plus at most one batch flush, so 6. */
+#define STEM_BURST (6UL)
 
 /* Housekeeping interval in ticks, tuned independently of output-link
    depths. */
@@ -5107,6 +5203,7 @@ during_housekeeping( fd_replay_tile_t * ctx ) {
 
 #define STEM_CALLBACK_METRICS_WRITE       metrics_write
 #define STEM_CALLBACK_AFTER_CREDIT        after_credit
+#define STEM_CALLBACK_NEXT_DEADLINE       next_deadline
 #define STEM_CALLBACK_BEFORE_FRAG         before_frag
 #define STEM_CALLBACK_RETURNABLE_FRAG     returnable_frag
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping

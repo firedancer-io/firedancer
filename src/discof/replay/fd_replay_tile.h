@@ -267,6 +267,68 @@ struct fd_replay_txn_executed {
 };
 typedef struct fd_replay_txn_executed fd_replay_txn_executed_t;
 
+/* replay_bat (efficient mode only) replaces replay_out for its readers
+   (dedup, pack).  It carries every replay_out message, in
+   replay_out order, but with the TXN_EXECUTED stream batched: a frag
+   with sig REPLAY_SIG_TXN_EXECUTED_BAT holds up to FD_REPLAY_BAT_REC_MAX
+   compact records back to back, each an fd_replay_bat_rec_t followed
+   by payload_sz bytes of transaction payload and the fd_txn_t
+   descriptor, padded to 8.  Every other message is published as on
+   replay_out, after flushing the pending batch, so the relative order
+   of TXN_EXECUTED and the slot level messages is unchanged.  The
+   replay tile publishes a batch when it has FD_REPLAY_BAT_REC_MAX
+   records, FD_REPLAY_BAT_MTU bytes, or FD_REPLAY_BAT_FLUSH_NS after its
+   first record; while it is leader it flushes immediately (see
+   bat_append in fd_replay_tile.c). */
+
+#define REPLAY_SIG_TXN_EXECUTED_BAT (16)
+
+struct fd_replay_bat_rec {
+  ulong  slot;
+  ulong  bank_seq;
+  long   tick_exec_done;  /* fd_tickcount when replay saw the exec completion */
+  uint   index_in_slot;
+  ushort start_shred_idx; /* fd_txn_p_t::start_shred_idx */
+  ushort end_shred_idx;   /* fd_txn_p_t::end_shred_idx */
+  ushort payload_sz;
+  ushort txn_sz;          /* fd_txn_footprint of the descriptor */
+  uchar  is_committable;
+  uchar  is_fees_only;
+  uchar  _pad[2];
+  int    txn_err;
+};
+typedef struct fd_replay_bat_rec fd_replay_bat_rec_t;
+
+#define FD_REPLAY_BAT_REC_MAX  (16UL)
+#define FD_REPLAY_BAT_REC_SZ   (sizeof(fd_replay_bat_rec_t)+((FD_TPU_MTU+FD_TXN_MAX_SZ+7UL)&~7UL))
+#define FD_REPLAY_BAT_MTU      (FD_REPLAY_BAT_REC_MAX*FD_REPLAY_BAT_REC_SZ)
+#define FD_REPLAY_BAT_FLUSH_NS (2L*1000L*1000L)
+
+FD_STATIC_ASSERT( sizeof(fd_replay_bat_rec_t)==48UL, replay_bat_rec_layout );
+
+static inline uchar const *
+fd_replay_bat_rec_payload( fd_replay_bat_rec_t const * rec ) {
+  return (uchar const *)(rec+1);
+}
+
+/* The descriptor follows the payload, aligned to fd_txn_t (2). */
+
+static inline fd_txn_t const *
+fd_replay_bat_rec_txn( fd_replay_bat_rec_t const * rec ) {
+  return (fd_txn_t const *)fd_ulong_align_up( (ulong)(rec+1)+rec->payload_sz, alignof(fd_txn_t) );
+}
+
+static inline ulong
+fd_replay_bat_rec_sz( ulong payload_sz,
+                      ulong txn_sz ) {
+  return fd_ulong_align_up( fd_ulong_align_up( sizeof(fd_replay_bat_rec_t)+payload_sz, alignof(fd_txn_t) )+txn_sz, 8UL );
+}
+
+static inline fd_replay_bat_rec_t const *
+fd_replay_bat_rec_next( fd_replay_bat_rec_t const * rec ) {
+  return (fd_replay_bat_rec_t const *)( (uchar const *)rec + fd_replay_bat_rec_sz( rec->payload_sz, rec->txn_sz ) );
+}
+
 struct fd_replay_fec_evicted {
   fd_hash_t mr;
   ulong     slot;

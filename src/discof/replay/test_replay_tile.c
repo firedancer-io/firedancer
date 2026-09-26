@@ -413,6 +413,8 @@ setup_stem( fd_replay_tile_t * ctx, fd_wksp_t * wksp ) {
     else if( i==3UL ) *ctx->slot_out   = out;
     else              *ctx->rotor_out  = out;
   }
+  ctx->bat_out->idx  = ULONG_MAX; /* performance mode unless a test sets up replay_bat */
+  ctx->bat_deadline  = LONG_MAX;
 
   *test_stem_min_cr_avail = ULONG_MAX;
   *test_stem = (fd_stem_context_t) {
@@ -744,6 +746,185 @@ test_txn_completion_publish( fd_wksp_t * wksp ) {
   bank->cost_tracker_fork_id = USHORT_MAX;
 
   FD_LOG_NOTICE(( "pass: test_txn_completion_publish" ));
+}
+
+/* Efficient mode: TXN_EXECUTED is batched on replay_bat.  Records
+   accumulate until FD_REPLAY_BAT_REC_MAX, the deadline, or a slot
+   level message (which is published behind the flushed batch, so
+   readers see the replay_out order).  While leader every record is
+   flushed immediately. */
+
+static void
+test_txn_completion_bat( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  setup_ctx( ctx, wksp );
+
+  /* replay_bat out link with its own dcache (mtu FD_REPLAY_BAT_MTU) on
+     the otherwise unused epoch_out mcache */
+  ulong const bat_idx   = ctx->epoch_out->idx;
+  ulong const depth     = test_stem_depths[ bat_idx ];
+  ulong dcache_data_sz  = fd_dcache_req_data_sz( FD_REPLAY_BAT_MTU, depth, 1UL, 1 );
+  void * dcache_mem     = fd_wksp_alloc_laddr( wksp, fd_dcache_align(), fd_dcache_footprint( dcache_data_sz, 0UL ), 1UL );
+  FD_TEST( dcache_mem );
+  void * dcache = fd_dcache_join( fd_dcache_new( dcache_mem, dcache_data_sz, 0UL ) );
+  FD_TEST( dcache );
+  *ctx->bat_out = (fd_replay_out_link_t){
+    .idx    = bat_idx,
+    .mem    = wksp,
+    .chunk0 = fd_dcache_compact_chunk0( wksp, dcache ),
+    .wmark  = fd_dcache_compact_wmark ( wksp, dcache, FD_REPLAY_BAT_MTU ),
+    .chunk  = fd_dcache_compact_chunk0( wksp, dcache )
+  };
+  ctx->bat_flush_ticks  = (long)(2e6*fd_tempo_tick_per_ns( NULL ));
+
+  /* execrp in link */
+  ulong const in_mtu = sizeof(fd_execrp_task_done_msg_t);
+  ulong in_data_sz   = fd_dcache_req_data_sz( in_mtu, 128UL, 1UL, 1 );
+  void * in_mem      = fd_wksp_alloc_laddr( wksp, fd_dcache_align(), fd_dcache_footprint( in_data_sz, 0UL ), 1UL );
+  FD_TEST( in_mem );
+  void * in_dcache = fd_dcache_join( fd_dcache_new( in_mem, in_data_sz, 0UL ) );
+  ctx->in_cnt = fd_ulong_max( ctx->in_cnt, TEST_EXECRP_IN_IDX+1UL );
+  ctx->in_kind[ TEST_EXECRP_IN_IDX ] = IN_KIND_EXECRP;
+  ctx->in[ TEST_EXECRP_IN_IDX ].mem    = wksp;
+  ctx->in[ TEST_EXECRP_IN_IDX ].chunk0 = fd_dcache_compact_chunk0( wksp, in_dcache );
+  ctx->in[ TEST_EXECRP_IN_IDX ].wmark  = fd_dcache_compact_wmark ( wksp, in_dcache, in_mtu );
+  ctx->in[ TEST_EXECRP_IN_IDX ].mtu    = in_mtu;
+
+  fd_bank_t * bank = fd_banks_root( ctx->banks );
+  FD_TEST( bank );
+  fd_cost_tracker_store_t * cost_tracker_store = fd_bank_cost_tracker( bank );
+  bank->cost_tracker_fork_id = fd_cost_tracker_store_new_fork( cost_tracker_store, USHORT_MAX );
+  fd_cost_tracker_store_pin( cost_tracker_store, bank->cost_tracker_fork_id )->block_cost_limit = 48000000UL;
+  fd_cost_tracker_store_unpin( cost_tracker_store, bank->cost_tracker_fork_id );
+
+  /* A small legacy transaction: 1 signature, 1 instruction, odd
+     payload size to exercise the descriptor alignment. */
+  mock_sched_txn_idx = 37UL;
+  fd_memset( &mock_sched_txn, 0, sizeof(mock_sched_txn) );
+  mock_sched_txn.payload_sz      = 321UL;
+  mock_sched_txn.start_shred_idx = 12;
+  mock_sched_txn.end_shred_idx   = 13;
+  for( ulong i=0UL; i<mock_sched_txn.payload_sz; i++ ) mock_sched_txn.payload[ i ] = (uchar)(i*7UL+1UL);
+  fd_txn_t * txn = TXN( &mock_sched_txn );
+  txn->transaction_version = FD_TXN_VLEGACY;
+  txn->signature_cnt       = 1;
+  txn->signature_off       = 1;
+  txn->acct_addr_cnt       = 3;
+  txn->acct_addr_off       = 70;
+  txn->instr_cnt           = 1;
+  ulong txn_sz = fd_txn_footprint( 1UL, 0UL );
+
+  mock_sched_txn_info = (fd_sched_txn_info_t) {
+    .flags          = FD_SCHED_TXN_SIGVERIFY_DONE,
+    .txn_err        = 0,
+    .tick_exec_done = LONG_MAX,
+    .slot           = 1234UL,
+    .bank_seq       = 77UL,
+    .index_in_slot  = 5UL,
+  };
+  mock_sched_task_done_tick = 4242L;
+
+  ulong in_chunk = ctx->in[ TEST_EXECRP_IN_IDX ].chunk0;
+  fd_execrp_task_done_msg_t * msg = fd_chunk_to_laddr( wksp, in_chunk );
+  fd_memset( msg, 0, sizeof(*msg) );
+  msg->bank_idx                 = bank->idx;
+  msg->txn_exec->txn_idx        = mock_sched_txn_idx;
+  msg->txn_exec->is_committable = 1;
+  msg->txn_exec->is_fees_only   = 0;
+  msg->txn_exec->txn_err        = 0;
+  msg->txn_exec->bank_seq       = 77UL;
+  ulong sig = (FD_EXECRP_TT_TXN_EXEC<<32) | 0UL;
+
+  fd_frag_meta_t const * bat_mcache = test_stem_mcaches[ bat_idx ];
+  ulong bat_seq0 = test_stem_seqs[ bat_idx ];
+
+  /* 3 completions: nothing published yet, 3 records pending, deadline armed */
+  for( ulong i=0UL; i<3UL; i++ ) {
+    bank->refcnt++; fd_cost_tracker_store_pin( cost_tracker_store, bank->cost_tracker_fork_id );
+    mock_sched_txn_info.flags = FD_SCHED_TXN_SIGVERIFY_DONE;
+    mock_sched_txn_info.index_in_slot = 5UL+i;
+    FD_TEST( !returnable_frag( ctx, TEST_EXECRP_IN_IDX, 0UL, sig, in_chunk, sizeof(*msg), 0UL, 0UL, 0UL, test_stem ) );
+  }
+  FD_TEST( test_stem_seqs[ bat_idx ]==bat_seq0 );
+  FD_TEST( test_stem_seqs[ ctx->replay_out->idx ]==3UL ); /* replay_out still gets each one (gui) */
+  FD_TEST( ctx->bat_cnt==3UL );
+  FD_TEST( ctx->bat_sz==3UL*fd_replay_bat_rec_sz( 321UL, txn_sz ) );
+  FD_TEST( ctx->bat_deadline!=LONG_MAX );
+  FD_TEST( next_deadline( ctx )==ctx->bat_deadline );
+
+  /* A slot level message flushes the batch first, then follows it */
+  ulong bat_chunk = ctx->bat_out->chunk;
+  fd_replay_root_advanced_t * ra = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
+  ra->slot = 99UL;
+  publish_replay_out( ctx, test_stem, REPLAY_SIG_ROOT_ADVANCED, sizeof(*ra) );
+  FD_TEST( test_stem_seqs[ bat_idx ]==bat_seq0+2UL );
+  FD_TEST( test_stem_seqs[ ctx->replay_out->idx ]==4UL && test_stem_seqs[ ctx->slot_out->idx ]==1UL );
+  FD_TEST( ctx->bat_cnt==0UL && ctx->bat_sz==0UL && ctx->bat_deadline==LONG_MAX );
+  fd_frag_meta_t const * m0 = bat_mcache + fd_mcache_line_idx( bat_seq0,     depth );
+  fd_frag_meta_t const * m1 = bat_mcache + fd_mcache_line_idx( bat_seq0+1UL, depth );
+  FD_TEST( m0->sig==REPLAY_SIG_TXN_EXECUTED_BAT && m0->chunk==bat_chunk && m0->sz==3UL*fd_replay_bat_rec_sz( 321UL, txn_sz ) );
+  FD_TEST( m1->sig==REPLAY_SIG_ROOT_ADVANCED && m1->sz==sizeof(*ra) );
+  FD_TEST( ((fd_replay_root_advanced_t const *)fd_chunk_to_laddr_const( wksp, m1->chunk ))->slot==99UL );
+
+  /* Record round trip */
+  fd_replay_bat_rec_t const * rec = fd_chunk_to_laddr_const( wksp, m0->chunk );
+  uchar const * end = (uchar const *)rec + m0->sz;
+  for( ulong i=0UL; i<3UL; i++, rec=fd_replay_bat_rec_next( rec ) ) {
+    FD_TEST( (uchar const *)rec<end );
+    FD_TEST( rec->slot==1234UL && rec->bank_seq==77UL && rec->index_in_slot==5UL+i );
+    FD_TEST( rec->start_shred_idx==12 && rec->end_shred_idx==13 );
+    FD_TEST( rec->payload_sz==321 && rec->txn_sz==txn_sz );
+    FD_TEST( rec->is_committable && !rec->is_fees_only && !rec->txn_err );
+    FD_TEST( rec->tick_exec_done==mock_sched_task_done_tick );
+    FD_TEST( !memcmp( fd_replay_bat_rec_payload( rec ), mock_sched_txn.payload, 321UL ) );
+    FD_TEST( !memcmp( fd_replay_bat_rec_txn( rec ), txn, txn_sz ) );
+    FD_TEST( !((ulong)fd_replay_bat_rec_txn( rec )%alignof(fd_txn_t)) );
+  }
+  FD_TEST( (uchar const *)rec==end );
+
+  /* A full batch publishes itself */
+  ulong seq_full = test_stem_seqs[ bat_idx ];
+  for( ulong i=0UL; i<FD_REPLAY_BAT_REC_MAX; i++ ) {
+    bank->refcnt++; fd_cost_tracker_store_pin( cost_tracker_store, bank->cost_tracker_fork_id );
+    mock_sched_txn_info.flags = FD_SCHED_TXN_SIGVERIFY_DONE;
+    FD_TEST( test_stem_seqs[ bat_idx ]==seq_full );
+    FD_TEST( !returnable_frag( ctx, TEST_EXECRP_IN_IDX, 0UL, sig, in_chunk, sizeof(*msg), 0UL, 0UL, 0UL, test_stem ) );
+  }
+  FD_TEST( test_stem_seqs[ bat_idx ]==seq_full+1UL );
+  FD_TEST( ctx->bat_cnt==0UL );
+  FD_TEST( (bat_mcache + fd_mcache_line_idx( seq_full, depth ))->sz==FD_REPLAY_BAT_REC_MAX*fd_replay_bat_rec_sz( 321UL, txn_sz ) );
+
+  /* The deadline flushes from after_credit */
+  bank->refcnt++; fd_cost_tracker_store_pin( cost_tracker_store, bank->cost_tracker_fork_id );
+  mock_sched_txn_info.flags = FD_SCHED_TXN_SIGVERIFY_DONE;
+  FD_TEST( !returnable_frag( ctx, TEST_EXECRP_IN_IDX, 0UL, sig, in_chunk, sizeof(*msg), 0UL, 0UL, 0UL, test_stem ) );
+  FD_TEST( ctx->bat_cnt==1UL );
+  int opt_poll_in = 1; int charge_busy = 0;
+  ctx->is_booted = 0; /* only the flush runs */
+  after_credit( ctx, test_stem, &opt_poll_in, &charge_busy );
+  FD_TEST( ctx->bat_cnt==1UL && !charge_busy ); /* not due yet */
+  ctx->bat_deadline = fd_tickcount()-1L;
+  after_credit( ctx, test_stem, &opt_poll_in, &charge_busy );
+  FD_TEST( ctx->bat_cnt==0UL && charge_busy );
+  FD_TEST( test_stem_seqs[ bat_idx ]==seq_full+2UL );
+  FD_TEST( next_deadline( ctx )==LONG_MAX );
+
+  /* Leader: every record is flushed immediately */
+  ctx->is_leader = 1;
+  bank->refcnt++; fd_cost_tracker_store_pin( cost_tracker_store, bank->cost_tracker_fork_id );
+  mock_sched_txn_info.flags = FD_SCHED_TXN_SIGVERIFY_DONE;
+  FD_TEST( !returnable_frag( ctx, TEST_EXECRP_IN_IDX, 0UL, sig, in_chunk, sizeof(*msg), 0UL, 0UL, 0UL, test_stem ) );
+  FD_TEST( ctx->bat_cnt==0UL && test_stem_seqs[ bat_idx ]==seq_full+3UL );
+  FD_TEST( (bat_mcache + fd_mcache_line_idx( seq_full+2UL, depth ))->sz==fd_replay_bat_rec_sz( 321UL, txn_sz ) );
+  ctx->is_leader = 0;
+
+  fd_cost_tracker_store_release( cost_tracker_store, bank->cost_tracker_fork_id );
+  bank->cost_tracker_fork_id = USHORT_MAX;
+
+  /* Largest record fits the per-record budget */
+  FD_TEST( fd_replay_bat_rec_sz( FD_TPU_MTU, FD_TXN_MAX_SZ )<=FD_REPLAY_BAT_REC_SZ );
+
+  FD_LOG_NOTICE(( "pass: test_txn_completion_bat" ));
 }
 
 /* Out-of-band LtHash routing.  dispatch_task publishes LTHASH_SUB and
@@ -4668,6 +4849,7 @@ main( int     argc,
   fd_metrics_register( (ulong *)fd_metrics_new( metrics_scratch, 0UL ) ); /* leader paths run metrics_write */
 
   test_txn_completion_publish( wksp );              fd_wksp_reset( wksp, 42U );
+  test_txn_completion_bat( wksp );                  fd_wksp_reset( wksp, 42U );
   test_lthash_oob_routing( wksp );                  fd_wksp_reset( wksp, 42U );
   test_reward_cert_signer_count( wksp );            fd_wksp_reset( wksp, 42U );
   test_snapshot_intervals_use_block_height();
