@@ -750,7 +750,7 @@ main( int     argc,
 
       /* msm, then scalar n is rejected and leaves result untouched */
       ulong msm_cost = FD_VM_CURVE_SECP256R1_MSM_BASE_COST + FD_VM_CURVE_SECP256R1_MSM_INCREMENTAL_COST;
-      vm->cu = 2UL*msm_cost;
+      vm->cu = (long)( 2UL*msm_cost );
       fd_hex_decode( expected, tests[i].a_p_add_b_q, point_sz );
       FD_TEST( test_vm_syscall_sol_curve_multiscalar_mul(
         "test_vm_syscall_sol_curve_multiscalar_mul: secp256r1",
