@@ -15,6 +15,7 @@
 #include "fd_bpf_loader_serialization.h"
 #include "fd_builtin_programs.h"
 #include "fd_native_cpi.h"
+#include "../../vm/transpile/fd_transpile_bind.h"
 
 /* https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/sdk/program/src/program_error.rs#L290-L335 */
 static inline int
@@ -448,9 +449,9 @@ common_close_account( fd_pubkey_t *         authority_address,
 
    https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L1332-L1501 */
 static int
-bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
-             fd_progcache_rec_t const * cache_entry,
-             uchar                      is_deprecated ) {
+bpf_execute( fd_exec_instr_ctx_t * instr_ctx,
+             fd_progcache_rec_t *  cache_entry,
+             uchar                 is_deprecated ) {
   long const regime0 = fd_tickcount();
 
   int err = FD_EXECUTOR_INSTR_SUCCESS;
@@ -560,7 +561,20 @@ bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
 
   long const regime1 = fd_tickcount();
 
+  /* Native code: a program transpiled ahead of time and linked into
+     the binary first, else the execution tile's JIT.  Syscall dumping
+     and tracing use the interpreter. */
+  fd_vm_transpiled_exec_func_t transpiled = ( vm->trace || dump_syscall_to_pb ) ? NULL : fd_transpile_bind_exec( cache_entry );
   int exec_err;
+  if( FD_UNLIKELY( transpiled ) ) {
+    instr_ctx->runtime->metrics.transpiled_exec_cnt++;
+    exec_err = transpiled( vm );
+    if( FD_UNLIKELY( exec_err==FD_VM_ERR_EBPF_BAIL ) ) {
+      instr_ctx->runtime->metrics.transpiled_bail_cnt++;
+      fd_transpile_bind_unbind( cache_entry, "bailed to interpreter" );
+      exec_err = fd_vm_exec( vm );
+    }
+  } else
 #if FD_VM_JIT_SUPPORTED
   if( instr_ctx->runtime->jit && !dump_syscall_to_pb ) {
     fd_vm_jit_key_t key = {
@@ -575,7 +589,9 @@ bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
     exec_err = fd_vm_jit_exec( instr_ctx->runtime->jit, &key, vm );
   } else
 #endif
-  exec_err = fd_vm_exec( vm );
+  {
+    exec_err = fd_vm_exec( vm );
+  }
   instr_ctx->txn_out->details.compute_budget.compute_meter = (ulong)vm->cu;
 
   long const regime2 = fd_tickcount();
@@ -737,9 +753,9 @@ bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
 }
 
 int
-fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
-                fd_progcache_rec_t const * cache_entry,
-                uchar                      is_deprecated ) {
+fd_bpf_execute( fd_exec_instr_ctx_t * instr_ctx,
+                fd_progcache_rec_t *  cache_entry,
+                uchar                 is_deprecated ) {
   /* Tiles holding frames can wait on the program cache spill lock, so
      its holder must never wait for a frame. */
   fd_runtime_t * runtime = instr_ctx->runtime;
