@@ -9,6 +9,7 @@
 #include "../tests/fd_dump_pb.h"
 #include "../sysvar/fd_sysvar.h"
 #include "../fd_pubkey_utils.h"
+#include "../../vm/transpile/fd_vm_jit.h"
 #include "../fd_borrowed_account.h"
 #include "../fd_system_ids.h"
 #include "fd_bpf_loader_serialization.h"
@@ -541,7 +542,22 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
 
   long const regime1 = fd_tickcount();
 
-  int exec_err = fd_vm_exec( vm );
+  int exec_err;
+#if FD_VM_JIT_SUPPORTED
+  if( instr_ctx->runtime->jit && !dump_syscall_to_pb ) {
+    fd_vm_jit_key_t key = {
+      .xid           = cache_entry->pair.xid,
+      .prog          = cache_entry->pair.prog,
+      .deploy_slot   = cache_entry->deploy_slot,
+      .feature_slot  = cache_entry->feature_slot,
+      .data_gaddr    = cache_entry->data_gaddr,
+      .sbpf_version  = cache_entry->sbpf_version,
+      .syscalls_hash = fd_vm_jit_syscalls_hash( syscalls )
+    };
+    exec_err = fd_vm_jit_exec( instr_ctx->runtime->jit, &key, vm );
+  } else
+#endif
+  exec_err = fd_vm_exec( vm );
   instr_ctx->txn_out->details.compute_budget.compute_meter = vm->cu;
 
   long const regime2 = fd_tickcount();

@@ -1,6 +1,7 @@
 #include "../execle/fd_execle_err.h"
 #include "../../util/pod/fd_pod_format.h"
 #include "../../disco/metrics/fd_metrics.h"
+#include "../../flamenco/vm/transpile/fd_vm_jit.h"
 
 #include "../../discof/fd_startup.h"
 #include "../../discof/replay/fd_execrp.h"
@@ -122,6 +123,11 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND(   l, fd_accdb_align(),             fd_accdb_footprint( tile->execrp.max_live_slots, 0 )    );
   l = FD_LAYOUT_APPEND(   l, FD_PROGCACHE_SCRATCH_ALIGN,   FD_PROGCACHE_SCRATCH_FOOTPRINT                       );
   l = FD_LAYOUT_APPEND(   l, fd_ed25519_cache_align(),     fd_ed25519_cache_footprint( ED25519_CACHE_ENT_CNT )  );
+#if FD_VM_JIT_SUPPORTED
+  if( tile->execrp.jit_arena_sz ) {
+    l = FD_LAYOUT_APPEND( l, fd_vm_jit_align(),            fd_vm_jit_footprint()                                );
+  }
+#endif
 
   if( FD_UNLIKELY( strlen( tile->execrp.solcap_capture ) ) ) {
     l = FD_LAYOUT_APPEND( l, fd_capture_ctx_align(),       fd_capture_ctx_footprint()                           );
@@ -437,6 +443,15 @@ privileged_init( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_execrp_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_execrp_tile_t), sizeof(fd_execrp_tile_t) );
   FD_TEST( fd_rng_secure( &ctx->ed25519_cache_seed, sizeof(ulong) ) );
+#if FD_VM_JIT_SUPPORTED
+  if( !tile->execrp.jit_arena_sz ) return;
+  FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),          fd_txncache_footprint( tile->execrp.max_live_slots ) );
+  FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),             fd_accdb_footprint( tile->execrp.max_live_slots, 0 )    );
+  FD_SCRATCH_ALLOC_APPEND( l, FD_PROGCACHE_SCRATCH_ALIGN,   FD_PROGCACHE_SCRATCH_FOOTPRINT                       );
+  FD_SCRATCH_ALLOC_APPEND( l, fd_ed25519_cache_align(),     fd_ed25519_cache_footprint( ED25519_CACHE_ENT_CNT )  );
+  void * _jit = FD_SCRATCH_ALLOC_APPEND( l, fd_vm_jit_align(), fd_vm_jit_footprint() );
+  if( FD_UNLIKELY( !fd_vm_jit_new( _jit, tile->execrp.jit_arena_sz ) ) ) FD_LOG_ERR(( "fd_vm_jit_new failed" ));
+#endif
 }
 
 static void
@@ -450,6 +465,12 @@ unprivileged_init( fd_topo_t const *      topo,
   void * _accdb             = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),             fd_accdb_footprint( tile->execrp.max_live_slots, 0 )    );
   uchar * pc_scratch        = FD_SCRATCH_ALLOC_APPEND( l, FD_PROGCACHE_SCRATCH_ALIGN,   FD_PROGCACHE_SCRATCH_FOOTPRINT                       );
   void * _ed25519_cache     = FD_SCRATCH_ALLOC_APPEND( l, fd_ed25519_cache_align(),     fd_ed25519_cache_footprint( ED25519_CACHE_ENT_CNT )  );
+  void * _jit = NULL;
+#if FD_VM_JIT_SUPPORTED
+  if( tile->execrp.jit_arena_sz ) {
+    _jit                    = FD_SCRATCH_ALLOC_APPEND( l, fd_vm_jit_align(),            fd_vm_jit_footprint()                                );
+  }
+#endif
 
   void * _capture_ctx = NULL;
   if( FD_UNLIKELY( strlen( tile->execrp.solcap_capture ) ) ) {
@@ -604,6 +625,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->runtime->accdb                    = ctx->accdb;
   ctx->runtime->sysvar_bank_seq          = 0UL;
   ctx->runtime->progcache                = ctx->progcache;
+  ctx->runtime->jit                      = _jit ? fd_vm_jit_join( _jit ) : NULL; /* arena mapped in privileged_init */
   ctx->runtime->status_cache             = ctx->txncache;
   memset( &ctx->runtime->log, 0, sizeof(ctx->runtime->log) );
   ctx->runtime->log.log_collector        = &ctx->log_collector;

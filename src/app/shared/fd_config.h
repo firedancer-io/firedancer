@@ -42,6 +42,8 @@ struct fd_configf {
     ulong program_cache_size_mib;
     ulong bank_cache_cnt;
     ulong transaction_cache_size_mib;
+    int   jit;
+    ulong jit_arena_size_mib;
   } runtime;
 
   struct {
