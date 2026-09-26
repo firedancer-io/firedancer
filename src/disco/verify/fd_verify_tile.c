@@ -4,14 +4,41 @@
 #include <linux/futex.h>
 #include "generated/fd_verify_tile_seccomp.h"
 #include "../../flamenco/gossip/fd_gossip_message.h"
+#include "../../discof/replay/fd_replay_tile.h"
+#include "../../util/fd_hash32.h"
+
+#if FD_HAS_AVX
+#include "../../util/simd/fd_avx.h"
+#endif
 
 #define IN_KIND_QUIC   (0UL)
 #define IN_KIND_BUNDLE (1UL)
 #define IN_KIND_TXSEND (2UL)
+#define IN_KIND_REPLAY (3UL)
+
+static const fd_verify_blockhash_t null_blockhash = { 0 };
+
+#define MAP_NAME               blockhash_map
+#define MAP_T                  fd_verify_blockhash_map_t
+#define MAP_KEY_T              fd_verify_blockhash_t
+#define MAP_LG_SLOT_CNT        (FD_VERIFY_BLOCKHASH_LG_RING_CNT+1UL)
+#define MAP_KEY_NULL           null_blockhash
+#if FD_HAS_AVX
+# define MAP_KEY_INVAL(k)      _mm256_testz_si256( wb_ldu( (k).b ), wb_ldu( (k).b ) )
+#else
+# define MAP_KEY_INVAL(k)      MAP_KEY_EQUAL(k, null_blockhash)
+#endif
+#define MAP_KEY_EQUAL(k0,k1)   (!memcmp((k0).b,(k1).b, 32UL))
+#define MAP_MEMOIZE            0
+#define MAP_KEY_EQUAL_IS_SLOW  1
+#define MAP_KEY_HASH(key,seed) ((uint)fd_hash32( (key).b, (seed) ))
+#define MAP_QUERY_OPT          1
+
+#include "../../util/tmpl/fd_map_dynamic.c"
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
-  return FD_TCACHE_ALIGN;
+  return fd_ulong_max( FD_TCACHE_ALIGN, blockhash_map_align() );
 }
 
 FD_FN_PURE static inline ulong
@@ -23,7 +50,33 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
     l = FD_LAYOUT_APPEND( l, fd_sha512_align(), fd_sha512_footprint() );
   }
   l = FD_LAYOUT_APPEND( l, fd_ed25519_cache_align(), fd_ed25519_cache_footprint( FD_VERIFY_ED25519_CACHE_ENT_CNT ) );
+  l = FD_LAYOUT_APPEND( l, blockhash_map_align(), blockhash_map_footprint( MAP_LG_SLOT_CNT ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
+}
+
+/* blockhash_slot_completed records that slot produced blockhash,
+   evicting the oldest remembered slot. */
+
+static void
+blockhash_slot_completed( fd_verify_ctx_t * ctx,
+                          ulong             slot,
+                          uchar const *     blockhash ) {
+  fd_verify_blockhash_t key;
+  memcpy( key.b, blockhash, 32UL );
+  if( FD_UNLIKELY( blockhash_map_key_inval( key ) ) ) return;
+
+  /* Equivocating slot with the same blockhash, keep the first */
+  if( FD_UNLIKELY( blockhash_map_query( ctx->blockhash_map, key, NULL ) ) ) return;
+
+  fd_verify_blockhash_t * oldest = &ctx->blockhash_ring[ ctx->blockhash_ring_idx%FD_VERIFY_BLOCKHASH_RING_LEN ];
+  if( FD_LIKELY( !blockhash_map_key_inval( *oldest ) ) ) {
+    fd_verify_blockhash_map_t * entry = blockhash_map_query( ctx->blockhash_map, *oldest, NULL );
+    if( FD_LIKELY( entry ) ) blockhash_map_remove( ctx->blockhash_map, entry );
+  }
+  *oldest = key;
+  ctx->blockhash_ring_idx++;
+
+  blockhash_map_insert( ctx->blockhash_map, key )->slot = slot;
 }
 
 static inline void
@@ -41,6 +94,10 @@ before_frag( fd_verify_ctx_t * ctx,
      tiles, while bundles need to go through verify:0 currently to
      prevent interleaving of bundle streams. */
   int is_bundle_packet = (ctx->in_kind[ in_idx ]==IN_KIND_BUNDLE && !sig);
+
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY ) ) {
+    return sig!=REPLAY_SIG_SLOT_COMPLETED && sig!=REPLAY_SIG_RESET;
+  }
 
   if( FD_LIKELY( is_bundle_packet || ctx->in_kind[ in_idx ]==IN_KIND_QUIC ) ) {
     return (seq % ctx->round_robin_cnt) != ctx->round_robin_idx;
@@ -72,6 +129,22 @@ during_frag( fd_verify_ctx_t * ctx,
     uchar * src = fd_chunk_to_laddr( ctx->in[in_idx].mem, chunk );
     uchar * dst = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
     fd_memcpy( dst, src, sz );
+  } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY ) ) {
+    if( FD_UNLIKELY( chunk<ctx->in[in_idx].chunk0 || chunk>ctx->in[in_idx].wmark || sz>sizeof(fd_replay_message_t) ) )
+      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[in_idx].chunk0, ctx->in[in_idx].wmark ));
+
+    /* Only the fields we need, copied out speculatively since the
+       link may be overrun. */
+    uchar const * src = fd_chunk_to_laddr_const( ctx->in[in_idx].mem, chunk );
+    ctx->_replay_sig = sig;
+    if( FD_LIKELY( sig==REPLAY_SIG_SLOT_COMPLETED ) ) {
+      fd_replay_slot_completed_t const * msg = fd_type_pun_const( src );
+      FD_STORE( ulong, ctx->_replay_msg, msg->slot );
+      memcpy( ctx->_replay_msg+8UL, msg->block_hash.uc, 32UL );
+    } else {
+      fd_poh_reset_t const * reset = fd_type_pun_const( src );
+      FD_STORE( ulong, ctx->_replay_msg, reset->next_leader_slot );
+    }
   }
 }
 
@@ -89,6 +162,16 @@ after_frag( fd_verify_ctx_t *   ctx,
   (void)sig;
   (void)sz;
   (void)_tspub;
+
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY ) ) {
+    if( FD_LIKELY( ctx->_replay_sig==REPLAY_SIG_SLOT_COMPLETED ) ) {
+      blockhash_slot_completed( ctx, FD_LOAD( ulong, ctx->_replay_msg ), ctx->_replay_msg+8UL );
+    } else {
+      ctx->next_leader_slot    = FD_LOAD( ulong, ctx->_replay_msg );
+      ctx->has_leader_schedule = 1;
+    }
+    return;
+  }
 
   fd_txn_m_t * txnm = (fd_txn_m_t *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
   if( FD_UNLIKELY( txnm->payload_sz>FD_TPU_MTU ) ) {
@@ -113,6 +196,34 @@ after_frag( fd_verify_ctx_t *   ctx,
     if( FD_UNLIKELY( is_bundle ) ) ctx->bundle_failed = 1;
     ctx->metrics.verify_tile_result[ FD_METRICS_ENUM_VERIFY_RESULT_V_PARSE_FAILED_IDX ]++;
     return;
+  }
+
+  /* A TPU transaction whose recent blockhash will have expired by the
+     time we are next leader can never be packed by us, so drop it
+     before paying for signature verification.  Only once replay has
+     told us our next leader slot (which it computes over the leader
+     schedules of the current and next epoch, so ULONG_MAX means no
+     leader slot for at least a whole epoch, see
+     fd_verify_blockhash_expires) and only when the blockhash is a
+     recently completed slot we know of; anything else falls through
+     to the normal pipeline.  Gossip and txsend votes are not subject
+     to this: tower counts them off dedup_resolv for early confirmation
+     regardless of whether we can pack them.  Bundles are exempt too.
+     Firedancer has no TPU forwarding path, so a dropped transaction is
+     not one we would otherwise have relayed to the leader. */
+  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_QUIC && ctx->has_leader_schedule ) ) {
+    uchar const * payload = fd_txn_m_payload( txnm );
+    fd_verify_blockhash_t const * recent_blockhash = fd_type_pun_const( payload+txnt->recent_blockhash_off );
+    fd_verify_blockhash_map_t const * blockhash = NULL;
+    if( FD_LIKELY( !blockhash_map_key_inval( *recent_blockhash ) ) ) {
+      blockhash = blockhash_map_query( ctx->blockhash_map, *recent_blockhash, NULL );
+    }
+    if( FD_UNLIKELY( blockhash &&
+                     fd_verify_blockhash_expires( blockhash->slot, ctx->next_leader_slot ) &&
+                     !fd_verify_is_durable_nonce( txnt, payload ) ) ) {
+      ctx->metrics.verify_tile_result[ FD_METRICS_ENUM_VERIFY_RESULT_V_BLOCKHASH_EXPIRED_IDX ]++;
+      return;
+    }
   }
 
   /* Users sometimes send transactions as part of a bundle (with a tip)
@@ -173,6 +284,13 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->ed25519_cache = fd_ed25519_cache_join( fd_ed25519_cache_new( _ed25519_cache, FD_VERIFY_ED25519_CACHE_ENT_CNT, ctx->hashmap_seed ) );
   FD_TEST( ctx->ed25519_cache );
 
+  ctx->blockhash_map = blockhash_map_join( blockhash_map_new( FD_SCRATCH_ALLOC_APPEND( l, blockhash_map_align(), blockhash_map_footprint( MAP_LG_SLOT_CNT ) ), MAP_LG_SLOT_CNT, ctx->hashmap_seed ) );
+  FD_TEST( ctx->blockhash_map );
+  memset( ctx->blockhash_ring, 0, sizeof( ctx->blockhash_ring ) );
+  ctx->blockhash_ring_idx  = 0UL;
+  ctx->has_leader_schedule = 0;
+  ctx->next_leader_slot    = ULONG_MAX;
+
   ctx->bundle_failed = 0;
   ctx->bundle_id     = 0UL;
 
@@ -196,6 +314,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
     if(      !strcmp( link->name, "quic_verify"  ) ) ctx->in_kind[ i ] = IN_KIND_QUIC;
     else if( !strcmp( link->name, "bundle_verif" ) ) ctx->in_kind[ i ] = IN_KIND_BUNDLE;
+    else if( !strcmp( link->name, "replay_slot"  ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
     else FD_LOG_ERR(( "unexpected link name %s", link->name ));
   }
 
