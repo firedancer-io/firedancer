@@ -853,6 +853,16 @@ telemetry = true
     # recommended to decrease this value, except in development or test
     # environments to decrease memory usage or test edge cases.
     bpf_local_frames = 2
+    # Execute on-chain programs as native x86 code instead of in the
+    # sBPF interpreter.  Each program is translated on first use and
+    # cached per execution tile; results are identical to the
+    # interpreter, which is still used for programs that cannot be
+    # translated.  Experimental.
+    jit = false
+
+    # Size in MiB of each execution tile's native code cache when jit
+    # is enabled.  The cache is cleared when it fills up.
+    jit_arena_size_mib = 256
 
 # CPU cores in Firedancer are carefully managed.  Where a typical
 # program lets the operating system scheduler determine which threads to

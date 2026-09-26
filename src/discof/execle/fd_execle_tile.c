@@ -5,6 +5,7 @@
 #include "../../disco/pack/fd_pack_cost.h"
 #include "../../ballet/blake3/fd_blake3.h"
 #include "../../ballet/bmtree/fd_bmtree.h"
+#include "../../flamenco/vm/transpile/fd_vm_jit.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../disco/events/generated/fd_event_gen.h"
 #include "../../util/pod/fd_pod_format.h"
@@ -119,6 +120,9 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_accdb_align(),            fd_accdb_footprint( tile->execle.max_live_slots, 0 ) );
   l = FD_LAYOUT_APPEND( l, FD_PROGCACHE_SCRATCH_ALIGN,  FD_PROGCACHE_SCRATCH_FOOTPRINT );
   l = FD_LAYOUT_APPEND( l, fd_bpf_frames_align(),       fd_bpf_frames_footprint() );
+#if FD_VM_JIT_SUPPORTED
+  if( tile->execle.jit_arena_sz ) l = FD_LAYOUT_APPEND( l, fd_vm_jit_align(), fd_vm_jit_footprint() );
+#endif
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -779,6 +783,18 @@ privileged_init( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_execle_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_execle_tile_t), sizeof(fd_execle_tile_t) );
   FD_TEST( fd_rng_secure( &ctx->rebate_seed, sizeof(ctx->rebate_seed) ) );
+#if FD_VM_JIT_SUPPORTED
+  if( tile->execle.jit_arena_sz ) {
+    FD_SCRATCH_ALLOC_APPEND( l, FD_BLAKE3_ALIGN,            FD_BLAKE3_FOOTPRINT );
+    FD_SCRATCH_ALLOC_APPEND( l, FD_BMTREE_COMMIT_ALIGN,     FD_BMTREE_COMMIT_FOOTPRINT(0) );
+    FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),        fd_txncache_footprint( tile->execle.max_live_slots ) );
+    FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),           fd_accdb_footprint( tile->execle.max_live_slots, 0 ) );
+    FD_SCRATCH_ALLOC_APPEND( l, FD_PROGCACHE_SCRATCH_ALIGN, FD_PROGCACHE_SCRATCH_FOOTPRINT );
+    FD_SCRATCH_ALLOC_APPEND( l, fd_bpf_frames_align(),      fd_bpf_frames_footprint() );
+    void * _jit = FD_SCRATCH_ALLOC_APPEND( l, fd_vm_jit_align(), fd_vm_jit_footprint() );
+    if( FD_UNLIKELY( !fd_vm_jit_new( _jit, tile->execle.jit_arena_sz ) ) ) FD_LOG_ERR(( "fd_vm_jit_new failed" ));
+  }
+#endif
 }
 
 static void
@@ -794,6 +810,10 @@ unprivileged_init( fd_topo_t const *      topo,
   void * _accdb          = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),           fd_accdb_footprint( tile->execle.max_live_slots, 0 ) );
   void * pc_scratch      = FD_SCRATCH_ALLOC_APPEND( l, FD_PROGCACHE_SCRATCH_ALIGN, FD_PROGCACHE_SCRATCH_FOOTPRINT );
   void * _bpf_frames     = FD_SCRATCH_ALLOC_APPEND( l, fd_bpf_frames_align(),      fd_bpf_frames_footprint() );
+  void * _jit            = NULL;
+#if FD_VM_JIT_SUPPORTED
+  if( tile->execle.jit_arena_sz ) _jit = FD_SCRATCH_ALLOC_APPEND( l, fd_vm_jit_align(), fd_vm_jit_footprint() );
+#endif
 
 #define NONNULL( x ) (__extension__({                                        \
       __typeof__((x)) __x = (x);                                             \
@@ -840,6 +860,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->runtime->sysvar_bank_seq          = 0UL;
   ctx->runtime->progcache                = ctx->progcache;
   ctx->runtime->bpf_frames               = ctx->bpf_frames;
+  ctx->runtime->jit                      = _jit ? fd_vm_jit_join( _jit ) : NULL; /* arena mapped in privileged_init */
   ctx->runtime->status_cache             = txncache;
   memset( &ctx->runtime->log, 0, sizeof(ctx->runtime->log) );
   ctx->runtime->log.log_collector        = ctx->log_collector;
