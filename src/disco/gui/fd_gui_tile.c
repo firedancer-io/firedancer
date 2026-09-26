@@ -194,6 +194,7 @@ typedef struct {
 
   ulong           in_kind[ FD_TOPO_MAX_TILE_IN_LINKS ];
   int             in_reliable[ FD_TOPO_MAX_TILE_IN_LINKS ];
+  int             exec_done_from_replay; /* no execrp_gui (efficient mode) */
   ulong           in_bank_idx[ FD_TOPO_MAX_TILE_IN_LINKS ];
   fd_gui_in_ctx_t in[ FD_TOPO_MAX_TILE_IN_LINKS ];
 } fd_gui_ctx_t;
@@ -525,7 +526,14 @@ after_frag( fd_gui_ctx_t *      ctx,
         fd_gui_handle_root_advanced( ctx->gui, ra->slot, ra->bank_seq, fd_clock_tile_now( ctx->clock ) );
       } else if( FD_LIKELY( sig==REPLAY_SIG_TXN_EXECUTED ) ) {
         if( FD_UNLIKELY( sz!=sizeof(fd_replay_txn_executed_t) ) ) FD_LOG_ERR(( "invalid replay transaction message size %lu", sz ));
-        fd_gui_handle_replay_txn( ctx->gui, (fd_replay_txn_executed_t const *)src, fd_clock_tile_now( ctx->clock ) );
+        fd_replay_txn_executed_t const * txn_executed = (fd_replay_txn_executed_t const *)src;
+        fd_gui_handle_replay_txn( ctx->gui, txn_executed, fd_clock_tile_now( ctx->clock ) );
+        if( FD_UNLIKELY( ctx->exec_done_from_replay ) ) {
+          /* Efficient mode: no execrp_gui, the exec done time is the tick
+             replay saw the completion at. */
+          long exec_done_ns = fd_clock_tile_tickcount_to_wallclock( ctx->clock, txn_executed->tick_exec_done );
+          fd_gui_handle_exec_txn_done( ctx->gui, txn_executed->slot, txn_executed->txn->start_shred_idx, txn_executed->txn->end_shred_idx, exec_done_ns, exec_done_ns, fd_clock_tile_now( ctx->clock ) );
+        }
       } else {
         return;
       }
@@ -997,6 +1005,7 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( tile->in_cnt<=sizeof(ctx->in)/sizeof(ctx->in[0]) );
   ctx->in_cnt = tile->in_cnt;
 
+  ctx->exec_done_from_replay = 1;
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
     fd_topo_wksp_t const * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
@@ -1017,7 +1026,7 @@ unprivileged_init( fd_topo_t const *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "snapin_gui"    ) ) ) ctx->in_kind[ i ] = IN_KIND_SNAPIN;
     else if( FD_LIKELY( !strcmp( link->name, "snapin_manif"  ) ) ) ctx->in_kind[ i ] = IN_KIND_SNAPIN_MANIF;
     else if( FD_LIKELY( !strcmp( link->name, "snapsv_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_SNAPSV_OUT;
-    else if( FD_LIKELY( !strcmp( link->name, "execrp_gui"    ) ) ) ctx->in_kind[ i ] = IN_KIND_EXECRP_GUI;
+    else if( FD_LIKELY( !strcmp( link->name, "execrp_gui"    ) ) ) { ctx->in_kind[ i ] = IN_KIND_EXECRP_GUI; ctx->exec_done_from_replay = 0; }
     else if( FD_LIKELY( !strcmp( link->name, "bundle_status"  ) ) ) ctx->in_kind[ i ] = IN_KIND_BUNDLE;
     else if( FD_LIKELY( !strcmp( link->name, "diag_gui"       ) ) ) ctx->in_kind[ i ] = IN_KIND_DIAG;
     else if( FD_LIKELY( !strcmp( link->name, "votor_out"      ) ) ) ctx->in_kind[ i ] = IN_KIND_VOTOR_OUT;

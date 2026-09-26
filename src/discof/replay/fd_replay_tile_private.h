@@ -593,6 +593,15 @@ struct fd_replay_tile {
   fd_replay_out_link_t slot_out[1];
   fd_replay_out_link_t rotor_out[1]; /* REPLAY_SIG_MISSING_FEC */
   ulong const *        slot_out_seq;
+
+  /* Efficient mode: replay_out with TXN_EXECUTED batched, see
+     fd_replay_bat_rec_t.  bat_out->idx is ULONG_MAX in performance
+     mode, in which case replay_out is published as is. */
+  fd_replay_out_link_t bat_out[1];
+  ulong                bat_cnt;         /* records pending at bat_out->chunk */
+  ulong                bat_sz;          /* bytes pending at bat_out->chunk */
+  long                 bat_deadline;    /* tickcount the pending records are due, LONG_MAX if none */
+  long                 bat_flush_ticks;
   fd_replay_out_link_t snapmk_out[1];
   ulong admin_out_idx;
 
