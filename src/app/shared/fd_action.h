@@ -184,6 +184,9 @@ union fdctl_args {
 
     ulong db_rec_max;
     ulong cache_sz;
+
+    char const * transpile;      /* whitespace separated base58 addresses */
+    char const * transpile_list; /* path to file of base58 addresses */
   } snapshot_load;
 
   struct {
