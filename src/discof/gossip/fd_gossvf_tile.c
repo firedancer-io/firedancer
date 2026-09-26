@@ -29,6 +29,12 @@
 
 #define ED25519_CACHE_ENT_CNT (4096UL)
 
+/* A batch flushes once it can fill a lane group; the message bound
+   keeps the staged payloads small (~4 KiB each). */
+
+#define FD_GOSSVF_BATCH_SIG_MAX (8UL)
+#define FD_GOSSVF_BATCH_MSG_MAX (4UL)
+
 struct peer {
   fd_pubkey_t pubkey;
 
@@ -173,6 +179,41 @@ struct fd_gossvf_tile_ctx {
   fd_gossip_ping_update_t _ping_update[1];
   fd_gossip_update_message_t _gossip_update[1];
   fd_gossip_message_t _message[1];
+
+  /* Push and pull response messages that passed every check before
+     the signature verification wait here so the CRDS values of
+     several messages are verified together in SIMD lanes.  A batch is
+     flushed when it holds FD_GOSSVF_BATCH_SIG_MAX signatures or
+     FD_GOSSVF_BATCH_MSG_MAX messages, or from after_credit when no
+     input has a fragment ready for this tile, so batching only
+     happens while the tile is behind and adds no latency otherwise.
+     The messages are published in arrival order. */
+  struct {
+    uchar               payload[ FD_NET_MTU ];
+    ulong               payload_sz;
+    ulong               frame_sz; /* the net frag size, for the byte metrics */
+    fd_ip4_port_t       peer;
+    ulong               tsorig;
+    uint                dup_mask; /* values not verified (already in the tcache) */
+    ulong               sig_cnt;  /* values verified */
+    fd_gossip_message_t message[1];
+    uchar               failed[ FD_GOSSIP_MESSAGE_MAX_CRDS ];
+  } batch_msg[ FD_GOSSVF_BATCH_MSG_MAX ];
+  ulong batch_msg_cnt;
+  ulong batch_sig_cnt;
+
+  /* Per input, the sequence number of a fragment for this tile that
+     was seen published; no need to look again until it is consumed. */
+  ulong in_cnt;
+  ulong in_ready_seq[ 64UL ];
+
+  uchar const * batch_sig_msg   [ FD_GOSSVF_BATCH_SIG_MAX+FD_GOSSIP_MESSAGE_MAX_CRDS ];
+  ulong         batch_sig_msg_sz[ FD_GOSSVF_BATCH_SIG_MAX+FD_GOSSIP_MESSAGE_MAX_CRDS ];
+  uchar const * batch_sig       [ FD_GOSSVF_BATCH_SIG_MAX+FD_GOSSIP_MESSAGE_MAX_CRDS ];
+  uchar const * batch_sig_pubkey[ FD_GOSSVF_BATCH_SIG_MAX+FD_GOSSIP_MESSAGE_MAX_CRDS ];
+  int           batch_sig_result[ FD_GOSSVF_BATCH_SIG_MAX+FD_GOSSIP_MESSAGE_MAX_CRDS ];
+  fd_sha512_t * batch_sha       [ FD_GOSSVF_BATCH_SIG_MAX+FD_GOSSIP_MESSAGE_MAX_CRDS ];
+  fd_sha512_t   _batch_sha      [ FD_GOSSVF_BATCH_SIG_MAX+FD_GOSSIP_MESSAGE_MAX_CRDS ];
 
   fd_clock_tile_t clock[1];
 
@@ -419,12 +460,77 @@ verify_crds_value( fd_gossip_value_t const * value,
                                    cache );
 }
 
+/* Values already in the tcache were verified when first seen: they
+   are marked duplicate (unless already failed for another reason) and
+   skip the signature check.  Returns the bit set of skipped values. */
+static uint
+mark_duplicate_crds( fd_gossvf_tile_ctx_t *    ctx,
+                     fd_gossip_value_t const * values,
+                     ulong                     values_len,
+                     uchar const *             payload,
+                     uchar *                   failed ) {
+  uint dup_mask = 0U;
+  for( ulong i=0UL; i<values_len; i++ ) {
+    ulong dedup_tag = fd_siphash13_hash( payload+values[ i ].offset, values[ i ].length, ctx->dedup_key[ 0 ], ctx->dedup_key[ 1 ] );
+    dedup_tag = fd_ulong_if( dedup_tag==FD_TCACHE_TAG_NULL, 1UL, dedup_tag );
+    int ha_dup = 0;
+    FD_FN_UNUSED ulong tcache_map_idx = 0;
+    FD_TCACHE_QUERY( ha_dup, tcache_map_idx, ctx->tcache.map, ctx->tcache.map_cnt, dedup_tag );
+    if( FD_LIKELY( ha_dup ) ) {
+      if( FD_LIKELY( !failed[ i ] ) ) failed[ i ] = FD_GOSSIP_FAILED_DUPLICATE;
+      dup_mask |= 1U<<i;
+    }
+  }
+  return dup_mask;
+}
+
+/* Drop the values whose signature check failed (results[i]!=SUCCESS
+   for the i-th value not in dup_mask, in order) from a push / pull
+   response view, as the scalar path did in place. */
+static int
+drop_bad_crds( fd_gossvf_tile_ctx_t * ctx,
+               fd_gossip_message_t *  view,
+               uchar *                failed,
+               uint                   dup_mask,
+               int const *            results ) {
+  int push = view->tag==FD_GOSSIP_MESSAGE_PUSH;
+  fd_gossip_value_t * values     = push ? view->push->values      : view->pull_response->values;
+  ulong *             values_len = push ? &view->push->values_len : &view->pull_response->values_len;
+  ulong metric_idx = push ? FD_METRICS_ENUM_GOSSVF_CRDS_RESULT_V_DROPPED_PUSH_SIGNATURE_IDX
+                          : FD_METRICS_ENUM_GOSSVF_CRDS_RESULT_V_DROPPED_PULL_RESPONSE_SIGNATURE_IDX;
+
+  /* results is indexed by the verified values in their original order;
+     the in place removal below reorders values, so resolve results to
+     per slot codes first. */
+  int code[ FD_GOSSIP_MESSAGE_MAX_CRDS ];
+  ulong r = 0UL;
+  for( ulong i=0UL; i<*values_len; i++ ) code[ i ] = (dup_mask>>i)&1U ? FD_ED25519_SUCCESS : results[ r++ ];
+
+  ulong i = 0UL;
+  while( i<*values_len ) {
+    if( FD_LIKELY( code[ i ]==FD_ED25519_SUCCESS ) ) { i++; continue; }
+    if( FD_LIKELY( !failed[ i ] ) ) {
+      ctx->metrics.crds_rx[ metric_idx ]++;
+      ctx->metrics.crds_rx_bytes[ metric_idx ] += values[ i ].length;
+    }
+    (*values_len)--;
+    values[ i ] = values[ *values_len ];
+    failed[ i ] = failed[ *values_len ];
+    code  [ i ] = code  [ *values_len ];
+  }
+
+  if( FD_UNLIKELY( !*values_len ) ) return push ? FD_METRICS_ENUM_GOSSVF_MESSAGE_RESULT_V_DROPPED_PUSH_NO_VALID_CRDS_IDX
+                                                : FD_METRICS_ENUM_GOSSVF_MESSAGE_RESULT_V_DROPPED_PULL_RESPONSE_NO_VALID_CRDS_IDX;
+  return 0;
+}
+
+/* Push and pull response signatures are verified in batches, see
+   batch_flush; this verifies the other message kinds inline. */
 static int
 verify_signatures( fd_gossvf_tile_ctx_t * ctx,
                    fd_gossip_message_t *  view,
                    uchar const *          payload,
-                   fd_sha512_t *          sha,
-                   uchar *                failed ) {
+                   fd_sha512_t *          sha ) {
   switch( view->tag ) {
     case FD_GOSSIP_MESSAGE_PULL_REQUEST: {
       if( FD_UNLIKELY( FD_ED25519_SUCCESS!=verify_crds_value( view->pull_request->contact_info, payload+view->pull_request->contact_info->offset, view->pull_request->contact_info->length, sha, ctx->ed25519_cache ) ) ) {
@@ -432,70 +538,6 @@ verify_signatures( fd_gossvf_tile_ctx_t * ctx,
       } else {
         return 0;
       }
-    }
-    case FD_GOSSIP_MESSAGE_PULL_RESPONSE: {
-      ulong i = 0UL;
-      while( i<view->pull_response->values_len ) {
-        ulong dedup_tag = fd_siphash13_hash( payload+view->pull_response->values[ i ].offset, view->pull_response->values[ i ].length, ctx->dedup_key[ 0 ], ctx->dedup_key[ 1 ] );
-        dedup_tag = fd_ulong_if( dedup_tag==FD_TCACHE_TAG_NULL, 1UL, dedup_tag );
-        int ha_dup = 0;
-        FD_FN_UNUSED ulong tcache_map_idx = 0; /* ignored */
-        FD_TCACHE_QUERY( ha_dup, tcache_map_idx, ctx->tcache.map, ctx->tcache.map_cnt, dedup_tag );
-        if( FD_UNLIKELY( ha_dup ) ) {
-          if( FD_LIKELY( !failed[ i ] ) ) failed[ i ] = FD_GOSSIP_FAILED_DUPLICATE;
-          i++;
-          continue;
-        }
-
-        int err = verify_crds_value( &view->pull_response->values[ i ], payload+view->pull_response->values[ i ].offset, view->pull_response->values[ i ].length, sha, ctx->ed25519_cache );
-        if( FD_UNLIKELY( err!=FD_ED25519_SUCCESS ) ) {
-          if( FD_LIKELY( !failed[ i ] ) ) {
-            ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSVF_CRDS_RESULT_V_DROPPED_PULL_RESPONSE_SIGNATURE_IDX ]++;
-            ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_RESULT_V_DROPPED_PULL_RESPONSE_SIGNATURE_IDX ] += view->pull_response->values[ i ].length;
-          }
-          view->pull_response->values_len--;
-          view->pull_response->values[ i ] = view->pull_response->values[ view->pull_response->values_len ];
-          failed[ i ] = failed[ view->pull_response->values_len ];
-          continue;
-        }
-
-        i++;
-      }
-
-      if( FD_UNLIKELY( !view->pull_response->values_len ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_RESULT_V_DROPPED_PULL_RESPONSE_NO_VALID_CRDS_IDX;
-      return 0;
-    }
-    case FD_GOSSIP_MESSAGE_PUSH: {
-      ulong i = 0UL;
-      while( i<view->push->values_len ) {
-        ulong dedup_tag = fd_siphash13_hash( payload+view->push->values[ i ].offset, view->push->values[ i ].length, ctx->dedup_key[ 0 ], ctx->dedup_key[ 1 ] );
-        dedup_tag = fd_ulong_if( dedup_tag==FD_TCACHE_TAG_NULL, 1UL, dedup_tag );
-        int ha_dup = 0;
-        FD_FN_UNUSED ulong tcache_map_idx = 0;
-        FD_TCACHE_QUERY( ha_dup, tcache_map_idx, ctx->tcache.map, ctx->tcache.map_cnt, dedup_tag );
-        if( FD_LIKELY( ha_dup ) ) {
-          if( FD_LIKELY( !failed[ i ] ) ) failed[ i ] = FD_GOSSIP_FAILED_DUPLICATE;
-          i++;
-          continue;
-        }
-
-        int err = verify_crds_value( &view->push->values[ i ], payload+view->push->values[ i ].offset, view->push->values[ i ].length, sha, ctx->ed25519_cache );
-        if( FD_UNLIKELY( err!=FD_ED25519_SUCCESS ) ) {
-          if( FD_LIKELY( !failed[ i ] ) ) {
-            ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSVF_CRDS_RESULT_V_DROPPED_PUSH_SIGNATURE_IDX ]++;
-            ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_RESULT_V_DROPPED_PUSH_SIGNATURE_IDX ] += view->push->values[ i ].length;
-          }
-          view->push->values_len--;
-          view->push->values[ i ] = view->push->values[ view->push->values_len ];
-          failed[ i ] = failed[ view->push->values_len ];
-          continue;
-        }
-
-        i++;
-      }
-
-      if( FD_UNLIKELY( !view->push->values_len ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_RESULT_V_DROPPED_PUSH_NO_VALID_CRDS_IDX;
-      return 0;
     }
     case FD_GOSSIP_MESSAGE_PRUNE: return verify_prune( view->prune, sha, ctx->ed25519_cache );
     case FD_GOSSIP_MESSAGE_PING: {
@@ -848,6 +890,26 @@ handle_peer_update( fd_gossvf_tile_ctx_t *       ctx,
 }
 
 static int
+publish_message( fd_gossvf_tile_ctx_t * ctx,
+                 fd_gossip_message_t *  message,
+                 uchar const *          payload,
+                 ulong                  payload_sz,
+                 ulong                  tsorig,
+                 uchar *                failed,
+                 fd_stem_context_t *    stem );
+
+static int
+batch_enqueue( fd_gossvf_tile_ctx_t *      ctx,
+               fd_gossip_message_t const * message,
+               uchar const *               payload,
+               ulong                       payload_sz,
+               ulong                       frame_sz,
+               ulong                       tsorig,
+               uchar const *               failed,
+               uint                        dup_mask,
+               fd_stem_context_t *         stem );
+
+static int
 handle_net( fd_gossvf_tile_ctx_t * ctx,
             ulong                  sz,
             ulong                  tsorig,
@@ -950,12 +1012,32 @@ handle_net( fd_gossvf_tile_ctx_t * ctx,
   int result = filter_shred_version( ctx, message, failed );
   if( FD_UNLIKELY( result ) ) return result;
 
-  result = verify_signatures( ctx, message, payload, ctx->sha, failed );
+  if( FD_LIKELY( message->tag==FD_GOSSIP_MESSAGE_PUSH || message->tag==FD_GOSSIP_MESSAGE_PULL_RESPONSE ) ) {
+    int push = message->tag==FD_GOSSIP_MESSAGE_PUSH;
+    uint dup_mask = mark_duplicate_crds( ctx, push ? message->push->values : message->pull_response->values, push ? message->push->values_len : message->pull_response->values_len, payload, failed );
+    return batch_enqueue( ctx, message, payload, payload_sz, sz, tsorig, failed, dup_mask, stem );
+  }
+
+  result = verify_signatures( ctx, message, payload, ctx->sha );
   if( FD_UNLIKELY( result ) ) return result;
 
-  /* verify_addresses includes validation checks against origin pubkey,
-     so it must come after verify_signatures. */
-  result = verify_addresses( ctx, message, failed, stem );
+  return publish_message( ctx, message, payload, payload_sz, tsorig, failed, stem );
+}
+
+/* publish_message finishes a message whose signatures verified:
+   address checks (which trust the origin, so they come after the
+   signature check), the duplicate instance check, the tcache inserts,
+   the per value metrics and the publish.  Returns the message outcome
+   the caller counts. */
+static int
+publish_message( fd_gossvf_tile_ctx_t * ctx,
+                 fd_gossip_message_t *  message,
+                 uchar const *          payload,
+                 ulong                  payload_sz,
+                 ulong                  tsorig,
+                 uchar *                failed,
+                 fd_stem_context_t *    stem ) {
+  int result = verify_addresses( ctx, message, failed, stem );
   if( FD_UNLIKELY( result ) ) return result;
 
   check_duplicate_instance( ctx, message );
@@ -968,7 +1050,7 @@ handle_net( fd_gossvf_tile_ctx_t * ctx,
         dedup_tag = fd_ulong_if( dedup_tag==FD_TCACHE_TAG_NULL, 1UL, dedup_tag );
         int ha_dup = 0;
         FD_TCACHE_INSERT( ha_dup, *ctx->tcache.sync, ctx->tcache.ring, ctx->tcache.depth, ctx->tcache.map, ctx->tcache.map_cnt, dedup_tag );
-        (void)ha_dup; /* unused */
+        if( FD_UNLIKELY( ha_dup ) ) failed[ i ] = FD_GOSSIP_FAILED_DUPLICATE; /* the same value was pending in a message ahead of this one */
       }
       break;
     }
@@ -979,7 +1061,7 @@ handle_net( fd_gossvf_tile_ctx_t * ctx,
         dedup_tag = fd_ulong_if( dedup_tag==FD_TCACHE_TAG_NULL, 1UL, dedup_tag );
         int ha_dup = 0;
         FD_TCACHE_INSERT( ha_dup, *ctx->tcache.sync, ctx->tcache.ring, ctx->tcache.depth, ctx->tcache.map, ctx->tcache.map_cnt, dedup_tag );
-        (void)ha_dup; /* unused */
+        if( FD_UNLIKELY( ha_dup ) ) failed[ i ] = FD_GOSSIP_FAILED_DUPLICATE; /* the same value was pending in a message ahead of this one */
       }
       break;
     }
@@ -1035,6 +1117,113 @@ handle_net( fd_gossvf_tile_ctx_t * ctx,
   return result;
 }
 
+/* batch_flush verifies the CRDS signatures of every queued message
+   at once, then finishes and publishes the messages in arrival
+   order. */
+static void
+batch_flush( fd_gossvf_tile_ctx_t * ctx,
+             fd_stem_context_t *    stem ) {
+  if( FD_LIKELY( !ctx->batch_msg_cnt ) ) return;
+
+  fd_ed25519_verify_batch_multi_msg_cached( ctx->batch_sig_msg, ctx->batch_sig_msg_sz, ctx->batch_sig, ctx->batch_sig_pubkey,
+                                            ctx->batch_sha, ctx->batch_sig_result, ctx->batch_sig_cnt, ctx->ed25519_cache );
+
+  ulong r = 0UL;
+  for( ulong m=0UL; m<ctx->batch_msg_cnt; m++ ) {
+    fd_gossip_message_t * message = ctx->batch_msg[ m ].message;
+    uchar *               failed  = ctx->batch_msg[ m ].failed;
+    ctx->peer = ctx->batch_msg[ m ].peer;
+    int result = drop_bad_crds( ctx, message, failed, ctx->batch_msg[ m ].dup_mask, ctx->batch_sig_result+r );
+    r += ctx->batch_msg[ m ].sig_cnt;
+    if( FD_LIKELY( !result ) ) result = publish_message( ctx, message, ctx->batch_msg[ m ].payload, ctx->batch_msg[ m ].payload_sz, ctx->batch_msg[ m ].tsorig, failed, stem );
+    ctx->metrics.message_rx[ result ]++;
+    ctx->metrics.message_rx_bytes[ result ] += ctx->batch_msg[ m ].frame_sz;
+  }
+
+  ctx->batch_msg_cnt = 0UL;
+  ctx->batch_sig_cnt = 0UL;
+}
+
+/* batch_enqueue queues a push / pull response message that passed
+   every check but the signatures.  Values marked duplicate are not
+   verified again.  Returns -1: the outcome is counted at flush. */
+static int
+batch_enqueue( fd_gossvf_tile_ctx_t *      ctx,
+               fd_gossip_message_t const * message,
+               uchar const *               payload,
+               ulong                       payload_sz,
+               ulong                       frame_sz,
+               ulong                       tsorig,
+               uchar const *               failed,
+               uint                        dup_mask,
+               fd_stem_context_t *         stem ) {
+  int push = message->tag==FD_GOSSIP_MESSAGE_PUSH;
+  fd_gossip_value_t const * values = push ? message->push->values : message->pull_response->values;
+  ulong values_len = push ? message->push->values_len : message->pull_response->values_len;
+  fd_ip4_port_t peer = ctx->peer; /* a flush below publishes for other peers */
+
+  ulong sig_cnt = values_len-(ulong)fd_uint_popcnt( dup_mask );
+
+  /* A message that would take the batch past a full group waits for
+     the next one, unless the batch is empty. */
+  if( FD_UNLIKELY( ctx->batch_msg_cnt && ctx->batch_sig_cnt+sig_cnt>FD_GOSSVF_BATCH_SIG_MAX ) ) batch_flush( ctx, stem );
+
+  ulong m = ctx->batch_msg_cnt++;
+  fd_memcpy( ctx->batch_msg[ m ].payload, payload, payload_sz );
+  ctx->batch_msg[ m ].payload_sz = payload_sz;
+  ctx->batch_msg[ m ].frame_sz   = frame_sz;
+  ctx->batch_msg[ m ].peer       = peer;
+  ctx->batch_msg[ m ].tsorig     = tsorig;
+  ctx->batch_msg[ m ].dup_mask   = dup_mask;
+  ctx->batch_msg[ m ].sig_cnt    = sig_cnt;
+  fd_memcpy( ctx->batch_msg[ m ].message, message, fd_gossip_message_used_sz( message ) );
+  fd_memcpy( ctx->batch_msg[ m ].failed, failed, FD_GOSSIP_MESSAGE_MAX_CRDS );
+
+  uchar const * staged = ctx->batch_msg[ m ].payload;
+  fd_gossip_value_t const * staged_values = push ? ctx->batch_msg[ m ].message->push->values : ctx->batch_msg[ m ].message->pull_response->values;
+  for( ulong i=0UL; i<values_len; i++ ) {
+    if( (dup_mask>>i)&1U ) continue;
+    ulong lane = ctx->batch_sig_cnt++;
+    ctx->batch_sig_msg   [ lane ] = staged+values[ i ].offset+64UL; /* signable data begins after the signature */
+    ctx->batch_sig_msg_sz[ lane ] = values[ i ].length-64UL;
+    ctx->batch_sig       [ lane ] = staged_values[ i ].signature;
+    ctx->batch_sig_pubkey[ lane ] = staged_values[ i ].origin;
+  }
+
+  if( FD_LIKELY( ctx->batch_sig_cnt>=FD_GOSSVF_BATCH_SIG_MAX || ctx->batch_msg_cnt>=FD_GOSSVF_BATCH_MSG_MAX ) ) batch_flush( ctx, stem );
+  return -1;
+}
+
+/* Is a fragment for this tile already published on some input?  On
+   the net links that is the next sequence number this tile takes in
+   the round robin, not the next one on the link. */
+static inline int
+frag_ready( fd_gossvf_tile_ctx_t *    ctx,
+            fd_stem_context_t const * stem ) {
+  for( ulong i=0UL; i<ctx->in_cnt; i++ ) {
+    fd_stem_tile_in_t const * in = stem->in + i;
+    ulong seq = in->seq;
+    if( FD_LIKELY( fd_seq_lt( seq, ctx->in_ready_seq[ i ] ) ) ) return 1;
+    if( FD_LIKELY( ctx->in[ i ].kind==IN_KIND_NET ) ) seq += (ctx->round_robin_idx + ctx->round_robin_cnt - seq%ctx->round_robin_cnt) % ctx->round_robin_cnt;
+    if( FD_LIKELY( fd_seq_ge( fd_mcache_query( in->mcache, in->depth, seq ), seq ) ) ) {
+      ctx->in_ready_seq[ i ] = seq+1UL;
+      return 1;
+    }
+  }
+  return 0;
+}
+
+static inline void
+after_credit( fd_gossvf_tile_ctx_t * ctx,
+              fd_stem_context_t *    stem,
+              int *                  opt_poll_in FD_PARAM_UNUSED,
+              int *                  charge_busy ) {
+  if( FD_LIKELY( !ctx->batch_msg_cnt ) ) return;
+  if( FD_LIKELY( frag_ready( ctx, stem ) ) ) return;
+  batch_flush( ctx, stem );
+  *charge_busy = 1;
+}
+
 static inline void
 after_frag( fd_gossvf_tile_ctx_t * ctx,
             ulong                  in_idx,
@@ -1055,6 +1244,7 @@ after_frag( fd_gossvf_tile_ctx_t * ctx,
     case IN_KIND_EPOCH: handle_epoch( ctx, (fd_epoch_info_msg_t const *) ctx->stake.msg_buf ); break;
     case IN_KIND_NET: {
       int result = handle_net( ctx, sz, tsorig, stem );
+      if( FD_UNLIKELY( result<0 ) ) break; /* queued, counted at flush */
       ctx->metrics.message_rx[ result ]++;
       ctx->metrics.message_rx_bytes[ result ] += sz;
       break;
@@ -1139,6 +1329,14 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_clock_tile_init( ctx->clock );
 
   FD_TEST( fd_sha512_join( fd_sha512_new( ctx->sha ) ) );
+  for( ulong i=0UL; i<FD_GOSSVF_BATCH_SIG_MAX+FD_GOSSIP_MESSAGE_MAX_CRDS; i++ ) {
+    ctx->batch_sha[ i ] = fd_sha512_join( fd_sha512_new( ctx->_batch_sha+i ) );
+    FD_TEST( ctx->batch_sha[ i ] );
+  }
+  ctx->batch_msg_cnt = 0UL;
+  ctx->batch_sig_cnt = 0UL;
+  ctx->in_cnt        = tile->in_cnt;
+  for( ulong i=0UL; i<tile->in_cnt; i++ ) ctx->in_ready_seq[ i ] = 0UL;
 
   ctx->ed25519_cache = fd_ed25519_cache_join( fd_ed25519_cache_new( _ed25519_cache, ED25519_CACHE_ENT_CNT, ctx->seed ) );
   FD_TEST( ctx->ed25519_cache );
@@ -1250,7 +1448,9 @@ populate_allowed_fds( fd_topo_t const *      topo,
   return out_cnt;
 }
 
-#define STEM_BURST (FD_GOSSIP_MESSAGE_MAX_CRDS+1UL)
+/* A flush publishes every queued message plus the ping requests its
+   contact infos raise, and a message of another kind can follow. */
+#define STEM_BURST ((FD_GOSSVF_BATCH_MSG_MAX+1UL)*(FD_GOSSIP_MESSAGE_MAX_CRDS+1UL))
 
 #define STEM_LAZY  (128L*3000L)
 
@@ -1260,6 +1460,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 #define STEM_CALLBACK_METRICS_WRITE       metrics_write
 #define STEM_CALLBACK_BEFORE_CREDIT       before_credit
+#define STEM_CALLBACK_AFTER_CREDIT        after_credit
 #define STEM_CALLBACK_NEXT_DEADLINE       next_deadline
 #define STEM_CALLBACK_BEFORE_FRAG         before_frag
 #define STEM_CALLBACK_DURING_FRAG         during_frag
