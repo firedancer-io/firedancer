@@ -399,6 +399,8 @@
                 "sum": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Sum of samples (nanos)" }
             }
         },
+        "transpiled_executed":           { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "sBPF program invocations run as ahead-of-time transpiled code", "field_number": 524961366 },
+        "transpiled_bailed":             { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Transpiled invocations that bailed to the interpreter", "field_number": 489446758 },
         "jit_hit":                       { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Program executions that found native code in the tile's JIT cache", "field_number": 335920163 },
         "jit_compiled":                  { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Programs compiled to native code", "field_number": 431985017 },
         "jit_compile_failed":            { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Programs that could not be compiled and ran in the interpreter", "field_number": 519145400 },

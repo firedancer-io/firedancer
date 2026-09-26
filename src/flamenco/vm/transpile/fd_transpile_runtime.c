@@ -42,5 +42,3 @@ fd_vm_transpiled_frame_init( fd_vm_t * vm ) {
   fd_vm_stack_grow( vm, (vm->frame_cnt+1UL)*FD_VM_STACK_FRAME_SZ );
   vm->transpiled.frame_clean_cnt = vm->stack_clean / FD_VM_STACK_FRAME_SZ;
 }
-
-__attribute__((weak)) fd_transpile_export_t const * const fd_transpiled_ext[1] = {NULL};
