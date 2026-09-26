@@ -1,4 +1,5 @@
 #include "fd_transpile_live.h"
+#include "fd_vm_jit.h"
 #include "fd_transpile_runtime.h"
 #include "../fd_vm_private.h"
 #include "../../../ballet/murmur3/fd_murmur3.h"
@@ -512,11 +513,29 @@ typedef struct {
 } test_result_t;
 
 static void
+fixture_exec_jit( test_env_t *                 env,
+                  fd_sbpf_program_t const *    prog,
+                  fd_sbpf_syscalls_t *         syscalls,
+                  fd_vm_transpiled_exec_func_t fn,
+                  fd_vm_jit_t *                jit,
+                  test_result_t *              out );
+
+static void
 fixture_exec( test_env_t *                 env,
               fd_sbpf_program_t const *    prog,
               fd_sbpf_syscalls_t *         syscalls,
               fd_vm_transpiled_exec_func_t fn,
               test_result_t *              out ) {
+  fixture_exec_jit( env, prog, syscalls, fn, NULL, out );
+}
+
+static void
+fixture_exec_jit( test_env_t *                 env,
+                  fd_sbpf_program_t const *    prog,
+                  fd_sbpf_syscalls_t *         syscalls,
+                  fd_vm_transpiled_exec_func_t fn,
+                  fd_vm_jit_t *                jit,
+                  test_result_t *              out ) {
   fd_log_collector_init( env->log, 1 );
   memset( &env->txn_out->err, 0, sizeof(env->txn_out->err) );
   memset( &env->txn_out->details.return_data, 0, sizeof(env->txn_out->details.return_data) );
@@ -544,7 +563,12 @@ fixture_exec( test_env_t *                 env,
   FD_TEST( fd_vm_validate( vm )==FD_VM_SUCCESS );
 
   out->bail_cnt = 0UL;
-  if( fn ) {
+  if( jit ) {
+    /* the program id tells fixtures apart (their buffers can reuse an address) */
+    fd_vm_jit_key_t key = { .sbpf_version = prog->info.sbpf_version, .syscalls_hash = fd_vm_jit_syscalls_hash( syscalls ),
+                            .data_gaddr = (ulong)prog->text, .deploy_slot = prog->info.text_cnt, .feature_slot = prog->entry_pc };
+    out->err = fd_vm_jit_exec( jit, &key, vm );
+  } else if( fn ) {
     out->err = fn( vm );
     if( out->err==FD_VM_ERR_BAIL ) {
       out->bail_cnt++;
@@ -568,6 +592,12 @@ test_fixtures( fd_sbpf_syscalls_t * syscalls ) {
   test_env_init( env );
   static test_result_t res_interp[1];
   static test_result_t res_live  [1];
+  static test_result_t res_jit   [1];
+
+  void * jit_mem = aligned_alloc( fd_vm_jit_align(), fd_vm_jit_footprint() );
+  FD_TEST( jit_mem );
+  fd_vm_jit_t * jit = fd_vm_jit_join( fd_vm_jit_new( jit_mem, 8UL<<20 ) );
+  FD_TEST( jit );
 
   fd_sbpf_loader_config_t config = {
     .elf_deploy_checks = 0,
@@ -595,6 +625,17 @@ test_fixtures( fd_sbpf_syscalls_t * syscalls ) {
     fixture_exec( env, prog, syscalls, NULL, res_interp );
     fixture_exec( env, prog, syscalls, (fd_vm_transpiled_exec_func_t)live->text_haddr, res_live );
 
+    /* code arena JIT: compile, then a cache hit, both identical to the
+       interpreter */
+    for( ulong run=0UL; run<2UL; run++ ) {
+      fixture_exec_jit( env, prog, syscalls, NULL, jit, res_jit );
+      if( FD_UNLIKELY( !( res_jit->err==res_interp->err && res_jit->r0==res_interp->r0 && res_jit->cu==res_interp->cu &&
+               res_jit->log_sz==res_interp->log_sz && !memcmp( res_jit->log, res_interp->log, res_interp->log_sz ) ) ) )
+        FD_LOG_ERR(( "%s run %lu: jit mismatch (interp err %d r0 %#lx cu %lu log_sz %lu) (jit err %d r0 %#lx cu %lu log_sz %lu) %.*s | %.*s", fixtures[i].name, run,
+                     res_interp->err, res_interp->r0, res_interp->cu, res_interp->log_sz, res_jit->err, res_jit->r0, res_jit->cu, res_jit->log_sz,
+                     (int)res_interp->log_sz, (char const *)res_interp->log, (int)res_jit->log_sz, (char const *)res_jit->log ));
+    }
+
     if( FD_UNLIKELY( res_interp->err!=res_live->err ||
                      res_interp->r0 !=res_live->r0  ||
                      res_interp->cu !=res_live->cu  ||
@@ -613,6 +654,11 @@ test_fixtures( fd_sbpf_syscalls_t * syscalls ) {
     free( prog_mem );
     free( rodata );
   }
+
+  fd_vm_jit_metrics_t const * m = fd_vm_jit_metrics( jit );
+  FD_LOG_NOTICE(( "jit: compile %lu fail %lu hit %lu bail %lu", m->compile_cnt, m->compile_fail_cnt, m->hit_cnt, m->bail_cnt ));
+  FD_TEST( m->compile_cnt==3UL && m->hit_cnt==3UL && !m->compile_fail_cnt );
+  free( jit_mem );
 
   test_env_fini( env );
 }
