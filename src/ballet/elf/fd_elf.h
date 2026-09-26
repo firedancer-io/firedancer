@@ -129,6 +129,7 @@
 
 /* FD_ELF_R_X86_64: x86_64 relocation types */
 
+#define FD_ELF_R_X86_64_64    1
 #define FD_ELF_R_X86_64_PC32  2
 #define FD_ELF_R_X86_64_PLT32 4
 

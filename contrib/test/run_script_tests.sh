@@ -58,6 +58,10 @@ fi
 
 src/waltz/tlsrec/test_tls_openssl1.sh 2>&1 | tee $LOG_PATH/tls_openssl; [[ ${PIPESTATUS[0]} -eq 0 ]] || test_status=1
 
+if [[ -x $UNIT_TEST/test_transpile_link.sh ]]; then
+  $UNIT_TEST/test_transpile_link.sh 2>&1 | tee $LOG_PATH/transpile_link; [[ ${PIPESTATUS[0]} -eq 0 ]] || test_status=1
+fi
+
 wait
 
 for f in `ls $LOG_PATH`; do
