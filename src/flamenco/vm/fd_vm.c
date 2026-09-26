@@ -618,7 +618,7 @@ fd_vm_init(
   // Set the vm fields
   vm->instr_ctx                              = instr_ctx;
   vm->heap_max                               = heap_max;
-  vm->entry_cu                               = entry_cu;
+  vm->entry_cu                               = (long)entry_cu;
   vm->rodata                                 = rodata;
   vm->rodata_sz                              = rodata_sz;
   vm->text                                   = text;
@@ -676,7 +676,7 @@ fd_vm_init(
   /* Set execution state */
   vm->pc        = vm->entry_pc;
   vm->ic        = 0UL;
-  vm->cu        = vm->entry_cu;
+  vm->cu        = (long)vm->entry_cu;
   vm->frame_cnt = 0UL;
 
   vm->heap_sz = 0UL;

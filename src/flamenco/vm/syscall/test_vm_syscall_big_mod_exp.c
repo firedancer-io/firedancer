@@ -85,7 +85,7 @@ test_feature_enabled( fd_vm_t * vm ) {
      cu=50+ceil(23*92/4)=579 */
   FD_TEST( vm->cu==FD_VM_COMPUTE_UNIT_LIMIT-579UL );
 
-  FD_LOG_NOTICE(( "ok: feature enabled -> sol_big_mod_exp registered & 5^2 mod 7 = %u (charged %lu CU)",
+  FD_LOG_NOTICE(( "ok: feature enabled -> sol_big_mod_exp registered & 5^2 mod 7 = %u (charged %ld CU)",
                   (uint)vm->heap[ RES_OFF ], FD_VM_COMPUTE_UNIT_LIMIT-vm->cu ));
 
   /* (c) charge/validation ORDER, which is consensus visible.  agave charges the
