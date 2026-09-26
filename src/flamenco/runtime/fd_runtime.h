@@ -222,6 +222,10 @@ struct fd_runtime {
     ulong instr_cum;
     ulong cpi_cum;
 
+    /* sBPF executions via transpiled code */
+    ulong transpiled_exec_cnt;
+    ulong transpiled_bail_cnt;
+
     /* Committed writable accounts left byte-identical by the txn,
        whose lthash update was skipped */
     ulong lthash_unchanged_cnt;

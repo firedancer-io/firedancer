@@ -589,6 +589,8 @@
 | <span class="metrics-name">execle_&#8203;txn_&#8203;processed_&#8203;by_&#8203;version</span><br/>{txn_&#8203;version="<span class="metrics-enum">v1</span>"} | counter | Transactions processed, by transaction version (Version 1 transaction format) |
 | <span class="metrics-name">execle_&#8203;instruction_&#8203;executed</span> | counter | Top-level instructions executed |
 | <span class="metrics-name">execle_&#8203;cpi_&#8203;executed</span> | counter | Cross-program invocations executed |
+| <span class="metrics-name">execle_&#8203;transpiled_&#8203;executed</span> | counter | sBPF program invocations run as ahead-of-time transpiled code |
+| <span class="metrics-name">execle_&#8203;transpiled_&#8203;bailed</span> | counter | Transpiled invocations that bailed to the interpreter |
 | <span class="metrics-name">execle_&#8203;account_&#8203;lthash_&#8203;skipped</span> | counter | Committed writable accounts left byte-identical by their transaction, so their in-band lthash update was skipped |
 | <span class="metrics-name">execle_&#8203;bank_&#8203;switched</span> | counter | Cache invalidations due to transaction execution from a different block |
 | <span class="metrics-name">execle_&#8203;cu_&#8203;consumed</span> | counter | Compute units consumed by executed transactions |
@@ -1289,6 +1291,8 @@
 | <span class="metrics-name">execrp_&#8203;poh_&#8203;hash_&#8203;computed</span> | counter | PoH SHA-256 iterations computed |
 | <span class="metrics-name">execrp_&#8203;instruction_&#8203;executed</span> | counter | Top-level instructions executed |
 | <span class="metrics-name">execrp_&#8203;cpi_&#8203;executed</span> | counter | Cross-program invocations executed |
+| <span class="metrics-name">execrp_&#8203;transpiled_&#8203;executed</span> | counter | sBPF program invocations run as ahead-of-time transpiled code |
+| <span class="metrics-name">execrp_&#8203;transpiled_&#8203;bailed</span> | counter | Transpiled invocations that bailed to the interpreter |
 | <span class="metrics-name">execrp_&#8203;account_&#8203;lthash_&#8203;skipped</span> | counter | Committed writable accounts left byte-identical by their transaction, so their in-band lthash update was skipped |
 | <span class="metrics-name">execrp_&#8203;bank_&#8203;switched</span> | counter | Cache invalidations due to transaction execution from a different block |
 | <span class="metrics-name">execrp_&#8203;txn_&#8203;regime_&#8203;duration_&#8203;nanos</span><br/>{txn_&#8203;regime="<span class="metrics-enum">load</span>"} | counter | Time per transaction, by phase; a phase counts only once the next phase starts, so dropped, fees-only and no-op transactions lose their trailing phases (Transaction checks and account loading) |
