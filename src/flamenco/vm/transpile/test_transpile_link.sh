@@ -41,8 +41,8 @@ cp "$PROG" "$TMP/$PROG_ID.so" || exit 1
 [[ -f "$TMP/libfd_transpiled.a" && -f "$TMP/fd_transpiled_export.o" ]] || { echo "FAIL (archive files missing)"; exit 1; }
 
 # 3. Link.  The test references fd_transpiled_ext, so the archive
-#    member defining it is pulled in; it goes before libfd_vm.a so it
-#    wins over the weak empty fallback in fd_transpile_runtime.o.
+#    member defining it is pulled in; it goes before libfd_flamenco.a
+#    so it wins over the weak empty fallback in fd_transpile_ext.o.
 #    -z text rejects any text relocation the object might require.
 
 OUT=$OBJDIR/unit-test/test_transpile_link

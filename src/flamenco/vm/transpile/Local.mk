@@ -11,7 +11,7 @@ $(call add-objs,fd_transpile_runtime,fd_vm)
 
 # binds program cache records to linked-in transpiled programs
 $(call add-hdrs,fd_transpile_bind.h)
-$(call add-objs,fd_transpile_bind,fd_flamenco)
+$(call add-objs,fd_transpile_bind fd_transpile_ext,fd_flamenco)
 
 # transpiler frontend
 $(call add-hdrs,fd_transpile_obj.h)
