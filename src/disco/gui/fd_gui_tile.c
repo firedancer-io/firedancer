@@ -76,7 +76,7 @@ static ulong const gui_db_type_idx[ FD_GUI_HIST_CNT ] = {
 #define IN_KIND_EPOCH         (13UL) /* firedancer only */
 #define IN_KIND_GENESI_OUT    (14UL) /* firedancer only */
 #define IN_KIND_SNAPIN        (15UL) /* firedancer only */
-#define IN_KIND_EXECRP_REPLAY (16UL) /* firedancer only */
+#define IN_KIND_EXECRP_GUI    (16UL) /* firedancer only */
 #define IN_KIND_BUNDLE        (17UL)
 #define IN_KIND_SNAPIN_MANIF  (18UL) /* firedancer only */
 #define IN_KIND_SNAPSV_OUT    (19UL) /* firedancer only */
@@ -348,7 +348,6 @@ before_frag( fd_gui_ctx_t * ctx,
   (void)seq;
 
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_PACK_POH && sig==FD_PACK_MSG_REDUCE_MB_BOUND ) ) return 1;
-  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_EXECRP_REPLAY && sig>>32!=FD_EXECRP_TT_TXN_EXEC ) ) return 1;
 
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP_OUT &&
                  (sig==FD_GOSSIP_UPDATE_TAG_WFS_DONE || sig==FD_GOSSIP_UPDATE_TAG_PEER_SATURATED) ) ) return 1;
@@ -448,15 +447,12 @@ after_frag( fd_gui_ctx_t *      ctx,
   uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in[ in_idx ].mem, ctx->chunk );
 
   switch( ctx->in_kind[ in_idx ] ) {
-    case IN_KIND_EXECRP_REPLAY: {
-      if( FD_LIKELY( sig>>32==FD_EXECRP_TT_TXN_EXEC ) ) {
-        fd_execrp_task_done_msg_t * msg = (fd_execrp_task_done_msg_t *)src;
+    case IN_KIND_EXECRP_GUI: {
+      fd_execrp_gui_msg_t const * msg = (fd_execrp_gui_msg_t const *)src;
 
-        long tsorig_ns = fd_clock_tile_tickcomp_to_wallclock( ctx->clock, tsorig );
-        long tspub_ns  = fd_clock_tile_tickcomp_to_wallclock( ctx->clock, tspub  );
-        fd_gui_handle_exec_txn_done( ctx->gui, msg->txn_exec->slot, msg->txn_exec->start_shred_idx, msg->txn_exec->end_shred_idx, tsorig_ns, tspub_ns, fd_clock_tile_now( ctx->clock ) );
-      }
-
+      long tsorig_ns = fd_clock_tile_tickcomp_to_wallclock( ctx->clock, tsorig );
+      long tspub_ns  = fd_clock_tile_tickcomp_to_wallclock( ctx->clock, tspub  );
+      fd_gui_handle_exec_txn_done( ctx->gui, msg->slot, msg->start_shred_idx, msg->end_shred_idx, tsorig_ns, tspub_ns, fd_clock_tile_now( ctx->clock ) );
       break;
     }
     case IN_KIND_VOTOR_OUT: {
@@ -999,7 +995,7 @@ unprivileged_init( fd_topo_t const *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "snapin_gui"    ) ) ) ctx->in_kind[ i ] = IN_KIND_SNAPIN;
     else if( FD_LIKELY( !strcmp( link->name, "snapin_manif"  ) ) ) ctx->in_kind[ i ] = IN_KIND_SNAPIN_MANIF;
     else if( FD_LIKELY( !strcmp( link->name, "snapsv_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_SNAPSV_OUT;
-    else if( FD_LIKELY( !strcmp( link->name, "execrp_replay" ) ) ) ctx->in_kind[ i ] = IN_KIND_EXECRP_REPLAY;
+    else if( FD_LIKELY( !strcmp( link->name, "execrp_gui"    ) ) ) ctx->in_kind[ i ] = IN_KIND_EXECRP_GUI;
     else if( FD_LIKELY( !strcmp( link->name, "bundle_status"  ) ) ) ctx->in_kind[ i ] = IN_KIND_BUNDLE;
     else if( FD_LIKELY( !strcmp( link->name, "diag_gui"       ) ) ) ctx->in_kind[ i ] = IN_KIND_DIAG;
     else if( FD_LIKELY( !strcmp( link->name, "votor_out"      ) ) ) ctx->in_kind[ i ] = IN_KIND_VOTOR_OUT;

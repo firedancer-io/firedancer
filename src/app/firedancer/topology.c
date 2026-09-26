@@ -371,6 +371,7 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "metric_in"    );
   if( FD_LIKELY( config->tiles.gui.enabled ) ) fd_topob_wksp( topo, "diag_gui" );
   if( FD_LIKELY( config->tiles.gui.enabled ) ) fd_topob_wksp( topo, "gossip_gui" );
+  if( FD_LIKELY( config->tiles.gui.enabled ) ) fd_topob_wksp( topo, "execrp_gui" );
 
   fd_topob_wksp( topo, "net_gossip"   );
   fd_topob_wksp( topo, "net_shred"    );
@@ -604,6 +605,9 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_link( topo, "diag_gui", "diag_gui", 4UL, sizeof(fd_diag_system_resources_t), 1UL );
     /**/                 fd_topob_link( topo, "gossip_gui",  "gossip_gui",    256UL,                                    FD_GUI_GOSSIP_BW_MTU,          1UL );
     FOR(gossvf_tile_cnt) fd_topob_link( topo, "gossvf_gui",  "gossip_gui",    256UL,                                    FD_GUI_GOSSIP_BW_MTU,          1UL );
+    /* The TXN_EXEC completions of execrp_replay, without the sigverify
+       and poh ones. */
+    FOR(execrp_tile_cnt) fd_topob_link( topo, "execrp_gui",  "execrp_gui",    16384UL,                                  sizeof(fd_execrp_gui_msg_t),   1UL );
   }
 
   ushort parsed_tile_to_cpu[ FD_TILE_MAX ];
@@ -1092,6 +1096,7 @@ fd_topo_initialize( config_t * config ) {
 
     /**/                   fd_topob_tile_out( topo, "gossip", 0UL,                        "gossip_gui",    0UL                                                );
     FOR(gossvf_tile_cnt)   fd_topob_tile_out( topo, "gossvf", i,                          "gossvf_gui",    i                                                  );
+    FOR(execrp_tile_cnt)   fd_topob_tile_out( topo, "execrp", i,                          "execrp_gui",    i                                                  );
 
     /*                                        topo, tile_name, tile_kind_id, fseq_wksp,   link_name,       link_kind_id, reliable,            polled */
     FOR(gossvf_tile_cnt)   fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "gossvf_gui",    i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
@@ -1108,7 +1113,7 @@ fd_topo_initialize( config_t * config ) {
       FOR(execle_tile_cnt) fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "pack_execle",   i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
       FOR(execle_tile_cnt) fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "execle_poh",    i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     }
-    FOR(execrp_tile_cnt)   fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "execrp_replay", i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    FOR(execrp_tile_cnt)   fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "execrp_gui",    i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
 
     if( FD_LIKELY( snapshots_enabled ) ) {
     /**/                   fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "snapct_gui",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );

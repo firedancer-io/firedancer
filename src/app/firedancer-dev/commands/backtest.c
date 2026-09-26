@@ -353,7 +353,10 @@ backtest_topo( config_t * config ) {
     /**/                 fd_topob_tile_in( topo, "gui", 0UL, "metric_in", "replay_out",    0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
     /**/                 fd_topob_tile_in( topo, "gui", 0UL, "metric_in", "replay_epoch",  0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
     /**/                 fd_topob_tile_in( topo, "gui", 0UL, "metric_in", "genesi_out",    0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-    FOR(execrp_tile_cnt) fd_topob_tile_in( topo, "gui", 0UL, "metric_in", "execrp_replay", i,   FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    fd_topob_wksp( topo, "execrp_gui" );
+    FOR(execrp_tile_cnt) fd_topob_link( topo, "execrp_gui", "execrp_gui", 16384UL, sizeof(fd_execrp_gui_msg_t), 1UL );
+    FOR(execrp_tile_cnt) fd_topob_tile_out( topo, "execrp", i, "execrp_gui", i );
+    FOR(execrp_tile_cnt) fd_topob_tile_in( topo, "gui", 0UL, "metric_in", "execrp_gui",    i,   FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
     /**/                 fd_topob_tile_in( topo, "gui", 0UL, "metric_in", "snapct_gui",    0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
     FOR(snapin_tile_cnt) fd_topob_tile_in( topo, "gui", 0UL, "metric_in", "snapin_gui",    i,   FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
     /**/                 fd_topob_tile_in( topo, "gui", 0UL, "metric_in", "snapin_manif",  0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
