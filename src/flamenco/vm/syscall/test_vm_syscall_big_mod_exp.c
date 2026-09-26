@@ -85,7 +85,7 @@ test_feature_enabled( fd_vm_t * vm ) {
      cu=50+ceil(23*92/4)=579 */
   FD_TEST( vm->cu==FD_VM_COMPUTE_UNIT_LIMIT-579UL );
 
-  FD_LOG_NOTICE(( "ok: feature enabled -> sol_big_mod_exp registered & 5^2 mod 7 = %u (charged %lu CU)",
+  FD_LOG_NOTICE(( "ok: feature enabled -> sol_big_mod_exp registered & 5^2 mod 7 = %u (charged %ld CU)",
                   (uint)vm->heap[ RES_OFF ], FD_VM_COMPUTE_UNIT_LIMIT-vm->cu ));
 
   /* (c) charge/validation ORDER, which is consensus visible.  agave charges the
@@ -100,7 +100,7 @@ test_feature_enabled( fd_vm_t * vm ) {
     vm->cu = FD_VM_COMPUTE_UNIT_LIMIT;                                     \
     FD_VM_PREPARE_ERR_OVERWRITE( vm );                                     \
     fd_vm_syscall_sol_big_mod_exp( vm, (pv), (rv), 0UL,0UL,0UL ); }))
-# define CHARGED() ( FD_VM_COMPUTE_UNIT_LIMIT - vm->cu )
+# define CHARGED() ( (ulong)( FD_VM_COMPUTE_UNIT_LIMIT - vm->cu ) )
 
   ulong const PV = FD_VM_MEM_MAP_HEAP_REGION_START + PARAMS_OFF;
   ulong const RV = FD_VM_MEM_MAP_HEAP_REGION_START + RES_OFF;
