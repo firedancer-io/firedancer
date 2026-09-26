@@ -16,32 +16,14 @@
                 "skip":           { "description": "SkipVote or SkipFallbackVote aggregate that sums >= 60% of stake, for slot." }
             }
         },
-        "voters": {
-            "type": "Array",
-            "description": "Which validators' primary votes the cert aggregates (NotarVote for notar, fast_final and notar_fallback; FinalVote for final; SkipVote for skip), indexed by the voter's rank in the slot's epoch.",
-            "max_len": 2000,
-            "element": { "type": "Bool", "description": "Whether this rank signed." }
-        },
-        "fallback_voters": {
-            "type": "Array",
-            "description": "Fallback signer set (NotarFallbackVote for notar_fallback, SkipFallbackVote for skip) by rank. Empty for other kinds.",
-            "max_len": 2000,
-            "element": { "type": "Bool", "description": "Whether this rank signed the fallback vote." }
-        },
+        "voters":               { "type": "Bytes",                                             "description": "Which validators' primary votes the cert aggregates (NotarVote for notar, fast_final and notar_fallback; FinalVote for final; SkipVote for skip), as a bitmap over the voter's rank in the slot's epoch: rank r is bit r%8 of byte r/8, bytes through the highest signer.", "max_len": 250 },
+        "fallback_voters":      { "type": "Bytes",                                             "description": "Fallback signer set (NotarFallbackVote for notar_fallback, SkipFallbackVote for skip), a bitmap by rank like voters. Empty for other kinds.", "max_len": 250 },
         "relayer_ip":           { "type": "IPv6",                                              "description": "IPv4 address of the peer that relayed the cert to us; ourselves if our_cert, stored as an IPv4-mapped IPv6 address (all zeros if unknown)." },
         "relayer_identity":     { "type": "Pubkey",                                            "description": "Validator identity of the peer that relayed the cert to us (determined from the QUIC client-side TLS certificate); ourselves if our_cert (all zeros if unknown_peer). Not necessarily the creator of the cert: a node re-broadcasts the first valid cert it obtains (whether from self or others)." },
         "our_cert":             { "type": "Bool",                                              "description": "Whether we constructed the cert ourselves from the votes we had received, rather than a peer delivering it first. Not every cert is self-made; when it is, we reached the threshold before any peer's copy arrived, i.e. we are running fast." },
-        "broadcast_reason": {
-            "type": "LowCardinality(String)",
-            "description": "Why we broadcast the cert (based on the Alpenglow certificate rules, see Table 6 and Definition 13) (not_broadcasted if we did not).",
-            "variants": {
-                "not_broadcasted": { "description": "We did not broadcast the cert for various reasons, see processing_result." },
-                "first_valid":     { "description": "The first valid cert of its kind for the slot that we received or constructed; every node broadcasts these (Definition 13)." }
-            }
-        },
         "broadcast_to": {
             "type": "Array",
-            "description": "Who we sent the cert to, indexed by rank like voters: identity and address at each rank, all zeros where we did not send (only if broadcast_reason is first_valid, empty otherwise).",
+            "description": "Who we sent the cert to, indexed by rank like voters: identity and address at each rank, all zeros where we did not send (only if our_cert, empty otherwise).",
             "max_len": 2000,
             "dynamic": true,
             "element": {
@@ -64,14 +46,14 @@
                 "unranked_peer":          { "description": "The peer has no rank in the slot's epoch." },
                 "slot_too_old":           { "description": "The slot is behind our finality frontier, or in an earlier epoch we have no stake information for." },
                 "slot_too_new":           { "description": "The slot is beyond our look-ahead window, or in an epoch we have no stake information for." },
-                "duplicate":              { "description": "We already held a cert of this kind for the slot, or for this block if notar_fallback; we keep one per kind (Definition 13), so we dropped the copy without verifying it. The common case: every node broadcasts each cert it accepts." },
+                "duplicate":              { "description": "We already held a cert of this kind for the slot, or for this block if notar_fallback; we keep one per kind (Definition 13), so we dropped the copy without verifying it. The common case: every node broadcasts each cert it accepts. Recorded for notar certs only." },
                 "ignored_redundant":      { "description": "We already hold a valid cert that supersedes this one, e.g. a fast-finalization cert for the block a notarization cert arrives for; ignored." },
                 "failed_bls_verify":      { "description": "The signers' stake is below the threshold (Table 6), a signer rank is outside the epoch, or the aggregate BLS signature is invalid; peer banned." },
                 "accepted":               { "description": "BLS verified (stake threshold of Table 6 and aggregate BLS signature) and stored as the first cert of its kind for the slot, then broadcast to our peers (Definition 13); see broadcast_start_time and broadcast_to." }
             }
         },
         "verify_start_time":    { "type": "DateTime64(9)", "compression": "DoubleDelta, ZSTD", "description": "When we started BLS verifying the cert (unset if our_cert)." },
-        "broadcast_start_time": { "type": "DateTime64(9)", "compression": "DoubleDelta, ZSTD", "description": "When we started broadcasting the cert to our peers, BLS verification having finished (only if broadcast_reason is first_valid, 0 otherwise)." },
+        "broadcast_start_time": { "type": "DateTime64(9)", "compression": "DoubleDelta, ZSTD", "description": "When we started broadcasting the cert to our peers, BLS verification having finished (only if our_cert, 0 otherwise)." },
         "done_time":            { "type": "DateTime64(9)", "compression": "DoubleDelta, ZSTD", "description": "When we finished processing the cert, may be any of the above stages including short-circuiting at earlier stages." }
     }
 }

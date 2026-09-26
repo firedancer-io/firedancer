@@ -972,7 +972,7 @@ fd_event_alpenglow_vote_serialize( fd_circq_t *                      circq,
   ok &= !!fd_pb_push_bytes ( encoder, 6U, msg->received_from_ip, 16UL );
   ok &= !!fd_pb_push_bytes ( encoder, 7U, msg->received_from_identity, 32UL );
   if( msg->our_vote ) ok &= !!fd_pb_push_bool  ( encoder, 8U, msg->our_vote );
-  if( msg->broadcast_reason ) ok &= !!fd_pb_push_int32 ( encoder, 9U, msg->broadcast_reason );
+  if( msg->reason ) ok &= !!fd_pb_push_int32 ( encoder, 9U, msg->reason );
   for( ulong k=0UL; k<broadcast_to_cnt; k++ ) {
     ok &= !!fd_pb_submsg_open( encoder, 10U );
     ok &= !!fd_pb_push_bytes ( encoder, 1U, broadcast_to[ k ].identity, 32UL );
@@ -981,13 +981,13 @@ fd_event_alpenglow_vote_serialize( fd_circq_t *                      circq,
     ok &= !!fd_pb_submsg_close( encoder );
   }
   if( msg->processing_result ) ok &= !!fd_pb_push_int32 ( encoder, 11U, msg->processing_result );
-  if( msg->quorum_reached_safe_to_notar ) ok &= !!fd_pb_push_bool  ( encoder, 12U, msg->quorum_reached_safe_to_notar );
-  if( msg->quorum_reached_safe_to_skip ) ok &= !!fd_pb_push_bool  ( encoder, 13U, msg->quorum_reached_safe_to_skip );
-  if( msg->quorum_reached_final_cert ) ok &= !!fd_pb_push_bool  ( encoder, 14U, msg->quorum_reached_final_cert );
-  if( msg->quorum_reached_fast_final_cert ) ok &= !!fd_pb_push_bool  ( encoder, 15U, msg->quorum_reached_fast_final_cert );
-  if( msg->quorum_reached_notar_cert ) ok &= !!fd_pb_push_bool  ( encoder, 16U, msg->quorum_reached_notar_cert );
-  if( msg->quorum_reached_notar_fallback_cert ) ok &= !!fd_pb_push_bool  ( encoder, 17U, msg->quorum_reached_notar_fallback_cert );
-  if( msg->quorum_reached_skip_cert ) ok &= !!fd_pb_push_bool  ( encoder, 18U, msg->quorum_reached_skip_cert );
+  if( msg->quorum_reached_final_cert ) ok &= !!fd_pb_push_bool  ( encoder, 12U, msg->quorum_reached_final_cert );
+  if( msg->quorum_reached_fast_final_cert ) ok &= !!fd_pb_push_bool  ( encoder, 13U, msg->quorum_reached_fast_final_cert );
+  if( msg->quorum_reached_notar_cert ) ok &= !!fd_pb_push_bool  ( encoder, 14U, msg->quorum_reached_notar_cert );
+  if( msg->quorum_reached_notar_fallback_cert ) ok &= !!fd_pb_push_bool  ( encoder, 15U, msg->quorum_reached_notar_fallback_cert );
+  if( msg->quorum_reached_skip_cert ) ok &= !!fd_pb_push_bool  ( encoder, 16U, msg->quorum_reached_skip_cert );
+  if( msg->quorum_reached_safe_to_notar ) ok &= !!fd_pb_push_bool  ( encoder, 17U, msg->quorum_reached_safe_to_notar );
+  if( msg->quorum_reached_safe_to_skip ) ok &= !!fd_pb_push_bool  ( encoder, 18U, msg->quorum_reached_safe_to_skip );
   if( msg->aggregation_start_time ) ok &= !!fd_pb_push_uint64( encoder, 19U, (ulong)msg->aggregation_start_time );
   if( msg->verify_start_time ) ok &= !!fd_pb_push_uint64( encoder, 20U, (ulong)msg->verify_start_time );
   if( msg->broadcast_start_time ) ok &= !!fd_pb_push_uint64( encoder, 21U, (ulong)msg->broadcast_start_time );
@@ -1023,8 +1023,8 @@ fd_event_alpenglow_cert_serialize( fd_circq_t *                      circq,
   ok &= !!fd_pb_push_uint64( encoder, 3U, link_seq );
   ok &= !!fd_pb_push_uint64( encoder, 4U, (ulong)timestamp_nanos );
 
-  FD_TEST( msg->voters_cnt<=2000UL );
-  FD_TEST( msg->fallback_voters_cnt<=2000UL );
+  FD_TEST( msg->voters_len<=250UL );
+  FD_TEST( msg->fallback_voters_len<=250UL );
   FD_TEST( msg->broadcast_to_cnt<=2000UL );
 
   uchar const * _dyn = (uchar const *)msg + FD_EVENT_ALPENGLOW_CERT_PREFIX_SZ;
@@ -1037,27 +1037,22 @@ fd_event_alpenglow_cert_serialize( fd_circq_t *                      circq,
   if( msg->slot ) ok &= !!fd_pb_push_uint64( encoder, 1U, (ulong)msg->slot );
   ok &= !!fd_pb_push_bytes ( encoder, 2U, msg->block_id, 32UL );
   if( msg->kind ) ok &= !!fd_pb_push_int32 ( encoder, 3U, msg->kind );
-  for( ulong k=0UL; k<msg->voters_cnt; k++ ) {
-    ok &= !!fd_pb_push_bool  ( encoder, 4U, msg->voters[ k ] );
-  }
-  for( ulong k=0UL; k<msg->fallback_voters_cnt; k++ ) {
-    ok &= !!fd_pb_push_bool  ( encoder, 5U, msg->fallback_voters[ k ] );
-  }
+  if( msg->voters_len ) ok &= !!fd_pb_push_bytes ( encoder, 4U, msg->voters, msg->voters_len );
+  if( msg->fallback_voters_len ) ok &= !!fd_pb_push_bytes ( encoder, 5U, msg->fallback_voters, msg->fallback_voters_len );
   ok &= !!fd_pb_push_bytes ( encoder, 6U, msg->relayer_ip, 16UL );
   ok &= !!fd_pb_push_bytes ( encoder, 7U, msg->relayer_identity, 32UL );
   if( msg->our_cert ) ok &= !!fd_pb_push_bool  ( encoder, 8U, msg->our_cert );
-  if( msg->broadcast_reason ) ok &= !!fd_pb_push_int32 ( encoder, 9U, msg->broadcast_reason );
   for( ulong k=0UL; k<broadcast_to_cnt; k++ ) {
-    ok &= !!fd_pb_submsg_open( encoder, 10U );
+    ok &= !!fd_pb_submsg_open( encoder, 9U );
     ok &= !!fd_pb_push_bytes ( encoder, 1U, broadcast_to[ k ].identity, 32UL );
     ok &= !!fd_pb_push_bytes ( encoder, 2U, broadcast_to[ k ].ip, 16UL );
     if( broadcast_to[ k ].port ) ok &= !!fd_pb_push_uint32( encoder, 3U, (uint)broadcast_to[ k ].port );
     ok &= !!fd_pb_submsg_close( encoder );
   }
-  if( msg->processing_result ) ok &= !!fd_pb_push_int32 ( encoder, 11U, msg->processing_result );
-  if( msg->verify_start_time ) ok &= !!fd_pb_push_uint64( encoder, 12U, (ulong)msg->verify_start_time );
-  if( msg->broadcast_start_time ) ok &= !!fd_pb_push_uint64( encoder, 13U, (ulong)msg->broadcast_start_time );
-  if( msg->done_time ) ok &= !!fd_pb_push_uint64( encoder, 14U, (ulong)msg->done_time );
+  if( msg->processing_result ) ok &= !!fd_pb_push_int32 ( encoder, 10U, msg->processing_result );
+  if( msg->verify_start_time ) ok &= !!fd_pb_push_uint64( encoder, 11U, (ulong)msg->verify_start_time );
+  if( msg->broadcast_start_time ) ok &= !!fd_pb_push_uint64( encoder, 12U, (ulong)msg->broadcast_start_time );
+  if( msg->done_time ) ok &= !!fd_pb_push_uint64( encoder, 13U, (ulong)msg->done_time );
   ok &= !!fd_pb_submsg_close( encoder );
   ok &= !!fd_pb_submsg_close( encoder );
   FD_TEST( ok );
