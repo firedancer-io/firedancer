@@ -67,15 +67,173 @@ mock_topo_create( void ) {
 
   mock_link_create( topo, "quic_verify"  );
   mock_link_create( topo, "bundle_verif" );
+  mock_link_create( topo, "replay_slot"  );
 
   /* Declare link ins in opposite order than IN_KIND_* to check for in
      idx confusion */
-#define IN_IDX_BUNDLE 0
-#define IN_IDX_QUIC   1
+#define IN_IDX_REPLAY 0
+#define IN_IDX_BUNDLE 1
+#define IN_IDX_QUIC   2
+  fd_topob_tile_in( topo, "verify", 0UL, "wksp", "replay_slot",  0UL, 0, 1 );
   fd_topob_tile_in( topo, "verify", 0UL, "wksp", "bundle_verif", 0UL, 0, 1 );
   fd_topob_tile_in( topo, "verify", 0UL, "wksp", "quic_verify",  0UL, 0, 1 );
+  fd_topob_tile_out( topo, "verify", 0UL, "verify_dedup", 0UL );
 
   return topo;
+}
+
+/* Boundary cases of the "expires before we are next leader" rule */
+
+static void
+test_blockhash_expires( void ) {
+  /* blockhash slot s is packable in leader slots [s, s+150] */
+  FD_TEST( !fd_verify_blockhash_expires( 1000UL, 1000UL      ) );
+  FD_TEST( !fd_verify_blockhash_expires( 1000UL, 1150UL      ) ); /* s+150==next: keep */
+  FD_TEST(  fd_verify_blockhash_expires( 1000UL, 1151UL      ) ); /* s+150< next: drop */
+  FD_TEST(  fd_verify_blockhash_expires( 1000UL, 100000UL    ) );
+  FD_TEST(  fd_verify_blockhash_expires( 1000UL, ULONG_MAX   ) ); /* no leader slot this or next epoch: drop */
+  FD_TEST( !fd_verify_blockhash_expires( 1000UL, 500UL       ) ); /* stale next_leader_slot behind the hash: forward */
+  FD_TEST( !fd_verify_blockhash_expires( 0UL,    150UL       ) );
+  FD_TEST(  fd_verify_blockhash_expires( 0UL,    151UL       ) );
+}
+
+/* Minimal unsigned transaction builder: one signature (zeroed), a
+   single instruction against program_id_idx with the given accounts
+   and data.  Only needs to parse; the drop check runs before
+   sigverify. */
+
+static void
+test_add( uchar ** cur, void const * data, ulong sz ) { fd_memcpy( *cur, data, sz ); *cur += sz; }
+
+static ulong
+test_make_txn( uchar *       out,
+               uchar const * recent_blockhash,
+               int           durable_nonce ) {
+  uchar * cur = out;
+  uchar one = 1U; test_add( &cur, &one, 1UL );
+  uchar sig[ 64 ] = {0}; test_add( &cur, sig, 64UL );
+  uchar hdr[ 3 ] = { 1U, 0U, 2U }; test_add( &cur, hdr, 3UL );
+  uchar acct_cnt = 4U; test_add( &cur, &acct_cnt, 1UL );
+  uchar keys[ 4 ][ 32 ] = {{0}};
+  keys[ 0 ][ 0 ] = 0x11; keys[ 1 ][ 0 ] = 0x22; keys[ 2 ][ 0 ] = 0x33; /* keys[3] is the system program */
+  test_add( &cur, keys, sizeof(keys) );
+  test_add( &cur, recent_blockhash, 32UL );
+  uchar instr_cnt = 1U; test_add( &cur, &instr_cnt, 1UL );
+  uchar prog_idx  = durable_nonce ? 3U : 1U; test_add( &cur, &prog_idx, 1UL );
+  uchar accts[ 3 ] = { 1U, 2U, 0U }; uchar accts_cnt = 3U;
+  test_add( &cur, &accts_cnt, 1UL ); test_add( &cur, accts, 3UL );
+  uint  data = durable_nonce ? 4U : 7U; uchar data_sz = 4U;
+  test_add( &cur, &data_sz, 1UL ); test_add( &cur, &data, 4UL );
+  return (ulong)(cur-out);
+}
+
+static void
+test_slot_completed( fd_verify_ctx_t * ctx, ulong slot, uchar const * blockhash ) {
+  fd_replay_slot_completed_t * msg = fd_chunk_to_laddr( ctx->in[ IN_IDX_REPLAY ].mem, ctx->in[ IN_IDX_REPLAY ].chunk0 );
+  memset( msg, 0, sizeof(*msg) );
+  msg->slot = slot;
+  memcpy( msg->block_hash.uc, blockhash, 32UL );
+  FD_TEST( !before_frag( ctx, IN_IDX_REPLAY, 0UL, REPLAY_SIG_SLOT_COMPLETED ) );
+  during_frag( ctx, IN_IDX_REPLAY, 0UL, REPLAY_SIG_SLOT_COMPLETED, ctx->in[ IN_IDX_REPLAY ].chunk0, sizeof(*msg), 0UL );
+  after_frag ( ctx, IN_IDX_REPLAY, 0UL, REPLAY_SIG_SLOT_COMPLETED, sizeof(*msg), 0UL, 0UL, NULL );
+}
+
+static void
+test_reset( fd_verify_ctx_t * ctx, ulong next_leader_slot ) {
+  fd_replay_next_leader_t * msg = fd_chunk_to_laddr( ctx->in[ IN_IDX_REPLAY ].mem, ctx->in[ IN_IDX_REPLAY ].chunk0 );
+  memset( msg, 0, sizeof(*msg) );
+  msg->next_leader_slot = next_leader_slot;
+  FD_TEST( !before_frag( ctx, IN_IDX_REPLAY, 0UL, REPLAY_SIG_NEXT_LEADER ) );
+  during_frag( ctx, IN_IDX_REPLAY, 0UL, REPLAY_SIG_NEXT_LEADER, ctx->in[ IN_IDX_REPLAY ].chunk0, sizeof(*msg), 0UL );
+  after_frag ( ctx, IN_IDX_REPLAY, 0UL, REPLAY_SIG_NEXT_LEADER, sizeof(*msg), 0UL, 0UL, NULL );
+}
+
+/* Feeds a parsed-but-unsigned txn on in_idx.  Returns 1 if it was
+   dropped by the blockhash rule, 0 if it went on to sigverify (which
+   fails, as the signature is zero, so nothing is published). */
+
+static int
+test_ingest( fd_verify_ctx_t * ctx, ulong in_idx, uchar const * blockhash, int durable_nonce ) {
+  fd_txn_m_t * txnm = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
+  memset( txnm, 0, sizeof(fd_txn_m_t) );
+  txnm->payload_sz = (ushort)test_make_txn( fd_txn_m_payload( txnm ), blockhash, durable_nonce );
+  ulong before = ctx->metrics.verify_tile_result[ FD_METRICS_ENUM_VERIFY_RESULT_V_BLOCKHASH_EXPIRED_IDX ];
+  ulong verify_before = ctx->metrics.verify_tile_result[ FD_METRICS_ENUM_VERIFY_RESULT_V_SIGNATURE_FAILED_IDX ];
+  after_frag( ctx, in_idx, 0UL, 0UL, txnm->payload_sz, 0UL, 0UL, NULL );
+  int dropped = ctx->metrics.verify_tile_result[ FD_METRICS_ENUM_VERIFY_RESULT_V_BLOCKHASH_EXPIRED_IDX ]==before+1UL;
+  FD_TEST( dropped ^ (ctx->metrics.verify_tile_result[ FD_METRICS_ENUM_VERIFY_RESULT_V_SIGNATURE_FAILED_IDX ]==verify_before+1UL) );
+  return dropped;
+}
+
+static void
+test_blockhash_drop( void ) {
+  test_free_all();
+  fd_topo_t *       topo = mock_topo_create();
+  fd_topo_tile_t *  tile = &topo->tiles[ fd_topo_find_tile( topo, "verify", 0UL ) ];
+  privileged_init( topo, tile );
+  unprivileged_init( topo, tile );
+  fd_verify_ctx_t * ctx  = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  FD_TEST( ctx->in_kind[ IN_IDX_REPLAY ]==IN_KIND_REPLAY );
+  FD_TEST( ctx->next_leader_slot==ULONG_MAX );
+  FD_TEST( !ctx->has_leader_schedule );
+
+  /* Other replay messages are filtered */
+  FD_TEST( before_frag( ctx, IN_IDX_REPLAY, 0UL, REPLAY_SIG_TXN_EXECUTED ) );
+  FD_TEST( before_frag( ctx, IN_IDX_REPLAY, 0UL, REPLAY_SIG_ROOT_ADVANCED ) );
+
+  uchar old_hash[ 32 ] = { 0xaa }; uchar new_hash[ 32 ] = { 0xbb }; uchar unknown_hash[ 32 ] = { 0xcc };
+  test_slot_completed( ctx, 1000UL, old_hash );
+  test_slot_completed( ctx, 1200UL, new_hash );
+  FD_TEST( blockhash_map_query( ctx->blockhash_map, *(fd_verify_blockhash_t *)old_hash, NULL )->slot==1000UL );
+
+  /* No NEXT_LEADER yet (leader schedule not loaded): everything forwards */
+  FD_TEST( !test_ingest( ctx, IN_IDX_QUIC, old_hash, 0 ) );
+
+  /* NEXT_LEADER with no leader slot in the current or next epoch: known
+     blockhashes drop, unknown ones and nonces still forward */
+  test_reset( ctx, ULONG_MAX );
+  FD_TEST( ctx->has_leader_schedule );
+  FD_TEST(  test_ingest( ctx, IN_IDX_QUIC, old_hash,     0 ) );
+  FD_TEST(  test_ingest( ctx, IN_IDX_QUIC, new_hash,     0 ) );
+  FD_TEST( !test_ingest( ctx, IN_IDX_QUIC, unknown_hash, 0 ) );
+  FD_TEST( !test_ingest( ctx, IN_IDX_QUIC, old_hash,     1 ) );
+
+  test_reset( ctx, 1151UL );
+  FD_TEST( ctx->next_leader_slot==1151UL );
+  FD_TEST(  test_ingest( ctx, IN_IDX_QUIC, old_hash,     0 ) ); /* 1000+150<1151: drop */
+  FD_TEST( !test_ingest( ctx, IN_IDX_QUIC, new_hash,     0 ) ); /* 1200+150>=1151: keep */
+  FD_TEST( !test_ingest( ctx, IN_IDX_QUIC, unknown_hash, 0 ) ); /* unknown blockhash: forward */
+  FD_TEST( !test_ingest( ctx, IN_IDX_QUIC, old_hash,     1 ) ); /* durable nonce: never dropped */
+
+  /* Bundles are exempt */
+  FD_TEST( !test_ingest( ctx, IN_IDX_BUNDLE, old_hash, 0 ) );
+
+  /* Boundary: s+150==next_leader_slot keeps */
+  test_reset( ctx, 1150UL );
+  FD_TEST( !test_ingest( ctx, IN_IDX_QUIC, old_hash, 0 ) );
+
+  /* A stale leader slot behind the blockhash forwards */
+  test_reset( ctx, 900UL );
+  FD_TEST( !test_ingest( ctx, IN_IDX_QUIC, old_hash, 0 ) );
+
+  /* Ring eviction: after RING_LEN more slots the old hash is forgotten
+     and the txn forwards (resolv drops it there) */
+  test_reset( ctx, 1UL<<40 );
+  FD_TEST( test_ingest( ctx, IN_IDX_QUIC, old_hash, 0 ) );
+  for( ulong i=0UL; i<FD_VERIFY_BLOCKHASH_RING_LEN; i++ ) {
+    uchar h[ 32 ] = {0}; FD_STORE( ulong, h, 0x1000UL+i ); FD_STORE( ulong, h+8, 0x5UL );
+    test_slot_completed( ctx, 2000UL+i, h );
+  }
+  FD_TEST( !blockhash_map_query( ctx->blockhash_map, *(fd_verify_blockhash_t *)old_hash, NULL ) );
+  FD_TEST( !test_ingest( ctx, IN_IDX_QUIC, old_hash, 0 ) );
+  FD_TEST( blockhash_map_key_cnt( ctx->blockhash_map )==FD_VERIFY_BLOCKHASH_RING_LEN );
+
+  /* Equivocating slot with the same blockhash keeps the first slot */
+  FD_TEST( !blockhash_map_query( ctx->blockhash_map, *(fd_verify_blockhash_t *)new_hash, NULL ) ); /* evicted above */
+  test_slot_completed( ctx, 5000UL, new_hash );
+  test_slot_completed( ctx, 5001UL, new_hash );
+  FD_TEST( blockhash_map_query( ctx->blockhash_map, *(fd_verify_blockhash_t *)new_hash, NULL )->slot==5000UL );
+  FD_TEST( blockhash_map_key_cnt( ctx->blockhash_map )==FD_VERIFY_BLOCKHASH_RING_LEN );
 }
 
 static void
@@ -119,6 +277,8 @@ main( int     argc,
 
   test_seccomp();
   test_load_balance();
+  test_blockhash_expires();
+  test_blockhash_drop();
   test_free_all();
   /* further tests here ... */
 
