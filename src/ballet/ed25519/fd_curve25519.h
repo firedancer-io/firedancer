@@ -163,17 +163,31 @@ fd_ed25519_double_scalar_mul_base( fd_ed25519_point_t *       r,
                                    uchar const                n2[ 32 ] );
 
 /* Split tables for fd_ed25519_double_scalar_mul_base_split.  A scalar
-   is processed as 4 quarters of 64 bits.  The A table holds, for each
-   quarter j in [0,4), the odd multiples 1,3,..,15 of [2^(64j)]A (8
-   points per quarter, table index 8*j+i holds [(2i+1) 2^(64j)]A).  The
-   B table holds, for each quarter j in [1,4), the odd multiples
-   1,3,..,255 of [2^(64j)]B (128 points per quarter, table index
-   128*(j-1)+i holds [(2i+1) 2^(64j)]B).  Quarter 0 of B uses
+   is processed as FD_ED25519_SPLIT_SEG_CNT segments of
+   FD_ED25519_SPLIT_SEG_BITS bits.  The A table holds, for each segment
+   j, the odd multiples 1,3,..,2^FD_ED25519_SPLIT_A_BITS-1 of [2^(bj)]A
+   where b=FD_ED25519_SPLIT_SEG_BITS (FD_ED25519_SPLIT_A_SEG_CNT points
+   per segment, table index FD_ED25519_SPLIT_A_SEG_CNT*j+i holds
+   [(2i+1) 2^(bj)]A).  The B table holds, for each segment j>0, the odd
+   multiples 1,3,..,255 of [2^(bj)]B (128 points per segment, table
+   index 128*(j-1)+i holds [(2i+1) 2^(bj)]B).  Segment 0 of B uses
    fd_ed25519_base_point_wnaf_table.  All points are in precomputed
-   form (see fd_curve25519_into_precomputed). */
+   form (see fd_curve25519_into_precomputed).
 
-#define FD_ED25519_SPLIT_A_TBL_CNT (32UL)
-#define FD_ED25519_SPLIT_B_TBL_CNT (384UL)
+   More segments trade doublings in the shared loop for a larger per
+   key A table (and a larger fixed B table).  The caches hold 2k-4k
+   keys, so the per key table (which is what misses) is what limits
+   the geometry: 8 segments of 32 bits with a 3 bit A window keeps the
+   per key table at 32 points while halving the doublings.  Larger
+   tables are faster when hot but slower once the key set exceeds the
+   L2. */
+
+#define FD_ED25519_SPLIT_SEG_CNT   (8)
+#define FD_ED25519_SPLIT_SEG_BITS  (256/FD_ED25519_SPLIT_SEG_CNT)
+#define FD_ED25519_SPLIT_A_BITS    (3)
+#define FD_ED25519_SPLIT_A_SEG_CNT (1<<(FD_ED25519_SPLIT_A_BITS-1))
+#define FD_ED25519_SPLIT_A_TBL_CNT ((ulong)(FD_ED25519_SPLIT_SEG_CNT*FD_ED25519_SPLIT_A_SEG_CNT))
+#define FD_ED25519_SPLIT_B_TBL_CNT ((ulong)((FD_ED25519_SPLIT_SEG_CNT-1)*128))
 
 /* fd_ed25519_split_table_a fills tbl with the split table of a (any
    valid curve point).  fd_ed25519_split_table_b fills tbl with the
