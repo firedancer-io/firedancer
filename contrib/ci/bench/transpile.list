@@ -1,0 +1,45 @@
+# sBPF programs AOT-transpiled into firedancer-dev for the replay bench row
+# (contrib/ci/bench/bench.sh build).  Ranked by exclusive VM time on
+# mainnet-424669000-perf-ledger slots 424669000-424669200, 2026-09-26.
+# Column: share of total VM time.  Programs under 0.3% and sBPF v2 programs
+# (MNFSTqtC..., Fibo6vWH...) are left out.
+pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA    # 19.5%
+ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL   #  9.8%
+EtrnLzgbS7nMMy5fbD42kXiUzGg8XQzJ972Xtk1cjWih   #  6.2%
+JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4    #  4.9%
+CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK   #  4.4%
+LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo    #  4.0%
+BiSoNHVpsVZW2F7rx2eQ59yQwKxzU5NvBcmKshCSUypi   #  3.9%
+6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P    #  2.4%
+cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG    #  2.2%
+9H6tua7jkLhdm3w8BvgpTn5LZNU7g4ZynDmCiNN3q6Rp   #  2.1%
+TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb    #  2.1%
+proVF4pMXVaYqmy4NjniPh4pqKNfMmsihgd4wdkCX3u    #  2.1%
+SV2EYYJyRz2YhfXwXnhNAevDEui5Q6yrfyo13WtupPF    #  2.0%
+whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc    #  1.9%
+pfeeUxB6jkeY1Hxd7CsFCAjcbHA9rWtchMGdZ6VojVZ    #  1.8%
+HpNfyc2Saw7RKkQd8nEL4khUcuPhQ7WwY1B2qjx8jxFq   #  1.6%
+goonuddtQRrWqqn5nFyczVKaie28f3kDkHWkHtURSLE    #  1.5%
+Dy4Va4FfbT9V598ydnoXtZGYt5D9Tka1FpG8sLRyzAN5   #  1.4%
+sattCHvHkM4XHLyadnU4KQtuNWZbWVDKzuPhmJBXCkq    #  1.3%
+DF1ow4tspfHX9JwWJsAb9epbkA8hmpSEAtxXy1V27QBH   #  1.2%
+SAGE2HAwep459SNq61LHvjxPk4pLPEJLoMETef7f7EE    #  1.2%
+3s1rAymURnacreXreMy718GfqW6kygQsLNka1xDyW8pC   #  1.2%
+TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA    #  1.2%
+FarmsPZpWu9i7Kky8tPN37rs2TpmMrAZrC7S7vJa91Hr   #  1.0%
+FoXszHbrFG59xXpkmT5mDrBuQiZNE2jFHr95yaMKa9mt   #  0.9%
+NA247a7YE9S3p9CdKmMyETx8TTwbSdVbVYHHxpnHTUV    #  0.8%
+zincUFpnqYwdYMc1KfH6rKcBvbcdVtHKckKhvrHLDsV    #  0.7%
+T1TANpTeScyeqVzzgNViGDNrkQ6qHz9KrSBS4aNXvGT    #  0.6%
+DSPXZmvruhu3oyTteJyY5yjP1XoizhJLhyujcxGS3Vwo   #  0.6%
+FJX4qJbmhQ7ou8a99LNJMB1QYaKq5bvbqwxbawiUwkD2   #  0.5%
+AQU1FRd7papthgdrwPTTq5JacJh8YtwEXaBfKU3bTz45   #  0.5%
+ALPHAQmeA7bjrVuccPsYPiCvsi428SNwte66Srvs4pHA   #  0.5%
+TessVdML9pBGgG9yGks7o4HewRaXVAMuoVj4x83GLQH    #  0.4%
+Cargo2VNTPPTi9c1vq1Jw5d3BWUNr18MjRtSupAghKEk   #  0.4%
+PhoeNiXZ8ByJGLkxNfZRnkUfjvmuYqLR89jjFHGqdXY    #  0.4%
+oreV3EG1i9BEgiAJ8b177Z2S2rMarzak4NMv1kULvWv    #  0.4%
+FsU1rcaEC361jBr9JE5wm7bpWRSTYeAMN4R2MCs11rNF   #  0.3%
+Gt9S41PtjR58CbG9JhJ3J6vxesqrNAswbWYbLNTMZA3c   #  0.3%
+CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C   #  0.3%
+MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr    #  0.3%
