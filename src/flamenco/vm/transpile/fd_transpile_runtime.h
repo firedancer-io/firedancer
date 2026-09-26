@@ -10,13 +10,36 @@
 /* a fd_vm_transpiled_exec_func_t function executes a transpiled
    program.  This is a drop-in replacement for fd_vm_exec.
 
-   This function gains one special return code, FD_VM_ERR_BAIL.
+   This function gains one special return code, FD_VM_ERR_EBPF_BAIL.
    This means that execution stopped because the program attempted odd
    behavior that is not allowed in a transpiled context.  The caller
    should resume with fd_vm_exec in this case. */
 
 typedef int
 (* fd_vm_transpiled_exec_func_t)( fd_vm_t * vm );
+
+struct fd_transpile_meta {
+  uchar prog_id[ 32 ];       /* program address */
+  uchar elf_hash[ 32 ];      /* BLAKE3 of the sBPF ELF file the program was transpiled from */
+  ulong text_cnt;
+  ulong text_sz;
+  ulong entry_pc;
+  ulong sbpf_version;
+};
+
+typedef struct fd_transpile_meta fd_transpile_meta_t;
+
+/* fd_transpile_export_t is the only global symbol of a transpiled
+   program's object file. */
+
+struct fd_transpile_export {
+  ulong                        abi_version;
+  ulong                        struct_size;
+  fd_vm_transpiled_exec_func_t exec;
+  fd_transpile_meta_t          meta;
+};
+
+typedef struct fd_transpile_export fd_transpile_export_t;
 
 FD_PROTOTYPES_BEGIN
 
@@ -40,6 +63,11 @@ fd_vm_transpiled_mmu_translate( fd_vm_t * vm,
 
 void
 fd_vm_transpiled_frame_init( fd_vm_t * vm );
+
+/* fd_transpiled_ext is a NULL-terminated array of transpiled programs
+   linked in via the archive produced by fd_transpiler_export_archive. */
+
+extern fd_transpile_export_t const * const fd_transpiled_ext[];
 
 FD_PROTOTYPES_END
 
