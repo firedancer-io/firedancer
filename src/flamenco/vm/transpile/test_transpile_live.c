@@ -138,6 +138,71 @@ test_exec( fd_sbpf_program_t const *    prog,
   return err;
 }
 
+/* Callx to a function that follows a call (sBPF v0)
+
+   A function whose last instruction calls a noreturn function (e.g. a
+   panic handler) has no exit, so the next function starts right after
+   a call.  If it is only reached through a function pointer it is not a
+   calldest, yet callx into it must not bail:
+     0: mov64 r2, 1
+     1: lsh64 r2, 32
+     2: add64 r2, 7*8         (r2 = vaddr of pc 7)
+     3: callx r2
+     4: add64 r0, 1
+     5: exit
+     6: call sol_memset_      (r3=0 => no-op)
+     7: mov64 r0, 41
+     8: exit
+   Returns 42. */
+
+#define CALLX_TEST_TEXT_CNT (9UL)
+
+static void
+test_callx_after_call( fd_sbpf_syscalls_t * syscalls ) {
+  static ulong text[ CALLX_TEST_TEXT_CNT ];
+  text[0] = fd_vm_instr( FD_SBPF_OP_MOV64_IMM, 2, 0, 0, 1U );
+  text[1] = fd_vm_instr( FD_SBPF_OP_LSH64_IMM, 2, 0, 0, 32U );
+  text[2] = fd_vm_instr( FD_SBPF_OP_ADD64_IMM, 2, 0, 0, 7U*8U );
+  text[3] = fd_vm_instr( FD_SBPF_OP_CALL_REG,  0, 0, 0, 2U );
+  text[4] = fd_vm_instr( FD_SBPF_OP_ADD64_IMM, 0, 0, 0, 1U );
+  text[5] = fd_vm_instr( FD_SBPF_OP_EXIT,      0, 0, 0, 0U );
+  text[6] = fd_vm_instr( FD_SBPF_OP_CALL_IMM,  0, 0, 0, fd_murmur3_32( "sol_memset_", 11UL, 0U ) );
+  text[7] = fd_vm_instr( FD_SBPF_OP_MOV64_IMM, 0, 0, 0, 41U );
+  text[8] = fd_vm_instr( FD_SBPF_OP_EXIT,      0, 0, 0, 0U );
+
+  void * calldests_mem = aligned_alloc( fd_sbpf_calldests_align(), fd_sbpf_calldests_footprint( CALLX_TEST_TEXT_CNT ) );
+  FD_TEST( calldests_mem );
+  fd_sbpf_calldests_t * calldests = fd_sbpf_calldests_join( fd_sbpf_calldests_new( calldests_mem, CALLX_TEST_TEXT_CNT ) );
+  FD_TEST( calldests );
+  fd_sbpf_calldests_insert( calldests, 0UL );
+
+  static fd_sbpf_program_t prog[1];
+  memset( prog, 0, sizeof(fd_sbpf_program_t) );
+  prog->info.text_cnt     = (uint)CALLX_TEST_TEXT_CNT;
+  prog->info.text_sz      = CALLX_TEST_TEXT_CNT*8UL;
+  prog->info.sbpf_version = FD_SBPF_V0;
+  prog->rodata            = text;
+  prog->rodata_sz         = CALLX_TEST_TEXT_CNT*8UL;
+  prog->text              = text;
+  prog->entry_pc          = 0UL;
+  prog->calldests         = calldests;
+
+  ulong bb_splits[1];
+  fd_vm_transpile_bb_splits( bb_splits, prog );
+  FD_TEST( bb_splits[0] & (1UL<<7) );
+
+  fd_transpiled_live_t * live = live_create( prog, syscalls );
+  FD_TEST( live );
+  ulong cu_interp, cu_live;
+  FD_TEST( test_exec( prog, syscalls, NULL, &cu_interp )==FD_VM_SUCCESS );
+  FD_TEST( test_exec( prog, syscalls, (fd_vm_transpiled_exec_func_t)live->text_haddr, &cu_live )==FD_VM_SUCCESS ); /* no bail */
+  if( FD_UNLIKELY( cu_interp!=cu_live ) ) FD_LOG_ERR(( "cu mismatch: interp %lu, live %lu", cu_interp, cu_live ));
+
+  fd_transpiled_live_destroy( live );
+  free( calldests_mem );
+  FD_LOG_NOTICE(( "callx after call ok (cu %lu)", cu_live ));
+}
+
 /* Frame pointer chain test
 
    Every sBPF function invocation has a psABI style x86 frame (see
@@ -725,6 +790,7 @@ main( int     argc,
   FD_TEST( maps_perms( rodata_lo, perms ) );
 
   test_fixtures( syscalls );
+  test_callx_after_call( syscalls );
   test_frames();
   test_scratch( syscalls );
 
