@@ -24,10 +24,11 @@
 #include <linux/futex.h>
 #include "generated/fd_rserve_tile_seccomp.h"
 
-#define IN_KIND_NET    (0)
-#define IN_KIND_SIGN   (1)
-#define IN_KIND_SHRED  (2)
-#define IN_KIND_ROTOR  (3)
+#define IN_KIND_NET       (0)
+#define IN_KIND_SIGN      (1)
+#define IN_KIND_SHRED     (2)
+#define IN_KIND_ROTOR     (3)
+#define IN_KIND_SHRED_BAT (4)
 
 #define MAX_IN_LINKS FD_TOPO_MAX_TILE_IN_LINKS
 
@@ -562,6 +563,28 @@ handle_net_request( ctx_t             * ctx,
 }
 
 
+/* handle_shred persists a data shred the shred tile accepted. */
+
+static void
+handle_shred( ctx_t *            ctx,
+              ulong              sig,
+              fd_shred_t const * shred,
+              fd_hash_t const *  merkle_root ) {
+  int shred_result = fd_shred_sig_res( sig );
+  if( FD_UNLIKELY( fd_shred_sig_src( sig )>SHRED_SIG_SRC_BAD_REPAIR ||
+                   (shred_result!=SHRED_SIG_RESULT_OKAY && shred_result!=SHRED_SIG_RESULT_COMPLETES) ) ) return;
+  if( FD_UNLIKELY( !fd_shred_is_data( fd_shred_type( shred->variant ) ) ) ) return;
+
+  long dt = -fd_tickcount();
+  int result = fd_store_disk_insert( ctx->store, ctx->disk_fd, shred, merkle_root );
+  dt += fd_tickcount();
+  fd_histf_sample( ctx->metrics->disk_write_timing, (ulong)dt );
+  if( FD_LIKELY( result==FD_STORE_DISK_INSERT_SUCCESS ) ) {
+    ctx->metrics->disk_inserted++;
+    ctx->metrics->disk_write_bytes += sizeof(fd_shredb_entry_t);
+  } else if( FD_UNLIKELY( result==FD_STORE_DISK_INSERT_ERR ) ) ctx->metrics->disk_write_failed++;
+}
+
 static inline int
 before_frag( ctx_t * ctx,
              ulong   in_idx,
@@ -647,24 +670,17 @@ returnable_frag( ctx_t             * ctx,
     return ctx->halt_signing; /* after_frag */
   case IN_KIND_SIGN: return 0; /* handled internally by keyguard_client */
   case IN_KIND_SHRED: {
-    int shred_result = fd_shred_sig_res( sig );
-    if( FD_UNLIKELY( fd_shred_sig_src( sig )>SHRED_SIG_SRC_BAD_REPAIR ||
-                     (shred_result!=SHRED_SIG_RESULT_OKAY && shred_result!=SHRED_SIG_RESULT_COMPLETES) ) ) return 0;
     if( FD_UNLIKELY( sz!=sizeof(fd_shred_base_t) || chunk<in_ctx->chunk0 || chunk>in_ctx->wmark ) )
       FD_LOG_ERR(( "shred_out chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, in_ctx->chunk0, in_ctx->wmark ));
-
-    fd_shred_base_t const * msg   = fd_chunk_to_laddr_const( in_ctx->mem, chunk );
-    fd_shred_t const *      shred = &msg->shred;
-    if( FD_UNLIKELY( !fd_shred_is_data( fd_shred_type( shred->variant ) ) ) ) return 0;
-
-    long dt = -fd_tickcount();
-    int result = fd_store_disk_insert( ctx->store, ctx->disk_fd, shred, &msg->merkle_root );
-    dt += fd_tickcount();
-    fd_histf_sample( ctx->metrics->disk_write_timing, (ulong)dt );
-    if( FD_LIKELY( result==FD_STORE_DISK_INSERT_SUCCESS ) ) {
-      ctx->metrics->disk_inserted++;
-      ctx->metrics->disk_write_bytes += sizeof(fd_shredb_entry_t);
-    } else if( FD_UNLIKELY( result==FD_STORE_DISK_INSERT_ERR ) ) ctx->metrics->disk_write_failed++;
+    fd_shred_base_t const * msg = fd_chunk_to_laddr_const( in_ctx->mem, chunk );
+    handle_shred( ctx, sig, &msg->shred, &msg->merkle_root );
+    return 0;
+  }
+  case IN_KIND_SHRED_BAT: {
+    if( FD_UNLIKELY( sig>FD_SHRED_BAT_REC_MAX || sz>in_ctx->mtu || chunk<in_ctx->chunk0 || chunk>in_ctx->wmark ) )
+      FD_LOG_ERR(( "shred_bat chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, in_ctx->chunk0, in_ctx->wmark ));
+    fd_shred_bat_rec_t const * rec = fd_chunk_to_laddr_const( in_ctx->mem, chunk );
+    for( ulong i=0UL; i<sig; i++, rec=fd_shred_bat_rec_next( rec ) ) handle_shred( ctx, rec->sig, fd_shred_bat_rec_payload( rec ), &rec->merkle_root );
     return 0;
   }
   case IN_KIND_ROTOR: return 0; /* after_frag */
@@ -872,6 +888,7 @@ unprivileged_init( fd_topo_t      const * topo,
     }
     else if( 0==strcmp( link->name, "sign_rserve" ) ) ctx->in_kind[ in_idx ] = IN_KIND_SIGN;
     else if( 0==strcmp( link->name, "shred_out" ) )   ctx->in_kind[ in_idx ] = IN_KIND_SHRED;
+    else if( 0==strcmp( link->name, "shred_bat" ) )   ctx->in_kind[ in_idx ] = IN_KIND_SHRED_BAT;
     else if( 0==strcmp( link->name, "rotor_rserve" ) ) {
       if( FD_UNLIKELY( !ctx->blockdb ) ) FD_LOG_ERR(( "rserve has a rotor_rserve link but blockdb_max is 0" ));
       ctx->in_kind[ in_idx ] = IN_KIND_ROTOR;
