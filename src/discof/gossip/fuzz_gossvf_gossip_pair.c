@@ -26,6 +26,7 @@
 #define PAIR_OUT_DEPTH      (256UL)
 #define PAIR_OUT_DBUF_SZ    (1UL<<17UL)
 #define PAIR_TCACHE_DEPTH   (1UL<<10UL)
+#define PAIR_SIGOK_DEPTH    (1UL<<6UL)
 #define PAIR_QUEUE_DEPTH    (128UL)
 #define PAIR_SHRED_VERSION  (42U)
 #define PAIR_MAX_ACTIONS    (96UL)
@@ -156,6 +157,7 @@ pair_node_layout_append( ulong l ) {
   l = FD_LAYOUT_APPEND( l, stake_pool_align(), stake_pool_footprint( PAIR_STAKE_CAP ) );
   l = FD_LAYOUT_APPEND( l, stake_map_align(),  stake_map_footprint( stake_map_chain_cnt_est( PAIR_STAKE_CAP ) ) );
   l = FD_LAYOUT_APPEND( l, fd_tcache_align(),  fd_tcache_footprint( PAIR_TCACHE_DEPTH, 0UL ) );
+  l = FD_LAYOUT_APPEND( l, fd_tcache_align(),  fd_tcache_footprint( PAIR_SIGOK_DEPTH, 0UL ) );
   l = FD_LAYOUT_APPEND( l, fd_ed25519_cache_align(), fd_ed25519_cache_footprint( PAIR_ED25519_CACHE_ENT_CNT ) );
   l = FD_LAYOUT_APPEND( l, FD_CHUNK_ALIGN,     PAIR_OUT_DBUF_SZ );
   l = FD_LAYOUT_APPEND( l, fd_mcache_align(),  fd_mcache_footprint( PAIR_OUT_DEPTH, 0UL ) );
@@ -514,6 +516,7 @@ pair_setup_vf( pair_node_t * node,
   void * stake_pool_mem = FD_SCRATCH_ALLOC_APPEND( mem, stake_pool_align(), stake_pool_footprint( PAIR_STAKE_CAP ) );
   void * stake_map_mem  = FD_SCRATCH_ALLOC_APPEND( mem, stake_map_align(),  stake_map_footprint( stake_map_chain_cnt_est( PAIR_STAKE_CAP ) ) );
   void * tcache_mem     = FD_SCRATCH_ALLOC_APPEND( mem, fd_tcache_align(),  fd_tcache_footprint( PAIR_TCACHE_DEPTH, 0UL ) );
+  void * sigok_mem      = FD_SCRATCH_ALLOC_APPEND( mem, fd_tcache_align(),  fd_tcache_footprint( PAIR_SIGOK_DEPTH, 0UL ) );
   void * edcache_mem    = FD_SCRATCH_ALLOC_APPEND( mem, fd_ed25519_cache_align(), fd_ed25519_cache_footprint( PAIR_ED25519_CACHE_ENT_CNT ) );
 
   ctx->peers      = peer_pool_join( peer_pool_new( peer_pool_mem, PAIR_PEER_CAP ) );
@@ -532,6 +535,14 @@ pair_setup_vf( pair_node_t * node,
   ctx->tcache.sync    = fd_tcache_oldest_laddr( tcache );
   ctx->tcache.ring    = fd_tcache_ring_laddr  ( tcache );
   ctx->tcache.map     = fd_tcache_map_laddr   ( tcache );
+
+  fd_tcache_t * sigok = fd_tcache_join( fd_tcache_new( sigok_mem, PAIR_SIGOK_DEPTH, 0UL ) );
+  FD_TEST( sigok );
+  ctx->sigok.depth   = fd_tcache_depth       ( sigok );
+  ctx->sigok.map_cnt = fd_tcache_map_cnt     ( sigok );
+  ctx->sigok.sync    = fd_tcache_oldest_laddr( sigok );
+  ctx->sigok.ring    = fd_tcache_ring_laddr  ( sigok );
+  ctx->sigok.map     = fd_tcache_map_laddr   ( sigok );
 
   FD_TEST( fd_sha512_join( fd_sha512_new( ctx->sha ) ) );
   for( ulong i=0UL; i<FD_GOSSVF_BATCH_SIG_MAX+FD_GOSSIP_MESSAGE_MAX_CRDS; i++ ) FD_TEST( (ctx->batch_sha[ i ] = fd_sha512_join( fd_sha512_new( ctx->_batch_sha+i ) )) );
