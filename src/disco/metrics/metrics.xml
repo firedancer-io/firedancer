@@ -1452,6 +1452,7 @@ EXAMPLES
     <gauge name="SlotTurbineFirst" summary="First turbine slot seen, the catchup target" />
     <gauge name="BlockCheckQueued" summary="Blocks queued in the schedulor awaiting a repair check" />
     <gauge name="RequestInflight" summary="Requests sent whose response has not been matched" />
+    <counter name="RequestHeldBack" summary="Times repair was skipped because the inflight cap was reached" />
     <counter name="FecDelivered" summary="FEC sets published to replay" />
     <counter name="ShredOld" summary="Shreds received that were at or below the root" />
     <counter name="ShredRx" summary="Data shreds received as repair responses" />

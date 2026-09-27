@@ -9,7 +9,6 @@
 #include "../repair/fd_inflight.h"
 #include "../repair/fd_policy.h"
 #include "../chainer/fd_chainer.h"
-#include "fd_schedulor.h"
 #include "fd_requestor.h"
 #include "../../disco/fd_clock_tile.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
@@ -98,6 +97,18 @@ typedef struct sign_pending sign_pending_t;
 #define QUEUE_MAX        (2*FD_REPAIR_PEER_MAX)
 #include "../../util/tmpl/fd_queue.c"
 
+/* fec_cursor_t is where a worklist sweep is up to: which set the next
+   fd_rotor_treap_idx_ge seek starts from, and which shred position
+   within that set has not been asked for yet this round.  shred_idx is
+   not part of the treap key -- it only has meaning while key names the
+   set the sweep is sitting on. */
+
+struct fec_cursor {
+  fd_rotor_treap_cursor_t key;       /* (slot, fec_set_idx) treap seek key */
+  uint                    shred_idx; /* next position to consider, >= key.fec_set_idx */
+};
+typedef struct fec_cursor fec_cursor_t;
+
 #define IN_KIND_CONTACT (0)
 #define IN_KIND_NET     (1)
 #define IN_KIND_SHRED   (2)
@@ -117,7 +128,6 @@ struct ctx {
   fd_pubkey_t identity_public_key;
 
   fd_chainer_t *      chainer;   /* slot version / FEC store */
-  fd_schedulor_t *    schedulor; /* blocks to check, by timeout */
   fd_requestor_t *    requestor; /* cursor walk of the block being repaired */
   fd_repair_t *       protocol;  /* repair message construction */
   fd_policy_t *       policy;    /* repair peers and selection */
@@ -173,8 +183,11 @@ struct ctx {
   fd_rnonce_ss_t repair_nonce_ss[1];
   uint           ag_nonce; /* counter nonce for alpenglow metadata requests */
 
-  ulong turbine_slot0; /* first turbine slot seen */
-  int   catchup_seeded; /* the root..turbine_slot0 seed burst has been sent */
+  ulong fec_poll_rr;       /* alternates which worklist fec_poll examines first */
+  fec_cursor_t fec_cursor[ 2 ];  /* sweep position per worklist (0 eager, 1 notar) */
+  ulong turbine_slot0;   /* first turbine slot seen */
+  ulong catchup_seeded;  /* highest slot the catch-up seed has asked about, 0 if none */
+  ulong max_live_slots;  /* runtime bound on slots live between the replay root and the tip */
   ulong current_slot;  /* highest turbine slot seen */
 
   struct {
@@ -191,6 +204,7 @@ struct ctx {
     ulong fecs_delivered;
     ulong shred_old;               /* shreds at or below the root */
     ulong sign_unavail;            /* no sign tile credit available */
+    ulong inflight_full;           /* repair held back: FD_ROTOR_INFLIGHT_MAX requests already unanswered */
 
     /* the two replay message kinds rotor acts on, counted in before_frag */
     ulong replay_root_advanced;

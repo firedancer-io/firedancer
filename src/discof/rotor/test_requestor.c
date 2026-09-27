@@ -55,15 +55,12 @@ hash_insert( fd_chainer_t * chainer, ulong slot, fd_hash_t * block_id, uint fec_
 
 /* fec_complete marks a whole FEC set reconstructable. */
 
-static fd_chainer_slotv_t *
+static fd_chainer_block_t *
 fec_complete( fd_chainer_t * chainer, ulong slot, uint fec_set_idx, int slot_complete, fd_hash_t const * mr ) {
   fd_hash_t m = *mr;
-  int rejected;
-  fd_chainer_slotv_t * finalized = fd_chainer_turbine_slotv_query( chainer, slot );
-  fd_chainer_fec_complete( chainer, slot, fec_set_idx, slot_complete, slot_complete, 0, 0L, &m, &rejected, &finalized );
-  FD_TEST( !rejected );
+  FD_TEST( !fd_chainer_fec_complete( chainer, slot, fec_set_idx, slot_complete, slot_complete, 0, 0L, &m ) );
   drain_chainer( chainer );
-  return finalized;
+  return NULL;
 }
 
 /* advance cranks the walk once; the block a terminal code names lands
@@ -160,7 +157,7 @@ test_turbine( fd_wksp_t * wksp ) {
   /* second set arrives with holes at 40 and 50 and the slot-complete
      flag on 63: tip known, fill walk asks for exactly the holes */
   for( uint i=32U; i<64U; i++ ) if( i!=40U && i!=50U ) shred( chainer, 11UL, i, i==63U, &r1, AG_UNKNOWN_SLOT, NULL );
-  fd_chainer_slotv_t const * s11 = fd_chainer_slot_version_query( chainer, 11UL, &ZERO );
+  fd_chainer_block_t const * s11 = fd_chainer_slot_version_query( chainer, 11UL, &ZERO );
   FD_TEST( s11 && s11->complete_idx==63U && s11->buffered_idx==39U );
   FD_TEST( run_walk( r, chainer, 11UL, &ZERO, reqs, &cnt )==FD_REQUESTOR_ADVANCE_REQUESTED );
   FD_TEST( cnt==2UL );
@@ -178,17 +175,19 @@ test_turbine( fd_wksp_t * wksp ) {
   FD_TEST( fec_complete( chainer, 11UL, 32U, 1, &r1 )==s11 );
   FD_TEST( !fec_complete( chainer, 11UL, 32U, 1, &r1 ) ); /* only report the transition */
   FD_TEST( !fd_chainer_slot_version_query( chainer, 11UL, &ZERO ) );
-  s11 = fd_chainer_turbine_slotv_query( chainer, 11UL );
-  FD_TEST( s11 && !fd_hash_check_zero( &s11->block_id ) && fd_chainer_slotv_complete( s11 ) );
+  s11 = fd_chainer_turbine_block_query( chainer, 11UL );
+  FD_TEST( s11 && !fd_hash_check_zero( &s11->block_id ) && fd_chainer_block_complete( s11 ) );
   FD_TEST( run_walk( r, chainer, 11UL, &ZERO,          reqs, &cnt )==FD_REQUESTOR_ADVANCE_DONE && cnt==0UL );
   FD_TEST( run_walk( r, chainer, 11UL, &s11->block_id, reqs, &cnt )==FD_REQUESTOR_ADVANCE_DONE && cnt==0UL );
 
   FD_LOG_NOTICE(( "pass: turbine block ladder" ));
 }
 
-/* Ancestry rungs: a turbine block whose parent is known but absent
-   asks Orphan, after filling at most FD_REQUESTOR_ORPHAN_FILL_MAX of
-   its own shreds; one whose parent is unknown asks for shred 0. */
+/* Ancestry rungs.  Naming an ancestor now materializes it in the
+   chainer, so the "parent known but absent" state the Orphan rung
+   existed for is no longer reachable from a shred header: the walk
+   sees a present-but-unconnected parent and goes on to its own fill.
+   A block whose parent is unknown still asks for shred 0. */
 
 static void
 test_ancestry( fd_wksp_t * wksp ) {
@@ -200,14 +199,16 @@ test_ancestry( fd_wksp_t * wksp ) {
   fd_chainer_init( chainer, 10UL, &bid0 );
   drain_chainer( chainer );
 
-  /* slot 20 names parent 15, which we do not have, and its tip is
-     unknown: blind fill of 1..FD_REQUESTOR_ORPHAN_FILL_MAX, then Orphan */
+  /* slot 20 names parent 15: 15 is created on the spot, so the walk
+     blind-fills 1..FD_REQUESTOR_ORPHAN_FILL_MAX and then asks
+     HighestShred because its own tip is unknown */
   fd_hash_t bid15 = mkhash( 150UL ), r20 = mkhash( 20UL );
   shred( chainer, 20UL, 0U, 0, &r20, 15UL, &bid15 );
+  FD_TEST( fd_chainer_slot_version_query( chainer, 15UL, &bid15 ) ); /* the ancestor is repairable now */
   FD_TEST( run_walk( r, chainer, 20UL, &ZERO, reqs, &cnt )==FD_REQUESTOR_ADVANCE_REQUESTED_PARENT );
   FD_TEST( cnt==FD_REQUESTOR_ORPHAN_FILL_MAX+1UL );
   for( uint i=0U; i<FD_REQUESTOR_ORPHAN_FILL_MAX; i++ ) expect_req( &reqs[ i ], FD_REPAIR_KIND_SHRED, i+1U, NULL, NULL );
-  expect_req( &reqs[ FD_REQUESTOR_ORPHAN_FILL_MAX ], FD_REPAIR_KIND_ORPHAN, 0U, NULL, NULL );
+  expect_req( &reqs[ FD_REQUESTOR_ORPHAN_FILL_MAX ], FD_REPAIR_KIND_HIGHEST_SHRED, 0U, NULL, NULL );
 
   /* slot 21 arrived mid-block: parent unknown -> shred 0 */
   fd_hash_t r21 = mkhash( 21UL );
@@ -224,25 +225,17 @@ test_ancestry( fd_wksp_t * wksp ) {
   for( uint k=0U; k<TIP/FD_FEC_SHRED_CNT+1U; k++ ) r22[ k ] = mkhash( 2200UL + k );
   shred( chainer, 22UL, 0U,  0, &r22[ 0 ],                    15UL,            &bid15 );
   shred( chainer, 22UL, TIP, 1, &r22[ TIP/FD_FEC_SHRED_CNT ], AG_UNKNOWN_SLOT, NULL   );
-  fd_chainer_slotv_t const * s22 = fd_chainer_slot_version_query( chainer, 22UL, &ZERO );
+  fd_chainer_block_t const * s22 = fd_chainer_slot_version_query( chainer, 22UL, &ZERO );
   FD_TEST( s22 && s22->complete_idx==TIP );
-  FD_TEST( run_walk( r, chainer, 22UL, &ZERO, reqs, &cnt )==FD_REQUESTOR_ADVANCE_REQUESTED_PARENT );
-  FD_TEST( cnt==M+1UL );
-  for( uint i=0U; i<M; i++ ) expect_req( &reqs[ i ], FD_REPAIR_KIND_SHRED, i+1U, NULL, NULL );
-  expect_req( &reqs[ M ], FD_REPAIR_KIND_ORPHAN, 0U, NULL, NULL );
+  /* the ancestor is present, so the fill is not orphan-bounded: every
+     hole 1..TIP-1 goes out and the walk ends REQUESTED */
+  FD_TEST( run_walk( r, chainer, 22UL, &ZERO, reqs, &cnt )==FD_REQUESTOR_ADVANCE_REQUESTED );
+  FD_TEST( cnt==TIP-1UL );
+  expect_req( &reqs[ 0 ],     FD_REPAIR_KIND_SHRED, 1U,     NULL, NULL );
+  expect_req( &reqs[ cnt-1 ], FD_REPAIR_KIND_SHRED, TIP-1U, NULL, NULL );
 
-  /* holes 1..M land: the next walk asks for M+1..2M, then Orphan again */
+  /* holes 1..M land: only M+1..TIP-1 are asked for again */
   for( uint i=1U; i<=M; i++ ) shred( chainer, 22UL, i, 0, &r22[ i/FD_FEC_SHRED_CNT ], AG_UNKNOWN_SLOT, NULL );
-  FD_TEST( run_walk( r, chainer, 22UL, &ZERO, reqs, &cnt )==FD_REQUESTOR_ADVANCE_REQUESTED_PARENT );
-  FD_TEST( cnt==M+1UL );
-  expect_req( &reqs[ 0 ],   FD_REPAIR_KIND_SHRED, M+1U,   NULL, NULL );
-  expect_req( &reqs[ M-1 ], FD_REPAIR_KIND_SHRED, 2U*M,   NULL, NULL );
-  expect_req( &reqs[ M ],   FD_REPAIR_KIND_ORPHAN, 0U,    NULL, NULL );
-
-  /* the parent shows up under the block_id the child names: the fill
-     is no longer bounded and no Orphan is asked: M+1..TIP-1 */
-  FD_TEST( fd_chainer_verified_block_insert( chainer, 15UL, bid15 ) );
-  drain_chainer( chainer );
   FD_TEST( run_walk( r, chainer, 22UL, &ZERO, reqs, &cnt )==FD_REQUESTOR_ADVANCE_REQUESTED );
   FD_TEST( cnt==TIP-M-1UL );
   expect_req( &reqs[ 0 ],     FD_REPAIR_KIND_SHRED, M+1U,   NULL, NULL );
@@ -283,7 +276,7 @@ test_verified( fd_wksp_t * wksp ) {
   FD_TEST( cnt==1UL ); expect_req( &reqs[ 0 ], AG_REPAIR_KIND_PARENT_FEC_COUNT, 0U, &bid12, NULL );
 
   /* response: 2 FEC sets, parent is the root -> ask for both roots */
-  FD_TEST(  fd_chainer_verified_parent_fec_count( chainer, 12UL, &bid12, 2U, 10UL, &bid0 ) ); /* the root exists: nothing created */
+  fd_chainer_verified_parent_fec_count( chainer, 12UL, &bid12, 2U, 10UL, &bid0 );
   drain_chainer( chainer );
   FD_TEST( run_walk( r, chainer, 12UL, &bid12, reqs, &cnt )==FD_REQUESTOR_ADVANCE_REQUESTED );
   FD_TEST( cnt==2UL );
@@ -346,7 +339,7 @@ test_gone( fd_wksp_t * wksp ) {
   /* a sibling appearing mid-walk does not disturb the walk either */
   fd_hash_t r14 = mkhash( 14UL ), bid14 = mkhash( 140UL );
   for( uint i=0U; i<32U; i++ ) shred( chainer, 14UL, i, 0, &r14, i ? AG_UNKNOWN_SLOT : 10UL, i ? NULL : &bid0 );
-  fd_chainer_slotv_t * s14 = fd_chainer_slot_version_query( chainer, 14UL, &ZERO );
+  fd_chainer_block_t * s14 = fd_chainer_slot_version_query( chainer, 14UL, &ZERO );
   s14->complete_idx = 63U; /* as if HighestShred had answered */
   fd_rotor_request_t req[1];
   fd_requestor_block_start( r, 14UL, &ZERO );
@@ -413,7 +406,7 @@ test_moving( fd_wksp_t * wksp ) {
   fd_hash_t bid12 = mkhash( 200UL ), root0 = mkhash( 3UL );
   fd_chainer_verified_block_insert( chainer, 12UL, bid12 );
   drain_chainer( chainer );
-  FD_TEST(  fd_chainer_verified_parent_fec_count( chainer, 12UL, &bid12, 2U, 10UL, &bid0 ) );
+  fd_chainer_verified_parent_fec_count( chainer, 12UL, &bid12, 2U, 10UL, &bid0 );
   drain_chainer( chainer );
   fd_requestor_block_start( r, 12UL, &bid12 );
   FD_TEST( advance( r, chainer, req )==FD_REQUESTOR_ADVANCE_REQUEST && req->kind==AG_REPAIR_KIND_FEC_ROOT && req->idx==0U );
@@ -435,6 +428,104 @@ test_moving( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: walk reads the chainer fresh on every request" ));
 }
 
+/* The active per-FEC requestor must see shared shreds received before
+   root discovery, subsequent arrivals, and eviction.  A different root
+   at the same position stays independent.  One completion updates both
+   matching versions without waiting for another resolver notification. */
+
+static void
+test_shared_fec_reception( fd_wksp_t * wksp, int verified_first ) {
+  fd_chainer_t * chainer = chainer_setup( wksp );
+  fd_requestor_t * r = requestor_setup();
+  fd_hash_t root = mkhash( 100UL ), bid = mkhash( 200UL ), other_bid = mkhash( 201UL );
+  fd_hash_t mr = mkhash( 1UL ), other_mr = mkhash( 2UL );
+  fd_chainer_init( chainer, 10UL, &root );
+  if( !verified_first ) {
+    shred( chainer, 11UL, 0U, 0, &mr, 10UL, &root );
+    shred( chainer, 11UL, 2U, 0, &mr, AG_UNKNOWN_SLOT, NULL );
+  }
+
+  fd_chainer_verified_block_insert( chainer, 11UL, bid );
+  fd_chainer_verified_parent_fec_count( chainer, 11UL, &bid, 1U, 10UL, &root );
+  fd_chainer_block_t * block = fd_chainer_slot_version_query( chainer, 11UL, &bid );
+  fd_chainer_fec_t * fec = fd_chainer_fec_query( chainer, 11UL, 0U, &bid );
+  FD_TEST( !fd_chainer_fec_data_idxs( chainer, fec ) );
+  FD_TEST( !fd_chainer_shred_test( chainer, block, 2U ) );
+  fd_rotor_request_t req[1];
+  int more = 0;
+  FD_TEST( fd_requestor_fec_request( r, chainer, block, fec, 0U, req, &more ) );
+  expect_req( req, AG_REPAIR_KIND_FEC_ROOT, 0U, &bid, NULL );
+
+  hash_insert( chainer, 11UL, &bid, 0U, &mr );
+  if( verified_first ) {
+    shred( chainer, 11UL, 0U, 0, &mr, 10UL, &root );
+    shred( chainer, 11UL, 2U, 0, &mr, AG_UNKNOWN_SLOT, NULL );
+  }
+  fd_chainer_block_t * sibling = fd_chainer_turbine_block_query( chainer, 11UL );
+  if( verified_first ) {
+    FD_TEST( !sibling );
+    fd_hash_t sibling_bid = mkhash( 202UL );
+    fd_chainer_verified_block_insert( chainer, 11UL, sibling_bid );
+    fd_chainer_verified_parent_fec_count( chainer, 11UL, &sibling_bid, 1U, 10UL, &root );
+    hash_insert( chainer, 11UL, &sibling_bid, 0U, &mr );
+    sibling = fd_chainer_slot_version_query( chainer, 11UL, &sibling_bid );
+    FD_TEST( !fd_chainer_turbine_block_query( chainer, 11UL ) );
+  }
+  FD_TEST( sibling );
+  fd_chainer_fec_t * sibling_fec = fd_chainer_fec_query( chainer, 11UL, 0U, &sibling->block_id );
+  fd_chainer_fec_t * owner  = verified_first ? fec : sibling_fec;
+  fd_chainer_fec_t * shadow = verified_first ? sibling_fec : fec;
+  FD_TEST( owner!=shadow && owner->root && !shadow->root );
+  FD_TEST( owner->data_idxs==5U && !shadow->data_idxs );
+  FD_TEST( fd_chainer_fec_data_idxs( chainer, fec )==5U && block->buffered_idx==0U );
+  FD_TEST( fd_chainer_fec_data_idxs( chainer, sibling_fec )==5U && sibling->buffered_idx==0U );
+  FD_TEST( fd_chainer_shred_test( chainer, block, 2U ) );
+  FD_TEST( fd_requestor_fec_request( r, chainer, block, fec, 0U, req, &more ) );
+  expect_req( req, AG_REPAIR_KIND_SHRED_FOR_BLOCK_ID, 1U, &bid, &mr );
+  FD_TEST( more );
+
+  fd_chainer_verified_block_insert( chainer, 11UL, other_bid );
+  fd_chainer_verified_parent_fec_count( chainer, 11UL, &other_bid, 1U, 10UL, &root );
+  hash_insert( chainer, 11UL, &other_bid, 0U, &other_mr );
+  shred( chainer, 11UL, 4U, 0, &other_mr, AG_UNKNOWN_SLOT, NULL );
+  fd_chainer_fec_t * other = fd_chainer_fec_query( chainer, 11UL, 0U, &other_bid );
+  FD_TEST( other->data_idxs==16U );
+
+  shred( chainer, 11UL, 1U, 0, &mr, AG_UNKNOWN_SLOT, NULL );
+  FD_TEST( owner->data_idxs==7U && !shadow->data_idxs );
+  FD_TEST( fd_chainer_fec_data_idxs( chainer, fec )==7U && block->buffered_idx==2U );
+  FD_TEST( fd_chainer_fec_data_idxs( chainer, sibling_fec )==7U && sibling->buffered_idx==2U );
+  FD_TEST( fd_requestor_fec_request( r, chainer, block, fec, 0U, req, &more ) );
+  expect_req( req, AG_REPAIR_KIND_SHRED_FOR_BLOCK_ID, 3U, &bid, &mr );
+  uint received = block->metrics.turbine_cnt;
+  shred( chainer, 11UL, 1U, 0, &mr, AG_UNKNOWN_SLOT, NULL );
+  FD_TEST( block->metrics.turbine_cnt==received );
+
+  fd_chainer_code_shred_insert( chainer, 11UL, 0U, 1L, &mr );
+  FD_TEST( sibling->metrics.parity_cnt==1U && block->metrics.parity_cnt==1U );
+  FD_TEST( !fd_chainer_slot_version_query( chainer, 11UL, &other_bid )->metrics.parity_cnt );
+
+  fd_chainer_fec_evicted( chainer, 11UL, 0U, &mr );
+  FD_TEST( !owner->data_idxs && !shadow->data_idxs );
+  FD_TEST( !fd_chainer_fec_data_idxs( chainer, fec ) && block->buffered_idx==UINT_MAX );
+  FD_TEST( !fd_chainer_shred_test( chainer, sibling, 0U ) );
+  FD_TEST( sibling->buffered_idx==UINT_MAX && other->data_idxs==16U );
+  FD_TEST( fd_requestor_fec_request( r, chainer, block, fec, 0U, req, &more ) );
+  expect_req( req, AG_REPAIR_KIND_SHRED_FOR_BLOCK_ID, 0U, &bid, &mr );
+  FD_TEST( !fd_chainer_verify( chainer ) );
+
+  fec_complete( chainer, 11UL, 0U, 1, &mr );
+  FD_TEST( owner->data_idxs==UINT_MAX && !shadow->data_idxs );
+  FD_TEST( fd_chainer_fec_data_idxs( chainer, fec )==UINT_MAX && fec->complete );
+  FD_TEST( fd_chainer_block_complete( block ) && block->delivered_idx==31U );
+  FD_TEST( !fec->treap ); /* a one-set slot releases set 0 on delivery too */
+  FD_TEST( !fd_requestor_fec_request( r, chainer, block, fec, 0U, req, &more ) );
+  FD_TEST( other->data_idxs==16U && !other->complete );
+  FD_TEST( !fd_chainer_verify( chainer ) );
+  fd_wksp_free_laddr( chainer );
+  FD_LOG_NOTICE(( "pass: shared FEC reception, eviction, and completion (verified_first=%d)", verified_first ));
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
@@ -450,6 +541,8 @@ main( int argc, char ** argv ) {
   test_verified( wksp );
   test_gone    ( wksp );
   test_moving  ( wksp );
+  test_shared_fec_reception( wksp, 0 );
+  test_shared_fec_reception( wksp, 1 );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

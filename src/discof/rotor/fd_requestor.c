@@ -106,12 +106,12 @@ fd_requestor_block_id( fd_requestor_t const * self ) {
 /* block_query returns the live, repairable version for {slot,
    block_id}, or NULL if it is gone or rooted. */
 
-static fd_chainer_slotv_t const *
+static fd_chainer_block_t const *
 block_query( fd_chainer_t *       chainer,
              ulong                slot,
              fd_hash_t const *    block_id ) {
   if( FD_UNLIKELY( slot<=chainer->root ) ) return NULL;
-  fd_chainer_slotv_t const * block = fd_chainer_slot_version_query( chainer, slot, block_id );
+  fd_chainer_block_t const * block = fd_chainer_slot_version_query( chainer, slot, block_id );
   return block;
 }
 
@@ -135,7 +135,7 @@ emit( fd_requestor_t const * self,
 
 static inline int
 parent_orphaned( fd_chainer_t *             chainer,
-                 fd_chainer_slotv_t const * block ) {
+                 fd_chainer_block_t const * block ) {
   if( block->parent_slot==AG_UNKNOWN_SLOT ) return 1;
   int parent_present = block->parent_slot<=chainer->root || !!fd_chainer_slot_version_query( chainer, block->parent_slot, &block->parent_block_id );
   return !parent_present;
@@ -146,7 +146,7 @@ parent_orphaned( fd_chainer_t *             chainer,
 
 static int
 parent_next( fd_requestor_t const *     self,
-             fd_chainer_slotv_t const * block,
+             fd_chainer_block_t const * block,
              fd_rotor_request_t *       request ) {
   if( block->parent_slot!=AG_UNKNOWN_SLOT ) return 0;
   int verified = !fd_hash_check_zero( &block->block_id );
@@ -163,7 +163,7 @@ parent_next( fd_requestor_t const *     self,
 static int
 metadata_next( fd_requestor_t const *     self,
                fd_chainer_t *             chainer,
-               fd_chainer_slotv_t const * block,
+               fd_chainer_block_t const * block,
                fd_rotor_request_t *       request ) {
   int verified = !fd_hash_check_zero( &block->block_id );
 
@@ -189,7 +189,7 @@ metadata_next( fd_requestor_t const *     self,
 static int
 fill_next( fd_requestor_t *           self,
            fd_chainer_t *             chainer,
-           fd_chainer_slotv_t const * block,
+           fd_chainer_block_t const * block,
            fd_rotor_request_t *       request ) {
   int verified = !fd_hash_check_zero( &block->block_id );
   if( FD_UNLIKELY( !verified && self->block_id_only ) ) return 0; /* no fill rung to walk */
@@ -210,10 +210,11 @@ fill_next( fd_requestor_t *           self,
 
     if( verified ) {
       fd_chainer_fec_t const * fec = fd_chainer_fec_query( chainer, block->slot, fec_set_idx, &block->block_id );
-      if( FD_UNLIKELY( !fec ) ) {
-        /* No entry at this set: ask for its root and move to the next
-           set.  Its shreds are asked for once the sentinel lands and
-           the block is walked again. */
+      if( FD_UNLIKELY( !fec || fd_hash_check_zero( &fec->merkle_root ) ) ) {
+        /* No entry at this set, or a placeholder that does not know its
+           root yet: ask for the root and move to the next set.  Its
+           shreds are asked for once the root lands and the block is
+           walked again. */
         emit( self, request, AG_REPAIR_KIND_FEC_ROOT, fec_set_idx, &block->block_id, NULL );
         self->cursor = fec_set_idx + (uint)FD_FEC_SHRED_CNT;
         return 1;
@@ -264,13 +265,13 @@ fd_requestor_block_advance( fd_requestor_t *     self,
      repair for individual shreds       - otherwise, request individual shreds or FEC_ROOT
      repair for metadata. */
 
-  fd_chainer_slotv_t const * block = block_query( chainer, self->slot, &self->block_id );
+  fd_chainer_block_t const * block = block_query( chainer, self->slot, &self->block_id );
 
   if( FD_UNLIKELY( !block ) )                   { self->active = 0; return FD_REQUESTOR_ADVANCE_DONE;             } /* gone or rooted mid-walk */
   if( parent_next( self, block, out_request ) ) { self->active = 0; return FD_REQUESTOR_ADVANCE_REQUESTED_PARENT; } /* one request, carried in *out_request */
 
   /* TODO doc why some parent exists is good */
-  int some_parent_exists = fd_slotv_map_idx_query_const( chainer->slotv_map, &block->parent_slot, ULONG_MAX, chainer->slotv_pool )!=ULONG_MAX;
+  int some_parent_exists = fd_block_map_idx_query_const( chainer->block_map, &block->parent_slot, ULONG_MAX, chainer->block_pool )!=ULONG_MAX;
   int parent_seen        = !parent_orphaned( chainer, block ) || some_parent_exists;
 
   uint fill_max = ( !parent_seen || block->complete_idx==UINT_MAX )
@@ -286,4 +287,96 @@ fd_requestor_block_advance( fd_requestor_t *     self,
 
   self->active = 0;
   return self->fill_cnt ? FD_REQUESTOR_ADVANCE_REQUESTED : FD_REQUESTOR_ADVANCE_DONE;
+}
+
+int
+fd_requestor_fec_request( fd_requestor_t *     self,
+                          fd_chainer_t *       chainer,
+                          fd_chainer_block_t * slotv,
+                          fd_chainer_fec_t *   fec,
+                          uint                 from_shred_idx,
+                          fd_rotor_request_t * out_request,
+                          int *                opt_more ) {
+  ulong slot        = slotv->slot;
+  uint  fec_set_idx = fec->fec_set_idx;
+  int   is_first    = fec_set_idx==0U; /* set 0 stands in for the block */
+
+  if( opt_more ) *opt_more = 0;
+  *out_request = (fd_rotor_request_t){ .slot = slot };
+
+  /* A fill walks the set once, asking for each shred it is missing
+     rather than repeating the first.  The position is the caller's
+     sweep cursor, passed in as from_shred_idx: masking off everything
+     below it is what stops a shred being asked twice in a round,
+     without the set having to remember anything.  A lap of the cursor
+     is one round. */
+
+  uint off     = from_shred_idx>fec_set_idx ? from_shred_idx-fec_set_idx : 0U;
+  uint missing = off<(uint)FD_FEC_SHRED_CNT ? (~fd_chainer_fec_data_idxs( chainer, fec )) & (UINT_MAX<<off) : 0U;
+
+  /* Once the tip is known the last set is short, and the positions
+     past it do not exist.  Asking for them costs a request per round
+     that can never be answered. */
+
+  if( FD_LIKELY( slotv->complete_idx!=UINT_MAX ) && slotv->complete_idx < fec_set_idx+(uint)FD_FEC_SHRED_CNT-1U ) {
+    missing &= ( slotv->complete_idx>=fec_set_idx ) ? ( ( 2U << ( slotv->complete_idx - fec_set_idx ) ) - 1U ) : 0U;
+  }
+
+  uint shred = missing ? fec_set_idx + (uint)fd_uint_find_lsb( missing ) : UINT_MAX;
+
+# define FILL( k ) do {                                                                 \
+    out_request->kind = (k);                                                            \
+    out_request->idx  = shred;                                                          \
+    if( opt_more ) *opt_more = !!( missing & ~( 1U << ( shred - fec_set_idx ) ) );       \
+    return 1;                                                                           \
+  } while(0)
+
+  if( FD_LIKELY( !fd_hash_check_zero( &slotv->block_id ) ) ) {
+
+    /* Know this block_id already, either from its child or from a cert */
+
+    out_request->block_id = slotv->block_id;
+
+    if( FD_UNLIKELY( slotv->complete_idx==UINT_MAX ) ) {
+      if( FD_UNLIKELY( !is_first ) ) return 0; /* set 0 does the asking */
+      out_request->kind = AG_REPAIR_KIND_PARENT_FEC_COUNT;
+      return 1;
+    }
+
+    if( FD_UNLIKELY( fd_hash_check_zero( &fec->merkle_root ) ) ) {
+      out_request->kind = AG_REPAIR_KIND_FEC_ROOT;
+      out_request->idx  = fec_set_idx;
+      return 1;
+    }
+
+    if( FD_UNLIKELY( shred==UINT_MAX ) ) return 0; /* all in hand, waiting on the set to resolve */
+    out_request->fec_root = fec->merkle_root;
+    FILL( AG_REPAIR_KIND_SHRED_FOR_BLOCK_ID );
+  }
+
+  /* The turbine version has no block id yet, so only the positional
+     kinds apply. */
+
+  if( FD_UNLIKELY( self->block_id_only ) ) return 0;
+
+  if( FD_UNLIKELY( slotv->parent_slot==AG_UNKNOWN_SLOT ) ) {
+    if( FD_UNLIKELY( !is_first ) ) return 0;
+    out_request->kind = FD_REPAIR_KIND_SHRED; /* shred 0's header names the parent */
+    return 1;
+  }
+
+  if( FD_LIKELY( shred!=UINT_MAX ) ) FILL( FD_REPAIR_KIND_SHRED );
+
+  /* Every shred of the set is in hand.  If the tip is still unknown
+     the block runs past it, and nothing is enrolled for what we have
+     not heard of, so this is where we go looking. */
+
+  if( FD_UNLIKELY( is_first && slotv->complete_idx==UINT_MAX ) ) {
+    out_request->kind = FD_REPAIR_KIND_HIGHEST_SHRED;
+    return 1;
+  }
+
+# undef FILL
+
+  return 0;
 }
