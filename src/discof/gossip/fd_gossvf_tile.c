@@ -35,6 +35,23 @@
 #define FD_GOSSVF_BATCH_SIG_MAX (8UL)
 #define FD_GOSSVF_BATCH_MSG_MAX (4UL)
 
+/* Values whose signature verified but which were not admitted to the
+   dedup tcache (the origin is unponged, private, stale or on another
+   shred version) are remembered in a small second tcache, sigok, so
+   that the redundant push copies of the same value skip the signature
+   check.  Mainnet drops ~500 such values/s and a value is relayed to
+   us ~2.2 times within a second or so; the depth covers ~30 s. */
+
+#define FD_GOSSVF_SIGOK_DEPTH (16384UL)
+
+/* Peers sign prunes either with Agave's bincode prefixed signable data
+   or, as Firedancer does, the unprefixed data.  The format that last
+   verified for an origin is remembered by pubkey hash so the first
+   attempt is usually the right one.  A stale or colliding entry only
+   costs the failing attempt the tile always paid. */
+
+#define FD_GOSSVF_PRUNE_MEMO_CNT (4096UL)
+
 struct peer {
   fd_pubkey_t pubkey;
 
@@ -194,10 +211,11 @@ struct fd_gossvf_tile_ctx {
     ulong               frame_sz; /* the net frag size, for the byte metrics */
     fd_ip4_port_t       peer;
     ulong               tsorig;
-    uint                dup_mask; /* values not verified (already in the tcache) */
-    ulong               sig_cnt;  /* values verified */
+    uint                skip_mask; /* values not verified: in the dedup tcache or sigok */
+    ulong               sig_cnt;   /* values verified */
     fd_gossip_message_t message[1];
     uchar               failed[ FD_GOSSIP_MESSAGE_MAX_CRDS ];
+    ulong               dedup_tag[ FD_GOSSIP_MESSAGE_MAX_CRDS ];
   } batch_msg[ FD_GOSSVF_BATCH_MSG_MAX ];
   ulong batch_msg_cnt;
   ulong batch_sig_cnt;
@@ -232,7 +250,9 @@ struct fd_gossvf_tile_ctx {
     ulong * sync;
     ulong * ring;
     ulong * map;
-  } tcache;
+  } tcache, sigok;
+
+  uchar prune_unprefixed[ FD_GOSSVF_PRUNE_MEMO_CNT ];
 
   struct {
     int         kind;
@@ -290,6 +310,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, stake_map_align(),               stake_map_footprint( stake_map_chain_cnt_est( MAX_SHRED_DESTS ) ) );
   l = FD_LAYOUT_APPEND( l, fd_tcache_align(),               fd_tcache_footprint( tile->gossvf.tcache_depth, 0UL )             );
   l = FD_LAYOUT_APPEND( l, fd_gui_gossip_bw_align(),        fd_gui_gossip_bw_footprint()                                      );
+  l = FD_LAYOUT_APPEND( l, fd_tcache_align(),               fd_tcache_footprint( FD_GOSSVF_SIGOK_DEPTH, 0UL )                 );
   l = FD_LAYOUT_APPEND( l, fd_ed25519_cache_align(),        fd_ed25519_cache_footprint( ED25519_CACHE_ENT_CNT )               );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
@@ -421,26 +442,48 @@ handle_epoch( fd_gossvf_tile_ctx_t *      ctx,
   ctx->stake.count = stake_pool_used( ctx->stake.pool );
 }
 
-static int
-verify_prune( fd_gossip_prune_t const * view,
-              fd_sha512_t *             sha,
-              fd_ed25519_cache_t *      cache ) {
-  uchar sign_data[ FD_NET_MTU ];
-  /* Agave serializes the prefix as a bincode length-prefixed &[u8]:
-     8-byte LE u64 length (=18) followed by the 18 raw prefix bytes,
-     totaling 26 bytes for the prefix portion. */
-  FD_STORE( ulong, sign_data,                             18UL );
-  fd_memcpy(       sign_data+8UL,                         "\xffSOLANA_PRUNE_DATA",       18UL );
-  fd_memcpy(       sign_data+26UL,                        view->pubkey,                  32UL );
+/* prune_sign_data writes the prefixed signable data of a prune to
+   sign_data (at least FD_GOSSVF_PRUNE_SIGN_DATA_MAX bytes) and returns
+   its length.  The unprefixed form is the same bytes from offset 26.
+   Agave serializes the prefix as a bincode length-prefixed &[u8]:
+   8-byte LE u64 length (=18) followed by the 18 raw prefix bytes,
+   totaling 26 bytes for the prefix portion. */
+
+#define FD_GOSSVF_PRUNE_SIGN_DATA_MAX (106UL+36UL*32UL)
+
+static ulong
+prune_sign_data( fd_gossip_prune_t const * view,
+                 uchar *                   sign_data ) {
+  static uchar const prefix[ 26UL ] = { 18, 0, 0, 0, 0, 0, 0, 0, 0xff, 'S','O','L','A','N','A','_','P','R','U','N','E','_','D','A','T','A' };
+  fd_memcpy(       sign_data,                             prefix,            26UL );
+  fd_memcpy(       sign_data+26UL,                        view->pubkey,      32UL );
   FD_STORE( ulong, sign_data+58UL,                        view->prunes_len );
-  fd_memcpy(       sign_data+66UL,                        view->prunes,                  view->prunes_len*32UL );
+  fd_memcpy(       sign_data+66UL,                        view->prunes,      view->prunes_len*32UL );
   fd_memcpy(       sign_data+66UL+view->prunes_len*32UL,  view->destination, 32UL );
   FD_STORE( ulong, sign_data+98UL+view->prunes_len*32UL,  view->wallclock );
+  return 106UL+view->prunes_len*32UL;
+}
 
-  ulong sign_data_len = 106UL+view->prunes_len*32UL;
-  int err = fd_ed25519_verify_cached( sign_data, sign_data_len, view->signature, view->pubkey, sha, cache );
-  if( FD_UNLIKELY( err!=FD_ED25519_SUCCESS ) )
-    err = fd_ed25519_verify_cached( sign_data+26UL, sign_data_len-26UL, view->signature, view->pubkey, sha, cache );
+/* A prune is accepted if its signature verifies over either the
+   prefixed or the unprefixed signable data.  The order of the two
+   attempts does not change the outcome, so the format that last
+   verified for the origin is tried first. */
+
+static int
+verify_prune( fd_gossvf_tile_ctx_t *    ctx,
+              fd_gossip_prune_t const * view ) {
+  uchar sign_data[ FD_GOSSVF_PRUNE_SIGN_DATA_MAX ];
+  ulong sign_data_len = prune_sign_data( view, sign_data );
+
+  ulong memo_idx   = fd_hash32( view->pubkey, ctx->seed ) & (FD_GOSSVF_PRUNE_MEMO_CNT-1UL);
+  ulong first_off  = fd_ulong_if( ctx->prune_unprefixed[ memo_idx ], 26UL, 0UL );
+  ulong second_off = 26UL-first_off;
+
+  int err = fd_ed25519_verify_cached( sign_data+first_off, sign_data_len-first_off, view->signature, view->pubkey, ctx->sha, ctx->ed25519_cache );
+  if( FD_UNLIKELY( err!=FD_ED25519_SUCCESS ) ) {
+    err = fd_ed25519_verify_cached( sign_data+second_off, sign_data_len-second_off, view->signature, view->pubkey, ctx->sha, ctx->ed25519_cache );
+    if( FD_LIKELY( err==FD_ED25519_SUCCESS ) ) ctx->prune_unprefixed[ memo_idx ] = (uchar)(second_off==26UL);
+  }
 
   if( FD_LIKELY( err==FD_ED25519_SUCCESS ) ) return 0;
   else                                       return FD_METRICS_ENUM_GOSSVF_MESSAGE_RESULT_V_DROPPED_PRUNE_SIGNATURE_IDX;
@@ -460,38 +503,49 @@ verify_crds_value( fd_gossip_value_t const * value,
                                    cache );
 }
 
-/* Values already in the tcache were verified when first seen: they
-   are marked duplicate (unless already failed for another reason) and
-   skip the signature check.  Returns the bit set of skipped values. */
+/* Values already in the dedup tcache were verified when first seen:
+   they are marked duplicate (unless already failed for another reason)
+   and skip the signature check.  Values in sigok verified before too
+   but were not admitted (see publish_message): they skip only the
+   signature check and go through the other checks again, which may
+   now admit them.  Returns the bit set of values skipping the
+   signature check and writes each value's dedup tag to dedup_tag. */
 static uint
 mark_duplicate_crds( fd_gossvf_tile_ctx_t *    ctx,
                      fd_gossip_value_t const * values,
                      ulong                     values_len,
                      uchar const *             payload,
-                     uchar *                   failed ) {
-  uint dup_mask = 0U;
+                     uchar *                   failed,
+                     ulong *                   dedup_tag ) {
+  uint skip_mask = 0U;
   for( ulong i=0UL; i<values_len; i++ ) {
-    ulong dedup_tag = fd_siphash13_hash( payload+values[ i ].offset, values[ i ].length, ctx->dedup_key[ 0 ], ctx->dedup_key[ 1 ] );
-    dedup_tag = fd_ulong_if( dedup_tag==FD_TCACHE_TAG_NULL, 1UL, dedup_tag );
+    ulong tag = fd_siphash13_hash( payload+values[ i ].offset, values[ i ].length, ctx->dedup_key[ 0 ], ctx->dedup_key[ 1 ] );
+    tag = fd_ulong_if( tag==FD_TCACHE_TAG_NULL, 1UL, tag );
+    dedup_tag[ i ] = tag;
     int ha_dup = 0;
     FD_FN_UNUSED ulong tcache_map_idx = 0;
-    FD_TCACHE_QUERY( ha_dup, tcache_map_idx, ctx->tcache.map, ctx->tcache.map_cnt, dedup_tag );
+    FD_TCACHE_QUERY( ha_dup, tcache_map_idx, ctx->tcache.map, ctx->tcache.map_cnt, tag );
     if( FD_LIKELY( ha_dup ) ) {
       if( FD_LIKELY( !failed[ i ] ) ) failed[ i ] = FD_GOSSIP_FAILED_DUPLICATE;
-      dup_mask |= 1U<<i;
+      skip_mask |= 1U<<i;
+      continue;
     }
+    int sigok = 0;
+    FD_TCACHE_QUERY( sigok, tcache_map_idx, ctx->sigok.map, ctx->sigok.map_cnt, tag );
+    if( FD_UNLIKELY( sigok ) ) skip_mask |= 1U<<i;
   }
-  return dup_mask;
+  return skip_mask;
 }
 
 /* Drop the values whose signature check failed (results[i]!=SUCCESS
-   for the i-th value not in dup_mask, in order) from a push / pull
+   for the i-th value not in skip_mask, in order) from a push / pull
    response view, as the scalar path did in place. */
 static int
 drop_bad_crds( fd_gossvf_tile_ctx_t * ctx,
                fd_gossip_message_t *  view,
                uchar *                failed,
-               uint                   dup_mask,
+               ulong *                dedup_tag,
+               uint                   skip_mask,
                int const *            results ) {
   int push = view->tag==FD_GOSSIP_MESSAGE_PUSH;
   fd_gossip_value_t * values     = push ? view->push->values      : view->pull_response->values;
@@ -504,7 +558,7 @@ drop_bad_crds( fd_gossvf_tile_ctx_t * ctx,
      per slot codes first. */
   int code[ FD_GOSSIP_MESSAGE_MAX_CRDS ];
   ulong r = 0UL;
-  for( ulong i=0UL; i<*values_len; i++ ) code[ i ] = (dup_mask>>i)&1U ? FD_ED25519_SUCCESS : results[ r++ ];
+  for( ulong i=0UL; i<*values_len; i++ ) code[ i ] = (skip_mask>>i)&1U ? FD_ED25519_SUCCESS : results[ r++ ];
 
   ulong i = 0UL;
   while( i<*values_len ) {
@@ -514,9 +568,10 @@ drop_bad_crds( fd_gossvf_tile_ctx_t * ctx,
       ctx->metrics.crds_rx_bytes[ metric_idx ] += values[ i ].length;
     }
     (*values_len)--;
-    values[ i ] = values[ *values_len ];
-    failed[ i ] = failed[ *values_len ];
-    code  [ i ] = code  [ *values_len ];
+    values   [ i ] = values   [ *values_len ];
+    failed   [ i ] = failed   [ *values_len ];
+    dedup_tag[ i ] = dedup_tag[ *values_len ];
+    code     [ i ] = code     [ *values_len ];
   }
 
   if( FD_UNLIKELY( !*values_len ) ) return push ? FD_METRICS_ENUM_GOSSVF_MESSAGE_RESULT_V_DROPPED_PUSH_NO_VALID_CRDS_IDX
@@ -539,7 +594,7 @@ verify_signatures( fd_gossvf_tile_ctx_t * ctx,
         return 0;
       }
     }
-    case FD_GOSSIP_MESSAGE_PRUNE: return verify_prune( view->prune, sha, ctx->ed25519_cache );
+    case FD_GOSSIP_MESSAGE_PRUNE: return verify_prune( ctx, view->prune );
     case FD_GOSSIP_MESSAGE_PING: {
       if( FD_UNLIKELY( FD_ED25519_SUCCESS!=fd_ed25519_verify_cached( view->ping->token, 32UL, view->ping->signature, view->ping->from, sha, ctx->ed25519_cache ) ) ) {
         return FD_METRICS_ENUM_GOSSVF_MESSAGE_RESULT_V_DROPPED_PING_SIGNATURE_IDX;
@@ -896,6 +951,7 @@ publish_message( fd_gossvf_tile_ctx_t * ctx,
                  ulong                  payload_sz,
                  ulong                  tsorig,
                  uchar *                failed,
+                 ulong const *          dedup_tag,
                  fd_stem_context_t *    stem );
 
 static int
@@ -906,7 +962,8 @@ batch_enqueue( fd_gossvf_tile_ctx_t *      ctx,
                ulong                       frame_sz,
                ulong                       tsorig,
                uchar const *               failed,
-               uint                        dup_mask,
+               ulong const *               dedup_tag,
+               uint                        skip_mask,
                fd_stem_context_t *         stem );
 
 static int
@@ -1014,21 +1071,47 @@ handle_net( fd_gossvf_tile_ctx_t * ctx,
 
   if( FD_LIKELY( message->tag==FD_GOSSIP_MESSAGE_PUSH || message->tag==FD_GOSSIP_MESSAGE_PULL_RESPONSE ) ) {
     int push = message->tag==FD_GOSSIP_MESSAGE_PUSH;
-    uint dup_mask = mark_duplicate_crds( ctx, push ? message->push->values : message->pull_response->values, push ? message->push->values_len : message->pull_response->values_len, payload, failed );
-    return batch_enqueue( ctx, message, payload, payload_sz, sz, tsorig, failed, dup_mask, stem );
+    ulong dedup_tag[ FD_GOSSIP_MESSAGE_MAX_CRDS ];
+    uint skip_mask = mark_duplicate_crds( ctx, push ? message->push->values : message->pull_response->values, push ? message->push->values_len : message->pull_response->values_len, payload, failed, dedup_tag );
+    return batch_enqueue( ctx, message, payload, payload_sz, sz, tsorig, failed, dedup_tag, skip_mask, stem );
   }
 
   result = verify_signatures( ctx, message, payload, ctx->sha );
   if( FD_UNLIKELY( result ) ) return result;
 
-  return publish_message( ctx, message, payload, payload_sz, tsorig, failed, stem );
+  return publish_message( ctx, message, payload, payload_sz, tsorig, failed, NULL, stem );
+}
+
+/* remember_crds records the CRDS values of a push / pull response
+   whose signatures verified: the admitted ones in the dedup tcache so
+   later copies are duplicates (an admitted value pending in a message
+   ahead of this one makes this copy a duplicate too), the ones that
+   failed a later check in sigok so later copies skip the signature
+   check but are checked again otherwise (NCI: re-receive after a pong
+   or after learning contact info).  Duplicates are already in the
+   dedup tcache. */
+static void
+remember_crds( fd_gossvf_tile_ctx_t * ctx,
+               ulong                  values_len,
+               uchar *                failed,
+               ulong const *          dedup_tag ) {
+  for( ulong i=0UL; i<values_len; i++ ) {
+    int ha_dup = 0;
+    if( FD_LIKELY( !failed[ i ] ) ) {
+      FD_TCACHE_INSERT( ha_dup, *ctx->tcache.sync, ctx->tcache.ring, ctx->tcache.depth, ctx->tcache.map, ctx->tcache.map_cnt, dedup_tag[ i ] );
+      if( FD_UNLIKELY( ha_dup ) ) failed[ i ] = FD_GOSSIP_FAILED_DUPLICATE;
+    } else if( FD_UNLIKELY( failed[ i ]!=FD_GOSSIP_FAILED_DUPLICATE ) ) {
+      FD_TCACHE_INSERT( ha_dup, *ctx->sigok.sync, ctx->sigok.ring, ctx->sigok.depth, ctx->sigok.map, ctx->sigok.map_cnt, dedup_tag[ i ] );
+    }
+  }
 }
 
 /* publish_message finishes a message whose signatures verified:
    address checks (which trust the origin, so they come after the
    signature check), the duplicate instance check, the tcache inserts,
-   the per value metrics and the publish.  Returns the message outcome
-   the caller counts. */
+   the per value metrics and the publish.  dedup_tag holds the CRDS
+   values' tags from mark_duplicate_crds (NULL for the other message
+   kinds).  Returns the message outcome the caller counts. */
 static int
 publish_message( fd_gossvf_tile_ctx_t * ctx,
                  fd_gossip_message_t *  message,
@@ -1036,6 +1119,7 @@ publish_message( fd_gossvf_tile_ctx_t * ctx,
                  ulong                  payload_sz,
                  ulong                  tsorig,
                  uchar *                failed,
+                 ulong const *          dedup_tag,
                  fd_stem_context_t *    stem ) {
   int result = verify_addresses( ctx, message, failed, stem );
   if( FD_UNLIKELY( result ) ) return result;
@@ -1043,30 +1127,9 @@ publish_message( fd_gossvf_tile_ctx_t * ctx,
   check_duplicate_instance( ctx, message );
 
   switch( message->tag ) {
-    case FD_GOSSIP_MESSAGE_PULL_RESPONSE: {
-      for( ulong i=0UL; i<message->pull_response->values_len; i++ ) {
-        if( FD_UNLIKELY( failed[ i ] ) ) continue; /* NCI: re-receive after learning contact info; duplicate: already in the tcache */
-        ulong dedup_tag = fd_siphash13_hash( payload+message->pull_response->values[ i ].offset, message->pull_response->values[ i ].length, ctx->dedup_key[ 0 ], ctx->dedup_key[ 1 ] );
-        dedup_tag = fd_ulong_if( dedup_tag==FD_TCACHE_TAG_NULL, 1UL, dedup_tag );
-        int ha_dup = 0;
-        FD_TCACHE_INSERT( ha_dup, *ctx->tcache.sync, ctx->tcache.ring, ctx->tcache.depth, ctx->tcache.map, ctx->tcache.map_cnt, dedup_tag );
-        if( FD_UNLIKELY( ha_dup ) ) failed[ i ] = FD_GOSSIP_FAILED_DUPLICATE; /* the same value was pending in a message ahead of this one */
-      }
-      break;
-    }
-    case FD_GOSSIP_MESSAGE_PUSH: {
-      for( ulong i=0UL; i<message->push->values_len; i++ ) {
-        if( FD_UNLIKELY( failed[ i ] ) ) continue; /* NCI: re-receive after learning contact info; duplicate: already in the tcache */
-        ulong dedup_tag = fd_siphash13_hash( payload+message->push->values[ i ].offset, message->push->values[ i ].length, ctx->dedup_key[ 0 ], ctx->dedup_key[ 1 ] );
-        dedup_tag = fd_ulong_if( dedup_tag==FD_TCACHE_TAG_NULL, 1UL, dedup_tag );
-        int ha_dup = 0;
-        FD_TCACHE_INSERT( ha_dup, *ctx->tcache.sync, ctx->tcache.ring, ctx->tcache.depth, ctx->tcache.map, ctx->tcache.map_cnt, dedup_tag );
-        if( FD_UNLIKELY( ha_dup ) ) failed[ i ] = FD_GOSSIP_FAILED_DUPLICATE; /* the same value was pending in a message ahead of this one */
-      }
-      break;
-    }
-    default:
-      break;
+    case FD_GOSSIP_MESSAGE_PULL_RESPONSE: remember_crds( ctx, message->pull_response->values_len, failed, dedup_tag ); break;
+    case FD_GOSSIP_MESSAGE_PUSH:          remember_crds( ctx, message->push->values_len,          failed, dedup_tag ); break;
+    default: break;
   }
 
   switch( message->tag ) {
@@ -1133,9 +1196,9 @@ batch_flush( fd_gossvf_tile_ctx_t * ctx,
     fd_gossip_message_t * message = ctx->batch_msg[ m ].message;
     uchar *               failed  = ctx->batch_msg[ m ].failed;
     ctx->peer = ctx->batch_msg[ m ].peer;
-    int result = drop_bad_crds( ctx, message, failed, ctx->batch_msg[ m ].dup_mask, ctx->batch_sig_result+r );
+    int result = drop_bad_crds( ctx, message, failed, ctx->batch_msg[ m ].dedup_tag, ctx->batch_msg[ m ].skip_mask, ctx->batch_sig_result+r );
     r += ctx->batch_msg[ m ].sig_cnt;
-    if( FD_LIKELY( !result ) ) result = publish_message( ctx, message, ctx->batch_msg[ m ].payload, ctx->batch_msg[ m ].payload_sz, ctx->batch_msg[ m ].tsorig, failed, stem );
+    if( FD_LIKELY( !result ) ) result = publish_message( ctx, message, ctx->batch_msg[ m ].payload, ctx->batch_msg[ m ].payload_sz, ctx->batch_msg[ m ].tsorig, failed, ctx->batch_msg[ m ].dedup_tag, stem );
     ctx->metrics.message_rx[ result ]++;
     ctx->metrics.message_rx_bytes[ result ] += ctx->batch_msg[ m ].frame_sz;
   }
@@ -1145,8 +1208,9 @@ batch_flush( fd_gossvf_tile_ctx_t * ctx,
 }
 
 /* batch_enqueue queues a push / pull response message that passed
-   every check but the signatures.  Values marked duplicate are not
-   verified again.  Returns -1: the outcome is counted at flush. */
+   every check but the signatures.  Values in skip_mask (duplicates and
+   values verified before) are not verified again.  Returns -1: the
+   outcome is counted at flush. */
 static int
 batch_enqueue( fd_gossvf_tile_ctx_t *      ctx,
                fd_gossip_message_t const * message,
@@ -1155,14 +1219,15 @@ batch_enqueue( fd_gossvf_tile_ctx_t *      ctx,
                ulong                       frame_sz,
                ulong                       tsorig,
                uchar const *               failed,
-               uint                        dup_mask,
+               ulong const *               dedup_tag,
+               uint                        skip_mask,
                fd_stem_context_t *         stem ) {
   int push = message->tag==FD_GOSSIP_MESSAGE_PUSH;
   fd_gossip_value_t const * values = push ? message->push->values : message->pull_response->values;
   ulong values_len = push ? message->push->values_len : message->pull_response->values_len;
   fd_ip4_port_t peer = ctx->peer; /* a flush below publishes for other peers */
 
-  ulong sig_cnt = values_len-(ulong)fd_uint_popcnt( dup_mask );
+  ulong sig_cnt = values_len-(ulong)fd_uint_popcnt( skip_mask );
 
   /* A message that would take the batch past a full group waits for
      the next one, unless the batch is empty. */
@@ -1174,15 +1239,16 @@ batch_enqueue( fd_gossvf_tile_ctx_t *      ctx,
   ctx->batch_msg[ m ].frame_sz   = frame_sz;
   ctx->batch_msg[ m ].peer       = peer;
   ctx->batch_msg[ m ].tsorig     = tsorig;
-  ctx->batch_msg[ m ].dup_mask   = dup_mask;
+  ctx->batch_msg[ m ].skip_mask  = skip_mask;
   ctx->batch_msg[ m ].sig_cnt    = sig_cnt;
   fd_memcpy( ctx->batch_msg[ m ].message, message, fd_gossip_message_used_sz( message ) );
   fd_memcpy( ctx->batch_msg[ m ].failed, failed, FD_GOSSIP_MESSAGE_MAX_CRDS );
+  fd_memcpy( ctx->batch_msg[ m ].dedup_tag, dedup_tag, values_len*sizeof(ulong) );
 
   uchar const * staged = ctx->batch_msg[ m ].payload;
   fd_gossip_value_t const * staged_values = push ? ctx->batch_msg[ m ].message->push->values : ctx->batch_msg[ m ].message->pull_response->values;
   for( ulong i=0UL; i<values_len; i++ ) {
-    if( (dup_mask>>i)&1U ) continue;
+    if( (skip_mask>>i)&1U ) continue;
     ulong lane = ctx->batch_sig_cnt++;
     ctx->batch_sig_msg   [ lane ] = staged+values[ i ].offset+64UL; /* signable data begins after the signature */
     ctx->batch_sig_msg_sz[ lane ] = values[ i ].length-64UL;
@@ -1294,6 +1360,7 @@ unprivileged_init( fd_topo_t const *      topo,
   void * _stake_map          = FD_SCRATCH_ALLOC_APPEND( l, stake_map_align(),               stake_map_footprint( stake_map_chain_cnt_est( MAX_SHRED_DESTS ) ) );
   void * _tcache             = FD_SCRATCH_ALLOC_APPEND( l, fd_tcache_align(),               fd_tcache_footprint( tile->gossvf.tcache_depth, 0UL )             );
   void * _gui_bw             = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_gossip_bw_align(),        fd_gui_gossip_bw_footprint()                                      );
+  void * _sigok              = FD_SCRATCH_ALLOC_APPEND( l, fd_tcache_align(),               fd_tcache_footprint( FD_GOSSVF_SIGOK_DEPTH, 0UL )                 );
   void * _ed25519_cache      = FD_SCRATCH_ALLOC_APPEND( l, fd_ed25519_cache_align(),        fd_ed25519_cache_footprint( ED25519_CACHE_ENT_CNT )               );
 
   ctx->peers = peer_pool_join( peer_pool_new( _peer_pool, FD_CONTACT_INFO_TABLE_SIZE ) );
@@ -1349,6 +1416,17 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->tcache.sync    = fd_tcache_oldest_laddr( tcache );
   ctx->tcache.ring    = fd_tcache_ring_laddr  ( tcache );
   ctx->tcache.map     = fd_tcache_map_laddr   ( tcache );
+
+  fd_tcache_t * sigok = fd_tcache_join( fd_tcache_new( _sigok, FD_GOSSVF_SIGOK_DEPTH, 0UL ) );
+  FD_TEST( sigok );
+
+  ctx->sigok.depth   = fd_tcache_depth       ( sigok );
+  ctx->sigok.map_cnt = fd_tcache_map_cnt     ( sigok );
+  ctx->sigok.sync    = fd_tcache_oldest_laddr( sigok );
+  ctx->sigok.ring    = fd_tcache_ring_laddr  ( sigok );
+  ctx->sigok.map     = fd_tcache_map_laddr   ( sigok );
+
+  memset( ctx->prune_unprefixed, 0, sizeof(ctx->prune_unprefixed) );
 
 #if DEBUG_PEERS
   for( ulong i=0UL; i<ctx->entrypoints_cnt; i++ ) {
