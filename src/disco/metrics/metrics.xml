@@ -1276,7 +1276,7 @@ deliberate exception with lint-allow="<rule id>")
     <gauge name="DiskPeakBytes" summary="Logical wire-ring high-water plus spill pages high-water" />
 
     <histogram name="DiskWriteDurationNanos" min="100" max="100000000" source="ticks">
-        <summary>Duration of persisting one accepted data shred</summary>
+        <summary>Duration of persisting one accepted data shred (a batched write is divided equally among its shreds)</summary>
     </histogram>
     <counter name="DiskShredWritten" summary="Data shreds persisted to the repair store" />
     <counter name="DiskShredWriteFailed" summary="Data shreds rejected by the repair store API" />
