@@ -101,6 +101,7 @@ join_tcache( void *  mem,
 static void
 setup_ctx( void ) {
   memset( ctx, 0, sizeof(*ctx) );
+  memset( ctx->prune_unprefixed, 1, sizeof(ctx->prune_unprefixed) ); /* as unprivileged_init */
   ctx->seed                  = 0x2b7e151628aed2a6UL;
   ctx->dedup_key[ 0 ]        = 0x0123456789abcdefUL;
   ctx->dedup_key[ 1 ]        = 0xfedcba9876543210UL;
@@ -203,7 +204,8 @@ test_prune_memo( void ) {
   setup_ctx();
   fd_gossip_prune_t prune[1];
 
-  /* Both formats verify, from a cold memo and again once memoized. */
+  /* Both formats verify, from a cold memo (unprefixed, so the first
+     pass below takes the fallback) and again once memoized. */
   for( int unprefixed=0; unprefixed<2; unprefixed++ ) {
     for( ulong signer=1UL; signer<TEST_PEER_CNT; signer++ ) {
       for( ulong rep=0UL; rep<3UL; rep++ ) {
