@@ -1304,6 +1304,55 @@ fork_slot_defer( fd_accdb_t *              accdb,
   *fork_tail = shmem;
 }
 
+/* chain_prewalk warms the cache for the hash chain walks of up to
+   CHAIN_PREWALK_W txn records starting at txn (following fork.next).
+   Each walk is a dependent chain of DRAM misses (txn -> acc -> chain
+   head -> next -> ...); stepping the W chains in lock-step lets the
+   misses overlap instead of serializing.  Read only: it performs the
+   same FD_VOLATILE_CONST loads the walks below do and no stores, so it
+   changes nothing about what those walks see or unlink.  If stop_at_own
+   is set a chain is followed only up to its txn's own acc (purge walks
+   stop there).  Fills txns[] and map_idxs[] (the chain index of each
+   txn's acc) and returns the number of records loaded. */
+
+#define CHAIN_PREWALK_W (16UL)
+
+static ulong
+chain_prewalk( fd_accdb_t *      accdb,
+               uint              txn,
+               int               stop_at_own,
+               fd_accdb_txn_t ** txns,
+               uint *            map_idxs ) {
+  uint acc_idx[ CHAIN_PREWALK_W ];
+  uint cur    [ CHAIN_PREWALK_W ];
+
+  ulong cnt = 0UL;
+  for( ; cnt<CHAIN_PREWALK_W && txn!=UINT_MAX; cnt++ ) {
+    fd_accdb_txn_t * txne = txn_pool_ele( accdb->txn_pool, (ulong)txn );
+    txns   [ cnt ] = txne;
+    acc_idx[ cnt ] = txne->acc_pool_idx;
+    __builtin_prefetch( &accdb->acc_pool[ txne->acc_pool_idx ], 0, 3 );
+    txn = txne->fork.next;
+  }
+  for( ulong i=0UL; i<cnt; i++ ) {
+    map_idxs[ i ] = (uint)(fd_hash32( accdb->acc_pool[ acc_idx[ i ] ].key.pubkey, accdb->shmem->seed ) &
+                           (accdb->shmem->chain_cnt-1UL));
+    __builtin_prefetch( &accdb->acc_map[ map_idxs[ i ] ], 1, 3 );
+  }
+  for( ulong i=0UL; i<cnt; i++ ) cur[ i ] = FD_VOLATILE_CONST( accdb->acc_map[ map_idxs[ i ] ] );
+
+  for(;;) {
+    ulong live = 0UL;
+    for( ulong i=0UL; i<cnt; i++ ) {
+      if( cur[ i ]==UINT_MAX || ( stop_at_own && cur[ i ]==acc_idx[ i ] ) ) continue;
+      cur[ i ] = FD_VOLATILE_CONST( accdb->acc_pool[ cur[ i ] ].map.next );
+      live++;
+    }
+    if( !live ) break;
+  }
+  return cnt;
+}
+
 static void
 purge_inner( fd_accdb_t *              accdb,
              fd_accdb_fork_id_t         fork_id,
@@ -1323,25 +1372,29 @@ purge_inner( fd_accdb_t *              accdb,
     fd_accdb_txn_t * txn_head = txn_pool_ele( accdb->txn_pool, (ulong)txn );
     fd_accdb_txn_t * txn_tail = NULL;
     while( txn!=UINT_MAX ) {
-      fd_accdb_txn_t * txne = txn_pool_ele( accdb->txn_pool, (ulong)txn );
+      fd_accdb_txn_t * txns    [ CHAIN_PREWALK_W ];
+      uint             map_idxs[ CHAIN_PREWALK_W ];
+      ulong cnt = chain_prewalk( accdb, txn, 1, txns, map_idxs );
+      for( ulong w=0UL; w<cnt; w++ ) {
+        fd_accdb_txn_t * txne = txns[ w ];
 
-      uint acc_idx     = txne->acc_pool_idx;
-      uint acc_map_idx = (uint)(fd_hash32( accdb->acc_pool[ acc_idx ].key.pubkey, accdb->shmem->seed ) &
-                                (accdb->shmem->chain_cnt-1UL));
+        uint acc_idx     = txne->acc_pool_idx;
+        uint acc_map_idx = map_idxs[ w ];
 
-      uint prev = UINT_MAX;
-      uint cur = FD_VOLATILE_CONST( accdb->acc_map[ acc_map_idx ] );
-      while( cur!=acc_idx ) {
-        prev = cur;
-        cur = FD_VOLATILE_CONST( accdb->acc_pool[ cur ].map.next );
+        uint prev = UINT_MAX;
+        uint cur = FD_VOLATILE_CONST( accdb->acc_map[ acc_map_idx ] );
+        while( cur!=acc_idx ) {
+          prev = cur;
+          cur = FD_VOLATILE_CONST( accdb->acc_pool[ cur ].map.next );
+        }
+
+        fd_racesan_hook( "accdb_purge:pre_unlink" );
+        acc_unlink( accdb, acc_map_idx, prev, acc_idx );
+        deferred_acc_append( accdb, acc_idx );
+
+        txn_tail = txne;
+        txn = txne->fork.next;
       }
-
-      fd_racesan_hook( "accdb_purge:pre_unlink" );
-      acc_unlink( accdb, acc_map_idx, prev, acc_idx );
-      deferred_acc_append( accdb, acc_idx );
-
-      txn_tail = txne;
-      txn = txne->fork.next;
     }
     txn_pool_release_chain( accdb->txn_pool, txn_head, txn_tail );
   }
@@ -1402,60 +1455,64 @@ background_advance_root( fd_accdb_t *       accdb,
     fd_accdb_txn_t * txn_head = txn_pool_ele( accdb->txn_pool, (ulong)txn );
     fd_accdb_txn_t * txn_tail = NULL;
     while( txn!=UINT_MAX ) {
-      fd_accdb_txn_t * txne = txn_pool_ele( accdb->txn_pool, (ulong)txn );
+      fd_accdb_txn_t * txns    [ CHAIN_PREWALK_W ];
+      uint             map_idxs[ CHAIN_PREWALK_W ];
+      ulong cnt = chain_prewalk( accdb, txn, 0, txns, map_idxs );
+      for( ulong w=0UL; w<cnt; w++ ) {
+        fd_accdb_txn_t * txne = txns[ w ];
 
-      fd_accdb_accmeta_t const * new_acc = &accdb->acc_pool[ txne->acc_pool_idx ];
-      uint acc_map_idx = (uint)(fd_hash32( new_acc->key.pubkey, accdb->shmem->seed ) &
-                                (accdb->shmem->chain_cnt-1UL));
+        fd_accdb_accmeta_t const * new_acc = &accdb->acc_pool[ txne->acc_pool_idx ];
+        uint acc_map_idx = map_idxs[ w ];
 
-      delta_insert( accdb, new_acc->key.pubkey );
+        delta_insert( accdb, new_acc->key.pubkey );
 
-      uint prev          = UINT_MAX;
-      uint new_acc_prev  = UINT_MAX; /* prev of new_acc on the chain when we encounter it (UINT_MAX if head or never seen) */
-      int  new_acc_seen  = 0;
-      uint acc = FD_VOLATILE_CONST( accdb->acc_map[ acc_map_idx ] );
-      FD_TEST( acc!=UINT_MAX );
-      while( acc!=UINT_MAX ) {
-        fd_accdb_accmeta_t const * cur_acc = &accdb->acc_pool[ acc ];
-        uint cur_next = FD_VOLATILE_CONST( cur_acc->map.next );
+        uint prev          = UINT_MAX;
+        uint new_acc_prev  = UINT_MAX; /* prev of new_acc on the chain when we encounter it (UINT_MAX if head or never seen) */
+        int  new_acc_seen  = 0;
+        uint acc = FD_VOLATILE_CONST( accdb->acc_map[ acc_map_idx ] );
+        FD_TEST( acc!=UINT_MAX );
+        while( acc!=UINT_MAX ) {
+          fd_accdb_accmeta_t const * cur_acc = &accdb->acc_pool[ acc ];
+          uint cur_next = FD_VOLATILE_CONST( cur_acc->map.next );
 
-        if( FD_LIKELY( acc==txne->acc_pool_idx ) ) {
-          new_acc_prev = prev;
-          new_acc_seen = 1;
-          prev = acc;
-          acc = cur_next;
-          continue;
+          if( FD_LIKELY( acc==txne->acc_pool_idx ) ) {
+            new_acc_prev = prev;
+            new_acc_seen = 1;
+            prev = acc;
+            acc = cur_next;
+            continue;
+          }
+
+          if( FD_LIKELY( (cur_acc->key.generation<=parent_fork->shmem->generation || descends_set_test( fork->descends, fd_accdb_acc_fork_id(cur_acc) ) ) && !memcmp( new_acc->key.pubkey, cur_acc->key.pubkey, 32UL ) ) ) {
+            uint next = cur_next;
+            fd_racesan_hook( "accdb_advance:pre_unlink" );
+            acc_unlink( accdb, acc_map_idx, prev, acc );
+            deferred_acc_append( accdb, acc );
+            acc = next;
+          } else {
+            prev = acc;
+            acc = cur_next;
+          }
         }
 
-        if( FD_LIKELY( (cur_acc->key.generation<=parent_fork->shmem->generation || descends_set_test( fork->descends, fd_accdb_acc_fork_id(cur_acc) ) ) && !memcmp( new_acc->key.pubkey, cur_acc->key.pubkey, 32UL ) ) ) {
-          uint next = cur_next;
-          fd_racesan_hook( "accdb_advance:pre_unlink" );
-          acc_unlink( accdb, acc_map_idx, prev, acc );
-          deferred_acc_append( accdb, acc );
-          acc = next;
-        } else {
-          prev = acc;
-          acc = cur_next;
+        /* If the newly rooted version is a tombstone (lamports==0, e.g.
+           account was closed), drop it from the index too: no fork can
+           reach it anymore, and keeping it around just wastes a hash
+           slot and the disk bytes it occupies.
+
+           If a later txn on this same fork wrote the same pubkey, that
+           txn's inner walk above would have already unlinked this txn's
+           new_acc as an "older version" - in that case new_acc_seen=0
+           and we skip, since the freelist cleanup is already done. */
+        if( FD_UNLIKELY( new_acc_seen && new_acc->lamports==0UL ) ) {
+          uint new_acc_idx = (uint)txne->acc_pool_idx;
+          acc_unlink( accdb, acc_map_idx, new_acc_prev, new_acc_idx );
+          deferred_acc_append( accdb, new_acc_idx );
         }
+
+        txn_tail = txne;
+        txn = txne->fork.next;
       }
-
-      /* If the newly rooted version is a tombstone (lamports==0, e.g.
-         account was closed), drop it from the index too: no fork can
-         reach it anymore, and keeping it around just wastes a hash
-         slot and the disk bytes it occupies.
-
-         If a later txn on this same fork wrote the same pubkey, that
-         txn's inner walk above would have already unlinked this txn's
-         new_acc as an "older version" - in that case new_acc_seen=0
-         and we skip, since the freelist cleanup is already done. */
-      if( FD_UNLIKELY( new_acc_seen && new_acc->lamports==0UL ) ) {
-        uint new_acc_idx = (uint)txne->acc_pool_idx;
-        acc_unlink( accdb, acc_map_idx, new_acc_prev, new_acc_idx );
-        deferred_acc_append( accdb, new_acc_idx );
-      }
-
-      txn_tail = txne;
-      txn = txne->fork.next;
     }
     txn_pool_release_chain( accdb->txn_pool, txn_head, txn_tail );
   }
