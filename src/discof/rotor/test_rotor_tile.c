@@ -133,44 +133,90 @@ drain( ctx_t * ctx ) {
   }
 }
 
+/* after_credit gates on the replay link's credits, so the harness needs
+   a stem context even though fd_stem_publish is mocked out.  Credits
+   are held permanently available: flow control to replay is not what
+   these tests are about. */
+
+static ulong             stem_cr_avail[ 3 ] = { ULONG_MAX, ULONG_MAX, ULONG_MAX };
+static fd_stem_context_t stem_ctx[ 1 ]      = {{ .cr_avail = stem_cr_avail }};
+
 /* tick runs one after_credit and plays the sign tile / collects output. */
 
 static void
 tick( ctx_t * ctx ) {
-  ulong cr_avail[ TEST_OUT_MAX ] = { [ OUT_IDX_REPLAY ] = ULONG_MAX };
-  fd_stem_context_t stem = { .cr_avail = cr_avail };
+  //ulong cr_avail[ TEST_OUT_MAX ] = { [ OUT_IDX_REPLAY ] = ULONG_MAX };
+  //fd_stem_context_t stem = { .cr_avail = cr_avail };
   int charge_busy = 0;
   int poll_in     = 1;
-  after_credit( ctx, &stem, &poll_in, &charge_busy );
+  after_credit( ctx, stem_ctx, &poll_in, &charge_busy );
   drain( ctx );
 }
 
-/* pump ticks until an iteration produces nothing new and every queue is
-   drained.  The schedulor is not drained: a parked block is due in the
-   future, so ticking cannot empty it. */
+/* pump ticks until both worklists produce nothing new and every queue
+   is drained.  after_credit examines one worklist per tick.  The
+   worklists are not drained: a set that was just asked for is not due
+   again, so ticking cannot empty them. */
 
 static void
 pump( ctx_t * ctx ) {
+  uint idle = 0U;
   for( ulong i=0UL; i<200000UL; i++ ) {
     ulong before = pub_cnt;
+    ulong poll   = ctx->fec_poll_rr;
     tick( ctx );
     if( pub_cnt==before &&
         toss_queue_empty( ctx->toss_queue ) &&
         out_queue_empty( ctx->chainer->out_queue ) &&
-        out_queue_empty( ctx->redeliver ) ) return;
+        out_queue_empty( ctx->redeliver ) ) {
+      if( ctx->fec_poll_rr!=poll ) idle |= 1U << ( poll & 1UL );
+      if( idle==3U ) return;
+    } else idle = 0U;
   }
   FD_LOG_ERR(( "pump did not quiesce" ));
 }
 
-/* force_check makes a block's check due now.  Insert is
-   insert-if-absent, so a parked check has to be dropped first; the live
-   tile just waits for the timeout. */
+/* force_check makes every set a block still needs due now, which is
+   what the live tile waits out FD_ROTOR_REPAIR_TIMEOUT_NS for. */
 
 static void
 force_check( ctx_t * ctx, ulong slot, fd_hash_t const * block_id ) {
-  fd_schedulor_block_remove( ctx->schedulor, slot, block_id );
-  fd_schedulor_block_insert( ctx->schedulor, slot, block_id, 0L );
-  FD_TEST( fd_schedulor_block_query( ctx->schedulor, slot, block_id ) );
+  fd_chainer_t *       chainer = ctx->chainer;
+  fd_chainer_slotv_t * slotv   = fd_chainer_slot_version_query( chainer, slot, block_id );
+  FD_TEST( slotv );
+
+  uint const * fecs = fd_chainer_slotv_fecs( chainer, slotv );
+  int          any  = 0;
+  for( uint k=0U; k<chainer->fec_blk_max; k++ ) {
+    if( fecs[ k ]==UINT_MAX ) continue;
+    fd_chainer_fec_t * fec = fd_fec_pool_ele( chainer->fec_pool, fecs[ k ] );
+    fd_chainer_fec_rearm( fec, 0L );
+    any |= !!fec->treap;
+  }
+  FD_TEST( any ); /* the block has something left to ask for */
+}
+
+/* has_worklist_entry reports whether a version still has any set
+   enrolled for repair. */
+
+static int
+has_worklist_entry( ctx_t * ctx, ulong slot, fd_hash_t const * block_id ) {
+  fd_chainer_t *       chainer = ctx->chainer;
+  fd_chainer_slotv_t * slotv   = fd_chainer_slot_version_query( chainer, slot, block_id );
+  if( !slotv ) return 0;
+  uint const * fecs = fd_chainer_slotv_fecs( chainer, slotv );
+  for( uint k=0U; k<chainer->fec_blk_max; k++ ) {
+    if( fecs[ k ]!=UINT_MAX && fd_fec_pool_ele( chainer->fec_pool, fecs[ k ] )->treap ) return 1;
+  }
+  return 0;
+}
+
+/* worklist_cnt is how many sets are enrolled across both worklists. */
+
+static ulong
+worklist_cnt( ctx_t * ctx ) {
+  return fd_rotor_treap_ele_cnt( ctx->chainer->eager_treap ) +
+         fd_rotor_treap_ele_cnt( ctx->chainer->notar_treap );
 }
 
 /* Query helpers */
@@ -521,7 +567,6 @@ setup_ctx( ctx_t * ctx, fd_wksp_t * wksp ) {
   ulong redeliver_max = TEST_BLOCK_MAX * ( FD_SHRED_BLK_MAX/FD_FEC_SHRED_CNT );
 
   void * chainer_mem   = fd_wksp_alloc_laddr( wksp, fd_chainer_align(),      fd_chainer_footprint( TEST_SLOT_MAX, FD_SHRED_BLK_MAX ), 1UL );
-  void * schedulor_mem = fd_wksp_alloc_laddr( wksp, fd_schedulor_align(),    fd_schedulor_footprint( TEST_BLOCK_MAX ),                1UL );
   void * requestor_mem = fd_wksp_alloc_laddr( wksp, fd_requestor_align(),    fd_requestor_footprint(),                                1UL );
   void * policy_mem    = fd_wksp_alloc_laddr( wksp, fd_policy_align(),       fd_policy_footprint( TEST_PEER_MAX ),                    1UL );
   void * rtt_mem       = fd_wksp_alloc_laddr( wksp, fd_inflights_align(),    fd_inflights_footprint(),                                1UL );
@@ -530,10 +575,9 @@ setup_ctx( ctx_t * ctx, fd_wksp_t * wksp ) {
   void * repair_mem    = fd_wksp_alloc_laddr( wksp, fd_repair_align(),       fd_repair_footprint(),                                   1UL );
   void * redeliver_mem = fd_wksp_alloc_laddr( wksp, out_queue_align(),       out_queue_footprint( redeliver_max ),                    1UL );
   void * store_mem     = fd_wksp_alloc_laddr( wksp, fd_store_align(),        fd_store_footprint( 1024UL, 64UL, 0UL, 0UL, 0UL ),       1UL );
-  FD_TEST( chainer_mem && schedulor_mem && requestor_mem && policy_mem && rtt_mem && signs_map_mem && toss_mem && repair_mem && redeliver_mem && store_mem );
+  FD_TEST( chainer_mem && requestor_mem && policy_mem && rtt_mem && signs_map_mem && toss_mem && repair_mem && redeliver_mem && store_mem );
 
   ctx->chainer       = fd_chainer_join     ( fd_chainer_new     ( chainer_mem,   TEST_SLOT_MAX, FD_SHRED_BLK_MAX, ctx->repair_seed     ) );
-  ctx->schedulor     = fd_schedulor_join   ( fd_schedulor_new   ( schedulor_mem, TEST_BLOCK_MAX, ctx->repair_seed                      ) );
   ctx->requestor     = fd_requestor_join   ( fd_requestor_new   ( requestor_mem                                                        ) );
   ctx->policy        = fd_policy_join      ( fd_policy_new      ( policy_mem,    TEST_PEER_MAX, ctx->repair_seed, ctx->repair_nonce_ss ) );
   ctx->rtt           = fd_inflights_join   ( fd_inflights_new   ( rtt_mem,       ctx->repair_seed+1234UL                               ) );
@@ -542,7 +586,7 @@ setup_ctx( ctx_t * ctx, fd_wksp_t * wksp ) {
   ctx->protocol      = fd_repair_join      ( fd_repair_new      ( repair_mem,    &ctx->identity_public_key                             ) );
   ctx->redeliver     = out_queue_join      ( out_queue_new      ( redeliver_mem, redeliver_max                                         ) );
   ctx->store         = fd_store_join       ( fd_store_new       ( store_mem,     1024UL, 64UL, 0UL, 0UL, 0UL, FD_SHRED_BLK_MAX, 42UL   ) );
-  FD_TEST( ctx->chainer && ctx->schedulor && ctx->requestor && ctx->policy && ctx->rtt && ctx->signs_map && ctx->toss_queue && ctx->protocol && ctx->redeliver && ctx->store );
+  FD_TEST( ctx->chainer && ctx->requestor && ctx->policy && ctx->rtt && ctx->signs_map && ctx->toss_queue && ctx->protocol && ctx->redeliver && ctx->store );
   FD_TEST( fd_store_map_ljoin( ctx->store, ctx->store_map ) );
 
   /* Out links.  fd_chunk_to_laddr( mem, 0 )==mem, so chunk0=0 over a
@@ -609,6 +653,8 @@ setup_ctx( ctx_t * ctx, fd_wksp_t * wksp ) {
                                FD_MHIST_MAX( ROTOR, RESPONSE_LATENCY_NANOS ) ) );
 
   ctx->turbine_slot0     = ULONG_MAX;
+  ctx->catchup_seeded    = 0UL;
+  ctx->max_live_slots    = 2048UL; /* matches the runtime default */
   ctx->pending_key_next  = 0UL;
   ctx->ag_nonce          = 0U;
 
@@ -731,6 +777,7 @@ test_turbine_block( fd_wksp_t * wksp ) {
   FD_TEST( fd_hash_eq( &v0->block_id, &blk->block_id ) );   /* matches the independent computation */
   FD_TEST( fd_chainer_slot_version_query( ctx->chainer, blk->slot, &blk->block_id )==v0 );
   FD_TEST( fd_chainer_highest_repaired_slot( ctx->chainer )==blk->slot );
+  FD_TEST( !has_worklist_entry( ctx, blk->slot, &blk->block_id ) );
 
   FD_TEST( rep_cnt==2UL );
   rep_expect( 1UL, blk->slot, FD_FEC_SHRED_CNT, &blk->fec_root[ 1 ], &blk->block_id, 1 );
@@ -744,14 +791,14 @@ test_turbine_block( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: turbine block delivers and finalizes" ));
 }
 
-/* The schedulor paces re-requests.  A new block is queued due now, the
+/* The worklist sweep paces re-requests.  A new block is due now, the
    first check walks the metadata rung (HighestShred while the tip is
    unknown), and the block is re-queued at that rung's timeout.  Nothing
    is re-requested until the timeout passes, and arriving shreds cannot
    move a queued check. */
 
 static void
-test_schedulor_drives_requests( fd_wksp_t * wksp ) {
+test_sweep_paces_requests( fd_wksp_t * wksp ) {
   static ctx_t ctx[1];
   setup_ctx( ctx, wksp );
 
@@ -761,19 +808,16 @@ test_schedulor_drives_requests( fd_wksp_t * wksp ) {
   blk_build( blk );
 
   deliver_turbine_fec_set( ctx, blk, 0U );
-  FD_TEST( fd_schedulor_queued_cnt( ctx->schedulor )==1UL );  /* created -> queued */
-  FD_TEST( fd_schedulor_block_query( ctx->schedulor, blk->slot, &(fd_hash_t){0} ) );
+  FD_TEST( worklist_cnt( ctx )>=1UL ); /* the block's unfinished sets are enrolled */
 
   ulong from = req_cnt;
+  force_check( ctx, blk->slot, &(fd_hash_t){0} );
   pump( ctx );
   FD_TEST( ctx->metrics->checks>=1UL );
   FD_TEST( req_find( from, FD_REPAIR_KIND_HIGHEST_SHRED, blk->slot, 0U, NULL ) ); /* tip unknown */
-  FD_TEST( fd_schedulor_queued_cnt( ctx->schedulor )==1UL );                      /* re-queued, parked */
 
-  /* Parked at now+PARENT_TIMEOUT: nothing more goes out until then,
-     and arriving shreds do not move the queued check. */
-  long now = fd_clock_tile_now( ctx->clock );
-  FD_TEST( fd_schedulor_next_timeout( ctx->schedulor )>now );
+  /* Every serviced set was re-armed a repair timeout out, so nothing
+     more goes out until then and arriving shreds do not pull it in. */
   ulong checks = ctx->metrics->checks;
   for( ulong i=0UL; i<64UL; i++ ) tick( ctx );
   FD_TEST( ctx->metrics->checks==checks );
@@ -787,6 +831,7 @@ test_schedulor_drives_requests( fd_wksp_t * wksp ) {
   }
   fd_chainer_slotv_t * v0 = fd_chainer_slot_query( ctx->chainer, blk->slot );
   FD_TEST( v0->complete_idx==2U*FD_FEC_SHRED_CNT-1U );
+  FD_TEST( fd_chainer_fec_query( ctx->chainer, blk->slot, 0U, &v0->block_id )->treap );
 
   force_check( ctx, blk->slot, &(fd_hash_t){0} );
   from = req_cnt;
@@ -795,7 +840,7 @@ test_schedulor_drives_requests( fd_wksp_t * wksp ) {
   FD_TEST( req_find( from, FD_REPAIR_KIND_SHRED, blk->slot, FD_FEC_SHRED_CNT+5U, NULL ) );
 
   FD_TEST( !fd_chainer_verify( ctx->chainer ) );
-  FD_LOG_NOTICE(( "pass: schedulor paces the requestor's rungs" ));
+  FD_LOG_NOTICE(( "pass: the sweep paces the requestor's rungs" ));
 }
 
 /* A votor block id for a slot turbine is still streaming creates a
@@ -827,7 +872,7 @@ test_votor_block_supersedes( fd_wksp_t * wksp ) {
   fd_chainer_slotv_t * v0 = fd_chainer_turbine_slotv_query( ctx->chainer, turb->slot );
   FD_TEST( v0 && v1 && v0!=v1 );
   FD_TEST( v0->abandoned ); /* the cert, not turbine, decides this slot now */
-  FD_TEST( fd_schedulor_block_query( ctx->schedulor, vot->slot, &vot->block_id ) );
+  FD_TEST( has_worklist_entry( ctx, vot->slot, &vot->block_id ) );
 
   /* the votor block's metadata round trip */
   ulong from = req_cnt;
@@ -973,9 +1018,8 @@ test_block_id_only( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: block_id_only suppresses the legacy rungs" ));
 }
 
-/* Replay advancing the root prunes the chainer and drops the schedulor
-   checks of every block at or below it, so a rooted slot is never
-   re-requested.  Blocks above the root keep their checks. */
+/* Replay advancing the root prunes the chainer and its repair worklists.
+   Blocks above the root keep their work, and rooted shreds are dropped. */
 
 static void
 test_publish_prunes( fd_wksp_t * wksp ) {
@@ -996,18 +1040,16 @@ test_publish_prunes( fd_wksp_t * wksp ) {
   blk_build( b2 );
   deliver_turbine_fec_set( ctx, b2, 0U );
   pump( ctx );
-  FD_TEST( fd_schedulor_queued_cnt( ctx->schedulor )==1UL );          /* b2 parked; b1 finished DONE */
-  FD_TEST( fd_schedulor_block_query( ctx->schedulor, b2->slot, &(fd_hash_t){0} ) );
-
-  force_check( ctx, b1->slot, &b1->block_id );                        /* give the rooted block a check */
-  FD_TEST( fd_schedulor_queued_cnt( ctx->schedulor )==2UL );
+  /* b1 has delivered its final FEC; b2 still has repair work. */
+  ulong enrolled = worklist_cnt( ctx );
+  FD_TEST( enrolled>=1UL );
+  FD_TEST( has_worklist_entry( ctx, b2->slot, &(fd_hash_t){0} ) );
 
   deliver_replay_root( ctx, b1->slot, &b1->block_id );
   FD_TEST( ctx->chainer->root==b1->slot );
   FD_TEST( !fd_chainer_slot_query( ctx->chainer, SNAP_SLOT ) );
-  FD_TEST( !fd_schedulor_block_query( ctx->schedulor, b1->slot, &b1->block_id ) ); /* dropped */
-  FD_TEST( fd_schedulor_queued_cnt( ctx->schedulor )==1UL );
-  FD_TEST( fd_schedulor_block_query( ctx->schedulor, b2->slot, &(fd_hash_t){0} ) );
+  FD_TEST( !has_worklist_entry( ctx, b1->slot, &b1->block_id ) );
+  FD_TEST( has_worklist_entry( ctx, b2->slot, &(fd_hash_t){0} ) ); /* b2 survives the publish */
   FD_TEST( ctx->metrics->replay_root_advanced==1UL );
 
   /* a shred for the rooted slot is dropped and counted */
@@ -1016,7 +1058,7 @@ test_publish_prunes( fd_wksp_t * wksp ) {
   FD_TEST( ctx->metrics->shred_old==old+1UL );
 
   FD_TEST( !fd_chainer_verify( ctx->chainer ) );
-  FD_LOG_NOTICE(( "pass: publish prunes the chainer and the schedulor" ));
+  FD_LOG_NOTICE(( "pass: publish prunes the chainer and its worklists" ));
 }
 
 /* A MISSING_FEC from replay arms a from-root redelivery: the next FEC
@@ -1083,10 +1125,10 @@ test_fec_evicted( fd_wksp_t * wksp ) {
   FD_TEST( v0->buffered_fec_idx==FD_FEC_SHRED_CNT-1U );
   FD_TEST( v0->complete_idx==2U*FD_FEC_SHRED_CNT-1U );
 
-  ulong queued = fd_schedulor_queued_cnt( ctx->schedulor );
+  ulong queued = worklist_cnt( ctx );
   deliver_fec_evicted( ctx, blk->slot, FD_FEC_SHRED_CNT, &blk->fec_root[ 1 ] );
   FD_TEST( v0->buffered_idx==FD_FEC_SHRED_CNT-1U );                        /* prefix rewound */
-  FD_TEST( fd_schedulor_queued_cnt( ctx->schedulor )==queued );            /* no new check */
+  FD_TEST( worklist_cnt( ctx )==queued );                                 /* no new work enrolled */
   FD_TEST( !fd_chainer_shred_test( ctx->chainer, v0, FD_FEC_SHRED_CNT ) ); /* shreds gone */
   FD_TEST( !fd_chainer_verify( ctx->chainer ) );
 
@@ -1158,7 +1200,7 @@ test_metrics_exported( fd_wksp_t * wksp ) {
   FD_TEST( m[ MIDX( GAUGE, ROTOR, SLOT_CURRENT          ) ]==ctx->current_slot                 );
   FD_TEST( m[ MIDX( GAUGE, ROTOR, SLOT_HIGHEST_REPAIRED ) ]==ctx->chainer->highest_repaired    );
   FD_TEST( m[ MIDX( GAUGE, ROTOR, SLOT_TURBINE_FIRST    ) ]==ctx->turbine_slot0                );
-  FD_TEST( m[ MIDX( GAUGE, ROTOR, BLOCK_CHECK_QUEUED    ) ]==fd_schedulor_queued_cnt( ctx->schedulor ) );
+  FD_TEST( m[ MIDX( GAUGE, ROTOR, BLOCK_CHECK_QUEUED    ) ]==worklist_cnt( ctx ) );
   FD_TEST( m[ MIDX( GAUGE, ROTOR, REQUEST_INFLIGHT      ) ]==fd_inflights_outstanding_cnt( ctx->rtt ) );
 
   FD_TEST( m[ MIDX( COUNTER, ROTOR, PKT_TX        ) ]==ctx->metrics->send_pkt_cnt   );
@@ -1198,7 +1240,7 @@ main( int argc, char ** argv ) {
   test_catchup_seed( wksp );
 
   fd_wksp_reset( wksp, 1U );
-  test_schedulor_drives_requests( wksp );
+  test_sweep_paces_requests( wksp );
 
   fd_wksp_reset( wksp, 1U );
   test_votor_block_supersedes( wksp );

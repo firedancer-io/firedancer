@@ -2,8 +2,7 @@
 
    `rotor forest` (default) prints the alpenglow chainer's state as a
    forest tree; `rotor metrics` prints per-second repair request /
-   response counters and network drop counters; `rotor schedulor`
-   prints every block queued for a repair check. */
+   response counters and network drop counters. */
 
 #include "../../../disco/topo/fd_topob.h"
 #include "../../shared/fd_config.h" /* config_t */
@@ -197,11 +196,12 @@ struct metrics_snap {
   ulong pkt_tx;
   ulong rerequest;
   ulong meta_failed;   /* shred_block_id + fec_root + parent_fec_count verify failures */
+  ulong meta_rx, fec_root_ok, parent_fec_ok;
   ulong shred_old;
   ulong resp_cnt;      /* responses matched to an inflight request (latency histogram count) */
   ulong resp_sum_ns;   /* latency histogram sum */
 
-  ulong inflight, slot_current, slot_highest_repaired, slot_last_requested, orphan_last_requested, peers;
+  ulong inflight, held_back, slot_current, slot_highest_repaired, slot_last_requested, orphan_last_requested, peers;
 
   ulong shred_repair_rx, shred_turbine_rx;
   ulong shred_okay, shred_dup, shred_bad_slot, shred_ignored, shred_completes;
@@ -306,21 +306,25 @@ metrics_snap_take( metrics_snap_t * s, metrics_src_t const * src ) {
 
   for( ulong i=0UL; i<FD_METRICS_ENUM_REPAIR_SENT_REQUEST_TYPE_CNT; i++ ) s->req[ i ] = r[ MIDX( COUNTER, ROTOR, REQUEST_TX )+i ];
   s->pkt_tx      = r[ MIDX( COUNTER, ROTOR, PKT_TX ) ];
-  /* SHRED_REREQUESTED is not in this branch's ROTOR metric set -- the
-     per-version repair tally it came from went away with the chainer
-     rewrite.  Reported as 0 until something re-adds it. */
+  /* SHRED_REREQUESTED does not exist in this branch's ROTOR metric
+     set: the per-version repair tally it was derived from went away
+     with the worklist rewrite.  Reported as 0 until it is re-added. */
   s->rerequest   = 0UL;
   s->shred_old   = r[ MIDX( COUNTER, ROTOR, SHRED_OLD ) ];
   s->meta_failed = r[ MIDX( COUNTER, ROTOR, SHRED_RX_UNMATCHED ) ] + r[ MIDX( COUNTER, ROTOR, FEC_ROOT_FAILED ) ] + r[ MIDX( COUNTER, ROTOR, PARENT_FEC_COUNT_FAILED ) ];
+  s->meta_rx        = r[ MIDX( COUNTER, ROTOR, META_RX ) ];
+  s->fec_root_ok    = r[ MIDX( COUNTER, ROTOR, FEC_ROOT_OK ) ];
+  s->parent_fec_ok  = r[ MIDX( COUNTER, ROTOR, PARENT_FEC_COUNT_OK ) ];
   for( ulong k=0UL; k<FD_HISTF_BUCKET_CNT; k++ ) s->resp_cnt += r[ MIDX( HISTOGRAM, ROTOR, RESPONSE_LATENCY_NANOS )+k ];
   s->resp_sum_ns = r[ MIDX( HISTOGRAM, ROTOR, RESPONSE_LATENCY_NANOS )+FD_HISTF_BUCKET_CNT ];
 
   s->inflight              = r[ MIDX( GAUGE, ROTOR, REQUEST_INFLIGHT ) ];
+  s->held_back             = r[ MIDX( COUNTER, ROTOR, REQUEST_HELD_BACK ) ];
   s->slot_current          = r[ MIDX( GAUGE, ROTOR, SLOT_CURRENT ) ];
   s->slot_highest_repaired = r[ MIDX( GAUGE, ROTOR, SLOT_HIGHEST_REPAIRED ) ];
   /* Likewise SLOT_LAST_REQUESTED, ORPHAN_LAST_REQUESTED and
-     PEER_REQUESTED: published by the older cursor-walk requestor,
-     which this branch no longer has. */
+     PEER_REQUESTED: the cursor-walk requestor that published them is
+     gone, replaced by the chainer's per-set worklists. */
   s->slot_last_requested   = 0UL;
   s->orphan_last_requested = 0UL;
   s->peers                 = 0UL;
@@ -436,8 +440,9 @@ metrics_snap_print( metrics_snap_t const * s,
   col( "last_req",   (double)s->slot_last_requested   );
   col( "orphan_req", (double)s->orphan_last_requested );
   printf( "\n  state        " );
-  col( "inflight",   (double)s->inflight );
-  col( "peers",      (double)s->peers    );
+  col( "inflight",   (double)s->inflight  );
+  col( "held_back",  T( held_back )        );
+  col( "peers",      (double)s->peers     );
   printf( "\n\n" );
 
   printf( "  requests     " );
@@ -460,6 +465,10 @@ metrics_snap_print( metrics_snap_t const * s,
   printf( "%-12s %9.1f ms   ", "latency", lat_ms );
   col( "meta_failed", T( meta_failed ) );
   col( "shred_old",   T( shred_old ) );
+  printf( "\n               " );
+  col( "meta_rx",      T( meta_rx ) );
+  col( "fec_root_ok",  T( fec_root_ok ) );
+  col( "parent_fec_ok",T( parent_fec_ok ) );
   printf( "\n" );
 
   printf( "  shred        " );
@@ -536,13 +545,11 @@ rotor_cmd_args( int *    pargc,
   args->rotor.once    = fd_env_strip_cmdline_contains( pargc, pargv, "--once"    );
   args->rotor.chainer = fd_env_strip_cmdline_contains( pargc, pargv, "--chainer" );
   args->rotor.metrics   = 0;
-  args->rotor.schedulor = 0;
   if( *pargc>0 ) {
     char const * sub = (*pargv)[0];
     if(      !strcmp( sub, "metrics"   ) ) args->rotor.metrics   = 1;
-    else if( !strcmp( sub, "schedulor" ) ) args->rotor.schedulor = 1;
     else if( !strcmp( sub, "forest"    ) ) args->rotor.metrics   = 0;
-    else FD_LOG_ERR(( "unknown rotor subcommand `%s` (expected forest, metrics or schedulor)", sub ));
+    else FD_LOG_ERR(( "unknown rotor subcommand `%s` (expected forest or metrics)", sub ));
     (*pargc)--; (*pargv)++;
   }
 }
@@ -568,33 +575,6 @@ rotor_tile_scratch( config_t *         config,
 
   *out_tile = tile;
   return scratch;
-}
-
-static void
-rotor_schedulor_fn( args_t *   args,
-                    config_t * config ) {
-  fd_topo_tile_t * tile;
-  void *           scratch = rotor_tile_scratch( config, &tile );
-
-  ulong ele_max              = tile->rotor.slot_max;
-  ulong max_shreds_per_block = tile->rotor.max_shreds_per_block;
-  ulong slotv_max            = fd_chainer_blk_max( ele_max );
-
-  /* Walk the tile scratch layout (ctx, protocol, chainer, schedulor) to
-     the schedulor local address; mirrors the rotor tile's
-     unprivileged_init. */
-  FD_SCRATCH_ALLOC_INIT( l, scratch );
-  (void)                 FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t),        sizeof(ctx_t)                                             );
-  (void)                 FD_SCRATCH_ALLOC_APPEND( l, fd_repair_align(),    fd_repair_footprint()                                     );
-  (void)                 FD_SCRATCH_ALLOC_APPEND( l, fd_chainer_align(),   fd_chainer_footprint( ele_max, max_shreds_per_block )     );
-  void * schedulor_laddr = FD_SCRATCH_ALLOC_APPEND( l, fd_schedulor_align(), fd_schedulor_footprint( slotv_max )                     );
-
-  for(;;) {
-    fd_schedulor_print( schedulor_laddr, slotv_max, fd_log_wallclock() );
-    fflush( stdout );
-    if( args->rotor.once ) break;
-    sleep( 1 );
-  }
 }
 
 static void
@@ -660,7 +640,6 @@ static void
 rotor_cmd_fn( args_t *   args,
               config_t * config ) {
   if(      args->rotor.metrics   ) rotor_metrics_fn  ( args, config );
-  else if( args->rotor.schedulor ) rotor_schedulor_fn( args, config );
   else                             rotor_forest_fn   ( args, config );
 }
 
@@ -679,10 +658,8 @@ action_t fd_action_rotor = {
                  "           matched responses and mean latency, shred tile receive\n"
                  "           counters, and net / link drop counters (net_shred,\n"
                  "           net_repair, repair_net overruns, net tile rx/tx drops)\n"
-                 "  schedulor  every block queued for a repair check, in pop order, with\n"
-                 "           its slot, ms until due (negative if overdue) and block id\n"
                  "\n"
                  "  --once     print a single snapshot and exit\n"
                  "  --chainer  (forest) also dump the raw chainer slot-version list",
-  .usage       = "rotor [forest|metrics|schedulor] [--once] [--chainer]",
+  .usage       = "rotor [forest|metrics] [--once] [--chainer]",
 };

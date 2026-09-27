@@ -1,54 +1,16 @@
 #ifndef HEADER_fd_src_discof_rotor_fd_requestor_h
 #define HEADER_fd_src_discof_rotor_fd_requestor_h
 
-/* fd_requestor walks one block ({slot, block_id}, a chainer slot
-   version) and produces the repair requests it needs, one per call.
-   It keeps only a cursor: the shred position the walk has reached.
+/* fd_requestor turns a chainer FEC set that is due for repair into the
+   one request it needs.  The rotor tile pops the most overdue set off
+   a chainer worklist and calls fd_requestor_fec_request with it; what
+   to ask for is read off the set and its version, so the requestor
+   holds no state but a cursor into the set being filled.
 
-   The tile starts a walk with fd_requestor_block_start when the
-   schedulor pops a block and cranks it with fd_requestor_block_advance
-   once per after_credit.  Every advance returns one result code:
-   REQUEST while there is something to send (*request is filled), then
-   exactly once a terminal code saying how the walk ended (DONE,
-   REQUESTED_PARENT or REQUESTED), after which the requestor is idle and
-   advance returns IDLE until the next block_start.  The tile uses the
-   terminal code to decide when to check the block again.
-
-   The ladder, evaluated on every advance:
-
-     0. The block is gone (no version, at or below the root, or
-        pruned): the walk ends, rung DONE.
-
-     1. Parent.  While the parent slot is unknown one request ends the
-        walk with REQUESTED_PARENT:
-          verified: ParentAndFecSetCount
-          turbine:  Shred idx 0 (its header names the parent)
-
-     2. Fill.  From the cursor (never behind the buffered prefix), the
-        next missing shred, until the cursor passes the tip:
-          has_block_id, no entry at the set   one FecSetRoot for the set,
-                                              cursor jumps to the next set
-          has_block_id, shred missing         ShredForBlockId
-          turbine,      shred missing         Shred
-        A block whose parent is known but absent fills at most
-        FD_REQUESTOR_ORPHAN_FILL_MAX shreds per walk, so a child repairs
-        alongside its ancestry instead of waiting for it.  A turbine
-        block whose tip is unknown fills blind past its buffered prefix
-        under the same bound instead of idling until HighestShred
-        answers; a verified block with no count waits for
-        ParentAndFecSetCount.
-
-     3. Metadata.  One request ends the walk with REQUESTED_PARENT,
-        after any fill requests:
-          parent known, absent  Orphan (asks peers for the ancestry)
-          complete_idx unknown  verified: ParentAndFecSetCount
-                                turbine:  HighestShred
-
-     4. Exhausted: REQUESTED if any fill request went out, DONE otherwise.
-
-   Legacy requests (Shred, HighestShred, Orphan) are suppressed when
-   block_id_only is set; that is a development flag for exercising
-   block-id repair in isolation. */
+   fd_requestor_block_start / fd_requestor_block_advance are the older
+   per-block cursor walk, which the schedulor used to drive.  Nothing
+   calls them now that the tile polls the worklists directly; they are
+   kept only until their tests are retired. */
 
 #include "../chainer/fd_chainer.h"
 
@@ -139,6 +101,44 @@ fd_requestor_block_advance( fd_requestor_t *     self,
                             fd_rotor_request_t * out_request,
                             ulong *              out_slot,
                             fd_hash_t *          out_block_id );
+
+/* fd_requestor_fec_request builds the one request a due FEC set needs
+   and returns 1, or returns 0 if the set needs nothing right now.
+   slotv must be the version that owns fec (fd_chainer_fec_owner).
+
+   What a set needs is read from its version's state and the shared
+   received bitmap in chainer:
+
+     cert-named version, set count unknown   ParentAndFecSetCount
+     cert-named version, root unknown        FecSetRoot
+     cert-named version, shred missing       ShredForBlockId
+     turbine version,    parent unknown      Shred idx 0 (its header names the parent)
+     turbine version,    shred missing       Shred
+     turbine version,    tip unknown         HighestShred
+
+   The block-level requests (ParentAndFecSetCount, HighestShred) are
+   only ever emitted for set 0, which stands in for the block, so a
+   block with many enrolled sets does not ask N times.  Legacy kinds
+   are suppressed under block_id_only.
+
+   from_shred_idx is the caller's sweep position: shreds below it are
+   not considered, which is what keeps one round from asking the same
+   shred twice.  A fill keeps a cursor within the set, so successive calls ask for
+   each missing shred once rather than repeating the first.  If
+   opt_more is non-NULL it is set to 1 when the set still has shreds to
+   ask for after this one, which is the caller's cue to leave the
+   deadline at "due now" and keep servicing it; otherwise the caller
+   re-arms a repair timeout out.  Either way the caller must re-arm,
+   whether or not a request went out, else the worklist spins on it. */
+
+int
+fd_requestor_fec_request( fd_requestor_t *     self,
+                          fd_chainer_t *       chainer,
+                          fd_chainer_slotv_t * slotv,
+                          fd_chainer_fec_t *   fec,
+                          uint                 from_shred_idx,
+                          fd_rotor_request_t * out_request,
+                          int *                opt_more );
 
 FD_PROTOTYPES_END
 

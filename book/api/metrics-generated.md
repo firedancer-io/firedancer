@@ -2286,6 +2286,7 @@
 | <span class="metrics-name">rotor_&#8203;slot_&#8203;turbine_&#8203;first</span> | gauge | First turbine slot seen, the catchup target |
 | <span class="metrics-name">rotor_&#8203;block_&#8203;check_&#8203;queued</span> | gauge | Blocks queued in the schedulor awaiting a repair check |
 | <span class="metrics-name">rotor_&#8203;request_&#8203;inflight</span> | gauge | Requests sent whose response has not been matched |
+| <span class="metrics-name">rotor_&#8203;request_&#8203;held_&#8203;back</span> | counter | Times repair was skipped because the inflight cap was reached |
 | <span class="metrics-name">rotor_&#8203;fec_&#8203;delivered</span> | counter | FEC sets published to replay |
 | <span class="metrics-name">rotor_&#8203;shred_&#8203;old</span> | counter | Shreds received that were at or below the root |
 | <span class="metrics-name">rotor_&#8203;shred_&#8203;rx</span> | counter | Data shreds received as repair responses |
