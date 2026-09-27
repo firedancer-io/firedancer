@@ -705,6 +705,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->runtime->fuzz.reclaim_accounts    = 0;
   ctx->runtime->accounts.executable_cnt  = 0UL;
   ctx->runtime->accounts.account_cnt     = 0UL;
+  fd_vm_syscall_cache_init( ctx->runtime->bpf_loader_program.syscall_cache );
 
   memset( &ctx->metrics,          0, sizeof(ctx->metrics)          );
   memset( &ctx->runtime->metrics, 0, sizeof(ctx->runtime->metrics) );

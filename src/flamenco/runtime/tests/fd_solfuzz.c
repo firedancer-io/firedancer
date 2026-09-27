@@ -157,6 +157,7 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
   if( FD_UNLIKELY( !bpf_frames_shmem || !bpf_frames_join ) ) goto bail2;
   runner->runtime->bpf_frames = fd_bpf_frames_join( bpf_frames_join, fd_bpf_frames_shmem_new( bpf_frames_shmem, bpf_frames_cnt, 1UL, bpf_frames_local ) );
   if( FD_UNLIKELY( !runner->runtime->bpf_frames ) ) goto bail2;
+  fd_vm_syscall_cache_init( runner->runtime->bpf_loader_program.syscall_cache );
   runner->runtime_stack = fd_wksp_alloc_laddr( wksp, fd_runtime_stack_align(), fd_runtime_stack_footprint( 2048UL, 2048UL, 2048UL ), wksp_tag );
   if( FD_UNLIKELY( !runner->runtime_stack ) ) goto bail2;
   if( FD_UNLIKELY( !fd_runtime_stack_join( fd_runtime_stack_new( runner->runtime_stack, 2048UL, 2048UL, 2048UL, 999UL ) ) ) ) goto bail2;

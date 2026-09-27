@@ -263,6 +263,7 @@ fd_svm_mini_create( fd_wksp_t *                  wksp,
   mini->bpf_frames_shmem = fd_bpf_frames_shmem_new( frames_shmem, FD_BPF_FRAMES_HELD_CNT( TEST_BPF_FRAMES_LOCAL ), TEST_BPF_FRAMES_JOINS, TEST_BPF_FRAMES_LOCAL );
   FD_TEST( (mini->bpf_frames = fd_bpf_frames_join( frames_join, mini->bpf_frames_shmem )) );
   runtime->bpf_frames = mini->bpf_frames;
+  fd_vm_syscall_cache_init( runtime->bpf_loader_program.syscall_cache );
   fd_memset( &runtime->log,     0, sizeof(runtime->log)     );
   fd_memset( &runtime->metrics, 0, sizeof(runtime->metrics) );
   fd_memset( &runtime->fuzz,    0, sizeof(runtime->fuzz)    );

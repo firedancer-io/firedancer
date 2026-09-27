@@ -118,13 +118,7 @@ fd_vm_jit_metrics( fd_vm_jit_t const * jit ) {
 
 ulong
 fd_vm_jit_syscalls_hash( fd_sbpf_syscalls_t const * syscalls ) {
-  ulong h = 0x9e3779b97f4a7c15UL;
-  for( ulong i=0UL; i<FD_SBPF_SYSCALLS_SLOT_CNT; i++ ) {
-    h = fd_ulong_hash( h ^ syscalls[ i ].key );
-    if( fd_sbpf_syscalls_key_inval( syscalls[ i ].key ) ) continue; /* empty slot, func is garbage */
-    h = fd_ulong_hash( h ^ (ulong)syscalls[ i ].func );
-  }
-  return h;
+  return fd_vm_syscalls_hash( syscalls );
 }
 
 static ulong

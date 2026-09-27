@@ -92,7 +92,8 @@ fd_vm_jit_exec( fd_vm_jit_t *           jit,
                 fd_vm_t *               vm );
 
 /* fd_vm_jit_syscalls_hash returns a hash of the syscall table (keys and
-   handlers), which the generated code depends on. */
+   handlers), which the generated code depends on.  It is
+   fd_vm_syscalls_hash, which fd_vm_syscall_cache_t keeps per table. */
 
 ulong
 fd_vm_jit_syscalls_hash( fd_sbpf_syscalls_t const * syscalls );
