@@ -186,7 +186,7 @@
         "disk_peak_bytes":                { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Logical wire-ring high-water plus spill pages high-water" },
         "disk_write_duration_nanos": {
             "type": "Tuple",
-            "description": "Duration of persisting one accepted data shred",
+            "description": "Duration of persisting one accepted data shred (a batched write is divided equally among its shreds)",
             "fields": {
                 "b0":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[0, 100) nanos" },
                 "b1":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[100, 268) nanos" },
