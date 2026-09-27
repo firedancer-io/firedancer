@@ -79,6 +79,7 @@ struct fd_failover_tile_ctx {
   long                    poll_at;       /* next idle socket poll */
 
   ulong                   peer_boot_id;
+  ulong                   peer_role; /* latest HELLO or accepted handoff evidence on this session */
 
   ulong request_id;       /* our handoff request, zero when none is open */
   ulong request_boot_id;  /* the active boot we authenticated for it */
@@ -471,6 +472,7 @@ sync_session( fd_failover_tile_ctx_t * ctx ) {
   if( FD_UNLIKELY( state==FD_FAILOVER_SESSION_PAIRED ) ) {
     fd_failover_hello_t const * peer = fd_failover_channel_peer_hello( ctx->channel );
     ctx->peer_boot_id = peer->boot_id;
+    ctx->peer_role = peer->role;
     ctx->demoted_sent = 0;
     if( FD_UNLIKELY( ( ctx->action==FD_FAILOVER_ACTION_PROMOTE_WAIT_REPLAY ||
                        ctx->action==FD_FAILOVER_ACTION_PROMOTE_WAIT_ADOPT ) &&
@@ -1476,6 +1478,7 @@ handle_control( fd_failover_tile_ctx_t * ctx,
     ctx->peer_tower         = tower;
     ctx->promote_boot_id    = boot_id;
     ctx->promote_handoff_id = demoted.handoff_id;
+    ctx->peer_role          = FD_FAILOVER_ROLE_STANDBY;
     start_promotion( ctx, FD_FAILOVER_SOURCE_PEER, 1 );
     return;
   }
@@ -1496,6 +1499,7 @@ handle_control( fd_failover_tile_ctx_t * ctx,
     handoff_resolved( ctx, FD_FAILOVER_HANDOFF_TAKEN );
     ctx->taken         = 1;
     ctx->taken_boot_id = ctx->handoff_target;
+    ctx->peer_role     = FD_FAILOVER_ROLE_ACTIVE;
     ctx->stuck         = 0;
     handoff_result( ctx, ack.handoff_id, FD_ADMINCTL_RESULT_SUCCESS );
     return;
@@ -1769,9 +1773,7 @@ status_snapshot( fd_failover_tile_ctx_t const *       ctx,
   resp->link_state = (uchar)fd_failover_channel_state( ctx->channel );
   if( FD_UNLIKELY( fd_failover_channel_state( ctx->channel )==FD_FAILOVER_SESSION_PAIRED ) ) {
     resp->peer_role_valid = 1;
-    resp->peer_role       = fd_failover_channel_peer_hello( ctx->channel )->role;
-    if( ctx->promote_peer || ctx->action==FD_FAILOVER_ACTION_HANDOFF_WAIT_RESULT ) resp->peer_role = FD_FAILOVER_ROLE_STANDBY;
-    if( ctx->taken ) resp->peer_role = FD_FAILOVER_ROLE_ACTIVE;
+    resp->peer_role       = (uchar)ctx->peer_role;
   }
   resp->peer_boot_id   = ctx->peer_boot_id;
   resp->peer_addr      = ctx->config_addr ? ctx->config_addr : ctx->staked_addr;

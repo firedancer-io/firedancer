@@ -427,6 +427,49 @@ test_holder_recheck( void ) {
 }
 
 static void
+test_status_peer_evidence( void ) {
+  long now = fd_failover_clock();
+  fd_adminctl_failover_status_resp_t status;
+  uchar payload[ FD_FAILOVER_DEMOTED_PAYLOAD_MAX ];
+  fd_failover_tile_ctx_t * ctx = controller_init( FD_FAILOVER_ROLE_STANDBY );
+  pair_demoter( ctx, 77UL, now );
+  ulong sz = demoted_payload( payload, 42UL, OUR_BOOT_ID, 99UL );
+  deliver( ctx, FD_FAILOVER_MSG_DEMOTED, payload, sz );
+  status_snapshot( ctx, now, &status );
+  FD_TEST( status.peer_role_valid && status.peer_role==FD_FAILOVER_ROLE_STANDBY );
+  step_controller( ctx, stem );
+  unpair( ctx );
+  pair( ctx, 77UL, FD_FAILOVER_ROLE_ACTIVE, now );
+  status_snapshot( ctx, now, &status );
+  FD_TEST( status.peer_role_valid && status.peer_role==FD_FAILOVER_ROLE_ACTIVE );
+  /* Repeated final state belongs to the earlier demotion and cannot
+     replace a newer authenticated role while adoption is in progress. */
+  deliver( ctx, FD_FAILOVER_MSG_DEMOTED, payload, sz );
+  status_snapshot( ctx, now, &status );
+  FD_TEST( status.peer_role_valid && status.peer_role==FD_FAILOVER_ROLE_ACTIVE );
+  adopt_answer( ctx, FD_TOWER_ADOPT_SUCCESS, 99UL );
+  step_controller( ctx, stem );
+  status_snapshot( ctx, now, &status );
+  FD_TEST( status.stuck && status.action==FD_FAILOVER_ACTION_HANDOFF_WAIT_RESULT );
+  FD_TEST( status.peer_role_valid && status.peer_role==FD_FAILOVER_ROLE_ACTIVE );
+  unpair( ctx );
+  status_snapshot( ctx, now, &status );
+  FD_TEST( !status.peer_role_valid && status.peer_boot_id==77UL );
+  controller_fini( ctx );
+
+  /* TAKEN is a durable recovery guard, not the role of a later boot. */
+  ctx = controller_init( FD_FAILOVER_ROLE_STANDBY );
+  ctx->taken = 1;
+  ctx->taken_boot_id = 77UL;
+  pair( ctx, 78UL, FD_FAILOVER_ROLE_STANDBY, now );
+  status_snapshot( ctx, now, &status );
+  FD_TEST( status.peer_role_valid && status.peer_role==FD_FAILOVER_ROLE_STANDBY && status.peer_boot_id==78UL );
+  FD_TEST( status.promote_result==FD_FAILOVER_CONTROL_RESULT_TAKEN );
+  controller_fini( ctx );
+  FD_LOG_NOTICE(( "pass: status follows authenticated peer evidence without weakening the retained holder guard" ));
+}
+
+static void
 test_gossip_request_address( void ) {
   for( ulong role=0UL; role<2UL; role++ ) for( int configured=0; configured<2; configured++ ) {
     fd_failover_tile_ctx_t * ctx = controller_init( role );
@@ -475,4 +518,5 @@ test_preserved( void ) {
   test_promote_force_retained();
   test_status_snapshot_retained();
   test_holder_recheck();
+  test_status_peer_evidence();
 }
