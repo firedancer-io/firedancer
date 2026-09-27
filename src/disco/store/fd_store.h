@@ -555,6 +555,25 @@ fd_store_disk_insert( fd_store_t       * store,
                       fd_shred_t const * shred,
                       fd_hash_t const  * merkle_root );
 
+/* Persists shred_cnt shreds (at most FD_STORE_DISK_INSERT_BATCH_MAX),
+   shreds[ i ] of the FEC set with merkle root merkle_roots[ i ], with
+   the same result per shred as shred_cnt calls of fd_store_disk_insert
+   in order, and the same bytes on disk, but the
+   entries of consecutive ring cells go out in one pwrite.  entries is
+   caller scratch for shred_cnt disk entries; results[ i ] receives the
+   result for shreds[ i ].  Returns how many succeeded. */
+
+#define FD_STORE_DISK_INSERT_BATCH_MAX (64UL)
+
+ulong
+fd_store_disk_insert_batch( fd_store_t               * store,
+                            int                        disk_fd,
+                            fd_shred_t const * const * shreds,
+                            fd_hash_t const * const  * merkle_roots,
+                            ulong                      shred_cnt,
+                            fd_shredb_entry_t        * entries,
+                            int                      * results );
+
 /* Copies (slot,shred_idx) to out, where shred_idx is below
    max_shreds_per_block.  Returns its positive byte count, MISS, or
    retryable BUSY.  Only finds the first version stored. */
