@@ -137,9 +137,11 @@ drain( ctx_t * ctx ) {
 
 static void
 tick( ctx_t * ctx ) {
+  ulong cr_avail[ TEST_OUT_MAX ] = { [ OUT_IDX_REPLAY ] = ULONG_MAX };
+  fd_stem_context_t stem = { .cr_avail = cr_avail };
   int charge_busy = 0;
   int poll_in     = 1;
-  after_credit( ctx, NULL, &poll_in, &charge_busy );
+  after_credit( ctx, &stem, &poll_in, &charge_busy );
   drain( ctx );
 }
 
