@@ -22,6 +22,7 @@
 #define FUZZ_OUT_DEPTH     (128UL)
 #define FUZZ_OUT_DBUF_SZ   (1UL<<20UL)
 #define FUZZ_TCACHE_DEPTH  (1UL<<14UL)
+#define FUZZ_SIGOK_DEPTH   (1UL<<6UL) /* small: exercise evictions */
 #define FUZZ_SHRED_VERSION (42U)
 #define FUZZ_MAX_ACTIONS   (96UL)
 #define FUZZ_GOSSVF_OUT_MTU \
@@ -91,6 +92,7 @@ fuzz_mem_footprint( void ) {
   l = FD_LAYOUT_APPEND( l, stake_pool_align(), stake_pool_footprint( MAX_SHRED_DESTS ) );
   l = FD_LAYOUT_APPEND( l, stake_map_align(),  stake_map_footprint( stake_map_chain_cnt_est( MAX_SHRED_DESTS ) ) );
   l = FD_LAYOUT_APPEND( l, fd_tcache_align(),  fd_tcache_footprint( FUZZ_TCACHE_DEPTH, 0UL ) );
+  l = FD_LAYOUT_APPEND( l, fd_tcache_align(),  fd_tcache_footprint( FUZZ_SIGOK_DEPTH, 0UL ) );
   l = FD_LAYOUT_APPEND( l, FD_CHUNK_ALIGN,     FUZZ_OUT_DBUF_SZ );
   l = FD_LAYOUT_APPEND( l, fd_mcache_align(),  fd_mcache_footprint( FUZZ_OUT_DEPTH, 0UL ) );
   l = FD_LAYOUT_APPEND( l, fd_ed25519_cache_align(), fd_ed25519_cache_footprint( FUZZ_ED25519_CACHE_ENT_CNT ) );
@@ -314,6 +316,7 @@ setup_env( fuzz_env_t * env ) {
   void * stake_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, stake_pool_align(), stake_pool_footprint( MAX_SHRED_DESTS ) );
   void * stake_map_mem  = FD_SCRATCH_ALLOC_APPEND( l, stake_map_align(),  stake_map_footprint( stake_map_chain_cnt_est( MAX_SHRED_DESTS ) ) );
   void * tcache_mem     = FD_SCRATCH_ALLOC_APPEND( l, fd_tcache_align(),  fd_tcache_footprint( FUZZ_TCACHE_DEPTH, 0UL ) );
+  void * sigok_mem      = FD_SCRATCH_ALLOC_APPEND( l, fd_tcache_align(),  fd_tcache_footprint( FUZZ_SIGOK_DEPTH, 0UL ) );
   void * out_dcache     = FD_SCRATCH_ALLOC_APPEND( l, FD_CHUNK_ALIGN, FUZZ_OUT_DBUF_SZ );
   void * mcache_mem     = FD_SCRATCH_ALLOC_APPEND( l, fd_mcache_align(), fd_mcache_footprint( FUZZ_OUT_DEPTH, 0UL ) );
   void * edcache_mem    = FD_SCRATCH_ALLOC_APPEND( l, fd_ed25519_cache_align(), fd_ed25519_cache_footprint( FUZZ_ED25519_CACHE_ENT_CNT ) );
@@ -333,6 +336,14 @@ setup_env( fuzz_env_t * env ) {
   ctx->tcache.sync    = fd_tcache_oldest_laddr( tcache );
   ctx->tcache.ring    = fd_tcache_ring_laddr  ( tcache );
   ctx->tcache.map     = fd_tcache_map_laddr   ( tcache );
+
+  fd_tcache_t * sigok = fd_tcache_join( fd_tcache_new( sigok_mem, FUZZ_SIGOK_DEPTH, 0UL ) );
+  FD_TEST( sigok );
+  ctx->sigok.depth   = fd_tcache_depth       ( sigok );
+  ctx->sigok.map_cnt = fd_tcache_map_cnt     ( sigok );
+  ctx->sigok.sync    = fd_tcache_oldest_laddr( sigok );
+  ctx->sigok.ring    = fd_tcache_ring_laddr  ( sigok );
+  ctx->sigok.map     = fd_tcache_map_laddr   ( sigok );
 
   FD_TEST( fd_sha512_join( fd_sha512_new( ctx->sha ) ) );
   for( ulong i=0UL; i<FD_GOSSVF_BATCH_SIG_MAX+FD_GOSSIP_MESSAGE_MAX_CRDS; i++ ) FD_TEST( (ctx->batch_sha[ i ] = fd_sha512_join( fd_sha512_new( ctx->_batch_sha+i ) )) );
