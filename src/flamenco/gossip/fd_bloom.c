@@ -170,82 +170,6 @@ fd_bloom_insert( fd_bloom_t *  bloom,
   }
 }
 
-#if FD_HAS_AVX512 && FD_HAS_INT128
-
-/* bloom_set sets bit h%bits_len.  magic is floor((2^64-1)/bits_len),
-   which makes q floor(h/bits_len) or one less. */
-
-static inline void
-bloom_set( ulong * bits,
-           ulong   bits_len,
-           ulong   magic,
-           ulong   h ) {
-  ulong q   = (ulong)(((uint128)h*(uint128)magic)>>64);
-  ulong bit = h - q*bits_len;
-  bit = fd_ulong_if( bit>=bits_len, bit-bits_len, bit );
-  bits[ bit/64UL ] |= 1UL<<(bit%64UL);
-}
-
-void
-fd_bloom_insert8( fd_bloom_t *  bloom,
-                  uchar const * ele,
-                  uint          lanes ) {
-  ulong bits_len = bloom->bits_len;
-  if( FD_UNLIKELY( !bits_len || !lanes ) ) return;
-  ulong magic = ULONG_MAX/bits_len;
-
-  /* Transpose so wq[k] lane j holds the k-th 8 byte word of an element.
-     The lane to element map is 0,2,1,3,4,6,5,7. */
-  wwv_t r0 = wwv_ldu( ele       ); wwv_t r1 = wwv_ldu( ele+ 64UL );
-  wwv_t r2 = wwv_ldu( ele+128UL ); wwv_t r3 = wwv_ldu( ele+192UL );
-  wwv_t t0 = _mm512_unpacklo_epi64( r0, r1 ); wwv_t t1 = _mm512_unpackhi_epi64( r0, r1 );
-  wwv_t t2 = _mm512_unpacklo_epi64( r2, r3 ); wwv_t t3 = _mm512_unpackhi_epi64( r2, r3 );
-  wwv_t lo = wwv( 0UL, 1UL, 4UL, 5UL,  8UL,  9UL, 12UL, 13UL );
-  wwv_t hi = wwv( 2UL, 3UL, 6UL, 7UL, 10UL, 11UL, 14UL, 15UL );
-  wwv_t wq[4];
-  wq[0] = wwv_select( lo, t0, t2 ); wq[1] = wwv_select( lo, t1, t3 );
-  wq[2] = wwv_select( hi, t0, t2 ); wq[3] = wwv_select( hi, t1, t3 );
-  uint lane_mask = (lanes&0x99U) | ((lanes&0x22U)<<1) | ((lanes&0x44U)>>1);
-
-  wwv_t prime = wwv_bcast( 1099511628211UL );
-  for( ulong i=0UL; i<bloom->keys_len; i+=4UL ) {
-    ulong cnt = fd_ulong_min( bloom->keys_len-i, 4UL );
-    ulong const * keys = bloom->keys+i;
-    wwv_t h0 = wwv_bcast( keys[ 0 ] );
-    wwv_t h1 = wwv_bcast( keys[ fd_ulong_if( cnt>1UL, 1UL, 0UL ) ] );
-    wwv_t h2 = wwv_bcast( keys[ fd_ulong_if( cnt>2UL, 2UL, 0UL ) ] );
-    wwv_t h3 = wwv_bcast( keys[ fd_ulong_if( cnt>3UL, 3UL, 0UL ) ] );
-    for( ulong k=0UL; k<4UL; k++ ) {
-      for( ulong b=0UL; b<8UL; b++ ) {
-        wwv_t x = wwv_and( wwv_shr( wq[ k ], 8UL*b ), wwv_bcast( 0xffUL ) );
-        h0 = wwv_mul( wwv_xor( h0, x ), prime );
-        h1 = wwv_mul( wwv_xor( h1, x ), prime );
-        h2 = wwv_mul( wwv_xor( h2, x ), prime );
-        h3 = wwv_mul( wwv_xor( h3, x ), prime );
-      }
-    }
-    ulong h[4][8] __attribute__((aligned(64)));
-    wwv_st( h[0], h0 ); wwv_st( h[1], h1 ); wwv_st( h[2], h2 ); wwv_st( h[3], h3 );
-    for( uint m=lane_mask; m; m&=m-1U ) {
-      ulong j = (ulong)fd_uint_find_lsb( m );
-      for( ulong c=0UL; c<cnt; c++ ) bloom_set( bloom->bits, bits_len, magic, h[ c ][ j ] );
-    }
-  }
-}
-
-#else
-
-void
-fd_bloom_insert8( fd_bloom_t *  bloom,
-                  uchar const * ele,
-                  uint          lanes ) {
-  for( ulong i=0UL; i<8UL; i++ ) {
-    if( lanes & (1U<<i) ) fd_bloom_insert( bloom, ele+32UL*i, 32UL );
-  }
-}
-
-#endif
-
 int
 fd_bloom_contains( fd_bloom_t *  bloom,
                    uchar const * key,
@@ -268,6 +192,221 @@ fd_bloom_contains( fd_bloom_t *  bloom,
   }
   return 1;
 }
+
+#if FD_HAS_AVX512 && FD_HAS_INT128
+
+/* bloom_bit is h%bits_len.  magic is floor((2^64-1)/bits_len), which
+   makes q floor(h/bits_len) or one less. */
+
+static inline ulong
+bloom_bit( ulong bits_len,
+           ulong magic,
+           ulong h ) {
+  ulong q   = (ulong)(((uint128)h*(uint128)magic)>>64);
+  ulong bit = h - q*bits_len;
+  return fd_ulong_if( bit>=bits_len, bit-bits_len, bit );
+}
+
+static inline void
+bloom_set( ulong * bits,
+           ulong   bits_len,
+           ulong   magic,
+           ulong   h ) {
+  ulong bit = bloom_bit( bits_len, magic, h );
+  bits[ bit/64UL ] |= 1UL<<(bit%64UL);
+}
+
+static inline int
+bloom_test( ulong const * bits,
+            ulong         bits_len,
+            ulong         magic,
+            ulong         h ) {
+  ulong bit = bloom_bit( bits_len, magic, h );
+  return (int)((bits[ bit/64UL ]>>(bit%64UL)) & 1UL);
+}
+
+/* bloom_transpose8 loads the 8 contiguous 32 byte elements at ele so
+   that wq[k] lane j holds the k-th 8 byte word of element ele8_lane(j).
+   The lane to element map, 0,2,1,3,4,6,5,7, is an involution, so
+   bloom_lane_mask converts a bit set both ways. */
+
+static inline void
+bloom_transpose8( uchar const * ele,
+                  wwv_t         wq[ static 4 ] ) {
+  wwv_t r0 = wwv_ldu( ele       ); wwv_t r1 = wwv_ldu( ele+ 64UL );
+  wwv_t r2 = wwv_ldu( ele+128UL ); wwv_t r3 = wwv_ldu( ele+192UL );
+  wwv_t t0 = _mm512_unpacklo_epi64( r0, r1 ); wwv_t t1 = _mm512_unpackhi_epi64( r0, r1 );
+  wwv_t t2 = _mm512_unpacklo_epi64( r2, r3 ); wwv_t t3 = _mm512_unpackhi_epi64( r2, r3 );
+  wwv_t lo = wwv( 0UL, 1UL, 4UL, 5UL,  8UL,  9UL, 12UL, 13UL );
+  wwv_t hi = wwv( 2UL, 3UL, 6UL, 7UL, 10UL, 11UL, 14UL, 15UL );
+  wq[0] = wwv_select( lo, t0, t2 ); wq[1] = wwv_select( lo, t1, t3 );
+  wq[2] = wwv_select( hi, t0, t2 ); wq[3] = wwv_select( hi, t1, t3 );
+}
+
+static inline uint
+bloom_lane_mask( uint m ) {
+  return (m&0x99U) | ((m&0x22U)<<1) | ((m&0x44U)>>1);
+}
+
+/* bloom_fnv8x4 is fnv_hasher4 of the 8 transposed elements in wq: h[c]
+   lane j is the FNV of element ele8_lane(j) under keys[c], one zmm
+   chain per key.  Lanes past cnt repeat key 0. */
+
+static inline void
+bloom_fnv8x4( wwv_t const * wq,
+              ulong const * keys,
+              ulong         cnt,
+              ulong         h[ static 4 ][ 8 ] ) {
+  wwv_t prime = wwv_bcast( 1099511628211UL );
+  wwv_t h0 = wwv_bcast( keys[ 0 ] );
+  wwv_t h1 = wwv_bcast( keys[ fd_ulong_if( cnt>1UL, 1UL, 0UL ) ] );
+  wwv_t h2 = wwv_bcast( keys[ fd_ulong_if( cnt>2UL, 2UL, 0UL ) ] );
+  wwv_t h3 = wwv_bcast( keys[ fd_ulong_if( cnt>3UL, 3UL, 0UL ) ] );
+  for( ulong k=0UL; k<4UL; k++ ) {
+    for( ulong b=0UL; b<8UL; b++ ) {
+      wwv_t x = wwv_and( wwv_shr( wq[ k ], 8UL*b ), wwv_bcast( 0xffUL ) );
+      h0 = wwv_mul( wwv_xor( h0, x ), prime );
+      h1 = wwv_mul( wwv_xor( h1, x ), prime );
+      h2 = wwv_mul( wwv_xor( h2, x ), prime );
+      h3 = wwv_mul( wwv_xor( h3, x ), prime );
+    }
+  }
+  wwv_st( h[0], h0 ); wwv_st( h[1], h1 ); wwv_st( h[2], h2 ); wwv_st( h[3], h3 );
+}
+
+void
+fd_bloom_insert8( fd_bloom_t *  bloom,
+                  uchar const * ele,
+                  uint          lanes ) {
+  ulong bits_len = bloom->bits_len;
+  if( FD_UNLIKELY( !bits_len || !lanes ) ) return;
+  ulong magic = ULONG_MAX/bits_len;
+
+  wwv_t wq[4];
+  bloom_transpose8( ele, wq );
+  uint lane_mask = bloom_lane_mask( lanes );
+
+  for( ulong i=0UL; i<bloom->keys_len; i+=4UL ) {
+    ulong cnt = fd_ulong_min( bloom->keys_len-i, 4UL );
+    ulong h[4][8] __attribute__((aligned(64)));
+    bloom_fnv8x4( wq, bloom->keys+i, cnt, h );
+    for( uint m=lane_mask; m; m&=m-1U ) {
+      ulong j = (ulong)fd_uint_find_lsb( m );
+      for( ulong c=0UL; c<cnt; c++ ) bloom_set( bloom->bits, bits_len, magic, h[ c ][ j ] );
+    }
+  }
+}
+
+uint
+fd_bloom_contains8( fd_bloom_t const * bloom,
+                    uchar const *      ele ) {
+  ulong bits_len = bloom->bits_len;
+  ulong keys_len = bloom->keys_len;
+  if( FD_UNLIKELY( !keys_len || !bits_len ) ) return 0U;
+  ulong magic = ULONG_MAX/bits_len;
+
+  wwv_t wq[4];
+  bloom_transpose8( ele, wq );
+
+  /* Lanes whose element has had every key so far set; a lane leaves
+     on its first clear bit, as fd_bloom_contains returns there. */
+  uint alive = 0xffU;
+  for( ulong i=0UL; i<keys_len && alive; i+=4UL ) {
+    ulong cnt = fd_ulong_min( keys_len-i, 4UL );
+    ulong h[4][8] __attribute__((aligned(64)));
+    bloom_fnv8x4( wq, bloom->keys+i, cnt, h );
+    for( uint m=alive; m; m&=m-1U ) {
+      ulong j = (ulong)fd_uint_find_lsb( m );
+      for( ulong c=0UL; c<cnt; c++ ) {
+        if( !bloom_test( bloom->bits, bits_len, magic, h[ c ][ j ] ) ) { alive &= ~(1U<<j); break; }
+      }
+    }
+  }
+  return bloom_lane_mask( alive );
+}
+
+#define BLOOM_MULTI_CHAIN_CNT (5UL) /* 40 lanes: 12 active set peers with 3 keys each */
+
+uint
+fd_bloom_contains_multi( fd_bloom_t * const * blooms,
+                         ulong                cnt,
+                         uchar const *        key,
+                         ulong                key_sz ) {
+  /* One lane per (bloom, key) pair.  A bloom with no keys or bits
+     contains nothing (fd_bloom_contains) and takes no lane. */
+  ulong keys[ 8UL*BLOOM_MULTI_CHAIN_CNT ];
+  ulong off [ 32UL ];
+  ulong tot = 0UL;
+  for( ulong b=0UL; b<cnt; b++ ) {
+    fd_bloom_t const * bloom = blooms[ b ];
+    off[ b ] = tot;
+    if( FD_UNLIKELY( !bloom->keys_len || !bloom->bits_len ) ) continue;
+    if( FD_UNLIKELY( tot+bloom->keys_len>8UL*BLOOM_MULTI_CHAIN_CNT ) ) {
+      uint hit = 0U;
+      for( ulong i=0UL; i<cnt; i++ ) hit |= (uint)fd_bloom_contains( blooms[ i ], key, key_sz )<<i;
+      return hit;
+    }
+    for( ulong k=0UL; k<bloom->keys_len; k++ ) keys[ tot++ ] = bloom->keys[ k ];
+  }
+  if( FD_UNLIKELY( !tot ) ) return 0U;
+  for( ulong i=tot; i<8UL*BLOOM_MULTI_CHAIN_CNT; i++ ) keys[ i ] = 0UL;
+
+  /* The key bytes go into every lane; the chains are independent so
+     the multiply latency is hidden across them. */
+  wwv_t prime = wwv_bcast( 1099511628211UL );
+  wwv_t h[ BLOOM_MULTI_CHAIN_CNT ];
+  for( ulong c=0UL; c<BLOOM_MULTI_CHAIN_CNT; c++ ) h[ c ] = wwv_ldu( keys+8UL*c );
+  for( ulong i=0UL; i<key_sz; i++ ) {
+    wwv_t x = wwv_bcast( (ulong)key[ i ] );
+    for( ulong c=0UL; c<BLOOM_MULTI_CHAIN_CNT; c++ ) h[ c ] = wwv_mul( wwv_xor( h[ c ], x ), prime );
+  }
+  ulong hash[ 8UL*BLOOM_MULTI_CHAIN_CNT ] __attribute__((aligned(64)));
+  for( ulong c=0UL; c<BLOOM_MULTI_CHAIN_CNT; c++ ) wwv_st( hash+8UL*c, h[ c ] );
+
+  uint hit = 0U;
+  for( ulong b=0UL; b<cnt; b++ ) {
+    fd_bloom_t const * bloom = blooms[ b ];
+    if( FD_UNLIKELY( !bloom->keys_len || !bloom->bits_len ) ) continue;
+    ulong k=0UL;
+    for( ; k<bloom->keys_len; k++ ) {
+      ulong bit = hash[ off[ b ]+k ] % bloom->bits_len;
+      if( !(bloom->bits[ bit/64UL ] & (1UL<<(bit%64UL))) ) break;
+    }
+    hit |= (uint)(k==bloom->keys_len)<<b;
+  }
+  return hit;
+}
+
+#else
+
+void
+fd_bloom_insert8( fd_bloom_t *  bloom,
+                  uchar const * ele,
+                  uint          lanes ) {
+  for( ulong i=0UL; i<8UL; i++ ) {
+    if( lanes & (1U<<i) ) fd_bloom_insert( bloom, ele+32UL*i, 32UL );
+  }
+}
+
+uint
+fd_bloom_contains8( fd_bloom_t const * bloom,
+                    uchar const *      ele ) {
+  uint hit = 0U;
+  for( ulong i=0UL; i<8UL; i++ ) hit |= (uint)fd_bloom_contains( (fd_bloom_t *)bloom, ele+32UL*i, 32UL )<<i;
+  return hit;
+}
+
+uint
+fd_bloom_contains_multi( fd_bloom_t * const * blooms,
+                         ulong                cnt,
+                         uchar const *        key,
+                         ulong                key_sz ) {
+  uint hit = 0U;
+  for( ulong i=0UL; i<cnt; i++ ) hit |= (uint)fd_bloom_contains( blooms[ i ], key, key_sz )<<i;
+  return hit;
+}
+
+#endif
 
 int
 fd_bloom_init_inplace( ulong *      keys,

@@ -629,13 +629,18 @@ pull_scan_range( fd_gossip_t *         gossip,
        fd_gossip_hset_iter_next( it, hset ) ) {
     uchar const * hashes = fd_gossip_hset_iter_hashes( it, hset );
     uint          lanes  = fd_gossip_hset_iter_lanes( it, hset );
+    if( FD_UNLIKELY( !lanes ) ) continue;
+    /* The chunk is hashed up front; the budget is still charged and
+       the lane inspected one at a time, so an exhausted budget returns
+       at the same lane as before. */
+    uint          hits   = fd_bloom_contains8( filter, hashes );
     for( ; lanes; lanes = fd_uint_pop_lsb( lanes ) ) {
       ulong lane = (ulong)fd_uint_find_lsb( lanes );
 
       if( FD_UNLIKELY( !gossip->scan_budget.remaining ) ) return 1;
       gossip->scan_budget.remaining--;
 
-      if( FD_LIKELY( fd_bloom_contains( filter, hashes+32UL*lane, 32UL ) ) ) continue;
+      if( FD_LIKELY( (hits>>lane)&1U ) ) continue;
 
       fd_crds_entry_t const * candidate = fd_crds_entry_at( gossip->crds, fd_gossip_hset_iter_owner( it, hset, lane ) );
 

@@ -265,6 +265,11 @@ fd_active_set_push( fd_active_set_t *   active_set,
 
   int originates_from_me = !memcmp( active_set->identity_pubkey, origin_pubkey, 32UL );
 
+  /* One pass hashes the origin under every peer's keys. */
+  fd_bloom_t * blooms[ 12 ];
+  for( ulong i=0UL; i<entry->nodes_len; i++ ) blooms[ i ] = active_set->peers[ stake_bucket*12UL+((entry->nodes_idx+i) % 12UL) ].bloom;
+  uint hits = fd_bloom_contains_multi( blooms, entry->nodes_len, origin_pubkey, 32UL );
+
   for( ulong i=0UL; i<entry->nodes_len; i++ ) {
     fd_active_set_peer_t * peer = &active_set->peers[ stake_bucket*12UL+((entry->nodes_idx+i) % 12UL) ];
 
@@ -272,7 +277,7 @@ fd_active_set_push( fd_active_set_t *   active_set,
        if there's a bloom filter hit, since bloom filters can have false
        positives and we don't want to accidentally not push our own
        values. */
-    if( FD_UNLIKELY( fd_bloom_contains( peer->bloom, origin_pubkey, 32UL ) && !originates_from_me ) ) continue;
+    if( FD_UNLIKELY( ((hits>>i)&1U) && !originates_from_me ) ) continue;
 
     if( FD_UNLIKELY( !fd_gossip_txbuild_can_fit( peer->txbuild, crds_sz ) ) ) push_flush( active_set, peer, stem, now );
     if( FD_UNLIKELY( !peer->txbuild->crds_len ) ) {
