@@ -870,6 +870,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->runtime->fuzz.reclaim_accounts    = 0;
   ctx->runtime->accounts.executable_cnt  = 0UL;
   ctx->runtime->accounts.account_cnt     = 0UL;
+  fd_vm_syscall_cache_init( ctx->runtime->bpf_loader_program.syscall_cache );
 
   ulong banks_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "banks" );
   FD_TEST( banks_obj_id!=ULONG_MAX );

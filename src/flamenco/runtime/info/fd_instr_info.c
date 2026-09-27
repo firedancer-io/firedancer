@@ -30,12 +30,13 @@ fd_instr_info_init_from_txn_instr( fd_instr_info_t *      instr,
   for( ushort i=0; i<instr->acct_cnt; i++ ) {
     ushort acc_idx = instr_acc_idxs[i];
 
+    /* is_writable was derived for every account at transaction setup */
     fd_instr_info_setup_instr_account( instr,
                                        acc_idx_seen,
                                        acc_idx,
                                        acc_idx,
                                        i,
-                                       (uchar)fd_runtime_account_is_writable_idx( txn_in, txn_out, instr_acc_idxs[i] ),
+                                       txn_out->accounts.is_writable[ acc_idx ],
                                        (uchar)fd_txn_is_signer( txn_descriptor, instr_acc_idxs[i] ) );
 
   }

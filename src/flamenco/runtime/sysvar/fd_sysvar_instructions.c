@@ -84,7 +84,7 @@ fd_sysvar_instructions_serialize_account( fd_txn_in_t const * txn_in,
     uchar const * instr_accts = fd_txn_get_instr_accts( instr, txn_in->txn->payload );
     for( ushort j=0; j<instr->acct_cnt; j++ ) {
       uchar idx_in_txn          = instr_accts[j];
-      uchar is_writable         = (uchar)fd_runtime_account_is_writable_idx( txn_in, txn_out, idx_in_txn );
+      uchar is_writable         = txn_out->accounts.is_writable[ idx_in_txn ]; /* derived at transaction setup */
       uchar is_signer           = (uchar)fd_txn_is_signer( txn, idx_in_txn );
       uchar flags               = (uchar)( ((!!is_signer)*FD_INSTR_ACCT_FLAGS_IS_SIGNER) | ((!!is_writable)*FD_INSTR_ACCT_FLAGS_IS_WRITABLE) );
 
