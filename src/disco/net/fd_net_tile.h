@@ -165,8 +165,8 @@ fd_mlx5_tile_fib4_join( fd_fib4_t *                 out,
 
 #if defined(__linux__)
 
-/* fd_mlx5_fds identifies the shared uverbs descriptors retained by the
-   supervisor and inherited by mlx5 tiles. */
+/* fd_mlx5_fds identifies the shared uverbs descriptors inherited by mlx5 tiles
+   from the supervisor. */
 struct fd_mlx5_fds {
   int cmd_fd;
   int async_fd;
