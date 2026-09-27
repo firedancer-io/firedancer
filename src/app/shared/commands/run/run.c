@@ -599,7 +599,7 @@ main_pid_namespace( void * _args ) {
     if( FD_UNLIKELY( -1==close( FD_SLEEP_EVENTFD( j ) ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
-  int allow_fds[ 6+FD_TOPO_MAX_TILES ];
+  int allow_fds[ 4+FD_TOPO_MAX_TILES ];
   ulong allow_fds_cnt = 0;
   allow_fds[ allow_fds_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( fd_log_private_logfile_fd()!=-1 ) )
@@ -608,8 +608,8 @@ main_pid_namespace( void * _args ) {
   for( ulong i=0UL; i<child_cnt; i++ )
     allow_fds[ allow_fds_cnt++ ] = fds[ i ].fd; /* read end of child pipes */
   if( need_mlx5 ) {
-    allow_fds[ allow_fds_cnt++ ] = mlx5_fds.cmd_fd;
-    allow_fds[ allow_fds_cnt++ ] = mlx5_fds.async_fd;
+    if( FD_UNLIKELY( -1==close( mlx5_fds.cmd_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==close( mlx5_fds.async_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
   struct sock_filter seccomp_filter[ 128UL ];
