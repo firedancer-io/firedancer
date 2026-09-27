@@ -249,6 +249,7 @@ send_test_cmd_fn( args_t *   args ,
                   config_t * config ) {
   send_test_topo( config );
 
+  configure_stage( &fd_cfg_stage_uverbs,           CONFIGURE_CMD_INIT, config );
   configure_stage( &fd_cfg_stage_sysctl,           CONFIGURE_CMD_INIT, config );
   configure_stage( &fd_cfg_stage_hugetlbfs,        CONFIGURE_CMD_INIT, config );
   configure_stage( &fd_cfg_stage_bonding,          CONFIGURE_CMD_INIT, config );
@@ -288,6 +289,7 @@ static void
 send_test_cmd_perm( args_t *         args FD_PARAM_UNUSED,
                     fd_cap_chk_t *   chk,
                     config_t const * config ) {
+  configure_stage_perm( &fd_cfg_stage_uverbs,           chk, config );
   configure_stage_perm( &fd_cfg_stage_sysctl,           chk, config );
   configure_stage_perm( &fd_cfg_stage_hugetlbfs,        chk, config );
   configure_stage_perm( &fd_cfg_stage_bonding,          chk, config );

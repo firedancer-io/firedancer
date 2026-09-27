@@ -60,14 +60,20 @@ main( int     argc,
   fd_auto_net( config, &info_no_rdma );
   FD_TEST( 0==strcmp( config->net.provider, "xdp" ) );
 
-  /* An RDMA device without the uverbs API (ib_uverbs not loaded) must
-     fall back to XDP -- the mlx5 tile cannot open the device. */
+  /* Auto falls back to XDP when uverbs is unavailable and its module
+     cannot be found.  An installed module can be loaded by configure. */
 
   reset_provider_auto( 1U );
   fd_auto_info_t info_no_uverbs = info1;
   info_no_uverbs.has_uverbs = 0;
   fd_auto_net( config, &info_no_uverbs );
   FD_TEST( 0==strcmp( config->net.provider, "xdp" ) );
+
+  reset_provider_auto( 1U );
+  fd_auto_info_t info_uverbs_module = info_no_uverbs;
+  info_uverbs_module.has_uverbs_module = 1;
+  fd_auto_net( config, &info_uverbs_module );
+  FD_TEST( 0==strcmp( config->net.provider, "mlx5" ) );
 
   /* Explicit providers bypass automatic provider requirements. */
 

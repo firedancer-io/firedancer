@@ -19,6 +19,7 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #include <rdma/ib_user_ioctl_cmds.h>
@@ -288,6 +289,47 @@ int
 fd_mlx5_uverbs_avail( void ) {
   struct stat class_stat;
   return !stat( "/sys/class/infiniband_verbs", &class_stat ) && S_ISDIR( class_stat.st_mode );
+}
+
+int
+fd_mlx5_uverbs_modprobe( int is_dry_run ) {
+  pid_t pid = fork();
+  if( FD_UNLIKELY( pid<0 ) ) {
+    FD_LOG_WARNING(( "fork() for modprobe failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    return -1;
+  }
+  if( !pid ) {
+    int null_fd = open( "/dev/null", O_RDWR );
+    if( FD_UNLIKELY( null_fd<0 ) ) {
+      FD_LOG_WARNING(( "open(/dev/null) for modprobe failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      _exit( 1 );
+    }
+    if( FD_UNLIKELY( dup2( null_fd, STDIN_FILENO )<0 ||
+                     ( is_dry_run && dup2( null_fd, STDOUT_FILENO )<0 ) ) ) {
+      FD_LOG_WARNING(( "dup2() for modprobe failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      _exit( 1 );
+    }
+    if( null_fd!=STDIN_FILENO &&
+        !( is_dry_run && null_fd==STDOUT_FILENO ) ) close( null_fd );
+
+    char * argv[] = { "modprobe", "--quiet", "ib_uverbs", NULL, NULL };
+    if( is_dry_run ) {
+      argv[2] = "--dry-run";
+      argv[3] = "ib_uverbs";
+    }
+    char * const envp[] = { NULL };
+    execve( "/sbin/modprobe", argv, envp );
+    FD_LOG_WARNING(( "execve(/sbin/modprobe) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    _exit( 1 );
+  }
+
+  int status;
+  while( FD_UNLIKELY( waitpid( pid, &status, 0 )<0 ) ) {
+    if( errno==EINTR ) continue;
+    FD_LOG_WARNING(( "waitpid() for modprobe failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    return -1;
+  }
+  return WIFEXITED( status ) && !WEXITSTATUS( status ) ? 0 : -1;
 }
 
 struct fd_mlx5_pd {

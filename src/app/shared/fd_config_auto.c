@@ -31,6 +31,7 @@ struct fd_auto_info {
   int  is_using_gre;
   int  has_mlx5_rdma_port;
   int  has_uverbs;
+  int  has_uverbs_module;
 };
 typedef struct fd_auto_info fd_auto_info_t;
 
@@ -256,7 +257,7 @@ mlx5_check( fd_config_t    const * config,
             fd_auto_info_t const * info ) {
   if( strcmp( config->net.provider, "auto" ) ) return 0;
   if( !info->has_mlx5_rdma_port ) return 0;
-  if( !info->has_uverbs ) return 0;
+  if( !info->has_uverbs && !info->has_uverbs_module ) return 0;
   if( !fd_ulong_is_pow2( config->layout.net_tile_count ) ) return 0;
   return 1;
 }
@@ -443,6 +444,12 @@ fd_auto_scrape_info( fd_config_t const * config ) {
 
   scrape_system    ( &info                        );
   scrape_networking( &info, config->net.interface );
+
+  if( !strcmp( config->net.provider, "auto" ) &&
+      info.has_mlx5_rdma_port                 &&
+      !info.has_uverbs ) {
+    info.has_uverbs_module = !fd_mlx5_uverbs_modprobe( 1 );
+  }
 
   return info;
 }
