@@ -44,11 +44,14 @@
 
 #define FD_GOSSVF_SIGOK_DEPTH (16384UL)
 
-/* Peers sign prunes either with Agave's bincode prefixed signable data
-   or, as Firedancer does, the unprefixed data.  The format that last
-   verified for an origin is remembered by pubkey hash so the first
-   attempt is usually the right one.  A stale or colliding entry only
-   costs the failing attempt the tile always paid. */
+/* Peers sign prunes either with the bincode prefixed signable data,
+   as Firedancer does, or the unprefixed data, as Agave does (its
+   PruneData::signable_data is signable_data_without_prefix "until
+   cluster has upgraded", and it verifies unprefixed first too).  The
+   format that last verified for an origin is remembered by pubkey hash
+   so the first attempt is usually the right one; before an origin is
+   seen the memo says unprefixed, the majority.  A stale or colliding
+   entry only costs the failing attempt the tile always paid. */
 
 #define FD_GOSSVF_PRUNE_MEMO_CNT (4096UL)
 
@@ -1426,7 +1429,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->sigok.ring    = fd_tcache_ring_laddr  ( sigok );
   ctx->sigok.map     = fd_tcache_map_laddr   ( sigok );
 
-  memset( ctx->prune_unprefixed, 0, sizeof(ctx->prune_unprefixed) );
+  memset( ctx->prune_unprefixed, 1, sizeof(ctx->prune_unprefixed) ); /* Agave signs unprefixed */
 
 #if DEBUG_PEERS
   for( ulong i=0UL; i<ctx->entrypoints_cnt; i++ ) {
