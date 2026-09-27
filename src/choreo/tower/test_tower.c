@@ -1469,7 +1469,7 @@ test_adopt_rejects_invalid_ancestry( fd_wksp_t * wksp ) {
 
 /* test_adopt_bookkeeping: adoption clears the voted mark of the old
    shadow votes, marks the adopted votes' blocks with their replayed block
-   id and drops the blocks below the new root. */
+   id and drops the blocks, lockouts and stakes below the new root. */
 static void
 test_adopt_bookkeeping( fd_wksp_t * wksp ) {
   void * tower_mem = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint( 64UL, 2UL ), 1UL );
@@ -1491,6 +1491,12 @@ test_adopt_bookkeeping( fd_wksp_t * wksp ) {
   fd_tower_vote_push_tail( tower->votes, (fd_tower_vote_t){ .slot=2UL, .conf=2UL } );
   fd_tower_vote_push_tail( tower->votes, (fd_tower_vote_t){ .slot=5UL, .conf=1UL } );
 
+  /* Lockouts and stakes on slot 1, freed when the root moves past it. */
+  fd_hash_t vote_acc = { .ul = { 7UL } };
+  fd_tower_lockos_insert( tower, 1UL, &vote_acc, tower->votes );
+  fd_tower_stakes_insert( tower, 1UL, &vote_acc, 10UL, ULONG_MAX );
+  FD_TEST( lockout_slot_pool_used( tower->lck_slot_pool ) && fd_tower_stakes_vtr_pool_used( tower->stk_vtr_pool ) );
+
   uchar __attribute__((aligned(FD_TOWER_VOTE_ALIGN))) adopt_mem[ FD_TOWER_VOTE_FOOTPRINT ];
   fd_tower_vote_t * adopt = fd_tower_vote_join( fd_tower_vote_new( adopt_mem ) );
   fd_tower_vote_push_tail( adopt, (fd_tower_vote_t){ .slot=3UL, .conf=2UL } );
@@ -1499,6 +1505,8 @@ test_adopt_bookkeeping( fd_wksp_t * wksp ) {
   FD_TEST( !fd_tower_adopt( tower, adopt, 2UL ) );
   FD_TEST( tower->root==2UL && fd_tower_vote_cnt( tower->votes )==2UL );
   FD_TEST( !fd_tower_blocks_query( tower, 1UL ) );
+  FD_TEST( !lockout_slot_pool_used( tower->lck_slot_pool ) && !lockout_interval_pool_used( tower->lck_pool ) );
+  FD_TEST( !lockout_pubkey_pool_used( tower->lck_pubkey_pool ) && !fd_tower_stakes_vtr_pool_used( tower->stk_vtr_pool ) );
   FD_TEST( !blk5->voted );
   for( ulong slot=3UL; slot<=4UL; slot++ ) {
     fd_tower_blk_t const * blk = fd_tower_blocks_query( tower, slot );
