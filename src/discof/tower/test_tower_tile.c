@@ -979,6 +979,25 @@ test_eqvoc_cre_diff( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_eqvoc_cre_diff" ));
 }
 
+/* Events go to a fake event link, the last one sits at the start of
+   tower_ev_mem. */
+static uchar                             tower_ev_mcache_mem[ 4096 ] __attribute__((aligned(FD_MCACHE_ALIGN)));
+static uchar                             tower_ev_mem[ 1024 ] __attribute__((aligned(FD_CHUNK_ALIGN)));
+static fd_event_reporter_t               tower_ev_reporter;
+static fd_frag_meta_t *                  tower_ev_mcache;
+static fd_event_slot_confirmed_t const * tower_ev = (fd_event_slot_confirmed_t const *)tower_ev_mem;
+
+static void
+tower_ev_init( void ) {
+  FD_TEST( fd_mcache_footprint( 8UL, 0UL )<=sizeof(tower_ev_mcache_mem) );
+  tower_ev_mcache = fd_mcache_join( fd_mcache_new( tower_ev_mcache_mem, 8UL, 0UL, 0UL ) );
+  FD_TEST( tower_ev_mcache );
+  fd_memset( tower_ev_mem, 0, sizeof(tower_ev_mem) );
+  tower_ev_reporter = (fd_event_reporter_t){ .mcache=tower_ev_mcache, .depth=8UL, .seq_store=fd_mcache_seq_laddr( tower_ev_mcache ),
+                                             .mem=(fd_wksp_t *)tower_ev_mem, .mtu=sizeof(tower_ev_mem) };
+  fd_event_tl = &tower_ev_reporter;
+}
+
 static void
 test_failover_adopt_tower( fd_wksp_t * wksp ) {
   static fd_tower_tile_t ctx[ 1 ];
@@ -1024,6 +1043,21 @@ test_failover_adopt_tower( fd_wksp_t * wksp ) {
   fd_tower_adopt_result_t result = failover_adopt_tower( ctx, buf, buf_sz );
   FD_TEST( result.result==FD_TOWER_ADOPT_SUCCESS && result.root==1UL && result.vote_slot==3UL );
   FD_TEST( ctx->failover_tower_adopted );
+
+  /* The tip is checked even when the vote before it is at our root.
+     Votes 1 and 3, tip block id wrong. */
+  fd_compact_tower_sync_serde_t tip = serde;
+  tip.root          = 0UL;
+  tip.lockouts[ 0 ] = (__typeof__(tip.lockouts[0])){ .offset=1UL, .confirmation_count=2U };
+  tip.lockouts[ 1 ] = (__typeof__(tip.lockouts[0])){ .offset=2UL, .confirmation_count=1U };
+  tip.block_id.uc[ 0 ] ^= 1U;
+  FD_TEST( !fd_compact_tower_sync_ser( &tip, buf, sizeof(buf), &buf_sz ) );
+  result = failover_adopt_tower( ctx, buf, buf_sz );
+  FD_TEST( result.result==FD_TOWER_ADOPT_ERR_BLOCK_MISMATCH && result.root==1UL && result.vote_slot==3UL );
+  FD_TEST( !ctx->failover_tower_adopted );
+  FD_TEST( !fd_compact_tower_sync_ser( &serde, buf, sizeof(buf), &buf_sz ) );
+  result = failover_adopt_tower( ctx, buf, buf_sz );
+  FD_TEST( result.result==FD_TOWER_ADOPT_SUCCESS && ctx->failover_tower_adopted );
 
   /* Replay may know the tip but have skipped an earlier locked slot.
      Nothing is adopted and nothing changes, the failover tile asks again
@@ -1119,8 +1153,13 @@ test_failover_adopt_tower( fd_wksp_t * wksp ) {
   serde.block_id = fd_tower_blocks_query( ctx->tower, 3UL )->replayed_block_id;
   FD_TEST( !fd_compact_tower_sync_ser( &serde, buf, sizeof(buf), &buf_sz ) );
   FD_TEST( fd_ghost_root( ctx->ghost )->slot==1UL );
+  tower_ev_init();
   result = failover_adopt_tower( ctx, buf, buf_sz );
+  fd_event_tl = NULL;
   FD_TEST( result.result==FD_TOWER_ADOPT_SUCCESS && result.root==2UL && result.vote_slot==3UL );
+  /* Slot 2 is reported rooted, once. */
+  FD_TEST( tower_ev_reporter.seq==1UL && FD_EVENT_SIG_TYPE( tower_ev_mcache->sig )==4UL );
+  FD_TEST( tower_ev->slot==2UL && tower_ev->level==FD_EVENT_SLOT_CONFIRMED_LEVEL_ROOTED && !tower_ev->forward );
   FD_TEST( fd_ghost_root( ctx->ghost )->slot==2UL );    /* the fork choice root advanced with the tower root */
   FD_TEST( !fd_tower_blocks_query( ctx->tower, 1UL ) ); /* tower ancestry below the new root is gone */
   FD_TEST( !ctx->epoch_refresh_pending );               /* same epoch, the epoch voter caches are still right */
@@ -1149,6 +1188,19 @@ test_failover_adopt_tower( fd_wksp_t * wksp ) {
   FD_TEST( ctx->epoch_refresh_pending );
   FD_TEST( publishes_cnt( ctx->publishes )==1UL );
   publishes_pop_head_nocopy( ctx->publishes );
+
+  /* A tower whose last vote is our root 3 is taken with nothing adopted,
+     so it does not count as an adopted tower.  Hashes at or under our
+     root are not checked, the block id here is wrong. */
+  serde.root          = 2UL;
+  serde.lockouts[ 0 ] = (__typeof__(serde.lockouts[0])){ .offset=1UL, .confirmation_count=1U };
+  serde.hash          = fd_tower_blocks_query( ctx->tower, 3UL )->bank_hash;
+  serde.block_id      = fd_tower_blocks_query( ctx->tower, 3UL )->replayed_block_id;
+  serde.block_id.uc[ 0 ] ^= 1U;
+  FD_TEST( !fd_compact_tower_sync_ser( &serde, buf, sizeof(buf), &buf_sz ) );
+  result = failover_adopt_tower( ctx, buf, buf_sz );
+  FD_TEST( result.result==FD_TOWER_ADOPT_SUCCESS && result.root==3UL && result.vote_slot==ULONG_MAX );
+  FD_TEST( fd_tower_vote_empty( ctx->tower->votes ) && !ctx->failover_tower_adopted );
 
   fd_wksp_free_laddr( fd_ghost_delete( fd_ghost_leave( ctx->ghost ) ) );
   fd_wksp_free_laddr( fd_tower_delete( fd_tower_leave( ctx->tower ) ) );
@@ -1247,6 +1299,14 @@ test_failover_adopt_empty( fd_wksp_t * wksp ) {
   fd_tower_adopt_result_t result = FD_LOAD( fd_tower_adopt_result_t, fd_chunk_to_laddr_const( wksp, meta->chunk ) );
   FD_TEST( result.result==FD_TOWER_ADOPT_SUCCESS && result.root==1UL && result.vote_slot==3UL && result.acct_vote_slot==3UL );
   FD_TEST( fd_tower_vote_cnt( ctx->tower->votes )==2UL && ctx->failover_tower_adopted );
+
+  /* A second request is answered in the next chunk. */
+  FD_TEST( !returnable_frag( ctx, 0UL, 1UL, 78UL, ctx->in[ 0 ].chunk0, 0UL, 0UL, 0UL, 0UL, stem ) );
+  FD_TEST( seqs[ 1 ]==2UL );
+  meta = mcaches[ 1 ]+1UL;
+  FD_TEST( meta->seq==1UL && meta->sig==78UL && meta->chunk!=ctx->failov_out_chunk0 );
+  result = FD_LOAD( fd_tower_adopt_result_t, fd_chunk_to_laddr_const( wksp, meta->chunk ) );
+  FD_TEST( result.result==FD_TOWER_ADOPT_SUCCESS && result.vote_slot==3UL );
 
   /* The staked key installed after this may vote. */
   ctx->identity_keyswitch       = fd_keyswitch_join( fd_keyswitch_new( identity, FD_KEYSWITCH_STATE_UNLOCKED ) );
