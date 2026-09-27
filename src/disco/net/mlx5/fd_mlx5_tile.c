@@ -1210,8 +1210,9 @@ fd_topo_install_mlx5( fd_topo_t *     topo,
 
   fd_mlx5_tile_t * first = ctxs[ 0 ];
   if( FD_UNLIKELY( !fd_mlx5_uverbs_avail() ) ) {
-    FD_LOG_ERR(( "cannot run mlx5 tile: kernel does not provide uverbs API "
-                 "(ib_uverbs kernel module missing or NIC not Mellanox?)" ));
+    FD_LOG_ERR(( "failed to run mlx5 tile: uverbs interface unavailable. "
+                 "Run `sudo modprobe ib_uverbs` and retry. "
+                 "If it still fails, please set [net.provider] to `xdp`" ));
   }
   FD_LOG_INFO(( "Opening direct mlx5 device `%s` port %u for %lu tiles",
                 rdma_device_name, rdma_port_num, tile_cnt ));

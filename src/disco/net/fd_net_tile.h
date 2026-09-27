@@ -83,6 +83,14 @@ FD_PROTOTYPES_BEGIN
 char const *
 fd_net_tile_name( char const * provider );
 
+/* fd_net_get_driver writes the device driver name for if_name, or the
+   common member driver for a bond.  Writes "n/a" if no single driver
+   is available. */
+void
+fd_net_get_driver( char *       driver,
+                   ulong        driver_sz,
+                   char const * if_name );
+
 /* fd_topos_net_tiles appends the selected network provider tiles to
    the topology. */
 

@@ -640,30 +640,6 @@ fd_rdma_name_valid( char const * name,
   return 0;
 }
 
-static int
-fd_mlx5_check_driver( char const * rdma_name ) {
-  char path[ FD_RDMA_PATH_MAX ];
-  FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL,
-                                 "/sys/class/infiniband/%s/device/driver", rdma_name ) );
-
-  char target[ FD_RDMA_PATH_MAX ];
-  ssize_t target_sz = readlink( path, target, sizeof(target)-1UL );
-  if( FD_UNLIKELY( target_sz<0 ) ) return -1;
-  if( FD_UNLIKELY( (ulong)target_sz==sizeof(target)-1UL ) ) {
-    errno = ENAMETOOLONG;
-    return -1;
-  }
-  target[ target_sz ] = '\0';
-
-  char const * driver = strrchr( target, '/' );
-  driver = driver ? driver+1 : target;
-  if( FD_UNLIKELY( strcmp( driver, "mlx5_core" ) ) ) {
-    errno = ENODEV;
-    return -1;
-  }
-  return 0;
-}
-
 /* fd_uverbs_* helpers build and submit Linux uverbs commands */
 static int
 fd_uverbs_name_valid( char const * name ) {
@@ -681,7 +657,6 @@ fd_uverbs_resolve( char         uverbs_name[ FD_UVERBS_NAME_MAX ],
     errno = EINVAL;
     return -1;
   }
-  if( FD_UNLIKELY( fd_mlx5_check_driver( rdma_name ) ) ) return -1;
 
   DIR * uverbs_dir = opendir( "/sys/class/infiniband_verbs" );
   if( FD_UNLIKELY( !uverbs_dir ) ) return -1;
