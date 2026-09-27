@@ -1000,6 +1000,25 @@ disk_insert_finish_write_locked( fd_store_t * store,
 
 FD_STATIC_ASSERT( __builtin_offsetof( fd_shredb_entry_t, shred )==__builtin_offsetof( fd_shredb_entry_t, shred_sz )+sizeof(ushort), shredb_entry_hdr_packed );
 
+/* disk_entry_build builds the disk entry of shred for the cell
+   reserved in view. */
+
+static void
+disk_entry_build( fd_shredb_entry_t * wr_entry,
+                  disk_view_t const * view,
+                  ulong               key,
+                  fd_shred_t const *  shred,
+                  fd_hash_t const *   merkle_root ) {
+  ulong shred_sz = fd_ulong_min( fd_shred_sz( shred ), FD_SHRED_MAX_SZ );
+  ulong tail_off = __builtin_offsetof( fd_shredb_entry_t, shred )+shred_sz;
+  wr_entry->tag      = disk_cell_tag( view->ticket, FD_SHREDB_CELL_READY );
+  wr_entry->key      = key;
+  wr_entry->shred_sz = (ushort)shred_sz;
+  memcpy( wr_entry->root, merkle_root->uc, FD_SHRED_MERKLE_NODE_SZ );
+  fd_memcpy( wr_entry->shred, shred, shred_sz );
+  fd_memset( (uchar *)wr_entry+tail_off, 0, sizeof(fd_shredb_entry_t)-tail_off );
+}
+
 int
 fd_store_disk_insert( fd_store_t *       store,
                       int                disk_fd,
@@ -1022,14 +1041,7 @@ fd_store_disk_insert( fd_store_t *       store,
 
   /* The map entries remain WRITING while the syscall runs unlocked. */
   fd_shredb_entry_t wr_entry[1];
-  ulong shred_sz = fd_ulong_min( fd_shred_sz( shred ), FD_SHRED_MAX_SZ );
-  ulong tail_off = __builtin_offsetof( fd_shredb_entry_t, shred )+shred_sz;
-  wr_entry->tag      = disk_cell_tag( view.ticket, FD_SHREDB_CELL_READY );
-  wr_entry->key      = key;
-  wr_entry->shred_sz = (ushort)shred_sz;
-  memcpy( wr_entry->root, merkle_root->uc, FD_SHRED_MERKLE_NODE_SZ );
-  fd_memcpy( wr_entry->shred, shred, shred_sz );
-  fd_memset( (uchar *)wr_entry+tail_off, 0, sizeof(wr_entry)-tail_off );
+  disk_entry_build( wr_entry, &view, key, shred, merkle_root );
 
   off_t off = (off_t)(store->wire_off + (ulong)view.ring_idx*sizeof(fd_shredb_entry_t));
   if( FD_UNLIKELY( store_pwrite_all( disk_fd, wr_entry, sizeof(wr_entry), off ) ) )
@@ -1043,6 +1055,95 @@ fd_store_disk_insert( fd_store_t *       store,
 
   atomic_fetch_add_explicit( &store->disk_insert_cnt, 1UL, memory_order_relaxed );
   return FD_STORE_DISK_INSERT_SUCCESS;
+}
+
+/* disk_insert_flush writes the reserved cells in [lo,hi) of a batch,
+   each maximal run of consecutive ring cells with one pwrite, then
+   publishes them in ticket order.  A cell that was not reserved has
+   ring_idx UINT_MAX.  Returns how many publishes succeeded. */
+
+static ulong
+disk_insert_flush( fd_store_t              * store,
+                   int                       disk_fd,
+                   disk_view_t const       * views,
+                   fd_shredb_entry_t const * entries,
+                   int                     * results,
+                   ulong                     lo,
+                   ulong                     hi ) {
+  ulong i=lo;
+  while( i<hi ) {
+    if( FD_UNLIKELY( views[ i ].ring_idx==UINT_MAX ) ) { i++; continue; }
+    ulong j=i+1UL;
+    while( j<hi && views[ j ].ring_idx!=UINT_MAX && views[ j ].ring_idx==views[ j-1UL ].ring_idx+1U ) j++;
+    ulong run_cnt = j-i;
+    off_t off = (off_t)(store->wire_off + (ulong)views[ i ].ring_idx*sizeof(fd_shredb_entry_t));
+    if( FD_UNLIKELY( store_pwrite_all( disk_fd, entries+i, run_cnt*sizeof(fd_shredb_entry_t), off ) ) )
+      FD_LOG_ERR(( "error writing to disk store: (%d-%s)", errno, fd_io_strerror( errno ) ));
+    atomic_fetch_add_explicit( &store->disk_write_bytes, run_cnt*sizeof(fd_shredb_entry_t), memory_order_relaxed );
+    i = j;
+  }
+
+  ulong ok = 0UL;
+  fd_rwlock_write( &store->disk_lock );
+  for( ulong k=lo; k<hi; k++ ) {
+    if( FD_UNLIKELY( views[ k ].ring_idx==UINT_MAX ) ) continue;
+    results[ k ] = disk_insert_finish_write_locked( store, views[ k ] );
+    ok += results[ k ]==FD_STORE_DISK_INSERT_SUCCESS;
+  }
+  fd_rwlock_unwrite( &store->disk_lock );
+  atomic_fetch_add_explicit( &store->disk_insert_cnt, ok, memory_order_relaxed );
+  return ok;
+}
+
+ulong
+fd_store_disk_insert_batch( fd_store_t               * store,
+                            int                        disk_fd,
+                            fd_shred_t const * const * shreds,
+                            fd_hash_t const * const  * merkle_roots,
+                            ulong                      shred_cnt,
+                            fd_shredb_entry_t        * entries,
+                            int                      * results ) {
+  if( FD_UNLIKELY( !store || disk_fd<0 || !fd_store_has_disk( store ) ) ) {
+    for( ulong i=0UL; i<shred_cnt; i++ ) results[ i ] = FD_STORE_DISK_INSERT_ERR;
+    return 0UL;
+  }
+
+  /* Reserve cells ahead of writing them.  Tickets come from one
+     counter, so one caller's consecutive reservations are consecutive
+     ring indices (modulo the wrap) unless another writer took a ticket
+     in between; a duplicate, a refusal or an interleaved writer just
+     splits the run.  A reservation of an exact duplicate of a still
+     pending shred would find that shred WRITING, so the pending ones
+     are flushed first, as the single-shred path would have published
+     them. */
+  disk_view_t          views    [ FD_STORE_DISK_INSERT_BATCH_MAX ];
+  fd_shredb_root_key_t root_keys[ FD_STORE_DISK_INSERT_BATCH_MAX ];
+  FD_TEST( shred_cnt<=FD_STORE_DISK_INSERT_BATCH_MAX );
+  ulong ok   = 0UL;
+  ulong pend = 0UL; /* first reserved, unflushed index */
+  for( ulong i=0UL; i<shred_cnt; i++ ) {
+    views[ i ].ring_idx = UINT_MAX;
+    fd_shred_t const * shred = shreds[ i ];
+    if( FD_UNLIKELY( shred->slot>=FD_SHREDB_KEY_SLOT_MAX || shred->idx>=store->max_shreds_per_block ) ) {
+      results[ i ] = FD_STORE_DISK_INSERT_ERR;
+      continue;
+    }
+    ulong key      = fd_shredb_key_pack( shred->slot, shred->idx );
+    root_keys[ i ] = fd_shredb_root_key( merkle_roots[ i ]->uc, shred->idx );
+    for( ulong j=pend; j<i; j++ ) {
+      if( FD_UNLIKELY( views[ j ].ring_idx!=UINT_MAX && !memcmp( root_keys+j, root_keys+i, sizeof(fd_shredb_root_key_t) ) ) ) {
+        ok  += disk_insert_flush( store, disk_fd, views, entries, results, pend, i );
+        pend = i;
+        break;
+      }
+    }
+    fd_rwlock_write( &store->disk_lock );
+    results[ i ] = disk_insert_prepare_write_locked( store, key, root_keys+i, views+i );
+    fd_rwlock_unwrite( &store->disk_lock );
+    if( FD_UNLIKELY( results[ i ]!=FD_STORE_DISK_INSERT_SUCCESS ) ) { views[ i ].ring_idx = UINT_MAX; continue; }
+    disk_entry_build( entries+i, views+i, key, shred, merkle_roots[ i ] );
+  }
+  return ok + disk_insert_flush( store, disk_fd, views, entries, results, pend, shred_cnt );
 }
 
 static int
