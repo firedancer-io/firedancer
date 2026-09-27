@@ -34,6 +34,9 @@ write_key( char const *  path,
 static void
 boot_signer( int failover ) {
   fd_memset( &ctx, 0, sizeof(ctx) );
+  /* Stale pointers, load_keys has to reset them. */
+  ctx.failover_junk_key   = other;
+  ctx.failover_staked_key = other;
   tile.sign.failover_enabled = failover;
   load_keys( &ctx, &tile );
   FD_TEST( fd_sha512_join( fd_sha512_new( ctx.sha512 ) ) );
@@ -124,7 +127,7 @@ member_cert( uchar const * pubkey,
 static void
 select_identity( uchar const * public_key ) {
   ctx.keyswitch->param = FD_KEYSWITCH_PARAM_IDENTITY_PUBKEY;
-  fd_memset( ctx.keyswitch->bytes, 0, 64UL );
+  fd_memset( ctx.keyswitch->bytes, 0xA5, 64UL );
   fd_memcpy( ctx.keyswitch->bytes, public_key, 32UL );
   fd_keyswitch_state( ctx.keyswitch, FD_KEYSWITCH_STATE_SWITCH_PENDING );
   during_housekeeping_sensitive( &ctx );
@@ -239,9 +242,9 @@ test_member_cert( void ) {
 
 enum {
   FAILOVER_SELECTION, KEYPAIR_SWITCH, STAKED_VOTER_ADD, READONLY_JUNK, READONLY_STAKED,
-  SAME_KEYS, BAD_STAKED, MISSING_STAKED, BAD_JUNK, STAKED_VOTER,
-  FOREIGN_SELECTION, KEYPAIR_IN_FAILOVER, SELECTION_WITHOUT_FAILOVER,
-  MEMBER_CERT, FOREIGN_CERT, CASE_CNT
+  SAME_KEYS, BAD_STAKED, BAD_STAKED_LAST_BYTE, MISSING_STAKED, BAD_JUNK, STAKED_VOTER,
+  FOREIGN_SELECTION, FOREIGN_SELECTION_LAST_BYTE, KEYPAIR_IN_FAILOVER, SELECTION_WITHOUT_FAILOVER,
+  MEMBER_CERT, FOREIGN_CERT, FOREIGN_CERT_LAST_BYTE, CASE_CNT
 };
 
 int
@@ -292,6 +295,7 @@ main( int     argc,
       }
       case SAME_KEYS:      write_key( staked_path, junk ); boot_signer( 1 ); break;
       case BAD_STAKED:     staked[ 32 ] ^= 1; write_key( staked_path, staked ); boot_signer( 1 ); break;
+      case BAD_STAKED_LAST_BYTE: staked[ 63 ] ^= 1; write_key( staked_path, staked ); boot_signer( 1 ); break;
       case MISSING_STAKED: FD_TEST( !unlink( staked_path ) ); boot_signer( 1 ); break;
       case BAD_JUNK:       junk[ 32 ] ^= 1; write_key( junk_path, junk ); boot_signer( 1 ); break;
       case STAKED_VOTER:
@@ -300,6 +304,14 @@ main( int     argc,
         boot_signer( 1 );
         break;
       case FOREIGN_SELECTION: boot_signer( 1 ); select_identity( other+32UL ); break;
+      case FOREIGN_SELECTION_LAST_BYTE: {
+        boot_signer( 1 );
+        uchar pubkey[ 32 ];
+        fd_memcpy( pubkey, staked+32UL, 32UL );
+        pubkey[ 31 ] ^= 1;
+        select_identity( pubkey );
+        break;
+      }
       case KEYPAIR_IN_FAILOVER:
         boot_signer( 1 );
         ctx.keyswitch->param = FD_KEYSWITCH_PARAM_IDENTITY_KEYPAIR;
@@ -313,6 +325,15 @@ main( int     argc,
         boot_signer( 1 );
         uchar sig[ 64 ];
         member_cert( other+32UL, sig );
+        break;
+      }
+      case FOREIGN_CERT_LAST_BYTE: {
+        boot_signer( 1 );
+        uchar pubkey[ 32 ];
+        fd_memcpy( pubkey, junk+32UL, 32UL );
+        pubkey[ 31 ] ^= 1;
+        uchar sig[ 64 ];
+        member_cert( pubkey, sig );
         break;
       }
       }
