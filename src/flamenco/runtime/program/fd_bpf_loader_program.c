@@ -456,17 +456,12 @@ bpf_execute( fd_exec_instr_ctx_t * instr_ctx,
 
   int err = FD_EXECUTOR_INSTR_SUCCESS;
 
-  uchar syscalls_mem[ FD_SBPF_SYSCALLS_FOOTPRINT ] __attribute__((aligned(FD_SBPF_SYSCALLS_ALIGN)));
-  fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_join( fd_sbpf_syscalls_new( syscalls_mem ) );
-  if( FD_UNLIKELY( !syscalls ) ) {
-    FD_LOG_CRIT(( "Unable to allocate syscalls" ));
-  }
-
-  /* TODO do we really need to re-do this on every instruction? */
-  fd_vm_syscall_register_slot( syscalls,
-                               instr_ctx->bank->f.slot,
-                               &instr_ctx->bank->f.features,
-                               0 );
+  /* The syscall table depends only on the slot's feature gates, so it
+     is built once per change of those in the runtime and shared by
+     every instruction, CPI frames included (all of one transaction run
+     in one bank).  Identical to a fresh fd_vm_syscall_register_slot. */
+  fd_vm_syscall_cache_t * syscall_cache = instr_ctx->runtime->bpf_loader_program.syscall_cache;
+  fd_sbpf_syscalls_t *    syscalls      = fd_vm_syscall_cache_get( syscall_cache, fd_vm_syscall_env( instr_ctx->bank->f.slot, &instr_ctx->bank->f.features, 0 ) );
 
   /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L1362-L1368 */
   ulong                   input_sz                                 = 0UL;
@@ -584,7 +579,7 @@ bpf_execute( fd_exec_instr_ctx_t * instr_ctx,
       .feature_slot  = cache_entry->feature_slot,
       .data_gaddr    = cache_entry->data_gaddr,
       .sbpf_version  = cache_entry->sbpf_version,
-      .syscalls_hash = fd_vm_jit_syscalls_hash( syscalls )
+      .syscalls_hash = syscall_cache->hash
     };
     exec_err = fd_vm_jit_exec( instr_ctx->runtime->jit, &key, vm );
   } else
