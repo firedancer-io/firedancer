@@ -1644,6 +1644,7 @@ test_bus_status( void ) {
 
 #include "test_failover_ondemand.inc"
 #include "test_failover_recovery.inc"
+#include "test_failover_preserved.inc"
 
 int
 main( int argc, char ** argv ) {
@@ -1680,6 +1681,7 @@ main( int argc, char ** argv ) {
   test_bus_status();
   test_ondemand();
   test_recovery();
+  test_preserved();
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;

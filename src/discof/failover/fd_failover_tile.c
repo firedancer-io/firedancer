@@ -148,6 +148,7 @@ struct fd_failover_tile_ctx {
   ulong               promote_floor;      /* coverage floor when it started */
   int                 promote_force;      /* promote --force, the checks on the peer are skipped */
   long                promote_staked_at;  /* staked_seen_at when it started */
+  int                 promote_active_seen; /* an ACTIVE peer authenticated after promotion started */
   long                promote_until;      /* our clock when the replay and adopt waits give up, 0 until armed */
   fd_failover_tower_t adopt;              /* what goes to the tower tile, empty for the vote account */
   ulong               adopt_expected_id;
@@ -468,8 +469,12 @@ sync_session( fd_failover_tile_ctx_t * ctx ) {
   ctx->request_sent  = 0;
   if( state!=FD_FAILOVER_SESSION_PAIRED ) ctx->close_after_send = 0;
   if( FD_UNLIKELY( state==FD_FAILOVER_SESSION_PAIRED ) ) {
-    ctx->peer_boot_id = fd_failover_channel_peer_hello( ctx->channel )->boot_id;
+    fd_failover_hello_t const * peer = fd_failover_channel_peer_hello( ctx->channel );
+    ctx->peer_boot_id = peer->boot_id;
     ctx->demoted_sent = 0;
+    if( FD_UNLIKELY( ( ctx->action==FD_FAILOVER_ACTION_PROMOTE_WAIT_REPLAY ||
+                       ctx->action==FD_FAILOVER_ACTION_PROMOTE_WAIT_ADOPT ) &&
+                     peer->role==(uchar)FD_FAILOVER_ROLE_ACTIVE ) ) ctx->promote_active_seen = 1;
   }
 }
 
@@ -999,6 +1004,7 @@ start_promotion( fd_failover_tile_ctx_t * ctx,
   /* What we knew of another holder at the start, promote_holder_seen
      looks for anything newer. */
   ctx->promote_staked_at = ctx->staked_seen_at;
+  ctx->promote_active_seen = 0;
   /* Until this tenure votes, its final tower is exactly the adopted one,
      never a tower cached from an earlier tenure. */
   ctx->cs             = ctx->adopt;
@@ -1035,11 +1041,14 @@ floor_covered( fd_failover_tile_ctx_t const * ctx ) {
          ctx->replay_slot>fd_ulong_sat_add( floor, FD_FAILOVER_FLOOR_SLACK_SLOTS );
 }
 
-/* A requested handoff has its final tower, an operator promote still
-   stops on a new staked contact info unless it used --force. */
+/* The bound DEMOTED supersedes that session's initial ACTIVE HELLO.
+   A later ACTIVE authentication is new evidence, retained if the
+   connection drops.  An operator promote also watches gossip. */
 static int
 promote_holder_seen( fd_failover_tile_ctx_t const * ctx ) {
-  if( FD_UNLIKELY( ctx->promote_force || ctx->promote_peer ) ) return 0;
+  if( FD_UNLIKELY( ctx->promote_force ) ) return 0;
+  if( FD_UNLIKELY( ctx->promote_active_seen ) ) return 1;
+  if( FD_UNLIKELY( ctx->promote_peer ) ) return 0;
   return ctx->staked_seen_at!=ctx->promote_staked_at;
 }
 
@@ -1252,8 +1261,10 @@ step_controller( fd_failover_tile_ctx_t * ctx,
     if( FD_UNLIKELY( promote_holder_seen( ctx ) ) ) {
       /* The identity may be held elsewhere now, so we do not install it
          too. */
-      FD_LOG_WARNING(( "%s: another machine may hold the identity now, gossip showed the staked identity at another host, "
-                       "not installing the staked key, check `failover status` on both machines", ctx->promote_label ));
+      FD_LOG_WARNING(( "%s: another machine may hold the identity now, %s; "
+                       "not installing the staked key, check `failover status` on both machines", ctx->promote_label,
+                       ctx->promote_active_seen ? "a peer authenticated as ACTIVE during this promotion"
+                                                : "gossip showed the staked identity at another host" ));
       reject_promotion( ctx, FD_FAILOVER_REJECT_HOLDS_IDENTITY, 0 );
       return;
     }
