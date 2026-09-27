@@ -22,6 +22,12 @@ fd_mlx5_rdma_dev_find( char         rdma_name[ FD_MLX5_RDMA_NAME_MAX ],
 int
 fd_mlx5_uverbs_avail( void );
 
+/* fd_mlx5_uverbs_modprobe invokes modprobe for ib_uverbs.  is_dry_run=1
+   checks module availability without loading it, is_dry_run=0 loads it.
+   Returns 0 if modprobe succeeds, otherwise -1. */
+int
+fd_mlx5_uverbs_modprobe( int is_dry_run );
+
 FD_PROTOTYPES_END
 
 #endif /* defined(__linux__) */

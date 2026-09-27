@@ -172,6 +172,7 @@ configure_args( void ) {
   };
 
   ulong stage_idx = 0UL;
+  args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_uverbs;
   args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_hugetlbfs;
   args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_sysctl;
   args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_bonding;

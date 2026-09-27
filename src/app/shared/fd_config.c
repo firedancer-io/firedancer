@@ -255,8 +255,8 @@ fd_config_fill_net( fd_config_t * config ) {
   char driver[ NAME_SZ ];
   fd_net_get_driver( driver, sizeof(driver), config->net.interface );
   if( !strcmp( config->net.provider, "mlx5" ) && FD_UNLIKELY( strcmp( driver, "mlx5_core" ) ) ) {
-    FD_LOG_ERR(( "[net.provider] is set to \"mlx5\" but the network interface in use is not using the"
-                 "mlx5_core driver. Please ensure you are using a Mellanox ConnectX NIC of version 4"
+    FD_LOG_ERR(( "[net.provider] is set to \"mlx5\" but the network interface in use is not using the "
+                 "mlx5_core driver. Please ensure you are using a Mellanox ConnectX NIC of version 4 "
                  "or newer. interface `%s` uses `%s`", config->net.interface, driver ));
   }
 

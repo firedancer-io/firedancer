@@ -317,6 +317,7 @@ pktgen_cmd_fn( args_t *   args FD_PARAM_UNUSED,
     FD_LOG_ERR(( "failed to parse prometheus listen address `%s`", config->tiles.metric.prometheus_listen_address ));
   metric_tile->metric.prometheus_listen_port = config->tiles.metric.prometheus_listen_port;
 
+  configure_stage( &fd_cfg_stage_uverbs,           CONFIGURE_CMD_INIT, config );
   configure_stage( &fd_cfg_stage_sysctl,           CONFIGURE_CMD_INIT, config );
   configure_stage( &fd_cfg_stage_hugetlbfs,        CONFIGURE_CMD_INIT, config );
   configure_stage( &fd_cfg_stage_bonding,          CONFIGURE_CMD_INIT, config );
