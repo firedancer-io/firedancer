@@ -322,6 +322,72 @@ test_register_slot0( void ) {
   fd_sbpf_syscalls_delete( fd_sbpf_syscalls_leave( syscalls ) );
 }
 
+/* The syscall cache must hand out exactly the table (and hash) a fresh
+   fd_vm_syscall_register_slot would build, for every combination of the
+   feature gates and is_deploy, or the JIT would key native code
+   differently after a cache hit than before it. */
+
+static void
+test_syscall_cache( void ) {
+  static fd_vm_syscall_cache_t cache[ 1 ];
+  fd_vm_syscall_cache_init( cache );
+  FD_TEST( cache->env==FD_VM_SYSCALL_ENV_NONE );
+
+  static fd_vm_syscall_cache_t zeroed[ 1 ]; /* zeroed memory is an empty cache too */
+  FD_TEST( zeroed->env==FD_VM_SYSCALL_ENV_NONE );
+
+  fd_sbpf_syscalls_t _fresh[ FD_SBPF_SYSCALLS_SLOT_CNT ];
+  ulong hash_seen[ 32 ];
+  ulong slot = 100UL;
+  for( ulong pass=0UL; pass<2UL; pass++ ) { /* second pass hits every env */
+  for( ulong bits=0UL; bits<32UL; bits++ ) {
+    fd_features_t features[ 1 ];
+    fd_features_disable_all( features );
+    if( bits & 2UL ) FD_FEATURE_SET_ACTIVE( features, get_sysvar_syscall_enabled,     slot );
+    if( bits & 4UL ) FD_FEATURE_SET_ACTIVE( features, enable_get_epoch_stake_syscall, slot );
+    if( bits & 8UL ) FD_FEATURE_SET_ACTIVE( features, enable_sha512_syscall,          slot );
+    if( bits &16UL ) FD_FEATURE_SET_ACTIVE( features, enable_big_mod_exp_syscall,     slot );
+    uchar is_deploy = (uchar)( bits & 1UL );
+
+    ulong env = fd_vm_syscall_env( slot, features, is_deploy );
+    FD_TEST( env==(FD_VM_SYSCALL_ENV_VALID|bits) );
+
+    fd_sbpf_syscalls_t * fresh = fd_sbpf_syscalls_join( fd_sbpf_syscalls_new( _fresh ) );
+    FD_TEST( fd_vm_syscall_register_slot( fresh, slot, features, is_deploy )==FD_VM_SUCCESS );
+
+    fd_sbpf_syscalls_t * cached = fd_vm_syscall_cache_get( cache, env );
+    FD_TEST( cached && cache->env==env );
+    for( ulong i=0UL; i<FD_SBPF_SYSCALLS_SLOT_CNT; i++ ) {
+      FD_TEST( cached[ i ].key==fresh[ i ].key );
+      if( fd_sbpf_syscalls_key_inval( fresh[ i ].key ) ) continue;
+      FD_TEST( cached[ i ].func==fresh[ i ].func && cached[ i ].name==fresh[ i ].name );
+    }
+    FD_TEST( cache->hash==fd_vm_syscalls_hash( fresh ) );
+    if( pass ) FD_TEST( cache->hash==hash_seen[ bits ] );
+    else       hash_seen[ bits ] = cache->hash;
+
+    /* a hit does not rebuild: same table, same hash */
+    FD_TEST( fd_vm_syscall_cache_get( cache, env )==cached && cache->hash==hash_seen[ bits ] );
+  }
+  }
+
+  /* every env with a different gate set has a different table hash */
+  for( ulong i=0UL; i<32UL; i++ ) for( ulong j=i+1UL; j<32UL; j++ ) {
+# if FD_HAS_S2NBIGNUM
+    FD_TEST( hash_seen[ i ]!=hash_seen[ j ] );
+# else
+    if( (i^j)!=16UL ) FD_TEST( hash_seen[ i ]!=hash_seen[ j ] );
+# endif
+  }
+
+  /* NULL features turns every gate on, as register_all */
+  FD_TEST( fd_vm_syscall_env( 0UL, NULL, 0 )==(FD_VM_SYSCALL_ENV_VALID|30UL) );
+  FD_TEST( fd_vm_syscall_env( 0UL, NULL, 1 )==(FD_VM_SYSCALL_ENV_VALID|31UL) );
+  FD_TEST( fd_vm_syscall_register_env( _fresh, 0UL )==FD_VM_ERR_INVAL );
+
+  FD_LOG_NOTICE(( "test_syscall_cache: PASSED" ));
+}
+
 #define TEST_VM_U8_SLICE( _vaddr, _sz ) ((fd_vm_haddr_query_t){ .vaddr = (_vaddr), .align = FD_VM_ALIGN_RUST_U8,  .sz = (_sz), .is_slice = 1 })
 #define TEST_VM_U64( _vaddr )           ((fd_vm_haddr_query_t){ .vaddr = (_vaddr), .align = FD_VM_ALIGN_RUST_U64, .sz = 8UL,   .is_slice = 0 })
 
@@ -1037,6 +1103,7 @@ main( int     argc,
 
   dump_syscall_table();
   test_register_slot0();
+  test_syscall_cache();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

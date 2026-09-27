@@ -150,6 +150,7 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
   runner->runtime->accounts.executable_cnt = 0UL;
   runner->runtime->accounts.account_cnt    = 0UL;
   runner->runtime->sysvar_bank_seq         = 0UL;
+  fd_vm_syscall_cache_init( runner->runtime->bpf_loader_program.syscall_cache );
   runner->runtime_stack = fd_wksp_alloc_laddr( wksp, fd_runtime_stack_align(), fd_runtime_stack_footprint( 2048UL, 2048UL, 2048UL ), wksp_tag );
   if( FD_UNLIKELY( !runner->runtime_stack ) ) goto bail2;
   if( FD_UNLIKELY( !fd_runtime_stack_join( fd_runtime_stack_new( runner->runtime_stack, 2048UL, 2048UL, 2048UL, 999UL ) ) ) ) goto bail2;

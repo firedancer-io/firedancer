@@ -2033,7 +2033,7 @@ fd_txn_account_has_bpf_loader_upgradeable( fd_pubkey_t const * account_keys,
   return 0U;
 }
 
-static inline int
+int
 fd_runtime_account_is_writable_idx_flat( const ushort        idx,
                                          const fd_pubkey_t * addr_at_idx,
                                          const fd_txn_t *    txn_descriptor,
