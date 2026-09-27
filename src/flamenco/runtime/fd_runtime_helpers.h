@@ -168,6 +168,23 @@ fd_runtime_account_is_writable_idx( fd_txn_in_t const *  txn_in,
                                     fd_txn_out_t const * txn_out,
                                     ushort               idx );
 
+/* fd_runtime_account_is_writable_idx_flat is the same check with the
+   "upgradeable loader is among the transaction accounts" scan
+   (fd_txn_account_has_bpf_loader_upgradeable) done once by the caller
+   for all of a transaction's accounts.  Account setup stores the
+   result per account in txn_out->accounts.is_writable, which is what
+   the per-instruction paths read. */
+
+int
+fd_runtime_account_is_writable_idx_flat( ushort              idx,
+                                         fd_pubkey_t const * addr_at_idx,
+                                         fd_txn_t const *    txn_descriptor,
+                                         uint                bpf_upgradeable_in_txn );
+
+uint
+fd_txn_account_has_bpf_loader_upgradeable( fd_pubkey_t const * account_keys,
+                                           ulong               accounts_cnt );
+
 /* Account pre-condition filtering functions
 
    Used to filter accounts based on pre-conditions such as existence, is_writable, etc.
