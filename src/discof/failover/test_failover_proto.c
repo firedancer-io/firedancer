@@ -463,6 +463,47 @@ test_promote_replies( void ) {
   FD_LOG_NOTICE(( "pass: test_promote_replies" ));
 }
 
+/* Exact sizes, unaligned payloads and all-zero id fields.  The output
+   stays unchanged on failure; arbitrary refusal codes reach the binding
+   and result checks in the controller. */
+static void
+test_handoff_messages( void ) {
+  uchar payload[ 19 ];
+  fd_failover_handoff_request_t request = { .handoff_id=1UL, .target_boot_id=ULONG_MAX };
+  fd_failover_handoff_request_t out;
+  fd_failover_handoff_result_t result = { .handoff_id=ULONG_MAX, .result=ULONG_MAX };
+  fd_failover_handoff_result_t answer;
+  fd_memset( &out, 0xA5, sizeof(out) );
+  fd_memset( &answer, 0xA5, sizeof(answer) );
+  fd_failover_handoff_request_t saved_request = out;
+  fd_failover_handoff_result_t saved_result = answer;
+  fd_memcpy( payload+1, &request, sizeof(request) );
+  for( ulong sz=0UL; sz<=18UL; sz++ ) {
+    if( sz==16UL ) continue;
+    FD_TEST( !fd_failover_handoff_request_decode( &out, payload+1, sz ) );
+    FD_TEST( !fd_failover_handoff_result_decode( &answer, payload+1, sz ) );
+    FD_TEST( fd_memeq( &out, &saved_request, sizeof(out) ) );
+    FD_TEST( fd_memeq( &answer, &saved_result, sizeof(answer) ) );
+  }
+  FD_TEST( fd_failover_handoff_request_decode( &out, payload+1, 16UL ) );
+  FD_TEST( out.handoff_id==1UL && out.target_boot_id==ULONG_MAX );
+  saved_request = out;
+  for( ulong i=0UL; i<2UL; i++ ) {
+    request.handoff_id = i;
+    request.target_boot_id = !i;
+    fd_memcpy( payload+1, &request, sizeof(request) );
+    FD_TEST( !fd_failover_handoff_request_decode( &out, payload+1, 16UL ) );
+    FD_TEST( fd_memeq( &out, &saved_request, sizeof(out) ) );
+  }
+  fd_memcpy( payload+1, &result, sizeof(result) );
+  FD_TEST( fd_failover_handoff_result_decode( &answer, payload+1, 16UL ) );
+  FD_TEST( answer.handoff_id==ULONG_MAX && answer.result==ULONG_MAX );
+  fd_memset( payload+1, 0, 16UL );
+  FD_TEST( fd_failover_handoff_result_decode( &answer, payload+1, 16UL ) );
+  FD_TEST( !answer.handoff_id && !answer.result );
+  FD_LOG_NOTICE(( "pass: test_handoff_messages" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -476,6 +517,7 @@ main( int     argc,
   test_status_decode();
   test_demoted_decode();
   test_promote_replies();
+  test_handoff_messages();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

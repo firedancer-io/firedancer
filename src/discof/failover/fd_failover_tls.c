@@ -8,7 +8,9 @@
 #include <string.h>
 
 /* ALPN id, TLS length-prefixed */
-static uchar const ALPN[] = { 13, 'f','d','-','f','a','i','l','o','v','e','r','/','1' };
+static uchar const ALPN[] = "\x17" "fd-failover/on-demand/1";
+
+FD_STATIC_ASSERT( sizeof(ALPN)==25UL, alpn_size );
 
 static void
 sign_fn( void *      _ctx,
@@ -49,8 +51,8 @@ fd_failover_tls_ctx_init( fd_failover_tls_ctx_t * ctx,
   fd_memcpy( tls->cert_public_key, keypair+32UL, 32UL );
   fd_x509_mock_cert( tls->cert_x509, tls->cert_public_key );
   tls->cert_x509_sz = FD_X509_MOCK_CERT_SZ;
-  fd_memcpy( tls->alpn, ALPN, sizeof(ALPN) );
-  tls->alpn_sz = sizeof(ALPN);
+  fd_memcpy( tls->alpn, ALPN, sizeof(ALPN)-1UL );
+  tls->alpn_sz = sizeof(ALPN)-1UL;
   tls->quic    = 0;
 
   ctx->ready = 1;
@@ -74,6 +76,7 @@ fd_failover_tls_new( fd_failover_tls_t *     tls,
   fd_memset( tls, 0, sizeof(*tls) );
   tls->fd = fd;
   fd_tlsrec_conn_init( &tls->conn, &ctx->tls, !dial_peer );
+  tls->conn.application_logs = 1; /* channel logs with peer address and a bounded retry count */
   /* Fresh X25519 key share per connection, straight from the kernel.  It
      never passes through the RNG, whose state outlives the connection and
      could otherwise replay the key after the connection is wiped.  The
@@ -118,7 +121,11 @@ pull( fd_failover_tls_t * tls ) {
   if( FD_UNLIKELY( !tls->read_budget ) ) return 0;
   tls->read_budget--;
   ulong rx_sz = 0UL;
-  if( FD_UNLIKELY( fd_tlsrec_sock_rx( &tls->sock, &tls->conn, tls->fd, &rx_sz ) ) ) return -1;
+  int rc = fd_tlsrec_sock_rx( &tls->sock, &tls->conn, tls->fd, &rx_sz );
+  if( FD_UNLIKELY( rc ) ) {
+    tls->peer_closed = rc==FD_TLSREC_SOCK_ERR_EOF;
+    return -1;
+  }
   if( FD_LIKELY( !tls->paired ) ) {
     tls->received += rx_sz;
     if( FD_UNLIKELY( tls->received>FD_FAILOVER_TLS_PREPAIR_MAX ) ) return -1;
@@ -166,7 +173,7 @@ fd_failover_tls_read( fd_failover_tls_t * tls,
                       ulong               sz ) {
   if( FD_UNLIKELY( fd_tlsrec_conn_is_failed( &tls->conn ) ) ) return -1L;
   if( FD_LIKELY( !fd_tlsrec_sock_rx_avail( &tls->sock ) ) ) {
-    if( FD_UNLIKELY( tls->conn.rx_closed ) ) return -1L;
+    if( FD_UNLIKELY( tls->conn.rx_closed ) ) { tls->peer_closed = 1; return -1L; }
     if( FD_UNLIKELY( fd_tlsrec_sock_flush( &tls->sock, tls->fd )<0 ) ) return -1L;
     if( FD_UNLIKELY( pull( tls ) ) ) return -1L;
   }

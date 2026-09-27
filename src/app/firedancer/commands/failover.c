@@ -13,7 +13,8 @@ static char const * const CMD_NAMES[] = {
 };
 static char const * const ACTION_NAMES[] = {
   "idle", "demote, switching to the junk key", "demote, waiting for the peer's answer",
-  "promote, waiting for replay", "promote, waiting for the tower tile", "promote, switching to the staked key"
+  "promote, waiting for replay", "promote, waiting for the tower tile", "promote, switching to the staked key",
+  "handoff, requesting the active's tower", "handoff, waiting for completion"
 };
 static char const * const SESSION_NAMES[] = {
   "listening", "dialing", "hello", "paired", "backoff"
@@ -87,13 +88,14 @@ action_name( uchar action ) {
 static char const *
 control_result_name( ulong result ) {
   switch( result ) {
-    case FD_FAILOVER_CONTROL_RESULT_BAD_ROLE:        return "this machine is not in the role that command needs, `handoff` and `demote` run on the active, `promote` on a standby";
+    case FD_FAILOVER_CONTROL_RESULT_BAD_ROLE:        return "this machine is not in the role that command needs, `handoff` and `promote` run on a standby, `demote` on the active";
     case FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS:     return "a transition or key switch is running, check `failover status`";
+    case FD_FAILOVER_CONTROL_RESULT_NO_ACTIVE_ADDRESS: return "gossip has no address for the active, wait or set [failover.peer_address]";
     case FD_FAILOVER_CONTROL_RESULT_NOT_PAIRED:      return "no standby is paired with this machine";
-    case FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY:    return "the peer's last status is missing, stale, not a standby, busy or stuck";
-    case FD_FAILOVER_CONTROL_RESULT_PEER_ACTIVE:     return "the peer holds the identity, or said so within the last silence window";
+    case FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY:    return "the peer could not finish this request, check its failover status and log";
+    case FD_FAILOVER_CONTROL_RESULT_PEER_ACTIVE:     return "the authenticated peer holds the identity";
     case FD_FAILOVER_CONTROL_RESULT_HANDOFF_PENDING: return "the peer has not answered our last handoff";
-    case FD_FAILOVER_CONTROL_RESULT_TAKEN:           return "the peer took our last handoff and has neither stood by nor restarted since";
+    case FD_FAILOVER_CONTROL_RESULT_TAKEN:           return "the peer took our last handoff and may still be voting";
     case FD_FAILOVER_CONTROL_RESULT_STAKED_SEEN:     return "gossip showed the staked identity at another host within the last 15 seconds, an active is publishing";
     case FD_FAILOVER_CONTROL_RESULT_NO_TOWER:        return "there is no tower to adopt, `failover promote --yes` adopts the vote account";
     case FD_FAILOVER_CONTROL_RESULT_NO_FINAL_TOWER:  return "the tower of our last vote is not known yet, this machine keeps the identity, retry after its next vote";
@@ -118,7 +120,7 @@ failover_control_fn( args_t *        args,
   }
   if( FD_UNLIKELY( !args->failover.yes ) ) {
     if( args->failover.cmd==(int)FD_ADMINCTL_FAILOVER_CMD_HANDOFF ) {
-      FD_LOG_STDOUT(( "This moves the staked identity between the two machines.  Type yes to continue: " ));
+      FD_LOG_STDOUT(( "This asks the active to hand the staked identity to this standby.  Type yes to continue: " ));
     } else if( args->failover.cmd==(int)FD_ADMINCTL_FAILOVER_CMD_DEMOTE ) {
       FD_LOG_STDOUT(( "This gives up the staked identity and tells the other machine nothing.  Nobody\n"
                       "votes until an operator runs `failover promote --yes` there.  Type yes to continue: " ));
@@ -294,8 +296,9 @@ action_t fd_action_failover = {
                     "peer's role and boot id, the peer address we dial and where it came from,\n"
                     "how our last handoff ended, and what `promote` would do right now.\n"
                     "\n"
-                    "The remaining commands drive the controller.  `handoff` moves the staked\n"
-                    "identity to the paired standby and runs on the active.  `demote` gives the\n"
+                    "The remaining commands drive the controller.  Run `handoff` on the standby.\n"
+                    "It dials the active from gossip, takes its final tower and disconnects.\n"
+                    "`demote` gives the\n"
                     "identity up without promoting anyone and runs on the active, the other\n"
                     "machine then needs `failover promote --yes`.  `promote` takes the identity\n"
                     "on a standby on the operator's word, which is also how the first active is\n"

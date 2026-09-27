@@ -19,10 +19,10 @@ fd_failover_clock( void ) {
   return (long)ts.tv_sec*1000000000L + (long)ts.tv_nsec;
 }
 
-/* Timing in nanoseconds.  We send STATUS every interval and a paired
-   session that hears nothing for five intervals is dropped. */
+/* Handshake, operation and retry limits in nanoseconds. */
 #define FD_FAILOVER_STATUS_INTERVAL_NANOS       (   800000000L)
 #define FD_FAILOVER_CHANNEL_SILENCE_NANOS       (5L*FD_FAILOVER_STATUS_INTERVAL_NANOS)
+#define FD_FAILOVER_CHANNEL_IDLE_NANOS          ( 64000000000L)
 #define FD_FAILOVER_CHANNEL_BACKOFF_MIN_NANOS   (   800000000L)
 #define FD_FAILOVER_CHANNEL_BACKOFF_MAX_NANOS   ( 12800000000L)
 #define FD_FAILOVER_CHANNEL_HELLO_TIMEOUT_NANOS (  2000000000L)
@@ -68,11 +68,8 @@ fd_failover_channel_init_listener( fd_failover_channel_t * channel,
                                    uint                    address,
                                    ushort                  port );
 
-/* Sets the address:port we dial while we are a standby and not paired,
-   the configured peer or the active gossip shows.  Address zero means
-   it is not known and nothing is dialed.  Call it again when the
-   address changes, a dial toward the old address is dropped and the new
-   one dialed right away.  A paired session stays up. */
+/* Starts a handoff's dial and retries at address:port.  Address zero
+   stops retries, the caller hangs up after its final frame drains. */
 void
 fd_failover_channel_init_dialer( fd_failover_channel_t * channel,
                                  uint                    address,
@@ -112,10 +109,8 @@ fd_failover_channel_fini( fd_failover_channel_t * channel );
 FD_FN_PURE ulong
 fd_failover_channel_pending( fd_failover_channel_t const * channel );
 
-/* Updates the role we put in HELLO.  A paired session stays up, the
-   HELLO is only read during a handshake.  We dial only as a standby, so
-   an unpaired channel stops dialing when we become active and starts
-   again when we are a standby that knows the active's address. */
+/* Updates the role in the next HELLO.  An open handoff may finish
+   its acknowledgement after the roles change. */
 void
 fd_failover_channel_set_role( fd_failover_channel_t * channel,
                               ulong                   role );

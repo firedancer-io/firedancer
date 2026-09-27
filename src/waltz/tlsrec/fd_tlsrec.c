@@ -237,7 +237,7 @@ static int
 fd_tlsrec_fail( fd_tlsrec_conn_t * conn, uint alert, ushort reason ) {
   conn->hs.base.state  = FD_TLS_HS_FAIL;
   conn->hs.base.reason = reason;
-  FD_LOG_WARNING(( "TLS connection failed (alert %u-%s; reason %u-%s)",
+  if( !conn->application_logs ) FD_LOG_WARNING(( "TLS connection failed (alert %u-%s; reason %u-%s)",
                    alert, fd_tls_alert_cstr( alert ),
                    reason, fd_tls_reason_cstr( reason ) ));
   hs_tbuf.sz = 0U;
@@ -262,7 +262,7 @@ fd_tlsrec_alert_rx( fd_tlsrec_conn_t * conn, uchar const * pt, ulong p_sz ) {
     return FD_TLSREC_SUCCESS;
   }
   if( desc==FD_TLS_ALERT_USER_CANCELED ) return FD_TLSREC_SUCCESS;
-  FD_LOG_WARNING(( "TLS peer sent alert (level %u; alert %u-%s)",
+  if( !conn->application_logs ) FD_LOG_WARNING(( "TLS peer sent alert (level %u; alert %u-%s)",
                    level, desc, fd_tls_alert_cstr( desc ) ));
   conn->hs.base.state  = FD_TLS_HS_FAIL;
   conn->hs.base.reason = FD_TLS_REASON_PEER_ALERT;

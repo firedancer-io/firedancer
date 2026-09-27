@@ -3,7 +3,7 @@ $(call add-objs,fd_failover_proto,fd_discof)
 $(call add-objs,fd_failover_wire,fd_discof)
 
 ifdef FD_HAS_HOSTED
-$(call add-hdrs,fd_failover_channel.h)
+$(call add-hdrs,fd_failover_channel.h fd_failover_log.h)
 $(call add-objs,fd_failover_channel,fd_discof)
 $(call add-objs,fd_failover_tls,fd_discof)
 $(call add-objs,fd_failover_tile,fd_discof)

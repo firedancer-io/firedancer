@@ -132,6 +132,27 @@ fd_failover_status_decode( fd_failover_status_t * out,
   return 1;
 }
 
+int
+fd_failover_handoff_request_decode( fd_failover_handoff_request_t * out,
+                                    uchar const *                  payload,
+                                    ulong                          payload_sz ) {
+  if( FD_UNLIKELY( payload_sz!=sizeof(fd_failover_handoff_request_t) ) ) return 0;
+  fd_failover_handoff_request_t request;
+  fd_memcpy( &request, payload, sizeof(request) );
+  if( FD_UNLIKELY( !request.handoff_id || !request.target_boot_id ) ) return 0;
+  *out = request;
+  return 1;
+}
+
+int
+fd_failover_handoff_result_decode( fd_failover_handoff_result_t * out,
+                                   uchar const *                 payload,
+                                   ulong                         payload_sz ) {
+  if( FD_UNLIKELY( payload_sz!=sizeof(fd_failover_handoff_result_t) ) ) return 0;
+  fd_memcpy( out, payload, sizeof(fd_failover_handoff_result_t) );
+  return 1;
+}
+
 ulong
 fd_failover_demoted_encode( uchar *       out,
                             ulong         handoff_id,

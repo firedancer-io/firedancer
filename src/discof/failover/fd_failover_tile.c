@@ -14,6 +14,7 @@
 
 #include "fd_failover_bus.h"
 #include "fd_failover_channel.h"
+#include "fd_failover_log.h"
 
 #include <string.h>
 #include <sys/socket.h>
@@ -74,17 +75,27 @@ struct fd_failover_tile_ctx {
   ushort                  port;
   fd_failover_channel_t * channel;
   ulong                   channel_state; /* last seen session state, for edge detection */
+  ulong                   channel_pair_cnt; /* catches a replacement paired during one poll */
   long                    poll_at;       /* next idle socket poll */
 
-  fd_failover_status_t    peer_status;       /* last STATUS from the peer */
-  int                     peer_status_valid; /* one arrived in this session */
-  long                    peer_status_time;  /* our clock when it arrived */
-  long                    status_at;         /* when we last sent STATUS */
-  int                     status_sent;       /* sent in this session */
-  ulong                   peer_boot_id;      /* boot_id of the last peer we paired with, 0 none */
-  long                    active_seen_at;    /* our clock when the peer last said ACTIVE, 0 never, kept across sessions */
-  uchar                   active_junk[ 32 ]; /* HELLO junk key of the peer that last said ACTIVE, kept across sessions */
-  ulong                   active_boot_id;    /* and its boot_id, 0 never */
+  ulong                   peer_boot_id;
+
+  ulong request_id;       /* our handoff request, zero when none is open */
+  ulong request_boot_id;  /* the active boot we authenticated for it */
+  uchar request_junk[32];
+  uint  request_addr;     /* kept until the exchange finishes */
+  long  request_until;    /* retry deadline, zero while the operator must retry */
+  int   request_sent;     /* sent on this session */
+  ulong request_last_id;
+  ulong request_result;
+  int   last_requested;   /* status describes our request rather than our demotion */
+  int   close_after_send;
+  ulong close_handoff_id;
+  fd_failover_log_t request_tx_log;
+  fd_failover_log_t demoted_tx_log;
+  fd_failover_log_t reply_tx_log;
+  fd_failover_log_t result_tx_log;
+
   ulong                   peer_floor;        /* highest last vote the peer reported, kept across sessions */
   ulong                   own_floor;         /* highest vote we signed while ACTIVE this boot */
 
@@ -106,6 +117,7 @@ struct fd_failover_tile_ctx {
   int   stuck;          /* a transition failed or is overdue, shown to the operator */
   int   stuck_logged;   /* the stuck value we last told the operator about */
   ulong deadline_slot;  /* replay slot at which this attempt aborts */
+  long  demote_until;   /* also bound the drain when replay stops */
 
   /* Our demotion.  Handoff ids count up from a random base per boot, so
      ids from two boots of ours do not collide. */
@@ -113,13 +125,14 @@ struct fd_failover_tile_ctx {
   ulong handoff_cnt;
   ulong handoff_id;      /* id of our latest demotion */
   ulong handoff_target;  /* peer boot_id it is for, 0 for a demote */
+  uchar handoff_junk[32];
   ulong handoff_result;  /* FD_FAILOVER_HANDOFF_* of the latest DEMOTED */
   int   send_demoted;    /* DEMOTED is owed to the target */
   int   demoted_sent;    /* it went out on this session */
   int   drain_logged;    /* we said once that the junk key is in and we wait for the tower */
   ulong demoted_sz;
   uchar demoted[ FD_FAILOVER_DEMOTED_PAYLOAD_MAX ];
-  int   taken;           /* the peer took the identity and has not stood by or restarted since */
+  int   taken;           /* the peer took the identity; only a new tenure clears this */
   ulong taken_boot_id;
 
   /* Towers a promotion can adopt */
@@ -127,13 +140,13 @@ struct fd_failover_tile_ctx {
   fd_failover_tower_t own_tower;  /* our own final tower from this boot */
 
   /* The promotion in progress */
+  char                promote_label[48]; /* handoff ID or operator promotion, fixed for every step */
   ulong               promote_source;
   int                 promote_peer;       /* the peer's DEMOTED asked for it, we answer it */
   ulong               promote_boot_id;    /* that DEMOTED's peer boot_id */
   ulong               promote_handoff_id; /* and its handoff id */
   ulong               promote_floor;      /* coverage floor when it started */
   int                 promote_force;      /* promote --force, the checks on the peer are skipped */
-  long                promote_active_at;  /* active_seen_at when it started */
   long                promote_staked_at;  /* staked_seen_at when it started */
   long                promote_until;      /* our clock when the replay and adopt waits give up, 0 until armed */
   fd_failover_tower_t adopt;              /* what goes to the tower tile, empty for the vote account */
@@ -143,13 +156,13 @@ struct fd_failover_tile_ctx {
   ulong               floor_acct;         /* the account's last vote in the latest answer short of the floor */
   int                 floor_logged;       /* we said once that we wait for the floor */
   int                 retry_logged;       /* and that we ask the tower tile again as replay moves */
-  int                 raise_logged;       /* and that the peer raised the floor during it */
 
   /* Our last answer to a DEMOTED.  The same DEMOTED again gets the same
      answer, so a peer that missed it is not left waiting. */
   int    reply_valid;
   ulong  reply_boot_id;
   ulong  reply_handoff_id;
+  uchar  reply_junk[32];
   ushort reply_type;   /* PROMOTE_ACK or PROMOTE_REJECTED */
   uchar  reply_reason; /* for a rejected reply */
   int    reply_owed;   /* the reply could not be queued yet, the slot was busy */
@@ -158,6 +171,8 @@ struct fd_failover_tile_ctx {
   ushort pending_type;
   ushort pending_sz;
   int    pending_valid;
+  ulong  pending_boot_id;
+  uchar  pending_junk[32];
   uchar  pending[ FD_FAILOVER_DEMOTED_PAYLOAD_MAX ];
 
   /* The admin tile forwards operator commands over the bus and waits for
@@ -309,7 +324,7 @@ privileged_init( fd_topo_t const *      topo,
   fd_keyload_unload( junk_keypair, 0 );
 
   /* Every member listens on all interfaces, and the sandbox forbids
-     bind.  A configured peer address is dialed while we stand by and
+     bind.  A configured peer address is dialed for a handoff and
      keeps its room on the listener.  Without one we dial nothing until
      gossip gives us the active's address. */
   fd_failover_channel_init_listener( ctx->channel, 0U, tile->failov.port );
@@ -322,8 +337,7 @@ privileged_init( fd_topo_t const *      topo,
                    tile->failov.peer_address, FD_IP4_ADDR_FMT_ARGS( ctx->config_addr ) ));
     }
     fd_failover_channel_expect_peer( ctx->channel, ctx->config_addr );
-    fd_failover_channel_init_dialer( ctx->channel, ctx->config_addr, tile->failov.port );
-    FD_LOG_NOTICE(( "failover peer is `%s` at `" FD_IP4_ADDR_FMT "` from [failover.peer_address], we dial it while we stand by",
+    FD_LOG_NOTICE(( "failover peer is `%s` at `" FD_IP4_ADDR_FMT "` from [failover.peer_address], we dial it for a handoff",
                     tile->failov.peer_address, FD_IP4_ADDR_FMT_ARGS( ctx->config_addr ) ));
   } else {
     FD_LOG_NOTICE(( "no [failover.peer_address], we find the active through the staked identity's contact info in gossip" ));
@@ -443,75 +457,27 @@ request_member_cert( fd_failover_tile_ctx_t * ctx ) {
   FD_LOG_NOTICE(( "the sign tile signed our member certificate with the staked identity, we can pair now" ));
 }
 
-/* A session edge invalidates everything the old session told us.  A
-   new session tells us the peer's boot_id, a new one means it
-   restarted. */
+/* A new connection repeats the request for the same handoff. */
 static void
 sync_session( fd_failover_tile_ctx_t * ctx ) {
   ulong state = fd_failover_channel_state( ctx->channel );
-  if( FD_LIKELY( state==ctx->channel_state ) ) return;
-  ctx->channel_state     = state;
-  ctx->peer_status_valid = 0;
-  ctx->status_sent       = 0;
+  ulong pairs = fd_failover_channel_metrics( ctx->channel )->paired_cnt;
+  if( FD_LIKELY( state==ctx->channel_state && pairs==ctx->channel_pair_cnt ) ) return;
+  ctx->channel_state = state;
+  ctx->channel_pair_cnt = pairs;
+  ctx->request_sent  = 0;
+  if( state!=FD_FAILOVER_SESSION_PAIRED ) ctx->close_after_send = 0;
   if( FD_UNLIKELY( state==FD_FAILOVER_SESSION_PAIRED ) ) {
     ctx->peer_boot_id = fd_failover_channel_peer_hello( ctx->channel )->boot_id;
     ctx->demoted_sent = 0;
-    if( FD_UNLIKELY( ctx->taken && ctx->peer_boot_id!=ctx->taken_boot_id ) ) ctx->taken = 0;
   }
 }
 
-/* A STATUS older than two intervals says nothing about the peer now.
-   The valid flag alone only says one arrived on this session. */
-static int
-peer_status_fresh( fd_failover_tile_ctx_t const * ctx,
-                   long                           now ) {
-  if( FD_UNLIKELY( !ctx->peer_status_valid || now<ctx->peer_status_time ) ) return 0;
-  return fd_long_sat_sub( now, ctx->peer_status_time )<=2L*FD_FAILOVER_STATUS_INTERVAL_NANOS;
-}
-
-/* Our side of STATUS.  The peer drops the session over a slot view that
-   cannot be right, so we fix it up first.  The replay slot we report
-   never falls below our last vote, which runs ahead of replay while a
-   promotion waits for it, and a machine that stopped voting keeps
-   rooting past its last vote. */
-static fd_failover_status_t
-local_status( fd_failover_tile_ctx_t const * ctx,
-              long                           now ) {
-  fd_failover_status_t status;
-  fd_memset( &status, 0, sizeof(status) );
-  status.role           = (uchar)ctx->role;
-  status.replay_slot    = ctx->replay_slot;
-  status.root_slot      = ctx->root_slot;
-  status.last_vote_slot = ctx->last_vote_slot;
-  if( FD_UNLIKELY( status.replay_slot!=FD_FAILOVER_SLOT_NULL &&
-                   status.last_vote_slot!=FD_FAILOVER_SLOT_NULL &&
-                   status.last_vote_slot>status.replay_slot ) ) {
-    status.replay_slot = status.last_vote_slot;
-  }
-  if( FD_UNLIKELY( status.root_slot!=FD_FAILOVER_SLOT_NULL &&
-                   ( ( status.replay_slot!=FD_FAILOVER_SLOT_NULL &&
-                       status.root_slot>status.replay_slot ) ||
-                     ( status.last_vote_slot!=FD_FAILOVER_SLOT_NULL &&
-                       status.root_slot>status.last_vote_slot ) ) ) ) {
-    status.root_slot = FD_FAILOVER_SLOT_NULL;
-  }
-  /* The peer and the operator both get to see busy and stuck. */
-  if( FD_UNLIKELY( ctx->action!=FD_FAILOVER_ACTION_IDLE ) ) status.flags |= (uchar)FD_FAILOVER_STATUS_BUSY;
-  if( FD_UNLIKELY( ctx->stuck )                          ) status.flags |= (uchar)FD_FAILOVER_STATUS_STUCK;
-  status.sent_at        = (ulong)now;
-  status.echo_sent_at   = ctx->peer_status_valid ? ctx->peer_status.sent_at : 0UL;
-  return status;
-}
-
-/* Changes the role we advertise.  The session stays up, the peer paired
-   on our old HELLO role and learns the new one from the STATUS we send
-   right away. */
 static void
 set_role( fd_failover_tile_ctx_t * ctx,
           ulong                    role ) {
-  ctx->role        = role;
-  ctx->hello.role  = (uchar)role;
-  ctx->status_sent = 0;
+  ctx->role       = role;
+  ctx->hello.role = (uchar)role;
   fd_failover_channel_set_role( ctx->channel, role );
 }
 
@@ -569,7 +535,7 @@ static int
 promote_expired( fd_failover_tile_ctx_t const * ctx,
                  long                           now ) {
   if( FD_LIKELY( now<ctx->promote_until ) ) return deadline_expired( ctx );
-  FD_LOG_WARNING(( "the promotion ran out of time with replay at slot %lu, replay may be stuck, check it before another `failover promote`", ctx->replay_slot ));
+  FD_LOG_WARNING(( "%s: the promotion ran out of time with replay at slot %lu, replay may be stuck, check it before another `failover promote`", ctx->promote_label, ctx->replay_slot ));
   return 1;
 }
 
@@ -580,11 +546,15 @@ switch_overdue( fd_failover_tile_ctx_t * ctx ) {
   ctx->stuck = 1;
   if( FD_LIKELY( ctx->switch_overdue ) ) return;
   ctx->switch_overdue = 1;
-  FD_LOG_WARNING(( "the identity switch has not answered inside its deadline, we keep waiting for it, check the admin and sign tile logs" ));
+  char demotion[48];
+  fd_cstr_printf( demotion, sizeof(demotion), NULL, "demotion %lu", ctx->handoff_id );
+  FD_LOG_WARNING(( "%s: identity switch %lu to %s is overdue; its outcome is unknown, we keep waiting and refuse another switch; check the admin and sign tile logs",
+                   ctx->switch_pending_key==FD_FAILOVER_SWITCH_KEY_STAKED ? ctx->promote_label : demotion,
+                   ctx->switch_request_id, ctx->switch_pending_key==FD_FAILOVER_SWITCH_KEY_STAKED ? "staked" : "junk" ));
 }
 
-/* Only one control message can be outstanding at a time.  STATUS is not
-   affected. */
+/* Only one control message can be outstanding at a time.  Its recipient
+   is fixed even if the connection changes before it is sent. */
 static int
 queue_control( fd_failover_tile_ctx_t * ctx,
                ushort                   type,
@@ -594,6 +564,16 @@ queue_control( fd_failover_tile_ctx_t * ctx,
   ctx->pending_type  = type;
   ctx->pending_sz    = (ushort)payload_sz;
   ctx->pending_valid = 1;
+  fd_failover_hello_t const * peer = fd_failover_channel_peer_hello( ctx->channel );
+  ctx->pending_boot_id = peer->boot_id;
+  fd_memcpy( ctx->pending_junk, peer->junk_pubkey, 32UL );
+  if( type==FD_FAILOVER_MSG_DEMOTED ) {
+    ctx->pending_boot_id = ctx->handoff_target;
+    fd_memcpy( ctx->pending_junk, ctx->handoff_junk, 32UL );
+  } else if( type==FD_FAILOVER_MSG_PROMOTE_ACK || type==FD_FAILOVER_MSG_PROMOTE_REJECTED ) {
+    ctx->pending_boot_id = ctx->reply_boot_id;
+    fd_memcpy( ctx->pending_junk, ctx->reply_junk, 32UL );
+  }
   fd_memcpy( ctx->pending, payload, payload_sz );
   return 0;
 }
@@ -619,11 +599,14 @@ finish_reply( fd_failover_tile_ctx_t * ctx,
               ulong                    handoff_id,
               ushort                   type,
               uchar                    reason ) {
+  if( !ctx->reply_valid || ctx->reply_boot_id!=boot_id || ctx->reply_handoff_id!=handoff_id || ctx->reply_type!=type )
+    fd_memset( &ctx->reply_tx_log, 0, sizeof(ctx->reply_tx_log) );
   ctx->reply_valid      = 1;
   ctx->reply_boot_id    = boot_id;
   ctx->reply_handoff_id = handoff_id;
   ctx->reply_type       = type;
   ctx->reply_reason     = reason;
+  fd_memcpy( ctx->reply_junk, ctx->request_junk, 32UL );
   queue_reply( ctx );
 }
 
@@ -633,15 +616,33 @@ pending_flush( fd_failover_tile_ctx_t * ctx,
   if( FD_LIKELY( !ctx->pending_valid ) ) return;
   if( FD_UNLIKELY( fd_failover_channel_state( ctx->channel )!=FD_FAILOVER_SESSION_PAIRED ||
                    fd_failover_channel_tx_pending( ctx->channel ) ) ) return;
-  /* DEMOTED goes only to the peer boot it is for, and only after a
-     STATUS that says we stand by went out on this session. */
-  if( FD_UNLIKELY( ctx->pending_type==(ushort)FD_FAILOVER_MSG_DEMOTED &&
-                   ( ctx->peer_boot_id!=ctx->handoff_target || !ctx->status_sent ) ) ) return;
+  /* A resumed handoff still belongs to the same member and boot. */
+  if( FD_UNLIKELY( ctx->peer_boot_id!=ctx->pending_boot_id ||
+                   !fd_memeq( fd_failover_channel_peer_hello( ctx->channel )->junk_pubkey, ctx->pending_junk, 32UL ) ) ) return;
   if( FD_LIKELY( !fd_failover_channel_send( ctx->channel, now, ctx->pending_type, ctx->pending, ctx->pending_sz ) ) ) {
     if( FD_UNLIKELY( ctx->pending_type==(ushort)FD_FAILOVER_MSG_DEMOTED ) ) {
       ctx->demoted_sent = 1;
-      FD_LOG_NOTICE(( "sent DEMOTED for handoff %lu to peer boot %016lx, our last vote is slot %lu, waiting for its answer",
-                      ctx->handoff_id, ctx->handoff_target, ctx->last_vote_slot ));
+      ulong suppressed;
+      if( fd_failover_log_take( &ctx->demoted_tx_log, now, &suppressed ) )
+        FD_LOG_NOTICE(( "handoff %lu: sent final state (DEMOTED) to peer boot %016lx, last vote slot %lu; we remain standby waiting for its answer (send %lu, %lu repeats suppressed)",
+                        ctx->handoff_id, ctx->handoff_target, ctx->last_vote_slot, ctx->demoted_tx_log.count, suppressed ));
+    }
+    if( ctx->pending_type==FD_FAILOVER_MSG_PROMOTE_ACK || ctx->pending_type==FD_FAILOVER_MSG_PROMOTE_REJECTED ) {
+      ulong suppressed;
+      if( fd_failover_log_take( &ctx->reply_tx_log, now, &suppressed ) )
+        FD_LOG_NOTICE(( "handoff %lu: sent %s to peer boot %016lx; %s, waiting for its final confirmation (send %lu, %lu repeats suppressed)",
+                        ctx->reply_handoff_id, ctx->pending_type==FD_FAILOVER_MSG_PROMOTE_ACK ? "ACK" : "refusal",
+                        ctx->reply_boot_id, ctx->role==FD_FAILOVER_ROLE_ACTIVE ? "we hold the staked identity" : "we remain standby",
+                        ctx->reply_tx_log.count, suppressed ));
+    } else if( ctx->pending_type==FD_FAILOVER_MSG_HANDOFF_RESULT ) {
+      fd_failover_handoff_result_t result;
+      fd_memcpy( &result, ctx->pending, sizeof(result) );
+      ulong suppressed;
+      if( fd_failover_log_take( &ctx->result_tx_log, now, &suppressed ) )
+        FD_LOG_NOTICE(( "handoff %lu: sent %s confirmation to peer boot %016lx; %s (send %lu, %lu repeats suppressed)",
+                        result.handoff_id, result.result==FD_ADMINCTL_RESULT_SUCCESS ? "success" : "refusal", ctx->pending_boot_id,
+                        FD_FAILOVER_ON_DEMAND ? "closing connection after queued bytes drain" : "persistent connection retained for status and snapshots",
+                        ctx->result_tx_log.count, suppressed ));
     }
     ctx->pending_valid = 0;
   }
@@ -799,15 +800,19 @@ start_demotion( fd_failover_tile_ctx_t * ctx,
   int send = handoff && fd_failover_channel_state( ctx->channel )==FD_FAILOVER_SESSION_PAIRED;
   ctx->handoff_id     = ctx->handoff_base+(++ctx->handoff_cnt);
   ctx->handoff_target = send ? ctx->peer_boot_id : 0UL;
+  if( send ) fd_memcpy( ctx->handoff_junk, fd_failover_channel_peer_hello( ctx->channel )->junk_pubkey, 32UL );
   ctx->handoff_result = FD_FAILOVER_HANDOFF_NONE; /* until its DEMOTED goes out */
+  ctx->last_requested = 0;
   ctx->send_demoted   = send;
   ctx->demoted_sent   = 0;
   ctx->drain_logged   = 0;
+  fd_memset( &ctx->demoted_tx_log, 0, sizeof(ctx->demoted_tx_log) );
+  fd_memset( &ctx->result_tx_log, 0, sizeof(ctx->result_tx_log) );
   ctx->stuck          = 0;
-  if( FD_LIKELY( send ) ) FD_LOG_NOTICE(( "handoff %lu to peer boot %016lx started, giving up the staked identity", ctx->handoff_id, ctx->handoff_target ));
-  else                    FD_LOG_NOTICE(( "demotion %lu started without a handoff, giving up the staked identity, no DEMOTED will be sent", ctx->handoff_id ));
+  if( FD_UNLIKELY( !send ) ) FD_LOG_NOTICE(( "demotion %lu started without a handoff, giving up the staked identity, no DEMOTED will be sent", ctx->handoff_id ));
   deadline_start( ctx, FD_FAILOVER_DEADLINE_SLOTS );
   ctx->action = FD_FAILOVER_ACTION_DEMOTE_SWITCH;
+  ctx->demote_until = fd_long_sat_add( fd_failover_clock(), FD_FAILOVER_CHANNEL_IDLE_NANOS );
 }
 
 /* The final tower has to be the tower of our last vote, with no tower
@@ -821,11 +826,11 @@ final_tower_ok( fd_failover_tile_ctx_t const * ctx ) {
 
 /* Called once the junk key is installed everywhere.  Our latest tower is
    the final one, we keep it for a later promote, and a handoff hands it
-   to the peer after a STATUS that says we stand by. */
+   to the peer. */
 static void
 demotion_switched( fd_failover_tile_ctx_t * ctx ) {
   set_role( ctx, FD_FAILOVER_ROLE_STANDBY );
-  FD_LOG_NOTICE(( "the tower drained for demotion %lu, we are a standby now", ctx->handoff_id ));
+  FD_LOG_NOTICE(( "handoff/demotion %lu: the tower drained, we are a standby now", ctx->handoff_id ));
 
   int final_ok = final_tower_ok( ctx );
   if( FD_LIKELY( final_ok ) ) ctx->own_tower = ctx->cs;
@@ -901,25 +906,28 @@ control_refusal( ulong         result,
                  char const ** hint ) {
   switch( result ) {
   case FD_FAILOVER_CONTROL_RESULT_BAD_ROLE:
-    *hint = "`handoff` and `demote` run on the active, `promote` on a standby, see `failover status`";
+    *hint = "`handoff` and `promote` run on a standby, `demote` on the active, see `failover status`";
     return "BAD_ROLE";
   case FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS:
     *hint = "a transition or key switch is running, wait for it, `failover status` shows it";
     return "IN_PROGRESS";
+  case FD_FAILOVER_CONTROL_RESULT_NO_ACTIVE_ADDRESS:
+    *hint = "wait for gossip to show the staked identity, or set [failover.peer_address] to the active";
+    return "NO_ACTIVE_ADDRESS";
   case FD_FAILOVER_CONTROL_RESULT_NOT_PAIRED:
     *hint = "no standby is paired with us, check that it runs and reaches [failover.port] here";
     return "NOT_PAIRED";
   case FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY:
-    *hint = "the peer's last status is missing, stale, not a standby, busy or stuck, see `failover status` on the peer";
+    *hint = "the peer could not finish this request, see `failover status` on the peer";
     return "PEER_UNREADY";
   case FD_FAILOVER_CONTROL_RESULT_PEER_ACTIVE:
-    *hint = "the peer holds the identity or said so recently, run `failover handoff` there, or `failover promote --force` if it cannot sign";
+    *hint = "the peer holds the identity or said so recently, run `failover handoff` here, or `failover promote --force` if it cannot sign";
     return "PEER_ACTIVE";
   case FD_FAILOVER_CONTROL_RESULT_HANDOFF_PENDING:
     *hint = "the peer has not answered our handoff, wait for it, or `failover promote --force` if the peer cannot sign";
     return "HANDOFF_PENDING";
   case FD_FAILOVER_CONTROL_RESULT_TAKEN:
-    *hint = "the peer took our last handoff and may be voting, run `failover handoff` there, or `failover promote --force` if it cannot sign";
+    *hint = "the peer took our last handoff and may be voting, run `failover handoff` here, or `failover promote --force` if it cannot sign";
     return "TAKEN";
   case FD_FAILOVER_CONTROL_RESULT_STAKED_SEEN:
     *hint = "gossip showed the staked identity at another host within 15 seconds, stop it or wait, or `failover promote --force` if it cannot sign";
@@ -947,16 +955,17 @@ reject_promotion( fd_failover_tile_ctx_t * ctx,
   ctx->stuck  = 1;
   ctx->action = FD_FAILOVER_ACTION_IDLE;
   if( FD_UNLIKELY( !ctx->promote_peer ) ) {
-    FD_LOG_WARNING(( "promotion failed (%s), we stay a standby, check that one machine votes and see `failover status` before another `failover promote`", reject_name( reason ) ));
+    FD_LOG_WARNING(( "%s: promotion failed (%s), we stay a standby, check that one machine votes and see `failover status` before another `failover promote`", ctx->promote_label, reject_name( reason ) ));
     return;
   }
   ctx->promote_peer = 0;
+  ctx->action = FD_FAILOVER_ACTION_HANDOFF_WAIT_RESULT;
+  ctx->request_until = fd_long_sat_add( fd_failover_clock(), FD_FAILOVER_CHANNEL_IDLE_NANOS );
   FD_LOG_WARNING(( "refusing the peer's handoff %lu (%s), the peer stays a standby, nobody votes until `failover promote` runs on one machine", ctx->promote_handoff_id, reject_name( reason ) ));
   finish_reply( ctx, ctx->promote_boot_id, ctx->promote_handoff_id, (ushort)FD_FAILOVER_MSG_PROMOTE_REJECTED, reason );
 }
 
-/* The coverage floor, the highest of the last votes the peer reported
-   and the votes we signed while active this boot. */
+/* The floor joins the final votes handed to us and our own signed votes. */
 static ulong
 coverage_floor( fd_failover_tile_ctx_t const * ctx ) {
   if( FD_UNLIKELY( ctx->peer_floor==FD_FAILOVER_SLOT_NULL ) ) return ctx->own_floor;
@@ -980,6 +989,8 @@ start_promotion( fd_failover_tile_ctx_t * ctx,
     ctx->adopt.tip   = FD_FAILOVER_SLOT_NULL;
     ctx->adopt.sz    = 0UL;
   }
+  if( from_peer ) fd_cstr_printf( ctx->promote_label, sizeof(ctx->promote_label), NULL, "handoff %lu", ctx->promote_handoff_id );
+  else            fd_cstr_printf( ctx->promote_label, sizeof(ctx->promote_label), NULL, "operator promotion" );
   ctx->promote_source = source;
   ctx->promote_peer   = from_peer;
   ctx->promote_floor  = coverage_floor( ctx );
@@ -987,7 +998,6 @@ start_promotion( fd_failover_tile_ctx_t * ctx,
   ctx->promote_until  = 0L; /* armed by the first wait */
   /* What we knew of another holder at the start, promote_holder_seen
      looks for anything newer. */
-  ctx->promote_active_at = ctx->active_seen_at;
   ctx->promote_staked_at = ctx->staked_seen_at;
   /* Until this tenure votes, its final tower is exactly the adopted one,
      never a tower cached from an earlier tenure. */
@@ -998,14 +1008,12 @@ start_promotion( fd_failover_tile_ctx_t * ctx,
   ctx->floor_acct     = FD_FAILOVER_SLOT_NULL;
   ctx->floor_logged   = 0;
   ctx->retry_logged   = 0;
-  ctx->raise_logged   = 0;
   ctx->stuck          = 0;
-  ctx->status_sent    = 0; /* the peer sees us busy right away */
   deadline_start( ctx, FD_FAILOVER_DEADLINE_SLOTS );
   ctx->action = FD_FAILOVER_ACTION_PROMOTE_WAIT_REPLAY;
   if( FD_UNLIKELY( ctx->adopt.tip!=FD_FAILOVER_SLOT_NULL &&
                    ( ctx->replay_slot==FD_FAILOVER_SLOT_NULL || ctx->replay_slot<ctx->adopt.tip ) ) ) {
-    FD_LOG_NOTICE(( "the promotion waits for replay to reach slot %lu before it adopts %s", ctx->adopt.tip, source_name( source ) ));
+    FD_LOG_NOTICE(( "%s: the promotion waits for replay to reach slot %lu before it adopts %s", ctx->promote_label, ctx->adopt.tip, source_name( source ) ));
   }
 }
 
@@ -1027,22 +1035,12 @@ floor_covered( fd_failover_tile_ctx_t const * ctx ) {
          ctx->replay_slot>fd_ulong_sat_add( floor, FD_FAILOVER_FLOOR_SLACK_SLOTS );
 }
 
-/* Whether someone else may have taken the identity since our promotion
-   started, asked again right before our staked switch.  The peer saying
-   ACTIVE on this session stops any promotion.  An operator promote also
-   stops on the peer saying ACTIVE since it started, paired or not, and
-   on a new staked contact info from another host.  --force skips this
-   like the guard. */
+/* A requested handoff has its final tower, an operator promote still
+   stops on a new staked contact info unless it used --force. */
 static int
 promote_holder_seen( fd_failover_tile_ctx_t const * ctx ) {
-  if( FD_UNLIKELY( ctx->promote_force ) ) return 0;
-  if( FD_LIKELY( fd_failover_channel_state( ctx->channel )==FD_FAILOVER_SESSION_PAIRED ) ) {
-    uchar peer_role = ctx->peer_status_valid ? ctx->peer_status.role : fd_failover_channel_peer_hello( ctx->channel )->role;
-    if( FD_UNLIKELY( peer_role==(uchar)FD_FAILOVER_ROLE_ACTIVE ) ) return 1;
-  }
-  if( FD_UNLIKELY( ctx->promote_peer ) ) return 0;
-  return ctx->active_seen_at!=ctx->promote_active_at ||
-         ctx->staked_seen_at!=ctx->promote_staked_at;
+  if( FD_UNLIKELY( ctx->promote_force || ctx->promote_peer ) ) return 0;
+  return ctx->staked_seen_at!=ctx->promote_staked_at;
 }
 
 /* Move the current transition along.  Each step waits on one thing, the
@@ -1060,8 +1058,13 @@ step_controller( fd_failover_tile_ctx_t * ctx,
 
   switch( ctx->action ) {
 
+  case FD_FAILOVER_ACTION_HANDOFF_WAIT_PEER:
+  case FD_FAILOVER_ACTION_HANDOFF_WAIT_RESULT:
+    return;
+
   case FD_FAILOVER_ACTION_DEMOTE_SWITCH: {
     deadline_arm( ctx, FD_FAILOVER_DEADLINE_SLOTS );
+    int expired = deadline_expired( ctx ) || ( ctx->demote_until && fd_failover_clock()>=ctx->demote_until );
     if( FD_UNLIKELY( ctx->switch_pending_key==FD_FAILOVER_SWITCH_KEY_CNT && !ctx->switch_result_fresh ) ) {
       if( FD_UNLIKELY( request_switch( ctx, stem, FD_FAILOVER_SWITCH_KEY_JUNK )==ULONG_MAX ) ) {
         /* The request never went out and we still have the identity, so
@@ -1070,14 +1073,14 @@ step_controller( fd_failover_tile_ctx_t * ctx,
         demotion_abort( ctx );
         return;
       }
-      FD_LOG_NOTICE(( "asked the admin tile to install the junk identity for demotion %lu", ctx->handoff_id ));
+      FD_LOG_NOTICE(( "handoff/demotion %lu: asked the admin tile to install the junk identity", ctx->handoff_id ));
       return;
     }
     if( FD_LIKELY( !ctx->switch_result_fresh ) ) {
       /* No answer yet.  We do not know whether the junk key got installed,
          so we claim nothing and keep waiting, the late answer still counts.
          Past the deadline we raise stuck for the operator. */
-      if( FD_UNLIKELY( deadline_expired( ctx ) ) ) switch_overdue( ctx );
+      if( FD_UNLIKELY( expired ) ) switch_overdue( ctx );
       return;
     }
     if( FD_UNLIKELY( ctx->switch_result.result!=FD_FAILOVER_SWITCH_OK ) ) {
@@ -1096,11 +1099,11 @@ step_controller( fd_failover_tile_ctx_t * ctx,
        be missing from DEMOTED.  Same link, same counter, so the wait is
        exact. */
     if( FD_UNLIKELY( !ctx->drain_logged ) ) {
-      FD_LOG_NOTICE(( "the junk identity is installed for demotion %lu, waiting for the tower to drain up to seq %lu", ctx->handoff_id, ctx->switch_result.tower_watermark ));
+      FD_LOG_NOTICE(( "handoff/demotion %lu: the junk identity is installed, waiting for the tower to drain up to seq %lu", ctx->handoff_id, ctx->switch_result.tower_watermark ));
       ctx->drain_logged = 1;
     }
     if( FD_UNLIKELY( !fd_seq_ge( fd_seq_inc( ctx->tower_seen_seq, 1UL ), ctx->switch_result.tower_watermark ) ) ) {
-      if( FD_UNLIKELY( deadline_expired( ctx ) ) ) {
+      if( FD_UNLIKELY( expired ) ) {
         /* The identity is gone from here, so we stand by and send
            nothing, nobody can promote on it. */
         FD_LOG_WARNING(( "the tower stream never reached the watermark %lu, demotion %lu sends nothing, nobody votes until `failover promote --yes` runs on one machine", ctx->switch_result.tower_watermark, ctx->handoff_id ));
@@ -1124,19 +1127,19 @@ step_controller( fd_failover_tile_ctx_t * ctx,
     /* A new peer boot came back on its junk key, it never took the
        identity from this DEMOTED. */
     if( FD_UNLIKELY( fd_failover_channel_state( ctx->channel )==FD_FAILOVER_SESSION_PAIRED &&
+                     fd_memeq( fd_failover_channel_peer_hello( ctx->channel )->junk_pubkey, ctx->handoff_junk, 32UL ) &&
                      ctx->peer_boot_id!=ctx->handoff_target ) ) {
-      FD_LOG_WARNING(( "the peer restarted before it answered handoff %lu, it did not take the identity, nobody votes until `failover promote` runs here", ctx->handoff_id ));
+      FD_LOG_WARNING(( "the peer restarted before it answered handoff %lu; it may have voted before restarting, nobody votes until `failover promote` runs here", ctx->handoff_id ));
       handoff_resolved( ctx, FD_FAILOVER_HANDOFF_RESTARTED );
       return;
     }
-    /* We resend DEMOTED on each new session with the same peer boot until
-       it answers. */
+    /* A reconnect from the same member can finish its handoff. */
     if( FD_UNLIKELY( ctx->send_demoted && !ctx->demoted_sent && !ctx->pending_valid ) ) {
       (void)queue_control( ctx, (ushort)FD_FAILOVER_MSG_DEMOTED, ctx->demoted, ctx->demoted_sz );
     }
-    if( FD_UNLIKELY( deadline_expired( ctx ) ) ) {
+    if( FD_UNLIKELY( deadline_expired( ctx ) || ( ctx->demote_until && fd_failover_clock()>=ctx->demote_until ) ) ) {
       if( FD_UNLIKELY( !ctx->stuck ) )
-        FD_LOG_WARNING(( "the peer has not answered handoff %lu, still retrying, check `failover status` and the log on the peer", ctx->handoff_id ));
+        FD_LOG_WARNING(( "the peer has not answered handoff %lu; we remain standby and will resend final state when it reconnects; check `failover status` and the log on the peer", ctx->handoff_id ));
       ctx->stuck = 1;
     }
     return;
@@ -1158,7 +1161,7 @@ step_controller( fd_failover_tile_ctx_t * ctx,
       reject_promotion( ctx, FD_FAILOVER_REJECT_ADOPTION_FAILED, 0 );
       return;
     }
-    FD_LOG_NOTICE(( "asking the tower tile to adopt %s", source_name( ctx->promote_source ) ));
+    FD_LOG_NOTICE(( "%s: asking the tower tile to adopt %s", ctx->promote_label, source_name( ctx->promote_source ) ));
     ctx->adopt_expected_id = id;
     ctx->adopt_retry       = 0;
     ctx->action            = FD_FAILOVER_ACTION_PROMOTE_WAIT_ADOPT;
@@ -1191,7 +1194,7 @@ step_controller( fd_failover_tile_ctx_t * ctx,
     if( FD_UNLIKELY( ctx->adopt_result_id!=ctx->adopt_expected_id ) ) return;
     if( FD_UNLIKELY( ctx->adopt_result.result==FD_TOWER_ADOPT_ERR_UNREPLAYED ) ) {
       if( FD_UNLIKELY( !ctx->retry_logged ) ) {
-        FD_LOG_NOTICE(( "the tower tile has not replayed every block the tower votes on, asking again as replay moves" ));
+        FD_LOG_NOTICE(( "%s: the tower tile has not replayed every block the tower votes on, asking again as replay moves", ctx->promote_label ));
         ctx->retry_logged = 1;
       }
       ctx->adopt_retry      = 1;
@@ -1199,7 +1202,7 @@ step_controller( fd_failover_tile_ctx_t * ctx,
       return;
     }
     if( FD_UNLIKELY( ctx->adopt_result.result!=FD_TOWER_ADOPT_SUCCESS ) ) {
-      FD_LOG_WARNING(( "the tower tile refused %s (%s)", source_name( ctx->promote_source ), adopt_err_name( ctx->adopt_result.result ) ));
+      FD_LOG_WARNING(( "%s: the tower tile refused %s (%s)", ctx->promote_label, source_name( ctx->promote_source ), adopt_err_name( ctx->adopt_result.result ) ));
       ulong result = ctx->adopt_result.result;
       reject_promotion( ctx, result==FD_TOWER_ADOPT_ERR_BLOCK_MISMATCH ? FD_FAILOVER_REJECT_ADOPTION_MISMATCH
                                                                        : FD_FAILOVER_REJECT_ADOPTION_FAILED,
@@ -1211,7 +1214,7 @@ step_controller( fd_failover_tile_ctx_t * ctx,
       /* The tower tile keeps the prefix replay has produced, so a tower
          that ends short of its last vote would leave lockouts behind.
          That is a mismatch, not a promotion. */
-      FD_LOG_WARNING(( "the adopted tower ends at slot %lu, the tower says %lu, replay does not have its last vote, so it is a mismatch", ctx->adopt_result.vote_slot, ctx->adopt.tip ));
+      FD_LOG_WARNING(( "%s: the adopted tower ends at slot %lu, the tower says %lu, replay does not have its last vote, so it is a mismatch", ctx->promote_label, ctx->adopt_result.vote_slot, ctx->adopt.tip ));
       reject_promotion( ctx, FD_FAILOVER_REJECT_ADOPTION_MISMATCH, 1 );
       return;
     }
@@ -1227,14 +1230,14 @@ step_controller( fd_failover_tile_ctx_t * ctx,
       if( FD_UNLIKELY( !ctx->floor_logged ) ) {
         if( FD_LIKELY( acct ) ) {
           if( FD_UNLIKELY( ctx->adopt_result.acct_vote_slot==FD_FAILOVER_SLOT_NULL ) ) {
-            FD_LOG_NOTICE(( "the vote account has no vote yet, waiting for one at or past the coverage floor at slot %lu, or for replay to pass slot %lu",
+            FD_LOG_NOTICE(( "%s: the vote account has no vote yet, waiting for one at or past the coverage floor at slot %lu, or for replay to pass slot %lu", ctx->promote_label,
                             ctx->promote_floor, fd_ulong_sat_add( ctx->promote_floor, FD_FAILOVER_FLOOR_SLACK_SLOTS ) ));
           } else {
-            FD_LOG_NOTICE(( "the vote account's last vote is slot %lu, waiting for it to reach the coverage floor at slot %lu, or for replay to pass slot %lu",
+            FD_LOG_NOTICE(( "%s: the vote account's last vote is slot %lu, waiting for it to reach the coverage floor at slot %lu, or for replay to pass slot %lu", ctx->promote_label,
                             ctx->adopt_result.acct_vote_slot, ctx->promote_floor, fd_ulong_sat_add( ctx->promote_floor, FD_FAILOVER_FLOOR_SLACK_SLOTS ) ));
           }
         } else {
-          FD_LOG_WARNING(( "%s ends at slot %lu, short of the coverage floor at slot %lu, the promotion stops at its deadline",
+          FD_LOG_WARNING(( "%s: %s ends at slot %lu, short of the coverage floor at slot %lu, the promotion stops at its deadline", ctx->promote_label,
                            source_name( ctx->promote_source ), ctx->adopt_result.vote_slot, ctx->promote_floor ));
         }
         ctx->floor_logged = 1;
@@ -1249,8 +1252,8 @@ step_controller( fd_failover_tile_ctx_t * ctx,
     if( FD_UNLIKELY( promote_holder_seen( ctx ) ) ) {
       /* The identity may be held elsewhere now, so we do not install it
          too. */
-      FD_LOG_WARNING(( "another machine may hold the identity now, the peer said ACTIVE or gossip showed the staked identity at another host, "
-                       "not installing the staked key, check `failover status` on both machines" ));
+      FD_LOG_WARNING(( "%s: another machine may hold the identity now, gossip showed the staked identity at another host, "
+                       "not installing the staked key, check `failover status` on both machines", ctx->promote_label ));
       reject_promotion( ctx, FD_FAILOVER_REJECT_HOLDS_IDENTITY, 0 );
       return;
     }
@@ -1259,7 +1262,7 @@ step_controller( fd_failover_tile_ctx_t * ctx,
       reject_promotion( ctx, FD_FAILOVER_REJECT_ADOPTION_FAILED, 0 );
       return;
     }
-    FD_LOG_NOTICE(( "the tower tile adopted %s, asking the admin tile to install the staked identity", source_name( ctx->promote_source ) ));
+    FD_LOG_NOTICE(( "%s: the tower tile adopted %s, asking the admin tile to install the staked identity", ctx->promote_label, source_name( ctx->promote_source ) ));
     ctx->action = FD_FAILOVER_ACTION_PROMOTE_SWITCH;
     return;
   }
@@ -1271,7 +1274,7 @@ step_controller( fd_failover_tile_ctx_t * ctx,
          promoted while the staked key may well be installed.  So we keep
          waiting and raise stuck past the deadline, the late answer still
          counts. */
-      if( FD_UNLIKELY( deadline_expired( ctx ) ) ) switch_overdue( ctx );
+      if( FD_UNLIKELY( deadline_expired( ctx ) || ( ctx->promote_until && fd_failover_clock()>=ctx->promote_until ) ) ) switch_overdue( ctx );
       return;
     }
     ctx->switch_result_fresh = 0;
@@ -1284,23 +1287,70 @@ step_controller( fd_failover_tile_ctx_t * ctx,
     /* A new tenure starts, the towers we kept are older than its votes. */
     ctx->peer_tower.valid = 0;
     ctx->own_tower.valid  = 0;
+    ctx->taken            = 0;
     ctx->action           = FD_FAILOVER_ACTION_IDLE;
     ctx->stuck            = 0;
     if( FD_UNLIKELY( ctx->last_vote_slot==FD_FAILOVER_SLOT_NULL ) ) {
-      FD_LOG_NOTICE(( "we are the active now, the staked identity is installed with the vote account's tower" ));
+      FD_LOG_NOTICE(( "%s: we are the active now, the staked identity is installed with the vote account's tower", ctx->promote_label ));
     } else {
-      FD_LOG_NOTICE(( "we are the active now, the staked identity is installed and the adopted tower ends at slot %lu", ctx->last_vote_slot ));
+      FD_LOG_NOTICE(( "%s: we are the active now, the staked identity is installed and the adopted tower ends at slot %lu", ctx->promote_label, ctx->last_vote_slot ));
     }
     if( FD_UNLIKELY( ctx->promote_peer ) ) {
       /* The ACK tells the old active its handoff is done.  We keep it as
          our answer, so the same DEMOTED again gets the ACK again. */
       ctx->promote_peer = 0;
+      ctx->action = FD_FAILOVER_ACTION_HANDOFF_WAIT_RESULT;
+      ctx->request_until = fd_long_sat_add( fd_failover_clock(), FD_FAILOVER_CHANNEL_IDLE_NANOS );
       finish_reply( ctx, ctx->promote_boot_id, ctx->promote_handoff_id, (ushort)FD_FAILOVER_MSG_PROMOTE_ACK, (uchar)FD_FAILOVER_REJECT_NONE );
     }
     return;
   }
 
   default: FD_LOG_ERR(( "unexpected failover action %lu", ctx->action ));
+  }
+}
+
+static void
+request_end( fd_failover_tile_ctx_t * ctx, long now, int failed );
+
+/* A lost answer is not a cancellation.  Keep the request and its member
+   binding so another handoff command resumes the same operation. */
+static char const *
+request_wait( fd_failover_tile_ctx_t const * ctx ) {
+  switch( ctx->action ) {
+  case FD_FAILOVER_ACTION_HANDOFF_WAIT_PEER:   return "waiting for final state; the peer may still hold the identity";
+  case FD_FAILOVER_ACTION_PROMOTE_WAIT_REPLAY: return "replay catch-up continues locally; we remain standby";
+  case FD_FAILOVER_ACTION_PROMOTE_WAIT_ADOPT:  return "adoption continues locally; we remain standby";
+  case FD_FAILOVER_ACTION_PROMOTE_SWITCH:     return "the staked key switch continues locally; its outcome is still unknown";
+  case FD_FAILOVER_ACTION_HANDOFF_WAIT_RESULT:
+    return ctx->role==FD_FAILOVER_ROLE_ACTIVE ? "we hold the staked identity; waiting for the peer to confirm our ACK"
+                                               : "we remain standby; waiting for the peer to confirm our refusal";
+  default: return "the local transition is retained";
+  }
+}
+
+static void
+request_pause( fd_failover_tile_ctx_t * ctx,
+               long                     now,
+               char const *             why ) {
+  FD_LOG_WARNING(( "handoff %lu paused (%s): %s; dialing stopped, request ID and authenticated binding retained; check both machines with `failover status`, then repeat `failover handoff` here after local work finishes; recovery requires the peer to be fenced",
+                   ctx->request_id, why, request_wait( ctx ) ));
+  ctx->request_until = 0L;
+  ctx->stuck         = 1;
+  fd_failover_channel_init_dialer( ctx->channel, 0U, 0 );
+  fd_failover_channel_hangup( ctx->channel, now );
+  sync_session( ctx );
+}
+
+/* The old active confirms that it recorded the handoff answer. */
+static void
+handoff_result( fd_failover_tile_ctx_t * ctx,
+                ulong                    id,
+                ulong                    result ) {
+  fd_failover_handoff_result_t answer = { .handoff_id=id, .result=result };
+  if( FD_LIKELY( !queue_control( ctx, FD_FAILOVER_MSG_HANDOFF_RESULT, &answer, sizeof(answer) ) ) ) {
+    ctx->close_after_send = 1;
+    ctx->close_handoff_id = id;
   }
 }
 
@@ -1313,21 +1363,84 @@ handle_control( fd_failover_tile_ctx_t * ctx,
                 long                     now ) {
   switch( type ) {
 
+  case (ushort)FD_FAILOVER_MSG_HANDOFF_REQUEST: {
+    fd_failover_handoff_request_t request;
+    if( FD_UNLIKELY( !fd_failover_handoff_request_decode( &request, ctx->rx, payload_sz ) ) ) break;
+    fd_failover_hello_t const * peer = fd_failover_channel_peer_hello( ctx->channel );
+    if( FD_UNLIKELY( request.target_boot_id!=ctx->hello.boot_id ) ) {
+      handoff_result( ctx, request.handoff_id, FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY );
+      return;
+    }
+    if( FD_UNLIKELY( request.handoff_id==ctx->handoff_id && peer->boot_id==ctx->handoff_target &&
+                     fd_memeq( peer->junk_pubkey, ctx->handoff_junk, 32UL ) ) ) {
+      if( ctx->action==FD_FAILOVER_ACTION_DEMOTE_SWITCH ) return;
+      if( ctx->send_demoted && ctx->action==FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK ) {
+        if( !ctx->pending_valid ) (void)queue_control( ctx, FD_FAILOVER_MSG_DEMOTED, ctx->demoted, ctx->demoted_sz );
+      } else {
+        handoff_result( ctx, request.handoff_id, ctx->handoff_result==FD_FAILOVER_HANDOFF_TAKEN
+                                               ? FD_ADMINCTL_RESULT_SUCCESS : FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY );
+      }
+      return;
+    }
+    ulong result = FD_ADMINCTL_RESULT_SUCCESS;
+    if( ctx->action!=FD_FAILOVER_ACTION_IDLE || ctx->switch_pending_key!=FD_FAILOVER_SWITCH_KEY_CNT || ctx->pending_valid || ctx->close_after_send ) result = FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS;
+    else if( ctx->role!=FD_FAILOVER_ROLE_ACTIVE || peer->role!=FD_FAILOVER_ROLE_STANDBY ) result = FD_FAILOVER_CONTROL_RESULT_BAD_ROLE;
+    else if( !final_tower_ok( ctx ) ) result = FD_FAILOVER_CONTROL_RESULT_NO_FINAL_TOWER;
+    if( FD_UNLIKELY( result!=FD_ADMINCTL_RESULT_SUCCESS ) ) {
+      handoff_result( ctx, request.handoff_id, result );
+      return;
+    }
+    start_demotion( ctx, 1 );
+    ctx->handoff_id = request.handoff_id;
+    char member[ FD_BASE58_ENCODED_32_SZ ];
+    fd_base58_encode_32( peer->junk_pubkey, NULL, member );
+    FD_LOG_NOTICE(( "handoff %lu: accepted request from member %s boot %016lx; preparing to give up the staked identity", ctx->handoff_id, member, ctx->handoff_target ));
+    return;
+  }
+
+  case (ushort)FD_FAILOVER_MSG_HANDOFF_RESULT: {
+    fd_failover_handoff_result_t result;
+    if( FD_UNLIKELY( !fd_failover_handoff_result_decode( &result, ctx->rx, payload_sz ) ) ) break;
+    fd_failover_hello_t const * peer = fd_failover_channel_peer_hello( ctx->channel );
+    if( FD_UNLIKELY( !ctx->request_id || result.handoff_id!=ctx->request_id ||
+                     ctx->request_boot_id!=peer->boot_id || !fd_memeq( ctx->request_junk, peer->junk_pubkey, 32UL ) ) ) return;
+    if( FD_UNLIKELY( ctx->action!=FD_FAILOVER_ACTION_HANDOFF_WAIT_PEER &&
+                     ctx->action!=FD_FAILOVER_ACTION_HANDOFF_WAIT_RESULT ) ) return;
+    int failed = result.result!=FD_ADMINCTL_RESULT_SUCCESS || ctx->role!=FD_FAILOVER_ROLE_ACTIVE;
+    if( failed ) {
+      char const * hint;
+      char const * name = control_refusal( result.result, &hint );
+      FD_LOG_WARNING(( "handoff %lu ended (%s), %s", result.handoff_id, name, hint ));
+    }
+    request_end( ctx, now, failed );
+    if( !failed )
+      FD_LOG_NOTICE(( "handoff %lu complete: the old active confirmed our ACK; we hold the staked identity; %s (request sends %lu)",
+                      result.handoff_id, FD_FAILOVER_ON_DEMAND ? "on-demand connection closed" : "persistent connection retained for status and snapshots", ctx->request_tx_log.count ));
+    else
+      FD_LOG_NOTICE(( "handoff %lu: request ended; %s; %s", result.handoff_id,
+                      ctx->role==FD_FAILOVER_ROLE_ACTIVE ? "we still hold the staked identity" : "we remain standby",
+                      FD_FAILOVER_ON_DEMAND ? "on-demand connection closed" : "persistent connection retained" ));
+    return;
+  }
+
   case (ushort)FD_FAILOVER_MSG_DEMOTED: {
     /* The peer says it can no longer sign and hands us its tower. */
     fd_failover_demoted_t demoted;
     if( FD_UNLIKELY( !fd_failover_demoted_decode( &demoted, ctx->rx, payload_sz ) ) ) break;
     ulong boot_id = ctx->peer_boot_id;
+    fd_failover_hello_t const * peer = fd_failover_channel_peer_hello( ctx->channel );
+    /* Bind before deduplication.  An unsolicited DEMOTED cannot change
+       this operation or replace its cached answer. */
+    if( FD_UNLIKELY( !ctx->request_id || ctx->request_id!=demoted.handoff_id ||
+                     ctx->request_boot_id!=boot_id ||
+                     !fd_memeq( ctx->request_junk, peer->junk_pubkey, 32UL ) ) ) return;
+    if( FD_UNLIKELY( demoted.target_boot_id!=ctx->hello.boot_id ) ) break;
     /* The same DEMOTED again.  While we still work on it we say nothing,
        once we are done we repeat our answer. */
     if( FD_UNLIKELY( ctx->promote_peer && ctx->promote_boot_id==boot_id && ctx->promote_handoff_id==demoted.handoff_id ) ) return;
-    if( FD_UNLIKELY( ctx->reply_valid && ctx->reply_boot_id==boot_id && ctx->reply_handoff_id==demoted.handoff_id ) ) {
+    if( FD_UNLIKELY( ctx->reply_valid && ctx->reply_boot_id==boot_id && ctx->reply_handoff_id==demoted.handoff_id &&
+                     fd_memeq( ctx->reply_junk, peer->junk_pubkey, 32UL ) ) ) {
       queue_reply( ctx );
-      return;
-    }
-    if( FD_UNLIKELY( demoted.target_boot_id!=ctx->hello.boot_id ) ) {
-      FD_LOG_WARNING(( "refusing the peer's handoff %lu, it is for another boot of ours, nobody votes until `failover promote` runs on one machine", demoted.handoff_id ));
-      finish_reply( ctx, boot_id, demoted.handoff_id, (ushort)FD_FAILOVER_MSG_PROMOTE_REJECTED, (uchar)FD_FAILOVER_REJECT_WRONG_TARGET );
       return;
     }
     fd_failover_tower_t tower = { .valid=1, .tip=demoted.last_vote_slot, .sz=(ulong)demoted.state_len };
@@ -1337,28 +1450,18 @@ handle_control( fd_failover_tile_ctx_t * ctx,
     if( FD_UNLIKELY( ctx->role!=FD_FAILOVER_ROLE_STANDBY ) ) {
       reason = FD_FAILOVER_REJECT_HOLDS_IDENTITY;
       why    = "we hold the staked identity";
-    } else if( FD_UNLIKELY( ctx->action!=FD_FAILOVER_ACTION_IDLE ||
+    } else if( FD_UNLIKELY( ctx->action!=FD_FAILOVER_ACTION_HANDOFF_WAIT_PEER ||
                             ctx->switch_pending_key!=FD_FAILOVER_SWITCH_KEY_CNT ) ) {
       reason = FD_FAILOVER_REJECT_BUSY;
       why    = "a transition or key switch is running here";
-    } else if( FD_UNLIKELY( !ctx->peer_status_valid ||
-                            ctx->peer_status.role!=(uchar)FD_FAILOVER_ROLE_STANDBY ) ) {
-      reason = FD_FAILOVER_REJECT_HOLDS_IDENTITY;
-      why    = "the peer's last status does not say it stands by";
-    } else if( FD_UNLIKELY( ctx->peer_boot_id!=ctx->active_boot_id ||
-                            !fd_memeq( fd_failover_channel_peer_hello( ctx->channel )->junk_pubkey, ctx->active_junk, 32UL ) ) ) {
-      /* Only the member we last saw active hands the identity over.  This
-         catches an honest mistake, a member that said ACTIVE first still
-         gets through. */
-      reason = FD_FAILOVER_REJECT_HOLDS_IDENTITY;
-      why    = "the peer is not the member we last saw active, check that these two machines are meant to be a pair";
     }
     if( FD_UNLIKELY( reason!=FD_FAILOVER_REJECT_NONE ) ) {
       FD_LOG_WARNING(( "refusing the peer's handoff %lu (%s), %s, the peer stays a standby", demoted.handoff_id, reject_name( reason ), why ));
       finish_reply( ctx, boot_id, demoted.handoff_id, (ushort)FD_FAILOVER_MSG_PROMOTE_REJECTED, reason );
       return;
     }
-    FD_LOG_NOTICE(( "the peer handed us the identity with handoff %lu, its tower ends at slot %lu", demoted.handoff_id, tower.tip ));
+    FD_LOG_NOTICE(( "handoff %lu: accepted the peer's final tower ending at slot %lu; waiting for local adoption before taking the identity", demoted.handoff_id, tower.tip ));
+    if( ctx->peer_floor==FD_FAILOVER_SLOT_NULL || tower.tip>ctx->peer_floor ) ctx->peer_floor = tower.tip;
     ctx->peer_tower         = tower;
     ctx->promote_boot_id    = boot_id;
     ctx->promote_handoff_id = demoted.handoff_id;
@@ -1375,12 +1478,15 @@ handle_control( fd_failover_tile_ctx_t * ctx,
     /* Nothing went out yet while the junk switch is in flight, so an ACK
        here answers nothing and must not end the demotion early. */
     if( FD_UNLIKELY( !ctx->send_demoted || ack.handoff_id!=ctx->handoff_id ||
+                     ctx->peer_boot_id!=ctx->handoff_target ||
+                     !fd_memeq( fd_failover_channel_peer_hello( ctx->channel )->junk_pubkey, ctx->handoff_junk, 32UL ) ||
                      ctx->action==FD_FAILOVER_ACTION_DEMOTE_SWITCH ) ) return;
-    FD_LOG_NOTICE(( "the peer took the identity with handoff %lu, we stay a standby", ack.handoff_id ));
+    FD_LOG_NOTICE(( "handoff %lu: received ACK, the peer took the staked identity; recording TAKEN and staying standby", ack.handoff_id ));
     handoff_resolved( ctx, FD_FAILOVER_HANDOFF_TAKEN );
     ctx->taken         = 1;
     ctx->taken_boot_id = ctx->handoff_target;
     ctx->stuck         = 0;
+    handoff_result( ctx, ack.handoff_id, FD_ADMINCTL_RESULT_SUCCESS );
     return;
   }
 
@@ -1389,10 +1495,13 @@ handle_control( fd_failover_tile_ctx_t * ctx,
     fd_failover_promote_rejected_t rej;
     if( FD_UNLIKELY( !fd_failover_promote_rejected_decode( &rej, ctx->rx, payload_sz ) ) ) break;
     if( FD_UNLIKELY( !ctx->send_demoted || rej.handoff_id!=ctx->handoff_id ||
+                     ctx->peer_boot_id!=ctx->handoff_target ||
+                     !fd_memeq( fd_failover_channel_peer_hello( ctx->channel )->junk_pubkey, ctx->handoff_junk, 32UL ) ||
                      ctx->action==FD_FAILOVER_ACTION_DEMOTE_SWITCH ) ) return;
     FD_LOG_WARNING(( "the peer declined handoff %lu (%s), nobody votes, see the peer's log, `failover promote` here takes the identity back", rej.handoff_id, reject_name( rej.reason ) ));
     handoff_resolved( ctx, FD_FAILOVER_HANDOFF_DECLINED );
     ctx->stuck = 1;
+    handoff_result( ctx, rej.handoff_id, FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY );
     return;
   }
 
@@ -1403,92 +1512,84 @@ handle_control( fd_failover_tile_ctx_t * ctx,
   sync_session( ctx );
 }
 
-/* Take in a STATUS from the peer, its role is the peer's current
-   role. */
+/* Finish an answered operation or a recovery explicitly accepted by the operator. */
 static void
-handle_status( fd_failover_tile_ctx_t *     ctx,
-               fd_failover_status_t const * status,
-               long                         now ) {
-  ctx->peer_status       = *status;
-  ctx->peer_status_valid = 1;
-  ctx->peer_status_time  = now;
-  /* Every last vote the peer reports raises the floor a promotion has to
-     cover.  A standby builds no votes, so its last vote is one the staked
-     identity signed too, like the final votes of a peer that just stood
-     down. */
-  if( FD_LIKELY( status->last_vote_slot!=FD_FAILOVER_SLOT_NULL &&
-                 ( ctx->peer_floor==FD_FAILOVER_SLOT_NULL || status->last_vote_slot>ctx->peer_floor ) ) ) {
-    ctx->peer_floor = status->last_vote_slot;
-    /* A promotion that has not adopted yet has to cover it too. */
-    if( FD_UNLIKELY( ctx->action==FD_FAILOVER_ACTION_PROMOTE_WAIT_REPLAY ||
-                     ctx->action==FD_FAILOVER_ACTION_PROMOTE_WAIT_ADOPT ) ) {
-      ctx->promote_floor = coverage_floor( ctx );
-      if( FD_UNLIKELY( !ctx->raise_logged ) ) {
-        FD_LOG_NOTICE(( "the peer reported a vote at slot %lu while we promote, the promotion has to cover it and any later one it reports", status->last_vote_slot ));
-        ctx->raise_logged = 1;
-      }
-    }
-  }
-  if( FD_UNLIKELY( status->role==(uchar)FD_FAILOVER_ROLE_ACTIVE ) ) {
-    /* The peer holds the identity.  A tower it gave us earlier is older
-       than its votes now. */
-    ctx->active_seen_at   = now;
-    ctx->peer_tower.valid = 0;
-    /* A later DEMOTED is taken only from this member and boot. */
-    fd_memcpy( ctx->active_junk, fd_failover_channel_peer_hello( ctx->channel )->junk_pubkey, 32UL );
-    ctx->active_boot_id = ctx->peer_boot_id;
-  } else {
-    ctx->taken = 0; /* it stood by since it took the identity */
-  }
+request_end( fd_failover_tile_ctx_t * ctx,
+             long                     now,
+             int                      failed ) {
+  FD_TEST( ctx->switch_pending_key==FD_FAILOVER_SWITCH_KEY_CNT &&
+           ( ctx->action==FD_FAILOVER_ACTION_HANDOFF_WAIT_PEER || ctx->action==FD_FAILOVER_ACTION_HANDOFF_WAIT_RESULT ) );
+  ctx->request_result   = failed ? FD_FAILOVER_HANDOFF_DECLINED : FD_FAILOVER_HANDOFF_TAKEN;
+  ctx->request_id       = 0UL;
+  ctx->request_until    = 0L;
+  ctx->pending_valid    = 0;
+  ctx->reply_owed       = 0;
+  ctx->close_after_send = 0;
+  ctx->action           = FD_FAILOVER_ACTION_IDLE;
+  ctx->stuck            = failed;
+  fd_failover_channel_init_dialer( ctx->channel, 0U, 0 );
+  fd_failover_channel_hangup( ctx->channel, now );
+  sync_session( ctx );
 }
 
-/* Drive the session from the run loop.  Channel time is the monotonic
-   clock, wall clock steps must not drop a healthy session. */
+/* The standby dials only while its operator's handoff is open. */
 static void
 peer_poll( fd_failover_tile_ctx_t * ctx,
            long                     now,
            int *                    charge_busy ) {
   sync_session( ctx );
+  if( FD_UNLIKELY( ctx->request_id && ctx->request_until && now>=ctx->request_until &&
+                   ( ctx->action==FD_FAILOVER_ACTION_HANDOFF_WAIT_PEER ||
+                     ctx->action==FD_FAILOVER_ACTION_HANDOFF_WAIT_RESULT ) ) ) {
+    request_pause( ctx, now, "no final answer before the 64-second deadline" );
+    return;
+  }
+  if( FD_UNLIKELY( ctx->close_after_send && !ctx->pending_valid && !fd_failover_channel_tx_pending( ctx->channel ) ) ) {
+    ctx->close_after_send = 0;
+    fd_failover_channel_hangup( ctx->channel, now );
+    FD_LOG_NOTICE(( "handoff %lu: confirmation drained, on-demand connection closed; listener ready for the next request", ctx->close_handoff_id ));
+    sync_session( ctx );
+    return;
+  }
 
   ushort type;
   ulong  payload_sz;
   if( FD_UNLIKELY( fd_failover_channel_poll( ctx->channel, now, charge_busy, &type, ctx->rx, &payload_sz ) ) ) {
-    /* The pairing can complete inside the poll, so the session edge is
-       taken before the frame. */
     sync_session( ctx );
-    if( FD_LIKELY( type==(ushort)FD_FAILOVER_MSG_STATUS ) ) {
-      fd_failover_status_t status;
-      if( FD_UNLIKELY( !fd_failover_status_decode( &status, ctx->rx, payload_sz ) ) ) {
-        fd_failover_channel_protocol_error( ctx->channel, now );
-        sync_session( ctx );
-        return;
-      }
-      handle_status( ctx, &status, now );
-    } else {
-      handle_control( ctx, type, payload_sz, now );
-    }
+    handle_control( ctx, type, payload_sz, now );
   }
-
   sync_session( ctx );
-  if( FD_UNLIKELY( fd_failover_channel_state( ctx->channel )!=FD_FAILOVER_SESSION_PAIRED ) ) return;
-
-  /* The first STATUS goes out right after pairing or a role change, then
-     one per interval. */
-  int status_due = !ctx->status_sent ||
-                   now<ctx->status_at ||
-                   fd_long_sat_sub( now, ctx->status_at )>=FD_FAILOVER_STATUS_INTERVAL_NANOS;
-  if( FD_UNLIKELY( status_due && !fd_failover_channel_tx_pending( ctx->channel ) ) ) {
-    fd_failover_status_t status = local_status( ctx, now );
-    if( FD_LIKELY( !fd_failover_channel_send( ctx->channel, now, (ushort)FD_FAILOVER_MSG_STATUS,
-                                              (uchar const *)&status, sizeof(status) ) ) ) {
-      ctx->status_at   = now;
-      ctx->status_sent = 1;
-      *charge_busy     = 1;
+  if( FD_LIKELY( !ctx->request_id || !ctx->request_until || ctx->request_sent ||
+                 fd_failover_channel_state( ctx->channel )!=FD_FAILOVER_SESSION_PAIRED ) ) return;
+  fd_failover_hello_t const * peer = fd_failover_channel_peer_hello( ctx->channel );
+  if( FD_UNLIKELY( !ctx->request_boot_id ) ) {
+    if( FD_UNLIKELY( peer->role!=FD_FAILOVER_ROLE_ACTIVE ) ) {
+      FD_LOG_WARNING(( "the address for handoff %lu is a standby, wait for gossip to show the active and retry", ctx->request_id ));
+      request_end( ctx, now, 1 );
+      return;
     }
+    ctx->request_boot_id = peer->boot_id;
+    fd_memcpy( ctx->request_junk, peer->junk_pubkey, 32UL );
+  } else if( FD_UNLIKELY( peer->boot_id!=ctx->request_boot_id || !fd_memeq( peer->junk_pubkey, ctx->request_junk, 32UL ) ) ) {
+    request_pause( ctx, now, "authenticated member or boot changed" );
+    return;
   }
-
-  sync_session( ctx );
+  fd_failover_handoff_request_t request = { .handoff_id=ctx->request_id, .target_boot_id=ctx->request_boot_id };
+  if( FD_LIKELY( !fd_failover_channel_send( ctx->channel, now, FD_FAILOVER_MSG_HANDOFF_REQUEST,
+                                          (uchar const *)&request, sizeof(request) ) ) ) {
+    ctx->request_sent = 1;
+    ulong suppressed;
+    if( fd_failover_log_take( &ctx->request_tx_log, now, &suppressed ) ) {
+      char member[ FD_BASE58_ENCODED_32_SZ ];
+      fd_base58_encode_32( ctx->request_junk, NULL, member );
+      FD_LOG_NOTICE(( "handoff %lu: sent REQUEST to authenticated member %s boot %016lx at `" FD_IP4_ADDR_FMT ":%hu`; %s (send %lu, %lu retries suppressed)",
+                      ctx->request_id, member, ctx->request_boot_id, FD_IP4_ADDR_FMT_ARGS( ctx->request_addr ), ctx->port,
+                      request_wait( ctx ), ctx->request_tx_log.count, suppressed ));
+    }
+    *charge_busy = 1;
+  }
 }
+
 
 /* Whether an operator promote may go ahead now.  Returns the refusal,
    or FD_ADMINCTL_RESULT_SUCCESS.  failover status asks the same for a
@@ -1502,23 +1603,17 @@ promote_guard( fd_failover_tile_ctx_t const * ctx,
 
   if( FD_UNLIKELY( ctx->role!=FD_FAILOVER_ROLE_STANDBY ) )                           return FD_FAILOVER_CONTROL_RESULT_BAD_ROLE;
   if( FD_UNLIKELY( ctx->action==FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK && !force ) )     return FD_FAILOVER_CONTROL_RESULT_HANDOFF_PENDING;
-  if( FD_UNLIKELY( ( ctx->action!=FD_FAILOVER_ACTION_IDLE && ctx->action!=FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK ) ||
+  int request_wait = ctx->request_id &&
+                     ( ctx->action==FD_FAILOVER_ACTION_HANDOFF_WAIT_PEER ||
+                       ctx->action==FD_FAILOVER_ACTION_HANDOFF_WAIT_RESULT );
+  if( FD_UNLIKELY( ( ctx->action!=FD_FAILOVER_ACTION_IDLE && ctx->action!=FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK &&
+                     !( force && request_wait ) ) ||
                    ctx->switch_pending_key!=FD_FAILOVER_SWITCH_KEY_CNT ) )           return FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS;
   if( FD_UNLIKELY( force ) ) return FD_ADMINCTL_RESULT_SUCCESS;
-  /* The peer took our last handoff and has neither stood by nor
-     restarted since, it may still be voting. */
+  /* Losing a session does not prove that the peer stopped voting. */
   if( FD_UNLIKELY( ctx->taken ) ) return FD_FAILOVER_CONTROL_RESULT_TAKEN;
-  /* The peer's own word, its latest STATUS or its HELLO before the
-     first one, or having said ACTIVE within the last silence window,
-     which covers a session that is re-pairing.  A HELLO has no busy
-     bit, so paired we wait for the first STATUS. */
-  if( FD_LIKELY( paired ) ) {
-    uchar peer_role = ctx->peer_status_valid ? ctx->peer_status.role : fd_failover_channel_peer_hello( ctx->channel )->role;
-    if( FD_UNLIKELY( peer_role==(uchar)FD_FAILOVER_ROLE_ACTIVE ) ) return FD_FAILOVER_CONTROL_RESULT_PEER_ACTIVE;
-    if( FD_UNLIKELY( !ctx->peer_status_valid || ( ctx->peer_status.flags & (uchar)FD_FAILOVER_STATUS_BUSY ) ) ) return FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY;
-  }
-  if( FD_UNLIKELY( ctx->active_seen_at && now>=ctx->active_seen_at &&
-                   now-ctx->active_seen_at<FD_FAILOVER_CHANNEL_SILENCE_NANOS ) ) return FD_FAILOVER_CONTROL_RESULT_PEER_ACTIVE;
+  if( FD_UNLIKELY( paired && fd_failover_channel_peer_hello( ctx->channel )->role==FD_FAILOVER_ROLE_ACTIVE ) )
+    return FD_FAILOVER_CONTROL_RESULT_PEER_ACTIVE;
   /* Gossip has a fresh contact info for the staked identity from
      another host, an active is publishing right now. */
   if( FD_UNLIKELY( ctx->staked_seen_at && now>=ctx->staked_seen_at &&
@@ -1546,8 +1641,6 @@ static ulong
 apply_control( fd_failover_tile_ctx_t *               ctx,
                fd_adminctl_failover_control_t const * req,
                long                                   now ) {
-  int paired = fd_failover_channel_state( ctx->channel )==FD_FAILOVER_SESSION_PAIRED;
-
   /* A new command clears stuck, else a standby whose promotion failed
      shows it until a restart and the active refuses every handoff.  A
      transition or switch that still runs keeps it. */
@@ -1556,6 +1649,11 @@ apply_control( fd_failover_tile_ctx_t *               ctx,
   switch( req->cmd ) {
 
   case FD_ADMINCTL_FAILOVER_CMD_DEMOTE: {
+    if( ctx->role==FD_FAILOVER_ROLE_ACTIVE && ctx->request_id &&
+        ctx->action==FD_FAILOVER_ACTION_HANDOFF_WAIT_RESULT && ctx->switch_pending_key==FD_FAILOVER_SWITCH_KEY_CNT ) {
+      FD_LOG_NOTICE(( "handoff %lu: operator demote ends the wait for confirmation; giving up the staked identity locally", ctx->request_id ));
+      request_end( ctx, now, 1 );
+    }
     /* Drop the identity without handing it over.  The peer is not asked
        or told anything, the other machine then needs promote --yes. */
     if( FD_UNLIKELY( ctx->action!=FD_FAILOVER_ACTION_IDLE ) ) return FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS;
@@ -1565,22 +1663,44 @@ apply_control( fd_failover_tile_ctx_t *               ctx,
   }
 
   case FD_ADMINCTL_FAILOVER_CMD_HANDOFF: {
-    /* Demote ourselves and have the peer promote.  Giving the identity to
-       a standby that is stale, busy or stuck leaves nobody voting, so
-       its last STATUS has to say it can take it.  Our own stuck bit is
-       an alarm for the operator, handing off is a way past it. */
-    if( FD_UNLIKELY( ctx->action!=FD_FAILOVER_ACTION_IDLE ) ) return FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS;
-    if( FD_UNLIKELY( ctx->role!=FD_FAILOVER_ROLE_ACTIVE ) )   return FD_FAILOVER_CONTROL_RESULT_BAD_ROLE;
-    if( FD_UNLIKELY( !paired ) )                              return FD_FAILOVER_CONTROL_RESULT_NOT_PAIRED;
-    if( FD_UNLIKELY( !peer_status_fresh( ctx, now ) ||
-                     ctx->peer_status.role!=(uchar)FD_FAILOVER_ROLE_STANDBY ||
-                     ( ctx->peer_status.flags & (uchar)( FD_FAILOVER_STATUS_BUSY|FD_FAILOVER_STATUS_STUCK ) ) ) ) {
-      return FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY;
+    if( FD_UNLIKELY( ctx->request_id && !ctx->request_until &&
+                     ( ctx->action==FD_FAILOVER_ACTION_HANDOFF_WAIT_PEER ||
+                       ctx->action==FD_FAILOVER_ACTION_HANDOFF_WAIT_RESULT ) &&
+                     ctx->switch_pending_key==FD_FAILOVER_SWITCH_KEY_CNT ) ) {
+      ctx->request_until = fd_long_sat_add( now, FD_FAILOVER_CHANNEL_IDLE_NANOS );
+      ctx->request_sent  = 0;
+      ctx->stuck         = 0;
+      if( !ctx->request_boot_id ) {
+        uint addr = ctx->config_addr ? ctx->config_addr : ctx->staked_addr;
+        if( addr ) ctx->request_addr = addr;
+      }
+      fd_failover_channel_init_dialer( ctx->channel, ctx->request_addr, ctx->port );
+      FD_LOG_NOTICE(( "resuming handoff %lu at `" FD_IP4_ADDR_FMT ":%hu`; %s; %s",
+                      ctx->request_id, FD_IP4_ADDR_FMT_ARGS( ctx->request_addr ), ctx->port,
+                      ctx->request_boot_id ? "same authenticated member and boot" : "active has not authenticated yet",
+                      request_wait( ctx ) ));
+      return FD_ADMINCTL_RESULT_SUCCESS;
     }
-    /* Without a final tower the demotion would send nothing and leave
-       nobody voting, so we keep the identity until the next vote. */
-    if( FD_UNLIKELY( !final_tower_ok( ctx ) ) )               return FD_FAILOVER_CONTROL_RESULT_NO_FINAL_TOWER;
-    start_demotion( ctx, 1 );
+    if( FD_UNLIKELY( ctx->action!=FD_FAILOVER_ACTION_IDLE || ctx->switch_pending_key!=FD_FAILOVER_SWITCH_KEY_CNT ) )
+      return FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS;
+    if( FD_UNLIKELY( ctx->role!=FD_FAILOVER_ROLE_STANDBY ) ) return FD_FAILOVER_CONTROL_RESULT_BAD_ROLE;
+    uint addr = ctx->config_addr ? ctx->config_addr : ctx->staked_addr;
+    if( FD_UNLIKELY( !addr ) ) return FD_FAILOVER_CONTROL_RESULT_NO_ACTIVE_ADDRESS;
+    ctx->request_id       = ctx->handoff_base+(++ctx->handoff_cnt);
+    if( FD_UNLIKELY( !ctx->request_id ) ) ctx->request_id = ++ctx->handoff_cnt;
+    ctx->request_boot_id  = 0UL;
+    fd_memset( &ctx->request_tx_log, 0, sizeof(ctx->request_tx_log) );
+    ctx->request_last_id  = ctx->request_id;
+    ctx->request_result   = FD_FAILOVER_HANDOFF_PENDING;
+    ctx->last_requested   = 1;
+    ctx->request_addr     = addr;
+    ctx->request_until    = fd_long_sat_add( now, FD_FAILOVER_CHANNEL_IDLE_NANOS );
+    ctx->request_sent     = 0;
+    ctx->action           = FD_FAILOVER_ACTION_HANDOFF_WAIT_PEER;
+    ctx->close_after_send = 0;
+    fd_failover_channel_init_dialer( ctx->channel, addr, ctx->port );
+    FD_LOG_NOTICE(( "requesting handoff %lu from the active at `" FD_IP4_ADDR_FMT ":%hu` using %s; authenticating the peer before requesting final state",
+                    ctx->request_id, FD_IP4_ADDR_FMT_ARGS( addr ), ctx->port, ctx->config_addr ? "[failover.peer_address]" : "gossip" ));
     return FD_ADMINCTL_RESULT_SUCCESS;
   }
 
@@ -1597,6 +1717,15 @@ apply_control( fd_failover_tile_ctx_t *               ctx,
     ulong source = promote_source( ctx );
     if( FD_UNLIKELY( source==FD_FAILOVER_SOURCE_VOTE_ACCOUNT && !( req->flags & FD_ADMINCTL_FAILOVER_FLAG_YES ) ) ) {
       return FD_FAILOVER_CONTROL_RESULT_NO_TOWER;
+    }
+    /* The operator fenced the peer.  Only a request with no local
+       adoption or key switch in flight can be cancelled for recovery. */
+    if( force && ctx->role==FD_FAILOVER_ROLE_STANDBY && ctx->request_id &&
+        ( ctx->action==FD_FAILOVER_ACTION_HANDOFF_WAIT_PEER || ctx->action==FD_FAILOVER_ACTION_HANDOFF_WAIT_RESULT ) &&
+        ctx->switch_pending_key==FD_FAILOVER_SWITCH_KEY_CNT ) {
+      FD_LOG_NOTICE(( "handoff %lu cancelled by `promote --force` on the operator's word that the peer cannot sign; proceeding with local recovery", ctx->request_id ));
+      request_end( ctx, now, 1 );
+      ctx->request_result = FD_FAILOVER_HANDOFF_CANCELLED;
     }
     if( FD_UNLIKELY( ctx->action==FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK ) ) {
       FD_LOG_WARNING(( "promote --force stops waiting for the peer's answer to handoff %lu", ctx->handoff_id ));
@@ -1627,16 +1756,18 @@ status_snapshot( fd_failover_tile_ctx_t const *       ctx,
   resp->action     = (uchar)ctx->action;
   resp->stuck      = (uchar)!!ctx->stuck;
   resp->link_state = (uchar)fd_failover_channel_state( ctx->channel );
-  if( FD_LIKELY( ctx->peer_status_valid ) ) {
+  if( FD_UNLIKELY( fd_failover_channel_state( ctx->channel )==FD_FAILOVER_SESSION_PAIRED ) ) {
     resp->peer_role_valid = 1;
-    resp->peer_role       = ctx->peer_status.role;
+    resp->peer_role       = fd_failover_channel_peer_hello( ctx->channel )->role;
+    if( ctx->promote_peer || ctx->action==FD_FAILOVER_ACTION_HANDOFF_WAIT_RESULT ) resp->peer_role = FD_FAILOVER_ROLE_STANDBY;
+    if( ctx->taken ) resp->peer_role = FD_FAILOVER_ROLE_ACTIVE;
   }
   resp->peer_boot_id   = ctx->peer_boot_id;
   resp->peer_addr      = ctx->config_addr ? ctx->config_addr : ctx->staked_addr;
   resp->peer_addr_cfg  = (uchar)!!ctx->config_addr;
   resp->peer_port      = ctx->port;
-  resp->handoff_id     = ctx->handoff_id;
-  resp->handoff_result = (uchar)ctx->handoff_result;
+  resp->handoff_id     = ctx->last_requested ? ctx->request_last_id : ctx->handoff_id;
+  resp->handoff_result = (uchar)( ctx->last_requested ? ctx->request_result : ctx->handoff_result );
   resp->promote_source = (uchar)promote_source( ctx );
   resp->promote_floor  = coverage_floor( ctx );
   resp->promote_result = promote_guard( ctx, now, 0 );
@@ -1698,8 +1829,7 @@ serve_bus_request( fd_failover_tile_ctx_t * ctx,
    from the newest staked contact info that is not ours, which is how
    the active shows up.  A remove, IPv6 or zero address never clears what
    we know.  The member certificate authenticates the peer, so a wrong
-   address only costs the pairing.  We dial it only while we are a
-   standby.  With a configured address gossip only says when an active
+   address only costs the pairing.  We dial it when the standby requests a handoff.  With a configured address gossip only says when an active
    last published. */
 static void
 gossip_commit( fd_failover_tile_ctx_t * ctx,
@@ -1714,12 +1844,10 @@ gossip_commit( fd_failover_tile_ctx_t * ctx,
   if( FD_LIKELY( addr==ctx->staked_addr ) ) return;
   uint old_addr = ctx->staked_addr;
   ctx->staked_addr = addr;
-  fd_failover_channel_init_dialer( ctx->channel, addr, ctx->port );
-  sync_session( ctx );
   if( FD_LIKELY( !old_addr ) ) {
-    FD_LOG_NOTICE(( "gossip shows the staked identity at `" FD_IP4_ADDR_FMT "`, we dial it while we stand by", FD_IP4_ADDR_FMT_ARGS( addr ) ));
+    FD_LOG_NOTICE(( "gossip shows the staked identity at `" FD_IP4_ADDR_FMT "`, we dial it for a handoff", FD_IP4_ADDR_FMT_ARGS( addr ) ));
   } else {
-    FD_LOG_NOTICE(( "gossip shows the staked identity moved from `" FD_IP4_ADDR_FMT "` to `" FD_IP4_ADDR_FMT "`, we dial the new address while we stand by",
+    FD_LOG_NOTICE(( "gossip shows the staked identity moved from `" FD_IP4_ADDR_FMT "` to `" FD_IP4_ADDR_FMT "`, the next handoff uses the new address",
                     FD_IP4_ADDR_FMT_ARGS( old_addr ), FD_IP4_ADDR_FMT_ARGS( addr ) ));
   }
 }
@@ -1872,12 +2000,11 @@ after_credit( fd_failover_tile_ctx_t * ctx,
     *charge_busy = 1;
   }
 
-  /* The operator hears when stuck changes, the warning before it says
-     why. */
+  /* A cause-specific warning already explained stuck.  Log recovery
+     once, without repeating that warning on every state transition. */
   if( FD_UNLIKELY( ctx->stuck!=ctx->stuck_logged ) ) {
     ctx->stuck_logged = ctx->stuck;
-    if( ctx->stuck ) FD_LOG_WARNING(( "failover is stuck, the warning before this says why, check `failover status` on both machines before the next command" ));
-    else             FD_LOG_NOTICE(( "failover is no longer stuck" ));
+    if( !ctx->stuck ) FD_LOG_NOTICE(( "failover is no longer stuck; %s", ctx->role==FD_FAILOVER_ROLE_ACTIVE ? "this machine is active" : "this machine is standby" ));
   }
 }
 

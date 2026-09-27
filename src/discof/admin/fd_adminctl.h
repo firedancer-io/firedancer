@@ -66,7 +66,7 @@
 
 #define FD_FAILOVER_CONTROL_RESULT_BUSY                     (0x4001UL) /* another failover command is waiting on the failover tile */
 #define FD_FAILOVER_CONTROL_RESULT_UNRESPONSIVE             (0x4002UL) /* the failover tile did not answer in time */
-#define FD_FAILOVER_CONTROL_RESULT_BAD_ROLE                 (0x4003UL) /* handoff or demote on a standby, promote on the active */
+#define FD_FAILOVER_CONTROL_RESULT_BAD_ROLE                 (0x4003UL) /* handoff or promote on the active, demote on a standby */
 #define FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS              (0x4004UL) /* a transition or key switch is running */
 #define FD_FAILOVER_CONTROL_RESULT_NOT_PAIRED               (0x4005UL) /* handoff needs a paired standby */
 #define FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY             (0x4006UL) /* the peer's status is missing, stale, not standby, busy or stuck */
@@ -76,6 +76,7 @@
 #define FD_FAILOVER_CONTROL_RESULT_STAKED_SEEN              (0x400AUL) /* gossip has a fresh contact info for the staked identity from another host */
 #define FD_FAILOVER_CONTROL_RESULT_NO_TOWER                 (0x400BUL) /* no tower to adopt, promote --yes adopts the vote account */
 #define FD_FAILOVER_CONTROL_RESULT_NO_FINAL_TOWER           (0x400CUL) /* handoff before the tower of our last vote is known, retry after the next vote */
+#define FD_FAILOVER_CONTROL_RESULT_NO_ACTIVE_ADDRESS        (0x400EUL) /* gossip has no address for the active */
 
 struct fd_adminctl_add_auth_voter_v1 {
   ulong version; /* ==FD_ADMINCTL_ADD_AUTH_VOTER_PAYLOAD_VERSION */
@@ -154,7 +155,9 @@ FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_control_resp_t)==16UL, failover_co
 #define FD_FAILOVER_ACTION_PROMOTE_WAIT_REPLAY (3UL) /* waiting for replay to reach the tower tip */
 #define FD_FAILOVER_ACTION_PROMOTE_WAIT_ADOPT  (4UL) /* waiting for the tower tile to adopt */
 #define FD_FAILOVER_ACTION_PROMOTE_SWITCH      (5UL) /* waiting for the staked key to be installed */
-#define FD_FAILOVER_ACTION_CNT                 (6UL)
+#define FD_FAILOVER_ACTION_HANDOFF_WAIT_PEER   (6UL) /* requesting the active's final tower */
+#define FD_FAILOVER_ACTION_HANDOFF_WAIT_RESULT (7UL) /* waiting for the old active to record our answer */
+#define FD_FAILOVER_ACTION_CNT                 (8UL)
 
 /* Where a promotion takes its tower from, best first */
 #define FD_FAILOVER_SOURCE_PEER         (0UL) /* the tower the peer's DEMOTED gave us */
@@ -186,8 +189,8 @@ struct fd_adminctl_failover_status_resp_v1 {
   uchar  action;          /* FD_FAILOVER_ACTION_* */
   uchar  stuck;           /* a transition failed or is overdue */
   uchar  link_state;      /* FD_FAILOVER_SESSION_* */
-  uchar  peer_role_valid; /* a STATUS from the peer arrived on this session */
-  uchar  peer_role;       /* FD_FAILOVER_ROLE_* of the peer's latest STATUS */
+  uchar  peer_role_valid; /* the open handoff authenticated a peer */
+  uchar  peer_role;       /* FD_FAILOVER_ROLE_* from HELLO or the handoff result */
   uchar  handoff_result;  /* FD_FAILOVER_HANDOFF_* of our last handoff */
   ulong  peer_boot_id;    /* boot_id of the last peer we paired with, 0 none */
   uint   peer_addr;       /* the address we dial, [failover.peer_address] or the active's from gossip, 0 none */

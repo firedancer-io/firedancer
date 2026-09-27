@@ -57,7 +57,7 @@ identity( fd_failover_channel_t * ch,
 /* A dialer that retries fast and tolerates the test's clock jumps. */
 static void
 fast_dialer( fd_failover_channel_t * ch ) {
-  ch->silence_timeout = 10000000000L;
+  ch->silence_timeout = 2L*FD_FAILOVER_CHANNEL_IDLE_NANOS;
   ch->backoff_min     = 1000000L;
   ch->backoff_max     = 10000000L;
   ch->backoff         = ch->backoff_min;
@@ -251,10 +251,25 @@ test_admission_buckets( void ) {
   FD_TEST( !admit( ch, 8U, tick ) );
   FD_TEST(  admit( ch, 7U, tick ) );
 
-  /* Dial failures are logged at most once a minute. */
-  FD_TEST(  dial_log( ch, tick ) );
-  FD_TEST( !dial_log( ch, tick+59999999999L ) );
-  FD_TEST(  dial_log( ch, tick+60000000000L ) );
+  /* A burst cannot become a burst of diagnostics.  Real categories
+     have independent limits, and suppressed counts survive until the
+     next permitted line, including at the exact timer boundary. */
+  ulong suppressed = ULONG_MAX;
+  FD_TEST( fd_failover_log_take( &ch->dial_log[0], tick, &suppressed ) && !suppressed );
+  for( ulong i=0; i<100000UL; i++ ) FD_TEST( !fd_failover_log_take( &ch->dial_log[0], tick+(long)i, &suppressed ) );
+  FD_TEST( !fd_failover_log_take( &ch->dial_log[0], tick-1L, &suppressed ) );
+  FD_TEST( !fd_failover_log_take( &ch->dial_log[0], tick+59999999999L, &suppressed ) );
+  FD_TEST( fd_failover_log_take( &ch->dial_log[0], tick+60000000000L, &suppressed ) && suppressed==100002UL );
+  FD_TEST( ch->dial_log[0].count==100004UL && !ch->dial_log[0].suppressed );
+  FD_TEST( fd_failover_log_take( &ch->hello_log[FD_FAILOVER_HELLO_ERR_BOTH_ACT], tick, &suppressed ) && !suppressed );
+  FD_TEST( fd_failover_log_take( &ch->hello_log[FD_FAILOVER_HELLO_ERR_CERT], tick, &suppressed ) && !suppressed );
+  FD_TEST( tls_log_kind( FD_TLS_REASON_ALPN_NEG )!=tls_log_kind( FD_TLS_REASON_ED25519_FAIL ) );
+  FD_TEST( tls_log_kind( 0U )!=tls_log_kind( FD_TLS_REASON_ALPN_NEG ) );
+  /* Saturating counts and a monotonic clock near its upper bound never
+     wrap the quota back into a fresh first occurrence. */
+  fd_failover_log_t limit = { .at=LONG_MAX-5L, .count=ULONG_MAX, .suppressed=ULONG_MAX };
+  FD_TEST( !fd_failover_log_take( &limit, LONG_MAX, &suppressed ) );
+  FD_TEST( limit.count==ULONG_MAX && limit.suppressed==ULONG_MAX );
   FD_LOG_NOTICE(( "pass: global token refill, burst cap, backwards clock and source table reuse" ));
 }
 
@@ -452,6 +467,118 @@ test_silence( fd_failover_channel_t * a,
   now += 2000000001L;
   pump( a, b );
   FD_LOG_NOTICE(( "pass: traffic keeps a pair up, a silent or stalled peer is dropped" ));
+}
+
+/* A frame can be fully encrypted while its ciphertext is still queued.
+   Completion must wait for that ciphertext, including the last RESULT. */
+static void
+test_ciphertext_drain( fd_failover_channel_t * a,
+                       fd_failover_channel_t * b ) {
+  struct candidate * c = &a->candidates[ a->active ];
+  int sndbuf = 4096;
+  FD_TEST( !setsockopt( c->fd, SOL_SOCKET, SO_SNDBUF, &sndbuf, sizeof(sndbuf) ) );
+  uchar payload[1024];
+  ulong sent = 0UL;
+  for( ulong i=0UL; i<100000UL; i++ ) {
+    if( !fd_failover_channel_tx_pending( a ) ) {
+      fd_memset( payload, (int)(sent & 255UL), sizeof(payload) );
+      fd_memcpy( payload, &sent, sizeof(sent) );
+      FD_TEST( !fd_failover_channel_send( a, now, FD_FAILOVER_MSG_HANDOFF_RESULT, payload, sizeof(payload) ) );
+      sent++;
+    }
+    poll_channel( a );
+    if( !c->tx_used && fd_tlsrec_sock_tx_pending( &c->tls.sock ) ) break;
+  }
+  FD_TEST( sent && !c->tx_used && fd_tlsrec_sock_tx_pending( &c->tls.sock ) );
+  FD_TEST( fd_failover_channel_tx_pending( a ) );
+  ulong received = 0UL;
+  long until = fd_log_wallclock()+5000000000L;
+  while( received<sent || fd_failover_channel_tx_pending( a ) ) {
+    FD_TEST( fd_log_wallclock()<until );
+    int busy = 0;
+    ushort type;
+    ulong sz;
+    if( fd_failover_channel_poll( b, now, &busy, &type, payload_buf, &sz ) ) {
+      ulong seq;
+      fd_memcpy( &seq, payload_buf, sizeof(seq) );
+      FD_TEST( type==FD_FAILOVER_MSG_HANDOFF_RESULT && sz==sizeof(payload) && seq==received );
+      for( ulong j=sizeof(seq); j<sz; j++ ) FD_TEST( payload_buf[j]==(uchar)received );
+      received++;
+    }
+    poll_channel( a );
+    fd_log_sleep( 10000L );
+  }
+  FD_TEST( received==sent && !fd_tlsrec_sock_tx_pending( &c->tls.sock ) );
+  FD_LOG_NOTICE(( "pass: ciphertext remains pending after plaintext drains and reaches a slow reader in order" ));
+}
+
+/* A network outage must not hide a later protocol rejection in the
+   same minute.  Repeated failures of the same kind still coalesce. */
+static void
+test_loss_log_causes( fd_failover_channel_t * a,
+                      fd_failover_channel_t * b ) {
+  fd_memset( a->loss_log, 0, sizeof(a->loss_log) );
+  pump( a, b );
+  a->expected_close = 0;
+  fd_failover_channel_hangup( b, now );
+  for( ulong i=0; i<10000UL && paired( a ); i++ ) {
+    poll_channel( a ); now+=100000L; fd_log_sleep( 100000L );
+  }
+  FD_TEST( !paired( a ) && a->loss_log[LOSS_TRANSPORT].count==1UL );
+  for( ulong i=1UL; i<=2UL; i++ ) {
+    fd_failover_channel_hangup( b, now );
+    now += 2000000001L;
+    pump( a, b );
+    fd_failover_channel_protocol_error( a, now );
+    FD_TEST( a->loss_log[LOSS_PROTOCOL].count==i );
+    FD_TEST( a->loss_log[LOSS_PROTOCOL].suppressed==i-1UL );
+    FD_TEST( a->loss_log[LOSS_TRANSPORT].count==1UL );
+  }
+  fd_failover_channel_hangup( b, now );
+  now += 2000000001L;
+  pump( a, b );
+  FD_LOG_NOTICE(( "pass: transport loss cannot suppress a new protocol cause; repeated protocol failures coalesce" ));
+}
+
+/* An orderly peer close after a drained RESULT is routine for MVP0.
+   A damaged TLS record at the same point remains a protocol failure. */
+static void
+test_result_close( fd_failover_channel_t * a,
+                   fd_failover_channel_t * b ) {
+  for( int corrupt=0; corrupt<2; corrupt++ ) {
+    pump( a, b );
+    fd_failover_handoff_result_t result = { .handoff_id=17UL, .result=0UL };
+    FD_TEST( !fd_failover_channel_tx_pending( a ) );
+    FD_TEST( !fd_failover_channel_send( a, now, FD_FAILOVER_MSG_HANDOFF_RESULT, (uchar const *)&result, sizeof(result) ) );
+    int received = 0;
+    for( ulong i=0; i<10000UL && !received; i++ ) {
+      poll_channel( a );
+      int busy=0; ushort type; ulong sz;
+      if( fd_failover_channel_poll( b, now, &busy, &type, payload_buf, &sz ) ) {
+        FD_TEST( type==FD_FAILOVER_MSG_HANDOFF_RESULT && sz==sizeof(result) );
+        FD_TEST( fd_memeq( payload_buf, &result, sizeof(result) ) );
+        received = 1;
+      }
+      now += 100000L;
+      fd_log_sleep( 100000L );
+    }
+    FD_TEST( received && !fd_failover_channel_tx_pending( a ) );
+    ulong warnings = a->loss_log[corrupt ? LOSS_TLS : LOSS_TRANSPORT].count;
+    if( corrupt ) {
+      /* A complete application-data record with an invalid AEAD tag. */
+      uchar bad[22] = {23,3,3,0,17};
+      FD_TEST( send( b->candidates[b->active].fd, bad, sizeof(bad), MSG_NOSIGNAL )==(long)sizeof(bad) );
+    } else fd_failover_channel_hangup( b, now );
+    for( ulong i=0; i<10000UL && paired( a ); i++ ) {
+      poll_channel( a ); now+=100000L; fd_log_sleep( 100000L );
+    }
+    FD_TEST( !paired( a ) );
+    FD_TEST( a->loss_log[corrupt ? LOSS_TLS : LOSS_TRANSPORT].count==warnings+(ulong)(corrupt || !FD_FAILOVER_ON_DEMAND) );
+    fd_failover_channel_hangup( b, now );
+    now += 2000000001L;
+  }
+  pump( a, b );
+  FD_LOG_NOTICE(( "pass: normal RESULT close is quiet only on demand; corrupted TLS after RESULT remains visible" ));
 }
 
 static void
@@ -666,9 +793,10 @@ main( int     argc,
   FD_TEST( a->metrics.paired_cnt==1UL && b->metrics.paired_cnt==1UL );
   FD_LOG_NOTICE(( "pass: a paired session survives role changes and a new dial address" ));
 
-  /* An unpaired active does not dial.  Back as a standby it dials at
-     once, and the new HELLO has the role set since. */
+  /* Only an armed operation dials.  Ending it disables retries even
+     after the requester has become active. */
   fd_failover_channel_set_role( b, FD_FAILOVER_ROLE_ACTIVE );
+  fd_failover_channel_init_dialer( b, 0U, 0 );
   fd_failover_channel_hangup( a, now );
   fd_failover_channel_hangup( b, now );
   FD_TEST( b->state==FD_FAILOVER_SESSION_LISTENING && !b->dial_peer );
@@ -677,6 +805,7 @@ main( int     argc,
   for( ulong i=0; i<100UL; i++ ) { poll_channel( a ); poll_channel( b ); now += 1000000L; }
   FD_TEST( b->metrics.connection_attempt_cnt==starts && !paired( a ) && !paired( b ) );
   fd_failover_channel_set_role( b, FD_FAILOVER_ROLE_STANDBY );
+  fd_failover_channel_init_dialer( b, FD_IP4_ADDR(127,0,0,1), port );
   FD_TEST( b->state==FD_FAILOVER_SESSION_BACKOFF && b->dial_peer && !b->retry_at );
   pump( a, b );
   FD_TEST( a->peer_hello.role==FD_FAILOVER_ROLE_STANDBY && b->peer_hello.role==FD_FAILOVER_ROLE_ACTIVE );
@@ -917,6 +1046,9 @@ main( int     argc,
   test_disconnects( a, b, port );
   test_short_session_backoff( a, b );
   test_silence( a, b );
+  test_ciphertext_drain( a, b );
+  test_result_close( a, b );
+  test_loss_log_causes( a, b );
   test_fd_exhaustion( a, b, port );
 
   fd_failover_channel_fini( a );

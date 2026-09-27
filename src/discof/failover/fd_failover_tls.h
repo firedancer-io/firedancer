@@ -37,6 +37,7 @@ struct fd_failover_tls {
   int              fd;
   int              verified;          /* handshake done, peer_pubkey is set */
   int              paired;            /* set by the channel after HELLO */
+  int              peer_closed;       /* orderly EOF or close_notify, never a TLS error */
   uchar            peer_pubkey[ 32 ]; /* junk key the peer signed the handshake with */
   int              read_budget;       /* socket reads left this turn */
   int              write_budget;      /* record writes left this turn */

@@ -15,7 +15,13 @@
 #define FD_FAILOVER_MSG_DEMOTED          (2U)
 #define FD_FAILOVER_MSG_PROMOTE_ACK      (3U)
 #define FD_FAILOVER_MSG_PROMOTE_REJECTED (4U)
-#define FD_FAILOVER_MSG_RESERVED         (5U)
+#define FD_FAILOVER_MSG_CONSENSUS_STATE (5U) /* MVP 1 only */
+#define FD_FAILOVER_MSG_HANDOFF_REQUEST (6U)
+#define FD_FAILOVER_MSG_HANDOFF_RESULT  (7U)
+#define FD_FAILOVER_MSG_RESERVED         (8U)
+
+/* MVP 0 opens a connection only for a handoff. */
+#define FD_FAILOVER_ON_DEMAND (1)
 
 /* Sentinel for a slot field with no value */
 #define FD_FAILOVER_SLOT_NULL (ULONG_MAX)
@@ -126,6 +132,22 @@ struct __attribute__((packed)) fd_failover_promote_rejected {
 typedef struct fd_failover_promote_rejected fd_failover_promote_rejected_t;
 FD_STATIC_ASSERT( sizeof(fd_failover_promote_rejected_t)==9UL, wire_layout );
 
+/* The standby asks the active it authenticated to hand over. */
+struct __attribute__((packed)) fd_failover_handoff_request {
+  ulong handoff_id;
+  ulong target_boot_id;
+};
+typedef struct fd_failover_handoff_request fd_failover_handoff_request_t;
+FD_STATIC_ASSERT( sizeof(fd_failover_handoff_request_t)==16UL, wire_layout );
+
+/* Ends the exchange, result is an admin control result. */
+struct __attribute__((packed)) fd_failover_handoff_result {
+  ulong handoff_id;
+  ulong result;
+};
+typedef struct fd_failover_handoff_result fd_failover_handoff_result_t;
+FD_STATIC_ASSERT( sizeof(fd_failover_handoff_result_t)==16UL, wire_layout );
+
 /* PROMOTE_REJECTED reasons */
 #define FD_FAILOVER_REJECT_NONE              (0U)
 #define FD_FAILOVER_REJECT_BUSY              (1U)
@@ -194,6 +216,20 @@ int
 fd_failover_status_decode( fd_failover_status_t * out,
                            uchar const *          payload,
                            ulong                  payload_sz );
+
+/* Validate a handoff request or result.  Both have exact wire sizes;
+   request ids and target boot ids must be nonzero.  The controller binds
+   replies to an outstanding request and treats an unknown result as a
+   refusal.  Return 0 on failure without changing out. */
+int
+fd_failover_handoff_request_decode( fd_failover_handoff_request_t * out,
+                                    uchar const *                  payload,
+                                    ulong                          payload_sz );
+
+int
+fd_failover_handoff_result_decode( fd_failover_handoff_result_t * out,
+                                   uchar const *                 payload,
+                                   ulong                         payload_sz );
 
 /* Writes a DEMOTED payload, the header and then the tower, into out,
    which holds FD_FAILOVER_DEMOTED_PAYLOAD_MAX bytes.  Returns the payload
