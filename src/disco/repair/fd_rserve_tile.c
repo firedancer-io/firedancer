@@ -106,6 +106,14 @@ typedef struct ctx {
   uchar               net_buf[ FD_NET_MTU ];
   fd_repair_out_blk_t repair_buf[1];
 
+  /* Scratch for one shred_bat frag's disk entries (FD_SHRED_BAT_REC_MAX
+     x 1280 B), written in as few pwrites as the ring allows. */
+  FD_STATIC_ASSERT( FD_SHRED_BAT_REC_MAX<=FD_STORE_DISK_INSERT_BATCH_MAX, shred_bat_fits_store_batch );
+  fd_shredb_entry_t  bat_entries[ FD_SHRED_BAT_REC_MAX ];
+  fd_shred_t const * bat_shreds [ FD_SHRED_BAT_REC_MAX ];
+  fd_hash_t const *  bat_roots  [ FD_SHRED_BAT_REC_MAX ];
+  int                bat_results[ FD_SHRED_BAT_REC_MAX ];
+
   struct {
     ulong received_request_count[FD_METRICS_ENUM_REPAIR_REQUEST_TYPE_CNT];
     ulong received_request_bytes;
@@ -563,6 +571,29 @@ handle_net_request( ctx_t             * ctx,
 }
 
 
+/* shred_persistable returns 1 if the shred tile accepted a data shred
+   that rserve should persist. */
+
+static inline int
+shred_persistable( ulong              sig,
+                   fd_shred_t const * shred ) {
+  int shred_result = fd_shred_sig_res( sig );
+  if( FD_UNLIKELY( fd_shred_sig_src( sig )>SHRED_SIG_SRC_BAD_REPAIR ||
+                   (shred_result!=SHRED_SIG_RESULT_OKAY && shred_result!=SHRED_SIG_RESULT_COMPLETES) ) ) return 0;
+  return fd_shred_is_data( fd_shred_type( shred->variant ) );
+}
+
+static inline void
+disk_insert_account( ctx_t * ctx,
+                     int     result,
+                     ulong   dt ) {
+  fd_histf_sample( ctx->metrics->disk_write_timing, dt );
+  if( FD_LIKELY( result==FD_STORE_DISK_INSERT_SUCCESS ) ) {
+    ctx->metrics->disk_inserted++;
+    ctx->metrics->disk_write_bytes += sizeof(fd_shredb_entry_t);
+  } else if( FD_UNLIKELY( result==FD_STORE_DISK_INSERT_ERR ) ) ctx->metrics->disk_write_failed++;
+}
+
 /* handle_shred persists a data shred the shred tile accepted. */
 
 static void
@@ -570,19 +601,40 @@ handle_shred( ctx_t *            ctx,
               ulong              sig,
               fd_shred_t const * shred,
               fd_hash_t const *  merkle_root ) {
-  int shred_result = fd_shred_sig_res( sig );
-  if( FD_UNLIKELY( fd_shred_sig_src( sig )>SHRED_SIG_SRC_BAD_REPAIR ||
-                   (shred_result!=SHRED_SIG_RESULT_OKAY && shred_result!=SHRED_SIG_RESULT_COMPLETES) ) ) return;
-  if( FD_UNLIKELY( !fd_shred_is_data( fd_shred_type( shred->variant ) ) ) ) return;
-
+  if( FD_UNLIKELY( !shred_persistable( sig, shred ) ) ) return;
   long dt = -fd_tickcount();
   int result = fd_store_disk_insert( ctx->store, ctx->disk_fd, shred, merkle_root );
   dt += fd_tickcount();
-  fd_histf_sample( ctx->metrics->disk_write_timing, (ulong)dt );
-  if( FD_LIKELY( result==FD_STORE_DISK_INSERT_SUCCESS ) ) {
-    ctx->metrics->disk_inserted++;
-    ctx->metrics->disk_write_bytes += sizeof(fd_shredb_entry_t);
-  } else if( FD_UNLIKELY( result==FD_STORE_DISK_INSERT_ERR ) ) ctx->metrics->disk_write_failed++;
+  disk_insert_account( ctx, result, (ulong)dt );
+}
+
+/* handle_shred_bat persists the accepted data shreds of one shred_bat
+   frag with one store call, so consecutive ring cells go out in one
+   pwrite instead of one per shred.  The results per shred and the
+   bytes on disk are the same as handle_shred per record.  The write
+   timing histogram keeps its per-shred unit: each shred is charged an
+   equal share of the batch. */
+
+static void
+handle_shred_bat( ctx_t *                    ctx,
+                  fd_shred_bat_rec_t const * rec,
+                  ulong                      rec_cnt ) {
+  ulong cnt = 0UL;
+  for( ulong i=0UL; i<rec_cnt; i++, rec=fd_shred_bat_rec_next( rec ) ) {
+    fd_shred_t const * shred = fd_shred_bat_rec_payload( rec );
+    if( FD_LIKELY( shred_persistable( rec->sig, shred ) ) ) {
+      ctx->bat_roots [ cnt ] = &rec->merkle_root;
+      ctx->bat_shreds[ cnt ] = shred;
+      cnt++;
+    }
+  }
+  if( FD_UNLIKELY( !cnt ) ) return;
+
+  long dt = -fd_tickcount();
+  fd_store_disk_insert_batch( ctx->store, ctx->disk_fd, ctx->bat_shreds, ctx->bat_roots, cnt, ctx->bat_entries, ctx->bat_results );
+  dt += fd_tickcount();
+  ulong share = (ulong)dt/cnt;
+  for( ulong i=0UL; i<cnt; i++ ) disk_insert_account( ctx, ctx->bat_results[ i ], share );
 }
 
 static inline int
@@ -680,8 +732,7 @@ returnable_frag( ctx_t             * ctx,
   case IN_KIND_SHRED_BAT: {
     if( FD_UNLIKELY( sig>FD_SHRED_BAT_REC_MAX || sz>in_ctx->mtu || chunk<in_ctx->chunk0 || chunk>in_ctx->wmark ) )
       FD_LOG_ERR(( "shred_bat chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, in_ctx->chunk0, in_ctx->wmark ));
-    fd_shred_bat_rec_t const * rec = fd_chunk_to_laddr_const( in_ctx->mem, chunk );
-    for( ulong i=0UL; i<sig; i++, rec=fd_shred_bat_rec_next( rec ) ) handle_shred( ctx, rec->sig, fd_shred_bat_rec_payload( rec ), &rec->merkle_root );
+    handle_shred_bat( ctx, fd_chunk_to_laddr_const( in_ctx->mem, chunk ), sig );
     return 0;
   }
   case IN_KIND_REPAIR: return 0; /* after_frag */
