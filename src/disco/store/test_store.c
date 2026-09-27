@@ -1296,6 +1296,158 @@ test_disk_collision_eviction( fd_wksp_t * wksp ) {
   fd_wksp_free_laddr( fd_store_delete( fd_store_leave( store ) ) );
 }
 
+/* The batch insert must leave the same bytes on disk, the same index
+   state and the same per-shred results as the single-shred insert.
+   Two stores with the same seed take the same sequence of shreds, one
+   through fd_store_disk_insert and one through
+   fd_store_disk_insert_batch in frag-sized groups; the sequence wraps
+   the ring several times (so a batch straddles the wrap), repeats keys
+   (exact duplicates skip, other versions publish), refuses out-of-range
+   idxs mid batch, and lands colliding hash chains. */
+
+#define TEST_BATCH_PATH "/tmp/test_store_batch_payload.db"
+
+static void
+disk_batch_fill( fd_store_t * store,
+                 int          disk_fd,
+                 ulong        seed,
+                 int          batched,
+                 int *        results,
+                 ulong        shred_cnt ) {
+  fd_rng_t _rng[1]; fd_rng_t * r = fd_rng_join( fd_rng_new( _rng, (uint)seed, 0UL ) );
+  static uchar bufs[ FD_STORE_DISK_INSERT_BATCH_MAX ][ FD_SHRED_MAX_SZ ];
+  static fd_shredb_entry_t entries[ FD_STORE_DISK_INSERT_BATCH_MAX ];
+  fd_shred_t const * shreds[ FD_STORE_DISK_INSERT_BATCH_MAX ];
+  fd_hash_t          roots [ FD_STORE_DISK_INSERT_BATCH_MAX ];
+  fd_hash_t const *  rootp [ FD_STORE_DISK_INSERT_BATCH_MAX ];
+  ulong done = 0UL;
+  while( done<shred_cnt ) {
+    ulong cnt = fd_ulong_min( shred_cnt-done, 1UL+fd_rng_ulong_roll( r, 32UL ) );
+    for( ulong i=0UL; i<cnt; i++ ) {
+      ulong k    = done+i;
+      ulong slot = 100UL + k/6UL;                 /* six shreds per slot, so the hint moves */
+      uint  idx  = (uint)(k%6UL);
+      uint  roll = fd_rng_uint_roll( r, 16U );
+      if( roll==0U && k>8UL ) { slot -= 1UL+(roll&1U); idx = (uint)fd_rng_uint_roll( r, 6U ); } /* duplicate key */
+      if( roll==1U ) idx = (uint)store->max_shreds_per_block;                                  /* refused */
+      if( roll==2U ) slot = FD_SHREDB_KEY_SLOT_MAX;                                            /* refused */
+      shreds[ i ] = disk_make_shred( bufs[ i ], slot, idx, (uchar)(k*7UL+1UL) );
+      ((fd_shred_t *)fd_type_pun( bufs[ i ] ))->data.size = (ushort)(FD_SHRED_DATA_HEADER_SZ+1UL+fd_rng_uint_roll( r, 900U ));
+      roots[ i ] = disk_root( slot, idx/FD_FEC_SHRED_CNT );
+      if( roll==3U ) roots[ i ].ul[ 0 ] ^= 1UL; /* another version of the key */
+      rootp[ i ] = &roots[ i ];
+    }
+    if( batched ) {
+      fd_store_disk_insert_batch( store, disk_fd, shreds, rootp, cnt, entries, results+done );
+    } else {
+      for( ulong i=0UL; i<cnt; i++ ) results[ done+i ] = fd_store_disk_insert( store, disk_fd, shreds[ i ], rootp[ i ] );
+    }
+    done += cnt;
+  }
+  fd_rng_delete( fd_rng_leave( r ) );
+}
+
+void
+test_disk_insert_batch( fd_wksp_t * wksp ) {
+  ulong const seed      = 42UL;
+  ulong const shred_cnt = 4000UL;
+  ulong footprint = fd_store_footprint( 8UL, 31840UL, 1UL, 0UL, 0UL, 1UL );
+
+  void * mem_a = fd_wksp_alloc_laddr( wksp, fd_store_align(), footprint, 1UL );
+  void * mem_b = fd_wksp_alloc_laddr( wksp, fd_store_align(), footprint, 1UL );
+  fd_store_t * a = fd_store_join( fd_store_new( mem_a, 8UL, 31840UL, 1UL, 0UL, 0UL, FD_SHRED_BLK_MAX, seed, 1UL ) );
+  fd_store_t * b = fd_store_join( fd_store_new( mem_b, 8UL, 31840UL, 1UL, 0UL, 0UL, FD_SHRED_BLK_MAX, seed, 1UL ) );
+  FD_TEST( a && b );
+  a->disk_max_shreds = 1000UL; /* 4000 shreds wrap the ring four times */
+  b->disk_max_shreds = 1000UL;
+  FD_TEST( a->disk_max_slots==b->disk_max_slots );
+
+  FD_TEST( !unlink( TEST_PAYLOAD_PATH ) || errno==ENOENT );
+  FD_TEST( !unlink( TEST_BATCH_PATH   ) || errno==ENOENT );
+  int fd_a = fd_store_file_create( TEST_PAYLOAD_PATH, a->wire_off, a->disk_max_shreds );
+  int fd_b = fd_store_file_create( TEST_BATCH_PATH,   b->wire_off, b->disk_max_shreds );
+  FD_TEST( fd_a>=0 && fd_b>=0 );
+
+  static int results_a[ 4000 ];
+  static int results_b[ 4000 ];
+  disk_batch_fill( a, fd_a, seed, 0, results_a, shred_cnt );
+  disk_batch_fill( b, fd_b, seed, 1, results_b, shred_cnt );
+
+  ulong ok = 0UL, err = 0UL;
+  for( ulong i=0UL; i<shred_cnt; i++ ) {
+    FD_TEST( results_a[ i ]==results_b[ i ] );
+    ok  += results_a[ i ]==FD_STORE_DISK_INSERT_SUCCESS;
+    err += results_a[ i ]==FD_STORE_DISK_INSERT_ERR;
+  }
+  FD_TEST( ok>3000UL && err>100UL ); /* both paths were exercised */
+
+  /* Byte-identical files */
+  ulong file_sz = a->wire_off + a->disk_max_shreds*sizeof(fd_shredb_entry_t);
+  static uchar chunk_a[ 1UL<<20 ];
+  static uchar chunk_b[ 1UL<<20 ];
+  for( ulong off=0UL; off<file_sz; off+=sizeof(chunk_a) ) {
+    ulong sz = fd_ulong_min( sizeof(chunk_a), file_sz-off );
+    FD_TEST( !store_pread_all( fd_a, chunk_a, sz, (off_t)off ) );
+    FD_TEST( !store_pread_all( fd_b, chunk_b, sz, (off_t)off ) );
+    FD_TEST( !memcmp( chunk_a, chunk_b, sz ) );
+  }
+
+  /* Identical index: every cell tag and key, the slot hints and the
+     counters. */
+  for( ulong i=0UL; i<a->disk_max_shreds; i++ ) {
+    fd_shredb_ring_entry_t const * cell_a = disk_ring_pool_laddr( a )+i;
+    fd_shredb_ring_entry_t const * cell_b = disk_ring_pool_laddr( b )+i;
+    FD_TEST( disk_cell_tag_load( cell_a )==disk_cell_tag_load( cell_b ) );
+    FD_TEST( cell_a->key==cell_b->key );
+    FD_TEST( !memcmp( &cell_a->root_key, &cell_b->root_key, sizeof(fd_shredb_root_key_t) ) );
+  }
+  for( ulong i=0UL; i<a->disk_max_slots; i++ ) {
+    FD_TEST( atomic_load_explicit( disk_slot_hint_laddr( a )+i, memory_order_relaxed )==
+             atomic_load_explicit( disk_slot_hint_laddr( b )+i, memory_order_relaxed ) );
+  }
+  fd_store_disk_stats_t stats_a[1], stats_b[1];
+  FD_TEST( !fd_store_disk_stats_query( a, stats_a ) && !fd_store_disk_stats_query( b, stats_b ) );
+  FD_TEST( stats_a->shred_cnt      ==stats_b->shred_cnt       );
+  FD_TEST( stats_a->current_bytes  ==stats_b->current_bytes   );
+  FD_TEST( stats_a->allocated_bytes==stats_b->allocated_bytes );
+  FD_TEST( stats_a->insert_cnt     ==stats_b->insert_cnt      );
+  FD_TEST( stats_a->write_bytes    ==stats_b->write_bytes     );
+  FD_TEST( stats_a->insert_cnt==ok );
+
+  /* Every live key reads back the same through both stores. */
+  uchar out_a[ FD_SHRED_MAX_SZ ];
+  uchar out_b[ FD_SHRED_MAX_SZ ];
+  for( ulong slot=100UL; slot<100UL+shred_cnt/6UL+1UL; slot++ ) {
+    for( uint idx=0U; idx<6U; idx++ ) {
+      int sz_a = fd_store_disk_query( a, fd_a, slot, idx, out_a );
+      int sz_b = fd_store_disk_query( b, fd_b, slot, idx, out_b );
+      FD_TEST( sz_a==sz_b );
+      if( sz_a>0 ) FD_TEST( !memcmp( out_a, out_b, (ulong)sz_a ) );
+    }
+    int hi_a = fd_store_disk_query_highest( a, fd_a, slot, 0U, out_a );
+    int hi_b = fd_store_disk_query_highest( b, fd_b, slot, 0U, out_b );
+    FD_TEST( hi_a==hi_b );
+    if( hi_a>0 ) FD_TEST( !memcmp( out_a, out_b, (ulong)hi_a ) );
+  }
+
+  /* A batch on a store without disk, and an empty batch, refuse cleanly. */
+  int results[ 2 ];
+  fd_shredb_entry_t entries[ 2 ];
+  uchar buf[ FD_SHRED_MAX_SZ ];
+  fd_shred_t const * one[ 2 ] = { disk_make_shred( buf, 1UL, 0U, 1U ), disk_make_shred( buf, 1UL, 1U, 1U ) };
+  fd_hash_t root1 = disk_root( 1UL, 0U );
+  fd_hash_t const * one_root[ 2 ] = { &root1, &root1 };
+  FD_TEST( !fd_store_disk_insert_batch( a, -1, one, one_root, 2UL, entries, results ) );
+  FD_TEST( results[ 0 ]==FD_STORE_DISK_INSERT_ERR && results[ 1 ]==FD_STORE_DISK_INSERT_ERR );
+  FD_TEST( !fd_store_disk_insert_batch( a, fd_a, one, one_root, 0UL, entries, results ) );
+
+  close( fd_a );
+  close( fd_b );
+  FD_TEST( !unlink( TEST_BATCH_PATH ) );
+  fd_wksp_free_laddr( fd_store_delete( fd_store_leave( a ) ) );
+  fd_wksp_free_laddr( fd_store_delete( fd_store_leave( b ) ) );
+}
+
 /* max_shreds_per_block is a runtime value: a store sized for 4x
    FD_SHRED_BLK_MAX round-trips shred idxs above the production bound
    through the exact index and the per-slot highest hint, and rejects
@@ -1480,6 +1632,7 @@ main( int argc, char ** argv ) {
   test_disk_lazy_highest( wksp );
   test_disk_probe( wksp );
   test_disk_max_shreds_per_block( wksp );
+  test_disk_insert_batch( wksp );
   test_concurrent  ( wksp );
 
   FD_LOG_NOTICE(( "pass" ));
