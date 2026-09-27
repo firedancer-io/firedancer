@@ -966,7 +966,7 @@ reject_promotion( fd_failover_tile_ctx_t * ctx,
   ctx->promote_peer = 0;
   ctx->action = FD_FAILOVER_ACTION_HANDOFF_WAIT_RESULT;
   ctx->request_until = fd_long_sat_add( fd_failover_clock(), FD_FAILOVER_CHANNEL_IDLE_NANOS );
-  FD_LOG_WARNING(( "refusing the peer's handoff %lu (%s), the peer stays a standby, nobody votes until `failover promote` runs on one machine", ctx->promote_handoff_id, reject_name( reason ) ));
+  FD_LOG_WARNING(( "refusing the peer's handoff %lu (%s), we stay a standby; check `failover status` on both machines before recovery", ctx->promote_handoff_id, reject_name( reason ) ));
   finish_reply( ctx, ctx->promote_boot_id, ctx->promote_handoff_id, (ushort)FD_FAILOVER_MSG_PROMOTE_REJECTED, reason );
 }
 
@@ -1467,7 +1467,7 @@ handle_control( fd_failover_tile_ctx_t * ctx,
       why    = "a transition or key switch is running here";
     }
     if( FD_UNLIKELY( reason!=FD_FAILOVER_REJECT_NONE ) ) {
-      FD_LOG_WARNING(( "refusing the peer's handoff %lu (%s), %s, the peer stays a standby", demoted.handoff_id, reject_name( reason ), why ));
+      FD_LOG_WARNING(( "refusing the peer's handoff %lu (%s), %s; check `failover status` on both machines", demoted.handoff_id, reject_name( reason ), why ));
       finish_reply( ctx, boot_id, demoted.handoff_id, (ushort)FD_FAILOVER_MSG_PROMOTE_REJECTED, reason );
       return;
     }
@@ -1509,7 +1509,7 @@ handle_control( fd_failover_tile_ctx_t * ctx,
                      ctx->peer_boot_id!=ctx->handoff_target ||
                      !fd_memeq( fd_failover_channel_peer_hello( ctx->channel )->junk_pubkey, ctx->handoff_junk, 32UL ) ||
                      ctx->action==FD_FAILOVER_ACTION_DEMOTE_SWITCH ) ) return;
-    FD_LOG_WARNING(( "the peer declined handoff %lu (%s), nobody votes, see the peer's log, `failover promote` here takes the identity back", rej.handoff_id, reject_name( rej.reason ) ));
+    FD_LOG_WARNING(( "the peer declined handoff %lu (%s), we stay a standby; see the peer's log and check `failover status` on both machines before recovery", rej.handoff_id, reject_name( rej.reason ) ));
     handoff_resolved( ctx, FD_FAILOVER_HANDOFF_DECLINED );
     ctx->stuck = 1;
     handoff_result( ctx, rej.handoff_id, FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY );
