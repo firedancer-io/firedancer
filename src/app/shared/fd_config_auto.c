@@ -373,21 +373,6 @@ scrape_system( fd_auto_info_t * info ) {
   info->linux_minor = minor;
 }
 
-static void
-scrape_driver( char       * driver,
-               char const * if_name ) {
-  char path[ PATH_MAX ], target[ PATH_MAX ];
-  driver[0] = '\0';
-  FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "/sys/class/net/%s/device/driver", if_name ) );
-
-  long n = readlink( path, target, PATH_MAX-1 );
-  if( FD_UNLIKELY( n<0L ) ) return;
-  target[ n ] = '\0';  /* readlink does not NUL-terminate */
-
-  char const * base = strrchr( target, '/' );
-  fd_cstr_ncpy( driver, base ? base+1 : target, NAME_SZ );
-}
-
 static int
 scrape_is_using_gre( void ) {
   fd_netlink_t netlink[1];
@@ -442,27 +427,7 @@ scrape_networking( fd_auto_info_t * info,
     info->is_lacp_if            = !!fd_bonding_is_lacp( if_name );
   }
 
-  /* Get driver name.  A bond master reports "n/a" so no driver specific
-     config is applied. If all slaves share a driver name then reports
-     that instead. */
-  if( info->is_bonded_if ) {
-    fd_bonding_slave_iter_t iter_[1];
-    for( fd_bonding_slave_iter_t * iter = fd_bonding_slave_iter_init( iter_, if_name );
-         !fd_bonding_slave_iter_done( iter );
-         fd_bonding_slave_iter_next ( iter ) ) {
-
-      char slave_driver[ NAME_SZ ];
-      scrape_driver( slave_driver, fd_bonding_slave_iter_ele( iter ) );
-      if( FD_UNLIKELY( !slave_driver[0] ||
-                     ( info->driver[0]  && strcmp( info->driver, slave_driver ) ) ) ) {
-        fd_memcpy( info->driver, "n/a", 4 );
-        break;
-      }
-      fd_cstr_ncpy( info->driver, slave_driver, NAME_SZ );
-    }
-  } else {
-    scrape_driver( info->driver, if_name );
-  }
+  fd_net_get_driver( info->driver, sizeof(info->driver), if_name );
 
   if( !strcmp( info->driver, "mlx5_core" ) ) {
     char rdma_name[ FD_MLX5_RDMA_NAME_MAX ];

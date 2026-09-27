@@ -10,8 +10,74 @@
 #include "../../waltz/ip/fd_iproute.h"
 
 #include <errno.h>
+#include <limits.h>
 #include <net/if.h>
 #include <unistd.h>
+
+static void
+fd_net_read_device_driver( char *       driver,
+                           ulong        driver_sz,
+                           char const * if_name ) {
+  FD_TEST( driver && driver_sz>=4UL );
+  char path[ PATH_MAX ], target[ PATH_MAX ];
+  fd_memcpy( driver, "n/a", 4UL );
+  if( FD_UNLIKELY( !fd_cstr_printf_check( path, sizeof(path), NULL,
+                                         "/sys/class/net/%s/device/driver", if_name ) ) ) {
+    FD_LOG_WARNING(( "cannot read driver for interface `%s`: sysfs path too long", if_name ));
+    return;
+  }
+
+  long n = readlink( path, target, sizeof(target)-1UL );
+  if( FD_UNLIKELY( n<0L ) ) {
+    if( errno!=ENOENT ) FD_LOG_WARNING(( "readlink(%s) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+    return;
+  }
+  if( FD_UNLIKELY( (ulong)n==sizeof(target)-1UL ) ) {
+    FD_LOG_WARNING(( "device driver link `%s` is too long", path ));
+    return;
+  }
+  target[ n ] = '\0';
+
+  char const * base = strrchr( target, '/' );
+  base = base ? base+1 : target;
+  if( FD_UNLIKELY( !base[0] ) ) {
+    FD_LOG_WARNING(( "device driver link `%s` has an empty driver name", path ));
+    return;
+  }
+  ulong name_sz = strlen( base )+1UL;
+  if( FD_UNLIKELY( name_sz>driver_sz ) ) {
+    FD_LOG_WARNING(( "driver name in `%s` exceeds output buffer size %lu", path, driver_sz ));
+    return;
+  }
+  fd_memcpy( driver, base, name_sz );
+}
+
+void
+fd_net_get_driver( char *       driver,
+                   ulong        driver_sz,
+                   char const * if_name ) {
+  FD_TEST( driver && driver_sz>=4UL );
+  if( !fd_bonding_is_master( if_name ) ) {
+    fd_net_read_device_driver( driver, driver_sz, if_name );
+    return;
+  }
+
+  driver[0] = '\0';
+  fd_bonding_slave_iter_t iter[1];
+  for( fd_bonding_slave_iter_init( iter, if_name );
+       !fd_bonding_slave_iter_done( iter );
+       fd_bonding_slave_iter_next( iter ) ) {
+    char member_driver[ NAME_MAX+1UL ];
+    fd_net_read_device_driver( member_driver, fd_ulong_min( sizeof(member_driver), driver_sz ),
+                               fd_bonding_slave_iter_ele( iter ) );
+    if( FD_UNLIKELY( !strcmp( member_driver, "n/a" ) || ( driver[0] && strcmp( driver, member_driver ) ) ) ) {
+      driver[0] = '\0';
+      break;
+    }
+    fd_cstr_ncpy( driver, member_driver, driver_sz );
+  }
+  if( FD_UNLIKELY( !driver[0] ) ) fd_memcpy( driver, "n/a", 4UL );
+}
 
 char const *
 fd_net_tile_name( char const * provider ) {
