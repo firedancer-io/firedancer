@@ -670,6 +670,7 @@ returnable_frag( ctx_t             * ctx,
     return ctx->halt_signing; /* after_frag */
   case IN_KIND_SIGN: return 0; /* handled internally by keyguard_client */
   case IN_KIND_SHRED: {
+    if( FD_UNLIKELY( fd_shred_sig_src( sig )>SHRED_SIG_SRC_BAD_REPAIR ) ) return 0; /* FEC_EVICTED carries no shred */
     if( FD_UNLIKELY( sz!=sizeof(fd_shred_base_t) || chunk<in_ctx->chunk0 || chunk>in_ctx->wmark ) )
       FD_LOG_ERR(( "shred_out chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, in_ctx->chunk0, in_ctx->wmark ));
     fd_shred_base_t const * msg = fd_chunk_to_laddr_const( in_ctx->mem, chunk );
