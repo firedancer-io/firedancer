@@ -1236,8 +1236,9 @@ fd_executor_setup_accounts_for_txn_bundle( fd_runtime_t *      runtime,
   /* The key list was resolved once up-front by
      fd_runtime_prepare_bundle_accounts.  Bind every transaction account
      to the shared pre-acquired pool. */
+  uint bpf_upgradeable = fd_txn_account_has_bpf_loader_upgradeable( txn_out->accounts.keys, txn_out->accounts.cnt );
   for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
-    txn_out->accounts.is_writable[ i ]      = (uchar)fd_runtime_account_is_writable_idx( txn_in, txn_out, i );
+    txn_out->accounts.is_writable[ i ]      = (uchar)fd_runtime_account_is_writable_idx_flat( i, &txn_out->accounts.keys[ i ], TXN( txn_in->txn ), bpf_upgradeable );
     txn_out->accounts.account_acquired[ i ] = 0U;
     runtime->accounts.refcnt[ i ]           = 0UL;
 
@@ -1367,10 +1368,13 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
   int              will_fail = fd_executor_txn_will_fail( runtime, bank, txn_in, txn_out, &loaded_sz );
   ulong            nonce_idx = (txn->instr_cnt && txn->instr[ 0 ].acct_cnt) ? fd_txn_get_instr_accts( &txn->instr[ 0 ], txn_in->txn->payload )[ 0 ] : 0UL;
 
-  /* Resolve all transaction accounts and queue them for acquisition. */
+  /* Resolve all transaction accounts and queue them for acquisition.
+     is_writable is derived once here for the whole transaction; the
+     per-instruction paths read it rather than rederiving it. */
 
+  uint bpf_upgradeable = fd_txn_account_has_bpf_loader_upgradeable( txn_out->accounts.keys, txn_out->accounts.cnt );
   for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
-    txn_out->accounts.is_writable[ i ]      = (uchar)fd_runtime_account_is_writable_idx( txn_in, txn_out, i );
+    txn_out->accounts.is_writable[ i ]      = (uchar)fd_runtime_account_is_writable_idx_flat( i, &txn_out->accounts.keys[ i ], TXN( txn_in->txn ), bpf_upgradeable );
     txn_out->accounts.account_acquired[ i ] = 0U;
     txn_out->accounts.account[ i ]          = NULL;
     runtime->accounts.refcnt[ i ]           = 0UL;

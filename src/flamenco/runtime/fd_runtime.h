@@ -146,6 +146,13 @@ struct fd_runtime {
     uchar * frame[ FD_MAX_INSTRUCTION_STACK_DEPTH ];
   } bpf_loader_serialization;
 
+  struct {
+    /* The execution syscall table and its JIT hash, rebuilt only when
+       the slot's feature gates change (fd_vm_syscall_cache_t), not per
+       instruction.  Init with fd_vm_syscall_cache_init. */
+    fd_vm_syscall_cache_t syscall_cache[ 1 ];
+  } bpf_loader_program;
+
   union {
     struct {
       fd_vote_state_versioned_t vote_state;
