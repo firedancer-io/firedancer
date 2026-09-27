@@ -16,32 +16,32 @@ fd_vm_syscall_register( fd_sbpf_syscalls_t *   syscalls,
   return FD_VM_SUCCESS;
 }
 
-int
-fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *      syscalls,
-                             ulong                     slot,
-                             fd_features_t const *     features,
-                             uchar                     is_deploy ) {
-  if( FD_UNLIKELY( !syscalls ) ) return FD_VM_ERR_INVAL;
-
-  int enable_get_sysvar_syscall        = 0;
-  int enable_get_epoch_stake_syscall   = 0;
-  int enable_sha512_syscall            = 0;
-  int enable_big_mod_exp_syscall       = 0;
-
+ulong
+fd_vm_syscall_env( ulong                 slot,
+                   fd_features_t const * features,
+                   uchar                 is_deploy ) {
+  ulong env = FD_VM_SYSCALL_ENV_VALID | ( is_deploy ? FD_VM_SYSCALL_ENV_DEPLOY : 0UL );
   if( features ) {
-    enable_get_sysvar_syscall        = FD_FEATURE_ACTIVE( slot, features, get_sysvar_syscall_enabled );
-    enable_get_epoch_stake_syscall   = FD_FEATURE_ACTIVE( slot, features, enable_get_epoch_stake_syscall );
-    enable_sha512_syscall            = FD_FEATURE_ACTIVE( slot, features, enable_sha512_syscall );
-    enable_big_mod_exp_syscall       = FD_FEATURE_ACTIVE( slot, features, enable_big_mod_exp_syscall );
-
+    env |= FD_FEATURE_ACTIVE( slot, features, get_sysvar_syscall_enabled     ) ? FD_VM_SYSCALL_ENV_GET_SYSVAR      : 0UL;
+    env |= FD_FEATURE_ACTIVE( slot, features, enable_get_epoch_stake_syscall ) ? FD_VM_SYSCALL_ENV_GET_EPOCH_STAKE : 0UL;
+    env |= FD_FEATURE_ACTIVE( slot, features, enable_sha512_syscall          ) ? FD_VM_SYSCALL_ENV_SHA512          : 0UL;
+    env |= FD_FEATURE_ACTIVE( slot, features, enable_big_mod_exp_syscall     ) ? FD_VM_SYSCALL_ENV_BIG_MOD_EXP     : 0UL;
   } else { /* enable ALL */
-
-    enable_get_sysvar_syscall        = 1;
-    enable_get_epoch_stake_syscall   = 1;
-    enable_sha512_syscall            = 1;
-    enable_big_mod_exp_syscall       = 1;
-
+    env |= FD_VM_SYSCALL_ENV_GET_SYSVAR | FD_VM_SYSCALL_ENV_GET_EPOCH_STAKE | FD_VM_SYSCALL_ENV_SHA512 | FD_VM_SYSCALL_ENV_BIG_MOD_EXP;
   }
+  return env;
+}
+
+int
+fd_vm_syscall_register_env( fd_sbpf_syscalls_t * syscalls,
+                            ulong                env ) {
+  if( FD_UNLIKELY( !syscalls || !(env & FD_VM_SYSCALL_ENV_VALID) ) ) return FD_VM_ERR_INVAL;
+
+  int is_deploy                      = !!( env & FD_VM_SYSCALL_ENV_DEPLOY          );
+  int enable_get_sysvar_syscall      = !!( env & FD_VM_SYSCALL_ENV_GET_SYSVAR      );
+  int enable_get_epoch_stake_syscall = !!( env & FD_VM_SYSCALL_ENV_GET_EPOCH_STAKE );
+  int enable_sha512_syscall          = !!( env & FD_VM_SYSCALL_ENV_SHA512          );
+  int enable_big_mod_exp_syscall     = !!( env & FD_VM_SYSCALL_ENV_BIG_MOD_EXP     );
 
   fd_sbpf_syscalls_clear( syscalls );
 
@@ -133,4 +133,36 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *      syscalls,
 # undef REGISTER
 
   return FD_VM_SUCCESS;
+}
+
+int
+fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *  syscalls,
+                             ulong                 slot,
+                             fd_features_t const * features,
+                             uchar                 is_deploy ) {
+  return fd_vm_syscall_register_env( syscalls, fd_vm_syscall_env( slot, features, is_deploy ) );
+}
+
+ulong
+fd_vm_syscalls_hash( fd_sbpf_syscalls_t const * syscalls ) {
+  ulong h = 0x9e3779b97f4a7c15UL;
+  for( ulong i=0UL; i<FD_SBPF_SYSCALLS_SLOT_CNT; i++ ) {
+    h = fd_ulong_hash( h ^ syscalls[ i ].key );
+    if( fd_sbpf_syscalls_key_inval( syscalls[ i ].key ) ) continue; /* empty slot, func is garbage */
+    h = fd_ulong_hash( h ^ (ulong)syscalls[ i ].func );
+  }
+  return h;
+}
+
+fd_sbpf_syscalls_t *
+fd_vm_syscall_cache_get( fd_vm_syscall_cache_t * cache,
+                         ulong                   env ) {
+  fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_join( cache->syscalls );
+  if( FD_UNLIKELY( cache->env!=env ) ) {
+    fd_sbpf_syscalls_new( cache->syscalls );
+    if( FD_UNLIKELY( fd_vm_syscall_register_env( syscalls, env )!=FD_VM_SUCCESS ) ) FD_LOG_CRIT(( "fd_vm_syscall_register_env failed" ));
+    cache->hash = fd_vm_syscalls_hash( syscalls );
+    cache->env  = env;
+  }
+  return syscalls;
 }

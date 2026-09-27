@@ -692,6 +692,66 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *  syscalls,
                              fd_features_t const * features,
                              uchar                 is_deploy );
 
+/* The syscall table register_slot builds is a pure function of a few
+   bits: is_deploy and the feature gates below, as of slot.
+   fd_vm_syscall_env packs them (NULL features means all features on,
+   as in register_slot), fd_vm_syscall_register_env builds the table for an
+   env, and register_slot is the composition of the two.  A caller that
+   executes many programs under one env can build the table once and
+   rebuild only when the env changes, see fd_vm_syscall_cache_t. */
+
+#define FD_VM_SYSCALL_ENV_DEPLOY          (1UL<<0)
+#define FD_VM_SYSCALL_ENV_GET_SYSVAR      (1UL<<1)
+#define FD_VM_SYSCALL_ENV_GET_EPOCH_STAKE (1UL<<2)
+#define FD_VM_SYSCALL_ENV_SHA512          (1UL<<3)
+#define FD_VM_SYSCALL_ENV_BIG_MOD_EXP     (1UL<<4)
+#define FD_VM_SYSCALL_ENV_VALID           (1UL<<63) /* set in every env fd_vm_syscall_env returns */
+#define FD_VM_SYSCALL_ENV_NONE            (0UL)     /* no table built yet; a zeroed cache is empty */
+
+ulong
+fd_vm_syscall_env( ulong                 slot,
+                   fd_features_t const * features,
+                   uchar                 is_deploy );
+
+int
+fd_vm_syscall_register_env( fd_sbpf_syscalls_t * syscalls,
+                            ulong                env );
+
+/* fd_vm_syscalls_hash hashes a syscall table (keys and handlers).
+   Generated native code depends on the table, so the JIT keys by it. */
+
+ulong
+fd_vm_syscalls_hash( fd_sbpf_syscalls_t const * syscalls );
+
+/* fd_vm_syscall_cache_t holds the syscall table of one env and its
+   fd_vm_syscalls_hash, so neither is rebuilt per program invocation.
+   env is FD_VM_SYSCALL_ENV_NONE until the first fd_vm_syscall_cache_get
+   (zeroed memory is an empty cache). */
+
+struct fd_vm_syscall_cache {
+  ulong env;
+  ulong hash;
+  uchar syscalls[ FD_SBPF_SYSCALLS_FOOTPRINT ] __attribute__((aligned(FD_SBPF_SYSCALLS_ALIGN)));
+};
+typedef struct fd_vm_syscall_cache fd_vm_syscall_cache_t;
+
+static inline void
+fd_vm_syscall_cache_init( fd_vm_syscall_cache_t * cache ) {
+  cache->env  = FD_VM_SYSCALL_ENV_NONE;
+  cache->hash = 0UL;
+}
+
+/* fd_vm_syscall_cache_get returns the table for env, building it (and
+   its hash) when env differs from the cached one.  The table is
+   identical to what fd_vm_syscall_register_env( ..., env ) builds.
+   The returned table stays valid until the next get with another env;
+   callers must not hold it across such a get (nested CPI frames of one
+   transaction all run in one bank, so they share it safely). */
+
+fd_sbpf_syscalls_t *
+fd_vm_syscall_cache_get( fd_vm_syscall_cache_t * cache,
+                         ulong                   env );
+
 /* fd_vm_syscall_register_all is a shorthand for registering all
    syscalls (see register slot). */
 
