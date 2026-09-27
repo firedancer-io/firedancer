@@ -712,6 +712,127 @@ test_demote_builds_no_vote( void ) {
   FD_LOG_NOTICE(( "pass: a switch to the junk identity votes nothing" ));
 }
 
+static void
+unexpected_sign( void *         ctx,
+                 fd_bls_sig_t * sig,
+                 uchar const *  public_key,
+                 uchar const *  payload,
+                 ulong          payload_sz ) {
+  (void)ctx; (void)sig; (void)public_key; (void)payload; (void)payload_sz;
+  FD_LOG_ERR(( "adopting an empty history must not sign a vote" ));
+}
+
+/* Use production input initialization with the unpolled keyguard response
+   before adoption, as in topology.c.  Hand-built callback indices hid this
+   routing failure in the other adoption fixtures. */
+static void
+test_input_link_indices( void ) {
+  static fd_topo_t topo;
+  fd_topo_tile_t * tile = &topo.tiles[ 0 ];
+  fd_wksp_t * wksp = fd_wksp_new_anonymous( FD_SHMEM_NORMAL_PAGE_SZ, 4096UL, 0UL, "votor_inputs", 0UL );
+  FD_TEST( wksp );
+  topo.workspaces[ 0 ].wksp = wksp;
+  topo.objs[ 0 ].wksp_id    = 0UL;
+  char const * names[] = { "replay_out", "replay_epoch", "gossip_out", "ipecho_out", "net_votor", "sign_votor", "failov_votor" };
+  tile->in_cnt = sizeof(names)/sizeof(names[0]);
+  for( ulong i=0UL; i<tile->in_cnt; i++ ) {
+    fd_topo_link_t * link = &topo.links[ i ];
+    fd_cstr_ncpy( link->name, names[ i ], sizeof(link->name) );
+    link->mtu = AG_HIST_SER_MAX;
+    ulong data_sz = fd_dcache_req_data_sz( link->mtu, 4UL, 1UL, 1 );
+    void * mem = fd_wksp_alloc_laddr( wksp, fd_dcache_align(), fd_dcache_footprint( data_sz, 0UL ), 1UL );
+    FD_TEST( mem );
+    link->dcache = fd_dcache_join( fd_dcache_new( mem, data_sz, 0UL ) );
+    FD_TEST( link->dcache );
+    tile->in_link_id[ i ]   = i;
+    tile->in_link_poll[ i ] = strcmp( names[ i ], "sign_votor" )!=0;
+  }
+
+  static fd_votor_tile_t ctx_mem[ 1 ];
+  static uchar votor_mem[ 1UL<<20 ] __attribute__((aligned(128)));
+  fd_votor_tile_t * ctx = ctx_mem;
+  FD_TEST( ag_votor_footprint( 16UL )<=sizeof(votor_mem) );
+  ctx->votor = ag_votor_join( ag_votor_new( votor_mem, 16UL, 42UL ) );
+  FD_TEST( ctx->votor );
+  /* Empty-history adoption does not sign, but requires initialized consensus. */
+  ag_votor_init( ctx->votor, 0UL, 0L, 400000000L, 1U, unexpected_sign, NULL );
+  ctx->init = 1;
+  ctx->failover_enabled = 1;
+  ctx->adopted_last_leader_slot = ULONG_MAX;
+  ctx->last_leader_slot         = ULONG_MAX;
+  ctx->last_vote_slot           = ULONG_MAX;
+
+  static uchar reply_mem[ 512 ] __attribute__((aligned(FD_CHUNK_SZ)));
+  static fd_frag_meta_t mcache[ 8 ];
+  fd_frag_meta_t * mcaches[] = { mcache };
+  ulong seqs[] = { 0UL }, depths[] = { 8UL };
+  ulong cr_avail = 64UL, min_cr_avail = 64UL;
+  int reliable = 0;
+  fd_stem_context_t stem[ 1 ] = {{
+    .mcaches=mcaches, .seqs=seqs, .depths=depths,
+    .cr_avail=&cr_avail, .min_cr_avail=&min_cr_avail,
+    .cr_decrement_amount=1UL, .out_reliable=&reliable
+  }};
+  ctx->failov_out_idx = 0UL;
+  ctx->failov_out_mem = reply_mem;
+  ctx->failov_out_wmark = 4UL;
+  init_input_links( ctx, &topo, tile );
+
+  /* Stem skips the synchronous sign response link when numbering callbacks. */
+  ulong callback_idx = 0UL;
+  for( ulong i=0UL; i<6UL; i++ ) callback_idx += !!tile->in_link_poll[ i ];
+  FD_TEST( callback_idx==5UL );
+  fd_topo_link_t const * link = &topo.links[ 6 ];
+  FD_STORE( ulong, link->dcache, 9UL );
+  ulong chunk = fd_dcache_compact_chunk0( wksp, link->dcache );
+  FD_TEST( !before_frag( ctx, callback_idx, 0UL, 901UL ) );
+  during_frag( ctx, callback_idx, 0UL, 901UL, chunk, FD_VOTOR_ADOPT_EMPTY_SZ, 0UL );
+  after_frag( ctx, callback_idx, 0UL, 901UL, FD_VOTOR_ADOPT_EMPTY_SZ, 0UL, 0UL, stem );
+  FD_TEST( seqs[0]==1UL && mcache[0].sig==901UL && mcache[0].sz==sizeof(fd_votor_adopt_result_t) );
+  fd_votor_adopt_result_t const * reply = fd_chunk_to_laddr_const( reply_mem, mcache[0].chunk );
+  FD_TEST( reply->result==FD_VOTOR_ADOPT_SUCCESS && reply->vote_bound==9UL );
+  FD_TEST( ctx->failover_hist_adopted );
+  FD_TEST( ctx->adopted_last_leader_slot==ag_first_slot_in_window( 9UL ) );
+  FD_TEST( ctx->in_kind[ callback_idx ]==IN_KIND_FAILOV );
+  FD_TEST( ctx->in[ callback_idx ].chunk0==chunk && ctx->in[ callback_idx ].mtu==link->mtu );
+
+  /* A request without a bound is refused and preserves the earlier bound. */
+  ctx->failover_hist_adopted = 0;
+  FD_STORE( ulong, link->dcache, ULONG_MAX );
+  during_frag( ctx, callback_idx, 1UL, 902UL, chunk, FD_VOTOR_ADOPT_EMPTY_SZ, 0UL );
+  after_frag( ctx, callback_idx, 1UL, 902UL, FD_VOTOR_ADOPT_EMPTY_SZ, 0UL, 0UL, stem );
+  FD_TEST( seqs[0]==2UL && mcache[1].sig==902UL && mcache[1].sz==sizeof(fd_votor_adopt_result_t) );
+  reply = fd_chunk_to_laddr_const( reply_mem, mcache[1].chunk );
+  FD_TEST( reply->result==FD_VOTOR_ADOPT_ERR_INVALID && !ctx->failover_hist_adopted );
+  FD_TEST( ag_votor_vote_bound( ctx->votor )==9UL );
+  FD_TEST( ctx->adopted_last_leader_slot==ag_first_slot_in_window( 9UL ) );
+
+  /* Before consensus is up the answer says to ask again, and nothing
+     moves. */
+  ctx->init = 0;
+  FD_STORE( ulong, link->dcache, 21UL );
+  during_frag( ctx, callback_idx, 2UL, 903UL, chunk, FD_VOTOR_ADOPT_EMPTY_SZ, 0UL );
+  after_frag( ctx, callback_idx, 2UL, 903UL, FD_VOTOR_ADOPT_EMPTY_SZ, 0UL, 0UL, stem );
+  FD_TEST( seqs[0]==3UL && mcache[2].sig==903UL );
+  reply = fd_chunk_to_laddr_const( reply_mem, mcache[2].chunk );
+  FD_TEST( reply->result==FD_VOTOR_ADOPT_ERR_UNREPLAYED && !ctx->failover_hist_adopted );
+  FD_TEST( ag_votor_vote_bound( ctx->votor )==9UL );
+  ctx->init = 1;
+
+  /* After set-identity turned failover off nothing waits for an answer,
+     the request is dropped and moves neither bound. */
+  ctx->failover_enabled = 0;
+  during_frag( ctx, callback_idx, 3UL, 904UL, chunk, FD_VOTOR_ADOPT_EMPTY_SZ, 0UL );
+  after_frag( ctx, callback_idx, 3UL, 904UL, FD_VOTOR_ADOPT_EMPTY_SZ, 0UL, 0UL, stem );
+  FD_TEST( seqs[0]==3UL && !ctx->failover_hist_adopted );
+  FD_TEST( ag_votor_vote_bound( ctx->votor )==9UL );
+  FD_TEST( ctx->adopted_last_leader_slot==ag_first_slot_in_window( 9UL ) );
+
+  ag_votor_delete( ag_votor_leave( ctx->votor ) );
+  fd_wksp_delete_anonymous( wksp );
+  FD_LOG_NOTICE(( "pass: production input initialization routes adoption past the unpolled signer link" ));
+}
+
 /* test_history_raises_the_leader_floor: an adopted history fences the
    window of the last LEADER it reports and the window of its vote
    bound, and a lower bound or leader slot never lowers the fence. */
@@ -816,6 +937,7 @@ main( int     argc,
   fd_bls_sec_t junk_sec; fd_memset( &junk_sec, 0x55, FD_BLS_SEC_SZ );
   bls_key_from_sec( junk_bls_key, &junk_sec );
 
+  test_input_link_indices();
   test_rank_voters_resets_total_stake();
   test_quic_client_ack_range();
   test_rank_voters_bls_keys();

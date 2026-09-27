@@ -219,7 +219,8 @@ struct fd_adminctl_failover_status_resp_v1 {
   ulong  promote_result;  /* the refusal a promote without --force would get now */
   uchar  mode;            /* FD_FAILOVER_MODE_* the validator runs */
   uchar  request_paused;  /* our handoff request stopped at its deadline, `failover promote` resumes it */
-  uchar  reserved[ 6 ];
+  uchar  vote_stopped;    /* alpenglow, the votor stopped voting on a vote from our identity it never cast */
+  uchar  reserved[ 5 ];
 };
 typedef struct fd_adminctl_failover_status_resp_v1 fd_adminctl_failover_status_resp_t;
 

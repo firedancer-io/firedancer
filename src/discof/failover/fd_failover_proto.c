@@ -2,10 +2,12 @@
 
 #include "../../choreo/tower/fd_tower.h"
 #include "../../choreo/tower/fd_tower_serdes.h"
+#include "../../choreo/votor/ag_hist.h"
 #include "../../ballet/ed25519/fd_ed25519.h"
 #include "../../disco/keyguard/fd_keyguard.h"
 
 FD_STATIC_ASSERT( FD_KEYGUARD_MEMBER_CERT_MSG_SZ==FD_KEYGUARD_MEMBER_CERT_PREFIX_SZ+32UL, member_cert_msg );
+FD_STATIC_ASSERT( AG_HIST_SER_MAX<=FD_FAILOVER_ALPENGLOW_STATE_MAX, alpenglow_state_max );
 
 int
 fd_failover_hello_check( fd_failover_hello_t const * self,
@@ -146,6 +148,38 @@ fd_failover_demoted_encode( uchar *       out,
   return sizeof(demoted)+state_sz;
 }
 
+ulong
+fd_failover_demoted_encode_alpenglow( uchar *       out,
+                                      ulong         handoff_id,
+                                      ulong         target_boot_id,
+                                      ulong         last_vote_slot,
+                                      uchar const * state,
+                                      ulong         state_sz ) {
+  if( FD_UNLIKELY( !state_sz || state_sz>FD_FAILOVER_ALPENGLOW_STATE_MAX ) ) return 0UL;
+
+  fd_failover_demoted_t demoted = {
+    .handoff_id     = handoff_id,
+    .target_boot_id = target_boot_id,
+    .last_vote_slot = last_vote_slot,
+    .mode           = (uchar)FD_FAILOVER_MODE_ALPENGLOW,
+    .state_len      = (ushort)state_sz,
+  };
+  fd_memcpy( out, &demoted, sizeof(demoted) );
+  fd_memcpy( out+sizeof(demoted), state, state_sz );
+  return sizeof(demoted)+state_sz;
+}
+
+/* The vote history has to decode exactly and end at the slot the
+   DEMOTED claims. */
+static int
+alpenglow_state_check( uchar const * state,
+                       ulong         state_sz,
+                       ulong         vote_slot ) {
+  if( FD_UNLIKELY( state_sz>FD_FAILOVER_ALPENGLOW_STATE_MAX ) ) return 0;
+  ag_hist_t hist[1];
+  return !ag_hist_de( state, state_sz, hist ) && ag_hist_tip( hist )==vote_slot;
+}
+
 int
 fd_failover_demoted_decode( fd_failover_demoted_t * out,
                             uchar const *           payload,
@@ -159,8 +193,15 @@ fd_failover_demoted_decode( fd_failover_demoted_t * out,
   ulong state_sz = payload_sz-sizeof(fd_failover_demoted_t);
   if( FD_UNLIKELY( (ulong)demoted.state_len!=state_sz ||
                    !state_sz ||
-                   demoted.mode!=(uchar)FD_FAILOVER_MODE_TOWER ||
+                   demoted.mode>=(uchar)FD_FAILOVER_MODE_CNT ||
                    demoted.last_vote_slot==FD_FAILOVER_SLOT_NULL ) ) return 0;
+
+  if( FD_UNLIKELY( demoted.mode==(uchar)FD_FAILOVER_MODE_ALPENGLOW ) ) {
+    if( FD_UNLIKELY( !alpenglow_state_check( payload+sizeof(fd_failover_demoted_t), state_sz, demoted.last_vote_slot ) ) ) return 0;
+    *out = demoted;
+    return 1;
+  }
+  if( FD_UNLIKELY( state_sz>FD_FAILOVER_TOWER_STATE_MAX ) ) return 0;
 
   fd_compact_tower_sync_serde_t serde;
   fd_tower_vote_t               votes[ FD_TOWER_VOTE_MAX ];

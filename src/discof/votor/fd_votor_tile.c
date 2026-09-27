@@ -32,8 +32,7 @@
 #define IN_KIND_IPECHO (2)
 #define IN_KIND_NET    (3)
 #define IN_KIND_REPLAY (4)
-#define IN_KIND_SIGN   (5)
-#define IN_KIND_FAILOV (6)
+#define IN_KIND_FAILOV (5)
 
 #define OUT_IDX_VOTOR (0UL)
 #define OUT_IDX_NET   (1UL)
@@ -1561,6 +1560,15 @@ after_credit( fd_votor_tile_t *   ctx,
   ctx->net_tx_cnt = 0UL;
 
   if( FD_UNLIKELY( ctx->halt_signing && fd_keyswitch_state_query( ctx->identity_keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
+    /* set-identity turned failover off, we vote as without failover
+       until restart. */
+    if( FD_UNLIKELY( ctx->failover_enabled && fd_keyswitch_param_query( ctx->identity_keyswitch )==FD_KEYSWITCH_PARAM_IDENTITY_FAILOVER_OFF ) ) {
+      FD_LOG_WARNING(( "votor: set-identity turned failover off, voting follows the identity like any validator until restart" ));
+      ctx->failover_enabled      = 0;
+      ctx->vote_authority        = 1;
+      ctx->failover_hist_adopted = 0;
+      ctx->doppelganger          = 0;
+    }
     /* The admin tile waits on this, so it runs even before consensus is
        up.  Votes queued before the halt are marked voted and dropped,
        under failover also as never sent. */
@@ -1571,7 +1579,7 @@ after_credit( fd_votor_tile_t *   ctx,
     }
     /* The last frame has every slot marked so far, and the sequence
        after it is the watermark the failover tile drains to. */
-    fd_votor_hist_msg_t const * last = publish_hist( ctx, stem, 0 );
+    fd_votor_hist_msg_t const * last = ctx->failover_enabled ? publish_hist( ctx, stem, 0 ) : NULL;
     ctx->identity_keyswitch->result = ctx->hist_out_idx!=ULONG_MAX ? stem->seqs[ ctx->hist_out_idx ] : 0UL;
     if( FD_UNLIKELY( last ) ) {
       FD_LOG_NOTICE(( "failover: halted for an identity switch, discarded %lu queued vote events at halt as never sent and exported %lu voted slots on anchor %lu, the failover tile drains to sequence %lu",
@@ -1924,6 +1932,12 @@ after_frag( fd_votor_tile_t *   ctx,
     if( FD_UNLIKELY( ctx->failover_enabled && sig==REPLAY_SIG_SLOT_COMPLETED ) ) publish_hist( ctx, stem, 0 ); /* keeps the failover deadlines ticking */
     break;
   case IN_KIND_FAILOV: {
+    /* After set-identity turned failover off nothing waits for an
+       answer, and an adoption would only move our votes. */
+    if( FD_UNLIKELY( !ctx->failover_enabled ) ) {
+      FD_LOG_NOTICE(( "failover: dropping a vote history adoption that arrived after set-identity turned failover off" ));
+      break;
+    }
     /* The answer echoes the request's sequence number, the failover tile
        waits for it. */
     fd_votor_adopt_result_t result = failover_adopt_hist( ctx, ctx->adopt_req, ctx->adopt_req_sz );
@@ -1976,6 +1990,39 @@ privileged_init( fd_topo_t const *      topo,
   ctx->id_key   = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->votor.identity_key_path, /* pubkey only: */ 1 ) );
 
   fd_log_wallclock();
+}
+
+/* Stem numbers only polled inputs.  The synchronous sign response link
+   must not shift the callbacks for the failover input that follows it. */
+static void
+init_input_links( fd_votor_tile_t *     ctx,
+                  fd_topo_t const *      topo,
+                  fd_topo_tile_t const * tile ) {
+  FD_TEST( tile->in_cnt<=sizeof(ctx->in_kind)/sizeof(ctx->in_kind[0]) );
+  ulong in_idx = 0UL;
+  for( ulong i=0UL; i<tile->in_cnt; i++ ) {
+    if( !tile->in_link_poll[ i ] ) continue;
+    fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
+
+    if     ( FD_LIKELY( !strcmp( link->name, "replay_epoch" ) ) ) ctx->in_kind[ in_idx ] = IN_KIND_EPOCH;
+    else if( FD_LIKELY( !strcmp( link->name, "gossip_out"   ) ) ) ctx->in_kind[ in_idx ] = IN_KIND_GOSSIP;
+    else if( FD_LIKELY( !strcmp( link->name, "ipecho_out"   ) ) ) ctx->in_kind[ in_idx ] = IN_KIND_IPECHO;
+    else if( FD_LIKELY( !strcmp( link->name, "net_votor"    ) ) ) {
+      ctx->in_kind[ in_idx ] = IN_KIND_NET;
+      fd_net_rx_bounds_init( &ctx->net_in_bounds[ in_idx ], link->dcache );
+    }
+    else if( FD_LIKELY( !strcmp( link->name, "replay_out"   ) ) ) ctx->in_kind[ in_idx ] = IN_KIND_REPLAY;
+    else if( FD_LIKELY( !strcmp( link->name, "failov_votor" ) ) ) ctx->in_kind[ in_idx ] = IN_KIND_FAILOV;
+    else FD_LOG_ERR(( "votor tile has unexpected input link %lu %s", i, link->name ));
+
+    if( FD_LIKELY( link->mtu ) ) {
+      ctx->in[ in_idx ].mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
+      ctx->in[ in_idx ].chunk0 = fd_dcache_compact_chunk0( ctx->in[ in_idx ].mem, link->dcache );
+      ctx->in[ in_idx ].wmark  = fd_dcache_compact_wmark ( ctx->in[ in_idx ].mem, link->dcache, link->mtu );
+      ctx->in[ in_idx ].mtu    = link->mtu;
+    }
+    in_idx++;
+  }
 }
 
 static void
@@ -2059,29 +2106,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->halt_signing           = 0;
   ctx->highest_completed_slot = 0UL;
 
-  FD_TEST( tile->in_cnt<=sizeof(ctx->in_kind)/sizeof(ctx->in_kind[0]) );
-  for( ulong i=0UL; i<tile->in_cnt; i++ ) {
-    fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
-
-    if     ( FD_LIKELY( !strcmp( link->name, "replay_epoch" ) ) ) ctx->in_kind[ i ] = IN_KIND_EPOCH;
-    else if( FD_LIKELY( !strcmp( link->name, "gossip_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP;
-    else if( FD_LIKELY( !strcmp( link->name, "ipecho_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_IPECHO;
-    else if( FD_LIKELY( !strcmp( link->name, "net_votor"    ) ) ) {
-      ctx->in_kind[ i ] = IN_KIND_NET;
-      fd_net_rx_bounds_init( &ctx->net_in_bounds[ i ], link->dcache );
-    }
-    else if( FD_LIKELY( !strcmp( link->name, "replay_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
-    else if( FD_LIKELY( !strcmp( link->name, "sign_votor"   ) ) ) ctx->in_kind[ i ] = IN_KIND_SIGN;
-    else if( FD_LIKELY( !strcmp( link->name, "failov_votor" ) ) ) ctx->in_kind[ i ] = IN_KIND_FAILOV;
-    else FD_LOG_ERR(( "votor tile has unexpected input link %lu %s", i, link->name ));
-
-    if( FD_LIKELY( link->mtu ) ) {
-      ctx->in[ i ].mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
-      ctx->in[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->in[ i ].mem, link->dcache );
-      ctx->in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->in[ i ].mem, link->dcache, link->mtu );
-      ctx->in[ i ].mtu    = link->mtu;
-    }
-  }
+  init_input_links( ctx, topo, tile );
 
   FD_TEST( tile->out_cnt>OUT_IDX_NET );
   fd_topo_link_t const * votor_out = &topo->links[ tile->out_link_id[ OUT_IDX_VOTOR ] ];

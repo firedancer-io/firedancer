@@ -594,11 +594,6 @@ fd_config_validate_failover( fd_config_t const * config ) {
   if( FD_UNLIKELY( !strcmp( config->paths.vote_account, "" ) ) ) {
     FD_LOG_ERR(( "[failover.enabled] is true, so [paths.vote_account] must be set to the vote account both machines vote for" ));
   }
-  /* Failover is built on the Tower tiles, and Votor does not adopt a
-     vote history or follow the staked key's BLS key through a switch. */
-  if( FD_UNLIKELY( f->development.alpenglow ) ) {
-    FD_LOG_ERR(( "failover in this build supports Tower only, set [development.alpenglow] to false or [failover.enabled] to false" ));
-  }
 }
 
 void

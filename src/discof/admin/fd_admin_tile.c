@@ -672,10 +672,11 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
 
 /* set-identity is the break-glass.  Under failover it first turns
    failover off until restart, then switches the upstream way.  The sign
-   tiles take the keypair, the tower drops the failover voting rules, and
-   the failover tile stops.  The sign tiles keep the keys failover loaded
-   at boot and still refuse the staked key as an authorized voter, but
-   nothing asks them for a failover signature or switch again. */
+   tiles take the keypair, the tower or the votor drops the failover
+   voting rules, and the failover tile stops.  The sign tiles keep the
+   keys failover loaded at boot and still refuse the staked key as an
+   authorized voter, but nothing asks them for a failover signature or
+   switch again. */
 
 static void
 failover_turn_off( fd_admin_tile_ctx_t * ctx,
@@ -690,7 +691,7 @@ failover_turn_off( fd_admin_tile_ctx_t * ctx,
     fd_keyswitch_t * sign = fd_topo_obj_laddr( topo, topo->tiles[ i ].id_keyswitch_obj_id );
     sign->param = FD_KEYSWITCH_PARAM_IDENTITY_KEYPAIR;
   }
-  find_identity_keyswitch( ctx, "tower" )->param = FD_KEYSWITCH_PARAM_IDENTITY_FAILOVER_OFF;
+  find_identity_keyswitch( ctx, ctx->vote_tile )->param = FD_KEYSWITCH_PARAM_IDENTITY_FAILOVER_OFF;
 
   if( FD_LIKELY( ctx->failov_out_idx!=ULONG_MAX ) ) {
     fd_failover_bus_msg_t * msg = fd_chunk_to_laddr( ctx->failov_out_mem, ctx->failov_out_chunk );
@@ -1610,11 +1611,12 @@ failover_switch_request( fd_admin_tile_ctx_t * ctx,
 
     /* The watermark is the tower's output sequence at its halt, which
        the tower tile leaves in its keyswitch result.  halted_seq is
-       replay's. */
+       replay's.  Under Alpenglow the votor leaves its votor_hist
+       sequence there. */
     response.result          = FD_FAILOVER_SWITCH_OK;
-    response.tower_watermark = find_identity_keyswitch( ctx, "tower" )->result;
+    response.tower_watermark = find_identity_keyswitch( ctx, ctx->vote_tile )->result;
     report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_SUCCESS );
-    FD_LOG_NOTICE(( "failover: every tile switched to `%s`, the tower halted signing at sequence %lu", new_identity, response.tower_watermark ));
+    FD_LOG_NOTICE(( "failover: every tile switched to `%s`, the %s halted signing at sequence %lu", new_identity, ctx->vote_tile, response.tower_watermark ));
   } else {
     FD_LOG_WARNING(( "the failover tile asked for an identity switch but failover is off, refusing" ));
   }
