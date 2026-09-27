@@ -77,6 +77,137 @@ live_table32_col_value_lt( void const * a,
 #undef LIVE_TABLE_IDX_T
 #endif
 
+/* A table with more sort key slots than one bitmap word, to exercise
+   slot allocation, iteration and eviction across words. */
+
+#define TEST_LIVE_TABLE_WIDE_MAX_SORT_KEY_CNT (130UL)
+struct test_live_table_wide_row {
+  struct {
+    uint parent;
+    uint left;
+    uint right;
+    uint prio;
+    uint next;
+    uint prev;
+  } treaps[ TEST_LIVE_TABLE_WIDE_MAX_SORT_KEY_CNT ];
+  ulong sort_keys;
+  struct {
+    ulong prev;
+    ulong next;
+  } dlist;
+
+  ulong a;
+  ulong b;
+  ulong c;
+};
+typedef struct test_live_table_wide_row test_live_table_wide_row_t;
+
+static int
+live_table_wide_col_lt( void const * a,
+                        void const * b ) {
+  return *(ulong *)a < *(ulong *)b;
+}
+
+#define LIVE_TABLE_NAME test_live_table_wide
+#define LIVE_TABLE_COLUMN_CNT (3UL)
+#define LIVE_TABLE_IDX_T uint
+#define LIVE_TABLE_SORT_KEYS sort_keys
+#define LIVE_TABLE_DLIST dlist
+#define LIVE_TABLE_MAX_SORT_KEY_CNT TEST_LIVE_TABLE_WIDE_MAX_SORT_KEY_CNT
+#define LIVE_TABLE_COLUMNS LIVE_TABLE_COL_ARRAY( LIVE_TABLE_COL_ENTRY("A", a, live_table_wide_col_lt), LIVE_TABLE_COL_ENTRY("B", b, live_table_wide_col_lt), LIVE_TABLE_COL_ENTRY("C", c, live_table_wide_col_lt) )
+#define LIVE_TABLE_ROW_T test_live_table_wide_row_t
+#include "fd_gui_live_table_tmpl.c"
+#ifdef LIVE_TABLE_IDX_T
+#undef LIVE_TABLE_IDX_T
+#endif
+
+/* wide_key_i returns the i-th of 72 distinct sort keys over three
+   columns: the 48 keys ordering all three columns (6 orders x 8 sign
+   patterns) then the 24 ordering two (6 orders x 4 sign patterns, the
+   third column unsorted). */
+
+#define WIDE_KEY_CNT (72UL)
+
+static test_live_table_wide_sort_key_t
+wide_key_i( ulong i ) {
+  static ulong const perm[ 6 ][ 3 ] = { {0,1,2},{0,2,1},{1,0,2},{1,2,0},{2,0,1},{2,1,0} };
+  test_live_table_wide_sort_key_t key;
+  ulong p, signs, active;
+  if( i<48UL ) { p = i/8UL;         signs = i%8UL;         active = 3UL; }
+  else         { p = (i-48UL)/4UL;  signs = (i-48UL)%4UL;  active = 2UL; }
+  for( ulong c=0UL; c<3UL; c++ ) {
+    key.col[ c ] = perm[ p ][ c ];
+    key.dir[ c ] = c<active ? (((signs>>c)&1UL) ? -1 : 1) : 0;
+  }
+  return key;
+}
+
+static void
+test_wide( void ) {
+#define WIDE_ROW_CNT (64UL)
+  static test_live_table_wide_row_t pool[ WIDE_ROW_CNT ];
+  static uchar mem[ 32768 ] __attribute__((aligned(256UL)));
+  FD_TEST( sizeof(mem)>=test_live_table_wide_footprint( WIDE_ROW_CNT ) );
+  test_live_table_wide_t * table = test_live_table_wide_join( test_live_table_wide_new( mem, WIDE_ROW_CNT ) );
+  FD_TEST( table );
+
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 7U, 0UL ) );
+  for( ulong i=0UL; i<WIDE_ROW_CNT; i++ ) {
+    pool[ i ].a = fd_rng_ulong_roll( rng, 4UL );
+    pool[ i ].b = fd_rng_ulong_roll( rng, 4UL );
+    pool[ i ].c = i;
+  }
+  test_live_table_wide_seed( pool, WIDE_ROW_CNT, 45UL );
+  for( ulong i=0UL; i<WIDE_ROW_CNT/2UL; i++ ) test_live_table_wide_idx_insert( table, i, pool );
+
+  /* activate 72 distinct keys, across both bitmap words, with row
+     churn in between; every active treap stays consistent */
+  for( ulong k=0UL; k<WIDE_KEY_CNT; k++ ) {
+    test_live_table_wide_sort_key_t key = wide_key_i( k );
+    ulong cnt = 0UL;
+    for( test_live_table_wide_fwd_iter_t it = test_live_table_wide_fwd_iter_init( table, &key, pool ); !test_live_table_wide_fwd_iter_done( it ); it = test_live_table_wide_fwd_iter_next( it, pool ) ) cnt++;
+    FD_TEST( cnt==test_live_table_wide_ele_cnt( table ) );
+    FD_TEST( test_live_table_wide_active_sort_key_cnt( table )==k+1UL );
+    ulong r = fd_rng_ulong_roll( rng, WIDE_ROW_CNT );
+    if( r<WIDE_ROW_CNT/2UL ) { test_live_table_wide_idx_remove( table, r, pool ); pool[ r ].a = fd_rng_ulong_roll( rng, 4UL ); test_live_table_wide_idx_insert( table, r, pool ); }
+    else if( k&1UL )         { test_live_table_wide_idx_insert( table, r, pool ); test_live_table_wide_idx_remove( table, r, pool ); }
+    FD_TEST( !test_live_table_wide_verify( table, pool ) );
+  }
+  FD_TEST( test_live_table_wide_active_sort_key_cnt( table )==WIDE_KEY_CNT );
+
+  /* remove keys from both words, then re-add into the freed slots */
+  for( ulong k=0UL; k<WIDE_KEY_CNT; k+=3UL ) { test_live_table_wide_sort_key_t key = wide_key_i( k ); test_live_table_wide_sort_key_remove( table, &key ); }
+  FD_TEST( test_live_table_wide_active_sort_key_cnt( table )==WIDE_KEY_CNT-24UL );
+  for( ulong k=0UL; k<WIDE_KEY_CNT; k+=3UL ) {
+    test_live_table_wide_sort_key_t key = wide_key_i( k );
+    ulong cnt = 0UL;
+    for( test_live_table_wide_fwd_iter_t it = test_live_table_wide_fwd_iter_init( table, &key, pool ); !test_live_table_wide_fwd_iter_done( it ); it = test_live_table_wide_fwd_iter_next( it, pool ) ) cnt++;
+    FD_TEST( cnt==test_live_table_wide_ele_cnt( table ) );
+  }
+  FD_TEST( test_live_table_wide_active_sort_key_cnt( table )==WIDE_KEY_CNT );
+  FD_TEST( !test_live_table_wide_verify( table, pool ) );
+
+  /* every row ends up in every active treap: the ordered walk of each
+     key is a permutation consistent with lt */
+  for( ulong k=0UL; k<WIDE_KEY_CNT; k++ ) {
+    test_live_table_wide_sort_key_t key = wide_key_i( k );
+    test_live_table_wide_row_t const * prev = NULL;
+    ulong cnt = 0UL;
+    for( test_live_table_wide_fwd_iter_t it = test_live_table_wide_fwd_iter_init( table, &key, pool ); !test_live_table_wide_fwd_iter_done( it ); it = test_live_table_wide_fwd_iter_next( it, pool ) ) {
+      test_live_table_wide_row_t const * cur = test_live_table_wide_fwd_iter_ele_const( it, pool );
+      if( prev ) FD_TEST( !test_live_table_wide_lt( &key, cur, prev ) );
+      prev = cur;
+      cnt++;
+    }
+    FD_TEST( cnt==test_live_table_wide_ele_cnt( table ) );
+  }
+
+  FD_TEST( test_live_table_wide_delete( test_live_table_wide_leave( table ) ) );
+  fd_rng_delete( fd_rng_leave( rng ) );
+#undef WIDE_ROW_CNT
+#undef WIDE_KEY_CNT
+}
+
 static inline int
 test_live_table_key( test_live_table_t * table, test_live_table_sort_key_t const * key,  test_live_table_row_t * pool, ulong const * expected, ulong const expected_sz ) {
   for( test_live_table_fwd_iter_t iter = test_live_table_fwd_iter_init( table, key, pool ), i = 0; !test_live_table_fwd_iter_done( iter ); iter = test_live_table_fwd_iter_next( iter, pool ), i++ ) {
@@ -295,6 +426,8 @@ main( int argc, char ** argv ) {
 
   FD_TEST( !test_live_table_verify( evict_table, evict_pool ) );
   FD_TEST( test_live_table_delete( test_live_table_leave( evict_table ) ) );
+
+  test_wide();
 
   FD_LOG_INFO(( "PASSED" ));
   return 0;
