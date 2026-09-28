@@ -5,6 +5,7 @@
 #include "../../tango/tempo/fd_tempo.h"
 
 #include <pthread.h>
+#include <time.h>
 #include <sys/epoll.h>
 #include <sys/eventfd.h>
 #include <unistd.h>
@@ -21,6 +22,18 @@ static volatile int hammer_done;
 
 static int hammer_eventfd = -1; /* -1: futex waiter */
 
+/* Wakes the word passed as arg for a deadline after DELAYED_WAKE_NS */
+
+#define DELAYED_WAKE_NS (50000000L)
+
+static void *
+delayed_wake_thread( void * arg ) {
+  struct timespec ts = { .tv_sec = 0, .tv_nsec = DELAYED_WAKE_NS };
+  while( nanosleep( &ts, &ts ) ) {}
+  fd_sleep_wake_one( (ulong *)arg, FD_SLEEP_UNPARK_DEADLINE );
+  return NULL;
+}
+
 static void *
 waker_thread( void * arg ) {
   (void)arg;
@@ -29,8 +42,8 @@ waker_thread( void * arg ) {
         !FD_VOLATILE_CONST( sleep_obj->tile[ 1 ].word ) ) {
       fd_sleep_ring( sleep_obj, 1UL );
       if( __atomic_exchange_n( &sleep_obj->doorbell[ 0 ], 0UL, __ATOMIC_ACQUIRE ) & 2UL ) {
-        if( hammer_eventfd>=0 ) fd_sleep_wake_eventfd( &sleep_obj->tile[ 1 ].word, hammer_eventfd );
-        else                    fd_sleep_wake_one    ( &sleep_obj->tile[ 1 ].word );
+        if( hammer_eventfd>=0 ) fd_sleep_wake_eventfd( &sleep_obj->tile[ 1 ].word, hammer_eventfd, FD_SLEEP_UNPARK_RING );
+        else                    fd_sleep_wake_one    ( &sleep_obj->tile[ 1 ].word, FD_SLEEP_UNPARK_RING );
       }
     } else {
       FD_SPIN_PAUSE();
@@ -119,6 +132,24 @@ main( int     argc,
   FD_VOLATILE( sleep_obj->tile[ 0 ].word ) = 1UL;
   FD_TEST( fd_sleep_park_wait( &sleep_obj->tile[ 0 ].word, fd_tickcount()+(long)(1e9*tick_per_ns), tick_per_ns )==FD_SLEEP_UNPARK_RING );
 
+  /* the waker's cause comes back through the word, timed or untimed */
+  fd_sleep_wake_one( &sleep_obj->tile[ 0 ].word, FD_SLEEP_UNPARK_DEADLINE );
+  FD_TEST( fd_sleep_park_wait( &sleep_obj->tile[ 0 ].word, fd_tickcount()+(long)(1e9*tick_per_ns), tick_per_ns )==FD_SLEEP_UNPARK_DEADLINE );
+  fd_sleep_wake_one( &sleep_obj->tile[ 0 ].word, FD_SLEEP_UNPARK_RING );
+  FD_TEST( fd_sleep_park_wait( &sleep_obj->tile[ 0 ].word, LONG_MAX, tick_per_ns )==FD_SLEEP_UNPARK_RING );
+  fd_sleep_wake_one( &sleep_obj->tile[ 0 ].word, FD_SLEEP_UNPARK_DEADLINE );
+  FD_TEST( fd_sleep_park_wait( &sleep_obj->tile[ 0 ].word, LONG_MAX, tick_per_ns )==FD_SLEEP_UNPARK_DEADLINE );
+
+  /* untimed park: a 3s wait is only ended by the wake, at the wake */
+  pthread_t untimed;
+  FD_VOLATILE( sleep_obj->tile[ 0 ].word ) = 0UL;
+  FD_TEST( !pthread_create( &untimed, NULL, delayed_wake_thread, &sleep_obj->tile[ 0 ].word ) );
+  t0 = fd_tickcount();
+  FD_TEST( fd_sleep_park_wait( &sleep_obj->tile[ 0 ].word, LONG_MAX, tick_per_ns )==FD_SLEEP_UNPARK_DEADLINE );
+  waited_ns = (long)((double)(fd_tickcount()-t0)/tick_per_ns);
+  FD_TEST( waited_ns>=DELAYED_WAKE_NS && waited_ns<20L*DELAYED_WAKE_NS );
+  FD_TEST( !pthread_join( untimed, NULL ) );
+
   /* lost-wake hammer: a lost wake trips the 1s backstop deadline and
      fails the cause assertion */
   pthread_t waker;
@@ -160,12 +191,18 @@ main( int     argc,
   FD_TEST( fd_sleep_park_wait_epoll( epfd, word, evs, 2, &ev_cnt, fd_tickcount()-1L, tick_per_ns )==FD_SLEEP_UNPARK_DEADLINE );
 
   /* a doorbell wakes it, once (edge) */
-  fd_sleep_wake_eventfd( word, efd );
-  FD_TEST( word[0]==1UL );
+  fd_sleep_wake_eventfd( word, efd, FD_SLEEP_UNPARK_RING );
+  FD_TEST( word[0]==FD_SLEEP_WORD( FD_SLEEP_UNPARK_RING ) );
   FD_TEST( fd_sleep_park_wait_epoll( epfd, word, evs, 2, &ev_cnt, fd_tickcount()+deadline_slack, tick_per_ns )==FD_SLEEP_UNPARK_RING );
   FD_TEST( ev_cnt==1 && evs[ 0 ].data.u64==FD_SLEEP_EPOLL_DOORBELL );
   FD_VOLATILE( word[0] ) = 0UL;
   FD_TEST( fd_sleep_park_wait_epoll( epfd, word, evs, 2, &ev_cnt, fd_tickcount()+(long)(2e6*tick_per_ns), tick_per_ns )==FD_SLEEP_UNPARK_DEADLINE );
+
+  /* a deadline wake through the doorbell reports a deadline, untimed */
+  fd_sleep_wake_eventfd( word, efd, FD_SLEEP_UNPARK_DEADLINE );
+  FD_TEST( fd_sleep_park_wait_epoll( epfd, word, evs, 2, &ev_cnt, LONG_MAX, tick_per_ns )==FD_SLEEP_UNPARK_DEADLINE );
+  FD_TEST( !ev_cnt );
+  FD_VOLATILE( word[0] ) = 0UL;
 
   /* a stale doorbell (word 0 again) is waited through */
   ulong one = 1UL;

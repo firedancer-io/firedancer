@@ -1,11 +1,10 @@
 /* The mwaitx tile converts doorbell rings into futex wakes: it naps in
    hardware wake-on-store on the doorbell cache line (umonitor/umwait
    on Intel, monitorx/mwaitx on AMD, pause spin fallback), and is the
-   sole issuer of FUTEX_WAKE in the system.  A tile parked in epoll on
-   its own fds (sleep_eventfd) is woken by a write to its eventfd
-   instead.  It also services parked tiles' deadlines and runs the
-   verifying sweep (seq_mirror vs seq_snap) that bounds any lost
-   doorbell to ~one nap. */
+   sole issuer of FUTEX_WAKE in the system (a tile parked in epoll on
+   its own fds is woken through its eventfd instead).  It also services
+   parked tiles' deadlines and runs the verifying sweep (seq_mirror vs
+   seq_snap) that bounds any lost doorbell to ~one nap. */
 
 #include "fd_sleep.h"
 
@@ -97,10 +96,11 @@ idle_mwaitx( ulong const * line,
 
 static inline void
 wake( fd_mwaitx_tile_t * ctx,
-      ulong              tid ) {
+      ulong              tid,
+      int                cause ) {
   int eventfd = ctx->eventfd[ tid ];
-  if( FD_UNLIKELY( eventfd>=0 ) ) fd_sleep_wake_eventfd( &ctx->sleep->tile[ tid ].word, eventfd );
-  else                            fd_sleep_wake_one    ( &ctx->sleep->tile[ tid ].word );
+  if( FD_UNLIKELY( eventfd>=0 ) ) fd_sleep_wake_eventfd( &ctx->sleep->tile[ tid ].word, eventfd, cause );
+  else                            fd_sleep_wake_one    ( &ctx->sleep->tile[ tid ].word, cause );
   ctx->metrics_wake++;
 }
 
@@ -137,14 +137,16 @@ before_credit( fd_mwaitx_tile_t *   ctx,
     while( rung ) {
       ulong tid = (w<<6) + (ulong)fd_ulong_find_lsb( rung );
       rung &= rung-1UL;
-      if( FD_LIKELY( !FD_VOLATILE_CONST( ctx->sleep->tile[ tid ].word ) ) ) wake( ctx, tid );
+      if( FD_LIKELY( !FD_VOLATILE_CONST( ctx->sleep->tile[ tid ].word ) ) ) wake( ctx, tid, FD_SLEEP_UNPARK_RING );
       *charge_busy = 1;
     }
   }
 
   /* Every nap period, service tile deadlines, and sweep all parked
      tiles to catch any lost doorbells due to small unavoidable race
-     windows in the read-then-park sequence. */
+     windows in the read-then-park sequence.  A tile with nothing due
+     parks untimed and relies on this pass for its cap, so every parked
+     tile is visited every pass. */
 
   if( FD_LIKELY( now<ctx->next_sweep ) ) return;
   ctx->next_sweep = now+MWAITX_NAP_TICKS;
@@ -156,9 +158,9 @@ before_credit( fd_mwaitx_tile_t *   ctx,
       parked &= parked-1UL;
       if( FD_UNLIKELY( FD_VOLATILE_CONST( ctx->sleep->tile[ tid ].word ) ) ) continue; /* already woken */
 
-      int due = 0;
+      int cause = -1;
       if( FD_UNLIKELY( (long)FD_VOLATILE_CONST( ctx->sleep->tile[ tid ].deadline )<=now ) ) {
-        due = 1;
+        cause = FD_SLEEP_UNPARK_DEADLINE;
         ctx->metrics_deadline++;
       } else if( FD_LIKELY( !(FD_VOLATILE_CONST( ctx->sleep->credit_bits[ w ] ) & (1UL<<(tid&63UL))) ) ) {
         /* Producer mirror is ahead of the parked tile's snapshot, a
@@ -168,15 +170,15 @@ before_credit( fd_mwaitx_tile_t *   ctx,
         for( ulong i=0UL; i<(ulong)ctx->in_cnt[ tid ]; i++ ) {
           ulong mirror = FD_VOLATILE_CONST( ctx->sleep->seq_mirror[ ctx->in_link[ tid ][ i ] ] );
           if( FD_UNLIKELY( fd_seq_lt( FD_VOLATILE_CONST( ctx->sleep->seq_snap[ tid ][ i ] ), mirror ) ) ) {
-            due = 1;
+            cause = FD_SLEEP_UNPARK_RING;
             ctx->metrics_sweep++;
             break;
           }
         }
       }
 
-      if( FD_UNLIKELY( due ) ) {
-        wake( ctx, tid );
+      if( FD_UNLIKELY( cause>=0 ) ) {
+        wake( ctx, tid, cause );
         *charge_busy = 1;
       }
     }
@@ -236,8 +238,6 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           struct sock_filter *   out ) {
   (void)tile;
 
-  /* eventfd doorbells are FD_SLEEP_EVENTFD( id ) for the ids in
-     [id_lo,id_hi) */
   ulong id_lo = ULONG_MAX;
   ulong id_hi = 0UL;
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
