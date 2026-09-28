@@ -46,6 +46,7 @@ fd_failover_member_cert_check( fd_failover_hello_t const * hello,
 
 ulong
 fd_failover_session_init( int dial_peer ) {
+  /* Start in backoff for a dialer, listening otherwise. */
   return dial_peer ? FD_FAILOVER_SESSION_BACKOFF : FD_FAILOVER_SESSION_LISTENING;
 }
 
@@ -53,6 +54,7 @@ ulong
 fd_failover_session_step( ulong state,
                           int   dial_peer,
                           int   event ) {
+  /* Invalid inputs leave the state unchanged. */
   if( FD_UNLIKELY( state>=FD_FAILOVER_SESSION_CNT ) )       return state;
   if( FD_UNLIKELY( dial_peer<0 || dial_peer>1 ) )           return state;
   if( FD_UNLIKELY( event<0 || event>=FD_FAILOVER_EV_CNT ) ) return state;
@@ -63,32 +65,40 @@ fd_failover_session_step( ulong state,
     /* Candidates come and go without changing the listener's state. */
     switch( state ) {
     case FD_FAILOVER_SESSION_LISTENING:
+      /* A valid HELLO pairs the listener. */
       if( event==FD_FAILOVER_EV_HELLO_OK ) return FD_FAILOVER_SESSION_PAIRED;
       break;
     case FD_FAILOVER_SESSION_PAIRED:
+      /* A lost session returns to listening. */
       if( lost )                           return FD_FAILOVER_SESSION_LISTENING;
       break;
     }
-    return state;
+    return state; /* Other events leave the listener unchanged. */
   }
 
   switch( state ) {
   case FD_FAILOVER_SESSION_BACKOFF:
+    /* Backoff expired, start another dial. */
     if( event==FD_FAILOVER_EV_RETRY )     return FD_FAILOVER_SESSION_DIALING;
     break;
   case FD_FAILOVER_SESSION_DIALING:
+    /* TCP connected, start authentication. */
     if( event==FD_FAILOVER_EV_CONNECTED ) return FD_FAILOVER_SESSION_HELLO;
+    /* A failed or lost connection waits for a retry. */
     if( lost )                            return FD_FAILOVER_SESSION_BACKOFF;
     break;
   case FD_FAILOVER_SESSION_HELLO:
+    /* A valid HELLO pairs the dialer. */
     if( event==FD_FAILOVER_EV_HELLO_OK )  return FD_FAILOVER_SESSION_PAIRED;
+    /* A failed or lost connection waits for a retry. */
     if( lost )                            return FD_FAILOVER_SESSION_BACKOFF;
     break;
   case FD_FAILOVER_SESSION_PAIRED:
+    /* A failed or lost connection waits for a retry. */
     if( lost )                            return FD_FAILOVER_SESSION_BACKOFF;
     break;
   }
-  return state;
+  return state; /* Other events leave the dialer unchanged. */
 }
 
 int

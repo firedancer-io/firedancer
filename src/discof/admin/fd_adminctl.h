@@ -170,7 +170,7 @@ FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_control_resp_t)==24UL, failover_co
 
 /* What the failover controller is doing right now.  It lives only in
    memory, a restart boots a standby with nothing in flight. */
-#define FD_FAILOVER_ACTION_IDLE                (0UL)
+#define FD_FAILOVER_ACTION_IDLE                (0UL) /* no local transition is running */
 #define FD_FAILOVER_ACTION_DEMOTE_SWITCH       (1UL) /* waiting for the junk key to be installed */
 #define FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK     (2UL) /* DEMOTED sent, waiting for the peer */
 #define FD_FAILOVER_ACTION_PROMOTE_WAIT_REPLAY (3UL) /* waiting for replay to reach the tower tip */
@@ -179,7 +179,7 @@ FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_control_resp_t)==24UL, failover_co
 #define FD_FAILOVER_ACTION_HANDOFF_WAIT_PEER   (6UL) /* requesting the active's final tower */
 #define FD_FAILOVER_ACTION_HANDOFF_WAIT_RESULT (7UL) /* waiting for the old active to record our response */
 #define FD_FAILOVER_ACTION_DEMOTE_DRAIN        (8UL) /* junk key installed, waiting for the tower to drain */
-#define FD_FAILOVER_ACTION_CNT                 (9UL)
+#define FD_FAILOVER_ACTION_CNT                 (9UL) /* number of controller states */
 
 /* Where a promotion takes its tower from, best first */
 #define FD_FAILOVER_SOURCE_PEER         (0UL) /* the tower the peer's DEMOTED gave us */
@@ -187,21 +187,21 @@ FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_control_resp_t)==24UL, failover_co
 #define FD_FAILOVER_SOURCE_CNT          (2UL)
 
 /* How our last handoff ended, the one we requested or the one we gave */
-#define FD_FAILOVER_HANDOFF_NONE       (0UL)
-#define FD_FAILOVER_HANDOFF_PENDING    (1UL)
+#define FD_FAILOVER_HANDOFF_NONE       (0UL) /* nothing requested or sent */
+#define FD_FAILOVER_HANDOFF_PENDING    (1UL) /* requested or sent, no answer yet */
 #define FD_FAILOVER_HANDOFF_TAKEN      (2UL) /* the peer acked it */
 #define FD_FAILOVER_HANDOFF_DECLINED   (3UL) /* the peer refused it */
 #define FD_FAILOVER_HANDOFF_RESTARTED  (4UL) /* the peer came back with a new boot_id */
 #define FD_FAILOVER_HANDOFF_CANCELLED  (5UL) /* `failover promote --force` stopped waiting for the peer */
 #define FD_FAILOVER_HANDOFF_NOT_ACTIVE (6UL) /* the machine we dialed was a standby */
-#define FD_FAILOVER_HANDOFF_CNT        (7UL)
+#define FD_FAILOVER_HANDOFF_CNT        (7UL) /* number of handoff outcomes */
 
 /* `failover status`, provided by the failover tile.  Only what the
    failover controller knows, nothing RPC, gossip, metrics or the logs
    already show. */
 struct fd_adminctl_failover_status_resp_v1 {
   ulong  version;         /* ==FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION */
-  uchar  enabled;         /* 0 when failover is off, the other fields keep their init values then */
+  uchar  enabled;         /* 0 when failover is off, nothing else is set then */
   uchar  role;            /* FD_FAILOVER_ROLE_* */
   uchar  action;          /* FD_FAILOVER_ACTION_* */
   uchar  stuck;           /* a transition failed or is overdue */
