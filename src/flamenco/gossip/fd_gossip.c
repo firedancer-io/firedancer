@@ -6,6 +6,7 @@
 #include "fd_ping_tracker.h"
 #include "fd_prune_finder.h"
 #include "fd_gossip_wsample.h"
+#include "fd_gossip_hset.h"
 #include "../../disco/keyguard/fd_keyguard.h"
 #include "../../ballet/sha256/fd_sha256.h"
 #include "../leaders/fd_leaders_base.h"
@@ -100,7 +101,7 @@ struct fd_gossip_private {
     long last_replenish_nanos; /* last replenish timestamp in nanos  */
   } outbound_budget;
 
-  /* Per-request iteration budget for the CRDS treap scan in
+  /* Per-request iteration budget for the CRDS hash scan in
      rx_pull_request.  Reset at the start of each request. */
   struct {
     ulong remaining;
@@ -615,27 +616,39 @@ pull_scan_range( fd_gossip_t *         gossip,
                  fd_stem_context_t *   stem,
                  fd_ip4_port_t         peer_addr,
                  long                  now ) {
-  uchar iter_mem[ 16UL ];
+  /* The hset holds the value hashes densely, so the bloom filter is
+     checked from the scan itself and the (large, cold) CRDS entry is
+     only touched for the values the caller is missing.  Entries come
+     out in bucket order rather than sorted by prefix; the protocol
+     does not fix the order of a pull response, and a range covers a
+     few buckets at most. */
+  fd_gossip_hset_t const * hset = fd_crds_hset( gossip->crds );
+  fd_gossip_hset_iter_t it[1];
+  for( fd_gossip_hset_iter_init( it, hset, start_hash, end_hash );
+       !fd_gossip_hset_iter_done( it );
+       fd_gossip_hset_iter_next( it, hset ) ) {
+    uchar const * hashes = fd_gossip_hset_iter_hashes( it, hset );
+    uint          lanes  = fd_gossip_hset_iter_lanes( it, hset );
+    for( ; lanes; lanes = fd_uint_pop_lsb( lanes ) ) {
+      ulong lane = (ulong)fd_uint_find_lsb( lanes );
 
-  for( fd_crds_mask_iter_t * it = fd_crds_mask_iter_init_range( gossip->crds, start_hash, end_hash, iter_mem );
-       !fd_crds_mask_iter_done( it, gossip->crds );
-       it=fd_crds_mask_iter_next( it, gossip->crds ) ) {
-    if( FD_UNLIKELY( !gossip->scan_budget.remaining ) ) return 1;
-    gossip->scan_budget.remaining--;
+      if( FD_UNLIKELY( !gossip->scan_budget.remaining ) ) return 1;
+      gossip->scan_budget.remaining--;
 
-    fd_crds_entry_t const * candidate = fd_crds_mask_iter_entry( it, gossip->crds );
+      if( FD_LIKELY( fd_bloom_contains( filter, hashes+32UL*lane, 32UL ) ) ) continue;
 
-    if( FD_UNLIKELY( fd_crds_entry_wallclock( candidate )>adjusted_wallclock_ms ) ) continue;
+      fd_crds_entry_t const * candidate = fd_crds_entry_at( gossip->crds, fd_gossip_hset_iter_owner( it, hset, lane ) );
 
-    if( FD_UNLIKELY( fd_bloom_contains( filter, fd_crds_entry_hash( candidate ), 32UL ) ) ) continue;
+      if( FD_UNLIKELY( fd_crds_entry_wallclock( candidate )>adjusted_wallclock_ms ) ) continue;
 
-    uchar const * crds_val;
-    ulong         crds_size;
-    fd_crds_entry_value( candidate, &crds_val, &crds_size );
-    if( FD_UNLIKELY( !fd_gossip_txbuild_can_fit( pull_resp, crds_size ) ) ) txbuild_flush( gossip, pull_resp, stem, peer_addr, now );
-    fd_gossip_txbuild_append( pull_resp, crds_size, crds_val );
+      uchar const * crds_val;
+      ulong         crds_size;
+      fd_crds_entry_value( candidate, &crds_val, &crds_size );
+      if( FD_UNLIKELY( !fd_gossip_txbuild_can_fit( pull_resp, crds_size ) ) ) txbuild_flush( gossip, pull_resp, stem, peer_addr, now );
+      fd_gossip_txbuild_append( pull_resp, crds_size, crds_val );
 
-    if( FD_UNLIKELY( !gossip->outbound_budget.remaining ) ) return 1;
+      if( FD_UNLIKELY( !gossip->outbound_budget.remaining ) ) return 1;
+    }
   }
   return 0;
 }
@@ -682,7 +695,7 @@ rx_pull_request( fd_gossip_t *                    gossip,
   fd_gossip_txbuild_t pull_resp[1];
   fd_gossip_txbuild_init( pull_resp, gossip->identity_pubkey, FD_GOSSIP_MESSAGE_PULL_RESPONSE );
 
-  /* CPU budget for the CRDS treap scan.  An honest sender picks
+  /* CPU budget for the CRDS hash scan.  An honest sender picks
 
        mask_bits = ceil(log2(num_items / max_items))
        num_items >= MIN_NUM_BLOOM_ITEMS (65536)
@@ -1171,17 +1184,16 @@ tx_pull_request( fd_gossip_t *       gossip,
   fd_bloom_t filter[1];
   fd_bloom_init_inplace( bloom_keys, bloom_bits, num_keys, num_bits, 0, gossip->rng, BLOOM_FALSE_POSITIVE_RATE, filter );
 
-  uchar iter_mem[ 16UL ];
-  for( fd_crds_mask_iter_t * it = fd_crds_mask_iter_init( gossip->crds, mask, mask_bits, iter_mem );
-       !fd_crds_mask_iter_done( it, gossip->crds );
-       it = fd_crds_mask_iter_next( it, gossip->crds ) ) {
-    fd_bloom_insert( filter, fd_crds_entry_hash( fd_crds_mask_iter_entry( it, gossip->crds ) ), 32UL );
-  }
-
-  for( fd_gossip_purged_mask_iter_t * it = fd_gossip_purged_mask_iter_init( gossip->purged, mask, mask_bits, iter_mem );
-       !fd_gossip_purged_mask_iter_done( it, gossip->purged );
-       it = fd_gossip_purged_mask_iter_next( it, gossip->purged ) ){
-    fd_bloom_insert( filter, fd_gossip_purged_mask_iter_hash( it, gossip->purged ), 32UL );
+  ulong start_hash, end_hash;
+  fd_gossip_purged_generate_masks( mask, mask_bits, &start_hash, &end_hash );
+  fd_gossip_hset_t const * hsets[ 2 ] = { fd_crds_hset( gossip->crds ), fd_gossip_purged_hset( gossip->purged ) };
+  for( ulong i=0UL; i<2UL; i++ ) {
+    fd_gossip_hset_iter_t it[1];
+    for( fd_gossip_hset_iter_init( it, hsets[ i ], start_hash, end_hash );
+         !fd_gossip_hset_iter_done( it );
+         fd_gossip_hset_iter_next( it, hsets[ i ] ) ) {
+      fd_bloom_insert8( filter, fd_gossip_hset_iter_hashes( it, hsets[ i ] ), fd_gossip_hset_iter_lanes( it, hsets[ i ] ) );
+    }
   }
 
   int num_bits_set = 0;

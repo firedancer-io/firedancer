@@ -13,20 +13,15 @@
 #define POOL_NEXT pool.next
 #include "../../util/tmpl/fd_pool.c"
 
-#define TREAP_NAME      purged_treap
-#define TREAP_T         fd_crds_purged_t
-#define TREAP_QUERY_T   ulong
-#define TREAP_CMP(q,e)  ((q>e->treap.hash_prefix)-(q<e->treap.hash_prefix))
-#define TREAP_IDX_T     uint
-#define TREAP_OPTIMIZE_ITERATION 1
-#define TREAP_NEXT      treap.next
-#define TREAP_PREV      treap.prev
-#define TREAP_LT(e0,e1) ((e0)->treap.hash_prefix<(e1)->treap.hash_prefix)
-#define TREAP_PARENT    treap.parent
-#define TREAP_LEFT      treap.left
-#define TREAP_RIGHT     treap.right
-#define TREAP_PRIO      treap.prio
-#include "../../util/tmpl/fd_treap.c"
+#define MAP_NAME  purged_map
+#define MAP_ELE_T fd_crds_purged_t
+#define MAP_KEY_T ulong
+#define MAP_KEY   map.hash_prefix
+#define MAP_IDX_T uint
+#define MAP_NEXT  map.next
+#define MAP_PREV  map.prev
+#define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
+#include "../../util/tmpl/fd_map_chain.c"
 
 #define DLIST_NAME  failed_inserts_dlist
 #define DLIST_ELE_T fd_crds_purged_t
