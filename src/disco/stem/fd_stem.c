@@ -306,6 +306,8 @@ STEM_(park)( STEM_CALLBACK_CONTEXT_TYPE * ctx,
     if( FD_LIKELY( sleep->shmem ) ) STEM_(credit_ring)( sleep, in[ i ].idx );
   }
   for( ulong o=0UL; o<out_cnt; o++ ) {
+    if( FD_UNLIKELY( !out_seq[ o ] ) ) continue; /* never published by this stem: another writer may own the link */
+
     ulong * sync = fd_mcache_seq_laddr( out_mcache[ o ] );
     if( FD_UNLIKELY( FD_VOLATILE_CONST( sync[0] )!=out_seq[ o ] ) ) fd_mcache_seq_update( sync, out_seq[ o ] );
     if( FD_LIKELY( sleep->shmem ) ) STEM_(mirror)( &sleep->shmem->seq_mirror[ sleep->out_link_id[ o ] ], out_seq[ o ] );
