@@ -93,7 +93,7 @@ control_result_name( ulong result ) {
     case FD_FAILOVER_CONTROL_RESULT_NO_ACTIVE_ADDRESS: return "gossip has no address for the active, wait or set [failover.peer_address]";
     case FD_FAILOVER_CONTROL_RESULT_NOT_PAIRED:      return "no standby is paired with this machine";
     case FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY:    return "the peer could not finish this request, check its failover status and log";
-    case FD_FAILOVER_CONTROL_RESULT_PEER_UNVERIFIED: return "unilateral promote cannot verify that the peer is not voting; use `failover handoff` here, or --force only after ensuring the peer cannot sign";
+    case FD_FAILOVER_CONTROL_RESULT_PEER_UNVERIFIED: return "the peer cannot be verified; --force is required, including first use and restart. Vote history is unknown: it has not been checked. Use `failover handoff` here to request a transfer from an active failover peer, or `failover promote --force` only after ensuring every other machine with this identity cannot sign";
     case FD_FAILOVER_CONTROL_RESULT_PEER_ACTIVE:     return "the authenticated peer holds the identity";
     case FD_FAILOVER_CONTROL_RESULT_HANDOFF_PENDING: return "the peer has not answered our last handoff";
     case FD_FAILOVER_CONTROL_RESULT_TAKEN:           return "the peer took our last handoff and may still be voting";
@@ -112,8 +112,12 @@ failover_control_fn( args_t *        args,
      confirms first.  What promote rests on is printed even with --yes. */
   if( args->failover.cmd==(int)FD_ADMINCTL_FAILOVER_CMD_PROMOTE ) {
     FD_LOG_STDOUT(( "This takes the staked identity on your word.  No other machine may hold it or be\n"
-                    "in a promotion, check `failover status` there, and never promote both machines\n"
-                    "at once.  Votes the other machine cast and never reported are not covered.\n" ));
+                    "in a promotion.  Run `failover status` on the other machine: its local role\n"
+                    "must be standby with no promotion in progress, or that machine must be stopped\n"
+                    "or otherwise unable to vote.  Never promote both machines at once.\n"
+                    "Votes the other machine cast and never reported are not covered.\n"
+                    "Unilateral promotion requires --force, including first use and restart.\n"
+                    "The peer check comes before selecting or adopting vote history.\n" ));
     if( FD_UNLIKELY( args->failover.force ) ) {
       FD_LOG_STDOUT(( "WARNING: --force skips every check on the other machine.  Use it only when that\n"
                       "machine cannot sign, or both machines may vote with the staked identity.\n"
@@ -305,8 +309,8 @@ action_t fd_action_failover = {
                     "`demote` gives the\n"
                     "identity up without promoting anyone and runs on the active, the other\n"
                     "machine then needs `failover promote --force`.  `promote` takes the identity\n"
-                    "without dialing. MVP 0 requires --force for every unilateral promotion,\n"
-                    "including bootstrap, because it cannot verify the peer. It tries saved\n"
+                    "without dialing. Every unilateral promotion requires --force, including\n"
+                    "first use and restart, because it cannot verify the peer. It tries saved\n"
                     "Tower state, then the vote account; --force also permits incomplete or\n"
                     "empty history if needed. No other machine may\n"
                     "hold the identity or be in a promotion, and\n"

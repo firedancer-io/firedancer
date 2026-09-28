@@ -950,7 +950,7 @@ control_refusal( ulong         result,
     *hint = "the peer could not finish this request, see `failover status` on the peer";
     return "PEER_UNREADY";
   case FD_FAILOVER_CONTROL_RESULT_PEER_UNVERIFIED:
-    *hint = "unilateral promote cannot verify that the peer is not voting; use `failover handoff` here, or --force only after ensuring the peer cannot sign";
+    *hint = "the peer cannot be verified; --force is required, including first use and restart. Vote history is unknown: it has not been checked. Use `failover handoff` here to request a transfer from an active failover peer, or `failover promote --force` only after ensuring every other machine with this identity cannot sign";
     return "PEER_UNVERIFIED";
   case FD_FAILOVER_CONTROL_RESULT_PEER_ACTIVE:
     *hint = "the peer holds the identity or said so recently, run `failover handoff` here, or `failover promote --force` if it cannot sign";
@@ -1309,6 +1309,12 @@ step_controller( fd_failover_tile_ctx_t * ctx,
       if( ctx->promote_source!=FD_FAILOVER_SOURCE_VOTE_ACCOUNT &&
           promote_fallback( ctx, "its votes do not cover the known signing history" ) ) return;
       if( !ctx->promote_force ) {
+        char tip[32], floor[32];
+        if( empty_account )
+          FD_LOG_WARNING(( "%s: no vote history found in the vote account; promotion requires --force after the peer is fenced", ctx->promote_label ));
+        else
+          FD_LOG_WARNING(( "%s: the vote account has incomplete history (last account vote %s, required coverage floor %s); promotion requires --force after the peer is fenced", ctx->promote_label,
+                           slot_text( ctx->adopt_result.acct_vote_slot, tip ), slot_text( ctx->promote_floor, floor ) ));
         reject_promotion( ctx, FD_FAILOVER_REJECT_ADOPTION_FAILED, 0 );
         return;
       }
@@ -1731,10 +1737,10 @@ promote_guard( fd_failover_tile_ctx_t const * ctx,
      another host, an active is publishing right now. */
   if( FD_UNLIKELY( ctx->staked_seen_at && now>=ctx->staked_seen_at &&
                    now-ctx->staked_seen_at<FD_FAILOVER_GOSSIP_FRESH_NANOS ) ) return FD_FAILOVER_CONTROL_RESULT_STAKED_SEEN;
-  /* In MVP 0 even a paired standby HELLO is only a past role snapshot.
+  /* With on-demand connections even a paired standby HELLO is only a past role snapshot.
      No STATUS follows it and promote never dials or negotiates a transfer.
      Silence, bootstrap and restart therefore require the operator's
-     explicit assertion that the peer cannot sign. MVP 1 may additionally
+     explicit assertion that the peer cannot sign. Persistent connections may additionally
      verify a paired standby using its fresh STATUS guards above. */
   if( FD_FAILOVER_ON_DEMAND || !paired ) return FD_FAILOVER_CONTROL_RESULT_PEER_UNVERIFIED;
   return FD_ADMINCTL_RESULT_SUCCESS;

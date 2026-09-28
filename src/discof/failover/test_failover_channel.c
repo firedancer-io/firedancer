@@ -540,7 +540,7 @@ test_loss_log_causes( fd_failover_channel_t * a,
   FD_LOG_NOTICE(( "pass: transport loss cannot suppress a new protocol cause; repeated protocol failures coalesce" ));
 }
 
-/* An orderly peer close after a drained RESULT is routine for MVP0.
+/* An orderly peer close after a drained RESULT is routine for on-demand connections.
    A damaged TLS record at the same point remains a protocol failure. */
 static void
 test_result_close( fd_failover_channel_t * a,

@@ -15,12 +15,12 @@
 #define FD_FAILOVER_MSG_DEMOTED          (2U)
 #define FD_FAILOVER_MSG_PROMOTE_ACK      (3U)
 #define FD_FAILOVER_MSG_PROMOTE_REJECTED (4U)
-#define FD_FAILOVER_MSG_CONSENSUS_STATE (5U) /* MVP 1 only */
+#define FD_FAILOVER_MSG_CONSENSUS_STATE (5U) /* Persistent streaming only */
 #define FD_FAILOVER_MSG_HANDOFF_REQUEST (6U)
 #define FD_FAILOVER_MSG_HANDOFF_RESULT  (7U)
 #define FD_FAILOVER_MSG_RESERVED         (8U)
 
-/* MVP 0 opens a connection only for a handoff. */
+/* On-demand mode opens a connection only for a handoff. */
 #define FD_FAILOVER_ON_DEMAND (1)
 
 /* Sentinel for a slot field with no value */

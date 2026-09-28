@@ -1,4 +1,4 @@
-/* Coverage retained from the persistent MVP 0 controller tests.  The
+/* Coverage retained from the persistent controller tests.  The
    request now starts on the standby; the local safety rules still hold. */
 
 static ulong
@@ -368,7 +368,7 @@ test_holder_recheck( void ) {
     ulong flags = FD_ADMINCTL_FAILOVER_FLAG_YES | (force ? FD_ADMINCTL_FAILOVER_FLAG_FORCE : 0UL);
     if( !force && FD_FAILOVER_ON_DEMAND ) {
       FD_TEST( control( ctx, FD_ADMINCTL_FAILOVER_CMD_PROMOTE, flags, now )==FD_FAILOVER_CONTROL_RESULT_PEER_UNVERIFIED );
-      /* Preserve the final guard's independent test even though the MVP 0
+      /* Preserve the final guard's independent test even though the on-demand
          operator API can no longer enter this unfenced path. */
       start_promotion( ctx, FD_FAILOVER_SOURCE_VOTE_ACCOUNT, 0 );
     } else {

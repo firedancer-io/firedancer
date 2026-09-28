@@ -57,7 +57,7 @@ test_recovery_guard_matrix( void ) {
   make_tower( &ctx->own_tower, 99UL );
   FD_TEST( control( ctx, FD_ADMINCTL_FAILOVER_CMD_PROMOTE, 0UL, now )==FD_FAILOVER_CONTROL_RESULT_PEER_UNVERIFIED );
   /* Independently retain the last-moment gossip defense for an unfenced
-     promotion state; the MVP 0 operator API now refuses its admission. */
+     promotion state; the on-demand operator API refuses its admission. */
   start_promotion( ctx, FD_FAILOVER_SOURCE_OWN, 0 );
   step_controller( ctx, stem );
   ctx->staked_seen_at=now+1L;

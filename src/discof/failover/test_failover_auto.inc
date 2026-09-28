@@ -78,7 +78,7 @@ test_automatic_recovery( void ) {
   controller_fini( ctx );
 
   /* An unfenced source check may not use the empty escape hatch.  This
-     state also covers MVP 1's independently verified standby peer. */
+     state also covers a persistent session's independently verified standby peer. */
   ctx = controller_init( FD_FAILOVER_ROLE_STANDBY );
   start_promotion( ctx, FD_FAILOVER_SOURCE_VOTE_ACCOUNT, 0 );
   step_controller( ctx, stem );
