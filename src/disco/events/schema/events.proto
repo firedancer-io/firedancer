@@ -428,7 +428,7 @@ enum AlpenglowVoteKind {
   ALPENGLOW_VOTE_KIND_UNSPECIFIED = 0;
   ALPENGLOW_VOTE_KIND_NOTAR = 1;  // Cast on the slot's first block once its parent is ready at a window start, or once we notarized its parent in the previous slot (Algorithm 2, Definition 15).
   ALPENGLOW_VOTE_KIND_FINAL = 2;  // Cast once the block we notarized has a notarization cert and we cast no skip or fallback vote in the slot (Algorithm 2, Definition 18). Names only the slot.
-  ALPENGLOW_VOTE_KIND_SKIP = 3;  // Cast for every unvoted slot of the leader window on timeout (Definition 17), on SafeToNotar or SafeToSkip (Algorithm 1), a dead block or the crashed-leader timer. Names only the slot.
+  ALPENGLOW_VOTE_KIND_SKIP = 3;  // Cast for every unvoted slot of the leader window on timeout (Definition 17), or on SafeToNotar or SafeToSkip (Algorithm 1). Names only the slot.
   ALPENGLOW_VOTE_KIND_NOTAR_FALLBACK = 4;  // Cast on SafeToNotar. At most three per slot (Definition 12).
   ALPENGLOW_VOTE_KIND_SKIP_FALLBACK = 5;  // Cast on SafeToSkip. Names only the slot.
 }
@@ -438,13 +438,13 @@ enum AlpenglowVoteReason {
   ALPENGLOW_VOTE_REASON_UNSPECIFIED = 0;
   ALPENGLOW_VOTE_REASON_NOT_OUR_VOTE = 1;  // Not our vote; see our_vote.
   ALPENGLOW_VOTE_REASON_BLOCK_REPLAYED = 2;  // Replay completed the block normally, so we vote notar for it.
-  ALPENGLOW_VOTE_REASON_BLOCK_DEAD = 3;  // Replay ruled the block dead, so we vote skip on the entire rest of the window containing this slot.
-  ALPENGLOW_VOTE_REASON_PARENT_READY = 4;  // We hold the certs that make a block a valid parent for the leader window starting at this slot (a notar, notar-fallback or fast-final cert for it, or it is finalized, and skip certs for every slot in between), so we vote notar for the window's first block we held pending.
-  ALPENGLOW_VOTE_REASON_BLOCK_NOTARIZED = 5;  // We hold a notar cert for the block we voted notar for and cast no skip or fallback vote in the slot, so we vote final for it.
-  ALPENGLOW_VOTE_REASON_TIMEOUT = 6;  // The slot's timeout fired with no vote cast in it, so we vote skip on the entire rest of the window containing this slot.
-  ALPENGLOW_VOTE_REASON_TIMEOUT_CRASHED_LEADER = 7;  // The window's crashed-leader timeout fired with no shred and no vote for its first slot, so we vote skip on every slot of the window.
-  ALPENGLOW_VOTE_REASON_SAFE_TO_NOTAR = 8;  // No block but this one can be fast-finalized in the slot: notar votes for it reach 40% of stake, or 20% with skip votes bringing the total to 60%, and its parent is notar-fallback certified (Definition 16). Having voted skip or notar for another block in the slot, we vote notar-fallback for it and skip every unvoted slot of the window.
-  ALPENGLOW_VOTE_REASON_SAFE_TO_SKIP = 9;  // No block can be fast-finalized in the slot: skip votes plus notar votes for every block but the most-voted one reach 40% of stake (Definition 16). Having voted notar in the slot, we vote skip-fallback for it and skip every unvoted slot of the window.
+  ALPENGLOW_VOTE_REASON_PARENT_READY = 3;  // We hold the certs that make a block a valid parent for the leader window starting at this slot (a notar, notar-fallback or fast-final cert for it, or it is finalized, and skip certs for every slot in between), so we vote notar for the window's first block we held pending.
+  ALPENGLOW_VOTE_REASON_BLOCK_NOTARIZED = 4;  // We hold a notar cert for the block we voted notar for and cast no skip or fallback vote in the slot, so we vote final for it.
+  ALPENGLOW_VOTE_REASON_TIMEOUT = 5;  // The slot's timeout fired with no vote cast in it, so we vote skip on the entire rest of the window containing this slot.
+  ALPENGLOW_VOTE_REASON_SAFE_TO_NOTAR = 6;  // No block but this one can be fast-finalized in the slot: notar votes for it reach 40% of stake, or 20% with skip votes bringing the total to 60%, and its parent is notar-fallback certified (Definition 16). Having voted skip or notar for another block in the slot, we vote notar-fallback for it and skip every unvoted slot of the window.
+  ALPENGLOW_VOTE_REASON_SAFE_TO_SKIP = 7;  // No block can be fast-finalized in the slot: skip votes plus notar votes for every block but the most-voted one reach 40% of stake (Definition 16). Having voted notar in the slot, we vote skip-fallback for it and skip every unvoted slot of the window.
+  ALPENGLOW_VOTE_REASON_REWARD = 8;  // Our notar or skip vote sent to the leader of slot+8, who packs the slot's reward cert, apart from the broadcast, and resent every probe timeout until that leader acknowledges it or we replay slot+8.
+  ALPENGLOW_VOTE_REASON_REWARD_ACKED = 9;  // The leader of slot+8 acknowledged a packet carrying our notar or skip vote, which ends its reward resends. The row timestamp is when the acknowledgement arrived; broadcast_to is empty.
 }
 
 // What we did with the vote. unknown_peer and banned_peer are decided on the connection before the vote is decoded, shred_version_mismatch and unranked_peer after decoding, in that order; the rest are Alpenglow-specific validation.

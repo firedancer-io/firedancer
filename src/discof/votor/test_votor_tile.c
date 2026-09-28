@@ -45,12 +45,59 @@ test_rank_voters_resets_total_stake( void ) {
   FD_TEST( epoch_info->total_stake  ==11UL ); /* 5+6, not 33+11 */
 }
 
+static fd_votor_tile_t ack_ctx;
+static fd_quic_conn_t  ack_conn[ 2 ];
+
+static void
+test_quic_client_ack_range( void ) {
+  fd_votor_tile_t * ctx = &ack_ctx;
+  for( ulong i=0UL; i<REWARD_VOTE_MAX; i++ ) ctx->reward_votes[ i ].slot = ULONG_MAX;
+
+  /* ACKs count only on the conn the vote was sent on. */
+
+  reward_vote_t * rv = &ctx->reward_votes[ 100UL%REWARD_VOTE_MAX ];
+  rv->slot         = 100UL;
+  rv->tx_cnt       = 2UL;
+  rv->conn         = &ack_conn[ 0 ];
+  rv->pkt_num[ 0 ] = 7UL;
+  rv->pkt_num[ 1 ] = 12UL;
+  rv->pkt_num[ 2 ] = ULONG_MAX;
+  rv->pkt_num[ 3 ] = ULONG_MAX;
+
+  quic_client_ack_range( &ack_conn[ 1 ], 0UL, 20UL, ctx );
+  FD_TEST( rv->slot==100UL );
+
+  quic_client_ack_range( &ack_conn[ 0 ], 8UL, 11UL, ctx );
+  FD_TEST( rv->slot==100UL );
+
+  quic_client_ack_range( &ack_conn[ 0 ], 7UL, 7UL, ctx );
+  FD_TEST( rv->slot==ULONG_MAX );
+
+  quic_client_ack_range( &ack_conn[ 0 ], 0UL, 20UL, ctx );
+  FD_TEST( rv->slot==ULONG_MAX );
+
+  /* A new vote in the same entry does not inherit the stale sends. */
+
+  rv->slot   = 100UL+REWARD_VOTE_MAX;
+  rv->tx_cnt = 0UL;
+  quic_client_ack_range( &ack_conn[ 0 ], 0UL, 20UL, ctx );
+  FD_TEST( rv->slot==100UL+REWARD_VOTE_MAX );
+
+  /* An entry whose conn was cleared on reconnect is ignored. */
+
+  rv->tx_cnt = 1UL;
+  rv->conn   = NULL;
+  quic_client_ack_range( &ack_conn[ 0 ], 0UL, 20UL, ctx );
+  FD_TEST( rv->slot==100UL+REWARD_VOTE_MAX );
+}
+
 int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
   test_rank_voters_resets_total_stake();
+  test_quic_client_ack_range();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
