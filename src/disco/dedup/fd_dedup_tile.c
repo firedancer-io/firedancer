@@ -136,9 +136,30 @@ during_frag( fd_dedup_ctx_t * ctx,
       if( FD_UNLIKELY( !txn_executed->is_committable ) ) return;
       insert_executed( ctx, TXN(txn_executed->txn), txn_executed->txn->payload );
     } else if( FD_LIKELY( sig==REPLAY_SIG_TXN_EXECUTED_BAT ) ) {
+      /* Hash every committed record's signature first and warm the
+         map slots the inserts probe, and the slots of the tags they
+         evict (ring[oldest+k], the k-th eviction if none is a dup),
+         then insert in record order: the tcache ends up as it would
+         with one insert_executed per record. */
+      ulong tags[ FD_REPLAY_BAT_REC_MAX ];
+      ulong tag_cnt = 0UL;
       fd_replay_bat_rec_t const * rec = fd_type_pun_const( src );
       for( uchar const * end=src+sz; (uchar const *)rec<end; rec=fd_replay_bat_rec_next( rec ) ) {
-        if( FD_LIKELY( rec->is_committable ) ) insert_executed( ctx, fd_replay_bat_rec_txn( rec ), fd_replay_bat_rec_payload( rec ) );
+        if( FD_UNLIKELY( !rec->is_committable ) ) continue;
+        FD_TEST( tag_cnt<FD_REPLAY_BAT_REC_MAX );
+        ulong tag = fd_hash( ctx->hashmap_seed, fd_txn_get_signatures( fd_replay_bat_rec_txn( rec ), fd_replay_bat_rec_payload( rec ) ), FD_TXN_SIGNATURE_SZ );
+        __builtin_prefetch( ctx->tcache_map + fd_tcache_map_start( tag, ctx->tcache_map_cnt ), 1, 3 );
+        if( FD_LIKELY( ctx->tcache_depth>=FD_REPLAY_BAT_REC_MAX ) ) { /* so one wrap suffices; depth need not be a power of 2 */
+          ulong evict = *ctx->tcache_sync + tag_cnt;
+          evict = fd_ulong_if( evict>=ctx->tcache_depth, evict-ctx->tcache_depth, evict );
+          __builtin_prefetch( ctx->tcache_map + fd_tcache_map_start( ctx->tcache_ring[ evict ], ctx->tcache_map_cnt ), 1, 3 );
+        }
+        tags[ tag_cnt++ ] = tag;
+      }
+      for( ulong i=0UL; i<tag_cnt; i++ ) {
+        int _is_dup;
+        FD_TCACHE_INSERT( _is_dup, *ctx->tcache_sync, ctx->tcache_ring, ctx->tcache_depth, ctx->tcache_map, ctx->tcache_map_cnt, tags[ i ] );
+        (void)_is_dup;
       }
     }
   } else {

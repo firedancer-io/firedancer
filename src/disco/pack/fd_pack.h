@@ -789,6 +789,16 @@ ulong fd_pack_expire_before( fd_pack_t * pack, ulong expire_before );
    might be >1 if a bundle was caused to be deleted. */
 ulong fd_pack_delete_transaction( fd_pack_t * pack, fd_ed25519_sig_t const * sig0 );
 
+/* fd_pack_delete_prefetch starts the loads a later
+   fd_pack_delete_transaction( pack, sig0 ) will miss on.  Stage 0
+   prefetches the signature map chain head for sig0; stage 1, called
+   once that line has arrived, prefetches the payload and descriptor
+   lines of the first transaction on that chain (the one compared
+   first).  A caller deleting a batch runs stage 0 over the batch, then
+   stage 1, then the deletes.  No effect on the pack state. */
+
+void fd_pack_delete_prefetch( fd_pack_t const * pack, fd_ed25519_sig_t const * sig0, int stage );
+
 /* fd_pack_end_block resets some state to prepare for the next block.
    Specifically, the per-block limits are cleared and transactions in
    the microblocks scheduled after the call to this function are allowed
