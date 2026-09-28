@@ -979,7 +979,26 @@ fd_transpiler_helper_name( ulong idx ) {
 static void
 fd_transpiler_init( fd_transpiler_t * Dst,
                     ulong             bpf_text_cnt ) {
-  memset( Dst, 0, sizeof(fd_transpiler_t) ); /* ~10 MiB :( */
+  /* Only clear what is read before it is written.  The large arrays
+     (code_bits, code, reloc, rodata_reloc, sym and the bitmap / seq
+     prefix of rodata) are populated up to their counts before any
+     read; their tails are never read.  What needs zeroing:
+     - the DynASM label arrays (dasm_setup does the same), but only up
+       to dasm_lbl_max for pclabels: dasm indexes it by label id and
+       dasm_link only scans it with DASM_CHECKS, which is off;
+     - thunk_bv, OR-ed into per direct call and tested for every pc;
+     - glob, which syms_compute reads for every helper: a helper that
+       is not emitted (callx) must read as NULL, not as the previous
+       compile's address;
+     - meta, whose prog_id / elf_hash are the caller's to fill in;
+     - the scalar header, assigned below and at the end of the compile.
+     The jump table in rodata is filled by the consumer's relocations
+     and is zeroed by fd_vm_transpile_code once bb_cnt is known so the
+     exported bytes stay deterministic. */
+  memset( Dst, 0, offsetof(fd_transpiler_t, state_) );
+  memset( Dst->lglabels, 0, sizeof(Dst->lglabels) );
+  memset( Dst->thunk_bv, 0, ((bpf_text_cnt+63UL)>>6)*sizeof(ulong) );
+  memset( Dst->glob,     0, (ulong)fd_xlat__MAX*sizeof(void *) );
   Dst->bpf_text_cnt = bpf_text_cnt;
   Dst->reloc_cnt    = 0UL;
 
@@ -1003,6 +1022,7 @@ fd_transpiler_init( fd_transpiler_t * Dst,
 
   Dst->dasm_lbl_max = dasm_lbl;
   FD_TEST( dasm_lbl<=FD_DASM_PCLABELS_MAX );
+  memset( Dst->pclabels, 0, dasm_lbl*sizeof(int) );
 
   dasm_State * D = Dst->state = (dasm_State *)Dst->state_;
   D->psize       = sizeof(Dst->state_);
@@ -1065,6 +1085,9 @@ fd_vm_transpile_code( fd_transpiler_t *          Dst,
     FD_LOG_WARNING(( "program too large (%lu rodata bytes, max %lu)", rodata_sz, FD_TRANSPILER_RODATA_MAX ));
     return -1;
   }
+  /* The jump table is filled in by the consumer's relocations; zero
+     it here so the exported rodata bytes are deterministic. */
+  memset( Dst->rodata + 2UL*bb_word_cnt*sizeof(ulong), 0, Dst->bb_cnt*sizeof(int) );
 
   |.code
   | cmp qword [rdi+offsetof(fd_vm_t, cu)], 0
