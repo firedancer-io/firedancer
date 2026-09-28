@@ -1200,10 +1200,21 @@ after_frag( fd_pack_ctx_t *     ctx,
       }
       if( FD_LIKELY( sig==REPLAY_SIG_TXN_EXECUTED_BAT ) ) { /* efficient mode replay_bat, see fd_replay_bat_rec_t */
         uchar const * src = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, ctx->replay_chunk );
+        /* Warm the signature map chain heads of the whole batch, then
+           the transactions at those heads, then delete in record
+           order (see fd_pack_delete_prefetch). */
+        fd_ed25519_sig_t const * sigs[ FD_REPLAY_BAT_REC_MAX ];
+        ulong sig_cnt = 0UL;
         fd_replay_bat_rec_t const * rec = fd_type_pun_const( src );
         for( uchar const * end=src+sz; (uchar const *)rec<end; rec=fd_replay_bat_rec_next( rec ) ) {
           if( FD_UNLIKELY( !rec->is_committable ) ) continue;
-          ulong deleted = fd_pack_delete_transaction( ctx->pack, fd_txn_get_signatures( fd_replay_bat_rec_txn( rec ), fd_replay_bat_rec_payload( rec ) ) );
+          FD_TEST( sig_cnt<FD_REPLAY_BAT_REC_MAX );
+          sigs[ sig_cnt ] = fd_txn_get_signatures( fd_replay_bat_rec_txn( rec ), fd_replay_bat_rec_payload( rec ) );
+          fd_pack_delete_prefetch( ctx->pack, sigs[ sig_cnt++ ], 0 );
+        }
+        for( ulong i=0UL; i<sig_cnt; i++ ) fd_pack_delete_prefetch( ctx->pack, sigs[ i ], 1 );
+        for( ulong i=0UL; i<sig_cnt; i++ ) {
+          ulong deleted = fd_pack_delete_transaction( ctx->pack, sigs[ i ] );
           FD_MCNT_INC( PACK, TXN_DROPPED_ALREADY_EXECUTED, deleted );
         }
         update_metric_state( ctx, now, FD_PACK_METRIC_STATE_TRANSACTIONS, fd_pack_avail_txn_cnt( ctx->pack )>0 );

@@ -566,7 +566,12 @@ test_delete( void ) {
   fd_ed25519_sig_t const * sig2 = txnp_get_signatures( &txnp_scratch[2] );
   fd_ed25519_sig_t const * sig4 = txnp_get_signatures( &txnp_scratch[4] );
 
-  FD_TEST( fd_pack_delete_transaction( pack, sig0 ) );  FD_TEST( !fd_pack_delete_transaction( pack, sig0 ) );
+  /* the prefetch stages, on present and (after the delete) absent
+     signatures, change nothing */
+  fd_pack_delete_prefetch( pack, sig0, 0 ); fd_pack_delete_prefetch( pack, sig2, 0 ); fd_pack_delete_prefetch( pack, sig4, 0 );
+  fd_pack_delete_prefetch( pack, sig0, 1 ); fd_pack_delete_prefetch( pack, sig2, 1 ); fd_pack_delete_prefetch( pack, sig4, 1 );
+  FD_TEST( fd_pack_avail_txn_cnt( pack ) == 6UL );
+  FD_TEST( fd_pack_delete_transaction( pack, sig0 ) );  fd_pack_delete_prefetch( pack, sig0, 0 ); fd_pack_delete_prefetch( pack, sig0, 1 ); FD_TEST( !fd_pack_delete_transaction( pack, sig0 ) );
   FD_TEST( fd_pack_delete_transaction( pack, sig2 ) );  FD_TEST( !fd_pack_delete_transaction( pack, sig2 ) );
   FD_TEST( fd_pack_delete_transaction( pack, sig4 ) );  FD_TEST( !fd_pack_delete_transaction( pack, sig4 ) );
 
