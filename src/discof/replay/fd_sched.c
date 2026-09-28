@@ -201,6 +201,15 @@ struct fd_sched_block {
   uint                staged:1;                           /* Set if the block is in a dispatcher staging lane; a staged block is
                                                              tracked by the dispatcher. */
   ulong               staging_lane;                       /* Ignored if staged==0. */
+
+  /* Slot state tracking, see fd_sched_slot_states_drain and
+     active_bank_set.  At most one block is open at a time. */
+  long                state_start_tick;                   /* Start of the committed state's interval. */
+  long                state_cand_tick;                    /* Start of the candidate state. */
+  uchar               state;                              /* Committed state, NONE until the first commit. */
+  uchar               state_cand;                         /* Candidate state, committed once held for FD_SCHED_SLOT_STATE_DEBOUNCE_NS. */
+  uchar               state_open;
+  uchar               state_conflict;                     /* Last next_ready found queued txns but none ready. */
   ulong               luf_depth;                          /* Depth of longest unstaged fork starting from this node; only
                                                              stageable unstaged descendants are counted. */
   int                 dead_reason;                        /* One of FD_SCHED_DEAD_REASON_*; records the first reason the block
@@ -234,7 +243,7 @@ typedef struct fd_sched_block fd_sched_block_t;
 
 FD_STATIC_ASSERT( sizeof(fd_sched_mblk_t)==120UL, fd_sched_mblk );
 FD_STATIC_ASSERT( sizeof(fd_sched_txn_info_t)==184UL, fd_sched_txn_info );
-FD_STATIC_ASSERT( sizeof(fd_sched_block_t)==75840UL, fd_sched_block );
+FD_STATIC_ASSERT( sizeof(fd_sched_block_t)==75872UL, fd_sched_block );
 FD_STATIC_ASSERT( sizeof(fd_hash_t)==sizeof(((fd_microblock_hdr_t *)0)->hash), unexpected poh hash size );
 
 
@@ -340,6 +349,12 @@ struct fd_sched {
   fd_sched_block_t *    block_pool; /* Just a flat array. */
   ulong                 block_pool_popcnt;
   ulong *               ref_q;
+
+  long                  state_debounce_ticks;
+  ulong                 state_bank_idx; /* Block whose slot state is open, ULONG_MAX if none. */
+  ulong                 state_cnt;
+  ulong                 state_drop_cnt;
+  fd_sched_slot_state_t state_buf[ FD_SCHED_SLOT_STATE_MAX ];
 };
 typedef struct fd_sched fd_sched_t;
 
@@ -547,6 +562,96 @@ block_is_prunable( fd_sched_block_t * block ) {
 
 static inline ulong
 block_to_idx( fd_sched_t * sched, fd_sched_block_t * block ) { return (ulong)(block-sched->block_pool); }
+
+static void
+slot_state_push( fd_sched_t * sched, fd_sched_block_t * block, long end_tick ) {
+  if( FD_UNLIKELY( sched->state_cnt>=FD_SCHED_SLOT_STATE_MAX ) ) { sched->state_drop_cnt++; return; }
+  sched->state_buf[ sched->state_cnt++ ] = (fd_sched_slot_state_t){
+    .slot       = block->slot,
+    .start_tick = block->state_start_tick,
+    .end_tick   = end_tick,
+    .state      = block->state
+  };
+}
+
+static void
+slot_state_commit_cand( fd_sched_t * sched, fd_sched_block_t * block, long now ) {
+  if( block->state_cand==block->state || now-block->state_cand_tick<sched->state_debounce_ticks ) return;
+  /* The first committed state starts at the window start. */
+  if( FD_LIKELY( block->state!=FD_SCHED_SLOT_STATE_NONE ) ) {
+    slot_state_push( sched, block, block->state_cand_tick );
+    block->state_start_tick = block->state_cand_tick;
+  }
+  block->state = block->state_cand;
+}
+
+static void
+slot_state_eval( fd_sched_t * sched, fd_sched_block_t * block ) {
+  if( FD_LIKELY( !block->state_open ) ) return;
+
+  ulong queued_cnt = block->txn_parsed_cnt-block->txn_exec_in_flight_cnt-block->txn_exec_done_cnt;
+  ulong free_tiles = sched->txn_exec_ready_bitset[ 0 ] & sched->sigverify_ready_bitset[ 0 ] & sched->poh_ready_bitset[ 0 ] & sched->cert_ready_bitset[ 0 ];
+  uchar next;
+  if(      block->block_end_signaled ) next = FD_SCHED_SLOT_STATE_FINISH;
+  else if( !free_tiles               ) next = FD_SCHED_SLOT_STATE_BLOCKED_TILES;
+  else if( queued_cnt && block->state_conflict ) next = FD_SCHED_SLOT_STATE_BLOCKED_CONFLICTS;
+  else if( queued_cnt )                next = block->state_cand; /* ready txn and free tile, dispatch is imminent */
+  else if( !block->fec_eos )           next = FD_SCHED_SLOT_STATE_BLOCKED_NETWORK;
+  else                                 next = FD_SCHED_SLOT_STATE_FINISH;
+
+  long now = fd_tickcount();
+  slot_state_commit_cand( sched, block, now );
+  if( next!=block->state_cand ) {
+    block->state_cand      = next;
+    block->state_cand_tick = now;
+  }
+}
+
+static void
+slot_state_close( fd_sched_t * sched, fd_sched_block_t * block );
+
+static void
+slot_state_open( fd_sched_t * sched, fd_sched_block_t * block ) {
+  ulong bank_idx = block_to_idx( sched, block );
+  if( FD_UNLIKELY( sched->state_bank_idx!=ULONG_MAX && sched->state_bank_idx!=bank_idx ) ) {
+    slot_state_close( sched, block_pool_ele( sched, sched->state_bank_idx ) );
+  }
+  sched->state_bank_idx   = bank_idx;
+  block->state_open       = 1;
+  block->state_conflict   = 0;
+  block->state            = FD_SCHED_SLOT_STATE_NONE;
+  block->state_cand       = FD_SCHED_SLOT_STATE_NONE;
+  block->state_start_tick = block->state_cand_tick = fd_tickcount();
+}
+
+static void
+slot_state_close( fd_sched_t * sched, fd_sched_block_t * block ) {
+  if( FD_LIKELY( !block->state_open ) ) return;
+  block->state_open     = 0;
+  sched->state_bank_idx = ULONG_MAX;
+  long now = fd_tickcount();
+  slot_state_commit_cand( sched, block, now );
+  if( FD_UNLIKELY( block->state==FD_SCHED_SLOT_STATE_NONE ) ) block->state = block->state_cand; /* window shorter than the debounce */
+  if( FD_UNLIKELY( block->state==FD_SCHED_SLOT_STATE_NONE ) ) return;
+  slot_state_push( sched, block, now );
+}
+
+/* active_bank_set changes the active block.  Slot states are tracked
+   for at most one block at a time (sched->state_bank_idx), the one the
+   scheduler last worked on, so intervals never overlap.  Activating a
+   started, unfinished block reopens its interval, closing the
+   previously tracked block's.  A block that hasn't started yet opens on
+   BLOCK_START.  Deactivating keeps the block tracked, because a block
+   waiting on the network is deactivated, but that wait is still what
+   replay is blocked on until another block becomes active. */
+
+static void
+active_bank_set( fd_sched_t * sched, ulong bank_idx ) {
+  sched->active_bank_idx = bank_idx;
+  if( FD_UNLIKELY( bank_idx==ULONG_MAX ) ) return;
+  fd_sched_block_t * block = block_pool_ele( sched, bank_idx );
+  if( FD_LIKELY( block->block_start_signaled && !block->block_end_done && !block->dying && !block->state_open ) ) slot_state_open( sched, block );
+}
 
 __attribute__((format(printf,2,3)))
 static void
@@ -831,6 +936,10 @@ fd_sched_new( void *     mem,
   sched->txn_in_flight_last_tick  = fd_tickcount(); /* boot counts as idle */
   sched->next_ready_last_tick     = LONG_MAX;
   sched->next_ready_last_bank_idx = ULONG_MAX;
+  sched->state_debounce_ticks     = (long)( (double)FD_SCHED_SLOT_STATE_DEBOUNCE_NS*fd_tempo_tick_per_ns( NULL ) );
+  sched->state_bank_idx           = ULONG_MAX;
+  sched->state_cnt                = 0UL;
+  sched->state_drop_cnt           = 0UL;
 
   sched->is_alpenglow           = is_alpenglow;
   sched->canary                 = FD_SCHED_MAGIC;
@@ -1286,14 +1395,16 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
     FD_TEST( mixin_res==1||mixin_res==2 );
   }
 
+  slot_state_eval( sched, block );
+
   /* Check if we need to set the active block. */
   check_or_set_active_block( sched );
 
   return 1;
 }
 
-ulong
-fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
+static ulong
+task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
   FD_TEST( sched->canary==FD_SCHED_MAGIC );
   FD_TEST( ref_q_empty( sched->ref_q ) );
 
@@ -1336,6 +1447,7 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
     out->block_start->parent_bank_idx = block->parent_idx;
     out->block_start->slot            = block->slot;
     block->block_start_signaled = 1;
+    slot_state_open( sched, block );
     sched->next_ready_last_tick     = fd_tickcount();
     sched->next_ready_last_bank_idx = bank_idx;
     return 1UL;
@@ -1356,6 +1468,7 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
        tile, e.g. the one that just completed said transaction, readily
        available to continue executing down the critical path. */
     out->txn_exec->txn_idx = fd_rdisp_get_next_ready( sched->rdisp, bank_idx );
+    block->state_conflict  = !out->txn_exec->txn_idx;
     if( FD_UNLIKELY( out->txn_exec->txn_idx==0UL ) ) {
       /* There are transactions queued but none ready for execution.
          This implies that there must be in-flight transactions on whose
@@ -1545,6 +1658,14 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
   return 0UL;
 }
 
+ulong
+fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
+  ulong bank_idx = sched->active_bank_idx;
+  ulong ret      = task_next_ready( sched, out );
+  if( FD_LIKELY( bank_idx!=ULONG_MAX ) ) slot_state_eval( sched, block_pool_ele( sched, bank_idx ) );
+  return ret;
+}
+
 int
 fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong exec_idx, void * data ) {
   FD_TEST( sched->canary==FD_SCHED_MAGIC );
@@ -1608,6 +1729,7 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
          transition for empty blocks or slow blocks. */
       FD_TEST( !block->block_end_done );
       block->block_end_done = 1;
+      slot_state_close( sched, block );
       sched->print_buf_sz = 0UL;
       print_block_metrics( sched, block );
       FD_LOG_DEBUG(( "block %lu:%lu replayed fully: %s", block->slot, bank_idx, sched->print_buf ));
@@ -1716,6 +1838,8 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
     try_activate_block( sched );
     return 0;
   }
+
+  slot_state_eval( sched, block );
 
   if( FD_UNLIKELY( !block->dying && sched->active_bank_idx!=bank_idx ) ) {
     /* Block is not dead.  So we should be actively replaying it. */
@@ -1940,6 +2064,18 @@ fd_sched_root_notify( fd_sched_t * sched, ulong root_idx ) {
     sched->metrics->deactivate_pruned_cnt    += fd_uint_if( old_active_bank_idx!=ULONG_MAX, 1U, 0U );
     try_activate_block( sched );
   }
+}
+
+ulong
+fd_sched_slot_states_drain( fd_sched_t * sched, fd_sched_slot_state_t * out ) {
+  ulong cnt = sched->state_cnt;
+  if( FD_UNLIKELY( sched->state_drop_cnt ) ) {
+    FD_LOG_WARNING(( "dropped %lu slot state intervals", sched->state_drop_cnt ));
+    sched->state_drop_cnt = 0UL;
+  }
+  fd_memcpy( out, sched->state_buf, cnt*sizeof(fd_sched_slot_state_t) );
+  sched->state_cnt = 0UL;
+  return cnt;
 }
 
 ulong
@@ -2190,6 +2326,7 @@ add_block( fd_sched_t * sched,
   block->block_start_done     = 0;
   block->block_end_done       = 0;
   block->staged               = 0;
+  block->state_open           = 0;
 
   block->luf_depth = 0UL;
 
@@ -3243,7 +3380,7 @@ try_activate_block( fd_sched_t * sched ) {
           FD_LOG_DEBUG(( "activating block %lu:%lu: lane %d waking up on slot boundary", head_block->slot, head_idx, lane_idx ));
         }
       }
-      sched->active_bank_idx = head_idx;
+      active_bank_set( sched, head_idx );
       return;
     }
   }
@@ -3344,7 +3481,7 @@ try_activate_block( fd_sched_t * sched ) {
        unstaged fork. */
     fd_sched_block_t * head_block = block_pool_ele( sched, head_bank_idx );
     FD_LOG_DEBUG(( "activating block %lu:%lu: unstaged promotion to lane %d", head_block->slot, head_bank_idx, lane_idx ));
-    sched->active_bank_idx = head_bank_idx;
+    active_bank_set( sched, head_bank_idx );
     return;
   }
   /* No unstaged blocks to promote.  So we're done.  Yay. */
@@ -3411,6 +3548,7 @@ subtree_mark_and_maybe_prune_rdisp( fd_sched_t * sched, fd_sched_block_t * block
 
   /* Setting the flag is non-optional and can happen more than once. */
   block->dying = 1;
+  slot_state_close( sched, block );
 
   /* Removal from dispatcher should only happen once. */
   if( block->in_rdisp ) {
@@ -3432,7 +3570,7 @@ subtree_mark_and_maybe_prune_rdisp( fd_sched_t * sched, fd_sched_block_t * block
       FD_TEST( block_pool_ele( sched, sched->active_bank_idx )==block );
       FD_LOG_DEBUG(( "reset active_bank_idx %lu: abandon", sched->active_bank_idx ));
       sched->last_active_bank_idx = sched->active_bank_idx;
-      sched->active_bank_idx = ULONG_MAX;
+      active_bank_set( sched, ULONG_MAX );
       sched->metrics->deactivate_abandoned_cnt++;
     }
 
@@ -3558,6 +3696,7 @@ subtree_prune( fd_sched_t * sched, ulong bank_idx, ulong except_idx ) {
     FD_TEST( !head->refcnt );
     FD_TEST( head->in_sched );
     head->in_sched = 0;
+    slot_state_close( sched, head );
 
     ulong child_idx = head->child_idx;
     while( child_idx!=ULONG_MAX ) {
@@ -3637,7 +3776,7 @@ maybe_switch_block( fd_sched_t * sched, ulong bank_idx ) {
     sched->metrics->block_removed_cnt++;
     FD_LOG_DEBUG(( "reset active_bank_idx %lu: remove", sched->active_bank_idx ));
     sched->last_active_bank_idx = sched->active_bank_idx;
-    sched->active_bank_idx = ULONG_MAX;
+    active_bank_set( sched, ULONG_MAX );
 
     /* See if there is a child block down the same staging lane.  This
        is a policy decision to minimize fork churn.  We could in theory
@@ -3661,7 +3800,7 @@ maybe_switch_block( fd_sched_t * sched, ulong bank_idx ) {
              block to it, and have the child inherit the head status of
              the lane.  This is the common case. */
           FD_LOG_DEBUG(( "activating block %lu:%lu: child inheritance on lane %lu", child->slot, child_idx, child->staging_lane ));
-          sched->active_bank_idx = child_idx;
+          active_bank_set( sched, child_idx );
           sched->staged_head_bank_idx[ block->staging_lane ] = child_idx;
           if( FD_UNLIKELY( !fd_ulong_extract_bit( sched->staged_bitset, (int)block->staging_lane ) ) ) {
             FD_LOG_CRIT(( "invariant violation: staged_bitset 0x%lx bit %lu is not set, slot %lu, parent slot %lu, child slot %lu, parent slot %lu",
@@ -3690,7 +3829,7 @@ maybe_switch_block( fd_sched_t * sched, ulong bank_idx ) {
        happen when the network path is congested, or when the leader
        simply went down.  Reset the active block. */
     sched->last_active_bank_idx = sched->active_bank_idx;
-    sched->active_bank_idx = ULONG_MAX;
+    active_bank_set( sched, ULONG_MAX );
     sched->metrics->deactivate_no_txn_cnt++;
     try_activate_block( sched );
   }

@@ -596,7 +596,7 @@ publish_replay_out( fd_replay_tile_t *  ctx,
                     ulong               sig,
                     ulong               sz ) {
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-  if( FD_UNLIKELY( sig!=REPLAY_SIG_TXN_EXECUTED ) ) {
+  if( FD_UNLIKELY( sig!=REPLAY_SIG_TXN_EXECUTED && sig!=REPLAY_SIG_SLOT_STATES ) ) {
     fd_replay_out_link_t * out = sig==REPLAY_SIG_MISSING_FEC ? ctx->rotor_out : ctx->slot_out;
     if( FD_LIKELY( out->idx!=ULONG_MAX ) ) { /* backtest has no rotor */
       fd_memcpy( fd_chunk_to_laddr( out->mem, out->chunk ), fd_chunk_to_laddr_const( ctx->replay_out->mem, ctx->replay_out->chunk ), sz );
@@ -3375,6 +3375,13 @@ after_credit( fd_replay_tile_t *  ctx,
               fd_stem_context_t * stem,
               int *               opt_poll_in,
               int *               charge_busy ) {
+  /* Publish slot state intervals closed since the previous call,
+     before the halt checks so task completions while halted are not
+     dropped.  Doesn't count as work. */
+  fd_replay_slot_states_t * states = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
+  states->cnt = fd_sched_slot_states_drain( ctx->sched, states->states );
+  if( FD_UNLIKELY( states->cnt ) ) publish_replay_out( ctx, stem, REPLAY_SIG_SLOT_STATES, sizeof(fd_replay_slot_states_t) );
+
   if( FD_UNLIKELY( ctx->halt_replay && !ctx->is_leader ) ) return;
   if( FD_UNLIKELY( !ctx->is_booted || !ctx->wfs_complete ) ) return;
 
@@ -4847,8 +4854,10 @@ during_housekeeping( fd_replay_tile_t * ctx ) {
    completed, next leader, reset, became leader).  after_credit and
    returnable_frag never both publish in one iteration: every
    after_credit path that publishes returns nonzero, which skips the
-   input poll. */
-#define STEM_BURST (4UL)
+   input poll.  The exception is the slot states frag at the top of
+   after_credit, which doesn't skip the input poll and adds at most 1
+   more frag to replay_out, for 5. */
+#define STEM_BURST (5UL)
 
 /* fd_tempo_lazy_default( 16384 ) where 16384 is the minimum out-link
    depth (i.e. cr_max) but excludes replay_epoch and replay_slot, which

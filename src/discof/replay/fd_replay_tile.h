@@ -100,6 +100,7 @@
 #include "../../disco/tiles.h"
 #include "../../choreo/votor/ag_cert.h"
 #include "../../flamenco/alpenglow/fd_block_marker.h"
+#include "fd_sched.h"
 
 #define REPLAY_SIG_SLOT_COMPLETED (0)
 #define REPLAY_SIG_SLOT_DEAD      (1)
@@ -116,6 +117,7 @@
 #define REPLAY_SIG_LEADER_FOOTER  (12)
 #define REPLAY_SIG_MISSING_FEC    (13)
 #define REPLAY_SIG_NEXT_LEADER    (14)
+#define REPLAY_SIG_SLOT_STATES    (15)
 
 /* replay_out mcache seq[i] slots */
 #define REPLAY_SYNC_SEQ  (0UL) /* mcache->seq[0]: recently published seq no */
@@ -314,6 +316,14 @@ struct fd_replay_next_leader {
 };
 typedef struct fd_replay_next_leader fd_replay_next_leader_t;
 
+/* Slot state intervals closed by the scheduler, see fd_sched.h.  Only
+   published on replay_out. */
+struct fd_replay_slot_states {
+  ulong                 cnt;
+  fd_sched_slot_state_t states[ FD_SCHED_SLOT_STATE_MAX ];
+};
+typedef struct fd_replay_slot_states fd_replay_slot_states_t;
+
 union fd_replay_message {
   fd_replay_slot_completed_t  slot_completed;
   fd_replay_slot_dead_t       slot_dead;
@@ -326,6 +336,7 @@ union fd_replay_message {
   fd_replay_drop_bank_ref_t   drop_bank_ref;
   fd_replay_leader_footer_t   leader_footer;
   fd_replay_next_leader_t     next_leader;
+  fd_replay_slot_states_t     slot_states;
 };
 
 typedef union fd_replay_message fd_replay_message_t;

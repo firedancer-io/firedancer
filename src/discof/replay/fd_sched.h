@@ -152,6 +152,41 @@ typedef struct fd_sched_txn_info fd_sched_txn_info_t;
 #define FD_SCHED_TT_MARK_DEAD     (7UL) /* (i) Mark the block dead. */
 #define FD_SCHED_TT_CERT_VERIFY   (8UL) /* (e) Footer cert verify. */
 
+/* Slot-level replay states.  States are tracked for one block at a
+   time, the one the scheduler is working on.  A block's interval opens
+   at its first dispatch (BLOCK_START).  It closes when another block's
+   interval opens, or when end of block processing completes or the
+   block dies.  A block deactivated while waiting on the network stays
+   tracked until another block takes over.
+
+   BLOCKED_TILES     no exec tile is free
+   BLOCKED_CONFLICTS txns queued, but waiting on in-flight conflicting txns
+   BLOCKED_NETWORK   no txns queued, waiting for more to arrive
+   FINISH            end of the slot received, txns or PoH still in flight
+
+   States are only reevaluated on FEC ingest, task_next_ready and
+   task_done.  A new state is committed only once it has held for at
+   least FD_SCHED_SLOT_STATE_DEBOUNCE_NS. */
+
+#define FD_SCHED_SLOT_STATE_NONE              (0)
+#define FD_SCHED_SLOT_STATE_BLOCKED_TILES     (1)
+#define FD_SCHED_SLOT_STATE_BLOCKED_CONFLICTS (2)
+#define FD_SCHED_SLOT_STATE_BLOCKED_NETWORK   (3)
+#define FD_SCHED_SLOT_STATE_FINISH            (4)
+
+#define FD_SCHED_SLOT_STATE_DEBOUNCE_NS (10000L)
+
+/* Max state transitions between after_credit drains. */
+#define FD_SCHED_SLOT_STATE_MAX (32UL)
+
+struct fd_sched_slot_state {
+  ulong slot;
+  long  start_tick;
+  long  end_tick;
+  ulong state; /* FD_SCHED_SLOT_STATE_* */
+};
+typedef struct fd_sched_slot_state fd_sched_slot_state_t;
+
 struct fd_sched_block_start {
   ulong bank_idx;        /* Same as in fd_sched_fec_t. */
   ulong parent_bank_idx; /* Same as in fd_sched_fec_t. */
@@ -507,6 +542,12 @@ fd_sched_root_notify( fd_sched_t * sched, ulong root_idx );
    outstanding references from sched and the loop should break. */
 ulong
 fd_sched_pruned_block_next( fd_sched_t * sched );
+
+/* fd_sched_slot_states_drain copies the slot state intervals closed
+   since the last drain into out (room for FD_SCHED_SLOT_STATE_MAX) and
+   returns how many were copied.  Intervals are in tickcount units. */
+ulong
+fd_sched_slot_states_drain( fd_sched_t * sched, fd_sched_slot_state_t * out );
 
 void
 fd_sched_set_poh_params( fd_sched_t * sched, ulong bank_idx, ulong tick_height, ulong max_tick_height, ulong hashes_per_tick, fd_hash_t const * start_poh );

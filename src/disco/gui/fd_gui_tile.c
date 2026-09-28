@@ -58,6 +58,14 @@ static ulong const gui_db_type_idx[ FD_GUI_HIST_CNT ] = {
   [ FD_GUI_HIST_TXN_WATERFALL    ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_TXN_WATERFALL_IDX,
   [ FD_GUI_HIST_TIMELINE_DAY     ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_TIMELINE_DAY_IDX,
   [ FD_GUI_HIST_REPLAY_TXN       ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_REPLAY_TXN_IDX,
+  [ FD_GUI_HIST_REPLAY_TXN_BATCH ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_REPLAY_TXN_BATCH_IDX,
+  [ FD_GUI_HIST_FEC_EVENTS       ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_FEC_EVENTS_IDX,
+  [ FD_GUI_HIST_FEC_COMPLETIONS  ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_FEC_COMPLETIONS_IDX,
+  [ FD_GUI_HIST_SLOT_DURATION    ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_SLOT_DURATION_IDX,
+  [ FD_GUI_HIST_TIMELINE_TILE_DAY ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_TIMELINE_TILE_DAY_IDX,
+  [ FD_GUI_HIST_FEC_EVENT_ARCHIVE ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_FEC_EVENT_ARCHIVE_IDX,
+  [ FD_GUI_HIST_REPLAY_SLOT_STATE ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_REPLAY_SLOT_STATE_IDX,
+  [ FD_GUI_HIST_TIMELINE_TILE_STATE_DAY ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_TIMELINE_TILE_STATE_DAY_IDX,
 };
 
 #define IN_KIND_PACK_EXECLE   ( 2UL)
@@ -87,11 +95,31 @@ FD_IMPORT_BINARY( firedancer_svg, "book/public/fire.svg" );
 #define FD_HTTP_SERVER_GUI_MAX_WS_SEND_FRAME_CNT 8192
 
 #define FD_GUI_TIMELINE_RAW_RESPONSE_MAX (32UL<<20)
+/* Per-row bounds including commas: ulong 21, uint 11, nonnegative delta
+   string 22, ulong string 23, signature string 91, bool 6 (nulls shorter).
+   Timestamps (txn and txn_batch): 4*21 + 1*11 + 7*22 = 249 bytes.
+   Meta: 4*21 + 5*11 + 2*22 + 3*23 + 91 + 2*6 = 355 bytes, including
+   full uint shred indices; keys and envelope fit in 4096. */
+FD_STATIC_ASSERT( FD_GUI_TIMELINE_QUERY_TXN_MAX*480UL+4096UL<=FD_GUI_TIMELINE_RAW_RESPONSE_MAX, txn_response_bound );
+/* query_tile_states: each interval adds itself and at most one Idle gap,
+   plus one trailing Idle per tile, each state 3+21 bytes.  At most 2
+   txn segments per txn row (21+2+21+21+11 bytes) and one slot segment
+   per slot state row (21+2+21 bytes) are reported. */
+FD_STATIC_ASSERT( (2UL*FD_GUI_TIMELINE_QUERY_STATE_ENTRY_MAX+FD_GUI_TILE_STATE_POS_CNT)*24UL +
+                  2UL*FD_GUI_TIMELINE_QUERY_TXN_MAX*76UL + FD_GUI_TIMELINE_QUERY_SLOT_STATE_MAX*44UL +
+                  4096UL<=FD_GUI_TIMELINE_RAW_RESPONSE_MAX, tile_states_response_bound );
 FD_STATIC_ASSERT( FD_GUI_TIMELINE_QUERY_SHRED_MAX*56UL+4096UL<=FD_GUI_TIMELINE_RAW_RESPONSE_MAX, shred_response_bound );
-/* Agg txn has four numeric arrays, and agg revenue has three
-   ulong-string arrays: at most 4*21=84 or 3*23=69 bytes per bucket
-   including commas, within the shared 512-byte budget. */
+FD_STATIC_ASSERT( FD_GUI_TIMELINE_QUERY_SLOT_MAX*128UL+4096UL<=FD_GUI_TIMELINE_RAW_RESPONSE_MAX, slot_response_bound );
+/* Agg shreds has five numeric arrays including slot_duration, agg txn
+   has four numeric arrays, and agg revenue has three ulong-string
+   arrays: at most 5*21=105, 4*21=84 or 3*23=69 bytes per bucket
+   including commas, within the shared 512-byte budget.  Agg cpu and
+   tile states are per tile: cpu at most 256 tiles of 4 bytes per
+   bucket, tile states 10 us values of at most 12 bytes (a 12h bucket
+   is 11 digits) per cell, plus brackets. */
 FD_STATIC_ASSERT( FD_GUI_TIMELINE_QUERY_MAX_BUCKETS*512UL+4096UL<=FD_GUI_TIMELINE_RAW_RESPONSE_MAX, agg_response_bound );
+FD_STATIC_ASSERT( FD_GUI_TILE_STATE_POS_CNT*FD_GUI_TIMELINE_QUERY_MAX_BUCKETS*(FD_GUI_TILE_STATE_CNT*12UL+3UL)+FD_GUI_TILE_STATE_POS_CNT*64UL+4096UL<=
+                  FD_GUI_TIMELINE_RAW_RESPONSE_MAX, agg_tile_states_response_bound );
 FD_STATIC_ASSERT( 2UL*FD_GUI_TIMELINE_RAW_RESPONSE_MAX+(FD_GUI_TIMELINE_RAW_RESPONSE_MAX>>8)<FD_GUI_HTTP_MIN_SEND_BUFFER_SZ,
                   compressed_response_bound );
 
@@ -209,7 +237,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_http_server_align(),  http_fp );
   l = FD_LAYOUT_APPEND( l, fd_gui_peers_align(),    fd_gui_peers_footprint( http_param.max_ws_connection_cnt ) );
   l = FD_LAYOUT_APPEND( l, fd_gui_align(),          fd_gui_footprint( tile->gui.tile_cnt, tile->gui.max_live_slots, tile->gui.max_txn_per_slot ) );
-  l = FD_LAYOUT_APPEND( l, fd_gui_store_align(),    fd_gui_store_footprint( tile->gui.db_size_gib<<30, fd_gui_hist_db_cnt(), fd_gui_hist_db_descs( tile->gui.db_size_gib<<30 ) ) );
+  l = FD_LAYOUT_APPEND( l, fd_gui_store_align(),    fd_gui_store_footprint( tile->gui.db_size_gib<<30, fd_gui_hist_db_cnt(), fd_gui_hist_db_descs( tile->gui.db_size_gib<<30, tile->gui.tile_cnt ) ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -376,7 +404,8 @@ during_frag( fd_gui_ctx_t * ctx,
     if( FD_LIKELY( sig!=REPLAY_SIG_SLOT_COMPLETED &&
                    sig!=REPLAY_SIG_BECAME_LEADER  &&
                    sig!=REPLAY_SIG_ROOT_ADVANCED  &&
-                   sig!=REPLAY_SIG_TXN_EXECUTED ) ) return;
+                   sig!=REPLAY_SIG_TXN_EXECUTED &&
+                   sig!=REPLAY_SIG_SLOT_STATES ) ) return;
   }
 
   if( FD_UNLIKELY( (sz>0UL && (chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark)) || sz>ctx->in[ in_idx ].mtu ) )
@@ -483,6 +512,9 @@ after_frag( fd_gui_ctx_t *      ctx,
       } else if( FD_LIKELY( sig==REPLAY_SIG_TXN_EXECUTED ) ) {
         if( FD_UNLIKELY( sz!=sizeof(fd_replay_txn_executed_t) ) ) FD_LOG_ERR(( "invalid replay transaction message size %lu", sz ));
         fd_gui_handle_replay_txn( ctx->gui, (fd_replay_txn_executed_t const *)src, fd_clock_tile_now( ctx->clock ) );
+      } else if( FD_LIKELY( sig==REPLAY_SIG_SLOT_STATES ) ) {
+        if( FD_UNLIKELY( sz!=sizeof(fd_replay_slot_states_t) ) ) FD_LOG_ERR(( "invalid replay slot states message size %lu", sz ));
+        fd_gui_handle_replay_slot_states( ctx->gui, (fd_replay_slot_states_t const *)src, fd_clock_tile_now( ctx->clock ) );
       } else {
         return;
       }
@@ -521,7 +553,14 @@ after_frag( fd_gui_ctx_t *      ctx,
         ulong shred_idx = msg->shred.idx;
         int is_turbine  = sig_src==SHRED_SIG_SRC_TURBINE;
         /* tsorig is the timestamp when the shred was received by the shred tile */
-        fd_gui_handle_shred( ctx->gui, slot, shred_idx, is_turbine, tsorig_nanos, fd_clock_tile_now( ctx->clock ) );
+        fd_gui_handle_shred( ctx->gui, slot, shred_idx, msg->shred.fec_set_idx, is_turbine, tsorig_nanos, fd_clock_tile_now( ctx->clock ) );
+      }
+      if( sig==SHRED_SIG_FEC_COMPLETE || sig==SHRED_SIG_FEC_COMPLETE_LEADER ) {
+        fd_fec_complete_t const * msg = (fd_fec_complete_t const *)src;
+        fd_gui_timeline_handle_fec( ctx->gui, msg->last_shred_hdr.slot, sig==SHRED_SIG_FEC_COMPLETE_LEADER,
+                                    fd_clock_tile_tickcomp_to_wallclock( ctx->clock, tspub ),
+                                    msg->turbine_shred_cnt, msg->repair_shred_cnt, msg->reconstructed_shred_cnt,
+                                    fd_clock_tile_now( ctx->clock ) );
       }
       if( FD_UNLIKELY( sig==SHRED_SIG_FEC_COMPLETE_LEADER ) ) {
         fd_fec_complete_t const * complete_msg = (fd_fec_complete_t const *)fd_type_pun_const( src );
@@ -661,11 +700,13 @@ gui_http_request( fd_http_server_request_t const * request ) {
                      !strcmp( request->path, "/leaderSchedule" ) ||
                      !strcmp( request->path, "/gossip") ||
                      !strcmp( request->path, "/accounts") ||
+                     !strcmp( request->path, "/replay") ||
                      !strncmp( request->path, "/?", strlen("/?") ) ||
                      !strncmp( request->path, "/slotDetails?", strlen("/slotDetails?") ) ||
                      !strncmp( request->path, "/leaderSchedule?", strlen("/leaderSchedule?") ) ||
                      !strncmp( request->path, "/gossip?", strlen("/gossip?") ) ||
-                     !strncmp( request->path, "/accounts?", strlen("/accounts?") );
+                     !strncmp( request->path, "/accounts?", strlen("/accounts?") ) ||
+                     !strncmp( request->path, "/replay?", strlen("/replay?") );
 
   for( fd_http_static_file_t const * f = STATIC_FILES; f->name; f++ ) {
     if( !strcmp( request->path, f->name ) ||
@@ -798,7 +839,7 @@ privileged_init( fd_topo_t const *      topo,
   fd_http_server_t * _gui = FD_SCRATCH_ALLOC_APPEND( l, fd_http_server_align(), fd_http_server_footprint( http_param ) );
                      FD_SCRATCH_ALLOC_APPEND( l, fd_gui_peers_align(),    fd_gui_peers_footprint( http_param.max_ws_connection_cnt ) );
                      FD_SCRATCH_ALLOC_APPEND( l, fd_gui_align(),          fd_gui_footprint( tile->gui.tile_cnt, tile->gui.max_live_slots, tile->gui.max_txn_per_slot ) );
-  void * _db       = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_store_align(),       fd_gui_store_footprint( tile->gui.db_size_gib<<30, fd_gui_hist_db_cnt(), fd_gui_hist_db_descs( tile->gui.db_size_gib<<30 ) ) );
+  void * _db       = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_store_align(),       fd_gui_store_footprint( tile->gui.db_size_gib<<30, fd_gui_hist_db_cnt(), fd_gui_hist_db_descs( tile->gui.db_size_gib<<30, tile->gui.tile_cnt ) ) );
 
   fd_http_server_callbacks_t gui_callbacks = {
     .request    = gui_http_request,
@@ -814,7 +855,7 @@ privileged_init( fd_topo_t const *      topo,
 
   FD_LOG_NOTICE(( "gui server listening at %shttp://" FD_IP4_ADDR_FMT ":%u%s", fd_log_style_bold(), FD_IP4_ADDR_FMT_ARGS( tile->gui.listen_addr ), tile->gui.listen_port, fd_log_style_normal() ));
 
-  ctx->db = fd_gui_store_join( fd_gui_store_new( _db, tile->gui.gui_database_path, tile->gui.db_size_gib<<30, fd_gui_hist_db_cnt(), ctx->seed, fd_gui_hist_db_descs( tile->gui.db_size_gib<<30 ) ) );
+  ctx->db = fd_gui_store_join( fd_gui_store_new( _db, tile->gui.gui_database_path, tile->gui.db_size_gib<<30, fd_gui_hist_db_cnt(), ctx->seed, fd_gui_hist_db_descs( tile->gui.db_size_gib<<30, tile->gui.tile_cnt ) ) );
   if( FD_UNLIKELY( !ctx->db ) ) FD_LOG_ERR(( "fd_gui_store_new(%s) failed; gui tile cannot start", tile->gui.gui_database_path ));
 
   if( FD_UNLIKELY( !strcmp( tile->gui.identity_key_path, "" ) ) )
@@ -879,7 +920,7 @@ unprivileged_init( fd_topo_t const *      topo,
                        FD_SCRATCH_ALLOC_APPEND( l, fd_http_server_align(),  fd_http_server_footprint( http_param )                    );
   void * _peers      = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_peers_align(),    fd_gui_peers_footprint( http_param.max_ws_connection_cnt) );
   void * _gui        = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_align(),          fd_gui_footprint( tile->gui.tile_cnt, tile->gui.max_live_slots, tile->gui.max_txn_per_slot ) );
-                       FD_SCRATCH_ALLOC_APPEND( l, fd_gui_store_align(),       fd_gui_store_footprint( tile->gui.db_size_gib<<30, fd_gui_hist_db_cnt(), fd_gui_hist_db_descs( tile->gui.db_size_gib<<30 ) ) );
+                       FD_SCRATCH_ALLOC_APPEND( l, fd_gui_store_align(),       fd_gui_store_footprint( tile->gui.db_size_gib<<30, fd_gui_hist_db_cnt(), fd_gui_hist_db_descs( tile->gui.db_size_gib<<30, tile->gui.tile_cnt ) ) );
 
   fd_http_static_file_t const * index_html = index_html_etag_init( ctx );
 

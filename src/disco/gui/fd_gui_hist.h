@@ -31,6 +31,14 @@ typedef struct fd_gui fd_gui_t;
 #define FD_GUI_HIST_MAX_LEADER_SLOTS_PER_EPOCH (43200UL) /* 10% capacity should be enough for mainnet/testnet */
 
 #define FD_GUI_HIST_MAX_EPOCHS (64UL) /* Comfortably above typical time between restarts */
+
+/* Minimum number of epochs of slot, leader slot and epoch records the
+   store always retains, regardless of pressure from other DBs. */
+#define FD_GUI_HIST_MIN_EPOCHS (3UL)
+
+/* Bounds the per-tile CPU day records retained (per tile).  Two months
+   of calendar days, about the span of FD_GUI_HIST_MAX_EPOCHS epochs. */
+#define FD_GUI_HIST_MAX_TIMELINE_DAYS (64UL)
 #define FD_GUI_HIST_SCHEDULER_COUNTS (0)  /* (ts, type)            */
 #define FD_GUI_HIST_TILE_TIMERS      (1)  /* (ts, type)            */
 #define FD_GUI_HIST_SHRED_EVENTS     (2)
@@ -43,7 +51,15 @@ typedef struct fd_gui fd_gui_t;
 #define FD_GUI_HIST_TXN_WATERFALL    (9)  /* (ts, type)            */
 #define FD_GUI_HIST_TIMELINE_DAY     (10)
 #define FD_GUI_HIST_REPLAY_TXN       (11)
-#define FD_GUI_HIST_CNT              (12)
+#define FD_GUI_HIST_REPLAY_TXN_BATCH (12) /* (ts, ...)            */
+#define FD_GUI_HIST_FEC_EVENTS       (13) /* (FEC event key)      */
+#define FD_GUI_HIST_FEC_COMPLETIONS  (14) /* (FEC completion key) */
+#define FD_GUI_HIST_SLOT_DURATION    (15) /* (ts, ...)            */
+#define FD_GUI_HIST_TIMELINE_TILE_DAY (16) /* (day_idx, tile_idx)  */
+#define FD_GUI_HIST_FEC_EVENT_ARCHIVE (17) /* immutable event batches */
+#define FD_GUI_HIST_REPLAY_SLOT_STATE (18) /* (ts, ...)            */
+#define FD_GUI_HIST_TIMELINE_TILE_STATE_DAY (19) /* (day_idx, tile_idx) */
+#define FD_GUI_HIST_CNT              (20)
 
 struct fd_gui_hist_metrics {
   /* Writes dropped after exhausting region or KV index capacity. */
@@ -56,9 +72,11 @@ typedef struct fd_gui_hist_metrics fd_gui_hist_metrics_t;
 struct fd_gui_hist_slot_key        { ulong slot; ulong bank_seq; };
 struct fd_gui_hist_leader_slot_key { ulong slot; ulong bank_seq; };
 struct fd_gui_hist_epoch_key       { ulong epoch; };
+struct fd_gui_hist_tile_day_key    { ulong day_idx; ulong tile_idx; };
 typedef struct fd_gui_hist_slot_key        fd_gui_hist_slot_key_t;
 typedef struct fd_gui_hist_leader_slot_key fd_gui_hist_leader_slot_key_t;
 typedef struct fd_gui_hist_epoch_key       fd_gui_hist_epoch_key_t;
+typedef struct fd_gui_hist_tile_day_key    fd_gui_hist_tile_day_key_t;
 
 struct fd_gui_hist_private;
 typedef struct fd_gui_hist_private fd_gui_hist_t;
@@ -110,8 +128,8 @@ fd_gui_hist_footprint( void );
 
 /* fd_gui_hist_new formats the workspace region `mem`
    (>= fd_gui_hist_footprint bytes, fd_gui_hist_align aligned) as the
-   history semantics layer over the store `db`. Returns `mem` on success
-   or NULL on failure (logged). */
+   history semantics layer over the store `db`.  Returns `mem` on
+   success or NULL on failure (logged). */
 
 void *
 fd_gui_hist_new( void *                 mem,
@@ -130,10 +148,14 @@ void *
 fd_gui_hist_delete( void * mem );
 
 /* fd_gui_hist_db_descs returns a pointer to a static array to be passed
-   to fd_gui_store_new. */
+   to fd_gui_store_new.  Per-DB base regions depend on tile_cnt (the
+   per-tile CPU day records) and are sized to the retention floors
+   documented at fd_gui_hist_base_regions.  The table is built once;
+   later calls must use the same arguments. */
 
 fd_gui_store_desc_t const *
-fd_gui_hist_db_descs( ulong store_bytes );
+fd_gui_hist_db_descs( ulong store_bytes,
+                      ulong tile_cnt );
 
 FD_FN_CONST static inline ulong
 fd_gui_hist_db_cnt( void ) { return FD_GUI_HIST_CNT; }
@@ -223,10 +245,11 @@ fd_gui_hist_kv_iter_next( fd_gui_hist_kv_slot_iter_t * iter );
 
 /* fd_gui_hist_evict_step reclaims at most FD_GUI_HIST_EVICT_BATCH
    records from an oldest excess region once at most one shared region
-   remains free.  Every DB's newest FD_GUI_STORE_BASE_REGIONS regions
-   are protected.  Returns 1 for actual progress, 0 when idle or all
-   candidates pinned.  Writes retry on pressure, then recycle only their
-   own eligible history if no excess candidate remains. */
+   remains free.  Every DB's newest base_regions regions are protected
+   (see fd_gui_hist_db_descs); FEC heads must be permanently closed.  Returns 1 for
+   actual progress, 0 when idle or all candidates pinned.  Writes retry
+   on pressure, then recycle only their own eligible history if no
+   excess candidate remains. */
 
 int
 fd_gui_hist_evict_step( fd_gui_t * gui );

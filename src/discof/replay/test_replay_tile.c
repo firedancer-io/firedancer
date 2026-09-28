@@ -112,6 +112,7 @@ void  mock_sched_abandon_fn     ( fd_sched_t * s FD_PARAM_UNUSED, ulong i, int i
 void  mock_sched_cancel_fn      ( fd_sched_t * s FD_PARAM_UNUSED, ulong i ) { mock_sched_cancel_idx = i; }
 int   mock_sched_is_discarded_fn( fd_sched_t * s FD_PARAM_UNUSED, ulong i FD_PARAM_UNUSED ) { return 0; }
 ulong mock_sched_pruned_fn      ( fd_sched_t * s FD_PARAM_UNUSED ) { return ULONG_MAX; }
+ulong mock_sched_states_fn      ( fd_sched_t * s FD_PARAM_UNUSED, fd_sched_slot_state_t * o FD_PARAM_UNUSED ) { return 0UL; }
 void  mock_sched_metrics_fn     ( fd_sched_t * s FD_PARAM_UNUSED, fd_clock_tile_t const * c FD_PARAM_UNUSED ) {}
 void  mock_sched_poh_fn         ( fd_sched_t * s FD_PARAM_UNUSED, ulong a FD_PARAM_UNUSED, ulong b FD_PARAM_UNUSED, ulong c FD_PARAM_UNUSED, ulong d FD_PARAM_UNUSED, fd_hash_t const * e FD_PARAM_UNUSED ) {}
 ulong mock_sched_task_next_fn   ( fd_sched_t * s FD_PARAM_UNUSED, fd_sched_task_t * t FD_PARAM_UNUSED ) { return 0UL; }
@@ -155,6 +156,7 @@ mock_sched_get_txn_info_fn( fd_sched_t * s FD_PARAM_UNUSED,
 #define fd_sched_cancel            mock_sched_cancel_fn
 #define fd_sched_block_is_discarded mock_sched_is_discarded_fn
 #define fd_sched_pruned_block_next mock_sched_pruned_fn
+#define fd_sched_slot_states_drain mock_sched_states_fn
 #define fd_sched_metrics_write     mock_sched_metrics_fn
 #define fd_sched_set_poh_params    mock_sched_poh_fn
 #define fd_sched_task_next_ready   mock_sched_task_next_fn

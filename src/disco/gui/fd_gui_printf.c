@@ -3331,6 +3331,23 @@ fd_gui_timeline_bounds( fd_gui_t * gui,
   return have && hi>lo;
 }
 
+/* fd_gui_timeline_day_bounds returns the span of live day records.
+   Returns 1 and sets *start / *end if any are available, else 0. */
+
+static int
+fd_gui_timeline_day_bounds( fd_gui_t * gui,
+                            long *     start,
+                            long *     end ) {
+  long first, last;
+  if( FD_UNLIKELY( !gui->db || !gui->hist ||
+                   !fd_gui_store_ts_live_timestamp_bounds( gui->db, FD_GUI_HIST_TIMELINE_DAY, &first, &last ) ||
+                   first<FD_GUI_TIMELINE_DAY_NS ) ) return 0;
+
+  *start = first-FD_GUI_TIMELINE_DAY_NS;
+  *end   = last;
+  return 1;
+}
+
 static int
 fd_gui_timeline_slot_skipped( fd_gui_t * gui,
                               ulong      slot ) {
@@ -3341,6 +3358,12 @@ fd_gui_timeline_slot_skipped( fd_gui_t * gui,
     return fd_gui_slot_get_canon_safe( gui, slot )->skip==FD_GUI_SKIP_STATUS_FINALIZED;
   }
 
+  fd_gui_epoch_t const * epoch = fd_gui_get_epoch_by_slot( gui, slot );
+  if( epoch && slot>=epoch->start_slot && slot-epoch->start_slot<epoch->slot_cnt && slot-epoch->start_slot<MAX_SLOTS_PER_EPOCH ) {
+    uchar state = epoch->timeline_slot_state[ slot-epoch->start_slot ];
+    if( state & FD_GUI_TIMELINE_SLOT_STATE_VALID ) return !!(state & FD_GUI_TIMELINE_SLOT_STATE_SKIPPED);
+  }
+
   return 0;
 }
 
@@ -3349,15 +3372,17 @@ fd_gui_timeline_slot_skipped( fd_gui_t * gui,
 #define SORT_BEFORE(a,b) ((a).slot<(b).slot)
 #include "../../util/tmpl/fd_sort.c"
 
-int
-fd_gui_printf_timeline_query_shreds( fd_gui_t * gui,
-                                     long       start,
-                                     long       end,
-                                     ulong      id ) {
+static int
+fd_gui_timeline_query_events( fd_gui_t * gui,
+                              long       start,
+                              long       end,
+                              ulong      id,
+                              int        fec ) {
   if( FD_UNLIKELY( start<0L || end<=start || end==LONG_MAX ) ) return -1;
   fd_gui_shred_event_t * events = gui->timeline_scratch.events;
   fd_gui_shred_event_iter_t it;
-  fd_gui_shred_event_hist_iter_begin( gui, &it, start, end );
+  if( fec ) fd_gui_fec_event_iter_begin( gui, &it, start, end-1L );
+  else fd_gui_shred_event_hist_iter_begin( gui, &it, start, end );
   ulong n              = 0UL;
   ulong reference_slot = ULONG_MAX;
   long  reference_ts   = LONG_MAX;
@@ -3374,7 +3399,7 @@ fd_gui_printf_timeline_query_shreds( fd_gui_t * gui,
   fd_gui_shred_event_iter_end( &it );
   if( FD_UNLIKELY( limit ) ) {
     fd_gui_timeline_limit( gui, "query_shreds", id );
-    return 0;
+    goto done;
   }
   for( ulong i=0UL; i<n; i++ ) {
     reference_slot = fd_ulong_min( reference_slot, events[ i ].slot );
@@ -3383,8 +3408,8 @@ fd_gui_printf_timeline_query_shreds( fd_gui_t * gui,
   jsonp_open_envelope( gui->http, "timeline", "query_shreds" );
   jsonp_ulong( gui->http, "id", id );
   jsonp_open_object( gui->http, "value" );
-  jsonp_string( gui->http, "granularity", "shred" );
-  fd_gui_timeline_bounds( gui, FD_GUI_HIST_SHRED_EVENTS );
+  jsonp_string( gui->http, "granularity", fec ? "fec" : "shred" );
+  fd_gui_timeline_bounds( gui, fec ? FD_GUI_HIST_FEC_EVENTS : FD_GUI_HIST_SHRED_EVENTS );
   if( n ) {
     jsonp_ulong( gui->http, "reference_slot", reference_slot );
     jsonp_long_as_str( gui->http, "reference_ts", reference_ts );
@@ -3419,24 +3444,693 @@ fd_gui_printf_timeline_query_shreds( fd_gui_t * gui,
   jsonp_close_array( gui->http );
   jsonp_close_object( gui->http );
   jsonp_close_envelope( gui->http );
+ done:
   return 0;
 }
 
-/* fd_gui_timeline_day_bounds returns the span of live day records.
-   Returns 1 and sets *start / *end if any are available, else 0. */
+int
+fd_gui_printf_timeline_query_shreds( fd_gui_t * gui,
+                                     long       start,
+                                     long       end,
+                                     ulong      id ) {
+  return fd_gui_timeline_query_events( gui, start, end, id, 0 );
+}
+
+int
+fd_gui_printf_timeline_query_fec_events( fd_gui_t * gui,
+                                         long       start,
+                                         long       end,
+                                         ulong      id ) {
+  return fd_gui_timeline_query_events( gui, start, end, id, 1 );
+}
+
+typedef fd_gui_store_replay_txn_t const * fd_gui_timeline_txn_ptr_t;
+#define SORT_NAME fd_gui_timeline_txn_sort
+#define SORT_KEY_T fd_gui_timeline_txn_ptr_t
+#define SORT_BEFORE(a,b) (((a)->slot<(b)->slot) || (((a)->slot==(b)->slot) && ((a)->txn_idx<(b)->txn_idx)))
+#include "../../util/tmpl/fd_sort.c"
+#define SORT_NAME fd_gui_timeline_state_sort
+#define SORT_KEY_T fd_gui_timeline_state_entry_t
+#define SORT_BEFORE(a,b) (((a).pos<(b).pos) || (((a).pos==(b).pos) && ((a).lo<(b).lo)))
+#include "../../util/tmpl/fd_sort.c"
 
 static int
-fd_gui_timeline_day_bounds( fd_gui_t * gui,
-                            long *     start,
-                            long *     end ) {
-  long first, last;
-  if( FD_UNLIKELY( !gui->db || !gui->hist ||
-                   !fd_gui_store_ts_live_timestamp_bounds( gui->db, FD_GUI_HIST_TIMELINE_DAY, &first, &last ) ||
-                   first<FD_GUI_TIMELINE_DAY_NS ) ) return 0;
+fd_gui_timeline_scan( fd_gui_t *           gui,
+                      fd_gui_hist_iter_t * it,
+                      int                  dbi,
+                      long                 start,
+                      long                 end ) {
+  if( FD_UNLIKELY( !gui->db || !gui->hist ) ) return -1;
+  /* Batches and slot states are inserted after they end, so only the
+     upper bound needs a margin.  shortcut: a slot state or batch ending
+     more than the margin after the window is missed, widen if seen. */
+  int  late = dbi==FD_GUI_HIST_REPLAY_TXN_BATCH || dbi==FD_GUI_HIST_REPLAY_SLOT_STATE;
+  long lo   = late ? start : fd_long_sat_sub( start, FD_GUI_HIST_RES_1S_NS );
+  long hi   = fd_long_sat_add( end-1L, late ? FD_GUI_TXN_BATCH_QUERY_MARGIN_NS : FD_GUI_HIST_RES_1S_NS );
+  return fd_gui_hist_range_begin( gui, it, dbi, fd_long_max( LONG_MIN+1L, lo ), fd_long_min( LONG_MAX-1L, hi ), NULL, NULL );
+}
 
-  *start = first-FD_GUI_TIMELINE_DAY_NS;
-  *end   = last;
-  return 1;
+int
+fd_gui_printf_timeline_query_txn_meta( fd_gui_t * gui,
+                                       long       start,
+                                       long       end,
+                                       ulong      id ) {
+  char const * key = "query_txn_meta";
+  if( FD_UNLIKELY( start<0L || end<=start || end==LONG_MAX ) ) return -1;
+  fd_gui_timeline_txn_ptr_t * txns = gui->timeline_scratch.txns;
+  ulong n       = 0UL;
+  ulong refslot = ULONG_MAX;
+  long  refts   = LONG_MAX;
+  int   rc      = 0;
+  int   limit   = 0;
+  if( gui->db && gui->hist ) {
+    fd_gui_hist_iter_t it;
+    rc = fd_gui_timeline_scan( gui, &it, FD_GUI_HIST_REPLAY_TXN, start, end );
+    if( FD_UNLIKELY( rc ) ) goto done;
+    while( fd_gui_hist_range_next( &it ) ) {
+      fd_gui_store_replay_txn_t const * t = it.rec;
+      if( t->completion_time_ns<start || t->completion_time_ns>=end ) continue;
+      if( FD_UNLIKELY( n==FD_GUI_TIMELINE_QUERY_TXN_MAX ) ) {
+        limit = 1;
+        break;
+      }
+      txns[ n++ ] = t;
+      refslot = fd_ulong_min( refslot, t->slot );
+      long const stage[ 7 ] = { t->sigverify_start_ns, t->sigverify_end_ns, t->load_start_ns, t->check_start_ns,
+                                t->exec_start_ns, t->commit_start_ns, t->commit_end_ns };
+      for( ulong i=0UL; i<7UL; i++ ) if( stage[ i ]!=LONG_MAX ) refts = fd_long_min( refts, stage[ i ] );
+    }
+    fd_gui_hist_range_end( &it );
+  }
+  if( FD_UNLIKELY( limit ) ) {
+    fd_gui_timeline_limit( gui, key, id );
+    goto done;
+  }
+  fd_gui_timeline_txn_sort_inplace( txns, n );
+  jsonp_open_envelope( gui->http, "timeline", key );
+  jsonp_ulong( gui->http, "id", id );
+  jsonp_open_object( gui->http, "value" );
+  fd_gui_timeline_bounds( gui, FD_GUI_HIST_REPLAY_TXN );
+  if( n ) jsonp_ulong( gui->http, "reference_slot", refslot );
+  else jsonp_null( gui->http, "reference_slot" );
+  if( refts!=LONG_MAX ) jsonp_long_as_str( gui->http, "reference_ts", refts );
+  else jsonp_null( gui->http, "reference_ts" );
+#define ARRAY(name,printer,value) do { \
+  jsonp_open_array( gui->http, name ); \
+  for( ulong i=0UL; i<n; i++ ) printer( gui->http, NULL, (value) ); \
+  jsonp_close_array( gui->http ); \
+} while(0)
+#define NULLABLE_ARRAY(name,field,null) do { \
+  jsonp_open_array( gui->http, name ); \
+  for( ulong i=0UL; i<n; i++ ) { \
+    if( txns[ i ]->field==(null) ) jsonp_null( gui->http, NULL ); \
+    else jsonp_ulong( gui->http, NULL, txns[ i ]->field ); \
+  } \
+  jsonp_close_array( gui->http ); \
+} while(0)
+  ARRAY( "slot_delta", jsonp_ulong, txns[ i ]->slot-refslot );
+  ARRAY( "txn_idx", jsonp_ulong, txns[ i ]->txn_idx );
+  ARRAY( "txn_exec_idx", jsonp_ulong, txns[ i ]->txn_exec_idx );
+  NULLABLE_ARRAY( "txn_sigverify_exec_idx", txn_sigverify_exec_idx, ULONG_MAX );
+  NULLABLE_ARRAY( "txn_start_shred_idx", txn_start_shred_idx, UINT_MAX );
+  NULLABLE_ARRAY( "txn_end_shred_idx", txn_end_shred_idx, UINT_MAX );
+  jsonp_open_array( gui->http, "txn_signature" );
+  for( ulong i=0UL; i<n; i++ ) {
+    FD_BASE58_ENCODE_64_BYTES( txns[ i ]->signature, sig );
+    jsonp_string( gui->http, NULL, sig );
+  }
+  jsonp_close_array( gui->http );
+  NULLABLE_ARRAY( "txn_compute_units_requested", compute_units_requested, 0U );
+  ARRAY( "txn_compute_units_consumed", jsonp_ulong, txns[ i ]->compute_units_consumed );
+  ARRAY( "txn_transaction_fee", jsonp_ulong_as_str, txns[ i ]->transaction_fee );
+  ARRAY( "txn_priority_fee", jsonp_ulong_as_str, txns[ i ]->priority_fee );
+  ARRAY( "txn_tips", jsonp_ulong_as_str, txns[ i ]->tips );
+  ARRAY( "txn_is_fees_only", jsonp_bool, txns[ i ]->is_fees_only );
+  ARRAY( "txn_load_start_ts_delta", jsonp_long_as_str, fd_long_sat_sub( txns[ i ]->load_start_ns, refts ) );
+  ARRAY( "txn_commit_end_ts_delta", jsonp_long_as_str, fd_long_sat_sub( txns[ i ]->commit_end_ns, refts ) );
+  ARRAY( "txn_error_code", jsonp_ulong, txns[ i ]->error_code );
+#undef NULLABLE_ARRAY
+#undef ARRAY
+  jsonp_close_object( gui->http );
+  jsonp_close_envelope( gui->http );
+ done:
+  return rc;
+}
+
+/* query_tile_states output arrays, one walk each.  The count walk only
+   counts segments. */
+
+#define FD_GUI_STATES_OUT_COUNT          (-1)
+#define FD_GUI_STATES_OUT_STATE_CNT      (0)
+#define FD_GUI_STATES_OUT_STATE          (1)
+#define FD_GUI_STATES_OUT_DUR            (2)
+#define FD_GUI_STATES_OUT_SLOT_STATE_LO  (3)
+#define FD_GUI_STATES_OUT_SLOT_STATE_CNT (4)
+#define FD_GUI_STATES_OUT_SLOT_DELTA     (5)
+#define FD_GUI_STATES_OUT_TXN_STATE_LO   (6)
+#define FD_GUI_STATES_OUT_TXN_STATE_CNT  (7)
+#define FD_GUI_STATES_OUT_TXN_SLOT_DELTA (8)
+#define FD_GUI_STATES_OUT_TXN_IDX        (9)
+#define FD_GUI_STATES_OUT_TXN_ERROR_CODE (10)
+
+#define FD_GUI_STATES_LANE_EXEC      (0)
+#define FD_GUI_STATES_LANE_SIGVERIFY (1)
+#define FD_GUI_STATES_LANE_SLOT      (2)
+
+static void
+fd_gui_tile_states_flush( fd_gui_t * gui,
+                          int        out,
+                          uint       row,
+                          int        lane,
+                          ulong      lo,
+                          ulong      cnt,
+                          ulong      refslot ) {
+  if( !cnt ) return;
+  void const * r = gui->timeline_scratch.tile_states.rows[ row ];
+  fd_gui_store_replay_txn_t const *        t = r;
+  fd_gui_store_replay_slot_state_t const * s = r;
+  if( lane==FD_GUI_STATES_LANE_SLOT ) {
+    switch( out ) {
+      case FD_GUI_STATES_OUT_SLOT_STATE_LO:  jsonp_ulong( gui->http, NULL, lo );               break;
+      case FD_GUI_STATES_OUT_SLOT_STATE_CNT: jsonp_ulong( gui->http, NULL, cnt );              break;
+      case FD_GUI_STATES_OUT_SLOT_DELTA:     jsonp_ulong( gui->http, NULL, s->slot-refslot );  break;
+      default: break;
+    }
+    return;
+  }
+  switch( out ) {
+    case FD_GUI_STATES_OUT_TXN_STATE_LO:   jsonp_ulong( gui->http, NULL, lo );              break;
+    case FD_GUI_STATES_OUT_TXN_STATE_CNT:  jsonp_ulong( gui->http, NULL, cnt );             break;
+    case FD_GUI_STATES_OUT_TXN_SLOT_DELTA: jsonp_ulong( gui->http, NULL, t->slot-refslot ); break;
+    case FD_GUI_STATES_OUT_TXN_IDX:        jsonp_ulong( gui->http, NULL, t->txn_idx );      break;
+    case FD_GUI_STATES_OUT_TXN_ERROR_CODE:
+      if( lane==FD_GUI_STATES_LANE_SIGVERIFY ) jsonp_null( gui->http, NULL );
+      else jsonp_ulong( gui->http, NULL, t->error_code );
+      break;
+    default: break;
+  }
+}
+
+/* fd_gui_tile_states_walk prints one query_tile_states array from the
+   sorted intervals.  Each tile position's intervals are laid out from
+   start to end: gaps become Idle and an interval overlapping its
+   predecessor is clamped to start where the predecessor ends.
+   Consecutive states from one row and lane form a txn segment, and
+   consecutive slot states of one slot a slot segment, counted into
+   seg_cnt[ lane ]. */
+
+static void
+fd_gui_tile_states_walk( fd_gui_t * gui,
+                         ulong      n,
+                         long       start,
+                         long       end,
+                         ulong      refslot,
+                         int        out,
+                         ulong      seg_cnt_out[ 3 ] ) {
+  fd_gui_timeline_state_entry_t const * e = gui->timeline_scratch.tile_states.entries;
+  ulong k = 0UL; /* global state index */
+  ulong j = 0UL;
+  for( ulong pos=0UL; pos<gui->tile_state.pos_cnt; pos++ ) {
+    long  t        = start;
+    ulong pos_cnt  = 0UL;
+    uint  seg_row  = 0U;
+    int   seg_lane = -1;
+    ulong seg_lo   = 0UL;
+    ulong seg_cnt  = 0UL;
+    for( ;; j++ ) {
+      int   last  = j==n || e[ j ].pos!=pos;
+      long  lo    = last ? end : fd_long_max( e[ j ].lo, t );
+      if( !last && e[ j ].hi<=lo ) continue; /* covered by its predecessors */
+      for( int idle=lo>t; idle>=0; idle-- ) {
+        /* idle==1 emits the gap before the interval, idle==0 the
+           interval itself. */
+        if( !idle && last ) break;
+        int   lane  = idle ? -1 : e[ j ].lane;
+        uint  row   = idle ? 0U : e[ j ].row;
+        ulong state = idle ? FD_GUI_TILE_STATE_IDLE : e[ j ].state;
+        long  dur   = idle ? lo-t : e[ j ].hi-lo;
+        void const * const * rows = gui->timeline_scratch.tile_states.rows;
+        int same = lane==seg_lane && ( row==seg_row || ( lane==FD_GUI_STATES_LANE_SLOT &&
+                   ((fd_gui_store_replay_slot_state_t const *)rows[ row ])->slot==((fd_gui_store_replay_slot_state_t const *)rows[ seg_row ])->slot ) );
+        if( !same ) {
+          if( seg_lane>=0 ) {
+            seg_cnt_out[ seg_lane ]++;
+            fd_gui_tile_states_flush( gui, out, seg_row, seg_lane, seg_lo, seg_cnt, refslot );
+          }
+          seg_lane = lane;
+          seg_row  = row;
+          seg_lo   = k;
+          seg_cnt  = 0UL;
+        }
+        seg_cnt++;
+        if(      out==FD_GUI_STATES_OUT_STATE ) jsonp_ulong( gui->http, NULL, state );
+        else if( out==FD_GUI_STATES_OUT_DUR   ) jsonp_ulong( gui->http, NULL, (ulong)dur );
+        k++;
+        pos_cnt++;
+      }
+      if( last ) break;
+      t = e[ j ].hi;
+    }
+    if( seg_lane>=0 ) {
+      seg_cnt_out[ seg_lane ]++;
+      fd_gui_tile_states_flush( gui, out, seg_row, seg_lane, seg_lo, seg_cnt, refslot );
+    }
+    if( out==FD_GUI_STATES_OUT_STATE_CNT ) jsonp_ulong( gui->http, NULL, pos_cnt );
+  }
+}
+
+static ulong
+fd_gui_tile_states_push( fd_gui_timeline_state_entry_t * e,
+                         ulong                           n,
+                         long                            lo,
+                         long                            hi,
+                         long                            start,
+                         long                            end,
+                         ulong                           row,
+                         ulong                           pos,
+                         ulong                           state,
+                         int                             lane ) {
+  lo = fd_long_max( lo, start );
+  hi = fd_long_min( hi, end   );
+  if( FD_UNLIKELY( lo>=hi || lo==LONG_MAX ) ) return n;
+  e[ n ] = (fd_gui_timeline_state_entry_t){ .lo=lo, .hi=hi, .row=(uint)row, .pos=(ushort)pos, .state=(uchar)state, .lane=(uchar)lane };
+  return n+1UL;
+}
+
+int
+fd_gui_printf_timeline_query_tile_states( fd_gui_t * gui,
+                                          long       start,
+                                          long       end,
+                                          int        batch,
+                                          ulong      id ) {
+  char const * key = "query_tile_states";
+  if( FD_UNLIKELY( start<0L || end<=start || end==LONG_MAX ) ) return -1;
+  void const **                   rows     = gui->timeline_scratch.tile_states.rows;
+  fd_gui_timeline_state_entry_t * e        = gui->timeline_scratch.tile_states.entries;
+  ulong                           exec_cnt = gui->tile_state.exec_cnt;
+  int                             dbi      = batch ? FD_GUI_HIST_REPLAY_TXN_BATCH : FD_GUI_HIST_REPLAY_TXN;
+  ulong row_cnt  = 0UL;
+  ulong n        = 0UL;
+  ulong refslot  = ULONG_MAX;
+  int   rc       = 0;
+  int   limit    = 0;
+  if( gui->db && gui->hist ) {
+    /* Only replay rows: leader rows have no sigverify lane and index
+       execle tiles. */
+    fd_gui_hist_iter_t it;
+    rc = fd_gui_timeline_scan( gui, &it, dbi, start, end );
+    if( FD_UNLIKELY( rc ) ) goto done;
+    while( fd_gui_hist_range_next( &it ) ) {
+      if( batch ) {
+        fd_gui_store_replay_txn_batch_t const * b = it.rec;
+        if( !b->sigverify_txn_cnt || b->completion_time_ns<start ||
+            fd_long_min( b->sigverify_start_ns, b->load_start_ns )>=end ) continue;
+        if( FD_UNLIKELY( row_cnt==FD_GUI_TIMELINE_QUERY_TXN_MAX ) ) { limit = 1; break; }
+        if( b->txn_exec_idx<exec_cnt ) {
+          n = fd_gui_tile_states_push( e, n, b->load_start_ns, b->commit_end_ns, start, end, row_cnt, b->txn_exec_idx,
+                                       FD_GUI_TILE_STATE_EXEC_BATCH, FD_GUI_STATES_LANE_EXEC );
+        }
+        if( b->txn_sigverify_exec_idx<exec_cnt ) {
+          n = fd_gui_tile_states_push( e, n, b->sigverify_start_ns, b->sigverify_end_ns, start, end, row_cnt, b->txn_sigverify_exec_idx,
+                                       FD_GUI_TILE_STATE_SIGVERIFY_BATCH, FD_GUI_STATES_LANE_SIGVERIFY );
+        }
+        rows[ row_cnt++ ] = b;
+      } else {
+        fd_gui_store_replay_txn_t const * t = it.rec;
+        if( t->txn_sigverify_exec_idx==ULONG_MAX || t->completion_time_ns<start ||
+            fd_long_min( t->sigverify_start_ns, t->load_start_ns )>=end ) continue;
+        if( FD_UNLIKELY( row_cnt==FD_GUI_TIMELINE_QUERY_TXN_MAX ) ) { limit = 1; break; }
+        if( t->txn_sigverify_exec_idx<exec_cnt ) {
+          n = fd_gui_tile_states_push( e, n, t->sigverify_start_ns, t->sigverify_end_ns, start, end, row_cnt, t->txn_sigverify_exec_idx,
+                                       FD_GUI_TILE_STATE_SIGVERIFY, FD_GUI_STATES_LANE_SIGVERIFY );
+        }
+        if( t->txn_exec_idx<exec_cnt ) {
+          uchar state[ 4 ];
+          long  ts   [ 5 ];
+          ulong sn = fd_gui_txn_exec_states( t->load_start_ns, t->check_start_ns, t->exec_start_ns, t->commit_start_ns, t->commit_end_ns, state, ts );
+          for( ulong i=0UL; i<sn; i++ ) {
+            n = fd_gui_tile_states_push( e, n, ts[ i ], ts[ i+1UL ], start, end, row_cnt, t->txn_exec_idx, state[ i ], FD_GUI_STATES_LANE_EXEC );
+          }
+        }
+        refslot = fd_ulong_min( refslot, t->slot );
+        rows[ row_cnt++ ] = t;
+      }
+    }
+    fd_gui_hist_range_end( &it );
+    if( FD_UNLIKELY( limit ) ) goto done;
+
+    if( gui->tile_state.pos_cnt>exec_cnt ) {
+      ulong slot_cnt = 0UL;
+      rc = fd_gui_timeline_scan( gui, &it, FD_GUI_HIST_REPLAY_SLOT_STATE, start, end );
+      if( FD_UNLIKELY( rc ) ) goto done;
+      while( fd_gui_hist_range_next( &it ) ) {
+        fd_gui_store_replay_slot_state_t const * s = it.rec;
+        if( s->end_ns<=start || s->start_ns>=end ) continue;
+        if( FD_UNLIKELY( slot_cnt==FD_GUI_TIMELINE_QUERY_SLOT_STATE_MAX ) ) { limit = 1; break; }
+        n = fd_gui_tile_states_push( e, n, s->start_ns, s->end_ns, start, end, row_cnt, exec_cnt, s->state, FD_GUI_STATES_LANE_SLOT );
+        if( !batch ) refslot = fd_ulong_min( refslot, s->slot );
+        rows[ row_cnt++ ] = s;
+        slot_cnt++;
+      }
+      fd_gui_hist_range_end( &it );
+    }
+  }
+ done:
+  if( FD_UNLIKELY( limit ) ) fd_gui_timeline_limit( gui, key, id );
+  if( FD_UNLIKELY( rc || limit ) ) return rc;
+
+  fd_gui_timeline_state_sort_inplace( e, n );
+  /* Overlapping rows can split a row into several segments.  Bound the
+     segments so the response fits (see tile_states_response_bound). */
+  ulong seg_cnt[ 3 ] = { 0UL, 0UL, 0UL };
+  fd_gui_tile_states_walk( gui, n, start, end, refslot, FD_GUI_STATES_OUT_COUNT, seg_cnt );
+  if( FD_UNLIKELY( seg_cnt[ FD_GUI_STATES_LANE_EXEC ]+seg_cnt[ FD_GUI_STATES_LANE_SIGVERIFY ]>2UL*FD_GUI_TIMELINE_QUERY_TXN_MAX ||
+                   seg_cnt[ FD_GUI_STATES_LANE_SLOT ]>FD_GUI_TIMELINE_QUERY_SLOT_STATE_MAX ) ) {
+    fd_gui_timeline_limit( gui, key, id );
+    return 0;
+  }
+  jsonp_open_envelope( gui->http, "timeline", key );
+  jsonp_ulong( gui->http, "id", id );
+  jsonp_open_object( gui->http, "value" );
+  jsonp_string( gui->http, "granularity", batch ? "txn_batch" : "txn" );
+  fd_gui_timeline_bounds( gui, dbi );
+  jsonp_long_as_str( gui->http, "start_ts", start );
+  if( refslot!=ULONG_MAX ) jsonp_ulong( gui->http, "reference_slot", refslot );
+  else jsonp_null( gui->http, "reference_slot" );
+  jsonp_open_array( gui->http, "tile" );
+  for( ulong pos=0UL; pos<gui->tile_state.pos_cnt; pos++ ) {
+    ulong ordinal = fd_gui_tile_ordinal( gui, gui->tile_state.topo_idx[ pos ] );
+    if( FD_LIKELY( ordinal!=ULONG_MAX ) ) jsonp_ulong( gui->http, NULL, ordinal );
+    else                                  jsonp_null( gui->http, NULL );
+  }
+  jsonp_close_array( gui->http );
+  static char const * const names[] = {
+    "state_cnt", "state", "dur", "slot_state_lo", "slot_state_cnt", "slot_delta",
+    "txn_state_lo", "txn_state_cnt", "txn_slot_delta", "txn_idx", "txn_error_code"
+  };
+  for( int out=FD_GUI_STATES_OUT_STATE_CNT; out<=FD_GUI_STATES_OUT_TXN_ERROR_CODE; out++ ) {
+    jsonp_open_array( gui->http, names[ out ] );
+    /* Batch granularity only reports the states. */
+    if( !batch || out<=FD_GUI_STATES_OUT_DUR ) fd_gui_tile_states_walk( gui, n, start, end, refslot, out, seg_cnt );
+    jsonp_close_array( gui->http );
+  }
+  jsonp_close_object( gui->http );
+  jsonp_close_envelope( gui->http );
+  return 0;
+}
+
+/* fd_gui_timeline_epoch_in_window returns epoch e if its record is
+   sane and its timeline slot range overlaps [start,end), else NULL. */
+
+static fd_gui_epoch_t const *
+fd_gui_timeline_epoch_in_window( fd_gui_t * gui,
+                                 ulong      e,
+                                 long       start,
+                                 long       end ) {
+  fd_gui_epoch_t const * epoch = fd_gui_epoch( gui, e );
+  if( epoch && epoch->epoch==e && epoch->slot_cnt && epoch->slot_cnt<=MAX_SLOTS_PER_EPOCH &&
+      epoch->start_slot<=ULONG_MAX-(epoch->slot_cnt-1UL) && epoch->timeline_slot_lo_idx<=epoch->timeline_slot_hi_idx &&
+      epoch->timeline_slot_hi_idx<epoch->slot_cnt &&
+      epoch->timeline_slot_min_start_ns<end && epoch->timeline_slot_max_end_ns>start ) return epoch;
+  return NULL;
+}
+
+int
+fd_gui_timeline_slots_collect( fd_gui_t *                   gui,
+                               long                         start,
+                               long                         end,
+                               fd_gui_timeline_slot_row_t * rows,
+                               ulong                        max,
+                               ulong *                      cnt ) {
+  if( FD_UNLIKELY( !gui || !cnt || start<0L || end<=start || end==LONG_MAX || (max && !rows) ) ) return -1;
+  *cnt = 0UL;
+  if( !gui->db || gui->epoch.current_epoch==ULONG_MAX ) return 0;
+  ulong hi = gui->epoch.current_epoch==ULONG_MAX-1UL ? ULONG_MAX : gui->epoch.current_epoch+1UL;
+  ulong lo = hi>FD_GUI_HIST_MAX_EPOCHS ? hi-FD_GUI_HIST_MAX_EPOCHS : 0UL;
+  for( ulong e=lo;; e++ ) {
+    fd_gui_epoch_t const * epoch = fd_gui_timeline_epoch_in_window( gui, e, start, end );
+    if( epoch ) {
+      for( ulong i=epoch->timeline_slot_lo_idx; i<=epoch->timeline_slot_hi_idx; i++ ) {
+        uchar state = epoch->timeline_slot_state[ i ];
+        long  rs    = epoch->timeline_slot_start_ns[ i ];
+        long  re    = epoch->timeline_slot_end_ns[ i ];
+        if( !(state & FD_GUI_TIMELINE_SLOT_STATE_VALID) || rs<0L || re<=rs || rs>=end || re<=start ) continue;
+        if( FD_UNLIKELY( *cnt==max ) ) return 1;
+        rows[ (*cnt)++ ] = (fd_gui_timeline_slot_row_t){
+          .slot     = epoch->start_slot + i,
+          .start_ns = rs,
+          .end_ns   = re,
+          .skipped  = (uchar)!!(state & FD_GUI_TIMELINE_SLOT_STATE_SKIPPED),
+          .mine     = (uchar)!!(state & FD_GUI_TIMELINE_SLOT_STATE_MINE)
+        };
+      }
+    }
+    if( e==hi ) break;
+  }
+  return 0;
+}
+
+int
+fd_gui_timeline_events_collect( fd_gui_t *                    gui,
+                                long                          start,
+                                long                          end,
+                                fd_gui_timeline_event_row_t * rows,
+                                ulong                         max,
+                                ulong *                       cnt ) {
+  if( FD_UNLIKELY( !gui || !cnt || start<0L || end<=start || end==LONG_MAX || (max && !rows) ) ) return -1;
+  *cnt = 0UL;
+  if( !gui->db || gui->epoch.current_epoch==ULONG_MAX ) return 0;
+  ulong hi = gui->epoch.current_epoch==ULONG_MAX-1UL ? ULONG_MAX : gui->epoch.current_epoch+1UL;
+  ulong lo = hi>FD_GUI_HIST_MAX_EPOCHS ? hi-FD_GUI_HIST_MAX_EPOCHS : 0UL;
+  for( ulong e=lo;; e++ ) {
+    fd_gui_epoch_t const * epoch = fd_gui_timeline_epoch_in_window( gui, e, start, end );
+    if( epoch ) {
+      for( ulong i=epoch->timeline_slot_lo_idx; i<=epoch->timeline_slot_hi_idx; i++ ) {
+        uchar state = epoch->timeline_slot_state[ i ];
+        long  rs    = epoch->timeline_slot_start_ns[ i ];
+        long  re    = epoch->timeline_slot_end_ns[ i ];
+        if( (state & (FD_GUI_TIMELINE_SLOT_STATE_VALID|FD_GUI_TIMELINE_SLOT_STATE_SKIPPED))!=
+            (FD_GUI_TIMELINE_SLOT_STATE_VALID|FD_GUI_TIMELINE_SLOT_STATE_SKIPPED) || rs<0L || re<=rs ) continue;
+        long mid = rs + (re-rs)/2L;
+        if( mid<start || mid>=end ) continue;
+        /* STATE_MINE only means our block replayed; a leader slot we never
+           produced must still count, so check the schedule. */
+        fd_pubkey_t const * leader = fd_gui_get_slot_leader( epoch, epoch->start_slot+i );
+        if( !leader || memcmp( leader->uc, gui->summary.identity_key->uc, 32UL ) ) continue;
+        if( FD_UNLIKELY( *cnt==max ) ) return 1;
+        rows[ (*cnt)++ ] = (fd_gui_timeline_event_row_t){
+          .slot  = epoch->start_slot + i,
+          .ts    = mid,
+          .event = FD_GUI_TIMELINE_EVENT_LEADER_SKIP
+        };
+      }
+    }
+    if( e==hi ) break;
+  }
+  return 0;
+}
+
+static void
+fd_gui_timeline_slot_bounds( fd_gui_t * gui ) {
+  long first = LONG_MAX;
+  long last  = LONG_MIN;
+  if( gui->db && gui->epoch.current_epoch!=ULONG_MAX ) {
+    ulong hi = gui->epoch.current_epoch==ULONG_MAX-1UL ? ULONG_MAX : gui->epoch.current_epoch+1UL;
+    ulong lo = hi>FD_GUI_HIST_MAX_EPOCHS ? hi-FD_GUI_HIST_MAX_EPOCHS : 0UL;
+    for( ulong e=lo;; e++ ) {
+      fd_gui_epoch_t const * epoch = fd_gui_epoch( gui, e );
+      if( epoch && epoch->timeline_slot_lo_idx<=epoch->timeline_slot_hi_idx && epoch->timeline_slot_hi_idx<epoch->slot_cnt ) {
+        /* Arrival order need not match slot order, so use the hull of
+           every interval written rather than the range endpoints. */
+        first = fd_long_min( first, epoch->timeline_slot_min_start_ns );
+        last  = fd_long_max( last,  epoch->timeline_slot_max_end_ns   );
+      }
+      if( e==hi ) break;
+    }
+  }
+  if( first<last ) {
+    jsonp_long_as_str( gui->http, "available_start_ns", first );
+    jsonp_long_as_str( gui->http, "available_end_ns", last );
+  } else {
+    jsonp_null( gui->http, "available_start_ns" );
+    jsonp_null( gui->http, "available_end_ns" );
+  }
+}
+
+int
+fd_gui_printf_timeline_query_slots( fd_gui_t * gui,
+                                    long       start,
+                                    long       end,
+                                    ulong      id ) {
+  if( FD_UNLIKELY( start<0L || end<=start || end==LONG_MAX ) ) return -1;
+  fd_gui_timeline_slot_row_t * rows = gui->timeline_scratch.slot_rows;
+  ulong n  = 0UL;
+  int   rc = fd_gui_timeline_slots_collect( gui, start, end, rows, FD_GUI_TIMELINE_QUERY_SLOT_MAX, &n );
+  if( FD_UNLIKELY( rc<0 ) ) goto done;
+  if( FD_UNLIKELY( rc>0 ) ) {
+    fd_gui_timeline_limit( gui, "query_slots", id );
+    rc = 0;
+    goto done;
+  }
+  long reference_ts = LONG_MAX;
+  for( ulong i=0UL; i<n; i++ ) reference_ts = fd_long_min( reference_ts, rows[ i ].start_ns );
+  jsonp_open_envelope( gui->http, "timeline", "query_slots" );
+  jsonp_ulong( gui->http, "id", id );
+  jsonp_open_object( gui->http, "value" );
+  fd_gui_timeline_slot_bounds( gui );
+  if( n ) {
+    jsonp_ulong( gui->http, "reference_slot", rows[ 0 ].slot );
+    jsonp_long_as_str( gui->http, "reference_ts", reference_ts );
+  } else {
+    jsonp_null( gui->http, "reference_slot" );
+    jsonp_null( gui->http, "reference_ts" );
+  }
+  jsonp_open_array( gui->http, "slot_delta" );
+  for( ulong i=0UL; i<n; i++ ) jsonp_ulong( gui->http, NULL, rows[ i ].slot-rows[ 0 ].slot );
+  jsonp_close_array( gui->http );
+  jsonp_open_array( gui->http, "start_ts_delta" );
+  for( ulong i=0UL; i<n; i++ ) jsonp_long_as_str( gui->http, NULL, rows[ i ].start_ns-reference_ts );
+  jsonp_close_array( gui->http );
+  jsonp_open_array( gui->http, "end_ts_delta" );
+  for( ulong i=0UL; i<n; i++ ) jsonp_long_as_str( gui->http, NULL, rows[ i ].end_ns-reference_ts );
+  jsonp_close_array( gui->http );
+  jsonp_open_array( gui->http, "skipped" );
+  for( ulong i=0UL; i<n; i++ ) {
+    if( rows[ i ].skipped ) jsonp_ulong( gui->http, NULL, rows[ i ].slot-rows[ 0 ].slot );
+  }
+  jsonp_close_array( gui->http );
+  jsonp_open_array( gui->http, "mine" );
+  for( ulong i=0UL; i<n; i++ ) {
+    if( rows[ i ].mine ) jsonp_ulong( gui->http, NULL, rows[ i ].slot-rows[ 0 ].slot );
+  }
+  jsonp_close_array( gui->http );
+  jsonp_close_object( gui->http );
+  jsonp_close_envelope( gui->http );
+ done:
+  return rc;
+}
+
+int
+fd_gui_printf_timeline_query_events( fd_gui_t * gui,
+                                     long       start,
+                                     long       end,
+                                     ulong      id ) {
+  if( FD_UNLIKELY( start<0L || end<=start || end==LONG_MAX ) ) return -1;
+  fd_gui_timeline_event_row_t * rows = gui->timeline_scratch.event_rows;
+  ulong n  = 0UL;
+  int   rc = fd_gui_timeline_events_collect( gui, start, end, rows, FD_GUI_TIMELINE_QUERY_EVENT_MAX, &n );
+  if( FD_UNLIKELY( rc<0 ) ) return rc;
+  if( FD_UNLIKELY( rc>0 ) ) {
+    fd_gui_timeline_limit( gui, "query_events", id );
+    return 0;
+  }
+  jsonp_open_envelope( gui->http, "timeline", "query_events" );
+  jsonp_ulong( gui->http, "id", id );
+  jsonp_open_object( gui->http, "value" );
+  fd_gui_timeline_slot_bounds( gui );
+  jsonp_open_array( gui->http, "event" );
+  for( ulong i=0UL; i<n; i++ ) jsonp_ulong( gui->http, NULL, rows[ i ].event );
+  jsonp_close_array( gui->http );
+  jsonp_open_array( gui->http, "slot" );
+  for( ulong i=0UL; i<n; i++ ) jsonp_ulong( gui->http, NULL, rows[ i ].slot );
+  jsonp_close_array( gui->http );
+  jsonp_open_array( gui->http, "ts" );
+  for( ulong i=0UL; i<n; i++ ) jsonp_long_as_str( gui->http, NULL, rows[ i ].ts );
+  jsonp_close_array( gui->http );
+  jsonp_close_object( gui->http );
+  jsonp_close_envelope( gui->http );
+  return 0;
+}
+
+static void
+fd_gui_timeline_duration_nearest( fd_gui_timeline_query_bucket_t * b,
+                                  long                             center,
+                                  long                             midpoint,
+                                  ulong                            duration ) {
+  if( midpoint==LONG_MAX ) return;
+  ulong distance = fd_long_abs( midpoint-center );
+  if( distance>(ulong)FD_GUI_TIMELINE_SLOT_DURATION_NN_MAX_NS ) return;
+  ulong old_distance = b->duration_nearest_ns==LONG_MAX ? ULONG_MAX : fd_long_abs( b->duration_nearest_ns-center );
+  if( distance<old_distance || (distance==old_distance && midpoint<b->duration_nearest_ns) ) {
+    b->duration_nearest_ns    = midpoint;
+    b->duration_nearest_value = duration;
+  }
+}
+
+static void
+fd_gui_timeline_duration_scan( fd_gui_t *                       gui,
+                               fd_gui_timeline_query_bucket_t * buckets,
+                               ulong                            count,
+                               ulong                            start,
+                               ulong                            ns ) {
+  if( FD_UNLIKELY( !gui->db || !gui->hist ) ) return;
+  /* The index is insert time, not midpoint.  Allow ten seconds on top of
+     the NN cap for half the completion gap plus GUI lag (and clock skew).
+     Very long gaps, e.g. after downtime, or lag beyond this margin can
+     hide otherwise eligible samples.  Never scan the entire raw ring. */
+  long end    = (long)(start+count*ns);
+  long margin = FD_GUI_TIMELINE_SLOT_DURATION_NN_MAX_NS + FD_GUI_TIMELINE_SLOT_DURATION_SCAN_MARGIN_NS;
+  fd_gui_hist_iter_t it;
+  if( FD_UNLIKELY( fd_gui_hist_range_begin( gui, &it, FD_GUI_HIST_SLOT_DURATION,
+      fd_long_max( 0L, fd_long_sat_sub( (long)start, margin ) ),
+      fd_long_min( LONG_MAX-1L, fd_long_sat_add( end, margin ) ), NULL, NULL ) ) ) return;
+  long center = (long)(start+ns/2UL);
+  while( fd_gui_hist_range_next( &it ) ) {
+    fd_gui_store_slot_duration_t const * rec = it.rec;
+    if( FD_UNLIKELY( rec->midpoint_ns<0L || rec->midpoint_ns==LONG_MAX || rec->duration_ns==ULONG_MAX ) ) continue;
+    /* Seed the adjacent centers, then propagate below.  Midpoints need
+       not be in insert order; this is O(samples + buckets), not their
+       product, and uses only the existing bucket scratch. */
+    ulong i = rec->midpoint_ns<=center ? 0UL : fd_ulong_min( (ulong)(rec->midpoint_ns-center)/ns, count-1UL );
+    fd_gui_timeline_duration_nearest( &buckets[ i ], center+(long)(i*ns), rec->midpoint_ns, rec->duration_ns );
+    if( i+1UL<count ) fd_gui_timeline_duration_nearest( &buckets[ i+1UL ], center+(long)((i+1UL)*ns), rec->midpoint_ns, rec->duration_ns );
+  }
+  fd_gui_hist_range_end( &it );
+  for( ulong i=1UL; i<count; i++ ) {
+    fd_gui_timeline_duration_nearest( &buckets[ i ], center+(long)(i*ns),
+                                      buckets[ i-1UL ].duration_nearest_ns, buckets[ i-1UL ].duration_nearest_value );
+  }
+  for( ulong i=count-1UL; i>0UL; i-- ) {
+    fd_gui_timeline_duration_nearest( &buckets[ i-1UL ], center+(long)((i-1UL)*ns),
+                                      buckets[ i ].duration_nearest_ns, buckets[ i ].duration_nearest_value );
+  }
+}
+
+static void
+fd_gui_timeline_duration_query( fd_gui_t *                       gui,
+                                fd_gui_timeline_query_bucket_t * buckets,
+                                ulong                            count,
+                                ulong                            start,
+                                ulong                            ns ) {
+  for( ulong i=0UL; i<count; i++ ) {
+    ulong sum = buckets[ i ].fields[ FD_GUI_TIMELINE_FIELD_DURATION_SUM ];
+    ulong cnt = buckets[ i ].fields[ FD_GUI_TIMELINE_FIELD_DURATION_CNT ];
+    if( sum==ULONG_MAX || cnt==ULONG_MAX || !cnt ) continue;
+    /* Round half up without overflowing sum+cnt/2. */
+    buckets[ i ].slot_duration = sum/cnt + (sum%cnt>=cnt/2UL+cnt%2UL);
+  }
+  if( ns/2UL<=(ulong)FD_GUI_TIMELINE_SLOT_DURATION_NN_MAX_NS ) {
+    /* Only empty/unknown maximal runs need raw history.  Outside a bucket
+       the closest possible midpoint is ns/2 from its center.  Runs whose
+       widened scan windows would overlap share one scan; the NN sweep
+       does not depend on which buckets in the range are empty. */
+    ulong join = (ulong)(2L*(FD_GUI_TIMELINE_SLOT_DURATION_NN_MAX_NS+FD_GUI_TIMELINE_SLOT_DURATION_SCAN_MARGIN_NS))/ns;
+    for( ulong i=0UL; i<count; ) {
+      if( buckets[ i ].slot_duration!=ULONG_MAX ) { i++; continue; }
+      ulong lo = i++;
+      for(;;) {
+        while( i<count && buckets[ i ].slot_duration==ULONG_MAX ) i++;
+        ulong next = i;
+        while( next<count && buckets[ next ].slot_duration!=ULONG_MAX ) next++;
+        if( next==count || next-i>join ) break;
+        i = next;
+      }
+      fd_gui_timeline_duration_scan( gui, buckets+lo, i-lo, start+lo*ns, ns );
+    }
+  }
+  for( ulong i=0UL; i<count; i++ ) {
+    if( buckets[ i ].slot_duration==ULONG_MAX ) buckets[ i ].slot_duration = buckets[ i ].duration_nearest_value;
+  }
 }
 
 int
@@ -3448,36 +4142,75 @@ fd_gui_printf_timeline_query_agg( fd_gui_t *   gui,
                                   ulong        count,
                                   ulong        id ) {
   if( FD_UNLIKELY( reference<0L || !count || count>FD_GUI_TIMELINE_QUERY_MAX_BUCKETS || g>=FD_GUI_TIMELINE_GRANULARITY_CNT ) ) return -1;
-  fd_gui_timeline_granularity_t const * desc = &fd_gui_timeline_granularities[ g ];
+  int   stored;
+  ulong merge_cnt;
+  if( FD_UNLIKELY( fd_gui_timeline_tier( key, g, &stored, &merge_cnt ) ) ) return -1;
   ulong ns = fd_gui_timeline_granularity_ns( g );
+  if( FD_UNLIKELY( (ulong)reference+count*ns>=(ulong)LONG_MAX ) ) return -1; /* window end must be representable */
 
   fd_gui_timeline_query_bucket_t * b = gui->timeline_scratch.buckets;
-  for( ulong i=0UL; i<count; i++ ) memset( b[ i ].fields, 0xFF, sizeof(b[ i ].fields) );
+  for( ulong i=0UL; i<count; i++ ) {
+    memset( b[ i ].fields, 0xFF, sizeof(b[ i ].fields) );
+    b[ i ].fields[ FD_GUI_TIMELINE_FIELD_DURATION_SUM ] = 0UL;
+    b[ i ].fields[ FD_GUI_TIMELINE_FIELD_DURATION_CNT ] = 0UL;
+    b[ i ].duration_nearest_ns    = LONG_MAX;
+    b[ i ].duration_nearest_value = ULONG_MAX;
+    b[ i ].slot_duration          = ULONG_MAX;
+    b[ i ].has_day                = 0;
+    b[ i ].skipped_covered        = 0;
+  }
 
-  /* The buckets are visited in ascending time order, so the record for
-     the previous bucket's day is reused until the query crosses into
-     the next day. */
+  /* The buckets are visited in ascending time order, so the record
+     for the previous bucket's day is reused until the query crosses
+     into the next day. */
 
-  ulong stored      = desc->stored_idx;
   ulong step        = fd_gui_timeline_stored_granularity_ns[ stored ];
   ulong cur_day_idx = ULONG_MAX;
   fd_gui_timeline_day_t const * cur_day = NULL;
   for( ulong i=0UL; i<count; i++ ) {
-    for( ulong j=0UL; j<desc->merge_cnt; j++ ) {
+    for( ulong j=0UL; j<merge_cnt; j++ ) {
       ulong ts      = (ulong)reference + i*ns + j*step;
       ulong day_idx = ts/(ulong)FD_GUI_TIMELINE_DAY_NS;
       if( FD_UNLIKELY( day_idx!=cur_day_idx ) ) {
         cur_day_idx = day_idx;
         cur_day     = fd_gui_timeline_day_get( gui, day_idx );
       }
-      if( FD_UNLIKELY( !cur_day ) ) continue;
+      if( !j ) b[ i ].skipped_covered = !!cur_day;
+      if( FD_UNLIKELY( !cur_day ) ) {
+        b[ i ].skipped_covered = 0;
+        b[ i ].fields[ FD_GUI_TIMELINE_FIELD_DURATION_SUM ] = ULONG_MAX;
+        b[ i ].fields[ FD_GUI_TIMELINE_FIELD_DURATION_CNT ] = ULONG_MAX;
+        continue;
+      }
+      b[ i ].has_day = 1;
       ulong idx = (ts%(ulong)FD_GUI_TIMELINE_DAY_NS) / step;
       for( int f=0; f<FD_GUI_TIMELINE_FIELD_CNT; f++ ) {
+        if( f==FD_GUI_TIMELINE_FIELD_DURATION_SUM || f==FD_GUI_TIMELINE_FIELD_DURATION_CNT ) continue;
+        if( !fd_gui_timeline_tier_has_field( stored, f ) ) continue; /* unused by this query */
         b[ i ].fields[ f ] = fd_gui_timeline_combine( b[ i ].fields[ f ], fd_gui_timeline_field_get( cur_day, (int)stored, f, idx ), f );
+      }
+      if( !fd_gui_timeline_tier_has_field( stored, FD_GUI_TIMELINE_FIELD_DURATION_SUM ) ) continue;
+      fd_gui_timeline_duration_merge( &b[ i ].fields[ FD_GUI_TIMELINE_FIELD_DURATION_SUM ],
+                                      &b[ i ].fields[ FD_GUI_TIMELINE_FIELD_DURATION_CNT ],
+        fd_gui_timeline_field_get( cur_day, (int)stored, FD_GUI_TIMELINE_FIELD_DURATION_SUM, idx ),
+        fd_gui_timeline_field_get( cur_day, (int)stored, FD_GUI_TIMELINE_FIELD_DURATION_CNT, idx ) );
+    }
+  }
+  if( !strcmp( key, "query_agg_shreds" ) ) fd_gui_timeline_duration_query( gui, b, count, (ulong)reference, ns );
+  if( !strcmp( key, "query_agg_slots" ) ) {
+    for( ulong i=0UL; i<count; i++ ) {
+      ulong start = (ulong)reference + i*ns;
+      int covered = b[ i ].skipped_covered &&
+        gui->timeline_skipped_coverage_start_ns!=LONG_MAX && gui->timeline_skipped_coverage_end_ns!=LONG_MAX &&
+        start>=(ulong)gui->timeline_skipped_coverage_start_ns && start+ns<=(ulong)gui->timeline_skipped_coverage_end_ns;
+      if( b[ i ].has_day && b[ i ].fields[ FD_GUI_TIMELINE_FIELD_MINE ]==ULONG_MAX ) b[ i ].fields[ FD_GUI_TIMELINE_FIELD_MINE ] = 0UL;
+      int fields[ 2 ] = { FD_GUI_TIMELINE_FIELD_SKIPPED, FD_GUI_TIMELINE_FIELD_MINE_SKIPPED };
+      for( int j=0; j<2; j++ ) {
+        if( !covered ) b[ i ].fields[ fields[ j ] ] = ULONG_MAX;
+        else if( b[ i ].fields[ fields[ j ] ]==ULONG_MAX ) b[ i ].fields[ fields[ j ] ] = 0UL;
       }
     }
   }
-
   jsonp_open_envelope( gui->http, "timeline", key );
   jsonp_ulong( gui->http, "id", id );
   jsonp_open_object( gui->http, "value" );
@@ -3501,7 +4234,24 @@ fd_gui_printf_timeline_query_agg( fd_gui_t *   gui,
   } \
   jsonp_close_array( gui->http ); \
 } while(0)
-  if( !strcmp( key, "query_agg_compute" ) ) {
+  if( !strcmp( key, "query_agg_slots" ) ) {
+    AGG_ARRAY( "start_slot", START_SLOT, 0 );
+    AGG_ARRAY( "end_slot", END_SLOT, 0 );
+    AGG_ARRAY( "skipped", SKIPPED, 0 );
+    AGG_ARRAY( "mine", MINE, 0 );
+    AGG_ARRAY( "mine_skipped", MINE_SKIPPED, 0 );
+  } else if( !strcmp( key, "query_agg_shreds" ) ) {
+    AGG_ARRAY( "turbine", TURBINE, 0 );
+    AGG_ARRAY( "repair", REPAIR, 0 );
+    AGG_ARRAY( "reconstructed", RECONSTRUCTED, 0 );
+    AGG_ARRAY( "published", PUBLISHED, 0 );
+    jsonp_open_array( gui->http, "slot_duration" );
+    for( ulong i=0UL; i<count; i++ ) {
+      if( b[ i ].slot_duration==ULONG_MAX ) jsonp_null( gui->http, NULL );
+      else jsonp_ulong( gui->http, NULL, b[ i ].slot_duration );
+    }
+    jsonp_close_array( gui->http );
+  } else if( !strcmp( key, "query_agg_compute" ) ) {
     AGG_ARRAY( "compute_units", COMPUTE_UNITS, 0 );
     ulong max = ULONG_MAX;
     for( ulong i=0UL; i<count; i++ ) {
@@ -3520,6 +4270,224 @@ fd_gui_printf_timeline_query_agg( fd_gui_t *   gui,
     AGG_ARRAY( "failed_vote_transactions", VOTE_FAILED, 0 );
   }
 #undef AGG_ARRAY
+  jsonp_close_object( gui->http );
+  jsonp_close_envelope( gui->http );
+  return 0;
+}
+
+/* fd_gui_tile_from_ordinal is the inverse of fd_gui_tile_ordinal,
+   returning ULONG_MAX for an ordinal past the reported tiles. */
+
+static ulong
+fd_gui_tile_from_ordinal( fd_gui_t * gui,
+                          ulong      ordinal ) {
+  for( ulong i=0UL; i<gui->summary.tile_cnt; i++ ) {
+    ulong idx = gui->summary.tile[ i ];
+    if( FD_UNLIKELY( !strncmp( gui->topo->tiles[ idx ].name, "bench", 5UL ) ) ) continue;
+    if( !ordinal-- ) return idx;
+  }
+  return ULONG_MAX;
+}
+
+int
+fd_gui_printf_timeline_query_agg_cpu( fd_gui_t *    gui,
+                                      char const *  granularity,
+                                      ulong         g,
+                                      long          reference,
+                                      ulong         count,
+                                      ulong const * ordinals,
+                                      ulong         tile_cnt,
+                                      ulong         id ) {
+  if( FD_UNLIKELY( reference<0L || !count || count>FD_GUI_TIMELINE_QUERY_MAX_BUCKETS || g>=FD_GUI_TIMELINE_GRANULARITY_CNT ) ) return -1;
+  if( FD_UNLIKELY( !tile_cnt || tile_cnt>FD_TOPO_MAX_TILES ) ) return -1;
+  ulong tiles[ FD_TOPO_MAX_TILES ];
+  for( ulong t=0UL; t<tile_cnt; t++ ) {
+    tiles[ t ] = fd_gui_tile_from_ordinal( gui, ordinals[ t ] );
+    if( FD_UNLIKELY( tiles[ t ]==ULONG_MAX ) ) return -1;
+    for( ulong u=0UL; u<t; u++ ) if( FD_UNLIKELY( tiles[ u ]==tiles[ t ] ) ) return -1;
+  }
+
+  int   stored;
+  ulong merge_cnt;
+  if( FD_UNLIKELY( fd_gui_timeline_tier( "query_agg_cpu", g, &stored, &merge_cnt ) ) ) return -1;
+  if( FD_UNLIKELY( tile_cnt*count*merge_cnt>FD_GUI_TIMELINE_CPU_QUERY_WORK_MAX ) ) return -1;
+  ulong ns   = fd_gui_timeline_granularity_ns( g );
+  ulong step = fd_gui_timeline_stored_granularity_ns[ stored ];
+  if( FD_UNLIKELY( (ulong)reference+count*ns>=(ulong)LONG_MAX ) ) return -1; /* window end must be representable */
+
+  long avail_start = 0L, avail_end = 0L;
+  ulong lo_day, hi_day;
+  int  avail = fd_gui_timeline_tile_day_bounds( gui, FD_GUI_HIST_TIMELINE_TILE_DAY, &lo_day, &hi_day );
+  if( FD_LIKELY( avail ) ) {
+    avail_start = (long)(lo_day*(ulong)FD_GUI_TIMELINE_DAY_NS);
+    avail_end   = (long)((hi_day+1UL)*(ulong)FD_GUI_TIMELINE_DAY_NS); /* records only exist for representable days */
+  }
+
+  jsonp_open_envelope( gui->http, "timeline", "query_agg_cpu" );
+  jsonp_ulong( gui->http, "id", id );
+  jsonp_open_object( gui->http, "value" );
+  jsonp_string( gui->http, "granularity", granularity );
+  jsonp_long_as_str( gui->http, "reference_ts_ns", reference );
+  if( FD_LIKELY( avail ) ) {
+    jsonp_long_as_str( gui->http, "available_start_ns", avail_start );
+    jsonp_long_as_str( gui->http, "available_end_ns", avail_end );
+  } else {
+    jsonp_null( gui->http, "available_start_ns" );
+    jsonp_null( gui->http, "available_end_ns" );
+  }
+  jsonp_open_array( gui->http, "utilization" );
+  for( ulong t=0UL; t<tile_cnt; t++ ) {
+    /* Each requested tile is merged from its own day records; a missing
+       record leaves that tile's buckets empty.  The buckets are visited
+       in ascending time order, so a day's record is looked up once. */
+    memset( gui->timeline_scratch.cpu, 0, count*sizeof(gui->timeline_scratch.cpu[ 0 ]) );
+    ulong cur_day_idx = ULONG_MAX;
+    fd_gui_timeline_tile_day_t const * cur_day = NULL;
+    for( ulong i=0UL; i<count; i++ ) {
+      /* Query buckets are aligned multiples of the tier and days are
+         multiples of every query granularity, so a bucket's tier
+         buckets are contiguous within one day record. */
+      ulong ts      = (ulong)reference + i*ns;
+      ulong day_idx = ts/(ulong)FD_GUI_TIMELINE_DAY_NS;
+      if( FD_UNLIKELY( day_idx!=cur_day_idx ) ) {
+        cur_day_idx = day_idx;
+        cur_day     = fd_gui_timeline_tile_day_get( gui, day_idx, tiles[ t ] );
+      }
+      if( FD_UNLIKELY( !cur_day ) ) continue;
+      ulong idx = (ts%(ulong)FD_GUI_TIMELINE_DAY_NS) / step;
+      uint  sum = 0U;
+      uint  cnt = 0U;
+      if( stored==FD_GUI_TIMELINE_GRANULARITY_25MS ) {
+        uchar const * v = cur_day->util_25ms+idx;
+        for( ulong j=0UL; j<merge_cnt; j++ ) {
+          if( v[ j ]>FD_GUI_CPU_UTIL_MAX ) continue;
+          sum += v[ j ];
+          cnt++;
+        }
+      } else {
+        for( ulong j=0UL; j<merge_cnt; j++ ) {
+          ulong s, c;
+          fd_gui_timeline_cpu_get( cur_day, stored, idx+j, &s, &c );
+          sum += (uint)s;
+          cnt += (uint)c;
+        }
+      }
+      gui->timeline_scratch.cpu[ i ].sum = sum;
+      gui->timeline_scratch.cpu[ i ].cnt = cnt;
+    }
+
+    jsonp_open_array( gui->http, NULL );
+    for( ulong i=0UL; i<count; i++ ) {
+      ulong sum = gui->timeline_scratch.cpu[ i ].sum;
+      ulong cnt = gui->timeline_scratch.cpu[ i ].cnt;
+      if( !cnt ) jsonp_null( gui->http, NULL );
+      else jsonp_ulong( gui->http, NULL, (sum + cnt/2UL)/cnt );
+    }
+    jsonp_close_array( gui->http );
+  }
+  jsonp_close_array( gui->http );
+  jsonp_close_object( gui->http );
+  jsonp_close_envelope( gui->http );
+  return 0;
+}
+
+static ulong
+fd_gui_timeline_tile_state_get( fd_gui_timeline_tile_state_day_t const * rec,
+                                int                                      stored,
+                                ulong                                    idx,
+                                ulong                                    s ) {
+  switch( stored ) {
+#define FD_GUI_TILE_STATE_GET( g, T, unit ) \
+    case FD_GUI_TIMELINE_GRANULARITY_##g: return (ulong)rec->dur_##g[ idx ][ s ]*(ulong)unit;
+    FD_GUI_TIMELINE_TILE_STATE_MAP( FD_GUI_TILE_STATE_GET )
+#undef FD_GUI_TILE_STATE_GET
+    default: FD_LOG_ERR(( "unexpected tile state granularity %d", stored ));
+  }
+}
+
+int
+fd_gui_printf_timeline_query_agg_tile_states( fd_gui_t *   gui,
+                                              char const * granularity,
+                                              ulong        g,
+                                              long         reference,
+                                              ulong        count,
+                                              ulong        id ) {
+  if( FD_UNLIKELY( reference<0L || !count || count>FD_GUI_TIMELINE_QUERY_MAX_BUCKETS || g>=FD_GUI_TIMELINE_GRANULARITY_CNT ) ) return -1;
+  ulong         tile_cnt = gui->tile_state.pos_cnt;
+  ulong const * tiles    = gui->tile_state.topo_idx;
+
+  int   stored;
+  ulong merge_cnt;
+  if( FD_UNLIKELY( fd_gui_timeline_tier( "query_agg_tile_states", g, &stored, &merge_cnt ) ) ) return -1;
+  if( FD_UNLIKELY( tile_cnt*count*merge_cnt*(FD_GUI_TILE_STATE_CNT-1UL)>FD_GUI_TIMELINE_CPU_QUERY_WORK_MAX ) ) return -1;
+  long ns   = (long)fd_gui_timeline_granularity_ns( g );
+  long step = (long)fd_gui_timeline_stored_granularity_ns[ stored ];
+  if( FD_UNLIKELY( (ulong)reference+count*(ulong)ns>=(ulong)LONG_MAX ) ) return -1; /* window end must be representable */
+
+  ulong lo_day, hi_day;
+  int  avail = fd_gui_timeline_tile_day_bounds( gui, FD_GUI_HIST_TIMELINE_TILE_STATE_DAY, &lo_day, &hi_day );
+
+  jsonp_open_envelope( gui->http, "timeline", "query_agg_tile_states" );
+  jsonp_ulong( gui->http, "id", id );
+  jsonp_open_object( gui->http, "value" );
+  jsonp_string( gui->http, "granularity", granularity );
+  jsonp_long_as_str( gui->http, "reference_ts_ns", reference );
+  if( FD_LIKELY( avail ) ) {
+    /* records only exist for representable days */
+    jsonp_long_as_str( gui->http, "available_start_ns", (long)(lo_day*(ulong)FD_GUI_TIMELINE_DAY_NS) );
+    jsonp_long_as_str( gui->http, "available_end_ns", (long)((hi_day+1UL)*(ulong)FD_GUI_TIMELINE_DAY_NS) );
+  } else {
+    jsonp_null( gui->http, "available_start_ns" );
+    jsonp_null( gui->http, "available_end_ns" );
+  }
+  jsonp_open_array( gui->http, "tiles" );
+  for( ulong t=0UL; t<tile_cnt; t++ ) {
+    ulong ordinal = fd_gui_tile_ordinal( gui, tiles[ t ] );
+    if( FD_LIKELY( ordinal!=ULONG_MAX ) ) jsonp_ulong( gui->http, NULL, ordinal );
+    else                                  jsonp_null( gui->http, NULL );
+  }
+  jsonp_close_array( gui->http );
+  jsonp_open_array( gui->http, "tile_states" );
+  for( ulong t=0UL; t<tile_cnt; t++ ) {
+    /* Like query_agg_cpu: buckets ascend, a bucket's tier buckets are
+       contiguous within one day record.  Idle is the bucket's recorded
+       time not in another state. */
+    memset( gui->timeline_scratch.agg_tile_states, 0, count*sizeof(gui->timeline_scratch.agg_tile_states[ 0 ]) );
+    ulong cur_day_idx = ULONG_MAX;
+    fd_gui_timeline_tile_state_day_t const * cur_day = NULL;
+    for( ulong i=0UL; i<count; i++ ) {
+      long  ts      = reference + (long)i*ns;
+      ulong day_idx = (ulong)ts/(ulong)FD_GUI_TIMELINE_DAY_NS;
+      if( FD_UNLIKELY( day_idx!=cur_day_idx ) ) {
+        cur_day_idx = day_idx;
+        cur_day     = fd_gui_timeline_tile_state_day_get( gui, day_idx, tiles[ t ] );
+      }
+      if( FD_UNLIKELY( !cur_day ) ) continue;
+      long known = fd_long_min( ts+ns, cur_day->last_ns ) - fd_long_max( ts, cur_day->first_ns );
+      if( known<=0L ) continue;
+      ulong   idx = (ulong)(ts%FD_GUI_TIMELINE_DAY_NS) / (ulong)step;
+      ulong * v   = gui->timeline_scratch.agg_tile_states[ i ].ns;
+      ulong   sum = 0UL;
+      for( ulong s=1UL; s<FD_GUI_TILE_STATE_CNT; s++ ) {
+        for( ulong j=0UL; j<merge_cnt; j++ ) v[ s ] += fd_gui_timeline_tile_state_get( cur_day, stored, idx+j, s-1UL );
+        sum += v[ s ];
+      }
+      v[ FD_GUI_TILE_STATE_IDLE ] = (ulong)known - fd_ulong_min( sum, (ulong)known );
+      gui->timeline_scratch.agg_tile_states[ i ].have = 1;
+    }
+
+    jsonp_open_array( gui->http, NULL );
+    for( ulong s=0UL; s<FD_GUI_TILE_STATE_CNT; s++ ) {
+      jsonp_open_array( gui->http, NULL );
+      for( ulong i=0UL; i<count; i++ ) {
+        if( !gui->timeline_scratch.agg_tile_states[ i ].have ) jsonp_null( gui->http, NULL );
+        else jsonp_ulong( gui->http, NULL, gui->timeline_scratch.agg_tile_states[ i ].ns[ s ]/1000UL );
+      }
+      jsonp_close_array( gui->http );
+    }
+    jsonp_close_array( gui->http );
+  }
+  jsonp_close_array( gui->http );
   jsonp_close_object( gui->http );
   jsonp_close_envelope( gui->http );
   return 0;

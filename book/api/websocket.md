@@ -2831,8 +2831,8 @@ Value is a flat array of base58-encoded identity pubkeys that have gone
 offline (activity timeout expired) since the last message.
 
 ### timeline
-Historical shred and aggregate data recorded by the validator,
-queryable over UNIX nanosecond timestamp windows.
+Historical shred, transaction, slot, event, and aggregate data recorded by the
+validator, queryable over UNIX nanosecond timestamp windows.
 
 All methods require `start_ns` and `end_ns` as non-negative UNIX
 nanosecond timestamps, encoded as decimal strings without leading zeros
@@ -2846,18 +2846,25 @@ Every successful response includes `available_start_ns` and
 in the server's database. Both are `null` when the server is missing
 data needed for a non-empty response.
 
-Historical shred lookups use insertion-time indices with a one-second
-margin on either side, then filter by event time. An event inserted more
-than one second away from its event timestamp can be missed by a narrow
-query.
+Historical shred and transaction lookups use insertion-time indices
+with a one-second margin on either side, then filter by event time.
+An event inserted more than one second away from its event timestamp
+can be missed by a narrow query. Transaction batches are inserted when
+their slot completes replay, so batch lookups instead use a ten-second
+margin after the window and none before it; a batch whose slot took
+longer than that to complete can be missed.
 
 The GUI's database is wiped on boot. When it reaches capacity, data is
 evicted approximately oldest-first.
 
-| query              | maximum result | outcome if exceeded |
-|--------------------|----------------|---------------------|
-| `query_shreds`     | 262,144 rows   | error message       |
-| Each `query_agg_*` | 4,096 buckets  | connection closed   |
+| query                  | maximum result | outcome if exceeded |
+|------------------------|----------------|---------------------|
+| `query_shreds`         | 262,144 rows   | error message       |
+| `query_tile_states`    | 65,536 rows    | error message       |
+| `query_txn_meta`       | 65,536 rows    | error message       |
+| `query_slots`          | 65,536 rows    | error message       |
+| `query_events`         | 65,536 rows    | error message       |
+| Each `query_agg_*`     | 4,096 buckets  | connection closed   |
 
 The server returns the following error message when response limits are
 exceeded. Narrow the window and retry.
@@ -2882,22 +2889,31 @@ exceeded. Narrow the window and retry.
 |-------------|----------|-------------|
 | start_ns    | `string` | Inclusive lower bound, using the timestamp rules above |
 | end_ns      | `string` | Exclusive upper bound |
-| granularity | `string` | Must be `shred`. Required |
+| granularity | `string` | Either `shred` or `fec`. Required |
 
-Returns one row per recorded shred event as it arrives, including events
-in the active, unflushed batch. Empty results have empty arrays and
-`null` reference fields.
+At `shred` granularity, returns one row per recorded shred event as it
+arrives, including events in the active, unflushed batch.
+At `fec` granularity, events are available as they arrive, without
+waiting for slot completion. Each FEC set's timestamp is the minimum
+observed so far for that event type and can move earlier as more events
+arrive. A slot closes once it is optimistically confirmed (rooted on
+Alpenglow); ordinary events arriving after closure are rejected at both
+granularities. At `fec` granularity, events are also rejected for slots
+1,024 or more slots past the closing cutoff, and none are recorded
+before the first cutoff after boot. Repeated slot-complete markers remain distinct rows
+in admission order. Empty results have empty arrays and `null` reference
+fields.
 
 **`TimelineShreds`**
 | field              | type               | description |
 |--------------------|--------------------|-------------|
-| granularity        | `string`           | Echoes `shred` |
-| available_start_ns | `string\|null`     | Inclusive backing lookup start |
-| available_end_ns   | `string\|null`     | Exclusive backing lookup end |
+| granularity        | `string`           | Echoes `shred` or `fec` |
+| available_start_ns | `string\|null`     | Inclusive backing lookup start for shreds; minimum retained canonical event time for FECs |
+| available_end_ns   | `string\|null`     | Exclusive backing lookup end for shreds; one nanosecond past the maximum retained canonical event time for FECs |
 | reference_slot     | `number\|null`     | Smallest slot in the response |
 | reference_ts       | `string\|null`     | Smallest event timestamp in the response |
 | slot_delta         | `number[]`         | Per row, `slot - reference_slot` |
-| idx                | `(number\|null)[]` | Shred index. `null` for a slot-complete marker |
+| idx                | `(number\|null)[]` | Shred index or FEC set ordinal, not the FEC's first shred index. `null` for a slot-complete marker |
 | event              | `number[]`         | Event kind, using the enum below |
 | event_ts_delta     | `string[]`         | Per row, nanoseconds since `reference_ts` |
 | skipped            | `number[]`         | Sparse slot deltas among returned rows classified as skipped; absence is not proof of known non-skipped coverage |
@@ -2952,47 +2968,408 @@ list. Clients should not assume timestamps are ordered.
 
 :::
 
-#### `timeline.query_agg_*`
-| frequency | type          | example |
-|-----------|---------------|---------|
-| *Request* | `TimelineAgg` | below   |
-
-Three methods share the following parameters and common response fields:
-`timeline.query_agg_compute`, `timeline.query_agg_revenue`, and
-`timeline.query_agg_txn`.
+#### `timeline.query_tile_states`
+| frequency | type                 | example |
+|-----------|----------------------|---------|
+| *Request* | `TimelineTileStates` | below   |
 
 | param       | type     | description |
 |-------------|----------|-------------|
 | start_ns    | `string` | Inclusive lower bound, using the timestamp rules above |
 | end_ns      | `string` | Exclusive upper bound |
-| granularity | `string` | Required; one of the granularities below, supported by all three methods |
+| granularity | `string` | Either `txn` or `txn_batch`. Required |
 
-| granularities |
-|---------------|
-| `250ms`, `500ms`, `1s`, `2s`, `4s`, `8s`, `15s`, `30s`, `1m`, `2m`, `4m`, `8m`, `15m`, `30m`, `1h`, `2h`, `4h`, `8h`, `12h`, `1d` |
+Returns what each replay tile was doing over `[start_ns, end_ns)`. Time
+a tile spent on nothing reported here is `Idle`.
+
+| state | name               | tile   | description |
+|-------|--------------------|--------|-------------|
+| 0     | Idle               | any    | Nothing reported |
+| 1     | Sigverify          | execrp | Transaction signature verification |
+| 2     | Loading            | execrp | Account loading |
+| 3     | Validate           | execrp | Validation checks |
+| 4     | Execute            | execrp | Execution |
+| 5     | PostExecute        | execrp | Commit or cancel |
+| 6     | BlockedOnTiles     | replay | No execrp tile is free (compute-bound) |
+| 7     | BlockedOnConflicts | replay | Transactions are queued and a tile is free, but every queued transaction waits on an earlier conflicting one |
+| 8     | BlockedOnNetwork   | replay | Replay has dispatched everything received so far and the end of the slot has not arrived |
+| 9     | SlotFinish         | replay | The end of the slot has arrived and nothing is queued; draining in-flight work and end-of-block processing |
+| 10    | ExecBatch          | execrp | `txn_batch` only: a batch of transaction executions |
+| 11    | SigverifyBatch     | execrp | `txn_batch` only: a batch of signature verifications |
+
+Slot states (6-9) cover each replayed block from its first dispatch to
+the end of its end-of-block processing, and include a 10µs debouncing
+period.
+
+**`TimelineTileStates`**
+| field              | type               | description |
+|--------------------|--------------------|-------------|
+| granularity        | `string`           | Echoes `txn` or `txn_batch` |
+| available_start_ns | `string\|null`     | Inclusive approximate lookup start for the selected transaction history |
+| available_end_ns   | `string\|null`     | Exclusive approximate lookup end for the selected transaction history |
+| start_ts           | `string`           | Start of the first state of each tile; equals `start_ns` |
+| reference_slot     | `number\|null`     | Smallest slot among the returned transactions and slot states, or `null` if none |
+| tile               | `(number\|null)[]` | Per tile, its index into `summary.tiles`: the execrp tiles in order, then the replay tile |
+| state_cnt          | `number[]`         | Per tile, the number of its states. Tile `i`'s states start at the sum of the earlier tiles' counts |
+| state              | `number[]`         | All states, tile by tile and in time order, as listed above |
+| dur                | `number[]`         | Per state, its duration in nanoseconds. A state starts where the tile's previous state ends, or at `start_ts` |
+| slot_state_lo      | `number[]`         | Per slot segment, the index into `state` of its first state. A slot segment is a run of consecutive slot states for one slot on the replay tile |
+| slot_state_cnt     | `number[]`         | Per slot segment, the number of its states |
+| slot_delta         | `number[]`         | Per slot segment, `slot - reference_slot` |
+| txn_state_lo       | `number[]`         | Per transaction segment, the index into `state` of its first state. A transaction segment is a run of consecutive states for one transaction on one tile: one Sigverify state, or up to four execution stages |
+| txn_state_cnt      | `number[]`         | Per transaction segment, the number of its states |
+| txn_slot_delta     | `number[]`         | Per transaction segment, `slot - reference_slot` |
+| txn_idx            | `number[]`         | Per transaction segment, the transaction's index within its slot. A transaction usually has two segments, one for signature verification and one for execution |
+| txn_error_code     | `(number\|null)[]` | Per transaction segment, the runtime error code (0 on success), or `null` for signature verification |
+
+Execution stages that a transaction skipped are omitted. Each stage
+runs until the next present stage starts, and the last until commit or
+cancel ends.
+
+`txn_batch` keeps the same states but rolls up each tile's transaction
+work into `ExecBatch` and `SigverifyBatch` states. Slot states are
+reported unchanged. The `slot_*` and `txn_*` arrays are empty, and
+`reference_slot` is `null`.
+
+::: details Example
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_tile_states",
+    "id": 40,
+    "params": {
+        "start_ns": "1739657041588000000",
+        "end_ns": "1739657041589000000",
+        "granularity": "txn"
+    }
+}
+```
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_tile_states",
+    "id": 40,
+    "value": {
+        "granularity": "txn",
+        "available_start_ns": "1739657000000000000",
+        "available_end_ns": "1739657042000000000",
+        "start_ts": "1739657041588000000",
+        "reference_slot": 325000000,
+        "tile": [11, 12, 9],
+        "state_cnt": [3, 6, 3],
+        "state": [0, 1, 0,   0, 2, 3, 4, 5, 0,   6, 8, 9],
+        "dur": [300000, 200000, 500000,   100000, 50000, 20000, 400000, 30000, 400000,   250000, 600000, 150000],
+        "slot_state_lo": [9],
+        "slot_state_cnt": [3],
+        "slot_delta": [0],
+        "txn_state_lo": [1, 4],
+        "txn_state_cnt": [1, 4],
+        "txn_slot_delta": [0, 0],
+        "txn_idx": [17, 17],
+        "txn_error_code": [null, 0]
+    }
+}
+```
+
+:::
+
+#### `timeline.query_txn_meta`
+| frequency | type              | example |
+|-----------|-------------------|---------|
+| *Request* | `TimelineTxnMeta` | below   |
+
+| param    | type     | description |
+|----------|----------|-------------|
+| start_ns | `string` | Inclusive lower bound, using the timestamp rules above |
+| end_ns   | `string` | Exclusive upper bound |
+
+Returns replay and local leader transaction metadata selected by
+transaction completion time. Rows are ordered by `(slot, txn_idx)`.
+`reference_ts` is the earliest available stage timestamp across all
+returned rows. Deltas are non-negative and stages can precede
+`start_ns`. Empty results have empty arrays and `null` reference fields.
+
+**`TimelineTxnMeta`**
+| field                       | type               | description |
+|-----------------------------|--------------------|-------------|
+| available_start_ns          | `string\|null`     | Inclusive approximate lookup start for the transaction history |
+| available_end_ns            | `string\|null`     | Exclusive approximate lookup end for the transaction history |
+| reference_slot              | `number\|null`     | Smallest slot in the response |
+| reference_ts                | `string\|null`     | Earliest stage timestamp in the response |
+| slot_delta                  | `number[]`         | Per row, `slot - reference_slot` |
+| txn_idx                     | `number[]`         | Transaction index within its slot (pack index for locally produced blocks) |
+| txn_exec_idx                | `number[]`         | Execution tile index; execle tile index for locally produced blocks |
+| txn_sigverify_exec_idx      | `(number\|null)[]` | Signature-verification tile index, or `null` if absent |
+| txn_start_shred_idx         | `(number\|null)[]` | Index of the shred containing the transaction's first byte; `null` for locally produced blocks |
+| txn_end_shred_idx           | `(number\|null)[]` | Index of the shred containing the byte after the transaction's last byte (exclusive; capped at the block's last shred index); `null` for locally produced blocks |
+| txn_signature               | `string[]`         | Base58 transaction signature |
+| txn_compute_units_requested | `(number\|null)[]` | Total pack compute-cost estimate (legacy field name); `null` when unavailable. This is not the block CU limit |
+| txn_compute_units_consumed  | `number[]`         | Actual transaction compute cost, including consensus-relevant costs |
+| txn_transaction_fee         | `string[]`         | Base transaction fee in lamports |
+| txn_priority_fee            | `string[]`         | Priority fee in lamports |
+| txn_tips                    | `string[]`         | Tips in lamports |
+| txn_is_fees_only            | `boolean[]`        | Whether only fees were charged |
+| txn_load_start_ts_delta     | `string[]`         | Load start minus `reference_ts`, in nanoseconds |
+| txn_commit_end_ts_delta     | `string[]`         | Commit/cancel end minus `reference_ts`, in nanoseconds |
+| txn_error_code              | `number[]`         | Runtime error code, 0 on success |
+
+Rows from blocks produced by this validator are recorded from execle
+rather than replay and have null sigverify and shred fields. Their
+`txn_idx` is pack's monotonically increasing transaction index, not the
+transaction's position in the block (transactions that do not land can
+leave gaps). Ordering by `(slot, txn_idx)` still applies.
+
+::: details Example
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_txn_meta",
+    "id": 41,
+    "params": {
+        "start_ns": "1739657041588000000",
+        "end_ns": "1739657041589000000"
+    }
+}
+```
+
+:::
+
+#### `timeline.query_slots`
+| frequency | type            | example |
+|-----------|-----------------|---------|
+| *Request* | `TimelineSlots` | below   |
+
+| param    | type     | description |
+|----------|----------|-------------|
+| start_ns | `string` | Inclusive lower bound, using the timestamp rules above |
+| end_ns   | `string` | Exclusive upper bound |
+
+Returns one row per classified numeric slot whose interval overlaps the
+request window, ordered by slot. A replayed slot starts at the earliest
+recorded turbine/repair shred arrival (first published shred for a locally
+produced slot) and ends at its replay `slot_complete` event timestamp.
+These intervals can overlap: a later slot's first shred can arrive before
+an earlier slot completes. Producer event timestamps are used, not the
+time the GUI receives the events. Replayed slots without an observed start
+or a positive interval are omitted.
+
+Skipped slots that were replayed use these observed boundaries too. If a
+skipped numeric slot completed replay more than once, its earliest recorded
+completion is used. A completion received after skip classification replaces
+the interpolated interval with the observed interval.
+
+Only skipped slots that were not replayed have interpolated boundaries,
+computed by evenly dividing the completion-time gap between their landed
+ancestor and descendant across the numeric slot gap. Arrival and completion
+timestamps are retained in the epoch cache, independently of detailed
+shred-event and replayed-fork history.
+
+**Tower:** classification advances along optimistically confirmed (OC)
+replayed ancestry. **Alpenglow:** it advances along the replayed rooted
+ancestry.
+
+`reference_slot` is the first (lowest) slot in the response. `reference_ts`
+is the minimum start time across all returned rows. Timestamp deltas are
+non-negative. Both references are `null` when the arrays are empty.
+
+**`TimelineSlots`**
+| field              | type           | description |
+|--------------------|----------------|-------------|
+| available_start_ns | `string\|null` | Inclusive beginning of retained cached slot intervals; not a hole-free coverage guarantee, and can be earlier than any current interval after one is replaced |
+| available_end_ns   | `string\|null` | Exclusive end of retained cached slot intervals; can be later than any current interval after one is replaced |
+| reference_slot     | `number\|null` | First slot in the response |
+| reference_ts       | `string\|null` | Minimum start timestamp across returned rows |
+| slot_delta         | `number[]`     | Per row, `slot - reference_slot` |
+| start_ts_delta     | `string[]`     | Per row, interval start minus `reference_ts`, in nanoseconds |
+| end_ts_delta       | `string[]`     | Per row, exclusive interval end minus `reference_ts`, in nanoseconds |
+| skipped            | `number[]`     | Sparse slot deltas for skipped rows |
+| mine               | `number[]`     | Sparse slot deltas for locally produced rows |
+
+::: details Example
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_slots",
+    "id": 49,
+    "params": {
+        "start_ns": "1739657040000000000",
+        "end_ns": "1739657041000000000"
+    }
+}
+```
+
+:::
+
+#### `timeline.query_events`
+| frequency | type             | example |
+|-----------|------------------|---------|
+| *Request* | `TimelineEvents` | below   |
+
+| param    | type     | description |
+|----------|----------|-------------|
+| start_ns | `string` | Inclusive lower bound, using the timestamp rules above |
+| end_ns   | `string` | Exclusive upper bound |
+
+Returns a sparse list of `(event, slot, ts)` tuples whose `ts` lies in
+the request window, ordered by slot. Empty results have empty arrays.
+
+| event | name          | meaning |
+|-------|---------------|---------|
+| 0     | `leader_skip` | A slot scheduled to this validator's current identity that was classified skipped, as described for `query_slots`. `ts` is the midpoint of the slot's `query_slots` interval |
+
+**`TimelineEvents`**
+| field              | type           | description |
+|--------------------|----------------|-------------|
+| available_start_ns | `string\|null` | Same as `TimelineSlots` |
+| available_end_ns   | `string\|null` | Same as `TimelineSlots` |
+| event              | `number[]`     | Per row, event kind from the table above |
+| slot               | `number[]`     | Per row, slot number |
+| ts                 | `string[]`     | Per row, UNIX nanosecond event timestamp |
+
+::: details Example
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_events",
+    "id": 50,
+    "params": {
+        "start_ns": "1739657000000000000",
+        "end_ns": "1739660600000000000"
+    }
+}
+```
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_events",
+    "id": 50,
+    "value": {
+        "available_start_ns": "1739650000000000000",
+        "available_end_ns": "1739660000000000000",
+        "event": [0, 0],
+        "slot": [289245044, 289245448],
+        "ts": ["1739657041588242791", "1739657203188242791"]
+    }
+}
+```
+
+:::
+
+#### `timeline.query_agg_*`
+| frequency | type          | example |
+|-----------|---------------|---------|
+| *Request* | `TimelineAgg` | below   |
+
+Seven methods share the following parameters and common response fields:
+`timeline.query_agg_slots`, `timeline.query_agg_shreds`,
+`timeline.query_agg_compute`, `timeline.query_agg_revenue`,
+`timeline.query_agg_txn`, `timeline.query_agg_cpu`, and
+`timeline.query_agg_tile_states`.
+
+Compute, revenue, and transaction aggregates include locally produced
+blocks. Transactions are bucketed by commit time.
+
+| param       | type     | description |
+|-------------|----------|-------------|
+| start_ns    | `string` | Inclusive lower bound, using the timestamp rules above |
+| end_ns      | `string` | Exclusive upper bound |
+| granularity | `string` | Required; one of the granularities below |
+
+The granularities are `25ms`, `50ms`, `100ms`, `250ms`, `500ms`, `1s`,
+`2s`, `4s`, `8s`, `15s`, `30s`, `1m`, `2m`, `4m`, `8m`, `15m`, `30m`,
+`1h`, `2h`, `4h`, `8h`, `12h`, and `1d`. Each method has a minimum:
+
+| method                       | minimum granularity |
+|------------------------------|---------------------|
+| `timeline.query_agg_cpu`     | `25ms`  |
+| `timeline.query_agg_compute` | `100ms` |
+| `timeline.query_agg_revenue` | `100ms` |
+| `timeline.query_agg_shreds`  | `250ms` |
+| `timeline.query_agg_slots`   | `250ms` |
+| `timeline.query_agg_txn`     | `250ms` |
+| `timeline.query_agg_tile_states` | `2s` |
 
 The request window is aligned to the request granularity bucket
 boundaries. At most 4,096 buckets may be requested, and the aligned
 exclusive end must also be less than `9223372036854775807`. The
 connection is closed if either limit is exceeded.
 
-Compute, revenue, and transaction aggregates include locally produced
-blocks. Transactions are bucketed by commit time into cached
-calendar-day aggregates, retained independently of detailed transaction
-history.
-
 **Common `TimelineAgg` fields**
 | field              | type           | description |
 |--------------------|----------------|-------------|
 | granularity        | `string`       | Echoes the requested granularity |
 | reference_ts_ns    | `string`       | Start of the first aligned response bucket |
-| available_start_ns | `string\|null` | Inclusive start of the retained calendar-day aggregates |
-| available_end_ns   | `string\|null` | Exclusive end of the retained calendar-day aggregates |
+| available_start_ns | `string\|null` | Start of the earliest retained calendar-day record (the per-tile CPU or tile state day records for `query_agg_cpu` and `query_agg_tile_states`) |
+| available_end_ns   | `string\|null` | End of the latest retained calendar-day record (the per-tile CPU or tile state day records for `query_agg_cpu` and `query_agg_tile_states`) |
 
 Each array has one entry per aligned bucket. Bucket `i` covers
 `[reference_ts_ns + i*duration, reference_ts_ns + (i+1)*duration)`.
 An entry is `null` when the field is unknown, distinct from a known
-zero. `null` values are ignored when computing rolled-up aggregates.
+zero. `null` values are ignored when computing rolled-up aggregates,
+except that an unknown slot-duration sum or count makes its average unknown.
+
+##### `timeline.query_agg_slots`
+| field        | type               | description |
+|--------------|--------------------|-------------|
+| start_slot   | `(number\|null)[]` | Smallest observed slot per bucket, not an interval boundary |
+| end_slot     | `(number\|null)[]` | Largest observed slot per bucket, inclusive |
+| skipped      | `(number\|null)[]` | Count of classified skipped numeric slots, attributed to interpolated slot midpoints |
+| mine         | `(number\|null)[]` | Count of completed blocks produced by this validator, attributed to replay completion time |
+| mine_skipped | `(number\|null)[]` | Count of completed local blocks whose numeric slot is classified as skipped, attributed to their replay completion time; never exceeds `mine` |
+
+Skip classification uses optimistically confirmed (Tower) or rooted
+(Alpenglow) ancestry, as described for `query_slots`. Skipped slots do
+not extend `start_slot` or `end_slot`. `skipped` and `mine_skipped` are
+`null` when unknown (e.g., historical data was forgotten).
+
+##### `timeline.query_agg_shreds`
+| field         | type               | description |
+|---------------|--------------------|-------------|
+| turbine       | `(number\|null)[]` | Sum of turbine-received shred counts from completed FECs |
+| repair        | `(number\|null)[]` | Sum of repair-received shred counts from completed FECs |
+| reconstructed | `(number\|null)[]` | Sum of reconstructed shred counts from completed FECs |
+| published     | `(number\|null)[]` | 64 shreds, data plus coding, per accepted leader FEC completion; zero for a non-leader completion |
+| slot_duration | `(number\|null)[]` | Average per-slot duration in integer nanoseconds, with bounded nearest-neighbor fill as described below |
+
+Counts are assigned to time buckets based on the FEC-completion
+timestamp, not individual shred arrival times. Accepted FEC completions
+are available immediately, without waiting for their slot to complete.
+Exact duplicate completions contribute only once. If a new completion
+cannot be admitted after safe reclamation, both its detail and its
+calendar-day aggregate contribution are dropped, and the completion drop
+counter is incremented.
+
+`slot_duration` is independent of FEC counts. Every replayed block completion
+contributes a sample, including abandoned forks and exact duplicate replays.
+The sample is `(block_completion_ns - parent_completion_ns) / (slot - parent_slot)`,
+using integer division: skipped slots between parent and block share the gap
+evenly. A sample requires valid completion times, a known parent completion,
+a strictly earlier parent slot, and a positive time gap. Its timestamp is the
+midpoint between parent and block completion (rounded down to integer ns).
+
+A bucket containing samples returns their average per-slot duration, rounded
+to the nearest integer nanosecond (half up). Calendar-day sums and sample
+counts are merged before dividing, not averages of averages. Overflowed
+totals are unknown.
+An empty or unknown bucket uses the retained raw sample whose midpoint is
+nearest its center, only within **10 seconds**, inclusive; ties choose the
+earlier midpoint. Otherwise it is `null`. Fill requires retained raw history
+even when the day aggregates survive. Buckets wider than 20 seconds do not
+attempt fill.
+
+Raw sample lookups scan the relevant range widened by the 10-second fill cap
+and a further 10-second insert-time margin on either side. The raw index uses
+GUI insertion time, which can trail the midpoint by half the completion gap
+plus GUI lag. Very long gaps (for example after downtime), excessive lag, or
+clock skew beyond this margin can leave otherwise eligible samples out of a
+query. Queries only scan around runs of empty or unknown buckets; nearby
+runs share one scan.
 
 ##### `timeline.query_agg_compute`
 | field             | type               | description |
@@ -3052,7 +3429,8 @@ transaction budget.
 | success_vote_transactions    | `(number\|null)[]` | Successful simple-vote transactions |
 | failed_vote_transactions     | `(number\|null)[]` | Failed simple-vote transactions |
 
-Success means runtime error code 0. Alpenglow consensus votes are not
+Success means runtime error code 0. These four fields retain their
+names in both consensus modes. Alpenglow consensus votes are not
 transactions and are not counted here.
 
 ::: details Example
@@ -3084,6 +3462,133 @@ transactions and are not counted here.
         "failed_nonvote_transactions": [12, 9, null, 15],
         "success_vote_transactions": [640, 655, null, 648],
         "failed_vote_transactions": [0, 1, null, 0]
+    }
+}
+```
+
+:::
+
+##### `timeline.query_agg_cpu`
+| param | type       | description |
+|-------|------------|-------------|
+| tiles | `number[]` | Required; non-empty list of tile indices into `summary.tiles`, at most 256 |
+
+| field       | type                 | description |
+|-------------|----------------------|-------------|
+| utilization | `(number\|null)[][]` | One array per requested tile, in request order, of per-bucket utilization from `0` (idle) to `250` (busy) |
+
+Each tile's utilization is sampled every 25ms from its regime timers,
+using the same idle/backpressure split as `summary.live_tile_timers`:
+`1 - idle` maps to `[0, 250]`, rounded to the nearest integer. A bucket
+holds the mean of the samples whose 25ms interval starts inside it,
+rounded to the nearest integer, and is `null` when it has none. A sample
+is unknown when the tile has no metrics, or did not publish timers since
+the previous sample; its next sample then covers the gap.
+
+An unknown or repeated tile index closes the connection. So does a
+request that would merge more than 16,777,216 stored samples in total,
+counted as tiles times buckets times stored samples per bucket. The
+`250ms`, `500ms` and `1s` granularities merge 10, 20 and 40 raw 25ms
+samples per bucket; granularities of `2s` and longer merge stored sums.
+
+::: details Example
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_agg_cpu",
+    "id": 51,
+    "params": {
+        "start_ns": "1739657040000000000",
+        "end_ns": "1739657044000000000",
+        "granularity": "1s",
+        "tiles": [12, 3]
+    }
+}
+```
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_agg_cpu",
+    "id": 51,
+    "value": {
+        "granularity": "1s",
+        "reference_ts_ns": "1739657040000000000",
+        "available_start_ns": "1739577600000000000",
+        "available_end_ns": "1739664000000000000",
+        "utilization": [
+            [212, 250, 198, null],
+            [3, 4, 2, null]
+        ]
+    }
+}
+```
+
+:::
+
+##### `timeline.query_agg_tile_states`
+| field       | type                           | description |
+|-------------|--------------------------------|-------------|
+| tiles       | `(number\|null)[]`             | The tiles that record states, as indices into `summary.tiles`: the execrp tiles followed by the replay tile. Same as `tile` in `timeline.query_tile_states` |
+| tile_states | `((number\|null)[]\|null)[][]` | One array per entry of `tiles`, in the same order, holding one entry per state `0` to `9` (see `timeline.query_tile_states`). Each entry is an array of the per-bucket time in that state, in microseconds, or `null` if the state is deprecated |
+
+A request that would merge more than 16,777,216 stored values in total,
+counted as tiles times buckets times stored buckets per bucket times 9
+states, closes the connection.
+
+::: details Example
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_agg_tile_states",
+    "id": 52,
+    "params": {
+        "start_ns": "1739657040000000000",
+        "end_ns": "1739657044000000000",
+        "granularity": "2s"
+    }
+}
+```
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_agg_tile_states",
+    "id": 52,
+    "value": {
+        "granularity": "2s",
+        "reference_ts_ns": "1739657040000000000",
+        "available_start_ns": "1739577600000000000",
+        "available_end_ns": "1739664000000000000",
+        "tiles": [11, 12, 9],
+        "tile_states": [
+            [
+                [1200000, 1300000],
+                [100000, 50000],
+                [200000, 150000],
+                [400000, 400000],
+                [100000, 100000],
+                [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]
+            ],
+            [
+                [1100000, 1250000],
+                [150000, 100000],
+                [200000, 150000],
+                [450000, 400000],
+                [100000, 100000],
+                [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]
+            ],
+            [
+                [400000, 350000],
+                [0, 0], [0, 0], [0, 0], [0, 0], [0, 0],
+                [900000, 1100000],
+                [200000, 150000],
+                [300000, 250000],
+                [200000, 150000]
+            ]
+        ]
     }
 }
 ```
