@@ -1542,6 +1542,129 @@ test_parent_admission( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: parent discovery admission and exact version lookup" ));
 }
 
+static void
+test_slot_inval( fd_wksp_t * wksp ) {
+  fd_chainer_t * chainer = setup( wksp );
+  fd_hash_t root = mkhash( 100UL ), bid = mkhash( 101UL );
+  fd_hash_t r0 = mkhash( 1UL ), r1 = mkhash( 2UL ), r2 = mkhash( 3UL ), r3 = mkhash( 4UL );
+  fd_chainer_init( chainer, 10UL, &root );
+  fd_chainer_slot_inval( chainer, 10UL );
+  fd_chainer_slot_inval( chainer, 11UL );
+  FD_TEST( !fd_chainer_slot_query( chainer, 11UL ) );
+  FD_TEST( !feed_fec( chainer, 11UL, 0U, 0, &r0, 10UL, &root ) );
+  fd_chainer_shred_insert( chainer, 11UL, 32U, 0, FD_CHAINER_SRC_TURBINE, 1L, &r1, AG_UNKNOWN_SLOT, NULL );
+  fd_chainer_slotv_t * v = fd_chainer_turbine_slotv_query( chainer, 11UL );
+  ulong used = fd_fec_pool_used( chainer->fec_pool );
+  FD_TEST( out_queue_cnt( chainer->out_queue )==1UL && has_work( chainer, v ) );
+  fd_chainer_slot_inval( chainer, 11UL );
+  fd_chainer_slot_inval( chainer, 11UL );
+  FD_TEST( fd_chainer_turbine_slotv_query( chainer, 11UL )==v && !has_work( chainer, v ) );
+  FD_TEST( fd_fec_pool_used( chainer->fec_pool )==used && out_queue_cnt( chainer->out_queue )==1UL );
+  /* Treap removal does not change admission or delivery eligibility. */
+  fd_chainer_shred_insert( chainer, 11UL, 64U, 0, FD_CHAINER_SRC_TURBINE, 1L, &r2, AG_UNKNOWN_SLOT, NULL );
+  FD_TEST( fec_at( chainer, 11UL, 64U, 0UL )->treap );
+  FD_TEST( !fec_at( chainer, 11UL, 0U, 0UL )->treap );
+  FD_TEST( !fec_complete( chainer, 11UL, 32U, 0, 1, 0, &r1 ) );
+  FD_TEST( fec_at( chainer, 11UL, 32U, 0UL )->complete );
+  FD_TEST( v->delivered_idx==63U && v->buffered_fec_idx==63U && fd_hash_check_zero( &v->block_id ) );
+  FD_TEST( !fec_complete( chainer, 11UL, 64U, 1, 1, 0, &r2 ) );
+  FD_TEST( v->delivered_idx==95U && !fd_hash_check_zero( &v->block_id ) && !has_work( chainer, v ) );
+  out_rec_t expected[] = { {11UL,0U,r0}, {11UL,32U,r1}, {11UL,64U,r2} };
+  expect_out( chainer, expected, 3UL );
+
+  fd_chainer_verified_block_insert( chainer, 11UL, bid );
+  fd_chainer_verified_parent_fec_count( chainer, 11UL, &bid, 3U, 10UL, &root );
+  fd_chainer_verified_hash_insert( chainer, 11UL, &bid, 0U, r0.uc );
+  fd_chainer_verified_hash_insert( chainer, 11UL, &bid, 32U, r1.uc );
+  fd_chainer_verified_hash_insert( chainer, 11UL, &bid, 64U, r2.uc );
+  fd_chainer_slotv_t * named = fd_chainer_slot_version_query( chainer, 11UL, &bid );
+  FD_TEST( named->delivered_idx==95U && v->delivered_idx==95U );
+  expect_out( chainer, expected, 3UL );
+
+  /* A derived turbine version waiting for its parent is not eager. */
+  FD_TEST( !feed_fec( chainer, 13UL, 0U, 1, &r3, 12UL, &bid ) );
+  fd_chainer_slotv_t * complete = fd_chainer_turbine_slotv_query( chainer, 13UL );
+  FD_TEST( !fd_hash_check_zero( &complete->block_id ) && has_work( chainer, complete ) );
+  fd_chainer_slot_inval( chainer, 13UL );
+  FD_TEST( has_work( chainer, complete ) );
+  FD_TEST( !fd_chainer_verify( chainer ) );
+  teardown( chainer );
+  FD_LOG_NOTICE(( "pass: invalidation removes current repair work without gating admission or delivery" ));
+}
+
+static void
+test_blk_final( fd_wksp_t * wksp ) {
+  fd_chainer_t * chainer = setup( wksp );
+  fd_hash_t root = mkhash( 100UL ), bid = mkhash( 101UL ), loser = mkhash( 102UL );
+  fd_hash_t r0 = mkhash( 1UL ), r1 = mkhash( 2UL ), r2 = mkhash( 3UL );
+  fd_chainer_init( chainer, 10UL, &root );
+  FD_TEST( !feed_fec( chainer, 11UL, 0U, 0, &r0, 10UL, &root ) );
+  fd_chainer_shred_insert( chainer, 11UL, 32U, 0, FD_CHAINER_SRC_TURBINE, 1L, &r1, AG_UNKNOWN_SLOT, NULL );
+  fd_chainer_verified_block_insert( chainer, 11UL, bid );
+  fd_chainer_verified_parent_fec_count( chainer, 11UL, &bid, 2U, 10UL, &root );
+  fd_chainer_verified_hash_insert( chainer, 11UL, &bid, 0U, r0.uc );
+  fd_chainer_verified_hash_insert( chainer, 11UL, &bid, 32U, r1.uc );
+  fd_chainer_verified_block_insert( chainer, 11UL, loser );
+  fd_chainer_verified_parent_fec_count( chainer, 11UL, &loser, 1U, 10UL, &root );
+  fd_chainer_verified_hash_insert( chainer, 11UL, &loser, 0U, r2.uc );
+  FD_TEST( !fec_complete( chainer, 11UL, 0U, 1, 1, 0, &r2 ) );
+  fd_chainer_slotv_t * final = fd_chainer_slot_version_query( chainer, 11UL, &bid );
+  fd_chainer_fec_t * f0 = fd_chainer_fec_query( chainer, 11UL, 0U, &bid );
+  fd_chainer_fec_t * f1 = fd_chainer_fec_query( chainer, 11UL, 32U, &bid );
+  FD_TEST( !f0->root && !f1->root && out_queue_cnt( chainer->out_queue )==3UL );
+
+  void * store_mem = fd_wksp_alloc_laddr( wksp, fd_store_align(), fd_store_footprint( 16UL, 64UL, 0UL, 0UL, 0UL ), 1UL );
+  fd_store_t * store = fd_store_join( fd_store_new( store_mem, 16UL, 64UL, 0UL, 0UL, 0UL, FD_SHRED_BLK_MAX, 42UL ) );
+  fd_store_map_t map[1];
+  FD_TEST( store && fd_store_map_ljoin( store, map ) );
+  fd_store_fec_t * stored;
+  FD_TEST( !fd_store_insert( store, map, &r0, &stored ) );
+  FD_TEST( !fd_store_insert( store, map, &r2, &stored ) );
+  fd_chainer_blk_final( chainer, 11UL, &bid, store );
+  FD_TEST( final->final && fd_slotv_pool_used( chainer->slotv_pool )==2UL && fd_fec_pool_used( chainer->fec_pool )==2UL );
+  FD_TEST( !fd_chainer_turbine_slotv_query( chainer, 11UL ) && !fd_chainer_slot_version_query( chainer, 11UL, &loser ) );
+  FD_TEST( f0->root && f0->data_idxs==UINT_MAX && f0->complete && f0->treap );
+  FD_TEST( f1->root && f1->data_idxs==1U && !f1->complete && f1->treap );
+  FD_TEST( fd_fec_map_ele_query( chainer->fec_map, &r0, NULL, chainer->fec_pool )==f0 );
+  FD_TEST( fd_fec_map_ele_query( chainer->fec_map, &r1, NULL, chainer->fec_pool )==f1 );
+  FD_TEST( !fd_fec_map_ele_query( chainer->fec_map, &r2, NULL, chainer->fec_pool ) );
+  FD_TEST( fd_store_query( map, &r0 ) && !fd_store_query( map, &r2 ) );
+  FD_TEST( out_queue_cnt( chainer->out_queue )==1UL );
+  FD_TEST( out_queue_peek_head( chainer->out_queue )->slotv_idx==fd_slotv_pool_idx( chainer->slotv_pool, final ) );
+  out_rec_t prefix[] = { {11UL,0U,r0} };
+  expect_out( chainer, prefix, 1UL );
+  fd_chainer_blk_final( chainer, 11UL, &bid, store );
+  fd_chainer_blk_final( chainer, 11UL, &loser, store );
+  FD_TEST( !fd_chainer_verified_block_insert( chainer, 11UL, loser ) );
+  fd_chainer_verified_parent_fec_count( chainer, 11UL, &loser, 1U, 10UL, &root );
+  fd_chainer_verified_hash_insert( chainer, 11UL, &loser, 0U, r2.uc );
+  FD_TEST( fd_slotv_pool_used( chainer->slotv_pool )==2UL && final->final );
+  FD_TEST( !fec_complete( chainer, 11UL, 32U, 1, 1, 0, &r1 ) );
+  FD_TEST( final->delivered_idx==63U && !has_work( chainer, final ) );
+  out_rec_t tail[] = { {11UL,32U,r1} };
+  expect_out( chainer, tail, 1UL );
+
+  /* Parent discovery cannot recreate a pruned competing version. */
+  fd_hash_t child = mkhash( 103UL ), child_mr = mkhash( 4UL );
+  fd_chainer_shred_insert( chainer, 12UL, 0U, 0, FD_CHAINER_SRC_TURBINE, 1L, &child_mr, 11UL, &loser );
+  fd_chainer_verified_block_insert( chainer, 12UL, child );
+  fd_chainer_verified_parent_fec_count( chainer, 12UL, &child, 1U, 11UL, &loser );
+  FD_TEST( !fd_chainer_slot_version_query( chainer, 11UL, &loser ) );
+
+  /* Unknown final replaces even a slot at its version limit. */
+  for( ulong i=0UL; i<FD_CHAINER_SLOT_VER_MAX; i++ ) fd_chainer_verified_block_insert( chainer, 20UL, mkhash( 200UL+i ) );
+  fd_hash_t fresh = mkhash( 300UL );
+  fd_chainer_blk_final( chainer, 20UL, &fresh, NULL );
+  fd_chainer_slotv_t * new_final = fd_chainer_slot_version_query( chainer, 20UL, &fresh );
+  FD_TEST( new_final && new_final->final && has_work( chainer, new_final ) );
+  FD_TEST( !fd_chainer_slot_version_query( chainer, 20UL, &(fd_hash_t){0} ) );
+  FD_TEST( !fd_chainer_verify( chainer ) );
+  fd_store_remove( store, map, &r0 );
+  fd_wksp_free_laddr( store_mem );
+  teardown( chainer );
+  FD_LOG_NOTICE(( "pass: finality prunes siblings, transfers shared roots, and rejects stale events" ));
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
@@ -1553,6 +1676,8 @@ main( int argc, char ** argv ) {
   FD_TEST( wksp );
 
   test_fec_pool_layout();
+  test_slot_inval                        ( wksp );
+  test_blk_final                         ( wksp );
   test_shred_admission                   ( wksp );
   test_parent_admission                  ( wksp );
   test_basic                             ( wksp );

@@ -146,6 +146,7 @@ struct fd_chainer_slotv {
 
   uchar           turbine;   /* 1 for the slotv created through turbine --
                                 we need to track this for various reasons to be documented */
+  uchar           final : 1; /* this is the final version of the slot */
   fd_hash_t       block_id;
   uint            complete_idx;
   uint            buffered_idx;     /* idx of highest buffered shred */
@@ -477,21 +478,46 @@ fd_chainer_fec_evicted( fd_chainer_t * chainer,
 /* fd_chainer_verified_block_insert records {slot, block_id} as a
    verified version, abandoning the slot's turbine version if its
    block_id is still unknown.  Returns the new version, or NULL if it
-   already existed. */
+   already existed or a different version is final. */
 
 fd_chainer_slotv_t *
 fd_chainer_verified_block_insert( fd_chainer_t * chainer,
                                   ulong          slot,
                                   fd_hash_t      block_id );
 
+/* fd_chainer_slot_inval removes an unfinished turbine version's current
+   repair work from the eager treap, retaining the version and its FECs.
+   Repeated calls are harmless.  Subsequent admission and delivery use
+   the usual rules.  Named versions and turbine versions with a derived
+   block_id are unaffected. */
+
+void
+fd_chainer_slot_inval( fd_chainer_t * chainer,
+                       ulong          slot );
+
+/* fd_chainer_blk_final marks {slot, block_id} final, creating it if
+   necessary, and deletes the slot's other versions.  Subsequent calls
+   naming a different version are ignored.  Shared root-map entries and
+   received bitmaps transfer to the surviving version.  If store is
+   non-NULL, completed FECs with no surviving owner are removed from it.
+
+   Pending out_queue entries for deleted versions are discarded.  The
+   caller must drain any external queues holding chainer pool indices
+   before calling.  Finality here applies to this slot only. */
+
+void
+fd_chainer_blk_final( fd_chainer_t *    chainer,
+                      ulong             slot,
+                      fd_hash_t const * block_id,
+                      fd_store_t *      store );
+
 /* fd_chainer_verified_parent_fec_count is chainer's entrypoint for
    updating information on what a slots fec set count, parent slot, and
    parent block id are.  This mirrors the Alpenglow repair type
    getParentAndFecSetCount.  The information should be verified before
-   calling this function; chainer does no verification.  Will CRIT if
-   {slot, block_id} does not exist in the chainer yet, otherwise creates
-   {parent, p_bid} slotv if it doesn't exist yet, and returns parent
-   slotv.  May return NULL if the parent slotv is on a dead fork. */
+   calling this function; chainer does no verification.  A response for
+   a removed version is ignored.  Creates {parent, p_bid} if necessary
+   unless another parent version is already final. */
 
 void
 fd_chainer_verified_parent_fec_count( fd_chainer_t * chainer,
@@ -504,12 +530,11 @@ fd_chainer_verified_parent_fec_count( fd_chainer_t * chainer,
 /* fd_chainer_verified_hash_insert is chainer's entrypoint for updating
    information on what a slotv's FEC root is.  This mirrors the Alpenglow
    repair type getFecSetRoot.  The information should be verified before
-   calling this function; chainer does no verification.  Will CRIT if
-   {slot, block_id} does not exist in the chainer yet, otherwise creates
-   the FEC entry if it doesn't exist yet and updates bookkeeping.  If
-   the root was already complete under another version the completion
-   is replayed, which can create the slot's turbine version (returned);
-   otherwise returns NULL.  mr_prefix is the 20-byte root prefix the
+   calling this function; chainer does no verification.  A response for
+   a removed version is ignored.  Otherwise creates the FEC entry if it
+   doesn't exist yet and updates bookkeeping.  If the root was already
+   complete under another version the completion is replayed for the
+   matching versions.  mr_prefix is the 20-byte root prefix the
    getFecSetRoot response carries. */
 
 void

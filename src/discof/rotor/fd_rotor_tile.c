@@ -320,7 +320,10 @@ before_frag( ctx_t * ctx,
     ctx->metrics->replay_missing_fec   += (ulong)( sig==REPLAY_SIG_MISSING_FEC   );
     return sig!=REPLAY_SIG_MISSING_FEC && sig!=REPLAY_SIG_ROOT_ADVANCED;
   }
-  if( FD_UNLIKELY( in_kind==IN_KIND_VOTOR  ) ) return sig!=FD_VOTOR_SIG_REPAIR;
+  if( FD_UNLIKELY( in_kind==IN_KIND_VOTOR  ) ) {
+    if( FD_UNLIKELY( sig==FD_VOTOR_SIG_CERTED ) ) return out_queue_empty( ctx->redeliver ) ? 0 : -1;
+    return sig!=FD_VOTOR_SIG_REPAIR;
+  }
   return 0;
 }
 
@@ -475,7 +478,14 @@ handle_replay( ctx_t *       ctx,
 
 static inline void
 handle_votor( ctx_t *      ctx,
+              ulong         sig,
               uchar const * chunk ) {
+  if( FD_UNLIKELY( sig==FD_VOTOR_SIG_CERTED ) ) {
+    fd_votor_certed_t const * cert = (fd_votor_certed_t const *)fd_type_pun_const( chunk );
+    if( FD_UNLIKELY( cert->kind==AG_CERT_KIND_FINAL || cert->kind==AG_CERT_KIND_FAST_FINAL ) )
+      fd_chainer_blk_final( ctx->chainer, cert->slot, &cert->block_id, ctx->store );
+    return;
+  }
   /* A votor block id for a block we may not have: the chainer records
      it and the first check asks for its parent and FEC count. */
 
@@ -633,6 +643,7 @@ handle_shred( ctx_t *            ctx,
   fd_hash_t parent_block_id = {0};
   if( FD_UNLIKELY( shred->idx==0U && !ag_parse_parent_marker( shred, &parent_slot, &parent_block_id ) ) ) {
     FD_LOG_WARNING(( "invalid block header in slot: %lu, ignoring shred 0", shred->slot ));
+    fd_chainer_slot_inval( ctx->chainer, shred->slot );
     return;
   }
 
@@ -685,7 +696,7 @@ returnable_frag( ctx_t *             ctx,
     case IN_KIND_GOSSIP:  handle_gossip( ctx, fd_chunk_to_laddr_const( in_ctx->mem, chunk ), sig ); break;
     case IN_KIND_GENESIS: handle_genesis( ctx, sig, fd_chunk_to_laddr_const( in_ctx->mem, chunk ) ); break;
     case IN_KIND_REPLAY:  handle_replay( ctx, sig, fd_chunk_to_laddr_const( in_ctx->mem, chunk ) ); break;
-    case IN_KIND_VOTOR:   handle_votor( ctx, fd_chunk_to_laddr_const( in_ctx->mem, chunk ) ); break;
+    case IN_KIND_VOTOR:   handle_votor( ctx, sig, fd_chunk_to_laddr_const( in_ctx->mem, chunk ) ); break;
     case IN_KIND_SNAP: {
       if( FD_LIKELY( fd_ssmsg_sig_message( sig )!=FD_SSMSG_DONE ) ) { ctx->manifest_chunk = chunk; break; } /* applied at DONE */
       handle_snap( ctx, fd_chunk_to_laddr_const( in_ctx->mem, ctx->manifest_chunk ) );
