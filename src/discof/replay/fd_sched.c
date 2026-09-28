@@ -307,7 +307,6 @@ struct fd_sched {
   ulong                 exec_cnt;      /* Immutable. */
   ulong                 poh_simd_min;  /* Immutable. */
   ulong                 poh_simd_max;  /* Immutable. */
-  ulong                 poh_simd_iters_max; /* Immutable. */
   int                   bypass_poh_verify; /* Test/fuzz: skip the PoH end_hash compare in maybe_mixin. */
   int                   bypass_alut_resolution; /* Test/fuzz: skip ALUT resolution (no accdb). */
   long                  txn_in_flight_last_tick;
@@ -843,7 +842,6 @@ fd_sched_new( void *     mem,
   sched->exec_cnt               = exec_cnt;
   sched->poh_simd_max           = fd_sha256_simd_lane_max(); FD_CHECK_ERR( sched->poh_simd_max<=FD_SCHED_POH_PARA, "overly wide PoH SHA batch" );
   sched->poh_simd_min           = fd_sha256_simd_lane_min();
-  sched->poh_simd_iters_max     = fd_ulong_max( (FD_SCHED_MAX_POH_HASHES_PER_TASK<<8)/fd_sha256_simd_iter_cost_q8(), 1UL );
   sched->bypass_poh_verify      = 0;
   sched->bypass_alut_resolution = 0;
   sched->root_idx               = ULONG_MAX;
@@ -2985,8 +2983,11 @@ dispatch_poh( fd_sched_t * sched, fd_sched_block_t * block, ulong bank_idx, int 
   }
   FD_TEST( cnt ); /* poh_hashing_queued_cnt>0 implies at least one queued microblock. */
 
-  /* See FD_SCHED_MAX_POH_HASHES_PER_TASK. */
-  hashcnt = fd_ulong_min( hashcnt, fd_ulong_if( cnt>=sched->poh_simd_min, sched->poh_simd_iters_max, FD_SCHED_MAX_POH_HASHES_PER_TASK ) );
+  /* See FD_SCHED_MAX_POH_HASHES_PER_TASK.  A batch's per iteration
+     cost depends on its width. */
+  ulong iters_max = FD_SCHED_MAX_POH_HASHES_PER_TASK;
+  if( cnt>=sched->poh_simd_min ) iters_max = fd_ulong_max( (FD_SCHED_MAX_POH_HASHES_PER_TASK<<8)/fd_sha256_simd_iter_cost_q8( cnt ), 1UL );
+  hashcnt = fd_ulong_min( hashcnt, iters_max );
   out->task_type = FD_SCHED_TT_POH_HASH;
   poh->bank_idx  = bank_idx;
   poh->exec_idx  = (ulong)exec_tile_idx;
