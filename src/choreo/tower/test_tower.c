@@ -173,6 +173,7 @@ test_verify( void ) {
   FD_TEST( fd_tower_verify( tower )==-1 );
 }
 
+
 void
 test_tower_from_vote_acc_data_v1_14_11( void ) {
   fd_tower_t * tower = fd_tower_join( fd_tower_new( scratch, 2, 2, 0 ) );
@@ -499,6 +500,7 @@ test_switch_threshold( fd_wksp_t * wksp ) {
 
   FD_TEST( switch_check( tower, ghost, total_stake, 110 ) == 0 );
 
+
   // Adding another validator lockout on a different fork, and the lockout
   // covers the last vote would count towards the switch threshold,
   // unless the bank is not the most recent frozen bank on the fork (14 is a
@@ -663,6 +665,7 @@ test_switch_eqvoc( fd_wksp_t * wksp ) {
   push_vote( tower, 2 );
   push_vote( tower, 3 );
   push_vote( tower, 5 );
+
 
   fd_tower_vtr_t acct;
   uchar __attribute__((aligned(FD_TOWER_VOTE_ALIGN))) mock_tower_mem[ FD_TOWER_VOTE_FOOTPRINT ];
@@ -947,6 +950,8 @@ test_case_1c_switch_fail( fd_wksp_t * wksp ) {
 
   FD_LOG_NOTICE(( "test_case_1c_switch_fail passed" ));
 }
+
+
 
 void
 test_vtr_valid_join( fd_wksp_t * wksp ) {
@@ -1360,6 +1365,7 @@ main( int argc, char ** argv ) {
   test_switch_simple( wksp );
   test_switch_threshold( wksp );
   test_switch_threshold_common_ancestor( wksp );
+
 
   test_switch_eqvoc( wksp );
 
