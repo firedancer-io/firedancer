@@ -359,6 +359,18 @@ setup_timing( fd_replay_tile_t * ctx,
   FD_TEST( ctx->backfill_path );
 }
 
+/* node_info is a shared topology object present in every topology that
+   runs replay, so unprivileged_init joins it unconditionally and the
+   tile reads it without a NULL check.  Any test reaching that code has
+   to stand it up. */
+
+static void
+setup_node_info( fd_replay_tile_t * ctx ) {
+  static fd_node_info_box_t node_info_box[ 1 ];
+  ctx->node_info = fd_node_info_box_join( fd_node_info_box_new( node_info_box ) );
+  FD_TEST( ctx->node_info );
+}
+
 static void
 setup_ctx_with_fork_width( fd_replay_tile_t * ctx,
                            fd_wksp_t *        wksp,
@@ -992,6 +1004,7 @@ test_consensus_root_notification_handoff( fd_wksp_t * wksp ) {
   memset( ctx, 0, sizeof(*ctx) );
   setup_timing( ctx, wksp );
   setup_stem( ctx, wksp );
+  setup_node_info( ctx );
 
   ulong const bank_cnt = 4UL;
   void * banks_mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( bank_cnt, bank_cnt, 8UL, 8UL ), 1UL );
@@ -2687,9 +2700,7 @@ test_oc_skips_unfrozen_bank( fd_wksp_t * wksp ) {
   static fd_replay_tile_t ctx[ 1 ];
   setup_ctx( ctx, wksp );
 
-  static fd_node_info_box_t node_info_box[ 1 ];
-  ctx->node_info = fd_node_info_box_join( fd_node_info_box_new( node_info_box ) );
-  FD_TEST( ctx->node_info );
+  setup_node_info( ctx );
 
   fd_hash_t mr_root = { .ul = { 100UL } };
   init_root_fec( ctx, &mr_root );
