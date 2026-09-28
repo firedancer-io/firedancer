@@ -288,37 +288,6 @@ typedef struct fd_fec_resolver_spilled fd_fec_resolver_spilled_t;
    out_spilled_fec_set is NULL, the evicted FEC set metadata will not be
    written even if an in progress FEC set was evicted. */
 
-/* fd_fec_resolver_repair_lead_hist returns a pointer to the resolver's
-   histogram (in ticks) of how long a repair copy of a data shred
-   preceded the turbine copy of the same shred, sampled whenever a
-   turbine duplicate of a repaired shred arrives for an in-progress FEC
-   set.  The caller is expected to publish it, e.g. with FD_MHIST_COPY.
-   Lifetime is that of the resolver join. */
-
-fd_histf_t const *
-fd_fec_resolver_repair_lead_hist( fd_fec_resolver_t const * resolver );
-
-/* fd_fec_resolver_turbine_after_repaired_fec_hist returns a pointer to
-   the resolver's histogram (in ticks) of how long after a FEC set that
-   repair helped complete each turbine shred for that set arrived.
-   Sampled for turbine shreds that hit the done map.  Same publication
-   and lifetime rules as fd_fec_resolver_repair_lead_hist. */
-
-fd_histf_t const *
-fd_fec_resolver_turbine_after_repaired_fec_hist( fd_fec_resolver_t const * resolver );
-
-/* fd_fec_resolver_completion_lag_hist returns a pointer to the
-   resolver's histogram (in ticks) estimating how much earlier repair
-   made a FEC set complete: for a set completed with R repair shreds,
-   the lag from completion until turbine had delivered R more shreds for
-   it, which is when the set would have completed on turbine alone.
-   Counts arrivals rather than distinct shred indices, so turbine
-   duplicates bias samples low.  Same publication and lifetime rules as
-   fd_fec_resolver_repair_lead_hist. */
-
-fd_histf_t const *
-fd_fec_resolver_completion_lag_hist( fd_fec_resolver_t const * resolver );
-
 int
 fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
                            fd_shred_t const          * shred,
@@ -330,6 +299,13 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
                            fd_shred_t const        * * out_shred,
                            fd_bmtree_node_t          * out_merkle_root,
                            fd_fec_resolver_spilled_t * out_spilled_fec_set );
+
+/* fd_fec_resolver_completion_lag_hist returns a pointer to the
+   resolver's histogram estimating how much earlier repair made a FEC
+   set complete. */
+
+fd_histf_t const *
+fd_fec_resolver_completion_lag_hist( fd_fec_resolver_t const * resolver );
 
 
 void * fd_fec_resolver_leave( fd_fec_resolver_t * resolver );
