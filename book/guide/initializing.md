@@ -4,6 +4,8 @@
 The `fdctl configure` command is used to setup the host operator system
 so Firedancer can run correctly. It does the following:
 
+* **uverbs** Loads the `ib_uverbs` kernel module required by the
+  mlx5 network provider.
 * **hugetlbfs** Reserves huge and gigantic pages for use by Firedancer.
 * **sysctl** Sets required kernel parameters.
 * **hyperthreads** Checks hyperthreaded pair for critical CPU cores.
@@ -44,8 +46,9 @@ where `mode` is one of:
    privileges and will not make any changes to the system.
  - `fini` Unconfigure (reverse) the stage if it is reversible.
 
-`stage` can be one or more of `hugetlbfs`, `sysctl`, `hyperthreads`,
-`bonding`,  `ethtool-channels`, `ethtool-offloads`, `ethtool-loopback`,
+`stage` can be one or more of `uverbs`, `hugetlbfs`, `sysctl`,
+`hyperthreads`, `bonding`,  `ethtool-channels`, `ethtool-offloads`,
+`ethtool-loopback`,
 `irq-affinity`, `irq-balance`, `kworkers`, `cpuset`, `console`, and
 `snapshots`
 and these stages are described below. You can also use the stage `all`
@@ -55,6 +58,25 @@ Stages have different privilege requirements, which you can see by
 trying to run the stage without privileges. The `check` mode never
 requires privileges, and the `init` mode will only require
 privileges if it needs to actually change something.
+
+## uverbs
+The mlx5 network provider sets up the network device through the
+`/dev/infiniband/uverbs*` devices, which are provided by the `ib_uverbs`
+kernel module. The module is not always loaded at boot. This stage only
+runs when the mlx5 network provider is in use.
+
+The command run by the stage is `modprobe ib_uverbs`. If the uverbs
+devices are still unavailable after loading the module, the stage fails
+and `[net.provider]` should be set to `xdp`.
+
+The stage only needs to be run a maximum of once after boot, if the
+`ib_uverbs` module is not already loaded. It has no dependencies on any
+other stage.
+
+This stage requires root privileges, and cannot be performed with
+capabilities. If the `ib_uverbs` module is already loaded then the init
+mode does nothing and the check mode will return successfully without
+requiring privileges.
 
 ## hugetlbfs
 The `hugetlbfs` stage is used to reserve `huge` (2MiB) and `gigantic`
