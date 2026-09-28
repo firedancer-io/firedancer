@@ -119,7 +119,6 @@ struct fd_tlsrec_conn {
                       encryption level an alert sent now would use */
   uchar tx_closed; /* 1 once a fatal alert or close_notify went out: no
                       more records are sent */
-  uchar application_logs; /* caller reports errors, with its own context and rate limit */
 };
 
 /* TLS v1.3 record content types */

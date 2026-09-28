@@ -11,12 +11,12 @@
 
 #define FD_KEYSWITCH_MAGIC (0xf17eda2c37830000UL) /* firedancer ks ver 0 */
 
-#define FD_KEYSWITCH_STATE_UNLOCKED       (0UL) /* No operation owns this keyswitch. */
-#define FD_KEYSWITCH_STATE_LOCKED         (1UL) /* The caller owns the keyswitch before posting work. */
-#define FD_KEYSWITCH_STATE_SWITCH_PENDING (2UL) /* The tile must apply the requested change. */
-#define FD_KEYSWITCH_STATE_UNHALT_PENDING (3UL) /* The tile must resume or release the operation lock. */
-#define FD_KEYSWITCH_STATE_FAILED         (4UL) /* The tile rejected the request and set result. */
-#define FD_KEYSWITCH_STATE_COMPLETED      (5UL) /* The tile finished the requested step. */
+#define FD_KEYSWITCH_STATE_UNLOCKED       (0UL)
+#define FD_KEYSWITCH_STATE_LOCKED         (1UL)
+#define FD_KEYSWITCH_STATE_SWITCH_PENDING (2UL)
+#define FD_KEYSWITCH_STATE_UNHALT_PENDING (3UL)
+#define FD_KEYSWITCH_STATE_FAILED         (4UL)
+#define FD_KEYSWITCH_STATE_COMPLETED      (5UL)
 
 /* Application-specific param values should be defined below. */
 

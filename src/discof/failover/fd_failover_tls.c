@@ -79,7 +79,6 @@ fd_failover_tls_new( fd_failover_tls_t *     tls,
   fd_memset( tls, 0, sizeof(*tls) );
   tls->fd = fd;
   fd_tlsrec_conn_init( &tls->conn, &ctx->tls, !dial_peer );
-  tls->conn.application_logs = 1; /* channel logs with peer address and a bounded retry count */
   /* Fresh X25519 key share per connection, straight from the kernel.  It
      never passes through the RNG, whose state outlives the connection and
      could otherwise replay the key after the connection is wiped.  The

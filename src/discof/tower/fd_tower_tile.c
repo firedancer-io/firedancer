@@ -1529,7 +1529,6 @@ static void
 during_housekeeping( fd_tower_tile_t * ctx ) {
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->auth_vtr_keyswitch )==FD_KEYSWITCH_STATE_UNHALT_PENDING ) ) {
     if( fd_keyswitch_param_query( ctx->auth_vtr_keyswitch )==FD_KEYSWITCH_PARAM_AV_CLEAR ) ctx->halt_signing = 0;
-    /* The voter update is finished, release the lock. */
     fd_keyswitch_state( ctx->auth_vtr_keyswitch, FD_KEYSWITCH_STATE_UNLOCKED );
   }
 
@@ -1547,13 +1546,11 @@ during_housekeeping( fd_tower_tile_t * ctx ) {
       ctx->halt_signing = 1;
       auth_vtr_clear( ctx->auth_vtr );
       ctx->auth_vtr_path_cnt = 0UL;
-      /* Keep the switch pending until queued output drains. */
       if( FD_UNLIKELY( !publishes_empty( ctx->publishes ) ) ) return;
       ctx->auth_vtr_keyswitch->result = ctx->out_seq;
     } else {
       FD_LOG_CRIT(( "keyswitch: unexpected authorized voter operation %lu", param ));
     }
-    /* Tower applied the voter update and any required drain. */
     fd_keyswitch_state( ctx->auth_vtr_keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
   }
 
@@ -1573,7 +1570,6 @@ during_housekeeping( fd_tower_tile_t * ctx ) {
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->identity_keyswitch )==FD_KEYSWITCH_STATE_UNHALT_PENDING ) ) {
     FD_LOG_DEBUG(( "keyswitch: unhalting signing" ));
     FD_CHECK_CRIT( ctx->halt_signing, "state machine corruption" );
-    /* Admin finished the identity switch, resume subject to the vote guards. */
     ctx->halt_signing = 0;
     fd_keyswitch_state( ctx->identity_keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
   }
@@ -1584,7 +1580,6 @@ during_housekeeping( fd_tower_tile_t * ctx ) {
        voter clear above does the same before it records out_seq. */
     if( FD_UNLIKELY( ctx->failover_enabled ) ) {
       ctx->halt_signing = 1;
-      /* Keep the switch pending until queued output drains. */
       if( FD_UNLIKELY( !publishes_empty( ctx->publishes ) ) ) return;
     }
     FD_LOG_DEBUG(( "keyswitch: halting signing" ));
@@ -1605,7 +1600,6 @@ during_housekeeping( fd_tower_tile_t * ctx ) {
          has to be written first. */
       ctx->identity_keyswitch->result = ctx->out_seq;
     }
-    /* Report the identity switch complete, signing stays halted until admin resumes it. */
     fd_keyswitch_state( ctx->identity_keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
     ctx->halt_signing               = 1;
     ctx->identity_keyswitch->result = ctx->out_seq;

@@ -139,7 +139,6 @@ during_housekeeping_sensitive( fd_sign_ctx_t * ctx ) {
     }
 
     derive_fields( ctx );
-    /* The new identity and derived keys are ready. */
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
   }
 
@@ -153,14 +152,14 @@ during_housekeeping_sensitive( fd_sign_ctx_t * ctx ) {
         FD_LOG_WARNING(( "keyswitch failed: the staked [paths.identity_key] key cannot be an authorized voter under failover" ));
         fd_memzero_explicit( ctx->av_keyswitch->bytes, 64UL );
         ctx->av_keyswitch->result = FD_ADMINCTL_RESULT_UNSUPPORTED;
-        fd_keyswitch_state( ctx->av_keyswitch, FD_KEYSWITCH_STATE_FAILED ); /* Reject the staked identity as an authorized voter under failover. */
+        fd_keyswitch_state( ctx->av_keyswitch, FD_KEYSWITCH_STATE_FAILED );
         return;
       }
       if( FD_UNLIKELY( ctx->authorized_voters_cnt==16UL ) ) {
         FD_LOG_WARNING(( "keyswitch failed: maximum number of authorized voters reached" ));
         fd_memzero_explicit( ctx->av_keyswitch->bytes, 64UL );
         ctx->av_keyswitch->result = FD_ADD_AUTHORIZED_VOTER_RESULT_MAX_AUTH_VOTERS;
-        fd_keyswitch_state( ctx->av_keyswitch, FD_KEYSWITCH_STATE_FAILED ); /* Reject the addition when the voter set is full. */
+        fd_keyswitch_state( ctx->av_keyswitch, FD_KEYSWITCH_STATE_FAILED );
         return;
       }
       for( ulong i=0UL; i<ctx->authorized_voters_cnt; i++ ) {
@@ -169,7 +168,7 @@ during_housekeeping_sensitive( fd_sign_ctx_t * ctx ) {
           FD_LOG_WARNING(( "keyswitch failed: authorized voter key duplicate (%s)", pubkey_b58 ));
           fd_memzero_explicit( ctx->av_keyswitch->bytes, 64UL );
           ctx->av_keyswitch->result = FD_ADD_AUTHORIZED_VOTER_RESULT_DUPLICATE_AUTH_VOTER;
-          fd_keyswitch_state( ctx->av_keyswitch, FD_KEYSWITCH_STATE_FAILED ); /* Reject a key already in the voter set. */
+          fd_keyswitch_state( ctx->av_keyswitch, FD_KEYSWITCH_STATE_FAILED );
           return;
         }
       }
@@ -186,7 +185,6 @@ during_housekeeping_sensitive( fd_sign_ctx_t * ctx ) {
     } else {
       FD_LOG_CRIT(( "keyswitch: unexpected authorized voter operation %lu", param ));
     }
-    /* The voter keys were added or erased as requested. */
     fd_keyswitch_state( ctx->av_keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
   }
 }
