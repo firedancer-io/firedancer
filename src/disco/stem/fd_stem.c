@@ -290,10 +290,15 @@ STEM_(park)( STEM_CALLBACK_CONTEXT_TYPE * ctx,
 #endif
 
 
-  long deadline = fd_long_min( now+cap_ticks, deadline_hint );
+  /* due is the tile's own next obligation, LONG_MAX if none.  deadline
+     caps it: the mwaitx sweep wakes any tile parked past its deadline
+     on every pass (fd_mwaitx_tile.c), so a parked tile is re-checked
+     at least once per cap whatever happens to its doorbell. */
+  long due = deadline_hint;
 #ifdef STEM_CALLBACK_NEXT_DEADLINE
-  deadline = fd_long_min( deadline, STEM_CALLBACK_NEXT_DEADLINE( ctx ) );
+  due = fd_long_min( due, STEM_CALLBACK_NEXT_DEADLINE( ctx ) );
 #endif
+  long deadline = fd_long_min( now+cap_ticks, due );
   if( FD_UNLIKELY( deadline-now<min_ticks ) ) return 0; /* already close enough to deadline, don't waste a syscall */
 
   /* We are now going to park ... flush all state before.  Skip the
@@ -321,7 +326,6 @@ STEM_(park)( STEM_CALLBACK_CONTEXT_TYPE * ctx,
   int parked = 0;
   if( FD_LIKELY( sleep->shmem ) ) {
     sleep->shmem->tile[ sleep->tile_id ].deadline = (ulong)deadline;
-    sleep->shmem->tile[ sleep->tile_id ].gen++;
     word   = &sleep->shmem->tile[ sleep->tile_id ].word;
     my_w   = sleep->tile_id>>6;
     my_bit = 1UL<<(sleep->tile_id&63UL);
@@ -384,13 +388,18 @@ STEM_(park)( STEM_CALLBACK_CONTEXT_TYPE * ctx,
     return backpressured ? -1 : 0;
   }
 
-  /* PARK_WAIT replaces the futex wait for a tile parked on its sleep
-     object's eventfd (tile->sleep_eventfd), see fd_sleep.h.  Same
-     contract as fd_sleep_park_wait. */
+  /* Only a due inside the cap arms the futex timer: the sweep enforces
+     the cap, so a tile with nothing due sooner parks untimed and skips
+     the hrtimer arm and cancel on every park.  Without a sleep object
+     nothing sweeps us, so the cap stays the timer.  PARK_WAIT replaces
+     the futex wait for a tile parked on its sleep object's eventfd
+     (tile->sleep_eventfd), see fd_sleep.h.  Same contract as
+     fd_sleep_park_wait. */
+  long timer = fd_long_if( parked & (due>deadline), LONG_MAX, deadline );
 #ifdef STEM_CALLBACK_PARK_WAIT
-  int cause = STEM_CALLBACK_PARK_WAIT( ctx, word, deadline, tick_per_ns );
+  int cause = STEM_CALLBACK_PARK_WAIT( ctx, word, timer, tick_per_ns );
 #else
-  int cause = fd_sleep_park_wait( word, deadline, tick_per_ns );
+  int cause = fd_sleep_park_wait( word, timer, tick_per_ns );
 #endif
 
   /* Park completed, either due to a ring or a deadline.  Now clear the

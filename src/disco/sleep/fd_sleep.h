@@ -6,8 +6,9 @@
 
      sleeper   a stem tile with no work: flushes its link state, sets
                its bit in parked_bits, re-checks its ins once under the
-               RMW fence, then FUTEX_WAIT_BITSETs on its word with an
-               absolute deadline.
+               RMW fence, then FUTEX_WAIT_BITSETs on its word, timed
+               only if a deadline is due before the park cap (the sweep
+               enforces the cap).
 
      producer  on publish: load parked_bits[w] & a mask precomputed at
                boot; if nonzero, locked OR into doorbell[w].
@@ -17,17 +18,15 @@
                sweep (seq_mirror vs seq_snap) that bounds a lost
                doorbell to one nap.  The only FUTEX_WAKE issuer.
 
-   word 0 = parked, nonzero = running.  The doorbell is a hint: truth
-   is level triggered (seqs, deadline) and re-checked on every wake,
-   so spurious wakes are absorbed and a lost hint costs only bounded
-   latency (the sweep, then the tile's own deadline).
+   word 0 = parked, nonzero = running (the value says why).  The
+   doorbell is a hint: truth is level triggered (seqs, deadline) and
+   re-checked on every wake, so spurious wakes are absorbed and a lost
+   hint costs only bounded latency (the sweep, then the tile's own
+   deadline).
 
-   A tile that also waits on its own kernel fds (tile->sleep_eventfd)
-   parks in epoll_pwait on a private set instead of futex_wait: its fds
-   level-triggered, plus an eventfd inherited at FD_SLEEP_EVENTFD( id ),
-   edge-triggered and never read.  mwaitx wakes it by setting word then
-   writing the eventfd, in place of FUTEX_WAKE, so doorbell, deadline
-   and sweep wakes are unchanged and the fds need no waker tile hop. */
+   A tile with its own kernel fds (tile->sleep_eventfd) parks in epoll
+   instead, with an eventfd doorbell at FD_SLEEP_EVENTFD( id ) that
+   mwaitx writes in place of FUTEX_WAKE. */
 
 #include "../../util/fd_util_base.h"
 
@@ -44,8 +43,7 @@
 #define FD_SLEEP_PARK_CAP_NS (20000000L) /* longest park */
 #define FD_SLEEP_PARK_MIN_NS (5000L)     /* shorter than this and the futex round trip costs more than the spin */
 
-/* Fixed inherited fd numbers of the eventfd doorbells, indexed by
-   tile->id (<FD_TOPO_MAX_TILES) */
+/* Inherited fd number of a tile's eventfd doorbell */
 #define FD_SLEEP_EVENTFD_BASE (123600)
 #define FD_SLEEP_EVENTFD( id ) (FD_SLEEP_EVENTFD_BASE+(int)(id))
 
@@ -71,7 +69,7 @@ struct __attribute__((aligned(FD_SLEEP_ALIGN))) fd_sleep_private {
   /* Indexed by tile->id; written by the owner and mwaitx only */
   struct __attribute__((aligned(64UL))) {
     ulong word;      /* futex word: 0 parked, 1 running */
-    ulong gen;       /* park count, diagnostics */
+    ulong pad0;
     ulong deadline;  /* abs fd_tickcount of the next timed obligation */
     ulong pad[ 5 ];
   } tile[ FD_SLEEP_TILE_MAX ];
@@ -157,35 +155,41 @@ fd_sleep_wake_check( fd_sleep_t *            sleep,
 #define FD_SLEEP_UNPARK_DEADLINE (1)
 #define FD_SLEEP_UNPARK_PENDING  (2)
 
+/* FD_SLEEP_WORD( cause ) is what a wake stores in the word: nonzero
+   and distinct per cause */
+
+#define FD_SLEEP_WORD( cause ) (1UL+(ulong)(cause))
+
 /* fd_sleep_park_wait blocks on word until woken or deadline_ticks
-   passes.  Returns the reason, either FD_SLEEP_UNPARK_RING, or
-   FD_SLEEP_UNPARK_DEADLINE. */
+   passes (LONG_MAX: no timer, the mwaitx sweep must end the park).
+   Returns FD_SLEEP_UNPARK_RING or FD_SLEEP_UNPARK_DEADLINE. */
 
 int
 fd_sleep_park_wait( ulong * word,
                     long    deadline_ticks,
                     double  tick_per_ns );
 
+/* fd_sleep_wake_one wakes the tile parked on word for cause. */
+
 void
-fd_sleep_wake_one( ulong * word );
+fd_sleep_wake_one( ulong * word,
+                   int     cause );
 
 /* fd_sleep_wake_eventfd is fd_sleep_wake_one for a tile parked in
-   fd_sleep_park_wait_epoll: sets word, then writes 1 to the tile's
-   eventfd doorbell. */
+   fd_sleep_park_wait_epoll. */
 
 void
 fd_sleep_wake_eventfd( ulong * word,
-                       int     eventfd );
+                       int     eventfd,
+                       int     cause );
 
-/* fd_sleep_park_wait_epoll is fd_sleep_park_wait for a tile that also
-   waits on its own fds: blocks in epoll_pwait on epfd until an fd is
-   ready, a wake, or deadline_ticks passes.  Stores up to ev_max ready
-   events in evs and their count in *ev_cnt (0 on a deadline).  Returns
-   FD_SLEEP_UNPARK_RING or FD_SLEEP_UNPARK_DEADLINE.  epfd must hold the
-   tile's eventfd doorbell registered EPOLLIN|EPOLLET with data
-   FD_SLEEP_EPOLL_DOORBELL, and the caller must never read it: a stale
-   doorbell (word still 0) is waited through, which relies on the edge
-   being consumed by the wait. */
+/* fd_sleep_park_wait_epoll is fd_sleep_park_wait for a tile with its
+   own fds.  Blocks in epoll_pwait on epfd until an fd is ready, a wake,
+   or the deadline.  Ready events are returned in evs / *ev_cnt.  epfd
+   must hold the tile's eventfd doorbell registered EPOLLIN|EPOLLET
+   with data FD_SLEEP_EPOLL_DOORBELL, and the caller must never read
+   it: a stale doorbell (word still 0) is waited through, which relies
+   on the edge being consumed by the wait. */
 
 struct epoll_event;
 
@@ -198,9 +202,8 @@ fd_sleep_park_wait_epoll( int                  epfd,
                           long                 deadline_ticks,
                           double               tick_per_ns );
 
-/* fd_sleep_eventfd_install creates the eventfd doorbell of every tile
-   with sleep_eventfd set, at FD_SLEEP_EVENTFD( tile->id ), for the
-   tiles to inherit.  Logs error and aborts on failure. */
+/* fd_sleep_eventfd_install creates the eventfd doorbell of every
+   sleep_eventfd tile at FD_SLEEP_EVENTFD( tile->id ). */
 
 void
 fd_sleep_eventfd_install( struct fd_topo const * topo );
