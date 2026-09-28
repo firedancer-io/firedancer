@@ -12,7 +12,12 @@
      about once per lazy, not on every wake.
 
    - A backpressured tile resumes publishing as soon as its consumers
-     return credits, without parking again on the stale count. */
+     return credits, without parking again on the stale count.
+
+   - The stem stores the seq_mirror of an out it published blindly, and
+     never touches the mirror of an out it did not publish (a link
+     another client of the tile publishes, like a keyguard sign link),
+     not on housekeeping, not on park and not on shutdown. */
 
 #include "fd_stem.h"
 #include "../metrics/fd_metrics.h"
@@ -63,15 +68,27 @@ struct test_ctx {
 };
 typedef struct test_ctx test_ctx_t;
 
+static test_ctx_t ctx;
+
 static fd_sleep_t * sleep_obj;
 static volatile int waker_mode;
 static volatile int waker_done;
+
+/* The waker thread doubles as the other publisher of link 1, which
+   the stem holds as out 1 but never publishes.  It writes the link's
+   mirror from its own progress; the stem must never clobber it. */
+
+static ulong other_seq;
 
 static void *
 waker_thread( void * arg ) {
   (void)arg;
   while( !waker_done ) {
     int mode = waker_mode;
+    other_seq++;
+    FD_VOLATILE( sleep_obj->seq_mirror[ 1 ] ) = other_seq;
+    FD_TEST( FD_VOLATILE_CONST( sleep_obj->seq_mirror[ 1 ] )==other_seq );
+    FD_TEST( FD_VOLATILE_CONST( sleep_obj->seq_mirror[ 0 ] )<=FD_VOLATILE_CONST( ctx.pub_cnt ) );
     int parked = ( FD_VOLATILE_CONST( sleep_obj->parked_bits[ 0 ] ) & 1UL ) && !FD_VOLATILE_CONST( sleep_obj->tile[ 0 ].word );
     if( FD_LIKELY( mode==WAKER_NONE || !parked ) ) { FD_SPIN_PAUSE(); continue; }
     if( mode==WAKER_RING ) {
@@ -223,12 +240,11 @@ after_credit( test_ctx_t *        ctx,
 #define STEM_CALLBACK_AFTER_CREDIT    after_credit
 #include "fd_stem.c"
 
-static uchar mcache_mem [ FD_MCACHE_FOOTPRINT( DEPTH, 0UL ) ] __attribute__((aligned(FD_MCACHE_ALIGN)));
+static uchar mcache_mem [ 2 ][ FD_MCACHE_FOOTPRINT( DEPTH, 0UL ) ] __attribute__((aligned(FD_MCACHE_ALIGN)));
 static uchar fseq_mem   [ CONS_CNT ][ FD_FSEQ_FOOTPRINT ]     __attribute__((aligned(FD_FSEQ_ALIGN)));
 static uchar metrics_mem[ FD_METRICS_FOOTPRINT( 0UL ) ]       __attribute__((aligned(FD_METRICS_ALIGN)));
 static uchar sleep_mem  [ sizeof(fd_sleep_t) ]                __attribute__((aligned(FD_SLEEP_ALIGN)));
 static uchar scratch    [ 1UL<<16 ]                           __attribute__((aligned(128UL)));
-static test_ctx_t ctx;
 
 int
 main( int     argc,
@@ -246,8 +262,11 @@ main( int     argc,
   ctx.cap_ticks  = (long)( (double)FD_SLEEP_PARK_CAP_NS*tick_per_ns );
   FD_TEST( ctx.park_ticks<ctx.cap_ticks );
 
-  fd_frag_meta_t * out_mcache[ 1 ] = { fd_mcache_join( fd_mcache_new( mcache_mem, DEPTH, 0UL, 0UL ) ) };
-  FD_TEST( out_mcache[ 0 ] );
+  fd_frag_meta_t * out_mcache[ 2 ] = {
+    fd_mcache_join( fd_mcache_new( mcache_mem[ 0 ], DEPTH, 0UL, 0UL ) ),
+    fd_mcache_join( fd_mcache_new( mcache_mem[ 1 ], DEPTH, 0UL, 0UL ) ),
+  };
+  FD_TEST( out_mcache[ 0 ] && out_mcache[ 1 ] );
 
   ulong            cons_out [ CONS_CNT ];
   ulong *          cons_fseq[ CONS_CNT ];
@@ -263,9 +282,10 @@ main( int     argc,
 
   /* Only the waker thread rings us, and only when asked; otherwise
      parks end on their deadline */
-  static ulong const out_link_id[ 1 ] = { 0UL };
+  static ulong const out_link_id[ 2 ] = { 0UL, 1UL };
   sleep_obj = fd_sleep_join( fd_sleep_new( sleep_mem, tick_per_ns ) );
   FD_TEST( sleep_obj );
+  fd_mcache_seq_update( fd_mcache_seq_laddr( out_mcache[ 1 ] ), 77UL ); /* the other publisher's progress */
   fd_stem_sleep_t sleep[ 1 ] = {{ .shmem = sleep_obj }};
   sleep->tile_id     = 0UL;
   sleep->out_link_id = out_link_id;
@@ -274,14 +294,20 @@ main( int     argc,
   FD_TEST( !pthread_create( &waker, NULL, waker_thread, NULL ) );
 
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
-  FD_TEST( stem_scratch_footprint( 0UL, 1UL, CONS_CNT )<=sizeof(scratch) );
-  stem_run1( 0UL, NULL, NULL, 1UL, out_mcache, CONS_CNT, cons_out, cons_fseq, cons_slow, BURST, LAZY, rng, scratch, &ctx, sleep );
+  FD_TEST( stem_scratch_footprint( 0UL, 2UL, CONS_CNT )<=sizeof(scratch) );
+  stem_run1( 0UL, NULL, NULL, 2UL, out_mcache, CONS_CNT, cons_out, cons_fseq, cons_slow, BURST, LAZY, rng, scratch, &ctx, sleep );
 
   waker_done = 1;
   FD_TEST( !pthread_join( waker, NULL ) );
   FD_TEST( ctx.done );
   FD_TEST( ctx.bp_parks==BP_PARKS );
   FD_TEST( slow[ 0 ]>=1UL ); /* backpressured wakes charge the slowest consumer */
+
+  /* The shutdown flush published out 0 and left out 1 alone */
+  FD_TEST( fd_mcache_seq_query( fd_mcache_seq_laddr( out_mcache[ 0 ] ) )==ctx.pub_cnt );
+  FD_TEST( FD_VOLATILE_CONST( sleep_obj->seq_mirror[ 0 ] )==ctx.pub_cnt );
+  FD_TEST( fd_mcache_seq_query( fd_mcache_seq_laddr( out_mcache[ 1 ] ) )==77UL );
+  FD_TEST( FD_VOLATILE_CONST( sleep_obj->seq_mirror[ 1 ] )==other_seq );
 
   fd_rng_delete( fd_rng_leave( rng ) );
   FD_LOG_NOTICE(( "pass" ));

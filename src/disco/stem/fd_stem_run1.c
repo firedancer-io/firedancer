@@ -24,6 +24,7 @@ STEM_(STEM_RUN1_NAME)( ulong                        in_cnt,
   /* out frag stream state */
   ulong *        out_depth; /* ==fd_mcache_depth( out_mcache[out_idx] ) for out_idx in [0, out_cnt) */
   ulong *        out_seq;  /* next mux frag sequence number to publish for out_idx in [0, out_cnt) ]*/
+  ulong *        out_seq_pub; /* out_seq[out_idx] as last published to the sync word and seq_mirror (0 before the first) */
   int *          out_reliable; /* out_reliable[out_idx] is 1 if out_idx has at least one reliable consumer, else 0 */
 
   /* out flow control state */
@@ -105,6 +106,7 @@ STEM_(STEM_RUN1_NAME)( ulong                        in_cnt,
 
   out_depth  = (ulong *)FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), out_cnt*sizeof(ulong) );
   out_seq    = (ulong *)FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), out_cnt*sizeof(ulong) );
+  out_seq_pub = (ulong *)FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), out_cnt*sizeof(ulong) );
   out_reliable = (int *)FD_SCRATCH_ALLOC_APPEND( l, alignof(int),   out_cnt*sizeof(int)   );
 
   ulong cr_max = fd_ulong_if( !out_cnt || !cons_cnt, 128UL, ULONG_MAX );
@@ -115,6 +117,8 @@ STEM_(STEM_RUN1_NAME)( ulong                        in_cnt,
 
     out_depth[ out_idx ] = fd_mcache_depth( out_mcache[ out_idx ] );
     out_seq[ out_idx ] = 0UL;
+    out_seq_pub[ out_idx ] = 0UL; /* ==out_seq: an out never published never stores its sync word or seq_mirror
+                                     (another client may publish that link and write the mirror itself) */
 
     cr_avail[ out_idx ] = out_depth[ out_idx ];
     out_reliable[ out_idx ] = 0;
@@ -203,10 +207,12 @@ STEM_(STEM_RUN1_NAME)( ulong                        in_cnt,
         ulong in_idx = event_idx - cons_cnt - 1UL;
 
         /* Send flow control credits and drain flow control diagnostics
-           for in_idx. */
+           for in_idx, unless both are already current. */
 
-        STEM_(in_update)( &in[ in_idx ] );
-        if( FD_UNLIKELY( sleep->shmem ) ) STEM_(credit_ring)( sleep, in[ in_idx ].idx );
+        if( FD_LIKELY( STEM_(in_dirty)( &in[ in_idx ] ) ) ) {
+          STEM_(in_update)( &in[ in_idx ] );
+          if( FD_UNLIKELY( sleep->shmem ) ) STEM_(credit_ring)( sleep, in[ in_idx ].idx );
+        }
 
       } else { /* event_idx==cons_cnt, housekeeping event */
 
@@ -229,15 +235,15 @@ STEM_(STEM_RUN1_NAME)( ulong                        in_cnt,
         /* Receive flow control credits */
         STEM_(cr_refresh)( out_cnt, out_depth, out_seq, cr_avail, &min_cr_avail, cr_max, cons_cnt, cons_out, cons_seq, cons_slow, metric_in_backp );
 
-        /* Publish producer progress sync word.  Skip outs this stem
-           never published: another writer (the keyguard client on a
-           sign link, the event client) may own that sync word and
-           mirror, and 0 would rewind it. */
+        /* Publish producer progress sync word, for the outs that moved.
+           An out this stem never published stays at out_seq_pub==0==
+           out_seq: another writer (the keyguard client on a sign link,
+           the event client) may own that sync word and mirror, and 0
+           would rewind it. */
         for( ulong out_idx=0UL; out_idx<out_cnt; out_idx++ ) {
-          if( FD_UNLIKELY( !out_seq[ out_idx ] ) ) continue;
-
-          fd_mcache_seq_update( fd_mcache_seq_laddr( out_mcache[ out_idx ] ), out_seq[ out_idx ] );
-          if( FD_UNLIKELY( sleep->shmem ) ) STEM_(mirror)( &sleep->shmem->seq_mirror[ sleep->out_link_id[ out_idx ] ], out_seq[ out_idx ] );
+          if( FD_UNLIKELY( out_seq_pub[ out_idx ]==out_seq[ out_idx ] ) ) continue;
+          STEM_(out_publish)( sleep, out_mcache[ out_idx ], out_idx, out_seq[ out_idx ] );
+          out_seq_pub[ out_idx ] = out_seq[ out_idx ];
         }
 
 #ifdef STEM_CALLBACK_DURING_HOUSEKEEPING
@@ -337,7 +343,7 @@ STEM_(STEM_RUN1_NAME)( ulong                        in_cnt,
       sleep_idle_streak++;
       if( FD_UNLIKELY( sleep_idle_streak>=in_cnt && (now-linger_start)>sleep_linger_ticks ) ) {
         sleep_idle_streak = 0UL;
-        STEM_(park_attempt)( ctx, sleep, in, in_cnt, out_mcache, out_cnt, out_depth, out_seq, cr_avail, &min_cr_avail, cr_max,
+        STEM_(park_attempt)( ctx, sleep, in, in_cnt, out_mcache, out_cnt, out_depth, out_seq, out_seq_pub, cr_avail, &min_cr_avail, cr_max,
                              cons_cnt, cons_fseq, cons_seq, cons_out, cons_slow, event_cnt, event_map, &event_seq, async_min, hk_due,
                              sleep_cap_ticks, sleep_min_ticks, sleep_tick_per_ns, metric_regime_ticks, &now, &then,
                              FD_METRICS_ENUM_TILE_REGIME_V_BACKPRESSURE_SLEEPING_IDX, 1, then );
@@ -380,7 +386,7 @@ STEM_(STEM_RUN1_NAME)( ulong                        in_cnt,
       } else {
         if( FD_UNLIKELY( (now-linger_start)>sleep_linger_ticks ) ) {
           sleep_idle_streak = 0UL;
-          STEM_(park_attempt)( ctx, sleep, in, in_cnt, out_mcache, out_cnt, out_depth, out_seq, cr_avail, &min_cr_avail, cr_max,
+          STEM_(park_attempt)( ctx, sleep, in, in_cnt, out_mcache, out_cnt, out_depth, out_seq, out_seq_pub, cr_avail, &min_cr_avail, cr_max,
                                cons_cnt, cons_fseq, cons_seq, cons_out, cons_slow, event_cnt, event_map, &event_seq, async_min, hk_due,
                                sleep_cap_ticks, sleep_min_ticks, sleep_tick_per_ns, metric_regime_ticks, &now, &then,
                                FD_METRICS_ENUM_TILE_REGIME_V_CAUGHT_UP_SLEEPING_IDX, 0, LONG_MAX );
@@ -483,7 +489,7 @@ STEM_(STEM_RUN1_NAME)( ulong                        in_cnt,
         sleep_idle_streak++;
         if( FD_UNLIKELY( sleep_idle_streak>=in_cnt && (now-linger_start)>sleep_linger_ticks ) ) {
           sleep_idle_streak = 0UL;
-          STEM_(park_attempt)( ctx, sleep, in, in_cnt, out_mcache, out_cnt, out_depth, out_seq, cr_avail, &min_cr_avail, cr_max,
+          STEM_(park_attempt)( ctx, sleep, in, in_cnt, out_mcache, out_cnt, out_depth, out_seq, out_seq_pub, cr_avail, &min_cr_avail, cr_max,
                                cons_cnt, cons_fseq, cons_seq, cons_out, cons_slow, event_cnt, event_map, &event_seq, async_min, hk_due,
                                sleep_cap_ticks, sleep_min_ticks, sleep_tick_per_ns, metric_regime_ticks, &now, &then,
                                FD_METRICS_ENUM_TILE_REGIME_V_CAUGHT_UP_SLEEPING_IDX, 0, LONG_MAX );
@@ -633,10 +639,11 @@ STEM_(STEM_RUN1_NAME)( ulong                        in_cnt,
     now = next;
   }
 
+  /* Same guard as the housekeeping flush: an out the stem never
+     published may belong to another writer. */
   for( ulong out_idx=0UL; out_idx<out_cnt; out_idx++ ) {
-    if( FD_UNLIKELY( !out_seq[ out_idx ] ) ) continue;
-
-    fd_mcache_seq_update( fd_mcache_seq_laddr( out_mcache[ out_idx ] ), out_seq[ out_idx ] );
-    if( FD_UNLIKELY( sleep->shmem ) ) STEM_(mirror)( &sleep->shmem->seq_mirror[ sleep->out_link_id[ out_idx ] ], out_seq[ out_idx ] );
+    if( FD_UNLIKELY( out_seq_pub[ out_idx ]==out_seq[ out_idx ] ) ) continue;
+    STEM_(out_publish)( sleep, out_mcache[ out_idx ], out_idx, out_seq[ out_idx ] );
+    out_seq_pub[ out_idx ] = out_seq[ out_idx ];
   }
 }
