@@ -113,15 +113,16 @@ static ulong ts_ms( long wallclock ) {
    window runs from first_shred_ts. */
 
 static long
-throttle_remaining_ns( fd_policy_t * policy, fd_forest_blk_t const * ele, uint cand_idx ) {
+throttle_remaining_ns( fd_policy_t * policy, fd_forest_t const * forest, fd_forest_blk_t const * ele, uint cand_idx ) {
   if( FD_UNLIKELY( ele->slot < policy->turbine_slot0 ) ) return 0L;
   if( FD_UNLIKELY( !ele->first_shred_ts ) ) return 0L; /* nothing observed yet, nothing to defer against */
 
-  uint fec_idx = fd_uint_min( cand_idx / 32U, FD_FEC_BLK_MAX-1U );
+  fd_forest_recv_t const * recv = fd_forest_blk_recv( forest, ele );
+  uint fec_idx = (uint)fd_ulong_min( cand_idx/FD_FEC_SHRED_CNT, forest->shred_max/FD_FEC_SHRED_CNT-1UL );
   ushort ms = 0;
 
   for(;;) {
-    ms = ele->recv_ts[ fec_idx ].first;
+    ms = recv[ fec_idx ].first;
     if( FD_LIKELY( ms || !fec_idx ) ) break;
     fec_idx--;
   }
@@ -268,7 +269,7 @@ fd_policy_next( fd_policy_t * policy, fd_reqlim_t * dedup, fd_forest_t * forest,
     return NULL;
   }
 
-  long throttle_ns = throttle_remaining_ns( policy, ele, cand_idx );
+  long throttle_ns = throttle_remaining_ns( policy, forest, ele, cand_idx );
   if( FD_UNLIKELY( throttle_ns ) ) {
     /* When we are at the head of the turbine, we should give turbine the
        chance to complete the shreds.

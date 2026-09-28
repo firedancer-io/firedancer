@@ -425,7 +425,7 @@ test_shred_skip_memo( fd_wksp_t * wksp ) {
      resets the iterator to UINT_MAX, the next visit restores the
      concrete index, and the memo must still match. */
   fd_policy_set_turbine_slot0( policy, 1UL ); /* live slot: throttle applies */
-  blk->recv_ts[0].first = FAR_MS; /* deadline far out: throttle active, memo capped at 1ms */
+  fd_forest_blk_recv( forest, blk )[0].first = FAR_MS; /* deadline far out: throttle active, memo capped at 1ms */
   blk->first_shred_ts         = fd_tickcount();
   blk->complete_idx           = 8U;   /* end known: iterator yields concrete missing idxs */
   long t3 = t2+50L;
@@ -437,7 +437,7 @@ test_shred_skip_memo( fd_wksp_t * wksp ) {
   FD_TEST( fd_policy_skip( policy, 1UL )->until==until ); /* memo hit: throttle not re-derived */
 
   /* Throttle clears: the hole is requested. */
-  blk->recv_ts[0].first = 0;
+  fd_forest_blk_recv( forest, blk )[0].first = 0;
   blk->first_shred_ts         = 0L;
   msg = next_msg( policy, dedup, forest, repair, until+1L, 1UL );
   FD_TEST( msg && msg->kind==FD_REPAIR_KIND_SHRED && msg->shred.slot==1UL );
@@ -483,21 +483,26 @@ test_non_head_tail_request( fd_wksp_t * wksp ) {
   FD_TEST( msg && msg->kind==FD_REPAIR_KIND_HIGHEST_SHRED && msg->highest_shred.slot==1UL );
   FD_TEST( blk->req_highest_cnt==1U && blk->req_window_cnt==0U );
 
-  /* Second turn, probe still rate limited: direct request for the tail shred (1,5). */
+  /* Second turn, probe still rate limited: direct request for the tail
+     shred (1,5).  req_window_cnt / first_req_ts are the repair tile's
+     to bump once the request is actually signed and sent, so they stay
+     untouched here: only req_highest_cnt is policy's. */
   msg = next_msg( policy, dedup, forest, repair, now+10L, 2UL );
   FD_TEST( msg && msg->kind==FD_REPAIR_KIND_SHRED && msg->shred.slot==1UL && msg->shred.shred_idx==5UL );
-  FD_TEST( blk->req_window_cnt==1U && blk->first_req_ts!=0L );
+  FD_TEST( blk->req_window_cnt==0U && blk->first_req_ts==0L );
 
   /* The repair tile records the tail request in the dedup table.  Now
-     both are rate limited: nothing is sent and no memo is written for
-     this non-head slot. */
+     both are rate limited: nothing is sent.  A dedup memo is written
+     even though this is not the head slot -- it is keyed on slot and
+     idx, so it can only ever match the candidate it was written for,
+     and the read side additionally gates it on the head.  Writing it
+     unconditionally just keeps the store simple. */
   long t1 = now+20L;
   FD_TEST( !fd_reqlim_next( dedup, fd_reqlim_key( FD_REPAIR_KIND_SHRED, 1UL, 5U ), t1 ) );
   fd_policy_skip_t * skip = fd_policy_skip( policy, 1UL );
-  FD_TEST( skip->slot!=1UL );
   FD_TEST( !next_msg( policy, dedup, forest, repair, t1+1L, 2UL ) );
+  FD_TEST( skip->slot==1UL && skip->idx==5U && !skip->throttled );
   FD_TEST( !next_msg( policy, dedup, forest, repair, t1+10L, 2UL ) );
-  FD_TEST( skip->slot!=1UL );
 
   /* Probe window expires first: probe again. */
   msg = next_msg( policy, dedup, forest, repair, now+FD_REQLIM_DEDUP_TIMEOUT, 2UL );
@@ -537,8 +542,8 @@ test_skip_memo_non_head_throttle( fd_wksp_t * wksp ) {
   fd_forest_blk_t * blk1 = fd_forest_blk_insert( forest, 1UL, 0UL, NULL );
   fd_forest_blk_t * blk2 = fd_forest_blk_insert( forest, 2UL, 1UL, NULL );
   FD_TEST( blk1 && blk2 );
-  blk1->buffered_idx = 4U; blk1->recv_ts[0].first = FAR_MS; blk1->first_shred_ts = fd_tickcount();
-  blk2->buffered_idx = 2U; blk2->recv_ts[0].first = FAR_MS; blk2->first_shred_ts = fd_tickcount();
+  blk1->buffered_idx = 4U; fd_forest_blk_recv( forest, blk1 )[0].first = FAR_MS; blk1->first_shred_ts = fd_tickcount();
+  blk2->buffered_idx = 2U; fd_forest_blk_recv( forest, blk2 )[0].first = FAR_MS; blk2->first_shred_ts = fd_tickcount();
 
   fd_policy_skip_t * skip1 = fd_policy_skip( policy, 1UL );
   fd_policy_skip_t * skip2 = fd_policy_skip( policy, 2UL );
@@ -572,7 +577,7 @@ test_skip_memo_non_head_throttle( fd_wksp_t * wksp ) {
   /* Non-head slot 1 passes its deadline while the head stays
      throttled: slot 1 gets its highest-shred request, slot 2 is
      re-memoized rather than requested. */
-  blk1->recv_ts[0].first = 0;
+  fd_forest_blk_recv( forest, blk1 )[0].first = 0;
   blk1->first_shred_ts         = 0L;
   long t1 = fd_long_max( until1, until2 )+1L;
   fd_repair_msg_t const * msg = next_msg( policy, dedup, forest, repair, t1, 2UL );

@@ -2157,7 +2157,8 @@ test_sentinel_parent_update_orphreqs_leak( fd_wksp_t * wksp ) {
    accepts a block that fills every extra FEC set, and rejects shred
    idxs / fec_set_idxs at or beyond shred_max instead of aborting.  Also
    checks the production footprint equals the pre-side-array layout
-   (blk 256 B + idxs 4 KiB + code 4 KiB + mroots 64 KiB = 73984 B/blk). */
+   (blk 256 B + idxs 4 KiB + code 4 KiB + mroots 64 KiB + recv 2 KiB
+   = 76032 B/blk). */
 
 static void
 test_shred_max_runtime( fd_wksp_t * wksp ) {
@@ -2168,7 +2169,7 @@ test_shred_max_runtime( fd_wksp_t * wksp ) {
   ulong fp_prod = fd_forest_footprint( ele_max, FD_SHRED_BLK_MAX );
   ulong fp_big  = fd_forest_footprint( ele_max, shred_max );
   FD_TEST( sizeof(fd_forest_blk_t)==256UL );
-  FD_TEST( fp_big-fp_prod==ele_max*3UL*(4096UL+4096UL+65536UL) );
+  FD_TEST( fp_big-fp_prod==ele_max*3UL*(4096UL+4096UL+65536UL+2048UL) );
 
   void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fp_big, 1UL );
   FD_TEST( mem );
