@@ -483,9 +483,9 @@ fd_forest_verify( fd_forest_t const * forest ) {
 static fd_forest_blk_t *
 ancestry_frontier_remove( fd_forest_t * forest, ulong slot ) {
   fd_forest_blk_t * pool = fd_forest_pool( forest );
-  fd_forest_blk_t * ele  = NULL;
-  ele =                  fd_forest_ancestry_ele_remove( fd_forest_ancestry( forest ), &slot, NULL, pool );
-  ele = fd_ptr_if( !ele, fd_forest_frontier_ele_remove( fd_forest_frontier( forest ), &slot, NULL, pool ), ele );
+  fd_forest_blk_t * ele;
+  ele = fd_forest_ancestry_ele_remove( fd_forest_ancestry( forest ), &slot, NULL, pool );
+  if( !ele ) ele = fd_forest_frontier_ele_remove( fd_forest_frontier( forest ), &slot, NULL, pool );
   return ele;
 }
 
@@ -560,7 +560,7 @@ advance_consumed_frontier( fd_forest_t * forest, ulong slot, ulong parent_slot )
   ulong parent_pool_idx = fd_forest_pool_idx( pool, fd_forest_query( forest, parent_slot ) );
   fd_forest_ref_t * ele;
   ele = fd_forest_consumed_ele_query( consumed, &slot_pool_idx, NULL, conspool );
-  ele = fd_ptr_if( !ele, fd_forest_consumed_ele_query( consumed, &parent_pool_idx, NULL, conspool ), ele );
+  if( !ele ) ele = fd_forest_consumed_ele_query( consumed, &parent_pool_idx, NULL, conspool );
   if( FD_UNLIKELY( !ele ) ) return;
 
   FD_CHECK_CRIT( fd_forest_deque_cnt( queue ) == 0, "invariant violation" );
@@ -593,11 +593,11 @@ fd_forest_query( fd_forest_t * forest, ulong slot ) {
   fd_forest_subtrees_t * subtrees  = fd_forest_subtrees( forest );
   fd_forest_orphaned_t * orphaned  = fd_forest_orphaned( forest );
 
-  fd_forest_blk_t * ele = NULL;
-  ele =                  fd_forest_ancestry_ele_query( ancestry, &slot, NULL, pool );
-  ele = fd_ptr_if( !ele, fd_forest_frontier_ele_query( frontier, &slot, NULL, pool ), ele );
-  ele = fd_ptr_if( !ele, fd_forest_subtrees_ele_query( subtrees, &slot, NULL, pool ), ele );
-  ele = fd_ptr_if( !ele, fd_forest_orphaned_ele_query( orphaned, &slot, NULL, pool ), ele );
+  fd_forest_blk_t * ele;
+  ele =            fd_forest_ancestry_ele_query( ancestry, &slot, NULL, pool );
+  if( !ele ) ele = fd_forest_frontier_ele_query( frontier, &slot, NULL, pool );
+  if( !ele ) ele = fd_forest_subtrees_ele_query( subtrees, &slot, NULL, pool );
+  if( !ele ) ele = fd_forest_orphaned_ele_query( orphaned, &slot, NULL, pool );
   return ele;
 }
 
