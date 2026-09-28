@@ -839,9 +839,9 @@ final_tower_ok( fd_failover_tile_ctx_t const * ctx ) {
          ctx->cs.tip==ctx->last_vote_slot && !ctx->tower_gap;
 }
 
-/* Called once the junk key is installed everywhere.  Our latest tower is
-   the final one, we keep it for a later promote, and a handoff hands it
-   to the peer. */
+/* Called once the junk key is installed everywhere. Our latest tower is
+   the final one. A bound handoff hands it to the peer; a standalone
+   demote requires shared-source recovery. */
 static void
 demotion_switched( fd_failover_tile_ctx_t * ctx ) {
   set_role( ctx, FD_FAILOVER_ROLE_STANDBY );
@@ -851,6 +851,10 @@ demotion_switched( fd_failover_tile_ctx_t * ctx ) {
   if( FD_LIKELY( final_ok ) ) ctx->own_tower = ctx->cs;
 
   if( FD_UNLIKELY( !ctx->send_demoted ) ) {
+    /* Either member may recover after a standalone demote. There is no
+       bound exchange to tell us whether the peer has since voted. */
+    ctx->peer_tower.valid = 0;
+    ctx->own_tower.valid  = 0;
     if( FD_UNLIKELY( !final_ok ) ) {
       /* A demote without a final tower leaves no own final tower either,
          so a later promote here needs the vote account. */
@@ -858,7 +862,7 @@ demotion_switched( fd_failover_tile_ctx_t * ctx ) {
       demotion_abort( ctx );
       return;
     }
-    FD_LOG_NOTICE(( "demotion %lu is done, nobody votes until `failover promote` runs here or `failover promote --yes` on the other machine", ctx->handoff_id ));
+    FD_LOG_NOTICE(( "demotion %lu is done; discarding saved final state because either member may recover, coverage floors retained; use `failover promote --yes` on one machine", ctx->handoff_id ));
     ctx->action = FD_FAILOVER_ACTION_IDLE;
     return;
   }
@@ -1143,12 +1147,14 @@ step_controller( fd_failover_tile_ctx_t * ctx,
     /* If the peer goes quiet we do not undo the demotion, we only raise
        the alarm.  The identity is already gone from this machine. */
     deadline_arm( ctx, FD_FAILOVER_DEADLINE_SLOTS );
-    /* A new peer boot came back on its junk key, it never took the
-       identity from this DEMOTED. */
+    /* A new peer boot cannot answer this DEMOTED. Its earlier boot may
+       already have taken the identity and voted before losing its ACK. */
     if( FD_UNLIKELY( fd_failover_channel_state( ctx->channel )==FD_FAILOVER_SESSION_PAIRED &&
                      fd_memeq( fd_failover_channel_peer_hello( ctx->channel )->junk_pubkey, ctx->handoff_junk, 32UL ) &&
                      ctx->peer_boot_id!=ctx->handoff_target ) ) {
-      FD_LOG_WARNING(( "the peer restarted before it answered handoff %lu; it may have voted before restarting, nobody votes until `failover promote` runs here", ctx->handoff_id ));
+      FD_LOG_WARNING(( "the peer restarted before it answered handoff %lu; it may have voted before restarting, discarding saved final state and keeping coverage floors; use `failover promote --yes` to recover", ctx->handoff_id ));
+      ctx->peer_tower.valid = 0;
+      ctx->own_tower.valid  = 0;
       handoff_resolved( ctx, FD_FAILOVER_HANDOFF_RESTARTED );
       return;
     }
@@ -1652,6 +1658,10 @@ promote_guard( fd_failover_tile_ctx_t const * ctx,
    would adopt no votes, so we skip either for the vote account. */
 static ulong
 promote_source( fd_failover_tile_ctx_t const * ctx ) {
+  /* An unanswered final state might already have enabled peer votes.
+     Fencing the peer now cannot undo those votes; recovery must consult
+     the shared source. Keep the serialized DEMOTED for normal retries. */
+  if( FD_UNLIKELY( ctx->action==FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK ) ) return FD_FAILOVER_SOURCE_VOTE_ACCOUNT;
   ulong floor   = coverage_floor( ctx );
   ulong root    = ctx->root_slot;
   int   peer_ok = ctx->peer_tower.valid && ( floor==FD_FAILOVER_SLOT_NULL || ctx->peer_tower.tip>=floor ) &&
@@ -1754,7 +1764,9 @@ apply_control( fd_failover_tile_ctx_t *               ctx,
       ctx->request_result = FD_FAILOVER_HANDOFF_CANCELLED;
     }
     if( FD_UNLIKELY( ctx->action==FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK ) ) {
-      FD_LOG_WARNING(( "promote --force stops waiting for the peer's answer to handoff %lu", ctx->handoff_id ));
+      FD_LOG_WARNING(( "promote --force stops waiting for the peer's answer to handoff %lu; discarding saved final state because the peer may have voted, coverage floors retained", ctx->handoff_id ));
+      ctx->peer_tower.valid = 0;
+      ctx->own_tower.valid  = 0;
       handoff_resolved( ctx, FD_FAILOVER_HANDOFF_CANCELLED );
     }
     FD_LOG_NOTICE(( "promoting on the operator's word%s, adopting %s", force ? " with --force" : "",
@@ -1863,6 +1875,13 @@ gossip_commit( fd_failover_tile_ctx_t * ctx,
   if( FD_LIKELY( !fd_memeq( ctx->gossip_origin, ctx->hello.staked_pubkey, 32UL ) ) ) return;
   if( FD_UNLIKELY( addr==ctx->own_gossip.addr && ctx->gossip_socket.port==ctx->own_gossip.port ) ) return;
   ctx->staked_seen_at = now;
+  /* Gossip can be the only observation of a peer tenure in on-demand
+     mode. Its freshness timer is a holder guard, not a cache lifetime.
+     An adoption already in flight has its own copy and holder check. */
+  if( FD_UNLIKELY( ctx->peer_tower.valid || ctx->own_tower.valid ) )
+    FD_LOG_NOTICE(( "gossip shows the staked identity at another host; discarding saved final state from before its voting tenure, keeping coverage floors" ));
+  ctx->peer_tower.valid = 0;
+  ctx->own_tower.valid  = 0;
 
   if( FD_UNLIKELY( ctx->config_addr ) ) return;
   if( FD_LIKELY( addr==ctx->staked_addr ) ) return;

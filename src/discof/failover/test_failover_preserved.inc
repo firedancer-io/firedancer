@@ -291,7 +291,10 @@ test_promote_force_retained( void ) {
   demote_through( ctx, 1 );
   ulong id = pending_demoted( ctx ).handoff_id;
   FD_TEST( control( ctx, FD_ADMINCTL_FAILOVER_CMD_PROMOTE, 0UL, now )==FD_FAILOVER_CONTROL_RESULT_HANDOFF_PENDING );
-  FD_TEST( control( ctx, FD_ADMINCTL_FAILOVER_CMD_PROMOTE, force, now )==FD_ADMINCTL_RESULT_SUCCESS );
+  FD_TEST( control( ctx, FD_ADMINCTL_FAILOVER_CMD_PROMOTE, force, now )==FD_FAILOVER_CONTROL_RESULT_NO_TOWER );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK && ctx->send_demoted && ctx->pending_valid );
+  FD_TEST( control( ctx, FD_ADMINCTL_FAILOVER_CMD_PROMOTE, yes|force, now )==FD_ADMINCTL_RESULT_SUCCESS );
+  FD_TEST( ctx->promote_source==FD_FAILOVER_SOURCE_VOTE_ACCOUNT && !ctx->own_tower.valid && !ctx->peer_tower.valid );
   FD_TEST( !ctx->pending_valid && !ctx->send_demoted && ctx->handoff_result==FD_FAILOVER_HANDOFF_CANCELLED );
   deliver_ack( ctx, id );
   FD_TEST( ctx->handoff_result==FD_FAILOVER_HANDOFF_CANCELLED && !ctx->taken );

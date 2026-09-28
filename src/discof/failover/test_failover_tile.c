@@ -970,12 +970,14 @@ test_promotion_outcome_resent( void ) {
    the same handoff id from another peer boot is another handoff. */
 
 /* test_demote_sends_nothing: a demote drops the identity and tells the
-   peer nothing, paired or not.  Our final tower stays for a later
-   promote. */
+   peer nothing, paired or not. Either member may then recover, so a
+   later promotion consults the vote account with explicit consent. */
 static void
 test_demote_sends_nothing( void ) {
   for( int paired=0; paired<2; paired++ ) {
     fd_failover_tile_ctx_t * ctx = controller_init( FD_FAILOVER_ROLE_ACTIVE );
+    ctx->own_floor  = 99UL;
+    ctx->peer_floor = 98UL;
     if( paired ) pair( ctx, 77UL, FD_FAILOVER_ROLE_STANDBY, 1000L );
     make_tower( &ctx->cs, 99UL );
     FD_TEST( control( ctx, FD_ADMINCTL_FAILOVER_CMD_DEMOTE, 0UL, 1000L )==FD_ADMINCTL_RESULT_SUCCESS );
@@ -988,14 +990,14 @@ test_demote_sends_nothing( void ) {
     step_controller( ctx, stem );
     FD_TEST( ctx->role==FD_FAILOVER_ROLE_STANDBY && ctx->action==FD_FAILOVER_ACTION_IDLE && !ctx->stuck );
     FD_TEST( !ctx->pending_valid && !ctx->send_demoted && ctx->handoff_result==FD_FAILOVER_HANDOFF_NONE );
-    FD_TEST( ctx->own_tower.valid && ctx->own_tower.tip==99UL );
+    FD_TEST( !ctx->own_tower.valid && !ctx->peer_tower.valid );
+    FD_TEST( ctx->own_floor==99UL && ctx->peer_floor==98UL );
 
-    /* A plain promote adopts our own final tower, and a promotion that
-       succeeds drops it. */
-    FD_TEST( control( ctx, FD_ADMINCTL_FAILOVER_CMD_PROMOTE, 0UL, 1000L )==FD_ADMINCTL_RESULT_SUCCESS );
-    FD_TEST( ctx->promote_source==FD_FAILOVER_SOURCE_OWN && ctx->adopt.tip==99UL );
+    FD_TEST( control( ctx, FD_ADMINCTL_FAILOVER_CMD_PROMOTE, 0UL, 1000L )==FD_FAILOVER_CONTROL_RESULT_NO_TOWER );
+    FD_TEST( control( ctx, FD_ADMINCTL_FAILOVER_CMD_PROMOTE, FD_ADMINCTL_FAILOVER_FLAG_YES, 1000L )==FD_ADMINCTL_RESULT_SUCCESS );
+    FD_TEST( ctx->promote_source==FD_FAILOVER_SOURCE_VOTE_ACCOUNT && !ctx->adopt.valid && !ctx->adopt.sz );
     step_controller( ctx, stem );
-    adopt_answer( ctx, FD_TOWER_ADOPT_SUCCESS, 99UL );
+    acct_answer( ctx, 99UL, 99UL );
     step_controller( ctx, stem );
     switch_ok( ctx, 0UL );
     step_controller( ctx, stem );
@@ -1013,7 +1015,7 @@ test_demote_sends_nothing( void ) {
   FD_TEST( !ctx->own_tower.valid && !ctx->pending_valid && !ctx->send_demoted );
   FD_TEST( control( ctx, FD_ADMINCTL_FAILOVER_CMD_PROMOTE, 0UL, 1000L )==FD_FAILOVER_CONTROL_RESULT_NO_TOWER );
   controller_fini( ctx );
-  FD_LOG_NOTICE(( "pass: a demote sends nothing and keeps our final tower" ));
+  FD_LOG_NOTICE(( "pass: a demote sends nothing and requires explicit vote-account recovery" ));
 }
 
 /* stored_tower_ctx: a standby whose promotion on the peer's DEMOTED
@@ -1089,6 +1091,7 @@ test_boot_binding( void ) {
   step_controller( ctx, stem );
   FD_TEST( !ctx->pending_valid && !ctx->send_demoted && ctx->action==FD_FAILOVER_ACTION_IDLE );
   FD_TEST( ctx->handoff_result==FD_FAILOVER_HANDOFF_RESTARTED && !ctx->taken );
+  FD_TEST( !ctx->own_tower.valid && !ctx->peer_tower.valid );
   deliver_ack( ctx, handoff_id );
   FD_TEST( ctx->handoff_result==FD_FAILOVER_HANDOFF_RESTARTED && !ctx->taken );
   controller_fini( ctx );
