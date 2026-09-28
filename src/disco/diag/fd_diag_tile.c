@@ -16,6 +16,7 @@
 #include <stdlib.h>
 #include <sys/types.h> /* SEEK_SET */
 #include <sys/stat.h>
+#include <sys/syscall.h>
 #include <sys/vfs.h>
 #include <linux/futex.h>
 #include <time.h>
@@ -628,7 +629,7 @@ sample_disk( fd_diag_tile_t * ctx ) {
     if( ctx->files[ i ].metric ) file->bytes = *ctx->files[ i ].metric;
     else if( ctx->files[ i ].data_fd>=0 ) {
       struct stat st;
-      if( FD_UNLIKELY( fstat( ctx->files[ i ].data_fd, &st ) ) ) FD_LOG_ERR(( "fstat failed (%i-%s)", errno, strerror( errno ) ));
+      if( FD_UNLIKELY( syscall( SYS_fstat, ctx->files[ i ].data_fd, &st ) ) ) FD_LOG_ERR(( "fstat failed (%i-%s)", errno, strerror( errno ) ));
       file->bytes = (ulong)st.st_size;
     }
   }
