@@ -176,11 +176,20 @@ typedef struct fd_gui_rate_entry fd_gui_rate_entry_t;
 
 #define FD_GUI_LANDED_VOTE_MAX      (4096UL)
 
+#define FD_GUI_TXN_BATCH_MAX_TXN              (128UL)
+#define FD_GUI_TXN_BATCH_GAP_NS               (5000000L)
+#define FD_GUI_TXN_BATCH_SCAN_MARGIN_NS       (2000000000L)
 #define FD_GUI_HTTP_MIN_SEND_BUFFER_SZ        (256UL<<20)
 
 #define FD_GUI_TIMELINE_STORED_GRANULARITY_CNT (7UL)
-#define FD_GUI_TIMELINE_GRANULARITY_CNT        (20UL)
+#define FD_GUI_TIMELINE_FINE_GRANULARITY_CNT   (7UL)
+#define FD_GUI_TIMELINE_GRANULARITY_CNT        (27UL)
+#define FD_GUI_TIMELINE_QUERY_SHRED_MAX        (524288UL)
+#define FD_GUI_TIMELINE_QUERY_TXN_MAX          (65536UL)
+#define FD_GUI_TIMELINE_QUERY_SLOT_MAX         (65536UL)
 #define FD_GUI_TIMELINE_QUERY_MAX_BUCKETS      (10000UL) /* TODO: tune */
+#define FD_GUI_TIMELINE_SLOT_DURATION_NN_MAX_NS       (10000000000L) /* TODO: tune */
+#define FD_GUI_TIMELINE_SLOT_DURATION_SCAN_MARGIN_NS  (10000000000L)
 
 struct fd_gui_timeline_granularity {
   char const * name;
@@ -190,17 +199,22 @@ struct fd_gui_timeline_granularity {
 typedef struct fd_gui_timeline_granularity fd_gui_timeline_granularity_t;
 extern fd_gui_timeline_granularity_t const fd_gui_timeline_granularities[ FD_GUI_TIMELINE_GRANULARITY_CNT ];
 extern ulong const fd_gui_timeline_stored_granularity_ns[ FD_GUI_TIMELINE_STORED_GRANULARITY_CNT ];
+extern ulong const fd_gui_timeline_fine_granularity_ns[ FD_GUI_TIMELINE_FINE_GRANULARITY_CNT ];
 
 /* fd_gui_timeline_granularity_ns returns the bucket duration of
-   granularity g in nanoseconds. */
+   granularity g in nanoseconds.  The first FINE_GRANULARITY_CNT
+   granularities are finer than anything stored (stored_idx is
+   ULONG_MAX) and are derived from event data at query time. */
 
 static inline ulong
 fd_gui_timeline_granularity_ns( ulong g ) {
+  if( g<FD_GUI_TIMELINE_FINE_GRANULARITY_CNT ) return fd_gui_timeline_fine_granularity_ns[ g ];
   fd_gui_timeline_granularity_t const * desc = &fd_gui_timeline_granularities[ g ];
   return fd_gui_timeline_stored_granularity_ns[ desc->stored_idx ]*desc->merge_cnt;
 }
 
-/* Stored timeline-day bucket layout. */
+/* Stored timeline-day bucket layout.  Exact ulong ns sums and uint sample
+   counts at every tier leave about 1.5 MiB free in a 40 MiB store region. */
 #define FD_GUI_TIMELINE_DAY_NS                 (86400000000000L)
 
 #define FD_GUI_TIMELINE_GRANULARITY_250MS (0)
@@ -236,7 +250,11 @@ fd_gui_timeline_granularity_ns( ulong g ) {
   X( NONVOTE_FAILED,  nonvote_failed,   uint,   uint,   uint,   uint,   uint,   ulong,  ulong  ) \
   X( VOTE_SUCCESS,    vote_success,     uint,   uint,   uint,   uint,   uint,   ulong,  ulong  ) \
   X( VOTE_FAILED,     vote_failed,      uint,   uint,   uint,   uint,   uint,   ulong,  ulong  ) \
-  X( SKIPPED,         skipped,          ushort, ushort, ushort, ushort, ushort, ushort, uint   )
+  X( SKIPPED,         skipped,          ushort, ushort, ushort, ushort, ushort, ushort, uint   ) \
+  X( MINE,            mine,             uint,   uint,   uint,   uint,   uint,   uint,   uint   ) \
+  X( MINE_SKIPPED,    mine_skipped,     uint,   uint,   uint,   uint,   uint,   uint,   uint   ) \
+  X( DURATION_SUM,    duration_sum,     ulong,  ulong,  ulong,  ulong,  ulong,  ulong,  ulong  ) \
+  X( DURATION_CNT,    duration_cnt,     uint,   uint,   uint,   uint,   uint,   uint,   uint   )
 
 #define FD_GUI_TIMELINE_FIELD_ENUM( id, name, t0, t1, t2, t3, t4, t5, t6 ) FD_GUI_TIMELINE_FIELD_##id,
 enum fd_gui_timeline_field {
@@ -281,6 +299,30 @@ struct fd_gui_timeline_day {
   fd_gui_timeline_12h_t   bucket_12h;
 };
 typedef struct fd_gui_timeline_day fd_gui_timeline_day_t;
+
+struct fd_gui_store_slot_duration {
+  long  insert_time_ns;
+  long  midpoint_ns;
+  ulong slot;
+  ulong duration_ns;
+};
+typedef struct fd_gui_store_slot_duration fd_gui_store_slot_duration_t;
+
+/* fd_gui_timeline_duration_merge adds exact sample totals.  Overflow or
+   unknown input poisons both totals, rather than yielding a partial mean. */
+static inline void
+fd_gui_timeline_duration_merge( ulong * sum,
+                                ulong * cnt,
+                                ulong   add_sum,
+                                ulong   add_cnt ) {
+  if( FD_UNLIKELY( *sum==ULONG_MAX || *cnt==ULONG_MAX || add_sum>=ULONG_MAX-*sum || add_cnt>=ULONG_MAX-*cnt ) ) {
+    *sum = ULONG_MAX;
+    *cnt = ULONG_MAX;
+    return;
+  }
+  *sum += add_sum;
+  *cnt += add_cnt;
+}
 
 static inline ulong
 fd_gui_timeline_bucket_cnt( int granularity ) {
@@ -517,6 +559,8 @@ struct __attribute__((packed)) fd_gui_slot {
   fd_hash_t block_hash;       /* block hash of the slot */
   uchar     mine:1;           /* 1 if this was our leader slot */
   uchar     is_voter:2;       /* one of FD_GUI_IS_VOTER_* */
+  uchar     timeline_mine_accounted:1;
+  uchar     timeline_mine_skipped_accounted:1;
   uint      vote_success;     /* successful vote txn count     (UINT_MAX if unknown) */
   uint      vote_failed;      /* failed vote txn count         (UINT_MAX if unknown) */
   uint      nonvote_success;  /* successful nonvote txn count  (UINT_MAX if unknown) */
@@ -597,8 +641,25 @@ typedef struct fd_gui_slot_rankings fd_gui_slot_rankings_t;
 #define FD_GUI_VOTE_LATENCY_NOT_VOTED ((uchar)(UCHAR_MAX))     /* vote missing */
 #define FD_GUI_VOTE_LATENCY_MAX       ((uchar)(UCHAR_MAX-1UL)) /* largest observable vote latency */
 
+#define FD_GUI_TIMELINE_SLOT_STATE_VALID     ((uchar)1U)
+#define FD_GUI_TIMELINE_SLOT_STATE_SKIPPED   ((uchar)2U)
+#define FD_GUI_TIMELINE_SLOT_STATE_MINE      ((uchar)4U)
+#define FD_GUI_TIMELINE_SLOT_STATE_STARTED   ((uchar)8U)
+#define FD_GUI_TIMELINE_SLOT_STATE_COMPLETED ((uchar)16U)
+
 struct fd_gui_epoch {
   ulong epoch;
+  ulong timeline_slot_lo_idx;
+  ulong timeline_slot_hi_idx;
+  /* STARTED marks first_shred_ns; COMPLETED marks an observed replay end
+     in end_ns.  Keep the arrival even while a skipped slot is interpolated
+     so a later completion can replace that interpolation.  VALID marks
+     classification, not timing coverage: replayed slots without an
+     observed start have start_ns==LONG_MAX. */
+  long  timeline_slot_first_shred_ns[ MAX_SLOTS_PER_EPOCH ];
+  long  timeline_slot_start_ns[ MAX_SLOTS_PER_EPOCH ];
+  long  timeline_slot_end_ns[ MAX_SLOTS_PER_EPOCH ];
+  uchar timeline_slot_state[ MAX_SLOTS_PER_EPOCH ];
   ulong start_slot;
   ulong slot_cnt;                        /* end_slot = start_slot + slot_cnt - 1 */
   long  start_time;                      /* epoch start wallclock ns (LONG_MAX if unknown) */
@@ -697,6 +758,51 @@ struct fd_gui_store_replay_txn {
   uchar is_simple_vote;
 };
 typedef struct fd_gui_store_replay_txn fd_gui_store_replay_txn_t;
+
+/* fd_gui_store_replay_txn_revenue returns the fees and tips a replayed
+   transaction actually paid.  Transactions that did not land pay
+   nothing, errors 5 and 6 (invalid fee payer) pay no fees or tips, and
+   failed transactions pay no tips.  Both the day writers and the fine
+   aggregate query use this so their revenue agrees. */
+
+static inline void
+fd_gui_store_replay_txn_revenue( fd_gui_store_replay_txn_t const * rec,
+                                 ulong *                           txn_fee,
+                                 ulong *                           prio_fee,
+                                 ulong *                           tips ) {
+  int landed    = !!rec->is_committable;
+  int fees_paid = landed && rec->error_code!=5U && rec->error_code!=6U;
+  int tips_paid = landed && !rec->error_code;
+  *txn_fee  = fees_paid ? rec->transaction_fee : 0UL;
+  *prio_fee = fees_paid ? rec->priority_fee    : 0UL;
+  *tips     = tips_paid ? rec->tips            : 0UL;
+}
+
+struct fd_gui_store_replay_txn_batch {
+  long  insert_time_ns;
+  long  completion_time_ns;
+  ulong slot;
+  ulong batch_idx;
+  ulong txn_idx;
+  ulong txn_exec_idx;
+  ulong txn_sigverify_exec_idx;
+  long  sigverify_start_ns;
+  long  sigverify_end_ns;
+  long  load_start_ns;
+  long  check_start_ns;
+  long  exec_start_ns;
+  long  commit_start_ns;
+  long  commit_end_ns;
+  /* Most frequent error code among execution-lane members; ties choose
+     the smallest code, so success wins a tie. */
+  uint  error_code;
+  uchar exec_txn_cnt;
+  uchar sigverify_txn_cnt;
+  /* txn_idx of the first sigverify-lane member, ULONG_MAX if none. */
+  ulong sigverify_txn_idx;
+};
+typedef struct fd_gui_store_replay_txn_batch fd_gui_store_replay_txn_batch_t;
+FD_STATIC_ASSERT( FD_GUI_TXN_BATCH_MAX_TXN<=UCHAR_MAX, txn_batch_cnt_fits );
 
 struct fd_gui_slot_txn_join {
   fd_gui_store_txn_start_t const * start;
@@ -1123,7 +1229,68 @@ struct fd_gui_summary {
 
 typedef struct fd_gui_summary fd_gui_summary_t;
 
+struct fd_gui_timeline_slot_row {
+  ulong slot;
+  long  start_ns;
+  long  end_ns;
+  uchar skipped;
+  uchar mine;
+};
+typedef struct fd_gui_timeline_slot_row fd_gui_timeline_slot_row_t;
+
+struct fd_gui_timeline_query_bucket {
+  ulong fields[ FD_GUI_TIMELINE_FIELD_CNT ];
+  long  duration_nearest_ns;
+  ulong duration_nearest_value;
+  ulong slot_duration;
+  int   has_day;
+  int   skipped_covered;
+};
+typedef struct fd_gui_timeline_query_bucket fd_gui_timeline_query_bucket_t;
+
+typedef fd_gui_store_replay_txn_t const * fd_gui_batch_txn_ptr_t;
+struct fd_gui_txn_batch_work {
+  ulong first;
+  ulong cnt;
+  ulong tile_idx;
+  ulong representative_txn_idx;
+  long  start_ns;
+  long  end_ns;
+};
+typedef struct fd_gui_txn_batch_work fd_gui_txn_batch_work_t;
+
+/* Workspace for timeline queries and batch materialization.  The GUI
+   tile is single threaded and each user runs to completion, so the
+   members alias. */
+
+union fd_gui_timeline_scratch {
+  fd_gui_shred_event_t                    events[ FD_GUI_TIMELINE_QUERY_SHRED_MAX ];
+  fd_gui_store_replay_txn_t const *       txns[ FD_GUI_TIMELINE_QUERY_TXN_MAX ];
+  fd_gui_store_replay_txn_batch_t const * txn_batches[ FD_GUI_TIMELINE_QUERY_TXN_MAX ];
+  fd_gui_timeline_slot_row_t              slot_rows[ FD_GUI_TIMELINE_QUERY_SLOT_MAX ];
+  fd_gui_timeline_query_bucket_t          buckets[ FD_GUI_TIMELINE_QUERY_MAX_BUCKETS ];
+  struct {
+    fd_gui_batch_txn_ptr_t          exec_txns[ FD_MAX_TXN_PER_SLOT ];
+    fd_gui_batch_txn_ptr_t          sig_txns[ FD_MAX_TXN_PER_SLOT ];
+    fd_gui_txn_batch_work_t         exec_batches[ FD_MAX_TXN_PER_SLOT ];
+    fd_gui_txn_batch_work_t         sig_batches[ FD_MAX_TXN_PER_SLOT ];
+    ulong                           heap[ FD_MAX_TXN_PER_SLOT ];
+    ulong                           normalize_work;
+    fd_gui_store_replay_txn_batch_t records[ FD_MAX_TXN_PER_SLOT ];
+  } materialize;
+};
+typedef union fd_gui_timeline_scratch fd_gui_timeline_scratch_t;
+
 struct fd_gui {
+  fd_gui_timeline_scratch_t timeline_scratch;
+
+  /* Skipped-slot classification watermarks. */
+
+  ulong timeline_skipped_slot_watermark;
+  ulong timeline_skipped_bank_seq_watermark;
+  long  timeline_skipped_coverage_start_ns;
+  long  timeline_skipped_coverage_end_ns;
+
   fd_http_server_t * http;
   fd_topo_t const * topo;
   fd_accdb_shmem_t const * accdb_shmem;
@@ -1192,7 +1359,6 @@ struct fd_gui {
   struct {
     /* The epoch we are currently in, advanced at epoch_info ingest. */
     ulong current_epoch;
-     ulong stored_epoch_cnt;
 
     int                 has_epoch_schedule;
     fd_epoch_schedule_t epoch_schedule;
@@ -1211,9 +1377,6 @@ struct fd_gui {
     ulong                    max;
   } shred_scratch;
 
-  /* 3 fields: txn_fees, prio_fees, tips */
-  ulong timeline_revenue_scratch[ 3 ][ FD_GUI_TIMELINE_QUERY_MAX_BUCKETS ];
-
   /* Earliest REPLAY_EXEC_DONE timestamp per shred of the
      FD_GUI_EXEC_DONE_SLOT_CNT most recent slots, LONG_MAX if none */
   struct {
@@ -1230,8 +1393,17 @@ struct fd_gui {
 
     fd_gui_shred_builder_t builder;
     ulong                  dropped_event_cnt;
+    ulong                  fec_marker_sequence;
+    long                   fec_insert_time_ns[ 2 ];
+    ulong                  dropped_fec_event_cnt;
+    ulong                  dropped_completion_cnt;
+    ulong                  closed_before_slot;
+    ulong                  closed_slots[ FD_GUI_CLOSED_SLOT_MAX ];
+    ulong                  closed_slot_cnt;
+    ulong                  closed_overflow_max;
+    int                    closed_full;
 
-    /* Events with insert_time_ns below this watermark have already
+    /* The wallclock-ns timestamp up to which shred events have already
        been pushed to clients. */
     long broadcast_watermark_ns;
   } shreds;
@@ -1258,6 +1430,66 @@ void
 fd_gui_handle_replay_txn( fd_gui_t *                       gui,
                           fd_replay_txn_executed_t const * txn,
                           long                             now );
+
+/* fd_gui_timeline_handle_fec records a completion and, if admitted, adds
+   its counts to the retained calendar-day aggregates. */
+
+void
+fd_gui_timeline_handle_fec( fd_gui_t * gui,
+                            ulong      slot,
+                            int        published,
+                            long       timestamp_ns,
+                            ulong      turbine,
+                            ulong      repair,
+                            ulong      reconstructed,
+                            long       now );
+
+/* fd_gui_timeline_handle_txn adds transaction costs and outcome to the
+   retained calendar-day aggregates. */
+
+void
+fd_gui_timeline_handle_txn( fd_gui_t * gui,
+                            ulong      slot,
+                            long       timestamp_ns,
+                            ulong      compute_units,
+                            ulong      max_compute_units,
+                            ulong      transaction_fee,
+                            ulong      priority_fee,
+                            ulong      tips,
+                            int        is_simple_vote,
+                            int        txn_succeeded,
+                            long       now );
+
+/* fd_gui_timeline_skipped_update advances classified slot intervals and
+   skip aggregates along tip's completed ancestry. */
+
+void
+fd_gui_timeline_skipped_update( fd_gui_t *            gui,
+                                fd_gui_slot_t const * tip,
+                                long                  now );
+
+/* fd_gui_materialize_replay_txn_batches rolls up retained transactions
+   for slot with completion times in [lo,hi).  Returns zero on success. */
+
+int
+fd_gui_materialize_replay_txn_batches( fd_gui_t * gui,
+                                       ulong      slot,
+                                       long       lo,
+                                       long       hi,
+                                       ulong      expected,
+                                       long       now );
+
+/* fd_gui_timeline_slots_collect writes up to max slot-ordered intervals
+   overlapping [start_ns,end_ns).  Returns 1 on overflow, -1 for invalid
+   arguments, or 0 on success; cnt receives the number written. */
+
+int
+fd_gui_timeline_slots_collect( fd_gui_t *                   gui,
+                               long                         start_ns,
+                               long                         end_ns,
+                               fd_gui_timeline_slot_row_t * rows,
+                               ulong                        max,
+                               ulong *                      cnt );
 
 /* fd_gui_tile_timers_diff computes the compact, display-ready diff of a
    single tile's timers between two raw cumulative samples `prev` and
@@ -1382,6 +1614,7 @@ void
 fd_gui_handle_shred( fd_gui_t * gui,
                      ulong      slot,
                      ulong      shred_idx,
+                     ulong      fec_set_idx,
                      int        is_turbine,
                      long       tsorig,
                      long       now );
@@ -1532,7 +1765,6 @@ fd_gui_epoch_get_or_create( fd_gui_t * gui,
   fd_gui_hist_epoch_key_t key[ 1 ]; key->epoch = epoch;
   rec = fd_gui_hist_kv_get_or_create( gui, FD_GUI_HIST_EPOCH, key );
   if( FD_UNLIKELY( !rec ) ) return NULL;
-  gui->epoch.stored_epoch_cnt++; /* account the new epoch on successful creation only */
   if( created_out ) *created_out = 1;
   return rec;
 }
@@ -1804,6 +2036,8 @@ fd_gui_slot_get_or_create( fd_gui_t * gui,
   meta->completed_time    = LONG_MAX;
   meta->parent_completed_time = LONG_MAX;
   meta->mine              = (uchar)(mine & 1);
+  meta->timeline_mine_accounted         = 0U;
+  meta->timeline_mine_skipped_accounted = 0U;
   meta->is_voter          = FD_GUI_IS_VOTER_NO;
   if( FD_UNLIKELY( gui->summary.is_alpenglow ) ) meta->is_voter = FD_GUI_IS_VOTER_UNKNOWN;
   meta->skip              = FD_GUI_SKIP_STATUS_UNKNOWN;
