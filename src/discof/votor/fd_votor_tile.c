@@ -1196,26 +1196,34 @@ static void
 during_housekeeping( fd_votor_tile_t * ctx ) {
   if( FD_UNLIKELY( fd_clock_tile_recal_due( ctx->clock ) ) ) fd_clock_tile_recal( ctx->clock );
 
-  /* Add-authorized-voter.  The admin tile adds the voter to the sign
-     tiles first, so the voter's BLS key is at the next authorized voter
-     index there.  The admin tile never clears authorized voters under
-     Alpenglow. */
-
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->auth_vtr_keyswitch )==FD_KEYSWITCH_STATE_UNHALT_PENDING ) ) {
     fd_keyswitch_state( ctx->auth_vtr_keyswitch, FD_KEYSWITCH_STATE_UNLOCKED );
   }
 
+  /* Important invariant is that the sign tile has already been updated
+     and that the votor is fully in sync with the sign tile. */
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->auth_vtr_keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
-    ulong param = fd_keyswitch_param_query( ctx->auth_vtr_keyswitch );
-    if( FD_UNLIKELY( param!=FD_KEYSWITCH_PARAM_AV_ADD ) ) FD_LOG_CRIT(( "keyswitch: unexpected authorized voter operation %lu", param ));
-    if( FD_UNLIKELY( ctx->auth_vtr_path_cnt==FD_KEYGUARD_AUTH_VOTERS_MAX ) ) FD_LOG_CRIT(( "keyswitch: too many authorized voters, keys not synced up with sign tile" ));
-
+    ulong          param = fd_keyswitch_param_query( ctx->auth_vtr_keyswitch );
     auth_vtr_key_t bls_key;
-    fd_keyguard_client_bls_pubkey( ctx->keyguard_client, bls_key.uc, ctx->auth_vtr_path_cnt );
-    auth_vtr_t const * exists = auth_vtr_query_const( ctx->auth_vtr, bls_key, NULL );
-    if( FD_UNLIKELY( exists && exists->paths_idx!=ULONG_MAX ) ) FD_LOG_CRIT(( "keyswitch: duplicate authorized voter key, keys not synced up with sign tile" ));
-    if( FD_LIKELY( !exists ) ) auth_vtr_insert( ctx->auth_vtr, bls_key )->paths_idx = ctx->auth_vtr_path_cnt;
-    ctx->auth_vtr_path_cnt++;
+    if( FD_LIKELY( param==FD_KEYSWITCH_PARAM_AV_ADD ) ) {
+      /* For a new authorized voter, derive the BLS pubkey from the sign
+         tile and add to the auth voter map. */
+      if( FD_UNLIKELY( ctx->auth_vtr_path_cnt==FD_KEYGUARD_AUTH_VOTERS_MAX ) ) FD_LOG_CRIT(( "keyswitch: too many authorized voters, keys not synced up with sign tile" ));
+      fd_keyguard_client_bls_pubkey( ctx->keyguard_client, bls_key.uc, ctx->auth_vtr_path_cnt );
+      auth_vtr_t const * exists = auth_vtr_query_const( ctx->auth_vtr, bls_key, NULL );
+      if( FD_UNLIKELY( exists && exists->paths_idx!=ULONG_MAX ) ) FD_LOG_CRIT(( "keyswitch: duplicate authorized voter key, keys not synced up with sign tile" ));
+      if( FD_LIKELY( !exists ) ) auth_vtr_insert( ctx->auth_vtr, bls_key )->paths_idx = ctx->auth_vtr_path_cnt;
+      ctx->auth_vtr_path_cnt++;
+    } else if( FD_LIKELY( param==FD_KEYSWITCH_PARAM_AV_CLEAR ) ) {
+      /* Nuke the entire set of auth voters and just rederive the BLS
+         pubkey for the identity from the sign tile. */
+      fd_keyguard_client_bls_pubkey( ctx->keyguard_client, bls_key.uc, ULONG_MAX );
+      auth_vtr_clear( ctx->auth_vtr );
+      auth_vtr_insert( ctx->auth_vtr, bls_key )->paths_idx = ULONG_MAX;
+      ctx->auth_vtr_path_cnt = 0UL;
+    } else {
+      FD_LOG_CRIT(( "keyswitch: unexpected authorized voter operation %lu", param ));
+    }
 
     /* The epochs votor holds chose their keys when they advanced, so
        re-run own_bls_key for each of them. */

@@ -346,6 +346,67 @@ test_auth_vtr_keyswitch_refreshes_epochs( void ) {
   ag_votor_delete( ag_votor_leave( ctx.votor ) );
 }
 
+/* Clearing drops every authorized voter but keeps the identity, and an
+   epoch that votes with a removed voter's key stops voting instead of
+   asking the sign tile for a key it is about to drop. */
+
+static void
+test_auth_vtr_keyswitch_clear( void ) {
+  static fd_votor_tile_t ctx;
+  static auth_vtr_t      auth_vtr_mem[ 1UL<<AUTH_VTR_LG_SLOT_CNT ];
+  static fd_keyswitch_t  keyswitch[1];
+
+  /* We are rank 0, and vote with authorized voter 1's key. */
+
+  fd_vote_stake_weight_t stakes[ TEST_VOTER_MAX ];
+  build_stakes( stakes, 3UL, 10UL );
+  ag_epoch_info_t * epoch_info = rank_voters( &epoch_info_mem, stakes, 3UL );
+  memcpy( ctx.id_key.uc, epoch_info->validators[0].id_key, sizeof(fd_pubkey_t) );
+  ctx.curr_epoch_info = epoch_info;
+  ctx.curr_epoch_slot = 0UL;
+
+  ag_bls_key_t bls_keys[3];
+  fd_bls_sec_t secs[3];
+  fd_bls_pub_t pubs[3];
+  build_bls_keys( bls_keys, secs, pubs, 2UL );
+  memcpy( bls_keys[2], epoch_info->validators[0].bls_key, sizeof(ag_bls_key_t) );
+  init_keys( &ctx, auth_vtr_mem, bls_keys, 3UL ); /* the identity, authorized voters 0 and 1 */
+  ctx.auth_vtr_path_cnt  = 2UL;
+  ctx.auth_vtr_keyswitch = fd_keyswitch_join( fd_keyswitch_new( keyswitch, FD_KEYSWITCH_STATE_LOCKED ) );
+  FD_TEST( ctx.auth_vtr_keyswitch );
+  fd_clock_tile_init( ctx.clock );
+  bls_pubkey_client_init( ctx.keyguard_client, bls_keys, 1UL ); /* the identity's key, if asked */
+
+  ctx.votor = ag_votor_join( ag_votor_new( votor_scratch, 64UL, 42UL ) );
+  FD_TEST( ctx.votor );
+  ag_votor_init         ( ctx.votor, 0UL, 0L, 400000000L, (ushort)1, capture_sign_bls, NULL );
+  ag_votor_advance_epoch( ctx.votor, 400000000L, 0UL, 0UL, bls_keys[2] );
+
+  keyswitch->param = FD_KEYSWITCH_PARAM_AV_CLEAR;
+  fd_keyswitch_state( keyswitch, FD_KEYSWITCH_STATE_SWITCH_PENDING );
+  during_housekeeping( &ctx );
+  FD_TEST( keyswitch->state==FD_KEYSWITCH_STATE_COMPLETED );
+  FD_TEST( ctx.auth_vtr_path_cnt==0UL );
+  FD_TEST( paths_idx_of( &ctx, bls_keys[0] )==ULONG_MAX );
+  FD_TEST( paths_idx_of( &ctx, bls_keys[1] )==(ulong)LONG_MAX );
+  FD_TEST( paths_idx_of( &ctx, bls_keys[2] )==(ulong)LONG_MAX );
+
+  /* Block 1 builds on the root, slot 0 with a zero hash. */
+
+  ag_event_replay_t block = { .slot = 1UL };
+  memset( block.block_info.hash, 1, sizeof(ag_block_hash_t) );
+  ag_votor_handle_replay_event( ctx.votor, &block );
+
+  ag_event_vote_t vote;
+  FD_TEST( !ag_votor_poll_vote_event( ctx.votor, &vote ) );
+
+  fd_keyswitch_state( keyswitch, FD_KEYSWITCH_STATE_UNHALT_PENDING );
+  during_housekeeping( &ctx );
+  FD_TEST( keyswitch->state==FD_KEYSWITCH_STATE_UNLOCKED );
+
+  ag_votor_delete( ag_votor_leave( ctx.votor ) );
+}
+
 static void
 test_own_bls_key( void ) {
   static fd_votor_tile_t ctx;
@@ -438,6 +499,7 @@ main( int     argc,
   test_auth_vtr_keyswitch_add( 1 );
   test_auth_vtr_keyswitch_rejected();
   test_auth_vtr_keyswitch_refreshes_epochs();
+  test_auth_vtr_keyswitch_clear();
   test_own_bls_key();
   test_sign_bls_request();
 

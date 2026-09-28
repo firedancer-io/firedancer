@@ -1012,12 +1012,13 @@ snapshot_create_response( fd_admin_tile_ctx_t * ctx,
 
 /* Removing all authorized voters from the validator is the inverse of
    add-authorized-voter, and must be done in the opposite order.  When
-   adding, the sign tile is updated before the tower tile so that the
-   tower never asks the sign tile to sign a vote with an authority index
-   the sign tile does not yet know about.  When removing, the tower tile
-   must be cleared before the sign tiles, so that the tower stops
-   referencing an authorized voter index before the sign tile drops the
-   corresponding key.
+   adding, the sign tile is updated before the voter tile (the tower
+   tile, or the votor tile under Alpenglow) so that the voter never asks
+   the sign tile to sign a vote with an authority index the sign tile
+   does not yet know about.  When removing, the voter tile must be
+   cleared before the sign tiles, so that the voter stops referencing an
+   authorized voter index before the sign tile drops the corresponding
+   key.
 
    Clearing the tower map prevents new vote transactions from
    referencing a removed voter, but transactions already published to
@@ -1029,7 +1030,11 @@ snapshot_create_response( fd_admin_tile_ctx_t * ctx,
    forward order.
 
    Unlike add-authorized-voter, removal cannot fail on the tile side: it
-   is unconditional and idempotent (clearing an empty set succeeds). */
+   is unconditional and idempotent (clearing an empty set succeeds).
+
+   Under Alpenglow the votor's votes are not sent through TxSend, and it
+   signs synchronously, so it has no signing requests in flight once it
+   confirms the clear.  The TxSend drain is skipped. */
 
 /* State 0: UNLOCKED
    The validator is not currently in the process of switching keys. */
@@ -1042,17 +1047,17 @@ snapshot_create_response( fd_admin_tile_ctx_t * ctx,
    client. */
 #define FD_REMOVE_ALL_AUTH_VOTERS_STATE_LOCKED                 (1UL)
 
-/* State 2: TOWER_TILE_REQUESTED
-   The tower tile has been notified to clear its authorized voter set.
-   It is cleared first so it stops preparing vote transactions with any
-   authorized voter before the sign tiles drop the keys. */
-#define FD_REMOVE_ALL_AUTH_VOTERS_STATE_TOWER_TILE_REQUESTED   (2UL)
+/* State 2: VOTER_TILE_REQUESTED
+   The voter tile has been notified to clear its authorized voter set.
+   It is cleared first so it stops voting with any authorized voter
+   before the sign tiles drop the keys. */
+#define FD_REMOVE_ALL_AUTH_VOTERS_STATE_VOTER_TILE_REQUESTED   (2UL)
 
-/* State 3: TOWER_TILE_CLEARED
-   The tower tile confirmed it cleared its authorized voter map.  At
-   this point the validator will only prepare vote transactions signed
-   by the identity key. */
-#define FD_REMOVE_ALL_AUTH_VOTERS_STATE_TOWER_TILE_CLEARED     (3UL)
+/* State 3: VOTER_TILE_CLEARED
+   The voter tile confirmed it cleared its authorized voter map.  At
+   this point the validator will only prepare votes signed by the
+   identity key. */
+#define FD_REMOVE_ALL_AUTH_VOTERS_STATE_VOTER_TILE_CLEARED     (3UL)
 
 /* State 4: TXSEND_FLUSH_REQUESTED
    TxSend has been notified to process every tower message through the
@@ -1075,17 +1080,17 @@ snapshot_create_response( fd_admin_tile_ctx_t * ctx,
 #define FD_REMOVE_ALL_AUTH_VOTERS_STATE_SIGN_TILE_CLEARED      (7UL)
 
 /* State 8: UNLOCK_REQUESTED
-   The client requests that the tower tile release the lock. */
+   The client requests that the voter tile release the lock. */
 #define FD_REMOVE_ALL_AUTH_VOTERS_STATE_UNLOCK_REQUESTED       (8UL)
 
 static void
 poll_remove_all_authorized_voters( fd_admin_tile_ctx_t * ctx,
                                    ulong *               state ) {
-  fd_keyswitch_t * tower = ctx->voter_av_keyswitch;
+  fd_keyswitch_t * voter = ctx->voter_av_keyswitch;
 
   switch( *state ) {
     case FD_REMOVE_ALL_AUTH_VOTERS_STATE_UNLOCKED: {
-      if( FD_LIKELY( FD_KEYSWITCH_STATE_UNLOCKED==FD_ATOMIC_CAS( &tower->state, FD_KEYSWITCH_STATE_UNLOCKED, FD_KEYSWITCH_STATE_LOCKED ) ) ) {
+      if( FD_LIKELY( FD_KEYSWITCH_STATE_UNLOCKED==FD_ATOMIC_CAS( &voter->state, FD_KEYSWITCH_STATE_UNLOCKED, FD_KEYSWITCH_STATE_LOCKED ) ) ) {
         *state = FD_REMOVE_ALL_AUTH_VOTERS_STATE_LOCKED;
         FD_LOG_INFO(( "Locking authorized voter set for authorized voter update..." ));
       } else {
@@ -1097,27 +1102,31 @@ poll_remove_all_authorized_voters( fd_admin_tile_ctx_t * ctx,
       break;
     }
     case FD_REMOVE_ALL_AUTH_VOTERS_STATE_LOCKED: {
-      tower->param = FD_KEYSWITCH_PARAM_AV_CLEAR;
+      voter->param = FD_KEYSWITCH_PARAM_AV_CLEAR;
       FD_COMPILER_MFENCE();
-      tower->state = FD_KEYSWITCH_STATE_SWITCH_PENDING;
+      voter->state = FD_KEYSWITCH_STATE_SWITCH_PENDING;
       FD_COMPILER_MFENCE();
-      *state = FD_REMOVE_ALL_AUTH_VOTERS_STATE_TOWER_TILE_REQUESTED;
-      FD_LOG_INFO(( "Requesting tower tile to clear authorized voter key set..." ));
+      *state = FD_REMOVE_ALL_AUTH_VOTERS_STATE_VOTER_TILE_REQUESTED;
+      FD_LOG_INFO(( "Requesting %s tile to clear authorized voter key set...", ctx->voter_name ));
       break;
     }
-    case FD_REMOVE_ALL_AUTH_VOTERS_STATE_TOWER_TILE_REQUESTED: {
-      if( FD_LIKELY( tower->state==FD_KEYSWITCH_STATE_COMPLETED ) ) {
-        *state = FD_REMOVE_ALL_AUTH_VOTERS_STATE_TOWER_TILE_CLEARED;
-        FD_LOG_INFO(( "Tower tile authorized voter key set cleared..." ));
+    case FD_REMOVE_ALL_AUTH_VOTERS_STATE_VOTER_TILE_REQUESTED: {
+      if( FD_LIKELY( voter->state==FD_KEYSWITCH_STATE_COMPLETED ) ) {
+        *state = FD_REMOVE_ALL_AUTH_VOTERS_STATE_VOTER_TILE_CLEARED;
+        FD_LOG_INFO(( "%s tile authorized voter key set cleared...", ctx->voter_name ));
       } else {
         FD_SPIN_PAUSE();
       }
       break;
     }
-    case FD_REMOVE_ALL_AUTH_VOTERS_STATE_TOWER_TILE_CLEARED: {
+    case FD_REMOVE_ALL_AUTH_VOTERS_STATE_VOTER_TILE_CLEARED: {
+      if( FD_UNLIKELY( ctx->alpenglow ) ) {
+        *state = FD_REMOVE_ALL_AUTH_VOTERS_STATE_TXSEND_FLUSHED;
+        break;
+      }
       fd_keyswitch_t * txsend = ctx->txsend_av_keyswitch;
       FD_COMPILER_MFENCE();
-      txsend->param = tower->result;
+      txsend->param = voter->result;
       FD_COMPILER_MFENCE();
       txsend->state = FD_KEYSWITCH_STATE_SWITCH_PENDING;
       FD_COMPILER_MFENCE();
@@ -1161,13 +1170,13 @@ poll_remove_all_authorized_voters( fd_admin_tile_ctx_t * ctx,
       break;
     }
     case FD_REMOVE_ALL_AUTH_VOTERS_STATE_SIGN_TILE_CLEARED: {
-      tower->state = FD_KEYSWITCH_STATE_UNHALT_PENDING;
+      voter->state = FD_KEYSWITCH_STATE_UNHALT_PENDING;
       *state       = FD_REMOVE_ALL_AUTH_VOTERS_STATE_UNLOCK_REQUESTED;
       FD_LOG_INFO(( "Requesting an unlock of the authorized voter key set..." ));
       break;
     }
     case FD_REMOVE_ALL_AUTH_VOTERS_STATE_UNLOCK_REQUESTED: {
-      if( FD_LIKELY( tower->state==FD_KEYSWITCH_STATE_UNLOCKED ) ) {
+      if( FD_LIKELY( voter->state==FD_KEYSWITCH_STATE_UNLOCKED ) ) {
         *state = FD_REMOVE_ALL_AUTH_VOTERS_STATE_UNLOCKED;
         FD_LOG_INFO(( "Authorized voter key set unlocked..." ));
       } else {
@@ -1209,13 +1218,6 @@ remove_all_authorized_voters( fd_admin_tile_ctx_t * ctx,
     FD_LOG_WARNING(( "unexpected adminctl remove-all-authorized-voters payload_sz %lu", data_sz ));
     report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_ABI_SIZE_MISMATCH );
     fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_ABI_SIZE_MISMATCH );
-    return;
-  }
-
-  if( FD_UNLIKELY( ctx->alpenglow ) ) {
-    FD_LOG_WARNING(( "remove-all-authorized-voters is not supported under Alpenglow." ));
-    report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_UNSUPPORTED );
-    fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_UNSUPPORTED );
     return;
   }
 

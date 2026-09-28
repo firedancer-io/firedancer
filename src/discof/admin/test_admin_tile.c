@@ -75,6 +75,55 @@ test_add_authorized_voter( int alpenglow ) {
   FD_TEST( txsend->state==FD_KEYSWITCH_STATE_UNLOCKED );
 }
 
+/* The vote producing tile drops its authorized voters before the sign
+   tiles do.  Only the tower's votes pass through TxSend, so only the
+   tower path drains it. */
+
+static void
+test_remove_all_authorized_voters( int alpenglow ) {
+  setup( alpenglow );
+  ulong state = FD_REMOVE_ALL_AUTH_VOTERS_STATE_UNLOCKED;
+
+  poll_remove_all_authorized_voters( &ctx, &state );
+  FD_TEST( state==FD_REMOVE_ALL_AUTH_VOTERS_STATE_LOCKED && voter->state==FD_KEYSWITCH_STATE_LOCKED );
+
+  poll_remove_all_authorized_voters( &ctx, &state );
+  FD_TEST( state==FD_REMOVE_ALL_AUTH_VOTERS_STATE_VOTER_TILE_REQUESTED );
+  FD_TEST( voter->state==FD_KEYSWITCH_STATE_SWITCH_PENDING && voter->param==FD_KEYSWITCH_PARAM_AV_CLEAR );
+  sign_expect( FD_KEYSWITCH_STATE_UNLOCKED, 0UL );
+
+  voter->result = 42UL;
+  fd_keyswitch_state( voter, FD_KEYSWITCH_STATE_COMPLETED );
+  poll_remove_all_authorized_voters( &ctx, &state );
+  FD_TEST( state==FD_REMOVE_ALL_AUTH_VOTERS_STATE_VOTER_TILE_CLEARED );
+
+  poll_remove_all_authorized_voters( &ctx, &state );
+  if( alpenglow ) {
+    FD_TEST( state==FD_REMOVE_ALL_AUTH_VOTERS_STATE_TXSEND_FLUSHED );
+    FD_TEST( txsend->state==FD_KEYSWITCH_STATE_UNLOCKED );
+  } else {
+    FD_TEST( state==FD_REMOVE_ALL_AUTH_VOTERS_STATE_TXSEND_FLUSH_REQUESTED );
+    FD_TEST( txsend->state==FD_KEYSWITCH_STATE_SWITCH_PENDING && txsend->param==42UL );
+    fd_keyswitch_state( txsend, FD_KEYSWITCH_STATE_COMPLETED );
+    poll_remove_all_authorized_voters( &ctx, &state );
+    FD_TEST( state==FD_REMOVE_ALL_AUTH_VOTERS_STATE_TXSEND_FLUSHED );
+  }
+  sign_expect( FD_KEYSWITCH_STATE_UNLOCKED, 0UL );
+
+  poll_remove_all_authorized_voters( &ctx, &state );
+  FD_TEST( state==FD_REMOVE_ALL_AUTH_VOTERS_STATE_SIGN_TILE_REQUESTED );
+  sign_expect( FD_KEYSWITCH_STATE_SWITCH_PENDING, FD_KEYSWITCH_PARAM_AV_CLEAR );
+  sign_complete();
+  poll_remove_all_authorized_voters( &ctx, &state );
+  FD_TEST( state==FD_REMOVE_ALL_AUTH_VOTERS_STATE_SIGN_TILE_CLEARED );
+
+  poll_remove_all_authorized_voters( &ctx, &state );
+  FD_TEST( state==FD_REMOVE_ALL_AUTH_VOTERS_STATE_UNLOCK_REQUESTED && voter->state==FD_KEYSWITCH_STATE_UNHALT_PENDING );
+  fd_keyswitch_state( voter, FD_KEYSWITCH_STATE_UNLOCKED );
+  poll_remove_all_authorized_voters( &ctx, &state );
+  FD_TEST( state==FD_REMOVE_ALL_AUTH_VOTERS_STATE_UNLOCKED );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -82,6 +131,8 @@ main( int     argc,
 
   test_add_authorized_voter( 0 );
   test_add_authorized_voter( 1 );
+  test_remove_all_authorized_voters( 0 );
+  test_remove_all_authorized_voters( 1 );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
