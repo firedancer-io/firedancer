@@ -406,8 +406,11 @@ test_ts_append_scan( void ) {
   FD_TEST( fd_gui_store_ts_scan_done( it ) );
   fd_gui_store_ts_scan_end( it );
   fd_gui_store_ts_scan_begin( db, it, DB_TS, low_window, low_window, NULL, NULL );
+  FD_TEST( fd_gui_store_ts_scan_done( it ) );
+  fd_gui_store_ts_scan_end( it );
+  fd_gui_store_ts_scan_begin( db, it, DB_TS, 0UL, ULONG_MAX, NULL, NULL );
   FD_TEST( !fd_gui_store_ts_scan_done( it ) );
-  FD_TEST( it->window==low_window && ((ts_val_t const *)it->rec)->seq==low.seq );
+  FD_TEST( it->window==high_window && ((ts_val_t const *)it->rec)->seq==high.seq );
   fd_gui_store_ts_scan_next( it );
   FD_TEST( fd_gui_store_ts_scan_done( it ) );
   fd_gui_store_ts_scan_end( it );

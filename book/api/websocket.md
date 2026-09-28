@@ -2830,8 +2830,8 @@ Value is a flat array of base58-encoded identity pubkeys that have gone
 offline (activity timeout expired) since the last message.
 
 ### timeline
-Historical shred event data recorded by the validator, queryable over a
-UNIX nanosecond timestamp window.
+Historical event data recorded by the validator, queryable over a UNIX
+nanosecond timestamp window.
 
 #### `timeline.query_shreds`
 | frequency   | type          | example |
@@ -2877,6 +2877,93 @@ window, the response arrays are empty.
         "shred_idx": [1234, null],
         "event": [0, 1],
         "event_ts_delta": ["1000000", "2000000"]
+    }
+}
+```
+
+:::
+
+#### `timeline.query_agg_revenue`
+| frequency | type                 | example |
+|-----------|----------------------|---------|
+| *Request* | `TimelineAggRevenue` | below   |
+
+| param       | type     | description |
+|-------------|----------|-------------|
+| start_ns    | `string` | Inclusive lower bound, as a UNIX timestamp in nanoseconds |
+| end_ns      | `string` | Exclusive upper bound, as a UNIX timestamp in nanoseconds |
+| granularity | `string` | Required; one of the granularities below |
+
+`start_ns` and `end_ns` are non-negative UNIX nanosecond timestamps,
+encoded as decimal strings without leading zeros (except `"0"`). Both
+must be less than `9223372036854775807`, and `end_ns` must be greater
+than `start_ns`. Windows are half-open: `[start_ns, end_ns)`.
+
+| granularities |
+|---------------|
+| `250ms`, `500ms`, `1s`, `2s`, `4s`, `8s`, `15s`, `30s`, `1m`, `2m`, `4m`, `8m`, `15m`, `30m`, `1h`, `2h`, `4h`, `8h`, `12h`, `1d` |
+
+The request window is aligned to the request granularity bucket
+boundaries. At most 10,000 buckets may be requested, and the aligned
+exclusive end must also be less than `9223372036854775807`. The
+connection is closed if either limit is exceeded.
+
+Revenue aggregates include locally produced blocks. Transactions are
+bucketed by commit time into cached calendar-day aggregates, retained
+independently of detailed transaction history.
+
+The GUI's database is wiped on boot. When it reaches capacity, data is
+evicted approximately oldest-first.
+
+**`TimelineAggRevenue`**
+| field              | type               | description |
+|--------------------|--------------------|-------------|
+| granularity        | `string`           | Echoes the requested granularity |
+| reference_ts_ns    | `string`           | Start of the first aligned response bucket |
+| available_start_ns | `string\|null`     | Inclusive start of the retained calendar-day aggregates |
+| available_end_ns   | `string\|null`     | Exclusive end of the retained calendar-day aggregates |
+| txn_fees           | `(string\|null)[]` | Sum of base transaction fees per bucket, in lamports |
+| prio_fees          | `(string\|null)[]` | Sum of priority fees per bucket, in lamports |
+| tips               | `(string\|null)[]` | Sum of tips per bucket, in lamports |
+
+`available_start_ns` and `available_end_ns` are half-open lookup bounds,
+`[available_start_ns, available_end_ns)`, reflecting the data available
+in the server's database. Both are `null` when the server is missing
+data needed for a non-empty response.
+
+Each array has one entry per aligned bucket. Bucket `i` covers
+`[reference_ts_ns + i*duration, reference_ts_ns + (i+1)*duration)`.
+An entry is `null` when the field is unknown, distinct from a known
+zero. `null` values are ignored when computing rolled-up aggregates.
+
+::: details Example
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_agg_revenue",
+    "id": 50,
+    "params": {
+        "start_ns": "1739657040000000000",
+        "end_ns": "1739657100000000000",
+        "granularity": "15s"
+    }
+}
+```
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_agg_revenue",
+    "id": 50,
+    "value": {
+        "granularity": "15s",
+        "reference_ts_ns": "1739657040000000000",
+        "available_start_ns": "1739577600000000000",
+        "available_end_ns": "1739664000000000000",
+        "txn_fees": ["6015000", "5935000", null, "6200000"],
+        "prio_fees": ["120400", "98200", null, "131000"],
+        "tips": ["2500000", "0", null, "1000000"]
     }
 }
 ```

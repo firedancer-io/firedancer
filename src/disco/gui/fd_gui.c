@@ -2230,6 +2230,46 @@ fd_gui_request_timeline_shreds( fd_gui_t *    gui,
   return 0;
 }
 
+static int
+fd_gui_request_timeline_agg_revenue( fd_gui_t *   gui,
+                                     ulong        ws_conn_id,
+                                     ulong        id,
+                                     char const * params,
+                                     ulong        params_sz ) {
+  long start_ns = 0L; int has_start = 0;
+  long end_ns   = 0L; int has_end   = 0;
+  char name[ 32UL ] = {0};
+  fd_jtok_t j[1]; fd_jtok_init( j, params, params_sz );
+  fd_jtok_str_t member;
+  fd_jtok_obj_enter( j );
+  while( fd_jtok_obj_next( j, &member ) ) {
+    if( fd_jtok_str_eq( &member, "start_ns" ) ) {
+      if( FD_UNLIKELY( fd_gui_jtok_parse_ns( j, &start_ns ) ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+      has_start = 1;
+    } else if( fd_jtok_str_eq( &member, "end_ns" ) ) {
+      if( FD_UNLIKELY( fd_gui_jtok_parse_ns( j, &end_ns ) ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+      has_end = 1;
+    } else if( fd_jtok_str_eq( &member, "granularity" ) ) {
+      fd_jtok_cstr( j, name, sizeof(name) );
+    }
+  }
+  if( FD_UNLIKELY( fd_jtok_fini( j ) || !has_start || !has_end || end_ns<=start_ns ) ) {
+    return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+  }
+  ulong g = 0UL;
+  while( g<FD_GUI_TIMELINE_GRANULARITY_CNT && strcmp( name, fd_gui_timeline_granularities[ g ].name ) ) g++;
+  if( FD_UNLIKELY( g==FD_GUI_TIMELINE_GRANULARITY_CNT ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+  ulong ns        = fd_gui_timeline_granularity_ns( g );
+  ulong first     = (ulong)start_ns / ns;
+  ulong reference = first*ns;
+  ulong count     = ((ulong)end_ns-1UL)/ns - first + 1UL;
+  if( FD_UNLIKELY( count>FD_GUI_TIMELINE_QUERY_MAX_BUCKETS || count*ns>=(ulong)LONG_MAX-reference ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+  int err = fd_gui_printf_timeline_query_agg_revenue( gui, name, g, (long)reference, count, id );
+  if( FD_UNLIKELY( err ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+  FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
+  return 0;
+}
+
 int
 fd_gui_ws_message( fd_gui_t *    gui,
                    ulong         ws_conn_id,
@@ -2270,6 +2310,9 @@ fd_gui_ws_message( fd_gui_t *    gui,
   } else if( FD_LIKELY( fd_jtok_str_eq( &topic, "timeline" ) && fd_jtok_str_eq( &key, "query_shreds" ) ) ) {
     if( FD_UNLIKELY( !params ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
     return fd_gui_request_timeline_shreds( gui, ws_conn_id, "timeline", id, params, params_sz );
+  } else if( FD_LIKELY( fd_jtok_str_eq( &topic, "timeline" ) && fd_jtok_str_eq( &key, "query_agg_revenue" ) ) ) {
+    if( FD_UNLIKELY( !params ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+    return fd_gui_request_timeline_agg_revenue( gui, ws_conn_id, id, params, params_sz );
   } else if( FD_LIKELY( fd_jtok_str_eq( &topic, "summary" ) && fd_jtok_str_eq( &key, "ping" ) ) ) {
     fd_gui_printf_summary_ping( gui, id );
     FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
@@ -2938,6 +2981,145 @@ fd_gui_handle_ag_reward( fd_gui_t * gui,
   fd_http_server_ws_broadcast( gui->http );
 }
 
+fd_gui_timeline_granularity_t const fd_gui_timeline_granularities[ FD_GUI_TIMELINE_GRANULARITY_CNT ] = {
+  { "250ms", FD_GUI_TIMELINE_GRANULARITY_250MS, 1UL },
+  { "500ms", FD_GUI_TIMELINE_GRANULARITY_250MS, 2UL },
+  { "1s",    FD_GUI_TIMELINE_GRANULARITY_250MS, 4UL },
+  { "2s",    FD_GUI_TIMELINE_GRANULARITY_2S,    1UL },
+  { "4s",    FD_GUI_TIMELINE_GRANULARITY_2S,    2UL },
+  { "8s",    FD_GUI_TIMELINE_GRANULARITY_2S,    4UL },
+  { "15s",   FD_GUI_TIMELINE_GRANULARITY_15S,   1UL },
+  { "30s",   FD_GUI_TIMELINE_GRANULARITY_15S,   2UL },
+  { "1m",    FD_GUI_TIMELINE_GRANULARITY_15S,   4UL },
+  { "2m",    FD_GUI_TIMELINE_GRANULARITY_2M,    1UL },
+  { "4m",    FD_GUI_TIMELINE_GRANULARITY_2M,    2UL },
+  { "8m",    FD_GUI_TIMELINE_GRANULARITY_2M,    4UL },
+  { "15m",   FD_GUI_TIMELINE_GRANULARITY_15M,   1UL },
+  { "30m",   FD_GUI_TIMELINE_GRANULARITY_15M,   2UL },
+  { "1h",    FD_GUI_TIMELINE_GRANULARITY_15M,   4UL },
+  { "2h",    FD_GUI_TIMELINE_GRANULARITY_2H,    1UL },
+  { "4h",    FD_GUI_TIMELINE_GRANULARITY_2H,    2UL },
+  { "8h",    FD_GUI_TIMELINE_GRANULARITY_2H,    4UL },
+  { "12h",   FD_GUI_TIMELINE_GRANULARITY_12H,   1UL },
+  { "1d",    FD_GUI_TIMELINE_GRANULARITY_12H,   2UL }
+};
+
+ulong const fd_gui_timeline_stored_granularity_ns[ FD_GUI_TIMELINE_STORED_GRANULARITY_CNT ] = {
+  [ FD_GUI_TIMELINE_GRANULARITY_250MS ] = 250000000UL,
+  [ FD_GUI_TIMELINE_GRANULARITY_2S    ] = 2000000000UL,
+  [ FD_GUI_TIMELINE_GRANULARITY_15S   ] = 15000000000UL,
+  [ FD_GUI_TIMELINE_GRANULARITY_2M    ] = 120000000000UL,
+  [ FD_GUI_TIMELINE_GRANULARITY_15M   ] = 900000000000UL,
+  [ FD_GUI_TIMELINE_GRANULARITY_2H    ] = 7200000000000UL,
+  [ FD_GUI_TIMELINE_GRANULARITY_12H   ] = 43200000000000UL
+};
+
+/* fd_gui_timeline_day_end_ns returns the end timestamp of the calendar
+   day day_idx. */
+
+static inline long
+fd_gui_timeline_day_end_ns( ulong day_idx ) {
+  if( FD_UNLIKELY( day_idx>=(ulong)LONG_MAX/(ulong)FD_GUI_TIMELINE_DAY_NS ) ) return LONG_MAX;
+  return (long)((day_idx+1UL)*(ulong)FD_GUI_TIMELINE_DAY_NS);
+}
+
+fd_gui_timeline_day_t *
+fd_gui_timeline_day_get( fd_gui_t * gui,
+                         ulong      day_idx ) {
+  long end_time_ns = fd_gui_timeline_day_end_ns( day_idx );
+  if( FD_UNLIKELY( !gui->db || !gui->hist || end_time_ns==LONG_MAX ) ) return NULL;
+
+  fd_gui_hist_iter_t it;
+  if( FD_UNLIKELY( fd_gui_hist_range_begin( gui, &it, FD_GUI_HIST_TIMELINE_DAY, end_time_ns, end_time_ns, NULL, NULL ) ) ) return NULL;
+  fd_gui_timeline_day_t * day = fd_gui_hist_range_next( &it ) ? (fd_gui_timeline_day_t *)it.rec : NULL;
+  fd_gui_hist_range_end( &it );
+  return day;
+}
+
+/* fd_gui_timeline_cur_day returns the index of the newest day record
+   in the store, or ULONG_MAX if there is none. */
+
+static ulong
+fd_gui_timeline_cur_day( fd_gui_t * gui ) {
+  long first, last;
+  if( FD_UNLIKELY( !fd_gui_store_ts_live_timestamp_bounds( gui->db, FD_GUI_HIST_TIMELINE_DAY, &first, &last ) ) ) return ULONG_MAX;
+  return (ulong)last/(ulong)FD_GUI_TIMELINE_DAY_NS-1UL;
+}
+
+/* fd_gui_timeline_day_create returns the record for day_idx, creating
+   an empty one if it does not exist yet. Returns NULL if the
+   day cannot be created. */
+
+static fd_gui_timeline_day_t *
+fd_gui_timeline_day_create( fd_gui_t * gui,
+                            ulong      day_idx,
+                            long       now ) {
+  long end_time_ns = fd_gui_timeline_day_end_ns( day_idx );
+  if( FD_UNLIKELY( !gui->db || !gui->hist || end_time_ns==LONG_MAX ) ) return NULL;
+  if( FD_UNLIKELY( now<0L || day_idx>(ulong)now/(ulong)FD_GUI_TIMELINE_DAY_NS+1UL ) ) return NULL;
+
+  fd_gui_timeline_day_t * day = fd_gui_timeline_day_get( gui, day_idx );
+  if( day ) return day;
+  ulong cur_day = fd_gui_timeline_cur_day( gui );
+  if( FD_UNLIKELY( cur_day!=ULONG_MAX && day_idx<=cur_day ) ) return NULL;
+
+  fd_gui_timeline_day_t * seed = fd_gui_hist_ts_emplace( gui, FD_GUI_HIST_TIMELINE_DAY, end_time_ns );
+  if( FD_UNLIKELY( !seed ) ) return NULL;
+  memset( seed, 0xFF, sizeof(fd_gui_timeline_day_t) );
+  seed->insert_time_ns  = now;
+  seed->end_time_ns     = end_time_ns;
+  return fd_gui_timeline_day_get( gui, day_idx );
+}
+
+/* fd_gui_timeline_day_for_event returns the record for the day an event
+   belongs to, creating it if needed. Returns NULL if the day is unavailable. */
+
+static fd_gui_timeline_day_t *
+fd_gui_timeline_day_for_event( fd_gui_t * gui,
+                               ulong      day_idx,
+                               long       now ) {
+  fd_gui_timeline_day_t * day = fd_gui_timeline_day_get( gui, day_idx );
+  if( FD_LIKELY( day ) ) return day;
+  if( FD_UNLIKELY( !gui->db || !gui->hist ) ) return NULL;
+  ulong cur_day = fd_gui_timeline_cur_day( gui );
+  if( FD_UNLIKELY( day_idx && (cur_day==ULONG_MAX || day_idx>cur_day+1UL) ) ) {
+    fd_gui_timeline_day_create( gui, day_idx-1UL, now );
+  }
+  return fd_gui_timeline_day_create( gui, day_idx, now );
+}
+
+static void
+fd_gui_timeline_handle_txn( fd_gui_t * gui,
+                            ulong      slot,
+                            long       timestamp_ns,
+                            ulong      compute_units,
+                            ulong      max_compute_units,
+                            ulong      transaction_fee,
+                            ulong      priority_fee,
+                            ulong      tips,
+                            int        is_simple_vote,
+                            int        txn_succeeded,
+                            long       now ) {
+  if( FD_UNLIKELY( slot==ULONG_MAX || timestamp_ns<0L || timestamp_ns==LONG_MAX ) ) return;
+  fd_gui_timeline_day_t * day = fd_gui_timeline_day_for_event( gui, (ulong)timestamp_ns/(ulong)FD_GUI_TIMELINE_DAY_NS, now );
+  if( FD_UNLIKELY( !day ) ) return;
+  ulong day_ns = (ulong)timestamp_ns % (ulong)FD_GUI_TIMELINE_DAY_NS;
+  for( int g=0; g<(int)FD_GUI_TIMELINE_STORED_GRANULARITY_CNT; g++ ) {
+    ulong idx = day_ns / fd_gui_timeline_stored_granularity_ns[ g ];
+    fd_gui_timeline_field_accum( day, g, FD_GUI_TIMELINE_FIELD_START_SLOT,       idx, slot );
+    fd_gui_timeline_field_accum( day, g, FD_GUI_TIMELINE_FIELD_END_SLOT,         idx, slot );
+    fd_gui_timeline_field_accum( day, g, FD_GUI_TIMELINE_FIELD_COMPUTE_UNITS,    idx, compute_units );
+    fd_gui_timeline_field_accum( day, g, FD_GUI_TIMELINE_FIELD_MAX_COMPUTE,      idx, max_compute_units );
+    fd_gui_timeline_field_accum( day, g, FD_GUI_TIMELINE_FIELD_TXN_FEES,         idx, transaction_fee );
+    fd_gui_timeline_field_accum( day, g, FD_GUI_TIMELINE_FIELD_PRIO_FEES,        idx, priority_fee );
+    fd_gui_timeline_field_accum( day, g, FD_GUI_TIMELINE_FIELD_TIPS,             idx, tips );
+    fd_gui_timeline_field_accum( day, g, FD_GUI_TIMELINE_FIELD_NONVOTE_SUCCESS,  idx, !is_simple_vote && txn_succeeded );
+    fd_gui_timeline_field_accum( day, g, FD_GUI_TIMELINE_FIELD_NONVOTE_FAILED,   idx, !is_simple_vote && !txn_succeeded );
+    fd_gui_timeline_field_accum( day, g, FD_GUI_TIMELINE_FIELD_VOTE_SUCCESS,     idx, is_simple_vote && txn_succeeded );
+    fd_gui_timeline_field_accum( day, g, FD_GUI_TIMELINE_FIELD_VOTE_FAILED,      idx, is_simple_vote && !txn_succeeded );
+  }
+}
+
 void
 fd_gui_handle_oc_advanced( fd_gui_t * gui,
                            ulong      _slot,
@@ -3342,6 +3524,70 @@ fd_gui_stage_landed_vote( fd_gui_t * gui,
   gui->landed_vote_cnt++;
 }
 
+static long
+fd_gui_tick_to_nanos( fd_gui_t const * gui,
+                      long             now,
+                      long             tick_now,
+                      long             tick ) {
+  if( tick==LONG_MAX ) return LONG_MAX;
+  return fd_long_sat_add( now, (long)((double)fd_long_sat_sub( tick, tick_now )/gui->tick_per_ns) );
+}
+
+static void
+fd_gui_record_replay_txn( fd_gui_t *                        gui,
+                          fd_gui_store_replay_txn_t const * rec ) {
+  int   landed     = !!rec->is_committable;
+  int   fees_paid  = landed && rec->error_code!=5U && rec->error_code!=6U;
+  int   tips_paid  = landed && !rec->error_code;
+  ulong txn_fee    = fees_paid ? rec->transaction_fee : 0UL;
+  ulong prio_fee   = fees_paid ? rec->priority_fee    : 0UL;
+  ulong tips       = tips_paid ? rec->tips            : 0UL;
+
+  fd_gui_timeline_handle_txn( gui, rec->slot, rec->commit_end_ns, rec->compute_units_consumed,
+                              rec->block_compute_unit_limit, txn_fee, prio_fee,
+                              tips, rec->is_simple_vote, !rec->error_code, rec->insert_time_ns );
+  fd_gui_hist_ts_append( gui, FD_GUI_HIST_REPLAY_TXN, rec );
+}
+
+void
+fd_gui_handle_replay_txn( fd_gui_t *                       gui,
+                          fd_replay_txn_executed_t const * txn,
+                          long                             now ) {
+  if( FD_UNLIKELY( !gui->db || !gui->hist || txn->tick_sigverify_done==LONG_MAX || txn->tick_commit_end==LONG_MAX ) ) return;
+  long  tick_now   = fd_tickcount();
+  uint  pack_flags = 0U;
+  ulong requested  = fd_pack_compute_cost( TXN( txn->txn ), txn->txn->payload, &pack_flags, NULL, NULL, NULL, NULL, NULL );
+  fd_gui_store_replay_txn_t rec = {
+    .insert_time_ns           = now,
+    .completion_time_ns       = fd_gui_tick_to_nanos( gui, now, tick_now, fd_long_max( txn->tick_sigverify_done, txn->tick_commit_end ) ),
+    .block_compute_unit_limit = txn->max_compute_units,
+    .slot                     = txn->slot,
+    .txn_idx                  = txn->index_in_slot,
+    .txn_exec_idx             = txn->exec_tile_idx,
+    .txn_sigverify_exec_idx   = txn->sigverify_exec_tile_idx,
+    .txn_start_shred_idx      = txn->txn->start_shred_idx,
+    .txn_end_shred_idx        = txn->txn->end_shred_idx,
+    .sigverify_start_ns       = fd_gui_tick_to_nanos( gui, now, tick_now, txn->tick_sigverify_disp ),
+    .sigverify_end_ns         = fd_gui_tick_to_nanos( gui, now, tick_now, txn->tick_sigverify_done ),
+    .load_start_ns            = fd_gui_tick_to_nanos( gui, now, tick_now, txn->tick_load_start ),
+    .check_start_ns           = fd_gui_tick_to_nanos( gui, now, tick_now, txn->tick_check_start ),
+    .exec_start_ns            = fd_gui_tick_to_nanos( gui, now, tick_now, txn->tick_exec_start ),
+    .commit_start_ns          = fd_gui_tick_to_nanos( gui, now, tick_now, txn->tick_commit_start ),
+    .commit_end_ns            = fd_gui_tick_to_nanos( gui, now, tick_now, txn->tick_commit_end ),
+    .transaction_fee          = txn->transaction_fee,
+    .priority_fee             = txn->priority_fee,
+    .tips                     = txn->tips,
+    .compute_units_requested  = (uint)requested,
+    .compute_units_consumed   = txn->compute_units_consumed,
+    .error_code               = (uint)(-(long)txn->txn_err),
+    .is_committable           = (uchar)!!txn->is_committable,
+    .is_fees_only             = (uchar)!!txn->is_fees_only,
+    .is_simple_vote           = (uchar)!!txn->is_simple_vote
+  };
+  fd_memcpy( rec.signature, txn->txn->payload+TXN( txn->txn )->signature_off, FD_TXN_SIGNATURE_SZ );
+  fd_gui_record_replay_txn( gui, &rec );
+}
+
 void
 fd_gui_handle_replay_update( fd_gui_t *                         gui,
                              fd_replay_slot_completed_t const * slot_completed,
@@ -3493,7 +3739,7 @@ fd_gui_became_leader( fd_gui_t * gui,
                       ulong      _slot,
                       long       start_time_nanos,
                       long       end_time_nanos,
-                      ulong      max_compute_units FD_PARAM_UNUSED,
+                      ulong      max_compute_units,
                       ulong      max_microblocks,
                       ulong      bank_seq ) {
   if( FD_UNLIKELY( fd_gui_slot_is_mine( gui, _slot ) && !fd_gui_slot_is_mine( gui, _slot-1UL ) ) ) {
@@ -3506,6 +3752,7 @@ fd_gui_became_leader( fd_gui_t * gui,
   lslot->leader_start_time = fd_long_if( lslot->leader_start_time==LONG_MAX, start_time_nanos, lslot->leader_start_time );
   lslot->leader_end_time   = end_time_nanos;
   lslot->max_microblocks   = max_microblocks;
+  lslot->max_compute_units = max_compute_units;
   if( FD_LIKELY( lslot->microblocks_upper_bound==UINT_MAX ) ) lslot->microblocks_upper_bound = (uint)max_microblocks;
 }
 
@@ -3642,6 +3889,65 @@ fd_gui_stage_leader_block_votes( fd_gui_t *   gui,
   }
 }
 
+static inline long
+fd_gui_ns_dt_float_to_long( float dt ) {
+  return (long)((double)dt+0.5);
+}
+
+/* fd_gui_record_leader_txn converts a transaction executed by the
+   leader pipeline into a replay record, so leader and replayed
+   transactions are served from the same store. */
+
+static void
+fd_gui_record_leader_txn( fd_gui_t *     gui,
+                          fd_txn_p_t *   txn_p,
+                          ulong          txn_idx,
+                          ulong          bank_idx,
+                          ulong          slot,
+                          ulong          block_compute_unit_limit,
+                          fd_txn_ns_dt_t txn_ns_dt,
+                          long           exec_end_ticks,
+                          ulong          tips,
+                          uint           error_code,
+                          long           now ) {
+  uint  pack_flags         = 0U;
+  ulong priority_fee       = 0UL;
+  ulong precompile_sig_cnt = 0UL;
+  ulong requested = fd_pack_compute_cost( TXN( txn_p ), txn_p->payload, &pack_flags, NULL,
+                                          &priority_fee, &precompile_sig_cnt, NULL, NULL );
+  long commit_end_ns = fd_gui_tick_to_nanos( gui, now, fd_tickcount(), exec_end_ticks );
+  long start_ns      = fd_long_sat_sub( commit_end_ns, fd_gui_ns_dt_float_to_long( txn_ns_dt.commit_end ) );
+  fd_gui_store_replay_txn_t replay = {
+    .insert_time_ns           = now,
+    .completion_time_ns       = commit_end_ns,
+    .block_compute_unit_limit = block_compute_unit_limit,
+    .slot                     = slot,
+    .txn_idx                  = txn_idx, /* pack index, not position in the produced block */
+    .txn_exec_idx             = bank_idx,
+    .txn_sigverify_exec_idx   = ULONG_MAX,
+    .txn_start_shred_idx      = UINT_MAX, /* execle's union holds pack_alloc, not shred indices */
+    .txn_end_shred_idx        = UINT_MAX,
+    .sigverify_start_ns       = LONG_MAX,
+    .sigverify_end_ns         = LONG_MAX,
+    .load_start_ns            = fd_long_sat_add( start_ns, fd_gui_ns_dt_float_to_long( txn_ns_dt.load_start ) ),
+    .check_start_ns           = fd_long_sat_add( start_ns, fd_gui_ns_dt_float_to_long( txn_ns_dt.check_start ) ),
+    .exec_start_ns            = fd_long_sat_add( start_ns, fd_gui_ns_dt_float_to_long( txn_ns_dt.exec_start ) ),
+    .commit_start_ns          = fd_long_sat_add( start_ns, fd_gui_ns_dt_float_to_long( txn_ns_dt.commit_start ) ),
+    .commit_end_ns            = commit_end_ns,
+    .transaction_fee          = FD_PACK_FEE_PER_SIGNATURE*(TXN( txn_p )->signature_cnt+precompile_sig_cnt), /* before burn, like replay */
+    .priority_fee             = priority_fee,
+    .tips                     = tips,
+    .compute_units_requested  = (uint)requested,
+    .compute_units_consumed   = txn_p->execle_cu.actual_consumed_cus,
+    .error_code               = error_code,
+    .is_committable           = 1U,
+    .is_fees_only             = (uchar)!!(txn_p->flags & FD_TXN_P_FLAGS_FEES_ONLY),
+    .is_simple_vote           = (uchar)!!(txn_p->flags & FD_TXN_P_FLAGS_IS_SIMPLE_VOTE)
+  };
+  fd_memcpy( replay.signature, txn_p->payload+TXN( txn_p )->signature_off, FD_TXN_SIGNATURE_SZ );
+  fd_gui_record_replay_txn( gui, &replay );
+}
+
 void
 fd_gui_microblock_execution_end( fd_gui_t *     gui,
                                  long           tspub_ns,
@@ -3651,6 +3957,7 @@ fd_gui_microblock_execution_end( fd_gui_t *     gui,
                                  fd_txn_p_t *   txns,
                                  ulong          pack_txn_idx,
                                  fd_txn_ns_dt_t txn_ns_dt,
+                                 long           exec_end_ticks,
                                  ulong          tips,
                                  ulong          bank_seq,
                                  long           now ) {
@@ -3661,11 +3968,13 @@ fd_gui_microblock_execution_end( fd_gui_t *     gui,
 
   lslot->leader_start_time = fd_long_if( lslot->leader_start_time==LONG_MAX, tspub_ns, lslot->leader_start_time );
 
+  ulong block_compute_unit_limit = lslot->max_compute_units;
   for( ulong i=0UL; i<txn_cnt; i++ ) {
     fd_txn_p_t * txn_p = &txns[ i ];
     ulong txn_idx = pack_txn_idx + i;
 
-    uchar flags = (uchar)FD_GUI_TXN_FLAGS_ENDED;
+    uint  error_code = (txn_p->flags>>24) & 0xFFU;
+    uchar flags      = (uchar)FD_GUI_TXN_FLAGS_ENDED;
     flags |= (uchar)fd_uint_if( !!(txn_p->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS), FD_GUI_TXN_FLAGS_LANDED_IN_BLOCK, 0U );
 
     fd_gui_store_txn_end_t rec = {
@@ -3679,7 +3988,7 @@ fd_gui_microblock_execution_end( fd_gui_t *     gui,
       .tips                    = tips,
       .compute_units_consumed  = (uint)(txn_p->execle_cu.actual_consumed_cus & 0x1FFFFFU),
       .bank_idx                = (uint)(bank_idx & 0x3FU),
-      .error_code              = (uint)((txn_p->flags >> 24) & 0x3FU),
+      .error_code              = error_code,
       .flags                   = flags
     };
     if( FD_LIKELY( !fd_gui_hist_ts_append( gui, FD_GUI_HIST_TXN_END, &rec ) ) ) {
@@ -3688,6 +3997,10 @@ fd_gui_microblock_execution_end( fd_gui_t *     gui,
         lslot->txn_insert_time_min_ns = fd_long_min( lslot->txn_insert_time_min_ns, now );
         lslot->txn_insert_time_max_ns = fd_long_max( lslot->txn_insert_time_max_ns, now );
       }
+    }
+
+    if( FD_LIKELY( gui->db && gui->hist && (txn_p->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS) && exec_end_ticks!=LONG_MAX ) ) {
+      fd_gui_record_leader_txn( gui, txn_p, txn_idx, bank_idx, _slot, block_compute_unit_limit, txn_ns_dt, exec_end_ticks, tips, error_code, now );
     }
 
     /* Record our own votes that land in our own leader block. */

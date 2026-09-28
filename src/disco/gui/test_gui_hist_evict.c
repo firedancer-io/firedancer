@@ -20,6 +20,7 @@
 #include "../fd_txn_m.h"
 #include "../../ballet/json/fd_jtok.h"
 #include "../../waltz/http/fd_http_server_private.h"
+#include "../../flamenco/runtime/fd_system_ids.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -664,10 +665,8 @@ test_timeline_db( fd_gui_t * gui ) {
   FD_TEST( fd_gui_timeline_field_get( day, FD_GUI_TIMELINE_GRANULARITY_250MS, FD_GUI_TIMELINE_FIELD_SKIPPED, 0UL )==(ulong)USHORT_MAX-1UL );
   fd_gui_timeline_field_set( day, FD_GUI_TIMELINE_GRANULARITY_15M, FD_GUI_TIMELINE_FIELD_PUBLISHED, 0UL, (ulong)UINT_MAX );
   FD_TEST( fd_gui_timeline_field_get( day, FD_GUI_TIMELINE_GRANULARITY_15M, FD_GUI_TIMELINE_FIELD_PUBLISHED, 0UL )==(ulong)UINT_MAX-1UL );
-  FD_TEST( sizeof(day->bucket_250ms.skipped[0])==sizeof(ushort) );
-  FD_TEST( sizeof(day->bucket_2h.skipped[0])==sizeof(ushort) );
-  FD_TEST( sizeof(day->bucket_12h.skipped[0])==sizeof(uint) );
-  FD_TEST( sizeof(day->bucket_15s.compute_units[0])==sizeof(ulong) );
+  fd_gui_timeline_field_set( day, FD_GUI_TIMELINE_GRANULARITY_250MS, FD_GUI_TIMELINE_FIELD_TIPS, 0UL, 10UL*(ulong)UINT_MAX );
+  FD_TEST( fd_gui_timeline_field_get( day, FD_GUI_TIMELINE_GRANULARITY_250MS, FD_GUI_TIMELINE_FIELD_TIPS, 0UL )==10UL*(ulong)UINT_MAX );
   free( day );
 
   long const source_ns = sec_ns( 2000UL );
@@ -803,7 +802,7 @@ test_txn_insert_bounds( fd_gui_t * gui ) {
   for( ulong i=0UL; i<2UL; i++ ) {
     long start_ns = sec_ns( 11UL-i );
     fd_gui_microblock_execution_begin( gui, start_ns, slot_num, txn, 1UL, (uint)i, i, bank_seq, sec_ns( 100UL+i ) );
-    fd_gui_microblock_execution_end( gui, start_ns+100L, i, slot_num, 1UL, txn->txnp, i, dt, 0UL, bank_seq, sec_ns( 102UL+i ) );
+    fd_gui_microblock_execution_end( gui, start_ns+100L, i, slot_num, 1UL, txn->txnp, i, dt, LONG_MAX, 0UL, bank_seq, sec_ns( 102UL+i ) );
   }
   lslot = fd_gui_slot_leader_get( gui, slot_num, bank_seq );
   FD_TEST( lslot && lslot->begin_microblocks==2U && lslot->end_microblocks==2U );
@@ -818,7 +817,7 @@ test_txn_insert_bounds( fd_gui_t * gui ) {
   fd_gui_leader_slot_t * other = fd_gui_slot_leader_get_or_create( gui, slot_num, bank_seq-1UL );
   FD_TEST( other );
   fd_gui_microblock_execution_begin( gui, sec_ns( 50UL ), slot_num, txn, 1UL, 0U, 0UL, bank_seq-1UL, sec_ns( 101UL ) );
-  fd_gui_microblock_execution_end( gui, sec_ns( 50UL )+1L, 0UL, slot_num, 1UL, txn->txnp, 0UL, dt, 0UL, bank_seq-1UL, sec_ns( 103UL ) );
+  fd_gui_microblock_execution_end( gui, sec_ns( 50UL )+1L, 0UL, slot_num, 1UL, txn->txnp, 0UL, dt, LONG_MAX, 0UL, bank_seq-1UL, sec_ns( 103UL ) );
 
   fd_gui_slot_t slot = { .slot=slot_num, .bank_seq=bank_seq, .parent_slot=ULONG_MAX,
                          .completed_time=LONG_MAX, .level=FD_GUI_SLOT_LEVEL_COMPLETED,
@@ -885,7 +884,7 @@ test_txn_insert_bounds( fd_gui_t * gui ) {
   ulong start_appends = metrics->ts_appends[ FD_GUI_HIST_TXN_START ];
   ulong end_appends   = metrics->ts_appends[ FD_GUI_HIST_TXN_END ];
   fd_gui_microblock_execution_begin( gui, sec_ns( 20UL ), slot_num, txn, 1UL, 2U, 2UL, bank_seq, sec_ns( 99UL ) );
-  fd_gui_microblock_execution_end( gui, sec_ns( 20UL )+1L, 0UL, slot_num, 1UL, txn->txnp, 2UL, dt, 0UL, bank_seq, sec_ns( 99UL ) );
+  fd_gui_microblock_execution_end( gui, sec_ns( 20UL )+1L, 0UL, slot_num, 1UL, txn->txnp, 2UL, dt, LONG_MAX, 0UL, bank_seq, sec_ns( 99UL ) );
   FD_TEST( metrics->ts_appends[ FD_GUI_HIST_TXN_START ]==start_appends );
   FD_TEST( metrics->ts_appends[ FD_GUI_HIST_TXN_END   ]==end_appends );
   lslot = fd_gui_slot_leader_get( gui, slot_num, bank_seq );
@@ -893,7 +892,7 @@ test_txn_insert_bounds( fd_gui_t * gui ) {
   FD_TEST( lslot->txn_insert_time_max_ns==sec_ns( 103UL ) );
 
   fd_gui_microblock_execution_begin( gui, sec_ns( 20UL ), slot_num, txn, 1UL, 2U, 2UL, bank_seq+1UL, sec_ns( 99UL ) );
-  fd_gui_microblock_execution_end( gui, sec_ns( 20UL )+1L, 0UL, slot_num, 1UL, txn->txnp, 2UL, dt, 0UL, bank_seq+1UL, sec_ns( 99UL ) );
+  fd_gui_microblock_execution_end( gui, sec_ns( 20UL )+1L, 0UL, slot_num, 1UL, txn->txnp, 2UL, dt, LONG_MAX, 0UL, bank_seq+1UL, sec_ns( 99UL ) );
   other = fd_gui_slot_leader_get( gui, slot_num, bank_seq+1UL );
   FD_TEST( other && other->txn_insert_time_min_ns==LONG_MAX && other->txn_insert_time_max_ns==LONG_MIN );
 
@@ -1158,6 +1157,154 @@ test_shred_epoch_retention( fd_gui_t * gui,
   FD_LOG_NOTICE(( "test_shred_epoch_retention: %lu events; ok", cnt ));
 }
 
+/* ---- timeline.query_agg_revenue ------------------------------------- */
+
+/* check_response compares the staged websocket response to expected
+   exactly, and discards it. */
+
+static void
+check_response( fd_gui_t *   gui,
+                char const * expected ) {
+  FD_TEST( !gui->http->stage_err );
+  ulong len = fd_http_server_stage_len( gui->http );
+  ulong off = gui->http->stage_off%gui->http->oring_sz;
+  FD_TEST( len && off+len<=gui->http->oring_sz );
+  if( FD_UNLIKELY( len!=strlen( expected ) || memcmp( gui->http->oring+off, expected, len ) ) ) {
+    FD_LOG_WARNING(( "expected: %s", expected ));
+    FD_LOG_ERR(( "     got: %.*s", (int)len, (char const *)gui->http->oring+off ));
+  }
+  fd_http_server_stage_trunc( gui->http, 0UL );
+}
+
+static void
+test_timeline_revenue( fd_gui_t * gui ) {
+  fd_http_server_params_t params = {
+    .max_connection_cnt    = 1UL,
+    .max_ws_connection_cnt = 1UL,
+    .max_request_len       = 1024UL,
+    .max_ws_recv_frame_len = 1024UL,
+    .max_ws_send_frame_cnt = 4UL,
+    .outgoing_buffer_sz    = FD_GUI_HTTP_MIN_SEND_BUFFER_SZ
+  };
+  void * http_mem = aligned_alloc( fd_http_server_align(), fd_http_server_footprint( params ) );
+  FD_TEST( http_mem );
+  gui->http = fd_http_server_join( fd_http_server_new( http_mem, params, (fd_http_server_callbacks_t){0}, NULL ) );
+  FD_TEST( gui->http );
+
+  /* Empty history: every bucket is unknown and no bounds are available. */
+  FD_TEST( !fd_gui_printf_timeline_query_agg_revenue( gui, "250ms", 0UL, 0L, 2UL, 7UL ) );
+  check_response( gui, "{\"topic\":\"timeline\",\"key\":\"query_agg_revenue\",\"id\":7,\"value\":{\"granularity\":\"250ms\",\"reference_ts_ns\":\"0\","
+                       "\"available_start_ns\": null,\"available_end_ns\": null,\"txn_fees\":[null,null],\"prio_fees\":[null,null],\"tips\":[null,null]}}" );
+
+  /* Malformed requests: missing or unknown granularity, empty range, too many buckets. */
+  char const * invalid[] = {
+    "{\"start_ns\":\"0\",\"end_ns\":\"2\"}",
+    "{\"start_ns\":\"0\",\"end_ns\":\"2\",\"granularity\":\"100ms\"}",
+    "{\"start_ns\":\"2\",\"end_ns\":\"2\",\"granularity\":\"250ms\"}",
+    "{\"start_ns\":\"0\",\"end_ns\":\"2500000000001\",\"granularity\":\"250ms\"}"
+  };
+  for( ulong i=0UL; i<sizeof(invalid)/sizeof(invalid[ 0 ]); i++ ) {
+    char request[ 512 ];
+    fd_cstr_printf_check( request, sizeof(request), NULL, "{\"id\":7,\"topic\":\"timeline\",\"key\":\"query_agg_revenue\",\"params\":%s}", invalid[ i ] );
+    FD_TEST( fd_gui_ws_message( gui, 0UL, (uchar const *)request, strlen(request) )==FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST );
+    FD_TEST( !fd_http_server_stage_len( gui->http ) );
+  }
+  char const * valid = "{\"id\":7,\"topic\":\"timeline\",\"key\":\"query_agg_revenue\","
+                       "\"params\":{\"start_ns\":\"0\",\"end_ns\":\"2500000000000\",\"granularity\":\"250ms\"}}";
+  FD_TEST( !fd_gui_ws_message( gui, 0UL, (uchar const *)valid, strlen(valid) ) );
+  fd_http_server_stage_trunc( gui->http, 0UL );
+
+  /* Replay producer: fees and tips are recorded at commit time. */
+  long const now  = sec_ns( 10UL ) + 500000000L;
+  long const tick = fd_tickcount();
+  gui->tick_per_ns = 1e30; /* deterministic sub-nanosecond tick offsets */
+  fd_replay_txn_executed_t executed = {
+    .slot=101UL, .exec_tile_idx=3UL, .sigverify_exec_tile_idx=4UL, .index_in_slot=5UL,
+    .tick_sigverify_disp=tick, .tick_sigverify_done=tick, .tick_load_start=tick,
+    .tick_check_start=LONG_MAX, .tick_exec_start=LONG_MAX, .tick_commit_start=LONG_MAX, .tick_commit_end=tick,
+    .is_committable=1, .max_compute_units=60000000UL, .transaction_fee=5000UL, .priority_fee=11UL, .tips=13UL
+  };
+  executed.txn->payload[ 0 ]  = 1U;
+  executed.txn->payload[ 65 ] = 1U;
+  executed.txn->payload[ 68 ] = 1U;
+  executed.txn->payload_sz    = 134U;
+  FD_TEST( fd_txn_parse( executed.txn->payload, executed.txn->payload_sz, TXN( executed.txn ), NULL ) );
+  fd_gui_handle_replay_txn( gui, &executed, now );
+  executed.tick_commit_end = LONG_MAX; /* incomplete transactions are not recorded */
+  fd_gui_handle_replay_txn( gui, &executed, now );
+
+  /* Leader producer: execle rows use pack fees, including precompile
+     signatures, and the tips supplied by the trailer. */
+  fd_gui_became_leader( gui, 500UL, now, now+sec_ns( 1UL ), 60000000UL, 8UL, 7UL );
+  FD_TEST( fd_gui_slot_leader_get( gui, 500UL, 7UL )->max_compute_units==60000000UL );
+  fd_txn_p_t txn = {0};
+  txn.payload[ 0 ]  = 1U;
+  txn.payload[ 65 ] = 1U;
+  txn.payload[ 67 ] = 2U;
+  txn.payload[ 68 ] = 3U;
+  fd_memcpy( txn.payload+101UL, &fd_solana_compute_budget_program_id, 32UL );
+  fd_memcpy( txn.payload+133UL, &fd_solana_ed25519_sig_verify_program_id, 32UL );
+  txn.payload[ 197 ] = 3U;
+  uchar instrs[] = { 1U,0U,5U,2U,0xE8U,3U,0U,0U, /* CU limit 1000 */
+                     1U,0U,9U,3U,0x40U,0x42U,0x0FU,0U,0U,0U,0U,0U, /* price 1e6 */
+                     2U,0U,30U,2U,0U };
+  fd_memcpy( txn.payload+198UL, instrs, sizeof(instrs) );
+  txn.payload_sz = (ushort)(198UL+sizeof(instrs)+28UL);
+  FD_TEST( fd_txn_parse( txn.payload, txn.payload_sz, TXN( &txn ), NULL ) );
+  fd_txn_ns_dt_t dt = { .load_start=10.4f, .check_start=20.6f, .exec_start=30.4f, .commit_start=60.6f, .commit_end=100.4f };
+  txn.flags = FD_TXN_P_FLAGS_EXECUTE_SUCCESS | (200U<<24);
+  txn.execle_cu.actual_consumed_cus = 42U;
+  fd_gui_microblock_execution_end( gui, now, 3UL, 500UL, 1UL, &txn, 17UL, dt, fd_tickcount(), 7UL, 7UL, now );
+  txn.flags = 0U; /* a non-landed transaction is not recorded */
+  fd_gui_microblock_execution_end( gui, now, 3UL, 500UL, 1UL, &txn, 18UL, dt, fd_tickcount(), 7UL, 7UL, now );
+  FD_TEST( count_ts( gui, FD_GUI_HIST_REPLAY_TXN, ULONG_MAX )==2UL );
+
+  /* Error code, unknown shred indices and commit time come from the
+     leader row; fees and tips are checked through the query below. */
+  fd_gui_hist_iter_t it;
+  FD_TEST( !fd_gui_hist_range_begin( gui, &it, FD_GUI_HIST_REPLAY_TXN, now, now, NULL, NULL ) );
+  FD_TEST( fd_gui_hist_range_next( &it ) && fd_gui_hist_range_next( &it ) );
+  fd_gui_store_replay_txn_t const * rec = it.rec;
+  FD_TEST( rec->slot==500UL && rec->commit_end_ns==now && rec->error_code==200U );
+  FD_TEST( rec->txn_start_shred_idx==UINT_MAX && rec->txn_end_shred_idx==UINT_MAX );
+  fd_gui_hist_range_end( &it );
+
+  /* Transactions with an invalid fee payer (errors 5 and 6) pay no fees
+     or tips, and failed transactions pay no tips, so the aggregates
+     below are unaffected by these rows. */
+  executed.tick_commit_end = tick;
+  executed.transaction_fee = 7000UL;
+  executed.priority_fee    = 17UL;
+  executed.tips            = 19UL;
+  executed.txn_err         = -5;
+  fd_gui_handle_replay_txn( gui, &executed, now );
+  executed.txn_err         = -6;
+  fd_gui_handle_replay_txn( gui, &executed, now );
+
+  /* Both producers land in one bucket at the 250ms, 1s (4x250ms) and
+     1d (2x12h) granularities.  The next bucket is unknown; for 1d it
+     is a day with no record at all. */
+  ulong const gs[] = { 0UL, 2UL, 19UL };
+  for( ulong i=0UL; i<sizeof(gs)/sizeof(gs[ 0 ]); i++ ) {
+    ulong g   = gs[ i ];
+    ulong ns  = fd_gui_timeline_granularity_ns( g );
+    long  ref = (long)((ulong)now/ns*ns);
+    char expected[ 512 ];
+    fd_cstr_printf_check( expected, sizeof(expected), NULL,
+                          "{\"topic\":\"timeline\",\"key\":\"query_agg_revenue\",\"id\":7,\"value\":{\"granularity\":\"%s\",\"reference_ts_ns\":\"%ld\","
+                          "\"available_start_ns\":\"0\",\"available_end_ns\":\"86400000000000\","
+                          "\"txn_fees\":[\"20000\",null],\"prio_fees\":[\"1011\",null],\"tips\":[\"13\",null]}}",
+                          fd_gui_timeline_granularities[ g ].name, ref );
+    FD_TEST( !fd_gui_printf_timeline_query_agg_revenue( gui, fd_gui_timeline_granularities[ g ].name, g, ref, 2UL, 7UL ) );
+    check_response( gui, expected );
+  }
+
+  FD_TEST( fd_http_server_delete( fd_http_server_leave( gui->http ) )==http_mem );
+  free( http_mem );
+  gui->http = NULL;
+  FD_LOG_NOTICE(( "test_timeline_revenue: requests, replay and leader producers, granularities: ok" ));
+}
+
 /* ---- space-pressure trigger ------------------------------------------
 
    The space-pressure *trigger* (high-water threshold via
@@ -1243,6 +1390,11 @@ main( int     argc,
   store_open( tx, 1UL<<30, 14 );
   test_txn_insert_bounds( tx->gui );
   store_close( tx );
+
+  test_store_t rv[ 1 ];
+  store_open( rv, 1UL<<30, 28 );
+  test_timeline_revenue( rv->gui );
+  store_close( rv );
 
   test_store_t s7[ 1 ];
   store_open( s7, 1UL<<30, 10 );

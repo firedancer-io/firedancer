@@ -311,6 +311,16 @@ fd_gui_store_ts_append( fd_gui_store_t * db,
                         ulong            ring_idx,
                         void const *     val );
 
+/* fd_gui_store_ts_emplace appends one record with timestamp ts to ring
+   `ring_idx` in place.  On success, *val_out points to the stored
+   record. */
+
+int
+fd_gui_store_ts_emplace( fd_gui_store_t * db,
+                         ulong            ring_idx,
+                         long             ts,
+                         void **          val_out );
+
 /* fd_gui_store_ts_filter_fn is an optional per-record predicate
    evaluated during a scan: it returns non-zero to emit the record or
    zero to skip it. A NULL filter accepts every record. */

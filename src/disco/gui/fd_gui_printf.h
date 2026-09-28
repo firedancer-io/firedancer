@@ -112,6 +112,14 @@ fd_gui_printf_timeline_query_shreds( fd_gui_t *   gui,
                                      long         end_ns,
                                      ulong        id );
 
+int
+fd_gui_printf_timeline_query_agg_revenue( fd_gui_t *   gui,
+                                          char const * granularity,
+                                          ulong        g,
+                                          long         reference,
+                                          ulong        count,
+                                          ulong        id );
+
 void
 fd_gui_printf_shred_rebroadcast( fd_gui_t * gui, long after, long before );
 
