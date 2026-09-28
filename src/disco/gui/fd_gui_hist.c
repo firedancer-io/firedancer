@@ -467,14 +467,21 @@ fd_gui_hist_ts_append( fd_gui_t *   gui,
                        int          dbi,
                        void const * val ) {
   if( FD_UNLIKELY( dbi<0 || dbi>=FD_GUI_HIST_CNT ) ) { FD_LOG_WARNING(( "fd_gui_hist_ts_append: bad dbi %d", dbi )); return -1; }
+<<<<<<< HEAD
   if( FD_UNLIKELY( !fd_gui_hist_is_timeseries( dbi ) ) ) { FD_LOG_WARNING(( "fd_gui_hist_ts_append: dbi %d is not time-series", dbi )); return -1; }
   ulong rec_sz = fd_gui_hist_rec_sz( dbi );
   if( FD_UNLIKELY( !rec_sz ) ) { FD_LOG_WARNING(( "fd_gui_hist_ts_append: dbi %d has no record type", dbi )); return -1; }
+=======
+>>>>>>> 185507a651 (gui: add timeline.query_agg_revenue)
   long stored_ts;
   fd_memcpy( &stored_ts, (uchar const *)val + fd_gui_hist_dbi_ts_off( dbi ), sizeof(stored_ts) );
   void * dst = fd_gui_hist_ts_emplace( gui, dbi, stored_ts );
   if( FD_UNLIKELY( !dst ) ) return -1;
+<<<<<<< HEAD
   fd_memcpy( dst, val, rec_sz );
+=======
+  fd_memcpy( dst, val, fd_gui_hist_rec_sz( dbi ) );
+>>>>>>> 185507a651 (gui: add timeline.query_agg_revenue)
   return 0;
 }
 

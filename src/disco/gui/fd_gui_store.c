@@ -807,7 +807,10 @@ fd_gui_store_ts_append( fd_gui_store_t * db,
                         void const *     val ) {
   if( FD_UNLIKELY( ring_idx>=db->ring_cnt ) ) { FD_LOG_WARNING(( "fd_gui_store_ts_append: bad ring_idx %lu", ring_idx )); return FD_GUI_STORE_ERR; }
   fd_gui_store_ring_t const * p = &db->super->ring[ ring_idx ];
+<<<<<<< HEAD
   if( FD_UNLIKELY( p->kind!=FD_GUI_STORE_KIND_TS ) ) { FD_LOG_WARNING(( "fd_gui_store_ts_append: ring_idx %lu is not a TS ring", ring_idx )); return FD_GUI_STORE_ERR; }
+=======
+>>>>>>> 185507a651 (gui: add timeline.query_agg_revenue)
   long ts;
   fd_memcpy( &ts, (uchar const *)val + p->ts_off, sizeof(ts) );
   void * slot = NULL;
