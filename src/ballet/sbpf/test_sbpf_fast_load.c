@@ -28,7 +28,10 @@ static uint const _syscalls[] = {
   0U
 };
 
-#define FIX(id,path) FD_IMPORT_BINARY( id, "src/ballet/sbpf/fixtures/" path )
+/* fix_ prefix: an unprefixed fixture named after a libc symbol (clock)
+   collides with it at link time. */
+
+#define FIX(id,path) FD_IMPORT_BINARY( fix_##id, "src/ballet/sbpf/fixtures/" path )
 FIX( hello,    "hello_solana_program.so"        );
 FIX( hello_v2, "hello_solana_program_sbpf_v2.so" );
 FIX( dup_ep,   "duplicate_entrypoint_entry.elf"  );
@@ -36,6 +39,7 @@ FIX( clock,    "clock_sysvar_program.so"         );
 /* A lenient program with a relocation that targets the ELF tail (outside the
    read-only image): not fast-path eligible, loads via the scratch fallback. */
 FIX( tail_reloc, "vm_program_tail_reloc.so" );
+#undef FIX
 
 /* A loaded program plus the buffers backing it. */
 typedef struct {
@@ -157,12 +161,12 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  test_fast_equiv( "hello_solana_program",         hello,    hello_sz    );
-  test_fast_equiv( "hello_solana_program_sbpf_v2", hello_v2, hello_v2_sz );
-  test_fast_equiv( "duplicate_entrypoint_entry",   dup_ep,   dup_ep_sz   );
-  test_fast_equiv( "clock_sysvar_program",         clock,    clock_sz    );
+  test_fast_equiv( "hello_solana_program",         fix_hello,    fix_hello_sz    );
+  test_fast_equiv( "hello_solana_program_sbpf_v2", fix_hello_v2, fix_hello_v2_sz );
+  test_fast_equiv( "duplicate_entrypoint_entry",   fix_dup_ep,   fix_dup_ep_sz   );
+  test_fast_equiv( "clock_sysvar_program",         fix_clock,    fix_clock_sz    );
 
-  test_legacy_tail_reloc( "vm_program_tail_reloc", tail_reloc, tail_reloc_sz );
+  test_legacy_tail_reloc( "vm_program_tail_reloc", fix_tail_reloc, fix_tail_reloc_sz );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
