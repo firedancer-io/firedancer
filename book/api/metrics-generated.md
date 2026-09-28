@@ -586,6 +586,7 @@
 | <span class="metrics-name">execle_&#8203;txn_&#8203;version</span><br/>{txn_&#8203;version="<span class="metrics-enum">v1</span>"} | counter | Number of transactions executed, broken down by transaction version (Version 1 transaction format) |
 | <span class="metrics-name">execle_&#8203;instruction_&#8203;executed</span> | counter | Number of top-level instructions executed |
 | <span class="metrics-name">execle_&#8203;cpi_&#8203;executed</span> | counter | Number of cross-program invocations executed |
+| <span class="metrics-name">execle_&#8203;lthash_&#8203;unchanged</span> | counter | Number of committed writable accounts left byte-identical by their transaction, whose lthash update was skipped |
 | <span class="metrics-name">execle_&#8203;cu_&#8203;executed</span> | counter | Estimated compute units executed since tile start |
 | <span class="metrics-name">execle_&#8203;txn_&#8203;regime_&#8203;duration_&#8203;nanos</span><br/>{txn_&#8203;regime="<span class="metrics-enum">setup</span>"} | counter | Mutually exclusive and exhaustive duration spent in transaction execution regimes, in nanoseconds (Transaction setup) |
 | <span class="metrics-name">execle_&#8203;txn_&#8203;regime_&#8203;duration_&#8203;nanos</span><br/>{txn_&#8203;regime="<span class="metrics-enum">exec</span>"} | counter | Mutually exclusive and exhaustive duration spent in transaction execution regimes, in nanoseconds (Transaction execution (includes VM setup/execution)) |
@@ -1265,6 +1266,7 @@
 | <span class="metrics-name">execrp_&#8203;poh_&#8203;hashed</span> | counter | PoH SHA-256 calls executed |
 | <span class="metrics-name">execrp_&#8203;instruction_&#8203;executed</span> | counter | Number of top-level instructions executed |
 | <span class="metrics-name">execrp_&#8203;cpi_&#8203;executed</span> | counter | Number of cross-program invocations executed |
+| <span class="metrics-name">execrp_&#8203;lthash_&#8203;unchanged</span> | counter | Number of committed writable accounts left byte-identical by their transaction, whose lthash update was skipped |
 | <span class="metrics-name">execrp_&#8203;txn_&#8203;regime_&#8203;duration_&#8203;nanos</span><br/>{txn_&#8203;regime="<span class="metrics-enum">setup</span>"} | counter | Mutually exclusive and exhaustive duration spent in transaction execution regimes, in nanoseconds (Transaction setup) |
 | <span class="metrics-name">execrp_&#8203;txn_&#8203;regime_&#8203;duration_&#8203;nanos</span><br/>{txn_&#8203;regime="<span class="metrics-enum">exec</span>"} | counter | Mutually exclusive and exhaustive duration spent in transaction execution regimes, in nanoseconds (Transaction execution (includes VM setup/execution)) |
 | <span class="metrics-name">execrp_&#8203;txn_&#8203;regime_&#8203;duration_&#8203;nanos</span><br/>{txn_&#8203;regime="<span class="metrics-enum">commit</span>"} | counter | Mutually exclusive and exhaustive duration spent in transaction execution regimes, in nanoseconds (Transaction result commit) |
