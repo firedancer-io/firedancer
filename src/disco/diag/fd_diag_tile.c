@@ -254,16 +254,18 @@ read_sched_file( int              fd,
       if( FD_LIKELY( colon ) ) {
         char * value = colon + 1;
         while( ' '==*value || '\t'==*value ) value++;
-        /* wait_sum is displayed as seconds.microseconds (e.g., "123.456789").
-           Parse both components as integers and convert to nanoseconds. */
+        /* The kernel prints wait_sum with SPLIT_NS as milliseconds with
+           six fractional digits (e.g. "123.456789" is 123.456789 ms),
+           not seconds.  Parse both components as integers and convert
+           to nanoseconds. */
         char * endptr;
-        ulong seconds = strtoul( value, &endptr, 10 );
-        if( FD_UNLIKELY( '.'!=*endptr ) ) FD_LOG_ERR(( "expected '.' after seconds in wait_sum" ));
-        if( FD_UNLIKELY( seconds==ULONG_MAX ) ) FD_LOG_ERR(( "strtoul overflow for wait_sum seconds" ));
-        ulong microseconds = strtoul( endptr + 1, &endptr, 10 );
-        if( FD_UNLIKELY( '\0'!=*endptr ) ) FD_LOG_ERR(( "unexpected char after microseconds in wait_sum" ));
-        if( FD_UNLIKELY( microseconds==ULONG_MAX ) ) FD_LOG_ERR(( "strtoul overflow for wait_sum microseconds" ));
-        ulong wait_sum_ns = seconds*1000000000UL + microseconds*1000UL;
+        ulong millis = strtoul( value, &endptr, 10 );
+        if( FD_UNLIKELY( '.'!=*endptr ) ) FD_LOG_ERR(( "expected '.' after milliseconds in wait_sum" ));
+        if( FD_UNLIKELY( millis==ULONG_MAX ) ) FD_LOG_ERR(( "strtoul overflow for wait_sum milliseconds" ));
+        ulong nanos = strtoul( endptr + 1, &endptr, 10 );
+        if( FD_UNLIKELY( '\0'!=*endptr ) ) FD_LOG_ERR(( "unexpected char after fraction in wait_sum" ));
+        if( FD_UNLIKELY( nanos==ULONG_MAX ) ) FD_LOG_ERR(( "strtoul overflow for wait_sum fraction" ));
+        ulong wait_sum_ns = millis*1000000UL + nanos;
         metrics[ FD_METRICS_COUNTER_TILE_CPU_DURATION_NANOS_WAIT_OFF ] = wait_sum_ns;
         found_wait_sum = 1;
       }
