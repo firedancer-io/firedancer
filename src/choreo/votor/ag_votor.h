@@ -48,8 +48,10 @@ ag_votor_init( ag_votor_t *   self,
 void
 ag_votor_fini( ag_votor_t * self );
 
-/* Advances the epoch and copies its compressed BLS public key selector.
-   A NULL bls_pubkey disables voting in that epoch. */
+/* ag_votor_advance_epoch is called at boot and the epoch boundary and
+   updates the rank and BLS key that is used for voting.  A NULL bls
+   pubkey will disable voting for the epoch corresponding to the
+   epoch_slot. */
 
 void
 ag_votor_advance_epoch( ag_votor_t *  self,
@@ -57,6 +59,16 @@ ag_votor_advance_epoch( ag_votor_t *  self,
                         ulong         epoch_rank,
                         ulong         epoch_slot,
                         uchar const * bls_pubkey );
+
+/* ag_votor_set_bls_pubkey updates the BLS key that is used for voting,
+   or stops voting if the BLS key is NULL.  It should be called when
+   authorized voters change.  Replayed blocks that were waiting for a
+   key are voted on immediately. */
+
+void
+ag_votor_set_bls_pubkey( ag_votor_t *  self,
+                         ulong         epoch_slot,
+                         uchar const * bls_pubkey );
 
 /* Algorithm 1, lines 9-25. Votor::handle_pool_event */
 

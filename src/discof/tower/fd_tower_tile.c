@@ -12,6 +12,7 @@
 #include "../../disco/fd_txn_p.h"
 #include "../../disco/events/generated/fd_event_gen.h"
 #include "../../disco/shred/fd_shred_tile.h"
+#include "../../disco/keyguard/fd_keyguard.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
 #include "../../disco/metrics/fd_metrics.h"
@@ -1524,7 +1525,7 @@ during_housekeeping( fd_tower_tile_t * ctx ) {
     if( FD_LIKELY( param==FD_KEYSWITCH_PARAM_AV_ADD ) ) {
       fd_pubkey_t pubkey = *(fd_pubkey_t const *)fd_type_pun_const( ctx->auth_vtr_keyswitch->bytes );
       if( FD_UNLIKELY( auth_vtr_query( ctx->auth_vtr, pubkey, NULL ) ) ) FD_LOG_CRIT(( "keyswitch: duplicate authorized voter key, keys not synced up with sign tile" ));
-      if( FD_UNLIKELY( ctx->auth_vtr_path_cnt==AUTH_VOTERS_MAX ) ) FD_LOG_CRIT(( "keyswitch: too many authorized voters, keys not synced up with sign tile" ));
+      if( FD_UNLIKELY( ctx->auth_vtr_path_cnt==FD_KEYGUARD_AUTH_VOTERS_MAX ) ) FD_LOG_CRIT(( "keyswitch: too many authorized voters, keys not synced up with sign tile" ));
 
       auth_vtr_t * auth_vtr = auth_vtr_insert( ctx->auth_vtr, pubkey );
       auth_vtr->paths_idx = ctx->auth_vtr_path_cnt;

@@ -106,8 +106,6 @@ typedef struct epoch_vtr epoch_vtr_t;
 #define MAP_NEXT               next
 #include "../../util/tmpl/fd_map_chain.c"
 
-#define AUTH_VOTERS_MAX (16UL)
-
 struct in_ctx {
   int         mcache_only;
   fd_wksp_t * mem;

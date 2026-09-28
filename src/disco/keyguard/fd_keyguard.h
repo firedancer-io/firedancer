@@ -17,6 +17,15 @@ FD_PROTOTYPES_BEGIN
 #define FD_KEYGUARD_BLS_PUBKEY_SZ (48UL)
 #define FD_KEYGUARD_BLS_SIG_SZ    (192UL)
 
+/* FD_KEYGUARD_AUTH_VOTERS_MAX is the maximum number of authorized voter
+   keys the sign tile holds besides the identity.  An authority_idx is
+   ULONG_MAX for the identity or in [0,FD_KEYGUARD_AUTH_VOTERS_MAX).
+   Vote transaction and Alpenglow vote signing requests encode
+   authority_idx in 4 bits of the frag sig. */
+
+#define FD_KEYGUARD_AUTH_VOTERS_MAX (16UL)
+FD_STATIC_ASSERT( FD_KEYGUARD_AUTH_VOTERS_MAX<=16UL, auth_voters_max_fits_sign_request );
+
 /* Role definitions ***************************************************/
 
 #define FD_KEYGUARD_ROLE_TXSEND       (0)  /* vote transaction sender */

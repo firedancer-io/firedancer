@@ -545,6 +545,22 @@ ag_votor_advance_epoch( ag_votor_t *  self,
 }
 
 void
+ag_votor_set_bls_pubkey( ag_votor_t *  self,
+                         ulong         epoch_slot,
+                         uchar const * bls_pubkey ) {
+  ag_votor_epoch_t * epoch;
+  if     ( epoch_slot==self->prev_epoch.start_slot ) epoch = &self->prev_epoch;
+  else if( epoch_slot==self->curr_epoch.start_slot ) epoch = &self->curr_epoch;
+  else if( epoch_slot==self->next_epoch.start_slot ) epoch = &self->next_epoch;
+  else FD_LOG_CRIT(( "no epoch starts at slot %lu", epoch_slot ));
+
+  epoch->has_bls_pubkey = !!bls_pubkey;
+  if( FD_LIKELY( bls_pubkey ) ) memcpy( epoch->bls_pubkey, bls_pubkey, FD_BLS_PUB_COMPRESSED_SZ );
+
+  check_pending_blocks( self, AG_VOTOR_REASON_BLOCK_REPLAYED );
+}
+
+void
 ag_votor_handle_pool_event( ag_votor_t *            self,
                             ag_event_pool_t const * event,
                             long                    now ) {

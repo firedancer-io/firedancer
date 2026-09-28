@@ -325,7 +325,7 @@ fd_keyguard_authorize_bls_pubkey( fd_keyguard_authority_t const * authority FD_P
 
   /* ULONG_MAX selects the identity key */
   ulong authority_idx = FD_LOAD( ulong, data );
-  return authority_idx==ULONG_MAX || authority_idx<16UL;
+  return authority_idx==ULONG_MAX || authority_idx<FD_KEYGUARD_AUTH_VOTERS_MAX;
 }
 
 int

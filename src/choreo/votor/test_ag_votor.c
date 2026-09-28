@@ -433,6 +433,60 @@ test_missing_bls_selector_disables_voting( void ) {
 }
 
 static void
+test_set_bls_pubkey( void ) {
+  ag_votor_t * votor = setup_votor( 0L );
+  ag_votor_advance_epoch( votor, TEST_NS_PER_SLOT, 1UL, 2UL, NULL );
+  ag_votor_set_bls_pubkey( votor, 2UL, g_bls_selector[1] );
+
+  ag_block_id_t parent = genesis_block_id();
+  ag_vote_t vote = send_block_and_expect_notar( votor, 1UL, &parent );
+  parent = ag_block_id( 1UL, vote.notar.block_hash );
+  vote = send_block_and_expect_notar( votor, 2UL, &parent );
+  FD_TEST( ag_vote_rank( &vote )==1UL );
+  FD_TEST( !memcmp( g_last_bls_selector, g_bls_selector[1], FD_BLS_PUB_COMPRESSED_SZ ) );
+
+  ag_votor_set_bls_pubkey( votor, 2UL, NULL );
+  ag_event_replay_t block = { .slot = 3UL };
+  block.block_info.parent = ag_block_id( 2UL, vote.notar.block_hash );
+  random_hash( block.block_info.hash );
+  ag_votor_handle_replay_event( votor, &block );
+  FD_TEST_NO_MSG( votor );
+
+  teardown_votor( votor );
+}
+
+static void
+test_set_bls_pubkey_votes_pending_blocks( void ) {
+  ag_votor_t * votor = setup_votor( 0L );
+  ag_votor_advance_epoch( votor, TEST_NS_PER_SLOT, 1UL, 2UL, NULL );
+
+  ag_block_id_t parent = genesis_block_id();
+  ag_vote_t vote = send_block_and_expect_notar( votor, 1UL, &parent );
+
+  ag_event_replay_t block2 = { .slot = 2UL };
+  block2.block_info.parent = ag_block_id( 1UL, vote.notar.block_hash );
+  random_hash( block2.block_info.hash );
+  ag_votor_handle_replay_event( votor, &block2 );
+  ag_event_replay_t block3 = { .slot = 3UL };
+  block3.block_info.parent = ag_block_id( 2UL, block2.block_info.hash );
+  random_hash( block3.block_info.hash );
+  ag_votor_handle_replay_event( votor, &block3 );
+  FD_TEST_NO_MSG( votor );
+
+  ag_votor_set_bls_pubkey( votor, 2UL, g_bls_selector[1] );
+  for( ulong slot=2UL; slot<=3UL; slot++ ) {
+    vote = recv( votor );
+    FD_TEST( vote.kind==AG_VOTE_KIND_NOTAR );
+    FD_TEST( ag_vote_slot( &vote )==slot );
+    FD_TEST( ag_vote_rank( &vote )==1UL );
+  }
+  FD_TEST( !memcmp( g_last_bls_selector, g_bls_selector[1], FD_BLS_PUB_COMPRESSED_SZ ) );
+  FD_TEST_NO_MSG( votor );
+
+  teardown_votor( votor );
+}
+
+static void
 test_missing_bls_selector_still_skips_other_epoch( void ) {
   for( int notar=0; notar<2; notar++ ) {
     ag_votor_t * votor = setup_votor( 0L );
@@ -514,6 +568,8 @@ main( int     argc,
   test_safe_to_skip();
   test_bls_selector_rotates_with_epoch();
   test_missing_bls_selector_disables_voting();
+  test_set_bls_pubkey();
+  test_set_bls_pubkey_votes_pending_blocks();
   test_missing_bls_selector_still_skips_other_epoch();
   test_prunes_to_finalized_window();
 

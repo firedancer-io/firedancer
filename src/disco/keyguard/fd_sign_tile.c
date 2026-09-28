@@ -19,7 +19,7 @@
 
 #define MAX_IN (32UL)
 
-#define FD_KEYGUARD_BLS_KEY_MAX (17UL) /* identity plus 16 authorized voters */
+#define FD_KEYGUARD_BLS_KEY_MAX (FD_KEYGUARD_AUTH_VOTERS_MAX+1UL) /* identity plus authorized voters */
 
 struct fd_keyguard_bls_key {
   fd_bls_sec_t secret_key;
@@ -76,8 +76,8 @@ typedef struct {
   uchar tip_distribution_program[32];
 
   ulong             authorized_voters_cnt;
-  uchar             authorized_voter_pubkeys[ 16UL ][ 32UL ];
-  uchar             authorized_voter_private_keys[ 16UL ][ 32UL ];
+  uchar             authorized_voter_pubkeys[ FD_KEYGUARD_AUTH_VOTERS_MAX ][ 32UL ];
+  uchar             authorized_voter_private_keys[ FD_KEYGUARD_AUTH_VOTERS_MAX ][ 32UL ];
 
   fd_histf_t        sign_duration[1];
 } fd_sign_ctx_t;
@@ -149,7 +149,7 @@ during_housekeeping_sensitive( fd_sign_ctx_t * ctx ) {
   if( FD_UNLIKELY( ctx->av_keyswitch && fd_keyswitch_state_query( ctx->av_keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
     ulong param = fd_keyswitch_param_query( ctx->av_keyswitch );
     if( FD_LIKELY( param==FD_KEYSWITCH_PARAM_AV_ADD ) ) {
-      if( FD_UNLIKELY( ctx->authorized_voters_cnt==16UL ) ) {
+      if( FD_UNLIKELY( ctx->authorized_voters_cnt==FD_KEYGUARD_AUTH_VOTERS_MAX ) ) {
         FD_LOG_WARNING(( "keyswitch failed: maximum number of authorized voters reached" ));
         fd_memzero_explicit( ctx->av_keyswitch->bytes, 64UL );
         ctx->av_keyswitch->result = FD_ADD_AUTHORIZED_VOTER_RESULT_MAX_AUTH_VOTERS;

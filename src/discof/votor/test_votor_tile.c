@@ -148,15 +148,41 @@ paths_idx_of( fd_votor_tile_t const * ctx,
   return auth_vtr ? auth_vtr->paths_idx : LONG_MAX;
 }
 
+static uchar bls_pubkey_request_mcache [ FD_MCACHE_FOOTPRINT( 128UL, 0UL ) ] __attribute__((aligned(FD_MCACHE_ALIGN)));
+static uchar bls_pubkey_response_mcache[ FD_MCACHE_FOOTPRINT( 128UL, 0UL ) ] __attribute__((aligned(FD_MCACHE_ALIGN)));
+static uchar bls_pubkey_request [ sizeof(ulong) ] __attribute__((aligned(FD_CHUNK_ALIGN)));
+static uchar bls_pubkey_response[ 17UL*FD_CHUNK_SZ ] __attribute__((aligned(FD_CHUNK_ALIGN)));
+
+/* Joins client to a signer that has prepublished bls_keys[0,cnt) as its
+   next public-key responses.  bls_pubkey_request holds the most recent
+   request. */
+
+static void
+bls_pubkey_client_init( fd_keyguard_client_t * client,
+                        ag_bls_key_t *         bls_keys,
+                        ulong                  cnt ) {
+  memset( client, 0, sizeof(fd_keyguard_client_t) );
+  client->request        = fd_mcache_join( fd_mcache_new( bls_pubkey_request_mcache,  128UL, 0UL, 0UL ) );
+  client->response       = fd_mcache_join( fd_mcache_new( bls_pubkey_response_mcache, 128UL, 0UL, 0UL ) );
+  FD_TEST( client->request && client->response );
+  client->request_depth  = 128UL;
+  client->response_depth = 128UL;
+  client->request_mem    = (fd_wksp_t *)bls_pubkey_request;
+  client->response_mem   = (fd_wksp_t *)bls_pubkey_response;
+  client->request_mtu    = sizeof(bls_pubkey_request);
+  client->response_mtu   = FD_KEYGUARD_BLS_PUBKEY_SZ;
+  client->response_wmark = 16UL;
+  for( ulong i=0UL; i<cnt; i++ ) {
+    memcpy( bls_pubkey_response+i*FD_CHUNK_SZ, bls_keys[i], sizeof(ag_bls_key_t) );
+    fd_mcache_publish( client->response, 128UL, i, FD_KEYGUARD_SIGN_TYPE_BLS_PUBKEY, i, sizeof(ag_bls_key_t), 0UL, 0UL, 0UL );
+  }
+}
+
 static void
 test_load_keys( int identity_is_voter ) {
   static fd_votor_tile_t ctx;
   static fd_topo_tile_t  tile;
   static auth_vtr_t      auth_vtr_mem[ 1UL<<AUTH_VTR_LG_SLOT_CNT ];
-  static uchar request_mcache_mem [ FD_MCACHE_FOOTPRINT( 128UL, 0UL ) ] __attribute__((aligned(FD_MCACHE_ALIGN)));
-  static uchar response_mcache_mem[ FD_MCACHE_FOOTPRINT( 128UL, 0UL ) ] __attribute__((aligned(FD_MCACHE_ALIGN)));
-  static uchar request_data[ sizeof(ulong) ] __attribute__((aligned(FD_CHUNK_ALIGN)));
-  static uchar response_data[ 17UL*FD_CHUNK_SZ ] __attribute__((aligned(FD_CHUNK_ALIGN)));
 
   ag_bls_key_t bls_keys[17];
   fd_bls_sec_t secs[17];
@@ -166,27 +192,13 @@ test_load_keys( int identity_is_voter ) {
   ctx.auth_vtr = auth_vtr_join( auth_vtr_new( auth_vtr_mem ) );
   tile.votor.authorized_voter_paths_cnt = 16UL;
 
+  /* The configured key paths are empty: load_keys must query the signer
+     without opening keyfiles. */
   fd_keyguard_client_t * client = ctx.keyguard_client;
-  memset( client, 0, sizeof(fd_keyguard_client_t) );
-  client->request        = fd_mcache_join( fd_mcache_new( request_mcache_mem, 128UL, 0UL, 0UL ) );
-  client->response       = fd_mcache_join( fd_mcache_new( response_mcache_mem, 128UL, 0UL, 0UL ) );
-  FD_TEST( client->request && client->response );
-  client->request_depth  = 128UL;
-  client->response_depth = 128UL;
-  client->request_mem    = (fd_wksp_t *)request_data;
-  client->response_mem   = (fd_wksp_t *)response_data;
-  client->request_mtu    = sizeof(request_data);
-  client->response_mtu   = FD_KEYGUARD_BLS_PUBKEY_SZ;
-  client->response_wmark = 16UL;
-
-  /* Prepublish public-key responses.  The configured key paths are
-     empty: load_keys must query the signer without opening keyfiles. */
-  for( ulong i=0UL; i<17UL; i++ ) {
-    memcpy( response_data+i*FD_CHUNK_SZ, bls_keys[i], sizeof(ag_bls_key_t) );
-    fd_mcache_publish( client->response, 128UL, i, FD_KEYGUARD_SIGN_TYPE_BLS_PUBKEY, i, sizeof(ag_bls_key_t), 0UL, 0UL, 0UL );
-  }
+  bls_pubkey_client_init( client, bls_keys, 17UL );
   load_keys( &ctx, &tile );
   FD_TEST( client->request_seq==17UL && client->response_seq==17UL );
+  FD_TEST( ctx.auth_vtr_path_cnt==16UL );
   FD_TEST( paths_idx_of( &ctx, bls_keys[0] )==ULONG_MAX );
   for( ulong i=1UL; i<17UL; i++ ) {
     if( identity_is_voter && i==4UL ) continue;
@@ -197,7 +209,141 @@ test_load_keys( int identity_is_voter ) {
     FD_TEST( request->sig==FD_KEYGUARD_SIGN_TYPE_BLS_PUBKEY );
     FD_TEST( request->sz==sizeof(ulong) );
   }
-  FD_TEST( FD_LOAD( ulong, request_data )==15UL );
+  FD_TEST( FD_LOAD( ulong, bls_pubkey_request )==15UL );
+}
+
+/* Once the admin tile has added an authorized voter to the sign tiles,
+   the votor indexes the voter's BLS key under the next authorized voter
+   index.  A voter whose key is the identity's still uses up an index. */
+
+static void
+test_auth_vtr_keyswitch_add( int identity_is_voter ) {
+  static fd_votor_tile_t ctx;
+  static auth_vtr_t      auth_vtr_mem[ 1UL<<AUTH_VTR_LG_SLOT_CNT ];
+  static fd_keyswitch_t  keyswitch[1];
+
+  /* The identity's key, authorized voters 0 and 1, and the voter added. */
+
+  ag_bls_key_t bls_keys[4];
+  fd_bls_sec_t secs[4];
+  fd_bls_pub_t pubs[4];
+  build_bls_keys( bls_keys, secs, pubs, 4UL );
+  if( identity_is_voter ) memcpy( bls_keys[3], bls_keys[0], sizeof(ag_bls_key_t) );
+  init_keys( &ctx, auth_vtr_mem, bls_keys, 3UL );
+  ctx.auth_vtr_path_cnt  = 2UL;
+  ctx.auth_vtr_keyswitch = fd_keyswitch_join( fd_keyswitch_new( keyswitch, FD_KEYSWITCH_STATE_LOCKED ) );
+  FD_TEST( ctx.auth_vtr_keyswitch );
+  fd_clock_tile_init( ctx.clock );
+  fd_keyguard_client_t * client = ctx.keyguard_client;
+  bls_pubkey_client_init( client, &bls_keys[3], 1UL );
+
+  /* Nothing to do while the admin tile updates the sign tiles. */
+
+  during_housekeeping( &ctx );
+  FD_TEST( keyswitch->state==FD_KEYSWITCH_STATE_LOCKED && !client->request_seq );
+
+  keyswitch->param = FD_KEYSWITCH_PARAM_AV_ADD;
+  fd_keyswitch_state( keyswitch, FD_KEYSWITCH_STATE_SWITCH_PENDING );
+  during_housekeeping( &ctx );
+  FD_TEST( keyswitch->state==FD_KEYSWITCH_STATE_COMPLETED );
+  FD_TEST( client->request_seq==1UL && FD_LOAD( ulong, bls_pubkey_request )==2UL );
+  FD_TEST( ctx.auth_vtr_path_cnt==3UL );
+  FD_TEST( paths_idx_of( &ctx, bls_keys[0] )==ULONG_MAX );
+  FD_TEST( paths_idx_of( &ctx, bls_keys[1] )==0UL );
+  FD_TEST( paths_idx_of( &ctx, bls_keys[2] )==1UL );
+  if( !identity_is_voter ) FD_TEST( paths_idx_of( &ctx, bls_keys[3] )==2UL );
+
+  fd_keyswitch_state( keyswitch, FD_KEYSWITCH_STATE_UNHALT_PENDING );
+  during_housekeeping( &ctx );
+  FD_TEST( keyswitch->state==FD_KEYSWITCH_STATE_UNLOCKED );
+}
+
+/* When a sign tile rejects the voter, the admin tile unlocks the votor
+   without asking it to add anything. */
+
+static void
+test_auth_vtr_keyswitch_rejected( void ) {
+  static fd_votor_tile_t ctx;
+  static fd_keyswitch_t  keyswitch[1];
+
+  ctx.auth_vtr_path_cnt  = 2UL;
+  ctx.auth_vtr_keyswitch = fd_keyswitch_join( fd_keyswitch_new( keyswitch, FD_KEYSWITCH_STATE_UNHALT_PENDING ) );
+  FD_TEST( ctx.auth_vtr_keyswitch );
+  fd_clock_tile_init( ctx.clock );
+  during_housekeeping( &ctx );
+  FD_TEST( keyswitch->state==FD_KEYSWITCH_STATE_UNLOCKED && ctx.auth_vtr_path_cnt==2UL );
+}
+
+static uchar votor_scratch[ 1UL<<21 ] __attribute__((aligned(128)));
+static uchar last_bls_signer[ FD_BLS_PUB_COMPRESSED_SZ ];
+
+static void
+capture_sign_bls( void *         signer_ctx,
+                  fd_bls_sig_t * sig,
+                  uchar const *  public_key,
+                  uchar const *  payload,
+                  ulong          payload_sz ) {
+  (void)signer_ctx;
+  memcpy( last_bls_signer, public_key, FD_BLS_PUB_COMPRESSED_SZ );
+  fd_bls_sec_t sec; memset( &sec, 1, sizeof(fd_bls_sec_t) );
+  fd_bls_sec_sign( &sec, payload, payload_sz, sig );
+}
+
+/* Votor already holds the epoch when the voter is added, so the add has
+   to re-check the epoch for votes to use the new voter's key. */
+
+static void
+test_auth_vtr_keyswitch_refreshes_epochs( void ) {
+  static fd_votor_tile_t ctx;
+  static auth_vtr_t      auth_vtr_mem[ 1UL<<AUTH_VTR_LG_SLOT_CNT ];
+  static fd_keyswitch_t  keyswitch[1];
+
+  /* We are rank 1, and our vote account's key belongs to the voter
+     being added. */
+
+  fd_vote_stake_weight_t stakes[ TEST_VOTER_MAX ];
+  build_stakes( stakes, 3UL, 10UL );
+  ag_epoch_info_t * epoch_info = rank_voters( &epoch_info_mem, stakes, 3UL );
+  memcpy( ctx.id_key.uc, epoch_info->validators[1].id_key, sizeof(fd_pubkey_t) );
+  ctx.curr_epoch_info = epoch_info;
+  ctx.curr_epoch_slot = 0UL;
+
+  ag_bls_key_t bls_keys[2];
+  fd_bls_sec_t secs[2];
+  fd_bls_pub_t pubs[2];
+  build_bls_keys( bls_keys, secs, pubs, 1UL );
+  memcpy( bls_keys[1], epoch_info->validators[1].bls_key, sizeof(ag_bls_key_t) );
+  init_keys( &ctx, auth_vtr_mem, bls_keys, 1UL ); /* only the identity */
+  ctx.auth_vtr_path_cnt  = 0UL;
+  ctx.auth_vtr_keyswitch = fd_keyswitch_join( fd_keyswitch_new( keyswitch, FD_KEYSWITCH_STATE_LOCKED ) );
+  FD_TEST( ctx.auth_vtr_keyswitch );
+  fd_clock_tile_init( ctx.clock );
+  bls_pubkey_client_init( ctx.keyguard_client, &bls_keys[1], 1UL );
+
+  /* The epoch advanced before the add, so it has no key to vote with. */
+
+  FD_TEST( ag_votor_footprint( 64UL )<=sizeof(votor_scratch) );
+  ctx.votor = ag_votor_join( ag_votor_new( votor_scratch, 64UL, 42UL ) );
+  FD_TEST( ctx.votor );
+  ag_votor_init         ( ctx.votor, 0UL, 0L, 400000000L, (ushort)1, capture_sign_bls, NULL );
+  ag_votor_advance_epoch( ctx.votor, 400000000L, 1UL, 0UL, NULL );
+
+  keyswitch->param = FD_KEYSWITCH_PARAM_AV_ADD;
+  fd_keyswitch_state( keyswitch, FD_KEYSWITCH_STATE_SWITCH_PENDING );
+  during_housekeeping( &ctx );
+
+  /* Block 1 builds on the root, slot 0 with a zero hash. */
+
+  ag_event_replay_t block = { .slot = 1UL };
+  memset( block.block_info.hash, 1, sizeof(ag_block_hash_t) );
+  ag_votor_handle_replay_event( ctx.votor, &block );
+
+  ag_event_vote_t vote;
+  FD_TEST( ag_votor_poll_vote_event( ctx.votor, &vote ) );
+  FD_TEST( vote.vote.kind==AG_VOTE_KIND_NOTAR );
+  FD_TEST( !memcmp( last_bls_signer, bls_keys[1], sizeof(ag_bls_key_t) ) );
+
+  ag_votor_delete( ag_votor_leave( ctx.votor ) );
 }
 
 static void
@@ -288,6 +434,10 @@ main( int     argc,
   test_rank_voters_bls_keys();
   test_load_keys( 0 );
   test_load_keys( 1 );
+  test_auth_vtr_keyswitch_add( 0 );
+  test_auth_vtr_keyswitch_add( 1 );
+  test_auth_vtr_keyswitch_rejected();
+  test_auth_vtr_keyswitch_refreshes_epochs();
   test_own_bls_key();
   test_sign_bls_request();
 
