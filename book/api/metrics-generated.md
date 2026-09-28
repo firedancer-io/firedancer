@@ -743,6 +743,8 @@
 | <span class="metrics-name">shred_&#8203;shred_&#8203;repair_&#8203;rx_&#8203;bytes</span> | counter | Bytes received from network packets with repair shreds, including network headers |
 | <span class="metrics-name">shred_&#8203;shred_&#8203;turbine_&#8203;rx</span> | counter | Turbine shreds received |
 | <span class="metrics-name">shred_&#8203;shred_&#8203;turbine_&#8203;rx_&#8203;bytes</span> | counter | Bytes received from network packets with turbine shreds, including network headers |
+| <span class="metrics-name">shred_&#8203;repair_&#8203;completion_&#8203;assisted</span> | counter | FEC sets that completed with at least one repair shred contributing |
+| <span class="metrics-name">shred_&#8203;repair_&#8203;completion_&#8203;lag_&#8203;seconds</span> | histogram | Estimated time repair advanced FEC set completion: the delay from a repair-assisted completion until turbine had delivered as many shreds for that set as repair contributed, i.e. when the set would have completed on turbine alone. Counts arrivals rather than distinct indices, so turbine duplicates bias this low |
 | <span class="metrics-name">shred_&#8203;fec_&#8203;fallback_&#8203;write</span> | counter | FEC payloads synchronously spilled by the shred tile |
 | <span class="metrics-name">shred_&#8203;fec_&#8203;fallback_&#8203;write_&#8203;bytes</span> | counter | FEC payload bytes synchronously spilled by the shred tile |
 

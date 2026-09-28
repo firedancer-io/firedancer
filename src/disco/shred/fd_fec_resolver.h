@@ -3,6 +3,7 @@
 #include "fd_fec_set.h"
 #include "../../ballet/bmtree/fd_bmtree.h"
 #include "../../ballet/ed25519/fd_ed25519.h"
+#include "../../util/hist/fd_histf.h"
 
 /* This header defines several methods for building and validating FEC
    sets from received shreds.  It's designed just for use by the shred
@@ -298,6 +299,13 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
                            fd_shred_t const        * * out_shred,
                            fd_bmtree_node_t          * out_merkle_root,
                            fd_fec_resolver_spilled_t * out_spilled_fec_set );
+
+/* fd_fec_resolver_completion_lag_hist returns a pointer to the
+   resolver's histogram estimating how much earlier repair made a FEC
+   set complete. */
+
+fd_histf_t const *
+fd_fec_resolver_completion_lag_hist( fd_fec_resolver_t const * resolver );
 
 
 void * fd_fec_resolver_leave( fd_fec_resolver_t * resolver );

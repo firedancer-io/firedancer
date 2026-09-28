@@ -1186,6 +1186,10 @@ EXAMPLES
     <counter name="ShredRepairRxBytes" summary="Bytes received from network packets with repair shreds, including network headers" />
     <counter name="ShredTurbineRx" summary="Turbine shreds received" />
     <counter name="ShredTurbineRxBytes" summary="Bytes received from network packets with turbine shreds, including network headers" />
+    <counter name="RepairCompletionAssisted" summary="FEC sets that completed with at least one repair shred contributing" />
+    <histogram name="RepairCompletionLagSeconds" min="0.0001" max="10" converter="seconds">
+        <summary>Estimated time repair advanced FEC set completion: the delay from a repair-assisted completion until turbine had delivered as many shreds for that set as repair contributed, i.e. when the set would have completed on turbine alone. Counts arrivals rather than distinct indices, so turbine duplicates bias this low</summary>
+    </histogram>
     <counter name="FecFallbackWrite" summary="FEC payloads synchronously spilled by the shred tile" />
     <counter name="FecFallbackWriteBytes" summary="FEC payload bytes synchronously spilled by the shred tile" />
 </tile>

@@ -403,6 +403,7 @@ during_housekeeping( fd_shred_ctx_t * ctx ) {
 
 static inline void
 metrics_write( fd_shred_ctx_t * ctx ) {
+  FD_MHIST_COPY( SHRED, REPAIR_COMPLETION_LAG_SECONDS, fd_fec_resolver_completion_lag_hist( ctx->resolver ) );
   FD_MHIST_COPY( SHRED, CONTACT_INFO_PER_MESSAGE,   ctx->metrics->contact_info_cnt             );
   FD_MHIST_COPY( SHRED, BATCH_SIZE_BYTES,           ctx->metrics->batch_sz                     );
   FD_MHIST_COPY( SHRED, MICROBLOCK_PER_BATCH,       ctx->metrics->batch_microblock_cnt         );
