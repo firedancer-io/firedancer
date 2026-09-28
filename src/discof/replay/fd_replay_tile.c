@@ -35,6 +35,7 @@
 #include "../../util/pod/fd_pod.h"
 #include "../../flamenco/rewards/fd_rewards.h"
 #include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
+#include "../../flamenco/stakes/fd_stakes.h"
 #include "../../flamenco/progcache/fd_progcache_admin.h"
 #include "../../flamenco/rewards/fd_rewards.h"
 #include "../../disco/metrics/fd_metrics.h"
@@ -1727,6 +1728,31 @@ restore_default_slot_params( fd_bank_t const * bank ) {
   return bank->f.slot_params;
 }
 
+/* refresh_vote_account_staked recomputes vote_account_staked from the
+   root stake delegations and seeds vote_account_inadmissible if stake
+   effective in the root's epoch was not admitted at its boundary.
+   Admitted implies staked, so only a non-admitted vote account pays
+   for the scan.  Called at boot and when the root crosses an epoch. */
+
+static void
+refresh_vote_account_staked( fd_replay_tile_t * ctx,
+                             fd_bank_t *        bank ) {
+  fd_node_info_t node_info[1]; fd_node_info_read( node_info, ctx->node_info );
+  fd_pubkey_t const * vote_key = &node_info->vote_account;
+  int has_vote_key = !fd_pubkey_check_zero( vote_key );
+  int admitted     = has_vote_key && fd_vote_stakes_query_t_1( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id, vote_key, NULL, NULL, NULL );
+  ctx->vote_account_staked = admitted;
+  if( FD_LIKELY( admitted || !has_vote_key ) ) return;
+
+  fd_stake_history_t         stake_history_[1];
+  fd_stake_history_t const * stake_history = fd_sysvar_cache_stake_history_view( &bank->f.sysvar_cache, stake_history_ );
+  fd_stake_history_entry_t   status        = fd_stake_delegations_vote_account_status(
+      fd_banks_stake_delegations_root_query( ctx->banks ), vote_key, bank->f.epoch, stake_history,
+      &bank->f.warmup_cooldown_rate_epoch, FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ) );
+  ctx->vote_account_staked       = status.effective || status.activating;
+  ctx->vote_account_inadmissible = !!status.effective;
+}
+
 static void
 init_after_snapshot( fd_replay_tile_t *  ctx,
                      fd_stem_context_t * stem ) {
@@ -1809,6 +1835,8 @@ init_after_snapshot( fd_replay_tile_t *  ctx,
   }
 
   fd_vote_stakes_refresh( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id, ctx->accdb, bank->accdb_fork_id );
+
+  refresh_vote_account_staked( ctx, bank );
 
   /* After both snapshots have been loaded in, we can determine if we should
      start distributing rewards. */
@@ -3350,11 +3378,13 @@ try_advance_published_root( fd_replay_tile_t *  ctx,
   }
 
   ulong advanceable_root_slot = bank->f.slot;
+  int   root_epoch_changed    = bank->f.epoch!=published_root_bank->f.epoch;
   fd_txncache_advance_root( ctx->txncache, bank->txncache_fork_id );
   fd_progcache_advance_root( ctx->progcache, bank->progcache_fork_id );
   fd_accdb_advance_root( ctx->accdb, bank->accdb_fork_id );
   fd_sched_advance_root( ctx->sched, advanceable_root_idx );
   fd_banks_advance_root( ctx->banks, advanceable_root_idx );
+  if( FD_UNLIKELY( root_epoch_changed ) ) refresh_vote_account_staked( ctx, bank );
   if( ctx->reasm ) fd_reasm_publish( ctx->reasm, &advanceable_root_ele->latest_mr, ctx->store, ctx->map_join );
 
   for( ulong b=0UL; b<ctx->max_live_slots; b++ ) {
@@ -4256,12 +4286,21 @@ update_metric_identity_balance( fd_replay_tile_t *  ctx,
 }
 
 static void
-update_metric_epoch_credits( fd_replay_tile_t *  ctx,
-                             fd_bank_t const *   bank,
-                             fd_accdb_fork_id_t  fork_id,
-                             fd_pubkey_t const * vote_key ) {
+update_metric_vote_account( fd_replay_tile_t *  ctx,
+                            fd_bank_t const *   bank,
+                            fd_accdb_fork_id_t  fork_id,
+                            fd_pubkey_t const * vote_key ) {
   ulong epoch_credits = 0UL;
   fd_acc_t ro = fd_accdb_read_one( ctx->accdb, fork_id, vote_key->uc );
+  /* Unstaked voters are never admitted; don't flag them.  Once set,
+     sticky until an epoch boundary actually admits the account. */
+  int admitted = fd_vote_stakes_query_t_1( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id, vote_key, NULL, NULL, NULL );
+  if( FD_UNLIKELY( !fd_stakes_vote_account_is_admissible( bank, ro.lamports, ro.owner, ro.data, ro.data_len ) ) ) {
+    ctx->vote_account_inadmissible = ctx->vote_account_staked || admitted;
+  } else if( FD_UNLIKELY( ctx->vote_account_inadmissible ) ) {
+    ctx->vote_account_inadmissible = ctx->vote_account_staked && !admitted;
+  }
+
   if( FD_LIKELY( ro.lamports ) ) {
     fd_vote_state_versioned_t vsv[1];
     if( FD_LIKELY( fd_vote_state_versioned_deserialize( vsv, ro.data, ro.data_len ) ) ) {
@@ -4276,7 +4315,8 @@ update_metric_epoch_credits( fd_replay_tile_t *  ctx,
   }
   fd_accdb_unread_one( ctx->accdb, &ro );
 
-  FD_MGAUGE_SET( REPLAY, EPOCH_CREDITS, epoch_credits );
+  FD_MGAUGE_SET( REPLAY, EPOCH_CREDITS,             epoch_credits                          );
+  FD_MGAUGE_SET( REPLAY, VOTE_ACCOUNT_INADMISSIBLE, (ulong)ctx->vote_account_inadmissible );
 }
 
 static void
@@ -4303,8 +4343,8 @@ update_metric_balances( fd_replay_tile_t * ctx,
   }
 
   if( !fd_pubkey_check_zero( &node_info->vote_account ) ) {
-    update_metric_epoch_credits( ctx, bank, fork_id, &node_info->vote_account );
-    update_metric_active_stake (      bank,          &node_info->vote_account );
+    update_metric_vote_account( ctx, bank, fork_id, &node_info->vote_account );
+    update_metric_active_stake(      bank,          &node_info->vote_account );
   }
 }
 
@@ -4809,6 +4849,9 @@ privileged_init( fd_topo_t const *      topo,
   ctx->identity_idx         = 0UL;
   ctx->identity_dirty       = 0;
 
+  ctx->vote_account_staked       = 0;
+  ctx->vote_account_inadmissible = 0;
+
   ctx->metrics.voted_slot = ULONG_MAX;
 
   ctx->has_vote_account = tile->replay.alpenglow && !!tile->replay.vote_account_path[ 0 ];
@@ -4923,6 +4966,7 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( ctx->node_info );
   fd_node_info_write_begin( ctx->node_info );
   ctx->node_info->info.identity = *ctx->identity_pubkey;
+  if( FD_LIKELY( ctx->has_vote_account ) ) ctx->node_info->info.vote_account = *ctx->vote_account; /* Alpenglow only, we publish, not Tower */
   fd_node_info_write_end( ctx->node_info );
 
   FD_MGAUGE_SET( REPLAY, BANK_LIVE_MAX, fd_banks_pool_max_cnt( ctx->banks ) );

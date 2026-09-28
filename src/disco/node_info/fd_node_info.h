@@ -5,9 +5,9 @@
    validator-level information which cannot be represented as simple
    scalar metrics (e.g. 32-byte public keys and hashes).
 
-   The replay tile (identity, genesis hash) and the tower tile (vote
-   account) write it.  The watch command and other consumers read it in
-   a lock-free manner.
+   The replay tile (identity, genesis hash, and vote account under
+   Alpenglow) and the tower tile (vote account under Tower) write it.
+   The watch command and other consumers read it in a lock-free manner.
 
    The seqlock read/write helpers require atomics. */
 
