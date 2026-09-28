@@ -18,7 +18,7 @@ fd_snap_pool_recover( int                 snapshots_fd,
   struct stat pool_st[ FD_SNAP_MAX ];
   int         found  [ FD_SNAP_MAX ] = {0};
   for( uint i=0U; i<pool_max; i++ ) {
-    if( FD_UNLIKELY( -1==fstat( FD_SNAP_FD( i ), &pool_st[ i ] ) ) )
+    if( FD_UNLIKELY( -1==syscall( SYS_fstat, FD_SNAP_FD( i ), &pool_st[ i ] ) ) )
       FD_LOG_ERR(( "fstat(snapshot pool fd %d) failed (%i-%s), was the snapshot pool initialized on boot?",
                    FD_SNAP_FD( i ), errno, fd_io_strerror( errno ) ));
   }
