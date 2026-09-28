@@ -155,6 +155,18 @@ batch_flush( fd_verify_ctx_t *   ctx,
              fd_stem_context_t * stem ) {
   if( FD_LIKELY( !ctx->batch_txn_cnt ) ) return;
 
+  /* The tcache inserts below each evict ring[oldest+k] (the k-th
+     insert, if none is a dup); warm those tags' map slots now so the
+     misses overlap the signature verification.  The inserted tags'
+     own slots were probed by the dedup query and are still warm. */
+  if( FD_LIKELY( ctx->tcache_depth>=FD_VERIFY_BATCH_TXN_MAX ) ) { /* so one wrap suffices; depth need not be a power of 2 */
+    for( ulong k=0UL; k<ctx->batch_txn_cnt; k++ ) {
+      ulong evict = *ctx->tcache_sync + k;
+      evict = fd_ulong_if( evict>=ctx->tcache_depth, evict-ctx->tcache_depth, evict );
+      __builtin_prefetch( ctx->tcache_map + fd_tcache_map_start( ctx->tcache_ring[ evict ], ctx->tcache_map_cnt ), 1, 3 );
+    }
+  }
+
   fd_ed25519_verify_batch_multi_msg_cached( ctx->batch_msg, ctx->batch_msg_sz, ctx->batch_sig, ctx->batch_pubkey,
                                             ctx->batch_sha, ctx->batch_result, ctx->batch_sig_cnt, ctx->ed25519_cache );
 

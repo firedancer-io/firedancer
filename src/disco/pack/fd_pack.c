@@ -3460,6 +3460,22 @@ delete_transaction( fd_pack_t         * pack,
   return delete_cnt;
 }
 
+void
+fd_pack_delete_prefetch( fd_pack_t        const * pack,
+                         fd_ed25519_sig_t const * sig0,
+                         int                      stage ) {
+  /* sig2txn's MAP_KEY_HASH is fd_hash of the 64 signature bytes */
+  sig2txn_t const * map  = pack->signature_map;
+  ushort    const * head = sig2txn_private_chain_const( map ) + (fd_hash( sig2txn_seed( map ), sig0, FD_TXN_SIGNATURE_SZ ) & (sig2txn_chain_cnt( map )-1UL));
+  if( FD_LIKELY( !stage ) ) { __builtin_prefetch( head, 0, 3 ); return; }
+  ulong idx = (ulong)*head;
+  if( FD_UNLIKELY( idx==(ulong)USHORT_MAX ) ) return; /* sig2txn null idx: empty chain */
+  fd_txn_p_t const * txnp = pack->pool[ idx ].txn;
+  __builtin_prefetch( txnp->payload,       0, 3 ); /* signature */
+  __builtin_prefetch( txnp->payload+64UL,  0, 3 );
+  __builtin_prefetch( TXN( txnp ),         0, 3 ); /* signature_off */
+}
+
 ulong
 fd_pack_delete_transaction( fd_pack_t              * pack,
                             fd_ed25519_sig_t const * sig0 ) {
