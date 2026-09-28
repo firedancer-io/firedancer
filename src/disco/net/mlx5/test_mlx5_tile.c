@@ -10,6 +10,7 @@
 
 #include <errno.h>
 #include <signal.h>
+#include <sys/eventfd.h>
 #include <sys/mman.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -96,15 +97,18 @@ test_hardware( char const * rdma_name,
       FD_LOG_ERR(( "mmap failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     }
     FD_TEST( fd_mlx5_hw_init_queues( tile+i, queue_memory, rx_depth, tx_depth ) );
+    tile[ i ].rx_comp_channel_fd = -1;
     queues[ i ] = (fd_mlx5_uverbs_tile_t) {
-      .rx_cq            = &tile[ i ].rx_cq,
-      .tx_cq            = &tile[ i ].tx_cq,
-      .rx_wq            = &tile[ i ].rx_wq,
-      .tx_qp            = &tile[ i ].tx_qp,
-      .lkey             = &tile[ i ].lkey,
-      .packet_memory    = packet_memory,
-      .packet_memory_sz = 4096UL,
-      .packet_iova      = 0x100000000UL+i*4096UL,
+      .rx_cq              = &tile[ i ].rx_cq,
+      .tx_cq              = &tile[ i ].tx_cq,
+      .rx_wq              = &tile[ i ].rx_wq,
+      .tx_qp              = &tile[ i ].tx_qp,
+      .lkey               = &tile[ i ].lkey,
+      /* Only tile 0 takes the efficient mode path. */
+      .rx_comp_channel_fd = i ? NULL : &tile[ i ].rx_comp_channel_fd,
+      .packet_memory      = packet_memory,
+      .packet_memory_sz   = 4096UL,
+      .packet_iova        = 0x100000000UL+i*4096UL,
     };
   }
 
@@ -116,9 +120,13 @@ test_hardware( char const * rdma_name,
 
   FD_TEST( tile[ 0 ].uverbs.cmd_fd>=0 && tile[ 0 ].uverbs.async_fd>=0 );
   FD_TEST( tile[ 0 ].outer_rss_qp.handle!=tile[ 0 ].gre_rss_qp.handle );
+  FD_TEST( tile[ 0 ].rx_comp_channel_fd>=0 );
+  if( tile_cnt>1UL ) FD_TEST( tile[ 1 ].rx_comp_channel_fd==-1 );
   for( ulong i=0UL; i<tile_cnt; i++ ) {
-    tile[ i ].tx_qp.sq_doorbell = fd_uverbs_map_uar( &tile[ 0 ].uverbs, tile[ i ].tx_qp.uar_mmap_offset );
-    FD_TEST( tile[ i ].tx_qp.sq_doorbell );
+    volatile uchar * uar = fd_uverbs_map_uar( &tile[ 0 ].uverbs, tile[ i ].tx_qp.uar_mmap_offset );
+    FD_TEST( uar );
+    tile[ i ].tx_qp.sq_doorbell                   = uar+FD_MLX5_UAR_SQ_DB_OFFSET;
+    tile[ i ].rx_cq.request_notification_doorbell = uar+FD_MLX5_UAR_CQ_DB_OFFSET;
     FD_TEST( tile[ i ].rx_cq.entries && tile[ i ].rx_cq.control && tile[ i ].rx_cq.depth==rx_depth );
     FD_TEST( tile[ i ].tx_cq.entries && tile[ i ].tx_cq.control && tile[ i ].tx_cq.depth==tx_depth );
     FD_TEST( tile[ i ].rx_wq.rq && tile[ i ].rx_wq.control );
@@ -131,6 +139,8 @@ test_hardware( char const * rdma_name,
     FD_TEST( tx_cq_entries[ 0U ].op_own==(uchar)(FD_MLX5_CQE_OP_INVALID<<4) );
   }
   if( tile_cnt>1UL ) FD_TEST( tile[ 0 ].tx_qp.sq_doorbell!=tile[ 1 ].tx_qp.sq_doorbell );
+  fd_mlx5_hw_request_rx_notification( &tile[ 0 ].rx_cq );
+  FD_TEST( tile[ 0 ].rx_cq.comp_channel_armed );
 
   FD_TEST( !fd_uverbs_create_udp_flow( &tile[ 0 ].uverbs, &tile[ 0 ].outer_rss_qp, 0U, 65535U ) );
   FD_TEST( !fd_uverbs_create_gre_udp_flow( &tile[ 0 ].uverbs, &tile[ 0 ].gre_rss_qp,
@@ -332,6 +342,76 @@ test_rx_cqe_normal( void ) {
 }
 
 static void
+test_rx_cq_arm( void ) {
+  fd_mlx5_tile_t tile[1];
+  fd_memset( tile, 0, sizeof(tile) );
+  tile->has_out_credit = 1U;
+  tile->repoll_deadline_ticks = LONG_MAX;
+  fd_mlx5_cqe_t entries[4];
+  fd_mlx5_hw_invalidate_cqes( entries, 4U );
+  fd_mlx5_cq_control_t control[1] = {{0}};
+  uchar uar[64] __attribute__((aligned(8))) = {0};
+  tile->rx_cq = (fd_mlx5_cq_t) {
+    .entries                       = entries,
+    .control                       = control,
+    .request_notification_doorbell = uar+FD_MLX5_UAR_CQ_DB_OFFSET,
+    .depth                         = 4U,
+    .cons_idx                      = 0x1000002U,
+    .cqn                           = 0x123456U,
+    .comp_channel_event_seq        = 5U
+  };
+
+  FD_TEST( FD_MLX5_UAR_CQ_DB_OFFSET==0x20UL );
+  FD_TEST( !prevent_park( tile ) );
+  FD_TEST( tile->rx_cq.comp_channel_armed );
+  FD_TEST( fd_uint_bswap( control->request_notification )==0x10000002U );
+  FD_TEST( fd_uint_bswap( FD_LOAD( uint, uar+0x20UL ) )==0x10000002U );
+  FD_TEST( fd_uint_bswap( FD_LOAD( uint, uar+0x24UL ) )==0x123456U );
+
+  FD_STORE( uint, uar+FD_MLX5_UAR_CQ_DB_OFFSET, 0U );
+  FD_TEST( !prevent_park( tile ) );
+  FD_TEST( !FD_LOAD( uint, uar+FD_MLX5_UAR_CQ_DB_OFFSET ) );
+
+  test_cqe_push( &tile->rx_cq, tile->rx_cq.cons_idx, FD_MLX5_CQE_OP_RX_OK, 0U, 64U );
+  FD_TEST( prevent_park( tile ) );
+
+  fd_mlx5_hw_invalidate_cqes( entries, 4U );
+  tile->rx_cq.comp_channel_event_seq++;
+  tile->rx_cq.comp_channel_armed = 0U;
+  tile->repoll_deadline_ticks = 100L;
+  FD_TEST( !prevent_park( tile ) );
+  FD_TEST( !tile->rx_cq.comp_channel_armed );
+
+  tile->repoll_deadline_ticks = LONG_MAX;
+  FD_TEST( !prevent_park( tile ) );
+  FD_TEST( fd_uint_bswap( control->request_notification )==0x20000002U );
+
+  tile->rx_cq.comp_channel_armed = 0U;
+  tile->has_out_credit = 0U;
+  FD_TEST( !prevent_park( tile ) );
+  FD_TEST( !tile->rx_cq.comp_channel_armed );
+}
+
+static void
+test_park_deadline( void ) {
+  fd_mlx5_tile_t tile[1];
+  fd_memset( tile, 0, sizeof(tile) );
+  FD_TEST( next_deadline( tile )==LONG_MAX );
+  tile->tx_qp.sq_prod = 1U;
+  tile->sq_flush_deadline_ticks = 123L;
+  FD_TEST( next_deadline( tile )==123L );
+  tile->lo_tx_cnt = 1U;
+  tile->lo_tx_deadline_ticks = 100L;
+  FD_TEST( next_deadline( tile )==100L );
+  tile->repoll_deadline_ticks = 90L;
+  tile->has_out_credit = 1U;
+  tile->sq_flush_deadline_ticks = 80L;
+  FD_TEST( next_deadline( tile )==90L );
+  tile->has_out_credit = 0U;
+  FD_TEST( next_deadline( tile )==80L );
+}
+
+static void
 test_tx_wqe( void ) {
   uchar frame[ 64 ] __attribute__((aligned(8)));
   for( ulong i=0UL; i<sizeof(frame); i++ ) frame[ i ] = (uchar)i;
@@ -423,6 +503,48 @@ test_tx_cqe_normal( void ) {
   FD_TEST( cq->cons_idx==5U && tx_qp->sq_cons==65538U );
 }
 
+static void
+test_rx_comp_channel_wake( void ) {
+  static fd_mlx5_tile_t tile[1];
+  fd_memset( tile, 0, sizeof(tile) );
+  tile->rx_cq.comp_channel_armed = 1U;
+
+  int pipe_fd[2];
+  FD_TEST( !pipe2( pipe_fd, O_NONBLOCK ) );
+  tile->rx_comp_channel_fd = pipe_fd[0];
+  tile->epoll_fd = epoll_create1( 0 );
+  FD_TEST( tile->epoll_fd>=0 );
+  int event_fd = eventfd( 0U, EFD_NONBLOCK );
+  FD_TEST( event_fd>=0 );
+  struct epoll_event ev = { .events = EPOLLIN|EPOLLET, .data.u64 = FD_SLEEP_EPOLL_DOORBELL };
+  FD_TEST( !epoll_ctl( tile->epoll_fd, EPOLL_CTL_ADD, event_fd, &ev ) );
+  ev = (struct epoll_event){ .events = EPOLLIN, .data.u64 = (ulong)tile->rx_comp_channel_fd };
+  FD_TEST( !epoll_ctl( tile->epoll_fd, EPOLL_CTL_ADD, tile->rx_comp_channel_fd, &ev ) );
+
+  double const tick_per_ns = fd_tempo_tick_per_ns( NULL );
+  ulong word = 0UL;
+  struct ib_uverbs_comp_event_desc comp_event = {0};
+  FD_TEST( write( pipe_fd[1], &comp_event, sizeof(comp_event) )==(long)sizeof(comp_event) );
+  FD_TEST( write( pipe_fd[1], &comp_event, sizeof(comp_event) )==(long)sizeof(comp_event) );
+  FD_TEST( park_wait( tile, &word, fd_tickcount()+(long)(1e9*tick_per_ns), tick_per_ns )==FD_SLEEP_UNPARK_RING );
+  FD_TEST( tile->rx_cq.comp_channel_event_seq==2U );
+  FD_TEST( !tile->rx_cq.comp_channel_armed );
+
+  tile->rx_cq.comp_channel_armed = 1U;
+  fd_sleep_wake_eventfd( &word, event_fd, FD_SLEEP_UNPARK_RING );
+  FD_TEST( park_wait( tile, &word, fd_tickcount()+(long)(1e9*tick_per_ns), tick_per_ns )==FD_SLEEP_UNPARK_RING );
+  FD_TEST( tile->rx_cq.comp_channel_event_seq==2U );
+  FD_TEST( tile->rx_cq.comp_channel_armed );
+
+  word = 0UL;
+  FD_TEST( write( pipe_fd[1], &comp_event, sizeof(comp_event) )==(long)sizeof(comp_event) );
+  FD_TEST( park_wait( tile, &word, fd_tickcount()+(long)(1e9*tick_per_ns), tick_per_ns )==FD_SLEEP_UNPARK_RING );
+  FD_TEST( tile->rx_cq.comp_channel_event_seq==3U );
+  FD_TEST( !tile->rx_cq.comp_channel_armed );
+
+  FD_TEST( !close( pipe_fd[0] ) && !close( pipe_fd[1] ) && !close( event_fd ) && !close( tile->epoll_fd ) );
+}
+
 /* rx_comp_one moves one RX work request to a completion. */
 static ulong
 rx_comp_one( fd_mlx5_tile_mock_t * mock,
@@ -480,8 +602,11 @@ main( int     argc,
   test_queue_footprint();
   test_rx_routes();
   test_rx_cqe_normal();
+  test_rx_cq_arm();
+  test_park_deadline();
   test_tx_wqe();
   test_tx_cqe_normal();
+  test_rx_comp_channel_wake();
 
   ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
   if( cpu_idx>fd_shmem_cpu_cnt() ) cpu_idx = 0UL;

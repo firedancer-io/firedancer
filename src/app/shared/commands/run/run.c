@@ -454,6 +454,13 @@ main_pid_namespace( void * _args ) {
         if( FD_UNLIKELY( -1==fcntl( mlx5_fds.async_fd, F_SETFD, fd_flags ) ) ) {
           FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
         }
+        for( ulong i=0UL; i<mlx5_fds.rx_comp_channel_fd_cnt; i++ ) {
+          int const rx_comp_channel_fd_flags = fd_flags || i!=tile->kind_id ? FD_CLOEXEC : 0;
+          if( FD_UNLIKELY( -1==fcntl( mlx5_fds.rx_comp_channel_fd[ i ],
+                                     F_SETFD, rx_comp_channel_fd_flags ) ) ) {
+            FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+          }
+        }
       }
 
       if( FD_LIKELY( config->is_firedancer ) ) {
@@ -610,6 +617,10 @@ main_pid_namespace( void * _args ) {
   if( need_mlx5 ) {
     if( FD_UNLIKELY( -1==close( mlx5_fds.cmd_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( mlx5_fds.async_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    for( ulong i=0UL; i<mlx5_fds.rx_comp_channel_fd_cnt; i++ ) {
+      if( FD_UNLIKELY( -1==close( mlx5_fds.rx_comp_channel_fd[ i ] ) ) )
+        FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
   }
 
   struct sock_filter seccomp_filter[ 128UL ];

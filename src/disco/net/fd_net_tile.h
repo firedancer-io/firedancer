@@ -165,11 +165,16 @@ fd_mlx5_tile_fib4_join( fd_fib4_t *                 out,
 
 #if defined(__linux__)
 
+#define FD_MLX5_TILE_MAX (8UL)
+
 /* fd_mlx5_fds identifies the shared uverbs descriptors inherited by mlx5 tiles
-   from the supervisor. */
+   from the supervisor.  rx_comp_channel_fd[ i ] is inherited only by mlx5:i,
+   and is present only in efficient mode (rx_comp_channel_fd_cnt is 0 otherwise). */
 struct fd_mlx5_fds {
-  int cmd_fd;
-  int async_fd;
+  int   cmd_fd;
+  int   async_fd;
+  ulong rx_comp_channel_fd_cnt;
+  int   rx_comp_channel_fd[ FD_MLX5_TILE_MAX ];
 };
 typedef struct fd_mlx5_fds fd_mlx5_fds_t;
 
