@@ -1310,21 +1310,24 @@ fork_slot_defer( fd_accdb_t *              accdb,
    head -> next -> ...); stepping the W chains in lock-step lets the
    misses overlap instead of serializing.  Read only: it performs the
    same FD_VOLATILE_CONST loads the walks below do and no stores, so it
-   changes nothing about what those walks see or unlink.  If stop_at_own
-   is set a chain is followed only up to its txn's own acc (purge walks
-   stop there).  Fills txns[] and map_idxs[] (the chain index of each
-   txn's acc) and returns the number of records loaded. */
+   changes nothing about what those walks see or unlink.  With purge
+   set a chain is walked from its head up to the txn's own acc (where
+   purge_inner unlinks); otherwise it is walked the way the advance_root
+   old-version walk goes: from the txn's own acc to the end, or from
+   the head for a tombstone.  Fills txns[] and map_idxs[] (the chain
+   index of each txn's acc) and returns the number of records loaded. */
 
 #define CHAIN_PREWALK_W (16UL)
 
 static ulong
 chain_prewalk( fd_accdb_t *      accdb,
                uint              txn,
-               int               stop_at_own,
+               int               purge,
                fd_accdb_txn_t ** txns,
                uint *            map_idxs ) {
-  uint acc_idx[ CHAIN_PREWALK_W ];
-  uint cur    [ CHAIN_PREWALK_W ];
+  uint acc_idx  [ CHAIN_PREWALK_W ];
+  uint cur      [ CHAIN_PREWALK_W ];
+  int  from_head[ CHAIN_PREWALK_W ];
 
   ulong cnt = 0UL;
   for( ; cnt<CHAIN_PREWALK_W && txn!=UINT_MAX; cnt++ ) {
@@ -1335,16 +1338,20 @@ chain_prewalk( fd_accdb_t *      accdb,
     txn = txne->fork.next;
   }
   for( ulong i=0UL; i<cnt; i++ ) {
-    map_idxs[ i ] = (uint)(fd_hash32( accdb->acc_pool[ acc_idx[ i ] ].key.pubkey, accdb->shmem->seed ) &
-                           (accdb->shmem->chain_cnt-1UL));
-    __builtin_prefetch( &accdb->acc_map[ map_idxs[ i ] ], 1, 3 );
+    fd_accdb_accmeta_t const * acc = &accdb->acc_pool[ acc_idx[ i ] ];
+    map_idxs [ i ] = (uint)(fd_hash32( acc->key.pubkey, accdb->shmem->seed ) & (accdb->shmem->chain_cnt-1UL));
+    from_head[ i ] = purge || acc->lamports==0UL;
+    if( from_head[ i ] ) __builtin_prefetch( &accdb->acc_map[ map_idxs[ i ] ], 1, 3 );
   }
-  for( ulong i=0UL; i<cnt; i++ ) cur[ i ] = FD_VOLATILE_CONST( accdb->acc_map[ map_idxs[ i ] ] );
+  for( ulong i=0UL; i<cnt; i++ ) {
+    if( from_head[ i ] ) cur[ i ] = FD_VOLATILE_CONST( accdb->acc_map[ map_idxs[ i ] ] );
+    else                 cur[ i ] = FD_VOLATILE_CONST( accdb->acc_pool[ acc_idx[ i ] ].map.next );
+  }
 
   for(;;) {
     ulong live = 0UL;
     for( ulong i=0UL; i<cnt; i++ ) {
-      if( cur[ i ]==UINT_MAX || ( stop_at_own && cur[ i ]==acc_idx[ i ] ) ) continue;
+      if( cur[ i ]==UINT_MAX || ( purge && cur[ i ]==acc_idx[ i ] ) ) continue;
       cur[ i ] = FD_VOLATILE_CONST( accdb->acc_pool[ cur[ i ] ].map.next );
       live++;
     }
@@ -1466,22 +1473,59 @@ background_advance_root( fd_accdb_t *       accdb,
 
         delta_insert( accdb, new_acc->key.pubkey );
 
+        /* The old versions this walk unlinks all lie behind new_acc on
+           the chain, so the walk starts at new_acc rather than at the
+           head, skipping the newer versions (typically dozens: every
+           live fork's write of a hot account).  This rests on the chain
+           being prepend only and on the commit order: a fork is frozen
+           before a child is attached and replay commits a fork's
+           writes before any descendant's, so every node ahead of
+           new_acc was committed after it, on a fork that is not an
+           ancestor of the rooted fork (a descendant, or a sibling
+           subtree that remove_children just emptied), and fails the
+           ancestor test below.  new_acc itself is still linked: the
+           only unlinks are this walk (which never takes a node of the
+           rooted fork: its generation is above the parent's and a
+           fork's own bit is never in its descends set) and purge (which
+           takes the fork's txns with it), and a second write of the
+           same pubkey on the same fork is an in-place overwrite, not a
+           second txn.  A tombstone (lamports==0) also has to unlink
+           new_acc itself, which needs its predecessor, so that case
+           walks from the head as before.  With handholding the head
+           walk runs for every txn and asserts both properties. */
         uint prev          = UINT_MAX;
         uint new_acc_prev  = UINT_MAX; /* prev of new_acc on the chain when we encounter it (UINT_MAX if head or never seen) */
         int  new_acc_seen  = 0;
-        uint acc = FD_VOLATILE_CONST( accdb->acc_map[ acc_map_idx ] );
-        FD_TEST( acc!=UINT_MAX );
+        uint acc;
+        FD_TEST( new_acc->key.generation==fork->shmem->generation && fd_accdb_acc_fork_id( new_acc )==fork_id.val );
+        if( FD_LIKELY( new_acc->lamports ) ) {
+#if FD_TMPL_USE_HANDHOLDING
+          uint chk = FD_VOLATILE_CONST( accdb->acc_map[ acc_map_idx ] );
+          while( chk!=UINT_MAX && chk!=txne->acc_pool_idx ) {
+            fd_accdb_accmeta_t const * ahead = &accdb->acc_pool[ chk ];
+            FD_TEST( !( (ahead->key.generation<=parent_fork->shmem->generation || descends_set_test( fork->descends, fd_accdb_acc_fork_id(ahead) ) ) && !memcmp( new_acc->key.pubkey, ahead->key.pubkey, 32UL ) ) );
+            chk = FD_VOLATILE_CONST( ahead->map.next );
+          }
+          FD_TEST( chk==txne->acc_pool_idx );
+#endif
+          new_acc_seen = 1;
+          prev = txne->acc_pool_idx;
+          acc  = FD_VOLATILE_CONST( new_acc->map.next );
+        } else {
+          acc = FD_VOLATILE_CONST( accdb->acc_map[ acc_map_idx ] );
+          FD_TEST( acc!=UINT_MAX );
+        }
         while( acc!=UINT_MAX ) {
-          fd_accdb_accmeta_t const * cur_acc = &accdb->acc_pool[ acc ];
-          uint cur_next = FD_VOLATILE_CONST( cur_acc->map.next );
-
-          if( FD_LIKELY( acc==txne->acc_pool_idx ) ) {
+          if( FD_UNLIKELY( acc==txne->acc_pool_idx ) ) {
             new_acc_prev = prev;
             new_acc_seen = 1;
             prev = acc;
-            acc = cur_next;
+            acc  = FD_VOLATILE_CONST( new_acc->map.next );
             continue;
           }
+
+          fd_accdb_accmeta_t const * cur_acc = &accdb->acc_pool[ acc ];
+          uint cur_next = FD_VOLATILE_CONST( cur_acc->map.next );
 
           if( FD_LIKELY( (cur_acc->key.generation<=parent_fork->shmem->generation || descends_set_test( fork->descends, fd_accdb_acc_fork_id(cur_acc) ) ) && !memcmp( new_acc->key.pubkey, cur_acc->key.pubkey, 32UL ) ) ) {
             uint next = cur_next;
@@ -1498,12 +1542,10 @@ background_advance_root( fd_accdb_t *       accdb,
         /* If the newly rooted version is a tombstone (lamports==0, e.g.
            account was closed), drop it from the index too: no fork can
            reach it anymore, and keeping it around just wastes a hash
-           slot and the disk bytes it occupies.
-
-           If a later txn on this same fork wrote the same pubkey, that
-           txn's inner walk above would have already unlinked this txn's
-           new_acc as an "older version" - in that case new_acc_seen=0
-           and we skip, since the freelist cleanup is already done. */
+           slot and the disk bytes it occupies.  new_acc_seen guards
+           against a new_acc that the head walk did not find (it cannot
+           happen, see above, but unlinking a node that is not on the
+           chain would corrupt it). */
         if( FD_UNLIKELY( new_acc_seen && new_acc->lamports==0UL ) ) {
           uint new_acc_idx = (uint)txne->acc_pool_idx;
           acc_unlink( accdb, acc_map_idx, new_acc_prev, new_acc_idx );
