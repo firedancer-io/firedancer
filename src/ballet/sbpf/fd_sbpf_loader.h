@@ -252,12 +252,12 @@ struct __attribute__((aligned(32UL))) fd_sbpf_program {
   fd_sbpf_elf_info_t info;
 
   /* rodata segment to be mapped into VM memory */
-  void * rodata;     /* rodata segment data */
-  ulong  rodata_sz;  /* size of read-only data */
+  uchar * rodata;     /* rodata segment data */
+  ulong   rodata_sz;  /* size of read-only data */
 
   /* text section within rodata segment */
-  ulong * text;
-  ulong   entry_pc;  /* entrypoint PC (at text[ entry_pc ]). ULONG_MAX if not set. */
+  uchar * text;
+  ulong   entry_pc;  /* entrypoint PC (word entry_pc of text). ULONG_MAX if not set. */
 
   /* Bit vector of valid call destinations (bit count is text_cnt). */
   void * calldests_shmem;
@@ -320,7 +320,7 @@ fd_sbpf_program_footprint( fd_sbpf_elf_info_t const * info );
 fd_sbpf_program_t *
 fd_sbpf_program_new( void *                     prog_mem,
                      fd_sbpf_elf_info_t const * elf_info,
-                     void *                     rodata );
+                     uchar *                    rodata );
 
 /* fd_sbpf_program_load loads an eBPF program for execution.
 
@@ -353,7 +353,7 @@ fd_sbpf_program_new( void *                     prog_mem,
 
 int
 fd_sbpf_program_load( fd_sbpf_program_t *             prog,
-                      void const *                    bin,
+                      uchar const *                   bin,
                       ulong                           bin_sz,
                       fd_sbpf_syscalls_t *            syscalls,
                       fd_sbpf_loader_config_t const * config,

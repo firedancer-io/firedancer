@@ -114,7 +114,7 @@ fd_vm_trace_event_exe( fd_vm_trace_t * trace,
                        ulong           ic,
                        ulong           cu,
                        ulong           reg[ FD_VM_REG_CNT ],
-                       ulong const *   text,
+                       uchar const *   text,
                        ulong           text_cnt,
                        ulong           ic_correction,
                        ulong           frame_cnt ) {
@@ -123,7 +123,7 @@ fd_vm_trace_event_exe( fd_vm_trace_t * trace,
 
   if( FD_UNLIKELY( (!trace) | (!reg) | (!text) | (!text_cnt) ) ) return FD_VM_ERR_INVAL;
 
-  ulong text0     = text[0];
+  ulong text0     = FD_LOAD( ulong, text );
   int   multiword = (text_cnt>1UL) & (fd_sbpf_instr( text0 ).opcode.any.op_class==FD_SBPF_OPCODE_CLASS_LD);
 
   ulong event_footprint = sizeof(fd_vm_trace_event_exe_t) - fd_ulong_if( !multiword, 8UL, 0UL );
@@ -146,7 +146,7 @@ fd_vm_trace_event_exe( fd_vm_trace_t * trace,
   event->text[0] = text0;
   event->ic_correction = ic_correction;
   event->frame_cnt = frame_cnt;
-  if( FD_UNLIKELY( multiword ) ) event->text[1] = text[1];
+  if( FD_UNLIKELY( multiword ) ) event->text[1] = FD_LOAD( ulong, text+8UL );
 
   return FD_VM_SUCCESS;
 }
@@ -240,7 +240,7 @@ fd_vm_trace_printf( fd_vm_trace_t const *      trace,
       ulong out_len = 0UL;
       char  out[128];
       out[0] = '\0';
-      int err = fd_vm_disasm_instr( event->text, fd_ulong_if( !multiword, 1UL, 2UL ), event_pc, syscalls, out, 128UL, &out_len );
+      int err = fd_vm_disasm_instr( (uchar const *)event->text, fd_ulong_if( !multiword, 1UL, 2UL ), event_pc, syscalls, out, 128UL, &out_len );
       if( FD_UNLIKELY( err ) ) printf( "disasm failed (%i-%s)", err, fd_vm_strerror( err ) );
       else                     printf( "%s", out );
 

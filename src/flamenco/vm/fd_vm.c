@@ -343,9 +343,9 @@ fd_vm_validate( fd_vm_t const * vm ) {
      this non-guarantee is (rightfully) exploited by the fuzz harnesses.
      Agave doesn't perform these checks explicitly due to Rust's guarantees  */
   if( FD_UNLIKELY( vm->text_sz / 8UL != vm->text_cnt ||
-                   (const uchar *)vm->text < vm->rodata ||
+                   vm->text < vm->rodata ||
                    (ulong)vm->text > (ulong)vm->text + vm->text_sz || /* Overflow chk */
-                   (const uchar *)vm->text + vm->text_sz > vm->rodata + vm->rodata_sz +
+                   vm->text + vm->text_sz > vm->rodata + vm->rodata_sz +
                      ( FD_VM_SBPF_ENABLE_STRICTER_ELF_HEADERS( sbpf_version ) ? vm->text_sz : 0UL ) ) )
     return FD_VM_ERR_BAD_TEXT;
 
@@ -355,11 +355,11 @@ fd_vm_validate( fd_vm_t const * vm ) {
   if ( FD_UNLIKELY( vm->text_cnt == 0UL ) ) /* https://github.com/solana-labs/rbpf/blob/v0.8.0/src/verifier.rs#L112 */
     return FD_VM_ERR_EMPTY;
 
-  ulong const * text     = vm->text;
+  uchar const * text     = vm->text;
   ulong         text_cnt = vm->text_cnt;
 
   for( ulong i=0UL; i<text_cnt; i++ ) {
-    fd_sbpf_instr_t instr = fd_sbpf_instr( text[i] );
+    fd_sbpf_instr_t instr = fd_sbpf_instr( FD_LOAD( ulong, text+8UL*i ) );
 
     uchar validation_code = validation_map[ instr.opcode.raw ];
     switch( validation_code ) {
@@ -376,7 +376,7 @@ fd_vm_validate( fd_vm_t const * vm ) {
       long jmp_dst = (long)i + (long)instr.offset + 1L;
       if( FD_UNLIKELY( (jmp_dst<0) | (jmp_dst>=(long)text_cnt)                          ) ) return FD_VM_ERR_JMP_OUT_OF_BOUNDS;
       //FIXME: this shouldn't be here?
-      if( FD_UNLIKELY( fd_sbpf_instr( text[ jmp_dst ] ).opcode.raw==FD_SBPF_OP_ADDL_IMM ) ) return FD_VM_ERR_JMP_TO_ADDL_IMM;
+      if( FD_UNLIKELY( fd_sbpf_instr( FD_LOAD( ulong, text+8UL*(ulong)jmp_dst ) ).opcode.raw==FD_SBPF_OP_ADDL_IMM ) ) return FD_VM_ERR_JMP_TO_ADDL_IMM;
       break;
     }
 
@@ -391,7 +391,7 @@ fd_vm_validate( fd_vm_t const * vm ) {
       if( FD_UNLIKELY( (i+1UL)>=text_cnt ) ) return FD_VM_ERR_INCOMPLETE_LDQ;
 
       /* https://github.com/solana-labs/rbpf/blob/b503a1867a9cfa13f93b4d99679a17fe219831de/src/verifier.rs#L137-L139 */
-      fd_sbpf_instr_t addl_imm = fd_sbpf_instr( text[ i+1UL ] );
+      fd_sbpf_instr_t addl_imm = fd_sbpf_instr( FD_LOAD( ulong, text+8UL*(i+1UL) ) );
       if( FD_UNLIKELY( addl_imm.opcode.raw!=FD_SBPF_OP_ADDL_IMM ) ) return FD_VM_ERR_LDQ_NO_ADDL_IMM;
 
       /* FIXME: SET A BIT MAP HERE OF ADDL_IMM TO DENOTE * AS FORBIDDEN
@@ -572,7 +572,7 @@ fd_vm_init(
    ulong                     entry_cu,
    uchar const *             rodata,
    ulong                     rodata_sz,
-   ulong const *             text,
+   uchar const *             text,
    ulong                     text_cnt,
    ulong                     text_off,
    ulong                     text_sz,
