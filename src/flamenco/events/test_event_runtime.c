@@ -29,14 +29,14 @@ main( int argc, char ** argv ) {
     out.accounts.committed[i] = 1;
     out.accounts.keys[i].uc[0] = (uchar)(i+1UL);
   }
-  /* Skipping an unchanged account must not shift the checksum mapping. */
+  /* Unchanged committed accounts are emitted without shifting checksum mapping. */
   accounts[0].lamports = 10UL;
   memset( out.accounts.lthash_checksum[1], 0xAB, 32UL );
   fd_event_runtime_txn_emit( &in, &out, &bank );
   FD_TEST( captured.index_in_slot==17UL );
-  FD_TEST( captured.account_diffs_cnt==1UL );
-  FD_TEST( !memcmp( captured.account_diffs[0].pubkey, out.accounts.keys[1].uc, 32UL ) );
-  FD_TEST( !memcmp( captured.account_diffs[0].lthash, out.accounts.lthash_checksum[1], 32UL ) );
+  FD_TEST( captured.account_diffs_cnt==2UL );
+  FD_TEST( !memcmp( captured.account_diffs[1].pubkey, out.accounts.keys[1].uc, 32UL ) );
+  FD_TEST( !memcmp( captured.account_diffs[1].lthash, out.accounts.lthash_checksum[1], 32UL ) );
 
   /* A deletion's checksum is not the uncaptured zero sentinel. */
   fd_lthash_value_t identity;
@@ -47,7 +47,7 @@ main( int argc, char ** argv ) {
   accounts[1].lamports = 0UL;
   memcpy( out.accounts.lthash_checksum[1], deleted, 32UL );
   fd_event_runtime_txn_emit( &in, &out, &bank );
-  FD_TEST( !memcmp( captured.account_diffs[0].lthash, deleted, 32UL ) );
+  FD_TEST( !memcmp( captured.account_diffs[1].lthash, deleted, 32UL ) );
 
   /* Rejection after checksum computation must suppress all state diffs. */
   out.err.is_committable = 0;
@@ -59,8 +59,8 @@ main( int argc, char ** argv ) {
   /* Missing capture on a committed write must remain visible. */
   memset( out.accounts.lthash_checksum[1], 0, 32UL );
   fd_event_runtime_txn_emit( &in, &out, &bank );
-  FD_TEST( !memcmp( captured.account_diffs[0].lthash, zero, 32UL ) );
-  FD_TEST( captured.account_diffs_cnt==1UL );
+  FD_TEST( !memcmp( captured.account_diffs[1].lthash, zero, 32UL ) );
+  FD_TEST( captured.account_diffs_cnt==2UL );
 
   /* Failed execution leaves an attempted deletion in account 1, but only
      the fee payer's rollback balance commits.  Never emit that deletion. */

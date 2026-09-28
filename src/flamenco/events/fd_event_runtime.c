@@ -73,7 +73,7 @@ fd_event_runtime_txn_emit( fd_txn_in_t  const * txn_in,
   ev.cost_loaded_accounts_data_size    = c->loaded_accounts_data_size_cost;
   ev.cost_allocated_accounts_data_size = c->allocated_accounts_data_size;
 
-  /* Only committed account changes belong in the state diff.  Failed
+  /* Emit every committed writable account, including unchanged state.  Failed
      transactions can leave modified execution buffers behind, while only
      committing fee-payer/nonce rollback state.  Bundle accounts are committed
      by their final writable owner.  Keep transaction errors and account lists
@@ -85,16 +85,6 @@ fd_event_runtime_txn_emit( fd_txn_in_t  const * txn_in,
     if( FD_UNLIKELY( !acc ) ) continue;
     if( !txn_out->accounts.is_writable[ i ] ) continue;
     if( !txn_out->err.is_committable || !txn_out->accounts.committed[ i ] ) continue;
-
-    int changed = ( acc->prior_lamports   != acc->lamports   ) ||
-                  ( acc->prior_executable != acc->executable ) ||
-                  ( acc->prior_data_len   != acc->data_len   ) ||
-                  ( memcmp( acc->prior_owner, acc->owner, 32UL )!=0 );
-    if( !changed && acc->prior_data && acc->data &&
-        memcmp( acc->prior_data, acc->data, acc->data_len )!=0 ) {
-      changed = 1;
-    }
-    if( !changed ) continue;
 
     fd_event_runtime_txn_account_diffs_t * d = &ev.account_diffs[ diff_cnt++ ];
     fd_memcpy( d->pubkey,     txn_out->accounts.keys[ i ].uc, 32UL );
