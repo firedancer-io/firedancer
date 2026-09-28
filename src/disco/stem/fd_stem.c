@@ -228,6 +228,16 @@ STEM_(credit_ring)( fd_stem_sleep_t const * sleep,
   if( FD_UNLIKELY( FD_VOLATILE_CONST( sleep->shmem->credit_bits[ producer>>6 ] ) & (1UL<<(producer&63UL)) ) ) fd_sleep_ring( sleep->shmem, producer );
 }
 
+/* STEM_(in_dirty) is 1 if in has credits or diagnostics not yet
+   published (in_update on a clean in rewrites the same values). */
+
+static inline int
+STEM_(in_dirty)( fd_stem_tile_in_t const * in ) {
+  uint const * accum = in->accum;
+  return ( __atomic_load_n( in->fseq, __ATOMIC_RELAXED )!=in->seq )
+       | (int)(accum[0]|accum[1]|accum[2]|accum[3]|accum[4]|accum[5]);
+}
+
 static inline __attribute__((always_inline)) void
 STEM_(in_update)( fd_stem_tile_in_t * in ) {
   __atomic_store_n( in->fseq, in->seq, __ATOMIC_RELEASE );
@@ -245,10 +255,18 @@ STEM_(in_update)( fd_stem_tile_in_t * in ) {
   accum[3] = 0U;              accum[4] = 0U;              accum[5] = 0U;
 }
 
+/* STEM_(out_publish) publishes out_idx's sync word and seq_mirror.
+   Callers skip an out whose seq has not moved (out_seq_pub), which
+   also keeps the stem off outs another client publishes.  The stem is
+   the sole writer of its mirrors, so the store needs no guard load. */
+
 static inline void
-STEM_(mirror)( ulong * mirror,
-               ulong   seq ) {
-  if( FD_LIKELY( fd_seq_gt( seq, FD_VOLATILE_CONST( mirror[0] ) ) ) ) FD_VOLATILE( mirror[0] ) = seq;
+STEM_(out_publish)( fd_stem_sleep_t const * sleep,
+                    fd_frag_meta_t *        mcache,
+                    ulong                   out_idx,
+                    ulong                   seq ) {
+  fd_mcache_seq_update( fd_mcache_seq_laddr( mcache ), seq );
+  if( sleep->shmem ) FD_VOLATILE( sleep->shmem->seq_mirror[ sleep->out_link_id[ out_idx ] ] ) = seq;
 }
 
 static inline int
@@ -259,6 +277,7 @@ STEM_(park)( STEM_CALLBACK_CONTEXT_TYPE * ctx,
              fd_frag_meta_t **            out_mcache,
              ulong                        out_cnt,
              ulong const *                out_seq,
+             ulong *                      out_seq_pub,
              ulong                        cons_cnt,
              ulong const **               cons_fseq,
              ulong const *                cons_seq,
@@ -290,10 +309,6 @@ STEM_(park)( STEM_CALLBACK_CONTEXT_TYPE * ctx,
 #endif
 
 
-  /* due is the tile's own next obligation, LONG_MAX if none.  deadline
-     caps it: the mwaitx sweep wakes any tile parked past its deadline
-     on every pass (fd_mwaitx_tile.c), so a parked tile is re-checked
-     at least once per cap whatever happens to its doorbell. */
   long due = deadline_hint;
 #ifdef STEM_CALLBACK_NEXT_DEADLINE
   due = fd_long_min( due, STEM_CALLBACK_NEXT_DEADLINE( ctx ) );
@@ -302,20 +317,17 @@ STEM_(park)( STEM_CALLBACK_CONTEXT_TYPE * ctx,
   if( FD_UNLIKELY( deadline-now<min_ticks ) ) return 0; /* already close enough to deadline, don't waste a syscall */
 
   /* We are now going to park ... flush all state before.  Skip the
-     ins and outs with nothing to flush. */
+     ins and outs with nothing to flush: a clean in's producer was
+     already rung when our fseq last moved. */
   for( ulong i=0UL; i<in_cnt; i++ ) {
-    uint const * accum = in[ i ].accum;
-    int dirty = ( __atomic_load_n( in[ i ].fseq, __ATOMIC_RELAXED )!=in[ i ].seq )
-              | (int)(accum[0]|accum[1]|accum[2]|accum[3]|accum[4]|accum[5]);
-    if( FD_UNLIKELY( dirty ) ) STEM_(in_update)( &in[ i ] );
+    if( FD_LIKELY( !STEM_(in_dirty)( &in[ i ] ) ) ) continue;
+    STEM_(in_update)( &in[ i ] );
     if( FD_LIKELY( sleep->shmem ) ) STEM_(credit_ring)( sleep, in[ i ].idx );
   }
   for( ulong o=0UL; o<out_cnt; o++ ) {
-    if( FD_UNLIKELY( !out_seq[ o ] ) ) continue; /* never published by this stem: another writer may own the link */
-
-    ulong * sync = fd_mcache_seq_laddr( out_mcache[ o ] );
-    if( FD_UNLIKELY( FD_VOLATILE_CONST( sync[0] )!=out_seq[ o ] ) ) fd_mcache_seq_update( sync, out_seq[ o ] );
-    if( FD_LIKELY( sleep->shmem ) ) STEM_(mirror)( &sleep->shmem->seq_mirror[ sleep->out_link_id[ o ] ], out_seq[ o ] );
+    if( FD_LIKELY( out_seq_pub[ o ]==out_seq[ o ] ) ) continue; /* idle, or never published by this stem */
+    STEM_(out_publish)( sleep, out_mcache[ o ], o, out_seq[ o ] );
+    out_seq_pub[ o ] = out_seq[ o ];
   }
 
   ulong _word;
@@ -388,13 +400,7 @@ STEM_(park)( STEM_CALLBACK_CONTEXT_TYPE * ctx,
     return backpressured ? -1 : 0;
   }
 
-  /* Only a due inside the cap arms the futex timer: the sweep enforces
-     the cap, so a tile with nothing due sooner parks untimed and skips
-     the hrtimer arm and cancel on every park.  Without a sleep object
-     nothing sweeps us, so the cap stays the timer.  PARK_WAIT replaces
-     the futex wait for a tile parked on its sleep object's eventfd
-     (tile->sleep_eventfd), see fd_sleep.h.  Same contract as
-     fd_sleep_park_wait. */
+  /* Only a due inside the cap arms a timer, the sweep enforces the cap */
   long timer = fd_long_if( parked & (due>deadline), LONG_MAX, deadline );
 #ifdef STEM_CALLBACK_PARK_WAIT
   int cause = STEM_CALLBACK_PARK_WAIT( ctx, word, timer, tick_per_ns );
@@ -414,10 +420,6 @@ STEM_(park)( STEM_CALLBACK_CONTEXT_TYPE * ctx,
   else                                           FD_MCNT_INC( TILE, UNPARK_DEADLINE, 1UL );
   return 1;
 }
-
-/* STEM_(cr_refresh) turns the consumer progress in cons_seq into the
-   flow control credits available on each out and across all outs, and
-   charges in_backp slow events to the slowest consumer. */
 
 static inline __attribute__((always_inline)) void
 STEM_(cr_refresh)( ulong             out_cnt,
@@ -458,9 +460,7 @@ STEM_(cr_refresh)( ulong             out_cnt,
     }
 
     /* See notes above about use of quasi-atomic diagnostic accum.
-       Only a backpressured refresh charges anything: a +=0 would still
-       take the consumer's metrics line, which its in_update is about
-       to write. */
+       Skip a +=0: it would still take the consumer's line. */
     if( FD_UNLIKELY( in_backp && slowest_cons!=ULONG_MAX ) ) {
       FD_COMPILER_MFENCE();
       (*cons_slow[ slowest_cons ]) += in_backp;
@@ -478,6 +478,7 @@ STEM_(park_attempt)( STEM_CALLBACK_CONTEXT_TYPE * ctx,
                      ulong                        out_cnt,
                      ulong const *                out_depth,
                      ulong const *                out_seq,
+                     ulong *                      out_seq_pub,
                      ulong *                      cr_avail,
                      ulong *                      min_cr_avail,
                      ulong                        cr_max,
@@ -500,7 +501,7 @@ STEM_(park_attempt)( STEM_CALLBACK_CONTEXT_TYPE * ctx,
                      ulong                        regime,
                      int                          backpressured,
                      long                         deadline_hint ) {
-  int slept = STEM_(park)( ctx, cfg, in, in_cnt, out_mcache, out_cnt, out_seq, cons_cnt, cons_fseq, cons_seq,
+  int slept = STEM_(park)( ctx, cfg, in, in_cnt, out_mcache, out_cnt, out_seq, out_seq_pub, cons_cnt, cons_fseq, cons_seq,
                            backpressured, deadline_hint, cap_ticks, min_ticks, tick_per_ns, *now );
   if( FD_UNLIKELY( !slept ) ) return; /* found work */
 
@@ -523,9 +524,7 @@ STEM_(park_attempt)( STEM_CALLBACK_CONTEXT_TYPE * ctx,
 #endif
     }
     if( FD_UNLIKELY( (*now-hk_due)>=0L ) ) {
-      /* A lazy interval passed since the last housekeeping (metrics,
-         heartbeat, DURING_HOUSEKEEPING), which also refreshes credits,
-         so make it due now. */
+      /* A lazy interval passed, full housekeeping is due now. */
       for( ulong k=0UL; k<event_cnt; k++ ) {
         if( event_map[ k ]==cons_cnt ) {
           *event_seq = k;
@@ -534,8 +533,7 @@ STEM_(park_attempt)( STEM_CALLBACK_CONTEXT_TYPE * ctx,
       }
       *then = *now;
     } else {
-      /* Refresh credits only.  The park flushed the ins and we just
-         reloaded the cons, so no other event is due yet either. */
+      /* Credits only, nothing else is due yet. */
       STEM_(cr_refresh)( out_cnt, out_depth, out_seq, cr_avail, min_cr_avail, cr_max, cons_cnt, cons_out, cons_seq, cons_slow, (ulong)backpressured );
       *then = *now + (long)async_min;
     }
@@ -556,6 +554,7 @@ STEM_(scratch_footprint)( ulong in_cnt,
   l = FD_LAYOUT_APPEND( l, alignof(ulong),             out_cnt*sizeof(ulong)                ); /* cr_avail */
   l = FD_LAYOUT_APPEND( l, alignof(ulong),             out_cnt*sizeof(ulong)                ); /* out_depth */
   l = FD_LAYOUT_APPEND( l, alignof(ulong),             out_cnt*sizeof(ulong)                ); /* out_seq */
+  l = FD_LAYOUT_APPEND( l, alignof(ulong),             out_cnt*sizeof(ulong)                ); /* out_seq_pub */
   l = FD_LAYOUT_APPEND( l, alignof(int),               out_cnt*sizeof(int)                  ); /* out_reliable */
   l = FD_LAYOUT_APPEND( l, alignof(ulong const *),     cons_cnt*sizeof(ulong const *)       ); /* cons_fseq */
   l = FD_LAYOUT_APPEND( l, alignof(ulong *),           cons_cnt*sizeof(ulong *)             ); /* cons_slow */
