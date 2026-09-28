@@ -530,6 +530,22 @@ get_vote_credits( uchar const *        account_data,
   epoch_credits->fast_path_ok = fd_epoch_credits_fast_path_ok( epoch_credits );
 }
 
+int
+fd_stakes_vote_account_is_admissible( fd_bank_t const * bank,
+                                      ulong             lamports,
+                                      uchar const *     owner,
+                                      uchar const *     data,
+                                      ulong             data_len ) {
+  /* Agave's VAT filter also checks lamports against the VoteStateV4
+     rent-exempt minimum, plus one epoch's VAT burn once alpenglow is
+     active. */
+  ulong vat_to_burn_per_epoch = FD_FEATURE_ACTIVE_BANK( bank, alpenglow ) ? fd_slot_params_at_slot( bank, bank->f.slot ).vat_to_burn_per_epoch : 0UL;
+  ulong minimum_balance       = fd_rent_exempt_minimum_balance( &bank->f.rent, FD_VOTE_STATE_V4_SZ ) + vat_to_burn_per_epoch;
+  return lamports>=minimum_balance &&
+         fd_vsv_is_correct_size_owner_and_init( owner, data, data_len ) &&
+         fd_vote_account_is_v4_with_bls_pubkey( data, data_len );
+}
+
 void
 fd_refresh_vote_accounts( fd_bank_t *                    bank,
                           fd_accdb_t *                   accdb,
@@ -634,23 +650,12 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
     if( FD_UNLIKELY( !stake_t_1 ) ) continue;
 
     fd_acc_t acc = fd_accdb_read_one( accdb, bank->accdb_fork_id, stake_accum->pubkey.uc );
-    /* Agave's VAT filter also checks lamports against the VoteStateV4
-       rent-exempt minimum, plus one epoch's VAT burn once alpenglow is
-       active. */
     if( FD_UNLIKELY( !acc.lamports ) ) {
       fd_accdb_unread_one( accdb, &acc );
       continue;
     }
 
-    ulong vote_account_lamports = acc.lamports;
-    ulong vat_to_burn_per_epoch = alpenglow_enabled ? fd_slot_params_at_slot( bank, bank->f.slot ).vat_to_burn_per_epoch : 0UL;
-    ulong minimum_vote_account_balance = fd_rent_exempt_minimum_balance( &bank->f.rent, FD_VOTE_STATE_V4_SZ ) + vat_to_burn_per_epoch;
-    if( FD_UNLIKELY( vote_account_lamports < minimum_vote_account_balance ) ) {
-      fd_accdb_unread_one( accdb, &acc );
-      continue;
-    }
-    if( FD_UNLIKELY( !fd_vsv_is_correct_size_owner_and_init( acc.owner, acc.data, acc.data_len ) ||
-                     !fd_vote_account_is_v4_with_bls_pubkey( acc.data, acc.data_len ) ) ) {
+    if( FD_UNLIKELY( !fd_stakes_vote_account_is_admissible( bank, acc.lamports, acc.owner, acc.data, acc.data_len ) ) ) {
       fd_accdb_unread_one( accdb, &acc );
       continue;
     }

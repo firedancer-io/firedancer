@@ -382,6 +382,13 @@ check_engine_metric( fd_diag_tile_t * ctx, long now ) {
     }
   }
 
+  /* Votes land but earn nothing: the stake is not admitted. */
+  if( FD_UNLIKELY( vote_status==FD_DIAG_VOTE_STATUS_VOTING &&
+                   ctx->tiles.replay_idx!=ULONG_MAX &&
+                   ctx->metrics[ ctx->tiles.replay_idx ][ FD_METRICS_GAUGE_REPLAY_VOTE_ACCOUNT_INADMISSIBLE_OFF ] ) ) {
+    vote_status = FD_DIAG_VOTE_STATUS_INADMISSIBLE;
+  }
+
   ulong replay_idx     = ctx->tiles.replay_idx;
   int   replay_running = replay_idx!=ULONG_MAX && ctx->metrics[ replay_idx ][ FD_METRICS_GAUGE_TILE_STATUS_OFF ]==1UL;
   ulong replay_status  = FD_DIAG_REPLAY_STATUS_DISABLED;
