@@ -600,6 +600,7 @@ struct fd_topo_tile {
       char    identity_key_path[ PATH_MAX ];
       ulong   slot_max;
       ulong   max_shreds_per_block;
+      ulong   max_live_slots;
 
       ulong   repair_sign_depth;
       ulong   repair_sign_cnt;

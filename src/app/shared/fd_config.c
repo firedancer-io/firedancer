@@ -416,8 +416,8 @@ fd_config_fill( fd_config_t * config,
   if( FD_LIKELY( !config->development.bench.max_cost_per_block && !config->development.bench.max_shreds_per_block ) ) FD_TEST( config->limits.max_txn_per_slot==FD_MAX_TXN_PER_SLOT );
 
   if( FD_LIKELY( config->is_live_cluster) ) {
-    if( FD_UNLIKELY( !config->development.sandbox ) )                            FD_LOG_ERR(( "trying to join a live cluster, but configuration disables the sandbox which is a development only feature" ));
-    if( FD_UNLIKELY( config->development.no_clone ) )                            FD_LOG_ERR(( "trying to join a live cluster, but configuration disables multiprocess which is a development only feature" ));
+    if( FD_UNLIKELY( !config->development.sandbox ) )                            FD_LOG_WARNING(( "trying to join a live cluster, but configuration disables the sandbox which is a development only feature" ));
+    if( FD_UNLIKELY( config->development.no_clone ) )                            FD_LOG_WARNING(( "trying to join a live cluster, but configuration disables multiprocess which is a development only feature" ));
     if( FD_UNLIKELY( config->development.bench.max_cost_per_block ) )            FD_LOG_ERR(( "trying to join a live cluster, but configuration sets [development.bench.max_cost_per_block] which is a development only feature" ));
     if( FD_UNLIKELY( config->development.bench.max_shreds_per_block ) )          FD_LOG_ERR(( "trying to join a live cluster, but configuration sets [development.bench.max_shreds_per_block] which is a development only feature" ));
     if( FD_UNLIKELY( config->development.bench.disable_blockstore_from_slot ) )  FD_LOG_ERR(( "trying to join a live cluster, but configuration has a non-zero value for [development.bench.disable_blockstore_from_slot] which is a development only feature" ));
