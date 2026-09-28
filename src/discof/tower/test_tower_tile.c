@@ -1,8 +1,16 @@
 #define _GNU_SOURCE
 #define QUERY_TOWERS mock_query_towers
+#define QUERY_VOTERS mock_query_voters
 
 #include "fd_tower_tile.c"
 #include "../../disco/topo/fd_topob.h"
+
+void
+mock_query_voters( fd_tower_tile_t *            ctx,
+                   fd_replay_slot_completed_t * slot_completed FD_PARAM_UNUSED,
+                   ulong                        epoch ) {
+  ctx->root_epoch = epoch;
+}
 
 #include <stdio.h>
 #include <string.h>
@@ -44,6 +52,114 @@ mock_vote_txn( ulong               root,
 
   FD_TEST( fd_txn_parse_core( txnp->payload, txnp->payload_sz, txn_out, NULL, NULL ) );
   return (fd_txn_t const *)txn_out;
+}
+
+static ulong
+mock_vote_account( fd_pubkey_t const * node_pubkey,
+                   fd_pubkey_t const * authorized_voter,
+                   uchar               vote_state_data[ static FD_VOTE_STATE_DATA_MAX ] ) {
+  fd_vote_state_versioned_t versioned[1];
+  FD_TEST( fd_vote_state_versioned_new( versioned, fd_vote_state_versioned_enum_v3 ) );
+  fd_memset( vote_state_data, 0, FD_VOTE_STATE_DATA_MAX );
+
+  fd_vote_state_v3_t * vote_state   = &versioned->v3;
+  vote_state->node_pubkey           = *node_pubkey;
+  vote_state->authorized_withdrawer = *authorized_voter;
+  vote_state->commission            = 100;
+  vote_state->prior_voters.idx      = 31;
+  vote_state->prior_voters.is_empty = 1;
+
+  fd_vote_authorized_voter_t * voter = fd_vote_authorized_voters_pool_ele_acquire( vote_state->authorized_voters.pool );
+  fd_memset( voter, 0, sizeof(fd_vote_authorized_voter_t) );
+  voter->epoch  = 0UL;
+  voter->pubkey = *authorized_voter;
+  voter->prio   = authorized_voter->uc[0];
+  fd_vote_authorized_voters_treap_ele_insert( vote_state->authorized_voters.treap, voter, vote_state->authorized_voters.pool );
+
+  FD_TEST( !fd_vote_state_versioned_serialize( versioned, vote_state_data, FD_VOTE_STATE_DATA_MAX ) );
+  return FD_VOTE_STATE_DATA_MAX;
+}
+
+static void
+test_publish_slot_done_identity_mismatch( void ) {
+  static fd_tower_tile_t ctx[1];
+  static uchar tower_mem[ 65536 ] __attribute__((aligned(128)));
+  static uchar publishes_mem[ 65536 ] __attribute__((aligned(128)));
+
+  memset( ctx, 0, sizeof(*ctx) );
+  memset( ctx->identity_key, 0x11, sizeof(fd_pubkey_t) );
+  memset( ctx->vote_account, 0x22, sizeof(fd_pubkey_t) );
+
+  fd_wksp_t * wksp = fd_wksp_new_anonymous( FD_SHMEM_NORMAL_PAGE_SZ, 4096UL, 0UL, "tower_id_test", 0UL );
+  FD_TEST( wksp );
+
+  void * ghost_mem = fd_wksp_alloc_laddr( wksp, fd_ghost_align(), fd_ghost_footprint( 2UL, 2UL ), 1UL );
+  FD_TEST( ghost_mem );
+
+  ctx->tower     = fd_tower_join( fd_tower_new( tower_mem, 2UL, 2UL, 0UL ) );
+  ctx->ghost     = fd_ghost_join( fd_ghost_new( ghost_mem, 2UL, 2UL, 0UL ) );
+  ctx->publishes = publishes_join( publishes_new( publishes_mem, 2UL ) );
+  FD_TEST( ctx->tower );
+  FD_TEST( ctx->ghost );
+  FD_TEST( ctx->publishes );
+
+  ctx->tower->root = 0UL;
+  fd_tower_blk_t * parent_blk = fd_tower_blocks_insert( ctx->tower, 0UL, ULONG_MAX );
+  FD_TEST( parent_blk );
+  parent_blk->block_hash = (fd_hash_t){ .ul = { 0x66UL } };
+  fd_tower_vote_push_tail( ctx->tower->votes, (fd_tower_vote_t){ .slot = 1UL, .conf = 1UL } );
+
+  fd_replay_slot_completed_t sc;
+  memset( &sc, 0, sizeof(sc) );
+  sc.slot        = 1UL;
+  sc.parent_slot = 0UL;
+  sc.epoch       = 0UL;
+  sc.bank_idx    = 123UL;
+
+  fd_tower_out_t out;
+  memset( &out, 0, sizeof(out) );
+  out.vote_slot       = 1UL;
+  out.vote_block_id   = (fd_hash_t){ .ul = { 0x33UL } };
+  out.vote_bank_hash  = (fd_hash_t){ .ul = { 0x44UL } };
+  out.reset_slot      = ULONG_MAX;
+  out.root_slot       = ULONG_MAX;
+
+  /* Matching identity produces votes */
+  ctx->our_vote_acct_sz = mock_vote_account( ctx->identity_key, ctx->identity_key, ctx->our_vote_acct );
+  publish_slot_done( ctx, &sc, &out, 1, 100UL, 10000U, 0UL, NULL );
+  publish_t * pub = publishes_peek_head( ctx->publishes );
+  FD_TEST( pub );
+  FD_TEST( pub->sig==FD_TOWER_SIG_SLOT_DONE );
+  FD_TEST( pub->msg.slot_done.has_vote_txn==1 );
+  FD_TEST( pub->msg.slot_done.is_voting==1 );
+  FD_TEST( pub->msg.slot_done.authority_idx==ULONG_MAX );
+  FD_TEST( pub->msg.slot_done.vote_acct_com==10000U );
+  publishes_pop_head_nocopy( ctx->publishes );
+
+  /* Matching identity but no votable slot: voter with no vote txn */
+  fd_tower_out_t out_no_vote = out;
+  out_no_vote.vote_slot = ULONG_MAX;
+  publish_slot_done( ctx, &sc, &out_no_vote, 1, 100UL, 10000U, 0UL, NULL );
+  pub = publishes_peek_head( ctx->publishes );
+  FD_TEST( pub );
+  FD_TEST( pub->sig==FD_TOWER_SIG_SLOT_DONE );
+  FD_TEST( pub->msg.slot_done.has_vote_txn==0 );
+  FD_TEST( pub->msg.slot_done.is_voting==1 );
+  publishes_pop_head_nocopy( ctx->publishes );
+
+  /* Other identity prevents vote publishing */
+  fd_pubkey_t other_identity = { .ul = { 0x99UL } };
+  ctx->our_vote_acct_sz = mock_vote_account( &other_identity, ctx->identity_key, ctx->our_vote_acct );
+  publish_slot_done( ctx, &sc, &out, 1, 100UL, 10000U, 0UL, NULL );
+  pub = publishes_peek_head( ctx->publishes );
+  FD_TEST( pub );
+  FD_TEST( pub->sig==FD_TOWER_SIG_SLOT_DONE );
+  FD_TEST( pub->msg.slot_done.has_vote_txn==0 );
+  FD_TEST( pub->msg.slot_done.is_voting==0 );
+
+  fd_wksp_delete( fd_wksp_leave( wksp ) );
+
+  FD_LOG_NOTICE(( "pass: test_publish_slot_done_identity_mismatch" ));
 }
 
 static void
@@ -268,8 +384,6 @@ test_parent_vote_txn_recent_blockhash( void ) {
 #define FIXTURE_RECORD_SZ  (32UL + 32UL + 8UL + 8UL + FD_VOTE_STATE_DATA_MAX)
 #define FIXTURE_FILE_SZ    (FIXTURE_VTR_CNT * FIXTURE_RECORD_SZ)
 
-static int mock_found_our_vote_acct = 0; /* a failover test asks for our vote account to be found */
-
 /* mock_query_towers: loads voter data from a fixture file for the
    current slot and calls count_vote_acc for each record. */
 
@@ -322,7 +436,7 @@ mock_query_towers( fd_tower_tile_t *            ctx,
 
   /* No reconciliation in mock — just report not found. */
 
-  *found_our_vote_acct = mock_found_our_vote_acct;
+  *found_our_vote_acct = 0;
   *our_vote_acct_bal   = ULONG_MAX;
   *our_vote_acct_com   = USHORT_MAX;
 
@@ -834,6 +948,7 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
+  test_publish_slot_done_identity_mismatch();
   test_count_vote_txn();
   test_parent_vote_txn_recent_blockhash();
 
