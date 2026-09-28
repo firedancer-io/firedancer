@@ -1492,12 +1492,12 @@ fd_forest_code_shred_insert( fd_forest_t * forest, ulong slot, uint shred_idx, l
   }
   if( FD_UNLIKELY( !ele->first_shred_ts || rx_tick<ele->first_shred_ts ) ) ele->first_shred_ts = rx_tick;
 
-  recv_ts_stamp( forest, ele, (uint)fd_ulong_min( shred_idx/FD_FEC_SHRED_CNT, forest->shred_max/FD_FEC_SHRED_CNT-1UL ), rx_tick );
-
   if( FD_UNLIKELY( shred_idx >= forest->shred_max ) ) {
     ele->turbine_cnt += 1;
     return ele;
   }
+
+  recv_ts_stamp( forest, ele, (uint)(shred_idx/FD_FEC_SHRED_CNT), rx_tick );
 
   fd_forest_blk_idxs_t * code = fd_forest_blk_code( forest, ele );
   if( FD_LIKELY( !fd_forest_blk_idxs_test( code, shred_idx ) ) ) { /* newly seen shred */
