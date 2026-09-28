@@ -117,6 +117,7 @@ struct fd_snapmk {
   ulong          zp_cnt; /* [0,zp_cnt] out links are to zp */
   ulong const *  zp_cons_fseq[ SNAPZP_TILE_MAX ];
   atomic_ulong * file_off_p;
+  atomic_ulong * appendvec_slot_ticket_p;
 
   /* snaprd worker thread */
 
@@ -388,7 +389,9 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( ctx->txncache );
 
   ulong * zp_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->snapmk.zp_fseq_id ) ); FD_TEST( zp_fseq );
-  ctx->file_off_p = fd_fseq_app_laddr( zp_fseq );
+  atomic_ulong * zp_app = fd_fseq_app_laddr( zp_fseq );
+  ctx->file_off_p              = &zp_app[ 0 ];
+  ctx->appendvec_slot_ticket_p = &zp_app[ 1 ];
 
   void * _accdb_shmem = fd_topo_obj_laddr( topo, tile->snapmk.accdb_obj_id );
   fd_accdb_shmem_t * accdb_shmem_ro = fd_accdb_shmem_join( _accdb_shmem );
@@ -1363,6 +1366,7 @@ after_credit( fd_snapmk_t *       ctx,
       fd_backup_start_msg_t * frag = zp_alloc( ctx, i, sizeof(fd_backup_start_msg_t), &chunk );
       memset( frag, 0, sizeof(fd_backup_start_msg_t) );
       frag->slot     = ctx->bank->f.slot;
+      frag->slot_lo  = ctx->incremental ? ctx->base_slot+1UL : 0UL;
       frag->snap_idx = ctx->snap_idx;
       frag->fork_id  = ctx->bank->accdb_fork_id.val;
       ulong ctl = fd_frag_meta_ctl( FD_BACKUP_ORIG_START, 0, 0, 0 );
@@ -1765,7 +1769,8 @@ snap_start( fd_snapmk_t *                  ctx,
     FD_LOG_ERR(( "lseek(%s) failed: %i-%s", ctx->pool[ ctx->snap_idx ].name, errno, fd_io_strerror( errno ) ));
   }
 
-  atomic_store_explicit( ctx->file_off_p, 0UL, memory_order_relaxed );
+  atomic_store_explicit( ctx->file_off_p,              0UL,               memory_order_relaxed );
+  atomic_store_explicit( ctx->appendvec_slot_ticket_p, ctx->bank->f.slot, memory_order_relaxed );
 
   /* compression buffers */
 

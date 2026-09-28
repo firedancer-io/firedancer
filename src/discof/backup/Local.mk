@@ -20,6 +20,8 @@ $(call run-unit-test,test_snap_roundtrip)
 ifdef FD_HAS_ATOMIC
 $(call make-unit-test,test_backup_disk,test_backup_disk,fd_discof fd_flamenco fd_tango fd_ballet fd_util fd_disco)
 $(call run-unit-test,test_backup_disk)
+$(call make-unit-test,test_snapzp_tile,test_snapzp_tile,fd_discof fd_disco fd_flamenco fd_tango fd_ballet fd_util)
+$(call run-unit-test,test_snapzp_tile)
 endif # FD_HAS_ATOMIC
 endif # FD_HAS_INT128
 endif # FD_HAS_HOSTED
