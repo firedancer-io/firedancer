@@ -192,6 +192,14 @@ prime_hasher( fd_stake_rewards_t * stake_rewards,
   fd_siphash13_append( stake_rewards->primed_hasher, parent_blockhash->hash, sizeof(fd_hash_t) );
 }
 
+/* STRESS: each window buffer holds at most this many rewards. */
+#define FD_STAKE_REWARDS_STRESS_BUF_MAX (100000UL)
+
+static inline ulong
+buf_ele_max( ulong max_stake_accounts ) {
+  return fd_ulong_min( max_stake_accounts, FD_STAKE_REWARDS_STRESS_BUF_MAX );
+}
+
 ulong
 fd_stake_rewards_align( void ) {
   return FD_STAKE_REWARDS_ALIGN;
@@ -206,6 +214,7 @@ fd_stake_rewards_footprint( ulong max_stake_accounts,
   if( FD_UNLIKELY( !cache_cnt || cache_cnt>max_bank_cnt+1UL ) ) return 0UL;
   ulong fork_cnt = max_bank_cnt+1UL;
   ulong buf_cnt  = cache_cnt+1UL;
+  ulong ele_max  = buf_ele_max( max_stake_accounts );
 
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, fd_stake_rewards_align(), sizeof(fd_stake_rewards_t) );
@@ -215,7 +224,7 @@ fd_stake_rewards_footprint( ulong max_stake_accounts,
   l = FD_LAYOUT_APPEND( l, alignof(ulong),           fd_ulong_sat_mul( buf_cnt, sizeof(ulong) ) );
   l = FD_LAYOUT_APPEND( l, alignof(uint),            fd_ulong_sat_mul( buf_cnt*MAX_PARTITIONS_PER_EPOCH,
                                                                       sizeof(uint) ) );
-  l = FD_LAYOUT_APPEND( l, alignof(partition_ele_t), fd_ulong_sat_mul( fd_ulong_sat_mul( buf_cnt, max_stake_accounts ),
+  l = FD_LAYOUT_APPEND( l, alignof(partition_ele_t), fd_ulong_sat_mul( fd_ulong_sat_mul( buf_cnt, ele_max ),
                                                                       sizeof(partition_ele_t) ) );
   return FD_LAYOUT_FINI( l, fd_stake_rewards_align() );
 }
@@ -249,6 +258,7 @@ fd_stake_rewards_new( void * shmem,
   }
   ulong fork_cnt = max_bank_cnt+1UL;
   ulong buf_cnt  = cache_cnt+1UL;
+  ulong ele_max  = buf_ele_max( max_stake_accounts );
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   fd_stake_rewards_t * stake_rewards = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_rewards_align(), sizeof(fd_stake_rewards_t) );
@@ -258,7 +268,7 @@ fd_stake_rewards_new( void * shmem,
   void * buf_seq_mem   = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), fd_ulong_sat_mul( buf_cnt, sizeof(ulong) ) );
   void * buf_heads_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint), fd_ulong_sat_mul( buf_cnt*MAX_PARTITIONS_PER_EPOCH,
                                                                                      sizeof(uint) ) );
-  void * buf_mem       = FD_SCRATCH_ALLOC_APPEND( l, alignof(partition_ele_t), fd_ulong_sat_mul( fd_ulong_sat_mul( buf_cnt, max_stake_accounts ),
+  void * buf_mem       = FD_SCRATCH_ALLOC_APPEND( l, alignof(partition_ele_t), fd_ulong_sat_mul( fd_ulong_sat_mul( buf_cnt, ele_max ),
                                                                                                 sizeof(partition_ele_t) ) );
 
   fork_t * fork_pool = fork_pool_join( fork_pool_new( fork_pool_mem, fork_cnt ) );
@@ -272,7 +282,7 @@ fd_stake_rewards_new( void * shmem,
   stake_rewards->buf_seq_offset             = (ulong)buf_seq_mem - (ulong)shmem;
   stake_rewards->buf_partition_heads_offset = (ulong)buf_heads_mem - (ulong)shmem;
   stake_rewards->buf_offset                 = (ulong)buf_mem - (ulong)shmem;
-  stake_rewards->max_stake_accounts         = max_stake_accounts;
+  stake_rewards->max_stake_accounts         = ele_max;
   stake_rewards->fork_cnt                   = fork_cnt;
   stake_rewards->cache_cnt                  = (uint)cache_cnt;
 

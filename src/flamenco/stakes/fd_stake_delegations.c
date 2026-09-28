@@ -644,6 +644,17 @@ fd_stake_delegations_align( void ) {
   return FD_STAKE_DELEGATIONS_ALIGN;
 }
 
+/* STRESS: the in-memory root pool holds at most this many records and
+   the delta pool is sized from it.  max_stake_accounts_ keeps the
+   requested capacity, so disk records still iterate at indices >=
+   max_stake_accounts. */
+#define FD_STAKE_DELEGATIONS_STRESS_MEM_MAX (100000UL)
+
+static inline ulong
+fd_stake_delegations_root_pool_ele_max( ulong max_stake_accounts ) {
+  return fd_ulong_min( max_stake_accounts, FD_STAKE_DELEGATIONS_STRESS_MEM_MAX );
+}
+
 static inline ulong
 fd_stake_delegations_delta_pool_ele_max( ulong root_ele_max ) {
   return fd_ulong_max( root_ele_max/FD_STAKE_DELEGATIONS_DELTA_POOL_DIVISOR, 1UL );
@@ -652,13 +663,14 @@ fd_stake_delegations_delta_pool_ele_max( ulong root_ele_max ) {
 ulong
 fd_stake_delegations_footprint( ulong max_stake_accounts,
                                 ulong max_live_slots ) {
-  ulong map_chain_cnt       = root_map_chain_cnt_est( max_stake_accounts );
-  ulong delta_ele_max       = fd_stake_delegations_delta_pool_ele_max( max_stake_accounts );
+  ulong root_ele_max        = fd_stake_delegations_root_pool_ele_max( max_stake_accounts );
+  ulong map_chain_cnt       = root_map_chain_cnt_est( root_ele_max );
+  ulong delta_ele_max       = fd_stake_delegations_delta_pool_ele_max( root_ele_max );
   ulong delta_map_chain_cnt = delta_map_chain_cnt_est( delta_ele_max );
 
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, fd_stake_delegations_align(), sizeof(fd_stake_delegations_t) );
-  l = FD_LAYOUT_APPEND( l, root_pool_align(),            root_pool_footprint( max_stake_accounts ) );
+  l = FD_LAYOUT_APPEND( l, root_pool_align(),            root_pool_footprint( root_ele_max ) );
   l = FD_LAYOUT_APPEND( l, root_map_align(),             root_map_footprint( map_chain_cnt ) );
   l = FD_LAYOUT_APPEND( l, delta_pool_align(),           delta_pool_footprint( delta_ele_max ) );
   l = FD_LAYOUT_APPEND( l, fork_pool_align(),            fork_pool_footprint( max_live_slots ) );
@@ -716,13 +728,14 @@ fd_stake_delegations_new( void * mem,
     return NULL;
   }
 
-  ulong map_chain_cnt       = root_map_chain_cnt_est( max_stake_accounts );
-  ulong delta_ele_max       = fd_stake_delegations_delta_pool_ele_max( max_stake_accounts );
+  ulong root_ele_max        = fd_stake_delegations_root_pool_ele_max( max_stake_accounts );
+  ulong map_chain_cnt       = root_map_chain_cnt_est( root_ele_max );
+  ulong delta_ele_max       = fd_stake_delegations_delta_pool_ele_max( root_ele_max );
   ulong delta_map_chain_cnt = delta_map_chain_cnt_est( delta_ele_max );
 
   FD_SCRATCH_ALLOC_INIT( l, mem );
   fd_stake_delegations_t * stake_delegations = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_delegations_align(), sizeof(fd_stake_delegations_t) );
-  void *                   pool_mem          = FD_SCRATCH_ALLOC_APPEND( l, root_pool_align(),            root_pool_footprint( max_stake_accounts ) );
+  void *                   pool_mem          = FD_SCRATCH_ALLOC_APPEND( l, root_pool_align(),            root_pool_footprint( root_ele_max ) );
   void *                   map_mem           = FD_SCRATCH_ALLOC_APPEND( l, root_map_align(),             root_map_footprint( map_chain_cnt ) );
   void *                   delta_pool_mem    = FD_SCRATCH_ALLOC_APPEND( l, delta_pool_align(),           delta_pool_footprint( delta_ele_max ) );
   void *                   fork_pool_mem     = FD_SCRATCH_ALLOC_APPEND( l, fork_pool_align(),            fork_pool_footprint( max_live_slots ) );
@@ -733,7 +746,7 @@ fd_stake_delegations_new( void * mem,
     return NULL;
   }
 
-  fd_stake_delegation_t * root_pool = root_pool_join( root_pool_new( pool_mem, max_stake_accounts ) );
+  fd_stake_delegation_t * root_pool = root_pool_join( root_pool_new( pool_mem, root_ele_max ) );
   if( FD_UNLIKELY( !root_pool ) ) {
     FD_LOG_WARNING(( "Failed to create stake delegations pool" ));
     return NULL;
