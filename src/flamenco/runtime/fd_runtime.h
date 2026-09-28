@@ -321,16 +321,10 @@ struct fd_txn_out {
     uchar new_vote    [ MAX_TX_ACCOUNT_LOCKS ];
     uchar rm_vote     [ MAX_TX_ACCOUNT_LOCKS ];
 
-    /* blake3 checksum of each account's post-commit lthash, recorded
-       at commit for the runtime_txn telemetry event only when runtime
-       diff reporting is on.  Zero for accounts this txn did not commit
-       (not acquired by it, or txn cancelled). Deleted accounts carry
-       the checksum of the zero lthash. Noncommittable txn events suppress
-       these checksums even if they were computed before rejection. */
+    /* Per-account post-state LtHash checksum, captured at commit for runtime
+       diffs.  Zero means uncaptured; deletion uses the checksum of zero LtHash. */
     uchar lthash_checksum[ MAX_TX_ACCOUNT_LOCKS ][ 32UL ];
-    /* Set at account commit when diff reporting is enabled.  Execution
-       buffers can contain rolled-back changes, so neither writability nor
-       transaction committability alone identifies a committed account. */
+    /* Set at checksum capture.  The emitter must also check is_committable. */
     uchar committed[ MAX_TX_ACCOUNT_LOCKS ];
 
     ulong nonce_idx_in_txn; /* !=ULONG_MAX if exists */

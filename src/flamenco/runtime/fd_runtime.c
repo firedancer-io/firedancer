@@ -1097,10 +1097,8 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
   return err;
 }
 
-/* fd_runtime_lthash_account updates the running lthash of the bank
-   given an account that might have been updated.  If checksum_out is
-   non-NULL, the blake3 checksum of the account's post-commit lthash is
-   written to it (including the checksum of the zero lthash for deletion). */
+/* Update the bank lthash and optionally write the account's post-state
+   BLAKE3 checksum to checksum_out. */
 
 static void
 fd_runtime_lthash_account( fd_bank_t *         bank,
@@ -1132,10 +1130,6 @@ fd_runtime_lthash_account( fd_bank_t *         bank,
     fd_blake3_hash( lthash_post->bytes, FD_LTHASH_LEN_BYTES, checksum_out );
   }
 }
-
-/* Where fd_runtime_lthash_account should record the post-commit lthash
-   checksum of account idx: its slot in txn_out when runtime diff
-   reporting is on, NULL otherwise. */
 
 static inline uchar *
 lthash_checksum_slot( fd_bank_t const * bank,

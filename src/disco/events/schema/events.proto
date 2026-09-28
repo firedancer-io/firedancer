@@ -495,7 +495,7 @@ message SignedVoteTower {
   uint32 confirmation_count = 2;
 }
 
-// Per-account diff entry
+// Committed writable account state with prior metadata; the account need not have changed
 message RuntimeTxnAccountDiffs {
   // Account pubkey
   bytes pubkey = 1;
@@ -521,7 +521,7 @@ message RuntimeTxnAccountDiffs {
   bool is_new_vote = 11;
   // True if this write removed a vote account
   bool is_rm_vote = 12;
-  // blake3 checksum of the post-state account lthash (the same checksum form as Agave's accounts_lt_hash_checksum, applied to one account), identifying the exact account contents this txn committed without shipping the data. Deleted accounts carry the checksum of the zero lthash. Zero indicates missing capture and must not be treated as a matching state. Only committed account changes are emitted
+  // BLAKE3 checksum of account LtHash, Zero-lamport accounts carry BLAKE3 of 2,048 zero bytes. All-zero checksum bytes indicate missing capture.
   bytes lthash = 13;
 }
 
@@ -705,7 +705,7 @@ message RuntimeBlockOtherDiffs {
   uint64 prev_data_sz = 7;
   // True if the post-state account is executable
   bool is_executable = 8;
-  // blake3 checksum of the post-state account lthash (the same checksum form as Agave's accounts_lt_hash_checksum, applied to one account), identifying the exact account contents written without shipping the data. Deleted accounts carry the checksum of the zero lthash
+  // BLAKE3 checksum of account LtHash. Zero-lamport accounts carry BLAKE3 of 2,048 zero bytes.
   bytes lthash = 9;
 }
 
@@ -727,7 +727,7 @@ message RuntimeBlockSysvarDiffs {
   uint64 prev_data_sz = 7;
   // True if the post-state account is executable
   bool is_executable = 8;
-  // blake3 checksum of the post-state account lthash (the same checksum form as Agave's accounts_lt_hash_checksum, applied to one account), identifying the exact sysvar contents written without shipping the data. Deleted accounts carry the checksum of the zero lthash
+  // BLAKE3 checksum of account LtHash. Zero-lamport accounts carry BLAKE3 of 2,048 zero bytes.
   bytes lthash = 9;
 }
 
@@ -1043,7 +1043,7 @@ message RuntimeTxn {
   uint32 cost_loaded_accounts_data_size = 36;
   // Allocated accounts data size from the cost tracker
   uint64 cost_allocated_accounts_data_size = 37;
-  // Per-account committed state changes; excludes rolled-back writes, rejected transactions, and non-owning bundle writers
+  // Per-account diffs for writable accounts, uncahnged state, and fee-payer/nonce updates after failed exec. Excludes discarded writes and non-commitable txns.
   repeated RuntimeTxnAccountDiffs account_diffs = 38;
   // Every account the transaction locked as writable
   repeated bytes writable_accounts = 39;
