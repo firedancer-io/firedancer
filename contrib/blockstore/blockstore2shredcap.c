@@ -866,13 +866,15 @@ footer_scan_shred( struct footer_scan * fs,
 
   if( !fs->batch_invalid ) {
     uint64_t payload_sz = shred->data.size-SHRED_DATA_HEADER_SZ;
-    if( fs->batch_sz+payload_sz>FOOTER_BATCH_MAX ) {
-      fs->batch_invalid = 1;
-    } else {
-      memcpy( fs->batch+fs->batch_sz, raw+SHRED_DATA_HEADER_SZ, payload_sz );
-      fs->batch_sz += payload_sz;
-      if( fs->batch_sz>=8UL && load_uint64( fs->batch )!=0UL ) fs->batch_invalid = 1;
-    }
+    /* The block-marker preamble + bank hash occupy the first 46 bytes of the
+       batch; a footer's trailing Alpenglow certs can exceed
+       FOOTER_BATCH_MAX, so cap the copy instead of invalidating (which would
+       drop the bank hash of a perfectly good footer). */
+    uint64_t room    = FOOTER_BATCH_MAX - fs->batch_sz;
+    uint64_t copy_sz = payload_sz < room ? payload_sz : room;
+    if( copy_sz ) memcpy( fs->batch+fs->batch_sz, raw+SHRED_DATA_HEADER_SZ, copy_sz );
+    fs->batch_sz += copy_sz;
+    if( fs->batch_sz>=8UL && load_uint64( fs->batch )!=0UL ) fs->batch_invalid = 1;
   }
 
   /* If we are at the end of the batch, and it was a footer marker,
