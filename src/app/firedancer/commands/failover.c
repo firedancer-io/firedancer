@@ -13,8 +13,8 @@ static char const * const CMD_NAMES[] = {
 };
 static char const * const ACTION_NAMES[] = {
   "idle", "demote, switching to the junk key", "demote, waiting for the peer's answer",
-  "promote, waiting for replay", "promote, waiting for the tower tile", "promote, switching to the staked key",
-  "handoff, requesting the active's tower", "handoff, waiting for completion"
+  "promote, waiting for replay", "promote, waiting for vote history adoption", "promote, switching to the staked key",
+  "handoff, requesting the active's final vote state", "handoff, waiting for completion"
 };
 static char const * const SESSION_NAMES[] = {
   "listening", "dialing", "hello", "paired", "backoff"
@@ -99,7 +99,7 @@ control_result_name( ulong result ) {
     case FD_FAILOVER_CONTROL_RESULT_TAKEN:           return "the peer took our last handoff and may still be voting";
     case FD_FAILOVER_CONTROL_RESULT_STAKED_SEEN:     return "gossip showed the staked identity at another host within the last 15 seconds, an active is publishing";
     case FD_FAILOVER_CONTROL_RESULT_NO_TOWER:        return "no eligible vote history; --force accepts incomplete or empty history after the peer is fenced";
-    case FD_FAILOVER_CONTROL_RESULT_NO_FINAL_TOWER:  return "the tower of our last vote is not known yet, this machine keeps the identity, retry after its next vote";
+    case FD_FAILOVER_CONTROL_RESULT_NO_FINAL_TOWER:  return "the final vote state for our last vote is not known yet, this machine keeps the identity, retry after its next vote";
     default:                                         return NULL;
   }
 }
@@ -123,7 +123,7 @@ failover_control_fn( args_t *        args,
                       "machine cannot sign, or both machines may vote with the staked identity.\n"
                       "It also permits incomplete or empty vote history, which may lose earlier lockouts.\n" ));
     }
-    FD_LOG_STDOUT(( "Promotion tries eligible saved Tower state, then the vote account.\n"
+    FD_LOG_STDOUT(( "Promotion tries eligible saved vote state, then account history where supported.\n"
                     "Without --force, unusable or incomplete history refuses promotion.\n" ));
   }
   if( FD_UNLIKELY( !args->failover.yes ) ) {
@@ -203,7 +203,7 @@ failover_status_print( fd_adminctl_failover_status_resp_t const * resp ) {
   FD_LOG_STDOUT(( "%-22s %s\n", "action:", action_name( resp->action ) ));
   FD_LOG_STDOUT(( "%-22s %s\n", "stuck:",  resp->stuck ? "yes, see the log" : "no" ));
   FD_LOG_STDOUT(( "%-22s %s\n", "link:",   resp->link_state<SESSION_NAME_CNT ? SESSION_NAMES[ resp->link_state ] : "unknown" ));
-  FD_LOG_STDOUT(( "%-22s %s\n", "peer role:", resp->peer_role_valid ? role_name( resp->peer_role ) : "unknown" ));
+  FD_LOG_STDOUT(( "%-22s %s\n", "peer role:", resp->peer_role_valid ? role_name( resp->peer_role ) : "unknown, no authenticated failover session" ));
   if( FD_UNLIKELY( !resp->peer_boot_id ) ) FD_LOG_STDOUT(( "%-22s none paired since boot\n", "peer boot id:" ));
   else                                     FD_LOG_STDOUT(( "%-22s %016lx\n", "peer boot id:", resp->peer_boot_id ));
   if( FD_UNLIKELY( !resp->peer_addr ) ) {
@@ -303,9 +303,11 @@ action_t fd_action_failover = {
                     "role and current action, whether it is stuck, the link to the peer, the\n"
                     "peer's role and boot id, the peer address we dial and where it came from,\n"
                     "how our last handoff ended, and what `promote` would do right now.\n"
+                    "An unknown peer role means there is no authenticated failover session.\n"
+                    "Gossip may still show the staked identity elsewhere and refuse promotion.\n"
                     "\n"
                     "The remaining commands drive the controller.  Run `handoff` on the standby.\n"
-                    "It dials the active from gossip, takes its final tower and disconnects.\n"
+                    "It dials the active from gossip, takes its final vote state and disconnects.\n"
                     "`demote` gives the\n"
                     "identity up without promoting anyone and runs on the active, the other\n"
                     "machine then needs `failover promote --force`.  `promote` takes the identity\n"
