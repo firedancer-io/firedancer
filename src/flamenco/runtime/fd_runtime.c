@@ -1101,7 +1101,8 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
    given an account that might have been updated. */
 
 static void
-fd_runtime_lthash_account( fd_bank_t *         bank,
+fd_runtime_lthash_account( fd_runtime_t *      runtime,
+                           fd_bank_t *         bank,
                            fd_pubkey_t const * pubkey,
                            fd_acc_t *          acc,
                            fd_capture_ctx_t *  capture_ctx ) {
@@ -1109,6 +1110,17 @@ fd_runtime_lthash_account( fd_bank_t *         bank,
     acc->data_len   = 0UL;
     acc->executable = 0;
     memset( acc->owner, 0, sizeof(acc->owner) );
+  }
+
+  if( FD_UNLIKELY( acc->prior_data &&
+                   acc->lamports==acc->prior_lamports &&
+                   acc->data_len==acc->prior_data_len &&
+                   (!!acc->executable)==(!!acc->prior_executable) &&
+                   !memcmp( acc->owner, acc->prior_owner, sizeof(acc->owner) ) &&
+                   !memcmp( acc->data,  acc->prior_data,  acc->data_len ) ) ) {
+    runtime->metrics.lthash_unchanged_cnt++;
+    if( FD_LIKELY( acc->lamports ) ) fd_hashes_capture_account( pubkey->uc, acc->owner, acc->lamports, acc->executable, acc->data, acc->data_len, bank, capture_ctx );
+    return;
   }
 
   fd_lthash_value_t lthash_prev[1];
@@ -1174,7 +1186,7 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
         }
       }
 
-      fd_runtime_lthash_account( bank, pubkey, account, runtime->log.capture_ctx );
+      fd_runtime_lthash_account( runtime, bank, pubkey, account, runtime->log.capture_ctx );
     }
 
     /* Atomically add all accumulated tips to the bank once after
@@ -1239,7 +1251,7 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
       }
       nonce_account->executable = nonce_account->prior_executable;
       nonce_account->commit = 1;
-      fd_runtime_lthash_account( bank, &txn_out->accounts.keys[ txn_out->accounts.nonce_idx_in_txn ], nonce_account, runtime->log.capture_ctx );
+      fd_runtime_lthash_account( runtime, bank, &txn_out->accounts.keys[ txn_out->accounts.nonce_idx_in_txn ], nonce_account, runtime->log.capture_ctx );
     }
 
     /* Now, we must only save the fee payer if the nonce account was not
@@ -1253,7 +1265,7 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
       fee_payer_account->executable = fee_payer_account->prior_executable;
 
       fee_payer_account->commit = 1;
-      fd_runtime_lthash_account( bank, &txn_out->accounts.keys[ FD_FEE_PAYER_TXN_IDX ], fee_payer_account, runtime->log.capture_ctx );
+      fd_runtime_lthash_account( runtime, bank, &txn_out->accounts.keys[ FD_FEE_PAYER_TXN_IDX ], fee_payer_account, runtime->log.capture_ctx );
     }
   }
 

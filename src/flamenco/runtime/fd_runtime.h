@@ -209,6 +209,10 @@ struct fd_runtime {
     ulong cu_cum;
     ulong instr_cum;
     ulong cpi_cum;
+
+    /* Committed writable accounts left byte-identical by the txn,
+       whose lthash update was skipped */
+    ulong lthash_unchanged_cnt;
   } metrics;
 
   struct {
