@@ -235,6 +235,7 @@ during_housekeeping( fd_gossvf_tile_ctx_t * ctx ) {
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
     memcpy( ctx->identity_pubkey->uc, ctx->keyswitch->bytes, 32UL );
     ctx->instance_creation_wallclock_nanos = (long)ctx->keyswitch->param;
+    /* The verifier now checks duplicates against the new identity and timestamp. */
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
   }
 }

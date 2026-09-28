@@ -200,13 +200,13 @@ unprivileged_init( fd_topo_t const *      topo,
 
 /* State 0: UNLOCKED.
      The validator is not currently in the process of switching keys. */
-#define FD_SET_IDENTITY_STATE_UNLOCKED                 (0UL)
+#define FD_SET_IDENTITY_STATE_UNLOCKED                 (0UL) /* No identity switch is running. */
 
 /* State 1: LOCKED
      Some client to the validator has requested a key switch.  To do so,
      it acquired an exclusive lock on the validator to prevent the
      switch potentially being interleaved with another client. */
-#define FD_SET_IDENTITY_STATE_LOCKED                   (1UL)
+#define FD_SET_IDENTITY_STATE_LOCKED                   (1UL) /* The identity switch owns the replay lock. */
 
 /* State 2: LEADER_HALT_REQUESTED
      The first step in the key switch process is to pause the leader
@@ -221,7 +221,7 @@ unprivileged_init( fd_topo_t const *      topo,
      identity's balance as well as when the validator is the leader.
      After the leader pipeline has been halted, the validator will no
      longer become a leader until the switch has been completed. */
-#define FD_SET_IDENTITY_STATE_LEADER_HALT_REQUESTED    (2UL)
+#define FD_SET_IDENTITY_STATE_LEADER_HALT_REQUESTED    (2UL) /* Wait for replay to stop the leader pipeline. */
 
 /* State 3: LEADER_HALTED
      The Replay tile has confirmed that it has halted the leader
@@ -233,7 +233,7 @@ unprivileged_init( fd_topo_t const *      topo,
      outstanding shreds that have to be signed with the old key.  Any
      tiles related to the leader pipeline that rely on the identity key
      will not be used. */
-#define FD_SET_IDENTITY_STATE_LEADER_HALTED            (3UL)
+#define FD_SET_IDENTITY_STATE_LEADER_HALTED            (3UL) /* The leader pipeline is stopped. */
 
 /* State 4: SIGNERS_HALT_REQUESTED
      Repair, Gossip, Tower, and Bundle tiles will stop sending requests
@@ -267,14 +267,14 @@ unprivileged_init( fd_topo_t const *      topo,
            asynchronously; it waits for its outstanding requests to be
            answered under the old key before switching.
         */
-#define FD_SET_IDENTITY_STATE_SIGNERS_HALT_REQUESTED   (4UL)
+#define FD_SET_IDENTITY_STATE_SIGNERS_HALT_REQUESTED   (4UL) /* Wait for tiles to stop requesting signatures. */
 
 /* State 5: SIGNERS_HALTED
      Repair, Gossip, Tower, and Bundle are no longer sending requests to
      the sign tile.  Replay can keep progressing at this point.
      However, the Tower tile may have an in-flight vote transaction to
      the TxSend tile that corresponds to the old identity key. */
-#define FD_SET_IDENTITY_STATE_SIGNERS_HALTED           (5UL)
+#define FD_SET_IDENTITY_STATE_SIGNERS_HALTED           (5UL) /* Signature producers halted, old votes may still be queued. */
 
 /* State 6: TXSEND_FLUSH_REQUESTED
      Once the Tower tile has updated its identity key and stopped
@@ -292,7 +292,7 @@ unprivileged_init( fd_topo_t const *      topo,
      unhalted.  At this point, the TxSend tile will stop receiving any
      new frags from the Net tile.  The reason for this is to avoid any
      QUIC callbacks that invoke key signing. */
-#define FD_SET_IDENTITY_STATE_TXSEND_FLUSH_REQUESTED   (6UL)
+#define FD_SET_IDENTITY_STATE_TXSEND_FLUSH_REQUESTED   (6UL) /* Wait for TxSend to drain old votes. */
 
 /* State 7: TXSEND_FLUSHED
      The TxSend tile confirms that it has seen and processed all votes
@@ -301,7 +301,7 @@ unprivileged_init( fd_topo_t const *      topo,
      own identity key which is used for signing votes and establishing
      a QUIC connection.  The TxSend tile is now no longer receiving any
      new frags from the Net tile. */
-#define FD_SET_IDENTITY_STATE_TXSEND_FLUSHED           (7UL)
+#define FD_SET_IDENTITY_STATE_TXSEND_FLUSHED           (7UL) /* TxSend drained old votes and stopped signing. */
 
 /* State 8: ALL_SWITCH_REQUESTED
      The client now requests that all other tiles which consume the
@@ -325,32 +325,32 @@ unprivileged_init( fd_topo_t const *      topo,
            outgoing shreds.
        (e) Event.  Outgoing events to the event server are signed with
            the identity key to authenticate the sender. */
-#define FD_SET_IDENTITY_STATE_ALL_SWITCH_REQUESTED     (8UL)
+#define FD_SET_IDENTITY_STATE_ALL_SWITCH_REQUESTED     (8UL) /* Wait for the remaining tiles to switch identities. */
 
 /* State 9: ALL_SWITCHED
      All remaining tiles that use the identity key have confirmed that
      they have switched to the new key.  Gossip has not yet updated its
      identity key.  Repair, Gossip, Tower, TxSend, and Bundle remain
      halted. */
-#define FD_SET_IDENTITY_STATE_ALL_SWITCHED             (9UL)
+#define FD_SET_IDENTITY_STATE_ALL_SWITCHED             (9UL) /* Remaining tiles switched, gossip still needs to resume. */
 
 /* State 10: SIGNERS_UNHALT_REQUESTED
      During this state, the tiles that rely on the sign tile can be
      safely unhalted and have their keys switched.  After this state,
      all tiles will be using the switched identity key. */
-#define FD_SET_IDENTITY_STATE_SIGNERS_UNHALT_REQUESTED (10UL)
+#define FD_SET_IDENTITY_STATE_SIGNERS_UNHALT_REQUESTED (10UL) /* Wait for non-leader signers to resume. */
 
 /* State 11: SIGNERS_UNHALTED
      All tiles that rely on the sign tile have been unhalted, and the
      validator can now resume making progress on replay. */
-#define FD_SET_IDENTITY_STATE_SIGNERS_UNHALTED         (11UL)
+#define FD_SET_IDENTITY_STATE_SIGNERS_UNHALTED         (11UL) /* Non-leader signers resumed with the new identity. */
 
 /* State 12: LEADER_UNHALT_REQUESTED
      The final state, now that all tiles have switched, the leader
      pipeline can be unblocked and the validator can resume producing
      blocks.  The next state once the Replay tile confirms the leader
      pipeline is unlocked, is UNLOCKED. */
-#define FD_SET_IDENTITY_STATE_LEADER_UNHALT_REQUESTED  (12UL)
+#define FD_SET_IDENTITY_STATE_LEADER_UNHALT_REQUESTED  (12UL) /* Wait for replay to resume the leader pipeline. */
 
 static fd_keyswitch_t *
 find_identity_keyswitch( fd_admin_tile_ctx_t * ctx,
@@ -377,7 +377,7 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
     case FD_SET_IDENTITY_STATE_UNLOCKED: {
       fd_keyswitch_t * replay = find_identity_keyswitch( ctx, "replay" );
       if( FD_LIKELY( FD_KEYSWITCH_STATE_UNLOCKED==FD_ATOMIC_CAS( &replay->state, FD_KEYSWITCH_STATE_UNLOCKED, FD_KEYSWITCH_STATE_LOCKED ) ) ) {
-        *state = FD_SET_IDENTITY_STATE_LOCKED;
+        *state = FD_SET_IDENTITY_STATE_LOCKED; /* Replay lock acquired. */
         FD_LOG_INFO(( "Locking validator identity for key switch..." ));
       } else {
         FD_LOG_CRIT(( "identity keyswitch is in a locked state but should be unlocked" ));
@@ -389,9 +389,9 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
       memcpy( replay->bytes, keypair+32UL, 32UL );
 
       FD_COMPILER_MFENCE();
-      replay->state = FD_KEYSWITCH_STATE_SWITCH_PENDING;
+      replay->state = FD_KEYSWITCH_STATE_SWITCH_PENDING; /* Stop leadership before switching signers. */
       FD_COMPILER_MFENCE();
-      *state = FD_SET_IDENTITY_STATE_LEADER_HALT_REQUESTED;
+      *state = FD_SET_IDENTITY_STATE_LEADER_HALT_REQUESTED; /* Replay was asked to halt. */
       FD_LOG_INFO(( "Pausing leader pipeline for key switch..." ));
       break;
     }
@@ -401,10 +401,10 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
         fd_memzero_explicit( replay->bytes, 64UL );
         FD_COMPILER_MFENCE();
         *halted_seq = replay->result;
-        *state = FD_SET_IDENTITY_STATE_LEADER_HALTED;
+        *state = FD_SET_IDENTITY_STATE_LEADER_HALTED; /* Replay confirmed the leader halt. */
         FD_LOG_INFO(( "Leader pipeline successfully paused..." ));
       } else if( FD_UNLIKELY( replay->state==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
-        FD_SPIN_PAUSE();
+        FD_SPIN_PAUSE(); /* Wait for the requested step to finish. */
       } else {
         FD_LOG_ERR(( "Unexpected replay keyswitch state %lu", replay->state ));
       }
@@ -428,10 +428,10 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
         if( !strcmp( tile->name, "shred"  ) ) tile_ks->param = 0UL; /* the leader pipeline is halted, nothing more to reach */
         memcpy( tile_ks->bytes, keypair+32UL, 32UL );
         FD_COMPILER_MFENCE();
-        tile_ks->state = FD_KEYSWITCH_STATE_SWITCH_PENDING;
+        tile_ks->state = FD_KEYSWITCH_STATE_SWITCH_PENDING; /* Post this tile's next switch step. */
         FD_COMPILER_MFENCE();
       }
-      *state = FD_SET_IDENTITY_STATE_SIGNERS_HALT_REQUESTED;
+      *state = FD_SET_IDENTITY_STATE_SIGNERS_HALT_REQUESTED; /* Signature producers were asked to halt. */
       FD_LOG_INFO(( "Requesting to halt all signers..." ));
       break;
     }
@@ -457,9 +457,9 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
       }
       if( FD_LIKELY( all_switched ) ) {
         FD_LOG_INFO(( "All signers successfully halted..." ));
-        *state = FD_SET_IDENTITY_STATE_SIGNERS_HALTED;
+        *state = FD_SET_IDENTITY_STATE_SIGNERS_HALTED; /* All signature producers finished halting. */
       } else {
-        FD_SPIN_PAUSE();
+        FD_SPIN_PAUSE(); /* Wait for the requested step to finish. */
       }
       break;
     }
@@ -469,10 +469,10 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
       txsend->param = tower_halted_seq;
       memcpy( txsend->bytes, keypair+32UL, 32UL );
       FD_COMPILER_MFENCE();
-      txsend->state = FD_KEYSWITCH_STATE_SWITCH_PENDING;
+      txsend->state = FD_KEYSWITCH_STATE_SWITCH_PENDING; /* Drain votes using the old identity. */
       FD_COMPILER_MFENCE();
 
-      *state = FD_SET_IDENTITY_STATE_TXSEND_FLUSH_REQUESTED;
+      *state = FD_SET_IDENTITY_STATE_TXSEND_FLUSH_REQUESTED; /* TxSend was given the Tower watermark. */
       break;
     }
     case FD_SET_IDENTITY_STATE_TXSEND_FLUSH_REQUESTED: {
@@ -480,9 +480,9 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
       if( FD_LIKELY( txsend->state==FD_KEYSWITCH_STATE_COMPLETED ) ) {
         fd_memzero_explicit( txsend->bytes, 64UL );
         FD_COMPILER_MFENCE();
-        *state = FD_SET_IDENTITY_STATE_TXSEND_FLUSHED;
+        *state = FD_SET_IDENTITY_STATE_TXSEND_FLUSHED; /* TxSend confirmed the drain. */
       } else {
-        FD_SPIN_PAUSE();
+        FD_SPIN_PAUSE(); /* Wait for the requested step to finish. */
       }
       break;
     }
@@ -500,7 +500,7 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
           fd_memset( sign->bytes+32UL, 0,            32UL );
         }
         FD_COMPILER_MFENCE();
-        sign->state = FD_KEYSWITCH_STATE_SWITCH_PENDING;
+        sign->state = FD_KEYSWITCH_STATE_SWITCH_PENDING; /* Install the new signing identity after the drain. */
         FD_COMPILER_MFENCE();
       }
 
@@ -523,12 +523,12 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
         if( !strcmp( tile->name, "gossvf" ) ) tile_ks->param = identity_outset;
         memcpy( tile_ks->bytes, keypair+32UL, 32UL );
         FD_COMPILER_MFENCE();
-        tile_ks->state = FD_KEYSWITCH_STATE_SWITCH_PENDING;
+        tile_ks->state = FD_KEYSWITCH_STATE_SWITCH_PENDING; /* Post this tile's next switch step. */
         FD_COMPILER_MFENCE();
       }
 
       FD_LOG_INFO(( "Requesting all remaining tiles switch identity key..." ));
-      *state = FD_SET_IDENTITY_STATE_ALL_SWITCH_REQUESTED;
+      *state = FD_SET_IDENTITY_STATE_ALL_SWITCH_REQUESTED; /* Remaining tiles were asked to switch. */
       break;
     }
     case FD_SET_IDENTITY_STATE_ALL_SWITCH_REQUESTED: {
@@ -563,9 +563,9 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
 
       if( FD_LIKELY( all_switched ) ) {
         FD_LOG_INFO(( "All tiles successfully switched identity key..." ));
-        *state = FD_SET_IDENTITY_STATE_ALL_SWITCHED;
+        *state = FD_SET_IDENTITY_STATE_ALL_SWITCHED; /* Remaining tiles confirmed the switch. */
       } else {
-        FD_SPIN_PAUSE();
+        FD_SPIN_PAUSE(); /* Wait for the requested step to finish. */
       }
       break;
     }
@@ -584,12 +584,12 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
 
         fd_keyswitch_t * tile_ks = fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id );
         FD_COMPILER_MFENCE();
-        tile_ks->state = FD_KEYSWITCH_STATE_UNHALT_PENDING;
+        tile_ks->state = FD_KEYSWITCH_STATE_UNHALT_PENDING; /* Resume signing with the new identity. */
         FD_COMPILER_MFENCE();
       }
 
       FD_LOG_INFO(( "Requesting to unpause signers..." ));
-      *state = FD_SET_IDENTITY_STATE_SIGNERS_UNHALT_REQUESTED;
+      *state = FD_SET_IDENTITY_STATE_SIGNERS_UNHALT_REQUESTED; /* Non-leader signers were asked to resume. */
       break;
     }
     case FD_SET_IDENTITY_STATE_SIGNERS_UNHALT_REQUESTED: {
@@ -614,27 +614,27 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
       }
       if( FD_LIKELY( all_switched ) ) {
         FD_LOG_INFO(( "Successfully unpaused all non-leader signers..." ));
-        *state = FD_SET_IDENTITY_STATE_SIGNERS_UNHALTED;
+        *state = FD_SET_IDENTITY_STATE_SIGNERS_UNHALTED; /* Non-leader signers finished resuming. */
       } else {
-        FD_SPIN_PAUSE();
+        FD_SPIN_PAUSE(); /* Wait for the requested step to finish. */
       }
       break;
     }
     case FD_SET_IDENTITY_STATE_SIGNERS_UNHALTED: {
       fd_keyswitch_t * replay = find_identity_keyswitch( ctx, "replay" );
-      replay->state = FD_KEYSWITCH_STATE_UNHALT_PENDING;
+      replay->state = FD_KEYSWITCH_STATE_UNHALT_PENDING; /* Resume leadership after the other tiles. */
       FD_LOG_INFO(( "Requesting to unpause leader pipeline..." ));
-      *state = FD_SET_IDENTITY_STATE_LEADER_UNHALT_REQUESTED;
+      *state = FD_SET_IDENTITY_STATE_LEADER_UNHALT_REQUESTED; /* Replay was asked to resume. */
       break;
     }
     case FD_SET_IDENTITY_STATE_LEADER_UNHALT_REQUESTED: {
       fd_keyswitch_t * replay = find_identity_keyswitch( ctx, "replay" );
       if( FD_LIKELY( replay->state==FD_KEYSWITCH_STATE_COMPLETED ) ) {
         FD_LOG_INFO(( "Leader pipeline unpaused..." ));
-        replay->state = FD_KEYSWITCH_STATE_UNLOCKED;
-        *state = FD_SET_IDENTITY_STATE_UNLOCKED;
+        replay->state = FD_KEYSWITCH_STATE_UNLOCKED; /* Release the identity lock after replay resumes. */
+        *state = FD_SET_IDENTITY_STATE_UNLOCKED; /* Replay resumed, the identity switch is complete. */
       } else if( FD_UNLIKELY( replay->state==FD_KEYSWITCH_STATE_UNHALT_PENDING ) ) {
-        FD_SPIN_PAUSE();
+        FD_SPIN_PAUSE(); /* Wait for the requested step to finish. */
       } else {
         FD_LOG_ERR(( "Unexpected replay keyswitch state %lu", replay->state ));
       }
@@ -699,6 +699,7 @@ set_identity( fd_admin_tile_ctx_t * ctx,
     return;
   }
 
+  /* Start a new identity switch from idle. */
   ulong state           = FD_SET_IDENTITY_STATE_UNLOCKED;
   ulong halted_seq      = 0UL;
   ulong identity_outset = (ulong)fd_log_wallclock();
@@ -765,19 +766,19 @@ get_identity( fd_admin_tile_ctx_t * ctx,
 
 /* State 0: UNLOCKED
    The validator is not currently in the process of switching keys. */
-#define FD_ADD_AUTH_VOTER_STATE_UNLOCKED             (0UL)
+#define FD_ADD_AUTH_VOTER_STATE_UNLOCKED             (0UL) /* No authorized voter addition is running. */
 
 /* State 1: LOCKED
    Some client to the validator has requested to add an authorized
    voter.  To do so, it acquired an exclusive lock on the validator to
    prevent the switch potentially being interleaved with another
    client. */
-#define FD_ADD_AUTH_VOTER_STATE_LOCKED               (1UL)
+#define FD_ADD_AUTH_VOTER_STATE_LOCKED               (1UL) /* The addition owns the Tower voter-set lock. */
 
 /* State 2: SIGN_TILE_REQUESTED
    The first step to add an authorized voter is to notify the sign
    tile that an authorized voter is being added. */
-#define FD_ADD_AUTH_VOTER_STATE_SIGN_TILE_REQUESTED  (2UL)
+#define FD_ADD_AUTH_VOTER_STATE_SIGN_TILE_REQUESTED  (2UL) /* Wait for sign tiles to accept or reject the key. */
 
 /* State 3: SIGN_TILE_UPDATED
    The Sign tile has confirmed that it has updated its internal
@@ -785,24 +786,24 @@ get_identity( fd_admin_tile_ctx_t * ctx,
    the sign tile is aware of the new authorized voter but the Tower
    tile will not prepare vote transactions with the new authorized
    voter yet. */
-#define FD_ADD_AUTH_VOTER_STATE_SIGN_TILE_UPDATED    (3UL)
+#define FD_ADD_AUTH_VOTER_STATE_SIGN_TILE_UPDATED    (3UL) /* Sign tiles can sign with the new voter key. */
 
 /* State 4: TOWER_TILE_REQUESTED
    Once the Sign tile is updated, now the Tower tile must be notified
    that an authorized voter is being added so it can start preparing
    vote transactions with the new authorized voter. */
-#define FD_ADD_AUTH_VOTER_STATE_TOWER_TILE_REQUESTED (4UL)
+#define FD_ADD_AUTH_VOTER_STATE_TOWER_TILE_REQUESTED (4UL) /* Wait for Tower to add the voter. */
 
 /* State 5: TOWER_TILE_UPDATED
    The Tower tile has confirmed that it has updated its internal
    mapping for the set of supported authorized voters. */
-#define FD_ADD_AUTH_VOTER_STATE_TOWER_TILE_UPDATED   (5UL)
+#define FD_ADD_AUTH_VOTER_STATE_TOWER_TILE_UPDATED   (5UL) /* Release the lock after an update or sign-tile rejection. */
 
 /* State 6: UNLOCK_REQUESTED
    The client now requests that the Tower tile unpause the pipeline
    so the validator can start producing votes with the new authorized
    voter. */
-#define FD_ADD_AUTH_VOTER_STATE_UNLOCK_REQUESTED     (6UL)
+#define FD_ADD_AUTH_VOTER_STATE_UNLOCK_REQUESTED     (6UL) /* Wait for Tower to release the voter-set lock. */
 
 static void FD_FN_SENSITIVE
 poll_add_authorized_voter( fd_admin_tile_ctx_t * ctx,
@@ -814,7 +815,7 @@ poll_add_authorized_voter( fd_admin_tile_ctx_t * ctx,
   switch( *state ) {
     case FD_ADD_AUTH_VOTER_STATE_UNLOCKED: {
       if( FD_LIKELY( FD_KEYSWITCH_STATE_UNLOCKED==FD_ATOMIC_CAS( &tower->state, FD_KEYSWITCH_STATE_UNLOCKED, FD_KEYSWITCH_STATE_LOCKED ) ) ) {
-        *state = FD_ADD_AUTH_VOTER_STATE_LOCKED;
+        *state = FD_ADD_AUTH_VOTER_STATE_LOCKED; /* Tower voter-set lock acquired. */
         FD_LOG_INFO(( "Locking authorized voter set for authorized voter update..." ));
       } else {
         /* keyswitch changes should be guarded and ordered by adminctl.
@@ -830,11 +831,11 @@ poll_add_authorized_voter( fd_admin_tile_ctx_t * ctx,
         memcpy( sign->bytes, keypair, 64UL );
         sign->param = FD_KEYSWITCH_PARAM_AV_ADD;
         FD_COMPILER_MFENCE();
-        sign->state = FD_KEYSWITCH_STATE_SWITCH_PENDING;
+        sign->state = FD_KEYSWITCH_STATE_SWITCH_PENDING; /* Add the signing key before Tower uses it. */
         FD_COMPILER_MFENCE();
       }
       fd_memzero_explicit( keypair, 32UL );
-      *state = FD_ADD_AUTH_VOTER_STATE_SIGN_TILE_REQUESTED;
+      *state = FD_ADD_AUTH_VOTER_STATE_SIGN_TILE_REQUESTED; /* Sign tiles were asked to add the key. */
       FD_LOG_INFO(( "Requesting all sign tiles to update authorized voter key set..." ));
       break;
     }
@@ -857,10 +858,10 @@ poll_add_authorized_voter( fd_admin_tile_ctx_t * ctx,
       }
 
       if( FD_LIKELY( all_updated ) ) {
-        if( FD_UNLIKELY( *result ) ) *state = FD_ADD_AUTH_VOTER_STATE_TOWER_TILE_UPDATED;
-        else                         *state = FD_ADD_AUTH_VOTER_STATE_SIGN_TILE_UPDATED;
+        if( FD_UNLIKELY( *result ) ) *state = FD_ADD_AUTH_VOTER_STATE_TOWER_TILE_UPDATED; /* Sign tiles refused, skip Tower update and unlock. */
+        else                         *state = FD_ADD_AUTH_VOTER_STATE_SIGN_TILE_UPDATED; /* Every sign tile accepted the key. */
       } else {
-        FD_SPIN_PAUSE();
+        FD_SPIN_PAUSE(); /* Wait for the requested step to finish. */
       }
       break;
     }
@@ -868,9 +869,9 @@ poll_add_authorized_voter( fd_admin_tile_ctx_t * ctx,
       memcpy( tower->bytes, keypair+32UL, 32UL );
       tower->param = FD_KEYSWITCH_PARAM_AV_ADD;
       FD_COMPILER_MFENCE();
-      tower->state = FD_KEYSWITCH_STATE_SWITCH_PENDING;
+      tower->state = FD_KEYSWITCH_STATE_SWITCH_PENDING; /* Tower may use the key accepted by sign tiles. */
       FD_COMPILER_MFENCE();
-      *state = FD_ADD_AUTH_VOTER_STATE_TOWER_TILE_REQUESTED;
+      *state = FD_ADD_AUTH_VOTER_STATE_TOWER_TILE_REQUESTED; /* Tower was asked to add the voter. */
       FD_LOG_INFO(( "Requesting tower tile to update authorized voter key set..." ));
       break;
     }
@@ -883,25 +884,25 @@ poll_add_authorized_voter( fd_admin_tile_ctx_t * ctx,
          Tower tile will detect any corruption and gracefully crash the
          validator. */
       if( FD_LIKELY( tower->state==FD_KEYSWITCH_STATE_COMPLETED ) ) {
-        *state = FD_ADD_AUTH_VOTER_STATE_TOWER_TILE_UPDATED;
+        *state = FD_ADD_AUTH_VOTER_STATE_TOWER_TILE_UPDATED; /* Tower confirmed the new voter. */
         FD_LOG_INFO(( "Tower tile key set successfully updated..." ));
       } else {
-        FD_SPIN_PAUSE();
+        FD_SPIN_PAUSE(); /* Wait for the requested step to finish. */
       }
       break;
     }
     case FD_ADD_AUTH_VOTER_STATE_TOWER_TILE_UPDATED: {
-      tower->state = FD_KEYSWITCH_STATE_UNHALT_PENDING;
-      *state       = FD_ADD_AUTH_VOTER_STATE_UNLOCK_REQUESTED;
+      tower->state = FD_KEYSWITCH_STATE_UNHALT_PENDING; /* Release the voter-set lock. */
+      *state       = FD_ADD_AUTH_VOTER_STATE_UNLOCK_REQUESTED; /* Tower was asked to release the lock. */
       FD_LOG_INFO(( "Requesting an unlock of the authorized voter key set..." ));
       break;
     }
     case FD_ADD_AUTH_VOTER_STATE_UNLOCK_REQUESTED: {
       if( FD_LIKELY( tower->state==FD_KEYSWITCH_STATE_UNLOCKED ) ) {
-        *state = FD_ADD_AUTH_VOTER_STATE_UNLOCKED;
+        *state = FD_ADD_AUTH_VOTER_STATE_UNLOCKED; /* The addition finished and Tower released the lock. */
         FD_LOG_INFO(( "Authorized voter key set unlocked..." ));
       } else {
-        FD_SPIN_PAUSE();
+        FD_SPIN_PAUSE(); /* Wait for the requested step to finish. */
       }
       break;
     }
@@ -963,6 +964,7 @@ add_authorized_voter( fd_admin_tile_ctx_t *     ctx,
   }
 
   ulong result = FD_ADMINCTL_RESULT_SUCCESS;
+  /* Start a new authorized voter addition from idle. */
   ulong state  = FD_ADD_AUTH_VOTER_STATE_UNLOCKED;
   for(;;) {
     poll_add_authorized_voter( ctx, &state, req->keypair, &result );
@@ -1101,50 +1103,50 @@ snapshot_create_response( fd_admin_tile_ctx_t * ctx,
 
 /* State 0: UNLOCKED
    The validator is not currently in the process of switching keys. */
-#define FD_REMOVE_ALL_AUTH_VOTERS_STATE_UNLOCKED               (0UL)
+#define FD_REMOVE_ALL_AUTH_VOTERS_STATE_UNLOCKED               (0UL) /* No authorized voter removal is running. */
 
 /* State 1: LOCKED
    Some client to the validator has requested to remove all authorized
    voters.  To do so, it acquired an exclusive lock on the validator to
    prevent the removal potentially being interleaved with another
    client. */
-#define FD_REMOVE_ALL_AUTH_VOTERS_STATE_LOCKED                 (1UL)
+#define FD_REMOVE_ALL_AUTH_VOTERS_STATE_LOCKED                 (1UL) /* The removal owns the Tower voter-set lock. */
 
 /* State 2: TOWER_TILE_REQUESTED
    The tower tile has been notified to clear its authorized voter set.
    It is cleared first so it stops preparing vote transactions with any
    authorized voter before the sign tiles drop the keys. */
-#define FD_REMOVE_ALL_AUTH_VOTERS_STATE_TOWER_TILE_REQUESTED   (2UL)
+#define FD_REMOVE_ALL_AUTH_VOTERS_STATE_TOWER_TILE_REQUESTED   (2UL) /* Wait for Tower to clear voters and drain queued output. */
 
 /* State 3: TOWER_TILE_CLEARED
    The tower tile confirmed it cleared its authorized voter map.  At
    this point the validator will only prepare vote transactions signed
    by the identity key. */
-#define FD_REMOVE_ALL_AUTH_VOTERS_STATE_TOWER_TILE_CLEARED     (3UL)
+#define FD_REMOVE_ALL_AUTH_VOTERS_STATE_TOWER_TILE_CLEARED     (3UL) /* Tower cleared voters and reported its output watermark. */
 
 /* State 4: TXSEND_FLUSH_REQUESTED
    TxSend has been notified to process every tower message through the
    sequence at which the tower stopped producing votes. */
-#define FD_REMOVE_ALL_AUTH_VOTERS_STATE_TXSEND_FLUSH_REQUESTED (4UL)
+#define FD_REMOVE_ALL_AUTH_VOTERS_STATE_TXSEND_FLUSH_REQUESTED (4UL) /* Wait for TxSend to finish old voter signing requests. */
 
 /* State 5: TXSEND_FLUSHED
    TxSend confirmed that all vote transactions which could reference an
    authorized voter have finished signing. */
-#define FD_REMOVE_ALL_AUTH_VOTERS_STATE_TXSEND_FLUSHED         (5UL)
+#define FD_REMOVE_ALL_AUTH_VOTERS_STATE_TXSEND_FLUSHED         (5UL) /* All old voter signing requests have finished. */
 
 /* State 6: SIGN_TILE_REQUESTED
    All sign tiles have been notified to clear their authorized voter
    keys. */
-#define FD_REMOVE_ALL_AUTH_VOTERS_STATE_SIGN_TILE_REQUESTED    (6UL)
+#define FD_REMOVE_ALL_AUTH_VOTERS_STATE_SIGN_TILE_REQUESTED    (6UL) /* Wait for sign tiles to erase voter keys. */
 
 /* State 7: SIGN_TILE_CLEARED
    All sign tiles confirmed they cleared (and securely zeroed) their
    authorized voter keys. */
-#define FD_REMOVE_ALL_AUTH_VOTERS_STATE_SIGN_TILE_CLEARED      (7UL)
+#define FD_REMOVE_ALL_AUTH_VOTERS_STATE_SIGN_TILE_CLEARED      (7UL) /* All sign tiles erased voter keys. */
 
 /* State 8: UNLOCK_REQUESTED
    The client requests that the tower tile release the lock. */
-#define FD_REMOVE_ALL_AUTH_VOTERS_STATE_UNLOCK_REQUESTED       (8UL)
+#define FD_REMOVE_ALL_AUTH_VOTERS_STATE_UNLOCK_REQUESTED       (8UL) /* Wait for Tower to release the voter-set lock. */
 
 static void
 poll_remove_all_authorized_voters( fd_admin_tile_ctx_t * ctx,
@@ -1154,7 +1156,7 @@ poll_remove_all_authorized_voters( fd_admin_tile_ctx_t * ctx,
   switch( *state ) {
     case FD_REMOVE_ALL_AUTH_VOTERS_STATE_UNLOCKED: {
       if( FD_LIKELY( FD_KEYSWITCH_STATE_UNLOCKED==FD_ATOMIC_CAS( &tower->state, FD_KEYSWITCH_STATE_UNLOCKED, FD_KEYSWITCH_STATE_LOCKED ) ) ) {
-        *state = FD_REMOVE_ALL_AUTH_VOTERS_STATE_LOCKED;
+        *state = FD_REMOVE_ALL_AUTH_VOTERS_STATE_LOCKED; /* Tower voter-set lock acquired. */
         FD_LOG_INFO(( "Locking authorized voter set for authorized voter update..." ));
       } else {
         /* keyswitch changes should be guarded and ordered by adminctl.
@@ -1167,18 +1169,18 @@ poll_remove_all_authorized_voters( fd_admin_tile_ctx_t * ctx,
     case FD_REMOVE_ALL_AUTH_VOTERS_STATE_LOCKED: {
       tower->param = FD_KEYSWITCH_PARAM_AV_CLEAR;
       FD_COMPILER_MFENCE();
-      tower->state = FD_KEYSWITCH_STATE_SWITCH_PENDING;
+      tower->state = FD_KEYSWITCH_STATE_SWITCH_PENDING; /* Stop using voter keys before removing them. */
       FD_COMPILER_MFENCE();
-      *state = FD_REMOVE_ALL_AUTH_VOTERS_STATE_TOWER_TILE_REQUESTED;
+      *state = FD_REMOVE_ALL_AUTH_VOTERS_STATE_TOWER_TILE_REQUESTED; /* Tower was asked to stop using voter keys. */
       FD_LOG_INFO(( "Requesting tower tile to clear authorized voter key set..." ));
       break;
     }
     case FD_REMOVE_ALL_AUTH_VOTERS_STATE_TOWER_TILE_REQUESTED: {
       if( FD_LIKELY( tower->state==FD_KEYSWITCH_STATE_COMPLETED ) ) {
-        *state = FD_REMOVE_ALL_AUTH_VOTERS_STATE_TOWER_TILE_CLEARED;
+        *state = FD_REMOVE_ALL_AUTH_VOTERS_STATE_TOWER_TILE_CLEARED; /* Tower cleared voters and drained queued output. */
         FD_LOG_INFO(( "Tower tile authorized voter key set cleared..." ));
       } else {
-        FD_SPIN_PAUSE();
+        FD_SPIN_PAUSE(); /* Wait for the requested step to finish. */
       }
       break;
     }
@@ -1187,18 +1189,18 @@ poll_remove_all_authorized_voters( fd_admin_tile_ctx_t * ctx,
       FD_COMPILER_MFENCE();
       txsend->param = tower->result;
       FD_COMPILER_MFENCE();
-      txsend->state = FD_KEYSWITCH_STATE_SWITCH_PENDING;
+      txsend->state = FD_KEYSWITCH_STATE_SWITCH_PENDING; /* Drain signing requests before erasing keys. */
       FD_COMPILER_MFENCE();
-      *state = FD_REMOVE_ALL_AUTH_VOTERS_STATE_TXSEND_FLUSH_REQUESTED;
+      *state = FD_REMOVE_ALL_AUTH_VOTERS_STATE_TXSEND_FLUSH_REQUESTED; /* TxSend was given the Tower watermark. */
       FD_LOG_INFO(( "Requesting TxSend drain in-flight authorized voter signing requests..." ));
       break;
     }
     case FD_REMOVE_ALL_AUTH_VOTERS_STATE_TXSEND_FLUSH_REQUESTED: {
       if( FD_LIKELY( ctx->txsend_av_keyswitch->state==FD_KEYSWITCH_STATE_COMPLETED ) ) {
-        *state = FD_REMOVE_ALL_AUTH_VOTERS_STATE_TXSEND_FLUSHED;
+        *state = FD_REMOVE_ALL_AUTH_VOTERS_STATE_TXSEND_FLUSHED; /* TxSend finished signing all old votes. */
         FD_LOG_INFO(( "TxSend authorized voter signing requests drained..." ));
       } else {
-        FD_SPIN_PAUSE();
+        FD_SPIN_PAUSE(); /* Wait for the requested step to finish. */
       }
       break;
     }
@@ -1207,10 +1209,10 @@ poll_remove_all_authorized_voters( fd_admin_tile_ctx_t * ctx,
         fd_keyswitch_t * sign = ctx->sign_av_keyswitch[ i ];
         sign->param = FD_KEYSWITCH_PARAM_AV_CLEAR;
         FD_COMPILER_MFENCE();
-        sign->state = FD_KEYSWITCH_STATE_SWITCH_PENDING;
+        sign->state = FD_KEYSWITCH_STATE_SWITCH_PENDING; /* Erase keys after all signing requests finish. */
         FD_COMPILER_MFENCE();
       }
-      *state = FD_REMOVE_ALL_AUTH_VOTERS_STATE_SIGN_TILE_REQUESTED;
+      *state = FD_REMOVE_ALL_AUTH_VOTERS_STATE_SIGN_TILE_REQUESTED; /* Sign tiles were asked to erase voter keys. */
       FD_LOG_INFO(( "Requesting all sign tiles to clear authorized voter key set..." ));
       break;
     }
@@ -1224,22 +1226,22 @@ poll_remove_all_authorized_voters( fd_admin_tile_ctx_t * ctx,
         }
       }
 
-      if( FD_LIKELY( all_cleared ) ) *state = FD_REMOVE_ALL_AUTH_VOTERS_STATE_SIGN_TILE_CLEARED;
-      else                           FD_SPIN_PAUSE();
+      if( FD_LIKELY( all_cleared ) ) *state = FD_REMOVE_ALL_AUTH_VOTERS_STATE_SIGN_TILE_CLEARED; /* All sign tiles confirmed key erasure. */
+      else                           FD_SPIN_PAUSE(); /* Wait for the requested step to finish. */
       break;
     }
     case FD_REMOVE_ALL_AUTH_VOTERS_STATE_SIGN_TILE_CLEARED: {
-      tower->state = FD_KEYSWITCH_STATE_UNHALT_PENDING;
-      *state       = FD_REMOVE_ALL_AUTH_VOTERS_STATE_UNLOCK_REQUESTED;
+      tower->state = FD_KEYSWITCH_STATE_UNHALT_PENDING; /* Resume Tower and release the voter-set lock. */
+      *state       = FD_REMOVE_ALL_AUTH_VOTERS_STATE_UNLOCK_REQUESTED; /* Tower was asked to release the lock. */
       FD_LOG_INFO(( "Requesting an unlock of the authorized voter key set..." ));
       break;
     }
     case FD_REMOVE_ALL_AUTH_VOTERS_STATE_UNLOCK_REQUESTED: {
       if( FD_LIKELY( tower->state==FD_KEYSWITCH_STATE_UNLOCKED ) ) {
-        *state = FD_REMOVE_ALL_AUTH_VOTERS_STATE_UNLOCKED;
+        *state = FD_REMOVE_ALL_AUTH_VOTERS_STATE_UNLOCKED; /* Removal finished and Tower released the lock. */
         FD_LOG_INFO(( "Authorized voter key set unlocked..." ));
       } else {
-        FD_SPIN_PAUSE();
+        FD_SPIN_PAUSE(); /* Wait for the requested step to finish. */
       }
       break;
     }
@@ -1287,6 +1289,7 @@ remove_all_authorized_voters( fd_admin_tile_ctx_t * ctx,
     return;
   }
 
+  /* Start a new authorized voter removal from idle. */
   ulong state = FD_REMOVE_ALL_AUTH_VOTERS_STATE_UNLOCKED;
   for(;;) {
     poll_remove_all_authorized_voters( ctx, &state );
@@ -1601,6 +1604,7 @@ failover_switch_request( fd_admin_tile_ctx_t * ctx,
     fd_memset( keypair,      0,            32UL );
     fd_memcpy( keypair+32UL, req.identity, 32UL );
 
+    /* Run the requested failover switch through the identity FSM. */
     ulong state           = FD_SET_IDENTITY_STATE_UNLOCKED;
     ulong halted_seq      = 0UL;
     ulong identity_outset = (ulong)fd_log_wallclock();

@@ -31,29 +31,29 @@
 #define FD_FAILOVER_MODE_CNT   (1U)
 
 /* Roles for each endpoint */
-#define FD_FAILOVER_ROLE_STANDBY (0UL)
-#define FD_FAILOVER_ROLE_ACTIVE  (1UL)
+#define FD_FAILOVER_ROLE_STANDBY (0UL) /* Run under the junk identity. */
+#define FD_FAILOVER_ROLE_ACTIVE  (1UL) /* Run under the staked identity. */
 
 /* Session states for one authenticated TCP session per pair.  The
    listener only ever shows LISTENING or PAIRED, its candidates are
    tracked per socket.  The dialer walks BACKOFF, DIALING, HELLO and
    PAIRED. */
-#define FD_FAILOVER_SESSION_LISTENING (0UL)
-#define FD_FAILOVER_SESSION_DIALING   (1UL)
-#define FD_FAILOVER_SESSION_HELLO     (2UL)
-#define FD_FAILOVER_SESSION_PAIRED    (3UL)
-#define FD_FAILOVER_SESSION_BACKOFF   (4UL)
-#define FD_FAILOVER_SESSION_CNT       (5UL)
+#define FD_FAILOVER_SESSION_LISTENING (0UL) /* Accept candidates until one authenticates. */
+#define FD_FAILOVER_SESSION_DIALING   (1UL) /* Wait for outbound TCP to connect. */
+#define FD_FAILOVER_SESSION_HELLO     (2UL) /* Complete TLS and exchange HELLO. */
+#define FD_FAILOVER_SESSION_PAIRED    (3UL) /* Exchange messages with the authenticated peer. */
+#define FD_FAILOVER_SESSION_BACKOFF   (4UL) /* Wait before the next dial attempt. */
+#define FD_FAILOVER_SESSION_CNT       (5UL) /* Number of session states. */
 
 /* Session events, inputs to fd_failover_session_step */
-#define FD_FAILOVER_EV_PEER_CONNECTED (0)
-#define FD_FAILOVER_EV_CONNECTED      (1)
-#define FD_FAILOVER_EV_HELLO_OK       (2)
-#define FD_FAILOVER_EV_HELLO_FATAL    (3)
-#define FD_FAILOVER_EV_TIMEOUT        (4)
-#define FD_FAILOVER_EV_LINK_LOST      (5)
-#define FD_FAILOVER_EV_RETRY          (6)
-#define FD_FAILOVER_EV_CNT            (7)
+#define FD_FAILOVER_EV_PEER_CONNECTED (0) /* An inbound TCP candidate was accepted. */
+#define FD_FAILOVER_EV_CONNECTED      (1) /* Outbound TCP connected. */
+#define FD_FAILOVER_EV_HELLO_OK       (2) /* The peer passed authentication and HELLO checks. */
+#define FD_FAILOVER_EV_HELLO_FATAL    (3) /* The peer failed HELLO checks. */
+#define FD_FAILOVER_EV_TIMEOUT        (4) /* The handshake or session deadline expired. */
+#define FD_FAILOVER_EV_LINK_LOST      (5) /* The connection closed or failed. */
+#define FD_FAILOVER_EV_RETRY          (6) /* The next dial attempt may start. */
+#define FD_FAILOVER_EV_CNT            (7) /* Number of session events. */
 
 /* HELLO pairing outcomes */
 #define FD_FAILOVER_HELLO_OK             (0)

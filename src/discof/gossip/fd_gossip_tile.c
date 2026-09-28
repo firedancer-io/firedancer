@@ -159,11 +159,13 @@ during_housekeeping( fd_gossip_tile_ctx_t * ctx ) {
     FD_CHECK_CRIT( ctx->is_halting_signing, "state machine corruption" );
     /* Defer the actual set_identity call to after_credit, because it
        may incur a stem frag publish. */
+    /* Stay in UNHALT_PENDING until after_credit applies the identity. */
     ctx->is_pending_set_identity = 1;
   }
 
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
     ctx->is_halting_signing = 1;
+    /* Signing is halted, the new identity is installed when admin resumes gossip. */
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
   }
 }
@@ -252,6 +254,7 @@ after_credit( fd_gossip_tile_ctx_t * ctx,
                             (ulong)FD_NANOSEC_TO_MICRO( ctx->keyswitch->param ) );
     ctx->is_halting_signing        = 0;
     ctx->is_pending_set_identity   = 0;
+    /* The new identity is installed and gossip signing has resumed. */
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
     *charge_busy = 1;
     return;
