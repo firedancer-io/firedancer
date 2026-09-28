@@ -27,6 +27,19 @@ typedef struct {
 #define FD_PACK_REBATE_SUM_MAP_FOOTPRINT (4UL*sizeof(ulong) + 8192UL*sizeof(fd_pack_rebate_entry_t))
 #define FD_PACK_REBATE_SUM_MAP_ALIGN     (8UL)
 
+/* Besides rebates, the execle reports the outcome of each bundle that
+   pack tagged with an observation id, so that pack can attribute why
+   bundles did not land.  Outcomes are observability only. */
+
+struct fd_pack_bundle_outcome {
+  ulong obs_id;  /* the trailer's bundle_obs_id, never 0 */
+  int   landed;
+  int   txn_err; /* FD_RUNTIME_TXN_ERR_* of the failing transaction, 0 if landed */
+};
+typedef struct fd_pack_bundle_outcome fd_pack_bundle_outcome_t;
+
+#define FD_PACK_REBATE_MAX_BUNDLE_OUTCOMES (8UL)
+
 struct fd_pack_rebate_sum_private {
   ulong total_cost_rebate;
   ulong vote_cost_rebate;
@@ -35,6 +48,9 @@ struct fd_pack_rebate_sum_private {
   ulong alloc_rebate;
   int   ib_result; /* -1: IB failed, 0: not an IB, 1: IB success */
   uint  writer_cnt;
+
+  ulong                    bundle_outcome_cnt;
+  fd_pack_bundle_outcome_t bundle_outcomes[ FD_PACK_REBATE_MAX_BUNDLE_OUTCOMES ];
 
   uchar map_mem[ FD_PACK_REBATE_SUM_MAP_FOOTPRINT ] __attribute__((aligned(FD_PACK_REBATE_SUM_MAP_ALIGN)));
   fd_pack_rebate_entry_t * map;
@@ -51,6 +67,9 @@ struct fd_pack_rebate {
   ulong alloc_rebate;
   int   ib_result; /* -1: IB failed, 0: not an IB, 1: IB success */
   uint  writer_cnt;
+
+  ulong                    bundle_outcome_cnt;
+  fd_pack_bundle_outcome_t bundle_outcomes[ FD_PACK_REBATE_MAX_BUNDLE_OUTCOMES ];
 
   fd_pack_rebate_entry_t writer_rebates[ 1UL ]; /* Actually writer_cnt, up to FD_PACK_REBATE_MAX_ENTRIES */
 };
@@ -111,6 +130,15 @@ fd_pack_rebate_sum_add_txn( fd_pack_rebate_sum_t         * s,
                             fd_acct_addr_t const * const * adtl_writable,
                             ulong                          txn_cnt );
 
+/* fd_pack_rebate_sum_add_bundle_outcome queues the outcome of a bundle
+   for the next report.  Returns 1 on success, or 0 if
+   FD_PACK_REBATE_MAX_BUNDLE_OUTCOMES outcomes are already queued, in
+   which case the outcome is dropped.  Callers should report promptly
+   while outcomes are queued. */
+int
+fd_pack_rebate_sum_add_bundle_outcome( fd_pack_rebate_sum_t           * s,
+                                       fd_pack_bundle_outcome_t const * outcome );
+
 /* fd_pack_rebate_sum_report generates a rebate report from the state of
    the current rebate information.  s must point to a valid local join.
    out must point to a region of memory with at least
@@ -123,8 +151,8 @@ fd_pack_rebate_sum_report( fd_pack_rebate_sum_t * s,
                            fd_pack_rebate_t     * out );
 
 /* fd_pack_rebate_sum_clear clears the state of any pending rebates.
-   Requires that s is a valid local join.  Given that, it's faster but
-   equivalent to calling leave, delete, new, then join. */
+   Requires that s is a valid local join.  Queued bundle outcomes are
+   kept (they are still useful to pack after the slot ends). */
 void
 fd_pack_rebate_sum_clear( fd_pack_rebate_sum_t * s );
 

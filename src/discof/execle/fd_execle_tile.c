@@ -46,6 +46,7 @@ struct fd_execle_tile {
   ulong _pack_idx;
   ulong _txn_idx;
   int _is_bundle;
+  ulong _bundle_obs_id;
   fd_acct_addr_t _alt_accts[MAX_TXN_PER_MICROBLOCK][FD_TXN_ACCT_ADDR_MAX];
 
   ulong * busy_fseq;
@@ -87,6 +88,7 @@ struct fd_execle_tile {
   struct {
     ulong txn_result[ FD_METRICS_ENUM_TRANSACTION_RESULT_CNT ];
     ulong txn_landed[ FD_METRICS_ENUM_TRANSACTION_LANDED_CNT ];
+    ulong revenue   [ FD_METRICS_ENUM_REVENUE_SOURCE_CNT     ];
 
     /* Ticks spent loading txn accounts */
     ulong txn_load_cum_ticks;
@@ -130,6 +132,7 @@ metrics_write( fd_execle_tile_t * ctx ) {
 
   FD_MCNT_ENUM_COPY( EXECLE, TXN_RESULT, ctx->metrics.txn_result );
   FD_MCNT_ENUM_COPY( EXECLE, TXN_LANDED, ctx->metrics.txn_landed );
+  FD_MCNT_ENUM_COPY( EXECLE, REVENUE_LAMPORTS, ctx->metrics.revenue );
 
   FD_MCNT_SET( EXECLE, CU_EXECUTED, ctx->runtime->metrics.cu_cum );
 
@@ -176,7 +179,8 @@ after_credit( fd_execle_tile_t *  ctx,
   if( FD_LIKELY( !ctx->rebate_draining ) ) {
     if( FD_LIKELY( ctx->rebate_microblock_cnt<REBATE_BATCH_MAX_MICROBLOCKS &&
                    ctx->rebate_idle_loop_cnt<REBATE_BATCH_IDLE_LOOPS &&
-                   !ctx->rebater->ib_result ) ) {
+                   !ctx->rebater->ib_result &&
+                   !ctx->rebater->bundle_outcome_cnt ) ) {
       ctx->rebate_idle_loop_cnt++;
       return;
     }
@@ -248,6 +252,7 @@ during_frag( fd_execle_tile_t * ctx,
   ctx->_pack_idx  = trailer->pack_idx;
   ctx->_txn_idx   = trailer->pack_txn_idx;
   ctx->_is_bundle = trailer->is_bundle;
+  ctx->_bundle_obs_id = trailer->bundle_obs_id;
 }
 
 static void
@@ -275,6 +280,16 @@ hash_transactions( void *       mem,
     /* If FD_HAS_MSAN, poison so we can detect if this is ever accessed upstream, even though it should never be.  In production, this is a no-op. */
     fd_msan_poison( mixin, 32UL );
   }
+}
+
+/* count_revenue accumulates what a committed transaction pays. */
+
+static inline void
+count_revenue( fd_execle_tile_t *   ctx,
+               fd_txn_out_t const * txn_out ) {
+  ctx->metrics.revenue[ FD_METRICS_ENUM_REVENUE_SOURCE_V_PRIORITY_FEE_IDX  ] += txn_out->details.priority_fee;
+  ctx->metrics.revenue[ FD_METRICS_ENUM_REVENUE_SOURCE_V_EXECUTION_FEE_IDX ] += txn_out->details.execution_fee;
+  ctx->metrics.revenue[ FD_METRICS_ENUM_REVENUE_SOURCE_V_TIP_IDX           ] += txn_out->details.tips;
 }
 
 static inline void
@@ -391,6 +406,7 @@ handle_microblock( fd_execle_tile_t *  ctx,
        would be no way to undo the partially applied changes to the bank
        in finalize anyway. */
     fd_runtime_commit_txn( ctx->runtime, bank, txn_in, txn_out, ctx->report_transaction_diffs );
+    count_revenue( ctx, txn_out );
 
     long const txn_end_ticks = fd_tickcount();
 
@@ -579,6 +595,7 @@ handle_bundle( fd_execle_tile_t *  ctx,
       uchar *        signature = (uchar *)txn_in->txn->payload + TXN( txn_in->txn )->signature_off;
 
       fd_runtime_commit_txn( ctx->runtime, bank, txn_in, txn_out, ctx->report_transaction_diffs );
+      count_revenue( ctx, txn_out );
 
       txn_end_ticks[ i ] = fd_tickcount();
 
@@ -651,6 +668,18 @@ handle_bundle( fd_execle_tile_t *  ctx,
   if( FD_LIKELY( setup_bundle ) ) fd_runtime_fini_bundle( ctx->runtime );
 
   if( FD_LIKELY( ctx->enable_rebates ) ) fd_pack_rebate_sum_add_txn( ctx->rebater, txns, writable_alt, txn_cnt );
+
+  /* Tell pack how the bundle ended, for bundle failure attribution. */
+  if( FD_LIKELY( ctx->enable_rebates && ctx->_bundle_obs_id ) ) {
+    /* If account setup failed, no transaction executed and err holds
+       the failure. */
+    fd_pack_bundle_outcome_t outcome[1] = {{
+      .obs_id  = ctx->_bundle_obs_id,
+      .landed  = execution_success,
+      .txn_err = execution_success ? FD_RUNTIME_EXECUTE_SUCCESS : fd_int_if( setup_bundle, ctx->txn_out[ failed_idx ].err.txn_err, err )
+    }};
+    fd_pack_rebate_sum_add_bundle_outcome( ctx->rebater, outcome );
+  }
 
   for( ulong i=0UL; i<txn_cnt; i++ ) {
     fd_txn_out_t const * txn_out = &ctx->txn_out[ i ];

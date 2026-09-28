@@ -13,7 +13,11 @@
 #include "../pack/fd_pack.h"
 #include "../pack/fd_pack_cost.h"
 #include "../pack/fd_pack_pacing.h"
+#include "../pack/fd_pack_bundle_obs.h"
+#include "../pack/fd_pack_dual_lane.h"
+#include "../pack/fd_pack_offer.h"
 #include "../fd_clock_tile.h"
+#include "../../flamenco/runtime/fd_runtime_err.h"
 
 #include <string.h>
 
@@ -82,6 +86,30 @@ const float VOTE_FRACTION = 1.0f; /* schedule all available votes first */
 #include "../../../../util/tmpl/fd_deque.c"
 
 #endif
+
+/* Bundle failure and dual-lane observability sizing.  BOBS_ELE_MAX
+   bounds the bundles tracked at once (pending or awaiting their
+   outcome); DUAL_ENT_MAX the recent transactions the dual-lane table
+   remembers.  A scheduled bundle whose outcome hasn't arrived after
+   BOBS_OUTCOME_TIMEOUT_NS is reported as exec_unknown. */
+#define BOBS_ELE_MAX            (16384UL)
+#define DUAL_ENT_MAX            (65536UL)
+#define BOBS_OUTCOME_TIMEOUT_NS (2000000000L)
+#define BOBS_SLOT_STARTS        (8UL)
+
+/* Upper bound on fd_pack_txn_idx_max for a pack with bundles enabled */
+#define PACK_TXN_IDX_MAX( depth ) ((depth)+1UL+2UL*FD_PACK_MAX_TXN_PER_BUNDLE)
+
+FD_STATIC_ASSERT( FD_METRICS_ENUM_BUNDLE_OUTCOME_CNT==FD_PACK_BOBS_CAUSE_CNT,                               bobs_metrics );
+FD_STATIC_ASSERT( FD_METRICS_ENUM_BUNDLE_OUTCOME_V_LATE_IDX==FD_PACK_BOBS_CAUSE_LATE,                       bobs_metrics );
+FD_STATIC_ASSERT( FD_METRICS_ENUM_BUNDLE_OUTCOME_V_BLOCKED_LANE_VOTE_IDX==FD_PACK_BOBS_CAUSE_BLOCKED_BASE,  bobs_metrics );
+FD_STATIC_ASSERT( FD_METRICS_ENUM_BUNDLE_BLOCKED_REASON_CNT==FD_PACK_BOBS_REASON_CNT,                      bobs_metrics );
+FD_STATIC_ASSERT( FD_METRICS_ENUM_BUNDLE_BLOCKED_REASON_V_DOES_NOT_FIT_IDX==FD_PACK_BOBS_REASON_DOES_NOT_FIT, bobs_metrics );
+FD_STATIC_ASSERT( FD_METRICS_ENUM_BUNDLE_ARRIVAL_RESULT_CNT==2UL*FD_PACK_BOBS_PHASE_CNT,                  bobs_metrics );
+FD_STATIC_ASSERT( FD_METRICS_ENUM_BUNDLE_ARRIVAL_RESULT_V_AFTER_WINDOW_MISSED_IDX==2UL*FD_PACK_BOBS_PHASE_AFTER_WINDOW+1UL, bobs_metrics );
+FD_STATIC_ASSERT( FD_METRICS_ENUM_DUAL_LANE_PAIR_RESULT_CNT==FD_PACK_DUAL_VERDICT_CNT*FD_PACK_BOBS_SLOTS_PER_ROTATION, dual_metrics );
+FD_STATIC_ASSERT( FD_METRICS_ENUM_DUAL_LANE_PAIR_RESULT_V_TPU_WON_SLOT0_IDX==FD_PACK_DUAL_VERDICT_TPU_WON*FD_PACK_BOBS_SLOTS_PER_ROTATION, dual_metrics );
+FD_STATIC_ASSERT( FD_METRICS_ENUM_DUAL_LANE_OFFER_CNT==4UL,                                                dual_metrics );
 
 /* Sync with src/app/shared/fd_config.c */
 #define FD_PACK_STRATEGY_PERF     0
@@ -292,6 +320,41 @@ typedef struct {
   } crank[1];
 
 
+  /* Bundle failure and dual-lane observability (see
+     fd_pack_bundle_obs.h and fd_pack_dual_lane.h).  Metrics and events
+     only; never affects scheduling. */
+  struct {
+    fd_pack_bobs_t * bobs;
+    fd_pack_dual_t * dual;
+    double           tick_per_ns;
+
+    /* When the validator received the bundle being received */
+    long bundle_arrival_ns;
+
+    /* Scheduling state for the bundle leave callback */
+    long                 sched_now_ns;
+    fd_pack_bobs_ele_t * sched_ele;
+    int                  execle_kind[ FD_PACK_MAX_EXECLE_TILES ]; /* FD_PACK_WRITER_* of each execle's last microblock */
+
+    /* Leader slot history */
+    ulong last_leader_slot; /* ULONG_MAX if never leader */
+    long  last_pack_end_ns;
+    long  last_slot_dur_ns;
+    long  slot_starts[ BOBS_SLOT_STARTS ]; /* pack start times of recent leader slots */
+    ulong slot_starts_cnt;
+
+    ulong      outcome    [ FD_PACK_BOBS_CAUSE_CNT ];
+    ulong      outcome_tip[ FD_PACK_BOBS_CAUSE_CNT ];
+    ulong      arrival    [ 2UL*FD_PACK_BOBS_PHASE_CNT ];
+    ulong      obs_dropped;
+    ulong      dual_pair  [ FD_PACK_DUAL_VERDICT_CNT*FD_PACK_BOBS_SLOTS_PER_ROTATION ];
+    ulong      dual_offer [ 4 ];
+    fd_histf_t queue_wait         [ 1 ];
+    fd_histf_t arrival_offset     [ 1 ];
+    fd_histf_t dual_bundle_won_pct[ 1 ];
+    fd_histf_t dual_tpu_won_pct   [ 1 ];
+  } obs[1];
+
   /* Used between during_frag and after_frag */
   ulong pending_rebate_sz;
   union{ fd_pack_rebate_t rebate[1]; uchar footprint[USHORT_MAX]; } rebate[1];
@@ -331,6 +394,281 @@ remove_ib( fd_pack_ctx_t * ctx ) {
   ctx->crank->ib_inserted = 0;
 }
 
+/* Bundle failure and dual-lane observability helpers.  See
+   bundle-failure-metrics-design.md, fd_pack_bundle_obs.h and
+   fd_pack_dual_lane.h. */
+
+static inline long
+obs_ns_to_ticks( fd_pack_ctx_t const * ctx,
+                 long                  ns ) {
+  return (long)((double)ns * ctx->obs->tick_per_ns);
+}
+
+/* obs_slot_start_after returns the pack start time of the first recent
+   leader slot that started at or after t, or 0 if there is none. */
+static long
+obs_slot_start_after( fd_pack_ctx_t const * ctx,
+                      long                  t ) {
+  long  best = 0L;
+  ulong cnt  = fd_ulong_min( ctx->obs->slot_starts_cnt, BOBS_SLOT_STARTS );
+  for( ulong i=0UL; i<cnt; i++ ) {
+    long start = ctx->obs->slot_starts[ i ];
+    if( (start>=t) & ((!best) | (start<best)) ) best = start;
+  }
+  return best;
+}
+
+static inline int
+obs_phase( fd_pack_ctx_t const * ctx,
+           long                  arrival_ns ) {
+  return fd_pack_bobs_phase( arrival_ns, ctx->leader_slot!=ULONG_MAX, ctx->slot_pack_start_ns, ctx->slot_end_ns,
+                             ctx->obs->last_pack_end_ns, ctx->obs->last_leader_slot, ctx->obs->last_slot_dur_ns );
+}
+
+static inline int
+obs_exec_err_kind( int txn_err ) {
+  switch( txn_err ) {
+    case FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR:               return FD_PACK_BOBS_EXEC_ERR_INSTRUCTION;
+    case FD_RUNTIME_TXN_ERR_ALREADY_PROCESSED:
+    case FD_RUNTIME_TXN_ERR_BLOCKHASH_NONCE_ALREADY_ADVANCED: return FD_PACK_BOBS_EXEC_ERR_DUPLICATE;
+    default:                                                 return FD_PACK_BOBS_EXEC_ERR_OTHER;
+  }
+}
+
+/* obs_kinds returns a bitmask of 1<<FD_PACK_WRITER_* over the kinds of
+   the last microblock scheduled to each execle in execle_mask. */
+static inline int
+obs_kinds( fd_pack_ctx_t const * ctx,
+           ulong                 execle_mask ) {
+  int kinds = 0;
+  for( ulong m=execle_mask; m; m=fd_ulong_pop_lsb( m ) ) kinds |= 1<<ctx->obs->execle_kind[ fd_ulong_find_lsb( m ) ];
+  return kinds;
+}
+
+/* obs_lane_reason returns why no bundle could be tried because the
+   execles that may run bundles are busy. */
+static inline int
+obs_lane_reason( fd_pack_ctx_t const * ctx ) {
+  ulong busy = ~ctx->execle_idle_bitset & fd_ulong_mask_lsb( (int)ctx->execle_cnt );
+  if( ctx->strategy==FD_PACK_STRATEGY_BALANCED ) busy &= 1UL; /* only execle 0 runs bundles */
+  int kinds = obs_kinds( ctx, busy );
+  if( kinds & (1<<FD_PACK_WRITER_BUNDLE) ) return FD_PACK_BOBS_REASON_LANE_BUNDLE;
+  if( kinds & (1<<FD_PACK_WRITER_VOTE  ) ) {
+    if( !(kinds & (1<<FD_PACK_WRITER_TXN)) ) return FD_PACK_BOBS_REASON_LANE_VOTE;
+  }
+  return FD_PACK_BOBS_REASON_LANE_TXN;
+}
+
+/* obs_attempt_reason maps the result of the last bundle attempt to a
+   blocked reason (FD_PACK_BOBS_REASON_NONE if not blocked). */
+static inline int
+obs_attempt_reason( fd_pack_ctx_t const * ctx,
+                    int                   attempt,
+                    ulong                 conflict_mask ) {
+  switch( attempt ) {
+    case FD_PACK_BUNDLE_ATTEMPT_NOT_TRIED:    return obs_lane_reason( ctx );
+    case FD_PACK_BUNDLE_ATTEMPT_VOTE_PREEMPT: return FD_PACK_BOBS_REASON_VOTE_PREEMPT;
+    case FD_PACK_BUNDLE_ATTEMPT_IB_WAIT:      return FD_PACK_BOBS_REASON_IB_NOT_READY;
+    case FD_PACK_BUNDLE_ATTEMPT_DOES_NOT_FIT: return FD_PACK_BOBS_REASON_DOES_NOT_FIT;
+    case FD_PACK_BUNDLE_ATTEMPT_CONFLICT: {
+      int kinds = obs_kinds( ctx, conflict_mask );
+      if( kinds & (1<<FD_PACK_WRITER_BUNDLE) ) {
+        if( !(kinds & (1<<FD_PACK_WRITER_TXN)) ) return FD_PACK_BOBS_REASON_CONFLICT_BUNDLE;
+      } else if( kinds & (1<<FD_PACK_WRITER_VOTE) ) {
+        if( !(kinds & (1<<FD_PACK_WRITER_TXN)) ) return FD_PACK_BOBS_REASON_CONFLICT_VOTE;
+      }
+      return FD_PACK_BOBS_REASON_CONFLICT_TPU;
+    }
+    default: return FD_PACK_BOBS_REASON_NONE;
+  }
+}
+
+/* obs_report counts the final cause of a bundle. */
+static inline void
+obs_report( fd_pack_ctx_t * ctx,
+            int             phase,
+            ulong           static_tip,
+            int             cause ) {
+  ctx->obs->outcome    [ cause ]++;
+  ctx->obs->outcome_tip[ cause ] += static_tip;
+  ctx->obs->arrival    [ 2UL*(ulong)phase + (ulong)(cause!=FD_PACK_BOBS_CAUSE_LANDED) ]++;
+}
+
+/* obs_finalize reports a tracked bundle's final cause, tells the
+   dual-lane table whether it landed, and releases the observation. */
+static void
+obs_finalize( fd_pack_ctx_t *      ctx,
+              fd_pack_bobs_ele_t * ele,
+              int                  cause ) {
+  obs_report( ctx, ele->phase, ele->static_tip, cause );
+
+  ulong id     = fd_pack_bobs_id( ctx->obs->bobs, ele );
+  int   landed = cause==FD_PACK_BOBS_CAUSE_LANDED;
+  for( ulong i=0UL; i<ele->txn_cnt; i++ ) fd_pack_dual_bundle_done( ctx->obs->dual, ele->sig8[ i ], id, landed );
+  fd_pack_bobs_release( ctx->obs->bobs, ele );
+}
+
+/* obs_bundle_leave is the pack bundle leave callback. */
+static void
+obs_bundle_leave( void * _ctx,
+                  ulong  txn_idx,
+                  int    reason,
+                  ulong  info ) {
+  fd_pack_ctx_t *      ctx = (fd_pack_ctx_t *)_ctx;
+  fd_pack_bobs_ele_t * ele = fd_pack_bobs_query( ctx->obs->bobs, txn_idx );
+  if( FD_LIKELY( !ele ) ) return; /* not a bundle's first transaction, an initializer bundle, or untracked */
+
+  if( FD_LIKELY( reason==FD_PACK_BUNDLE_LEAVE_SCHEDULED ) ) {
+    ele->sched_ns     = ctx->obs->sched_now_ns;
+    ele->interference = info;
+    if( !ele->slot_start_ns ) ele->slot_start_ns = obs_slot_start_after( ctx, ele->arrival_ns );
+    fd_pack_bobs_scheduled( ctx->obs->bobs, ele );
+    ctx->obs->sched_ele = ele;
+
+    long wait_ns = ele->sched_ns - fd_long_max( ele->arrival_ns, ele->slot_start_ns );
+    fd_histf_sample( ctx->obs->queue_wait, (ulong)obs_ns_to_ticks( ctx, fd_long_max( wait_ns, 0L ) ) );
+    return;
+  }
+
+  ulong delta[ FD_PACK_BOBS_REASON_CNT ];
+  fd_pack_bobs_flush( ctx->obs->bobs, fd_tickcount() );
+  fd_pack_bobs_delta( ctx->obs->bobs, ele, delta );
+  obs_finalize( ctx, ele, fd_pack_bobs_cause_unscheduled( reason, delta, ele->phase ) );
+}
+
+/* obs_dual_verdict is the dual-lane verdict callback. */
+static void
+obs_dual_verdict( void *                      _ctx,
+                  fd_pack_dual_pair_t const * pair ) {
+  fd_pack_ctx_t * ctx = (fd_pack_ctx_t *)_ctx;
+
+  ulong pos = fd_ulong_if( pair->slot==ULONG_MAX, 0UL, pair->slot % FD_PACK_BOBS_SLOTS_PER_ROTATION );
+  ctx->obs->dual_pair[ (ulong)pair->verdict*FD_PACK_BOBS_SLOTS_PER_ROTATION + pos ]++;
+
+  ulong pct = 100000UL;
+  if( FD_LIKELY( pair->tpu_offer ) ) pct = fd_ulong_min( fd_ulong_sat_mul( pair->bundle_offer, 100UL )/pair->tpu_offer, 100000UL );
+  pct = fd_ulong_max( pct, 1UL );
+  if( pair->verdict==FD_PACK_DUAL_VERDICT_BUNDLE_WON ) {
+    ctx->obs->dual_offer[ FD_METRICS_ENUM_DUAL_LANE_OFFER_V_BUNDLE_WON_BUNDLE_IDX ] += pair->bundle_offer;
+    ctx->obs->dual_offer[ FD_METRICS_ENUM_DUAL_LANE_OFFER_V_BUNDLE_WON_TPU_IDX    ] += pair->tpu_offer;
+    fd_histf_sample( ctx->obs->dual_bundle_won_pct, pct );
+  } else if( pair->verdict==FD_PACK_DUAL_VERDICT_TPU_WON ) {
+    ctx->obs->dual_offer[ FD_METRICS_ENUM_DUAL_LANE_OFFER_V_TPU_WON_BUNDLE_IDX    ] += pair->bundle_offer;
+    ctx->obs->dual_offer[ FD_METRICS_ENUM_DUAL_LANE_OFFER_V_TPU_WON_TPU_IDX       ] += pair->tpu_offer;
+    fd_histf_sample( ctx->obs->dual_tpu_won_pct, pct );
+  }
+}
+
+/* A summary of the bundle being received, taken before pack takes (or
+   releases) its transactions. */
+typedef struct {
+  ulong txn_cnt;
+  uchar sig      [ FD_PACK_MAX_TXN_PER_BUNDLE ][ 64 ];
+  ulong txn_offer[ FD_PACK_MAX_TXN_PER_BUNDLE ]; /* priority fee + static tip of each transaction */
+  ulong static_tip;                              /* of the whole bundle */
+  ulong offer;                                   /* of the whole bundle */
+} obs_bundle_summary_t;
+
+/* obs_bundle_summarize summarizes the first txn_cnt transactions of the
+   bundle being received. */
+static void
+obs_bundle_summarize( fd_pack_ctx_t const *  ctx,
+                      ulong                  txn_cnt,
+                      obs_bundle_summary_t * out ) {
+  out->txn_cnt    = fd_ulong_min( txn_cnt, FD_PACK_MAX_TXN_PER_BUNDLE );
+  out->static_tip = 0UL;
+  out->offer      = 0UL;
+  for( ulong i=0UL; i<out->txn_cnt; i++ ) {
+    fd_txn_e_t const * txne = ctx->current_bundle->bundle[ i ];
+    fd_txn_t   const * txn  = TXN( txne->txnp );
+    fd_memcpy( out->sig[ i ], fd_txn_get_signatures( txn, txne->txnp->payload ), 64UL );
+    fd_pack_offer_t offer[1];
+    fd_pack_offer_compute( txn, txne->txnp->payload, txne->alt_accts, offer );
+    out->txn_offer[ i ] = fd_ulong_sat_add( offer->priority_fee, offer->static_tip );
+    out->static_tip     = fd_ulong_sat_add( out->static_tip, offer->static_tip );
+    out->offer          = fd_ulong_sat_add( out->offer, out->txn_offer[ i ] );
+  }
+}
+
+/* obs_bundle_inserted records a bundle pack just tried to insert.
+   bundle holds its transactions, result is the insert result and sum
+   the bundle's summary taken before the insert. */
+static void
+obs_bundle_inserted( fd_pack_ctx_t *              ctx,
+                     fd_txn_e_t * const *         bundle,
+                     int                          result,
+                     obs_bundle_summary_t const * sum ) {
+  ulong txn_cnt    = sum->txn_cnt;
+  ulong static_tip = sum->static_tip;
+  long  arrival_ns = ctx->obs->bundle_arrival_ns;
+  int   phase      = obs_phase( ctx, arrival_ns );
+  if( (ctx->leader_slot!=ULONG_MAX) & (arrival_ns>=ctx->slot_pack_start_ns) ) {
+    fd_histf_sample( ctx->obs->arrival_offset, (ulong)obs_ns_to_ticks( ctx, arrival_ns-ctx->slot_pack_start_ns ) );
+  }
+
+  if( FD_UNLIKELY( result<0 ) ) {
+    obs_report( ctx, phase, static_tip, FD_PACK_BOBS_CAUSE_REJECTED );
+    return;
+  }
+
+  fd_pack_bobs_ele_t * ele = fd_pack_bobs_acquire( ctx->obs->bobs );
+  if( FD_UNLIKELY( !ele ) ) {
+    ctx->obs->obs_dropped++;
+    return;
+  }
+  for( ulong i=0UL; i<txn_cnt; i++ ) ele->sig8[ i ] = fd_ulong_load_8( sum->sig[ i ] );
+  ele->txn_cnt       = txn_cnt;
+  ele->arrival_ns    = arrival_ns;
+  ele->slot_start_ns = fd_long_if( ctx->leader_slot!=ULONG_MAX, ctx->slot_pack_start_ns, 0L );
+  ele->phase         = phase;
+  ele->static_tip    = static_tip;
+
+  /* Every bundle leaving pack triggers the leave callback, so its pack
+     index is free again.  Be defensive anyway: this is only metrics. */
+  ulong                pack_idx = fd_pack_txn_idx( ctx->pack, bundle[ 0 ] );
+  fd_pack_bobs_ele_t * stale    = fd_pack_bobs_query( ctx->obs->bobs, pack_idx );
+  if( FD_UNLIKELY( stale ) ) {
+    static int warned = 0;
+    if( !warned ) { FD_LOG_WARNING(( "stale bundle observation at pack index %lu", pack_idx )); warned = 1; }
+    fd_pack_bobs_release( ctx->obs->bobs, stale );
+  }
+  fd_pack_bobs_register( ctx->obs->bobs, ele, pack_idx );
+
+  ulong id      = fd_pack_bobs_id( ctx->obs->bobs, ele );
+  long  arrival = bundle[ 0 ]->txnp->scheduler_arrival_time_nanos;
+  for( ulong i=0UL; i<txn_cnt; i++ ) {
+    fd_pack_dual_insert_bundle( ctx->obs->dual, sum->sig[ i ], sum->txn_offer[ i ], sum->offer, id, arrival );
+  }
+}
+
+/* obs_partial reports a bundle that was cancelled because not all of
+   its transactions reached pack.  txn_received transactions did. */
+static void
+obs_partial( fd_pack_ctx_t * ctx,
+             ulong           txn_received ) {
+  obs_bundle_summary_t sum[1];
+  obs_bundle_summarize( ctx, txn_received, sum );
+  obs_report( ctx, obs_phase( ctx, ctx->obs->bundle_arrival_ns ), sum->static_tip, FD_PACK_BOBS_CAUSE_PARTIAL );
+}
+
+/* obs_leader_end records the end of a leader slot.  Must be called
+   before ctx->leader_slot is reset. */
+static inline void
+obs_leader_end( fd_pack_ctx_t * ctx ) {
+  fd_pack_bobs_charge( ctx->obs->bobs, fd_tickcount(), FD_PACK_BOBS_REASON_NONE );
+  ctx->obs->last_leader_slot = ctx->leader_slot;
+  ctx->obs->last_pack_end_ns = fd_clock_tile_now( ctx->clock );
+  ctx->obs->last_slot_dur_ns = ctx->slot_end_ns - ctx->slot_pack_start_ns;
+}
+
+/* obs_bundle_outcome handles an outcome reported by an execle. */
+static inline void
+obs_bundle_outcome( fd_pack_ctx_t *                  ctx,
+                    fd_pack_bundle_outcome_t const * outcome ) {
+  fd_pack_bobs_ele_t * ele = fd_pack_bobs_query_id( ctx->obs->bobs, outcome->obs_id );
+  if( FD_UNLIKELY( !ele || ele->state!=FD_PACK_BOBS_STATE_SCHEDULED ) ) return;
+  obs_finalize( ctx, ele, fd_pack_bobs_cause_exec( outcome->landed, obs_exec_err_kind( outcome->txn_err ), ele->interference ) );
+}
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
@@ -359,6 +697,8 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 #if FD_PACK_USE_EXTRA_STORAGE
   l = FD_LAYOUT_APPEND( l, extra_txn_deq_align(),    extra_txn_deq_footprint()                                 );
 #endif
+  l = FD_LAYOUT_APPEND( l, fd_pack_bobs_align(),     fd_pack_bobs_footprint( BOBS_ELE_MAX, PACK_TXN_IDX_MAX( tile->pack.max_pending_transactions ) ) );
+  l = FD_LAYOUT_APPEND( l, fd_pack_dual_align(),     fd_pack_dual_footprint( DUAL_ENT_MAX )                    );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -425,6 +765,22 @@ metrics_write( fd_pack_ctx_t * ctx ) {
   FD_MHIST_COPY( PACK, INSERT_TRANSACTION_DURATION_SECONDS,  ctx->insert_duration   );
   FD_MHIST_COPY( PACK, COMPLETE_MICROBLOCK_DURATION_SECONDS, ctx->complete_duration );
 
+  FD_MCNT_ENUM_COPY( PACK, BUNDLE_OUTCOME,              ctx->obs->outcome     );
+  FD_MCNT_ENUM_COPY( PACK, BUNDLE_OUTCOME_TIP_LAMPORTS, ctx->obs->outcome_tip );
+  FD_MCNT_ENUM_COPY( PACK, BUNDLE_ARRIVAL,              ctx->obs->arrival     );
+  ulong const * blocked = fd_pack_bobs_blocked( ctx->obs->bobs );
+  ulong blocked_ns[ FD_PACK_BOBS_REASON_CNT ];
+  for( ulong i=0UL; i<FD_PACK_BOBS_REASON_CNT; i++ ) blocked_ns[ i ] = (ulong)((double)blocked[ i ]/ctx->obs->tick_per_ns);
+  FD_MCNT_ENUM_COPY( PACK, BUNDLE_BLOCKED_DURATION_NANOS, blocked_ns );
+  FD_MHIST_COPY( PACK, BUNDLE_QUEUE_WAIT_SECONDS,     ctx->obs->queue_wait     );
+  FD_MHIST_COPY( PACK, BUNDLE_ARRIVAL_OFFSET_SECONDS, ctx->obs->arrival_offset );
+  FD_MCNT_SET( PACK, BUNDLE_OBS_DROPPED, ctx->obs->obs_dropped );
+  FD_MCNT_ENUM_COPY( PACK, DUAL_LANE_PAIR,           ctx->obs->dual_pair  );
+  FD_MCNT_ENUM_COPY( PACK, DUAL_LANE_OFFER_LAMPORTS, ctx->obs->dual_offer );
+  FD_MHIST_COPY( PACK, DUAL_LANE_BUNDLE_WON_PRICE_PCT, ctx->obs->dual_bundle_won_pct );
+  FD_MHIST_COPY( PACK, DUAL_LANE_TPU_WON_PRICE_PCT,    ctx->obs->dual_tpu_won_pct    );
+  FD_MCNT_SET( PACK, DUAL_LANE_ENTRY_EVICTED, fd_pack_dual_evicted_young( ctx->obs->dual ) );
+
   fd_pack_metrics_write( ctx->pack );
 }
 
@@ -466,6 +822,15 @@ static inline void
 during_housekeeping( fd_pack_ctx_t * ctx ) {
   if( FD_UNLIKELY( fd_clock_tile_recal_due( ctx->clock ) ) ) {
     fd_clock_tile_recal( ctx->clock );
+  }
+
+  /* Bundles whose outcome never came back (e.g. the outcome was
+     dropped) */
+  long now_ns = fd_clock_tile_now( ctx->clock );
+  for( fd_pack_bobs_ele_t * ele=fd_pack_bobs_oldest_scheduled( ctx->obs->bobs );
+       ele && now_ns-ele->sched_ns>BOBS_OUTCOME_TIMEOUT_NS;
+       ele=fd_pack_bobs_oldest_scheduled( ctx->obs->bobs ) ) {
+    obs_finalize( ctx, ele, FD_PACK_BOBS_CAUSE_EXEC_UNKNOWN );
   }
 
   if( FD_UNLIKELY( ctx->crank->enabled && fd_keyswitch_state_query( ctx->crank->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
@@ -638,6 +1003,7 @@ after_credit( fd_pack_ctx_t *     ctx,
     ctx->pack_idx++;
 
     log_end_block_metrics( ctx, now, "time", done_packing->limits_usage->block_cost );
+    obs_leader_end( ctx );
     ctx->drain_execle        = 1;
     ctx->leader_slot         = ULONG_MAX;
     ctx->slot_microblock_cnt = 0UL;
@@ -773,6 +1139,8 @@ after_credit( fd_pack_ctx_t *     ctx,
   }
 
   /* Try to schedule the next microblock. */
+  int have_bundles = fd_pack_pending_bundle_txn_cnt( ctx->pack )>0UL;
+  int obs_reason   = FD_PACK_BOBS_REASON_NONE;
   if( FD_LIKELY( ctx->execle_idle_bitset ) ) { /* Optimize for schedule */
     any_ready = 1;
 
@@ -799,10 +1167,19 @@ after_credit( fd_pack_ctx_t *     ctx,
 
     fd_pack_out_ctx_t * execle_out = &ctx->execle_out[ i ];
     fd_txn_e_t * microblock_dst = fd_chunk_to_laddr( execle_out->mem, execle_out->chunk );
+    ctx->obs->sched_now_ns = fd_clock_tile_now( ctx->clock );
+    ctx->obs->sched_ele    = NULL;
+    fd_pack_set_time( ctx->pack, ctx->obs->sched_now_ns );
     long schedule_duration = -fd_tickcount();
     ulong schedule_cnt = fd_pack_schedule_next_microblock( ctx->pack, CUS_PER_MICROBLOCK, VOTE_FRACTION, (ulong)i, flags, microblock_dst );
     schedule_duration      += fd_tickcount();
     fd_histf_sample( (schedule_cnt>0UL) ? ctx->schedule_duration : ctx->no_sched_duration, (ulong)schedule_duration );
+
+    if( have_bundles ) {
+      ulong conflict_mask;
+      int   attempt = fd_pack_bundle_attempt( ctx->pack, &conflict_mask );
+      obs_reason = obs_attempt_reason( ctx, attempt, conflict_mask );
+    }
 
     if( FD_LIKELY( schedule_cnt ) ) {
       any_scheduled = 1;
@@ -819,6 +1196,30 @@ after_credit( fd_pack_ctx_t *     ctx,
       trailer->pack_idx = ctx->pack_idx;
       trailer->pack_txn_idx = ctx->pack_txn_cnt;
       trailer->is_bundle = !!(microblock_dst->txnp->flags & FD_TXN_P_FLAGS_BUNDLE);
+      trailer->bundle_obs_id = 0UL;
+
+      /* Observability: what this execle is running, which bundle it is,
+         and the scheduling of dual-lane variants. */
+      int is_vote = !!(microblock_dst->txnp->flags & FD_TXN_P_FLAGS_IS_SIMPLE_VOTE);
+      ctx->obs->execle_kind[ i ] = trailer->is_bundle ? FD_PACK_WRITER_BUNDLE : fd_int_if( is_vote, FD_PACK_WRITER_VOTE, FD_PACK_WRITER_TXN );
+      fd_pack_bobs_ele_t * sched_ele = ctx->obs->sched_ele;
+      if( trailer->is_bundle && sched_ele ) {
+        ulong obs_id = fd_pack_bobs_id( ctx->obs->bobs, sched_ele );
+        for( ulong j=0UL; j<schedule_cnt; j++ ) {
+          fd_txn_p_t const * txnp = microblock_dst[ j ].txnp;
+          fd_pack_dual_bundle_scheduled( ctx->obs->dual, fd_ulong_load_8( fd_txn_get_signatures( TXN( txnp ), txnp->payload ) ),
+                                         obs_id, ctx->obs->sched_now_ns, ctx->leader_slot );
+        }
+        /* Without the rebate link no outcome will come back */
+        if( FD_LIKELY( ctx->use_consumed_cus ) ) trailer->bundle_obs_id = obs_id;
+        else obs_finalize( ctx, sched_ele, FD_PACK_BOBS_CAUSE_EXEC_UNKNOWN );
+      } else if( !trailer->is_bundle && !is_vote ) {
+        for( ulong j=0UL; j<schedule_cnt; j++ ) {
+          fd_txn_p_t const * txnp = microblock_dst[ j ].txnp;
+          fd_pack_dual_tpu_scheduled( ctx->obs->dual, (uchar const *)fd_txn_get_signatures( TXN( txnp ), txnp->payload ),
+                                      ctx->obs->sched_now_ns, ctx->leader_slot );
+        }
+      }
 
       /* When sending MAX_TXN_PER_MICROBLOCK transactions as fd_txn_e_t
          to execle, there must be room for the trailer at the end. */
@@ -846,7 +1247,10 @@ after_credit( fd_pack_ctx_t *     ctx,
          schedule attempt. */
       fd_long_store_if( ctx->use_consumed_cus, &(ctx->skip_cnt), (long)(ctx->execle_cnt + 1) );
     }
+  } else if( have_bundles ) {
+    obs_reason = obs_lane_reason( ctx );
   }
+  fd_pack_bobs_charge( ctx->obs->bobs, now, obs_reason );
 
   update_metric_state( ctx, now, FD_PACK_METRIC_STATE_EXECLES,     any_ready     );
   update_metric_state( ctx, now, FD_PACK_METRIC_STATE_MICROBLOCKS, any_scheduled );
@@ -887,6 +1291,7 @@ after_credit( fd_pack_ctx_t *     ctx,
     ctx->pack_idx++;
 
     log_end_block_metrics( ctx, now, "microblock", done_packing->limits_usage->block_cost );
+    obs_leader_end( ctx );
     ctx->drain_execle        = 1;
     ctx->leader_slot         = ULONG_MAX;
     ctx->slot_microblock_cnt = 0UL;
@@ -942,9 +1347,8 @@ during_frag( fd_pack_ctx_t * ctx,
   }
   case IN_KIND_EXECLE: {
     FD_TEST( ctx->use_consumed_cus );
-      /* For a previous slot */
-    if( FD_UNLIKELY( sig!=ctx->leader_slot ) ) return;
-
+    /* Rebates for a previous slot are ignored in after_frag, but they
+       may carry bundle outcomes, so copy them anyway. */
     if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz<FD_PACK_REBATE_MIN_SZ
           || sz>FD_PACK_REBATE_MAX_SZ ) )
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
@@ -990,6 +1394,7 @@ during_frag( fd_pack_ctx_t * ctx,
       if( FD_LIKELY( bundle_id!=ctx->current_bundle->id ) ) {
         if( FD_UNLIKELY( ctx->current_bundle->bundle ) ) {
           FD_MCNT_INC( PACK, TXN_PARTIAL_BUNDLE, ctx->current_bundle->txn_received );
+          obs_partial( ctx, ctx->current_bundle->txn_received );
           fd_pack_insert_bundle_cancel( ctx->pack, ctx->current_bundle->bundle, ctx->current_bundle->txn_cnt );
         }
         ctx->current_bundle->id                 = bundle_id;
@@ -999,6 +1404,8 @@ during_frag( fd_pack_ctx_t * ctx,
 
         if( FD_UNLIKELY( ctx->current_bundle->txn_cnt==0UL ) ) {
           FD_MCNT_INC( PACK, TXN_PARTIAL_BUNDLE, 1UL );
+          ctx->obs->bundle_arrival_ns = txnm->first_seen_nanos;
+          obs_partial( ctx, 0UL );
           ctx->current_bundle->id = 0UL;
           return;
         }
@@ -1045,6 +1452,8 @@ during_frag( fd_pack_ctx_t * ctx,
     ctx->cur_spot->txnp->payload_sz  = payload_sz;
     ctx->cur_spot->txnp->source_ipv4 = source_ipv4;
     ctx->cur_spot->txnp->source_tpu  = source_tpu;
+
+    if( FD_UNLIKELY( ctx->is_bundle && !ctx->current_bundle->txn_received ) ) ctx->obs->bundle_arrival_ns = txnm->first_seen_nanos;
 
     break;
   }
@@ -1096,6 +1505,7 @@ after_frag( fd_pack_ctx_t *     ctx,
 
         FD_LOG_WARNING(( "consensus reset while packing for slot %lu, ending block early", ctx->leader_slot ));
         log_end_block_metrics( ctx, now, "reset", done_packing->limits_usage->block_cost );
+        obs_leader_end( ctx );
         ctx->drain_execle        = 1;
         ctx->leader_slot         = ULONG_MAX;
         ctx->slot_microblock_cnt = 0UL;
@@ -1138,6 +1548,7 @@ after_frag( fd_pack_ctx_t *     ctx,
 
       FD_LOG_WARNING(( "switching to slot %lu while packing for slot %lu. Draining execle tiles.", leader_slot, ctx->leader_slot ));
       log_end_block_metrics( ctx, now_ticks, "switch", done_packing->limits_usage->block_cost );
+      obs_leader_end( ctx );
       ctx->drain_execle        = 1;
       ctx->leader_slot         = ULONG_MAX;
       ctx->slot_microblock_cnt = 0UL;
@@ -1147,6 +1558,7 @@ after_frag( fd_pack_ctx_t *     ctx,
 
     ctx->slot_pack_start_ns  = now_ns;
     ctx->slot_bundle_txn_cnt = 0UL;
+    ctx->obs->slot_starts[ (ctx->obs->slot_starts_cnt++) % BOBS_SLOT_STARTS ] = now_ns;
 
     ulong exp_cnt = fd_pack_expire_before( ctx->pack, fd_ulong_max( ctx->leader_slot, TRANSACTION_LIFETIME_SLOTS )-TRANSACTION_LIFETIME_SLOTS );
     FD_MCNT_INC( PACK, TXN_EXPIRED, exp_cnt );
@@ -1215,6 +1627,10 @@ after_frag( fd_pack_ctx_t *     ctx,
     break;
   }
   case IN_KIND_EXECLE: {
+    fd_pack_rebate_t const * rebate = ctx->rebate->rebate;
+    ulong outcome_cnt = fd_ulong_min( rebate->bundle_outcome_cnt, FD_PACK_REBATE_MAX_BUNDLE_OUTCOMES );
+    for( ulong k=0UL; k<outcome_cnt; k++ ) obs_bundle_outcome( ctx, rebate->bundle_outcomes+k );
+
     /* For a previous slot */
     if( FD_UNLIKELY( sig!=ctx->leader_slot ) ) return;
 
@@ -1233,16 +1649,28 @@ after_frag( fd_pack_ctx_t *     ctx,
     if( FD_UNLIKELY( ctx->is_bundle ) ) {
       if( FD_UNLIKELY( ctx->current_bundle->txn_cnt==0UL ) ) return;
       if( FD_UNLIKELY( ++(ctx->current_bundle->txn_received)==ctx->current_bundle->txn_cnt ) ) {
+        /* For observability: summarize now, since a rejected bundle's
+           transactions are released by fini. */
+        obs_bundle_summary_t obs_sum[1];
+        obs_bundle_summarize( ctx, ctx->current_bundle->txn_cnt, obs_sum );
+
         ulong deleted;
         long insert_duration = -fd_tickcount();
         int result = fd_pack_insert_bundle_fini( ctx->pack, ctx->current_bundle->bundle, ctx->current_bundle->txn_cnt, ctx->current_bundle->min_blockhash_slot, 0, ctx->blk_engine_cfg, &deleted );
         insert_duration      += fd_tickcount();
+        obs_bundle_inserted( ctx, ctx->current_bundle->bundle, result, obs_sum );
         FD_MCNT_INC( PACK, TXN_DELETED, deleted );
         ctx->insert_result[ result + FD_PACK_INSERT_RETVAL_OFF ] += ctx->current_bundle->txn_received;
         fd_histf_sample( ctx->insert_duration, (ulong)insert_duration );
         ctx->current_bundle->bundle = NULL;
       }
     } else {
+      /* For the dual-lane table: copy the signature now, since a
+         rejected transaction is released by fini. */
+      uchar obs_sig[ 64 ];
+      long  pack_arrival = ctx->cur_spot->txnp->scheduler_arrival_time_nanos;
+      fd_memcpy( obs_sig, fd_txn_get_signatures( TXN( ctx->cur_spot->txnp ), ctx->cur_spot->txnp->payload ), 64UL );
+
       ulong blockhash_slot = sig;
       ulong deleted;
       long insert_duration = -fd_tickcount();
@@ -1252,6 +1680,9 @@ after_frag( fd_pack_ctx_t *     ctx,
       ctx->insert_result[ result + FD_PACK_INSERT_RETVAL_OFF ]++;
       fd_histf_sample( ctx->insert_duration, (ulong)insert_duration );
       if( FD_LIKELY( result>=0 ) ) ctx->last_successful_insert = now;
+
+      int is_vote = (result==FD_PACK_INSERT_ACCEPT_VOTE_ADD) | (result==FD_PACK_INSERT_ACCEPT_VOTE_REPLACE);
+      if( FD_LIKELY( (result>=0) & !is_vote ) ) fd_pack_dual_insert_tpu( ctx->obs->dual, obs_sig, pack_arrival );
     }
     }
 
@@ -1414,6 +1845,19 @@ unprivileged_init( fd_topo_t const *      topo,
                                                                                           extra_txn_deq_footprint() ) ) );
 #endif
 
+  ulong pack_txn_idx_max = PACK_TXN_IDX_MAX( tile->pack.max_pending_transactions );
+  FD_TEST( fd_pack_txn_idx_max( ctx->pack )<=pack_txn_idx_max );
+  memset( ctx->obs, 0, sizeof(ctx->obs) );
+  ctx->obs->bobs = fd_pack_bobs_join( fd_pack_bobs_new( FD_SCRATCH_ALLOC_APPEND( l, fd_pack_bobs_align(), fd_pack_bobs_footprint( BOBS_ELE_MAX, pack_txn_idx_max ) ),
+                                                        BOBS_ELE_MAX, pack_txn_idx_max ) );
+  ctx->obs->dual = fd_pack_dual_join( fd_pack_dual_new( FD_SCRATCH_ALLOC_APPEND( l, fd_pack_dual_align(), fd_pack_dual_footprint( DUAL_ENT_MAX ) ),
+                                                        DUAL_ENT_MAX ) );
+  FD_TEST( ctx->obs->bobs );
+  FD_TEST( ctx->obs->dual );
+  fd_pack_set_bundle_leave_cb( ctx->pack, obs_bundle_leave, ctx );
+  fd_pack_dual_set_verdict_cb( ctx->obs->dual, obs_dual_verdict, ctx );
+  ctx->obs->last_leader_slot = ULONG_MAX;
+
   ctx->cur_spot                      = NULL;
   ctx->is_bundle                     = 0;
   ctx->strategy                      = tile->pack.schedule_strategy;
@@ -1434,6 +1878,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->rng                           = rng;
   fd_clock_tile_init( ctx->clock );
   double tick_per_ns                 = ctx->clock->epoch->w;
+  ctx->obs->tick_per_ns              = tick_per_ns;
   ctx->last_successful_insert        = 0L;
   ctx->highest_observed_slot         = 0UL;
   ctx->microblock_duration_ticks     = (ulong)(tick_per_ns*(double)MICROBLOCK_DURATION_NS  + 0.5);
@@ -1501,6 +1946,14 @@ unprivileged_init( fd_topo_t const *      topo,
                                                        FD_MHIST_SECONDS_MAX( PACK, INSERT_TRANSACTION_DURATION_SECONDS  ) ) );
   fd_histf_join( fd_histf_new( ctx->complete_duration, FD_MHIST_SECONDS_MIN( PACK, COMPLETE_MICROBLOCK_DURATION_SECONDS ),
                                                        FD_MHIST_SECONDS_MAX( PACK, COMPLETE_MICROBLOCK_DURATION_SECONDS ) ) );
+  fd_histf_join( fd_histf_new( ctx->obs->queue_wait,          FD_MHIST_SECONDS_MIN( PACK, BUNDLE_QUEUE_WAIT_SECONDS     ),
+                                                              FD_MHIST_SECONDS_MAX( PACK, BUNDLE_QUEUE_WAIT_SECONDS     ) ) );
+  fd_histf_join( fd_histf_new( ctx->obs->arrival_offset,      FD_MHIST_SECONDS_MIN( PACK, BUNDLE_ARRIVAL_OFFSET_SECONDS ),
+                                                              FD_MHIST_SECONDS_MAX( PACK, BUNDLE_ARRIVAL_OFFSET_SECONDS ) ) );
+  fd_histf_join( fd_histf_new( ctx->obs->dual_bundle_won_pct, FD_MHIST_MIN( PACK, DUAL_LANE_BUNDLE_WON_PRICE_PCT ),
+                                                              FD_MHIST_MAX( PACK, DUAL_LANE_BUNDLE_WON_PRICE_PCT ) ) );
+  fd_histf_join( fd_histf_new( ctx->obs->dual_tpu_won_pct,    FD_MHIST_MIN( PACK, DUAL_LANE_TPU_WON_PRICE_PCT    ),
+                                                              FD_MHIST_MAX( PACK, DUAL_LANE_TPU_WON_PRICE_PCT    ) ) );
   ctx->metric_state = 0;
   ctx->metric_state_begin = fd_tickcount();
   memset( ctx->metric_timing,             '\0', 16*sizeof(long)                        );
