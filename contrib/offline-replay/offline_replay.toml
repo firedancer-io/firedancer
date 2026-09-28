@@ -38,6 +38,7 @@ name = "{name}"
 [gossip]
     entrypoints = [ "0.0.0.0:1" ]
 [development]
+    alpenglow = {alpenglow}
     [development.ledger_input]
         format = "pcap"
         path = "{ledger}/shreds.pcapng.zst"
