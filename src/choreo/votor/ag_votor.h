@@ -5,14 +5,12 @@
 #include "../../ballet/bls/fd_bls.h"
 #include "ag_event.h"
 
-#define AG_VOTOR_REASON_BLOCK_REPLAYED         (0)
-#define AG_VOTOR_REASON_BLOCK_DEAD             (1)
-#define AG_VOTOR_REASON_PARENT_READY           (2)
-#define AG_VOTOR_REASON_BLOCK_NOTARIZED        (3)
-#define AG_VOTOR_REASON_TIMEOUT                (4)
-#define AG_VOTOR_REASON_TIMEOUT_CRASHED_LEADER (5)
-#define AG_VOTOR_REASON_SAFE_TO_NOTAR          (6)
-#define AG_VOTOR_REASON_SAFE_TO_SKIP           (7)
+#define AG_VOTOR_REASON_BLOCK_REPLAYED  (0)
+#define AG_VOTOR_REASON_PARENT_READY    (1)
+#define AG_VOTOR_REASON_BLOCK_NOTARIZED (2)
+#define AG_VOTOR_REASON_TIMEOUT         (3)
+#define AG_VOTOR_REASON_SAFE_TO_NOTAR   (4)
+#define AG_VOTOR_REASON_SAFE_TO_SKIP    (5)
 
 typedef struct ag_votor ag_votor_t;
 
@@ -62,12 +60,6 @@ void
 ag_votor_handle_pool_event( ag_votor_t *            self,
                             ag_event_pool_t const * event,
                             long                    now );
-
-/* Votor::handle_blockstore_event, FirstShred and InvalidBlock */
-
-void
-ag_votor_handle_block_event( ag_votor_t *             self,
-                             ag_event_block_t const * event );
 
 /* Algorithm 1, lines 1-5. Votor::handle_blockstore_event, Block */
 

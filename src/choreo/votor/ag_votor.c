@@ -22,13 +22,11 @@ struct slot_state_ele {
   ag_block_hash_t block_notarized_hash;
   ag_block_id_t   parents_ready[ PARENTS_READY_MAX ];
   ulong           parents_ready_cnt;
-  int             received_shred;
   int             pending_block;
   ag_block_info_t pending_block_info;
   int             retired;
 
   long timeout;
-  long timeout_crashed_leader;
 
   struct { ulong prev; ulong next; } pending_dlist;
   struct { ulong prev; ulong next; } timeout_dlist;
@@ -103,7 +101,7 @@ struct __attribute__((aligned(128UL))) ag_votor {
 
 FD_FN_PURE static inline int
 timer_idle( slot_state_ele_t const * ele ) {
-  return ele->timeout==LONG_MAX && ele->timeout_crashed_leader==LONG_MAX;
+  return ele->timeout==LONG_MAX;
 }
 
 static slot_state_ele_t *
@@ -114,14 +112,17 @@ state_mut( ag_votor_t * self,
 
   FD_TEST( slot_state_pool_free( self->slot_states->pool ) );
 
-  ele                         = slot_state_pool_ele_acquire( self->slot_states->pool );
+  ele          = slot_state_pool_ele_acquire( self->slot_states->pool );
   fd_memset( ele, 0, sizeof(slot_state_ele_t) );
-  ele->slot                   = slot;
-  ele->timeout                = LONG_MAX;
-  ele->timeout_crashed_leader = LONG_MAX;
+  ele->slot    = slot;
+  ele->timeout = LONG_MAX;
   slot_state_map_ele_insert( self->slot_states->map, ele, self->slot_states->pool );
   return ele;
 }
+
+/* No crashed-leader timeout.  Agave tracks one, but with
+   delta_first_fec_set = delta_block its deadline lands on the first
+   slot's timeout, so it never skips a window earlier. */
 
 static void
 set_timeouts( ag_votor_t * self,
@@ -129,11 +130,6 @@ set_timeouts( ag_votor_t * self,
   FD_TEST( ag_is_start_of_window( slot ) );
 
   long deadline = self->now + AG_DELTA_TIMEOUT_NS + self->ns_per_slot;
-
-  slot_state_ele_t * start      = state_mut( self, slot );
-  int                start_idle = timer_idle( start );
-  start->timeout_crashed_leader = fd_long_min( start->timeout_crashed_leader, deadline );
-  if( FD_UNLIKELY( start_idle ) ) timeout_dlist_ele_push_tail( self->timeout_dlist, start, self->slot_states->pool );
 
   for( ulong s=slot; s<slot+AG_SLOTS_PER_WINDOW; s++ ) {
     deadline += fd_long_if( ag_is_start_of_window( s ), 0L, self->ns_per_slot );
@@ -333,13 +329,6 @@ has_voted( ag_votor_t const * self,
            ulong              slot ) {
   slot_state_ele_t const * ele = slot_state_map_ele_query_const( self->slot_states->map, &slot, NULL, self->slot_states->pool );
   return ele && ele->voted;
-}
-
-FD_FN_PURE static int
-received_shred( ag_votor_t const * self,
-                ulong              slot ) {
-  slot_state_ele_t const * ele = slot_state_map_ele_query_const( self->slot_states->map, &slot, NULL, self->slot_states->pool );
-  return ele && ele->received_shred;
 }
 
 FD_FN_PURE static ulong
@@ -617,50 +606,22 @@ ag_votor_handle_pool_event( ag_votor_t *            self,
 }
 
 void
-ag_votor_handle_block_event( ag_votor_t *             self,
-                             ag_event_block_t const * event ) {
-  ulong slot = event->slot;
-  if( FD_UNLIKELY( slot<=self->highest_final_cert_slot || is_retired( self, slot ) ) ) return;
-
-  switch( event->kind ) {
-  case AG_EVENT_BLOCK_FIRST_SHRED:
-    state_mut( self, slot )->received_shred = 1;
-    break;
-
-  case AG_EVENT_BLOCK_INVALID_BLOCK:
-    FD_LOG_WARNING(( "invalid block from leader for slot %lu, skipping window", slot ));
-    try_skip_window( self, slot, AG_VOTOR_REASON_BLOCK_DEAD );
-    break;
-
-  default:
-    FD_LOG_ERR(( "invalid block event kind %d", event->kind ));
-  }
-}
-
-void
 ag_votor_handle_replay_event( ag_votor_t *              self,
                               ag_event_replay_t const * event ) {
   ulong slot = event->slot;
   if( FD_UNLIKELY( slot<first_unpruned_slot( self ) || is_retired( self, slot ) ) ) return;
 
-  switch( event->kind ) {
-  case AG_EVENT_REPLAY_COMPLETED:
-    if( FD_UNLIKELY( has_voted( self, slot ) ) ) {
-      FD_LOG_WARNING(( "not voting for block in slot %lu, already voted", slot ));
-      return;
-    }
-    if( FD_LIKELY( try_notar( self, slot, &event->block_info, AG_VOTOR_REASON_BLOCK_REPLAYED ) ) ) {
-      check_pending_blocks( self, AG_VOTOR_REASON_BLOCK_REPLAYED );
-    } else {
-      slot_state_ele_t * state  = state_mut( self, slot );
-      if( FD_LIKELY( !state->pending_block ) ) pending_dlist_ele_push_tail( self->pending_dlist, state, self->slot_states->pool );
-      state->pending_block      = 1;
-      state->pending_block_info = event->block_info;
-    }
-    break;
-
-  default:
-    FD_LOG_ERR(( "invalid replay event kind %d", event->kind ));
+  if( FD_UNLIKELY( has_voted( self, slot ) ) ) {
+    FD_LOG_WARNING(( "not voting for block in slot %lu, already voted", slot ));
+    return;
+  }
+  if( FD_LIKELY( try_notar( self, slot, &event->block_info, AG_VOTOR_REASON_BLOCK_REPLAYED ) ) ) {
+    check_pending_blocks( self, AG_VOTOR_REASON_BLOCK_REPLAYED );
+  } else {
+    slot_state_ele_t * state  = state_mut( self, slot );
+    if( FD_LIKELY( !state->pending_block ) ) pending_dlist_ele_push_tail( self->pending_dlist, state, self->slot_states->pool );
+    state->pending_block      = 1;
+    state->pending_block_info = event->block_info;
   }
 }
 
@@ -670,18 +631,7 @@ ag_votor_handle_timeout_event( ag_votor_t *               self,
   ulong slot = event->slot;
   if( FD_UNLIKELY( slot<=self->highest_final_cert_slot || is_retired( self, slot ) ) ) return;
 
-  switch( event->kind ) {
-  case AG_EVENT_TIMEOUT:
-    if( FD_UNLIKELY( !has_voted( self, slot ) ) ) try_skip_window( self, slot, AG_VOTOR_REASON_TIMEOUT );
-    break;
-
-  case AG_EVENT_TIMEOUT_CRASHED_LEADER:
-    if( FD_UNLIKELY( !received_shred( self, slot ) && !has_voted( self, slot ) ) ) try_skip_window( self, slot, AG_VOTOR_REASON_TIMEOUT_CRASHED_LEADER );
-    break;
-
-  default:
-    FD_LOG_ERR(( "invalid timeout kind %d", event->kind ));
-  }
+  if( FD_UNLIKELY( !has_voted( self, slot ) ) ) try_skip_window( self, slot, AG_VOTOR_REASON_TIMEOUT );
 }
 
 int
@@ -697,16 +647,13 @@ ag_votor_poll_timeout_event( ag_votor_t *         self,
                             iter = timeout_dlist_iter_fwd_next( iter, self->timeout_dlist, pool ) ) {
     slot_state_ele_t * ele = timeout_dlist_iter_ele( iter, self->timeout_dlist, pool );
 
-    int kind;
-    if     ( FD_UNLIKELY( ele->timeout_crashed_leader<=now ) ) { kind = AG_EVENT_TIMEOUT_CRASHED_LEADER; ele->timeout_crashed_leader = LONG_MAX; }
-    else if( FD_UNLIKELY( ele->timeout               <=now ) ) { kind = AG_EVENT_TIMEOUT;        ele->timeout                = LONG_MAX; }
-    else continue;
+    if( FD_LIKELY( ele->timeout>now ) ) continue;
+    ele->timeout = LONG_MAX;
 
     event->seq  = self->seq++;
     event->ts   = self->now;
-    event->kind = kind;
     event->slot = ele->slot;
-    if( FD_UNLIKELY( timer_idle( ele ) ) ) timeout_dlist_ele_remove( self->timeout_dlist, ele, pool );
+    timeout_dlist_ele_remove( self->timeout_dlist, ele, pool );
     return 1;
   }
   return 0;
