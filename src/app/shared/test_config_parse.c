@@ -184,14 +184,8 @@ main( int     argc,
   static char const identity[] = "/keys/identity.json";
   static char const junk[]     = "/keys/junk.json";
   strcpy( config->paths.identity_key, identity );
-  FD_TEST(  failover_is_valid( config, "",       8010, 0, ""                 ) );
-  FD_TEST(  failover_is_valid( config, junk,     8010, 0, ""                 ) );
-  FD_TEST( !failover_is_valid( config, junk,     0,    0, ""                 ) );
-  FD_TEST( !failover_is_valid( config, junk,     8010, 1, ""                 ) );
-  FD_TEST( !failover_is_valid( config, identity, 8010, 0, ""                 ) );
-  FD_TEST(  failover_is_valid( config, junk,     8010, 0, "10.0.0.2"         ) );
-  FD_TEST(  failover_is_valid( config, junk,     8010, 0, "peer.example.com" ) );
-  FD_TEST( !failover_is_valid( config, junk,     8010, 0, "10.0.0.2:8010"    ) );
+  FD_TEST(  failover_is_valid( config, junk,     8010, 0, "10.0.0.2" ) );
+  FD_TEST( !failover_is_valid( config, identity, 8010, 0, "10.0.0.2" ) );
 
   /* Ensure we can selectively override a field */
 

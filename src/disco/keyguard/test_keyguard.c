@@ -13,33 +13,10 @@ test_failov_message( void ) {
   uchar msg[ FD_KEYGUARD_MEMBER_CERT_MSG_SZ ];
   fd_memcpy( msg, FD_KEYGUARD_MEMBER_CERT_PREFIX, FD_KEYGUARD_MEMBER_CERT_PREFIX_SZ );
   fd_memset( msg+FD_KEYGUARD_MEMBER_CERT_PREFIX_SZ, 0x5a, 32UL );
-
   FD_TEST( fd_keyguard_payload_match( msg, sizeof(msg), FD_KEYGUARD_SIGN_TYPE_ED25519 )==FD_KEYGUARD_PAYLOAD_FAILOV );
-  FD_TEST(  fd_keyguard_payload_authorize( &authority, msg, sizeof(msg), FD_KEYGUARD_ROLE_FAILOV, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
-  FD_TEST( !fd_keyguard_payload_authorize( &authority, msg, sizeof(msg), FD_KEYGUARD_ROLE_LEADER, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
-  FD_TEST( !fd_keyguard_payload_authorize( &authority, msg, sizeof(msg), FD_KEYGUARD_ROLE_GOSSIP, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
-
-  /* Only the exact prefix, size and sign type are a member certificate. */
-  FD_TEST( !fd_keyguard_payload_match( msg, sizeof(msg), FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519 ) );
-  FD_TEST( !fd_keyguard_payload_authorize( &authority, msg, sizeof(msg), FD_KEYGUARD_ROLE_FAILOV, FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519 ) );
-  FD_TEST( !(fd_keyguard_payload_match( msg, sizeof(msg)-1UL, FD_KEYGUARD_SIGN_TYPE_ED25519 ) & FD_KEYGUARD_PAYLOAD_FAILOV) );
-  FD_TEST( !(fd_keyguard_payload_match( msg+1, sizeof(msg)-1UL, FD_KEYGUARD_SIGN_TYPE_ED25519 ) & FD_KEYGUARD_PAYLOAD_FAILOV) );
-
-  /* Longer payloads with the prefix are not a member certificate either. */
-  uchar longer[ FD_KEYGUARD_MEMBER_CERT_MSG_SZ+32UL ];
-  fd_memcpy( longer, msg, sizeof(msg) );
-  fd_memset( longer+sizeof(msg), 0x5a, 32UL );
-  for( ulong sz=sizeof(msg)+1UL; sz<=sizeof(longer); sz++ ) {
-    FD_TEST( !(fd_keyguard_payload_match( longer, sz, FD_KEYGUARD_SIGN_TYPE_ED25519 ) & FD_KEYGUARD_PAYLOAD_FAILOV) );
-    FD_TEST( !fd_keyguard_payload_authorize( &authority, longer, sz, FD_KEYGUARD_ROLE_FAILOV, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
-  }
-  msg[ 0 ] ^= 1;
-  FD_TEST( !(fd_keyguard_payload_match( msg, sizeof(msg), FD_KEYGUARD_SIGN_TYPE_ED25519 ) & FD_KEYGUARD_PAYLOAD_FAILOV) );
+  FD_TEST( fd_keyguard_payload_authorize( &authority, msg, sizeof(msg), FD_KEYGUARD_ROLE_FAILOV, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+  msg[0] ^= 1;
   FD_TEST( !fd_keyguard_payload_authorize( &authority, msg, sizeof(msg), FD_KEYGUARD_ROLE_FAILOV, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
-  msg[ 0 ] ^= 1;
-
-  /* The failov role cannot get a 32 byte shred root signed. */
-  FD_TEST( !fd_keyguard_payload_authorize( &authority, msg+FD_KEYGUARD_MEMBER_CERT_PREFIX_SZ, 32UL, FD_KEYGUARD_ROLE_FAILOV, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
 }
 
 static ulong

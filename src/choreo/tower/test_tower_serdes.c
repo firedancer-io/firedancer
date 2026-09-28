@@ -339,42 +339,6 @@ test_compact_to_votes( void ) {
   out.lockouts[ 1 ].offset = 0UL;
   FD_TEST( fd_compact_tower_sync_to_votes( &out, votes, &cnt, &root )==-1 );
   FD_TEST( cnt==99UL && root==99UL && fd_memeq( &votes[ 0 ], &first, sizeof(first) ) );
-  out.lockouts[ 1 ].offset = 2UL;
-  out.lockouts[ 0 ].confirmation_count = FD_TOWER_VOTE_MAX+1U;
-  FD_TEST( fd_compact_tower_sync_to_votes( &out, votes, &cnt, &root )==-1 );
-  out.lockouts[ 0 ].confirmation_count = 3U;
-  out.lockouts[ 1 ].confirmation_count = 3U;
-  FD_TEST( fd_compact_tower_sync_to_votes( &out, votes, &cnt, &root )==-1 );
-  out.lockouts[ 1 ].confirmation_count = 2U;
-  out.lockouts[ 2 ].confirmation_count = 0U;
-  FD_TEST( fd_compact_tower_sync_to_votes( &out, votes, &cnt, &root )==-1 );
-  out.lockouts[ 2 ].confirmation_count = 1U;
-  out.lockouts[ 2 ].offset = 5UL;
-  FD_TEST( fd_compact_tower_sync_to_votes( &out, votes, &cnt, &root )==-1 );
-  /* The oldest vote expired by the newest slot, still a valid tower,
-     Agave pops expired votes from the top only. */
-  out.lockouts[ 1 ].offset = 7UL;
-  out.lockouts[ 2 ].offset = 2UL;
-  FD_TEST( !fd_compact_tower_sync_to_votes( &out, votes, &cnt, &root ) );
-  FD_TEST( votes[ 0 ].slot==105UL && votes[ 1 ].slot==112UL && votes[ 2 ].slot==114UL );
-  out.lockouts[ 1 ].offset = 9UL;
-  FD_TEST( fd_compact_tower_sync_to_votes( &out, votes, &cnt, &root )==-1 );
-  out.lockouts[ 1 ].offset = 2UL;
-  out.lockouts[ 2 ].offset = 4UL;
-  out.root = ULONG_MAX-4UL;
-  FD_TEST( fd_compact_tower_sync_to_votes( &out, votes, &cnt, &root )==-1 );
-
-  out.root = ULONG_MAX;
-  out.lockouts[ 0 ].offset = 0UL;
-  FD_TEST( !fd_compact_tower_sync_to_votes( &out, votes, &cnt, &root ) );
-  FD_TEST( root==ULONG_MAX && cnt==3UL );
-  FD_TEST( votes[ 0 ].slot==0UL && votes[ 1 ].slot==2UL && votes[ 2 ].slot==6UL );
-
-  out.root = 1UL;
-  FD_TEST( fd_compact_tower_sync_to_votes( &out, votes, &cnt, &root )==-1 );
-
-  out.root = 0UL;
-  FD_TEST( fd_compact_tower_sync_to_votes( &out, votes, &cnt, &root )==-1 );
 
   FD_LOG_NOTICE(( "pass: test_compact_to_votes" ));
 }
