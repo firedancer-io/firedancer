@@ -1132,7 +1132,17 @@ acc_unlink( fd_accdb_t * accdb,
          to be chain-unlinked and deferred-released.  drain_deferred_
          frees sweeps the deferred buffer after epoch drain to catch
          the late publish and free the orphaned bytes. */
-  ulong entry_sz = (ulong)FD_ACCDB_SIZE_DATA(accmeta->executable_size)+sizeof(fd_accdb_disk_meta_t);
+  uint  es       = FD_VOLATILE_CONST( accmeta->executable_size );
+  ulong entry_sz = (ulong)FD_ACCDB_SIZE_DATA(es)+sizeof(fd_accdb_disk_meta_t);
+
+  /* Prefetch the cache line the reclaim below will CAS */
+  if( FD_UNLIKELY( FD_ACCDB_SIZE_CACHE_VALID( es ) ) ) {
+    uint  cidx = FD_VOLATILE_CONST( accmeta->cache_idx );
+    ulong cls  = FD_ACCDB_ACC_CIDX_CLASS( cidx ) & (FD_ACCDB_CACHE_CLASS_CNT-1UL);
+    ulong idx  = FD_ACCDB_ACC_CIDX_IDX( cidx );
+    if( FD_LIKELY( cidx!=FD_ACCDB_ACC_CIDX_INVAL && idx<accdb->shmem->cache_class_max[ cls ] ) ) __builtin_prefetch( cache_line( accdb, cls, idx ), 1, 3 );
+  }
+
   ulong old_offset = fd_accdb_acc_xchg_offset( accmeta, FD_ACCDB_OFF_INVAL );
   if( FD_LIKELY( old_offset!=FD_ACCDB_OFF_INVAL ) ) {
     fd_accdb_shmem_bytes_freed( accdb->shmem, old_offset, entry_sz );
@@ -1304,18 +1314,9 @@ fork_slot_defer( fd_accdb_t *              accdb,
   *fork_tail = shmem;
 }
 
-/* chain_prewalk warms the cache for the hash chain walks of up to
-   CHAIN_PREWALK_W txn records starting at txn (following fork.next).
-   Each walk is a dependent chain of DRAM misses (txn -> acc -> chain
-   head -> next -> ...); stepping the W chains in lock-step lets the
-   misses overlap instead of serializing.  Read only: it performs the
-   same FD_VOLATILE_CONST loads the walks below do and no stores, so it
-   changes nothing about what those walks see or unlink.  With purge
-   set a chain is walked from its head up to the txn's own acc (where
-   purge_inner unlinks); otherwise it is walked the way the advance_root
-   old-version walk goes: from the txn's own acc to the end, or from
-   the head for a tombstone.  Fills txns[] and map_idxs[] (the chain
-   index of each txn's acc) and returns the number of records loaded. */
+/* chain_prewalk prefetches the hash chain walks of up to CHAIN_PREWALK_W
+   txn records from txn in lock-step, over the span the caller will walk.
+   Read only.  Fills txns[] and map_idxs[] and returns the count. */
 
 #define CHAIN_PREWALK_W (16UL)
 
@@ -1473,26 +1474,9 @@ background_advance_root( fd_accdb_t *       accdb,
 
         delta_insert( accdb, new_acc->key.pubkey );
 
-        /* The old versions this walk unlinks all lie behind new_acc on
-           the chain, so the walk starts at new_acc rather than at the
-           head, skipping the newer versions (typically dozens: every
-           live fork's write of a hot account).  This rests on the chain
-           being prepend only and on the commit order: a fork is frozen
-           before a child is attached and replay commits a fork's
-           writes before any descendant's, so every node ahead of
-           new_acc was committed after it, on a fork that is not an
-           ancestor of the rooted fork (a descendant, or a sibling
-           subtree that remove_children just emptied), and fails the
-           ancestor test below.  new_acc itself is still linked: the
-           only unlinks are this walk (which never takes a node of the
-           rooted fork: its generation is above the parent's and a
-           fork's own bit is never in its descends set) and purge (which
-           takes the fork's txns with it), and a second write of the
-           same pubkey on the same fork is an in-place overwrite, not a
-           second txn.  A tombstone (lamports==0) also has to unlink
-           new_acc itself, which needs its predecessor, so that case
-           walks from the head as before.  With handholding the head
-           walk runs for every txn and asserts both properties. */
+        /* Walk from new_acc, not the head: everything ahead of it was
+           prepended by a non-ancestor fork.  A tombstone needs its
+           predecessor so still walks from the head. */
         uint prev          = UINT_MAX;
         uint new_acc_prev  = UINT_MAX; /* prev of new_acc on the chain when we encounter it (UINT_MAX if head or never seen) */
         int  new_acc_seen  = 0;
@@ -1542,10 +1526,7 @@ background_advance_root( fd_accdb_t *       accdb,
         /* If the newly rooted version is a tombstone (lamports==0, e.g.
            account was closed), drop it from the index too: no fork can
            reach it anymore, and keeping it around just wastes a hash
-           slot and the disk bytes it occupies.  new_acc_seen guards
-           against a new_acc that the head walk did not find (it cannot
-           happen, see above, but unlinking a node that is not on the
-           chain would corrupt it). */
+           slot and the disk bytes it occupies. */
         if( FD_UNLIKELY( new_acc_seen && new_acc->lamports==0UL ) ) {
           uint new_acc_idx = (uint)txne->acc_pool_idx;
           acc_unlink( accdb, acc_map_idx, new_acc_prev, new_acc_idx );
