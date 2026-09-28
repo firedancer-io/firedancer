@@ -73,23 +73,16 @@ fd_event_runtime_txn_emit( fd_txn_in_t  const * txn_in,
   ev.cost_loaded_accounts_data_size    = c->loaded_accounts_data_size_cost;
   ev.cost_allocated_accounts_data_size = c->allocated_accounts_data_size;
 
-  /* account_diffs: walk per-txn writable accounts, compare prior vs current */
+  /* Execution buffers may contain discarded writes.  Emit only accounts
+     captured at commit, and suppress them if the transaction was subsequently
+     rejected.  Unchanged committed accounts are included. */
   ulong diff_cnt = 0UL;
   for( ulong i=0UL; i<txn_out->accounts.cnt; i++ ) {
     if( diff_cnt>=64UL ) break;
     fd_acc_t const * acc = txn_out->accounts.account[ i ];
     if( FD_UNLIKELY( !acc ) ) continue;
     if( !txn_out->accounts.is_writable[ i ] ) continue;
-
-    int changed = ( acc->prior_lamports   != acc->lamports   ) ||
-                  ( acc->prior_executable != acc->executable ) ||
-                  ( acc->prior_data_len   != acc->data_len   ) ||
-                  ( memcmp( acc->prior_owner, acc->owner, 32UL )!=0 );
-    if( !changed && acc->prior_data && acc->data &&
-        memcmp( acc->prior_data, acc->data, acc->data_len )!=0 ) {
-      changed = 1;
-    }
-    if( !changed ) continue;
+    if( !txn_out->err.is_committable || !txn_out->accounts.committed[ i ] ) continue;
 
     fd_event_runtime_txn_account_diffs_t * d = &ev.account_diffs[ diff_cnt++ ];
     fd_memcpy( d->pubkey,     txn_out->accounts.keys[ i ].uc, 32UL );
@@ -104,6 +97,7 @@ fd_event_runtime_txn_emit( fd_txn_in_t  const * txn_in,
     d->is_vote_update  = !!txn_out->accounts.vote_update [ i ];
     d->is_new_vote     = !!txn_out->accounts.new_vote    [ i ];
     d->is_rm_vote      = !!txn_out->accounts.rm_vote     [ i ];
+    if( txn_out->err.is_committable ) fd_memcpy( d->lthash, txn_out->accounts.lthash_checksum[ i ], 32UL );
   }
   ev.account_diffs_cnt = diff_cnt;
 
@@ -471,6 +465,7 @@ struct fd_event_runtime_account_diff {
   ulong prev_data_sz;
   ulong data_sz;
   int   executable;
+  uchar lthash[ 32 ]; /* blake3 checksum of the post-state lthash */
 };
 
 typedef struct fd_event_runtime_account_diff fd_event_runtime_account_diff_t;
@@ -519,10 +514,12 @@ fd_event_runtime_account_diff_set( fd_event_runtime_account_diff_t * e,
                                    ulong                             lamports,
                                    ulong                             prev_data_sz,
                                    ulong                             data_sz,
-                                   int                               executable ) {
+                                   int                               executable,
+                                   uchar const *                     lthash ) {
   fd_memcpy( e->pubkey,     pubkey,     32UL );
   fd_memcpy( e->owner,      owner,      32UL );
   fd_memcpy( e->prev_owner, prev_owner, 32UL );
+  fd_memcpy( e->lthash,     lthash,     32UL );
   e->prev_lamports = prev_lamports;
   e->lamports      = lamports;
   e->prev_data_sz  = prev_data_sz;
@@ -531,19 +528,23 @@ fd_event_runtime_account_diff_set( fd_event_runtime_account_diff_t * e,
 }
 
 void
-fd_event_runtime_block_account( fd_bank_t *   bank,
-                                uchar const * pubkey,
-                                uchar const * prev_owner,
-                                uchar const * owner,
-                                ulong         prev_lamports,
-                                ulong         lamports,
-                                ulong         prev_data_sz,
-                                ulong         data_sz,
-                                int           executable ) {
+fd_event_runtime_block_account( fd_bank_t *               bank,
+                                uchar const *             pubkey,
+                                uchar const *             prev_owner,
+                                uchar const *             owner,
+                                ulong                     prev_lamports,
+                                ulong                     lamports,
+                                ulong                     prev_data_sz,
+                                ulong                     data_sz,
+                                int                       executable,
+                                fd_lthash_value_t const * lthash_post ) {
   if( FD_LIKELY( !fd_event_tl ) ) return;
 
   fd_event_runtime_slot_diffs_t * diffs = fd_event_runtime_slot_diffs_at( bank->idx );
   if( FD_UNLIKELY( !diffs ) ) return;
+
+  uchar lthash[ 32 ];
+  fd_blake3_hash( lthash_post->bytes, FD_LTHASH_LEN_BYTES, lthash );
 
   fd_event_runtime_account_diff_t * arr; ulong * cnt; ulong cap;
   if( FD_UNLIKELY( !memcmp( owner, fd_sysvar_owner_id.uc, 32UL ) ) ) {
@@ -560,7 +561,8 @@ fd_event_runtime_block_account( fd_bank_t *   bank,
      pre-state, last post-state. */
   for( ulong i=0UL; i<*cnt; i++ ) {
     if( FD_UNLIKELY( !memcmp( arr[ i ].pubkey, pubkey, 32UL ) ) ) {
-      fd_memcpy( arr[ i ].owner, owner, 32UL );
+      fd_memcpy( arr[ i ].owner,  owner,  32UL );
+      fd_memcpy( arr[ i ].lthash, lthash, 32UL );
       arr[ i ].lamports   = lamports;
       arr[ i ].data_sz    = data_sz;
       arr[ i ].executable = executable;
@@ -572,7 +574,7 @@ fd_event_runtime_block_account( fd_bank_t *   bank,
     FD_LOG_WARNING(( "runtime_block account diff overflow (cap %lu), dropping diff", cap ));
     return;
   }
-  fd_event_runtime_account_diff_set( &arr[ (*cnt)++ ], pubkey, prev_owner, owner, prev_lamports, lamports, prev_data_sz, data_sz, executable );
+  fd_event_runtime_account_diff_set( &arr[ (*cnt)++ ], pubkey, prev_owner, owner, prev_lamports, lamports, prev_data_sz, data_sz, executable, lthash );
 }
 
 void
@@ -669,6 +671,7 @@ fd_event_runtime_block_emit( fd_bank_t const *             bank,
     d->data_sz       = diffs->sysvar[ i ].data_sz;
     d->prev_data_sz  = diffs->sysvar[ i ].prev_data_sz;
     d->is_executable = diffs->sysvar[ i ].executable;
+    fd_memcpy( d->lthash, diffs->sysvar[ i ].lthash, 32UL );
   }
   ev.sysvar_diffs_cnt = diffs->sysvar_cnt;
 
@@ -682,6 +685,7 @@ fd_event_runtime_block_emit( fd_bank_t const *             bank,
     d->data_sz       = diffs->other[ i ].data_sz;
     d->prev_data_sz  = diffs->other[ i ].prev_data_sz;
     d->is_executable = diffs->other[ i ].executable;
+    fd_memcpy( d->lthash, diffs->other[ i ].lthash, 32UL );
   }
   ev.other_diffs_cnt = diffs->other_cnt;
 

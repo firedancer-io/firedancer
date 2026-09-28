@@ -78,7 +78,8 @@
                     "prev_lamports": { "type": "UInt64", "description": "Pre-state lamports" },
                     "data_sz":       { "type": "UInt64", "description": "Post-state data size in bytes" },
                     "prev_data_sz":  { "type": "UInt64", "description": "Pre-state data size in bytes" },
-                    "is_executable": { "type": "Bool",   "description": "True if the post-state account is executable" }
+                    "is_executable": { "type": "Bool",   "description": "True if the post-state account is executable" },
+                    "lthash":        { "type": "Hash",   "description": "BLAKE3 checksum of account LtHash. Zero-lamport accounts carry BLAKE3 of 2,048 zero bytes." }
                 }
             }
         },
@@ -97,7 +98,8 @@
                     "prev_lamports": { "type": "UInt64", "description": "Pre-state lamports" },
                     "data_sz":       { "type": "UInt64", "description": "Post-state data size in bytes" },
                     "prev_data_sz":  { "type": "UInt64", "description": "Pre-state data size in bytes" },
-                    "is_executable": { "type": "Bool",   "description": "True if the post-state account is executable" }
+                    "is_executable": { "type": "Bool",   "description": "True if the post-state account is executable" },
+                    "lthash":        { "type": "Hash",   "description": "BLAKE3 checksum of account LtHash. Zero-lamport accounts carry BLAKE3 of 2,048 zero bytes." }
                 }
             }
         },

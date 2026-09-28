@@ -1,0 +1,109 @@
+#include "fd_event_runtime.h"
+#include "../../disco/events/fd_event_report.h"
+
+static fd_event_runtime_txn_t captured;
+#undef fd_event_report_runtime_txn
+#define fd_event_report_runtime_txn( ev ) (captured = *(ev))
+#include "fd_event_runtime.c"
+
+int
+main( int argc, char ** argv ) {
+  fd_boot( &argc, &argv );
+  static fd_event_reporter_t reporter;
+  fd_event_tl = &reporter;
+  static fd_txn_p_t txn;
+  static fd_txn_in_t in;
+  static fd_txn_out_t out;
+  static fd_bank_t bank;
+  static fd_acc_t accounts[ 2 ];
+  uchar const zero[ 32 ] = {0};
+  in.txn = &txn;
+  in.index_in_slot = 17UL;
+  out.err.is_committable = 1;
+  out.accounts.cnt = 2UL;
+  for( ulong i=0UL; i<2UL; i++ ) {
+    accounts[i].prior_lamports = 10UL;
+    accounts[i].lamports = 9UL;
+    out.accounts.account[i] = &accounts[i];
+    out.accounts.is_writable[i] = 1;
+    out.accounts.committed[i] = 1;
+    out.accounts.keys[i].uc[0] = (uchar)(i+1UL);
+  }
+  /* Unchanged committed accounts are emitted without shifting checksum mapping. */
+  accounts[0].lamports = 10UL;
+  memset( out.accounts.lthash_checksum[1], 0xAB, 32UL );
+  fd_event_runtime_txn_emit( &in, &out, &bank );
+  FD_TEST( captured.index_in_slot==17UL );
+  FD_TEST( captured.account_diffs_cnt==2UL );
+  FD_TEST( !memcmp( captured.account_diffs[1].pubkey, out.accounts.keys[1].uc, 32UL ) );
+  FD_TEST( !memcmp( captured.account_diffs[1].lthash, out.accounts.lthash_checksum[1], 32UL ) );
+
+  /* A deletion's checksum is not the uncaptured zero sentinel. */
+  fd_lthash_value_t identity;
+  fd_lthash_zero( &identity );
+  uchar deleted[ 32 ];
+  fd_blake3_hash( identity.bytes, FD_LTHASH_LEN_BYTES, deleted );
+  FD_TEST( memcmp( deleted, zero, 32UL ) );
+  accounts[1].lamports = 0UL;
+  memcpy( out.accounts.lthash_checksum[1], deleted, 32UL );
+  fd_event_runtime_txn_emit( &in, &out, &bank );
+  FD_TEST( !memcmp( captured.account_diffs[1].lthash, deleted, 32UL ) );
+
+  /* Rejection after checksum computation must suppress all state diffs. */
+  out.err.is_committable = 0;
+  fd_event_runtime_txn_emit( &in, &out, &bank );
+  FD_TEST( captured.account_diffs_cnt==0UL );
+  FD_TEST( captured.writable_accounts_cnt==2UL );
+  out.err.is_committable = 1;
+
+  /* Missing capture on a committed write must remain visible. */
+  memset( out.accounts.lthash_checksum[1], 0, 32UL );
+  fd_event_runtime_txn_emit( &in, &out, &bank );
+  FD_TEST( !memcmp( captured.account_diffs[1].lthash, zero, 32UL ) );
+  FD_TEST( captured.account_diffs_cnt==2UL );
+
+  /* Failed execution leaves an attempted deletion in account 1, but only
+     the fee payer's rollback balance commits.  Never emit that deletion. */
+  out.err.txn_err = FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR;
+  accounts[0].lamports = 9UL;
+  out.accounts.committed[1] = 0;
+  memcpy( out.accounts.lthash_checksum[0], deleted, 32UL );
+  fd_event_runtime_txn_emit( &in, &out, &bank );
+  FD_TEST( captured.is_committable );
+  FD_TEST( captured.account_diffs_cnt==1UL );
+  FD_TEST( !memcmp( captured.account_diffs[0].pubkey, out.accounts.keys[0].uc, 32UL ) );
+  FD_TEST( captured.account_diffs[0].lamports==9UL );
+
+  /* A separate nonce state retained after failure is also emitted. */
+  out.accounts.committed[1] = 1;
+  fd_event_runtime_txn_emit( &in, &out, &bank );
+  FD_TEST( captured.account_diffs_cnt==2UL );
+
+  /* A successful bundle's non-owning writer has no account-state entry, even
+     if its shared account buffer changed. */
+  out.err.txn_err = 0;
+  in.bundle.is_bundle = 1;
+  out.accounts.committed[0] = 0;
+  out.accounts.committed[1] = 0;
+  fd_event_runtime_txn_emit( &in, &out, &bank );
+  FD_TEST( captured.account_diffs_cnt==0UL );
+  out.accounts.committed[1] = 1;
+  fd_event_runtime_txn_emit( &in, &out, &bank );
+  FD_TEST( captured.account_diffs_cnt==1UL );
+
+  /* Block diffs must also checksum deletions and keep the latest hash. */
+  static uchar diff_mem[ FD_EVENT_RUNTIME_SLOT_DIFFS_FOOTPRINT ] __attribute__((aligned(8)));
+  fd_event_runtime_slot_diffs_init( diff_mem, 1UL );
+  fd_lthash_value_t live;
+  memset( live.bytes, 0xAB, FD_LTHASH_LEN_BYTES );
+  fd_event_runtime_block_account( &bank, out.accounts.keys[1].uc, zero, zero, 10UL, 9UL, 0UL, 0UL, 0, &live );
+  fd_event_runtime_block_account( &bank, out.accounts.keys[1].uc, zero, zero, 9UL, 0UL, 0UL, 0UL, 0, &identity );
+  fd_event_runtime_slot_diffs_t * diffs = fd_event_runtime_slot_diffs_at( bank.idx );
+  FD_TEST( diffs->other_cnt==1UL );
+  FD_TEST( diffs->other[0].prev_lamports==10UL && !diffs->other[0].lamports );
+  FD_TEST( !memcmp( diffs->other[0].lthash, deleted, 32UL ) );
+  fd_event_tl = NULL;
+  FD_LOG_NOTICE(( "pass" ));
+  fd_halt();
+  return 0;
+}

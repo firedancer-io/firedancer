@@ -321,6 +321,12 @@ struct fd_txn_out {
     uchar new_vote    [ MAX_TX_ACCOUNT_LOCKS ];
     uchar rm_vote     [ MAX_TX_ACCOUNT_LOCKS ];
 
+    /* Per-account post-state LtHash checksum, captured at commit for runtime
+       diffs.  Zero means uncaptured; deletion uses the checksum of zero LtHash. */
+    uchar lthash_checksum[ MAX_TX_ACCOUNT_LOCKS ][ 32UL ];
+    /* Set at checksum capture.  The emitter must also check is_committable. */
+    uchar committed[ MAX_TX_ACCOUNT_LOCKS ];
+
     ulong nonce_idx_in_txn; /* !=ULONG_MAX if exists */
     ulong nonce_rollback_data_len;
     uchar nonce_rollback_data[ FD_RUNTIME_ACC_SZ_MAX ];

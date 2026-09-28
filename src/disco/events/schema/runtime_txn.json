@@ -141,11 +141,11 @@
         "cost_allocated_accounts_data_size": { "type": "UInt64",                                  "description": "Allocated accounts data size from the cost tracker" },
         "account_diffs": {
             "type": "Array",
-            "description": "Per-account diffs for writable accounts that were modified",
+            "description": "Per-account diffs for writable accounts, uncahnged state, and fee-payer/nonce updates after failed exec. Excludes discarded writes and non-commitable txns.",
             "max_len": 64,
             "element": {
                 "type": "Tuple",
-                "description": "Per-account diff entry",
+                "description": "Committed writable account state with prior metadata; the account need not have changed",
                 "fields": {
                     "pubkey":          { "type": "Pubkey", "description": "Account pubkey" },
                     "owner":           { "type": "Pubkey", "description": "Post-state owner pubkey" },
@@ -158,7 +158,8 @@
                     "is_stake_update": { "type": "Bool",   "description": "True if this write touched the stake cache" },
                     "is_vote_update":  { "type": "Bool",   "description": "True if this write touched the vote cache" },
                     "is_new_vote":     { "type": "Bool",   "description": "True if this write created a new vote account" },
-                    "is_rm_vote":      { "type": "Bool",   "description": "True if this write removed a vote account" }
+                    "is_rm_vote":      { "type": "Bool",   "description": "True if this write removed a vote account" },
+                    "lthash":          { "type": "Hash",   "description": "BLAKE3 checksum of account LtHash, Zero-lamport accounts carry BLAKE3 of 2,048 zero bytes. All-zero checksum bytes indicate missing capture." }
                 }
             }
         },

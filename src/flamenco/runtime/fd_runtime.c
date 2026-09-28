@@ -1097,14 +1097,15 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
   return err;
 }
 
-/* fd_runtime_lthash_account updates the running lthash of the bank
-   given an account that might have been updated. */
+/* Update the bank lthash and optionally write the account's post-state
+   BLAKE3 checksum to checksum_out. */
 
 static void
 fd_runtime_lthash_account( fd_bank_t *         bank,
                            fd_pubkey_t const * pubkey,
                            fd_acc_t *          acc,
-                           fd_capture_ctx_t *  capture_ctx ) {
+                           fd_capture_ctx_t *  capture_ctx,
+                           uchar *             checksum_out ) {
   if( FD_UNLIKELY( !acc->lamports ) ) {
     acc->data_len   = 0UL;
     acc->executable = 0;
@@ -1121,7 +1122,22 @@ fd_runtime_lthash_account( fd_bank_t *         bank,
   fd_lthash_value_t lthash_post[1];
   if( FD_LIKELY( acc->prior_lamports || acc->lamports ) ) {
     fd_hashes_update_simple( lthash_post, lthash_prev, pubkey->uc, acc->owner, acc->lamports, acc->executable, acc->data, acc->data_len, bank, capture_ctx );
+  } else if( FD_UNLIKELY( checksum_out ) ) {
+    fd_lthash_zero( lthash_post );
   }
+
+  if( FD_UNLIKELY( checksum_out ) ) {
+    fd_blake3_hash( lthash_post->bytes, FD_LTHASH_LEN_BYTES, checksum_out );
+  }
+}
+
+static inline uchar *
+lthash_checksum_slot( fd_bank_t const * bank,
+                      fd_txn_out_t *    txn_out,
+                      ulong             idx ) {
+  if( FD_LIKELY( !fd_bank_report_runtime_diffs( bank ) ) ) return NULL;
+  txn_out->accounts.committed[ idx ] = 1;
+  return txn_out->accounts.lthash_checksum[ idx ];
 }
 
 /* fd_runtime_commit_txn is a helper used by the transaction executor to
@@ -1174,7 +1190,7 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
         }
       }
 
-      fd_runtime_lthash_account( bank, pubkey, account, runtime->log.capture_ctx );
+      fd_runtime_lthash_account( bank, pubkey, account, runtime->log.capture_ctx, lthash_checksum_slot( bank, txn_out, i ) );
     }
 
     /* Atomically add all accumulated tips to the bank once after
@@ -1239,7 +1255,8 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
       }
       nonce_account->executable = nonce_account->prior_executable;
       nonce_account->commit = 1;
-      fd_runtime_lthash_account( bank, &txn_out->accounts.keys[ txn_out->accounts.nonce_idx_in_txn ], nonce_account, runtime->log.capture_ctx );
+      fd_runtime_lthash_account( bank, &txn_out->accounts.keys[ txn_out->accounts.nonce_idx_in_txn ], nonce_account, runtime->log.capture_ctx,
+                                 lthash_checksum_slot( bank, txn_out, txn_out->accounts.nonce_idx_in_txn ) );
     }
 
     /* Now, we must only save the fee payer if the nonce account was not
@@ -1253,7 +1270,8 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
       fee_payer_account->executable = fee_payer_account->prior_executable;
 
       fee_payer_account->commit = 1;
-      fd_runtime_lthash_account( bank, &txn_out->accounts.keys[ FD_FEE_PAYER_TXN_IDX ], fee_payer_account, runtime->log.capture_ctx );
+      fd_runtime_lthash_account( bank, &txn_out->accounts.keys[ FD_FEE_PAYER_TXN_IDX ], fee_payer_account, runtime->log.capture_ctx,
+                                 lthash_checksum_slot( bank, txn_out, FD_FEE_PAYER_TXN_IDX ) );
     }
   }
 
@@ -1339,6 +1357,8 @@ fd_runtime_new_txn_out( fd_txn_in_t const * txn_in,
   FD_STATIC_ASSERT( offsetof(fd_txn_out_t, accounts.rm_vote)-offsetof(fd_txn_out_t, accounts.stake_update)==3UL*MAX_TX_ACCOUNT_LOCKS, txn_out_flags_contiguous );
   memset( txn_out->accounts.is_writable,  0, sizeof(txn_out->accounts.is_writable) );
   memset( txn_out->accounts.stake_update, 0, 4UL*MAX_TX_ACCOUNT_LOCKS );
+  memset( txn_out->accounts.lthash_checksum, 0, sizeof(txn_out->accounts.lthash_checksum) );
+  memset( txn_out->accounts.committed, 0, sizeof(txn_out->accounts.committed) );
   txn_out->accounts.nonce_idx_in_txn            = ULONG_MAX;
 
   /* For bundle transactions the resolved key list is bound once up

@@ -265,18 +265,19 @@ fd_event_runtime_stake_delegation_payout_emit( fd_bank_t const * bank,
                                                ulong             deactivation_epoch,
                                                ulong             credits_observed );
 
-/* Record a block-level account diff in the bank. */
+/* Record a block-level account diff with the checksum of lthash_post. */
 
 void
-fd_event_runtime_block_account( fd_bank_t *   bank,
-                                uchar const * pubkey,
-                                uchar const * prev_owner,
-                                uchar const * owner,
-                                ulong         prev_lamports,
-                                ulong         lamports,
-                                ulong         prev_data_sz,
-                                ulong         data_sz,
-                                int           executable );
+fd_event_runtime_block_account( fd_bank_t *               bank,
+                                uchar const *             pubkey,
+                                uchar const *             prev_owner,
+                                uchar const *             owner,
+                                ulong                     prev_lamports,
+                                ulong                     lamports,
+                                ulong                     prev_data_sz,
+                                ulong                     data_sz,
+                                int                       executable,
+                                fd_lthash_value_t const * lthash_post );
 
 /* Build a runtime_reward event and publish it on the calling tile's
    event link. No-op when the tile has no event link. */
