@@ -1,4 +1,4 @@
-$ sudo fdctl configure init ethtool-offloads
+$ sudo firedancer configure init ethtool-offloads
 [32mNOTICE [0m ethtool-offloads ... unconfigured ... device `ens3f0np0` has rx-udp-gro-forwarding enabled. Should be disabled
 [32mNOTICE [0m ethtool-offloads ... configuring
 [32mNOTICE [0m RUN: `ethtool --features ens3f0np0 rx-udp-gro-forwarding off`

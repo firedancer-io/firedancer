@@ -1,4 +1,4 @@
-$ sudo fdctl configure init ethtool-channels
+$ sudo firedancer configure init ethtool-channels
 [32mNOTICE [0m ethtool-channels ... unconfigured ... device `ens3f0` missing ethtool-channels network configuration
 [32mNOTICE [0m ethtool-channels ... configuring
 [32mNOTICE [0m RUN: `ethtool --set-channels ens3f0 combined 2`

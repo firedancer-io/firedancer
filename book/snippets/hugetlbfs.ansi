@@ -1,4 +1,4 @@
-$ sudo fdctl configure init hugetlbfs
+$ sudo firedancer configure init hugetlbfs
 [32mNOTICE [0m hugetlbfs ... unconfigured ... mounts `/mnt/.fd/.huge` and `/mnt/.fd/.gigantic` do not exist
 [32mNOTICE [0m hugetlbfs ... configuring
 [32mNOTICE [0m RUN: `mkdir -p /mnt/.fd/.huge`
