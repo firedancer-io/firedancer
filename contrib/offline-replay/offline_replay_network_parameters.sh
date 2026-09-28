@@ -14,16 +14,19 @@ case $network in
     export BUCKET_ENDPOINT="gs://mainnet-beta-ledger-us-ny5"
     export GENESIS_FILE="https://api.mainnet-beta.solana.com/genesis.tar.bz2"
     export INDEX_MAX=1200000000
+    export ALPENGLOW=false
     ;;
   "testnet")
     export BUCKET_ENDPOINT="gs://testnet-ledger-us-sv15"
     export GENESIS_FILE="https://api.testnet.solana.com/genesis.tar.bz2"
     export INDEX_MAX=200000000
+    export ALPENGLOW=true
     ;;
   "devnet")
     export BUCKET_ENDPOINT="gs://solana-devnet-ledger-us-ny5"
     export GENESIS_FILE="https://api.devnet.solana.com/genesis.tar.bz2"
     export INDEX_MAX=400000000
+    export ALPENGLOW=true
     ;;
   *)
     echo "Unknown network: $network"
