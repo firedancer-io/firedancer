@@ -21,6 +21,7 @@
 
 typedef uchar ag_vote_key_t  [ 32 ]; /* vote account address */
 typedef uchar ag_id_key_t    [ 32 ]; /* identity public key */
+typedef uchar ag_bls_key_t   [ 48 ]; /* compressed BLS public key */
 
 typedef uchar ag_block_hash_t[ 32 ]; /* double merkle root of the block */
 static const ag_block_hash_t ag_block_hash_null = { 0 };
