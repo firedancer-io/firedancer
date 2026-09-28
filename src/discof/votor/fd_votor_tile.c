@@ -11,6 +11,7 @@
 #include "../../disco/keyguard/fd_keyguard.h"
 #include "../../disco/keyguard/fd_keyguard_client.h"
 #include "../../disco/keyguard/fd_keyload.h"
+#include "../../disco/keyguard/fd_keyswitch.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../disco/net/fd_net_tile.h"
 #include "../../disco/stem/fd_stem.h"
@@ -188,6 +189,8 @@ struct fd_votor_tile {
 
   fd_pubkey_t          id_key;
   auth_vtr_t *         auth_vtr;
+  ulong                auth_vtr_path_cnt;
+  fd_keyswitch_t *     auth_vtr_keyswitch;
   fd_keyguard_client_t keyguard_client[1];
 
   /* Initialization */
@@ -1192,6 +1195,49 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 static void
 during_housekeeping( fd_votor_tile_t * ctx ) {
   if( FD_UNLIKELY( fd_clock_tile_recal_due( ctx->clock ) ) ) fd_clock_tile_recal( ctx->clock );
+
+  /* Add-authorized-voter.  The admin tile adds the voter to the sign
+     tiles first, so the voter's BLS key is at the next authorized voter
+     index there.  The admin tile never clears authorized voters under
+     Alpenglow. */
+
+  if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->auth_vtr_keyswitch )==FD_KEYSWITCH_STATE_UNHALT_PENDING ) ) {
+    fd_keyswitch_state( ctx->auth_vtr_keyswitch, FD_KEYSWITCH_STATE_UNLOCKED );
+  }
+
+  if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->auth_vtr_keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
+    ulong param = fd_keyswitch_param_query( ctx->auth_vtr_keyswitch );
+    if( FD_UNLIKELY( param!=FD_KEYSWITCH_PARAM_AV_ADD ) ) FD_LOG_CRIT(( "keyswitch: unexpected authorized voter operation %lu", param ));
+    if( FD_UNLIKELY( ctx->auth_vtr_path_cnt==FD_KEYGUARD_AUTH_VOTERS_MAX ) ) FD_LOG_CRIT(( "keyswitch: too many authorized voters, keys not synced up with sign tile" ));
+
+    auth_vtr_key_t bls_key;
+    fd_keyguard_client_bls_pubkey( ctx->keyguard_client, bls_key.uc, ctx->auth_vtr_path_cnt );
+    auth_vtr_t const * exists = auth_vtr_query_const( ctx->auth_vtr, bls_key, NULL );
+    if( FD_UNLIKELY( exists && exists->paths_idx!=ULONG_MAX ) ) FD_LOG_CRIT(( "keyswitch: duplicate authorized voter key, keys not synced up with sign tile" ));
+    if( FD_LIKELY( !exists ) ) auth_vtr_insert( ctx->auth_vtr, bls_key )->paths_idx = ctx->auth_vtr_path_cnt;
+    ctx->auth_vtr_path_cnt++;
+
+    /* The epochs votor holds chose their keys when they advanced, so
+       re-run own_bls_key for each of them. */
+
+    ag_epoch_info_t const * epoch_infos[3] = { ctx->prev_epoch_info, ctx->curr_epoch_info, ctx->next_epoch_info };
+    ulong                   epoch_slots[3] = { ctx->prev_epoch_slot, ctx->curr_epoch_slot, ctx->next_epoch_slot };
+    char const *            voting     [3] = { "unknown", "unknown", "unknown" };
+    for( ulong i=0UL; i<3UL; i++ ) {
+      ag_epoch_info_t const * epoch_info = epoch_infos[ i ];
+      if( FD_UNLIKELY( !epoch_info ) ) continue;
+      ushort own_rank = USHORT_MAX;
+      for( ulong rank=0UL; rank<epoch_info->validator_cnt; rank++ ) {
+        if( FD_UNLIKELY( !memcmp( epoch_info->validators[ rank ].id_key, ctx->id_key.uc, sizeof(ag_id_key_t) ) ) ) own_rank = (ushort)rank;
+      }
+      uchar const * bls_pubkey = own_bls_key( ctx, epoch_info, own_rank );
+      ag_votor_set_bls_pubkey( ctx->votor, epoch_slots[ i ], bls_pubkey );
+      voting[ i ] = bls_pubkey ? "enabled" : "disabled";
+    }
+    FD_LOG_INFO(( "keyswitch: authorized voter count is now %lu; voting %s in the current epoch and %s in the next epoch",
+                  ctx->auth_vtr_path_cnt, voting[ 1 ], voting[ 2 ] ));
+    fd_keyswitch_state( ctx->auth_vtr_keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
+  }
 }
 
 static inline long
@@ -1546,6 +1592,7 @@ load_keys( fd_votor_tile_t *      ctx,
     auth_vtr_t * auth_vtr = auth_vtr_insert( ctx->auth_vtr, bls_key );
     auth_vtr->paths_idx = i;
   }
+  ctx->auth_vtr_path_cnt = tile->votor.authorized_voter_paths_cnt;
 }
 
 static void
@@ -1707,6 +1754,9 @@ unprivileged_init( fd_topo_t const *      topo,
     FD_LOG_ERR(( "failed to construct keyguard client" ));
   }
   load_keys( ctx, tile );
+
+  ctx->auth_vtr_keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->av_keyswitch_obj_id ) );
+  FD_TEST( ctx->auth_vtr_keyswitch );
 
   fd_aio_t * quic_tx_aio = fd_aio_join( fd_aio_new( ctx->quic_tx_aio, ctx, quic_aio_tx ) );
   FD_TEST( quic_tx_aio );

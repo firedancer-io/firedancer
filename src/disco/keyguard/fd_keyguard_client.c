@@ -126,7 +126,7 @@ fd_keyguard_client_ag_vote_sign( fd_keyguard_client_t * client,
                                  ulong                  authority_idx,
                                  uchar const *          sign_data,
                                  ulong                  sign_data_len ) {
-  FD_CHECK_CRIT( authority_idx==ULONG_MAX || authority_idx<16UL, "unexpected authorized voter index" );
+  FD_CHECK_CRIT( authority_idx==ULONG_MAX || authority_idx<FD_KEYGUARD_AUTH_VOTERS_MAX, "unexpected authorized voter index" );
 
   /* Same encoding as fd_keyguard_client_vote_txn_sign. */
 
@@ -139,7 +139,7 @@ void
 fd_keyguard_client_bls_pubkey( fd_keyguard_client_t * client,
                                uchar *                public_key,
                                ulong                  authority_idx ) {
-  FD_CHECK_CRIT( authority_idx==ULONG_MAX || authority_idx<16UL, "unexpected authorized voter index" );
+  FD_CHECK_CRIT( authority_idx==ULONG_MAX || authority_idx<FD_KEYGUARD_AUTH_VOTERS_MAX, "unexpected authorized voter index" );
   fd_keyguard_client_sign( client, public_key, (uchar const *)&authority_idx, sizeof(authority_idx), FD_KEYGUARD_SIGN_TYPE_BLS_PUBKEY );
 }
 
@@ -150,7 +150,7 @@ fd_keyguard_client_vote_txn_sign( fd_keyguard_client_t * client,
                                   uchar const *          sign_data,
                                   ulong                  sign_data_len ) {
   FD_CHECK_CRIT( sign_data_len<=client->request_mtu, "the request is too large and will not fit in the mtu" );
-  FD_CHECK_CRIT( authority_idx==ULONG_MAX || authority_idx<16UL, "unexpected authorized voter index" );
+  FD_CHECK_CRIT( authority_idx==ULONG_MAX || authority_idx<FD_KEYGUARD_AUTH_VOTERS_MAX, "unexpected authorized voter index" );
 
   /* In the signature of the message we use the lower 32 bits to
      indicate the sign type.  We can use the upper 32 bits to encode if

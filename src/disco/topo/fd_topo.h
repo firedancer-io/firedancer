@@ -10,6 +10,7 @@
 #include "../../util/net/fd_net_headers.h"
 #include "../../util/net/fd_ip6.h"
 #include "../pack/fd_pack_acct_blocklist.h"
+#include "../keyguard/fd_keyguard.h"
 
 /* Maximum number of workspaces that may be present in a topology. */
 #define FD_TOPO_MAX_WKSPS         (256UL)
@@ -420,7 +421,7 @@ struct fd_topo_tile {
     struct {
       char  identity_key_path[ PATH_MAX ];
       ulong authorized_voter_paths_cnt;
-      char  authorized_voter_paths[ 16 ][ PATH_MAX ];
+      char  authorized_voter_paths[ FD_KEYGUARD_AUTH_VOTERS_MAX ][ PATH_MAX ];
       struct {
         uchar tip_payment_program_addr[ 32 ];
         uchar tip_distribution_program_addr[ 32 ];
@@ -647,7 +648,7 @@ struct fd_topo_tile {
       ulong accdb_obj_id;
 
       ulong authorized_voter_paths_cnt;
-      char  authorized_voter_paths[ 16 ][ PATH_MAX ];
+      char  authorized_voter_paths[ FD_KEYGUARD_AUTH_VOTERS_MAX ][ PATH_MAX ];
       int   hard_fork_fatal;
       int   wait_for_supermajority;
       ulong max_live_slots;
@@ -660,7 +661,7 @@ struct fd_topo_tile {
     struct {
       char   identity_key_path[ PATH_MAX ];
       ulong  authorized_voter_paths_cnt;
-      char   authorized_voter_paths[ 16 ][ PATH_MAX ];
+      char   authorized_voter_paths[ FD_KEYGUARD_AUTH_VOTERS_MAX ][ PATH_MAX ];
       ushort quic_client_listen_port;
       ushort quic_server_listen_port;
       uint   ip_addr;

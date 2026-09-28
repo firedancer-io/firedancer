@@ -112,9 +112,9 @@ fd_keyguard_client_sign( fd_keyguard_client_t * client,
 /* fd_keyguard_client_ag_vote_sign is fd_keyguard_client_sign for an
    Alpenglow BLS vote with a choice of key.  authority_idx is ULONG_MAX
    to sign with the BLS key derived from the identity, or else the index
-   in [0,16) of the authorized voter the caller passes into the toml
-   whose derived BLS key signs.  signature must have capacity for
-   FD_KEYGUARD_BLS_SIG_SZ bytes. */
+   in [0,FD_KEYGUARD_AUTH_VOTERS_MAX) of the authorized voter the caller
+   passes into the toml whose derived BLS key signs.  signature must
+   have capacity for FD_KEYGUARD_BLS_SIG_SZ bytes. */
 
 void
 fd_keyguard_client_ag_vote_sign( fd_keyguard_client_t * client,
@@ -125,10 +125,10 @@ fd_keyguard_client_ag_vote_sign( fd_keyguard_client_t * client,
 
 /* fd_keyguard_client_bls_pubkey returns the compressed BLS public key
    held by the sign tile.  authority_idx is ULONG_MAX for the identity,
-   or an index in [0,16) of a loaded authorized voter, as in
-   fd_keyguard_client_ag_vote_sign.  public_key must have room for
-   FD_KEYGUARD_BLS_PUBKEY_SZ bytes.  Uses the same blocking request/response
-   channel as signing; only the public key is returned. */
+   or an index in [0,FD_KEYGUARD_AUTH_VOTERS_MAX) of a loaded authorized
+   voter, as in fd_keyguard_client_ag_vote_sign.  public_key must have
+   room for FD_KEYGUARD_BLS_PUBKEY_SZ bytes.  Uses the same blocking
+   request/response channel as signing; only the public key is returned. */
 
 void
 fd_keyguard_client_bls_pubkey( fd_keyguard_client_t * client,
@@ -164,7 +164,7 @@ fd_keyguard_client_bls_pubkey( fd_keyguard_client_t * client,
    written into the signature buffer which must have the capacity to
    hold the maximum number of signatures, which is 2.  There will be
    2 signatures if authority_idx!=ULONG_MAX and 1 otherwise.
-   authority_idx should be in the range [0,16). */
+   authority_idx should be in the range [0,FD_KEYGUARD_AUTH_VOTERS_MAX). */
 
 void
 fd_keyguard_client_vote_txn_sign( fd_keyguard_client_t * client,
