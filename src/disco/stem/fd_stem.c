@@ -384,7 +384,14 @@ STEM_(park)( STEM_CALLBACK_CONTEXT_TYPE * ctx,
     return backpressured ? -1 : 0;
   }
 
+  /* PARK_WAIT replaces the futex wait for a tile parked on its sleep
+     object's eventfd (tile->sleep_eventfd), see fd_sleep.h.  Same
+     contract as fd_sleep_park_wait. */
+#ifdef STEM_CALLBACK_PARK_WAIT
+  int cause = STEM_CALLBACK_PARK_WAIT( ctx, word, deadline, tick_per_ns );
+#else
   int cause = fd_sleep_park_wait( word, deadline, tick_per_ns );
+#endif
 
   /* Park completed, either due to a ring or a deadline.  Now clear the
      parked bit and publish the reason.  There's a race here with the
@@ -784,6 +791,7 @@ STEM_(run)( fd_topo_t *      topo,
 #undef STEM_CALLBACK_METRICS_WRITE
 #undef STEM_CALLBACK_NEXT_DEADLINE
 #undef STEM_CALLBACK_PREVENT_PARK
+#undef STEM_CALLBACK_PARK_WAIT
 #undef STEM_CALLBACK_RECV_CREDIT
 #undef STEM_CALLBACK_CHECK_CREDIT
 #undef STEM_CALLBACK_BEFORE_CREDIT

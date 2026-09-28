@@ -6,6 +6,8 @@
 #include <float.h>
 #include <time.h>
 #include <linux/futex.h>
+#include <sys/epoll.h>
+#include <sys/eventfd.h>
 #include <sys/syscall.h>
 #include <unistd.h>
 
@@ -119,4 +121,60 @@ fd_sleep_wake_one( ulong * word ) {
   FD_VOLATILE( word[0] ) = 1UL;
   long res = syscall( SYS_futex, (uint *)word, FUTEX_WAKE, 1, NULL, NULL, 0 );
   if( FD_UNLIKELY( -1L==res ) ) FD_LOG_ERR(( "futex(FUTEX_WAKE) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+}
+
+void
+fd_sleep_wake_eventfd( ulong * word,
+                       int     eventfd ) {
+  FD_VOLATILE( word[0] ) = 1UL;
+  ulong one = 1UL;
+  long res = write( eventfd, &one, sizeof(ulong) );
+  if( FD_UNLIKELY( res!=(long)sizeof(ulong) ) ) FD_LOG_ERR(( "write(eventfd %d) failed (%i-%s)", eventfd, errno, fd_io_strerror( errno ) ));
+}
+
+int
+fd_sleep_park_wait_epoll( int                  epfd,
+                          ulong const *        word,
+                          struct epoll_event * evs,
+                          int                  ev_max,
+                          int *                ev_cnt,
+                          long                 deadline_ticks,
+                          double               tick_per_ns ) {
+  *ev_cnt = 0;
+  for(;;) {
+    /* epoll timeouts are in ms: round up, mwaitx wakes us at the
+       deadline itself */
+    long remaining = (long)((double)(deadline_ticks-fd_tickcount())/tick_per_ns);
+    if( FD_UNLIKELY( remaining<=0L ) ) return FD_SLEEP_UNPARK_DEADLINE;
+    int timeout_ms = (int)( (remaining+999999L)/1000000L );
+
+    int n = epoll_pwait( epfd, evs, ev_max, timeout_ms, NULL );
+    if( FD_UNLIKELY( n<0 ) ) {
+      if( FD_LIKELY( errno==EINTR ) ) continue;
+      FD_LOG_ERR(( "epoll_pwait() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+    if( FD_UNLIKELY( !n ) ) continue; /* timed out, recheck the deadline */
+
+    int stale = !FD_VOLATILE_CONST( word[0] );
+    for( int i=0; i<n; i++ ) stale &= evs[ i ].data.u64==FD_SLEEP_EPOLL_DOORBELL;
+    if( FD_UNLIKELY( stale ) ) continue;
+
+    *ev_cnt = n;
+    return FD_SLEEP_UNPARK_RING;
+  }
+}
+
+void
+fd_sleep_eventfd_install( fd_topo_t const * topo ) {
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    fd_topo_tile_t const * tile = &topo->tiles[ i ];
+    if( FD_LIKELY( !tile->sleep_eventfd ) ) continue;
+    FD_TEST( tile->id<FD_TOPO_MAX_TILES );
+    int fd = eventfd( 0U, EFD_NONBLOCK );
+    if( FD_UNLIKELY( -1==fd ) ) FD_LOG_ERR(( "eventfd() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_LIKELY( fd!=FD_SLEEP_EVENTFD( tile->id ) ) ) {
+      if( FD_UNLIKELY( -1==dup2( fd, FD_SLEEP_EVENTFD( tile->id ) ) ) ) FD_LOG_ERR(( "dup2(%d,%d) failed (%i-%s)", fd, FD_SLEEP_EVENTFD( tile->id ), errno, fd_io_strerror( errno ) ));
+      if( FD_UNLIKELY( close( fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+  }
 }
