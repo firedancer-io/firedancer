@@ -1501,7 +1501,7 @@ after_credit( fd_snapmk_t *       ctx,
     ulong snap_idx = ctx->startup_pool_idx++;
     fd_backup_inode_t * inode = &ctx->pool[ snap_idx ];
     struct stat st;
-    if( FD_UNLIKELY( 0!=fstat( FD_SNAP_FD( snap_idx ), &st ) ) ) break;
+    if( FD_UNLIKELY( 0!=syscall( SYS_fstat, FD_SNAP_FD( snap_idx ), &st ) ) ) break;
     ctx->pool_sz[ snap_idx ] = (ulong)st.st_size;
     if( FD_UNLIKELY( inode->full_slot==ULONG_MAX ) ) break;
     fd_snapmk_msg_found_t * msg = &snapmk_msg_alloc( ctx )->found;
