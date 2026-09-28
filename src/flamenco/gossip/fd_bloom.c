@@ -8,17 +8,6 @@
 #include <math.h>
 
 static const double FD_BLOOM_LN_2 = 0.69314718055994530941723212145818;
-static ulong
-fnv_hasher( uchar const * ele,
-            ulong         ele_sz,
-            ulong         key ) {
-  for( ulong i=0UL; i<ele_sz; i++ ) {
-    key ^= (ulong)ele[i];
-    key *= 1099511628211UL; /* FNV prime */
-  }
-  return key;
-}
-
 FD_FN_CONST ulong
 fd_bloom_align( void ) {
   return FD_BLOOM_ALIGN;
@@ -132,14 +121,52 @@ fd_bloom_initialize( fd_bloom_t * bloom,
   fd_memset( bloom->bits, 0, (ulong)((num_bits+7UL)/8UL) );
 }
 
+static inline ulong
+fnv_hasher( uchar const * ele,
+            ulong         ele_sz,
+            ulong         key ) {
+  for( ulong i=0UL; i<ele_sz; i++ ) key = (key^(ulong)ele[i])*1099511628211UL;
+  return key;
+}
+
+static inline void
+fnv_hasher4( uchar const * ele,
+             ulong         ele_sz,
+             ulong const * keys,
+             ulong         key_cnt,
+             ulong         out[ static 4 ] ) {
+  ulong h0 = keys[ 0 ];
+  ulong h1 = keys[ fd_ulong_if( key_cnt>1UL, 1UL, 0UL ) ];
+  ulong h2 = keys[ fd_ulong_if( key_cnt>2UL, 2UL, 0UL ) ];
+  ulong h3 = keys[ fd_ulong_if( key_cnt>3UL, 3UL, 0UL ) ];
+  for( ulong i=0UL; i<ele_sz; i++ ) {
+    ulong b = (ulong)ele[i];
+    h0 = (h0^b)*1099511628211UL;
+    h1 = (h1^b)*1099511628211UL;
+    h2 = (h2^b)*1099511628211UL;
+    h3 = (h3^b)*1099511628211UL;
+  }
+  out[0] = h0; out[1] = h1; out[2] = h2; out[3] = h3;
+}
+
 void
 fd_bloom_insert( fd_bloom_t *  bloom,
                  uchar const * key,
                  ulong         key_sz ) {
   if( FD_UNLIKELY( !bloom->bits_len ) ) return;
-  for( ulong i=0UL; i<bloom->keys_len; i++ ) {
-    ulong bit = fnv_hasher( key, key_sz, bloom->keys[ i ] ) % bloom->bits_len;
+  if( FD_UNLIKELY( bloom->keys_len==1UL ) ) { /* one chain, not four */
+    ulong bit = fnv_hasher( key, key_sz, bloom->keys[ 0 ] ) % bloom->bits_len;
     bloom->bits[ bit / 64UL ] |= (1UL << (bit % 64UL));
+    return;
+  }
+  for( ulong i=0UL; i<bloom->keys_len; i+=4UL ) {
+    ulong cnt = fd_ulong_min( bloom->keys_len-i, 4UL );
+    ulong h[4];
+    fnv_hasher4( key, key_sz, bloom->keys+i, cnt, h );
+    for( ulong j=0UL; j<cnt; j++ ) {
+      ulong bit = h[ j ] % bloom->bits_len;
+      bloom->bits[ bit / 64UL ] |= (1UL << (bit % 64UL));
+    }
   }
 }
 
@@ -224,10 +251,19 @@ fd_bloom_contains( fd_bloom_t *  bloom,
                    uchar const * key,
                    ulong         key_sz ) {
   if( FD_UNLIKELY( !bloom->keys_len || !bloom->bits_len ) ) return 0;
-  for( ulong i=0UL; i<bloom->keys_len; i++ ) {
-    ulong bit = fnv_hasher( key, key_sz, bloom->keys[ i ]) % bloom->bits_len;
-    if( !(bloom->bits[ bit / 64UL ] & (1UL << (bit % 64UL))) ) {
-      return 0;
+  if( FD_UNLIKELY( bloom->keys_len==1UL ) ) {
+    ulong bit = fnv_hasher( key, key_sz, bloom->keys[ 0 ] ) % bloom->bits_len;
+    return !!(bloom->bits[ bit / 64UL ] & (1UL << (bit % 64UL)));
+  }
+  for( ulong i=0UL; i<bloom->keys_len; i+=4UL ) {
+    ulong cnt = fd_ulong_min( bloom->keys_len-i, 4UL );
+    ulong h[4];
+    fnv_hasher4( key, key_sz, bloom->keys+i, cnt, h );
+    for( ulong j=0UL; j<cnt; j++ ) {
+      ulong bit = h[ j ] % bloom->bits_len;
+      if( !(bloom->bits[ bit / 64UL ] & (1UL << (bit % 64UL))) ) {
+        return 0;
+      }
     }
   }
   return 1;
