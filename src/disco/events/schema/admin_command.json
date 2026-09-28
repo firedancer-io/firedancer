@@ -12,8 +12,7 @@
                 "add_authorized_voter":         { "description": "Add an authorized voter key." },
                 "remove_all_authorized_voters": { "description": "Remove every authorized voter key." },
                 "snapshot_create":              { "description": "Request creation of a snapshot." },
-                "failover_control":             { "description": "Run a failover command." },
-                "failover_status":              { "description": "Read the failover status." }
+                "failover":                     { "description": "Run a failover command." }
             }
         },
         "result": {

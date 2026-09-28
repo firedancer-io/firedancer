@@ -42,7 +42,7 @@ struct fd_admin_tile_ctx {
   ulong                 failover_nonce;      /* nonce of the parked command */
   ulong                 failover_start_time; /* command start retained until the failover tile answers */
   long                  failover_deadline;   /* tickcount past which we answer unresponsive */
-  char                  failover_args_json[ 96 ]; /* the parked command and its flags for the event, empty for status */
+  char                  failover_args_json[ 96 ]; /* the parked command and its flags for the event */
   ulong                 failover_args_json_len;
   char                  failover_cmd_cstr[ 48 ];  /* the parked command and its flags for the log, empty for status */
 };
@@ -1313,7 +1313,7 @@ failover_cmd_name( ulong cmd ) {
 }
 
 /* failover_event_args puts the parked command and its flags in the
-   event of its answer.  Status has none. */
+   event of its answer. */
 static fd_event_admin_command_t *
 failover_event_args( fd_admin_tile_ctx_t const * ctx,
                      fd_event_admin_command_t *  event ) {
@@ -1352,7 +1352,7 @@ failover_control_complete( fd_admin_tile_ctx_t * ctx,
                            void const *          resp,
                            ulong                 resp_sz ) {
   fd_event_admin_command_t event = {
-    .type                = FD_EVENT_ADMIN_COMMAND_TYPE_FAILOVER_CONTROL,
+    .type                = FD_EVENT_ADMIN_COMMAND_TYPE_FAILOVER,
     .args_json           = { '{', '}' },
     .args_json_len       = 2UL,
     .start_time          = ctx->failover_start_time,
@@ -1361,7 +1361,6 @@ failover_control_complete( fd_admin_tile_ctx_t * ctx,
     .payload_size        = sizeof(fd_adminctl_failover_control_t),
   };
   if( FD_UNLIKELY( ctx->failover_slot_cmd==FD_ADMINCTL_CMD_FAILOVER_STATUS ) ) {
-    event.type            = FD_EVENT_ADMIN_COMMAND_TYPE_FAILOVER_STATUS;
     event.payload_version = FD_ADMINCTL_FAILOVER_STATUS_PAYLOAD_VERSION;
     event.payload_size    = sizeof(fd_adminctl_failover_status_req_t);
   }
@@ -1399,7 +1398,7 @@ failover_control( fd_admin_tile_ctx_t * ctx,
                   ulong                 data_sz ) {
 
   fd_adminctl_t * adminctl = ctx->adminctl;
-  fd_event_admin_command_t event = prepare_admin_command( FD_EVENT_ADMIN_COMMAND_TYPE_FAILOVER_CONTROL, data, data_sz );
+  fd_event_admin_command_t event = prepare_admin_command( FD_EVENT_ADMIN_COMMAND_TYPE_FAILOVER, data, data_sz );
 
   if( FD_UNLIKELY( data_sz<sizeof(ulong) ) ) {
     FD_LOG_WARNING(( "adminctl failover-control payload too small: %lu", data_sz ));
@@ -1495,7 +1494,9 @@ failover_status( fd_admin_tile_ctx_t * ctx,
                  ulong                 data_sz ) {
 
   fd_adminctl_t * adminctl = ctx->adminctl;
-  fd_event_admin_command_t event = prepare_admin_command( FD_EVENT_ADMIN_COMMAND_TYPE_FAILOVER_STATUS, data, data_sz );
+  fd_event_admin_command_t event = prepare_admin_command( FD_EVENT_ADMIN_COMMAND_TYPE_FAILOVER, data, data_sz );
+  FD_TEST( fd_cstr_printf_check( (char *)event.args_json, sizeof(event.args_json), &event.args_json_len,
+                                 "{\"command\":\"status\"}" ) );
 
   if( FD_UNLIKELY( data_sz<sizeof(ulong) ) ) {
     FD_LOG_WARNING(( "adminctl failover-status payload too small: %lu", data_sz ));
@@ -1549,6 +1550,9 @@ failover_status( fd_admin_tile_ctx_t * ctx,
   fd_stem_publish( stem, ctx->failov_out_idx, FD_FAILOVER_BUS_STATUS_REQ, ctx->failov_out_chunk, sizeof(*msg), 0UL, tspub, tspub );
   ctx->failov_out_chunk = fd_dcache_compact_next( ctx->failov_out_chunk, sizeof(*msg), ctx->failov_out_chunk0, ctx->failov_out_wmark );
 
+  FD_TEST( event.args_json_len<=sizeof(ctx->failover_args_json) );
+  fd_memcpy( ctx->failover_args_json, event.args_json, event.args_json_len );
+  ctx->failover_args_json_len = event.args_json_len;
   ctx->failover_slot_idx   = slot_idx;
   ctx->failover_slot_cmd   = FD_ADMINCTL_CMD_FAILOVER_STATUS;
   ctx->failover_start_time = event.start_time;

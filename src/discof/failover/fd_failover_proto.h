@@ -217,8 +217,8 @@ fd_failover_status_decode( fd_failover_status_t * out,
                            uchar const *          payload,
                            ulong                  payload_sz );
 
-/* Validate a handoff request or result.  Both have exact wire sizes;
-   request ids and target boot ids must be nonzero.  The controller binds
+/* Validate a handoff request or result.  Both have exact wire sizes.
+   Request ids and target boot ids must be nonzero.  The controller binds
    replies to an outstanding request and treats an unknown result as a
    refusal.  Return 0 on failure without changing out. */
 int

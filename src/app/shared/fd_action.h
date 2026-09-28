@@ -63,7 +63,7 @@ union fdctl_args {
 
   struct {
     char name[ 64UL ];
-    int  cmd;          /* FD_ADMINCTL_FAILOVER_CMD_*, or -1 for status */
+    int  cmd;
     int  yes;
     int  force;
   } failover;
