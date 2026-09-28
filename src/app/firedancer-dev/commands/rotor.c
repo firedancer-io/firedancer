@@ -60,14 +60,18 @@ rotor_chainer_reloc( void * chainer_laddr, ulong ele_max, ulong max_shreds_per_b
 
 /* slotv_better returns 1 if a is a better representative of its slot
    than b for the forest, which tracks one version per slot.  Prefer
-   versions that still deliver (not abandoned), then versions whose
-   parent is known (they can link into the tree), then the one with the
-   most contiguous shreds. */
+   versions with a known block id, then versions whose parent is known
+   (they can link into the tree), then the one with the most contiguous
+   shreds.  Only the unfinished turbine version has an unknown block id:
+   when a named sibling exists it is superseded, while a finalized
+   turbine version remains eligible alongside named versions. */
 
 static int
 slotv_better( fd_chainer_slotv_t const * a,
               fd_chainer_slotv_t const * b ) {
-  if( a->abandoned != b->abandoned ) return !a->abandoned;
+  int a_known = !fd_hash_check_zero( &a->block_id );
+  int b_known = !fd_hash_check_zero( &b->block_id );
+  if( a_known != b_known ) return a_known;
   int a_parent = a->parent_slot!=AG_UNKNOWN_SLOT;
   int b_parent = b->parent_slot!=AG_UNKNOWN_SLOT;
   if( a_parent != b_parent ) return a_parent;

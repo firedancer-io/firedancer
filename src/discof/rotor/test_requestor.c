@@ -459,14 +459,24 @@ test_shared_fec_reception( fd_wksp_t * wksp, int verified_first ) {
     shred( chainer, 11UL, 0U, 0, &mr, 10UL, &root );
     shred( chainer, 11UL, 2U, 0, &mr, AG_UNKNOWN_SLOT, NULL );
   }
-  fd_chainer_slotv_t * turbine = fd_chainer_turbine_slotv_query( chainer, 11UL );
-  fd_chainer_fec_t * turbine_fec = fd_chainer_fec_query( chainer, 11UL, 0U, &turbine->block_id );
-  fd_chainer_fec_t * owner  = verified_first ? fec : turbine_fec;
-  fd_chainer_fec_t * shadow = verified_first ? turbine_fec : fec;
+  fd_chainer_slotv_t * sibling = fd_chainer_turbine_slotv_query( chainer, 11UL );
+  if( verified_first ) {
+    FD_TEST( !sibling );
+    fd_hash_t sibling_bid = mkhash( 202UL );
+    fd_chainer_verified_block_insert( chainer, 11UL, sibling_bid );
+    fd_chainer_verified_parent_fec_count( chainer, 11UL, &sibling_bid, 1U, 10UL, &root );
+    hash_insert( chainer, 11UL, &sibling_bid, 0U, &mr );
+    sibling = fd_chainer_slot_version_query( chainer, 11UL, &sibling_bid );
+    FD_TEST( !fd_chainer_turbine_slotv_query( chainer, 11UL ) );
+  }
+  FD_TEST( sibling );
+  fd_chainer_fec_t * sibling_fec = fd_chainer_fec_query( chainer, 11UL, 0U, &sibling->block_id );
+  fd_chainer_fec_t * owner  = verified_first ? fec : sibling_fec;
+  fd_chainer_fec_t * shadow = verified_first ? sibling_fec : fec;
   FD_TEST( owner!=shadow && owner->root && !shadow->root );
   FD_TEST( owner->data_idxs==5U && !shadow->data_idxs );
   FD_TEST( fd_chainer_fec_data_idxs( chainer, fec )==5U && block->buffered_idx==0U );
-  FD_TEST( fd_chainer_fec_data_idxs( chainer, turbine_fec )==5U && turbine->buffered_idx==0U );
+  FD_TEST( fd_chainer_fec_data_idxs( chainer, sibling_fec )==5U && sibling->buffered_idx==0U );
   FD_TEST( fd_chainer_shred_test( chainer, block, 2U ) );
   FD_TEST( fd_requestor_fec_request( r, chainer, block, fec, 0U, req, &more ) );
   expect_req( req, AG_REPAIR_KIND_SHRED_FOR_BLOCK_ID, 1U, &bid, &mr );
@@ -482,7 +492,7 @@ test_shared_fec_reception( fd_wksp_t * wksp, int verified_first ) {
   shred( chainer, 11UL, 1U, 0, &mr, AG_UNKNOWN_SLOT, NULL );
   FD_TEST( owner->data_idxs==7U && !shadow->data_idxs );
   FD_TEST( fd_chainer_fec_data_idxs( chainer, fec )==7U && block->buffered_idx==2U );
-  FD_TEST( fd_chainer_fec_data_idxs( chainer, turbine_fec )==7U && turbine->buffered_idx==2U );
+  FD_TEST( fd_chainer_fec_data_idxs( chainer, sibling_fec )==7U && sibling->buffered_idx==2U );
   FD_TEST( fd_requestor_fec_request( r, chainer, block, fec, 0U, req, &more ) );
   expect_req( req, AG_REPAIR_KIND_SHRED_FOR_BLOCK_ID, 3U, &bid, &mr );
   uint received = block->metrics.turbine_cnt;
@@ -490,14 +500,14 @@ test_shared_fec_reception( fd_wksp_t * wksp, int verified_first ) {
   FD_TEST( block->metrics.turbine_cnt==received );
 
   fd_chainer_code_shred_insert( chainer, 11UL, 0U, 1L, &mr );
-  FD_TEST( turbine->metrics.parity_cnt==1U && block->metrics.parity_cnt==1U );
+  FD_TEST( sibling->metrics.parity_cnt==1U && block->metrics.parity_cnt==1U );
   FD_TEST( !fd_chainer_slot_version_query( chainer, 11UL, &other_bid )->metrics.parity_cnt );
 
   fd_chainer_fec_evicted( chainer, 11UL, 0U, &mr );
   FD_TEST( !owner->data_idxs && !shadow->data_idxs );
   FD_TEST( !fd_chainer_fec_data_idxs( chainer, fec ) && block->buffered_idx==UINT_MAX );
-  FD_TEST( !fd_chainer_shred_test( chainer, turbine, 0U ) );
-  FD_TEST( turbine->buffered_idx==UINT_MAX && other->data_idxs==16U );
+  FD_TEST( !fd_chainer_shred_test( chainer, sibling, 0U ) );
+  FD_TEST( sibling->buffered_idx==UINT_MAX && other->data_idxs==16U );
   FD_TEST( fd_requestor_fec_request( r, chainer, block, fec, 0U, req, &more ) );
   expect_req( req, AG_REPAIR_KIND_SHRED_FOR_BLOCK_ID, 0U, &bid, &mr );
   FD_TEST( !fd_chainer_verify( chainer ) );

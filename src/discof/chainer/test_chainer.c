@@ -544,7 +544,7 @@ test_notar_fallback_in_flight( fd_wksp_t * wksp ) {
 
   FD_TEST( v0->buffered_idx==31U && v0->buffered_fec_idx==31U );
   FD_TEST( fec_at( chainer, 31UL, 0U, 0UL ) );
-  FD_TEST( v0->abandoned );
+  FD_TEST( fd_hash_check_zero( &v0->block_id ) );
   FD_TEST( !has_work( chainer, v0 ) );
 
   /* a repeat of the same cert is a no-op -- no third version */
@@ -560,10 +560,9 @@ test_notar_fallback_in_flight( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: notar-fallback for an in-flight turbine block" ));
 }
 
-/* (d) A getFecRoot sentinel lands before turbine reaches that FEC set,
-   and turbine then delivers the set with the same root.  Version 0 (the
-   turbine block) genuinely contains that FEC set, so it must end up with
-   its own entry and shred bits. */
+/* (d) A getFecRoot sentinel lands before turbine reaches that FEC set.
+   Shreds update that known root without adding entries to the abandoned
+   turbine version. */
 
 static void
 test_sentinel_before_turbine( fd_wksp_t * wksp ) {
@@ -599,36 +598,27 @@ test_sentinel_before_turbine( fd_wksp_t * wksp ) {
   FD_TEST( v1 && v1->complete_idx==63U );
   fd_chainer_fec_t * v1f1 = fec_at( chainer, 41UL, 32U, 1UL );
   FD_TEST( v1f1 && !v1f1->complete && fd_hash_eq( &v1f1->merkle_root, &r1 ) );
+  ulong fec_used = fd_fec_pool_used( chainer->fec_pool );
 
   /* turbine now delivers set 1 of slot 41 with that same root */
 
   FD_TEST( !feed_fec( chainer, 41UL, 32U, 1, &r1, AG_UNKNOWN_SLOT, NULL ) );
-  FD_TEST( v0->buffered_idx == 63U );
+  FD_TEST( v0->buffered_idx == 31U );
+  FD_TEST( fd_fec_pool_used( chainer->fec_pool )==fec_used );
 
   FD_TEST( v1f1->complete );
   for( uint i=32U; i<64U; i++ ) FD_TEST( fd_chainer_shred_test( chainer, v1, i  ) );
   FD_TEST( v1->buffered_fec_idx==UINT_MAX ); /* still missing set 0's getFecRoot */
   FD_TEST( v1->delivered_idx   ==UINT_MAX );
 
-  /* The turbine version gets the shared FEC set too.  Keying the FEC map
-     by root made "does this version hold this root" a per-version
-     question, and fd_chainer_fec_complete now joins the turbine version to
-     the entry the sentinel created rather than short-circuiting on it. */
+  FD_TEST( !fec_at( chainer, 41UL, 32U, 0UL ) );
+  for( uint i=32U; i<64U; i++ ) FD_TEST( !fd_chainer_shred_test( chainer, v0, i ) );
+  FD_TEST( v0->complete_idx==UINT_MAX );
+  FD_TEST( !has_work( chainer, v0 ) );
 
-  fd_chainer_fec_t * v0f1 = fec_at( chainer, 41UL, 32U, 0UL );
-  FD_TEST( v0f1 );
-  FD_TEST( v0f1->complete );
-  FD_TEST( fd_hash_eq( &v0f1->merkle_root, &r1 ) );
-  for( uint i=32U; i<64U; i++ ) FD_TEST( fd_chainer_shred_test( chainer, v0, i  ) );
-  FD_TEST( v0->complete_idx    ==63U );
-  FD_TEST( v0->buffered_idx    ==63U );
+  /* Only set 0, queued before abandonment, reached replay. */
 
-  /* The cert abandoned version 0, so even though the turbine block is
-     whole its FEC prefix is not extended, its block_id never finalizes,
-     and its slot-complete FEC is not delivered.  Only set 0 -- queued
-     before the cert arrived -- ever reached replay. */
-
-  FD_TEST( v0->abandoned );
+  FD_TEST( v0->delivered_idx==31U );
   FD_TEST( v0->buffered_fec_idx==31U );
   FD_TEST( fd_hash_check_zero( &v0->block_id ) );
   out_rec_t exp[] = { { 41UL, 0U, r0 } };
@@ -639,10 +629,9 @@ test_sentinel_before_turbine( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: getFecRoot sentinel before turbine" ));
 }
 
-/* (e) Turbine keeps delivering the honest block after a notar-fallback
-   cert created a version 1 for the slot, for a FEC set that has no
-   sentinel.  The shred belongs to the turbine block and must be recorded
-   against version 0. */
+/* (e) After a notar-fallback abandons turbine, an unknown root cannot
+   create new FEC entries.  Once a verified root arrives, the same
+   shreds and completion update the named version. */
 
 static void
 test_turbine_shred_after_notar_fallback( fd_wksp_t * wksp ) {
@@ -665,6 +654,7 @@ test_turbine_shred_after_notar_fallback( fd_wksp_t * wksp ) {
   fd_chainer_verified_block_insert( chainer, 51UL, bidY );
   FD_TEST( !fd_chainer_verify( chainer ) );
   FD_TEST( slotv_at( chainer, 51UL, 1UL ) );
+  ulong fec_used = fd_fec_pool_used( chainer->fec_pool );
 
   /* turbine delivers set 1 of the honest block */
 
@@ -675,27 +665,29 @@ test_turbine_shred_after_notar_fallback( fd_wksp_t * wksp ) {
   fd_hash_t mr = r1;
   int rc = fec_complete( chainer, 51UL, 32U, 1, 1, 0, &mr );
 
-  /* The honest block's shreds are still accepted.  The old guard dropped
-     any shred whose root no version held as soon as a second version
-     existed; the turbine version now always takes them, so the FEC-level
-     and shred-level bookkeeping stay in agreement. */
+  FD_TEST( rc==1 );
+  FD_TEST( fd_fec_pool_used( chainer->fec_pool )==fec_used );
+  FD_TEST( !fec_at( chainer, 51UL, 32U, 0UL ) );
+  FD_TEST( !has_work( chainer, v0 ) );
+  for( uint i=32U; i<64U; i++ ) FD_TEST( !fd_chainer_shred_test( chainer, v0, i ) );
+  FD_TEST( v0->complete_idx==UINT_MAX && v0->buffered_idx==31U );
 
-  FD_TEST( !rc );
-  for( uint i=32U; i<64U; i++ ) FD_TEST( fd_chainer_shred_test( chainer, v0, i  ) );
-  FD_TEST( v0->complete_idx    ==63U );
-  FD_TEST( v0->buffered_idx    ==63U );
-
-  /* But the cert abandoned version 0: the FEC prefix is not extended,
-     the block_id never finalizes, and the whole block -- possibly the
-     very one the cert version is repairing -- is not delivered under
-     the turbine version.  Only set 0, queued before the cert arrived,
-     ever reached replay. */
-
-  FD_TEST( v0->abandoned );
+  FD_TEST( v0->delivered_idx==31U );
   FD_TEST( v0->buffered_fec_idx==31U );
   FD_TEST( fd_hash_check_zero( &v0->block_id ) );
   out_rec_t exp[] = { { 51UL, 0U, r0 } };
   expect_out( chainer, exp, 1UL );
+  FD_TEST( !fd_chainer_verify( chainer ) );
+
+  fd_chainer_verified_parent_fec_count( chainer, 51UL, &bidY, 2U, 50UL, &bid0 );
+  fd_chainer_verified_hash_insert( chainer, 51UL, &bidY, 0U, r0.uc );
+  fd_chainer_verified_hash_insert( chainer, 51UL, &bidY, 32U, r1.uc );
+  FD_TEST( !feed_fec( chainer, 51UL, 32U, 1, &r1, AG_UNKNOWN_SLOT, NULL ) );
+  fd_chainer_slotv_t * v1 = fd_chainer_slot_version_query( chainer, 51UL, &bidY );
+  FD_TEST( v1->delivered_idx==63U && !has_work( chainer, v1 ) );
+  FD_TEST( !has_work( chainer, v0 ) && !fec_at( chainer, 51UL, 32U, 0UL ) );
+  out_rec_t named[] = { { 51UL, 0U, r0 }, { 51UL, 32U, r1 } };
+  expect_out( chainer, named, 2UL );
   FD_TEST( !fd_chainer_verify( chainer ) );
 
   teardown( chainer );
@@ -983,9 +975,8 @@ test_prefix_key( fd_wksp_t * wksp ) {
   FD_TEST(  fd_chainer_shred_test( chainer, vZ, 35U ) );
   FD_TEST( !fd_chainer_shred_test( chainer, vZ, 36U ) );
   FD_TEST( vZ->buffered_idx==31U );
-  /* Entries are private per version now, so the turbine version holds
-     its own copies of sets 0 and 1 rather than joining vZ's. */
-  FD_TEST( fd_fec_pool_used( chainer->fec_pool )==fec_used+2UL );
+  FD_TEST( fd_fec_pool_used( chainer->fec_pool )==fec_used );
+  FD_TEST( !fd_chainer_turbine_slotv_query( chainer, 41UL ) );
 
   /* Case 2: a second notar-fallback version learns set 0 by prefix
      after the full root is already held.  The padded root finds the
@@ -1439,6 +1430,80 @@ test_token_release_on_delivery( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: set 0 is released only after the slot's final FEC is delivered" ));
 }
 
+/* Named-only slots require a verified root before accepting shreds.
+   Known roots cannot create eager state or be reused at another position. */
+
+static void
+test_shred_admission( fd_wksp_t * wksp ) {
+  fd_chainer_t * chainer = setup( wksp );
+  fd_hash_t root = mkhash( 100UL ), bid = mkhash( 101UL );
+  fd_hash_t mr = mkhash( 1UL ), eager_mr = mkhash( 2UL ), tail_mr = mkhash( 3UL );
+  fd_chainer_init( chainer, 10UL, &root );
+  fd_chainer_verified_block_insert( chainer, 11UL, bid );
+  fd_chainer_slotv_t * named = fd_chainer_slot_version_query( chainer, 11UL, &bid );
+  FD_TEST( named && !fd_chainer_turbine_slotv_query( chainer, 11UL ) );
+  ulong fec_used = fd_fec_pool_used( chainer->fec_pool );
+  ulong slotv_used = fd_slotv_pool_used( chainer->slotv_pool );
+
+  FD_TEST( feed_fec( chainer, 11UL, 64U, 1, &mr, 10UL, &root )==1 );
+  FD_TEST( fd_fec_pool_used( chainer->fec_pool )==fec_used );
+  FD_TEST( fd_slotv_pool_used( chainer->slotv_pool )==slotv_used );
+  FD_TEST( named->parent_slot==AG_UNKNOWN_SLOT && named->complete_idx==UINT_MAX );
+  FD_TEST( named->buffered_idx==UINT_MAX && !named->metrics.first_shred_ts );
+  FD_TEST( !named->metrics.turbine_cnt && !named->metrics.recovered_cnt );
+  FD_TEST( !root_known( chainer, 11UL, 0U, &bid ) );
+
+  /* The sentinel admits this root; the known-root path still learns
+     parent information and updates reception and prefix bookkeeping. */
+  fd_chainer_verified_hash_insert( chainer, 11UL, &bid, 0U, mr.uc );
+  fd_chainer_shred_insert( chainer, 11UL, 0U, 0, FD_CHAINER_SRC_TURBINE, 10L, &mr, 10UL, &root );
+  fd_chainer_fec_t * fec = fd_chainer_fec_query( chainer, 11UL, 0U, &bid );
+  FD_TEST( fec->root && fec->data_idxs==1U && named->buffered_idx==0U );
+  FD_TEST( named->parent_slot==10UL && named->connected && fd_hash_eq( &named->parent_block_id, &root ) );
+  FD_TEST( named->metrics.turbine_cnt==1U && named->metrics.first_shred_ts==10L );
+
+  /* A map hit at the wrong slot or FEC index is rejected before any
+     allocation, bitmap update, or completion. */
+  FD_TEST( feed_fec( chainer, 12UL, 0U, 1, &mr, 10UL, &root )==1 );
+  FD_TEST( feed_fec( chainer, 11UL, 32U, 1, &mr, 10UL, &root )==1 );
+  FD_TEST( !fd_chainer_slot_query( chainer, 12UL ) );
+  FD_TEST( fd_fec_pool_used( chainer->fec_pool )==fec_used );
+  FD_TEST( fd_slotv_pool_used( chainer->slotv_pool )==slotv_used );
+  FD_TEST( fec->data_idxs==1U && !fec->complete && !fec->slot_complete );
+  FD_TEST( named->buffered_idx==0U && named->complete_idx==UINT_MAX );
+  FD_TEST( named->metrics.turbine_cnt==1U && !named->metrics.recovered_cnt );
+
+  fd_chainer_shred_insert( chainer, 11UL, 31U, 1, FD_CHAINER_SRC_REPAIR, 20L, &mr, AG_UNKNOWN_SLOT, NULL );
+  FD_TEST( named->complete_idx==31U && named->metrics.repair_cnt==1U );
+  FD_TEST( !fd_chainer_fec_complete( chainer, 11UL, 0U, 1, 1, 0, 30L, &mr ) );
+  FD_TEST( named->buffered_idx==31U && named->delivered_idx==31U );
+  FD_TEST( named->metrics.recovered_cnt==30U && named->metrics.last_shred_ts==30L );
+  FD_TEST( fd_fec_pool_used( chainer->fec_pool )==fec_used );
+  FD_TEST( fd_slotv_pool_used( chainer->slotv_pool )==slotv_used );
+  FD_TEST( !fd_chainer_turbine_slotv_query( chainer, 11UL ) );
+  out_rec_t named_out[] = { { 11UL, 0U, mr } };
+  expect_out( chainer, named_out, 1UL );
+
+  /* A new slot can still create turbine state.  Once finalized, it
+     accepts known-root duplicates but cannot grow an unknown tail. */
+  FD_TEST( !feed_fec( chainer, 13UL, 0U, 1, &eager_mr, 10UL, &root ) );
+  fd_chainer_slotv_t * turbine = fd_chainer_turbine_slotv_query( chainer, 13UL );
+  FD_TEST( turbine && !fd_hash_check_zero( &turbine->block_id ) );
+  out_rec_t eager_out[] = { { 13UL, 0U, eager_mr } };
+  expect_out( chainer, eager_out, 1UL );
+  fec_used = fd_fec_pool_used( chainer->fec_pool );
+  slotv_used = fd_slotv_pool_used( chainer->slotv_pool );
+  FD_TEST( !feed_fec( chainer, 13UL, 0U, 1, &eager_mr, 10UL, &root ) );
+  FD_TEST( feed_fec( chainer, 13UL, 32U, 1, &tail_mr, AG_UNKNOWN_SLOT, NULL )==1 );
+  FD_TEST( fd_fec_pool_used( chainer->fec_pool )==fec_used );
+  FD_TEST( fd_slotv_pool_used( chainer->slotv_pool )==slotv_used );
+  FD_TEST( turbine->complete_idx==31U && turbine->delivered_idx==31U && !has_work( chainer, turbine ) );
+  FD_TEST( out_queue_empty( chainer->out_queue ) );
+  FD_TEST( !fd_chainer_verify( chainer ) );
+  teardown( chainer );
+  FD_LOG_NOTICE(( "pass: known-root shred admission and eager creation" ));
+}
+
 /* Parent discovery must respect the root and require a named version.
    An existing turbine version must not hide a different parent block id. */
 
@@ -1464,6 +1529,7 @@ test_parent_admission( fd_wksp_t * wksp ) {
   fd_chainer_shred_insert( chainer, 25UL, 0U, 0, FD_CHAINER_SRC_TURBINE, 1L, &mr_child, 15UL, &parent );
   fd_chainer_slotv_t * ancestor = fd_chainer_slot_version_query( chainer, 15UL, &parent );
   FD_TEST( ancestor && ancestor!=turbine );
+  FD_TEST( fd_hash_check_zero( &turbine->block_id ) && !has_work( chainer, turbine ) );
   fd_chainer_fec_t * fec0 = fd_chainer_fec_query( chainer, 15UL, 0U, &parent );
   FD_TEST( fec0 && fec0->treap );
   FD_TEST( !fd_chainer_verify( chainer ) );
@@ -1487,6 +1553,7 @@ main( int argc, char ** argv ) {
   FD_TEST( wksp );
 
   test_fec_pool_layout();
+  test_shred_admission                   ( wksp );
   test_parent_admission                  ( wksp );
   test_basic                             ( wksp );
   test_token_release_on_delivery         ( wksp );

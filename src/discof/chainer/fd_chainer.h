@@ -47,9 +47,15 @@
    re-requesting the shreds.  This case should be rare enough that the
    redundancy is worth the simplicity.
 
-   When that happens the turbine version is ABANDONED: arriving shreds
-   are still accepted and fill the FECs, but it never delivers to
-   replay, never finalizes a block_id, and is dropped from the repair
+   Turbine state is created only for a slot with no versions.  A slot
+   with only named versions accepts shreds after a verified root has
+   been inserted.  Known roots update existing matching entries without
+   creating or backfilling turbine state.
+
+   When an incomplete turbine version is superseded it is ABANDONED:
+   arriving shreds still fill its existing FECs with known roots, but
+   cannot add new roots.  It never delivers to replay, never finalizes
+   a block_id, and is dropped from the repair
    worklists.  Were it to keep delivering, and its block_id to finalize
    to the same block a votor version is repairing, replay would
    materialize two banks for the same {slot, block_id} (see
@@ -138,13 +144,8 @@ struct fd_chainer_slotv {
   ulong           next; /* reserved by pool and map_chain */
   ulong           prev; /* reserved by map_chain */
 
-  uchar           turbine;   /* 1 for the slotv created through turbine */
-  uchar           abandoned; /* 1 once a votor-driven version of the slot was
-                                created while this (turbine) version's block_id
-                                was still unknown: keeps accepting shred/FEC
-                                bookkeeping but never delivers, never finalizes
-                                a block_id, and stays off the repair worklists.
-                                See the header comment above. */
+  uchar           turbine;   /* 1 for the slotv created through turbine --
+                                we need to track this for various reasons to be documented */
   fd_hash_t       block_id;
   uint            complete_idx;
   uint            buffered_idx;     /* idx of highest buffered shred */
@@ -411,21 +412,19 @@ fd_chainer_init( fd_chainer_t *    chainer,
                  ulong             slot,
                  fd_hash_t const * block_id );
 
-/* Mutators that can create a slotv return it, or NULL if everything
-   they touched already existed; no call creates more than one.
-   shred_insert, fec_complete and verified_hash_insert can create the
-   slot's turbine version, verified_block_insert the version named.
-   (verified_parent_fec_count keeps its own contract, below.)  Pointers
-   stay valid until the next fd_chainer_publish. */
+/* Slotv pointers stay valid until the next fd_chainer_publish. */
 
 /* fd_chainer_shred_insert inserts a data shred into the chainer.  If
    the parent_slot is provided, parent_block_id must also be provided.
    Otherwise caller should pass AG_UNKNOWN_SLOT for parent_slot.  src is
    one of FD_CHAINER_SRC_*.
 
-   The shred may be rejected (unauthorized equivocation); the caller
-   does not need to know.  Returns the turbine version if this call
-   created it, else NULL.
+   Known roots update their mapped FEC and bookkeeping for each version
+   already holding that root at this position.  Unknown roots require an
+   active turbine version with an unknown block_id; a turbine version
+   is created only if the slot has no versions.  Conflicting roots,
+   roots mapped to a different position, and unknown roots without an
+   active turbine version are dropped.
 
    Caller must supply the full 32-byte merkle-root, not the 20-byte
    prefix. */

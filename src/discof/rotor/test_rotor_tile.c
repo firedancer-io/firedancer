@@ -871,7 +871,8 @@ test_votor_block_supersedes( fd_wksp_t * wksp ) {
   fd_chainer_slotv_t * v1 = fd_chainer_slot_version_query( ctx->chainer, vot->slot, &vot->block_id );
   fd_chainer_slotv_t * v0 = fd_chainer_turbine_slotv_query( ctx->chainer, turb->slot );
   FD_TEST( v0 && v1 && v0!=v1 );
-  FD_TEST( v0->abandoned ); /* the cert, not turbine, decides this slot now */
+  FD_TEST( fd_hash_check_zero( &v0->block_id ) );
+  FD_TEST( !has_worklist_entry( ctx, turb->slot, &v0->block_id ) );
   FD_TEST( has_worklist_entry( ctx, vot->slot, &vot->block_id ) );
 
   /* the votor block's metadata round trip */
