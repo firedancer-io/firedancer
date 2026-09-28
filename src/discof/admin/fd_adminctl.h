@@ -75,7 +75,7 @@
 #define FD_FAILOVER_CONTROL_RESULT_TAKEN                    (0x4009UL) /* the peer took our handoff and has not stood by or restarted since */
 #define FD_FAILOVER_CONTROL_RESULT_STAKED_SEEN              (0x400AUL) /* gossip has a fresh contact info for the staked identity from another host */
 #define FD_FAILOVER_CONTROL_RESULT_NO_TOWER                 (0x400BUL) /* no eligible vote history; --force accepts incomplete or empty history */
-#define FD_FAILOVER_CONTROL_RESULT_NO_FINAL_TOWER           (0x400CUL) /* handoff before the tower of our last vote is known, retry after the next vote */
+#define FD_FAILOVER_CONTROL_RESULT_NO_FINAL_TOWER           (0x400CUL) /* active has no eligible final vote state; see its local voting diagnostics */
 #define FD_FAILOVER_CONTROL_RESULT_NO_ACTIVE_ADDRESS        (0x400EUL) /* gossip has no address for the active */
 #define FD_FAILOVER_CONTROL_RESULT_PEER_UNVERIFIED          (0x400FUL) /* unilateral promote cannot verify the peer; explicit fencing required */
 

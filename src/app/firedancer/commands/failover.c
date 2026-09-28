@@ -93,13 +93,13 @@ control_result_name( ulong result ) {
     case FD_FAILOVER_CONTROL_RESULT_NO_ACTIVE_ADDRESS: return "gossip has no address for the active, wait or set [failover.peer_address]";
     case FD_FAILOVER_CONTROL_RESULT_NOT_PAIRED:      return "no standby is paired with this machine";
     case FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY:    return "the peer could not finish this request, check its failover status and log";
-    case FD_FAILOVER_CONTROL_RESULT_PEER_UNVERIFIED: return "the peer cannot be verified; --force is required, including first use and restart. Vote history is unknown: it has not been checked. Use `failover handoff` here to request a transfer from an active failover peer, or `failover promote --force` only after ensuring every other machine with this identity cannot sign";
+    case FD_FAILOVER_CONTROL_RESULT_PEER_UNVERIFIED: return "the peer cannot be verified, --force is required, including first use and restart. Vote history is unknown: it has not been checked. Use `failover handoff` here to request a transfer from an active failover peer, or `failover promote --force` only after ensuring every other machine with this identity cannot sign";
     case FD_FAILOVER_CONTROL_RESULT_PEER_ACTIVE:     return "the authenticated peer holds the identity";
     case FD_FAILOVER_CONTROL_RESULT_HANDOFF_PENDING: return "the peer has not answered our last handoff";
     case FD_FAILOVER_CONTROL_RESULT_TAKEN:           return "the peer took our last handoff and may still be voting";
     case FD_FAILOVER_CONTROL_RESULT_STAKED_SEEN:     return "gossip showed the staked identity at another host within the last 15 seconds, an active is publishing";
-    case FD_FAILOVER_CONTROL_RESULT_NO_TOWER:        return "no eligible vote history; --force accepts incomplete or empty history after the peer is fenced";
-    case FD_FAILOVER_CONTROL_RESULT_NO_FINAL_TOWER:  return "the final vote state for our last vote is not known yet, this machine keeps the identity, retry after its next vote";
+    case FD_FAILOVER_CONTROL_RESULT_NO_TOWER:        return "no eligible vote history, --force accepts incomplete or empty history after the peer is fenced";
+    case FD_FAILOVER_CONTROL_RESULT_NO_FINAL_TOWER:  return "the active has no eligible final vote state to hand over and keeps the identity, check its voting progress and vote-history logs before retrying";
     default:                                         return NULL;
   }
 }
@@ -288,7 +288,7 @@ failover_args_help( fd_action_help_t * help ) {
   fd_action_help_arg( help, "--force", NULL,    "Only with `promote`.  Skip every check on the other machine and\n"
                                                 "stop waiting for its answer to our handoff.  Use it only when the\n"
                                                 "other machine cannot sign. Also accept incomplete or empty vote\n"
-                                                "history; earlier lockouts may be lost" );
+                                                "history, earlier lockouts may be lost" );
 }
 
 action_t fd_action_failover = {
@@ -313,7 +313,7 @@ action_t fd_action_failover = {
                     "machine then needs `failover promote --force`.  `promote` takes the identity\n"
                     "without dialing. Every unilateral promotion requires --force, including\n"
                     "first use and restart, because it cannot verify the peer. It tries saved\n"
-                    "Tower state, then the vote account; --force also permits incomplete or\n"
+                    "Tower state, then the vote account, --force also permits incomplete or\n"
                     "empty history if needed. No other machine may\n"
                     "hold the identity or be in a promotion, and\n"
                     "both machines are never promoted at once.  `promote --force` skips the\n"
@@ -324,7 +324,7 @@ action_t fd_action_failover = {
                     "command wait for the switch to finish, and they hang behind a switch that\n"
                     "never finishes.  Then read the log, and stop a validator that stays stuck.\n"
                     "\n"
-                    "This command does not start a validator; it attaches to one that is already\n"
+                    "This command does not start a validator, it attaches to one that is already\n"
                     "running.  With no arguments it discovers the running validator automatically.\n"
                     "If multiple validators are running, pass --name to select one.\n",
   .usage          = "failover status|handoff|demote|promote [--name <name>] [--yes] [--force]",

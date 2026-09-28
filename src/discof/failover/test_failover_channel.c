@@ -537,7 +537,7 @@ test_loss_log_causes( fd_failover_channel_t * a,
   fd_failover_channel_hangup( b, now );
   now += 2000000001L;
   pump( a, b );
-  FD_LOG_NOTICE(( "pass: transport loss cannot suppress a new protocol cause; repeated protocol failures coalesce" ));
+  FD_LOG_NOTICE(( "pass: transport loss cannot suppress a new protocol cause, repeated protocol failures coalesce" ));
 }
 
 /* An orderly peer close after a drained RESULT is routine for on-demand connections.
@@ -578,7 +578,7 @@ test_result_close( fd_failover_channel_t * a,
     now += 2000000001L;
   }
   pump( a, b );
-  FD_LOG_NOTICE(( "pass: normal RESULT close is quiet only on demand; corrupted TLS after RESULT remains visible" ));
+  FD_LOG_NOTICE(( "pass: normal RESULT close is quiet only on demand, corrupted TLS after RESULT remains visible" ));
 }
 
 static void

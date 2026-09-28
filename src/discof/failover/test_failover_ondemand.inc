@@ -18,6 +18,8 @@ test_request_controls( void ) {
   ulong id = ctx->request_id;
   FD_TEST( id && ctx->channel->peer_addr==ctx->staked_addr && ctx->channel->dial_peer );
   FD_TEST( ctx->action==FD_FAILOVER_ACTION_HANDOFF_WAIT_PEER );
+  FD_TEST( !ctx->request_boot_id && !ctx->request_tx_log.count );
+  FD_TEST( strstr( request_wait( ctx ), "no peer authenticated, no handoff request sent" ) );
   fd_adminctl_failover_status_resp_t snap;
   status_snapshot( ctx, now, &snap );
   FD_TEST( snap.handoff_id==id && snap.handoff_result==FD_FAILOVER_HANDOFF_PENDING );
@@ -286,7 +288,7 @@ test_socket_handoffs( void ) {
   FD_TEST( !rmdir( dir ) );
   fd_wksp_delete_anonymous( wksp );
   free( mem );
-  FD_LOG_NOTICE(( "pass: gossip is idle; TLS handoffs reconnect after lost tower, ACK and result, then close" ));
+  FD_LOG_NOTICE(( "pass: gossip is idle, TLS handoffs reconnect after lost tower, ACK and result, then close" ));
 }
 
 static void

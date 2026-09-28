@@ -11,6 +11,7 @@
 #include "../../flamenco/leaders/fd_leaders_base.h"
 #include "../../ballet/siphash13/fd_siphash13.h"
 #include "../../util/net/fd_net_headers.h"
+#include "../../util/net/fd_ip6.h"
 #include "../../disco/net/fd_net_tile.h"
 #include "generated/fd_gossvf_tile_seccomp.h"
 
@@ -569,7 +570,15 @@ check_duplicate_instance( fd_gossvf_tile_ctx_t *      ctx,
     if( FD_LIKELY( ctx->instance_creation_wallclock_nanos>=FD_MICRO_TO_NANOSEC( value->contact_info->outset ) ) ) continue;
     if( FD_LIKELY( memcmp( ctx->identity_pubkey->uc, value->origin, 32UL ) ) ) continue;
 
-    FD_LOG_ERR(( "duplicate running instances of the same validator node, our timestamp: %ldns their timestamp: %ldns", ctx->instance_creation_wallclock_nanos, FD_MICRO_TO_NANOSEC( value->contact_info->outset ) ));
+    FD_BASE58_ENCODE_32_BYTES( ctx->identity_pubkey->uc, identity );
+    fd_gossip_socket_t const * socket = &value->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ];
+    fd_ip6_addr_t advertised_addr = {0};
+    if( socket->is_ipv6 ) fd_memcpy( advertised_addr.addr, socket->ip6, 16UL );
+    else                 fd_ip6_addr_ip4_mapped( advertised_addr.addr, socket->ip4 );
+    FD_IP6_ADDR_CSTR( advertised, &advertised_addr );
+    FD_LOG_ERR(( "duplicate instance contact info for our current identity `%s`: our identity instance timestamp %ldns, received %ldns, advertised gossip %s:%hu, received via " FD_IP4_ADDR_FMT ":%hu, stopping this validator. The record may be relayed, compare this key with the identity and standby keys configured on both machines and check for another process using it",
+                 identity, ctx->instance_creation_wallclock_nanos, FD_MICRO_TO_NANOSEC( value->contact_info->outset ),
+                 advertised, fd_ushort_bswap( socket->port ), FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr ), fd_ushort_bswap( ctx->peer.port ) ));
   }
 }
 

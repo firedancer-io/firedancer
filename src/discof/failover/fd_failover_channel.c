@@ -320,7 +320,7 @@ lose( fd_failover_channel_t * ch,
       char const *            why ) {
   ulong suppressed;
   if( ch->active==(int)idx && fd_failover_log_take( &ch->loss_log[cause], now, &suppressed ) ) {
-    FD_LOG_WARNING(( "lost the failover session with `" FD_IP4_ADDR_FMT "`, %s; repeated failures limited to one line per minute (%lu suppressed)",
+    FD_LOG_WARNING(( "lost the failover session with `" FD_IP4_ADDR_FMT "`, %s, repeated failures limited to one line per minute (%lu suppressed)",
                      FD_IP4_ADDR_FMT_ARGS( ch->candidates[idx].address ), why, suppressed ));
   }
   drop( ch, idx, now, event );
@@ -605,7 +605,7 @@ service_candidate( fd_failover_channel_t * ch,
       ulong suppressed;
       uint reason = c->tls.conn.hs.base.reason;
       if( fd_failover_log_take( &ch->tls_log[tls_log_kind( reason )], now, &suppressed ) )
-        FD_LOG_WARNING(( "TLS handshake with `" FD_IP4_ADDR_FMT "` failed (%s); check peer reachability, junk keys and matching connection modes on both machines (%lu repeats suppressed)",
+        FD_LOG_WARNING(( "TLS handshake with `" FD_IP4_ADDR_FMT "` failed (%s), check peer reachability, junk keys and matching connection modes on both machines (%lu repeats suppressed)",
                          FD_IP4_ADDR_FMT_ARGS( c->address ), reason ? fd_tls_reason_cstr( reason ) : "connection closed or socket error", suppressed ));
       drop( ch, idx, now, FD_FAILOVER_EV_LINK_LOST );
       return;

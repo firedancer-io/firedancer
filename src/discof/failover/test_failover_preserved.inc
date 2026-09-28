@@ -418,7 +418,7 @@ test_holder_recheck( void ) {
     FD_TEST( pending_rejected( ctx ).reason==FD_FAILOVER_REJECT_HOLDS_IDENTITY );
     controller_fini( ctx );
   }
-  FD_LOG_NOTICE(( "pass: operator promotion rechecks an ACTIVE HELLO; final demotion supersedes the handoff's old HELLO" ));
+  FD_LOG_NOTICE(( "pass: operator promotion rechecks an ACTIVE HELLO, final demotion supersedes the handoff's old HELLO" ));
 }
 
 static void

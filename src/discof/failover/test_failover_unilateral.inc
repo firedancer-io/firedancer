@@ -22,5 +22,5 @@ test_unilateral_permissions( void ) {
   char const * hint;
   FD_TEST( !strcmp( control_refusal( FD_FAILOVER_CONTROL_RESULT_PEER_UNVERIFIED, &hint ), "PEER_UNVERIFIED" ) );
   FD_TEST( strstr( hint, "--force" ) && strstr( hint, "handoff" ) );
-  FD_LOG_NOTICE(( "pass: confirmation is separate from force; recovery sources are selected automatically" ));
+  FD_LOG_NOTICE(( "pass: confirmation is separate from force, recovery sources are selected automatically" ));
 }
