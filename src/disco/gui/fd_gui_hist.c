@@ -7,6 +7,9 @@
 
 /* Every record type must fit in one store region (header + record). */
 FD_STATIC_ASSERT( sizeof(fd_gui_shred_batch_t     )<=FD_GUI_STORE_MAX_REC_SZ, rec_fits );
+FD_STATIC_ASSERT( sizeof(fd_gui_fec_completion_record_t  )<=FD_GUI_STORE_MAX_REC_SZ, rec_fits );
+FD_STATIC_ASSERT( sizeof(fd_gui_fec_event_t              )<=FD_GUI_STORE_MAX_REC_SZ, rec_fits );
+FD_STATIC_ASSERT( sizeof(fd_gui_store_replay_txn_batch_t  )<=FD_GUI_STORE_MAX_REC_SZ, rec_fits );
 FD_STATIC_ASSERT( sizeof(fd_gui_tile_timers_hist_t)<=FD_GUI_STORE_MAX_REC_SZ, rec_fits );
 FD_STATIC_ASSERT( sizeof(fd_gui_scheduler_counts_t)<=FD_GUI_STORE_MAX_REC_SZ, rec_fits );
 FD_STATIC_ASSERT( sizeof(fd_gui_tile_stats_t      )<=FD_GUI_STORE_MAX_REC_SZ, rec_fits );
@@ -18,6 +21,8 @@ FD_STATIC_ASSERT( sizeof(fd_gui_slot_t            )<=FD_GUI_STORE_MAX_REC_SZ, re
 FD_STATIC_ASSERT( sizeof(fd_gui_leader_slot_t     )<=FD_GUI_STORE_MAX_REC_SZ, rec_fits );
 FD_STATIC_ASSERT( sizeof(fd_gui_epoch_t           )<=FD_GUI_STORE_MAX_REC_SZ, rec_fits );
 FD_STATIC_ASSERT( sizeof(fd_gui_timeline_day_t    )<=FD_GUI_STORE_MAX_REC_SZ, rec_fits );
+FD_STATIC_ASSERT( sizeof(fd_gui_store_slot_duration_t)<=FD_GUI_STORE_MAX_REC_SZ, rec_fits );
+FD_STATIC_ASSERT( sizeof(fd_gui_store_slot_duration_t)==32UL, slot_duration_size );
 
 /* Each key type must alias the matching record field exactly. */
 FD_STATIC_ASSERT( offsetof( fd_gui_hist_slot_key_t,        slot     )==offsetof( fd_gui_slot_t,        slot     ), key_layout );
@@ -29,6 +34,7 @@ FD_STATIC_ASSERT( offsetof( fd_gui_hist_epoch_key_t,       epoch    )==offsetof(
 #define FD_GUI_HIST_KEYSHAPE_TIMESERIES (0) /* (ts, ...)        */
 #define FD_GUI_HIST_KEYSHAPE_SLOT_BANK  (1) /* (slot, bank_seq) */
 #define FD_GUI_HIST_KEYSHAPE_EPOCH      (2) /* (epoch)          */
+#define FD_GUI_HIST_KEYSHAPE_FEC        (3) /* (16-byte FEC key) */
 
 static inline long
 fd_gui_hist_dbi_res_ns( int dbi FD_PARAM_UNUSED ) {
@@ -46,7 +52,9 @@ fd_gui_hist_dbi_ts_off( int dbi ) {
     case FD_GUI_HIST_TXN_START:        return offsetof( fd_gui_store_txn_start_t,  insert_time_ns    );
     case FD_GUI_HIST_TXN_END:          return offsetof( fd_gui_store_txn_end_t,    insert_time_ns    );
     case FD_GUI_HIST_REPLAY_TXN:       return offsetof( fd_gui_store_replay_txn_t, insert_time_ns    );
+    case FD_GUI_HIST_REPLAY_TXN_BATCH:  return offsetof( fd_gui_store_replay_txn_batch_t, insert_time_ns );
     case FD_GUI_HIST_TIMELINE_DAY:     return offsetof( fd_gui_timeline_day_t,     end_time_ns       );
+    case FD_GUI_HIST_SLOT_DURATION:    return offsetof( fd_gui_store_slot_duration_t, insert_time_ns );
     default:                           return 0UL;
   }
 }
@@ -67,10 +75,14 @@ fd_gui_hist_keyshape( int dbi ) {
     case FD_GUI_HIST_TXN_START:
     case FD_GUI_HIST_TXN_END:          return FD_GUI_HIST_KEYSHAPE_TIMESERIES;
     case FD_GUI_HIST_REPLAY_TXN:
+    case FD_GUI_HIST_REPLAY_TXN_BATCH:
+    case FD_GUI_HIST_SLOT_DURATION:
     case FD_GUI_HIST_TIMELINE_DAY:     return FD_GUI_HIST_KEYSHAPE_TIMESERIES;
     case FD_GUI_HIST_SLOT:
     case FD_GUI_HIST_LEADER_SLOT:      return FD_GUI_HIST_KEYSHAPE_SLOT_BANK;
     case FD_GUI_HIST_EPOCH:            return FD_GUI_HIST_KEYSHAPE_EPOCH;
+    case FD_GUI_HIST_FEC_EVENTS:
+    case FD_GUI_HIST_FEC_COMPLETIONS:  return FD_GUI_HIST_KEYSHAPE_FEC;
     default: FD_LOG_ERR(( "invalid dbi %d", dbi )); return -1;
   }
 }
@@ -131,6 +143,19 @@ fd_gui_hist_epoch_key_cmp( void const * a, void const * b ) {
   return 0;
 }
 
+static ulong
+fd_gui_hist_fec_key_hash( void const * key ) {
+  ulong words[ 2 ];
+  memcpy( words, key, sizeof(words) );
+  return fd_ulong_hash( words[ 0 ] ) ^ fd_ulong_hash( words[ 1 ] );
+}
+
+static int
+fd_gui_hist_fec_key_cmp( void const * a,
+                         void const * b ) {
+  return memcmp( a, b, sizeof(fd_gui_fec_event_key_t) );
+}
+
 static inline ulong
 fd_gui_hist_rec_sz( int dbi ) {
   switch( dbi ) {
@@ -142,10 +167,14 @@ fd_gui_hist_rec_sz( int dbi ) {
     case FD_GUI_HIST_TXN_START:        return sizeof(fd_gui_store_txn_start_t);
     case FD_GUI_HIST_TXN_END:          return sizeof(fd_gui_store_txn_end_t);
     case FD_GUI_HIST_REPLAY_TXN:       return sizeof(fd_gui_store_replay_txn_t);
+    case FD_GUI_HIST_REPLAY_TXN_BATCH:  return sizeof(fd_gui_store_replay_txn_batch_t);
+    case FD_GUI_HIST_FEC_EVENTS:       return sizeof(fd_gui_fec_event_t);
+    case FD_GUI_HIST_FEC_COMPLETIONS:  return sizeof(fd_gui_fec_completion_record_t);
     case FD_GUI_HIST_SLOT:             return sizeof(fd_gui_slot_t);
     case FD_GUI_HIST_LEADER_SLOT:      return sizeof(fd_gui_leader_slot_t);
     case FD_GUI_HIST_EPOCH:            return sizeof(fd_gui_epoch_t);
     case FD_GUI_HIST_TIMELINE_DAY:     return sizeof(fd_gui_timeline_day_t);
+    case FD_GUI_HIST_SLOT_DURATION:    return sizeof(fd_gui_store_slot_duration_t);
     default:                           return 0UL;
   }
 }
@@ -158,6 +187,8 @@ fd_gui_hist_key_sz( int dbi ) {
     case FD_GUI_HIST_SLOT:        return sizeof(fd_gui_hist_slot_key_t);
     case FD_GUI_HIST_LEADER_SLOT: return sizeof(fd_gui_hist_leader_slot_key_t);
     case FD_GUI_HIST_EPOCH:       return sizeof(fd_gui_hist_epoch_key_t);
+    case FD_GUI_HIST_FEC_EVENTS:
+    case FD_GUI_HIST_FEC_COMPLETIONS: return sizeof(fd_gui_fec_event_key_t);
     default:                      return 0UL; /* TS DBs have no key */
   }
 }
@@ -171,6 +202,8 @@ static inline ulong
     case FD_GUI_HIST_SLOT:        return fd_gui_hist_slot_key_hash;
     case FD_GUI_HIST_LEADER_SLOT: return fd_gui_hist_leader_slot_key_hash;
     case FD_GUI_HIST_EPOCH:       return fd_gui_hist_epoch_key_hash;
+    case FD_GUI_HIST_FEC_EVENTS:
+    case FD_GUI_HIST_FEC_COMPLETIONS: return fd_gui_hist_fec_key_hash;
     default:                      return NULL;
   }
 }
@@ -181,6 +214,8 @@ static inline int
     case FD_GUI_HIST_SLOT:        return fd_gui_hist_slot_key_cmp;
     case FD_GUI_HIST_LEADER_SLOT: return fd_gui_hist_leader_slot_key_cmp;
     case FD_GUI_HIST_EPOCH:       return fd_gui_hist_epoch_key_cmp;
+    case FD_GUI_HIST_FEC_EVENTS:
+    case FD_GUI_HIST_FEC_COMPLETIONS: return fd_gui_hist_fec_key_cmp;
     default:                      return NULL;
   }
 }
@@ -198,7 +233,8 @@ fd_gui_hist_db_descs( ulong store_bytes ) {
   static char const * const names[ FD_GUI_HIST_CNT ] = {
     "scheduler_counts", "tile_timers", "shred_events", "txn_start",
     "txn_end", "slot", "leader_slot", "epoch", "tile_stats",
-    "txn_waterfall", "timeline_day", "replay_txn"
+    "txn_waterfall", "timeline_day", "replay_txn", "replay_txn_batch",
+    "fec_events", "fec_completions", "slot_duration"
   };
   static fd_gui_store_desc_t descs[ FD_GUI_HIST_CNT ];
   static ulong built_for = 0UL; /* store_bytes the table was built for (0 = unbuilt) */
@@ -217,11 +253,14 @@ fd_gui_hist_db_descs( ulong store_bytes ) {
       ulong max_records = 0UL;
       if( !ts ) {
         int shape = fd_gui_hist_keyshape( i );
-        ulong cap   = FD_GUI_STORE_REGION_SZ / fd_gui_hist_kv_stride( i );
-        ulong base  = FD_GUI_STORE_BASE_REGIONS*cap;
-        ulong limit = shape==FD_GUI_HIST_KEYSHAPE_EPOCH ? FD_GUI_HIST_MAX_EPOCHS
-                    : FD_GUI_HIST_MAX_EPOCHS*(i==FD_GUI_HIST_LEADER_SLOT ? FD_GUI_HIST_MAX_LEADER_SLOTS_PER_EPOCH : MAX_SLOTS_PER_EPOCH);
-        max_records = fd_ulong_max( base, fd_ulong_min( (FD_GUI_STORE_BASE_REGIONS+shared)*cap, limit ) );
+        if(      shape==FD_GUI_HIST_KEYSHAPE_FEC   ) max_records = FD_GUI_FEC_RECORD_MAX;
+        else {
+          ulong cap   = FD_GUI_STORE_REGION_SZ / fd_gui_hist_kv_stride( i );
+          ulong base  = FD_GUI_STORE_BASE_REGIONS*cap;
+          ulong limit = shape==FD_GUI_HIST_KEYSHAPE_EPOCH ? FD_GUI_HIST_MAX_EPOCHS
+                      : FD_GUI_HIST_MAX_EPOCHS*(i==FD_GUI_HIST_LEADER_SLOT ? FD_GUI_HIST_MAX_LEADER_SLOTS_PER_EPOCH : MAX_SLOTS_PER_EPOCH);
+          max_records = fd_ulong_max( base, fd_ulong_min( (FD_GUI_STORE_BASE_REGIONS+shared)*cap, limit ) );
+        }
       }
 
       descs[ i ].name        = names[ i ];
@@ -327,12 +366,23 @@ fd_gui_hist_metrics( fd_gui_t const * gui ) {
 }
 
 static int
+fd_gui_hist_reclaim_eligible( ulong        dbi,
+                              void const * rec,
+                              void *       ctx ) {
+  if( dbi==FD_GUI_HIST_FEC_EVENTS )
+    return fd_gui_event_slot_permanently_closed( ctx, ((fd_gui_fec_event_t const *)rec)->key.slot );
+  if( dbi==FD_GUI_HIST_FEC_COMPLETIONS )
+    return fd_gui_event_slot_permanently_closed( ctx, ((fd_gui_fec_completion_record_t const *)rec)->key.slot );
+  return 1;
+}
+
+static int
 fd_gui_hist_make_room( fd_gui_t * gui,
                        int        dbi,
                        int        rc ) {
   if( FD_UNLIKELY( rc!=FD_GUI_STORE_MAP_FULL && rc!=FD_GUI_STORE_RING_FULL ) ) return 0;
-  if( rc==FD_GUI_STORE_MAP_FULL && fd_gui_store_reclaim( gui->db, ULONG_MAX, FD_GUI_HIST_EVICT_BATCH, NULL, NULL ) ) return 1;
-  return !!fd_gui_store_reclaim( gui->db, (ulong)dbi, FD_GUI_HIST_EVICT_BATCH, NULL, NULL );
+  if( rc==FD_GUI_STORE_MAP_FULL && fd_gui_store_reclaim( gui->db, ULONG_MAX, FD_GUI_HIST_EVICT_BATCH, fd_gui_hist_reclaim_eligible, gui ) ) return 1;
+  return !!fd_gui_store_reclaim( gui->db, (ulong)dbi, FD_GUI_HIST_EVICT_BATCH, fd_gui_hist_reclaim_eligible, gui );
 }
 
 void *
@@ -551,5 +601,5 @@ fd_gui_hist_evict_step( fd_gui_t * gui ) {
   if( FD_UNLIKELY( !gui->db || !gui->hist ) ) return 0;
   /* Keep one shared region in reserve. */
   if( fd_gui_store_shared_free_region_cnt( gui->db )>1UL ) return 0;
-  return !!fd_gui_store_reclaim( gui->db, ULONG_MAX, FD_GUI_HIST_EVICT_BATCH, NULL, NULL );
+  return !!fd_gui_store_reclaim( gui->db, ULONG_MAX, FD_GUI_HIST_EVICT_BATCH, fd_gui_hist_reclaim_eligible, gui );
 }

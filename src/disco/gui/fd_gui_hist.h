@@ -47,7 +47,11 @@ typedef struct fd_gui fd_gui_t;
 #define FD_GUI_HIST_TXN_WATERFALL    (9)  /* (ts, type)            */
 #define FD_GUI_HIST_TIMELINE_DAY     (10)
 #define FD_GUI_HIST_REPLAY_TXN       (11)
-#define FD_GUI_HIST_CNT              (12)
+#define FD_GUI_HIST_REPLAY_TXN_BATCH (12) /* (ts, ...)            */
+#define FD_GUI_HIST_FEC_EVENTS       (13) /* (FEC event key)      */
+#define FD_GUI_HIST_FEC_COMPLETIONS  (14) /* (FEC completion key) */
+#define FD_GUI_HIST_SLOT_DURATION    (15) /* (ts, ...)            */
+#define FD_GUI_HIST_CNT              (16)
 
 struct fd_gui_hist_metrics {
   /* Writes dropped after exhausting region or KV index capacity. */
@@ -228,9 +232,10 @@ fd_gui_hist_kv_iter_next( fd_gui_hist_kv_slot_iter_t * iter );
 /* fd_gui_hist_evict_step reclaims at most FD_GUI_HIST_EVICT_BATCH
    records from an oldest excess region once at most one shared region
    remains free.  Every DB's newest FD_GUI_STORE_BASE_REGIONS regions
-   are protected.  Returns 1 for actual progress, 0 when idle or all
-   candidates pinned.  Writes retry on pressure, then recycle only their
-   own eligible history if no excess candidate remains. */
+   are protected; FEC heads must be permanently closed.  Returns 1 for
+   actual progress, 0 when idle or all candidates pinned.  Writes retry
+   on pressure, then recycle only their own eligible history if no
+   excess candidate remains. */
 
 int
 fd_gui_hist_evict_step( fd_gui_t * gui );

@@ -58,6 +58,10 @@ static ulong const gui_db_type_idx[ FD_GUI_HIST_CNT ] = {
   [ FD_GUI_HIST_TXN_WATERFALL    ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_TXN_WATERFALL_IDX,
   [ FD_GUI_HIST_TIMELINE_DAY     ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_TIMELINE_DAY_IDX,
   [ FD_GUI_HIST_REPLAY_TXN       ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_REPLAY_TXN_IDX,
+  [ FD_GUI_HIST_REPLAY_TXN_BATCH ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_REPLAY_TXN_BATCH_IDX,
+  [ FD_GUI_HIST_FEC_EVENTS       ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_FEC_EVENTS_IDX,
+  [ FD_GUI_HIST_FEC_COMPLETIONS  ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_FEC_COMPLETIONS_IDX,
+  [ FD_GUI_HIST_SLOT_DURATION    ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_SLOT_DURATION_IDX,
 };
 
 #define IN_KIND_PACK_EXECLE   ( 2UL)
@@ -88,9 +92,17 @@ FD_IMPORT_BINARY( firedancer_svg, "book/public/fire.svg" );
 #define FD_HTTP_SERVER_GUI_MAX_WS_SEND_FRAME_CNT 8192
 
 #define FD_GUI_TIMELINE_RAW_RESPONSE_MAX (32UL<<20)
+/* Per-row bounds including commas: ulong 21, uint 11, nonnegative delta
+   string 22, ulong string 23, signature string 91, bool 6 (nulls shorter).
+   Timestamps (txn and txn_batch): 4*21 + 1*11 + 7*22 = 249 bytes.
+   Meta: 4*21 + 5*11 + 2*22 + 3*23 + 91 + 2*6 = 355 bytes, including
+   full uint shred indices; keys and envelope fit in 4096. */
+FD_STATIC_ASSERT( FD_GUI_TIMELINE_QUERY_TXN_MAX*480UL+4096UL<=FD_GUI_TIMELINE_RAW_RESPONSE_MAX, txn_response_bound );
 FD_STATIC_ASSERT( FD_GUI_TIMELINE_QUERY_SHRED_MAX*56UL+4096UL<=FD_GUI_TIMELINE_RAW_RESPONSE_MAX, shred_response_bound );
-/* Agg txn has four numeric arrays, and agg revenue has three
-   ulong-string arrays: at most 4*21=84 or 3*23=69 bytes per bucket
+FD_STATIC_ASSERT( FD_GUI_TIMELINE_QUERY_SLOT_MAX*128UL+4096UL<=FD_GUI_TIMELINE_RAW_RESPONSE_MAX, slot_response_bound );
+/* Agg shreds has five numeric arrays including slot_duration, agg txn
+   has four numeric arrays, and agg revenue has three ulong-string
+   arrays: at most 5*21=105, 4*21=84 or 3*23=69 bytes per bucket
    including commas, within the shared 512-byte budget. */
 FD_STATIC_ASSERT( FD_GUI_TIMELINE_QUERY_MAX_BUCKETS*512UL+4096UL<=FD_GUI_TIMELINE_RAW_RESPONSE_MAX, agg_response_bound );
 FD_STATIC_ASSERT( 2UL*FD_GUI_TIMELINE_RAW_RESPONSE_MAX+(FD_GUI_TIMELINE_RAW_RESPONSE_MAX>>8)<FD_GUI_HTTP_MIN_SEND_BUFFER_SZ,
@@ -548,7 +560,14 @@ after_frag( fd_gui_ctx_t *      ctx,
         ulong shred_idx = msg->shred.idx;
         int is_turbine  = sig_src==SHRED_SIG_SRC_TURBINE;
         /* tsorig is the timestamp when the shred was received by the shred tile */
-        fd_gui_handle_shred( ctx->gui, slot, shred_idx, is_turbine, tsorig_nanos, fd_clock_tile_now( ctx->clock ) );
+        fd_gui_handle_shred( ctx->gui, slot, shred_idx, msg->shred.fec_set_idx, is_turbine, tsorig_nanos, fd_clock_tile_now( ctx->clock ) );
+      }
+      if( sig==SHRED_SIG_FEC_COMPLETE || sig==SHRED_SIG_FEC_COMPLETE_LEADER ) {
+        fd_fec_complete_t const * msg = (fd_fec_complete_t const *)src;
+        fd_gui_timeline_handle_fec( ctx->gui, msg->last_shred_hdr.slot, sig==SHRED_SIG_FEC_COMPLETE_LEADER,
+                                    fd_clock_tile_tickcomp_to_wallclock( ctx->clock, tspub ),
+                                    msg->turbine_shred_cnt, msg->repair_shred_cnt, msg->reconstructed_shred_cnt,
+                                    fd_clock_tile_now( ctx->clock ) );
       }
       if( FD_UNLIKELY( sig==SHRED_SIG_FEC_COMPLETE_LEADER ) ) {
         fd_fec_complete_t const * complete_msg = (fd_fec_complete_t const *)fd_type_pun_const( src );
@@ -703,11 +722,13 @@ gui_http_request( fd_http_server_request_t const * request ) {
                      !strcmp( request->path, "/leaderSchedule" ) ||
                      !strcmp( request->path, "/gossip") ||
                      !strcmp( request->path, "/accounts") ||
+                     !strcmp( request->path, "/replay") ||
                      !strncmp( request->path, "/?", strlen("/?") ) ||
                      !strncmp( request->path, "/slotDetails?", strlen("/slotDetails?") ) ||
                      !strncmp( request->path, "/leaderSchedule?", strlen("/leaderSchedule?") ) ||
                      !strncmp( request->path, "/gossip?", strlen("/gossip?") ) ||
-                     !strncmp( request->path, "/accounts?", strlen("/accounts?") );
+                     !strncmp( request->path, "/accounts?", strlen("/accounts?") ) ||
+                     !strncmp( request->path, "/replay?", strlen("/replay?") );
 
   for( fd_http_static_file_t const * f = STATIC_FILES; f->name; f++ ) {
     if( !strcmp( request->path, f->name ) ||
