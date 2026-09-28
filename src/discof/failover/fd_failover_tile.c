@@ -479,6 +479,8 @@ sync_session( fd_failover_tile_ctx_t * ctx ) {
                      peer->role==(uchar)FD_FAILOVER_ROLE_ACTIVE ) ) ctx->promote_active_seen = 1;
     /* An active peer votes past any tower we kept, a promotion in flight
        already copied the one it adopts. */
+    if( FD_UNLIKELY( peer->role==(uchar)FD_FAILOVER_ROLE_ACTIVE && ( ctx->peer_tower.valid || ctx->own_tower.valid ) ) )
+      FD_LOG_NOTICE(( "peer boot %016lx authenticated ACTIVE; discarding saved final state from before its voting tenure, keeping coverage floors", peer->boot_id ));
     if( FD_UNLIKELY( peer->role==(uchar)FD_FAILOVER_ROLE_ACTIVE ) ) {
       ctx->peer_tower.valid = 0;
       ctx->own_tower.valid  = 0;
@@ -1501,7 +1503,7 @@ handle_control( fd_failover_tile_ctx_t * ctx,
                      ctx->peer_boot_id!=ctx->handoff_target ||
                      !fd_memeq( fd_failover_channel_peer_hello( ctx->channel )->junk_pubkey, ctx->handoff_junk, 32UL ) ||
                      ctx->action==FD_FAILOVER_ACTION_DEMOTE_SWITCH ) ) return;
-    FD_LOG_NOTICE(( "handoff %lu: received ACK, the peer took the staked identity; recording TAKEN and staying standby", ack.handoff_id ));
+    FD_LOG_NOTICE(( "handoff %lu: received ACK, the peer took the staked identity; recording TAKEN and staying standby; saved final state is obsolete, coverage floors retained", ack.handoff_id ));
     handoff_resolved( ctx, FD_FAILOVER_HANDOFF_TAKEN );
     ctx->taken         = 1;
     ctx->taken_boot_id = ctx->handoff_target;
