@@ -399,6 +399,60 @@ STEM_(park)( STEM_CALLBACK_CONTEXT_TYPE * ctx,
   return 1;
 }
 
+/* STEM_(cr_refresh) turns the consumer progress in cons_seq into the
+   flow control credits available on each out and across all outs, and
+   charges in_backp slow events to the slowest consumer. */
+
+static inline __attribute__((always_inline)) void
+STEM_(cr_refresh)( ulong             out_cnt,
+                   ulong const *     out_depth,
+                   ulong const *     out_seq,
+                   ulong *           cr_avail,
+                   ulong *           min_cr_avail,
+                   ulong             cr_max,
+                   ulong             cons_cnt,
+                   ulong const *     cons_out,
+                   ulong const *     cons_seq,
+                   volatile ulong ** cons_slow,
+                   ulong             in_backp ) {
+  if( FD_LIKELY( cons_cnt ) ) {
+    ulong slowest_cons = ULONG_MAX;
+    *min_cr_avail = cr_max;
+    for( ulong out_idx=0; out_idx<out_cnt; out_idx++ ) {
+      cr_avail[ out_idx ] = out_depth[ out_idx ];
+    }
+
+    for( ulong cons_idx=0UL; cons_idx<cons_cnt; cons_idx++ ) {
+      ulong out_idx = cons_out[ cons_idx ];
+
+      /* Read the fseq boot value (ULONG_MAX) as sequence 0, not -1,
+         else the producer is one credit short until the consumer
+         boots. */
+      ulong cseq = fd_ulong_if( cons_seq[ cons_idx ]==ULONG_MAX, 0UL, cons_seq[ cons_idx ] );
+      ulong cons_cr_avail = (ulong)fd_long_max( (long)out_depth[ out_idx ]-fd_long_max( fd_seq_diff( out_seq[ out_idx ], cseq ), 0L ), 0L );
+
+      /* If a reliable consumer exits, they can set the credit return
+         fseq to STEM_SHUTDOWN_SEQ to indicate they are no longer
+         actively consuming. */
+      cons_cr_avail = fd_ulong_if( cons_seq[ cons_idx ]==STEM_SHUTDOWN_SEQ, out_depth[ out_idx ], cons_cr_avail );
+      slowest_cons = fd_ulong_if( cons_cr_avail<*min_cr_avail, cons_idx, slowest_cons );
+
+      cr_avail[ out_idx ] = fd_ulong_min( cr_avail[ out_idx ], cons_cr_avail );
+      *min_cr_avail       = fd_ulong_min( cons_cr_avail, *min_cr_avail );
+    }
+
+    /* See notes above about use of quasi-atomic diagnostic accum.
+       Only a backpressured refresh charges anything: a +=0 would still
+       take the consumer's metrics line, which its in_update is about
+       to write. */
+    if( FD_UNLIKELY( in_backp && slowest_cons!=ULONG_MAX ) ) {
+      FD_COMPILER_MFENCE();
+      (*cons_slow[ slowest_cons ]) += in_backp;
+      FD_COMPILER_MFENCE();
+    }
+  }
+}
+
 static inline void
 STEM_(park_attempt)( STEM_CALLBACK_CONTEXT_TYPE * ctx,
                      fd_stem_sleep_t const *      cfg,
@@ -406,15 +460,21 @@ STEM_(park_attempt)( STEM_CALLBACK_CONTEXT_TYPE * ctx,
                      ulong                        in_cnt,
                      fd_frag_meta_t **            out_mcache,
                      ulong                        out_cnt,
+                     ulong const *                out_depth,
                      ulong const *                out_seq,
+                     ulong *                      cr_avail,
+                     ulong *                      min_cr_avail,
+                     ulong                        cr_max,
                      ulong                        cons_cnt,
                      ulong const **               cons_fseq,
                      ulong *                      cons_seq,
                      ulong const *                cons_out,
+                     volatile ulong **            cons_slow,
                      ulong                        event_cnt,
                      ushort const *               event_map,
                      ulong *                      event_seq,
                      ulong                        async_min,
+                     long                         hk_due,
                      long                         cap_ticks,
                      long                         min_ticks,
                      double                       tick_per_ns,
@@ -424,8 +484,6 @@ STEM_(park_attempt)( STEM_CALLBACK_CONTEXT_TYPE * ctx,
                      ulong                        regime,
                      int                          backpressured,
                      long                         deadline_hint ) {
-  (void)cons_out; (void)out_seq;
-
   int slept = STEM_(park)( ctx, cfg, in, in_cnt, out_mcache, out_cnt, out_seq, cons_cnt, cons_fseq, cons_seq,
                            backpressured, deadline_hint, cap_ticks, min_ticks, tick_per_ns, *now );
   if( FD_UNLIKELY( !slept ) ) return; /* found work */
@@ -439,9 +497,8 @@ STEM_(park_attempt)( STEM_CALLBACK_CONTEXT_TYPE * ctx,
        any credit refresh housekeeping events, but otherwise we might
        have missed many, so refill them immediately here.  A
        backpressure park is woken by the consumer's credit return, so
-       reload regardless, and make the housekeeping event (which turns
-       cons_seq into cr_avail) due now, or we re-park on the stale
-       count until the timer. */
+       reload regardless, and turn cons_seq into cr_avail now, or we
+       re-park on the stale count until the timer. */
     for( ulong cons_idx=0UL; cons_idx<cons_cnt; cons_idx++ ) {
       ulong this_cons_seq = __atomic_load_n( cons_fseq[ cons_idx ], __ATOMIC_ACQUIRE );
       cons_seq[ cons_idx ] = this_cons_seq;
@@ -449,13 +506,23 @@ STEM_(park_attempt)( STEM_CALLBACK_CONTEXT_TYPE * ctx,
       STEM_CALLBACK_RECV_CREDIT( ctx, cons_out[ cons_idx ], out_seq[ cons_out[ cons_idx ] ], this_cons_seq );
 #endif
     }
-    for( ulong k=0UL; k<event_cnt; k++ ) {
-      if( event_map[ k ]==cons_cnt ) {
-        *event_seq = k;
-        break;
+    if( FD_UNLIKELY( (*now-hk_due)>=0L ) ) {
+      /* A lazy interval passed since the last housekeeping (metrics,
+         heartbeat, DURING_HOUSEKEEPING), which also refreshes credits,
+         so make it due now. */
+      for( ulong k=0UL; k<event_cnt; k++ ) {
+        if( event_map[ k ]==cons_cnt ) {
+          *event_seq = k;
+          break;
+        }
       }
+      *then = *now;
+    } else {
+      /* Refresh credits only.  The park flushed the ins and we just
+         reloaded the cons, so no other event is due yet either. */
+      STEM_(cr_refresh)( out_cnt, out_depth, out_seq, cr_avail, min_cr_avail, cr_max, cons_cnt, cons_out, cons_seq, cons_slow, (ulong)backpressured );
+      *then = *now + (long)async_min;
     }
-    *then = *now;
   }
 }
 
