@@ -104,8 +104,8 @@ STEM_(STEM_RUN1_NAME)( ulong                        in_cnt,
   cr_avail     = (ulong *)FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), out_cnt*sizeof(ulong) );
   min_cr_avail = fd_ulong_if( cons_cnt>0UL, 0UL, ULONG_MAX );
 
-  out_depth  = (ulong *)FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), out_cnt*sizeof(ulong) );
-  out_seq    = (ulong *)FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), out_cnt*sizeof(ulong) );
+  out_depth   = (ulong *)FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), out_cnt*sizeof(ulong) );
+  out_seq     = (ulong *)FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), out_cnt*sizeof(ulong) );
   out_seq_pub = (ulong *)FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), out_cnt*sizeof(ulong) );
   out_reliable = (int *)FD_SCRATCH_ALLOC_APPEND( l, alignof(int),   out_cnt*sizeof(int)   );
 
@@ -117,8 +117,7 @@ STEM_(STEM_RUN1_NAME)( ulong                        in_cnt,
 
     out_depth[ out_idx ] = fd_mcache_depth( out_mcache[ out_idx ] );
     out_seq[ out_idx ] = 0UL;
-    out_seq_pub[ out_idx ] = 0UL; /* ==out_seq: an out never published never stores its sync word or seq_mirror
-                                     (another client may publish that link and write the mirror itself) */
+    out_seq_pub[ out_idx ] = 0UL; /* ==out_seq: an out never published is never flushed (another client may own it) */
 
     cr_avail[ out_idx ] = out_depth[ out_idx ];
     out_reliable[ out_idx ] = 0;
@@ -169,10 +168,33 @@ STEM_(STEM_RUN1_NAME)( ulong                        in_cnt,
   FD_MGAUGE_SET( TILE, STATUS, 1UL );
   long then = fd_tickcount();
   long now  = then;
+
+#if defined(STEM_CALLBACK_BEFORE_CREDIT) || defined(STEM_CALLBACK_AFTER_CREDIT) || defined(STEM_CALLBACK_AFTER_FRAG) || defined(STEM_CALLBACK_RETURNABLE_FRAG)
+  fd_stem_context_t stem = {
+    .mcaches             = out_mcache,
+    .depths              = out_depth,
+    .seqs                = out_seq,
+    .now                 = now,
+
+    .cr_avail            = cr_avail,
+    .min_cr_avail        = &min_cr_avail,
+    .cr_decrement_amount = fd_ulong_if( out_cnt>0UL, 1UL, 0UL ),
+    .out_reliable        = out_reliable,
+    .cons_seq            = cons_seq,
+    .in                  = in,
+
+    .sleep               = sleep->shmem,
+    .wake                = sleep->wake,
+    .wake_off            = sleep->wake_off,
+    .in_fseq             = in_fseq,
+    .in_producer         = sleep->in_producer,
+  };
+#endif
+
 #if STEM_SLEEP_PARKS
   long linger_start = then;
   long hk_ticks     = (long)(async_min*event_cnt); /* ~lazy */
-  long hk_due       = then;                        /* a park wake past this runs the housekeeping event */
+  long hk_due       = then;                        /* a park wake past this runs housekeeping */
 #endif
   for(;;) {
 
@@ -235,11 +257,8 @@ STEM_(STEM_RUN1_NAME)( ulong                        in_cnt,
         /* Receive flow control credits */
         STEM_(cr_refresh)( out_cnt, out_depth, out_seq, cr_avail, &min_cr_avail, cr_max, cons_cnt, cons_out, cons_seq, cons_slow, metric_in_backp );
 
-        /* Publish producer progress sync word, for the outs that moved.
-           An out this stem never published stays at out_seq_pub==0==
-           out_seq: another writer (the keyguard client on a sign link,
-           the event client) may own that sync word and mirror, and 0
-           would rewind it. */
+        /* Publish producer progress sync word, for the outs that moved
+           (an out never published here may belong to another writer) */
         for( ulong out_idx=0UL; out_idx<out_cnt; out_idx++ ) {
           if( FD_UNLIKELY( out_seq_pub[ out_idx ]==out_seq[ out_idx ] ) ) continue;
           STEM_(out_publish)( sleep, out_mcache[ out_idx ], out_idx, out_seq[ out_idx ] );
@@ -294,24 +313,7 @@ STEM_(STEM_RUN1_NAME)( ulong                        in_cnt,
     }
 
 #if defined(STEM_CALLBACK_BEFORE_CREDIT) || defined(STEM_CALLBACK_AFTER_CREDIT) || defined(STEM_CALLBACK_AFTER_FRAG) || defined(STEM_CALLBACK_RETURNABLE_FRAG)
-    fd_stem_context_t stem = {
-      .mcaches             = out_mcache,
-      .depths              = out_depth,
-      .seqs                = out_seq,
-
-      .cr_avail            = cr_avail,
-      .min_cr_avail        = &min_cr_avail,
-      .cr_decrement_amount = fd_ulong_if( out_cnt>0UL, 1UL, 0UL ),
-      .out_reliable        = out_reliable,
-      .cons_seq            = cons_seq,
-      .in                  = in,
-
-      .sleep               = sleep->shmem,
-      .wake                = sleep->wake,
-      .wake_off            = sleep->wake_off,
-      .in_fseq             = in_fseq,
-      .in_producer         = sleep->in_producer,
-    };
+    stem.now = now;
 #endif
 
     int charge_busy_before = 0;
@@ -639,8 +641,6 @@ STEM_(STEM_RUN1_NAME)( ulong                        in_cnt,
     now = next;
   }
 
-  /* Same guard as the housekeeping flush: an out the stem never
-     published may belong to another writer. */
   for( ulong out_idx=0UL; out_idx<out_cnt; out_idx++ ) {
     if( FD_UNLIKELY( out_seq_pub[ out_idx ]==out_seq[ out_idx ] ) ) continue;
     STEM_(out_publish)( sleep, out_mcache[ out_idx ], out_idx, out_seq[ out_idx ] );
