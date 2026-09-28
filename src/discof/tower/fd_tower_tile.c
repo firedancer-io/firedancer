@@ -1771,7 +1771,7 @@ failover_adopt_empty( fd_tower_tile_t * ctx ) {
   ctx->failover_tower_adopted = 0;
   fd_tower_adopt_result_t result = failover_adopt_votes( ctx, NULL, 0UL, ULONG_MAX, NULL, NULL );
   if( FD_LIKELY( result.result==FD_TOWER_ADOPT_SUCCESS ) )
-    FD_LOG_WARNING(( "failover --force adopted an empty tower at root %lu; earlier unrecorded votes and lockouts are not protected", result.root ));
+    FD_LOG_WARNING(( "failover --force adopted an empty tower at root %lu, earlier unrecorded votes and lockouts are not protected", result.root ));
   return result;
 }
 
