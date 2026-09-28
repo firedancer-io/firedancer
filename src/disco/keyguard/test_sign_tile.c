@@ -253,7 +253,10 @@ main( int     argc,
   fd_boot( &argc, &argv );
   fd_log_level_core_set( 8 );
 
-  char dir[] = "/tmp/fd-sign-failover-XXXXXX";
+  char dir[ PATH_MAX ];
+  char const * tmp_dir = getenv( "TMPDIR" );
+  FD_TEST( fd_cstr_printf_check( dir, sizeof(dir), NULL, "%s/fd-sign-failover-XXXXXX",
+                                 tmp_dir && tmp_dir[0] ? tmp_dir : "/tmp" ) );
   FD_TEST( mkdtemp( dir ) );
   FD_TEST( fd_cstr_printf_check( junk_path,   sizeof(junk_path),   NULL, "%s/junk.json",   dir ) );
   FD_TEST( fd_cstr_printf_check( staked_path, sizeof(staked_path), NULL, "%s/staked.json", dir ) );
