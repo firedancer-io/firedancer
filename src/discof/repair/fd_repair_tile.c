@@ -1047,7 +1047,14 @@ after_credit( ctx_t *             ctx,
 
   /* finally, send the request made by policy */
   fd_repair_send_sign_request( ctx, sign_out, cout, NULL );
-  if( FD_LIKELY( cout->kind == FD_REPAIR_KIND_SHRED ) ) record_inflight_request( ctx, cout->shred.nonce, &cout->shred.to, cout->shred.slot, cout->shred.shred_idx, now );
+  if( FD_LIKELY( cout->kind == FD_REPAIR_KIND_SHRED ) ) {
+    record_inflight_request( ctx, cout->shred.nonce, &cout->shred.to, cout->shred.slot, cout->shred.shred_idx, now );
+    fd_forest_blk_t * blk = fd_forest_query( ctx->forest, cout->shred.slot );
+    if( FD_LIKELY( blk ) ) {
+      blk->req_window_cnt++;
+      if( FD_UNLIKELY( !blk->first_req_ts ) ) blk->first_req_ts = fd_tickcount();
+    }
+  }
 }
 
 static void

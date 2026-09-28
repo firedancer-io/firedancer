@@ -2,9 +2,7 @@
 #include "../../disco/metrics/fd_metrics.h"
 
 #define NONCE_NULL        (UINT_MAX)
-#define DEFER_REPAIR_MS   (200UL)
-#define TARGET_TICK_PER_SLOT (64.0)
-#define MS_PER_TICK          (200.0 / TARGET_TICK_PER_SLOT)
+#define DEFER_REPAIR_MS   (150UL)
 
 void *
 fd_policy_new( void * shmem, ulong peer_max, ulong seed, fd_rnonce_ss_t const * rnonce_ss ) {
@@ -104,23 +102,39 @@ static ulong ts_ms( long wallclock ) {
   return (ulong)wallclock / (ulong)1e6;
 }
 
-/* throttle_remaining_ns returns how long until the block passes the
-   eager repair threshold, 0 if it already passes.  Essentially is
-   checking if current duration of block ( from the first shred
-   received until now ) is greater than the highest tick received +
-   200ms. */
+/* throttle_remaining_ns returns how long (ns) until the candidate
+   missing shred cand_idx of ele passes the eager repair threshold, 0 if
+   it already passes.  A missing shred becomes eligible DEFER_REPAIR_MS
+   after turbine was first observed reaching its FEC set (see
+   fd_forest_blk_recv_ms).
+
+   If the set has not been observed, we wait DEFER_REPAIR_MS from the
+   last set turbine delivered before it; if no set has been observed the
+   window runs from first_shred_ts. */
 
 static long
-throttle_remaining_ns( fd_policy_t * policy, fd_forest_blk_t * ele ) {
+throttle_remaining_ns( fd_policy_t * policy, fd_forest_t const * forest, fd_forest_blk_t const * ele, uint cand_idx ) {
   if( FD_UNLIKELY( ele->slot < policy->turbine_slot0 ) ) return 0L;
-  double current_duration = (double)(fd_tickcount() - ele->first_shred_ts) / fd_tempo_tick_per_ns(NULL);
-  double tick_plus_buffer = (ele->est_buffered_tick_recv * MS_PER_TICK + DEFER_REPAIR_MS) * 1e6;
+  if( FD_UNLIKELY( !ele->first_shred_ts ) ) return 0L; /* nothing observed yet, nothing to defer against */
 
-  if( current_duration >= tick_plus_buffer ){
+  fd_forest_recv_t const * recv = fd_forest_blk_recv( forest, ele );
+  uint fec_idx = (uint)fd_ulong_min( cand_idx/FD_FEC_SHRED_CNT, forest->shred_max/FD_FEC_SHRED_CNT-1UL );
+  ushort ms = 0;
+
+  for(;;) {
+    ms = recv[ fec_idx ].first;
+    if( FD_LIKELY( ms || !fec_idx ) ) break;
+    fec_idx--;
+  }
+
+  double first_ms   = (double)ms; /* time since first_shred_ts */
+  double elapsed_ms = (double)(fd_tickcount() - ele->first_shred_ts) / fd_tempo_tick_per_ns( NULL ) * 1e-6;
+  double deadline   = first_ms + (double)DEFER_REPAIR_MS;
+  if( elapsed_ms >= deadline ) {
     FD_MCNT_INC( REPAIR, EAGER_THRESHOLD_EXCEEDED, 1 );
     return 0L;
   }
-  return (long)(tick_plus_buffer - current_duration);
+  return (long)( (deadline - elapsed_ms) * 1e6 );
 }
 
 static inline fd_policy_peer_dlist_iter_t
@@ -238,80 +252,81 @@ fd_policy_next( fd_policy_t * policy, fd_reqlim_t * dedup, fd_forest_t * forest,
   fd_forest_blk_t * ele = fd_forest_pool_ele( pool, iter->ele_idx );
 
   /* The next request this call would produce.  If it was recently
-     declined and nothing about it changed, skip the turn. */
+     declined and nothing about it changed, skip the turn.  A throttle
+     memo applies to any slot (see fd_policy_skip_t for why memos are
+     per slot).  A dedup memo is only written for, and only applies to,
+     the head slot: once highest_known_slot moves on, the same candidate
+     maps to a highest-shred probe under a different reqlim key, so the
+     memo would be stale.  Older slots with both their probe and tail
+     request rate limited are simply re-evaluated each turn. */
   uint cand_idx = iter->shred_idx==UINT_MAX ? ele->buffered_idx+1U : iter->shred_idx;
-  if( FD_UNLIKELY( ( policy->skip.throttled || iter->shred_idx==UINT_MAX ) &&
-                   ele->slot==highest_known_slot &&
-                   policy->skip.slot==ele->slot &&
-                   policy->skip.idx==cand_idx &&
-                   now<policy->skip.until ) ) {
+  fd_policy_skip_t * skip = fd_policy_skip( policy, ele->slot );
+  if( FD_UNLIKELY( ( skip->throttled || ( iter->shred_idx==UINT_MAX && ele->slot==highest_known_slot ) ) &&
+                   skip->slot==ele->slot &&
+                   skip->idx==cand_idx &&
+                   now<skip->until ) ) {
     iter->shred_idx = UINT_MAX;
     return NULL;
   }
 
-  long throttle_ns = ele->slot==highest_known_slot ? throttle_remaining_ns( policy, ele ) : 0L;
+  long throttle_ns = throttle_remaining_ns( policy, forest, ele, cand_idx );
   if( FD_UNLIKELY( throttle_ns ) ) {
     /* When we are at the head of the turbine, we should give turbine the
-       chance to complete the shreds.  Agave waits 200ms from the
-       estimated "correct time" of the highest shred received to repair.
-       i.e. if we've received the first 200 shreds, the 200th has a tick
-       of x. Translate that to millis, and we should wait to request shred
-       201 until x + 200ms.  If we have a hole, i.e. first 200 shreds
-       receive except shred 100, and the 101th shred has a tick of y, we
-       should wait until y + 200ms to request shred 100.
+       chance to complete the shreds.
 
        Here we did not pass the timeout threshold, so we are not ready
-       to repair this slot yet.  But it's possible we have another fork
-       that we need to repair... so we just should skip to the next SLOT
-       in the main tree iterator.  The likelihood that this ele is the
-       head of turbine is high, which means that the shred_idx of the
-       iterf is likely to be UINT_MAX, which means calling
-       fd_forest_iter_next will advance the iterf to the next slot. */
+       to repair this slot yet.  But it's possible we have another slot
+       (an older one still within its window, or another fork) that we
+       need to repair... so we just should skip to the next SLOT in the
+       main tree iterator.  Setting shred_idx to UINT_MAX makes the next
+       fd_forest_iter_next advance the iter to the next slot (and
+       re-queue this one at the tail while it is incomplete). */
     iter->shred_idx = UINT_MAX;
-    /* TODO: Heinous... but the easiest way to ensure this slot gets
-       added back to the requests deque is if we set the shred_idx to
-       UINT_MAX, but maybe there should be an explicit API for it. */
 
-    policy->skip.slot      = ele->slot;
-    policy->skip.idx       = cand_idx;
-    policy->skip.throttled = 1;
     /* Cap at 1ms: the deadline is derived from tick estimates that can
        move as more shreds land without changing the candidate. */
-    policy->skip.until     = now + fd_long_min( throttle_ns, (long)1e6 );
+    skip->until     = now + fd_long_min( throttle_ns, (long)1e6 );
+    skip->slot      = ele->slot;
+    skip->idx       = cand_idx;
+    skip->throttled = 1;
     return NULL;
   }
 
   *charge_busy = 1;
 
   if( FD_UNLIKELY( iter->shred_idx == UINT_MAX ) ) {
-    // We'll never know the the highest shred for the current turbine slot, so there's no point in requesting it.
-    if( FD_UNLIKELY( ele->slot < highest_known_slot && !fd_reqlim_next( dedup, fd_reqlim_key( FD_REPAIR_KIND_HIGHEST_SHRED, ele->slot, UINT_MAX ), now ) ) ) {
+    /* No known interior missing shred: the next missing shred is the
+       tail (cand_idx = buffered_idx+1) and the block's end is unknown.
+       For a slot turbine has moved past, first probe the highest shred
+       a peer holds. Only if that probe is still inside its reqlim rate
+       window from an earlier turn, or this is the head turbine slot
+       whose end no peer knows yet, ask for the tail shred directly
+       instead */
+    ulong highest_key = fd_reqlim_key( FD_REPAIR_KIND_HIGHEST_SHRED, ele->slot, UINT_MAX );
+    if( FD_UNLIKELY( ele->slot < highest_known_slot && !fd_reqlim_next( dedup, highest_key, now ) ) ) {
       uint nonce = fd_rnonce_ss_compute( policy->rnonce_ss, 0, ele->slot, 0U, now );
       out = fd_repair_highest_shred( repair, fd_policy_peer_select( policy ), now_ms, nonce, ele->slot, 0 );
       ele->req_highest_cnt++;
-    } else if( FD_LIKELY( ele->slot == highest_known_slot && (ulong)cand_idx < forest->shred_max ) ) {
+    } else if( FD_LIKELY( (ulong)cand_idx < forest->shred_max ) ) {
       ulong key = fd_reqlim_key( FD_REPAIR_KIND_SHRED, ele->slot, cand_idx );
       if( FD_UNLIKELY( fd_reqlim_query( dedup, key, now ) ) ) {
-        policy->skip.slot      = ele->slot;
-        policy->skip.idx       = cand_idx;
-        policy->skip.throttled = 0;
-        policy->skip.until     = fd_reqlim_next_due( dedup, key, now );
+        // TODO should this be gated on ele->slot == highest_known_slot?
+        skip->slot      = ele->slot;
+        skip->idx       = cand_idx;
+        skip->throttled = 0;
+        skip->until     = fd_reqlim_next_due( dedup, key, now );
         *charge_busy = 0;
         return NULL;
       }
-      uint nonce = fd_rnonce_ss_compute( policy->rnonce_ss, 1, ele->slot, ele->buffered_idx + 1, now );
-      out = fd_repair_shred( repair, fd_policy_peer_select( policy ), now_ms, nonce, ele->slot, ele->buffered_idx + 1 );
-      ele->req_window_cnt++;
+      uint nonce = fd_rnonce_ss_compute( policy->rnonce_ss, 1, ele->slot, cand_idx, now );
+      out = fd_repair_shred( repair, fd_policy_peer_select( policy ), now_ms, nonce, ele->slot, cand_idx );
     }
   } else {
-    /* Regular repair requests are not deduped.  Any potential regular
-       shred request that will be made needs to be handled at the repair
-       tile level to allow repair tile to re-request the same shred if
-       it gets deduped. */
+    /* Regular repair requests are not deduped here.  The repair tile
+       dedups them and parks a deduped one in its inflight table so it
+       is retried on timeout.  Metrics increment also occurs in the tile. */
     uint nonce = fd_rnonce_ss_compute( policy->rnonce_ss, 1, ele->slot, iter->shred_idx, now );
     out = fd_repair_shred( repair, fd_policy_peer_select( policy ), now_ms, nonce, ele->slot, iter->shred_idx );
-    ele->req_window_cnt++;
-    if( FD_UNLIKELY( ele->first_req_ts == 0 ) ) ele->first_req_ts = fd_tickcount();
   }
   return out;
 }

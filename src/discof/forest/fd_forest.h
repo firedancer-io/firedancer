@@ -160,6 +160,16 @@ struct fd_forest_mr {
 };
 typedef struct fd_forest_mr fd_forest_mr_t;
 
+/* Per-FEC turbine arrival stamps, shred_max/FD_FEC_SHRED_CNT per block,
+   also in a side array indexed by pool idx.  first is the ms offset
+   from first_shred_ts at which turbine was first observed reaching the
+   set. */
+
+struct fd_forest_recv {
+  ushort first;
+};
+typedef struct fd_forest_recv fd_forest_recv_t;
+
 /* fd_forest_blk_t implements a left-child, right-sibling n-ary
    tree. Each ele maintains the `pool` index of its left-most child
    (`child_idx`), its immediate-right sibling (`sibling_idx`), and its
@@ -185,7 +195,8 @@ struct __attribute__((aligned(128UL))) fd_forest_blk {
   uint complete_idx; /* shred_idx with SLOT_COMPLETE_FLAG ie. last shred idx in the slot */
 
   /* received data shred idxs, received merkle roots and code shred idxs
-     are runtime-sized side arrays, see fd_forest_blk_{idxs,mroots,code} */
+     and per-FEC turbine arrival stamps are runtime-sized side arrays,
+     see fd_forest_blk_{idxs,mroots,code,recv} */
 
   fd_hash_t confirmed_bid;  /* confirmed block id - can't be wrapped in the merkle roots struct because we can create sentinel blocks
                                on confirmation, and don't know the index of the last fec set until we repair the slot.
@@ -198,10 +209,6 @@ struct __attribute__((aligned(128UL))) fd_forest_blk {
 
   uchar chain_confirmed; /* 1 if all the FECs the slot have been confirmed via fec_chain_verify, 0 otherwise.  Note confirmed_bid
                             can be populated before this is set to 1. */
-
-  int est_buffered_tick_recv; /* tick of shred at buffered_idx.  Note since we don't track all the
-                                 ticks received, this will be a lower bound estimate on the highest tick we have seen.
-                                 But this is only used for limiting eager repair, so an exact value is not necessary. */
 
   /* Metrics */
 
@@ -371,6 +378,8 @@ typedef struct fd_forest_ref fd_forest_ref_t;
    |-------------------|
    | mroots (per blk)  |
    |-------------------|
+   | recv (per blk)    |
+   |-------------------|
    | ancestry          |
    |-------------------|
    | frontier          |
@@ -414,6 +423,7 @@ struct __attribute__((aligned(128UL))) fd_forest {
   ulong idxs_gaddr;     /* wksp gaddr of per-blk data shred idx bitsets, fd_forest_blk_idxs_word_cnt( shred_max ) words each */
   ulong code_gaddr;     /* wksp gaddr of per-blk code shred idx bitsets */
   ulong mroots_gaddr;   /* wksp gaddr of per-blk fd_forest_mr_t arrays, shred_max/FD_FEC_SHRED_CNT each */
+  ulong recv_gaddr;     /* wksp gaddr of per-blk fd_forest_recv_t arrays, shred_max/FD_FEC_SHRED_CNT each */
   ulong ancestry_gaddr; /* wksp_gaddr of fd_forest_ancestry */
   ulong frontier_gaddr; /* leaves that needs repair */
   ulong subtrees_gaddr; /* head of orphaned trees */
@@ -461,7 +471,9 @@ FD_FN_CONST static inline ulong
 fd_forest_footprint( ulong ele_max, ulong shred_max ) {
   ulong idxs_sz   = ele_max*fd_forest_blk_idxs_word_cnt( shred_max )*sizeof(fd_forest_blk_idxs_t);
   ulong mroots_sz = ele_max*(shred_max/FD_FEC_SHRED_CNT)*sizeof(fd_forest_mr_t);
+  ulong recv_sz   = ele_max*(shred_max/FD_FEC_SHRED_CNT)*sizeof(fd_forest_recv_t);
   return FD_LAYOUT_FINI(
+    FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
@@ -488,6 +500,7 @@ fd_forest_footprint( ulong ele_max, ulong shred_max ) {
       128UL,                      idxs_sz                                 ),
       128UL,                      idxs_sz                                 ),
       128UL,                      mroots_sz                               ),
+      128UL,                      recv_sz                                 ),
       fd_forest_ancestry_align(), fd_forest_ancestry_footprint( ele_max ) ),
       fd_forest_frontier_align(), fd_forest_frontier_footprint( ele_max ) ),
       fd_forest_subtrees_align(), fd_forest_subtrees_footprint( ele_max ) ),
@@ -578,8 +591,9 @@ fd_forest_pool_const( fd_forest_t const * forest ) {
 
 /* fd_forest_blk_{idxs,code} return blk's data / code shred idx bitset
    (fd_forest_blk_idxs_word_cnt( forest->shred_max ) words) and
-   fd_forest_blk_mroots blk's merkle roots (forest->shred_max /
-   FD_FEC_SHRED_CNT entries).  blk must be a pool element of forest. */
+   fd_forest_blk_{mroots,recv} blk's merkle roots / per-FEC turbine
+   arrival stamps (forest->shred_max / FD_FEC_SHRED_CNT entries each).
+   blk must be a pool element of forest. */
 
 FD_FN_PURE static inline fd_forest_blk_idxs_t *
 fd_forest_blk_idxs( fd_forest_t const * forest, fd_forest_blk_t const * blk ) {
@@ -597,6 +611,12 @@ FD_FN_PURE static inline fd_forest_mr_t *
 fd_forest_blk_mroots( fd_forest_t const * forest, fd_forest_blk_t const * blk ) {
   fd_forest_mr_t * mroots = fd_wksp_laddr_fast( fd_forest_wksp( forest ), forest->mroots_gaddr );
   return mroots + fd_forest_pool_idx( fd_forest_pool_const( forest ), blk )*(forest->shred_max/FD_FEC_SHRED_CNT);
+}
+
+FD_FN_PURE static inline fd_forest_recv_t *
+fd_forest_blk_recv( fd_forest_t const * forest, fd_forest_blk_t const * blk ) {
+  fd_forest_recv_t * recv = fd_wksp_laddr_fast( fd_forest_wksp( forest ), forest->recv_gaddr );
+  return recv + fd_forest_pool_idx( fd_forest_pool_const( forest ), blk )*(forest->shred_max/FD_FEC_SHRED_CNT);
 }
 
 /* fd_forest_{ancestry, ancestry_const} returns a pointer in the caller's
