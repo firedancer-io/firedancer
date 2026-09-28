@@ -232,13 +232,22 @@ batch_enqueue( fd_verify_ctx_t *   ctx,
 static inline int
 frag_ready( fd_verify_ctx_t *         ctx,
             fd_stem_context_t const * stem ) {
+  /* stem->in is the stem's slot array, which it reshuffles every
+     housekeeping round (fd_stem_run1.c); the tile's own per-in state
+     is indexed by the stable in index in->idx, like every other
+     callback's in_idx.  Indexing it by the slot compared a link's seq
+     against another link's ready seq once the slots had moved, and a
+     low-rate link landing in a slot that once held the net link then
+     reported "ready" until the next reshuffle, so the idle flush never
+     ran and batches waited for the size trigger. */
   for( ulong i=0UL; i<ctx->in_cnt; i++ ) {
     fd_stem_tile_in_t const * in = stem->in + i;
+    ulong j   = in->idx;
     ulong seq = in->seq;
-    if( FD_LIKELY( fd_seq_lt( seq, ctx->in_ready_seq[ i ] ) ) ) return 1;
-    if( FD_LIKELY( ctx->in_kind[ i ]==IN_KIND_QUIC ) ) seq += (ctx->round_robin_idx + ctx->round_robin_cnt - seq%ctx->round_robin_cnt) % ctx->round_robin_cnt;
+    if( FD_LIKELY( fd_seq_lt( seq, ctx->in_ready_seq[ j ] ) ) ) return 1;
+    if( FD_LIKELY( ctx->in_kind[ j ]==IN_KIND_QUIC ) ) seq += (ctx->round_robin_idx + ctx->round_robin_cnt - seq%ctx->round_robin_cnt) % ctx->round_robin_cnt;
     if( FD_LIKELY( fd_seq_ge( fd_mcache_query( in->mcache, in->depth, seq ), seq ) ) ) {
-      ctx->in_ready_seq[ i ] = seq+1UL;
+      ctx->in_ready_seq[ j ] = seq+1UL;
       return 1;
     }
   }

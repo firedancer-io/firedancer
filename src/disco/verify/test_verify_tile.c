@@ -452,6 +452,31 @@ test_batching( void ) {
     CHECK_OUT();
   }
 
+  /* 2b. The stem reshuffles its in slots every housekeeping round
+        (fd_stem_run1.c swaps in[0] with a random slot), so frag_ready
+        must index the tile's per-in state by in->idx, not by the slot.
+        Swap the quic in into slot 0 and a low-seq in into the quic
+        slot: with the slot index, the low-seq in would compare against
+        the quic ready seq and report "ready" forever, and the idle
+        flush would never run. */
+  {
+    fd_stem_tile_in_t tmp = ins[0]; ins[0] = ins[IN_IDX_QUIC]; ins[IN_IDX_QUIC] = tmp;
+    payload_sz[0] = make_txn( rng, sha, payload[0], 1UL, ULONG_MAX ); EXPECT( 0 );
+    fd_mcache_publish( in_link->mcache, ins[0].depth, in_seq, 0UL, 0UL, 0UL, 0UL, 0UL, 0UL );
+    fd_txn_m_t * txnm = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
+    expect_chunk[0] = ctx->out_chunk;
+    txnm->payload_sz = (ushort)payload_sz[0]; txnm->block_engine.bundle_id = 0UL;
+    fd_memcpy( fd_txn_m_payload( txnm ), payload[0], payload_sz[0] );
+    after_frag( ctx, IN_IDX_QUIC, in_seq, 0UL, payload_sz[0], 0UL, 0UL, stem );
+    in_seq++; ins[0].seq = in_seq;
+    FD_TEST( ctx->batch_txn_cnt==1UL );
+    int poll_in = 1, busy = 0;
+    after_credit( ctx, stem, &poll_in, &busy );
+    FD_TEST( ctx->batch_txn_cnt==0UL && busy ); /* nothing ready on any in: flushed */
+    CHECK_OUT();
+    tmp = ins[0]; ins[0] = ins[IN_IDX_QUIC]; ins[IN_IDX_QUIC] = tmp;
+  }
+
   /* 3. Multi-signature transactions: a 3-sig with a bad middle
         signature between 1-sig ones, a 12-sig one alone, and a
         duplicate of an earlier transaction dropped by the tcache. */
