@@ -20,6 +20,7 @@ quiesce() { # identical host state before every timed run; args: files to pre-re
   for _ in $(seq 60); do  # let writeback drain
     (( $(awk '/^(Dirty|Writeback):/{s+=$2} END{print s}' /proc/meminfo) < 16384 )) && break; sleep 0.5
   done
+  sudo fstrim "$(findmnt -n -o TARGET -T "$DUMP_DIR")" || true  # discard the deleted accounts.db: both sides write to trimmed flash
 }
 
 backtest() { # ledger, then run_ledger_backtest.sh args
@@ -27,9 +28,11 @@ backtest() { # ledger, then run_ledger_backtest.sh args
   quiesce "$ledger"/shreds.pcapng.zst "$ledger"/snapshot-*.tar.zst "$ledger"/genesis.bin
   rm -f "$out.log"  # fd_log appends
   cat /proc/diskstats > "$out.diskstats.pre"   # disk work of the run = post - pre
+  for d in /dev/nvme?n1; do sudo nvme smart-log -o json "$d" > "$out.smart.pre.${d#/dev/}" 2>/dev/null || true; done
   OBJDIR=$BENCH_DIR/$side CI=1 DUMP_DIR=$DUMP_DIR setarch -R \
     ./src/flamenco/runtime/tests/run_ledger_backtest.sh -l "$@" --log "$out.log"
   cat /proc/diskstats > "$out.diskstats.post"
+  for d in /dev/nvme?n1; do sudo nvme smart-log -o json "$d" > "$out.smart.post.${d#/dev/}" 2>/dev/null || true; done
 }
 
 case $what in
