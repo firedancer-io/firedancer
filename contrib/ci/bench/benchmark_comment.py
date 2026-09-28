@@ -45,7 +45,6 @@ ROWS = (
     ("mem_mainnet",   "mem total, mainnet",        "replay",   lambda d, s: mem(d, s, "mainnet"),                          ".2f GiB",    0.0,  1.0, False),
     ("mem_testnet",   "mem total, testnet",        "replay",   lambda d, s: mem(d, s, "testnet"),                          ".2f GiB",    0.0,  1.0, False),
     ("mem_ag_mainnet","mem total, ag mainnet",     "replay",   lambda d, s: mem(d, s, "ag.mainnet"),                       ".2f GiB",    0.0,  1.0, False),
-    ("mem_ag_testnet","mem total, ag testnet",     "replay",   lambda d, s: mem(d, s, "ag.testnet"),                       ".2f GiB",    0.0,  1.0, False),
     ("compile",       "clean compile, firedancer", "replay",   lambda d, s: float(read(d, s, "build.time").split()[0]),   ".2f s",      3.0,  6.0, False),  # wall
     ("binsize",       "binary size, firedancer",   "replay",   lambda d, s: os.path.getsize(f"{d}/{s}/bin/firedancer") / 1e6, ".2f MB",     0.5,  2.0, False),
 )
