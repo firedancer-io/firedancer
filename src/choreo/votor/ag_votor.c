@@ -368,17 +368,17 @@ try_final( ag_votor_t *          self,
            ag_block_hash_t const hash ) {
   FD_TEST( slot>=first_unpruned_slot( self ) );
   ag_votor_epoch_t const * epoch = own_epoch( self, slot );
-  if( FD_UNLIKELY( !epoch->has_bls_pubkey ) ) return;
 
   slot_state_ele_t const * state = slot_state_map_ele_query_const( self->slot_states->map, &slot, NULL, self->slot_states->pool );
   int notarized   = state && state->block_notarized && !memcmp( state->block_notarized_hash, hash, sizeof(ag_block_hash_t) );
   int voted_notar = state && state->voted_notar     && !memcmp( state->voted_notar_hash,     hash, sizeof(ag_block_hash_t) );
   int not_bad     = !( state && state->bad_window );
   if( FD_LIKELY( notarized && voted_notar && not_bad ) ) {
+    state_mut( self, slot )->retired = 1;
+    if( FD_UNLIKELY( !epoch->has_bls_pubkey ) ) return;
     ag_vote_t vote = ag_vote_construct_final( self->bls_sign_fn, self->bls_sign_ctx, epoch->bls_pubkey, slot, (ushort)epoch->rank, self->shred_version );
     FD_TEST( !vote_events_full( self->vote_events ) );
     vote_events_push( self->vote_events, (ag_event_vote_t){ .seq = self->seq++, .ts = self->now, .reason = AG_VOTOR_REASON_BLOCK_NOTARIZED, .vote = vote } );
-    state_mut( self, slot )->retired = 1;
   }
 }
 
@@ -389,7 +389,6 @@ try_notar( ag_votor_t *            self,
            uchar                   reason ) {
   FD_TEST( slot>=first_unpruned_slot( self ) );
   ag_votor_epoch_t const * epoch = own_epoch( self, slot );
-  if( FD_UNLIKELY( !epoch->has_bls_pubkey ) ) return 0;
   if( FD_UNLIKELY( has_voted( self, slot ) ) ) return 0;
 
   ag_block_hash_t hash;
@@ -412,9 +411,11 @@ try_notar( ag_votor_t *            self,
     if( FD_UNLIKELY( memcmp( parent_state->voted_notar_hash, parent.hash, sizeof(ag_block_hash_t) )!=0 ) ) return 0;
   }
 
-  ag_vote_t vote = ag_vote_construct_notar( self->bls_sign_fn, self->bls_sign_ctx, epoch->bls_pubkey, slot, hash, (ushort)epoch->rank, self->shred_version );
-  FD_TEST( !vote_events_full( self->vote_events ) );
-  vote_events_push( self->vote_events, (ag_event_vote_t){ .seq = self->seq++, .ts = self->now, .reason = reason, .vote = vote } );
+  if( FD_LIKELY( epoch->has_bls_pubkey ) ) {
+    ag_vote_t vote = ag_vote_construct_notar( self->bls_sign_fn, self->bls_sign_ctx, epoch->bls_pubkey, slot, hash, (ushort)epoch->rank, self->shred_version );
+    FD_TEST( !vote_events_full( self->vote_events ) );
+    vote_events_push( self->vote_events, (ag_event_vote_t){ .seq = self->seq++, .ts = self->now, .reason = reason, .vote = vote } );
+  }
 
   slot_state_ele_t * state = state_mut( self, slot );
   if( FD_UNLIKELY( state->pending_block ) ) pending_dlist_ele_remove( self->pending_dlist, state, self->slot_states->pool );
@@ -436,12 +437,13 @@ try_skip_window( ag_votor_t * self,
   ulong window_start = ag_first_slot_in_window( slot );
   for( ulong s=window_start; s<window_start+AG_SLOTS_PER_WINDOW; s++ ) {
     if( FD_UNLIKELY( has_voted( self, s ) ) ) continue;
-    ag_votor_epoch_t const * epoch = own_epoch( self, s );
-    if( FD_UNLIKELY( !epoch->has_bls_pubkey ) ) continue;
 
     slot_state_ele_t * state = state_mut( self, s );
     state->voted             = 1;
     state->bad_window        = 1;
+
+    ag_votor_epoch_t const * epoch = own_epoch( self, s );
+    if( FD_UNLIKELY( !epoch->has_bls_pubkey ) ) continue;
 
     ag_vote_t vote = ag_vote_construct_skip( self->bls_sign_fn, self->bls_sign_ctx, epoch->bls_pubkey, s, (ushort)epoch->rank, self->shred_version );
     FD_TEST( !vote_events_full( self->vote_events ) );
@@ -524,13 +526,13 @@ handle_cert_created( ag_votor_t *      self,
 }
 
 void
-ag_votor_advance_epoch( ag_votor_t *  self,
-                        long          ns_per_slot,
-                        ulong         epoch_rank,
-                        ulong         epoch_slot,
-                        uchar const * bls_pubkey ) {
-  ag_votor_epoch_t epoch = { .start_slot = epoch_slot, .rank = epoch_rank, .has_bls_pubkey = !!bls_pubkey };
-  if( FD_LIKELY( bls_pubkey ) ) memcpy( epoch.bls_pubkey, bls_pubkey, FD_BLS_PUB_COMPRESSED_SZ );
+ag_votor_advance_epoch( ag_votor_t *       self,
+                        long               ns_per_slot,
+                        ulong              epoch_rank,
+                        ulong              epoch_slot,
+                        ag_bls_key_t const bls_key ) {
+  ag_votor_epoch_t epoch = { .start_slot = epoch_slot, .rank = epoch_rank, .has_bls_pubkey = !!bls_key };
+  if( FD_LIKELY( bls_key ) ) memcpy( epoch.bls_pubkey, bls_key, FD_BLS_PUB_COMPRESSED_SZ );
 
   if( FD_UNLIKELY( self->curr_epoch.start_slot==ULONG_MAX ) ) {
     self->curr_epoch = epoch;
@@ -545,19 +547,17 @@ ag_votor_advance_epoch( ag_votor_t *  self,
 }
 
 void
-ag_votor_set_bls_pubkey( ag_votor_t *  self,
-                         ulong         epoch_slot,
-                         uchar const * bls_pubkey ) {
+ag_votor_set_bls_pubkey( ag_votor_t *       self,
+                         ulong              epoch_slot,
+                         ag_bls_key_t const bls_key ) {
   ag_votor_epoch_t * epoch;
   if     ( epoch_slot==self->prev_epoch.start_slot ) epoch = &self->prev_epoch;
   else if( epoch_slot==self->curr_epoch.start_slot ) epoch = &self->curr_epoch;
   else if( epoch_slot==self->next_epoch.start_slot ) epoch = &self->next_epoch;
   else FD_LOG_CRIT(( "no epoch starts at slot %lu", epoch_slot ));
 
-  epoch->has_bls_pubkey = !!bls_pubkey;
-  if( FD_LIKELY( bls_pubkey ) ) memcpy( epoch->bls_pubkey, bls_pubkey, FD_BLS_PUB_COMPRESSED_SZ );
-
-  check_pending_blocks( self, AG_VOTOR_REASON_BLOCK_REPLAYED );
+  epoch->has_bls_pubkey = !!bls_key;
+  if( FD_LIKELY( bls_key ) ) memcpy( epoch->bls_pubkey, bls_key, FD_BLS_PUB_COMPRESSED_SZ );
 }
 
 void
@@ -599,7 +599,7 @@ ag_votor_handle_pool_event( ag_votor_t *            self,
       vote_events_push( self->vote_events, (ag_event_vote_t){ .seq = self->seq++, .ts = self->now, .reason = AG_VOTOR_REASON_SAFE_TO_NOTAR, .vote = vote } );
     }
     try_skip_window( self, slot, AG_VOTOR_REASON_SAFE_TO_NOTAR );
-    if( FD_LIKELY( epoch->has_bls_pubkey ) ) state_mut( self, slot )->bad_window = 1;
+    state_mut( self, slot )->bad_window = 1;
     break;
   }
 
@@ -612,7 +612,7 @@ ag_votor_handle_pool_event( ag_votor_t *            self,
       vote_events_push( self->vote_events, (ag_event_vote_t){ .seq = self->seq++, .ts = self->now, .reason = AG_VOTOR_REASON_SAFE_TO_SKIP, .vote = vote } );
     }
     try_skip_window( self, slot, AG_VOTOR_REASON_SAFE_TO_SKIP );
-    if( FD_LIKELY( epoch->has_bls_pubkey ) ) state_mut( self, slot )->bad_window = 1;
+    state_mut( self, slot )->bad_window = 1;
     break;
   }
 

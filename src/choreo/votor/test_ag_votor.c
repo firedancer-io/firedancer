@@ -455,33 +455,55 @@ test_set_bls_pubkey( void ) {
   teardown_votor( votor );
 }
 
+/* A notar vote made without a key still counts as cast: setting the key
+   later never sends it, and the next block builds on it. */
+
 static void
-test_set_bls_pubkey_votes_pending_blocks( void ) {
+test_missing_bls_selector_records_notar( void ) {
   ag_votor_t * votor = setup_votor( 0L );
   ag_votor_advance_epoch( votor, TEST_NS_PER_SLOT, 1UL, 2UL, NULL );
 
   ag_block_id_t parent = genesis_block_id();
   ag_vote_t vote = send_block_and_expect_notar( votor, 1UL, &parent );
 
-  ag_event_replay_t block2 = { .slot = 2UL };
-  block2.block_info.parent = ag_block_id( 1UL, vote.notar.block_hash );
-  random_hash( block2.block_info.hash );
-  ag_votor_handle_replay_event( votor, &block2 );
-  ag_event_replay_t block3 = { .slot = 3UL };
-  block3.block_info.parent = ag_block_id( 2UL, block2.block_info.hash );
-  random_hash( block3.block_info.hash );
-  ag_votor_handle_replay_event( votor, &block3 );
+  ag_event_replay_t block = { .slot = 2UL };
+  block.block_info.parent = ag_block_id( 1UL, vote.notar.block_hash );
+  random_hash( block.block_info.hash );
+  ag_votor_handle_replay_event( votor, &block );
   FD_TEST_NO_MSG( votor );
 
   ag_votor_set_bls_pubkey( votor, 2UL, g_bls_selector[1] );
-  for( ulong slot=2UL; slot<=3UL; slot++ ) {
-    vote = recv( votor );
-    FD_TEST( vote.kind==AG_VOTE_KIND_NOTAR );
-    FD_TEST( ag_vote_slot( &vote )==slot );
-    FD_TEST( ag_vote_rank( &vote )==1UL );
-  }
+  FD_TEST_NO_MSG( votor );
+
+  parent = ag_block_id( 2UL, block.block_info.hash );
+  vote   = send_block_and_expect_notar( votor, 3UL, &parent );
+  FD_TEST( ag_vote_rank( &vote )==1UL );
   FD_TEST( !memcmp( g_last_bls_selector, g_bls_selector[1], FD_BLS_PUB_COMPRESSED_SZ ) );
   FD_TEST_NO_MSG( votor );
+
+  teardown_votor( votor );
+}
+
+/* A final vote made without a key still retires the slot. */
+
+static void
+test_missing_bls_selector_records_final( void ) {
+  ag_votor_t * votor = setup_votor( 0L );
+  ag_votor_advance_epoch( votor, TEST_NS_PER_SLOT, 1UL, 2UL, NULL );
+
+  ag_block_id_t parent = genesis_block_id();
+  ag_vote_t vote = send_block_and_expect_notar( votor, 1UL, &parent );
+
+  ag_event_replay_t block = { .slot = 2UL };
+  block.block_info.parent = ag_block_id( 1UL, vote.notar.block_hash );
+  random_hash( block.block_info.hash );
+  ag_votor_handle_replay_event( votor, &block );
+
+  ag_vote_t       notar = ag_vote_construct_notar( sec_sign_fn, &g_sk[1], test_bls_public_key, 2UL, block.block_info.hash, (ushort)1, TEST_SHRED_VERSION );
+  ag_event_pool_t event = { .kind = AG_EVENT_POOL_CERT_CREATED, .cert_created = cert_build_notar( &notar.notar, 1UL, g_epoch_info ) };
+  ag_votor_handle_pool_event( votor, &event, 0L );
+  FD_TEST_NO_MSG( votor );
+  FD_TEST( is_retired( votor, 2UL ) );
 
   teardown_votor( votor );
 }
@@ -507,7 +529,7 @@ test_missing_bls_selector_still_skips_other_epoch( void ) {
     FD_TEST_NO_MSG( votor );
     ulong slot = 2UL;
     slot_state_ele_t const * state = slot_state_map_ele_query_const( votor->slot_states->map, &slot, NULL, votor->slot_states->pool );
-    FD_TEST( state && !state->voted && !state->bad_window );
+    FD_TEST( state && state->voted && state->bad_window );
 
     teardown_votor( votor );
   }
@@ -569,7 +591,8 @@ main( int     argc,
   test_bls_selector_rotates_with_epoch();
   test_missing_bls_selector_disables_voting();
   test_set_bls_pubkey();
-  test_set_bls_pubkey_votes_pending_blocks();
+  test_missing_bls_selector_records_notar();
+  test_missing_bls_selector_records_final();
   test_missing_bls_selector_still_skips_other_epoch();
   test_prunes_to_finalized_window();
 

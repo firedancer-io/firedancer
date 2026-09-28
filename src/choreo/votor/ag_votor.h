@@ -54,21 +54,21 @@ ag_votor_fini( ag_votor_t * self );
    epoch_slot. */
 
 void
-ag_votor_advance_epoch( ag_votor_t *  self,
-                        long          ns_per_slot,
-                        ulong         epoch_rank,
-                        ulong         epoch_slot,
-                        uchar const * bls_pubkey );
+ag_votor_advance_epoch( ag_votor_t *       self,
+                        long               ns_per_slot,
+                        ulong              epoch_rank,
+                        ulong              epoch_slot,
+                        ag_bls_key_t const bls_key );
 
 /* ag_votor_set_bls_pubkey updates the BLS key that is used for voting,
    or stops voting if the BLS key is NULL.  It should be called when
-   authorized voters change.  Replayed blocks that were waiting for a
-   key are voted on immediately. */
+   authorized voters change.  Votes made while there was no key are
+   never sent. */
 
 void
-ag_votor_set_bls_pubkey( ag_votor_t *  self,
-                         ulong         epoch_slot,
-                         uchar const * bls_pubkey );
+ag_votor_set_bls_pubkey( ag_votor_t *       self,
+                         ulong              epoch_slot,
+                         ag_bls_key_t const bls_key );
 
 /* Algorithm 1, lines 9-25. Votor::handle_pool_event */
 
