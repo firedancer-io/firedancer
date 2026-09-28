@@ -16,14 +16,14 @@
 #include <net/if.h>
 #include <stddef.h>
 #include <stdlib.h>
+#include <time.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 
 #include "../../metrics/fd_metrics.h"
 #include "../fd_net_router.h"
-#include "../fd_linux_bond.h"
 #include "../../topo/fd_topo.h"
-#include "../../../discof/repair/fd_repair.h"
+#include "../../sleep/fd_sleep.h"
 
 #include "../../../waltz/ip/fd_iproute.h"
 #include "../../../util/net/fd_eth.h"
@@ -33,14 +33,29 @@
 #include "../../../util/pod/fd_pod_format.h"
 
 #include <unistd.h>
+#include <sys/epoll.h>
 #include <sys/ioctl.h>
 #include <linux/rtnetlink.h>
 #include <rdma/ib_user_verbs.h>
 
 #include "generated/fd_mlx5_tile_seccomp.h"
 
-#define FD_MLX5_TX_FLUSH_TIMEOUT_NS (20000L) /* 20us */
+
+#define FD_MLX5_TX_FLUSH_TIMEOUT_NS (20000L)  /* 20us */
 #define FD_MLX5_LO_TX_TIMEOUT_NS    (500000L) /* 500us */
+
+/* Recent RX packets or TX submissions defer RX CQ rearming and cause
+   a timed repoll before the tile returns to epoll. */
+#define FD_MLX5_REPOLL_TIMEOUT_NS (    200000L) /* 200us */
+#define FD_MLX5_NS_PER_SEC        (1000000000L)
+
+/* Linux names these UAR offsets MLX5_CQ_DOORBELL and MLX5_BF_OFFSET. */
+#define FD_MLX5_UAR_CQ_DB_OFFSET (0x20UL)
+#define FD_MLX5_UAR_SQ_DB_OFFSET (0x800UL)
+
+/* mlx5 CQ arm doorbells use the event sequence in bits 28 and 29. */
+#define FD_MLX5_CQ_ARM_SN_MASK  ( 3U)
+#define FD_MLX5_CQ_ARM_SN_SHIFT (28U)
 
 /* FD_MLX5_SQ_* are options in a SQ WQE to request certain NIC behaviour.
    SEND requests packet transmission.  CQ_UPDATE requests a CQE. */
@@ -53,6 +68,7 @@
 #define FD_MLX5_CQE_OP_TX_ERR  (13U) /* MLX5_CQE_REQ_ERR */
 #define FD_MLX5_CQE_OP_RX_ERR  (14U) /* MLX5_CQE_RESP_ERR */
 #define FD_MLX5_CQE_OP_INVALID (15U)
+#define FD_MLX5_CQE_OWNER_MASK ( 1U) /* MLX5_CQE_OWNER_MASK */
 
 #define FD_MLX5_CQE_SYNDROME_LOCAL_LENGTH_ERR (0x01U) /* received packet's length exceeded FD_NET_MTU */
 
@@ -159,6 +175,13 @@ struct fd_mlx5_tile {
 
   /* TX IP routing */
   fd_net_router_t   router;
+
+  /* Efficient mode only */
+  int  rx_comp_channel_fd; /* completion channel of rx_cq */
+  int  epoll_fd;
+  long repoll_timeout_ticks;
+  long repoll_deadline_ticks;
+  uint has_out_credit;
 
   /* Metric tracking */
   struct {
@@ -385,6 +408,14 @@ fd_mlx5_hw_rq_enqueue( fd_mlx5_tile_t * ctx,
 }
 
 static inline int
+fd_mlx5_hw_rx_cqe_is_owned( fd_mlx5_cq_t const * rx_cq,
+                            uint                 cq_cons_idx,
+                            uchar                op_own ) {
+  return (op_own>>4)!=FD_MLX5_CQE_OP_INVALID &&
+         (op_own & FD_MLX5_CQE_OWNER_MASK)==!!(cq_cons_idx & rx_cq->depth);
+}
+
+static inline int
 fd_mlx5_hw_poll_rx_cq( fd_mlx5_rx_wq_t *        rx_wq,
                        fd_mlx5_tile_rx_comp_t * comp,
                        uint                     comp_capacity ) {
@@ -399,14 +430,10 @@ fd_mlx5_hw_poll_rx_cq( fd_mlx5_rx_wq_t *        rx_wq,
   int  poll_failed = 0;
   while( comp_cnt<comp_limit ) {
     fd_mlx5_hw_cqe64_t const * rx_cqe = (fd_mlx5_hw_cqe64_t const *)(rx_cq->entries+(cq_cons_idx & (rx_cq->depth-1U)));
-
     uchar const op_own = FD_VOLATILE_CONST( rx_cqe->op_own );
-    uint const  opcode = (uint)(op_own>>4);
-    if( FD_UNLIKELY( opcode==FD_MLX5_CQE_OP_INVALID ||
-                   (op_own & 1U)!=!!(cq_cons_idx & rx_cq->depth) ) ) {
-      break;
-    }
+    if( FD_UNLIKELY( !fd_mlx5_hw_rx_cqe_is_owned( rx_cq, cq_cons_idx, op_own ) ) ) break;
     fd_mlx5_hw_dma_from_device();
+    uint const opcode = (uint)(op_own>>4);
 
     if( FD_UNLIKELY( opcode!=FD_MLX5_CQE_OP_RX_OK && opcode!=FD_MLX5_CQE_OP_RX_ERR ) ) {
       errno       = EINVAL;
@@ -441,9 +468,22 @@ fd_mlx5_hw_poll_rx_cq( fd_mlx5_rx_wq_t *        rx_wq,
     rx_wq->rq_cons  = rq_cons_idx;
     rx_cq->cons_idx = cq_cons_idx;
     FD_COMPILER_MFENCE();
-    FD_VOLATILE( rx_cq->control->consumer_idx ) = fd_uint_bswap( cq_cons_idx & 0xffffffU );
+    FD_VOLATILE( rx_cq->control->consumer_idx ) = fd_uint_bswap( cq_cons_idx & FD_MLX5_CQ_CONS_IDX_MASK );
   }
   return poll_failed ? -1 : (int)comp_cnt;
+}
+
+static inline void
+fd_mlx5_hw_request_rx_notification( fd_mlx5_cq_t * rx_cq ) {
+  uint const notification_request = ((rx_cq->comp_channel_event_seq & FD_MLX5_CQ_ARM_SN_MASK)<<FD_MLX5_CQ_ARM_SN_SHIFT) |
+                                     (rx_cq->cons_idx & FD_MLX5_CQ_CONS_IDX_MASK);
+  FD_VOLATILE( rx_cq->control->request_notification ) = fd_uint_bswap( notification_request );
+  fd_mlx5_hw_dma_to_device();
+
+  uint const doorbell[2] = { fd_uint_bswap( notification_request ), fd_uint_bswap( rx_cq->cqn ) };
+  volatile ulong * doorbell_reg = (volatile ulong *)rx_cq->request_notification_doorbell;
+  doorbell_reg[0] = FD_LOAD( ulong, doorbell );
+  rx_cq->comp_channel_armed = 1U;
 }
 
 static inline int
@@ -459,7 +499,7 @@ fd_mlx5_hw_poll_tx_cq( fd_mlx5_tx_qp_t * tx_qp,
   uint const opcode  = (uint)(op_own>>4);
 
   if( FD_LIKELY( opcode==FD_MLX5_CQE_OP_INVALID ||
-                 (op_own & 1U)!=!!(cq_cons_idx & tx_cq->depth) ) ) {
+                 (op_own & FD_MLX5_CQE_OWNER_MASK)!=!!(cq_cons_idx & tx_cq->depth) ) ) {
     return 0;
   }
   fd_mlx5_hw_dma_from_device();
@@ -493,7 +533,7 @@ fd_mlx5_hw_poll_tx_cq( fd_mlx5_tx_qp_t * tx_qp,
   tx_qp->sq_cons  = sq_cons_idx+comp_cnt;
   tx_cq->cons_idx = cq_cons_idx+1U;
   FD_COMPILER_MFENCE();
-  FD_VOLATILE( tx_cq->control->consumer_idx ) = fd_uint_bswap( (cq_cons_idx+1U) & 0xffffffU );
+  FD_VOLATILE( tx_cq->control->consumer_idx ) = fd_uint_bswap( (cq_cons_idx+1U) & FD_MLX5_CQ_CONS_IDX_MASK );
   return (int)comp_cnt;
 }
 
@@ -626,10 +666,40 @@ fd_mlx5_tile_lo_tx_enqueue( fd_mlx5_tile_t *      ctx,
   else if( ctx->lo_tx_cnt==1U ) ctx->lo_tx_deadline_ticks = fd_tickcount()+ctx->lo_tx_timeout_ticks;
 }
 
+/* fd_mlx5_tile_drain_rx_comp_channel reads every pending rx_cq completion event.
+   Each event consumes the CQ's arm, so comp_channel_event_seq advances. */
+static void
+fd_mlx5_tile_drain_rx_comp_channel( fd_mlx5_tile_t * ctx ) {
+  for(;;) {
+    struct ib_uverbs_comp_event_desc comp_event;
+    ssize_t comp_event_read_sz = read( ctx->rx_comp_channel_fd, &comp_event, sizeof(comp_event) );
+    if( FD_UNLIKELY( comp_event_read_sz<0 && errno==EINTR ) ) continue;
+
+    if( FD_LIKELY( comp_event_read_sz<0 && (errno==EAGAIN || errno==EWOULDBLOCK) ) ) break;
+    if( FD_UNLIKELY( comp_event_read_sz!=(ssize_t)sizeof(comp_event) ) ) {
+      FD_LOG_ERR(( "mlx5 RX completion event read failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+    ctx->rx_cq.comp_channel_event_seq++;
+    ctx->rx_cq.comp_channel_armed = 0U;
+  }
+}
+
+static inline void
+fd_mlx5_tile_repoll_deadline_update( fd_mlx5_tile_t * ctx,
+                                     int              work_done,
+                                     long             now ) {
+  if( FD_LIKELY( work_done ) ) {
+    ctx->repoll_deadline_ticks = now + ctx->repoll_timeout_ticks;
+  } else if( FD_UNLIKELY( now>=ctx->repoll_deadline_ticks ) ) {
+    ctx->repoll_deadline_ticks = LONG_MAX;
+  }
+}
+
 static inline void
 before_credit( fd_mlx5_tile_t *    ctx,
                fd_stem_context_t * stem,
                int *               charge_busy ) {
+  ctx->has_out_credit = 0U;
   fd_net_router_solicit( &ctx->router, stem );
 
   if( FD_UNLIKELY( ctx->lo_tx_cnt && fd_tickcount()>=ctx->lo_tx_deadline_ticks ) ) {
@@ -656,8 +726,69 @@ after_credit( fd_mlx5_tile_t *    ctx,
               int *               poll_in,
               int *               charge_busy ) {
   (void)poll_in;
+  ctx->has_out_credit = 1U;
   int rx_busy = fd_mlx5_tile_poll_rx( ctx, stem );
+  if( FD_UNLIKELY( ctx->rx_comp_channel_fd>=0 ) ) {
+    fd_mlx5_tile_repoll_deadline_update( ctx, rx_busy, fd_tickcount() );
+  }
   *charge_busy |= rx_busy;
+}
+
+static inline int
+prevent_park( fd_mlx5_tile_t * ctx ) {
+  if( FD_UNLIKELY( !ctx->has_out_credit ) ) return 0;
+  fd_mlx5_cq_t * rx_cq = &ctx->rx_cq;
+  if( FD_UNLIKELY( !rx_cq->comp_channel_armed &&
+                   ctx->repoll_deadline_ticks==LONG_MAX ) ) {
+    fd_mlx5_hw_request_rx_notification( rx_cq );
+  }
+  uint const cq_cons_idx = rx_cq->cons_idx;
+  fd_mlx5_hw_cqe64_t const * rx_cqe = (fd_mlx5_hw_cqe64_t const *)(rx_cq->entries+(cq_cons_idx & (rx_cq->depth-1U)));
+  uchar const op_own = FD_VOLATILE_CONST( rx_cqe->op_own );
+  return fd_mlx5_hw_rx_cqe_is_owned( rx_cq, cq_cons_idx, op_own );
+}
+
+static inline int
+park_wait( fd_mlx5_tile_t * ctx,
+           ulong *          word,
+           long             deadline,
+           double           tick_per_ns ) {
+  if( FD_UNLIKELY( ctx->has_out_credit && ctx->repoll_deadline_ticks!=LONG_MAX ) ) {
+    struct timespec timeout;
+    clock_gettime( CLOCK_MONOTONIC, &timeout );
+    long const remaining_ns = (long)((double)(ctx->repoll_deadline_ticks-fd_tickcount())/tick_per_ns);
+    if( FD_UNLIKELY( remaining_ns<=0L ) ) return FD_SLEEP_UNPARK_DEADLINE;
+    timeout.tv_sec  += remaining_ns/FD_MLX5_NS_PER_SEC;
+    timeout.tv_nsec += remaining_ns%FD_MLX5_NS_PER_SEC;
+    if( timeout.tv_nsec>=FD_MLX5_NS_PER_SEC ) {
+      timeout.tv_sec++;
+      timeout.tv_nsec -= FD_MLX5_NS_PER_SEC;
+    }
+    for(;;) {
+      int const err = clock_nanosleep( CLOCK_MONOTONIC, TIMER_ABSTIME, &timeout, NULL );
+      if( FD_LIKELY( !err ) ) return FD_SLEEP_UNPARK_DEADLINE;
+      if( FD_UNLIKELY( err!=EINTR ) ) {
+        FD_LOG_ERR(( "clock_nanosleep() failed (%i-%s)", err, fd_io_strerror( err ) ));
+      }
+    }
+  }
+
+  struct epoll_event evs[ 2 ];
+  int ev_cnt;
+  int cause = fd_sleep_park_wait_epoll( ctx->epoll_fd, word, evs, 2, &ev_cnt, deadline, tick_per_ns );
+  for( int i=0; i<ev_cnt; i++ ) {
+    if( evs[ i ].data.u64==(ulong)ctx->rx_comp_channel_fd ) fd_mlx5_tile_drain_rx_comp_channel( ctx );
+  }
+  return cause;
+}
+
+static inline long
+next_deadline( fd_mlx5_tile_t * ctx ) {
+  if( ctx->has_out_credit && ctx->repoll_deadline_ticks!=LONG_MAX ) return ctx->repoll_deadline_ticks;
+  long deadline = LONG_MAX;
+  if( ctx->tx_qp.sq_prod!=ctx->tx_qp.sq_posted ) deadline = ctx->sq_flush_deadline_ticks;
+  if( ctx->lo_tx_cnt ) deadline = fd_long_min( deadline, ctx->lo_tx_deadline_ticks );
+  return deadline;
 }
 
 /* before_frag resolves the TX route and checks SQ capacity */
@@ -824,6 +955,9 @@ after_frag( fd_mlx5_tile_t *    ctx,
   } else if( sq_pending_cnt==1U ) {
     ctx->sq_flush_deadline_ticks = fd_tickcount()+ctx->sq_flush_timeout_ticks;
   }
+  if( FD_UNLIKELY( ctx->rx_comp_channel_fd>=0 ) ) {
+    fd_mlx5_tile_repoll_deadline_update( ctx, 1, fd_tickcount() );
+  }
 }
 
 static inline void
@@ -863,10 +997,8 @@ during_housekeeping( fd_mlx5_tile_t * ctx ) {
   int const async_event_fd = ctx->uverbs.async_fd;
   for(;;) {
     struct ib_uverbs_async_event_desc async_event;
-    ssize_t async_event_read_sz;
-
-    do async_event_read_sz = read( async_event_fd, &async_event, sizeof(async_event) );
-    while( FD_UNLIKELY( async_event_read_sz<0 && errno==EINTR ) );
+    ssize_t async_event_read_sz = read( async_event_fd, &async_event, sizeof(async_event) );
+    if( FD_UNLIKELY( async_event_read_sz<0 && errno==EINTR ) ) continue;
 
     if( FD_LIKELY( async_event_read_sz<0 && (errno==EAGAIN || errno==EWOULDBLOCK) ) ) break;
     if( FD_UNLIKELY( async_event_read_sz!=(ssize_t)sizeof(async_event) ) ) {
@@ -1014,12 +1146,12 @@ void
 fd_topo_install_mlx5( fd_topo_t *     topo,
                       fd_mlx5_fds_t * fds ) {
   ulong const tile_cnt = fd_topo_tile_name_cnt( topo, "mlx5" );
-  if( FD_UNLIKELY( !fd_ulong_is_pow2( tile_cnt ) || tile_cnt>FD_TOPO_MAX_TILES ) ) {
-    FD_LOG_ERR(( "mlx5 tile count must be a power of two" ));
+  if( FD_UNLIKELY( !fd_ulong_is_pow2( tile_cnt ) || tile_cnt>FD_MLX5_TILE_MAX ) ) {
+    FD_LOG_ERR(( "mlx5 tile count %lu must be a power of two and at most %lu", tile_cnt, FD_MLX5_TILE_MAX ));
   }
 
-  fd_mlx5_tile_t *       ctxs  [ FD_TOPO_MAX_TILES ];
-  fd_mlx5_uverbs_tile_t  queues[ FD_TOPO_MAX_TILES ];
+  fd_mlx5_tile_t *       ctxs  [ FD_MLX5_TILE_MAX ];
+  fd_mlx5_uverbs_tile_t  queues[ FD_MLX5_TILE_MAX ];
   fd_topo_tile_t const * first_tile = NULL;
   char                   rdma_device_name[ FD_MLX5_RDMA_NAME_MAX ];
   uint                   rdma_port_num = 0U;
@@ -1037,6 +1169,8 @@ fd_topo_install_mlx5( fd_topo_t *     topo,
     void * queue_memory = FD_SCRATCH_ALLOC_APPEND( scratch, FD_MLX5_PAGE_SZ, queue_memory_sz );
     ctxs[ i ] = ctx;
     fd_memset( ctx, 0, sizeof(*ctx) );
+    ctx->rx_comp_channel_fd = -1;
+    ctx->epoll_fd           = -1;
     FD_TEST( fd_mlx5_hw_init_queues( ctx, queue_memory,
                                      tile->mlx5.rx_queue_size,
                                      tile->mlx5.tx_queue_size ) );
@@ -1046,14 +1180,15 @@ fd_topo_install_mlx5( fd_topo_t *     topo,
     ulong  packet_iova;
     fd_mlx5_tile_packet_memory( topo, tile, ctx, &packet_memory, &packet_memory_sz, &packet_iova );
     queues[ i ] = (fd_mlx5_uverbs_tile_t) {
-      .rx_cq            = &ctx->rx_cq,
-      .tx_cq            = &ctx->tx_cq,
-      .rx_wq            = &ctx->rx_wq,
-      .tx_qp            = &ctx->tx_qp,
-      .lkey             = &ctx->lkey,
-      .packet_memory    = packet_memory,
-      .packet_memory_sz = packet_memory_sz,
-      .packet_iova      = packet_iova,
+      .rx_cq              = &ctx->rx_cq,
+      .tx_cq              = &ctx->tx_cq,
+      .rx_wq              = &ctx->rx_wq,
+      .tx_qp              = &ctx->tx_qp,
+      .lkey               = &ctx->lkey,
+      .rx_comp_channel_fd = tile->sleep_eventfd ? &ctx->rx_comp_channel_fd : NULL,
+      .packet_memory      = packet_memory,
+      .packet_memory_sz   = packet_memory_sz,
+      .packet_iova        = packet_iova,
     };
     fd_net_rx_dst_ports_init( &ctx->net, topo, tile );
 
@@ -1093,6 +1228,14 @@ fd_topo_install_mlx5( fd_topo_t *     topo,
     ctxs[ i ]->outer_rss_qp = first->outer_rss_qp;
     ctxs[ i ]->gre_rss_qp   = first->gre_rss_qp;
     ctxs[ i ]->prepared     = 1U;
+
+    int const rx_comp_channel_fd = ctxs[ i ]->rx_comp_channel_fd;
+    if( rx_comp_channel_fd<0 ) continue;
+    int const rx_comp_channel_fd_flags = fcntl( rx_comp_channel_fd, F_GETFL );
+    if( FD_UNLIKELY( rx_comp_channel_fd_flags<0 ||
+                     fcntl( rx_comp_channel_fd, F_SETFL, rx_comp_channel_fd_flags|O_NONBLOCK )<0 ) ) {
+      FD_LOG_ERR(( "making mlx5 RX completion channel non-blocking failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
   }
 
   for( ulong flow_idx=0UL; flow_idx<first->net.dst_port_cnt; flow_idx++ ) {
@@ -1110,8 +1253,11 @@ fd_topo_install_mlx5( fd_topo_t *     topo,
   FD_LOG_INFO(( "Installed %lu direct mlx5 flow rules", 2UL*first->net.dst_port_cnt ));
 
   if( fds ) {
-    fds->cmd_fd   = first->uverbs.cmd_fd;
-    fds->async_fd = first->uverbs.async_fd;
+    fds->cmd_fd                 = first->uverbs.cmd_fd;
+    fds->async_fd               = first->uverbs.async_fd;
+    fds->rx_comp_channel_fd_cnt = first->rx_comp_channel_fd>=0 ? tile_cnt : 0UL;
+    for( ulong i=0UL; i<fds->rx_comp_channel_fd_cnt; i++ )
+      fds->rx_comp_channel_fd[ i ] = ctxs[ i ]->rx_comp_channel_fd;
   }
 }
 #endif
@@ -1132,10 +1278,12 @@ privileged_init( fd_topo_t const *      topo,
   FD_TEST( fd_mlx5_hw_join_queues( ctx, queue_memory,
                                    tile->mlx5.rx_queue_size,
                                    tile->mlx5.tx_queue_size ) );
-  ctx->tx_qp.sq_doorbell = fd_uverbs_map_uar( &ctx->uverbs, ctx->tx_qp.uar_mmap_offset );
-  if( FD_UNLIKELY( !ctx->tx_qp.sq_doorbell ) ) {
+  volatile uchar * uar = fd_uverbs_map_uar( &ctx->uverbs, ctx->tx_qp.uar_mmap_offset );
+  if( FD_UNLIKELY( !uar ) ) {
     FD_LOG_ERR(( "mapping mlx5 UAR failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
+  ctx->tx_qp.sq_doorbell                   = uar+FD_MLX5_UAR_SQ_DB_OFFSET;
+  ctx->rx_cq.request_notification_doorbell = uar+FD_MLX5_UAR_CQ_DB_OFFSET;
 
   ctx->batch_size       = tile->mlx5.batch_size;
   ctx->sq_wqe_buf_chunk = FD_SCRATCH_ALLOC_APPEND( scratch, alignof(uint),
@@ -1152,6 +1300,24 @@ privileged_init( fd_topo_t const *      topo,
   ctx->router.if_virt         = interface_idx;
   ctx->router.default_address = fd_mlx5_tile_if_ip4_addr( tile->mlx5.if_name );
   ctx->lo_tx_sock = tile->kind_id==0UL ? fd_mlx5_tile_lo_tx_socket() : -1;
+
+  if( FD_UNLIKELY( tile->sleep_eventfd ) ) {
+    if( FD_UNLIKELY( ctx->rx_comp_channel_fd<0 ) ) {
+      FD_LOG_ERR(( "mlx5:%lu has no RX completion channel", tile->kind_id ));
+    }
+    ctx->epoll_fd = epoll_create1( EPOLL_CLOEXEC );
+    if( FD_UNLIKELY( ctx->epoll_fd<0 ) ) {
+      FD_LOG_ERR(( "epoll_create1() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+    struct epoll_event doorbell_ev = { .events = EPOLLIN|EPOLLET, .data.u64 = FD_SLEEP_EPOLL_DOORBELL };
+    if( FD_UNLIKELY( -1==epoll_ctl( ctx->epoll_fd, EPOLL_CTL_ADD, FD_SLEEP_EVENTFD( tile->id ), &doorbell_ev ) ) ) {
+      FD_LOG_ERR(( "epoll_ctl(ADD,sleep_eventfd) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+    struct epoll_event comp_ev = { .events = EPOLLIN, .data.u64 = (ulong)ctx->rx_comp_channel_fd };
+    if( FD_UNLIKELY( -1==epoll_ctl( ctx->epoll_fd, EPOLL_CTL_ADD, ctx->rx_comp_channel_fd, &comp_ev ) ) ) {
+      FD_LOG_ERR(( "epoll_ctl(ADD,rx_comp_channel_fd) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+  }
 }
 
 FD_FN_UNUSED static void
@@ -1166,6 +1332,10 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->batch_size             = tile->mlx5.batch_size;
   ctx->sq_flush_timeout_ticks = (long)( FD_MLX5_TX_FLUSH_TIMEOUT_NS*fd_tempo_tick_per_ns( NULL ) );
   ctx->lo_tx_timeout_ticks    = (long)( FD_MLX5_LO_TX_TIMEOUT_NS*fd_tempo_tick_per_ns( NULL ) );
+
+  ctx->repoll_timeout_ticks   = (long)( FD_MLX5_REPOLL_TIMEOUT_NS*fd_tempo_tick_per_ns( NULL ) );
+  ctx->repoll_deadline_ticks  = LONG_MAX;
+
   ctx->lo_tx_cnt              = 0U;
   ctx->net.kind_id            = tile->kind_id;
   ctx->net.tile_cnt           = fd_topo_tile_name_cnt( topo, tile->name );
@@ -1270,7 +1440,8 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           struct sock_filter *   out ) {
   fd_mlx5_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   populate_sock_filter_policy_fd_mlx5_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(),
-                                            (uint)ctx->uverbs.async_fd, (uint)ctx->lo_tx_sock );
+                                            (uint)ctx->uverbs.async_fd, (uint)ctx->lo_tx_sock,
+                                            (uint)ctx->rx_comp_channel_fd, (uint)ctx->epoll_fd );
   return sock_filter_policy_fd_mlx5_tile_instr_cnt;
 }
 
@@ -1280,13 +1451,18 @@ populate_allowed_fds( fd_topo_t const *      topo,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
   fd_mlx5_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-  if( FD_UNLIKELY( out_fds_cnt<5UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<8UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2;
   if( FD_LIKELY( fd_log_private_logfile_fd()!=-1 ) ) out_fds[ out_cnt++ ] = fd_log_private_logfile_fd();
   out_fds[ out_cnt++ ] = ctx->uverbs.cmd_fd;
   out_fds[ out_cnt++ ] = ctx->uverbs.async_fd;
   if( ctx->lo_tx_sock>=0 ) out_fds[ out_cnt++ ] = ctx->lo_tx_sock;
+  if( FD_UNLIKELY( tile->sleep_eventfd ) ) {
+    out_fds[ out_cnt++ ] = ctx->rx_comp_channel_fd;
+    out_fds[ out_cnt++ ] = ctx->epoll_fd;
+    out_fds[ out_cnt++ ] = FD_SLEEP_EVENTFD( tile->id );
+  }
   return out_cnt;
 }
 
@@ -1299,7 +1475,9 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_AFTER_FRAG          after_frag
 #define STEM_CALLBACK_METRICS_WRITE       metrics_write
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
-#define STEM_NEVER_PARK                   1
+#define STEM_CALLBACK_PREVENT_PARK        prevent_park
+#define STEM_CALLBACK_PARK_WAIT           park_wait
+#define STEM_CALLBACK_NEXT_DEADLINE       next_deadline
 #define STEM_BURST                        (FD_MLX5_BATCH_SIZE+1) /* +1 accounts for possible LB TX packet */
 #define STEM_LAZY                         270000UL /* 270us */
 #include "../../stem/fd_stem.c"
