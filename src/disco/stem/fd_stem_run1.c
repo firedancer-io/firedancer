@@ -255,8 +255,13 @@ STEM_(STEM_RUN1_NAME)( ulong                        in_cnt,
           }
         }
 
-        /* Publish producer progress sync word */
+        /* Publish producer progress sync word.  Skip outs this stem
+           never published: another writer (the keyguard client on a
+           sign link, the event client) may own that sync word and
+           mirror, and 0 would rewind it. */
         for( ulong out_idx=0UL; out_idx<out_cnt; out_idx++ ) {
+          if( FD_UNLIKELY( !out_seq[ out_idx ] ) ) continue;
+
           fd_mcache_seq_update( fd_mcache_seq_laddr( out_mcache[ out_idx ] ), out_seq[ out_idx ] );
           if( FD_UNLIKELY( sleep->shmem ) ) STEM_(mirror)( &sleep->shmem->seq_mirror[ sleep->out_link_id[ out_idx ] ], out_seq[ out_idx ] );
         }
@@ -655,6 +660,8 @@ STEM_(STEM_RUN1_NAME)( ulong                        in_cnt,
   }
 
   for( ulong out_idx=0UL; out_idx<out_cnt; out_idx++ ) {
+    if( FD_UNLIKELY( !out_seq[ out_idx ] ) ) continue;
+
     fd_mcache_seq_update( fd_mcache_seq_laddr( out_mcache[ out_idx ] ), out_seq[ out_idx ] );
     if( FD_UNLIKELY( sleep->shmem ) ) STEM_(mirror)( &sleep->shmem->seq_mirror[ sleep->out_link_id[ out_idx ] ], out_seq[ out_idx ] );
   }
