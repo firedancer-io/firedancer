@@ -178,9 +178,6 @@ main( int     argc,
   FD_TEST(  genesis_max_file_size_is_valid( config, 4055UL ) );
   FD_TEST( !genesis_max_file_size_is_valid( config, 4056UL ) );
 
-  /* Failover needs a nonzero port, no Alpenglow, a junk key apart
-     from the staked identity key and a peer address without a port. */
-
   static char const identity[] = "/keys/identity.json";
   static char const junk[]     = "/keys/junk.json";
   strcpy( config->paths.identity_key, identity );

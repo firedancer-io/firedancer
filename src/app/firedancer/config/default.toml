@@ -1887,8 +1887,7 @@ telemetry = true
 
 # Failover runs one staked identity on a pair of machines.  One machine
 # is active and votes with the staked key, the other follows the cluster
-# under its own identity and can take over.  Failover is not supported
-# with Alpenglow.
+# under its own identity and can take over.
 [failover]
     # Absolute path to this machine's own unstaked keypair, a different
     # key on each machine.  Setting this turns failover on.  Every tile
@@ -1900,11 +1899,6 @@ telemetry = true
     # must differ from this key and must not be one of the
     # [paths.authorized_voter_paths].  Both machines also need the same
     # [paths.vote_account].
-    #
-    # Two substitutions will be performed on this string.  If "{user}"
-    # is present it will be replaced with the user running Firedancer,
-    # as above, and "{name}" will be replaced with the name of the
-    # Firedancer instance.
     junk_identity_key = ""
 
     # TCP port the two machines connect on, the same on both.  Every
