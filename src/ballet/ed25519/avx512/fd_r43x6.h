@@ -513,11 +513,14 @@ fd_r43x6_pack( fd_r43x6_t r ) {
      if !q, r = y - 19
      else   r = y
 
-   Or, branchless for deterministic performance:
+   Or, branchless for deterministic performance (and so a secret can
+   go through it: fd_ed25519_point_tobytes reduces the affine Y of a
+   signature nonce point with this via fd_f25519_tobytes, and gcc
+   turned the ternary into a branch):
      y  = x + 19
      q  = y>>255
      y -= q<<255
-     r  = y - if(!q,19,0) */
+     r  = y - (19 & ((q-1)>>63)) */
 
 #define fd_r43x6_mod_nearly_reduced_limbs(x,y) do { \
     long const _m43 = (1L<<43)-1L;                  \
@@ -539,8 +542,8 @@ fd_r43x6_pack( fd_r43x6_t r ) {
     _c = _y4 >> 43; _y4 &= _m43; _y5 += _c;         \
     _c = _y5 >> 40; _y5 &= _m40;                    \
                                                     \
-    /* r = y - if(!q,19,0) */                       \
-    _y0 -= fd_long_if( !_c, 19L, 0L );              \
+    /* r = y - (19 & ((q-1)>>63)) */                \
+    _y0 -= 19L & ((_c-1L)>>63);                     \
     _c = _y0 >> 43; _y0 &= _m43; _y1 += _c;         \
     _c = _y1 >> 43; _y1 &= _m43; _y2 += _c;         \
     _c = _y2 >> 43; _y2 &= _m43; _y3 += _c;         \
