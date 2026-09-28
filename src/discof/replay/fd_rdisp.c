@@ -1131,6 +1131,43 @@ add_unstaged_edges( fd_rdisp_t * disp,
   *(fd_ptr_if( writable, &(unstaged->writable_cnt), &(unstaged->readonly_cnt) ) ) += (uint)addr_cnt;
 }
 
+/* prefetch_accts warms what add_edges (or add_unstaged_edges) touches
+   first for each of the cnt addresses: the chain head of each account
+   in both maps, then the element at the head of each chain, which is
+   where the key compare of a hit usually lands (queries move the found
+   element to the front).  The maps are large enough that these are
+   otherwise serial cache misses, one account at a time.  Hints only:
+   the queries below are unchanged. */
+
+static inline void
+prefetch_accts( fd_rdisp_t const *     disp,
+                fd_acct_addr_t const * addrs,
+                ulong                  cnt ) {
+  uint const * heads[ 2 ][ MAX_ACCT_PER_TXN ];
+  acct_map_t const * maps[ 2 ] = { disp->acct_map, disp->free_acct_map };
+  for( ulong m=0UL; m<2UL; m++ ) {
+    uint const * chain = acct_map_private_chain_const( maps[ m ] );
+    ulong seed         = acct_map_seed     ( maps[ m ] );
+    ulong chain_cnt    = acct_map_chain_cnt( maps[ m ] );
+    for( ulong i=0UL; i<cnt; i++ ) {
+      heads[ m ][ i ] = chain + acct_map_private_chain_idx( addrs+i, seed, chain_cnt );
+      __builtin_prefetch( heads[ m ][ i ], 0, 3 );
+    }
+  }
+  for( ulong m=0UL; m<2UL; m++ ) {
+    for( ulong i=0UL; i<cnt; i++ ) {
+      ulong head = (ulong)*heads[ m ][ i ];
+      __builtin_prefetch( disp->acct_pool + fd_ulong_if( head==UINT_MAX, 0UL, head ), 0, 3 );
+    }
+  }
+}
+
+ulong
+fd_rdisp_peek_free_txn( fd_rdisp_t const * disp ) {
+  ulong idx = pool_private_meta_const( disp->pool )->free_top;
+  return fd_ulong_if( idx==pool_idx_null( disp->pool ), 0UL, idx );
+}
+
 ulong
 fd_rdisp_add_txn( fd_rdisp_t          *  disp,
                   FD_RDISP_BLOCK_TAG_T   insert_block,
@@ -1143,11 +1180,18 @@ fd_rdisp_add_txn( fd_rdisp_t          *  disp,
   if( FD_UNLIKELY( !block || !block->insert_ready ) ) return 0UL;
   if( FD_UNLIKELY( !pool_free( disp->pool       ) ) ) return 0UL;
 
+  fd_acct_addr_t const * imm_addrs = fd_txn_get_acct_addrs( txn, payload );
+
+  /*             */ prefetch_accts( disp, imm_addrs, fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM ) );
+  if( FD_LIKELY( alts ) ) prefetch_accts( disp, alts,      fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_ALT ) );
+
   ulong idx = pool_idx_acquire( disp->pool );
   fd_rdisp_txn_t * rtxn = disp->pool + idx;
   if( FD_UNLIKELY( rtxn->in_degree!=IN_DEGREE_FREE ) ) FD_LOG_CRIT(( "pool[%lu].in_degree==%u but free", idx, rtxn->in_degree ));
 
-  fd_acct_addr_t const * imm_addrs = fd_txn_get_acct_addrs( txn, payload );
+  /* The element the next add_txn takes (unless a completion pushes a
+     recently touched one first) is the next cold line in this path. */
+  __builtin_prefetch( disp->pool + fd_rdisp_peek_free_txn( disp ), 1, 3 );
 
   if( FD_UNLIKELY( !block->staged ) ) {
     rtxn->in_degree = IN_DEGREE_UNSTAGED;

@@ -2710,6 +2710,22 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
   /* Can't parse out a full transaction yet, EAGAIN. */
   if( FD_UNLIKELY( !pay_sz || !txn_sz ) ) return -1;
 
+  /* The pool slots this transaction will land in are cold: warm the
+     lines written below (the start of the payload copy, the metadata,
+     the start of the parsed txn and the whole info record) while the
+     ALUT resolution and the dispatcher insert run.  A hint only. */
+  ulong next_idx = fd_rdisp_peek_free_txn( sched->rdisp );
+  if( FD_LIKELY( next_idx && next_idx<sched->depth ) ) {
+    fd_txn_p_t * next_p = sched->txn_pool+next_idx;
+    __builtin_prefetch( next_p->payload,      1, 3 );
+    __builtin_prefetch( next_p->payload+64UL, 1, 3 );
+    __builtin_prefetch( &next_p->payload_sz,  1, 3 );
+    __builtin_prefetch( TXN( next_p ),        1, 3 );
+    ulong info_lo = fd_ulong_align_dn( (ulong)(sched->txn_info_pool+next_idx     ), 64UL );
+    ulong info_hi = fd_ulong_align_up( (ulong)(sched->txn_info_pool+next_idx+1UL ), 64UL );
+    for( ulong line=info_lo; line<info_hi; line+=64UL ) __builtin_prefetch( (void const *)line, 1, 3 );
+  }
+
   if( FD_UNLIKELY( block->txn_parsed_cnt>=sched->max_txn_per_slot ) ) {
     /* Transaction count is enforced as invariant
        txn_parsed_cnt+txns_rem<=max_txn_per_slot
