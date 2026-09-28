@@ -235,7 +235,7 @@ repbatch_lane_store( uchar            out[32],
 
 ulong fd_sha256_simd_lane_min( void ) { return 2UL; }
 ulong fd_sha256_simd_lane_max( void ) { return 2UL; }
-ulong fd_sha256_simd_iter_cost_q8( void ) { return 331UL; } /* Neoverse V2 with FEAT_SHA256: 46.4 ns/hash single lane vs 60.0 ns/iter at 2 lanes */
+ulong fd_sha256_simd_iter_cost_q8( ulong lane_cnt ) { return lane_cnt>=2UL ? 331UL : 256UL; } /* Neoverse V2 with FEAT_SHA256: 46.4 ns/hash single lane vs 60.0 ns/iter at 2 lanes */
 
 void
 fd_sha256_hash_32_repeated_batch_arm( uchar const * hash_in,
