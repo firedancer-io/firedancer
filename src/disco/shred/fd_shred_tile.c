@@ -411,6 +411,7 @@ metrics_write( fd_shred_ctx_t * ctx ) {
   FD_MHIST_COPY( SHRED, FEC_FALLBACK_WRITE_SECONDS, ctx->metrics->fec_fallback_write_timing    );
   FD_MHIST_COPY( SHRED, REPAIR_FRONT_RUN_LEAD_SECONDS, fd_fec_resolver_repair_lead_hist( ctx->resolver ) );
   FD_MHIST_COPY( SHRED, TURBINE_AFTER_REPAIRED_FEC_SECONDS, fd_fec_resolver_turbine_after_repaired_fec_hist( ctx->resolver ) );
+  FD_MHIST_COPY( SHRED, REPAIR_COMPLETION_LAG_SECONDS, fd_fec_resolver_completion_lag_hist( ctx->resolver ) );
   FD_MCNT_SET  ( SHRED, SHRED_REPAIR_RX,            ctx->metrics->repair_rcv_cnt               );
   FD_MCNT_SET  ( SHRED, SHRED_REPAIR_RX_BYTES,      ctx->metrics->repair_rcv_bytes             );
   FD_MCNT_SET  ( SHRED, SHRED_TURBINE_RX,           ctx->metrics->turbine_rcv_cnt              );

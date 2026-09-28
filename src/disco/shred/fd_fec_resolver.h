@@ -307,6 +307,18 @@ fd_fec_resolver_repair_lead_hist( fd_fec_resolver_t const * resolver );
 fd_histf_t const *
 fd_fec_resolver_turbine_after_repaired_fec_hist( fd_fec_resolver_t const * resolver );
 
+/* fd_fec_resolver_completion_lag_hist returns a pointer to the
+   resolver's histogram (in ticks) estimating how much earlier repair
+   made a FEC set complete: for a set completed with R repair shreds,
+   the lag from completion until turbine had delivered R more shreds for
+   it, which is when the set would have completed on turbine alone.
+   Counts arrivals rather than distinct shred indices, so turbine
+   duplicates bias samples low.  Same publication and lifetime rules as
+   fd_fec_resolver_repair_lead_hist. */
+
+fd_histf_t const *
+fd_fec_resolver_completion_lag_hist( fd_fec_resolver_t const * resolver );
+
 int
 fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
                            fd_shred_t const          * shred,

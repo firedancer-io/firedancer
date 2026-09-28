@@ -1195,6 +1195,11 @@ EXAMPLES
     <histogram name="TurbineAfterRepairedFecSeconds" min="0.0001" max="10" converter="seconds">
         <summary>Time between a FEC set completing with repair shreds contributing and a turbine shred for that set arriving</summary>
     </histogram>
+    <counter name="ShredRepairCompletionAssisted" summary="FEC sets that completed with at least one repair shred contributing, i.e. the population for which a turbine-only counterfactual completion is meaningful" />
+    <counter name="ShredRepairCompletionSaved" summary="FEC sets completed with repair shreds for which turbine later supplied as many shreds as repair had contributed, i.e. the counterfactual turbine-only completion was observed" />
+    <histogram name="RepairCompletionLagSeconds" min="0.0001" max="10" converter="seconds">
+        <summary>Estimated time repair advanced FEC set completion: the delay from a repair-assisted completion until turbine had delivered as many shreds for that set as repair contributed, i.e. when the set would have completed on turbine alone. Counts arrivals rather than distinct indices, so turbine duplicates bias this low</summary>
+    </histogram>
     <counter name="FecFallbackWrite" summary="FEC payloads synchronously spilled by the shred tile" />
     <counter name="FecFallbackWriteBytes" summary="FEC payload bytes synchronously spilled by the shred tile" />
 </tile>

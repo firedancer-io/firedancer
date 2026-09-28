@@ -139,9 +139,13 @@ struct done_ele {
      markers).  Lets us count and time turbine shreds that arrive for a
      FEC set repair already finished. */
   long           repaired_complete_ts;
+  uint           repair_rcvd;
+  uint           data_rcvd;
+  uint           code_rcvd;
+  uint           post_done_turbine_rcvd; /* incremented after done */
 };
 typedef struct done_ele done_ele_t;
-FD_STATIC_ASSERT( sizeof(done_ele_t)==40UL, done_ele_t );
+FD_STATIC_ASSERT( sizeof(done_ele_t)==56UL, done_ele_t );
 #define SIG_HASH_EQUIVOC UINT_MAX
 
 #define MAP_NAME              done_map
@@ -238,6 +242,26 @@ struct __attribute__((aligned(FD_FEC_RESOLVER_ALIGN))) fd_fec_resolver {
      shred tile via fd_fec_resolver_turbine_after_repaired_fec_hist. */
   fd_histf_t turbine_after_repaired_fec_hist[1];
 
+  /* completion_lag_hist: histogram of how much earlier repair made a
+     FEC set complete.  Completion needs any FD_FEC_SHRED_CNT shreds, so
+     a set that completed with R repair shreds would have needed R more
+     turbine arrivals to get there on turbine alone.  This samples the
+     lag from completion to the R'th post-completion turbine shred: an
+     estimate of the delay repair avoided.  Sampled in ticks in the
+     done-map path.  Published by the shred tile via
+     fd_fec_resolver_completion_lag_hist.
+
+     Deliberately approximate.  It counts turbine *arrivals*, not
+     distinct shred indices -- the per-set bitmaps are released at
+     completion, so a re-delivery of a shred we already held advances
+     the count as if it were new.  That only ever makes the threshold
+     arrive sooner, so samples are biased low and the metric understates
+     repair.  Sets where turbine never supplies R more shreds never
+     sample at all; SHRED_REPAIR_COMPLETION_SAVED counts the sets that
+     did sample, so comparing it against SHRED_TURBINE_AFTER_REPAIRED_FEC
+     recovers how often that happened. */
+  fd_histf_t completion_lag_hist[1];
+
   /* done_pool: A pool (this time using fd_pool) of the done_ele_t
      elements that back done_map and done_heap.  Invariant: each element
      is either (i) released and in the pool, or (ii) in both the
@@ -319,6 +343,11 @@ fd_fec_resolver_turbine_after_repaired_fec_hist( fd_fec_resolver_t const * resol
   return resolver->turbine_after_repaired_fec_hist;
 }
 
+fd_histf_t const *
+fd_fec_resolver_completion_lag_hist( fd_fec_resolver_t const * resolver ) {
+  return resolver->completion_lag_hist;
+}
+
 
 void *
 fd_fec_resolver_new( void                    * shmem,
@@ -369,6 +398,8 @@ fd_fec_resolver_new( void                    * shmem,
                                                             FD_MHIST_SECONDS_MAX( SHRED, REPAIR_FRONT_RUN_LEAD_SECONDS ) ) );
   fd_histf_join( fd_histf_new( resolver->turbine_after_repaired_fec_hist, FD_MHIST_SECONDS_MIN( SHRED, TURBINE_AFTER_REPAIRED_FEC_SECONDS ),
                                                                           FD_MHIST_SECONDS_MAX( SHRED, TURBINE_AFTER_REPAIRED_FEC_SECONDS ) ) );
+  fd_histf_join( fd_histf_new( resolver->completion_lag_hist, FD_MHIST_SECONDS_MIN( SHRED, REPAIR_COMPLETION_LAG_SECONDS ),
+                                                              FD_MHIST_SECONDS_MAX( SHRED, REPAIR_COMPLETION_LAG_SECONDS ) ) );
 
   set_ctx_t * ctx_pool = (set_ctx_t *)_ctx_pool;
   fd_memset( ctx_pool, '\0', sizeof(set_ctx_t)*depth_sum );
@@ -611,10 +642,21 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
         /* Turbine shred for a FEC set that repair already finished:
            turbine lost the race for the whole set.  Note this happens
            before signature verification, so the tally is best-effort. */
-        if( FD_UNLIKELY( (source==FD_FEC_RESOLVER_SHRED_SRC_TURBINE) & (done_ele->repaired_complete_ts!=0L) ) ) {
+        if( FD_UNLIKELY( (source==FD_FEC_RESOLVER_SHRED_SRC_TURBINE) & (done_ele->repair_rcvd!=0L) ) ) {
           FD_MCNT_INC( SHRED, SHRED_TURBINE_AFTER_REPAIRED_FEC, 1UL );
           long lag = fd_tickcount() - done_ele->repaired_complete_ts;
           fd_histf_sample( resolver->turbine_after_repaired_fec_hist, (ulong)fd_long_max( lag, 0L ) );
+
+          /* Turbine has now supplied as many shreds for this set as
+             repair contributed, so this is when the set would have
+             completed on turbine alone.  == rather than >= so we sample
+             once; later turbine shreds for the set keep incrementing
+             but do not re-sample. */
+          done_ele->post_done_turbine_rcvd++;
+          if( FD_UNLIKELY( done_ele->post_done_turbine_rcvd==done_ele->repair_rcvd ) ) {
+            FD_MCNT_INC( SHRED, SHRED_REPAIR_COMPLETION_SAVED, 1UL );
+            fd_histf_sample( resolver->completion_lag_hist, (ulong)fd_long_max( lag, 0L ) );
+          }
         }
         return FD_FEC_RESOLVER_SHRED_IGNORED;
       }
@@ -754,6 +796,10 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
         done->key.fec_idx          = shred->fec_set_idx;
         done->sig_hash             = SIG_HASH_EQUIVOC;
         done->repaired_complete_ts = 0L;
+        done->repair_rcvd          = 0U;
+        done->data_rcvd            = 0U;
+        done->code_rcvd            = 0U;
+        done->post_done_turbine_rcvd = 0U;
 
         done_heap_ele_insert( done_heap, done, done_pool );
         done_map_ele_insert ( done_map,  done, done_pool );
@@ -878,6 +924,14 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
     done->key.fec_idx          = ctx->fec_set_idx;
     done->sig_hash             = (uint)fd_hash( resolver->seed, w_sig, sizeof(wrapped_sig_t) );
     done->repaired_complete_ts = fd_long_if( !!ctx->set->repair_shred_rcvd, fd_tickcount(), 0L );
+    done->repair_rcvd          = (uint)fd_ulong_popcnt( ctx->set->repair_shred_rcvd );
+    done->data_rcvd            = (uint)fd_uint_popcnt ( ctx->set->data_shred_rcvd );
+    done->code_rcvd            = (uint)fd_uint_popcnt ( ctx->set->parity_shred_rcvd );
+    done->post_done_turbine_rcvd = 0U;
+
+    if( FD_LIKELY( !!ctx->set->repair_shred_rcvd ) ) {
+      FD_MCNT_INC( SHRED, SHRED_REPAIR_COMPLETION_ASSISTED, 1UL );
+    }
 
     done_heap_ele_insert( done_heap, done, done_pool );
     done_map_ele_insert ( done_map,  done, done_pool );
