@@ -162,7 +162,7 @@ test_control_abi( void ) {
   ctx.failov_out_idx    = ULONG_MAX;
   ctx.failov_in_idx     = ULONG_MAX;
   ev_init();
-  ulong versions[] = { 0UL, FD_ADMINCTL_FAILOVER_CONTROL_PAYLOAD_VERSION, 2UL };
+  ulong versions[] = { 1UL, FD_ADMINCTL_FAILOVER_CONTROL_PAYLOAD_VERSION, 3UL };
   ulong sizes[]    = { 0UL, 7UL, 8UL, 23UL, 24UL, 25UL, FD_ADMINCTL_PAYLOAD_MAX };
   for( ulong v=0UL; v<sizeof(versions)/sizeof(versions[0]); v++ ) {
     for( ulong s=0UL; s<sizeof(sizes)/sizeof(sizes[0]); s++ ) {
@@ -187,10 +187,23 @@ test_control_abi( void ) {
   FD_TEST( fd_adminctl_wait( ctx.adminctl, control( FD_ADMINCTL_FAILOVER_CMD_HANDOFF, 0UL ) )==FD_ADMINCTL_RESULT_UNSUPPORTED );
   FD_TEST( ev_was( FD_EVENT_ADMIN_COMMAND_TYPE_FAILOVER_CONTROL, FD_EVENT_ADMIN_COMMAND_RESULT_UNSUPPORTED ) );
   bus_init();
+  fd_adminctl_failover_control_t old = { .version=1UL, .cmd=FD_ADMINCTL_FAILOVER_CMD_PROMOTE,
+                                        .flags=FD_ADMINCTL_FAILOVER_FLAG_YES|FD_ADMINCTL_FAILOVER_FLAG_FORCE };
+  void * old_payload;
+  ulong old_idx = request( FD_ADMINCTL_CMD_FAILOVER_CONTROL, &old, sizeof(old), &old_payload );
+  failover_control( &ctx, stem, old_idx, old_payload, sizeof(old) );
+  FD_TEST( fd_adminctl_wait( ctx.adminctl, old_idx )==FD_ADMINCTL_RESULT_ABI_VERSION_MISMATCH );
+  FD_TEST( ev_was( FD_EVENT_ADMIN_COMMAND_TYPE_FAILOVER_CONTROL, FD_EVENT_ADMIN_COMMAND_RESULT_ABI_VERSION_MISMATCH ) );
+  FD_TEST( !pub_seq && ctx.failover_slot_idx==ULONG_MAX );
   FD_TEST( fd_adminctl_wait( ctx.adminctl, control( FD_ADMINCTL_FAILOVER_CMD_CNT, 0UL ) )==FD_ADMINCTL_RESULT_UNKNOWN_COMMAND );
   FD_TEST( ev_was( FD_EVENT_ADMIN_COMMAND_TYPE_FAILOVER_CONTROL, FD_EVENT_ADMIN_COMMAND_RESULT_UNKNOWN_COMMAND ) );
-  FD_TEST( fd_adminctl_wait( ctx.adminctl, control( FD_ADMINCTL_FAILOVER_CMD_PROMOTE, 4UL ) )==FD_ADMINCTL_RESULT_UNKNOWN_COMMAND );
+  FD_TEST( fd_adminctl_wait( ctx.adminctl, control( FD_ADMINCTL_FAILOVER_CMD_PROMOTE, 8UL ) )==FD_ADMINCTL_RESULT_UNKNOWN_COMMAND );
   FD_TEST( ev_was( FD_EVENT_ADMIN_COMMAND_TYPE_FAILOVER_CONTROL, FD_EVENT_ADMIN_COMMAND_RESULT_UNKNOWN_COMMAND ) );
+
+  for( ulong cmd=FD_ADMINCTL_FAILOVER_CMD_HANDOFF; cmd<=FD_ADMINCTL_FAILOVER_CMD_DEMOTE; cmd++ ) {
+    FD_TEST( fd_adminctl_wait( ctx.adminctl, control( cmd, FD_ADMINCTL_FAILOVER_FLAG_RECOVER ) )==FD_ADMINCTL_RESULT_UNKNOWN_COMMAND );
+    FD_TEST( fd_adminctl_wait( ctx.adminctl, control( cmd, FD_ADMINCTL_FAILOVER_FLAG_FORCE ) )==FD_ADMINCTL_RESULT_UNKNOWN_COMMAND );
+  }
   FD_TEST( ctx.failover_slot_idx==ULONG_MAX && !pub_seq );
   fd_event_tl = NULL;
   FD_LOG_NOTICE(( "pass: failover command ABI checks" ));
@@ -202,7 +215,7 @@ test_control_abi( void ) {
 static void
 test_bus_forwarding( void ) {
   bus_init();
-  ulong idx = control( FD_ADMINCTL_FAILOVER_CMD_PROMOTE, FD_ADMINCTL_FAILOVER_FLAG_YES|FD_ADMINCTL_FAILOVER_FLAG_FORCE );
+  ulong idx = control( FD_ADMINCTL_FAILOVER_CMD_PROMOTE, FD_ADMINCTL_FAILOVER_FLAG_YES|FD_ADMINCTL_FAILOVER_FLAG_FORCE|FD_ADMINCTL_FAILOVER_FLAG_RECOVER );
   FD_TEST( ctx.failover_slot_idx==idx && pub_seq==1UL );
   FD_TEST( pub_mcache[ 0 ].sig==FD_FAILOVER_BUS_CONTROL_REQ && pub_mcache[ 0 ].sz==sizeof(fd_failover_bus_msg_t) );
   fd_failover_bus_msg_t const * sent = (fd_failover_bus_msg_t const *)out_mem;
@@ -211,7 +224,7 @@ test_bus_forwarding( void ) {
   ulong nonce = sent->nonce;
   FD_TEST( nonce==ctx.failover_nonce );
   FD_TEST( fwd.version==FD_ADMINCTL_FAILOVER_CONTROL_PAYLOAD_VERSION );
-  FD_TEST( fwd.cmd==FD_ADMINCTL_FAILOVER_CMD_PROMOTE && fwd.flags==(FD_ADMINCTL_FAILOVER_FLAG_YES|FD_ADMINCTL_FAILOVER_FLAG_FORCE) );
+  FD_TEST( fwd.cmd==FD_ADMINCTL_FAILOVER_CMD_PROMOTE && fwd.flags==(FD_ADMINCTL_FAILOVER_FLAG_YES|FD_ADMINCTL_FAILOVER_FLAG_FORCE|FD_ADMINCTL_FAILOVER_FLAG_RECOVER) );
 
   FD_TEST( fd_adminctl_wait( ctx.adminctl, control( FD_ADMINCTL_FAILOVER_CMD_DEMOTE, 0UL ) )==FD_FAILOVER_CONTROL_RESULT_BUSY );
   FD_TEST( ctx.failover_slot_idx==idx && pub_seq==1UL );
@@ -582,10 +595,10 @@ static void
 test_events( void ) {
   ev_init();
   bus_init();
-  char const * promote = "{\"command\":\"promote\",\"yes\":true,\"force\":true}";
-  char const * demote  = "{\"command\":\"demote\",\"yes\":false,\"force\":false}";
-  char const * handoff = "{\"command\":\"handoff\",\"yes\":false,\"force\":false}";
-  ulong idx   = control( FD_ADMINCTL_FAILOVER_CMD_PROMOTE, FD_ADMINCTL_FAILOVER_FLAG_YES|FD_ADMINCTL_FAILOVER_FLAG_FORCE );
+  char const * promote = "{\"command\":\"promote\",\"yes\":true,\"force\":true,\"recover\":true}";
+  char const * demote  = "{\"command\":\"demote\",\"yes\":false,\"force\":false,\"recover\":false}";
+  char const * handoff = "{\"command\":\"handoff\",\"yes\":false,\"force\":false,\"recover\":false}";
+  ulong idx   = control( FD_ADMINCTL_FAILOVER_CMD_PROMOTE, FD_ADMINCTL_FAILOVER_FLAG_YES|FD_ADMINCTL_FAILOVER_FLAG_FORCE|FD_ADMINCTL_FAILOVER_FLAG_RECOVER );
   ulong nonce = ((fd_failover_bus_msg_t const *)out_mem)->nonce;
   FD_TEST( fd_adminctl_wait( ctx.adminctl, control( FD_ADMINCTL_FAILOVER_CMD_HANDOFF, 0UL ) )==FD_FAILOVER_CONTROL_RESULT_BUSY );
   FD_TEST( ev_is( FD_EVENT_ADMIN_COMMAND_TYPE_FAILOVER_CONTROL, "busy", handoff ) );
@@ -621,6 +634,7 @@ test_events( void ) {
     { FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS,     "in_progress"     },
     { FD_FAILOVER_CONTROL_RESULT_NOT_PAIRED,      "not_paired"      },
     { FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY,    "peer_unready"    },
+    { FD_FAILOVER_CONTROL_RESULT_PEER_UNVERIFIED, "peer_unverified" },
     { FD_FAILOVER_CONTROL_RESULT_PEER_ACTIVE,     "peer_active"     },
     { FD_FAILOVER_CONTROL_RESULT_HANDOFF_PENDING, "handoff_pending" },
     { FD_FAILOVER_CONTROL_RESULT_TAKEN,           "taken"           },

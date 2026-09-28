@@ -25,7 +25,7 @@ test_request_controls( void ) {
   peer_poll( ctx, ctx->request_until, &busy );
   FD_TEST( ctx->request_id==id && !ctx->request_until && ctx->stuck );
   FD_TEST( !ctx->channel->peer_addr && !ctx->channel->dial_peer );
-  FD_TEST( control( ctx, FD_ADMINCTL_FAILOVER_CMD_PROMOTE, FD_ADMINCTL_FAILOVER_FLAG_YES, now )==FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS );
+  FD_TEST( control( ctx, FD_ADMINCTL_FAILOVER_CMD_PROMOTE, FD_ADMINCTL_FAILOVER_FLAG_RECOVER, now )==FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS );
   FD_TEST( control( ctx, FD_ADMINCTL_FAILOVER_CMD_HANDOFF, 0UL, now )==FD_ADMINCTL_RESULT_SUCCESS );
   FD_TEST( ctx->request_id==id && ctx->request_until && !ctx->stuck );
   controller_fini( ctx );
@@ -80,7 +80,7 @@ test_request_recovery( void ) {
   /* A refused recovery command must not erase the resumable request. */
   FD_TEST( control( ctx, FD_ADMINCTL_FAILOVER_CMD_PROMOTE, force, now )==FD_FAILOVER_CONTROL_RESULT_NO_TOWER );
   FD_TEST( ctx->request_id==id && ctx->action==FD_FAILOVER_ACTION_HANDOFF_WAIT_PEER );
-  FD_TEST( control( ctx, FD_ADMINCTL_FAILOVER_CMD_PROMOTE, force|FD_ADMINCTL_FAILOVER_FLAG_YES, now )==FD_ADMINCTL_RESULT_SUCCESS );
+  FD_TEST( control( ctx, FD_ADMINCTL_FAILOVER_CMD_PROMOTE, force|FD_ADMINCTL_FAILOVER_FLAG_RECOVER, now )==FD_ADMINCTL_RESULT_SUCCESS );
   FD_TEST( !ctx->request_id && ctx->request_result==FD_FAILOVER_HANDOFF_CANCELLED );
   FD_TEST( ctx->action==FD_FAILOVER_ACTION_PROMOTE_WAIT_REPLAY && ctx->promote_force );
   controller_fini( ctx );
@@ -94,7 +94,7 @@ test_request_recovery( void ) {
     ctx->action = actions[i];
     if( i>=2UL ) ctx->switch_pending_key = i==2UL ? FD_FAILOVER_SWITCH_KEY_STAKED : FD_FAILOVER_SWITCH_KEY_JUNK;
     ulong key = ctx->switch_pending_key;
-    FD_TEST( control( ctx, FD_ADMINCTL_FAILOVER_CMD_PROMOTE, force|FD_ADMINCTL_FAILOVER_FLAG_YES, now )==FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS );
+    FD_TEST( control( ctx, FD_ADMINCTL_FAILOVER_CMD_PROMOTE, force|FD_ADMINCTL_FAILOVER_FLAG_RECOVER, now )==FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS );
     FD_TEST( ctx->request_id==42UL && ctx->action==actions[i] && ctx->switch_pending_key==key );
     controller_fini( ctx );
   }
