@@ -1019,12 +1019,11 @@ test_demote_sends_nothing( void ) {
 }
 
 /* stored_tower_ctx: a standby whose promotion on the peer's DEMOTED
-   ended at the deadline, so it keeps the peer's tower ending at 110. */
+   ended at the deadline. Its recovery cache is retired, its floor stays. */
 
-/* test_stored_tower: the peer's tower from a promotion that did not
-   finish is adopted by a later promote.  It survives a peer reboot, the
-   peer seen ACTIVE drops it, and once our root reaches its tip promote
-   skips it for the vote account. */
+/* test_stored_tower: after a declined handoff either member may recover
+   without reporting another tenure. Plain and forced promotion require
+   account consent even if replay has not rooted past the old final. */
 
 /* test_promote_refusals: a DEMOTED is refused while we hold the
    identity, and without a STATUS from this session saying the peer
@@ -1188,7 +1187,8 @@ test_adopt_unreplayed_retry( void ) {
   ctx->replay_slot = 1000UL;
   step_controller( ctx, stem );
   FD_TEST( ctx->action==FD_FAILOVER_ACTION_HANDOFF_WAIT_RESULT && ctx->role==FD_FAILOVER_ROLE_STANDBY && ctx->stuck );
-  FD_TEST( pending_rejected( ctx ).reason==FD_FAILOVER_REJECT_ADOPTION_FAILED && ctx->peer_tower.valid );
+  FD_TEST( pending_rejected( ctx ).reason==FD_FAILOVER_REJECT_ADOPTION_FAILED && !ctx->peer_tower.valid );
+  FD_TEST( ctx->adopt.valid && ctx->adopt.tip==99UL && ctx->peer_floor==99UL );
   controller_fini( ctx );
   FD_LOG_NOTICE(( "pass: a tower short of replay is retried until the deadline" ));
 }
@@ -1313,8 +1313,14 @@ test_late_promote_ack( void ) {
   /* A refusal is DECLINED and stuck. */
   ctx->send_demoted = 1;
   ctx->handoff_id   = 5002UL;
+  make_tower( &ctx->peer_tower, 99UL );
+  make_tower( &ctx->own_tower, 99UL );
+  ctx->own_floor  = 99UL;
+  ctx->peer_floor = 98UL;
   deliver_rejected( ctx, 5002UL, (uchar)FD_FAILOVER_REJECT_BUSY );
   FD_TEST( !ctx->send_demoted && ctx->stuck && ctx->handoff_result==FD_FAILOVER_HANDOFF_DECLINED );
+  FD_TEST( !ctx->peer_tower.valid && !ctx->own_tower.valid && ctx->own_floor==99UL && ctx->peer_floor==98UL );
+  FD_TEST( promote_source( ctx )==FD_FAILOVER_SOURCE_VOTE_ACCOUNT );
   FD_TEST( !ctx->channel->metrics.wire_fatal_cnt );
   controller_fini( ctx );
   FD_LOG_NOTICE(( "pass: a late acknowledgement is acted on and an unowed one is ignored" ));

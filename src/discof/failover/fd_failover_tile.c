@@ -963,9 +963,10 @@ control_refusal( ulong         result,
   }
 }
 
-/* Stand back down.  If the peer's DEMOTED asked for the promotion we
-   tell it why.  A tower the tower tile found invalid or mismatched is
-   not kept for another try. */
+/* Stand back down. If the peer's DEMOTED asked for the promotion we
+   tell it why and retire the recovery caches: either member may recover
+   independently after a refusal, without reporting its later votes.
+   Retries within a running adoption still use its separate copy. */
 static void
 reject_promotion( fd_failover_tile_ctx_t * ctx,
                   uchar                    reason,
@@ -977,10 +978,12 @@ reject_promotion( fd_failover_tile_ctx_t * ctx,
     FD_LOG_WARNING(( "%s: promotion failed (%s), we stay a standby, check that one machine votes and see `failover status` before another `failover promote`", ctx->promote_label, reject_name( reason ) ));
     return;
   }
+  ctx->peer_tower.valid = 0;
+  ctx->own_tower.valid  = 0;
   ctx->promote_peer = 0;
   ctx->action = FD_FAILOVER_ACTION_HANDOFF_WAIT_RESULT;
   ctx->request_until = fd_long_sat_add( fd_failover_clock(), FD_FAILOVER_CHANNEL_IDLE_NANOS );
-  FD_LOG_WARNING(( "refusing the peer's handoff %lu (%s), we stay a standby; check `failover status` on both machines before recovery", ctx->promote_handoff_id, reject_name( reason ) ));
+  FD_LOG_WARNING(( "refusing the peer's handoff %lu (%s), we stay a standby; saved final state retired because either member may recover, coverage floors retained; check `failover status` on both machines before `failover promote --yes`", ctx->promote_handoff_id, reject_name( reason ) ));
   finish_reply( ctx, ctx->promote_boot_id, ctx->promote_handoff_id, (ushort)FD_FAILOVER_MSG_PROMOTE_REJECTED, reason );
 }
 
@@ -1523,14 +1526,18 @@ handle_control( fd_failover_tile_ctx_t * ctx,
   }
 
   case (ushort)FD_FAILOVER_MSG_PROMOTE_REJECTED: {
-    /* Nobody promoted on our DEMOTED, that is for the operator. */
+    /* This request did not promote the peer. Either member may now
+       recover without telling the other, so its old state is no longer
+       an independent recovery source. */
     fd_failover_promote_rejected_t rej;
     if( FD_UNLIKELY( !fd_failover_promote_rejected_decode( &rej, ctx->rx, payload_sz ) ) ) break;
     if( FD_UNLIKELY( !ctx->send_demoted || rej.handoff_id!=ctx->handoff_id ||
                      ctx->peer_boot_id!=ctx->handoff_target ||
                      !fd_memeq( fd_failover_channel_peer_hello( ctx->channel )->junk_pubkey, ctx->handoff_junk, 32UL ) ||
                      ctx->action==FD_FAILOVER_ACTION_DEMOTE_SWITCH ) ) return;
-    FD_LOG_WARNING(( "the peer declined handoff %lu (%s), we stay a standby; see the peer's log and check `failover status` on both machines before recovery", rej.handoff_id, reject_name( rej.reason ) ));
+    FD_LOG_WARNING(( "the peer declined handoff %lu (%s), we stay a standby; saved final state retired because either member may recover, coverage floors retained; see the peer's log and check `failover status` on both machines before `failover promote --yes`", rej.handoff_id, reject_name( rej.reason ) ));
+    ctx->peer_tower.valid = 0;
+    ctx->own_tower.valid  = 0;
     handoff_resolved( ctx, FD_FAILOVER_HANDOFF_DECLINED );
     ctx->stuck = 1;
     handoff_result( ctx, rej.handoff_id, FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY );

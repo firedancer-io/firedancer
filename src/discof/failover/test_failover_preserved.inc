@@ -114,11 +114,12 @@ stored_tower_ctx( void ) {
   step_controller( ctx, stem );
   ctx->replay_slot = 1000UL;
   step_controller( ctx, stem );
-  FD_TEST( ctx->action==FD_FAILOVER_ACTION_HANDOFF_WAIT_RESULT && ctx->peer_tower.valid );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_HANDOFF_WAIT_RESULT && !ctx->peer_tower.valid );
+  FD_TEST( ctx->adopt.valid && ctx->adopt.tip==110UL && ctx->peer_floor==110UL );
   FD_TEST( pending_rejected( ctx ).reason==FD_FAILOVER_REJECT_ADOPTION_FAILED );
   fd_failover_handoff_result_t result = { .handoff_id=42UL, .result=FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY };
   deliver( ctx, FD_FAILOVER_MSG_HANDOFF_RESULT, &result, sizeof(result) );
-  FD_TEST( ctx->action==FD_FAILOVER_ACTION_IDLE && ctx->peer_tower.tip==110UL && !ctx->request_id );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_IDLE && !ctx->peer_tower.valid && !ctx->own_tower.valid && !ctx->request_id );
   unpair( ctx );
   return ctx;
 }
@@ -128,12 +129,14 @@ test_stored_tower( void ) {
   long now = fd_failover_clock();
   fd_failover_tile_ctx_t * ctx = stored_tower_ctx();
   pair( ctx, 78UL, FD_FAILOVER_ROLE_STANDBY, now );
-  FD_TEST( ctx->peer_tower.valid );
-  FD_TEST( control( ctx, FD_ADMINCTL_FAILOVER_CMD_PROMOTE, 0UL, now )==FD_ADMINCTL_RESULT_SUCCESS );
-  FD_TEST( ctx->promote_source==FD_FAILOVER_SOURCE_PEER && !ctx->promote_peer && ctx->adopt.tip==110UL );
+  FD_TEST( !ctx->peer_tower.valid && !ctx->own_tower.valid && ctx->peer_floor==110UL );
+  FD_TEST( control( ctx, FD_ADMINCTL_FAILOVER_CMD_PROMOTE, 0UL, now )==FD_FAILOVER_CONTROL_RESULT_NO_TOWER );
+  FD_TEST( control( ctx, FD_ADMINCTL_FAILOVER_CMD_PROMOTE, FD_ADMINCTL_FAILOVER_FLAG_FORCE, now )==FD_FAILOVER_CONTROL_RESULT_NO_TOWER );
+  FD_TEST( control( ctx, FD_ADMINCTL_FAILOVER_CMD_PROMOTE, FD_ADMINCTL_FAILOVER_FLAG_YES, now )==FD_ADMINCTL_RESULT_SUCCESS );
+  FD_TEST( ctx->promote_source==FD_FAILOVER_SOURCE_VOTE_ACCOUNT && !ctx->promote_peer && !ctx->adopt.sz );
   step_controller( ctx, stem );
-  FD_TEST( ctx->action==FD_FAILOVER_ACTION_PROMOTE_WAIT_ADOPT && pub_mcache[0].sz==ctx->peer_tower.sz );
-  adopt_answer( ctx, FD_TOWER_ADOPT_SUCCESS, 110UL );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_PROMOTE_WAIT_ADOPT );
+  acct_answer( ctx, 110UL, 110UL );
   step_controller( ctx, stem );
   switch_ok( ctx, 0UL );
   step_controller( ctx, stem );
@@ -152,7 +155,7 @@ test_stored_tower( void ) {
   ctx->root_slot = 99UL;
   FD_TEST( control( ctx, FD_ADMINCTL_FAILOVER_CMD_PROMOTE, 0UL, now )==FD_FAILOVER_CONTROL_RESULT_NO_TOWER );
   controller_fini( ctx );
-  FD_LOG_NOTICE(( "pass: a failed handoff retains its final tower for recovery only above the root" ));
+  FD_LOG_NOTICE(( "pass: a declined handoff retires saved state, retains coverage, and requires explicit account recovery" ));
 }
 
 static void
