@@ -1722,8 +1722,8 @@ failover_adopt_votes( fd_tower_tile_t *       ctx,
   return result;
 }
 
-/* failover_adopt_local serves a forced promotion with nothing from the
-   peer.  It adopts the vote account, else an empty tower. */
+/* Read the vote account when no eligible saved tower remains.  The
+   controller decides whether its coverage is sufficient for promotion. */
 static fd_tower_adopt_result_t
 failover_adopt_local( fd_tower_tile_t * ctx ) {
   ulong acct_root = ULONG_MAX;
@@ -1752,7 +1752,7 @@ failover_adopt_local( fd_tower_tile_t * ctx ) {
   }
   fd_tower_adopt_result_t result = failover_adopt_votes( ctx, votes, vote_cnt, acct_root, NULL, NULL );
   if( FD_LIKELY( result.result==FD_TOWER_ADOPT_SUCCESS ) ) {
-    FD_LOG_NOTICE(( "forced promotion adopted the vote account, it has %lu votes, we keep %lu above our root %lu", vote_cnt, fd_tower_vote_cnt( ctx->tower->votes ), result.root ));
+    FD_LOG_NOTICE(( "failover adopted the vote account, it has %lu votes, we keep %lu above our root %lu", vote_cnt, fd_tower_vote_cnt( ctx->tower->votes ), result.root ));
   }
   /* Like a restart, votes at or under our root are dropped, and the
      staked key may vote even when that leaves the tower empty.  The
@@ -1763,9 +1763,21 @@ failover_adopt_local( fd_tower_tile_t * ctx ) {
   return result;
 }
 
-/* failover_adopt_tower installs a tower streamed by the outgoing active.
-   Its tip must be the block this validator replayed for that slot.  An
-   empty request is a forced promotion, see failover_adopt_local. */
+/* FORCE may recover without any eligible history.  Still replace the
+   standby shadow tower through the normal adoption path, so its votes,
+   voted flags and fork-choice root stay consistent. */
+static fd_tower_adopt_result_t
+failover_adopt_empty( fd_tower_tile_t * ctx ) {
+  ctx->failover_tower_adopted = 0;
+  fd_tower_adopt_result_t result = failover_adopt_votes( ctx, NULL, 0UL, ULONG_MAX, NULL, NULL );
+  if( FD_LIKELY( result.result==FD_TOWER_ADOPT_SUCCESS ) )
+    FD_LOG_WARNING(( "failover --force adopted an empty tower at root %lu; earlier unrecorded votes and lockouts are not protected", result.root ));
+  return result;
+}
+
+/* failover_adopt_tower installs the outgoing active's final tower.
+   Its tip must be the block this validator replayed for that slot.
+   An empty payload selects the vote account, see failover_adopt_local. */
 static fd_tower_adopt_result_t
 failover_adopt_tower( fd_tower_tile_t * ctx,
                       uchar const *     data,
@@ -1797,7 +1809,7 @@ returnable_frag( fd_tower_tile_t *   ctx,
                  ulong               sig,
                  ulong               chunk,
                  ulong               sz,
-                 ulong               ctl FD_PARAM_UNUSED,
+                 ulong               ctl,
                  ulong               tsorig,
                  ulong               tspub FD_PARAM_UNUSED,
                  fd_stem_context_t * stem ) {
@@ -1896,7 +1908,14 @@ returnable_frag( fd_tower_tile_t *   ctx,
   case IN_KIND_FAILOV: {
     /* The reply echoes the request's sequence number, the failover tile
        waits for it. */
-    fd_tower_adopt_result_t result = failover_adopt_tower( ctx, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ), sz );
+    fd_tower_adopt_result_t result;
+    if( FD_UNLIKELY( ctl==FD_TOWER_ADOPT_CTL_EMPTY && !sz ) ) result = failover_adopt_empty( ctx );
+    else if( FD_LIKELY( !ctl ) ) result = failover_adopt_tower( ctx, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ), sz );
+    else {
+      ctx->failover_tower_adopted = 0;
+      result = (fd_tower_adopt_result_t){ .result=FD_TOWER_ADOPT_ERR_INVALID, .root=ctx->tower->root,
+                                          .vote_slot=ULONG_MAX, .acct_vote_slot=ULONG_MAX };
+    }
     /* An unreplayed vote is asked for again on every completed slot, so
        only the refusals that end the promotion are logged. */
     switch( result.result ) {

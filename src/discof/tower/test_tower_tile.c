@@ -1354,6 +1354,26 @@ test_failover_adopt_empty( fd_wksp_t * wksp ) {
   result = failover_adopt_tower( ctx, NULL, 0UL );
   FD_TEST( result.result==FD_TOWER_ADOPT_SUCCESS && ctx->failover_tower_adopted );
 
+  /* A rejected account is not itself an empty-history authorization.
+     Only the explicit empty control on the local failover link can
+     replace the shadow votes without reading that account. */
+  ctx->failover_vote_acct_slot = 7UL;
+  fd_tower_vote_push_tail( ctx->tower->votes, (fd_tower_vote_t){ .slot=4UL, .conf=1UL } );
+  fd_tower_blocks_query( ctx->tower, 4UL )->voted = 1;
+  FD_TEST( !returnable_frag( ctx, 0UL, 2UL, 79UL, ctx->in[0].chunk0, 0UL, FD_TOWER_ADOPT_CTL_EMPTY, 0UL, 0UL, stem ) );
+  result = FD_LOAD( fd_tower_adopt_result_t, fd_chunk_to_laddr_const( wksp, mcaches[1][2].chunk ) );
+  FD_TEST( mcaches[1][2].sig==79UL && result.result==FD_TOWER_ADOPT_SUCCESS );
+  FD_TEST( result.root==3UL && result.vote_slot==ULONG_MAX && result.acct_vote_slot==ULONG_MAX );
+  FD_TEST( ctx->failover_tower_adopted && fd_tower_vote_empty( ctx->tower->votes ) );
+  FD_TEST( !fd_tower_blocks_query( ctx->tower, 4UL )->voted && fd_ghost_root( ctx->ghost )->slot==3UL );
+
+  FD_TEST( !returnable_frag( ctx, 0UL, 3UL, 80UL, ctx->in[0].chunk0, 1UL, FD_TOWER_ADOPT_CTL_EMPTY, 0UL, 0UL, stem ) );
+  result = FD_LOAD( fd_tower_adopt_result_t, fd_chunk_to_laddr_const( wksp, mcaches[1][3].chunk ) );
+  FD_TEST( result.result==FD_TOWER_ADOPT_ERR_INVALID && !ctx->failover_tower_adopted );
+  FD_TEST( !returnable_frag( ctx, 0UL, 4UL, 81UL, ctx->in[0].chunk0, 0UL, 16UL, 0UL, 0UL, stem ) );
+  result = FD_LOAD( fd_tower_adopt_result_t, fd_chunk_to_laddr_const( wksp, mcaches[1][4].chunk ) );
+  FD_TEST( result.result==FD_TOWER_ADOPT_ERR_INVALID && !ctx->failover_tower_adopted );
+
   fd_wksp_free_laddr( fd_ghost_delete( fd_ghost_leave( ctx->ghost ) ) );
   fd_wksp_free_laddr( fd_tower_delete( fd_tower_leave( ctx->tower ) ) );
   FD_LOG_NOTICE(( "pass: test_failover_adopt_empty" ));

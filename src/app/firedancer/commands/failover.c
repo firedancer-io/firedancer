@@ -20,7 +20,7 @@ static char const * const SESSION_NAMES[] = {
   "listening", "dialing", "hello", "paired", "backoff"
 };
 static char const * const SOURCE_NAMES[] = {
-  "the stored peer tower", "our own final tower", "the vote account, needs --recover"
+  "the stored peer tower", "our own final tower", "the vote account (automatic fallback)"
 };
 static char const * const HANDOFF_NAMES[] = {
   "not sent", "pending", "taken", "declined", "restarted", "cancelled by promote --force"
@@ -46,7 +46,6 @@ failover_cmd_args( int *    pargc,
   if( FD_UNLIKELY( name ) ) fd_cstr_ncpy( args->failover.name, name, sizeof(args->failover.name) );
   args->failover.yes   = fd_env_strip_cmdline_contains( pargc, pargv, "--yes"   );
   args->failover.force = fd_env_strip_cmdline_contains( pargc, pargv, "--force" );
-  args->failover.recover = fd_env_strip_cmdline_contains( pargc, pargv, "--recover" );
 
   if( FD_UNLIKELY( !( *pargc ) ) ) {
     FD_LOG_ERR(( "missing subcommand, supported: status, handoff, demote, promote" ));
@@ -69,9 +68,6 @@ failover_cmd_args( int *    pargc,
   }
   if( FD_UNLIKELY( args->failover.force && args->failover.cmd!=(int)FD_ADMINCTL_FAILOVER_CMD_PROMOTE ) ) {
     FD_LOG_ERR(( "--force is only meaningful for `failover promote`" ));
-  }
-  if( FD_UNLIKELY( args->failover.recover && args->failover.cmd!=(int)FD_ADMINCTL_FAILOVER_CMD_PROMOTE ) ) {
-    FD_LOG_ERR(( "--recover is only meaningful for `failover promote`" ));
   }
 }
 
@@ -102,7 +98,7 @@ control_result_name( ulong result ) {
     case FD_FAILOVER_CONTROL_RESULT_HANDOFF_PENDING: return "the peer has not answered our last handoff";
     case FD_FAILOVER_CONTROL_RESULT_TAKEN:           return "the peer took our last handoff and may still be voting";
     case FD_FAILOVER_CONTROL_RESULT_STAKED_SEEN:     return "gossip showed the staked identity at another host within the last 15 seconds, an active is publishing";
-    case FD_FAILOVER_CONTROL_RESULT_NO_TOWER:        return "there is no tower to adopt, `failover promote --force --recover` adopts the vote account";
+    case FD_FAILOVER_CONTROL_RESULT_NO_TOWER:        return "no eligible vote history; --force accepts incomplete or empty history after the peer is fenced";
     case FD_FAILOVER_CONTROL_RESULT_NO_FINAL_TOWER:  return "the tower of our last vote is not known yet, this machine keeps the identity, retry after its next vote";
     default:                                         return NULL;
   }
@@ -120,19 +116,18 @@ failover_control_fn( args_t *        args,
                     "at once.  Votes the other machine cast and never reported are not covered.\n" ));
     if( FD_UNLIKELY( args->failover.force ) ) {
       FD_LOG_STDOUT(( "WARNING: --force skips every check on the other machine.  Use it only when that\n"
-                      "machine cannot sign, or both machines may vote with the staked identity.\n" ));
+                      "machine cannot sign, or both machines may vote with the staked identity.\n"
+                      "It also permits incomplete or empty vote history, which may lose earlier lockouts.\n" ));
     }
-    if( args->failover.recover ) {
-      FD_LOG_STDOUT(( "--recover permits the vote-account source if no saved final tower is eligible.\n"
-                      "Coverage floors and adoption checks still apply.\n" ));
-    }
+    FD_LOG_STDOUT(( "Promotion tries eligible saved Tower state, then the vote account.\n"
+                    "Without --force, unusable or incomplete history refuses promotion.\n" ));
   }
   if( FD_UNLIKELY( !args->failover.yes ) ) {
     if( args->failover.cmd==(int)FD_ADMINCTL_FAILOVER_CMD_HANDOFF ) {
       FD_LOG_STDOUT(( "This asks the active to hand the staked identity to this standby.  Type yes to continue: " ));
     } else if( args->failover.cmd==(int)FD_ADMINCTL_FAILOVER_CMD_DEMOTE ) {
       FD_LOG_STDOUT(( "This gives up the staked identity and tells the other machine nothing. Recover\n"
-                      "on one member after fencing its peer with `failover promote --force --recover`. Type yes to continue: " ));
+                      "on one member after fencing its peer with `failover promote --force`. Type yes to continue: " ));
     } else {
       FD_LOG_STDOUT(( "Type yes to continue: " ));
     }
@@ -147,8 +142,8 @@ failover_control_fn( args_t *        args,
   if( FD_UNLIKELY( slot_idx==ULONG_MAX ) ) FD_LOG_ERR(( "all admin command slots are busy" ));
   if( FD_UNLIKELY( sizeof(fd_adminctl_failover_control_t)>payload_max ) ) FD_LOG_ERR(( "adminctl failover-control payload too large" ));
 
-  /* Confirmation changes no controller permissions. Fencing and recovery
-     source consent are separate in interactive and noninteractive use. */
+  /* Confirmation changes no permissions. FORCE is explicit in both
+     interactive and noninteractive use. */
   fd_adminctl_failover_control_t * req = (fd_adminctl_failover_control_t *)payload;
   fd_memset( req, 0, sizeof(*req) );
   req->version = FD_ADMINCTL_FAILOVER_CONTROL_PAYLOAD_VERSION;
@@ -157,7 +152,6 @@ failover_control_fn( args_t *        args,
     req->flags |= FD_ADMINCTL_FAILOVER_FLAG_YES;
   }
   if( FD_UNLIKELY( args->failover.force ) ) req->flags |= FD_ADMINCTL_FAILOVER_FLAG_FORCE;
-  if( FD_UNLIKELY( args->failover.recover ) ) req->flags |= FD_ADMINCTL_FAILOVER_FLAG_RECOVER;
 
   fd_adminctl_publish( adminctl, slot_idx, FD_ADMINCTL_CMD_FAILOVER_CONTROL, sizeof(*req) );
 
@@ -285,13 +279,12 @@ static void
 failover_args_help( fd_action_help_t * help ) {
   fd_action_help_arg( help, "--name", "<name>", "Name of the validator instance to attach to, if more than one is\n"
                                                 "running on this host" );
-  fd_action_help_arg( help, "--yes", NULL,      "Skip the confirmation prompt. It does not authorize fencing or\n"
-                                                "a recovery source" );
+  fd_action_help_arg( help, "--yes", NULL,      "Skip the confirmation prompt. It does not authorize peer or\n"
+                                                "vote-history overrides" );
   fd_action_help_arg( help, "--force", NULL,    "Only with `promote`.  Skip every check on the other machine and\n"
                                                 "stop waiting for its answer to our handoff.  Use it only when the\n"
-                                                "other machine cannot sign" );
-  fd_action_help_arg( help, "--recover", NULL,  "Only with `promote`. Permit vote-account recovery when no saved\n"
-                                                "final tower is eligible. This does not verify or fence the peer" );
+                                                "other machine cannot sign. Also accept incomplete or empty vote\n"
+                                                "history; earlier lockouts may be lost" );
 }
 
 action_t fd_action_failover = {
@@ -311,10 +304,11 @@ action_t fd_action_failover = {
                     "It dials the active from gossip, takes its final tower and disconnects.\n"
                     "`demote` gives the\n"
                     "identity up without promoting anyone and runs on the active, the other\n"
-                    "machine then needs `failover promote --force --recover`.  `promote` takes the identity\n"
+                    "machine then needs `failover promote --force`.  `promote` takes the identity\n"
                     "without dialing. MVP 0 requires --force for every unilateral promotion,\n"
-                    "including bootstrap, because it cannot verify the peer. --recover permits\n"
-                    "the vote account when no final tower is eligible. No other machine may\n"
+                    "including bootstrap, because it cannot verify the peer. It tries saved\n"
+                    "Tower state, then the vote account; --force also permits incomplete or\n"
+                    "empty history if needed. No other machine may\n"
                     "hold the identity or be in a promotion, and\n"
                     "both machines are never promoted at once.  `promote --force` skips the\n"
                     "checks on the other machine when it cannot sign.  Each asks for\n"
@@ -327,6 +321,6 @@ action_t fd_action_failover = {
                     "This command does not start a validator; it attaches to one that is already\n"
                     "running.  With no arguments it discovers the running validator automatically.\n"
                     "If multiple validators are running, pass --name to select one.\n",
-  .usage          = "failover status|handoff|demote|promote [--name <name>] [--yes] [--force] [--recover]",
+  .usage          = "failover status|handoff|demote|promote [--name <name>] [--yes] [--force]",
   .args_help      = failover_args_help,
 };

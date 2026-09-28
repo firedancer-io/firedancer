@@ -34,7 +34,7 @@ test_floor_boundaries( void ) {
 static void
 test_recovery_guard_matrix( void ) {
   long now=fd_failover_clock();
-  ulong yes=FD_ADMINCTL_FAILOVER_FLAG_RECOVER;
+  ulong yes=FD_ADMINCTL_FAILOVER_FLAG_YES;
   ulong force=yes|FD_ADMINCTL_FAILOVER_FLAG_FORCE;
   for( ulong action=0UL; action<FD_FAILOVER_ACTION_CNT; action++ ) for( ulong key=0UL; key<3UL; key++ ) {
     fd_failover_tile_ctx_t * ctx=controller_init( FD_FAILOVER_ROLE_STANDBY );

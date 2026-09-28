@@ -21,6 +21,11 @@
 #define FD_TOWER_ADOPT_ERR_UNREPLAYED      (5UL) /* a vote is on a block not replayed here yet, nothing changed */
 #define FD_TOWER_ADOPT_RESULT_CNT          (6UL)
 
+/* Local failover link only.  An empty payload normally reads the vote
+   account; this control bit explicitly discards unavailable history.
+   Serialized peer bytes cannot request it. */
+#define FD_TOWER_ADOPT_CTL_EMPTY (8UL)
+
 struct fd_tower_adopt_result {
   ulong result;
   ulong root;

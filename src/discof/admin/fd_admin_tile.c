@@ -1426,24 +1426,22 @@ failover_control( fd_admin_tile_ctx_t * ctx,
   fd_adminctl_failover_control_t req;
   fd_memcpy( &req, data, sizeof(req) );
   if( FD_UNLIKELY( req.cmd>=FD_ADMINCTL_FAILOVER_CMD_CNT ||
-                   (req.flags & ~(FD_ADMINCTL_FAILOVER_FLAG_YES|FD_ADMINCTL_FAILOVER_FLAG_FORCE|FD_ADMINCTL_FAILOVER_FLAG_RECOVER)) ||
+                   (req.flags & ~(FD_ADMINCTL_FAILOVER_FLAG_YES|FD_ADMINCTL_FAILOVER_FLAG_FORCE)) ||
                    (req.cmd!=FD_ADMINCTL_FAILOVER_CMD_PROMOTE &&
-                    (req.flags & (FD_ADMINCTL_FAILOVER_FLAG_FORCE|FD_ADMINCTL_FAILOVER_FLAG_RECOVER))) ) ) {
+                    (req.flags & FD_ADMINCTL_FAILOVER_FLAG_FORCE)) ) ) {
     FD_LOG_WARNING(( "unknown adminctl failover-control cmd %lu flags %lu", req.cmd, req.flags ));
     report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_UNKNOWN_COMMAND );
     fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_UNKNOWN_COMMAND );
     return;
   }
   FD_TEST( fd_cstr_printf_check( (char *)event.args_json, sizeof(event.args_json), &event.args_json_len,
-                                 "{\"command\":\"%s\",\"yes\":%s,\"force\":%s,\"recover\":%s}", failover_cmd_name( req.cmd ),
+                                 "{\"command\":\"%s\",\"yes\":%s,\"force\":%s}", failover_cmd_name( req.cmd ),
                                  (req.flags & FD_ADMINCTL_FAILOVER_FLAG_YES)   ? "true" : "false",
-                                 (req.flags & FD_ADMINCTL_FAILOVER_FLAG_FORCE) ? "true" : "false",
-                                 (req.flags & FD_ADMINCTL_FAILOVER_FLAG_RECOVER) ? "true" : "false" ) );
+                                 (req.flags & FD_ADMINCTL_FAILOVER_FLAG_FORCE) ? "true" : "false" ) );
   char cmd_cstr[ 48 ];
-  FD_TEST( fd_cstr_printf_check( cmd_cstr, sizeof(cmd_cstr), NULL, "%s%s%s%s", failover_cmd_name( req.cmd ),
+  FD_TEST( fd_cstr_printf_check( cmd_cstr, sizeof(cmd_cstr), NULL, "%s%s%s", failover_cmd_name( req.cmd ),
                                  (req.flags & FD_ADMINCTL_FAILOVER_FLAG_YES)   ? " --yes"   : "",
-                                 (req.flags & FD_ADMINCTL_FAILOVER_FLAG_FORCE) ? " --force" : "",
-                                 (req.flags & FD_ADMINCTL_FAILOVER_FLAG_RECOVER) ? " --recover" : "" ) );
+                                 (req.flags & FD_ADMINCTL_FAILOVER_FLAG_FORCE) ? " --force" : "" ) );
 
   if( FD_UNLIKELY( !ctx->failover_enabled ) ) {
     FD_LOG_WARNING(( "`failover %s` refused, failover commands are not supported unless [failover.junk_identity_key] is set", cmd_cstr ));

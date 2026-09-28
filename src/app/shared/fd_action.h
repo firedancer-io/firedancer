@@ -66,7 +66,6 @@ union fdctl_args {
     int  cmd;          /* FD_ADMINCTL_FAILOVER_CMD_*, or -1 for status */
     int  yes;
     int  force;
-    int  recover;
   } failover;
 
   struct {

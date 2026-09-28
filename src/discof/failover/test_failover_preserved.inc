@@ -49,7 +49,11 @@ static void
 test_command_clears_stuck( void ) {
   fd_adminctl_failover_status_resp_t status;
   fd_failover_tile_ctx_t * ctx = controller_init( FD_FAILOVER_ROLE_STANDBY );
-  FD_TEST( control( ctx, FD_ADMINCTL_FAILOVER_CMD_PROMOTE, FD_ADMINCTL_FAILOVER_FLAG_RECOVER|FD_ADMINCTL_FAILOVER_FLAG_FORCE, 1000L )==FD_ADMINCTL_RESULT_SUCCESS );
+  FD_TEST( control( ctx, FD_ADMINCTL_FAILOVER_CMD_PROMOTE, FD_ADMINCTL_FAILOVER_FLAG_YES|FD_ADMINCTL_FAILOVER_FLAG_FORCE, 1000L )==FD_ADMINCTL_RESULT_SUCCESS );
+  step_controller( ctx, stem );
+  adopt_answer( ctx, FD_TOWER_ADOPT_ERR_INVALID, FD_FAILOVER_SLOT_NULL );
+  step_controller( ctx, stem );
+  FD_TEST( ctx->promote_empty && ctx->action==FD_FAILOVER_ACTION_PROMOTE_WAIT_REPLAY );
   step_controller( ctx, stem );
   adopt_answer( ctx, FD_TOWER_ADOPT_ERR_INVALID, FD_FAILOVER_SLOT_NULL );
   step_controller( ctx, stem );
@@ -131,8 +135,7 @@ test_stored_tower( void ) {
   pair( ctx, 78UL, FD_FAILOVER_ROLE_STANDBY, now );
   FD_TEST( !ctx->peer_tower.valid && !ctx->own_tower.valid && ctx->peer_floor==110UL );
   FD_TEST( control( ctx, FD_ADMINCTL_FAILOVER_CMD_PROMOTE, 0UL, now )==FD_FAILOVER_CONTROL_RESULT_PEER_UNVERIFIED );
-  FD_TEST( control( ctx, FD_ADMINCTL_FAILOVER_CMD_PROMOTE, FD_ADMINCTL_FAILOVER_FLAG_FORCE, now )==FD_FAILOVER_CONTROL_RESULT_NO_TOWER );
-  FD_TEST( control( ctx, FD_ADMINCTL_FAILOVER_CMD_PROMOTE, FD_ADMINCTL_FAILOVER_FLAG_RECOVER|FD_ADMINCTL_FAILOVER_FLAG_FORCE, now )==FD_ADMINCTL_RESULT_SUCCESS );
+  FD_TEST( control( ctx, FD_ADMINCTL_FAILOVER_CMD_PROMOTE, FD_ADMINCTL_FAILOVER_FLAG_YES|FD_ADMINCTL_FAILOVER_FLAG_FORCE, now )==FD_ADMINCTL_RESULT_SUCCESS );
   FD_TEST( ctx->promote_source==FD_FAILOVER_SOURCE_VOTE_ACCOUNT && !ctx->promote_peer && !ctx->adopt.sz );
   step_controller( ctx, stem );
   FD_TEST( ctx->action==FD_FAILOVER_ACTION_PROMOTE_WAIT_ADOPT );
@@ -147,7 +150,7 @@ test_stored_tower( void ) {
   ctx->root_slot = 110UL;
   FD_TEST( control( ctx, FD_ADMINCTL_FAILOVER_CMD_PROMOTE, 0UL, now )==FD_FAILOVER_CONTROL_RESULT_PEER_UNVERIFIED );
   FD_TEST( ctx->action==FD_FAILOVER_ACTION_IDLE );
-  FD_TEST( control( ctx, FD_ADMINCTL_FAILOVER_CMD_PROMOTE, FD_ADMINCTL_FAILOVER_FLAG_RECOVER|FD_ADMINCTL_FAILOVER_FLAG_FORCE, now )==FD_ADMINCTL_RESULT_SUCCESS );
+  FD_TEST( control( ctx, FD_ADMINCTL_FAILOVER_CMD_PROMOTE, FD_ADMINCTL_FAILOVER_FLAG_YES|FD_ADMINCTL_FAILOVER_FLAG_FORCE, now )==FD_ADMINCTL_RESULT_SUCCESS );
   FD_TEST( ctx->promote_source==FD_FAILOVER_SOURCE_VOTE_ACCOUNT );
   controller_fini( ctx );
   ctx = controller_init( FD_FAILOVER_ROLE_STANDBY );
@@ -155,7 +158,7 @@ test_stored_tower( void ) {
   ctx->root_slot = 99UL;
   FD_TEST( control( ctx, FD_ADMINCTL_FAILOVER_CMD_PROMOTE, 0UL, now )==FD_FAILOVER_CONTROL_RESULT_PEER_UNVERIFIED );
   controller_fini( ctx );
-  FD_LOG_NOTICE(( "pass: a declined handoff retires saved state, retains coverage, and requires explicit account recovery" ));
+  FD_LOG_NOTICE(( "pass: a declined handoff retires saved state, retains coverage, and automatically selects account recovery" ));
 }
 
 static void
@@ -188,43 +191,26 @@ test_demoted_refusals( void ) {
 
 static void
 test_floor_wait_retry( void ) {
-  ulong yes = FD_ADMINCTL_FAILOVER_FLAG_RECOVER|FD_ADMINCTL_FAILOVER_FLAG_FORCE;
-  fd_failover_tile_ctx_t * ctx = controller_init( FD_FAILOVER_ROLE_STANDBY );
-  ctx->peer_floor = 150UL;
-  ctx->replay_slot = 200UL;
-  FD_TEST( control( ctx, FD_ADMINCTL_FAILOVER_CMD_PROMOTE, yes, 1000L )==FD_ADMINCTL_RESULT_SUCCESS );
-  step_controller( ctx, stem );
-  FD_TEST( ctx->deadline_slot==150UL+FD_FAILOVER_FLOOR_SLACK_SLOTS+FD_FAILOVER_DEADLINE_SLOTS );
-  ulong asked = ctx->adopt_expected_id;
-  acct_answer( ctx, FD_FAILOVER_SLOT_NULL, 140UL );
-  step_controller( ctx, stem );
-  FD_TEST( ctx->adopt_retry && ctx->floor_logged && ctx->switch_pending_key==FD_FAILOVER_SWITCH_KEY_CNT );
-  step_controller( ctx, stem );
-  FD_TEST( ctx->adopt_expected_id==asked );
-  ctx->replay_slot++;
-  step_controller( ctx, stem );
-  FD_TEST( ctx->adopt_expected_id!=asked );
-  asked = ctx->adopt_expected_id;
-  acct_answer( ctx, FD_FAILOVER_SLOT_NULL, 145UL );
-  step_controller( ctx, stem );
-  ctx->replay_slot++;
-  step_controller( ctx, stem );
-  FD_TEST( ctx->adopt_expected_id!=asked );
-  asked = ctx->adopt_expected_id;
-  acct_answer( ctx, FD_FAILOVER_SLOT_NULL, 145UL );
-  step_controller( ctx, stem );
-  for( ulong i=0UL; i<8UL; i++ ) { ctx->replay_slot++; step_controller( ctx, stem ); }
-  FD_TEST( ctx->adopt_expected_id==asked && ctx->adopt_retry && ctx->action==FD_FAILOVER_ACTION_PROMOTE_WAIT_ADOPT );
-  ctx->replay_slot = 150UL+FD_FAILOVER_FLOOR_SLACK_SLOTS;
-  step_controller( ctx, stem );
-  FD_TEST( ctx->adopt_expected_id==asked );
-  ctx->replay_slot++;
-  step_controller( ctx, stem );
-  FD_TEST( ctx->adopt_expected_id!=asked );
-  acct_answer( ctx, FD_FAILOVER_SLOT_NULL, 145UL );
-  step_controller( ctx, stem );
-  FD_TEST( ctx->action==FD_FAILOVER_ACTION_PROMOTE_SWITCH );
-  controller_fini( ctx );
+  ulong yes = FD_ADMINCTL_FAILOVER_FLAG_YES|FD_ADMINCTL_FAILOVER_FLAG_FORCE;
+  fd_failover_tile_ctx_t * ctx;
+  ulong asked;
+  /* An operator with verified peer authority gets an asynchronous
+     refusal for incomplete history. FORCE can explicitly take it. */
+  for( int force=0; force<2; force++ ) for( int empty=0; empty<2; empty++ ) {
+    ctx = controller_init( FD_FAILOVER_ROLE_STANDBY );
+    ctx->peer_floor = 150UL;
+    ctx->replay_slot = 200UL;
+    start_promotion( ctx, FD_FAILOVER_SOURCE_VOTE_ACCOUNT, 0 );
+    ctx->promote_force = force;
+    step_controller( ctx, stem );
+    acct_answer( ctx, FD_FAILOVER_SLOT_NULL, empty ? FD_FAILOVER_SLOT_NULL : 140UL );
+    step_controller( ctx, stem );
+    FD_TEST( ctx->action==(force ? FD_FAILOVER_ACTION_PROMOTE_SWITCH : FD_FAILOVER_ACTION_IDLE) );
+    FD_TEST( ctx->stuck==!force && !ctx->adopt_retry );
+    FD_TEST( ctx->switch_pending_key==(force ? FD_FAILOVER_SWITCH_KEY_STAKED : FD_FAILOVER_SWITCH_KEY_CNT) );
+    FD_TEST( ctx->promote_floor==150UL && ctx->peer_floor==150UL );
+    controller_fini( ctx );
+  }
 
   /* The account's vote counts even after our root discarded that vote. */
   ctx = controller_init( FD_FAILOVER_ROLE_STANDBY );
@@ -257,13 +243,13 @@ test_floor_wait_retry( void ) {
   FD_TEST( ctx->action==FD_FAILOVER_ACTION_HANDOFF_WAIT_RESULT && ctx->adopt_expected_id==asked );
   FD_TEST( pending_rejected( ctx ).reason==FD_FAILOVER_REJECT_ADOPTION_FAILED );
   controller_fini( ctx );
-  FD_LOG_NOTICE(( "pass: floor retries track changed account votes, exact slack and fixed final-state deadlines" ));
+  FD_LOG_NOTICE(( "pass: incomplete history requires force, rooted account votes cover the floor, and final-state deadlines remain strict" ));
 }
 
 static void
 test_promote_force_retained( void ) {
   long now = fd_failover_clock();
-  ulong yes = FD_ADMINCTL_FAILOVER_FLAG_RECOVER;
+  ulong yes = FD_ADMINCTL_FAILOVER_FLAG_YES;
   ulong force = FD_ADMINCTL_FAILOVER_FLAG_FORCE;
   fd_failover_tile_ctx_t * ctx = controller_init( FD_FAILOVER_ROLE_STANDBY );
   pair( ctx, 77UL, FD_FAILOVER_ROLE_ACTIVE, now );
@@ -273,18 +259,11 @@ test_promote_force_retained( void ) {
   ctx->peer_floor = 150UL;
   ctx->replay_slot = 200UL;
   FD_TEST( control( ctx, FD_ADMINCTL_FAILOVER_CMD_PROMOTE, yes, now )==FD_FAILOVER_CONTROL_RESULT_TAKEN );
-  FD_TEST( control( ctx, FD_ADMINCTL_FAILOVER_CMD_PROMOTE, force, now )==FD_FAILOVER_CONTROL_RESULT_NO_TOWER );
   FD_TEST( control( ctx, FD_ADMINCTL_FAILOVER_CMD_PROMOTE, yes|force, now )==FD_ADMINCTL_RESULT_SUCCESS );
   step_controller( ctx, stem );
   acct_answer( ctx, FD_FAILOVER_SLOT_NULL, 140UL );
   step_controller( ctx, stem );
-  FD_TEST( ctx->action==FD_FAILOVER_ACTION_PROMOTE_WAIT_ADOPT && ctx->adopt_retry );
-  FD_TEST( ctx->switch_pending_key==FD_FAILOVER_SWITCH_KEY_CNT );
-  ctx->replay_slot++;
-  step_controller( ctx, stem );
-  ctx->staked_seen_at = now+1L;
-  acct_answer( ctx, FD_FAILOVER_SLOT_NULL, 150UL );
-  step_controller( ctx, stem );
+  FD_TEST( ctx->switch_pending_key==FD_FAILOVER_SWITCH_KEY_STAKED );
   FD_TEST( ctx->action==FD_FAILOVER_ACTION_PROMOTE_SWITCH && ctx->promote_force );
   controller_fini( ctx );
 
@@ -294,7 +273,6 @@ test_promote_force_retained( void ) {
   demote_through( ctx, 1 );
   ulong id = pending_demoted( ctx ).handoff_id;
   FD_TEST( control( ctx, FD_ADMINCTL_FAILOVER_CMD_PROMOTE, 0UL, now )==FD_FAILOVER_CONTROL_RESULT_HANDOFF_PENDING );
-  FD_TEST( control( ctx, FD_ADMINCTL_FAILOVER_CMD_PROMOTE, force, now )==FD_FAILOVER_CONTROL_RESULT_NO_TOWER );
   FD_TEST( ctx->action==FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK && ctx->send_demoted && ctx->pending_valid );
   FD_TEST( control( ctx, FD_ADMINCTL_FAILOVER_CMD_PROMOTE, yes|force, now )==FD_ADMINCTL_RESULT_SUCCESS );
   FD_TEST( ctx->promote_source==FD_FAILOVER_SOURCE_VOTE_ACCOUNT && !ctx->own_tower.valid && !ctx->peer_tower.valid );
@@ -309,13 +287,17 @@ test_promote_force_retained( void ) {
   step_controller( ctx, stem );
   adopt_answer( ctx, FD_TOWER_ADOPT_ERR_INVALID, FD_FAILOVER_SLOT_NULL );
   step_controller( ctx, stem );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_PROMOTE_WAIT_REPLAY && ctx->promote_empty );
+  step_controller( ctx, stem );
+  adopt_answer( ctx, FD_TOWER_ADOPT_ERR_INVALID, FD_FAILOVER_SLOT_NULL );
+  step_controller( ctx, stem );
   FD_TEST( ctx->action==FD_FAILOVER_ACTION_IDLE && ctx->promote_force );
   uchar payload[ FD_FAILOVER_DEMOTED_PAYLOAD_MAX ];
   pair_demoter( ctx, 77UL, now );
   deliver( ctx, FD_FAILOVER_MSG_DEMOTED, payload, demoted_payload( payload, 42UL, OUR_BOOT_ID, 99UL ) );
   FD_TEST( ctx->promote_peer && !ctx->promote_force );
   controller_fini( ctx );
-  FD_LOG_NOTICE(( "pass: force cancels only network waits and never bypasses floor, adoption or later operations" ));
+  FD_LOG_NOTICE(( "pass: force accepts incomplete history, cancels network waits, and cannot overlap adoption or leak into a handoff" ));
 }
 
 static void
@@ -383,7 +365,7 @@ test_holder_recheck( void ) {
      ACTIVE HELLO must still stop us before the staked switch. */
   for( int force=0; force<2; force++ ) for( int drop=0; drop<2; drop++ ) {
     fd_failover_tile_ctx_t * ctx = controller_init( FD_FAILOVER_ROLE_STANDBY );
-    ulong flags = FD_ADMINCTL_FAILOVER_FLAG_RECOVER | (force ? FD_ADMINCTL_FAILOVER_FLAG_FORCE : 0UL);
+    ulong flags = FD_ADMINCTL_FAILOVER_FLAG_YES | (force ? FD_ADMINCTL_FAILOVER_FLAG_FORCE : 0UL);
     if( !force && FD_FAILOVER_ON_DEMAND ) {
       FD_TEST( control( ctx, FD_ADMINCTL_FAILOVER_CMD_PROMOTE, flags, now )==FD_FAILOVER_CONTROL_RESULT_PEER_UNVERIFIED );
       /* Preserve the final guard's independent test even though the MVP 0
