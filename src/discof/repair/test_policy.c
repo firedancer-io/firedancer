@@ -1,6 +1,11 @@
 #include "fd_policy.h"
 #include "../../disco/metrics/fd_metrics.h"
 
+/* A turbine observation stamp whose defer window will not expire during
+   the test: marks the candidate's FEC set as first observed ~65 s after
+   first_shred_ts so the throttle stays active. */
+#define FAR_MS USHORT_MAX
+
 void
 test_peer_removal( fd_wksp_t * wksp ) {
   ulong peer_max  = 1024;
@@ -393,8 +398,8 @@ test_shred_skip_memo( fd_wksp_t * wksp ) {
   long t1 = now+10L;
   FD_TEST( !fd_reqlim_next( dedup, fd_reqlim_key( FD_REPAIR_KIND_SHRED, 1UL, 5U ), t1 ) );
   FD_TEST( !next_msg( policy, dedup, forest, repair, t1+1L, 1UL ) );
-  FD_TEST( policy->skip.slot==1UL && policy->skip.idx==5U );
-  FD_TEST( policy->skip.until==t1+FD_REQLIM_DEDUP_TIMEOUT );
+  FD_TEST( fd_policy_skip( policy, 1UL )->slot==1UL && fd_policy_skip( policy, 1UL )->idx==5U );
+  FD_TEST( fd_policy_skip( policy, 1UL )->until==t1+FD_REQLIM_DEDUP_TIMEOUT );
   FD_TEST( !next_msg( policy, dedup, forest, repair, t1+10L, 1UL ) );
 
   /* A new shred moves the candidate and bypasses the memo. */
@@ -407,35 +412,176 @@ test_shred_skip_memo( fd_wksp_t * wksp ) {
   long t2 = t1+30L;
   FD_TEST( !fd_reqlim_next( dedup, fd_reqlim_key( FD_REPAIR_KIND_SHRED, 1UL, 6U ), t2 ) );
   FD_TEST( !next_msg( policy, dedup, forest, repair, t2+1L, 1UL ) );
-  FD_TEST( policy->skip.slot==1UL && policy->skip.idx==6U );
+  FD_TEST( fd_policy_skip( policy, 1UL )->slot==1UL && fd_policy_skip( policy, 1UL )->idx==6U );
   msg = next_msg( policy, dedup, forest, repair, t1+40L, 2UL );
   FD_TEST( msg && msg->kind==FD_REPAIR_KIND_HIGHEST_SHRED );
 
   /* Back at the head, the memo holds until its recorded expiry. */
-  FD_TEST( !next_msg( policy, dedup, forest, repair, policy->skip.until-1L-3L, 1UL ) );
-  msg = next_msg( policy, dedup, forest, repair, policy->skip.until, 1UL );
+  FD_TEST( !next_msg( policy, dedup, forest, repair, fd_policy_skip( policy, 1UL )->until-1L-3L, 1UL ) );
+  msg = next_msg( policy, dedup, forest, repair, fd_policy_skip( policy, 1UL )->until, 1UL );
   FD_TEST( msg && msg->kind==FD_REPAIR_KIND_SHRED && msg->shred.slot==1UL && msg->shred.shred_idx==6UL );
 
   /* A concrete hole under an active throttle memoizes too: the decline
      resets the iterator to UINT_MAX, the next visit restores the
      concrete index, and the memo must still match. */
   fd_policy_set_turbine_slot0( policy, 1UL ); /* live slot: throttle applies */
-  blk->est_buffered_tick_recv = 1000; /* deadline far out: throttle active, memo capped at 1ms */
+  blk->recv_ts[0].first = FAR_MS; /* deadline far out: throttle active, memo capped at 1ms */
   blk->first_shred_ts         = fd_tickcount();
   blk->complete_idx           = 8U;   /* end known: iterator yields concrete missing idxs */
   long t3 = t2+50L;
   FD_TEST( !next_msg( policy, dedup, forest, repair, t3, 1UL ) );
-  FD_TEST( policy->skip.slot==1UL && policy->skip.throttled );
-  long until = policy->skip.until;
+  FD_TEST( fd_policy_skip( policy, 1UL )->slot==1UL && fd_policy_skip( policy, 1UL )->throttled );
+  long until = fd_policy_skip( policy, 1UL )->until;
   FD_TEST( until==t3+(long)1e6 );
   FD_TEST( !next_msg( policy, dedup, forest, repair, t3+10L, 1UL ) );
-  FD_TEST( policy->skip.until==until ); /* memo hit: throttle not re-derived */
+  FD_TEST( fd_policy_skip( policy, 1UL )->until==until ); /* memo hit: throttle not re-derived */
 
   /* Throttle clears: the hole is requested. */
-  blk->est_buffered_tick_recv = 0;
+  blk->recv_ts[0].first = 0;
   blk->first_shred_ts         = 0L;
   msg = next_msg( policy, dedup, forest, repair, until+1L, 1UL );
   FD_TEST( msg && msg->kind==FD_REPAIR_KIND_SHRED && msg->shred.slot==1UL );
+}
+
+/* The throttle applies to every live slot, not just the head.  Two
+   concurrently throttled slots (head and its parent) round-robin
+   through the iterator; each must be memoized on its own so neither is
+   re-derived nor clobbers the other. */
+/* An older slot (below the head) with no known interior hole probes
+   the highest shred first; while that probe is still rate limited it
+   asks for the tail shred directly; once both are rate limited it sends
+   nothing and writes no memo (only the head memoizes dedup declines). */
+static void
+test_non_head_tail_request( fd_wksp_t * wksp ) {
+  ulong const slot_max = 16UL;
+  void * forest_mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( slot_max, FD_SHRED_BLK_MAX ), 1UL );
+  void * dedup_mem  = fd_wksp_alloc_laddr( wksp, fd_reqlim_align(), fd_reqlim_footprint( slot_max ), 1UL );
+  void * repair_mem = fd_wksp_alloc_laddr( wksp, fd_repair_align(), fd_repair_footprint(),           1UL );
+  FD_TEST( forest_mem && dedup_mem && repair_mem );
+
+  fd_pubkey_t identity = {0};
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( forest_mem, slot_max, FD_SHRED_BLK_MAX, 0UL ) );
+  fd_reqlim_t * dedup  = fd_reqlim_join( fd_reqlim_new( dedup_mem, slot_max, 0UL ) );
+  fd_repair_t * repair = fd_repair_join( fd_repair_new( repair_mem, &identity ) );
+  fd_policy_t * policy = new_policy( wksp );
+  FD_TEST( forest && dedup && repair && policy );
+  fd_forest_init( forest, 0UL );
+
+  fd_pubkey_t   peer = { .ul = { 1UL } };
+  fd_ip4_port_t addr = { .addr = 1U, .port = 1U };
+  FD_TEST( fd_policy_peer_upsert( policy, &peer, &addr ) );
+
+  /* Slot 1: shreds 0..4 buffered, end unknown, no turbine observed so
+     the throttle passes.  Head is slot 2. */
+  fd_forest_blk_t * blk = fd_forest_blk_insert( forest, 1UL, 0UL, NULL );
+  FD_TEST( blk );
+  blk->buffered_idx = 4U;
+
+  /* First turn: highest-shred probe. */
+  long now = 1000000000L;
+  fd_repair_msg_t const * msg = next_msg( policy, dedup, forest, repair, now, 2UL );
+  FD_TEST( msg && msg->kind==FD_REPAIR_KIND_HIGHEST_SHRED && msg->highest_shred.slot==1UL );
+  FD_TEST( blk->req_highest_cnt==1U && blk->req_window_cnt==0U );
+
+  /* Second turn, probe still rate limited: direct request for the tail shred (1,5). */
+  msg = next_msg( policy, dedup, forest, repair, now+10L, 2UL );
+  FD_TEST( msg && msg->kind==FD_REPAIR_KIND_SHRED && msg->shred.slot==1UL && msg->shred.shred_idx==5UL );
+  FD_TEST( blk->req_window_cnt==1U && blk->first_req_ts!=0L );
+
+  /* The repair tile records the tail request in the dedup table.  Now
+     both are rate limited: nothing is sent and no memo is written for
+     this non-head slot. */
+  long t1 = now+20L;
+  FD_TEST( !fd_reqlim_next( dedup, fd_reqlim_key( FD_REPAIR_KIND_SHRED, 1UL, 5U ), t1 ) );
+  fd_policy_skip_t * skip = fd_policy_skip( policy, 1UL );
+  FD_TEST( skip->slot!=1UL );
+  FD_TEST( !next_msg( policy, dedup, forest, repair, t1+1L, 2UL ) );
+  FD_TEST( !next_msg( policy, dedup, forest, repair, t1+10L, 2UL ) );
+  FD_TEST( skip->slot!=1UL );
+
+  /* Probe window expires first: probe again. */
+  msg = next_msg( policy, dedup, forest, repair, now+FD_REQLIM_DEDUP_TIMEOUT, 2UL );
+  FD_TEST( msg && msg->kind==FD_REPAIR_KIND_HIGHEST_SHRED && msg->highest_shred.slot==1UL );
+  FD_TEST( blk->req_highest_cnt==2U );
+
+  /* A new shred moves the candidate: the tail request follows it. */
+  blk->buffered_idx = 5U;
+  msg = next_msg( policy, dedup, forest, repair, now+FD_REQLIM_DEDUP_TIMEOUT+10L, 2UL );
+  FD_TEST( msg && msg->kind==FD_REPAIR_KIND_SHRED && msg->shred.slot==1UL && msg->shred.shred_idx==6UL );
+}
+
+static void
+test_skip_memo_non_head_throttle( fd_wksp_t * wksp ) {
+  ulong const slot_max = 16UL;
+  void * forest_mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( slot_max, FD_SHRED_BLK_MAX ), 1UL );
+  void * dedup_mem  = fd_wksp_alloc_laddr( wksp, fd_reqlim_align(), fd_reqlim_footprint( slot_max ), 1UL );
+  void * repair_mem = fd_wksp_alloc_laddr( wksp, fd_repair_align(), fd_repair_footprint(),           1UL );
+  FD_TEST( forest_mem && dedup_mem && repair_mem );
+
+  fd_pubkey_t identity = {0};
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( forest_mem, slot_max, FD_SHRED_BLK_MAX, 0UL ) );
+  fd_reqlim_t * dedup  = fd_reqlim_join( fd_reqlim_new( dedup_mem, slot_max, 0UL ) );
+  fd_repair_t * repair = fd_repair_join( fd_repair_new( repair_mem, &identity ) );
+  fd_policy_t * policy = new_policy( wksp );
+  FD_TEST( forest && dedup && repair && policy );
+
+  fd_forest_init( forest, 0UL );
+  fd_policy_set_turbine_slot0( policy, 1UL ); /* both slots live: throttle applies */
+
+  fd_pubkey_t   peer = { .ul = { 1UL } };
+  fd_ip4_port_t addr = { .addr = 1U, .port = 1U };
+  FD_TEST( fd_policy_peer_upsert( policy, &peer, &addr ) );
+
+  /* Slot 1 (parent of the head) and slot 2 (head), both with the end
+     unknown and both far from their eager repair deadline. */
+  fd_forest_blk_t * blk1 = fd_forest_blk_insert( forest, 1UL, 0UL, NULL );
+  fd_forest_blk_t * blk2 = fd_forest_blk_insert( forest, 2UL, 1UL, NULL );
+  FD_TEST( blk1 && blk2 );
+  blk1->buffered_idx = 4U; blk1->recv_ts[0].first = FAR_MS; blk1->first_shred_ts = fd_tickcount();
+  blk2->buffered_idx = 2U; blk2->recv_ts[0].first = FAR_MS; blk2->first_shred_ts = fd_tickcount();
+
+  fd_policy_skip_t * skip1 = fd_policy_skip( policy, 1UL );
+  fd_policy_skip_t * skip2 = fd_policy_skip( policy, 2UL );
+  FD_TEST( skip1!=skip2 );
+
+  /* Round-robin until both slots have been declined once.  Every turn
+     is a decline. */
+  long now = 1000000000L;
+  int  charge_busy;
+  ulong turn = 0UL;
+  while( turn<8UL && !( skip1->slot==1UL && skip1->throttled && skip2->slot==2UL && skip2->throttled ) ) {
+    FD_TEST( !fd_policy_next( policy, dedup, forest, repair, now+(long)turn, 2UL, &charge_busy ) );
+    FD_TEST( !charge_busy );
+    turn++;
+  }
+  FD_TEST( skip1->slot==1UL && skip1->idx==5U && skip1->throttled );
+  FD_TEST( skip2->slot==2UL && skip2->idx==3U && skip2->throttled );
+  long until1 = skip1->until;
+  long until2 = skip2->until;
+  FD_TEST( until1<=now+(long)turn+(long)1e6 && until2<=now+(long)turn+(long)1e6 );
+
+  /* Further turns within both windows: each slot hits its own memo.
+     Neither is re-derived (until would move with now) nor clobbered. */
+  for( ulong i=0UL; i<6UL; i++ ) {
+    FD_TEST( !fd_policy_next( policy, dedup, forest, repair, now+(long)turn+10L*(long)(i+1UL), 2UL, &charge_busy ) );
+    FD_TEST( !charge_busy );
+    FD_TEST( skip1->slot==1UL && skip1->idx==5U && skip1->throttled && skip1->until==until1 );
+    FD_TEST( skip2->slot==2UL && skip2->idx==3U && skip2->throttled && skip2->until==until2 );
+  }
+
+  /* Non-head slot 1 passes its deadline while the head stays
+     throttled: slot 1 gets its highest-shred request, slot 2 is
+     re-memoized rather than requested. */
+  blk1->recv_ts[0].first = 0;
+  blk1->first_shred_ts         = 0L;
+  long t1 = fd_long_max( until1, until2 )+1L;
+  fd_repair_msg_t const * msg = next_msg( policy, dedup, forest, repair, t1, 2UL );
+  FD_TEST( msg && msg->kind==FD_REPAIR_KIND_HIGHEST_SHRED && msg->highest_shred.slot==1UL );
+  /* On its next visit the probe is still rate limited, so slot 1 asks
+     for its tail shred (1,5) directly; slot 2 stays throttled. */
+  msg = next_msg( policy, dedup, forest, repair, t1+10L, 2UL );
+  FD_TEST( msg && msg->kind==FD_REPAIR_KIND_SHRED && msg->shred.slot==1UL && msg->shred.shred_idx==5UL );
+  FD_TEST( skip2->slot==2UL && skip2->idx==3U && skip2->throttled && skip2->until>t1 );
 }
 
 /* A pop whose reqlim key is still in its dedup window reschedules the
@@ -919,6 +1065,8 @@ main( int argc, char ** argv ) {
   test_remove_sole_peer( wksp );
   test_orphan_due_prq( wksp );
   test_shred_skip_memo( wksp );
+  test_skip_memo_non_head_throttle( wksp );
+  test_non_head_tail_request( wksp );
   test_orphan_dedup_reschedule( wksp );
   test_orphan_reclaim_and_rehead( wksp );
   test_orphan_rehead_revival( wksp );

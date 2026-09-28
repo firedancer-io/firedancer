@@ -187,6 +187,15 @@ struct __attribute__((aligned(128UL))) fd_forest_blk {
   /* received data shred idxs, received merkle roots and code shred idxs
      are runtime-sized side arrays, see fd_forest_blk_{idxs,mroots,code} */
 
+  struct {
+    ushort first;
+  } recv_ts[ FD_FEC_BLK_MAX ]; /* ms offset from first_shred_ts at which turbine was first observed reaching each FEC
+                                  set, either directly (a turbine shred of the set arrived) or inferred (a turbine
+                                  shred of a later set arrived, backfilling every unstamped set below it, since the
+                                  leader produced those first).  0 means not yet observed; real stamps are clamped
+                                  to >= 1.  Only turbine-sourced shreds stamp: a repair response must not.  Invariant:
+                                  stamped entries form a contiguous prefix. */
+
   fd_hash_t confirmed_bid;  /* confirmed block id - can't be wrapped in the merkle roots struct because we can create sentinel blocks
                                on confirmation, and don't know the index of the last fec set until we repair the slot.
                                hash_null if unknown.  Otherwise populated by the child slot's CMR on confirmation,
@@ -198,10 +207,6 @@ struct __attribute__((aligned(128UL))) fd_forest_blk {
 
   uchar chain_confirmed; /* 1 if all the FECs the slot have been confirmed via fec_chain_verify, 0 otherwise.  Note confirmed_bid
                             can be populated before this is set to 1. */
-
-  int est_buffered_tick_recv; /* tick of shred at buffered_idx.  Note since we don't track all the
-                                 ticks received, this will be a lower bound estimate on the highest tick we have seen.
-                                 But this is only used for limiting eager repair, so an exact value is not necessary. */
 
   /* Metrics */
 

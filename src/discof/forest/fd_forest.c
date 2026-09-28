@@ -1023,8 +1023,7 @@ acquire( fd_forest_t * forest, ulong slot, ulong parent_slot, ulong * evicted ) 
   blk->lowest_verified_fec = UINT_MAX;
   memset( fd_forest_blk_mroots( forest, blk ), 0, (forest->shred_max/FD_FEC_SHRED_CNT)*sizeof(fd_forest_mr_t) ); /* expensive*/
   blk->confirmed_bid = empty_mr;
-
-  blk->est_buffered_tick_recv = 0;
+  memset( blk->recv_ts, 0, sizeof( blk->recv_ts ) );
 
   /* Metrics tracking */
 
@@ -1255,6 +1254,21 @@ next_chained_merkle( fd_forest_blk_t * ele, fd_forest_mr_t * mroots, uint fec_id
   return &mroots[fec_idx + 1].cmr;
 }
 
+/* recv_ts_stamp records the first time turbine was observed reaching
+   fec_idx, as a ms offset from first_shred_ts, and backfills any
+   still-unstamped FEC sets below it: first_shred_ts must
+   already be set. */
+
+static void
+recv_ts_stamp( fd_forest_blk_t * ele, uint fec_idx, long now ) {
+  if( FD_LIKELY( ele->recv_ts[ fec_idx ].first ) ) return;
+  now = fd_long_max( now, ele->first_shred_ts );
+  ulong  off_ms = (ulong)( (double)(now - ele->first_shred_ts) / fd_tempo_tick_per_ns( NULL ) * 1e-6 );
+  ushort stamp  = (ushort)fd_ulong_min( fd_ulong_max( off_ms, 1UL ), (ulong)USHORT_MAX ); /* clamp to >=1: 0 means unstamped */
+  ele->recv_ts[ fec_idx ].first = stamp;
+  for( uint i=fec_idx; i>0U && !ele->recv_ts[ i-1U ].first; i-- ) ele->recv_ts[ i-1U ].first = stamp;
+}
+
 /* data_shred_insert accepts the first complete_idx it sees while
    complete_idx is UINT_MAX, and rejects any subsequent shreds that are
    greater than the complete_idx.  This is applies for the very first
@@ -1268,7 +1282,7 @@ fd_forest_data_shred_insert( fd_forest_t * forest,
                              uint          shred_idx,
                              uint          fec_set_idx,
                              int           slot_complete,
-                             int           ref_tick,
+                             int           ref_tick FD_PARAM_UNUSED,
                              int           src,
                              fd_hash_t   * mr,
                              fd_hash_t   * cmr,
@@ -1370,13 +1384,11 @@ fd_forest_data_shred_insert( fd_forest_t * forest,
     ele->recovered_cnt += (src==SHRED_SRC_RECOVERED);
   }
   if( FD_UNLIKELY( !ele->first_shred_ts || rx_tick<ele->first_shred_ts ) ) ele->first_shred_ts = rx_tick;
+  if( FD_LIKELY( src==SHRED_SRC_TURBINE ) ) recv_ts_stamp( ele, fec_idx, rx_tick );
 
   fd_forest_blk_idxs_insert( idxs, shred_idx );
   while( ele->buffered_idx + 1 < forest->shred_max && fd_forest_blk_idxs_test( idxs, ele->buffered_idx + 1U ) ) {
     ele->buffered_idx++;
-    ele->est_buffered_tick_recv = fd_int_max(ref_tick, ele->est_buffered_tick_recv);
-    /* If the buffered_idx increases, this means the
-       est_buffered_tick_recv is at least ref_tick */
   }
 
   /* If equivocating, buffered_idx needs to be clamped to complete_idx */
@@ -1475,6 +1487,8 @@ fd_forest_code_shred_insert( fd_forest_t * forest, ulong slot, uint shred_idx, l
     return NULL;
   }
   if( FD_UNLIKELY( !ele->first_shred_ts || rx_tick<ele->first_shred_ts ) ) ele->first_shred_ts = rx_tick;
+
+  recv_ts_stamp( ele, fd_uint_min( shred_idx / 32U, FD_FEC_BLK_MAX-1U ), rx_tick );
 
   if( FD_UNLIKELY( shred_idx >= forest->shred_max ) ) {
     ele->turbine_cnt += 1;
