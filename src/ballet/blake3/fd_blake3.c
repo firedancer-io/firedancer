@@ -313,7 +313,15 @@ fd_blake3_batch_hash( fd_blake3_op_t const * ops,
     batch_flags  [ j ] = ops[ j ].flags;
   }
 #if FD_HAS_AVX512
-  fd_blake3_avx512_compress16( op_cnt, batch_data, batch_data_sz, batch_ctr, batch_flags, fd_type_pun( batch_hash ), NULL, 32U, NULL );
+  /* Both kernels mask off dead lanes, so a batch of at most 8 live ops
+     does the same rounds either way; the 8 lane kernel finishes them
+     in half the vector work (a full win on cores that split 512-bit
+     ops in two).  Output is identical. */
+  if( FD_LIKELY( op_cnt<=8UL ) ) {
+    fd_blake3_avx_compress8  ( op_cnt, batch_data, batch_data_sz, batch_ctr, batch_flags, fd_type_pun( batch_hash ), NULL, 32U, NULL );
+  } else {
+    fd_blake3_avx512_compress16( op_cnt, batch_data, batch_data_sz, batch_ctr, batch_flags, fd_type_pun( batch_hash ), NULL, 32U, NULL );
+  }
 #elif FD_HAS_AVX
   fd_blake3_avx_compress8    ( op_cnt, batch_data, batch_data_sz, batch_ctr, batch_flags, fd_type_pun( batch_hash ), NULL, 32U, NULL );
 #elif FD_HAS_SVE2
