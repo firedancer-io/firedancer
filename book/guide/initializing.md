@@ -46,8 +46,7 @@ where `mode` is one of:
 
 `stage` can be one or more of `hugetlbfs`, `sysctl`, `hyperthreads`,
 `bonding`,  `ethtool-channels`, `ethtool-offloads`, `ethtool-loopback`,
-`irq-affinity`, `irq-balance`, `kworkers`, `cpuset`, `console`, and
-`snapshots`
+`irq-affinity`, `irq-balance`, `kworkers`, `cpuset`, and `console`
 and these stages are described below. You can also use the stage `all`
 which will configure everything.
 
@@ -438,16 +437,3 @@ had customized these values before `init`, that customization is not
 restored. The visible effect of the stage is that the cursor on the
 physical console does not blink. Terminals over SSH or serial are
 rendered by the connecting client and are unaffected.
-
-## snapshots
-When starting up, validators must load a snapshot to catch up to the
-current state of the blockchain. Snapshots are downloaded from other
-validator peers in the cluster and are stored to a snapshots directory.
-
-In init, the snapshots configure phase will create the snapshots
-directory if it does not exist. In fini, the snapshots configure phase
-will remove the snapshots directory recursively.
-
-::: tip NOTE
-
-The snapshots configure phase is only enabled in the Firedancer binary.

@@ -50,7 +50,7 @@ ROWS = (
 )
 SKEW_MAX = 1.3  # clean ci8/9/10 runs stay <= 1.14; the -7..-23% outliers were 1.60-2.47
 SKEW_JOBS = ("snapshot",)
-HIST_HDR = ("TPS", "BENCH", "SNAP", "MEM·M", "MEM·T", "AG·M", "AG·T", "COMPILE", "BINARY")
+HIST_HDR = ("TPS", "BENCH", "SNAP", "MEM·M", "MEM·T", "AG·M", "COMPILE", "BINARY")
 
 def tier(row, d, skewed=False):
     _, _, _, _, _, warn, red, up = row
@@ -150,11 +150,11 @@ def render(a):
 
     if state["history"]:
         pushes = [{"head": state["head"], "rows": {k: v[2] for k, v in ds.items()}, "tier": worst(state, ds)}] + state["history"]
-        lines = [rule(" ┌─ HISTORY · Δ vs main, per push, newest first ", 91),
+        lines = [rule(" ┌─ HISTORY · Δ vs main, per push, newest first ", 82),
                  " │ " + "HEAD".ljust(7) + "".join(h.rjust(9) for h in HIST_HDR)]
         for p in pushes:
             lines.append(p["tier"] + "│ " + p["head"][:7].ljust(7) + "".join(pct(p["rows"][r[0]], 9) if r[0] in p["rows"] else "…".rjust(9) for r in ROWS))
-        lines.append(rule(" └", 91))
+        lines.append(rule(" └", 82))
         body += f"\n<details><summary>history · {len(pushes)} pushes</summary>\n\n```diff\n" + "\n".join(lines) + "\n```\n\n</details>\n"
 
     st = json.dumps(state, separators=(",", ":"))

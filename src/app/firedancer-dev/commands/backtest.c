@@ -498,7 +498,6 @@ configure_args( void ) {
     args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_kworkers;
   }
   args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_cpuset;
-  args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_snapshots;
   args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_keys;
   args.configure.stages[ stage_idx++ ] = NULL;
 

@@ -18,7 +18,6 @@ Firedancer-only configure stages for the full client:
    `/proc/irq/*/smp_affinity` masks.
  - `irq-balance` Configures the irqbalance daemon to avoid Firedancer
    tile CPUs. If irqbalance is not running, this stage is a no-op.
- - `snapshots` Prepares the snapshot download directory.
 
 ## `set-identity`
 The Firedancer binary supports the `set-identity` command documented in

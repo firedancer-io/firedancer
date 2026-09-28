@@ -1228,6 +1228,10 @@ snap_reperm_fd( char const * snap_dir,
 ulong
 initialize_snapshot_fds( config_t const * config ) {
 
+  char const * snap_dir = config->paths.snapshots;
+  if( FD_UNLIKELY( -1==fd_file_util_mkdir_all( snap_dir, config->uid, config->gid, 1 ) ) )
+    FD_LOG_ERR(( "could not create snapshots directory `%s` (%i-%s)", snap_dir, errno, fd_io_strerror( errno ) ));
+
   int download_enabled = fd_topo_find_tile( &config->topo, "snapct", 0UL )!=ULONG_MAX &&
                          (config->firedancer.snapshots.sources.gossip.allow_any ||
                           config->firedancer.snapshots.sources.gossip.allow_list_cnt ||
@@ -1244,7 +1248,6 @@ initialize_snapshot_fds( config_t const * config ) {
   ulong snap_max          = layout.max;
   if( FD_UNLIKELY( !snap_max ) ) return 0UL;
 
-  char const * snap_dir = config->paths.snapshots;
   int dir_fd = open( snap_dir, O_RDONLY|O_DIRECTORY|O_CLOEXEC );
   if( FD_UNLIKELY( -1==dir_fd ) ) FD_LOG_ERR(( "open(%s) failed (%i-%s)", snap_dir, errno, fd_io_strerror( errno ) ));
 
