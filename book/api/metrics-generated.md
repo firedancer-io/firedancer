@@ -2335,5 +2335,10 @@
 | <span class="metrics-name">votor_&#8203;cert_&#8203;rx</span><br/>{cert_&#8203;rx_&#8203;result="<span class="metrics-enum">duplicate</span>"} | counter | Result of processing an inbound cert (per cert) (Cert was already in the pool) |
 | <span class="metrics-name">votor_&#8203;cert_&#8203;rx</span><br/>{cert_&#8203;rx_&#8203;result="<span class="metrics-enum">failed_&#8203;verify</span>"} | counter | Result of processing an inbound cert (per cert) (Cert failed the stake threshold or the aggregate signature check) |
 | <span class="metrics-name">votor_&#8203;cert_&#8203;rx</span><br/>{cert_&#8203;rx_&#8203;result="<span class="metrics-enum">banned</span>"} | counter | Result of processing an inbound cert (per cert) (Sender is banned for a failed signature verification) |
+| <span class="metrics-name">votor_&#8203;slot_&#8203;state_&#8203;used</span> | gauge | Number of slots tracked by the voting state machine |
+| <span class="metrics-name">votor_&#8203;slot_&#8203;state_&#8203;max</span> | gauge | Capacity of the voting state machine's slot table |
+| <span class="metrics-name">votor_&#8203;finalized_&#8203;slot</span> | gauge | Highest slot with a finalization cert, or 0 if none |
+| <span class="metrics-name">votor_&#8203;rank</span> | gauge | Rank of this validator in the current epoch (0 is the highest rank), -1 if unranked (unstaked) |
+| <span class="metrics-name">votor_&#8203;peers_&#8203;connected</span> | gauge | Number of peers with an active outbound connection |
 
 </div>

@@ -1614,6 +1614,17 @@ metrics_write( fd_votor_tile_t * ctx ) {
   FD_MCNT_ENUM_COPY( VOTOR, DATAGRAM_RX, ctx->metrics.datagram_rx );
   FD_MCNT_ENUM_COPY( VOTOR, VOTE_RX,     ctx->metrics.vote_rx     );
   FD_MCNT_ENUM_COPY( VOTOR, CERT_RX,     ctx->metrics.cert_rx     );
+
+  ulong finalized_slot = ag_votor_finalized_slot( ctx->votor );
+  FD_MGAUGE_SET( VOTOR, SLOT_STATE_USED,      ag_votor_slot_state_used( ctx->votor ) );
+  FD_MGAUGE_SET( VOTOR, SLOT_STATE_MAX,       ag_votor_slot_state_max ( ctx->votor ) );
+  FD_MGAUGE_SET( VOTOR, FINALIZED_SLOT,       fd_ulong_if( finalized_slot!=ULONG_MAX, finalized_slot, 0UL ) );
+
+  peer_t const * self = peers_query_const( ctx->peers, ctx->id_key, NULL );
+  ulong rank = self && self->curr_rank!=USHORT_MAX ? self->curr_rank : ULONG_MAX;
+  FD_MGAUGE_SET( VOTOR, RANK, rank );
+
+  FD_MGAUGE_SET( VOTOR, PEERS_CONNECTED, ctx->quic_client->metrics.conn_state_cnt[ FD_QUIC_CONN_STATE_ACTIVE ] );
 }
 
 #define STEM_BURST FD_VOTOR_OUT_BURST /* votor_out only; EXCLUDES VOTOR_NET (has no reliable consumers) */
