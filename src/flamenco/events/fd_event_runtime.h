@@ -265,9 +265,7 @@ fd_event_runtime_stake_delegation_payout_emit( fd_bank_t const * bank,
                                                ulong             deactivation_epoch,
                                                ulong             credits_observed );
 
-/* Record a block-level account diff in the bank.  lthash_post is the
-   account's lthash after the write (as folded into the bank lthash);
-   its checksum is what the event carries. */
+/* Record a block-level account diff with the checksum of lthash_post. */
 
 void
 fd_event_runtime_block_account( fd_bank_t *               bank,

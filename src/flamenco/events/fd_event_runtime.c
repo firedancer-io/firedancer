@@ -73,11 +73,9 @@ fd_event_runtime_txn_emit( fd_txn_in_t  const * txn_in,
   ev.cost_loaded_accounts_data_size    = c->loaded_accounts_data_size_cost;
   ev.cost_allocated_accounts_data_size = c->allocated_accounts_data_size;
 
-  /* Emit every committed writable account, including unchanged state.  Failed
-     transactions can leave modified execution buffers behind, while only
-     committing fee-payer/nonce rollback state.  Bundle accounts are committed
-     by their final writable owner.  Keep transaction errors and account lists
-     below for diagnostics, but never expose attempted writes as post-state. */
+  /* Execution buffers may contain discarded writes.  Emit only accounts
+     captured at commit, and suppress them if the transaction was subsequently
+     rejected.  Unchanged committed accounts are included. */
   ulong diff_cnt = 0UL;
   for( ulong i=0UL; i<txn_out->accounts.cnt; i++ ) {
     if( diff_cnt>=64UL ) break;
@@ -545,8 +543,6 @@ fd_event_runtime_block_account( fd_bank_t *               bank,
   fd_event_runtime_slot_diffs_t * diffs = fd_event_runtime_slot_diffs_at( bank->idx );
   if( FD_UNLIKELY( !diffs ) ) return;
 
-  /* Same checksum form as Agave's LtHash::checksum, including deletion
-     (the checksum of the zero lthash, not a zero checksum). */
   uchar lthash[ 32 ];
   fd_blake3_hash( lthash_post->bytes, FD_LTHASH_LEN_BYTES, lthash );
 

@@ -230,7 +230,7 @@ struct fd_event_runtime_txn_account_diffs {
   int   is_vote_update;     /* True if this write touched the vote cache */
   int   is_new_vote;        /* True if this write created a new vote account */
   int   is_rm_vote;         /* True if this write removed a vote account */
-  uchar lthash[ 32UL ];     /* blake3 checksum of the post-state account lthash (the same checksum form as Agave's accounts_lt_hash_checksum, applied to one account), identifying the exact account contents this txn committed without shipping the data. Deleted accounts carry the checksum of the zero lthash. Zero indicates missing capture and must not be treated as a matching state. Only committed account changes are emitted */
+  uchar lthash[ 32UL ];     /* BLAKE3 checksum of account LtHash, Zero-lamport accounts carry BLAKE3 of 2,048 zero bytes. All-zero checksum bytes indicate missing capture. */
 };
 typedef struct fd_event_runtime_txn_account_diffs fd_event_runtime_txn_account_diffs_t;
 
@@ -273,7 +273,7 @@ struct fd_event_runtime_txn {
   uint                                 cost_programs_execution;           /* Cost-tracker programs-execution cost */
   uint                                 cost_loaded_accounts_data_size;    /* Cost-tracker loaded-accounts-data-size cost */
   ulong                                cost_allocated_accounts_data_size; /* Allocated accounts data size from the cost tracker */
-  fd_event_runtime_txn_account_diffs_t account_diffs[ 64UL ];             /* Per-account committed state changes; excludes rolled-back writes, rejected transactions, and non-owning bundle writers */
+  fd_event_runtime_txn_account_diffs_t account_diffs[ 64UL ];             /* Per-account diffs for writable accounts, uncahnged state, and fee-payer/nonce updates after failed exec. Excludes discarded writes and non-commitable txns. */
   ulong                                account_diffs_cnt;                 /* Number of account_diffs entries (<= 64) */
   uchar                                writable_accounts[ 64UL ][ 32UL ]; /* Every account the transaction locked as writable */
   ulong                                writable_accounts_cnt;             /* Number of writable_accounts entries (<= 64) */
@@ -573,7 +573,7 @@ struct fd_event_runtime_block_sysvar_diffs {
   ulong data_sz;            /* Post-state data size in bytes */
   ulong prev_data_sz;       /* Pre-state data size in bytes */
   int   is_executable;      /* True if the post-state account is executable */
-  uchar lthash[ 32UL ];     /* blake3 checksum of the post-state account lthash (the same checksum form as Agave's accounts_lt_hash_checksum, applied to one account), identifying the exact sysvar contents written without shipping the data. Deleted accounts carry the checksum of the zero lthash */
+  uchar lthash[ 32UL ];     /* BLAKE3 checksum of account LtHash. Zero-lamport accounts carry BLAKE3 of 2,048 zero bytes. */
 };
 typedef struct fd_event_runtime_block_sysvar_diffs fd_event_runtime_block_sysvar_diffs_t;
 
@@ -587,7 +587,7 @@ struct fd_event_runtime_block_other_diffs {
   ulong data_sz;            /* Post-state data size in bytes */
   ulong prev_data_sz;       /* Pre-state data size in bytes */
   int   is_executable;      /* True if the post-state account is executable */
-  uchar lthash[ 32UL ];     /* blake3 checksum of the post-state account lthash (the same checksum form as Agave's accounts_lt_hash_checksum, applied to one account), identifying the exact account contents written without shipping the data. Deleted accounts carry the checksum of the zero lthash */
+  uchar lthash[ 32UL ];     /* BLAKE3 checksum of account LtHash. Zero-lamport accounts carry BLAKE3 of 2,048 zero bytes. */
 };
 typedef struct fd_event_runtime_block_other_diffs fd_event_runtime_block_other_diffs_t;
 

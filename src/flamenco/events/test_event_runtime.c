@@ -74,12 +74,12 @@ main( int argc, char ** argv ) {
   FD_TEST( !memcmp( captured.account_diffs[0].pubkey, out.accounts.keys[0].uc, 32UL ) );
   FD_TEST( captured.account_diffs[0].lamports==9UL );
 
-  /* A separate nonce rollback is also a committed write on failure. */
+  /* A separate nonce state retained after failure is also emitted. */
   out.accounts.committed[1] = 1;
   fd_event_runtime_txn_emit( &in, &out, &bank );
   FD_TEST( captured.account_diffs_cnt==2UL );
 
-  /* A successful bundle's non-owning writer has no committed diff, even
+  /* A successful bundle's non-owning writer has no account-state entry, even
      if its shared account buffer changed. */
   out.err.txn_err = 0;
   in.bundle.is_bundle = 1;

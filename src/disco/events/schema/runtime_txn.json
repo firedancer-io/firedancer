@@ -141,7 +141,7 @@
         "cost_allocated_accounts_data_size": { "type": "UInt64",                                  "description": "Allocated accounts data size from the cost tracker" },
         "account_diffs": {
             "type": "Array",
-            "description": "Per-account committed state changes; excludes rolled-back writes, rejected transactions, and non-owning bundle writers",
+            "description": "Per-account diffs for writable accounts, uncahnged state, and fee-payer/nonce updates after failed exec. Excludes discarded writes and non-commitable txns.",
             "max_len": 64,
             "element": {
                 "type": "Tuple",
@@ -159,7 +159,7 @@
                     "is_vote_update":  { "type": "Bool",   "description": "True if this write touched the vote cache" },
                     "is_new_vote":     { "type": "Bool",   "description": "True if this write created a new vote account" },
                     "is_rm_vote":      { "type": "Bool",   "description": "True if this write removed a vote account" },
-                    "lthash":          { "type": "Hash",   "description": "blake3 checksum of the post-state account lthash (the same checksum form as Agave's accounts_lt_hash_checksum, applied to one account), identifying the exact account contents this txn committed without shipping the data. Deleted accounts carry the checksum of the zero lthash. Zero indicates missing capture and must not be treated as a matching state. Only committed account changes are emitted" }
+                    "lthash":          { "type": "Hash",   "description": "BLAKE3 checksum of account LtHash, Zero-lamport accounts carry BLAKE3 of 2,048 zero bytes. All-zero checksum bytes indicate missing capture." }
                 }
             }
         },
