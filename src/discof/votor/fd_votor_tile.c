@@ -129,6 +129,32 @@ struct reward_vote {
 };
 typedef struct reward_vote reward_vote_t;
 
+#define AUTH_VTR_LG_SLOT_CNT (5) /* identity plus 16 authorized voters, fill ratio 0.53 */
+
+struct auth_vtr_key {
+  uchar uc[ FD_BLS_PUB_COMPRESSED_SZ ];
+};
+typedef struct auth_vtr_key auth_vtr_key_t;
+
+struct auth_vtr {
+  auth_vtr_key_t bls_key;   /* derived from the identity or an authorized voter */
+  ulong          paths_idx; /* index in authorized voter paths, ULONG_MAX for the identity */
+};
+typedef struct auth_vtr auth_vtr_t;
+
+#define MAP_NAME              auth_vtr
+#define MAP_T                 auth_vtr_t
+#define MAP_LG_SLOT_CNT       AUTH_VTR_LG_SLOT_CNT
+#define MAP_KEY               bls_key
+#define MAP_KEY_T             auth_vtr_key_t
+#define MAP_KEY_NULL          ((auth_vtr_key_t){ .uc = {0} }) /* no compressed BLS public key is all zero */
+#define MAP_KEY_EQUAL(k0,k1)  (!memcmp( &(k0), &(k1), sizeof(auth_vtr_key_t) ))
+#define MAP_KEY_INVAL(k)      (MAP_KEY_EQUAL( (k), MAP_KEY_NULL ))
+#define MAP_KEY_EQUAL_IS_SLOW 1
+#define MAP_KEY_HASH(key)     ((uint)fd_hash( 0UL, &(key), sizeof(auth_vtr_key_t) ))
+#define MAP_MEMOIZE           0
+#include "../../util/tmpl/fd_map.c"
+
 struct sort_voter {
   uchar const * bls;
   uchar const * id;
@@ -161,6 +187,7 @@ struct fd_votor_tile {
   /* Signing */
 
   fd_pubkey_t          id_key;
+  auth_vtr_t *         auth_vtr;
   fd_keyguard_client_t keyguard_client[1];
 
   /* Initialization */
@@ -498,14 +525,34 @@ sign_ed25519( void *      signer_ctx,
 
 FD_STATIC_ASSERT( FD_BLS_SIG_SZ==FD_KEYGUARD_BLS_SIG_SZ, bls_sig_sz );
 
+/* own_bls_key returns our BLS key in epoch_info, or NULL if we are not
+   ranked or cannot sign with it, in which case we do not vote. */
+
+static uchar const *
+own_bls_key( fd_votor_tile_t const * ctx,
+             ag_epoch_info_t const * epoch_info,
+             ushort                  own_rank ) {
+  if( FD_UNLIKELY( own_rank==USHORT_MAX ) ) return NULL;
+  ag_validator_info_t const * validator = &epoch_info->validators[ own_rank ];
+  if( FD_UNLIKELY( !auth_vtr_query_const( ctx->auth_vtr, *(auth_vtr_key_t const *)fd_type_pun_const( validator->bls_key ), NULL ) ) ) {
+    FD_BASE58_ENCODE_32_BYTES( validator->vote_key, vote_key_b58 );
+    FD_LOG_WARNING(( "no identity or authorized voter keypair matches the BLS key of vote account %s, unable to vote", vote_key_b58 ));
+    return NULL;
+  }
+  return validator->bls_key;
+}
+
 static void
 sign_bls( void *         signer_ctx,
           fd_bls_sig_t * sig,
+          uchar const *  public_key,
           uchar const *  payload,
           ulong          payload_sz ) {
   fd_votor_tile_t * ctx = signer_ctx;
+  auth_vtr_t const * auth_vtr = auth_vtr_query_const( ctx->auth_vtr, *(auth_vtr_key_t const *)fd_type_pun_const( public_key ), NULL );
+  if( FD_UNLIKELY( !auth_vtr ) ) FD_LOG_CRIT(( "no key derives the requested BLS public key" ));
   uchar sig_bytes[ FD_BLS_SIG_SZ ];
-  fd_keyguard_client_sign( ctx->keyguard_client, sig_bytes, payload, payload_sz, FD_KEYGUARD_SIGN_TYPE_BLS );
+  fd_keyguard_client_ag_vote_sign( ctx->keyguard_client, sig_bytes, auth_vtr->paths_idx, payload, payload_sz );
   if( FD_UNLIKELY( fd_bls_sig_de( sig, sig_bytes ) ) ) FD_LOG_CRIT(( "sign tile returned an invalid BLS signature" ));
 }
 
@@ -829,7 +876,7 @@ rank_voters( ag_epoch_info_t *              epoch_info,
     validator_info->stake = stakes[idx].stake;
     memcpy( validator_info->id_key,   stakes[idx].id_key.uc,   sizeof(ag_id_key_t)   );
     memcpy( validator_info->vote_key, stakes[idx].vote_key.uc, sizeof(ag_vote_key_t) );
-    validator_info->bls_key  = keys[i].pub;
+    memcpy( validator_info->bls_key,  stakes[idx].bls_key,     sizeof(ag_bls_key_t)  );
     epoch_info->pubkeys[i]   = keys[i].pub;
     epoch_info->total_stake += validator_info->stake;
   }
@@ -983,7 +1030,7 @@ handle_epoch( fd_votor_tile_t *           ctx,
   /* update structures */
 
   ag_pool_advance_epoch ( ctx->pool,  epoch_info, own_rank, msg->start_slot );
-  ag_votor_advance_epoch( ctx->votor, ctx->ns_per_slot, own_rank, msg->start_slot );
+  ag_votor_advance_epoch( ctx->votor, ctx->ns_per_slot, own_rank, msg->start_slot, own_bls_key( ctx, epoch_info, own_rank ) );
 
   /* update our leader schedule */
 
@@ -1131,6 +1178,7 @@ FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_votor_tile_t),       sizeof(fd_votor_tile_t)                           );
+  l = FD_LAYOUT_APPEND( l, auth_vtr_align(),               auth_vtr_footprint()                              );
   l = FD_LAYOUT_APPEND( l, fd_quic_align(),                fd_quic_footprint( &quic_client_limits )          );
   l = FD_LAYOUT_APPEND( l, fd_quic_align(),                fd_quic_footprint( &quic_server_limits )          );
   l = FD_LAYOUT_APPEND( l, ag_pool_align(),                ag_pool_footprint( tile->votor.max_live_slots )   );
@@ -1479,17 +1527,41 @@ after_frag( fd_votor_tile_t *   ctx,
 }
 
 static void
+load_keys( fd_votor_tile_t *      ctx,
+           fd_topo_tile_t const * tile ) {
+  /* special case the identity.  We already know the bls pubkey */
+  auth_vtr_key_t bls_key;
+  fd_keyguard_client_bls_pubkey( ctx->keyguard_client, bls_key.uc, ULONG_MAX );
+  auth_vtr_insert( ctx->auth_vtr, bls_key )->paths_idx = ULONG_MAX;
+
+  /* For any of the other authorized voters, we need to request the BLS
+     pubkey from the sign tile. */
+  for( ulong i=0UL; i<tile->votor.authorized_voter_paths_cnt; i++ ) {
+    fd_keyguard_client_bls_pubkey( ctx->keyguard_client, bls_key.uc, i );
+    auth_vtr_t const * exists = auth_vtr_query_const( ctx->auth_vtr, bls_key, NULL );
+    if( FD_UNLIKELY( exists ) ) {
+      if( FD_LIKELY( exists->paths_idx==ULONG_MAX ) ) continue; /* the identity is also an authorized voter */
+      FD_LOG_ERR(( "authorized voter key duplicate at index %lu", i ));
+    }
+    auth_vtr_t * auth_vtr = auth_vtr_insert( ctx->auth_vtr, bls_key );
+    auth_vtr->paths_idx = i;
+  }
+}
+
+static void
 privileged_init( fd_topo_t const *      topo,
                  fd_topo_tile_t const * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_votor_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_votor_tile_t), sizeof(fd_votor_tile_t) );
+  fd_votor_tile_t * ctx      = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_votor_tile_t), sizeof(fd_votor_tile_t) );
+  void *            auth_vtr = FD_SCRATCH_ALLOC_APPEND( l, auth_vtr_align(),         auth_vtr_footprint()    );
 
   if( FD_UNLIKELY( !strcmp( tile->votor.identity_key_path, "" ) ) )
     FD_LOG_ERR(( "identity_key_path not set" ));
 
-  ctx->id_key = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->votor.identity_key_path, /* pubkey only: */ 1 ) );
+  ctx->auth_vtr = auth_vtr_join( auth_vtr_new( auth_vtr ) );
+  ctx->id_key   = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->votor.identity_key_path, /* pubkey only: */ 1 ) );
 
   fd_log_wallclock();
 }
@@ -1502,6 +1574,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_votor_tile_t * ctx           = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_votor_tile_t),       sizeof(fd_votor_tile_t)                           );
+  void *            auth_vtr      = FD_SCRATCH_ALLOC_APPEND( l, auth_vtr_align(),               auth_vtr_footprint()                              );
   void *            quic_client   = FD_SCRATCH_ALLOC_APPEND( l, fd_quic_align(),                fd_quic_footprint( &quic_client_limits )          );
   void *            quic_server   = FD_SCRATCH_ALLOC_APPEND( l, fd_quic_align(),                fd_quic_footprint( &quic_server_limits )          );
   void *            pool          = FD_SCRATCH_ALLOC_APPEND( l, ag_pool_align(),                ag_pool_footprint( tile->votor.max_live_slots )   );
@@ -1510,8 +1583,11 @@ unprivileged_init( fd_topo_t const *      topo,
   void *            contact_infos = FD_SCRATCH_ALLOC_APPEND( l, contact_infos_align(),          contact_infos_footprint()                         );
   void *            mleaders      = FD_SCRATCH_ALLOC_APPEND( l, fd_multi_epoch_leaders_align(), fd_multi_epoch_leaders_footprint()                );
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
-  if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
+  if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) ) {
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
+  }
+
+  (void)auth_vtr; /* privileged_init */
 
   ctx->shred_version = (ushort)0;
 
@@ -1630,6 +1706,7 @@ unprivileged_init( fd_topo_t const *      topo,
           fd_topo_find_link_consumer( topo, sign_out ) ) ) ) ) {
     FD_LOG_ERR(( "failed to construct keyguard client" ));
   }
+  load_keys( ctx, tile );
 
   fd_aio_t * quic_tx_aio = fd_aio_join( fd_aio_new( ctx->quic_tx_aio, ctx, quic_aio_tx ) );
   FD_TEST( quic_tx_aio );

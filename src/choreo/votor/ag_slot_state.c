@@ -264,7 +264,7 @@ count_notar_stake( ag_slot_state_t *       self,
   ulong                   rank          = vote->rank;
   ushort                  shred_version = vote->shred_version;
   fd_bls_sig_t const *    sig           = &vote->sig;
-  fd_bls_pub_t const *    pub           = &ag_epoch_info_validator( epoch_info, rank )->bls_key;
+  fd_bls_pub_t const *    pub           = ag_epoch_info_pubkey( epoch_info, rank );
 
   ag_slot_votes_t *            votes                = &self->votes;
   ag_slot_voted_stake_hash_t * voted_stake_for_hash = notar_map_query( votes->notar_stake_map, key, NULL );
@@ -372,7 +372,7 @@ count_notar_fallback_stake( ag_slot_state_t *                self,
   ulong                   rank          = vote->rank;
   ushort                  shred_version = vote->shred_version;
   fd_bls_sig_t const *    sig           = &vote->sig;
-  fd_bls_pub_t const *    pub           = &ag_epoch_info_validator( epoch_info, rank )->bls_key;
+  fd_bls_pub_t const *    pub           = ag_epoch_info_pubkey( epoch_info, rank );
 
   ag_slot_votes_t *            votes                = &self->votes;
   ag_slot_voted_stake_hash_t * voted_stake_for_hash = notar_fallback_map_query( votes->notar_fallback_stake_map, key, NULL );
@@ -436,7 +436,7 @@ count_skip_stake( ag_slot_state_t *   self,
   ulong                   rank          = ag_vote_rank( vote );
   ushort                  shred_version = ag_vote_shred_version( vote );
   fd_bls_sig_t const *    sig           = ag_vote_sig( vote );
-  fd_bls_pub_t const *    pub           = &ag_epoch_info_validator( epoch_info, rank )->bls_key;
+  fd_bls_pub_t const *    pub           = ag_epoch_info_pubkey( epoch_info, rank );
 
   ag_slot_votes_t * votes = &self->votes;
   if( FD_UNLIKELY( fallback ) ) { votes->skip_fallback_stake += stake; blst_p1_add_or_double( &votes->skip_fallback_agg.pub, &votes->skip_fallback_agg.pub, pub ); blst_p2_add_or_double( &votes->skip_fallback_agg.sig, &votes->skip_fallback_agg.sig, sig ); fd_bls_set_insert( votes->skip_fallback_agg.set, rank ); }
@@ -511,7 +511,7 @@ count_finalize_stake( ag_slot_state_t *       self,
   ulong                   rank          = vote->rank;
   ushort                  shred_version = vote->shred_version;
   fd_bls_sig_t const *    sig           = &vote->sig;
-  fd_bls_pub_t const *    pub           = &ag_epoch_info_validator( epoch_info, rank )->bls_key;
+  fd_bls_pub_t const *    pub           = ag_epoch_info_pubkey( epoch_info, rank );
 
   ag_slot_votes_t * votes = &self->votes;
   votes->finalize_stake += stake;

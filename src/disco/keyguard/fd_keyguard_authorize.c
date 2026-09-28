@@ -315,6 +315,19 @@ fd_keyguard_authorize_ag_vote( fd_keyguard_authority_t const * authority FD_PARA
   return sign_type==FD_KEYGUARD_SIGN_TYPE_BLS;
 }
 
+static int
+fd_keyguard_authorize_bls_pubkey( fd_keyguard_authority_t const * authority FD_PARAM_UNUSED,
+                                  uchar const *                   data,
+                                  ulong                           sz,
+                                  int                             sign_type ) {
+  if( FD_UNLIKELY( sign_type != FD_KEYGUARD_SIGN_TYPE_BLS_PUBKEY ) ) return 0;
+  if( FD_UNLIKELY( sz != sizeof(ulong) ) ) return 0;
+
+  /* ULONG_MAX selects the identity key */
+  ulong authority_idx = FD_LOAD( ulong, data );
+  return authority_idx==ULONG_MAX || authority_idx<16UL;
+}
+
 int
 fd_keyguard_payload_authorize( fd_keyguard_authority_t const * authority,
                                uchar const *                   data,
@@ -440,12 +453,14 @@ fd_keyguard_payload_authorize( fd_keyguard_authority_t const * authority,
   }
 
   case FD_KEYGUARD_ROLE_VOTOR: {
-    int tls_ok  = (!!( payload_mask & FD_KEYGUARD_PAYLOAD_TLS_CV )) &&
-                  ( fd_keyguard_authorize_tls_cv    ( authority, data, sz, sign_type ) ||
-                    fd_keyguard_authorize_tls_cv_srv( authority, data, sz, sign_type ) );
-    int vote_ok = (!!( payload_mask & FD_KEYGUARD_PAYLOAD_AG_VOTE )) &&
-                  fd_keyguard_authorize_ag_vote( authority, data, sz, sign_type );
-    if( FD_UNLIKELY( !tls_ok && !vote_ok ) ) {
+    int tls_ok    = (!!( payload_mask & FD_KEYGUARD_PAYLOAD_TLS_CV )) &&
+                    ( fd_keyguard_authorize_tls_cv    ( authority, data, sz, sign_type ) ||
+                      fd_keyguard_authorize_tls_cv_srv( authority, data, sz, sign_type ) );
+    int vote_ok   = (!!( payload_mask & FD_KEYGUARD_PAYLOAD_AG_VOTE )) &&
+                    fd_keyguard_authorize_ag_vote( authority, data, sz, sign_type );
+    int pubkey_ok = (!!( payload_mask & FD_KEYGUARD_PAYLOAD_BLS_PUBKEY )) &&
+                    fd_keyguard_authorize_bls_pubkey( authority, data, sz, sign_type );
+    if( FD_UNLIKELY( !tls_ok && !vote_ok && !pubkey_ok ) ) {
       FD_LOG_WARNING(( "unauthorized payload type for votor (mask=%#lx)", payload_mask ));
       return 0;
     }

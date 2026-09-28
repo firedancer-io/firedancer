@@ -5,13 +5,14 @@
 #include "../../ballet/bls/fd_bls.h"
 
 FD_STATIC_ASSERT( FD_BLS_SET_MAX==AG_VAT_MAX, fd_bls_set_max );
+FD_STATIC_ASSERT( sizeof(ag_bls_key_t)==FD_BLS_PUB_COMPRESSED_SZ, ag_bls_key_sz );
 
 struct ag_validator_info {
   ulong         id;
   ulong         stake;
   ag_id_key_t   id_key;
   ag_vote_key_t vote_key;
-  fd_bls_pub_t  bls_key;
+  ag_bls_key_t  bls_key;
 };
 typedef struct ag_validator_info ag_validator_info_t;
 
@@ -39,6 +40,15 @@ ag_epoch_info_validator( ag_epoch_info_t const * self,
                          ulong                   rank ) {
   FD_TEST( rank<self->validator_cnt );
   return ag_epoch_info_validators( self ) + rank;
+}
+
+/* Deserialized ag_epoch_info_validator( self, rank )->bls_key */
+
+FD_FN_PURE static inline fd_bls_pub_t const *
+ag_epoch_info_pubkey( ag_epoch_info_t const * self,
+                      ulong                   rank ) {
+  FD_TEST( rank<self->validator_cnt );
+  return self->pubkeys + rank;
 }
 
 /* EpochInfo::leader */

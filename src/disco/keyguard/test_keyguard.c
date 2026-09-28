@@ -176,6 +176,33 @@ test_ag_vote_authorize( void ) {
   FD_TEST( !fd_keyguard_payload_authorize( &authority, skip,  sizeof(skip),  FD_KEYGUARD_ROLE_VOTOR,  FD_KEYGUARD_SIGN_TYPE_BLS     ) );
 }
 
+static void
+test_bls_pubkey_authorize( void ) {
+  fd_keyguard_authority_t authority = {0};
+  uchar query[ sizeof(ulong)+1UL ] = {0}; /* authority index */
+
+  FD_TEST( fd_keyguard_payload_match( query, sizeof(ulong), FD_KEYGUARD_SIGN_TYPE_BLS_PUBKEY )==FD_KEYGUARD_PAYLOAD_BLS_PUBKEY );
+  FD_TEST(  fd_keyguard_payload_authorize( &authority, query, sizeof(ulong),     FD_KEYGUARD_ROLE_VOTOR,  FD_KEYGUARD_SIGN_TYPE_BLS_PUBKEY ) );
+  /* wrong sign type */
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, query, sizeof(ulong),     FD_KEYGUARD_ROLE_VOTOR,  FD_KEYGUARD_SIGN_TYPE_BLS        ) );
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, query, sizeof(ulong),     FD_KEYGUARD_ROLE_VOTOR,  FD_KEYGUARD_SIGN_TYPE_ED25519    ) );
+  /* wrong role */
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, query, sizeof(ulong),     FD_KEYGUARD_ROLE_TXSEND, FD_KEYGUARD_SIGN_TYPE_BLS_PUBKEY ) );
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, query, sizeof(ulong),     FD_KEYGUARD_ROLE_GOSSIP, FD_KEYGUARD_SIGN_TYPE_BLS_PUBKEY ) );
+  /* wrong size */
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, query, sizeof(ulong)-1UL, FD_KEYGUARD_ROLE_VOTOR,  FD_KEYGUARD_SIGN_TYPE_BLS_PUBKEY ) );
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, query, sizeof(ulong)+1UL, FD_KEYGUARD_ROLE_VOTOR,  FD_KEYGUARD_SIGN_TYPE_BLS_PUBKEY ) );
+  /* authority index is the identity (ULONG_MAX) or in [0,16) */
+  FD_STORE( ulong, query, 15UL );
+  FD_TEST(  fd_keyguard_payload_authorize( &authority, query, sizeof(ulong),     FD_KEYGUARD_ROLE_VOTOR,  FD_KEYGUARD_SIGN_TYPE_BLS_PUBKEY ) );
+  FD_STORE( ulong, query, ULONG_MAX );
+  FD_TEST(  fd_keyguard_payload_authorize( &authority, query, sizeof(ulong),     FD_KEYGUARD_ROLE_VOTOR,  FD_KEYGUARD_SIGN_TYPE_BLS_PUBKEY ) );
+  FD_STORE( ulong, query, 16UL );
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, query, sizeof(ulong),     FD_KEYGUARD_ROLE_VOTOR,  FD_KEYGUARD_SIGN_TYPE_BLS_PUBKEY ) );
+  FD_STORE( ulong, query, ULONG_MAX-1UL );
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, query, sizeof(ulong),     FD_KEYGUARD_ROLE_VOTOR,  FD_KEYGUARD_SIGN_TYPE_BLS_PUBKEY ) );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -183,6 +210,7 @@ main( int     argc,
   test_vote_txn_oob();
   test_txn_v1_match();
   test_ag_vote_authorize();
+  test_bls_pubkey_authorize();
   FD_LOG_NOTICE(( "pass" ));
   return 0;
 }
