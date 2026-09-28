@@ -309,11 +309,11 @@ static void
 test_compact_to_votes( void ) {
   fd_compact_tower_sync_serde_t in;
   fd_memset( &in, 0, sizeof(in) );
-  in.root         = 100UL;
-  in.lockouts_cnt = 3;
-  in.lockouts[ 0 ] = ( __typeof__(in.lockouts[0]) ){ .offset=5UL, .confirmation_count=3 };
-  in.lockouts[ 1 ] = ( __typeof__(in.lockouts[0]) ){ .offset=2UL, .confirmation_count=2 };
-  in.lockouts[ 2 ] = ( __typeof__(in.lockouts[0]) ){ .offset=4UL, .confirmation_count=1 };
+  in.root             = 100UL;
+  in.lockouts_cnt     = 3;
+  in.lockouts[ 0 ]    = ( __typeof__(in.lockouts[0]) ){ .offset=5UL, .confirmation_count=3 };
+  in.lockouts[ 1 ]    = ( __typeof__(in.lockouts[0]) ){ .offset=2UL, .confirmation_count=2 };
+  in.lockouts[ 2 ]    = ( __typeof__(in.lockouts[0]) ){ .offset=4UL, .confirmation_count=1 };
   in.timestamp_option = 1;
 
   uchar buf[ 512 ];
@@ -324,8 +324,8 @@ test_compact_to_votes( void ) {
   FD_TEST( !fd_compact_tower_sync_de( &out, buf, sz ) );
 
   fd_tower_vote_t votes[ FD_TOWER_VOTE_MAX ];
-  ulong cnt;
-  ulong root;
+  ulong           cnt;
+  ulong           root;
   FD_TEST( !fd_compact_tower_sync_to_votes( &out, votes, &cnt, &root ) );
   FD_TEST( root==100UL && cnt==3UL );
   FD_TEST( votes[ 0 ].slot==105UL && votes[ 0 ].conf==3UL );

@@ -19,7 +19,7 @@ test_roundtrip( void ) {
   uchar payload[ 70 ];
   for( ulong i=0UL; i<70UL; i++ ) payload[ i ] = (uchar)i;
 
-  ulong sz = fd_failover_wire_encode( &a, frame, (ushort)FD_FAILOVER_MSG_STATUS, payload, 70UL );
+  ulong sz = fd_failover_wire_encode( &a, frame, (ushort)FD_FAILOVER_MSG_DEMOTED, payload, 70UL );
   FD_TEST( sz==FD_FAILOVER_FRAME_HDR_SZ+70UL );
 
   ushort        type;
@@ -27,7 +27,7 @@ test_roundtrip( void ) {
   ulong         out_sz;
   ulong         frame_sz;
   FD_TEST( fd_failover_wire_decode( &b, frame, sz, &type, &out, &out_sz, &frame_sz )==FD_FAILOVER_WIRE_SUCCESS );
-  FD_TEST( type==(ushort)FD_FAILOVER_MSG_STATUS );
+  FD_TEST( type==(ushort)FD_FAILOVER_MSG_DEMOTED );
   FD_TEST( out_sz==70UL );
   FD_TEST( frame_sz==sz );
   FD_TEST( fd_memeq( out, payload, 70UL ) );
@@ -46,7 +46,7 @@ test_replay( void ) {
   paired_sessions( &a, &b );
 
   uchar payload[ 27 ] = { 5 };
-  ulong sz = fd_failover_wire_encode( &a, frame, (ushort)FD_FAILOVER_MSG_DEMOTED, payload, 27UL );
+  ulong sz            = fd_failover_wire_encode( &a, frame, (ushort)FD_FAILOVER_MSG_DEMOTED, payload, 27UL );
 
   ushort        type;
   uchar const * out;

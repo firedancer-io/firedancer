@@ -1,8 +1,7 @@
-$(call add-hdrs,fd_tower.h fd_tower_serdes.h fd_tower_stakes.h fd_tower_file.h)
+$(call add-hdrs,fd_tower.h fd_tower_serdes.h fd_tower_stakes.h)
 $(call add-objs,fd_tower,fd_choreo)
 $(call add-objs,fd_tower_serdes,fd_choreo)
 $(call add-objs,fd_tower_stakes,fd_choreo)
-$(call add-objs,fd_tower_file,fd_choreo)
 ifdef FD_HAS_HOSTED
 $(call make-unit-test,test_tower,test_tower,fd_choreo fd_flamenco fd_tango fd_ballet fd_util)
 $(call run-unit-test,test_tower)

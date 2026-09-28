@@ -8,9 +8,6 @@
 #include <stdio.h>
 #include <unistd.h>
 
-static char const * const CMD_NAMES[] = {
-  "handoff", "demote", "promote"
-};
 static char const * const ACTION_NAMES[] = {
   "idle", "demote, switching to the junk key", "demote, waiting for the peer's answer",
   "promote, waiting for replay", "promote, waiting for vote history adoption", "promote, switching to the staked key",
@@ -20,19 +17,17 @@ static char const * const SESSION_NAMES[] = {
   "listening", "dialing", "hello", "paired", "backoff"
 };
 static char const * const SOURCE_NAMES[] = {
-  "the stored peer tower", "our own final tower", "the vote account (automatic fallback)"
+  "the stored peer tower", "the vote account (automatic fallback)"
 };
 static char const * const HANDOFF_NAMES[] = {
   "not sent", "pending", "taken", "declined", "restarted", "cancelled by promote --force"
 };
 
-#define CMD_NAME_CNT     ( sizeof(CMD_NAMES    )/sizeof(CMD_NAMES    [ 0 ]) )
 #define ACTION_NAME_CNT  ( sizeof(ACTION_NAMES )/sizeof(ACTION_NAMES [ 0 ]) )
 #define SESSION_NAME_CNT ( sizeof(SESSION_NAMES)/sizeof(SESSION_NAMES[ 0 ]) )
 #define SOURCE_NAME_CNT  ( sizeof(SOURCE_NAMES )/sizeof(SOURCE_NAMES [ 0 ]) )
 #define HANDOFF_NAME_CNT ( sizeof(HANDOFF_NAMES)/sizeof(HANDOFF_NAMES[ 0 ]) )
 
-FD_STATIC_ASSERT( CMD_NAME_CNT    ==FD_ADMINCTL_FAILOVER_CMD_CNT, cmd_names     );
 FD_STATIC_ASSERT( ACTION_NAME_CNT ==FD_FAILOVER_ACTION_CNT,       action_names  );
 FD_STATIC_ASSERT( SESSION_NAME_CNT==FD_FAILOVER_SESSION_CNT,      session_names );
 FD_STATIC_ASSERT( SOURCE_NAME_CNT ==FD_FAILOVER_SOURCE_CNT,       source_names  );
@@ -51,19 +46,16 @@ failover_cmd_args( int *    pargc,
     FD_LOG_ERR(( "missing subcommand, supported: status, handoff, demote, promote" ));
   }
   char const * cmd = **pargv;
-  args->failover.cmd = -1;
-  if( FD_LIKELY( strcmp( cmd, "status" ) ) ) {
-    ulong i;
-    for( i=0UL; i<CMD_NAME_CNT; i++ ) if( !strcmp( cmd, CMD_NAMES[ i ] ) ) break;
-    if( FD_UNLIKELY( i==CMD_NAME_CNT ) ) {
-      FD_LOG_ERR(( "unknown subcommand `%s`, supported: status, handoff, demote, promote", cmd ));
-    }
-    args->failover.cmd = (int)i;
+  ulong        i;
+  for( i=0UL; i<FD_ADMINCTL_FAILOVER_CMD_CNT; i++ ) if( !strcmp( cmd, fd_adminctl_failover_cmd_name( i ) ) ) break;
+  if( FD_UNLIKELY( i==FD_ADMINCTL_FAILOVER_CMD_CNT ) ) {
+    FD_LOG_ERR(( "unknown subcommand `%s`, supported: status, handoff, demote, promote", cmd ));
   }
+  args->failover.cmd = (int)i;
   ( *pargc )--;
   ( *pargv )++;
 
-  if( FD_UNLIKELY( args->failover.yes && args->failover.cmd<0 ) ) {
+  if( FD_UNLIKELY( args->failover.yes && args->failover.cmd==(int)FD_ADMINCTL_FAILOVER_CMD_STATUS ) ) {
     FD_LOG_ERR(( "--yes is only meaningful for `failover handoff`, `failover demote` and `failover promote`" ));
   }
   if( FD_UNLIKELY( args->failover.force && args->failover.cmd!=(int)FD_ADMINCTL_FAILOVER_CMD_PROMOTE ) ) {
@@ -88,26 +80,22 @@ action_name( uchar action ) {
 static char const *
 control_result_name( ulong result ) {
   switch( result ) {
-    case FD_FAILOVER_CONTROL_RESULT_BAD_ROLE:        return "this machine is not in the role that command needs, `handoff` and `promote` run on a standby, `demote` on the active";
-    case FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS:     return "a transition or key switch is running, check `failover status`";
+    case FD_FAILOVER_CONTROL_RESULT_BAD_ROLE:          return "this machine is not in the role that command needs, `handoff` and `promote` run on a standby, `demote` on the active";
+    case FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS:       return "a transition or key switch is running, check `failover status`";
     case FD_FAILOVER_CONTROL_RESULT_NO_ACTIVE_ADDRESS: return "gossip has no address for the active, wait or set [failover.peer_address]";
-    case FD_FAILOVER_CONTROL_RESULT_NOT_PAIRED:      return "no standby is paired with this machine";
-    case FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY:    return "the peer could not finish this request, check its failover status and log";
-    case FD_FAILOVER_CONTROL_RESULT_PEER_UNVERIFIED: return "the peer cannot be verified, --force is required, including first use and restart. Vote history is unknown: it has not been checked. Use `failover handoff` here to request a transfer from an active failover peer, or `failover promote --force` only after ensuring every other machine with this identity cannot sign";
-    case FD_FAILOVER_CONTROL_RESULT_PEER_ACTIVE:     return "the authenticated peer holds the identity";
-    case FD_FAILOVER_CONTROL_RESULT_HANDOFF_PENDING: return "the peer has not answered our last handoff";
-    case FD_FAILOVER_CONTROL_RESULT_TAKEN:           return "the peer took our last handoff and may still be voting";
-    case FD_FAILOVER_CONTROL_RESULT_STAKED_SEEN:     return "gossip showed the staked identity at another host within the last 15 seconds, an active is publishing";
-    case FD_FAILOVER_CONTROL_RESULT_NO_TOWER:        return "no eligible vote history, --force accepts incomplete or empty history after the peer is fenced";
-    case FD_FAILOVER_CONTROL_RESULT_NO_FINAL_TOWER:  return "the active has no eligible final vote state to hand over and keeps the identity, check its voting progress and vote-history logs before retrying";
-    default:                                         return NULL;
+    case FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY:      return "the peer could not finish this request, check its failover status and log";
+    case FD_FAILOVER_CONTROL_RESULT_PEER_UNVERIFIED:   return "the peer cannot be verified, --force is required, including first use and restart. Vote history is unknown: it has not been checked. Use `failover handoff` here to request a transfer from an active failover peer, or `failover promote --force` only after ensuring every other machine with this identity cannot sign";
+    case FD_FAILOVER_CONTROL_RESULT_PEER_ACTIVE:       return "the authenticated peer holds the identity";
+    case FD_FAILOVER_CONTROL_RESULT_HANDOFF_PENDING:   return "the peer has not answered our last handoff";
+    case FD_FAILOVER_CONTROL_RESULT_TAKEN:             return "the peer took our last handoff and may still be voting";
+    case FD_FAILOVER_CONTROL_RESULT_STAKED_SEEN:       return "gossip showed the staked identity at another host within the last 15 seconds, an active is publishing";
+    case FD_FAILOVER_CONTROL_RESULT_NO_FINAL_TOWER:    return "the active has no eligible final vote state to hand over and keeps the identity, check its voting progress and vote-history logs before retrying";
+    default:                                           return NULL;
   }
 }
 
-/* Send the command to the failover tile and print the result. */
 static void
-failover_control_fn( args_t *        args,
-                     fd_adminctl_t * adminctl ) {
+failover_confirm( args_t const * args ) {
   /* Each of these moves or drops the staked identity, so the operator
      confirms first.  What promote rests on is printed even with --yes. */
   if( args->failover.cmd==(int)FD_ADMINCTL_FAILOVER_CMD_PROMOTE ) {
@@ -138,54 +126,6 @@ failover_control_fn( args_t *        args,
     char line[ 16 ] = {0};
     if( FD_UNLIKELY( !fgets( line, sizeof(line), stdin ) ) ) FD_LOG_ERR(( "no confirmation given" ));
     if( FD_UNLIKELY( strcmp( line, "yes\n" ) ) ) FD_LOG_ERR(( "not confirmed, nothing was done" ));
-  }
-
-  void * payload     = NULL;
-  ulong  payload_max = 0UL;
-  ulong  slot_idx    = fd_adminctl_reserve( adminctl, &payload, &payload_max );
-  if( FD_UNLIKELY( slot_idx==ULONG_MAX ) ) FD_LOG_ERR(( "all admin command slots are busy" ));
-  if( FD_UNLIKELY( sizeof(fd_adminctl_failover_control_t)>payload_max ) ) FD_LOG_ERR(( "adminctl failover-control payload too large" ));
-
-  /* Confirmation changes no permissions. FORCE is explicit in both
-     interactive and noninteractive use. */
-  fd_adminctl_failover_control_t * req = (fd_adminctl_failover_control_t *)payload;
-  fd_memset( req, 0, sizeof(*req) );
-  req->version = FD_ADMINCTL_FAILOVER_CONTROL_PAYLOAD_VERSION;
-  req->cmd     = (ulong)args->failover.cmd;
-  if( FD_UNLIKELY( args->failover.yes && args->failover.cmd==(int)FD_ADMINCTL_FAILOVER_CMD_PROMOTE ) ) {
-    req->flags |= FD_ADMINCTL_FAILOVER_FLAG_YES;
-  }
-  if( FD_UNLIKELY( args->failover.force ) ) req->flags |= FD_ADMINCTL_FAILOVER_FLAG_FORCE;
-
-  fd_adminctl_publish( adminctl, slot_idx, FD_ADMINCTL_CMD_FAILOVER_CONTROL, sizeof(*req) );
-
-  fd_adminctl_failover_control_resp_t resp = { 0 };
-  ulong resp_sz = 0UL;
-  ulong result  = fd_adminctl_wait_response( adminctl, slot_idx, &resp, sizeof(resp), &resp_sz );
-  char const * refusal = control_result_name( result );
-  if( FD_UNLIKELY( refusal ) ) FD_LOG_ERR(( "`failover %s` refused, %s", CMD_NAMES[ args->failover.cmd ], refusal ));
-  switch( result ) {
-    case FD_ADMINCTL_RESULT_SUCCESS:
-      if( FD_UNLIKELY( resp_sz!=sizeof(resp) || resp.version!=FD_ADMINCTL_FAILOVER_CONTROL_PAYLOAD_VERSION ) ) {
-        FD_LOG_ERR(( "running validator returned an incompatible failover-control response" ));
-      }
-      FD_LOG_STDOUT(( "%-22s accepted\n", CMD_NAMES[ args->failover.cmd ] ));
-      FD_LOG_STDOUT(( "%-22s %s\n", "role:",   role_name  ( resp.role   ) ));
-      FD_LOG_STDOUT(( "%-22s %s\n", "action:", action_name( resp.action ) ));
-      FD_LOG_STDOUT(( "%-22s %s\n", "confirm with:", "failover status" ));
-      break;
-    case FD_FAILOVER_CONTROL_RESULT_BUSY:
-      FD_LOG_ERR(( "another failover command is in flight, try again" ));
-    case FD_FAILOVER_CONTROL_RESULT_UNRESPONSIVE:
-      FD_LOG_ERR(( "the validator's failover tile did not answer in time, the outcome is indeterminate, run `failover status`" ));
-    case FD_ADMINCTL_RESULT_UNSUPPORTED:
-      FD_LOG_ERR(( "failover is not enabled on the running validator, it is on when [failover.junk_identity_key] is set" ));
-    case FD_ADMINCTL_RESULT_UNKNOWN_COMMAND:
-    case FD_ADMINCTL_RESULT_ABI_VERSION_MISMATCH:
-    case FD_ADMINCTL_RESULT_ABI_SIZE_MISMATCH:
-      FD_LOG_ERR(( "failover control is incompatible with the running validator" ));
-    default:
-      FD_LOG_ERR(( "unexpected failover-control result %lu", result ));
   }
 }
 
@@ -233,49 +173,71 @@ failover_status_print( fd_adminctl_failover_status_resp_t const * resp ) {
   else                                                             FD_LOG_STDOUT(( "%-22s slot %lu\n", "coverage floor:", resp->promote_floor ));
 }
 
+/* Send the command to the failover tile and print the result. */
 static void
 failover_cmd_fn( args_t *   args,
                  config_t * config ) {
   fd_adminctl_t * adminctl = adminctl_client_attach( config, args->failover.name );
-
-  if( FD_UNLIKELY( args->failover.cmd>=0 ) ) {
-    failover_control_fn( args, adminctl );
-    return;
-  }
+  int             status   = args->failover.cmd==(int)FD_ADMINCTL_FAILOVER_CMD_STATUS;
+  if( !status ) failover_confirm( args );
 
   void * payload     = NULL;
   ulong  payload_max = 0UL;
   ulong  slot_idx    = fd_adminctl_reserve( adminctl, &payload, &payload_max );
   if( FD_UNLIKELY( slot_idx==ULONG_MAX ) ) FD_LOG_ERR(( "all admin command slots are busy" ));
-  if( FD_UNLIKELY( sizeof(fd_adminctl_failover_status_req_t)>payload_max ) ) FD_LOG_ERR(( "adminctl failover-status payload too large" ));
+  if( FD_UNLIKELY( sizeof(fd_adminctl_failover_req_t)>payload_max ) ) FD_LOG_ERR(( "adminctl failover payload too large" ));
 
-  fd_adminctl_failover_status_req_t * req = (fd_adminctl_failover_status_req_t *)payload;
-  req->version = FD_ADMINCTL_FAILOVER_STATUS_PAYLOAD_VERSION;
+  /* Confirmation changes no permissions. FORCE is explicit in both
+     interactive and noninteractive use. */
+  fd_adminctl_failover_req_t * req = (fd_adminctl_failover_req_t *)payload;
+  fd_memset( req, 0, sizeof(*req) );
+  req->version = FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION;
+  req->cmd     = (ulong)args->failover.cmd;
+  if( FD_UNLIKELY( args->failover.yes && args->failover.cmd==(int)FD_ADMINCTL_FAILOVER_CMD_PROMOTE ) ) {
+    req->flags |= FD_ADMINCTL_FAILOVER_FLAG_YES;
+  }
+  if( FD_UNLIKELY( args->failover.force ) ) req->flags |= FD_ADMINCTL_FAILOVER_FLAG_FORCE;
 
-  fd_adminctl_publish( adminctl, slot_idx, FD_ADMINCTL_CMD_FAILOVER_STATUS, sizeof(fd_adminctl_failover_status_req_t) );
+  fd_adminctl_publish( adminctl, slot_idx, FD_ADMINCTL_CMD_FAILOVER, sizeof(*req) );
 
-  fd_adminctl_failover_status_resp_t resp = { 0 };
-  ulong resp_sz = 0UL;
-  ulong result  = fd_adminctl_wait_response( adminctl, slot_idx, &resp, sizeof(resp), &resp_sz );
+  union {
+    fd_adminctl_failover_control_resp_t control;
+    fd_adminctl_failover_status_resp_t  status;
+  } resp = { 0 };
+  ulong        resp_sz  = 0UL;
+  ulong        result   = fd_adminctl_wait_response( adminctl, slot_idx, &resp, sizeof(resp), &resp_sz );
+  char const * cmd_name = fd_adminctl_failover_cmd_name( (ulong)args->failover.cmd );
+  char const * refusal  = control_result_name( result );
+  if( FD_UNLIKELY( refusal ) ) FD_LOG_ERR(( "`failover %s` refused, %s", cmd_name, refusal ));
   switch( result ) {
     case FD_ADMINCTL_RESULT_SUCCESS:
-      if( FD_UNLIKELY( resp_sz!=sizeof(resp) || resp.version!=FD_ADMINCTL_FAILOVER_STATUS_PAYLOAD_VERSION ) ) {
-        FD_LOG_ERR(( "running validator returned an incompatible failover-status response" ));
+      if( FD_UNLIKELY( resp_sz!=(status ? sizeof(resp.status) : sizeof(resp.control)) ||
+                       (status ? resp.status.version : resp.control.version)!=FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION ) ) {
+        FD_LOG_ERR(( "running validator returned an incompatible failover response" ));
       }
-      failover_status_print( &resp );
+      if( status ) {
+        failover_status_print( &resp.status );
+      } else {
+        FD_LOG_STDOUT(( "%-22s accepted\n", cmd_name ));
+        FD_LOG_STDOUT(( "%-22s %s\n", "role:",   role_name  ( resp.control.role   ) ));
+        FD_LOG_STDOUT(( "%-22s %s\n", "action:", action_name( resp.control.action ) ));
+        FD_LOG_STDOUT(( "%-22s %s\n", "confirm with:", "failover status" ));
+      }
       break;
     case FD_FAILOVER_CONTROL_RESULT_BUSY:
       FD_LOG_ERR(( "another failover command is in flight, try again" ));
     case FD_FAILOVER_CONTROL_RESULT_UNRESPONSIVE:
-      FD_LOG_ERR(( "the validator's failover tile did not answer in time" ));
+      if( status ) FD_LOG_ERR(( "the validator's failover tile did not answer in time" ));
+      FD_LOG_ERR(( "the validator's failover tile did not answer in time, the outcome is indeterminate, run `failover status`" ));
     case FD_ADMINCTL_RESULT_UNSUPPORTED:
-      FD_LOG_ERR(( "this validator has no failover command bus, so it cannot report failover status" ));
+      if( status ) FD_LOG_ERR(( "this validator has no failover command bus, so it cannot report failover status" ));
+      FD_LOG_ERR(( "failover is not enabled on the running validator, it is on when [failover.junk_identity_key] is set" ));
     case FD_ADMINCTL_RESULT_UNKNOWN_COMMAND:
     case FD_ADMINCTL_RESULT_ABI_VERSION_MISMATCH:
     case FD_ADMINCTL_RESULT_ABI_SIZE_MISMATCH:
-      FD_LOG_ERR(( "failover status is incompatible with the running validator" ));
+      FD_LOG_ERR(( "failover is incompatible with the running validator" ));
     default:
-      FD_LOG_ERR(( "unexpected failover-status result %lu", result ));
+      FD_LOG_ERR(( "unexpected failover result %lu", result ));
   }
 }
 

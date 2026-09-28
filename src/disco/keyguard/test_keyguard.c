@@ -10,7 +10,7 @@ static uchar v1_txn [ FD_TXN_MAX_SZ ];
 static void
 test_failov_message( void ) {
   fd_keyguard_authority_t authority = {0};
-  uchar msg[ FD_KEYGUARD_MEMBER_CERT_MSG_SZ ];
+  uchar                   msg[ FD_KEYGUARD_MEMBER_CERT_MSG_SZ ];
   fd_memcpy( msg, FD_KEYGUARD_MEMBER_CERT_PREFIX, FD_KEYGUARD_MEMBER_CERT_PREFIX_SZ );
   fd_memset( msg+FD_KEYGUARD_MEMBER_CERT_PREFIX_SZ, 0x5a, 32UL );
   FD_TEST( fd_keyguard_payload_match( msg, sizeof(msg), FD_KEYGUARD_SIGN_TYPE_ED25519 )==FD_KEYGUARD_PAYLOAD_FAILOV );

@@ -616,7 +616,7 @@ fd_tower_reconcile( fd_tower_t      * tower,
    Errors do not modify tower. */
 
 int
-fd_tower_adopt( fd_tower_t      * tower,
+fd_tower_adopt( fd_tower_t *      tower,
                 fd_tower_vote_t * adopt_votes,
                 ulong             adopt_root );
 

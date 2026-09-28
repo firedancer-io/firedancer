@@ -1890,9 +1890,10 @@ telemetry = true
 # under its own identity and can take over.
 [failover]
     # Absolute path to this machine's own unstaked keypair, a different
-    # key on each machine.  Setting this turns failover on.  Every tile
-    # then boots under this key, and the staked key is installed only
-    # when the machine is promoted.
+    # key on each machine.  Peers with the same key are rejected when
+    # they connect.  Setting this turns failover on.  Every tile then
+    # boots under this key, and the staked key is installed only when
+    # the machine is promoted.
     #
     # Under failover [paths.identity_key] is the staked identity
     # keypair, the same key on both machines, and it must be set.  It

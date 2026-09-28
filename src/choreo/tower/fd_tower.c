@@ -1298,7 +1298,7 @@ fd_tower_reconcile( fd_tower_t      * tower,
 }
 
 int
-fd_tower_adopt( fd_tower_t      * tower,
+fd_tower_adopt( fd_tower_t *      tower,
                 fd_tower_vote_t * adopt_votes,
                 ulong             adopt_root ) {
 
@@ -1341,8 +1341,8 @@ fd_tower_adopt( fd_tower_t      * tower,
   for( fd_tower_vote_iter_t iter = fd_tower_vote_iter_init( tower->votes );
                                   !fd_tower_vote_iter_done( tower->votes, iter );
                             iter = fd_tower_vote_iter_next( tower->votes, iter ) ) {
-    fd_tower_vote_t const * vote = fd_tower_vote_iter_ele_const( tower->votes, iter );
-    fd_tower_blk_t * tower_blk = fd_tower_blocks_query( tower, vote->slot );
+    fd_tower_vote_t const * vote      = fd_tower_vote_iter_ele_const( tower->votes, iter );
+    fd_tower_blk_t *        tower_blk = fd_tower_blocks_query( tower, vote->slot );
     FD_TEST( tower_blk );
     tower_blk->voted = 0;
   }

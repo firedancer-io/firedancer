@@ -8,7 +8,7 @@ static fd_frag_meta_t    pub_mcache[ 8 ];
 static ulong             pub_cr_avail;
 static ulong             pub_min_cr_avail;
 static int               pub_reliable;
-static fd_stem_context_t stem[1];
+static fd_stem_context_t stem[ 1 ];
 static uchar             bus_mem[ 4096 ] __attribute__((aligned(128)));
 
 static void
@@ -39,9 +39,9 @@ controller_init( ulong role ) {
   stem_init();
   fd_failover_tile_ctx_t * ctx = ctl;
   fd_memset( ctx, 0, sizeof(fd_failover_tile_ctx_t) );
-  ctx->role               = role;
-  ctx->hello.role         = (uchar)role;
-  ctx->hello.boot_id      = OUR_BOOT_ID;
+  ctx->role          = role;
+  ctx->hello.role    = (uchar)role;
+  ctx->hello.boot_id = OUR_BOOT_ID;
   fd_memset( ctx->hello.junk_pubkey,   0x11, 32UL );
   fd_memset( ctx->hello.staked_pubkey, 0x5A, 32UL );
   ctx->replay_slot        = 100UL;
@@ -138,7 +138,7 @@ static void
 test_handoff( void ) {
   fd_failover_tile_ctx_t * ctx = controller_init( FD_FAILOVER_ROLE_ACTIVE );
   pair( ctx, 77UL, FD_FAILOVER_ROLE_STANDBY, 1000L );
-  make_tower( &ctx->cs, 99UL );
+  make_tower( &ctx->current_tower, 99UL );
   fd_failover_handoff_request_t req = { .handoff_id=42UL, .target_boot_id=OUR_BOOT_ID };
   deliver( ctx, FD_FAILOVER_MSG_HANDOFF_REQUEST, &req, sizeof(req) );
   FD_TEST( ctx->role==FD_FAILOVER_ROLE_ACTIVE && ctx->action==FD_FAILOVER_ACTION_DEMOTE_SWITCH );
@@ -149,7 +149,7 @@ test_handoff( void ) {
   FD_TEST( ctx->role==FD_FAILOVER_ROLE_STANDBY );
   FD_TEST( pending_demoted( ctx ).handoff_id==42UL );
   ctx->pending_valid = 0;
-  ctx->demoted_sent = 1;
+  ctx->demoted_sent  = 1;
   deliver_ack( ctx, 42UL );
   FD_TEST( ctx->taken && ctx->handoff_result==FD_FAILOVER_HANDOFF_TAKEN );
   controller_fini( ctx );

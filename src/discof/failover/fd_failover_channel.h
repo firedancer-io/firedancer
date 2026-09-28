@@ -20,27 +20,10 @@ fd_failover_clock( void ) {
 }
 
 /* Handshake, operation and retry limits in nanoseconds. */
-#define FD_FAILOVER_STATUS_INTERVAL_NANOS       (   800000000L)
-#define FD_FAILOVER_CHANNEL_SILENCE_NANOS       (5L*FD_FAILOVER_STATUS_INTERVAL_NANOS)
 #define FD_FAILOVER_CHANNEL_IDLE_NANOS          ( 64000000000L)
 #define FD_FAILOVER_CHANNEL_BACKOFF_MIN_NANOS   (   800000000L)
 #define FD_FAILOVER_CHANNEL_BACKOFF_MAX_NANOS   ( 12800000000L)
 #define FD_FAILOVER_CHANNEL_HELLO_TIMEOUT_NANOS (  2000000000L)
-
-struct fd_failover_channel_metrics {
-  ulong connection_attempt_cnt; /* candidate sockets started, before TLS */
-  ulong paired_cnt;             /* successful TLS and HELLO pairings */
-  ulong frames_sent;            /* frames written */
-  ulong frames_received;        /* frames decoded, including HELLO */
-  ulong tls_fail_cnt;           /* failed TLS setup or handshake */
-  ulong admission_drop_cnt;     /* accepted sockets closed before TLS */
-  ulong evicted_cnt;            /* accepted candidates closed to make room for our dial or the expected peer */
-  ulong handshake_timeout_cnt;  /* candidates expired before pairing */
-  ulong wire_fatal_cnt;         /* sessions dropped by the codec */
-  ulong hello_reject_cnt;       /* fatal HELLO handshake rejects */
-};
-
-typedef struct fd_failover_channel_metrics fd_failover_channel_metrics_t;
 
 struct fd_failover_channel;
 typedef struct fd_failover_channel fd_failover_channel_t;
@@ -139,11 +122,12 @@ fd_failover_channel_send( fd_failover_channel_t * channel,
                           ulong                   payload_sz );
 
 /* Accessors. */
-FD_FN_PURE ulong                                 fd_failover_channel_state     ( fd_failover_channel_t const * channel );
-FD_FN_PURE int                                   fd_failover_channel_listen_fd ( fd_failover_channel_t const * channel );
-FD_FN_PURE int                                   fd_failover_channel_tx_pending( fd_failover_channel_t const * channel );
-FD_FN_PURE fd_failover_hello_t const *           fd_failover_channel_peer_hello( fd_failover_channel_t const * channel );
-FD_FN_PURE fd_failover_channel_metrics_t const * fd_failover_channel_metrics   ( fd_failover_channel_t const * channel );
+FD_FN_PURE ulong                       fd_failover_channel_state     ( fd_failover_channel_t const * channel );
+FD_FN_PURE int                         fd_failover_channel_listen_fd ( fd_failover_channel_t const * channel );
+FD_FN_PURE int                         fd_failover_channel_tx_pending( fd_failover_channel_t const * channel );
+FD_FN_PURE fd_failover_hello_t const * fd_failover_channel_peer_hello( fd_failover_channel_t const * channel );
+/* Changes whenever a new authenticated session replaces the previous one. */
+FD_FN_PURE ulong fd_failover_channel_generation( fd_failover_channel_t const * channel );
 
 /* Reads the bound port back from the listen socket, for binds to port zero. */
 ushort

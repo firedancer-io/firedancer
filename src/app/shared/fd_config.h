@@ -213,7 +213,7 @@ struct fd_configf {
   } paths;
 
   struct {
-    int    enabled; /* derived, failover is on when junk_identity_key is set */
+    int    enabled;                         /* derived, failover is on when junk_identity_key is set */
     char   junk_identity_key[ PATH_MAX ];
     ushort port;
     char   peer_address[ FD_FQDN_BUF_MAX ]; /* empty to find the active through gossip */

@@ -1273,8 +1273,8 @@ test_adopt_behind( fd_wksp_t * wksp ) {
   ulong blk_max = 64;
   ulong vtr_max = 2;
 
-  void * tower_mem = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint( blk_max, vtr_max ), 1UL );
-  fd_tower_t * tower = fd_tower_join( fd_tower_new( tower_mem, blk_max, vtr_max, 0UL ) );
+  void *       tower_mem = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint( blk_max, vtr_max ), 1UL );
+  fd_tower_t * tower     = fd_tower_join( fd_tower_new( tower_mem, blk_max, vtr_max, 0UL ) );
   FD_TEST( tower );
   tower->root = 1UL;
 
@@ -1314,8 +1314,8 @@ test_adopt_rejects_unreplayed_root( fd_wksp_t * wksp ) {
   ulong blk_max = 64UL;
   ulong vtr_max = 2UL;
 
-  void * tower_mem = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint( blk_max, vtr_max ), 1UL );
-  fd_tower_t * tower = fd_tower_join( fd_tower_new( tower_mem, blk_max, vtr_max, 0UL ) );
+  void *       tower_mem = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint( blk_max, vtr_max ), 1UL );
+  fd_tower_t * tower     = fd_tower_join( fd_tower_new( tower_mem, blk_max, vtr_max, 0UL ) );
   FD_TEST( tower );
   tower->root = 1UL;
 

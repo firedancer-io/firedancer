@@ -35,7 +35,10 @@ fd_failover_tls_ctx_init( fd_failover_tls_ctx_t * ctx,
   fd_memcpy( ctx->private_key, keypair, 32UL );
 
   uchar seed[ 32 ];
-  if( FD_UNLIKELY( !fd_rng_secure( seed, 32UL ) ) ) { fd_failover_tls_ctx_fini( ctx ); return -1; }
+  if( FD_UNLIKELY( !fd_rng_secure( seed, 32UL ) ) ) {
+    fd_failover_tls_ctx_fini( ctx );
+    return -1;
+  }
   fd_chacha_rng_t * rng = fd_chacha_rng_join( fd_chacha_rng_new( ctx->rng, FD_CHACHA_RNG_MODE_MOD ) );
   FD_TEST( rng );
   fd_chacha_rng_init( rng, seed, FD_CHACHA_RNG_ALGO_CHACHA20 );
@@ -124,7 +127,7 @@ pull( fd_failover_tls_t * tls ) {
   if( FD_UNLIKELY( !tls->read_budget ) ) return 0;
   tls->read_budget--;
   ulong rx_sz = 0UL;
-  int rc = fd_tlsrec_sock_rx( &tls->sock, &tls->conn, tls->fd, &rx_sz );
+  int   rc    = fd_tlsrec_sock_rx( &tls->sock, &tls->conn, tls->fd, &rx_sz );
   if( FD_UNLIKELY( rc ) ) {
     tls->peer_closed = rc==FD_TLSREC_SOCK_ERR_EOF;
     return -1;
@@ -159,7 +162,8 @@ fd_failover_tls_handshake( fd_failover_tls_t * tls ) {
 
   if( !fd_tlsrec_conn_is_server( &tls->conn ) ) {
     fd_tls_estate_cli_t const * cli = &tls->conn.hs.cli;
-    if( FD_UNLIKELY( cli->server_key_type!=FD_TLS_KEY_ED25519 || cli->server_pubkey_len!=32UL || !cli->alpn_negotiated ) ) return -1;
+    if( FD_UNLIKELY( cli->server_key_type!=FD_TLS_KEY_ED25519 ||
+                     cli->server_pubkey_len!=32UL || !cli->alpn_negotiated ) ) return -1;
     fd_memcpy( tls->peer_pubkey, cli->server_pubkey, 32UL );
   } else {
     /* fd_tls only gets here with a client cert and a CertificateVerify
@@ -178,7 +182,10 @@ fd_failover_tls_read( fd_failover_tls_t * tls,
                       ulong               sz ) {
   if( FD_UNLIKELY( fd_tlsrec_conn_is_failed( &tls->conn ) ) ) return -1L;
   if( FD_LIKELY( !fd_tlsrec_sock_rx_avail( &tls->sock ) ) ) {
-    if( FD_UNLIKELY( tls->conn.rx_closed ) ) { tls->peer_closed = 1; return -1L; }
+    if( FD_UNLIKELY( tls->conn.rx_closed ) ) {
+      tls->peer_closed = 1;
+      return -1L;
+    }
     if( FD_UNLIKELY( fd_tlsrec_sock_flush( &tls->sock, tls->fd )<0 ) ) return -1L;
     if( FD_UNLIKELY( pull( tls ) ) ) return -1L;
   }

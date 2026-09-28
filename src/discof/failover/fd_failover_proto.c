@@ -23,23 +23,7 @@ fd_failover_hello_check( fd_failover_hello_t const * self,
   if( FD_UNLIKELY(  fd_memeq( peer->junk_pubkey,   peer->staked_pubkey, 32UL ) ) ) return FD_FAILOVER_HELLO_ERR_JUNK_STAKE;
   if( FD_UNLIKELY( self->role==FD_FAILOVER_ROLE_ACTIVE &&
                    peer->role==FD_FAILOVER_ROLE_ACTIVE ) )                         return FD_FAILOVER_HELLO_ERR_BOTH_ACT;
-  if( FD_UNLIKELY( self->cfg_hash!=peer->cfg_hash ) )                              return FD_FAILOVER_HELLO_ERR_CFG;
   return FD_FAILOVER_HELLO_OK;
-}
-
-ulong
-fd_failover_cfg_hash( uchar const * staked_pubkey,
-                      uchar const * vote_account,
-                      uchar         mode ) {
-  struct __attribute__((packed)) {
-    ulong layout;
-    uchar staked_pubkey[ 32 ];
-    uchar vote_account[ 32 ];
-    uchar mode;
-  } cfg = { .layout=1UL, .mode=mode };
-  fd_memcpy( cfg.staked_pubkey, staked_pubkey, 32UL );
-  fd_memcpy( cfg.vote_account,  vote_account,  32UL );
-  return fd_hash( 0xF17EDA2CE5FA1C0FUL, &cfg, sizeof(cfg) );
 }
 
 void
@@ -86,7 +70,7 @@ fd_failover_session_step( ulong state,
       break;
     case FD_FAILOVER_SESSION_PAIRED:
       /* A lost session returns to listening. */
-      if( lost ) return FD_FAILOVER_SESSION_LISTENING;
+      if( lost )                           return FD_FAILOVER_SESSION_LISTENING;
       break;
     }
     return state; /* Other events leave the listener unchanged. */
@@ -118,34 +102,9 @@ fd_failover_session_step( ulong state,
 }
 
 int
-fd_failover_status_decode( fd_failover_status_t * out,
-                           uchar const *          payload,
-                           ulong                  payload_sz ) {
-  if( FD_UNLIKELY( payload_sz!=sizeof(fd_failover_status_t) ) ) return 0;
-
-  fd_failover_status_t status;
-  fd_memcpy( &status, payload, sizeof(status) );
-  if( FD_UNLIKELY( status.role>FD_FAILOVER_ROLE_ACTIVE ||
-                   ( status.flags & (uchar)~( FD_FAILOVER_STATUS_BUSY |
-                                              FD_FAILOVER_STATUS_STUCK ) ) ||
-                   ( status.last_vote_slot!=FD_FAILOVER_SLOT_NULL &&
-                     status.replay_slot!=FD_FAILOVER_SLOT_NULL &&
-                     status.last_vote_slot>status.replay_slot ) ||
-                   ( status.root_slot!=FD_FAILOVER_SLOT_NULL &&
-                     status.replay_slot!=FD_FAILOVER_SLOT_NULL &&
-                     status.root_slot>status.replay_slot ) ||
-                   ( status.root_slot!=FD_FAILOVER_SLOT_NULL &&
-                     status.last_vote_slot!=FD_FAILOVER_SLOT_NULL &&
-                     status.root_slot>status.last_vote_slot ) ) ) return 0;
-
-  *out = status;
-  return 1;
-}
-
-int
 fd_failover_handoff_request_decode( fd_failover_handoff_request_t * out,
-                                    uchar const *                  payload,
-                                    ulong                          payload_sz ) {
+                                    uchar const *                   payload,
+                                    ulong                           payload_sz ) {
   if( FD_UNLIKELY( payload_sz!=sizeof(fd_failover_handoff_request_t) ) ) return 0;
   fd_failover_handoff_request_t request;
   fd_memcpy( &request, payload, sizeof(request) );
@@ -156,8 +115,8 @@ fd_failover_handoff_request_decode( fd_failover_handoff_request_t * out,
 
 int
 fd_failover_handoff_result_decode( fd_failover_handoff_result_t * out,
-                                   uchar const *                 payload,
-                                   ulong                         payload_sz ) {
+                                   uchar const *                  payload,
+                                   ulong                          payload_sz ) {
   if( FD_UNLIKELY( payload_sz!=sizeof(fd_failover_handoff_result_t) ) ) return 0;
   fd_memcpy( out, payload, sizeof(fd_failover_handoff_result_t) );
   return 1;

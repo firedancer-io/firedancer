@@ -11,17 +11,12 @@
 
 /* Message types */
 #define FD_FAILOVER_MSG_HELLO            (0U)
-#define FD_FAILOVER_MSG_STATUS           (1U)
+#define FD_FAILOVER_MSG_HANDOFF_REQUEST  (1U)
 #define FD_FAILOVER_MSG_DEMOTED          (2U)
 #define FD_FAILOVER_MSG_PROMOTE_ACK      (3U)
 #define FD_FAILOVER_MSG_PROMOTE_REJECTED (4U)
-#define FD_FAILOVER_MSG_CONSENSUS_STATE (5U) /* Persistent streaming only */
-#define FD_FAILOVER_MSG_HANDOFF_REQUEST (6U)
-#define FD_FAILOVER_MSG_HANDOFF_RESULT  (7U)
-#define FD_FAILOVER_MSG_RESERVED         (8U)
-
-/* On-demand mode opens a connection only for a handoff. */
-#define FD_FAILOVER_ON_DEMAND (1)
+#define FD_FAILOVER_MSG_HANDOFF_RESULT   (5U)
+#define FD_FAILOVER_MSG_RESERVED         (6U)
 
 /* Sentinel for a slot field with no value */
 #define FD_FAILOVER_SLOT_NULL (ULONG_MAX)
@@ -65,9 +60,8 @@
 #define FD_FAILOVER_HELLO_ERR_BOTH_ACT   (6)
 #define FD_FAILOVER_HELLO_ERR_ROLE       (7)
 #define FD_FAILOVER_HELLO_ERR_BOOT_ID    (8)
-#define FD_FAILOVER_HELLO_ERR_CFG        (9)
-#define FD_FAILOVER_HELLO_ERR_MODE       (10)
-#define FD_FAILOVER_HELLO_ERR_CERT       (11)
+#define FD_FAILOVER_HELLO_ERR_MODE       (9)
+#define FD_FAILOVER_HELLO_ERR_CERT       (10)
 
 /* Upper bound on the consensus state payload in tower mode.  A
    CompactTowerSync with block id and bank hash is under 512 bytes. */
@@ -83,27 +77,10 @@ struct __attribute__((packed)) fd_failover_hello {
   uchar  mode;                /* FD_FAILOVER_MODE_* consensus */
   ulong  boot_id;             /* random nonzero value per boot to distinguish restarts */
   uchar  commit[ 20 ];        /* FD commit hash */
-  ulong  cfg_hash;            /* config hash to ensure matching safety-critical config */
   uchar  member_cert[ 64 ];   /* staked key's signature over the cert prefix and junk_pubkey */
 };
 typedef struct fd_failover_hello fd_failover_hello_t;
-FD_STATIC_ASSERT( sizeof(fd_failover_hello_t)==200UL, wire_layout );
-
-struct __attribute__((packed)) fd_failover_status {
-  uchar role;           /* FD_FAILOVER_ROLE_* current role */
-  uchar flags;          /* FD_FAILOVER_STATUS_* bits */
-  ulong replay_slot;    /* highest replayed slot */
-  ulong root_slot;      /* current root */
-  ulong last_vote_slot; /* highest vote produced or SLOT_NULL */
-  ulong sent_at;        /* sender's clock at send, opaque to the receiver */
-  ulong echo_sent_at;   /* sent_at of the newest STATUS received from the peer, 0 if none */
-};
-typedef struct fd_failover_status fd_failover_status_t;
-FD_STATIC_ASSERT( sizeof(fd_failover_status_t)==42UL, wire_layout );
-
-/* Status flag bits */
-#define FD_FAILOVER_STATUS_BUSY  (1U) /* a transition is in flight */
-#define FD_FAILOVER_STATUS_STUCK (2U)
+FD_STATIC_ASSERT( sizeof(fd_failover_hello_t)==192UL, wire_layout );
 
 /* Sent by the demoter once it runs the junk key, the final tower
    follows it. */
@@ -127,7 +104,7 @@ FD_STATIC_ASSERT( sizeof(fd_failover_promote_ack_t)==8UL, wire_layout );
 
 struct __attribute__((packed)) fd_failover_promote_rejected {
   ulong handoff_id;
-  uchar reason;     /* FD_FAILOVER_REJECT_* */
+  uchar reason; /* FD_FAILOVER_REJECT_* */
 };
 typedef struct fd_failover_promote_rejected fd_failover_promote_rejected_t;
 FD_STATIC_ASSERT( sizeof(fd_failover_promote_rejected_t)==9UL, wire_layout );
@@ -152,12 +129,11 @@ FD_STATIC_ASSERT( sizeof(fd_failover_handoff_result_t)==16UL, wire_layout );
 #define FD_FAILOVER_REJECT_NONE              (0U)
 #define FD_FAILOVER_REJECT_BUSY              (1U)
 #define FD_FAILOVER_REJECT_HOLDS_IDENTITY    (2U)
-#define FD_FAILOVER_REJECT_WRONG_TARGET      (3U)
-#define FD_FAILOVER_REJECT_REPLAY_BEHIND     (4U)
-#define FD_FAILOVER_REJECT_ADOPTION_MISMATCH (5U)
-#define FD_FAILOVER_REJECT_ADOPTION_FAILED   (6U)
-#define FD_FAILOVER_REJECT_SWITCH_FAILED     (7U)
-#define FD_FAILOVER_REJECT_CNT               (8U)
+#define FD_FAILOVER_REJECT_REPLAY_BEHIND     (3U)
+#define FD_FAILOVER_REJECT_ADOPTION_MISMATCH (4U)
+#define FD_FAILOVER_REJECT_ADOPTION_FAILED   (5U)
+#define FD_FAILOVER_REJECT_SWITCH_FAILED     (6U)
+#define FD_FAILOVER_REJECT_CNT               (7U)
 
 FD_PROTOTYPES_BEGIN
 
@@ -167,15 +143,6 @@ FD_PROTOTYPES_BEGIN
 int
 fd_failover_hello_check( fd_failover_hello_t const * self,
                          fd_failover_hello_t const * peer );
-
-/* fd_failover_cfg_hash returns the cfg_hash both members put in HELLO,
-   layout 1.  It covers the staked pubkey, the vote account and the
-   consensus mode, so both members of a well configured pair compute
-   the same value. */
-ulong
-fd_failover_cfg_hash( uchar const * staked_pubkey,
-                      uchar const * vote_account,
-                      uchar         mode );
 
 /* fd_failover_member_cert_msg writes the 48 byte message a member
    certificate signs, the keyguard's member cert prefix then
@@ -208,28 +175,19 @@ fd_failover_session_step( ulong state,
                           int   dial_peer,
                           int   event );
 
-/* Validates one STATUS payload.  Its role is the peer's current role,
-   which can differ from the HELLO role since a session outlives role
-   changes.  Returns 1 on success, 0 on failure with out left
-   unchanged. */
-int
-fd_failover_status_decode( fd_failover_status_t * out,
-                           uchar const *          payload,
-                           ulong                  payload_sz );
-
 /* Validate a handoff request or result.  Both have exact wire sizes.
    Request ids and target boot ids must be nonzero.  The controller binds
    replies to an outstanding request and treats an unknown result as a
    refusal.  Return 0 on failure without changing out. */
 int
 fd_failover_handoff_request_decode( fd_failover_handoff_request_t * out,
-                                    uchar const *                  payload,
-                                    ulong                          payload_sz );
+                                    uchar const *                   payload,
+                                    ulong                           payload_sz );
 
 int
 fd_failover_handoff_result_decode( fd_failover_handoff_result_t * out,
-                                   uchar const *                 payload,
-                                   ulong                         payload_sz );
+                                   uchar const *                  payload,
+                                   ulong                          payload_sz );
 
 /* Writes a DEMOTED payload, the header and then the tower, into out,
    which holds FD_FAILOVER_DEMOTED_PAYLOAD_MAX bytes.  Returns the payload

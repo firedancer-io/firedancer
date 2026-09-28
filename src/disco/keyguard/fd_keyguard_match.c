@@ -16,7 +16,6 @@
    - Merkle shred roots
    - TLS CertificateVerify challenges
    - Gossip message signed payloads (CrdsData)
-   - Failover member certificates
 
    ### Fake Signing Attacks
 
