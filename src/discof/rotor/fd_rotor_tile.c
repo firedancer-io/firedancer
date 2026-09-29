@@ -978,6 +978,7 @@ signs_queue_update_identity( ctx_t * ctx ) {
     switch( signable.msg.kind ) {
       case FD_REPAIR_KIND_PONG:  memcpy( signable.msg.pong.from.uc,  ctx->identity_public_key.uc, sizeof(fd_pubkey_t) ); break;
       case FD_REPAIR_KIND_SHRED: memcpy( signable.msg.shred.from.uc, ctx->identity_public_key.uc, sizeof(fd_pubkey_t) ); break;
+      case FD_REPAIR_KIND_HIGHEST_SHRED: memcpy( signable.msg.highest_shred.from.uc, ctx->identity_public_key.uc, sizeof(fd_pubkey_t) ); break;
       default: FD_LOG_CRIT(( "Unhandled repair kind %u", signable.msg.kind ));
     }
     toss_queue_push( ctx->toss_queue, signable );
