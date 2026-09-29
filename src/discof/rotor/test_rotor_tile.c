@@ -182,10 +182,10 @@ pump( ctx_t * ctx ) {
 static void
 force_check( ctx_t * ctx, ulong slot, fd_hash_t const * block_id ) {
   fd_chainer_t *       chainer = ctx->chainer;
-  fd_chainer_slotv_t * slotv   = fd_chainer_slot_version_query( chainer, slot, block_id );
+  fd_chainer_block_t * slotv   = fd_chainer_slot_version_query( chainer, slot, block_id );
   FD_TEST( slotv );
 
-  uint const * fecs = fd_chainer_slotv_fecs( chainer, slotv );
+  uint const * fecs = fd_chainer_block_fecs( chainer, slotv );
   int          any  = 0;
   for( uint k=0U; k<chainer->fec_blk_max; k++ ) {
     if( fecs[ k ]==UINT_MAX ) continue;
@@ -202,9 +202,9 @@ force_check( ctx_t * ctx, ulong slot, fd_hash_t const * block_id ) {
 static int
 has_worklist_entry( ctx_t * ctx, ulong slot, fd_hash_t const * block_id ) {
   fd_chainer_t *       chainer = ctx->chainer;
-  fd_chainer_slotv_t * slotv   = fd_chainer_slot_version_query( chainer, slot, block_id );
+  fd_chainer_block_t * slotv   = fd_chainer_slot_version_query( chainer, slot, block_id );
   if( !slotv ) return 0;
-  uint const * fecs = fd_chainer_slotv_fecs( chainer, slotv );
+  uint const * fecs = fd_chainer_block_fecs( chainer, slotv );
   for( uint k=0U; k<chainer->fec_blk_max; k++ ) {
     if( fecs[ k ]!=UINT_MAX && fd_fec_pool_ele( chainer->fec_pool, fecs[ k ] )->treap ) return 1;
   }
@@ -757,7 +757,7 @@ test_turbine_block( fd_wksp_t * wksp ) {
   FD_TEST( ctx->current_slot==blk->slot );
   FD_TEST( !fd_chainer_verify( ctx->chainer ) );
 
-  fd_chainer_slotv_t * v0 = fd_chainer_slot_query( ctx->chainer, blk->slot );
+  fd_chainer_block_t * v0 = fd_chainer_slot_query( ctx->chainer, blk->slot );
   FD_TEST( v0 && v0->turbine );
   FD_TEST( v0->buffered_idx==FD_FEC_SHRED_CNT-1U );
   FD_TEST( v0->parent_slot==SNAP_SLOT );                    /* from the shred-0 marker */
@@ -772,7 +772,7 @@ test_turbine_block( fd_wksp_t * wksp ) {
   deliver_turbine_fec_set( ctx, blk, 1U );
   pump( ctx );
 
-  FD_TEST( fd_chainer_slotv_complete( v0 ) );
+  FD_TEST( fd_chainer_block_complete( v0 ) );
   FD_TEST( v0->metrics.last_shred_ts );                               /* stamped on completion */
   FD_TEST( fd_hash_eq( &v0->block_id, &blk->block_id ) );   /* matches the independent computation */
   FD_TEST( fd_chainer_slot_version_query( ctx->chainer, blk->slot, &blk->block_id )==v0 );
@@ -829,7 +829,7 @@ test_sweep_paces_requests( fd_wksp_t * wksp ) {
     deliver_shred( ctx, blk->slot, i, (uchar)( i==2U*FD_FEC_SHRED_CNT-1U ? blk_fec_flags( blk, 1U ) : 0 ),
                    &blk->fec_root[ 1 ], 0U, SHRED_SIG_SRC_TURBINE, blk->parent_slot, &blk->parent_block_id );
   }
-  fd_chainer_slotv_t * v0 = fd_chainer_slot_query( ctx->chainer, blk->slot );
+  fd_chainer_block_t * v0 = fd_chainer_slot_query( ctx->chainer, blk->slot );
   FD_TEST( v0->complete_idx==2U*FD_FEC_SHRED_CNT-1U );
   FD_TEST( fd_chainer_fec_query( ctx->chainer, blk->slot, 0U, &v0->block_id )->treap );
 
@@ -868,8 +868,8 @@ test_votor_block_supersedes( fd_wksp_t * wksp ) {
 
   deliver_votor( ctx, vot->slot, &vot->block_id );
   FD_TEST( !fd_chainer_verify( ctx->chainer ) );
-  fd_chainer_slotv_t * v1 = fd_chainer_slot_version_query( ctx->chainer, vot->slot, &vot->block_id );
-  fd_chainer_slotv_t * v0 = fd_chainer_turbine_slotv_query( ctx->chainer, turb->slot );
+  fd_chainer_block_t * v1 = fd_chainer_slot_version_query( ctx->chainer, vot->slot, &vot->block_id );
+  fd_chainer_block_t * v0 = fd_chainer_turbine_block_query( ctx->chainer, turb->slot );
   FD_TEST( v0 && v1 && v0!=v1 );
   FD_TEST( fd_hash_check_zero( &v0->block_id ) );
   FD_TEST( !has_worklist_entry( ctx, turb->slot, &v0->block_id ) );
@@ -900,14 +900,14 @@ test_votor_block_supersedes( fd_wksp_t * wksp ) {
   pump( ctx );
   FD_TEST( serve_shred_requests( ctx, from, vot, served )==FD_FEC_SHRED_CNT );
   pump( ctx );
-  FD_TEST( fd_chainer_slotv_complete( v1 ) && v1->metrics.last_shred_ts );
+  FD_TEST( fd_chainer_block_complete( v1 ) && v1->metrics.last_shred_ts );
   FD_TEST( ctx->metrics->shred_match_block_id==FD_FEC_SHRED_CNT );
 
   /* the abandoned turbine version takes no further FEC completions and
      never derives a block id */
   deliver_turbine_fec_set( ctx, turb, 1U );
   pump( ctx );
-  FD_TEST( !fd_chainer_slotv_complete( v0 ) );
+  FD_TEST( !fd_chainer_block_complete( v0 ) );
   FD_TEST( fd_hash_check_zero( &v0->block_id ) );
 
   /* only the votor version delivered a slot-complete FEC */
@@ -943,7 +943,7 @@ test_meta_verify( fd_wksp_t * wksp ) {
   pump( ctx );
   req_t * meta = req_find( from, AG_REPAIR_KIND_PARENT_FEC_COUNT, blk->slot, 0U, &blk->block_id );
   FD_TEST( meta );
-  fd_chainer_slotv_t * v = fd_chainer_slot_version_query( ctx->chainer, blk->slot, &blk->block_id );
+  fd_chainer_block_t * v = fd_chainer_slot_version_query( ctx->chainer, blk->slot, &blk->block_id );
   FD_TEST( v && v->complete_idx==UINT_MAX );
   uint nonce = meta->nonce;
 
@@ -1121,7 +1121,7 @@ test_fec_evicted( fd_wksp_t * wksp ) {
                    &blk->fec_root[ 1 ], 0U, SHRED_SIG_SRC_TURBINE, blk->parent_slot, &blk->parent_block_id );
   }
   pump( ctx );
-  fd_chainer_slotv_t * v0 = fd_chainer_turbine_slotv_query( ctx->chainer, blk->slot );
+  fd_chainer_block_t * v0 = fd_chainer_turbine_block_query( ctx->chainer, blk->slot );
   FD_TEST( v0 && v0->buffered_idx==2U*FD_FEC_SHRED_CNT-1U );
   FD_TEST( v0->buffered_fec_idx==FD_FEC_SHRED_CNT-1U );
   FD_TEST( v0->complete_idx==2U*FD_FEC_SHRED_CNT-1U );
@@ -1233,7 +1233,7 @@ test_inval_and_final( fd_wksp_t * wksp ) {
   fd_hash_t mr = mkhash( 0x150UL ), bid = mkhash( 0x151UL ), other = mkhash( 0x152UL );
   ulong slot = SNAP_SLOT+1UL;
   deliver_shred( ctx, slot, 1U, 0U, &mr, 0U, SHRED_SIG_SRC_TURBINE, SNAP_SLOT, &snap_bid );
-  fd_chainer_slotv_t * turbine = fd_chainer_turbine_slotv_query( ctx->chainer, slot );
+  fd_chainer_block_t * turbine = fd_chainer_turbine_block_query( ctx->chainer, slot );
   FD_TEST( turbine && worklist_cnt( ctx )==1UL );
 
   fd_shred_base_t bad[1];
@@ -1243,7 +1243,7 @@ test_inval_and_final( fd_wksp_t * wksp ) {
   bad->shred.slot = slot;
   bad->shred.data.size = FD_SHRED_DATA_HEADER_SZ;
   deliver_frag( ctx, IN_IDX_SHRED, SHRED_SIG_SRC_TURBINE, bad, sizeof(bad) );
-  FD_TEST( !worklist_cnt( ctx ) && fd_chainer_turbine_slotv_query( ctx->chainer, slot )==turbine );
+  FD_TEST( !worklist_cnt( ctx ) && fd_chainer_turbine_block_query( ctx->chainer, slot )==turbine );
   deliver_fec_complete( ctx, slot, 0U, FD_SHRED_DATA_FLAG_SLOT_COMPLETE, &mr );
   FD_TEST( out_queue_empty( ctx->chainer->out_queue ) && fd_hash_check_zero( &turbine->block_id ) );
   FD_TEST( turbine->buffered_fec_idx==31U ); /* completion still advances; parent is unknown */
@@ -1252,13 +1252,13 @@ test_inval_and_final( fd_wksp_t * wksp ) {
   fd_votor_certed_t cert = { .kind = AG_CERT_KIND_FINAL, .slot = slot, .block_id = bid };
   /* External redelivery references must drain before finality can
      release the referenced pool entries. */
-  out_queue_push_tail( ctx->redeliver, (out_ele_t){ .slotv_idx=(uint)fd_slotv_pool_idx( ctx->chainer->slotv_pool, turbine ),
-                                                 .fec_idx=fd_chainer_slotv_fecs( ctx->chainer, turbine )[0] } );
+  out_queue_push_tail( ctx->redeliver, (out_ele_t){ .block_idx=(uint)fd_block_pool_idx( ctx->chainer->block_pool, turbine ),
+                                                 .fec_idx=fd_chainer_block_fecs( ctx->chainer, turbine )[0] } );
   FD_TEST( before_frag( ctx, IN_IDX_VOTOR, 0UL, FD_VOTOR_SIG_CERTED )==-1 );
   out_queue_pop_head( ctx->redeliver );
   deliver_frag( ctx, IN_IDX_VOTOR, FD_VOTOR_SIG_CERTED, &cert, sizeof(cert) );
-  fd_chainer_slotv_t * final = fd_chainer_slot_version_query( ctx->chainer, slot, &bid );
-  FD_TEST( final && final->final && !fd_chainer_turbine_slotv_query( ctx->chainer, slot ) );
+  fd_chainer_block_t * final = fd_chainer_slot_version_query( ctx->chainer, slot, &bid );
+  FD_TEST( final && final->final && !fd_chainer_turbine_block_query( ctx->chainer, slot ) );
   FD_TEST( !fd_chainer_slot_version_query( ctx->chainer, slot, &other ) );
   cert.kind = AG_CERT_KIND_FAST_FINAL;
   deliver_frag( ctx, IN_IDX_VOTOR, FD_VOTOR_SIG_CERTED, &cert, sizeof(cert) );
@@ -1272,7 +1272,7 @@ test_inval_and_final( fd_wksp_t * wksp ) {
   deliver_frag( ctx, IN_IDX_SHRED, SHRED_SIG_SRC_TURBINE, bad, sizeof(bad) );
   FD_TEST( !fd_chainer_slot_query( ctx->chainer, slot+1UL ) );
   deliver_shred( ctx, slot+1UL, 32U, 0U, &bad->merkle_root, 0U, SHRED_SIG_SRC_TURBINE, SNAP_SLOT, &snap_bid );
-  fd_chainer_slotv_t * later = fd_chainer_turbine_slotv_query( ctx->chainer, slot+1UL );
+  fd_chainer_block_t * later = fd_chainer_turbine_block_query( ctx->chainer, slot+1UL );
   FD_TEST( later && fd_chainer_fec_query( ctx->chainer, slot+1UL, 32U, &later->block_id )->treap );
   FD_TEST( !fd_chainer_verify( ctx->chainer ) );
   FD_LOG_NOTICE(( "pass: invalid header and final certificate events reach chainer" ));

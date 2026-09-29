@@ -43,15 +43,15 @@ rotor_chainer_reloc( void * chainer_laddr, ulong ele_max, ulong max_shreds_per_b
   ulong blk_max       = fd_chainer_blk_max( ele_max );
   ulong fec_max       = blk_max * ( max_shreds_per_block / FD_FEC_SHRED_CNT );
   ulong fec_chain_cnt = fd_fec_map_chain_cnt_est( fec_max );
-  ulong blk_chain_cnt = fd_slotv_map_chain_cnt_est( blk_max );
+  ulong blk_chain_cnt = fd_block_map_chain_cnt_est( blk_max );
 
   FD_SCRATCH_ALLOC_INIT( l, chainer_laddr );
   (void)          FD_SCRATCH_ALLOC_APPEND( l, fd_chainer_align(),      sizeof(fd_chainer_t)                        );
   c.fec_pool     = fd_fec_pool_join    ( FD_SCRATCH_ALLOC_APPEND( l, fd_fec_pool_align(),     fd_fec_pool_footprint    ( fec_max )        ) );
   c.fec_map      = fd_fec_map_join     ( FD_SCRATCH_ALLOC_APPEND( l, fd_fec_map_align(),      fd_fec_map_footprint     ( fec_chain_cnt )  ) );
-  c.slotv_pool   = fd_slotv_pool_join  ( FD_SCRATCH_ALLOC_APPEND( l, fd_slotv_pool_align(),   fd_slotv_pool_footprint  ( blk_max )        ) );
+  c.block_pool   = fd_block_pool_join  ( FD_SCRATCH_ALLOC_APPEND( l, fd_block_pool_align(),   fd_block_pool_footprint  ( blk_max )        ) );
   c.fec_tbl      =                       FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),           fec_max*sizeof(uint)                        );
-  c.slotv_map    = fd_slotv_map_join   ( FD_SCRATCH_ALLOC_APPEND( l, fd_slotv_map_align(),    fd_slotv_map_footprint   ( blk_chain_cnt ) ) );
+  c.block_map    = fd_block_map_join   ( FD_SCRATCH_ALLOC_APPEND( l, fd_block_map_align(),    fd_block_map_footprint   ( blk_chain_cnt ) ) );
   c.bfs          = bfs_join            ( FD_SCRATCH_ALLOC_APPEND( l, bfs_align(),             bfs_footprint            ( blk_max )        ) );
   c.out_queue    = out_queue_join      ( FD_SCRATCH_ALLOC_APPEND( l, out_queue_align(),       out_queue_footprint      ( fec_max )        ) );
 
@@ -67,8 +67,8 @@ rotor_chainer_reloc( void * chainer_laddr, ulong ele_max, ulong max_shreds_per_b
    turbine version remains eligible alongside named versions. */
 
 static int
-slotv_better( fd_chainer_slotv_t const * a,
-              fd_chainer_slotv_t const * b ) {
+slotv_better( fd_chainer_block_t const * a,
+              fd_chainer_block_t const * b ) {
   int a_known = !fd_hash_check_zero( &a->block_id );
   int b_known = !fd_hash_check_zero( &b->block_id );
   if( a_known != b_known ) return a_known;
@@ -80,14 +80,14 @@ slotv_better( fd_chainer_slotv_t const * a,
 
 /* slot_best returns the version of slot the forest should mirror. */
 
-static fd_chainer_slotv_t *
+static fd_chainer_block_t *
 slot_best( fd_chainer_t * chainer, ulong slot ) {
-  fd_chainer_slotv_t * pool = chainer->slotv_pool;
-  fd_chainer_slotv_t * best = NULL;
-  for( ulong idx = fd_slotv_map_idx_query_const( chainer->slotv_map, &slot, ULONG_MAX, pool );
+  fd_chainer_block_t * pool = chainer->block_pool;
+  fd_chainer_block_t * best = NULL;
+  for( ulong idx = fd_block_map_idx_query_const( chainer->block_map, &slot, ULONG_MAX, pool );
              idx != ULONG_MAX;
-             idx = fd_slotv_map_idx_next_const( idx, ULONG_MAX, pool ) ) {
-    fd_chainer_slotv_t * slotv = fd_slotv_pool_ele( pool, idx );
+             idx = fd_block_map_idx_next_const( idx, ULONG_MAX, pool ) ) {
+    fd_chainer_block_t * slotv = fd_block_pool_ele( pool, idx );
     if( !best || slotv_better( slotv, best ) ) best = slotv;
   }
   return best;
@@ -102,7 +102,7 @@ slot_best( fd_chainer_t * chainer, ulong slot ) {
 
 static int
 forest_mirror_slotv( fd_forest_t *              forest,
-                     fd_chainer_slotv_t const * slotv ) {
+                     fd_chainer_block_t const * slotv ) {
   ulong slot        = slotv->slot;
   ulong parent_slot = slotv->parent_slot; /* AG_UNKNOWN_SLOT==ULONG_MAX is the forest sentinel too */
   uint  buffered    = slotv->buffered_idx;
@@ -152,14 +152,14 @@ forest_mirror_slotv( fd_forest_t *              forest,
 static ulong
 forest_mirror_chainer( fd_forest_t *  forest,
                        fd_chainer_t * chainer ) {
-  fd_chainer_slotv_t * pool = chainer->slotv_pool;
-  fd_slotv_map_t     * map  = chainer->slotv_map;
+  fd_chainer_block_t * pool = chainer->block_pool;
+  fd_block_map_t     * map  = chainer->block_map;
   ulong omitted = 0UL;
 
-  for( fd_slotv_map_iter_t it = fd_slotv_map_iter_init( map, pool );
-                               !fd_slotv_map_iter_done( it, map, pool );
-                           it = fd_slotv_map_iter_next( it, map, pool ) ) {
-    fd_chainer_slotv_t * slotv = fd_slotv_map_iter_ele( it, map, pool );
+  for( fd_block_map_iter_t it = fd_block_map_iter_init( map, pool );
+                               !fd_block_map_iter_done( it, map, pool );
+                           it = fd_block_map_iter_next( it, map, pool ) ) {
+    fd_chainer_block_t * slotv = fd_block_map_iter_ele( it, map, pool );
     if( FD_UNLIKELY( slotv->slot==chainer->root ) ) continue;      /* forest root, created by fd_forest_init */
     if( FD_UNLIKELY( slotv!=slot_best( chainer, slotv->slot ) ) ) continue; /* one version per slot */
     if( FD_UNLIKELY( forest_mirror_slotv( forest, slotv ) ) ) omitted++;
@@ -625,7 +625,7 @@ rotor_forest_fn( args_t *   args,
       ulong omitted = forest_mirror_chainer( forest, &c );
 
       printf( "\n[Chainer] root: %lu, highest repaired: %lu, slotvs: %lu",
-              c.root, c.highest_repaired, fd_slotv_pool_used( c.slotv_pool ) );
+              c.root, c.highest_repaired, fd_block_pool_used( c.block_pool ) );
       if( FD_UNLIKELY( omitted ) ) printf( " (%lu slots not shown: forest capacity %lu)", omitted, forest_blk_max );
       printf( "\n" );
       fflush( stdout ); /* fd_forest_print starts with a log line on stderr */

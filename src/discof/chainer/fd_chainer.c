@@ -29,15 +29,15 @@ fd_chainer_new( void * shmem,
   ulong fec_blk_max   = max_shreds_per_block / FD_FEC_SHRED_CNT;
   ulong fec_max       = blk_max * fec_blk_max;
   ulong fec_chain_cnt = fd_fec_map_chain_cnt_est( fec_max );
-  ulong blk_chain_cnt = fd_slotv_map_chain_cnt_est( blk_max );
+  ulong blk_chain_cnt = fd_block_map_chain_cnt_est( blk_max );
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   chainer             = FD_SCRATCH_ALLOC_APPEND( l, fd_chainer_align(),      sizeof(fd_chainer_t)                       );
   void * fec_pool     = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_pool_align(),     fd_fec_pool_footprint    ( fec_max       ) );
   void * fec_map      = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_map_align(),      fd_fec_map_footprint     ( fec_chain_cnt ) );
-  void * slotv_pool   = FD_SCRATCH_ALLOC_APPEND( l, fd_slotv_pool_align(),   fd_slotv_pool_footprint  ( blk_max       ) );
+  void * block_pool   = FD_SCRATCH_ALLOC_APPEND( l, fd_block_pool_align(),   fd_block_pool_footprint  ( blk_max       ) );
   void * fec_tbl      = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),           fec_max*sizeof(uint)                       );
-  void * slotv_map    = FD_SCRATCH_ALLOC_APPEND( l, fd_slotv_map_align(),    fd_slotv_map_footprint   ( blk_chain_cnt ) );
+  void * block_map    = FD_SCRATCH_ALLOC_APPEND( l, fd_block_map_align(),    fd_block_map_footprint   ( blk_chain_cnt ) );
   void * eager_treap  = FD_SCRATCH_ALLOC_APPEND( l, fd_rotor_treap_align(),  fd_rotor_treap_footprint ( fec_max       ) );
   void * notar_treap  = FD_SCRATCH_ALLOC_APPEND( l, fd_rotor_treap_align(),  fd_rotor_treap_footprint ( fec_max       ) );
   void * bfs          = FD_SCRATCH_ALLOC_APPEND( l, bfs_align(),             bfs_footprint            ( blk_max       ) );
@@ -49,10 +49,10 @@ fd_chainer_new( void * shmem,
   chainer->wksp_gaddr       = fd_wksp_gaddr_fast( wksp, chainer );
   chainer->fec_pool         = fd_fec_pool_join  ( fd_fec_pool_new    ( fec_pool,     fec_max             ) );
   chainer->fec_map          = fd_fec_map_join   ( fd_fec_map_new     ( fec_map,      fec_chain_cnt, seed ) );
-  chainer->slotv_pool       = fd_slotv_pool_join( fd_slotv_pool_new  ( slotv_pool,   blk_max             ) );
+  chainer->block_pool       = fd_block_pool_join( fd_block_pool_new  ( block_pool,   blk_max             ) );
   chainer->fec_tbl          = fec_tbl;
   chainer->fec_blk_max      = fec_blk_max;
-  chainer->slotv_map        = fd_slotv_map_join  ( fd_slotv_map_new   ( slotv_map,    blk_chain_cnt, seed ) );
+  chainer->block_map        = fd_block_map_join  ( fd_block_map_new   ( block_map,    blk_chain_cnt, seed ) );
   chainer->eager_treap      = fd_rotor_treap_join( fd_rotor_treap_new ( eager_treap,  fec_max             ) );
   chainer->notar_treap      = fd_rotor_treap_join( fd_rotor_treap_new ( notar_treap,  fec_max             ) );
   chainer->bfs              = bfs_join           ( bfs_new            ( bfs,          blk_max             ) );
@@ -77,50 +77,50 @@ fd_chainer_join( void * shchainer ) {
   return chainer;
 }
 
-/* slotv_iter_{init,next} iterate the versions of a slot via the
+/* block_iter_{init,next} iterate the versions of a slot via the
    MAP_MULTI chain.  Usage:
-     for( ulong i=fd_chainer_slotv_iter_init(chainer,slot); i!=ULONG_MAX; i=fd_chainer_slotv_iter_next(chainer,i) ) {
-       fd_chainer_slotv_t * slotv = fd_chainer_slotv_iter_ele( chainer, i );
+     for( ulong i=fd_chainer_block_iter_init(chainer,slot); i!=ULONG_MAX; i=fd_chainer_block_iter_next(chainer,i) ) {
+       fd_chainer_block_t * block = fd_chainer_block_iter_ele( chainer, i );
        ...
      } */
 
-/* acquire_slotv allocates, initializes, and map-inserts a fresh
+/* acquire_block allocates, initializes, and map-inserts a fresh
    (turbine, i.e. all-zero block_id) version of slot.  Callers that know
    the version's block_id (notar-fallback, parent discovery) set it after. */
 
-static fd_chainer_slotv_t *
-acquire_slotv( fd_chainer_t * chainer, ulong slot ) {
-  fd_slotv_map_t     * slotv_map  = chainer->slotv_map;
-  fd_chainer_slotv_t * slotv_pool = chainer->slotv_pool;
-  FD_TEST( fd_slotv_pool_free( slotv_pool ) );
+static fd_chainer_block_t *
+acquire_block( fd_chainer_t * chainer, ulong slot ) {
+  fd_block_map_t     * block_map  = chainer->block_map;
+  fd_chainer_block_t * block_pool = chainer->block_pool;
+  FD_TEST( fd_block_pool_free( block_pool ) );
 
-  ulong slotv_cnt = 0UL;
-  for( ulong i=fd_chainer_slotv_iter_init( chainer, slot ); i!=ULONG_MAX; i=fd_chainer_slotv_iter_next( chainer, i ) ) {
-    slotv_cnt++;
+  ulong block_cnt = 0UL;
+  for( ulong i=fd_chainer_block_iter_init( chainer, slot ); i!=ULONG_MAX; i=fd_chainer_block_iter_next( chainer, i ) ) {
+    block_cnt++;
   }
-  if( FD_UNLIKELY( slotv_cnt>=FD_CHAINER_SLOT_VER_MAX ) ) FD_LOG_CRIT(( "slots stored exceeds protocol limits, %lu versions of slot %lu already stored", slotv_cnt, slot ));
+  if( FD_UNLIKELY( block_cnt>=FD_CHAINER_SLOT_VER_MAX ) ) FD_LOG_CRIT(( "slots stored exceeds protocol limits, %lu versions of slot %lu already stored", block_cnt, slot ));
 
-  fd_chainer_slotv_t * slotv = fd_slotv_pool_ele_acquire( slotv_pool );
-  slotv->slot              = slot;
-  slotv->turbine           = 0;
-  slotv->final             = 0;
-  slotv->parent_slot       = AG_UNKNOWN_SLOT;
-  slotv->parent_slot_batch = UINT_MAX;
-  slotv->complete_idx      = UINT_MAX;
-  slotv->buffered_idx      = UINT_MAX;
-  slotv->buffered_fec_idx  = UINT_MAX;
-  slotv->delivered_idx     = UINT_MAX;
-  slotv->connected         = 0;
+  fd_chainer_block_t * block = fd_block_pool_ele_acquire( block_pool );
+  block->slot              = slot;
+  block->turbine           = 0;
+  block->final             = 0;
+  block->parent_slot       = AG_UNKNOWN_SLOT;
+  block->parent_slot_batch = UINT_MAX;
+  block->complete_idx      = UINT_MAX;
+  block->buffered_idx      = UINT_MAX;
+  block->buffered_fec_idx  = UINT_MAX;
+  block->delivered_idx     = UINT_MAX;
+  block->connected         = 0;
 
-  memset( &slotv->metrics, 0, sizeof(slotv->metrics) );
-  slotv->metrics.last_completed_fec_idx = UINT_MAX;
+  memset( &block->metrics, 0, sizeof(block->metrics) );
+  block->metrics.last_completed_fec_idx = UINT_MAX;
 
-  fd_memset( &slotv->block_id,        0, sizeof(fd_hash_t) );
-  fd_memset( &slotv->parent_block_id, 0, sizeof(fd_hash_t) );
-  fd_memset( fd_chainer_slotv_fecs( chainer, slotv ), 0xff, chainer->fec_blk_max*sizeof(uint) ); /* UINT_MAX pool_idx sentinel */
+  fd_memset( &block->block_id,        0, sizeof(fd_hash_t) );
+  fd_memset( &block->parent_block_id, 0, sizeof(fd_hash_t) );
+  fd_memset( fd_chainer_block_fecs( chainer, block ), 0xff, chainer->fec_blk_max*sizeof(uint) ); /* UINT_MAX pool_idx sentinel */
 
-  fd_slotv_map_ele_insert( slotv_map, slotv, slotv_pool );
-  return slotv;
+  fd_block_map_ele_insert( block_map, block, block_pool );
+  return block;
 }
 
 /* orphans_resolve calls orphan_remove on every orphan whose ancestry is now settled (parent is in map and all) */
@@ -129,29 +129,29 @@ void
 fd_chainer_init( fd_chainer_t *    chainer,
                  ulong             slot,
                  fd_hash_t const * block_id ) {
-  fd_chainer_slotv_t * slotv = acquire_slotv( chainer, slot );
-  slotv->parent_slot       = slot;
-  slotv->complete_idx      = 0;
-  slotv->buffered_idx      = 0;
-  slotv->connected         = 1;
-  slotv->delivered_idx     = 0; /* must equal complete_idx at init */
-  slotv->buffered_fec_idx  = UINT_MAX; /* no complete FEC set buffered; must
+  fd_chainer_block_t * block = acquire_block( chainer, slot );
+  block->parent_slot       = slot;
+  block->complete_idx      = 0;
+  block->buffered_idx      = 0;
+  block->connected         = 1;
+  block->delivered_idx     = 0; /* must equal complete_idx at init */
+  block->buffered_fec_idx  = UINT_MAX; /* no complete FEC set buffered; must
                                           be one-below a FD_FEC_SHRED_CNT
                                           multiple, which UINT_MAX satisfies */
-  slotv->block_id          = *block_id;
+  block->block_id          = *block_id;
 
   chainer->root             = slot;
   chainer->highest_repaired = slot;
 }
 
-/* slotv_fec returns the FEC that slotv owns at fec_set_idx, or NULL if
+/* block_fec returns the FEC that block owns at fec_set_idx, or NULL if
    it holds none there (or fec_set_idx is beyond max_shreds_per_block). */
 
 static fd_chainer_fec_t *
-slotv_fec( fd_chainer_t * chainer, fd_chainer_slotv_t const * slotv, uint fec_set_idx ) {
+block_fec( fd_chainer_t * chainer, fd_chainer_block_t const * block, uint fec_set_idx ) {
   ulong k = fec_set_idx / FD_FEC_SHRED_CNT;
   if( FD_UNLIKELY( k>=chainer->fec_blk_max ) ) return NULL;
-  uint idx = fd_chainer_slotv_fecs( chainer, slotv )[ k ];
+  uint idx = fd_chainer_block_fecs( chainer, block )[ k ];
   if( FD_UNLIKELY( idx==UINT_MAX ) ) return NULL;
   return fd_fec_pool_ele( chainer->fec_pool, (ulong)idx );
 }
@@ -161,9 +161,9 @@ fd_chainer_fec_query( fd_chainer_t *    chainer,
                       ulong             slot,
                       uint              fec_set_idx,
                       fd_hash_t const * block_id ) {
-  fd_chainer_slotv_t * slotv = fd_chainer_slot_version_query( chainer, slot, block_id );
-  if( FD_UNLIKELY( !slotv ) ) return NULL;
-  return slotv_fec( chainer, slotv, fec_set_idx );
+  fd_chainer_block_t * block = fd_chainer_slot_version_query( chainer, slot, block_id );
+  if( FD_UNLIKELY( !block ) ) return NULL;
+  return block_fec( chainer, block, fec_set_idx );
 }
 
 /* fec_query returns the FEC whose merkle_root matches mr, or NULL. */
@@ -180,16 +180,16 @@ fec_query( fd_chainer_t * chainer, fd_hash_t const * mr ) {
    version keeps its own worklist after it derives its block id. */
 
 static inline fd_rotor_treap_t *
-fec_treap( fd_chainer_t * chainer, fd_chainer_slotv_t const * slotv ) {
-  return slotv->turbine ? chainer->eager_treap : chainer->notar_treap;
+fec_treap( fd_chainer_t * chainer, fd_chainer_block_t const * block ) {
+  return block->turbine ? chainer->eager_treap : chainer->notar_treap;
 }
 
-/* fec_treap_remove takes fec off slotv's worklist, if it is on one. */
+/* fec_treap_remove takes fec off block's worklist, if it is on one. */
 
 static inline void
-fec_treap_remove( fd_chainer_t * chainer, fd_chainer_slotv_t const * slotv, fd_chainer_fec_t * fec ) {
+fec_treap_remove( fd_chainer_t * chainer, fd_chainer_block_t const * block, fd_chainer_fec_t * fec ) {
   if( FD_LIKELY( !fec->treap ) ) return;
-  fd_rotor_treap_ele_remove( fec_treap( chainer, slotv ), fec, chainer->fec_pool );
+  fd_rotor_treap_ele_remove( fec_treap( chainer, block ), fec, chainer->fec_pool );
   fec->treap = 0;
 }
 
@@ -201,7 +201,7 @@ mr_eq( fd_hash_t const * a, fd_hash_t const * b ) {
 }
 
 static fd_chainer_fec_t *
-fec_insert( fd_chainer_t * chainer, fd_chainer_slotv_t * slotv, uint fec_set_idx ) {
+fec_insert( fd_chainer_t * chainer, fd_chainer_block_t * block, uint fec_set_idx ) {
   FD_TEST( fd_fec_pool_free( chainer->fec_pool ) );
 
   fd_chainer_fec_t * fec = fd_fec_pool_ele_acquire( chainer->fec_pool );
@@ -215,30 +215,30 @@ fec_insert( fd_chainer_t * chainer, fd_chainer_slotv_t * slotv, uint fec_set_idx
   uint prio = fec->prio;
   memset( fec, 0, sizeof(fd_chainer_fec_t) );
   fec->prio        = prio;
-  fec->slot        = (uint)slotv->slot;
+  fec->slot        = (uint)block->slot;
   fec->fec_set_idx = fec_set_idx & ((1U<<26)-1U);
   fec->next_req_ts = 0;
 
   uint k = fec_set_idx / FD_FEC_SHRED_CNT;
-  fd_chainer_slotv_fecs( chainer, slotv )[ k ] = (uint)fd_fec_pool_idx( chainer->fec_pool, fec );
+  fd_chainer_block_fecs( chainer, block )[ k ] = (uint)fd_fec_pool_idx( chainer->fec_pool, fec );
 
   /* The entry joins its version's worklist straight away: its root is
      still zero, so it stands for "this set exists and I do not even
      know its root yet".  It is keyed into fd_fec_map only once a shred
      or a getFecSetRoot response fills the root in. */
-  fd_rotor_treap_ele_insert( fec_treap( chainer, slotv ), fec, chainer->fec_pool );
+  fd_rotor_treap_ele_insert( fec_treap( chainer, block ), fec, chainer->fec_pool );
   fec->treap = 1;
   return fec;
 }
 
-fd_chainer_slotv_t *
+fd_chainer_block_t *
 fd_chainer_fec_owner( fd_chainer_t *           chainer,
                       fd_chainer_fec_t const * fec ) {
   uint idx = (uint)fd_fec_pool_idx( chainer->fec_pool, fec );
   uint k   = fec->fec_set_idx / (uint)FD_FEC_SHRED_CNT;
-  for( ulong i=fd_chainer_slotv_iter_init( chainer, (ulong)fec->slot ); i!=ULONG_MAX; i=fd_chainer_slotv_iter_next( chainer, i ) ) {
-    fd_chainer_slotv_t * slotv = fd_chainer_slotv_iter_ele( chainer, i );
-    if( FD_LIKELY( fd_chainer_slotv_fecs( chainer, slotv )[ k ]==idx ) ) return slotv;
+  for( ulong i=fd_chainer_block_iter_init( chainer, (ulong)fec->slot ); i!=ULONG_MAX; i=fd_chainer_block_iter_next( chainer, i ) ) {
+    fd_chainer_block_t * block = fd_chainer_block_iter_ele( chainer, i );
+    if( FD_LIKELY( fd_chainer_block_fecs( chainer, block )[ k ]==idx ) ) return block;
   }
   return NULL;
 }
@@ -261,52 +261,52 @@ fd_chainer_fec_data_idxs( fd_chainer_t *           chainer,
 
 int
 fd_chainer_shred_test( fd_chainer_t *             chainer,
-                       fd_chainer_slotv_t const * slotv,
+                       fd_chainer_block_t const * block,
                        uint                       shred_idx ) {
-  fd_chainer_fec_t * fec = slotv_fec( chainer, slotv, shred_idx & ~( (uint)FD_FEC_SHRED_CNT - 1U ) );
+  fd_chainer_fec_t * fec = block_fec( chainer, block, shred_idx & ~( (uint)FD_FEC_SHRED_CNT - 1U ) );
   if( FD_UNLIKELY( !fec ) ) return 0;
   return !!( fd_chainer_fec_data_idxs( chainer, fec ) & ( 1U << ( shred_idx & ( (uint)FD_FEC_SHRED_CNT - 1U ) ) ) );
 }
 
-/* slotv_abandon removes a turbine slotv's current repair work. */
+/* block_abandon removes a turbine block's current repair work. */
 
 static void
-slotv_abandon( fd_chainer_t * chainer, fd_chainer_slotv_t * slotv ) {
-  FD_TEST( slotv->turbine );
+block_abandon( fd_chainer_t * chainer, fd_chainer_block_t * block ) {
+  FD_TEST( block->turbine );
 
   for( uint i=0U; i<chainer->fec_blk_max; i++ ) {
-    uint idx = fd_chainer_slotv_fecs( chainer, slotv )[ i ];
+    uint idx = fd_chainer_block_fecs( chainer, block )[ i ];
     if( FD_UNLIKELY( idx!=UINT_MAX ) ) {
       fd_chainer_fec_t * fec = fd_fec_pool_ele( chainer->fec_pool, (ulong)idx );
-      fec_treap_remove( chainer, slotv, fec ); /* completed sets already left the worklist */
+      fec_treap_remove( chainer, block, fec ); /* completed sets already left the worklist */
     }
   }
 }
 
 static int
 slot_has_notar( fd_chainer_t * chainer, ulong slot ) {
-  for( ulong i=fd_chainer_slotv_iter_init( chainer, slot ); i!=ULONG_MAX; i=fd_chainer_slotv_iter_next( chainer, i ) ) {
-    fd_chainer_slotv_t * slotv = fd_chainer_slotv_iter_ele( chainer, i );
-    if( FD_UNLIKELY( !slotv->turbine ) ) return 1;
+  for( ulong i=fd_chainer_block_iter_init( chainer, slot ); i!=ULONG_MAX; i=fd_chainer_block_iter_next( chainer, i ) ) {
+    fd_chainer_block_t * block = fd_chainer_block_iter_ele( chainer, i );
+    if( FD_UNLIKELY( !block->turbine ) ) return 1;
   }
   return 0;
 }
 
-/* finalize_block_id computes the slotv's double-merkle block_id and
-   writes it to slotv->block_id.  Returns 1 on success, 0 on failure. */
+/* finalize_block_id computes the block's double-merkle block_id and
+   writes it to block->block_id.  Returns 1 on success, 0 on failure. */
 
 static int
-finalize_block_id( fd_chainer_t * chainer, fd_chainer_slotv_t * slotv ) {
-  if( FD_UNLIKELY( slotv->complete_idx==UINT_MAX ) )                 return 0;
-  if( FD_UNLIKELY( slotv->parent_slot==AG_UNKNOWN_SLOT ) )           return 0;
-  if( FD_UNLIKELY( fd_hash_check_zero( &slotv->parent_block_id ) ) ) return 0;
+finalize_block_id( fd_chainer_t * chainer, fd_chainer_block_t * block ) {
+  if( FD_UNLIKELY( block->complete_idx==UINT_MAX ) )                 return 0;
+  if( FD_UNLIKELY( block->parent_slot==AG_UNKNOWN_SLOT ) )           return 0;
+  if( FD_UNLIKELY( fd_hash_check_zero( &block->parent_block_id ) ) ) return 0;
 
-  uint fec_set_cnt = ( slotv->complete_idx + 1U ) / FD_FEC_SHRED_CNT;
+  uint fec_set_cnt = ( block->complete_idx + 1U ) / FD_FEC_SHRED_CNT;
   uchar tree_mem[ FD_BMTREE_COMMIT_FOOTPRINT( 0UL ) ] __attribute__((aligned(FD_BMTREE_COMMIT_ALIGN)));
   fd_bmtree_commit_t * tree = fd_bmtree_commit_init( tree_mem, 20UL, FD_BMTREE_LONG_PREFIX_SZ, 0UL );
 
   for( uint i=0U; i<fec_set_cnt; i++ ) {
-    fd_chainer_fec_t * fec = slotv_fec( chainer, slotv, i*FD_FEC_SHRED_CNT );
+    fd_chainer_fec_t * fec = block_fec( chainer, block, i*FD_FEC_SHRED_CNT );
     if( FD_UNLIKELY( !fec ) ) return 0;
 
     fd_bmtree_node_t leaf[1];
@@ -318,14 +318,14 @@ finalize_block_id( fd_chainer_t * chainer, fd_chainer_slotv_t * slotv ) {
   fd_bmtree_node_t parent_info[1];
   fd_sha256_t sha[1];
   fd_sha256_init  ( sha );
-  fd_sha256_append( sha, &slotv->parent_slot,       sizeof(ulong)     );
-  fd_sha256_append( sha, slotv->parent_block_id.uc, sizeof(fd_hash_t) );
+  fd_sha256_append( sha, &block->parent_slot,       sizeof(ulong)     );
+  fd_sha256_append( sha, block->parent_block_id.uc, sizeof(fd_hash_t) );
   fd_sha256_append( sha, &fec_set_cnt,              sizeof(uint)      );
   fd_sha256_fini  ( sha, parent_info->hash );
   fd_bmtree_commit_append( tree, parent_info, 1UL );
 
   uchar * root = fd_bmtree_commit_fini( tree );
-  memcpy( slotv->block_id.uc, root, sizeof(fd_hash_t) );
+  memcpy( block->block_id.uc, root, sizeof(fd_hash_t) );
   return 1;
 }
 
@@ -349,23 +349,23 @@ fd_chainer_shred_insert( fd_chainer_t *        chainer,
   if( FD_LIKELY( fec ) ) {
     if( FD_UNLIKELY( (ulong)fec->slot!=slot || fec->fec_set_idx!=fec_set_idx ) ) return;
   } else {
-    fd_chainer_slotv_t * turbine;
+    fd_chainer_block_t * turbine;
     if( FD_UNLIKELY( !fd_chainer_slot_query( chainer, slot ) ) ) {
-      turbine = acquire_slotv( chainer, slot );
+      turbine = acquire_block( chainer, slot );
       turbine->turbine = 1;
     } else {
-      turbine = fd_chainer_turbine_slotv_query( chainer, slot );
+      turbine = fd_chainer_turbine_block_query( chainer, slot );
       if( FD_UNLIKELY( !turbine || !fd_hash_check_zero( &turbine->block_id ) || slot_has_notar( chainer, slot ) ) ) return;
     }
 
-    fec = slotv_fec( chainer, turbine, fec_set_idx );
+    fec = block_fec( chainer, turbine, fec_set_idx );
     if( FD_UNLIKELY( fec && !fd_hash_check_zero( &fec->merkle_root ) ) ) return; /* conflicting root */
 
     /* A shred this far in proves the earlier sets exist. */
     for( uint i=0U; i<=k; i++ ) {
-      if( FD_UNLIKELY( fd_chainer_slotv_fecs( chainer, turbine )[ i ]==UINT_MAX ) ) fec_insert( chainer, turbine, i*(uint)FD_FEC_SHRED_CNT );
+      if( FD_UNLIKELY( fd_chainer_block_fecs( chainer, turbine )[ i ]==UINT_MAX ) ) fec_insert( chainer, turbine, i*(uint)FD_FEC_SHRED_CNT );
     }
-    fec = slotv_fec( chainer, turbine, fec_set_idx );
+    fec = block_fec( chainer, turbine, fec_set_idx );
     fec->merkle_root = *mr;
     fec->root = 1;
     fd_fec_map_ele_insert( chainer->fec_map, fec, chainer->fec_pool );
@@ -378,11 +378,11 @@ fd_chainer_shred_insert( fd_chainer_t *        chainer,
   /* Update every version holding this root at this position.  Entries
      are matched by root. */
 
-  for( ulong _i =fd_chainer_slotv_iter_init( chainer, slot );
+  for( ulong _i =fd_chainer_block_iter_init( chainer, slot );
              _i!=ULONG_MAX;
-             _i =fd_chainer_slotv_iter_next( chainer, _i ) ) {
-    fd_chainer_slotv_t * slotv   = fd_chainer_slotv_iter_ele( chainer, _i );
-    fd_chainer_fec_t *   fec_cpy = slotv_fec( chainer, slotv, fec_set_idx );
+             _i =fd_chainer_block_iter_next( chainer, _i ) ) {
+    fd_chainer_block_t * block   = fd_chainer_block_iter_ele( chainer, _i );
+    fd_chainer_fec_t *   fec_cpy = block_fec( chainer, block, fec_set_idx );
     if( FD_UNLIKELY( !fec_cpy || !mr_eq( &fec_cpy->merkle_root, mr ) ) ) continue;
 
     if( FD_UNLIKELY( slot_complete ) ) fec_cpy->slot_complete = 1;
@@ -395,42 +395,42 @@ fd_chainer_shred_insert( fd_chainer_t *        chainer,
 
     /* update reception statistics */
     if( FD_LIKELY( new_shred ) ) {
-      slotv->metrics.turbine_cnt   += ( src==FD_CHAINER_SRC_TURBINE   );
-      slotv->metrics.repair_cnt    += ( src==FD_CHAINER_SRC_REPAIR    );
-      slotv->metrics.recovered_cnt += ( src==FD_CHAINER_SRC_RECOVERED );
+      block->metrics.turbine_cnt   += ( src==FD_CHAINER_SRC_TURBINE   );
+      block->metrics.repair_cnt    += ( src==FD_CHAINER_SRC_REPAIR    );
+      block->metrics.recovered_cnt += ( src==FD_CHAINER_SRC_RECOVERED );
     }
 
     /* A version created late adopts FECs whose shreds predate it. */
-    if( FD_UNLIKELY( rx_ts && ( !slotv->metrics.first_shred_ts || rx_ts<slotv->metrics.first_shred_ts ) ) ) slotv->metrics.first_shred_ts = rx_ts;
+    if( FD_UNLIKELY( rx_ts && ( !block->metrics.first_shred_ts || rx_ts<block->metrics.first_shred_ts ) ) ) block->metrics.first_shred_ts = rx_ts;
 
     /* update slot-level shred indexing */
-    if( FD_UNLIKELY( slot_complete ) ) slotv->complete_idx = shred_idx;
-    while( slotv->buffered_idx + 1 < shred_max && fd_chainer_shred_test( chainer, slotv, slotv->buffered_idx + 1U ) ) {
-      slotv->buffered_idx++;
+    if( FD_UNLIKELY( slot_complete ) ) block->complete_idx = shred_idx;
+    while( block->buffered_idx + 1 < shred_max && fd_chainer_shred_test( chainer, block, block->buffered_idx + 1U ) ) {
+      block->buffered_idx++;
     }
 
     /* If equivocating, buffered_idx needs to be clamped to complete_idx */
-    if( FD_UNLIKELY( slotv->buffered_idx != UINT_MAX && slotv->complete_idx != UINT_MAX && slotv->buffered_idx > slotv->complete_idx ) ) slotv->buffered_idx = slotv->complete_idx;
+    if( FD_UNLIKELY( block->buffered_idx != UINT_MAX && block->complete_idx != UINT_MAX && block->buffered_idx > block->complete_idx ) ) block->buffered_idx = block->complete_idx;
 
     /* Stamped once, when the version first becomes contiguous */
-    if( FD_UNLIKELY( rx_ts && !slotv->metrics.last_shred_ts && slotv->complete_idx!=UINT_MAX && slotv->buffered_idx==slotv->complete_idx ) ) {
-      slotv->metrics.last_shred_ts = rx_ts;
-      FD_LOG_NOTICE(( "slot %lu complete in %ld ms. complete_idx %u, turbine %u repair %u recovered %u code %u", slot, ( rx_ts - slotv->metrics.first_shred_ts )/1000000L, slotv->complete_idx, slotv->metrics.turbine_cnt, slotv->metrics.repair_cnt, slotv->metrics.recovered_cnt, slotv->metrics.parity_cnt ));
+    if( FD_UNLIKELY( rx_ts && !block->metrics.last_shred_ts && block->complete_idx!=UINT_MAX && block->buffered_idx==block->complete_idx ) ) {
+      block->metrics.last_shred_ts = rx_ts;
+      FD_LOG_NOTICE(( "slot %lu complete in %ld ms. complete_idx %u, turbine %u repair %u recovered %u code %u", slot, ( rx_ts - block->metrics.first_shred_ts )/1000000L, block->complete_idx, block->metrics.turbine_cnt, block->metrics.repair_cnt, block->metrics.recovered_cnt, block->metrics.parity_cnt ));
     }
 
     /* parent_slot_batch tracks which batch the information came from
        so a later UpdateParent supersedes the header (it may only move
        forward).  UINT_MAX means "nothing known yet", so it is not a
        batch index to compare against. */
-    if( FD_UNLIKELY( parent_slot!=AG_UNKNOWN_SLOT && ( slotv->parent_slot_batch==UINT_MAX || shred_idx>slotv->parent_slot_batch ) ) ) {
+    if( FD_UNLIKELY( parent_slot!=AG_UNKNOWN_SLOT && ( block->parent_slot_batch==UINT_MAX || shred_idx>block->parent_slot_batch ) ) ) {
       FD_TEST( parent_block_id ); /* TODO handholding check */
 
-      slotv->parent_slot       = parent_slot;
-      slotv->parent_slot_batch = shred_idx;
-      slotv->parent_block_id   = *parent_block_id;
+      block->parent_slot       = parent_slot;
+      block->parent_slot_batch = shred_idx;
+      block->parent_block_id   = *parent_block_id;
 
-      fd_chainer_slotv_t * parent = fd_chainer_slot_version_query( chainer, parent_slot, parent_block_id );
-      if( FD_LIKELY( parent && parent->connected ) ) slotv->connected = 1;
+      fd_chainer_block_t * parent = fd_chainer_slot_version_query( chainer, parent_slot, parent_block_id );
+      if( FD_LIKELY( parent && parent->connected ) ) block->connected = 1;
       if( FD_UNLIKELY( !parent && parent_slot>chainer->root && !fd_hash_check_zero( parent_block_id ) ) ) {
         /* currently needed for any level of efficient repair - create ctx for the parent */
         fd_chainer_verified_block_insert( chainer, parent_slot, *parent_block_id );
@@ -454,15 +454,15 @@ fd_chainer_code_shred_insert( fd_chainer_t *    chainer,
   fd_chainer_fec_t * fec = fec_query( chainer, mr );
   if( FD_UNLIKELY( !fec ) ) return;
 
-  for( ulong i =fd_chainer_slotv_iter_init( chainer, slot );
+  for( ulong i =fd_chainer_block_iter_init( chainer, slot );
              i!=ULONG_MAX;
-             i =fd_chainer_slotv_iter_next( chainer, i ) ) {
-    fd_chainer_slotv_t * slotv = fd_chainer_slotv_iter_ele( chainer, i );
-    fd_chainer_fec_t * shared = slotv_fec( chainer, slotv, fec_set_idx );
+             i =fd_chainer_block_iter_next( chainer, i ) ) {
+    fd_chainer_block_t * block = fd_chainer_block_iter_ele( chainer, i );
+    fd_chainer_fec_t * shared = block_fec( chainer, block, fec_set_idx );
     if( FD_UNLIKELY( !shared || !mr_eq( &shared->merkle_root, mr ) ) ) continue;
-    slotv->metrics.parity_cnt++;
-    slotv->metrics.turbine_cnt++;
-    if( FD_UNLIKELY( rx_ts && ( !slotv->metrics.first_shred_ts || rx_ts<slotv->metrics.first_shred_ts ) ) ) slotv->metrics.first_shred_ts = rx_ts;
+    block->metrics.parity_cnt++;
+    block->metrics.turbine_cnt++;
+    if( FD_UNLIKELY( rx_ts && ( !block->metrics.first_shred_ts || rx_ts<block->metrics.first_shred_ts ) ) ) block->metrics.first_shred_ts = rx_ts;
   }
 }
 
@@ -471,60 +471,60 @@ fd_chainer_code_shred_insert( fd_chainer_t *    chainer,
 
 static void
 chainer_deliver( fd_chainer_t *       chainer,
-                 fd_chainer_slotv_t * slotv,
+                 fd_chainer_block_t * block,
                  fd_chainer_fec_t *   fec ) {
   out_ele_t * out_queue = chainer->out_queue;
   if( FD_UNLIKELY( out_queue_full( out_queue ) ) ) FD_LOG_CRIT(( "chainer out_queue full" ));
-  out_queue_push_tail( out_queue, (out_ele_t){ .slotv_idx = (uint)fd_slotv_pool_idx( chainer->slotv_pool, slotv ),
+  out_queue_push_tail( out_queue, (out_ele_t){ .block_idx = (uint)fd_block_pool_idx( chainer->block_pool, block ),
                                                .fec_idx   = (uint)fd_fec_pool_idx  ( chainer->fec_pool,   fec   ) } );
 }
 
 /* chainer_advance delivers as many contiguous completed FEC sets as
-   possible from `root` slotv, then cascades: when an slotv's
-   slot_complete FEC is delivered, every child slotv (parent_block_id ==
-   this slotv's block_id) becomes connected and is drained in turn. */
+   possible from `root` block, then cascades: when a block's
+   slot_complete FEC is delivered, every child block (parent_block_id ==
+   this block's block_id) becomes connected and is drained in turn. */
 
 static void
-chainer_advance( fd_chainer_t * chainer, fd_chainer_slotv_t * root ) {
-  fd_slotv_map_t     * slotv_map  = chainer->slotv_map;
-  fd_chainer_slotv_t * slotv_pool = chainer->slotv_pool;
+chainer_advance( fd_chainer_t * chainer, fd_chainer_block_t * root ) {
+  fd_block_map_t     * block_map  = chainer->block_map;
+  fd_chainer_block_t * block_pool = chainer->block_pool;
   ulong              * bfs        = chainer->bfs;
 
-  bfs_push_tail( bfs, fd_slotv_pool_idx( slotv_pool, root ) );
+  bfs_push_tail( bfs, fd_block_pool_idx( block_pool, root ) );
 
   while( FD_LIKELY( !bfs_empty( bfs ) ) ) {
-    fd_chainer_slotv_t * slotv = fd_slotv_pool_ele( slotv_pool, bfs_pop_head( bfs ) );
-    if( FD_UNLIKELY( !slotv->connected ) ) continue;
-    if( FD_UNLIKELY( slotv->turbine && fd_hash_check_zero( &slotv->block_id ) && slot_has_notar( chainer, slotv->slot ) ) ) continue;
+    fd_chainer_block_t * block = fd_block_pool_ele( block_pool, bfs_pop_head( bfs ) );
+    if( FD_UNLIKELY( !block->connected ) ) continue;
+    if( FD_UNLIKELY( block->turbine && fd_hash_check_zero( &block->block_id ) && slot_has_notar( chainer, block->slot ) ) ) continue;
 
-    fd_chainer_slotv_t * parent = fd_chainer_slot_version_query( chainer, slotv->parent_slot, &slotv->parent_block_id );
+    fd_chainer_block_t * parent = fd_chainer_slot_version_query( chainer, block->parent_slot, &block->parent_block_id );
     if( FD_UNLIKELY( !parent || parent->complete_idx==UINT_MAX || parent->delivered_idx!=parent->complete_idx ) ) continue;
 
     for(;;) {
-      uint next = slotv->delivered_idx==UINT_MAX ? 0U
-                                                 : slotv->delivered_idx + 1;
-      fd_chainer_fec_t * fec = slotv_fec( chainer, slotv, next );
+      uint next = block->delivered_idx==UINT_MAX ? 0U
+                                                 : block->delivered_idx + 1;
+      fd_chainer_fec_t * fec = block_fec( chainer, block, next );
       if( FD_LIKELY( !fec || !fec->complete ) ) break; /* next FEC not completed yet */
 
-      chainer_deliver( chainer, slotv, fec );
-      slotv->delivered_idx = next + (FD_FEC_SHRED_CNT - 1);
+      chainer_deliver( chainer, block, fec );
+      block->delivered_idx = next + (FD_FEC_SHRED_CNT - 1);
 
       if( FD_UNLIKELY( fec->slot_complete ) ) {
-        fd_chainer_fec_t * f0 = slotv_fec( chainer, slotv, 0U );
-        fec_treap_remove( chainer, slotv, f0 ); /* remove sentinel from worklist */
+        fd_chainer_fec_t * f0 = block_fec( chainer, block, 0U );
+        fec_treap_remove( chainer, block, f0 ); /* remove sentinel from worklist */
 
-        chainer->highest_repaired = fd_ulong_max( chainer->highest_repaired, slotv->slot );
-        FD_TEST( !fd_hash_check_zero( &slotv->block_id ) );
+        chainer->highest_repaired = fd_ulong_max( chainer->highest_repaired, block->slot );
+        FD_TEST( !fd_hash_check_zero( &block->block_id ) );
 
         /* Scan for children. TODO could index children by
            parent_block_id; O(n) scan for now. */
-        for( fd_slotv_map_iter_t it = fd_slotv_map_iter_init( slotv_map, slotv_pool );
-                                     !fd_slotv_map_iter_done( it, slotv_map, slotv_pool );
-                                 it = fd_slotv_map_iter_next( it, slotv_map, slotv_pool ) ) {
-          fd_chainer_slotv_t * child = fd_slotv_map_iter_ele( it, slotv_map, slotv_pool );
-          if( FD_UNLIKELY( fd_hash_eq( &child->parent_block_id, &slotv->block_id ) ) ) {
+        for( fd_block_map_iter_t it = fd_block_map_iter_init( block_map, block_pool );
+                                     !fd_block_map_iter_done( it, block_map, block_pool );
+                                 it = fd_block_map_iter_next( it, block_map, block_pool ) ) {
+          fd_chainer_block_t * child = fd_block_map_iter_ele( it, block_map, block_pool );
+          if( FD_UNLIKELY( fd_hash_eq( &child->parent_block_id, &block->block_id ) ) ) {
             child->connected = 1;
-            bfs_push_tail( bfs, fd_slotv_pool_idx( slotv_pool, child ) );
+            bfs_push_tail( bfs, fd_block_pool_idx( block_pool, child ) );
           }
         }
         break;
@@ -556,9 +556,9 @@ fd_chainer_fec_complete( fd_chainer_t * chainer,
   /* Entries are private per version, so completing this set means
      completing every version's own entry that carries the root. */
 
-  for( ulong _i=fd_chainer_slotv_iter_init( chainer, slot ); _i!=ULONG_MAX; _i=fd_chainer_slotv_iter_next( chainer, _i ) ) {
-    fd_chainer_slotv_t * slotv = fd_chainer_slotv_iter_ele( chainer, _i );
-    fd_chainer_fec_t * fec = slotv_fec( chainer, slotv, fec_set_idx );
+  for( ulong _i=fd_chainer_block_iter_init( chainer, slot ); _i!=ULONG_MAX; _i=fd_chainer_block_iter_next( chainer, _i ) ) {
+    fd_chainer_block_t * block = fd_chainer_block_iter_ele( chainer, _i );
+    fd_chainer_fec_t * fec = block_fec( chainer, block, fec_set_idx );
     if( FD_UNLIKELY( !fec || !mr_eq( &fec->merkle_root, mr ) ) ) continue;
 
     fec->merkle_root = *mr; /* upgrade a 20-byte prefix to the full root */
@@ -566,42 +566,42 @@ fd_chainer_fec_complete( fd_chainer_t * chainer,
     if( FD_UNLIKELY( slot_complete ) ) fec->slot_complete = 1;
     if( FD_UNLIKELY( data_complete ) ) fec->data_complete = 1;
     if( FD_UNLIKELY( is_leader ) )     fec->is_leader     = 1;
-    if( FD_LIKELY  ( fec_set_idx != 0U ) ) fec_treap_remove( chainer, slotv, fec ); /* nothing left to repair here */
+    if( FD_LIKELY  ( fec_set_idx != 0U ) ) fec_treap_remove( chainer, block, fec ); /* nothing left to repair here */
 
-    slotv->metrics.recovered_cnt += recovered_cnt;
-    if( FD_UNLIKELY( rx_ts && ( !slotv->metrics.first_shred_ts || rx_ts<slotv->metrics.first_shred_ts ) ) ) slotv->metrics.first_shred_ts = rx_ts;
+    block->metrics.recovered_cnt += recovered_cnt;
+    if( FD_UNLIKELY( rx_ts && ( !block->metrics.first_shred_ts || rx_ts<block->metrics.first_shred_ts ) ) ) block->metrics.first_shred_ts = rx_ts;
 
-    if( FD_UNLIKELY( slot_complete ) ) slotv->complete_idx = fec_set_idx + (uint)FD_FEC_SHRED_CNT - 1U;
+    if( FD_UNLIKELY( slot_complete ) ) block->complete_idx = fec_set_idx + (uint)FD_FEC_SHRED_CNT - 1U;
     uint shred_max = (uint)( chainer->fec_blk_max*FD_FEC_SHRED_CNT );
-    while( slotv->buffered_idx+1U<shred_max && fd_chainer_shred_test( chainer, slotv, slotv->buffered_idx+1U ) ) slotv->buffered_idx++;
-    if( FD_UNLIKELY( slotv->complete_idx!=UINT_MAX && slotv->buffered_idx!=UINT_MAX && slotv->buffered_idx>slotv->complete_idx ) ) slotv->buffered_idx = slotv->complete_idx;
+    while( block->buffered_idx+1U<shred_max && fd_chainer_shred_test( chainer, block, block->buffered_idx+1U ) ) block->buffered_idx++;
+    if( FD_UNLIKELY( block->complete_idx!=UINT_MAX && block->buffered_idx!=UINT_MAX && block->buffered_idx>block->complete_idx ) ) block->buffered_idx = block->complete_idx;
 
     /* Stamped once, when the version first becomes contiguous */
-    if( FD_UNLIKELY( rx_ts && !slotv->metrics.last_shred_ts && slotv->complete_idx!=UINT_MAX && slotv->buffered_idx==slotv->complete_idx ) ) {
-      slotv->metrics.last_shred_ts = rx_ts;
-      FD_LOG_INFO(( "slot %lu complete in %ld ms. complete_idx %u, turbine %u repair %u recovered %u code %u", slot, ( rx_ts - slotv->metrics.first_shred_ts )/1000000L, slotv->complete_idx, slotv->metrics.turbine_cnt, slotv->metrics.repair_cnt, slotv->metrics.recovered_cnt, slotv->metrics.parity_cnt ));
+    if( FD_UNLIKELY( rx_ts && !block->metrics.last_shred_ts && block->complete_idx!=UINT_MAX && block->buffered_idx==block->complete_idx ) ) {
+      block->metrics.last_shred_ts = rx_ts;
+      FD_LOG_INFO(( "slot %lu complete in %ld ms. complete_idx %u, turbine %u repair %u recovered %u code %u", slot, ( rx_ts - block->metrics.first_shred_ts )/1000000L, block->complete_idx, block->metrics.turbine_cnt, block->metrics.repair_cnt, block->metrics.recovered_cnt, block->metrics.parity_cnt ));
     }
 
     /* An abandoned version keeps its FEC state accurate -- the shreds
        are the same shreds -- but never advances or delivers. */
-    if( FD_UNLIKELY( slotv->turbine && fd_hash_check_zero( &slotv->block_id ) && slot_has_notar( chainer, slotv->slot ) ) ) continue;
+    if( FD_UNLIKELY( block->turbine && fd_hash_check_zero( &block->block_id ) && slot_has_notar( chainer, block->slot ) ) ) continue;
 
-    slotv->metrics.last_completed_fec_idx = fec_set_idx;
+    block->metrics.last_completed_fec_idx = fec_set_idx;
 
     for(;;) {
-      fd_chainer_fec_t * next = slotv_fec( chainer, slotv, slotv->buffered_fec_idx + 1U );
+      fd_chainer_fec_t * next = block_fec( chainer, block, block->buffered_fec_idx + 1U );
       if( !next || !next->complete ) break;
-      slotv->buffered_fec_idx += FD_FEC_SHRED_CNT;
+      block->buffered_fec_idx += FD_FEC_SHRED_CNT;
     }
 
     /* clamp buffered_fec_idx to complete_idx always. should never happen for non-turbine versions */
-    if( FD_UNLIKELY( slotv->complete_idx!=UINT_MAX && slotv->buffered_fec_idx!=UINT_MAX &&
-                     slotv->buffered_fec_idx>slotv->complete_idx ) ) slotv->buffered_fec_idx = slotv->complete_idx;
+    if( FD_UNLIKELY( block->complete_idx!=UINT_MAX && block->buffered_fec_idx!=UINT_MAX &&
+                     block->buffered_fec_idx>block->complete_idx ) ) block->buffered_fec_idx = block->complete_idx;
 
-    if( FD_LIKELY( slotv->turbine ) ) {
+    if( FD_LIKELY( block->turbine ) ) {
       /* slot is complete implies we can record the block_id.  Only the
          turbine version needs its block_id computed. */
-      fd_chainer_slotv_t * turbine = slotv;
+      fd_chainer_block_t * turbine = block;
       if( FD_UNLIKELY( turbine->complete_idx!=UINT_MAX &&
                        turbine->buffered_fec_idx==turbine->complete_idx &&
                        fd_hash_check_zero( &turbine->block_id ) ) ) {
@@ -609,7 +609,7 @@ fd_chainer_fec_complete( fd_chainer_t * chainer,
       }
     }
 
-    chainer_advance( chainer, slotv );
+    chainer_advance( chainer, block );
   }
   return 0;
 }
@@ -634,14 +634,14 @@ fd_chainer_fec_evicted( fd_chainer_t * chainer,
      repairing it; it is getting evicted only because fec_resolver is
      under pressure. */
   fec->data_idxs = 0U;
-  for( ulong _i=fd_chainer_slotv_iter_init( chainer, slot ); _i!=ULONG_MAX; _i=fd_chainer_slotv_iter_next( chainer, _i ) ) {
-    fd_chainer_slotv_t * slotv = fd_chainer_slotv_iter_ele( chainer, _i );
-    fd_chainer_fec_t * shared = slotv_fec( chainer, slotv, fec_set_idx );
+  for( ulong _i=fd_chainer_block_iter_init( chainer, slot ); _i!=ULONG_MAX; _i=fd_chainer_block_iter_next( chainer, _i ) ) {
+    fd_chainer_block_t * block = fd_chainer_block_iter_ele( chainer, _i );
+    fd_chainer_fec_t * shared = block_fec( chainer, block, fec_set_idx );
     if( FD_UNLIKELY( !shared || !mr_eq( &shared->merkle_root, merkle_root ) ) ) continue;
 
     /* rederive buffered_idx */
-    if( FD_UNLIKELY( slotv->buffered_idx!=UINT_MAX && slotv->buffered_idx>=fec_set_idx ) ) {
-      slotv->buffered_idx = fec_set_idx - 1U;
+    if( FD_UNLIKELY( block->buffered_idx!=UINT_MAX && block->buffered_idx>=fec_set_idx ) ) {
+      block->buffered_idx = fec_set_idx - 1U;
     }
   }
 }
@@ -653,29 +653,29 @@ fd_chainer_verified_parent_fec_count( fd_chainer_t * chainer,
                                       uint           fec_set_cnt,
                                       ulong          parent_slot,
                                       fd_hash_t    * parent_block_id ) {
-  fd_chainer_slotv_t * slotv = fd_chainer_slot_version_query( chainer, slot, block_id );
-  if( FD_UNLIKELY( !slotv ) ) return; /* version finalized away while response was in flight */
+  fd_chainer_block_t * block = fd_chainer_slot_version_query( chainer, slot, block_id );
+  if( FD_UNLIKELY( !block ) ) return; /* version finalized away while response was in flight */
 
   FD_TEST( fec_set_cnt>0U && fec_set_cnt<=chainer->fec_blk_max );
-  slotv->complete_idx    = ( fec_set_cnt*FD_FEC_SHRED_CNT ) - 1;
-  slotv->parent_slot     = parent_slot;
-  slotv->parent_block_id = *parent_block_id;
+  block->complete_idx    = ( fec_set_cnt*FD_FEC_SHRED_CNT ) - 1;
+  block->parent_slot     = parent_slot;
+  block->parent_block_id = *parent_block_id;
 
-  fd_chainer_slotv_t * parent_slotv = fd_chainer_slot_version_query( chainer, parent_slot, parent_block_id );
-  if( FD_UNLIKELY( !parent_slotv ) ) {
+  fd_chainer_block_t * parent_block = fd_chainer_slot_version_query( chainer, parent_slot, parent_block_id );
+  if( FD_UNLIKELY( !parent_block ) ) {
     if( FD_UNLIKELY( parent_slot<=chainer->root ) ) return; /* dead fork */
 
-    parent_slotv = fd_chainer_verified_block_insert( chainer, parent_slot, *parent_block_id );
-    if( FD_UNLIKELY( !parent_slotv ) ) return; /* a different parent version is final */
+    parent_block = fd_chainer_verified_block_insert( chainer, parent_slot, *parent_block_id );
+    if( FD_UNLIKELY( !parent_block ) ) return; /* a different parent version is final */
   }
 
   for( uint i=0; i<fec_set_cnt; i++ ) {
-    if( FD_UNLIKELY( fd_chainer_slotv_fecs( chainer, slotv )[ i ]==UINT_MAX ) ) {
-      fec_insert( chainer, slotv, i*32U ); /* cert-named: due now */
+    if( FD_UNLIKELY( fd_chainer_block_fecs( chainer, block )[ i ]==UINT_MAX ) ) {
+      fec_insert( chainer, block, i*32U ); /* cert-named: due now */
     }
   }
-  /* parent now identified, connect this slotv if the parent is. */
-  if( FD_UNLIKELY( parent_slotv->connected ) ) slotv->connected = 1;
+  /* parent now identified, connect this block if the parent is. */
+  if( FD_UNLIKELY( parent_block->connected ) ) block->connected = 1;
 }
 
 void
@@ -684,8 +684,8 @@ fd_chainer_verified_hash_insert( fd_chainer_t * chainer,
                                  fd_hash_t *    block_id,
                                  uint           fec_set_idx,
                                  uchar const    mr_prefix[ static FD_SHRED_MERKLE_NODE_SZ ] ) {
-  fd_chainer_slotv_t * slotv = fd_chainer_slot_version_query( chainer, slot, block_id );
-  if( FD_UNLIKELY( !slotv ) ) return; /* version finalized away while response was in flight */
+  fd_chainer_block_t * block = fd_chainer_slot_version_query( chainer, slot, block_id );
+  if( FD_UNLIKELY( !block ) ) return; /* version finalized away while response was in flight */
 
   fd_hash_t mr = {0};
   memcpy( mr.uc, mr_prefix, FD_SHRED_MERKLE_NODE_SZ );
@@ -693,8 +693,8 @@ fd_chainer_verified_hash_insert( fd_chainer_t * chainer,
   /* This version owns its own entry at fec_set_idx.  It usually exists
      already, as a rootless placeholder created when the set count was
      learned; otherwise create it now. */
-  fd_chainer_fec_t * fec = slotv_fec( chainer, slotv, fec_set_idx );
-  if( FD_UNLIKELY( !fec ) ) fec = fec_insert( chainer, slotv, fec_set_idx );
+  fd_chainer_fec_t * fec = block_fec( chainer, block, fec_set_idx );
+  if( FD_UNLIKELY( !fec ) ) fec = fec_insert( chainer, block, fec_set_idx );
 
   /* One version owns the root-map entry and received bitmap; siblings
      query it by root. */
@@ -708,7 +708,7 @@ fd_chainer_verified_hash_insert( fd_chainer_t * chainer,
     return; /* the response contradicts the root this version already holds */
   }
 
-  if( FD_UNLIKELY( fec_set_idx==slotv->complete_idx - ( FD_FEC_SHRED_CNT-1 ) ) ) fec->slot_complete = 1;
+  if( FD_UNLIKELY( fec_set_idx==block->complete_idx - ( FD_FEC_SHRED_CNT-1 ) ) ) fec->slot_complete = 1;
 
 
   /* Adopt shreds received before this version learned the root, even
@@ -717,50 +717,50 @@ fd_chainer_verified_hash_insert( fd_chainer_t * chainer,
   if( FD_UNLIKELY( peer!=fec ) ) {
     fec->merkle_root = peer->merkle_root;
     // uint shred_max = (uint)( chainer->fec_blk_max*FD_FEC_SHRED_CNT );
-    // while( slotv->buffered_idx+1U<shred_max && fd_chainer_shred_test( chainer, slotv, slotv->buffered_idx+1U ) ) slotv->buffered_idx++;
-    // if( FD_UNLIKELY( slotv->complete_idx!=UINT_MAX && slotv->buffered_idx!=UINT_MAX && slotv->buffered_idx>slotv->complete_idx ) ) slotv->buffered_idx = slotv->complete_idx;
+    // while( block->buffered_idx+1U<shred_max && fd_chainer_shred_test( chainer, block, block->buffered_idx+1U ) ) block->buffered_idx++;
+    // if( FD_UNLIKELY( block->complete_idx!=UINT_MAX && block->buffered_idx!=UINT_MAX && block->buffered_idx>block->complete_idx ) ) block->buffered_idx = block->complete_idx;
     if( FD_UNLIKELY( peer->complete ) ) {
       fd_hash_t peer_mr = peer->merkle_root;
       fd_chainer_fec_complete( chainer, slot, fec_set_idx, peer->slot_complete, peer->data_complete, peer->is_leader, 0L /* arrival time unknown */, &peer_mr );
     }
   }
-  chainer_advance( chainer, slotv );
+  chainer_advance( chainer, block );
 }
 
-fd_chainer_slotv_t *
+fd_chainer_block_t *
 fd_chainer_verified_block_insert( fd_chainer_t * chainer,
                                   ulong          slot,
                                   fd_hash_t      block_id ) {
   FD_TEST( slot>chainer->root );
 
   if( FD_LIKELY( fd_chainer_slot_version_query( chainer, slot, &block_id ) ) ) return NULL;
-  for( ulong i=fd_chainer_slotv_iter_init( chainer, slot ); i!=ULONG_MAX; i=fd_chainer_slotv_iter_next( chainer, i ) ) {
-    if( FD_UNLIKELY( fd_chainer_slotv_iter_ele( chainer, i )->final ) ) return NULL;
+  for( ulong i=fd_chainer_block_iter_init( chainer, slot ); i!=ULONG_MAX; i=fd_chainer_block_iter_next( chainer, i ) ) {
+    if( FD_UNLIKELY( fd_chainer_block_iter_ele( chainer, i )->final ) ) return NULL;
   }
 
-  fd_chainer_slotv_t * slotv = acquire_slotv( chainer, slot );
-  slotv->block_id = block_id;
+  fd_chainer_block_t * block = acquire_block( chainer, slot );
+  block->block_id = block_id;
 
-  fec_insert( chainer, slotv, 0 ); /* cert-named: due now */
+  fec_insert( chainer, block, 0 ); /* cert-named: due now */
 
-  fd_chainer_slotv_t * turbine = fd_chainer_turbine_slotv_query( chainer, slot );
+  fd_chainer_block_t * turbine = fd_chainer_turbine_block_query( chainer, slot );
   if( FD_UNLIKELY( turbine && fd_hash_check_zero( &turbine->block_id ) ) ) {
-    /* Turbine slotv is not yet complete, but votor repair events for
+    /* Turbine block is not yet complete, but votor repair events for
        this slot have already started arriving, suggesting we are way
        behind on repairing this slot.  At this point just abandon the
        turbine version and only deliver votor verified versions. */
-    slotv_abandon( chainer, turbine );
+    block_abandon( chainer, turbine );
   }
-  return slotv;
+  return block;
 }
 
 void
 fd_chainer_slot_inval( fd_chainer_t * chainer,
                        ulong          slot ) {
   if( FD_UNLIKELY( slot<=chainer->root ) ) return;
-  fd_chainer_slotv_t * turbine = fd_chainer_turbine_slotv_query( chainer, slot );
+  fd_chainer_block_t * turbine = fd_chainer_turbine_block_query( chainer, slot );
   if( FD_UNLIKELY( !turbine || !fd_hash_check_zero( &turbine->block_id ) ) ) return;
-  slotv_abandon( chainer, turbine );
+  block_abandon( chainer, turbine );
 }
 
 void
@@ -769,35 +769,35 @@ fd_chainer_blk_final( fd_chainer_t *    chainer,
                       fd_hash_t const * block_id,
                       fd_store_t *      store ) {
   if( FD_UNLIKELY( slot<=chainer->root || fd_hash_check_zero( block_id ) ) ) return;
-  fd_chainer_slotv_t * final = fd_chainer_slot_version_query( chainer, slot, block_id );
-  for( ulong i=fd_chainer_slotv_iter_init( chainer, slot ); i!=ULONG_MAX; i=fd_chainer_slotv_iter_next( chainer, i ) ) {
-    fd_chainer_slotv_t * v = fd_chainer_slotv_iter_ele( chainer, i );
+  fd_chainer_block_t * final = fd_chainer_slot_version_query( chainer, slot, block_id );
+  for( ulong i=fd_chainer_block_iter_init( chainer, slot ); i!=ULONG_MAX; i=fd_chainer_block_iter_next( chainer, i ) ) {
+    fd_chainer_block_t * v = fd_chainer_block_iter_ele( chainer, i );
     if( FD_UNLIKELY( v->final && !fd_hash_eq( &v->block_id, block_id ) ) ) return;
   }
   if( final ) final->final = 1;
 
   /* Filter queued deliveries before releasing any pool indices. */
-  uint final_idx = final ? (uint)fd_slotv_pool_idx( chainer->slotv_pool, final ) : UINT_MAX;
+  uint final_idx = final ? (uint)fd_block_pool_idx( chainer->block_pool, final ) : UINT_MAX;
   for( ulong n=out_queue_cnt( chainer->out_queue ); n; n-- ) {
     out_ele_t out = out_queue_pop_head( chainer->out_queue );
-    if( FD_UNLIKELY( out.slotv_idx==UINT_MAX ) ) continue;
-    fd_chainer_slotv_t * v = fd_slotv_pool_ele( chainer->slotv_pool, out.slotv_idx );
-    if( FD_LIKELY( v->slot!=slot || out.slotv_idx==final_idx ) ) out_queue_push_tail( chainer->out_queue, out );
+    if( FD_UNLIKELY( out.block_idx==UINT_MAX ) ) continue;
+    fd_chainer_block_t * v = fd_block_pool_ele( chainer->block_pool, out.block_idx );
+    if( FD_LIKELY( v->slot!=slot || out.block_idx==final_idx ) ) out_queue_push_tail( chainer->out_queue, out );
   }
 
   fd_store_map_t store_map[1];
   if( store ) FD_TEST( fd_store_map_ljoin( store, store_map ) );
-  for( ulong i=fd_chainer_slotv_iter_init( chainer, slot ); i!=ULONG_MAX; ) {
-    fd_chainer_slotv_t * v    = fd_chainer_slotv_iter_ele( chainer, i );
-    ulong                next = fd_chainer_slotv_iter_next( chainer, i );
+  for( ulong i=fd_chainer_block_iter_init( chainer, slot ); i!=ULONG_MAX; ) {
+    fd_chainer_block_t * v    = fd_chainer_block_iter_ele( chainer, i );
+    ulong                next = fd_chainer_block_iter_next( chainer, i );
     if( FD_LIKELY( v!=final ) ) {
       for( uint k=0U; k<chainer->fec_blk_max; k++ ) {
-        fd_chainer_fec_t * fec = slotv_fec( chainer, v, k*(uint)FD_FEC_SHRED_CNT );
+        fd_chainer_fec_t * fec = block_fec( chainer, v, k*(uint)FD_FEC_SHRED_CNT );
         if( FD_UNLIKELY( !fec ) ) continue;
         fec_treap_remove( chainer, v, fec );
         if( FD_LIKELY( fec->root ) ) {
           fd_fec_map_ele_remove_fast( chainer->fec_map, fec, chainer->fec_pool );
-          fd_chainer_fec_t * shared = final ? slotv_fec( chainer, final, k*(uint)FD_FEC_SHRED_CNT ) : NULL;
+          fd_chainer_fec_t * shared = final ? block_fec( chainer, final, k*(uint)FD_FEC_SHRED_CNT ) : NULL;
           if( FD_UNLIKELY( shared && mr_eq( &shared->merkle_root, &fec->merkle_root ) ) ) {
             shared->merkle_root = fec->merkle_root;
             shared->data_idxs = fec->data_idxs;
@@ -809,9 +809,9 @@ fd_chainer_blk_final( fd_chainer_t *    chainer,
         }
         fd_fec_pool_ele_release( chainer->fec_pool, fec );
       }
-      fd_memset( fd_chainer_slotv_fecs( chainer, v ), 0xff, chainer->fec_blk_max*sizeof(uint) );
-      fd_slotv_map_ele_remove_fast( chainer->slotv_map, v, chainer->slotv_pool );
-      fd_slotv_pool_ele_release( chainer->slotv_pool, v );
+      fd_memset( fd_chainer_block_fecs( chainer, v ), 0xff, chainer->fec_blk_max*sizeof(uint) );
+      fd_block_map_ele_remove_fast( chainer->block_map, v, chainer->block_pool );
+      fd_block_pool_ele_release( chainer->block_pool, v );
     }
     i = next;
   }
@@ -832,8 +832,8 @@ fd_chainer_publish( fd_chainer_t *    chainer,
   fd_store_map_t store_map[1];
   if( store ) FD_TEST( fd_store_map_ljoin( store, store_map ) );
 
-  fd_slotv_map_t     * slotv_map  = chainer->slotv_map;
-  fd_chainer_slotv_t * slotv_pool = chainer->slotv_pool;
+  fd_block_map_t     * block_map  = chainer->block_map;
+  fd_chainer_block_t * block_pool = chainer->block_pool;
   out_ele_t * out_queue = chainer->out_queue;
   if( FD_UNLIKELY( !out_queue_empty( out_queue ) ) ) FD_LOG_CRIT(( "chainer out_queue not empty before publish" ));
 
@@ -847,7 +847,7 @@ fd_chainer_publish( fd_chainer_t *    chainer,
      version matches, keep them all rather than guess wrong and prune
      the version we are actually rooted on.  TODO: block_id is now
      always wired through from replay, so this could be a CRIT. */
-  fd_chainer_slotv_t * canonical = new_root_block_id ? fd_chainer_slot_version_query( chainer, new_root, new_root_block_id ) : NULL;
+  fd_chainer_block_t * canonical = new_root_block_id ? fd_chainer_slot_version_query( chainer, new_root, new_root_block_id ) : NULL;
   if( FD_UNLIKELY( !canonical ) ) {
     FD_LOG_DEBUG(( "chainer publish %lu: no version matches the rooted block_id; keeping all versions", new_root ));
   }
@@ -858,12 +858,12 @@ fd_chainer_publish( fd_chainer_t *    chainer,
      unknown) and its FEC list is cleared, since a rooted slot's FEC
      data is never needed again. */
   for( ulong slot=root; slot<=new_root; slot++ ) {
-    for( ulong i=fd_chainer_slotv_iter_init( chainer, slot ); i!=ULONG_MAX; ) {
-      fd_chainer_slotv_t * s    = fd_chainer_slotv_iter_ele( chainer, i );
-      ulong                next = fd_chainer_slotv_iter_next( chainer, i );
+    for( ulong i=fd_chainer_block_iter_init( chainer, slot ); i!=ULONG_MAX; ) {
+      fd_chainer_block_t * s    = fd_chainer_block_iter_ele( chainer, i );
+      ulong                next = fd_chainer_block_iter_next( chainer, i );
 
       for( uint k=0U; k<chainer->fec_blk_max; k++ ) {
-        fd_chainer_fec_t * fec = slotv_fec( chainer, s, k * FD_FEC_SHRED_CNT );
+        fd_chainer_fec_t * fec = block_fec( chainer, s, k * FD_FEC_SHRED_CNT );
         if( FD_UNLIKELY( !fec ) ) continue;
 
         fec_treap_remove( chainer, s, fec );
@@ -874,13 +874,13 @@ fd_chainer_publish( fd_chainer_t *    chainer,
 
         fd_fec_pool_ele_release( chainer->fec_pool, fec );
       }
-      fd_memset( fd_chainer_slotv_fecs( chainer, s ), 0xff, chainer->fec_blk_max*sizeof(uint) );
+      fd_memset( fd_chainer_block_fecs( chainer, s ), 0xff, chainer->fec_blk_max*sizeof(uint) );
 
 
       int survives = slot==new_root && ( !canonical || s==canonical );
       if( FD_LIKELY( !survives ) ) {
-        fd_slotv_map_ele_remove_fast( slotv_map, s, slotv_pool );
-        fd_slotv_pool_ele_release( slotv_pool, s );
+        fd_block_map_ele_remove_fast( block_map, s, block_pool );
+        fd_block_pool_ele_release( block_pool, s );
       }
       i = next;
     }
@@ -889,8 +889,8 @@ fd_chainer_publish( fd_chainer_t *    chainer,
   chainer->root = new_root;
 
   /* Connect the surviving version(s) of the new root. */
-  for( ulong i=fd_chainer_slotv_iter_init( chainer, new_root ); i!=ULONG_MAX; i=fd_chainer_slotv_iter_next( chainer, i ) ) {
-    fd_chainer_slotv_t * s = fd_chainer_slotv_iter_ele( chainer, i );
+  for( ulong i=fd_chainer_block_iter_init( chainer, new_root ); i!=ULONG_MAX; i=fd_chainer_block_iter_next( chainer, i ) ) {
+    fd_chainer_block_t * s = fd_chainer_block_iter_ele( chainer, i );
     if( FD_UNLIKELY( s->parent_slot==AG_UNKNOWN_SLOT ) ) s->parent_slot = new_root;
     s->connected        = 1;
     s->complete_idx     = 0U;
@@ -903,13 +903,13 @@ fd_chainer_publish( fd_chainer_t *    chainer,
      chainer_advance's slot_complete cascade, so children that already
      completed while waiting on it were never connected/delivered.
      Cascade to them now, mirroring chainer_advance's child scan. */
-  for( ulong i=fd_chainer_slotv_iter_init( chainer, new_root ); i!=ULONG_MAX; i=fd_chainer_slotv_iter_next( chainer, i ) ) {
-    fd_chainer_slotv_t * s = fd_chainer_slotv_iter_ele( chainer, i );
+  for( ulong i=fd_chainer_block_iter_init( chainer, new_root ); i!=ULONG_MAX; i=fd_chainer_block_iter_next( chainer, i ) ) {
+    fd_chainer_block_t * s = fd_chainer_block_iter_ele( chainer, i );
     if( FD_UNLIKELY( fd_hash_check_zero( &s->block_id ) ) ) continue;
-    for( fd_slotv_map_iter_t it = fd_slotv_map_iter_init( slotv_map, slotv_pool );
-                                 !fd_slotv_map_iter_done( it, slotv_map, slotv_pool );
-                             it = fd_slotv_map_iter_next( it, slotv_map, slotv_pool ) ) {
-      fd_chainer_slotv_t * child = fd_slotv_map_iter_ele( it, slotv_map, slotv_pool );
+    for( fd_block_map_iter_t it = fd_block_map_iter_init( block_map, block_pool );
+                                 !fd_block_map_iter_done( it, block_map, block_pool );
+                             it = fd_block_map_iter_next( it, block_map, block_pool ) ) {
+      fd_chainer_block_t * child = fd_block_map_iter_ele( it, block_map, block_pool );
       if( FD_UNLIKELY( fd_hash_eq( &child->parent_block_id, &s->block_id ) ) ) {
         child->connected = 1;
         chainer_advance( chainer, child );
@@ -922,16 +922,16 @@ void
 fd_chainer_print( fd_chainer_t * chainer ) {
   if( FD_UNLIKELY( chainer->root==ULONG_MAX ) ) return;
 
-  fd_chainer_slotv_t * slotv_pool = chainer->slotv_pool;
-  fd_slotv_map_t     * slotv_map  = chainer->slotv_map;
+  fd_chainer_block_t * block_pool = chainer->block_pool;
+  fd_block_map_t     * block_map  = chainer->block_map;
 
   printf( "\n[Chainer] root: %lu, highest repaired: %lu\n", chainer->root, chainer->highest_repaired );
 
   ulong cnt = 0UL;
-  for( fd_slotv_map_iter_t it = fd_slotv_map_iter_init( slotv_map, slotv_pool );
-                               !fd_slotv_map_iter_done( it, slotv_map, slotv_pool );
-                           it = fd_slotv_map_iter_next( it, slotv_map, slotv_pool ) ) {
-    fd_chainer_slotv_t * o = fd_slotv_map_iter_ele( it, slotv_map, slotv_pool );
+  for( fd_block_map_iter_t it = fd_block_map_iter_init( block_map, block_pool );
+                               !fd_block_map_iter_done( it, block_map, block_pool );
+                           it = fd_block_map_iter_next( it, block_map, block_pool ) ) {
+    fd_chainer_block_t * o = fd_block_map_iter_ele( it, block_map, block_pool );
 
     ulong slot = o->slot;
 
@@ -944,7 +944,7 @@ fd_chainer_print( fd_chainer_t * chainer ) {
     }
     cnt++;
   }
-  printf( "(%lu total slotvs)\n", cnt );
+  printf( "(%lu total blocks)\n", cnt );
   fflush( stdout );
 }
 
@@ -960,12 +960,12 @@ fd_chainer_verify( fd_chainer_t const * chainer ) {
 
   fd_chainer_t * chainer_ = (fd_chainer_t *)chainer;
 
-  fd_chainer_slotv_t const * slotv_pool = chainer_->slotv_pool;
-  fd_slotv_map_t     const * slotv_map  = chainer_->slotv_map;
+  fd_chainer_block_t const * block_pool = chainer_->block_pool;
+  fd_block_map_t     const * block_map  = chainer_->block_map;
   fd_chainer_fec_t   const * fec_pool   = chainer_->fec_pool;
   fd_fec_map_t       const * fec_map    = chainer_->fec_map;
 
-  if( FD_UNLIKELY( fd_slotv_map_verify( slotv_map, fd_slotv_pool_max( slotv_pool ), slotv_pool )==-1 ) ) FAIL( "slotv map corrupted" );
+  if( FD_UNLIKELY( fd_block_map_verify( block_map, fd_block_pool_max( block_pool ), block_pool )==-1 ) ) FAIL( "block map corrupted" );
   if( FD_UNLIKELY( fd_fec_map_verify  ( fec_map,   fd_fec_pool_max  ( fec_pool   ), fec_pool   )==-1 ) ) FAIL( "fec map corrupted"   );
 
   /* The root, if set, must have at least one connected version -- it is
@@ -979,48 +979,48 @@ fd_chainer_verify( fd_chainer_t const * chainer ) {
     int   root_present   = 0;
     int   root_connected = 0;
     ulong root           = chainer->root;
-    for( ulong i = fd_slotv_map_idx_query_const( slotv_map, &root, ULONG_MAX, slotv_pool );
+    for( ulong i = fd_block_map_idx_query_const( block_map, &root, ULONG_MAX, block_pool );
                i != ULONG_MAX;
-               i = fd_slotv_map_idx_next_const( i, ULONG_MAX, slotv_pool ) ) {
-      fd_chainer_slotv_t const * root_slotv = fd_slotv_pool_ele_const( slotv_pool, i );
+               i = fd_block_map_idx_next_const( i, ULONG_MAX, block_pool ) ) {
+      fd_chainer_block_t const * root_block = fd_block_pool_ele_const( block_pool, i );
       root_present    = 1;
-      root_connected |= !!root_slotv->connected;
+      root_connected |= !!root_block->connected;
     }
-    if( FD_UNLIKELY( !root_present   ) ) FAIL( "root has no slotv" );
-    if( FD_UNLIKELY( !root_connected ) ) FAIL( "no root slotv is connected" );
+    if( FD_UNLIKELY( !root_present   ) ) FAIL( "root has no block" );
+    if( FD_UNLIKELY( !root_connected ) ) FAIL( "no root block is connected" );
   }
 
-  for( fd_slotv_map_iter_t it = fd_slotv_map_iter_init( slotv_map, slotv_pool );
-                               !fd_slotv_map_iter_done( it, slotv_map, slotv_pool );
-                           it = fd_slotv_map_iter_next( it, slotv_map, slotv_pool ) ) {
-    fd_chainer_slotv_t const * slotv = fd_slotv_map_iter_ele_const( it, slotv_map, slotv_pool );
+  for( fd_block_map_iter_t it = fd_block_map_iter_init( block_map, block_pool );
+                               !fd_block_map_iter_done( it, block_map, block_pool );
+                           it = fd_block_map_iter_next( it, block_map, block_pool ) ) {
+    fd_chainer_block_t const * block = fd_block_map_iter_ele_const( it, block_map, block_pool );
 
-    ulong slot = slotv->slot;
+    ulong slot = block->slot;
 
     /* Nothing below the root may survive a publish. */
 
-    if( FD_UNLIKELY( chainer->root!=ULONG_MAX && slot<chainer->root ) ) FAIL( "slotv below the root" );
+    if( FD_UNLIKELY( chainer->root!=ULONG_MAX && slot<chainer->root ) ) FAIL( "block below the root" );
 
     /* Shred index bookkeeping */
 
-    if( FD_UNLIKELY( slotv->complete_idx!=UINT_MAX && slotv->buffered_idx !=UINT_MAX &&
-                     slotv->buffered_idx >slotv->complete_idx ) ) FAIL( "buffered_idx > complete_idx" );
-    if( FD_UNLIKELY( slotv->complete_idx!=UINT_MAX && slotv->delivered_idx!=UINT_MAX &&
-                     slotv->delivered_idx>slotv->complete_idx ) ) FAIL( "delivered_idx > complete_idx" );
+    if( FD_UNLIKELY( block->complete_idx!=UINT_MAX && block->buffered_idx !=UINT_MAX &&
+                     block->buffered_idx >block->complete_idx ) ) FAIL( "buffered_idx > complete_idx" );
+    if( FD_UNLIKELY( block->complete_idx!=UINT_MAX && block->delivered_idx!=UINT_MAX &&
+                     block->delivered_idx>block->complete_idx ) ) FAIL( "delivered_idx > complete_idx" );
 
     /* buffered_fec_idx is the last shred idx of a FEC set, so it is
        always one below a multiple of FD_FEC_SHRED_CNT (UINT_MAX, the
        "none" sentinel, satisfies this too). */
 
-    if( FD_UNLIKELY( ( slotv->buffered_fec_idx + 1U ) % FD_FEC_SHRED_CNT ) ) FAIL( "buffered_fec_idx is not the last idx of a FEC set" );
+    if( FD_UNLIKELY( ( block->buffered_fec_idx + 1U ) % FD_FEC_SHRED_CNT ) ) FAIL( "buffered_fec_idx is not the last idx of a FEC set" );
 
     /* A buffered FEC set means all of its shreds are in hand, so the
        contiguous FEC prefix can never run ahead of the contiguous shred
        prefix. */
 
-    if( FD_UNLIKELY( slotv->buffered_fec_idx!=UINT_MAX &&
-                     ( slotv->buffered_idx==UINT_MAX ||
-                       slotv->buffered_idx<slotv->buffered_fec_idx ) ) ) FAIL( "buffered_fec_idx runs ahead of buffered_idx" );
+    if( FD_UNLIKELY( block->buffered_fec_idx!=UINT_MAX &&
+                     ( block->buffered_idx==UINT_MAX ||
+                       block->buffered_idx<block->buffered_fec_idx ) ) ) FAIL( "buffered_fec_idx runs ahead of buffered_idx" );
   }
 
   /* No treap may hold an ele not accounted for in the work map. */
@@ -1050,11 +1050,11 @@ fd_chainer_verify( fd_chainer_t const * chainer ) {
        publish would leak. */
 
     int owned = 0;
-    for( ulong i = fd_slotv_map_idx_query_const( slotv_map, &slot, ULONG_MAX, slotv_pool );
+    for( ulong i = fd_block_map_idx_query_const( block_map, &slot, ULONG_MAX, block_pool );
                i != ULONG_MAX;
-               i = fd_slotv_map_idx_next_const( i, ULONG_MAX, slotv_pool ) ) {
-      fd_chainer_slotv_t const * slotv = fd_slotv_pool_ele_const( slotv_pool, i );
-      if( FD_LIKELY( fd_chainer_slotv_fecs( chainer, slotv )[ fec_set_idx / FD_FEC_SHRED_CNT ]==fec_idx ) ) owned = 1;
+               i = fd_block_map_idx_next_const( i, ULONG_MAX, block_pool ) ) {
+      fd_chainer_block_t const * block = fd_block_pool_ele_const( block_pool, i );
+      if( FD_LIKELY( fd_chainer_block_fecs( chainer, block )[ fec_set_idx / FD_FEC_SHRED_CNT ]==fec_idx ) ) owned = 1;
     }
     if( FD_UNLIKELY( !owned ) ) FAIL( "fec claimed by no version" );
   }

@@ -134,7 +134,7 @@ fd_requestor_block_advance( fd_requestor_t *     self,
 int
 fd_requestor_fec_request( fd_requestor_t *     self,
                           fd_chainer_t *       chainer,
-                          fd_chainer_slotv_t * slotv,
+                          fd_chainer_block_t * slotv,
                           fd_chainer_fec_t *   fec,
                           uint                 from_shred_idx,
                           fd_rotor_request_t * out_request,

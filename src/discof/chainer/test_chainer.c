@@ -54,35 +54,35 @@ test_fec_pool_layout( void ) {
   FD_TEST(  fd_chainer_footprint( ELE_MAX, FD_SHRED_BLK_MAX )<fd_chainer_footprint( ELE_MAX, BENCH_SHRED_MAX ) );
 }
 
-/* slotv_at returns the `ord`-th version of slot in CREATION order (ord 0
+/* block_at returns the `ord`-th version of slot in CREATION order (ord 0
    is the first version created -- the turbine version in the usual case
    where a turbine shred/FEC lands before any notar-fallback cert), or
    NULL.  Slotvs are keyed by slot in a MAP_MULTI whose chain is
    newest-first, so creation order is the reverse of iteration order. */
 
-static fd_chainer_slotv_t *
-slotv_at( fd_chainer_t * chainer, ulong slot, ulong ord ) {
-  fd_chainer_slotv_t     * slotv_pool = chainer->slotv_pool;
-  fd_slotv_map_t * slotv_map  = chainer->slotv_map;
-  fd_chainer_slotv_t * list[ FD_CHAINER_SLOT_VER_MAX ];
+static fd_chainer_block_t *
+block_at( fd_chainer_t * chainer, ulong slot, ulong ord ) {
+  fd_chainer_block_t     * block_pool = chainer->block_pool;
+  fd_block_map_t * block_map  = chainer->block_map;
+  fd_chainer_block_t * list[ FD_CHAINER_SLOT_VER_MAX ];
   ulong n = 0UL;
-  for( ulong i = fd_slotv_map_idx_query( slotv_map, &slot, ULONG_MAX, slotv_pool );
+  for( ulong i = fd_block_map_idx_query( block_map, &slot, ULONG_MAX, block_pool );
              i != ULONG_MAX;
-             i = fd_slotv_map_idx_next_const( i, ULONG_MAX, slotv_pool ) ) {
-    list[ n++ ] = fd_slotv_pool_ele( slotv_pool, i );
+             i = fd_block_map_idx_next_const( i, ULONG_MAX, block_pool ) ) {
+    list[ n++ ] = fd_block_pool_ele( block_pool, i );
   }
   if( ord>=n ) return NULL;
   return list[ n-1UL-ord ]; /* reverse iteration -> creation order */
 }
 
-/* slotv_shred_cnt returns the number of data shreds slotv has, summed
+/* block_shred_cnt returns the number of data shreds block has, summed
    over the FECs it owns. */
 
 static ulong
-slotv_shred_cnt( fd_chainer_t *             chainer,
-                 fd_chainer_slotv_t const * slotv ) {
+block_shred_cnt( fd_chainer_t *             chainer,
+                 fd_chainer_block_t const * block ) {
   fd_chainer_fec_t * fec_pool = chainer->fec_pool;
-  uint const *       fecs     = fd_chainer_slotv_fecs( chainer, slotv );
+  uint const *       fecs     = fd_chainer_block_fecs( chainer, block );
   ulong              cnt      = 0UL;
   for( ulong k=0UL; k<chainer->fec_blk_max; k++ ) {
     uint idx = fecs[ k ];
@@ -97,9 +97,9 @@ slotv_shred_cnt( fd_chainer_t *             chainer,
 
 static fd_chainer_fec_t *
 fec_at( fd_chainer_t * chainer, ulong slot, uint fec_set_idx, ulong ord ) {
-  fd_chainer_slotv_t * slotv = slotv_at( chainer, slot, ord );
-  if( FD_UNLIKELY( !slotv ) ) return NULL;
-  return fd_chainer_fec_query( chainer, slot, fec_set_idx, &slotv->block_id );
+  fd_chainer_block_t * block = block_at( chainer, slot, ord );
+  if( FD_UNLIKELY( !block ) ) return NULL;
+  return fd_chainer_fec_query( chainer, slot, fec_set_idx, &block->block_id );
 }
 
 static fd_chainer_t *
@@ -161,8 +161,8 @@ root_known( fd_chainer_t * chainer, ulong slot, uint fec_set_idx, fd_hash_t cons
    its sets is still on one. */
 
 static int
-has_work( fd_chainer_t * chainer, fd_chainer_slotv_t const * slotv ) {
-  uint const * fecs = fd_chainer_slotv_fecs( chainer, slotv );
+has_work( fd_chainer_t * chainer, fd_chainer_block_t const * block ) {
+  uint const * fecs = fd_chainer_block_fecs( chainer, block );
   for( uint k=0U; k<chainer->fec_blk_max; k++ ) {
     if( FD_UNLIKELY( fecs[ k ]!=UINT_MAX && fd_fec_pool_ele( chainer->fec_pool, fecs[ k ] )->treap ) ) return 1;
   }
@@ -278,8 +278,8 @@ test_basic( fd_wksp_t * wksp ) {
   FD_TEST( chainer->root==10UL );
   FD_TEST( fd_chainer_highest_repaired_slot( chainer )==10UL );
 
-  fd_chainer_slotv_t * root = fd_chainer_slot_query( chainer, 10UL );
-  FD_TEST( root==slotv_at( chainer, 10UL, 0UL ) );
+  fd_chainer_block_t * root = fd_chainer_slot_query( chainer, 10UL );
+  FD_TEST( root==block_at( chainer, 10UL, 0UL ) );
   FD_TEST( fd_hash_eq( &root->block_id, &bid0 ) );
   FD_TEST( root->connected );
   FD_TEST( root->complete_idx==0U && root->buffered_idx==0U && root->delivered_idx==0U );
@@ -293,15 +293,15 @@ test_basic( fd_wksp_t * wksp ) {
     fd_chainer_shred_insert( chainer, 11UL, i, 0, FD_CHAINER_SRC_TURBINE, test_rx_tick, &r0, i ? AG_UNKNOWN_SLOT : 10UL, i ? NULL : &bid0 );
     FD_TEST( !fd_chainer_verify( chainer ) );
 
-    fd_chainer_slotv_t * slotv = slotv_at( chainer, 11UL, 0UL );
-    FD_TEST( slotv );                                          /* created on the first shred */
-    FD_TEST( fd_chainer_shred_test( chainer, slotv, i  ) );
-    FD_TEST( slotv_shred_cnt( chainer, slotv )==i+1UL );
-    FD_TEST( slotv->buffered_idx==i );                         /* contiguous from 0 */
-    FD_TEST( slotv->complete_idx==UINT_MAX );                  /* tip still unknown */
+    fd_chainer_block_t * block = block_at( chainer, 11UL, 0UL );
+    FD_TEST( block );                                          /* created on the first shred */
+    FD_TEST( fd_chainer_shred_test( chainer, block, i  ) );
+    FD_TEST( block_shred_cnt( chainer, block )==i+1UL );
+    FD_TEST( block->buffered_idx==i );                         /* contiguous from 0 */
+    FD_TEST( block->complete_idx==UINT_MAX );                  /* tip still unknown */
   }
 
-  fd_chainer_slotv_t * s11 = slotv_at( chainer, 11UL, 0UL );
+  fd_chainer_block_t * s11 = block_at( chainer, 11UL, 0UL );
   FD_TEST( s11->parent_slot==10UL );
   FD_TEST( fd_hash_eq( &s11->parent_block_id, &bid0 ) );
   FD_TEST( s11->connected );                  /* parent is the root */
@@ -344,7 +344,7 @@ test_basic( fd_wksp_t * wksp ) {
   FD_TEST( s11->buffered_idx    ==63U );
   FD_TEST( s11->buffered_fec_idx==63U );
   FD_TEST( s11->delivered_idx   ==63U );
-  FD_TEST( slotv_shred_cnt( chainer, s11 )==64UL );
+  FD_TEST( block_shred_cnt( chainer, s11 )==64UL );
   FD_TEST( !has_work( chainer, s11 ) ); /* whole block -> no work left */
   FD_TEST( fd_chainer_highest_repaired_slot( chainer )==11UL );
 
@@ -367,7 +367,7 @@ test_basic( fd_wksp_t * wksp ) {
   fd_chainer_init( other, 10UL, &bid0 );
   FD_TEST( !feed_fec( other, 11UL, 0U,  0, &r0, 10UL,            &bid0 ) );
   FD_TEST( !feed_fec( other, 11UL, 32U, 1, &r1, AG_UNKNOWN_SLOT, NULL  ) );
-  FD_TEST( fd_hash_eq( &slotv_at( other, 11UL, 0UL )->block_id, &bid11 ) );
+  FD_TEST( fd_hash_eq( &block_at( other, 11UL, 0UL )->block_id, &bid11 ) );
   FD_TEST( !fd_chainer_verify( other ) );
   teardown( other );
 
@@ -399,7 +399,7 @@ test_shared_prefix( fd_wksp_t * wksp ) {
   FD_TEST( !feed_fec( chainer, 21UL, 32U, 0, &r1,  AG_UNKNOWN_SLOT, NULL  ) );
   FD_TEST( !feed_fec( chainer, 21UL, 64U, 1, &r2a, AG_UNKNOWN_SLOT, NULL  ) );
 
-  fd_chainer_slotv_t * v0 = slotv_at( chainer, 21UL, 0UL );
+  fd_chainer_block_t * v0 = block_at( chainer, 21UL, 0UL );
   FD_TEST( v0->complete_idx==95U && v0->buffered_idx==95U && v0->delivered_idx==95U );
   FD_TEST( !fd_hash_check_zero( &v0->block_id ) );
   fd_hash_t bid_v0 = v0->block_id;
@@ -410,7 +410,7 @@ test_shared_prefix( fd_wksp_t * wksp ) {
   fd_chainer_verified_block_insert( chainer, 21UL, bidX );
   FD_TEST( !fd_chainer_verify( chainer ) );
 
-  fd_chainer_slotv_t * v1 = slotv_at( chainer, 21UL, 1UL );
+  fd_chainer_block_t * v1 = block_at( chainer, 21UL, 1UL );
   FD_TEST( v1 );
   FD_TEST( fd_chainer_slot_version_query( chainer, 21UL, &bidX )==v1 );
   FD_TEST( v1->slot==21UL );
@@ -496,7 +496,7 @@ test_shared_prefix( fd_wksp_t * wksp ) {
 
 /* (c) A notar-fallback cert for a block that is still in flight from
    turbine.  We cannot compute the in-flight block's id yet, so we cannot
-   tell the cert names the same block: a redundant slotv is created by
+   tell the cert names the same block: a redundant block is created by
    design, and the turbine version is abandoned -- it may be the same
    block the cert version is repairing, and delivering both would hand
    replay two banks for the same {slot, block_id}.  The structure must
@@ -505,7 +505,7 @@ test_shared_prefix( fd_wksp_t * wksp ) {
 static void
 test_notar_fallback_in_flight( fd_wksp_t * wksp ) {
   fd_chainer_t * chainer = setup( wksp );
-  fd_chainer_slotv_t * slotv_pool = chainer->slotv_pool;
+  fd_chainer_block_t * block_pool = chainer->block_pool;
 
   fd_hash_t bid0 = mkhash( 100UL );
   fd_chainer_init( chainer, 30UL, &bid0 );
@@ -513,7 +513,7 @@ test_notar_fallback_in_flight( fd_wksp_t * wksp ) {
   fd_hash_t r0 = mkhash( 1UL );
   FD_TEST( !feed_fec( chainer, 31UL, 0U, 0, &r0, 30UL, &bid0 ) );
 
-  fd_chainer_slotv_t * v0 = slotv_at( chainer, 31UL, 0UL );
+  fd_chainer_block_t * v0 = block_at( chainer, 31UL, 0UL );
   FD_TEST( v0->complete_idx==UINT_MAX );          /* still in flight */
   FD_TEST( fd_hash_check_zero( &v0->block_id ) ); /* so no block_id yet */
 
@@ -521,7 +521,7 @@ test_notar_fallback_in_flight( fd_wksp_t * wksp ) {
   fd_chainer_verified_block_insert( chainer, 31UL, bidY );
   FD_TEST( !fd_chainer_verify( chainer ) );
 
-  fd_chainer_slotv_t * v1 = slotv_at( chainer, 31UL, 1UL );
+  fd_chainer_block_t * v1 = block_at( chainer, 31UL, 1UL );
   FD_TEST( v1 && v1!=v0 );
   FD_TEST( fd_chainer_slot_version_query( chainer, 31UL, &bidY )==v1 );
   FD_TEST( fd_hash_eq( &v1->block_id, &bidY ) );
@@ -536,7 +536,7 @@ test_notar_fallback_in_flight( fd_wksp_t * wksp ) {
   FD_TEST( v1->parent_slot     ==AG_UNKNOWN_SLOT );
   FD_TEST( !v1->connected );
   FD_TEST( v1->parent_slot==AG_UNKNOWN_SLOT ); /* ancestry still unknown */
-  FD_TEST( slotv_shred_cnt( chainer, v1 )==0UL );
+  FD_TEST( block_shred_cnt( chainer, v1 )==0UL );
   FD_TEST( !fec_rooted_at( chainer, 31UL, 0U, 1UL ) );
 
   /* version 0 keeps its data but is abandoned: off the worklists, and
@@ -549,11 +549,11 @@ test_notar_fallback_in_flight( fd_wksp_t * wksp ) {
 
   /* a repeat of the same cert is a no-op -- no third version */
 
-  ulong slotv_free = fd_slotv_pool_free( slotv_pool );
+  ulong block_free = fd_block_pool_free( block_pool );
   fd_chainer_verified_block_insert( chainer, 31UL, bidY );
   FD_TEST( !fd_chainer_verify( chainer ) );
-  FD_TEST( fd_slotv_pool_free( slotv_pool )==slotv_free );
-  FD_TEST( !slotv_at( chainer, 31UL, 2UL ) );
+  FD_TEST( fd_block_pool_free( block_pool )==block_free );
+  FD_TEST( !block_at( chainer, 31UL, 2UL ) );
 
   FD_TEST( !fd_chainer_verify( chainer ) );
   teardown( chainer );
@@ -577,7 +577,7 @@ test_sentinel_before_turbine( fd_wksp_t * wksp ) {
   /* turbine has set 0 of slot 41 only */
 
   FD_TEST( !feed_fec( chainer, 41UL, 0U, 0, &r0, 40UL, &bid0 ) );
-  fd_chainer_slotv_t * v0 = slotv_at( chainer, 41UL, 0UL );
+  fd_chainer_block_t * v0 = block_at( chainer, 41UL, 0UL );
   FD_TEST( v0->buffered_idx==31U && v0->buffered_fec_idx==31U );
 
   /* a notar-fallback cert arrives, and its getFecRoot response for set 1
@@ -594,7 +594,7 @@ test_sentinel_before_turbine( fd_wksp_t * wksp ) {
   fd_chainer_verified_hash_insert( chainer, 41UL, &bidZ, 32U, mr.uc );
   FD_TEST( !fd_chainer_verify( chainer ) );
 
-  fd_chainer_slotv_t * v1 = slotv_at( chainer, 41UL, 1UL );
+  fd_chainer_block_t * v1 = block_at( chainer, 41UL, 1UL );
   FD_TEST( v1 && v1->complete_idx==63U );
   fd_chainer_fec_t * v1f1 = fec_at( chainer, 41UL, 32U, 1UL );
   FD_TEST( v1f1 && !v1f1->complete && fd_hash_eq( &v1f1->merkle_root, &r1 ) );
@@ -644,7 +644,7 @@ test_turbine_shred_after_notar_fallback( fd_wksp_t * wksp ) {
   fd_hash_t r1 = mkhash( 2UL );
 
   FD_TEST( !feed_fec( chainer, 51UL, 0U, 0, &r0, 50UL, &bid0 ) );
-  fd_chainer_slotv_t * v0 = slotv_at( chainer, 51UL, 0UL );
+  fd_chainer_block_t * v0 = block_at( chainer, 51UL, 0UL );
   FD_TEST( v0->buffered_idx==31U );
 
   /* notar-fallback cert -> version 1 exists, but no getFecRoot response
@@ -653,7 +653,7 @@ test_turbine_shred_after_notar_fallback( fd_wksp_t * wksp ) {
   fd_hash_t bidY = mkhash( 200UL );
   fd_chainer_verified_block_insert( chainer, 51UL, bidY );
   FD_TEST( !fd_chainer_verify( chainer ) );
-  FD_TEST( slotv_at( chainer, 51UL, 1UL ) );
+  FD_TEST( block_at( chainer, 51UL, 1UL ) );
   ulong fec_used = fd_fec_pool_used( chainer->fec_pool );
 
   /* turbine delivers set 1 of the honest block */
@@ -683,7 +683,7 @@ test_turbine_shred_after_notar_fallback( fd_wksp_t * wksp ) {
   fd_chainer_verified_hash_insert( chainer, 51UL, &bidY, 0U, r0.uc );
   fd_chainer_verified_hash_insert( chainer, 51UL, &bidY, 32U, r1.uc );
   FD_TEST( !feed_fec( chainer, 51UL, 32U, 1, &r1, AG_UNKNOWN_SLOT, NULL ) );
-  fd_chainer_slotv_t * v1 = fd_chainer_slot_version_query( chainer, 51UL, &bidY );
+  fd_chainer_block_t * v1 = fd_chainer_slot_version_query( chainer, 51UL, &bidY );
   FD_TEST( v1->delivered_idx==63U && !has_work( chainer, v1 ) );
   FD_TEST( !has_work( chainer, v0 ) && !fec_at( chainer, 51UL, 32U, 0UL ) );
   out_rec_t named[] = { { 51UL, 0U, r0 }, { 51UL, 32U, r1 } };
@@ -700,10 +700,10 @@ test_turbine_shred_after_notar_fallback( fd_wksp_t * wksp ) {
 static void
 test_publish( fd_wksp_t * wksp ) {
   fd_chainer_t * chainer = setup( wksp );
-  fd_chainer_slotv_t * slotv_pool = chainer->slotv_pool;
+  fd_chainer_block_t * block_pool = chainer->block_pool;
   fd_chainer_fec_t   * fec_pool   = chainer->fec_pool;
 
-  ulong slotv_free0 = fd_slotv_pool_free( slotv_pool );
+  ulong block_free0 = fd_block_pool_free( block_pool );
   ulong fec_free0   = fd_fec_pool_free  ( fec_pool   );
 
   fd_hash_t bid0 = mkhash( 100UL );
@@ -715,7 +715,7 @@ test_publish( fd_wksp_t * wksp ) {
   fd_hash_t r1 = mkhash( 2UL );
   FD_TEST( !feed_fec( chainer, 61UL, 0U,  0, &r0, 60UL,            &bid0 ) );
   FD_TEST( !feed_fec( chainer, 61UL, 32U, 1, &r1, AG_UNKNOWN_SLOT, NULL  ) );
-  fd_hash_t bid61 = slotv_at( chainer, 61UL, 0UL )->block_id;
+  fd_hash_t bid61 = block_at( chainer, 61UL, 0UL )->block_id;
   FD_TEST( !fd_hash_check_zero( &bid61 ) );
 
   /* slot 62: two FEC sets, chained to 61 */
@@ -724,10 +724,10 @@ test_publish( fd_wksp_t * wksp ) {
   fd_hash_t r3 = mkhash( 4UL );
   FD_TEST( !feed_fec( chainer, 62UL, 0U,  0, &r2, 61UL,            &bid61 ) );
   FD_TEST( !feed_fec( chainer, 62UL, 32U, 1, &r3, AG_UNKNOWN_SLOT, NULL   ) );
-  FD_TEST( slotv_at( chainer, 62UL, 0UL )->delivered_idx==63U ); /* chain delivered */
+  FD_TEST( block_at( chainer, 62UL, 0UL )->delivered_idx==63U ); /* chain delivered */
   FD_TEST( fd_chainer_highest_repaired_slot( chainer )==62UL );
 
-  FD_TEST( fd_slotv_pool_free( slotv_pool )==slotv_free0-3UL ); /* 60, 61, 62 */
+  FD_TEST( fd_block_pool_free( block_pool )==block_free0-3UL ); /* 60, 61, 62 */
   FD_TEST( fd_fec_pool_free  ( fec_pool   )==fec_free0  -4UL ); /* 4 FEC sets */
 
   /* drain the out queue */
@@ -738,22 +738,22 @@ test_publish( fd_wksp_t * wksp ) {
   FD_TEST( !fd_chainer_verify( chainer ) );
 
   FD_TEST( chainer->root==62UL );
-  FD_TEST( !slotv_at( chainer, 60UL, 0UL ) );
-  FD_TEST( !slotv_at( chainer, 61UL, 0UL ) );
+  FD_TEST( !block_at( chainer, 60UL, 0UL ) );
+  FD_TEST( !block_at( chainer, 61UL, 0UL ) );
   FD_TEST( !fd_chainer_slot_query( chainer, 61UL ) );
   FD_TEST( !fec_rooted_at( chainer, 61UL, 0U,  0UL ) );
   FD_TEST( !fec_rooted_at( chainer, 61UL, 32U, 0UL ) );
 
-  fd_chainer_slotv_t * s62 = slotv_at( chainer, 62UL, 0UL );
+  fd_chainer_block_t * s62 = block_at( chainer, 62UL, 0UL );
   FD_TEST( s62 && s62->connected );
   /* the rooted slot's FEC data is never needed again, so publish releases
-     it and clears the slotv's fec[] */
+     it and clears the block's fec[] */
   FD_TEST( !fec_rooted_at( chainer, 62UL, 0U,  0UL ) );
   FD_TEST( !fec_rooted_at( chainer, 62UL, 32U, 0UL ) );
 
-  /* no leaks: only slot 62's slotv survives; every FEC set is released */
+  /* no leaks: only slot 62's block survives; every FEC set is released */
 
-  FD_TEST( fd_slotv_pool_free( slotv_pool )==slotv_free0-1UL );
+  FD_TEST( fd_block_pool_free( block_pool )==block_free0-1UL );
   FD_TEST( fd_fec_pool_free  ( fec_pool   )==fec_free0        );
 
   FD_TEST( !fd_chainer_verify( chainer ) );
@@ -766,10 +766,10 @@ test_publish( fd_wksp_t * wksp ) {
 static void
 test_publish_large_block( fd_wksp_t * wksp ) {
   fd_chainer_t * chainer = setup( wksp );
-  fd_chainer_slotv_t * slotv_pool = chainer->slotv_pool;
+  fd_chainer_block_t * block_pool = chainer->block_pool;
   fd_chainer_fec_t   * fec_pool   = chainer->fec_pool;
 
-  ulong slotv_free0 = fd_slotv_pool_free( slotv_pool );
+  ulong block_free0 = fd_block_pool_free( block_pool );
   ulong fec_free0   = fd_fec_pool_free  ( fec_pool   );
 
   fd_hash_t bid0 = mkhash( 100UL );
@@ -783,7 +783,7 @@ test_publish_large_block( fd_wksp_t * wksp ) {
     FD_TEST( !feed_fec( chainer, 71UL, (uint)( f*FD_FEC_SHRED_CNT ), f==fec_set_cnt-1UL, &r,
                         f ? AG_UNKNOWN_SLOT : 70UL, f ? NULL : &bid0 ) );
   }
-  fd_chainer_slotv_t * s71 = slotv_at( chainer, 71UL, 0UL );
+  fd_chainer_block_t * s71 = block_at( chainer, 71UL, 0UL );
   FD_TEST( s71->complete_idx==2047U && s71->buffered_idx==2047U && s71->delivered_idx==2047U );
   FD_TEST( !fd_hash_check_zero( &s71->block_id ) );
   fd_hash_t bid71 = s71->block_id;
@@ -793,7 +793,7 @@ test_publish_large_block( fd_wksp_t * wksp ) {
   fd_hash_t r = mkhash( 2000UL );
   FD_TEST( !feed_fec( chainer, 72UL, 0U, 1, &r, 71UL, &bid71 ) );
 
-  FD_TEST( fd_slotv_pool_free( slotv_pool )==slotv_free0-3UL );             /* 70, 71, 72 */
+  FD_TEST( fd_block_pool_free( block_pool )==block_free0-3UL );             /* 70, 71, 72 */
   FD_TEST( fd_fec_pool_free  ( fec_pool   )==fec_free0-fec_set_cnt-1UL );   /* 64 + 1 */
 
   /* drain the out queue */
@@ -802,9 +802,9 @@ test_publish_large_block( fd_wksp_t * wksp ) {
   fd_chainer_publish( chainer, 72UL, NULL, NULL );
 
   FD_TEST( chainer->root==72UL );
-  FD_TEST( !slotv_at( chainer, 70UL, 0UL ) );
-  FD_TEST( !slotv_at( chainer, 71UL, 0UL ) );
-  FD_TEST( fd_slotv_pool_free( slotv_pool )==slotv_free0-1UL ); /* slotvs do not leak */
+  FD_TEST( !block_at( chainer, 70UL, 0UL ) );
+  FD_TEST( !block_at( chainer, 71UL, 0UL ) );
+  FD_TEST( fd_block_pool_free( block_pool )==block_free0-1UL ); /* blocks do not leak */
   FD_TEST( !fec_rooted_at( chainer, 71UL, 0U, 0UL ) );
 
   /* Nothing leaks above the old 1024-shred clamp: publish releases a
@@ -829,10 +829,10 @@ test_publish_large_block( fd_wksp_t * wksp ) {
 static void
 test_publish_noncanonical_v0( fd_wksp_t * wksp ) {
   fd_chainer_t * chainer = setup( wksp );
-  fd_chainer_slotv_t * slotv_pool = chainer->slotv_pool;
+  fd_chainer_block_t * block_pool = chainer->block_pool;
   fd_chainer_fec_t   * fec_pool   = chainer->fec_pool;
 
-  ulong slotv_free0 = fd_slotv_pool_free( slotv_pool );
+  ulong block_free0 = fd_block_pool_free( block_pool );
   ulong fec_free0   = fd_fec_pool_free  ( fec_pool   );
 
   fd_hash_t bid0 = mkhash( 100UL );
@@ -850,7 +850,7 @@ test_publish_noncanonical_v0( fd_wksp_t * wksp ) {
   fd_hash_t bidX = mkhash( 200UL );
   fd_chainer_verified_block_insert( chainer, 61UL, bidX );
   FD_TEST( !fd_chainer_verify( chainer ) );
-  fd_chainer_slotv_t * v1 = slotv_at( chainer, 61UL, 1UL );
+  fd_chainer_block_t * v1 = block_at( chainer, 61UL, 1UL );
   FD_TEST( v1 );
 
   /* root the notar-fallback version: v0 is non-canonical and gets
@@ -863,28 +863,28 @@ test_publish_noncanonical_v0( fd_wksp_t * wksp ) {
 
   FD_TEST( chainer->root==61UL );
   FD_TEST( fd_chainer_slot_version_query( chainer, 61UL, &bidX )==v1 ); /* canonical survives */
-  FD_TEST( slotv_at( chainer, 61UL, 0UL )==v1 ); /* the sole surviving version */
-  FD_TEST( !slotv_at( chainer, 61UL, 1UL ) );    /* turbine was pruned */
+  FD_TEST( block_at( chainer, 61UL, 0UL )==v1 ); /* the sole surviving version */
+  FD_TEST( !block_at( chainer, 61UL, 1UL ) );    /* turbine was pruned */
   FD_TEST( v1->connected );
 
   FD_TEST( !fec_rooted_at( chainer, 61UL, 0U,  0UL ) );
   FD_TEST( !fec_rooted_at( chainer, 61UL, 32U, 0UL ) );
-  FD_TEST( fd_slotv_pool_free( slotv_pool )==slotv_free0-1UL ); /* only v1 of 61 */
+  FD_TEST( fd_block_pool_free( block_pool )==block_free0-1UL ); /* only v1 of 61 */
   FD_TEST( fd_fec_pool_free  ( fec_pool   )==fec_free0        ); /* all FECs released */
 
   /* slot 62 chains to the v0-less root, then publishes over it */
 
   fd_hash_t r2 = mkhash( 3UL );
   FD_TEST( !feed_fec( chainer, 62UL, 0U, 1, &r2, 61UL, &bidX ) );
-  FD_TEST( slotv_at( chainer, 62UL, 0UL )->connected );
+  FD_TEST( block_at( chainer, 62UL, 0UL )->connected );
 
   while( !out_queue_empty( out_queue ) ) { out_queue_pop_head( out_queue ); }
   fd_chainer_publish( chainer, 62UL, NULL, NULL );
   FD_TEST( !fd_chainer_verify( chainer ) );
 
   FD_TEST( chainer->root==62UL );
-  FD_TEST( !slotv_at( chainer, 61UL, 1UL ) );
-  FD_TEST( fd_slotv_pool_free( slotv_pool )==slotv_free0-1UL ); /* only 62's v0 */
+  FD_TEST( !block_at( chainer, 61UL, 1UL ) );
+  FD_TEST( fd_block_pool_free( block_pool )==block_free0-1UL ); /* only 62's v0 */
   FD_TEST( fd_fec_pool_free  ( fec_pool   )==fec_free0        ); /* rooted slot's FEC released too */
 
   teardown( chainer );
@@ -903,17 +903,17 @@ test_versions_full( fd_wksp_t * wksp ) {
 
   fd_hash_t r0 = mkhash( 1UL );
   FD_TEST( !feed_fec( chainer, 81UL, 0U, 0, &r0, 80UL, &bid0 ) ); /* version 0 */
-  FD_TEST( slotv_at( chainer, 81UL, 0UL ) );
+  FD_TEST( block_at( chainer, 81UL, 0UL ) );
 
   for( ulong v=1UL; v<FD_CHAINER_SLOT_VER_MAX; v++ ) {
     fd_hash_t bid = mkhash( 200UL+v );
     fd_chainer_verified_block_insert( chainer, 81UL, bid );
     FD_TEST( !fd_chainer_verify( chainer ) );
 
-    fd_chainer_slotv_t * slotv = slotv_at( chainer, 81UL, v );
-    FD_TEST( slotv );
-    FD_TEST( fd_hash_eq( &slotv->block_id, &bid ) );
-    FD_TEST( fd_chainer_slot_version_query( chainer, 81UL, &bid )==slotv ); /* dense scan finds it */
+    fd_chainer_block_t * block = block_at( chainer, 81UL, v );
+    FD_TEST( block );
+    FD_TEST( fd_hash_eq( &block->block_id, &bid ) );
+    FD_TEST( fd_chainer_slot_version_query( chainer, 81UL, &bid )==block ); /* dense scan finds it */
   }
 
   FD_TEST( !fd_chainer_verify( chainer ) );
@@ -951,7 +951,7 @@ test_prefix_key( fd_wksp_t * wksp ) {
   fd_chainer_verified_hash_insert( chainer, 41UL, &bidZ, 32U, p1.uc );
   FD_TEST( !fd_chainer_verify( chainer ) );
 
-  fd_chainer_slotv_t * vZ = fd_chainer_slot_version_query( chainer, 41UL, &bidZ );
+  fd_chainer_block_t * vZ = fd_chainer_slot_version_query( chainer, 41UL, &bidZ );
   fd_chainer_fec_t *   s0 = fd_chainer_fec_query( chainer, 41UL, 0U,  &bidZ );
   fd_chainer_fec_t *   s1 = fd_chainer_fec_query( chainer, 41UL, 32U, &bidZ );
   FD_TEST( vZ && s0 && s1 );
@@ -976,7 +976,7 @@ test_prefix_key( fd_wksp_t * wksp ) {
   FD_TEST( !fd_chainer_shred_test( chainer, vZ, 36U ) );
   FD_TEST( vZ->buffered_idx==31U );
   FD_TEST( fd_fec_pool_used( chainer->fec_pool )==fec_used );
-  FD_TEST( !fd_chainer_turbine_slotv_query( chainer, 41UL ) );
+  FD_TEST( !fd_chainer_turbine_block_query( chainer, 41UL ) );
 
   /* Case 2: a second notar-fallback version learns set 0 by prefix
      after the full root is already held.  The padded root finds the
@@ -990,7 +990,7 @@ test_prefix_key( fd_wksp_t * wksp ) {
   fd_chainer_verified_hash_insert( chainer, 41UL, &bidY, 0U, p0.uc );
   FD_TEST( !fd_chainer_verify( chainer ) );
 
-  fd_chainer_slotv_t * vY = fd_chainer_slot_version_query( chainer, 41UL, &bidY );
+  fd_chainer_block_t * vY = fd_chainer_slot_version_query( chainer, 41UL, &bidY );
   FD_TEST( vY );
   /* Y holds its own entry for the set, not Z's, but it carries the
      same root and adopts the completion Z already drove. */
@@ -1029,7 +1029,7 @@ test_equivocation_drop( fd_wksp_t * wksp ) {
   fd_hash_t r0dup = mkhash( 2UL );
   FD_TEST( !feed_fec( chainer, 91UL, 0U, 0, &r0, 90UL, &bid0 ) );
 
-  fd_chainer_slotv_t * v0 = slotv_at( chainer, 91UL, 0UL );
+  fd_chainer_block_t * v0 = block_at( chainer, 91UL, 0UL );
   ulong fec_free = fd_fec_pool_free( fec_pool );
 
   /* a different root for the same FEC set, with no sentinel authorizing
@@ -1041,7 +1041,7 @@ test_equivocation_drop( fd_wksp_t * wksp ) {
   FD_TEST( fd_hash_eq( &fec_at( chainer, 91UL, 0U, 0UL )->merkle_root, &r0 ) );
   FD_TEST( !fec_rooted_at( chainer, 91UL, 0U, 1UL ) );
   FD_TEST( v0->buffered_idx==31U );
-  FD_TEST( slotv_shred_cnt( chainer, v0 )==32UL );
+  FD_TEST( block_shred_cnt( chainer, v0 )==32UL );
 
   /* a duplicate completion of the same root is idempotent */
 
@@ -1061,8 +1061,8 @@ test_equivocation_drop( fd_wksp_t * wksp ) {
 static void
 test_verify_detects( fd_wksp_t * wksp ) {
   fd_chainer_t * chainer = setup( wksp );
-  fd_chainer_slotv_t     * slotv_pool = chainer->slotv_pool;
-  fd_slotv_map_t * slotv_map  = chainer->slotv_map;
+  fd_chainer_block_t     * block_pool = chainer->block_pool;
+  fd_block_map_t * block_map  = chainer->block_map;
 
   FD_TEST( fd_chainer_verify( NULL ) );
 
@@ -1074,7 +1074,7 @@ test_verify_detects( fd_wksp_t * wksp ) {
   FD_TEST( !feed_fec( chainer, 111UL, 0U,  0, &r0, 110UL,           &bid0 ) );
   FD_TEST( !feed_fec( chainer, 111UL, 32U, 1, &r1, AG_UNKNOWN_SLOT, NULL  ) );
 
-  fd_chainer_slotv_t * s = slotv_at( chainer, 111UL, 0UL );
+  fd_chainer_block_t * s = block_at( chainer, 111UL, 0UL );
   FD_TEST( s->complete_idx==63U );
 
   /* header */
@@ -1101,21 +1101,21 @@ test_verify_detects( fd_wksp_t * wksp ) {
   fd_chainer_verified_block_insert( chainer, 111UL, bidB );
   FD_TEST( !fd_chainer_verify( chainer ) );
 
-  fd_chainer_slotv_t * v1 = fd_chainer_slot_version_query( chainer, 111UL, &bidA );
+  fd_chainer_block_t * v1 = fd_chainer_slot_version_query( chainer, 111UL, &bidA );
   FD_TEST( v1 && fd_chainer_slot_version_query( chainer, 111UL, &bidB ) );
 
-  FD_TEST( fd_slotv_map_ele_remove_fast( slotv_map, v1, slotv_pool )==v1 );
+  FD_TEST( fd_block_map_ele_remove_fast( block_map, v1, block_pool )==v1 );
   FD_TEST( !fd_chainer_verify( chainer ) ); /* a hole at a version is not a defect */
 
-  fd_slotv_map_ele_insert( slotv_map, v1, slotv_pool );
+  fd_block_map_ele_insert( block_map, v1, block_pool );
   FD_TEST( !fd_chainer_verify( chainer ) );
 
   /* a slot's FECs must be owned by some version present in the map;
      removing the version that owns them leaves them claimed by nobody. */
 
-  FD_TEST( fd_slotv_map_ele_remove_fast( slotv_map, s, slotv_pool )==s );
+  FD_TEST( fd_block_map_ele_remove_fast( block_map, s, block_pool )==s );
   FD_TEST( fd_chainer_verify( chainer ) );
-  fd_slotv_map_ele_insert( slotv_map, s, slotv_pool );
+  fd_block_map_ele_insert( block_map, s, block_pool );
   FD_TEST( !fd_chainer_verify( chainer ) );
 
   teardown( chainer );
@@ -1233,7 +1233,7 @@ test_output_order_out_of_order( fd_wksp_t * wksp ) {
   mr = D1; fd_chainer_verified_hash_insert( chainer, 61UL, &bidX, 96U, mr.uc );
 
   /* the shared prefix (0,32) delivered when its roots were recorded */
-  fd_chainer_slotv_t * v1 = slotv_at( chainer, 61UL, 1UL );
+  fd_chainer_block_t * v1 = block_at( chainer, 61UL, 1UL );
   FD_TEST( v1->delivered_idx==63U );
 
   /* OUT OF ORDER: repair fills set 96 before set 64.  Set 64 is still a
@@ -1271,20 +1271,20 @@ test_shred_limit( fd_wksp_t * wksp ) {
   /* the last legal position is accepted */
   fd_hash_t rL = mkhash( 2UL );
   FD_TEST( !feed_fec( chainer, 11UL, shred_max-(uint)FD_FEC_SHRED_CNT, 1, &rL, 10UL, &bid0 ) );
-  fd_chainer_slotv_t * v0 = slotv_at( chainer, 11UL, 0UL );
+  fd_chainer_block_t * v0 = block_at( chainer, 11UL, 0UL );
   FD_TEST( v0 && v0->complete_idx==shred_max-1U );
   FD_TEST(  fd_chainer_shred_test( chainer, v0, shred_max-1U ) );
   FD_TEST( !fd_chainer_shred_test( chainer, v0, shred_max    ) ); /* beyond the limit: never present */
   FD_TEST( !fd_chainer_shred_test( chainer, v0, UINT_MAX     ) );
-  FD_TEST( slotv_shred_cnt( chainer, v0 )==FD_FEC_SHRED_CNT );
+  FD_TEST( block_shred_cnt( chainer, v0 )==FD_FEC_SHRED_CNT );
   FD_TEST( !fd_chainer_fec_query( chainer, 11UL, shred_max, &v0->block_id ) );
   FD_TEST( !fd_chainer_verify( chainer ) );
-  FD_TEST( slotv_shred_cnt( chainer, v0 )==FD_FEC_SHRED_CNT );
+  FD_TEST( block_shred_cnt( chainer, v0 )==FD_FEC_SHRED_CNT );
 
   /* a getParentAndFecCount naming exactly the limit connects the version */
   fd_hash_t bidX = mkhash( 200UL );
   fd_chainer_verified_block_insert( chainer, 11UL, bidX );
-  fd_chainer_slotv_t * v1 = fd_chainer_slot_version_query( chainer, 11UL, &bidX );
+  fd_chainer_block_t * v1 = fd_chainer_slot_version_query( chainer, 11UL, &bidX );
   FD_TEST( v1 && v1->complete_idx==UINT_MAX && v1->parent_slot==AG_UNKNOWN_SLOT );
   fd_chainer_verified_parent_fec_count( chainer, 11UL, &bidX, (uint)FD_FEC_BLK_MAX, 10UL, &bid0 );
   FD_TEST( fd_chainer_slot_version_query( chainer, 10UL, &bid0 ) ); /* returns the parent version */
@@ -1302,9 +1302,9 @@ test_shred_limit( fd_wksp_t * wksp ) {
 static void
 test_bench_shred_limit( fd_wksp_t * wksp ) {
   fd_chainer_t * chainer = setup_sized( wksp, 8UL, BENCH_SHRED_MAX );
-  fd_chainer_slotv_t * slotv_pool = chainer->slotv_pool;
+  fd_chainer_block_t * block_pool = chainer->block_pool;
   fd_chainer_fec_t   * fec_pool   = chainer->fec_pool;
-  ulong slotv_free0 = fd_slotv_pool_free( slotv_pool );
+  ulong block_free0 = fd_block_pool_free( block_pool );
   ulong fec_free0   = fd_fec_pool_free  ( fec_pool   );
 
   uint const shred_max = (uint)BENCH_SHRED_MAX;
@@ -1319,9 +1319,9 @@ test_bench_shred_limit( fd_wksp_t * wksp ) {
   fd_hash_t rA = mkhash( 2UL );
   FD_TEST( !feed_fec( chainer, 11UL, 0U,   0, &r0, 10UL,            &bid0 ) );
   FD_TEST( !feed_fec( chainer, 11UL, last, 1, &rA, AG_UNKNOWN_SLOT, NULL  ) );
-  fd_chainer_slotv_t * v0 = slotv_at( chainer, 11UL, 0UL );
+  fd_chainer_block_t * v0 = block_at( chainer, 11UL, 0UL );
   FD_TEST( v0->complete_idx==shred_max-1U && v0->buffered_idx==31U );
-  FD_TEST( slotv_shred_cnt( chainer, v0 )==2UL*FD_FEC_SHRED_CNT );
+  FD_TEST( block_shred_cnt( chainer, v0 )==2UL*FD_FEC_SHRED_CNT );
   for( uint i=last; i<shred_max; i++ ) FD_TEST( fd_chainer_shred_test( chainer, v0, i ) );
   FD_TEST( !fd_chainer_shred_test( chainer, v0, shred_max ) );
   FD_TEST( fd_hash_eq( &fec_at( chainer, 11UL, last, 0UL )->merkle_root, &rA ) );
@@ -1337,15 +1337,15 @@ test_bench_shred_limit( fd_wksp_t * wksp ) {
   mr = r0; fd_chainer_verified_hash_insert( chainer, 11UL, &bidX, 0U,   mr.uc );
   mr = rB; fd_chainer_verified_hash_insert( chainer, 11UL, &bidX, last, mr.uc );
   FD_TEST( !fd_chainer_verify( chainer ) );
-  fd_chainer_slotv_t * v1 = slotv_at( chainer, 11UL, 1UL );
+  fd_chainer_block_t * v1 = block_at( chainer, 11UL, 1UL );
   FD_TEST( v1->complete_idx==shred_max-1U && v1->delivered_idx==31U );
   FD_TEST( !feed_fec( chainer, 11UL, last, 1, &rB, AG_UNKNOWN_SLOT, NULL ) );
   FD_TEST( fd_hash_eq( &fec_at( chainer, 11UL, last, 0UL )->merkle_root, &rA ) );
   FD_TEST( fd_hash_eq( &fec_at( chainer, 11UL, last, 1UL )->merkle_root, &rB ) );
-  FD_TEST( fd_chainer_slotv_fecs( chainer, v0 )[ last/FD_FEC_SHRED_CNT ]!=fd_chainer_slotv_fecs( chainer, v1 )[ last/FD_FEC_SHRED_CNT ] );
+  FD_TEST( fd_chainer_block_fecs( chainer, v0 )[ last/FD_FEC_SHRED_CNT ]!=fd_chainer_block_fecs( chainer, v1 )[ last/FD_FEC_SHRED_CNT ] );
   /* entries are private, so the versions hold distinct elements for
      the set they share -- same root, different pool index */
-  FD_TEST( fd_chainer_slotv_fecs( chainer, v0 )[ 0 ]!=fd_chainer_slotv_fecs( chainer, v1 )[ 0 ] );
+  FD_TEST( fd_chainer_block_fecs( chainer, v0 )[ 0 ]!=fd_chainer_block_fecs( chainer, v1 )[ 0 ] );
   FD_TEST( fd_hash_eq( &fec_at( chainer, 11UL, 0U, 0UL )->merkle_root, &fec_at( chainer, 11UL, 0U, 1UL )->merkle_root ) );
   for( uint i=last; i<shred_max; i++ ) FD_TEST( fd_chainer_shred_test( chainer, v1, i ) );
   FD_TEST( !fd_chainer_verify( chainer ) );
@@ -1363,7 +1363,7 @@ test_bench_shred_limit( fd_wksp_t * wksp ) {
   fd_chainer_publish( chainer, 12UL, NULL, NULL );
   FD_TEST( !fd_chainer_verify( chainer ) );
   FD_TEST( !fd_chainer_slot_query( chainer, 11UL ) );
-  FD_TEST( fd_slotv_pool_free( slotv_pool )==slotv_free0-1UL );
+  FD_TEST( fd_block_pool_free( block_pool )==block_free0-1UL );
   FD_TEST( fd_fec_pool_free  ( fec_pool   )==fec_free0        );
 
   teardown( chainer );
@@ -1387,7 +1387,7 @@ test_token_release_on_delivery( fd_wksp_t * wksp ) {
   fd_chainer_verified_hash_insert( chainer, 11UL, &parent_id, 0U,  p0.uc );
   fd_chainer_verified_hash_insert( chainer, 11UL, &parent_id, 32U, p1.uc );
   FD_TEST( !feed_fec( chainer, 11UL, 0U, 0, &p0, 10UL, &root ) );
-  fd_chainer_slotv_t * parent = fd_chainer_slot_version_query( chainer, 11UL, &parent_id );
+  fd_chainer_block_t * parent = fd_chainer_slot_version_query( chainer, 11UL, &parent_id );
   fd_chainer_fec_t * parent_token = fd_chainer_fec_query( chainer, 11UL, 0U, &parent_id );
   FD_TEST( parent->delivered_idx==31U && parent_token->treap );
   out_rec_t parent_prefix[] = { { 11UL, 0U, p0 } };
@@ -1399,7 +1399,7 @@ test_token_release_on_delivery( fd_wksp_t * wksp ) {
   fd_chainer_verified_hash_insert( chainer, 12UL, &child_id, 32U, c1.uc );
   fd_chainer_verified_hash_insert( chainer, 12UL, &child_id, 64U, c2.uc );
   FD_TEST( !feed_fec( chainer, 12UL, 0U, 0, &c0, 11UL, &parent_id ) );
-  fd_chainer_slotv_t * child = fd_chainer_slot_version_query( chainer, 12UL, &child_id );
+  fd_chainer_block_t * child = fd_chainer_slot_version_query( chainer, 12UL, &child_id );
   fd_chainer_fec_t * child_token = fd_chainer_fec_query( chainer, 12UL, 0U, &child_id );
   FD_TEST( child->connected && child->delivered_idx==UINT_MAX && child_token->treap );
 
@@ -1440,14 +1440,14 @@ test_shred_admission( fd_wksp_t * wksp ) {
   fd_hash_t mr = mkhash( 1UL ), eager_mr = mkhash( 2UL ), tail_mr = mkhash( 3UL );
   fd_chainer_init( chainer, 10UL, &root );
   fd_chainer_verified_block_insert( chainer, 11UL, bid );
-  fd_chainer_slotv_t * named = fd_chainer_slot_version_query( chainer, 11UL, &bid );
-  FD_TEST( named && !fd_chainer_turbine_slotv_query( chainer, 11UL ) );
+  fd_chainer_block_t * named = fd_chainer_slot_version_query( chainer, 11UL, &bid );
+  FD_TEST( named && !fd_chainer_turbine_block_query( chainer, 11UL ) );
   ulong fec_used = fd_fec_pool_used( chainer->fec_pool );
-  ulong slotv_used = fd_slotv_pool_used( chainer->slotv_pool );
+  ulong block_used = fd_block_pool_used( chainer->block_pool );
 
   FD_TEST( feed_fec( chainer, 11UL, 64U, 1, &mr, 10UL, &root )==1 );
   FD_TEST( fd_fec_pool_used( chainer->fec_pool )==fec_used );
-  FD_TEST( fd_slotv_pool_used( chainer->slotv_pool )==slotv_used );
+  FD_TEST( fd_block_pool_used( chainer->block_pool )==block_used );
   FD_TEST( named->parent_slot==AG_UNKNOWN_SLOT && named->complete_idx==UINT_MAX );
   FD_TEST( named->buffered_idx==UINT_MAX && !named->metrics.first_shred_ts );
   FD_TEST( !named->metrics.turbine_cnt && !named->metrics.recovered_cnt );
@@ -1468,7 +1468,7 @@ test_shred_admission( fd_wksp_t * wksp ) {
   FD_TEST( feed_fec( chainer, 11UL, 32U, 1, &mr, 10UL, &root )==1 );
   FD_TEST( !fd_chainer_slot_query( chainer, 12UL ) );
   FD_TEST( fd_fec_pool_used( chainer->fec_pool )==fec_used );
-  FD_TEST( fd_slotv_pool_used( chainer->slotv_pool )==slotv_used );
+  FD_TEST( fd_block_pool_used( chainer->block_pool )==block_used );
   FD_TEST( fec->data_idxs==1U && !fec->complete && !fec->slot_complete );
   FD_TEST( named->buffered_idx==0U && named->complete_idx==UINT_MAX );
   FD_TEST( named->metrics.turbine_cnt==1U && !named->metrics.recovered_cnt );
@@ -1479,24 +1479,24 @@ test_shred_admission( fd_wksp_t * wksp ) {
   FD_TEST( named->buffered_idx==31U && named->delivered_idx==31U );
   FD_TEST( named->metrics.recovered_cnt==30U && named->metrics.last_shred_ts==30L );
   FD_TEST( fd_fec_pool_used( chainer->fec_pool )==fec_used );
-  FD_TEST( fd_slotv_pool_used( chainer->slotv_pool )==slotv_used );
-  FD_TEST( !fd_chainer_turbine_slotv_query( chainer, 11UL ) );
+  FD_TEST( fd_block_pool_used( chainer->block_pool )==block_used );
+  FD_TEST( !fd_chainer_turbine_block_query( chainer, 11UL ) );
   out_rec_t named_out[] = { { 11UL, 0U, mr } };
   expect_out( chainer, named_out, 1UL );
 
   /* A new slot can still create turbine state.  Once finalized, it
      accepts known-root duplicates but cannot grow an unknown tail. */
   FD_TEST( !feed_fec( chainer, 13UL, 0U, 1, &eager_mr, 10UL, &root ) );
-  fd_chainer_slotv_t * turbine = fd_chainer_turbine_slotv_query( chainer, 13UL );
+  fd_chainer_block_t * turbine = fd_chainer_turbine_block_query( chainer, 13UL );
   FD_TEST( turbine && !fd_hash_check_zero( &turbine->block_id ) );
   out_rec_t eager_out[] = { { 13UL, 0U, eager_mr } };
   expect_out( chainer, eager_out, 1UL );
   fec_used = fd_fec_pool_used( chainer->fec_pool );
-  slotv_used = fd_slotv_pool_used( chainer->slotv_pool );
+  block_used = fd_block_pool_used( chainer->block_pool );
   FD_TEST( !feed_fec( chainer, 13UL, 0U, 1, &eager_mr, 10UL, &root ) );
   FD_TEST( feed_fec( chainer, 13UL, 32U, 1, &tail_mr, AG_UNKNOWN_SLOT, NULL )==1 );
   FD_TEST( fd_fec_pool_used( chainer->fec_pool )==fec_used );
-  FD_TEST( fd_slotv_pool_used( chainer->slotv_pool )==slotv_used );
+  FD_TEST( fd_block_pool_used( chainer->block_pool )==block_used );
   FD_TEST( turbine->complete_idx==31U && turbine->delivered_idx==31U && !has_work( chainer, turbine ) );
   FD_TEST( out_queue_empty( chainer->out_queue ) );
   FD_TEST( !fd_chainer_verify( chainer ) );
@@ -1524,19 +1524,19 @@ test_parent_admission( fd_wksp_t * wksp ) {
 
   fd_hash_t mr_parent = mkhash( 400UL ), mr_child = mkhash( 401UL );
   fd_chainer_shred_insert( chainer, 15UL, 0U, 0, FD_CHAINER_SRC_TURBINE, 1L, &mr_parent, 10UL, &root );
-  fd_chainer_slotv_t * turbine = fd_chainer_turbine_slotv_query( chainer, 15UL );
+  fd_chainer_block_t * turbine = fd_chainer_turbine_block_query( chainer, 15UL );
   FD_TEST( turbine );
   fd_chainer_shred_insert( chainer, 25UL, 0U, 0, FD_CHAINER_SRC_TURBINE, 1L, &mr_child, 15UL, &parent );
-  fd_chainer_slotv_t * ancestor = fd_chainer_slot_version_query( chainer, 15UL, &parent );
+  fd_chainer_block_t * ancestor = fd_chainer_slot_version_query( chainer, 15UL, &parent );
   FD_TEST( ancestor && ancestor!=turbine );
   FD_TEST( fd_hash_check_zero( &turbine->block_id ) && !has_work( chainer, turbine ) );
   fd_chainer_fec_t * fec0 = fd_chainer_fec_query( chainer, 15UL, 0U, &parent );
   FD_TEST( fec0 && fec0->treap );
   FD_TEST( !fd_chainer_verify( chainer ) );
 
-  ulong free_cnt = fd_slotv_pool_free( chainer->slotv_pool );
+  ulong free_cnt = fd_block_pool_free( chainer->block_pool );
   fd_chainer_shred_insert( chainer, 25UL, 0U, 0, FD_CHAINER_SRC_TURBINE, 2L, &mr_child, 15UL, &parent );
-  FD_TEST( fd_slotv_pool_free( chainer->slotv_pool )==free_cnt );
+  FD_TEST( fd_block_pool_free( chainer->block_pool )==free_cnt );
   FD_TEST( !fd_chainer_verify( chainer ) );
   teardown( chainer );
   FD_LOG_NOTICE(( "pass: parent discovery admission and exact version lookup" ));
@@ -1553,12 +1553,12 @@ test_slot_inval( fd_wksp_t * wksp ) {
   FD_TEST( !fd_chainer_slot_query( chainer, 11UL ) );
   FD_TEST( !feed_fec( chainer, 11UL, 0U, 0, &r0, 10UL, &root ) );
   fd_chainer_shred_insert( chainer, 11UL, 32U, 0, FD_CHAINER_SRC_TURBINE, 1L, &r1, AG_UNKNOWN_SLOT, NULL );
-  fd_chainer_slotv_t * v = fd_chainer_turbine_slotv_query( chainer, 11UL );
+  fd_chainer_block_t * v = fd_chainer_turbine_block_query( chainer, 11UL );
   ulong used = fd_fec_pool_used( chainer->fec_pool );
   FD_TEST( out_queue_cnt( chainer->out_queue )==1UL && has_work( chainer, v ) );
   fd_chainer_slot_inval( chainer, 11UL );
   fd_chainer_slot_inval( chainer, 11UL );
-  FD_TEST( fd_chainer_turbine_slotv_query( chainer, 11UL )==v && !has_work( chainer, v ) );
+  FD_TEST( fd_chainer_turbine_block_query( chainer, 11UL )==v && !has_work( chainer, v ) );
   FD_TEST( fd_fec_pool_used( chainer->fec_pool )==used && out_queue_cnt( chainer->out_queue )==1UL );
   /* Treap removal does not change admission or delivery eligibility. */
   fd_chainer_shred_insert( chainer, 11UL, 64U, 0, FD_CHAINER_SRC_TURBINE, 1L, &r2, AG_UNKNOWN_SLOT, NULL );
@@ -1577,13 +1577,13 @@ test_slot_inval( fd_wksp_t * wksp ) {
   fd_chainer_verified_hash_insert( chainer, 11UL, &bid, 0U, r0.uc );
   fd_chainer_verified_hash_insert( chainer, 11UL, &bid, 32U, r1.uc );
   fd_chainer_verified_hash_insert( chainer, 11UL, &bid, 64U, r2.uc );
-  fd_chainer_slotv_t * named = fd_chainer_slot_version_query( chainer, 11UL, &bid );
+  fd_chainer_block_t * named = fd_chainer_slot_version_query( chainer, 11UL, &bid );
   FD_TEST( named->delivered_idx==95U && v->delivered_idx==95U );
   expect_out( chainer, expected, 3UL );
 
   /* A derived turbine version waiting for its parent is not eager. */
   FD_TEST( !feed_fec( chainer, 13UL, 0U, 1, &r3, 12UL, &bid ) );
-  fd_chainer_slotv_t * complete = fd_chainer_turbine_slotv_query( chainer, 13UL );
+  fd_chainer_block_t * complete = fd_chainer_turbine_block_query( chainer, 13UL );
   FD_TEST( !fd_hash_check_zero( &complete->block_id ) && has_work( chainer, complete ) );
   fd_chainer_slot_inval( chainer, 13UL );
   FD_TEST( has_work( chainer, complete ) );
@@ -1608,7 +1608,7 @@ test_blk_final( fd_wksp_t * wksp ) {
   fd_chainer_verified_parent_fec_count( chainer, 11UL, &loser, 1U, 10UL, &root );
   fd_chainer_verified_hash_insert( chainer, 11UL, &loser, 0U, r2.uc );
   FD_TEST( !fec_complete( chainer, 11UL, 0U, 1, 1, 0, &r2 ) );
-  fd_chainer_slotv_t * final = fd_chainer_slot_version_query( chainer, 11UL, &bid );
+  fd_chainer_block_t * final = fd_chainer_slot_version_query( chainer, 11UL, &bid );
   fd_chainer_fec_t * f0 = fd_chainer_fec_query( chainer, 11UL, 0U, &bid );
   fd_chainer_fec_t * f1 = fd_chainer_fec_query( chainer, 11UL, 32U, &bid );
   FD_TEST( !f0->root && !f1->root && out_queue_cnt( chainer->out_queue )==3UL );
@@ -1621,8 +1621,8 @@ test_blk_final( fd_wksp_t * wksp ) {
   FD_TEST( !fd_store_insert( store, map, &r0, &stored ) );
   FD_TEST( !fd_store_insert( store, map, &r2, &stored ) );
   fd_chainer_blk_final( chainer, 11UL, &bid, store );
-  FD_TEST( final->final && fd_slotv_pool_used( chainer->slotv_pool )==2UL && fd_fec_pool_used( chainer->fec_pool )==2UL );
-  FD_TEST( !fd_chainer_turbine_slotv_query( chainer, 11UL ) && !fd_chainer_slot_version_query( chainer, 11UL, &loser ) );
+  FD_TEST( final->final && fd_block_pool_used( chainer->block_pool )==2UL && fd_fec_pool_used( chainer->fec_pool )==2UL );
+  FD_TEST( !fd_chainer_turbine_block_query( chainer, 11UL ) && !fd_chainer_slot_version_query( chainer, 11UL, &loser ) );
   FD_TEST( f0->root && f0->data_idxs==UINT_MAX && f0->complete && f0->treap );
   FD_TEST( f1->root && f1->data_idxs==1U && !f1->complete && f1->treap );
   FD_TEST( fd_fec_map_ele_query( chainer->fec_map, &r0, NULL, chainer->fec_pool )==f0 );
@@ -1630,7 +1630,7 @@ test_blk_final( fd_wksp_t * wksp ) {
   FD_TEST( !fd_fec_map_ele_query( chainer->fec_map, &r2, NULL, chainer->fec_pool ) );
   FD_TEST( fd_store_query( map, &r0 ) && !fd_store_query( map, &r2 ) );
   FD_TEST( out_queue_cnt( chainer->out_queue )==1UL );
-  FD_TEST( out_queue_peek_head( chainer->out_queue )->slotv_idx==fd_slotv_pool_idx( chainer->slotv_pool, final ) );
+  FD_TEST( out_queue_peek_head( chainer->out_queue )->block_idx==fd_block_pool_idx( chainer->block_pool, final ) );
   out_rec_t prefix[] = { {11UL,0U,r0} };
   expect_out( chainer, prefix, 1UL );
   fd_chainer_blk_final( chainer, 11UL, &bid, store );
@@ -1638,7 +1638,7 @@ test_blk_final( fd_wksp_t * wksp ) {
   FD_TEST( !fd_chainer_verified_block_insert( chainer, 11UL, loser ) );
   fd_chainer_verified_parent_fec_count( chainer, 11UL, &loser, 1U, 10UL, &root );
   fd_chainer_verified_hash_insert( chainer, 11UL, &loser, 0U, r2.uc );
-  FD_TEST( fd_slotv_pool_used( chainer->slotv_pool )==2UL && final->final );
+  FD_TEST( fd_block_pool_used( chainer->block_pool )==2UL && final->final );
   FD_TEST( !fec_complete( chainer, 11UL, 32U, 1, 1, 0, &r1 ) );
   FD_TEST( final->delivered_idx==63U && !has_work( chainer, final ) );
   out_rec_t tail[] = { {11UL,32U,r1} };
@@ -1655,7 +1655,7 @@ test_blk_final( fd_wksp_t * wksp ) {
   for( ulong i=0UL; i<FD_CHAINER_SLOT_VER_MAX; i++ ) fd_chainer_verified_block_insert( chainer, 20UL, mkhash( 200UL+i ) );
   fd_hash_t fresh = mkhash( 300UL );
   fd_chainer_blk_final( chainer, 20UL, &fresh, NULL );
-  fd_chainer_slotv_t * new_final = fd_chainer_slot_version_query( chainer, 20UL, &fresh );
+  fd_chainer_block_t * new_final = fd_chainer_slot_version_query( chainer, 20UL, &fresh );
   FD_TEST( new_final && new_final->final && has_work( chainer, new_final ) );
   FD_TEST( !fd_chainer_slot_version_query( chainer, 20UL, &(fd_hash_t){0} ) );
   FD_TEST( !fd_chainer_verify( chainer ) );

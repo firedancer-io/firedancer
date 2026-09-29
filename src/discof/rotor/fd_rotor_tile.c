@@ -289,7 +289,7 @@ handle_meta_response( ctx_t *      ctx,
       if( FD_UNLIKELY( kind!=AG_REPAIR_KIND_FEC_ROOT ) ) return;
 
       ag_fec_root_res_t * res = &response->fec_set_root;
-      fd_chainer_slotv_t const * v = fd_chainer_slot_version_query( ctx->chainer, slot, &block_id );
+      fd_chainer_block_t const * v = fd_chainer_slot_version_query( ctx->chainer, slot, &block_id );
       if( FD_UNLIKELY( !v ) ) return;
       uint fec_set_count = ( v->complete_idx+1U ) / FD_FEC_SHRED_CNT;
       if( FD_UNLIKELY( ag_repair_fec_set_root_verify( res, &block_id, fec_set_idx, fec_set_count ) ) ) {
@@ -579,9 +579,9 @@ handle_turbine_slot0( ctx_t * ctx,
 
   ulong slot_delta;
   int cf = __builtin_usubl_overflow( slot, ctx->chainer->root, &slot_delta );
-  if( FD_UNLIKELY( cf || slot_delta > fd_slotv_pool_max( ctx->chainer->slotv_pool ) ) ) {
+  if( FD_UNLIKELY( cf || slot_delta > fd_block_pool_max( ctx->chainer->block_pool ) ) ) {
     FD_LOG_ERR(( "Catchup slot distance exceeds the repair buffer: target %lu - snapshot slot %lu > %lu. "
-                 "Restart with a more recent snapshot or increase config rotor.slot_max", slot, ctx->chainer->root, fd_slotv_pool_max( ctx->chainer->slotv_pool ) ));
+                 "Restart with a more recent snapshot or increase config rotor.slot_max", slot, ctx->chainer->root, fd_block_pool_max( ctx->chainer->block_pool ) ));
   }
 
   FD_LOG_NOTICE(( "handle_turbine_slot0: slot %lu", slot ));
@@ -739,7 +739,7 @@ returnable_frag( ctx_t *             ctx,
 static void
 publish_fec( ctx_t *              ctx,
              fd_stem_context_t *  stem,
-             fd_chainer_slotv_t * block,
+             fd_chainer_block_t * block,
              fd_chainer_fec_t *   fec,
              int                  from_root ) {
   fd_hash_t null_hash = {0};
@@ -779,18 +779,18 @@ publish_fec_replay( ctx_t *             ctx,
   if( FD_LIKELY( out_queue_empty( out_queue ) ) ) return 0;
 
   out_ele_t out_ele = out_queue_pop_head( out_queue );
-  if( FD_UNLIKELY( out_ele.slotv_idx == UINT_MAX ) ) return 1;
+  if( FD_UNLIKELY( out_ele.block_idx == UINT_MAX ) ) return 1;
 
   fd_chainer_fec_t   * fec   = fd_fec_pool_ele( ctx->chainer->fec_pool, out_ele.fec_idx );
-  fd_chainer_slotv_t * block = fd_slotv_pool_ele( ctx->chainer->slotv_pool, out_ele.slotv_idx );
+  fd_chainer_block_t * block = fd_block_pool_ele( ctx->chainer->block_pool, out_ele.block_idx );
 
   if( FD_UNLIKELY( ctx->deliver_from_root ) ) {
     /* queues every FEC from the chainer root down to (block, fec),
        inclusive, onto ctx->redeliver in root-to-target order. */
-    for( fd_chainer_slotv_t * blk = block;
+    for( fd_chainer_block_t * blk = block;
                               blk && blk->slot > ctx->replay_root_slot;
                               blk = fd_chainer_slot_version_query( ctx->chainer, blk->parent_slot, &blk->parent_block_id ) ) {
-      uint slotv_idx = (uint)fd_slotv_pool_idx( ctx->chainer->slotv_pool, blk );
+      uint block_idx = (uint)fd_block_pool_idx( ctx->chainer->block_pool, blk );
 
       uint kmax;
       if( FD_LIKELY( blk==block ) ) {
@@ -800,10 +800,10 @@ publish_fec_replay( ctx_t *             ctx,
         kmax = blk->buffered_fec_idx / (uint)FD_FEC_SHRED_CNT;
       }
 
-      uint const * fecs = fd_chainer_slotv_fecs( ctx->chainer, blk );
+      uint const * fecs = fd_chainer_block_fecs( ctx->chainer, blk );
       for( int k=(int)kmax; k>=0; k-- ) {
         if( FD_UNLIKELY( out_queue_full( ctx->redeliver ) ) ) FD_LOG_ERR(( "deliver_from_root queue full" ));
-         out_queue_push_head( ctx->redeliver, (out_ele_t){ .slotv_idx = slotv_idx, .fec_idx = fecs[ k ] } );
+         out_queue_push_head( ctx->redeliver, (out_ele_t){ .block_idx = block_idx, .fec_idx = fecs[ k ] } );
       }
     }
     ctx->deliver_from_root = 0;
@@ -880,7 +880,7 @@ fec_sweep( ctx_t *             ctx,
       continue;
     }
 
-    fd_chainer_slotv_t * slotv = fd_chainer_fec_owner( chainer, fec );
+    fd_chainer_block_t * slotv = fd_chainer_fec_owner( chainer, fec );
     if( FD_UNLIKELY( !slotv ) ) FD_LOG_CRIT(( "enrolled fec for slot %u set %u is owned by no version", fec->slot, (uint)fec->fec_set_idx ));
 
     fd_rotor_request_t request[1];
@@ -934,7 +934,7 @@ after_credit( ctx_t *             ctx,
 
   if( FD_UNLIKELY( !out_queue_empty( ctx->redeliver ) ) ) {
     out_ele_t            e     = out_queue_pop_head( ctx->redeliver );
-    fd_chainer_slotv_t * block = fd_slotv_pool_ele( ctx->chainer->slotv_pool, e.slotv_idx );
+    fd_chainer_block_t * block = fd_block_pool_ele( ctx->chainer->block_pool, e.block_idx );
     fd_chainer_fec_t   * fec   = fd_fec_pool_ele  ( ctx->chainer->fec_pool,   e.fec_idx   );
     publish_fec( ctx, stem, block, fec, 1 /* from_root */ );
     *charge_busy = 1;
@@ -1068,7 +1068,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->toss_queue = toss_queue_join     ( toss_queue_new     ( ctx->toss_queue                                                                          ) );
   ctx->redeliver  = out_queue_join      ( out_queue_new      ( ctx->redeliver, fec_max( tile )                                                          ) );
   FD_TEST( ctx->chainer && ctx->requestor && ctx->protocol && ctx->policy && ctx->rtt && ctx->signs_map && ctx->toss_queue && ctx->redeliver );
-  FD_TEST( fd_slotv_pool_max( ctx->chainer->slotv_pool )==fd_chainer_blk_max( tile->rotor.slot_max ) );
+  FD_TEST( fd_block_pool_max( ctx->chainer->block_pool )==fd_chainer_blk_max( tile->rotor.slot_max ) );
 
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
   FD_TEST( ctx->keyswitch );
