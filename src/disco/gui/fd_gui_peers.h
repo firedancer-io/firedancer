@@ -557,6 +557,13 @@ int
 fd_gui_peers_poll( fd_gui_peers_ctx_t * peers,
                    long                 now  );
 
+/* fd_gui_peers_next_deadline returns the wallclock nanos at which the
+   earliest of the periodic timers run by fd_gui_peers_poll (client
+   viewport tick, rate update, gossip stats) is next due. */
+
+long
+fd_gui_peers_next_deadline( fd_gui_peers_ctx_t const * peers );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_disco_gui_fd_gui_peers_h */
