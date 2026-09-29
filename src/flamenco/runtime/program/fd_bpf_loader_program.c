@@ -529,7 +529,7 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
   }
 
   if( FD_UNLIKELY( instr_ctx->runtime->log.enable_vm_tracing && instr_ctx->runtime->log.tracing_mem ) ) {
-    vm->trace = fd_vm_trace_join( fd_vm_trace_new( instr_ctx->runtime->log.tracing_mem + ((instr_ctx->runtime->instr.stack_sz-1UL) * FD_RUNTIME_VM_TRACE_STATIC_FOOTPRINT), FD_RUNTIME_VM_TRACE_EVENT_MAX, FD_RUNTIME_VM_TRACE_EVENT_DATA_MAX ));
+    vm->trace = fd_vm_trace_join( fd_vm_trace_new( instr_ctx->runtime->log.tracing_mem + ((instr_ctx->runtime->instr.stack_sz-1UL) * FD_RUNTIME_VM_TRACE_STATIC_FOOTPRINT), FD_RUNTIME_VM_TRACE_EVENT_MAX ));
     if( FD_UNLIKELY( !vm->trace ) ) FD_LOG_ERR(( "unable to create trace; make sure you've compiled with sufficient spad size " ));
   }
 
