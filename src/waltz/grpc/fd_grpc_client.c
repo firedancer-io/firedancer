@@ -264,7 +264,7 @@ fd_grpc_client_send_timeout( fd_h2_rbuf_t *        rbuf_tx,
                              fd_grpc_h2_stream_t * stream,
                              int                   deadline_kind ) {
   client->callbacks->rx_timeout( client->ctx, stream->request_ctx, deadline_kind );
-  fd_h2_tx_rst_stream( rbuf_tx, stream->s.stream_id, FD_H2_ERR_CANCEL );
+  fd_h2_stream_error( &stream->s, client->conn, rbuf_tx, FD_H2_ERR_CANCEL );
   fd_grpc_client_stream_release( client, stream );
 }
 
