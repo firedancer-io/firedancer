@@ -160,7 +160,7 @@ enum {
 
 #define FD_METRICS_COUNTER_ACCDB_COPY_OPERATION_NAME "accdb_copy_operation"
 #define FD_METRICS_COUNTER_ACCDB_COPY_OPERATION_TYPE (FD_METRICS_TYPE_COUNTER)
-#define FD_METRICS_COUNTER_ACCDB_COPY_OPERATION_DESC "Number of in-place copy_file_range operations performed on the account database during compaction"
+#define FD_METRICS_COUNTER_ACCDB_COPY_OPERATION_DESC "Number of pwritev2 calls that relocated a batch of records during account database compaction"
 #define FD_METRICS_COUNTER_ACCDB_COPY_OPERATION_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_COUNTER_ACCDB_ACCOUNT_DELETED_NAME "accdb_account_deleted"

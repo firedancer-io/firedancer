@@ -5,6 +5,7 @@
 
 #include "fd_adminctl.h"
 #include "../failover/fd_failover_bus.h"
+#include <linux/futex.h>
 #include "generated/fd_admin_tile_seccomp.h"
 
 struct fd_admin_tile_ctx {

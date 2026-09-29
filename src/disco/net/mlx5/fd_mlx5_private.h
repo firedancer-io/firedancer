@@ -143,17 +143,6 @@ struct fd_mlx5_uverbs_tile {
 };
 typedef struct fd_mlx5_uverbs_tile fd_mlx5_uverbs_tile_t;
 
-/* fd_netlink_rdma_ctx stores the state used to request one QP-bound counter
-   through Linux NETLINK_RDMA. */
-struct fd_netlink_rdma_ctx {
-  int  fd;         /* socket used to request RDMA QP counters. */
-  uint dev_idx;    /* selects the RDMA device in counter requests. */
-  uint port_num;   /* selects the device port in counter requests. */
-  uint counter_id; /* identifies the counter bound to this QP. */
-  uint seq;        /* matches each netlink reply to its request. */
-};
-typedef struct fd_netlink_rdma_ctx fd_netlink_rdma_ctx_t;
-
 FD_PROTOTYPES_BEGIN
 
 /* fd_uverbs_init creates one shared context, PD, receive indirection table,
@@ -190,20 +179,6 @@ fd_uverbs_create_gre_udp_flow( fd_uverbs_ctx_t *        uverbs,
                                fd_mlx5_rss_qp_t const * rss_qp,
                                uint                     inner_dst_ip,
                                ushort                   inner_dst_port );
-
-/* fd_mlx5_netlink_rdma_init binds a manual RDMA counter to qpn. */
-fd_netlink_rdma_ctx_t *
-fd_mlx5_netlink_rdma_init( fd_netlink_rdma_ctx_t * netlink_rdma,
-                           char const *            rdma_name,
-                           uint                    port_num,
-                           uint                    qpn );
-
-/* fd_mlx5_netlink_rdma_qp_counter_read returns the QP-specific mlx5
-   out_of_buffer counter.  This counts packets dropped because the RQ had no
-   WQE. */
-int
-fd_mlx5_netlink_rdma_qp_counter_read( fd_netlink_rdma_ctx_t * netlink_rdma,
-                                      ulong *                 out_of_buffer );
 
 FD_PROTOTYPES_END
 

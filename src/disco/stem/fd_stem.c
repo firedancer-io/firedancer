@@ -219,6 +219,25 @@
 
 #define STEM_SHUTDOWN_SEQ (ULONG_MAX-1UL)
 
+static inline void
+STEM_(credit_ring)( fd_stem_sleep_t const * sleep,
+                    ulong                   in_idx ) {
+  ulong producer = sleep->in_producer[ in_idx ];
+  if( FD_UNLIKELY( producer==ULONG_MAX ) ) return;
+  __atomic_thread_fence( __ATOMIC_SEQ_CST );
+  if( FD_UNLIKELY( FD_VOLATILE_CONST( sleep->shmem->credit_bits[ producer>>6 ] ) & (1UL<<(producer&63UL)) ) ) fd_sleep_ring( sleep->shmem, producer );
+}
+
+/* STEM_(in_dirty) is 1 if in has credits or diagnostics not yet
+   published (in_update on a clean in rewrites the same values). */
+
+static inline int
+STEM_(in_dirty)( fd_stem_tile_in_t const * in ) {
+  uint const * accum = in->accum;
+  return ( __atomic_load_n( in->fseq, __ATOMIC_RELAXED )!=in->seq )
+       | (int)(accum[0]|accum[1]|accum[2]|accum[3]|accum[4]|accum[5]);
+}
+
 static inline __attribute__((always_inline)) void
 STEM_(in_update)( fd_stem_tile_in_t * in ) {
   __atomic_store_n( in->fseq, in->seq, __ATOMIC_RELEASE );
@@ -236,10 +255,18 @@ STEM_(in_update)( fd_stem_tile_in_t * in ) {
   accum[3] = 0U;              accum[4] = 0U;              accum[5] = 0U;
 }
 
+/* STEM_(out_publish) publishes out_idx's sync word and seq_mirror.
+   Callers skip an out whose seq has not moved (out_seq_pub), which
+   also keeps the stem off outs another client publishes.  The stem is
+   the sole writer of its mirrors, so the store needs no guard load. */
+
 static inline void
-STEM_(mirror)( ulong * mirror,
-               ulong   seq ) {
-  if( FD_LIKELY( fd_seq_gt( seq, FD_VOLATILE_CONST( mirror[0] ) ) ) ) FD_VOLATILE( mirror[0] ) = seq;
+STEM_(out_publish)( fd_stem_sleep_t const * sleep,
+                    fd_frag_meta_t *        mcache,
+                    ulong                   out_idx,
+                    ulong                   seq ) {
+  fd_mcache_seq_update( fd_mcache_seq_laddr( mcache ), seq );
+  if( sleep->shmem ) FD_VOLATILE( sleep->shmem->seq_mirror[ sleep->out_link_id[ out_idx ] ] ) = seq;
 }
 
 static inline int
@@ -250,6 +277,10 @@ STEM_(park)( STEM_CALLBACK_CONTEXT_TYPE * ctx,
              fd_frag_meta_t **            out_mcache,
              ulong                        out_cnt,
              ulong const *                out_seq,
+             ulong *                      out_seq_pub,
+             ulong                        cons_cnt,
+             ulong const **               cons_fseq,
+             ulong const *                cons_seq,
              int                          backpressured,
              long                         deadline_hint,
              long                         cap_ticks,
@@ -278,17 +309,25 @@ STEM_(park)( STEM_CALLBACK_CONTEXT_TYPE * ctx,
 #endif
 
 
-  long deadline = fd_long_min( now+cap_ticks, deadline_hint );
+  long due = deadline_hint;
 #ifdef STEM_CALLBACK_NEXT_DEADLINE
-  deadline = fd_long_min( deadline, STEM_CALLBACK_NEXT_DEADLINE( ctx ) );
+  due = fd_long_min( due, STEM_CALLBACK_NEXT_DEADLINE( ctx ) );
 #endif
+  long deadline = fd_long_min( now+cap_ticks, due );
   if( FD_UNLIKELY( deadline-now<min_ticks ) ) return 0; /* already close enough to deadline, don't waste a syscall */
 
-  /* We are now going to park ... flush all state before. */
-  for( ulong i=0UL; i<in_cnt; i++ ) STEM_(in_update)( &in[ i ] );
+  /* We are now going to park ... flush all state before.  Skip the
+     ins and outs with nothing to flush: a clean in's producer was
+     already rung when our fseq last moved. */
+  for( ulong i=0UL; i<in_cnt; i++ ) {
+    if( FD_LIKELY( !STEM_(in_dirty)( &in[ i ] ) ) ) continue;
+    STEM_(in_update)( &in[ i ] );
+    if( FD_LIKELY( sleep->shmem ) ) STEM_(credit_ring)( sleep, in[ i ].idx );
+  }
   for( ulong o=0UL; o<out_cnt; o++ ) {
-    fd_mcache_seq_update( fd_mcache_seq_laddr( out_mcache[ o ] ), out_seq[ o ] );
-    if( FD_LIKELY( sleep->shmem ) ) STEM_(mirror)( &sleep->shmem->seq_mirror[ sleep->out_link_id[ o ] ], out_seq[ o ] );
+    if( FD_LIKELY( out_seq_pub[ o ]==out_seq[ o ] ) ) continue; /* idle, or never published by this stem */
+    STEM_(out_publish)( sleep, out_mcache[ o ], o, out_seq[ o ] );
+    out_seq_pub[ o ] = out_seq[ o ];
   }
 
   ulong _word;
@@ -299,25 +338,22 @@ STEM_(park)( STEM_CALLBACK_CONTEXT_TYPE * ctx,
   int parked = 0;
   if( FD_LIKELY( sleep->shmem ) ) {
     sleep->shmem->tile[ sleep->tile_id ].deadline = (ulong)deadline;
-    sleep->shmem->tile[ sleep->tile_id ].gen++;
     word   = &sleep->shmem->tile[ sleep->tile_id ].word;
     my_w   = sleep->tile_id>>6;
     my_bit = 1UL<<(sleep->tile_id&63UL);
     FD_VOLATILE( word[0] ) = 0UL;
 
-    if( FD_LIKELY( !backpressured ) ) {
-      /* Waiting for a producer: set the parked bit so publishes ring
-         us, and snapshot our in seqs so the mwaitx sweep can catch a
-         ring that raced. */
-      for( ulong i=0UL; i<in_cnt; i++ ) sleep->shmem->seq_snap[ sleep->tile_id ][ in[ i ].idx ] = in[ i ].seq;
-      __atomic_fetch_or( &sleep->shmem->parked_bits[ my_w ], my_bit, __ATOMIC_SEQ_CST );
-      parked = 1;
-    } else {
-      /* Waiting for a consumer's credits, which nothing rings, sleep
-         to the deadline only.  A ring would just wake us into the
-         same backpressure, so no parked bit and no snapshot. */
-      __atomic_thread_fence( __ATOMIC_SEQ_CST );
+    /* Set the parked bit so publishes to us ring us; when backpressured
+       set the credit bit too, which swaps publish rings for credit
+       return rings. */
+    for( ulong i=0UL; i<in_cnt; i++ ) {
+      ulong snap = in[ i ].seq;
+      if( FD_UNLIKELY( backpressured ) ) snap = FD_VOLATILE_CONST( sleep->shmem->seq_mirror[ sleep->in_link_id[ in[ i ].idx ] ] );
+      sleep->shmem->seq_snap[ sleep->tile_id ][ in[ i ].idx ] = snap;
     }
+    if( FD_UNLIKELY( backpressured ) ) __atomic_fetch_or( &sleep->shmem->credit_bits[ my_w ], my_bit, __ATOMIC_SEQ_CST );
+    __atomic_fetch_or( &sleep->shmem->parked_bits[ my_w ], my_bit, __ATOMIC_SEQ_CST );
+    parked = 1;
   } else {
     /* No shmem, so no one can wake us.  We will just sleep until the
        deadline.  This only happens for ALWAYS_PARK tiles when running
@@ -336,9 +372,15 @@ STEM_(park)( STEM_CALLBACK_CONTEXT_TYPE * ctx,
      if we raced here. */
 
   int pending = 0;
-  if( FD_LIKELY( parked ) ) {
+  if( FD_LIKELY( parked && !backpressured ) ) {
     for( ulong i=0UL; i<in_cnt; i++ ) {
       pending |= fd_seq_diff( in[ i ].seq, fd_frag_meta_seq_query( in[ i ].mline ) )<=0L;
+    }
+  } else if( FD_LIKELY( parked ) ) {
+    /* a credit return between the caller's snapshot and the credit
+       bit went unrung; only its fseq shows it */
+    for( ulong c=0UL; c<cons_cnt; c++ ) {
+      pending |= __atomic_load_n( cons_fseq[ c ], __ATOMIC_ACQUIRE )!=cons_seq[ c ];
     }
   }
   if( FD_LIKELY( sleep->waker_fseq ) ) pending |= fd_fseq_query( sleep->waker_fseq )==1UL;
@@ -350,21 +392,81 @@ STEM_(park)( STEM_CALLBACK_CONTEXT_TYPE * ctx,
 
   if( FD_UNLIKELY( pending ) ) {
     FD_VOLATILE( word[0] ) = 1UL;
-    if( FD_LIKELY( parked ) ) __atomic_fetch_and( &sleep->shmem->parked_bits[ my_w ], ~my_bit, __ATOMIC_SEQ_CST );
+    if( FD_LIKELY( parked ) ) {
+      __atomic_fetch_and( &sleep->shmem->parked_bits[ my_w ], ~my_bit, __ATOMIC_SEQ_CST );
+      if( FD_UNLIKELY( backpressured ) ) __atomic_fetch_and( &sleep->shmem->credit_bits[ my_w ], ~my_bit, __ATOMIC_SEQ_CST );
+    }
     FD_MCNT_INC( TILE, UNPARK_PENDING, 1UL );
-    return 0;
+    return backpressured ? -1 : 0;
   }
 
-  int cause = fd_sleep_park_wait( word, deadline, tick_per_ns );
+  /* Only a due inside the cap arms a timer, the sweep enforces the cap */
+  long timer = fd_long_if( parked & (due>deadline), LONG_MAX, deadline );
+#ifdef STEM_CALLBACK_PARK_WAIT
+  int cause = STEM_CALLBACK_PARK_WAIT( ctx, word, timer, tick_per_ns );
+#else
+  int cause = fd_sleep_park_wait( word, timer, tick_per_ns );
+#endif
 
   /* Park completed, either due to a ring or a deadline.  Now clear the
      parked bit and publish the reason.  There's a race here with the
      ringer but it's harmless, it might cause one more spurious wake. */
   FD_VOLATILE( word[0] ) = 1UL;
-  if( FD_LIKELY( sleep->shmem && parked ) ) __atomic_fetch_and( &sleep->shmem->parked_bits[ my_w ], ~my_bit, __ATOMIC_SEQ_CST );
+  if( FD_LIKELY( sleep->shmem && parked ) ) {
+    __atomic_fetch_and( &sleep->shmem->parked_bits[ my_w ], ~my_bit, __ATOMIC_SEQ_CST );
+    if( FD_UNLIKELY( backpressured ) ) __atomic_fetch_and( &sleep->shmem->credit_bits[ my_w ], ~my_bit, __ATOMIC_SEQ_CST );
+  }
   if( FD_LIKELY( cause==FD_SLEEP_UNPARK_RING ) ) FD_MCNT_INC( TILE, UNPARK_RING,     1UL );
   else                                           FD_MCNT_INC( TILE, UNPARK_DEADLINE, 1UL );
   return 1;
+}
+
+static inline __attribute__((always_inline)) void
+STEM_(cr_refresh)( ulong             out_cnt,
+                   ulong const *     out_depth,
+                   ulong const *     out_seq,
+                   ulong *           cr_avail,
+                   ulong *           min_cr_avail,
+                   ulong             cr_max,
+                   ulong             cons_cnt,
+                   ulong const *     cons_out,
+                   ulong const *     cons_seq,
+                   volatile ulong ** cons_slow,
+                   ulong             in_backp ) {
+  if( FD_LIKELY( cons_cnt ) ) {
+    ulong slowest_cons = ULONG_MAX;
+    *min_cr_avail = cr_max;
+    for( ulong out_idx=0; out_idx<out_cnt; out_idx++ ) {
+      cr_avail[ out_idx ] = out_depth[ out_idx ];
+    }
+
+    for( ulong cons_idx=0UL; cons_idx<cons_cnt; cons_idx++ ) {
+      ulong out_idx = cons_out[ cons_idx ];
+
+      /* Read the fseq boot value (ULONG_MAX) as sequence 0, not -1,
+         else the producer is one credit short until the consumer
+         boots. */
+      ulong cseq = fd_ulong_if( cons_seq[ cons_idx ]==ULONG_MAX, 0UL, cons_seq[ cons_idx ] );
+      ulong cons_cr_avail = (ulong)fd_long_max( (long)out_depth[ out_idx ]-fd_long_max( fd_seq_diff( out_seq[ out_idx ], cseq ), 0L ), 0L );
+
+      /* If a reliable consumer exits, they can set the credit return
+         fseq to STEM_SHUTDOWN_SEQ to indicate they are no longer
+         actively consuming. */
+      cons_cr_avail = fd_ulong_if( cons_seq[ cons_idx ]==STEM_SHUTDOWN_SEQ, out_depth[ out_idx ], cons_cr_avail );
+      slowest_cons = fd_ulong_if( cons_cr_avail<*min_cr_avail, cons_idx, slowest_cons );
+
+      cr_avail[ out_idx ] = fd_ulong_min( cr_avail[ out_idx ], cons_cr_avail );
+      *min_cr_avail       = fd_ulong_min( cons_cr_avail, *min_cr_avail );
+    }
+
+    /* See notes above about use of quasi-atomic diagnostic accum.
+       Skip a +=0: it would still take the consumer's line. */
+    if( FD_UNLIKELY( in_backp && slowest_cons!=ULONG_MAX ) ) {
+      FD_COMPILER_MFENCE();
+      (*cons_slow[ slowest_cons ]) += in_backp;
+      FD_COMPILER_MFENCE();
+    }
+  }
 }
 
 static inline void
@@ -374,26 +476,32 @@ STEM_(park_attempt)( STEM_CALLBACK_CONTEXT_TYPE * ctx,
                      ulong                        in_cnt,
                      fd_frag_meta_t **            out_mcache,
                      ulong                        out_cnt,
+                     ulong const *                out_depth,
                      ulong const *                out_seq,
+                     ulong *                      out_seq_pub,
+                     ulong *                      cr_avail,
+                     ulong *                      min_cr_avail,
+                     ulong                        cr_max,
                      ulong                        cons_cnt,
                      ulong const **               cons_fseq,
                      ulong *                      cons_seq,
                      ulong const *                cons_out,
+                     volatile ulong **            cons_slow,
                      ulong                        event_cnt,
                      ushort const *               event_map,
                      ulong *                      event_seq,
                      ulong                        async_min,
+                     long                         hk_due,
                      long                         cap_ticks,
                      long                         min_ticks,
                      double                       tick_per_ns,
                      ulong *                      metric_regime_ticks,
                      long *                       now,
+                     long *                       then,
                      ulong                        regime,
                      int                          backpressured,
                      long                         deadline_hint ) {
-  (void)cons_out; (void)out_seq;
-
-  int slept = STEM_(park)( ctx, cfg, in, in_cnt, out_mcache, out_cnt, out_seq,
+  int slept = STEM_(park)( ctx, cfg, in, in_cnt, out_mcache, out_cnt, out_seq, out_seq_pub, cons_cnt, cons_fseq, cons_seq,
                            backpressured, deadline_hint, cap_ticks, min_ticks, tick_per_ns, *now );
   if( FD_UNLIKELY( !slept ) ) return; /* found work */
 
@@ -401,10 +509,13 @@ STEM_(park_attempt)( STEM_CALLBACK_CONTEXT_TYPE * ctx,
   long waited = next - *now;
   metric_regime_ticks[ regime ] += (ulong)waited;
   *now = next;
-  if( FD_UNLIKELY( waited>=(long)async_min ) ) {
+  if( FD_UNLIKELY( backpressured || waited>=(long)async_min ) ) {
     /* If we slept shorter than a housekeeping interval, we didn't miss
        any credit refresh housekeeping events, but otherwise we might
-       have missed many, so refill them immediately here. */
+       have missed many, so refill them immediately here.  A
+       backpressure park is woken by the consumer's credit return, so
+       reload regardless, and turn cons_seq into cr_avail now, or we
+       re-park on the stale count until the timer. */
     for( ulong cons_idx=0UL; cons_idx<cons_cnt; cons_idx++ ) {
       ulong this_cons_seq = __atomic_load_n( cons_fseq[ cons_idx ], __ATOMIC_ACQUIRE );
       cons_seq[ cons_idx ] = this_cons_seq;
@@ -412,11 +523,19 @@ STEM_(park_attempt)( STEM_CALLBACK_CONTEXT_TYPE * ctx,
       STEM_CALLBACK_RECV_CREDIT( ctx, cons_out[ cons_idx ], out_seq[ cons_out[ cons_idx ] ], this_cons_seq );
 #endif
     }
-    for( ulong k=0UL; k<event_cnt; k++ ) {
-      if( event_map[ k ]==cons_cnt ) {
-        *event_seq = k;
-        break;
+    if( FD_UNLIKELY( (*now-hk_due)>=0L ) ) {
+      /* A lazy interval passed, full housekeeping is due now. */
+      for( ulong k=0UL; k<event_cnt; k++ ) {
+        if( event_map[ k ]==cons_cnt ) {
+          *event_seq = k;
+          break;
+        }
       }
+      *then = *now;
+    } else {
+      /* Credits only, nothing else is due yet. */
+      STEM_(cr_refresh)( out_cnt, out_depth, out_seq, cr_avail, min_cr_avail, cr_max, cons_cnt, cons_out, cons_seq, cons_slow, (ulong)backpressured );
+      *then = *now + (long)async_min;
     }
   }
 }
@@ -435,6 +554,7 @@ STEM_(scratch_footprint)( ulong in_cnt,
   l = FD_LAYOUT_APPEND( l, alignof(ulong),             out_cnt*sizeof(ulong)                ); /* cr_avail */
   l = FD_LAYOUT_APPEND( l, alignof(ulong),             out_cnt*sizeof(ulong)                ); /* out_depth */
   l = FD_LAYOUT_APPEND( l, alignof(ulong),             out_cnt*sizeof(ulong)                ); /* out_seq */
+  l = FD_LAYOUT_APPEND( l, alignof(ulong),             out_cnt*sizeof(ulong)                ); /* out_seq_pub */
   l = FD_LAYOUT_APPEND( l, alignof(int),               out_cnt*sizeof(int)                  ); /* out_reliable */
   l = FD_LAYOUT_APPEND( l, alignof(ulong const *),     cons_cnt*sizeof(ulong const *)       ); /* cons_fseq */
   l = FD_LAYOUT_APPEND( l, alignof(ulong *),           cons_cnt*sizeof(ulong *)             ); /* cons_slow */
@@ -564,7 +684,10 @@ STEM_(run)( fd_topo_t *      topo,
 
     ulong polled_idx = 0UL;
     for( ulong i=0UL; i<tile->in_cnt; i++ ) {
-      if( FD_LIKELY( tile->in_link_poll[ i ] ) ) sleep->in_link_id[ polled_idx++ ] = tile->in_link_id[ i ];
+      if( FD_LIKELY( !tile->in_link_poll[ i ] ) ) continue;
+      sleep->in_link_id [ polled_idx ] = tile->in_link_id[ i ];
+      sleep->in_producer[ polled_idx ] = tile->in_link_reliable[ i ] ? fd_topo_find_link_producer( topo, &topo->links[ tile->in_link_id[ i ] ] ) : ULONG_MAX;
+      polled_idx++;
     }
 
     ulong pair_cnt = 0UL;
@@ -676,6 +799,7 @@ STEM_(run)( fd_topo_t *      topo,
 #undef STEM_CALLBACK_METRICS_WRITE
 #undef STEM_CALLBACK_NEXT_DEADLINE
 #undef STEM_CALLBACK_PREVENT_PARK
+#undef STEM_CALLBACK_PARK_WAIT
 #undef STEM_CALLBACK_RECV_CREDIT
 #undef STEM_CALLBACK_CHECK_CREDIT
 #undef STEM_CALLBACK_BEFORE_CREDIT

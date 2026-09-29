@@ -168,6 +168,14 @@ struct fd_replay_tile {
      set.  This parallels the Agave 'has_new_vote_been_rooted'. */
   int identity_vote_rooted;
   int wait_for_vote_to_start_leader;
+
+  /* vote_account_staked is 1 if stake was delegated to our vote
+     account at boot.  vote_account_inadmissible is 1 while our staked
+     vote account fails the admission ticket filter, or passes it but
+     has not yet been admitted at an epoch boundary. */
+  int vote_account_staked;
+  int vote_account_inadmissible;
+
   int alpenglow;
 
   /* wfs_enabled is 1 if the validator is booted in
@@ -209,7 +217,7 @@ struct fd_replay_tile {
 
   char         genesis_path[ PATH_MAX ];
   fd_hash_t    genesis_hash[1];
-  fd_genesis_t genesis[1];
+  fd_genesis_t * genesis;
   ulong        cluster_type;
   ulong        genesis_timestamp;
   ulong        expected_genesis_timestamp;
@@ -463,6 +471,11 @@ struct fd_replay_tile {
 
   ulong       next_leader_slot;
   long        next_leader_tickcount;
+
+
+  ulong next_leader_query_start;
+  ulong next_leader_query_slot;
+
   double      tick_per_ns;
   ulong       highwater_leader_slot;
   ulong       reset_slot;

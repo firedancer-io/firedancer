@@ -14,6 +14,14 @@
 #define AG_POOL_ERR_SLASHABLE          (-3)
 #define AG_POOL_ERR_CERT_VERIFY        (-4)
 
+#define AG_POOL_QUORUM_REACHED_FINAL          (AG_CERT_KIND_FINAL)
+#define AG_POOL_QUORUM_REACHED_FAST_FINAL     (AG_CERT_KIND_FAST_FINAL)
+#define AG_POOL_QUORUM_REACHED_NOTAR          (AG_CERT_KIND_NOTAR)
+#define AG_POOL_QUORUM_REACHED_NOTAR_FALLBACK (AG_CERT_KIND_NOTAR_FALLBACK)
+#define AG_POOL_QUORUM_REACHED_SKIP           (AG_CERT_KIND_SKIP)
+#define AG_POOL_QUORUM_REACHED_SAFE_TO_NOTAR  (5)
+#define AG_POOL_QUORUM_REACHED_SAFE_TO_SKIP   (6)
+
 typedef struct ag_pool ag_pool_t;
 
 FD_PROTOTYPES_BEGIN
@@ -66,7 +74,8 @@ ag_pool_add_cert( ag_pool_t *       self,
 int
 ag_pool_add_vote( ag_pool_t *       self,
                   ag_vote_t const * vote,
-                  fd_bls_set_t *    bad );
+                  fd_bls_set_t *    bad,
+                  uchar *           quorum_reached );
 
 /* Definition 16. Pool::add_block */
 

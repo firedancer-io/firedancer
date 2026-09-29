@@ -1280,10 +1280,11 @@ fd_gui_printf_health( fd_gui_t * gui ) {
   /* Map vote status to string */
   char const * vote_str;
   switch( vote_status ) {
-    case FD_DIAG_VOTE_STATUS_NOT_STARTED: vote_str = "not_started"; break;
-    case FD_DIAG_VOTE_STATUS_DELINQUENT:  vote_str = "delinquent";  break;
-    case FD_DIAG_VOTE_STATUS_VOTING:      vote_str = "voting";      break;
-    default:                              vote_str = "disabled";    break;
+    case FD_DIAG_VOTE_STATUS_NOT_STARTED:  vote_str = "not_started"; break;
+    case FD_DIAG_VOTE_STATUS_DELINQUENT:   vote_str = "delinquent";  break;
+    case FD_DIAG_VOTE_STATUS_INADMISSIBLE: vote_str = "delinquent";  break; /* TODO: Update frontend, new recognized value */
+    case FD_DIAG_VOTE_STATUS_VOTING:       vote_str = "voting";      break;
+    default:                               vote_str = "disabled";    break;
   }
 
   /* Map replay status to string */

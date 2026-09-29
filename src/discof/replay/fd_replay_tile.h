@@ -196,13 +196,22 @@ struct fd_replay_slot_completed {
     ulong account_cost_limit;
     ulong pool_idx;
   } cost_tracker;
+
+  fd_block_footer_t footer;
 };
 
 typedef struct fd_replay_slot_completed fd_replay_slot_completed_t;
 
 struct fd_replay_slot_dead {
-  ulong     slot;
-  fd_hash_t block_id;
+  ulong             slot;
+  fd_hash_t         block_id;
+
+  /* Agave can finalize off the certs in a dead block's footer.
+
+     TODO dead blocks short-circuit from parsing out the footer unless
+     it's a BHM.  Always read the footer? */
+
+  fd_block_footer_t footer;
 };
 typedef struct fd_replay_slot_dead fd_replay_slot_dead_t;
 

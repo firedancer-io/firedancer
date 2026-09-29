@@ -564,7 +564,7 @@ send_udp_payload( fuzz_env_t * env,
 
   uchar const * out = fd_chunk_to_laddr_const( env->ctx->out->mem, old_chunk );
   fd_gossip_message_t const * msg = (fd_gossip_message_t const *)out;
-  uchar const * failed = out + sizeof(fd_gossip_message_t);
+  uchar const * failed = out + fd_gossip_message_used_sz( msg );
 
   fd_gossip_value_t const * values = NULL;
   ulong values_len = 0UL;

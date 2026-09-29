@@ -19,11 +19,6 @@ test_stake_delegations_base_cnt( fd_stake_delegations_t const * stake_delegation
   return cnt;
 }
 
-static inline ulong
-test_stake_delegations_disk_cnt( fd_stake_delegations_t const * stake_delegations ) {
-  return stake_delegations->disk_root_cnt_ + stake_delegations->disk_delta_cnt_;
-}
-
 static inline int
 test_stake_delegations_find_copy( fd_stake_delegations_t const * stake_delegations,
                                   fd_pubkey_t const *            stake_account,

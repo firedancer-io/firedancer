@@ -184,7 +184,7 @@ fd_net_rx_dst_port_lookup( fd_net_tile_t const * ctx,
 /* fd_net_rx_pkt validates and publishes an RX packet.  It returns whether
    publication succeeded and sets freed_chunk to a reusable buffer. */
 static inline int
-fd_net_rx_pkt( fd_net_tile_t *      ctx,
+fd_net_rx_pkt( fd_net_tile_t *     ctx,
                fd_stem_context_t * stem,
                ulong               chunk,
                ulong               byte_len,

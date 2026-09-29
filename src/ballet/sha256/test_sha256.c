@@ -10,6 +10,14 @@ FD_STATIC_ASSERT( FD_SHA256_FOOTPRINT==sizeof (fd_sha256_t), unit_test );
 FD_STATIC_ASSERT( FD_SHA256_LG_HASH_SZ==5,    unit_test );
 FD_STATIC_ASSERT( FD_SHA256_HASH_SZ   ==32UL, unit_test );
 
+#if FD_HAS_AVX512
+void
+fd_sha256_hash_32_repeated_batch_avx512( uchar const * hash_in,
+                                         uchar *       hash_out,
+                                         ulong         cnt,
+                                         ulong         batch_cnt );
+#endif
+
 int
 main( int     argc,
       char ** argv ) {
@@ -194,6 +202,56 @@ main( int     argc,
     for( ulong i=0UL; i<batch_cnt; i++ ) FD_TEST( !memcmp( batch_hash+32UL*i, ref_hash+32UL*i, 32UL ) );
   }
 
+  /* Every batch width (including 0) at small and edge iteration counts,
+     against iterated fd_sha256_hash, both out of place and in place. */
+  FD_TEST( fd_sha256_simd_lane_min()==ULONG_MAX || fd_sha256_simd_lane_min()<=lane_max );
+  for( ulong batch_cnt=0UL; batch_cnt<=lane_max; batch_cnt++ ) {
+    static ulong const iter_list[] = { 0UL, 1UL, 2UL, 3UL, 17UL, 64UL };
+    for( ulong j=0UL; j<sizeof(iter_list)/sizeof(ulong); j++ ) {
+      ulong batch_iter = iter_list[ j ];
+
+      uchar batch_data[ REPEATED_BATCH_MAX*32UL ];
+      uchar batch_hash[ REPEATED_BATCH_MAX*32UL ];
+      uchar ref_hash  [ REPEATED_BATCH_MAX*32UL ];
+
+      for( ulong b=0UL; b<REPEATED_BATCH_MAX*32UL; b++ ) batch_data[ b ] = fd_rng_uchar( rng );
+      memcpy( batch_hash, batch_data, REPEATED_BATCH_MAX*32UL );
+      for( ulong i=0UL; i<batch_cnt; i++ ) {
+        memcpy( ref_hash+32UL*i, batch_data+32UL*i, 32UL );
+        for( ulong k=0UL; k<batch_iter; k++ ) fd_sha256_hash( ref_hash+32UL*i, 32UL, ref_hash+32UL*i );
+      }
+
+      fd_sha256_hash_32_repeated_batch( batch_data, batch_hash, batch_iter, batch_cnt );
+      for( ulong i=0UL; i<batch_cnt; i++ ) FD_TEST( !memcmp( batch_hash+32UL*i, ref_hash+32UL*i, 32UL ) );
+      FD_TEST( !memcmp( batch_hash+32UL*batch_cnt, batch_data+32UL*batch_cnt, 32UL*(REPEATED_BATCH_MAX-batch_cnt) ) ); /* lanes past batch_cnt untouched */
+
+      fd_sha256_hash_32_repeated_batch( batch_data, batch_data, batch_iter, batch_cnt );
+      FD_TEST( !memcmp( batch_data, batch_hash, 32UL*batch_cnt ) );
+
+#     if FD_HAS_AVX512
+      /* The dispatcher may never pick the AVX-512 kernel (e.g. Zen 4),
+         so test it directly at every width. */
+      if( batch_cnt ) {
+        memset( batch_hash, 0, 32UL*batch_cnt );
+        fd_sha256_hash_32_repeated_batch_avx512( ref_hash, batch_hash, 0UL, batch_cnt );
+        FD_TEST( !memcmp( batch_hash, ref_hash, 32UL*batch_cnt ) );
+        fd_sha256_hash_32_repeated_batch_avx512( batch_data, batch_hash, 0UL, batch_cnt );
+        fd_sha256_hash_32_repeated_batch_avx512( batch_hash, batch_hash, 5UL, batch_cnt );
+        for( ulong i=0UL; i<batch_cnt; i++ ) {
+          fd_sha256_hash_32_repeated( batch_data+32UL*i, ref_hash+32UL*i, 5UL );
+          FD_TEST( !memcmp( batch_hash+32UL*i, ref_hash+32UL*i, 32UL ) );
+        }
+      }
+#     endif
+    }
+
+    if( batch_cnt ) {
+      ulong cost = fd_sha256_simd_iter_cost_q8( batch_cnt );
+      FD_TEST( cost>=256UL );
+      if( batch_cnt>1UL ) FD_TEST( cost>=fd_sha256_simd_iter_cost_q8( batch_cnt-1UL ) );
+    }
+  }
+
   if( bench ) {
     /* do a benchmark on PoH-style hashing */
     FD_LOG_NOTICE(( "Benchmarking poh" ));
@@ -229,7 +287,7 @@ main( int     argc,
 
       for( ulong b=0UL; b<REPEATED_BATCH_MAX*32UL; b++ ) batch_in[ b ] = fd_rng_uchar( rng );
 
-      for( ulong batch_cnt=1UL; batch_cnt<=lane_max; batch_cnt<<=1 ) {
+      for( ulong batch_cnt=1UL; batch_cnt<=lane_max; batch_cnt++ ) {
         fd_sha256_hash_32_repeated_batch( batch_in, batch_out, 10UL, batch_cnt );
 
         ulong iter = 1000000UL;
@@ -237,9 +295,20 @@ main( int     argc,
         fd_sha256_hash_32_repeated_batch( batch_in, batch_out, iter, batch_cnt );
         dt += fd_log_wallclock();
         float hashes_per_sec = ((float)(iter*batch_cnt) * 1e-6f ) / ((float)dt * 1e-9f) ;
-        FD_LOG_NOTICE(( "~%6.3f M poh hashes / sec / core with fd_sha256_hash_32_repeated_batch (batch_cnt=%lu)",
+        FD_LOG_NOTICE(( "~%6.3f M poh hashes / sec / core with fd_sha256_hash_32_repeated_batch (batch_cnt=%lu cost_q8=%lu)",
+                        (double)hashes_per_sec, batch_cnt, fd_sha256_simd_iter_cost_q8( batch_cnt ) ));
+      }
+#     if FD_HAS_AVX512
+      for( ulong batch_cnt=1UL; batch_cnt<=16UL; batch_cnt++ ) {
+        ulong iter = 1000000UL;
+        long dt = -fd_log_wallclock();
+        fd_sha256_hash_32_repeated_batch_avx512( batch_in, batch_out, iter, batch_cnt );
+        dt += fd_log_wallclock();
+        float hashes_per_sec = ((float)(iter*batch_cnt) * 1e-6f ) / ((float)dt * 1e-9f) ;
+        FD_LOG_NOTICE(( "~%6.3f M poh hashes / sec / core with fd_sha256_hash_32_repeated_batch_avx512 (batch_cnt=%lu)",
                         (double)hashes_per_sec, batch_cnt ));
       }
+#     endif
     }
 
     /* do a quick benchmark of sha-256 on small and large UDP payload

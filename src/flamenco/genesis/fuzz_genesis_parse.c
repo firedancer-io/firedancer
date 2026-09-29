@@ -3,8 +3,6 @@
 #include <assert.h>
 #include <stdlib.h>
 
-static fd_genesis_t g_genesis[1];
-
 int
 LLVMFuzzerInitialize( int  *   argc,
                       char *** argv ) {
@@ -23,7 +21,7 @@ genesis_accounts_check( fd_genesis_t const * genesis,
                         ulong                bin_sz ) {
   ulong prev_off = 0UL;
 
-  assert( genesis->account_cnt<=FD_GENESIS_ACCOUNT_MAX_COUNT );
+  assert( genesis->account_cnt<=genesis->account_max );
   for( ulong i=0UL; i<genesis->account_cnt; i++ ) {
     ulong pubkey_off = genesis->account[ i ].pubkey_off;
     ulong owner_off  = genesis->account[ i ].owner_off;
@@ -60,12 +58,17 @@ genesis_accounts_check( fd_genesis_t const * genesis,
 int
 LLVMFuzzerTestOneInput( uchar const * data,
                         ulong         size ) {
-  fd_genesis_t * genesis = g_genesis;
-  if( !fd_genesis_parse( genesis, data, size ) ) return 0;
+  ulong          account_max = fd_genesis_account_max( size );
+  void *         mem         = aligned_alloc( FD_GENESIS_ALIGN, fd_genesis_footprint( account_max ) );
+  if( FD_UNLIKELY( !mem ) ) return 0;
+  fd_genesis_t * genesis     = fd_genesis_new( mem, account_max );
+  assert( genesis );
+  if( !fd_genesis_parse( genesis, data, size ) ) { free( mem ); return 0; }
 
   /* In the genesis, the only two fields that are not fixed size are the
      accounts and the built-in accounts.  The offsets and bounds of each
      of the accounts are checked here. */
   genesis_accounts_check( genesis, data, size );
+  free( mem );
   return 0;
 }

@@ -11,6 +11,7 @@
 #include <unistd.h>
 #include <stdatomic.h>
 #include <time.h>
+#include <linux/futex.h>
 #include "generated/fd_snaprd_tile_seccomp.h"
 
 #define SNAPRD_STATE_IDLE    0
@@ -223,12 +224,12 @@ static void
 before_credit( fd_snaprd_t *       ctx,
                fd_stem_context_t * stem,
                int *               charge_busy ) {
-  (void)stem; (void)charge_busy;
+  (void)charge_busy;
 
   ulong ctl_cur  = atomic_load_explicit( ctx->in_ctl, memory_order_acquire );
   ulong ctl_prev = ctx->in_ctl_seq;
   if( FD_LIKELY( ctl_prev==ctl_cur ) ) {
-    if( FD_UNLIKELY( ctx->idle_cnt++ > 16384UL ) ) fd_log_sleep( (long)1e6 );
+    if( FD_UNLIKELY( ctx->idle_cnt++ > 16384UL && !stem->sleep ) ) fd_log_sleep( (long)1e6 );
     return;
   }
 

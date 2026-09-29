@@ -55,6 +55,7 @@ ag_cert_ser( ag_cert_t const * self,
 
 int
 ag_cert_de( ag_cert_t *   cert,
+            ulong *       bit_cnt,
             uchar const * buf,
             ulong         buf_sz );
 

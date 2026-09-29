@@ -33,6 +33,7 @@
 #include "../../waltz/quic/fd_quic.h"
 
 #include <time.h>
+#include <linux/futex.h>
 #include "generated/fd_txsend_tile_seccomp.h"
 
 #define IN_KIND_SIGN   (0UL)

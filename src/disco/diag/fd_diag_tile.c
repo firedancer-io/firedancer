@@ -16,6 +16,7 @@
 #include <stdlib.h>
 #include <sys/types.h> /* SEEK_SET */
 #include <sys/stat.h>
+#include <sys/syscall.h>
 #include <sys/vfs.h>
 #include <linux/futex.h>
 #include <time.h>
@@ -25,6 +26,7 @@
 #include "generated/fd_diag_tile_seccomp.h"
 
 #define REPORT_INTERVAL_MILLIS (100L)
+#define IRQ_REPORT_INTERVAL_NANOS (1000000000L)
 #define SYSTEM_REPORT_INTERVAL_NANOS (30000000000L)
 
 #define DIAG_WKSP_TILE_IDX_SHARED (ULONG_MAX)
@@ -33,6 +35,7 @@
 struct fd_diag_tile {
   fd_clock_tile_t clock[1];
   long next_report_nanos;
+  long next_irq_report_nanos;
 
   ulong tile_cnt;
   int is_voting;
@@ -251,16 +254,18 @@ read_sched_file( int              fd,
       if( FD_LIKELY( colon ) ) {
         char * value = colon + 1;
         while( ' '==*value || '\t'==*value ) value++;
-        /* wait_sum is displayed as seconds.microseconds (e.g., "123.456789").
-           Parse both components as integers and convert to nanoseconds. */
+        /* The kernel prints wait_sum with SPLIT_NS as milliseconds with
+           six fractional digits (e.g. "123.456789" is 123.456789 ms),
+           not seconds.  Parse both components as integers and convert
+           to nanoseconds. */
         char * endptr;
-        ulong seconds = strtoul( value, &endptr, 10 );
-        if( FD_UNLIKELY( '.'!=*endptr ) ) FD_LOG_ERR(( "expected '.' after seconds in wait_sum" ));
-        if( FD_UNLIKELY( seconds==ULONG_MAX ) ) FD_LOG_ERR(( "strtoul overflow for wait_sum seconds" ));
-        ulong microseconds = strtoul( endptr + 1, &endptr, 10 );
-        if( FD_UNLIKELY( '\0'!=*endptr ) ) FD_LOG_ERR(( "unexpected char after microseconds in wait_sum" ));
-        if( FD_UNLIKELY( microseconds==ULONG_MAX ) ) FD_LOG_ERR(( "strtoul overflow for wait_sum microseconds" ));
-        ulong wait_sum_ns = seconds*1000000000UL + microseconds*1000UL;
+        ulong millis = strtoul( value, &endptr, 10 );
+        if( FD_UNLIKELY( '.'!=*endptr ) ) FD_LOG_ERR(( "expected '.' after milliseconds in wait_sum" ));
+        if( FD_UNLIKELY( millis==ULONG_MAX ) ) FD_LOG_ERR(( "strtoul overflow for wait_sum milliseconds" ));
+        ulong nanos = strtoul( endptr + 1, &endptr, 10 );
+        if( FD_UNLIKELY( '\0'!=*endptr ) ) FD_LOG_ERR(( "unexpected char after fraction in wait_sum" ));
+        if( FD_UNLIKELY( nanos==ULONG_MAX ) ) FD_LOG_ERR(( "strtoul overflow for wait_sum fraction" ));
+        ulong wait_sum_ns = millis*1000000UL + nanos;
         metrics[ FD_METRICS_COUNTER_TILE_CPU_DURATION_NANOS_WAIT_OFF ] = wait_sum_ns;
         found_wait_sum = 1;
       }
@@ -378,6 +383,13 @@ check_engine_metric( fd_diag_tile_t * ctx, long now ) {
                                    FD_DIAG_VOTE_STATUS_VOTING );
       }
     }
+  }
+
+  /* Votes land but earn nothing: the stake is not admitted. */
+  if( FD_UNLIKELY( vote_status==FD_DIAG_VOTE_STATUS_VOTING &&
+                   ctx->tiles.replay_idx!=ULONG_MAX &&
+                   ctx->metrics[ ctx->tiles.replay_idx ][ FD_METRICS_GAUGE_REPLAY_VOTE_ACCOUNT_INADMISSIBLE_OFF ] ) ) {
+    vote_status = FD_DIAG_VOTE_STATUS_INADMISSIBLE;
   }
 
   ulong replay_idx     = ctx->tiles.replay_idx;
@@ -619,7 +631,7 @@ sample_disk( fd_diag_tile_t * ctx ) {
     if( ctx->files[ i ].metric ) file->bytes = *ctx->files[ i ].metric;
     else if( ctx->files[ i ].data_fd>=0 ) {
       struct stat st;
-      if( FD_UNLIKELY( fstat( ctx->files[ i ].data_fd, &st ) ) ) FD_LOG_ERR(( "fstat failed (%i-%s)", errno, strerror( errno ) ));
+      if( FD_UNLIKELY( syscall( SYS_fstat, ctx->files[ i ].data_fd, &st ) ) ) FD_LOG_ERR(( "fstat failed (%i-%s)", errno, strerror( errno ) ));
       file->bytes = (ulong)st.st_size;
     }
   }
@@ -755,7 +767,10 @@ before_credit( fd_diag_tile_t *    ctx,
   }
 
   check_engine_metric( ctx, now );
-  irq_metrics( ctx );
+  if( FD_UNLIKELY( now>=ctx->next_irq_report_nanos ) ) {
+    ctx->next_irq_report_nanos = now + IRQ_REPORT_INTERVAL_NANOS;
+    irq_metrics( ctx );
+  }
 }
 
 /* Disk mount discovery ************************************************/
@@ -1293,7 +1308,8 @@ unprivileged_init( fd_topo_t const *      topo,
 
   memset( ctx->first_seen_died, 0, sizeof( ctx->first_seen_died ) );
   fd_clock_tile_init( ctx->clock );
-  ctx->next_report_nanos = fd_clock_tile_now( ctx->clock );
+  ctx->next_report_nanos     = fd_clock_tile_now( ctx->clock );
+  ctx->next_irq_report_nanos = ctx->next_report_nanos;
   ctx->next_system_report_nanos = ctx->next_report_nanos;
   if( FD_UNLIKELY( ctx->gui_enabled ) ) {
     ulong out_idx = fd_topo_find_tile_out_link( topo, tile, "diag_gui", 0UL );

@@ -140,9 +140,9 @@ fd_prog_preevict( fd_progcache_join_t *    join,
   return 1UL;
 }
 
-void
+ulong
 fd_progcache_housekeeping( fd_progcache_join_t *    join,
                            fd_progcache_metrics_t * metrics ) {
   ulong ticket = __atomic_fetch_add( &join->shmem->cache.housekeep_hand.val, 1UL, __ATOMIC_RELAXED );
-  fd_prog_preevict( join, metrics, ticket % FD_PROGCACHE_CACHE_CLASS_CNT, 2UL );
+  return fd_prog_preevict( join, metrics, ticket % FD_PROGCACHE_CACHE_CLASS_CNT, 2UL );
 }

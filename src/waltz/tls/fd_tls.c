@@ -671,7 +671,7 @@ fd_tls_server_hs_start( fd_tls_t const *      const server,
     wire += sizeof(fd_tls_msg_hdr_t);
     fd_tls_msg_hdr_t hdr = { .type = FD_TLS_MSG_ENCRYPTED_EXT };
 
-    ushort * ext_sz_ptr = (ushort *)wire;
+    uchar * ext_sz_ptr = wire;
     wire += sizeof(ushort);
 
     /* Construct encrypted extensions */
@@ -694,7 +694,7 @@ fd_tls_server_hs_start( fd_tls_t const *      const server,
       return fd_tls_alert( &handshake->base, (uint)(-encode_res), FD_TLS_REASON_EE_ENCODE );
     wire += (ulong)encode_res;
 
-    *ext_sz_ptr = (ushort)fd_ushort_bswap( (ushort)encode_res );
+    FD_STORE( ushort, ext_sz_ptr, fd_ushort_bswap( (ushort)encode_res ) );
     hdr.sz = fd_uint_to_tls_u24( (uint)encode_res + (uint)sizeof(ushort) );
     fd_tls_encode_msg_hdr( &hdr, hdr_ptr, 4UL );
     server_ee_sz = (ulong)(wire - msg_buf);

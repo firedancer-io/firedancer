@@ -15,9 +15,6 @@ typedef struct fd_crds_entry_private fd_crds_entry_t;
 struct fd_crds_private;
 typedef struct fd_crds_private fd_crds_t;
 
-struct fd_crds_mask_iter_private;
-typedef struct fd_crds_mask_iter_private fd_crds_mask_iter_t;
-
 #define FD_CRDS_ALIGN 128UL
 
 #define FD_CRDS_MAGIC (0xf17eda2c37c7d50UL) /* firedancer crds version 0*/
@@ -147,6 +144,12 @@ fd_crds_entry_wallclock( fd_crds_entry_t const * entry );
 uchar const *
 fd_crds_entry_hash( fd_crds_entry_t const * entry );
 
+/* fd_crds_hset returns the dense index of the value hashes of all
+   entries in the table, see fd_gossip_hset.h. */
+
+fd_gossip_hset_t const *
+fd_crds_hset( fd_crds_t const * crds );
+
 /* fd_crds_peer_count returns the number of Contact Info entries
    present in the sidetable. The lifetime of a Contact Info entry
    tracks the lifetime of the corresponding CRDS entry. */
@@ -166,48 +169,13 @@ ulong
 fd_crds_ci_idx( fd_crds_t const * crds,
                 uchar const *     pubkey );
 
-/* fd_crds_mask_iter_{init,next,done,entry} provide an API to
-   iterate over the CRDS values in the table that whose hashes match
-   a given mask. In the Gossip CRDS filter, the mask is applied on
-   the most significant 8 bytes of the CRDS value's hash.
-
-   The Gossip CRDS filter encodes the mask in two values: `mask` and
-   `mask_bits`. For example, if we set `mask_bits` to 5 and 0b01010 as
-   `mask`, we get the following 64-bit bitmask:
-                        01010 11111111111.....
-
-   Therefore, we can frame a mask match as a CRDS value's hash whose
-   most significant `mask_bits` is `mask`. We can trivially define
-   the range of matching hash values by setting the non-mask bits to
-   all 0s or 1s to get the start and end values respectively. */
-
-fd_crds_mask_iter_t *
-fd_crds_mask_iter_init( fd_crds_t const * crds,
-                        ulong             mask,
-                        uint              mask_bits,
-                        uchar             iter_mem[ static 16UL ] );
-
-/* fd_crds_mask_iter_init_range is like fd_crds_mask_iter_init but
-   takes explicit start_hash and end_hash bounds instead of
-   deriving them from (mask, mask_bits). */
-
-fd_crds_mask_iter_t *
-fd_crds_mask_iter_init_range( fd_crds_t const * crds,
-                              ulong             start_hash,
-                              ulong             end_hash,
-                              uchar             iter_mem[ static 16UL ] );
-
-fd_crds_mask_iter_t *
-fd_crds_mask_iter_next( fd_crds_mask_iter_t * it,
-                        fd_crds_t const * crds );
-
-int
-fd_crds_mask_iter_done( fd_crds_mask_iter_t * it,
-                        fd_crds_t const * crds );
+/* fd_crds_entry_at returns the entry at pool index idx, as reported
+   by the hset (fd_gossip_hset_iter_owner).  idx must be in the table
+   (the hset only reports live entries). */
 
 fd_crds_entry_t const *
-fd_crds_mask_iter_entry( fd_crds_mask_iter_t * it,
-                         fd_crds_t const * crds );
+fd_crds_entry_at( fd_crds_t const * crds,
+                  ulong             idx );
 
 FD_PROTOTYPES_END
 

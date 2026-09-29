@@ -17,3 +17,5 @@
     tip_payment_program_addr = "GJHtFqM9agxPmkeKjHny6qiRKrXZALvvFGiKf11QE7hy"
     tip_distribution_authority = "7T4inmPmtNBX3MhLwJ9hFsSMnGJYYkKioVABSNTWVRuS"
     commission_bps = 1000
+[development]
+    alpenglow = true

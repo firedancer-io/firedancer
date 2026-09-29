@@ -101,7 +101,7 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
   ulong accdb_shmem_sz = fd_accdb_shmem_footprint( max_accounts, max_live_slots,
                                                    writes_per_slot, partition_cnt,
                                                    cache_footprint, cache_min_reserved, 1UL, 0UL );
-  ulong accdb_join_sz  = fd_accdb_footprint( max_live_slots );
+  ulong accdb_join_sz  = fd_accdb_footprint( max_live_slots, 0 );
 
   fd_solfuzz_runner_t * runner       = fd_wksp_alloc_laddr( wksp, alignof(fd_solfuzz_runner_t), sizeof(fd_solfuzz_runner_t),                                 wksp_tag );
   void *                accdb_shmem  = fd_wksp_alloc_laddr( wksp, fd_accdb_shmem_align(),       accdb_shmem_sz,                                              wksp_tag );
@@ -135,7 +135,7 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
                           writes_per_slot, partition_cnt,
                           partition_sz, cache_footprint, cache_min_reserved, 1, 42UL, 1UL, 0UL ) );
   if( FD_UNLIKELY( !shmem ) ) goto bail1;
-  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_join, shmem, accdb_fd, 0UL, NULL ) );
+  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_join, shmem, accdb_fd, 0UL, NULL, NULL, 0UL, 0 ) );
   if( FD_UNLIKELY( !accdb ) ) goto bail1;
   runner->accdb = accdb;
 
@@ -159,7 +159,7 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
   /* Use 2048 for max_vote_accounts to match fd_banks_footprint above (avoids buffer overrun) */
   runner->banks = fd_banks_join( fd_banks_new( banks_mem, stake_delegations_fd, bank_max, fork_max, 2048UL, 32768UL, 2048UL, 0, 8888UL ) );
   if( FD_UNLIKELY( !runner->banks ) ) goto bail2;
-  FD_TEST( fd_banks_stake_delegations_root_query( runner->banks )->disk_fd_==stake_delegations_fd );
+  FD_TEST( fd_stake_delegations_join( fd_banks_stake_delegations_root_query( runner->banks ), stake_delegations_fd ) );
 
   /* Runtime block execution requires every non-genesis bank to have a
      parent.  Keep the root bank as that parent and run harnesses against

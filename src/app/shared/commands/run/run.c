@@ -21,6 +21,7 @@
 #include "../../../../discof/backup/fd_snap_pool.h"
 #include "../../../../discof/restore/utils/fd_ssarchive.h"
 #include "../../../../disco/waker/fd_waker.h"
+#include "../../../../disco/sleep/fd_sleep.h"
 #include "../../../../util/pod/fd_pod_format.h"
 
 #include "../configure/configure.h"
@@ -272,12 +273,14 @@ execve_tile( char const *           name,
       ulong numa_idx = fd_shmem_numa_idx( tile->cpu_idx );
       for( ulong cpu=0UL; cpu<FD_TILE_MAX; cpu++ )
         if( fd_cpuset_test( float_cpu_set, cpu ) && fd_shmem_numa_idx( cpu )==numa_idx ) fd_cpuset_insert( cpu_set, cpu );
+      if( FD_UNLIKELY( !fd_cpuset_cnt( cpu_set ) ) ) fd_memcpy( cpu_set, float_cpu_set, fd_cpuset_footprint() );
     }
     if( FD_UNLIKELY( !fd_cpuset_cnt( cpu_set ) ) ) fd_cpuset_insert( cpu_set, tile->cpu_idx );
     if( FD_UNLIKELY( -1==setpriority( PRIO_PROCESS, 0, -19 ) ) ) FD_LOG_ERR(( "setpriority() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   } else {
     leave_isolation_cgroup( cg );
-    fd_memcpy( cpu_set, floating_cpu_set, fd_cpuset_footprint() );
+    fd_cpuset_intersect( cpu_set, float_cpu_set, floating_cpu_set );
+    if( FD_UNLIKELY( !fd_cpuset_cnt( cpu_set ) ) ) fd_memcpy( cpu_set, floating_cpu_set, fd_cpuset_footprint() );
     if( FD_UNLIKELY( -1==setpriority( PRIO_PROCESS, 0, floating_priority ) ) ) FD_LOG_ERR(( "setpriority() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
@@ -351,8 +354,13 @@ main_pid_namespace( void * _args ) {
     fd_cpuset_insert( float_cpu_set, config->topo.tiles[ i ].cpu_idx );
     any_floats = 1;
   }
-  for( ulong i=0UL; i<config->topo.tile_cnt; i++ )
-    if( FD_LIKELY( !config->topo.tiles[ i ].floats && config->topo.tiles[ i ].cpu_idx!=ULONG_MAX ) ) fd_cpuset_remove( float_cpu_set, config->topo.tiles[ i ].cpu_idx );
+  for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
+    fd_topo_tile_t const * tile = &config->topo.tiles[ i ];
+    if( FD_UNLIKELY( tile->floats || tile->cpu_idx==ULONG_MAX ) ) continue;
+    fd_cpuset_remove( float_cpu_set, tile->cpu_idx );
+    ulong sibling = fd_tile_private_sibling_idx( tile->cpu_idx );
+    if( FD_LIKELY( sibling!=ULONG_MAX ) ) fd_cpuset_remove( float_cpu_set, sibling );
+  }
 
   pid_t child_pids[ FD_TOPO_MAX_TILES+1 ];
   ulong actual_pids[ FD_TOPO_MAX_TILES+1 ];
@@ -415,6 +423,7 @@ main_pid_namespace( void * _args ) {
     if( FD_UNLIKELY( idx!=ULONG_MAX ) ) waker_client_cnt = fd_ulong_max( waker_client_cnt, idx+1UL );
   }
   fd_waker_install( waker_client_cnt );
+  fd_sleep_eventfd_install( &config->topo );
 
   struct spawn_cgroup spawn_cg = {0};
 
@@ -525,6 +534,14 @@ main_pid_namespace( void * _args ) {
         if( FD_UNLIKELY( -1==fcntl( FD_WAKER_INNER_FD( j ), F_SETFD, inner_entitled ? 0 : FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       }
 
+      int is_mwaitx = !strcmp( tile->name, "mwaitx" );
+      for( ulong j=0UL; j<config->topo.tile_cnt; j++ ) {
+        if( FD_LIKELY( !config->topo.tiles[ j ].sleep_eventfd ) ) continue;
+
+        int eventfd_entitled = is_mwaitx || tile->id==j;
+        if( FD_UNLIKELY( -1==fcntl( FD_SLEEP_EVENTFD( j ), F_SETFD, eventfd_entitled ? 0 : FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      }
+
       int pipefd[ 2 ];
       if( FD_UNLIKELY( pipe2( pipefd, O_CLOEXEC ) ) ) FD_LOG_ERR(( "pipe2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       fds[ child_cnt ] = (struct pollfd){ .fd = pipefd[ 0 ], .events = 0 };
@@ -578,6 +595,10 @@ main_pid_namespace( void * _args ) {
   if( FD_UNLIKELY( -1==close( FD_WAKER_OUTER_FD ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   for( ulong j=0UL; j<waker_client_cnt; j++ ) {
     if( FD_UNLIKELY( -1==close( FD_WAKER_INNER_FD( j ) ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+  for( ulong j=0UL; j<config->topo.tile_cnt; j++ ) {
+    if( FD_LIKELY( !config->topo.tiles[ j ].sleep_eventfd ) ) continue;
+    if( FD_UNLIKELY( -1==close( FD_SLEEP_EVENTFD( j ) ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
   int allow_fds[ 6+FD_TOPO_MAX_TILES ];

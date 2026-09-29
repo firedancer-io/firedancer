@@ -5,6 +5,7 @@
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../tango/fseq/fd_fseq.h"
 
+#include <linux/futex.h>
 #include "generated/fd_snapdc_tile_seccomp.h"
 
 #define ZSTD_STATIC_LINKING_ONLY

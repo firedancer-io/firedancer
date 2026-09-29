@@ -22,6 +22,7 @@
    presets, including two token accounts per funded account. */
 
 #define GENESIS_BUF_MAX (1UL<<25)
+#define GENESIS_ACCOUNT_MAX FD_GENESIS_ACCOUNT_MAX( GENESIS_BUF_MAX )
 
 FD_IMPORT_BINARY( ptoken_program_elf, "src/ballet/sbpf/fixtures/spl_p_token.so" );
 
@@ -346,14 +347,18 @@ check( config_t const * config,
 
   if( FD_UNLIKELY( -1==close( fd ) ) ) FD_LOG_ERR(( "could not close genesis.bin file at `%s` (%i-%s)", genesis_path, errno, fd_io_strerror( errno ) ));
 
-  static fd_genesis_t _genesis[1];
+  static uchar _genesis_mem[ FD_GENESIS_FOOTPRINT( GENESIS_ACCOUNT_MAX ) ] __attribute__((aligned(FD_GENESIS_ALIGN)));
+  fd_genesis_t * _genesis = fd_genesis_new( _genesis_mem, GENESIS_ACCOUNT_MAX );
+  FD_TEST( _genesis );
   if( FD_UNLIKELY( !fd_genesis_parse( _genesis, disk_bin, (ulong)st.st_size ) ) )
     FD_LOG_ERR(( "malformed genesis file at `%s`", genesis_path ));
 
   static uchar fresh_bin[ GENESIS_BUF_MAX ];
   ulong fresh_bin_sz = create_genesis( config, fresh_bin, sizeof(fresh_bin) );
 
-  static fd_genesis_t _tmp_genesis[1];
+  static uchar _tmp_genesis_mem[ FD_GENESIS_FOOTPRINT( GENESIS_ACCOUNT_MAX ) ] __attribute__((aligned(FD_GENESIS_ALIGN)));
+  fd_genesis_t * _tmp_genesis = fd_genesis_new( _tmp_genesis_mem, GENESIS_ACCOUNT_MAX );
+  FD_TEST( _tmp_genesis );
   if( FD_UNLIKELY( !fd_genesis_parse( _tmp_genesis, fresh_bin, fresh_bin_sz ) ) )
     FD_LOG_ERR(( "malformed genesis file generated for comparison for `%s`", genesis_path ));
 

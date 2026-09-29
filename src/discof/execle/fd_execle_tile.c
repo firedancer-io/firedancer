@@ -16,6 +16,7 @@
 #include "../../flamenco/progcache/fd_progcache_user.h"
 #include "../../flamenco/log_collector/fd_log_collector_base.h"
 #include <time.h>
+#include <linux/futex.h>
 #include "generated/fd_execle_tile_seccomp.h"
 
 #define REBATE_BATCH_IDLE_LOOPS      (128UL)
@@ -49,7 +50,6 @@ struct fd_execle_tile {
   fd_acct_addr_t _alt_accts[MAX_TXN_PER_MICROBLOCK][FD_TXN_ACCT_ADDR_MAX];
 
   ulong * busy_fseq;
-  ulong * pack_in_fseq;
 
   fd_wksp_t * pack_in_mem;
   ulong       pack_in_chunk0;
@@ -115,7 +115,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, FD_BLAKE3_ALIGN,             FD_BLAKE3_FOOTPRINT );
   l = FD_LAYOUT_APPEND( l, FD_BMTREE_COMMIT_ALIGN,      FD_BMTREE_COMMIT_FOOTPRINT(0) );
   l = FD_LAYOUT_APPEND( l, fd_txncache_align(),         fd_txncache_footprint( tile->execle.max_live_slots ) );
-  l = FD_LAYOUT_APPEND( l, fd_accdb_align(),            fd_accdb_footprint( tile->execle.max_live_slots ) );
+  l = FD_LAYOUT_APPEND( l, fd_accdb_align(),            fd_accdb_footprint( tile->execle.max_live_slots, 0 ) );
   l = FD_LAYOUT_APPEND( l, FD_PROGCACHE_SCRATCH_ALIGN,  FD_PROGCACHE_SCRATCH_FOOTPRINT );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
@@ -126,6 +126,7 @@ metrics_write( fd_execle_tile_t * ctx ) {
 
   FD_MCNT_SET( EXECLE, INSTRUCTION_EXECUTED, ctx->runtime->metrics.instr_cum );
   FD_MCNT_SET( EXECLE, CPI_EXECUTED,         ctx->runtime->metrics.cpi_cum   );
+  FD_MCNT_SET( EXECLE, LTHASH_UNCHANGED,     ctx->runtime->metrics.lthash_unchanged_cnt );
 
   FD_MCNT_SET( EXECLE, CU_EXECUTED, ctx->runtime->metrics.cu_cum );
 
@@ -720,8 +721,6 @@ after_frag( fd_execle_tile_t *  ctx,
             ulong               tsorig,
             ulong               tspub,
             fd_stem_context_t * stem ) {
-  (void)in_idx;
-
   ulong slot = fd_disco_poh_sig_slot( sig );
   if( FD_LIKELY( ctx->enable_rebates ) ) {
     if( FD_UNLIKELY( slot!=ctx->rebates_for_slot ) ) {
@@ -748,7 +747,7 @@ after_frag( fd_execle_tile_t *  ctx,
 
   /* Return the pack_execle credit now rather than at housekeeping, so
      the link can be shallow enough for pack to keep it in cache. */
-  fd_fseq_update( ctx->pack_in_fseq, seq+1UL );
+  fd_stem_credit_return( stem, in_idx, seq+1UL );
 }
 
 static inline fd_execle_out_t
@@ -794,7 +793,7 @@ unprivileged_init( fd_topo_t const *      topo,
   void * blake3          = FD_SCRATCH_ALLOC_APPEND( l, FD_BLAKE3_ALIGN,            FD_BLAKE3_FOOTPRINT );
   void * bmtree          = FD_SCRATCH_ALLOC_APPEND( l, FD_BMTREE_COMMIT_ALIGN,     FD_BMTREE_COMMIT_FOOTPRINT(0) );
   void * _txncache       = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),        fd_txncache_footprint( tile->execle.max_live_slots ) );
-  void * _accdb          = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),           fd_accdb_footprint( tile->execle.max_live_slots ) );
+  void * _accdb          = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),           fd_accdb_footprint( tile->execle.max_live_slots, 0 ) );
   void * pc_scratch      = FD_SCRATCH_ALLOC_APPEND( l, FD_PROGCACHE_SCRATCH_ALIGN, FD_PROGCACHE_SCRATCH_FOOTPRINT );
 
 #define NONNULL( x ) (__extension__({                                        \
@@ -825,7 +824,8 @@ unprivileged_init( fd_topo_t const *      topo,
   void * _accdb_shmem = fd_topo_obj_laddr( topo, tile->execle.accdb_obj_id );
   fd_accdb_shmem_t * accdb_shmem = fd_accdb_shmem_join( _accdb_shmem );
   FD_TEST( accdb_shmem );
-  ctx->accdb = fd_accdb_join( fd_accdb_new( _accdb, accdb_shmem, FD_ACCDB_FD_RW, 0UL, NULL ) );
+  fd_sleep_t * accdb_sleep = topo->sleep_obj_id!=ULONG_MAX ? fd_sleep_join( fd_topo_obj_laddr( topo, topo->sleep_obj_id ) ) : NULL;
+  ctx->accdb = fd_accdb_join( fd_accdb_new( _accdb, accdb_shmem, FD_ACCDB_FD_RW, 0UL, NULL, accdb_sleep, fd_topo_find_tile( topo, "accdb", 0UL ), 0 ) );
   FD_TEST( ctx->accdb );
 
   for( ulong i=0UL; i<FD_PACK_MAX_TXN_PER_BUNDLE; i++ ) {
@@ -851,8 +851,6 @@ unprivileged_init( fd_topo_t const *      topo,
   ulong busy_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "execle_busy.%lu", tile->kind_id );
   FD_TEST( busy_obj_id!=ULONG_MAX );
   ctx->busy_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, busy_obj_id ) );
-  ctx->pack_in_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->in_link_fseq_obj_id[ 0UL ] ) );
-  FD_TEST( ctx->pack_in_fseq );
   if( FD_UNLIKELY( !ctx->busy_fseq ) ) FD_LOG_ERR(( "execle tile %lu has no busy flag", tile->kind_id ));
 
   memset( &ctx->metrics,          0, sizeof( ctx->metrics )          );

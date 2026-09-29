@@ -22,6 +22,7 @@
 #include "../../disco/topo/fd_topo.h"
 
 #include <time.h> /* CLOCK_REALTIME */
+#include <linux/futex.h>
 #include "generated/fd_snapzp_tile_seccomp.h"
 #include "../../tango/fseq/fd_fseq.h"
 #include <fcntl.h>
@@ -51,9 +52,10 @@ struct fd_snapzp {
 
   ulong idle_cnt;
 
-  ulong kind_id;  /* index of this tile kind */
-  ulong frame_id; /* sequence number for tar file names */
+  ulong kind_id;   /* index of this tile kind */
+  ulong frame_cnt; /* frames written by this tile */
   ulong snapshot_slot;
+  ulong slot_lo;   /* lowest appendvec slot this archive may use */
   ulong snapshot_account_cnt;
   ulong snapshot_account_sz;
   ulong snapshot_tombstone_cnt;
@@ -79,6 +81,9 @@ struct fd_snapzp {
   /* bump allocator for file offsets used to coordinate snapzp take
      turns to write to a file.  512 byte aligned for direct I/O. */
   ulong volatile * file_off;
+
+  /* countdown allocator for appendvec slots, shared the same way */
+  ulong volatile * appendvec_slot_ticket;
 
   struct {
     int         active;
@@ -115,7 +120,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_snapzp_t), sizeof(fd_snapzp_t) );
-  l = FD_LAYOUT_APPEND( l, fd_accdb_align(),     fd_accdb_footprint( tile->snapzp.max_live_slots ) );
+  l = FD_LAYOUT_APPEND( l, fd_accdb_align(),     fd_accdb_footprint( tile->snapzp.max_live_slots, 0 ) );
   l = FD_LAYOUT_APPEND( l, 32UL,                 ZSTD_estimateCStreamSize( FD_BACKUP_ZSTD_LEVEL ) );
   return FD_LAYOUT_FINI( l, FD_SHMEM_HUGE_PAGE_SZ );
 }
@@ -141,7 +146,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, fd_topo_obj_laddr( topo, tile->tile_obj_id ) );
   fd_snapzp_t * ctx      = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapzp_t), sizeof(fd_snapzp_t) );
-  void *        _accdb   = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),     fd_accdb_footprint( tile->snapzp.max_live_slots ) );
+  void *        _accdb   = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),     fd_accdb_footprint( tile->snapzp.max_live_slots, 0 ) );
   void *        _zstd    = FD_SCRATCH_ALLOC_APPEND( l, 32UL,                 ZSTD_estimateCStreamSize( FD_BACKUP_ZSTD_LEVEL ) );
   FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
 
@@ -200,7 +205,7 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( ctx->snaprd_mem );
 
   ctx->kind_id = tile->kind_id;
-  ctx->frame_id = 0UL;
+  ctx->frame_cnt = 0UL;
   memset( &ctx->disk, 0, sizeof(ctx->disk) );
 
   void * _accdb_shmem = fd_topo_obj_laddr( topo, tile->snapzp.accdb_obj_id );
@@ -218,7 +223,9 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_STATIC_ASSERT( SNAPZP_TILE_MAX==FD_BACKUP_STATS_MAX, backup_stats_max );
 
   ulong * zp_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->snapzp.zp_fseq_id ) ); FD_TEST( zp_fseq );
-  ctx->file_off = fd_fseq_app_laddr( zp_fseq );
+  ulong * zp_app  = fd_fseq_app_laddr( zp_fseq );
+  ctx->file_off              = &zp_app[ 0 ];
+  ctx->appendvec_slot_ticket = &zp_app[ 1 ];
 }
 
 static ulong
@@ -259,14 +266,14 @@ static void
 before_credit( fd_snapzp_t *       ctx,
                fd_stem_context_t * stem,
                int *               charge_busy ) {
-  (void)stem; (void)charge_busy;
+  (void)charge_busy;
   if( FD_LIKELY( ctx->snap_fd>=0 ) ) {
     /* Don't sleep while snapshot production is active
        FIXME this is quite wasteful */
     ctx->idle_cnt = 0UL;
     return;
   }
-  if( FD_UNLIKELY( ctx->idle_cnt++ > 16384UL ) ) {
+  if( FD_UNLIKELY( ctx->idle_cnt++ > 16384UL && !stem->sleep ) ) {
     fd_log_sleep( (long)1e6 );
   }
 }
@@ -281,12 +288,13 @@ msg_start( fd_snapzp_t *                 ctx,
   ctx->snap_fd       = FD_SNAP_DIO_FD( frag->snap_idx );
   ctx->fork_id       = (fd_accdb_fork_id_t){ .val = frag->fork_id };
   ctx->snapshot_slot = frag->slot;
+  ctx->slot_lo       = frag->slot_lo;
 
   ulong zst_err = ZSTD_CCtx_reset( ctx->zst, ZSTD_reset_session_only );
   if( FD_UNLIKELY( ZSTD_isError( zst_err ) ) ) {
     FD_LOG_ERR(( "ZSTD_CCtx_reset failed: %s", ZSTD_getErrorName( zst_err ) ));
   }
-  ctx->frame_id      = 0UL;
+  ctx->frame_cnt = 0UL;
   ctx->snapshot_account_cnt = 0UL;
   ctx->snapshot_account_sz  = 0UL;
   ctx->snapshot_tombstone_cnt = 0UL;
@@ -372,6 +380,15 @@ zip_flush( fd_snapzp_t * ctx ) {
   ctx->raw_buf.pos  = 0UL;
   ctx->raw_buf.size = 0UL;
 
+  /* One appendvec per frame.  If, for some reason, we run out of slots
+     to use, start incrementing the file index. */
+  ulong appendvec_slot = __atomic_fetch_sub( ctx->appendvec_slot_ticket, 1UL, __ATOMIC_RELAXED );
+  ulong appendvec_id   = 0UL;
+  if( FD_UNLIKELY( appendvec_slot<ctx->slot_lo || appendvec_slot>ctx->snapshot_slot ) ) { /* out of slots (> means the counter wrapped below 0) */
+    appendvec_id   = ctx->slot_lo - appendvec_slot; /* modular: 1, 2, ... */
+    appendvec_slot = ctx->slot_lo;
+  }
+
   /* Prepend compression frame with a TAR header
      (Zstandard frame with a 512 byte uncompressed block) */
   uchar * comp_head = (uchar *)ctx->comp_buf.dst - COMP_HEAD;
@@ -379,15 +396,13 @@ zip_flush( fd_snapzp_t * ctx ) {
   fd_tar_meta_t meta; fd_backup_tar_file_hdr( &meta, content_usz );
 
   /* Generate a unique file name */
-  ulong frame_id = ctx->frame_id++;
-  ulong vec_id   = (frame_id * SNAPZP_TILE_MAX) + ctx->kind_id;
+  ctx->frame_cnt++;
   do {
-    ulong slot = ctx->snapshot_slot;
     char * p = fd_cstr_init( meta.name );
     p = fd_cstr_append_cstr( p, "accounts/" );
-    p = fd_cstr_append_ulong_as_text( p, 0, 0, slot,   fd_ulong_base10_dig_cnt( slot   ) );
+    p = fd_cstr_append_ulong_as_text( p, 0, 0, appendvec_slot, fd_ulong_base10_dig_cnt( appendvec_slot ) );
     p = fd_cstr_append_char( p, '.' );
-    p = fd_cstr_append_ulong_as_text( p, 0, 0, vec_id, fd_ulong_base10_dig_cnt( vec_id ) );
+    p = fd_cstr_append_ulong_as_text( p, 0, 0, appendvec_id,   fd_ulong_base10_dig_cnt( appendvec_id   ) );
     fd_cstr_fini( p );
   } while(0);
   fd_tar_meta_set_chksum( &meta );
@@ -850,7 +865,7 @@ returnable_frag( fd_snapzp_t *       ctx,
     __atomic_store_n( &stats->tombstone_cnt,       ctx->snapshot_tombstone_cnt,      __ATOMIC_RELAXED );
     __atomic_store_n( &stats->cached_account_cnt,  ctx->snapshot_cached_account_cnt, __ATOMIC_RELAXED );
     __atomic_store_n( &stats->disk_account_cnt,    ctx->snapshot_disk_account_cnt,   __ATOMIC_RELAXED );
-    __atomic_store_n( &stats->zstd_data_frame_cnt, 2UL*ctx->frame_id,                __ATOMIC_RELAXED );
+    __atomic_store_n( &stats->zstd_data_frame_cnt, 2UL*ctx->frame_cnt,                __ATOMIC_RELAXED );
     __atomic_store_n( &stats->zstd_padding_sz,     ctx->snapshot_zstd_padding_sz,    __ATOMIC_RELAXED );
     __atomic_store_n( &stats->compress_ticks,      ctx->metrics.compress_ticks-ctx->snapshot_compress_ticks0,     __ATOMIC_RELAXED );
     __atomic_store_n( &stats->io_blocked_ticks,    ctx->metrics.io_blocked_ticks-ctx->snapshot_io_blocked_ticks0, __ATOMIC_RELAXED );

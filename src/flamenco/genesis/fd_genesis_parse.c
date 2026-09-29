@@ -4,12 +4,44 @@
 
 #include <stddef.h>
 
+FD_STATIC_ASSERT( alignof(fd_genesis_t)<=FD_GENESIS_ALIGN,              fd_genesis_align     );
+FD_STATIC_ASSERT( offsetof(fd_genesis_t, account)==sizeof(fd_genesis_t), fd_genesis_footprint );
+
+ulong
+fd_genesis_align( void ) {
+  return FD_GENESIS_ALIGN;
+}
+
+ulong
+fd_genesis_footprint( ulong account_max ) {
+  return FD_GENESIS_FOOTPRINT( account_max );
+}
+
+fd_genesis_t *
+fd_genesis_new( void * mem,
+                ulong  account_max ) {
+  if( FD_UNLIKELY( !mem ) ) {
+    FD_LOG_WARNING(( "NULL mem" ));
+    return NULL;
+  }
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, FD_GENESIS_ALIGN ) ) ) {
+    FD_LOG_WARNING(( "misaligned mem" ));
+    return NULL;
+  }
+  fd_genesis_t * genesis = (fd_genesis_t *)mem;
+  memset( genesis, 0, sizeof(fd_genesis_t) );
+  genesis->account_max = account_max;
+  return genesis;
+}
+
 fd_genesis_t *
 fd_genesis_parse( fd_genesis_t * genesis,
                   uchar const *  bin,
                   ulong          bin_sz ) {
   /* Zero out top part of descriptor which is sufficient to fully
-     initialize fd_genesis_t (assuming no struct reordering). */
+     initialize fd_genesis_t (assuming no struct reordering).  The
+     account_max capacity set by fd_genesis_new lives after builtin and
+     is preserved. */
   memset( genesis, 0, offsetof(fd_genesis_t, builtin) );
 
   uchar const * _payload    = bin;
@@ -25,8 +57,9 @@ fd_genesis_parse( fd_genesis_t * genesis,
   CHECK_LEFT( 8UL ); genesis->creation_time = FD_LOAD( ulong, CURSOR ); INC( 8UL );
 
   CHECK_LEFT( 8UL ); genesis->account_cnt = FD_LOAD( ulong, CURSOR ); INC( 8UL );
-  if( FD_UNLIKELY( genesis->account_cnt>FD_GENESIS_ACCOUNT_MAX_COUNT ) ) {
-    FD_LOG_WARNING(( "genesis account count %lu exceeds max %lu (increase FD_GENESIS_ACCOUNT_MAX_COUNT?)", genesis->account_cnt, FD_GENESIS_ACCOUNT_MAX_COUNT ));
+  if( FD_UNLIKELY( genesis->account_cnt>genesis->account_max ) ) {
+    FD_LOG_WARNING(( "genesis account count %lu exceeds account table capacity %lu (a %lu byte blob holds at most %lu accounts; malformed genesis?)",
+                     genesis->account_cnt, genesis->account_max, bin_sz, fd_genesis_account_max( bin_sz ) ));
     return NULL;
   }
   for( ulong i=0UL; i<genesis->account_cnt; i++ ) {

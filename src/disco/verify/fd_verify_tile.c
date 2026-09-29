@@ -1,6 +1,7 @@
 #include "fd_verify_tile.h"
 #include "../fd_txn_m.h"
 #include "../metrics/fd_metrics.h"
+#include <linux/futex.h>
 #include "generated/fd_verify_tile_seccomp.h"
 #include "../../flamenco/gossip/fd_gossip_message.h"
 
@@ -175,7 +176,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_verify_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_verify_ctx_t ), sizeof( fd_verify_ctx_t ) );
-  fd_tcache_t * tcache = fd_tcache_join( fd_tcache_new( FD_SCRATCH_ALLOC_APPEND( l, FD_TCACHE_ALIGN, FD_TCACHE_FOOTPRINT( tile->verify.tcache_depth, 0UL ) ), tile->verify.tcache_depth, 0UL ) );
+  fd_tcache_t * tcache = fd_tcache_join( fd_tcache_new( FD_SCRATCH_ALLOC_APPEND( l, fd_tcache_align(), fd_tcache_footprint( tile->verify.tcache_depth, 0UL ) ), tile->verify.tcache_depth, 0UL ) );
   if( FD_UNLIKELY( !tcache ) ) FD_LOG_ERR(( "fd_tcache_join failed" ));
 
   ctx->round_robin_cnt = fd_topo_tile_name_cnt( topo, tile->name );

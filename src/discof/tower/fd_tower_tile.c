@@ -1,4 +1,5 @@
 #include "fd_tower_tile.h"
+#include <linux/futex.h>
 #include "generated/fd_tower_tile_seccomp.h"
 
 #include "../../choreo/eqvoc/fd_eqvoc.h"
@@ -1432,7 +1433,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_tower_align(),         fd_tower_footprint( slot_max, VTR_MAX )                       );
   l = FD_LAYOUT_APPEND( l, fd_tower_vote_align(),    fd_tower_vote_footprint()                                     );
   l = FD_LAYOUT_APPEND( l, publishes_align(),        publishes_footprint( pub_max )                                );
-  l = FD_LAYOUT_APPEND( l, fd_accdb_align(),         fd_accdb_footprint( tile->tower.max_live_slots )              );
+  l = FD_LAYOUT_APPEND( l, fd_accdb_align(),         fd_accdb_footprint( tile->tower.max_live_slots, 0 )              );
   ulong epoch_vtr_chain_cnt = epoch_vtr_map_chain_cnt_est( VTR_MAX );
   l = FD_LAYOUT_APPEND( l, epoch_vtr_pool_align(),         epoch_vtr_pool_footprint( VTR_MAX )                     );
   l = FD_LAYOUT_APPEND( l, epoch_vtr_map_align(),          epoch_vtr_map_footprint( epoch_vtr_chain_cnt )          );
@@ -1470,7 +1471,7 @@ init_choreo( void                 * scratch,
   void  * tower         = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_align(),         fd_tower_footprint( slot_max, VTR_MAX )                       );
   void  * scratch_tower = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_vote_align(),    fd_tower_vote_footprint()                                     );
   void  * publishes     = FD_SCRATCH_ALLOC_APPEND( l, publishes_align(),        publishes_footprint( pub_max )                                );
-  void  * accdb         = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),         fd_accdb_footprint( tile->tower.max_live_slots )              );
+  void  * accdb         = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),         fd_accdb_footprint( tile->tower.max_live_slots, 0 )              );
   ulong epoch_vtr_chain_cnt = epoch_vtr_map_chain_cnt_est( VTR_MAX );
   void  * root_epoch_vtr_pool   = FD_SCRATCH_ALLOC_APPEND( l, epoch_vtr_pool_align(),         epoch_vtr_pool_footprint( VTR_MAX )             );
   void  * root_epoch_vtr_map    = FD_SCRATCH_ALLOC_APPEND( l, epoch_vtr_map_align(),          epoch_vtr_map_footprint( epoch_vtr_chain_cnt )  );
@@ -1487,7 +1488,8 @@ init_choreo( void                 * scratch,
   ctx->tower              = fd_tower_join              ( fd_tower_new              ( tower, slot_max, VTR_MAX, ctx->seed )                       );
   ctx->scratch_tower      = fd_tower_vote_join         ( fd_tower_vote_new         ( scratch_tower )                                             );
   ctx->publishes          = publishes_join             ( publishes_new             ( publishes, pub_max )                                        );
-  ctx->accdb              = fd_accdb_join              ( fd_accdb_new              ( accdb, _accdb_shmem, FD_ACCDB_FD_RW, 0UL, NULL )            );
+  fd_sleep_t * accdb_sleep = topo->sleep_obj_id!=ULONG_MAX ? fd_sleep_join( fd_topo_obj_laddr( topo, topo->sleep_obj_id ) ) : NULL;
+  ctx->accdb              = fd_accdb_join              ( fd_accdb_new              ( accdb, _accdb_shmem, FD_ACCDB_FD_RW, 0UL, NULL, accdb_sleep, fd_topo_find_tile( topo, "accdb", 0UL ), 0 ) );
   ctx->mleaders           = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( ctx->mleaders_mem )                                         );
   ctx->root_epoch_vtr_pool = epoch_vtr_pool_join( epoch_vtr_pool_new( root_epoch_vtr_pool, VTR_MAX ) );
   ctx->root_epoch_vtr_map  = epoch_vtr_map_join ( epoch_vtr_map_new ( root_epoch_vtr_map,  epoch_vtr_chain_cnt, ctx->seed ) );
@@ -1796,6 +1798,19 @@ adopt_tower( fd_tower_tile_t * ctx,
   if( FD_UNLIKELY( fd_compact_tower_sync_to_votes( &serde, votes, &vote_cnt, &root ) ) ) return result;
 
   return adopt_votes( ctx, votes, vote_cnt, root, &serde.hash, &serde.block_id );
+}
+
+static inline int
+before_frag( fd_tower_tile_t * ctx,
+             ulong             in_idx,
+             ulong             seq FD_PARAM_UNUSED,
+             ulong             sig ) {
+  switch( ctx->in_kind[ in_idx ] ) {
+  case IN_KIND_GOSSIP: return sig!=FD_GOSSIP_UPDATE_TAG_DUPLICATE_SHRED;
+  case IN_KIND_REPLAY: return sig!=REPLAY_SIG_SLOT_COMPLETED && sig!=REPLAY_SIG_SLOT_DEAD && sig!=REPLAY_SIG_TXN_EXECUTED;
+  case IN_KIND_SHRED:  return fd_shred_sig_src( sig )!=SHRED_SIG_SRC_TURBINE && fd_shred_sig_src( sig )!=SHRED_SIG_SRC_REPAIR;
+  default:             return 0;
+  }
 }
 
 static inline int
@@ -2128,6 +2143,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 #define STEM_CALLBACK_METRICS_WRITE       metrics_write
 #define STEM_CALLBACK_AFTER_CREDIT        after_credit
+#define STEM_CALLBACK_BEFORE_FRAG         before_frag
 #define STEM_CALLBACK_RETURNABLE_FRAG     returnable_frag
 
 #include "../../disco/stem/fd_stem.c"

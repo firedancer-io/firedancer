@@ -222,7 +222,7 @@ add_bank_stake_delegation_entry( test_env_t *        env,
                                  ulong               stake ) {
   fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_modify( env->bank );
   fd_stake_delegations_fork_update( stake_delegations,
-                                    env->bank->stake_delegations_fork_id,
+                                    env->bank->stake_delegations_fork_id, 0UL,
                                     stake_account, vote_account,
                                     stake, 0UL, ULONG_MAX, 0UL,
                                     stake + VOTE_ACCOUNT_LAMPORTS,
@@ -328,7 +328,7 @@ test_env_create( test_env_t * env, fd_wksp_t * wksp ) {
                                                    accdb_writes_per_slot, accdb_partition_cnt,
                                                    accdb_cache_footprint, accdb_cache_min_reserved,
                                                    accdb_joiner_cnt, 0UL );
-  ulong accdb_join_sz  = fd_accdb_footprint( accdb_max_live_slots );
+  ulong accdb_join_sz  = fd_accdb_footprint( accdb_max_live_slots, 1 );
 
   env->accdb_shmem = fd_wksp_alloc_laddr( wksp, fd_accdb_shmem_align(), accdb_shmem_sz, env->tag );
   FD_TEST( env->accdb_shmem );
@@ -343,7 +343,7 @@ test_env_create( test_env_t * env, fd_wksp_t * wksp ) {
                           accdb_writes_per_slot, accdb_partition_cnt, accdb_partition_sz,
                           accdb_cache_footprint, accdb_cache_min_reserved, 0, 42UL, accdb_joiner_cnt, 0UL ) );
   FD_TEST( shmem );
-  env->accdb = fd_accdb_join( fd_accdb_new( env->accdb_join, shmem, env->accdb_fd, 0UL, NULL ) );
+  env->accdb = fd_accdb_join( fd_accdb_new( env->accdb_join, shmem, env->accdb_fd, 0UL, NULL, NULL, 0UL, 1 ) );
   FD_TEST( env->accdb );
 
   void * banks_mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( max_total_banks, max_fork_width, 2048UL, 2048UL ), env->tag );
@@ -378,7 +378,7 @@ test_env_create( test_env_t * env, fd_wksp_t * wksp ) {
   ulong fork_id = env->bank->vote_stakes_fork_id;
 
   fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_modify( env->bank );
-  env->bank->stake_delegations_fork_id = fd_stake_delegations_new_fork( stake_delegations );
+  env->bank->stake_delegations_fork_id = fd_stake_delegations_new_fork( stake_delegations, USHORT_MAX );
 
   for( ulong i=0UL; i<NUM_VOTERS; i++ ) {
     fd_pubkey_t v = vote_key( i );

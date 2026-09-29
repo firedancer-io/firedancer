@@ -1,5 +1,7 @@
 #include "../../disco/tiles.h"
 
+#include <linux/futex.h>
+
 #include "../../discof/fd_startup.h"
 
 #include <time.h>
@@ -32,6 +34,8 @@ struct fd_accdb_tile_ctx {
 
   fd_startup_gate_t startup_gate[1];
 
+  int busy;
+
   ulong seed;
 };
 
@@ -46,7 +50,7 @@ FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof( fd_accdb_tile_ctx_t ), sizeof( fd_accdb_tile_ctx_t )                    );
-  l = FD_LAYOUT_APPEND( l, fd_accdb_align(),               fd_accdb_footprint( tile->accdb.max_live_slots ) );
+  l = FD_LAYOUT_APPEND( l, fd_accdb_align(),               fd_accdb_footprint( tile->accdb.max_live_slots, 1 ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -102,9 +106,15 @@ before_credit( fd_accdb_tile_ctx_t * ctx,
      never be delayed by the boot gate; the gate only idles the spin
      while there is no work. */
   fd_accdb_background( ctx->accdb, charge_busy );
-  if( FD_LIKELY( ctx->progcache_enabled ) ) fd_progcache_housekeeping( ctx->progcache, ctx->progcache_metrics );
+  if( FD_LIKELY( ctx->progcache_enabled ) ) *charge_busy |= !!fd_progcache_housekeeping( ctx->progcache, ctx->progcache_metrics );
+  ctx->busy = *charge_busy;
   if( FD_LIKELY( *charge_busy ) ) fd_startup_gate_busy( ctx->startup_gate );
   else                            fd_startup_gate_idle( ctx->startup_gate );
+}
+
+static inline int
+prevent_park( fd_accdb_tile_ctx_t * ctx ) {
+  return ctx->busy;
 }
 
 static void
@@ -124,7 +134,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_accdb_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_accdb_tile_ctx_t ), sizeof( fd_accdb_tile_ctx_t ) );
-  void * _accdb             = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),               fd_accdb_footprint( tile->accdb.max_live_slots ) );
+  void * _accdb             = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),               fd_accdb_footprint( tile->accdb.max_live_slots, 1 ) );
 
   void * _accdb_shmem = fd_topo_obj_laddr( topo, tile->accdb.accdb_obj_id );
   fd_accdb_shmem_t * accdb_shmem = fd_accdb_shmem_join( _accdb_shmem );
@@ -163,7 +173,7 @@ unprivileged_init( fd_topo_t const *      topo,
     external_epoch_slots[ external_epoch_cnt++ ] = fseq;
   }
 
-  ctx->accdb = fd_accdb_join( fd_accdb_new( _accdb, accdb_shmem, FD_ACCDB_FD_RW, external_epoch_cnt, external_epoch_slots ) );
+  ctx->accdb = fd_accdb_join( fd_accdb_new( _accdb, accdb_shmem, FD_ACCDB_FD_RW, external_epoch_cnt, external_epoch_slots, NULL, 0UL, 1 ) );
   FD_TEST( ctx->accdb );
 
   ulong progcache_obj_id = fd_pod_query_ulong( topo->props, "progcache", ULONG_MAX );
@@ -205,11 +215,6 @@ populate_allowed_fds( fd_topo_t const *      topo,
   return out_cnt;
 }
 
-/* For now the accdb tile spins and never parks, as it waits on a
-   special shared memory command channel which has no doorbell, and it
-   checks watermarks every tick.  This is wasteful and should be
-   improved in future. */
-#define STEM_NEVER_PARK 1
 #define STEM_BURST (1UL)
 #define STEM_LAZY  (128L*3000L)
 
@@ -217,6 +222,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_accdb_tile_ctx_t)
 
 #define STEM_CALLBACK_METRICS_WRITE metrics_write
+#define STEM_CALLBACK_PREVENT_PARK  prevent_park
 #define STEM_CALLBACK_BEFORE_CREDIT before_credit
 
 #include "../../disco/stem/fd_stem.c"

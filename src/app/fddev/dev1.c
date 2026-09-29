@@ -93,6 +93,7 @@ dev1_cmd_fn( args_t *   args,
 
     fd_topo_tile_t * tile = &config->topo.tiles[ tile_id ];
     if( FD_UNLIKELY( tile->is_waker_client ) ) FD_LOG_ERR(( "tile %s is serviced by the waker tile and cannot run alone; use `dev`", tile->name ));
+    if( FD_UNLIKELY( tile->sleep_eventfd   ) ) FD_LOG_ERR(( "tile %s is woken by the mwaitx tile and cannot run alone; use `dev`", tile->name ));
 
     fd_topo_run_tile_t * runner = NULL;
     for( ulong i=0UL; TILES[ i ]; i++ ) {

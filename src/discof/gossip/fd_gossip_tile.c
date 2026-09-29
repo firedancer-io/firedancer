@@ -1,5 +1,6 @@
 #include "fd_gossip_tile.h"
 #include "../../disco/metrics/fd_metrics.h"
+#include <linux/futex.h>
 #include "generated/fd_gossip_tile_seccomp.h"
 
 #include "../../choreo/eqvoc/fd_eqvoc.h"
@@ -73,10 +74,12 @@ static void
 gossip_sign_fn( void *        ctx,
                 uchar const * data,
                 ulong         data_sz,
-                int           sign_type,
-                uchar *       out_signature ) {
+                int           sign_type ) {
   fd_gossip_tile_ctx_t * gossip_ctx = (fd_gossip_tile_ctx_t *)ctx;
-  fd_keyguard_client_sign( gossip_ctx->keyguard_client, out_signature, data, data_sz, sign_type );
+  FD_TEST( data_sz<=gossip_ctx->sign_out_mtu );
+  fd_memcpy( fd_chunk_to_laddr( gossip_ctx->sign_out->mem, gossip_ctx->sign_out->chunk ), data, data_sz );
+  fd_stem_publish( gossip_ctx->stem, gossip_ctx->sign_out->idx, (ulong)(uint)sign_type, gossip_ctx->sign_out->chunk, data_sz, 0UL, 0UL, 0UL );
+  gossip_ctx->sign_out->chunk = fd_dcache_compact_next( gossip_ctx->sign_out->chunk, data_sz, gossip_ctx->sign_out->chunk0, gossip_ctx->sign_out->wmark );
 }
 
 static void
@@ -164,7 +167,7 @@ during_housekeeping( fd_gossip_tile_ctx_t * ctx ) {
 
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
     ctx->is_halting_signing = 1;
-    fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
+    if( FD_LIKELY( !fd_gossip_sign_pend_cnt( ctx->gossip ) ) ) fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
   }
 }
 
@@ -223,6 +226,8 @@ metrics_write( fd_gossip_tile_ctx_t * ctx ) {
   FD_MCNT_ENUM_COPY( GOSSIP, CRDS_PULL_RESPONSE_TX_BYTES, metrics->crds_tx_pull_response_bytes );
 
   FD_MCNT_ENUM_COPY( GOSSIP, CRDS_RX,                 metrics->crds_rx_count );
+
+  FD_MCNT_SET( GOSSIP, SIGN_QUEUE_FULL,               metrics->sign_pend_full_cnt );
 
   FD_MGAUGE_SET( GOSSIP, WAIT_FOR_SUPERMAJORITY_STAKED_PEER_ONLINE, ctx->wfs_peers.online );
   FD_MGAUGE_SET( GOSSIP, WAIT_FOR_SUPERMAJORITY_STAKE_ONLINE,       ctx->wfs_stake.online );
@@ -299,17 +304,15 @@ after_credit( fd_gossip_tile_ctx_t * ctx,
 static void
 handle_shred_version( fd_gossip_tile_ctx_t * ctx,
                        ulong                 sig ) {
-  long now = fd_clock_tile_now( ctx->clock );
   ctx->my_contact_info->shred_version = (ushort)sig;
-  fd_gossip_set_shred_version( ctx->gossip, (ushort)sig, now );
+  fd_gossip_set_shred_version( ctx->gossip, (ushort)sig );
 }
 
 static void
 handle_local_vote( fd_gossip_tile_ctx_t * ctx,
-                   fd_txn_m_t const *     txn_m,
-                   fd_stem_context_t *    stem ) {
+                   fd_txn_m_t const *     txn_m ) {
   long now = fd_clock_tile_now( ctx->clock );
-  fd_gossip_push_vote( ctx->gossip, fd_txn_m_payload_const( txn_m ), txn_m->payload_sz, stem, now );
+  fd_gossip_push_vote( ctx->gossip, fd_txn_m_payload_const( txn_m ), txn_m->payload_sz, now );
 }
 
 static void
@@ -353,11 +356,10 @@ handle_packet( fd_gossip_tile_ctx_t * ctx,
 static void
 handle_local_duplicate_shred( fd_gossip_tile_ctx_t *            ctx,
                               ulong                             sig,
-                              fd_gossip_duplicate_shred_t const chunk[FD_EQVOC_CHUNK_CNT],
-                              fd_stem_context_t *               stem ) {
+                              fd_gossip_duplicate_shred_t const chunk[FD_EQVOC_CHUNK_CNT] ) {
   if( FD_UNLIKELY( sig==FD_TOWER_SIG_SLOT_DUPLICATE ) ) {
     long now = fd_clock_tile_now( ctx->clock );
-    for( ulong i=0UL; i<FD_EQVOC_CHUNK_CNT; i++ ) fd_gossip_push_duplicate_shred( ctx->gossip, &chunk[i], stem, now );
+    for( ulong i=0UL; i<FD_EQVOC_CHUNK_CNT; i++ ) fd_gossip_push_duplicate_shred( ctx->gossip, &chunk[i], now );
   }
 }
 
@@ -366,6 +368,8 @@ before_frag( fd_gossip_tile_ctx_t * ctx,
              ulong                  in_idx,
              ulong                  seq FD_PARAM_UNUSED,
              ulong                  sig FD_PARAM_UNUSED ) {
+  if( FD_UNLIKELY( ctx->in[ in_idx ].kind==IN_KIND_SIGN ) ) return 0;
+
   /* Defer frag processing while switching identity or learning shred
      version */
   if( FD_UNLIKELY( ctx->is_halting_signing || ( !ctx->my_contact_info->shred_version && ctx->in[ in_idx ].kind!=IN_KIND_SHRED_VERSION ) ) ) return -1;
@@ -389,6 +393,13 @@ during_frag( fd_gossip_tile_ctx_t * ctx,
       fd_memcpy( ctx->gossvf_staged, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ), sz );
       break;
     }
+    case IN_KIND_SIGN: {
+      if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz!=64UL ) )
+        FD_LOG_ERR(( "chunk %lu %lu from in %d corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].kind, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
+
+      fd_memcpy( ctx->sign_staged, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ), 64UL );
+      break;
+    }
   }
 }
 
@@ -401,12 +412,22 @@ after_frag( fd_gossip_tile_ctx_t * ctx,
             ulong                  tsorig FD_PARAM_UNUSED,
             ulong                  tspub  FD_PARAM_UNUSED,
             fd_stem_context_t *    stem ) {
+  ctx->stem = stem;
+
   switch( ctx->in[ in_idx ].kind ) {
     case IN_KIND_GOSSVF: {
 
       FD_TEST( sz<=sizeof(ctx->gossvf_staged) );
 
       handle_packet( ctx, sig, ctx->gossvf_staged, sz, stem );
+      break;
+    }
+    case IN_KIND_SIGN: {
+      fd_gossip_sign_response( ctx->gossip, ctx->sign_staged, stem, fd_clock_tile_now( ctx->clock ) );
+      if( FD_UNLIKELY( ctx->is_halting_signing && !fd_gossip_sign_pend_cnt( ctx->gossip ) &&
+                       fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
+        fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
+      }
       break;
     }
   }
@@ -425,16 +446,18 @@ returnable_frag( fd_gossip_tile_ctx_t * ctx,
                  fd_stem_context_t *    stem ) {
 
   /* Return early for unreliable links. */
-  if( FD_UNLIKELY( ctx->in[ in_idx ].kind==IN_KIND_GOSSVF ) ) return 0;
+  if( FD_UNLIKELY( ctx->in[ in_idx ].kind==IN_KIND_GOSSVF || ctx->in[ in_idx ].kind==IN_KIND_SIGN ) ) return 0;
+
+  ctx->stem = stem;
 
   if( FD_UNLIKELY( sz!=0UL && (chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) ) )
     FD_LOG_ERR(( "chunk %lu %lu from in %d corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].kind, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
   switch( ctx->in[ in_idx ].kind ) {
     case IN_KIND_SHRED_VERSION: handle_shred_version( ctx, sig ); break;
-    case IN_KIND_TXSEND:        handle_local_vote( ctx, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ), stem ); break;
+    case IN_KIND_TXSEND:        handle_local_vote( ctx, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ) ); break;
     case IN_KIND_EPOCH:         handle_epoch( ctx, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ) ); break;
-    case IN_KIND_TOWER:         handle_local_duplicate_shred( ctx, sig, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ), stem ); break;
+    case IN_KIND_TOWER:         handle_local_duplicate_shred( ctx, sig, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ) ); break;
     case IN_KIND_SNAPIN_MANIF: {
       if( FD_LIKELY( ctx->wfs_state==FD_GOSSIP_WFS_STATE_DONE ) ) break;
 
@@ -591,28 +614,12 @@ unprivileged_init( fd_topo_t const *      topo,
 
   fd_topo_link_t const * sign_in  = &topo->links[ tile->in_link_id [ sign_in_tile_idx  ] ];
   fd_topo_link_t const * sign_out = &topo->links[ tile->out_link_id[ ctx->sign_out->idx ] ];
+  FD_TEST( sign_in->mtu==64UL );
+  FD_TEST( sign_in->depth>=FD_GOSSIP_SIGN_PEND_MAX && sign_out->depth>=FD_GOSSIP_SIGN_PEND_MAX );
+  ctx->sign_out_mtu = sign_out->mtu;
 
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
   FD_TEST( ctx->keyswitch );
-
-  fd_sleep_t * sleep = NULL;
-  if( FD_UNLIKELY( topo->sleep_obj_id!=ULONG_MAX ) ) {
-    sleep = fd_sleep_join( fd_topo_obj_laddr( topo, topo->sleep_obj_id ) );
-    FD_TEST( sleep );
-  }
-
-  if( fd_keyguard_client_join( fd_keyguard_client_new( ctx->keyguard_client,
-                                                       sign_out->mcache,
-                                                       sign_out->dcache,
-                                                       sign_in->mcache,
-                                                       sign_in->dcache,
-                                                       sign_out->mtu,
-                                                       sign_in->mtu,
-                                                       sleep,
-                                                       sign_out->id,
-                                                       fd_topo_find_link_consumer( topo, sign_out ) ) )==NULL ) {
-    FD_LOG_ERR(( "failed to join keyguard client" ));
-  }
 
   fd_clock_tile_init( ctx->clock );
 

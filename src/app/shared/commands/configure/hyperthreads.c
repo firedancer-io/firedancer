@@ -79,7 +79,7 @@ check( config_t const * config,
   ulong pohh_pair  = determine_ht_pair( config, cpus, "pohh",  0UL );
   ulong poh_pair = determine_ht_pair( config, cpus, "poh",  0UL );
 
-  /* A floating tile (efficient scheduler mode) shares its cores with
+  /* A floating tile (efficient layout mode) shares its cores with
      the other floaters, so an idle sibling buys it nothing */
   if( pack_tile_idx!=ULONG_MAX && config->topo.tiles[ pack_tile_idx ].floats ) pack_pair = ULONG_MAX;
   if( pohh_tile_idx!=ULONG_MAX && config->topo.tiles[ pohh_tile_idx ].floats ) pohh_pair = ULONG_MAX;

@@ -69,6 +69,7 @@ export default defineConfig({
             { text: 'Transaction Ingress', link: 'protocol/transaction_ingress' },
             { text: 'Bundle Client', link: 'protocol/bundle_client' },
             { text: 'Cryptography', link: 'protocol/cryptography' },
+            { text: 'Feature Gates', link: 'protocol/feature_gates' },
           ]
         },
         {

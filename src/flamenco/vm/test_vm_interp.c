@@ -9,14 +9,14 @@
 #include <stdlib.h>  /* malloc */
 
 static int
-accumulator_syscall( FD_PARAM_UNUSED void *  _vm,
+accumulator_syscall( /**/            void *  _vm,
                      /**/            ulong   arg0,
                      /**/            ulong   arg1,
                      /**/            ulong   arg2,
                      /**/            ulong   arg3,
-                     /**/            ulong   arg4,
-                     /**/            ulong * ret ) {
-  *ret = arg0 + arg1 + arg2 + arg3 + arg4;
+                     /**/            ulong   arg4 ) {
+  fd_vm_t * vm = (fd_vm_t *)_vm;
+  vm->reg[0] = arg0 + arg1 + arg2 + arg3 + arg4;
   return 0;
 }
 

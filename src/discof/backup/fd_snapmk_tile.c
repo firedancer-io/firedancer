@@ -117,10 +117,12 @@ struct fd_snapmk {
   ulong          zp_cnt; /* [0,zp_cnt] out links are to zp */
   ulong const *  zp_cons_fseq[ SNAPZP_TILE_MAX ];
   atomic_ulong * file_off_p;
+  atomic_ulong * appendvec_slot_ticket_p;
 
   /* snaprd worker thread */
 
   atomic_ulong * rd_fseq;
+  ulong          rd_tile_id;   /* snaprd, rung when a credit return finds it parked on backpressure */
   atomic_ulong * rd_ctl;
   ulong          rd_seq;       /* seq of the snaprd frag last parsed */
   ulong          rd_seq_cache; /* last watermark published to snaprd */
@@ -228,6 +230,9 @@ struct fd_snapmk {
   fd_accdb_fork_shmem_t const * accdb_shfork;
   fd_accdb_fork_id_t const *    accdb_root_fork;
   ulong *                       accdb_snapshot_sync;
+
+  fd_sleep_t * accdb_sleep;
+  ulong        accdb_tile_id;
 
   /* output buffer */
   ZSTD_CCtx *    zst;
@@ -384,13 +389,17 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( ctx->txncache );
 
   ulong * zp_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->snapmk.zp_fseq_id ) ); FD_TEST( zp_fseq );
-  ctx->file_off_p = fd_fseq_app_laddr( zp_fseq );
+  atomic_ulong * zp_app = fd_fseq_app_laddr( zp_fseq );
+  ctx->file_off_p              = &zp_app[ 0 ];
+  ctx->appendvec_slot_ticket_p = &zp_app[ 1 ];
 
   void * _accdb_shmem = fd_topo_obj_laddr( topo, tile->snapmk.accdb_obj_id );
   fd_accdb_shmem_t * accdb_shmem_ro = fd_accdb_shmem_join( _accdb_shmem );
   FD_TEST( accdb_shmem_ro );
   ctx->accdb_shmem = accdb_shmem_ro;
   ctx->accdb_snapshot_sync = &accdb_shmem_ro->snapshot_sync;
+  ctx->accdb_sleep   = topo->sleep_obj_id!=ULONG_MAX ? fd_sleep_join( fd_topo_obj_laddr( topo, topo->sleep_obj_id ) ) : NULL;
+  ctx->accdb_tile_id = fd_topo_find_tile( topo, "accdb", 0UL );
   ulong * epoch_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->snapmk.accdb_epoch_obj_id ) );
   FD_TEST( epoch_fseq );
   fd_backup_cache_join( ctx->acc_cache, accdb_shmem_ro, epoch_fseq );
@@ -429,6 +438,7 @@ unprivileged_init( fd_topo_t const *      topo,
       FD_CHECK_ERR( fseq, "no fseq for snaprd_out link" );
       ctx->rd_fseq = (atomic_ulong *)fseq;
       ctx->rd_ctl  = fd_fseq_app_laddr( fseq );
+      ctx->rd_tile_id = fd_topo_find_link_producer( topo, link );
       FD_STATIC_ASSERT( sizeof(ulong)<=FD_FSEQ_APP_FOOTPRINT, fseq_app_space );
     } else {
       FD_LOG_ERR(( "Unexpected input link \"%s\"", link->name ));
@@ -786,6 +796,7 @@ snapshot_sync_transition( fd_snapmk_t * ctx,
                           ulong         state_to ) {
   while( FD_UNLIKELY( fd_accdb_snapshot_sync_state( ctx->accdb_snapshot_sync )!=state_from ) ) FD_YIELD();
   fd_accdb_snapshot_sync_advance( ctx->accdb_snapshot_sync, state_req );
+  if( FD_UNLIKELY( ctx->accdb_sleep ) ) fd_sleep_ring( ctx->accdb_sleep, ctx->accdb_tile_id );
   while( FD_UNLIKELY( fd_accdb_snapshot_sync_state( ctx->accdb_snapshot_sync )!=state_to ) ) FD_YIELD();
 }
 
@@ -795,6 +806,7 @@ snapshot_sync_request( fd_snapmk_t * ctx,
                        ulong         state_req ) {
   while( FD_UNLIKELY( fd_accdb_snapshot_sync_state( ctx->accdb_snapshot_sync )!=state_from ) ) FD_YIELD();
   fd_accdb_snapshot_sync_advance( ctx->accdb_snapshot_sync, state_req );
+  if( FD_UNLIKELY( ctx->accdb_sleep ) ) fd_sleep_ring( ctx->accdb_sleep, ctx->accdb_tile_id );
   for(;;) {
     ulong state = fd_accdb_snapshot_sync_state( ctx->accdb_snapshot_sync );
     if( FD_LIKELY( state!=state_req ) ) return state;
@@ -938,6 +950,11 @@ rd_ack( fd_snapmk_t *             ctx,
   if( rd_seq != ctx->rd_seq_cache ) {
     ctx->rd_seq_cache = rd_seq;
     atomic_store_explicit( ctx->rd_fseq, rd_seq, memory_order_release );
+    /* early credit return: ring snaprd if it parked on our credits */
+    if( FD_UNLIKELY( stem->sleep ) ) {
+      __atomic_thread_fence( __ATOMIC_SEQ_CST );
+      if( FD_UNLIKELY( FD_VOLATILE_CONST( stem->sleep->credit_bits[ ctx->rd_tile_id>>6 ] ) & (1UL<<(ctx->rd_tile_id&63UL)) ) ) fd_sleep_ring( stem->sleep, ctx->rd_tile_id );
+    }
   }
 }
 
@@ -1349,6 +1366,7 @@ after_credit( fd_snapmk_t *       ctx,
       fd_backup_start_msg_t * frag = zp_alloc( ctx, i, sizeof(fd_backup_start_msg_t), &chunk );
       memset( frag, 0, sizeof(fd_backup_start_msg_t) );
       frag->slot     = ctx->bank->f.slot;
+      frag->slot_lo  = ctx->incremental ? ctx->base_slot+1UL : 0UL;
       frag->snap_idx = ctx->snap_idx;
       frag->fork_id  = ctx->bank->accdb_fork_id.val;
       ulong ctl = fd_frag_meta_ctl( FD_BACKUP_ORIG_START, 0, 0, 0 );
@@ -1548,7 +1566,7 @@ after_credit( fd_snapmk_t *       ctx,
     ulong snap_idx = ctx->startup_pool_idx++;
     fd_backup_inode_t * inode = &ctx->pool[ snap_idx ];
     struct stat st;
-    if( FD_UNLIKELY( 0!=fstat( FD_SNAP_FD( snap_idx ), &st ) ) ) break;
+    if( FD_UNLIKELY( 0!=syscall( SYS_fstat, FD_SNAP_FD( snap_idx ), &st ) ) ) break;
     ctx->pool_sz[ snap_idx ] = (ulong)st.st_size;
     if( FD_UNLIKELY( inode->full_slot==ULONG_MAX ) ) break;
     fd_snapmk_msg_found_t * msg = &snapmk_msg_alloc( ctx )->found;
@@ -1751,7 +1769,8 @@ snap_start( fd_snapmk_t *                  ctx,
     FD_LOG_ERR(( "lseek(%s) failed: %i-%s", ctx->pool[ ctx->snap_idx ].name, errno, fd_io_strerror( errno ) ));
   }
 
-  atomic_store_explicit( ctx->file_off_p, 0UL, memory_order_relaxed );
+  atomic_store_explicit( ctx->file_off_p,              0UL,               memory_order_relaxed );
+  atomic_store_explicit( ctx->appendvec_slot_ticket_p, ctx->bank->f.slot, memory_order_relaxed );
 
   /* compression buffers */
 
@@ -2098,8 +2117,15 @@ snapmk_run( fd_topo_t *      topo,
     sleep->out_link_id = tile->out_link_id;
 
     ulong polled_idx = 0UL;
-    for( ulong i=0UL; i<tile->in_cnt; i++ )
-      if( FD_LIKELY( tile->in_link_poll[ i ] ) ) sleep->in_link_id[ polled_idx++ ] = tile->in_link_id[ i ];
+    for( ulong i=0UL; i<tile->in_cnt; i++ ) {
+      if( FD_LIKELY( !tile->in_link_poll[ i ] ) ) continue;
+      fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
+      sleep->in_link_id [ polled_idx ] = tile->in_link_id[ i ];
+      /* snaprd_out credits go through rd_ack, which rings snaprd itself;
+         the stem writes a dummy fseq for it and must not ring */
+      sleep->in_producer[ polled_idx ] = tile->in_link_reliable[ i ] && strcmp( link->name, "snaprd_out" ) ? fd_topo_find_link_producer( topo, link ) : ULONG_MAX;
+      polled_idx++;
+    }
 
     ulong pair_cnt = 0UL;
     for( ulong i=0UL; i<tile->out_cnt; i++ ) {

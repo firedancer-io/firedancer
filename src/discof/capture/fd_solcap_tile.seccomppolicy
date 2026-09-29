@@ -44,3 +44,10 @@ fsync: (or (eq (arg 0) logfile_fd)
 
 # startup: sleep until snapshot loaded
 clock_nanosleep: (eq (arg 0) CLOCK_REALTIME)
+
+# startup: resume an interrupted sleep
+#
+# A signal delivered during the startup gate's clock_nanosleep
+# interrupts it, and the kernel resumes the sleep with the remaining
+# time via restart_syscall when the tile next runs.
+restart_syscall

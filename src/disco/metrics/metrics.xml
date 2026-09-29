@@ -1064,6 +1064,7 @@ EXAMPLES
     <counter name="TxnVersion" enum="TxnVersion" summary="Number of transactions executed, broken down by transaction version" />
     <counter name="InstructionExecuted" summary="Number of top-level instructions executed" />
     <counter name="CpiExecuted" summary="Number of cross-program invocations executed" />
+    <counter name="LthashUnchanged" summary="Number of committed writable accounts left byte-identical by their transaction, whose lthash update was skipped" />
     <counter name="CuExecuted" summary="Estimated compute units executed since tile start" />
 
     <counter name="TxnRegimeDurationNanos" converter="nanoseconds" enum="TxnRegime" summary="Mutually exclusive and exhaustive duration spent in transaction execution regimes, in nanoseconds" />
@@ -1185,6 +1186,10 @@ EXAMPLES
     <counter name="ShredRepairRxBytes" summary="Bytes received from network packets with repair shreds, including network headers" />
     <counter name="ShredTurbineRx" summary="Turbine shreds received" />
     <counter name="ShredTurbineRxBytes" summary="Bytes received from network packets with turbine shreds, including network headers" />
+    <counter name="RepairCompletionAssisted" summary="FEC sets that completed with at least one repair shred contributing" />
+    <histogram name="RepairCompletionLagSeconds" min="0.0001" max="10" converter="seconds">
+        <summary>Estimated time repair advanced FEC set completion: the delay from a repair-assisted completion until turbine had delivered as many shreds for that set as repair contributed, i.e. when the set would have completed on turbine alone. Counts arrivals rather than distinct indices, so turbine duplicates bias this low</summary>
+    </histogram>
     <counter name="FecFallbackWrite" summary="FEC payloads synchronously spilled by the shred tile" />
     <counter name="FecFallbackWriteBytes" summary="FEC payload bytes synchronously spilled by the shred tile" />
 </tile>
@@ -1209,7 +1214,7 @@ EXAMPLES
     <counter name="BytesRead" summary="Number of bytes read from the account database" />
     <counter name="BytesWritten" summary="Number of bytes written to the account database" />
     <counter name="WriteOperation" summary="Number of write operations performed on the account database" />
-    <counter name="CopyOperation" summary="Number of in-place copy_file_range operations performed on the account database during compaction" />
+    <counter name="CopyOperation" summary="Number of pwritev2 calls that relocated a batch of records during account database compaction" />
     <counter name="AccountDeleted" summary="Number of accounts deleted from the account database" />
 
     <gauge name="CacheClassUsed" enum="AccdbCacheClass" summary="Number of slots currently occupied in the account database cache, broken down by size class" />
@@ -1277,6 +1282,7 @@ EXAMPLES
     <gauge name="ActiveStakeLamports" summary="Our active stake at the optimistically confirmed slot" />
     <gauge name="ClusterActiveStakeLamports" summary="Total cluster active stake at the optimistically confirmed slot" />
     <gauge name="EpochCredits" summary="Our vote account epoch credits at the optimistically confirmed slot" />
+    <gauge name="VoteAccountInadmissible" summary="1 if our vote account's stake is not admitted: at the optimistically confirmed slot it fails the validator admission ticket filter (missing, below the V4 rent-exempt minimum, or not V4 with a BLS pubkey), or it passes but has not yet been admitted at an epoch boundary. 0 otherwise" />
     <gauge name="VoteSlotLastRewarded" summary="Latest slot for which this validator's vote appears in a reward certificate. ULONG_MAX if no participation has been observed, and always ULONG_MAX under Tower" />
 
     <histogram name="StoreQueryWorkSeconds" min="0.00000001" max="0.001" converter="seconds">
@@ -1594,6 +1600,8 @@ EXAMPLES
     <counter name="PingTrackerStakeChanged" summary="Times a tracked peer was removed from tracking because it became staked" />
     <counter name="PingTrackerAddressChanged" summary="Times a tracked peer was removed from tracking because its gossip address changed" />
 
+    <counter name="SignQueueFull" summary="Messages dropped because the maximum number of sign requests were already in flight" />
+
     <gauge name="CrdsCapacity" summary="Capacity of the data store" />
     <gauge name="CrdsOccupied" summary="Entries in the data store" enum="CrdsValue" />
     <counter name="CrdsExpired" summary="Entries expired from the data store due to age" />
@@ -1819,7 +1827,7 @@ EXAMPLES
 
 <tile name="diag">
     <gauge name="BundleStatus" summary="Precise status of the bundle subsystem: 0=disabled (no bundle tiles configured), 1=disconnected (all bundle tiles disconnected), 2=connecting (at least one bundle tile connecting, none connected or sleeping), 3=connected (at least one bundle tile connected), 4=sleeping (at least one bundle tile sleeping, none connected)" />
-    <gauge name="VoteStatus" summary="Precise status of the vote subsystem: 0=disabled (non-voting or no tower tile), 1=not started (tower tile not running or no votes cast yet), 2=delinquent (vote distance exceeds threshold or vote stalled), 3=voting (voting normally)" />
+    <gauge name="VoteStatus" summary="Precise status of the vote subsystem: 0=disabled (non-voting or no tower tile), 1=not started (tower tile not running or no votes cast yet), 2=delinquent (vote distance exceeds threshold or vote stalled), 3=voting (voting normally), 4=inadmissible (voting, but the vote account fails the validator admission ticket filter)" />
     <gauge name="ReplayStatus" summary="Precise status of the replay subsystem: 0=disabled (no replay tile), 1=not started (replay tile not running or slots are zero), 2=behind (replay lagging behind turbine or reset slot stalled), 3=running (replay keeping up)" />
     <gauge name="TurbineStatus" summary="Precise status of the turbine subsystem: 0=disabled (no shred or replay tiles), 1=not started (tiles not all running or turbine slot is zero), 2=stalled (turbine slot not advancing), 3=repair outpacing (repair byte throughput exceeds turbine), 4=running (turbine receiving normally)" />
     <gauge name="BuilderStatus" summary="Precise status of the external block builder subsystem: 0=disabled (no block builder configured), 1=disconnected (block builder disconnected), 2=connecting (block builder connection in progress), 3=unhealthy (connected, but the block builder is not in a usable state), 4=connected (block builder connected and healthy)" />
@@ -1853,12 +1861,24 @@ EXAMPLES
     <int value="1" name="Error" label="Closed abnormally" />
 </enum>
 
+<enum name="PortCheckTcpResult">
+    <int value="0" name="Connected" label="Port check connections connected to the joiner's port" />
+    <int value="1" name="Failed" label="Port check connections refused or errored" />
+    <int value="2" name="Timeout" label="Port check connections timed out" />
+    <int value="3" name="Dropped" label="Port check connections not attempted because the socket could not be created" />
+    <int value="4" name="RejectedPerIp" label="Port check connections rejected because too many were in flight for a particular IP" />
+    <int value="5" name="Evicted" label="Port check connections evicted because there were too many in flight connections" />
+</enum>
+
 <tile name="ipecho">
     <gauge name="CurrentShredVersion" summary="Current shred version used by the validator" />
     <gauge name="ConnActive" summary="Active connections to the ipecho service" />
     <counter name="ConnClosed" enum="ConnCloseResult" summary="Connections to the ipecho service made and closed, by outcome" />
     <counter name="BytesRead" summary="Bytes read from all connections to the ipecho service" />
     <counter name="BytesWritten" summary="Bytes written to all connections to the ipecho service" />
+    <counter name="PortCheckUdpSent" summary="Port check UDP packets sent by the ipecho service to the joiner's UDP ports" />
+    <counter name="PortCheckTcp" enum="PortCheckTcpResult" summary="Port check TCP connections opened by the ipecho service to the joiner's TCP ports, by outcome" />
+    <gauge name="PortCheckTcpActive" summary="Port check TCP connections opened by the ipecho service to the joiner's TCP ports currently in flight" />
 </tile>
 
 <tile name="backt" telemetry="false">
@@ -1889,6 +1909,7 @@ EXAMPLES
     <counter name="PohHashed" summary="PoH SHA-256 calls executed" />
     <counter name="InstructionExecuted" summary="Number of top-level instructions executed" />
     <counter name="CpiExecuted" summary="Number of cross-program invocations executed" />
+    <counter name="LthashUnchanged" summary="Number of committed writable accounts left byte-identical by their transaction, whose lthash update was skipped" />
 
     <counter name="TxnRegimeDurationNanos" converter="nanoseconds" enum="TxnRegime" summary="Mutually exclusive and exhaustive duration spent in transaction execution regimes, in nanoseconds" />
     <counter name="VmRegimeDurationNanos" converter="nanoseconds" enum="VmRegime" summary="Mutually exclusive and exhaustive duration spent in virtual machine execution regimes, in nanoseconds" />
@@ -2110,6 +2131,11 @@ EXAMPLES
     <counter name="VoteRx"     enum="VoteRxResult"     summary="Result of processing an inbound vote (per vote)" />
     <counter name="CertRx"     enum="CertRxResult"     summary="Result of processing an inbound cert (per cert)" />
 
+    <gauge name="SlotStateUsed"  summary="Number of slots tracked by the voting state machine" />
+    <gauge name="SlotStateMax"   summary="Capacity of the voting state machine's slot table" />
+    <gauge name="FinalizedSlot"  summary="Highest slot with a finalization cert, or 0 if none" />
+    <gauge name="Rank"           summary="Rank of this validator in the current epoch (0 is the highest rank), -1 if unranked (unstaked)" />
+    <gauge name="PeersConnected" summary="Number of peers with an active outbound connection" />
 </tile>
 
 <tile name="gui">

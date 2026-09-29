@@ -81,6 +81,14 @@
 | <span class="metrics-name">ipecho_&#8203;conn_&#8203;closed</span><br/>{conn_&#8203;close_&#8203;result="<span class="metrics-enum">error</span>"} | counter | Connections to the ipecho service made and closed, by outcome (Closed abnormally) |
 | <span class="metrics-name">ipecho_&#8203;bytes_&#8203;read</span> | counter | Bytes read from all connections to the ipecho service |
 | <span class="metrics-name">ipecho_&#8203;bytes_&#8203;written</span> | counter | Bytes written to all connections to the ipecho service |
+| <span class="metrics-name">ipecho_&#8203;port_&#8203;check_&#8203;udp_&#8203;sent</span> | counter | Port check UDP packets sent by the ipecho service to the joiner's UDP ports |
+| <span class="metrics-name">ipecho_&#8203;port_&#8203;check_&#8203;tcp</span><br/>{port_&#8203;check_&#8203;tcp_&#8203;result="<span class="metrics-enum">connected</span>"} | counter | Port check TCP connections opened by the ipecho service to the joiner's TCP ports, by outcome (Port check connections connected to the joiner's port) |
+| <span class="metrics-name">ipecho_&#8203;port_&#8203;check_&#8203;tcp</span><br/>{port_&#8203;check_&#8203;tcp_&#8203;result="<span class="metrics-enum">failed</span>"} | counter | Port check TCP connections opened by the ipecho service to the joiner's TCP ports, by outcome (Port check connections refused or errored) |
+| <span class="metrics-name">ipecho_&#8203;port_&#8203;check_&#8203;tcp</span><br/>{port_&#8203;check_&#8203;tcp_&#8203;result="<span class="metrics-enum">timeout</span>"} | counter | Port check TCP connections opened by the ipecho service to the joiner's TCP ports, by outcome (Port check connections timed out) |
+| <span class="metrics-name">ipecho_&#8203;port_&#8203;check_&#8203;tcp</span><br/>{port_&#8203;check_&#8203;tcp_&#8203;result="<span class="metrics-enum">dropped</span>"} | counter | Port check TCP connections opened by the ipecho service to the joiner's TCP ports, by outcome (Port check connections not attempted because the socket could not be created) |
+| <span class="metrics-name">ipecho_&#8203;port_&#8203;check_&#8203;tcp</span><br/>{port_&#8203;check_&#8203;tcp_&#8203;result="<span class="metrics-enum">rejected_&#8203;per_&#8203;ip</span>"} | counter | Port check TCP connections opened by the ipecho service to the joiner's TCP ports, by outcome (Port check connections rejected because too many were in flight for a particular IP) |
+| <span class="metrics-name">ipecho_&#8203;port_&#8203;check_&#8203;tcp</span><br/>{port_&#8203;check_&#8203;tcp_&#8203;result="<span class="metrics-enum">evicted</span>"} | counter | Port check TCP connections opened by the ipecho service to the joiner's TCP ports, by outcome (Port check connections evicted because there were too many in flight connections) |
+| <span class="metrics-name">ipecho_&#8203;port_&#8203;check_&#8203;tcp_&#8203;active</span> | gauge | Port check TCP connections opened by the ipecho service to the joiner's TCP ports currently in flight |
 
 </div>
 
@@ -578,6 +586,7 @@
 | <span class="metrics-name">execle_&#8203;txn_&#8203;version</span><br/>{txn_&#8203;version="<span class="metrics-enum">v1</span>"} | counter | Number of transactions executed, broken down by transaction version (Version 1 transaction format) |
 | <span class="metrics-name">execle_&#8203;instruction_&#8203;executed</span> | counter | Number of top-level instructions executed |
 | <span class="metrics-name">execle_&#8203;cpi_&#8203;executed</span> | counter | Number of cross-program invocations executed |
+| <span class="metrics-name">execle_&#8203;lthash_&#8203;unchanged</span> | counter | Number of committed writable accounts left byte-identical by their transaction, whose lthash update was skipped |
 | <span class="metrics-name">execle_&#8203;cu_&#8203;executed</span> | counter | Estimated compute units executed since tile start |
 | <span class="metrics-name">execle_&#8203;txn_&#8203;regime_&#8203;duration_&#8203;nanos</span><br/>{txn_&#8203;regime="<span class="metrics-enum">setup</span>"} | counter | Mutually exclusive and exhaustive duration spent in transaction execution regimes, in nanoseconds (Transaction setup) |
 | <span class="metrics-name">execle_&#8203;txn_&#8203;regime_&#8203;duration_&#8203;nanos</span><br/>{txn_&#8203;regime="<span class="metrics-enum">exec</span>"} | counter | Mutually exclusive and exhaustive duration spent in transaction execution regimes, in nanoseconds (Transaction execution (includes VM setup/execution)) |
@@ -734,6 +743,8 @@
 | <span class="metrics-name">shred_&#8203;shred_&#8203;repair_&#8203;rx_&#8203;bytes</span> | counter | Bytes received from network packets with repair shreds, including network headers |
 | <span class="metrics-name">shred_&#8203;shred_&#8203;turbine_&#8203;rx</span> | counter | Turbine shreds received |
 | <span class="metrics-name">shred_&#8203;shred_&#8203;turbine_&#8203;rx_&#8203;bytes</span> | counter | Bytes received from network packets with turbine shreds, including network headers |
+| <span class="metrics-name">shred_&#8203;repair_&#8203;completion_&#8203;assisted</span> | counter | FEC sets that completed with at least one repair shred contributing |
+| <span class="metrics-name">shred_&#8203;repair_&#8203;completion_&#8203;lag_&#8203;seconds</span> | histogram | Estimated time repair advanced FEC set completion: the delay from a repair-assisted completion until turbine had delivered as many shreds for that set as repair contributed, i.e. when the set would have completed on turbine alone. Counts arrivals rather than distinct indices, so turbine duplicates bias this low |
 | <span class="metrics-name">shred_&#8203;fec_&#8203;fallback_&#8203;write</span> | counter | FEC payloads synchronously spilled by the shred tile |
 | <span class="metrics-name">shred_&#8203;fec_&#8203;fallback_&#8203;write_&#8203;bytes</span> | counter | FEC payload bytes synchronously spilled by the shred tile |
 
@@ -842,6 +853,7 @@
 | <span class="metrics-name">gossip_&#8203;ping_&#8203;tracker_&#8203;added</span> | counter | Peers ever tracked for ping/pong |
 | <span class="metrics-name">gossip_&#8203;ping_&#8203;tracker_&#8203;stake_&#8203;changed</span> | counter | Times a tracked peer was removed from tracking because it became staked |
 | <span class="metrics-name">gossip_&#8203;ping_&#8203;tracker_&#8203;address_&#8203;changed</span> | counter | Times a tracked peer was removed from tracking because its gossip address changed |
+| <span class="metrics-name">gossip_&#8203;sign_&#8203;queue_&#8203;full</span> | counter | Messages dropped because the maximum number of sign requests were already in flight |
 | <span class="metrics-name">gossip_&#8203;crds_&#8203;capacity</span> | gauge | Capacity of the data store |
 | <span class="metrics-name">gossip_&#8203;crds_&#8203;occupied</span><br/>{crds_&#8203;value="<span class="metrics-enum">contact_&#8203;info_&#8203;v1</span>"} | gauge | Entries in the data store (Contact Info V1) |
 | <span class="metrics-name">gossip_&#8203;crds_&#8203;occupied</span><br/>{crds_&#8203;value="<span class="metrics-enum">vote</span>"} | gauge | Entries in the data store (Vote) |
@@ -1057,6 +1069,7 @@
 | <span class="metrics-name">replay_&#8203;active_&#8203;stake_&#8203;lamports</span> | gauge | Our active stake at the optimistically confirmed slot |
 | <span class="metrics-name">replay_&#8203;cluster_&#8203;active_&#8203;stake_&#8203;lamports</span> | gauge | Total cluster active stake at the optimistically confirmed slot |
 | <span class="metrics-name">replay_&#8203;epoch_&#8203;credits</span> | gauge | Our vote account epoch credits at the optimistically confirmed slot |
+| <span class="metrics-name">replay_&#8203;vote_&#8203;account_&#8203;inadmissible</span> | gauge | 1 if our vote account's stake is not admitted: at the optimistically confirmed slot it fails the validator admission ticket filter (missing, below the V4 rent-exempt minimum, or not V4 with a BLS pubkey), or it passes but has not yet been admitted at an epoch boundary. 0 otherwise |
 | <span class="metrics-name">replay_&#8203;vote_&#8203;slot_&#8203;last_&#8203;rewarded</span> | gauge | Latest slot for which this validator's vote appears in a reward certificate. ULONG_MAX if no participation has been observed, and always ULONG_MAX under Tower |
 | <span class="metrics-name">replay_&#8203;store_&#8203;query_&#8203;work_&#8203;seconds</span> | histogram | Time spent ingesting a queried FEC into the scheduler |
 | <span class="metrics-name">replay_&#8203;store_&#8203;queried</span> | counter | Queries |
@@ -1256,6 +1269,7 @@
 | <span class="metrics-name">execrp_&#8203;poh_&#8203;hashed</span> | counter | PoH SHA-256 calls executed |
 | <span class="metrics-name">execrp_&#8203;instruction_&#8203;executed</span> | counter | Number of top-level instructions executed |
 | <span class="metrics-name">execrp_&#8203;cpi_&#8203;executed</span> | counter | Number of cross-program invocations executed |
+| <span class="metrics-name">execrp_&#8203;lthash_&#8203;unchanged</span> | counter | Number of committed writable accounts left byte-identical by their transaction, whose lthash update was skipped |
 | <span class="metrics-name">execrp_&#8203;txn_&#8203;regime_&#8203;duration_&#8203;nanos</span><br/>{txn_&#8203;regime="<span class="metrics-enum">setup</span>"} | counter | Mutually exclusive and exhaustive duration spent in transaction execution regimes, in nanoseconds (Transaction setup) |
 | <span class="metrics-name">execrp_&#8203;txn_&#8203;regime_&#8203;duration_&#8203;nanos</span><br/>{txn_&#8203;regime="<span class="metrics-enum">exec</span>"} | counter | Mutually exclusive and exhaustive duration spent in transaction execution regimes, in nanoseconds (Transaction execution (includes VM setup/execution)) |
 | <span class="metrics-name">execrp_&#8203;txn_&#8203;regime_&#8203;duration_&#8203;nanos</span><br/>{txn_&#8203;regime="<span class="metrics-enum">commit</span>"} | counter | Mutually exclusive and exhaustive duration spent in transaction execution regimes, in nanoseconds (Transaction result commit) |
@@ -1389,7 +1403,7 @@
 | <span class="metrics-name">accdb_&#8203;bytes_&#8203;read</span> | counter | Number of bytes read from the account database |
 | <span class="metrics-name">accdb_&#8203;bytes_&#8203;written</span> | counter | Number of bytes written to the account database |
 | <span class="metrics-name">accdb_&#8203;write_&#8203;operation</span> | counter | Number of write operations performed on the account database |
-| <span class="metrics-name">accdb_&#8203;copy_&#8203;operation</span> | counter | Number of in-place copy_file_range operations performed on the account database during compaction |
+| <span class="metrics-name">accdb_&#8203;copy_&#8203;operation</span> | counter | Number of pwritev2 calls that relocated a batch of records during account database compaction |
 | <span class="metrics-name">accdb_&#8203;account_&#8203;deleted</span> | counter | Number of accounts deleted from the account database |
 | <span class="metrics-name">accdb_&#8203;cache_&#8203;class_&#8203;used</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class0</span>"} | gauge | Number of slots currently occupied in the account database cache, broken down by size class (0-128 B) |
 | <span class="metrics-name">accdb_&#8203;cache_&#8203;class_&#8203;used</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class1</span>"} | gauge | Number of slots currently occupied in the account database cache, broken down by size class (129-512 B) |
@@ -1658,7 +1672,7 @@
 | Metric | Type | Description |
 |--------|------|-------------|
 | <span class="metrics-name">diag_&#8203;bundle_&#8203;status</span> | gauge | Precise status of the bundle subsystem: 0=disabled (no bundle tiles configured), 1=disconnected (all bundle tiles disconnected), 2=connecting (at least one bundle tile connecting, none connected or sleeping), 3=connected (at least one bundle tile connected), 4=sleeping (at least one bundle tile sleeping, none connected) |
-| <span class="metrics-name">diag_&#8203;vote_&#8203;status</span> | gauge | Precise status of the vote subsystem: 0=disabled (non-voting or no tower tile), 1=not started (tower tile not running or no votes cast yet), 2=delinquent (vote distance exceeds threshold or vote stalled), 3=voting (voting normally) |
+| <span class="metrics-name">diag_&#8203;vote_&#8203;status</span> | gauge | Precise status of the vote subsystem: 0=disabled (non-voting or no tower tile), 1=not started (tower tile not running or no votes cast yet), 2=delinquent (vote distance exceeds threshold or vote stalled), 3=voting (voting normally), 4=inadmissible (voting, but the vote account fails the validator admission ticket filter) |
 | <span class="metrics-name">diag_&#8203;replay_&#8203;status</span> | gauge | Precise status of the replay subsystem: 0=disabled (no replay tile), 1=not started (replay tile not running or slots are zero), 2=behind (replay lagging behind turbine or reset slot stalled), 3=running (replay keeping up) |
 | <span class="metrics-name">diag_&#8203;turbine_&#8203;status</span> | gauge | Precise status of the turbine subsystem: 0=disabled (no shred or replay tiles), 1=not started (tiles not all running or turbine slot is zero), 2=stalled (turbine slot not advancing), 3=repair outpacing (repair byte throughput exceeds turbine), 4=running (turbine receiving normally) |
 | <span class="metrics-name">diag_&#8203;builder_&#8203;status</span> | gauge | Precise status of the external block builder subsystem: 0=disabled (no block builder configured), 1=disconnected (block builder disconnected), 2=connecting (block builder connection in progress), 3=unhealthy (connected, but the block builder is not in a usable state), 4=connected (block builder connected and healthy) |
@@ -2334,5 +2348,10 @@
 | <span class="metrics-name">votor_&#8203;cert_&#8203;rx</span><br/>{cert_&#8203;rx_&#8203;result="<span class="metrics-enum">duplicate</span>"} | counter | Result of processing an inbound cert (per cert) (Cert was already in the pool) |
 | <span class="metrics-name">votor_&#8203;cert_&#8203;rx</span><br/>{cert_&#8203;rx_&#8203;result="<span class="metrics-enum">failed_&#8203;verify</span>"} | counter | Result of processing an inbound cert (per cert) (Cert failed the stake threshold or the aggregate signature check) |
 | <span class="metrics-name">votor_&#8203;cert_&#8203;rx</span><br/>{cert_&#8203;rx_&#8203;result="<span class="metrics-enum">banned</span>"} | counter | Result of processing an inbound cert (per cert) (Sender is banned for a failed signature verification) |
+| <span class="metrics-name">votor_&#8203;slot_&#8203;state_&#8203;used</span> | gauge | Number of slots tracked by the voting state machine |
+| <span class="metrics-name">votor_&#8203;slot_&#8203;state_&#8203;max</span> | gauge | Capacity of the voting state machine's slot table |
+| <span class="metrics-name">votor_&#8203;finalized_&#8203;slot</span> | gauge | Highest slot with a finalization cert, or 0 if none |
+| <span class="metrics-name">votor_&#8203;rank</span> | gauge | Rank of this validator in the current epoch (0 is the highest rank), -1 if unranked (unstaked) |
+| <span class="metrics-name">votor_&#8203;peers_&#8203;connected</span> | gauge | Number of peers with an active outbound connection |
 
 </div>

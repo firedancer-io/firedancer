@@ -5,10 +5,8 @@
 # event descriptor. Used to check for async events from uverbs during
 # housekeeping (mostly queue errors and device errors).
 #
-# qp_stats_fd: This is the file descriptor for the RDMA netlink socket
-# we use to check QP specific hardware counters (namely out-of-buffer).
 # lo_tx_fd: Send-only raw IPv4 socket bound to lo, owned by mlx5:0.
-uint logfile_fd, uint async_fd, uint qp_stats_fd, uint lo_tx_fd
+uint logfile_fd, uint async_fd, uint lo_tx_fd
 
 # Allow mlx5 to send loopback packets with sendmmsg.
 sendmmsg: (and (eq (arg 0) lo_tx_fd)
@@ -35,18 +33,3 @@ fsync: (eq (arg 0) logfile_fd)
 #
 # arg 0 is the nonblocking uverbs async event descriptor.
 read: (eq (arg 0) async_fd)
-
-# mlx5: periodically request the QP out-of-buffer counter over RDMA
-#       netlink
-#
-# arg 0 is the RDMA netlink socket and arg 3 is the send flags.
-sendto: (and (eq (arg 0) qp_stats_fd)
-             (eq (arg 3) 0))
-
-# mlx5: receive replies to QP counter requests over RDMA netlink
-#
-# MSG_TRUNC reports the full datagram size so oversized replies can be
-# rejected.  Arg 0 is the RDMA netlink socket and arg 3 is the receive
-# flags.
-recvfrom: (and (eq (arg 0) qp_stats_fd)
-               (eq (arg 3) MSG_TRUNC))

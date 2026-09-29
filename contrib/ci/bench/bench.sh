@@ -20,6 +20,7 @@ quiesce() { # identical host state before every timed run; args: files to pre-re
   for _ in $(seq 60); do  # let writeback drain
     (( $(awk '/^(Dirty|Writeback):/{s+=$2} END{print s}' /proc/meminfo) < 16384 )) && break; sleep 0.5
   done
+  sudo fstrim "$(findmnt -n -o TARGET -T "$DUMP_DIR")" || true  # discard the deleted accounts.db: both sides write to trimmed flash
 }
 
 backtest() { # ledger, then run_ledger_backtest.sh args
@@ -27,9 +28,11 @@ backtest() { # ledger, then run_ledger_backtest.sh args
   quiesce "$ledger"/shreds.pcapng.zst "$ledger"/snapshot-*.tar.zst "$ledger"/genesis.bin
   rm -f "$out.log"  # fd_log appends
   cat /proc/diskstats > "$out.diskstats.pre"   # disk work of the run = post - pre
+  for d in /dev/nvme?n1; do sudo nvme smart-log -o json "$d" > "$out.smart.pre.${d#/dev/}" 2>/dev/null || true; done
   OBJDIR=$BENCH_DIR/$side CI=1 DUMP_DIR=$DUMP_DIR setarch -R \
     ./src/flamenco/runtime/tests/run_ledger_backtest.sh -l "$@" --log "$out.log"
   cat /proc/diskstats > "$out.diskstats.post"
+  for d in /dev/nvme?n1; do sudo nvme smart-log -o json "$d" > "$out.smart.post.${d#/dev/}" 2>/dev/null || true; done
 }
 
 case $what in
@@ -43,10 +46,9 @@ case $what in
     cp "$(make --silent objdir)"/bin/{firedancer,firedancer-dev} "$bin/"
     cp contrib/ci/bench/bench.toml "$BENCH_DIR/$side/"  # each side runs the config its checkout knows
     size -A -d "$bin/firedancer" > "$out.size"
-    for c in mainnet testnet; do
-      "$bin/firedancer-dev" mem --$c --json > "$out.mem.$c.json"
-      "$bin/firedancer-dev" mem --$c --alpenglow --json > "$out.mem.ag.$c.json"
-    done
+    "$bin/firedancer-dev" mem --mainnet --json > "$out.mem.mainnet.json"
+    "$bin/firedancer-dev" mem --mainnet --alpenglow --json > "$out.mem.ag.mainnet.json"
+    "$bin/firedancer-dev" mem --testnet --json > "$out.mem.testnet.json"
     ;;
   replay)   backtest "${BENCH_LEDGER:-mainnet-424669000-perf-ledger-v4.2.0-beta.1-vat}" \
                      -e "${BENCH_END_SLOT:-424669200}" -m 4000000 ;;

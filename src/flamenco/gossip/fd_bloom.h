@@ -55,6 +55,16 @@ fd_bloom_insert( fd_bloom_t *  bloom,
                  uchar const * key,
                  ulong         key_sz );
 
+/* fd_bloom_insert8 inserts up to 8 32 byte elements stored contiguously
+   at ele (8*32 bytes are read).  Element i is inserted if bit i of
+   lanes is set.  Sets the same bits as calling fd_bloom_insert on each
+   inserted element. */
+
+void
+fd_bloom_insert8( fd_bloom_t *  bloom,
+                  uchar const * ele,
+                  uint          lanes );
+
 int
 fd_bloom_contains( fd_bloom_t *  bloom,
                    uchar const * key,

@@ -37,6 +37,7 @@ struct test_env {
   void *             tile_mem;
   fd_svm_mini_t *    mini;
   fd_execle_tile_t * execle;
+  ulong *            pack_in_fseq;
   ulong              bank_idx;
   /* pack's publish time handed to the last test_execle_run */
   ulong              begin_tspub;
@@ -98,6 +99,8 @@ test_topo_link( char const * name ) {
   FD_LOG_ERR(( "missing test topo link %s", name ));
 }
 
+static ulong * test_in_fseq[1]; /* the pack_execle in, link idx 0 */
+
 static test_env_t *
 test_env_create( void ) {
   test_env_t * env = fd_wksp_alloc_laddr( mini->wksp, alignof(test_env_t), sizeof(test_env_t), TOPO_TAG );
@@ -151,7 +154,9 @@ test_env_create( void ) {
 
   /* Back the pack_execle in's fseq the tile joins to return credits */
   void * in_fseq_mem = fd_wksp_alloc_laddr( env->mini->wksp, fd_fseq_align(), fd_fseq_footprint(), TOPO_TAG );
-  FD_TEST( fd_fseq_new( in_fseq_mem, 0UL ) );
+  env->pack_in_fseq = fd_fseq_join( fd_fseq_new( in_fseq_mem, 0UL ) );
+  FD_TEST( env->pack_in_fseq );
+  test_in_fseq[ 0 ] = env->pack_in_fseq;
   fd_topo_obj_t * in_fseq_obj = &topo->objs[ topo_tile->in_link_fseq_obj_id[ 0UL ] ];
   in_fseq_obj->offset = (ulong)fd_wksp_gaddr_fast( topo->workspaces[ in_fseq_obj->wksp_id ].wksp, in_fseq_mem );
 
@@ -665,6 +670,7 @@ test_stem( fd_execle_tile_t * ctx,
     .min_cr_avail        = &min_cr_avail,
     .cr_decrement_amount = 1UL,
     .out_reliable        = out_reliable,
+    .in_fseq             = test_in_fseq, /* no sleep object: credit return writes the fseq only */
   };
   return stem;
 }
@@ -720,7 +726,7 @@ test_execle_run( test_env_t *     env,
   after_frag( env->execle, 0UL, seq, sig, sz, 0UL, env->begin_tspub, test_stem( env->execle, stem ) );
   /* Pack sees the microblock done and has its credit back */
   FD_TEST( fd_fseq_query( env->execle->busy_fseq )==seq );
-  FD_TEST( fd_fseq_query( env->execle->pack_in_fseq )==seq+1UL );
+  FD_TEST( fd_fseq_query( env->pack_in_fseq )==seq+1UL );
 }
 
 static fd_frag_meta_t const *
@@ -1019,7 +1025,7 @@ FD_UNIT_TEST( execle_vote ) {
   after_frag( env->execle, 0UL, seq, sig, sz, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), test_stem( env->execle, stem ) );
 
   FD_TEST( fd_fseq_query( env->execle->busy_fseq )==seq );
-  FD_TEST( fd_fseq_query( env->execle->pack_in_fseq )==seq+1UL );
+  FD_TEST( fd_fseq_query( env->pack_in_fseq )==seq+1UL );
   fd_topo_link_t const * execle_poh = test_topo_link( "execle_poh" );
   fd_frag_meta_t const * out_poh_mcache = execle_poh->mcache;
   fd_frag_meta_t const * out_poh_meta = out_poh_mcache + fd_mcache_line_idx( 0UL, execle_poh->depth );

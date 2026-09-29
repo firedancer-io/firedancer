@@ -6,6 +6,7 @@
 #include "../../disco/fd_clock_tile.h"
 #include "../../discof/fd_startup.h"
 #include <time.h>
+#include <linux/futex.h>
 #include "generated/fd_poh_tile_seccomp.h"
 
 #define IN_KIND_REPLAY (0)

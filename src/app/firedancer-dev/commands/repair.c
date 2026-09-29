@@ -456,7 +456,7 @@ repair_topo( config_t * config ) {
   FOR(sign_tile_cnt-1) fd_topob_tile_in ( topo, "repair", 0UL,           "metric_in", "sign_repair",   i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
 
   /**/                 fd_topob_tile_out( topo, "repair", 0UL,                        "repair_out",   0UL                                                   );
-  /**/                 fd_topob_tile_in ( topo, "gossip", 0UL,           "metric_in", "sign_gossip",   0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
+  /**/                 fd_topob_tile_in ( topo, "gossip", 0UL,           "metric_in", "sign_gossip",   0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
   /**/                 fd_topob_tile_in ( topo, "ipecho", 0UL,           "metric_in", "genesi_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
   /**/                 fd_topob_tile_in ( topo, "repair", 0UL,           "metric_in", "tower_out",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
 

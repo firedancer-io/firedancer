@@ -11,6 +11,67 @@ FD_STATIC_ASSERT( FD_BLOOM_FOOTPRINT==128UL, unit_test );
 FD_STATIC_ASSERT( FD_BLOOM_ALIGN    ==alignof(fd_bloom_t), unit_test );
 FD_STATIC_ASSERT( FD_BLOOM_FOOTPRINT==sizeof (fd_bloom_t), unit_test );
 
+static ulong
+ref_fnv( uchar const * ele, ulong ele_sz, ulong key ) {
+  for( ulong i=0UL; i<ele_sz; i++ ) { key ^= (ulong)ele[i]; key *= 1099511628211UL; }
+  return key;
+}
+
+/* The bits set by fd_bloom_insert must match the plain one key at a
+   time FNV construction (Agave wire compatibility). */
+
+void
+test_fnv_reference( void ) {
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 1U, 0UL ) );
+  for( ulong keys_len=1UL; keys_len<=9UL; keys_len++ ) {
+    for( ulong iter=0UL; iter<200UL; iter++ ) {
+      ulong keys[ 9 ];
+      ulong bits[ 64 ] = {0};
+      ulong ref [ 64 ] = {0};
+      ulong bits_len = 1UL + fd_rng_ulong_roll( rng, 64UL*64UL );
+      for( ulong k=0UL; k<keys_len; k++ ) keys[ k ] = fd_rng_ulong( rng );
+      fd_bloom_t bloom[1] = {{ .keys = keys, .keys_len = keys_len, .bits = bits, .bits_len = bits_len }};
+      uchar ele[ 40 ];
+      ulong ele_sz = fd_rng_ulong_roll( rng, 41UL );
+      for( ulong i=0UL; i<ele_sz; i++ ) ele[ i ] = fd_rng_uchar( rng );
+      fd_bloom_insert( bloom, ele, ele_sz );
+      for( ulong k=0UL; k<keys_len; k++ ) {
+        ulong bit = ref_fnv( ele, ele_sz, keys[ k ] ) % bits_len;
+        ref[ bit/64UL ] |= 1UL<<(bit%64UL);
+      }
+      FD_TEST( !memcmp( bits, ref, sizeof(bits) ) );
+      FD_TEST( fd_bloom_contains( bloom, ele, ele_sz ) );
+    }
+  }
+  fd_rng_delete( fd_rng_leave( rng ) );
+}
+
+/* insert8 must set the same bits as fd_bloom_insert of each lane. */
+
+void
+test_insert8( void ) {
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 2U, 0UL ) );
+  for( ulong iter=0UL; iter<20000UL; iter++ ) {
+    ulong keys_len = 1UL + fd_rng_ulong_roll( rng, 9UL );
+    ulong bits_len = 1UL + fd_rng_ulong_roll( rng, 151UL*64UL );
+    if( iter<16UL ) bits_len = iter+1UL;
+    ulong keys[ 9 ];
+    for( ulong k=0UL; k<keys_len; k++ ) keys[ k ] = fd_rng_ulong( rng );
+    if( iter&1UL ) for( ulong k=0UL; k<keys_len; k++ ) keys[ k ] = ULONG_MAX-fd_rng_ulong_roll( rng, 4UL );
+    ulong bits0[ 151 ] = {0};
+    ulong bits1[ 151 ] = {0};
+    fd_bloom_t b0[1] = {{ .keys = keys, .keys_len = keys_len, .bits = bits0, .bits_len = bits_len }};
+    fd_bloom_t b1[1] = {{ .keys = keys, .keys_len = keys_len, .bits = bits1, .bits_len = bits_len }};
+    uchar ele[ 256 ];
+    for( ulong i=0UL; i<256UL; i++ ) ele[ i ] = fd_rng_uchar( rng );
+    uint lanes = fd_rng_uint( rng ) & 0xffU;
+    fd_bloom_insert8( b1, ele, lanes );
+    for( ulong i=0UL; i<8UL; i++ ) if( lanes & (1U<<i) ) fd_bloom_insert( b0, ele+32UL*i, 32UL );
+    FD_TEST( !memcmp( bits0, bits1, sizeof(bits0) ) );
+  }
+  fd_rng_delete( fd_rng_leave( rng ) );
+}
+
 void
 test_filters( void ) {
   void * bytes = aligned_alloc( fd_bloom_align(), fd_bloom_footprint( 0.1, 100 ) );
@@ -268,6 +329,8 @@ main( int     argc,
   FD_TEST( fd_bloom_align()==FD_BLOOM_ALIGN );
 
   test_filters();
+  test_fnv_reference();
+  test_insert8();
   test_add_contains();
   test_empty_contains();
   test_pull_request_serialize_alignment();

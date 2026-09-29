@@ -18,7 +18,7 @@
 #define MAX_CONN_CNT     (16UL)
 #define MAX_CLIENT_CNT   (256UL)
 
-static uchar server_mem[ 8192 ] __attribute__((aligned(128)));
+static uchar server_mem[ 65536 ] __attribute__((aligned(128)));
 static uint  loopback_addr;
 
 static fd_ipecho_server_t * server;
@@ -186,7 +186,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
 
       case ACTION_POLL: {
         int charge_busy = 0;
-        while( fd_ipecho_server_epoll_poll( server, &charge_busy ) ) {}
+        while( fd_ipecho_server_epoll_poll( server, fd_tickcount(), &charge_busy ) ) {}
         break;
       }
 

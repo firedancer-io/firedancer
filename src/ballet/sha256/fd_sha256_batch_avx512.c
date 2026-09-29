@@ -310,28 +310,11 @@ fd_sha256_private_batch_avx512( ulong          batch_cnt,
   }
 }
 
-#if defined(__znver5__)
-#define MIN_ACTIVE (6)  /* Zen 5 has high AVX-512 throughput */
-#else
-#define MIN_ACTIVE (8)  /* Baseline 1 IPC AVX-512 needs more batching to win against SHA-NI */
-#endif
-
-ulong fd_sha256_simd_lane_min( void ) { return MIN_ACTIVE; }
-ulong fd_sha256_simd_lane_max( void ) { return 16UL; }
-ulong fd_sha256_simd_iter_cost_q8( void ) { return 1357UL; } /* 5.3x on Zen 5: 16 lanes at 96.5 M hashes/s vs 31.7 M hashes/s single lane with SHA-NI */
-
 void
 fd_sha256_hash_32_repeated_batch_avx512( uchar const * hash_in,
                                          uchar *       hash_out,
                                          ulong         cnt,
                                          ulong         batch_cnt ) {
-
-  /* Below the SIMD floor, SHA-NI (or the scalar core) wins. */
-
-  if( FD_UNLIKELY( batch_cnt<MIN_ACTIVE ) ) {
-    for( ulong i=0UL; i<batch_cnt; i++ ) fd_sha256_hash_32_repeated( hash_in+32UL*i, hash_out+32UL*i, cnt );
-    return;
-  }
 
   /* Gather the batch into a 16 lane scratch buffer.  Lanes at and
      beyond batch_cnt hash zeros; their results are never stored. */
@@ -478,5 +461,3 @@ fd_sha256_hash_32_repeated_batch_avx512( uchar const * hash_in,
 # undef STORE_PAIR
 # undef LOAD_PAIR
 }
-
-#undef MIN_ACTIVE

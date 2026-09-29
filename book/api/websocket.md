@@ -1583,7 +1583,7 @@ are subsystem-specific and described below.
 |----------------|-------------|
 | `disabled`     | The validator is non-voting, or the active consensus tile (`tower` for Tower or `votor` for Alpenglow) is not present in the topology |
 | `not_started`  | The active consensus tile exists but is not yet running, or the validator has not yet recorded a vote |
-| `delinquent`   | Under Tower, the vote distance exceeds 150 slots or the vote slot has not advanced for over 60 seconds. Under Alpenglow, the validator is delinquent according to the exact 128-slot on-chain vote-account lookback in `summary.vote_state` |
+| `delinquent`   | Under Tower, the vote distance exceeds 150 slots or the vote slot has not advanced for over 60 seconds. Under Alpenglow, the validator is delinquent according to the exact 128-slot on-chain vote-account lookback in `summary.vote_state`. Also reported when votes land but the vote account fails the validator admission ticket filter (not V4 with a BLS pubkey, or below the V4 rent-exempt minimum), so its stake is not admitted: no leader slots, no rewards |
 | `voting`       | The validator is voting and is not `delinquent` |
 
 **`bundle`** states:

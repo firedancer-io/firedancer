@@ -144,10 +144,7 @@ static ag_vote_t
 send_block_and_expect_notar( ag_votor_t *          votor,
                              ulong                 slot,
                              ag_block_id_t const * parent ) {
-  ag_event_block_t first_shred = { .kind = AG_EVENT_BLOCK_FIRST_SHRED, .slot = slot };
-  ag_votor_handle_block_event ( votor, &first_shred );
-
-  ag_event_replay_t block = { .kind = AG_EVENT_REPLAY_COMPLETED };
+  ag_event_replay_t block = {0};
   block.slot              = slot;
   random_hash( block.block_info.hash );
   block.block_info.parent = *parent;
@@ -234,10 +231,7 @@ test_notar_out_of_order( void ) {
   ulong slot2 = slot1+1UL; ag_block_hash_t hash2; random_hash( hash2 );
 
   /* give later block to votor first */
-  ag_event_block_t first_shred = { .kind = AG_EVENT_BLOCK_FIRST_SHRED, .slot = slot2 };
-  ag_votor_handle_block_event ( votor, &first_shred );
-
-  ag_event_replay_t block = { .kind = AG_EVENT_REPLAY_COMPLETED };
+  ag_event_replay_t block = {0};
   block.slot              = slot2;
   block.block_info.parent = ag_block_id( slot1, hash1 );
   memcpy( block.block_info.hash, hash2, sizeof(ag_block_hash_t) );
@@ -247,9 +241,6 @@ test_notar_out_of_order( void ) {
   FD_TEST_NO_MSG( votor );
 
   /* now notify votor of earlier block */
-  first_shred.slot = slot1;
-  ag_votor_handle_block_event ( votor, &first_shred );
-
   block.slot              = slot1;
   block.block_info.parent = genesis_block_id();
   memcpy( block.block_info.hash, hash1, sizeof(ag_block_hash_t) );
@@ -279,14 +270,14 @@ test_pending_block_not_notarized_after_skip( void ) {
 
   /* block reconstructs before its parent is ready: stashed as pending, no
      vote yet (parent not in parents_ready) */
-  ag_event_replay_t block = { .kind = AG_EVENT_REPLAY_COMPLETED };
+  ag_event_replay_t block = {0};
   block.slot              = slot;
   random_hash( block.block_info.hash );
   block.block_info.parent = parent;
   ag_votor_handle_replay_event( votor, &block );
 
   /* window times out: we vote skip for every slot in the window */
-  ag_event_timeout_t timeout = { .kind = AG_EVENT_TIMEOUT, .slot = slot };
+  ag_event_timeout_t timeout = { .slot = slot };
   ag_votor_handle_timeout_event( votor, &timeout );
 
   /* parent becomes ready late: re-checks pending blocks */
@@ -377,10 +368,7 @@ test_prunes_to_finalized_window( void ) {
   /* populate per-slot state across the previous window and into the next
      one */
   ulong highest = 2UL*AG_SLOTS_PER_WINDOW;
-  for( ulong i=1UL; i<=highest; i++ ) {
-    ag_event_block_t event = { .kind = AG_EVENT_BLOCK_FIRST_SHRED, .slot = i };
-    ag_votor_handle_block_event ( votor, &event );
-  }
+  for( ulong i=1UL; i<=highest; i++ ) state_mut( votor, i );
   for( ulong i=0UL; i<=highest; i++ ) FD_TEST( contains_slot( votor, i ) );
 
   /* finalizing a mid-window slot should drop only the slots before its

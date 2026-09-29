@@ -1354,7 +1354,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           struct sock_filter *   out ) {
   fd_mlx5_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   populate_sock_filter_policy_fd_mlx5_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(),
-                                            (uint)ctx->uverbs.async_fd, UINT_MAX, (uint)ctx->lo_tx_sock );
+                                            (uint)ctx->uverbs.async_fd, (uint)ctx->lo_tx_sock );
   return sock_filter_policy_fd_mlx5_tile_instr_cnt;
 }
 

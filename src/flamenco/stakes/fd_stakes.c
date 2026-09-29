@@ -530,6 +530,22 @@ get_vote_credits( uchar const *        account_data,
   epoch_credits->fast_path_ok = fd_epoch_credits_fast_path_ok( epoch_credits );
 }
 
+int
+fd_stakes_vote_account_is_admissible( fd_bank_t const * bank,
+                                      ulong             lamports,
+                                      uchar const *     owner,
+                                      uchar const *     data,
+                                      ulong             data_len ) {
+  /* Agave's VAT filter also checks lamports against the VoteStateV4
+     rent-exempt minimum, plus one epoch's VAT burn once alpenglow is
+     active. */
+  ulong vat_to_burn_per_epoch = FD_FEATURE_ACTIVE_BANK( bank, alpenglow ) ? fd_slot_params_at_slot( bank, bank->f.slot ).vat_to_burn_per_epoch : 0UL;
+  ulong minimum_balance       = fd_rent_exempt_minimum_balance( &bank->f.rent, FD_VOTE_STATE_V4_SZ ) + vat_to_burn_per_epoch;
+  return lamports>=minimum_balance &&
+         fd_vsv_is_correct_size_owner_and_init( owner, data, data_len ) &&
+         fd_vote_account_is_v4_with_bls_pubkey( data, data_len );
+}
+
 void
 fd_refresh_vote_accounts( fd_bank_t *                    bank,
                           fd_accdb_t *                   accdb,
@@ -634,23 +650,12 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
     if( FD_UNLIKELY( !stake_t_1 ) ) continue;
 
     fd_acc_t acc = fd_accdb_read_one( accdb, bank->accdb_fork_id, stake_accum->pubkey.uc );
-    /* Agave's VAT filter also checks lamports against the VoteStateV4
-       rent-exempt minimum, plus one epoch's VAT burn once alpenglow is
-       active. */
     if( FD_UNLIKELY( !acc.lamports ) ) {
       fd_accdb_unread_one( accdb, &acc );
       continue;
     }
 
-    ulong vote_account_lamports = acc.lamports;
-    ulong vat_to_burn_per_epoch = alpenglow_enabled ? fd_slot_params_at_slot( bank, bank->f.slot ).vat_to_burn_per_epoch : 0UL;
-    ulong minimum_vote_account_balance = fd_rent_exempt_minimum_balance( &bank->f.rent, FD_VOTE_STATE_V4_SZ ) + vat_to_burn_per_epoch;
-    if( FD_UNLIKELY( vote_account_lamports < minimum_vote_account_balance ) ) {
-      fd_accdb_unread_one( accdb, &acc );
-      continue;
-    }
-    if( FD_UNLIKELY( !fd_vsv_is_correct_size_owner_and_init( acc.owner, acc.data, acc.data_len ) ||
-                     !fd_vote_account_is_v4_with_bls_pubkey( acc.data, acc.data_len ) ) ) {
+    if( FD_UNLIKELY( !fd_stakes_vote_account_is_admissible( bank, acc.lamports, acc.owner, acc.data, acc.data_len ) ) ) {
       fd_accdb_unread_one( accdb, &acc );
       continue;
     }
@@ -807,12 +812,8 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
   /* We can update our stake history sysvar based on the bank stake values.
      Afterward, we can refresh the stake values for the vote accounts. */
 
-  fd_stake_history_entry_t elem = {
-    .epoch        = bank->f.epoch,
-    .effective    = stake_delegations->effective_stake,
-    .activating   = stake_delegations->activating_stake,
-    .deactivating = stake_delegations->deactivating_stake,
-  };
+  fd_stake_history_entry_t elem = fd_stake_delegations_totals( stake_delegations );
+  elem.epoch = bank->f.epoch;
 
   /* Agave recomputes each stake history entry from scratch every epoch
      boundary, whereas Firedancer keeps running totals. Therefore,
@@ -874,7 +875,7 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
   }
 
   if( FD_UNLIKELY( !fd_sysvar_stake_history_is_contiguous( stake_history ) ) ) {
-    fd_stake_delegations_invalidate_warmed( stake_delegations );
+    fd_stake_delegations_invalidate_warmed( stake_delegations, 1 );
   }
 
   /* Now increment the epoch and recompute the stakes for the vote
@@ -916,7 +917,7 @@ fd_stakes_update_stake_delegation( fd_pubkey_t const * pubkey,
   if( FD_UNLIKELY( !current_has_delegation ) ) {
     if( FD_LIKELY( !prior_has_delegation ) ) return; /* nothing to remove from */
     fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_modify( bank );
-    fd_stake_delegations_fork_remove( stake_delegations, bank->stake_delegations_fork_id, pubkey );
+    fd_stake_delegations_fork_remove( stake_delegations, bank->stake_delegations_fork_id, 0UL, pubkey, 0 );
     if( FD_UNLIKELY( txn_in && fd_bank_report_runtime_diffs( bank ) ) ) fd_event_runtime_stake_delegation_emit( txn_in, bank, pubkey, NULL );
     return;
   }
@@ -941,14 +942,14 @@ fd_stakes_update_stake_delegation( fd_pubkey_t const * pubkey,
     fd_delegation_t const *    delegation        = &stake_state->stake.stake.delegation;
     if( FD_UNLIKELY( fd_delegation_is_inactive( delegation, bank->f.epoch, stake_history, &bank->f.warmup_cooldown_rate_epoch, use_fp_stake_math ) &&
                      fd_delegation_is_inactive( delegation, fd_ulong_sat_sub( bank->f.epoch, 1UL ), stake_history, &bank->f.warmup_cooldown_rate_epoch, use_fp_stake_math ) ) ) {
-      fd_stake_delegations_fork_remove( stake_delegations, bank->stake_delegations_fork_id, pubkey );
+      fd_stake_delegations_fork_remove( stake_delegations, bank->stake_delegations_fork_id, 0UL, pubkey, 0 );
       if( FD_UNLIKELY( txn_in && fd_bank_report_runtime_diffs( bank ) ) ) fd_event_runtime_stake_delegation_emit( txn_in, bank, pubkey, NULL );
       return;
     }
   }
 
   ulong new_stake = stake_state->stake.stake.delegation.stake;
-  fd_stake_delegations_fork_update( stake_delegations, bank->stake_delegations_fork_id, pubkey,
+  fd_stake_delegations_fork_update( stake_delegations, bank->stake_delegations_fork_id, 0UL, pubkey,
                                     &stake_state->stake.stake.delegation.voter_pubkey,
                                     new_stake,
                                     stake_state->stake.stake.delegation.activation_epoch,

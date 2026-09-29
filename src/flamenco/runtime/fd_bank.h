@@ -492,16 +492,6 @@ fd_bank_lthash_locking_modify( fd_bank_t * bank );
 void
 fd_bank_lthash_end_locking_modify( fd_bank_t * bank );
 
-/* fd_banks_stake_delegations_fork_ids writes the stake delegation fork
-   IDs in bank's ancestry to fork_ids in root-to-bank order, skipping
-   banks without a fork ID, and returns the number written.  fork_ids
-   must have room for banks->max_total_banks elements. */
-
-ulong
-fd_banks_stake_delegations_fork_ids( fd_banks_t *      banks,
-                                     fd_bank_t const * bank,
-                                     ushort *          fork_ids );
-
 /* fd_banks_stake_delegations_root_query() will return a pointer to the
    full stake delegations for the current root. This function should
    only be called on boot. */

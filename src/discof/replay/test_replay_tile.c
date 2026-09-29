@@ -242,9 +242,9 @@ mock_runtime_block_execute_prepare_fn( fd_banks_t *         banks FD_PARAM_UNUSE
 #define fd_multi_epoch_leaders_epoch_msg_fini(m)     do { if( !mock_snapshot_boot ) (fd_multi_epoch_leaders_epoch_msg_fini)(m); } while(0)
 #define fd_progcache_reset(cache)                    do { if( !mock_snapshot_boot ) (fd_progcache_reset)(cache); } while(0)
 #define fd_sysvar_cache_stake_history_view(cache,view) (mock_snapshot_boot ? NULL : (fd_sysvar_cache_stake_history_view)(cache,view))
-#define fd_stake_delegations_refresh(d,e,h,w,f,r,a,i) do { if( !mock_snapshot_boot ) (fd_stake_delegations_refresh)(d,e,h,w,f,r,a,i); } while(0)
+#define fd_stake_delegations_refresh(d,e,h,w,f,r)     do { if( !mock_snapshot_boot ) (fd_stake_delegations_refresh)(d,e,h,w,f,r); } while(0)
 #define fd_vote_stakes_refresh(v,f,a,i)              do { if( !mock_snapshot_boot ) (fd_vote_stakes_refresh)(v,f,a,i); } while(0)
-#define fd_rewards_recalculate_partitioned_rewards(b,k,a,s,c) do { if( !mock_snapshot_boot ) (fd_rewards_recalculate_partitioned_rewards)(b,k,a,s,c); } while(0)
+#define fd_rewards_recalculate_partitioned_rewards(k,a,s,c) do { if( !mock_snapshot_boot ) (fd_rewards_recalculate_partitioned_rewards)(k,a,s,c); } while(0)
 #define fd_accdb_lamports(a,i,p) (mock_snapshot_boot ? 0UL : (fd_accdb_lamports)(a,i,p))
 #define fd_runtime_block_execute_prepare     mock_runtime_block_execute_prepare_fn
 
@@ -357,6 +357,18 @@ setup_timing( fd_replay_tile_t * ctx,
   for( ulong i=0UL; i<TEST_BANKS_MAX; i++ ) ctx->timing_slot_of_bank[ i ] = fd_timing_slot_pool_idx_null( ctx->timing_slot_pool );
   ctx->backfill_path = fd_wksp_alloc_laddr( wksp, alignof(fd_reasm_fec_t *), (ctx->max_shreds_per_block/FD_FEC_SHRED_CNT)*sizeof(fd_reasm_fec_t *), 1UL );
   FD_TEST( ctx->backfill_path );
+}
+
+/* node_info is a shared topology object present in every topology that
+   runs replay, so unprivileged_init joins it unconditionally and the
+   tile reads it without a NULL check.  Any test reaching that code has
+   to stand it up. */
+
+static void
+setup_node_info( fd_replay_tile_t * ctx ) {
+  static fd_node_info_box_t node_info_box[ 1 ];
+  ctx->node_info = fd_node_info_box_join( fd_node_info_box_new( node_info_box ) );
+  FD_TEST( ctx->node_info );
 }
 
 static void
@@ -992,6 +1004,7 @@ test_consensus_root_notification_handoff( fd_wksp_t * wksp ) {
   memset( ctx, 0, sizeof(*ctx) );
   setup_timing( ctx, wksp );
   setup_stem( ctx, wksp );
+  setup_node_info( ctx );
 
   ulong const bank_cnt = 4UL;
   void * banks_mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( bank_cnt, bank_cnt, 8UL, 8UL ), 1UL );
@@ -1490,6 +1503,10 @@ test_root_from_footer( fd_wksp_t * wksp ) {
   mock_footer->notar_cert.block_id = id1;
   fd_bank_t * b2 = add_replayable_block( ctx, b1, 2UL, &id2 );
   FD_TEST( !replay_block_finalize( ctx, test_stem, b2 ) );
+  fd_frag_meta_t const * m = test_stem_mcaches[ out_idx ] + fd_mcache_line_idx( seq0+1UL, test_stem_depths[ out_idx ] );
+  FD_TEST( m->sig==REPLAY_SIG_SLOT_COMPLETED );
+  fd_replay_slot_completed_t const * completed = fd_chunk_to_laddr_const( wksp, m->chunk );
+  FD_TEST( completed->footer.has_final_cert && completed->footer.final_cert.slot==1UL && fd_hash_eq( &completed->footer.notar_cert.block_id, &id1 ) );
   expect_rooted( ctx, wksp, seq0+2UL, b1 );
 
   /* A fast final cert names its block, and wins over a slow cert beside it. */
@@ -2683,9 +2700,7 @@ test_oc_skips_unfrozen_bank( fd_wksp_t * wksp ) {
   static fd_replay_tile_t ctx[ 1 ];
   setup_ctx( ctx, wksp );
 
-  static fd_node_info_box_t node_info_box[ 1 ];
-  ctx->node_info = fd_node_info_box_join( fd_node_info_box_new( node_info_box ) );
-  FD_TEST( ctx->node_info );
+  setup_node_info( ctx );
 
   fd_hash_t mr_root = { .ul = { 100UL } };
   init_root_fec( ctx, &mr_root );
@@ -3503,7 +3518,7 @@ test_dead_block_children_drop( fd_wksp_t * wksp ) {
 
   /* Rule it dead, as replay_block_finalize does on a bad footer. */
   ulong seq_dead = test_stem_seqs[ out_idx ];
-  mark_bank_dead( ctx, test_stem, idx5, FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_BAD_FOOTER, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED );
+  mark_bank_dead( ctx, test_stem, idx5, FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_BAD_FOOTER, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED, NULL );
   FD_TEST( bank5->state==FD_BANK_STATE_DEAD );
   FD_TEST( test_stem_seqs[ out_idx ]==seq_dead+1UL );
   FD_TEST( replay_out_sig( ctx, seq_dead )==REPLAY_SIG_SLOT_DEAD );
@@ -3591,7 +3606,7 @@ test_stale_id_key_does_not_shadow_rebuild( fd_wksp_t * wksp ) {
     ulong               idx = fd_block_id_ele_get_idx( ctx->block_id_arr, ele );
     fd_bank_t *         b   = fd_banks_bank_query( ctx->banks, idx );
     b->state = FD_BANK_STATE_REPLAYABLE;
-    mark_bank_dead( ctx, test_stem, idx, FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_BAD_FOOTER, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED );
+    mark_bank_dead( ctx, test_stem, idx, FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_BAD_FOOTER, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED, NULL );
     b->refcnt = 0UL;
     fd_banks_prune_cancel_info_t cancel[ 1 ];
     FD_TEST( fd_banks_prune_one_bank( ctx->banks, cancel ) );

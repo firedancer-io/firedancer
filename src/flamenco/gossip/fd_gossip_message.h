@@ -400,6 +400,19 @@ struct fd_gossip_message {
 
 typedef struct fd_gossip_message fd_gossip_message_t;
 
+static inline ulong
+fd_gossip_message_used_sz( fd_gossip_message_t const * message ) {
+  switch( message->tag ) {
+  case FD_GOSSIP_MESSAGE_PULL_RESPONSE: return (ulong)((uchar const *)message->pull_response->values-(uchar const *)message)+message->pull_response->values_len*sizeof(fd_gossip_value_t);
+  case FD_GOSSIP_MESSAGE_PUSH:          return (ulong)((uchar const *)message->push->values         -(uchar const *)message)+message->push->values_len         *sizeof(fd_gossip_value_t);
+  case FD_GOSSIP_MESSAGE_PULL_REQUEST:  return (ulong)((uchar const *)(message->pull_request+1)-(uchar const *)message);
+  case FD_GOSSIP_MESSAGE_PRUNE:         return (ulong)((uchar const *)(message->prune+1)       -(uchar const *)message);
+  case FD_GOSSIP_MESSAGE_PING:          return (ulong)((uchar const *)(message->ping+1)        -(uchar const *)message);
+  case FD_GOSSIP_MESSAGE_PONG:          return (ulong)((uchar const *)(message->pong+1)        -(uchar const *)message);
+  default:                              return sizeof(fd_gossip_message_t);
+  }
+}
+
 int
 fd_gossip_message_deserialize( fd_gossip_message_t * message,
                                uchar const *         payload,

@@ -349,6 +349,11 @@ the validator, and is the runtime-configurable equivalent of the
 `isolcpus=` kernel boot parameter (which the kernel has deprecated in
 favor of this mechanism).
 
+With `[layout] mode = "efficient"` the partition is created in root
+mode instead. The CPUs are just as exclusive, but keep a scheduling
+domain of their own so the floating tiles are balanced across them.
+Changing the layout mode requires running `configure init cpuset` again.
+
 In addition to the tile CPUs, the partition includes the unused
 hyperthread siblings of the performance-sensitive `pack` and `poh`
 tiles (see the `hyperthreads` stage). An isolated, unused sibling
