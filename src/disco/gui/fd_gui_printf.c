@@ -9,6 +9,7 @@
 #include "../../disco/fd_txn_m.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../flamenco/progcache/fd_progcache_cache.h"
+#include "../../util/bits/fd_float.h"
 #include "../../disco/topo/fd_topob.h"
 
 static void
@@ -130,12 +131,68 @@ jsonp_long( fd_http_server_t * http,
   jsonp_field_end( http, q );
 }
 
+/* jsonp_put_fixed writes value with dp (2 or 4) decimals, byte for
+   byte what printf "%.2f"/"%.4f" gives, for finite |value|<1e15 (exact
+   128 bit mant*10^dp>>exp, round to nearest even); returns the end of
+   the text, or NULL for anything else (caller falls back to printf). */
+
+#define JSONP_FIXED_MAX (22UL) /* -999999999999999.9999 */
+
+static inline uchar *
+jsonp_put_fixed( uchar * q,
+                 double  value,
+                 ulong   dp ) {
+  ulong bits = fd_dblbits( value );
+  ulong bexp = fd_dblbits_bexp( bits );
+  ulong mant = fd_dblbits_mant( bits );
+  if( FD_UNLIKELY( bexp==2047UL || !(fabs( value )<1e15) ) ) return NULL;
+  long shift;
+  if( FD_LIKELY( bexp ) ) { mant |= 1UL<<52; shift = 1075L-(long)bexp; } /* >=3 below 1e15<2^50 */
+  else                    shift = 1074L;                                 /* subnormal */
+  ulong   pow10 = dp==2UL ? 100UL : 10000UL;
+  uint128 s     = (uint128)mant*pow10; /* <2^67 */
+  ulong   r     = 0UL;
+  if( FD_LIKELY( shift<128L ) ) {
+    r = (ulong)(s>>shift);
+    uint128 rem  = s-((uint128)r<<shift);
+    uint128 half = (uint128)1<<(shift-1L);
+    r += (ulong)( (rem>half) | ((rem==half) & (r&1UL)) );
+  } /* else s<2^67<=half: rounds to 0 */
+  if( bits>>63 ) *q++ = '-';
+  q = jsonp_put_ulong( q, r/pow10 );
+  *q++ = '.';
+  ulong frac = r%pow10;
+  if( dp==4UL ) { *q++ = (uchar)('0'+frac/1000UL); *q++ = (uchar)('0'+(frac/100UL)%10UL); }
+  *q++ = (uchar)('0'+(frac/10UL)%10UL);
+  *q++ = (uchar)('0'+frac%10UL);
+  return q;
+}
+
+static void
+jsonp_fixed( fd_http_server_t * http,
+             char const *       key,
+             double             value,
+             ulong              dp ) {
+  if( FD_UNLIKELY( http->stage_err ) ) return;
+  uchar * q = jsonp_field_start( http, key, JSONP_FIXED_MAX+1UL );
+  if( FD_UNLIKELY( !q ) ) return;
+  uchar * end = jsonp_put_fixed( q, value, dp );
+  if( FD_LIKELY( end ) ) {
+    *end++ = ',';
+    jsonp_field_end( http, end );
+    return;
+  }
+  /* nan, inf or >=1e15: printf, as before (the reserve above is the
+     one printf makes, so nothing about the ring moved) */
+  if( FD_LIKELY( key ) ) fd_http_server_printf( http, "\"%s\":%.*f,", key, (int)dp, value );
+  else                   fd_http_server_printf( http, "%.*f,", (int)dp, value );
+}
+
 static void
 jsonp_double( fd_http_server_t * http,
               char const *       key,
               double             value ) {
-  if( FD_LIKELY( key ) ) fd_http_server_printf( http, "\"%s\":%.2f,", key, value );
-  else                   fd_http_server_printf( http, "%.2f,", value );
+  jsonp_fixed( http, key, value, 2UL );
 }
 
 static void
@@ -156,8 +213,7 @@ static void
 jsonp_double_4dp( fd_http_server_t * http,
                   char const *       key,
                   double             value ) {
-  if( FD_LIKELY( key ) ) fd_http_server_printf( http, "\"%s\":%.4f,", key, value );
-  else                   fd_http_server_printf( http, "%.4f,", value );
+  jsonp_fixed( http, key, value, 4UL );
 }
 
 static void
@@ -1451,7 +1507,10 @@ fd_gui_sparkline_push( char *  text,
   }
   char ele[ 32 ];
   ulong ele_len;
-  FD_TEST( fd_cstr_printf_check( ele, sizeof(ele), &ele_len, "%.2f,", rate ) && ele_len<=FD_GUI_ACCDB_SPARKLINE_TEXT_MAX );
+  uchar * end = jsonp_put_fixed( (uchar *)ele, rate, 2UL );
+  if( FD_LIKELY( end ) ) { *end++ = ','; ele_len = (ulong)(end-(uchar *)ele); }
+  else FD_TEST( fd_cstr_printf_check( ele, sizeof(ele), &ele_len, "%.2f,", rate ) );
+  FD_TEST( ele_len<=FD_GUI_ACCDB_SPARKLINE_TEXT_MAX );
   fd_memcpy( text+l, ele, ele_len );
   *len = l+ele_len;
 }

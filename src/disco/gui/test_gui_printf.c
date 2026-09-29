@@ -40,6 +40,22 @@ old_jsonp_close_array( fd_http_server_t * http ) {
 }
 
 static void
+old_jsonp_double( fd_http_server_t * http,
+                  char const *       key,
+                  double             value ) {
+  if( FD_LIKELY( key ) ) fd_http_server_printf( http, "\"%s\":%.2f,", key, value );
+  else                   fd_http_server_printf( http, "%.2f,", value );
+}
+
+static void
+old_jsonp_double_4dp( fd_http_server_t * http,
+                      char const *       key,
+                      double             value ) {
+  if( FD_LIKELY( key ) ) fd_http_server_printf( http, "\"%s\":%.4f,", key, value );
+  else                   fd_http_server_printf( http, "%.4f,", value );
+}
+
+static void
 old_jsonp_ulong( fd_http_server_t * http,
                  char const *       key,
                  ulong              value ) {
@@ -161,7 +177,7 @@ test_centi( fd_http_server_t * http ) {
      sched timers are stored as hundredths and were printed as
      value/100.0 with %.2f */
   for( ulong v=0UL; v<=USHORT_MAX; v++ ) {
-    jsonp_double( http, NULL, (double)v/100.0 );
+    old_jsonp_double( http, NULL, (double)v/100.0 );
     char const * s = staged( http, &len );
     FD_TEST( len<sizeof(expect) );
     fd_memcpy( expect, s, len ); expect[ len ] = '\0';
@@ -173,7 +189,7 @@ test_centi( fd_http_server_t * http ) {
     fd_http_server_unstage( http );
 
     if( FD_UNLIKELY( !(v%977UL) ) ) {
-      jsonp_double( http, "k", (double)v/100.0 );
+      old_jsonp_double( http, "k", (double)v/100.0 );
       s = staged( http, &len );
       FD_TEST( len<sizeof(expect) );
       fd_memcpy( expect, s, len ); expect[ len ] = '\0';
@@ -203,6 +219,92 @@ test_centi( fd_http_server_t * http ) {
   FD_LOG_NOTICE(( "centi: 65536 values identical; idle_ratio/10000 would differ for %lu (trunc) / %lu (round) values, kept on printf", trunc_mismatch, round_mismatch ));
 }
 
+/* jsonp_double / jsonp_double_4dp format in fixed point instead of
+   printf; the bytes must be printf's for every double the gui emits.
+   Exhaustive where the domain is an integer scaled by a power of ten
+   (the sched timers and hit rates), and random doubles otherwise:
+   every exponent from subnormal to past the 1e15 printf fallback,
+   exact ties (odd multiples of 2^-k that end in a 5 at the rounding
+   digit) that separate half-even from half-up, both signs, -0.0, nan
+   and inf, with and without a key. */
+
+static void
+check_fixed( fd_http_server_t * a,
+             fd_http_server_t * b,
+             double             v,
+             int                dp4,
+             char const *       key ) {
+  if( dp4 ) { old_jsonp_double_4dp( a, key, v ); jsonp_double_4dp( b, key, v ); }
+  else      { old_jsonp_double    ( a, key, v ); jsonp_double    ( b, key, v ); }
+  ulong la, lb;
+  char const * sa = staged( a, &la );
+  char const * sb = staged( b, &lb );
+  if( FD_UNLIKELY( la!=lb || memcmp( sa, sb, la ) ) ) FD_LOG_ERR(( "%%.%df of %.17g (%016lx): printf %.*s fixed %.*s", dp4 ? 4 : 2, v, fd_dblbits( v ), (int)la, sa, (int)lb, sb ));
+  fd_http_server_unstage( a );
+  fd_http_server_unstage( b );
+}
+
+static void
+test_fixed( void ) {
+  fd_http_server_t * a = http_new();
+  fd_http_server_t * b = http_new();
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 11U, 0UL ) );
+  ulong cnt = 0UL;
+
+  /* integer scaled domains: v/100 and v/10000 for every v up to 2^20,
+     and every ushort/10000 with 4dp (hit_rate_ema is in [0,1]) */
+  for( ulong v=0UL; v<(1UL<<20); v++ ) {
+    check_fixed( a, b, (double)v/100.0,   0, NULL );
+    check_fixed( a, b, (double)v/10000.0, 0, NULL );
+    check_fixed( a, b, (double)v/10000.0, 1, NULL );
+    check_fixed( a, b, -(double)v/1000.0, 0, NULL );
+    cnt += 4UL;
+  }
+
+  /* specials */
+  double const specials[] = { 0.0, -0.0, 0.005, 0.015, 0.025, 0.125, 0.375, -0.125, 0.00005, 0.00015, 1e15-0.0625, 1e15, -1e15, 1e15+128.0, 1e19, 1.8e19, 1e300,
+                              4.9406564584124654e-324, -4.9406564584124654e-324, 2.2250738585072014e-308, 1.0/0.0, -1.0/0.0, 0.0/0.0, 999999999999999.9375, 999999999999999.875, 0.0049999999999999999, 0.00049999999999999999 };
+  for( ulong i=0UL; i<sizeof(specials)/sizeof(specials[0]); i++ ) {
+    check_fixed( a, b, specials[ i ], 0, NULL ); check_fixed( a, b, specials[ i ], 1, NULL );
+    check_fixed( a, b, specials[ i ], 0, "k" );  check_fixed( a, b, specials[ i ], 1, "k" );
+    cnt += 4UL;
+  }
+
+  /* random: bit patterns over every exponent, values near the fallback,
+     and exact ties: odd n times 2^-k with n*10^dp*2^-k ending in .5 */
+  for( ulong i=0UL; i<10000000UL; i++ ) {
+    double v;
+    switch( i%8UL ) {
+      case 0: { ulong bits = fd_rng_ulong( rng ); v = fd_double( bits ); break; } /* any exponent (mostly huge or tiny) */
+      case 1: { ulong bits = (fd_rng_ulong( rng ) & ((1UL<<63)|((1UL<<52)-1UL))) | ((1023UL-20UL+fd_rng_ulong_roll( rng, 72UL ))<<52); v = fd_double( bits ); break; } /* 2^-20 .. 2^51 */
+      case 2: v = (double)fd_rng_ulong_roll( rng, 1UL<<40 )/(double)(1UL+fd_rng_ulong_roll( rng, 1000000UL )); break;
+      case 3: v = 1e15-(double)fd_rng_ulong_roll( rng, 1UL<<20 )/16.0; break;
+      case 4: { ulong k = 3UL+fd_rng_ulong_roll( rng, 30UL ); ulong n = (fd_rng_ulong_roll( rng, 1UL<<(k+10UL) ) | 1UL); v = (double)n/(double)(1UL<<k); break; } /* dyadic, many exact ties */
+      case 5: v = (double)(long)fd_rng_ulong_roll( rng, 200001UL )-100000.0; v /= 1000.0; break;
+      case 6: v = fd_rng_double_o( rng ); break;
+      default: v = (double)fd_rng_ulong( rng )/(0.25+(double)fd_rng_ulong_roll( rng, 200000000UL )/1e9); break; /* sparkline rates */
+    }
+    check_fixed( a, b, v, (int)(i&1UL), (i&2UL) ? "k" : NULL );
+    cnt++;
+  }
+  FD_LOG_NOTICE(( "fixed: %lu values identical to printf", cnt ));
+
+  /* cost per element, random rates as the sparklines carry */
+  static double bv[ 4096 ];
+  for( ulong i=0UL; i<4096UL; i++ ) bv[ i ] = (double)fd_rng_ulong_roll( rng, 1UL<<40 )/(double)(1UL+fd_rng_ulong_roll( rng, 1000000UL ));
+  uchar buf[ 64 ]; ulong n = 2000000UL; ulong sink = 0UL;
+  long t0 = fd_log_wallclock();
+  for( ulong i=0UL; i<n; i++ ) sink += (ulong)(jsonp_put_fixed( buf, bv[ i&4095UL ], 2UL )-buf);
+  long t1 = fd_log_wallclock();
+  for( ulong i=0UL; i<n; i++ ) sink += (ulong)snprintf( (char *)buf, 64UL, "%.2f", bv[ i&4095UL ] );
+  long t2 = fd_log_wallclock();
+  FD_LOG_NOTICE(( "fixed %.1f ns/value, printf %.1f ns/value (%lu bytes)", (double)(t1-t0)/(double)n, (double)(t2-t1)/(double)n, sink ));
+
+  fd_rng_delete( fd_rng_leave( rng ) );
+  free( fd_http_server_delete( fd_http_server_leave( a ) ) );
+  free( fd_http_server_delete( fd_http_server_leave( b ) ) );
+}
+
 /* A message written with the old helpers and with the new ones, over
    the same values, on two servers: the staged bytes must match.  The
    message is long enough that over many rounds both rings wrap, so
@@ -225,10 +327,11 @@ message( fd_http_server_t * http,
   if( new ) jsonp_open_object( http, NULL ); else old_jsonp_open_object( http, NULL );
   for( ulong f=0UL; f<200UL; f++ ) {
     char const * key = keys[ fd_rng_ulong_roll( rng, nkeys ) ];
-    ulong kind = fd_rng_ulong_roll( rng, 11UL );
+    ulong kind = fd_rng_ulong_roll( rng, 13UL );
     ulong pick = fd_rng_ulong_roll( rng, 16UL );
     long  lv   = pick<12UL ? longs[ pick ]  : (long)fd_rng_ulong( rng );
     ulong uv   = pick<12UL ? ulongs[ pick ] : fd_rng_ulong( rng );
+    double dv  = (double)lv/(double)(1UL+fd_rng_ulong_roll( rng, 1000000UL ));
     if( fd_rng_uint_roll( rng, 4U )==0U ) { lv = (long)fd_rng_ulong_roll( rng, 100000UL )-50000L; uv = fd_rng_ulong_roll( rng, 100000UL ); }
     switch( kind ) {
       case 0: if( new ) jsonp_ulong( http, key, uv );                       else old_jsonp_ulong( http, key, uv );                       break;
@@ -238,6 +341,8 @@ message( fd_http_server_t * http,
       case 4: if( new ) jsonp_string( http, key, strs[ pick%nstrs ] );      else old_jsonp_string( http, key, strs[ pick%nstrs ] );      break;
       case 5: if( new ) jsonp_bool( http, key, (int)(uv&1UL) );             else old_jsonp_bool( http, key, (int)(uv&1UL) );             break;
       case 6: if( new ) jsonp_null( http, key );                            else old_jsonp_null( http, key );                            break;
+      case 11: if( new ) jsonp_double( http, key, dv );                     else old_jsonp_double( http, key, dv );                      break;
+      case 12: if( new ) jsonp_double_4dp( http, key, dv );                 else old_jsonp_double_4dp( http, key, dv );                  break;
       case 7: if( new ) jsonp_open_array( http, key );                      else old_jsonp_open_array( http, key );                      break;
       case 8: if( new ) jsonp_close_array( http );                          else old_jsonp_close_array( http );                          break;
       case 9: if( new ) jsonp_open_object( http, key );                     else old_jsonp_open_object( http, key );                     break;
@@ -482,7 +587,7 @@ old_sparkline_emit( fd_http_server_t * http,
   jsonp_open_array( http, "acquired_history" );
     for( ulong k=0UL; k<sp_cnt; k++ ) {
       ulong idx = sp_cnt - 1UL - k;
-      jsonp_double( http, NULL, history[ idx ] );
+      old_jsonp_double( http, NULL, history[ idx ] );
     }
   jsonp_close_array( http );
 }
@@ -551,6 +656,7 @@ main( int     argc,
   test_centi( http );
   free( fd_http_server_delete( fd_http_server_leave( http ) ) );
 
+  test_fixed();
   test_message();
   test_sparkline();
   test_shreds_window();
