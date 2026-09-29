@@ -1596,6 +1596,8 @@ EXAMPLES
     <counter name="PingTrackerStakeChanged" summary="Times a tracked peer was removed from tracking because it became staked" />
     <counter name="PingTrackerAddressChanged" summary="Times a tracked peer was removed from tracking because its gossip address changed" />
 
+    <counter name="SignQueueFull" summary="Messages dropped because the maximum number of sign requests were already in flight" />
+
     <gauge name="CrdsCapacity" summary="Capacity of the data store" />
     <gauge name="CrdsOccupied" summary="Entries in the data store" enum="CrdsValue" />
     <counter name="CrdsExpired" summary="Entries expired from the data store due to age" />

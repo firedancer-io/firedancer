@@ -120,7 +120,7 @@ send_test_topo( config_t * config ) {
   if( use_live_gossip ) {
     /* finish off gossip in_links */
     fd_topob_tile_in( topo, "gossip",  0UL, "metric_in", "txsend_out",  0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-    fd_topob_tile_in( topo, "gossip",  0UL, "metric_in", "sign_gossip", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
+    fd_topob_tile_in( topo, "gossip",  0UL, "metric_in", "sign_gossip", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
   }
 
   /* attach txsend in links */

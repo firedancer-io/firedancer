@@ -6,7 +6,6 @@
 #include "../../disco/fd_clock_tile.h"
 #include "../../flamenco/gossip/fd_gossip.h"
 #include "../../flamenco/runtime/fd_runtime_const.h"
-#include "../../disco/keyguard/fd_keyguard_client.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
 
 typedef struct {
@@ -51,7 +50,9 @@ struct fd_gossip_tile_ctx {
   fd_gossip_out_ctx_t sign_out[ 1 ];
   fd_gossip_out_ctx_t gossip_wfs[ 1 ];
 
-  fd_keyguard_client_t keyguard_client[ 1 ];
+  ulong sign_out_mtu;
+  uchar sign_staged[ 64UL ];
+
   fd_keyswitch_t *     keyswitch;
   int                  is_halting_signing;
   int                  is_pending_set_identity;

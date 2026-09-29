@@ -851,6 +851,7 @@
 | <span class="metrics-name">gossip_&#8203;ping_&#8203;tracker_&#8203;added</span> | counter | Peers ever tracked for ping/pong |
 | <span class="metrics-name">gossip_&#8203;ping_&#8203;tracker_&#8203;stake_&#8203;changed</span> | counter | Times a tracked peer was removed from tracking because it became staked |
 | <span class="metrics-name">gossip_&#8203;ping_&#8203;tracker_&#8203;address_&#8203;changed</span> | counter | Times a tracked peer was removed from tracking because its gossip address changed |
+| <span class="metrics-name">gossip_&#8203;sign_&#8203;queue_&#8203;full</span> | counter | Messages dropped because the maximum number of sign requests were already in flight |
 | <span class="metrics-name">gossip_&#8203;crds_&#8203;capacity</span> | gauge | Capacity of the data store |
 | <span class="metrics-name">gossip_&#8203;crds_&#8203;occupied</span><br/>{crds_&#8203;value="<span class="metrics-enum">contact_&#8203;info_&#8203;v1</span>"} | gauge | Entries in the data store (Contact Info V1) |
 | <span class="metrics-name">gossip_&#8203;crds_&#8203;occupied</span><br/>{crds_&#8203;value="<span class="metrics-enum">vote</span>"} | gauge | Entries in the data store (Vote) |
