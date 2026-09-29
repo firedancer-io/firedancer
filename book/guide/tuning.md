@@ -2,9 +2,9 @@
 
 ## Overview
 The Firedancer validator is composed of a handful of threads, each
-performing one of fifteen distinct jobs. Some jobs only need one thread
-to do them, but certain jobs require many threads performing the same
-work in parallel.
+performing a distinct job. Some jobs only need one thread to do them,
+but certain jobs require many threads performing the same work in
+parallel.
 
 Each thread is given a CPU core to run on, and threads take ownership of
 the core: never sleeping or letting the operating system use it for
@@ -15,20 +15,28 @@ tile are,
 | Tile   | Description |
 |--------|-------------|
 | `net`  | Sends and receives network packets from the network device |
-| `quic` | Receives transactions from clients, performing all connection management and packet processing to manage and implement the QUIC protocol |
-| `verify` | Verifies the cryptographic signature of incoming transactions, filtering invalid ones |
+| `quic` | Receives transactions from clients |
+| `verify` | Verifies cryptographic signatures on incoming transactions, filtering invalid ones |
 | `dedup` | Checks for and filters out duplicated incoming transactions |
-| `pack` | Collects incoming transactions and smartly schedules them for execution when we are leader |
-| `bank` | Executes transactions that have been scheduled when we are leader |
-| `poh`  | Continuously hashes in the background, and mixes the hash in with executed transactions to prove passage of time |
+| `resolv` | Resolves address lookup tables (ALTs) before transactions are scheduled |
+| `pack` | Collects incoming transactions and schedules them for execution when we are leader |
+| `execle` | Executes transactions that have been scheduled during leader slots |
+| `poh`  | Continuously hashes in the background, mixing in executed transactions to prove passage of time |
 | `shred` | Distributes block data to the network when leader, and receives and retransmits block data when not leader |
-| `store` | Receives block data when we are leader, or from other nodes when they are leader, and stores it locally in a database on disk |
-| `metric` | Collects monitoring information about other tiles and serves it on an HTTP endpoint |
+| `replay` | Manages forks and schedules transactions when replaying blocks produced by other nodes |
+| `execrp` | Executes transactions when replaying blocks produced by other nodes |
+| `accdb` | Runs account database background work such as writing cached accounts back to disk |
+| `tower` | Implements Tower BFT consensus and manages voting |
+| `gossip` | Runs the gossip protocol for discovering peers |
+| `gossvf` | Verifies cryptographic signatures on incoming gossip messages |
+| `repair` | Requests and reconstructs missing blocks from peers via the repair protocol |
+| `rserve` | Serves block data to other peers via the repair protocol |
+| `txsend` | Transmits outbound transactions (such as votes or forwarded transactions) to leaders |
 | `sign` | Holds the validator private key, and receives and responds to signing requests from other tiles |
-| `resolv` | Resolves address lookup tables before transactions are scheduled |
+| `gui` | Serves the web dashboard and WebSocket streaming API |
+| `metric` | Collects monitoring information about other tiles and serves it on an HTTP endpoint |
 | `diag` | Counts context switches and diagnostic information of other tiles |
-| `plugin` | Provides data to the `gui` tile  |
-| `gui` | Receives data from the validator and serves an HTTP endpoint to clients to view it |
+| `netlnk` | Synchronizes Linux network configuration |
 
 These tiles communicate with each other via shared memory queues. The
 work each tile performs and how they communicate with each other is
@@ -38,47 +46,46 @@ tune the performance of Firedancer.
 
 ## Configuration
 The default configuration provided if no options are specified is given
-in the [`default.toml`](https://github.com/firedancer-io/firedancer/blob/main/src/app/fdctl/config/default.toml)
+in the [`default.toml`](https://github.com/firedancer-io/firedancer/blob/main/src/app/firedancer/config/default.toml)
 file:
 
 ::: code-group
 
 ```toml [default.toml]
 [layout]
-    affinity = "1-16"
-    agave_affinity = "17-31"
-    net_tile_count = 1
+    affinity = "auto"
+    net_tile_count = 2
     quic_tile_count = 1
-    verify_tile_count = 4
-    bank_tile_count = 2
+    verify_tile_count = 6
+    resolv_tile_count = 1
+    gossvf_tile_count = 2
+    execle_tile_count = 2
+    execrp_tile_count = 10
     shred_tile_count = 1
+    sign_tile_count = 2
 ```
 
 :::
 
-Only `net`, `quic`, `verify`, `bank`, and `shred` tile counts are
-configurable. There may be 0 or 1 `plugin` and `gui` tiles if
-the GUI is disabled or enabled. The rest are fixed at one thread each.
+Tile counts for `net`, `quic`, `verify`, `resolv`, `gossvf`, `execle`,
+`execrp`, `shred`, and `sign` are configurable. Optional tiles like
+`gui` and `rpc` can also be enabled or disabled. Other tiles run as
+single instances.
 
 The assignment of tiles to CPU cores is determined by the `affinity`
 string, which is documented fully in the
-[`default.toml`](https://github.com/firedancer-io/firedancer/blob/main/src/app/fdctl/config/default.toml)
-file itself. The Frankendancer validator currently starts an Agave
-process to perform functionality like replay, gossip, and repair that is
-not yet implemented in Firedancer. The `agave_affinity` string
-determines the CPU cores that are given to the threads of this Agave
-process.
+[`default.toml`](https://github.com/firedancer-io/firedancer/blob/main/src/app/firedancer/config/default.toml)
+file itself.
 
-The following table shows the performance of the adjustable tiles on an
-Intel Icelake core, along with some performance notes and
-recommendations for `mainnet-beta`,
+The following table shows the performance characteristics of the
+adjustable tiles, along with recommendations for `mainnet`:
 
 | Tile     | Default         | Notes |
 |----------|-----------------|-------|
 | `net`    | 1               | Handles >1M TPS per tile. Designed to scale out for future network conditions, but there is no need to run more than 1 net tile at the moment on `mainnet-beta` |
 | `quic`   | 1               | Handles >1M TPS per tile. Designed to scale out for future network conditions, but there is no need to run more than 1 QUIC tile at the moment on `mainnet-beta` |
 | `verify` | 4               | Handles 20-40k TPS per tile. Recommend running many verify tiles, as signature verification is the primary bottleneck of the application |
-| `bank`   | 4               | Handles 20-40k TPS per tile, with diminishing returns from adding more tiles. Designed to scale out for future network conditions, but 4 tiles is enough to handle current `mainnet-beta` conditions. Can be increased further when benchmarking to test future network performance |
+| `execle` | 4               | Handles 20-40k TPS per tile, with diminishing returns from adding more tiles. Designed to scale out for future network conditions, but 4 tiles is enough to handle current `mainnet-beta` conditions. Can be increased further when benchmarking to test future network performance |
 | `shred`  | 1               | Throughput is mainly dependent on cluster size, 1 tile is enough to handle current `mainnet-beta` conditions. In benchmarking, if the cluster size is small, 1 tile can handle >1M TPS |
 
 ## Testing
@@ -112,9 +119,9 @@ node performance, in an idealized case where all transactions are
 non-conflicting.
 
 ## Running
-The benchmark command is part of the `fddev` development binary, which
-can be built with `make -j fddev`. With the binary in hand, we can run
-our benchmark, here it will be on a 32 physical core AMD EPYC 7513:
+The benchmark command is part of the `firedancer-dev` development binary,
+which can be built with `make -j firedancer-dev`. With the binary built,
+we can run our benchmark (here on a 32 physical core AMD EPYC 7513):
 
 ```sh [bash]
 $ lscpu
@@ -127,6 +134,10 @@ Socket(s):           1
 NUMA node(s):        1
 Vendor ID:           AuthenticAMD
 Model name:          AMD EPYC 7513 32-Core Processor
+```
+
+```sh [bash]
+$ ./build/firedancer-dev bench
 ```
 
 <<< @/snippets/bench/bench1.ansi
@@ -156,92 +167,45 @@ TPS rate,
 ::: code-group
 
 ```toml [bench-zen3-32core.toml]
-[ledger]
-  # Place the ledger in memory rather than on disk so that writing the
-  # ledger is not a performance bottleneck
-  path = "/data/shm/{name}/ledger"
-
 [layout]
-  # We will need a lot of verify tiles, and a few more bank tiles to be
-  # able to execute at higher TPS rates. Increase their core counts, and
-  # assign the tiles to cores. We only need 1 shred tile, since there is
-  # only 1 node in the cluster it can handle a high TPS rate by itself
-  affinity = "14-57,f1"
-  agave_affinity = "58-63"
-  verify_tile_count = 30
-  bank_tile_count = 6
+  # Dedicate more tiles to signature verification and leader execution
+  net_tile_count = 1
+  quic_tile_count = 1
+  resolv_tile_count = 1
+  verify_tile_count = 31
+  gossvf_tile_count = 1
+  execle_tile_count = 3
+  execrp_tile_count = 1
   shred_tile_count = 1
+  sign_tile_count = 2
 
 [development.genesis]
-  # The default amount of accounts to use for the benchmark is 1024, but
-  # to reach higher transaction throughput we need more accounts so that
-  # more transfers can be handled in parallel
+  # Pre-fund more accounts so more transfers can be handled in parallel
   fund_initial_accounts = 32768
 
 [development.bench]
-  # benchg tiles are used to generate and sign transactions in the
-  # benchmarking tool, we are going to need more of them to test higher
-  # TPS rate
+  # Use more generator and sender tiles to saturate the validator
   benchg_tile_count = 12
-
-  # benchs tiles are for sending the transactions to Firedancer over
-  # loopback, and we will need an extra one of these as well
   benchs_tile_count = 2
 
-  # Assign these benchg, benchs (and the bencho tile which orchestrates
-  # the benchmarking) to some CPU cores. The bencho assignment is
-  # floating as it is not performance sensitive
-  affinity = "f1,0-13"
-
-  # The Solana protocol consensus limits restrict the benchmark to
-  # around 81,000 TPS. We have special options to increase these limits
-  # for testing and benchmarking
+  # Raise protocol consensus limits for testing
   max_cost_per_block = 540000000
   max_shreds_per_block = 131072
 
-[rpc]
-  # Tracking certain transaction history and metadata to serve RPC
-  # requests is expensive and can slow down our validator, turn this
-  # functionality off
-  transaction_history = false
-  extended_tx_metadata_storage = false
+[tiles.shred]
+  max_pending_shred_sets = 16384
+
+[tiles.pack]
+  schedule_strategy = "perf"
 ```
 
 :::
 
-Now try running again,
+Now run the benchmark with the tuned configuration:
 
-<<< @/snippets/bench/bench4.ansi
-
-We start out with a higher TPS rate but it quickly falls back to around
-90k TPS. We can try to figure out why by running the `monitor` command.
-
-<<< @/snippets/bench/bench5.ansi
-
-The culprit is visible in the output, which will be clearer if we filter
-it down to the relevant information,
-
-<<< @/snippets/bench/bench6.ansi
-
-Here we see what is happening. The blockstore is completely busy
-spending 99.973% of its time storing data, while the PoH and shred tiles
-are in back-pressure waiting for the blockstore to catch up. The
-blockstore is an Agave component built on RocksDB that is not rewritten
-as part of Frankendancer.
-
-::: code-group
-
-```toml [bench-zen3-32core.toml]
-[development.bench]
-  disable_blockstore_from_slot = 1 // [!code ++]
+```sh [bash]
+$ ./build/firedancer-dev bench --config src/app/firedancer/config/bench-zen3-32core.toml
 ```
-
-:::
-
-We can disable the blockstore specifically for benchmarking, to show the
-performance of just the Firedancer components in the leader pipeline.
-Now we can run one more time and see a reasonably good value for the TPS
-throughput of Firedancer on this machine.
 
 <<< @/snippets/bench/bench7.ansi
 

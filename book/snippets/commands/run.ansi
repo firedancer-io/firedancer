@@ -1,6 +1,6 @@
-$ fdctl run --config config.toml
+$ firedancer run --config config.toml
 Log at "/tmp/fd-0.0.0_755725_fd_fd_2024_07_01_03_24_27_470038344_GMT+00"
-[32mNOTICE [0m 07-01 03:24:27.471949 755725 f0   main src/disco/topo/fd_topo.c(445): 
+[32mNOTICE [0m 07-01 03:24:27.471949 755725 f0   main src/disco/topo/fd_topo.c(445):
 SUMMARY
               Total Tiles: 16
       Total Memory Locked: 28145897472 bytes (26 GiB + 218 MiB + 20 KiB)

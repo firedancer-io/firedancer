@@ -1,18 +1,9 @@
 # Getting Started
 
-## Frankendancer
-This guide details building and running the Frankendancer validator
-which is a hybrid of Firedancer and Agave code running side by side.
-Frankendancer replaces the Agave networking stack and block production
-components to perform better while leader.  It is not yet possible
-to run a full Firedancer validator, which is in heavy development.
+## Firedancer
+This guide details building and running the Firedancer validator.
 
 ## Hardware Requirements
-
-Because Firedancer currently depends on the Agave validator, the
-hardware requirements are at least [what's
-recommended](https://docs.anza.xyz/operations/requirements)
-for that validator. Firedancer hopes to reduce these over time.
 
 **Minimum**
 
@@ -24,7 +15,6 @@ for that validator. Firedancer hopes to reduce these over time.
 
 - 32-Core CPU @ >3GHz with AVX512 support
 - 512GB RAM with ECC memory
-- Same capacity with separate disks for Accounts and Ledger
 - 1 Gigabit/s Network Bandwidth
 
 Validator operators also refer to https://solanahcl.org/ which
@@ -39,25 +29,13 @@ building and running on Linux. Firedancer requires a recent Linux
 kernel, at least v4.18. This corresponds to Ubuntu 20.04, Fedora 29,
 Debian 11, or RHEL 8.
 
- - GCC version 8.5 or higher. Only GCC version 11, 12, and 13 are
-supported and tested by the Firedancer developers.
- - [rustup](https://rustup.rs/)
- - clang, git, and make
+ - GCC version 8.5 or higher
+ - `make`
 
-::: tip NOTE
-
-Firedancer currently builds the
-[Agave](https://docs.solana.com/running-validator/validator-reqs)
-validator as a dependency, which requires a full Rust toolchain. Once
-Firedancer is able to stand alone, this will no longer be required.
-
-:::
-
-System packages can be installed with the `deps.sh` convenience script.
 First, clone the source code with:
 
 ```sh [bash]
-$ git clone --recurse-submodules https://github.com/firedancer-io/firedancer.git
+$ git clone https://github.com/firedancer-io/firedancer.git
 $ cd firedancer
 $ git checkout __FD_LATEST_VERSION__ # Or the latest Frankendancer release
 ```
@@ -77,35 +55,31 @@ following naming convention is used,
  * `main` This should not be used. The main branch is bleeding edge and
 includes all Firedancer development and changes that could break
 Frankendancer.
- * `v0.xxx.yyyyy` Official Frankendancer releases.
+ * `vYY.MM.PATCH` Full Firedancer releases.
+ * `v0.xxx.yyyyy` Legacy Frankendancer releases.
 
-The Frankendancer versioning has three components,
+Firedancer versioning has three components,
 
-* Major version is always `0`. The first full Firedancer release will be
-`1.x`
-* Minor version increments by 100 for each new Frankendancer release.
-The minor version will then increment by 1 for new minor versions within
-this release.
-* The patch number encodes the Agave validator version. An Agave version
-of `v1.17.14` is represented as `11714`.
+ * The major (year) and minor (month) versions identify the release line.
+   A new release line starts every month, containing new features and
+   performance improvements.
+ * Patch versions contain bug fixes.
 
 ```
 ================= main branch =================
-   \                             \
-    \ v0.100.11814                \ v0.200.11901
-     \                             \
-      \ v0.100.11815                \ v0.201.11902
+   \                         \
+    \ v26.08.0                \ v26.09.0
+     \                         \
+      \ v26.08.1                \ v26.09.1
        \
-        \ v0.101.11815
+        \ v26.08.2
 ```
 
 ## Building
-Once dependencies are installed, you can build Firedancer. Because
-Firedancer depends on the Agave validator, this will also build some
-Agave components.
+Once dependencies are installed, you can build Firedancer.
 
 ```sh [bash]
-$ make -j fdctl solana
+$ make -j firedancer
 ```
 
 You will need around 32GiB of available memory to build Firedancer.  If
@@ -113,11 +87,9 @@ you run out of memory compiling, make can return a variety of errors.
 
 ::: tip TIP
 
-The Firedancer production validator is built as a single binary `fdctl`
-short for Firedancer control. You can start, stop, and monitor the
-Firedancer instance from this one program. The `solana` CLI binary can
-be built with make as well for convenience so you can run RPC commands
-like `solana transfer`.
+The Firedancer production validator is built as a single binary
+`firedancer`. You can start, stop, and monitor the Firedancer instance
+from this one program.
 
 :::
 
@@ -131,7 +103,7 @@ specific target by setting the `MACHINE` environment variable to one of
 the targets under `config/`.
 
 ```sh [bash]
-$ MACHINE=linux_gcc_x86_64 make -j fdctl solana
+$ MACHINE=linux_gcc_x86_64 make -j firedancer
 ```
 
 The default target is `native`, and compiled binaries will be placed in
@@ -145,8 +117,7 @@ check out a newer version, update dependencies, and rebuild binaries.
 ```sh [bash]
 git fetch --tags
 git checkout __FD_LATEST_VERSION__
-git submodule update
-make -j fdctl solana
+make -j firedancer
 ```
 
 ## Running
@@ -193,44 +164,28 @@ user = "firedancer"
 :::
 
 This configuration will cause Firedancer to run as the user `firedancer`
-on the local machine. The `identity_path` and `vote_account_path` should
-be Agave style keys, which can be generated using the [`fdctl keys`.
-subcommand](../api/cli.md#keys-new-path). The `vote_account_path` can
-also be the public key of an existing vote account.
-
-This will put the ledger in `/home/firedancer/.firedancer/fd1/ledger`.
-To customize this path, refer to the [configuration
-guide](/guide/configuring.md#ledger).
-
-::: tip LEDGER
-
-The Firedancer blockstore in the ledger directory is compatible with the
-one for the Agave validator, and it is possible to switch between
-validator clients while keeping the `ledger` directory in place.
-
-:::
+on the local machine. The `identity_key` and `vote_account` should
+be Agave style keys, which can be generated using the [`firedancer keys`
+subcommand](../api/cli.md#keys-new-path). The `vote_account` can also be
+the public key of an existing vote account.
 
 Additionally, this configuration enables the full RPC API at port 8899.
 Although the port will not be published to other validators in gossip,
 use a firewall to restrict access to this port for maximum security.
 
-The Firedancer client can report diagnostic metrics similar to an Agave
-client. It is recommended to set the `[reporting.solana_metrics_config]`
-in the config file to the appropriate value for the cluster. The options
-for the different clusters are listed in the `default.toml` file in the
-[`reporting`](https://github.com/firedancer-io/firedancer/blob/main/src/app/fdctl/config/default.toml#L144)
-section.
+The Firedancer client reports metrics via a Prometheus listening at
+`http://127.0.0.1:7999/metrics`.
 
 ### Permissions
 
 There are two users involved in running Firedancer. The user that you
-launch `fdctl` with, and the user Firedancer switches to after it has
-started. The requirements for these users are very different:
+launch `firedancer` with, and the user Firedancer switches to after it
+has started. The requirements for these users are very different:
 
  - The user Firedancer starts as is not specified in configuration, but
    is simply the user that launches the process. For most commands,
-   including `fdctl run` and `configure` it needs to be `root` or have
-   various capabilities described below to setup kernel bypass
+   including `firedancer run` and `configure` it needs to be `root` or
+   have various capabilities described below to setup kernel bypass
    networking. It is recommended to simply use the `root` user when
    launching.
 
@@ -241,7 +196,7 @@ started. The requirements for these users are very different:
    never be `root` or another superuser, and the user should not be
    present in the sudoers file or have any other privileges.
 
-Only the `fdctl run` and `monitor` commands will switch to the
+Only the `firedancer run` and `monitor` commands will switch to the
 non-privileged user, and other commands will run as the startup user
 until they complete. Most commands can be started with capabilities
 rather than as the `root` user, although this isn't recommended. If you
@@ -251,20 +206,20 @@ a command by running it unprivileged:
 <<< @/snippets/capabilities.ansi
 
 For additional layers of defense against local privilege escalation, it
-is not suggested to `setcap(8)` the `fdctl` binary as this can create a
-larger attack surface.
+is not suggested to `setcap(8)` the `firedancer` binary as this can
+create a larger attack surface.
 
 ### Initialization
 
 The validator uses some Linux features that must be enabled and
 configured before it can be started correctly. It is possible for
-advanced operators to do this configuration manually, but `fdctl`
+advanced operators to do this configuration manually, but `firedancer`
 provides a command to check and automate this step.
 
 ::: warning WARNING
 
-Running any `fdctl configure` command may make permanent changes to your
-system. You should be careful before running these commands on a
+Running any `firedancer configure` command may make permanent changes to
+your system. You should be careful before running these commands on a
 production host.
 
 :::
@@ -273,7 +228,7 @@ The initialization steps are described [in detail](/guide/initializing.md)
 later. But plowing ahead at the moment:
 
 ```sh [bash]
-$ sudo ./build/fdctl configure init all --config ~/config.toml
+$ sudo ./build/firedancer configure init all --config ~/config.toml
 ```
 
 You will be told what steps are performed:
@@ -288,7 +243,7 @@ boots, and it needs to be run each time the system is rebooted.
 Finally, we can run Firedancer:
 
 ```sh [bash]
-$ sudo ./build/fdctl run --config ~/config.toml
+$ sudo ./build/firedancer run --config ~/config.toml
 ```
 
 Firedancer logs selected output to `stderr` and a more detailed log to a
@@ -296,29 +251,57 @@ local file.  Every tile in Firedancer runs in a separate process for
 security isolation, so you will see a complete process tree get launched.
 
 ```sh [bash]
-$ pstree 1741904 -as
-systemd --switched-root --system --deserialize 17
-  └─sudo ./build/fdctl run --config ~/config.toml
-      └─fdctl run --config ~/config.toml
-          └─fdctl run --config ~/config.toml
-              ├─fdctl run-agave --config-fd 0
-              │   └─35*[{fdctl}]
-              ├─diag:0 run1 diag 0 --pipe-fd 20 --config-fd 0
-              ├─dedup:0 run1 dedup 0 --pipe-fd 15 --config-fd 0
-              ├─gui:0 run1 gui 0 --pipe-fd 22 --config-fd 0
-              ├─metric:0 run1 metric 0 --pipe-fd 19 --config-fd 0
-              ├─net:0 run1 net 0 --pipe-fd 7 --config-fd 0
-              ├─pack:0 run1 pack 0 --pipe-fd 16 --config-fd 0
-              ├─plugin:0 run1 plugin 0 --pipe-fd 21 --config-fd 0
-              ├─quic:0 run1 quic 0 --pipe-fd 8 --config-fd 0
-              ├─shred:0 run1 shred 0 --pipe-fd 17 --config-fd 0
-              ├─sign:0 run1 sign 0 --pipe-fd 18 --config-fd 0
-              ├─verify:0 run1 verify 0 --pipe-fd 9 --config-fd 0
-              ├─verify:1 run1 verify 1 --pipe-fd 10 --config-fd 0
-              ├─verify:2 run1 verify 2 --pipe-fd 11 --config-fd 0
-              ├─verify:3 run1 verify 3 --pipe-fd 12 --config-fd 0
-              ├─verify:4 run1 verify 4 --pipe-fd 13 --config-fd 0
-              └─verify:5 run1 verify 5 --pipe-fd 14 --config-fd 0
+$ pstree 111819 -as
+systemd --switched-root --system --deserialize=51
+  └─sudo ./build/firedancer run --config ~/config.toml
+      └─firedancer run --config ~/config.toml
+          └─firedancer run --config ~/config.toml
+              ├─accdb:0 run1 accdb 0 --pipe-fd 31 --config-fd 0
+              ├─admin:0 run1 admin 0 --pipe-fd 9 --config-fd 0
+              ├─dedup:0 run1 dedup 0 --pipe-fd 51 --config-fd 0
+              ├─diag:0 run1 diag 0 --pipe-fd 7 --config-fd 0
+              ├─event:0 run1 event 0 --pipe-fd 60 --config-fd 0
+              ├─execle:0 run1 execle 0 --pipe-fd 54 --config-fd 0
+              ├─execle:1 run1 execle 1 --pipe-fd 55 --config-fd 0
+              ├─execrp:0 run1 execrp 0 --pipe-fd 32 --config-fd 0
+              ├─execrp:1 run1 execrp 1 --pipe-fd 33 --config-fd 0
+              ├─execrp:2 run1 execrp 2 --pipe-fd 34 --config-fd 0
+              ├─execrp:3 run1 execrp 3 --pipe-fd 35 --config-fd 0
+              ├─execrp:4 run1 execrp 4 --pipe-fd 36 --config-fd 0
+              ├─execrp:5 run1 execrp 5 --pipe-fd 37 --config-fd 0
+              ├─execrp:6 run1 execrp 6 --pipe-fd 38 --config-fd 0
+              ├─execrp:7 run1 execrp 7 --pipe-fd 39 --config-fd 0
+              ├─execrp:8 run1 execrp 8 --pipe-fd 40 --config-fd 0
+              ├─execrp:9 run1 execrp 9 --pipe-fd 41 --config-fd 0
+              ├─gossip:0 run1 gossip 0 --pipe-fd 26 --config-fd 0
+              ├─gossvf:0 run1 gossvf 0 --pipe-fd 24 --config-fd 0
+              ├─gossvf:1 run1 gossvf 1 --pipe-fd 25 --config-fd 0
+              ├─gui:0 run1 gui 0 --pipe-fd 61 --config-fd 0
+              ├─ipecho:0 run1 ipecho 0 --pipe-fd 8 --config-fd 0
+              ├─metric:0 run1 metric 0 --pipe-fd 6 --config-fd 0
+              ├─net:0 run1 net 0 --pipe-fd 11 --config-fd 0
+              ├─net:1 run1 net 1 --pipe-fd 12 --config-fd 0
+              ├─netlnk:0 run1 netlnk 0 --pipe-fd 5 --config-fd 0
+              ├─pack:0 run1 pack 0 --pipe-fd 53 --config-fd 0
+              ├─poh:0 run1 poh 0 --pipe-fd 56 --config-fd 0
+              ├─quic:0 run1 quic 0 --pipe-fd 44 --config-fd 0
+              ├─repair:0 run1 repair 0 --pipe-fd 28 --config-fd 0
+              ├─replay:0 run1 replay 0 --pipe-fd 30 --config-fd 0
+              ├─resolv:0 run1 resolv 0 --pipe-fd 52 --config-fd 0
+              ├─rpc:0 run1 rpc 0 --pipe-fd 59 --config-fd 0
+              ├─rserve:0 run1 rserve 0 --pipe-fd 29 --config-fd 0
+              ├─shred:0 run1 shred 0 --pipe-fd 27 --config-fd 0
+              ├─sign:0 run1 sign 0 --pipe-fd 57 --config-fd 0
+              ├─sign:1 run1 sign 1 --pipe-fd 58 --config-fd 0
+              ├─tower:0 run1 tower 0 --pipe-fd 42 --config-fd 0
+              ├─txsend:0 run1 txsend 0 --pipe-fd 43 --config-fd 0
+              ├─verify:0 run1 verify 0 --pipe-fd 45 --config-fd 0
+              ├─verify:1 run1 verify 1 --pipe-fd 46 --config-fd 0
+              ├─verify:2 run1 verify 2 --pipe-fd 47 --config-fd 0
+              ├─verify:3 run1 verify 3 --pipe-fd 48 --config-fd 0
+              ├─verify:4 run1 verify 4 --pipe-fd 49 --config-fd 0
+              ├─verify:5 run1 verify 5 --pipe-fd 50 --config-fd 0
+              └─waker:0 run1 waker 0 --pipe-fd 10 --config-fd 0
 ```
 
 If any of the processes dies or is killed it will bring all of the

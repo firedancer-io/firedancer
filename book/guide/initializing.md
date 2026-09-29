@@ -1,8 +1,8 @@
 # Initializing
 
 ## Overview
-The `fdctl configure` command is used to setup the host operator system
-so Firedancer can run correctly. It does the following:
+The `firedancer configure` command is used to setup the host operator
+system so Firedancer can run correctly. It does the following:
 
 * **hugetlbfs** Reserves huge and gigantic pages for use by Firedancer.
 * **sysctl** Sets required kernel parameters.
@@ -34,7 +34,7 @@ is rebooted, to remount the `hugetlbfs` filesystems, as do `sysctl`,
 device, `irq-affinity` and `irq-balance` configure IRQ affinities for
 CPUs.
 
-The configure command is run like `fdctl configure <mode> <stage>...`
+The configure command is run like `firedancer configure <mode> <stage>...`
 where `mode` is one of:
 
  - `init` Configures the provided stages if they are not already

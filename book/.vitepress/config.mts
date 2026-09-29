@@ -116,5 +116,9 @@ export default defineConfig({
     search: {
       provider: 'local'
     }
+  },
+
+  rewrites: {
+    '/guide/api/:firedancer-cli*': '/guide/api/:cli*'
   }
 })

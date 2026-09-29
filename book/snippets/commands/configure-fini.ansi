@@ -1,4 +1,4 @@
-$ fdctl configure fini all
+$ firedancer configure fini all
 [32mNOTICE [0m ethtool-loopback ... finishing
 [32mNOTICE [0m ethtool-offloads ... finishing
 [32mNOTICE [0m ethtool-channels ... finishing
