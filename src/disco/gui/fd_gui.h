@@ -348,6 +348,8 @@ struct fd_gui_tile_timers {
 
 typedef struct fd_gui_tile_timers fd_gui_tile_timers_t;
 
+#define FD_GUI_EXEC_DONE_SLOT_CNT (16UL)
+
 struct fd_gui_tile_timers_hist {
   long   sample_time_nanos;
   ushort tile_idx;
@@ -1144,6 +1146,13 @@ struct fd_gui {
     fd_gui_shred_scratch_t * ev;  /* [max] */
     ulong                    max;
   } shred_scratch;
+
+  /* Earliest REPLAY_EXEC_DONE timestamp per shred of the
+     FD_GUI_EXEC_DONE_SLOT_CNT most recent slots, LONG_MAX if none */
+  struct {
+    ulong  slot[ FD_GUI_EXEC_DONE_SLOT_CNT ];
+    long * ts; /* [FD_GUI_EXEC_DONE_SLOT_CNT][FD_SHRED_BLK_MAX] */
+  } exec_done;
 
   struct {
     ulong leader_shred_cnt;      /* A gauge counting the number of leader shreds seen on the SHRED_OUT link.  Resets at

@@ -367,6 +367,96 @@ test_shreds_window( void ) {
   if( FD_UNLIKELY( system( cmd ) ) ) FD_LOG_WARNING(( "failed to clean up %s", path ));
 }
 
+/* REPLAY_EXEC_DONE is deduplicated per (slot, shred), keeping the
+   earliest timestamp.  Feed transactions spanning overlapping shred
+   ranges with out of order timestamps across more slots than the ring
+   holds, then check that what reaches the store is exactly the
+   running per-shred minimum (so the frontend's Math.min per shred is
+   unchanged) and that no stored event is later than that minimum. */
+
+static void
+test_exec_done_dedupe( void ) {
+  char path[ 128 ];
+  FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/tmp/fd_gui_printf_test_ed.%i", (int)getpid() ) );
+
+  fd_gui_t * gui = aligned_alloc( fd_gui_align(), fd_gui_footprint( 1UL, 1UL, 1UL ) );
+  FD_TEST( gui );
+  memset( gui, 0, fd_gui_footprint( 1UL, 1UL, 1UL ) );
+  ulong map_bytes = 1UL<<30;
+  void * db_mem = aligned_alloc( fd_gui_store_align(), fd_ulong_align_up( fd_gui_store_footprint( map_bytes, fd_gui_hist_db_cnt(), fd_gui_hist_db_descs( map_bytes ) ), fd_gui_store_align() ) );
+  FD_TEST( db_mem );
+  gui->db = fd_gui_store_join( fd_gui_store_new( db_mem, path, map_bytes, fd_gui_hist_db_cnt(), 0x0123456789abcdefUL, fd_gui_hist_db_descs( map_bytes ) ) );
+  FD_TEST( gui->db );
+  void * hist_mem = aligned_alloc( fd_gui_hist_align(), fd_ulong_align_up( fd_gui_hist_footprint(), fd_gui_hist_align() ) );
+  FD_TEST( hist_mem );
+  gui->hist = fd_gui_hist_join( fd_gui_hist_new( hist_mem, gui->db ) );
+  FD_TEST( gui->hist );
+  gui->exec_done.ts = malloc( FD_GUI_EXEC_DONE_SLOT_CNT*FD_SHRED_BLK_MAX*sizeof(long) );
+  FD_TEST( gui->exec_done.ts );
+  for( ulong i=0UL; i<FD_GUI_EXEC_DONE_SLOT_CNT; i++ ) gui->exec_done.slot[ i ] = ULONG_MAX;
+
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 5U, 0UL ) );
+#define ED_SLOT_CNT  (3UL*FD_GUI_EXEC_DONE_SLOT_CNT)
+#define ED_SHRED_CNT (64UL)
+  static long expect[ ED_SLOT_CNT ][ ED_SHRED_CNT ]; /* running min per (slot,shred) over what was fed */
+  for( ulong s=0UL; s<ED_SLOT_CNT; s++ ) for( ulong i=0UL; i<ED_SHRED_CNT; i++ ) expect[ s ][ i ] = LONG_MAX;
+  long  base = 2000L*1000L*1000L*1000L;
+  long  now  = base;
+  ulong slot0 = 7000UL;
+  ulong fed   = 0UL;
+  /* slots mostly advance, with an occasional revisit of a recent slot
+     (a second fork or late records) and one revisit of a slot that
+     has left the ring */
+  for( ulong step=0UL; step<4000UL; step++ ) {
+    ulong s = fd_ulong_min( step/80UL, ED_SLOT_CNT-1UL );
+    if( FD_UNLIKELY( !fd_rng_ulong_roll( rng, 10UL ) && s ) ) s -= 1UL+fd_rng_ulong_roll( rng, fd_ulong_min( s, 3UL ) );
+    if( FD_UNLIKELY( step==3999UL ) ) s = 0UL; /* long gone from the ring */
+    ulong lo = fd_rng_ulong_roll( rng, ED_SHRED_CNT );
+    ulong hi = fd_ulong_min( lo+1UL+fd_rng_ulong_roll( rng, 4UL ), ED_SHRED_CNT );
+    now += (long)fd_rng_ulong_roll( rng, 1000000UL );
+    long ts = now-(long)fd_rng_ulong_roll( rng, 20000000UL ); /* out of order arrivals */
+    fd_gui_handle_exec_txn_done( gui, slot0+s, lo, hi, ts, ts, now );
+    for( ulong i=lo; i<hi; i++ ) { expect[ s ][ i ] = fd_long_min( expect[ s ][ i ], ts ); fed++; }
+  }
+  fd_gui_shred_flush( gui, now+2L*1000L*1000L*1000L );
+
+  /* every stored exec done is at or before the per-shred minimum at
+     the time it was stored, and the per-shred minimum over the stored
+     events equals the minimum over everything fed */
+  static long got[ ED_SLOT_CNT ][ ED_SHRED_CNT ];
+  for( ulong s=0UL; s<ED_SLOT_CNT; s++ ) for( ulong i=0UL; i<ED_SHRED_CNT; i++ ) got[ s ][ i ] = LONG_MAX;
+  fd_gui_shred_event_iter_t it[ 1 ];
+  ulong stored = 0UL;
+  ulong late   = 0UL; /* stored events later than the running minimum: only possible for the slot the ring forgot */
+  fd_gui_shred_event_iter_begin( gui, it, base, now );
+  while( fd_gui_shred_event_iter_next( it ) ) {
+    fd_gui_shred_event_t const * e = &it->event;
+    FD_TEST( e->event==FD_GUI_SLOT_SHRED_SHRED_REPLAY_EXEC_DONE );
+    ulong s = e->slot-slot0;
+    FD_TEST( s<ED_SLOT_CNT && e->idx<ED_SHRED_CNT );
+    if( e->event_time_ns>got[ s ][ e->idx ] ) { FD_TEST( s==0UL ); late++; }
+    got[ s ][ e->idx ] = fd_long_min( got[ s ][ e->idx ], e->event_time_ns );
+    stored++;
+  }
+  fd_gui_shred_event_iter_end( it );
+  for( ulong s=0UL; s<ED_SLOT_CNT; s++ ) for( ulong i=0UL; i<ED_SHRED_CNT; i++ ) FD_TEST( got[ s ][ i ]==expect[ s ][ i ] );
+  FD_TEST( stored<fed/2UL );
+  FD_TEST( late && late<8UL );
+  FD_LOG_NOTICE(( "exec done dedupe: %lu fed, %lu stored, per-shred minima identical", fed, stored ));
+#undef ED_SLOT_CNT
+#undef ED_SHRED_CNT
+
+  fd_gui_store_delete( fd_gui_store_leave( gui->db ) );
+  free( gui->exec_done.ts );
+  free( hist_mem );
+  free( db_mem );
+  free( gui );
+  fd_rng_delete( fd_rng_leave( rng ) );
+  char cmd[ 256 ];
+  FD_TEST( fd_cstr_printf_check( cmd, sizeof(cmd), NULL, "rm -rf %s %s-lock", path, path ) );
+  if( FD_UNLIKELY( system( cmd ) ) ) FD_LOG_WARNING(( "failed to clean up %s", path ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -378,6 +468,7 @@ main( int     argc,
 
   test_message();
   test_shreds_window();
+  test_exec_done_dedupe();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
