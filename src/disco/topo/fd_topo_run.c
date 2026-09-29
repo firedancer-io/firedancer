@@ -66,6 +66,8 @@ fd_topo_run_tile( fd_topo_t *          topo,
     if( FD_UNLIKELY( -1==prctl( PR_SET_TIMERSLACK, 1UL, 0UL, 0UL, 0UL ) ) ) FD_LOG_ERR(( "prctl(PR_SET_TIMERSLACK) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
+  fd_tile_rseq_unregister();
+
   ulong pid = fd_sandbox_getpid(); /* Need to read /proc again.. we got a new PID from clone */
   ulong tid = fd_sandbox_gettid(); /* Need to read /proc again.. we got a new TID from clone */
 

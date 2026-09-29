@@ -158,6 +158,13 @@ FD_FN_PURE char **        fd_tile_exec_argv( fd_tile_exec_t const * exec );
 
 int fd_tile_exec_done( fd_tile_exec_t const * exec );
 
+/* fd_tile_rseq_unregister unregisters the calling thread's glibc rseq
+   area (glibc>=2.35 registers one per thread, costing every context
+   switch).  Returns 1 if unregistered, 0 otherwise.  x86-64 only. */
+
+int
+fd_tile_rseq_unregister( void );
+
 /* These functions are for fd_util internal use only. */
 
 void
