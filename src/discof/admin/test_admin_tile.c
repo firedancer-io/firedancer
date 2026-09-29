@@ -157,51 +157,51 @@ test_set_identity( int alpenglow ) {
   uchar keypair[ 64 ]; memset( keypair, 0x44, sizeof(keypair) );
   ulong state = FD_SET_IDENTITY_STATE_UNLOCKED;
 
-  poll_set_identity( &ctx, &state, 0UL, keypair );
+  poll_set_identity( &ctx, &state, 0UL, keypair, NULL );
   FD_TEST( state==FD_SET_IDENTITY_STATE_LOCKED && replay_ks->state==FD_KEYSWITCH_STATE_LOCKED );
 
-  poll_set_identity( &ctx, &state, 0UL, keypair );
+  poll_set_identity( &ctx, &state, 0UL, keypair, NULL );
   FD_TEST( state==FD_SET_IDENTITY_STATE_REPLAY_HALT_REQUESTED && replay_ks->state==FD_KEYSWITCH_STATE_SWITCH_PENDING );
   replay_ks->result = 40UL;
   fd_keyswitch_state( replay_ks, FD_KEYSWITCH_STATE_COMPLETED );
-  poll_set_identity( &ctx, &state, 0UL, keypair );
+  poll_set_identity( &ctx, &state, 0UL, keypair, NULL );
   FD_TEST( state==FD_SET_IDENTITY_STATE_REPLAY_HALTED );
 
-  poll_set_identity( &ctx, &state, 0UL, keypair );
+  poll_set_identity( &ctx, &state, 0UL, keypair, NULL );
   FD_TEST( state==FD_SET_IDENTITY_STATE_VOTER_HALT_REQUESTED );
   FD_TEST( voter_ks->state==FD_KEYSWITCH_STATE_SWITCH_PENDING && voter_ks->param==40UL );
   voter_ks->result = 42UL;
   fd_keyswitch_state( voter_ks, FD_KEYSWITCH_STATE_COMPLETED );
-  poll_set_identity( &ctx, &state, 0UL, keypair );
+  poll_set_identity( &ctx, &state, 0UL, keypair, NULL );
   FD_TEST( state==FD_SET_IDENTITY_STATE_VOTER_HALTED );
 
-  poll_set_identity( &ctx, &state, 0UL, keypair );
+  poll_set_identity( &ctx, &state, 0UL, keypair, NULL );
   if( !alpenglow ) {
     FD_TEST( state==FD_SET_IDENTITY_STATE_TXSEND_FLUSH_REQUESTED );
     FD_TEST( txsend_ks->state==FD_KEYSWITCH_STATE_SWITCH_PENDING && txsend_ks->param==42UL );
     fd_keyswitch_state( txsend_ks, FD_KEYSWITCH_STATE_COMPLETED );
-    poll_set_identity( &ctx, &state, 0UL, keypair );
+    poll_set_identity( &ctx, &state, 0UL, keypair, NULL );
   }
   FD_TEST( state==FD_SET_IDENTITY_STATE_TXSEND_FLUSHED );
 
-  poll_set_identity( &ctx, &state, 0UL, keypair );
+  poll_set_identity( &ctx, &state, 0UL, keypair, NULL );
   FD_TEST( state==FD_SET_IDENTITY_STATE_SIGNERS_HALT_REQUESTED );
   FD_TEST( repair_ks->state==FD_KEYSWITCH_STATE_SWITCH_PENDING && voter_ks->state==FD_KEYSWITCH_STATE_COMPLETED );
   FD_TEST( sign_ks->state==FD_KEYSWITCH_STATE_UNLOCKED && gui_ks->state==FD_KEYSWITCH_STATE_UNLOCKED );
   fd_keyswitch_state( repair_ks, FD_KEYSWITCH_STATE_COMPLETED );
-  poll_set_identity( &ctx, &state, 0UL, keypair );
+  poll_set_identity( &ctx, &state, 0UL, keypair, NULL );
   FD_TEST( state==FD_SET_IDENTITY_STATE_SIGNERS_HALTED );
 
-  poll_set_identity( &ctx, &state, 0UL, keypair );
+  poll_set_identity( &ctx, &state, 0UL, keypair, NULL );
   FD_TEST( state==FD_SET_IDENTITY_STATE_ALL_SWITCH_REQUESTED );
   FD_TEST( sign_ks->state==FD_KEYSWITCH_STATE_SWITCH_PENDING && gui_ks->state==FD_KEYSWITCH_STATE_SWITCH_PENDING );
   FD_TEST( repair_ks->state==FD_KEYSWITCH_STATE_COMPLETED && voter_ks->state==FD_KEYSWITCH_STATE_COMPLETED );
   fd_keyswitch_state( sign_ks, FD_KEYSWITCH_STATE_COMPLETED );
   fd_keyswitch_state( gui_ks,  FD_KEYSWITCH_STATE_COMPLETED );
-  poll_set_identity( &ctx, &state, 0UL, keypair );
+  poll_set_identity( &ctx, &state, 0UL, keypair, NULL );
   FD_TEST( state==FD_SET_IDENTITY_STATE_ALL_SWITCHED );
 
-  poll_set_identity( &ctx, &state, 0UL, keypair );
+  poll_set_identity( &ctx, &state, 0UL, keypair, NULL );
   FD_TEST( state==FD_SET_IDENTITY_STATE_SIGNERS_UNHALT_REQUESTED );
   FD_TEST( repair_ks->state==FD_KEYSWITCH_STATE_UNHALT_PENDING && voter_ks->state==FD_KEYSWITCH_STATE_UNHALT_PENDING );
   FD_TEST( gui_ks->state==FD_KEYSWITCH_STATE_COMPLETED );
@@ -209,14 +209,45 @@ test_set_identity( int alpenglow ) {
   fd_keyswitch_state( repair_ks, FD_KEYSWITCH_STATE_COMPLETED );
   fd_keyswitch_state( voter_ks,  FD_KEYSWITCH_STATE_COMPLETED );
   if( !alpenglow ) fd_keyswitch_state( txsend_ks, FD_KEYSWITCH_STATE_COMPLETED );
-  poll_set_identity( &ctx, &state, 0UL, keypair );
+  poll_set_identity( &ctx, &state, 0UL, keypair, NULL );
   FD_TEST( state==FD_SET_IDENTITY_STATE_SIGNERS_UNHALTED );
 
-  poll_set_identity( &ctx, &state, 0UL, keypair );
+  poll_set_identity( &ctx, &state, 0UL, keypair, NULL );
   FD_TEST( state==FD_SET_IDENTITY_STATE_REPLAY_UNHALT_REQUESTED && replay_ks->state==FD_KEYSWITCH_STATE_UNHALT_PENDING );
   fd_keyswitch_state( replay_ks, FD_KEYSWITCH_STATE_COMPLETED );
-  FD_TEST( poll_set_identity( &ctx, &state, 0UL, keypair ) );
+  FD_TEST( poll_set_identity( &ctx, &state, 0UL, keypair, NULL ) );
   FD_TEST( state==FD_SET_IDENTITY_STATE_UNLOCKED && replay_ks->state==FD_KEYSWITCH_STATE_UNLOCKED );
+}
+
+/* Alpenglow has no Tower to restore a vote history into. */
+
+static uchar adminctl_mem[ 1UL<<18 ] __attribute__((aligned(FD_ADMINCTL_ALIGN)));
+
+static void
+test_set_identity_vote_history_alpenglow( void ) {
+  setup( 1 );
+  FD_TEST( fd_sha512_join( fd_sha512_new( ctx.sha512 ) ) );
+  FD_TEST( fd_adminctl_footprint()<=sizeof(adminctl_mem) );
+  ctx.adminctl = fd_adminctl_join( fd_adminctl_new( adminctl_mem ) );
+  FD_TEST( ctx.adminctl );
+
+  void * payload;
+  ulong  payload_max;
+  ulong  slot_idx = fd_adminctl_reserve( ctx.adminctl, &payload, &payload_max );
+  FD_TEST( slot_idx!=ULONG_MAX && payload_max>=sizeof(fd_adminctl_set_identity_t) );
+  fd_adminctl_set_identity_t * req = payload;
+  req->version         = FD_ADMINCTL_SET_IDENTITY_PAYLOAD_VERSION;
+  req->vote_history_sz = 1UL;
+  memset( req->keypair, 0x44, 32UL );
+  fd_ed25519_public_from_private( req->keypair+32UL, req->keypair, ctx.sha512 );
+  fd_adminctl_publish( ctx.adminctl, slot_idx, FD_ADMINCTL_CMD_SET_IDENTITY, sizeof(fd_adminctl_set_identity_t) );
+
+  ulong  poll_idx;
+  void * data;
+  ulong  data_sz;
+  FD_TEST( fd_adminctl_poll( ctx.adminctl, &poll_idx, &data, &data_sz )==FD_ADMINCTL_CMD_SET_IDENTITY );
+  set_identity( &ctx, poll_idx, data, data_sz );
+  FD_TEST( fd_adminctl_wait( ctx.adminctl, slot_idx )==FD_SET_IDENTITY_RESULT_VOTE_HISTORY_UNSUPPORTED );
 }
 
 int
@@ -230,6 +261,7 @@ main( int     argc,
   test_remove_all_authorized_voters( 1 );
   test_set_identity( 0 );
   test_set_identity( 1 );
+  test_set_identity_vote_history_alpenglow();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

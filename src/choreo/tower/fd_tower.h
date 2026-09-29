@@ -473,6 +473,7 @@ typedef struct fd_tower_vtr fd_tower_vtr_t;
 struct fd_tower {
   fd_tower_vote_t * votes; /* our local tower's vote deque */
   ulong             root;  /* our local tower's root slot (ULONG_MAX if none) */
+  ulong             wait_to_vote_slot; /* never vote for slots below this */
 
   ulong              blk_max;   /* max number of blocks */
   ulong              vtr_max;   /* max number of voters */

@@ -38,8 +38,10 @@ FD_PROTOTYPES_BEGIN
 
 /* fd_tower_file_de verifies the signature under identity, checks that
    the file is for identity, the two checks Agave makes, and decodes
-   into out, root is ULONG_MAX if absent.  Returns FD_TOWER_FILE_SUCCESS,
-   or an FD_TOWER_FILE_ERR_* code with out left untouched. */
+   into out.  A tower without a root is rejected, Agave always writes
+   one and cannot restore a tower without it.  Returns
+   FD_TOWER_FILE_SUCCESS, or an FD_TOWER_FILE_ERR_* code with out left
+   untouched. */
 int
 fd_tower_file_de( uchar const *       buf,
                   ulong               buf_sz,

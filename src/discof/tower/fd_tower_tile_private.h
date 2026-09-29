@@ -11,6 +11,7 @@
 #include "../../choreo/hfork/fd_hfork.h"
 #include "../../choreo/votes/fd_votes.h"
 #include "../../choreo/tower/fd_tower.h"
+#include "../../choreo/tower/fd_tower_file.h"
 #include "../../choreo/tower/fd_tower_serdes.h"
 #include "../../choreo/tower/fd_tower_stakes.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
@@ -157,6 +158,8 @@ struct fd_tower_tile {
   fd_gossip_duplicate_shred_t   duplicate_chunks[FD_EQVOC_CHUNK_CNT];
   fd_compact_tower_sync_serde_t compact_tower_sync_serde;
   uchar                         vote_txn[FD_TPU_PARSED_MTU];
+  fd_tower_file_t               vote_history;
+  int                           vote_history_pending; /* vote history not yet adopted or dropped */
 
   uchar __attribute__((aligned(FD_MULTI_EPOCH_LEADERS_ALIGN))) mleaders_mem[ FD_MULTI_EPOCH_LEADERS_FOOTPRINT ];
   uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];

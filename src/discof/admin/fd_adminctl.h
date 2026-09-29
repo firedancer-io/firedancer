@@ -2,6 +2,7 @@
 #define HEADER_fd_src_discof_admin_fd_adminctl_h
 
 #include "../../util/fd_util_base.h"
+#include "../../choreo/tower/fd_tower_file.h"
 
 /* fd_adminctl_t provides APIs for out-of-band command-and-control
    signals to the firedancer process via the admin tile.  It provides a
@@ -39,7 +40,7 @@
 #define FD_ADMINCTL_CMD_SNAP_CREATE            (5UL)
 
 #define FD_ADMINCTL_ALIGN       (8UL)
-#define FD_ADMINCTL_PAYLOAD_MAX (256UL)
+#define FD_ADMINCTL_PAYLOAD_MAX (32768UL)
 #define FD_ADMINCTL_SLOT_CNT    (4UL)
 
 /* Shared command result codes. */
@@ -61,6 +62,8 @@
 #define FD_SNAPSHOT_CREATE_RESULT_SLOT_IN_PAST              (0x2004UL)
 
 #define FD_SET_IDENTITY_RESULT_KEYPAIR_MISMATCH             (0x3001UL)
+#define FD_SET_IDENTITY_RESULT_INVALID_VOTE_HISTORY         (0x3002UL)
+#define FD_SET_IDENTITY_RESULT_VOTE_HISTORY_UNSUPPORTED     (0x3003UL)
 
 struct fd_adminctl_add_auth_voter_v1 {
   ulong version; /* ==FD_ADMINCTL_ADD_AUTH_VOTER_PAYLOAD_VERSION */
@@ -78,12 +81,14 @@ struct fd_adminctl_snap_create_v1 {
 typedef struct fd_adminctl_snap_create_v1 fd_adminctl_snap_create_t;
 #define FD_ADMINCTL_SNAP_CREATE_PAYLOAD_VERSION (1UL)
 
-struct fd_adminctl_set_identity_v1 {
+struct fd_adminctl_set_identity_v2 {
   ulong version; /* ==FD_ADMINCTL_SET_IDENTITY_PAYLOAD_VERSION */
   uchar keypair[ 64UL ];
+  ulong vote_history_sz; /* 0 if no vote history file was provided */
+  uchar vote_history[ FD_TOWER_FILE_MAX ];
 };
-typedef struct fd_adminctl_set_identity_v1 fd_adminctl_set_identity_t;
-#define FD_ADMINCTL_SET_IDENTITY_PAYLOAD_VERSION (1UL)
+typedef struct fd_adminctl_set_identity_v2 fd_adminctl_set_identity_t;
+#define FD_ADMINCTL_SET_IDENTITY_PAYLOAD_VERSION (2UL)
 
 struct fd_adminctl_get_identity_req_v1 {
   ulong version; /* ==FD_ADMINCTL_GET_IDENTITY_PAYLOAD_VERSION */
