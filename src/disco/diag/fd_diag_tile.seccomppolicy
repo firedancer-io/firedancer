@@ -43,6 +43,12 @@ read: (not (or (eq (arg 0) 2)
 # sandbox descriptor allowlist.  The logfile is included for st_size.
 fstat: (not (eq (arg 0) 2))
 
+# system summary: on glibc/kernel combinations where fstat() is
+# implemented as fstatat(fd, "", buf, AT_EMPTY_PATH) instead of the
+# legacy fstat syscall, allow the same descriptors here too.
+newfstatat: (and (not (eq (arg 0) 2))
+                  (eq (arg 3) "AT_EMPTY_PATH"))
+
 # system summary: sample live disk capacity and free space
 fstatfs: (not (eq (arg 0) 2))
 
