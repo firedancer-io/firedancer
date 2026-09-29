@@ -365,6 +365,10 @@ run_bad_tick_case( fd_hash_t const * start_poh,
 #define AG_COMP_TICK_0HASH    (4) /* tick declaring zero hashes: invalid under Alpenglow */
 #define AG_COMP_TICK_2HASH    (5) /* tick declaring two hashes: invalid under Alpenglow */
 
+/* AG_SPLIT( comp, cut ) is comp delivered as two FEC sets of the same
+   batch, the first holding the leading cut bytes. */
+#define AG_SPLIT( comp, cut ) ((comp) | (int)((cut)<<8))
+
 static ulong
 encode_ag_component( uchar *     out,
                      int         comp,
@@ -436,36 +440,42 @@ run_ag_structure_case( fd_hash_t const * start_poh,
   fd_sched_block_add_done( sched, 1UL, ULONG_MAX, TEST_ROOT_SLOT );
 
   static uchar          encoded  [ 8 ][ FD_BLOCK_MARKER_SER_MAX ] __attribute__((aligned(64)));
-  static fd_store_fec_t store_fec[ 8 ] __attribute__((aligned(alignof(fd_store_fec_t))));
+  static fd_store_fec_t store_fec[ 16 ] __attribute__((aligned(alignof(fd_store_fec_t))));
   FD_TEST( comp_cnt<=8UL );
 
   fd_hash_t prev_hash[ 1 ];
   fd_memcpy( prev_hash, start_poh, sizeof(fd_hash_t) );
 
-  int ingest_ok = 1;
-  for( ulong i=0UL; i<comp_cnt; i++ ) {
-    ulong sz = encode_ag_component( encoded[ i ], comps[ i ], prev_hash );
-    FD_TEST( sz );
-    fd_memset( &store_fec[ i ], 0, sizeof(fd_store_fec_t) );
-    FD_TEST( sz<=USHORT_MAX );
-    store_fec[ i ].data_sz     = (uint)sz;
-    store_fec[ i ].shred_sz[0] = (ushort)sz;
-    fd_sched_fec_t fec[ 1 ] = {{
-      .bank_idx          = 2UL,
-      .parent_bank_idx   = 1UL,
-      .slot              = TEST_ROOT_SLOT + 1UL,
-      .parent_slot       = TEST_ROOT_SLOT,
-      .fec               = &store_fec[ i ],
-      .data              = encoded[ i ],
-      .shred_cnt         = 1U,
-      .is_last_in_batch  = 1U,
-      .is_last_in_block  = i==comp_cnt-1UL,
-      .is_first_in_block = i==0UL,
-    }};
-    FD_TEST( fd_sched_fec_can_ingest( sched, fec ) );
-    if( FD_UNLIKELY( !fd_sched_fec_ingest( sched, fec ) ) ) { ingest_ok = 0; break; }
-    if( FD_UNLIKELY( i==0UL ) ) {
-      fd_sched_set_poh_params( sched, 2UL, TEST_ROOT_TICK_HEIGHT, TEST_ROOT_TICK_HEIGHT+1UL, 1UL, start_poh );
+  int   ingest_ok = 1;
+  ulong fec_cnt   = 0UL;
+  for( ulong i=0UL; i<comp_cnt && ingest_ok; i++ ) {
+    ulong sz  = encode_ag_component( encoded[ i ], comps[ i ]&0xff, prev_hash );
+    ulong cut = (ulong)comps[ i ]>>8;
+    FD_TEST( sz && sz<=USHORT_MAX );
+    for( ulong off=0UL, n; off<sz && ingest_ok; off+=n ) {
+      n = (cut && cut<sz && !off) ? cut : sz-off;
+      int last = off+n==sz;
+      fd_store_fec_t * sf = store_fec+fec_cnt++;
+      fd_memset( sf, 0, sizeof(fd_store_fec_t) );
+      sf->data_sz     = (uint)n;
+      sf->shred_sz[0] = (ushort)n;
+      fd_sched_fec_t fec[ 1 ] = {{
+        .bank_idx          = 2UL,
+        .parent_bank_idx   = 1UL,
+        .slot              = TEST_ROOT_SLOT + 1UL,
+        .parent_slot       = TEST_ROOT_SLOT,
+        .fec               = sf,
+        .data              = encoded[ i ]+off,
+        .shred_cnt         = 1U,
+        .is_last_in_batch  = !!last,
+        .is_last_in_block  = last && i==comp_cnt-1UL,
+        .is_first_in_block = !i && !off,
+      }};
+      FD_TEST( fd_sched_fec_can_ingest( sched, fec ) );
+      ingest_ok = !!fd_sched_fec_ingest( sched, fec );
+      if( FD_LIKELY( ingest_ok && !i && !off ) ) {
+        fd_sched_set_poh_params( sched, 2UL, TEST_ROOT_TICK_HEIGHT, TEST_ROOT_TICK_HEIGHT+1UL, 1UL, start_poh );
+      }
     }
   }
   FD_TEST( ingest_ok==expect_ingest_ok );
@@ -513,6 +523,15 @@ run_ag_structure_cases( void ) {
   /* header | footer | alpentick: valid. */
   { int c[] = { AG_COMP_HEADER, AG_COMP_FOOTER, AG_COMP_TICK };
     run_ag_structure_case( start_poh, c, 3UL, 1, FD_SCHED_DEAD_REASON_NONE ); }
+
+  /* A footer split across FEC sets parses like an unsplit one, at every
+     cut. */
+  { uchar buf[ FD_BLOCK_MARKER_SER_MAX ] __attribute__((aligned(64)));
+    ulong footer_sz = encode_ag_component( buf, AG_COMP_FOOTER, NULL );
+    for( ulong cut=1UL; cut<footer_sz; cut++ ) {
+      int c[] = { AG_COMP_HEADER, AG_SPLIT( AG_COMP_FOOTER, cut ), AG_COMP_TICK };
+      run_ag_structure_case( start_poh, c, 3UL, 1, FD_SCHED_DEAD_REASON_NONE );
+    } }
 
   /* Every Alpenglow entry advances exactly one hash.  A zero-hash
      alpentick would verify trivially against the parent's PoH and hand
