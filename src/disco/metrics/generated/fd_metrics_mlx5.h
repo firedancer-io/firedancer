@@ -29,7 +29,6 @@ enum {
   FD_METRICS_COUNTER_MLX5_PKT_TX_NO_NEIGHBOR_OFF,
   FD_METRICS_COUNTER_MLX5_GRE_PKT_TX_SUBMITTED_OFF,
   FD_METRICS_COUNTER_MLX5_GRE_PKT_TX_NO_ROUTE_OFF,
-  FD_METRICS_COUNTER_MLX5_GRE_PKT_TX_OVERSIZE_OFF,
   FD_METRICS_GAUGE_MLX5_TX_BUFFER_BUSY_OFF,
   FD_METRICS_GAUGE_MLX5_TX_BUFFER_IDLE_OFF,
 };
@@ -102,7 +101,7 @@ enum {
 
 #define FD_METRICS_COUNTER_MLX5_PKT_TX_INVALID_NAME "mlx5_pkt_tx_invalid"
 #define FD_METRICS_COUNTER_MLX5_PKT_TX_INVALID_TYPE (FD_METRICS_TYPE_COUNTER)
-#define FD_METRICS_COUNTER_MLX5_PKT_TX_INVALID_DESC "Number of transmit jobs dropped because the IPv4 version or header length was invalid."
+#define FD_METRICS_COUNTER_MLX5_PKT_TX_INVALID_DESC "Number of transmit jobs dropped for invalid packet headers or GRE packets exceeding the MTU."
 #define FD_METRICS_COUNTER_MLX5_PKT_TX_INVALID_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_COUNTER_MLX5_PKT_TX_NO_NEIGHBOR_NAME "mlx5_pkt_tx_no_neighbor"
@@ -120,11 +119,6 @@ enum {
 #define FD_METRICS_COUNTER_MLX5_GRE_PKT_TX_NO_ROUTE_DESC "Number of GRE transmit jobs dropped because the inner or outer route was incomplete."
 #define FD_METRICS_COUNTER_MLX5_GRE_PKT_TX_NO_ROUTE_CVT  (FD_METRICS_CONVERTER_NONE)
 
-#define FD_METRICS_COUNTER_MLX5_GRE_PKT_TX_OVERSIZE_NAME "mlx5_gre_pkt_tx_oversize"
-#define FD_METRICS_COUNTER_MLX5_GRE_PKT_TX_OVERSIZE_TYPE (FD_METRICS_TYPE_COUNTER)
-#define FD_METRICS_COUNTER_MLX5_GRE_PKT_TX_OVERSIZE_DESC "Number of GRE transmit jobs dropped because the encapsulated packet exceeded the route MTU."
-#define FD_METRICS_COUNTER_MLX5_GRE_PKT_TX_OVERSIZE_CVT  (FD_METRICS_CONVERTER_NONE)
-
 #define FD_METRICS_GAUGE_MLX5_TX_BUFFER_BUSY_NAME "mlx5_tx_buffer_busy"
 #define FD_METRICS_GAUGE_MLX5_TX_BUFFER_BUSY_TYPE (FD_METRICS_TYPE_GAUGE)
 #define FD_METRICS_GAUGE_MLX5_TX_BUFFER_BUSY_DESC "Number of TX buffers pending or submitted to the NIC."
@@ -135,7 +129,7 @@ enum {
 #define FD_METRICS_GAUGE_MLX5_TX_BUFFER_IDLE_DESC "Number of TX buffers available for a new transmit job."
 #define FD_METRICS_GAUGE_MLX5_TX_BUFFER_IDLE_CVT  (FD_METRICS_CONVERTER_NONE)
 
-#define FD_METRICS_MLX5_TOTAL (24UL)
+#define FD_METRICS_MLX5_TOTAL (23UL)
 extern const fd_metrics_meta_t FD_METRICS_MLX5[FD_METRICS_MLX5_TOTAL];
 
 #endif /* HEADER_fd_src_disco_metrics_generated_fd_metrics_mlx5_h */
