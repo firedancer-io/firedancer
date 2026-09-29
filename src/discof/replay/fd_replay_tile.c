@@ -1682,6 +1682,14 @@ publish_root_advanced( fd_replay_tile_t *  ctx,
   if( ctx->rpc_enabled ) {
     bank->refcnt++;
     FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for rpc", bank->idx, bank->f.slot, bank->refcnt ));
+
+    /* Under Alpenglow Agave treats a rooted bank as both confirmed
+       and finalized.  The rpc tile holds an independent reference for
+       each alias. */
+    if( FD_UNLIKELY( ctx->alpenglow ) ) {
+      bank->refcnt++;
+      FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for rpc (confirmed alias)", bank->idx, bank->f.slot, bank->refcnt ));
+    }
   }
 
   /* Increment the reference count on the consensus root bank to account
