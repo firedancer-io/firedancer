@@ -608,10 +608,6 @@ interp_exec:
 
   /* 0x60 - 0x6f ******************************************************/
 
-  /* FIXME: CHECK THE CU COST MODEL FOR THESE (IS IT LIKE
-     FD_VM_CONSUME_MEM AND NOT JUST FIXED) */
-  /* FIXME: MEM TRACING DIAGNOSTICS GO IN HERE */
-
   FD_VM_INTERP_INSTR_BEGIN(0x64) /* FD_SBPF_OP_LSH_IMM */
     /* https://github.com/solana-labs/rbpf/blob/8d36530b7071060e2837ebb26f25590db6816048/src/interpreter.rs#L291 */
     reg[ dst ] = (ulong)( FD_RUST_UINT_WRAPPING_SHL( (uint)reg_dst, (uint)imm ) );
