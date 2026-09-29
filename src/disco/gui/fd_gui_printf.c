@@ -230,6 +230,15 @@ jsonp_null( fd_http_server_t * http,
 }
 
 static void
+jsonp_text( fd_http_server_t * http,
+            char const *       text,
+            ulong              len ) {
+  uchar * q = jsonp_field_start( http, NULL, len );
+  if( FD_UNLIKELY( !q ) ) return;
+  jsonp_field_end( http, jsonp_put( q, text, len ) );
+}
+
+static void
 jsonp_open_envelope( fd_http_server_t * http,
                      char const *       topic,
                      char const *       key ) {
@@ -1428,6 +1437,25 @@ fd_gui_accdb_weighted_rate( ulong const * ring,
   return num / weighted_dt;
 }
 
+static void
+fd_gui_sparkline_push( char *  text,
+                       ulong * len,
+                       double  rate,
+                       int     full ) {
+  ulong l = *len;
+  if( full ) {
+    char const * comma = memchr( text, ',', l );
+    ulong oldest = comma ? (ulong)(comma-text)+1UL : l;
+    memmove( text, text+oldest, l-oldest );
+    l -= oldest;
+  }
+  char ele[ 32 ];
+  ulong ele_len;
+  FD_TEST( fd_cstr_printf_check( ele, sizeof(ele), &ele_len, "%.2f,", rate ) && ele_len<=FD_GUI_ACCDB_SPARKLINE_TEXT_MAX );
+  fd_memcpy( text+l, ele, ele_len );
+  *len = l+ele_len;
+}
+
 void
 fd_gui_printf_accounts_stats( fd_gui_t * gui ) {
   fd_gui_accounts_stats_t const * cur  = gui->summary.accounts_stats_current;
@@ -1535,9 +1563,9 @@ fd_gui_printf_accounts_stats( fd_gui_t * gui ) {
       gui->summary.accdb->tile_prev_acquire_calls    [ s ] = gui->summary.accdb->tile_cur_acquire_calls    [ s ];
 
       /* 60s sparkline accumulator.  Sum this snap's delta into the
-         in-flight 1-second bucket; when the bucket closes (>=1s since
-         it opened), shift the history rings right (newest at index 0)
-         and start a new bucket with the leftover delta. */
+         in-flight bucket; when the bucket closes (>=250ms since it
+         opened), append its per-second rate to the history text and
+         start a new bucket with the leftover delta. */
       ulong d_acq    = gui->summary.accdb->tile_acquired_win         [ s ][ i ];
       ulong d_acq_wr = gui->summary.accdb->tile_acquired_writable_win[ s ][ i ];
       gui->summary.accdb->tile_sparkline_acq_bucket   [ s ] += d_acq;
@@ -1548,20 +1576,15 @@ fd_gui_printf_accounts_stats( fd_gui_t * gui ) {
         /* First snap for this slot — just open a bucket. */
         gui->summary.accdb->tile_sparkline_bucket_start_nanos[ s ] = cur->sample_time_nanos;
       } else if( bucket_age>=FD_GUI_ACCDB_SPARKLINE_BUCKET_NS ) {
-        /* Close the bucket: normalize to per-second, shift right, push. */
+        /* Close the bucket: normalize to per-second, drop the oldest
+           sample if full, push. */
         double secs = (double)bucket_age / 1e9;
         double acq_rate    = (double)gui->summary.accdb->tile_sparkline_acq_bucket   [ s ] / secs;
         double acq_wr_rate = (double)gui->summary.accdb->tile_sparkline_acq_wr_bucket[ s ] / secs;
-        memmove( &gui->summary.accdb->tile_sparkline_acq_history   [ s ][ 1 ],
-                 &gui->summary.accdb->tile_sparkline_acq_history   [ s ][ 0 ],
-                 (FD_GUI_ACCDB_SPARKLINE_SAMPLES-1UL)*sizeof(double) );
-        memmove( &gui->summary.accdb->tile_sparkline_acq_wr_history[ s ][ 1 ],
-                 &gui->summary.accdb->tile_sparkline_acq_wr_history[ s ][ 0 ],
-                 (FD_GUI_ACCDB_SPARKLINE_SAMPLES-1UL)*sizeof(double) );
-        gui->summary.accdb->tile_sparkline_acq_history   [ s ][ 0 ] = acq_rate;
-        gui->summary.accdb->tile_sparkline_acq_wr_history[ s ][ 0 ] = acq_wr_rate;
-        if( gui->summary.accdb->tile_sparkline_count[ s ]<FD_GUI_ACCDB_SPARKLINE_SAMPLES )
-          gui->summary.accdb->tile_sparkline_count[ s ]++;
+        int full = gui->summary.accdb->tile_sparkline_count[ s ]==FD_GUI_ACCDB_SPARKLINE_SAMPLES;
+        fd_gui_sparkline_push( gui->summary.accdb->tile_sparkline_acq_text   [ s ], &gui->summary.accdb->tile_sparkline_acq_text_len   [ s ], acq_rate,    full );
+        fd_gui_sparkline_push( gui->summary.accdb->tile_sparkline_acq_wr_text[ s ], &gui->summary.accdb->tile_sparkline_acq_wr_text_len[ s ], acq_wr_rate, full );
+        if( !full ) gui->summary.accdb->tile_sparkline_count[ s ]++;
         gui->summary.accdb->tile_sparkline_acq_bucket        [ s ] = 0UL;
         gui->summary.accdb->tile_sparkline_acq_wr_bucket     [ s ] = 0UL;
         gui->summary.accdb->tile_sparkline_bucket_start_nanos[ s ] = cur->sample_time_nanos;
@@ -1729,20 +1752,14 @@ fd_gui_printf_accounts_stats( fd_gui_t * gui ) {
 
             jsonp_double_4dp( gui->http, "hit_rate_ema", t_acq_rate>0.0 ? fmax( 0.0, 1.0 - t_nf_rate / t_acq_rate ) : 0.0 );
 
-            /* 60-second sparkline history.  Emit oldest-first so the
-               frontend treats index 0 as the leftmost (oldest) sample. */
-            ulong sp_cnt = gui->summary.accdb->tile_sparkline_count[ s ];
+            /* 60-second sparkline history, oldest first so the frontend
+               treats index 0 as the leftmost (oldest) sample.  The text
+               is kept formatted; copy it. */
             jsonp_open_array( gui->http, "acquired_history" );
-              for( ulong k=0UL; k<sp_cnt; k++ ) {
-                ulong idx = sp_cnt - 1UL - k;
-                jsonp_double( gui->http, NULL, gui->summary.accdb->tile_sparkline_acq_history[ s ][ idx ] );
-              }
+              jsonp_text( gui->http, gui->summary.accdb->tile_sparkline_acq_text[ s ], gui->summary.accdb->tile_sparkline_acq_text_len[ s ] );
             jsonp_close_array( gui->http );
             jsonp_open_array( gui->http, "acquired_writable_history" );
-              for( ulong k=0UL; k<sp_cnt; k++ ) {
-                ulong idx = sp_cnt - 1UL - k;
-                jsonp_double( gui->http, NULL, gui->summary.accdb->tile_sparkline_acq_wr_history[ s ][ idx ] );
-              }
+              jsonp_text( gui->http, gui->summary.accdb->tile_sparkline_acq_wr_text[ s ], gui->summary.accdb->tile_sparkline_acq_wr_text_len[ s ] );
             jsonp_close_array( gui->http );
           jsonp_close_object( gui->http );
         }

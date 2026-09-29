@@ -6,6 +6,7 @@
 
 #include "fd_gui_printf.c"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 
@@ -457,6 +458,90 @@ test_exec_done_dedupe( void ) {
   if( FD_UNLIKELY( system( cmd ) ) ) FD_LOG_WARNING(( "failed to clean up %s", path ));
 }
 
+/* The accounts.stats sparkline history used to be a ring of doubles
+   printed with jsonp_double per sample on every emit; it is now
+   formatted once when a bucket closes and copied.  Push the same rates
+   through the old ring (kept verbatim) and the new text, emitting the
+   array after every push, through the ramp (count<240), the full ring
+   (oldest dropped) and rates of every magnitude including a wrapped
+   counter (2^64/0.25 s, the longest "%.2f"): the bytes must match. */
+
+static void
+old_sparkline_push( double * history,
+                    ulong *  count,
+                    double   rate ) {
+  memmove( &history[ 1 ], &history[ 0 ], (FD_GUI_ACCDB_SPARKLINE_SAMPLES-1UL)*sizeof(double) );
+  history[ 0 ] = rate;
+  if( *count<FD_GUI_ACCDB_SPARKLINE_SAMPLES ) (*count)++;
+}
+
+static void
+old_sparkline_emit( fd_http_server_t * http,
+                    double const *     history,
+                    ulong              sp_cnt ) {
+  jsonp_open_array( http, "acquired_history" );
+    for( ulong k=0UL; k<sp_cnt; k++ ) {
+      ulong idx = sp_cnt - 1UL - k;
+      jsonp_double( http, NULL, history[ idx ] );
+    }
+  jsonp_close_array( http );
+}
+
+static void
+test_sparkline( void ) {
+  fd_http_server_t * a = http_new();
+  fd_http_server_t * b = http_new();
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 7U, 0UL ) );
+
+  static double history[ FD_GUI_ACCDB_SPARKLINE_SAMPLES ];
+  static char   text[ FD_GUI_ACCDB_SPARKLINE_SAMPLES*FD_GUI_ACCDB_SPARKLINE_TEXT_MAX ];
+  ulong count    = 0UL;
+  ulong text_len = 0UL;
+  ulong total    = 0UL;
+  ulong max_ele  = 0UL;
+  for( ulong push=0UL; push<=3UL*FD_GUI_ACCDB_SPARKLINE_SAMPLES; push++ ) {
+    /* emit first (the first emit is of an empty history), then push */
+    old_sparkline_emit( a, history, count );
+    jsonp_open_array( b, "acquired_history" );
+      jsonp_text( b, text, text_len );
+    jsonp_close_array( b );
+
+    ulong la, lb;
+    char const * sa = staged( a, &la );
+    char const * sb = staged( b, &lb );
+    if( FD_UNLIKELY( la!=lb || memcmp( sa, sb, la ) ) ) FD_LOG_ERR(( "push %lu: old %lu bytes, new %lu bytes\nold %.*s\nnew %.*s", push, la, lb, (int)la, sa, (int)lb, sb ));
+    total += la;
+    FD_TEST( !fd_http_server_ws_broadcast( a ) );
+    FD_TEST( !fd_http_server_ws_broadcast( b ) );
+
+    /* a ulong delta over a bucket of at least 0.25 s; the first push is
+       the longest element, a wrapped counter over the shortest bucket */
+    ulong delta;
+    switch( push ? fd_rng_ulong_roll( rng, 6UL ) : 4UL ) {
+      case 0:  delta = 0UL;                                     break;
+      case 1:  delta = fd_rng_ulong_roll( rng, 10UL );          break;
+      case 2:  delta = fd_rng_ulong_roll( rng, 1000000UL );     break;
+      case 3:  delta = fd_rng_ulong( rng );                     break; /* wrapped counter */
+      case 4:  delta = ULONG_MAX-fd_rng_ulong_roll( rng, 3UL ); break;
+      default: delta = fd_rng_ulong_roll( rng, 1UL<<40 );       break;
+    }
+    double secs = 0.25+(!push || fd_rng_uint_roll( rng, 4U ) ? 0.0 : (double)fd_rng_ulong_roll( rng, 200000000UL )/1e9);
+    double rate = (double)delta/secs;
+
+    int full = count==FD_GUI_ACCDB_SPARKLINE_SAMPLES;
+    old_sparkline_push( history, &count, rate );
+    fd_gui_sparkline_push( text, &text_len, rate, full );
+    FD_TEST( count==fd_ulong_min( push+1UL, FD_GUI_ACCDB_SPARKLINE_SAMPLES ) );
+    max_ele = fd_ulong_max( max_ele, (ulong)snprintf( NULL, 0UL, "%.2f,", rate ) );
+  }
+  FD_TEST( max_ele==FD_GUI_ACCDB_SPARKLINE_TEXT_MAX ); /* the wrapped counter rate fills an element */
+  FD_LOG_NOTICE(( "sparkline: %lu pushes, %lu bytes identical, longest element %lu", 3UL*FD_GUI_ACCDB_SPARKLINE_SAMPLES, total, max_ele ));
+
+  fd_rng_delete( fd_rng_leave( rng ) );
+  free( fd_http_server_delete( fd_http_server_leave( a ) ) );
+  free( fd_http_server_delete( fd_http_server_leave( b ) ) );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -467,6 +552,7 @@ main( int     argc,
   free( fd_http_server_delete( fd_http_server_leave( http ) ) );
 
   test_message();
+  test_sparkline();
   test_shreds_window();
   test_exec_done_dedupe();
 
