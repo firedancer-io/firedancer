@@ -141,51 +141,47 @@ struct fd_mlx5_tile_rx_comp {
 typedef struct fd_mlx5_tile_rx_comp fd_mlx5_tile_rx_comp_t;
 
 /* fd_mlx5_tile_t is private tile state */
-struct fd_mlx5_tile {
-  fd_net_tile_t net;
-
-  fd_uverbs_ctx_t  uverbs;
-  fd_mlx5_cq_t     rx_cq;
-  fd_mlx5_cq_t     tx_cq;
+struct __attribute__((aligned(64UL))) fd_mlx5_tile {
   fd_mlx5_rx_wq_t  rx_wq;
+  uint             batch_size; /* used for both SQ/RQ and TX/RX CQ batching */
+  fd_mlx5_cq_t     rx_cq;
+  uint             lo_tx_cnt;
+  uint             rq_pending_cnt;
+  long             sq_flush_deadline_ticks;
   fd_mlx5_tx_qp_t  tx_qp;
-  fd_mlx5_rss_qp_t outer_rss_qp;
-  fd_mlx5_rss_qp_t gre_rss_qp;
+  long             lo_tx_deadline_ticks;
+  int              rx_comp_channel_fd;    /* completion channel of rx_cq, -1 if not efficient mode */
+  uint             has_out_credit;
+  long             repoll_deadline_ticks; /* LONG_MAX when no repoll is scheduled */
+  fd_net_router_t  router; /* TX IP routing */
+
+  long             sq_flush_timeout_ticks;
+  long             lo_tx_timeout_ticks;
+  int              lo_tx_sock;
   uint             lkey;
   uint             prepared;
+  fd_uverbs_ctx_t  uverbs;
+  fd_mlx5_cq_t     tx_cq;
+  fd_mlx5_rss_qp_t outer_rss_qp;
+  fd_mlx5_rss_qp_t gre_rss_qp;
 
-  uint batch_size; /* used for both SQ/RQ and TX/RX CQ batching */
+  /* Packet buffer addressing */
+  uint *  sq_wqe_buf_chunk; /* maps SQ WQEs to packet buffers */
+
+  fd_net_tile_t net;
 
   /* RQ batching */
   uint rq_pending_chunk[ FD_MLX5_BATCH_SIZE ];
-  uint rq_pending_cnt;
-
-  /* SQ batching */
-  long sq_flush_timeout_ticks;
-  long sq_flush_deadline_ticks;
 
   /* Local socket TX, used only by mlx5:0. */
-  int                lo_tx_sock;
-  uint               lo_tx_cnt;
-  long               lo_tx_timeout_ticks;
-  long               lo_tx_deadline_ticks;
   struct mmsghdr     lo_tx_msg [ FD_MLX5_BATCH_SIZE ];
   struct iovec       lo_tx_iov [ FD_MLX5_BATCH_SIZE ];
   struct sockaddr_in lo_tx_addr[ FD_MLX5_BATCH_SIZE ];
   uchar              lo_tx_buf [ FD_MLX5_BATCH_SIZE ][ FD_NET_MTU ];
 
-  /* Packet buffer addressing */
-  uint *  sq_wqe_buf_chunk; /* maps SQ WQEs to packet buffers */
-
-  /* TX IP routing */
-  fd_net_router_t   router;
-
   /* Efficient mode only */
-  int  rx_comp_channel_fd; /* completion channel of rx_cq */
   int  epoll_fd;
   long repoll_timeout_ticks;
-  long repoll_deadline_ticks; /* LONG_MAX when no repoll is scheduled */
-  uint has_out_credit;
 
   /* Metric tracking */
   struct {
