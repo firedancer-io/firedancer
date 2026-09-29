@@ -186,37 +186,46 @@ dispatch_request( ctx_t *                    ctx,
 
   ulong             now_ms = (ulong)( now/(long)1e6 );
   fd_repair_msg_t * msg;
+  fd_chainer_slotv_t * block = fd_hash_check_zero( &req->block_id )
+                                ? fd_chainer_turbine_slotv_query( ctx->chainer, req->slot )
+                                : fd_chainer_slot_version_query( ctx->chainer, req->slot, &req->block_id );
 
   switch( req->kind ) {
   case FD_REPAIR_KIND_SHRED: {
+    fd_chainer_repair_tally( block, FD_CHAINER_REQ_WINDOW, now );
     uint nonce = fd_rnonce_ss_compute( ctx->repair_nonce_ss, 1, req->slot, req->idx, now );
     msg = fd_repair_shred( ctx->protocol, peer, now_ms, nonce, req->slot, req->idx );
     fd_inflights_shred_insert( ctx->rtt, FD_REPAIR_KIND_SHRED, nonce, peer, req->slot, req->idx, NULL, NULL, now );
     break;
   }
   case FD_REPAIR_KIND_HIGHEST_SHRED: {
+    fd_chainer_repair_tally( block, FD_CHAINER_REQ_HIGHEST, now );
     uint nonce = fd_rnonce_ss_compute( ctx->repair_nonce_ss, 0, req->slot, 0U, now );
     msg = fd_repair_highest_shred( ctx->protocol, peer, now_ms, nonce, req->slot, 0 );
     break;
   }
   case FD_REPAIR_KIND_ORPHAN: {
+    fd_chainer_repair_tally( block, FD_CHAINER_REQ_ORPHAN, now );
     uint nonce = fd_rnonce_ss_compute( ctx->repair_nonce_ss, 0, req->slot, 0U, now );
     msg = fd_repair_orphan( ctx->protocol, peer, now_ms, nonce, req->slot );
     break;
   }
   case AG_REPAIR_KIND_PARENT_FEC_COUNT: {
+    fd_chainer_repair_tally( block, FD_CHAINER_REQ_PARENT, now );
     uint nonce = ctx->ag_nonce++;
     msg = ag_repair_parent_and_fec_set_count( ctx->protocol, peer, now_ms, nonce, req->slot, &req->block_id );
     fd_inflights_meta_insert( ctx->rtt, nonce, AG_REPAIR_KIND_PARENT_FEC_COUNT, peer, req->slot, &req->block_id, 0U, now );
     break;
   }
   case AG_REPAIR_KIND_FEC_ROOT: {
+    fd_chainer_repair_tally( block, FD_CHAINER_REQ_FEC_ROOT, now );
     uint nonce = ctx->ag_nonce++;
     msg = ag_repair_fec_set_root( ctx->protocol, peer, now_ms, nonce, req->slot, &req->block_id, req->idx );
     fd_inflights_meta_insert( ctx->rtt, nonce, AG_REPAIR_KIND_FEC_ROOT, peer, req->slot, &req->block_id, req->idx, now );
     break;
   }
   case AG_REPAIR_KIND_SHRED_FOR_BLOCK_ID: {
+    fd_chainer_repair_tally( block, FD_CHAINER_REQ_SHRED_BID, now );
     uint nonce = fd_rnonce_ss_compute( ctx->repair_nonce_ss, 1, req->slot, req->idx, now );
     msg = ag_repair_shred_block_id( ctx->protocol, peer, now_ms, nonce, req->slot, &req->block_id, req->idx );
     fd_inflights_shred_insert( ctx->rtt, AG_REPAIR_KIND_SHRED_FOR_BLOCK_ID, nonce, peer, req->slot, req->idx, &req->block_id, &req->fec_root, now );
@@ -583,12 +592,14 @@ shred_src( uint sig_src ) {
 
 static inline void
 handle_shred( ctx_t *            ctx,
-              uint               sig_src,
+              ulong              sig,
               fd_shred_t const * shred,
               ulong              nonce,
               fd_hash_t const *  mr,
-              long               now ) {
+              long               now,
+              long               rx_ts ) {
   if( FD_UNLIKELY( shred->slot<=ctx->chainer->root ) ) { ctx->metrics->shred_old++; return; }
+  uint sig_src = fd_shred_sig_src( sig );
 
   if( FD_UNLIKELY( sig_src==SHRED_SIG_SRC_TURBINE ) ) {
     if( FD_UNLIKELY( shred->slot > ctx->current_slot ) ) ctx->current_slot = shred->slot;
@@ -597,22 +608,32 @@ handle_shred( ctx_t *            ctx,
 
   int is_data = fd_shred_is_data( fd_shred_type( shred->variant ) );
 
-  if( FD_UNLIKELY( !is_data ) ) return;
+  if( FD_UNLIKELY( !is_data ) ) {
+    if( FD_LIKELY( fd_shred_sig_res( sig )!=SHRED_SIG_RESULT_DUPLICATE ) )
+      fd_chainer_code_shred_insert( ctx->chainer, shred->slot, shred->fec_set_idx, rx_ts, mr );
+    return;
+  }
   if( FD_UNLIKELY( sig_src==SHRED_SIG_SRC_REPAIR && fd_rnonce_ss_normal_repair( (uint)nonce ) ) ) {
     /* Credit a repaired shred to the peer that served it.  Try the
        block-id key first, then the positional one. */
     ctx->metrics->repair_shred_rx++;
     fd_pubkey_t peer;
-    long rtt = fd_inflights_shred_match( ctx->rtt, AG_REPAIR_KIND_SHRED_FOR_BLOCK_ID, nonce, shred->slot, shred->idx, mr, &peer, NULL, now );
+    fd_hash_t req_block_id;
+    long rtt = fd_inflights_shred_match( ctx->rtt, AG_REPAIR_KIND_SHRED_FOR_BLOCK_ID, nonce, shred->slot, shred->idx, mr, &peer, &req_block_id, now );
     if( FD_LIKELY( rtt ) ) ctx->metrics->shred_match_block_id++;
     else {
-      rtt = fd_inflights_shred_match( ctx->rtt, FD_REPAIR_KIND_SHRED, nonce, shred->slot, shred->idx, NULL, &peer, NULL, now );
+      rtt = fd_inflights_shred_match( ctx->rtt, FD_REPAIR_KIND_SHRED, nonce, shred->slot, shred->idx, NULL, &peer, &req_block_id, now );
       if( FD_LIKELY( rtt ) ) ctx->metrics->shred_match_positional++;
       else                   ctx->metrics->shred_match_miss++;
     }
+
     if( FD_LIKELY( rtt ) ) {
       fd_policy_peer_response_update( ctx->policy, &peer, rtt );
       fd_histf_sample( ctx->metrics->response_latency, (ulong)rtt );
+      fd_chainer_slotv_t * block = fd_hash_check_zero( &req_block_id )
+                                    ? fd_chainer_turbine_slotv_query( ctx->chainer, shred->slot )
+                                    : fd_chainer_slot_version_query( ctx->chainer, shred->slot, &req_block_id );
+      fd_chainer_repair_tally( block, FD_CHAINER_REQ_RESPONSE, rx_ts );
     }
   }
 
@@ -625,7 +646,7 @@ handle_shred( ctx_t *            ctx,
   }
 
   int slot_complete = !!(shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE);
-  fd_chainer_slotv_t * created = fd_chainer_shred_insert( ctx->chainer, shred->slot, shred->idx, slot_complete, shred_src( sig_src ), now, mr, parent_slot, &parent_block_id );
+  fd_chainer_slotv_t * created = fd_chainer_shred_insert( ctx->chainer, shred->slot, shred->idx, slot_complete, shred_src( sig_src ), rx_ts, mr, parent_slot, &parent_block_id );
   if( FD_UNLIKELY( created ) ) fd_schedulor_block_insert( ctx->schedulor, created->slot, &created->block_id, now ); /* first turbine shred of the slot */
 }
 
@@ -634,7 +655,10 @@ handle_fec_complete( ctx_t *      ctx,
                      ulong        sig,
                      fd_shred_t * shred,
                      fd_hash_t *  mr,
-                     long         now ) {
+                     long         now,
+                     long         rx_ts ) {
+  if( FD_UNLIKELY( sig!=SHRED_SIG_FEC_COMPLETE_LEADER && shred->slot>ctx->highest_fec_complete_slot ) )
+    ctx->highest_fec_complete_slot = shred->slot;
   if( FD_UNLIKELY( shred->slot <= ctx->chainer->root ) ) {
     fd_store_remove( ctx->store, ctx->store_map, mr );
     return;
@@ -643,7 +667,7 @@ handle_fec_complete( ctx_t *      ctx,
   int slot_complete = !!(shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE);
   int data_complete = !!(shred->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE);
   int rejected;
-  fd_chainer_slotv_t * created = fd_chainer_fec_complete( ctx->chainer, shred->slot, shred->fec_set_idx, slot_complete, data_complete, sig==SHRED_SIG_FEC_COMPLETE_LEADER, now, mr, &rejected );
+  fd_chainer_slotv_t * created = fd_chainer_fec_complete( ctx->chainer, shred->slot, shred->fec_set_idx, slot_complete, data_complete, sig==SHRED_SIG_FEC_COMPLETE_LEADER, rx_ts, mr, &rejected );
   if( FD_UNLIKELY( created ) ) fd_schedulor_block_insert( ctx->schedulor, created->slot, &created->block_id, now ); /* the block exists even if the set was refused */
   if( FD_UNLIKELY( rejected ) ) {
     fd_store_remove( ctx->store, ctx->store_map, mr );
@@ -659,7 +683,7 @@ returnable_frag( ctx_t *             ctx,
                  ulong               chunk,
                  ulong               sz,
                  ulong               ctl    FD_PARAM_UNUSED,
-                 ulong               tsorig FD_PARAM_UNUSED,
+                 ulong               tsorig,
                  ulong               tspub  FD_PARAM_UNUSED,
                  fd_stem_context_t * stem ) {
   uint             in_kind =  ctx->in_kind[ in_idx ];
@@ -697,12 +721,16 @@ returnable_frag( ctx_t *             ctx,
       uchar           * src       = fd_chunk_to_laddr( in_ctx->mem, chunk );
       fd_shred_base_t * shred_msg = (fd_shred_base_t *)fd_type_pun( src );
       fd_shred_t      * shred     = &shred_msg->shred; /* completes and shred messages share the header position */
+      long now_tick = fd_tickcount();
+      long rx_tick  = fd_frag_meta_ts_decomp( tsorig, now_tick );
+      if( FD_UNLIKELY( rx_tick>now_tick ) ) rx_tick -= 1L<<32;
+      long rx_ts = fd_clock_tile_tickcount_to_wallclock( ctx->clock, rx_tick );
 
       if( FD_UNLIKELY( sig==SHRED_SIG_FEC_COMPLETE || sig==SHRED_SIG_FEC_COMPLETE_LEADER ) ) {
         fd_fec_complete_t * complete_msg = (fd_fec_complete_t *)fd_type_pun( src );
-        handle_fec_complete( ctx, sig, &complete_msg->last_shred_hdr, &complete_msg->merkle_root, now );
+        handle_fec_complete( ctx, sig, &complete_msg->last_shred_hdr, &complete_msg->merkle_root, now, rx_ts );
       } else if( FD_LIKELY( sig_res!=SHRED_SIG_RESULT_EQVOC ) ) {
-        handle_shred( ctx, sig_src, shred, shred_msg->rnonce, &shred_msg->merkle_root, now );
+        handle_shred( ctx, sig, shred, shred_msg->rnonce, &shred_msg->merkle_root, now, rx_ts );
       }
       break;
     }
@@ -738,9 +766,34 @@ publish_fec( ctx_t *              ctx,
   msg->known_id        = !block->turbine;
   msg->block_id        = ( block_id_known && ( msg->known_id || from_root || fec->slot_complete ) ) ? block->block_id : null_hash;
 
-  /* The block is delivered whole: report its repair stats once.  A
-     from_root re-delivery replays FECs replay already saw, so it does
-     not report again. */
+  /* Snapshot cumulative block statistics on every delivery, including
+     redelivery after replay has evicted a block. */
+  fd_rotor_fec_metrics_t * m = &msg->metrics;
+  memset( m, 0, sizeof(fd_rotor_fec_metrics_t) );
+  m->stats_valid                = 1U;
+  m->votor_repaired             = (uchar)!block->turbine;
+  m->highest_fec_complete_slot  = ctx->highest_fec_complete_slot;
+  m->blk_turbine_cnt            = block->metrics.turbine_cnt;
+  m->blk_repair_cnt             = block->metrics.repair_cnt;
+  m->blk_recovered_cnt          = block->metrics.recovered_cnt;
+  m->blk_parity_cnt             = block->metrics.parity_cnt;
+  m->blk_slot_complete          = (uchar)( block->complete_idx!=UINT_MAX );
+  m->blk_data_cnt               = fec->fec_set_idx + (uint)FD_FEC_SHRED_CNT;
+  m->blk_last_completed_fec_idx = block->metrics.last_completed_fec_idx;
+
+  m->blk_req_window_cnt     = block->metrics.req_window_cnt;
+  m->blk_req_highest_cnt    = block->metrics.req_highest_cnt;
+  m->blk_req_orphan_cnt     = block->metrics.req_orphan_cnt;
+  m->blk_req_shred_bid_cnt  = block->metrics.req_shred_bid_cnt;
+  m->blk_req_parent_cnt     = block->metrics.req_parent_cnt;
+  m->blk_req_fec_root_cnt   = block->metrics.req_fec_root_cnt;
+  m->blk_req_retransmit_cnt = block->metrics.req_retransmit_cnt;
+  m->blk_repair_responses   = block->metrics.repair_responses;
+
+  m->blk_first_shred_ts_nanos      = (ulong)block->metrics.first_shred_ts;
+  m->blk_last_shred_ts_nanos       = (ulong)block->metrics.last_shred_ts;
+  m->blk_first_req_ts_nanos        = (ulong)block->metrics.first_req_ts;
+  m->blk_last_repair_resp_ts_nanos = (ulong)block->metrics.last_repair_resp_ts;
 
   fd_stem_publish( stem, ctx->replay_out_ctx->idx, ROTOR_SIG_FEC_REPLAY, ctx->replay_out_ctx->chunk, sizeof(fd_rotor_replay_fec_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->replay_out_ctx->chunk = fd_dcache_compact_next( ctx->replay_out_ctx->chunk, sizeof(fd_rotor_replay_fec_t), ctx->replay_out_ctx->chunk0, ctx->replay_out_ctx->wmark );
