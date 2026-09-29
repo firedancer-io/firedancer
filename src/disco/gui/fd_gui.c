@@ -9,6 +9,7 @@
 
 #include "../../ballet/base58/fd_base58.h"
 #include "../../ballet/json/fd_jtok.h"
+#include "../../ballet/shred/fd_shred.h"
 #include "../../disco/genesis/fd_genesis_cluster.h"
 #include "../../disco/pack/fd_pack.h"
 #include "../../disco/pack/fd_pack_cost.h"
@@ -39,6 +40,7 @@ fd_gui_footprint( ulong tile_cnt,
   l = FD_LAYOUT_APPEND( l, alignof(fd_gui_store_txn_end_t),   max_txn_per_slot*sizeof(fd_gui_store_txn_end_t)   );
   l = FD_LAYOUT_APPEND( l, alignof(fd_gui_slot_txn_join_t),   max_txn_per_slot*sizeof(fd_gui_slot_txn_join_t)   );
   l = FD_LAYOUT_APPEND( l, alignof(fd_gui_shred_scratch_t),   FD_GUI_SHRED_SCRATCH_MAX*sizeof(fd_gui_shred_scratch_t) );
+  l = FD_LAYOUT_APPEND( l, alignof(long),                     FD_GUI_EXEC_DONE_SLOT_CNT*FD_SHRED_BLK_MAX*sizeof(long) );
   return FD_LAYOUT_FINI( l, fd_gui_align() );
 }
 
@@ -122,6 +124,7 @@ fd_gui_new( void *                   shmem,
   void *     txn_ends_mem     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gui_store_txn_end_t),   max_txn_per_slot*sizeof(fd_gui_store_txn_end_t)   );
   void *     txn_joined_mem   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gui_slot_txn_join_t),   max_txn_per_slot*sizeof(fd_gui_slot_txn_join_t)   );
   void *     shred_sc_mem     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gui_shred_scratch_t),   FD_GUI_SHRED_SCRATCH_MAX*sizeof(fd_gui_shred_scratch_t) );
+  void *     exec_done_mem    = FD_SCRATCH_ALLOC_APPEND( l, alignof(long),                     FD_GUI_EXEC_DONE_SLOT_CNT*FD_SHRED_BLK_MAX*sizeof(long) );
 
   gui->slot_txn_scratch.max    = max_txn_per_slot;
   gui->slot_txn_scratch.starts = txn_starts_mem;
@@ -129,6 +132,8 @@ fd_gui_new( void *                   shmem,
   gui->slot_txn_scratch.joined = txn_joined_mem;
   gui->shred_scratch.ev        = shred_sc_mem;
   gui->shred_scratch.max       = FD_GUI_SHRED_SCRATCH_MAX;
+  gui->exec_done.ts            = exec_done_mem;
+  for( ulong i=0UL; i<FD_GUI_EXEC_DONE_SLOT_CNT; i++ ) gui->exec_done.slot[ i ] = ULONG_MAX;
 
   gui->http        = http;
   gui->topo        = topo;
@@ -2537,6 +2542,15 @@ fd_gui_handle_exec_txn_done( fd_gui_t * gui,
                              long       tsorig_ns FD_PARAM_UNUSED,
                              long       tspub_ns,
                              long       now ) {
+  /* The frontend keeps the earliest exec done per shred: drop reports
+     that do not improve on the minimum seen so far. */
+  ulong  ring = slot%FD_GUI_EXEC_DONE_SLOT_CNT;
+  long * ts   = gui->exec_done.ts+ring*FD_SHRED_BLK_MAX;
+  if( FD_UNLIKELY( gui->exec_done.slot[ ring ]!=slot ) ) {
+    gui->exec_done.slot[ ring ] = slot;
+    for( ulong i=0UL; i<FD_SHRED_BLK_MAX; i++ ) ts[ i ] = LONG_MAX;
+  }
+
   for( ulong i = start_shred_idx; i<end_shred_idx; i++ ) {
     /*
       We're leaving this state transition out due to its proximity to
@@ -2546,6 +2560,10 @@ fd_gui_handle_exec_txn_done( fd_gui_t * gui,
       fd_gui_shred_event_append( gui, slot, i, FD_GUI_SLOT_SHRED_SHRED_REPLAY_EXEC_START, tsorig_ns, now );
     */
 
+    if( FD_LIKELY( i<FD_SHRED_BLK_MAX ) ) {
+      if( FD_LIKELY( tspub_ns>=ts[ i ] ) ) continue;
+      ts[ i ] = tspub_ns;
+    }
     fd_gui_shred_event_append( gui, slot, i, FD_GUI_SLOT_SHRED_SHRED_REPLAY_EXEC_DONE, tspub_ns, now );
   }
 }
