@@ -650,8 +650,16 @@ after_votor_block_repair( ctx_t *                   ctx,
   fd_chainer_slotv_t * slotv = fd_chainer_slot_version_query( ctx->chainer, nf->slot, &nf->block_id );
   if( FD_LIKELY( slotv ) ) return; /* we already have this NF version recorded, no need for action */
 
-  if( FD_LIKELY( fd_chainer_slot_version_query( ctx->chainer, nf->slot, &nf->block_id ) ) ) return;
+  /* Drop alternate blocks when admission cap is reached (FD_CHAINER_SLOT_VER_MAX).
+     Agave drops the 7th alternate block; without this cap, acquire_slotv aborts. */
+  if( FD_UNLIKELY( fd_chainer_slot_version_cnt( ctx->chainer, nf->slot )>=FD_CHAINER_SLOT_VER_MAX ) ) {
+    FD_LOG_WARNING(( "slot %lu already at version cap (%d), dropping alternate block repair",
+                     nf->slot, FD_CHAINER_SLOT_VER_MAX ));
+    return;
+  }
+
   fd_chainer_slotv_t * created = fd_chainer_verified_block_insert( ctx->chainer, nf->slot, nf->block_id );
+  if( FD_UNLIKELY( !created ) ) return;
 
   uint                nonce = ctx->ag_nonce++;
   fd_pubkey_t const * peer  = fd_policy_peer_select( ctx->policy );

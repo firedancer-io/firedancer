@@ -594,6 +594,23 @@ fd_chainer_slot_version_query( fd_chainer_t *    chainer,
   return NULL;
 }
 
+/* fd_chainer_slot_version_cnt returns the number of versions of slot
+   currently tracked in the chainer (including any abandoned versions). */
+
+static inline ulong
+fd_chainer_slot_version_cnt( fd_chainer_t const * chainer,
+                             ulong                slot ) {
+  fd_chainer_slotv_t const * slotv_pool = chainer->slotv_pool;
+  fd_slotv_map_t     const * slotv_map  = chainer->slotv_map;
+  ulong cnt = 0UL;
+  for( ulong idx = fd_slotv_map_idx_query_const( slotv_map, &slot, ULONG_MAX, slotv_pool );
+             idx != ULONG_MAX;
+             idx = fd_slotv_map_idx_next_const( idx, ULONG_MAX, slotv_pool ) ) {
+    cnt++;
+  }
+  return cnt;
+}
+
 /* fd_chainer_slotv_fecs returns slotv's row of chainer->fec_tbl:
    fecs[ k ] is the fd_fec_pool idx of the FEC slotv owns at FEC set k
    (shred position k*FD_FEC_SHRED_CNT), UINT_MAX if none, for k in
