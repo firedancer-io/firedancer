@@ -21,6 +21,21 @@ test_compact_indices( void ) {
 }
 
 static void
+test_wait_to_vote_slot( void ) {
+  fd_tower_t * tower = fd_tower_join( fd_tower_new( scratch, 2UL, 2UL, 0UL ) );
+  FD_TEST( tower );
+  tower->root = 100UL;
+  FD_TEST( lockout_check( tower, 101UL ) );
+
+  tower->wait_to_vote_slot = 103UL;
+  FD_TEST( !lockout_check( tower, 101UL ) );
+  FD_TEST( !lockout_check( tower, 102UL ) );
+  FD_TEST(  lockout_check( tower, 103UL ) );
+
+  fd_tower_delete( fd_tower_leave( tower ) );
+}
+
+static void
 test_compact_stake_indices( void ) {
   fd_tower_t * tower = fd_tower_join( fd_tower_new( scratch, 2UL, 2UL, 0UL ) );
   FD_TEST( tower );
@@ -1280,6 +1295,7 @@ main( int argc, char ** argv ) {
 
   test_compact_indices();
   test_compact_stake_indices();
+  test_wait_to_vote_slot();
   test_vote();
   test_verify();
   test_tower_from_vote_acc_data_v1_14_11();

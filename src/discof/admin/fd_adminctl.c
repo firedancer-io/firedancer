@@ -6,7 +6,7 @@
 #include <signal.h>
 #include <unistd.h>
 
-#define FD_ADMINCTL_MAGIC          (0xF17EDA2C37AD0200UL)
+#define FD_ADMINCTL_MAGIC          (0xF17EDA2C37AD0201UL)
 #define FD_ADMINCTL_STATE_MASK     (7UL)
 #define FD_ADMINCTL_SEQ_SHIFT      (3UL)
 #define FD_ADMINCTL_SEQ_BITS       (8UL)

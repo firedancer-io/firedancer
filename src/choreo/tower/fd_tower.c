@@ -318,6 +318,8 @@ fd_tower_new( void * shmem,
     fd_tower_vtr_join( tower->vtrs )[i].votes = fd_tower_vote_new( towers[i] );
   }
 
+  tower->wait_to_vote_slot = 0UL;
+
   tower->lck_pool        = lockout_interval_pool_new( lck_pool_mem, lck_interval_max        );
   tower->lck_map         = lockout_interval_map_new ( lck_map_mem,  lck_map_chain_est, seed );
   tower->lck_slot_pool   = lockout_slot_pool_new    ( lck_slot_pool, blk_max                 );
@@ -544,6 +546,8 @@ push_vote( fd_tower_t * tower,
 static int
 lockout_check( fd_tower_t * tower,
                ulong        slot ) {
+
+  if( FD_UNLIKELY( slot<tower->wait_to_vote_slot ) ) return 0;
 
   /* Mirrors Agave's Tower::is_recent(): reject slot if it is not strictly
      newer than our last vote (non-empty tower) or our root (empty tower,
@@ -1257,16 +1261,8 @@ fd_tower_reconcile( fd_tower_t      * tower,
     tower_blk->voted = 0;
   }
 
-  /* Need to overwrite tower->root with onchain_root, so first clear out
-     any intermediate slots between them. */
-
-  for( ulong slot = tower->root; slot < onchain_root; slot++ ) {
-    fd_tower_blocks_remove( tower, slot );
-    fd_tower_lockos_remove( tower, slot );
-    fd_tower_stakes_remove( tower, slot );
-  }
-
-  /* Overwrite the root.  No-op if local_root > onchain_root. */
+  /* Overwrite the root.  No-op if local_root > onchain_root.  The slots
+     below it stay until the caller publishes the root to ghost. */
 
   tower->root = onchain_root;
 
