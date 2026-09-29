@@ -235,7 +235,6 @@ fd_adminctl_publish( fd_adminctl_t * adminctl,
      app region, we can publish the command to the admin tile.  At this
      point, the admin tile will own the command and return a result. */
   if( FD_UNLIKELY( slot_id>=FD_ADMINCTL_SLOT_CNT ) ) FD_LOG_CRIT(( "bad slot_id %lu", slot_id ));
-  if( FD_UNLIKELY( payload_sz>FD_ADMINCTL_PAYLOAD_MAX ) ) FD_LOG_CRIT(( "bad payload_sz %lu", payload_sz ));
 
   fd_adminctl_slot_t * slot          = fd_adminctl_slot_laddr( adminctl, slot_id );
   ulong                state_pid_seq = FD_VOLATILE_CONST( slot->state_pid_seq );
