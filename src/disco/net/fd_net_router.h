@@ -14,14 +14,14 @@
 #include <linux/if_arp.h> /* ARPHRD_LOOPBACK */
 
 struct fd_net_router {
+  ulong netlnk_out_idx;
+  uint  solicit_ip;
+  uint  solicit_if_idx;
+
   /* Route and neighbor tables */
   fd_fib4_t fib_local[1];
   fd_fib4_t fib_main[1];
   fd_neigh4_hmap_t  neigh4[1];
-
-  ulong netlnk_out_idx;
-  uint  solicit_ip;
-  uint  solicit_if_idx;
 
   /* Netdev table */
   fd_netdev_tbl_join_t netdev_tbl;    /* local copy in scratch */
