@@ -1343,6 +1343,7 @@ fd_runtime_new_txn_out( fd_txn_in_t const * txn_in,
 
   fd_hash_t * blockhash = (fd_hash_t *)((uchar *)txn_in->txn->payload + TXN( txn_in->txn )->recent_blockhash_off);
   memcpy( txn_out->details.blockhash.uc, blockhash->hash, sizeof(fd_hash_t) );
+  memset( txn_out->details.blake_txn_msg_hash.uc, 0, sizeof(fd_hash_t) );
 
   txn_out->accounts.is_setup           = 0;
   txn_out->accounts.is_bundle          = txn_in->bundle.is_bundle;
