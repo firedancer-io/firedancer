@@ -543,7 +543,6 @@ maybe_seed_catchup( ctx_t * ctx ) {
   ulong capacity = toss_queue_max( ctx->toss_queue ) - toss_queue_cnt( ctx->toss_queue );
   ulong seed_cnt = fd_ulong_min( ctx->turbine_slot0-root, capacity/2 );
   long  now_ms   = fd_log_wallclock()/(long)1e6;
-  ulong sent     = 0UL;
   for( ulong i=1UL; i<=seed_cnt; i++ ) {
     fd_pubkey_t const * peer = fd_policy_peer_select( ctx->policy );
     if( FD_UNLIKELY( !peer ) ) break;
@@ -551,7 +550,6 @@ maybe_seed_catchup( ctx_t * ctx ) {
     toss_queue_push( ctx->toss_queue, (sign_pending_t){ .msg = *msg } );
     msg = fd_repair_highest_shred( ctx->protocol, peer, (ulong)now_ms, 0, root + i, 0 );
     toss_queue_push( ctx->toss_queue, (sign_pending_t){ .msg = *msg } );
-    sent++;
   }
   ctx->catchup_seeded = 1;
 }
