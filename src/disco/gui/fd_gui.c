@@ -402,8 +402,8 @@ fd_gui_new( void *                   shmem,
   memset( gui->summary.accdb->tile_sparkline_bucket_start_nanos, 0, sizeof(gui->summary.accdb->tile_sparkline_bucket_start_nanos) );
   memset( gui->summary.accdb->tile_sparkline_acq_bucket,         0, sizeof(gui->summary.accdb->tile_sparkline_acq_bucket)         );
   memset( gui->summary.accdb->tile_sparkline_acq_wr_bucket,      0, sizeof(gui->summary.accdb->tile_sparkline_acq_wr_bucket)      );
-  memset( gui->summary.accdb->tile_sparkline_acq_history,        0, sizeof(gui->summary.accdb->tile_sparkline_acq_history)        );
-  memset( gui->summary.accdb->tile_sparkline_acq_wr_history,     0, sizeof(gui->summary.accdb->tile_sparkline_acq_wr_history)     );
+  memset( gui->summary.accdb->tile_sparkline_acq_text_len,       0, sizeof(gui->summary.accdb->tile_sparkline_acq_text_len)       );
+  memset( gui->summary.accdb->tile_sparkline_acq_wr_text_len,    0, sizeof(gui->summary.accdb->tile_sparkline_acq_wr_text_len)    );
   memset( gui->summary.accdb->tile_sparkline_count,              0, sizeof(gui->summary.accdb->tile_sparkline_count)              );
 
   memset( gui->summary.tile_timers_reference, 0, sizeof(gui->summary.tile_timers_reference) );
