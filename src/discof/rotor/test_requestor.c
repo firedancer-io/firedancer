@@ -55,13 +55,15 @@ hash_insert( fd_chainer_t * chainer, ulong slot, fd_hash_t * block_id, uint fec_
 
 /* fec_complete marks a whole FEC set reconstructable. */
 
-static void
+static fd_chainer_slotv_t *
 fec_complete( fd_chainer_t * chainer, ulong slot, uint fec_set_idx, int slot_complete, fd_hash_t const * mr ) {
   fd_hash_t m = *mr;
   int rejected;
-  fd_chainer_fec_complete( chainer, slot, fec_set_idx, slot_complete, slot_complete, 0, 0L, &m, &rejected );
+  fd_chainer_slotv_t * finalized = fd_chainer_turbine_slotv_query( chainer, slot );
+  fd_chainer_fec_complete( chainer, slot, fec_set_idx, slot_complete, slot_complete, 0, 0L, &m, &rejected, &finalized );
   FD_TEST( !rejected );
   drain_chainer( chainer );
+  return finalized;
 }
 
 /* advance cranks the walk once; the block a terminal code names lands
@@ -149,7 +151,7 @@ test_turbine( fd_wksp_t * wksp ) {
      HighestShred */
   fd_hash_t r0 = mkhash( 1UL ), r1 = mkhash( 2UL );
   for( uint i=0U; i<FD_FEC_SHRED_CNT; i++ ) shred( chainer, 11UL, i, 0, &r0, i ? AG_UNKNOWN_SLOT : 10UL, i ? NULL : &bid0 );
-  fec_complete( chainer, 11UL, 0U, 0, &r0 );
+  FD_TEST( !fec_complete( chainer, 11UL, 0U, 0, &r0 ) );
   FD_TEST( run_walk( r, chainer, 11UL, &ZERO, reqs, &cnt )==FD_REQUESTOR_ADVANCE_REQUESTED_PARENT );
   FD_TEST( cnt==FD_REQUESTOR_ORPHAN_FILL_MAX+1UL );
   for( uint i=0U; i<FD_REQUESTOR_ORPHAN_FILL_MAX; i++ ) expect_req( &reqs[ i ], FD_REPAIR_KIND_SHRED, FD_FEC_SHRED_CNT+i, NULL, NULL );
@@ -173,7 +175,8 @@ test_turbine( fd_wksp_t * wksp ) {
 
   /* completing the set finalizes the block_id: the old key is gone and
      resolves to DONE, the new key has nothing to request */
-  fec_complete( chainer, 11UL, 32U, 1, &r1 );
+  FD_TEST( fec_complete( chainer, 11UL, 32U, 1, &r1 )==s11 );
+  FD_TEST( !fec_complete( chainer, 11UL, 32U, 1, &r1 ) ); /* only report the transition */
   FD_TEST( !fd_chainer_slot_version_query( chainer, 11UL, &ZERO ) );
   s11 = fd_chainer_turbine_slotv_query( chainer, 11UL );
   FD_TEST( s11 && !fd_hash_check_zero( &s11->block_id ) && fd_chainer_slotv_complete( s11 ) );

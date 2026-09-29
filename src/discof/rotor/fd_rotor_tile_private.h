@@ -139,7 +139,7 @@ struct ctx {
 
   /* Pending sign requests */
 
-  ulong            pending_key_next;
+  uint            pending_key_next;
   sign_req_t *     signs_map;
   sign_pending_t * toss_queue;
 

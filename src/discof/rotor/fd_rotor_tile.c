@@ -667,7 +667,15 @@ handle_fec_complete( ctx_t *      ctx,
   int slot_complete = !!(shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE);
   int data_complete = !!(shred->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE);
   int rejected;
-  fd_chainer_slotv_t * created = fd_chainer_fec_complete( ctx->chainer, shred->slot, shred->fec_set_idx, slot_complete, data_complete, sig==SHRED_SIG_FEC_COMPLETE_LEADER, rx_ts, mr, &rejected );
+  fd_chainer_slotv_t * turbine_finalized;
+  fd_chainer_slotv_t * created = fd_chainer_fec_complete( ctx->chainer, shred->slot, shred->fec_set_idx, slot_complete, data_complete, sig==SHRED_SIG_FEC_COMPLETE_LEADER, rx_ts, mr, &rejected, &turbine_finalized );
+  if( FD_UNLIKELY( turbine_finalized ) ) {
+    /* A complete block can still need its parent repaired.  Its old
+       zero-ID check no longer resolves after finalization. */
+    fd_hash_t zero = {0};
+    fd_schedulor_block_remove( ctx->schedulor, turbine_finalized->slot, &zero );
+    fd_schedulor_block_insert( ctx->schedulor, turbine_finalized->slot, &turbine_finalized->block_id, now );
+  }
   if( FD_UNLIKELY( created ) ) fd_schedulor_block_insert( ctx->schedulor, created->slot, &created->block_id, now ); /* the block exists even if the set was refused */
   if( FD_UNLIKELY( rejected ) ) {
     fd_store_remove( ctx->store, ctx->store_map, mr );

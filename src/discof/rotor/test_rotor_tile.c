@@ -771,6 +771,58 @@ test_turbine_block( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: turbine block delivers and finalizes" ));
 }
 
+/* A turbine block can finalize before its parent arrives.  Replace
+   its zero-ID check so it keeps repairing ancestry, including when a
+   requestor walk under the old key is already active. */
+
+static void
+test_turbine_finalized_orphan( fd_wksp_t * wksp, int block_id_only, int active_walk ) {
+  static ctx_t ctx[1];
+  setup_ctx( ctx, wksp );
+  fd_requestor_set_block_id_only( ctx->requestor, block_id_only );
+
+  blk_t parent[1] = {{ .slot = SNAP_SLOT+1UL, .parent_slot = SNAP_SLOT, .parent_block_id = snap_bid, .fec_cnt = 1U }};
+  parent->fec_root[ 0 ] = mkhash( 0xFA0UL );
+  blk_build( parent );
+  blk_t child[1] = {{ .slot = SNAP_SLOT+2UL, .parent_slot = parent->slot, .parent_block_id = parent->block_id, .fec_cnt = 2U }};
+  child->fec_root[ 0 ] = mkhash( 0xFA1UL );
+  child->fec_root[ 1 ] = mkhash( 0xFA2UL );
+  blk_build( child );
+
+  fd_hash_t zero = {0};
+  deliver_turbine_fec_set( ctx, child, 0U );
+  FD_TEST( fd_schedulor_block_query( ctx->schedulor, child->slot, &zero ) );
+  if( active_walk ) {
+    ulong slot;
+    fd_hash_t block_id;
+    FD_TEST( fd_schedulor_block_pop( ctx->schedulor, fd_clock_tile_now( ctx->clock ), &slot, &block_id ) );
+    FD_TEST( slot==child->slot && fd_hash_check_zero( &block_id ) );
+    fd_requestor_block_start( ctx->requestor, slot, &block_id );
+  }
+
+  deliver_turbine_fec_set( ctx, child, 1U );
+  fd_chainer_slotv_t * v = fd_chainer_slot_version_query( ctx->chainer, child->slot, &child->block_id );
+  FD_TEST( v && fd_chainer_slotv_complete( v ) && !v->connected );
+  FD_TEST( !rep_cnt );
+  FD_TEST( !fd_schedulor_block_query( ctx->schedulor, child->slot, &zero ) );
+  FD_TEST( fd_schedulor_block_query( ctx->schedulor, child->slot, &child->block_id ) );
+
+  pump( ctx );
+  uint kind = block_id_only ? AG_REPAIR_KIND_PARENT_FEC_COUNT : FD_REPAIR_KIND_ORPHAN;
+  FD_TEST( req_find( 0UL, kind, child->slot, 0U, block_id_only ? &child->block_id : NULL ) );
+  FD_TEST( fd_schedulor_block_query( ctx->schedulor, child->slot, &child->block_id ) );
+  FD_TEST( !rep_cnt );
+
+  deliver_turbine_block( ctx, parent );
+  pump( ctx );
+  FD_TEST( rep_cnt==3UL );
+  FD_TEST( rep_log[ 0 ].slot==parent->slot );
+  FD_TEST( rep_log[ 1 ].slot==child->slot && rep_log[ 2 ].slot==child->slot );
+  FD_TEST( rep_log[ 2 ].slot_complete );
+  FD_TEST( !fd_chainer_verify( ctx->chainer ) );
+  FD_LOG_NOTICE(( "pass: finalized turbine orphan stays scheduled (block_id_only %d, active_walk %d)", block_id_only, active_walk ));
+}
+
 /* The block_completed reception timestamps are documented as network
    arrival at the shred tile, stamped before signature verification.
    The shred tile hands that instant over as the frag's tsorig; this
@@ -1411,6 +1463,13 @@ main( int argc, char ** argv ) {
   FD_TEST( wksp );
 
   test_turbine_block( wksp );
+
+  for( int block_id_only=0; block_id_only<2; block_id_only++ ) {
+    for( int active_walk=0; active_walk<2; active_walk++ ) {
+      fd_wksp_reset( wksp, 1U );
+      test_turbine_finalized_orphan( wksp, block_id_only, active_walk );
+    }
+  }
 
   fd_wksp_reset( wksp, 1U );
   test_shred_ts_from_tsorig( wksp );
