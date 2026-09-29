@@ -11,7 +11,7 @@
 
    - Shred requests -- positional FD_REPAIR_KIND_SHRED and Alpenglow
      ShredForBlockId, which are indistinguishable on response -- are
-     keyed by (slot, shred_idx, nonce, fec_root).  fec_root is
+     keyed by (slot, shred_idx, nonce, kind, fec_root).  fec_root is
      all zero for a positional request (i.e., we didnt know the FEC
      root when the request was issued).  For a ShredForBlockId request,
      it is the 20-byte prefix of the known FEC root.
@@ -83,7 +83,9 @@ fd_inflight_key_init( fd_inflight_key_t * key,
    considered when matching. */
 
 static inline int
-fd_inflight_key_is_shred( fd_inflight_key_t const * k ) { return k->kind==FD_REPAIR_KIND_SHRED; }
+fd_inflight_key_is_shred( fd_inflight_key_t const * k ) {
+  return k->kind==FD_REPAIR_KIND_SHRED || k->kind==AG_REPAIR_KIND_SHRED_FOR_BLOCK_ID;
+}
 
 static inline int
 fd_inflight_key_eq( fd_inflight_key_t const * k0,
@@ -91,7 +93,7 @@ fd_inflight_key_eq( fd_inflight_key_t const * k0,
   if( FD_UNLIKELY( k0->nonce!=k1->nonce ) )                                           return 0;
   if( FD_UNLIKELY( fd_inflight_key_is_shred( k0 )!=fd_inflight_key_is_shred( k1 ) ) ) return 0;
   if( FD_UNLIKELY( !fd_inflight_key_is_shred( k0 ) ) )                                return 1;
-  return ( k0->slot==k1->slot ) & ( k0->idx==k1->idx ) & !memcmp( k0->fec_root, k1->fec_root, FD_SHRED_MERKLE_NODE_SZ );
+  return ( k0->slot==k1->slot ) & ( k0->idx==k1->idx ) & ( k0->kind==k1->kind ) & !memcmp( k0->fec_root, k1->fec_root, FD_SHRED_MERKLE_NODE_SZ );
 }
 
 static inline ulong
