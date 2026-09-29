@@ -259,6 +259,8 @@ struct fd_bank {
   ulong parent_idx;  /* index of the parent in the node pool */
   ulong child_idx;   /* index of the left-child in the node pool */
   ulong sibling_idx; /* index of the right-sibling in the node pool */
+  ulong dead_prev;   /* dead banks list links, only valid while the bank is dead */
+  ulong dead_next;
   ulong state;       /* keeps track of the state of the bank */
   ulong bank_seq;    /* app-wide bank sequence number */
   uchar is_leader;   /* whether the bank is the leader */
@@ -370,12 +372,6 @@ fd_bank_stake_delegations_modify( fd_bank_t * bank );
    The data is laid out contiguously in memory starting from fd_banks_t;
    this can be seen in fd_banks_footprint(). */
 
-struct fd_bank_idx_seq {
-  ulong idx;
-  ulong seq;
-};
-typedef struct fd_bank_idx_seq fd_bank_idx_seq_t;
-
 struct fd_banks {
   ulong magic;                       /* ==FD_BANKS_MAGIC */
   int   report_runtime_diffs;        /* telemetry: emit the runtime events; report_runtime_diffs flag */
@@ -398,7 +394,7 @@ struct fd_banks {
 
   ulong stake_rewards_offset;
 
-  ulong dead_banks_deque_offset;
+  ulong dead_banks_offset;
 
   /* The epoch credits of every rewarded vote account are captured when a
      bank crosses an epoch boundary, and are read again for the rest of
@@ -664,7 +660,7 @@ fd_banks_advance_root_prepare( fd_banks_t * banks,
                                ulong *      advanceable_bank_idx_out );
 
 /* fd_banks_mark_bank_dead marks the current bank (and all of its
-   descendants) as dead.  Already-dead subtrees are skipped.  If
+   descendants) as dead.  Already-dead banks are not reported again.  If
    opt_idxs is non-NULL, it is populated with each bank index newly
    marked dead.  The caller is responsible for ensuring the buffer is
    large enough to hold the whole subtree.  If opt_idxs_cnt is non-NULL,

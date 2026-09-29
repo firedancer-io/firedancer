@@ -533,6 +533,114 @@ test_bank_dead_eviction( void * mem ) {
   FD_TEST( fd_banks_pool_used( bank_data_pool )==4UL );
 }
 
+static void
+test_bank_dead_child_before_parent( void * mem ) {
+  fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, 16UL, 4UL, 2048UL, 32768UL, 2048UL, 0, 8888UL ) );
+  fd_bank_t * bank_data_pool = fd_type_pun( (uchar *)banks + banks->pool_offset );
+
+  fd_bank_t * bank_R = fd_banks_init_bank( banks );
+  FD_TEST( bank_R );
+  bank_R->refcnt = 0UL;
+
+  fd_bank_t * bank_P = fd_banks_new_bank( banks, bank_R->idx, 0L, 0 );
+  bank_P = fd_banks_clone_from_parent( banks, bank_P->idx );
+  FD_TEST( bank_P );
+  fd_bank_t * bank_C = fd_banks_new_bank( banks, bank_P->idx, 0L, 0 );
+  ulong bank_P_idx = bank_P->idx;
+  ulong bank_C_idx = bank_C->idx;
+  bank_P->refcnt = 1UL;
+  bank_C->refcnt = 1UL;
+
+  /* Case: the child dies while its parent is still replaying, then the
+     parent dies.  The already-dead child is not reported again. */
+  ulong dead_idxs[ 2 ];
+  ulong dead_idxs_cnt = ULONG_MAX;
+  fd_banks_mark_bank_dead( banks, bank_C_idx, dead_idxs, &dead_idxs_cnt );
+  FD_TEST( dead_idxs_cnt==1UL );
+  FD_TEST( dead_idxs[0]==bank_C_idx );
+  fd_banks_mark_bank_dead( banks, bank_P_idx, dead_idxs, &dead_idxs_cnt );
+  FD_TEST( dead_idxs_cnt==1UL );
+  FD_TEST( dead_idxs[0]==bank_P_idx );
+
+  /* The parent must not be pruned while its dead child is linked. */
+  fd_banks_prune_cancel_info_t cancel[ 1 ];
+  bank_P->refcnt = 0UL;
+  FD_TEST( !fd_banks_prune_one_bank( banks, cancel ) );
+  FD_TEST( fd_banks_pool_used( bank_data_pool )==3UL );
+
+  bank_C->refcnt = 0UL;
+  FD_TEST( fd_banks_prune_one_bank( banks, cancel ) );
+  FD_TEST( cancel->bank_idx==bank_C_idx );
+  FD_TEST( fd_banks_prune_one_bank( banks, cancel ) );
+  FD_TEST( cancel->bank_idx==bank_P_idx );
+  FD_TEST( !fd_banks_prune_one_bank( banks, cancel ) );
+  FD_TEST( fd_banks_pool_used( bank_data_pool )==1UL );
+}
+
+static void
+test_bank_dead_advance_root( void * mem ) {
+  fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, 16UL, 4UL, 2048UL, 32768UL, 2048UL, 0, 8888UL ) );
+  fd_bank_t * bank_data_pool = fd_type_pun( (uchar *)banks + banks->pool_offset );
+
+  fd_bank_t * bank_R = fd_banks_init_bank( banks );
+  FD_TEST( bank_R );
+  bank_R->refcnt = 0UL;
+
+  fd_bank_t * bank_A = fd_banks_new_bank( banks, bank_R->idx, 0L, 0 );
+  bank_A = fd_banks_clone_from_parent( banks, bank_A->idx );
+  FD_TEST( bank_A );
+  fd_banks_mark_bank_frozen( bank_A );
+  ulong bank_B_idx = fd_banks_new_bank( banks, bank_R->idx, 0L, 0 )->idx;
+  ulong bank_X_idx = fd_banks_new_bank( banks, bank_A->idx, 0L, 0 )->idx;
+  ulong bank_Y_idx = fd_banks_new_bank( banks, bank_X_idx,  0L, 0 )->idx;
+
+  /* Case: the root advance releases dead bank B, while dead bank X and
+     its dead child Y survive it.  Only X and Y are left to prune, child
+     first. */
+  fd_banks_mark_bank_dead( banks, bank_B_idx, NULL, NULL );
+  fd_banks_mark_bank_dead( banks, bank_X_idx, NULL, NULL );
+  fd_banks_advance_root( banks, bank_A->idx );
+  FD_TEST( fd_banks_pool_used( bank_data_pool )==3UL );
+
+  fd_banks_prune_cancel_info_t cancel[ 1 ];
+  FD_TEST( fd_banks_prune_one_bank( banks, cancel ) );
+  FD_TEST( cancel->bank_idx==bank_Y_idx );
+  FD_TEST( fd_banks_prune_one_bank( banks, cancel ) );
+  FD_TEST( cancel->bank_idx==bank_X_idx );
+  FD_TEST( !fd_banks_prune_one_bank( banks, cancel ) );
+  FD_TEST( fd_banks_pool_used( bank_data_pool )==1UL );
+}
+
+static void
+test_bank_dead_remark( void * mem ) {
+  fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, 16UL, 4UL, 2048UL, 32768UL, 2048UL, 0, 8888UL ) );
+  fd_bank_t * bank_data_pool = fd_type_pun( (uchar *)banks + banks->pool_offset );
+
+  fd_bank_t * bank_R = fd_banks_init_bank( banks );
+  FD_TEST( bank_R );
+  bank_R->refcnt = 0UL;
+
+  ulong bank_A_idx = fd_banks_new_bank( banks, bank_R->idx, 0L, 0 )->idx;
+  ulong bank_X_idx = fd_banks_new_bank( banks, bank_R->idx, 0L, 0 )->idx;
+
+  /* Case: X is marked dead again more times than there are banks.  X
+     must not be queued again, or the dead banks queue fills up and
+     loses dead bank A. */
+  fd_banks_mark_bank_dead( banks, bank_A_idx, NULL, NULL );
+  fd_banks_mark_bank_dead( banks, bank_X_idx, NULL, NULL );
+  for( ulong i=0UL; i<FD_BANKS_MAX_BANKS; i++ ) {
+    ulong dead_idxs_cnt = ULONG_MAX;
+    fd_banks_mark_bank_dead( banks, bank_X_idx, NULL, &dead_idxs_cnt );
+    FD_TEST( !dead_idxs_cnt );
+  }
+
+  fd_banks_prune_cancel_info_t cancel[ 1 ];
+  FD_TEST( fd_banks_prune_one_bank( banks, cancel ) );
+  FD_TEST( fd_banks_prune_one_bank( banks, cancel ) );
+  FD_TEST( !fd_banks_prune_one_bank( banks, cancel ) );
+  FD_TEST( !fd_banks_bank_query( banks, bank_A_idx ) );
+  FD_TEST( fd_banks_pool_used( bank_data_pool )==1UL );
+}
 
 static void
 test_bank_evictable( void * mem ) {
@@ -1487,6 +1595,12 @@ main( int argc, char ** argv ) {
   test_bank_advancing( mem );
 
   test_bank_dead_eviction( mem );
+
+  test_bank_dead_child_before_parent( mem );
+
+  test_bank_dead_advance_root( mem );
+
+  test_bank_dead_remark( mem );
 
   test_bank_evictable( mem );
 
