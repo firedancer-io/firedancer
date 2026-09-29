@@ -539,7 +539,7 @@ publish_slot_done( fd_tower_tile_t *            ctx,
   /* Refuse to vote if our node identity does not match the one
      specified in the vote account (hot spare check) */
   int identity_matches = found_authority && fd_pubkey_eq( identity, ctx->identity_key );
-  msg->is_voting = found_authority && identity_matches;
+  msg->is_voting = !ctx->shadow && !ctx->no_vote_authority && found_authority && identity_matches;
 
   if( FD_LIKELY( out->vote_slot!=ULONG_MAX &&
                  !ctx->shadow && !ctx->no_vote_authority &&

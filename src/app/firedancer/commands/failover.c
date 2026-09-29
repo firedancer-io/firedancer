@@ -193,9 +193,7 @@ failover_cmd_fn( args_t *   args,
   fd_memset( req, 0, sizeof(*req) );
   req->version = FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION;
   req->cmd     = (ulong)args->failover.cmd;
-  if( FD_UNLIKELY( args->failover.yes && args->failover.cmd==(int)FD_ADMINCTL_FAILOVER_CMD_PROMOTE ) ) {
-    req->flags |= FD_ADMINCTL_FAILOVER_FLAG_YES;
-  }
+  if( FD_UNLIKELY( args->failover.yes ) ) req->flags |= FD_ADMINCTL_FAILOVER_FLAG_YES;
   if( FD_UNLIKELY( args->failover.force ) ) req->flags |= FD_ADMINCTL_FAILOVER_FLAG_FORCE;
 
   fd_adminctl_publish( adminctl, slot_idx, FD_ADMINCTL_CMD_FAILOVER, sizeof(*req) );
