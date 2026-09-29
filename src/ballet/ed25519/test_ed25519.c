@@ -555,6 +555,213 @@ test_point_validate( FD_PARAM_UNUSED fd_rng_t * rng ) {
   FD_CHECK_ERR( !fd_ed25519_point_validate( buf ), "!fd_ed25519_point_validate(02..00)" );
 }
 
+/* Reference implementations: a^((p-1)/2) = pow22523(a)^4 * a^2 and
+   full decompression. */
+
+static int
+ref_is_square( fd_f25519_t const * a ) {
+  fd_f25519_t e[1], a2[1];
+  fd_f25519_pow22523( e, a );
+  fd_f25519_sqr( e, e );
+  fd_f25519_sqr( e, e );
+  fd_f25519_sqr( a2, a );
+  fd_f25519_mul( e, e, a2 );
+  int ref = fd_f25519_is_zero( a ) || fd_f25519_eq( e, fd_f25519_one );
+  /* is_square_var falls back to sqrt_ratio if the Jacobi symbol does
+     not converge, check that too */
+  FD_TEST( fd_f25519_sqrt_ratio( e, a, fd_f25519_one )==ref );
+  return ref;
+}
+
+static int
+ref_point_validate( uchar const buf[ 32 ] ) {
+  fd_ed25519_point_t t[1];
+  return !!fd_ed25519_point_frombytes( t, buf );
+}
+
+/* check_validate checks fd_ed25519_point_validate against decompression
+   on buf with both sign bits.  Returns the number of valid inputs. */
+
+static ulong
+check_validate( uchar const buf[ 32 ] ) {
+  uchar b[32]; memcpy( b, buf, 32UL );
+  ulong valid_cnt = 0UL;
+  for( int sign=0; sign<2; sign++ ) {
+    b[31] = (uchar)( (b[31] & 0x7f) | (sign<<7) );
+    int ref = ref_point_validate( b );
+    int got = fd_ed25519_point_validate( b );
+    if( FD_UNLIKELY( ref!=got ) ) {
+      FD_LOG_HEXDUMP_WARNING(( "input", b, 32UL ));
+      FD_LOG_ERR(( "fd_ed25519_point_validate mismatch (got %d, expected %d)", got, ref ));
+    }
+    valid_cnt += (ulong)got;
+  }
+  return valid_cnt;
+}
+
+/* le_add_small sets r = a + k (mod 2^256) for 32-byte little endian a. */
+
+static void
+le_add_small( uchar       r[ 32 ],
+              uchar const a[ 32 ],
+              long        k ) {
+  ulong w[4]; memcpy( w, a, 32UL );
+  ulong c = (ulong)k;
+  ulong ext = k<0L ? ULONG_MAX : 0UL;
+  for( int i=0; i<4; i++ ) {
+    ulong s  = w[i] + c;
+    ulong c0 = (ulong)(s<w[i]);
+    w[i] = s;
+    c = ext + c0;
+  }
+  memcpy( r, w, 32UL );
+}
+
+static void
+test_point_validate_diff( fd_rng_t * rng,
+                          ulong      iter ) {
+  static char const * p_hex = "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f";
+  uchar p[32];  fd_hex_decode( p, p_hex, 32 );
+  uchar b[32];
+  fd_f25519_t a[1];
+
+  /* is_square_var vs Euler's criterion: small values, values near p,
+     powers of two and random elements. */
+
+  for( long k=-2000L; k<=2000L; k++ ) {
+    if( k>=0L ) { memset( b, 0, 32UL ); b[0] = (uchar)(k & 0xff); b[1] = (uchar)(k>>8); }
+    else        le_add_small( b, p, k );
+    fd_f25519_frombytes( a, b );
+    FD_TEST( fd_f25519_is_square_var( a )==ref_is_square( a ) );
+  }
+  for( int i=0; i<255; i++ ) {
+    memset( b, 0, 32UL ); b[i/8] = (uchar)(1<<(i%8));
+    fd_f25519_frombytes( a, b );
+    FD_TEST( fd_f25519_is_square_var( a )==ref_is_square( a ) );
+    le_add_small( b, b, -1L );
+    fd_f25519_frombytes( a, b );
+    FD_TEST( fd_f25519_is_square_var( a )==ref_is_square( a ) );
+  }
+  ulong sq_cnt = 0UL;
+  for( ulong i=0UL; i<iter/8UL; i++ ) {
+    fd_f25519_rng_unsafe( a, rng );
+    int got = fd_f25519_is_square_var( a );
+    FD_TEST( got==ref_is_square( a ) );
+    sq_cnt += (ulong)got;
+  }
+  FD_LOG_NOTICE(( "fd_f25519_is_square_var: %lu/%lu random elements are squares", sq_cnt, iter/8UL ));
+
+  /* Structured y: 0..4096 and p-4096..2^255-1 (the latter covers all
+     non-canonical y in [p,2^255)), both sign bits. */
+
+  ulong edge_cnt = 0UL;
+  for( long k=0L; k<=4096L; k++ ) {
+    memset( b, 0, 32UL ); b[0] = (uchar)(k & 0xff); b[1] = (uchar)(k>>8);
+    check_validate( b ); edge_cnt += 2UL;
+  }
+  for( long k=-4096L; k<=18L; k++ ) {
+    le_add_small( b, p, k );
+    check_validate( b ); edge_cnt += 2UL;
+  }
+
+  /* Torsion points (y=1, y=-1, y=0 and the two order 8 y's) and
+     non-canonical encodings of y=0, y=1 and y=2^255-1. */
+
+  static char const * torsion_hex[] = {
+    "0100000000000000000000000000000000000000000000000000000000000000",
+    "ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+    "0000000000000000000000000000000000000000000000000000000000000000",
+    "26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05",
+    "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a",
+    "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f", /* y=p   (0) */
+    "eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f", /* y=p+1 (1) */
+    "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f", /* y=2^255-1 */
+    NULL
+  };
+  for( ulong i=0UL; torsion_hex[i]; i++ ) {
+    fd_hex_decode( b, torsion_hex[i], 32 );
+    FD_TEST( check_validate( b )==2UL );
+    edge_cnt += 2UL;
+  }
+
+  /* Points from keys, multiples of the base point, their negations and
+     the same points shifted by each torsion point.  Every encoding must
+     validate; y+-small must match decompression. */
+
+  fd_ed25519_point_t tors[8];
+  fd_hex_decode( b, torsion_hex[3], 32 ); FD_TEST( fd_ed25519_point_frombytes( &tors[0], b ) );
+  for( ulong i=1UL; i<8UL; i++ ) fd_ed25519_point_add( &tors[i], &tors[i-1], &tors[0] );
+
+  fd_sha512_t _sha[1]; fd_sha512_t * sha = fd_sha512_join( fd_sha512_new( _sha ) );
+  ulong key_cnt = fd_ulong_max( iter/1000UL, 64UL );
+  for( ulong i=0UL; i<key_cnt; i++ ) {
+    uchar prv[32], pub[32];
+    fd_rng_b256( rng, prv );
+    fd_ed25519_public_from_private( pub, prv, sha );
+    FD_TEST( check_validate( pub )==2UL );
+    fd_ed25519_point_t pt[1], q[1];
+    FD_TEST( fd_ed25519_point_frombytes( pt, pub ) );
+    for( ulong j=0UL; j<8UL; j++ ) {
+      fd_ed25519_point_add( q, pt, &tors[j] );
+      fd_ed25519_point_tobytes( b, q );
+      FD_TEST( check_validate( b )==2UL );
+      edge_cnt += 2UL;
+    }
+    for( long k=-2L; k<=2L; k++ ) { le_add_small( b, pub, k ); check_validate( b ); edge_cnt += 2UL; }
+    edge_cnt += 2UL;
+  }
+  fd_sha512_delete( fd_sha512_leave( sha ) );
+
+  /* Random 32 byte inputs (as PDAs are sha256 outputs), plus low
+     Hamming weight and near-p/near-2^255 variants. */
+
+  ulong valid_cnt = 0UL;
+  for( ulong i=0UL; i<iter; i++ ) {
+    fd_rng_b256( rng, b );
+    switch( i & 7UL ) {
+    case 5UL: /* sparse */
+      for( ulong j=0UL; j<32UL; j++ ) b[j] &= fd_rng_uchar( rng ) & fd_rng_uchar( rng );
+      break;
+    case 6UL: /* top bits set */
+      for( ulong j=8UL; j<32UL; j++ ) b[j] = 0xff;
+      break;
+    case 7UL: /* y close to 0 */
+      for( ulong j=8UL; j<32UL; j++ ) b[j] = 0x00;
+      break;
+    default:
+      break;
+    }
+    b[31] &= 0x7f;
+    valid_cnt += check_validate( b );
+  }
+  FD_LOG_NOTICE(( "fd_ed25519_point_validate: %lu edge inputs, %lu/%lu random inputs valid: ok",
+                  edge_cnt, valid_cnt, 2UL*iter ));
+
+  /* bench (random inputs, ~50% valid) */
+
+  if( g_bench ) {
+    ulong const n = 1024UL;
+    static uchar in[ 1024 ][ 32 ];
+    for( ulong i=0UL; i<n; i++ ) fd_rng_b256( rng, in[i] );
+    ulong bench_iter = 200000UL;
+    int acc = 0;
+    long dt = fd_log_wallclock();
+    for( ulong i=0UL; i<bench_iter; i++ ) { acc += ref_point_validate( in[i&(n-1UL)] ); FD_COMPILER_FORGET( acc ); }
+    dt = fd_log_wallclock() - dt;
+    log_bench( "fd_ed25519_point_frombytes(1)", bench_iter, dt );
+    dt = fd_log_wallclock();
+    for( ulong i=0UL; i<bench_iter; i++ ) { acc += fd_ed25519_point_validate( in[i&(n-1UL)] ); FD_COMPILER_FORGET( acc ); }
+    dt = fd_log_wallclock() - dt;
+    log_bench( "fd_ed25519_point_validate", bench_iter, dt );
+    fd_f25519_t fe[ 64 ];
+    for( ulong i=0UL; i<64UL; i++ ) fd_f25519_rng_unsafe( &fe[i], rng );
+    dt = fd_log_wallclock();
+    for( ulong i=0UL; i<bench_iter; i++ ) { acc += fd_f25519_is_square_var( &fe[i&63UL] ); FD_COMPILER_FORGET( acc ); }
+    dt = fd_log_wallclock() - dt;
+    log_bench( "fd_f25519_is_square_var", bench_iter, dt );
+  }
+}
+
 static void
 test_point_frombytes( FD_PARAM_UNUSED fd_rng_t * rng ) {
   uchar _bufa[32]; uchar * bufa = _bufa;
@@ -1240,7 +1447,11 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
   g_bench = fd_env_strip_cmdline_contains( &argc, &argv, "--bench" );
-  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
+  /* Random inputs for the point_validate differential test, raise with
+     --validate-iter or FD_ED25519_VALIDATE_ITER (and vary --seed) */
+  ulong validate_iter = fd_env_strip_cmdline_ulong( &argc, &argv, "--validate-iter", "FD_ED25519_VALIDATE_ITER", g_bench ? 10000000UL : 100000UL );
+  uint  seed          = fd_env_strip_cmdline_uint ( &argc, &argv, "--seed",          NULL,                       0U );
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, seed, 0UL ) );
   fd_sha512_t _sha[1]; fd_sha512_t * sha = fd_sha512_join( fd_sha512_new( _sha ) );
 
   test_fe_frombytes ( rng );
@@ -1262,6 +1473,7 @@ main( int     argc,
   test_frombytes_2x          ( rng );
 
   test_point_validate( rng );
+  test_point_validate_diff( rng, validate_iter );
   test_point_frombytes( rng );
   test_point_neg_if( rng );
   test_point_sub( rng );

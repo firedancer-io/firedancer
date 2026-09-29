@@ -65,6 +65,24 @@ fd_ed25519_point_frombytes( fd_ed25519_point_t * r,
   return r;
 }
 
+/* fd_ed25519_point_frombytes (like Dalek's decompress) takes y mod p
+   (non-canonical y accepted), ignores the sign bit for validity (x=0
+   with sign 1 is accepted) and succeeds iff u/v is a square or zero,
+   with u=y^2-1 and v=d*y^2+1.  v is never 0 as d is a non-square and -1
+   is a square, so this is the same as u*v being a square or zero, which
+   a Jacobi symbol decides much faster than a square root. */
+int
+fd_ed25519_point_validate( uchar const buf[ 32 ] ) {
+  fd_f25519_t y[1], u[1], v[1];
+  fd_f25519_frombytes( y, buf );
+  fd_f25519_sqr( u, y                );
+  fd_f25519_mul( v, u, fd_f25519_d   );
+  fd_f25519_sub( u, u, fd_f25519_one ); /* u = y^2-1 */
+  fd_f25519_add( v, v, fd_f25519_one ); /* v = dy^2+1 */
+  fd_f25519_mul( u, u, v             );
+  return fd_f25519_is_square_var( u );
+}
+
 uchar *
 fd_ed25519_point_tobytes_batch8( uchar                      out[],  /* 32*n */
                                  fd_ed25519_point_t const * pt,     /* n */
