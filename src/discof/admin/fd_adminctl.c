@@ -272,11 +272,6 @@ fd_adminctl_poll( fd_adminctl_t * adminctl,
   ulong processing_state_pid_seq = fd_adminctl_state_update( state_pid_seq, FD_ADMINCTL_STATE_PROCESSING );
   if( FD_UNLIKELY( FD_ATOMIC_CAS( &slot->state_pid_seq, state_pid_seq, processing_state_pid_seq )!=state_pid_seq ) ) return FD_ADMINCTL_CMD_IDLE;
 
-  if( FD_UNLIKELY( payload_sz>sizeof(slot->payload) ) ) {
-    fd_adminctl_complete( adminctl, slot_id, FD_ADMINCTL_RESULT_ABI_SIZE_MISMATCH );
-    return FD_ADMINCTL_CMD_IDLE;
-  }
-
   *slot_id_out    = slot_id;
   *payload_out    = slot->payload;
   *payload_sz_out = payload_sz;
@@ -297,7 +292,7 @@ fd_adminctl_complete_response( fd_adminctl_t * adminctl,
 
   if( FD_UNLIKELY( fd_adminctl_state( state_pid_seq )!=FD_ADMINCTL_STATE_PROCESSING ) ) FD_LOG_ERR(( "adminctl complete without processing command" ));
 
-  fd_memzero_explicit( slot->payload, sizeof(slot->payload) );
+  fd_memzero_explicit( slot->payload, slot->payload_sz );
   if( FD_UNLIKELY( resp_sz ) ) memcpy( slot->payload, resp, resp_sz );
   slot->payload_sz = resp_sz;
   slot->result     = result;
