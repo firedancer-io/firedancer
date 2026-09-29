@@ -322,7 +322,7 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "execrp" );
   if( alpenglow_enabled ) fd_topob_wksp( topo, "votor" );
   else                    fd_topob_wksp( topo, "tower" );
-  fd_topob_wksp( topo, "txsend" );
+  if( !alpenglow_enabled ) fd_topob_wksp( topo, "txsend" );
   fd_topob_wksp( topo, "sign"   )->core_dump_level = FD_TOPO_CORE_DUMP_LEVEL_NEVER;
   fd_topob_wksp( topo, "admin"  )->core_dump_level = FD_TOPO_CORE_DUMP_LEVEL_NEVER;
 
@@ -349,7 +349,7 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "net_repair"   );
   if( rserve_enabled ) fd_topob_wksp( topo, "net_rserve" );
   if( alpenglow_enabled ) fd_topob_wksp( topo, "net_votor" );
-  fd_topob_wksp( topo, "net_txsend"   );
+  if( !alpenglow_enabled ) fd_topob_wksp( topo, "net_txsend" );
   if( leader_enabled ) fd_topob_wksp( topo, "net_quic" );
 
   fd_topob_wksp( topo, "genesi_out"    );
@@ -365,7 +365,7 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "replay_out"    );
   if( alpenglow_enabled ) fd_topob_wksp( topo, "votor_out" );
   else                    fd_topob_wksp( topo, "tower_out" );
-  fd_topob_wksp( topo, "txsend_out"    );
+  if( !alpenglow_enabled ) fd_topob_wksp( topo, "txsend_out" );
 
   if( leader_enabled ) {
     fd_topob_wksp( topo, "quic_verify"   );
@@ -407,8 +407,10 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_wksp( topo, "sign_rserve"   );
   }
 
-  fd_topob_wksp( topo, "txsend_sign"   );
-  fd_topob_wksp( topo, "sign_txsend"   );
+  if( !alpenglow_enabled ) {
+    fd_topob_wksp( topo, "txsend_sign"   );
+    fd_topob_wksp( topo, "sign_txsend"   );
+  }
 
   if( alpenglow_enabled ) {
     fd_topob_wksp( topo, "votor_sign"  );
@@ -456,7 +458,9 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_link( topo, "gossip_net",    "net_gossip",    32768UL,                                  FD_NET_MTU,                    1UL );
   FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_net",     "net_shred",     32768UL,                                  FD_NET_MTU,                    1UL );
   /**/                 fd_topob_link( topo, "repair_net",    "net_repair",    config->net.ingress_buffer_size,          FD_NET_MTU,                    1UL );
-  /**/                 fd_topob_link( topo, "txsend_net",    "net_txsend",    config->net.ingress_buffer_size,          FD_NET_MTU,                    1UL );
+  if( !alpenglow_enabled ) {
+    /**/               fd_topob_link( topo, "txsend_net",    "net_txsend",    config->net.ingress_buffer_size,          FD_NET_MTU,                    1UL );
+  }
   FOR(quic_tile_cnt)   fd_topob_link( topo, "quic_net",      "net_quic",      config->net.ingress_buffer_size,          FD_NET_MTU,                    1UL );
 
   if( FD_LIKELY( rserve_enabled ) ) {
@@ -531,15 +535,17 @@ fd_topo_initialize( config_t * config ) {
   FOR(sign_tile_cnt-1) fd_topob_link( topo, "repair_sign",   "repair_sign",   256UL,                                    FD_REPAIR_MAX_PREIMAGE_SZ,     1UL ); /* See repair_tile.c for explanation */
   FOR(sign_tile_cnt-1) fd_topob_link( topo, "sign_repair",   "sign_repair",   128UL,                                    sizeof(fd_ed25519_sig_t),      1UL );
 
-  /**/                 fd_topob_link( topo, "txsend_sign",   "txsend_sign",   128UL,                                    FD_TXN_MTU_V0,                 1UL ); /* TODO: Depth probably doesn't need to be 128 */
-  /**/                 fd_topob_link( topo, "sign_txsend",   "sign_txsend",   128UL,                                    sizeof(fd_ed25519_sig_t)*2UL,  1UL ); /* TODO: Depth probably doesn't need to be 128 */
+  if( !alpenglow_enabled ) {
+    /**/               fd_topob_link( topo, "txsend_sign",   "txsend_sign",   128UL,                                    FD_TXN_MTU_V0,                 1UL ); /* TODO: Depth probably doesn't need to be 128 */
+    /**/               fd_topob_link( topo, "sign_txsend",   "sign_txsend",   128UL,                                    sizeof(fd_ed25519_sig_t)*2UL,  1UL ); /* TODO: Depth probably doesn't need to be 128 */
+  }
 
   FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_out",     "shred_out",     shred_depth,                              sizeof(fd_shred_message_t),    FD_SHRED_STEM_BURST );
   /**/                 fd_topob_link( topo, "repair_out",    "repair_out",    shred_depth,                              sizeof(fd_repair_fec_complete_t), 1UL );
   if( !alpenglow_enabled ) {
     /**/               fd_topob_link( topo, "tower_out",     "tower_out",     16384UL,                                  sizeof(fd_tower_msg_t),        2UL ); /* conf + slot_done. see explanation in fd_tower_tile.h for link_depth */
+    /**/               fd_topob_link( topo, "txsend_out",    "txsend_out",    128UL,                                    FD_TPU_RAW_MTU,                1UL );
   }
-  /**/                 fd_topob_link( topo, "txsend_out",    "txsend_out",    128UL,                                    FD_TPU_RAW_MTU,                1UL );
 
   FOR(execrp_tile_cnt) fd_topob_link( topo, "execrp_replay", "execrp_replay", 16384UL,                                  sizeof(fd_execrp_task_done_msg_t), 1UL );
   if( FD_LIKELY( config->tiles.gui.enabled ) )
@@ -577,7 +583,7 @@ fd_topo_initialize( config_t * config ) {
   FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_shred",  i, config->net.ingress_buffer_size );
   FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_repair", i, config->net.ingress_buffer_size );
   if( rserve_enabled ) FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_rserve", i, config->net.ingress_buffer_size );
-  FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_txsend", i, config->net.ingress_buffer_size );
+  if( !alpenglow_enabled ) FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_txsend", i, config->net.ingress_buffer_size );
   if( leader_enabled ) FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_quic",   i, config->net.ingress_buffer_size );
 
   /*                                  topo, tile_name, tile_wksp, metrics_wksp, cpu_idx,                       is_agave, uses_id_keyswitch, uses_av_keyswitch, is_waker_client */
@@ -616,8 +622,8 @@ fd_topo_initialize( config_t * config ) {
     /**/               fd_topob_tile( topo, "votor",   "votor",   "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        1,                 0,                 0 );
   } else {
     /**/               fd_topob_tile( topo, "tower",   "tower",   "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        1,                 1,                 0 );
+    /**/               fd_topob_tile( topo, "txsend",  "txsend",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        1,                 1,                 0 );
   }
-  /**/                 fd_topob_tile( topo, "txsend",  "txsend",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        1,                 1,                 0 );
 
   if( leader_enabled ) {
     FOR(quic_tile_cnt)   fd_topob_tile( topo, "quic",    "quic",    "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0,               0,               0 );
@@ -650,13 +656,17 @@ fd_topo_initialize( config_t * config ) {
                       fd_topob_tile_in (    topo, "shred",   i,            "metric_in", "net_shred",     j,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   FOR(net_tile_cnt)   fd_topob_tile_in(     topo, repair,    0UL,          "metric_in", "net_repair",    i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   /**/                fd_topob_tile_out(    topo, repair,    0UL,                       "repair_net",    0UL                                                );
-  FOR(net_tile_cnt)   fd_topob_tile_in (    topo, "txsend",  0UL,          "metric_in", "net_txsend",    i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+  if( !alpenglow_enabled ) {
+    FOR(net_tile_cnt) fd_topob_tile_in (    topo, "txsend",  0UL,          "metric_in", "net_txsend",    i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+  }
   FOR(quic_tile_cnt) for( ulong j=0UL; j<net_tile_cnt; j++ )
                       fd_topob_tile_in(     topo, "quic",    i,            "metric_in", "net_quic",      j,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   FOR(shred_tile_cnt) fd_topos_tile_in_net( topo,                          "metric_in", "shred_net",     i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   /**/                fd_topos_tile_in_net( topo,                          "metric_in", "gossip_net",    0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   /**/                fd_topos_tile_in_net( topo,                          "metric_in", "repair_net",    0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
-  /**/                fd_topos_tile_in_net( topo,                          "metric_in", "txsend_net",    0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+  if( !alpenglow_enabled ) {
+    /**/              fd_topos_tile_in_net( topo,                          "metric_in", "txsend_net",    0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+  }
   FOR(quic_tile_cnt)  fd_topos_tile_in_net( topo,                          "metric_in", "quic_net",      i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
 
   /**/                 fd_topob_tile_out(   topo, "genesi", 0UL,                        "genesi_out",    0UL                                                );
@@ -673,8 +683,8 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_out(   topo, "gossip", 0UL,                        "gossip_net",    0UL                                                );
   /**/                 fd_topob_tile_in (   topo, "gossip", 0UL,           "metric_in", "ipecho_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(gossvf_tile_cnt) fd_topob_tile_in (   topo, "gossip", 0UL,           "metric_in", "gossvf_gossip", i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
-  /**/                 fd_topob_tile_in (   topo, "gossip", 0UL,           "metric_in", "txsend_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   if( !alpenglow_enabled ) {
+    /**/               fd_topob_tile_in (   topo, "gossip", 0UL,           "metric_in", "txsend_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     /**/               fd_topob_tile_in (   topo, "gossip", 0UL,           "metric_in", "tower_out",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   }
   /**/                 fd_topob_tile_out(   topo, "gossip", 0UL,                        "gossip_gossvf", 0UL                                                );
@@ -739,8 +749,8 @@ fd_topo_initialize( config_t * config ) {
   if(leader_enabled)  {fd_topob_tile_in (   topo, "replay",  0UL,          "metric_in", "poh_replay",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );}
   if( !alpenglow_enabled ) {
     /**/               fd_topob_tile_in (   topo, "replay",  0UL,          "metric_in", "tower_out",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    /**/               fd_topob_tile_in (   topo, "replay",  0UL,          "metric_in", "txsend_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   }
-  /**/                 fd_topob_tile_in (   topo, "replay",  0UL,          "metric_in", "txsend_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(resolv_tile_cnt) fd_topob_tile_in (   topo, "replay",  0UL,          "metric_in", "resolv_replay", i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_in (   topo, "replay",  0UL,          "metric_in", "ipecho_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_in (   topo, "replay",  0UL,          "metric_in", "gossip_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
@@ -770,13 +780,13 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_out(   topo, "tower",   0UL,                       "tower_out",     0UL                                                );
   }
 
-  /**/                 fd_topob_tile_in (   topo, "txsend",  0UL,          "metric_in", "replay_epoch",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-  /**/                 fd_topob_tile_in (   topo, "txsend",  0UL,          "metric_in", "gossip_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   if( !alpenglow_enabled ) {
+    /**/               fd_topob_tile_in (   topo, "txsend",  0UL,          "metric_in", "replay_epoch",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    /**/               fd_topob_tile_in (   topo, "txsend",  0UL,          "metric_in", "gossip_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     /**/               fd_topob_tile_in (   topo, "txsend",  0UL,          "metric_in", "tower_out",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    /**/               fd_topob_tile_out(   topo, "txsend",  0UL,                       "txsend_net",    0UL                                                );
+    /**/               fd_topob_tile_out(   topo, "txsend",  0UL,                       "txsend_out",    0UL                                                );
   }
-  /**/                 fd_topob_tile_out(   topo, "txsend",  0UL,                       "txsend_net",    0UL                                                );
-  /**/                 fd_topob_tile_out(   topo, "txsend",  0UL,                       "txsend_out",    0UL                                                );
 
   if( leader_enabled ) {
     FOR(quic_tile_cnt)   fd_topob_tile_out( topo, "quic",    i,                         "quic_verify",   i                                                  );
@@ -785,7 +795,9 @@ fd_topo_initialize( config_t * config ) {
     FOR(verify_tile_cnt) for( ulong j=0UL; j<quic_tile_cnt; j++ )
                          fd_topob_tile_in(  topo, "verify",  i,            "metric_in", "quic_verify",   j,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers, verify tiles may be overrun */
     FOR(verify_tile_cnt) fd_topob_tile_in(  topo, "verify",  i,            "metric_in", "gossip_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-    /**/                 fd_topob_tile_in(  topo, "verify",  0UL,          "metric_in", "txsend_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    if( !alpenglow_enabled ) {
+      /**/               fd_topob_tile_in(  topo, "verify",  0UL,          "metric_in", "txsend_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    }
     FOR(verify_tile_cnt) fd_topob_tile_out( topo, "verify",  i,                         "verify_dedup",  i                                                  );
     FOR(verify_tile_cnt) fd_topob_tile_in(  topo, "dedup",   0UL,          "metric_in", "verify_dedup",  i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     /**/                 fd_topob_tile_in(  topo, "dedup",   0UL,          "metric_in", "replay_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
@@ -928,10 +940,12 @@ fd_topo_initialize( config_t * config ) {
     /**/                 fd_topob_tile_out(   topo, "sign",    0UL,                       "sign_rserve",  0UL                                                  );
   }
 
-  /**/                 fd_topob_tile_in (   topo, "sign",    0UL,          "metric_in", "txsend_sign",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
-  /**/                 fd_topob_tile_out(   topo, "txsend",  0UL,                       "txsend_sign",  0UL                                                  );
-  /**/                 fd_topob_tile_in (   topo, "txsend",  0UL,          "metric_in", "sign_txsend",  0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
-  /**/                 fd_topob_tile_out(   topo, "sign",    0UL,                       "sign_txsend",  0UL                                                  );
+  if( !alpenglow_enabled ) {
+    /**/               fd_topob_tile_in (   topo, "sign",    0UL,          "metric_in", "txsend_sign",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
+    /**/               fd_topob_tile_out(   topo, "txsend",  0UL,                       "txsend_sign",  0UL                                                  );
+    /**/               fd_topob_tile_in (   topo, "txsend",  0UL,          "metric_in", "sign_txsend",  0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
+    /**/               fd_topob_tile_out(   topo, "sign",    0UL,                       "sign_txsend",  0UL                                                  );
+  }
 
   if( FD_UNLIKELY( rpc_enabled ) ) {
     fd_topob_link( topo, "rpc_replay", "rpc_replay", 8UL, 0UL, 1UL );
@@ -1410,7 +1424,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->net.gossip_listen_port               = config->gossip.port;
     tile->net.repair_client_listen_port        = config->tiles.repair.repair_client_listen_port;
     tile->net.repair_serve_listen_port         = fd_ushort_if( config->tiles.rserve.enabled, config->tiles.rserve.repair_serve_listen_port, 0 );
-    tile->net.txsend_src_port                  = config->tiles.txsend.txsend_src_port;
+    tile->net.txsend_src_port                  = fd_ushort_if( !config->firedancer.development.alpenglow, config->tiles.txsend.txsend_src_port, 0 );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "netlnk" ) ) ) {
 

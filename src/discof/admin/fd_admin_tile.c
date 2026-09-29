@@ -121,10 +121,13 @@ unprivileged_init( fd_topo_t const *      topo,
   }
 
   ulong txsend_idx = fd_topo_find_tile( topo, "txsend", 0UL );
-  FD_TEST( txsend_idx!=ULONG_MAX );
-  FD_TEST( topo->tiles[ txsend_idx ].av_keyswitch_obj_id!=ULONG_MAX );
-  ctx->txsend_av_keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, topo->tiles[ txsend_idx ].av_keyswitch_obj_id ) );
-  FD_TEST( ctx->txsend_av_keyswitch );
+  if( FD_LIKELY( txsend_idx!=ULONG_MAX ) ) {
+    FD_TEST( topo->tiles[ txsend_idx ].av_keyswitch_obj_id!=ULONG_MAX );
+    ctx->txsend_av_keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, topo->tiles[ txsend_idx ].av_keyswitch_obj_id ) );
+    FD_TEST( ctx->txsend_av_keyswitch );
+  } else {
+    ctx->txsend_av_keyswitch = NULL;
+  }
 
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t const * sign_tile = &topo->tiles[ i ];
