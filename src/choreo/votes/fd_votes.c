@@ -82,7 +82,7 @@ typedef fd_votes_blk_t blk_t;
 #define DLIST_IDX_T uint
 #include "../../util/tmpl/fd_dlist.c"
 
-struct vtr {
+struct fd_votes_vtr {
   fd_pubkey_t vote_acc; /* vtr_map key */
   uint        next;     /* pool next */
   struct {
@@ -95,7 +95,7 @@ struct vtr {
   } dlist;
   ulong bit;
 };
-typedef struct vtr vtr_t;
+typedef struct fd_votes_vtr vtr_t;
 
 #define POOL_NAME vtr_pool
 #define POOL_LAZY 1
@@ -352,16 +352,32 @@ fd_votes_delete( void * votes ) {
   return votes;
 }
 
+fd_votes_vtr_t *
+fd_votes_vtr_query( fd_votes_t *        votes,
+                    fd_pubkey_t const * vote_acc ) {
+  return vtr_map_ele_query( votes->vtr_map, vote_acc, NULL, votes->vtr_pool );
+}
+
 int
 fd_votes_count_vote( fd_votes_t *        votes,
                      fd_pubkey_t const * vote_acc,
                      ulong               stake,
                      ulong               vote_slot,
                      fd_hash_t const *   vote_block_id ) {
+  /* Bound check before the voter lookup, as before: a too-new vote
+     never pays for the map query. */
+  if( FD_UNLIKELY( vote_slot >= votes->root + votes->slot_max ) ) return FD_VOTES_ERR_VOTE_TOO_NEW;
+  return fd_votes_count_vote_vtr( votes, fd_votes_vtr_query( votes, vote_acc ), stake, vote_slot, vote_block_id );
+}
+
+int
+fd_votes_count_vote_vtr( fd_votes_t *      votes,
+                         fd_votes_vtr_t *  vtr,
+                         ulong             stake,
+                         ulong             vote_slot,
+                         fd_hash_t const * vote_block_id ) {
 
   if( FD_UNLIKELY( vote_slot >= votes->root + votes->slot_max ) ) return FD_VOTES_ERR_VOTE_TOO_NEW;
-
-  vtr_t * vtr = vtr_map_ele_query( votes->vtr_map, vote_acc, NULL, votes->vtr_pool );
   if( FD_UNLIKELY( !vtr ) ) return FD_VOTES_ERR_UNKNOWN_VTR;
 
   /* Check we haven't already counted the voter's stake for this slot.
