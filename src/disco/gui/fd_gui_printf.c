@@ -71,6 +71,16 @@ jsonp_double( fd_http_server_t * http,
 }
 
 static void
+jsonp_centi( fd_http_server_t * http,
+             char const *       key,
+             ushort             value ) {
+  uint whole = (uint)value/100U;
+  uint frac  = (uint)value%100U;
+  if( FD_LIKELY( key ) ) fd_http_server_printf( http, "\"%s\":%u.%02u,", key, whole, frac );
+  else                   fd_http_server_printf( http, "%u.%02u,", whole, frac );
+}
+
+static void
 jsonp_double_4dp( fd_http_server_t * http,
                   char const *       key,
                   double             value ) {
@@ -941,7 +951,7 @@ fd_gui_printf_tile_metrics( fd_gui_t *                        gui,
     } else {
       jsonp_open_array( gui->http, NULL );
         for( ulong j=0UL; j<FD_METRICS_ENUM_TILE_REGIME_CNT; j++ ) {
-          jsonp_double( gui->http, NULL, (double)packed[ t ].timers[ j ] / 100.0 );
+          jsonp_centi( gui->http, NULL, packed[ t ].timers[ j ] );
         }
       jsonp_close_array( gui->http );
     }
@@ -964,7 +974,7 @@ fd_gui_printf_tile_metrics( fd_gui_t *                        gui,
     } else {
       jsonp_open_array( gui->http, NULL );
         for( ulong j=0UL; j<FD_METRICS_ENUM_CPU_REGIME_CNT; j++ ) {
-          jsonp_double( gui->http, NULL, (double)packed[ t ].sched_timers[ j ] / 100.0 );
+          jsonp_centi( gui->http, NULL, packed[ t ].sched_timers[ j ] );
         }
       jsonp_close_array( gui->http );
     }

@@ -14,6 +14,8 @@ $(call make-unit-test,test_gui_hist_evict,test_gui_hist_evict,fd_disco fd_choreo
 $(call run-unit-test,test_gui_hist_evict)
 $(call make-unit-test,test_gui_tile,test_gui_tile,fd_disco fd_discof fd_choreo fd_flamenco fd_waltz fd_tango fd_ballet fd_util)
 $(call run-unit-test,test_gui_tile)
+$(call make-unit-test,test_gui_printf,test_gui_printf,fd_disco fd_discof fd_choreo fd_flamenco fd_waltz fd_tango fd_ballet fd_util)
+$(call run-unit-test,test_gui_printf)
 
 FD_GUI_FRONTEND_FILES := $(call rfiles,src/disco/gui/dist/)
 FD_GUI_FRONTEND_CMP := $(patsubst src/disco/gui/dist/%,src/disco/gui/dist_cmp/%,$(FD_GUI_FRONTEND_FILES))
