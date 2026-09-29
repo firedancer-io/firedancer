@@ -73,6 +73,58 @@ fd_f25519_pow22523( fd_f25519_t *       r,
   return r;
 }
 
+
+fd_f25519_t *
+fd_f25519_pow22523_2( fd_f25519_t * r1, fd_f25519_t const * a1,
+                      fd_f25519_t * r2, fd_f25519_t const * a2 ) {
+  fd_f25519_t x0[1], x1[1];
+  fd_f25519_t x2[1];
+  fd_f25519_t y0[1], y1[1];
+  fd_f25519_t y2[1];
+
+  fd_f25519_sqr2( x0, a1,  y0, a2  );
+  fd_f25519_sqr2( x1, x0,  y1, y0  );
+  for( int i=1; i<  2; i++ ) fd_f25519_sqr2( x1, x1, y1, y1 );
+
+  fd_f25519_mul2( x1, a1, x1,  y1, a2, y1 );
+  fd_f25519_mul2( x0, x0, x1,  y0, y0, y1 );
+  fd_f25519_sqr2( x0, x0,       y0, y0     );
+  fd_f25519_mul2( x0, x1, x0,  y0, y1, y0 );
+  fd_f25519_sqr2( x1, x0,       y1, y0     );
+  for( int i=1; i<  5; i++ ) fd_f25519_sqr2( x1, x1, y1, y1 );
+
+  fd_f25519_mul2( x0, x1, x0,  y0, y1, y0 );
+  fd_f25519_sqr2( x1, x0,       y1, y0     );
+  for( int i=1; i< 10; i++ ) fd_f25519_sqr2( x1, x1, y1, y1 );
+
+  fd_f25519_mul2( x1, x1, x0,  y1, y1, y0 );
+  fd_f25519_sqr2( x2, x1,       y2, y1     );
+  for( int i=1; i< 20; i++ ) fd_f25519_sqr2( x2, x2, y2, y2 );
+
+  fd_f25519_mul2( x1, x2, x1,  y1, y2, y1 );
+  fd_f25519_sqr2( x1, x1,       y1, y1     );
+  for( int i=1; i< 10; i++ ) fd_f25519_sqr2( x1, x1, y1, y1 );
+
+  fd_f25519_mul2( x0, x1, x0,  y0, y1, y0 );
+  fd_f25519_sqr2( x1, x0,       y1, y0     );
+  for( int i=1; i< 50; i++ ) fd_f25519_sqr2( x1, x1, y1, y1 );
+
+  fd_f25519_mul2( x1, x1, x0,  y1, y1, y0 );
+  fd_f25519_sqr2( x2, x1,       y2, y1     );
+  for( int i=1; i<100; i++ ) fd_f25519_sqr2( x2, x2, y2, y2 );
+
+  fd_f25519_mul2( x1, x2, x1,  y1, y2, y1 );
+  fd_f25519_sqr2( x1, x1,       y1, y1     );
+  for( int i=1; i< 50; i++ ) fd_f25519_sqr2( x1, x1, y1, y1 );
+
+  fd_f25519_mul2( x0, x1, x0,  y0, y1, y0 );
+  fd_f25519_sqr2( x0, x0,       y0, y0     );
+  for( int i=1; i<  2; i++ ) fd_f25519_sqr2( x0, x0, y0, y0 );
+
+  fd_f25519_mul2( r1, x0, a1,  r2, y0, a2 );
+  return r1;
+}
+
 /* fd_f25519_inv computes r = 1/a, and returns r. */
 fd_f25519_t *
 fd_f25519_inv( fd_f25519_t *       r,
