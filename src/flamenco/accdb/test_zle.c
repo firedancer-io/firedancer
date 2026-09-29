@@ -1,6 +1,10 @@
+#define _DEFAULT_SOURCE
 #include "fd_zle.h"
 #include "../../util/fd_util.h"
 #include <unistd.h>
+#if FD_HAS_HOSTED
+#include <sys/mman.h>
+#endif
 
 #define MAX_SZ (1UL<<20)
 
@@ -319,6 +323,25 @@ main( int     argc,
       diff_case( in, sz );
     }
   }
+
+#if FD_HAS_HOSTED
+  /* no reads past the input: inputs end flush against a PROT_NONE page */
+
+  {
+    ulong   page = 4096UL;
+    uchar * map  = mmap( NULL, 2UL*page, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0 );
+    FD_TEST( map!=MAP_FAILED );
+    FD_TEST( 0==mprotect( map+page, page, PROT_NONE ) );
+    for( ulong sz=1UL; sz<=page; sz++ ) {
+      uchar * src = map+page-sz;
+      for( ulong j=0UL; j<sz; j++ ) src[j] = ( fd_rng_uint( rng )&3U ) ? (uchar)( fd_rng_uint( rng ) | 1U ) : (uchar)0;
+      ulong csz = fd_zle_compress( comp, src, sz );
+      FD_TEST( fd_zle_decompress( out, sz, comp, csz )==(long)sz );
+      FD_TEST( 0==memcmp( out, src, sz ) );
+    }
+    FD_TEST( 0==munmap( map, 2UL*page ) );
+  }
+#endif
 
   /* strerror */
 

@@ -106,12 +106,11 @@ check_at( uchar const * data,
           ulong         sz,
           ulong         off ) {
 
-  ulong   span = off + fd_ulong_align_up( fd_ulong_max( sz, 1UL ), 64UL );
-  uchar * buf  = aligned_alloc( 64UL, fd_ulong_align_up( span, 64UL ) );
+  /* exact-size allocation: a read past src+sz is a sanitizer error */
+  uchar * buf = malloc( fd_ulong_max( off+sz, 1UL ) );
   FD_TEST( buf );
   uchar * src = buf+off;
   memcpy( src, data, sz );
-  memset( src+sz, 0xff, span-off-sz );   /* pad must not affect the output */
 
   ulong   bound = FD_ZLE_COMPRESS_BOUND( sz );
   uchar * comp  = malloc( bound );

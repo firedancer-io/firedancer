@@ -28,9 +28,8 @@ FD_PROTOTYPES_BEGIN
    FD_ZLE_COMPRESS_BOUND( data_sz ) compressed bytes to comp.  Returns
    the number of compressed bytes written.  data_sz<=FD_ZLE_MAX_SZ.
 
-   data has no alignment requirement, but the readable span starting at
-   data must cover fd_ulong_align_up( data_sz, 64 ) bytes.  The tail
-   padding does not affect the output. */
+   data has no alignment requirement.  No bytes at or past data+data_sz
+   are read. */
 
 ulong
 fd_zle_compress( void *       FD_RESTRICT comp,

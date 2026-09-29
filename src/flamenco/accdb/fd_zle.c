@@ -16,11 +16,7 @@
    literal frame iff a zero run is >=FD_ZLE_MIN_Z long, and falls back
    to a single all-literal frame if that did not win, bounding overhead
    at 1+varint(data_sz-15) <= FD_ZLE_OVERHEAD bytes.
-
-   Note that fd_zle makes assumptions on memory protection setup
-   surrounding the input buffer for performance (fd_zle deliberately
-   reads slightly out of bounds to omit expensive tail access
-   specialization, see API docs in fd_zle.h). */
+*/
 
 #define FD_ZLE_MIN_Z (2UL)
 
@@ -86,9 +82,10 @@ fd_zle_zmask( uchar const * s,
               ulong         w,
               ulong         n ) {
   ulong off = w<<6;
-  ulong m   = wwb_eq( wwb_ldu( s+off ), wwb_zero() );
-  if( FD_LIKELY( off+64UL<=n ) ) return m;
-  return m & ( ~0UL>>( 64UL-( n-off ) ) );
+  if( FD_LIKELY( off+64UL<=n ) ) return wwb_eq( wwb_ldu( s+off ), wwb_zero() );
+  /* tail word: a masked load reads nothing at or past n */
+  __mmask64 k = _cvtu64_mask64( ~0UL>>( 64UL-( n-off ) ) );
+  return (ulong)_mm512_mask_cmpeq_epi8_mask( k, _mm512_maskz_loadu_epi8( k, s+off ), wwb_zero() );
 }
 
 /* fd_zle_cand marks where a zero run of FD_ZLE_MIN_Z bytes starts.
