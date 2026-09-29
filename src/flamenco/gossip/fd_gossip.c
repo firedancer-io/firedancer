@@ -106,6 +106,21 @@ struct fd_gossip_private {
     ulong remaining;
   } scan_budget;
 
+  /* Sign requests in flight, oldest first.  The signer answers in
+     order; each holds the finished packet except the signature. */
+  ulong sign_pend_head;
+  ulong sign_pend_cnt;
+  struct {
+    uchar             kind;    /* SIGN_PEND_* */
+    fd_ip4_port_t     peer;    /* SIGN_PEND_SEND */
+    ushort            sz;
+    ushort            sig_off;
+    uchar             data[ FD_GOSSIP_VALUE_MAX_SZ ];
+    fd_gossip_value_t value[1]; /* SIGN_PEND_VALUE, SIGN_PEND_CONTACT_INFO */
+    ulong             gen;      /* SIGN_PEND_CONTACT_INFO: my_contact_info.gen when requested */
+  } sign_pend[ FD_GOSSIP_SIGN_PEND_MAX ];
+
+
   /* Callbacks */
   fd_gossip_sign_fn   sign_fn;
   void *              sign_ctx;
@@ -119,6 +134,8 @@ struct fd_gossip_private {
   struct {
     uchar             crds_val[ FD_GOSSIP_VALUE_MAX_SZ ];
     ulong             crds_val_sz;
+    ulong             gen;
+    int               refresh_due;
     fd_gossip_value_t ci[1];
   } my_contact_info;
 
@@ -180,24 +197,114 @@ ping_tracker_change( void *        _ctx,
   ctx->ping_tracker_change_fn( ctx->ping_tracker_change_fn_ctx, peer_pubkey, peer_address, now, change_type );
 }
 
+#define SIGN_PEND_SEND         (0) /* a packet for peer */
+#define SIGN_PEND_VALUE        (1) /* one of our CRDS values: insert and push */
+#define SIGN_PEND_CONTACT_INFO (2) /* our contact info: store, insert and push */
+
+static int
+sign_request( fd_gossip_t *             gossip,
+              int                       kind,
+              fd_ip4_port_t const *     peer,
+              fd_gossip_value_t const * value,
+              uchar const *             data,
+              ulong                     sz,
+              ulong                     sig_off,
+              uchar const *             signable,
+              ulong                     signable_sz,
+              int                       sign_type ) {
+  if( FD_UNLIKELY( gossip->sign_pend_cnt>=FD_GOSSIP_SIGN_PEND_MAX ) ) {
+    gossip->metrics->sign_pend_full_cnt++;
+    return 0;
+  }
+
+  ulong idx = (gossip->sign_pend_head+gossip->sign_pend_cnt)%FD_GOSSIP_SIGN_PEND_MAX;
+  gossip->sign_pend_cnt++;
+  gossip->sign_pend[ idx ].kind    = (uchar)kind;
+  gossip->sign_pend[ idx ].peer    = peer ? *peer : (fd_ip4_port_t){0};
+  gossip->sign_pend[ idx ].sz      = (ushort)sz;
+  gossip->sign_pend[ idx ].sig_off = (ushort)sig_off;
+  fd_memcpy( gossip->sign_pend[ idx ].data, data, sz );
+  if( FD_UNLIKELY( value ) ) *gossip->sign_pend[ idx ].value = *value;
+
+  gossip->sign_fn( gossip->sign_ctx, signable, signable_sz, sign_type );
+
+  return 1;
+}
+
+
+void
+fd_gossip_sign_response( fd_gossip_t *       gossip,
+                         uchar const *       signature,
+                         fd_stem_context_t * stem,
+                         long                now ) {
+  FD_TEST( gossip->sign_pend_cnt );
+  ulong idx = gossip->sign_pend_head;
+  gossip->sign_pend_head = (idx+1UL)%FD_GOSSIP_SIGN_PEND_MAX;
+  gossip->sign_pend_cnt--;
+
+  uchar * data = gossip->sign_pend[ idx ].data;
+  ulong   sz   = gossip->sign_pend[ idx ].sz;
+  fd_memcpy( data+gossip->sign_pend[ idx ].sig_off, signature, 64UL );
+
+  switch( gossip->sign_pend[ idx ].kind ) {
+  case SIGN_PEND_SEND: {
+    gossip->send_fn( gossip->send_ctx, stem, data, sz, &gossip->sign_pend[ idx ].peer, (ulong)now );
+    uint tag = FD_LOAD( uint, data );
+    gossip->metrics->message_tx[ tag ]++;
+    gossip->metrics->message_tx_bytes[ tag ] += sz+42UL; /* 42 = sizeof(fd_ip4_udp_hdrs_t) */
+    break;
+  }
+  case SIGN_PEND_VALUE: {
+    fd_gossip_value_t * value = gossip->sign_pend[ idx ].value;
+    fd_memcpy( value->signature, signature, 64UL );
+    int origin_active = 0; /* Value doesn't matter, since is_me=1 it's never used. */
+    if( FD_UNLIKELY( fd_crds_insert( gossip->crds, value, data, sz, gossip->identity_stake, origin_active, 1, now, stem ) ) ) break;
+    fd_active_set_push( gossip->active_set, data, sz, gossip->identity_pubkey, gossip->identity_stake, stem, now, 1 );
+    break;
+  }
+  case SIGN_PEND_CONTACT_INFO: {
+    /* The contact info changed again since this was requested */
+    if( FD_UNLIKELY( gossip->sign_pend[ idx ].gen!=gossip->my_contact_info.gen ) ) break;
+
+    fd_gossip_value_t * value = gossip->sign_pend[ idx ].value;
+    fd_memcpy( value->signature, signature, 64UL );
+    fd_memcpy( gossip->my_contact_info.crds_val, data, sz );
+    gossip->my_contact_info.crds_val_sz = sz;
+    int origin_active = 0; /* Value doesn't matter, since is_me=1 it's never used. */
+    fd_crds_insert( gossip->crds, value, data, sz, gossip->identity_stake, origin_active, 1, now, stem );
+    fd_active_set_push( gossip->active_set, data, sz, gossip->identity_pubkey, gossip->identity_stake, stem, now, 1 );
+    break;
+  }
+  default: FD_LOG_CRIT(( "unknown sign pend kind %u", gossip->sign_pend[ idx ].kind ));
+  }
+}
+
+ulong
+fd_gossip_sign_pend_cnt( fd_gossip_t const * gossip ) {
+  return gossip->sign_pend_cnt;
+}
+
 static inline void
-refresh_contact_info( fd_gossip_t * gossip,
+refresh_contact_info( fd_gossip_t * gossip ) {
+  gossip->my_contact_info.gen++;
+  gossip->my_contact_info.refresh_due = 1;
+}
+
+static void
+request_contact_info( fd_gossip_t * gossip,
                       long          now ) {
   fd_memcpy( gossip->my_contact_info.ci->origin, gossip->identity_pubkey, 32UL );
   gossip->my_contact_info.ci->wallclock = (ulong)FD_NANOSEC_TO_MILLI( now );
-  long sz = fd_gossip_value_serialize( gossip->my_contact_info.ci, gossip->my_contact_info.crds_val, FD_GOSSIP_VALUE_MAX_SZ );
+  uchar serialized[ FD_GOSSIP_VALUE_MAX_SZ ];
+  long sz = fd_gossip_value_serialize( gossip->my_contact_info.ci, serialized, FD_GOSSIP_VALUE_MAX_SZ );
   FD_TEST( sz!=-1L );
-  gossip->my_contact_info.crds_val_sz = (ulong)sz;
 
-  gossip->sign_fn( gossip->sign_ctx,
-                   gossip->my_contact_info.crds_val+64UL,
-                   gossip->my_contact_info.crds_val_sz-64UL,
-                   FD_KEYGUARD_SIGN_TYPE_ED25519,
-                   gossip->my_contact_info.crds_val );
-
-  /* We don't have stem_ctx here so we pre-empt in next
-     fd_gossip_advance iteration instead. */
-  gossip->timers.next_contact_info_refresh = now;
+  ulong idx = (gossip->sign_pend_head+gossip->sign_pend_cnt)%FD_GOSSIP_SIGN_PEND_MAX;
+  if( FD_UNLIKELY( !sign_request( gossip, SIGN_PEND_CONTACT_INFO, NULL, gossip->my_contact_info.ci, serialized, (ulong)sz, 0UL, serialized+64UL, (ulong)sz-64UL, FD_KEYGUARD_SIGN_TYPE_ED25519 ) ) ) {
+    gossip->my_contact_info.refresh_due = 1; /* queue full: retry next advance */
+    return;
+  }
+  gossip->sign_pend[ idx ].gen = gossip->my_contact_info.gen;
 }
 
 void *
@@ -293,6 +400,12 @@ fd_gossip_new( void *                           shmem,
   gossip->outbound_budget.remaining            = 0UL;
   gossip->outbound_budget.last_replenish_nanos = now;
 
+  gossip->sign_pend_head = 0UL;
+  gossip->sign_pend_cnt  = 0UL;
+  gossip->my_contact_info.crds_val_sz = 0UL;
+  gossip->my_contact_info.gen         = 0UL;
+  gossip->my_contact_info.refresh_due = 0;
+
   gossip->send_fn  = send_fn;
   gossip->send_ctx = send_ctx;
   gossip->sign_fn  = sign_fn;
@@ -304,7 +417,7 @@ fd_gossip_new( void *                           shmem,
   *gossip->my_contact_info.ci->contact_info = *my_contact_info;
   fd_memcpy( gossip->identity_pubkey, identity_pubkey, 32UL );
   gossip->identity_stake = 0UL;
-  refresh_contact_info( gossip, now );
+  refresh_contact_info( gossip );
 
   fd_memset( gossip->metrics, 0, sizeof(fd_gossip_metrics_t) );
 
@@ -395,15 +508,14 @@ fd_gossip_set_identity( fd_gossip_t * gossip,
   /* For identity swaps, refresh the contact info outset so this
      instance can override older contact info for the same identity. */
   gossip->my_contact_info.ci->contact_info->outset = identity_outset;
-  refresh_contact_info( gossip, now );
+  refresh_contact_info( gossip );
 }
 
 void
 fd_gossip_set_shred_version( fd_gossip_t * gossip,
-                             ushort        shred_version,
-                             long          now ) {
+                             ushort        shred_version ) {
   gossip->my_contact_info.ci->contact_info->shred_version = shred_version;
-  refresh_contact_info( gossip, now );
+  refresh_contact_info( gossip );
 }
 
 void
@@ -706,11 +818,10 @@ rx_pull_response( fd_gossip_t *                     gossip,
    This must match fd_keyguard_payload_matches_prune_data (106 + 32 bytes). */
 
 static void
-tx_prune( fd_gossip_t *       gossip,
-          uchar const *       relayer,
-          uchar const *       origin,
-          fd_stem_context_t * stem,
-          long                now ) {
+tx_prune( fd_gossip_t * gossip,
+          uchar const * relayer,
+          uchar const * origin,
+          long          now ) {
   ulong ci_idx = fd_crds_ci_idx( gossip->crds, relayer );
   if( FD_UNLIKELY( ci_idx==ULONG_MAX ) ) return;
 
@@ -735,10 +846,7 @@ tx_prune( fd_gossip_t *       gossip,
   fd_memcpy( p, relayer, 32UL );                 p += 32UL;
   FD_STORE( ulong, p, wallclock );               p += 8UL;
 
-  uchar signature[ 64UL ];
-  gossip->sign_fn( gossip->sign_ctx, signable, sizeof(signable), FD_KEYGUARD_SIGN_TYPE_ED25519, signature );
-
-  /* Build the on-wire packet:
+  /* Build the on-wire packet, signature filled in on the response:
      tag(4) + sender(32) + pubkey(32) + prunes_len(8) + prunes[32]
      + signature(64) + destination(32) + wallclock(8) */
   uchar pkt[ 4UL + 32UL + 32UL + 8UL + 32UL + 64UL + 32UL + 8UL ];
@@ -748,24 +856,20 @@ tx_prune( fd_gossip_t *       gossip,
   fd_memcpy( q, gossip->identity_pubkey, 32UL ); q += 32UL;  /* PruneData.pubkey */
   FD_STORE( ulong, q, 1UL );                     q += 8UL;
   fd_memcpy( q, origin, 32UL );                  q += 32UL;
-  fd_memcpy( q, signature, 64UL );               q += 64UL;
+  ulong sig_off = (ulong)(q-pkt);                q += 64UL;
   fd_memcpy( q, relayer, 32UL );                 q += 32UL;
   FD_STORE( ulong, q, wallclock );               q += 8UL;
 
-  gossip->send_fn( gossip->send_ctx, stem, pkt, sizeof(pkt), &dest_addr, (ulong)now );
-
-  gossip->metrics->message_tx[ FD_GOSSIP_MESSAGE_PRUNE ]++;
-  gossip->metrics->message_tx_bytes[ FD_GOSSIP_MESSAGE_PRUNE ] += sizeof(pkt) + 42UL; /* 42 = sizeof(fd_ip4_udp_hdrs_t) */
+  sign_request( gossip, SIGN_PEND_SEND, &dest_addr, NULL, pkt, sizeof(pkt), sig_off, signable, sizeof(signable), FD_KEYGUARD_SIGN_TYPE_ED25519 );
 }
 
 static void
-tx_prunes( fd_gossip_t *       gossip,
-             fd_stem_context_t * stem,
-             long                now ) {
+tx_prunes( fd_gossip_t * gossip,
+           long          now ) {
   uchar const * relayer;
   uchar const * origin;
   while( fd_prune_finder_pop_prune( gossip->prune_finder, &relayer, &origin ) ) {
-    tx_prune( gossip, relayer, origin, stem, now );
+    tx_prune( gossip, relayer, origin, now );
   }
 }
 
@@ -794,7 +898,7 @@ rx_push( fd_gossip_t *            gossip,
     fd_prune_finder_record( gossip->prune_finder, push->values[ i ].origin, origin_stake, push->from, get_stake( gossip, push->from ), num_dups );
   }
 
-  tx_prunes( gossip, stem, now );
+  tx_prunes( gossip, now );
 }
 
 static void
@@ -812,9 +916,7 @@ rx_prune( fd_gossip_t *             gossip,
 static void
 rx_ping( fd_gossip_t *            gossip,
          fd_gossip_ping_t const * ping,
-         fd_ip4_port_t            peer_address,
-         fd_stem_context_t *      stem,
-         long                     now ) {
+         fd_ip4_port_t            peer_address ) {
   uchar out_payload[ sizeof(fd_gossip_pong_t)+4UL];
   FD_STORE( uint, out_payload, FD_GOSSIP_MESSAGE_PONG );
 
@@ -833,11 +935,7 @@ rx_ping( fd_gossip_t *            gossip,
 
   fd_sha256_hash( pre_image, 48UL, out_pong->hash );
 
-  gossip->sign_fn( gossip->sign_ctx, pre_image, 48UL, FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519, out_pong->signature );
-  gossip->send_fn( gossip->send_ctx, stem, out_payload, sizeof(out_payload), &peer_address, (ulong)now );
-
-  gossip->metrics->message_tx[ FD_GOSSIP_MESSAGE_PONG ]++;
-  gossip->metrics->message_tx_bytes[ FD_GOSSIP_MESSAGE_PONG ] += sizeof(out_payload)+42UL; /* 42 = sizeof(fd_ip4_udp_hdrs_t) */
+  sign_request( gossip, SIGN_PEND_SEND, &peer_address, NULL, out_payload, sizeof(out_payload), 4UL+(ulong)((uchar *)out_pong->signature-(uchar *)out_pong), pre_image, 48UL, FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519 );
 }
 
 static void
@@ -869,7 +967,7 @@ fd_gossip_rx( fd_gossip_t *       gossip,
     case FD_GOSSIP_MESSAGE_PULL_RESPONSE: rx_pull_response( gossip, message->pull_response, payload, failed, stem, now ); break;
     case FD_GOSSIP_MESSAGE_PUSH:          rx_push( gossip, message->push, payload, failed, now, stem );                   break;
     case FD_GOSSIP_MESSAGE_PRUNE:         rx_prune( gossip, message->prune );                                             break;
-    case FD_GOSSIP_MESSAGE_PING:          rx_ping( gossip, message->ping, peer, stem, now );                              break;
+    case FD_GOSSIP_MESSAGE_PING:          rx_ping( gossip, message->ping, peer );                              break;
     case FD_GOSSIP_MESSAGE_PONG:          rx_pong( gossip, message->pong, peer, now );                                    break;
     default:
       FD_LOG_CRIT(( "Unknown gossip message type %u", message->tag ));
@@ -879,27 +977,20 @@ fd_gossip_rx( fd_gossip_t *       gossip,
 
 static int
 fd_gossip_push( fd_gossip_t *             gossip,
-                fd_gossip_value_t const * value,
-                fd_stem_context_t *       stem,
-                long                      now ) {
+                fd_gossip_value_t const * value ) {
   uchar serialized[ FD_GOSSIP_VALUE_MAX_SZ ];
   long serialized_sz = fd_gossip_value_serialize( value, serialized, sizeof(serialized) );
   FD_TEST( serialized_sz!=-1L );
-  gossip->sign_fn( gossip->sign_ctx, serialized+64UL, (ulong)serialized_sz-64UL, FD_KEYGUARD_SIGN_TYPE_ED25519, serialized );
 
-  int origin_active = 0; /* Value doesn't matter, since is_me=1 it's never used. */
-  if( FD_UNLIKELY( fd_crds_insert( gossip->crds, value, serialized, (ulong)serialized_sz, gossip->identity_stake, origin_active, 1, now, stem ) ) ) return -1;
-
-  fd_active_set_push( gossip->active_set, serialized, (ulong)serialized_sz, gossip->identity_pubkey, gossip->identity_stake, stem, now, 1 );
-  return 0;
+  /* Inserted into the CRDS and pushed on the response */
+  return sign_request( gossip, SIGN_PEND_VALUE, NULL, value, serialized, (ulong)serialized_sz, 0UL, serialized+64UL, (ulong)serialized_sz-64UL, FD_KEYGUARD_SIGN_TYPE_ED25519 ) ? 0 : -1;
 }
 
 int
-fd_gossip_push_vote( fd_gossip_t *       gossip,
-                     uchar const *       txn,
-                     ulong               txn_sz,
-                     fd_stem_context_t * stem,
-                     long                now ) {
+fd_gossip_push_vote( fd_gossip_t * gossip,
+                     uchar const * txn,
+                     ulong         txn_sz,
+                     long          now ) {
   fd_gossip_value_t value = {
     .tag = FD_GOSSIP_VALUE_VOTE,
     .wallclock = (ulong)FD_NANOSEC_TO_MILLI( now ),
@@ -912,13 +1003,12 @@ fd_gossip_push_vote( fd_gossip_t *       gossip,
   FD_TEST( txn_sz<=sizeof(value.vote->transaction) );
   fd_memcpy( value.vote->transaction, txn, txn_sz );
 
-  return fd_gossip_push( gossip, &value, stem, now );
+  return fd_gossip_push( gossip, &value );
 }
 
 int
 fd_gossip_push_duplicate_shred( fd_gossip_t *                       gossip,
                                 fd_gossip_duplicate_shred_t const * duplicate_shred,
-                                fd_stem_context_t *                 stem,
                                 long                                now ) {
   fd_gossip_value_t value = {
     .tag = FD_GOSSIP_VALUE_DUPLICATE_SHRED,
@@ -927,14 +1017,13 @@ fd_gossip_push_duplicate_shred( fd_gossip_t *                       gossip,
   fd_memcpy( value.origin, gossip->identity_pubkey, 32UL );
   *value.duplicate_shred = *duplicate_shred;
 
-  return fd_gossip_push( gossip, &value, stem, now );
+  return fd_gossip_push( gossip, &value );
 }
 
 static void
-tx_ping( fd_gossip_t *       gossip,
-         fd_stem_context_t * stem,
-         long                now,
-         int *               charge_busy ) {
+tx_ping( fd_gossip_t * gossip,
+         long          now,
+         int *         charge_busy ) {
   uchar out_payload[ sizeof(fd_gossip_ping_t) + 4UL ];
   FD_STORE( uint, out_payload, FD_GOSSIP_MESSAGE_PING );
 
@@ -951,11 +1040,7 @@ tx_ping( fd_gossip_t *       gossip,
                                       &ping_token ) ) {
     fd_memcpy( out_ping->token, ping_token, 32UL );
 
-    gossip->sign_fn( gossip->sign_ctx, out_ping->token, 32UL, FD_KEYGUARD_SIGN_TYPE_ED25519, out_ping->signature );
-    gossip->send_fn( gossip->send_ctx, stem, out_payload, sizeof(out_payload), peer_address, (ulong)now );
-
-    gossip->metrics->message_tx[ FD_GOSSIP_MESSAGE_PING ]++;
-    gossip->metrics->message_tx_bytes[ FD_GOSSIP_MESSAGE_PING ] += sizeof(out_payload) + 42UL; /* 42 = sizeof(fd_ip4_udp_hdrs_t) */
+    sign_request( gossip, SIGN_PEND_SEND, peer_address, NULL, out_payload, sizeof(out_payload), 4UL+(ulong)((uchar *)out_ping->signature-(uchar *)out_ping), out_ping->token, 32UL, FD_KEYGUARD_SIGN_TYPE_ED25519 );
     if( charge_busy ) *charge_busy = 1;
   }
 }
@@ -1136,8 +1221,8 @@ fd_gossip_advance( fd_gossip_t *       gossip,
   fd_active_set_advance( gossip->active_set, stem, now, charge_busy );
   fd_crds_advance( gossip->crds, now, stem, charge_busy );
 
-  tx_ping( gossip, stem, now, charge_busy );
-  if( FD_UNLIKELY( now>=gossip->timers.next_pull_request ) ) {
+  tx_ping( gossip, now, charge_busy );
+  if( FD_UNLIKELY( now>=gossip->timers.next_pull_request && gossip->my_contact_info.crds_val_sz ) ) {
     tx_pull_request( gossip, stem, now );
     if( charge_busy ) *charge_busy = 1;
     /* 1.6ms (625/s).  Agave sends min(1024, ceil(2^mask_bits/8))
@@ -1166,11 +1251,12 @@ fd_gossip_advance( fd_gossip_t *       gossip,
   }
   if( FD_UNLIKELY( now>=gossip->timers.next_contact_info_refresh ) ) {
     /* TODO: Frequency of this? More often if observing? */
-    refresh_contact_info( gossip, now );
-    int origin_active = 0; /* Value doesn't matter, since is_me=1 it's never used. */
-    fd_crds_insert( gossip->crds, gossip->my_contact_info.ci, gossip->my_contact_info.crds_val, gossip->my_contact_info.crds_val_sz, gossip->identity_stake, origin_active, 1, now, stem );
-    fd_active_set_push( gossip->active_set, gossip->my_contact_info.crds_val, gossip->my_contact_info.crds_val_sz, gossip->identity_pubkey, gossip->identity_stake, stem, now, 1 );
     gossip->timers.next_contact_info_refresh = now+15L*500L*1000L*1000L; /* TODO: Jitter */
+    gossip->my_contact_info.refresh_due = 1;
+  }
+  if( FD_UNLIKELY( gossip->my_contact_info.refresh_due ) ) {
+    gossip->my_contact_info.refresh_due = 0;
+    request_contact_info( gossip, now );
     if( charge_busy ) *charge_busy = 1;
   }
 }

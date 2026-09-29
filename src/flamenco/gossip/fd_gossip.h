@@ -65,11 +65,17 @@ typedef void (*fd_gossip_send_fn)( void *                 ctx,
 typedef void (*fd_gossip_sign_fn)( void *         ctx,
                                    uchar const *  data,
                                    ulong          sz,
-                                   int            sign_type,
-                                   uchar *        out_signature );
+                                   int            sign_type );
+
+/* FD_GOSSIP_SIGN_PEND_MAX is the most sign requests in flight, the
+   depth of the sign links. */
+
+#define FD_GOSSIP_SIGN_PEND_MAX (128UL)
 
 struct fd_gossip_metrics {
   ulong crds_rx_count[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_CNT ];
+
+  ulong sign_pend_full_cnt;
 
   ulong message_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT ];
   ulong message_tx_bytes[ FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT ];
@@ -135,8 +141,7 @@ fd_gossip_set_identity( fd_gossip_t * gossip,
 
 void
 fd_gossip_set_shred_version( fd_gossip_t * gossip,
-                             ushort        shred_version,
-                             long          now );
+                             ushort        shred_version );
 
 void
 fd_gossip_stakes_update( fd_gossip_t *             gossip,
@@ -200,6 +205,18 @@ fd_gossip_rx( fd_gossip_t *       gossip,
               long                now,
               fd_stem_context_t * stem );
 
+/* fd_gossip_sign_response delivers the signature of the oldest sign
+   request still in flight and completes the message it was for */
+
+void
+fd_gossip_sign_response( fd_gossip_t *       gossip,
+                         uchar const *       signature,
+                         fd_stem_context_t * stem,
+                         long                now );
+
+ulong
+fd_gossip_sign_pend_cnt( fd_gossip_t const * gossip );
+
 /* fd_gossip_ping_tracker_track marks a peer for ping tracking.  The
    gossip implementation internally keeps track of peers that are
    sending us contact info messages, but certain messages are already
@@ -215,16 +232,14 @@ fd_gossip_ping_tracker_track( fd_gossip_t * gossip,
                               long          now );
 
 int
-fd_gossip_push_vote( fd_gossip_t *       gossip,
-                     uchar const *       txn,
-                     ulong               txn_sz,
-                     fd_stem_context_t * stem,
-                     long                now );
+fd_gossip_push_vote( fd_gossip_t * gossip,
+                     uchar const * txn,
+                     ulong         txn_sz,
+                     long          now );
 
 int
 fd_gossip_push_duplicate_shred( fd_gossip_t *                       gossip,
                                 fd_gossip_duplicate_shred_t const * duplicate_shred,
-                                fd_stem_context_t *                 stem,
                                 long                                now );
 
 FD_PROTOTYPES_END
