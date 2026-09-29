@@ -38,6 +38,7 @@ fd_gui_footprint( ulong tile_cnt,
   l = FD_LAYOUT_APPEND( l, alignof(fd_gui_store_txn_start_t), max_txn_per_slot*sizeof(fd_gui_store_txn_start_t) );
   l = FD_LAYOUT_APPEND( l, alignof(fd_gui_store_txn_end_t),   max_txn_per_slot*sizeof(fd_gui_store_txn_end_t)   );
   l = FD_LAYOUT_APPEND( l, alignof(fd_gui_slot_txn_join_t),   max_txn_per_slot*sizeof(fd_gui_slot_txn_join_t)   );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_gui_shred_scratch_t),   FD_GUI_SHRED_SCRATCH_MAX*sizeof(fd_gui_shred_scratch_t) );
   return FD_LAYOUT_FINI( l, fd_gui_align() );
 }
 
@@ -120,11 +121,14 @@ fd_gui_new( void *                   shmem,
   void *     txn_starts_mem   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gui_store_txn_start_t), max_txn_per_slot*sizeof(fd_gui_store_txn_start_t) );
   void *     txn_ends_mem     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gui_store_txn_end_t),   max_txn_per_slot*sizeof(fd_gui_store_txn_end_t)   );
   void *     txn_joined_mem   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gui_slot_txn_join_t),   max_txn_per_slot*sizeof(fd_gui_slot_txn_join_t)   );
+  void *     shred_sc_mem     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gui_shred_scratch_t),   FD_GUI_SHRED_SCRATCH_MAX*sizeof(fd_gui_shred_scratch_t) );
 
   gui->slot_txn_scratch.max    = max_txn_per_slot;
   gui->slot_txn_scratch.starts = txn_starts_mem;
   gui->slot_txn_scratch.ends   = txn_ends_mem;
   gui->slot_txn_scratch.joined = txn_joined_mem;
+  gui->shred_scratch.ev        = shred_sc_mem;
+  gui->shred_scratch.max       = FD_GUI_SHRED_SCRATCH_MAX;
 
   gui->http        = http;
   gui->topo        = topo;

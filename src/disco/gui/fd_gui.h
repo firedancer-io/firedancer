@@ -1137,6 +1137,14 @@ struct fd_gui {
 
   fd_gui_peers_ctx_t * peers; /* full-client */
 
+  /* One decoded shred event for fd_gui_printf_shreds_window, which
+     prints a window's events column by column and would otherwise
+     decode the batches once per column. */
+  struct {
+    fd_gui_shred_scratch_t * ev;  /* [max] */
+    ulong                    max;
+  } shred_scratch;
+
   struct {
     ulong leader_shred_cnt;      /* A gauge counting the number of leader shreds seen on the SHRED_OUT link.  Resets at
                                     the end of a leader slot.  This works because leader fecs are published in order. */

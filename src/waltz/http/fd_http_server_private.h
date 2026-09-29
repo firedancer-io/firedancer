@@ -107,6 +107,11 @@ struct __attribute__((aligned(FD_HTTP_SERVER_ALIGN))) fd_http_server_private {
   ulong stage_off;
   ulong stage_len;
 
+  /* Absolute ring offset up to which the message being staged has
+     already evicted the connections in its way; reset when it is
+     committed or dropped. */
+  ulong stage_reserved_end;
+
   /* The server needs to maintain two copies of the data (one
      compressed, one uncompressed), since a broadcast message may need
      to send compressed data to some clients and uncompressed data to

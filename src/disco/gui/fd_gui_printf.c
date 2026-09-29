@@ -20,46 +20,114 @@ jsonp_strip_trailing_comma( fd_http_server_t * http ) {
   }
 }
 
+static inline uchar *
+jsonp_put( uchar *      q,
+           char const * s,
+           ulong        len ) {
+  fd_memcpy( q, s, len );
+  return q+len;
+}
+
+static inline uchar *
+jsonp_put_key( uchar *      q,
+               char const * key,
+               ulong        key_len ) {
+  *q++ = '"';
+  q = jsonp_put( q, key, key_len );
+  *q++ = '"';
+  *q++ = ':';
+  return q;
+}
+
+static inline uchar *
+jsonp_put_ulong( uchar * q,
+                 ulong   value ) {
+  return (uchar *)fd_cstr_append_ulong_as_text( (char *)q, ' ', '\0', value, fd_ulong_base10_dig_cnt( value ) );
+}
+
+static inline uchar *
+jsonp_put_long( uchar * q,
+                long    value ) {
+  ulong mag = value<0L ? (ulong)-(value+1L)+1UL : (ulong)value;
+  return (uchar *)fd_cstr_append_ulong_as_text( (char *)q, ' ', value<0L ? '-' : '\0', mag, fd_ulong_base10_dig_cnt( mag )+(ulong)(value<0L) );
+}
+
+static inline uchar *
+jsonp_field_start( fd_http_server_t * http,
+                   char const *       key,
+                   ulong              value_max ) {
+  if( FD_UNLIKELY( http->stage_err ) ) return NULL; /* as printf: nothing more until unstaged */
+
+  ulong key_len = key ? strlen( key ) : 0UL;
+  ulong need    = key_len+3UL+value_max;
+  ulong avail   = http->oring_sz-http->stage_len;
+  ulong spec    = fd_ulong_min( fd_ulong_max( need, 1024UL ), fd_ulong_max( need, avail ) );
+  uchar * p = fd_http_server_append_start( http, spec );
+  if( FD_UNLIKELY( !p ) ) return NULL;
+  if( FD_LIKELY( key ) ) p = jsonp_put_key( p, key, key_len );
+  return p;
+}
+
+static inline void
+jsonp_field_end( fd_http_server_t * http,
+                 uchar const *      end ) {
+  fd_http_server_append_end( http, (ulong)(end-(http->oring+(http->stage_off%http->oring_sz)+http->stage_len)) );
+}
+
 static void
 jsonp_open_object( fd_http_server_t * http,
                    char const *       key ) {
-  if( FD_LIKELY( key ) ) fd_http_server_printf( http, "\"%s\":{", key );
-  else                   fd_http_server_printf( http, "{" );
+  uchar * q = jsonp_field_start( http, key, 1UL );
+  if( FD_UNLIKELY( !q ) ) return;
+  *q++ = '{';
+  jsonp_field_end( http, q );
 }
 
 static void
 jsonp_close_object( fd_http_server_t * http ) {
   jsonp_strip_trailing_comma( http );
-  fd_http_server_printf( http, "}," );
+  uchar * q = jsonp_field_start( http, NULL, 2UL );
+  if( FD_UNLIKELY( !q ) ) return;
+  jsonp_field_end( http, jsonp_put( q, "},", 2UL ) );
 }
 
 static void
 jsonp_open_array( fd_http_server_t * http,
                   char const *       key ) {
-  if( FD_LIKELY( key ) ) fd_http_server_printf( http, "\"%s\":[", key );
-  else                   fd_http_server_printf( http, "[" );
+  uchar * q = jsonp_field_start( http, key, 1UL );
+  if( FD_UNLIKELY( !q ) ) return;
+  *q++ = '[';
+  jsonp_field_end( http, q );
 }
 
 static void
 jsonp_close_array( fd_http_server_t * http ) {
   jsonp_strip_trailing_comma( http );
-  fd_http_server_printf( http, "]," );
+  uchar * q = jsonp_field_start( http, NULL, 2UL );
+  if( FD_UNLIKELY( !q ) ) return;
+  jsonp_field_end( http, jsonp_put( q, "],", 2UL ) );
 }
 
 static void
 jsonp_ulong( fd_http_server_t * http,
              char const *       key,
              ulong              value ) {
-  if( FD_LIKELY( key ) ) fd_http_server_printf( http, "\"%s\":%lu,", key, value );
-  else                   fd_http_server_printf( http, "%lu,", value );
+  uchar * q = jsonp_field_start( http, key, 21UL );
+  if( FD_UNLIKELY( !q ) ) return;
+  q = jsonp_put_ulong( q, value );
+  *q++ = ',';
+  jsonp_field_end( http, q );
 }
 
 static void
 jsonp_long( fd_http_server_t * http,
             char const *       key,
             long               value ) {
-  if( FD_LIKELY( key ) ) fd_http_server_printf( http, "\"%s\":%ld,", key, value );
-  else                   fd_http_server_printf( http, "%ld,", value );
+  uchar * q = jsonp_field_start( http, key, 22UL );
+  if( FD_UNLIKELY( !q ) ) return;
+  q = jsonp_put_long( q, value );
+  *q++ = ',';
+  jsonp_field_end( http, q );
 }
 
 static void
@@ -74,10 +142,14 @@ static void
 jsonp_centi( fd_http_server_t * http,
              char const *       key,
              ushort             value ) {
-  uint whole = (uint)value/100U;
-  uint frac  = (uint)value%100U;
-  if( FD_LIKELY( key ) ) fd_http_server_printf( http, "\"%s\":%u.%02u,", key, whole, frac );
-  else                   fd_http_server_printf( http, "%u.%02u,", whole, frac );
+  uchar * q = jsonp_field_start( http, key, 7UL );
+  if( FD_UNLIKELY( !q ) ) return;
+  q = jsonp_put_ulong( q, (ulong)value/100UL );
+  *q++ = '.';
+  *q++ = (uchar)('0'+(value/10U)%10U);
+  *q++ = (uchar)('0'+value%10U);
+  *q++ = ',';
+  jsonp_field_end( http, q );
 }
 
 static void
@@ -92,68 +164,69 @@ static void
 jsonp_ulong_as_str( fd_http_server_t * http,
                     char const *       key,
                     ulong              value ) {
-  if( FD_LIKELY( key ) ) fd_http_server_printf( http, "\"%s\":\"%lu\",", key, value );
-  else                   fd_http_server_printf( http, "\"%lu\",", value );
+  uchar * q = jsonp_field_start( http, key, 23UL );
+  if( FD_UNLIKELY( !q ) ) return;
+  *q++ = '"';
+  q = jsonp_put_ulong( q, value );
+  *q++ = '"';
+  *q++ = ',';
+  jsonp_field_end( http, q );
 }
 
 static void
 jsonp_long_as_str( fd_http_server_t * http,
                    char const *       key,
                    long               value ) {
-  if( FD_LIKELY( key ) ) fd_http_server_printf( http, "\"%s\":\"%ld\",", key, value );
-  else                   fd_http_server_printf( http, "\"%ld\",", value );
-}
-
-static void
-jsonp_sanitize_str( fd_http_server_t * http,
-                    ulong              start_len ) {
-  /* escape quotemark, reverse solidus, and control chars U+0000 through U+001F
-     just replace with a space */
-  uchar * data = http->oring;
-  for( ulong i=start_len; i<http->stage_len; i++ ) {
-    if( FD_UNLIKELY( data[ (http->stage_off%http->oring_sz)+i ] < 0x20 ||
-                     data[ (http->stage_off%http->oring_sz)+i ] == '"' ||
-                     data[ (http->stage_off%http->oring_sz)+i ] == '\\' ) ) {
-      data[ (http->stage_off%http->oring_sz)+i ] = ' ';
-    }
-  }
+  uchar * q = jsonp_field_start( http, key, 24UL );
+  if( FD_UNLIKELY( !q ) ) return;
+  *q++ = '"';
+  q = jsonp_put_long( q, value );
+  *q++ = '"';
+  *q++ = ',';
+  jsonp_field_end( http, q );
 }
 
 static void
 jsonp_string( fd_http_server_t * http,
               char const *       key,
               char const *       value ) {
-  char * val = (void *)value;
+  ulong value_len = value ? strlen( value ) : 0UL;
+  if( FD_UNLIKELY( value && !fd_utf8_verify( value, value_len ) ) ) value = NULL;
+  uchar * q = jsonp_field_start( http, key, value ? value_len+3UL : 5UL );
+  if( FD_UNLIKELY( !q ) ) return;
   if( FD_LIKELY( value ) ) {
-    if( FD_UNLIKELY( !fd_utf8_verify( value, strlen( value ) ) )) {
-      val = NULL;
+    *q++ = '"';
+    /* escape quotemark, reverse solidus, and control chars U+0000
+       through U+001F just replace with a space */
+    for( ulong i=0UL; i<value_len; i++ ) {
+      uchar c = (uchar)value[ i ];
+      *q++ = fd_uchar_if( c<0x20 || c=='"' || c=='\\', (uchar)' ', c );
     }
-  }
-  if( FD_LIKELY( key ) ) fd_http_server_printf( http, "\"%s\":", key );
-  if( FD_LIKELY( val ) ) {
-    fd_http_server_printf( http, "\"" );
-    ulong start_len = http->stage_len;
-    fd_http_server_printf( http, "%s", val );
-    jsonp_sanitize_str( http, start_len );
-    fd_http_server_printf( http, "\"," );
+    *q++ = '"';
+    *q++ = ',';
   } else {
-    fd_http_server_printf( http, "null," );
+    q = jsonp_put( q, "null,", 5UL );
   }
+  jsonp_field_end( http, q );
 }
 
 static void
 jsonp_bool( fd_http_server_t * http,
             char const *       key,
             int                value ) {
-  if( FD_LIKELY( key ) ) fd_http_server_printf( http, "\"%s\":%s,", key, value ? "true" : "false" );
-  else                   fd_http_server_printf( http, "%s,", value ? "true" : "false" );
+  uchar * q = jsonp_field_start( http, key, 6UL );
+  if( FD_UNLIKELY( !q ) ) return;
+  q = value ? jsonp_put( q, "true,", 5UL ) : jsonp_put( q, "false,", 6UL );
+  jsonp_field_end( http, q );
 }
 
 static void
 jsonp_null( fd_http_server_t * http,
             char const *       key ) {
-  if( FD_LIKELY( key ) ) fd_http_server_printf( http, "\"%s\": null,", key );
-  else                   fd_http_server_printf( http, "null," );
+  uchar * q = jsonp_field_start( http, key, 6UL );
+  if( FD_UNLIKELY( !q ) ) return;
+  q = key ? jsonp_put( q, " null,", 6UL ) : jsonp_put( q, "null,", 5UL );
+  jsonp_field_end( http, q );
 }
 
 static void
@@ -3220,22 +3293,59 @@ fd_gui_peers_printf_gossip_stats( fd_gui_peers_ctx_t *  peers ) {
   jsonp_close_envelope( peers->http );
 }
 
+/* fd_gui_printf_shreds_window prints the shred events inserted in
+   [after_ns,before_ns] as columnar arrays: reference values then one
+   array per column.  The events are decoded from the batches once into
+   gui->shred_scratch and printed from there; a window with more events
+   than the scratch holds (only possible for a long query_shreds range,
+   never the 50 ms broadcast) is decoded once per column instead.  The
+   two produce the same bytes: both read the same batches in the same
+   order (see test_gui_printf). */
+
 static void
 fd_gui_printf_shreds_window( fd_gui_t * gui, long after_ns, long before_ns ) {
-  /* find the min slot / min ts across the window (for delta encoding). */
+  fd_gui_shred_event_iter_t it[ 1 ];
+
+  /* find the min slot / min ts across the window (for delta encoding)
+     and decode into the scratch while it fits */
+  fd_gui_shred_scratch_t * sc     = gui->shred_scratch.ev;
+  ulong                    sc_max = gui->shred_scratch.max;
+  ulong                    cnt    = 0UL;
+  int                      fits   = 1;
   ulong min_slot = ULONG_MAX;
   long  min_ts   = LONG_MAX;
-  fd_gui_shred_event_iter_t it[ 1 ];
   fd_gui_shred_event_iter_begin( gui, it, after_ns, before_ns );
   while( fd_gui_shred_event_iter_next( it ) ) {
     fd_gui_shred_event_t const * e = &it->event;
     min_slot = fd_ulong_min( min_slot, e->slot );
     min_ts   = fd_long_min ( min_ts,   e->event_time_ns );
+    if( FD_LIKELY( cnt<sc_max ) ) sc[ cnt ] = (fd_gui_shred_scratch_t){ .event_time_ns = e->event_time_ns, .slot = e->slot, .idx = e->idx, .event = e->event };
+    else                          fits = 0;
+    cnt++;
   }
   fd_gui_shred_event_iter_end( it );
 
   jsonp_ulong      ( gui->http, "reference_slot", min_slot );
   jsonp_long_as_str( gui->http, "reference_ts",   min_ts   );
+
+  if( FD_LIKELY( fits ) ) {
+    jsonp_open_array( gui->http, "slot_delta" );
+      for( ulong i=0UL; i<cnt; i++ ) jsonp_ulong( gui->http, NULL, (ulong)sc[ i ].slot-min_slot );
+    jsonp_close_array( gui->http );
+    jsonp_open_array( gui->http, "shred_idx" );
+      for( ulong i=0UL; i<cnt; i++ ) {
+        if( FD_LIKELY( sc[ i ].idx!=USHORT_MAX ) ) jsonp_ulong( gui->http, NULL, sc[ i ].idx );
+        else                                       jsonp_null ( gui->http, NULL );
+      }
+    jsonp_close_array( gui->http );
+    jsonp_open_array( gui->http, "event" );
+      for( ulong i=0UL; i<cnt; i++ ) jsonp_ulong( gui->http, NULL, sc[ i ].event );
+    jsonp_close_array( gui->http );
+    jsonp_open_array( gui->http, "event_ts_delta" );
+      for( ulong i=0UL; i<cnt; i++ ) jsonp_long_as_str( gui->http, NULL, sc[ i ].event_time_ns-min_ts );
+    jsonp_close_array( gui->http );
+    return;
+  }
 
 #define SHREDS_WINDOW_ITER( code ) \
   do { \
