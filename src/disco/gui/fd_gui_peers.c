@@ -1363,6 +1363,13 @@ fd_gui_peers_ws_conn_rr_advance( fd_gui_peers_ctx_t * peers, long now ) {
 }
 
 
+long
+fd_gui_peers_next_deadline( fd_gui_peers_ctx_t const * peers ) {
+  long due = fd_long_min( peers->next_metric_rate_update_nanos, peers->next_gossip_stats_update_nanos );
+  if( FD_UNLIKELY( peers->open_ws_conn_cnt ) ) due = fd_long_min( due, peers->next_client_nanos+1L ); /* fires on now>next */
+  return due;
+}
+
 int
 fd_gui_peers_poll( fd_gui_peers_ctx_t * peers, long now ) {
   int did_work = 0;

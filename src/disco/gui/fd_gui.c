@@ -1844,6 +1844,17 @@ fd_gui_progcache_sample( fd_gui_t * gui ) {
   gui->summary.progcache_lookups_1min = lookups_1min;
 }
 
+long
+fd_gui_next_deadline( fd_gui_t const * gui ) {
+  long due = gui->next_sample_1sec;
+  due = fd_long_min( due, gui->next_sample_200millis );
+  due = fd_long_min( due, gui->next_sample_100millis );
+  due = fd_long_min( due, gui->next_sample_50millis  );
+  due = fd_long_min( due, gui->next_sample_40millis  );
+  due = fd_long_min( due, gui->next_sample_10millis  );
+  return due+1L; /* the samplers fire on now>next */
+}
+
 int
 fd_gui_poll( fd_gui_t * gui, long now ) {
   if( FD_LIKELY( now>gui->next_sample_1sec ) ) {

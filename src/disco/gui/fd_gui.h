@@ -1297,6 +1297,9 @@ fd_gui_microblock_execution_end( fd_gui_t *     gui,
 int
 fd_gui_poll( fd_gui_t * gui, long now );
 
+long
+fd_gui_next_deadline( fd_gui_t const * gui );
+
 void
 fd_gui_handle_block_engine_update( fd_gui_t *                              gui,
                                    fd_bundle_block_engine_update_t const * update );
