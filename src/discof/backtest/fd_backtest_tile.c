@@ -526,6 +526,11 @@ returnable_frag( fd_backt_tile_t *   ctx,
         return 0;
       }
 
+      for( ulong idx=0UL; idx<=msg->block_id.ul[ 1 ]; idx+=FD_FEC_SHRED_CNT ) {
+        fd_hash_t mr = { .ul[ 0 ] = msg->slot, .ul[ 1 ] = idx };
+        fd_store_remove( ctx->store, ctx->map_join, &mr );
+      }
+
       long prior_completion_timestamp = ctx->prior_completion_timestamp ? ctx->prior_completion_timestamp : msg->preparation_begin_nanos;
 
       fd_backt_slot_info_t slot_info;
