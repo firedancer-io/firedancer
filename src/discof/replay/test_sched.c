@@ -7,6 +7,7 @@
 #include "../../ballet/sha256/fd_sha256.h"
 #include "../../flamenco/txn/fd_txn_generate.h"
 #include "../../flamenco/alpenglow/fd_block_marker_serde.h"
+#include "../../flamenco/runtime/fd_runtime_const.h"
 
 #define TEST_EXEC_CNT         4UL
 #define TEST_ROOT_SLOT        1000UL
@@ -553,6 +554,133 @@ run_ag_structure_cases( void ) {
     run_ag_structure_case( start_poh, c, 3UL, 0, FD_SCHED_DEAD_REASON_SPURIOUS_UPDATE_PARENT ); }
   { int c[] = { AG_COMP_HEADER, AG_COMP_FOOTER, AG_COMP_UPDATE_PARENT, AG_COMP_TICK };
     run_ag_structure_case( start_poh, c, 4UL, 0, FD_SCHED_DEAD_REASON_SPURIOUS_UPDATE_PARENT ); }
+}
+
+/* Regression: the per-tick hash bound at ingest (TICK_HASHES_OVERFLOW_
+   INGEST) must apply to vanilla blocks but not to Alpenglow blocks.
+   agave's verify_ticks returns early for Alpenglow, and every
+   Alpenglow entry is pinned to exactly one hash, so the cumulative
+   hash count between ticks is just the entry count and grows past
+   FD_RUNTIME_MAX_HASHES_PER_TICK in a valid block.
+
+   Ingests a batch of entry_cnt single-transaction microblocks, each
+   declaring hash_cnt 1, except that microblock bad_idx (if not
+   ULONG_MAX) declares bad_hash_cnt.  Transactions keep the microblocks
+   from being ticks, which would reset the cumulative count. */
+static void
+run_many_entries_case( int   alpenglow,
+                       ulong entry_cnt,
+                       ulong bad_idx,
+                       ulong bad_hash_cnt,
+                       int   expect_ingest_ok,
+                       int   expect_dead_reason ) {
+  ulong depth         = 1UL<<17;
+  ulong block_cnt_max = 4UL;
+  ulong footprint     = fd_sched_footprint( depth, block_cnt_max, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT );
+  void * mem          = aligned_alloc( fd_sched_align(), footprint );
+  FD_TEST( mem );
+
+  fd_rng_t rng[1]; fd_rng_join( fd_rng_new( rng, 0U, 0UL ) );
+  fd_sched_t * sched = fd_sched_join( fd_sched_new( mem, rng, depth, block_cnt_max, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT, TEST_EXEC_CNT, alpenglow ) );
+  FD_TEST( sched );
+  fd_sched_set_bypass_poh_verify( sched, 1 );
+  fd_sched_block_add_done( sched, 1UL, ULONG_MAX, TEST_ROOT_SLOT );
+
+  uchar txn_payload[ FD_TXN_MTU ];
+  ulong txn_sz = build_shred_test_txn( txn_payload );
+
+  ulong  stream_sz = sizeof(ulong)+entry_cnt*(sizeof(fd_microblock_hdr_t)+txn_sz);
+  uchar * stream   = malloc( stream_sz );
+  FD_TEST( stream );
+  FD_STORE( ulong, stream, entry_cnt );
+  ulong cursor = sizeof(ulong);
+  for( ulong i=0UL; i<entry_cnt; i++ ) {
+    fd_microblock_hdr_t hdr = { .hash_cnt = i==bad_idx ? bad_hash_cnt : 1UL, .txn_cnt = 1UL };
+    fd_memcpy( stream+cursor, &hdr, sizeof(hdr) );  cursor += sizeof(hdr);
+    fd_memcpy( stream+cursor, txn_payload, txn_sz ); cursor += txn_sz;
+  }
+  FD_TEST( cursor==stream_sz );
+
+  static uchar          marker_buf[ FD_BLOCK_MARKER_SER_MAX ] __attribute__((aligned(64)));
+  static fd_store_fec_t store_fec[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
+  fd_hash_t prev_hash[ 1 ]; hash_from_seed( prev_hash, 0x5eedUL );
+
+  int   ingest_ok = 1;
+  uint  first     = 1U;
+  ulong off       = 0UL;
+
+  if( alpenglow ) {
+    ulong sz = encode_ag_component( marker_buf, AG_COMP_HEADER, prev_hash );
+    fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
+    store_fec->data_sz     = (uint)sz;
+    store_fec->shred_sz[0] = (ushort)sz;
+    fd_sched_fec_t fec[ 1 ] = {{
+      .bank_idx = 2UL, .parent_bank_idx = 1UL,
+      .slot = TEST_ROOT_SLOT+1UL, .parent_slot = TEST_ROOT_SLOT,
+      .fec = store_fec, .data = marker_buf, .shred_cnt = 1U,
+      .is_last_in_batch = 1U, .is_first_in_block = 1U,
+    }};
+    FD_TEST( fd_sched_fec_can_ingest( sched, fec ) );
+    FD_TEST( fd_sched_fec_ingest( sched, fec ) );
+    first = 0U;
+  }
+
+  /* Feed the batch in max sized FEC sets so residual handling across
+     FEC boundaries gets exercised too. */
+  while( off<stream_sz ) {
+    ulong sz = fd_ulong_min( stream_sz-off, 63985UL );
+    fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
+    store_fec->data_sz     = (uint)sz;
+    store_fec->shred_sz[0] = (ushort)sz;
+    fd_sched_fec_t fec[ 1 ] = {{
+      .bank_idx = 2UL, .parent_bank_idx = 1UL,
+      .slot = TEST_ROOT_SLOT+1UL, .parent_slot = TEST_ROOT_SLOT,
+      .fec = store_fec, .data = stream+off, .shred_cnt = 1U,
+      .is_last_in_batch = off+sz==stream_sz,
+      .is_first_in_block = !!first,
+    }};
+    FD_TEST( fd_sched_fec_can_ingest( sched, fec ) );
+    int ok = !!fd_sched_fec_ingest( sched, fec );
+    if( FD_LIKELY( first ) ) {
+      fd_sched_set_poh_params( sched, 2UL, TEST_ROOT_TICK_HEIGHT, TEST_ROOT_TICK_HEIGHT+1UL, alpenglow ? 1UL : 2UL, prev_hash );
+    }
+    first = 0U;
+    off  += sz;
+    if( FD_UNLIKELY( !ok ) ) { ingest_ok = 0; break; }
+  }
+  if( ingest_ok!=expect_ingest_ok ) FD_LOG_ERR(( "ag %d cnt %lu bad_idx %lu: ingest_ok %d dead %d", alpenglow, entry_cnt, bad_idx, ingest_ok, fd_sched_get_dead_reason( sched, 2UL ) ));
+  FD_TEST( fd_sched_get_dead_reason( sched, 2UL )==expect_dead_reason );
+
+  while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
+  fd_sched_delete( fd_sched_leave( sched ) );
+  free( mem );
+  free( stream );
+}
+
+static void
+run_many_entries_cases( void ) {
+  ulong lim = FD_RUNTIME_MAX_HASHES_PER_TICK;
+  FD_TEST( FD_SCHED_MAX_MBLK_PER_SLOT>lim+1000UL );
+  FD_TEST( FD_MAX_TXN_PER_SLOT>90000UL );
+
+  /* Vanilla: exactly the limit is fine, one more is rejected at
+     ingest.  This is the boundary the Alpenglow exemption must not
+     move. */
+  run_many_entries_case( 0, lim,     ULONG_MAX, 0UL, 1, FD_SCHED_DEAD_REASON_NONE );
+  run_many_entries_case( 0, lim+1UL, ULONG_MAX, 0UL, 0, FD_SCHED_DEAD_REASON_TICK_HASHES_OVERFLOW_INGEST );
+
+  /* Alpenglow: the same entry counts are valid, well past the limit. */
+  run_many_entries_case( 1, lim,      ULONG_MAX, 0UL, 1, FD_SCHED_DEAD_REASON_NONE );
+  run_many_entries_case( 1, lim+1UL,  ULONG_MAX, 0UL, 1, FD_SCHED_DEAD_REASON_NONE );
+  run_many_entries_case( 1, 90000UL,  ULONG_MAX, 0UL, 1, FD_SCHED_DEAD_REASON_NONE );
+
+  /* Alpenglow still pins every entry to one hash, deep into a long
+     batch: this is what bounds PoH work now that the cumulative check
+     is gone.  Neither a huge nor a zero hash count gets through. */
+  run_many_entries_case( 1, lim+100UL, lim+50UL, 2UL,       0, FD_SCHED_DEAD_REASON_ALPENGLOW_HASH_CNT );
+  run_many_entries_case( 1, lim+100UL, lim+50UL, ULONG_MAX, 0, FD_SCHED_DEAD_REASON_ALPENGLOW_HASH_CNT );
+  run_many_entries_case( 1, lim+100UL, lim+50UL, 0UL,       0, FD_SCHED_DEAD_REASON_ALPENGLOW_HASH_CNT );
+  run_many_entries_case( 1, 10UL,      0UL,      lim+1UL,   0, FD_SCHED_DEAD_REASON_ALPENGLOW_HASH_CNT );
 }
 
 static void
@@ -1292,6 +1420,7 @@ main( int     argc,
   run_lane_policy_case();
   run_bad_tick_cases();
   run_ag_structure_cases();
+  run_many_entries_cases();
   run_poh_spread_cases();
   run_interleaved_fec_residual_case();
   run_abandon_flavor_case();

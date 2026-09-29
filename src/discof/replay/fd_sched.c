@@ -2416,7 +2416,7 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
         FD_LOG_INFO(( "bad block: TOO_MANY_TXNS, microblock header declared too many transactions, slot %lu, parent slot %lu, txn_parsed_cnt %u, hdr->txn_cnt %lu", block->slot, block->parent_slot, block->txn_parsed_cnt, hdr->txn_cnt ));
         return FD_SCHED_DEAD_REASON_TOO_MANY_TXNS;
       }
-      if( FD_UNLIKELY( hdr->hash_cnt>fd_ulong_sat_sub( FD_RUNTIME_MAX_HASHES_PER_TICK, block->curr_tick_hashcnt ) ) ) {
+      if( FD_UNLIKELY( !sched->is_alpenglow && hdr->hash_cnt>fd_ulong_sat_sub( FD_RUNTIME_MAX_HASHES_PER_TICK, block->curr_tick_hashcnt ) ) ) {
         FD_LOG_INFO(( "bad block: TICK_HASHES_OVERFLOW_INGEST, slot %lu, parent slot %lu, curr_tick_hashcnt %lu, hdr->hash_cnt %lu", block->slot, block->parent_slot, block->curr_tick_hashcnt, hdr->hash_cnt ));
         return FD_SCHED_DEAD_REASON_TICK_HASHES_OVERFLOW_INGEST;
       }
