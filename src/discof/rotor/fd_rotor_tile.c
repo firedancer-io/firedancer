@@ -554,8 +554,6 @@ maybe_seed_catchup( ctx_t * ctx ) {
     sent++;
   }
   ctx->catchup_seeded = 1;
-  FD_LOG_NOTICE(( "catch-up seed: %lu slots (%lu..%lu) over %lu peers, %lu requested of %lu behind",
-                  sent, root+1UL, root+sent, peer_cnt, sent, ctx->turbine_slot0-root ));
 }
 
 static void
@@ -570,9 +568,7 @@ handle_turbine_slot0( ctx_t * ctx,
                  "Restart with a more recent snapshot or increase config rotor.slot_max", slot, ctx->chainer->root, fd_slotv_pool_max( ctx->chainer->slotv_pool ) ));
   }
 
-  FD_LOG_NOTICE(( "handle_turbine_slot0: slot %lu", slot ));
   maybe_seed_catchup( ctx );
-  /* TODO stem_publish to replay turbine slot 0 frag. */
 }
 
 /* shred_src maps a shred link sig source onto the chainer's reception
