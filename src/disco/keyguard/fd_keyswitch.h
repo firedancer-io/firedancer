@@ -6,8 +6,8 @@
 /* A fd_keyswitch_public_t provides APIs for out-of-band switching of
    the key of a validator. */
 
-#define FD_KEYSWITCH_ALIGN (128UL)
-#define FD_KEYSWITCH_FOOTPRINT (128UL)
+#define FD_KEYSWITCH_ALIGN     (128UL)
+#define FD_KEYSWITCH_FOOTPRINT (32896UL)
 
 #define FD_KEYSWITCH_MAGIC (0xf17eda2c37830000UL) /* firedancer ks ver 0 */
 
@@ -28,7 +28,7 @@ struct __attribute__((aligned(FD_KEYSWITCH_ALIGN))) fd_keyswitch_private {
   ulong state;
   ulong result;
   ulong param;
-  uchar bytes[ 64UL ];
+  uchar bytes[ 32768UL ];
   /* Padding to FD_KEYSWITCH_ALIGN here */
 };
 

@@ -1,5 +1,7 @@
 #include "fd_keyswitch.h"
 
+FD_STATIC_ASSERT( sizeof(fd_keyswitch_t)==FD_KEYSWITCH_FOOTPRINT, keyswitch_footprint );
+
 FD_FN_CONST ulong
 fd_keyswitch_align( void ) {
     return FD_KEYSWITCH_ALIGN;

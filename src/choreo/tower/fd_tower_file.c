@@ -66,10 +66,9 @@ fd_tower_file_de( uchar const *       buf,
   }
 
   uchar has_root; LOAD( uchar, has_root );
-  if( FD_UNLIKELY( has_root>1 ) ) return FD_TOWER_FILE_ERR_TOWER;
-  ulong root = ULONG_MAX;
-  if( FD_LIKELY( has_root ) ) LOAD( ulong, root );
-  if( FD_UNLIKELY( has_root && root==ULONG_MAX ) ) return FD_TOWER_FILE_ERR_TOWER;
+  if( FD_UNLIKELY( has_root!=1 ) ) return FD_TOWER_FILE_ERR_TOWER;
+  ulong root; LOAD( ulong, root );
+  if( FD_UNLIKELY( root==ULONG_MAX ) ) return FD_TOWER_FILE_ERR_TOWER;
 
   ulong authorized_voters_cnt; LOAD( ulong, authorized_voters_cnt );
   if( FD_UNLIKELY( authorized_voters_cnt>(buf_sz-off)/40UL ) ) return FD_TOWER_FILE_ERR_SIZE;
