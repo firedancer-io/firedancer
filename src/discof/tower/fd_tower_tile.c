@@ -897,7 +897,11 @@ count_vote_txn( fd_tower_tile_t * ctx,
   int hfork_err = fd_hfork_count_vote( ctx->hfork, vote_acc, their_block_id, their_bank_hash, their_last_vote->slot, vtr->stake, total_stake );
   update_metrics_hfork( ctx, hfork_err, their_last_vote->slot, their_block_id );
 
-  int votes_err = fd_votes_count_vote( ctx->votes, vote_acc, vtr->stake, their_last_vote->slot, their_block_id );
+  /* One voter lookup, shared by every slot of this txn (the voter set
+     only changes at epoch boundaries, outside this function). */
+  fd_votes_vtr_t * votes_vtr = fd_votes_vtr_query( ctx->votes, vote_acc );
+
+  int votes_err = fd_votes_count_vote_vtr( ctx->votes, votes_vtr, vtr->stake, their_last_vote->slot, their_block_id );
   update_metrics_vote_slot( ctx, votes_err );
   if( FD_LIKELY( votes_err==FD_VOTES_SUCCESS ) ) publish_slot_confirmed( ctx, their_last_vote->slot, their_block_id, total_stake );
 
@@ -915,8 +919,13 @@ count_vote_txn( fd_tower_tile_t * ctx,
 
      https://github.com/anza-xyz/agave/blob/v2.3.7/core/src/cluster_info_vote_listener.rs#L483-L487 */
 
-  if( FD_UNLIKELY( !fd_tower_blocks_query( ctx->tower, their_last_vote->slot ) ) ) { ctx->metrics.gate_int[ FD_METRICS_ENUM_VOTE_INTERMEDIATE_GATE_V_UNKNOWN_SLOT_IDX ]++; return; }; /* we haven't replayed this block yet */
-  fd_hash_t const * our_block_id = fd_tower_blocks_canonical_block_id( ctx->tower, their_last_vote->slot );
+  fd_tower_blk_t const * our_blk = fd_tower_blocks_query( ctx->tower, their_last_vote->slot );
+  if( FD_UNLIKELY( !our_blk ) ) {
+     /* we haven't replayed this block yet */
+    ctx->metrics.gate_int[ FD_METRICS_ENUM_VOTE_INTERMEDIATE_GATE_V_UNKNOWN_SLOT_IDX ]++;
+    return;
+  };
+  fd_hash_t const * our_block_id = fd_tower_blk_canonical_block_id( our_blk );
   if( FD_UNLIKELY( 0!=memcmp( our_block_id, their_block_id, sizeof(fd_hash_t) ) ) ) { ctx->metrics.gate_int[ FD_METRICS_ENUM_VOTE_INTERMEDIATE_GATE_V_UNKNOWN_BLOCK_ID_IDX ]++; return; } /* we don't recognize this block id */
 
   /* At this point, we know we have replayed the same slot and also have
@@ -952,7 +961,7 @@ count_vote_txn( fd_tower_tile_t * ctx,
 
     if( FD_UNLIKELY( their_intermediate_vote->slot <= ctx->tower->root ) ) { ctx->metrics.vote_slots[ FD_METRICS_ENUM_VOTE_SLOT_RESULT_V_TOO_OLD_IDX ]++; continue; }
 
-    fd_tower_blk_t * tower_blk = fd_tower_blocks_query( ctx->tower, their_intermediate_vote->slot );
+    fd_tower_blk_t const * tower_blk = fd_tower_blocks_query( ctx->tower, their_intermediate_vote->slot );
     if( FD_UNLIKELY( !tower_blk ) ) { ctx->metrics.vote_slots[ FD_METRICS_ENUM_VOTE_SLOT_RESULT_V_UNKNOWN_SLOT_IDX ]++; continue; }
 
     /* Otherwise, we count the vote using our own block id for that slot
@@ -963,8 +972,8 @@ count_vote_txn( fd_tower_tile_t * ctx,
 
        https://github.com/anza-xyz/agave/blob/v2.3.7/core/src/cluster_info_vote_listener.rs#L500 */
 
-    fd_hash_t const * intermediate_block_id = fd_tower_blocks_canonical_block_id( ctx->tower, their_intermediate_vote->slot );
-    int votes_err = fd_votes_count_vote( ctx->votes, vote_acc, vtr->stake, their_intermediate_vote->slot, intermediate_block_id );
+    fd_hash_t const * intermediate_block_id = fd_tower_blk_canonical_block_id( tower_blk );
+    int votes_err = fd_votes_count_vote_vtr( ctx->votes, votes_vtr, vtr->stake, their_intermediate_vote->slot, intermediate_block_id );
     update_metrics_vote_slot( ctx, votes_err );
     if( FD_LIKELY( votes_err==FD_VOTES_SUCCESS ) ) publish_slot_confirmed( ctx, their_intermediate_vote->slot, intermediate_block_id, total_stake );
   }

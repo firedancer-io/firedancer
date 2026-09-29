@@ -131,6 +131,9 @@ FD_STATIC_ASSERT( sizeof(fd_votes_blk_t)==72UL, fd_votes_blk );
 struct fd_votes;
 typedef struct fd_votes fd_votes_t;
 
+struct fd_votes_vtr;
+typedef struct fd_votes_vtr fd_votes_vtr_t;
+
 FD_PROTOTYPES_BEGIN
 
 /* fd_votes_{align,footprint} return the required alignment and
@@ -211,6 +214,28 @@ fd_votes_count_vote( fd_votes_t *        votes,
                      ulong               stake,
                      ulong               slot,
                      fd_hash_t const *   block_id );
+
+/* fd_votes_vtr_query returns the voter tracked for vote_acc, or NULL
+   if there is none.  The handle stays valid until the next
+   fd_votes_update_voters.  fd_votes_count_vote_vtr is
+   fd_votes_count_vote with the voter looked up by the caller (NULL for
+   an unknown voter): a caller counting several slots of one vote txn
+   looks the voter up once.  For every (votes, vote_acc, stake, slot,
+   block_id), fd_votes_count_vote_vtr( votes, fd_votes_vtr_query( votes,
+   vote_acc ), stake, slot, block_id ) returns what fd_votes_count_vote
+   does and leaves votes in the same state, VOTE_TOO_NEW before
+   UNKNOWN_VTR included. */
+
+fd_votes_vtr_t *
+fd_votes_vtr_query( fd_votes_t *        votes,
+                    fd_pubkey_t const * vote_acc );
+
+int
+fd_votes_count_vote_vtr( fd_votes_t *      votes,
+                         fd_votes_vtr_t *  vtr,
+                         ulong             stake,
+                         ulong             slot,
+                         fd_hash_t const * block_id );
 
 /* fd_votes_update_voters updates the set of voters tracked by votes.
    Should be called on each epoch boundary when the stake-weighted voter
