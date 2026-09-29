@@ -2,6 +2,10 @@
 #include "fd_txncache_writer.h"
 #include "../restore/utils/fd_ssmanifest_parser.h"
 #include "../restore/utils/fd_slot_delta_parser.h"
+#include "../../flamenco/runtime/fd_system_ids.h"
+#include "../../flamenco/runtime/program/vote/fd_vote_codec_tmpl.h"
+#include "../../flamenco/runtime/program/vote/fd_vote_state_versioned.h"
+#include "../../flamenco/runtime/program/fd_vote_program.h"
 #include "../../flamenco/runtime/tests/fd_svm_mini.h"
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "../../flamenco/runtime/fd_txncache_shmem.h"
@@ -220,10 +224,51 @@ populate_txncache( fd_txncache_t * tc,
   return s3;
 }
 
+/* count_occurrences returns how many times needle appears in buf. */
+
+static ulong
+count_occurrences( uchar const * buf,
+                   ulong         buf_sz,
+                   void const *  needle,
+                   ulong         needle_sz ) {
+  ulong cnt = 0UL;
+  for( ulong i=0UL; i+needle_sz<=buf_sz; i++ ) cnt += (ulong)!memcmp( buf+i, needle, needle_sz );
+  return cnt;
+}
+
+/* put_vote_account writes a v4 vote account for node with the given
+   authorized voter entries (ascending epochs). */
+
 static void
-test_manifest_roundtrip( fd_wksp_t * wksp,
-                         fd_bank_t * bank ) {
+put_vote_account( fd_svm_mini_t *     mini,
+                  fd_pubkey_t const * vote,
+                  fd_pubkey_t const * node,
+                  ulong               voter_cnt,
+                  ulong const *       voter_epochs,
+                  fd_pubkey_t const * voters ) {
+  fd_vote_state_versioned_t versioned[1];
+  FD_TEST( fd_vote_state_versioned_new( versioned, fd_vote_state_versioned_enum_v4 ) );
+  fd_vote_authorized_voters_t * av = &versioned->v4.authorized_voters;
+  versioned->v4.node_pubkey = *node;
+  for( ulong i=0UL; i<voter_cnt; i++ ) {
+    fd_vote_authorized_voter_t * ele = fd_vote_authorized_voters_pool_ele_acquire( av->pool );
+    *ele = (fd_vote_authorized_voter_t){ .epoch = voter_epochs[i], .pubkey = voters[i], .prio = (uchar)i };
+    fd_vote_authorized_voters_treap_ele_insert( av->treap, ele, av->pool );
+  }
+  uchar data[ FD_VOTE_STATE_V4_SZ ] = {0};
+  FD_TEST( !fd_vote_state_versioned_serialize( versioned, data, sizeof(data) ) );
+
+  fd_acc_t acc = { .lamports = 1UL, .data = data, .data_len = sizeof(data) };
+  memcpy( acc.pubkey, vote,                         32UL );
+  memcpy( acc.owner,  fd_solana_vote_program_id.uc, 32UL );
+  fd_svm_mini_put_account_rooted( mini, &acc );
+}
+
+static void
+test_manifest_roundtrip( fd_svm_mini_t * mini,
+                         fd_bank_t *     bank ) {
   FD_LOG_NOTICE(( "test_manifest_roundtrip" ));
+  fd_wksp_t * wksp = mini->wksp;
 
   static fd_hash_t const block_id = { .ul = { 0x0123456789ABCDEFUL, 0xFEDCBA9876543210UL, 0x0F1E2D3C4B5A6978UL, 0x8877665544332211UL } };
   bank->f.block_id = block_id;
@@ -263,6 +308,35 @@ test_manifest_roundtrip( fd_wksp_t * wksp,
     }
   }
 
+  /* Give every vote account two authorized voters, one from epoch 0
+     and one from the current epoch, so the set keyed E-1 must list
+     the first and the sets keyed E, E+1 the second.  Then add
+     three vote accounts to the t_3 set (key E-1): one sharing its node
+     with validator 0, one without an account, and one whose only voter
+     entry starts at E+1; the maps must skip the last two. */
+  fd_pubkey_t voters   [ VALIDATOR_CNT ];
+  fd_pubkey_t voters_hi[ VALIDATOR_CNT ];
+  ulong const voter_epochs[2] = { 0UL, bank->f.epoch };
+  for( ulong i=0UL; i<VALIDATOR_CNT; i++ ) {
+    voters   [i] = (fd_pubkey_t){ .ul = { 0xD0UL+i, 8 } };
+    voters_hi[i] = (fd_pubkey_t){ .ul = { 0xD8UL+i, 9 } };
+    fd_pubkey_t const vs[2] = { voters[i], voters_hi[i] };
+    put_vote_account( mini, &votes[i], &identities[i], 2UL, voter_epochs, vs );
+  }
+  fd_pubkey_t extra_vote   = { .ul = { 0xE1, 4 } };
+  fd_pubkey_t extra_voter  = { .ul = { 0xE2, 5 } };
+  fd_pubkey_t phantom_vote = { .ul = { 0xF1, 6 } };
+  fd_pubkey_t phantom_node = { .ul = { 0xF2, 7 } };
+  fd_pubkey_t late_vote    = { .ul = { 0xF3, 8 } };
+  fd_pubkey_t late_node    = { .ul = { 0xF4, 9 } };
+  fd_pubkey_t late_voter   = { .ul = { 0xF5, 10 } };
+  ulong const late_epoch = bank->f.epoch+1UL;
+  put_vote_account( mini, &extra_vote, &identities[0], 1UL, voter_epochs, &extra_voter );
+  put_vote_account( mini, &late_vote,  &late_node,     1UL, &late_epoch,  &late_voter  );
+  fd_vote_stakes_snap_insert_t_n( vote_stakes, fork_id, 3UL, &extra_vote,   &identities[0], 3000000UL, 300U, no_bls );
+  fd_vote_stakes_snap_insert_t_n( vote_stakes, fork_id, 3UL, &phantom_vote, &phantom_node,  3000000UL, 300U, no_bls );
+  fd_vote_stakes_snap_insert_t_n( vote_stakes, fork_id, 3UL, &late_vote,    &late_node,     3000000UL, 300U, no_bls );
+
   /* Set non-default SIMD-0232 collectors: distinct inflation and block
      collectors for vote0 on the t_1 tag (epoch), and a block-only
      override for vote1 on the t_2 tag (epoch-1). */
@@ -279,7 +353,10 @@ test_manifest_roundtrip( fd_wksp_t * wksp,
 
   seed_epoch_credits( bank );
 
-  ulong manifest_sz = fd_snap_manifest_serialized_sz( bank, &identities[0] );
+  fd_ssmanifest_writer_t * writer   = test_alloc( wksp, alignof(fd_ssmanifest_writer_t), sizeof(fd_ssmanifest_writer_t) );
+  uchar *                  acc_data = test_alloc( wksp, 1UL, FD_RUNTIME_ACC_SZ_MAX );
+  fd_ssmanifest_writer_init( writer, bank, &identities[0], mini->runtime->accdb, bank->accdb_fork_id, acc_data );
+  ulong manifest_sz = writer->serialized_sz;
   FD_TEST( manifest_sz>0UL );
   FD_LOG_NOTICE(( "manifest serialized size: %lu", manifest_sz ));
 
@@ -297,8 +374,6 @@ test_manifest_roundtrip( fd_wksp_t * wksp,
   uchar * buf       = test_alloc( wksp, alignof(uchar), manifest_sz+stake_delegation_sz );
   uchar * chunk_buf = test_alloc( wksp, alignof(uchar), FD_SSMANIFEST_BUF_MIN );
 
-  fd_ssmanifest_writer_t writer[1];
-  fd_ssmanifest_writer_init( writer, bank, &identities[0] );
   ulong total_written             = 0UL;
   ulong stake_delegations_len_off = ULONG_MAX;
   int   injected                  = 0;
@@ -340,6 +415,54 @@ test_manifest_roundtrip( fd_wksp_t * wksp,
   FD_TEST( injected );
   FD_TEST( stake_delegations_len_off!=ULONG_MAX );
   FD_TEST( total_written==manifest_sz+stake_delegation_sz );
+
+  /* Epoch stakes maps: every set lists each vote account with its
+     authorized voter and under its node.  The parser discards both
+     maps, so entries are located by their unique byte patterns. */
+  {
+    uchar needle[ 32UL+8UL+2UL*32UL+8UL ];
+
+    /* (vote, voter) pairs: the epoch 0 voter in the E-1 set, the
+       current epoch voter in the E, E+1 sets; the E-3, E-2 sets have
+       no maps */
+    for( ulong i=0UL; i<VALIDATOR_CNT; i++ ) {
+      memcpy( needle, &votes[i], 32UL );
+      memcpy( needle+32UL, &voters[i], 32UL );
+      FD_TEST( count_occurrences( buf, total_written, needle, 64UL )==1UL );
+      memcpy( needle+32UL, &voters_hi[i], 32UL );
+      FD_TEST( count_occurrences( buf, total_written, needle, 64UL )==2UL );
+    }
+    memcpy( needle,      &extra_vote,  32UL );
+    memcpy( needle+32UL, &extra_voter, 32UL );
+    FD_TEST( count_occurrences( buf, total_written, needle, 64UL )==1UL );
+    /* the phantom and late vote accounts only appear as stakes entries */
+    FD_TEST( count_occurrences( buf, total_written, &phantom_vote, 32UL )==1UL );
+    FD_TEST( count_occurrences( buf, total_written, &late_vote,    32UL )==1UL );
+
+    /* node entries: node, vote count, votes, total stake */
+    for( ulong i=0UL; i<VALIDATOR_CNT; i++ ) {
+      memcpy( needle, &identities[i], 32UL );
+      FD_STORE( ulong, needle+32UL, 1UL );
+      memcpy( needle+40UL, &votes[i], 32UL );
+      FD_STORE( ulong, needle+72UL, 1000000000UL );
+      FD_TEST( count_occurrences( buf, total_written, needle, 80UL )==2UL ); /* t_1 and t_2 */
+      for( ulong n=3UL; n<=5UL; n++ ) {
+        FD_STORE( ulong, needle+72UL, 1000000UL*n );
+        FD_TEST( count_occurrences( buf, total_written, needle, 80UL )==(ulong)( n==3UL && i!=0UL ) );
+      }
+    }
+    /* validator 0 shares its node with the extra vote account in t_3 */
+    memcpy( needle, &identities[0], 32UL );
+    FD_STORE( ulong, needle+32UL,  2UL );
+    FD_STORE( ulong, needle+104UL, 2UL*3000000UL );
+    memcpy( needle+40UL, &votes[0],   32UL );
+    memcpy( needle+72UL, &extra_vote, 32UL );
+    ulong hits = count_occurrences( buf, total_written, needle, 112UL );
+    memcpy( needle+40UL, &extra_vote, 32UL );
+    memcpy( needle+72UL, &votes[0],   32UL );
+    hits += count_occurrences( buf, total_written, needle, 112UL );
+    FD_TEST( hits==1UL );
+  }
 
   fd_snapshot_manifest_t * manifest = test_alloc( wksp, alignof(fd_snapshot_manifest_t), sizeof(fd_snapshot_manifest_t) );
   memset( manifest, 0, sizeof(fd_snapshot_manifest_t) );
@@ -443,8 +566,9 @@ test_manifest_roundtrip( fd_wksp_t * wksp,
         if( manifest->epoch_stakes[i].epoch==bank->f.epoch+2UL-n ) tn = &manifest->epoch_stakes[i];
       }
       FD_TEST( tn );
-      FD_TEST( tn->vote_stakes_len==VALIDATOR_CNT );
-      FD_TEST( tn->total_stake==VALIDATOR_CNT*1000000UL*n );
+      ulong cnt = VALIDATOR_CNT + ( n==3UL ? 3UL : 0UL );
+      FD_TEST( tn->vote_stakes_len==cnt );
+      FD_TEST( tn->total_stake==cnt*1000000UL*n );
       for( ulong i=0UL; i<tn->vote_stakes_len; i++ ) {
         fd_snapshot_manifest_vote_stakes_t const * vs = &tn->vote_stakes[i];
         FD_TEST( !memcmp( vs->commission_inflation, zero32, 32UL ) );
@@ -456,6 +580,9 @@ test_manifest_roundtrip( fd_wksp_t * wksp,
         for( ulong j=0UL; j<VALIDATOR_CNT; j++ ) {
           found |= !memcmp( vs->vote, &votes[j], 32UL ) && !memcmp( vs->identity, &identities[j], 32UL );
         }
+        found |= !memcmp( vs->vote, &extra_vote,   32UL ) && !memcmp( vs->identity, &identities[0], 32UL );
+        found |= !memcmp( vs->vote, &phantom_vote, 32UL ) && !memcmp( vs->identity, &phantom_node,  32UL );
+        found |= !memcmp( vs->vote, &late_vote,    32UL ) && !memcmp( vs->identity, &late_node,     32UL );
         FD_TEST( found );
       }
     }
@@ -470,7 +597,7 @@ test_manifest_roundtrip( fd_wksp_t * wksp,
                     manifest->epoch_stakes[i].total_stake,
                     manifest->epoch_stakes[i].vote_stakes_len ));
     FD_TEST( manifest->epoch_stakes[i].epoch==bank->f.epoch-3UL+i );
-    FD_TEST( manifest->epoch_stakes[i].vote_stakes_len==VALIDATOR_CNT );
+    FD_TEST( manifest->epoch_stakes[i].vote_stakes_len==VALIDATOR_CNT+( i==2UL ? 3UL : 0UL ) ); /* t_3 has the three extras */
     if( manifest->epoch_stakes[i].epoch>=bank->f.epoch ) {
       for( ulong j=0UL; j<manifest->epoch_stakes[i].vote_stakes_len; j++ ) {
         FD_TEST( manifest->epoch_stakes[i].vote_stakes[j].commission==1234U );
@@ -1650,7 +1777,7 @@ main( int     argc,
   fd_bank_t * bank = fd_svm_mini_bank( mini, bank_idx );
   FD_TEST( bank );
 
-  test_manifest_roundtrip( wksp, bank );
+  test_manifest_roundtrip( mini, bank );
   test_allocs_reclaim( wksp );
   test_txncache_writer_arena_sz();
   test_txncache_roundtrip_empty( wksp );

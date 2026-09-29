@@ -473,7 +473,7 @@ main_pid_namespace( void * _args ) {
            not need the accounts.db fd.  Withhold it to keep the gui at
            least privilege. */
         if( FD_UNLIKELY( !strcmp( tile->name, "gui" ) ) ) tile_uses_accdb_ro = 0;
-        if( FD_UNLIKELY( !strcmp( tile->name, "snapmk" ) ) ) tile_uses_accdb = tile_uses_accdb_ro = 0;
+        if( FD_UNLIKELY( !strcmp( tile->name, "snapmk" ) ) ) { tile_uses_accdb = 0; tile_uses_accdb_ro = 1; }
 
         if( FD_UNLIKELY( tile_uses_accdb ) ) {
           if( FD_UNLIKELY( -1==fcntl( FD_ACCDB_FD_RW, F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));

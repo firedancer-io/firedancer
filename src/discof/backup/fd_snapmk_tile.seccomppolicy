@@ -10,7 +10,10 @@
 #         well known FD_SNAP_FD numbers before the tile is
 #         spawned; the tile writes snapshots through these and never
 #         opens or unlinks files itself.
-uint logfile_fd, uint dir_fd, uint pool_min_fd, uint pool_max_fd
+#
+# accdb_ro_fd: The read-only accounts database file descriptor, used
+#         to read vote accounts for the snapshot manifest.
+uint logfile_fd, uint dir_fd, uint pool_min_fd, uint pool_max_fd, uint accdb_ro_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -81,6 +84,9 @@ fcntl: (and (>= (arg 0) pool_min_fd)
 renameat2: (and (eq (arg 0) dir_fd)
                 (eq (arg 2) dir_fd)
                 (eq (arg 4) 0))
+
+# snapshot manifest: vote account reads on accdb cache miss
+preadv2: (eq (arg 0) accdb_ro_fd)
 
 # snapshot: before reading accounts, the tile parks the accdb
 # compaction epoch and yields while waiting for the accdb tile to

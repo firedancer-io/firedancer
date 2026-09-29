@@ -1107,6 +1107,37 @@ test_vote_state_alignment( void ) {
   }
 }
 
+/* fd_vote_account_authorized_voter returns the last entry at or before
+   the requested epoch, matching agave's get_authorized_voter. */
+
+static void
+test_authorized_voter_accessor( void ) {
+  static fd_pubkey_t const voters[3] = { { .ul = { 1UL } }, { .ul = { 2UL } }, { .ul = { 3UL } } };
+  static ulong const       epochs[3] = { 2UL, 4UL, 6UL };
+  uint const kinds[2] = { fd_vote_state_versioned_enum_v3, fd_vote_state_versioned_enum_v4 };
+  for( ulong k=0UL; k<2UL; k++ ) {
+    fd_vote_state_versioned_t versioned[1];
+    FD_TEST( fd_vote_state_versioned_new( versioned, kinds[k] ) );
+    fd_vote_authorized_voters_t * av = kinds[k]==fd_vote_state_versioned_enum_v4 ? &versioned->v4.authorized_voters
+                                                                                 : &versioned->v3.authorized_voters;
+    for( ulong i=0UL; i<3UL; i++ ) {
+      fd_vote_authorized_voter_t * ele = fd_vote_authorized_voters_pool_ele_acquire( av->pool );
+      *ele = (fd_vote_authorized_voter_t){ .epoch = epochs[i], .pubkey = voters[i], .prio = (uchar)epochs[i] };
+      fd_vote_authorized_voters_treap_ele_insert( av->treap, ele, av->pool );
+    }
+    uchar data[ FD_VOTE_STATE_V4_SZ ] = {0};
+    FD_TEST( !fd_vote_state_versioned_serialize( versioned, data, sizeof(data) ) );
+
+    fd_pubkey_t out;
+    FD_TEST(  fd_vote_account_authorized_voter( data, sizeof(data), 1UL, &out ) ); /* before the first entry */
+    FD_TEST( !fd_vote_account_authorized_voter( data, sizeof(data), 2UL, &out ) && fd_memeq( &out, &voters[0], sizeof(fd_pubkey_t) ) );
+    FD_TEST( !fd_vote_account_authorized_voter( data, sizeof(data), 3UL, &out ) && fd_memeq( &out, &voters[0], sizeof(fd_pubkey_t) ) );
+    FD_TEST( !fd_vote_account_authorized_voter( data, sizeof(data), 4UL, &out ) && fd_memeq( &out, &voters[1], sizeof(fd_pubkey_t) ) );
+    FD_TEST( !fd_vote_account_authorized_voter( data, sizeof(data), 9UL, &out ) && fd_memeq( &out, &voters[2], sizeof(fd_pubkey_t) ) );
+    FD_TEST(  fd_vote_account_authorized_voter( data, 64UL,         9UL, &out ) ); /* truncated */
+  }
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -1134,6 +1165,7 @@ main( int     argc,
   test_epoch_credits_footprint();
   test_vote_instruction_footprints();
   test_vote_state_alignment();
+  test_authorized_voter_accessor();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_svm_test_halt( mini );
