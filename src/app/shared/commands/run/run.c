@@ -509,7 +509,8 @@ main_pid_namespace( void * _args ) {
         }
 
         int tile_uses_stake_spill = !strcmp( tile->name, "replay" ) || !strcmp( tile->name, "execle" ) ||
-                                    !strcmp( tile->name, "execrp" ) || !strcmp( tile->name, "snapin" );
+                                    !strcmp( tile->name, "execrp" ) || !strcmp( tile->name, "snapin" ) ||
+                                    !strcmp( tile->name, "snapmk" );
         if( FD_UNLIKELY( -1==fcntl( FD_STAKE_DELEGATIONS_FD, F_SETFD, tile_uses_stake_spill ? 0 : FD_CLOEXEC ) ) )
           FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 

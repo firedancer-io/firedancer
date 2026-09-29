@@ -1603,6 +1603,16 @@ fd_stake_delegations_iter_advance_disk_root_private( fd_stake_delegations_iter_t
   iter->ele = NULL;
 }
 
+void
+fd_stake_delegations_read_lock( fd_stake_delegations_t * stake_delegations ) {
+  fd_rwlock_read( &stake_delegations->lock );
+}
+
+void
+fd_stake_delegations_read_unlock( fd_stake_delegations_t * stake_delegations ) {
+  fd_rwlock_unread( &stake_delegations->lock );
+}
+
 fd_stake_delegations_iter_t *
 fd_stake_delegations_iter_init( fd_stake_delegations_iter_t *  iter,
                                 fd_stake_delegations_t const * stake_delegations ) {
