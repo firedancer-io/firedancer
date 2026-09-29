@@ -82,6 +82,7 @@ cb_rx_timeout( void * app_ctx,
 FD_UNIT_TEST( header_deadline ) {
   fd_grpc_client_reset( client );
   test_grpc_client_mock_conn( client );
+  client->conn->peer_settings.max_concurrent_streams = 1U;
 
   /* Deadline should not fire prior to expiration */
   FD_TEST( fd_grpc_client_stream_acquire_is_safe( client ) );
@@ -95,6 +96,7 @@ FD_UNIT_TEST( header_deadline ) {
   fd_grpc_h2_cb_headers( client->conn, &stream->s, NULL, 0UL, FD_H2_FLAG_END_HEADERS );
   fd_grpc_client_service_streams( client, deadline+1L );
   FD_TEST( client->stream_cnt==1 );
+  fd_h2_stream_reset( &stream->s, client->conn );
   fd_grpc_client_stream_release( client, stream );
   FD_TEST( client->stream_cnt==0 );
 
@@ -104,8 +106,11 @@ FD_UNIT_TEST( header_deadline ) {
   ulong const stream_id = stream->s.stream_id;
   fd_grpc_client_deadline_set( stream, FD_GRPC_DEADLINE_HEADER, deadline );
   FD_TEST( client->stream_cnt==1 );
+  FD_TEST( !fd_grpc_client_stream_acquire_is_safe( client ) );
   fd_grpc_client_service_streams( client, deadline+1L );
   FD_TEST( client->stream_cnt==0 );
+  FD_TEST( client->conn->stream_active_cnt[1]==0U );
+  FD_TEST( fd_grpc_client_stream_acquire_is_safe( client ) );
   stream = NULL; /* already freed */
 
   FD_TEST( fd_h2_rbuf_used_sz( client->frame_tx )==sizeof(fd_h2_rst_stream_t) );
@@ -120,19 +125,24 @@ FD_UNIT_TEST( header_deadline ) {
 FD_UNIT_TEST( rx_end_deadline ) {
   fd_grpc_client_reset( client );
   test_grpc_client_mock_conn( client );
+  client->conn->peer_settings.max_concurrent_streams = 1U;
 
   /* Deadline should not fire prior to expiration */
   FD_TEST( fd_grpc_client_stream_acquire_is_safe( client ) );
   fd_grpc_h2_stream_t * stream = fd_grpc_client_stream_acquire( client, 0UL );
+  fd_h2_stream_close_tx( &stream->s, client->conn );
   long const deadline = 1234L;
   fd_grpc_client_deadline_set( stream, FD_GRPC_DEADLINE_RX_END, deadline );
   fd_grpc_client_service_streams( client, deadline-1L );
   FD_TEST( client->stream_cnt==1 );
+  FD_TEST( !fd_grpc_client_stream_acquire_is_safe( client ) );
 
   /* Deadline should still fire after headers were received */
   fd_grpc_h2_cb_headers( client->conn, &stream->s, NULL, 0UL, FD_H2_FLAG_END_HEADERS );
   fd_grpc_client_service_streams( client, deadline+1L );
   FD_TEST( client->stream_cnt==0 );
+  FD_TEST( client->conn->stream_active_cnt[1]==0U );
+  FD_TEST( fd_grpc_client_stream_acquire_is_safe( client ) );
 }
 
 FD_UNIT_TEST( rx_stream_quota ) {
