@@ -816,8 +816,11 @@ telemetry = true
     #  "efficient" (experimental)
     #   Tiles are allowed to sleep when they have no work, letting the
     #   CPU cores sleep and reducing power draw, temperature, and host
-    #   load.  Tiles keep their pinned layout as in performance mode, so
-    #   stay maximally spread across the host CPU.
+    #   load.  With auto affinity, tiles keep a pinned layout similar to
+    #   performance mode, and stay maximally spread across the CPU so
+    #   they don't contend for cores, but tiles that wake each other the
+    #   most are packed in the same L3 cache domains to reduce wake
+    #   costs.
     #
     #   Sleeping and waking tiles has small overheads that can reduce
     #   throughput and increase latency when running under high load.

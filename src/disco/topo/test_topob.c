@@ -123,6 +123,28 @@ FD_UNIT_TEST( test_cpu_topo_assign ) {
   }
   assign_die_indices( cpus, package_ids, die_ids );
   for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) FD_TEST( cpus->cpu[ i ].die_idx==0UL );
+
+  /* L3 ids are qualified by package: the same cache id on two packages
+     is two domains, an unknown package or id is no domain, and the
+     dense indices are assigned in CPU order. */
+  int const l3_packages[] = {  0,  0,  1,  1,  0, -1,  1,  0 };
+  int const l3_ids[]      = {  5,  5,  5,  9,  9,  5, -1,  5 };
+  ulong const l3_expected[] = { 0UL, 0UL, 1UL, 2UL, 3UL, ULONG_MAX, ULONG_MAX, 0UL };
+  cpus->cpu_cnt = sizeof(l3_packages)/sizeof(l3_packages[0]);
+  for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) cpus->cpu[ i ].online = 1;
+  assign_l3_indices( cpus, l3_packages, l3_ids );
+  FD_TEST( cpus->l3_cnt==4UL );
+  for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) FD_TEST( cpus->cpu[ i ].l3_idx==l3_expected[ i ] );
+  FD_TEST( !fd_topo_cpus_l3_complete( cpus ) ); /* two CPUs without a domain */
+  cpus->cpu[ 5 ].online = 0; cpus->cpu[ 6 ].online = 0;
+  FD_TEST( fd_topo_cpus_l3_complete( cpus ) );  /* offline CPUs do not count */
+
+  cpus->cpu_cnt = FD_TILE_MAX;
+  for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) { package_ids[ i ] = 0; die_ids[ i ] = 3; cpus->cpu[ i ].online = 1; }
+  assign_l3_indices( cpus, package_ids, die_ids );
+  FD_TEST( cpus->l3_cnt==1UL );
+  for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) FD_TEST( cpus->cpu[ i ].l3_idx==0UL );
+  FD_TEST( !fd_topo_cpus_l3_complete( cpus ) ); /* one domain: nothing to pack */
 }
 
 /* ---- Tile specification ------------------------------------------------ */
@@ -134,12 +156,15 @@ typedef struct { char const * name; ulong cnt; } tile_spec_t;
 /* Create a synthetic HT CPU topology.
    physical_cores physical cores on a single NUMA node.
    Core i has HT sibling at physical_cores+i.
-   Total logical CPUs = 2 * physical_cores. */
+   Total logical CPUs = 2 * physical_cores.
+   l3_cores physical cores share an L3 (0: no cache topology). */
 static void
 make_cpus( fd_topo_cpus_t * cpus,
-           ulong            physical_cores ) {
+           ulong            physical_cores,
+           ulong            l3_cores ) {
   fd_memset( cpus, 0, sizeof(*cpus) );
   cpus->numa_node_cnt = 1UL;
+  cpus->l3_cnt        = l3_cores ? (physical_cores+l3_cores-1UL)/l3_cores : 0UL;
   cpus->cpu_cnt       = 2UL * physical_cores;
   for( ulong i=0UL; i<physical_cores; i++ ) {
     cpus->cpu[ i ].idx       = i;
@@ -147,6 +172,7 @@ make_cpus( fd_topo_cpus_t * cpus,
     cpus->cpu[ i ].numa_node = 0UL;
     cpus->cpu[ i ].sibling   = physical_cores + i;
     cpus->cpu[ i ].die_idx   = 0UL;
+    cpus->cpu[ i ].l3_idx    = l3_cores ? i/l3_cores : ULONG_MAX;
   }
   for( ulong i=0UL; i<physical_cores; i++ ) {
     ulong s = physical_cores + i;
@@ -155,6 +181,7 @@ make_cpus( fd_topo_cpus_t * cpus,
     cpus->cpu[ s ].numa_node = 0UL;
     cpus->cpu[ s ].sibling   = i;
     cpus->cpu[ s ].die_idx   = 0UL;
+    cpus->cpu[ s ].l3_idx    = cpus->cpu[ i ].l3_idx;
   }
 }
 
@@ -232,15 +259,17 @@ print_layout( fd_topo_t const * topo,
    expected[i] = NULL       →  cpu unassigned (blocked / unused)
    Entries beyond expected_len must also be unassigned. */
 static void
-run_test( ulong                 physical_cores,
-          tile_spec_t const *   tiles,
-          ulong const *         blocklist,      /* ULONG_MAX terminated */
-          int                   reserve_agave,
-          ulong                 expected_len,
-          char const * const *  expected ) {
+run_layout( ulong                 physical_cores,
+            ulong                 l3_cores,
+            int                   efficient,
+            tile_spec_t const *   tiles,
+            ulong const *         blocklist,      /* ULONG_MAX terminated */
+            int                   reserve_agave,
+            ulong                 expected_len,
+            char const * const *  expected ) {
   /* Build CPU topology */
   fd_topo_cpus_t cpus[1];
-  make_cpus( cpus, physical_cores );
+  make_cpus( cpus, physical_cores, l3_cores );
   ulong cpu_cnt = cpus->cpu_cnt;
 
   /* Build tile topology */
@@ -249,6 +278,7 @@ run_test( ulong                 physical_cores,
   fd_memset( topo, 0, sizeof(*topo) );
   make_tiles( topo, tiles );
   set_blocklist( topo, blocklist );
+  topo->sleep_obj_id = efficient ? 0UL : ULONG_MAX; /* fd_topob_sleep sets it in efficient mode */
 
   /* Run the layout algorithm */
   fd_topob_auto_layout_cpus( topo, cpus, reserve_agave );
@@ -280,6 +310,16 @@ run_test( ulong                 physical_cores,
   FD_TEST( ok );
 }
 
+static void
+run_test( ulong                 physical_cores,
+          tile_spec_t const *   tiles,
+          ulong const *         blocklist,      /* ULONG_MAX terminated */
+          int                   reserve_agave,
+          ulong                 expected_len,
+          char const * const *  expected ) {
+  run_layout( physical_cores, 0UL, 0, tiles, blocklist, reserve_agave, expected_len, expected );
+}
+
 /* ======================================================================== */
 /*  Tile definitions                                                        */
 /* ======================================================================== */
@@ -292,6 +332,21 @@ static tile_spec_t const FIREDANCER_TILES[] = {
   { "metric", 1 }, { "diag",   1 }, { "genesi", 1 }, { "ipecho", 1 },
   { "admin",  1 },
   /* ordered tiles (36) */
+  { "net",    2 }, { "quic",   1 }, { "verify", 6 }, { "dedup",  1 },
+  { "resolv", 1 }, { "pack",   1 }, { "execle", 2 }, { "poh",    1 },
+  { "shred",  1 }, { "sign",   2 }, { "gui",    1 }, { "gossvf", 2 },
+  { "gossip", 1 }, { "repair", 1 }, { "replay", 1 }, { "execrp",10 },
+  { "txsend", 1 }, { "tower",  1 },
+  { NULL, 0 }
+};
+
+/* --- Firedancer default in efficient mode (adds the mwaitx tile) -------- */
+
+static tile_spec_t const FIREDANCER_EFF_TILES[] = {
+  { "netlnk", 1 },
+  { "metric", 1 }, { "diag",   1 }, { "genesi", 1 }, { "ipecho", 1 },
+  { "admin",  1 }, { "waker",  1 },
+  { "mwaitx", 1 },
   { "net",    2 }, { "quic",   1 }, { "verify", 6 }, { "dedup",  1 },
   { "resolv", 1 }, { "pack",   1 }, { "execle", 2 }, { "poh",    1 },
   { "shred",  1 }, { "sign",   2 }, { "gui",    1 }, { "gossvf", 2 },
@@ -353,6 +408,45 @@ static char const * const FD_SKIP_HT[] = {
   /* 36 */ "txsend",
 };
 #define FD_SKIP_HT_LEN (sizeof(FD_SKIP_HT)/sizeof(FD_SKIP_HT[0]))
+
+/* ---- Firedancer efficient mode, skip-HT, no L3 packing -----------------
+   FD_SKIP_HT with the mwaitx tile last in ALWAYS: one L3 domain (or no
+   cache topology) keeps the sequential layout.                           */
+
+static char const * const FD_EFF_SKIP_HT[] = {
+  /*  0 */ __,        /*  1 */ "net",     /*  2 */ "net",     /*  3 */ "quic",
+  /*  4 */ "verify",  /*  5 */ "verify",  /*  6 */ "verify",  /*  7 */ "verify",
+  /*  8 */ "verify",  /*  9 */ "verify",  /* 10 */ "dedup",   /* 11 */ "resolv",
+  /* 12 */ "pack",    /* 13 */ "sign",    /* 14 */ "sign",    /* 15 */ "shred",
+  /* 16 */ "gui",     /* 17 */ "gossvf",  /* 18 */ "gossvf",  /* 19 */ "gossip",
+  /* 20 */ "repair",  /* 21 */ "replay",  /* 22 */ "tower",   /* 23 */ "mwaitx",
+  /* 24 */ "execle",  /* 25 */ "execle",  /* 26 */ "poh",     /* 27 */ "execrp",
+  /* 28 */ "execrp",  /* 29 */ "execrp",  /* 30 */ "execrp",  /* 31 */ "execrp",
+  /* 32 */ "execrp",  /* 33 */ "execrp",  /* 34 */ "execrp",  /* 35 */ "execrp",
+  /* 36 */ "execrp",  /* 37 */ "txsend",
+};
+#define FD_EFF_SKIP_HT_LEN (sizeof(FD_EFF_SKIP_HT)/sizeof(FD_EFF_SKIP_HT[0]))
+
+/* ---- Firedancer efficient mode, 48x2 in 8 L3 domains of 6 cores --------
+   Core 0 is blocked so L3 0 has 5 free cores and the hot pinned tiles
+   start in L3 1: mwaitx, replay and execrp fill L3 1-2.  The other
+   ALWAYS tiles then take the free cores in sequence (net, quic and
+   verify fill L3 0 first), the POST_START tiles last.  Floating tiles
+   are not packed: their cpu_idx only picks a NUMA node.               */
+
+static char const * const FD_EFF_48X2_L3[] = {
+  /*  0 */ __,        /*  1 */ "net",     /*  2 */ "net",     /*  3 */ "quic",
+  /*  4 */ "verify",  /*  5 */ "verify",  /*  6 */ "mwaitx",  /*  7 */ "replay",
+  /*  8 */ "execrp",  /*  9 */ "execrp",  /* 10 */ "execrp",  /* 11 */ "execrp",
+  /* 12 */ "execrp",  /* 13 */ "execrp",  /* 14 */ "execrp",  /* 15 */ "execrp",
+  /* 16 */ "execrp",  /* 17 */ "execrp",  /* 18 */ "verify",  /* 19 */ "verify",
+  /* 20 */ "verify",  /* 21 */ "verify",  /* 22 */ "dedup",   /* 23 */ "resolv",
+  /* 24 */ "pack",    /* 25 */ "sign",    /* 26 */ "sign",    /* 27 */ "shred",
+  /* 28 */ "gui",     /* 29 */ "gossvf",  /* 30 */ "gossvf",  /* 31 */ "gossip",
+  /* 32 */ "repair",  /* 33 */ "tower",   /* 34 */ "execle",  /* 35 */ "execle",
+  /* 36 */ "poh",     /* 37 */ "txsend",
+};
+#define FD_EFF_48X2_L3_LEN (sizeof(FD_EFF_48X2_L3)/sizeof(FD_EFF_48X2_L3[0]))
 
 /* ---- Frankendancer, skip-HT tile prefix (shared by 48/64/128) ----------
    Tiles on physical cores 1-21, core 0 blocked.
@@ -574,6 +668,43 @@ FD_UNIT_TEST( test_firedancer_64x2 ) {
 
 FD_UNIT_TEST( test_firedancer_128x2 ) {
   run_test( 128, FIREDANCER_TILES, BLOCKLIST_0H( 128 ), 0, FD_SKIP_HT_LEN, FD_SKIP_HT );
+}
+
+/* --- Firedancer efficient mode ------------------------------------------ */
+
+/* Performance mode ignores the cache topology */
+FD_UNIT_TEST( test_firedancer_48x2_l3_performance ) {
+  run_layout( 48, 6, 0, FIREDANCER_TILES, BLOCKLIST_0H( 48 ), 0, FD_SKIP_HT_LEN, FD_SKIP_HT );
+}
+
+/* One L3 domain, or none known, keeps the sequential layout */
+FD_UNIT_TEST( test_firedancer_48x2_efficient_one_l3 ) {
+  run_layout( 48, 48, 1, FIREDANCER_EFF_TILES, BLOCKLIST_0H( 48 ), 0, FD_EFF_SKIP_HT_LEN, FD_EFF_SKIP_HT );
+  run_layout( 48,  0, 1, FIREDANCER_EFF_TILES, BLOCKLIST_0H( 48 ), 0, FD_EFF_SKIP_HT_LEN, FD_EFF_SKIP_HT );
+}
+
+FD_UNIT_TEST( test_firedancer_48x2_efficient_l3 ) {
+  run_layout( 48, 6, 1, FIREDANCER_EFF_TILES, BLOCKLIST_0H( 48 ), 0, FD_EFF_48X2_L3_LEN, FD_EFF_48X2_L3 );
+}
+
+/* Too few cores to give every hot tile its own: sequential layout */
+FD_UNIT_TEST( test_firedancer_32x2_efficient_l3 ) {
+  static fd_topo_t _topo[1];
+  fd_topo_t * topo = _topo;
+  fd_memset( topo, 0, sizeof(*topo) );
+  make_tiles( topo, FIREDANCER_EFF_TILES );
+  set_blocklist( topo, BLOCKLIST_0H( 32 ) );
+
+  fd_topo_cpus_t cpus[1];
+  make_cpus( cpus, 32, 0 );
+  fd_topob_auto_layout_cpus( topo, cpus, 0 );
+  ulong expected[ FD_TOPO_MAX_TILES ];
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) expected[ i ] = topo->tiles[ i ].cpu_idx;
+
+  make_cpus( cpus, 32, 6 );
+  topo->sleep_obj_id = 0UL;
+  fd_topob_auto_layout_cpus( topo, cpus, 0 );
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) FD_TEST( topo->tiles[ i ].cpu_idx==expected[ i ] );
 }
 
 /* --- Frankendancer (with agave visible in expected arrays) -------------- */

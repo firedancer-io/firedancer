@@ -84,6 +84,39 @@ assign_die_indices( fd_topo_cpus_t * cpus,
   }
 }
 
+static void
+assign_l3_indices( fd_topo_cpus_t * cpus,
+                   int const *      package_ids,
+                   int const *      l3_ids ) {
+  cpus->l3_cnt = 0UL;
+  for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) {
+    cpus->cpu[ i ].l3_idx = ULONG_MAX;
+    if( FD_UNLIKELY( package_ids[ i ]<0 || l3_ids[ i ]<0 ) ) continue;
+
+    for( ulong j=0UL; j<i; j++ ) {
+      if( package_ids[ i ]==package_ids[ j ] && l3_ids[ i ]==l3_ids[ j ] ) {
+        cpus->cpu[ i ].l3_idx = cpus->cpu[ j ].l3_idx;
+        break;
+      }
+    }
+    if( cpus->cpu[ i ].l3_idx==ULONG_MAX ) cpus->cpu[ i ].l3_idx = cpus->l3_cnt++;
+  }
+}
+
+static int
+read_l3_id( ulong cpu_idx ) {
+  for( ulong index=0UL; index<8UL; index++ ) {
+    char path[ PATH_MAX ];
+    fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/devices/system/cpu/cpu%lu/cache/index%lu/level", cpu_idx, index );
+    int level = read_topology_id( path );
+    if( level<0 ) return -1;
+    if( level!=3 ) continue;
+    fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/devices/system/cpu/cpu%lu/cache/index%lu/id", cpu_idx, index );
+    return read_topology_id( path );
+  }
+  return -1;
+}
+
 static ulong
 fd_topo_cpu_cnt( void ) {
   char path[ PATH_MAX ];
@@ -127,6 +160,7 @@ fd_topo_cpus_init( fd_topo_cpus_t * cpus ) {
 
   int package_ids[ FD_TILE_MAX ];
   int die_ids    [ FD_TILE_MAX ];
+  int l3_ids     [ FD_TILE_MAX ];
   for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) {
     cpus->cpu[ i ].idx = i;
     cpus->cpu[ i ].online = fd_topo_cpus_online( i );
@@ -139,13 +173,24 @@ fd_topo_cpus_init( fd_topo_cpus_t * cpus ) {
     package_ids[ i ] = read_topology_id( path );
     fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/devices/system/cpu/cpu%lu/topology/die_id", i );
     die_ids[ i ] = read_topology_id( path );
+    l3_ids[ i ] = cpus->cpu[ i ].online ? read_l3_id( i ) : -1;
   }
   assign_die_indices( cpus, package_ids, die_ids );
+  assign_l3_indices( cpus, package_ids, l3_ids );
+}
+
+int
+fd_topo_cpus_l3_complete( fd_topo_cpus_t const * cpus ) {
+  if( FD_UNLIKELY( cpus->l3_cnt<2UL ) ) return 0;
+  for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) {
+    if( FD_UNLIKELY( cpus->cpu[ i ].online && cpus->cpu[ i ].l3_idx==ULONG_MAX ) ) return 0;
+  }
+  return 1;
 }
 
 void
 fd_topo_cpus_printf( fd_topo_cpus_t * cpus ) {
   for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) {
-    FD_LOG_NOTICE(( "cpu%lu: online=%i sibling=%lu numa_node=%lu die_idx=%lu", i, cpus->cpu[ i ].online, cpus->cpu[ i ].sibling, cpus->cpu[ i ].numa_node, cpus->cpu[ i ].die_idx ));
+    FD_LOG_NOTICE(( "cpu%lu: online=%i sibling=%lu numa_node=%lu die_idx=%lu l3_idx=%lu", i, cpus->cpu[ i ].online, cpus->cpu[ i ].sibling, cpus->cpu[ i ].numa_node, cpus->cpu[ i ].die_idx, cpus->cpu[ i ].l3_idx ));
   }
 }

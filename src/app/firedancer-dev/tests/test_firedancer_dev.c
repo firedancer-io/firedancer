@@ -11,8 +11,10 @@
 #include "../../shared_dev/commands/wksp.h"
 #include "../../shared_dev/commands/dev.h"
 #include "../../../discof/genesis/fd_genesi_tile.h"
+#include "../../../disco/topo/fd_cpu_topo.h"
 
 #include <errno.h>
+#include <stdio.h>
 #include <unistd.h>
 #include <poll.h>
 #include <fcntl.h>
@@ -190,6 +192,72 @@ test_rserve_shred_links( config_t const * config ) {
   }
 }
 
+/* In efficient mode with auto affinity the layout packs the mwaitx
+   tile with the tiles it wakes most, so on a host with more than one
+   L3 domain and a core for every pinned tile mwaitx shares its L3 with
+   replay and execrp:0.  Smaller hosts keep the sequential layout. */
+
+static void
+test_efficient_l3_layout( config_t const * config ) {
+  fd_topo_t const * topo = &config->topo;
+  FD_TEST( !strcmp( config->firedancer.layout.mode, "efficient" ) );
+  FD_TEST( !strcmp( config->layout.affinity, "auto" ) );
+
+  fd_topo_cpus_t cpus[1];
+  fd_topo_cpus_init( cpus );
+  ulong physical_cnt = 0UL;
+  for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) physical_cnt += cpus->cpu[ i ].online && ( cpus->cpu[ i ].sibling==ULONG_MAX || cpus->cpu[ i ].sibling>i );
+
+  /* The same eligibility the layout applies */
+  if( !fd_topo_cpus_l3_complete( cpus ) ) {
+    FD_LOG_NOTICE(( "skipping the efficient L3 layout check: %lu L3 domains or a partial cache topology", cpus->l3_cnt ));
+    return;
+  }
+  ulong l3_max_cores = 0UL; /* physical cores in the largest L3 domain */
+  for( ulong l3=0UL; l3<cpus->l3_cnt; l3++ ) {
+    ulong cores = 0UL;
+    for( ulong k=0UL; k<cpus->cpu_cnt; k++ ) cores += cpus->cpu[ k ].l3_idx==l3 && cpus->cpu[ k ].online && ( cpus->cpu[ k ].sibling==ULONG_MAX || cpus->cpu[ k ].sibling>k );
+    l3_max_cores = fd_ulong_max( l3_max_cores, cores );
+  }
+
+  ulong pinned_cnt = 0UL;
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) pinned_cnt += topo->tiles[ i ].cpu_idx!=ULONG_MAX;
+  /* The check below needs mwaitx, replay and execrp:0 to fit one
+     domain; the layout only guarantees that when a domain has room */
+  if( physical_cnt<pinned_cnt+topo->blocklist_cores_cnt || l3_max_cores<3UL ) {
+    FD_LOG_NOTICE(( "skipping the efficient L3 layout check: %lu L3 domains (largest %lu cores), %lu physical cores, %lu pinned tiles", cpus->l3_cnt, l3_max_cores, physical_cnt, pinned_cnt ));
+    return;
+  }
+
+  ulong mwaitx_idx = fd_topo_find_tile( topo, "mwaitx", 0UL );
+  ulong replay_idx = fd_topo_find_tile( topo, "replay", 0UL );
+  ulong execrp_idx = fd_topo_find_tile( topo, "execrp", 0UL );
+  FD_TEST( mwaitx_idx!=ULONG_MAX && replay_idx!=ULONG_MAX && execrp_idx!=ULONG_MAX );
+  ulong mwaitx_cpu = topo->tiles[ mwaitx_idx ].cpu_idx;
+  ulong replay_cpu = topo->tiles[ replay_idx ].cpu_idx;
+  ulong execrp_cpu = topo->tiles[ execrp_idx ].cpu_idx;
+  FD_TEST( mwaitx_cpu<cpus->cpu_cnt && replay_cpu<cpus->cpu_cnt && execrp_cpu<cpus->cpu_cnt );
+  FD_LOG_NOTICE(( "efficient layout: mwaitx cpu %lu (L3 %lu) replay cpu %lu (L3 %lu) execrp:0 cpu %lu (L3 %lu)",
+                  mwaitx_cpu, cpus->cpu[ mwaitx_cpu ].l3_idx, replay_cpu, cpus->cpu[ replay_cpu ].l3_idx, execrp_cpu, cpus->cpu[ execrp_cpu ].l3_idx ));
+  FD_TEST( cpus->cpu[ mwaitx_cpu ].l3_idx!=ULONG_MAX );
+  FD_TEST( cpus->cpu[ mwaitx_cpu ].l3_idx==cpus->cpu[ replay_cpu ].l3_idx );
+  FD_TEST( cpus->cpu[ mwaitx_cpu ].l3_idx==cpus->cpu[ execrp_cpu ].l3_idx );
+  FD_TEST( mwaitx_cpu!=replay_cpu && mwaitx_cpu!=execrp_cpu && replay_cpu!=execrp_cpu );
+}
+
+/* test_efficient_layout checks the efficient mode topology for the
+   same config with the gui enabled. */
+
+static void
+test_efficient_layout( config_t const * config ) {
+  static config_t eff_config[1];
+  *eff_config = *config;
+  strcpy( eff_config->firedancer.layout.mode, "efficient" );
+  eff_config->tiles.gui.enabled = 1;
+  fd_topo_initialize( eff_config );
+  test_efficient_l3_layout( eff_config );
+}
+
 int
 firedancer_dev_test_run( int     argc,
                          char ** argv,
@@ -219,6 +287,7 @@ firedancer_dev_test_run( int     argc,
       fd_topo_initialize( config );
       test_pack_execle_links( config );
       test_rserve_shred_links( config );
+      test_efficient_layout( config );
 
       ulong genesis_max_message_size = config->firedancer.development.genesis.max_file_size_mib<<20;
       ulong genesi_idx = fd_topo_find_tile( &config->topo, "genesi", 0UL );
@@ -368,6 +437,7 @@ main( int     argc,
     fd_topo_initialize( config );
     test_pack_execle_links( config );
     test_rserve_shred_links( config );
+    test_efficient_layout( config );
     fd_halt();
     return 0;
   }
