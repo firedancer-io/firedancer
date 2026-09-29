@@ -758,6 +758,8 @@ fd_chainer_verified_block_insert( fd_chainer_t * chainer,
 
   if( FD_LIKELY( fd_chainer_slot_version_query( chainer, slot, &block_id ) ) ) return NULL;
 
+  if( FD_UNLIKELY( fd_chainer_slot_version_cnt( chainer, slot )>=FD_CHAINER_SLOT_VER_MAX ) ) return NULL;
+
   fd_chainer_slotv_t * slotv = acquire_slotv( chainer, slot );
   slotv->block_id = block_id;
   orphans_resolve( chainer );

@@ -1163,6 +1163,25 @@ test_votor_notar_fallback( fd_wksp_t * wksp ) {
   }
   FD_TEST( slot_version_cnt( ctx->chainer, slot )==FD_CHAINER_SLOT_VER_MAX );
   FD_TEST( !fd_chainer_verify( ctx->chainer ) );
+
+  /* An 8th version (7th alternate block) arrives via votor repair event.
+     With the alternate-block admission cap in place, it must be dropped
+     without aborting, preserving the version count at FD_CHAINER_SLOT_VER_MAX. */
+  blk_t blkH[1];
+  memset( blkH, 0, sizeof(blk_t) );
+  blkH->slot            = slot;
+  blkH->parent_slot     = SNAP_SLOT;
+  blkH->parent_block_id = snap_bid;
+  blkH->fec_cnt         = 3U;
+  blkH->fec_root[ 0 ]   = blkA->fec_root[ 0 ];
+  blkH->fec_root[ 1 ]   = mkhash( 0xC10UL+NF_EXTRA_CNT );
+  blkH->fec_root[ 2 ]   = mkhash( 0xC20UL+NF_EXTRA_CNT );
+  blk_build( blkH );
+
+  deliver_votor( ctx, FD_VOTOR_SIG_REPAIR, slot, &blkH->block_id );
+  FD_TEST( !fd_chainer_slot_version_query( ctx->chainer, slot, &blkH->block_id ) );
+  FD_TEST( slot_version_cnt( ctx->chainer, slot )==FD_CHAINER_SLOT_VER_MAX );
+  FD_TEST( !fd_chainer_verify( ctx->chainer ) );
   pump( ctx );
 
   /* Metadata responses arrive in shuffled order. */
