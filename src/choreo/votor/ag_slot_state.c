@@ -108,7 +108,7 @@ verify_subtract_votes( ag_slot_state_t *     self,
     case AG_VOTE_KIND_NOTAR:
       voted_stake_for_hash->stake -= stake;
       votes->notar_or_skip_stake -= stake;
-      fd_memset( &votes->notar_sig[ rank ], 0, sizeof(fd_bls_sig_t) );
+      fd_bls_set_remove( votes->notar_set, rank );
       if( FD_UNLIKELY( rank==self->own_rank ) ) fd_memset( votes->own_notar_hash, 0, sizeof(ag_block_hash_t) );
       break;
     case AG_VOTE_KIND_NOTAR_FALLBACK: {
@@ -126,7 +126,6 @@ verify_subtract_votes( ag_slot_state_t *     self,
     case AG_VOTE_KIND_SKIP:
       votes->skip_stake -= stake;
       votes->notar_or_skip_stake -= stake;
-      fd_memset( &votes->skip_sig[ rank ], 0, sizeof(fd_bls_sig_t) );
       break;
     case AG_VOTE_KIND_SKIP_FALLBACK:
       votes->skip_fallback_stake -= stake;
@@ -184,7 +183,7 @@ check_safe_to_notar( ag_slot_state_t *     self,
 
   int safe_to_notar = 0;
   if( FD_LIKELY( own!=USHORT_MAX ) ) { /* must be staked */
-    if( FD_UNLIKELY( !blst_p2_is_inf( &votes->skip_sig[ own ] ) ) ) safe_to_notar = 1;
+    if( FD_UNLIKELY( fd_bls_set_test( votes->skip_agg.set, own ) ) ) safe_to_notar = 1;
     if( FD_UNLIKELY( memcmp( votes->own_notar_hash, ag_block_hash_null, sizeof(ag_block_hash_t) ) ) ) {
       if( FD_UNLIKELY( !memcmp( votes->own_notar_hash, block_hash, sizeof(ag_block_hash_t) ) ) ) return AG_SAFE_TO_NOTAR_STATUS_AWAITING_VOTES;
       safe_to_notar = 1;
@@ -535,11 +534,10 @@ void
 ag_slot_state_null( ag_slot_state_t * self ) {
   ag_slot_votes_t * votes = &self->votes;
   notar_map_clear( votes->notar_stake_map );
-  fd_memset( votes->notar_sig, 0, sizeof(votes->notar_sig) );
+  fd_bls_set_null( votes->notar_set );
   notar_fallback_map_clear( votes->notar_fallback_stake_map );
   fd_memset( votes->notar_fallback_sig_cnt, 0, sizeof(votes->notar_fallback_sig_cnt) );
   votes->skip_stake = 0UL;
-  fd_memset( votes->skip_sig, 0, sizeof(votes->skip_sig) );
   fd_bls_agg_null( &votes->skip_agg );
   votes->skip_fallback_stake = 0UL;
   fd_bls_agg_null( &votes->skip_fallback_agg );
@@ -635,6 +633,7 @@ ag_slot_state_add_vote( ag_slot_state_t *   self,
   switch( vote->kind ) {
   case AG_VOTE_KIND_NOTAR:
     self->votes.notar_sig[ rank ] = *sig;
+    fd_bls_set_insert( self->votes.notar_set, rank );
     if( FD_UNLIKELY( rank==self->own_rank ) ) memcpy( self->votes.own_notar_hash, vote->notar.block_hash, sizeof(ag_block_hash_t) );
     err = count_notar_stake( self, &vote->notar, stake, out_cert_events, out_cert_event_cnt, out_pool_events, out_pool_event_cnt, out_repair_events, out_repair_event_cnt, bad );
     break;
@@ -722,10 +721,10 @@ ag_slot_state_check_slashable_offence( ag_slot_state_t const * self,
 
   switch( vote->kind ) {
   case AG_VOTE_KIND_NOTAR: {
-    if( FD_UNLIKELY( !blst_p2_is_inf( &votes->skip_sig[ voter ] ) ) ) {
+    if( FD_UNLIKELY( fd_bls_set_test( votes->skip_agg.set, voter ) ) ) {
       return AG_SLASHABLE_SKIP_AND_NOTARIZE;
     }
-    if( FD_UNLIKELY( !blst_p2_is_inf( &votes->notar_sig[ voter ] ) ) ) {
+    if( FD_UNLIKELY( fd_bls_set_test( votes->notar_set, voter ) ) ) {
       ag_block_hash_key_t                key  = FD_LOAD( ag_block_hash_key_t, vote->notar.block_hash );
       ag_slot_voted_stake_hash_t const * same = notar_map_key_inval( key ) ? NULL : notar_map_query_const( votes->notar_stake_map, key, NULL );
       if( FD_UNLIKELY( !same || !fd_bls_set_test( same->agg.set, voter ) ) ) return AG_SLASHABLE_NOTAR_DIFFERENT_HASH;
@@ -745,7 +744,7 @@ ag_slot_state_check_slashable_offence( ag_slot_state_t const * self,
     if( FD_UNLIKELY( fd_bls_set_test( votes->finalize_agg.set, voter ) ) ) {
       return AG_SLASHABLE_SKIP_AND_FINALIZE;
     }
-    if( FD_UNLIKELY( !blst_p2_is_inf( &votes->notar_sig[ voter ] ) ) ) return AG_SLASHABLE_SKIP_AND_NOTARIZE;
+    if( FD_UNLIKELY( fd_bls_set_test( votes->notar_set, voter ) ) ) return AG_SLASHABLE_SKIP_AND_NOTARIZE;
     break;
 
   case AG_VOTE_KIND_SKIP_FALLBACK:
@@ -755,7 +754,7 @@ ag_slot_state_check_slashable_offence( ag_slot_state_t const * self,
     break;
 
   case AG_VOTE_KIND_FINAL: {
-    if( FD_UNLIKELY( !blst_p2_is_inf( &votes->skip_sig[ voter ] ) || fd_bls_set_test( votes->skip_fallback_agg.set, voter ) ) ) {
+    if( FD_UNLIKELY( fd_bls_set_test( votes->skip_agg.set, voter ) || fd_bls_set_test( votes->skip_fallback_agg.set, voter ) ) ) {
       return AG_SLASHABLE_SKIP_AND_FINALIZE;
     }
     if( FD_UNLIKELY( votes->notar_fallback_sig_cnt[ voter ] ) ) {
@@ -777,7 +776,7 @@ ag_slot_state_should_ignore_vote( ag_slot_state_t const * self,
   ag_slot_votes_t const * votes = &self->votes;
   switch( vote->kind ) {
   case AG_VOTE_KIND_NOTAR: {
-    if( FD_UNLIKELY( !blst_p2_is_inf( &votes->notar_sig[ voter ] ) ) ) return 1;
+    if( FD_UNLIKELY( fd_bls_set_test( votes->notar_set, voter ) ) ) return 1;
 
     uchar const * hash = vote->notar.block_hash;
     for( ulong j=0UL; j<votes->notar_fallback_sig_cnt[ voter ]; j++ ) {
@@ -796,7 +795,7 @@ ag_slot_state_should_ignore_vote( ag_slot_state_t const * self,
   }
   case AG_VOTE_KIND_SKIP:
   case AG_VOTE_KIND_SKIP_FALLBACK:
-    return !blst_p2_is_inf( &votes->skip_sig[ voter ] ) || fd_bls_set_test( votes->skip_fallback_agg.set, voter );
+    return fd_bls_set_test( votes->skip_agg.set, voter ) || fd_bls_set_test( votes->skip_fallback_agg.set, voter );
   case AG_VOTE_KIND_FINAL:
     return fd_bls_set_test( votes->finalize_agg.set, voter );
   default:
