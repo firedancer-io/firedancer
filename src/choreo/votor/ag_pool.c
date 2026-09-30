@@ -483,10 +483,11 @@ ag_pool_set_rank( ag_pool_t * self,
   }
 }
 
-int
-ag_pool_add_cert( ag_pool_t *       self,
-                  ag_cert_t const * cert,
-                  fd_bls_set_t *    bad ) {
+static int
+add_cert( ag_pool_t *       self,
+          ag_cert_t const * cert,
+          fd_bls_set_t *    bad,
+          int               verified ) {
   ulong slot = ag_cert_slot( cert );
   fd_bls_set_null( bad );
 
@@ -508,7 +509,7 @@ ag_pool_add_cert( ag_pool_t *       self,
   }
   if( FD_UNLIKELY( duplicate ) ) return AG_POOL_ERR_DUPLICATE;
 
-  if( FD_UNLIKELY( !ag_cert_verify( cert, epoch_info ) ) ) return AG_POOL_ERR_CERT_VERIFY;
+  if( FD_UNLIKELY( !verified && !ag_cert_verify( cert, epoch_info ) ) ) return AG_POOL_ERR_CERT_VERIFY;
 
   switch( cert->kind ) { /* a skip cert excludes finalization certs, Lemmas 23 and 28 */
   case AG_CERT_KIND_FINAL:
@@ -521,6 +522,20 @@ ag_pool_add_cert( ag_pool_t *       self,
 
   add_valid_cert( self, cert, bad );
   return AG_POOL_SUCCESS;
+}
+
+int
+ag_pool_add_cert( ag_pool_t *       self,
+                  ag_cert_t const * cert,
+                  fd_bls_set_t *    bad ) {
+  return add_cert( self, cert, bad, 0 );
+}
+
+int
+ag_pool_add_verified_cert( ag_pool_t *       self,
+                           ag_cert_t const * cert,
+                           fd_bls_set_t *    bad ) {
+  return add_cert( self, cert, bad, 1 );
 }
 
 int
