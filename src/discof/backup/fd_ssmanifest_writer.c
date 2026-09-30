@@ -281,16 +281,17 @@ write_vote_account( fd_ssmanifest_writer_t const *       enc,
   return p;
 }
 
-#define PUSH_BYTES( src, n )                                                \
-  do {                                                                      \
-    if( FD_UNLIKELY( p+(n) > p1 ) ) fail( enc, buf_sz, __LINE__ );           \
-    fd_memcpy( p, (src), (n) );                                             \
-    p += (n);                                                               \
+#define PUSH_BYTES( src, n )                                              \
+  do {                                                                    \
+    if( FD_UNLIKELY( p+(n) > p1 ) ) fail( enc, buf_sz, __LINE__ );        \
+    fd_memcpy( p, (src), (n) );                                           \
+    p += (n);                                                             \
   } while(0)
-#define PUSH_VOTE_ACCOUNT( v )                                                                          \
-  do {                                                                                                  \
-    if( FD_UNLIKELY( p+VOTE_ACCOUNT_HDR_SZ+FD_RUNTIME_ACC_SZ_MAX > p1 ) ) fail( enc, buf_sz, __LINE__ ); \
-    p = write_vote_account( enc, (v), p );                                                              \
+#define PUSH_VOTE_ACCOUNT( v )                                            \
+  do {                                                                    \
+    ulong max_sz = VOTE_ACCOUNT_HDR_SZ+FD_RUNTIME_ACC_SZ_MAX;             \
+    if( FD_UNLIKELY( p+max_sz > p1 ) ) fail( enc, buf_sz, __LINE__ );     \
+    p = write_vote_account( enc, (v), p );                                \
   } while(0)
 #define RET_EXPR (ulong)( p - out_buf )
 #include "fd_ssmanifest_encoder.c"
