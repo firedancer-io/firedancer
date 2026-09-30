@@ -26,7 +26,7 @@
 #include "fd_sched.h"
 
 #define TEST_BANKS_MAX 16UL
-#define TEST_OUT_CNT   3UL
+#define TEST_OUT_CNT   4UL
 #define TEST_REPAIR_IN_IDX 0UL
 #define TEST_EXECRP_IN_IDX 1UL
 
@@ -325,7 +325,8 @@ setup_stem( fd_replay_tile_t * ctx, fd_wksp_t * wksp ) {
 
     if( i==0UL )      *ctx->replay_out = out;
     else if( i==1UL ) *ctx->exec_out   = out;
-    else              *ctx->epoch_out  = out;
+    else if( i==2UL ) *ctx->epoch_out  = out;
+    else              *ctx->slot_out   = out;
   }
 
   *test_stem_min_cr_avail = ULONG_MAX;
@@ -688,6 +689,7 @@ test_txn_completion_publish( fd_wksp_t * wksp ) {
 
   ulong out_idx = ctx->replay_out->idx;
   FD_TEST( test_stem_seqs[ out_idx ]==1UL );
+  FD_TEST( test_stem_seqs[ ctx->slot_out->idx ]==0UL ); /* TXN_EXECUTED is not mirrored to replay_slot */
   fd_frag_meta_t const * meta = test_stem_mcaches[ out_idx ] + fd_mcache_line_idx( 0UL, test_stem_depths[ out_idx ] );
   FD_TEST( meta->seq==0UL );
   FD_TEST( meta->sig==REPLAY_SIG_TXN_EXECUTED );
@@ -1067,6 +1069,7 @@ test_consensus_root_notification_handoff( fd_wksp_t * wksp ) {
   fd_metrics_tl = test_metrics;
   ulong out_idx = ctx->replay_out->idx;
   ulong seq0    = test_stem_seqs[ out_idx ];
+  ulong slot_seq0 = test_stem_seqs[ ctx->slot_out->idx ];
   mock_snapshot_boot = 1;
   on_snapshot_message( ctx, test_stem, 0UL, 0UL, fd_ssmsg_sig( FD_SSMSG_DONE ) );
   mock_snapshot_boot = 0;
@@ -1085,6 +1088,15 @@ test_consensus_root_notification_handoff( fd_wksp_t * wksp ) {
   fd_poh_reset_t const * reset = fd_chunk_to_laddr_const( ctx->replay_out->mem, reset_meta->chunk );
   FD_TEST( reset->completed_slot==0UL );
   FD_TEST( reset->ticks_per_slot==64UL );
+
+  /* replay_slot carries the same slot events, in order, byte for byte. */
+  FD_TEST( test_stem_seqs[ ctx->slot_out->idx ]-slot_seq0==test_stem_seqs[ out_idx ]-seq0 );
+  for( ulong i=0UL; i<test_stem_seqs[ out_idx ]-seq0; i++ ) {
+    fd_frag_meta_t const * a = test_stem_mcaches[ out_idx ]            + fd_mcache_line_idx( seq0+i,      test_stem_depths[ out_idx ] );
+    fd_frag_meta_t const * b = test_stem_mcaches[ ctx->slot_out->idx ] + fd_mcache_line_idx( slot_seq0+i, test_stem_depths[ ctx->slot_out->idx ] );
+    FD_TEST( a->sig==b->sig && a->sz==b->sz );
+    FD_TEST( !memcmp( fd_chunk_to_laddr_const( ctx->replay_out->mem, a->chunk ), fd_chunk_to_laddr_const( ctx->slot_out->mem, b->chunk ), a->sz ) );
+  }
 
   root->refcnt = 0UL;
 

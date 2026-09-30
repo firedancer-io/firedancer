@@ -551,7 +551,7 @@ main( int     argc,
   (void)link_rpc_replay;
   fd_topo_link_t * link_gossip_out = create_link( topo, wksp, "gossip_out", 4UL, FD_GOSSIP_UPDATE_SZ_VOTE, 1UL );
   fd_topo_link_t * link_shred_out  = create_link( topo, wksp, "shred_out",  4UL, sizeof(fd_shred_message_t), 3UL );
-  fd_topo_link_t * link_replay_out = create_link( topo, wksp, "replay_out", 4UL, sizeof(fd_replay_root_advanced_t), 1UL );
+  fd_topo_link_t * link_replay_slot = create_link( topo, wksp, "replay_slot", 4UL, sizeof(fd_replay_root_advanced_t), 1UL );
   fd_topo_link_t * link_votor_out  = create_link( topo, wksp, "votor_out",  4UL, sizeof(fd_votor_msg_t),             1UL );
 
   fd_topo_tile_t * tile     = fd_topob_tile( topo, "rpc", "wksp", "wksp", 0UL, 0, 0, 0, 1 );
@@ -569,7 +569,7 @@ main( int     argc,
   fd_topob_tile_out( topo, "rpc", 0UL, "rpc_replay", 0UL );
   fd_topob_tile_in( topo, "rpc", 0UL, "wksp", "gossip_out", 0UL, 0, 1 );
   fd_topob_tile_in( topo, "rpc", 0UL, "wksp", "shred_out",  0UL, 0, 1 );
-  fd_topob_tile_in( topo, "rpc", 0UL, "wksp", "replay_out", 0UL, 0, 1 );
+  fd_topob_tile_in( topo, "rpc", 0UL, "wksp", "replay_slot", 0UL, 0, 1 );
   fd_topob_tile_in( topo, "rpc", 0UL, "wksp", "votor_out",  0UL, 0, 1 );
 
   void * waker_fseq_mem = fd_wksp_alloc_laddr( wksp, fd_fseq_align(), fd_fseq_footprint(), 1UL );
@@ -1244,7 +1244,7 @@ main( int     argc,
     FD_TEST( ctx->replay_out->idx==0UL );
 #define RETURNED_SIG( _n ) ( link_rpc_replay->mcache[ fd_mcache_line_idx( (_n), 4UL ) ].sig )
 
-    ulong  replay_chunk = fd_dcache_compact_chunk0( wksp, link_replay_out->dcache );
+    ulong  replay_chunk = fd_dcache_compact_chunk0( wksp, link_replay_slot->dcache );
     void * replay_msg   = fd_chunk_to_laddr( wksp, replay_chunk );
 
 #define DRIVE_ROOT_ADVANCED( _bank_idx, _slot ) do {                                                     \

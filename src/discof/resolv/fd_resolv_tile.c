@@ -633,7 +633,7 @@ unprivileged_init( fd_topo_t const *      topo,
     fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
     fd_topo_wksp_t const * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
 
-    if( FD_LIKELY(      !strcmp( link->name, "replay_out"   ) ) ) ctx->in[ i ].kind = IN_KIND_REPLAY;
+    if( FD_LIKELY(      !strcmp( link->name, "replay_slot"  ) ) ) ctx->in[ i ].kind = IN_KIND_REPLAY;
     else if( FD_LIKELY( !strcmp( link->name, "dedup_resolv" ) ) ) ctx->in[ i ].kind = IN_KIND_DEDUP;
     else FD_LOG_ERR(( "unknown in link name '%s'", link->name ));
 

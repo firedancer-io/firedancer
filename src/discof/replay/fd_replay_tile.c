@@ -372,6 +372,21 @@ publish_epoch_info( fd_replay_tile_t *  ctx,
   ctx->next_leader_query_start = ULONG_MAX;
 }
 
+static void
+publish_replay_out( fd_replay_tile_t *  ctx,
+                    fd_stem_context_t * stem,
+                    ulong               sig,
+                    ulong               sz ) {
+  ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+  if( FD_UNLIKELY( sig!=REPLAY_SIG_TXN_EXECUTED ) ) {
+    fd_memcpy( fd_chunk_to_laddr( ctx->slot_out->mem, ctx->slot_out->chunk ), fd_chunk_to_laddr_const( ctx->replay_out->mem, ctx->replay_out->chunk ), sz );
+    fd_stem_publish( stem, ctx->slot_out->idx, sig, ctx->slot_out->chunk, sz, 0UL, 0UL, tspub );
+    ctx->slot_out->chunk = fd_dcache_compact_next( ctx->slot_out->chunk, sz, ctx->slot_out->chunk0, ctx->slot_out->wmark );
+  }
+  fd_stem_publish( stem, ctx->replay_out->idx, sig, ctx->replay_out->chunk, sz, 0UL, 0UL, tspub );
+  ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sz, ctx->replay_out->chunk0, ctx->replay_out->wmark );
+}
+
 /**********************************************************************/
 /* Transaction execution state machine helpers                        */
 /**********************************************************************/
@@ -1017,8 +1032,7 @@ publish_slot_completed( fd_replay_tile_t *        ctx,
                  bank->last_transaction_finished_nanos - bank->first_transaction_scheduled_nanos,
                  bank->block_completed_nanos - bank->last_transaction_finished_nanos ));
 
-  fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_SLOT_COMPLETED, ctx->replay_out->chunk, sizeof(fd_replay_slot_completed_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-  ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_slot_completed_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
+  publish_replay_out( ctx, stem, REPLAY_SIG_SLOT_COMPLETED, sizeof(fd_replay_slot_completed_t) );
 
   /* Skip the telemetry event for the initial boot block (snapshot /
      genesis): it was not replayed. */
@@ -1089,8 +1103,7 @@ publish_slot_dead( fd_replay_tile_t *        ctx,
   slot_dead->slot                   = slot;
   slot_dead->block_id               = *block_id;
   slot_dead->footer                 = footer ? *footer : (fd_block_footer_t){0};
-  fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_SLOT_DEAD, ctx->replay_out->chunk, sizeof(fd_replay_slot_dead_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-  ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_slot_dead_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
+  publish_replay_out( ctx, stem, REPLAY_SIG_SLOT_DEAD, sizeof(fd_replay_slot_dead_t) );
 }
 
 static void
@@ -1143,8 +1156,7 @@ publish_txn_executed( fd_replay_tile_t *  ctx,
   txn_executed->transaction_fee = txn_info->transaction_fee;
   txn_executed->priority_fee = txn_info->priority_fee;
   txn_executed->tips = txn_info->tips;
-  fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_TXN_EXECUTED, ctx->replay_out->chunk, sizeof(*txn_executed), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-  ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(*txn_executed), ctx->replay_out->chunk0, ctx->replay_out->wmark );
+  publish_replay_out( ctx, stem, REPLAY_SIG_TXN_EXECUTED, sizeof(*txn_executed) );
 }
 
 /* Emit the runtime_block event for a finalized bank (replayed or
@@ -1340,8 +1352,7 @@ publish_leader_footer( fd_replay_tile_t *        ctx,
   msg->footer = *footer;
 
   ulong sz = sizeof(fd_replay_leader_footer_t);
-  fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_LEADER_FOOTER, ctx->replay_out->chunk, sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-  ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sz, ctx->replay_out->chunk0, ctx->replay_out->wmark );
+  publish_replay_out( ctx, stem, REPLAY_SIG_LEADER_FOOTER, sz );
 }
 
 /* For the most part, try_become_leader_ag mirrors try_become_leader
@@ -1411,8 +1422,7 @@ try_become_leader_ag( fd_replay_tile_t *  ctx,
   reset->next_leader_slot = ctx->next_leader_slot;
   reset->wfs_paused       = !ctx->wfs_complete;
 
-  fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_RESET, ctx->replay_out->chunk, sizeof(fd_poh_reset_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-  ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_poh_reset_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
+  publish_replay_out( ctx, stem, REPLAY_SIG_RESET, sizeof(fd_poh_reset_t) );
 
   /* The remainder of this function mirrors try_become_leader. */
 
@@ -1492,8 +1502,7 @@ try_become_leader_ag( fd_replay_tile_t *  ctx,
   msg->limits.slot_max_allocated_data_per_block = cost_tracker->data_size_limit;
   msg->limits.slot_max_data_shreds              = bank->f.slot_params.max_shred_idx;
 
-  fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_BECAME_LEADER, ctx->replay_out->chunk, sizeof(fd_became_leader_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-  ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_became_leader_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
+  publish_replay_out( ctx, stem, REPLAY_SIG_BECAME_LEADER, sizeof(fd_became_leader_t) );
 
   ctx->next_leader_slot      = ULONG_MAX;
   ctx->next_leader_tickcount = LONG_MAX;
@@ -1706,8 +1715,7 @@ publish_root_advanced( fd_replay_tile_t *  ctx,
   msg->bank_idx  = bank->idx;
   msg->bank_seq  = bank->bank_seq;
 
-  fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_ROOT_ADVANCED, ctx->replay_out->chunk, sizeof(fd_replay_root_advanced_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-  ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_root_advanced_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
+  publish_replay_out( ctx, stem, REPLAY_SIG_ROOT_ADVANCED, sizeof(fd_replay_root_advanced_t) );
 }
 
 /* Determine the default slot params to use for slots where no
@@ -2028,8 +2036,7 @@ try_become_leader( fd_replay_tile_t *  ctx,
     FD_LOG_ERR(( "too many skipped ticks %lu for slot %lu, chain must halt", msg->ticks_per_slot+msg->total_skipped_ticks, ctx->next_leader_slot ));
   }
 
-  fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_BECAME_LEADER, ctx->replay_out->chunk, sizeof(fd_became_leader_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-  ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_became_leader_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
+  publish_replay_out( ctx, stem, REPLAY_SIG_BECAME_LEADER, sizeof(fd_became_leader_t) );
 
   ctx->next_leader_slot      = ULONG_MAX;
   ctx->next_leader_tickcount = LONG_MAX;
@@ -2271,8 +2278,7 @@ boot_genesis( fd_replay_tile_t *        ctx,
     reset->next_leader_slot = ctx->next_leader_slot;
     reset->wfs_paused       = !ctx->wfs_complete;
 
-    fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_RESET, ctx->replay_out->chunk, sizeof(fd_poh_reset_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-    ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_poh_reset_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
+    publish_replay_out( ctx, stem, REPLAY_SIG_RESET, sizeof(fd_poh_reset_t) );
   }
 }
 
@@ -2452,8 +2458,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
       reset->next_leader_slot = ctx->next_leader_slot;
       reset->wfs_paused       = !ctx->wfs_complete;
 
-      fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_RESET, ctx->replay_out->chunk, sizeof(fd_poh_reset_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-      ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_poh_reset_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
+      publish_replay_out( ctx, stem, REPLAY_SIG_RESET, sizeof(fd_poh_reset_t) );
     }
 
     return;
@@ -3506,8 +3511,7 @@ try_evict_reasm( fd_replay_tile_t *  ctx,
      confirmed so that Replay can still make forward progress. */
   fd_replay_fec_evicted_t evicted = (fd_replay_fec_evicted_t){ .mr = ctx->reasm_evicted->key, .slot = ctx->reasm_evicted->slot, .fec_set_idx = ctx->reasm_evicted->fec_set_idx, .bank_idx = ctx->reasm_evicted->bank_idx };
   fd_memcpy( fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk ), &evicted, sizeof(fd_replay_fec_evicted_t) );
-  fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_REASM_EVICTED, ctx->replay_out->chunk,  sizeof(fd_replay_fec_evicted_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-  ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_fec_evicted_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
+  publish_replay_out( ctx, stem, REPLAY_SIG_REASM_EVICTED, sizeof(fd_replay_fec_evicted_t) );
 
   /* eviction policy only evicts chains of nodes until there is a
      fork, so guaranteed that the evict path is always the left-child
@@ -3626,8 +3630,7 @@ try_process_fec( fd_replay_tile_t *  ctx,
     fd_replay_drop_bank_ref_t * msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
     fd_sched_block_abandon( ctx->sched, evictable_bank_idx, FD_SCHED_ABANDON_DISCARDED );
     msg->bank_idx = evictable_bank_idx;
-    fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_DROP_BANK_REF, ctx->replay_out->chunk, sizeof(fd_replay_drop_bank_ref_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-    ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_drop_bank_ref_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
+    publish_replay_out( ctx, stem, REPLAY_SIG_DROP_BANK_REF, sizeof(fd_replay_drop_bank_ref_t) );
 
     return 1;
   }
@@ -3947,8 +3950,7 @@ process_tower_slot_done( fd_replay_tile_t *           ctx,
     reset->next_leader_slot = ctx->next_leader_slot;
     reset->wfs_paused       = !ctx->wfs_complete;
 
-    fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_RESET, ctx->replay_out->chunk, sizeof(fd_poh_reset_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-    ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_poh_reset_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
+    publish_replay_out( ctx, stem, REPLAY_SIG_RESET, sizeof(fd_poh_reset_t) );
   }
 
   FD_LOG_INFO(( "tower_slot_done(reset_slot=%lu, next_leader_slot=%lu, vote_slot=%lu, replay_slot=%lu, root_slot=%lu, seqno=%lu)", msg->reset_slot, ctx->next_leader_slot, msg->vote_slot, msg->replay_slot, msg->root_slot, seq ));
@@ -4393,8 +4395,7 @@ process_tower_optimistic_confirmed( fd_replay_tile_t *                ctx,
   replay_msg->bank_seq = bank->bank_seq;
   replay_msg->slot = msg->slot;
 
-  fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_OC_ADVANCED, ctx->replay_out->chunk, sizeof(fd_replay_oc_advanced_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-  ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_oc_advanced_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
+  publish_replay_out( ctx, stem, REPLAY_SIG_OC_ADVANCED, sizeof(fd_replay_oc_advanced_t) );
 
   update_metric_balances( ctx, bank );
 }
@@ -4729,8 +4730,7 @@ returnable_frag( fd_replay_tile_t *  ctx,
         case PROCESS_FEC_DROP: {
           /* enter drain state */
           ctx->drain_rotor_fecs = 1;
-          fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_MISSING_FEC, ctx->replay_out->chunk, 0, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-          ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, 0, ctx->replay_out->chunk0, ctx->replay_out->wmark );
+          publish_replay_out( ctx, stem, REPLAY_SIG_MISSING_FEC, 0 );
           return 0;
         }
         case PROCESS_FEC_SKIP: { return 0; }
@@ -4759,8 +4759,7 @@ returnable_frag( fd_replay_tile_t *  ctx,
             fd_replay_drop_bank_ref_t * msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
             fd_sched_block_abandon( ctx->sched, evictable_bank_idx, FD_SCHED_ABANDON_DISCARDED );
             msg->bank_idx = evictable_bank_idx;
-            fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_DROP_BANK_REF, ctx->replay_out->chunk, sizeof(fd_replay_drop_bank_ref_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-            ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_drop_bank_ref_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
+            publish_replay_out( ctx, stem, REPLAY_SIG_DROP_BANK_REF, sizeof(fd_replay_drop_bank_ref_t) );
           }
           return 1;
         }
@@ -4795,7 +4794,7 @@ returnable_frag( fd_replay_tile_t *  ctx,
 
       FD_LOG_NOTICE(( "Done waiting for supermajority. More than 80 percent of cluster stake has joined." ));
       if( FD_LIKELY( ctx->replay_out->idx!=ULONG_MAX ) ) {
-        fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_WFS_DONE, ctx->replay_out->chunk, 0UL, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+        publish_replay_out( ctx, stem, REPLAY_SIG_WFS_DONE, 0UL );
       }
       break;
     }
@@ -5210,6 +5209,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   *ctx->epoch_out  = out1( topo, tile, "replay_epoch" ); FD_TEST( ctx->epoch_out->idx!=ULONG_MAX );
   *ctx->replay_out = out1( topo, tile, "replay_out"   ); FD_TEST( ctx->replay_out->idx!=ULONG_MAX );
+  *ctx->slot_out   = out1( topo, tile, "replay_slot"  ); FD_TEST( ctx->slot_out->idx!=ULONG_MAX );
   *ctx->snapmk_out = out1( topo, tile, "replay_snapmk" ); FD_TEST( ctx->snapmk.supported == (ctx->snapmk_out->idx!=ULONG_MAX) );
   *ctx->exec_out   = out1( topo, tile, "replay_execrp"  ); FD_TEST( ctx->exec_out->idx!=ULONG_MAX );
 
@@ -5327,8 +5327,8 @@ during_housekeeping( fd_replay_tile_t * ctx ) {
 #define STEM_BURST (15UL)
 
 /* fd_tempo_lazy_default( 16384 ) where 16384 is the minimum out-link
-   depth (i.e. cr_max) but excludes replay_epoch, which is so infrequent
-   credit availability is a non-issue.   */
+   depth (i.e. cr_max) but excludes replay_epoch and replay_slot, which
+   are so infrequent credit availability is a non-issue.   */
 #define STEM_LAZY ((long)36865)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_replay_tile_t
