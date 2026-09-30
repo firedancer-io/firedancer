@@ -277,7 +277,7 @@ write_vote_account( fd_ssmanifest_writer_t const *       enc,
   p += data_len;
   FD_STORE( fd_pubkey_t, p, owner                ); p += sizeof(fd_pubkey_t);
   FD_STORE( uchar,       p, (uchar)!!executable  ); p += sizeof(uchar);
-  FD_STORE( ulong,       p, 0UL                  ); p += sizeof(ulong); /* rent_epoch, as the appendvecs */
+  FD_STORE( ulong,       p, 0UL                  ); p += sizeof(ulong);
   return p;
 }
 
