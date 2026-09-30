@@ -1597,7 +1597,7 @@ telemetry = true
         # Over time, as the network gets faster and compute unit limits
         # are raised, this trade-off will become less pronounced.
         #
-        # The Firedancer team supports two different strategies which
+        # The Firedancer team supports three different strategies which
         # are described below:
         #
         #  "perf"
@@ -1617,6 +1617,10 @@ telemetry = true
         #
         #   When using the balanced mode, there is no reason to increase
         #   execle tile count beyond the default of 2.
+        #
+        #  "auction"
+        #   Schedule transactions in 50ms batch auctions. Votes and
+        #   bundles are not included in the auctions.
         #
         # In cases of network congestion, high volume, or if seeing poor
         # block packing performance for any reason, it is recommended to

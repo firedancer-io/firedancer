@@ -613,7 +613,7 @@ fd_gui_printf_schedule_strategy( fd_gui_t * gui ) {
     switch (gui->summary.schedule_strategy) {
       case 0: fd_cstr_ncpy( mode, "perf",     sizeof(mode) ); break;
       case 1: fd_cstr_ncpy( mode, "balanced", sizeof(mode) ); break;
-      case 2: fd_cstr_ncpy( mode, "revenue",  sizeof(mode) ); break;
+      case 2: fd_cstr_ncpy( mode, "auction",  sizeof(mode) ); break;
       default: FD_LOG_ERR(("unexpected schedule_strategy %d", gui->summary.schedule_strategy));
     }
     jsonp_string( gui->http, "value", mode );
