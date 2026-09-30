@@ -40,7 +40,9 @@
    popped: the caller redispatches it under a fresh nonce and the record
    moves to popped_map / popped_dl rather than being released, so a late
    response to the old nonce still matches.  When the pool is exhausted
-   the oldest POPPED record is evicted first. */
+   the oldest POPPED record is evicted first.  A caller that does not
+   redispatch from the table releases aged records with
+   fd_inflights_expire instead of popping them. */
 
 /* Max number of pending requests */
 #define FD_INFLIGHT_REQ_MAX (1<<20)
@@ -270,6 +272,15 @@ fd_inflights_should_drain( fd_inflights_t * table, long now ) {
 void
 fd_inflights_pop( fd_inflights_t * table,
                   fd_inflight_t *  out );
+
+/* fd_inflights_expire releases, oldest first, up to max OUTSTANDING or
+   POPPED records inserted before cutoff and returns how many.  For
+   callers that never redispatch from the table. */
+
+ulong
+fd_inflights_expire( fd_inflights_t * table,
+                     long             cutoff,
+                     ulong            max );
 
 /* fd_inflights_outstanding_free returns how many new requests can be
    inserted before an insert would have to evict an OUTSTANDING record

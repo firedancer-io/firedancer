@@ -32,6 +32,11 @@
 #include "fd_rotor_tile_private.h"
 
 
+/* How long a sent request stays in ctx->rtt.  Past the shred tile's
+   ~1.02 s nonce window; unsettled meta is re-requested every ~100 ms. */
+
+#define FD_ROTOR_INFLIGHT_TIMEOUT_NS (2000000000L)
+
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
   return 128UL;
@@ -1006,9 +1011,13 @@ after_credit( ctx_t *             ctx,
               fd_stem_context_t * stem,
               int *               opt_poll_in FD_PARAM_UNUSED,
               int *               charge_busy ) {
-  if( FD_UNLIKELY( stem->cr_avail[ ctx->replay_out_ctx->idx ]<REPLAY_MIN_CREDITS ) ) return;
-
   long now = fd_clock_tile_now( ctx->clock );
+
+  /* 0. Release a few requests too old to be answered (<=1 is sent per call). */
+
+  fd_inflights_expire( ctx->rtt, now-FD_ROTOR_INFLIGHT_TIMEOUT_NS, 4UL );
+
+  if( FD_UNLIKELY( stem->cr_avail[ ctx->replay_out_ctx->idx ]<REPLAY_MIN_CREDITS ) ) return;
 
   /* 1. Deliveries to replay. */
 

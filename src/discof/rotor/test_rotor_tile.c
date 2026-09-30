@@ -1652,6 +1652,172 @@ test_metrics_exported( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: metrics_write exports the ROTOR group" ));
 }
 
+/* fd_inflights_expire releases records older than the cutoff from both
+   the outstanding and the popped set, oldest first, at most max per
+   call, and leaves younger records matchable. */
+
+static void
+test_inflights_expire( fd_wksp_t * wksp ) {
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_inflights_align(), fd_inflights_footprint(), 1UL );
+  FD_TEST( mem );
+  fd_inflights_t * t = fd_inflights_join( fd_inflights_new( mem, 42UL ) );
+  FD_TEST( t );
+
+  fd_pubkey_t peer   = *(fd_pubkey_t *)fd_type_pun( mkhash( 0x150UL ).uc );
+  fd_hash_t   bid    = mkhash( 0x151UL );
+  ulong       used0  = fd_inflight_pool_used( t->pool );
+
+  /* shred requests at t=10,20,30,40 and a metadata request at t=50 */
+  for( ulong i=0UL; i<4UL; i++ ) fd_inflights_shred_insert( t, FD_REPAIR_KIND_SHRED, 0x80000000UL|(i+1UL), &peer, 200UL, i, NULL, NULL, 10L*(long)(i+1UL) );
+  fd_inflights_meta_insert( t, 7UL, AG_REPAIR_KIND_PARENT_FEC_COUNT, &peer, 200UL, &bid, 0U, 50L );
+  FD_TEST( fd_inflights_outstanding_cnt( t )==5UL );
+
+  /* pop the oldest into the popped set, as the repair tile does */
+  fd_inflight_t popped[1];
+  FD_TEST( fd_inflights_should_drain( t, 10L+FD_REQLIM_DEDUP_TIMEOUT+1L ) );
+  fd_inflights_pop( t, popped );
+  FD_TEST( popped->key.idx==0U && t->popped_cnt==1UL && fd_inflights_outstanding_cnt( t )==4UL );
+
+  FD_TEST( fd_inflights_expire( t, 10L, ULONG_MAX )==0UL );             /* strictly older only */
+  FD_TEST( fd_inflights_expire( t, 35L, 1UL       )==1UL );             /* max honoured: popped t=10 */
+  FD_TEST( t->popped_cnt==0UL && fd_inflights_outstanding_cnt( t )==4UL );
+  FD_TEST( fd_inflights_expire( t, 35L, ULONG_MAX )==2UL );             /* t=20, t=30 */
+  FD_TEST( t->popped_cnt==0UL && fd_inflights_outstanding_cnt( t )==2UL );
+  FD_TEST( fd_inflight_pool_used( t->pool )==used0+2UL );
+
+  /* survivors still match; expired ones do not */
+  fd_pubkey_t got; fd_hash_t got_bid;
+  FD_TEST( !fd_inflights_shred_match( t, FD_REPAIR_KIND_SHRED, 0x80000002UL, 200UL, 1UL, NULL, &got, &got_bid, 60L ) );
+  FD_TEST(  fd_inflights_shred_match( t, FD_REPAIR_KIND_SHRED, 0x80000004UL, 200UL, 3UL, NULL, &got, &got_bid, 60L )==20L );
+  FD_TEST( !memcmp( got.uc, peer.uc, sizeof(fd_pubkey_t) ) );
+
+  FD_TEST( fd_inflights_expire( t, LONG_MAX, ULONG_MAX )==1UL );        /* the metadata record */
+  fd_inflight_t out[1];
+  FD_TEST( !fd_inflights_meta_match( t, 7UL, out ) );
+  FD_TEST( fd_inflights_outstanding_cnt( t )==0UL && fd_inflight_pool_used( t->pool )==used0 );
+
+  fd_wksp_free_laddr( mem );
+  FD_LOG_NOTICE(( "pass: fd_inflights_expire releases aged records from both sets" ));
+}
+
+/* step_clock moves the tile clock forward by dt, as if the tile had been
+   running (or parked) that long. */
+
+static long
+step_clock( ctx_t * ctx, long dt ) {
+  long now = fd_clock_tile_now( ctx->clock ) + dt;
+  fd_clock_tile_set( ctx->clock, now );
+  return now;
+}
+
+/* Requests turbine beat or nobody answered are released after
+   FD_ROTOR_INFLIGHT_TIMEOUT_NS, so the table stays bounded while retries
+   of still-missing shreds keep matching their responses. */
+
+static void
+test_inflight_bounded( fd_wksp_t * wksp ) {
+  static ctx_t ctx[1];
+  setup_ctx( ctx, wksp );
+
+  blk_t blk[1] = {{ .slot = SNAP_SLOT+1UL, .parent_slot = SNAP_SLOT, .parent_block_id = snap_bid, .fec_cnt = 2U }};
+  blk->fec_root[ 0 ] = mkhash( 0x160UL );
+  blk->fec_root[ 1 ] = mkhash( 0x161UL );
+  blk_build( blk );
+
+  /* Set 0 whole; set 1 with its tip but holes at [HOLE0,HOLE0+8). */
+
+# define HOLE0   (FD_FEC_SHRED_CNT+8U)
+# define HOLE_N  (8U)
+  deliver_turbine_fec_set( ctx, blk, 0U );
+  for( uint i=FD_FEC_SHRED_CNT; i<2U*FD_FEC_SHRED_CNT; i++ ) {
+    if( i>=HOLE0 && i<HOLE0+HOLE_N ) continue;
+    deliver_shred( ctx, blk->slot, i, (uchar)( i==2U*FD_FEC_SHRED_CNT-1U ? blk_fec_flags( blk, 1U ) : 0 ),
+                   &blk->fec_root[ 1 ], 0U, SHRED_SIG_SRC_TURBINE, blk->parent_slot, &blk->parent_block_id );
+  }
+  ulong from = req_cnt;
+  pump( ctx );
+  FD_TEST( req_count( from, FD_REPAIR_KIND_SHRED, blk->slot )==HOLE_N );
+  FD_TEST( fd_inflights_outstanding_cnt( ctx->rtt )==HOLE_N );
+
+  /* Two holes arrive by turbine first (their requests stay until they
+     age out, so a late response still yields an RTT sample), two are
+     answered by repair (retired on the match), four are never
+     answered. */
+
+  for( uint i=HOLE0; i<HOLE0+2U; i++ )
+    deliver_shred( ctx, blk->slot, i, 0, &blk->fec_root[ 1 ], 0U, SHRED_SIG_SRC_TURBINE, blk->parent_slot, &blk->parent_block_id );
+  for( uint i=HOLE0+2U; i<HOLE0+4U; i++ ) {
+    req_t * r = req_find( from, FD_REPAIR_KIND_SHRED, blk->slot, i, NULL );
+    FD_TEST( r );
+    deliver_shred( ctx, blk->slot, i, 0, &blk->fec_root[ 1 ], r->nonce, SHRED_SIG_SRC_REPAIR, blk->parent_slot, &blk->parent_block_id );
+  }
+  FD_TEST( ctx->metrics->shred_match_positional==2UL && ctx->metrics->shred_match_miss==0UL );
+  FD_TEST( fd_inflights_outstanding_cnt( ctx->rtt )==HOLE_N-2UL );
+  uint stale_nonce = req_find( from, FD_REPAIR_KIND_SHRED, blk->slot, HOLE0+4U, NULL )->nonce;
+
+  /* Each round re-asks for the four missing shreds; a round's requests
+     live TIMEOUT/ROUND_NS+1 rounds, so the table levels off there (two
+     higher until the first round's six records age out). */
+
+# define ROUND_NS  (300000000L)
+# define ROUNDS    (40UL)
+  ulong steady   = (ulong)( FD_ROTOR_INFLIGHT_TIMEOUT_NS/ROUND_NS );
+  ulong live_max = 4UL*( steady+1UL );
+  ulong peak     = 0UL;
+  for( ulong round=0UL; round<ROUNDS; round++ ) {
+    step_clock( ctx, ROUND_NS );
+    from = req_cnt;
+    pump( ctx );
+    FD_TEST( req_count( from, FD_REPAIR_KIND_SHRED, blk->slot )==4UL );
+    for( uint i=HOLE0+4U; i<HOLE0+HOLE_N; i++ ) FD_TEST( req_find( from, FD_REPAIR_KIND_SHRED, blk->slot, i, NULL ) );
+    ulong cnt = fd_inflights_outstanding_cnt( ctx->rtt );
+    if( round<steady ) FD_TEST( cnt==6UL+4UL*( round+1UL ) );
+    else               FD_TEST( cnt==live_max              );
+    peak = fd_ulong_max( peak, cnt );
+  }
+  FD_TEST( peak==live_max+2UL );                   /* levelled off, not 6+4*ROUNDS */
+  FD_TEST( ctx->metrics->sent_by_kind[ FD_REPAIR_KIND_SHRED ]==HOLE_N+4UL*ROUNDS );
+
+  /* A late answer to an expired request credits nobody: no RTT sample
+     from a request long since retried.  The shred itself still lands. */
+
+  ulong matched = ctx->metrics->shred_match_positional;
+  deliver_shred( ctx, blk->slot, HOLE0+4U, 0, &blk->fec_root[ 1 ], stale_nonce, SHRED_SIG_SRC_REPAIR, blk->parent_slot, &blk->parent_block_id );
+  FD_TEST( ctx->metrics->shred_match_positional==matched && ctx->metrics->shred_match_miss==1UL );
+
+  /* The next round asks only for the three still missing, and the
+     response to the current retry matches it. */
+
+  step_clock( ctx, ROUND_NS );
+  from = req_cnt;
+  pump( ctx );
+  FD_TEST( req_count( from, FD_REPAIR_KIND_SHRED, blk->slot )==3UL );
+  FD_TEST( !req_find( from, FD_REPAIR_KIND_SHRED, blk->slot, HOLE0+4U, NULL ) );
+  req_t * retry = req_find( from, FD_REPAIR_KIND_SHRED, blk->slot, HOLE0+5U, NULL );
+  FD_TEST( retry );
+  deliver_shred( ctx, blk->slot, HOLE0+5U, 0, &blk->fec_root[ 1 ], retry->nonce, SHRED_SIG_SRC_REPAIR, blk->parent_slot, &blk->parent_block_id );
+  FD_TEST( ctx->metrics->shred_match_positional==matched+1UL );
+
+  /* Turbine fills the rest.  Nothing is re-asked, and once the last
+     requests age out the table is empty. */
+
+  for( uint i=HOLE0+6U; i<HOLE0+HOLE_N; i++ )
+    deliver_shred( ctx, blk->slot, i, 0, &blk->fec_root[ 1 ], 0U, SHRED_SIG_SRC_TURBINE, blk->parent_slot, &blk->parent_block_id );
+  step_clock( ctx, FD_ROTOR_INFLIGHT_TIMEOUT_NS+1L );
+  from = req_cnt;
+  pump( ctx );
+  for( ulong i=0UL; i<64UL; i++ ) tick( ctx );
+  FD_TEST( !req_count( from, FD_REPAIR_KIND_SHRED, blk->slot ) );
+  FD_TEST( fd_inflights_outstanding_cnt( ctx->rtt )==0UL );
+
+  FD_TEST( !fd_chainer_verify( ctx->chainer ) );
+# undef ROUNDS
+# undef ROUND_NS
+# undef HOLE_N
+# undef HOLE0
+  FD_LOG_NOTICE(( "pass: in-flight requests expire and the table stays bounded" ));
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
@@ -1709,6 +1875,12 @@ main( int argc, char ** argv ) {
 
   fd_wksp_reset( wksp, 1U );
   test_metrics_exported( wksp );
+
+  fd_wksp_reset( wksp, 1U );
+  test_inflights_expire( wksp );
+
+  fd_wksp_reset( wksp, 1U );
+  test_inflight_bounded( wksp );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

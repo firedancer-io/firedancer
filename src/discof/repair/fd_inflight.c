@@ -190,6 +190,26 @@ fd_inflights_pop( fd_inflights_t * table,
   table->popped_cnt++;
 }
 
+ulong
+fd_inflights_expire( fd_inflights_t * table,
+                     long             cutoff,
+                     ulong            max ) {
+  ulong cnt = 0UL;
+  for( ; cnt<max; cnt++ ) {
+    fd_inflight_t * out = fd_inflight_dlist_is_empty( table->outstanding_dl, table->pool ) ? NULL : fd_inflight_dlist_ele_peek_head( table->outstanding_dl, table->pool );
+    fd_inflight_t * pop = fd_inflight_dlist_is_empty( table->popped_dl,      table->pool ) ? NULL : fd_inflight_dlist_ele_peek_head( table->popped_dl,      table->pool );
+    int popped = !!pop && ( !out || pop->timestamp_ns<out->timestamp_ns );
+    fd_inflight_t * req = popped ? pop : out;
+    if( FD_LIKELY( !req || req->timestamp_ns>=cutoff ) ) break;
+
+    fd_inflight_dlist_ele_pop_head ( popped ? table->popped_dl  : table->outstanding_dl, table->pool );
+    fd_inflight_map_ele_remove_fast( popped ? table->popped_map : table->map, req, table->pool );
+    fd_inflight_pool_ele_release   ( table->pool, req );
+    table->popped_cnt -= (ulong)popped;
+  }
+  return cnt;
+}
+
 #include <stdio.h>
 
 void
