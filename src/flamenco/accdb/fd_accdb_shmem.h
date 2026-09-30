@@ -2,6 +2,7 @@
 #define HEADER_fd_src_flamenco_accdb_fd_accdb_shmem_h
 
 #include "fd_accdb_cache.h"
+#include "fd_zle.h"
 #include <stddef.h> /* offsetof */
 
 #define FD_ACCDB_SHMEM_ALIGN (128UL)
@@ -62,24 +63,57 @@ struct fd_accdb_metrics {
 
 typedef struct fd_accdb_metrics fd_accdb_metrics_t;
 
-/* fd_accdb_disk_meta_t is the on-disk account revision header. */
+/* fd_accdb_disk_meta_t is the on-disk account revision header.  It is
+   followed by the account data, fd_zle compressed unless the raw bit
+   of size is set.  size is the payload size on disk, data_len the
+   uncompressed data length. */
+
+#define FD_ACCDB_DISK_RAW_BIT  (1U<<31)
+#define FD_ACCDB_DISK_SZ(size) ((ulong)( (size) & ~FD_ACCDB_DISK_RAW_BIT ))
 
 union fd_accdb_disk_meta {
   struct __attribute__((packed)) {
     uchar pubkey[ 32UL ];
     uint  size;
     uint  generation;
+    uint  data_len;
     uchar owner[ 32UL ];
   };
-  uchar b[72];
+  uchar b[76];
 };
 
 typedef union fd_accdb_disk_meta fd_accdb_disk_meta_t;
 
-FD_STATIC_ASSERT( sizeof(fd_accdb_disk_meta_t)==72UL, layout );
+FD_STATIC_ASSERT( sizeof(fd_accdb_disk_meta_t)==76UL, layout );
 FD_STATIC_ASSERT( offsetof(fd_accdb_disk_meta_t,owner)+32UL==sizeof(fd_accdb_disk_meta_t), layout );
 
+/* Largest record fd_accdb_disk_pack produces for data_len bytes */
+
+#define FD_ACCDB_DISK_REC_BOUND(data_len) (sizeof(fd_accdb_disk_meta_t)+FD_ZLE_COMPRESS_BOUND( data_len ))
+
 FD_PROTOTYPES_BEGIN
+
+/* fd_accdb_disk_pack writes the on-disk record of an account version
+   to rec (FD_ACCDB_DISK_REC_BOUND( data_len ) bytes, not overlapping
+   data).  The data is stored raw if compression does not shrink it.
+   Returns the record size. */
+
+ulong
+fd_accdb_disk_pack( uchar *       rec,
+                    uchar const * pubkey,
+                    uint          generation,
+                    uchar const * owner,
+                    uchar const * data,
+                    ulong         data_len );
+
+/* fd_accdb_disk_unpack recovers the account data from the record
+   payload at src, whose header size field is size. */
+
+void
+fd_accdb_disk_unpack( uchar *       data,
+                      ulong         data_len,
+                      uint          size,
+                      uchar const * src );
 
 FD_FN_CONST ulong
 fd_accdb_shmem_align( void );

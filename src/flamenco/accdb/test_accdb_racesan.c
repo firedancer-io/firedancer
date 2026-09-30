@@ -3124,6 +3124,59 @@ test_preevict_release_store_order( void ) {
   test_teardown( accdb, fd );
 }
 
+/* test_compressed_writeback: round trip a sparse, a dense and a 10 MiB
+   all-zero account through eviction and a cold load. */
+static void
+test_compressed_writeback( void ) {
+  int fd;
+  fd_accdb_t * accdb = test_setup( &fd, 256UL, 16UL, 1024UL, 1024UL, 1UL<<30UL );
+  fd_accdb_fork_id_t root0 = fd_accdb_attach_child( accdb, SENTINEL );
+
+  static uchar sparse[ 8192UL ];
+  static uchar dense [ 8192UL ];
+  static uchar zero  [ 10UL<<20 ];
+  for( ulong i=0UL; i<8192UL; i++ ) {
+    sparse[ i ] = (i%97UL)<3UL ? (uchar)( i*7UL+1UL ) : (uchar)0;
+    dense [ i ] = (uchar)( ( i*131UL+17UL ) | 1UL );
+  }
+  uchar key_s  [ 32 ] = { 'S', 0 };
+  uchar key_d  [ 32 ] = { 'D', 0 };
+  uchar key_z  [ 32 ] = { 'Z', 0 };
+  uchar owner_c[ 32 ] = { 0xAA, 0 };
+  uchar const * keys [ 3 ] = { key_s,  key_d,  key_z  };
+  uchar const * datas[ 3 ] = { sparse, dense,  zero   };
+  ulong         lens [ 3 ] = { 8192UL, 8192UL, 10UL<<20 };
+
+  for( ulong i=0UL; i<3UL; i++ ) write_acc( accdb, root0, keys[ i ], 100UL+i, owner_c, datas[ i ], lens[ i ] );
+
+  for( ulong i=0UL; i<3UL; i++ ) {
+    ulong cls, idx;
+    FD_TEST( fd_accdb_debug_find_line( accdb, keys[ i ], &cls, &idx ) );
+    fd_accdb_debug_clock_evict_line( accdb, cls, idx );
+  }
+
+  /* The dense record went out raw, the other two shrank. */
+  fd_accdb_flush_metrics( accdb );
+  ulong written = fd_accdb_shmetrics( accdb )->disk_current_bytes;
+  FD_TEST( written>=sizeof(fd_accdb_disk_meta_t)+8192UL );
+  FD_TEST( written< 3UL*sizeof(fd_accdb_disk_meta_t)+8192UL+1024UL+64UL );
+
+  for( ulong i=0UL; i<3UL; i++ ) {
+    uchar const * pks[ 1 ] = { keys[ i ] };
+    int           wr [ 1 ] = { 0 };
+    fd_acc_t      acc[ 1 ];
+    memset( acc, 0, sizeof(acc) );
+    fd_accdb_acquire( accdb, root0, 1UL, pks, wr, acc );
+    FD_TEST( acc[ 0 ].lamports==100UL+i );
+    FD_TEST( acc[ 0 ].data_len==lens[ i ] );
+    FD_TEST( !memcmp( acc[ 0 ].owner, owner_c, 32UL ) );
+    FD_TEST( !memcmp( acc[ 0 ].data, datas[ i ], lens[ i ] ) );
+    fd_accdb_release( accdb, 1UL, acc );
+  }
+
+  test_teardown( accdb, fd );
+}
+
 /* test_probe_vs_pd_commit the pd_write probe walk raced
    against a same-fork overwrite commit that sets pd_write=1.  The probe
    is designed to be called concurrently with writers on its fork; it
@@ -3384,6 +3437,7 @@ main( int     argc,
     TEST( test_overwrite_discard_vs_evictor ),
     TEST( test_clock_claim_vs_freed ),
     TEST( test_preevict_release_store_order ),
+    TEST( test_compressed_writeback ),
     TEST( test_probe_vs_pd_commit ),
     TEST( test_pd_same_fork_read_vs_write ),
     TEST( test_pd_parent_read_vs_child_write ),

@@ -90,9 +90,12 @@ struct fd_snapzp {
     fd_pubkey_t pubkey;
     fd_pubkey_t owner;
     uint        size;
+    uint        data_len;
     uint        acc_idx;
     ulong       data_rem;
     ulong       data_pad;
+    uchar *     dst;
+    uchar       buf[ FD_RUNTIME_ACC_SZ_MAX ];
   } disk;
 
   struct {
@@ -589,14 +592,14 @@ msg_acc_delta( fd_snapzp_t *                 ctx,
 static fd_accdb_accmeta_t const *
 accmeta_disk( fd_snapzp_t *       ctx,
               fd_pubkey_t const * pubkey,
-              uint                size,
+              uint                data_len,
               uint                acc_idx ) {
   fd_backup_accidx_t const * idx = &ctx->acc_cache->idx;
   if( FD_UNLIKELY( !fd_backup_accidx_valid( idx, acc_idx ) ) ) return NULL;
 
   fd_accdb_accmeta_t const * acc = &idx->acc_pool[ acc_idx ];
   uint es = FD_VOLATILE_CONST( acc->executable_size );
-  if( FD_UNLIKELY( FD_ACCDB_SIZE_DATA( es )!=FD_ACCDB_SIZE_DATA( size ) ) ) return NULL;
+  if( FD_UNLIKELY( FD_ACCDB_SIZE_DATA( es )!=data_len ) ) return NULL;
   if( FD_UNLIKELY( memcmp( acc->key.pubkey, pubkey->uc, sizeof(fd_pubkey_t) ) ) ) return NULL;
   return acc;
 }
@@ -624,22 +627,23 @@ msg_acc_disk_start( fd_snapzp_t *                ctx,
   FD_CHECK_CRIT( ctx->snap_fd>=0, "invalid snapshot file descriptor" );
   FD_CHECK_CRIT( !ctx->disk.active, "received account SOM while already processing a disk account" );
 
-  ulong data_len = (ulong)FD_ACCDB_SIZE_DATA( frag->size );
+  ulong data_len = (ulong)frag->data_len;
   ulong rec_sz   = sizeof(snap_acc_hdr_t) + fd_ulong_align_up( data_len, 8UL );
   FD_CHECK_CRIT( rec_sz<=RAW_BUF_SZ, "oversize snapshot account record" );
   FD_CHECK_CRIT( frag->snap_sz==rec_sz, "disk account snapshot size mismatch" );
+  FD_CHECK_CRIT( FD_ACCDB_DISK_SZ( frag->size )<=sizeof(ctx->disk.buf), "oversize disk account record" );
   if( FD_UNLIKELY( ctx->raw_buf.size + rec_sz > RAW_BUF_SZ ) ) {
     zip_flush( ctx );
   }
 
-  memset( &ctx->disk, 0, sizeof(ctx->disk) );
-  ctx->disk.active  = 1;
-  ctx->disk.pubkey  = frag->pubkey;
-  ctx->disk.owner   = frag->owner;
-  ctx->disk.size    = frag->size;
-  ctx->disk.acc_idx = frag->acc_idx;
+  ctx->disk.active   = 1;
+  ctx->disk.pubkey   = frag->pubkey;
+  ctx->disk.owner    = frag->owner;
+  ctx->disk.size     = frag->size;
+  ctx->disk.data_len = frag->data_len;
+  ctx->disk.acc_idx  = frag->acc_idx;
 
-  fd_accdb_accmeta_t const * accmeta = accmeta_disk( ctx, &ctx->disk.pubkey, ctx->disk.size, ctx->disk.acc_idx );
+  fd_accdb_accmeta_t const * accmeta = accmeta_disk( ctx, &ctx->disk.pubkey, ctx->disk.data_len, ctx->disk.acc_idx );
   FD_CHECK_CRIT( accmeta, "bug in snapshot producer: rooted account disappeared from index" );
 
   snap_acc_hdr_t * hdr = (snap_acc_hdr_t *)( ctx->raw + ctx->raw_buf.size );
@@ -651,8 +655,10 @@ msg_acc_disk_start( fd_snapzp_t *                ctx,
   hdr->data_len   = data_len;
 
   ctx->raw_buf.size += sizeof(snap_acc_hdr_t);
-  ctx->disk.data_rem = data_len;
+  ctx->disk.dst      = ctx->raw + ctx->raw_buf.size;
+  ctx->disk.data_rem = FD_ACCDB_DISK_SZ( frag->size );
   ctx->disk.data_pad = fd_ulong_align_up( data_len, 8UL ) - data_len;
+  ctx->raw_buf.size += data_len;
   return (ulong)frag->data_sz;
 }
 
@@ -691,15 +697,15 @@ msg_acc_disk( fd_snapzp_t * ctx,
   }
 
   /* defrag copy */
-  ulong take = fd_ulong_min( ctx->disk.data_rem, frag_sz );
+  int     raw     = !!( ctx->disk.size & FD_ACCDB_DISK_RAW_BIT );
+  ulong   payload = FD_ACCDB_DISK_SZ( ctx->disk.size );
+  uchar * dst     = ( raw ? ctx->disk.dst : ctx->disk.buf ) + ( payload-ctx->disk.data_rem );
+  ulong   take    = fd_ulong_min( ctx->disk.data_rem, frag_sz );
   if( FD_LIKELY( take ) ) {
-    FD_CHECK_CRIT( ctx->raw_buf.size + take <= RAW_BUF_SZ,
-                   "internal bounds check failed" );
     FD_CHECK_CRIT( (ulong)frag           >= ctx->snaprd_data0 &&
                    (ulong)frag + frag_sz <= ctx->snaprd_data1,
                    "snaprd bounds check failed" );
-    fd_memcpy( ctx->raw + ctx->raw_buf.size, frag, take );
-    ctx->raw_buf.size  += take;
+    fd_memcpy( dst, frag, take );
     ctx->disk.data_rem -= take;
     frag_sz            -= take;
   }
@@ -709,16 +715,17 @@ msg_acc_disk( fd_snapzp_t * ctx,
   /* finish defrag operation */
   if( eom ) {
     FD_CHECK_CRIT( !ctx->disk.data_rem, "invalid accdb disk frag stream: EOM frag seen but defrag not complete" );
+    if( FD_LIKELY( !raw ) ) fd_accdb_disk_unpack( ctx->disk.dst, ctx->disk.data_len, ctx->disk.size, ctx->disk.buf );
     if( ctx->disk.data_pad ) {
       FD_TEST( ctx->raw_buf.size + ctx->disk.data_pad <= RAW_BUF_SZ );
       fd_memset( ctx->raw + ctx->raw_buf.size, 0, ctx->disk.data_pad );
       ctx->raw_buf.size += ctx->disk.data_pad;
     }
     ctx->snapshot_account_cnt++;
-    ctx->snapshot_account_sz += sizeof(snap_acc_hdr_t) + fd_ulong_align_up( (ulong)FD_ACCDB_SIZE_DATA( ctx->disk.size ), 8UL );
+    ctx->snapshot_account_sz += sizeof(snap_acc_hdr_t) + fd_ulong_align_up( (ulong)ctx->disk.data_len, 8UL );
     ctx->snapshot_disk_account_cnt++;
     ctx->metrics.accounts_compressed++;
-    memset( &ctx->disk, 0, sizeof(ctx->disk) );
+    ctx->disk.active = 0;
   }
 }
 
@@ -767,8 +774,8 @@ msg_acc_disk_batch( fd_snapzp_t *                      ctx,
     fd_accdb_disk_meta_t const * dm = (fd_accdb_disk_meta_t const *)( base + batch->frag_off[ i ] );
     FD_CHECK_CRIT( (ulong)(dm+1) <= (ulong)ctx->snaprd_data1, "account data bounds check fail" );
 
-    ulong data_len = (ulong)FD_ACCDB_SIZE_DATA( dm->size );
-    FD_CHECK_CRIT( (ulong)(dm+1)+data_len <= (ulong)ctx->snaprd_data1, "account data bounds check fail" );
+    ulong data_len = (ulong)dm->data_len;
+    FD_CHECK_CRIT( (ulong)(dm+1)+FD_ACCDB_DISK_SZ( dm->size ) <= (ulong)ctx->snaprd_data1, "account data bounds check fail" );
 
     /* validate that disk data matches index */
     FD_CHECK_CRIT( FD_ACCDB_SIZE_DATA( exec_sz[ i ] )==data_len, "account query corruption detected" );
@@ -792,7 +799,7 @@ msg_acc_disk_batch( fd_snapzp_t *                      ctx,
 
     if( FD_LIKELY( data_len ) ) {
       uchar const * data = base + batch->frag_off[ i ] + sizeof(fd_accdb_disk_meta_t);
-      fd_memcpy( ctx->raw + ctx->raw_buf.size, data, data_len );
+      fd_accdb_disk_unpack( ctx->raw + ctx->raw_buf.size, data_len, dm->size, data );
       ctx->raw_buf.size += data_len;
     }
     if( data_pad ) {

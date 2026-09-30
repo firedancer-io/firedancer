@@ -48,7 +48,7 @@
 
 FD_STATIC_ASSERT( FD_SNAPIN_WRITE_BUF_SZ%FD_SNAPIN_DIRECT_ALIGN==0UL, write_buf_align );
 FD_STATIC_ASSERT( FD_SNAPSHOT_DATA_MTU<FD_SNAPIN_WRITE_BUF_MAX, write_buf );
-FD_STATIC_ASSERT( sizeof(fd_accdb_disk_meta_t)+FD_RUNTIME_ACC_SZ_MAX<=FD_SNAPIN_WRITE_BUF_MAX, max_account );
+FD_STATIC_ASSERT( FD_ACCDB_DISK_REC_BOUND( FD_RUNTIME_ACC_SZ_MAX )<=FD_SNAPIN_WRITE_BUF_MAX, max_account );
 
 /* The snapin tiles are state machines that parse and load a full and
    optionally an incremental snapshot.  They are responsible for loading
@@ -330,6 +330,9 @@ struct fd_snapin_tile {
     uchar owner [ 32UL ];
     uchar data[ FD_RUNTIME_ACC_SZ_MAX ] __attribute__((aligned(64)));
   } staged;
+
+  /* Decompressed stake account data for the delegation snoop. */
+  uchar snoop_data[ FD_RUNTIME_ACC_SZ_MAX ] __attribute__((aligned(64)));
 };
 
 typedef struct fd_snapin_tile fd_snapin_tile_t;
@@ -1302,7 +1305,8 @@ writer_flush( fd_snapin_tile_t * ctx ) {
   FD_TEST( padded<=FD_SNAPIN_WRITE_BUF_SZ );
   fd_memset( ctx->writer.buf+used, 0, padded-used );
   fd_accdb_disk_meta_t * dummy_record = (fd_accdb_disk_meta_t *)( ctx->writer.buf+used );
-  dummy_record->size = (uint)( padded-used-sizeof(fd_accdb_disk_meta_t) );
+  dummy_record->size     = (uint)( padded-used-sizeof(fd_accdb_disk_meta_t) ) | FD_ACCDB_DISK_RAW_BIT;
+  dummy_record->data_len = (uint)( padded-used-sizeof(fd_accdb_disk_meta_t) );
 
   /* The offset is aligned because partition sizes are multiples of
      FD_SNAPIN_DIRECT_ALIGN (whole GiB), the snapin tiles are the only
@@ -1338,7 +1342,7 @@ writer_flush( fd_snapin_tile_t * ctx ) {
       data_lens   [ i ] = (ulong)batch->data_lens[ idx ];
       file_offsets[ i ] = base_off+buf_off;
 
-      buf_off += sizeof(fd_accdb_disk_meta_t)+data_lens[ i ];
+      buf_off += sizeof(fd_accdb_disk_meta_t)+FD_ACCDB_DISK_SZ( ((fd_accdb_disk_meta_t const *)pubkeys[ i ])->size );
       fd_uwide_inc( &input_lamports_hi, &input_lamports, input_lamports_hi, input_lamports, batch->lamports[ idx ] );
     }
 
@@ -1363,6 +1367,8 @@ writer_flush( fd_snapin_tile_t * ctx ) {
       uchar const *       data     = pubkeys[ i ]+sizeof(fd_accdb_disk_meta_t);
 
       if( lamports && !memcmp( owner, fd_solana_stake_program_id.uc, 32UL ) ) {
+        fd_accdb_disk_unpack( ctx->snoop_data, data_lens[ i ], ((fd_accdb_disk_meta_t const *)pubkeys[ i ])->size, data );
+        data = ctx->snoop_data;
         fd_stake_state_t const * stake_state = fd_stake_state_view( data, data_lens[ i ] );
         if( stake_state && stake_state->stake_type==FD_STAKE_STATE_STAKE ) {
           snoop_stake_delegation( ctx, stake_fork, slots[ i ], pubkey, lamports, stake_state, data_lens[ i ] );
@@ -1405,10 +1411,10 @@ writer_append_account( fd_snapin_tile_t * ctx,
                        ulong              data_len,
                        int                executable ) {
   FD_TEST( slot<=UINT_MAX );
-  ulong account_sz = sizeof(fd_accdb_disk_meta_t)+data_len;
-  FD_TEST( account_sz<=FD_SNAPIN_WRITE_BUF_MAX );
+  ulong account_max = FD_ACCDB_DISK_REC_BOUND( data_len );
+  FD_TEST( account_max<=FD_SNAPIN_WRITE_BUF_MAX );
 
-  if( FD_UNLIKELY( account_sz>FD_SNAPIN_WRITE_BUF_MAX-ctx->writer.buf_used && writer_flush( ctx ) ) ) {
+  if( FD_UNLIKELY( account_max>FD_SNAPIN_WRITE_BUF_MAX-ctx->writer.buf_used && writer_flush( ctx ) ) ) {
     return 1;
   }
 
@@ -1417,18 +1423,8 @@ writer_append_account( fd_snapin_tile_t * ctx,
   ulong idx     = ctx->writer.batch.cnt++;
   ulong buf_off = ctx->writer.buf_used;
 
-  /* Serialize the account metadata into the buffer */
-  fd_accdb_disk_meta_t meta = {
-    .size       = (uint)data_len,
-    .generation = 0U,
-  };
-  uchar * meta_ptr = ctx->writer.buf+buf_off;
-  uchar * data_ptr = meta_ptr+sizeof(fd_accdb_disk_meta_t);
-  fd_memcpy( meta.pubkey, pubkey, 32UL );
-  fd_memcpy( meta.owner, owner, 32UL );
-  fd_memcpy( meta_ptr, meta.b, sizeof(fd_accdb_disk_meta_t) );
-  fd_memcpy( data_ptr, data, data_len );
-  ctx->writer.buf_used += account_sz;
+  /* Serialize the account record into the buffer */
+  ctx->writer.buf_used += fd_accdb_disk_pack( ctx->writer.buf+buf_off, pubkey, 0U, owner, data, data_len );
 
   /* Stage fields needed for index publication after pwrite. */
   ctx->writer.batch.lamports    [ idx ] = lamports;

@@ -85,7 +85,8 @@ fd_accdb_footprint( ulong max_live_slots,
    the tile work (a command, or the cache free list crossing its low
    water mark).  NULL when the accdb tile spins.
 
-   compaction must match the value given to fd_accdb_footprint. */
+   compaction must match the value given to fd_accdb_footprint.  It
+   selects the larger bounce buffer compaction copies records through. */
 
 struct fd_sleep_private;
 

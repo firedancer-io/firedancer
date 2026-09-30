@@ -618,3 +618,41 @@ ulong const *
 fd_accdb_shmem_snapshot_sync( fd_accdb_shmem_t const * accdb ) {
   return &accdb->snapshot_sync;
 }
+
+ulong
+fd_accdb_disk_pack( uchar *       rec,
+                    uchar const * pubkey,
+                    uint          generation,
+                    uchar const * owner,
+                    uchar const * data,
+                    ulong         data_len ) {
+  uchar * payload = rec+sizeof(fd_accdb_disk_meta_t);
+  ulong   sz      = fd_zle_compress( payload, data, data_len );
+  uint    size    = (uint)sz;
+  if( FD_UNLIKELY( sz>=data_len ) ) {
+    fd_memcpy( payload, data, data_len );
+    size = (uint)data_len | FD_ACCDB_DISK_RAW_BIT;
+  }
+
+  fd_accdb_disk_meta_t * meta = (fd_accdb_disk_meta_t *)rec;
+  fd_memcpy( meta->pubkey, pubkey, 32UL );
+  meta->size       = size;
+  meta->generation = generation;
+  meta->data_len   = (uint)data_len;
+  fd_memcpy( meta->owner, owner, 32UL );
+  return sizeof(fd_accdb_disk_meta_t)+FD_ACCDB_DISK_SZ( size );
+}
+
+void
+fd_accdb_disk_unpack( uchar *       data,
+                      ulong         data_len,
+                      uint          size,
+                      uchar const * src ) {
+  if( FD_UNLIKELY( size & FD_ACCDB_DISK_RAW_BIT ) ) {
+    if( FD_UNLIKELY( FD_ACCDB_DISK_SZ( size )!=data_len ) ) FD_LOG_CRIT(( "accounts database is corrupt, raw record size %lu != data_len %lu", FD_ACCDB_DISK_SZ( size ), data_len ));
+    fd_memcpy( data, src, data_len );
+    return;
+  }
+  long res = fd_zle_decompress( data, data_len, src, FD_ACCDB_DISK_SZ( size ) );
+  if( FD_UNLIKELY( res!=(long)data_len ) ) FD_LOG_CRIT(( "accounts database is corrupt, account data failed to decompress (%s)", fd_zle_strerror( res ) ));
+}
