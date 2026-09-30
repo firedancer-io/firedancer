@@ -132,6 +132,8 @@
 #define REPAIR_SIG_FEC_INVALID (2UL)
 /* alpenglow type - replayable fec */
 #define ROTOR_SIG_FEC_REPLAY  (3UL)
+/* alpenglow type - completed block metadata, on rotor_rserve */
+#define ROTOR_SIG_BLOCK       (4UL)
 
 struct fd_rotor_fec_metrics {
   uint  stats_valid;        /* 1 if the counters below are populated */
@@ -206,5 +208,21 @@ struct fd_rotor_replay_fec {
    fd_rotor_fec_metrics_t metrics;
 };
 typedef struct fd_rotor_replay_fec fd_rotor_replay_fec_t;
+
+/* fd_rotor_block is published to rserve when a block's slot-complete
+   FEC is delivered.  merkle_roots holds the first 20B of each FEC
+   root.  The frag is variable length, see FD_ROTOR_BLOCK_SZ. */
+
+struct fd_rotor_block {
+  ulong     slot;
+  fd_hash_t block_id;
+  ulong     parent_slot;
+  fd_hash_t parent_block_id;
+  uint      fec_set_cnt;
+  uchar     merkle_roots[ FD_FEC_BLK_MAX ][ FD_SHRED_MERKLE_NODE_SZ ];
+};
+typedef struct fd_rotor_block fd_rotor_block_t;
+
+#define FD_ROTOR_BLOCK_SZ(fec_set_cnt) (offsetof(fd_rotor_block_t, merkle_roots) + (ulong)(fec_set_cnt)*FD_SHRED_MERKLE_NODE_SZ)
 
 #endif /* HEADER_fd_src_discof_rotor_fd_rotor_tile_h */
