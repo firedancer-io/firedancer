@@ -467,6 +467,196 @@ test_status_forwarding( void ) {
   FD_LOG_NOTICE(( "pass: failover status forwards over the bus and shares the parked slot" ));
 }
 
+/* test_init_picks_vote_tile: unprivileged_init picks votor and rotor
+   when the topology has a votor tile, tower and repair otherwise. */
+
+static void
+test_init_picks_vote_tile( void ) {
+  enum { ADMIN, AV_TXSEND, AV_SIGN, AV_VOTE, AV_TILE_CNT, AV_SCRATCH=AV_TILE_CNT, AV_CTL };
+  static struct {
+    fd_keyswitch_t      av[ AV_TILE_CNT ]; /* av[ ADMIN ] is unused, fd_topo_obj_laddr rejects offset zero */
+    fd_admin_tile_ctx_t scratch;
+    uchar               ctl[ 4096 ] __attribute__((aligned(FD_ADMINCTL_ALIGN)));
+  } arena;
+  static fd_topo_t init_topo;
+  FD_TEST( fd_adminctl_footprint()<=sizeof(arena.ctl) );
+  for( int alpenglow=0; alpenglow<2; alpenglow++ ) {
+    char const * names[ AV_TILE_CNT ] = { "admin", "txsend", "sign", alpenglow ? "votor" : "tower" };
+    fd_memset( &init_topo, 0, sizeof(init_topo) );
+    fd_memset( &arena,     0, sizeof(arena)     );
+    init_topo.tile_cnt             = AV_TILE_CNT;
+    init_topo.workspaces[ 0 ].wksp = fd_type_pun( &arena );
+    for( ulong i=0UL; i<AV_TILE_CNT; i++ ) {
+      fd_topo_tile_t * tile = &init_topo.tiles[ i ];
+      fd_cstr_ncpy( tile->name, names[ i ], sizeof(tile->name) );
+      tile->av_keyswitch_obj_id = ULONG_MAX;
+      if( i==ADMIN ) continue;
+      FD_TEST( fd_keyswitch_new( &arena.av[ i ], FD_KEYSWITCH_STATE_UNLOCKED ) );
+      tile->av_keyswitch_obj_id  = i;
+      init_topo.objs[ i ].id     = i;
+      init_topo.objs[ i ].offset = (ulong)&arena.av[ i ]-(ulong)&arena;
+    }
+    fd_topo_tile_t * admin               = &init_topo.tiles[ ADMIN ];
+    admin->tile_obj_id                   = AV_SCRATCH;
+    admin->uses_obj_cnt                  = 1UL;
+    admin->uses_obj_id[ 0 ]              = AV_CTL;
+    init_topo.objs[ AV_SCRATCH ].id      = AV_SCRATCH;
+    init_topo.objs[ AV_SCRATCH ].offset  = (ulong)&arena.scratch-(ulong)&arena;
+    init_topo.objs[ AV_CTL ].id          = AV_CTL;
+    init_topo.objs[ AV_CTL ].offset      = (ulong)arena.ctl-(ulong)&arena;
+    fd_cstr_ncpy( init_topo.objs[ AV_CTL ].name, "adminctl", sizeof(init_topo.objs[ AV_CTL ].name) );
+    FD_TEST( fd_adminctl_new( arena.ctl ) );
+
+    unprivileged_init( &init_topo, admin );
+    FD_TEST( !strcmp( arena.scratch.vote_tile,   alpenglow ? "votor" : "tower"  ) );
+    FD_TEST( !strcmp( arena.scratch.repair_tile, alpenglow ? "rotor" : "repair" ) );
+    FD_TEST( arena.scratch.tower_av_keyswitch==(alpenglow ? NULL : &arena.av[ AV_VOTE ]) );
+    FD_TEST( arena.scratch.txsend_av_keyswitch==&arena.av[ AV_TXSEND ] );
+  }
+  FD_LOG_NOTICE(( "pass: unprivileged_init picks tower and repair, or votor and rotor" ));
+}
+
+/* One keyswitch per tile the switch sequence talks to, the test plays
+   those tiles by completing them.  With alpenglow set the TOWER and
+   REPAIR slots are votor and rotor, and there is no txsend tile. */
+
+enum { SW_REPLAY, SW_TOWER, SW_TXSEND, SW_REPAIR, SW_GOSSIP, SW_BUNDLE, SW_RSERVE, SW_SHRED,
+       SW_SIGN0, SW_SIGN1, SW_GOSSVF, SW_GUI, SW_EVENT, SW_TILE_CNT };
+static char const * switch_tile_names[ SW_TILE_CNT ] = {
+  "replay", "tower", "txsend", "repair", "gossip", "bundle", "rserve",
+  "shred", "sign", "sign", "gossvf", "gui", "event"
+};
+static fd_topo_t      switch_topo;
+static fd_keyswitch_t switch_ks[ SW_TILE_CNT+1 ]; /* switch_ks[ 0 ] is unused, fd_topo_obj_laddr rejects offset zero */
+
+static fd_keyswitch_t *
+switch_topo_init( int alpenglow ) {
+  fd_memset( &switch_topo, 0, sizeof(switch_topo) );
+  switch_topo.tile_cnt             = SW_TILE_CNT;
+  switch_topo.workspaces[ 0 ].wksp = fd_type_pun( switch_ks );
+  switch_tile_names[ SW_TOWER  ]   = alpenglow ? "votor"  : "tower";
+  switch_tile_names[ SW_TXSEND ]   = alpenglow ? "metric" : "txsend";
+  switch_tile_names[ SW_REPAIR ]   = alpenglow ? "rotor"  : "repair";
+  ctx.vote_tile                    = switch_tile_names[ SW_TOWER  ];
+  ctx.repair_tile                  = switch_tile_names[ SW_REPAIR ];
+  for( ulong i=0UL; i<SW_TILE_CNT; i++ ) {
+    fd_cstr_ncpy( switch_topo.tiles[ i ].name, switch_tile_names[ i ], sizeof(switch_topo.tiles[ i ].name) );
+    switch_topo.tiles[ i ].kind_id             = (ulong)( i==SW_SIGN1 );
+    switch_topo.tiles[ i ].id_keyswitch_obj_id = alpenglow && i==SW_TXSEND ? ULONG_MAX : i;
+    switch_topo.objs[ i ].id                   = i;
+    switch_topo.objs[ i ].offset               = (i+1UL)*sizeof(fd_keyswitch_t);
+  }
+  ctx.topo = &switch_topo;
+  fd_keyswitch_t * k = switch_ks+1;
+  for( ulong i=0UL; i<SW_TILE_CNT; i++ ) {
+    FD_TEST( fd_keyswitch_new( &k[ i ], FD_KEYSWITCH_STATE_UNLOCKED ) );
+    fd_memset( k[ i ].bytes, 0xA5, 64UL );
+  }
+  return k;
+}
+
+/* test_identity_switch_ordering: set-identity halts, switches and
+   unhalts votor and rotor the way it does tower and repair.  Under
+   Tower the vote tile's halt sequence goes to txsend, which flushes,
+   Alpenglow has no txsend tile and nothing to flush. */
+
+static void
+test_identity_switch_ordering( int alpenglow ) {
+  fd_keyswitch_t * k = switch_topo_init( alpenglow );
+  uchar keypair[ 64 ];
+  fd_memset( keypair,      0x33, 32UL );
+  fd_memset( keypair+32UL, 0x55, 32UL );
+  uchar const * public_key = keypair+32UL;
+  ulong state      = FD_SET_IDENTITY_STATE_UNLOCKED;
+  ulong halted_seq = 0UL;
+  ulong outset     = 1234UL;
+#define POLL() FD_TEST( !poll_set_identity( &ctx, &state, &halted_seq, outset, keypair ) )
+  POLL();
+  POLL();
+  FD_TEST( k[ SW_REPLAY ].state==FD_KEYSWITCH_STATE_SWITCH_PENDING );
+  FD_TEST( fd_memeq( k[ SW_REPLAY ].bytes, public_key, 32UL ) );
+  POLL();
+  FD_TEST( k[ SW_TOWER ].state==FD_KEYSWITCH_STATE_UNLOCKED );
+  k[ SW_REPLAY ].result = 17UL;
+  k[ SW_REPLAY ].state  = FD_KEYSWITCH_STATE_COMPLETED;
+  POLL();
+  FD_TEST( halted_seq==17UL );
+
+  /* Signers halt, votor and rotor with them under Alpenglow. */
+  POLL();
+  POLL();
+  FD_TEST( k[ SW_TXSEND ].state==FD_KEYSWITCH_STATE_UNLOCKED );
+  FD_TEST( k[ SW_SIGN0  ].state==FD_KEYSWITCH_STATE_UNLOCKED );
+  for( ulong i=SW_TOWER; i<=SW_SHRED; i++ ) {
+    if( i==SW_TXSEND ) continue;
+    FD_TEST( k[ i ].state==FD_KEYSWITCH_STATE_SWITCH_PENDING );
+    FD_TEST( fd_memeq( k[ i ].bytes, public_key, 32UL ) );
+    k[ i ].state = FD_KEYSWITCH_STATE_COMPLETED;
+  }
+  k[ SW_TOWER ].result = 37UL;
+
+  POLL();
+  POLL();
+  FD_TEST( find_identity_keyswitch( &ctx, ctx.vote_tile )==&k[ SW_TOWER ] );
+  if( !alpenglow ) {
+    FD_TEST( k[ SW_TXSEND ].state==FD_KEYSWITCH_STATE_SWITCH_PENDING );
+    FD_TEST( k[ SW_TXSEND ].param==37UL );
+    FD_TEST( fd_memeq( k[ SW_TXSEND ].bytes, public_key, 32UL ) );
+    POLL();
+    FD_TEST( state==FD_SET_IDENTITY_STATE_TXSEND_FLUSH_REQUESTED );
+    k[ SW_TXSEND ].state = FD_KEYSWITCH_STATE_COMPLETED;
+    POLL();
+  }
+  FD_TEST( state==FD_SET_IDENTITY_STATE_TXSEND_FLUSHED );
+
+  /* The sign tiles and the rest switch next. */
+  POLL();
+  for( ulong i=SW_SIGN0; i<=SW_SIGN1; i++ ) {
+    FD_TEST( k[ i ].state==FD_KEYSWITCH_STATE_SWITCH_PENDING );
+    for( ulong j=0UL; j<32UL; j++ ) FD_TEST( k[ i ].bytes[ j ]==0x33 );
+    FD_TEST( fd_memeq( k[ i ].bytes+32UL, public_key, 32UL ) );
+  }
+  FD_TEST( k[ SW_GOSSVF ].param==outset );
+  for( ulong i=SW_GOSSVF; i<SW_TILE_CNT; i++ ) {
+    FD_TEST( k[ i ].state==FD_KEYSWITCH_STATE_SWITCH_PENDING );
+    FD_TEST( fd_memeq( k[ i ].bytes, public_key, 32UL ) );
+    k[ i ].state = FD_KEYSWITCH_STATE_COMPLETED;
+  }
+  for( ulong i=SW_TOWER; i<=SW_SHRED; i++ ) {
+    if( alpenglow && i==SW_TXSEND ) continue;
+    FD_TEST( k[ i ].state==FD_KEYSWITCH_STATE_COMPLETED );
+  }
+  k[ SW_SIGN0 ].state = FD_KEYSWITCH_STATE_COMPLETED;
+  k[ SW_SIGN1 ].state = FD_KEYSWITCH_STATE_COMPLETED;
+  POLL();
+  FD_TEST( state==FD_SET_IDENTITY_STATE_ALL_SWITCHED );
+
+  /* Signers unhalt, then the leader pipeline. */
+  POLL();
+  POLL();
+  FD_TEST( k[ SW_REPLAY ].state==FD_KEYSWITCH_STATE_COMPLETED );
+  FD_TEST( k[ SW_SHRED  ].state==FD_KEYSWITCH_STATE_COMPLETED );
+  for( ulong i=SW_TOWER; i<SW_SHRED; i++ ) {
+    if( alpenglow && i==SW_TXSEND ) {
+      FD_TEST( k[ i ].state==FD_KEYSWITCH_STATE_UNLOCKED );
+      continue;
+    }
+    FD_TEST( k[ i ].state==FD_KEYSWITCH_STATE_UNHALT_PENDING );
+    k[ i ].state = FD_KEYSWITCH_STATE_COMPLETED;
+  }
+  POLL();
+  POLL();
+  FD_TEST( k[ SW_REPLAY ].state==FD_KEYSWITCH_STATE_UNHALT_PENDING );
+  POLL();
+  k[ SW_REPLAY ].state = FD_KEYSWITCH_STATE_COMPLETED;
+  FD_TEST( poll_set_identity( &ctx, &state, &halted_seq, outset, keypair ) );
+  FD_TEST( state==FD_SET_IDENTITY_STATE_UNLOCKED );
+  FD_TEST( k[ SW_REPLAY ].state==FD_KEYSWITCH_STATE_UNLOCKED );
+#undef POLL
+  ctx.topo = NULL;
+  FD_LOG_NOTICE(( "pass: set-identity switch ordering with %s and %s", switch_tile_names[ SW_TOWER ], switch_tile_names[ SW_REPAIR ] ));
+}
+
 /* test_bus_chunk: each publish on the bus moves to the next frame.
    There is room for two frames, so the third wraps back to the start. */
 static void
@@ -612,6 +802,17 @@ topo_init( void ) {
   }
 }
 
+/* Makes the topo_init topology Alpenglow's, votor in place of tower and
+   no txsend tile. */
+static void
+topo_alpenglow( void ) {
+  fd_cstr_ncpy( topo.tiles[ TOWER  ].name, "votor",  sizeof(topo.tiles[ TOWER  ].name) );
+  fd_cstr_ncpy( topo.tiles[ TXSEND ].name, "metric", sizeof(topo.tiles[ TXSEND ].name) );
+  topo.tiles[ TXSEND ].id_keyswitch_obj_id = ULONG_MAX;
+  ctx.vote_tile   = "votor";
+  ctx.repair_tile = "rotor";
+}
+
 /* test_events: a failover command's events show the command, its flags
    and the reason it was refused. */
 static void
@@ -746,6 +947,35 @@ test_switch_request( void ) {
   FD_LOG_NOTICE(( "pass: identity switch by public key answers with the tower watermark" ));
 }
 
+/* test_switch_request_alpenglow: under Alpenglow the answer has the
+   votor keyswitch result, and there is no txsend tile to flush. */
+static void
+test_switch_request_alpenglow( void ) {
+  bus_init();
+  topo_init();
+  topo_alpenglow();
+  ctx.topo             = &topo;
+  ctx.failover_enabled = 1;
+  fd_failover_switch_req_t req;
+  fd_memset( req.identity, 0x33, 32UL );
+  play_stop = 0;
+  pthread_t player;
+  FD_TEST( !pthread_create( &player, NULL, play_identity, NULL ) );
+  failov_send( FD_FAILOVER_BUS_SWITCH_REQ, 7UL, 0UL, &req, sizeof(req), 0 );
+  FD_VOLATILE( play_stop ) = 1;
+  FD_TEST( !pthread_join( player, NULL ) );
+
+  fd_failover_bus_msg_t const * out = (fd_failover_bus_msg_t const *)out_mem;
+  fd_failover_switch_resp_t answer;
+  fd_memcpy( &answer, out->payload, sizeof(answer) );
+  FD_TEST( pub_seq==1UL && pub_mcache[ 0 ].sig==FD_FAILOVER_BUS_SWITCH_RESP );
+  FD_TEST( out->nonce==7UL && answer.result==FD_FAILOVER_SWITCH_OK && answer.tower_watermark==4242UL );
+  FD_TEST( k[ TXSEND ].state==FD_KEYSWITCH_STATE_UNLOCKED && fd_memeq( ctx.identity_pubkey, req.identity, 32UL ) );
+  for( ulong i=0UL; i<2UL; i++ ) FD_TEST( sign_param[ i ]==FD_KEYSWITCH_PARAM_IDENTITY_PUBKEY );
+  ctx.topo = NULL;
+  FD_LOG_NOTICE(( "pass: under Alpenglow the switch answers with the votor watermark" ));
+}
+
 /* test_all_switched_waits: we do not move on to unhalting while any
    remaining tile, a sign tile or gossvf, has not switched. */
 static void
@@ -782,14 +1012,16 @@ test_all_switched_waits( void ) {
 /* test_identity_break_glass: under failover a mismatched keypair is
    refused and failover stays on.  A good one first sends DISABLE to the
    failover tile and turns failover off until restart, then switches the
-   upstream way.  The sign tiles get the keypair and the tower is told
-   to drop the failover voting rules.  Failover commands are refused
-   after that and status says failover is off until restart. */
+   upstream way.  The sign tiles get the keypair and the tower, or the
+   votor under Alpenglow, is told to drop the failover voting rules.
+   Failover commands are refused after that and status says failover is
+   off until restart. */
 static void
-test_identity_break_glass( void ) {
+test_identity_break_glass( int alpenglow ) {
   static fd_admin_tile_ctx_t saved;
   bus_init();
   topo_init();
+  if( alpenglow ) topo_alpenglow();
   ctx.topo = &topo;
   fd_memset( ctx.identity_pubkey, 0x11, 32UL );
   ev_init();
@@ -826,6 +1058,7 @@ test_identity_break_glass( void ) {
     FD_TEST( fd_memeq( sign_bytes[ i ], req.keypair, 64UL ) );
   }
   FD_TEST( k[ TOWER ].param==FD_KEYSWITCH_PARAM_IDENTITY_FAILOVER_OFF );
+  FD_TEST( k[ TXSEND ].state==( alpenglow ? FD_KEYSWITCH_STATE_UNLOCKED : FD_KEYSWITCH_STATE_COMPLETED ) );
   for( ulong i=0UL; i<32UL; i++ ) FD_TEST( !((fd_adminctl_set_identity_t *)payload)->keypair[ i ] );
 
   ulong seq = pub_seq;
@@ -838,7 +1071,7 @@ test_identity_break_glass( void ) {
 
   ctx.failover_off = 0;
   ctx.topo         = NULL;
-  FD_LOG_NOTICE(( "pass: set-identity turns failover off and switches the upstream way" ));
+  FD_LOG_NOTICE(( "pass: set-identity turns failover off and switches the upstream way, %s", alpenglow ? "Alpenglow" : "Tower" ));
 }
 
 static fd_keyswitch_t tower_av;
@@ -912,6 +1145,9 @@ main( int argc, char ** argv ) {
   ctx.failover_slot_idx    = ULONG_MAX;
   ctx.failov_out_idx       = ULONG_MAX;
   ctx.failov_in_idx        = ULONG_MAX;
+  test_init_picks_vote_tile();
+  test_identity_switch_ordering( 0 );
+  test_identity_switch_ordering( 1 );
   test_control_abi();
   test_bus_forwarding();
   test_bus_answer_waiting();
@@ -923,8 +1159,10 @@ main( int argc, char ** argv ) {
   test_bus_frame_bounds();
   test_switch_request();
   test_all_switched_waits();
-  test_identity_break_glass();
+  test_identity_break_glass( 0 );
+  test_identity_break_glass( 1 );
   test_events();
+  test_switch_request_alpenglow();
   test_authorized_voter_refusal();
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

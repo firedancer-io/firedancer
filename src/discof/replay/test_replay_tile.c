@@ -1647,6 +1647,69 @@ test_switch_identity_drops_leader_slot( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_switch_identity_drops_leader_slot" ));
 }
 
+/* test_halted_no_window_continuation: finishing a leader block mid
+   window while halted hands out no next slot, unhalted it continues the
+   window. */
+
+static void
+test_halted_no_window_continuation( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  fd_hash_t root_id = { .ul = { 100UL } };
+  fd_hash_t id_a    = { .ul = { 201UL } };
+  fd_hash_t id_b    = { .ul = { 202UL } };
+  fd_bank_t * root  = setup_rooting_ctx( ctx, wksp, &root_id );
+
+  /* A keyswitch that is not pending, so the identity check inside
+     try_fini_leader is a no-op. */
+  void * ks_mem = fd_wksp_alloc_laddr( wksp, fd_keyswitch_align(), fd_keyswitch_footprint(), 1UL );
+  FD_TEST( ks_mem );
+  ctx->keyswitch = fd_keyswitch_join( fd_keyswitch_new( ks_mem, FD_KEYSWITCH_STATE_LOCKED ) );
+  FD_TEST( ctx->keyswitch );
+
+  /* The completed block inherits the root's block hash queue. */
+  fd_blockhashes_init( &root->f.block_hash_queue, 42UL );
+  FD_TEST( fd_blockhashes_push_new( &root->f.block_hash_queue, &root_id ) );
+
+  mock_footer_finalize = 1;
+  fd_memset( mock_footer, 0, sizeof(fd_block_footer_t) );
+
+  /* Halted mid-window, finishing the block claims no next slot. */
+  fd_bank_t * lead_a = add_replayable_block( ctx, root, 1UL, &id_a );
+  ctx->is_leader             = 1;
+  ctx->recv_poh              = 1;
+  ctx->leader_bank           = lead_a;
+  lead_a->refcnt             = 1UL;
+  ctx->halt_leader           = 1;
+  ctx->next_leader_slot      = ULONG_MAX;
+  ctx->next_leader_tickcount = LONG_MAX;
+  ctx->votor_leader->slot    = ULONG_MAX;
+
+  FD_TEST( try_fini_leader( ctx, test_stem ) );
+  FD_TEST( !ctx->is_leader );
+  FD_TEST( ctx->next_leader_slot==ULONG_MAX );
+  FD_TEST( ctx->votor_leader->slot==ULONG_MAX );
+
+  /* Unhalted mid-window, the window continues into the next slot. */
+  fd_bank_t * lead_b = add_replayable_block( ctx, root, 2UL, &id_b );
+  ctx->is_leader             = 1;
+  ctx->recv_poh              = 1;
+  ctx->leader_bank           = lead_b;
+  lead_b->refcnt             = 1UL;
+  ctx->halt_leader           = 0;
+  ctx->next_leader_slot      = ULONG_MAX;
+  ctx->next_leader_tickcount = LONG_MAX;
+  ctx->votor_leader->slot    = ULONG_MAX;
+
+  FD_TEST( try_fini_leader( ctx, test_stem ) );
+  FD_TEST( ctx->next_leader_slot==3UL );
+  FD_TEST( ctx->votor_leader->slot==3UL );
+  FD_TEST( ctx->votor_leader->parent_slot==2UL );
+  FD_TEST( fd_memeq( ctx->votor_leader->parent_block_id.uc, id_b.uc, sizeof(fd_hash_t) ) );
+
+  mock_footer_finalize = 0;
+  FD_LOG_NOTICE(( "pass: test_halted_no_window_continuation" ));
+}
+
 static void
 test_eqvoc_last_fec( fd_wksp_t * wksp ) {
 
@@ -3799,6 +3862,7 @@ main( int     argc,
   test_root_from_footer( wksp );                    fd_wksp_reset( wksp, 42U );
   test_halted_leader_frag_ignored( wksp );          fd_wksp_reset( wksp, 42U );
   test_switch_identity_drops_leader_slot( wksp );   fd_wksp_reset( wksp, 42U );
+  test_halted_no_window_continuation( wksp );       fd_wksp_reset( wksp, 42U );
   test_epoch_boundary_fork_width_evict( wksp );     fd_wksp_reset( wksp, 42U );
   test_banks_full_prune_leaf( wksp );               fd_wksp_reset( wksp, 42U );
   test_leader_fec_bypasses_backpressure( wksp, 0 ); fd_wksp_reset( wksp, 42U );

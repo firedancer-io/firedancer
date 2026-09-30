@@ -1,5 +1,6 @@
 #include "fd_failover_proto.h"
 #include "../../choreo/tower/fd_tower_serdes.h"
+#include "../../choreo/votor/ag_hist.h"
 #include "../../ballet/ed25519/fd_ed25519.h"
 #include "../../util/fd_util.h"
 
@@ -338,6 +339,107 @@ test_demoted_decode( void ) {
   FD_LOG_NOTICE(( "pass: test_demoted_decode" ));
 }
 
+/* Notar votes on the rec_cnt slots ending at tip, serialized. */
+static ulong
+make_hist( uchar * state,
+           ulong   anchor,
+           ulong   tip,
+           ulong   rec_cnt ) {
+  static ag_hist_t hist;
+  fd_memset( &hist, 0, sizeof(hist) );
+  hist.anchor           = anchor;
+  hist.last_leader_slot = tip-4UL;
+  hist.vote_bound       = ULONG_MAX;
+  hist.rec_cnt          = rec_cnt;
+  for( ulong i=0UL; i<rec_cnt; i++ ) {
+    hist.rec[ i ].slot  = tip-rec_cnt+1UL+i;
+    hist.rec[ i ].flags = (uchar)( AG_HIST_FLAG_VOTED|AG_HIST_FLAG_VOTED_NOTAR );
+    fd_memset( hist.rec[ i ].notar_hash, (int)(0x10UL+i), sizeof(ag_block_hash_t) );
+  }
+  ulong state_sz = 0UL;
+  FD_TEST( !ag_hist_ser( &hist, state, FD_FAILOVER_ALPENGLOW_STATE_MAX, &state_sz ) );
+  return state_sz;
+}
+
+/* test_alpenglow_mode: HELLO tells the two modes apart.  An Alpenglow
+   DEMOTED decodes only when its history ends at last_vote_slot and its
+   mode byte matches its state. */
+static void
+test_alpenglow_mode( void ) {
+  fd_failover_hello_t self;
+  fd_failover_hello_t peer;
+  fill_hello( &self, 0x01, 0xAA, 0xBB, (uchar)FD_FAILOVER_ROLE_ACTIVE  );
+  fill_hello( &peer, 0x02, 0xAA, 0xBB, (uchar)FD_FAILOVER_ROLE_STANDBY );
+  peer.mode = (uchar)FD_FAILOVER_MODE_ALPENGLOW;
+  FD_TEST( fd_failover_hello_check( &self, &peer )==FD_FAILOVER_HELLO_ERR_MODE );
+  FD_TEST( fd_failover_hello_check( &peer, &self )==FD_FAILOVER_HELLO_ERR_MODE );
+  self.mode = (uchar)FD_FAILOVER_MODE_ALPENGLOW;
+  FD_TEST( fd_failover_hello_check( &self, &peer )==FD_FAILOVER_HELLO_OK );
+
+  /* 122 notar records are far past the tower bound. */
+  static uchar state  [ FD_FAILOVER_ALPENGLOW_STATE_MAX ];
+  static uchar payload[ FD_FAILOVER_DEMOTED_PAYLOAD_MAX+1UL ];
+  ulong state_sz = make_hist( state, 80UL, 200UL, 122UL );
+  FD_TEST( state_sz==AG_HIST_HDR_SZ+122UL*AG_HIST_REC_MAX_SZ && state_sz>FD_FAILOVER_TOWER_STATE_MAX );
+  ulong payload_sz = fd_failover_demoted_encode_alpenglow( payload, 7UL, 11UL, 200UL, state, state_sz );
+  FD_TEST( payload_sz==sizeof(fd_failover_demoted_t)+state_sz && payload_sz<=FD_FAILOVER_DEMOTED_PAYLOAD_MAX );
+
+  fd_failover_demoted_t out;
+  FD_TEST( fd_failover_demoted_decode( &out, payload, payload_sz ) );
+  FD_TEST( out.handoff_id==7UL && out.target_boot_id==11UL && out.last_vote_slot==200UL );
+  FD_TEST( out.mode==FD_FAILOVER_MODE_ALPENGLOW );
+  FD_TEST( (ulong)out.state_len==state_sz );
+  FD_TEST( fd_memeq( payload+sizeof(fd_failover_demoted_t), state, state_sz ) );
+
+  /* The encoder refuses an empty or oversized history, the tower
+     encoder refuses a history this long. */
+  FD_TEST( !fd_failover_demoted_encode_alpenglow( payload, 8UL, 11UL, 200UL, state, 0UL ) );
+  FD_TEST( !fd_failover_demoted_encode_alpenglow( payload, 8UL, 11UL, 200UL, state, FD_FAILOVER_ALPENGLOW_STATE_MAX+1UL ) );
+  FD_TEST( !fd_failover_demoted_encode( payload, 8UL, 11UL, 200UL, state, state_sz ) );
+  payload_sz = fd_failover_demoted_encode_alpenglow( payload, 7UL, 11UL, 200UL, state, state_sz );
+
+  fd_failover_demoted_t before = out;
+  fd_failover_demoted_t * hdr  = (fd_failover_demoted_t *)payload;
+
+  /* The history ends at 200, so 199 and 201 are both wrong. */
+  hdr->last_vote_slot = 199UL;
+  FD_TEST( !fd_failover_demoted_decode( &out, payload, payload_sz ) );
+  hdr->last_vote_slot = 201UL;
+  FD_TEST( !fd_failover_demoted_decode( &out, payload, payload_sz ) );
+  hdr->last_vote_slot = 200UL;
+
+  /* A history that does not decode, its record count runs past the
+     limit. */
+  uchar * rec_cnt_hi = payload+sizeof(fd_failover_demoted_t)+AG_HIST_HDR_SZ-1UL;
+  uchar   saved      = *rec_cnt_hi;
+  *rec_cnt_hi = 0xFFU;
+  FD_TEST( !fd_failover_demoted_decode( &out, payload, payload_sz ) );
+  *rec_cnt_hi = saved;
+
+  /* Trailing bytes after the history. */
+  payload[ payload_sz ] = 0;
+  hdr->state_len = (ushort)( state_sz+1UL );
+  FD_TEST( !fd_failover_demoted_decode( &out, payload, payload_sz+1UL ) );
+  hdr->state_len = (ushort)state_sz;
+
+  /* The same bytes under the tower mode byte. */
+  hdr->mode = (uchar)FD_FAILOVER_MODE_TOWER;
+  FD_TEST( !fd_failover_demoted_decode( &out, payload, payload_sz ) );
+  hdr->mode = (uchar)FD_FAILOVER_MODE_ALPENGLOW;
+  FD_TEST( fd_memeq( &out, &before, sizeof(out) ) );
+  FD_TEST( fd_failover_demoted_decode( &out, payload, payload_sz ) );
+
+  /* And a tower under the Alpenglow mode byte. */
+  uchar tower[ FD_FAILOVER_TOWER_STATE_MAX ];
+  ulong tower_sz = make_tower( tower, 100UL, 5UL, 2UL );
+  payload_sz = fd_failover_demoted_encode( payload, 9UL, 11UL, 107UL, tower, tower_sz );
+  FD_TEST( fd_failover_demoted_decode( &out, payload, payload_sz ) );
+  hdr->mode = (uchar)FD_FAILOVER_MODE_ALPENGLOW;
+  FD_TEST( !fd_failover_demoted_decode( &out, payload, payload_sz ) );
+
+  FD_LOG_NOTICE(( "pass: test_alpenglow_mode" ));
+}
+
 /* test_promote_replies: ACK and REJECTED round trip, a bad size or
    reason does not decode. */
 static void
@@ -449,6 +551,7 @@ main( int     argc,
   test_hello_checks();
   test_member_cert();
   test_demoted_decode();
+  test_alpenglow_mode();
   test_promote_replies();
   test_handoff_messages();
   test_handoff_decode();
