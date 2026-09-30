@@ -76,7 +76,7 @@ fd_keyguard_client_sign_sz( fd_keyguard_client_t * client,
   client->request_chunk = fd_dcache_compact_next( client->request_chunk, sign_data_len, client->request_chunk0, client->request_wmark );
 
   if( FD_UNLIKELY( client->sleep ) ) {
-    FD_VOLATILE( client->sleep->seq_mirror[ client->request_link_id ] ) = client->request_seq;
+    __atomic_store_n( &client->sleep->seq_mirror[ client->request_link_id ], client->request_seq, __ATOMIC_RELEASE );
     fd_sleep_wake_check( client->sleep, &client->wake, 1UL );
   }
 

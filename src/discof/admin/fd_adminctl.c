@@ -170,7 +170,7 @@ fd_adminctl_reserve( fd_adminctl_t * adminctl,
 
   for( ulong slot_id=0UL; slot_id<FD_ADMINCTL_SLOT_CNT; slot_id++ ) {
     fd_adminctl_slot_t * slot          = fd_adminctl_slot_laddr( adminctl, slot_id );
-    ulong                state_pid_seq = FD_VOLATILE_CONST( slot->state_pid_seq );
+    ulong                state_pid_seq = __atomic_load_n( &slot->state_pid_seq, __ATOMIC_ACQUIRE );
     uint                 owner_pid     = fd_adminctl_pid( state_pid_seq );
 
     /* Reclaim a slot if it's a dead command.  The conditions for
@@ -184,7 +184,7 @@ fd_adminctl_reserve( fd_adminctl_t * adminctl,
                        "or consumed the result of the command", owner_pid ));
       ulong free_state_pid_seq = fd_adminctl_state_update( state_pid_seq, FD_ADMINCTL_STATE_FREE );
       if( FD_LIKELY( FD_ATOMIC_CAS( &slot->state_pid_seq, state_pid_seq, free_state_pid_seq )==state_pid_seq ) ) {
-        state_pid_seq = FD_VOLATILE_CONST( slot->state_pid_seq );
+        state_pid_seq = __atomic_load_n( &slot->state_pid_seq, __ATOMIC_ACQUIRE );
         state         = fd_adminctl_state( state_pid_seq );
       } else {
         continue;
@@ -237,7 +237,7 @@ fd_adminctl_publish( fd_adminctl_t * adminctl,
   if( FD_UNLIKELY( slot_id>=FD_ADMINCTL_SLOT_CNT ) ) FD_LOG_CRIT(( "bad slot_id %lu", slot_id ));
 
   fd_adminctl_slot_t * slot          = fd_adminctl_slot_laddr( adminctl, slot_id );
-  ulong                state_pid_seq = FD_VOLATILE_CONST( slot->state_pid_seq );
+  ulong                state_pid_seq = __atomic_load_n( &slot->state_pid_seq, __ATOMIC_ACQUIRE );
   if( FD_UNLIKELY( fd_adminctl_state( state_pid_seq )!=FD_ADMINCTL_STATE_RESERVED ) ) FD_LOG_CRIT(( "adminctl publish without reservation" ));
 
   slot->cmd        = cmd_id;
@@ -261,7 +261,7 @@ fd_adminctl_poll( fd_adminctl_t * adminctl,
   ulong                slot_id = adminctl->poll_idx++ % FD_ADMINCTL_SLOT_CNT;
   fd_adminctl_slot_t * slot    = fd_adminctl_slot_laddr( adminctl, slot_id );
 
-  ulong state_pid_seq = FD_VOLATILE_CONST( slot->state_pid_seq );
+  ulong state_pid_seq = __atomic_load_n( &slot->state_pid_seq, __ATOMIC_ACQUIRE );
   FD_COMPILER_MFENCE();
 
   if( FD_UNLIKELY( fd_adminctl_state( state_pid_seq )!=FD_ADMINCTL_STATE_PUBLISHED ) ) return FD_ADMINCTL_CMD_IDLE;
@@ -288,7 +288,7 @@ fd_adminctl_complete_response( fd_adminctl_t * adminctl,
   if( FD_UNLIKELY( resp_sz>FD_ADMINCTL_PAYLOAD_MAX ) ) FD_LOG_CRIT(( "bad resp_sz %lu", resp_sz ));
 
   fd_adminctl_slot_t * slot          = fd_adminctl_slot_laddr( adminctl, slot_id );
-  ulong                state_pid_seq = FD_VOLATILE_CONST( slot->state_pid_seq );
+  ulong                state_pid_seq = __atomic_load_n( &slot->state_pid_seq, __ATOMIC_ACQUIRE );
 
   if( FD_UNLIKELY( fd_adminctl_state( state_pid_seq )!=FD_ADMINCTL_STATE_PROCESSING ) ) FD_LOG_ERR(( "adminctl complete without processing command" ));
 
@@ -321,7 +321,7 @@ fd_adminctl_wait_response( fd_adminctl_t * adminctl,
   uint pid = (uint)getpid();
 
   for(;;) {
-    ulong state_pid_seq = FD_VOLATILE_CONST( slot->state_pid_seq );
+    ulong state_pid_seq = __atomic_load_n( &slot->state_pid_seq, __ATOMIC_ACQUIRE );
     FD_COMPILER_MFENCE();
 
     ulong state = fd_adminctl_state( state_pid_seq );
