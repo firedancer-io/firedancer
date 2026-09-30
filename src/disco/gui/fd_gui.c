@@ -2634,6 +2634,16 @@ fd_gui_record_vote_latency( fd_gui_t * gui,
   }
 }
 
+static void
+fd_gui_persist_slot_skip( fd_gui_t * gui,
+                          ulong      slot,
+                          ulong      bank_seq ) {
+  fd_gui_hist_kv_slot_iter_t it[ 1 ];
+  for( fd_gui_hist_kv_iter_begin( gui, it, FD_GUI_HIST_SLOT, slot ); it->rec; fd_gui_hist_kv_iter_next( it ) ) {
+    ((fd_gui_slot_t *)it->rec)->skip = fd_uchar_if( it->bank_seq==bank_seq, FD_GUI_SKIP_STATUS_NOT_SKIPPED, FD_GUI_SKIP_STATUS_FINALIZED );
+  }
+}
+
 void
 fd_gui_handle_root_advanced( fd_gui_t * gui,
                              ulong      _slot,
@@ -2656,6 +2666,7 @@ fd_gui_handle_root_advanced( fd_gui_t * gui,
     if( FD_UNLIKELY( !c || c->level>=FD_GUI_SLOT_LEVEL_ROOTED ) ) break;
 
     c->level = FD_GUI_SLOT_LEVEL_ROOTED;
+    fd_gui_persist_slot_skip( gui, cslot, cbank_seq );
 
     if( FD_UNLIKELY( gui->summary.is_alpenglow && c->finalization_kind==FD_GUI_AG_FINAL_NONE ) ) {
       c->finalization_kind = FD_GUI_AG_FINAL_IMPLICIT;
@@ -2701,6 +2712,8 @@ fd_gui_handle_root_advanced( fd_gui_t * gui,
     /* Record and republish newly rooted skipped slots. */
     for( ulong s=pslot+1UL; s<cslot; s++ ) {
       if( FD_UNLIKELY( prev_rooted!=ULONG_MAX && s<=prev_rooted ) ) continue; /* already rooted earlier */
+
+      fd_gui_persist_slot_skip( gui, s, ULONG_MAX );
 
       fd_gui_epoch_t * sepoch = fd_gui_get_epoch_by_slot( gui, s );
       if( FD_LIKELY( sepoch ) ) {
