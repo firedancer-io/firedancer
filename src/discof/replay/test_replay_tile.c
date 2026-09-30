@@ -324,7 +324,7 @@ setup_stem( fd_replay_tile_t * ctx, fd_wksp_t * wksp ) {
     };
 
     if( i==0UL )      *ctx->replay_out = out;
-    else if( i==1UL ) *ctx->exec_out   = out;
+    else if( i==1UL ) { ctx->exec_out[ 0 ] = out; ctx->exec_cnt = 1UL; }
     else if( i==2UL ) *ctx->epoch_out  = out;
     else              *ctx->slot_out   = out;
   }

@@ -2534,7 +2534,8 @@ dispatch_task( fd_replay_tile_t *  ctx,
 
       if( FD_UNLIKELY( !bank->first_transaction_scheduled_nanos ) ) bank->first_transaction_scheduled_nanos = fd_clock_tile_now( ctx->clock );
 
-      fd_replay_out_link_t *   exec_out = ctx->exec_out;
+      FD_TEST( task->txn_exec->exec_idx<ctx->exec_cnt );
+      fd_replay_out_link_t * exec_out = &ctx->exec_out[ task->txn_exec->exec_idx ];
       fd_execrp_txn_exec_msg_t * exec_msg = fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
       fd_txn_p_copy( exec_msg->txn, txn_p );
       exec_msg->bank_idx = task->txn_exec->bank_idx;
@@ -2555,7 +2556,8 @@ dispatch_task( fd_replay_tile_t *  ctx,
       FD_TEST( bank );
       bank->refcnt++;
 
-      fd_replay_out_link_t *        exec_out = ctx->exec_out;
+      FD_TEST( task->txn_sigverify->exec_idx<ctx->exec_cnt );
+      fd_replay_out_link_t * exec_out = &ctx->exec_out[ task->txn_sigverify->exec_idx ];
       fd_execrp_txn_sigverify_msg_t * exec_msg = fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
       fd_txn_p_copy( exec_msg->txn, txn_p );
       exec_msg->bank_idx = task->txn_sigverify->bank_idx;
@@ -2569,7 +2571,8 @@ dispatch_task( fd_replay_tile_t *  ctx,
       FD_TEST( bank );
       bank->refcnt++;
 
-      fd_replay_out_link_t *   exec_out = ctx->exec_out;
+      FD_TEST( task->poh_hash->exec_idx<ctx->exec_cnt );
+      fd_replay_out_link_t * exec_out = &ctx->exec_out[ task->poh_hash->exec_idx ];
       fd_execrp_poh_hash_msg_t * exec_msg = fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
       exec_msg->bank_idx = task->poh_hash->bank_idx;
       exec_msg->cnt      = task->poh_hash->cnt;
@@ -5211,7 +5214,26 @@ unprivileged_init( fd_topo_t const *      topo,
   *ctx->replay_out = out1( topo, tile, "replay_out"   ); FD_TEST( ctx->replay_out->idx!=ULONG_MAX );
   *ctx->slot_out   = out1( topo, tile, "replay_slot"  ); FD_TEST( ctx->slot_out->idx!=ULONG_MAX );
   *ctx->snapmk_out = out1( topo, tile, "replay_snapmk" ); FD_TEST( ctx->snapmk.supported == (ctx->snapmk_out->idx!=ULONG_MAX) );
-  *ctx->exec_out   = out1( topo, tile, "replay_execrp"  ); FD_TEST( ctx->exec_out->idx!=ULONG_MAX );
+
+  ctx->exec_cnt = 0UL;
+  for( ulong i=0UL; i<FD_SCHED_MAX_EXEC_TILE_CNT; i++ ) ctx->exec_out[ i ].idx = ULONG_MAX;
+  for( ulong i=0UL; i<tile->out_cnt; i++ ) {
+    fd_topo_link_t const * link = &topo->links[ tile->out_link_id[ i ] ];
+    if( strcmp( link->name, "replay_execrp" ) ) continue;
+    FD_TEST( link->kind_id<FD_SCHED_MAX_EXEC_TILE_CNT && ctx->exec_out[ link->kind_id ].idx==ULONG_MAX );
+    void * mem = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
+    ulong chunk0 = fd_dcache_compact_chunk0( mem, link->dcache );
+    ctx->exec_out[ link->kind_id ] = (fd_replay_out_link_t){
+      .idx    = i,
+      .mem    = mem,
+      .chunk0 = chunk0,
+      .wmark  = fd_dcache_compact_wmark( mem, link->dcache, link->mtu ),
+      .chunk  = chunk0,
+    };
+    ctx->exec_cnt++;
+  }
+  FD_TEST( ctx->exec_cnt && ctx->exec_cnt==fd_topo_tile_name_cnt( topo, "execrp" ) );
+  for( ulong i=0UL; i<ctx->exec_cnt; i++ ) FD_TEST( ctx->exec_out[ i ].idx!=ULONG_MAX );
 
   ctx->replay_out_seq = fd_mcache_seq_laddr_const( topo->links[ tile->out_link_id[ ctx->replay_out->idx ] ].mcache );
 
@@ -5328,7 +5350,9 @@ during_housekeeping( fd_replay_tile_t * ctx ) {
 
 /* fd_tempo_lazy_default( 16384 ) where 16384 is the minimum out-link
    depth (i.e. cr_max) but excludes replay_epoch and replay_slot, which
-   are so infrequent credit availability is a non-issue.   */
+   are so infrequent credit availability is a non-issue, and the
+   per-tile replay_execrp links, which carry at most one in-flight
+   task each.  */
 #define STEM_LAZY ((long)36865)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_replay_tile_t

@@ -527,7 +527,8 @@ struct fd_replay_tile {
   int in_kind[ 128 ];
   fd_replay_in_link_t in[ 128 ];
 
-  fd_replay_out_link_t exec_out[ 1 ];
+  ulong                exec_cnt;
+  fd_replay_out_link_t exec_out[ FD_SCHED_MAX_EXEC_TILE_CNT ];
 
   fd_replay_out_link_t replay_out[1];
   ulong const *        replay_out_seq;
