@@ -439,7 +439,8 @@ fd_event_runtime_reward_emit( fd_bank_t const * bank,
                               ulong             lamports,
                               ulong             partition_idx,
                               ulong             credits_observed,
-                              ulong             stake ) {
+                              ulong             stake,
+                              uchar const *     vote_account ) {
   if( FD_LIKELY( !fd_event_tl ) ) return;
 
   fd_event_runtime_reward_t ev = {
@@ -455,6 +456,7 @@ fd_event_runtime_reward_emit( fd_bank_t const * bank,
   };
   fd_memcpy( ev.pubkey, pubkey, 32UL );
   fd_memcpy( ev.owner,  owner,  32UL );
+  if( FD_LIKELY( vote_account ) ) fd_memcpy( ev.vote_account, vote_account, 32UL );
   REPORT_DIFF( fd_event_report_runtime_reward( &ev ) );
 }
 
