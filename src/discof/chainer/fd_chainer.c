@@ -2,6 +2,7 @@
 #include "../../disco/shred/fd_fec_set.h"
 #include "../../ballet/bmtree/fd_bmtree.h"
 #include "../../ballet/sha256/fd_sha256.h"
+#include "../../ballet/base58/fd_base58.h"
 
 #include <stdio.h>
 
@@ -758,9 +759,23 @@ fd_chainer_publish( fd_chainer_t *    chainer,
      unknown) and its FEC list is cleared, since a rooted slot's FEC
      data is never needed again. */
   for( ulong slot=root; slot<=new_root; slot++ ) {
+    if( FD_UNLIKELY( slot>root && slotv_iter_init( chainer, slot )==ULONG_MAX ) ) FD_LOG_NOTICE(( "probe chainer: slot %lu none new_root %lu", slot, new_root ));
     for( ulong i=slotv_iter_init( chainer, slot ); i!=ULONG_MAX; ) {
       fd_chainer_slotv_t * s    = slotv_iter_ele ( chainer, i );
       ulong                next = slotv_iter_next( chainer, i );
+      if( FD_LIKELY( slot>root ) ) {
+        FD_BASE58_ENCODE_32_BYTES( s->block_id.uc,        probe_cbid_b58 );
+        FD_BASE58_ENCODE_32_BYTES( s->parent_block_id.uc, probe_cpb_b58  );
+        FD_LOG_NOTICE(( "probe chainer: slot %lu bid %s rooted %d new_root %lu turbine %u abandoned %u parent %lu pbid %s connected %u complete_idx %u buffered_idx %u delivered_idx %u "
+                        "last_fec %u turbine_cnt %u repair_cnt %u recovered_cnt %u parity_cnt %u first_shred_ts %ld last_shred_ts %ld "
+                        "req_window %u req_highest %u req_orphan %u req_shred_bid %u req_parent %u req_fec_root %u req_retx %u repair_resp %u first_req_ts %ld last_resp_ts %ld",
+                        slot, probe_cbid_b58, slot==new_root && canonical==s, new_root, (uint)s->turbine, (uint)s->abandoned,
+                        s->parent_slot, probe_cpb_b58, (uint)s->connected, s->complete_idx, s->buffered_idx, s->delivered_idx,
+                        s->metrics.last_completed_fec_idx, s->metrics.turbine_cnt, s->metrics.repair_cnt, s->metrics.recovered_cnt, s->metrics.parity_cnt,
+                        s->metrics.first_shred_ts, s->metrics.last_shred_ts,
+                        s->metrics.req_window_cnt, s->metrics.req_highest_cnt, s->metrics.req_orphan_cnt, s->metrics.req_shred_bid_cnt, s->metrics.req_parent_cnt,
+                        s->metrics.req_fec_root_cnt, s->metrics.req_retransmit_cnt, s->metrics.repair_responses, s->metrics.first_req_ts, s->metrics.last_repair_resp_ts ));
+      }
 
       for( uint k=0U; k<chainer->fec_blk_max; k++ ) {
         fd_chainer_fec_t * fec = slotv_fec( chainer, s, k * FD_FEC_SHRED_CNT );

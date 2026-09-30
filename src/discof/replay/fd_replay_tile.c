@@ -294,6 +294,57 @@ replay_voter_rank( fd_replay_tile_t * ctx,
   return USHORT_MAX;
 }
 
+static void
+probe_rankmap( fd_replay_tile_t * ctx,
+               fd_bank_t *        bank,
+               ulong              epoch ) {
+  static ulong probe_rankmap_epoch = ULONG_MAX;
+  if( FD_LIKELY( probe_rankmap_epoch==epoch ) ) return;
+  ulong fork_id    = bank->vote_stakes_fork_id;
+  ulong fork_epoch = fd_vote_stakes_fork_epoch( fork_id );
+  int   iter_kind  = FD_VOTE_STAKES_ITER_T_2;
+  if( FD_UNLIKELY( epoch!=fork_epoch ) ) {
+    if( FD_UNLIKELY( !fork_epoch || epoch!=fork_epoch-1UL ) ) { FD_LOG_NOTICE(( "probe rankmap: epoch %lu unavailable fork_epoch %lu", epoch, fork_epoch )); return; }
+    iter_kind = FD_VOTE_STAKES_ITER_T_3;
+  }
+  probe_rankmap_epoch = epoch;
+  (void)ctx;
+  ulong cnt = 0UL;
+  fd_vote_stakes_t const * vote_stakes = fd_bank_vote_stakes( bank );
+  uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
+  for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, fork_id, iter_kind, iter_mem );
+       !fd_vote_stakes_iter_done( vote_stakes, fork_id, iter_kind, iter );
+       fd_vote_stakes_iter_next( vote_stakes, fork_id, iter_kind, iter ) ) {
+    fd_pubkey_t vote_key;
+    fd_pubkey_t identity;
+    ulong      stake;
+    ushort     rank;
+    fd_vote_stakes_iter_ele( vote_stakes, fork_id, iter_kind, iter, &vote_key, &identity,
+                             &stake, NULL, NULL, NULL, NULL, &rank, NULL, NULL );
+    if( rank==FD_VOTE_STAKES_ALPENGLOW_RANK_NULL ) continue;
+    FD_BASE58_ENCODE_32_BYTES( identity.uc, probe_id_b58 );
+    FD_BASE58_ENCODE_32_BYTES( vote_key.uc, probe_vote_b58 );
+    FD_LOG_NOTICE(( "probe rankmap: epoch %lu rank %u identity %s vote %s stake %lu", epoch, (uint)rank, probe_id_b58, probe_vote_b58, stake ));
+    cnt++;
+  }
+  FD_LOG_NOTICE(( "probe rankmap: epoch %lu count %lu block %lu iter_kind %d", epoch, cnt, bank->f.slot, iter_kind ));
+}
+
+static void
+probe_set_hex( char *               out,
+               fd_bls_set_t const * set,
+               ulong                nbits ) {
+  ulong wcnt = fd_ulong_min( (nbits+63UL)/64UL, fd_bls_set_word_cnt );
+  static char const hex[] = "0123456789abcdef";
+  char * p = out;
+  for( ulong w=0UL; w<wcnt; w++ ) {
+    ulong v = set[ w ];
+    for( int s=60; s>=0; s-=4 ) *p++ = hex[ (v>>s)&0xfUL ];
+  }
+  if( !wcnt ) *p++ = '-';
+  *p = '\0';
+}
+
 static int
 replay_reward_cert_voted( fd_replay_tile_t * ctx,
                           fd_bank_t *        bank,
@@ -303,7 +354,7 @@ replay_reward_cert_voted( fd_replay_tile_t * ctx,
   *count_out = USHORT_MAX;
   if( FD_LIKELY( !ctx->alpenglow ) ) return 0;
 
-  if( FD_UNLIKELY( bank->f.slot<FD_NUM_SLOTS_FOR_REWARD ) ) return 0;
+  if( FD_UNLIKELY( bank->f.slot<FD_NUM_SLOTS_FOR_REWARD ) ) { FD_LOG_NOTICE(( "probe rcert: block %lu below reward horizon", bank->f.slot )); return 0; }
 
   ulong  reward_slot  = bank->f.slot-FD_NUM_SLOTS_FOR_REWARD;
   ulong  reward_epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, reward_slot, NULL );
@@ -311,6 +362,34 @@ replay_reward_cert_voted( fd_replay_tile_t * ctx,
   *rank_out = rank;
 
   fd_block_footer_t const * footer = bank==ctx->leader_bank ? ctx->leader_footer : fd_sched_get_footer( ctx->sched, bank->idx );
+  {
+    probe_rankmap( ctx, bank, reward_epoch );
+    fd_block_id_ele_t const * probe_ele = &ctx->block_id_arr[ bank->idx ];
+    fd_hash_t probe_pbid = {0};
+    if( FD_LIKELY( bank->parent_idx!=ULONG_MAX ) ) probe_pbid = ctx->block_id_arr[ bank->parent_idx ].dmr;
+    fd_pubkey_t const * probe_leader = fd_multi_epoch_leaders_get_leader_for_slot( ctx->mleaders, bank->f.slot );
+    fd_pubkey_t probe_leader_key = {0};
+    if( FD_LIKELY( probe_leader ) ) probe_leader_key = *probe_leader;
+    FD_BASE58_ENCODE_32_BYTES( probe_ele->dmr.uc,      probe_bid_b58 );
+    FD_BASE58_ENCODE_32_BYTES( probe_pbid.uc,          probe_pbid_b58 );
+    FD_BASE58_ENCODE_32_BYTES( probe_leader_key.uc,    probe_leader_b58 );
+    int probe_hn = footer && footer->has_notar_reward_cert;
+    int probe_hs = footer && footer->has_skip_reward_cert;
+    fd_hash_t probe_nbid = {0};
+    if( probe_hn ) probe_nbid = footer->notar_reward_cert.block_id;
+    FD_BASE58_ENCODE_32_BYTES( probe_nbid.uc, probe_nbid_b58 );
+    char probe_nhex[ fd_bls_set_word_cnt*16UL+2UL ];
+    char probe_shex[ fd_bls_set_word_cnt*16UL+2UL ];
+    probe_set_hex( probe_nhex, probe_hn ? footer->notar_reward_cert.signer_set : NULL, probe_hn ? footer->notar_reward_cert.nbits : 0UL );
+    probe_set_hex( probe_shex, probe_hs ? footer->skip_reward_cert.signer_set  : NULL, probe_hs ? footer->skip_reward_cert.nbits  : 0UL );
+    FD_LOG_NOTICE(( "probe rcert: block %lu bid %s parent %lu pbid %s leader %s own %d reward_slot %lu reward_epoch %lu our_rank %u footer %d "
+                    "notar %d nslot %lu nbid %s nbits %u ncnt %lu nset %s skip %d sslot %lu sbits %u scnt %lu sset %s",
+                    bank->f.slot, probe_bid_b58, bank->f.parent_slot, probe_pbid_b58, probe_leader_b58, bank==ctx->leader_bank, reward_slot, reward_epoch, (uint)rank, !!footer,
+                    probe_hn, probe_hn ? footer->notar_reward_cert.slot : 0UL, probe_nbid_b58, probe_hn ? (uint)footer->notar_reward_cert.nbits : 0U,
+                    probe_hn ? fd_bls_set_cnt( footer->notar_reward_cert.signer_set ) : 0UL, probe_nhex,
+                    probe_hs, probe_hs ? footer->skip_reward_cert.slot : 0UL, probe_hs ? (uint)footer->skip_reward_cert.nbits : 0U,
+                    probe_hs ? fd_bls_set_cnt( footer->skip_reward_cert.signer_set ) : 0UL, probe_shex ));
+  }
   if( FD_UNLIKELY( !footer ) ) return 0;
 
   /* A validator included in both reward certificates is counted once. */
@@ -419,7 +498,10 @@ replay_block_start( fd_replay_tile_t * ctx,
     FD_LOG_CRIT(( "invariant violation: bank is NULL for bank index %lu", bank_idx ));
   }
   bank->f.slot = slot;
+  FD_LOG_NOTICE(( "probe replay start: slot %lu parent %lu", slot, parent_bank->f.slot ));
+  long probe_t0 = fd_log_wallclock();
   bank->txncache_fork_id     = fd_txncache_attach_child ( ctx->txncache,  parent_bank->txncache_fork_id  );
+  if( FD_UNLIKELY( fd_log_wallclock()-probe_t0>100000000L ) ) FD_LOG_NOTICE(( "probe replay stall: fd_txncache_attach_child took %ld ms", (fd_log_wallclock()-probe_t0)/1000000L ));
   bank->progcache_fork_id    = fd_progcache_attach_child( ctx->progcache, parent_bank->progcache_fork_id );
   bank->accdb_fork_id        = fd_accdb_attach_child    ( ctx->accdb,     parent_bank->accdb_fork_id     );
   bank->parent_accdb_fork_id = parent_bank->accdb_fork_id;
@@ -840,7 +922,11 @@ try_advance_root_ag( fd_replay_tile_t * ctx,
   if( FD_LIKELY( ancestor_block_id.slot==ctx->consensus_root_slot && !memcmp( ancestor_block_id.hash, ctx->consensus_root.uc, sizeof(fd_hash_t) ) ) ) {
     ctx->consensus_root_slot = finalized_block_id.slot;
     memcpy( ctx->consensus_root.uc, finalized_block_id.hash, sizeof(fd_hash_t) );
-    if( FD_UNLIKELY( ctx->next_leader_slot!=ULONG_MAX && finalized_block_id.slot>ctx->votor_leader->parent_slot ) ) ctx->next_leader_slot = ULONG_MAX;
+    { FD_BASE58_ENCODE_32_BYTES( finalized_block_id.hash, probe_root_b58 ); FD_LOG_NOTICE(( "probe root: slot %lu bid %s", finalized_block_id.slot, probe_root_b58 )); }
+    if( FD_UNLIKELY( ctx->next_leader_slot!=ULONG_MAX && finalized_block_id.slot>ctx->votor_leader->parent_slot ) ) {
+      FD_LOG_NOTICE(( "probe replay leader cancel: slot %lu parent_slot %lu finalized %lu", ctx->next_leader_slot, ctx->votor_leader->parent_slot, finalized_block_id.slot ));
+      ctx->next_leader_slot = ULONG_MAX;
+    }
     return;
   }
 
@@ -887,7 +973,9 @@ publish_slot_completed( fd_replay_tile_t *        ctx,
   fd_hash_t const * block_hash = fd_blockhashes_peek_last_hash( &bank->f.block_hash_queue );
   FD_TEST( block_hash );
 
+  long probe_t0 = fd_log_wallclock();
   if( FD_LIKELY( !is_initial ) ) fd_txncache_finalize_fork( ctx->txncache, bank->txncache_fork_id, 0UL, block_hash->uc );
+  if( FD_UNLIKELY( fd_log_wallclock()-probe_t0>100000000L ) ) FD_LOG_NOTICE(( "probe replay stall: fd_txncache_finalize_fork took %ld ms", (fd_log_wallclock()-probe_t0)/1000000L ));
 
   fd_epoch_schedule_t const * epoch_schedule = &bank->f.epoch_schedule;
   ulong slot_idx;
@@ -1018,6 +1106,7 @@ publish_slot_completed( fd_replay_tile_t *        ctx,
                  bank->block_completed_nanos - bank->last_transaction_finished_nanos ));
 
   fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_SLOT_COMPLETED, ctx->replay_out->chunk, sizeof(fd_replay_slot_completed_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  FD_LOG_NOTICE(( "probe replay done: slot %lu parent %lu since_completed_us %ld", slot_info->slot, slot_info->parent_slot, (fd_log_wallclock()-bank->block_completed_nanos)/1000L ));
   ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_slot_completed_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
 
   /* Skip the telemetry event for the initial boot block (snapshot /
@@ -1363,14 +1452,28 @@ try_become_leader_ag( fd_replay_tile_t *  ctx,
   ulong             parent_slot     = ctx->votor_leader->parent_slot;
   fd_hash_t const * parent_block_id = &ctx->votor_leader->parent_block_id;
 
-  fd_block_id_ele_t * block_id_ele = fd_block_id_ele_query( ctx, parent_block_id, parent_slot );
-  if( FD_UNLIKELY( !block_id_ele ) ) return 0;
-  fd_bank_t * reset_bank = fd_banks_bank_query( ctx->banks, fd_block_id_ele_get_idx( ctx->block_id_arr, block_id_ele ) );
-  if( FD_UNLIKELY( !reset_bank || reset_bank->bank_seq!=block_id_ele->bank_seq || reset_bank->state!=FD_BANK_STATE_FROZEN ) ) return 0;
+  static ulong        probe_bl_slot = ULONG_MAX;
+  static char const * probe_bl_why  = NULL;
+  static long         probe_bl_t0   = 0L;
+#define PROBE_BL(w) do { if( probe_bl_slot!=ctx->next_leader_slot || probe_bl_why!=(w) ) {                                              \
+    if( probe_bl_slot!=ctx->next_leader_slot ) probe_bl_t0 = fd_log_wallclock();                                                        \
+    probe_bl_slot = ctx->next_leader_slot; probe_bl_why = (w);                                                                           \
+    FD_LOG_NOTICE(( "probe replay leader blocked: slot %lu parent_slot %lu why %s since_us %ld", ctx->next_leader_slot, parent_slot, (w), \
+                    (fd_log_wallclock()-probe_bl_t0)/1000L )); } } while(0)
 
-  if( FD_UNLIKELY( !fd_banks_can_start_bank( ctx->banks ) ) ) return 0;
-  if( FD_UNLIKELY( ctx->halt_leader ) ) return 0;
-  if( !ctx->supports_leader ) return 0;
+  fd_block_id_ele_t * block_id_ele = fd_block_id_ele_query( ctx, parent_block_id, parent_slot );
+  if( FD_UNLIKELY( !block_id_ele ) ) { PROBE_BL( "parent_block_id_unknown" ); return 0; }
+  fd_bank_t * reset_bank = fd_banks_bank_query( ctx->banks, fd_block_id_ele_get_idx( ctx->block_id_arr, block_id_ele ) );
+  if( FD_UNLIKELY( !reset_bank || reset_bank->bank_seq!=block_id_ele->bank_seq ) ) { PROBE_BL( "parent_bank_gone" ); return 0; }
+  if( FD_UNLIKELY( reset_bank->state!=FD_BANK_STATE_FROZEN ) ) { PROBE_BL( "parent_not_frozen" ); return 0; }
+
+  if( FD_UNLIKELY( !fd_banks_can_start_bank( ctx->banks ) ) ) { PROBE_BL( "banks_full" ); return 0; }
+  if( FD_UNLIKELY( ctx->halt_leader ) ) { PROBE_BL( "halt_leader" ); return 0; }
+  if( !ctx->supports_leader ) { PROBE_BL( "no_leader_support" ); return 0; }
+  FD_LOG_NOTICE(( "probe replay leader start: slot %lu parent_slot %lu blocked_us %ld last_block %s",
+                  ctx->next_leader_slot, parent_slot, probe_bl_slot==ctx->next_leader_slot ? (fd_log_wallclock()-probe_bl_t0)/1000L : 0L,
+                  probe_bl_slot==ctx->next_leader_slot ? probe_bl_why : "none" ));
+#undef PROBE_BL
 
   /* In Alpenglow, the "reset" block is signaled by ParentReady (a state
      transition in the Votor consensus logic).  ParentReady can occur
@@ -4653,6 +4756,11 @@ returnable_frag( fd_replay_tile_t *  ctx,
     case IN_KIND_VOTOR: {
       if( FD_UNLIKELY( sig==FD_VOTOR_SIG_LEADER ) ) {
         fd_votor_leader_t const * leader = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
+        {
+          FD_BASE58_ENCODE_32_BYTES( leader->parent_block_id.uc, probe_vlp_b58 );
+          FD_LOG_NOTICE(( "probe replay leader rx: slot %lu parent_slot %lu parent_block_id %s prev_next_leader %lu is_leader %d reset_slot %lu consensus_root %lu",
+                          leader->slot, leader->parent_slot, probe_vlp_b58, ctx->next_leader_slot, ctx->is_leader, ctx->reset_slot, ctx->consensus_root_slot ));
+        }
         *ctx->votor_leader    = *leader;
         ctx->next_leader_slot = leader->slot;
         try_become_leader_ag( ctx, stem );

@@ -1,3 +1,4 @@
+#include "../../ballet/base58/fd_base58.h"
 #include "ag_votor.h"
 
 #define QUEUE_NAME vote_events
@@ -622,7 +623,10 @@ void
 ag_votor_handle_replay_event( ag_votor_t *              self,
                               ag_event_replay_t const * event ) {
   ulong slot = event->slot;
-  if( FD_UNLIKELY( slot<first_unpruned_slot( self ) || is_retired( self, slot ) ) ) return;
+  if( FD_UNLIKELY( slot<first_unpruned_slot( self ) || is_retired( self, slot ) ) ) {
+    FD_LOG_NOTICE(( "probe votor: slot %lu replay ignored first_unpruned %lu highest_final_cert %lu retired %d", slot, first_unpruned_slot( self ), self->highest_final_cert_slot, is_retired( self, slot ) ));
+    return;
+  }
 
   if( FD_UNLIKELY( has_voted( self, slot ) ) ) {
     FD_LOG_WARNING(( "not voting for block in slot %lu, already voted", slot ));
@@ -632,6 +636,22 @@ ag_votor_handle_replay_event( ag_votor_t *              self,
     check_pending_blocks( self, AG_VOTOR_REASON_BLOCK_REPLAYED );
   } else {
     slot_state_ele_t * state  = state_mut( self, slot );
+    {
+      ag_block_id_t const * pp  = &event->block_info.parent;
+      char const *          why = "unknown";
+      ulong                 prc = state->parents_ready_cnt;
+      if( !own_epoch( self, slot )->has_bls_pubkey ) why = "no_key";
+      else if( ag_is_start_of_window( slot ) )        why = prc ? "parent_ready_other_parent" : "no_parent_ready";
+      else if( pp->slot!=slot-1UL )                   why = "parent_not_prev_slot";
+      else {
+        slot_state_ele_t const * ps = slot_state_map_ele_query_const( self->slot_states->map, &pp->slot, NULL, self->slot_states->pool );
+        if( !ps || !ps->voted_notar )                                                         why = ps && ps->voted ? "parent_voted_skip" : "parent_not_voted";
+        else if( memcmp( ps->voted_notar_hash, pp->hash, sizeof(ag_block_hash_t) ) )          why = "parent_hash_mismatch";
+      }
+      FD_BASE58_ENCODE_32_BYTES( pp->hash, probe_pp_b58 );
+      FD_LOG_NOTICE(( "probe votor: slot %lu pending voted %d highest_final_cert %lu why %s parent %lu pbid %s parents_ready %lu",
+                      slot, has_voted( self, slot ), self->highest_final_cert_slot, why, pp->slot, probe_pp_b58, prc ));
+    }
     if( FD_LIKELY( !state->pending_block ) ) pending_dlist_ele_push_tail( self->pending_dlist, state, self->slot_states->pool );
     state->pending_block      = 1;
     state->pending_block_info = event->block_info;
@@ -642,6 +662,13 @@ void
 ag_votor_handle_timeout_event( ag_votor_t *               self,
                                ag_event_timeout_t const * event ) {
   ulong slot = event->slot;
+  {
+    slot_state_ele_t const * ps = slot_state_map_ele_query_const( self->slot_states->map, &slot, NULL, self->slot_states->pool );
+    char const * action = slot<=self->highest_final_cert_slot ? "ignored_finalized" : is_retired( self, slot ) ? "ignored_retired" : has_voted( self, slot ) ? "none_voted" : "skip_window";
+    FD_LOG_NOTICE(( "probe timeout: slot %lu action %s voted %d voted_notar %d pending %d parents_ready %lu notarized %d bad_window %d highest_final_cert %lu late_us %ld",
+                    slot, action, ps ? ps->voted : -1, ps ? ps->voted_notar : -1, ps ? ps->pending_block : -1, ps ? ps->parents_ready_cnt : 0UL,
+                    ps ? ps->block_notarized : -1, ps ? ps->bad_window : -1, self->highest_final_cert_slot, (self->now-event->ts)/1000L ));
+  }
   if( FD_UNLIKELY( slot<=self->highest_final_cert_slot || is_retired( self, slot ) ) ) return;
 
   if( FD_UNLIKELY( !has_voted( self, slot ) ) ) try_skip_window( self, slot, AG_VOTOR_REASON_TIMEOUT );

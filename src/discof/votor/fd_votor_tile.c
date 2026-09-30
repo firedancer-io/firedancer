@@ -157,6 +157,12 @@ typedef struct auth_vtr auth_vtr_t;
 #define MAP_MEMOIZE           0
 #include "../../util/tmpl/fd_map.c"
 
+#define PROBE_RVA_N (4096UL)
+static uint probe_rva_kind  [ PROBE_RVA_N ];
+static char probe_rva_leader[ PROBE_RVA_N ][ FD_BASE58_ENCODED_32_SZ ];
+static long probe_rva_ts    [ PROBE_RVA_N ][ QUIC_K_PACKET_THRESHOLD ];
+static int  probe_rva_stuck [ PROBE_RVA_N ];
+
 struct sort_voter {
   uchar const * bls;
   uchar const * id;
@@ -482,6 +488,7 @@ publish_reward_certs( fd_votor_tile_t *   ctx,
 
   ag_slot_state_t const * state = ag_pool_slot_state( ctx->pool, reward_slot );
   if( FD_UNLIKELY( !state ) ) { /* no notar or skip votes for this slot: send a frag with empty reward certs */
+    FD_LOG_NOTICE(( "probe pack: reward_slot %lu notar_signers 0 skip_signers 0 no_state", reward_slot ));
     fd_stem_publish( stem, OUT_IDX_VOTOR, FD_VOTOR_SIG_REWARD, ctx->votor_out_chunk, sizeof(fd_votor_msg_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
     ctx->votor_out_chunk = fd_dcache_compact_next( ctx->votor_out_chunk, sizeof(fd_votor_msg_t), ctx->votor_out_chunk0, ctx->votor_out_wmark );
     return;
@@ -513,6 +520,7 @@ publish_reward_certs( fd_votor_tile_t *   ctx,
     if( FD_UNLIKELY( err ) ) fd_bls_agg_null( &reward->agg_skip );
   }
 
+  FD_LOG_NOTICE(( "probe pack: reward_slot %lu notar_signers %lu skip_signers %lu notar_agg %d skip_agg %d", reward_slot, fd_bls_set_cnt( reward->agg_notar.set ), fd_bls_set_cnt( reward->agg_skip.set ), !!notar, !!skip ));
   fd_stem_publish( stem, OUT_IDX_VOTOR, FD_VOTOR_SIG_REWARD, ctx->votor_out_chunk, sizeof(fd_votor_msg_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->votor_out_chunk = fd_dcache_compact_next( ctx->votor_out_chunk, sizeof(fd_votor_msg_t), ctx->votor_out_chunk0, ctx->votor_out_wmark );
 }
@@ -632,6 +640,12 @@ quic_client_ack_range( fd_quic_conn_t * conn,
     for( ulong j=0UL; j<fd_ulong_min( rv->tx_cnt, QUIC_K_PACKET_THRESHOLD+1UL ); j++ ) {
       if( FD_LIKELY(    rv->pkt_num[ j ]<pkt_num_lo
                      || rv->pkt_num[ j ]>pkt_num_hi ) ) continue;
+      {
+        ulong probe_k = rv->tx_cnt-1UL - ( ( rv->tx_cnt-1UL-j ) % QUIC_K_PACKET_THRESHOLD );
+        FD_LOG_NOTICE(( "probe rva: slot %lu kind %u leader %s event ack try %lu pkt %lu lat_us %ld tries %lu rtt_us %.0f",
+                        rv->slot, probe_rva_kind[ rv->slot%PROBE_RVA_N ], probe_rva_leader[ rv->slot%PROBE_RVA_N ], probe_k, rv->pkt_num[ j ],
+                        (fd_log_wallclock()-probe_rva_ts[ rv->slot%PROBE_RVA_N ][ j ])/1000L, rv->tx_cnt, (double)conn->rtt->smoothed_rtt/1e3 ));
+      }
       report_alpenglow_vote( ctx, NULL, &rv->vote, (uchar)( AG_VOTE_SERDE_TAG_NOTAR+rv->vote.kind ), FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_ACCEPTED, 0, FD_EVENT_ALPENGLOW_VOTE_REASON_REWARD_ACKED, 0L, 0L, NULL );
       rv->slot = ULONG_MAX;
       break;
@@ -1033,6 +1047,7 @@ handle_epoch( fd_votor_tile_t *           ctx,
 
   ag_pool_advance_epoch ( ctx->pool,  epoch_info, own_rank, msg->start_slot );
   ag_votor_advance_epoch( ctx->votor, ctx->ns_per_slot, own_rank, msg->start_slot, own_bls_key( ctx, epoch_info, own_rank ) );
+  FD_LOG_NOTICE(( "probe epoch: start_slot %lu prev %lu curr %lu next %lu finalized %lu rank %u", msg->start_slot, ctx->prev_epoch_slot, ctx->curr_epoch_slot, ctx->next_epoch_slot, ag_pool_finalized_slot( ctx->pool ), own_rank ));
 
   /* update our leader schedule */
 
@@ -1116,6 +1131,7 @@ handle_replay( fd_votor_tile_t *           ctx,
     fd_replay_slot_completed_t const * slot_completed  = &replay->slot_completed;
     ag_block_id_t                      block_id        = ag_block_id( slot_completed->slot,        slot_completed->block_id.uc        );
     ag_block_id_t                      parent_block_id = ag_block_id( slot_completed->parent_slot, slot_completed->parent_block_id.uc );
+    FD_LOG_NOTICE(( "probe votor rx replay: slot %lu parent %lu finalized %lu", block_id.slot, parent_block_id.slot, ag_pool_finalized_slot( ctx->pool ) ));
     if( FD_UNLIKELY( ag_pool_finalized_slot( ctx->pool )==ULONG_MAX ) ) {
       ag_pool_init( ctx->pool, block_id.slot );
       if( FD_LIKELY( ctx->shred_version ) ) ag_votor_init( ctx->votor, block_id.slot, fd_clock_tile_now( ctx->clock ), ctx->ns_per_slot, ctx->shred_version, sign_bls, ctx );
@@ -1130,7 +1146,11 @@ handle_replay( fd_votor_tile_t *           ctx,
 
     ulong           reward_slot = block_id.slot-AG_REWARD_SLOT_DELTA;
     reward_vote_t * rv          = &ctx->reward_votes[ reward_slot%REWARD_VOTE_MAX ];
-    if( FD_UNLIKELY( block_id.slot>=AG_REWARD_SLOT_DELTA && rv->slot==reward_slot ) ) rv->slot = ULONG_MAX;
+    if( FD_UNLIKELY( block_id.slot>=AG_REWARD_SLOT_DELTA && rv->slot==reward_slot ) ) {
+      FD_LOG_NOTICE(( "probe rva: slot %lu kind %u leader %s event unacked tries %lu why reward_block_completed", reward_slot,
+                      probe_rva_kind[ reward_slot%PROBE_RVA_N ], probe_rva_leader[ reward_slot%PROBE_RVA_N ], rv->tx_cnt ));
+      rv->slot = ULONG_MAX;
+    }
 
     footer = &slot_completed->footer;
     break;
@@ -1194,6 +1214,50 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 static void
 during_housekeeping( fd_votor_tile_t * ctx ) {
   if( FD_UNLIKELY( fd_clock_tile_recal_due( ctx->clock ) ) ) fd_clock_tile_recal( ctx->clock );
+  {
+    static long              probe_q_next = 0L;
+    static fd_quic_metrics_t probe_q_prev[ 2 ];
+    long probe_now = fd_log_wallclock();
+    if( FD_UNLIKELY( probe_now>=probe_q_next ) ) {
+      probe_q_next = probe_now + 10L*1000L*1000L*1000L;
+      fd_quic_t *  probe_qs[ 2 ] = { ctx->quic_client, ctx->quic_server };
+      char const * probe_qn[ 2 ] = { "client", "server" };
+      for( int q=0; q<2; q++ ) {
+        fd_quic_metrics_t const * m = &probe_qs[ q ]->metrics;
+        fd_quic_metrics_t const * p = &probe_q_prev[ q ];
+#define PD(f) (m->f - p->f)
+#define PD4(f) (PD(f[0])+PD(f[1])+PD(f[2])+PD(f[3]))
+        FD_LOG_NOTICE(( "probe quicm: %s rx_pkt %lu tx_pkt %lu conns %lu active %lu created %lu closed %lu aborted %lu timeout %lu no_slots %lu hdr_err %lu undersz %lu oversz %lu "
+                        "decrypt_fail %lu no_key %lu no_conn %lu wrong_src %lu pktmeta_fail %lu/%lu retx %lu frame_rx_err %lu hs_created %lu hs_alloc_fail %lu hs_evicted %lu "
+                        "rx_ack %lu rx_dgram %lu rx_close %lu/%lu ack_tx %lu/%lu/%lu/%lu/%lu",
+                        probe_qn[ q ], PD(net_rx_pkt_cnt), PD(net_tx_pkt_cnt), m->conn_alloc_cnt, m->conn_state_cnt[ FD_QUIC_CONN_STATE_ACTIVE ], PD(conn_created_cnt), PD(conn_closed_cnt),
+                        PD(conn_aborted_cnt), PD(conn_timeout_cnt), PD(conn_err_no_slots_cnt), PD(pkt_net_hdr_err_cnt)+PD(pkt_quic_hdr_err_cnt), PD(pkt_undersz_cnt), PD(pkt_oversz_cnt),
+                        PD4(pkt_decrypt_fail_cnt), PD4(pkt_no_key_cnt), PD4(pkt_no_conn_cnt), PD(pkt_wrong_src_cnt), PD(frame_tx_alloc_cnt[1]), PD(frame_tx_alloc_cnt[2]),
+                        PD4(pkt_retransmissions_cnt), PD(frame_rx_err_cnt), PD(hs_created_cnt), PD(hs_err_alloc_fail_cnt), PD(hs_evicted_cnt),
+                        PD(frame_rx_cnt[ FD_METRICS_ENUM_QUIC_FRAME_TYPE_V_ACK_IDX ]), PD(frame_rx_cnt[ FD_METRICS_ENUM_QUIC_FRAME_TYPE_V_DATAGRAM_IDX ]),
+                        PD(frame_rx_cnt[ FD_METRICS_ENUM_QUIC_FRAME_TYPE_V_CONNECTION_CLOSE_QUIC_IDX ]), PD(frame_rx_cnt[ FD_METRICS_ENUM_QUIC_FRAME_TYPE_V_CONNECTION_CLOSE_APP_IDX ]),
+                        PD(ack_tx[0]), PD(ack_tx[1]), PD(ack_tx[2]), PD(ack_tx[3]), PD(ack_tx[4]) ));
+#undef PD4
+#undef PD
+        probe_q_prev[ q ] = *m;
+      }
+    }
+  }
+}
+
+static void
+probe_tally( fd_votor_tile_t * ctx,
+             ulong             slot,
+             char const *      why ) {
+  ag_slot_state_t const * st = ag_pool_slot_state( ctx->pool, slot );
+  if( !st ) { FD_LOG_NOTICE(( "probe tally: slot %lu why %s no_state finalized %lu", slot, why, ag_pool_finalized_slot( ctx->pool ) )); return; }
+  ulong total = st->epoch_info ? st->epoch_info->total_stake : 0UL;
+  FD_BASE58_ENCODE_32_BYTES( st->votes.top_notar_hash, probe_top_b58 );
+  FD_LOG_NOTICE(( "probe tally: slot %lu why %s total %lu top_notar %lu top_hash %s notar_or_skip %lu skip %lu skip_fb %lu final %lu "
+                  "cert_notar %d cert_nfb %lu cert_skip %d cert_ff %d cert_final %d parents %lu sent_s2s %d finalized %lu",
+                  slot, why, total, st->votes.top_notar_stake, probe_top_b58, st->votes.notar_or_skip_stake, st->votes.skip_stake, st->votes.skip_fallback_stake,
+                  st->votes.finalize_stake, st->certs.notar.slot!=ULONG_MAX, st->certs.notar_fallback_cnt, st->certs.skip.slot!=ULONG_MAX,
+                  st->certs.fast_finalize.slot!=ULONG_MAX, st->certs.finalize.slot!=ULONG_MAX, st->parents_cnt, st->sent_safe_to_skip, ag_pool_finalized_slot( ctx->pool ) ));
 }
 
 static inline long
@@ -1217,6 +1281,39 @@ after_credit( fd_votor_tile_t *   ctx,
 
   if( FD_UNLIKELY( ag_pool_poll_pool_event( ctx->pool, &ctx->scratch.pool_event ) ) ) {
     ag_votor_handle_pool_event( ctx->votor, &ctx->scratch.pool_event, now );
+    {
+      ag_event_pool_t const * pe = &ctx->scratch.pool_event;
+      switch( pe->kind ) {
+      case AG_EVENT_POOL_PARENT_READY: {
+        FD_BASE58_ENCODE_32_BYTES( pe->parent_ready.parent.hash, probe_prp_b58 );
+        FD_LOG_NOTICE(( "probe pool: ev parent_ready slot %lu parent %lu pbid %s finalized %lu next_leader %lu", pe->parent_ready.slot, pe->parent_ready.parent.slot, probe_prp_b58, ag_pool_finalized_slot( ctx->pool ), ctx->next_leader_slot ));
+        break;
+      }
+      case AG_EVENT_POOL_SAFE_TO_NOTAR: {
+        FD_BASE58_ENCODE_32_BYTES( pe->safe_to_notar.hash, probe_stn_b58 );
+        FD_LOG_NOTICE(( "probe pool: ev safe_to_notar slot %lu hash %s", pe->safe_to_notar.slot, probe_stn_b58 ));
+        probe_tally( ctx, pe->safe_to_notar.slot, "safe_to_notar" );
+        break;
+      }
+      case AG_EVENT_POOL_SAFE_TO_SKIP:
+        FD_LOG_NOTICE(( "probe pool: ev safe_to_skip slot %lu", pe->safe_to_skip ));
+        probe_tally( ctx, pe->safe_to_skip, "safe_to_skip" );
+        break;
+      case AG_EVENT_POOL_CERT_CREATED: {
+        ulong         cs = ag_cert_slot( &pe->cert_created );
+        uchar const * ch = pe->cert_created.kind==AG_CERT_KIND_SKIP || pe->cert_created.kind==AG_CERT_KIND_FINAL ? NULL : ag_cert_block_hash( &pe->cert_created );
+        uchar         cz[ 32 ] = {0};
+        FD_BASE58_ENCODE_32_BYTES( ch ? ch : cz, probe_ch_b58 );
+        FD_LOG_NOTICE(( "probe pool: ev cert kind %d slot %lu hash %s", (int)pe->cert_created.kind, cs, probe_ch_b58 ));
+        if( pe->cert_created.kind!=AG_CERT_KIND_FAST_FINAL && pe->cert_created.kind!=AG_CERT_KIND_FINAL ) probe_tally( ctx, cs, "cert" );
+        break;
+      }
+      case AG_EVENT_POOL_STANDSTILL:
+        FD_LOG_NOTICE(( "probe pool: ev standstill slot %lu certs %lu votes %lu finalized %lu", pe->standstill.slot, pe->standstill.cert_cnt, pe->standstill.vote_cnt, ag_pool_finalized_slot( ctx->pool ) ));
+        break;
+      default: break;
+      }
+    }
     if( FD_UNLIKELY( ctx->scratch.pool_event.kind==AG_EVENT_POOL_PARENT_READY ) ) ctx->highest_parent_ready_slot = fd_ulong_max( ctx->highest_parent_ready_slot, ctx->scratch.pool_event.parent_ready.slot );
 
     /* Notify other tiles that we have a cert indicating this slot has
@@ -1280,12 +1377,14 @@ after_credit( fd_votor_tile_t *   ctx,
   if( FD_UNLIKELY( ag_pool_poll_repair_event( ctx->pool, &ctx->scratch.repair_event ) ) ) {
     fd_votor_msg_t * chunk = fd_chunk_to_laddr( ctx->votor_out_mem, ctx->votor_out_chunk );
     chunk->repair = (fd_votor_repair_t){ .slot = ctx->scratch.repair_event.block.slot, .block_id = FD_LOAD( fd_hash_t, ctx->scratch.repair_event.block.hash ) };
+    { FD_BASE58_ENCODE_32_BYTES( ctx->scratch.repair_event.block.hash, probe_rep_b58 ); FD_LOG_NOTICE(( "probe votor repair: slot %lu bid %s", ctx->scratch.repair_event.block.slot, probe_rep_b58 )); }
     fd_stem_publish( stem, OUT_IDX_VOTOR, FD_VOTOR_SIG_REPAIR, ctx->votor_out_chunk, sizeof(fd_votor_msg_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
     ctx->votor_out_chunk = fd_dcache_compact_next( ctx->votor_out_chunk, sizeof(fd_votor_msg_t), ctx->votor_out_chunk0, ctx->votor_out_wmark );
     *charge_busy = 1;
   }
 
   if( FD_UNLIKELY( ag_votor_poll_timeout_event( ctx->votor, now, &ctx->scratch.timeout_event ) ) ) { /* a timeout we set on ParentReady */
+    probe_tally( ctx, ctx->scratch.timeout_event.slot, "timeout" );
     ag_votor_handle_timeout_event( ctx->votor, &ctx->scratch.timeout_event );
     *charge_busy = 1;
   }
@@ -1312,8 +1411,21 @@ after_credit( fd_votor_tile_t *   ctx,
                      && (kind==AG_VOTE_KIND_NOTAR || kind==AG_VOTE_KIND_SKIP) ) ) {
         reward_leader = peers_query( ctx->peers, *reward_leader_pubkey, NULL );
       }
+      if( FD_UNLIKELY( !reward_leader && ctx->scratch.vote_event.reason!=UCHAR_MAX && ( kind==AG_VOTE_KIND_NOTAR || kind==AG_VOTE_KIND_SKIP ) ) ) {
+        fd_pubkey_t probe_rl = {0};
+        if( reward_leader_pubkey ) probe_rl = *reward_leader_pubkey;
+        FD_BASE58_ENCODE_32_BYTES( probe_rl.uc, probe_rl_b58 );
+        FD_LOG_NOTICE(( "probe rva: slot %lu kind %u leader %s event untracked why %s", vote_slot, kind, probe_rl_b58,
+                        !reward_leader_pubkey ? "leader_unknown" : fd_pubkey_eq( reward_leader_pubkey, &ctx->id_key ) ? "self" : "no_peer" ));
+      }
       if( FD_LIKELY( reward_leader ) ) {
         reward_vote_t * rv = &ctx->reward_votes[ vote_slot%REWARD_VOTE_MAX ];
+        if( FD_UNLIKELY( rv->slot!=ULONG_MAX ) ) FD_LOG_NOTICE(( "probe rva: slot %lu kind %u leader %s event overwrite tries %lu by_slot %lu by_kind %u",
+                                                                  rv->slot, probe_rva_kind[ rv->slot%PROBE_RVA_N ], probe_rva_leader[ rv->slot%PROBE_RVA_N ], rv->tx_cnt, vote_slot, kind ));
+        probe_rva_kind [ vote_slot%PROBE_RVA_N ] = kind;
+        probe_rva_stuck[ vote_slot%PROBE_RVA_N ] = 0;
+        fd_base58_encode_32( reward_leader_pubkey->uc, NULL, probe_rva_leader[ vote_slot%PROBE_RVA_N ] );
+        FD_LOG_NOTICE(( "probe rva: slot %lu kind %u leader %s event track", vote_slot, kind, probe_rva_leader[ vote_slot%PROBE_RVA_N ] ));
         rv->slot     = vote_slot;
         rv->retry_ts = now;
         rv->tx_cnt   = 0UL;
@@ -1321,13 +1433,34 @@ after_credit( fd_votor_tile_t *   ctx,
         rv->vote     = ctx->scratch.vote_event.vote;
       }
 
+      int   probe_l8_state = reward_leader_pubkey ? 0 : -1; /* -1 leader unknown, 0 no peer entry, 1 no tx_conn, 2 conn not active, 3 active */
+      ulong probe_l8_tx    = 0UL;
+      ulong probe_sent     = 0UL;
+      ulong probe_fail     = 0UL;
       for( ulong slot=0UL; slot<peers_slot_cnt(); slot++ ) {
         peer_t const * peer = &ctx->peers[ slot ];
+        int probe_is_l8 = reward_leader_pubkey && !peers_key_inval( peer->id_key ) && fd_pubkey_eq( &peer->id_key, reward_leader_pubkey );
+        if( FD_UNLIKELY( probe_is_l8 ) ) probe_l8_state = !peer->tx_conn ? 1 : ( peer->tx_conn->state!=FD_QUIC_CONN_STATE_ACTIVE ? 2 : 3 );
+        if( FD_UNLIKELY( probe_is_l8 && peer==reward_leader ) ) probe_l8_tx = 1UL;
         if( FD_LIKELY(    peers_key_inval( peer->id_key )
                        || !peer->tx_conn
                        || peer->tx_conn->state!=FD_QUIC_CONN_STATE_ACTIVE
                        || peer==reward_leader ) ) continue;
-        quic_client_datagram_tx( ctx, stem, peer->tx_conn, ctx->scratch.ser, ser_sz );
+        ulong probe_pn = quic_client_datagram_tx( ctx, stem, peer->tx_conn, ctx->scratch.ser, ser_sz );
+        probe_sent += probe_pn!=ULONG_MAX;
+        probe_fail += probe_pn==ULONG_MAX;
+        if( FD_UNLIKELY( probe_is_l8 ) ) probe_l8_tx = probe_pn!=ULONG_MAX;
+      }
+      {
+        uchar const * probe_bh = ag_vote_block_hash( &ctx->scratch.vote_event.vote );
+        uchar probe_zero[ 32 ] = {0};
+        fd_pubkey_t probe_l8_key = {0};
+        if( reward_leader_pubkey ) probe_l8_key = *reward_leader_pubkey;
+        FD_BASE58_ENCODE_32_BYTES( probe_bh ? probe_bh : probe_zero, probe_bh_b58 );
+        FD_BASE58_ENCODE_32_BYTES( probe_l8_key.uc, probe_l8_b58 );
+        FD_LOG_NOTICE(( "probe own vote: kind %u slot %lu rank %lu bid %s reason %u finalized %lu pool %d sent %lu txfail %lu leader8 %s l8conn %d l8tx %lu",
+                        kind, vote_slot, (ulong)ag_vote_rank( &ctx->scratch.vote_event.vote ), probe_bh_b58, (uint)ctx->scratch.vote_event.reason,
+                        ag_pool_finalized_slot( ctx->pool ), err, probe_sent, probe_fail, probe_l8_b58, probe_l8_state, probe_l8_tx ));
       }
 
       int result;
@@ -1375,11 +1508,19 @@ after_credit( fd_votor_tile_t *   ctx,
     if( FD_LIKELY( rv->slot==ULONG_MAX || now<rv->retry_ts ) ) continue;
     fd_pubkey_t const * leader = fd_multi_epoch_leaders_get_leader_for_slot( ctx->mleaders, rv->slot+AG_REWARD_SLOT_DELTA );
     peer_t const *      peer   = leader ? peers_query_const( ctx->peers, *leader, NULL ) : NULL;
-    if( FD_UNLIKELY( !peer || !peer->tx_conn ) ) continue;
+    if( FD_UNLIKELY( !peer || !peer->tx_conn ) ) {
+      if( !probe_rva_stuck[ rv->slot%PROBE_RVA_N ] ) FD_LOG_NOTICE(( "probe rva: slot %lu kind %u leader %s event noconn tries %lu peer %d", rv->slot, probe_rva_kind[ rv->slot%PROBE_RVA_N ], probe_rva_leader[ rv->slot%PROBE_RVA_N ], rv->tx_cnt, !!peer ));
+      probe_rva_stuck[ rv->slot%PROBE_RVA_N ] = 1;
+      continue;
+    }
     long  broadcast_start_time = fd_clock_tile_now( ctx->clock );
     ulong ser_sz               = ag_vote_ser( &rv->vote, ctx->scratch.ser );
     ulong pkt_num              = quic_client_datagram_tx( ctx, stem, peer->tx_conn, ctx->scratch.ser, ser_sz );
-    if( FD_UNLIKELY( pkt_num==ULONG_MAX ) ) continue;
+    if( FD_UNLIKELY( pkt_num==ULONG_MAX ) ) {
+      if( !probe_rva_stuck[ rv->slot%PROBE_RVA_N ] ) FD_LOG_NOTICE(( "probe rva: slot %lu kind %u leader %s event txfail tries %lu state %u", rv->slot, probe_rva_kind[ rv->slot%PROBE_RVA_N ], probe_rva_leader[ rv->slot%PROBE_RVA_N ], rv->tx_cnt, (uint)peer->tx_conn->state ));
+      probe_rva_stuck[ rv->slot%PROBE_RVA_N ] = 1;
+      continue;
+    }
     if( FD_UNLIKELY( rv->conn!=peer->tx_conn ) ) {
       rv->conn = peer->tx_conn;
       for( ulong j=0UL; j<QUIC_K_PACKET_THRESHOLD+1UL; j++ ) rv->pkt_num[ j ] = ULONG_MAX;
@@ -1389,6 +1530,11 @@ after_credit( fd_votor_tile_t *   ctx,
     report_alpenglow_vote( ctx, NULL, &rv->vote, ctx->scratch.ser[ 1 ], FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_ACCEPTED, 0, FD_EVENT_ALPENGLOW_VOTE_REASON_REWARD, 0L, broadcast_start_time, peer );
     long pto     = (long)( peer->tx_conn->rtt->smoothed_rtt + fmaxf( 4.0f*peer->tx_conn->rtt->var_rtt, (float)QUIC_K_GRANULARITY_NS ) + peer->tx_conn->peer_max_ack_delay_ns ); /* RFC 9002 PTO */
     rv->retry_ts = now + fd_long_max( REWARD_VOTE_RTT_MIN_NS, fd_long_min( pto, REWARD_VOTE_RTT_MAX_NS ) ); /* clamp between RTT_MIN, RTT_MAX  */
+    probe_rva_ts[ rv->slot%PROBE_RVA_N ][ (rv->tx_cnt-1UL)%QUIC_K_PACKET_THRESHOLD ] = fd_log_wallclock();
+    if( rv->tx_cnt<=4UL || !( (rv->tx_cnt-1UL)%10UL ) )
+      FD_LOG_NOTICE(( "probe rva: slot %lu kind %u leader %s event %s try %lu pkt %lu rtt_us %.0f var_us %.0f min_us %.0f pto_us %ld retry_in_us %ld",
+                      rv->slot, probe_rva_kind[ rv->slot%PROBE_RVA_N ], probe_rva_leader[ rv->slot%PROBE_RVA_N ], rv->tx_cnt==1UL ? "send" : "retransmit", rv->tx_cnt-1UL, pkt_num,
+                      (double)peer->tx_conn->rtt->smoothed_rtt/1e3, (double)peer->tx_conn->rtt->var_rtt/1e3, (double)peer->tx_conn->rtt->min_rtt/1e3, pto/1000L, (rv->retry_ts-now)/1000L ));
     *charge_busy = 1;
   }
 
@@ -1398,18 +1544,34 @@ after_credit( fd_votor_tile_t *   ctx,
 
   ulong finalized_slot = ag_pool_finalized_slot( ctx->pool );
   while( FD_UNLIKELY( ctx->next_leader_slot<=finalized_slot ) ) {
+    FD_LOG_NOTICE(( "probe leader: lost window slot %lu finalized %lu before parent_ready", ctx->next_leader_slot, finalized_slot ));
     ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, ctx->next_leader_slot+AG_SLOTS_PER_WINDOW, &ctx->id_key );
     if( FD_UNLIKELY( ctx->next_leader_slot==ULONG_MAX ) ) return; /* schedule exhausted */
   }
 
+  static ulong probe_lw_slot = ULONG_MAX;
+  static long  probe_lw_t0   = 0L;
   ag_block_id_t parent = ag_pool_wait_for_parent_ready( ctx->pool, ctx->next_leader_slot );
-  if( FD_UNLIKELY( parent.slot==ULONG_MAX ) ) return; /* the pool has not granted parent ready yet */
+  if( FD_UNLIKELY( parent.slot==ULONG_MAX ) ) {
+    if( FD_UNLIKELY( probe_lw_slot!=ctx->next_leader_slot && ctx->next_leader_slot<=ctx->highest_parent_ready_slot+2UL*AG_SLOTS_PER_WINDOW ) ) {
+      probe_lw_slot = ctx->next_leader_slot;
+      probe_lw_t0   = fd_log_wallclock();
+      FD_LOG_NOTICE(( "probe leader: waiting slot %lu finalized %lu highest_parent_ready %lu", ctx->next_leader_slot, finalized_slot, ctx->highest_parent_ready_slot ));
+    }
+    return; /* the pool has not granted parent ready yet */
+  }
 
   ulong reward_slot = fd_ulong_sat_sub( ctx->next_leader_slot, FD_NUM_SLOTS_FOR_REWARD );
   for( ulong i=0UL; i<AG_SLOTS_PER_WINDOW; i++ ) publish_reward_certs( ctx, stem, reward_slot+i );
 
   fd_votor_msg_t * chunk = fd_chunk_to_laddr( ctx->votor_out_mem, ctx->votor_out_chunk );
   chunk->leader = (fd_votor_leader_t){ .slot = ctx->next_leader_slot, .parent_slot = parent.slot, .parent_block_id = FD_LOAD( fd_hash_t, parent.hash ) };
+  {
+    FD_BASE58_ENCODE_32_BYTES( chunk->leader.parent_block_id.uc, probe_lpb_b58 );
+    FD_LOG_NOTICE(( "probe leader: publish slot %lu parent_slot %lu parent_block_id %s finalized %lu highest_parent_ready %lu waited_us %ld",
+                    chunk->leader.slot, chunk->leader.parent_slot, probe_lpb_b58, finalized_slot, ctx->highest_parent_ready_slot,
+                    probe_lw_slot==ctx->next_leader_slot ? (fd_log_wallclock()-probe_lw_t0)/1000L : -1L ));
+  }
   fd_stem_publish( stem, OUT_IDX_VOTOR, FD_VOTOR_SIG_LEADER, ctx->votor_out_chunk, sizeof(fd_votor_msg_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->votor_out_chunk = fd_dcache_compact_next( ctx->votor_out_chunk, sizeof(fd_votor_msg_t), ctx->votor_out_chunk0, ctx->votor_out_wmark );
 
