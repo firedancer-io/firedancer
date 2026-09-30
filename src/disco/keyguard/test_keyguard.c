@@ -12,8 +12,9 @@ build_txn_v1( uchar * buf,
               ulong   instr_cnt,
               ulong * msg_sz );
 
-/* test_failov_message: the failov role gets the exact member
-   certificate message and a TLS CertificateVerify signed. */
+/* test_failov_message: only the failov role gets the exact member
+   certificate message signed, and it also gets a TLS
+   CertificateVerify signed. */
 
 static void
 test_failov_message( void ) {
@@ -21,24 +22,42 @@ test_failov_message( void ) {
   uchar                   msg[ FD_KEYGUARD_MEMBER_CERT_MSG_SZ ];
   fd_memcpy( msg, FD_KEYGUARD_MEMBER_CERT_PREFIX, FD_KEYGUARD_MEMBER_CERT_PREFIX_SZ );
   fd_memset( msg+FD_KEYGUARD_MEMBER_CERT_PREFIX_SZ, 0x5a, 32UL );
+
   FD_TEST( fd_keyguard_payload_match( msg, sizeof(msg), FD_KEYGUARD_SIGN_TYPE_ED25519 )==FD_KEYGUARD_PAYLOAD_FAILOV );
   FD_TEST( fd_keyguard_payload_authorize( &authority, msg, sizeof(msg), FD_KEYGUARD_ROLE_FAILOV, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
-  msg[0] ^= 1;
-  FD_TEST( !fd_keyguard_payload_authorize( &authority, msg, sizeof(msg), FD_KEYGUARD_ROLE_FAILOV, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
 
+  /* Only the exact prefix, size and sign type are a member certificate. */
+  FD_TEST( !fd_keyguard_payload_match( msg, sizeof(msg), FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519 ) );
+  FD_TEST( !(fd_keyguard_payload_match( msg, sizeof(msg)-1UL, FD_KEYGUARD_SIGN_TYPE_ED25519 ) & FD_KEYGUARD_PAYLOAD_FAILOV) );
+  FD_TEST( !(fd_keyguard_payload_match( msg+1, sizeof(msg)-1UL, FD_KEYGUARD_SIGN_TYPE_ED25519 ) & FD_KEYGUARD_PAYLOAD_FAILOV) );
+
+  /* Longer payloads with the prefix are not a member certificate either. */
+  uchar longer[ FD_KEYGUARD_MEMBER_CERT_MSG_SZ+32UL ];
+  fd_memcpy( longer, msg, sizeof(msg) );
+  fd_memset( longer+sizeof(msg), 0x5a, 32UL );
+  for( ulong sz=sizeof(msg)+1UL; sz<=sizeof(longer); sz++ ) {
+    FD_TEST( !(fd_keyguard_payload_match( longer, sz, FD_KEYGUARD_SIGN_TYPE_ED25519 ) & FD_KEYGUARD_PAYLOAD_FAILOV) );
+    FD_TEST( !fd_keyguard_payload_authorize( &authority, longer, sz, FD_KEYGUARD_ROLE_FAILOV, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+  }
+  msg[ 0 ] ^= 1;
+  FD_TEST( !(fd_keyguard_payload_match( msg, sizeof(msg), FD_KEYGUARD_SIGN_TYPE_ED25519 ) & FD_KEYGUARD_PAYLOAD_FAILOV) );
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, msg, sizeof(msg), FD_KEYGUARD_ROLE_FAILOV, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+  msg[ 0 ] ^= 1;
+
+  /* Client and server CertificateVerify, with the exact prefix and size. */
   uchar cv[ FD_TLS_CV_SIGN_SZ ];
   fd_memcpy( cv, fd_tls13_cli_sign_prefix, sizeof(fd_tls13_cli_sign_prefix) );
   fd_memset( cv+sizeof(fd_tls13_cli_sign_prefix), 0x5a, 32UL );
-  FD_TEST( fd_keyguard_payload_authorize( &authority, cv, sizeof(cv), FD_KEYGUARD_ROLE_FAILOV, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
-  fd_memcpy( cv, fd_tls13_srv_sign_prefix, sizeof(fd_tls13_srv_sign_prefix) );
-  FD_TEST( fd_keyguard_payload_authorize( &authority, cv, sizeof(cv), FD_KEYGUARD_ROLE_FAILOV, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+  FD_TEST(  fd_keyguard_payload_authorize( &authority, cv, sizeof(cv), FD_KEYGUARD_ROLE_FAILOV, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
   FD_TEST( !fd_keyguard_payload_authorize( &authority, cv, sizeof(cv), FD_KEYGUARD_ROLE_FAILOV, FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519 ) );
-  cv[0] ^= 1;
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, cv, sizeof(cv)-1UL, FD_KEYGUARD_ROLE_FAILOV, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+  fd_memcpy( cv, fd_tls13_srv_sign_prefix, sizeof(fd_tls13_srv_sign_prefix) );
+  FD_TEST(  fd_keyguard_payload_authorize( &authority, cv, sizeof(cv), FD_KEYGUARD_ROLE_FAILOV, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+  cv[ 0 ] ^= 1;
   FD_TEST( !fd_keyguard_payload_authorize( &authority, cv, sizeof(cv), FD_KEYGUARD_ROLE_FAILOV, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
 
   /* No other role signs a member certificate, and the failov role signs
      it only as Ed25519. */
-  msg[0] ^= 1;
   for( int role=0; role<FD_KEYGUARD_ROLE_CNT; role++ ) {
     if( role==FD_KEYGUARD_ROLE_FAILOV ) continue;
     FD_TEST( !fd_keyguard_payload_authorize( &authority, msg, sizeof(msg), role, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
