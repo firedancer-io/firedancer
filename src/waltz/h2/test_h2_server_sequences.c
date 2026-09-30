@@ -1125,6 +1125,80 @@ FD_UNIT_TEST( h2_server_partial_frame_refill ) {
   FD_TEST( ctx->rst_cnt==0UL );
 }
 
+/* A DATA frame on a released stream draws one RST_STREAM, however
+   many chunks it arrives in */
+
+FD_UNIT_TEST( h2_server_released_stream_data_chunks ) {
+  test_h2_srv2_t ctx[1];
+  test_h2_srv2_init( ctx );
+  test_h2_srv2_handshake( ctx );
+
+  test_h2_srv2_send( ctx, FD_H2_FRAME_TYPE_HEADERS, FD_H2_FLAG_END_HEADERS, 1U,
+                     test_h2_srv2_req1, sizeof(test_h2_srv2_req1) );
+  uint err_code = fd_uint_bswap( FD_H2_ERR_CANCEL );
+  test_h2_srv2_send( ctx, FD_H2_FRAME_TYPE_RST_STREAM, 0U, 1U, &err_code, sizeof(err_code) );
+  test_h2_srv2_rx( ctx );
+  FD_TEST( !test_h2_srv2_stream_query( ctx->conn, 1U ) );
+  FD_TEST( fd_h2_rbuf_used_sz( ctx->rbuf_tx )==0UL );
+
+  uchar body[ 30 ] = {0};
+  fd_h2_frame_hdr_t hdr = {
+    .typlen      = fd_h2_frame_typlen( FD_H2_FRAME_TYPE_DATA, sizeof(body) ),
+    .flags       = 0,
+    .r_stream_id = fd_uint_bswap( 1U )
+  };
+  uint wnd = ctx->conn->rx_wnd;
+  fd_h2_rbuf_push( ctx->rbuf_rx, &hdr, sizeof(hdr) );
+  for( ulong off=0UL; off<sizeof(body); off+=10UL ) {
+    fd_h2_rbuf_push( ctx->rbuf_rx, body+off, 10UL );
+    test_h2_srv2_rx( ctx );
+  }
+  FD_TEST( fd_h2_rbuf_used_sz( ctx->rbuf_rx )==0UL );
+  FD_TEST( ctx->conn->rx_wnd==wnd-30U );
+  FD_TEST( ctx->data_sz==0UL );
+
+  uchar payload[ 16 ];
+  FD_TEST( test_h2_srv2_pop( ctx, &hdr, payload, sizeof(payload) )==4UL );
+  FD_TEST( fd_h2_frame_type( hdr.typlen )==FD_H2_FRAME_TYPE_RST_STREAM );
+  FD_TEST( fd_h2_frame_stream_id( hdr.r_stream_id )==1U );
+  FD_TEST( fd_uint_bswap( FD_LOAD( uint, payload ) )==FD_H2_ERR_STREAM_CLOSED );
+  FD_TEST( fd_h2_rbuf_used_sz( ctx->rbuf_tx )==0UL );
+  FD_TEST( !( ctx->conn->flags & (FD_H2_CONN_FLAGS_SEND_GOAWAY|FD_H2_CONN_FLAGS_DEAD) ) );
+}
+
+/* A client that cancelled a request may still get the response's
+   HEADERS: they are decoded and ignored.  HEADERS on a client stream
+   that was never opened is a connection error. */
+
+FD_UNIT_TEST( h2_client_headers_on_released_stream ) {
+  test_h2_srv2_t ctx[1];
+  test_h2_srv2_init( ctx );
+  FD_TEST( fd_h2_conn_init_client( ctx->conn )==ctx->conn );
+  ctx->conn->ctx   = ctx;
+  ctx->conn->flags = 0U; /* handshake done */
+
+  /* Open stream 1, then cancel and release it */
+  fd_h2_stream_open( ctx->stream+0, ctx->conn, 1U );
+  ctx->conn->tx_stream_next = 3U;
+  fd_memset( ctx->stream+0, 0, sizeof(fd_h2_stream_t) );
+
+  test_h2_srv2_send( ctx, FD_H2_FRAME_TYPE_HEADERS, FD_H2_FLAG_END_HEADERS|FD_H2_FLAG_END_STREAM, 1U,
+                     test_h2_srv2_req1, sizeof(test_h2_srv2_req1) );
+  test_h2_srv2_rx( ctx );
+  FD_TEST( !( ctx->conn->flags & (FD_H2_CONN_FLAGS_SEND_GOAWAY|FD_H2_CONN_FLAGS_DEAD) ) );
+  FD_TEST( fd_h2_rbuf_used_sz( ctx->rbuf_rx )==0UL );
+  FD_TEST( fd_h2_rbuf_used_sz( ctx->rbuf_tx )==0UL );
+  FD_TEST( ctx->hdrs_cb_cnt==1UL );
+  test_h2_srv2_expect_hdrs( ctx, ":method: GET\n:authority: www.example.com\n" );
+
+  test_h2_srv2_send( ctx, FD_H2_FRAME_TYPE_HEADERS, FD_H2_FLAG_END_HEADERS, 3U,
+                     test_h2_srv2_req1, sizeof(test_h2_srv2_req1) );
+  test_h2_srv2_rx( ctx );
+  FD_TEST( ctx->conn->flags & FD_H2_CONN_FLAGS_SEND_GOAWAY );
+  FD_TEST( ctx->conn->conn_error==FD_H2_ERR_PROTOCOL );
+  FD_TEST( ctx->hdrs_cb_cnt==1UL );
+}
+
 /* RFC 9113 Section 5.1: a DATA frame on a stream that was never opened
    is a connection error, and RST_STREAM must not be sent for it. */
 

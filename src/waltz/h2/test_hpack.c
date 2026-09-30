@@ -440,6 +440,9 @@ FD_UNIT_TEST( hpack_dtable ) {
   /* RFC 7541 Section 4.4: an entry larger than the table empties it */
   fd_hpack_dtable_insert( dtable, "0123456789012345678901234567890123", 34UL, "", 0UL );
   FD_TEST( dtable->entry_cnt==0U && dtable->used_sz==0U );
+  fd_hpack_dtable_insert( dtable, "a", 1UL, "b", 1UL );
+  fd_hpack_dtable_insert( dtable, "a", ULONG_MAX-8UL, "b", 16UL ); /* lengths that wrap */
+  FD_TEST( dtable->entry_cnt==0U && dtable->used_sz==0U );
 
   /* A size update above the SETTINGS bound is an error, below it evicts */
   fd_hpack_dtable_insert( dtable, "abcd", 4UL, "efgh", 4UL );

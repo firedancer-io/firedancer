@@ -83,7 +83,7 @@ fd_h2_gen_settings( fd_h2_settings_t const * settings,
 }
 
 /* fd_h2_stream_is_idle returns 1 if stream_id was never opened, i.e. it
-   is below the next unused stream ID of its own parity.  RFC 9113
+   is at or above the next unused stream ID of its own parity.  RFC 9113
    Section 5.1 requires a connection error for frames other than HEADERS
    or PRIORITY on an idle stream, and forbids RST_STREAM on one.  A
    lower unused ID is not idle: opening a stream implicitly closes every
@@ -104,7 +104,8 @@ static void
 fd_h2_rx_data( fd_h2_conn_t *            conn,
                fd_h2_rbuf_t *            rbuf_rx,
                fd_h2_rbuf_t *            rbuf_tx,
-               fd_h2_callbacks_t const * cb ) {
+               fd_h2_callbacks_t const * cb,
+               int                       frame_start ) {
   /* A receive might generate a single RST_STREAM or two WINDOW_UPDATE
      frames */
   ulong tx_reserve = fd_ulong_max( sizeof(fd_h2_rst_stream_t), 2UL*sizeof(fd_h2_window_update_t) );
@@ -139,8 +140,9 @@ fd_h2_rx_data( fd_h2_conn_t *            conn,
       fd_h2_conn_error( conn, FD_H2_ERR_PROTOCOL );
       return;
     }
-    /* The stream was opened before and the app has released it */
-    fd_h2_tx_rst_stream( rbuf_tx, stream_id, FD_H2_ERR_STREAM_CLOSED );
+    /* The stream was opened before and the app has released it.  One
+       reset per frame, however many chunks it arrives in. */
+    if( frame_start ) fd_h2_tx_rst_stream( rbuf_tx, stream_id, FD_H2_ERR_STREAM_CLOSED );
     goto skip_frame;
   }
 
@@ -242,9 +244,10 @@ fd_h2_rx_headers( fd_h2_conn_t *            conn,
 
   fd_h2_stream_t * stream = cb->stream_query( conn, stream_id );
   if( FD_UNLIKELY( !stream &&
-                   ( (stream_id&1) != (conn->rx_stream_next&1) ) ) ) {
-    /* A field block on a stream of our own parity is a protocol error:
-       the peer cannot open a stream we would initiate. */
+                   ( (stream_id&1) != (conn->rx_stream_next&1) ) &&
+                   fd_h2_stream_is_idle( conn, stream_id ) ) ) {
+    /* A field block on an idle stream of our own parity is a protocol
+       error: the peer cannot open a stream we would initiate. */
     fd_h2_conn_error( conn, FD_H2_ERR_PROTOCOL );
     return 0;
   }
@@ -269,12 +272,13 @@ fd_h2_rx_headers( fd_h2_conn_t *            conn,
   if( FD_UNLIKELY( !fd_h2_rx_hdrs_account( conn, payload_sz ) ) ) return 0;
 
   if( !stream ) {
-    if( FD_UNLIKELY( stream_id < conn->rx_stream_next ) ) {
-      /* A field block on a peer stream we have already closed and
-         released, e.g. request trailers arriving after we finished the
-         response and reset the stream.  RFC 9113 Section 5.1: the field
-         block is decoded so the HPACK dynamic table stays in sync, then
-         ignored.  The stream is not reopened or reset again. */
+    if( FD_UNLIKELY( !fd_h2_stream_is_idle( conn, stream_id ) ) ) {
+      /* A field block on a stream we have already closed and released,
+         e.g. request trailers arriving after we finished the response
+         and reset the stream, or a response arriving after we cancelled
+         the request.  RFC 9113 Section 5.1: the field block is decoded
+         so the HPACK dynamic table stays in sync, then ignored.  The
+         stream is not reopened or reset again. */
       cb->headers( conn, NULL, payload, payload_sz, frame_flags );
       return 1;
     }
@@ -729,7 +733,7 @@ fd_h2_rx1( fd_h2_conn_t *            conn,
   /* All frames except DATA are fully buffered, thus assume that current
      frame is a DATA frame if rx_data_cnt_rem != 0. */
   if( conn->rx_data_cnt_rem ) {
-    fd_h2_rx_data( conn, rbuf_rx, rbuf_tx, cb );
+    fd_h2_rx_data( conn, rbuf_rx, rbuf_tx, cb, 0 );
     return;
   }
   if( FD_UNLIKELY( conn->rx_pad_rem ) ) {
@@ -813,7 +817,7 @@ fd_h2_rx1( fd_h2_conn_t *            conn,
       fd_h2_conn_error( conn, FD_H2_ERR_PROTOCOL );
       return;
     }
-    fd_h2_rx_data( conn, rbuf_rx, rbuf_tx, cb );
+    fd_h2_rx_data( conn, rbuf_rx, rbuf_tx, cb, 1 );
     return;
   }
 

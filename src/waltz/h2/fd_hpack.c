@@ -158,7 +158,7 @@ fd_hpack_dtable_insert( fd_hpack_dtable_t * dtable,
 
   /* RFC 7541 Section 4.4: an entry larger than the maximum size empties
      the table and is not added. */
-  if( FD_UNLIKELY( entry_sz>dtable->max_sz ) ) {
+  if( FD_UNLIKELY( ( name_len>dtable->max_sz ) | ( value_len>dtable->max_sz ) | ( entry_sz>dtable->max_sz ) ) ) {
     dtable->entry_cnt = 0U;
     dtable->used_sz   = 0U;
     return;
