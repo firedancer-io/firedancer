@@ -1047,6 +1047,94 @@ test_adopt_tower( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_adopt_tower" ));
 }
 
+/* test_operator_switch: set-identity's switch drains queued votes, then
+   the staked key votes without an adoption and the failover rules stay
+   on.  An adoption while the voting identity is installed changes
+   nothing, one after a failover switch back to junk is served. */
+static void
+test_operator_switch( fd_wksp_t * wksp ) {
+  static fd_tower_tile_t ctx[ 1 ];
+  static fd_keyswitch_t  identity[ 1 ];
+  fd_memset( ctx, 0, sizeof(*ctx) );
+  void * publishes_mem = fd_wksp_alloc_laddr( wksp, publishes_align(), publishes_footprint( 16UL ), 1UL );
+  ctx->publishes       = publishes_join( publishes_new( publishes_mem, 16UL ) );
+  void * tower_mem     = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint( 64UL, 2UL ), 1UL );
+  ctx->tower           = fd_tower_join( fd_tower_new( tower_mem, 64UL, 2UL, 0UL ) );
+  FD_TEST( ctx->publishes && ctx->tower );
+  static fd_keyswitch_t voter[ 1 ];
+  ctx->identity_keyswitch = fd_keyswitch_join( fd_keyswitch_new( identity, FD_KEYSWITCH_STATE_UNLOCKED ) );
+  ctx->auth_vtr_keyswitch = fd_keyswitch_join( fd_keyswitch_new( voter,    FD_KEYSWITCH_STATE_UNLOCKED ) );
+
+  fd_pubkey_t staked, junk;
+  fd_memset( &staked, 0x5A, sizeof(staked) );
+  fd_memset( &junk,   0x11, sizeof(junk)   );
+  ctx->adoption_required = 1;
+  ctx->voting_identity   = staked;
+  *ctx->identity_key     = junk;
+  ctx->shadow            = 1;
+  ctx->out_seq           = 7UL;
+
+  /* A queued vote holds the switch until it drains. */
+  publishes_push_head( ctx->publishes, (publish_t){ .sig = FD_TOWER_SIG_SLOT_DONE } );
+  fd_memcpy( identity->bytes, staked.uc, 32UL );
+  identity->operator = 1UL;
+  fd_keyswitch_state( identity, FD_KEYSWITCH_STATE_SWITCH_PENDING );
+  during_housekeeping( ctx );
+  FD_TEST( fd_keyswitch_state_query( identity )==FD_KEYSWITCH_STATE_SWITCH_PENDING );
+  publishes_pop_head_nocopy( ctx->publishes );
+  during_housekeeping( ctx );
+  FD_TEST( fd_keyswitch_state_query( identity )==FD_KEYSWITCH_STATE_COMPLETED && identity->result==7UL );
+  FD_TEST( ctx->adoption_required && !ctx->shadow && !ctx->no_vote_authority );
+  fd_keyswitch_state( identity, FD_KEYSWITCH_STATE_UNLOCKED );
+
+  /* An adoption request now is refused with INVALID.  An empty adoption
+     would otherwise wipe the votes we vote with. */
+  static uchar          scratch_mem[ FD_TOWER_VOTE_FOOTPRINT ] __attribute__((aligned(FD_TOWER_VOTE_ALIGN)));
+  static uchar          adopt_mem[ 4096 ] __attribute__((aligned(128)));
+  static fd_frag_meta_t mcache[ 8 ];
+  fd_frag_meta_t *  mcaches[]    = { mcache };
+  ulong             seqs[]       = { 0UL };
+  ulong             depths[]     = { 8UL };
+  ulong             cr_avail     = 64UL;
+  ulong             min_cr_avail = 64UL;
+  int               reliable     = 0;
+  fd_stem_context_t stem = { .mcaches=mcaches, .seqs=seqs, .depths=depths, .cr_avail=&cr_avail,
+                             .min_cr_avail=&min_cr_avail, .cr_decrement_amount=1UL, .out_reliable=&reliable };
+  ctx->scratch_tower  = fd_tower_vote_join( fd_tower_vote_new( scratch_mem ) );
+  ctx->adopt_out_idx  = 0UL;
+  ctx->adopt_out_mem  = (fd_wksp_t *)adopt_mem;
+  ctx->tower->root    = 100UL;
+  fd_tower_blocks_insert( ctx->tower, 200UL, 100UL )->replayed = 1;
+  fd_tower_vote_push_tail( ctx->tower->votes, (fd_tower_vote_t){ .slot=200UL, .conf=1UL } );
+  void * ghost_mem = fd_wksp_alloc_laddr( wksp, fd_ghost_align(), fd_ghost_footprint( 64UL, 2UL ), 1UL );
+  ctx->ghost       = fd_ghost_join( fd_ghost_new( ghost_mem, 64UL, 2UL, 0UL ) );
+  FD_TEST( ctx->ghost );
+  fd_ghost_init( ctx->ghost, 0UL, 100UL, &(fd_hash_t){ .ul={ 100UL } } );
+  ctx->in_kind[ 0 ]   = IN_KIND_ADOPT;
+  ctx->in[ 0 ].chunk0 = 0UL;
+  ctx->in[ 0 ].wmark  = ULONG_MAX;
+  ctx->in[ 0 ].mtu    = 512UL;
+  FD_TEST( !returnable_frag( ctx, 0UL, 0UL, 77UL, 0UL, 0UL, FD_TOWER_ADOPT_CTL_EMPTY, 0UL, 0UL, &stem ) );
+  fd_tower_adopt_result_t refused = FD_LOAD( fd_tower_adopt_result_t, adopt_mem );
+  FD_TEST( seqs[ 0 ]==1UL && mcache[ 0 ].sig==77UL && refused.result==FD_TOWER_ADOPT_ERR_INVALID );
+  FD_TEST( fd_tower_vote_cnt( ctx->tower->votes )==1UL && fd_tower_vote_peek_tail_const( ctx->tower->votes )->slot==200UL );
+
+  /* A failover switch back to junk keeps the failover rules, and an
+     adoption then is served. */
+  fd_memcpy( identity->bytes, junk.uc, 32UL );
+  identity->operator = 0UL;
+  fd_keyswitch_state( identity, FD_KEYSWITCH_STATE_SWITCH_PENDING );
+  during_housekeeping( ctx );
+  FD_TEST( fd_keyswitch_state_query( identity )==FD_KEYSWITCH_STATE_COMPLETED && ctx->shadow );
+  FD_TEST( !returnable_frag( ctx, 0UL, 0UL, 78UL, 0UL, 0UL, FD_TOWER_ADOPT_CTL_EMPTY, 0UL, 0UL, &stem ) );
+  FD_TEST( seqs[ 0 ]==2UL && !fd_tower_vote_cnt( ctx->tower->votes ) );
+
+  fd_wksp_free_laddr( fd_ghost_delete( fd_ghost_leave( ctx->ghost ) ) );
+  fd_wksp_free_laddr( fd_tower_delete( fd_tower_leave( ctx->tower ) ) );
+  fd_wksp_free_laddr( publishes_delete( publishes_leave( ctx->publishes ) ) );
+  FD_LOG_NOTICE(( "pass: test_operator_switch" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -1066,6 +1154,7 @@ main( int     argc,
   FD_TEST( wksp );
 
   test_adopt_tower( wksp );
+  fd_wksp_reset( wksp, 1UL ); test_operator_switch( wksp );
   fd_wksp_reset( wksp, 1UL ); test_fixture_replay( wksp );
 
   fd_wksp_reset( wksp, 1UL ); test_eqvoc_rce_same( wksp );

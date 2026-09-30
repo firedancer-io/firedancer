@@ -1597,12 +1597,16 @@ during_housekeeping( fd_tower_tile_t * ctx ) {
     memcpy( ctx->identity_key, ctx->identity_keyswitch->bytes, 32UL );
     FD_BASE58_ENCODE_32_BYTES( ctx->identity_key->uc, pubkey_str );
     FD_LOG_INFO(( "my identity key: %s (key switched)", pubkey_str ));
-    /* Only the configured voting identity may publish votes. */
+    /* Only the configured voting identity may publish votes, unless
+       set-identity installed it.  Then we vote the upstream way and the
+       hot spare check decides. */
     if( FD_UNLIKELY( ctx->adoption_required ) ) {
-      ctx->shadow = !fd_pubkey_eq( ctx->identity_key, &ctx->voting_identity );
-      FD_LOG_NOTICE(( "tower: identity switch completed, %s", ctx->shadow ? "shadow voting only" : "voting identity installed" ));
+      int operator = !!FD_VOLATILE_CONST( ctx->identity_keyswitch->operator );
+      ctx->shadow = !operator && !fd_pubkey_eq( ctx->identity_key, &ctx->voting_identity );
+      FD_LOG_NOTICE(( "tower: identity switch completed, %s", operator ? "set by set-identity, voting follows the vote account" :
+                                                              ctx->shadow ? "shadow voting only" : "voting identity installed" ));
       ctx->no_vote_authority = 0;
-      if( FD_UNLIKELY( !ctx->shadow && !ctx->tower_adopted ) ) {
+      if( FD_UNLIKELY( !operator && !ctx->shadow && !ctx->tower_adopted ) ) {
         ctx->no_vote_authority = 1;
         FD_LOG_WARNING(( "voting identity installed without an adopted tower, refusing to vote until adoption precedes an identity switch" ));
       }
@@ -1927,9 +1931,15 @@ returnable_frag( fd_tower_tile_t *   ctx,
     return 0;
   }
   case IN_KIND_ADOPT: {
-    /* The response echoes the request sequence number. */
+    /* The response echoes the request sequence number.  While the voting
+       identity is installed nothing replaces the tower we vote with, only
+       a request that crossed set-identity can arrive then. */
     fd_tower_adopt_result_t result;
-    if( FD_UNLIKELY( ctl==FD_TOWER_ADOPT_CTL_EMPTY && !sz ) ) result = adopt_empty( ctx );
+    if( FD_UNLIKELY( fd_pubkey_eq( ctx->identity_key, &ctx->voting_identity ) ) ) {
+      FD_LOG_WARNING(( "tower: refusing an adoption request, the voting identity is installed" ));
+      result = (fd_tower_adopt_result_t){ .result=FD_TOWER_ADOPT_ERR_INVALID, .root=ctx->tower->root,
+                                          .vote_slot=ULONG_MAX, .acct_vote_slot=ULONG_MAX };
+    } else if( FD_UNLIKELY( ctl==FD_TOWER_ADOPT_CTL_EMPTY && !sz ) ) result = adopt_empty( ctx );
     else if( FD_LIKELY( !ctl ) ) result = adopt_tower( ctx, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ), sz );
     else {
       ctx->tower_adopted = 0;
