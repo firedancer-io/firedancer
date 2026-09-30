@@ -40,7 +40,8 @@ setup_topo_store( fd_topo_t *  topo,
                   ulong        shred_cache_mib,
                   ulong        fec_set_cnt,
                   ulong        max_shreds_per_block,
-                  char const * db_path );
+                  char const * db_path,
+                  int          alpenglow );
 
 fd_topo_obj_t *
 setup_topo_fec_sets( fd_topo_t *  topo,
