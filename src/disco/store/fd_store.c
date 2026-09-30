@@ -351,7 +351,8 @@ fd_store_new( void       * shmem,
               ulong        shred_cache_bytes,
               ulong        fec_set_cnt,
               ulong        max_shreds_per_block,
-              ulong        seed ) {
+              ulong        seed,
+              int          alpenglow ) {
 
   if( FD_UNLIKELY( !shmem ) ) { FD_LOG_WARNING(( "NULL shmem" )); return NULL; }
   if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shmem, fd_store_align() ) ) ) { FD_LOG_WARNING(( "misaligned shmem" )); return NULL; }
@@ -365,7 +366,7 @@ fd_store_new( void       * shmem,
                  shred_storage_gib, FD_SHREDB_MAX_SIZE_GIB ));
   }
 
-  ulong footprint = fd_store_footprint( fec_max, fec_data_max, shred_storage_gib, shred_cache_bytes, fec_set_cnt );
+  ulong footprint = fd_store_footprint( fec_max, fec_data_max, shred_storage_gib, shred_cache_bytes, fec_set_cnt, alpenglow );
   if( FD_UNLIKELY( !footprint ) ) { FD_LOG_WARNING(( "invalid or overflowing store footprint" )); return NULL; }
 
   fd_wksp_t * wksp = fd_wksp_containing( shmem );
@@ -406,14 +407,16 @@ fd_store_new( void       * shmem,
     max_shreds     = fd_shredb_max_shreds( shred_storage_gib );
     max_slots      = fd_shredb_max_slots( shred_storage_gib );
     disk_chain_cnt = fd_shredb_shred_map_chain_cnt_est( max_shreds );
-    root_chain_cnt = fd_shredb_root_map_chain_cnt_est( max_shreds );
 
     shred_map_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_shredb_shred_map_align(),      fd_shredb_shred_map_footprint( disk_chain_cnt ) );
     shred_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_shredb_shred_entry_t), max_shreds * sizeof(fd_shredb_shred_entry_t)    );
-    root_map_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_shredb_root_map_align(),       fd_shredb_root_map_footprint( root_chain_cnt )  );
-    root_pool_mem  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_shredb_root_entry_t),  max_shreds * sizeof(fd_shredb_root_entry_t)     );
     shred_tag_mem  = FD_SCRATCH_ALLOC_APPEND( l, alignof(atomic_ulong),            max_shreds * sizeof(atomic_ulong)               );
     slot_hint_mem  = FD_SCRATCH_ALLOC_APPEND( l, alignof(atomic_ulong),            max_slots * sizeof(atomic_ulong)                );
+    if( alpenglow ) {
+      root_chain_cnt = fd_shredb_root_map_chain_cnt_est( max_shreds );
+      root_map_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_shredb_root_map_align(),      fd_shredb_root_map_footprint( root_chain_cnt ) );
+      root_pool_mem  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_shredb_root_entry_t), max_shreds * sizeof(fd_shredb_root_entry_t)    );
+    }
   }
 
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_store_align() )==(ulong)shmem + footprint );
@@ -488,25 +491,33 @@ fd_store_new( void       * shmem,
 
   if( shred_storage_gib ) {
     void * shred_shmap = fd_shredb_shred_map_new( shred_map_mem, disk_chain_cnt, seed );
-    void * root_shmap  = fd_shredb_root_map_new( root_map_mem, root_chain_cnt, seed );
-    FD_TEST( shred_shmap && root_shmap );
+    FD_TEST( shred_shmap );
     store->shred_map_gaddr     = fd_wksp_gaddr_fast( wksp, shred_shmap );
     store->shred_pool_gaddr    = fd_wksp_gaddr_fast( wksp, shred_pool_mem );
-    store->root_map_gaddr      = fd_wksp_gaddr_fast( wksp, root_shmap );
-    store->root_pool_gaddr     = fd_wksp_gaddr_fast( wksp, root_pool_mem );
     store->shred_tag_gaddr     = fd_wksp_gaddr_fast( wksp, shred_tag_mem );
     store->slot_hint_gaddr     = fd_wksp_gaddr_fast( wksp, slot_hint_mem );
     store->disk_max_shreds     = max_shreds;
     store->disk_max_slots      = max_slots;
 
-    fd_shredb_shred_entry_t * cell      = (fd_shredb_shred_entry_t *)shred_pool_mem;
-    fd_shredb_root_entry_t *  root_cell = (fd_shredb_root_entry_t *)root_pool_mem;
+    fd_shredb_shred_entry_t * cell = (fd_shredb_shred_entry_t *)shred_pool_mem;
     for( ulong i=0UL; i<max_shreds; i++ ) {
       cell[ i ].key  = 0UL;
       cell[ i ].next = UINT_MAX;
-      fd_memset( root_cell+i, 0, sizeof(fd_shredb_root_entry_t) );
-      root_cell[ i ].next = UINT_MAX;
       atomic_init( shred_tag_mem+i, 0UL );
+    }
+
+    store->has_root_map = !!alpenglow;
+    if( alpenglow ) {
+      void * root_shmap = fd_shredb_root_map_new( root_map_mem, root_chain_cnt, seed );
+      FD_TEST( root_shmap );
+      store->root_map_gaddr  = fd_wksp_gaddr_fast( wksp, root_shmap );
+      store->root_pool_gaddr = fd_wksp_gaddr_fast( wksp, root_pool_mem );
+
+      fd_shredb_root_entry_t * root_cell = (fd_shredb_root_entry_t *)root_pool_mem;
+      for( ulong i=0UL; i<max_shreds; i++ ) {
+        fd_memset( root_cell+i, 0, sizeof(fd_shredb_root_entry_t) );
+        root_cell[ i ].next = UINT_MAX;
+      }
     }
     for( ulong i=0UL; i<max_slots; i++ ) {
       atomic_init( slot_hint_mem+i, 0UL );
@@ -923,7 +934,10 @@ disk_slot_hint_publish( fd_store_t * store,
    The root map decides the result: SUCCESS if (root,idx) was linked,
    NOOP if a READY cell holds it, ERR if a WRITING cell holds it.  On
    SUCCESS the slot map is linked only if (slot,idx) is free, and
-   *slot_linked says whether it was.  Both old keys are always unlinked. */
+   *slot_linked says whether it was.  Both old keys are always unlinked.
+
+   Without a root map (no alpenglow) the slot map decides the result
+   the same way, so a second version of a (slot,idx) is a NOOP. */
 
 static int
 disk_exact_publish( fd_store_t *                 store,
@@ -937,11 +951,11 @@ disk_exact_publish( fd_store_t *                 store,
   int result = DISK_PUBLISH_SUCCESS;
 
   /* Root map */
-  {
+  if( store->has_root_map ) {
     fd_shredb_root_map_t map[1];
     FD_TEST( disk_root_map_ljoin( store, map ) );
     fd_shredb_root_entry_t * pool = disk_root_pool_laddr( store );
-    fd_shredb_root_entry_t * ele  = pool + ring_idx;
+    fd_shredb_root_entry_t * cell = pool + ring_idx;
     struct {
       fd_shredb_root_map_txn_t              txn [1];
       fd_shredb_root_map_txn_private_info_t info[2];
@@ -961,7 +975,7 @@ disk_exact_publish( fd_store_t *                 store,
 
     if( FD_UNLIKELY( !new_err ) ) {
       fd_shredb_root_entry_t * new_ele = fd_shredb_root_map_query_ele( new_query );
-      if( new_ele!=ele ) {
+      if( new_ele!=cell ) {
         ulong state = disk_cell_state( atomic_load_explicit( tags+(ulong)(new_ele-pool), memory_order_acquire ) );
         if(      FD_LIKELY  ( state==FD_SHREDB_CELL_READY   ) ) result = DISK_PUBLISH_NOOP;
         else if( FD_UNLIKELY( state==FD_SHREDB_CELL_WRITING ) ) result = DISK_PUBLISH_ERR;
@@ -969,14 +983,14 @@ disk_exact_publish( fd_store_t *                 store,
       }
     }
 
-    if( old_ele==ele ) {
+    if( old_ele==cell ) {
       fd_shredb_root_map_query_t remove_query[1];
       FD_TEST( !fd_shredb_root_map_txn_remove( map, old_root_key, NULL, remove_query, 0 ) );
     }
 
     if( FD_LIKELY( result==DISK_PUBLISH_SUCCESS ) ) {
-      ele->key = *root_key;
-      FD_TEST( !fd_shredb_root_map_txn_insert( map, ele ) );
+      cell->key = *root_key;
+      FD_TEST( !fd_shredb_root_map_txn_insert( map, cell ) );
     }
     FD_TEST( !fd_shredb_root_map_txn_test( txn ) );
     fd_shredb_root_map_txn_fini( txn );
@@ -988,7 +1002,7 @@ disk_exact_publish( fd_store_t *                 store,
     fd_shredb_shred_map_t map[1];
     FD_TEST( disk_shred_map_ljoin( store, map ) );
     fd_shredb_shred_entry_t * pool = disk_shred_pool_laddr( store );
-    fd_shredb_shred_entry_t * ele  = pool + ring_idx;
+    fd_shredb_shred_entry_t * cell = pool + ring_idx;
     fd_shredb_map_key_t old_map_key = old_key;
     fd_shredb_map_key_t new_map_key = key;
     struct {
@@ -1011,21 +1025,24 @@ disk_exact_publish( fd_store_t *                 store,
     int link = result==DISK_PUBLISH_SUCCESS;
     if( FD_UNLIKELY( link && !new_err ) ) {
       fd_shredb_shred_entry_t * new_ele = fd_shredb_shred_map_query_ele( new_query );
-      if( new_ele!=ele ) {
+      if( new_ele!=cell ) {
         ulong state = disk_cell_state( atomic_load_explicit( tags+(ulong)(new_ele-pool), memory_order_acquire ) );
-        if( FD_LIKELY( state==FD_SHREDB_CELL_READY || state==FD_SHREDB_CELL_WRITING ) ) link = 0;
+        if( FD_LIKELY( state==FD_SHREDB_CELL_READY || state==FD_SHREDB_CELL_WRITING ) ) {
+          link = 0;
+          if( !store->has_root_map ) result = state==FD_SHREDB_CELL_READY ? DISK_PUBLISH_NOOP : DISK_PUBLISH_ERR;
+        }
         else FD_TEST( !fd_shredb_shred_map_txn_remove( map, &new_map_key, NULL, new_query, 0 ) );
       }
     }
 
-    if( old_ele==ele ) {
+    if( old_ele==cell ) {
       fd_shredb_shred_map_query_t remove_query[1];
       FD_TEST( !fd_shredb_shred_map_txn_remove( map, &old_map_key, NULL, remove_query, 0 ) );
     }
 
     if( FD_LIKELY( link ) ) {
-      ele->key = new_map_key;
-      FD_TEST( !fd_shredb_shred_map_txn_insert( map, ele ) );
+      cell->key = new_map_key;
+      FD_TEST( !fd_shredb_shred_map_txn_insert( map, cell ) );
       *slot_linked = 1;
     }
     FD_TEST( !fd_shredb_shred_map_txn_test( txn ) );
@@ -1068,7 +1085,7 @@ fd_store_disk_insert( fd_store_t       * store,
 
   /* Skip exact duplicates before taking a cell, which would otherwise
      evict an older shred.  disk_exact_publish still catches races. */
-  if( FD_UNLIKELY( disk_root_present( store, &root_key ) ) ) return FD_STORE_DISK_INSERT_SUCCESS;
+  if( FD_UNLIKELY( store->has_root_map && disk_root_present( store, &root_key ) ) ) return FD_STORE_DISK_INSERT_SUCCESS;
 
   ulong ticket = atomic_fetch_add_explicit( &store->disk_reservation_head, 1UL, memory_order_relaxed ) + 1UL;
   if( FD_UNLIKELY( !ticket || ticket>(ULONG_MAX>>2) ) ) return FD_STORE_DISK_INSERT_ERR;
@@ -1086,7 +1103,7 @@ fd_store_disk_insert( fd_store_t       * store,
     return FD_STORE_DISK_INSERT_ERR;
   old_state = disk_cell_state( old_tag );
   ulong                old_key      = cell->key;
-  fd_shredb_root_key_t old_root_key = disk_root_pool_laddr( store )[ ring_idx ].key;
+  fd_shredb_root_key_t old_root_key = store->has_root_map ? disk_root_pool_laddr( store )[ ring_idx ].key : (fd_shredb_root_key_t){0};
 
   fd_shredb_entry_t wr_entry[1];
   ulong shred_sz = fd_ulong_min( fd_shred_sz( shred ), FD_SHRED_MAX_SZ );
@@ -1229,7 +1246,7 @@ fd_store_disk_query_root( fd_store_t const * store,
                           uchar const *      merkle_root,
                           uint               shred_idx,
                           uchar              out[ FD_SHRED_MAX_SZ ] ) {
-  if( FD_UNLIKELY( !store || disk_fd<0 || !merkle_root || !out || !fd_store_has_disk( store ) ||
+  if( FD_UNLIKELY( !store || disk_fd<0 || !merkle_root || !out || !fd_store_has_disk( store ) || !store->has_root_map ||
                    shred_idx>=store->max_shreds_per_block ) ) return FD_STORE_DISK_QUERY_MISS;
   fd_shredb_root_key_t root_key = fd_shredb_root_key( merkle_root, shred_idx );
   for( ulong retry=0UL; retry<FD_STORE_DISK_READ_RETRY_CNT; retry++ ) {
