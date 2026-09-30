@@ -643,30 +643,31 @@ typedef struct fd_event_runtime_block fd_event_runtime_block_t;
 #define FD_EVENT_RUNTIME_REWARD_KIND_VOTE  (1) /* Vote commission credit in the first replayed bank that crosses the epoch boundary (not necessarily the epoch's nominal first slot when slots were skipped). Credited to the vote account itself, or, with custom_commission_collector active, to its inflation collector (possibly system-owned; one row per collector, rewards aggregated across the vote accounts routing to it) */
 #define FD_EVENT_RUNTIME_REWARD_KIND_STAKE (2) /* Stake-account credit during the partitioned-epoch-rewards window */
 
-/* One row per epoch-reward credit to an account */
+/* One row per epoch-reward credit to an account. This is the account diff for reward credits, which are recorded here instead of in runtime_block. Stake rewards also rewrite the stake-delegations cache entry, recorded as the matching kind = reward row in runtime_stake_delegation. */
 struct fd_event_runtime_reward {
-  ulong bank_seq;         /* Monotonic sequence number identifying this block within the current run; the join key to runtime_block. Restarts at 1 each time a snapshot is loaded, so pair it with the stream's boot id. 0 means unavailable. */
-  ulong slot;             /* Slot in which the credit was applied */
-  ulong epoch;            /* Epoch the slot belongs to */
-  int   kind;             /* Type of reward credit */
-  uchar pubkey[ 32UL ];   /* Credited account pubkey: the stake account, the vote account, or the vote account's inflation collector (see kind) */
-  uchar owner[ 32UL ];    /* Owner program of the credited account */
-  ulong prev_lamports;    /* Lamports before the credit */
-  ulong lamports;         /* Lamports after the credit */
-  ulong partition_idx;    /* Partitioned-rewards partition index this credit belongs to (0 for vote rewards) */
-  ulong credits_observed; /* New credits_observed stored on the stake account (0 for vote rewards) */
-  ulong stake;            /* Post-payout delegated stake written to the stake-delegations cache (0 for vote rewards) */
+  ulong bank_seq;             /* Monotonic sequence number identifying this block within the current run; the join key to runtime_block. Restarts at 1 each time a snapshot is loaded, so pair it with the stream's boot id. 0 means unavailable. */
+  ulong slot;                 /* Slot in which the credit was applied */
+  ulong epoch;                /* Epoch the slot belongs to */
+  int   kind;                 /* Type of reward credit */
+  uchar pubkey[ 32UL ];       /* Credited account pubkey: the stake account, the vote account, or the vote account's inflation collector (see kind) */
+  uchar owner[ 32UL ];        /* Owner program of the credited account */
+  ulong prev_lamports;        /* Lamports before the credit */
+  ulong lamports;             /* Lamports after the credit */
+  ulong partition_idx;        /* Partitioned-rewards partition index this credit belongs to (0 for vote rewards) */
+  ulong credits_observed;     /* New credits_observed stored on the stake account (0 for vote rewards) */
+  ulong stake;                /* Post-payout delegated stake written to the stake-delegations cache (0 for vote rewards) */
+  uchar vote_account[ 32UL ]; /* Vote account the stake is delegated to, as written to the stake-delegations cache (zero for vote rewards) */
 };
 typedef struct fd_event_runtime_reward fd_event_runtime_reward_t;
 
 /* Worst-case encoded size of a runtime_reward event (envelope + Event
    submsg + inner submsg + all fields, padded for encoder slack). */
-#define FD_EVENT_RUNTIME_REWARD_BUF_MAX (326UL)
+#define FD_EVENT_RUNTIME_REWARD_BUF_MAX (368UL)
 
 /* Type of the cache entry mutation */
 #define FD_EVENT_RUNTIME_STAKE_DELEGATION_KIND_UPSERT (1) /* Entry fully rewritten from the post-txn account state */
 #define FD_EVENT_RUNTIME_STAKE_DELEGATION_KIND_REMOVE (2) /* Entry removed, either by a transaction (has signature and index_in_slot) or by epoch-boundary inactive-stake pruning (non-transaction; index_in_slot is UInt64 max) */
-#define FD_EVENT_RUNTIME_STAKE_DELEGATION_KIND_REWARD (3) /* Entry fully rewritten by an epoch-reward payout during the partitioned-rewards window */
+#define FD_EVENT_RUNTIME_STAKE_DELEGATION_KIND_REWARD (3) /* Entry fully rewritten by an epoch-reward payout during the partitioned-rewards window; pairs with the stake row in runtime_reward for the same slot and stake account */
 
 /* The mutation history of the stake-delegations cache since boot, one row per mutation: the entry rewrites applied by epoch-reward payouts (kind = reward) and the transaction-driven mutations emitted as the cache is updated at txn commit (kind = upsert / remove). No baseline is emitted at boot: the starting cache state is the loaded snapshot, which is shared by every validator, so a consumer reconstructing absolute state seeds from the snapshot and applies these rows. */
 struct fd_event_runtime_stake_delegation {

@@ -425,6 +425,7 @@ fd_event_runtime_reward_fill_max( fd_event_runtime_reward_t * msg ) {
   msg->partition_idx = ULONG_MAX;
   msg->credits_observed = ULONG_MAX;
   msg->stake = ULONG_MAX;
+  fd_memset( msg->vote_account, 0xFF, 32UL );
 }
 
 static void

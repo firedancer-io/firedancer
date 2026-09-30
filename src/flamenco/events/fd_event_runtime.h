@@ -263,7 +263,9 @@ fd_event_runtime_block_account( fd_bank_t *   bank,
                                 int           executable );
 
 /* Build a runtime_reward event and publish it on the calling tile's
-   event link. No-op when the tile has no event link. */
+   event link. No-op when the tile has no event link.  For stake
+   rewards, credits_observed / stake / vote_account are the post-payout
+   stake-delegations cache entry; vote rewards pass 0 / 0 / NULL. */
 
 void
 fd_event_runtime_reward_emit( fd_bank_t const * bank,
@@ -274,7 +276,8 @@ fd_event_runtime_reward_emit( fd_bank_t const * bank,
                               ulong             lamports,
                               ulong             partition_idx,
                               ulong             credits_observed,
-                              ulong             stake );
+                              ulong             stake,
+                              uchar const *     vote_account );
 
 /* Build the runtime_block event for a finalized bank from the bank
    state and its accumulated diffs and publish it on the calling

@@ -1782,7 +1782,8 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *         bank,
   if( FD_UNLIKELY( fd_bank_report_runtime_diffs( bank ) ) ) {
     fd_event_runtime_reward_emit( bank, FD_EVENT_RUNTIME_REWARD_KIND_STAKE, acc->pubkey, acc->owner,
                                   lamports_pre, acc->lamports, partition_idx, new_credits_observed,
-                                  stake_state->stake.stake.delegation.stake );
+                                  stake_state->stake.stake.delegation.stake,
+                                  stake_state->stake.stake.delegation.voter_pubkey.uc );
   }
   acc->commit = 1;
 

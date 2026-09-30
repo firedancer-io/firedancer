@@ -14,7 +14,7 @@
             "variants": {
                 "upsert": { "description": "Entry fully rewritten from the post-txn account state" },
                 "remove": { "description": "Entry removed, either by a transaction (has signature and index_in_slot) or by epoch-boundary inactive-stake pruning (non-transaction; index_in_slot is UInt64 max)" },
-                "reward": { "description": "Entry fully rewritten by an epoch-reward payout during the partitioned-rewards window" }
+                "reward": { "description": "Entry fully rewritten by an epoch-reward payout during the partitioned-rewards window; pairs with the stake row in runtime_reward for the same slot and stake account" }
             }
         },
         "stake_account":      { "type": "Pubkey",                                  "description": "Stake account pubkey" },

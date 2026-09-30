@@ -715,6 +715,7 @@ fd_event_runtime_reward_serialize( fd_circq_t *                      circq,
   if( msg->partition_idx ) ok &= !!fd_pb_push_uint64( encoder, 9U, (ulong)msg->partition_idx );
   if( msg->credits_observed ) ok &= !!fd_pb_push_uint64( encoder, 10U, (ulong)msg->credits_observed );
   if( msg->stake ) ok &= !!fd_pb_push_uint64( encoder, 11U, (ulong)msg->stake );
+  ok &= !!fd_pb_push_bytes ( encoder, 12U, msg->vote_account, 32UL );
   ok &= !!fd_pb_submsg_close( encoder );
   ok &= !!fd_pb_submsg_close( encoder );
   FD_TEST( ok );

@@ -98,7 +98,7 @@ fd_accdb_svm_credit( fd_bank_t *         bank,
   fd_lthash_value_t post[1];
   fd_hashes_update_simple( post, hash, pubkey->uc, acc.owner, acc.lamports, acc.executable, acc.data, acc.data_len, bank, capture_ctx );
   if( FD_UNLIKELY( fd_bank_report_runtime_diffs( bank ) ) ) {
-    if( FD_UNLIKELY( is_vote_reward ) ) fd_event_runtime_reward_emit( bank, FD_EVENT_RUNTIME_REWARD_KIND_VOTE, acc.pubkey, acc.owner, lamports_pre, acc.lamports, 0UL, 0UL, 0UL );
+    if( FD_UNLIKELY( is_vote_reward ) ) fd_event_runtime_reward_emit( bank, FD_EVENT_RUNTIME_REWARD_KIND_VOTE, acc.pubkey, acc.owner, lamports_pre, acc.lamports, 0UL, 0UL, 0UL, NULL );
     else                                fd_event_runtime_block_account( bank, acc.pubkey, acc.owner, acc.owner, lamports_pre, acc.lamports, acc.data_len, acc.data_len, acc.executable );
   }
   acc.commit = 1;
