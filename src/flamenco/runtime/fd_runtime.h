@@ -168,6 +168,10 @@ struct fd_runtime {
 
     struct {
       fd_vote_state_versioned_t vote_state;
+    } deposit_delegator_rewards;
+
+    struct {
+      fd_vote_state_versioned_t vote_state;
     } withdraw;
 
     struct {
