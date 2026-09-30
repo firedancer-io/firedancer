@@ -206,21 +206,6 @@ fd_event_runtime_stake_delegation_entry_emit( ulong             bank_seq,
 }
 
 void
-fd_event_runtime_stake_delegation_bootup_emit( ulong         slot,
-                                               ulong         epoch,
-                                               uchar const * stake_account,
-                                               uchar const * vote_account,
-                                               ulong         stake,
-                                               ulong         activation_epoch,
-                                               ulong         deactivation_epoch,
-                                               ulong         credits_observed ) {
-  if( FD_LIKELY( !fd_event_tl ) ) return;
-  fd_event_runtime_stake_delegation_entry_emit( 0UL, slot, epoch, FD_EVENT_RUNTIME_STAKE_DELEGATION_KIND_BOOTUP,
-                                                stake_account, vote_account, stake,
-                                                activation_epoch, deactivation_epoch, credits_observed );
-}
-
-void
 fd_event_runtime_stake_delegation_remove_emit( fd_bank_t const * bank,
                                                uchar const *     stake_account ) {
   if( FD_LIKELY( !fd_event_tl ) ) return;
