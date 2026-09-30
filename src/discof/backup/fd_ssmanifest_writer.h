@@ -73,12 +73,11 @@ FD_PROTOTYPES_BEGIN
 
 /* fd_ssmanifest_writer_init creates a new snapshot manifest writer.
    leader is the slot leader of bank.  Briefly views the root of
-   stake_delegations to collect the vote accounts of
-   the stakes cache, then reads those and the epoch stakes vote accounts
-   from accdb at accdb_fork_id.  fd_snap_manifest_serialize reads the
-   stakes cache accounts again.  acc_data is scratch of at least
-   FD_RUNTIME_ACC_SZ_MAX bytes.  Sets writer->serialized_sz.  Logs ERR
-   past FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS distinct vote accounts. */
+   stake_delegations to collect the vote accounts of the stakes cache,
+   then reads those and the epoch stakes vote accounts from accdb at
+   accdb_fork_id.  fd_snap_manifest_serialize reads the stakes cache
+   accounts again.  acc_data is scratch of at least
+   FD_RUNTIME_ACC_SZ_MAX bytes.  Sets writer->serialized_sz. */
 
 fd_ssmanifest_writer_t *
 fd_ssmanifest_writer_init( fd_ssmanifest_writer_t * writer,
