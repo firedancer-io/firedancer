@@ -406,9 +406,46 @@ test_park_deadline( void ) {
   tile->repoll_deadline_ticks = 90L;
   tile->has_out_credit = 1U;
   tile->sq_flush_deadline_ticks = 80L;
+  FD_TEST( next_deadline( tile )==80L ); /* the repoll never delays a TX flush */
+  tile->sq_flush_deadline_ticks = 95L;
   FD_TEST( next_deadline( tile )==90L );
   tile->has_out_credit = 0U;
-  FD_TEST( next_deadline( tile )==80L );
+  FD_TEST( next_deadline( tile )==95L );
+}
+
+/* A park attempt rings the SQ doorbell for pending WQEs, so neither the
+   repoll sleep nor the park holds back TX. */
+
+static void
+test_park_flushes_tx( void ) {
+  static fd_mlx5_tile_t tile[1];
+  fd_memset( tile, 0, sizeof(tile) );
+  fd_mlx5_tx_wqe_t     sq[4];
+  fd_mlx5_qp_control_t control = {0};
+  ulong                sq_doorbell = 0UL;
+  fd_memset( sq, 0, sizeof(sq) );
+  tile->tx_qp.sq          = sq;
+  tile->tx_qp.tx_depth    = 4U;
+  tile->tx_qp.control     = &control;
+  tile->tx_qp.sq_doorbell = (volatile uchar *)&sq_doorbell;
+  tile->tx_qp.sq_prod     = 2U;
+  tile->tx_qp.sq_posted   = 1U;
+  tile->lo_tx_sock        = -1;
+  tile->repoll_deadline_ticks = 1000L; /* repolling */
+
+  fd_mlx5_cqe_t entries[4];
+  fd_mlx5_hw_invalidate_cqes( entries, 4U );
+  fd_mlx5_cq_control_t cq_control[1] = {{0}};
+  tile->rx_cq = (fd_mlx5_cq_t){ .entries = entries, .control = cq_control, .depth = 4U };
+
+  for( uint credit=0U; credit<2U; credit++ ) {
+    tile->has_out_credit = credit;
+    tile->tx_qp.sq_prod++;
+    FD_TEST( !prevent_park( tile ) );
+    FD_TEST( tile->tx_qp.sq_posted==tile->tx_qp.sq_prod );
+    FD_TEST( fd_uint_bswap( control.sq_prod )==tile->tx_qp.sq_prod );
+    FD_TEST( next_deadline( tile )==(credit ? 1000L : LONG_MAX) );
+  }
 }
 
 static void
@@ -542,6 +579,23 @@ test_rx_comp_channel_wake( void ) {
   FD_TEST( tile->rx_cq.comp_channel_event_seq==3U );
   FD_TEST( !tile->rx_cq.comp_channel_armed );
 
+  /* An async event wakes the park and is drained, so a fatal event is
+     seen while parked, not at the next housekeeping. */
+  int async_fd[2];
+  FD_TEST( !pipe2( async_fd, O_NONBLOCK ) );
+  tile->uverbs.async_fd = async_fd[0];
+  ev = (struct epoll_event){ .events = EPOLLIN, .data.u64 = FD_MLX5_EPOLL_ASYNC };
+  FD_TEST( !epoll_ctl( tile->epoll_fd, EPOLL_CTL_ADD, async_fd[0], &ev ) );
+  struct ib_uverbs_async_event_desc async_event = { .event_type = 18U /* IB_EVENT_GID_CHANGE, not fatal */ };
+  FD_TEST( write( async_fd[1], &async_event, sizeof(async_event) )==(long)sizeof(async_event) );
+  word = 0UL;
+  FD_TEST( park_wait( tile, &word, fd_tickcount()+(long)(1e9*tick_per_ns), tick_per_ns )==FD_SLEEP_UNPARK_RING );
+  FD_TEST( read( async_fd[0], &async_event, sizeof(async_event) )<0 && errno==EAGAIN );
+  async_event.event_type = FD_MLX5_ASYNC_EVENT_DEVICE_FATAL;
+  FD_TEST( write( async_fd[1], &async_event, sizeof(async_event) )==(long)sizeof(async_event) );
+  FD_EXPECT_LOG_ERR( park_wait( tile, &word, fd_tickcount()+(long)(1e9*tick_per_ns), tick_per_ns ) );
+
+  FD_TEST( !close( async_fd[0] ) && !close( async_fd[1] ) );
   FD_TEST( !close( pipe_fd[0] ) && !close( pipe_fd[1] ) && !close( event_fd ) && !close( tile->epoll_fd ) );
 }
 
@@ -604,6 +658,7 @@ main( int     argc,
   test_rx_cqe_normal();
   test_rx_cq_arm();
   test_park_deadline();
+  test_park_flushes_tx();
   test_tx_wqe();
   test_tx_cqe_normal();
   test_rx_comp_channel_wake();
