@@ -72,6 +72,36 @@ test_insert8( void ) {
   fd_rng_delete( fd_rng_leave( rng ) );
 }
 
+/* insert16 must set the same bits as insert8 of each block. */
+
+void
+test_insert16( void ) {
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 4U, 0UL ) );
+  for( ulong iter=0UL; iter<20000UL; iter++ ) {
+    ulong keys_len = 1UL + fd_rng_ulong_roll( rng, 9UL );
+    ulong bits_len = 1UL + fd_rng_ulong_roll( rng, 151UL*64UL );
+    if( iter<16UL ) bits_len = iter+1UL;
+    ulong keys[ 9 ];
+    for( ulong k=0UL; k<keys_len; k++ ) keys[ k ] = fd_rng_ulong( rng );
+    if( iter&1UL ) for( ulong k=0UL; k<keys_len; k++ ) keys[ k ] = ULONG_MAX-fd_rng_ulong_roll( rng, 4UL );
+    ulong bits0[ 151 ] = {0};
+    ulong bits1[ 151 ] = {0};
+    fd_bloom_t b0[1] = {{ .keys = keys, .keys_len = keys_len, .bits = bits0, .bits_len = bits_len }};
+    fd_bloom_t b1[1] = {{ .keys = keys, .keys_len = keys_len, .bits = bits1, .bits_len = bits_len }};
+    uchar ele[ 512 ];
+    for( ulong i=0UL; i<512UL; i++ ) ele[ i ] = fd_rng_uchar( rng );
+    uint lanes_a = fd_rng_uint( rng ) & 0xffU;
+    uint lanes_b = fd_rng_uint( rng ) & 0xffU;
+    if( (iter%7UL)==0UL ) lanes_a = 0U;
+    if( (iter%11UL)==0UL ) lanes_b = 0U;
+    fd_bloom_insert16( b1, ele, lanes_a, ele+256UL, lanes_b );
+    fd_bloom_insert8( b0, ele, lanes_a );
+    fd_bloom_insert8( b0, ele+256UL, lanes_b );
+    FD_TEST( !memcmp( bits0, bits1, sizeof(bits0) ) );
+  }
+  fd_rng_delete( fd_rng_leave( rng ) );
+}
+
 /* contains8 must answer as fd_bloom_contains on each lane, including
    the wire filter's attacker chosen shapes: keys_len 0..152, bits_len
    0..9664, and lanes with a mix of members and non members. */
@@ -452,6 +482,7 @@ main( int     argc,
   test_filters();
   test_fnv_reference();
   test_insert8();
+  test_insert16();
   test_contains8();
   test_contains_multi();
   test_add_contains();

@@ -150,14 +150,22 @@ build_new( fd_crds_t * crds, fd_gossip_purged_t * purged, fd_bloom_t * filter, u
   fd_gossip_purged_generate_masks( mask, mask_bits, &start, &end );
   fd_gossip_hset_t const * hsets[ 2 ] = { fd_crds_hset( crds ), fd_gossip_purged_hset( purged ) };
   ulong n = 0UL;
+  /* Same pairing as fd_gossip.c tx_pull_request */
+  uchar const * pend_hashes = NULL;
+  uint          pend_lanes  = 0U;
   for( ulong i=0UL; i<2UL; i++ ) {
     fd_gossip_hset_iter_t it[1];
     for( fd_gossip_hset_iter_init( it, hsets[ i ], start, end ); !fd_gossip_hset_iter_done( it ); fd_gossip_hset_iter_next( it, hsets[ i ] ) ) {
       uint lanes = fd_gossip_hset_iter_lanes( it, hsets[ i ] );
-      fd_bloom_insert8( filter, fd_gossip_hset_iter_hashes( it, hsets[ i ] ), lanes );
       n += (ulong)fd_uint_popcnt( lanes );
+      if( !lanes ) continue;
+      uchar const * hashes = fd_gossip_hset_iter_hashes( it, hsets[ i ] );
+      if( !pend_lanes ) { pend_hashes = hashes; pend_lanes = lanes; continue; }
+      fd_bloom_insert16( filter, pend_hashes, pend_lanes, hashes, lanes );
+      pend_lanes = 0U;
     }
   }
+  if( pend_lanes ) fd_bloom_insert8( filter, pend_hashes, pend_lanes );
   *cnt = n;
 }
 
