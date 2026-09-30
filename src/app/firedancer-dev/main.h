@@ -109,6 +109,7 @@ extern fd_topo_run_tile_t fd_tile_benchs;
 extern fd_topo_run_tile_t fd_tile_bundle;
 extern fd_topo_run_tile_t fd_tile_pktgen;
 extern fd_topo_run_tile_t fd_tile_udpecho;
+extern fd_topo_run_tile_t fd_tile_shrgen;
 extern fd_topo_run_tile_t fd_tile_genesi;
 extern fd_topo_run_tile_t fd_tile_ipecho;
 extern fd_topo_run_tile_t fd_tile_admin;
@@ -182,6 +183,7 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_benchs,
   &fd_tile_pktgen,
   &fd_tile_udpecho,
+  &fd_tile_shrgen,
   &fd_tile_snapct,
   &fd_tile_snapld,
   &fd_tile_snapdc,
@@ -240,6 +242,7 @@ extern action_t fd_action_add_authorized_voter;
 extern action_t fd_action_remove_all_authorized_voters;
 extern action_t fd_action_forktest;
 extern action_t fd_action_snapshot_create;
+extern action_t fd_action_shredgen;
 
 action_t * ACTIONS[] = {
   &fd_action_run,
@@ -285,6 +288,7 @@ action_t * ACTIONS[] = {
   &fd_action_remove_all_authorized_voters,
   &fd_action_forktest,
   &fd_action_snapshot_create,
+  &fd_action_shredgen,
   NULL,
 };
 
