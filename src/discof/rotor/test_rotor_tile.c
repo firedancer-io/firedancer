@@ -143,7 +143,7 @@ drain( ctx_t * ctx ) {
 static void
 tick( ctx_t * ctx ) {
   ulong cr_avail[ TEST_OUT_MAX ] = { [ OUT_IDX_REPLAY ] = ULONG_MAX };
-  fd_stem_context_t stem = { .cr_avail = cr_avail };
+  fd_stem_context_t stem = { .cr_avail = cr_avail, .now = fd_tickcount() };
   int charge_busy = 0;
   int poll_in     = 1;
   after_credit( ctx, &stem, &poll_in, &charge_busy );
@@ -567,7 +567,7 @@ setup_ctx( ctx_t * ctx, fd_wksp_t * wksp ) {
   FD_TEST( rotor_mem && schedulor_mem && requestor_mem && policy_mem && rtt_mem && signs_map_mem && toss_mem && repair_mem && redeliver_mem && store_mem );
 
   ctx->rotor      = fd_rotor_join    ( fd_rotor_new    ( rotor_mem,     TEST_SLOT_MAX, FD_SHRED_BLK_MAX, ctx->repair_seed     ) );
-  ctx->schedulor  = fd_schedulor_join( fd_schedulor_new( schedulor_mem, TEST_BLOCK_MAX, ctx->repair_seed                      ) );
+  ctx->schedulor  = fd_schedulor_join( fd_schedulor_new( schedulor_mem, TEST_BLOCK_MAX, fd_clock_epoch_w( ctx->clock->epoch ), ctx->repair_seed ) );
   ctx->requestor  = fd_requestor_join( fd_requestor_new( requestor_mem                                                        ) );
   ctx->policy     = fd_policy_join   ( fd_policy_new   ( policy_mem,    TEST_PEER_MAX, ctx->repair_seed, ctx->repair_nonce_ss ) );
   ctx->rtt        = fd_inflights_join( fd_inflights_new( rtt_mem,       ctx->repair_seed+1234UL                               ) );
@@ -926,7 +926,7 @@ test_turbine_finalized_orphan( fd_wksp_t * wksp, int block_id_only, int active_w
   if( active_walk ) {
     ulong slot;
     fd_hash_t block_id;
-    FD_TEST( fd_schedulor_block_pop( ctx->schedulor, fd_clock_tile_now( ctx->clock ), &slot, &block_id ) );
+    FD_TEST( fd_schedulor_block_pop( ctx->schedulor, fd_tickcount(), &slot, &block_id ) );
     FD_TEST( slot==child->slot && fd_hash_check_zero( &block_id ) );
     fd_requestor_block_start( ctx->requestor, slot, &block_id );
   }
@@ -1192,7 +1192,7 @@ test_schedulor_drives_requests( fd_wksp_t * wksp ) {
 
   /* Parked at now+PARENT_TIMEOUT: nothing more goes out until then,
      and arriving shreds do not move the queued check. */
-  long now = fd_clock_tile_now( ctx->clock );
+  long now = fd_tickcount();
   FD_TEST( fd_schedulor_next_timeout( ctx->schedulor )>now );
   ulong checks = ctx->metrics->checks;
   for( ulong i=0UL; i<64UL; i++ ) tick( ctx );
@@ -1666,6 +1666,7 @@ test_inflights_expire( fd_wksp_t * wksp ) {
   fd_pubkey_t peer   = *(fd_pubkey_t *)fd_type_pun( mkhash( 0x150UL ).uc );
   fd_hash_t   bid    = mkhash( 0x151UL );
   ulong       used0  = fd_inflight_pool_used( t->pool );
+  FD_TEST( fd_inflights_oldest_ts( t )==LONG_MAX );
 
   /* shred requests at t=10,20,30,40 and a metadata request at t=50 */
   for( ulong i=0UL; i<4UL; i++ ) fd_inflights_shred_insert( t, FD_REPAIR_KIND_SHRED, 0x80000000UL|(i+1UL), &peer, 200UL, i, NULL, NULL, 10L*(long)(i+1UL) );
@@ -1677,12 +1678,15 @@ test_inflights_expire( fd_wksp_t * wksp ) {
   FD_TEST( fd_inflights_should_drain( t, 10L+FD_REQLIM_DEDUP_TIMEOUT+1L ) );
   fd_inflights_pop( t, popped );
   FD_TEST( popped->key.idx==0U && t->popped_cnt==1UL && fd_inflights_outstanding_cnt( t )==4UL );
+  FD_TEST( fd_inflights_oldest_ts( t )==10L );                          /* the popped head */
 
   FD_TEST( fd_inflights_expire( t, 10L, ULONG_MAX )==0UL );             /* strictly older only */
   FD_TEST( fd_inflights_expire( t, 35L, 1UL       )==1UL );             /* max honoured: popped t=10 */
   FD_TEST( t->popped_cnt==0UL && fd_inflights_outstanding_cnt( t )==4UL );
+  FD_TEST( fd_inflights_oldest_ts( t )==20L );
   FD_TEST( fd_inflights_expire( t, 35L, ULONG_MAX )==2UL );             /* t=20, t=30 */
   FD_TEST( t->popped_cnt==0UL && fd_inflights_outstanding_cnt( t )==2UL );
+  FD_TEST( fd_inflights_oldest_ts( t )==40L );
   FD_TEST( fd_inflight_pool_used( t->pool )==used0+2UL );
 
   /* survivors still match; expired ones do not */
@@ -1695,18 +1699,21 @@ test_inflights_expire( fd_wksp_t * wksp ) {
   fd_inflight_t out[1];
   FD_TEST( !fd_inflights_meta_match( t, 7UL, out ) );
   FD_TEST( fd_inflights_outstanding_cnt( t )==0UL && fd_inflight_pool_used( t->pool )==used0 );
+  FD_TEST( fd_inflights_oldest_ts( t )==LONG_MAX );
 
   fd_wksp_free_laddr( mem );
   FD_LOG_NOTICE(( "pass: fd_inflights_expire releases aged records from both sets" ));
 }
 
 /* step_clock moves the tile clock forward by dt, as if the tile had been
-   running (or parked) that long. */
+   running (or parked) that long.  That ages in-flight records but not
+   the schedulor's tickcount deadlines, so it also forces blk's check. */
 
 static long
-step_clock( ctx_t * ctx, long dt ) {
+step_clock( ctx_t * ctx, long dt, blk_t const * blk ) {
   long now = fd_clock_tile_now( ctx->clock ) + dt;
   fd_clock_tile_set( ctx->clock, now );
+  force_check( ctx, blk->slot, &(fd_hash_t){0} );
   return now;
 }
 
@@ -1765,7 +1772,7 @@ test_inflight_bounded( fd_wksp_t * wksp ) {
   ulong live_max = 4UL*( steady+1UL );
   ulong peak     = 0UL;
   for( ulong round=0UL; round<ROUNDS; round++ ) {
-    step_clock( ctx, ROUND_NS );
+    step_clock( ctx, ROUND_NS, blk );
     from = req_cnt;
     pump( ctx );
     FD_TEST( req_count( from, FD_REPAIR_KIND_SHRED, blk->slot )==4UL );
@@ -1788,7 +1795,7 @@ test_inflight_bounded( fd_wksp_t * wksp ) {
   /* The next round asks only for the three still missing, and the
      response to the current retry matches it. */
 
-  step_clock( ctx, ROUND_NS );
+  step_clock( ctx, ROUND_NS, blk );
   from = req_cnt;
   pump( ctx );
   FD_TEST( req_count( from, FD_REPAIR_KIND_SHRED, blk->slot )==3UL );
@@ -1803,7 +1810,7 @@ test_inflight_bounded( fd_wksp_t * wksp ) {
 
   for( uint i=HOLE0+6U; i<HOLE0+HOLE_N; i++ )
     deliver_shred( ctx, blk->slot, i, 0, &blk->fec_root[ 1 ], 0U, SHRED_SIG_SRC_TURBINE, blk->parent_slot, &blk->parent_block_id );
-  step_clock( ctx, FD_ROTOR_INFLIGHT_TIMEOUT_NS+1L );
+  step_clock( ctx, FD_ROTOR_INFLIGHT_TIMEOUT_NS+1L, blk );
   from = req_cnt;
   pump( ctx );
   for( ulong i=0UL; i<64UL; i++ ) tick( ctx );
@@ -1816,6 +1823,118 @@ test_inflight_bounded( fd_wksp_t * wksp ) {
 # undef HOLE_N
 # undef HOLE0
   FD_LOG_NOTICE(( "pass: in-flight requests expire and the table stays bounded" ));
+}
+
+/* Park scheduling: after_credit leaves in idle_due when a fruitless
+   pass can next make progress, and next_deadline hands it to the stem
+   in the tickcount domain, capped by the oldest inflight record's
+   expiry.  Work left over is due now, a queued check is due at its
+   timeout, no sign credit waits for the sign frag, no replay credit
+   polls, expiring inflight records is busy, and nothing pending parks
+   untimed (so no busy spin on an idle tile). */
+
+static void
+test_park( fd_wksp_t * wksp ) {
+  static ctx_t ctx[1];
+  setup_ctx( ctx, wksp );
+
+  /* Idle: no blocks, nothing queued, the park is untimed. */
+  pump( ctx );
+  FD_TEST( !fd_schedulor_queued_cnt( ctx->schedulor ) );
+  tick( ctx );
+  FD_TEST( ctx->idle_due==LONG_MAX );
+  FD_TEST( next_deadline( ctx )==LONG_MAX );
+
+  /* A turbine block with its tip unknown: the check goes out and the
+     block is re-queued, so the park is timed on the queued check. */
+  blk_t blk[1] = {{ .slot = SNAP_SLOT+1UL, .parent_slot = SNAP_SLOT, .parent_block_id = snap_bid, .fec_cnt = 2U }};
+  blk->fec_root[ 0 ] = mkhash( 0xC0UL );
+  blk->fec_root[ 1 ] = mkhash( 0xC1UL );
+  blk_build( blk );
+  deliver_turbine_fec_set( ctx, blk, 0U );
+  /* Each pass that does work (the FEC to replay, then the check) says
+     retry now, so the stem never parks with work behind it. */
+  ulong checks = ctx->metrics->checks;
+  for( ulong i=0UL; i<8UL && ctx->metrics->checks==checks; i++ ) {
+    ulong pubs = pub_cnt;
+    tick( ctx );
+    FD_TEST( pub_cnt>pubs );
+    FD_TEST( next_deadline( ctx )<=fd_tickcount() );
+  }
+  FD_TEST( ctx->metrics->checks==checks+1UL );
+  pump( ctx );
+  long due = fd_schedulor_next_timeout( ctx->schedulor );
+  FD_TEST( due!=LONG_MAX && due>fd_tickcount() );
+  tick( ctx );
+  FD_TEST( ctx->idle_due==due );
+  FD_TEST( next_deadline( ctx )==due );
+
+  /* A lapsed check is serviced on the next pass, which again says
+     retry now. */
+  checks = ctx->metrics->checks;
+  force_check( ctx, blk->slot, &(fd_hash_t){0} );
+  tick( ctx );
+  FD_TEST( ctx->metrics->checks==checks+1UL );
+  FD_TEST( next_deadline( ctx )<=fd_tickcount() );
+  pump( ctx );
+  tick( ctx );
+  FD_TEST( ctx->idle_due==fd_schedulor_next_timeout( ctx->schedulor ) );
+
+  /* No sign credits with a check due: only a sign frag can help, so
+     the lapsed check sets no deadline.  The park is timed only on the
+     expiry of the requests already sent. */
+  force_check( ctx, blk->slot, &(fd_hash_t){0} );
+  ctx->repair_sign_out_ctx[0].credits = 0UL;
+  tick( ctx );
+  FD_TEST( ctx->idle_due==LONG_MAX );
+  long oldest = fd_inflights_oldest_ts( ctx->rtt );
+  FD_TEST( oldest!=LONG_MAX );
+  FD_TEST( next_deadline( ctx )==fd_clock_tile_wallclock_to_tickcount( ctx->clock, oldest+FD_ROTOR_INFLIGHT_TIMEOUT_NS+1L ) );
+  FD_TEST( next_deadline( ctx )>fd_tickcount() );
+  ctx->repair_sign_out_ctx[0].credits = ctx->repair_sign_out_ctx[0].max_credits;
+
+  /* No replay credits: replay never rings rotor for them, so poll. */
+  ulong cr_avail[ TEST_OUT_MAX ] = { [ OUT_IDX_REPLAY ] = 0UL };
+  long now = fd_tickcount();
+  fd_stem_context_t stem = { .cr_avail = cr_avail, .now = now };
+  int charge_busy = 0;
+  int poll_in     = 1;
+  after_credit( ctx, &stem, &poll_in, &charge_busy );
+  FD_TEST( !charge_busy );
+  FD_TEST( ctx->idle_due==now+ns_to_ticks( ctx, REPLAY_CREDIT_POLL_NS ) );
+
+  /* Credits back: the lapsed check is serviced on the next pass. */
+  checks = ctx->metrics->checks;
+  tick( ctx );
+  FD_TEST( ctx->metrics->checks==checks+1UL );
+
+  /* An empty table adds no deadline.  A request parks the tile no
+     longer than its expiry, which is due once the clock passes it. */
+  fd_inflights_expire( ctx->rtt, LONG_MAX, ULONG_MAX );
+  FD_TEST( fd_inflights_oldest_ts( ctx->rtt )==LONG_MAX );
+  ctx->idle_due = LONG_MAX;
+  FD_TEST( next_deadline( ctx )==LONG_MAX );
+  fd_pubkey_t peer = {0};
+  long        sent = fd_clock_tile_now( ctx->clock );
+  for( ulong i=0UL; i<9UL; i++ ) fd_inflights_shred_insert( ctx->rtt, FD_REPAIR_KIND_SHRED, 0x80000000UL|i, &peer, blk->slot, i, NULL, NULL, sent );
+  long expiry = next_deadline( ctx );
+  FD_TEST( expiry==fd_clock_tile_wallclock_to_tickcount( ctx->clock, sent+FD_ROTOR_INFLIGHT_TIMEOUT_NS+1L ) );
+  FD_TEST( expiry>fd_tickcount() );
+
+  /* The backlog goes four per pass, and every pass that expires any is
+     busy, so the stem does not park with more behind it. */
+  fd_clock_tile_set( ctx->clock, sent+FD_ROTOR_INFLIGHT_TIMEOUT_NS+1L );
+  FD_TEST( next_deadline( ctx )<=fd_tickcount() );
+  for( ulong i=0UL; i<4UL; i++ ) {
+    stem.now    = fd_tickcount();
+    charge_busy = 0;
+    after_credit( ctx, &stem, &poll_in, &charge_busy ); /* no replay credits: only the expiry runs */
+    FD_TEST( charge_busy==(i<3UL) ); /* 4, 4, 1, then none */
+  }
+  FD_TEST( !fd_inflights_outstanding_cnt( ctx->rtt ) );
+  FD_TEST( next_deadline( ctx )==ctx->idle_due ); /* back to the replay credit poll */
+
+  FD_LOG_NOTICE(( "pass: test_park" ));
 }
 
 int
@@ -1881,6 +2000,9 @@ main( int argc, char ** argv ) {
 
   fd_wksp_reset( wksp, 1U );
   test_inflight_bounded( wksp );
+
+  fd_wksp_reset( wksp, 1U );
+  test_park( wksp );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

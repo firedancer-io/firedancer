@@ -282,6 +282,18 @@ fd_inflights_expire( fd_inflights_t * table,
                      long             cutoff,
                      ulong            max );
 
+/* fd_inflights_oldest_ts returns the insert time of the oldest
+   OUTSTANDING or POPPED record (the next one fd_inflights_expire
+   releases), LONG_MAX if there is none. */
+
+static inline long
+fd_inflights_oldest_ts( fd_inflights_t * table ) {
+  long ts = LONG_MAX;
+  if( FD_LIKELY( !fd_inflight_dlist_is_empty( table->outstanding_dl, table->pool ) ) ) ts = fd_inflight_dlist_ele_peek_head( table->outstanding_dl, table->pool )->timestamp_ns;
+  if( FD_UNLIKELY( !fd_inflight_dlist_is_empty( table->popped_dl, table->pool ) ) ) ts = fd_long_min( ts, fd_inflight_dlist_ele_peek_head( table->popped_dl, table->pool )->timestamp_ns );
+  return ts;
+}
+
 /* fd_inflights_outstanding_free returns how many new requests can be
    inserted before an insert would have to evict an OUTSTANDING record
    (FREE records plus evictable POPPED ones). */

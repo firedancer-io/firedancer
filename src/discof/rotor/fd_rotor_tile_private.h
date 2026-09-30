@@ -176,6 +176,8 @@ struct ctx {
   fd_rnonce_ss_t repair_nonce_ss[1];
   uint           ag_nonce; /* counter nonce for alpenglow metadata requests */
 
+  long  idle_due;      /* tickcount at which a fruitless after_credit can next make progress, LONG_MAX if only a frag can */
+
   ulong turbine_slot0; /* first turbine slot seen */
   int   catchup_seeded; /* the root..turbine_slot0 seed burst has been sent */
   ulong current_slot;  /* highest turbine slot seen */

@@ -249,6 +249,12 @@ send_sign_request( ctx_t *                 ctx,
   sign_out->credits--;
 }
 
+static inline long
+ns_to_ticks( ctx_t const * ctx,
+             long          ns ) {
+  return (long)( (double)ns*fd_clock_epoch_w( ctx->clock->epoch ) );
+}
+
 static void
 dispatch_request( ctx_t *                    ctx,
                   fd_stem_context_t *        stem,
@@ -454,7 +460,7 @@ after_frag( ctx_t *             ctx,
   if( FD_UNLIKELY( !fd_ip4_udp_hdr_strip( ctx->net_buf, sz, &data, &data_sz, &eth, &ip4, &udp ) ) ) { ctx->metrics->malformed_ping++; return; }
 
   if( FD_LIKELY( data_sz==sizeof(fd_repair_ping_t) ) ) handle_ping( ctx, data, data_sz, ip4, udp );
-  else                                                 handle_meta_response( ctx, data, data_sz, fd_clock_tile_now( ctx->clock ) );
+  else                                                 handle_meta_response( ctx, data, data_sz, fd_tickcount() );
 }
 
 static inline void
@@ -687,10 +693,11 @@ handle_shred( ctx_t *            ctx,
     ctx->metrics->repair_shred_rx++;
     fd_pubkey_t peer;
     fd_hash_t req_block_id;
-    long rtt = fd_inflights_shred_match( ctx->rtt, AG_REPAIR_KIND_SHRED_FOR_BLOCK_ID, nonce, shred->slot, shred->idx, mr, &peer, &req_block_id, now );
+    long wallclock = fd_clock_tile_tickcount_to_wallclock( ctx->clock, now ); /* inflights are stamped in wallclock */
+    long rtt = fd_inflights_shred_match( ctx->rtt, AG_REPAIR_KIND_SHRED_FOR_BLOCK_ID, nonce, shred->slot, shred->idx, mr, &peer, &req_block_id, wallclock );
     if( FD_LIKELY( rtt ) ) ctx->metrics->shred_match_block_id++;
     else {
-      rtt = fd_inflights_shred_match( ctx->rtt, FD_REPAIR_KIND_SHRED, nonce, shred->slot, shred->idx, NULL, &peer, &req_block_id, now );
+      rtt = fd_inflights_shred_match( ctx->rtt, FD_REPAIR_KIND_SHRED, nonce, shred->slot, shred->idx, NULL, &peer, &req_block_id, wallclock );
       if( FD_LIKELY( rtt ) ) ctx->metrics->shred_match_positional++;
       else                   ctx->metrics->shred_match_miss++;
     }
@@ -770,7 +777,7 @@ returnable_frag( ctx_t *             ctx,
   if( FD_UNLIKELY( sz!=0UL && ( chunk<in_ctx->chunk0 || chunk>in_ctx->wmark || sz>in_ctx->mtu ) ) )
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu] in kind %u", chunk, sz, in_ctx->chunk0, in_ctx->wmark, in_kind ));
 
-  long now = fd_clock_tile_now( ctx->clock );
+  long now = fd_tickcount();
   switch( in_kind ) {
     case IN_KIND_SIGN:    handle_sign( ctx, in_idx, sig, fd_chunk_to_laddr_const( in_ctx->mem, chunk ), stem ); break;
     case IN_KIND_GOSSIP:  handle_gossip( ctx, fd_chunk_to_laddr_const( in_ctx->mem, chunk ), sig ); break;
@@ -970,18 +977,19 @@ requestor_next( ctx_t *             ctx,
   ulong slot;
   fd_hash_t block_id;
   int result = fd_requestor_block_advance( ctx->requestor, ctx->rotor, request, &slot, &block_id );
+  long wallclock = fd_clock_tile_tickcount_to_wallclock( ctx->clock, now );
   switch( result ) {
   case FD_REQUESTOR_ADVANCE_REQUEST:
-    dispatch_request( ctx, stem, sign_out, request, now );
+    dispatch_request( ctx, stem, sign_out, request, wallclock );
     return 1;
   case FD_REQUESTOR_ADVANCE_DONE:
     return 0;
   case FD_REQUESTOR_ADVANCE_REQUESTED_PARENT:
-    dispatch_request( ctx, stem, sign_out, request, now ); /* the walk's one metadata request */
-    fd_schedulor_block_insert( ctx->schedulor, slot, &block_id, now + FD_SCHEDULOR_PARENT_TIMEOUT_NS );
+    dispatch_request( ctx, stem, sign_out, request, wallclock ); /* the walk's one metadata request */
+    fd_schedulor_block_insert( ctx->schedulor, slot, &block_id, now + ns_to_ticks( ctx, FD_SCHEDULOR_PARENT_TIMEOUT_NS ) );
     return 1;
   case FD_REQUESTOR_ADVANCE_REQUESTED:
-    fd_schedulor_block_insert( ctx->schedulor, slot, &block_id, now + FD_SCHEDULOR_REQUEST_TIMEOUT_NS );
+    fd_schedulor_block_insert( ctx->schedulor, slot, &block_id, now + ns_to_ticks( ctx, FD_SCHEDULOR_REQUEST_TIMEOUT_NS ) );
     return 0;
   case FD_REQUESTOR_ADVANCE_IDLE:
     return 0;
@@ -1006,18 +1014,27 @@ check_credit( ctx_t *             ctx FD_PARAM_UNUSED,
 
 #define REPLAY_MIN_CREDITS (2UL)
 
+/* Replay does not ring rotor when it returns credits (rotor never parks
+   backpressured, see check_credit), so a delivery blocked on credits
+   polls for them at this interval. */
+#define REPLAY_CREDIT_POLL_NS (1000000L)
+
 static void
 after_credit( ctx_t *             ctx,
               fd_stem_context_t * stem,
               int *               opt_poll_in FD_PARAM_UNUSED,
               int *               charge_busy ) {
-  long now = fd_clock_tile_now( ctx->clock );
+  ctx->idle_due = stem->now;
 
   /* 0. Release a few requests too old to be answered (<=1 is sent per call). */
 
-  fd_inflights_expire( ctx->rtt, now-FD_ROTOR_INFLIGHT_TIMEOUT_NS, 4UL );
+  long cutoff = fd_clock_tile_tickcount_to_wallclock( ctx->clock, stem->now )-FD_ROTOR_INFLIGHT_TIMEOUT_NS;
+  if( FD_UNLIKELY( fd_inflights_expire( ctx->rtt, cutoff, 4UL ) ) ) *charge_busy = 1;
 
-  if( FD_UNLIKELY( stem->cr_avail[ ctx->replay_out_ctx->idx ]<REPLAY_MIN_CREDITS ) ) return;
+  if( FD_UNLIKELY( stem->cr_avail[ ctx->replay_out_ctx->idx ]<REPLAY_MIN_CREDITS ) ) {
+    ctx->idle_due = stem->now+ns_to_ticks( ctx, REPLAY_CREDIT_POLL_NS );
+    return;
+  }
 
   /* 1. Deliveries to replay. */
 
@@ -1048,7 +1065,11 @@ after_credit( ctx_t *             ctx,
   if( FD_UNLIKELY( ctx->halt_signing ) ) { *charge_busy = 1; return; }
 
   out_ctx_t * sign_out = sign_avail_credits( ctx );
-  if( FD_UNLIKELY( !sign_out ) ) { ctx->metrics->sign_unavail++; return; }
+  if( FD_UNLIKELY( !sign_out ) ) {
+    ctx->metrics->sign_unavail++;
+    ctx->idle_due = LONG_MAX; /* a sign response frag returns the credit */
+    return;
+  }
 
   /* 2. Fire-and-forget messages. */
 
@@ -1059,19 +1080,30 @@ after_credit( ctx_t *             ctx,
     return;
   }
 
-  if( FD_LIKELY( requestor_next( ctx, stem, sign_out, now ) ) ) {
+  if( FD_LIKELY( requestor_next( ctx, stem, sign_out, stem->now ) ) ) {
     *charge_busy = 1;
     return;
   }
 
   ulong     slot;
   fd_hash_t block_id;
-  if( FD_LIKELY( fd_schedulor_block_pop( ctx->schedulor, now, &slot, &block_id ) ) ) {
+  if( FD_LIKELY( fd_schedulor_block_pop( ctx->schedulor, stem->now, &slot, &block_id ) ) ) {
     fd_requestor_block_start( ctx->requestor, slot, &block_id );
     ctx->metrics->checks++;
-    requestor_next( ctx, stem, sign_out, now );
+    requestor_next( ctx, stem, sign_out, stem->now );
     *charge_busy = 1;
+    return;
   }
+
+  ctx->idle_due = fd_schedulor_next_timeout( ctx->schedulor );
+}
+
+static long
+next_deadline( ctx_t * ctx ) {
+  /* expire releases records strictly older than the cutoff */
+  long oldest = fd_inflights_oldest_ts( ctx->rtt );
+  long expiry = oldest==LONG_MAX ? LONG_MAX : fd_clock_tile_wallclock_to_tickcount( ctx->clock, oldest+FD_ROTOR_INFLIGHT_TIMEOUT_NS+1L );
+  return fd_long_min( ctx->idle_due, expiry );
 }
 
 /* Housekeeping */
@@ -1162,7 +1194,8 @@ unprivileged_init( fd_topo_t const *      topo,
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 
   ctx->rotor      = fd_rotor_join    ( fd_rotor_new    ( ctx->rotor,      tile->rotor.slot_max, tile->rotor.max_shreds_per_block, ctx->repair_seed ) );
-  ctx->schedulor  = fd_schedulor_join( fd_schedulor_new( ctx->schedulor,  fd_rotor_blk_max( tile->rotor.slot_max ), ctx->repair_seed               ) );
+  fd_clock_tile_init( ctx->clock );
+  ctx->schedulor  = fd_schedulor_join( fd_schedulor_new( ctx->schedulor,  fd_rotor_blk_max( tile->rotor.slot_max ), fd_clock_epoch_w( ctx->clock->epoch ), ctx->repair_seed ) );
   ctx->requestor  = fd_requestor_join( fd_requestor_new( ctx->requestor                                                                            ) );
   ctx->protocol   = fd_repair_join   ( fd_repair_new   ( ctx->protocol,   &ctx->identity_public_key                                                ) );
   ctx->policy     = fd_policy_join   ( fd_policy_new   ( ctx->policy,     FD_REPAIR_PEER_MAX, ctx->repair_seed, ctx->repair_nonce_ss               ) );
@@ -1270,13 +1303,13 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->net_id = (ushort)0;
   fd_ip4_udp_hdr_init( ctx->intake_hdr, 0, 0, tile->rotor.repair_client_listen_port );
 
+  ctx->idle_due         = 0L;
   ctx->turbine_slot0    = ULONG_MAX;
   ctx->catchup_seeded   = 0;
   ctx->current_slot     = 0UL;
   ctx->replay_root_slot = 0;
   memset( ctx->metrics, 0, sizeof(ctx->metrics) );
 
-  fd_clock_tile_init( ctx->clock );
   ctx->pending_key_next = 0UL;
   ctx->ag_nonce         = 0U;
 
@@ -1377,9 +1410,9 @@ metrics_write( ctx_t * ctx ) {
    gated by REPLAY_MIN_CREDITS in after_credit instead. */
 #define STEM_BURST (3UL)
 
-/* Keeps housekeeping time low.  The tile's only reliable consumer is
-   replay. */
-#define STEM_LAZY  (64000)
+/* Rotor's only reliable consumer is replay, on a deep link, so LAZY
+   just needs to keep housekeeping time low.  384 us, as repair. */
+#define STEM_LAZY  (128L*3000L)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(ctx_t)
@@ -1392,6 +1425,7 @@ metrics_write( ctx_t * ctx ) {
 #define STEM_CALLBACK_RETURNABLE_FRAG     returnable_frag
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 #define STEM_CALLBACK_METRICS_WRITE       metrics_write
+#define STEM_CALLBACK_NEXT_DEADLINE       next_deadline
 
 #include "../../disco/stem/fd_stem.c"
 
