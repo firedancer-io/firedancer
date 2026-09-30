@@ -7,6 +7,7 @@
 #include "utils/fd_slot_delta_parser.h"
 #include "../../util/fd_hash32.h"
 #include "../../util/bits/fd_float.h"
+#include "../../util/bits/fd_uwide.h"
 
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
@@ -236,12 +237,15 @@ struct fd_snapin_shmem {
   /* Stake delegations fork for incremental writes, USHORT_MAX for full. */
   ushort stake_fork;
 
-  /* Per-tile attempt values. */
+  /* Per-tile attempt values.  Lamport totals are 128-bit <*_hi,*>:
+     they count every account version, which can pass 2^64. */
   struct __attribute__((aligned(128))) {
     ulong loaded;
     ulong duplicates;
     ulong input_lamports;
     ulong duplicate_lamports;
+    ulong input_lamports_hi;
+    ulong duplicate_lamports_hi;
   } values[ FD_TOPO_MAX_TILE_IN_LINKS ];
 
   /* Atomic index of the next unclaimed appendvec. */
@@ -1323,7 +1327,8 @@ writer_flush( fd_snapin_tile_t * ctx ) {
   /* Flush accounts in batches of 8 */
   for( ulong batch_off=0UL; batch_off<batch->cnt; batch_off+=FD_SSPARSE_ACC_BATCH_MAX ) {
     ulong cnt = fd_ulong_min( FD_SSPARSE_ACC_BATCH_MAX, batch->cnt-batch_off );
-    ulong input_lamports = 0UL;
+    ulong input_lamports_hi = 0UL;
+    ulong input_lamports    = 0UL;
 
     for( ulong i=0UL; i<cnt; i++ ) {
       ulong idx = batch_off+i;
@@ -1334,7 +1339,7 @@ writer_flush( fd_snapin_tile_t * ctx ) {
       file_offsets[ i ] = base_off+buf_off;
 
       buf_off += sizeof(fd_accdb_disk_meta_t)+data_lens[ i ];
-      input_lamports = fd_ulong_sat_add( input_lamports, batch->lamports[ idx ] );
+      fd_uwide_inc( &input_lamports_hi, &input_lamports, input_lamports_hi, input_lamports, batch->lamports[ idx ] );
     }
 
     ulong accounts_ignored, accounts_replaced, accounts_loaded, replaced_lamports, ignored_lamports;
@@ -1376,9 +1381,12 @@ writer_flush( fd_snapin_tile_t * ctx ) {
     ctx->metrics.accounts_loaded   += accounts_loaded;
     ctx->shmem->values[ tile_idx ].loaded            += accounts_loaded;
     ctx->shmem->values[ tile_idx ].duplicates        += accounts_ignored + accounts_replaced;
-    ctx->shmem->values[ tile_idx ].input_lamports     = fd_ulong_sat_add( ctx->shmem->values[ tile_idx ].input_lamports, input_lamports );
-    ctx->shmem->values[ tile_idx ].duplicate_lamports = fd_ulong_sat_add( ctx->shmem->values[ tile_idx ].duplicate_lamports,
-                                                                          fd_ulong_sat_add( replaced_lamports, ignored_lamports ) );
+    ulong duplicate_lamports_hi, duplicate_lamports;
+    fd_uwide_inc( &duplicate_lamports_hi, &duplicate_lamports, 0UL, replaced_lamports, ignored_lamports );
+    ulong * in_hi  = &ctx->shmem->values[ tile_idx ].input_lamports_hi;     ulong * in_lo  = &ctx->shmem->values[ tile_idx ].input_lamports;
+    ulong * dup_hi = &ctx->shmem->values[ tile_idx ].duplicate_lamports_hi; ulong * dup_lo = &ctx->shmem->values[ tile_idx ].duplicate_lamports;
+    fd_uwide_add( in_hi,  in_lo,  *in_hi,  *in_lo,  input_lamports_hi,     input_lamports,     0UL );
+    fd_uwide_add( dup_hi, dup_lo, *dup_hi, *dup_lo, duplicate_lamports_hi, duplicate_lamports, 0UL );
   }
 
   FD_TEST( buf_off==ctx->writer.buf_used );
@@ -1725,22 +1733,31 @@ start_processing_attempt( fd_snapin_tile_t * ctx ) {
 
 static int
 validate_capitalization( fd_snapin_tile_t * ctx ) {
-  ulong input_lamports = 0UL;
-  ulong duplicate_lamports = 0UL;
+  /* Sum exactly: saturating at 2^64 computed 0 for an honest snapshot
+     and could accept a wrong one. */
+  ulong input_hi = 0UL, input_lo = 0UL;
+  ulong dup_hi   = 0UL, dup_lo   = 0UL;
   FD_COMPILER_MFENCE();
   for( ulong i=0UL; i<FD_TOPO_MAX_TILE_IN_LINKS; i++ ) {
-    input_lamports      = fd_ulong_sat_add( input_lamports,     ctx->shmem->values[ i ].input_lamports     );
-    duplicate_lamports  = fd_ulong_sat_add( duplicate_lamports, ctx->shmem->values[ i ].duplicate_lamports );
+    fd_uwide_add( &input_hi, &input_lo, input_hi, input_lo, ctx->shmem->values[ i ].input_lamports_hi,     ctx->shmem->values[ i ].input_lamports,     0UL );
+    fd_uwide_add( &dup_hi,   &dup_lo,   dup_hi,   dup_lo,   ctx->shmem->values[ i ].duplicate_lamports_hi, ctx->shmem->values[ i ].duplicate_lamports, 0UL );
   }
 
-  ulong capitalization = fd_ulong_if( ctx->full, 0UL, ctx->lead.recovery.capitalization );
-  capitalization = fd_ulong_sat_add( capitalization, input_lamports     );
-  capitalization = fd_ulong_sat_sub( capitalization, duplicate_lamports );
-  if( FD_UNLIKELY( capitalization!=ctx->lead.manifest_capitalization ) ) {
+  ulong cap_hi = 0UL;
+  ulong cap_lo = fd_ulong_if( ctx->full, 0UL, ctx->lead.recovery.capitalization );
+  fd_uwide_add( &cap_hi, &cap_lo, cap_hi, cap_lo, input_hi, input_lo, 0UL );
+  ulong borrow = fd_uwide_sub( &cap_hi, &cap_lo, cap_hi, cap_lo, dup_hi, dup_lo, 0UL );
+  if( FD_UNLIKELY( borrow || cap_hi || cap_lo!=ctx->lead.manifest_capitalization ) ) {
     /* SnapshotError::MismatchedCapitalization
         https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/runtime/src/snapshot_bank_utils.rs#L217 */
-    FD_LOG_WARNING(( "%s snapshot manifest capitalization %lu does not match computed capitalization %lu",
-                     ctx->full?"full":"incr", ctx->lead.manifest_capitalization, capitalization ));
+    if( FD_LIKELY( !borrow && !cap_hi ) ) {
+      FD_LOG_WARNING(( "%s snapshot manifest capitalization %lu does not match computed capitalization %lu",
+                       ctx->full?"full":"incr", ctx->lead.manifest_capitalization, cap_lo ));
+    } else {
+      FD_LOG_WARNING(( "%s snapshot manifest capitalization %lu does not match computed capitalization, which is out of range "
+                       "(input lamports %lu*2^64+%lu, duplicate lamports %lu*2^64+%lu)",
+                       ctx->full?"full":"incr", ctx->lead.manifest_capitalization, input_hi, input_lo, dup_hi, dup_lo ));
+    }
     return -1;
   }
   return 0;
