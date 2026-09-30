@@ -548,10 +548,15 @@ cleanup_instr_ctx( fixture_input_t const * in,
   fd_alloc_free( alloc, storage );
 }
 
+/* run_fixture serializes with the three arrays pre-filled with fill.
+   fd_bpf_execute does not zero them, so every entry the serializer
+   leaves unwritten must be one nothing reads: run with 0 and 0xA5. */
+
 static int
 run_fixture( fd_svm_mini_t * mini,
              fd_alloc_t *    alloc,
-             fixture_t *     fix ) {
+             fixture_t *     fix,
+             int             fill ) {
 
   fixture_input_t *  in  = &fix->input;
   fixture_output_t * out = &fix->output;
@@ -574,9 +579,9 @@ run_fixture( fd_svm_mini_t * mini,
   fd_vm_acc_region_meta_t acc_metas[FD_TXN_INSTR_ACCT_MAX];
   ulong                   idata_offset = 0;
 
-  fd_memset( pre_lens,  0, sizeof(pre_lens)  );
-  fd_memset( regions,   0, sizeof(regions)   );
-  fd_memset( acc_metas, 0, sizeof(acc_metas) );
+  fd_memset( pre_lens,  fill, sizeof(pre_lens)  );
+  fd_memset( regions,   fill, sizeof(regions)   );
+  fd_memset( acc_metas, fill, sizeof(acc_metas) );
 
   uchar * serialized = ctx->runtime->bpf_loader_serialization.serialization_mem[ ctx->runtime->instr.stack_sz-1UL ];
 
@@ -611,6 +616,21 @@ run_fixture( fd_svm_mini_t * mini,
         for( ulong i=0; i<out->num_acc_metas; i++ ) {
           if( !check_acc_meta( &acc_metas[i], &out->acc_metas[i], i ) ) { ok = 0; break; }
         }
+      }
+      /* Every region points at a written meta or none */
+      for( uint i=0; ok && i<region_cnt; i++ ) {
+        ulong m = regions[i].acc_region_meta_idx;
+        if( m!=ULONG_MAX && m>=in->num_instr_accounts ) {
+          FD_LOG_WARNING(( "region[%u] acc_region_meta_idx %lu out of range", i, m ));
+          ok = 0;
+        }
+      }
+      /* Deserializing the unmodified buffer reads pre_lens and the metas */
+      if( ok && fd_bpf_loader_input_deserialize_parameters( ctx, pre_lens, serialized, serialized_sz,
+                                                             in->virtual_address_space_adj, in->direct_mapping,
+                                                             in->is_deprecated ) ) {
+        FD_LOG_WARNING(( "deserialize failed on the unmodified buffer" ));
+        ok = 0;
       }
     }
   } else {
@@ -687,14 +707,15 @@ test_touched_case( fd_svm_mini_t * mini,
   fd_exec_instr_ctx_t ctx[1];
   setup_instr_ctx( &in, 0, mini, alloc, &storage, ctx );
 
-  ulong                   pre_lens[ FD_TXN_INSTR_ACCT_MAX ] = {0};
+  ulong                   pre_lens[ FD_TXN_INSTR_ACCT_MAX ];
   static fd_vm_input_region_t regions[ 1000 ];
   uint                    region_cnt = 0U;
   fd_vm_acc_region_meta_t metas[ FD_TXN_INSTR_ACCT_MAX ];
   ulong                   idata_off = 0UL;
   ulong                   ser_sz    = 0UL;
-  fd_memset( regions, 0, sizeof(regions) );
-  fd_memset( metas,   0, sizeof(metas)   );
+  fd_memset( pre_lens, 0xA5, sizeof(pre_lens) ); /* not zeroed in fd_bpf_execute either */
+  fd_memset( regions,  0xA5, sizeof(regions)  );
+  fd_memset( metas,    0xA5, sizeof(metas)    );
   FD_TEST( !fd_bpf_loader_input_serialize_parameters( ctx, pre_lens, regions, &region_cnt, metas, vasa, dm, 0, 0, &idata_off, &ser_sz ) );
   uchar * ser = ctx->runtime->bpf_loader_serialization.serialization_mem[ ctx->runtime->instr.stack_sz-1UL ];
 
@@ -806,7 +827,7 @@ main( int argc, char ** argv ) {
     fixture_cnt++;
 
     FD_LOG_NOTICE(( "Testing: %s", fix->input.name ));
-    int result = run_fixture( mini, alloc, fix );
+    int result = run_fixture( mini, alloc, fix, 0 ) | run_fixture( mini, alloc, fix, 0xA5 );
 
     if( result==0 ) {
       FD_LOG_NOTICE(( "  PASS" ));

@@ -444,9 +444,9 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
 
   /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L1362-L1368 */
   ulong                   input_sz                                 = 0UL;
-  ulong                   pre_lens[256]                            = {0};
-  fd_vm_input_region_t    input_mem_regions[1000]                  = {0}; /* We can have a max of (3 * num accounts + 1) regions */
-  fd_vm_acc_region_meta_t acc_region_metas[256]                    = {0}; /* instr acc idx to idx */
+  ulong                   pre_lens[256];
+  fd_vm_input_region_t    input_mem_regions[1000]; /* We can have a max of (3 * num accounts + 1) regions */
+  fd_vm_acc_region_meta_t acc_region_metas[256];   /* instr acc idx to idx */
   uint                    input_mem_regions_cnt                    = 0U;
   int                     direct_mapping                           = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, account_data_direct_mapping );
   int                     syscall_parameter_address_restrictions   = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, syscall_parameter_address_restrictions );

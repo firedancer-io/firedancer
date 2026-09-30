@@ -608,6 +608,8 @@ fd_bpf_loader_input_serialize_for_abiv0( fd_exec_instr_ctx_t *     ctx,
       acc_idx_seen[acc_idx] = 1;
       dup_acc_idx[acc_idx]  = i;
 
+      acc_region_metas[i].vm_addr = 0UL; /* abiv0 has no account pointer table */
+
       FD_STORE( uchar, serialized_params, FD_NON_DUP_MARKER );
       serialized_params += sizeof(uchar);
 
