@@ -199,6 +199,48 @@ test_demote_drain( void ) {
   controller_fini( ctx );
 }
 
+/* test_disable: set-identity's DISABLE stops us.  The demotion's next
+   step would queue DEMOTED, after DISABLE nothing is queued or
+   published, every frag is skipped, a connection still queued on the
+   listener is reset and a new one is refused. */
+static void
+test_disable( void ) {
+  fd_failover_tile_ctx_t * ctx = controller_init( FD_FAILOVER_ROLE_ACTIVE );
+  fd_failover_channel_init_listener( ctx->channel, FD_IP4_ADDR(127,0,0,1), 0 );
+  ushort             port = fd_failover_channel_listen_port( ctx->channel );
+  struct sockaddr_in addr = { .sin_family=AF_INET, .sin_port=fd_ushort_bswap( port ),
+                              .sin_addr.s_addr=FD_IP4_ADDR(127,0,0,1) };
+  int queued = socket( AF_INET, SOCK_STREAM|SOCK_CLOEXEC, 0 );
+  FD_TEST( queued!=-1 && !connect( queued, fd_type_pun( &addr ), sizeof(addr) ) );
+  pair( ctx, 77UL, FD_FAILOVER_ROLE_STANDBY, 1000L );
+  make_tower( &ctx->current_tower, 99UL );
+  fd_failover_handoff_request_t req = { .handoff_id=45UL, .target_boot_id=OUR_BOOT_ID };
+  deliver( ctx, FD_FAILOVER_MSG_HANDOFF_REQUEST, &req, sizeof(req) );
+  step_controller( ctx, stem );
+  switch_ok( ctx, 0UL );
+  ulong published = stem->seqs[ 0 ];
+
+  ctx->admin_in_idx = 1UL;
+  FD_TEST( !before_frag( ctx, 1UL, 0UL, FD_FAILOVER_BUS_DISABLE ) );
+  during_frag( ctx, 1UL, 0UL, FD_FAILOVER_BUS_DISABLE, 0UL, sizeof(fd_failover_bus_msg_t), 0UL );
+  after_frag( ctx, 1UL, 0UL, FD_FAILOVER_BUS_DISABLE, sizeof(fd_failover_bus_msg_t), 0UL, 0UL, stem );
+  FD_TEST( ctx->off && !ctx->channel->peer_addr );
+  uchar byte;
+  FD_TEST( recv( queued, &byte, 1UL, MSG_DONTWAIT )==-1 && errno==ECONNRESET );
+  FD_TEST( !close( queued ) );
+  int refused = socket( AF_INET, SOCK_STREAM|SOCK_CLOEXEC, 0 );
+  FD_TEST( refused!=-1 );
+  FD_TEST( connect( refused, fd_type_pun( &addr ), sizeof(addr) )==-1 && errno==ECONNREFUSED );
+  FD_TEST( !close( refused ) );
+
+  int busy = 0;
+  after_credit( ctx, stem, NULL, &busy );
+  FD_TEST( !ctx->tx.valid && stem->seqs[ 0 ]==published );
+  FD_TEST( before_frag( ctx, 1UL, 1UL, FD_FAILOVER_BUS_REQUEST     ) );
+  FD_TEST( before_frag( ctx, 1UL, 1UL, FD_FAILOVER_BUS_SWITCH_RESP ) );
+  controller_fini( ctx );
+}
+
 /* A request of ours bound to boot 77 of the member whose junk key is
    0x22, as the tests' pair() makes it. */
 static void
@@ -483,6 +525,7 @@ main( int argc, char ** argv ) {
   test_handoff();
   test_no_final_state();
   test_demote_drain();
+  test_disable();
   test_result_wait_peer_restart();
   test_session_change_drops_result();
   test_request_address();

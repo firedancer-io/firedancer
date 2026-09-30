@@ -43,10 +43,10 @@ fd_failover_channel_new( void * shmem );
 fd_failover_channel_t *
 fd_failover_channel_join( void * shch );
 
-/* Opens the listener on address:port.  Every member listens for as
-   long as the channel lives.  Call before the sandbox, which forbids
-   bind.  The address is in network byte order and the port in host
-   byte order, here and in init_dialer. */
+/* Opens the listener on address:port.  Every member listens until
+   stop_listening or fini.  Call before the sandbox, which forbids bind.
+   The address is in network byte order and the port in host byte
+   order, here and in init_dialer. */
 void
 fd_failover_channel_init_listener( fd_failover_channel_t * channel,
                                    uint                    address,
@@ -81,6 +81,13 @@ fd_failover_channel_set_member_cert( fd_failover_channel_t * channel,
 /* Closes all sockets and releases the TLS context. */
 void
 fd_failover_channel_fini( fd_failover_channel_t * channel );
+
+/* Stops the listener, so a later connection to its port is refused
+   and one still queued is reset.  The descriptor stays open until
+   fini, the sandbox does not let the tile close its listener.  Returns
+   zero on success, -1 with a warning logged if shutdown failed. */
+int
+fd_failover_channel_stop_listening( fd_failover_channel_t * channel );
 
 /* Returns how many connections are still in their TCP, TLS or HELLO
    handshake, the paired session not counted. */

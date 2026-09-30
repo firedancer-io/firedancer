@@ -26,6 +26,10 @@
 #define FD_KEYSWITCH_PARAM_IDENTITY_KEYPAIR (0UL)
 #define FD_KEYSWITCH_PARAM_IDENTITY_PUBKEY  (1UL)
 
+/* Tower identity switch run by set-identity under failover, the tower
+   drops the failover voting rules until restart. */
+#define FD_KEYSWITCH_PARAM_IDENTITY_FAILOVER_OFF (2UL)
+
 #define FD_KEYSWITCH_PARAM_AV_ADD   (0UL)
 #define FD_KEYSWITCH_PARAM_AV_CLEAR (1UL)
 

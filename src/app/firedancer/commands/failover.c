@@ -203,6 +203,10 @@ other_holder( ulong result ) {
    RPC, gossip, metrics and the logs. */
 static void
 failover_status_print( fd_adminctl_failover_status_resp_t const * resp ) {
+  if( FD_UNLIKELY( resp->enabled==FD_ADMINCTL_FAILOVER_OFF_UNTIL_RESTART ) ) {
+    FD_LOG_STDOUT(( "%-22s %s\n", "failover:", "off, set-identity turned it off until the validator restarts" ));
+    return;
+  }
   if( FD_UNLIKELY( !resp->enabled ) ) {
     FD_LOG_STDOUT(( "%-22s %s\n", "failover:", "disabled" ));
     return;
@@ -283,7 +287,8 @@ failover_request( fd_adminctl_t *                    adminctl,
 static void __attribute__((noreturn))
 fail_disabled( int status ) {
   if( status ) FD_LOG_ERR(( "this validator has no failover command bus, so it cannot report failover status" ));
-  FD_LOG_ERR(( "failover is not enabled on the running validator, set [failover.enabled] to true and restart it" ));
+  FD_LOG_ERR(( "failover is not enabled on the running validator, set [failover.enabled] to true and restart it, "
+               "or set-identity turned it off until the validator restarts" ));
 }
 
 static void __attribute__((noreturn))
@@ -428,6 +433,11 @@ action_t fd_action_failover = {
                     "incomplete or empty history if needed.  `demote` gives the identity up without\n"
                     "promoting anyone and runs on the active, the other machine then needs\n"
                     "`failover promote --force`.  Each asks for confirmation unless --yes is given.\n"
+                    "`set-identity` still works, it turns failover off on this machine until the\n"
+                    "validator restarts.  The other machine sees a lost or refused connection.  If\n"
+                    "it already has this validator's final vote state it finishes its promotion and\n"
+                    "takes the identity, and `failover promote --force` there takes the identity if\n"
+                    "it is a standby.\n"
                     "\n"
                     "While the validator switches its identity, `failover status` and every\n"
                     "command wait for the switch to finish, say so after 3 seconds, and hang behind\n"

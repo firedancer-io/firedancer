@@ -198,6 +198,7 @@ typedef struct fd_failover_id_switch fd_failover_id_switch_t;
 struct fd_failover_tile_ctx {
   fd_keyguard_client_t keyguard_client[ 1 ];
   int                  member_cert_set;
+  int                  off; /* set-identity turned failover off, we do nothing until restart */
 
   fd_failover_hello_t     hello;
   ulong                   role;
@@ -2329,6 +2330,7 @@ before_frag( fd_failover_tile_ctx_t * ctx,
              ulong                    in_idx,
              ulong                    seq,
              ulong                    sig ) {
+  if( FD_UNLIKELY( ctx->off ) ) return 1;
   if( FD_LIKELY( in_idx==ctx->gossip_in_idx ) ) {
     return sig!=FD_GOSSIP_UPDATE_TAG_CONTACT_INFO && sig!=FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE;
   }
@@ -2346,9 +2348,9 @@ before_frag( fd_failover_tile_ctx_t * ctx,
     return 0;
   }
   if( FD_UNLIKELY( in_idx==ctx->admin_in_idx ) ) {
-    /* Commands and switch responses.  Dropping a switch response here would
-       leave the switch hanging forever. */
-    return sig!=FD_FAILOVER_BUS_REQUEST && sig!=FD_FAILOVER_BUS_SWITCH_RESP;
+    /* Commands, switch responses and DISABLE.  Dropping a switch
+       response here would leave the switch hanging forever. */
+    return sig!=FD_FAILOVER_BUS_REQUEST && sig!=FD_FAILOVER_BUS_SWITCH_RESP && sig!=FD_FAILOVER_BUS_DISABLE;
   }
   return 0;
 }
@@ -2372,6 +2374,7 @@ during_frag( fd_failover_tile_ctx_t * ctx,
     if( FD_UNLIKELY( chunk<ctx->admin_in_chunk0 || chunk>ctx->admin_in_wmark || sz!=sizeof(fd_failover_bus_msg_t) ) ) {
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->admin_in_chunk0, ctx->admin_in_wmark ));
     }
+    if( FD_UNLIKELY( sig==FD_FAILOVER_BUS_DISABLE ) ) return;
     fd_failover_bus_msg_t const * msg = fd_chunk_to_laddr_const( ctx->admin_in_mem, chunk );
     if( FD_UNLIKELY( sig==FD_FAILOVER_BUS_SWITCH_RESP ) ) {
       fd_memcpy( &ctx->id_switch.response, msg->payload, sizeof(ctx->id_switch.response) );
@@ -2421,6 +2424,20 @@ after_frag( fd_failover_tile_ctx_t * ctx,
     return;
   }
   if( FD_UNLIKELY( in_idx==ctx->admin_in_idx ) ) {
+    if( FD_UNLIKELY( sig==FD_FAILOVER_BUS_DISABLE ) ) {
+      /* set-identity moved the identity itself.  We hang up, stop
+         dialing and stop listening, so the other machine is refused at
+         once instead of waiting out its handshake, and leave everything
+         else alone until restart. */
+      ctx->off = 1;
+      fd_failover_channel_init_dialer( ctx->channel, 0U, 0 );
+      fd_failover_channel_hangup( ctx->channel, fd_failover_clock() );
+      int stopped = !fd_failover_channel_stop_listening( ctx->channel );
+      FD_LOG_WARNING(( "set-identity turned failover off, this machine hung up, %s "
+                       "and stays out of failover until the validator restarts",
+                       stopped ? "stopped listening on its failover port" : "could not stop its failover listener" ));
+      return;
+    }
     if( FD_UNLIKELY( sig==FD_FAILOVER_BUS_SWITCH_RESP ) ) {
       /* The accepted result can remain live while the tower drains.
          Commit the payload only after the stem and nonce checks pass. */
@@ -2447,6 +2464,7 @@ after_credit( fd_failover_tile_ctx_t * ctx,
               fd_stem_context_t *      stem,
               int *                    opt_poll_in FD_PARAM_UNUSED,
               int *                    charge_busy ) {
+  if( FD_UNLIKELY( ctx->off ) ) return;
   if( FD_UNLIKELY( !ctx->member_cert_set ) ) request_member_cert( ctx );
   if( FD_UNLIKELY( ctx->slot_done_fresh ) ) {
     ctx->slot_done_fresh = 0;

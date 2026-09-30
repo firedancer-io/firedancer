@@ -207,6 +207,15 @@ fd_failover_channel_set_member_cert( fd_failover_channel_t * ch,
   return 0;
 }
 
+int
+fd_failover_channel_stop_listening( fd_failover_channel_t * ch ) {
+  if( FD_UNLIKELY( ch->listen_fd!=-1 && shutdown( ch->listen_fd, SHUT_RDWR ) ) ) {
+    FD_LOG_WARNING(( "failover listener shutdown failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    return -1;
+  }
+  return 0;
+}
+
 void
 fd_failover_channel_fini( fd_failover_channel_t * ch ) {
   reset( ch );

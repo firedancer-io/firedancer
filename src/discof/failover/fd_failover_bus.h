@@ -7,9 +7,10 @@
    until the response comes back or the deadline passes.  The failover
    tile asks for identity switches the same way.  Every frame is one
    fd_failover_bus_msg_t.  Each side has at most one request outstanding,
-   even past the deadline, so neither link has more than two frames in
-   flight and neither tile can backpressure the other, even behind an
-   identity switch that never finishes. */
+   even past the deadline, and set-identity sends DISABLE once, so
+   neither link has more than three frames in flight and neither tile can
+   backpressure the other, even behind an identity switch that never
+   finishes. */
 
 #include "../admin/fd_adminctl.h"
 
@@ -17,9 +18,10 @@
 #define FD_FAILOVER_BUS_SWITCH_RESP (2UL) /* admin to failov, fd_failover_switch_resp_t */
 #define FD_FAILOVER_BUS_REQUEST     (3UL) /* admin to failov, fd_adminctl_failover_req_t */
 #define FD_FAILOVER_BUS_RESPONSE    (4UL) /* failov to admin, the requested command's response */
+#define FD_FAILOVER_BUS_DISABLE     (5UL) /* admin to failov, set-identity turned failover off, no payload */
 
-/* Only the public key goes over the bus.  The sign tile only accepts
-   a keypair it loaded at boot. */
+/* Only the public key goes over the bus.  The sign tile selects one of
+   the keypairs it loaded at boot. */
 struct fd_failover_switch_req {
   uchar identity[ 32 ]; /* public key of the identity to install */
 };

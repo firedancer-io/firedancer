@@ -201,7 +201,7 @@ FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_control_resp_t)==24UL, failover_co
    already show. */
 struct fd_adminctl_failover_status_resp_v1 {
   ulong  version;         /* ==FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION */
-  uchar  enabled;         /* 0 when failover is off, nothing else is set then */
+  uchar  enabled;         /* 0 off, 1 on, FD_ADMINCTL_FAILOVER_OFF_UNTIL_RESTART, the other fields keep their init values unless 1 */
   uchar  role;            /* FD_FAILOVER_ROLE_* */
   uchar  action;          /* FD_FAILOVER_ACTION_* */
   uchar  stuck;           /* a transition failed or is overdue */
@@ -225,6 +225,9 @@ typedef struct fd_adminctl_failover_status_resp_v1 fd_adminctl_failover_status_r
 
 FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_status_resp_t)==64UL, failover_status_resp_v1_layout );
 FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_status_resp_t)<=FD_ADMINCTL_PAYLOAD_MAX, failover_status_resp_fits );
+
+/* status enabled value when set-identity turned failover off */
+#define FD_ADMINCTL_FAILOVER_OFF_UNTIL_RESTART (2)
 
 /* fd_adminctl_failover_status_resp_init stamps the version and every
    unknown field.  The admin tile, for a validator with failover off,

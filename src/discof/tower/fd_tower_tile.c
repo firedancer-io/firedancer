@@ -1592,6 +1592,17 @@ during_housekeeping( fd_tower_tile_t * ctx ) {
     if( FD_UNLIKELY( ctx->adoption_required ) ) {
       ctx->halt_signing = 1;
       if( FD_UNLIKELY( !publishes_empty( ctx->publishes ) ) ) return;
+      /* set-identity turned failover off, we vote as without failover
+         until restart.  The admin tile reads the result as soon as it
+         sees COMPLETED, so it is written first. */
+      if( FD_UNLIKELY( fd_keyswitch_param_query( ctx->identity_keyswitch )==FD_KEYSWITCH_PARAM_IDENTITY_FAILOVER_OFF ) ) {
+        FD_LOG_WARNING(( "tower: set-identity turned failover off, voting follows the vote account like any validator until restart" ));
+        ctx->adoption_required          = 0;
+        ctx->shadow                     = 0;
+        ctx->no_vote_authority          = 0;
+        ctx->tower_adopted              = 0;
+        ctx->identity_keyswitch->result = ctx->out_seq;
+      }
     }
     FD_LOG_DEBUG(( "keyswitch: halting signing" ));
     memcpy( ctx->identity_key, ctx->identity_keyswitch->bytes, 32UL );
@@ -1926,6 +1937,13 @@ returnable_frag( fd_tower_tile_t *   ctx,
     return 0;
   }
   case IN_KIND_ADOPT: {
+    /* After set-identity turned failover off nothing may replace the
+       tower we vote with.  The failover tile has stopped, so nobody waits
+       for a response. */
+    if( FD_UNLIKELY( !ctx->adoption_required ) ) {
+      FD_LOG_WARNING(( "tower: dropping an adoption request, set-identity turned failover off" ));
+      return 0;
+    }
     /* The response echoes the request sequence number. */
     fd_tower_adopt_result_t result;
     if( FD_UNLIKELY( ctl==FD_TOWER_ADOPT_CTL_EMPTY && !sz ) ) result = adopt_empty( ctx );

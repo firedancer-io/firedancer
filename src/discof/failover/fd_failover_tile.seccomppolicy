@@ -40,3 +40,8 @@ sendto
 close: (not (or (eq (arg 0) 2)
                 (eq (arg 0) logfile_fd)
                 (eq (arg 0) listen_fd)))
+
+# set-identity turns failover off and the listener stops listening, so
+# the other machine is refused at once.  The descriptor stays open.
+shutdown: (and (eq (arg 0) listen_fd)
+               (eq (arg 1) "SHUT_RDWR"))

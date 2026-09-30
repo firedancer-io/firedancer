@@ -23,7 +23,8 @@ struct fd_admin_tile_ctx {
   ulong snap_create_target_slot;  /* requested slot retained until Replay responds */
   ulong snap_create_start_time;   /* command start retained until Replay responds */
 
-  int failover_enabled; /* failover moves the identity, set-identity is refused */
+  int failover_enabled; /* failover moves the identity */
+  int failover_off;     /* set-identity turned failover off until restart */
 
   /* Failover commands go to the failover tile over the bus, one at a
      time like snapshot creation. */
@@ -655,8 +656,40 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
   return *state==FD_SET_IDENTITY_STATE_UNLOCKED;
 }
 
+/* set-identity is the break-glass.  Under failover it first turns
+   failover off until restart, then switches the upstream way.  The sign
+   tiles take the keypair, the tower drops the failover voting rules, and
+   the failover tile stops.  The sign tiles keep the keys failover loaded
+   at boot and still refuse the staked key as an authorized voter, but
+   nothing asks them for a failover signature or switch again. */
+
+static void
+failover_turn_off( fd_admin_tile_ctx_t * ctx,
+                   fd_stem_context_t *   stem ) {
+  FD_LOG_WARNING(( "set-identity turns failover off until the validator restarts" ));
+  ctx->failover_enabled = 0;
+  ctx->failover_off     = 1;
+
+  fd_topo_t const * topo = ctx->topo;
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    if( strcmp( topo->tiles[ i ].name, "sign" ) ) continue;
+    fd_keyswitch_t * sign = fd_topo_obj_laddr( topo, topo->tiles[ i ].id_keyswitch_obj_id );
+    sign->param = FD_KEYSWITCH_PARAM_IDENTITY_KEYPAIR;
+  }
+  find_identity_keyswitch( ctx, "tower" )->param = FD_KEYSWITCH_PARAM_IDENTITY_FAILOVER_OFF;
+
+  if( FD_LIKELY( ctx->failov_out_idx!=ULONG_MAX ) ) {
+    fd_failover_bus_msg_t * msg = fd_chunk_to_laddr( ctx->failov_out_mem, ctx->failov_out_chunk );
+    fd_memset( msg, 0, sizeof(*msg) );
+    ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+    fd_stem_publish( stem, ctx->failov_out_idx, FD_FAILOVER_BUS_DISABLE, ctx->failov_out_chunk, sizeof(*msg), 0UL, tspub, tspub );
+    ctx->failov_out_chunk = fd_dcache_compact_next( ctx->failov_out_chunk, sizeof(*msg), ctx->failov_out_chunk0, ctx->failov_out_wmark );
+  }
+}
+
 static void FD_FN_SENSITIVE
 set_identity( fd_admin_tile_ctx_t * ctx,
+              fd_stem_context_t *   stem,
               ulong                 slot_idx,
               void *                data,
               ulong                 data_sz ) {
@@ -665,14 +698,6 @@ set_identity( fd_admin_tile_ctx_t * ctx,
   fd_event_admin_command_t event = prepare_admin_command( FD_EVENT_ADMIN_COMMAND_TYPE_SET_IDENTITY, data, data_sz );
   FD_BASE58_ENCODE_32_BYTES( ctx->identity_pubkey, old_identity );
   FD_TEST( fd_cstr_printf_check( (char *)event.args_json, sizeof(event.args_json), &event.args_json_len, "{\"old_identity\":\"%s\"}", old_identity ) );
-
-  /* Under failover the failover tile moves the identity. */
-  if( FD_UNLIKELY( ctx->failover_enabled ) ) {
-    FD_LOG_WARNING(( "set-identity is not supported while [failover.enabled] is true" ));
-    report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_UNSUPPORTED );
-    fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_UNSUPPORTED );
-    return;
-  }
 
   if( FD_UNLIKELY( data_sz<sizeof(ulong) ) ) {
     FD_LOG_WARNING(( "adminctl set-identity payload too small: %lu", data_sz ));
@@ -706,6 +731,8 @@ set_identity( fd_admin_tile_ctx_t * ctx,
     fd_adminctl_complete( adminctl, slot_idx, FD_SET_IDENTITY_RESULT_KEYPAIR_MISMATCH );
     return;
   }
+
+  if( FD_UNLIKELY( ctx->failover_enabled ) ) failover_turn_off( ctx, stem );
 
   ulong state           = FD_SET_IDENTITY_STATE_UNLOCKED;
   ulong halted_seq      = 0UL;
@@ -1448,8 +1475,13 @@ failover_request( fd_admin_tile_ctx_t * ctx,
     if( status ) {
       fd_adminctl_failover_status_resp_t resp;
       fd_adminctl_failover_status_resp_init( &resp );
+      if( FD_UNLIKELY( ctx->failover_off ) ) resp.enabled = FD_ADMINCTL_FAILOVER_OFF_UNTIL_RESTART;
       report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_SUCCESS );
       fd_adminctl_complete_response( adminctl, slot_idx, FD_ADMINCTL_RESULT_SUCCESS, &resp, sizeof(resp) );
+    } else if( FD_UNLIKELY( ctx->failover_off ) ) {
+      FD_LOG_WARNING(( "`failover %s` refused, set-identity turned failover off until the validator restarts", cmd_cstr ));
+      report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_UNSUPPORTED );
+      fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_UNSUPPORTED );
     } else {
       FD_LOG_WARNING(( "`failover %s` refused, failover commands are not supported unless [failover.enabled] is true", cmd_cstr ));
       report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_UNSUPPORTED );
@@ -1626,8 +1658,9 @@ after_credit( fd_admin_tile_ctx_t * ctx,
       *charge_busy = 1;
       break;
     case FD_ADMINCTL_CMD_SET_IDENTITY:
-      set_identity( ctx, slot_idx, payload, payload_sz );
+      set_identity( ctx, stem, slot_idx, payload, payload_sz );
       *charge_busy = 1;
+      *opt_poll_in = 0;
       break;
     case FD_ADMINCTL_CMD_REMOVE_ALL_AUTH_VOTERS:
       remove_all_authorized_voters( ctx, slot_idx, payload, payload_sz );
