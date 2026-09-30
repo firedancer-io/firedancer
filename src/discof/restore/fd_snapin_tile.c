@@ -51,6 +51,9 @@ FD_STATIC_ASSERT( FD_SNAPIN_WRITE_BUF_SZ%FD_SNAPIN_DIRECT_ALIGN==0UL, write_buf_
 FD_STATIC_ASSERT( FD_SNAPSHOT_DATA_MTU<FD_SNAPIN_WRITE_BUF_MAX, write_buf );
 FD_STATIC_ASSERT( FD_ACCDB_DISK_REC_BOUND( FD_RUNTIME_ACC_SZ_MAX )<=FD_SNAPIN_WRITE_BUF_MAX, max_account );
 
+/* the largest valid stake delegations have an account size of 4008 */
+#define FD_SNAPIN_STAKE_DATA_MAX    (4096UL)
+
 /* The snapin tiles are state machines that parse and load a full and
    optionally an incremental snapshot.  They are responsible for loading
    accounts into the accounts database and writing their records to
@@ -331,9 +334,6 @@ struct fd_snapin_tile {
     uchar owner [ 32UL ];
     uchar data[ FD_RUNTIME_ACC_SZ_MAX ] __attribute__((aligned(64)));
   } staged;
-
-  /* Decompressed stake account data for the delegation snoop. */
-  uchar snoop_data[ FD_RUNTIME_ACC_SZ_MAX ] __attribute__((aligned(64)));
 };
 
 typedef struct fd_snapin_tile fd_snapin_tile_t;
@@ -1327,6 +1327,7 @@ writer_flush( fd_snapin_tile_t * ctx ) {
   ulong data_lens      [ FD_SSPARSE_ACC_BATCH_MAX ];
   ulong file_offsets   [ FD_SSPARSE_ACC_BATCH_MAX ];
   uchar results        [ FD_SSPARSE_ACC_BATCH_MAX ];
+  uchar stake_data     [ FD_SNAPIN_STAKE_DATA_MAX ];
   ulong buf_off = 0UL;
 
   /* Flush accounts in batches of 8 */
@@ -1367,10 +1368,9 @@ writer_flush( fd_snapin_tile_t * ctx ) {
       uchar const *       owner    = pubkeys[ i ]+offsetof(fd_accdb_disk_meta_t, owner);
       uchar const *       data     = pubkeys[ i ]+sizeof(fd_accdb_disk_meta_t);
 
-      if( lamports && !memcmp( owner, fd_solana_stake_program_id.uc, 32UL ) ) {
-        fd_accdb_disk_unpack( ctx->snoop_data, data_lens[ i ], ((fd_accdb_disk_meta_t const *)pubkeys[ i ])->size, data );
-        data = ctx->snoop_data;
-        fd_stake_state_t const * stake_state = fd_stake_state_view( data, data_lens[ i ] );
+      if( lamports && !memcmp( owner, fd_solana_stake_program_id.uc, 32UL ) && data_lens[ i ]<=FD_SNAPIN_STAKE_DATA_MAX ) {
+        fd_accdb_disk_unpack( stake_data, data_lens[ i ], ((fd_accdb_disk_meta_t const *)pubkeys[ i ])->size, data );
+        fd_stake_state_t const * stake_state = fd_stake_state_view( stake_data, data_lens[ i ] );
         if( stake_state && stake_state->stake_type==FD_STAKE_STATE_STAKE ) {
           snoop_stake_delegation( ctx, stake_fork, slots[ i ], pubkey, lamports, stake_state, data_lens[ i ] );
           continue;
