@@ -303,10 +303,11 @@
             "type": "Tuple",
             "description": "Pending transactions in pack's pool, by type",
             "fields": {
-                "regular":     { "type": "UInt64", "compression": "T64, ZSTD", "description": "Transactions in the main treap, including simple votes" },
-                "vote":        { "type": "UInt64", "compression": "T64, ZSTD", "description": "Deprecated: simple votes are no longer kept in a separate treap, so this is always 0" },
-                "conflicting": { "type": "UInt64", "compression": "T64, ZSTD", "description": "Transactions that write to a hotly-contended account, including simple votes" },
-                "bundle":      { "type": "UInt64", "compression": "T64, ZSTD", "description": "Transactions that are part of a bundle" }
+                "regular":      { "type": "UInt64", "compression": "T64, ZSTD", "description": "Transactions in the main treap, including simple votes" },
+                "vote":         { "type": "UInt64", "compression": "T64, ZSTD", "description": "Deprecated: simple votes are no longer kept in a separate treap, so this is always 0" },
+                "conflicting":  { "type": "UInt64", "compression": "T64, ZSTD", "description": "Transactions that write to a hotly-contended account, including simple votes" },
+                "bundle":       { "type": "UInt64", "compression": "T64, ZSTD", "description": "Transactions that are part of a bundle" },
+                "next_auction": { "type": "UInt64", "compression": "T64, ZSTD", "description": "Transactions that are currently held waiting for the next auction" }
             }
         },
         "txn_pending_capacity":           { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Maximum pending transactions pack can hold" },
@@ -434,6 +435,44 @@
                 "b14": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[74, 100) pct" },
                 "b15": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[100, inf) pct" },
                 "sum": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Sum of samples (pct)" }
+            }
+        },
+        "auction_started":                { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Batch auctions started" },
+        "auction_cancelled":              { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Batch auctions skipped because the block was already at their CU limit" },
+        "auction_ended": {
+            "type": "Tuple",
+            "description": "Batch auctions ended, by reason",
+            "aliases": {
+                "all": ["limit", "restarted", "final", "slot_end"]
+            },
+            "fields": {
+                "limit":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "An auction ended because the block reached the auction's CU limit" },
+                "restarted": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "An auction ended because a new auction was started" },
+                "final":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "An auction ended because the final 20ms of our leader rotation began" },
+                "slot_end":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "An auction ended because the leader slot ended" }
+            }
+        },
+        "auction_duration_nanos": {
+            "type": "Tuple",
+            "description": "Duration that batch auctions ran for",
+            "fields": {
+                "b0":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[0, 10000) nanos" },
+                "b1":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[10000, 19307) nanos" },
+                "b2":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[19307, 37276) nanos" },
+                "b3":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[37276, 71969) nanos" },
+                "b4":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[71969, 138950) nanos" },
+                "b5":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[138950, 268270) nanos" },
+                "b6":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[268270, 517948) nanos" },
+                "b7":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[517948, 1000001) nanos" },
+                "b8":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1000001, 1930699) nanos" },
+                "b9":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1930699, 3727596) nanos" },
+                "b10": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[3727596, 7196860) nanos" },
+                "b11": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[7196860, 13894960) nanos" },
+                "b12": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[13894960, 26826964) nanos" },
+                "b13": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[26826964, 51794753) nanos" },
+                "b14": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[51794753, 100000000) nanos" },
+                "b15": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[100000000, inf) nanos" },
+                "sum": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Sum of samples (nanos)" }
             }
         }
     }
