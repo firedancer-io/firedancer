@@ -181,6 +181,7 @@ main( int     argc,
   FD_TEST(  genesis_max_file_size_is_valid( config, 4055UL ) );
   FD_TEST( !genesis_max_file_size_is_valid( config, 4056UL ) );
 
+  FD_TEST(  failover_is_valid( config, 0, "0.0.0.0",   8010, "vote.json", 0 ) );
   FD_TEST(  failover_is_valid( config, 1, "0.0.0.0",   8010, "vote.json", 0 ) );
   FD_TEST(  failover_is_valid( config, 1, "10.0.0.1",  8010, "vote.json", 0 ) );
   FD_TEST( !failover_is_valid( config, 1, "0.0.0.0",   0,    "vote.json", 0 ) );
