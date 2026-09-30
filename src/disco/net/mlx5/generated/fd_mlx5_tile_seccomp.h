@@ -136,7 +136,7 @@ static void populate_sock_filter_policy_fd_mlx5_tile( ulong out_cnt, struct sock
 //  and_8:
     /* arg 2 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(2)),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, 0x00000002U, /* and_9 */ 0, /* epoll_pwait_KILL */ 4 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, 0x00000003U, /* and_9 */ 0, /* epoll_pwait_KILL */ 4 ),
 //  and_9:
     /* arg 4 high 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_HI_OFFSET(4)),

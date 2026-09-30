@@ -46,10 +46,11 @@ clock_nanosleep: (and (eq (arg 0) CLOCK_MONOTONIC)
                       (eq (arg 1) TIMER_ABSTIME)
                       (eq (arg 3) 0))
 
-# power saving: park until RX work, a ring, or the next deadline
+# power saving: park until RX work, an async event, a ring, or the
+# next deadline
 #
 # arg 0 is this tile's epoll fd.  arg 2 is the event array size and arg 4
 # is the signal mask, which is always NULL.
 epoll_pwait: (and (eq (arg 0) epoll_fd)
-                  (eq (arg 2) 2)
+                  (eq (arg 2) 3)
                   (eq (arg 4) 0))

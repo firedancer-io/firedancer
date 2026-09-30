@@ -53,6 +53,10 @@
 #define FD_MLX5_UAR_CQ_DB_OFFSET (0x20UL)
 #define FD_MLX5_UAR_SQ_DB_OFFSET (0x800UL)
 
+/* epoll data of the async fd in the park set (the completion channel
+   is tagged with its fd, the doorbell with FD_SLEEP_EPOLL_DOORBELL). */
+#define FD_MLX5_EPOLL_ASYNC (ULONG_MAX-1UL)
+
 /* mlx5 CQ arm doorbells use the event sequence in bits 28 and 29. */
 #define FD_MLX5_CQ_ARM_SN_MASK  ( 3U)
 #define FD_MLX5_CQ_ARM_SN_SHIFT (28U)
@@ -734,8 +738,37 @@ after_credit( fd_mlx5_tile_t *    ctx,
   *charge_busy |= rx_busy;
 }
 
+static void
+fd_mlx5_tile_async_drain( fd_mlx5_tile_t * ctx ) {
+  int const async_event_fd = ctx->uverbs.async_fd;
+  for(;;) {
+    struct ib_uverbs_async_event_desc async_event;
+    ssize_t async_event_read_sz = read( async_event_fd, &async_event, sizeof(async_event) );
+    if( FD_UNLIKELY( async_event_read_sz<0 && errno==EINTR ) ) continue;
+
+    if( FD_LIKELY( async_event_read_sz<0 && (errno==EAGAIN || errno==EWOULDBLOCK) ) ) break;
+    if( FD_UNLIKELY( async_event_read_sz!=(ssize_t)sizeof(async_event) ) ) {
+      FD_LOG_ERR(( "mlx5 async event read failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+
+    uint const async_event_type = async_event.event_type;
+    ulong const async_event_element = (ulong)async_event.element;
+    if( FD_UNLIKELY( async_event_type==FD_MLX5_ASYNC_EVENT_CQ_ERR        ||
+                     async_event_type==FD_MLX5_ASYNC_EVENT_QP_FATAL      ||
+                     async_event_type==FD_MLX5_ASYNC_EVENT_QP_REQ_ERR    ||
+                     async_event_type==FD_MLX5_ASYNC_EVENT_QP_ACCESS_ERR ||
+                     async_event_type==FD_MLX5_ASYNC_EVENT_DEVICE_FATAL  ||
+                     async_event_type==FD_MLX5_ASYNC_EVENT_WQ_FATAL ) ) {
+      FD_LOG_ERR(( "fatal mlx5 async event %u on element %lu", async_event_type, async_event_element ));
+    }
+    FD_LOG_INFO(( "mlx5 async event %u on element %lu", async_event_type, async_event_element ));
+  }
+}
+
 static inline int
 prevent_park( fd_mlx5_tile_t * ctx ) {
+  if( FD_UNLIKELY( ctx->tx_qp.sq_prod!=ctx->tx_qp.sq_posted ) ) fd_mlx5_tile_sq_flush( ctx );
+  if( FD_UNLIKELY( ctx->lo_tx_cnt ) ) fd_mlx5_tile_lo_tx_flush( ctx );
   if( FD_UNLIKELY( !ctx->has_out_credit ) ) return 0;
   fd_mlx5_cq_t * rx_cq = &ctx->rx_cq;
   if( FD_UNLIKELY( !rx_cq->comp_channel_armed &&
@@ -773,20 +806,21 @@ park_wait( fd_mlx5_tile_t * ctx,
     }
   }
 
-  struct epoll_event evs[ 2 ];
+  struct epoll_event evs[ 3 ];
   int ev_cnt;
-  int cause = fd_sleep_park_wait_epoll( ctx->epoll_fd, word, evs, 2, &ev_cnt, deadline, tick_per_ns );
+  int cause = fd_sleep_park_wait_epoll( ctx->epoll_fd, word, evs, 3, &ev_cnt, deadline, tick_per_ns );
   for( int i=0; i<ev_cnt; i++ ) {
-    if( evs[ i ].data.u64==(ulong)ctx->rx_comp_channel_fd ) fd_mlx5_tile_drain_rx_comp_channel( ctx );
+    if(      evs[ i ].data.u64==(ulong)ctx->rx_comp_channel_fd ) fd_mlx5_tile_drain_rx_comp_channel( ctx );
+    else if( evs[ i ].data.u64==FD_MLX5_EPOLL_ASYNC            ) fd_mlx5_tile_async_drain( ctx );
   }
   return cause;
 }
 
 static inline long
 next_deadline( fd_mlx5_tile_t * ctx ) {
-  if( ctx->has_out_credit && ctx->repoll_deadline_ticks!=LONG_MAX ) return ctx->repoll_deadline_ticks;
   long deadline = LONG_MAX;
-  if( ctx->tx_qp.sq_prod!=ctx->tx_qp.sq_posted ) deadline = ctx->sq_flush_deadline_ticks;
+  if( ctx->has_out_credit ) deadline = ctx->repoll_deadline_ticks;
+  if( ctx->tx_qp.sq_prod!=ctx->tx_qp.sq_posted ) deadline = fd_long_min( deadline, ctx->sq_flush_deadline_ticks );
   if( ctx->lo_tx_cnt ) deadline = fd_long_min( deadline, ctx->lo_tx_deadline_ticks );
   return deadline;
 }
@@ -993,30 +1027,7 @@ metrics_write( fd_mlx5_tile_t * ctx ) {
 
 static inline void
 during_housekeeping( fd_mlx5_tile_t * ctx ) {
-  /* Drain pending uverbs async events. */
-  int const async_event_fd = ctx->uverbs.async_fd;
-  for(;;) {
-    struct ib_uverbs_async_event_desc async_event;
-    ssize_t async_event_read_sz = read( async_event_fd, &async_event, sizeof(async_event) );
-    if( FD_UNLIKELY( async_event_read_sz<0 && errno==EINTR ) ) continue;
-
-    if( FD_LIKELY( async_event_read_sz<0 && (errno==EAGAIN || errno==EWOULDBLOCK) ) ) break;
-    if( FD_UNLIKELY( async_event_read_sz!=(ssize_t)sizeof(async_event) ) ) {
-      FD_LOG_ERR(( "mlx5 async event read failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-    }
-
-    uint const async_event_type = async_event.event_type;
-    ulong const async_event_element = (ulong)async_event.element;
-    if( FD_UNLIKELY( async_event_type==FD_MLX5_ASYNC_EVENT_CQ_ERR        ||
-                     async_event_type==FD_MLX5_ASYNC_EVENT_QP_FATAL      ||
-                     async_event_type==FD_MLX5_ASYNC_EVENT_QP_REQ_ERR    ||
-                     async_event_type==FD_MLX5_ASYNC_EVENT_QP_ACCESS_ERR ||
-                     async_event_type==FD_MLX5_ASYNC_EVENT_DEVICE_FATAL  ||
-                     async_event_type==FD_MLX5_ASYNC_EVENT_WQ_FATAL ) ) {
-      FD_LOG_ERR(( "fatal mlx5 async event %u on element %lu", async_event_type, async_event_element ));
-    }
-    FD_LOG_INFO(( "mlx5 async event %u on element %lu", async_event_type, async_event_element ));
-  }
+  fd_mlx5_tile_async_drain( ctx );
 
   /* Refresh the netdev snapshot when its shared state is stable */
   if( FD_LIKELY( !fd_seqlock_locked_hint( &ctx->router.netdev_shared.hdr->seqlock ) ) ) {
@@ -1316,6 +1327,10 @@ privileged_init( fd_topo_t const *      topo,
     struct epoll_event comp_ev = { .events = EPOLLIN, .data.u64 = (ulong)ctx->rx_comp_channel_fd };
     if( FD_UNLIKELY( -1==epoll_ctl( ctx->epoll_fd, EPOLL_CTL_ADD, ctx->rx_comp_channel_fd, &comp_ev ) ) ) {
       FD_LOG_ERR(( "epoll_ctl(ADD,rx_comp_channel_fd) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+    struct epoll_event async_ev = { .events = EPOLLIN, .data.u64 = FD_MLX5_EPOLL_ASYNC };
+    if( FD_UNLIKELY( -1==epoll_ctl( ctx->epoll_fd, EPOLL_CTL_ADD, ctx->uverbs.async_fd, &async_ev ) ) ) {
+      FD_LOG_ERR(( "epoll_ctl(ADD,async_fd) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     }
   }
 }
