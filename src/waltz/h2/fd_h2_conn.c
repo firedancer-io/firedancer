@@ -242,11 +242,9 @@ fd_h2_rx_headers( fd_h2_conn_t *            conn,
 
   fd_h2_stream_t * stream = cb->stream_query( conn, stream_id );
   if( FD_UNLIKELY( !stream &&
-                   ( (  stream_id    <   conn->rx_stream_next    ) |
-                     ( (stream_id&1) != (conn->rx_stream_next&1) ) ) ) ) {
-    /* FIXME should send RST_STREAM instead if the user deallocated
-       stream state but we receive a HEADERS frame for a stream that
-       we started ourselves. */
+                   ( (stream_id&1) != (conn->rx_stream_next&1) ) ) ) {
+    /* A field block on a stream of our own parity is a protocol error:
+       the peer cannot open a stream we would initiate. */
     fd_h2_conn_error( conn, FD_H2_ERR_PROTOCOL );
     return 0;
   }
@@ -271,6 +269,16 @@ fd_h2_rx_headers( fd_h2_conn_t *            conn,
   if( FD_UNLIKELY( !fd_h2_rx_hdrs_account( conn, payload_sz ) ) ) return 0;
 
   if( !stream ) {
+    if( FD_UNLIKELY( stream_id < conn->rx_stream_next ) ) {
+      /* A field block on a peer stream we have already closed and
+         released, e.g. request trailers arriving after we finished the
+         response and reset the stream.  RFC 9113 Section 5.1: the field
+         block is decoded so the HPACK dynamic table stays in sync, then
+         ignored.  The stream is not reopened or reset again. */
+      cb->headers( conn, NULL, payload, payload_sz, frame_flags );
+      return 1;
+    }
+
     /* RFC 9113 Section 5.1.1: the peer spends a stream ID by opening
        it, whether or not this end accepts the stream. */
     conn->rx_stream_next = stream_id+2;
@@ -637,14 +645,20 @@ fd_h2_rx_window_update( fd_h2_conn_t *            conn,
       return 0;
     }
 
-    if( FD_UNLIKELY( !increment ) ) {
-      fd_h2_tx_rst_stream( rbuf_tx, stream_id, FD_H2_ERR_PROTOCOL );
+    fd_h2_stream_t * stream = cb->stream_query( conn, stream_id );
+    if( FD_UNLIKELY( !stream ) ) {
+      /* A stream this end has already closed and released. */
+      fd_h2_tx_rst_stream( rbuf_tx, stream_id, increment ? FD_H2_ERR_STREAM_CLOSED : FD_H2_ERR_PROTOCOL );
       return 1;
     }
 
-    fd_h2_stream_t * stream = cb->stream_query( conn, stream_id );
-    if( FD_UNLIKELY( !stream ) ) {
-      fd_h2_tx_rst_stream( rbuf_tx, stream_id, FD_H2_ERR_STREAM_CLOSED );
+    if( FD_UNLIKELY( !increment ) ) {
+      /* RFC 9113 Section 6.9: a zero WINDOW_UPDATE increment is a stream
+         error.  The stream is closed on both sides, so the app hears
+         about it too and stops producing output for it. */
+      fd_h2_stream_error( stream, conn, rbuf_tx, FD_H2_ERR_PROTOCOL );
+      cb->rst_stream( conn, stream, FD_H2_ERR_PROTOCOL, 0 );
+      /* stream points to freed memory at this point */
       return 1;
     }
 

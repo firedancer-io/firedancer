@@ -23,19 +23,19 @@
 /* Test handler *******************************************************/
 
 struct test_app_stream {
-  int  writable_cnt;
   int  close_cnt;
   int  close_reason;
   int  msg_cnt;
   int  half_close_cnt;
-  int  again_cnt;
-  int  large_err;    /* what the oversized send returned */
-  int  large_follow; /* what a send behind it returned */
-  int  large_second; /* what a second oversized send returned */
-  int  needs_large_big;   /* whether that message needed a slot */
-  int  needs_large_small; /* whether a queue sized one would */
+  int  sent_cnt;     /* messages fd_grpc_server_send accepted */
+  int  send_err;     /* the first send that did not succeed */
+  int  big_err;      /* what the oversized send returned */
+  int  big_follow;   /* what a send behind it returned */
+  int  multi_err;    /* what the last multi-stream send returned for this stream */
+  int  closed;       /* the close callback ran */
   ulong rx_byte_cnt;
   char  token[ 64 ];
+  fd_grpc_server_stream_t * stream;
 };
 
 typedef struct test_app_stream test_app_stream_t;
@@ -49,7 +49,7 @@ struct test_app {
   int                reject_all;
   ulong              large_sz;     /* bytes the Big route sends */
   int                large_finish; /* whether it ends the call right away */
-  int                large_twice;  /* whether it tries a second oversized send */
+  ulong              fill_cnt;     /* messages the Slow route sends */
 };
 
 typedef struct test_app test_app_t;
@@ -73,6 +73,7 @@ test_app_stream_new( fd_grpc_server_stream_t * stream ) {
   FD_TEST( g_app->stream_cnt < 16UL );
   test_app_stream_t * s = g_app->stream + g_app->stream_cnt++;
   *s = (test_app_stream_t){0};
+  s->stream = stream;
   fd_grpc_server_stream_set_ctx( stream, s );
   return s;
 }
@@ -161,25 +162,25 @@ test_app_stream_msg( void *                    ctx,
     ulong cnt = msg_sz>=2UL ? (ulong)msg[1] : 1UL;
     for( ulong i=0UL; i<cnt; i++ ) {
       int err = fd_grpc_server_send( stream, payload, sizeof(payload), 0U );
-      if( err==FD_GRPC_SERVER_ERR_AGAIN ) { s->again_cnt++; return; }
-      FD_TEST( err==FD_GRPC_SERVER_SUCCESS );
+      if( err!=FD_GRPC_SERVER_SUCCESS ) { s->send_err = err; return; }
+      s->sent_cnt++;
     }
     fd_grpc_server_finish( stream, FD_GRPC_STATUS_OK, NULL, 0UL );
     return;
   }
 
   if( msg_sz>=1UL && msg[0]=='O' ) {
-    /* One oversized message, then a run of small ones that have to
-       come out behind it, in order.  The payload of the i-th small
-       message is the byte i, so the wire order is checkable. */
+    /* One big message, then a run of small ones that have to come out
+       behind it, in order.  The payload of the i-th small message is
+       the byte i, so the wire order is checkable. */
     static uchar huge[ 200UL<<10 ];
     for( ulong i=0UL; i<sizeof(huge); i++ ) huge[i] = (uchar)( i*11UL );
-    s->large_err = fd_grpc_server_send( stream, huge, sizeof(huge), 0U );
+    s->big_err = fd_grpc_server_send( stream, huge, sizeof(huge), 0U );
     for( ulong i=0UL; i<8UL; i++ ) {
       uchar one[ 64 ];
       fd_memset( one, (int)i, sizeof(one) );
       int err = fd_grpc_server_send( stream, one, sizeof(one), FD_GRPC_SERVER_SEND_NO_COMPRESS );
-      if( err!=FD_GRPC_SERVER_SUCCESS ) { s->again_cnt++; break; }
+      if( err!=FD_GRPC_SERVER_SUCCESS ) { s->send_err = err; break; }
       s->msg_cnt++;
     }
     fd_grpc_server_finish( stream, FD_GRPC_STATUS_OK, NULL, 0UL );
@@ -187,40 +188,56 @@ test_app_stream_msg( void *                    ctx,
   }
 
   if( msg_sz>=1UL && msg[0]=='L' ) {
-    /* One message larger than any send queue, which goes out through a
-       large send slot */
-    s->large_err = fd_grpc_server_send( stream, test_big_payload, g_app->large_sz, 0U );
-    if( s->large_err==FD_GRPC_SERVER_SUCCESS ) {
-      /* A message that fits the queue is taken behind it, and goes
-         out behind it */
-      s->large_follow = fd_grpc_server_send( stream, payload, sizeof(payload), 0U );
-      /* A second oversized message has to wait, and only it does */
-      if( g_app->large_twice ) {
-        s->large_second = fd_grpc_server_send( stream, test_big_payload, g_app->large_sz, 0U );
-        /* which of the two reasons the refusal was */
-        s->needs_large_big   = fd_grpc_server_msg_needs_large( stream, g_app->large_sz );
-        s->needs_large_small = fd_grpc_server_msg_needs_large( stream, 256UL );
-      }
+    /* One message far larger than a frame, which the ring stages whole
+       and the stream drains one frame at a time */
+    s->big_err = fd_grpc_server_send( stream, test_big_payload, g_app->large_sz, 0U );
+    if( s->big_err==FD_GRPC_SERVER_SUCCESS ) {
+      /* A message sent behind it goes out behind it */
+      s->big_follow = fd_grpc_server_send( stream, payload, sizeof(payload), 0U );
     }
     if( g_app->large_finish ) fd_grpc_server_finish( stream, FD_GRPC_STATUS_OK, NULL, 0UL );
     return;
   }
 
   if( msg_sz>=1UL && msg[0]=='T' ) {
-    /* A message that can never fit the send queue is refused outright */
+    /* A message above max_msg_sz is refused outright */
     static uchar huge[ 128UL<<10 ];
     FD_TEST( fd_grpc_server_send( stream, huge, sizeof(huge), 0U )==FD_GRPC_SERVER_ERR_TOOBIG );
     fd_grpc_server_finish( stream, FD_GRPC_STATUS_OK, NULL, 0UL );
     return;
   }
 
-  if( msg_sz>=1UL && msg[0]=='Q' ) {
-    /* Fill the send queue until it refuses, and stay open */
-    for(;;) {
-      int err = fd_grpc_server_send( stream, payload, sizeof(payload), 0U );
-      if( err==FD_GRPC_SERVER_ERR_AGAIN ) { s->again_cnt++; return; }
-      FD_TEST( err==FD_GRPC_SERVER_SUCCESS );
+  if( msg_sz>=1UL && msg[0]=='M' ) {
+    /* One message to every open stream of the application at once */
+    fd_grpc_server_stream_t * streams[ 16 ];
+    test_app_stream_t *       owners [ 16 ];
+    int                       err    [ 16 ];
+    ulong                     cnt = 0UL;
+    for( ulong i=0UL; i<g_app->stream_cnt; i++ ) {
+      test_app_stream_t * t = g_app->stream + i;
+      if( !t->stream || t->closed ) continue;
+      streams[ cnt ] = t->stream;
+      owners [ cnt ] = t;
+      cnt++;
     }
+    ulong sent = fd_grpc_server_send_multi( streams, cnt, payload, sizeof(payload), 0U, err );
+    for( ulong i=0UL; i<cnt; i++ ) {
+      owners[ i ]->multi_err = err[ i ];
+      if( err[ i ]==FD_GRPC_SERVER_SUCCESS ) owners[ i ]->sent_cnt++;
+    }
+    FD_TEST( sent<=cnt );
+    return;
+  }
+
+  if( msg_sz>=1UL && msg[0]=='Q' ) {
+    /* Queue a run of messages and stay open */
+    ulong cnt = g_app->fill_cnt ? g_app->fill_cnt : 8UL;
+    for( ulong i=0UL; i<cnt; i++ ) {
+      int err = fd_grpc_server_send( stream, payload, sizeof(payload), 0U );
+      if( err!=FD_GRPC_SERVER_SUCCESS ) { s->send_err = err; return; }
+      s->sent_cnt++;
+    }
+    return;
   }
 
   /* Unary echo */
@@ -238,19 +255,12 @@ test_app_stream_half_close( void *                    ctx,
 }
 
 static void
-test_app_stream_writable( void *                    ctx,
-                          fd_grpc_server_stream_t * stream ) {
-  (void)ctx;
-  test_app_stream_t * s = fd_grpc_server_stream_ctx( stream );
-  s->writable_cnt++;
-}
-
-static void
 test_app_stream_close( void *                    ctx,
                        fd_grpc_server_stream_t * stream,
                        int                       reason ) {
   (void)ctx;
   test_app_stream_t * s = fd_grpc_server_stream_ctx( stream );
+  s->closed = 1;
   s->close_cnt++;
   s->close_reason = reason;
 }
@@ -262,7 +272,6 @@ static fd_grpc_server_callbacks_t const test_app_callbacks = {
   .stream_open       = test_app_stream_open,
   .stream_msg        = test_app_stream_msg,
   .stream_half_close = test_app_stream_half_close,
-  .stream_writable   = test_app_stream_writable,
   .stream_close      = test_app_stream_close
 };
 
@@ -663,28 +672,30 @@ tc_msg_at( tc_stream_t * s,
 
 static uchar server_mem[ 8UL<<20 ] __attribute__((aligned(FD_GRPC_SERVER_ALIGN)));
 
-/* The large send path and the message count bound of a send queue,
-   which only the tests that exercise them set.  Zero leaves the server
-   with queues alone. */
+/* The ring and per-stream reference bounds, which only the tests that
+   exercise them set.  Zero leaves the defaults below. */
 
 static ulong g_opt_max_msg_sz;
-static ulong g_opt_large_slots;
-static ulong g_opt_queue_msg_max;
+static ulong g_opt_tx_ring_sz;
+static ulong g_opt_ref_max;
+static int   g_opt_web;         /* serve HTTP/1.1, with test_index_page */
+
+static char const test_index_page[] = "<html><body>dragon</body></html>";
 
 static fd_grpc_server_t *
 test_server_new_ex( int   compression,
                     ulong max_request_msg_sz,
-                    ulong stream_tx_queue_sz,
+                    ulong max_msg_sz,
                     long  idle_nanos ) {
   fd_grpc_server_params_t params[1];
   fd_grpc_server_params_default( params );
   params->max_conn_cnt       = 2UL;
   params->max_stream_cnt     = 4UL;
   params->max_request_msg_sz = max_request_msg_sz;
-  params->stream_tx_queue_sz = stream_tx_queue_sz;
-  params->max_msg_sz              = g_opt_max_msg_sz ? g_opt_max_msg_sz : stream_tx_queue_sz;
-  params->large_msg_slot_cnt      = g_opt_large_slots;
-  params->stream_tx_queue_msg_max = g_opt_queue_msg_max;
+  params->max_msg_sz         = g_opt_max_msg_sz ? g_opt_max_msg_sz : max_msg_sz;
+  params->tx_ring_sz         = g_opt_tx_ring_sz ? g_opt_tx_ring_sz
+                                                : 4UL*( params->max_msg_sz+sizeof(fd_grpc_hdr_t) );
+  params->stream_tx_ref_max  = g_opt_ref_max ? g_opt_ref_max : 256UL;
   params->conn_rx_buf_sz     = 32768UL;
   params->conn_tx_buf_sz     = 32768UL;
   params->conn_rx_wnd_sz     = 1UL<<20;
@@ -694,6 +705,11 @@ test_server_new_ex( int   compression,
   params->compression_level  = 1;
   params->seed               = 42UL;
   params->idle_timeout_nanos       = idle_nanos;
+  if( g_opt_web ) {
+    params->web          = 1;
+    params->web_index    = test_index_page;
+    params->web_index_sz = sizeof(test_index_page)-1UL;
+  }
 
   ulong footprint = fd_grpc_server_footprint( params );
   FD_TEST( footprint );
@@ -710,8 +726,8 @@ test_server_new_ex( int   compression,
 static fd_grpc_server_t *
 test_server_new( int   compression,
                  ulong max_request_msg_sz,
-                 ulong stream_tx_queue_sz ) {
-  return test_server_new_ex( compression, max_request_msg_sz, stream_tx_queue_sz,
+                 ulong max_msg_sz ) {
+  return test_server_new_ex( compression, max_request_msg_sz, max_msg_sz,
                              300L*1000L*1000L*1000L );
 }
 
@@ -1054,47 +1070,23 @@ test_streaming( void ) {
 }
 
 static void
-test_queue_full( void ) {
+test_msg_toobig( void ) {
   fd_grpc_server_t * server = test_server_new( FD_GRPC_SERVER_COMPRESSION_NONE, 4096UL, 2048UL );
   tc_t * tc = g_tc;
   tc_open( tc, server );
 
-  tc_settings( tc, FD_H2_SETTINGS_INITIAL_WINDOW_SIZE, 0U );
-  tc_flush( tc );
-
-  req_opt_t opt = { .path = ROUTE_SLOW };
+  /* A message above max_msg_sz is refused, and the call goes on */
+  req_opt_t opt = { .path = ROUTE_STREAM };
   tc_request( tc, 1U, &opt );
-  uchar cmd[1] = { 'Q' };
-  tc_msg( tc, 1U, 0, cmd, sizeof(cmd), 0 );
+  tc_msg( tc, 1U, 0, "T", 1UL, 1 );
   tc_flush( tc );
-
-  /* The send window is closed, so the queue filled up and the app was
-     told rather than blocked or silently dropped */
-  FD_TEST( g_app->stream[0].again_cnt==1 );
+  tc_expect_trailers( tc, 1U, "0", NULL );
   FD_TEST( tc_stream( tc, 1U )->data_sz==0UL );
-  FD_TEST( fd_grpc_server_metrics( server )->tx_queue_full_cnt==1UL );
-  FD_TEST( g_app->stream[0].writable_cnt==0 );
-
-  /* Opening the window drains the queue and wakes the app */
-  tc_window_update( tc, 1U, 1UL<<20 );
-  tc_flush( tc );
-  FD_TEST( g_app->stream[0].writable_cnt==1 );
-  FD_TEST( tc_stream( tc, 1U )->data_sz>0UL );
-
-  /* A message larger than the queue is refused, not queued */
-  req_opt_t opt2 = { .path = ROUTE_STREAM };
-  tc_request( tc, 3U, &opt2 );
-  tc_msg( tc, 3U, 0, "T", 1UL, 1 );
-  tc_flush( tc );
-  tc_expect_trailers( tc, 3U, "0", NULL );
-  FD_TEST( tc_stream( tc, 3U )->data_sz==0UL );
+  FD_TEST( fd_grpc_server_metrics( server )->tx_toobig_cnt==1UL );
 
   tc_close( tc );
   test_server_delete( server );
 }
-
-/* The large send path: a message larger than any send queue goes out
-   whole, one DATA frame at a time, under flow control. */
 
 /* tc_grant opens both windows wide enough for another frame and lets
    the server run, up to cap times or until the stream ended. */
@@ -1115,10 +1107,13 @@ tc_grant( tc_t * tc,
   return iter;
 }
 
+/* A message far larger than one frame is staged whole in the ring and
+   drained a frame at a time, in order, ahead of what was sent after
+   it. */
+
 static void
-test_large_message( void ) {
-  g_opt_max_msg_sz  = 256UL<<10;
-  g_opt_large_slots = 1UL;
+test_big_message( void ) {
+  g_opt_max_msg_sz = 256UL<<10;
   fd_grpc_server_t * server = test_server_new( FD_GRPC_SERVER_COMPRESSION_NONE, 4096UL, 8192UL );
   tc_t * tc = g_tc;
   tc_open( tc, server );
@@ -1132,8 +1127,8 @@ test_large_message( void ) {
   tc_flush( tc );
 
   tc_stream_t * s = tc_stream( tc, 1U );
-  FD_TEST( g_app->stream[0].large_err   ==FD_GRPC_SERVER_SUCCESS );
-  FD_TEST( g_app->stream[0].large_follow==FD_GRPC_SERVER_SUCCESS );
+  FD_TEST( g_app->stream[0].big_err   ==FD_GRPC_SERVER_SUCCESS );
+  FD_TEST( g_app->stream[0].big_follow==FD_GRPC_SERVER_SUCCESS );
 
   /* The initial window is 65535 bytes, so the message cannot have gone
      out whole and the trailers are still waiting behind it */
@@ -1143,8 +1138,8 @@ test_large_message( void ) {
   ulong iter = tc_grant( tc, 1U, 32768U, 64UL );
   FD_TEST( iter>1UL ); /* more than one window was needed */
 
-  /* The oversized message first, byte for byte, then the one that was
-     queued behind it, then the trailers */
+  /* The big message first, byte for byte, then the one that was sent
+     behind it, then the trailers */
   uchar flag; uchar const * msg; ulong msg_sz;
   ulong off = tc_msg_at( s, 0UL, &flag, &msg, &msg_sz );
   FD_TEST( flag==0 );
@@ -1156,365 +1151,741 @@ test_large_message( void ) {
   tc_expect_trailers( tc, 1U, "0", NULL );
 
   fd_grpc_server_metrics_t const * m = fd_grpc_server_metrics( server );
-  FD_TEST( m->tx_large_msg_cnt ==1UL );
-  FD_TEST( m->tx_large_busy_cnt==0UL );
-  FD_TEST( m->tx_byte_cnt      ==( 200UL<<10 )+256UL );
+  FD_TEST( m->tx_msg_cnt ==2UL );
+  FD_TEST( m->tx_byte_cnt==( 200UL<<10 )+256UL );
+  FD_TEST( !m->tx_too_slow_ring_cnt );
+  FD_TEST( !m->tx_too_slow_refs_cnt );
 
   tc_close( tc );
   test_server_delete( server );
-  g_opt_max_msg_sz  = 0UL;
-  g_opt_large_slots = 0UL;
+  g_opt_max_msg_sz = 0UL;
 }
 
-/* A message above max_msg_sz is refused however long the client
-   waits, and the large path compresses like the queue does. */
+/* A message that wraps the ring while part of it is already staged
+   moves that part to the front, so the bytes it evicts for start at
+   the front and run to the end of the whole message, staged part
+   included.  A stream whose oldest unsent message begins inside the
+   staged part's new place is closed like any other. */
 
 static void
-test_large_bounds( void ) {
-  g_opt_max_msg_sz  = 64UL<<10;
-  g_opt_large_slots = 1UL;
+test_ring_wrap_evict( void ) {
+  g_opt_max_msg_sz = 507UL; /* three of these plus their prefixes fill the ring exactly */
+  g_opt_tx_ring_sz = 1536UL;
+  fd_grpc_server_t * server = test_server_new( FD_GRPC_SERVER_COMPRESSION_NONE, 4096UL, 507UL );
+  tc_t * tc = g_tc;
+  tc_open( tc, server );
+
+  tc_settings( tc, FD_H2_SETTINGS_INITIAL_WINDOW_SIZE, 0U );
+  tc_flush( tc );
+
+  /* Stream 1 queues two 261 byte messages, at ring offsets 0 and 261,
+     and takes exactly the first: its oldest unsent byte is 261. */
+  g_app->fill_cnt = 2UL;
+  req_opt_t slow = { .path = ROUTE_SLOW };
+  tc_request( tc, 1U, &slow );
+  tc_msg( tc, 1U, 0, "Q", 1UL, 0 );
+  tc_flush( tc );
+  FD_TEST( g_app->stream[0].sent_cnt==2 );
+  tc_window_update( tc, 1U, 261U );
+  tc_window_update( tc, 0U, 1U<<20 );
+  tc_flush( tc );
+  FD_TEST( tc_stream( tc, 1U )->data_sz==261UL );
+
+  /* Two echoes fill the ring to offset 1332. */
+  static uchar fill[ 500 ];
+  fd_memset( fill, 'f', sizeof(fill) );
+  req_opt_t unary = { .path = ROUTE_UNARY };
+  tc_request( tc, 3U, &unary );
+  tc_msg( tc, 3U, 0, fill, 500UL, 1 );
+  tc_window_update( tc, 3U, 1U<<20 );
+  tc_request( tc, 5U, &unary );
+  tc_msg( tc, 5U, 0, fill, 300UL, 1 );
+  tc_window_update( tc, 5U, 1U<<20 );
+  tc_flush( tc );
+  FD_TEST( !fd_grpc_server_metrics( server )->tx_too_slow_ring_cnt );
+
+  /* A 257 byte echo has its 5 byte prefix staged at 1332 when its
+     payload does not fit the 199 bytes left, so the whole message moves
+     to offset 0 and occupies 262 bytes there: one byte into stream 1's
+     unsent message. */
+  tc_request( tc, 7U, &unary );
+  tc_msg( tc, 7U, 0, fill, 257UL, 1 );
+  tc_window_update( tc, 7U, 1U<<20 );
+  tc_flush( tc );
+
+  FD_TEST( g_app->stream[0].close_cnt==1 );
+  FD_TEST( g_app->stream[0].close_reason==FD_GRPC_SERVER_CLOSE_TOO_SLOW );
+  FD_TEST( fd_grpc_server_metrics( server )->tx_too_slow_ring_cnt==1UL );
+  tc_expect_trailers( tc, 1U, "13", "grpc: client is too slow" );
+
+  tc_close( tc );
+  test_server_delete( server );
+  g_opt_max_msg_sz = 0UL;
+  g_opt_tx_ring_sz = 0UL;
+}
+
+/* One message sent to several streams at once is compressed once and
+   staged once per form: the stream that takes zstd and the one that
+   does not each get their own copy, and each holds its own
+   reference.  A stream that is gone is skipped. */
+
+static void
+test_send_multi( void ) {
   fd_grpc_server_t * server = test_server_new( FD_GRPC_SERVER_COMPRESSION_ZSTD, 4096UL, 8192UL );
   tc_t * tc = g_tc;
   tc_open( tc, server );
 
-  /* 128 KiB is above max_msg_sz */
-  g_app->large_sz     = 128UL<<10;
-  g_app->large_finish = 1;
-  req_opt_t opt = { .path = ROUTE_BIG, .accept_encoding = "zstd" };
-  tc_request( tc, 1U, &opt );
-  tc_msg( tc, 1U, 0, "L", 1UL, 1 );
-  tc_flush( tc );
-  FD_TEST( g_app->stream[0].large_err==FD_GRPC_SERVER_ERR_TOOBIG );
-  tc_expect_trailers( tc, 1U, "0", NULL );
-  FD_TEST( tc_stream( tc, 1U )->data_sz==0UL );
-
-  /* 64 KiB is the largest there is, and the client accepts zstd */
-  g_app->large_sz = 64UL<<10;
-  req_opt_t opt2 = { .path = ROUTE_BIG, .accept_encoding = "zstd" };
-  tc_request( tc, 3U, &opt2 );
-  tc_msg( tc, 3U, 0, "L", 1UL, 1 );
-  tc_flush( tc );
-  FD_TEST( g_app->stream[1].large_err==FD_GRPC_SERVER_SUCCESS );
-  tc_grant( tc, 3U, 65536U, 64UL );
-
-  tc_stream_t * s = tc_stream( tc, 3U );
-  FD_TEST( !strcmp( s->grpc_encoding, "zstd" ) );
-  uchar flag; uchar const * msg; ulong msg_sz;
-  ulong off = tc_msg_at( s, 0UL, &flag, &msg, &msg_sz );
-  FD_TEST( flag==1 );                 /* the pattern compresses */
-  FD_TEST( msg_sz<( 64UL<<10 ) );
-  /* and the message queued behind it followed */
-  off = tc_msg_at( s, off, &flag, &msg, &msg_sz );
-  FD_TEST( off==s->data_sz );
-  /* both of them: the large one from its slot, the small one from the
-     queue */
-  FD_TEST( fd_grpc_server_metrics( server )->tx_msg_compressed_cnt==2UL );
-
-  tc_close( tc );
-  test_server_delete( server );
-  g_opt_max_msg_sz  = 0UL;
-  g_opt_large_slots = 0UL;
-}
-
-/* A cancelled call gives its large send slot back. */
-
-static void
-test_large_cancel( void ) {
-  g_opt_max_msg_sz  = 256UL<<10;
-  g_opt_large_slots = 1UL;
-  fd_grpc_server_t * server = test_server_new( FD_GRPC_SERVER_COMPRESSION_NONE, 4096UL, 8192UL );
-  tc_t * tc = g_tc;
-  tc_open( tc, server );
-
-  g_app->large_sz     = 200UL<<10;
-  g_app->large_finish = 0;
-
-  req_opt_t opt = { .path = ROUTE_BIG };
-  tc_request( tc, 1U, &opt );
-  tc_msg( tc, 1U, 0, "L", 1UL, 0 );
-  tc_flush( tc );
-  FD_TEST( g_app->stream[0].large_err==FD_GRPC_SERVER_SUCCESS );
-  ulong partial = tc_stream( tc, 1U )->data_sz;
-  FD_TEST( partial>0UL && partial<( 200UL<<10 ) );
-
-  tc_rst( tc, 1U, FD_H2_ERR_CANCEL );
-  tc_flush( tc );
-  FD_TEST( g_app->stream[0].close_cnt==1 );
-  FD_TEST( g_app->stream[0].close_reason==FD_GRPC_SERVER_CLOSE_CANCELLED );
-  /* No more of the cancelled message went out */
-  tc_window_update( tc, 0U, 1UL<<20 );
-  tc_flush( tc );
-  FD_TEST( tc_stream( tc, 1U )->data_sz==partial );
-
-  /* The slot is free, so the next call gets it */
-  g_app->large_finish = 1;
-  req_opt_t opt2 = { .path = ROUTE_BIG };
-  tc_request( tc, 3U, &opt2 );
-  tc_msg( tc, 3U, 0, "L", 1UL, 1 );
-  tc_flush( tc );
-  FD_TEST( g_app->stream[1].large_err==FD_GRPC_SERVER_SUCCESS );
-  tc_grant( tc, 3U, 65536U, 64UL );
-  uchar flag; uchar const * msg; ulong msg_sz;
-  tc_stream_t * s3 = tc_stream( tc, 3U );
-  ulong off3 = tc_msg_at( s3, 0UL, &flag, &msg, &msg_sz );
-  FD_TEST( msg_sz==( 200UL<<10 ) );
-  FD_TEST( fd_memeq( msg, test_big_payload, msg_sz ) );
-  FD_TEST( tc_msg_at( s3, off3, &flag, &msg, &msg_sz )==s3->data_sz );
-
-  tc_close( tc );
-  test_server_delete( server );
-  g_opt_max_msg_sz  = 0UL;
-  g_opt_large_slots = 0UL;
-}
-
-/* With the pool exhausted the second oversized send is told to wait,
-   and is woken when a slot comes back. */
-
-static void
-test_large_busy( void ) {
-  g_opt_max_msg_sz  = 256UL<<10;
-  g_opt_large_slots = 1UL;
-  fd_grpc_server_t * server = test_server_new( FD_GRPC_SERVER_COMPRESSION_NONE, 4096UL, 8192UL );
-  tc_t * tc = g_tc;
-  tc_open( tc, server );
-
-  g_app->large_sz     = 100UL<<10;
-  g_app->large_finish = 0;
-
-  req_opt_t opt1 = { .path = ROUTE_BIG };
-  tc_request( tc, 1U, &opt1 );
-  tc_msg( tc, 1U, 0, "L", 1UL, 0 );
-  req_opt_t opt2 = { .path = ROUTE_BIG };
-  tc_request( tc, 3U, &opt2 );
-  tc_msg( tc, 3U, 0, "L", 1UL, 0 );
+  req_opt_t zstd = { .path = ROUTE_SLOW, .accept_encoding = "zstd" };
+  req_opt_t raw  = { .path = ROUTE_SLOW };
+  tc_request( tc, 1U, &zstd );
+  tc_request( tc, 3U, &raw  );
+  tc_request( tc, 5U, &raw  );
   tc_flush( tc );
 
-  FD_TEST( g_app->stream[0].large_err==FD_GRPC_SERVER_SUCCESS );
-  FD_TEST( g_app->stream[1].large_err==FD_GRPC_SERVER_ERR_AGAIN );
-  FD_TEST( fd_grpc_server_metrics( server )->tx_large_busy_cnt==1UL );
-  FD_TEST( g_app->stream[1].writable_cnt==0 );
+  /* Stream 5 goes away before the send */
+  tc_rst( tc, 5U, 0U );
+  tc_flush( tc );
+  FD_TEST( g_app->stream[2].closed );
 
-  /* Draining the first message frees the slot and wakes the second
-     call, which is what the writable callback is for */
-  for( ulong i=0UL; i<32UL && !g_app->stream[1].writable_cnt; i++ ) {
-    tc_window_update( tc, 1U, 65536U );
-    tc_window_update( tc, 0U, 65536U );
-    tc_flush( tc );
-  }
-  FD_TEST( g_app->stream[1].writable_cnt==1 );
-
-  tc_close( tc );
-  test_server_delete( server );
-  g_opt_max_msg_sz  = 0UL;
-  g_opt_large_slots = 0UL;
-}
-
-/* A stream draining an oversized message does not starve the others:
-   the flush loop emits one frame per stream per turn whichever source
-   it comes from. */
-
-static void
-test_large_fair( void ) {
-  g_opt_max_msg_sz  = 256UL<<10;
-  g_opt_large_slots = 1UL;
-  fd_grpc_server_t * server = test_server_new( FD_GRPC_SERVER_COMPRESSION_NONE, 4096UL, 1UL<<16 );
-  tc_t * tc = g_tc;
-  tc_open( tc, server );
-
-  g_app->large_sz     = 200UL<<10;
-  g_app->large_finish = 1;
-
-  req_opt_t opt1 = { .path = ROUTE_BIG };
-  tc_request( tc, 1U, &opt1 );
-  tc_msg( tc, 1U, 0, "L", 1UL, 1 );
-  uchar cmd[2] = { 'S', 8 };
-  req_opt_t opt2 = { .path = ROUTE_STREAM };
-  tc_request( tc, 3U, &opt2 );
-  tc_msg( tc, 3U, 0, cmd, sizeof(cmd), 1 );
+  tc_msg( tc, 3U, 0, "M", 1UL, 0 );
   tc_flush( tc );
 
-  /* The small call finished while the large message was still going
-     out, rather than waiting behind it */
-  FD_TEST( tc_stream( tc, 3U )->end_stream );
-  FD_TEST( tc_stream( tc, 3U )->data_sz==8UL*261UL );
-  FD_TEST( !tc_stream( tc, 1U )->end_stream );
+  FD_TEST( g_app->stream[0].multi_err==FD_GRPC_SERVER_SUCCESS );
+  FD_TEST( g_app->stream[1].multi_err==FD_GRPC_SERVER_SUCCESS );
 
-  tc_grant( tc, 1U, 65536U, 64UL );
+  fd_grpc_server_metrics_t const * m = fd_grpc_server_metrics( server );
+  FD_TEST( m->tx_msg_cnt           ==2UL );
+  FD_TEST( m->tx_msg_shared_cnt    ==1UL );
+  FD_TEST( m->tx_msg_compressed_cnt==1UL );
+
+  /* The zstd stream got a compressed copy, the other the bytes as
+     sent */
   uchar flag; uchar const * msg; ulong msg_sz;
   tc_stream_t * s1 = tc_stream( tc, 1U );
-  ulong off1 = tc_msg_at( s1, 0UL, &flag, &msg, &msg_sz );
-  FD_TEST( msg_sz==( 200UL<<10 ) );
-  FD_TEST( fd_memeq( msg, test_big_payload, msg_sz ) );
-  FD_TEST( tc_msg_at( s1, off1, &flag, &msg, &msg_sz )==s1->data_sz );
+  tc_stream_t * s3 = tc_stream( tc, 3U );
+  ulong off = tc_msg_at( s1, 0UL, &flag, &msg, &msg_sz );
+  FD_TEST( flag==1 && msg_sz<256UL && off==s1->data_sz );
+  off = tc_msg_at( s3, 0UL, &flag, &msg, &msg_sz );
+  FD_TEST( flag==0 && msg_sz==256UL && off==s3->data_sz );
+  FD_TEST( msg[ 0 ]==0x40 && msg[ 255 ]==(uchar)( 0x40+(255&0x1f) ) );
 
   tc_close( tc );
   test_server_delete( server );
-  g_opt_max_msg_sz  = 0UL;
-  g_opt_large_slots = 0UL;
 }
 
-/* A send queue is bounded in messages as well as in bytes. */
+/* A stream that does not take its output is closed when the ring
+   needs the bytes back, and only that stream is. */
 
 static void
-test_queue_msg_max( void ) {
-  g_opt_queue_msg_max = 3UL;
-  fd_grpc_server_t * server = test_server_new( FD_GRPC_SERVER_COMPRESSION_NONE, 4096UL, 1UL<<16 );
+test_ring_evict( void ) {
+  g_opt_max_msg_sz = 256UL;
+  g_opt_tx_ring_sz = 1536UL;
+  fd_grpc_server_t * server = test_server_new( FD_GRPC_SERVER_COMPRESSION_NONE, 4096UL, 256UL );
+  tc_t * tc = g_tc;
+  tc_open( tc, server );
+
+  /* Nobody can send DATA until they are granted a window */
+  tc_settings( tc, FD_H2_SETTINGS_INITIAL_WINDOW_SIZE, 0U );
+  tc_flush( tc );
+
+  /* Stream 1 queues two messages and never takes them */
+  g_app->fill_cnt = 2UL;
+  req_opt_t slow = { .path = ROUTE_SLOW };
+  tc_request( tc, 1U, &slow );
+  tc_msg( tc, 1U, 0, "Q", 1UL, 0 );
+  tc_flush( tc );
+  FD_TEST( g_app->stream[0].sent_cnt==2 );
+  FD_TEST( tc_stream( tc, 1U )->data_sz==0UL );
+  FD_TEST( !g_app->stream[0].close_cnt );
+
+  /* Stream 3 keeps up, and pushes the ring past stream 1's bytes */
+  uchar cmd[2] = { 'S', 4 };
+  req_opt_t strm = { .path = ROUTE_STREAM };
+  tc_request( tc, 3U, &strm );
+  tc_msg( tc, 3U, 0, cmd, sizeof(cmd), 1 );
+  tc_window_update( tc, 3U, 1UL<<20 );
+  tc_window_update( tc, 0U, 1UL<<20 );
+  tc_flush( tc );
+
+  /* Stream 1 is gone, with a status that says why */
+  FD_TEST( g_app->stream[0].close_cnt==1 );
+  FD_TEST( g_app->stream[0].close_reason==FD_GRPC_SERVER_CLOSE_TOO_SLOW );
+  FD_TEST( fd_grpc_server_metrics( server )->tx_too_slow_ring_cnt==1UL );
+  tc_expect_trailers( tc, 1U, "13", "grpc: client is too slow" );
+
+  /* Stream 3 lost nothing */
+  tc_expect_trailers( tc, 3U, "0", NULL );
+  FD_TEST( tc_stream( tc, 3U )->data_sz==4UL*261UL );
+  FD_TEST( fd_grpc_server_conn_is_open( tc->conn ) );
+
+  tc_close( tc );
+  test_server_delete( server );
+  g_opt_max_msg_sz = 0UL;
+  g_opt_tx_ring_sz = 0UL;
+}
+
+/* A stream with more pending messages than it may hold is closed the
+   same way, without the ring having to wrap. */
+
+static void
+test_ref_evict( void ) {
+  g_opt_ref_max = 2UL;   /* two messages */
+  fd_grpc_server_t * server = test_server_new( FD_GRPC_SERVER_COMPRESSION_NONE, 4096UL, 4096UL );
   tc_t * tc = g_tc;
   tc_open( tc, server );
 
   tc_settings( tc, FD_H2_SETTINGS_INITIAL_WINDOW_SIZE, 0U );
   tc_flush( tc );
 
-  req_opt_t opt = { .path = ROUTE_SLOW };
-  tc_request( tc, 1U, &opt );
+  g_app->fill_cnt = 4UL;
+  req_opt_t slow = { .path = ROUTE_SLOW };
+  tc_request( tc, 1U, &slow );
   tc_msg( tc, 1U, 0, "Q", 1UL, 0 );
   tc_flush( tc );
 
-  /* The queue has room for hundreds of 256 byte messages, so the count
-     is what stopped it */
-  FD_TEST( g_app->stream[0].again_cnt==1 );
-  FD_TEST( fd_grpc_server_metrics( server )->tx_msg_cnt==3UL );
-
-  /* Draining retires the queued messages and wakes the app */
-  tc_window_update( tc, 1U, 1UL<<20 );
-  tc_flush( tc );
-  FD_TEST( g_app->stream[0].writable_cnt==1 );
-  FD_TEST( tc_stream( tc, 1U )->data_sz==3UL*261UL );
+  FD_TEST( g_app->stream[0].sent_cnt==2 );
+  FD_TEST( g_app->stream[0].send_err==FD_GRPC_SERVER_ERR_CLOSED );
+  FD_TEST( g_app->stream[0].close_cnt==1 );
+  FD_TEST( g_app->stream[0].close_reason==FD_GRPC_SERVER_CLOSE_TOO_SLOW );
+  FD_TEST( fd_grpc_server_metrics( server )->tx_too_slow_refs_cnt==1UL );
+  FD_TEST( !fd_grpc_server_metrics( server )->tx_too_slow_ring_cnt );
+  tc_expect_trailers( tc, 1U, "13", "grpc: client is too slow" );
 
   tc_close( tc );
   test_server_delete( server );
-  g_opt_queue_msg_max = 0UL;
+  g_opt_ref_max = 0UL;
 }
 
-/* The message count of a send queue bounds what the queue holds, not
-   what a call may send over its life: the count has to come back down
-   as the queue drains, however the bytes were split into frames. */
+/* A stream evicted part way through a message cannot be finished with
+   trailers, so the peer is told with a stream error instead. */
 
 static void
-test_queue_msg_max_cycles( void ) {
-  g_opt_queue_msg_max = 3UL;
-  fd_grpc_server_t * server = test_server_new( FD_GRPC_SERVER_COMPRESSION_NONE, 4096UL, 1UL<<16 );
+test_evict_midmessage( void ) {
+  g_opt_max_msg_sz = 256UL;
+  g_opt_tx_ring_sz = 1536UL;
+  fd_grpc_server_t * server = test_server_new( FD_GRPC_SERVER_COMPRESSION_NONE, 4096UL, 256UL );
   tc_t * tc = g_tc;
   tc_open( tc, server );
 
   tc_settings( tc, FD_H2_SETTINGS_INITIAL_WINDOW_SIZE, 0U );
   tc_flush( tc );
 
-  req_opt_t opt = { .path = ROUTE_SLOW };
-  tc_request( tc, 1U, &opt );
-
-  /* Eight rounds of filling the queue to its message bound and
-     draining it in 64 byte grants, which splits every 261 byte
-     message across several frames. */
-  for( ulong round=0UL; round<8UL; round++ ) {
-    tc_msg( tc, 1U, 0, "Q", 1UL, 0 );
-    tc_flush( tc );
-    FD_TEST( g_app->stream[0].again_cnt==(int)round+1 );
-    for( ulong i=0UL; i<16UL; i++ ) {
-      tc_window_update( tc, 1U, 64U );
-      tc_window_update( tc, 0U, 64U );
-      tc_flush( tc );
-    }
-    FD_TEST( tc_stream( tc, 1U )->data_sz==(round+1UL)*3UL*261UL );
-  }
-
-  tc_close( tc );
-  test_server_delete( server );
-  g_opt_queue_msg_max = 0UL;
-}
-
-/* Messages sent while an oversized one is draining go out behind it,
-   in the order they were sent, and the queue's own bounds still
-   apply. */
-
-static void
-test_large_order( void ) {
-  g_opt_max_msg_sz    = 256UL<<10;
-  g_opt_large_slots   = 1UL;
-  g_opt_queue_msg_max = 6UL;   /* fewer than the eight the app tries */
-  fd_grpc_server_t * server = test_server_new( FD_GRPC_SERVER_COMPRESSION_NONE, 4096UL, 8192UL );
-  tc_t * tc = g_tc;
-  tc_open( tc, server );
-
-  req_opt_t opt = { .path = ROUTE_BIG };
-  tc_request( tc, 1U, &opt );
-  tc_msg( tc, 1U, 0, "O", 1UL, 1 );
+  g_app->fill_cnt = 2UL;
+  req_opt_t slow = { .path = ROUTE_SLOW };
+  tc_request( tc, 1U, &slow );
+  tc_msg( tc, 1U, 0, "Q", 1UL, 0 );
   tc_flush( tc );
 
-  test_app_stream_t * a = g_app->stream+0;
-  FD_TEST( a->large_err==FD_GRPC_SERVER_SUCCESS );
-  /* The message count bound stopped it, not the large message */
-  FD_TEST( a->msg_cnt==1+6 ); /* the request, plus the six that fit */
-  FD_TEST( a->again_cnt==1 );
+  /* Enough window for the length prefix and part of the payload, so
+     the stream stops in the middle of a message */
+  tc_window_update( tc, 1U, 100U );
+  tc_window_update( tc, 0U, 100U );
+  tc_flush( tc );
+  ulong partial = tc_stream( tc, 1U )->data_sz;
+  FD_TEST( partial>0UL && partial<261UL );
 
-  tc_grant( tc, 1U, 65536U, 64UL );
+  /* Stream 3 pushes the ring past what stream 1 has not sent */
+  uchar cmd[2] = { 'S', 4 };
+  req_opt_t strm = { .path = ROUTE_STREAM };
+  tc_request( tc, 3U, &strm );
+  tc_msg( tc, 3U, 0, cmd, sizeof(cmd), 1 );
+  tc_window_update( tc, 3U, 1UL<<20 );
+  tc_window_update( tc, 0U, 1UL<<20 );
+  tc_flush( tc );
 
-  /* The oversized message came first, then the six small ones in the
-     order they were sent */
-  tc_stream_t * s = tc_stream( tc, 1U );
-  uchar flag; uchar const * msg; ulong msg_sz;
-  ulong off = tc_msg_at( s, 0UL, &flag, &msg, &msg_sz );
-  FD_TEST( msg_sz==( 200UL<<10 ) );
-  FD_TEST( msg[ 0 ]==0 && msg[ 1 ]==11 );
-  for( ulong i=0UL; i<6UL; i++ ) {
-    off = tc_msg_at( s, off, &flag, &msg, &msg_sz );
-    FD_TEST( msg_sz==64UL );
-    FD_TEST( msg[ 0 ]==(uchar)i && msg[ 63 ]==(uchar)i );
-  }
-  FD_TEST( off==s->data_sz );
-  tc_expect_trailers( tc, 1U, "0", NULL );
-  FD_TEST( fd_grpc_server_metrics( server )->tx_large_msg_cnt==1UL );
+  FD_TEST( tc_stream( tc, 1U )->rst );
+  FD_TEST( !tc_stream( tc, 1U )->end_stream );
+  FD_TEST( tc_stream( tc, 1U )->data_sz==partial );
+  FD_TEST( g_app->stream[0].close_cnt==1 );
+  FD_TEST( g_app->stream[0].close_reason==FD_GRPC_SERVER_CLOSE_TOO_SLOW );
+
+  /* and the healthy stream still finishes */
+  tc_expect_trailers( tc, 3U, "0", NULL );
+  FD_TEST( tc_stream( tc, 3U )->data_sz==4UL*261UL );
 
   tc_close( tc );
   test_server_delete( server );
-  g_opt_max_msg_sz    = 0UL;
-  g_opt_large_slots   = 0UL;
-  g_opt_queue_msg_max = 0UL;
+  g_opt_max_msg_sz = 0UL;
+  g_opt_tx_ring_sz = 0UL;
 }
 
-/* A second oversized message on a stream that already holds a slot
-   waits, and only it does. */
+/* A call the app already finished, evicted before its messages went
+   out, ends with the eviction's status and not the app's. */
 
 static void
-test_large_second( void ) {
-  g_opt_max_msg_sz  = 256UL<<10;
-  g_opt_large_slots = 4UL;   /* slots to spare: the stream is the bound */
+test_evict_finished( void ) {
+  g_opt_max_msg_sz = 256UL;
+  g_opt_tx_ring_sz = 1536UL;
+  fd_grpc_server_t * server = test_server_new( FD_GRPC_SERVER_COMPRESSION_NONE, 4096UL, 256UL );
+  tc_t * tc = g_tc;
+  tc_open( tc, server );
+  tc_settings( tc, FD_H2_SETTINGS_INITIAL_WINDOW_SIZE, 0U );
+  tc_flush( tc );
+
+  /* Stream 1 sends two messages and finishes OK, and none of it moves */
+  uchar two[ 2 ] = { 'S', 2 };
+  req_opt_t strm = { .path = ROUTE_STREAM };
+  tc_request( tc, 1U, &strm );
+  tc_msg( tc, 1U, 0, two, 2UL, 1 );
+  tc_flush( tc );
+  FD_TEST( g_app->stream[0].sent_cnt==2 && !g_app->stream[0].close_cnt );
+
+  /* Stream 3 takes the ring past it */
+  uchar four[ 2 ] = { 'S', 4 };
+  tc_request( tc, 3U, &strm );
+  tc_msg( tc, 3U, 0, four, 2UL, 1 );
+  tc_window_update( tc, 3U, 1UL<<20 );
+  tc_window_update( tc, 0U, 1UL<<20 );
+  tc_flush( tc );
+
+  tc_stream_t * s1 = tc_stream( tc, 1U );
+  FD_TEST( g_app->stream[0].close_cnt==1 && g_app->stream[0].close_reason==FD_GRPC_SERVER_CLOSE_TOO_SLOW );
+  FD_TEST( s1->end_stream && !s1->rst && !s1->data_sz );
+  FD_TEST( !strcmp( s1->grpc_status, "13" ) );
+
+  tc_close( tc );
+  test_server_delete( server );
+  g_opt_max_msg_sz = 0UL;
+  g_opt_tx_ring_sz = 0UL;
+}
+
+/* A shutdown drops the output nobody took: a message partly on the
+   wire resets its stream, and a finished call whose messages were
+   dropped ends UNAVAILABLE. */
+
+static void
+test_shutdown_drop( void ) {
+  g_opt_max_msg_sz = 256UL<<10;
   fd_grpc_server_t * server = test_server_new( FD_GRPC_SERVER_COMPRESSION_NONE, 4096UL, 8192UL );
   tc_t * tc = g_tc;
   tc_open( tc, server );
-
-  g_app->large_sz     = 100UL<<10;
-  g_app->large_finish = 1;
-  g_app->large_twice  = 1;
-
-  req_opt_t opt = { .path = ROUTE_BIG };
-  tc_request( tc, 1U, &opt );
+  g_app->large_sz     = 200UL<<10;
+  g_app->large_finish = 0;
+  req_opt_t big = { .path = ROUTE_BIG };
+  tc_request( tc, 1U, &big );
   tc_msg( tc, 1U, 0, "L", 1UL, 1 );
   tc_flush( tc );
-
-  FD_TEST( g_app->stream[0].large_err   ==FD_GRPC_SERVER_SUCCESS   );
-  FD_TEST( g_app->stream[0].large_follow==FD_GRPC_SERVER_SUCCESS   );
-  FD_TEST( g_app->stream[0].large_second==FD_GRPC_SERVER_ERR_AGAIN );
-  FD_TEST( fd_grpc_server_metrics( server )->tx_large_busy_cnt==1UL );
-  /* the refused one needed a slot, which is how an application tells
-     this apart from a full queue */
-  FD_TEST(  g_app->stream[0].needs_large_big   );
-  FD_TEST( !g_app->stream[0].needs_large_small );
-
-  tc_grant( tc, 1U, 65536U, 64UL );
   tc_stream_t * s = tc_stream( tc, 1U );
-  uchar flag; uchar const * msg; ulong msg_sz;
-  ulong off = tc_msg_at( s, 0UL, &flag, &msg, &msg_sz );
-  FD_TEST( msg_sz==( 100UL<<10 ) );
-  off = tc_msg_at( s, off, &flag, &msg, &msg_sz );
-  FD_TEST( msg_sz==256UL );
-  FD_TEST( off==s->data_sz );
+  FD_TEST( s->data_sz>0UL && s->data_sz<5UL+(200UL<<10) && !s->end_stream );
 
-  g_app->large_twice = 0;
+  fd_grpc_server_shutdown( server );
+  tc_drain( tc );
+  fd_grpc_server_service( server, tc->now );
+  tc_drain( tc );
+  FD_TEST( s->rst && !s->end_stream );
+  FD_TEST( g_app->stream[0].close_reason==FD_GRPC_SERVER_CLOSE_ABORTED );
+  test_server_delete( server );
+  g_opt_max_msg_sz = 0UL;
+
+  server = test_server_new( FD_GRPC_SERVER_COMPRESSION_NONE, 4096UL, 8192UL );
+  tc_open( tc, server );
+  tc_settings( tc, FD_H2_SETTINGS_INITIAL_WINDOW_SIZE, 0U );
+  tc_flush( tc );
+  req_opt_t unary = { .path = ROUTE_UNARY };
+  tc_request( tc, 1U, &unary );
+  tc_msg( tc, 1U, 0, "hello", 5UL, 1 );
+  tc_flush( tc );
+  s = tc_stream( tc, 1U );
+  FD_TEST( !s->data_sz && !s->end_stream );
+
+  fd_grpc_server_shutdown( server );
+  tc_drain( tc );
+  FD_TEST( s->end_stream && !s->data_sz );
+  FD_TEST( !strcmp( s->grpc_status, "14" ) );
+  test_server_delete( server );
+}
+
+/* A shutdown before a connection's preface puts nothing on the wire,
+   and deleting the server reports every live call closed. */
+
+static void
+test_shutdown_early_delete( void ) {
+  g_opt_web = 1;
+  fd_grpc_server_t * server = test_server_new( FD_GRPC_SERVER_COMPRESSION_NONE, 4096UL, 8192UL );
+  long now = 1000L*1000L*1000L;
+  fd_grpc_server_conn_t * conn = fd_grpc_server_conn_open_direct( server, now );
+  FD_TEST( conn );
+  fd_grpc_server_shutdown( server );
+  static uchar out[ 256 ];
+  FD_TEST( !fd_grpc_server_conn_pop_tx( conn, out, sizeof(out) ) );
+  FD_TEST( !fd_grpc_server_conn_is_open( conn ) );
+  test_server_delete( server );
+  g_opt_web = 0;
+
+  server = test_server_new( FD_GRPC_SERVER_COMPRESSION_NONE, 4096UL, 8192UL );
+  tc_t * tc = g_tc;
+  tc_open( tc, server );
+  req_opt_t slow = { .path = ROUTE_SLOW };
+  tc_request( tc, 1U, &slow );
+  tc_msg( tc, 1U, 0, "Q", 1UL, 0 );
+  tc_flush( tc );
+  FD_TEST( g_app->stream[0].sent_cnt>0 && !g_app->stream[0].close_cnt );
+  test_server_delete( server );
+  FD_TEST( g_app->stream[0].close_cnt==1 && g_app->stream[0].close_reason==FD_GRPC_SERVER_CLOSE_CONN_LOST );
+  FD_TEST( g_app->conn_close_cnt==g_app->conn_open_cnt );
+}
+
+/* A message that would run past the physical end of the ring is
+   relocated to its front, and the bytes on the wire are the bytes that
+   were sent. */
+
+static void
+test_ring_relocate( void ) {
+  g_opt_max_msg_sz = 1000UL;
+  g_opt_tx_ring_sz = 4000UL; /* not a multiple of any message size */
+  fd_grpc_server_t * server = test_server_new( FD_GRPC_SERVER_COMPRESSION_NONE, 4096UL, 1000UL );
+  tc_t * tc = g_tc;
+  tc_open( tc, server );
+
+  tc_settings( tc, FD_H2_SETTINGS_INITIAL_WINDOW_SIZE, 1UL<<20 );
+  tc_flush( tc );
+
+  /* Many rounds of echo, so the ring wraps repeatedly and messages
+     land across the physical end.  The size changes every round, so a
+     length prefix left behind by an earlier message does not read
+     back as the right one. */
+  static uchar payload[ 1000 ];
+  for( ulong round=0UL; round<32UL; round++ ) {
+    ulong plen = 600UL + 37UL*round;
+    FD_TEST( plen<=sizeof(payload) );
+    for( ulong i=0UL; i<plen; i++ ) payload[i] = (uchar)( i*3UL + round );
+    uint id = (uint)( 1UL+2UL*round );
+    if( id>=2UL*TC_STREAM_MAX ) break;
+    req_opt_t opt = { .path = ROUTE_UNARY };
+    tc_request( tc, id, &opt );
+    tc_msg( tc, id, 0, payload, plen, 1 );
+    tc_window_update( tc, id, 1UL<<20 );
+    tc_window_update( tc, 0U, 1UL<<20 );
+    tc_flush( tc );
+
+    tc_stream_t * s = tc_stream( tc, id );
+    uchar flag; uchar const * msg; ulong msg_sz;
+    ulong off = tc_msg_at( s, 0UL, &flag, &msg, &msg_sz );
+    FD_TEST( msg_sz==plen );
+    FD_TEST( fd_memeq( msg, payload, msg_sz ) );
+    FD_TEST( off==s->data_sz );
+    tc_expect_trailers( tc, id, "0", NULL );
+
+    /* Retire the slot, bytes and all, so the next round reuses it */
+    fd_memset( s, 0, sizeof(tc_stream_t) );
+  }
+  FD_TEST( !fd_grpc_server_metrics( server )->tx_too_slow_ring_cnt );
+
   tc_close( tc );
   test_server_delete( server );
-  g_opt_max_msg_sz  = 0UL;
-  g_opt_large_slots = 0UL;
+  g_opt_max_msg_sz = 0UL;
+  g_opt_tx_ring_sz = 0UL;
+}
+
+/* A browser cannot open an HTTP/2 cleartext connection, so an HTTP/1.1
+   request line is answered with a page instead of being dropped, and
+   the server's own SETTINGS wait until the peer proves it speaks
+   HTTP/2. */
+
+static ulong
+test_http1( fd_grpc_server_t * server,
+            char const *       req,
+            char *             out,
+            ulong              out_max,
+            int                expect_quiet ) {
+  long now = 1000L*1000L*1000L;
+  fd_grpc_server_conn_t * conn = fd_grpc_server_conn_open_direct( server, now );
+  FD_TEST( conn );
+
+  /* The event loop services a new connection before its first byte
+     arrives, which is where the server would put its SETTINGS. */
+  fd_grpc_server_service( server, now );
+  ulong early = fd_grpc_server_conn_pop_tx( conn, out, out_max-1UL );
+  if( expect_quiet ) FD_TEST( !early ); /* nothing may precede an HTTP/1.1 reply */
+
+  ulong req_sz = strlen( req );
+  FD_TEST( fd_grpc_server_conn_push_rx( conn, req, req_sz, now )==req_sz );
+  fd_grpc_server_service( server, now );
+  ulong n = fd_grpc_server_conn_pop_tx( conn, out, out_max-1UL );
+  out[ n ] = '\0';
+  if( fd_grpc_server_conn_is_open( conn ) ) fd_grpc_server_conn_close( conn );
+  return n;
+}
+
+static void
+test_http1_index( void ) {
+  fd_grpc_server_t * server = test_server_new( FD_GRPC_SERVER_COMPRESSION_NONE, 4096UL, 8192UL );
+  static char out[ 4096 ];
+
+  /* Without web the connection is refused, POST included */
+  FD_TEST( !test_http1( server, "GET / HTTP/1.1\r\nHost: x\r\n\r\n", out, sizeof(out), 0 ) );
+  FD_TEST( !test_http1( server, "POST /test.Svc/Unary HTTP/1.1\r\n\r\n", out, sizeof(out), 0 ) );
+  test_server_delete( server );
+
+  g_opt_web = 1;
+  server = test_server_new( FD_GRPC_SERVER_COMPRESSION_NONE, 4096UL, 8192UL );
+
+  ulong n = test_http1( server, "GET / HTTP/1.1\r\nHost: x\r\n\r\n", out, sizeof(out), 1 );
+  FD_TEST( n );
+  FD_TEST( !strncmp( out, "HTTP/1.1 200 OK\r\n", 17UL ) );
+  FD_TEST( strstr( out, "content-type: text/html; charset=utf-8\r\n" ) );
+  FD_TEST( strstr( out, "content-length: 32\r\n" ) );
+  FD_TEST( strstr( out, "connection: close\r\n" ) );
+  /* The body follows the head, and nothing of HTTP/2 precedes it */
+  FD_TEST( strstr( out, test_index_page ) );
+  FD_TEST( out[0]=='H' );
+
+  /* Any other path is not found */
+  n = test_http1( server, "GET /favicon.ico HTTP/1.1\r\n\r\n", out, sizeof(out), 1 );
+  FD_TEST( n && !strncmp( out, "HTTP/1.1 404 Not Found\r\n", 24UL ) );
+
+  /* An HTTP/2 client on the same server is unaffected */
+  tc_t * tc = g_tc;
+  tc_open( tc, server );
+  req_opt_t opt = { .path = ROUTE_UNARY };
+  tc_request( tc, 1U, &opt );
+  tc_msg( tc, 1U, 0, "hi", 2UL, 1 );
+  tc_flush( tc );
+  tc_expect_trailers( tc, 1U, "0", NULL );
+  FD_TEST( tc_stream( tc, 1U )->data_sz==7UL );
+
+  tc_close( tc );
+  test_server_delete( server );
+  g_opt_web = 0;
+}
+
+/* test_web_call sends a gRPC-Web request to path, with the given extra
+   header lines and one request message, split into two reads at split
+   (0 for one).  Returns the response bytes, with *conn_out left at the
+   connection. */
+
+static ulong
+test_web_call( fd_grpc_server_t *       server,
+               char const *             path,
+               char const *             hdrs,
+               char const *             msg,
+               ulong                    msg_sz,
+               ulong                    split,
+               uchar *                  out,
+               ulong                    out_max,
+               fd_grpc_server_conn_t ** conn_out ) {
+  long now = 1000L*1000L*1000L;
+  fd_grpc_server_conn_t * conn = fd_grpc_server_conn_open_direct( server, now );
+  FD_TEST( conn );
+  *conn_out = conn;
+  fd_grpc_server_service( server, now );
+
+  static char req[ 1024 ];
+  ulong req_sz;
+  FD_TEST( fd_cstr_printf_check( req, sizeof(req), &req_sz, "POST %s HTTP/1.1\r\n%s"
+                                 "Content-Length: %lu\r\n\r\n", path, hdrs, 5UL+msg_sz ) );
+  FD_TEST( req_sz+5UL+msg_sz<sizeof(req) );
+  req[ req_sz++ ] = 0;
+  FD_STORE( uint, req+req_sz, fd_uint_bswap( (uint)msg_sz ) ); req_sz += 4UL;
+  fd_memcpy( req+req_sz, msg, msg_sz );                         req_sz += msg_sz;
+
+  if( split ) {
+    FD_TEST( fd_grpc_server_conn_push_rx( conn, req, split, now )==split );
+    fd_grpc_server_service( server, now );
+    FD_TEST( !fd_grpc_server_conn_pop_tx( conn, out, out_max ) );
+  }
+  FD_TEST( fd_grpc_server_conn_push_rx( conn, req+split, req_sz-split, now )==req_sz-split );
+
+  ulong out_sz = 0UL;
+  for( ulong i=0UL; i<8UL && fd_grpc_server_conn_is_open( conn ); i++ ) {
+    fd_grpc_server_service( server, now );
+    out_sz += fd_grpc_server_conn_pop_tx( conn, out+out_sz, out_max-1UL-out_sz );
+  }
+  out[ out_sz ] = 0;
+  return out_sz;
+}
+
+#define TEST_WEB_HEAD "HTTP/1.1 200 OK\r\ncontent-type: application/grpc-web+proto\r\n"
+
+/* test_web_trailer checks that out ends in the trailers message with
+   the given text. */
+
+static void
+test_web_trailer( uchar const * out,
+                  ulong         out_sz,
+                  char const *  text ) {
+  ulong len = strlen( text );
+  FD_TEST( out_sz>=5UL+len );
+  uchar const * t = out+out_sz-5UL-len;
+  FD_TEST( t[0]==0x80 );
+  FD_TEST( fd_uint_bswap( FD_LOAD( uint, t+1 ) )==len );
+  FD_TEST( fd_memeq( t+5, text, len ) );
+}
+
+static void
+test_grpc_web( void ) {
+  g_opt_web = 1;
+  fd_grpc_server_t * server = test_server_new( FD_GRPC_SERVER_COMPRESSION_ZSTD, 4096UL, 8192UL );
+  static uchar out[ 8192 ];
+  fd_grpc_server_conn_t * conn;
+  char const * ct = "Content-Type: application/grpc-web+proto\r\n";
+
+  /* Server streaming: three messages, then the trailers, then the
+     connection ends.  A header's name reaches the app lowercased, and
+     the client's zstd preference does not apply, since it was not
+     asked for. */
+  ulong n = test_web_call( server, ROUTE_STREAM,
+                           "content-type: application/grpc-web+proto\r\nX-Token: abc\r\ngrpc-accept-encoding: zstd\r\n",
+                           "S\x03", 2UL, 0UL, out, sizeof(out), &conn );
+  FD_TEST( !strncmp( (char *)out, TEST_WEB_HEAD, sizeof(TEST_WEB_HEAD)-1UL ) );
+  FD_TEST( strstr( (char *)out, "connection: close\r\n" ) );
+  uchar const * body = (uchar const *)strstr( (char *)out, "\r\n\r\n" )+4;
+  for( ulong i=0UL; i<3UL; i++ ) {
+    FD_TEST( body[ i*261UL ]==0 );
+    FD_TEST( fd_uint_bswap( FD_LOAD( uint, body+i*261UL+1UL ) )==256U );
+    FD_TEST( body[ i*261UL+5UL ]==0x40 );
+  }
+  FD_TEST( (ulong)( out+n-body )==3UL*261UL+5UL+15UL );
+  test_web_trailer( out, n, "grpc-status:0\r\n" );
+  FD_TEST( !fd_grpc_server_conn_is_open( conn ) );
+  FD_TEST( !strcmp( g_app->stream[0].token, "abc" ) );
+  FD_TEST( g_app->stream[0].half_close_cnt==1 );
+  FD_TEST( g_app->stream[0].close_cnt==1 && g_app->stream[0].close_reason==FD_GRPC_SERVER_CLOSE_FINISHED );
+
+  /* Unary, with the request arriving in two reads: part of the body
+     missing, or so little that "P" could still be the HTTP/2 preface */
+  ulong head_sz = strlen( "POST " ROUTE_UNARY " HTTP/1.1\r\nContent-Length: 7\r\n\r\n" ) + strlen( ct );
+  ulong splits[ 2 ] = { head_sz+2UL, 1UL };
+  for( ulong i=0UL; i<2UL; i++ ) {
+    n = test_web_call( server, ROUTE_UNARY, ct, "hi", 2UL, splits[ i ], out, sizeof(out), &conn );
+    body = (uchar const *)strstr( (char *)out, "\r\n\r\n" )+4;
+    FD_TEST( body[0]==0 && fd_uint_bswap( FD_LOAD( uint, body+1 ) )==2U && fd_memeq( body+5, "hi", 2UL ) );
+    test_web_trailer( out, n, "grpc-status:0\r\n" );
+  }
+
+  /* A call that fails carries only the trailers, percent-encoded */
+  n = test_web_call( server, ROUTE_PCT, ct, "x", 1UL, 0UL, out, sizeof(out), &conn );
+  FD_TEST( !strncmp( (char *)out, TEST_WEB_HEAD, sizeof(TEST_WEB_HEAD)-1UL ) );
+  test_web_trailer( out, n, "grpc-status:13\r\ngrpc-message:bad%09token %80 50%25\r\n" );
+  n = test_web_call( server, "/test.Svc/Nope", ct, "x", 1UL, 0UL, out, sizeof(out), &conn );
+  test_web_trailer( out, n, "grpc-status:12\r\ngrpc-message:unknown method\r\n" );
+
+  /* Not gRPC-Web, or not delimited */
+  test_web_call( server, ROUTE_UNARY, "Content-Type: application/json\r\n", "x", 1UL, 0UL, out, sizeof(out), &conn );
+  FD_TEST( !strncmp( (char *)out, "HTTP/1.1 415 ", 13UL ) );
+  n = test_http1( server, "POST /test.Svc/Unary HTTP/1.1\r\nContent-Type: application/grpc-web\r\n\r\n", (char *)out, sizeof(out), 1 );
+  FD_TEST( n && !strncmp( (char *)out, "HTTP/1.1 411 ", 13UL ) );
+
+  /* A call outlives the HTTP/2 handshake timeout, and a client that
+     goes away ends it */
+  ulong stream_cnt = g_app->stream_cnt;
+  test_web_call( server, ROUTE_SLOW, ct, "Q", 1UL, 0UL, out, sizeof(out), &conn );
+  fd_grpc_server_service( server, 1000L*1000L*1000L + 2L*server->params.handshake_timeout_nanos );
+  FD_TEST( fd_grpc_server_conn_is_open( conn ) );
+  test_app_stream_t * slow = g_app->stream+stream_cnt;
+  FD_TEST( slow->sent_cnt==8 && !slow->close_cnt );
+  fd_grpc_server_conn_close( conn );
+  FD_TEST( slow->close_cnt==1 && slow->close_reason==FD_GRPC_SERVER_CLOSE_CONN_LOST );
+
+  test_server_delete( server );
+  g_opt_web = 0;
+}
+
+/* The treap orders streams by their oldest unsent byte, and a stream
+   that drains some of its output moves within it.  A stream that fell
+   behind after another one caught up must still be the one evicted. */
+
+static void
+test_ring_treap_order( void ) {
+  g_opt_max_msg_sz = 256UL;
+  g_opt_tx_ring_sz = 4096UL;
+  fd_grpc_server_t * server = test_server_new( FD_GRPC_SERVER_COMPRESSION_NONE, 4096UL, 256UL );
+  tc_t * tc = g_tc;
+  tc_open( tc, server );
+
+  tc_settings( tc, FD_H2_SETTINGS_INITIAL_WINDOW_SIZE, 0U );
+  tc_flush( tc );
+
+  g_app->fill_cnt = 2UL;
+  req_opt_t slow = { .path = ROUTE_SLOW };
+
+  /* Stream 1 takes the front of the ring, stream 3 the next part, and
+     stream 1 then takes a later part again */
+  tc_request( tc, 1U, &slow );
+  tc_msg( tc, 1U, 0, "Q", 1UL, 0 );
+  tc_flush( tc );
+  tc_request( tc, 3U, &slow );
+  tc_msg( tc, 3U, 0, "Q", 1UL, 0 );
+  tc_flush( tc );
+  tc_msg( tc, 1U, 0, "Q", 1UL, 0 );
+  tc_flush( tc );
+  FD_TEST( g_app->stream[0].sent_cnt==4 );
+  FD_TEST( g_app->stream[1].sent_cnt==2 );
+
+  /* Stream 1 catches up on its first two messages, so its oldest
+     unsent byte is now past stream 3's */
+  tc_window_update( tc, 1U, 2U*261U );
+  tc_window_update( tc, 0U, 2U*261U );
+  tc_flush( tc );
+  FD_TEST( tc_stream( tc, 1U )->data_sz==2UL*261UL );
+  FD_TEST( tc_stream( tc, 3U )->data_sz==0UL );
+  FD_TEST( !g_app->stream[0].close_cnt );
+  FD_TEST( !g_app->stream[1].close_cnt );
+
+  /* Push the ring just past what stream 3 has not sent.  Stream 1 is
+     further along and has to survive. */
+  uchar cmd[2] = { 'S', 12 };
+  req_opt_t strm = { .path = ROUTE_STREAM };
+  tc_request( tc, 5U, &strm );
+  tc_msg( tc, 5U, 0, cmd, sizeof(cmd), 1 );
+  tc_flush( tc );
+
+  FD_TEST( g_app->stream[1].close_cnt==1 );
+  FD_TEST( g_app->stream[1].close_reason==FD_GRPC_SERVER_CLOSE_TOO_SLOW );
+  FD_TEST( !g_app->stream[0].close_cnt );
+  FD_TEST( fd_grpc_server_metrics( server )->tx_too_slow_ring_cnt==1UL );
+
+  tc_close( tc );
+  test_server_delete( server );
+  g_opt_max_msg_sz = 0UL;
+  g_opt_tx_ring_sz = 0UL;
+}
+
+/* A stream on one connection that falls behind does not cost a stream
+   on another connection anything. */
+
+static void
+test_ring_fair_conns( void ) {
+  g_opt_max_msg_sz = 256UL;
+  g_opt_tx_ring_sz = 1536UL;
+  fd_grpc_server_t * server = test_server_new( FD_GRPC_SERVER_COMPRESSION_NONE, 4096UL, 256UL );
+
+  /* Two connections: the first stalls, the second keeps up */
+  static tc_t tc_a[1];
+  tc_t * tc = g_tc;
+  tc_open( tc, server );
+  tc_settings( tc, FD_H2_SETTINGS_INITIAL_WINDOW_SIZE, 0U );
+  tc_flush( tc );
+  g_app->fill_cnt = 2UL;
+  req_opt_t slow = { .path = ROUTE_SLOW };
+  tc_request( tc, 1U, &slow );
+  tc_msg( tc, 1U, 0, "Q", 1UL, 0 );
+  tc_flush( tc );
+  FD_TEST( g_app->stream[0].sent_cnt==2 );
+  *tc_a = *tc; /* keep the stalled connection's parser state */
+
+  tc_open( tc, server );
+  uchar cmd[2] = { 'S', 4 };
+  req_opt_t strm = { .path = ROUTE_STREAM };
+  tc_request( tc, 1U, &strm );
+  tc_msg( tc, 1U, 0, cmd, sizeof(cmd), 1 );
+  tc_window_update( tc, 1U, 1UL<<20 );
+  tc_window_update( tc, 0U, 1UL<<20 );
+  tc_flush( tc );
+
+  /* The second connection's stream got every byte */
+  tc_expect_trailers( tc, 1U, "0", NULL );
+  FD_TEST( tc_stream( tc, 1U )->data_sz==4UL*261UL );
+  /* and the first connection's stream was the one that paid */
+  FD_TEST( g_app->stream[0].close_reason==FD_GRPC_SERVER_CLOSE_TOO_SLOW );
+  FD_TEST( fd_grpc_server_metrics( server )->tx_too_slow_ring_cnt==1UL );
+  FD_TEST( fd_grpc_server_conn_is_open( tc_a->conn ) );
+
+  fd_grpc_server_conn_close( tc_a->conn );
+  tc_close( tc );
+  test_server_delete( server );
+  g_opt_max_msg_sz = 0UL;
+  g_opt_tx_ring_sz = 0UL;
 }
 
 static void
@@ -1613,6 +1984,69 @@ test_interleave_order( void ) {
   FD_TEST( data_cnt[1]>4UL );
   /* Round-robin: while both streams have data queued, frames alternate */
   FD_TEST( repeats<=2 );
+
+  tc_close( tc );
+  test_server_delete( server );
+}
+
+/* test_coalesce checks that queued messages share DATA frames up to
+   the peer's max frame size, and arrive intact */
+
+static void
+test_coalesce( void ) {
+  fd_grpc_server_t * server = test_server_new( FD_GRPC_SERVER_COMPRESSION_NONE, 4096UL, 1UL<<20 );
+  tc_t * tc = g_tc;
+  tc_open( tc, server );
+
+  ulong const frame_max = 16384UL; /* the client's default max frame size */
+  ulong const msg_sz    = 261UL;   /* the route's 256 byte message plus its header */
+
+  uchar cmd[2] = { 'S', 200 };
+  req_opt_t opt = { .path = ROUTE_STREAM };
+  tc_request( tc, 1U, &opt );
+  tc_msg( tc, 1U, 0, cmd, sizeof(cmd), 1 );
+  tc_window_update( tc, 0U, 1U<<20 );
+  tc_window_update( tc, 1U, 1U<<20 );
+
+  ulong off = 0UL;
+  while( off<tc->req_sz ) {
+    ulong n = fd_grpc_server_conn_push_rx( tc->conn, tc->req+off, tc->req_sz-off, tc->now );
+    FD_TEST( n );
+    off += n;
+  }
+  tc->req_sz = 0UL;
+
+  static uchar wire[ 1UL<<20 ];
+  ulong wire_sz = 0UL;
+  for( ulong i=0UL; i<64UL; i++ ) {
+    wire_sz += fd_grpc_server_conn_pop_tx( tc->conn, wire+wire_sz, sizeof(wire)-wire_sz );
+    fd_grpc_server_service( server, tc->now );
+  }
+
+  ulong data_cnt = 0UL;
+  ulong data_sz  = 0UL;
+  ulong o        = 0UL;
+  while( o+9UL<=wire_sz ) {
+    fd_h2_frame_hdr_t hdr;
+    fd_memcpy( &hdr, wire+o, 9UL );
+    ulong payload_sz = fd_h2_frame_length( hdr.typlen );
+    FD_TEST( o+9UL+payload_sz<=wire_sz );
+    if( fd_h2_frame_type( hdr.typlen )==FD_H2_FRAME_TYPE_DATA ) {
+      FD_TEST( payload_sz<=frame_max );
+      /* Every gRPC message header starts at a multiple of msg_sz in the
+         stream's byte sequence, frame boundaries notwithstanding */
+      for( ulong m=( data_sz+msg_sz-1UL )/msg_sz*msg_sz; m+5UL<=data_sz+payload_sz; m+=msg_sz ) {
+        uchar const * p = wire+o+9UL+( m-data_sz );
+        FD_TEST( p[0]==0 && fd_uint_bswap( FD_LOAD( uint, p+1 ) )==(uint)( msg_sz-5UL ) );
+      }
+      data_cnt++;
+      data_sz += payload_sz;
+    }
+    o += 9UL+payload_sz;
+  }
+  FD_TEST( o==wire_sz );
+  FD_TEST( data_sz==200UL*msg_sz );
+  FD_TEST( data_cnt==( data_sz+frame_max-1UL )/frame_max );
 
   tc_close( tc );
   test_server_delete( server );
@@ -2349,11 +2783,12 @@ test_flowctl_stall( void ) {
   tc_msg( tc, 1U, 0, cmd, sizeof(cmd), 0 );
   tc_flush( tc );
 
-  /* The send ring is empty and the stream is active, so neither the
-     stalled output nor the receive idle branch sees the connection. */
+  /* The connection's send ring is empty and the stream is active, so
+     neither the stalled output nor the receive idle branch sees the
+     connection, while the response is still owed. */
   uchar scratch[ 64 ];
   FD_TEST( fd_grpc_server_conn_pop_tx( tc->conn, scratch, sizeof(scratch) )==0UL );
-  FD_TEST( fd_grpc_server_metrics( server )->tx_queue_full_cnt==1UL );
+  FD_TEST( g_app->stream[0].sent_cnt>0 );
 
   tc->now += 301L*1000L*1000L*1000L;
   fd_grpc_server_service( server, tc->now );
@@ -2422,18 +2857,24 @@ main( int     argc,
   RUN( test_close_aborted                  );
   RUN( test_malformed            );
   RUN( test_streaming            );
-  RUN( test_queue_full           );
-  RUN( test_queue_msg_max        );
-  RUN( test_queue_msg_max_cycles );
-  RUN( test_large_message        );
-  RUN( test_large_bounds         );
-  RUN( test_large_cancel         );
-  RUN( test_large_busy           );
-  RUN( test_large_fair           );
-  RUN( test_large_order          );
-  RUN( test_large_second         );
+  RUN( test_msg_toobig           );
+  RUN( test_big_message          );
+  RUN( test_ring_evict           );
+  RUN( test_ring_wrap_evict      );
+  RUN( test_send_multi           );
+  RUN( test_ref_evict            );
+  RUN( test_evict_midmessage     );
+  RUN( test_evict_finished       );
+  RUN( test_shutdown_drop        );
+  RUN( test_shutdown_early_delete );
+  RUN( test_ring_relocate        );
+  RUN( test_ring_treap_order     );
+  RUN( test_http1_index          );
+  RUN( test_grpc_web             );
+  RUN( test_ring_fair_conns      );
   RUN( test_interleave           );
   RUN( test_interleave_order     );
+  RUN( test_coalesce             );
   RUN( test_timeout              );
   RUN( test_timeout_units        );
   RUN( test_cancel               );

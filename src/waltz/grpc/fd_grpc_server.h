@@ -30,7 +30,6 @@
      stream_open                   request headers complete
      stream_msg    (0 or more)     one per complete request message
      stream_half_close             client sent END_STREAM
-     stream_writable (0 or more)   send queue drained after ERR_AGAIN
      stream_close                  stream is gone, free handler state
 
    stream_close reports a stream that stream_open accepted, whatever
@@ -61,9 +60,8 @@
 /* fd_grpc_server_send return codes */
 
 #define FD_GRPC_SERVER_SUCCESS       ( 0)
-#define FD_GRPC_SERVER_ERR_AGAIN     (-1) /* send queue full, retry after stream_writable */
 #define FD_GRPC_SERVER_ERR_CLOSED    (-2) /* stream is finishing or gone */
-#define FD_GRPC_SERVER_ERR_TOOBIG    (-3) /* no send path can ever take it, see fd_grpc_server_send */
+#define FD_GRPC_SERVER_ERR_TOOBIG    (-3) /* larger than max_msg_sz */
 #define FD_GRPC_SERVER_ERR_INTERNAL  (-4) /* e.g., compression failure */
 
 /* fd_grpc_server_send flags */
@@ -83,6 +81,7 @@
 #define FD_GRPC_SERVER_CLOSE_CANCELLED (1) /* client sent RST_STREAM */
 #define FD_GRPC_SERVER_CLOSE_CONN_LOST (2) /* connection died */
 #define FD_GRPC_SERVER_CLOSE_ABORTED   (3) /* reset for a protocol or flow control error */
+#define FD_GRPC_SERVER_CLOSE_TOO_SLOW  (4) /* the client did not take its output in time */
 
 struct fd_grpc_server;
 typedef struct fd_grpc_server fd_grpc_server_t;
@@ -108,16 +107,15 @@ struct fd_grpc_server_params {
   ulong max_conn_cnt;         /* max concurrent connections, in [1,4096] */
   ulong conn_rx_buf_sz;       /* per-connection receive ring, in [max_frame_sz+9,2^30] */
   ulong conn_tx_buf_sz;       /* per-connection send ring, in [max_frame_sz+9,2^30] */
-  ulong stream_tx_queue_sz;   /* per-stream send queue capacity in bytes, >=64 */
+  ulong tx_ring_sz;           /* the one send ring every response message is staged in, >=3*(max_msg_sz+5) */
+  ulong stream_tx_ref_max;    /* per-stream pending output messages, in [2,2^24] */
   ulong max_request_msg_sz;   /* largest request message accepted, in [1,2^31). alloc is per stream */
-  ulong max_msg_sz;           /* largest response message, >=stream_tx_queue_sz, <2^31 */
-  ulong large_msg_slot_cnt;   /* large send slots, in [0,256] */
-  ulong seed;                 /* header matcher hash seed */
+  ulong max_msg_sz;           /* largest response message, in [1,2^31) */
+  ulong seed;                 /* header matcher hash and treap priority seed */
 
   /* timeouts */
   long  idle_timeout_nanos;   /* close connections idle for this long, 0 disables */
   long  handshake_timeout_nanos; /* close if the HTTP/2 handshake takes longer, 0 disables */
-  long  large_drain_timeout_nanos; /* abort a stream whose large message stalls this long, 0 disables */
   long  response_timeout_nanos; /* end a call whose handler never responds, 0 disables */
 
   /* zstd compression */
@@ -125,12 +123,15 @@ struct fd_grpc_server_params {
   ulong compression_min_sz;   /* messages below this size are sent uncompressed */
   int   compression_level;    /* zstd compression level */
 
-  /* policy */
-
-  /* Analogous to stream_tx_queue_sz, but by number of messages instead of raw bytes.
-     This allows an application to react to a slow client, and configure the application
-     in terms of number of messages the client is leaving in the queue, rather than raw bytes. */
-  ulong stream_tx_queue_msg_max; /* per-stream send queue capacity in messages. 0=disabled */
+  /* HTTP/1.1 on the same port, which is all a browser speaks without
+     TLS (fd_grpc_web.c): a POST with content-type
+     application/grpc-web[+proto] is one binary gRPC-Web call, whose
+     request has to fit max_frame_sz, and "GET /" is answered with
+     web_index.  web_index must outlive the server and fit
+     conn_tx_buf_sz with room for the response head. */
+  int          web;
+  char const * web_index;
+  ulong        web_index_sz;
 
 };
 
@@ -160,7 +161,9 @@ struct fd_grpc_server_callbacks {
   /* stream_hdr reports one request metadata header (a header that is
      neither an HTTP/2 pseudo-header nor consumed by the transport).
      name and value point to decoded bytes that are only valid for the
-     duration of the call.  Issued before stream_open. */
+     duration of the call.  Issued before stream_open.  The request can
+     still be rejected after it, without stream_close, which only
+     follows a stream_open. */
 
   void
   (* stream_hdr)( void *                    app_ctx,
@@ -200,13 +203,6 @@ struct fd_grpc_server_callbacks {
   (* stream_half_close)( void *                    app_ctx,
                          fd_grpc_server_stream_t * stream );
 
-  /* stream_writable reports that a send queue which answered
-     FD_GRPC_SERVER_ERR_AGAIN has room for that message again. */
-
-  void
-  (* stream_writable)( void *                    app_ctx,
-                       fd_grpc_server_stream_t * stream );
-
   /* stream_close reports that a stream accepted by stream_open is gone.
      reason is one of FD_GRPC_SERVER_CLOSE_*.  The handler must drop all
      references to stream. */
@@ -240,12 +236,12 @@ fd_grpc_server_params_default( fd_grpc_server_params_t * params );
 
    The region holds, in order: the server object, the connection array,
    the stream array (max_conn_cnt*max_stream_cnt entries, each
-   embedding an fd_h2_stream_t), the per-connection receive/send rings
-   and field block buffers, the per-stream request reassembly buffers
-   and send queues, the large send slot pool, the header name matcher,
-   the HPACK and frame scratch buffers, the codec output buffers, and
-   the area for zstd contexts.  Note that zstd may vary a lot, from 663KiB at
-   level 1 to 705MiB at level 22. */
+   embedding an fd_h2_stream_t), the per-connection receive/send rings,
+   the per-stream request reassembly buffers and output reference
+   queues, the one send ring, the treap of streams with pending output,
+   the header name matcher, the HPACK and frame scratch buffers, the
+   codec output buffers, and the area for zstd contexts.  Note that
+   zstd may vary a lot, from 663KiB at level 1 to 705MiB at level 22. */
 
 FD_FN_CONST ulong
 fd_grpc_server_align( void );
@@ -366,37 +362,58 @@ void
 fd_grpc_server_conn_set_ctx( fd_grpc_server_conn_t * conn,
                              void *                  ctx );
 
-/* fd_grpc_server_send appends one response message to the stream's send
-   queue.  The message is compressed if the client accepts zstd, the
-   server has compression enabled, msg_sz is at least
-   compression_min_sz, and FD_GRPC_SERVER_SEND_NO_COMPRESS is not set.
-   The response headers are emitted before the first message.
+/* fd_grpc_server_send queues one response message on the stream.  The
+   message is compressed if the client accepts zstd, the server has
+   compression enabled, msg_sz is at least compression_min_sz, and
+   FD_GRPC_SERVER_SEND_NO_COMPRESS is not set.  The response headers
+   are emitted before the first message.
 
-   The bytes are copied, so msg may be reused on return.  The queue is
-   drained into the connection subject to HTTP/2 flow control.
+   The bytes are staged once in the server's send ring, so msg may be
+   reused on return, and the stream keeps a reference to them.  They
+   go out as DATA frames subject to HTTP/2 flow control, in the order
+   they were sent.
 
-   A message that does not fit the stream's send queue takes a large
-   send slot from the shared pool and is drained from there, between
-   the queue bytes that were pending when it was sent and the ones
-   sent after it, so that message order on the stream is the order
-   they were sent in.  A stream holds one slot at a time: a second
-   oversized message waits, while messages that fit the queue keep
-   being accepted behind the first one.
+   Nothing waits and nothing is silently dropped: the ring is shared
+   by every stream, and when staging needs bytes that some stream has
+   not sent yet, that stream is closed for being too slow
+   (stream_close with FD_GRPC_SERVER_CLOSE_TOO_SLOW), as is a stream
+   whose stream_tx_ref_max pending messages are all in use.  A stream
+   that keeps up is never affected by one that does not.  tx_ring_sz
+   is therefore how far behind the server's output a client may fall
+   before it is cut off, in bytes, and stream_tx_ref_max the same in
+   messages.
 
    Returns FD_GRPC_SERVER_SUCCESS, or one of the FD_GRPC_SERVER_ERR_*
-   codes.  ERR_AGAIN means the queue is full, or the message needs a
-   large send slot and none is free (fd_grpc_server_msg_needs_large
-   tells the two apart): the application decides whether to wait for
-   stream_writable, to drop that message, or to end the call.
-   ERR_TOOBIG means msg_sz is above max_msg_sz, or the message needs a
-   large send slot and large_msg_slot_cnt is zero; neither changes with
-   waiting.  Nothing is ever silently dropped. */
+   codes.  ERR_CLOSED means the stream is finishing or gone, which
+   includes a stream this very call closed for being too slow.
+   ERR_TOOBIG means msg_sz is above max_msg_sz. */
 
 int
 fd_grpc_server_send( fd_grpc_server_stream_t * stream,
                      void const *              msg,
                      ulong                     msg_sz,
                      uint                      flags );
+
+/* fd_grpc_server_send_multi sends one message to stream_cnt streams
+   of the same server at once.  The message is compressed at most
+   once and staged in the ring once per form it goes out in: one copy
+   for the streams that take it compressed and one for the ones that
+   do not, rather than one per stream.  Each stream then holds its
+   own reference, and everything fd_grpc_server_send says about flow
+   control, eviction and errors holds per stream.
+
+   err[ i ] receives the result for streams[ i ], with the meanings of
+   fd_grpc_server_send.  Returns the number of streams the message was
+   queued on. */
+
+ulong
+fd_grpc_server_send_multi( fd_grpc_server_stream_t ** streams,
+                           ulong                      stream_cnt,
+                           void const *               msg,
+                           ulong                      msg_sz,
+                           uint                       flags,
+                           int *                      err );
+
 
 /* fd_grpc_server_finish ends a call with the given gRPC status.
    grpc_msg points to msg_len bytes of free-form UTF-8 text (may be
@@ -432,30 +449,13 @@ fd_grpc_server_stream_id( fd_grpc_server_stream_t const * stream );
 fd_grpc_server_conn_t *
 fd_grpc_server_stream_conn( fd_grpc_server_stream_t const * stream );
 
-/* fd_grpc_server_stream_tx_free_sz returns the number of message bytes
-   that the stream's send queue would accept right now, ignoring
-   compression and the large send path.  Zero means the next send of a
-   queue sized message returns ERR_AGAIN. */
+/* fd_grpc_server_stream_tx_ref_hi returns the most pending output
+   messages the stream has held at once, out of stream_tx_ref_max,
+   which is how close the call came to being closed for falling
+   behind. */
 
 ulong
-fd_grpc_server_stream_tx_free_sz( fd_grpc_server_stream_t const * stream );
-
-/* fd_grpc_server_msg_needs_large returns 1 if a message of msg_sz
-   bytes is too large for the stream's send queue and so needs a slot
-   of the large send pool.  An application that got ERR_AGAIN asks this
-   to tell the two reasons apart: a queue that is full drains on its
-   own, a pool that is busy may not before the message is stale. */
-
-FD_FN_PURE int
-fd_grpc_server_msg_needs_large( fd_grpc_server_stream_t const * stream,
-                                ulong                           msg_sz );
-
-/* fd_grpc_server_stream_tx_queue_hi returns the most bytes the
-   stream's send queue has held at once, which is how close the call
-   came to being closed for falling behind. */
-
-ulong
-fd_grpc_server_stream_tx_queue_hi( fd_grpc_server_stream_t const * stream );
+fd_grpc_server_stream_tx_ref_hi( fd_grpc_server_stream_t const * stream );
 
 /* fd_grpc_server_metrics_t counts events since fd_grpc_server_new. */
 
@@ -468,15 +468,15 @@ struct fd_grpc_server_metrics {
   ulong rx_byte_cnt;
   ulong tx_msg_cnt;
   ulong tx_msg_compressed_cnt;
+  ulong tx_msg_shared_cnt;       /* messages a stream took from bytes staged once for several streams */
   ulong tx_byte_cnt;             /* message bytes handed to fd_grpc_server_send */
   ulong tx_byte_cnt_wire;        /* message bytes after compression */
-  ulong tx_queue_full_cnt;
-  ulong tx_large_msg_cnt;        /* messages sent through a large send slot */
-  ulong tx_large_busy_cnt;       /* sends refused for want of a large send slot */
+  ulong tx_too_slow_ring_cnt;    /* streams closed because the ring reached their unsent bytes */
+  ulong tx_too_slow_refs_cnt;    /* streams closed because their message queue was full */
+  ulong tx_toobig_cnt;           /* messages refused for exceeding max_msg_sz */
   ulong deadline_exceeded_cnt;
   ulong idle_timeout_cnt;
   ulong handshake_timeout_cnt;
-  ulong large_drain_timeout_cnt; /* streams aborted for a stalled large message */
   ulong request_error_cnt;       /* malformed or unsupported requests */
   ulong accept_error_cnt;        /* accept4 failures */
   ulong poll_error_cnt;          /* poll failures */

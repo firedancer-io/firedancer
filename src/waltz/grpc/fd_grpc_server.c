@@ -50,6 +50,27 @@ fd_grpc_server_conn_from_h2( fd_h2_conn_t * h2 ) {
   return (fd_grpc_server_conn_t *)h2->ctx;
 }
 
+/* A treap to order streams that have pending output.
+   The stream furthest behind is always at the front. */
+
+#define TREAP_NAME      stream_treap
+#define TREAP_T         fd_grpc_server_stream_t
+#define TREAP_QUERY_T   void *
+#define TREAP_CMP(q,e)  (__extension__({ (void)(q); (void)(e); -1; }))
+#define TREAP_IDX_T     uint
+#define TREAP_PARENT    treap_parent
+#define TREAP_LEFT      treap_left
+#define TREAP_RIGHT     treap_right
+#define TREAP_PRIO      treap_prio
+#define TREAP_NEXT      treap_next
+#define TREAP_PREV      treap_prev
+#define TREAP_OPTIMIZE_ITERATION 1
+#define TREAP_LT(e0,e1) ((e0)->refs[ (e0)->ref_idx ].off < (e1)->refs[ (e1)->ref_idx ].off)
+#include "../../util/tmpl/fd_treap.c"
+
+static void
+fd_grpc_server_conn_release( fd_grpc_server_conn_t * conn );
+
 /* Parameters *********************************************************/
 
 fd_grpc_server_params_t *
@@ -58,9 +79,9 @@ fd_grpc_server_params_default( fd_grpc_server_params_t * params ) {
     .max_conn_cnt             = 16UL,
     .max_stream_cnt           = 8UL,
     .max_request_msg_sz       = 16UL<<10,
-    .stream_tx_queue_sz       = 64UL<<10,
+    .tx_ring_sz               = 1UL<<20,
+    .stream_tx_ref_max        = 1024UL,
     .max_msg_sz               = 64UL<<10,
-    .large_msg_slot_cnt       = 0UL,
     .conn_rx_buf_sz           = 32UL<<10,
     .conn_tx_buf_sz           = 64UL<<10,
     .max_frame_sz             = 16384UL,
@@ -68,12 +89,14 @@ fd_grpc_server_params_default( fd_grpc_server_params_t * params ) {
     .stream_rx_wnd_sz         = 256UL<<10,
     .idle_timeout_nanos       = 300L*1000L*1000L*1000L,
     .handshake_timeout_nanos  = 10L*1000L*1000L*1000L,
-    .large_drain_timeout_nanos= 30L*1000L*1000L*1000L,
     .response_timeout_nanos   = 0L,
     .compression              = FD_GRPC_SERVER_COMPRESSION_ZSTD,
     .compression_min_sz       = 1024UL,
     .compression_level        = 1,
-    .seed                     = 0UL
+    .seed                     = 0UL,
+    .web                      = 0,
+    .web_index                = NULL,
+    .web_index_sz             = 0UL
   };
   return params;
 }
@@ -89,9 +112,9 @@ fd_grpc_server_params_valid( fd_grpc_server_params_t const * p ) {
   CHECK( p->max_conn_cnt      >=1UL && p->max_conn_cnt      <=4096UL );
   CHECK( p->max_stream_cnt    >=1UL && p->max_stream_cnt    <= 256UL );
   CHECK( p->max_request_msg_sz>=1UL && p->max_request_msg_sz < (1UL<<31) );
-  CHECK( p->stream_tx_queue_sz>=64UL && p->stream_tx_queue_sz<=(1UL<<31) );
-  CHECK( p->max_msg_sz        >=p->stream_tx_queue_sz && p->max_msg_sz<(1UL<<31) );
-  CHECK( p->large_msg_slot_cnt<=256UL );
+  CHECK( p->max_msg_sz        >=1UL && p->max_msg_sz<(1UL<<31) );
+  CHECK( p->tx_ring_sz        >=3UL*( p->max_msg_sz+sizeof(fd_grpc_hdr_t) ) && p->tx_ring_sz<=(1UL<<40) );
+  CHECK( p->stream_tx_ref_max >=2UL && p->stream_tx_ref_max<=(1UL<<24) );
   CHECK( p->max_frame_sz      >=16384UL && p->max_frame_sz  < (1UL<<24) );
   CHECK( p->conn_rx_buf_sz    >=p->max_frame_sz+9UL && p->conn_rx_buf_sz<=(1UL<<30) );
   CHECK( p->conn_tx_buf_sz    >=p->max_frame_sz+9UL+FD_GRPC_SERVER_TX_RESERVE && p->conn_tx_buf_sz<=(1UL<<30) );
@@ -102,8 +125,9 @@ fd_grpc_server_params_valid( fd_grpc_server_params_t const * p ) {
   CHECK( p->compression_level>=1 && p->compression_level<=ZSTD_maxCLevel() );
   CHECK( p->idle_timeout_nanos      >=0L );
   CHECK( p->handshake_timeout_nanos >=0L );
-  CHECK( p->large_drain_timeout_nanos>=0L );
   CHECK( p->response_timeout_nanos  >=0L );
+  CHECK( !!p->web_index || !p->web_index_sz );
+  CHECK( !p->web || p->web_index_sz<=p->conn_tx_buf_sz-FD_GRPC_WEB_HEAD_MAX );
 # undef CHECK
   return 1;
 }
@@ -128,9 +152,7 @@ fd_grpc_server_hpack_scratch_sz( fd_grpc_server_params_t const * p ) {
 static ulong
 fd_grpc_server_compress_out_sz( fd_grpc_server_params_t const * p ) {
   if( p->compression==FD_GRPC_SERVER_COMPRESSION_NONE ) return 0UL;
-  /* Every message that goes through a send queue fits it, prefix
-     included, so this bounds the compressed form of any of them. */
-  return ZSTD_compressBound( p->stream_tx_queue_sz );
+  return ZSTD_compressBound( p->max_msg_sz );
 }
 
 static ulong
@@ -145,21 +167,12 @@ fd_grpc_server_zarena_sz( fd_grpc_server_params_t const * p ) {
   return FD_GRPC_SERVER_ZSTD_MEM( p->compression_level );
 }
 
-/* fd_grpc_server_large_slot_sz is the bytes one large send slot holds,
-   which is the largest response message plus its length prefix. */
-
-static ulong
-fd_grpc_server_large_slot_sz( fd_grpc_server_params_t const * p ) {
-  return p->max_msg_sz + sizeof(fd_grpc_hdr_t);
-}
-
 ulong
 fd_grpc_server_footprint( fd_grpc_server_params_t const * params ) {
   if( FD_UNLIKELY( !fd_grpc_server_params_valid( params ) ) ) return 0UL;
   ulong conn_cnt   = params->max_conn_cnt;
   ulong stream_cnt = params->max_conn_cnt * params->max_stream_cnt;
   ulong zmem       = fd_grpc_server_zarena_sz( params );
-  ulong large_cnt  = params->large_msg_slot_cnt;
 
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_grpc_server_t),        sizeof(fd_grpc_server_t)                      );
@@ -168,9 +181,9 @@ fd_grpc_server_footprint( fd_grpc_server_params_t const * params ) {
   l = FD_LAYOUT_APPEND( l, 128UL,                            conn_cnt  *params->conn_rx_buf_sz             );
   l = FD_LAYOUT_APPEND( l, 128UL,                            conn_cnt  *params->conn_tx_buf_sz             );
   l = FD_LAYOUT_APPEND( l, 128UL,                            stream_cnt*params->max_request_msg_sz         );
-  l = FD_LAYOUT_APPEND( l, 128UL,                            stream_cnt*params->stream_tx_queue_sz         );
-  l = FD_LAYOUT_APPEND( l, alignof(fd_grpc_server_large_t),  large_cnt *sizeof(fd_grpc_server_large_t)     );
-  l = FD_LAYOUT_APPEND( l, 128UL,                            large_cnt *fd_grpc_server_large_slot_sz( params ) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_grpc_server_tx_ref_t), stream_cnt*params->stream_tx_ref_max*sizeof(fd_grpc_server_tx_ref_t) );
+  l = FD_LAYOUT_APPEND( l, 128UL,                            params->tx_ring_sz                            );
+  l = FD_LAYOUT_APPEND( l, stream_treap_align(),             stream_treap_footprint( stream_cnt )          );
   l = FD_LAYOUT_APPEND( l, alignof(fd_h2_hdr_matcher_t),     sizeof(fd_h2_hdr_matcher_t)                   );
   l = FD_LAYOUT_APPEND( l, 128UL,                            params->max_frame_sz                          );
   l = FD_LAYOUT_APPEND( l, 128UL,                            fd_grpc_server_hpack_scratch_sz( params )     );
@@ -192,7 +205,7 @@ static int
 fd_grpc_server_zstd_init( fd_grpc_server_t * server ) {
   if( server->params.compression==FD_GRPC_SERVER_COMPRESSION_NONE ) return 1;
 
-  ulong bound = ZSTD_compressBound( server->params.stream_tx_queue_sz );
+  ulong bound = ZSTD_compressBound( server->params.max_msg_sz );
   if( FD_UNLIKELY( bound > server->compress_out_sz ) ) {
     FD_LOG_WARNING(( "compressor output buffer too small (need %lu, have %lu)",
                      bound, server->compress_out_sz ));
@@ -255,12 +268,11 @@ fd_grpc_server_new( void *                             mem,
 
   ulong conn_cnt     = params->max_conn_cnt;
   ulong stream_cnt   = params->max_conn_cnt * params->max_stream_cnt;
+  ulong ref_max      = params->stream_tx_ref_max;
   ulong hpack_sz     = fd_grpc_server_hpack_scratch_sz( params );
   ulong compress_sz  = fd_grpc_server_compress_out_sz  ( params );
   ulong decompress_sz= fd_grpc_server_decompress_out_sz( params );
   ulong zmem         = fd_grpc_server_zarena_sz( params );
-  ulong large_cnt    = params->large_msg_slot_cnt;
-  ulong large_slot_sz= fd_grpc_server_large_slot_sz( params );
 
   FD_SCRATCH_ALLOC_INIT( l, mem );
   fd_grpc_server_t *        server     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_grpc_server_t),        sizeof(fd_grpc_server_t)                  );
@@ -269,9 +281,9 @@ fd_grpc_server_new( void *                             mem,
   uchar *                   rx_buf     = FD_SCRATCH_ALLOC_APPEND( l, 128UL,                            conn_cnt  *params->conn_rx_buf_sz         );
   uchar *                   tx_buf     = FD_SCRATCH_ALLOC_APPEND( l, 128UL,                            conn_cnt  *params->conn_tx_buf_sz         );
   uchar *                   msg_buf    = FD_SCRATCH_ALLOC_APPEND( l, 128UL,                            stream_cnt*params->max_request_msg_sz     );
-  uchar *                   queue_buf  = FD_SCRATCH_ALLOC_APPEND( l, 128UL,                            stream_cnt*params->stream_tx_queue_sz     );
-  fd_grpc_server_large_t *  large      = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_grpc_server_large_t),  large_cnt *sizeof(fd_grpc_server_large_t) );
-  uchar *                   large_buf  = FD_SCRATCH_ALLOC_APPEND( l, 128UL,                            large_cnt *large_slot_sz                  );
+  fd_grpc_server_tx_ref_t * refs       = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_grpc_server_tx_ref_t), stream_cnt*ref_max*sizeof(fd_grpc_server_tx_ref_t) );
+  uchar *                   tx_ring    = FD_SCRATCH_ALLOC_APPEND( l, 128UL,                            params->tx_ring_sz                        );
+  void *                    treap_mem  = FD_SCRATCH_ALLOC_APPEND( l, stream_treap_align(),             stream_treap_footprint( stream_cnt )      );
   void *                    matcher    = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_h2_hdr_matcher_t),     sizeof(fd_h2_hdr_matcher_t)               );
   uchar *                   frame_scr  = FD_SCRATCH_ALLOC_APPEND( l, 128UL,                            params->max_frame_sz                      );
   uchar *                   hpack_scr  = FD_SCRATCH_ALLOC_APPEND( l, 128UL,                            hpack_sz                                  );
@@ -285,26 +297,30 @@ fd_grpc_server_new( void *                             mem,
   fd_memset( conn,   0, conn_cnt  *sizeof(fd_grpc_server_conn_t)   );
   fd_memset( stream, 0, stream_cnt*sizeof(fd_grpc_server_stream_t) );
 
-  server->params         = *params;
-  server->callbacks             = callbacks;
-  server->app_ctx            = app_ctx;
-  server->conn           = conn;
-  server->matcher        = matcher;
-  server->frame_scratch  = frame_scr;
-  server->hpack_scratch  = hpack_scr;
+  server->params          = *params;
+  server->callbacks       = callbacks;
+  server->app_ctx         = app_ctx;
+  server->conn            = conn;
+  server->stream          = stream;
+  server->matcher         = matcher;
+  server->frame_scratch   = frame_scr;
+  server->hpack_scratch   = hpack_scr;
   server->compress_out    = comp_out;
   server->compress_out_sz = compress_sz;
   server->decompress_out  = decomp_out;
   server->zarena          = zarena;
   server->zarena_sz       = zmem;
-  server->pollfd_mem     = pollfd_mem;
-  server->listen_fd      = -1;
-  server->large          = large_cnt ? large : NULL;
-  server->large_slot_sz  = large_slot_sz;
+  server->pollfd_mem      = pollfd_mem;
+  server->listen_fd       = -1;
+  server->tx_ring         = tx_ring;
+  server->tx_ring_sz      = params->tx_ring_sz;
 
-  for( ulong i=0UL; i<large_cnt; i++ ) {
-    large[ i ] = (fd_grpc_server_large_t){ .buf = large_buf + i*large_slot_sz };
+  server->stream_treap = stream_treap_join( stream_treap_new( treap_mem, stream_cnt ) );
+  if( FD_UNLIKELY( !server->stream_treap ) ) {
+    FD_LOG_WARNING(( "failed to create the stream treap" ));
+    return NULL;
   }
+  stream_treap_seed( stream, stream_cnt, params->seed );
 
   for( ulong i=0UL; i<conn_cnt; i++ ) {
     fd_grpc_server_conn_t * c = conn+i;
@@ -316,10 +332,9 @@ fd_grpc_server_new( void *                             mem,
     for( ulong j=0UL; j<params->max_stream_cnt; j++ ) {
       fd_grpc_server_stream_t * s = c->stream+j;
       ulong k = i*params->max_stream_cnt + j;
-      s->conn      = c;
-      s->msg_buf   = msg_buf + k*params->max_request_msg_sz;
-      s->large_idx = -1L;
-      fd_h2_rbuf_init( s->tx_queue, queue_buf + k*params->stream_tx_queue_sz, params->stream_tx_queue_sz );
+      s->conn    = c;
+      s->msg_buf = msg_buf + k*params->max_request_msg_sz;
+      s->refs    = refs    + k*ref_max;
     }
   }
 
@@ -363,12 +378,12 @@ fd_grpc_server_delete( void * mem ) {
      nothing to release but the pointers to them. */
   server->cctx = NULL;
   server->dctx = NULL;
-# if FD_HAS_HOSTED
+  /* Each live connection is reported closed, stream by stream, and its
+     socket closed with it. */
   for( ulong i=0UL; i<server->params.max_conn_cnt; i++ ) {
-    fd_grpc_server_conn_t * c = server->conn+i;
-    if( c->sock>=0 ) close( c->sock );
-    c->sock = -1;
+    if( server->conn[i].active ) fd_grpc_server_conn_release( server->conn+i );
   }
+# if FD_HAS_HOSTED
   if( server->listen_fd>=0 ) close( server->listen_fd );
 # endif
   server->listen_fd = -1;
@@ -433,7 +448,7 @@ fd_grpc_server_wr_hdr( uchar *      out,
    Stops at the last character that fits out_max bytes.  Returns the
    number of bytes written. */
 
-static ulong
+ulong
 fd_grpc_server_pct_encode( char *       out,
                            ulong        out_max,
                            char const * in,
@@ -455,7 +470,7 @@ fd_grpc_server_pct_encode( char *       out,
   return o;
 }
 
-static ulong
+ulong
 fd_grpc_server_wr_uint( char * out,
                         uint   value ) {
   char tmp[ 10 ];
@@ -470,59 +485,42 @@ fd_grpc_server_wr_uint( char * out,
 
 /* Streams ************************************************************/
 
-/* fd_grpc_server_large_release returns the stream's large send slot to
-   the pool, whether or not the message in it was fully sent. */
+/* fd_grpc_server_refs_drop forgets a stream's pending output.  The ring
+   bytes stay where they are until staging reaches them; only the
+   stream's claim on them goes. */
 
 static void
-fd_grpc_server_large_release( fd_grpc_server_stream_t * stream ) {
-  if( FD_LIKELY( stream->large_idx<0L ) ) return;
-  fd_grpc_server_large_t * slot = stream->conn->server->large + stream->large_idx;
-  slot->busy = 0;
-  slot->sz   = 0UL;
-  slot->off  = 0UL;
-  stream->large_idx   = -1L;
-  stream->tx_pre_slot = 0UL;
-}
-
-/* fd_grpc_server_large_free returns 1 if the pool has a slot to hand
-   out. */
-
-FD_FN_PURE static int
-fd_grpc_server_large_free( fd_grpc_server_t const * server ) {
-  for( ulong i=0UL; i<server->params.large_msg_slot_cnt; i++ ) {
-    if( !server->large[ i ].busy ) return 1;
-  }
-  return 0;
+fd_grpc_server_refs_drop( fd_grpc_server_stream_t * stream ) {
+  fd_grpc_server_t * server = stream->conn->server;
+  if( stream->ref_cnt ) stream_treap_ele_remove( server->stream_treap, stream, server->stream );
+  stream->ref_idx        = 0UL;
+  stream->ref_cnt        = 0UL;
+  stream->ref_written    = 0UL;
 }
 
 static void
 fd_grpc_server_stream_release( fd_grpc_server_stream_t * stream ) {
-  fd_grpc_server_large_release( stream );
+  fd_grpc_server_refs_drop( stream );
   stream->state         = FD_GRPC_SERVER_STREAM_FREE;
   stream->flags         = 0U;
   stream->ctx           = NULL;
   stream->msg_sz        = 0UL;
   stream->msg_rem       = 0UL;
   stream->msg_hdr_sz    = 0UL;
-  stream->tx_blocked_sz = 0UL;
-  stream->tx_msg_pending= 0UL;
-  stream->tx_head_rem   = 0UL;
-  stream->tx_queue_hi   = 0UL;
-  stream->tx_pre_slot   = 0UL;
+  stream->ref_hi        = 0UL;
   stream->fin_status    = 0U;
   stream->fin_msg_len   = 0U;
   stream->path_len      = 0;
   stream->deadline      = LONG_MAX;
   stream->resp_deadline = LONG_MAX;
   stream->tx_wnd_debt   = 0L;
-  fd_h2_rbuf_init( stream->tx_queue, stream->tx_queue->buf0, stream->tx_queue->bufsz );
   fd_h2_stream_init( stream->h2 );
 }
 
 /* fd_grpc_server_stream_end reports a stream to the app if it ever
    accepted it, and returns the slot to the pool. */
 
-static void
+void
 fd_grpc_server_stream_end( fd_grpc_server_stream_t * stream,
                            int                       reason ) {
   fd_grpc_server_conn_t * conn   = stream->conn;
@@ -534,7 +532,7 @@ fd_grpc_server_stream_end( fd_grpc_server_stream_t * stream,
   fd_grpc_server_stream_release( stream );
 }
 
-static fd_grpc_server_stream_t *
+fd_grpc_server_stream_t *
 fd_grpc_server_stream_acquire( fd_grpc_server_conn_t * conn ) {
   ulong stream_max = conn->server->params.max_stream_cnt;
   for( ulong i=0UL; i<stream_max; i++ ) {
@@ -569,23 +567,9 @@ fd_grpc_server_stream_conn( fd_grpc_server_stream_t const * stream ) {
   return stream->conn;
 }
 
-FD_FN_PURE int
-fd_grpc_server_msg_needs_large( fd_grpc_server_stream_t const * stream,
-                                ulong                           msg_sz ) {
-  return msg_sz > stream->tx_queue->bufsz - sizeof(fd_grpc_hdr_t);
-}
-
 ulong
-fd_grpc_server_stream_tx_queue_hi( fd_grpc_server_stream_t const * stream ) {
-  return stream->tx_queue_hi;
-}
-
-ulong
-fd_grpc_server_stream_tx_free_sz( fd_grpc_server_stream_t const * stream ) {
-  ulong msg_max = stream->conn->server->params.stream_tx_queue_msg_max;
-  if( FD_UNLIKELY( msg_max && stream->tx_msg_pending>=msg_max ) ) return 0UL;
-  ulong free_sz = fd_h2_rbuf_free_sz( stream->tx_queue );
-  return free_sz<sizeof(fd_grpc_hdr_t) ? 0UL : free_sz-sizeof(fd_grpc_hdr_t);
+fd_grpc_server_stream_tx_ref_hi( fd_grpc_server_stream_t const * stream ) {
+  return stream->ref_hi;
 }
 
 /* Response generation ************************************************/
@@ -691,6 +675,12 @@ fd_grpc_server_stream_malformed( fd_grpc_server_stream_t * stream,
   fd_grpc_server_stream_end( stream, FD_GRPC_SERVER_CLOSE_ABORTED );
 }
 
+static void
+fd_grpc_server_fin_set( fd_grpc_server_stream_t * stream,
+                        uint                      grpc_status,
+                        char const *              grpc_msg,
+                        ulong                     msg_len );
+
 void
 fd_grpc_server_finish( fd_grpc_server_stream_t * stream,
                        uint                      grpc_status,
@@ -698,6 +688,17 @@ fd_grpc_server_finish( fd_grpc_server_stream_t * stream,
                        ulong                     msg_len ) {
   if( FD_UNLIKELY( stream->state==FD_GRPC_SERVER_STREAM_FREE ||
                    stream->state==FD_GRPC_SERVER_STREAM_FINISH ) ) return;
+  fd_grpc_server_fin_set( stream, grpc_status, grpc_msg, msg_len );
+}
+
+/* fd_grpc_server_fin_set records the status the call ends with and
+   queues its trailers, replacing any status set before. */
+
+static void
+fd_grpc_server_fin_set( fd_grpc_server_stream_t * stream,
+                        uint                      grpc_status,
+                        char const *              grpc_msg,
+                        ulong                     msg_len ) {
   stream->fin_status  = grpc_status;
   stream->fin_msg_len = 0U;
   if( grpc_msg && msg_len ) {
@@ -706,194 +707,293 @@ fd_grpc_server_finish( fd_grpc_server_stream_t * stream,
     stream->fin_msg_len = (uint)msg_len;
   }
   stream->state  = FD_GRPC_SERVER_STREAM_FINISH;
-  stream->flags &= ~( FD_GRPC_SERVER_STREAM_FLAG_TX_BLOCKED | FD_GRPC_SERVER_STREAM_FLAG_TX_LARGE );
 }
 
 #define FD_GRPC_SERVER_FINISH(stream,status,lit) \
   fd_grpc_server_finish( (stream), (status), (lit), sizeof(lit)-1UL )
+
+/* Send ring **********************************************************/
+
+/* Every response message of every stream is staged once in the
+   server's send ring and referenced by the streams that carry it.
+   stage_off is the virtual offset of the message being staged and only
+   ever grows; the byte at virtual offset o lives at
+   tx_ring[ o%tx_ring_sz ].  A staged message is physically contiguous,
+   so a reference into it never wraps. */
+
+/* fd_grpc_server_stream_drop_output gives up a stream's pending output
+   and ends the call with grpc_status, whatever status the app set.
+   The claim on the ring is dropped at once, so those bytes can be
+   reused; the wire action and the stream_close callback happen on the
+   next flush.  A message that is partly on the wire cannot be followed
+   by trailers, so the stream is reset instead. */
+
+static void
+fd_grpc_server_stream_drop_output( fd_grpc_server_stream_t * stream,
+                                   uint                      grpc_status,
+                                   char const *              grpc_msg,
+                                   ulong                     msg_len ) {
+  if( stream->ref_written ) stream->flags |= FD_GRPC_SERVER_STREAM_FLAG_TX_TRUNC;
+  fd_grpc_server_refs_drop( stream );
+  fd_grpc_server_fin_set( stream, grpc_status, grpc_msg, msg_len );
+}
+
+#define FD_GRPC_SERVER_DROP_OUTPUT(stream,status,lit) \
+  fd_grpc_server_stream_drop_output( (stream), (status), (lit), sizeof(lit)-1UL )
+
+/* fd_grpc_server_stream_too_slow takes a stream out of service because
+   the client did not take its output. */
+
+static void
+fd_grpc_server_stream_too_slow( fd_grpc_server_stream_t * stream ) {
+  if( FD_UNLIKELY( stream->flags & FD_GRPC_SERVER_STREAM_FLAG_TOO_SLOW ) ) return;
+  stream->flags |= FD_GRPC_SERVER_STREAM_FLAG_TOO_SLOW;
+  FD_GRPC_SERVER_DROP_OUTPUT( stream, FD_GRPC_STATUS_INTERNAL, "grpc: client is too slow" );
+}
+
+/* fd_grpc_server_evict_until closes every stream whose oldest unsent
+   byte lies below off, which is what the ring is about to reuse.  The
+   treap orders streams by that offset, so the walk stops at the first
+   stream that is far enough along. */
+
+static void
+fd_grpc_server_evict_until( fd_grpc_server_t * server,
+                            ulong              off ) {
+  for(;;) {
+    stream_treap_fwd_iter_t it = stream_treap_fwd_iter_init( server->stream_treap, server->stream );
+    if( FD_LIKELY( stream_treap_fwd_iter_done( it ) ) ) break;
+    fd_grpc_server_stream_t * s = stream_treap_fwd_iter_ele( it, server->stream );
+    if( FD_LIKELY( s->refs[ s->ref_idx ].off >= off ) ) break;
+    server->metrics.tx_too_slow_ring_cnt++;
+    fd_grpc_server_stream_too_slow( s ); /* drops its references, which leaves the treap */
+  }
+}
+
+/* fd_grpc_server_stage_reserve makes room for sz more bytes of the
+   message being staged and returns where they go.  A whole message is
+   at most max_msg_sz+5 bytes, a third of the ring. */
+
+static uchar *
+fd_grpc_server_stage_reserve( fd_grpc_server_t * server,
+                              ulong              sz ) {
+  ulong ring_sz   = server->tx_ring_sz;
+  ulong pos       = server->stage_off % ring_sz;
+  ulong remaining = ring_sz - ( pos + server->stage_len );
+
+  if( FD_UNLIKELY( sz>remaining ) ) {
+    /* Move what is staged so far to the front of the ring, so that the
+       message stays contiguous, and give up the bytes it leaves behind
+       so that offsets keep advancing in circular order.  The ring is
+       reused from the front for the staged part as well as the new
+       bytes, so both are evicted for. */
+    ulong stage_end = server->stage_off + remaining + 2UL*server->stage_len + sz;
+    fd_grpc_server_evict_until( server, stage_end>=ring_sz ? stage_end-ring_sz : 0UL );
+    memmove( server->tx_ring, server->tx_ring+pos, server->stage_len );
+    server->stage_off += server->stage_len + remaining;
+  } else {
+    ulong stage_end = server->stage_off + server->stage_len + sz;
+    fd_grpc_server_evict_until( server, stage_end>=ring_sz ? stage_end-ring_sz : 0UL );
+  }
+
+  return server->tx_ring + ( server->stage_off % ring_sz ) + server->stage_len;
+}
+
+/* fd_grpc_server_stage_append copies sz bytes into the message being
+   staged. */
+
+static void
+fd_grpc_server_stage_append( fd_grpc_server_t * server,
+                             void const *       data,
+                             ulong              sz ) {
+  fd_memcpy( fd_grpc_server_stage_reserve( server, sz ), data, sz );
+  server->stage_len += sz;
+}
+
+/* fd_grpc_server_stage_commit ends the message being staged.  The
+   streams that took a reference to it keep it until they have sent
+   it. */
+
+static void
+fd_grpc_server_stage_commit( fd_grpc_server_t * server ) {
+  server->stage_off += server->stage_len;
+  server->stage_len  = 0UL;
+}
+
+/* fd_grpc_server_ref_push appends one message to a stream's pending
+   output.  Returns 0 if the stream had no room for it, in which case
+   it is closed for being too slow. */
+
+static int
+fd_grpc_server_ref_push( fd_grpc_server_stream_t * stream,
+                         ulong                     off,
+                         ulong                     sz ) {
+  fd_grpc_server_t * server  = stream->conn->server;
+  ulong              ref_max = server->params.stream_tx_ref_max;
+
+  if( FD_UNLIKELY( stream->ref_cnt>=ref_max ) ) {
+    server->metrics.tx_too_slow_refs_cnt++;
+    fd_grpc_server_stream_too_slow( stream );
+    return 0;
+  }
+
+  stream->refs[ ( stream->ref_idx + stream->ref_cnt ) % ref_max ] =
+    (fd_grpc_server_tx_ref_t){ .off = off, .len = sz };
+  stream->ref_cnt++;
+  /* The treap is keyed on the oldest reference, so a stream that had
+     none joins it only now that it has one. */
+  if( stream->ref_cnt==1UL ) stream_treap_ele_insert( server->stream_treap, stream, server->stream );
+  stream->ref_hi = fd_ulong_max( stream->ref_hi, stream->ref_cnt );
+  return 1;
+}
+
+/* fd_grpc_server_stage_msg stages one message, its length prefix and
+   payload as one, and returns where it is in the ring through base
+   and len. */
+
+static void
+fd_grpc_server_stage_msg( fd_grpc_server_t * server,
+                          uchar const *      payload,
+                          ulong              payload_sz,
+                          uint               compressed,
+                          ulong *            base,
+                          ulong *            len ) {
+  fd_grpc_hdr_t hdr = {
+    .compressed = (uchar)compressed,
+    .msg_sz     = fd_uint_bswap( (uint)payload_sz )
+  };
+  /* Staging may evict streams that have not sent what the ring is
+     about to reuse, the ones being sent to included. */
+  fd_grpc_server_stage_append( server, &hdr, sizeof(fd_grpc_hdr_t) );
+  if( payload_sz ) fd_grpc_server_stage_append( server, payload, payload_sz );
+  *base = server->stage_off;
+  *len  = sizeof(fd_grpc_hdr_t)+payload_sz;
+  fd_grpc_server_stage_commit( server );
+}
+
+/* The forms a message is staged in, which err[ i ] holds for stream i
+   until its result is known. */
+
+#define GRPC_SEND_RAW  (1)
+#define GRPC_SEND_ZSTD (2)
+
+ulong
+fd_grpc_server_send_multi( fd_grpc_server_stream_t ** streams,
+                           ulong                      stream_cnt,
+                           void const *               msg,
+                           ulong                      msg_sz,
+                           uint                       flags,
+                           int *                      err ) {
+  if( FD_UNLIKELY( !stream_cnt ) ) return 0UL;
+  fd_grpc_server_t * server = streams[ 0 ]->conn->server;
+
+  if( FD_UNLIKELY( msg_sz > server->params.max_msg_sz ) ) {
+    for( ulong i=0UL; i<stream_cnt; i++ ) err[ i ] = FD_GRPC_SERVER_ERR_TOOBIG;
+    server->metrics.tx_toobig_cnt += stream_cnt;
+    return 0UL;
+  }
+
+  int   can_zstd = ( !( flags & FD_GRPC_SERVER_SEND_NO_COMPRESS ) ) &
+                   ( msg_sz >= server->params.compression_min_sz  ) &
+                   ( !!server->cctx                               );
+  ulong raw_cnt  = 0UL;
+  ulong zstd_cnt = 0UL;
+  for( ulong i=0UL; i<stream_cnt; i++ ) {
+    fd_grpc_server_stream_t * stream = streams[ i ];
+    if( FD_UNLIKELY( stream->state!=FD_GRPC_SERVER_STREAM_ACTIVE ) ) { err[ i ] = FD_GRPC_SERVER_ERR_CLOSED; continue; }
+    int zstd = can_zstd & !!( stream->flags & FD_GRPC_SERVER_STREAM_FLAG_TX_ZSTD );
+    err[ i ] = zstd ? GRPC_SEND_ZSTD : GRPC_SEND_RAW;
+    if( zstd ) zstd_cnt++;
+    else       raw_cnt++;
+  }
+
+  /* One compression serves every stream that takes it; a compression
+     that does not shrink the message sends those streams the raw
+     form. */
+  ulong zstd_sz = 0UL;
+  if( zstd_cnt ) {
+    ulong out_sz = ZSTD_compressCCtx( server->cctx, server->compress_out, server->compress_out_sz,
+                                      msg, msg_sz, server->params.compression_level );
+    if( FD_UNLIKELY( ZSTD_isError( out_sz ) ) ) {
+      FD_LOG_WARNING(( "zstd compress failed (%s)", ZSTD_getErrorName( out_sz ) ));
+      for( ulong i=0UL; i<stream_cnt; i++ ) if( err[ i ]==GRPC_SEND_ZSTD ) err[ i ] = FD_GRPC_SERVER_ERR_INTERNAL;
+      zstd_cnt = 0UL;
+    } else if( FD_LIKELY( out_sz<msg_sz ) ) {
+      zstd_sz = out_sz;
+    } else {
+      for( ulong i=0UL; i<stream_cnt; i++ ) if( err[ i ]==GRPC_SEND_ZSTD ) err[ i ] = GRPC_SEND_RAW;
+      raw_cnt += zstd_cnt;
+      zstd_cnt = 0UL;
+    }
+  }
+
+  ulong raw_base  = 0UL; ulong raw_len  = 0UL;
+  ulong zstd_base = 0UL; ulong zstd_len = 0UL;
+  if( raw_cnt  ) fd_grpc_server_stage_msg( server, msg,                  msg_sz,  0U, &raw_base,  &raw_len  );
+  if( zstd_cnt ) fd_grpc_server_stage_msg( server, server->compress_out, zstd_sz, 1U, &zstd_base, &zstd_len );
+
+  ulong sent = 0UL;
+  for( ulong i=0UL; i<stream_cnt; i++ ) {
+    if( err[ i ]!=GRPC_SEND_RAW && err[ i ]!=GRPC_SEND_ZSTD ) continue;
+    fd_grpc_server_stream_t * stream = streams[ i ];
+    int   zstd = err[ i ]==GRPC_SEND_ZSTD;
+    ulong base = zstd ? zstd_base : raw_base;
+    ulong len  = zstd ? zstd_len  : raw_len;
+
+    /* The staging above may have closed this very stream for being too
+       slow. */
+    if( FD_UNLIKELY( stream->state!=FD_GRPC_SERVER_STREAM_ACTIVE ) ) { err[ i ] = FD_GRPC_SERVER_ERR_CLOSED; continue; }
+    if( FD_UNLIKELY( !fd_grpc_server_ref_push( stream, base, len ) ) ) { err[ i ] = FD_GRPC_SERVER_ERR_CLOSED; continue; }
+
+    err[ i ] = FD_GRPC_SERVER_SUCCESS;
+    server->metrics.tx_msg_cnt++;
+    server->metrics.tx_byte_cnt      += msg_sz;
+    server->metrics.tx_byte_cnt_wire += len-sizeof(fd_grpc_hdr_t);
+    if( zstd ) server->metrics.tx_msg_compressed_cnt++;
+    stream->resp_deadline = LONG_MAX;
+    sent++;
+  }
+  if( sent>1UL ) server->metrics.tx_msg_shared_cnt += sent-1UL;
+  return sent;
+}
 
 int
 fd_grpc_server_send( fd_grpc_server_stream_t * stream,
                      void const *              msg,
                      ulong                     msg_sz,
                      uint                      flags ) {
-  if( FD_UNLIKELY( stream->state!=FD_GRPC_SERVER_STREAM_ACTIVE ) ) return FD_GRPC_SERVER_ERR_CLOSED;
-  fd_grpc_server_conn_t * conn   = stream->conn;
-  fd_grpc_server_t *      server = conn->server;
-
-  uchar const * payload    = msg;
-  ulong         payload_sz = msg_sz;
-  uint          compressed = 0U;
-
-  int want_zstd = ( !!( stream->flags & FD_GRPC_SERVER_STREAM_FLAG_TX_ZSTD ) ) &
-                  ( !( flags & FD_GRPC_SERVER_SEND_NO_COMPRESS )       ) &
-                  ( msg_sz >= server->params.compression_min_sz        ) &
-                  ( !!server->cctx                                     );
-  if( FD_UNLIKELY( msg_sz > server->params.max_msg_sz ) ) return FD_GRPC_SERVER_ERR_TOOBIG;
-
-  /* A message that no send queue could hold takes a slot of the large
-     send pool instead. */
-  if( FD_UNLIKELY( fd_grpc_server_msg_needs_large( stream, msg_sz ) ) ) {
-    if( FD_UNLIKELY( !server->params.large_msg_slot_cnt ) ) return FD_GRPC_SERVER_ERR_TOOBIG;
-    /* One oversized message per stream is in flight at a time, and
-       the pool is shared, so a second one waits.  Only that message
-       waits: everything that fits the queue still goes out behind it,
-       in order. */
-    long idx = -1L;
-    if( FD_LIKELY( stream->large_idx<0L ) ) {
-      for( ulong i=0UL; i<server->params.large_msg_slot_cnt; i++ ) {
-        if( !server->large[ i ].busy ) { idx = (long)i; break; }
-      }
-    }
-    if( FD_UNLIKELY( idx<0L ) ) {
-      stream->flags        |= FD_GRPC_SERVER_STREAM_FLAG_TX_BLOCKED | FD_GRPC_SERVER_STREAM_FLAG_TX_LARGE;
-      stream->tx_blocked_sz = 0UL;
-      server->metrics.tx_large_busy_cnt++;
-      return FD_GRPC_SERVER_ERR_AGAIN;
-    }
-
-    fd_grpc_server_large_t * slot = server->large + idx;
-    uchar *                  out  = slot->buf + sizeof(fd_grpc_hdr_t);
-    ulong                    room = server->large_slot_sz - sizeof(fd_grpc_hdr_t);
-
-    if( want_zstd ) {
-      /* A message whose compressed form does not fit the slot, which is
-         only as large as the plaintext, goes out uncompressed. */
-      ulong out_sz = ZSTD_compressCCtx( server->cctx, out, room, msg, msg_sz,
-                                        server->params.compression_level );
-      if( FD_LIKELY( !ZSTD_isError( out_sz ) && out_sz<msg_sz ) ) {
-        payload_sz = out_sz;
-        compressed = 1U;
-      }
-    }
-    if( !compressed ) {
-      fd_memcpy( out, msg, msg_sz );
-      payload_sz = msg_sz;
-    }
-
-    fd_grpc_hdr_t hdr = {
-      .compressed = (uchar)compressed,
-      .msg_sz     = fd_uint_bswap( (uint)payload_sz )
-    };
-    memcpy( slot->buf, &hdr, sizeof(fd_grpc_hdr_t) );
-    slot->sz          = payload_sz + sizeof(fd_grpc_hdr_t);
-    slot->off         = 0UL;
-    slot->busy        = 1;
-    stream->large_idx   = idx;
-    stream->large_nanos = server->now;
-    /* The queue bytes that were already there go out in front of the
-       slot; whatever is queued from now on goes out behind it. */
-    stream->tx_pre_slot = fd_h2_rbuf_used_sz( stream->tx_queue );
-
-    server->metrics.tx_msg_cnt++;
-    server->metrics.tx_large_msg_cnt++;
-    server->metrics.tx_byte_cnt      += msg_sz;
-    server->metrics.tx_byte_cnt_wire += payload_sz;
-    if( compressed ) server->metrics.tx_msg_compressed_cnt++;
-    stream->resp_deadline = LONG_MAX;
-    return FD_GRPC_SERVER_SUCCESS;
-  }
-
-  if( want_zstd ) {
-    ulong out_sz = ZSTD_compressCCtx( server->cctx, server->compress_out, server->compress_out_sz,
-                                      msg, msg_sz, server->params.compression_level );
-    if( FD_UNLIKELY( ZSTD_isError( out_sz ) ) ) {
-      FD_LOG_WARNING(( "zstd compress failed (%s)", ZSTD_getErrorName( out_sz ) ));
-      return FD_GRPC_SERVER_ERR_INTERNAL;
-    }
-    if( FD_LIKELY( out_sz<msg_sz ) ) {
-      payload    = server->compress_out;
-      payload_sz = out_sz;
-      compressed = 1U;
-    }
-  }
-
-  ulong frame_sz = payload_sz + sizeof(fd_grpc_hdr_t);
-  ulong msg_max  = server->params.stream_tx_queue_msg_max;
-  if( FD_UNLIKELY( ( frame_sz > fd_h2_rbuf_free_sz( stream->tx_queue ) ) |
-                   ( ( !!msg_max ) & ( stream->tx_msg_pending>=msg_max ) ) ) ) {
-    stream->flags        |= FD_GRPC_SERVER_STREAM_FLAG_TX_BLOCKED;
-    stream->tx_blocked_sz = frame_sz;
-    server->metrics.tx_queue_full_cnt++;
-    return FD_GRPC_SERVER_ERR_AGAIN;
-  }
-
-  fd_grpc_hdr_t hdr = {
-    .compressed = (uchar)compressed,
-    .msg_sz     = fd_uint_bswap( (uint)payload_sz )
-  };
-  fd_h2_rbuf_push( stream->tx_queue, &hdr, sizeof(fd_grpc_hdr_t) );
-  fd_h2_rbuf_push( stream->tx_queue, payload, payload_sz );
-  if( !stream->tx_msg_pending ) stream->tx_head_rem = frame_sz;
-  stream->tx_msg_pending++;
-  stream->tx_queue_hi = fd_ulong_max( stream->tx_queue_hi,
-                                      fd_h2_rbuf_used_sz( stream->tx_queue ) );
-
-  server->metrics.tx_msg_cnt++;
-  server->metrics.tx_byte_cnt      += msg_sz;
-  server->metrics.tx_byte_cnt_wire += payload_sz;
-  if( compressed ) server->metrics.tx_msg_compressed_cnt++;
-  stream->resp_deadline = LONG_MAX;
-  return FD_GRPC_SERVER_SUCCESS;
+  int err;
+  fd_grpc_server_send_multi( &stream, 1UL, msg, msg_sz, flags, &err );
+  return err;
 }
 
-/* fd_grpc_server_queue_copy_out copies sz bytes of a send queue,
-   starting off bytes into what it holds, which may wrap. */
+/* fd_grpc_server_ref_advance records that sz more bytes of the
+   stream's oldest reference reached the connection's send ring. */
 
-static void
-fd_grpc_server_queue_copy_out( fd_h2_rbuf_t * queue,
-                               ulong          off,
-                               uchar *        out,
-                               ulong          sz ) {
-  ulong chunk0, chunk1;
-  uchar const * p = fd_h2_rbuf_peek_used( queue, &chunk0, &chunk1 );
-  ulong got = 0UL;
-  if( off<chunk0 ) {
-    got = fd_ulong_min( sz, chunk0-off );
-    memcpy( out, p+off, got );
-    off = chunk0;
-  }
-  if( got<sz ) memcpy( out+got, queue->buf0 + ( off-chunk0 ), sz-got );
-}
-
-/* fd_grpc_server_queue_drained accounts for the next sz bytes of the
-   send queue going out: it retires the messages they complete.  It
-   runs before those bytes are consumed, so that the length prefix of
-   each message it crosses is still in the queue, at the offset the
-   ones before it end on. */
-
-static void
-fd_grpc_server_queue_drained( fd_grpc_server_stream_t * stream,
-                              ulong                     sz ) {
-  ulong off = 0UL;
-  while( sz ) {
-    ulong d = fd_ulong_min( sz, stream->tx_head_rem );
-    stream->tx_head_rem -= d;
-    sz                  -= d;
-    off                 += d;
-    if( FD_UNLIKELY( !d ) ) break; /* accounting lost track; nothing to retire */
-    if( stream->tx_head_rem ) continue;
-
-    stream->tx_msg_pending--;
-    if( !stream->tx_msg_pending ) break;
-
-    uchar hdr[ sizeof(fd_grpc_hdr_t) ];
-    fd_grpc_server_queue_copy_out( stream->tx_queue, off, hdr, sizeof(fd_grpc_hdr_t) );
-    stream->tx_head_rem = sizeof(fd_grpc_hdr_t) +
-                          (ulong)fd_uint_bswap( FD_LOAD( uint, hdr+1 ) );
-  }
+void
+fd_grpc_server_ref_advance( fd_grpc_server_stream_t * stream,
+                            ulong                     sz ) {
+  fd_grpc_server_t *              server = stream->conn->server;
+  fd_grpc_server_tx_ref_t const * ref    = stream->refs + stream->ref_idx;
+  stream->ref_written   += sz;
+  if( stream->ref_written<ref->len ) return;
+  stream->ref_idx     = ( stream->ref_idx+1UL ) % server->params.stream_tx_ref_max;
+  stream->ref_cnt--;
+  stream->ref_written = 0UL;
+  /* The treap is keyed on the oldest reference, which just changed. */
+  stream_treap_ele_remove( server->stream_treap, stream, server->stream );
+  if( stream->ref_cnt ) stream_treap_ele_insert( server->stream_treap, stream, server->stream );
 }
 
 /* fd_grpc_server_stream_flush moves as much of one stream's pending
-   response bytes into the connection's send ring as flow control
-   allows: the send queue first, then the large send slot the stream
-   holds, which is the order they were sent in.  Emits at most one DATA
-   frame so that concurrent streams take turns, whichever source it
-   comes from.  Returns 1 if it made progress. */
+   output from the send ring into the connection's send ring as flow
+   control allows.  Emits at most one DATA frame, filled with as many
+   pending messages as fit, so that concurrent streams take turns.
+   Returns 1 if it made progress. */
 
 static int
 fd_grpc_server_stream_flush( fd_grpc_server_stream_t * stream ) {
   fd_grpc_server_conn_t * conn    = stream->conn;
+  fd_grpc_server_t *      server  = conn->server;
   fd_h2_conn_t *          h2      = conn->h2;
   fd_h2_rbuf_t *          rbuf_tx = conn->rbuf_tx;
   uchar block[ FD_GRPC_SERVER_HDR_BUF_MAX ];
@@ -903,10 +1003,17 @@ fd_grpc_server_stream_flush( fd_grpc_server_stream_t * stream ) {
   if( FD_UNLIKELY( stream->h2->state==FD_H2_STREAM_STATE_CLOSED ||
                    stream->h2->state==FD_H2_STREAM_STATE_ILLEGAL ) ) return 0;
 
-  fd_grpc_server_large_t * large = stream->large_idx>=0L ? conn->server->large + stream->large_idx : NULL;
-  ulong queue_sz  = fd_h2_rbuf_used_sz( stream->tx_queue );
-  ulong large_rem = large ? large->sz - large->off : 0UL;
-  ulong pending   = queue_sz + large_rem;
+  /* A stream that lost its output part way through a message cannot be
+     finished with trailers. */
+  if( FD_UNLIKELY( stream->flags & FD_GRPC_SERVER_STREAM_FLAG_TX_TRUNC ) ) {
+    if( FD_UNLIKELY( fd_h2_rbuf_free_sz( rbuf_tx )<sizeof(fd_h2_rst_stream_t)+FD_GRPC_SERVER_TX_RESERVE ) ) return 0;
+    fd_grpc_server_stream_abort( stream, FD_H2_ERR_INTERNAL );
+    fd_grpc_server_stream_end( stream, ( stream->flags & FD_GRPC_SERVER_STREAM_FLAG_TOO_SLOW )
+                                       ? FD_GRPC_SERVER_CLOSE_TOO_SLOW : FD_GRPC_SERVER_CLOSE_ABORTED );
+    return 1;
+  }
+
+  ulong pending = stream->ref_cnt;
 
   if( !( stream->flags & FD_GRPC_SERVER_STREAM_FLAG_RESP_HDRS ) ) {
     if( !pending && stream->state!=FD_GRPC_SERVER_STREAM_FINISH ) return 0;
@@ -932,48 +1039,30 @@ fd_grpc_server_stream_flush( fd_grpc_server_stream_t * stream ) {
     ulong buf_spc = fd_h2_rbuf_free_sz( rbuf_tx );
     buf_spc = buf_spc < 9UL+FD_GRPC_SERVER_TX_RESERVE ? 0UL : buf_spc-9UL-FD_GRPC_SERVER_TX_RESERVE;
 
-    /* tx_pre_slot bytes first, then the slot, then the rest of the
-       queue.  The slot is contiguous, so only the queue needs
-       chunking. */
-    int           from_queue = queue_sz && ( stream->tx_pre_slot || !large_rem );
-    uchar const * chunk;
-    ulong         chunk_sz;
-    if( from_queue ) {
-      ulong chunk0, chunk1;
-      chunk    = fd_h2_rbuf_peek_used( stream->tx_queue, &chunk0, &chunk1 );
-      chunk_sz = stream->tx_pre_slot ? fd_ulong_min( chunk0, stream->tx_pre_slot ) : chunk0;
-    } else {
-      chunk    = large->buf + large->off;
-      chunk_sz = large_rem;
-    }
-
-    ulong payload_sz = fd_ulong_min( quota, chunk_sz );
-    /**/  payload_sz = fd_ulong_min( payload_sz, buf_spc );
-    /**/  payload_sz = fd_ulong_min( payload_sz, h2->peer_settings.max_frame_size );
-    if( payload_sz ) {
+    ulong frame_max = fd_ulong_min( fd_ulong_min( quota, buf_spc ), h2->peer_settings.max_frame_size );
+    if( frame_max ) {
+      /* Consecutive messages share the frame, so small messages do not
+         each cost a frame header on the wire and at the peer. */
       fd_h2_tx_prepare( h2, rbuf_tx, FD_H2_FRAME_TYPE_DATA, 0U, stream->h2->stream_id );
-      fd_h2_rbuf_push( rbuf_tx, chunk, payload_sz );
+      ulong payload_sz = 0UL;
+      while( stream->ref_cnt && payload_sz<frame_max ) {
+        fd_grpc_server_tx_ref_t const * ref = stream->refs + stream->ref_idx;
+        /* A staged message is contiguous, so what is left of it is one
+           run of bytes. */
+        uchar const * chunk    = server->tx_ring + ( ( ref->off + stream->ref_written ) % server->tx_ring_sz );
+        ulong         chunk_sz = fd_ulong_min( ref->len - stream->ref_written, frame_max - payload_sz );
+        fd_h2_rbuf_push( rbuf_tx, chunk, chunk_sz );
+        fd_grpc_server_ref_advance( stream, chunk_sz );
+        payload_sz += chunk_sz;
+      }
       fd_h2_tx_commit( h2, rbuf_tx );
-      if( from_queue ) {
-        fd_grpc_server_queue_drained( stream, payload_sz );
-        fd_h2_rbuf_skip( stream->tx_queue, payload_sz );
-        if( stream->tx_pre_slot ) stream->tx_pre_slot -= payload_sz;
-      }
-      else {
-        large->off += payload_sz;
-        large_rem  -= payload_sz;
-        stream->large_nanos = stream->conn->server->now;
-      }
+      pending = stream->ref_cnt;
+
       h2->tx_wnd         -= (uint)payload_sz;
       stream->h2->tx_wnd -= (uint)payload_sz;
-      pending            -= payload_sz;
       progress = 1;
     }
   }
-
-  /* A large message that went out whole frees its slot right away, so
-     that the next one does not wait for the call to end. */
-  if( large && !large_rem ) fd_grpc_server_large_release( stream );
 
   if( !pending && stream->state==FD_GRPC_SERVER_STREAM_FINISH ) {
     ulong block_sz = fd_grpc_server_gen_trailers( stream, block );
@@ -991,7 +1080,9 @@ finished:
        complete, so tear the stream down (RFC 9113 Section 8.1). */
     fd_grpc_server_stream_abort( stream, FD_H2_SUCCESS );
   }
-  fd_grpc_server_stream_end( stream, FD_GRPC_SERVER_CLOSE_FINISHED );
+  fd_grpc_server_stream_end( stream,
+                             ( stream->flags & FD_GRPC_SERVER_STREAM_FLAG_TOO_SLOW )
+                             ? FD_GRPC_SERVER_CLOSE_TOO_SLOW : FD_GRPC_SERVER_CLOSE_FINISHED );
   return 1;
 }
 
@@ -1002,7 +1093,7 @@ finished:
    (RFC 9113 Section 8.2.1).  A leading colon is allowed for
    pseudo-headers. */
 
-static int
+int
 fd_grpc_server_hdr_name_valid( char const * name,
                                ulong        name_len ) {
   if( FD_UNLIKELY( !name_len ) ) return 0;
@@ -1024,7 +1115,7 @@ fd_grpc_server_hdr_name_valid( char const * name,
 /* fd_grpc_server_hdr_value_valid rejects the field value characters
    that RFC 9113 Section 8.2.1 forbids. */
 
-static int
+int
 fd_grpc_server_hdr_value_valid( char const * value,
                                 ulong        value_len ) {
   for( ulong i=0UL; i<value_len; i++ ) {
@@ -1091,6 +1182,36 @@ fd_grpc_server_list_has( char const * value,
 #define FD_GRPC_SERVER_PSEUDO_SCHEME    (1U<<1)
 #define FD_GRPC_SERVER_PSEUDO_PATH      (1U<<2)
 #define FD_GRPC_SERVER_PSEUDO_AUTHORITY (1U<<3)
+
+/* fd_grpc_server_stream_start hands a request whose headers are
+   processed to the app. */
+
+void
+fd_grpc_server_stream_start( fd_grpc_server_stream_t * stream ) {
+  fd_grpc_server_t * server = stream->conn->server;
+  if( FD_UNLIKELY( stream->state==FD_GRPC_SERVER_STREAM_FINISH ) ) {
+    stream->flags |= FD_GRPC_SERVER_STREAM_FLAG_RX_DROP;
+    return;
+  }
+  stream->state = FD_GRPC_SERVER_STREAM_ACTIVE;
+  int kind = server->callbacks->stream_open( server->app_ctx, stream, stream->path, stream->path_len );
+  if( FD_UNLIKELY( stream->state==FD_GRPC_SERVER_STREAM_FREE ) ) return; /* handler closed the conn */
+  if( FD_UNLIKELY( kind==FD_GRPC_SERVER_REJECT ) ) {
+    server->metrics.stream_reject_cnt++;
+    if( stream->state!=FD_GRPC_SERVER_STREAM_FINISH ) {
+      FD_GRPC_SERVER_FINISH( stream, FD_GRPC_STATUS_UNIMPLEMENTED, "unknown method" );
+    }
+    stream->flags |= FD_GRPC_SERVER_STREAM_FLAG_RX_DROP;
+    return;
+  }
+
+  server->metrics.stream_open_cnt++;
+  stream->flags |= FD_GRPC_SERVER_STREAM_FLAG_APP_OPEN;
+  if( server->params.response_timeout_nanos>0L ) {
+    stream->resp_deadline = fd_long_sat_add( server->now, server->params.response_timeout_nanos );
+  }
+  if( kind==FD_GRPC_SERVER_ACCEPT_UNARY ) stream->flags |= FD_GRPC_SERVER_STREAM_FLAG_UNARY;
+}
 
 /* fd_grpc_server_rx_request_hdrs validates a request field block and
    hands the request to the app. */
@@ -1249,33 +1370,12 @@ fd_grpc_server_rx_request_hdrs( fd_grpc_server_stream_t * stream,
     return;
   }
 
-  if( FD_UNLIKELY( stream->state==FD_GRPC_SERVER_STREAM_FINISH ) ) {
-    stream->flags |= FD_GRPC_SERVER_STREAM_FLAG_RX_DROP;
-    return;
-  }
-  stream->state = FD_GRPC_SERVER_STREAM_ACTIVE;
-  int kind = server->callbacks->stream_open( server->app_ctx, stream, stream->path, stream->path_len );
-  if( FD_UNLIKELY( stream->state==FD_GRPC_SERVER_STREAM_FREE ) ) return; /* handler closed the conn */
-  if( FD_UNLIKELY( kind==FD_GRPC_SERVER_REJECT ) ) {
-    server->metrics.stream_reject_cnt++;
-    if( stream->state!=FD_GRPC_SERVER_STREAM_FINISH ) {
-      FD_GRPC_SERVER_FINISH( stream, FD_GRPC_STATUS_UNIMPLEMENTED, "unknown method" );
-    }
-    stream->flags |= FD_GRPC_SERVER_STREAM_FLAG_RX_DROP;
-    return;
-  }
-
-  server->metrics.stream_open_cnt++;
-  stream->flags |= FD_GRPC_SERVER_STREAM_FLAG_APP_OPEN;
-  if( server->params.response_timeout_nanos>0L ) {
-    stream->resp_deadline = fd_long_sat_add( server->now, server->params.response_timeout_nanos );
-  }
-  if( kind==FD_GRPC_SERVER_ACCEPT_UNARY ) stream->flags |= FD_GRPC_SERVER_STREAM_FLAG_UNARY;
+  fd_grpc_server_stream_start( stream );
 }
 
 /* gRPC message framing ***********************************************/
 
-static void
+void
 fd_grpc_server_rx_fin( fd_grpc_server_stream_t * stream ) {
   fd_grpc_server_t * server = stream->conn->server;
   if( FD_UNLIKELY( stream->flags & FD_GRPC_SERVER_STREAM_FLAG_RX_FIN ) ) return;
@@ -1422,7 +1522,7 @@ fd_grpc_server_rx_msg_hdr( fd_grpc_server_stream_t * stream ) {
   if( !msg_sz ) fd_grpc_server_rx_msg( stream );
 }
 
-static void
+void
 fd_grpc_server_rx_data( fd_grpc_server_stream_t * stream,
                         uchar const *             data,
                         ulong                     data_sz ) {
@@ -1481,8 +1581,12 @@ fd_grpc_server_cb_stream_query( fd_h2_conn_t * h2,
 /* fd_grpc_server_conn_closing marks a connection for release once its
    send ring drains or the close timeout passes, whichever first. */
 
-static void
+void
 fd_grpc_server_conn_closing( fd_grpc_server_conn_t * conn ) {
+  /* Arm the close deadline only on the first transition, so that a peer
+     that keeps the connection busy while it drains cannot push the
+     deadline back indefinitely. */
+  if( FD_UNLIKELY( conn->flags & FD_GRPC_SERVER_CONN_FLAG_CLOSING ) ) return;
   conn->flags      |= FD_GRPC_SERVER_CONN_FLAG_CLOSING;
   conn->close_nanos = conn->server->now + FD_GRPC_SERVER_CLOSE_TIMEOUT_NANOS;
 }
@@ -1619,9 +1723,8 @@ fd_grpc_server_cb_rst_stream( fd_h2_conn_t *   h2,
   fd_grpc_server_stream_t * stream = fd_grpc_server_stream_from_h2( h2_stream );
   fd_grpc_server_conn_t *   conn   = stream->conn;
   fd_grpc_server_t *        server = conn->server;
-  int reason = closed_by                  ? FD_GRPC_SERVER_CLOSE_CANCELLED :
-               error_code==FD_H2_SUCCESS  ? FD_GRPC_SERVER_CLOSE_FINISHED  :
-                                            FD_GRPC_SERVER_CLOSE_ABORTED;
+  (void)error_code;
+  int reason = closed_by ? FD_GRPC_SERVER_CLOSE_CANCELLED : FD_GRPC_SERVER_CLOSE_ABORTED;
   fd_grpc_server_stream_end( stream, reason );
   if( !closed_by ) return;
 
@@ -1826,6 +1929,24 @@ fd_grpc_server_conn_init( fd_grpc_server_t * server,
 
 static int
 fd_grpc_server_conn_preface( fd_grpc_server_conn_t * conn ) {
+  /* A connection already answered as HTTP/1.1 takes no more input */
+  if( FD_UNLIKELY( conn->flags & FD_GRPC_SERVER_CONN_FLAG_HTTP1 ) ) return 0;
+
+  /* A browser cannot open an HTTP/2 cleartext connection, so a request
+     line where the preface should be is served over HTTP/1.1 instead of
+     being dropped. */
+  if( FD_UNLIKELY( conn->server->params.web &&
+                   conn->preface_rem==sizeof(fd_h2_client_preface) ) ) {
+    ulong avail = fd_h2_rbuf_used_sz( conn->rbuf_rx );
+    ulong chunk0, chunk1;
+    uchar const * p = fd_h2_rbuf_peek_used( conn->rbuf_rx, &chunk0, &chunk1 );
+    ulong n = fd_ulong_min( avail, 4UL );
+    if( n && chunk0>=n && ( fd_memeq( p, "GET ", n ) || fd_memeq( p, "POST", n ) ) ) {
+      fd_grpc_web_conn_rx( conn );
+      return 0;
+    }
+  }
+
   while( conn->preface_rem ) {
     ulong avail = fd_h2_rbuf_used_sz( conn->rbuf_rx );
     if( !avail ) return 0;
@@ -1849,8 +1970,12 @@ fd_grpc_server_conn_preface( fd_grpc_server_conn_t * conn ) {
 static void
 fd_grpc_server_conn_goaway( fd_grpc_server_conn_t * conn,
                             uint                    h2_err ) {
-  if( conn->flags & FD_GRPC_SERVER_CONN_FLAG_GOAWAY ) return;
-  if( FD_UNLIKELY( conn->h2->flags & FD_H2_CONN_FLAGS_DEAD ) ) return;
+  /* Nothing may precede the server's own SETTINGS */
+  if( FD_UNLIKELY( conn->h2->flags & FD_H2_CONN_FLAGS_SERVER_INITIAL ) ) return;
+  if( conn->flags & ( FD_GRPC_SERVER_CONN_FLAG_GOAWAY |
+                      FD_GRPC_SERVER_CONN_FLAG_HTTP1 ) ) return;
+  /* fd_h2 already has a GOAWAY of its own to send */
+  if( FD_UNLIKELY( conn->h2->flags & ( FD_H2_CONN_FLAGS_DEAD | FD_H2_CONN_FLAGS_SEND_GOAWAY ) ) ) return;
   if( FD_UNLIKELY( fd_h2_rbuf_free_sz( conn->rbuf_tx )<sizeof(fd_h2_goaway_t)+FD_GRPC_SERVER_TX_RESERVE ) ) return;
   uint last_stream_id = conn->h2->rx_stream_next>=2U ? conn->h2->rx_stream_next-2U : 0U;
   fd_h2_tx_goaway( conn->rbuf_tx, last_stream_id, h2_err );
@@ -1864,6 +1989,19 @@ static void
 fd_grpc_server_conn_flush( fd_grpc_server_conn_t * conn ) {
   fd_grpc_server_t * server     = conn->server;
   ulong              stream_max = server->params.max_stream_cnt;
+
+  /* An HTTP/1.1 connection carries at most one gRPC-Web call and no
+     HTTP/2 state. */
+  if( FD_UNLIKELY( conn->flags & FD_GRPC_SERVER_CONN_FLAG_HTTP1 ) ) {
+    fd_grpc_web_conn_flush( conn );
+    return;
+  }
+
+  /* While HTTP/1.1 is served, the server's own SETTINGS wait until the
+     peer's preface says it is an HTTP/2 client at all; a browser would
+     otherwise be sent binary before its request is even read.
+     fd_h2_rx emits them itself once the preface is through. */
+  if( FD_UNLIKELY( server->params.web && conn->preface_rem ) ) return;
 
   /* RFC 9113 Section 6.9.2 fixes the initial connection receive window
      at 65535 bytes and offers no setting to change it, so the rest of
@@ -1892,23 +2030,6 @@ fd_grpc_server_conn_flush( fd_grpc_server_conn_t * conn ) {
     if( !progress ) break;
   }
 
-  for( ulong i=0UL; i<stream_max; i++ ) {
-    fd_grpc_server_stream_t * s = conn->stream+i;
-    if( s->state!=FD_GRPC_SERVER_STREAM_ACTIVE ) continue;
-    if( !( s->flags & FD_GRPC_SERVER_STREAM_FLAG_TX_BLOCKED ) ) continue;
-    /* A stream still draining a large message cannot take anything,
-       and one that asked for a slot waits until the pool has one. */
-    if( s->large_idx>=0L ) continue;
-    if( ( s->flags & FD_GRPC_SERVER_STREAM_FLAG_TX_LARGE ) &&
-        !fd_grpc_server_large_free( server ) ) continue;
-    if( fd_h2_rbuf_free_sz( s->tx_queue ) < s->tx_blocked_sz ) continue;
-    if( server->params.stream_tx_queue_msg_max &&
-        s->tx_msg_pending>=server->params.stream_tx_queue_msg_max ) continue;
-    s->flags &= ~( FD_GRPC_SERVER_STREAM_FLAG_TX_BLOCKED | FD_GRPC_SERVER_STREAM_FLAG_TX_LARGE );
-    s->tx_blocked_sz = 0UL;
-    server->callbacks->stream_writable( server->app_ctx, s );
-    if( FD_UNLIKELY( !conn->active ) ) return;
-  }
 }
 
 static void
@@ -1924,7 +2045,7 @@ fd_grpc_server_conn_timers( fd_grpc_server_conn_t * conn,
     fd_grpc_server_stream_t * s = conn->stream+i;
     if( s->state==FD_GRPC_SERVER_STREAM_FREE ) continue;
     active_cnt++;
-    pending_out |= ( !!fd_h2_rbuf_used_sz( s->tx_queue ) ) | ( s->large_idx>=0L );
+    pending_out |= !!s->ref_cnt;
     if( ( s->state==FD_GRPC_SERVER_STREAM_ACTIVE                 ) &
         ( !!( s->flags & FD_GRPC_SERVER_STREAM_FLAG_UNARY )             ) &
         ( s->deadline <= now                                      ) ) {
@@ -1937,16 +2058,10 @@ fd_grpc_server_conn_timers( fd_grpc_server_conn_t * conn,
       server->metrics.deadline_exceeded_cnt++;
       FD_GRPC_SERVER_FINISH( s, FD_GRPC_STATUS_DEADLINE_EXCEEDED, "no response" );
     }
-    if( ( s->large_idx>=0L                                          ) &
-        ( params->large_drain_timeout_nanos>0L                      ) &
-        ( now - s->large_nanos > params->large_drain_timeout_nanos  ) ) {
-      server->metrics.large_drain_timeout_cnt++;
-      fd_grpc_server_stream_abort( s, FD_H2_ERR_CANCEL );
-      fd_grpc_server_stream_end( s, FD_GRPC_SERVER_CLOSE_ABORTED );
-    }
   }
 
   if( FD_UNLIKELY( ( params->handshake_timeout_nanos>0L                      ) &
+                   ( !( conn->flags & FD_GRPC_SERVER_CONN_FLAG_HTTP1 )       ) &
                    ( !!( conn->h2->flags & FD_H2_CONN_FLAGS_HANDSHAKING )    ) &
                    ( now - conn->open_nanos > params->handshake_timeout_nanos ) ) ) {
     server->metrics.handshake_timeout_cnt++;
@@ -2022,15 +2137,8 @@ fd_grpc_server_shutdown( fd_grpc_server_t * server ) {
       if( s->state==FD_GRPC_SERVER_STREAM_FREE ) continue;
       /* Queued messages are dropped: a shutdown must not wait on a
          client that is not reading. */
-      fd_grpc_server_large_release( s );
-      /* The counters describe what the ring holds, so they go with it:
-         a message header is only ever read back under tx_msg_pending. */
-      fd_h2_rbuf_init( s->tx_queue, s->tx_queue->buf0, s->tx_queue->bufsz );
-      s->tx_msg_pending = 0UL;
-      s->tx_head_rem    = 0UL;
-      s->tx_blocked_sz  = 0UL;
-      if( s->state==FD_GRPC_SERVER_STREAM_ACTIVE ) {
-        FD_GRPC_SERVER_FINISH( s, FD_GRPC_STATUS_UNAVAILABLE, "server is shutting down" );
+      if( ( s->state==FD_GRPC_SERVER_STREAM_ACTIVE ) | ( !!s->ref_cnt ) ) {
+        FD_GRPC_SERVER_DROP_OUTPUT( s, FD_GRPC_STATUS_UNAVAILABLE, "server is shutting down" );
       }
     }
     fd_grpc_server_conn_closing( conn );

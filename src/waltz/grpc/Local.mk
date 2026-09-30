@@ -11,7 +11,7 @@ $(call make-unit-test,test_grpc_client,test_grpc_client,fd_waltz fd_tls fd_balle
 $(call run-unit-test,test_grpc_client)
 
 $(call add-hdrs,fd_grpc_server.h)
-$(call add-objs,fd_grpc_server,fd_waltz)
+$(call add-objs,fd_grpc_server fd_grpc_web,fd_waltz)
 
 $(call make-unit-test,test_grpc_server,test_grpc_server,fd_waltz fd_ballet fd_util)
 $(call run-unit-test,test_grpc_server)

@@ -50,31 +50,29 @@
 #define FD_GRPC_SERVER_STREAM_FLAG_TX_ZSTD     (1U<< 3) /* client accepts zstd */
 #define FD_GRPC_SERVER_STREAM_FLAG_RX_ZSTD     (1U<< 4) /* request declares zstd */
 #define FD_GRPC_SERVER_STREAM_FLAG_RX_FIN      (1U<< 5) /* client sent END_STREAM */
-#define FD_GRPC_SERVER_STREAM_FLAG_TX_BLOCKED  (1U<< 6) /* a send returned ERR_AGAIN */
+#define FD_GRPC_SERVER_STREAM_FLAG_TOO_SLOW    (1U<< 6) /* closed for falling behind */
 #define FD_GRPC_SERVER_STREAM_FLAG_RX_DROP     (1U<< 7) /* discard remaining request bytes */
 #define FD_GRPC_SERVER_STREAM_FLAG_HDRS_DONE   (1U<< 8) /* request headers were processed */
 #define FD_GRPC_SERVER_STREAM_FLAG_RX_MSG_ZSTD (1U<< 9) /* message being reassembled is zstd coded */
-#define FD_GRPC_SERVER_STREAM_FLAG_TX_LARGE    (1U<<10) /* a send is waiting for a large send slot */
+#define FD_GRPC_SERVER_STREAM_FLAG_TX_TRUNC    (1U<<10) /* a message was cut off, so trailers cannot follow */
 
 /* Connection flags */
 
 #define FD_GRPC_SERVER_CONN_FLAG_GOAWAY   (1U<<0) /* GOAWAY was sent */
 #define FD_GRPC_SERVER_CONN_FLAG_CLOSING  (1U<<1) /* close once the send ring drains */
 #define FD_GRPC_SERVER_CONN_FLAG_WND_INIT (1U<<2) /* connection receive window was granted */
+#define FD_GRPC_SERVER_CONN_FLAG_HTTP1    (1U<<3) /* peer spoke HTTP/1.1: one page or one gRPC-Web call, then the connection ends */
 
-/* fd_grpc_server_large_t is one slot of the large send pool: a framed
-   response message too big for a stream's send queue, drained into
-   DATA frames from off onwards.  A slot belongs to at most one stream
-   at a time. */
+/* fd_grpc_server_tx_ref_t is one gRPC message of a stream's pending
+   output, length prefix included: len bytes at virtual offset off of
+   the send ring, which never wrap around its physical end. */
 
-struct fd_grpc_server_large {
-  uchar * buf;  /* large_slot_sz bytes */
-  ulong   sz;   /* framed bytes in buf */
-  ulong   off;  /* bytes already sent */
-  int     busy;
+struct fd_grpc_server_tx_ref {
+  ulong off;
+  ulong len;
 };
 
-typedef struct fd_grpc_server_large fd_grpc_server_large_t;
+typedef struct fd_grpc_server_tx_ref fd_grpc_server_tx_ref_t;
 
 struct fd_grpc_server_stream {
   fd_h2_stream_t h2[1]; /* first member: see fd_grpc_server_stream_from_h2 */
@@ -82,23 +80,23 @@ struct fd_grpc_server_stream {
   fd_grpc_server_conn_t * conn;
   void *                  ctx;
 
-  fd_h2_rbuf_t tx_queue[1]; /* framed response messages awaiting DATA frames */
-  long         large_idx;   /* large send slot the stream holds, -1 if none */
-  long         large_nanos; /* last time the large message made progress */
+  /* Pending output, as references into the server's send ring.  refs
+     is a ring of stream_tx_ref_max entries; ref_idx is the oldest one
+     and ref_written how many of its bytes are already framed. */
+  fd_grpc_server_tx_ref_t * refs;
+  ulong ref_idx;
+  ulong ref_cnt;
+  ulong ref_written;
+  ulong ref_hi;             /* the most references the stream has held at once */
 
-  /* The messages the send queue holds, and the bytes of the oldest of
-     them that have not gone out yet.  The next message's length prefix
-     is at the front of the queue once the oldest one has drained, so
-     the count needs no per-message bookkeeping of its own. */
-  ulong tx_msg_pending;
-  ulong tx_head_rem;
-  ulong tx_queue_hi;        /* the most bytes the queue has held at once */
-
-  /* Queue bytes that were pending when the stream claimed its large
-     send slot, and so go out in front of it.  Everything queued after
-     that goes out behind it, which is the order the messages were
-     sent in. */
-  ulong tx_pre_slot;
+  /* Slot in the server's treap of streams with pending output, keyed
+     by the offset of the oldest reference. */
+  uint treap_parent;
+  uint treap_left;
+  uint treap_right;
+  uint treap_prio;
+  uint treap_next;
+  uint treap_prev;
 
   uchar * msg_buf;          /* request message reassembly, max_request_msg_sz bytes */
   ulong   msg_sz;           /* request bytes in msg_buf */
@@ -109,7 +107,6 @@ struct fd_grpc_server_stream {
   long  deadline;           /* wallclock nanos, LONG_MAX if the client set none */
   long  resp_deadline;      /* deadline for the first response byte, LONG_MAX if none */
   long  tx_wnd_debt;        /* send window owed after a SETTINGS_INITIAL_WINDOW_SIZE shrink */
-  ulong tx_blocked_sz;      /* message size that hit a full queue */
 
   uint  state;
   uint  flags;
@@ -152,15 +149,23 @@ struct fd_grpc_server {
   fd_grpc_server_callbacks_t const * callbacks;
   void *                             app_ctx;
 
-  fd_grpc_server_conn_t * conn;   /* max_conn_cnt entries */
-  fd_h2_hdr_matcher_t *   matcher;
+  fd_grpc_server_conn_t *   conn;   /* max_conn_cnt entries */
+  fd_grpc_server_stream_t * stream; /* max_conn_cnt*max_stream_cnt entries, the treap's pool */
+  fd_h2_hdr_matcher_t *     matcher;
+  void *                    stream_treap; /* streams with pending output, slowest first */
 
-  fd_grpc_server_large_t * large;         /* large_msg_slot_cnt entries */
-  ulong                    large_slot_sz; /* max_msg_sz + sizeof(fd_grpc_hdr_t) */
+  /* The send ring.  Every response byte of every stream is staged here
+     once and referenced from the streams that carry it.  stage_off is
+     the virtual offset of the message being staged and only ever
+     grows; a byte at virtual offset o lives at tx_ring[ o%tx_ring_sz ]. */
+  uchar * tx_ring;
+  ulong   tx_ring_sz;
+  ulong   stage_off;
+  ulong   stage_len;
 
   uchar * frame_scratch; /* max_frame_sz bytes */
   uchar * hpack_scratch; /* 2*max_frame_sz + 2*FD_HPACK_DTABLE_SZ_MAX bytes */
-  uchar * compress_out;   /* ZSTD_compressBound(stream_tx_queue_sz) bytes */
+  uchar * compress_out;   /* ZSTD_compressBound(max_msg_sz) bytes */
   ulong   compress_out_sz;
   uchar * decompress_out; /* max_request_msg_sz bytes */
 
@@ -185,7 +190,38 @@ struct fd_grpc_server {
 
 #define FD_GRPC_SERVER_MAGIC (0xf17eda2547e2c000UL) /* firedancer grpc srv */
 
+/* FD_GRPC_WEB_HEAD_MAX bounds the head of an HTTP/1.1 response */
+
+#define FD_GRPC_WEB_HEAD_MAX (256UL)
+
 FD_PROTOTYPES_BEGIN
+
+/* Server internals that fd_grpc_web.c drives a call with */
+
+fd_grpc_server_stream_t * fd_grpc_server_stream_acquire( fd_grpc_server_conn_t * conn );
+void fd_grpc_server_stream_start ( fd_grpc_server_stream_t * stream );
+void fd_grpc_server_stream_end   ( fd_grpc_server_stream_t * stream, int reason );
+void fd_grpc_server_rx_data      ( fd_grpc_server_stream_t * stream, uchar const * data, ulong data_sz );
+void fd_grpc_server_rx_fin       ( fd_grpc_server_stream_t * stream );
+void fd_grpc_server_ref_advance  ( fd_grpc_server_stream_t * stream, ulong sz );
+void fd_grpc_server_conn_closing ( fd_grpc_server_conn_t * conn );
+int  fd_grpc_server_hdr_name_valid ( char const * name,  ulong name_len  );
+int  fd_grpc_server_hdr_value_valid( char const * value, ulong value_len );
+ulong fd_grpc_server_pct_encode( char * out, ulong out_max, char const * in, ulong in_len );
+ulong fd_grpc_server_wr_uint   ( char * out, uint value );
+
+/* fd_grpc_web_conn_rx serves a connection that opened with an HTTP/1.1
+   request line instead of the HTTP/2 preface.  An incomplete request
+   is left in the receive ring until more of it arrives. */
+
+void
+fd_grpc_web_conn_rx( fd_grpc_server_conn_t * conn );
+
+/* fd_grpc_web_conn_flush moves the pending output of an HTTP/1.1
+   connection's gRPC-Web call into its send ring. */
+
+void
+fd_grpc_web_conn_flush( fd_grpc_server_conn_t * conn );
 
 /* fd_grpc_server_conn_open_direct claims a connection slot that is not
    backed by a socket.  The caller feeds bytes with
