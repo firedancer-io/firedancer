@@ -2119,23 +2119,6 @@ init_after_snapshot( fd_replay_tile_t *  ctx,
   bank->f.total_activating_stake   = totals.activating;
   bank->f.total_deactivating_stake = totals.deactivating;
 
-  /* Emit the stake-delegations boot baseline from the finalized root
-     cache (snapshot accepted and refreshed, or genesis loaded), so the
-     rows match the post-reconciliation cache rather than the raw
-     account stream. */
-  if( FD_UNLIKELY( ctx->report_runtime_diffs ) ) {
-    fd_stake_delegations_iter_t iter_[1];
-    for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, root_delegations );
-         !fd_stake_delegations_iter_done( iter );
-         fd_stake_delegations_iter_next( iter ) ) {
-      fd_stake_delegation_t const * d = fd_stake_delegations_iter_ele( iter );
-      ulong ae = d->activation_epoch  ==(ushort)USHORT_MAX ? ULONG_MAX : (ulong)d->activation_epoch;
-      ulong de = d->deactivation_epoch==(ushort)USHORT_MAX ? ULONG_MAX : (ulong)d->deactivation_epoch;
-      fd_event_runtime_stake_delegation_bootup_emit( bank->f.slot, bank->f.epoch, d->stake_account.uc,
-                                                     d->vote_account.uc, d->stake, ae, de, d->credits_observed );
-    }
-  }
-
   fd_vote_stakes_refresh( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id, ctx->accdb, bank->accdb_fork_id );
 
   refresh_vote_account_staked( ctx, bank );

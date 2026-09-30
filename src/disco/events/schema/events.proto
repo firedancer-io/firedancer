@@ -419,8 +419,7 @@ enum RuntimeStakeDelegationKind {
   RUNTIME_STAKE_DELEGATION_KIND_UNSPECIFIED = 0;
   RUNTIME_STAKE_DELEGATION_KIND_UPSERT = 1;  // Entry fully rewritten from the post-txn account state
   RUNTIME_STAKE_DELEGATION_KIND_REMOVE = 2;  // Entry removed, either by a transaction (has signature and index_in_slot) or by epoch-boundary inactive-stake pruning (non-transaction; index_in_slot is UInt64 max)
-  RUNTIME_STAKE_DELEGATION_KIND_BOOTUP = 3;  // Post-reconciliation baseline entry: emitted once at boot from the finalized root delegation cache (after snapshot verification/refresh, or genesis load), not from the raw snapshot account stream
-  RUNTIME_STAKE_DELEGATION_KIND_REWARD = 4;  // Entry fully rewritten by an epoch-reward payout during the partitioned-rewards window
+  RUNTIME_STAKE_DELEGATION_KIND_REWARD = 3;  // Entry fully rewritten by an epoch-reward payout during the partitioned-rewards window
 }
 
 // What kind of vote is this.
@@ -1597,17 +1596,17 @@ message RuntimeReward {
   uint64 stake = 11;
 }
 
-// The complete history of the stake-delegations cache, one row per mutation: the baseline entries emitted once at boot (kind = bootup, one row per delegation in the finalized root cache after snapshot verification/refresh or genesis load, not the raw snapshot account stream), the entry rewrites applied by epoch-reward payouts (kind = reward), and the transaction-driven mutations emitted as the cache is updated at txn commit (kind = upsert / remove).
+// The mutation history of the stake-delegations cache since boot, one row per mutation: the entry rewrites applied by epoch-reward payouts (kind = reward) and the transaction-driven mutations emitted as the cache is updated at txn commit (kind = upsert / remove). No baseline is emitted at boot: the starting cache state is the loaded snapshot, which is shared by every validator, so a consumer reconstructing absolute state seeds from the snapshot and applies these rows.
 message RuntimeStakeDelegation {
   // Monotonic sequence number identifying this block within the current run; the join key to runtime_block. Restarts at 1 each time a snapshot is loaded, so pair it with the stream's boot id. 0 means unavailable.
   uint64 bank_seq = 1;
-  // Slot in which the mutating transaction was committed (the snapshot slot for bootup baseline entries; 0 for genesis-boot baselines)
+  // Slot in which the mutating transaction was committed
   uint64 slot = 2;
   // Epoch the slot belongs to
   uint64 epoch = 3;
-  // 0-indexed position of the mutating transaction within its block. UInt64 max for the non-transaction rows (bootup or reward kind)
+  // 0-indexed position of the mutating transaction within its block. UInt64 max for the non-transaction rows (reward kind, and epoch-boundary prune removes)
   uint64 index_in_slot = 4;
-  // First signature of the mutating transaction (64 bytes; zero for the non-transaction rows, bootup or reward kind)
+  // First signature of the mutating transaction (64 bytes; zero for the non-transaction rows)
   bytes signature = 5;
   // Type of the cache entry mutation
   RuntimeStakeDelegationKind kind = 6;

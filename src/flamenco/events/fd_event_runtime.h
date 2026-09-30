@@ -140,22 +140,6 @@ fd_event_runtime_stake_delegation_emit( fd_txn_in_t      const * txn_in,
                                         fd_pubkey_t      const * pubkey,
                                         fd_stake_state_t const * stake_state );
 
-/* Build a runtime_stake_delegation event for a baseline stake
-   delegation cache entry loaded at boot (streamed from the snapshot
-   accounts by snapin, or loaded from genesis) and publish it on the
-   calling tile's event link.  slot/epoch are the snapshot slot and its
-   epoch (0/0 for genesis).  No-op when the tile has no event link. */
-
-void
-fd_event_runtime_stake_delegation_bootup_emit( ulong         slot,
-                                               ulong         epoch,
-                                               uchar const * stake_account,
-                                               uchar const * vote_account,
-                                               ulong         stake,
-                                               ulong         activation_epoch,
-                                               ulong         deactivation_epoch,
-                                               ulong         credits_observed );
-
 /* Record the StakeHistory sysvar entry for the new epoch. */
 
 void
