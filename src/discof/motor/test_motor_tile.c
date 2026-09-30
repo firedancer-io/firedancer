@@ -24,8 +24,9 @@ test_mcache_new( fd_wksp_t * wksp,
   return mcache;
 }
 
-/* Pack and Motor consume replay_out independently.  Exercise work that
-   reaches Motor before its leader notice, then retry after the notice. */
+/* Pack reads replay_out and Motor replay_slot, independently.
+   Exercise work that reaches Motor before its leader notice, then
+   retry after the notice. */
 
 int
 main( int     argc,
@@ -45,7 +46,7 @@ main( int     argc,
   fd_memset( scratch, 0xA5, scratch_footprint( tile ) );
   topo->objs[0].offset = fd_wksp_gaddr( wksp, scratch );
 
-  char const * names[5] = { "execle_poh", "pack_poh", "replay_out", "poh_shred", "poh_replay" };
+  char const * names[5] = { "execle_poh", "pack_poh", "replay_slot", "poh_shred", "poh_replay" };
   ulong const mtus[5] = { FD_EXECLE_POH_MTU, sizeof(fd_done_packing_t), sizeof(fd_replay_message_t),
                          FD_POH_SHRED_MTU, sizeof(fd_poh_leader_slot_ended_t) };
   for( ulong i=0UL; i<5UL; i++ ) {

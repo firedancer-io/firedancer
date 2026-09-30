@@ -117,8 +117,8 @@ add_bench_topo( fd_topo_t  * topo,
   }
 
   fd_topob_tile_out( topo, "bencho", 0UL, "bencho_out", 0UL );
-  if( FD_LIKELY( fd_topo_find_link( topo, "replay_out", 0UL )!=ULONG_MAX ) ) {
-    fd_topob_tile_in( topo, "bencho", 0UL, "metric_in", "replay_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED ); /* fseq in a wksp replay maps */
+  if( FD_LIKELY( fd_topo_find_link( topo, "replay_slot", 0UL )!=ULONG_MAX ) ) {
+    fd_topob_tile_in( topo, "bencho", 0UL, "metric_in", "replay_slot", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED ); /* fseq in a wksp replay maps */
   }
   for( ulong i=0UL; i<benchg_tile_cnt; i++ ) {
     fd_topob_tile_in( topo, "benchg", i, "bench", "bencho_out", 0, 1, 1 );

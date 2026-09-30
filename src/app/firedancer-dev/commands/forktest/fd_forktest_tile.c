@@ -290,7 +290,7 @@ unprivileged_init( fd_topo_t const *      topo,
     if     ( FD_LIKELY( !strcmp( link->name, "replay_epoch" ) ) ) ctx->in[ i ].kind = IN_KIND_REPLAY_EPOCH;
     else if( FD_LIKELY( !strcmp( link->name, "tower_out"    ) ) ) ctx->in[ i ].kind = IN_KIND_TOWER_OUT;
     else if( FD_LIKELY( !strcmp( link->name, "shred_net"    ) ) ) ctx->in[ i ].kind = IN_KIND_SHRED_NET;
-    else if( FD_LIKELY( !strcmp( link->name, "replay_out"   ) ) ) ctx->in[ i ].kind = IN_KIND_REPLAY_OUT;
+    else if( FD_LIKELY( !strcmp( link->name, "replay_slot"  ) ) ) ctx->in[ i ].kind = IN_KIND_REPLAY_OUT;
     else FD_LOG_ERR(( "forkt tile has unexpected input link %lu %s", i, link->name ));
 
     if( FD_LIKELY( link->mtu ) ) {
