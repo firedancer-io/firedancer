@@ -60,10 +60,9 @@
    write lock for its whole duration, so mutators are safe to call
    concurrently from any tile.  fd_stake_delegations_{mark,unmark}_delta
    and the iterator are the exception: the caller holds the write lock
-   across the whole mark/iterate/unmark bracket.  A plain root iteration
-   while the root cannot advance only needs
-   fd_stake_delegations_root_lock, which keeps view_{begin,end} from
-   modifying the root meanwhile.
+   across the whole mark/iterate/unmark bracket.  The root records have
+   a second lock, root_lock, taken by anything that reads or changes
+   them: advancing the root and view_begin.
 
    max_disk_records bounds the number of delta records that can spill
    to disk.  The disk root capacity is max_stake_accounts plus twice
@@ -483,7 +482,9 @@ fd_stake_delegations_advance_root( ulong                                epoch,
    delta elements from the target fork's ancestry onto the base/root
    stake delegation stores.  This allows the caller to iterate over the
    delegations for a bank using the root and its deltas without creating
-   a copy.
+   a copy.  If fork_idx is USHORT_MAX nothing is overlaid and the caller
+   reads the root as is.  Only root_lock is taken and it is held until
+   view_end.
 
    Under the hood, each in-memory or disk root record points to the
    corresponding in-memory or disk delta.  If an element is inserted by
@@ -504,17 +505,6 @@ fd_stake_delegations_view_end( fd_stake_delegations_t *   stake_delegations,
                                fd_stake_history_t const * stake_history,
                                ulong *                    warmup_cooldown_rate_epoch,
                                int                        use_fixed_point_stake_math );
-
-/* fd_stake_delegations_root_{lock,unlock} bracket a plain root
-   iteration by a tile that never mutates the store and runs while the
-   root cannot advance.  Only view_{begin,end} are held off; forks
-   attach and update freely. */
-
-void
-fd_stake_delegations_root_lock( fd_stake_delegations_t * stake_delegations );
-
-void
-fd_stake_delegations_root_unlock( fd_stake_delegations_t * stake_delegations );
 
 /* Iterator API for stake delegations.  The iterator is initialized with
    a call to fd_stake_delegations_iter_init.  The caller is responsible

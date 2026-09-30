@@ -28,8 +28,8 @@ struct fd_stake_delegations {
   /* Guards every mutating operation on the struct. */
   fd_rwlock_t lock;
 
-  /* Stops view_{begin,end} from modifying the root while someone is
-     iterating it. */
+  /* Held by anything that reads or changes the root: advance_root
+     and view_begin. */
   fd_rwlock_t root_lock;
 
   /* File descriptor number for this instance's backing file.
@@ -1016,6 +1016,7 @@ fd_stake_delegations_prune_inactive_root( fd_stake_delegations_t *   stake_deleg
                                           ulong *                    warmup_cooldown_rate_epoch,
                                           int                        use_fixed_point_stake_math,
                                           fd_bank_t const *          emit_bank ) {
+  fd_rwlock_write( &stake_delegations->root_lock );
   fd_rwlock_write( &stake_delegations->lock );
 
   root_map_t *            map        = get_root_map( stake_delegations );
@@ -1068,6 +1069,7 @@ fd_stake_delegations_prune_inactive_root( fd_stake_delegations_t *   stake_deleg
   }
 
   fd_rwlock_unwrite( &stake_delegations->lock );
+  fd_rwlock_unwrite( &stake_delegations->root_lock );
 
   return pruned;
 }
@@ -1537,6 +1539,7 @@ fd_stake_delegations_advance_root( ulong                                epoch,
                                    fd_stake_delegations_t *             stake_delegations,
                                    ushort                               fork_idx,
                                    fd_stake_delegations_delta_stats_t * stake_delegations_delta_stats ) {
+  fd_rwlock_write( &stake_delegations->root_lock );
   fd_rwlock_write( &stake_delegations->lock );
 
   ushort fork_ids[ FD_STAKE_DELEGATIONS_FORK_MAX ];
@@ -1561,6 +1564,7 @@ fd_stake_delegations_advance_root( ulong                                epoch,
   FD_LOG_DEBUG(( "effective_stake=%lu, activating_stake=%lu, deactivating_stake=%lu", stake_delegations->effective_stake, stake_delegations->activating_stake, stake_delegations->deactivating_stake ));
 
   fd_rwlock_unwrite( &stake_delegations->lock );
+  fd_rwlock_unwrite( &stake_delegations->root_lock );
 }
 
 void
@@ -1606,16 +1610,6 @@ fd_stake_delegations_iter_advance_disk_root_private( fd_stake_delegations_iter_t
     iter->disk_idx++;
   }
   iter->ele = NULL;
-}
-
-void
-fd_stake_delegations_root_lock( fd_stake_delegations_t * stake_delegations ) {
-  fd_rwlock_read( &stake_delegations->root_lock );
-}
-
-void
-fd_stake_delegations_root_unlock( fd_stake_delegations_t * stake_delegations ) {
-  fd_rwlock_unread( &stake_delegations->root_lock );
 }
 
 fd_stake_delegations_iter_t *
@@ -1740,6 +1734,8 @@ fd_stake_delegations_view_begin( fd_stake_delegations_t *   stake_delegations,
                                  int                        use_fixed_point_stake_math,
                                  ushort                     fork_idx ) {
   fd_rwlock_write( &stake_delegations->root_lock );
+  if( fork_idx==USHORT_MAX ) return;
+
   fd_rwlock_write( &stake_delegations->lock );
 
   fd_stake_delegation_t * delta_pool = get_delta_pool( stake_delegations );
@@ -1774,6 +1770,11 @@ fd_stake_delegations_view_end( fd_stake_delegations_t *   stake_delegations,
                                fd_stake_history_t const * stake_history,
                                ulong *                    warmup_cooldown_rate_epoch,
                                int                        use_fixed_point_stake_math ) {
+  if( stake_delegations->frontier_query_fork==USHORT_MAX ) {
+    fd_rwlock_unwrite( &stake_delegations->root_lock );
+    return;
+  }
+
   ulong epoch = stake_delegations->frontier_query_epoch;
 
   fd_stake_delegation_t * delta_pool = get_delta_pool( stake_delegations );

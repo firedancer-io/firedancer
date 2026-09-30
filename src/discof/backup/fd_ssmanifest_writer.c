@@ -149,7 +149,8 @@ fd_ssmanifest_writer_init( fd_ssmanifest_writer_t * enc,
   ulong map_cnt         = 0UL;
   int   use_fixed_point = FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 );
 
-  fd_stake_delegations_root_lock( stake_delegations );
+  FD_CHECK_CRIT( bank->stake_delegations_fork_id==USHORT_MAX, "snapshot bank is not rooted" );
+  fd_stake_delegations_view_begin( stake_delegations, bank->f.epoch, &enc->stake_history, &bank->f.warmup_cooldown_rate_epoch, use_fixed_point, USHORT_MAX );
   fd_stake_delegations_iter_t iter_[1];
   for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
        !fd_stake_delegations_iter_done( iter );
@@ -164,7 +165,7 @@ fd_ssmanifest_writer_init( fd_ssmanifest_writer_t * enc,
     }
     vote_account->stake += fd_stake_delegation_activation_status( delegation, bank->f.epoch, &enc->stake_history, &bank->f.warmup_cooldown_rate_epoch, use_fixed_point ).effective;
   }
-  fd_stake_delegations_root_unlock( stake_delegations );
+  fd_stake_delegations_view_end( stake_delegations, &enc->stake_history, &bank->f.warmup_cooldown_rate_epoch, use_fixed_point );
 
   /* Agave fails to load if a delegation's vote account is valid but
      absent here, or if an entry here is not a valid vote account.  To
