@@ -38,15 +38,17 @@
 
 #define VOTE_LOOKAHEAD_MAX (40UL) /* lookahead at most 40 slots from highest ParentReady (matches Agave) */
 
-#define REWARD_VOTE_MAX          (AG_REWARD_SLOT_DELTA+AG_SLOTS_PER_WINDOW) /* voting slot+REWARD_VOTE_MAX needs ParentReady past slot+8's window, deciding slot's reward */
-#define REWARD_VOTE_RETRY_MAX    (4UL)                                      /* latest send plus RFC 9002 kPacketThreshold (3) older ones, past which QUIC counts a packet lost */
-#define REWARD_VOTE_RETRY_MIN_NS (1000000L)                                 /* RFC 9002 kGranularity, same as FD_QUIC_K_GRANULARITY_NS */
-
+#define QUIC_K_PACKET_THRESHOLD (3UL) /* RFC 9002 kPacketThreshold: a packet this many packet numbers older than an acked one is lost */
+#define QUIC_K_GRANULARITY_NS   (1000000L) /* RFC 9002 kGranularity (1ms), same as FD_QUIC_K_GRANULARITY_NS */
 #define QUIC_BAN_TIMEOUT_NS     (10L*1000L*1000L*1000L) /* 10 seconds */
 #define QUIC_CLOSE_CODE_UNKNOWN (2U)
 #define QUIC_CLOSE_CODE_EVICTED (3U)
 #define QUIC_CLOSE_CODE_BANNED  (4U)
 #define QUIC_CONN_MAX           (AG_VAT_MAX * 2) /* each validator is alloted 2 concurrent conns */
+
+#define REWARD_VOTE_MAX        (AG_REWARD_SLOT_DELTA+AG_SLOTS_PER_WINDOW) /* voting slot+REWARD_VOTE_MAX needs ParentReady past slot+8's window, deciding slot's reward */
+#define REWARD_VOTE_RTT_MIN_NS (10000000L)                                /* retry a reward vote no sooner than 10ms */
+#define REWARD_VOTE_RTT_MAX_NS (200000000L)                               /* retry a reward vote no later than 200ms */
 
 #define SER_MAX (AG_VOTE_SER_MAX>AG_CERT_SER_MAX ? AG_VOTE_SER_MAX : AG_CERT_SER_MAX)
 
@@ -124,7 +126,7 @@ struct reward_vote {
   long             retry_ts;
   ulong            tx_cnt;
   fd_quic_conn_t * conn; /* conn the pkt_nums were sent on */
-  ulong            pkt_num[ REWARD_VOTE_RETRY_MAX ];
+  ulong            pkt_num[ QUIC_K_PACKET_THRESHOLD+1UL ]; /* QUIC considers packets at kPacketThreshold (3), so we overwrite the oldest packet number after 3 */
   ag_vote_t        vote;
 };
 typedef struct reward_vote reward_vote_t;
@@ -263,13 +265,13 @@ struct fd_votor_tile {
 
   struct {
     union {
-      ag_vote_t           vote;
-      ag_cert_t           cert;
-      ag_event_pool_t     pool_event;
-      ag_event_repair_t   repair_event;
-      ag_event_timeout_t  timeout_event;
-      ag_event_vote_t     vote_event;
-      ag_event_cert_t     cert_event;
+      ag_vote_t          vote;
+      ag_cert_t          cert;
+      ag_event_pool_t    pool_event;
+      ag_event_repair_t  repair_event;
+      ag_event_timeout_t timeout_event;
+      ag_event_vote_t    vote_event;
+      ag_event_cert_t    cert_event;
     };
     ag_epoch_info_t prev_epoch_info;
     ag_epoch_info_t curr_epoch_info;
@@ -627,7 +629,7 @@ quic_client_ack_range( fd_quic_conn_t * conn,
   for( ulong i=0UL; i<REWARD_VOTE_MAX; i++ ) {
     reward_vote_t * rv = &ctx->reward_votes[ i ];
     if( FD_LIKELY( rv->slot==ULONG_MAX || rv->conn!=conn ) ) continue;
-    for( ulong j=0UL; j<fd_ulong_min( rv->tx_cnt, REWARD_VOTE_RETRY_MAX ); j++ ) {
+    for( ulong j=0UL; j<fd_ulong_min( rv->tx_cnt, QUIC_K_PACKET_THRESHOLD+1UL ); j++ ) {
       if( FD_LIKELY(    rv->pkt_num[ j ]<pkt_num_lo
                      || rv->pkt_num[ j ]>pkt_num_hi ) ) continue;
       report_alpenglow_vote( ctx, NULL, &rv->vote, (uchar)( AG_VOTE_SERDE_TAG_NOTAR+rv->vote.kind ), FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_ACCEPTED, 0, FD_EVENT_ALPENGLOW_VOTE_REASON_REWARD_ACKED, 0L, 0L, NULL );
@@ -1380,12 +1382,13 @@ after_credit( fd_votor_tile_t *   ctx,
     if( FD_UNLIKELY( pkt_num==ULONG_MAX ) ) continue;
     if( FD_UNLIKELY( rv->conn!=peer->tx_conn ) ) {
       rv->conn = peer->tx_conn;
-      for( ulong j=0UL; j<REWARD_VOTE_RETRY_MAX; j++ ) rv->pkt_num[ j ] = ULONG_MAX;
+      for( ulong j=0UL; j<QUIC_K_PACKET_THRESHOLD+1UL; j++ ) rv->pkt_num[ j ] = ULONG_MAX;
     }
-    rv->pkt_num[ rv->tx_cnt%REWARD_VOTE_RETRY_MAX ] = pkt_num;
+    rv->pkt_num[ rv->tx_cnt%(QUIC_K_PACKET_THRESHOLD+1UL) ] = pkt_num;
     rv->tx_cnt++;
     report_alpenglow_vote( ctx, NULL, &rv->vote, ctx->scratch.ser[ 1 ], FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_ACCEPTED, 0, FD_EVENT_ALPENGLOW_VOTE_REASON_REWARD, 0L, broadcast_start_time, peer );
-    rv->retry_ts = now + (long)( peer->tx_conn->rtt->smoothed_rtt + fmaxf( 4.0f*peer->tx_conn->rtt->var_rtt, (float)REWARD_VOTE_RETRY_MIN_NS ) + peer->tx_conn->peer_max_ack_delay_ns ); /* RFC 9002 PTO */
+    long pto     = (long)( peer->tx_conn->rtt->smoothed_rtt + fmaxf( 4.0f*peer->tx_conn->rtt->var_rtt, (float)QUIC_K_GRANULARITY_NS ) + peer->tx_conn->peer_max_ack_delay_ns ); /* RFC 9002 PTO */
+    rv->retry_ts = now + fd_long_max( REWARD_VOTE_RTT_MIN_NS, fd_long_min( pto, REWARD_VOTE_RTT_MAX_NS ) ); /* clamp between RTT_MIN, RTT_MAX  */
     *charge_busy = 1;
   }
 
