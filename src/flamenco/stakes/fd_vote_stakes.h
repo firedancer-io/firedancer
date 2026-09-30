@@ -297,6 +297,62 @@ fd_vote_stakes_iter_ele( fd_vote_stakes_t const * vote_stakes,
                          uchar                    bls_key_out_opt[ FD_BLS_PUBKEY_COMPRESSED_SZ ],
                          uchar                    bls_key_uncompressed_out_opt[ FD_BLS_PUBKEY_UNCOMPRESSED_SZ ] );
 
+/* fd_vote_stakes_set_block_revenue_t_{1,2} set a vote account's
+   SIMD-0123 block revenue commission (basis points) and pending
+   delegator rewards in the t-1 / t-2 set.
+   Inserts default to FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS and 0.
+   No-op if pubkey is not in the set. */
+void
+fd_vote_stakes_set_block_revenue_t_1( fd_vote_stakes_t *  vote_stakes,
+                                      ulong               fork_id,
+                                      fd_pubkey_t const * pubkey,
+                                      ushort              block_revenue_commission_bps,
+                                      ulong               pending_delegator_rewards );
+
+void
+fd_vote_stakes_set_block_revenue_t_2( fd_vote_stakes_t *  vote_stakes,
+                                      ulong               fork_id,
+                                      fd_pubkey_t const * pubkey,
+                                      ushort              block_revenue_commission_bps,
+                                      ulong               pending_delegator_rewards );
+
+/* fd_vote_stakes_set_block_revenue_t_n is the same for the t-n set,
+   n in 2..5. */
+void
+fd_vote_stakes_set_block_revenue_t_n( fd_vote_stakes_t *  vote_stakes,
+                                      ulong               fork_id,
+                                      ulong               n,
+                                      fd_pubkey_t const * pubkey,
+                                      ushort              block_revenue_commission_bps,
+                                      ulong               pending_delegator_rewards );
+
+/* fd_vote_stakes_query_block_revenue_t_{1,2} read the SIMD-0123 fields
+   of a vote account in the t-1 / t-2 set.
+   Returns 1 if the account is in the set, 0 otherwise. */
+int
+fd_vote_stakes_query_block_revenue_t_1( fd_vote_stakes_t const * vote_stakes,
+                                        ulong                    fork_id,
+                                        fd_pubkey_t const *      pubkey,
+                                        ushort *                 block_revenue_commission_bps_out_opt,
+                                        ulong *                  pending_delegator_rewards_out_opt );
+
+int
+fd_vote_stakes_query_block_revenue_t_2( fd_vote_stakes_t const * vote_stakes,
+                                        ulong                    fork_id,
+                                        fd_pubkey_t const *      pubkey,
+                                        ushort *                 block_revenue_commission_bps_out_opt,
+                                        ulong *                  pending_delegator_rewards_out_opt );
+
+/* fd_vote_stakes_iter_block_revenue reads the SIMD-0123 fields of the
+   element the iterator is positioned on. */
+void
+fd_vote_stakes_iter_block_revenue( fd_vote_stakes_t const * vote_stakes,
+                                   ulong                    fork_id,
+                                   int                      iter_kind,
+                                   fd_vote_stakes_iter_t *  iter,
+                                   ushort *                 block_revenue_commission_bps_out_opt,
+                                   ulong *                  pending_delegator_rewards_out_opt );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_stakes_fd_vote_stakes_h */

@@ -207,6 +207,12 @@ ENCODE_FN {
     FD_TEST( !fd_vote_stakes_iter_done( vote_stakes, fork_id, iter_kind, iter ) );
     fd_vote_stakes_iter_ele( vote_stakes, fork_id, iter_kind, iter, &pubkey, &node_account, &stake,
                              NULL, NULL, &commission, NULL, NULL, bls_key, NULL );
+
+    ushort block_revenue_commission_bps = FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS;
+    ulong  pending_delegator_rewards    = 0UL;
+    fd_vote_stakes_iter_block_revenue( vote_stakes, fork_id, iter_kind, iter,
+                                       &block_revenue_commission_bps, &pending_delegator_rewards );
+
     if( iter_kind==FD_VOTE_STAKES_ITER_T_1 ) {
       ec = find_epoch_credits( enc->bank, &pubkey );
       FD_TEST( ec );
@@ -251,8 +257,8 @@ ENCODE_FN {
     PUSH_VAL( fd_pubkey_t, inflation_collector ); /* inflation_rewards_collector */
     PUSH_VAL( fd_pubkey_t, block_collector     ); /* block_revenue_collector */
     PUSH_VAL( ushort, commission ); /* inflation_rewards_commission_bps */
-    PUSH_VAL( ushort, (ushort)0 ); /* block_revenue_commission_bps */
-    PUSH_VAL( ulong,  0UL      ); /* pending_delegator_rewards */
+    PUSH_VAL( ushort, block_revenue_commission_bps ); /* block_revenue_commission_bps */
+    PUSH_VAL( ulong,  pending_delegator_rewards    ); /* pending_delegator_rewards */
     if( has_bls ) {
       typedef struct { uchar b[ FD_BLS_PUB_COMPRESSED_SZ ]; } bls_key_compressed_t;
       PUSH_VAL( uchar, 1        ); /* bls_pubkey_compressed = Some */

@@ -277,6 +277,11 @@ test_manifest_roundtrip( fd_wksp_t * wksp,
   fd_collector_overrides_upsert( co, co_root, bank->f.epoch,     &vote0, 1, &infl0, 1, &blk0 );
   fd_collector_overrides_upsert( co, co_root, bank->f.epoch-1UL, &vote1, 0, NULL,   1, &blk1 );
 
+  /* SIMD-0123 fields: vote0 on the t_1 set, vote1 on the t_2 set. */
+  fd_vote_stakes_set_block_revenue_t_1( vote_stakes, fork_id, &vote0, 2500U, 777UL );
+  fd_vote_stakes_set_block_revenue_t_2( vote_stakes, fork_id, &vote1, 1234U, 55UL );
+  fd_vote_stakes_set_block_revenue_t_n( vote_stakes, fork_id, 3UL, &vote0, 4321U, 99UL );
+
   seed_epoch_credits( bank );
 
   ulong manifest_sz = fd_snap_manifest_serialized_sz( bank, &identities[0] );
@@ -407,12 +412,15 @@ test_manifest_roundtrip( fd_wksp_t * wksp,
       if( !memcmp( vs->vote, &vote0, 32UL ) ) {
         FD_TEST( !memcmp( vs->commission_inflation, &infl0, 32UL ) );
         FD_TEST( !memcmp( vs->commission_block,     &blk0,  32UL ) );
+        FD_TEST( vs->commission_block_bps==2500U && vs->pending_delegator_rewards==777UL );
         seen_t1_vote0 = 1;
       } else {
         /* default collectors: inflation is the vote account, block is
            the node identity */
         FD_TEST( !memcmp( vs->commission_inflation, vs->vote,     32UL ) );
         FD_TEST( !memcmp( vs->commission_block,     vs->identity, 32UL ) );
+        FD_TEST( vs->commission_block_bps==FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS );
+        FD_TEST( vs->pending_delegator_rewards==0UL );
         if( !memcmp( vs->vote, &vote1, 32UL ) ) seen_t1_vote1 = 1;
       }
     }
@@ -426,10 +434,13 @@ test_manifest_roundtrip( fd_wksp_t * wksp,
       if( !memcmp( vs->vote, &vote1, 32UL ) ) {
         FD_TEST( !memcmp( vs->commission_inflation, vs->vote, 32UL ) );
         FD_TEST( !memcmp( vs->commission_block,     &blk1,    32UL ) );
+        FD_TEST( vs->commission_block_bps==1234U && vs->pending_delegator_rewards==55UL );
         seen_t2_vote1 = 1;
       } else {
         FD_TEST( !memcmp( vs->commission_inflation, vs->vote,     32UL ) );
         FD_TEST( !memcmp( vs->commission_block,     vs->identity, 32UL ) );
+        FD_TEST( vs->commission_block_bps==FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS );
+        FD_TEST( vs->pending_delegator_rewards==0UL );
         if( !memcmp( vs->vote, &vote0, 32UL ) ) seen_t2_vote0 = 1;
       }
     }
@@ -451,6 +462,12 @@ test_manifest_roundtrip( fd_wksp_t * wksp,
         FD_TEST( !memcmp( vs->commission_block,     zero32, 32UL ) );
         FD_TEST( !vs->epoch_credits_history_len );
         FD_TEST( vs->stake==1000000UL*n && vs->commission==100UL*n );
+        if( n==3UL && !memcmp( vs->vote, &vote0, 32UL ) ) {
+          FD_TEST( vs->commission_block_bps==4321U && vs->pending_delegator_rewards==99UL );
+        } else {
+          FD_TEST( vs->commission_block_bps==FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS );
+          FD_TEST( vs->pending_delegator_rewards==0UL );
+        }
 
         int found = 0;
         for( ulong j=0UL; j<VALIDATOR_CNT; j++ ) {

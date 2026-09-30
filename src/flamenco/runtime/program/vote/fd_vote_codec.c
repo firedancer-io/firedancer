@@ -393,11 +393,13 @@ ser_epoch_credits( fd_vote_epoch_credits_t const * epoch_credits,
    inflation_rewards_commission_bps, block_revenue_commission_bps,
    and pending_delegator_rewards before the first variable field. */
 
-#define WIRE_OFF_NODE_PUBKEY                    (4UL)
-#define WIRE_OFF_V1V3_COMMISSION                (68UL)  /* 4 + 32 + 32 */
-#define WIRE_OFF_V4_INFLATION_REWARDS_COLLECTOR (68UL)  /* 4 + 32 + 32 */
-#define WIRE_OFF_V4_BLOCK_REVENUE_COLLECTOR     (100UL) /* 4 + 32 + 32 + 32 */
-#define WIRE_OFF_V4_COMMISSION_BPS              (132UL) /* 4 + 32 + 32 + 32 + 32 */
+#define WIRE_OFF_NODE_PUBKEY                     (4UL)
+#define WIRE_OFF_V1V3_COMMISSION                 (68UL)  /* 4 + 32 + 32 */
+#define WIRE_OFF_V4_INFLATION_REWARDS_COLLECTOR  (68UL)  /* 4 + 32 + 32 */
+#define WIRE_OFF_V4_BLOCK_REVENUE_COLLECTOR      (100UL) /* 4 + 32 + 32 + 32 */
+#define WIRE_OFF_V4_COMMISSION_BPS               (132UL) /* 4 + 32 + 32 + 32 + 32 */
+#define WIRE_OFF_V4_BLOCK_REVENUE_COMMISSION_BPS (134UL) /* 4 + 32 + 32 + 32 + 32 + 2 */
+#define WIRE_OFF_V4_PENDING_DELEGATOR_REWARDS    (136UL) /* 4 + 32 + 32 + 32 + 32 + 2 + 2 */
 
 /* Byte size of a Lockout on the wire: u64 slot + u32 confirmation_count */
 #define WIRE_LOCKOUT_SZ     (12UL)
@@ -458,6 +460,85 @@ fd_vote_account_commission_bps( uchar const * data,
     default:
       return 1;
   }
+}
+
+int
+fd_vote_account_block_revenue_commission_bps( uchar const * data,
+                                              ulong         data_sz,
+                                              ushort *      out ) {
+  uchar const * ptr       = data;
+  ulong         remaining = data_sz;
+
+  uint discriminant;
+  READ_U32( discriminant, &ptr, &remaining );
+
+  switch( discriminant ) {
+    case fd_vote_state_versioned_enum_v1_14_11: /* fallthrough */
+    case fd_vote_state_versioned_enum_v3:
+      *out = FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS;
+      return 0;
+    case fd_vote_state_versioned_enum_v4:
+      CHECK( data_sz>=WIRE_OFF_V4_BLOCK_REVENUE_COMMISSION_BPS+2UL );
+      *out = FD_LOAD( ushort, data+WIRE_OFF_V4_BLOCK_REVENUE_COMMISSION_BPS );
+      return 0;
+    default:
+      return 1;
+  }
+}
+
+int
+fd_vote_account_pending_delegator_rewards( uchar const * data,
+                                           ulong         data_sz,
+                                           ulong *       out ) {
+  uchar const * ptr       = data;
+  ulong         remaining = data_sz;
+
+  uint discriminant;
+  READ_U32( discriminant, &ptr, &remaining );
+
+  switch( discriminant ) {
+    case fd_vote_state_versioned_enum_v1_14_11: /* fallthrough */
+    case fd_vote_state_versioned_enum_v3:
+      *out = 0UL;
+      return 0;
+    case fd_vote_state_versioned_enum_v4:
+      CHECK( data_sz>=WIRE_OFF_V4_PENDING_DELEGATOR_REWARDS+8UL );
+      *out = FD_LOAD( ulong, data+WIRE_OFF_V4_PENDING_DELEGATOR_REWARDS );
+      return 0;
+    default:
+      return 1;
+  }
+}
+
+/* Returns 1 iff data is an initialized v4 vote state of exactly
+   FD_VOTE_STATE_V4_SZ bytes. */
+static int
+is_v4_with_pending_delegator_rewards( uchar const * data,
+                                      ulong         data_sz ) {
+  if( data_sz!=FD_VOTE_STATE_V4_SZ ) return 0;
+  return FD_LOAD( uint, data )==fd_vote_state_versioned_enum_v4;
+}
+
+int
+fd_vote_account_add_pending_delegator_rewards( uchar * data,
+                                               ulong   data_sz,
+                                               ulong   lamports ) {
+  if( FD_UNLIKELY( !is_v4_with_pending_delegator_rewards( data, data_sz ) ) ) return 1;
+  ulong cur = FD_LOAD( ulong, data+WIRE_OFF_V4_PENDING_DELEGATOR_REWARDS );
+  ulong sum;
+  if( FD_UNLIKELY( __builtin_uaddl_overflow( cur, lamports, &sum ) ) ) return 2;
+  FD_STORE( ulong, data+WIRE_OFF_V4_PENDING_DELEGATOR_REWARDS, sum );
+  return 0;
+}
+
+int
+fd_vote_account_reset_pending_delegator_rewards( uchar * data,
+                                                 ulong   data_sz,
+                                                 ulong * old_out ) {
+  if( FD_UNLIKELY( !is_v4_with_pending_delegator_rewards( data, data_sz ) ) ) return 1;
+  *old_out = FD_LOAD( ulong, data+WIRE_OFF_V4_PENDING_DELEGATOR_REWARDS );
+  FD_STORE( ulong, data+WIRE_OFF_V4_PENDING_DELEGATOR_REWARDS, 0UL );
+  return 0;
 }
 
 int
