@@ -1451,10 +1451,31 @@ during_housekeeping( fd_votor_tile_t * ctx ) {
   }
 }
 
+/* reward_vote_peer returns the reward leader of rv if a retry can go
+   out now (an active conn), else NULL.  A retry blocked on the conn
+   waits for the frag that completes the handshake, not a timer. */
+
+static peer_t const *
+reward_vote_peer( fd_votor_tile_t const * ctx,
+                  reward_vote_t const *   rv ) {
+  fd_pubkey_t const * leader = fd_multi_epoch_leaders_get_leader_for_slot( ctx->mleaders, rv->slot+AG_REWARD_SLOT_DELTA );
+  peer_t const *      peer   = leader ? peers_query_const( ctx->peers, *leader, NULL ) : NULL;
+  if( FD_UNLIKELY( !peer || !peer->tx_conn || peer->tx_conn->state!=FD_QUIC_CONN_STATE_ACTIVE ) ) return NULL;
+  return peer;
+}
+
 static inline long
 next_deadline( fd_votor_tile_t * ctx ) {
   long reconn = reconn_prq_cnt( ctx->reconn_prq ) ? ctx->reconn_prq[ 0 ].timeout : LONG_MAX;
   long next   = fd_long_min( fd_long_min( fd_quic_get_next_wakeup( ctx->quic_client ), fd_quic_get_next_wakeup( ctx->quic_server ) ), reconn );
+  if( FD_LIKELY( ctx->init ) ) {
+    next = fd_long_min( next, ag_votor_next_timeout( ctx->votor ) );
+    for( ulong i=0UL; i<REWARD_VOTE_MAX; i++ ) {
+      reward_vote_t const * rv = &ctx->reward_votes[ i ];
+      if( FD_LIKELY( rv->slot==ULONG_MAX || rv->retry_ts>=next ) ) continue;
+      if( FD_LIKELY( reward_vote_peer( ctx, rv ) ) ) next = rv->retry_ts;
+    }
+  }
   return next==LONG_MAX ? LONG_MAX : fd_clock_tile_wallclock_to_tickcount( ctx->clock, next );
 }
 
@@ -1632,9 +1653,8 @@ after_credit( fd_votor_tile_t *   ctx,
         FD_LOG_CRIT(( "unhandled kind" ));
       }
       if( FD_LIKELY( ctx->scratch.vote_event.reason!=UCHAR_MAX ) ) report_alpenglow_vote( ctx, NULL, &ctx->scratch.vote_event.vote, ctx->scratch.ser[ 1 ], result, quorum_reached, FD_EVENT_ALPENGLOW_VOTE_REASON_BLOCK_REPLAYED+ctx->scratch.vote_event.reason, aggregation_start_time, broadcast_start_time, reward_leader );
-
-      *charge_busy = 1;
     }
+    *charge_busy = 1;
   }
 
   if( FD_UNLIKELY( ag_votor_poll_cert_event( ctx->votor, &ctx->scratch.cert_event ) ) ) { /* a cert the pool accepted, or a standstill re-broadcast */
@@ -1665,13 +1685,16 @@ after_credit( fd_votor_tile_t *   ctx,
   for( ulong i=0UL; i<REWARD_VOTE_MAX; i++ ) {
     reward_vote_t * rv = &ctx->reward_votes[ i ];
     if( FD_LIKELY( rv->slot==ULONG_MAX || now<rv->retry_ts ) ) continue;
-    fd_pubkey_t const * leader = fd_multi_epoch_leaders_get_leader_for_slot( ctx->mleaders, rv->slot+AG_REWARD_SLOT_DELTA );
-    peer_t const *      peer   = leader ? peers_query_const( ctx->peers, *leader, NULL ) : NULL;
-    if( FD_UNLIKELY( !peer || !peer->tx_conn ) ) continue;
+    peer_t const * peer = reward_vote_peer( ctx, rv );
+    if( FD_UNLIKELY( !peer ) ) continue;
     long  broadcast_start_time = fd_clock_tile_now( ctx->clock );
     ulong ser_sz               = ag_vote_ser( &rv->vote, ctx->scratch.ser );
     ulong pkt_num              = quic_client_datagram_tx( ctx, stem, peer->tx_conn, ctx->scratch.ser, ser_sz );
-    if( FD_UNLIKELY( pkt_num==ULONG_MAX ) ) continue;
+    if( FD_UNLIKELY( pkt_num==ULONG_MAX ) ) {
+      rv->retry_ts = now+REWARD_VOTE_RTT_MIN_NS;
+      continue;
+    }
+
     if( FD_UNLIKELY( rv->conn!=peer->tx_conn ) ) {
       rv->conn = peer->tx_conn;
       for( ulong j=0UL; j<QUIC_K_PACKET_THRESHOLD+1UL; j++ ) rv->pkt_num[ j ] = ULONG_MAX;
