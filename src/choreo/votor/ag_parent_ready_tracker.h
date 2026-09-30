@@ -72,6 +72,16 @@ ag_parent_ready_tracker_leave( ag_parent_ready_tracker_t const * tracker );
 void *
 ag_parent_ready_tracker_delete( void * shtracker );
 
+/* ag_parent_ready_tracker_init starts tracking at the given root block.
+   The root is treated as notarized-fallback and root+1 is ParentReady
+   with the root as its parent, even if root+1 does not start a window.
+
+   https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/votor/src/consensus_pool/parent_ready_tracker.rs#L65-L108 */
+
+void
+ag_parent_ready_tracker_init( ag_parent_ready_tracker_t * self,
+                              ag_block_id_t const *       root );
+
 /* Definition 15. ParentReadyTracker::mark_notar_fallback */
 
 void

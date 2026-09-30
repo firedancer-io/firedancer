@@ -4,6 +4,7 @@
 
 #include "../../../platform/fd_file_util.h"
 #include "../../../../ballet/poh/fd_poh.h"
+#include "../../../../disco/keyguard/fd_keyguard_bls.h"
 #include "../../../../disco/keyguard/fd_keyload.h"
 #include "../../../../discof/genesis/genesis_hash.h"
 #include "../../../../flamenco/features/fd_features.h"
@@ -123,10 +124,18 @@ create_genesis( config_t const * config,
 
   /* Read in keys */
 
-  uchar const * identity_pubkey_ = fd_keyload_load( config->paths.identity_key, 1 );
-  if( FD_UNLIKELY( !identity_pubkey_ ) ) FD_LOG_ERR(( "Failed to load identity key" ));
-  memcpy( options->identity_pubkey.key, identity_pubkey_, 32 );
-  fd_keyload_unload( identity_pubkey_, 1 );
+  uchar const * identity_key_ = fd_keyload_load( config->paths.identity_key, 0 );
+  if( FD_UNLIKELY( !identity_key_ ) ) FD_LOG_ERR(( "Failed to load identity key" ));
+  memcpy( options->identity_pubkey.key, identity_key_+32UL, 32 );
+
+  /* The identity is the authorized voter, so the vote account carries
+     the BLS key the sign tile derives from it. */
+  fd_keyguard_bls_key_t bls_key[1];
+  fd_sha512_t           sha[1];
+  fd_keyguard_bls_key_derive( bls_key, identity_key_+32UL, identity_key_, fd_sha512_join( fd_sha512_new( sha ) ) );
+  memcpy( options->bls_pubkey, bls_key->public_key, sizeof(options->bls_pubkey) );
+  fd_memzero_explicit( bls_key, sizeof(bls_key) );
+  fd_keyload_unload( identity_key_, 0 );
 
   char file_path[ PATH_MAX ];
   FD_TEST( fd_cstr_printf_check( file_path, PATH_MAX, NULL, "%s/faucet.json", config->paths.base ) );
@@ -185,6 +194,10 @@ create_genesis( config_t const * config,
 
   }
 
+  int alpenglow = config->is_firedancer && config->firedancer.development.alpenglow;
+  options->alpenglow = alpenglow;
+  if( alpenglow ) options->hashes_per_tick = 0UL; /* PoH is in low power mode */
+
   options->ticks_per_slot               = config->development.genesis.ticks_per_slot;
   options->target_tick_duration_micros  = config->development.genesis.target_tick_duration_micros;
 
@@ -204,6 +217,7 @@ create_genesis( config_t const * config,
   fd_features_disable_all( features );
   fd_features_enable_cleaned_up( features );
   default_enable_features( features );
+  if( alpenglow ) features->alpenglow = 0UL;
 
   options->features = features;
 

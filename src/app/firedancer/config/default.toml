@@ -2011,7 +2011,8 @@ telemetry = true
     # components will be replaced with Alpenglow.
     #
     # You can also enable Alpenglow with the `--alpenglow` argument to
-    # `firedancer-dev`.
+    # `firedancer-dev`.  Local development clusters (`firedancer-dev
+    # dev`) always run Alpenglow from genesis.
     alpenglow = false
 
     [development.votor]
