@@ -27,7 +27,7 @@ fd_store_payload_slot_sz( ulong fec_data_max ) {
   if( FD_UNLIKELY( __builtin_uaddl_overflow( fec_data_max, FD_STORE_PAYLOAD_PAGE_SZ-1UL, &rounded ) ) ) return 0UL;
   return rounded & ~(FD_STORE_PAYLOAD_PAGE_SZ-1UL);
 }
-#define FD_STORE_MAGIC (0xf17eda2ce75702eaUL) /* firedancer store version 10 */
+#define FD_STORE_MAGIC (0xf17eda2ce75702ebUL) /* firedancer store version 11 */
 
 #define FD_STORE_FEC_DATA_EMPTY       (0U)
 #define FD_STORE_FEC_DATA_RAM_WRITING (1U)
@@ -58,17 +58,6 @@ fd_shredb_key_shred_idx( ulong key ) {
   return (uint)fd_ulong_extract( key, 0, 31 );
 }
 
-/* Root keys index a shred by the first FD_SHRED_MERKLE_NODE_SZ bytes of
-   its FEC set's merkle root and its shred_idx, so every version of a
-   (slot,idx) is addressable.  Keys are hashes; reads verify the root
-   stored in the entry. */
-
-FD_FN_PURE static inline ulong
-fd_shredb_root_key( uchar const * merkle_root,
-                    uint          shred_idx ) {
-  return fd_hash( (ulong)shred_idx, merkle_root, FD_SHRED_MERKLE_NODE_SZ );
-}
-
 typedef __attribute__((aligned(4))) ulong fd_shredb_map_key_t;
 
 FD_STATIC_ASSERT( sizeof(fd_shredb_map_key_t)==8UL, shredb_map_key_footprint );
@@ -88,6 +77,43 @@ FD_STATIC_ASSERT( sizeof(fd_shredb_shred_entry_t)==12UL, shredb_shred_entry_foot
 #define MAP_KEY    key
 #define MAP_IDX_T  uint
 #define MAP_NEXT   next
+#include "../../util/tmpl/fd_map_chain_para.c"
+
+struct fd_shredb_root_key {
+  uchar root[ FD_SHRED_MERKLE_NODE_SZ ];
+  uchar off; /* 0 <= off < 32 */
+};
+typedef struct fd_shredb_root_key fd_shredb_root_key_t;
+
+FD_STATIC_ASSERT( sizeof(fd_shredb_root_key_t)==21UL, shredb_root_key_footprint );
+
+static inline fd_shredb_root_key_t
+fd_shredb_root_key( uchar const * merkle_root,
+                    uint          shred_idx ) {
+  fd_shredb_root_key_t key;
+  memcpy( key.root, merkle_root, FD_SHRED_MERKLE_NODE_SZ );
+  key.off = (uchar)(shred_idx % FD_FEC_SHRED_CNT);
+  return key;
+}
+
+/* The pad keeps next 4-byte aligned, the map takes pointers to it. */
+struct fd_shredb_root_entry {
+  fd_shredb_root_key_t key;
+  uchar                pad[ 3 ];
+  uint                 next;
+};
+typedef struct fd_shredb_root_entry fd_shredb_root_entry_t;
+
+FD_STATIC_ASSERT( sizeof(fd_shredb_root_entry_t)==28UL, shredb_root_entry_footprint );
+
+#define MAP_NAME               fd_shredb_root_map
+#define MAP_ELE_T              fd_shredb_root_entry_t
+#define MAP_KEY_T              fd_shredb_root_key_t
+#define MAP_KEY                key
+#define MAP_KEY_EQ(k0,k1)      (!memcmp( (k0), (k1), sizeof(fd_shredb_root_key_t) ))
+#define MAP_KEY_HASH(key,seed) fd_hash( (seed), (key), sizeof(fd_shredb_root_key_t) )
+#define MAP_IDX_T              uint
+#define MAP_NEXT               next
 #include "../../util/tmpl/fd_map_chain_para.c"
 
 #define FD_SHREDB_CELL_INVALID    (0UL)
@@ -295,11 +321,12 @@ fd_store_footprint( ulong fec_max,
     ulong max_shreds   = fd_shredb_max_shreds( shred_storage_gib );
     ulong max_slots    = fd_shredb_max_slots( shred_storage_gib );
     ulong disk_chain_cnt = fd_shredb_shred_map_chain_cnt_est( max_shreds );
+    ulong root_chain_cnt = fd_shredb_root_map_chain_cnt_est( max_shreds );
     if( FD_UNLIKELY( !max_shreds || !max_slots ||
                      fd_store_layout_append( &l, fd_shredb_shred_map_align(),     1UL,         fd_shredb_shred_map_footprint( disk_chain_cnt ) ) ||
                      fd_store_layout_append( &l, alignof(fd_shredb_shred_entry_t), max_shreds, sizeof(fd_shredb_shred_entry_t) ) ||
-                     fd_store_layout_append( &l, fd_shredb_shred_map_align(),     1UL,         fd_shredb_shred_map_footprint( disk_chain_cnt ) ) ||
-                     fd_store_layout_append( &l, alignof(fd_shredb_shred_entry_t), max_shreds, sizeof(fd_shredb_shred_entry_t) ) ||
+                     fd_store_layout_append( &l, fd_shredb_root_map_align(),      1UL,         fd_shredb_root_map_footprint( root_chain_cnt ) ) ||
+                     fd_store_layout_append( &l, alignof(fd_shredb_root_entry_t),  max_shreds, sizeof(fd_shredb_root_entry_t) ) ||
                      fd_store_layout_append( &l, alignof(atomic_ulong),            max_shreds, sizeof(atomic_ulong) ) ||
                      fd_store_layout_append( &l, alignof(atomic_ulong),            max_slots,   sizeof(atomic_ulong) ) ) ) return 0UL;
   }

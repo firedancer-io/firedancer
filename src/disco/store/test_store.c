@@ -185,7 +185,7 @@ void
 test_disk_index_footprint( void ) {
   ulong fp_no_disk = fd_store_footprint( 8UL, 31840UL,  0UL, 0UL, 0UL );
   ulong fp_50_gib  = fd_store_footprint( 8UL, 31840UL, 50UL, 0UL, 0UL );
-  FD_TEST( fp_50_gib-fp_no_disk==(2314UL<<20)+4096UL ); /* slot and root maps and entries, tags, hints, and alignment */
+  FD_TEST( fp_50_gib-fp_no_disk==(2954UL<<20)+4096UL ); /* slot and root maps and entries, tags, hints, and alignment */
 }
 
 void
@@ -705,6 +705,11 @@ test_disk_versions( fd_wksp_t * wksp ) {
   FD_TEST( fd_store_disk_query_root( store, disk_fd, root_a.uc, idx+1U, out )==FD_STORE_DISK_QUERY_MISS );
   FD_TEST( fd_store_disk_query_root( store, disk_fd, root_c.uc, idx,    out )==FD_STORE_DISK_QUERY_MISS );
   FD_TEST( fd_store_disk_query_root( store, disk_fd, root_a.uc, FD_SHRED_BLK_MAX, out )==FD_STORE_DISK_QUERY_MISS );
+
+  /* The key holds the offset in the FEC set, so the same offset in the
+     next FEC set maps to the same key.  The read checks the full idx on
+     disk and misses. */
+  FD_TEST( fd_store_disk_query_root( store, disk_fd, root_a.uc, idx+FD_FEC_SHRED_CNT, out )==FD_STORE_DISK_QUERY_MISS );
 
   /* Re-inserting a stored (root,idx) does not take a ring cell */
   ulong head = atomic_load_explicit( &store->disk_reservation_head, memory_order_relaxed );

@@ -1607,7 +1607,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->rserve.repair_serve_listen_port = config->tiles.rserve.repair_serve_listen_port;
     tile->rserve.max_shreds_per_block = config->limits.max_shreds_per_block;
     tile->rserve.ping_cache_entries = 1UL<<16; /* TODO: Configure this from some global metric? */
-    tile->rserve.blockdb_max = config->firedancer.development.alpenglow ? 1UL<<12 : 0UL; /* ~20.6 KiB each. TODO: make configurable */
+    tile->rserve.blockdb_max = config->firedancer.development.alpenglow ? 1UL<<15 : 0UL; /* ~20.6 KiB each. TODO: make configurable */
     fd_cstr_ncpy( tile->rserve.identity_key_path, config->paths.identity_key, sizeof(tile->rserve.identity_key_path) );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "replay" ) )) {
