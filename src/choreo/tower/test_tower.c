@@ -1340,6 +1340,97 @@ test_adopt_check( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_adopt_check" ));
 }
 
+static int
+adopt_install( fd_tower_t * tower, fd_tower_vote_t * votes, ulong root ) {
+  int err = fd_tower_adopt_check( tower, votes, root );
+  if( FD_UNLIKELY( err ) ) return err;
+  ulong old_root = tower->root;
+  for( ulong i=0UL; i<tower->blk_max; i++ ) tower->blk_pool[ i ].voted = 0;
+  fd_tower_vote_remove_all( tower->votes );
+  fd_tower_reconcile( tower, votes, root );
+  /* The tile prunes below the new root when it moves fork choice there. */
+  for( ulong slot=old_root; slot<tower->root; slot++ ) {
+    fd_tower_blocks_remove( tower, slot );
+    fd_tower_lockos_remove( tower, slot );
+    fd_tower_stakes_remove( tower, slot );
+  }
+  return 0;
+}
+
+static void
+test_adopt_skip_unknown( fd_wksp_t * wksp ) {
+  ulong blk_max = 64;
+  ulong vtr_max = 2;
+
+  void * tower_mem = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint( blk_max, vtr_max ), 1UL );
+  fd_tower_t * tower = fd_tower_join( fd_tower_new( tower_mem, blk_max, vtr_max, 0UL ) );
+  FD_TEST( tower );
+  tower->root = 1UL;
+
+  fd_tower_blk_t * blk;
+  for( ulong slot=1UL; slot<=2UL; slot++ ) {
+    blk                    = fd_tower_blocks_insert( tower, slot, slot-1UL );
+    blk->replayed          = 1;
+    blk->replayed_block_id = ( fd_hash_t ){ .ul = { slot } };
+  }
+  push_vote( tower, 2UL );
+
+  /* Slot 9 has not been replayed. */
+  uchar __attribute__((aligned(FD_TOWER_VOTE_ALIGN))) adopt_mem[ FD_TOWER_VOTE_FOOTPRINT ];
+  fd_tower_vote_t * adopt = fd_tower_vote_join( fd_tower_vote_new( adopt_mem ) );
+  fd_tower_vote_push_tail( adopt, (fd_tower_vote_t){ .slot=2UL, .conf=2UL } );
+  fd_tower_vote_push_tail( adopt, (fd_tower_vote_t){ .slot=9UL, .conf=1UL } );
+
+  /* The unreplayed tail vote (slot 9) refuses the whole tower for now,
+     the local one stays as it was. */
+  FD_TEST( adopt_install( tower, adopt, 1UL )==-3 );
+  FD_TEST( fd_tower_vote_cnt( tower->votes )==1UL );
+  FD_TEST( fd_tower_vote_peek_tail_const( tower->votes )->slot==2UL );
+  FD_TEST( fd_tower_blocks_query( tower, 2UL ) );
+  FD_TEST( !fd_tower_blocks_query( tower, 9UL ) );
+
+  fd_wksp_free_laddr( fd_tower_delete( fd_tower_leave( tower ) ) );
+  FD_LOG_NOTICE(( "pass: test_adopt_skip_unknown" ));
+}
+
+static void
+test_adopt_stops_at_unreplayed( fd_wksp_t * wksp ) {
+  ulong blk_max = 64UL;
+  ulong vtr_max = 2UL;
+
+  void * tower_mem = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint( blk_max, vtr_max ), 1UL );
+  fd_tower_t * tower = fd_tower_join( fd_tower_new( tower_mem, blk_max, vtr_max, 0UL ) );
+  FD_TEST( tower );
+  tower->root = 1UL;
+
+  for( ulong slot=2UL; slot<=4UL; slot++ ) {
+    fd_tower_blk_t * blk  = fd_tower_blocks_insert( tower, slot, slot-1UL );
+    blk->replayed          = slot!=3UL;
+    blk->replayed_block_id = (fd_hash_t){ .ul = { slot } };
+  }
+
+  uchar __attribute__((aligned(FD_TOWER_VOTE_ALIGN))) adopt_mem[ FD_TOWER_VOTE_FOOTPRINT ];
+  fd_tower_vote_t * adopt = fd_tower_vote_join( fd_tower_vote_new( adopt_mem ) );
+  fd_tower_vote_push_tail( adopt, (fd_tower_vote_t){ .slot=2UL, .conf=3UL } );
+  fd_tower_vote_push_tail( adopt, (fd_tower_vote_t){ .slot=3UL, .conf=2UL } );
+  fd_tower_vote_push_tail( adopt, (fd_tower_vote_t){ .slot=4UL, .conf=1UL } );
+
+  /* A vote on a block replay has not produced is refused before anything
+     changes, so the caller can ask again once replay catches up. */
+  FD_TEST( adopt_install( tower, adopt, 1UL )==-3 );
+  FD_TEST( fd_tower_vote_empty( tower->votes ) && tower->root==1UL );
+  FD_TEST( !fd_tower_blocks_query( tower, 2UL )->voted );
+  FD_TEST( !fd_tower_blocks_query( tower, 4UL )->voted );
+  fd_tower_blocks_query( tower, 3UL )->replayed = 1;
+  FD_TEST( !adopt_install( tower, adopt, 1UL ) );
+  FD_TEST( fd_tower_vote_cnt( tower->votes )==3UL );
+  FD_TEST( fd_tower_vote_peek_tail_const( tower->votes )->slot==4UL );
+  FD_TEST( fd_tower_blocks_query( tower, 2UL )->voted && fd_tower_blocks_query( tower, 4UL )->voted );
+
+  fd_wksp_free_laddr( fd_tower_delete( fd_tower_leave( tower ) ) );
+  FD_LOG_NOTICE(( "pass: test_adopt_stops_at_unreplayed" ));
+}
+
 static void
 test_adopt_rejects_unreplayed_root( fd_wksp_t * wksp ) {
   ulong blk_max = 64UL;
@@ -1369,6 +1460,109 @@ test_adopt_rejects_unreplayed_root( fd_wksp_t * wksp ) {
 
   fd_wksp_free_laddr( fd_tower_delete( fd_tower_leave( tower ) ) );
   FD_LOG_NOTICE(( "pass: test_adopt_rejects_unreplayed_root" ));
+}
+
+static void
+test_adopt_rejects_uninitialized_tower( fd_wksp_t * wksp ) {
+  void * tower_mem = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint( 64UL, 2UL ), 1UL );
+  fd_tower_t * tower = fd_tower_join( fd_tower_new( tower_mem, 64UL, 2UL, 0UL ) );
+  FD_TEST( tower );
+
+  uchar __attribute__((aligned(FD_TOWER_VOTE_ALIGN))) adopt_mem[ FD_TOWER_VOTE_FOOTPRINT ];
+  fd_tower_vote_t * adopt = fd_tower_vote_join( fd_tower_vote_new( adopt_mem ) );
+  fd_tower_vote_push_tail( adopt, (fd_tower_vote_t){ .slot=2UL, .conf=1UL } );
+
+  FD_TEST( adopt_install( tower, adopt, 1UL )==-1 );
+  FD_TEST( tower->root==ULONG_MAX );
+  FD_TEST( fd_tower_vote_empty( tower->votes ) );
+
+  fd_wksp_free_laddr( fd_tower_delete( fd_tower_leave( tower ) ) );
+  FD_LOG_NOTICE(( "pass: test_adopt_rejects_uninitialized_tower" ));
+}
+
+static void
+test_adopt_rejects_invalid_ancestry( fd_wksp_t * wksp ) {
+  void * tower_mem = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint( 64UL, 2UL ), 1UL );
+  fd_tower_t * tower = fd_tower_join( fd_tower_new( tower_mem, 64UL, 2UL, 0UL ) );
+  FD_TEST( tower );
+  tower->root = 1UL;
+
+  fd_tower_blk_t * blk2 = fd_tower_blocks_insert( tower, 2UL, 1UL );
+  fd_tower_blk_t * blk3 = fd_tower_blocks_insert( tower, 3UL, 1UL );
+  blk2->replayed = 1;
+  blk3->replayed = 1;
+  blk2->voted    = 1;
+  push_vote( tower, 2UL );
+
+  uchar __attribute__((aligned(FD_TOWER_VOTE_ALIGN))) adopt_mem[ FD_TOWER_VOTE_FOOTPRINT ];
+  fd_tower_vote_t * adopt = fd_tower_vote_join( fd_tower_vote_new( adopt_mem ) );
+  fd_tower_vote_push_tail( adopt, (fd_tower_vote_t){ .slot=2UL, .conf=2UL } );
+  fd_tower_vote_push_tail( adopt, (fd_tower_vote_t){ .slot=3UL, .conf=1UL } );
+
+  FD_TEST( adopt_install( tower, adopt, 1UL )==-2 );
+  FD_TEST( tower->root==1UL );
+  FD_TEST( fd_tower_vote_cnt( tower->votes )==1UL );
+  FD_TEST( fd_tower_vote_peek_tail_const( tower->votes )->slot==2UL );
+  FD_TEST( blk2->voted );
+  FD_TEST( !blk3->voted );
+
+  tower->root = 2UL;
+  fd_tower_vote_remove_all( adopt );
+  FD_TEST( adopt_install( tower, adopt, 3UL )==-2 );
+  FD_TEST( tower->root==2UL );
+
+  fd_wksp_free_laddr( fd_tower_delete( fd_tower_leave( tower ) ) );
+  FD_LOG_NOTICE(( "pass: test_adopt_rejects_invalid_ancestry" ));
+}
+
+/* test_adopt_bookkeeping: adoption clears the voted mark of the old
+   shadow votes, marks the adopted votes' blocks with their replayed block
+   id and drops the blocks, lockouts and stakes below the new root. */
+static void
+test_adopt_bookkeeping( fd_wksp_t * wksp ) {
+  void * tower_mem = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint( 64UL, 2UL ), 1UL );
+  fd_tower_t * tower = fd_tower_join( fd_tower_new( tower_mem, 64UL, 2UL, 0UL ) );
+  FD_TEST( tower );
+  tower->root = 1UL;
+
+  for( ulong slot=1UL; slot<=5UL; slot++ ) {
+    fd_tower_blk_t * blk  = fd_tower_blocks_insert( tower, slot, slot-1UL );
+    blk->replayed          = 1;
+    blk->replayed_block_id = (fd_hash_t){ .ul = { slot } };
+  }
+
+  /* The shadow tower voted on 2 and 5. */
+  fd_tower_blk_t * blk5 = fd_tower_blocks_query( tower, 5UL );
+  blk5->voted          = 1;
+  blk5->voted_block_id = blk5->replayed_block_id;
+  fd_tower_blocks_query( tower, 2UL )->voted = 1;
+  fd_tower_vote_push_tail( tower->votes, (fd_tower_vote_t){ .slot=2UL, .conf=2UL } );
+  fd_tower_vote_push_tail( tower->votes, (fd_tower_vote_t){ .slot=5UL, .conf=1UL } );
+
+  /* Lockouts and stakes on slot 1, freed when the root moves past it. */
+  fd_hash_t vote_acc = { .ul = { 7UL } };
+  fd_tower_lockos_insert( tower, 1UL, &vote_acc, tower->votes );
+  fd_tower_stakes_insert( tower, 1UL, &vote_acc, 10UL, ULONG_MAX );
+  FD_TEST( lockout_slot_pool_used( tower->lck_slot_pool ) && fd_tower_stakes_vtr_pool_used( tower->stk_vtr_pool ) );
+
+  uchar __attribute__((aligned(FD_TOWER_VOTE_ALIGN))) adopt_mem[ FD_TOWER_VOTE_FOOTPRINT ];
+  fd_tower_vote_t * adopt = fd_tower_vote_join( fd_tower_vote_new( adopt_mem ) );
+  fd_tower_vote_push_tail( adopt, (fd_tower_vote_t){ .slot=3UL, .conf=2UL } );
+  fd_tower_vote_push_tail( adopt, (fd_tower_vote_t){ .slot=4UL, .conf=1UL } );
+
+  FD_TEST( !adopt_install( tower, adopt, 2UL ) );
+  FD_TEST( tower->root==2UL && fd_tower_vote_cnt( tower->votes )==2UL );
+  FD_TEST( !fd_tower_blocks_query( tower, 1UL ) );
+  FD_TEST( !lockout_slot_pool_used( tower->lck_slot_pool ) && !lockout_interval_pool_used( tower->lck_pool ) );
+  FD_TEST( !lockout_pubkey_pool_used( tower->lck_pubkey_pool ) && !fd_tower_stakes_vtr_pool_used( tower->stk_vtr_pool ) );
+  FD_TEST( !blk5->voted );
+  for( ulong slot=3UL; slot<=4UL; slot++ ) {
+    fd_tower_blk_t const * blk = fd_tower_blocks_query( tower, slot );
+    FD_TEST( blk->voted && fd_memeq( &blk->voted_block_id, &blk->replayed_block_id, sizeof(fd_hash_t) ) );
+  }
+
+  fd_wksp_free_laddr( fd_tower_delete( fd_tower_leave( tower ) ) );
+  FD_LOG_NOTICE(( "pass: test_adopt_bookkeeping" ));
 }
 
 int
@@ -1407,7 +1601,12 @@ main( int argc, char ** argv ) {
   test_reconcile_ha_eqvoc( wksp );
 
   test_adopt_check( wksp );
+  test_adopt_skip_unknown( wksp );
+  test_adopt_stops_at_unreplayed( wksp );
   test_adopt_rejects_unreplayed_root( wksp );
+  test_adopt_rejects_uninitialized_tower( wksp );
+  test_adopt_rejects_invalid_ancestry( wksp );
+  test_adopt_bookkeeping( wksp );
 
   test_vtr_valid_join( wksp );
 
