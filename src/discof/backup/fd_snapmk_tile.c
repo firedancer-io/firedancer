@@ -153,11 +153,11 @@ struct fd_snapmk {
 
   fd_banks_t *             banks;
   fd_stake_delegations_t * stake_delegations;
-  fd_bank_t *     bank;
-  fd_pubkey_t     leader; /* slot leader of bank */
-  fd_txncache_t * txncache;
-  fd_ssmanifest_writer_t manifest_writer[1];
-  fd_txncache_writer_t   txncache_writer[1];
+  fd_bank_t *              bank;
+  fd_pubkey_t              leader; /* slot leader of bank */
+  fd_txncache_t *          txncache;
+  fd_ssmanifest_writer_t   manifest_writer[1];
+  fd_txncache_writer_t     txncache_writer[1];
 
   ulong manifest_pad;
   ulong manifest_sz;

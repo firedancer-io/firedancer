@@ -507,8 +507,8 @@ fd_stake_delegations_view_end( fd_stake_delegations_t *   stake_delegations,
 
 /* fd_stake_delegations_root_{lock,unlock} bracket a plain root
    iteration by a tile that never mutates the store and runs while the
-   root cannot advance, such as the snapshot producer.  Only
-   view_{begin,end} are held off; forks attach and update freely. */
+   root cannot advance.  Only view_{begin,end} are held off; forks
+   attach and update freely. */
 
 void
 fd_stake_delegations_root_lock( fd_stake_delegations_t * stake_delegations );
