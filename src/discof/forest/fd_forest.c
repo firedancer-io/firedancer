@@ -1887,11 +1887,20 @@ fd_forest_iter_next( fd_forest_iter_t * iter, fd_forest_t * forest ) {
        complete shred, but the last shred may have been evicted, so we
        need leq. */
 
-    if( ele->complete_idx != UINT_MAX &&
-        next_shred_idx <= ele->complete_idx &&
-        !fd_forest_blk_idxs_test( fd_forest_blk_idxs( forest, ele ), next_shred_idx ) ) {
-      iter->shred_idx = next_shred_idx;
-      break;
+    if( ele->complete_idx != UINT_MAX && next_shred_idx <= ele->complete_idx ) {
+      fd_forest_blk_idxs_t const * idxs = fd_forest_blk_idxs( forest, ele );
+
+      /* Jump a word at a time to the first missing shred, or to
+         complete_idx if none.  Not after a highest_window_idx request,
+         which tests one shred of the next slot and moves on. */
+
+      if( FD_LIKELY( iter->shred_idx != UINT_MAX ) ) {
+        next_shred_idx = (uint)fd_ulong_min( fd_forest_blk_idxs_next_unset( idxs, next_shred_idx, ele->complete_idx ), ele->complete_idx );
+      }
+      if( !fd_forest_blk_idxs_test( idxs, next_shred_idx ) ) {
+        iter->shred_idx = next_shred_idx;
+        break;
+      }
     }
 
     /* Current slot actually needs a highest_window_idx request */

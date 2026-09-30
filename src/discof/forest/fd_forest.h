@@ -149,6 +149,19 @@ fd_forest_blk_idxs_cnt( fd_forest_blk_idxs_t const * set, ulong word_cnt ) {
   return cnt;
 }
 
+/* fd_forest_blk_idxs_next_unset returns the smallest idx in [lo,hi]
+   whose bit is clear, or hi+1 if every bit in the range is set.  Scans
+   a word at a time.  Assumes lo<=hi and hi<64*word_cnt. */
+
+FD_FN_PURE static inline ulong
+fd_forest_blk_idxs_next_unset( fd_forest_blk_idxs_t const * set, ulong lo, ulong hi ) {
+  ulong w    = lo>>6;
+  ulong hi_w = hi>>6;
+  ulong bits = ~set[ w ] & (ULONG_MAX<<(lo&63UL));
+  while( !bits && w<hi_w ) bits = ~set[ ++w ];
+  return fd_ulong_min( (w<<6)+(ulong)fd_ulong_find_lsb_w_default( bits, 64 ), hi+1UL );
+}
+
 /* Per-FEC merkle roots, shred_max/FD_FEC_SHRED_CNT per block, also in
    a side array indexed by pool idx.  mr is initialized to null hash,
    written to when a shred is received, invalidated to invalid_mr when
