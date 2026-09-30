@@ -628,6 +628,24 @@ struct fd_topo_tile {
     } pktgen;
 
     struct {
+      uint   dest_ip_addr;
+      ushort dest_port;
+      ushort shred_version;
+      char   key_path[ PATH_MAX ];
+      ulong  start_slot;         /* 0 => auto-track the target's live tip */
+      ulong  slot_cnt;           /* 0 runs forever */
+      ulong  fec_sets_per_slot;
+      ulong  slot_duration_ns;   /* 0 disables pacing */
+
+      /* Auto-track (used when start_slot==0): poll the target
+         validator's Prometheus replay_root_slot and target
+         root_slot+slot_ahead. */
+      uint   metrics_ip;
+      ushort metrics_port;
+      ulong  slot_ahead;
+    } shrgen;
+
+    struct {
       char  ledger_format[ 16 ];
       char  ledger_path[ PATH_MAX ];
       ulong end_slot;

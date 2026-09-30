@@ -156,6 +156,21 @@ union fdctl_args {
   } udpecho;
 
   struct {
+    char   affinity[ AFFINITY_SZ ];
+    char   key_path[ PATH_MAX ];
+    uint   dest_ip;
+    ushort dest_port;
+    ushort shred_version;
+    ulong  start_slot;
+    ulong  slot_cnt;
+    ulong  fec_sets_per_slot;
+    ulong  slot_ms;
+    uint   metrics_ip;
+    ushort metrics_port;
+    ulong  slot_ahead;
+  } shredgen;
+
+  struct {
     char topo[ 64 ];
   } metrics;
 
