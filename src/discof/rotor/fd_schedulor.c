@@ -51,6 +51,8 @@ typedef struct task task_t;
 
 struct fd_schedulor {
   ulong     task_max;
+  long      quantum;     /* FD_SCHEDULOR_QUANTUM_NS in ticks */
+  double    tick_per_ns;
   task_t *  pool;  /* task storage */
   map_t *   map;   /* queued tasks queryable by {slot, block_id} */
   treap_t * treap; /* queued tasks by (timeout, slot) */
@@ -78,6 +80,7 @@ fd_schedulor_footprint( ulong block_max ) {
 void *
 fd_schedulor_new( void * mem,
                   ulong  block_max,
+                  double tick_per_ns,
                   ulong  seed ) {
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
@@ -90,6 +93,11 @@ fd_schedulor_new( void * mem,
   ulong footprint = fd_schedulor_footprint( block_max );
   if( FD_UNLIKELY( !footprint ) ) {
     FD_LOG_WARNING(( "bad block_max %lu", block_max ));
+    return NULL;
+  }
+  long quantum = (long)( (double)FD_SCHEDULOR_QUANTUM_NS*tick_per_ns );
+  if( FD_UNLIKELY( quantum<=0L ) ) {
+    FD_LOG_WARNING(( "bad tick_per_ns %f", tick_per_ns ));
     return NULL;
   }
 
@@ -105,10 +113,12 @@ fd_schedulor_new( void * mem,
   void *           treap = FD_SCRATCH_ALLOC_APPEND( l, treap_align(),           treap_footprint( task_max  ) );
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_schedulor_align() )==(ulong)mem+footprint );
 
-  self->task_max = task_max;
-  self->pool     = pool_join ( pool_new ( pool,  task_max        ) );
-  self->map      = map_join  ( map_new  ( map,   chain_cnt, seed ) );
-  self->treap    = treap_join( treap_new( treap, task_max        ) );
+  self->task_max    = task_max;
+  self->quantum     = quantum;
+  self->tick_per_ns = tick_per_ns;
+  self->pool        = pool_join ( pool_new ( pool,  task_max        ) );
+  self->map         = map_join  ( map_new  ( map,   chain_cnt, seed ) );
+  self->treap       = treap_join( treap_new( treap, task_max        ) );
   treap_seed( self->pool, task_max, seed ^ 0x5eedUL );
 
   FD_COMPILER_MFENCE();
@@ -161,8 +171,9 @@ fd_schedulor_delete( void * mem ) {
 /* Internal helpers */
 
 static inline long
-quantize( long timeout ) {
-  return timeout - ( timeout % FD_SCHEDULOR_QUANTUM_NS );
+quantize( fd_schedulor_t const * self,
+          long                   timeout ) {
+  return timeout - ( timeout % self->quantum );
 }
 
 static inline task_key_t
@@ -193,7 +204,7 @@ schedule( fd_schedulor_t *   self,
   if( FD_UNLIKELY( !pool_free( self->pool ) ) ) FD_LOG_CRIT(( "schedulor task pool full (%lu tasks)", self->task_max ));
   task_t * task = pool_ele_acquire( self->pool );
   task->key     = *key;
-  task->timeout = quantize( timeout );
+  task->timeout = quantize( self, timeout );
   map_ele_insert( self->map, task, self->pool );
   treap_ele_insert( self->treap, task, self->pool );
 }
@@ -300,8 +311,8 @@ fd_schedulor_verify( fd_schedulor_t const * self ) {
                         !treap_fwd_iter_done( iter );
                         iter = treap_fwd_iter_next( iter, pool ) ) {
     task_t const * task = treap_fwd_iter_ele_const( iter, pool );
-    if( FD_UNLIKELY( task->timeout!=quantize( task->timeout )                  ) ) FAIL( "queued task timeout not quantized" );
-    if( FD_UNLIKELY( map_ele_query_const( map, &task->key, NULL, pool )!=task    ) ) FAIL( "treap task not found in map" );
+    if( FD_UNLIKELY( task->timeout!=quantize( self, task->timeout )           ) ) FAIL( "queued task timeout not quantized" );
+    if( FD_UNLIKELY( map_ele_query_const( map, &task->key, NULL, pool )!=task ) ) FAIL( "treap task not found in map" );
     /* non-decreasing: two versions of one slot may share a timeout */
     if( FD_UNLIKELY( prev && ( task->timeout<prev->timeout || ( task->timeout==prev->timeout && task->key.slot<prev->key.slot ) ) ) ) FAIL( "treap out of (timeout, slot) order" );
     prev = task;
@@ -343,6 +354,6 @@ fd_schedulor_print( void const * mem,
                         iter = treap_fwd_iter_next( iter, pool ) ) {
     task_t const * task = treap_fwd_iter_ele_const( iter, pool );
     FD_BASE58_ENCODE_32_BYTES( task->key.block_id.uc, block_id_b58 );
-    printf( "%-12lu %-10ld %s\n", task->key.slot, ( task->timeout-now )/1000000L, block_id_b58 );
+    printf( "%-12lu %-10ld %s\n", task->key.slot, (long)( (double)( task->timeout-now )/( self->tick_per_ns*1e6 ) ), block_id_b58 );
   }
 }
