@@ -184,7 +184,7 @@ struct fd_mlx5_tile {
   int  rx_comp_channel_fd; /* completion channel of rx_cq */
   int  epoll_fd;
   long repoll_timeout_ticks;
-  long repoll_deadline_ticks;
+  long repoll_deadline_ticks; /* LONG_MAX when no repoll is scheduled */
   uint has_out_credit;
 
   /* Metric tracking */
@@ -818,11 +818,9 @@ park_wait( fd_mlx5_tile_t * ctx,
 
 static inline long
 next_deadline( fd_mlx5_tile_t * ctx ) {
-  long deadline = LONG_MAX;
-  if( ctx->has_out_credit ) deadline = ctx->repoll_deadline_ticks;
-  if( ctx->tx_qp.sq_prod!=ctx->tx_qp.sq_posted ) deadline = fd_long_min( deadline, ctx->sq_flush_deadline_ticks );
-  if( ctx->lo_tx_cnt ) deadline = fd_long_min( deadline, ctx->lo_tx_deadline_ticks );
-  return deadline;
+  if( !ctx->has_out_credit ) return LONG_MAX; /* If no out credit then don't repoll */
+
+  return ctx->repoll_deadline_ticks; /* LONG_MAX if no repoll */
 }
 
 /* before_frag resolves the TX route and checks SQ capacity */

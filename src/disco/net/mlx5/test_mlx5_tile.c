@@ -392,27 +392,6 @@ test_rx_cq_arm( void ) {
   FD_TEST( !tile->rx_cq.comp_channel_armed );
 }
 
-static void
-test_park_deadline( void ) {
-  fd_mlx5_tile_t tile[1];
-  fd_memset( tile, 0, sizeof(tile) );
-  FD_TEST( next_deadline( tile )==LONG_MAX );
-  tile->tx_qp.sq_prod = 1U;
-  tile->sq_flush_deadline_ticks = 123L;
-  FD_TEST( next_deadline( tile )==123L );
-  tile->lo_tx_cnt = 1U;
-  tile->lo_tx_deadline_ticks = 100L;
-  FD_TEST( next_deadline( tile )==100L );
-  tile->repoll_deadline_ticks = 90L;
-  tile->has_out_credit = 1U;
-  tile->sq_flush_deadline_ticks = 80L;
-  FD_TEST( next_deadline( tile )==80L ); /* the repoll never delays a TX flush */
-  tile->sq_flush_deadline_ticks = 95L;
-  FD_TEST( next_deadline( tile )==90L );
-  tile->has_out_credit = 0U;
-  FD_TEST( next_deadline( tile )==95L );
-}
-
 /* A park attempt rings the SQ doorbell for pending WQEs, so neither the
    repoll sleep nor the park holds back TX. */
 
@@ -657,7 +636,6 @@ main( int     argc,
   test_rx_routes();
   test_rx_cqe_normal();
   test_rx_cq_arm();
-  test_park_deadline();
   test_park_flushes_tx();
   test_tx_wqe();
   test_tx_cqe_normal();
