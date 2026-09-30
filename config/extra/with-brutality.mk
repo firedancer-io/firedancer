@@ -16,6 +16,9 @@ CPPFLAGS+=-Wno-gnu-zero-variadic-macro-arguments
 ifeq ($(shell test $(CC_MAJOR_VERSION) -ge 21 && echo yes),yes)
 CPPFLAGS+=-Wno-unterminated-string-initialization
 endif
+ifeq ($(shell test $(CC_MAJOR_VERSION) -ge 24 && echo yes),yes)
+CPPFLAGS+=-Wno-gnu-statement-expression-from-macro-expansion
+endif
 endif
 
 ifdef FD_USING_GCC

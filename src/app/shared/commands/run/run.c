@@ -626,8 +626,8 @@ main_pid_namespace( void * _args ) {
   struct sock_filter seccomp_filter[ 128UL ];
   unsigned int instr_cnt;
   #if defined(__aarch64__) || defined(__riscv)
-  populate_sock_filter_policy_pidns_arm64( 128UL, seccomp_filter, (uint)fd_log_private_logfile_fd() );
-  instr_cnt = sock_filter_policy_pidns_arm64_instr_cnt;
+  populate_sock_filter_policy_pidns_no_poll( 128UL, seccomp_filter, (uint)fd_log_private_logfile_fd() );
+  instr_cnt = sock_filter_policy_pidns_no_poll_instr_cnt;
   #else
   populate_sock_filter_policy_pidns( 128UL, seccomp_filter, (uint)fd_log_private_logfile_fd() );
   instr_cnt = sock_filter_policy_pidns_instr_cnt;
