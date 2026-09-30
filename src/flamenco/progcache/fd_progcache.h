@@ -32,9 +32,14 @@
 #define FD_PROGCACHE_SHMEM_MAGIC (0xf17eda2ce7fc2c03UL)
 
 /* spill.lock serializes spilling, so the spad holds at most one CPI stack:
-   FD_MAX_INSTRUCTION_STACK_DEPTH frames of FD_PROGCACHE_CACHE_SLOT_TOP_SZ. */
+   FD_PROGCACHE_SPILL_FRAME_MAX frames of FD_PROGCACHE_CACHE_SLOT_TOP_SZ.
+   The frames cover the instruction stack depth of the copying
+   serialization path; the deeper stack of SIMD-0268 exceeds them only
+   when more than that many nested levels spill at once, which the
+   acquire reports as an overflow. */
 
-#define FD_PROGCACHE_SPAD_MAX (FD_MAX_INSTRUCTION_STACK_DEPTH * FD_PROGCACHE_CACHE_SLOT_TOP_SZ)
+#define FD_PROGCACHE_SPILL_FRAME_MAX (FD_MAX_INSTRUCTION_STACK_DEPTH)
+#define FD_PROGCACHE_SPAD_MAX        (FD_PROGCACHE_SPILL_FRAME_MAX * FD_PROGCACHE_CACHE_SLOT_TOP_SZ)
 
 struct fd_progcache_shmem {
 
@@ -62,10 +67,10 @@ struct fd_progcache_shmem {
 
   struct {
     fd_rwlock_t        lock;
-    fd_progcache_rec_t rec[ FD_MAX_INSTRUCTION_STACK_DEPTH ];
+    fd_progcache_rec_t rec[ FD_PROGCACHE_SPILL_FRAME_MAX ];
     uint               rec_used;
     uint               spad_used;
-    uint               spad_off[ FD_MAX_INSTRUCTION_STACK_DEPTH ];
+    uint               spad_off[ FD_PROGCACHE_SPILL_FRAME_MAX ];
     uchar              spad[ FD_PROGCACHE_SPAD_MAX ] __attribute__((aligned(64UL)));
   } spill;
 

@@ -128,10 +128,24 @@ int
 fd_executor_consume_cus( fd_txn_out_t * txn_out,
                          ulong          cus );
 
+/* fd_executor_max_instruction_stack_depth is how deep the instruction
+   stack of a transaction on the bank may get: FD_MAX_INSTRUCTION_STACK_
+   DEPTH, or FD_MAX_INSTRUCTION_STACK_DEPTH_SIMD_0268 when
+   raise_cpi_nesting_limit_to_8 is active together with
+   account_data_direct_mapping.  The deeper stack is served from the
+   same memory as the shallow one, which holds only with direct
+   mapping: with the raise active and direct mapping not, the limit
+   stays at the shallow depth, and this validator rejects the deeper
+   transactions the cluster accepts.  That configuration is reported
+   the first time it bites. */
+ulong
+fd_executor_max_instruction_stack_depth( fd_bank_t const * bank );
+
 /* We expose these only for the fuzzing harness.
    Normally you shouldn't be invoking these manually. */
 int
 fd_instr_stack_push( fd_runtime_t *      runtime,
+                     fd_bank_t const *   bank,
                      fd_txn_in_t const * txn_in,
                      fd_txn_out_t *      txn_out,
                      fd_instr_info_t *   instr );

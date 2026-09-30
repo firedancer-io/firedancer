@@ -79,8 +79,8 @@ struct fd_runtime {
   fd_progcache_t * progcache;
 
   struct {
-    uchar               stack_sz;                                /* Current depth of the instruction execution stack. */
-    fd_exec_instr_ctx_t stack[ FD_MAX_INSTRUCTION_STACK_DEPTH ]; /* Instruction execution stack. */
+    uchar               stack_sz;                                          /* Current depth of the instruction execution stack. */
+    fd_exec_instr_ctx_t stack[ FD_MAX_INSTRUCTION_STACK_DEPTH_SIMD_0268 ]; /* Instruction execution stack, to the deeper of the two limits. */
     /* The memory for all of the instructions in the transaction
        (including CPI instructions) are preallocated.  However, the
        order in which the instructions are executed does not match the
@@ -136,7 +136,13 @@ struct fd_runtime {
   } log;
 
   struct {
-    uchar serialization_mem[ FD_MAX_INSTRUCTION_STACK_DEPTH ][ BPF_LOADER_SERIALIZATION_FOOTPRINT ] __attribute__((aligned(FD_RUNTIME_EBPF_HOST_ALIGN)));
+    /* One input region per instruction stack level, carved out of this
+       memory by fd_runtime_serialization_mem: FD_MAX_INSTRUCTION_STACK_DEPTH
+       regions of BPF_LOADER_SERIALIZATION_FOOTPRINT when account data
+       is copied into them, or FD_MAX_INSTRUCTION_STACK_DEPTH_SIMD_0268
+       regions of BPF_LOADER_SERIALIZATION_FOOTPRINT_DIRECT_MAPPING when
+       it is mapped, whichever the bank's features select. */
+    uchar serialization_mem[ FD_RUNTIME_SERIALIZATION_MEM_FOOTPRINT ] __attribute__((aligned(FD_RUNTIME_EBPF_HOST_ALIGN)));
   } bpf_loader_serialization;
 
   struct {
@@ -221,6 +227,27 @@ struct fd_runtime {
   } fuzz;
 };
 typedef struct fd_runtime fd_runtime_t;
+
+FD_STATIC_ASSERT( FD_MAX_INSTRUCTION_STACK_DEPTH_SIMD_0268*BPF_LOADER_SERIALIZATION_FOOTPRINT_DIRECT_MAPPING<=FD_RUNTIME_SERIALIZATION_MEM_FOOTPRINT,
+                  direct_mapping_regions_fit );
+FD_STATIC_ASSERT( !( BPF_LOADER_SERIALIZATION_FOOTPRINT                % FD_RUNTIME_EBPF_HOST_ALIGN ), region_align );
+FD_STATIC_ASSERT( !( BPF_LOADER_SERIALIZATION_FOOTPRINT_DIRECT_MAPPING % FD_RUNTIME_EBPF_HOST_ALIGN ), region_align );
+
+/* fd_runtime_serialization_mem returns the input region of instruction
+   stack level idx (0 is the top-level instruction).  With direct
+   mapping the regions are BPF_LOADER_SERIALIZATION_FOOTPRINT_DIRECT_MAPPING
+   apart and idx may reach FD_MAX_INSTRUCTION_STACK_DEPTH_SIMD_0268-1;
+   without it they are BPF_LOADER_SERIALIZATION_FOOTPRINT apart and idx
+   is below FD_MAX_INSTRUCTION_STACK_DEPTH, which is what the stack
+   depth limit guarantees. */
+
+static inline uchar *
+fd_runtime_serialization_mem( fd_runtime_t * runtime,
+                              ulong          idx,
+                              int            direct_mapping ) {
+  ulong stride = direct_mapping ? BPF_LOADER_SERIALIZATION_FOOTPRINT_DIRECT_MAPPING : BPF_LOADER_SERIALIZATION_FOOTPRINT;
+  return runtime->bpf_loader_serialization.serialization_mem + idx*stride;
+}
 
 struct fd_txn_in {
   fd_txn_p_t const * txn;

@@ -407,8 +407,8 @@ fd_progcache_spill_acquire( fd_progcache_t *        cache,
   FD_TEST( FD_VOLATILE_CONST( shmem->spill.lock.value )==FD_RWLOCK_WRITE_LOCK );
   /* Allocate record */
 
-  if( FD_UNLIKELY( shmem->spill.rec_used >= FD_MAX_INSTRUCTION_STACK_DEPTH ) ) {
-    FD_LOG_CRIT(( "spill buffer overflow: rec_used=%u rec_max=%lu", shmem->spill.rec_used, FD_MAX_INSTRUCTION_STACK_DEPTH ));
+  if( FD_UNLIKELY( shmem->spill.rec_used >= FD_PROGCACHE_SPILL_FRAME_MAX ) ) {
+    FD_LOG_CRIT(( "spill buffer overflow: rec_used=%u rec_max=%lu", shmem->spill.rec_used, FD_PROGCACHE_SPILL_FRAME_MAX ));
   }
   cache->spill_active++;
   uint rec_idx = shmem->spill.rec_used++;
@@ -619,7 +619,7 @@ fd_progcache_rec_close( fd_progcache_t *     cache,
   fd_rwlock_unread( &rec->lock );
   fd_progcache_shmem_t * shmem = cache->join->shmem;
   if( rec >= shmem->spill.rec &&
-      rec <  shmem->spill.rec + FD_MAX_INSTRUCTION_STACK_DEPTH ) {
+      rec <  shmem->spill.rec + FD_PROGCACHE_SPILL_FRAME_MAX ) {
     rec->exists = 0;
     fd_progcache_spill_close( cache );
   }}

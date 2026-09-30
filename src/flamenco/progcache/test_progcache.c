@@ -1948,7 +1948,7 @@ FD_UNIT_TEST( nx_spill ) {
   test_account_init( acc, &k, &fd_solana_bpf_loader_program_id, 1, junk, sizeof(junk) );
   fd_progcache_rec_t * srec = fd_progcache_pull( pc, xid, &k, &load_env, acc->entry );
   FD_TEST( srec );
-  FD_TEST( srec>=shmem->spill.rec && srec<shmem->spill.rec+FD_MAX_INSTRUCTION_STACK_DEPTH ); /* served from spill ws */
+  FD_TEST( srec>=shmem->spill.rec && srec<shmem->spill.rec+FD_PROGCACHE_SPILL_FRAME_MAX ); /* served from spill ws */
   FD_TEST( !srec->data_gaddr );                        /* non-executable result */
   FD_TEST( !fd_progcache_rec_calldests( srec, pc->join->data_base ) ); /* nx sentinel, not a wksp-base pointer */
   FD_TEST( pc->metrics->class_full_cnt >oom0   );        /* exhaustion path taken */
@@ -2052,7 +2052,7 @@ FD_UNIT_TEST( spill_sticks_for_nested_frames ) {
   test_account_init( acc, &k1, &fd_solana_bpf_loader_program_id,
                      1, valid_program_data, valid_program_data_sz );
   fd_progcache_rec_t * rec1 = fd_progcache_pull( pc, xid, &k1, &load_env, acc->entry );
-  FD_TEST( rec1>=shmem->spill.rec && rec1<shmem->spill.rec+FD_MAX_INSTRUCTION_STACK_DEPTH );
+  FD_TEST( rec1>=shmem->spill.rec && rec1<shmem->spill.rec+FD_PROGCACHE_SPILL_FRAME_MAX );
   FD_TEST( pc->metrics->spill_cnt-spill0==1UL );
   FD_TEST( pc->spill_active==1U );
 
@@ -2069,7 +2069,7 @@ FD_UNIT_TEST( spill_sticks_for_nested_frames ) {
   test_account_init( acc, &k2, &fd_solana_bpf_loader_program_id,
                      1, valid_program_data, valid_program_data_sz );
   fd_progcache_rec_t * rec2 = fd_progcache_pull( pc, xid, &k2, &load_env, acc->entry );
-  FD_TEST( rec2>=shmem->spill.rec && rec2<shmem->spill.rec+FD_MAX_INSTRUCTION_STACK_DEPTH ); /* spad, not the slot */
+  FD_TEST( rec2>=shmem->spill.rec && rec2<shmem->spill.rec+FD_PROGCACHE_SPILL_FRAME_MAX ); /* spad, not the slot */
   FD_TEST( rec2->data_gaddr );                                                    /* loaded into the spad */
   FD_TEST( pc->metrics->spill_cnt-spill0==2UL );
   FD_TEST( pc->spill_active==2U );                                                /* one holder, two frames */
@@ -2173,7 +2173,7 @@ FD_UNIT_TEST( spill_lock ) {
    fails the test if forward progress stalls (deadlock or a lost wakeup); an
    integrity check on every pulled program (rodata_sz must match the reference)
    catches spad corruption from a broken lock.  CONC_HOLD stays
-   <= FD_MAX_INSTRUCTION_STACK_DEPTH so whoever holds the spill can always run
+   <= FD_PROGCACHE_SPILL_FRAME_MAX so whoever holds the spill can always run
    to completion and release it, which is what makes the serialisation
    progress rather than deadlock. */
 

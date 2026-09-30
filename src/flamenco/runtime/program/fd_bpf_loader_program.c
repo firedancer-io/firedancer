@@ -457,7 +457,7 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
   ulong instruction_data_offset = 0UL;
   /* 16-byte aligned buffer:
      https://github.com/anza-xyz/agave/blob/v3.0.0/program-runtime/src/serialization.rs#L60 */
-  uchar * input = instr_ctx->runtime->bpf_loader_serialization.serialization_mem[ instr_ctx->runtime->instr.stack_sz-1UL ];
+  uchar * input = fd_runtime_serialization_mem( instr_ctx->runtime, instr_ctx->runtime->instr.stack_sz-1UL, direct_mapping );
   err = fd_bpf_loader_input_serialize_parameters( instr_ctx, pre_lens,
                                                   input_mem_regions, &input_mem_regions_cnt,
                                                   acc_region_metas, virtual_address_space_adjustments, direct_mapping,

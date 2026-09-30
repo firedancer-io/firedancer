@@ -155,8 +155,18 @@ FD_PROTOTYPES_BEGIN
 
 /* https://github.com/anza-xyz/agave/blob/0d34a1a160129c4293dac248e14231e9e773b4ce/program-runtime/src/compute_budget.rs#L139 */
 #define FD_MAX_INSTRUCTION_TRACE_LENGTH (64UL)
-/* https://github.com/anza-xyz/agave/blob/f70ab5598ccd86b216c3928e4397bf4a5b58d723/compute-budget/src/compute_budget.rs#L13 */
-#define FD_MAX_INSTRUCTION_STACK_DEPTH  (5UL)
+/* FD_MAX_INSTRUCTION_STACK_DEPTH is the instruction stack depth of the
+   transaction runtime, and FD_MAX_INSTRUCTION_STACK_DEPTH_SIMD_0268 the
+   depth once raise_cpi_nesting_limit_to_8 is active (SIMD-0268: eight
+   nested CPIs under a top-level instruction).  The first is also what
+   the per-level memory that copies account data is sized for; the
+   deeper stack is served only with account_data_direct_mapping, where
+   a level needs a small fraction of that memory (see
+   fd_runtime.h serialization_mem and fd_executor.h
+   fd_executor_max_instruction_stack_depth).
+   https://github.com/anza-xyz/agave/blob/2f6b982652e8152af0dafdd4d895c93eec76a3d2/program-runtime/src/execution_budget.rs#L8-L10 */
+#define FD_MAX_INSTRUCTION_STACK_DEPTH            (5UL)
+#define FD_MAX_INSTRUCTION_STACK_DEPTH_SIMD_0268  (9UL)
 
 
 #define FD_RUNTIME_VM_TRACE_EVENT_MAX      (128UL<<20)
@@ -295,6 +305,14 @@ FD_PROTOTYPES_BEGIN
 
 
 #define BPF_LOADER_SERIALIZATION_FOOTPRINT (FD_BPF_LOADER_INPUT_REGION_FOOTPRINT(64UL, 0))
+
+/* BPF_LOADER_SERIALIZATION_FOOTPRINT_DIRECT_MAPPING is one input
+   region when account data is mapped rather than copied, which is what
+   lets FD_MAX_INSTRUCTION_STACK_DEPTH_SIMD_0268 regions share the
+   memory of FD_MAX_INSTRUCTION_STACK_DEPTH copying ones:
+   FD_RUNTIME_SERIALIZATION_MEM_FOOTPRINT holds either set. */
+#define BPF_LOADER_SERIALIZATION_FOOTPRINT_DIRECT_MAPPING (FD_BPF_LOADER_INPUT_REGION_FOOTPRINT(64UL, 1))
+#define FD_RUNTIME_SERIALIZATION_MEM_FOOTPRINT            (FD_MAX_INSTRUCTION_STACK_DEPTH*BPF_LOADER_SERIALIZATION_FOOTPRINT)
 
 #define FD_HARD_FORKS_MAX (64UL)
 

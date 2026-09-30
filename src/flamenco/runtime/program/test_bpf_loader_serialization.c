@@ -578,7 +578,7 @@ run_fixture( fd_svm_mini_t * mini,
   fd_memset( regions,   0, sizeof(regions)   );
   fd_memset( acc_metas, 0, sizeof(acc_metas) );
 
-  uchar * serialized = ctx->runtime->bpf_loader_serialization.serialization_mem[ ctx->runtime->instr.stack_sz-1UL ];
+  uchar * serialized = fd_runtime_serialization_mem( ctx->runtime, ctx->runtime->instr.stack_sz-1UL, in->direct_mapping );
 
   int result = fd_bpf_loader_input_serialize_parameters(
       ctx, pre_lens, regions, &region_cnt, acc_metas,
@@ -696,7 +696,7 @@ test_touched_case( fd_svm_mini_t * mini,
   fd_memset( regions, 0, sizeof(regions) );
   fd_memset( metas,   0, sizeof(metas)   );
   FD_TEST( !fd_bpf_loader_input_serialize_parameters( ctx, pre_lens, regions, &region_cnt, metas, vasa, dm, 0, 0, &idata_off, &ser_sz ) );
-  uchar * ser = ctx->runtime->bpf_loader_serialization.serialization_mem[ ctx->runtime->instr.stack_sz-1UL ];
+  uchar * ser = fd_runtime_serialization_mem( ctx->runtime, ctx->runtime->instr.stack_sz-1UL, dm );
 
   for( ulong i=0UL; i<4UL; i++ ) FD_TEST( !ctx->txn_out->accounts.touched[ i ] );
 

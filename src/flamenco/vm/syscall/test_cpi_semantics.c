@@ -4,7 +4,8 @@
    the direct mapping feature gates:
    - syscall_parameter_address_restrictions
    - virtual_address_space_adjustments
-   - account_data_direct_mapping */
+   - account_data_direct_mapping
+   - raise_cpi_nesting_limit_to_8 (the instruction stack depth) */
 
 #include "fd_vm_syscall.h"
 #include "../test_vm_util.h"
@@ -12,6 +13,7 @@
 #include "../../runtime/fd_pubkey_utils.h"
 #include "../../runtime/fd_borrowed_account.h"
 #include "../../runtime/context/fd_exec_instr_ctx.h"
+#include "../../runtime/fd_executor.h"
 #include "../../runtime/tests/fd_svm_mini.h"
 #include "../../runtime/tests/fd_svm_elfgen.h"
 #include "../../../ballet/sbpf/fd_sbpf_instr.h"
@@ -85,7 +87,7 @@ typedef void (*pre_cpi_hook_t)( cpi_test_cfg_t const * cfg );
 
 struct cpi_test_cfg {
   /* Feature gates */
-  int spar, vasa, dm;
+  int spar, vasa, dm, raise;
   int is_deprecated;
 
   /* Callee program text (built via build_*_text helpers) */
@@ -235,6 +237,7 @@ env_build( fd_svm_mini_t *        mini,
   if( cfg->spar ) bank->f.features.syscall_parameter_address_restrictions = 0UL;
   if( cfg->vasa ) bank->f.features.virtual_address_space_adjustments      = 0UL;
   if( cfg->dm   ) bank->f.features.account_data_direct_mapping            = 0UL;
+  if( cfg->raise ) bank->f.features.raise_cpi_nesting_limit_to_8          = 0UL;
 
   /* Build txn_out: index 0 is the program; indices 1.. are the cfg accounts */
   static fd_txn_out_t txn_out[1];
@@ -2137,6 +2140,42 @@ test_sequential_cpis_re_borrow( fd_svm_mini_t * mini ) {
   }
 }
 
+/* run_at_depth builds the env, fakes the caller's stack down to depth
+   frames (the outer instruction plus depth-1 frames of the same
+   program, which the reentrancy rule allows), and runs one CPI, whose
+   callee would execute at level depth+1. */
+
+static int
+run_at_depth( fd_svm_mini_t *  mini,
+              cpi_test_cfg_t * cfg,
+              int              abi,
+              ulong            depth ) {
+  env_build( mini, cfg );
+  fd_vm_t * vm = mini->vm;
+
+  ulong instr_va, infos_va, n_infos;
+  if( abi==0 ) rust_cpi_build( vm, cfg, &instr_va, &infos_va, &n_infos );
+  else         c_cpi_build   ( vm, cfg, &instr_va, &infos_va, &n_infos );
+
+  fd_runtime_t * rt = mini->runtime;
+  for( ulong lvl=1UL; lvl<depth; lvl++ ) {
+    fd_instr_info_t * fi = &rt->instr.trace[ lvl ];
+    memset( fi, 0, sizeof(*fi) );
+    fi->program_id = 0U;
+    rt->instr.stack[ lvl ] = (fd_exec_instr_ctx_t){
+      .instr   = fi,
+      .runtime = rt,
+      .txn_out = vm->instr_ctx->txn_out,
+      .bank    = vm->instr_ctx->bank,
+    };
+  }
+  rt->instr.trace_length = depth;
+  rt->instr.stack_sz     = (uchar)depth;
+
+  cpi_syscall_fn_t fn = (abi==0) ? fd_vm_syscall_cpi_rust : fd_vm_syscall_cpi_c;
+  return fn( vm, instr_va, infos_va, n_infos, 0UL, 0UL );
+}
+
 static void
 test_stack_depth_limit( fd_svm_mini_t * mini ) {
   cpi_test_cfg_t cfg[1]; simple_writable_cfg( cfg );
@@ -2148,33 +2187,49 @@ test_stack_depth_limit( fd_svm_mini_t * mini ) {
   for( int c=0; c<4; c++ ) {
     for( int dep=0; dep<2; dep++ ) {
       for( int abi=0; abi<2; abi++ ) {
-        cfg->spar=cs[c]; cfg->vasa=cv[c]; cfg->dm=cd[c]; cfg->is_deprecated=dep;
-        env_build( mini, cfg );
-        fd_vm_t * vm = mini->vm;
-
-        ulong instr_va, infos_va, n_infos;
-        if( abi==0 ) rust_cpi_build( vm, cfg, &instr_va, &infos_va, &n_infos );
-        else         c_cpi_build   ( vm, cfg, &instr_va, &infos_va, &n_infos );
-
-        fd_runtime_t * rt = mini->runtime;
-        for( ulong lvl=1UL; lvl < FD_MAX_INSTRUCTION_STACK_DEPTH; lvl++ ) {
-          fd_instr_info_t * fi = &rt->instr.trace[ lvl ];
-          memset( fi, 0, sizeof(*fi) );
-          fi->program_id = 0U;
-          rt->instr.stack[ lvl ] = (fd_exec_instr_ctx_t){
-            .instr   = fi,
-            .runtime = rt,
-            .txn_out = vm->instr_ctx->txn_out,
-            .bank    = vm->instr_ctx->bank,
-          };
-        }
-        rt->instr.trace_length = FD_MAX_INSTRUCTION_STACK_DEPTH;
-        rt->instr.stack_sz     = (uchar)FD_MAX_INSTRUCTION_STACK_DEPTH;
-
-        cpi_syscall_fn_t fn = (abi==0) ? fd_vm_syscall_cpi_rust : fd_vm_syscall_cpi_c;
-        int got = fn( vm, instr_va, infos_va, n_infos, 0UL, 0UL );
+        cfg->spar=cs[c]; cfg->vasa=cv[c]; cfg->dm=cd[c]; cfg->raise=0; cfg->is_deprecated=dep;
+        int got = run_at_depth( mini, cfg, abi, FD_MAX_INSTRUCTION_STACK_DEPTH );
         if( FD_UNLIKELY( got != FD_EXECUTOR_INSTR_ERR_CALL_DEPTH ) ) {
           FD_LOG_ERR(( "test_stack_depth_limit: combo=%d dep=%d abi=%s got=%d", c, dep, abi==0?"rust":"c", got ));
+        }
+      }
+    }
+  }
+}
+
+/* raise_cpi_nesting_limit_to_8 deepens the instruction stack from
+   FD_MAX_INSTRUCTION_STACK_DEPTH to FD_MAX_INSTRUCTION_STACK_DEPTH_SIMD_0268
+   levels, but only together with account_data_direct_mapping, whose
+   input regions are what let the deeper stack live in the memory of the
+   shallow one.  A CPI from the last allowed level executes its callee
+   there, one from a level past it fails with CallDepth. */
+
+static void
+test_stack_depth_simd_0268( fd_svm_mini_t * mini ) {
+  cpi_test_cfg_t cfg[1]; simple_writable_cfg( cfg );
+
+  for( int dm=0; dm<2; dm++ ) {
+    for( int raise=0; raise<2; raise++ ) {
+      cfg->spar=dm; cfg->vasa=dm; cfg->dm=dm; cfg->raise=raise; cfg->is_deprecated=0;
+
+      env_build( mini, cfg );
+      ulong limit = fd_executor_max_instruction_stack_depth( mini->vm->instr_ctx->bank );
+      FD_TEST( limit==( ( dm && raise ) ? FD_MAX_INSTRUCTION_STACK_DEPTH_SIMD_0268 : FD_MAX_INSTRUCTION_STACK_DEPTH ) );
+
+      for( int abi=0; abi<2; abi++ ) {
+        /* Every level up to the limit runs the callee */
+        for( ulong depth=1UL; depth<limit; depth++ ) {
+          int got = run_at_depth( mini, cfg, abi, depth );
+          if( FD_UNLIKELY( got!=FD_VM_SUCCESS ) ) {
+            FD_LOG_ERR(( "test_stack_depth_simd_0268: dm=%d raise=%d abi=%s depth=%lu got=%d, expected success",
+                         dm, raise, abi==0?"rust":"c", depth, got ));
+          }
+        }
+        /* The level past it does not */
+        int got = run_at_depth( mini, cfg, abi, limit );
+        if( FD_UNLIKELY( got!=FD_EXECUTOR_INSTR_ERR_CALL_DEPTH ) ) {
+          FD_LOG_ERR(( "test_stack_depth_simd_0268: dm=%d raise=%d abi=%s depth=%lu got=%d, expected CallDepth",
+                       dm, raise, abi==0?"rust":"c", limit, got ));
         }
       }
     }
@@ -2391,6 +2446,7 @@ main( int argc, char ** argv ) {
 
   /* ===== Stack depth / sequential ===== */
   test_stack_depth_limit                  ( mini );
+  test_stack_depth_simd_0268              ( mini );
   test_sequential_cpis                    ( mini );
   test_sequential_cpis_state_visible      ( mini );
   test_sequential_cpis_modify_same_account( mini );
