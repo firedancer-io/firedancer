@@ -496,11 +496,18 @@ fd_vote_account_collectors( uchar const *       data,
    On success sets *out_ptr to the first entry and *out_cnt to the
    entry count.  Returns 0 on success, 1 on error. */
 
+/* seek_authorized_voters positions *out_ptr at the first entry of the
+   authorized_voters map (sorted by ascending epoch, WIRE_AUTH_VOTER_SZ
+   bytes each) and stores the entry count in *out_cnt.  All entries
+   are bounds checked.  Returns 0 on success, 1 on malformed data. */
+
 static int
-seek_epoch_credits( uchar const *                    data,
-                    ulong                            data_sz,
-                    fd_vote_epoch_credits_t const ** out_ptr,
-                    ulong *                          out_cnt ) {
+seek_authorized_voters( uchar const *  data,
+                        ulong          data_sz,
+                        uint *         out_discriminant,
+                        uchar const ** out_ptr,
+                        ulong *        out_remaining,
+                        ulong *        out_cnt ) {
   uchar const * ptr       = data;
   ulong         remaining = data_sz;
 
@@ -516,22 +523,6 @@ seek_epoch_credits( uchar const *                    data,
       READ_U64( votes_len, &ptr, &remaining );
       CHECK_U64_MUL_OVERFLOW( votes_len, WIRE_LOCKOUT_SZ );
       SKIP_BYTES( votes_len*WIRE_LOCKOUT_SZ, &ptr, &remaining );
-
-      /* Skip root_slot Option<u64> */
-      uchar has_root_slot;
-      READ_U8( has_root_slot, &ptr, &remaining );
-      if( has_root_slot ) {
-        SKIP_BYTES( 8UL, &ptr, &remaining );
-      }
-
-      /* Skip authorized_voters BTreeMap<u64, Pubkey> */
-      ulong authorized_voters_len;
-      READ_U64( authorized_voters_len, &ptr, &remaining );
-      CHECK_U64_MUL_OVERFLOW( authorized_voters_len, WIRE_AUTH_VOTER_SZ );
-      SKIP_BYTES( authorized_voters_len*WIRE_AUTH_VOTER_SZ, &ptr, &remaining );
-
-      /* Skip prior_voters (fixed size) */
-      SKIP_BYTES( WIRE_PRIOR_VOTERS_SZ, &ptr, &remaining );
       break;
     }
 
@@ -543,22 +534,6 @@ seek_epoch_credits( uchar const *                    data,
       READ_U64( votes_len, &ptr, &remaining );
       CHECK_U64_MUL_OVERFLOW( votes_len, WIRE_LANDED_VOTE_SZ );
       SKIP_BYTES( votes_len*WIRE_LANDED_VOTE_SZ, &ptr, &remaining );
-
-      /* Skip root_slot Option<u64> */
-      uchar has_root_slot;
-      READ_U8( has_root_slot, &ptr, &remaining );
-      if( has_root_slot ) {
-        SKIP_BYTES( 8UL, &ptr, &remaining );
-      }
-
-      /* Skip authorized_voters BTreeMap<u64, Pubkey> */
-      ulong authorized_voters_len;
-      READ_U64( authorized_voters_len, &ptr, &remaining );
-      CHECK_U64_MUL_OVERFLOW( authorized_voters_len, WIRE_AUTH_VOTER_SZ );
-      SKIP_BYTES( authorized_voters_len*WIRE_AUTH_VOTER_SZ, &ptr, &remaining );
-
-      /* Skip prior_voters (fixed size) */
-      SKIP_BYTES( WIRE_PRIOR_VOTERS_SZ, &ptr, &remaining );
       break;
     }
 
@@ -577,24 +552,48 @@ seek_epoch_credits( uchar const *                    data,
       READ_U64( votes_len, &ptr, &remaining );
       CHECK_U64_MUL_OVERFLOW( votes_len, WIRE_LANDED_VOTE_SZ );
       SKIP_BYTES( votes_len*WIRE_LANDED_VOTE_SZ, &ptr, &remaining );
-
-      /* Skip root_slot Option<u64> */
-      uchar has_root_slot;
-      READ_U8( has_root_slot, &ptr, &remaining );
-      if( has_root_slot ) {
-        SKIP_BYTES( 8UL, &ptr, &remaining );
-      }
-
-      /* Skip authorized_voters BTreeMap<u64, Pubkey> */
-      ulong authorized_voters_len;
-      READ_U64( authorized_voters_len, &ptr, &remaining );
-      CHECK_U64_MUL_OVERFLOW( authorized_voters_len, WIRE_AUTH_VOTER_SZ );
-      SKIP_BYTES( authorized_voters_len*WIRE_AUTH_VOTER_SZ, &ptr, &remaining );
       break;
     }
 
     default:
       return 1;
+  }
+
+  /* Skip root_slot Option<u64> */
+  uchar has_root_slot;
+  READ_U8( has_root_slot, &ptr, &remaining );
+  if( has_root_slot ) {
+    SKIP_BYTES( 8UL, &ptr, &remaining );
+  }
+
+  /* Now at authorized_voters BTreeMap<u64, Pubkey> */
+  ulong authorized_voters_len;
+  READ_U64( authorized_voters_len, &ptr, &remaining );
+  CHECK_U64_MUL_OVERFLOW( authorized_voters_len, WIRE_AUTH_VOTER_SZ );
+  CHECK( authorized_voters_len*WIRE_AUTH_VOTER_SZ<=remaining );
+
+  *out_discriminant = discriminant;
+  *out_ptr          = ptr;
+  *out_remaining    = remaining;
+  *out_cnt          = authorized_voters_len;
+  return 0;
+}
+
+static int
+seek_epoch_credits( uchar const *                    data,
+                    ulong                            data_sz,
+                    fd_vote_epoch_credits_t const ** out_ptr,
+                    ulong *                          out_cnt ) {
+  uint          discriminant;
+  uchar const * ptr;
+  ulong         remaining;
+  ulong         authorized_voters_len;
+  CHECK( !seek_authorized_voters( data, data_sz, &discriminant, &ptr, &remaining, &authorized_voters_len ) );
+  SKIP_BYTES( authorized_voters_len*WIRE_AUTH_VOTER_SZ, &ptr, &remaining );
+
+  /* Skip prior_voters (fixed size), absent in v4 */
+  if( discriminant!=fd_vote_state_versioned_enum_v4 ) {
+    SKIP_BYTES( WIRE_PRIOR_VOTERS_SZ, &ptr, &remaining );
   }
 
   /* Now at epoch_credits deque */
@@ -607,6 +606,28 @@ seek_epoch_credits( uchar const *                    data,
   *out_ptr = (fd_vote_epoch_credits_t const *)ptr;
   *out_cnt = epoch_credits_len;
   return 0;
+}
+
+int
+fd_vote_account_authorized_voter( uchar const * data,
+                                  ulong         data_sz,
+                                  ulong         epoch,
+                                  fd_pubkey_t * out ) {
+  uint          discriminant;
+  uchar const * ptr;
+  ulong         remaining;
+  ulong         cnt;
+  CHECK( !seek_authorized_voters( data, data_sz, &discriminant, &ptr, &remaining, &cnt ) );
+
+  /* Take the last entry whose epoch is at or before the requested one. */
+  int found = 0;
+  for( ulong i=0UL; i<cnt; i++, ptr+=WIRE_AUTH_VOTER_SZ ) {
+    if( FD_LOAD( ulong, ptr )>epoch ) continue;
+    fd_memcpy( out, ptr+8UL, 32UL );
+    found = 1;
+  }
+
+  return !found;
 }
 
 int

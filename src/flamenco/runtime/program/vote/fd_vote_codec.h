@@ -637,6 +637,15 @@ fd_vote_account_collectors( uchar const *       data,
                             fd_pubkey_t *       inflation_rewards_collector_out,
                             fd_pubkey_t *       block_revenue_collector_out );
 
+/* Reads the authorized voter for epoch directly from raw
+   bincode-encoded vote account data.  Returns 0 on success, 1 on error
+   or if no entry qualifies. */
+int
+fd_vote_account_authorized_voter( uchar const * data,
+                                  ulong         data_sz,
+                                  ulong         epoch,
+                                  fd_pubkey_t * out );
+
 /* Reads the last_timestamp directly from raw bincode-encoded vote
    account data.  Returns 0 on success, 1 on error. */
 int
