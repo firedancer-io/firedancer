@@ -967,7 +967,6 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_tile_in( topo, "rpc",    0UL, "metric_in", "genesi_out",   0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
     fd_topob_tile_in( topo, "replay", 0UL, "metric_in", "rpc_replay",   0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
     fd_topob_tile_in( topo, "rpc",    0UL, "metric_in", "gossip_out",   0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-    FOR(shred_tile_cnt) fd_topob_tile_in( topo, "rpc", 0UL, "metric_in", "shred_out", i, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* getMaxRetransmitSlot; rpc must never backpressure shred */
     if( !alpenglow_enabled ) {
       fd_topob_tile_in( topo, "rpc",  0UL, "metric_in", "tower_out",    0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
     }
@@ -1327,6 +1326,18 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "gui", 0UL ) ], accdb_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
   }
   FD_TEST( fd_pod_insertf_ulong( topo->props, accdb_obj->id, "accdb" ) );
+
+  /* Each shred tile publishes the highest slot it relayed on turbine
+     (getMaxRetransmitSlot) into an fseq that rpc reads on request. */
+  if( FD_UNLIKELY( rpc_enabled ) ) {
+    fd_topo_tile_t * rpc_tile = &topo->tiles[ fd_topo_find_tile( topo, "rpc", 0UL ) ];
+    FOR(shred_tile_cnt) {
+      fd_topo_obj_t * fseq_obj = fd_topob_obj( topo, "fseq", "metric" );
+      fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "shred", i ) ], fseq_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+      fd_topob_tile_uses( topo, rpc_tile,                                              fseq_obj, FD_SHMEM_JOIN_MODE_READ_ONLY  );
+      FD_TEST( fd_pod_insertf_ulong( topo->props, fseq_obj->id, "shred_rtx.%lu", i ) );
+    }
+  }
 
   /* Per-RO-joiner accdb epoch fseq objects.  Each read-only accdb
      consumer (e.g. the rpc tile) owns a small fseq that it writes its

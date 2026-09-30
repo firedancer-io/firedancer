@@ -550,9 +550,21 @@ main( int     argc,
   fd_topo_link_t * link_rpc_replay = create_link( topo, wksp, "rpc_replay", 4UL, 0UL, 1UL );
   (void)link_rpc_replay;
   fd_topo_link_t * link_gossip_out = create_link( topo, wksp, "gossip_out", 4UL, FD_GOSSIP_UPDATE_SZ_VOTE, 1UL );
-  fd_topo_link_t * link_shred_out  = create_link( topo, wksp, "shred_out",  4UL, sizeof(fd_shred_message_t), 3UL );
   fd_topo_link_t * link_replay_slot = create_link( topo, wksp, "replay_slot", 4UL, sizeof(fd_replay_root_advanced_t), 1UL );
   fd_topo_link_t * link_votor_out  = create_link( topo, wksp, "votor_out",  4UL, sizeof(fd_votor_msg_t),             1UL );
+
+  /* Two shred tiles' getMaxRetransmitSlot fseqs */
+  ulong * shred_rtx[ 2 ];
+  for( ulong i=0UL; i<2UL; i++ ) {
+    void * rtx_mem = fd_wksp_alloc_laddr( wksp, fd_fseq_align(), fd_fseq_footprint(), 1UL );
+    FD_TEST( rtx_mem );
+    shred_rtx[ i ] = fd_fseq_join( fd_fseq_new( rtx_mem, ULONG_MAX ) );
+    FD_TEST( shred_rtx[ i ] );
+    fd_topo_obj_t * rtx_obj = fd_topob_obj( topo, "fseq", "wksp" );
+    rtx_obj->wksp_id = topo_wksp->id;
+    rtx_obj->offset  = fd_wksp_gaddr_fast( wksp, rtx_mem );
+    FD_TEST( fd_pod_insertf_ulong( topo->props, rtx_obj->id, "shred_rtx.%lu", i ) );
+  }
 
   fd_topo_tile_t * tile     = fd_topob_tile( topo, "rpc", "wksp", "wksp", 0UL, 0, 0, 0, 1 );
   fd_topo_obj_t *  tile_obj = &topo->objs[ tile->tile_obj_id ];
@@ -568,7 +580,6 @@ main( int     argc,
 
   fd_topob_tile_out( topo, "rpc", 0UL, "rpc_replay", 0UL );
   fd_topob_tile_in( topo, "rpc", 0UL, "wksp", "gossip_out", 0UL, 0, 1 );
-  fd_topob_tile_in( topo, "rpc", 0UL, "wksp", "shred_out",  0UL, 0, 1 );
   fd_topob_tile_in( topo, "rpc", 0UL, "wksp", "replay_slot", 0UL, 0, 1 );
   fd_topob_tile_in( topo, "rpc", 0UL, "wksp", "votor_out",  0UL, 0, 1 );
 
@@ -750,49 +761,14 @@ main( int     argc,
   );
 
   {
-    /* Drive shred frags through the stem callback sequence */
-    ulong shred_in_idx = ctx->in_cnt;
-    for( ulong in_idx=0UL; in_idx<ctx->in_cnt; in_idx++ ) {
-      if( ctx->in_kind[ in_idx ]==IN_KIND_SHRED ) { shred_in_idx = in_idx; break; }
-    }
-    FD_TEST( shred_in_idx<ctx->in_cnt );
-    fd_shred_base_t * shred_msg = fd_chunk_to_laddr( wksp, fd_dcache_compact_chunk0( wksp, link_shred_out->dcache ) );
-    ulong             shred_chunk = fd_laddr_to_chunk( wksp, shred_msg );
-
-#define PUBLISH_SHRED( _slot, _src, _res ) do {                                                                          \
-      memset( shred_msg, 0, sizeof(fd_shred_base_t) );                                                                   \
-      shred_msg->shred.slot = (_slot);                                                                                    \
-      ulong _sig = ((ulong)(_res) << 32UL) | (ulong)(_src);                                                               \
-      if( !before_frag( ctx, shred_in_idx, 0UL, _sig ) ) {                                                                \
-        during_frag( ctx, shred_in_idx, 0UL, _sig, shred_chunk, sizeof(fd_shred_base_t), 0UL );                          \
-        FD_TEST( !returnable_frag( ctx, shred_in_idx, 0UL, _sig, shred_chunk, sizeof(fd_shred_base_t), 0UL, 0UL, 0UL, NULL ) ); \
-        after_frag( ctx, shred_in_idx, 0UL, _sig, sizeof(fd_shred_base_t), 0UL, 0UL, NULL );                                  \
-      }                                                                                                                  \
-    } while( 0 )
-
-    PUBLISH_SHRED( 100UL, SHRED_SIG_SRC_TURBINE, SHRED_SIG_RESULT_OKAY );
-    FD_TEST( ctx->max_retransmit_slot==100UL );
-    PUBLISH_SHRED( 105UL, SHRED_SIG_SRC_TURBINE, SHRED_SIG_RESULT_COMPLETES );
-    FD_TEST( ctx->max_retransmit_slot==105UL );
-    /* Lower slots never move it backwards */
-    PUBLISH_SHRED( 90UL, SHRED_SIG_SRC_TURBINE, SHRED_SIG_RESULT_OKAY );
-    FD_TEST( ctx->max_retransmit_slot==105UL );
-    /* Repair shreds are not retransmitted */
-    PUBLISH_SHRED( 200UL, SHRED_SIG_SRC_REPAIR, SHRED_SIG_RESULT_OKAY );
-    PUBLISH_SHRED( 201UL, SHRED_SIG_SRC_BAD_REPAIR, SHRED_SIG_RESULT_OKAY );
-    FD_TEST( ctx->max_retransmit_slot==105UL );
-    /* Nor are duplicate / equivocating turbine shreds */
-    PUBLISH_SHRED( 202UL, SHRED_SIG_SRC_TURBINE, SHRED_SIG_RESULT_DUPLICATE );
-    PUBLISH_SHRED( 203UL, SHRED_SIG_SRC_TURBINE, SHRED_SIG_RESULT_EQVOC );
-    FD_TEST( ctx->max_retransmit_slot==105UL );
-    /* Nor reconstructed shreds (leader FEC sets ride this sig too) */
-    PUBLISH_SHRED( 204UL, SHRED_SIG_SRC_RECONSTRUCTED, SHRED_SIG_RESULT_COMPLETES );
-    FD_TEST( ctx->max_retransmit_slot==105UL );
-    /* FEC events carry no shred and are filtered before the dcache read */
-    FD_TEST( before_frag( ctx, shred_in_idx, 0UL, SHRED_SIG_FEC_COMPLETE ) );
-    FD_TEST( before_frag( ctx, shred_in_idx, 0UL, SHRED_SIG_FEC_EVICTED  ) );
-    FD_TEST( before_frag( ctx, shred_in_idx, 0UL, SHRED_SIG_FEC_COMPLETE_LEADER ) );
-#undef PUBLISH_SHRED
+    /* Max over the shred tiles' fseqs, unset (ULONG_MAX) reads as 0 */
+    FD_TEST( ctx->shred_rtx_cnt==2UL );
+    fd_fseq_update( shred_rtx[ 1 ], 100UL );
+    expect_rpc_response( ctx,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getMaxRetransmitSlot\"}",
+        "{\"jsonrpc\":\"2.0\",\"result\":100,\"id\":1}"
+    );
+    fd_fseq_update( shred_rtx[ 0 ], 105UL );
 
     expect_rpc_response( ctx,
         "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getMaxRetransmitSlot\"}",

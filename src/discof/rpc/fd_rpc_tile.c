@@ -3,11 +3,11 @@
 #include "../genesis/fd_genesi_tile.h"
 #include "../votor/fd_votor_tile.h"
 #include "../../choreo/votor/ag_cert.h"
-#include "../../disco/shred/fd_shred_tile.h"
 
 #include "../../ballet/base64/fd_base64.h"
 #include "../../ballet/json/fd_jtok.h"
 #include "../../disco/topo/fd_topo.h"
+#include "../../util/pod/fd_pod_format.h"
 #include "../../disco/fd_clock_tile.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../disco/keyguard/fd_keyload.h"
@@ -57,7 +57,6 @@
 #define IN_KIND_GENESI      (1)
 #define IN_KIND_GOSSIP_OUT  (2)
 #define IN_KIND_TOWER       (3)
-#define IN_KIND_SHRED       (4)
 #define IN_KIND_EPOCH       (5)
 #define IN_KIND_VOTOR       (6)
 
@@ -461,9 +460,10 @@ struct fd_rpc_tile {
 
   ulong cluster_confirmed_slot;
 
-  /* Highest slot relayed to turbine (Agave MaxSlots::retransmit) */
-  ulong max_retransmit_slot;
-  ulong shred_slot; /* copied in during_frag, shred_out is unreliable */
+  /* Highest slot relayed to turbine (Agave MaxSlots::retransmit),
+     one fseq per shred tile, written by shred */
+  ulong         shred_rtx_cnt;
+  ulong const * shred_rtx[ FD_TOPO_MAX_TILES ];
 
   /* Address of the account holding the alpenglow genesis certificate,
      for getAgGenesisCert. */
@@ -767,35 +767,9 @@ before_frag( fd_rpc_tile_t *   ctx,
            sig!=REPLAY_SIG_ROOT_ADVANCED  && sig!=REPLAY_SIG_DROP_BANK_REF;
   }
 
-  if( ctx->in_kind[ in_idx ]==IN_KIND_SHRED ) {
-    /* Keep only turbine shreds the shred tile relayed */
-    uint src = fd_shred_sig_src( sig );
-    int  res = fd_shred_sig_res( sig );
-    return !( src==SHRED_SIG_SRC_TURBINE && ( res==SHRED_SIG_RESULT_OKAY || res==SHRED_SIG_RESULT_COMPLETES ) );
-  }
-
   if( ctx->in_kind[ in_idx ]==IN_KIND_VOTOR ) return sig!=FD_VOTOR_SIG_CERTED;
 
   return 0;
-}
-
-static inline void
-during_frag( fd_rpc_tile_t * ctx,
-             ulong           in_idx,
-             ulong           seq FD_PARAM_UNUSED,
-             ulong           sig FD_PARAM_UNUSED,
-             ulong           chunk,
-             ulong           sz,
-             ulong           ctl FD_PARAM_UNUSED ) {
-  if( ctx->in_kind[ in_idx ]!=IN_KIND_SHRED ) return;
-
-  /* Unreliable link: copy what we need before the overrun check */
-  if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) ) {
-    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
-  }
-
-  fd_shred_base_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
-  ctx->shred_slot = msg->shred.slot;
 }
 
 static int
@@ -1114,20 +1088,6 @@ returnable_frag( fd_rpc_tile_t *     ctx,
   }
 
   return 0;
-}
-
-static inline void
-after_frag( fd_rpc_tile_t *     ctx,
-            ulong               in_idx,
-            ulong               seq    FD_PARAM_UNUSED,
-            ulong               sig    FD_PARAM_UNUSED,
-            ulong               sz     FD_PARAM_UNUSED,
-            ulong               tsorig FD_PARAM_UNUSED,
-            ulong               tspub  FD_PARAM_UNUSED,
-            fd_stem_context_t * stem   FD_PARAM_UNUSED ) {
-  /* Unreliable inputs are handled here, after the overrun check */
-  if( ctx->in_kind[ in_idx ]!=IN_KIND_SHRED ) return;
-  ctx->max_retransmit_slot = fd_ulong_max( ctx->max_retransmit_slot, ctx->shred_slot );
 }
 
 #define STAGE_JSON(__ctx) (__extension__({ \
@@ -2448,7 +2408,12 @@ getMaxRetransmitSlot( fd_rpc_tile_t *         ctx,
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id_cstr, params, 0, 0, &response ) ) ) return response;
 
-  return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%s}\n", ctx->max_retransmit_slot, id_cstr );
+  ulong max_retransmit_slot = 0UL;
+  for( ulong i=0UL; i<ctx->shred_rtx_cnt; i++ ) {
+    ulong slot = fd_fseq_query( ctx->shred_rtx[ i ] );
+    if( FD_LIKELY( slot!=ULONG_MAX ) ) max_retransmit_slot = fd_ulong_max( max_retransmit_slot, slot );
+  }
+  return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%s}\n", max_retransmit_slot, id_cstr );
 }
 
 UNIMPLEMENTED(getMaxShredInsertSlot)
@@ -3244,8 +3209,6 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( ctx->waker_fseq );
 
   ctx->cluster_confirmed_slot = ULONG_MAX;
-  ctx->max_retransmit_slot    = 0UL;
-  ctx->shred_slot             = 0UL;
   ctx->genesis_max_message_size = tile->rpc.genesis_max_message_size;
   ctx->genesis_tar_max_sz = fd_rpc_genesis_tar_max_sz( tile->rpc.genesis_max_message_size );
   ctx->genesis_tar_bz_max_sz = fd_rpc_genesis_tar_bz_max_sz( tile->rpc.genesis_max_message_size );
@@ -3279,10 +3242,16 @@ unprivileged_init( fd_topo_t const *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "genesi_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_GENESI;
     else if( FD_LIKELY( !strcmp( link->name, "gossip_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_OUT;
     else if( FD_LIKELY( !strcmp( link->name, "tower_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_TOWER;
-    else if( FD_LIKELY( !strcmp( link->name, "shred_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_SHRED;
     else if( FD_LIKELY( !strcmp( link->name, "replay_epoch" ) ) ) ctx->in_kind[ i ] = IN_KIND_EPOCH;
     else if( FD_UNLIKELY( !strcmp( link->name, "votor_out"  ) ) ) ctx->in_kind[ i ] = IN_KIND_VOTOR;
     else FD_LOG_ERR(( "unexpected link name %s", link->name ));
+  }
+
+  for( ctx->shred_rtx_cnt=0UL; ctx->shred_rtx_cnt<FD_TOPO_MAX_TILES; ctx->shred_rtx_cnt++ ) {
+    ulong rtx_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "shred_rtx.%lu", ctx->shred_rtx_cnt );
+    if( FD_UNLIKELY( rtx_obj_id==ULONG_MAX ) ) break;
+    ctx->shred_rtx[ ctx->shred_rtx_cnt ] = fd_fseq_join( fd_topo_obj_laddr( topo, rtx_obj_id ) );
+    FD_TEST( ctx->shred_rtx[ ctx->shred_rtx_cnt ] );
   }
 
   *ctx->replay_out = out1( topo, tile, "rpc_replay" ); FD_TEST( ctx->replay_out->idx!=ULONG_MAX );
@@ -3374,9 +3343,7 @@ rlimit_file_cnt( fd_topo_t const *      topo FD_PARAM_UNUSED,
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 #define STEM_CALLBACK_BEFORE_CREDIT       before_credit
 #define STEM_CALLBACK_BEFORE_FRAG         before_frag
-#define STEM_CALLBACK_DURING_FRAG         during_frag
 #define STEM_CALLBACK_RETURNABLE_FRAG     returnable_frag
-#define STEM_CALLBACK_AFTER_FRAG          after_frag
 
 #include "../../disco/stem/fd_stem.c"
 
