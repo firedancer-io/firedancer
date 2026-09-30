@@ -743,6 +743,39 @@ returnable_frag( ctx_t *             ctx,
 
 /* Delivery to replay */
 
+
+/* publish_block publishes slotv's block metadata to rserve.  Skipped
+   if rserve is disabled, or if the block id, parent, or any FEC root is
+   unknown. */
+static void
+publish_block( ctx_t *              ctx,
+               fd_stem_context_t *  stem,
+               fd_chainer_slotv_t * slotv ) {
+  out_ctx_t * out = ctx->rserve_out_ctx;
+  if( FD_UNLIKELY( out->idx==ULONG_MAX ) ) return;
+  if( FD_UNLIKELY( fd_hash_check_zero( &slotv->block_id ) || fd_hash_check_zero( &slotv->parent_block_id ) ) ) return;
+  if( FD_UNLIKELY( slotv->complete_idx>=FD_SHRED_BLK_MAX || slotv->parent_slot==AG_UNKNOWN_SLOT ) ) return;
+
+  uint fec_set_cnt = ( slotv->complete_idx + 1U ) / FD_FEC_SHRED_CNT;
+
+  fd_rotor_block_t * msg  = fd_chunk_to_laddr( out->mem, out->chunk );
+  uint const *       fecs = fd_chainer_slotv_fecs( ctx->chainer, slotv );
+  for( uint k=0U; k<fec_set_cnt; k++ ) {
+    if( FD_UNLIKELY( fecs[ k ]==UINT_MAX ) ) return;
+    fd_chainer_fec_t const * fec = fd_fec_pool_ele_const( ctx->chainer->fec_pool, fecs[ k ] );
+    memcpy( msg->merkle_roots[ k ], fec->merkle_root.uc, FD_SHRED_MERKLE_NODE_SZ );
+  }
+  msg->slot            = slotv->slot;
+  msg->block_id        = slotv->block_id;
+  msg->parent_slot     = slotv->parent_slot;
+  msg->parent_block_id = slotv->parent_block_id;
+  msg->fec_set_cnt     = fec_set_cnt;
+
+  ulong sz = FD_ROTOR_BLOCK_SZ( fec_set_cnt );
+  fd_stem_publish( stem, out->idx, ROTOR_SIG_BLOCK, out->chunk, sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  out->chunk = fd_dcache_compact_next( out->chunk, sz, out->chunk0, out->wmark );
+}
+
 /* publish_fec publishes one FEC of version block to replay.  See
    fd_rotor_tile.h for the known_id / block_id keying rules. */
 
@@ -800,6 +833,10 @@ publish_fec( ctx_t *              ctx,
   fd_stem_publish( stem, ctx->replay_out_ctx->idx, ROTOR_SIG_FEC_REPLAY, ctx->replay_out_ctx->chunk, sizeof(fd_rotor_replay_fec_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->replay_out_ctx->chunk = fd_dcache_compact_next( ctx->replay_out_ctx->chunk, sizeof(fd_rotor_replay_fec_t), ctx->replay_out_ctx->chunk0, ctx->replay_out_ctx->wmark );
   ctx->metrics->fecs_delivered++;
+
+  /* Also on redelivery: a block first delivered from root is otherwise
+     never published.  Re-publishing is idempotent in rserve. */
+  if( FD_UNLIKELY( fec->slot_complete ) ) publish_block( ctx, stem, block );
 }
 
 /* publish_fec_replay pops one delivered FEC off the chainer's out_queue
@@ -1109,6 +1146,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->net_out_ctx->idx    = ULONG_MAX;
   ctx->replay_out_ctx->idx = ULONG_MAX;
+  ctx->rserve_out_ctx->idx = ULONG_MAX;
   ctx->repair_sign_cnt     = 0UL;
 
   for( uint out_idx=0U; out_idx<(tile->out_cnt); out_idx++ ) {
@@ -1120,6 +1158,8 @@ unprivileged_init( fd_topo_t const *      topo,
       out = ctx->net_out_ctx;
     } else if( 0==strcmp( link->name, "repair_out" ) ) {
       out = ctx->replay_out_ctx;
+    } else if( 0==strcmp( link->name, "rotor_rserve" ) ) {
+      out = ctx->rserve_out_ctx;
     } else if( 0==strcmp( link->name, "repair_sign" ) ) {
       if( FD_UNLIKELY( ctx->repair_sign_cnt>=MAX_SIGN_TILE_CNT ) ) FD_LOG_ERR(( "rotor tile has too many repair_sign links" ));
       out              = &ctx->repair_sign_out_ctx[ ctx->repair_sign_cnt ];

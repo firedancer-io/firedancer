@@ -15,6 +15,7 @@ static void * test_out_mem[ TEST_OUT_MAX ];
 #define OUT_IDX_NET    (0UL)
 #define OUT_IDX_REPLAY (1UL)
 #define OUT_IDX_SIGN   (2UL)
+#define OUT_IDX_RSERVE (3UL)
 
 #define IN_IDX_NET    (0UL)
 #define IN_IDX_SHRED  (1UL)
@@ -127,6 +128,10 @@ drain( ctx_t * ctx ) {
       FD_TEST( rep_cnt<REP_MAX );
       fd_memcpy( &rep_log[ rep_cnt++ ], rec.data, sizeof(fd_rotor_replay_fec_t) );
 
+    } else if( rec.out_idx==OUT_IDX_RSERVE ) {
+
+      FD_TEST( rec.sig==ROTOR_SIG_BLOCK );
+      FD_TEST( rec.sz>=FD_ROTOR_BLOCK_SZ( 0 ) );
     } else {
       FD_LOG_ERR(( "unexpected out_idx %lu", rec.out_idx ));
     }
@@ -579,7 +584,8 @@ setup_ctx( ctx_t * ctx, fd_wksp_t * wksp ) {
   void * net_dcache    = fd_wksp_alloc_laddr( wksp, FD_CHUNK_ALIGN, dcache_sz, 1UL );
   void * replay_dcache = fd_wksp_alloc_laddr( wksp, FD_CHUNK_ALIGN, dcache_sz, 1UL );
   void * sign_dcache   = fd_wksp_alloc_laddr( wksp, FD_CHUNK_ALIGN, dcache_sz, 1UL );
-  FD_TEST( net_dcache && replay_dcache && sign_dcache );
+  void * rserve_dcache = fd_wksp_alloc_laddr( wksp, FD_CHUNK_ALIGN, dcache_sz, 1UL );
+  FD_TEST( net_dcache && replay_dcache && sign_dcache && rserve_dcache );
   ulong wmark = (dcache_sz>>FD_CHUNK_LG_SZ)-(2048UL>>FD_CHUNK_LG_SZ)-1UL;
 
   ctx->net_out_ctx->idx    = OUT_IDX_NET;
@@ -594,6 +600,12 @@ setup_ctx( ctx_t * ctx, fd_wksp_t * wksp ) {
   ctx->replay_out_ctx->wmark  = wmark;
   ctx->replay_out_ctx->chunk  = 0UL;
 
+  ctx->rserve_out_ctx->idx    = OUT_IDX_RSERVE;
+  ctx->rserve_out_ctx->mem    = rserve_dcache;
+  ctx->rserve_out_ctx->chunk0 = 0UL;
+  ctx->rserve_out_ctx->wmark  = wmark;
+  ctx->rserve_out_ctx->chunk  = 0UL;
+
   ctx->repair_sign_cnt                    = 1UL;
   ctx->repair_sign_out_ctx[0].idx         = OUT_IDX_SIGN;
   ctx->repair_sign_out_ctx[0].in_idx      = IN_IDX_SIGN;
@@ -607,6 +619,7 @@ setup_ctx( ctx_t * ctx, fd_wksp_t * wksp ) {
   test_out_mem[ OUT_IDX_NET    ] = net_dcache;
   test_out_mem[ OUT_IDX_REPLAY ] = replay_dcache;
   test_out_mem[ OUT_IDX_SIGN   ] = sign_dcache;
+  test_out_mem[ OUT_IDX_RSERVE ] = rserve_dcache;
 
   /* In links */
 
