@@ -18,11 +18,12 @@
 #define MAP_KEY_HASH(key)     ((uint)fd_hash( 0UL, (key).uc, sizeof(fd_pubkey_t) ))
 #include "../../util/tmpl/fd_map.c"
 
-/* Bytes of a stakes cache vote account entry around the account data:
-   pubkey, stake, lamports, data_len before it, owner, executable,
-   rent_epoch after it. */
+/* Fixed size part of a stakes cache vote account entry: pubkey (32) +
+   stake (8) + lamports (8) + data_len (8) + owner (32) + executable (1)
+   + rent_epoch (8) = 97 bytes.  The account data sits between data_len
+   and owner. */
 
-#define VOTE_ACCOUNT_HDR_SZ (32UL+8UL+8UL+8UL+32UL+1UL+8UL)
+#define VOTE_ACCOUNT_HDR_SZ (97UL)
 
 /* How many vote accounts one encoder call writes.  The account data is
    read straight into the output buffer and a read needs
