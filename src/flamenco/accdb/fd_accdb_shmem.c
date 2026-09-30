@@ -628,10 +628,10 @@ fd_accdb_disk_pack( uchar *       rec,
                     ulong         data_len ) {
   uchar * payload = rec+sizeof(fd_accdb_disk_meta_t);
   ulong   sz      = fd_zle_compress( payload, data, data_len );
-  uint    size    = (uint)sz;
+  uint    size    = (uint)sz | FD_ACCDB_DISK_COMPRESSED_BIT;
   if( FD_UNLIKELY( sz>=data_len ) ) {
     fd_memcpy( payload, data, data_len );
-    size = (uint)data_len | FD_ACCDB_DISK_RAW_BIT;
+    size = (uint)data_len;
   }
 
   fd_accdb_disk_meta_t * meta = (fd_accdb_disk_meta_t *)rec;
@@ -648,8 +648,8 @@ fd_accdb_disk_unpack( uchar *       data,
                       ulong         data_len,
                       uint          size,
                       uchar const * src ) {
-  if( FD_UNLIKELY( size & FD_ACCDB_DISK_RAW_BIT ) ) {
-    if( FD_UNLIKELY( FD_ACCDB_DISK_SZ( size )!=data_len ) ) FD_LOG_CRIT(( "accounts database is corrupt, raw record size %lu != data_len %lu", FD_ACCDB_DISK_SZ( size ), data_len ));
+  if( FD_UNLIKELY( !( size & FD_ACCDB_DISK_COMPRESSED_BIT ) ) ) {
+    if( FD_UNLIKELY( FD_ACCDB_DISK_SZ( size )!=data_len ) ) FD_LOG_CRIT(( "accounts database is corrupt, record size %lu != data_len %lu", FD_ACCDB_DISK_SZ( size ), data_len ));
     fd_memcpy( data, src, data_len );
     return;
   }

@@ -3155,7 +3155,7 @@ test_compressed_writeback( void ) {
     fd_accdb_debug_clock_evict_line( accdb, cls, idx );
   }
 
-  /* The dense record went out raw, the other two shrank. */
+  /* The dense record went out as is, the other two shrank. */
   fd_accdb_flush_metrics( accdb );
   ulong written = fd_accdb_shmetrics( accdb )->disk_current_bytes;
   FD_TEST( written>=sizeof(fd_accdb_disk_meta_t)+8192UL );

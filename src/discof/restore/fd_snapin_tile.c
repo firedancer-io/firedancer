@@ -1305,7 +1305,7 @@ writer_flush( fd_snapin_tile_t * ctx ) {
   FD_TEST( padded<=FD_SNAPIN_WRITE_BUF_SZ );
   fd_memset( ctx->writer.buf+used, 0, padded-used );
   fd_accdb_disk_meta_t * dummy_record = (fd_accdb_disk_meta_t *)( ctx->writer.buf+used );
-  dummy_record->size     = (uint)( padded-used-sizeof(fd_accdb_disk_meta_t) ) | FD_ACCDB_DISK_RAW_BIT;
+  dummy_record->size     = (uint)( padded-used-sizeof(fd_accdb_disk_meta_t) );
   dummy_record->data_len = (uint)( padded-used-sizeof(fd_accdb_disk_meta_t) );
 
   /* The offset is aligned because partition sizes are multiples of

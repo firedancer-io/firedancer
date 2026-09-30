@@ -64,12 +64,12 @@ struct fd_accdb_metrics {
 typedef struct fd_accdb_metrics fd_accdb_metrics_t;
 
 /* fd_accdb_disk_meta_t is the on-disk account revision header.  It is
-   followed by the account data, fd_zle compressed unless the raw bit
-   of size is set.  size is the payload size on disk, data_len the
+   followed by the account data, fd_zle compressed if the compressed
+   bit of size is set.  size is the payload size on disk, data_len the
    uncompressed data length. */
 
-#define FD_ACCDB_DISK_RAW_BIT  (1U<<31)
-#define FD_ACCDB_DISK_SZ(size) ((ulong)( (size) & ~FD_ACCDB_DISK_RAW_BIT ))
+#define FD_ACCDB_DISK_COMPRESSED_BIT (1U<<31)
+#define FD_ACCDB_DISK_SZ(size)       ((ulong)( (size) & ~FD_ACCDB_DISK_COMPRESSED_BIT ))
 
 union fd_accdb_disk_meta {
   struct __attribute__((packed)) {
@@ -95,7 +95,7 @@ FD_PROTOTYPES_BEGIN
 
 /* fd_accdb_disk_pack writes the on-disk record of an account version
    to rec (FD_ACCDB_DISK_REC_BOUND( data_len ) bytes, not overlapping
-   data).  The data is stored raw if compression does not shrink it.
+   data).  The data is stored as is if compression does not shrink it.
    Returns the record size. */
 
 ulong

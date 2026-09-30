@@ -697,9 +697,9 @@ msg_acc_disk( fd_snapzp_t * ctx,
   }
 
   /* defrag copy */
-  int     raw     = !!( ctx->disk.size & FD_ACCDB_DISK_RAW_BIT );
-  ulong   payload = FD_ACCDB_DISK_SZ( ctx->disk.size );
-  uchar * dst     = ( raw ? ctx->disk.dst : ctx->disk.buf ) + ( payload-ctx->disk.data_rem );
+  int     compressed = !!( ctx->disk.size & FD_ACCDB_DISK_COMPRESSED_BIT );
+  ulong   payload    = FD_ACCDB_DISK_SZ( ctx->disk.size );
+  uchar * dst        = ( compressed ? ctx->disk.buf : ctx->disk.dst ) + ( payload-ctx->disk.data_rem );
   ulong   take    = fd_ulong_min( ctx->disk.data_rem, frag_sz );
   if( FD_LIKELY( take ) ) {
     FD_CHECK_CRIT( (ulong)frag           >= ctx->snaprd_data0 &&
@@ -715,7 +715,7 @@ msg_acc_disk( fd_snapzp_t * ctx,
   /* finish defrag operation */
   if( eom ) {
     FD_CHECK_CRIT( !ctx->disk.data_rem, "invalid accdb disk frag stream: EOM frag seen but defrag not complete" );
-    if( FD_LIKELY( !raw ) ) fd_accdb_disk_unpack( ctx->disk.dst, ctx->disk.data_len, ctx->disk.size, ctx->disk.buf );
+    if( FD_LIKELY( compressed ) ) fd_accdb_disk_unpack( ctx->disk.dst, ctx->disk.data_len, ctx->disk.size, ctx->disk.buf );
     if( ctx->disk.data_pad ) {
       FD_TEST( ctx->raw_buf.size + ctx->disk.data_pad <= RAW_BUF_SZ );
       fd_memset( ctx->raw + ctx->raw_buf.size, 0, ctx->disk.data_pad );

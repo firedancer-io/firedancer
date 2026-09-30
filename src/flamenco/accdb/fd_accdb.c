@@ -205,7 +205,7 @@ record_read( fd_accdb_t * accdb,
 
 /* evict_stage compresses the dirty cache line of evicted into the
    bounce buffer and queues it for writing.  Returns 0 if the buffer
-   has no room left, in which case the caller writes the line raw. */
+   has no room left, in which case the caller writes the line as is. */
 
 static inline int
 evict_stage( fd_accdb_t *                  accdb,
@@ -2699,7 +2699,7 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
         total_write_sz += sizeof(fd_accdb_disk_meta_t) + FD_ACCDB_SIZE_DATA( evicted->executable_size );
         FD_TEST( write_meta_cnt<(int)(sizeof(write_metas)/sizeof(write_metas[0])) );
         fd_memcpy( write_metas[ write_meta_cnt ].pubkey, evicted->key.pubkey, 32UL );
-        write_metas[ write_meta_cnt ].size       = FD_ACCDB_SIZE_DATA( evicted->executable_size ) | FD_ACCDB_DISK_RAW_BIT;
+        write_metas[ write_meta_cnt ].size       = FD_ACCDB_SIZE_DATA( evicted->executable_size );
         write_metas[ write_meta_cnt ].generation = evicted->key.generation;
         write_metas[ write_meta_cnt ].data_len   = FD_ACCDB_SIZE_DATA( evicted->executable_size );
         fd_memcpy( write_metas[ write_meta_cnt ].owner, destination_cache_lines[ i ][ j ]->owner, 32UL );
@@ -2716,7 +2716,7 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
         total_write_sz += sizeof(fd_accdb_disk_meta_t) + FD_ACCDB_SIZE_DATA( evicted->executable_size );
         FD_TEST( write_meta_cnt<(int)(sizeof(write_metas)/sizeof(write_metas[0])) );
         fd_memcpy( write_metas[ write_meta_cnt ].pubkey, evicted->key.pubkey, 32UL );
-        write_metas[ write_meta_cnt ].size       = FD_ACCDB_SIZE_DATA( evicted->executable_size ) | FD_ACCDB_DISK_RAW_BIT;
+        write_metas[ write_meta_cnt ].size       = FD_ACCDB_SIZE_DATA( evicted->executable_size );
         write_metas[ write_meta_cnt ].generation = evicted->key.generation;
         write_metas[ write_meta_cnt ].data_len   = FD_ACCDB_SIZE_DATA( evicted->executable_size );
         fd_memcpy( write_metas[ write_meta_cnt ].owner, original_cache_line[ i ]->owner, 32UL );
@@ -2733,7 +2733,7 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
       total_write_sz += sizeof(fd_accdb_disk_meta_t) + FD_ACCDB_SIZE_DATA( evicted->executable_size );
       FD_TEST( write_meta_cnt<(int)(sizeof(write_metas)/sizeof(write_metas[0])) );
       fd_memcpy( write_metas[ write_meta_cnt ].pubkey, evicted->key.pubkey, 32UL );
-      write_metas[ write_meta_cnt ].size       = FD_ACCDB_SIZE_DATA( evicted->executable_size ) | FD_ACCDB_DISK_RAW_BIT;
+      write_metas[ write_meta_cnt ].size       = FD_ACCDB_SIZE_DATA( evicted->executable_size );
       write_metas[ write_meta_cnt ].generation = evicted->key.generation;
       write_metas[ write_meta_cnt ].data_len   = FD_ACCDB_SIZE_DATA( evicted->executable_size );
       fd_memcpy( write_metas[ write_meta_cnt ].owner, original_cache_line[ i ]->owner, 32UL );

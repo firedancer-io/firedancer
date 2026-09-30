@@ -3089,7 +3089,7 @@ test_max_account_staging( void ) {
   FD_TEST( ctx->writer.buf_used==sizeof(fd_accdb_disk_meta_t)+FD_RUNTIME_ACC_SZ_MAX );
   fd_accdb_disk_meta_t meta;
   fd_memcpy( meta.b, ctx->writer.buf, sizeof(meta) );
-  FD_TEST( ( meta.size & FD_ACCDB_DISK_RAW_BIT ) && FD_ACCDB_DISK_SZ( meta.size )==FD_RUNTIME_ACC_SZ_MAX );
+  FD_TEST( !( meta.size & FD_ACCDB_DISK_COMPRESSED_BIT ) && FD_ACCDB_DISK_SZ( meta.size )==FD_RUNTIME_ACC_SZ_MAX );
   FD_TEST( meta.data_len==FD_RUNTIME_ACC_SZ_MAX );
   ulong actual_sum = 0UL;
   ulong actual_mix = 0UL;

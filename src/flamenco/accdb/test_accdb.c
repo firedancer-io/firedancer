@@ -1242,7 +1242,7 @@ test_snapshot_write_one( fd_accdb_t *       accdb,
   ulong file_offsets[ 1 ] = {
     fd_accdb_snapshot_reserve_write( accdb, sizeof(fd_accdb_disk_meta_t)+data_len )
   };
-  fd_accdb_disk_meta_t meta = { .size = (uint)data_len | FD_ACCDB_DISK_RAW_BIT, .data_len = (uint)data_len };
+  fd_accdb_disk_meta_t meta = { .size = (uint)data_len, .data_len = (uint)data_len };
   fd_memcpy( meta.pubkey, pubkey, 32UL );
   FD_TEST( pwrite( test_fd, meta.b, sizeof(meta), (long)file_offsets[ 0 ] )==(long)sizeof(meta) );
   ulong ignored, replaced, loaded, ignored_lamports;
@@ -1576,7 +1576,7 @@ test_write_batch( fd_accdb_t *                         accdb,
     file_offsets[ i ] = file_off;
     fd_accdb_disk_meta_t meta;
     fd_memcpy( meta.pubkey, pubkeys[ i ], 32UL );
-    meta.size       = (uint)data_lens[ i ] | FD_ACCDB_DISK_RAW_BIT;
+    meta.size       = (uint)data_lens[ i ];
     meta.generation = 0U;
     meta.data_len   = (uint)data_lens[ i ];
     fd_memset( meta.owner, 0, 32UL );
@@ -2185,7 +2185,7 @@ test_incremental_retry_reuses_acc_pool( void ) {
    It also drives a real first-partition overflow at partition_cnt==8192
    end-to-end to confirm the switch path runs to completion (no hang)
    and accounts read back correctly. */
-/* Round trip a compressed and a raw record through the snapshot
+/* Round trip a compressed and an uncompressed record through the snapshot
    writer, the nocache disk read, a cold load and a cached read. */
 static void
 test_compressed_records( void ) {
@@ -2209,7 +2209,7 @@ test_compressed_records( void ) {
   for( ulong i=0UL; i<2UL; i++ ) {
     ulong rec_sz = fd_accdb_disk_pack( rec, pks[ i ], 0U, owner2, datas[ i ], 8192UL );
     uint  size   = ((fd_accdb_disk_meta_t const *)rec)->size;
-    FD_TEST( !!( size & FD_ACCDB_DISK_RAW_BIT )==(i==1UL) );
+    FD_TEST( !!( size & FD_ACCDB_DISK_COMPRESSED_BIT )==(i==0UL) );
     FD_TEST( rec_sz==sizeof(fd_accdb_disk_meta_t)+FD_ACCDB_DISK_SZ( size ) );
     FD_TEST( i ? rec_sz==sizeof(fd_accdb_disk_meta_t)+8192UL : rec_sz<sizeof(fd_accdb_disk_meta_t)+1024UL );
     ulong off = fd_accdb_snapshot_reserve_write( accdb, rec_sz );
