@@ -258,6 +258,11 @@ typedef struct {
   ulong       shred_out_wmark;
   ulong       shred_out_chunk;
 
+  /* Highest slot relayed on turbine, published for rpc
+     (getMaxRetransmitSlot).  NULL if rpc is disabled. */
+  ulong *     rtx_fseq;
+  ulong       rtx_slot;
+
   fd_store_t    * store;
   fd_store_map_t  map_join[1];
   int             disk_fd;
@@ -1392,6 +1397,10 @@ after_frag( fd_shred_ctx_t *    ctx,
     if( FD_LIKELY( fd_disco_netmux_sig_proto( sig ) != DST_PROTO_REPAIR &&
                  ( (rv==FD_FEC_RESOLVER_SHRED_OKAY) | (rv==FD_FEC_RESOLVER_SHRED_COMPLETES) ) ) ) {
       /* Relay this shred */
+      if( FD_UNLIKELY( ctx->rtx_fseq && shred->slot>ctx->rtx_slot ) ) {
+        ctx->rtx_slot = shred->slot;
+        fd_fseq_update( ctx->rtx_fseq, shred->slot );
+      }
       ulong max_dest_cnt[1];
       do {
         /* If we've validated the shred and it COMPLETES but we can't
@@ -1498,6 +1507,15 @@ unprivileged_init( fd_topo_t const *      topo,
   ulong fec_sets_required_sz   = fec_set_cnt*sizeof(fd_fec_set_t);
 
   void * fec_sets_shmem = NULL;
+
+  ctx->rtx_fseq = NULL;
+  ctx->rtx_slot = 0UL;
+  ulong rtx_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "shred_rtx.%lu", tile->kind_id );
+  if( FD_UNLIKELY( rtx_obj_id!=ULONG_MAX ) ) {
+    ctx->rtx_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, rtx_obj_id ) );
+    FD_TEST( ctx->rtx_fseq );
+  }
+
   ctx->shred_out_idx = fd_topo_find_tile_out_link( topo, tile, "shred_out", ctx->round_robin_id );
   ctx->store_out_idx = fd_topo_find_tile_out_link( topo, tile, "shred_store",  ctx->round_robin_id );
   if( FD_LIKELY( ctx->shred_out_idx!=ULONG_MAX ) ) { /* firedancer-only */
