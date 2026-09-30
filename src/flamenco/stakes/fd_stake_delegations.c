@@ -25,11 +25,14 @@ struct fd_stake_delegations {
   ulong fork_pool_offset_;
   ulong delta_map_offset_;
 
-  /* Guards every mutating operation on the struct. */
+  /* Guards the fork descriptors, the delta records, the stake totals
+     and the frontier query state.  Every mutating operation holds it
+     for its whole duration. */
   fd_rwlock_t lock;
 
-  /* Held by anything that reads or changes the root: advance_root
-     and view_begin. */
+  /* Guards the root records.  They only change while both locks are
+     held, so a reader holding either one sees a stable root.  A view
+     of the root itself takes root_lock alone.  Taken before lock. */
   fd_rwlock_t root_lock;
 
   /* File descriptor number for this instance's backing file.

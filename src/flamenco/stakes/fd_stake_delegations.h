@@ -60,9 +60,11 @@
    write lock for its whole duration, so mutators are safe to call
    concurrently from any tile.  fd_stake_delegations_{mark,unmark}_delta
    and the iterator are the exception: the caller holds the write lock
-   across the whole mark/iterate/unmark bracket.  The root records have
-   a second lock, root_lock, taken by anything that reads or changes
-   them: advancing the root and view_begin.
+   across the whole mark/iterate/unmark bracket.  The root records only
+   change while a second lock, root_lock, is held as well (advancing
+   the root, viewing a fork), so a reader holding either lock sees a
+   stable root.  A view of the root itself takes root_lock alone, so it
+   never blocks forks from being created or updated.
 
    max_disk_records bounds the number of delta records that can spill
    to disk.  The disk root capacity is max_stake_accounts plus twice
