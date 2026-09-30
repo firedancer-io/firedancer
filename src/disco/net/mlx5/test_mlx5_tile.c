@@ -809,6 +809,26 @@ main( int     argc,
   fd_net_rx_dst_ports_init( &tile->net, topo, topo_tile );
   unprivileged_init( topo, topo_tile );
   ulong const rx_fill_cnt = rxq_depth-batch_size;
+
+  /* Housekeeping copies the netdev table only after a published
+     change (fd_netdev_tbl_refresh). */
+  int hk_async_fd[2];
+  FD_TEST( !pipe2( hk_async_fd, O_NONBLOCK ) );
+  tile->uverbs.async_fd = hk_async_fd[0]; /* nothing to drain */
+  fd_netdev_t * eth0_local = fd_netdev_tbl_query( &tile->router.netdev_tbl, IF_IDX_ETH0 );
+  fd_netdev_t * eth0_share = fd_netdev_tbl_query( netdev_tbl,               IF_IDX_ETH0 );
+  FD_TEST( eth0_local && eth0_share && eth0_local->mtu==0U );
+  FD_TEST( tile->netdev_seq==atomic_load( &netdev_tbl->hdr->seqlock ) );
+  eth0_local->mtu = 1U;                                     /* unchanged: no copy */
+  during_housekeeping( tile );
+  FD_TEST( eth0_local->mtu==1U );
+  fd_seqlock_write_lock( &netdev_tbl->hdr->seqlock );
+  eth0_share->mtu = 1500U;
+  fd_seqlock_write_unlock( &netdev_tbl->hdr->seqlock );
+  during_housekeeping( tile );
+  FD_TEST( eth0_local->mtu==1500U );
+  eth0_share->mtu = 0U; eth0_local->mtu = 0U;
+  FD_TEST( !close( hk_async_fd[0] ) && !close( hk_async_fd[1] ) );
   tile->router.if_virt         = IF_IDX_ETH0;
   tile->router.default_address = public_ip4_addr;
   fd_fib4_hop_t hop = { .if_idx=IF_IDX_LO, .ip4_src=FD_IP4_ADDR( 127,0,0,1 ), .rtype=FD_FIB4_RTYPE_LOCAL };

@@ -183,6 +183,8 @@ struct __attribute__((aligned(64UL))) fd_mlx5_tile {
   int  epoll_fd;
   long repoll_timeout_ticks;
 
+  ulong netdev_seq; /* netdev_shared seqlock value of the router.netdev_tbl copy */
+
   /* Metric tracking */
   struct {
     ulong tx_no_buffer_cnt;
@@ -1023,9 +1025,7 @@ static inline void
 during_housekeeping( fd_mlx5_tile_t * ctx ) {
   fd_mlx5_tile_async_drain( ctx );
 
-  /* Refresh the netdev snapshot when its shared state is stable */
-  if( FD_LIKELY( !fd_seqlock_locked_hint( &ctx->router.netdev_shared.hdr->seqlock ) ) ) {
-    fd_netdev_tbl_copy( &ctx->router.netdev_tbl, &ctx->router.netdev_shared );
+  if( FD_UNLIKELY( fd_netdev_tbl_refresh( &ctx->router.netdev_tbl, &ctx->router.netdev_shared, &ctx->netdev_seq ) ) ) {
     fd_net_gre_tunnels_refresh( &ctx->net, &ctx->router.netdev_tbl );
   }
 }
@@ -1412,7 +1412,7 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( fd_netdev_tbl_new( netdev_tbl_local, NETDEV_MAX, BOND_MASTER_MAX )                                                                               );
   FD_TEST( fd_netdev_tbl_join( &ctx->router.netdev_tbl, netdev_tbl_local )                                                                                  );
 
-  fd_netdev_tbl_copy( &ctx->router.netdev_tbl, &ctx->router.netdev_shared );
+  ctx->netdev_seq = fd_netdev_tbl_copy( &ctx->router.netdev_tbl, &ctx->router.netdev_shared );
   fd_net_gre_tunnels_refresh( &ctx->net, &ctx->router.netdev_tbl );
   ctx->router.bind_address = tile->mlx5.net.bind_address;
   ctx->net.bind_address    = tile->mlx5.net.bind_address;
