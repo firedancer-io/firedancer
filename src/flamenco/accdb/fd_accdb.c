@@ -195,8 +195,8 @@ record_read( fd_accdb_t * accdb,
     accdb->metrics->bytes_read += (ulong)result;
     accdb->metrics->read_ops++;
     if( FD_LIKELY( got>=sizeof(fd_accdb_disk_meta_t) ) ) {
-      if( FD_UNLIKELY( FD_ACCDB_DISK_SZ( meta->size )>data_len ) ) FD_LOG_ERR(( "accounts database is corrupt, record at offset %lu has payload %lu for data length %lu", off, FD_ACCDB_DISK_SZ( meta->size ), data_len ));
-      want = sizeof(fd_accdb_disk_meta_t)+FD_ACCDB_DISK_SZ( meta->size );
+      if( FD_UNLIKELY( FD_ACCDB_SIZE_DATA( meta->size )>data_len ) ) FD_LOG_ERR(( "accounts database is corrupt, record at offset %lu has payload %u for data length %lu", off, FD_ACCDB_SIZE_DATA( meta->size ), data_len ));
+      want = sizeof(fd_accdb_disk_meta_t)+FD_ACCDB_SIZE_DATA( meta->size );
     }
   }
   fd_memcpy( owner_out, meta->owner, 32UL );
@@ -2101,7 +2101,7 @@ background_compact( fd_accdb_t * accdb,
   ulong span = 0UL;
   for(;;) {
     if( FD_UNLIKELY( span+sizeof(fd_accdb_disk_meta_t)>bytes_read ) ) break;
-    ulong record_sz = sizeof(fd_accdb_disk_meta_t) + FD_ACCDB_DISK_SZ( ((fd_accdb_disk_meta_t const *)(accdb->bounce+span))->size );
+    ulong record_sz = sizeof(fd_accdb_disk_meta_t) + (ulong)FD_ACCDB_SIZE_DATA( ((fd_accdb_disk_meta_t const *)(accdb->bounce+span))->size );
     if( FD_UNLIKELY( span+record_sz>bytes_read ) ) break;
     span += record_sz;
   }
@@ -2135,7 +2135,7 @@ background_compact( fd_accdb_t * accdb,
       acc_idx = next_idx;
     }
 
-    ulong record_sz = sizeof(fd_accdb_disk_meta_t) + FD_ACCDB_DISK_SZ( meta->size );
+    ulong record_sz = sizeof(fd_accdb_disk_meta_t) + (ulong)FD_ACCDB_SIZE_DATA( meta->size );
     if( FD_UNLIKELY( !accmeta ) ) compact->compaction_dead_records++; /* index entry gone, extent is garbage */
     else {
       live_accmeta[ live_cnt ] = accmeta;

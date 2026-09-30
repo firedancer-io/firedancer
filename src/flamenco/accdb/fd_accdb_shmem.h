@@ -65,11 +65,10 @@ typedef struct fd_accdb_metrics fd_accdb_metrics_t;
 
 /* fd_accdb_disk_meta_t is the on-disk account revision header.  It is
    followed by the account data, fd_zle compressed if the compressed
-   bit of size is set.  size is the payload size on disk, data_len the
-   uncompressed data length. */
+   bit of size is set.  size is the payload size on disk (same packing
+   as FD_ACCDB_SIZE_DATA), data_len the uncompressed data length. */
 
-#define FD_ACCDB_DISK_COMPRESSED_BIT (1U<<31)
-#define FD_ACCDB_DISK_SZ(size)       ((ulong)( (size) & ~FD_ACCDB_DISK_COMPRESSED_BIT ))
+#define FD_ACCDB_DISK_COMPRESSED_BIT (1U<<28)
 
 union fd_accdb_disk_meta {
   struct __attribute__((packed)) {

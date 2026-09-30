@@ -2210,7 +2210,7 @@ test_compressed_records( void ) {
     ulong rec_sz = fd_accdb_disk_pack( rec, pks[ i ], 0U, owner2, datas[ i ], 8192UL );
     uint  size   = ((fd_accdb_disk_meta_t const *)rec)->size;
     FD_TEST( !!( size & FD_ACCDB_DISK_COMPRESSED_BIT )==(i==0UL) );
-    FD_TEST( rec_sz==sizeof(fd_accdb_disk_meta_t)+FD_ACCDB_DISK_SZ( size ) );
+    FD_TEST( rec_sz==sizeof(fd_accdb_disk_meta_t)+FD_ACCDB_SIZE_DATA( size ) );
     FD_TEST( i ? rec_sz==sizeof(fd_accdb_disk_meta_t)+8192UL : rec_sz<sizeof(fd_accdb_disk_meta_t)+1024UL );
     ulong off = fd_accdb_snapshot_reserve_write( accdb, rec_sz );
     FD_TEST( pwrite( fd, rec, rec_sz, (long)off )==(long)rec_sz );

@@ -631,7 +631,7 @@ msg_acc_disk_start( fd_snapzp_t *                ctx,
   ulong rec_sz   = sizeof(snap_acc_hdr_t) + fd_ulong_align_up( data_len, 8UL );
   FD_CHECK_CRIT( rec_sz<=RAW_BUF_SZ, "oversize snapshot account record" );
   FD_CHECK_CRIT( frag->snap_sz==rec_sz, "disk account snapshot size mismatch" );
-  FD_CHECK_CRIT( FD_ACCDB_DISK_SZ( frag->size )<=sizeof(ctx->disk.buf), "oversize disk account record" );
+  FD_CHECK_CRIT( FD_ACCDB_SIZE_DATA( frag->size )<=sizeof(ctx->disk.buf), "oversize disk account record" );
   if( FD_UNLIKELY( ctx->raw_buf.size + rec_sz > RAW_BUF_SZ ) ) {
     zip_flush( ctx );
   }
@@ -656,7 +656,7 @@ msg_acc_disk_start( fd_snapzp_t *                ctx,
 
   ctx->raw_buf.size += sizeof(snap_acc_hdr_t);
   ctx->disk.dst      = ctx->raw + ctx->raw_buf.size;
-  ctx->disk.data_rem = FD_ACCDB_DISK_SZ( frag->size );
+  ctx->disk.data_rem = FD_ACCDB_SIZE_DATA( frag->size );
   ctx->disk.data_pad = fd_ulong_align_up( data_len, 8UL ) - data_len;
   ctx->raw_buf.size += data_len;
   return (ulong)frag->data_sz;
@@ -698,7 +698,7 @@ msg_acc_disk( fd_snapzp_t * ctx,
 
   /* defrag copy */
   int     compressed = !!( ctx->disk.size & FD_ACCDB_DISK_COMPRESSED_BIT );
-  ulong   payload    = FD_ACCDB_DISK_SZ( ctx->disk.size );
+  ulong   payload    = FD_ACCDB_SIZE_DATA( ctx->disk.size );
   uchar * dst        = ( compressed ? ctx->disk.buf : ctx->disk.dst ) + ( payload-ctx->disk.data_rem );
   ulong   take    = fd_ulong_min( ctx->disk.data_rem, frag_sz );
   if( FD_LIKELY( take ) ) {
@@ -775,7 +775,7 @@ msg_acc_disk_batch( fd_snapzp_t *                      ctx,
     FD_CHECK_CRIT( (ulong)(dm+1) <= (ulong)ctx->snaprd_data1, "account data bounds check fail" );
 
     ulong data_len = (ulong)dm->data_len;
-    FD_CHECK_CRIT( (ulong)(dm+1)+FD_ACCDB_DISK_SZ( dm->size ) <= (ulong)ctx->snaprd_data1, "account data bounds check fail" );
+    FD_CHECK_CRIT( (ulong)(dm+1)+FD_ACCDB_SIZE_DATA( dm->size ) <= (ulong)ctx->snaprd_data1, "account data bounds check fail" );
 
     /* validate that disk data matches index */
     FD_CHECK_CRIT( FD_ACCDB_SIZE_DATA( exec_sz[ i ] )==data_len, "account query corruption detected" );

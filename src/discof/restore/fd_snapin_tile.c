@@ -25,6 +25,7 @@
 #include "../../flamenco/stakes/fd_stake_types.h"
 #include "../../disco/stem/fd_stem.h"
 #include "../../flamenco/accdb/fd_accdb.h"
+#include "../../flamenco/accdb/fd_accdb_private.h"
 #include "../../disco/events/generated/fd_event_gen.h"
 
 #include <linux/futex.h>
@@ -1342,7 +1343,7 @@ writer_flush( fd_snapin_tile_t * ctx ) {
       data_lens   [ i ] = (ulong)batch->data_lens[ idx ];
       file_offsets[ i ] = base_off+buf_off;
 
-      buf_off += sizeof(fd_accdb_disk_meta_t)+FD_ACCDB_DISK_SZ( ((fd_accdb_disk_meta_t const *)pubkeys[ i ])->size );
+      buf_off += sizeof(fd_accdb_disk_meta_t)+FD_ACCDB_SIZE_DATA( ((fd_accdb_disk_meta_t const *)pubkeys[ i ])->size );
       fd_uwide_inc( &input_lamports_hi, &input_lamports, input_lamports_hi, input_lamports, batch->lamports[ idx ] );
     }
 
