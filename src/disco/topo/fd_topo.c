@@ -4,6 +4,7 @@
 #include "../../util/pod/fd_pod_format.h"
 #include "../../util/wksp/fd_wksp_private.h"
 #include "../../util/shmem/fd_shmem_private.h"
+#include "../../flamenco/vm/fd_vm_mem.h"
 
 #include <stdio.h>
 #include <errno.h>
@@ -211,10 +212,15 @@ fd_topo_fill( fd_topo_t * topo ) {
 }
 
 FD_FN_CONST static ulong
-fd_topo_tile_extra_huge_pages( fd_topo_tile_t const * tile ) {
+fd_topo_tile_extra_huge_pages( fd_topo_tile_t const * tile,
+                               int                    include_anonymous ) {
+  ulong pages = 0UL;
+  if( include_anonymous && (!strcmp( tile->name, "execrp" ) || !strcmp( tile->name, "execle" )) ) {
+    /* execrp and execle use fd_vm_mem */
+    pages += fd_vm_mem_huge_page_cnt();
+  }
   /* Every tile maps an additional set of pages for the stack. */
-  (void)tile;
-  return (FD_TILE_PRIVATE_STACK_SZ/FD_SHMEM_HUGE_PAGE_SZ)+2UL;
+  return pages + (FD_TILE_PRIVATE_STACK_SZ/FD_SHMEM_HUGE_PAGE_SZ)+2UL;
 }
 
 FD_FN_PURE static ulong
@@ -259,6 +265,11 @@ fd_topo_tile_extra_normal_pages( fd_topo_tile_t const * tile ) {
       key_pages += 4UL;
   }
 
+  if( !strcmp( tile->name, "execrp" ) || !strcmp( tile->name, "execle" ) ) {
+    /* execrp and execle use fd_vm_mem */
+    key_pages += fd_vm_mem_normal_page_cnt();
+  }
+
   return key_pages;
 }
 
@@ -273,7 +284,7 @@ fd_topo_mlock_max_tile1( fd_topo_t const *      topo,
   }
 
   return tile_mem +
-      fd_topo_tile_extra_huge_pages( tile ) * FD_SHMEM_HUGE_PAGE_SZ +
+      fd_topo_tile_extra_huge_pages( tile, 1 ) * FD_SHMEM_HUGE_PAGE_SZ +
       fd_topo_tile_extra_normal_pages( tile ) * FD_SHMEM_NORMAL_PAGE_SZ;
 }
 
@@ -319,11 +330,8 @@ fd_topo_huge_page_cnt( fd_topo_t const * topo,
 
   /* The stack huge pages are also placed in the hugetlbfs. */
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
-    result += fd_topo_tile_extra_huge_pages( &topo->tiles[ i ] );
+    result += fd_topo_tile_extra_huge_pages( &topo->tiles[ i ], include_anonymous );
   }
-
-  /* No anonymous huge pages in use yet. */
-  (void)include_anonymous;
 
   return result;
 }

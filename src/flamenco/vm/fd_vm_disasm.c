@@ -233,6 +233,26 @@ fd_vm_disasm_instr_stx( fd_sbpf_instr_t instr,
   return FD_VM_SUCCESS;
 }
 
+static int
+fd_vm_disasm_instr_sti( fd_sbpf_instr_t instr,
+                        char *          out,
+                        ulong           out_max,
+                        ulong *         _out_len ) {
+
+  char * op_name;
+  switch( instr.opcode.mem.op_size ) {
+  case FD_SBPF_OPCODE_SIZE_MODE_WORD: op_name = "stw";  break;
+  case FD_SBPF_OPCODE_SIZE_MODE_HALF: op_name = "sth";  break;
+  case FD_SBPF_OPCODE_SIZE_MODE_BYTE: op_name = "stb";  break;
+  case FD_SBPF_OPCODE_SIZE_MODE_DOUB: op_name = "stdw"; break;
+  default: return FD_VM_ERR_INVAL;
+  }
+
+  if( instr.offset<0 ) OUT_PRINTF( "%s [r%d-0x%x], %u", op_name, instr.dst_reg, (ushort)-instr.offset, instr.imm );
+  else                 OUT_PRINTF( "%s [r%d+0x%x], %u", op_name, instr.dst_reg, (ushort) instr.offset, instr.imm );
+  return FD_VM_SUCCESS;
+}
+
 int
 fd_vm_disasm_instr( ulong const *              text,
                     ulong                      text_cnt,
@@ -257,13 +277,9 @@ fd_vm_disasm_instr( ulong const *              text,
     return FD_VM_SUCCESS;
   }
 
-  case FD_SBPF_OPCODE_CLASS_ST: { /* FIXME: FIGURE OUT WHAT'S UP HERE */
-    OUT_PRINTF( "FIXME: %016lx (ST)", text[0] );
-    return FD_VM_SUCCESS;
-  }
-
-  case FD_SBPF_OPCODE_CLASS_LDX:   return fd_vm_disasm_instr_ldx( i0,                     out, out_max, _out_len);
+  case FD_SBPF_OPCODE_CLASS_LDX:   return fd_vm_disasm_instr_ldx( i0,                     out, out_max, _out_len );
   case FD_SBPF_OPCODE_CLASS_STX:   return fd_vm_disasm_instr_stx( i0,                     out, out_max, _out_len );
+  case FD_SBPF_OPCODE_CLASS_ST:    return fd_vm_disasm_instr_sti( i0,                     out, out_max, _out_len );
   case FD_SBPF_OPCODE_CLASS_ALU:   return fd_vm_disasm_instr_alu( i0, "",                 out, out_max, _out_len );
   case FD_SBPF_OPCODE_CLASS_JMP:   return fd_vm_disasm_instr_jmp( i0, pc, "",   syscalls, out, out_max, _out_len );
   case FD_SBPF_OPCODE_CLASS_JMP32: return fd_vm_disasm_instr_jmp( i0, pc, "32", syscalls, out, out_max, _out_len );

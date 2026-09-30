@@ -1,6 +1,7 @@
 #include "fd_vm_syscall.h"
 #include "../test_vm_util.h"
 #include "../../runtime/fd_bank.h"
+#include "../vm_mem_test/fd_vm_mem_test.h"
 
 #include <stdlib.h> // ARM64: malloc(3), free(3)
 
@@ -344,6 +345,9 @@ main( int     argc,
   runtime->log.log_collector = log_collector;
   test_vm_minimal_exec_instr_ctx( instr_ctx, runtime, bank, txn_out );
 
+  fd_vm_mem_t vm_mem[1];
+  fd_vm_mem_new_test( vm_mem );
+
   int vm_ok = !!fd_vm_init(
       /* vm                                     */ vm,
       /* instr_ctx                              */ instr_ctx,
@@ -361,6 +365,7 @@ main( int     argc,
       /* syscalls                               */ NULL,
       /* trace                                  */ NULL,
       /* sha                                    */ sha,
+      /* haddr base                             */ fd_vm_mem_acquire( vm_mem, 0UL ),
       /* mem_regions                            */ input_mem_regions,
       /* mem_regions_cnt                        */ (uint)mem_regions_cnt,
       /* mem_regions_accs                       */ NULL,
@@ -884,6 +889,7 @@ main( int     argc,
                                 0UL, FD_VM_SUCCESS, expected_log, expected_log_sz );
 
 # undef APPEND
+  fd_vm_mem_zero( vm_mem, ULONG_MAX );
 
   fd_vm_delete    ( fd_vm_leave    ( vm  ) );
   fd_sha256_delete( fd_sha256_leave( sha ) );

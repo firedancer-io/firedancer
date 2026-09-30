@@ -188,6 +188,7 @@ fd_progcache_rec_load( fd_progcache_rec_t *            rec,
                    syscalls,
                    NULL,
                    NULL,
+                   0UL, /* no memory accesses required for validate */
                    NULL,
                    0U,
                    NULL,

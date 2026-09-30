@@ -491,7 +491,7 @@ run_fixture( fd_svm_mini_t * mini,
   fd_memset( regions,   0, sizeof(regions)   );
   fd_memset( acc_metas, 0, sizeof(acc_metas) );
 
-  uchar * serialized = ctx->runtime->bpf_loader_serialization.serialization_mem[ ctx->runtime->instr.stack_sz-1UL ];
+  uchar * serialized = fd_vm_mem_bpf_serial_region( ctx->runtime->vm_mem, ctx->runtime->instr.stack_sz-1UL );
 
   int result = fd_bpf_loader_input_serialize_parameters(
       ctx, pre_lens, regions, &region_cnt, acc_metas,

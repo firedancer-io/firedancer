@@ -136,7 +136,7 @@ struct __attribute__((aligned(FD_VM_HOST_REGION_ALIGN))) fd_vm {
   ulong cu;        /* The remaining CUs left for the transaction, positive in normal execution, may be zero in a fault */
   ulong frame_cnt; /* The current number of stack frames pushed, in [0,frame_max] */
 
-  ulong heap_sz; /* Heap size in bytes, in [0,heap_max] */
+  ulong heap_sz;   /* Heap size in bytes, in [0,heap_max] */
 
   /* VM memory */
 
@@ -178,15 +178,10 @@ struct __attribute__((aligned(FD_VM_HOST_REGION_ALIGN))) fd_vm {
      start of the appropriate area of physical memory. It also involves
      doing a check against if the region can be written to. */
 
-   /* FIXME: If accessing memory beyond the end of the current heap
-      region is not allowed, sol_alloc_free will need to update the tlb
-      arrays during program execution (this is trivial).  At the same
-      time, given sol_alloc_free is deprecated, this is unlikely to be
-      the case. */
-
   ulong region_haddr[6];
   uint  region_ld_sz[6];
   uint  region_st_sz[6];
+  ulong haddr_base;
 
   /* fd_vm_input_region_t and fd_vm_acc_to_mem arrays are passed in by the bpf
      loaders into fd_vm_init.
@@ -233,14 +228,10 @@ struct __attribute__((aligned(FD_VM_HOST_REGION_ALIGN))) fd_vm {
      bottom/top.  Lazily initialized. */
   fd_vm_shadow_t shadow[ FD_VM_STACK_FRAME_MAX ] __attribute__((aligned(16)));
 
-  /* stack, indexed [0,FD_VM_STACK_MAX).  Divided into FD_VM_STACK_FRAME_MAX
-     frames.  Each frame has a FD_VM_STACK_GUARD_SZ region followed by a
-     FD_VM_STACK_FRAME_SZ region.  reg[10] gives the offset of the start of the
-     current stack frame. */
-  uchar stack[ FD_VM_STACK_MAX ] __attribute__((aligned(FD_VM_HOST_REGION_ALIGN)));
-
-  /* syscall heap, [0,heap_sz) used, [heap_sz,heap_max) free. */
-  uchar heap[ FD_VM_HEAP_MAX ] __attribute__((aligned(FD_VM_HOST_REGION_ALIGN)));
+  /* FIXME: temporary compatibility with code that read these fields
+     directly */
+  uchar * stack;
+  uchar * heap;
 };
 
 /* FIXME: MOVE ABOVE INTO PRIVATE WHEN CONSTRUCTORS READY */
@@ -255,7 +246,7 @@ FD_PROTOTYPES_BEGIN
    integer power of 2.  FOOTPRINT is a multiple of align.
    These are provided to facilitate compile time declarations. */
 #define FD_VM_ALIGN     FD_VM_HOST_REGION_ALIGN
-#define FD_VM_FOOTPRINT (527856UL)
+#define FD_VM_FOOTPRINT (3584UL)
 
 /* fd_vm_{align,footprint} give the needed alignment and footprint
    of a memory region suitable to hold an fd_vm_t.
@@ -317,6 +308,7 @@ fd_vm_init(
    fd_sbpf_syscalls_t *      syscalls,
    fd_vm_trace_t *           trace,
    fd_sha256_t *             sha,
+   ulong                     haddr_base,
    fd_vm_input_region_t *    mem_regions,
    uint                      mem_regions_cnt,
    fd_vm_acc_region_meta_t * acc_region_metas,

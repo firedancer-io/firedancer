@@ -2,11 +2,15 @@
 #include "fd_vm_base.h"
 #include "fd_vm_private.h"
 #include "test_vm_util.h"
+#include "vm_mem_test/fd_vm_mem_test.h"
 #include "../runtime/fd_bank.h"
 #include "../../ballet/sbpf/fd_sbpf_instr.h"
 #include "../../ballet/sbpf/fd_sbpf_opcodes.h"
 #include "../../ballet/murmur3/fd_murmur3.h"
 #include <stdlib.h>  /* malloc */
+
+/* The memory it references is static anyway */
+fd_vm_mem_t mem[1];
 
 static int
 accumulator_syscall( FD_PARAM_UNUSED void *  _vm,
@@ -56,6 +60,7 @@ test_program_exec( char *                   test_case_name,
       /* syscalls                               */ syscalls,
       /* trace                                  */ NULL,
       /* sha                                    */ sha,
+      /* haddr_base                             */ fd_vm_mem_acquire( mem, 0UL ),
       /* mem_regions                            */ NULL,
       /* mem_regions_cnt                        */ 0UL,
       /* mem_regions_accs                       */ NULL,
@@ -100,6 +105,7 @@ test_program_exec( char *                   test_case_name,
     }
     FD_TEST( vm->reg[0]==expected_result );
   }
+  fd_vm_mem_zero( mem, ULONG_MAX );
 
 //FD_LOG_NOTICE(( "Instr counter: %lu", vm.ic ));
   FD_LOG_NOTICE(( "%-20s %11li ns", test_case_name, dt ));
@@ -124,7 +130,7 @@ test_vm_validate( ulong                 sbpf_version,
   int ok = !!fd_vm_init(
       vm, instr_ctx, FD_VM_HEAP_DEFAULT, FD_VM_COMPUTE_UNIT_LIMIT,
       (uchar *)text, 8UL*text_cnt, text, text_cnt, 0UL, 8UL*text_cnt,
-      0UL, NULL, sbpf_version, syscalls, NULL, sha, NULL, 0UL, NULL, 0,
+      0UL, NULL, sbpf_version, syscalls, NULL, sha, 0UL, NULL, 0UL, NULL, 0,
       FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, account_data_direct_mapping ),
       FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, syscall_parameter_address_restrictions ),
       FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, virtual_address_space_adjustments ),
@@ -155,7 +161,7 @@ test_stack_configuration( fd_sbpf_syscalls_t *  syscalls,
   for( ulong i=0; i<4; i++ ) {
     FD_TEST( fd_vm_init( vm, instr_ctx, FD_VM_HEAP_DEFAULT, FD_VM_COMPUTE_UNIT_LIMIT,
         (uchar *)text, 8UL, text, 1UL, 0UL, 8UL, 0UL, NULL,
-        versions[i], syscalls, NULL, sha, NULL, 0UL, NULL, 0,
+        versions[i], syscalls, NULL, sha, 0UL, NULL, 0UL, NULL, 0,
         FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, account_data_direct_mapping ),
         FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, syscall_parameter_address_restrictions ),
         FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, virtual_address_space_adjustments ),
@@ -329,6 +335,7 @@ test_0cu_exit( fd_runtime_t * runtime ) {
       /* syscalls                               */ NULL,
       /* trace                                  */ NULL,
       /* sha                                    */ sha,
+      /* haddr_base - doesn't use memory        */ 0UL,
       /* mem_regions                            */ NULL,
       /* mem_regions_cnt                        */ 0UL,
       /* mem_regions_accs                       */ NULL,
@@ -364,6 +371,7 @@ test_0cu_exit( fd_runtime_t * runtime ) {
       /* syscalls                               */ NULL,
       /* trace                                  */ NULL,
       /* sha                                    */ sha,
+      /* haddr_base                             */ 0UL,
       /* mem_regions                            */ NULL,
       /* mem_regions_cnt                        */ 0UL,
       /* mem_regions_accs                       */ NULL,
@@ -484,6 +492,8 @@ main( int     argc,
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
   fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_join( fd_sbpf_syscalls_new( _syscalls ) ); FD_TEST( syscalls );
+
+  fd_vm_mem_new_test( mem );
 
   static fd_exec_instr_ctx_t instr_ctx[1];
   static fd_bank_t           bank[1];

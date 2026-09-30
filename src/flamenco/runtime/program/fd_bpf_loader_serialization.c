@@ -273,7 +273,7 @@ fd_bpf_loader_input_serialize_for_abiv1( fd_exec_instr_ctx_t *     ctx,
 
   /* 16-byte aligned buffer from runtime:
      https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/serialization.rs#L61 */
-  uchar * serialized_params            = ctx->runtime->bpf_loader_serialization.serialization_mem[ ctx->runtime->instr.stack_sz-1UL ];
+  uchar * serialized_params            = fd_vm_mem_bpf_serial_region( ctx->runtime->vm_mem, ctx->runtime->instr.stack_sz-1UL );
   uchar * serialized_params_start      = serialized_params;
   uchar * curr_serialized_params_start = serialized_params;
   ulong   curr_region_vaddr            = 0UL;
@@ -583,7 +583,7 @@ fd_bpf_loader_input_serialize_for_abiv0( fd_exec_instr_ctx_t *     ctx,
 
   /* 16-byte aligned buffer:
      https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/serialization.rs#L61 */
-  uchar * serialized_params            = ctx->runtime->bpf_loader_serialization.serialization_mem[ ctx->runtime->instr.stack_sz-1UL ];
+  uchar * serialized_params            = fd_vm_mem_bpf_serial_region( ctx->runtime->vm_mem, ctx->runtime->instr.stack_sz-1UL );
   uchar * serialized_params_start      = serialized_params;
   uchar * curr_serialized_params_start = serialized_params;
   ulong   curr_region_vaddr            = 0UL;

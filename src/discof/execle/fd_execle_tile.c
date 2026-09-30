@@ -501,6 +501,13 @@ handle_microblock( fd_execle_tile_t *  ctx,
   ulong new_sz = txn_cnt*sizeof(fd_txn_p_t) + sizeof(fd_microblock_trailer_t);
   fd_stem_publish( stem, ctx->out_poh->idx, execle_sig, ctx->out_poh->chunk, new_sz, 0UL, (ulong)fd_frag_meta_ts_comp( microblock_start_ticks ), (ulong)fd_frag_meta_ts_comp( last_ticks ) );
   ctx->out_poh->chunk = fd_dcache_compact_next( ctx->out_poh->chunk, new_sz, ctx->out_poh->chunk0, ctx->out_poh->wmark );
+
+  /* Now that we've notified pack and PoH, zero out any VM memory we
+     might have dirtied in the course of executing the last transaction
+     in this microblock (which is probably the only one).  If txn_cnt >
+     1, then the zeroing will happen inside fd_bpf_loader_program.c
+     except for the last transaction. */
+  fd_vm_mem_zero( ctx->runtime->vm_mem, ULONG_MAX );
 }
 
 static inline void
@@ -716,6 +723,10 @@ handle_bundle( fd_execle_tile_t *  ctx,
     fd_stem_publish( stem, ctx->out_poh->idx, execle_sig, ctx->out_poh->chunk, new_sz, 0UL, (ulong)fd_frag_meta_ts_comp( microblock_start_ticks ), (ulong)fd_frag_meta_ts_comp( fd_tickcount() ) );
     ctx->out_poh->chunk = fd_dcache_compact_next( ctx->out_poh->chunk, new_sz, ctx->out_poh->chunk0, ctx->out_poh->wmark );
   }
+
+  /* See above. This is just an optimization, which is why we don't need
+     to do it for each transaction. */
+  fd_vm_mem_zero( ctx->runtime->vm_mem, ULONG_MAX );
 }
 
 static inline void
@@ -789,6 +800,8 @@ privileged_init( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_execle_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_execle_tile_t), sizeof(fd_execle_tile_t) );
   FD_TEST( fd_rng_secure( &ctx->rebate_seed, sizeof(ctx->rebate_seed) ) );
+
+  if( FD_UNLIKELY( !fd_vm_mem_new_mmap( ctx->runtime->vm_mem ) ) ) FD_LOG_ERR(( "Could not allocate memory for VM" ));
 }
 
 static void

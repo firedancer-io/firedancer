@@ -475,9 +475,6 @@ fd_vm_footprint( void ) {
 
 #define FD_VM_CONTROL_FOOTPRINT (offsetof( fd_vm_t, shadow ))
 
-FD_STATIC_ASSERT( offsetof( fd_vm_t, stack )==FD_VM_CONTROL_FOOTPRINT+sizeof(((fd_vm_t *)NULL)->shadow), fd_vm_layout );
-FD_STATIC_ASSERT( offsetof( fd_vm_t, heap )==offsetof( fd_vm_t, stack )+FD_VM_STACK_MAX, fd_vm_layout );
-FD_STATIC_ASSERT( sizeof  ( fd_vm_t       )==offsetof( fd_vm_t, heap )+FD_VM_HEAP_MAX, fd_vm_layout );
 FD_STATIC_ASSERT( sizeof  ( fd_vm_t       )==FD_VM_FOOTPRINT,                          fd_vm_layout );
 
 void *
@@ -582,6 +579,7 @@ fd_vm_init(
    fd_sbpf_syscalls_t *      syscalls,
    fd_vm_trace_t *           trace,
    fd_sha256_t *             sha,
+   ulong                     haddr_base,
    fd_vm_input_region_t *    mem_regions,
    uint                      mem_regions_cnt,
    fd_vm_acc_region_meta_t * acc_region_metas,
@@ -634,6 +632,7 @@ fd_vm_init(
   vm->syscalls                               = syscalls;
   vm->trace                                  = trace;
   vm->sha                                    = sha;
+  vm->haddr_base                             = haddr_base;
   vm->input_mem_regions                      = mem_regions;
   vm->input_mem_regions_cnt                  = mem_regions_cnt;
   vm->acc_region_metas                       = acc_region_metas;
@@ -661,9 +660,8 @@ fd_vm_init(
   /* Unpack input and rodata */
   fd_vm_mem_cfg( vm );
 
-  /* Zero the memory the program can observe */
-  fd_memset( vm->stack, 0, FD_VM_STACK_MAX );
-  fd_memset( vm->heap,  0, heap_max        );
+  vm->stack                                  = (uchar *)haddr_base + FD_VM_MEM_MAP_STACK_REGION_START;
+  vm->heap                                   = (uchar *)haddr_base + FD_VM_MEM_MAP_HEAP_REGION_START;
 
   /* Initialize registers */
   fd_memset( vm->reg, 0, FD_VM_REG_MAX * sizeof(ulong) );

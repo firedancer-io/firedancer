@@ -57,7 +57,7 @@ init( config_t const * config ) {
   ulong numa_node_cnt = fd_shmem_numa_cnt();
   for( ulong i=0UL; i<numa_node_cnt; i++ ) {
     ulong required_pages[ 2 ] = {
-      fd_topo_huge_page_cnt( &config->topo, i, 0 ),
+      fd_topo_huge_page_cnt( &config->topo, i, 1 ),
       fd_topo_gigantic_page_cnt( &config->topo, i ),
     };
 

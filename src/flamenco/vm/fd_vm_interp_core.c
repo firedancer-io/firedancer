@@ -410,28 +410,28 @@ interp_exec:
   FD_VM_INTERP_BRANCH_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x27) { /* FD_SBPF_OP_STB */
-    ulong vaddr = reg_dst + offset;
-    ulong haddr = fd_vm_mem_haddr( vm, vaddr, sizeof(uchar), region_haddr, region_st_sz, 1, 0UL );
-    if( FD_UNLIKELY( !haddr ) ) {
+    ulong     vaddr = reg_dst + offset;
+    fd_vmmt_t haddr = fd_vm_mem_haddr( vm, vaddr, sizeof(uchar), region_haddr, region_st_sz, 1 );
+    if( FD_UNLIKELY( !haddr.valid ) ) {
       vm->segv_vaddr       = vaddr;
       vm->segv_access_type = FD_VM_ACCESS_TYPE_ST;
       vm->segv_access_len  = 1UL;
       goto sigsegv;
     } /* Note: untaken branches don't consume BTB */
-    fd_vm_mem_st_1( haddr, (uchar)imm );
+    fd_vm_mem_st_1( haddr.haddr, (uchar)imm );
   }
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x2c) { /* FD_SBPF_OP_LDXB */
-    ulong vaddr = reg_src + offset;
-    ulong haddr = fd_vm_mem_haddr( vm, vaddr, sizeof(uchar), region_haddr, region_ld_sz, 0, 0UL );
-    if( FD_UNLIKELY( !haddr ) ) {
+    ulong     vaddr = reg_src + offset;
+    fd_vmmt_t haddr = fd_vm_mem_haddr( vm, vaddr, sizeof(uchar), region_haddr, region_ld_sz, 0 );
+    if( FD_UNLIKELY( !haddr.valid ) ) {
       vm->segv_vaddr       = vaddr;
       vm->segv_access_type = FD_VM_ACCESS_TYPE_LD;
       vm->segv_access_len  = 1UL;
       goto sigsegv;
     } /* Note: untaken branches don't consume BTB */
-    reg[ dst ] = fd_vm_mem_ld_1( haddr );
+    reg[ dst ] = fd_vm_mem_ld_1( haddr.haddr );
   }
   FD_VM_INTERP_INSTR_END;
 
@@ -440,15 +440,15 @@ interp_exec:
   FD_VM_INTERP_BRANCH_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x2f) { /* FD_SBPF_OP_STXB */
-    ulong vaddr = reg_dst + offset;
-    ulong haddr = fd_vm_mem_haddr( vm, vaddr, sizeof(uchar), region_haddr, region_st_sz, 1, 0UL );
-    if( FD_UNLIKELY( !haddr ) ) {
+    ulong     vaddr = reg_dst + offset;
+    fd_vmmt_t haddr = fd_vm_mem_haddr( vm, vaddr, sizeof(uchar), region_haddr, region_st_sz, 1 );
+    if( FD_UNLIKELY( !haddr.valid ) ) {
       vm->segv_vaddr       = vaddr;
       vm->segv_access_type = FD_VM_ACCESS_TYPE_ST;
       vm->segv_access_len  = 1UL;
       goto sigsegv;
     } /* Note: untaken branches don't consume BTB */ /* FIXME: sigrdonly */
-    fd_vm_mem_st_1( haddr, (uchar)reg_src );
+    fd_vm_mem_st_1( haddr.haddr, (uchar)reg_src );
   }
   FD_VM_INTERP_INSTR_END;
 
@@ -481,30 +481,30 @@ interp_exec:
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x37) { /* FD_SBPF_OP_STH */
-    ulong vaddr   = reg_dst + offset;
-    ulong haddr   = fd_vm_mem_haddr( vm, vaddr, sizeof(ushort), region_haddr, region_st_sz, 1, 0UL );
-    int   sigsegv = !haddr;
+    ulong     vaddr = reg_dst + offset;
+    fd_vmmt_t haddr = fd_vm_mem_haddr( vm, vaddr, sizeof(ushort), region_haddr, region_st_sz, 1 );
+    int   sigsegv = !haddr.valid;
     if( FD_UNLIKELY( sigsegv ) ) {
       vm->segv_vaddr       = vaddr;
       vm->segv_access_type = FD_VM_ACCESS_TYPE_ST;
       vm->segv_access_len  = 2UL;
       goto sigsegv;
     } /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
-    fd_vm_mem_st_2( haddr, (ushort)imm );
+    fd_vm_mem_st_2( haddr.haddr, (ushort)imm );
   }
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x3c) { /* FD_SBPF_OP_LDXH */
-    ulong vaddr   = reg_src + offset;
-    ulong haddr   = fd_vm_mem_haddr( vm, vaddr, sizeof(ushort), region_haddr, region_ld_sz, 0, 0UL );
-    int   sigsegv = !haddr;
+    ulong     vaddr = reg_src + offset;
+    fd_vmmt_t haddr = fd_vm_mem_haddr( vm, vaddr, sizeof(ushort), region_haddr, region_ld_sz, 0 );
+    int   sigsegv = !haddr.valid;
     if( FD_UNLIKELY( sigsegv ) ) {
       vm->segv_vaddr       = vaddr;
       vm->segv_access_type = FD_VM_ACCESS_TYPE_LD;
       vm->segv_access_len  = 2UL;
       goto sigsegv; /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
     }
-    reg[ dst ] = fd_vm_mem_ld_2( haddr );
+    reg[ dst ] = fd_vm_mem_ld_2( haddr.haddr );
   }
   FD_VM_INTERP_INSTR_END;
 
@@ -513,16 +513,16 @@ interp_exec:
   FD_VM_INTERP_BRANCH_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x3f) { /* FD_SBPF_OP_STXH */
-    ulong vaddr   = reg_dst + offset;
-    ulong haddr   = fd_vm_mem_haddr( vm, vaddr, sizeof(ushort), region_haddr, region_st_sz, 1, 0UL );
-    int   sigsegv = !haddr;
+    ulong     vaddr = reg_dst + offset;
+    fd_vmmt_t haddr = fd_vm_mem_haddr( vm, vaddr, sizeof(ushort), region_haddr, region_st_sz, 1 );
+    int   sigsegv = !haddr.valid;
     if( FD_UNLIKELY( sigsegv ) ) {
       vm->segv_vaddr       = vaddr;
       vm->segv_access_type = FD_VM_ACCESS_TYPE_ST;
       vm->segv_access_len  = 2UL;
       goto sigsegv;
     } /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
-    fd_vm_mem_st_2( haddr, (ushort)reg_src );
+    fd_vm_mem_st_2( haddr.haddr, (ushort)reg_src );
   }
   FD_VM_INTERP_INSTR_END;
 
@@ -783,16 +783,16 @@ interp_exec:
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x87) { /* FD_SBPF_OP_STW */
-    ulong vaddr   = reg_dst + offset;
-    ulong haddr   = fd_vm_mem_haddr( vm, vaddr, sizeof(uint), region_haddr, region_st_sz, 1, 0UL );
-    int   sigsegv = !haddr;
+    ulong     vaddr = reg_dst + offset;
+    fd_vmmt_t haddr = fd_vm_mem_haddr( vm, vaddr, sizeof(uint), region_haddr, region_st_sz, 1 );
+    int   sigsegv = !haddr.valid;
     if( FD_UNLIKELY( sigsegv ) ) {
       vm->segv_vaddr       = vaddr;
       vm->segv_access_type = FD_VM_ACCESS_TYPE_ST;
       vm->segv_access_len  = 4UL;
       goto sigsegv;
     } /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
-    fd_vm_mem_st_4( haddr, imm );
+    fd_vm_mem_st_4( haddr.haddr, imm );
   } FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x87depr) /* FD_SBPF_OP_NEG64 deprecated */
@@ -800,16 +800,16 @@ interp_exec:
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x8c) { /* FD_SBPF_OP_LDXW */
-    ulong vaddr   = reg_src + offset;
-    ulong haddr   = fd_vm_mem_haddr( vm, vaddr, sizeof(uint), region_haddr, region_ld_sz, 0, 0UL );
-    int   sigsegv = !haddr;
+    ulong     vaddr = reg_src + offset;
+    fd_vmmt_t haddr = fd_vm_mem_haddr( vm, vaddr, sizeof(uint), region_haddr, region_ld_sz, 0 );
+    int   sigsegv = !haddr.valid;
     if( FD_UNLIKELY( sigsegv ) ) {
       vm->segv_vaddr       = vaddr;
       vm->segv_access_type = FD_VM_ACCESS_TYPE_LD;
       vm->segv_access_len  = 4UL;
       goto sigsegv; /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
     }
-    reg[ dst ] = fd_vm_mem_ld_4( haddr );
+    reg[ dst ] = fd_vm_mem_ld_4( haddr.haddr );
   }
   FD_VM_INTERP_INSTR_END;
 
@@ -840,16 +840,16 @@ interp_exec:
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x8f) { /* FD_SBPF_OP_STXW */
-    ulong vaddr    = reg_dst + offset;
-    ulong haddr    = fd_vm_mem_haddr( vm, vaddr, sizeof(uint), region_haddr, region_st_sz, 1, 0UL );
-    int   sigsegv  = !haddr;
+    ulong     vaddr = reg_dst + offset;
+    fd_vmmt_t haddr = fd_vm_mem_haddr( vm, vaddr, sizeof(uint), region_haddr, region_st_sz, 1 );
+    int   sigsegv  = !haddr.valid;
     if( FD_UNLIKELY( sigsegv ) ) {
       vm->segv_vaddr       = vaddr;
       vm->segv_access_type = FD_VM_ACCESS_TYPE_ST;
       vm->segv_access_len  = 4UL;
       goto sigsegv;
     } /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
-    fd_vm_mem_st_4( haddr, (uint)reg_src );
+    fd_vm_mem_st_4( haddr.haddr, (uint)reg_src );
   }
   FD_VM_INTERP_INSTR_END;
 
@@ -880,30 +880,30 @@ interp_exec:
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x97) { /* FD_SBPF_OP_STQ */
-    ulong vaddr   = reg_dst + offset;
-    ulong haddr   = fd_vm_mem_haddr( vm, vaddr, sizeof(ulong), region_haddr, region_st_sz, 1, 0UL );
-    int   sigsegv = !haddr;
+    ulong     vaddr = reg_dst + offset;
+    fd_vmmt_t haddr = fd_vm_mem_haddr( vm, vaddr, sizeof(ulong), region_haddr, region_st_sz, 1 );
+    int   sigsegv = !haddr.valid;
     if( FD_UNLIKELY( sigsegv ) ) {
       vm->segv_vaddr       = vaddr;
       vm->segv_access_type = FD_VM_ACCESS_TYPE_ST;
       vm->segv_access_len  = 8UL;
       goto sigsegv;
     } /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
-    fd_vm_mem_st_8( haddr, (ulong)(long)(int)imm );
+    fd_vm_mem_st_8( haddr.haddr, (ulong)(long)(int)imm );
   }
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x9c) { /* FD_SBPF_OP_LDXQ */
-    ulong vaddr   = reg_src + offset;
-    ulong haddr   = fd_vm_mem_haddr( vm, vaddr, sizeof(ulong), region_haddr, region_ld_sz, 0, 0UL );
-    int   sigsegv = !haddr;
+    ulong     vaddr = reg_src + offset;
+    fd_vmmt_t haddr = fd_vm_mem_haddr( vm, vaddr, sizeof(ulong), region_haddr, region_ld_sz, 0 );
+    int   sigsegv = !haddr.valid;
     if( FD_UNLIKELY( sigsegv ) ) {
       vm->segv_vaddr       = vaddr;
       vm->segv_access_type = FD_VM_ACCESS_TYPE_LD;
       vm->segv_access_len  = 8UL;
       goto sigsegv; /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
     }
-    reg[ dst ] = fd_vm_mem_ld_8( haddr );
+    reg[ dst ] = fd_vm_mem_ld_8( haddr.haddr );
   }
   FD_VM_INTERP_INSTR_END;
 
@@ -912,16 +912,16 @@ interp_exec:
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x9f) { /* FD_SBPF_OP_STXQ */
-    ulong vaddr   = reg_dst + offset;
-    ulong haddr   = fd_vm_mem_haddr( vm, vaddr, sizeof(ulong), region_haddr, region_st_sz, 1, 0UL );
-    int   sigsegv = !haddr;
+    ulong     vaddr = reg_dst + offset;
+    fd_vmmt_t haddr = fd_vm_mem_haddr( vm, vaddr, sizeof(ulong), region_haddr, region_st_sz, 1 );
+    int   sigsegv = !haddr.valid;
     if( FD_UNLIKELY( sigsegv ) ) {
       vm->segv_vaddr       = vaddr;
       vm->segv_access_type = FD_VM_ACCESS_TYPE_ST;
       vm->segv_access_len  = 8UL;
       goto sigsegv;
     } /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
-    fd_vm_mem_st_8( haddr, reg_src );
+    fd_vm_mem_st_8( haddr.haddr, reg_src );
   }
   FD_VM_INTERP_INSTR_END;
 

@@ -11,6 +11,9 @@
 #include <stdlib.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include "vm_mem_test/fd_vm_mem_test.h"
+
+fd_vm_mem_t mem[1];
 
 /* Parser *************************************************************/
 
@@ -400,9 +403,12 @@ run_input( test_input_t const * input,
     fd_vm_instr( FD_SBPF_OP_EXIT, 0, 0, 0, 0 );
 
   /* Set up VM */
-
-  uchar * input_copy = malloc( input->input_sz ? input->input_sz : 1UL );
-  FD_TEST( input_copy );
+  uchar * input_copy = fd_vm_mem_bpf_serial_region( mem, 0UL );
+  if( input->region_boundary_cnt ) {
+    /* FIXME: when new memory handle direct mapping */
+    input_copy = malloc( input->input_sz ? input->input_sz : 1UL );
+    FD_TEST( input_copy );
+  }
   if( input->input_sz ) memcpy( input_copy, input->input, input->input_sz );
 
   /* Turn input into a single memory region */
@@ -462,6 +468,7 @@ run_input( test_input_t const * input,
       /* syscalls                               */ syscalls,
       /* trace                                  */ NULL,
       /* sha                                    */ NULL,
+      /* haddr_base                             */ fd_vm_mem_acquire( mem, 0UL ),
       /* mem_regions                            */ input_region,
       /* mem_regions_cnt                        */ input->region_boundary_cnt ? input->region_boundary_cnt : 1,
       /* mem_regions_accs                       */ NULL,
@@ -480,11 +487,13 @@ run_input( test_input_t const * input,
 
   run_input2( out, vm, force_exec );
 
+  fd_vm_mem_zero( mem, ULONG_MAX );
+
   /* Clean up */
   free( fd_sbpf_syscalls_delete ( fd_sbpf_syscalls_leave ( syscalls  ) ) );
   if( calldests ) free( fd_sbpf_calldests_delete( fd_sbpf_calldests_leave( calldests ) ) );
   else            free( calldests_mem );
-  free( input_copy );
+  if( input->region_boundary_cnt ) free( input_copy );
 }
 
 /* run_fixture runs a test fixture.  Returns 1 if the local execution
@@ -592,6 +601,8 @@ main( int     argc,
 
   ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
   if( cpu_idx>=fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
+
+  fd_vm_mem_new_test( mem );
 
   static fd_vm_t _vm[1];
   fd_vm_t * vm = fd_vm_join( fd_vm_new( _vm ) );

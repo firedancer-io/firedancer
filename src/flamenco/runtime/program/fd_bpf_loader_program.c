@@ -204,6 +204,7 @@ fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
     /* syscalls                               */ syscalls,
     /* trace                                  */ NULL,
     /* sha                                    */ NULL,
+    /* haddr_base                             */ 0UL,
     /* mem_regions                            */ NULL,
     /* mem_regions_cnt                        */ 0,
     /* mem_region_accs                        */ NULL,
@@ -430,7 +431,18 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
   ulong instruction_data_offset = 0UL;
   /* 16-byte aligned buffer:
      https://github.com/anza-xyz/agave/blob/v3.0.0/program-runtime/src/serialization.rs#L60 */
-  uchar * input = instr_ctx->runtime->bpf_loader_serialization.serialization_mem[ instr_ctx->runtime->instr.stack_sz-1UL ];
+
+  /* We want to do the minimal amount of zeroing on the critical path as
+     possible, so only zero here if we need to (not the first CPI at
+     this level).  Once we finish the transaction, we'll clean up
+     everything else.  This is safe even if the caller didn't zero at
+     the end of the transaction. */
+  ulong level = instr_ctx->runtime->instr.stack_sz-1UL;
+  if( FD_UNLIKELY( instr_ctx->runtime->vm_mem->dirty & (1UL<<level) ) ) fd_vm_mem_zero_one( instr_ctx->runtime->vm_mem, level );
+  ulong haddr_base = fd_vm_mem_acquire( instr_ctx->runtime->vm_mem, level );
+
+  uchar * input = fd_vm_mem_bpf_serial_region( instr_ctx->runtime->vm_mem, level );
+
   err = fd_bpf_loader_input_serialize_parameters( instr_ctx, pre_lens,
                                                   input_mem_regions, &input_mem_regions_cnt,
                                                   acc_region_metas, virtual_address_space_adjustments, direct_mapping,
@@ -484,6 +496,7 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
     /* syscalls                               */ syscalls,
     /* trace                                  */ NULL,
     /* sha                                    */ sha,
+    /* haddr_base                             */ haddr_base,
     /* input_mem_regions                      */ input_mem_regions,
     /* input_mem_regions_cnt                  */ input_mem_regions_cnt,
     /* acc_region_metas                       */ acc_region_metas,

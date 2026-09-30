@@ -411,6 +411,7 @@ fd_directly_invoke_loader_v3_deploy_checks( fd_bank_t const *    bank,
                    syscalls,
                    NULL,
                    NULL,
+                   0UL, /* no access to memory */
                    NULL,
                    0U,
                    NULL,

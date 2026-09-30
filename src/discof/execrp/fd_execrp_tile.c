@@ -5,6 +5,7 @@
 #include "../../choreo/tower/fd_tower_serdes.h"
 #include "../../discof/fd_startup.h"
 #include "../../discof/replay/fd_execrp.h"
+#include "../../flamenco/vm/fd_vm_mem.h"
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "../../flamenco/runtime/fd_runtime.h"
@@ -313,6 +314,9 @@ returnable_frag( fd_execrp_tile_t *  ctx,
         ctx->slot = ctx->bank->f.slot;
         publish_txn_finalized_msg( ctx, stem, txn_end_ticks );
 
+        /* TODO: time this */
+        fd_vm_mem_zero( ctx->runtime->vm_mem, ULONG_MAX );
+
         /* Update metrics */
         ulong load_start_ticks_dt  = fd_ulong_if( ctx->txn_out.details.check_start_ticks==LONG_MAX  || ctx->txn_out.details.load_start_ticks==LONG_MAX,   0UL, (ulong)( ctx->txn_out.details.check_start_ticks  - ctx->txn_out.details.load_start_ticks ) );
         ulong check_start_ticks_dt = fd_ulong_if( ctx->txn_out.details.exec_start_ticks==LONG_MAX   || ctx->txn_out.details.check_start_ticks==LONG_MAX,  0UL, (ulong)( ctx->txn_out.details.exec_start_ticks   - ctx->txn_out.details.check_start_ticks ) );
@@ -360,6 +364,14 @@ returnable_frag( fd_execrp_tile_t *  ctx,
 }
 
 extern FD_TL int fd_wksp_oom_silent;
+
+static void
+privileged_init( fd_topo_t const *      topo,
+                 fd_topo_tile_t const * tile ) {
+  fd_execrp_tile_t * ctx = (fd_execrp_tile_t *)fd_topo_obj_laddr( topo, tile->tile_obj_id );
+
+  if( FD_UNLIKELY( !fd_vm_mem_new_mmap( ctx->runtime->vm_mem ) ) ) FD_LOG_ERR(( "Could not allocate memory for VM" ));
+}
 
 static void
 unprivileged_init( fd_topo_t const *      topo,
@@ -594,5 +606,6 @@ fd_topo_run_tile_t fd_tile_execrp = {
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
   .unprivileged_init        = unprivileged_init,
+  .privileged_init          = privileged_init,
   .run                      = stem_run,
 };

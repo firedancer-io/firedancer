@@ -2,6 +2,7 @@
 #include "../test_vm_util.h"
 #include "../../runtime/fd_bank.h"
 #include "../../../ballet/hex/fd_hex.h"
+#include "../vm_mem_test/fd_vm_mem_test.h"
 
 static inline void set_memory_region( uchar * mem, ulong sz ) { for( ulong i=0UL; i<sz; i++ ) mem[i] = (uchar)(i & 0xffUL); }
 
@@ -134,6 +135,9 @@ main( int     argc,
 
   fd_features_enable_all( &bank->f.features );
 
+  fd_vm_mem_t mem[1];
+  fd_vm_mem_new_test( mem );
+
   int vm_ok = !!fd_vm_init(
       /* vm                                     */ vm,
       /* instr_ctx                              */ instr_ctx,  /* required for FD_FEATURE_ACTIVE */
@@ -151,6 +155,7 @@ main( int     argc,
       /* syscalls                               */ NULL,
       /* trace                                  */ NULL,
       /* sha                                    */ sha,
+      /* haddr_base                             */ fd_vm_mem_acquire( mem, 0UL ),
       /* mem_regions                            */ NULL,
       /* mem_regions_cnt                        */ 0UL,
       /* mem_regions_accs                       */ NULL,
@@ -596,6 +601,8 @@ main( int     argc,
     FD_LOG_NOTICE(( "Passed test program (sol_curve_pairing_map: bls12-381 zero pairs, BE)" ));
     test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_out );
   }
+
+  fd_vm_mem_zero( mem, ULONG_MAX );
 
   fd_vm_delete    ( fd_vm_leave    ( vm  ) );
   fd_sha256_delete( fd_sha256_leave( sha ) );

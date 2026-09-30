@@ -5,13 +5,15 @@ ifdef FD_HAS_HOSTED
 $(call add-hdrs,test_vm_util.h)
 $(call add-objs,test_vm_util,fd_flamenco)
 
-$(call make-unit-test,test_vm_interp,test_vm_interp,fd_flamenco fd_ballet fd_util fd_disco,$(BLST_LIBS))
+$(call add-objs,fd_vm_mem,fd_flamenco)
+
+$(call make-unit-test,test_vm_interp,test_vm_interp,fd_vm_mem_test fd_flamenco fd_ballet fd_util fd_disco,$(BLST_LIBS))
 $(call run-unit-test,test_vm_interp)
 
 $(call make-unit-test,test_vm_base,test_vm_base,fd_flamenco fd_ballet fd_util)
 $(call run-unit-test,test_vm_base)
 
-$(call make-unit-test,test_vm_instr,test_vm_instr,fd_flamenco fd_ballet fd_util,$(BLST_LIBS))
+$(call make-unit-test,test_vm_instr,test_vm_instr,fd_vm_mem_test fd_flamenco fd_ballet fd_util,$(BLST_LIBS))
 $(call run-unit-test,test_vm_instr)
 
 $(call make-unit-test,test_pointer_chase,test_pointer_chase,fd_util)

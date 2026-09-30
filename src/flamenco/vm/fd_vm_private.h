@@ -226,8 +226,10 @@ fd_vm_mem_cfg( fd_vm_t * vm ) {
     vm->region_haddr[0]                  = 0UL;               vm->region_ld_sz[0]                  = (uint)0UL;             vm->region_st_sz[0]                  = (uint)0UL;
     vm->region_haddr[FD_VM_PROG_REGION]  = (ulong)vm->rodata; vm->region_ld_sz[FD_VM_PROG_REGION]  = (uint)vm->rodata_sz;   vm->region_st_sz[FD_VM_PROG_REGION]  = (uint)0UL;
   }
-  vm->region_haddr[FD_VM_STACK_REGION]   = (ulong)vm->stack;  vm->region_ld_sz[FD_VM_STACK_REGION] = (uint)FD_VM_STACK_MAX; vm->region_st_sz[FD_VM_STACK_REGION] = (uint)FD_VM_STACK_MAX;
-  vm->region_haddr[FD_VM_HEAP_REGION]    = (ulong)vm->heap;   vm->region_ld_sz[FD_VM_HEAP_REGION]  = (uint)vm->heap_max;    vm->region_st_sz[FD_VM_HEAP_REGION]  = (uint)vm->heap_max;
+  vm->region_haddr[FD_VM_STACK_REGION]   = vm->haddr_base+FD_VM_MEM_MAP_STACK_REGION_START;
+                                                              vm->region_ld_sz[FD_VM_STACK_REGION] = (uint)FD_VM_STACK_MAX; vm->region_st_sz[FD_VM_STACK_REGION] = (uint)FD_VM_STACK_MAX;
+  vm->region_haddr[FD_VM_HEAP_REGION]    = vm->haddr_base+FD_VM_MEM_MAP_HEAP_REGION_START;
+                                                              vm->region_ld_sz[FD_VM_HEAP_REGION]  = (uint)vm->heap_max;    vm->region_st_sz[FD_VM_HEAP_REGION]  = (uint)vm->heap_max;
   vm->region_haddr[5]                    = 0UL;               vm->region_ld_sz[5]                  = (uint)0UL;             vm->region_st_sz[5]                  = (uint)0UL;
   if( vm->direct_mapping || !vm->input_mem_regions_cnt ) {
     /* When direct mapping is enabled, we don't use these fields because
@@ -264,38 +266,6 @@ fd_vm_generate_access_violation( ulong vaddr, ulong sbpf_version ) {
   }
   return FD_VM_ERR_EBPF_ACCESS_VIOLATION;
 }
-
-/* fd_vm_mem_haddr translates the vaddr range [vaddr,vaddr+sz) (in
-   infinite precision math) into the non-wrapping haddr range
-   [haddr,haddr+sz).  On success, returns haddr and every byte in the
-   haddr range is a valid address.  On failure, returns sentinel and
-   there was at least one byte in the virtual address range that did not
-   have a corresponding byte in the host address range.
-
-   IMPORTANT SAFETY TIP!  When sz==0, the return value currently is
-   arbitrary.  This is often fine as there should be no
-   actual accesses to a sz==0 region.  However, this also means that
-   testing return for sentinel is insufficient to tell if mapping
-   failed.  That is, assuming sentinel is a location that could never
-   happen on success:
-
-     sz!=0 and ret!=sentinel -> success
-     sz!=0 and ret==sentinel -> failure
-     sz==0 -> ignore ret, application specific handling
-
-   With ~O(2) extra fast branchless instructions, the below could be
-   tweaked in the sz==0 case to return NULL or return a non-NULL
-   sentinel value.  What is most optimal practically depends on how
-   empty ranges and NULL vaddr handling is defined in the application.
-
-   Requires ~O(10) fast branchless assembly instructions with 2 L1 cache
-   hit loads and pretty good ILP.
-
-   fd_vm_mem_haddr_fast is when the vaddr is for use when it is already
-   known that the vaddr region has a valid mapping.
-
-   These assumptions don't hold if direct mapping is enabled since input
-   region lookups become O(log(n)). */
 
 
 /* fd_vm_get_input_mem_region_idx returns the index into the input memory
@@ -392,27 +362,35 @@ fd_vm_handle_input_mem_region_oob( fd_vm_t const * vm,
   }
 }
 
+/* fd_vmmt_t stores the result of a memory translation in the VM.  See
+   fd_vm_mem_haddr for the motivation. */
+struct fd_vmmt {
+  ulong haddr;
+  int   valid;
+};
+typedef struct fd_vmmt fd_vmmt_t;
+
 /* fd_vm_find_input_mem_region returns the translated haddr for a given
    offset into the input region.  If an offset/sz is invalid or if an
-   illegal write is performed, the sentinel value is returned. If the offset
-   provided is too large, it will choose the upper-most region as the
-   region_idx. However, it will get caught for being too large of an access
-   in the multi-region checks. */
-static inline ulong
+   illegal write is performed, returns an arbitary haddr with valid==0.
+   If the offset provided is too large, it will choose the upper-most
+   region as the region_idx. However, it will get caught for being too
+   large of an access in the multi-region checks. */
+static inline fd_vmmt_t
 fd_vm_find_input_mem_region( fd_vm_t const * vm,
                              ulong           offset,
                              ulong           sz,
-                             uchar           write,
-                             ulong           sentinel ) {
+                             uchar           write ) {
+  fd_vmmt_t const invalid = { .haddr = 0UL, .valid = 0 };
   if( FD_UNLIKELY( vm->input_mem_regions_cnt==0 ) ) {
-    return sentinel; /* Access is too large */
+    return invalid; /* Access is too large */
   }
 
   /* Binary search to find the correct memory region.  If direct mapping is not
      enabled, then there is only 1 memory region which spans the input region. */
   ulong region_idx = fd_vm_get_input_mem_region_idx( vm, offset );
   if( FD_UNLIKELY( region_idx>=vm->input_mem_regions_cnt ) ) {
-    return sentinel; /* Region not found */
+    return invalid; /* Region not found */
   }
 
   ulong bytes_in_region = fd_ulong_sat_sub( vm->input_mem_regions[ region_idx ].region_sz,
@@ -427,51 +405,58 @@ fd_vm_find_input_mem_region( fd_vm_t const * vm,
   /* After potentially resizing, re-check the bounds */
   bytes_in_region = fd_ulong_sat_sub( vm->input_mem_regions[ region_idx ].region_sz,
                                       fd_ulong_sat_sub( offset, vm->input_mem_regions[ region_idx ].vaddr_offset ) );
-  /* If the access is still out of bounds, return the sentinel */
+  /* If the access is still out of bounds, return invalid */
   if( FD_UNLIKELY( sz>bytes_in_region ) ) {
-    return sentinel;
+    return invalid;
   }
 
   if( FD_UNLIKELY( write && vm->input_mem_regions[ region_idx ].is_writable==0U ) ) {
-    return sentinel; /* Illegal write */
+    return invalid; /* Illegal write */
   }
 
   ulong start_region_idx = region_idx;
 
   ulong adjusted_haddr = vm->input_mem_regions[ start_region_idx ].haddr + offset - vm->input_mem_regions[ start_region_idx ].vaddr_offset;
-  return adjusted_haddr;
+  return (fd_vmmt_t) { .haddr = adjusted_haddr, .valid = 1 };
 }
 
+/* fd_vm_mem_haddr translates the vaddr range [vaddr,vaddr+sz) (in
+   infinite precision math) into the non-wrapping haddr range
+   [haddr,haddr+sz).  On success, returns (haddr, valid=1) and every
+   byte in the haddr range is a valid address.  On failure, implying
+   there was at least one byte in the virtual address range that did not
+   have a corresponding byte in the host address range.  returns (x,
+   valid=0), where x is arbitrary.
 
-static inline ulong
-fd_vm_mem_haddr( fd_vm_t const * vm,
+   It might seem strange to return two values, but since computing the
+   tentative haddr is substantially faster (one load and one add) than
+   computing whether the translation is valid or not (which is still
+   fairly cheap), this allows the CPU to start the load instruction
+   speculatively before all the validity checks are done.  Additionally,
+   in the Sys V ABI, return values up to 128 bits are returned in
+   registers, so there's no performance hit from returning the struct.
+
+   IMPORTANT SAFETY TIP!  When sz==0, the return value currently is
+   arbitrary.  This is often fine as there should be no
+   actual accesses to a sz==0 region.
+
+   fd_vm_mem_haddr_fast is when the vaddr is for use when it is already
+   known that the vaddr region has a valid mapping.
+
+   All bets are off for performance for accesses to the input region if
+   direct mapping is enabled since input region lookups become
+   O(log(n)). */
+
+
+static inline fd_vmmt_t
+fd_vm_mem_haddr( fd_vm_t *       vm,
                  ulong           vaddr,
                  ulong           sz,
                  ulong const *   vm_region_haddr, /* indexed [0,6) */
                  uint  const *   vm_region_sz,    /* indexed [0,6) */
-                 uchar           write,           /* 1 if the access is a write, 0 if it is a read */
-                 ulong           sentinel ) {
+                 uchar           write ){           /* 1 if the access is a write, 0 if it is a read */
   ulong region = FD_VADDR_TO_REGION( vaddr );
   ulong offset = vaddr & FD_VM_OFFSET_MASK;
-
-  /* Some configurations of the vm have unmapped gaps between each
-     stack frame. If this is the case, we need to check that the access
-     is not in a gap region. */
-  int stack_frame_gaps_enabled = vm->stack_push_frame_count > 1;
-  if( FD_UNLIKELY( region==FD_VM_STACK_REGION && stack_frame_gaps_enabled ) ) {
-    /* If an access starts in a gap region, that is an access violation */
-    if( FD_UNLIKELY( !!(vaddr & 0x1000) ) ) {
-      return sentinel;
-    }
-
-    /* To account for the fact that we have gaps in the virtual address space but not in the
-       physical address space, we need to subtract from the offset the size of all the virtual
-       gap frames underneath it.
-
-       https://github.com/solana-labs/rbpf/blob/b503a1867a9cfa13f93b4d99679a17fe219831de/src/memory_region.rs#L147-L149 */
-    ulong gap_mask = 0xFFFFFFFFFFFFF000;
-    offset = ( ( offset & gap_mask ) >> 1 ) | ( offset & ~gap_mask );
-  }
 
   ulong region_sz = (ulong)vm_region_sz[ region ];
   ulong sz_max    = region_sz - fd_ulong_min( offset, region_sz );
@@ -480,16 +465,24 @@ fd_vm_mem_haddr( fd_vm_t const * vm,
      solana_transaction_context::TransactionContext::access_violation_handler
 
      https://github.com/anza-xyz/agave/blob/v3.0.1/transaction-context/src/lib.rs#L510-L581 */
-  if( region==FD_VM_INPUT_REGION ) {
-    return fd_vm_find_input_mem_region( vm, offset, sz, write, sentinel );
+  if( FD_UNLIKELY( (!!vm->direct_mapping) & (region==FD_VM_INPUT_REGION) ) ) {
+    return fd_vm_find_input_mem_region( vm, offset, sz, write );
   }
+
+  int valid = sz<=sz_max;
+
+  if( FD_UNLIKELY( region<=1UL ) ) {
+    return (fd_vmmt_t) { .haddr = vm_region_haddr[ region ] + offset, .valid = valid };
+  }
+
 
 # ifdef FD_VM_INTERP_MEM_TRACING_ENABLED
   if ( FD_LIKELY( sz<=sz_max ) ) {
     fd_vm_trace_event_mem( vm->trace, write, vaddr, sz, vm_region_haddr[ region ] + offset );
   }
 # endif
-  return fd_ulong_if( sz<=sz_max, vm_region_haddr[ region ] + offset, sentinel );
+
+  return (fd_vmmt_t) { .haddr = vm->haddr_base + vaddr, .valid = valid };
 }
 
 static inline ulong
@@ -498,10 +491,13 @@ fd_vm_mem_haddr_fast( fd_vm_t const * vm,
                       ulong   const * vm_region_haddr ) { /* indexed [0,6) */
   ulong region   = FD_VADDR_TO_REGION( vaddr );
   ulong offset   = vaddr & FD_VM_OFFSET_MASK;
-  if( FD_UNLIKELY( region==FD_VM_INPUT_REGION ) ) {
-    return fd_vm_find_input_mem_region( vm, offset, 1UL, 0, 0UL );
+  if( FD_UNLIKELY( (!!vm->direct_mapping) & (region==FD_VM_INPUT_REGION) ) ) {
+    return fd_vm_find_input_mem_region( vm, offset, 1UL, 0 ).haddr;
   }
-  return vm_region_haddr[ region ] + offset;
+  if( FD_UNLIKELY( region<=1UL ) ) {
+    return vm_region_haddr[ region ]+offset;
+  }
+  return vm->haddr_base + offset;
 }
 
 FD_FN_PURE static inline ulong fd_vm_mem_ld_1( ulong haddr ) {

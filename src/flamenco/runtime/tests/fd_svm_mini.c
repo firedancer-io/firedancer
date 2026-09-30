@@ -214,6 +214,7 @@ fd_svm_mini_create( fd_wksp_t *                  wksp,
   runtime->accdb        = accdb;
   runtime->status_cache = mini->txncache;
   runtime->progcache    = mini->progcache;
+  fd_vm_mem_new_mmap( runtime->vm_mem );
 
   runtime->instr.stack_sz          = 0;
   runtime->instr.trace_length      = 0;
@@ -257,6 +258,7 @@ fd_svm_mini_destroy( fd_svm_mini_t * mini ) {
     fd_wksp_free_laddr( mini->txncache );
     if( mini->txncache_shmem ) fd_wksp_free_laddr( mini->txncache_shmem );
   }
+  fd_vm_mem_delete_mmap( mini->runtime->vm_mem );
 
   uchar * scratch = mini->progcache->scratch;
   fd_progcache_shmem_t * shpcache = NULL;

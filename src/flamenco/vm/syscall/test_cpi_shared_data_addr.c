@@ -190,7 +190,7 @@ test_env_setup( fd_svm_mini_t * mini ) {
     rodata, sizeof(rodata),
     NULL, 0UL, 0UL, 0UL, 0UL, NULL,
     TEST_VM_DEFAULT_SBPF_VERSION,
-    NULL, NULL, mini->sha256, NULL, 0U,
+    NULL, NULL, mini->sha256, 0UL, NULL, 0U,
     arm, 0,
     FD_FEATURE_ACTIVE_BANK( bank, account_data_direct_mapping ),
     FD_FEATURE_ACTIVE_BANK( bank, syscall_parameter_address_restrictions ),

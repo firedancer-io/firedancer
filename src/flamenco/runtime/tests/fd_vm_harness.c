@@ -147,6 +147,8 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
   int                     syscall_parameter_address_restrictions   = FD_FEATURE_ACTIVE_BANK( ctx->bank, syscall_parameter_address_restrictions );
   int                     virtual_address_space_adjustments        = FD_FEATURE_ACTIVE_BANK( ctx->bank, virtual_address_space_adjustments );
   int                     direct_account_pointers_in_program_input = FD_FEATURE_ACTIVE_BANK( ctx->bank, direct_account_pointers_in_program_input );
+  ulong                   haddr_base                               = fd_vm_mem_acquire( ctx->runtime->vm_mem, ctx->runtime->instr.stack_sz-1UL );
+
 
   uchar      program_id_idx = ctx->instr->program_id;
   fd_acc_t * program_acc    = ctx->txn_out->accounts.account[program_id_idx];
@@ -193,6 +195,7 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
               syscalls,
               NULL, // TODO
               sha,
+              haddr_base,
               input_mem_regions,
               input_mem_regions_cnt,
               acc_region_metas,
@@ -288,6 +291,9 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
   effects->rodata_hash = fd_solfuzz_hash( vm->rodata, vm->rodata_sz ? rodata_sz : 0UL );
 
   effects->frame_count = vm->frame_cnt;
+
+  /* Clear out the stack and heap in preparation for the next run */
+  fd_vm_mem_zero_one( ctx->runtime->vm_mem, ctx->runtime->instr.stack_sz-1UL );
 
   /* Capture input regions */
   ulong tmp_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
@@ -396,7 +402,7 @@ fd_solfuzz_pb_vm_serialize_run( fd_solfuzz_runner_t * runner,
   }
 
   /* Hash the serialized memory buffer. */
-  uchar * serialized_buf = ctx->runtime->bpf_loader_serialization.serialization_mem[ ctx->runtime->instr.stack_sz-1UL ];
+  uchar * serialized_buf = fd_vm_mem_bpf_serial_region( ctx->runtime->vm_mem, ctx->runtime->instr.stack_sz-1UL );
   effects->serialized_memory_hash = fd_hash( 0UL, serialized_buf, input_sz );
 
   /* Populate vm_input_memory_regions */

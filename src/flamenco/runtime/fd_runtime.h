@@ -11,6 +11,7 @@
 #include "context/fd_exec_instr_ctx.h"
 #include "../fd_flamenco_base.h"
 #include "../accdb/fd_accdb.h"
+#include "../vm/fd_vm_mem.h"
 #include "../alpenglow/fd_alpenglow.h"
 
 /* The general structure for executing transactions in Firedancer can
@@ -135,14 +136,12 @@ struct fd_runtime {
   } log;
 
   struct {
-    uchar serialization_mem[ FD_MAX_INSTRUCTION_STACK_DEPTH ][ BPF_LOADER_SERIALIZATION_FOOTPRINT ] __attribute__((aligned(FD_RUNTIME_EBPF_HOST_ALIGN)));
-  } bpf_loader_serialization;
-
-  struct {
     uchar rodata        [ FD_RUNTIME_ACC_SZ_MAX     ] __attribute__((aligned(FD_SBPF_PROG_RODATA_ALIGN)));
     uchar sbpf_footprint[ FD_SBPF_PROGRAM_FOOTPRINT ] __attribute__((aligned(alignof(fd_sbpf_program_t))));
     uchar programdata   [ FD_RUNTIME_ACC_SZ_MAX     ] __attribute__((aligned(FD_ACCOUNT_REC_ALIGN)));
   } bpf_loader_program;
+
+  fd_vm_mem_t vm_mem[1];
 
   union {
     struct {
