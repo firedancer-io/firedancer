@@ -33,7 +33,7 @@
      stream_close                  stream is gone, free handler state
 
    stream_close reports a stream that stream_open accepted, whatever
-   the reason it ended. */
+   the reason it ended.  Sends on it return FD_GRPC_SERVER_ERR_CLOSED. */
 
 #include "fd_grpc_codec.h"
 

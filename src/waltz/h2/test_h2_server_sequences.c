@@ -1066,6 +1066,65 @@ FD_UNIT_TEST( h2_server_conn_window_refund ) {
   FD_TEST( ctx->conn->rx_wnd==200U );
 }
 
+/* A DATA frame that arrives in pieces is refilled only once whole */
+
+FD_UNIT_TEST( h2_server_partial_frame_refill ) {
+  test_h2_srv2_t ctx[1];
+  test_h2_srv2_init( ctx );
+  ctx->conn->self_settings.initial_window_size = 100U;
+  test_h2_srv2_handshake( ctx );
+
+  ctx->conn->rx_wnd_max   = 200U;
+  ctx->conn->rx_wnd       = 200U;
+  ctx->conn->rx_wnd_wmark = 140U;
+
+  test_h2_srv2_send( ctx, FD_H2_FRAME_TYPE_HEADERS, FD_H2_FLAG_END_HEADERS, 1U,
+                     test_h2_srv2_req1, sizeof(test_h2_srv2_req1) );
+  test_h2_srv2_rx( ctx );
+  fd_h2_stream_t * stream = test_h2_srv2_stream_query( ctx->conn, 1U );
+  FD_TEST( stream && stream->rx_wnd==100U );
+
+  /* 70 of 90 bytes arrive: both windows are below their mark, no refill */
+  uchar body[ 90 ] = {0};
+  fd_h2_frame_hdr_t hdr = {
+    .typlen      = fd_h2_frame_typlen( FD_H2_FRAME_TYPE_DATA, sizeof(body) ),
+    .flags       = 0,
+    .r_stream_id = fd_uint_bswap( 1U )
+  };
+  fd_h2_rbuf_push( ctx->rbuf_rx, &hdr, sizeof(hdr) );
+  fd_h2_rbuf_push( ctx->rbuf_rx, body, 70UL );
+  test_h2_srv2_rx( ctx );
+  FD_TEST( ctx->data_sz==70UL );
+  FD_TEST( stream->rx_wnd==30U );
+  FD_TEST( ctx->conn->rx_wnd==130U );
+  FD_TEST( !( ctx->conn->flags & FD_H2_CONN_FLAGS_WINDOW_UPDATE ) );
+  FD_TEST( fd_h2_rbuf_used_sz( ctx->rbuf_tx )==0UL );
+
+  fd_h2_rbuf_push( ctx->rbuf_rx, body+70, 20UL );
+  test_h2_srv2_rx( ctx );
+  FD_TEST( ctx->data_sz==90UL );
+  FD_TEST( fd_h2_rbuf_used_sz( ctx->rbuf_rx )==0UL );
+
+  uchar payload[ 16 ];
+  FD_TEST( test_h2_srv2_pop( ctx, &hdr, payload, sizeof(payload) )==4UL );
+  FD_TEST( fd_h2_frame_type( hdr.typlen )==FD_H2_FRAME_TYPE_WINDOW_UPDATE );
+  FD_TEST( fd_h2_frame_stream_id( hdr.r_stream_id )==1U );
+  FD_TEST( fd_uint_bswap( FD_LOAD( uint, payload ) )==90U );
+  FD_TEST( stream->rx_wnd==100U );
+  FD_TEST( fd_h2_rbuf_used_sz( ctx->rbuf_tx )==0UL );
+
+  FD_TEST( ctx->conn->rx_wnd==110U );
+  FD_TEST( ctx->conn->flags & FD_H2_CONN_FLAGS_WINDOW_UPDATE );
+  fd_h2_tx_control( ctx->conn, ctx->rbuf_tx, ctx->cb );
+  FD_TEST( test_h2_srv2_pop( ctx, &hdr, payload, sizeof(payload) )==4UL );
+  FD_TEST( fd_h2_frame_type( hdr.typlen )==FD_H2_FRAME_TYPE_WINDOW_UPDATE );
+  FD_TEST( fd_h2_frame_stream_id( hdr.r_stream_id )==0U );
+  FD_TEST( fd_uint_bswap( FD_LOAD( uint, payload ) )==90U );
+  FD_TEST( ctx->conn->rx_wnd==200U );
+  FD_TEST( !( ctx->conn->flags & (FD_H2_CONN_FLAGS_SEND_GOAWAY|FD_H2_CONN_FLAGS_DEAD) ) );
+  FD_TEST( ctx->rst_cnt==0UL );
+}
+
 /* RFC 9113 Section 5.1: a DATA frame on a stream that was never opened
    is a connection error, and RST_STREAM must not be sent for it. */
 
@@ -1314,6 +1373,12 @@ FD_UNIT_TEST( h2_server_refused_stream_continuation ) {
   FD_TEST( fd_h2_rbuf_used_sz( ctx->rbuf_rx )==0UL );
   FD_TEST( fd_h2_rbuf_used_sz( ctx->rbuf_tx )==0UL );
   FD_TEST( ctx->conn->stream_active_cnt[0]==1U );
+
+  /* The refused stream's block was decoded, dynamic table included */
+  FD_TEST( ctx->hdrs_cb_cnt==3UL );
+  test_h2_srv2_expect_hdrs( ctx, ":method: GET\n:authority: www.example.com\n"
+                                 ":method: GET\n:authority: www.example.com\n" );
+  FD_TEST( ctx->conn->rx_hpack.entry_cnt==2U );
 }
 
 FD_UNIT_TEST( h2_server_data_flow_control_violation ) {

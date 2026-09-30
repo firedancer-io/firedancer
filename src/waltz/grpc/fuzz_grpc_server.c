@@ -196,6 +196,7 @@ orc_msg( orc_stream_t * s,
     ulong n = ZSTD_decompress( g_unz, sizeof(g_unz), msg, sz );
     CHECK( ORACLE_OUTPUT, !ZSTD_isError( n ), "stream %u: compressed message does not decompress (%s)",
            s->sid, ZSTD_getErrorName( n ) );
+    if( FD_UNLIKELY( ZSTD_isError( n ) ) ) return;
     body = g_unz; body_sz = n;
   }
   CHECK( ORACLE_OUTPUT, s->fifo_cnt, "stream %u: received a message the handler never sent (%lu bytes)", s->sid, body_sz );
@@ -218,6 +219,7 @@ orc_data( uint          sid,
     CHECK( ORACLE_OUTPUT, !sz, "stream %u: DATA on a stream with no message sent", sid );
     return;
   }
+  if( s->overflow ) return;
   while( sz ) {
     ulong want = 5UL;
     if( s->rx_sz>=5UL ) want = 5UL + fd_uint_bswap( FD_LOAD( uint, s->rx+1 ) );
@@ -228,6 +230,7 @@ orc_data( uint          sid,
       uint len = fd_uint_bswap( FD_LOAD( uint, s->rx+1 ) );
       CHECK( ORACLE_OUTPUT, s->rx[0]<=1U, "stream %u: bad gRPC compressed flag %u", sid, (uint)s->rx[0] );
       CHECK( ORACLE_OUTPUT, (ulong)len+5UL<=ORC_MSG_MAX, "stream %u: gRPC message length %u too large", sid, len );
+      if( FD_UNLIKELY( (ulong)len+5UL>ORC_MSG_MAX ) ) { s->overflow = 1; return; }
       want = 5UL+len;
     }
     if( s->rx_sz>=5UL && s->rx_sz==want ) {

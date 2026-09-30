@@ -20,6 +20,18 @@
 #define ROUTE_SLOW   "/test.Svc/Slow"    /* fills the send queue */
 #define ROUTE_BIG    "/test.Svc/Big"      /* sends one oversized message */
 
+static ulong
+test_zstd_encode( uchar *      out,
+                  ulong        out_max,
+                  void const * in,
+                  ulong        in_sz );
+
+static ulong
+test_zstd_decode( uchar *       out,
+                  ulong         out_max,
+                  uchar const * in,
+                  ulong         in_sz );
+
 /* Test handler *******************************************************/
 
 struct test_app_stream {
@@ -263,6 +275,8 @@ test_app_stream_close( void *                    ctx,
   s->closed = 1;
   s->close_cnt++;
   s->close_reason = reason;
+  FD_TEST( fd_grpc_server_send( stream, "x", 1UL, 0U )==FD_GRPC_SERVER_ERR_CLOSED );
+  fd_grpc_server_finish( stream, FD_GRPC_STATUS_OK, NULL, 0UL );
 }
 
 static fd_grpc_server_callbacks_t const test_app_callbacks = {
@@ -1255,7 +1269,7 @@ test_send_multi( void ) {
 
   fd_grpc_server_metrics_t const * m = fd_grpc_server_metrics( server );
   FD_TEST( m->tx_msg_cnt           ==2UL );
-  FD_TEST( m->tx_msg_shared_cnt    ==1UL );
+  FD_TEST( m->tx_msg_shared_cnt    ==0UL );
   FD_TEST( m->tx_msg_compressed_cnt==1UL );
 
   /* The zstd stream got a compressed copy, the other the bytes as
@@ -1268,6 +1282,19 @@ test_send_multi( void ) {
   off = tc_msg_at( s3, 0UL, &flag, &msg, &msg_sz );
   FD_TEST( flag==0 && msg_sz==256UL && off==s3->data_sz );
   FD_TEST( msg[ 0 ]==0x40 && msg[ 255 ]==(uchar)( 0x40+(255&0x1f) ) );
+
+  /* A second identity stream shares the raw staging with stream 3 */
+  tc_request( tc, 7U, &raw );
+  tc_msg( tc, 3U, 0, "M", 1UL, 0 );
+  tc_flush( tc );
+  FD_TEST( g_app->stream[3].multi_err==FD_GRPC_SERVER_SUCCESS );
+  FD_TEST( m->tx_msg_cnt           ==5UL );
+  FD_TEST( m->tx_msg_shared_cnt    ==1UL );
+  FD_TEST( m->tx_msg_compressed_cnt==2UL );
+  tc_stream_t * s7 = tc_stream( tc, 7U );
+  off = tc_msg_at( s7, 0UL, &flag, &msg, &msg_sz );
+  FD_TEST( flag==0 && msg_sz==256UL && off==s7->data_sz );
+  FD_TEST( tc_msg_at( s3, off, &flag, &msg, &msg_sz )==s3->data_sz && flag==0 && msg_sz==256UL );
 
   tc_close( tc );
   test_server_delete( server );
@@ -1650,15 +1677,16 @@ test_http1_index( void ) {
 }
 
 /* test_web_call sends a gRPC-Web request to path, with the given extra
-   header lines and one request message, split into two reads at split
-   (0 for one).  Returns the response bytes, with *conn_out left at the
-   connection. */
+   header lines and one request message carrying the compressed flag,
+   split into two reads at split (0 for one).  Returns the response
+   bytes, with *conn_out left at the connection. */
 
 static ulong
 test_web_call( fd_grpc_server_t *       server,
                char const *             path,
                char const *             hdrs,
-               char const *             msg,
+               int                      compressed,
+               void const *             msg,
                ulong                    msg_sz,
                ulong                    split,
                uchar *                  out,
@@ -1675,7 +1703,7 @@ test_web_call( fd_grpc_server_t *       server,
   FD_TEST( fd_cstr_printf_check( req, sizeof(req), &req_sz, "POST %s HTTP/1.1\r\n%s"
                                  "Content-Length: %lu\r\n\r\n", path, hdrs, 5UL+msg_sz ) );
   FD_TEST( req_sz+5UL+msg_sz<sizeof(req) );
-  req[ req_sz++ ] = 0;
+  req[ req_sz++ ] = (char)compressed;
   FD_STORE( uint, req+req_sz, fd_uint_bswap( (uint)msg_sz ) ); req_sz += 4UL;
   fd_memcpy( req+req_sz, msg, msg_sz );                         req_sz += msg_sz;
 
@@ -1721,14 +1749,16 @@ test_grpc_web( void ) {
   char const * ct = "Content-Type: application/grpc-web+proto\r\n";
 
   /* Server streaming: three messages, then the trailers, then the
-     connection ends.  A header's name reaches the app lowercased, and
-     the client's zstd preference does not apply, since it was not
-     asked for. */
+     connection ends.  A header's name reaches the app lowercased.  A
+     client that names no encoding gets identity, and hears that the
+     server takes zstd. */
   ulong n = test_web_call( server, ROUTE_STREAM,
-                           "content-type: application/grpc-web+proto\r\nX-Token: abc\r\ngrpc-accept-encoding: zstd\r\n",
-                           "S\x03", 2UL, 0UL, out, sizeof(out), &conn );
+                           "content-type: application/grpc-web+proto\r\nX-Token: abc\r\n",
+                           0, "S\x03", 2UL, 0UL, out, sizeof(out), &conn );
   FD_TEST( !strncmp( (char *)out, TEST_WEB_HEAD, sizeof(TEST_WEB_HEAD)-1UL ) );
   FD_TEST( strstr( (char *)out, "connection: close\r\n" ) );
+  FD_TEST( strstr( (char *)out, "grpc-accept-encoding: zstd\r\n" ) );
+  FD_TEST( !strstr( (char *)out, "grpc-encoding:" ) );
   uchar const * body = (uchar const *)strstr( (char *)out, "\r\n\r\n" )+4;
   for( ulong i=0UL; i<3UL; i++ ) {
     FD_TEST( body[ i*261UL ]==0 );
@@ -1742,26 +1772,59 @@ test_grpc_web( void ) {
   FD_TEST( g_app->stream[0].half_close_cnt==1 );
   FD_TEST( g_app->stream[0].close_cnt==1 && g_app->stream[0].close_reason==FD_GRPC_SERVER_CLOSE_FINISHED );
 
+  /* A client that accepts zstd gets the messages compressed */
+  n = test_web_call( server, ROUTE_STREAM,
+                     "content-type: application/grpc-web+proto\r\nGrpc-Accept-Encoding: gzip, zstd\r\nx-token: zz\r\n",
+                     0, "S\x03", 2UL, 0UL, out, sizeof(out), &conn );
+  FD_TEST( !strncmp( (char *)out, TEST_WEB_HEAD, sizeof(TEST_WEB_HEAD)-1UL ) );
+  FD_TEST( strstr( (char *)out, "grpc-encoding: zstd\r\n" ) );
+  FD_TEST( strstr( (char *)out, "grpc-accept-encoding: zstd\r\n" ) );
+  FD_TEST( !strcmp( g_app->stream[1].token, "zz" ) );
+  body = (uchar const *)strstr( (char *)out, "\r\n\r\n" )+4;
+  ulong body_sz = (ulong)( out+n-body );
+  for( ulong i=0UL; i<3UL; i++ ) {
+    FD_TEST( body_sz>=5UL && body[0]==1 );
+    ulong sz = fd_uint_bswap( FD_LOAD( uint, body+1 ) );
+    FD_TEST( sz<256UL && body_sz>=5UL+sz );
+    static uchar plain[ 256 ];
+    FD_TEST( test_zstd_decode( plain, sizeof(plain), body+5, sz )==256UL );
+    FD_TEST( plain[0]==0x40 && plain[255]==(uchar)( 0x40+(255&0x1f) ) );
+    body += 5UL+sz; body_sz -= 5UL+sz;
+  }
+  FD_TEST( body_sz==5UL+15UL );
+  test_web_trailer( out, n, "grpc-status:0\r\n" );
+
+  /* A compressed request needs its encoding named */
+  static uchar gz[ 256 ];
+  ulong gz_sz = test_zstd_encode( gz, sizeof(gz), "hi", 2UL );
+  n = test_web_call( server, ROUTE_UNARY, "content-type: application/grpc-web+proto\r\nGRPC-Encoding: zstd\r\n",
+                     1, gz, gz_sz, 0UL, out, sizeof(out), &conn );
+  body = (uchar const *)strstr( (char *)out, "\r\n\r\n" )+4;
+  FD_TEST( body[0]==0 && fd_uint_bswap( FD_LOAD( uint, body+1 ) )==2U && fd_memeq( body+5, "hi", 2UL ) );
+  test_web_trailer( out, n, "grpc-status:0\r\n" );
+  n = test_web_call( server, ROUTE_UNARY, ct, 1, gz, gz_sz, 0UL, out, sizeof(out), &conn );
+  test_web_trailer( out, n, "grpc-status:12\r\ngrpc-message:grpc: unsupported message encoding\r\n" );
+
   /* Unary, with the request arriving in two reads: part of the body
      missing, or so little that "P" could still be the HTTP/2 preface */
   ulong head_sz = strlen( "POST " ROUTE_UNARY " HTTP/1.1\r\nContent-Length: 7\r\n\r\n" ) + strlen( ct );
   ulong splits[ 2 ] = { head_sz+2UL, 1UL };
   for( ulong i=0UL; i<2UL; i++ ) {
-    n = test_web_call( server, ROUTE_UNARY, ct, "hi", 2UL, splits[ i ], out, sizeof(out), &conn );
+    n = test_web_call( server, ROUTE_UNARY, ct, 0, "hi", 2UL, splits[ i ], out, sizeof(out), &conn );
     body = (uchar const *)strstr( (char *)out, "\r\n\r\n" )+4;
     FD_TEST( body[0]==0 && fd_uint_bswap( FD_LOAD( uint, body+1 ) )==2U && fd_memeq( body+5, "hi", 2UL ) );
     test_web_trailer( out, n, "grpc-status:0\r\n" );
   }
 
   /* A call that fails carries only the trailers, percent-encoded */
-  n = test_web_call( server, ROUTE_PCT, ct, "x", 1UL, 0UL, out, sizeof(out), &conn );
+  n = test_web_call( server, ROUTE_PCT, ct, 0, "x", 1UL, 0UL, out, sizeof(out), &conn );
   FD_TEST( !strncmp( (char *)out, TEST_WEB_HEAD, sizeof(TEST_WEB_HEAD)-1UL ) );
   test_web_trailer( out, n, "grpc-status:13\r\ngrpc-message:bad%09token %80 50%25\r\n" );
-  n = test_web_call( server, "/test.Svc/Nope", ct, "x", 1UL, 0UL, out, sizeof(out), &conn );
+  n = test_web_call( server, "/test.Svc/Nope", ct, 0, "x", 1UL, 0UL, out, sizeof(out), &conn );
   test_web_trailer( out, n, "grpc-status:12\r\ngrpc-message:unknown method\r\n" );
 
   /* Not gRPC-Web, or not delimited */
-  test_web_call( server, ROUTE_UNARY, "Content-Type: application/json\r\n", "x", 1UL, 0UL, out, sizeof(out), &conn );
+  test_web_call( server, ROUTE_UNARY, "Content-Type: application/json\r\n", 0, "x", 1UL, 0UL, out, sizeof(out), &conn );
   FD_TEST( !strncmp( (char *)out, "HTTP/1.1 415 ", 13UL ) );
   n = test_http1( server, "POST /test.Svc/Unary HTTP/1.1\r\nContent-Type: application/grpc-web\r\n\r\n", (char *)out, sizeof(out), 1 );
   FD_TEST( n && !strncmp( (char *)out, "HTTP/1.1 411 ", 13UL ) );
@@ -1769,7 +1832,9 @@ test_grpc_web( void ) {
   /* A call outlives the HTTP/2 handshake timeout, and a client that
      goes away ends it */
   ulong stream_cnt = g_app->stream_cnt;
-  test_web_call( server, ROUTE_SLOW, ct, "Q", 1UL, 0UL, out, sizeof(out), &conn );
+  test_web_call( server, ROUTE_SLOW, "content-type: application/grpc-web+proto\r\ngrpc-timeout: 5S\r\n",
+                 0, "Q", 1UL, 0UL, out, sizeof(out), &conn );
+  FD_TEST( conn->stream[0].deadline==1000L*1000L*1000L + 5L*1000L*1000L*1000L );
   fd_grpc_server_service( server, 1000L*1000L*1000L + 2L*server->params.handshake_timeout_nanos );
   FD_TEST( fd_grpc_server_conn_is_open( conn ) );
   test_app_stream_t * slow = g_app->stream+stream_cnt;
@@ -1777,6 +1842,20 @@ test_grpc_web( void ) {
   fd_grpc_server_conn_close( conn );
   FD_TEST( slow->close_cnt==1 && slow->close_reason==FD_GRPC_SERVER_CLOSE_CONN_LOST );
 
+  test_server_delete( server );
+
+  /* Compression off */
+  server = test_server_new( FD_GRPC_SERVER_COMPRESSION_NONE, 4096UL, 8192UL );
+  n = test_web_call( server, ROUTE_UNARY, "content-type: application/grpc-web+proto\r\ngrpc-accept-encoding: zstd\r\n",
+                     0, "hi", 2UL, 0UL, out, sizeof(out), &conn );
+  FD_TEST( strstr( (char *)out, "grpc-accept-encoding: identity\r\n" ) );
+  FD_TEST( !strstr( (char *)out, "grpc-encoding:" ) );
+  body = (uchar const *)strstr( (char *)out, "\r\n\r\n" )+4;
+  FD_TEST( body[0]==0 && fd_uint_bswap( FD_LOAD( uint, body+1 ) )==2U && fd_memeq( body+5, "hi", 2UL ) );
+  test_web_trailer( out, n, "grpc-status:0\r\n" );
+  n = test_web_call( server, ROUTE_UNARY, "content-type: application/grpc-web+proto\r\ngrpc-encoding: zstd\r\n",
+                     1, gz, gz_sz, 0UL, out, sizeof(out), &conn );
+  test_web_trailer( out, n, "grpc-status:12\r\ngrpc-message:grpc: compressed requests are not supported\r\n" );
   test_server_delete( server );
   g_opt_web = 0;
 }

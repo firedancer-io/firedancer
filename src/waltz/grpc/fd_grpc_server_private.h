@@ -26,9 +26,6 @@
 
 /* Header IDs for the request header matcher. */
 
-#define FD_GRPC_SERVER_HDR_TIMEOUT          (1)
-#define FD_GRPC_SERVER_HDR_ENCODING         (2)
-#define FD_GRPC_SERVER_HDR_ACCEPT_ENCODING  (3)
 #define FD_GRPC_SERVER_HDR_TE               (4)
 #define FD_GRPC_SERVER_HDR_CONNECTION       (5)
 #define FD_GRPC_SERVER_HDR_KEEP_ALIVE       (6)
@@ -207,6 +204,17 @@ void fd_grpc_server_ref_advance  ( fd_grpc_server_stream_t * stream, ulong sz );
 void fd_grpc_server_conn_closing ( fd_grpc_server_conn_t * conn );
 int  fd_grpc_server_hdr_name_valid ( char const * name,  ulong name_len  );
 int  fd_grpc_server_hdr_value_valid( char const * value, ulong value_len );
+
+/* fd_grpc_server_transport_hdr applies a grpc-timeout, grpc-encoding or
+   grpc-accept-encoding header to the stream and returns 1, else 0. */
+
+int
+fd_grpc_server_transport_hdr( fd_grpc_server_stream_t * stream,
+                              char const *              name,
+                              ulong                     name_len,
+                              char const *              value,
+                              ulong                     value_len );
+
 ulong fd_grpc_server_pct_encode( char * out, ulong out_max, char const * in, ulong in_len );
 ulong fd_grpc_server_wr_uint   ( char * out, uint value );
 

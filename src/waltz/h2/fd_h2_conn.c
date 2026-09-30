@@ -114,8 +114,8 @@ fd_h2_rx_data( fd_h2_conn_t *            conn,
   ulong rbuf_avail = fd_h2_rbuf_used_sz( rbuf_rx );
   uint  stream_id  = conn->rx_stream_id;
   uint  chunk_sz   = (uint)fd_ulong_min( frame_rem, rbuf_avail );
-  uint  fin_flag   = conn->rx_frame_flags & FD_H2_FLAG_END_STREAM;
-  if( rbuf_avail<frame_rem ) fin_flag = 0;
+  uint  frame_done = chunk_sz==frame_rem;
+  uint  fin_flag   = frame_done ? ( conn->rx_frame_flags & FD_H2_FLAG_END_STREAM ) : 0U;
 
   /* The Pad Length and Padding fields count against the flow control
      windows too (RFC 9113 Section 6.9.1), but are not delivered to the
@@ -161,11 +161,11 @@ fd_h2_rx_data( fd_h2_conn_t *            conn,
   stream->rx_wnd -= fc_sz;
 
   /* The stream receive window is kept above half its initial size, so
-     the peer always has credit to send on.  The bytes are consumed from
-     rbuf_rx no matter what the data callbacks below do, so the credit
-     can be returned right away. */
+     the peer always has credit to send on.  A frame is charged chunk
+     by chunk, so the credit goes back once the whole frame is in. */
   uint stream_wnd_max = conn->self_settings.initial_window_size;
-  if( FD_UNLIKELY( ( !fin_flag                             ) &
+  if( FD_UNLIKELY( ( frame_done                             ) &
+                   ( !fin_flag                             ) &
                    ( stream->rx_wnd < stream_wnd_max/2U     ) &
                    ( stream_wnd_max <= 0x7fffffffU          ) ) ) {
     fd_h2_tx_window_update( rbuf_tx, stream_id, stream_wnd_max - stream->rx_wnd );
@@ -201,7 +201,7 @@ fd_h2_rx_data( fd_h2_conn_t *            conn,
 skip_frame:
   conn->rx_data_cnt_rem -= chunk_sz;
   fd_h2_rbuf_skip( rbuf_rx, chunk_sz );
-  if( FD_UNLIKELY( conn->rx_wnd < conn->rx_wnd_wmark ) ) {
+  if( FD_UNLIKELY( frame_done & ( conn->rx_wnd < conn->rx_wnd_wmark ) ) ) {
     conn->flags |= FD_H2_CONN_FLAGS_WINDOW_UPDATE;
   }
 }
@@ -348,10 +348,13 @@ fd_h2_rx_continuation( fd_h2_conn_t *            conn,
   }
 
   /* The stream was refused or reset while the field block was still in
-     flight.  The peer was already told, so drop the rest of the block;
-     its dynamic table insertions are not applied. */
+     flight.  The rest of the block is still decoded, with a NULL
+     stream, so the dynamic table stays in sync. */
   fd_h2_stream_t * stream = cb->stream_query( conn, stream_id );
-  if( FD_UNLIKELY( !stream ) ) return 1;
+  if( FD_UNLIKELY( !stream ) ) {
+    cb->headers( conn, NULL, payload, payload_sz, frame_flags );
+    return 1;
+  }
 
   /* A CONTINUATION frame carries no END_STREAM, so this only advances
      the header sequence, even on a stream the HEADERS frame half

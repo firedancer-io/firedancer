@@ -237,9 +237,6 @@ static void
 fd_grpc_server_matcher_init( fd_h2_hdr_matcher_t * matcher,
                              ulong                 seed ) {
   fd_h2_hdr_matcher_init( matcher, seed );
-  fd_h2_hdr_matcher_insert_literal( matcher, FD_GRPC_SERVER_HDR_TIMEOUT,          "grpc-timeout"         );
-  fd_h2_hdr_matcher_insert_literal( matcher, FD_GRPC_SERVER_HDR_ENCODING,         "grpc-encoding"        );
-  fd_h2_hdr_matcher_insert_literal( matcher, FD_GRPC_SERVER_HDR_ACCEPT_ENCODING,  "grpc-accept-encoding" );
   fd_h2_hdr_matcher_insert_literal( matcher, FD_GRPC_SERVER_HDR_TE,               "te"                   );
   fd_h2_hdr_matcher_insert_literal( matcher, FD_GRPC_SERVER_HDR_CONNECTION,       "connection"           );
   fd_h2_hdr_matcher_insert_literal( matcher, FD_GRPC_SERVER_HDR_KEEP_ALIVE,       "keep-alive"           );
@@ -527,6 +524,7 @@ fd_grpc_server_stream_end( fd_grpc_server_stream_t * stream,
   fd_grpc_server_t *      server = conn->server;
   if( stream->flags & FD_GRPC_SERVER_STREAM_FLAG_APP_OPEN ) {
     stream->flags &= ~FD_GRPC_SERVER_STREAM_FLAG_APP_OPEN;
+    stream->state = FD_GRPC_SERVER_STREAM_FINISH; /* sends from the callback are refused */
     server->callbacks->stream_close( server->app_ctx, stream, reason );
   }
   fd_grpc_server_stream_release( stream );
@@ -931,7 +929,8 @@ fd_grpc_server_send_multi( fd_grpc_server_stream_t ** streams,
   if( raw_cnt  ) fd_grpc_server_stage_msg( server, msg,                  msg_sz,  0U, &raw_base,  &raw_len  );
   if( zstd_cnt ) fd_grpc_server_stage_msg( server, server->compress_out, zstd_sz, 1U, &zstd_base, &zstd_len );
 
-  ulong sent = 0UL;
+  ulong raw_sent  = 0UL;
+  ulong zstd_sent = 0UL;
   for( ulong i=0UL; i<stream_cnt; i++ ) {
     if( err[ i ]!=GRPC_SEND_RAW && err[ i ]!=GRPC_SEND_ZSTD ) continue;
     fd_grpc_server_stream_t * stream = streams[ i ];
@@ -950,10 +949,11 @@ fd_grpc_server_send_multi( fd_grpc_server_stream_t ** streams,
     server->metrics.tx_byte_cnt_wire += len-sizeof(fd_grpc_hdr_t);
     if( zstd ) server->metrics.tx_msg_compressed_cnt++;
     stream->resp_deadline = LONG_MAX;
-    sent++;
+    if( zstd ) zstd_sent++;
+    else       raw_sent++;
   }
-  if( sent>1UL ) server->metrics.tx_msg_shared_cnt += sent-1UL;
-  return sent;
+  server->metrics.tx_msg_shared_cnt += fd_ulong_max( raw_sent, 1UL )-1UL + fd_ulong_max( zstd_sent, 1UL )-1UL;
+  return raw_sent+zstd_sent;
 }
 
 int
@@ -1176,6 +1176,34 @@ fd_grpc_server_list_has( char const * value,
   return 0;
 }
 
+int
+fd_grpc_server_transport_hdr( fd_grpc_server_stream_t * stream,
+                              char const *              name,
+                              ulong                     name_len,
+                              char const *              value,
+                              ulong                     value_len ) {
+  fd_grpc_server_t * server = stream->conn->server;
+  if( name_len==12UL && fd_memeq( name, "grpc-timeout", 12UL ) ) {
+    long timeout = fd_grpc_server_parse_timeout( value, value_len );
+    if( timeout!=LONG_MAX ) stream->deadline = fd_long_sat_add( server->now, timeout );
+    return 1;
+  }
+  if( name_len==13UL && fd_memeq( name, "grpc-encoding", 13UL ) ) {
+    if( ( value_len==4UL ) && fd_memeq( value, "zstd", 4UL ) ) {
+      stream->flags |= FD_GRPC_SERVER_STREAM_FLAG_RX_ZSTD;
+    }
+    return 1;
+  }
+  if( name_len==20UL && fd_memeq( name, "grpc-accept-encoding", 20UL ) ) {
+    if( ( server->params.compression==FD_GRPC_SERVER_COMPRESSION_ZSTD ) &&
+        fd_grpc_server_list_has( value, value_len, "zstd", 4UL ) ) {
+      stream->flags |= FD_GRPC_SERVER_STREAM_FLAG_TX_ZSTD;
+    }
+    return 1;
+  }
+  return 0;
+}
+
 /* Bits of the pseudo-header set */
 
 #define FD_GRPC_SERVER_PSEUDO_METHOD    (1U<<0)
@@ -1310,6 +1338,8 @@ fd_grpc_server_rx_request_hdrs( fd_grpc_server_stream_t * stream,
 
     regular_seen = 1;
 
+    if( fd_grpc_server_transport_hdr( stream, name, name_len, value, value_len ) ) continue;
+
     switch( id ) {
     case FD_H2_HDR_TRANSFER_ENCODING:
     case FD_GRPC_SERVER_HDR_CONNECTION:
@@ -1326,22 +1356,6 @@ fd_grpc_server_rx_request_hdrs( fd_grpc_server_stream_t * stream,
     case FD_H2_HDR_CONTENT_TYPE:
       content_type = ( value_len>=sizeof(FD_GRPC_SERVER_CONTENT_TYPE)-1UL ) &&
                      fd_memeq( value, FD_GRPC_SERVER_CONTENT_TYPE, sizeof(FD_GRPC_SERVER_CONTENT_TYPE)-1UL );
-      continue;
-    case FD_GRPC_SERVER_HDR_TIMEOUT: {
-      long timeout = fd_grpc_server_parse_timeout( value, value_len );
-      if( timeout!=LONG_MAX ) stream->deadline = fd_long_sat_add( server->now, timeout );
-      continue;
-    }
-    case FD_GRPC_SERVER_HDR_ENCODING:
-      if( ( value_len==4UL ) && fd_memeq( value, "zstd", 4UL ) ) {
-        stream->flags |= FD_GRPC_SERVER_STREAM_FLAG_RX_ZSTD;
-      }
-      continue;
-    case FD_GRPC_SERVER_HDR_ACCEPT_ENCODING:
-      if( ( server->params.compression==FD_GRPC_SERVER_COMPRESSION_ZSTD ) &&
-          fd_grpc_server_list_has( value, value_len, "zstd", 4UL ) ) {
-        stream->flags |= FD_GRPC_SERVER_STREAM_FLAG_TX_ZSTD;
-      }
       continue;
     default:
       break;

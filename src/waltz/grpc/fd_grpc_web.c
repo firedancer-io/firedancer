@@ -148,6 +148,7 @@ fd_grpc_web_conn_rx( fd_grpc_server_conn_t * conn ) {
         ( h->name_len==12UL && fd_memeq( name, "content-type",   12UL ) ) ||
         !fd_grpc_server_hdr_name_valid ( name,     h->name_len  ) ||
         !fd_grpc_server_hdr_value_valid( h->value, h->value_len ) ) continue;
+    if( fd_grpc_server_transport_hdr( stream, name, h->name_len, h->value, h->value_len ) ) continue;
     server->callbacks->stream_hdr( server->app_ctx, stream, name, h->name_len, h->value, h->value_len );
     if( FD_UNLIKELY( stream->state==FD_GRPC_SERVER_STREAM_FREE ) ) return;
   }
@@ -160,11 +161,6 @@ fd_grpc_web_conn_rx( fd_grpc_server_conn_t * conn ) {
 
 static void
 fd_grpc_web_stream_flush( fd_grpc_server_stream_t * stream ) {
-  static char const head[] = "HTTP/1.1 200 OK\r\n"
-                             "content-type: application/grpc-web+proto\r\n"
-                             "cache-control: no-store\r\n"
-                             "connection: close\r\n"
-                             "\r\n";
   fd_grpc_server_conn_t * conn    = stream->conn;
   fd_grpc_server_t *      server  = conn->server;
   fd_h2_rbuf_t *          rbuf_tx = conn->rbuf_tx;
@@ -179,8 +175,20 @@ fd_grpc_web_stream_flush( fd_grpc_server_stream_t * stream ) {
 
   if( !( stream->flags & FD_GRPC_SERVER_STREAM_FLAG_RESP_HDRS ) ) {
     if( !stream->ref_cnt && stream->state!=FD_GRPC_SERVER_STREAM_FINISH ) return;
-    if( FD_UNLIKELY( fd_h2_rbuf_free_sz( rbuf_tx )<sizeof(head)-1UL ) ) return;
-    fd_h2_rbuf_push( rbuf_tx, head, sizeof(head)-1UL );
+    char  head[ 256 ];
+    ulong head_len = 0UL;
+    FD_TEST( fd_cstr_printf_check( head, sizeof(head), &head_len,
+                                   "HTTP/1.1 200 OK\r\n"
+                                   "content-type: application/grpc-web+proto\r\n"
+                                   "%s"
+                                   "grpc-accept-encoding: %s\r\n"
+                                   "cache-control: no-store\r\n"
+                                   "connection: close\r\n"
+                                   "\r\n",
+                                   ( stream->flags & FD_GRPC_SERVER_STREAM_FLAG_TX_ZSTD ) ? "grpc-encoding: zstd\r\n" : "",
+                                   server->dctx ? "zstd" : "identity" ) );
+    if( FD_UNLIKELY( fd_h2_rbuf_free_sz( rbuf_tx )<head_len ) ) return;
+    fd_h2_rbuf_push( rbuf_tx, head, head_len );
     stream->flags |= FD_GRPC_SERVER_STREAM_FLAG_RESP_HDRS;
   }
 
