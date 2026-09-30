@@ -149,7 +149,7 @@ fd_ssmanifest_writer_init( fd_ssmanifest_writer_t * enc,
   ulong map_cnt         = 0UL;
   int   use_fixed_point = FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 );
 
-  FD_CHECK_CRIT( bank->stake_delegations_fork_id==USHORT_MAX, "snapshot bank is not rooted" );
+  FD_CHECK_CRIT( bank->stake_delegations_fork_id==USHORT_MAX, "snapshot bank is not the root" );
   fd_stake_delegations_view_begin( stake_delegations, bank->f.epoch, &enc->stake_history, &bank->f.warmup_cooldown_rate_epoch, use_fixed_point, USHORT_MAX );
   fd_stake_delegations_iter_t iter_[1];
   for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
