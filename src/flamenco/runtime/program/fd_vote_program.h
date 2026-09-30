@@ -45,10 +45,6 @@
 #define FD_VOTE_ERR_ACTIVE_VOTE_ACCOUNT_CLOSE       (18)
 #define FD_VOTE_ERR_COMMISSION_UPDATE_TOO_LATE      (19)
 
-#define FD_VOTE_STATE_V2_SZ (3731UL)
-#define FD_VOTE_STATE_V3_SZ (3762UL)
-#define FD_VOTE_STATE_V4_SZ (3762UL)
-
 /* Target vote state version.
    https://github.com/anza-xyz/agave/blob/v4.1.0-alpha.0/programs/vote/src/vote_state/handler.rs#L33-L38 */
 #define VOTE_STATE_TARGET_VERSION_V4 (1)
