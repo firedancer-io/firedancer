@@ -1,6 +1,7 @@
 #include "../../ballet/shred/fd_shred.h"
 #include "fd_fec_set.h"
 #include "../../ballet/sha512/fd_sha512.h"
+#include "../../ballet/sha256/fd_sha256.h"
 #include "../../ballet/reedsol/fd_reedsol.h"
 #include "../metrics/fd_metrics.h"
 #include "fd_fec_resolver.h"
@@ -885,22 +886,22 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
 
   uchar const * chained_root = fd_ptr_if( fd_shred_is_chained( shred_type ), (uchar *)shred+fd_shred_chain_off( variant ), NULL );
 
-  /* Iterate over recovered shreds, add them to the Merkle tree,
-     populate headers and signatures. */
+  /* Populate the recovered shreds' headers and hash their leaves in
+     sha256 batches.  As in the shredder, the leaf prefix sits in the
+     unwritten signature tail; the signature is copied in afterwards. */
+  ulong const prefix_off = sizeof(fd_ed25519_sig_t)-FD_BMTREE_LONG_PREFIX_SZ;
+  fd_bmtree_node_t leaves[ 2UL*FD_FEC_SHRED_CNT ];
+  uchar batch_mem[ FD_SHA256_BATCH_FOOTPRINT ] __attribute__((aligned(FD_SHA256_BATCH_ALIGN)));
+  fd_sha256_batch_t * batch = fd_sha256_batch_init( batch_mem );
+
   for( ulong i=0UL; i<FD_FEC_SHRED_CNT; i++ ) {
     if( !(set->data_shred_rcvd&(1U<<i)) ) {
-      fd_memcpy( set->data_shreds[i].b, shred, sizeof(fd_ed25519_sig_t) );
       if( FD_LIKELY( fd_shred_is_chained( shred_type ) ) ) {
         fd_memcpy( set->data_shreds[i].b+fd_shred_chain_off( ctx->data_variant ), chained_root, FD_SHRED_MERKLE_ROOT_SZ );
       }
       if( FD_LIKELY( !resolver->bypass_verify ) ) {
-        fd_bmtree_hash_leaf( leaf, set->data_shreds[i].b+sizeof(fd_ed25519_sig_t), data_merkle_protected_sz, FD_BMTREE_LONG_PREFIX_SZ );
-        if( FD_UNLIKELY( !fd_bmtree_commitp_insert_with_proof( tree, i, leaf, NULL, 0, NULL ) ) ) {
-          ctx_list_ele_push_tail( free_list, ctx, ctx_pool );
-          resolver->free_list_cnt++;
-          FD_MCNT_INC( SHRED, FEC_FATAL_REJECTED, 1UL );
-          return FD_FEC_RESOLVER_SHRED_REJECTED;
-        }
+        fd_memcpy( set->data_shreds[i].b+prefix_off, fd_bmtree_leaf_prefix, FD_BMTREE_LONG_PREFIX_SZ );
+        fd_sha256_batch_add( batch, set->data_shreds[i].b+prefix_off, data_merkle_protected_sz+FD_BMTREE_LONG_PREFIX_SZ, leaves[ i ].hash );
       }
     }
   }
@@ -908,7 +909,6 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
   for( ulong i=0UL; i<FD_FEC_SHRED_CNT; i++ ) {
     if( !(set->parity_shred_rcvd&(1U<<i)) ) {
       fd_shred_t * p_shred = set->parity_shreds[i].s; /* We can't parse because we haven't populated the header */
-      fd_memcpy( p_shred->signature, shred->signature, sizeof(fd_ed25519_sig_t) );
       p_shred->variant       = ctx->parity_variant;
       p_shred->slot          = shred->slot;
       p_shred->idx           = (uint)(i + ctx->fec_set_idx);
@@ -921,10 +921,34 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
       if( FD_LIKELY( fd_shred_is_chained( shred_type ) ) ) {
         fd_memcpy( set->parity_shreds[i].b+fd_shred_chain_off( ctx->parity_variant ), chained_root, FD_SHRED_MERKLE_ROOT_SZ );
       }
-
       if( FD_LIKELY( !resolver->bypass_verify ) ) {
-        fd_bmtree_hash_leaf( leaf, set->parity_shreds[i].b+sizeof(fd_ed25519_sig_t), parity_merkle_protected_sz, FD_BMTREE_LONG_PREFIX_SZ );
-        if( FD_UNLIKELY( !fd_bmtree_commitp_insert_with_proof( tree, FD_FEC_SHRED_CNT + i, leaf, NULL, 0, NULL ) ) ) {
+        fd_memcpy( set->parity_shreds[i].b+prefix_off, fd_bmtree_leaf_prefix, FD_BMTREE_LONG_PREFIX_SZ );
+        fd_sha256_batch_add( batch, set->parity_shreds[i].b+prefix_off, parity_merkle_protected_sz+FD_BMTREE_LONG_PREFIX_SZ, leaves[ FD_FEC_SHRED_CNT+i ].hash );
+      }
+    }
+  }
+  fd_sha256_batch_fini( batch );
+
+  /* Copy the signatures in, then insert the leaves in the same order */
+  for( ulong i=0UL; i<FD_FEC_SHRED_CNT; i++ ) {
+    if( !(set->data_shred_rcvd&(1U<<i)) ) {
+      fd_memcpy( set->data_shreds[i].b, shred, sizeof(fd_ed25519_sig_t) );
+      if( FD_LIKELY( !resolver->bypass_verify ) ) {
+        if( FD_UNLIKELY( !fd_bmtree_commitp_insert_with_proof( tree, i, leaves+i, NULL, 0, NULL ) ) ) {
+          ctx_list_ele_push_tail( free_list, ctx, ctx_pool );
+          resolver->free_list_cnt++;
+          FD_MCNT_INC( SHRED, FEC_FATAL_REJECTED, 1UL );
+          return FD_FEC_RESOLVER_SHRED_REJECTED;
+        }
+      }
+    }
+  }
+
+  for( ulong i=0UL; i<FD_FEC_SHRED_CNT; i++ ) {
+    if( !(set->parity_shred_rcvd&(1U<<i)) ) {
+      fd_memcpy( set->parity_shreds[i].s->signature, shred->signature, sizeof(fd_ed25519_sig_t) );
+      if( FD_LIKELY( !resolver->bypass_verify ) ) {
+        if( FD_UNLIKELY( !fd_bmtree_commitp_insert_with_proof( tree, FD_FEC_SHRED_CNT + i, leaves+FD_FEC_SHRED_CNT+i, NULL, 0, NULL ) ) ) {
           ctx_list_ele_push_tail( free_list, ctx, ctx_pool );
           resolver->free_list_cnt++;
           FD_MCNT_INC( SHRED, FEC_FATAL_REJECTED, 1UL );
