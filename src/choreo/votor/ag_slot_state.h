@@ -49,6 +49,7 @@ typedef struct ag_block_hash_set ag_block_hash_set_t;
 
 struct ag_slot_votes {
   ag_slot_voted_stake_hash_t notar_stake_map[ AG_NOTAR_MAP_SLOT_CNT ];
+  fd_bls_set_t               notar_set      [ fd_bls_set_word_cnt ];
   fd_bls_sig_t               notar_sig      [ AG_VAT_MAX ];
   ag_slot_voted_stake_hash_t notar_fallback_stake_map[ AG_NOTAR_FALLBACK_MAP_SLOT_CNT ];
   fd_bls_sig_t               notar_fallback_sig      [ AG_VAT_MAX ][ AG_NOTAR_FALLBACK_VOTE_MAX ];

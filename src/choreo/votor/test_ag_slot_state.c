@@ -322,6 +322,43 @@ test_should_ignore_duplicate_votes( void ) {
   free( em );
 }
 
+/* ag_slot_state_null leaves the per-rank signature arrays alone, so a
+   recycled slot state must not read stale signatures as votes. */
+
+static void
+test_null_ignores_stale_sigs( void ) {
+  ulong n = 6UL;
+  generate_validators( n );
+  void * em; ag_epoch_info_t * epoch_info = make_epoch( n, &em );
+  ulong slot = 1UL;
+  ag_block_hash_t hash; random_hash( hash );
+  out_t t;
+
+  fd_memset( &slot_state_mem.votes, 0x5a, sizeof(slot_state_mem.votes) );
+  ag_slot_state_t * ss = make_state( slot, epoch_info );
+
+  ag_vote_t n1 = ag_vote_construct_notar( sec_sign_fn, &g_sk[1], test_bls_public_key, slot, hash, 1UL, TEST_SHRED_VERSION );
+  ag_vote_t s1 = ag_vote_construct_skip ( sec_sign_fn, &g_sk[1], test_bls_public_key, slot, 1UL,       TEST_SHRED_VERSION );
+  ag_vote_t f1 = ag_vote_construct_final( sec_sign_fn, &g_sk[1], test_bls_public_key, slot, 1UL,       TEST_SHRED_VERSION );
+  FD_TEST( ag_slot_state_check_slashable_offence( ss, &n1 )==AG_SLASHABLE_NONE );
+  FD_TEST( ag_slot_state_check_slashable_offence( ss, &s1 )==AG_SLASHABLE_NONE );
+  FD_TEST( ag_slot_state_check_slashable_offence( ss, &f1 )==AG_SLASHABLE_NONE );
+  FD_TEST( !ag_slot_state_should_ignore_vote( ss, &n1 ) );
+  FD_TEST( !ag_slot_state_should_ignore_vote( ss, &s1 ) );
+
+  add_vote_helper( ss, &n1, epoch_info, &t );
+  FD_TEST( t.ok && ag_slot_state_should_ignore_vote( ss, &n1 ) );
+  FD_TEST( ag_slot_state_check_slashable_offence( ss, &s1 )==AG_SLASHABLE_SKIP_AND_NOTARIZE );
+
+  ag_vote_t s2 = ag_vote_construct_skip( sec_sign_fn, &g_sk[2], test_bls_public_key, slot, 2UL, TEST_SHRED_VERSION );
+  add_vote_helper( ss, &s2, epoch_info, &t );
+  FD_TEST( t.ok && ag_slot_state_should_ignore_vote( ss, &s2 ) );
+  ag_vote_t f2 = ag_vote_construct_final( sec_sign_fn, &g_sk[2], test_bls_public_key, slot, 2UL, TEST_SHRED_VERSION );
+  FD_TEST( ag_slot_state_check_slashable_offence( ss, &f2 )==AG_SLASHABLE_SKIP_AND_FINALIZE );
+
+  free( em );
+}
+
 /* src/consensus/pool/slot_state.rs::count_finalize_creates_cert_at_quorum */
 
 static void
@@ -872,6 +909,7 @@ main( int     argc,
   test_slashable_notar_fallback_and_finalize();
   test_slashable_offence_none();
   test_should_ignore_duplicate_votes();
+  test_null_ignores_stale_sigs();
   test_count_finalize_creates_cert_at_quorum();
   test_count_notar_fallback_creates_cert_at_quorum();
   test_poisoned_notar_aggregate();
