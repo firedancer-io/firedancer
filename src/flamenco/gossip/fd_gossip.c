@@ -1192,14 +1192,25 @@ tx_pull_request( fd_gossip_t *       gossip,
   ulong start_hash, end_hash;
   fd_gossip_purged_generate_masks( mask, mask_bits, &start_hash, &end_hash );
   fd_gossip_hset_t const * hsets[ 2 ] = { fd_crds_hset( gossip->crds ), fd_gossip_purged_hset( gossip->purged ) };
+  /* Chunks are hashed in pairs (fd_bloom_insert16 interleaves the two
+     chains); an odd chunk waits for the next one, the hsets are not
+     modified while we scan so its hashes stay put. */
+  uchar const * pend_hashes = NULL;
+  uint          pend_lanes  = 0U;
   for( ulong i=0UL; i<2UL; i++ ) {
     fd_gossip_hset_iter_t it[1];
     for( fd_gossip_hset_iter_init( it, hsets[ i ], start_hash, end_hash );
          !fd_gossip_hset_iter_done( it );
          fd_gossip_hset_iter_next( it, hsets[ i ] ) ) {
-      fd_bloom_insert8( filter, fd_gossip_hset_iter_hashes( it, hsets[ i ] ), fd_gossip_hset_iter_lanes( it, hsets[ i ] ) );
+      uint lanes = fd_gossip_hset_iter_lanes( it, hsets[ i ] );
+      if( FD_UNLIKELY( !lanes ) ) continue;
+      uchar const * hashes = fd_gossip_hset_iter_hashes( it, hsets[ i ] );
+      if( !pend_lanes ) { pend_hashes = hashes; pend_lanes = lanes; continue; }
+      fd_bloom_insert16( filter, pend_hashes, pend_lanes, hashes, lanes );
+      pend_lanes = 0U;
     }
   }
+  if( pend_lanes ) fd_bloom_insert8( filter, pend_hashes, pend_lanes );
 
   int num_bits_set = 0;
   for( ulong i=0UL; i<bloom_word_cnt; i++ ) num_bits_set += fd_ulong_popcnt( bloom_bits[ i ] );

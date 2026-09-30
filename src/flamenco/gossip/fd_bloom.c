@@ -274,6 +274,51 @@ bloom_fnv8x4( wwv_t const * wq,
   wwv_st( h[0], h0 ); wwv_st( h[1], h1 ); wwv_st( h[2], h2 ); wwv_st( h[3], h3 );
 }
 
+/* bloom_fnv8x4x2 is bloom_fnv8x4 of two transposed 8 element blocks
+   under the same keys, 8 chains interleaved: 4 dependent multiplies
+   per byte do not fill the multiplier's pipeline, 8 nearly do. */
+
+static inline void
+bloom_fnv8x4x2( wwv_t const * wqa,
+                wwv_t const * wqb,
+                ulong const * keys,
+                ulong         cnt,
+                ulong         ha[ static 4 ][ 8 ],
+                ulong         hb[ static 4 ][ 8 ] ) {
+  wwv_t prime = wwv_bcast( 1099511628211UL );
+  wwv_t k0 = wwv_bcast( keys[ 0 ] );
+  wwv_t k1 = wwv_bcast( keys[ fd_ulong_if( cnt>1UL, 1UL, 0UL ) ] );
+  wwv_t k2 = wwv_bcast( keys[ fd_ulong_if( cnt>2UL, 2UL, 0UL ) ] );
+  wwv_t k3 = wwv_bcast( keys[ fd_ulong_if( cnt>3UL, 3UL, 0UL ) ] );
+  wwv_t a0 = k0; wwv_t a1 = k1; wwv_t a2 = k2; wwv_t a3 = k3;
+  wwv_t b0 = k0; wwv_t b1 = k1; wwv_t b2 = k2; wwv_t b3 = k3;
+  for( ulong k=0UL; k<4UL; k++ ) {
+    for( ulong b=0UL; b<8UL; b++ ) {
+      wwv_t xa = wwv_and( wwv_shr( wqa[ k ], 8UL*b ), wwv_bcast( 0xffUL ) );
+      wwv_t xb = wwv_and( wwv_shr( wqb[ k ], 8UL*b ), wwv_bcast( 0xffUL ) );
+      a0 = wwv_mul( wwv_xor( a0, xa ), prime ); b0 = wwv_mul( wwv_xor( b0, xb ), prime );
+      a1 = wwv_mul( wwv_xor( a1, xa ), prime ); b1 = wwv_mul( wwv_xor( b1, xb ), prime );
+      a2 = wwv_mul( wwv_xor( a2, xa ), prime ); b2 = wwv_mul( wwv_xor( b2, xb ), prime );
+      a3 = wwv_mul( wwv_xor( a3, xa ), prime ); b3 = wwv_mul( wwv_xor( b3, xb ), prime );
+    }
+  }
+  wwv_st( ha[0], a0 ); wwv_st( ha[1], a1 ); wwv_st( ha[2], a2 ); wwv_st( ha[3], a3 );
+  wwv_st( hb[0], b0 ); wwv_st( hb[1], b1 ); wwv_st( hb[2], b2 ); wwv_st( hb[3], b3 );
+}
+
+static inline void
+bloom_set8( ulong *       bits,
+            ulong         bits_len,
+            ulong         magic,
+            ulong         h[ static 4 ][ 8 ],
+            ulong         cnt,
+            uint          lane_mask ) {
+  for( uint m=lane_mask; m; m&=m-1U ) {
+    ulong j = (ulong)fd_uint_find_lsb( m );
+    for( ulong c=0UL; c<cnt; c++ ) bloom_set( bits, bits_len, magic, h[ c ][ j ] );
+  }
+}
+
 void
 fd_bloom_insert8( fd_bloom_t *  bloom,
                   uchar const * ele,
@@ -290,10 +335,35 @@ fd_bloom_insert8( fd_bloom_t *  bloom,
     ulong cnt = fd_ulong_min( bloom->keys_len-i, 4UL );
     ulong h[4][8] __attribute__((aligned(64)));
     bloom_fnv8x4( wq, bloom->keys+i, cnt, h );
-    for( uint m=lane_mask; m; m&=m-1U ) {
-      ulong j = (ulong)fd_uint_find_lsb( m );
-      for( ulong c=0UL; c<cnt; c++ ) bloom_set( bloom->bits, bits_len, magic, h[ c ][ j ] );
-    }
+    bloom_set8( bloom->bits, bits_len, magic, h, cnt, lane_mask );
+  }
+}
+
+void
+fd_bloom_insert16( fd_bloom_t *  bloom,
+                   uchar const * ele_a,
+                   uint          lanes_a,
+                   uchar const * ele_b,
+                   uint          lanes_b ) {
+  ulong bits_len = bloom->bits_len;
+  if( FD_UNLIKELY( !bits_len ) ) return;
+  if( FD_UNLIKELY( !lanes_a ) ) { fd_bloom_insert8( bloom, ele_b, lanes_b ); return; }
+  if( FD_UNLIKELY( !lanes_b ) ) { fd_bloom_insert8( bloom, ele_a, lanes_a ); return; }
+  ulong magic = ULONG_MAX/bits_len;
+
+  wwv_t wqa[4]; wwv_t wqb[4];
+  bloom_transpose8( ele_a, wqa );
+  bloom_transpose8( ele_b, wqb );
+  uint lane_mask_a = bloom_lane_mask( lanes_a );
+  uint lane_mask_b = bloom_lane_mask( lanes_b );
+
+  for( ulong i=0UL; i<bloom->keys_len; i+=4UL ) {
+    ulong cnt = fd_ulong_min( bloom->keys_len-i, 4UL );
+    ulong ha[4][8] __attribute__((aligned(64)));
+    ulong hb[4][8] __attribute__((aligned(64)));
+    bloom_fnv8x4x2( wqa, wqb, bloom->keys+i, cnt, ha, hb );
+    bloom_set8( bloom->bits, bits_len, magic, ha, cnt, lane_mask_a );
+    bloom_set8( bloom->bits, bits_len, magic, hb, cnt, lane_mask_b );
   }
 }
 
@@ -386,6 +456,16 @@ fd_bloom_insert8( fd_bloom_t *  bloom,
   for( ulong i=0UL; i<8UL; i++ ) {
     if( lanes & (1U<<i) ) fd_bloom_insert( bloom, ele+32UL*i, 32UL );
   }
+}
+
+void
+fd_bloom_insert16( fd_bloom_t *  bloom,
+                   uchar const * ele_a,
+                   uint          lanes_a,
+                   uchar const * ele_b,
+                   uint          lanes_b ) {
+  fd_bloom_insert8( bloom, ele_a, lanes_a );
+  fd_bloom_insert8( bloom, ele_b, lanes_b );
 }
 
 uint
