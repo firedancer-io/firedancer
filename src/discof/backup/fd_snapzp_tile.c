@@ -94,7 +94,6 @@ struct fd_snapzp {
     uint        acc_idx;
     ulong       data_rem;
     ulong       data_pad;
-    uchar *     dst;
     uchar       buf[ FD_RUNTIME_ACC_SZ_MAX ];
   } disk;
 
@@ -655,10 +654,8 @@ msg_acc_disk_start( fd_snapzp_t *                ctx,
   hdr->data_len   = data_len;
 
   ctx->raw_buf.size += sizeof(snap_acc_hdr_t);
-  ctx->disk.dst      = ctx->raw + ctx->raw_buf.size;
   ctx->disk.data_rem = FD_ACCDB_SIZE_DATA( frag->size );
   ctx->disk.data_pad = fd_ulong_align_up( data_len, 8UL ) - data_len;
-  ctx->raw_buf.size += data_len;
   return (ulong)frag->data_sz;
 }
 
@@ -697,15 +694,20 @@ msg_acc_disk( fd_snapzp_t * ctx,
   }
 
   /* defrag copy */
-  int     compressed = !!( ctx->disk.size & FD_ACCDB_DISK_COMPRESSED_BIT );
-  ulong   payload    = FD_ACCDB_SIZE_DATA( ctx->disk.size );
-  uchar * dst        = ( compressed ? ctx->disk.buf : ctx->disk.dst ) + ( payload-ctx->disk.data_rem );
-  ulong   take    = fd_ulong_min( ctx->disk.data_rem, frag_sz );
+  int   compressed = !!( ctx->disk.size & FD_ACCDB_DISK_COMPRESSED_BIT );
+  ulong take = fd_ulong_min( ctx->disk.data_rem, frag_sz );
   if( FD_LIKELY( take ) ) {
+    FD_CHECK_CRIT( ctx->raw_buf.size + take <= RAW_BUF_SZ,
+                   "internal bounds check failed" );
     FD_CHECK_CRIT( (ulong)frag           >= ctx->snaprd_data0 &&
                    (ulong)frag + frag_sz <= ctx->snaprd_data1,
                    "snaprd bounds check failed" );
-    fd_memcpy( dst, frag, take );
+    if( FD_LIKELY( compressed ) ) {
+      fd_memcpy( ctx->disk.buf + FD_ACCDB_SIZE_DATA( ctx->disk.size ) - ctx->disk.data_rem, frag, take );
+    } else {
+      fd_memcpy( ctx->raw + ctx->raw_buf.size, frag, take );
+      ctx->raw_buf.size  += take;
+    }
     ctx->disk.data_rem -= take;
     frag_sz            -= take;
   }
@@ -715,7 +717,10 @@ msg_acc_disk( fd_snapzp_t * ctx,
   /* finish defrag operation */
   if( eom ) {
     FD_CHECK_CRIT( !ctx->disk.data_rem, "invalid accdb disk frag stream: EOM frag seen but defrag not complete" );
-    if( FD_LIKELY( compressed ) ) fd_accdb_disk_unpack( ctx->disk.dst, ctx->disk.data_len, ctx->disk.size, ctx->disk.buf );
+    if( FD_LIKELY( compressed ) ) {
+      fd_accdb_disk_unpack( ctx->raw + ctx->raw_buf.size, ctx->disk.data_len, ctx->disk.size, ctx->disk.buf );
+      ctx->raw_buf.size += ctx->disk.data_len;
+    }
     if( ctx->disk.data_pad ) {
       FD_TEST( ctx->raw_buf.size + ctx->disk.data_pad <= RAW_BUF_SZ );
       fd_memset( ctx->raw + ctx->raw_buf.size, 0, ctx->disk.data_pad );
