@@ -613,6 +613,7 @@ deliberate exception with lint-allow="<rule id>")
     <int value="2" name="Vote" label="Deprecated, always 0 since Firedancer v26.11." />
     <int value="3" name="Conflicting" label="Transactions that write to a hotly-contended account" />
     <int value="4" name="Bundle" label="Transactions that are part of a bundle" />
+    <int value="5" name="NextAuction" label="Transactions that are currently held waiting for the next auction" />
 </enum>
 
 <enum name="BundleCrankResult">
@@ -620,6 +621,13 @@ deliberate exception with lint-allow="<rule id>")
     <int value="1" name="Inserted" label="Inserted an initializer bundle to update the on-chain state" />
     <int value="2" name="CreationFailed" label="Tried to insert an initializer bundle to update the on-chain state, but creation failed" />
     <int value="3" name="InsertionFailed" label="Tried to insert an initializer bundle to update the on-chain state, but insertion failed" />
+</enum>
+
+<enum name="PackAuctionEndReason">
+    <int value="0" name="Limit" label="An auction ended because the block reached the auction's CU limit" />
+    <int value="1" name="Restarted" label="An auction ended because a new auction was started" />
+    <int value="2" name="Final" label="An auction ended because the final 20ms of our leader rotation began" />
+    <int value="3" name="SlotEnd" label="An auction ended because the leader slot ended" />
 </enum>
 
 <tile name="pack">
@@ -664,6 +672,12 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="PreRotationBundleRejected" summary="Bundles that arrived while not leader that pack dropped because it was full of ones that declare at least as large a tip" />
     <counter name="PreRotationBundleEvicted" summary="Bundles that arrived while not leader that pack dropped for one that declares a larger tip" />
     <counter name="PreRotationBundleScheduled" summary="Bundles that arrived while not leader that pack scheduled" />
+    <counter name="AuctionStarted" summary="Batch auctions started" />
+    <counter name="AuctionCancelled" summary="Batch auctions skipped because the block was already at their CU limit" />
+    <counter name="AuctionEnded" enum="PackAuctionEndReason" summary="Batch auctions ended, by reason" />
+    <histogram name="AuctionDurationNanos" min="10000" max="100000000" source="ticks">
+        <summary>Duration that batch auctions ran for</summary>
+    </histogram>
 
     <gauge name="BlockCost" summary="Cost units used in the current block, 0 if not packing a block" />
     <histogram name="CostScheduledPerBlock" min="1000000" max="240000000">

@@ -2286,6 +2286,56 @@ message MetricsResolvRegimeDurationNanos {
   uint64 backpressure_sleeping = 10;
 }
 
+// Duration that batch auctions ran for
+message MetricsPackAuctionDurationNanos {
+  // [0, 10000) nanos
+  uint64 b0 = 1;
+  // [10000, 19307) nanos
+  uint64 b1 = 2;
+  // [19307, 37276) nanos
+  uint64 b2 = 3;
+  // [37276, 71969) nanos
+  uint64 b3 = 4;
+  // [71969, 138950) nanos
+  uint64 b4 = 5;
+  // [138950, 268270) nanos
+  uint64 b5 = 6;
+  // [268270, 517948) nanos
+  uint64 b6 = 7;
+  // [517948, 1000001) nanos
+  uint64 b7 = 8;
+  // [1000001, 1930699) nanos
+  uint64 b8 = 9;
+  // [1930699, 3727596) nanos
+  uint64 b9 = 10;
+  // [3727596, 7196860) nanos
+  uint64 b10 = 11;
+  // [7196860, 13894960) nanos
+  uint64 b11 = 12;
+  // [13894960, 26826964) nanos
+  uint64 b12 = 13;
+  // [26826964, 51794753) nanos
+  uint64 b13 = 14;
+  // [51794753, 100000000) nanos
+  uint64 b14 = 15;
+  // [100000000, inf) nanos
+  uint64 b15 = 16;
+  // Sum of samples (nanos)
+  uint64 sum = 17;
+}
+
+// Batch auctions ended, by reason
+message MetricsPackAuctionEnded {
+  // An auction ended because the block reached the auction's CU limit
+  uint64 limit = 1;
+  // An auction ended because a new auction was started
+  uint64 restarted = 2;
+  // An auction ended because the final 20ms of our leader rotation began
+  uint64 final = 3;
+  // An auction ended because the leader slot ended
+  uint64 slot_end = 4;
+}
+
 // Percent of max_cost_per_block used by each block pack produced
 message MetricsPackCostPerBlockPct {
   // [0, 1) pct
@@ -2480,6 +2530,8 @@ message MetricsPackTxnPendingUsed {
   uint64 conflicting = 3;
   // Transactions that are part of a bundle
   uint64 bundle = 4;
+  // Transactions that are currently held waiting for the next auction
+  uint64 next_auction = 5;
 }
 
 // Transactions dropped from pack after insertion, by reason
@@ -9556,6 +9608,14 @@ message MetricsPack {
   uint64 pre_rotation_bundle_evicted = 51;
   // Bundles that arrived while not leader that pack scheduled
   uint64 pre_rotation_bundle_scheduled = 52;
+  // Batch auctions started
+  uint64 auction_started = 53;
+  // Batch auctions skipped because the block was already at their CU limit
+  uint64 auction_cancelled = 54;
+  // Batch auctions ended, by reason
+  MetricsPackAuctionEnded auction_ended = 55;
+  // Duration that batch auctions ran for
+  MetricsPackAuctionDurationNanos auction_duration_nanos = 56;
 }
 
 // Metrics of one execle tile instance, one row per sweep
