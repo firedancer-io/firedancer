@@ -63,7 +63,7 @@ struct fd_ssmanifest_writer {
   fd_accdb_fork_id_t           accdb_fork_id;
   fd_stake_history_t           stake_history; /* view into the bank's sysvar cache */
   ulong                        vote_account_cnt;
-  ulong                        vote_account_idx; /* emission cursor */
+  ulong                        vote_account_idx;
   fd_ssmanifest_vote_account_t vote_account[ 1UL<<FD_SSMANIFEST_VOTE_ACCOUNT_LG_SLOT_CNT ];
 };
 

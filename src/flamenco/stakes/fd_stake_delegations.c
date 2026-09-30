@@ -32,7 +32,7 @@ struct fd_stake_delegations {
 
   /* Guards the root records.  They only change while both locks are
      held, so a reader holding either one sees a stable root.  A view
-     of the root itself takes root_lock alone.  Taken before lock. */
+     of the root itself takes root_lock alone. */
   fd_rwlock_t root_lock;
 
   /* File descriptor number for this instance's backing file.
