@@ -1,6 +1,7 @@
 ifdef FD_HAS_S2NBIGNUM
 ifdef FD_HAS_X86
 S2N_BIGNUM_ASMS:=\
+  x86/curve25519/bignum_inv_p25519 \
   x86/curve25519/curve25519_x25519 \
   x86/curve25519/curve25519_x25519_alt \
   x86/curve25519/curve25519_x25519base \
@@ -77,6 +78,7 @@ ifdef FD_HAS_ARM
 # __ADX__ is never set on aarch64 so the *_s2n.c wrappers always take
 # the _alt redirects; only that variant set is vendored.
 S2N_BIGNUM_ASMS:=\
+  arm/curve25519/bignum_inv_p25519 \
   arm/curve25519/curve25519_x25519_byte_alt \
   arm/curve25519/curve25519_x25519base_byte_alt \
   arm/fastmul/bignum_mul_4_8_alt \

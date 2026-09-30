@@ -301,10 +301,76 @@ test_fe_sq( fd_rng_t * rng ) {
   log_bench( "fd_f25519_sqr", iter, dt );
 }
 
+/* ref_inv is the inversion as an exponentiation, a^(p-2) with
+   p-2 = 2^255-21 = 8*(2^252-3)+3, through the pow22523 addition chain
+   (the old fd_f25519_inv was another addition chain for the same
+   exponent).  0 maps to 0. */
+
+static fd_f25519_t *
+ref_inv( fd_f25519_t *       r,
+         fd_f25519_t const * a ) {
+  fd_f25519_t e[1], a3[1];
+  fd_f25519_pow22523( e, a );
+  fd_f25519_sqr( e, e );
+  fd_f25519_sqr( e, e );
+  fd_f25519_sqr( e, e );
+  fd_f25519_sqr( a3, a );
+  fd_f25519_mul( a3, a3, a );
+  return fd_f25519_mul( r, e, a3 );
+}
+
+/* fe_bytes_p_plus writes the 32 little endian bytes of p+d, |d|<2^62 */
+
+static void
+fe_bytes_p_plus( uchar buf[ 32 ],
+                 long  d ) {
+  long  e = d-19L; /* p+d = 2^255+e */
+  ulong w[ 4 ];
+  if( e>=0L ) { w[0] = (ulong)e; w[1] = 0UL;       w[2] = 0UL;       w[3] = 1UL<<63;      }
+  else        { w[0] = (ulong)e; w[1] = ULONG_MAX; w[2] = ULONG_MAX; w[3] = ULONG_MAX>>1; } /* 2^256+e-2^255 */
+  memcpy( buf, w, 32UL );
+}
+
+static void
+check_inv( uchar const buf[ 32 ] ) {
+  fd_f25519_t a[1], h[1], e[1];
+  uchar hb[ 32 ], eb[ 32 ];
+  fd_f25519_frombytes( a, buf );
+  fd_f25519_inv( h, a );
+  ref_inv( e, a );
+  fd_f25519_tobytes( hb, h );
+  fd_f25519_tobytes( eb, e );
+  if( FD_UNLIKELY( memcmp( hb, eb, 32UL ) ) ) {
+    FD_LOG_HEXDUMP_WARNING(( "input",    buf, 32UL ));
+    FD_LOG_HEXDUMP_WARNING(( "inv",      hb,  32UL ));
+    FD_LOG_HEXDUMP_WARNING(( "expected", eb,  32UL ));
+    FD_LOG_ERR(( "fd_f25519_inv mismatch" ));
+  }
+  /* a*inv(a)==1 unless a==0, in which case inv(a)==0 */
+  fd_f25519_mul( e, a, h );
+  FD_TEST( fd_f25519_is_zero( a ) ? fd_f25519_is_zero( h ) : fd_f25519_eq( e, fd_f25519_one ) );
+  /* in place */
+  fd_f25519_inv( a, a );
+  FD_TEST( fd_f25519_eq( a, h ) );
+}
+
 void
 test_fe_invert( fd_rng_t * rng ) {
   fd_f25519_t _f[1]; fd_f25519_t * f = _f;
   fd_f25519_t _h[1]; fd_f25519_t * h = _h;
+
+  /* Differential against the exponentiation: edge cases (0, 1, small
+     values, p-1, p and other non-canonical encodings, the top bit
+     that frombytes ignores) then random elements. */
+  uchar buf[ 32 ];
+  for( ulong k=0UL; k<300UL; k++ ) { memset( buf, 0, 32UL ); buf[0] = (uchar)k; buf[1] = (uchar)(k>>8); check_inv( buf ); } /* 0 .. 299 */
+  for( long d=-300L; d<300L; d++ ) { fe_bytes_p_plus( buf, d ); check_inv( buf ); } /* p-300 .. p+299 (p+d, d>=0, is non-canonical) */
+  memset( buf, 0, 32UL ); buf[31] = 0x80; check_inv( buf ); /* bit 255 set: read as 0 */
+  memset( buf, 0xff, 32UL ); check_inv( buf );              /* read as 2^255-1 = p+18 */
+  for( ulong k=0UL; k<(g_bench ? 1000000UL : 20000UL); k++ ) {
+    for( ulong i=0UL; i<32UL; i++ ) buf[ i ] = fd_rng_uchar( rng );
+    check_inv( buf );
+  }
 
   fd_f25519_rng_unsafe( f, rng );
   ulong iter = g_bench ? 10000UL : 0UL;
