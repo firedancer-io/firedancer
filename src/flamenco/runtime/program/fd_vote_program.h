@@ -19,9 +19,6 @@
 // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L45
 #define VOTE_CREDITS_GRACE_SLOTS 2
 
-/* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L597-L598 */
-#define DEFAULT_BLOCK_REVENUE_COMMISSION_BPS (10000UL)
-
 /* Vote program custom error codes */
 
 #define FD_VOTE_ERR_VOTE_TOO_OLD                    ( 0)
