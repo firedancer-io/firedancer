@@ -94,6 +94,12 @@ struct fd_snapshot_manifest_vote_stakes {
   /* The validator's commission rate as of the given epoch. */
   ushort commission;
 
+  /* The validator's block revenue commission (basis points) */
+  ushort commission_block_bps;
+
+  /* The validator's pending delegator rewards as of the given epoch */
+  ulong  pending_delegator_rewards;
+
   /* The epoch credits array tracks the history of how many credits the
      provided vote account earned in each recorded epoch.  Entries are
      ordered by strictly increasing epoch: epoch_credits[0] is the

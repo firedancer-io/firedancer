@@ -667,6 +667,16 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
     }
 
     fd_vote_stakes_insert( vote_stakes, fork_id, &stake_accum->pubkey, &node_account_t_1, stake_t_1, commission_t_1, bls_key_t_1 );
+    {
+      /* SIMD-0123 fields from the same account image as the inflation
+         commission. */
+      ushort block_revenue_commission_bps;
+      ulong  pending_delegator_rewards;
+      FD_TEST( !fd_vote_account_block_revenue_commission_bps( acc.data, acc.data_len, &block_revenue_commission_bps ) );
+      FD_TEST( !fd_vote_account_pending_delegator_rewards( acc.data, acc.data_len, &pending_delegator_rewards ) );
+      fd_vote_stakes_set_block_revenue_t_1( vote_stakes, fork_id, &stake_accum->pubkey,
+                                            block_revenue_commission_bps, pending_delegator_rewards );
+    }
     top_votes_eligible++;
     fd_accdb_unread_one( accdb, &acc );
   }
