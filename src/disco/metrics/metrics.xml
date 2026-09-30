@@ -879,6 +879,7 @@ EXAMPLES
   <int value="2" name="Votes" label="Deprecated: simple votes are no longer kept in a separate treap, so this is always 0" />
   <int value="3" name="Conflicting" label="Transactions that write to a hotly-contended account, including simple votes" />
   <int value="4" name="Bundles" label="Transactions that are part of a bundle" />
+  <int value="5" name="NextAuction" label="Transactions that are currently held waiting for the next auction" />
 </enum>
 
 <enum name="BundleCrankResult">
@@ -886,6 +887,13 @@ EXAMPLES
   <int value="1" name="Inserted" label="Inserted an initializer bundle to update the on-chain state" />
   <int value="2" name="CreationFailed" label="Tried to insert an initializer bundle to update the on-chain state, but creation failed" />
   <int value="3" name="InsertionFailed" label="Tried to insert an initializer bundle to update the on-chain state, but insertion failed" />
+</enum>
+
+<enum name="PackAuctionEnd">
+  <int value="0" name="Limit" label="An auction ended because the block reached the auction's CU limit" />
+  <int value="1" name="Restarted" label="An auction ended because a new auction was started" />
+  <int value="2" name="Final" label="An auction ended because the final 20ms of our leader rotation began" />
+  <int value="3" name="SlotEnd" label="An auction ended because the leader slot ended" />
 </enum>
 
 <tile name="pack">
@@ -929,6 +937,13 @@ EXAMPLES
     <counter name="TxnScheduled" enum="PackTxnSchedule" summary="Result of trying to consider a transaction for scheduling" />
 
     <counter name="BundleCrankResult" enum="BundleCrankResult" summary="Result of considering whether bundle cranks are needed" />
+
+    <counter name="AuctionStarted" summary="Number of batch auctions started" />
+    <counter name="AuctionCancelled" summary="Number of batch auctions skipped because the block was already at their CU limit" />
+    <counter name="AuctionEnded" enum="PackAuctionEnd" summary="Number of batch auctions that have ended and the reason" />
+    <histogram name="AuctionDurationSeconds" min="0.00001" max="0.1" converter="seconds">
+        <summary>The duration that batch auctions ran for (seconds)</summary>
+    </histogram>
 
     <gauge name="BlockCuConsumed" summary="Cost units consumed in the current block, or 0 if pack is not currently packing a block" />
     <histogram name="CuScheduledPerBlock" min="1000000" max="240000000">

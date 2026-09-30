@@ -1732,6 +1732,57 @@ test_bundle_nonce( void ) {
   fd_pack_delete( fd_pack_leave( pack ) );
 }
 
+static void
+test_next_auction( void ) {
+  FD_LOG_NOTICE(( "TEST NEXT AUCTION" ));
+  fd_pack_t * pack = init_all( 128UL, 1UL, 128UL, &outcome );
+  ulong i = 0UL;
+  make_transaction( i, 500U, 500U, 11.0, "A", "B", NULL, NULL ); FD_TEST( insert( i++, pack )>=0 ); /* eligible */
+  fd_pack_auction_begin( pack );
+  make_transaction( i, 500U, 500U, 12.0, "C", "D", NULL, NULL ); FD_TEST( insert( i++, pack )>=0 ); /* held */
+  make_vote_transaction( i );                                    FD_TEST( insert( i++, pack )>=0 ); /* votes are never held */
+  FD_TEST( fd_pack_next_auction_txn_cnt( pack )==1UL );
+  FD_TEST( fd_pack_avail_txn_cnt( pack )==3UL );
+  FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+
+  /* We expect only the vote and the transaction that arrived before
+     the auction started to be scheduled. */
+  FD_TEST( 2UL==fd_pack_schedule_next_microblock( pack, 10000000UL, 0UL, ALL, outcome.results ) );
+  fd_pack_microblock_complete( pack, 0UL );
+  FD_TEST( 0UL==fd_pack_schedule_next_microblock( pack, 10000000UL, 0UL, ALL, outcome.results ) );
+  fd_pack_microblock_complete( pack, 0UL );
+
+  /* When we end the auction, the transaction that is held in
+     next_auction can now be scheduled. */
+  fd_pack_auction_end( pack );
+  FD_TEST( fd_pack_next_auction_txn_cnt( pack )==0UL );
+  FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+  FD_TEST( 1UL==fd_pack_schedule_next_microblock( pack, 10000000UL, 0UL, ALL, outcome.results ) );
+  fd_pack_microblock_complete( pack, 0UL );
+  FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+
+  /* Test that deletion and expiry of transactions held in next_auction
+     work correctly. */
+  fd_pack_auction_begin( pack );
+  ulong i_g = i;
+  make_transaction( i, 500U, 500U, 11.0, "G", "H", NULL, NULL );
+  FD_TEST( insert( i, pack )>=0 );
+  FD_TEST( insert( i, pack )>=0 );
+  i++;
+  make_transaction( i, 500U, 500U, 11.0, "I", "J", NULL, NULL ); FD_TEST( insert( i, pack )>=0 );
+  FD_TEST( fd_pack_next_auction_txn_cnt( pack )==3UL );
+  FD_TEST( 1UL==fd_pack_delete_transaction( pack, txnp_get_signatures( &txnp_scratch[ i ] ) ) );
+  i++;
+  FD_TEST( fd_pack_next_auction_txn_cnt( pack )==2UL );
+  FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+  FD_TEST( 2UL==fd_pack_expire_before( pack, i_g+1UL ) );
+  FD_TEST( fd_pack_next_auction_txn_cnt( pack )==0UL );
+  FD_TEST( fd_pack_avail_txn_cnt( pack )==0UL );
+  FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+  fd_pack_auction_end( pack );
+  fd_pack_delete( fd_pack_leave( pack ) );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -1758,6 +1809,7 @@ main( int     argc,
   test_duplicate_sig();
   test_nonce();
   test_bundle_nonce();
+  test_next_auction();
   if( extra_benchmark ) {
     performance_test( extra_benchmark );
     performance_test2();

@@ -128,6 +128,7 @@ FD_STATIC_ASSERT( offsetof( fd_pack_ord_txn_t, txn_e->txnp  )==0UL, fd_pack_ord_
 #define FD_ORD_TXN_ROOT_PENDING         1
 #define FD_ORD_TXN_ROOT_PENDING_BUNDLE  2
 #define FD_ORD_TXN_ROOT_PENALTY( idx ) (3 | (idx)<<8)
+#define FD_ORD_TXN_ROOT_NEXT_AUCTION    4
 
 /* if root & TAG_MASK == PENALTY, then PENALTY_ACCT_IDX(root) gives the index
    in the transaction's list of account addresses of which penalty treap the
@@ -611,6 +612,13 @@ struct fd_pack_private {
   treap_t pending[1];
   treap_t pending_bundles[1];
 
+  /* If an auction is running, new transactions are held in
+     next_auction - they are not eligible to be scheduled. When the
+     auction ends, these are flushed into either the pending or penalty
+     treaps. */
+  treap_t next_auction[1];
+  int     auction_running;
+
   /* penalty_treaps: an fd_map_dynamic mapping hotly contended account
      addresses to treaps of transactions that write to them.  We try not
      to allow more than roughly PENALTY_TREAP_THRESHOLD transactions in
@@ -907,6 +915,8 @@ fd_pack_new( void                   * mem,
      but they come from a pool of size pack_depth+extra_depth. */
   treap_new( (void*)pack->pending,         pack_depth+extra_depth );
   treap_new( (void*)pack->pending_bundles, pack_depth+extra_depth );
+  treap_new( (void*)pack->next_auction,    pack_depth+extra_depth );
+  pack->auction_running = 0;
 
   pack->pending_smallest->cus         = ULONG_MAX;
   pack->pending_smallest->bytes       = ULONG_MAX;
@@ -1207,6 +1217,7 @@ delete_worst( fd_pack_t * pack,
 
      Treap with N transactions        Scale Factor
      Pending                      1.0
+     Next auction                 same as pending
      Penalty treap                1.0 at <= 100 transactions, then sqrt(100/N)
      Pending bundles              inf (since the rewards value is fudged)
 
@@ -1241,6 +1252,11 @@ delete_worst( fd_pack_t * pack,
       }
       case FD_ORD_TXN_ROOT_PENDING: {
         treap = pack->pending;
+        multiplier = 1.0f;
+        break;
+      }
+      case FD_ORD_TXN_ROOT_NEXT_AUCTION: {
+        treap = pack->next_auction;
         multiplier = 1.0f;
         break;
       }
@@ -1444,6 +1460,59 @@ populate_bitsets( fd_pack_t         * pack,
   return cumulative_penalty;
 }
 
+static void
+insert_txn( fd_pack_t         * pack,
+            fd_pack_ord_txn_t * ord,
+            int                 is_vote ) {
+  /* If an auction is running, all incoming transactions should be
+       held in next_auction until the auction has ended. */
+  if( pack->auction_running & !is_vote ) {
+    ord->root = FD_ORD_TXN_ROOT_NEXT_AUCTION;
+    treap_ele_insert( pack->next_auction, ord, pack->pool );
+    return;
+  }
+
+  fd_txn_t *             txn     = TXN( ord->txn );
+  fd_acct_addr_t const * accts   = fd_txn_get_acct_addrs( txn, ord->txn->payload );
+  fd_acct_addr_t const * alt_adj = ord->txn_e->alt_accts - fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM );
+
+  /* Since the pool uses ushorts, the size of the pool is < USHORT_MAX.
+     Each transaction can reference an account at most once, which means
+     that the total number of references for an account is < USHORT_MAX.
+     If these were ulongs, the array would be 512B, which is kind of a
+     lot to zero out.*/
+  ushort penalties[ FD_TXN_ACCT_ADDR_MAX ] = {0};
+  uchar  penalty_idx[ FD_TXN_ACCT_ADDR_MAX ];
+  ulong cumulative_penalty = populate_bitsets( pack, ord, penalties, penalty_idx );
+
+  treap_t * insert_into = pack->pending;
+
+  if( FD_UNLIKELY( cumulative_penalty ) ) { /* Optimize for high parallelism case */
+    /* Compute a weighted random choice */
+    ulong roll = (ulong)fd_rng_uint_roll( pack->rng, (uint)cumulative_penalty ); /* cumulative_penalty < USHORT_MAX*64 < UINT_MAX */
+    ulong i = 0UL;
+    /* Find the right one.  This can be done in O(log N), but I imagine
+       N is normally so small that doesn't matter. */
+    while( roll>=penalties[i] ) roll -= (ulong)penalties[i++];
+
+    fd_acct_addr_t penalty_acct = *ACCT_IDX_TO_PTR( penalty_idx[i] );
+    fd_pack_penalty_treap_t * q = penalty_map_query( pack->penalty_treaps, penalty_acct, NULL );
+    if( FD_UNLIKELY( q==NULL ) ) {
+      q = penalty_map_insert( pack->penalty_treaps, penalty_acct );
+      treap_new( q->penalty_treap, trp_pool_max( pack->pool ) );
+    }
+    insert_into = q->penalty_treap;
+    ord->root = FD_ORD_TXN_ROOT_PENALTY( penalty_idx[i] );
+  } else {
+    ord->root = FD_ORD_TXN_ROOT_PENDING;
+
+    pack->pending_smallest->cus   = fd_ulong_min( pack->pending_smallest->cus,   ord->compute_est      );
+    pack->pending_smallest->bytes = fd_ulong_min( pack->pending_smallest->bytes, ord->txn->payload_sz );
+  }
+
+  treap_ele_insert( insert_into, ord, pack->pool );
+}
+
 int
 fd_pack_insert_txn_fini( fd_pack_t  * pack,
                          fd_txn_e_t * txne,
@@ -1516,39 +1585,7 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
   /* At this point, we know we have space to insert the transaction and
      we've committed to insert it. */
 
-  /* Since the pool uses ushorts, the size of the pool is < USHORT_MAX.
-     Each transaction can reference an account at most once, which means
-     that the total number of references for an account is < USHORT_MAX.
-     If these were ulongs, the array would be 512B, which is kind of a
-     lot to zero out.*/
-  ushort penalties[ FD_TXN_ACCT_ADDR_MAX ] = {0};
-  uchar  penalty_idx[ FD_TXN_ACCT_ADDR_MAX ];
-  ulong cumulative_penalty = populate_bitsets( pack, ord, penalties, penalty_idx );
-
-  treap_t * insert_into = pack->pending;
-
-  if( FD_UNLIKELY( cumulative_penalty ) ) { /* Optimize for high parallelism case */
-    /* Compute a weighted random choice */
-    ulong roll = (ulong)fd_rng_uint_roll( pack->rng, (uint)cumulative_penalty ); /* cumulative_penalty < USHORT_MAX*64 < UINT_MAX */
-    ulong i = 0UL;
-    /* Find the right one.  This can be done in O(log N), but I imagine
-       N is normally so small that doesn't matter. */
-    while( roll>=penalties[i] ) roll -= (ulong)penalties[i++];
-
-    fd_acct_addr_t penalty_acct = *ACCT_IDX_TO_PTR( penalty_idx[i] );
-    fd_pack_penalty_treap_t * q = penalty_map_query( pack->penalty_treaps, penalty_acct, NULL );
-    if( FD_UNLIKELY( q==NULL ) ) {
-      q = penalty_map_insert( pack->penalty_treaps, penalty_acct );
-      treap_new( q->penalty_treap, trp_pool_max( pack->pool ) );
-    }
-    insert_into = q->penalty_treap;
-    ord->root = FD_ORD_TXN_ROOT_PENALTY( penalty_idx[i] );
-  } else {
-    ord->root = FD_ORD_TXN_ROOT_PENDING;
-
-    pack->pending_smallest->cus   = fd_ulong_min( pack->pending_smallest->cus,   ord->compute_est       );
-    pack->pending_smallest->bytes = fd_ulong_min( pack->pending_smallest->bytes, txne->txnp->payload_sz );
-  }
+  insert_txn( pack, ord, is_vote );
 
   pack->pending_txn_cnt++;
 
@@ -1559,7 +1596,6 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
   fd_pack_expq_t temp[ 1 ] = {{ .expires_at = expires_at, .txn = ord }};
   expq_insert( pack->expiration_q, temp );
 
-  treap_ele_insert( insert_into, ord, pack->pool );
   return (is_vote) | (replaces<<1) | (is_durable_nonce<<2);
 }
 #undef REJECT
@@ -1912,12 +1948,14 @@ fd_pack_metrics_write( fd_pack_t const * pack ) {
   ulong pending_regular = treap_ele_cnt( pack->pending        );
   ulong pending_votes  = 0UL;
   ulong pending_bundle = treap_ele_cnt( pack->pending_bundles );
-  ulong conflicting    = pack->pending_txn_cnt - pending_votes - pending_bundle - treap_ele_cnt( pack->pending );
+  ulong next_auction   = treap_ele_cnt( pack->next_auction    );
+  ulong conflicting    = pack->pending_txn_cnt - pending_votes - pending_bundle - next_auction - treap_ele_cnt( pack->pending );
   FD_MGAUGE_SET( PACK, TXN_AVAILABLE_ALL,         pack->pending_txn_cnt       );
   FD_MGAUGE_SET( PACK, TXN_AVAILABLE_REGULAR,     pending_regular             );
   FD_MGAUGE_SET( PACK, TXN_AVAILABLE_VOTES,       pending_votes               );
   FD_MGAUGE_SET( PACK, TXN_AVAILABLE_CONFLICTING, conflicting                 );
   FD_MGAUGE_SET( PACK, TXN_AVAILABLE_BUNDLES,     pending_bundle              );
+  FD_MGAUGE_SET( PACK, TXN_AVAILABLE_NEXT_AUCTION, next_auction               );
   FD_MGAUGE_SET( PACK, TXN_PENDING_SMALLEST_CU,   pack->pending_smallest->cus );
   FD_MGAUGE_SET( PACK, BLOCK_CU_CONSUMED,         pack->cumulative_block_cost );
 
@@ -2759,6 +2797,37 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
 
 ulong fd_pack_bank_tile_cnt     ( fd_pack_t const * pack ) { return pack->bank_tile_cnt;         }
 ulong fd_pack_current_block_cost( fd_pack_t const * pack ) { return pack->cumulative_block_cost; }
+ulong fd_pack_next_auction_txn_cnt( fd_pack_t const * pack ) { return treap_ele_cnt( pack->next_auction ); }
+int   fd_pack_auction_running     ( fd_pack_t const * pack ) { return pack->auction_running;               }
+
+void
+fd_pack_auction_begin( fd_pack_t * pack ) {
+  pack->auction_running = 1;
+}
+
+void
+fd_pack_auction_end( fd_pack_t * pack ) {
+  pack->auction_running = 0;
+
+  /* Flush the next_auction treap, as we now hold these transactions
+     in either the pending treap or the appropriate penalty treap.
+     Note that these won't be executed until the start of the next
+     auction. */
+  fd_pack_ord_txn_t * pool = pack->pool;
+  treap_rev_iter_t    cur  = treap_rev_iter_init( pack->next_auction, pool );
+
+  /* Clear the next_auction treap first, as a transaction must not be in
+     a treap when it is inserted into another.  We can still walk the
+     transactions, since each one's prev link is read before it is
+     moved. */
+  treap_new( (void*)pack->next_auction, treap_ele_max( pack->next_auction ) );
+
+  while( !treap_rev_iter_done( cur ) ) {
+    treap_rev_iter_t next = treap_rev_iter_next( cur, pool );
+    insert_txn( pack, treap_rev_iter_ele( cur, pool ), 0 );
+    cur = next;
+  }
+}
 
 
 void
@@ -2949,6 +3018,7 @@ fd_pack_clear_all( fd_pack_t * pack ) {
 
   release_tree( pack->pending,         pack->signature_map, pack->noncemap, pack->pool );
   release_tree( pack->pending_bundles, pack->signature_map, pack->noncemap, pack->pool );
+  release_tree( pack->next_auction,    pack->signature_map, pack->noncemap, pack->pool );
 
   ulong const pool_max = trp_pool_max( pack->pool );
   for( ulong i=0UL; i<pool_max; i++ ) {
@@ -3013,6 +3083,7 @@ delete_transaction( fd_pack_t         * pack,
     case FD_ORD_TXN_ROOT_FREE:           FD_LOG_CRIT(( "Double free detected" ));
     case FD_ORD_TXN_ROOT_PENDING:        root = pack->pending;         break;
     case FD_ORD_TXN_ROOT_PENDING_BUNDLE: root = pack->pending_bundles; break;
+    case FD_ORD_TXN_ROOT_NEXT_AUCTION:   root = pack->next_auction;    break;
     case FD_ORD_TXN_ROOT_PENALTY( 0 ): {
       fd_acct_addr_t penalty_acct = *ACCT_IDX_TO_PTR( FD_ORD_TXN_ROOT_PENALTY_ACCT_IDX( root_idx ) );
       penalty_treap = penalty_map_query( pack->penalty_treaps, penalty_acct, NULL );
@@ -3093,13 +3164,18 @@ delete_transaction( fd_pack_t         * pack,
     }
   }
 
-  for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_ALL );
-      iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
-    if( FD_UNLIKELY( fd_pack_unwritable_contains( ACCT_ITER_TO_PTR( iter ) ) ) ) continue;
+  /* Transactions which are being held in the next_auction treap never
+     acquired their bitset reference, so there is nothing to release
+     here. */
+  if( FD_LIKELY( root!=pack->next_auction ) ) {
+    for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_ALL );
+        iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
+      if( FD_UNLIKELY( fd_pack_unwritable_contains( ACCT_ITER_TO_PTR( iter ) ) ) ) continue;
 
-    release_result_t ret = release_bit_reference( pack, ACCT_ITER_TO_PTR( iter ) );
-    FD_PACK_BITSET_CLEARN( pack->bitset_rw_in_use, ret.clear_rw_bit );
-    FD_PACK_BITSET_CLEARN( pack->bitset_w_in_use,  ret.clear_w_bit  );
+      release_result_t ret = release_bit_reference( pack, ACCT_ITER_TO_PTR( iter ) );
+      FD_PACK_BITSET_CLEARN( pack->bitset_rw_in_use, ret.clear_rw_bit );
+      FD_PACK_BITSET_CLEARN( pack->bitset_w_in_use,  ret.clear_w_bit  );
+    }
   }
 
   if( FD_UNLIKELY( containing->txn->flags & FD_TXN_P_FLAGS_DURABLE_NONCE ) ) {
@@ -3217,16 +3293,19 @@ fd_pack_verify( fd_pack_t * pack,
 
 
   fd_pack_ord_txn_t  * pool = pack->pool;
-  treap_t * treaps[ 2 ] = { pack->pending, pack->pending_bundles };
+  treap_t * treaps   [ 3 ] = { pack->pending, pack->pending_bundles, pack->next_auction };
+  int       root_tags[ 3 ] = { FD_ORD_TXN_ROOT_PENDING, FD_ORD_TXN_ROOT_PENDING_BUNDLE, FD_ORD_TXN_ROOT_NEXT_AUCTION };
   ulong txn_cnt = 0UL;
 
-  for( ulong k=0UL; k<2UL+penalty_map_slot_cnt( pack->penalty_treaps ); k++ ) {
+  VERIFY_TEST( pack->auction_running || !treap_ele_cnt( pack->next_auction ), "next_auction not empty outside an auction" );
+
+  for( ulong k=0UL; k<3UL+penalty_map_slot_cnt( pack->penalty_treaps ); k++ ) {
     treap_t * treap = NULL;
 
-    if( k<2UL ) treap = treaps[ k ];
-    else if( FD_LIKELY( penalty_map_key_inval( pack->penalty_treaps[ k-2UL ].key ) ) ) continue;
+    if( k<3UL ) treap = treaps[ k ];
+    else if( FD_LIKELY( penalty_map_key_inval( pack->penalty_treaps[ k-3UL ].key ) ) ) continue;
     else {
-      treap = pack->penalty_treaps[ k-2UL ].penalty_treap;
+      treap = pack->penalty_treaps[ k-3UL ].penalty_treap;
       VERIFY_TEST( treap_ele_cnt( treap )>0UL, "empty penalty treap in map" );
     }
 
@@ -3241,16 +3320,19 @@ fd_pack_verify( fd_pack_t * pack,
       fd_pack_ord_txn_t const * in_tbl = sig2txn_ele_query_const( pack->signature_map, &cur->_txn_e, NULL, pool );
       VERIFY_TEST( in_tbl, "signature missing from sig2txn" );
 
-      VERIFY_TEST( (ulong)(cur->root & FD_ORD_TXN_ROOT_TAG_MASK)==fd_ulong_min( k, 2UL )+1UL, "treap element had bad root" );
+      VERIFY_TEST( (cur->root & FD_ORD_TXN_ROOT_TAG_MASK)==fd_int_if( k<3UL, root_tags[ fd_ulong_min( k, 2UL ) ], FD_ORD_TXN_ROOT_PENALTY(0) ),
+                   "treap element had bad root" );
       if( FD_LIKELY( (cur->root & FD_ORD_TXN_ROOT_TAG_MASK)==FD_ORD_TXN_ROOT_PENALTY(0) ) ) {
         fd_acct_addr_t const * penalty_acct = ACCT_IDX_TO_PTR( FD_ORD_TXN_ROOT_PENALTY_ACCT_IDX( cur->root ) );
-        VERIFY_TEST( !memcmp( penalty_acct, pack->penalty_treaps[ k-2UL ].key.b, 32UL ), "transaction in wrong penalty treap" );
+        VERIFY_TEST( !memcmp( penalty_acct, pack->penalty_treaps[ k-3UL ].key.b, 32UL ), "transaction in wrong penalty treap" );
       }
       VERIFY_TEST( cur->expires_at>=pack->expire_before, "treap element expired" );
 
       fd_pack_expq_t const * eq = pack->expiration_q + cur->expq_idx;
       VERIFY_TEST( eq->txn==cur, "expq inconsistent" );
       VERIFY_TEST( eq->expires_at==cur->expires_at, "expq expires_at inconsistent" );
+
+      if( FD_UNLIKELY( (cur->root & FD_ORD_TXN_ROOT_TAG_MASK)==FD_ORD_TXN_ROOT_NEXT_AUCTION ) ) continue;
 
       FD_PACK_BITSET_DECLARE( complement );
       FD_PACK_BITSET_COPY( complement, full );
