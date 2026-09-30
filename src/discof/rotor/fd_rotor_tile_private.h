@@ -121,7 +121,7 @@ struct ctx {
   fd_requestor_t *    requestor; /* cursor walk of the block being repaired */
   fd_repair_t *       protocol;  /* repair message construction */
   fd_policy_t *       policy;    /* repair peers and selection */
-  fd_inflights_t *    rtt;       /* sent requests by nonce, for response latency only */
+  fd_inflights_t *    rtt;       /* sent requests by nonce, for response latency only; expired after FD_ROTOR_INFLIGHT_TIMEOUT_NS */
 
   fd_store_t *     store;     /* rotor publishes/removes FEC sets to/from the store */
   fd_store_map_t   store_map[1];
