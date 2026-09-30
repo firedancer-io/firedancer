@@ -175,7 +175,7 @@ poll_keyswitch( fd_topo_t *   topo,
       memcpy( poh->bytes, keypair, 64UL );
       poh->param = (ulong)!!require_tower | ((ulong)!!require_vote_history<<1);
       FD_COMPILER_MFENCE();
-      poh->state = FD_KEYSWITCH_STATE_SWITCH_PENDING;
+      fd_keyswitch_state( poh, FD_KEYSWITCH_STATE_SWITCH_PENDING );
       FD_COMPILER_MFENCE();
       *state = FD_SET_IDENTITY_STATE_POH_HALT_REQUESTED;
       FD_LOG_INFO(( "Pausing leader pipeline for key switch..." ));
@@ -183,20 +183,21 @@ poll_keyswitch( fd_topo_t *   topo,
     }
     case FD_SET_IDENTITY_STATE_POH_HALT_REQUESTED: {
       fd_keyswitch_t * poh = find_keyswitch( topo, "pohh" );
-      if( FD_LIKELY( poh->state==FD_KEYSWITCH_STATE_COMPLETED ) ) {
+      ulong poh_state = fd_keyswitch_state_query( poh );
+      if( FD_LIKELY( poh_state==FD_KEYSWITCH_STATE_COMPLETED ) ) {
         fd_memzero_explicit( poh->bytes, 64UL );
         FD_COMPILER_MFENCE();
         *halted_seq = poh->result;
         *state = FD_SET_IDENTITY_STATE_POH_HALTED;
         FD_LOG_INFO(( "Leader pipeline successfully paused..." ));
-      } else if( FD_UNLIKELY( poh->state==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
+      } else if( FD_UNLIKELY( poh_state==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
         FD_SPIN_PAUSE();
-      } else if( FD_LIKELY( poh->state==FD_KEYSWITCH_STATE_FAILED ) ) {
+      } else if( FD_LIKELY( poh_state==FD_KEYSWITCH_STATE_FAILED ) ) {
         /* Failed to switch identity in Agave, so abort the entire process. */
         *state = FD_SET_IDENTITY_STATE_ALL_SWITCHED;
         *has_error = 1;
       } else {
-        FD_LOG_ERR(( "Unexpected poh keyswitch state %lu", poh->state ));
+        FD_LOG_ERR(( "Unexpected poh keyswitch state %lu", poh_state ));
       }
       break;
     }
@@ -210,7 +211,7 @@ poll_keyswitch( fd_topo_t *   topo,
           shred->param = *halted_seq;
           memcpy( shred->bytes, keypair+32UL, 32UL );
           FD_COMPILER_MFENCE();
-          shred->state = FD_KEYSWITCH_STATE_SWITCH_PENDING;
+          fd_keyswitch_state( shred, FD_KEYSWITCH_STATE_SWITCH_PENDING );
           FD_COMPILER_MFENCE();
           FD_LOG_INFO(( "Flushing in-flight unpublished shreds, must reach seq %lu...", *halted_seq ));
         } else if( FD_UNLIKELY( !strcmp( tile->name, "bundle" ) ) ) {
@@ -219,7 +220,7 @@ poll_keyswitch( fd_topo_t *   topo,
 
           memcpy( bundle->bytes, keypair+32UL, 32UL );
           FD_COMPILER_MFENCE();
-          bundle->state = FD_KEYSWITCH_STATE_SWITCH_PENDING;
+          fd_keyswitch_state( bundle, FD_KEYSWITCH_STATE_SWITCH_PENDING );
           FD_COMPILER_MFENCE();
         }
       }
@@ -236,14 +237,15 @@ poll_keyswitch( fd_topo_t *   topo,
         fd_keyswitch_t * keyswitch = fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id );
         FD_TEST( keyswitch );
 
-        if( FD_LIKELY( keyswitch->state==FD_KEYSWITCH_STATE_COMPLETED ) ) {
+        ulong keyswitch_state = fd_keyswitch_state_query( keyswitch );
+        if( FD_LIKELY( keyswitch_state==FD_KEYSWITCH_STATE_COMPLETED ) ) {
           continue;
-        } else if( FD_UNLIKELY( keyswitch->state==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
+        } else if( FD_UNLIKELY( keyswitch_state==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
           /* If any of the shred/bundle tiles is still pending, we need to wait. */
           FD_SPIN_PAUSE();
           return;
         } else {
-          FD_LOG_ERR(( "Unexpected %s:%lu keyswitch state %lu", tile->name, tile->kind_id, keyswitch->state ));
+          FD_LOG_ERR(( "Unexpected %s:%lu keyswitch state %lu", tile->name, tile->kind_id, keyswitch_state ));
         }
       }
 
@@ -259,7 +261,7 @@ poll_keyswitch( fd_topo_t *   topo,
       fd_memzero_explicit( keypair_wr, 32UL ); /* Private key no longer needed in this process */
       fd_keyload_mprotect_ro( keypair_wr, 0 );
       FD_COMPILER_MFENCE();
-      sign->state = FD_KEYSWITCH_STATE_SWITCH_PENDING;
+      fd_keyswitch_state( sign, FD_KEYSWITCH_STATE_SWITCH_PENDING );
       FD_COMPILER_MFENCE();
 
       for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
@@ -272,7 +274,7 @@ poll_keyswitch( fd_topo_t *   topo,
         fd_keyswitch_t * tile_ks = fd_topo_obj_laddr( topo, topo->tiles[ i ].id_keyswitch_obj_id );
         memcpy( tile_ks->bytes, keypair+32UL, 32UL );
         FD_COMPILER_MFENCE();
-        tile_ks->state = FD_KEYSWITCH_STATE_SWITCH_PENDING;
+        fd_keyswitch_state( tile_ks, FD_KEYSWITCH_STATE_SWITCH_PENDING );
         FD_COMPILER_MFENCE();
       }
 
@@ -289,10 +291,11 @@ poll_keyswitch( fd_topo_t *   topo,
                        !strcmp( topo->tiles[ i ].name, "bundle" ) ) ) continue;
 
         fd_keyswitch_t * tile_ks = fd_topo_obj_laddr( topo, topo->tiles[ i ].id_keyswitch_obj_id );
-        if( FD_LIKELY( tile_ks->state==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
+        ulong tile_state = fd_keyswitch_state_query( tile_ks );
+        if( FD_LIKELY( tile_state==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
           all_switched = 0UL;
           break;
-        } else if( FD_UNLIKELY( tile_ks->state==FD_KEYSWITCH_STATE_COMPLETED ) ) {
+        } else if( FD_UNLIKELY( tile_state==FD_KEYSWITCH_STATE_COMPLETED ) ) {
           if( FD_LIKELY( !strcmp( topo->tiles[ i ].name, "sign" ) ) ) {
             FD_COMPILER_MFENCE();
             fd_memzero_explicit( tile_ks->bytes, 64UL );
@@ -300,7 +303,7 @@ poll_keyswitch( fd_topo_t *   topo,
           }
           continue;
         } else {
-          FD_LOG_ERR(( "Unexpected %s keyswitch state %lu", topo->tiles[ i ].name, tile_ks->state ));
+          FD_LOG_ERR(( "Unexpected %s keyswitch state %lu", topo->tiles[ i ].name, tile_state ));
         }
       }
 
@@ -317,14 +320,14 @@ poll_keyswitch( fd_topo_t *   topo,
       if( FD_LIKELY( *has_error || !bundle_exists ) ) {
         fd_keyswitch_t * poh = find_keyswitch( topo, "pohh" );
         FD_COMPILER_MFENCE();
-        poh->state = FD_KEYSWITCH_STATE_UNHALT_PENDING;
+        fd_keyswitch_state( poh, FD_KEYSWITCH_STATE_UNHALT_PENDING );
         FD_COMPILER_MFENCE();
         FD_LOG_INFO(( "Requesting to unpause leader pipeline..." ));
         *state = FD_SET_IDENTITY_STATE_POH_UNHALT_REQUESTED;
       } else {
         fd_keyswitch_t * bundle = find_keyswitch( topo, "bundle" );
         FD_COMPILER_MFENCE();
-        bundle->state = FD_KEYSWITCH_STATE_UNHALT_PENDING;
+        fd_keyswitch_state( bundle, FD_KEYSWITCH_STATE_UNHALT_PENDING );
         FD_COMPILER_MFENCE();
         *state = FD_SET_IDENTITY_STATE_BUNDLE_UNHALT_REQUESTED;
       }
@@ -332,30 +335,32 @@ poll_keyswitch( fd_topo_t *   topo,
     }
     case FD_SET_IDENTITY_STATE_BUNDLE_UNHALT_REQUESTED: {
       fd_keyswitch_t * bundle = find_keyswitch( topo, "bundle" );
-      if( FD_LIKELY( bundle->state==FD_KEYSWITCH_STATE_COMPLETED ) ) {
+      ulong bundle_state = fd_keyswitch_state_query( bundle );
+      if( FD_LIKELY( bundle_state==FD_KEYSWITCH_STATE_COMPLETED ) ) {
         fd_keyswitch_t * poh = find_keyswitch( topo, "pohh" );
         FD_COMPILER_MFENCE();
-        poh->state = FD_KEYSWITCH_STATE_UNHALT_PENDING;
+        fd_keyswitch_state( poh, FD_KEYSWITCH_STATE_UNHALT_PENDING );
         FD_COMPILER_MFENCE();
         FD_LOG_INFO(( "Requesting to unpause leader pipeline..." ));
         *state = FD_SET_IDENTITY_STATE_POH_UNHALT_REQUESTED;
-      } else if( FD_UNLIKELY( bundle->state==FD_KEYSWITCH_STATE_UNHALT_PENDING ) ) {
+      } else if( FD_UNLIKELY( bundle_state==FD_KEYSWITCH_STATE_UNHALT_PENDING ) ) {
         FD_SPIN_PAUSE();
       } else {
-        FD_LOG_ERR(( "Unexpected bundle keyswitch state %lu", bundle->state ));
+        FD_LOG_ERR(( "Unexpected bundle keyswitch state %lu", bundle_state ));
       }
       break;
     }
     case FD_SET_IDENTITY_STATE_POH_UNHALT_REQUESTED: {
       fd_keyswitch_t * poh = find_keyswitch( topo, "pohh" );
-      if( FD_LIKELY( poh->state==FD_KEYSWITCH_STATE_COMPLETED ) ) {
+      ulong poh_state = fd_keyswitch_state_query( poh );
+      if( FD_LIKELY( poh_state==FD_KEYSWITCH_STATE_COMPLETED ) ) {
         FD_LOG_INFO(( "Leader pipeline unpaused..." ));
-        poh->state = FD_KEYSWITCH_STATE_UNLOCKED;
+        fd_keyswitch_state( poh, FD_KEYSWITCH_STATE_UNLOCKED );
         *state = FD_SET_IDENTITY_STATE_UNLOCKED;
-      } else if( FD_UNLIKELY( poh->state==FD_KEYSWITCH_STATE_UNHALT_PENDING ) ) {
+      } else if( FD_UNLIKELY( poh_state==FD_KEYSWITCH_STATE_UNHALT_PENDING ) ) {
         FD_SPIN_PAUSE();
       } else {
-        FD_LOG_ERR(( "Unexpected poh keyswitch state %lu", poh->state ));
+        FD_LOG_ERR(( "Unexpected poh keyswitch state %lu", poh_state ));
       }
       break;
     }
