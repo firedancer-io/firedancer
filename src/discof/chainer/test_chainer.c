@@ -138,7 +138,7 @@ static long test_rx_tick = 1L;
 static int
 fec_complete( fd_chainer_t * chainer, ulong slot, uint fec_set_idx, int slot_complete, int data_complete, int is_leader, fd_hash_t * mr ) {
   int rejected;
-  fd_chainer_fec_complete( chainer, slot, fec_set_idx, slot_complete, data_complete, is_leader, test_rx_tick, mr, &rejected );
+  fd_chainer_fec_complete( chainer, slot, fec_set_idx, slot_complete, data_complete, is_leader, test_rx_tick, mr, &rejected, NULL );
   return rejected;
 }
 
@@ -250,7 +250,6 @@ test_basic( fd_wksp_t * wksp ) {
   FD_TEST( root==slotv_at( chainer, 10UL, 0UL ) );
   FD_TEST( fd_hash_eq( &root->block_id, &bid0 ) );
   FD_TEST( root->connected );
-  FD_TEST( !fd_chainer_in_repair( chainer, root ) && !fd_chainer_in_orphan( chainer, root ) ); /* the root needs no repair */
   FD_TEST( root->complete_idx==0U && root->buffered_idx==0U && root->delivered_idx==0U );
 
   fd_hash_t r0 = mkhash( 1UL );
@@ -274,8 +273,6 @@ test_basic( fd_wksp_t * wksp ) {
   FD_TEST( s11->parent_slot==10UL );
   FD_TEST( fd_hash_eq( &s11->parent_block_id, &bid0 ) );
   FD_TEST( s11->connected );                  /* parent is the root */
-  FD_TEST( !fd_chainer_in_orphan( chainer, s11 ) );                 /* parent present -> ancestry known */
-  FD_TEST( fd_chainer_in_repair( chainer, s11 ) );                   /* still has shreds to request */
   FD_TEST( s11->buffered_fec_idx==UINT_MAX ); /* no FEC completion yet */
   FD_TEST( s11->delivered_idx   ==UINT_MAX );
   /* the FEC is born on the first shred now, but is not completed until
@@ -296,7 +293,6 @@ test_basic( fd_wksp_t * wksp ) {
   FD_TEST( f0->complete && !f0->slot_complete );
   FD_TEST( s11->buffered_fec_idx==31U );
   FD_TEST( s11->delivered_idx   ==31U ); /* delivered: parent (the root) is delivered */
-  FD_TEST( fd_chainer_in_repair( chainer, s11 ) );              /* tip still unknown -> more to request */
   FD_TEST( fd_hash_check_zero( &s11->block_id ) );
 
   /* second and last FEC set */
@@ -308,7 +304,6 @@ test_basic( fd_wksp_t * wksp ) {
   FD_TEST( s11->buffered_fec_idx==63U );
   FD_TEST( s11->delivered_idx   ==63U );
   FD_TEST( slotv_shred_cnt( chainer, s11 )==64UL );
-  FD_TEST( !fd_chainer_in_repair( chainer, s11 ) ); /* whole block -> off the repair worklist */
   FD_TEST( fd_chainer_highest_repaired_slot( chainer )==11UL );
 
   fd_chainer_fec_t * f1 = fec_at( chainer, 11UL, 32U, 0UL );
@@ -431,7 +426,6 @@ test_shared_prefix( fd_wksp_t * wksp ) {
   FD_TEST( v1f2->slot_complete );          /* last set of the cert's fec_set_cnt */
   FD_TEST( v1->buffered_fec_idx==63U );    /* an incomplete FEC must not extend the prefix */
   FD_TEST( v1->delivered_idx   ==63U );    /* nor be delivered */
-  FD_TEST( fd_chainer_in_repair( chainer, v1 ) );                 /* new incomplete FEC -> requestable work */
   FD_TEST( !fd_chainer_shred_test( chainer, v1, 64U  ) );
 
   /* repair fills the diverging set.  Only version 1 records it, and
@@ -497,17 +491,15 @@ test_notar_fallback_in_flight( fd_wksp_t * wksp ) {
   FD_TEST( v1->delivered_idx   ==UINT_MAX );
   FD_TEST( v1->parent_slot     ==AG_UNKNOWN_SLOT );
   FD_TEST( !v1->connected );
-  FD_TEST( fd_chainer_in_repair( chainer, v1 ) && fd_chainer_in_orphan( chainer, v1 ) ); /* needs shreds and ancestry */
   FD_TEST( slotv_shred_cnt( chainer, v1 )==0UL );
   FD_TEST( !fec_at( chainer, 31UL, 0U, 1UL ) );
 
-  /* version 0 keeps its data but is abandoned: off the worklists, and
-     it will never deliver or finalize a block_id */
+  /* version 0 keeps its data but is abandoned: it will never deliver
+     or finalize a block_id */
 
   FD_TEST( v0->buffered_idx==31U && v0->buffered_fec_idx==31U );
   FD_TEST( fec_at( chainer, 31UL, 0U, 0UL ) );
   FD_TEST( v0->abandoned );
-  FD_TEST( !fd_chainer_in_repair( chainer, v0 ) && !fd_chainer_in_orphan( chainer, v0 ) );
 
   /* a repeat of the same cert is a no-op -- no third version */
 
@@ -715,7 +707,7 @@ test_publish( fd_wksp_t * wksp ) {
   FD_TEST( !fec_at( chainer, 61UL, 32U, 0UL ) );
 
   fd_chainer_slotv_t * s62 = slotv_at( chainer, 62UL, 0UL );
-  FD_TEST( s62 && s62->connected && !fd_chainer_in_repair( chainer, s62 ) && !fd_chainer_in_orphan( chainer, s62 ) );
+  FD_TEST( s62 && s62->connected );
   /* the rooted slot's FEC data is never needed again, so publish releases
      it and clears the slotv's fec[] */
   FD_TEST( !fec_at( chainer, 62UL, 0U,  0UL ) );
@@ -1039,7 +1031,7 @@ test_verify_detects( fd_wksp_t * wksp ) {
   FD_TEST( !feed_fec( chainer, 111UL, 32U, 1, &r1, AG_UNKNOWN_SLOT, NULL  ) );
 
   fd_chainer_slotv_t * s = slotv_at( chainer, 111UL, 0UL );
-  FD_TEST( s->complete_idx==63U && !fd_chainer_in_repair( chainer, s ) && !fd_chainer_in_orphan( chainer, s ) );
+  FD_TEST( s->complete_idx==63U );
 
   /* header */
 
@@ -1049,18 +1041,6 @@ test_verify_detects( fd_wksp_t * wksp ) {
 
   s->buffered_idx  = 64U; FD_TEST( fd_chainer_verify( chainer ) ); s->buffered_idx  = 63U;
   s->delivered_idx = 95U; FD_TEST( fd_chainer_verify( chainer ) ); s->delivered_idx = 63U;
-  FD_TEST( !fd_chainer_verify( chainer ) );
-
-  /* worklist flags vs. treap membership (flags now live on the work
-     ele, not the slotv) */
-
-  fd_chainer_repair_add( chainer, s );                   /* creates a work ele in the repair treap */
-  ulong               s_idx = fd_slotv_pool_idx( chainer->slotv_pool, s );
-  fd_chainer_work_t * we    = fd_work_map_ele_query( chainer->work_map, &s_idx, NULL, chainer->work_pool );
-  FD_TEST( we );
-  we->in_repair = 0; FD_TEST( fd_chainer_verify( chainer ) ); we->in_repair = 1; /* in neither treap / count mismatch */
-  we->in_orphan = 1; FD_TEST( fd_chainer_verify( chainer ) ); we->in_orphan = 0; /* orphan flag set but not in orphan treap */
-  fd_chainer_repair_remove( chainer, s );                /* restore: gc's the ele */
   FD_TEST( !fd_chainer_verify( chainer ) );
 
   /* nothing may live below the root */
@@ -1080,14 +1060,10 @@ test_verify_detects( fd_wksp_t * wksp ) {
   fd_chainer_slotv_t * v1 = fd_chainer_slot_version_query( chainer, 111UL, &bidA );
   FD_TEST( v1 && fd_chainer_slot_version_query( chainer, 111UL, &bidB ) );
 
-  fd_chainer_repair_remove( chainer, v1 );
-  fd_chainer_orphan_remove( chainer, v1 );
   FD_TEST( fd_slotv_map_ele_remove_fast( slotv_map, v1, slotv_pool )==v1 );
   FD_TEST( !fd_chainer_verify( chainer ) ); /* a hole at a version is not a defect */
 
   fd_slotv_map_ele_insert( slotv_map, v1, slotv_pool );
-  fd_chainer_repair_add( chainer, v1 );
-  fd_chainer_orphan_add( chainer, v1 );
   FD_TEST( !fd_chainer_verify( chainer ) );
 
   /* a slot's FECs must be owned by some version present in the map;

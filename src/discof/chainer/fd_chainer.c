@@ -38,10 +38,6 @@ fd_chainer_new( void * shmem,
   void * slotv_pool   = FD_SCRATCH_ALLOC_APPEND( l, fd_slotv_pool_align(),   fd_slotv_pool_footprint  ( blk_max       ) );
   void * fec_tbl      = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),           fec_max*sizeof(uint)                       );
   void * slotv_map    = FD_SCRATCH_ALLOC_APPEND( l, fd_slotv_map_align(),    fd_slotv_map_footprint   ( blk_chain_cnt ) );
-  void * work_pool    = FD_SCRATCH_ALLOC_APPEND( l, fd_work_pool_align(),    fd_work_pool_footprint   ( blk_max       ) );
-  void * work_map     = FD_SCRATCH_ALLOC_APPEND( l, fd_work_map_align(),     fd_work_map_footprint    ( blk_chain_cnt ) );
-  void * repair_treap = FD_SCRATCH_ALLOC_APPEND( l, fd_work_repair_align(),  fd_work_repair_footprint ( blk_max       ) );
-  void * orphan_treap = FD_SCRATCH_ALLOC_APPEND( l, fd_work_orphan_align(),  fd_work_orphan_footprint ( blk_max       ) );
   void * bfs          = FD_SCRATCH_ALLOC_APPEND( l, bfs_align(),             bfs_footprint            ( blk_max       ) );
   void * out_queue    = FD_SCRATCH_ALLOC_APPEND( l, out_queue_align(),       out_queue_footprint      ( fec_max       ) );
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_chainer_align() ) == (ulong)shmem + footprint );
@@ -55,15 +51,8 @@ fd_chainer_new( void * shmem,
   chainer->fec_tbl          = fec_tbl;
   chainer->fec_blk_max      = fec_blk_max;
   chainer->slotv_map        = fd_slotv_map_join   ( fd_slotv_map_new   ( slotv_map,    blk_chain_cnt, seed ) );
-  chainer->work_pool        = fd_work_pool_join   ( fd_work_pool_new   ( work_pool,    blk_max             ) );
-  chainer->work_map         = fd_work_map_join    ( fd_work_map_new    ( work_map,     blk_chain_cnt, seed ) );
-  chainer->repair_treap     = fd_work_repair_join ( fd_work_repair_new ( repair_treap, blk_max             ) );
-  chainer->orphan_treap     = fd_work_orphan_join ( fd_work_orphan_new ( orphan_treap, blk_max             ) );
   chainer->bfs              = bfs_join            ( bfs_new            ( bfs,          blk_max             ) );
   chainer->out_queue        = out_queue_join      ( out_queue_new      ( out_queue,    fec_max             ) );
-
-  fd_work_repair_seed( chainer->work_pool, blk_max, seed        );
-  fd_work_orphan_seed( chainer->work_pool, blk_max, seed ^ 0x9eUL );
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( chainer->magic ) = FD_CHAINER_MAGIC;
@@ -131,7 +120,6 @@ acquire_slotv( fd_chainer_t * chainer, ulong slot ) {
   slotv->buffered_fec_idx  = UINT_MAX;
   slotv->delivered_idx     = UINT_MAX;
   slotv->connected         = 0;
-  slotv->highest_requested = UINT_MAX;
 
   slotv->metrics.turbine_cnt         = 0U;
   slotv->metrics.repair_cnt          = 0U;
@@ -156,22 +144,7 @@ acquire_slotv( fd_chainer_t * chainer, ulong slot ) {
   fd_memset( fd_chainer_slotv_fecs( chainer, slotv ), 0xff, chainer->fec_blk_max*sizeof(uint) ); /* UINT_MAX pool_idx sentinel */
 
   fd_slotv_map_ele_insert( slotv_map, slotv, slotv_pool );
-  fd_chainer_repair_add( chainer, slotv ); /* new slotv -> has un-requested shreds */
-  fd_chainer_orphan_add( chainer, slotv ); /* new slotv -> ancestry unknown until parent confirmed present */
   return slotv;
-}
-
-/* orphans_resolve releases every orphan whose ancestry is now settled */
-static void
-orphans_resolve( fd_chainer_t * chainer ) {
-  ulong next;
-  for( ulong it=fd_chainer_orphan_iter_init( chainer ); !fd_chainer_work_iter_done( it ); it=next ) {
-    next = fd_chainer_orphan_iter_next( chainer, it );
-    fd_chainer_slotv_t * o = fd_chainer_work_iter_ele( chainer, it );
-
-    int parent_resolved = o->parent_slot!=AG_UNKNOWN_SLOT && ( o->parent_slot<=chainer->root || fd_chainer_slot_version_query( chainer, o->parent_slot, &o->parent_block_id ) );
-    if( FD_LIKELY( parent_resolved ) ) fd_chainer_orphan_remove( chainer, o );
-  }
 }
 
 void
@@ -184,13 +157,10 @@ fd_chainer_init( fd_chainer_t *    chainer,
   slotv->buffered_idx      = 0;
   slotv->connected         = 1;
   slotv->delivered_idx     = 0; /* must equal complete_idx at init */
-  slotv->highest_requested = 0;
   slotv->buffered_fec_idx  = UINT_MAX; /* no complete FEC set buffered; must
                                           be one-below a FD_FEC_SHRED_CNT
                                           multiple, which UINT_MAX satisfies */
   slotv->block_id          = *block_id;
-  fd_chainer_repair_remove( chainer, slotv );
-  fd_chainer_orphan_remove( chainer, slotv );
 
   chainer->root             = slot;
   chainer->highest_repaired = slot;
@@ -269,18 +239,6 @@ fd_chainer_shred_test( fd_chainer_t *             chainer,
   return !!( fec->data_idxs & ( 1U << ( shred_idx & ( (uint)FD_FEC_SHRED_CNT - 1U ) ) ) );
 }
 
-/* slotv_abandon freezes a turbine slotv.  Removed from the repair
-   worklists, and (via the abandoned flag) excluded from delivery and
-   block_id finalization. */
-
-static void
-slotv_abandon( fd_chainer_t * chainer, fd_chainer_slotv_t * slotv ) {
-  FD_TEST( slotv->turbine );
-  fd_chainer_repair_remove( chainer, slotv );
-  fd_chainer_orphan_remove( chainer, slotv );
-  slotv->abandoned = 1;
-}
-
 /* abandon_turbine abandons slot's turbine version, if one exists. */
 
 static void
@@ -288,7 +246,7 @@ abandon_turbine( fd_chainer_t * chainer, ulong slot ) {
   for( ulong i=slotv_iter_init( chainer, slot ); i!=ULONG_MAX; i=slotv_iter_next( chainer, i ) ) {
     fd_chainer_slotv_t * slotv = slotv_iter_ele( chainer, i );
     if( FD_LIKELY( !slotv->turbine || slotv->abandoned ) ) continue;
-    if( FD_LIKELY( fd_hash_check_zero( &slotv->block_id ) ) ) slotv_abandon( chainer, slotv );
+    if( FD_LIKELY( fd_hash_check_zero( &slotv->block_id ) ) ) slotv->abandoned = 1;
     return;
   }
 }
@@ -386,7 +344,7 @@ fd_chainer_shred_insert( fd_chainer_t *        chainer,
   if( FD_UNLIKELY( !turbine->abandoned && fd_hash_check_zero( &turbine->block_id ) ) ) {
     for( ulong i=slotv_iter_init( chainer, slot ); i!=ULONG_MAX; i=slotv_iter_next( chainer, i ) ) {
       if( FD_UNLIKELY( i!=fd_slotv_pool_idx( chainer->slotv_pool, turbine ) ) ) {
-        slotv_abandon( chainer, turbine );
+        turbine->abandoned = 1;
         break;
       }
     }
@@ -446,6 +404,7 @@ fd_chainer_shred_insert( fd_chainer_t *        chainer,
     /* Stamped once, when the version first becomes contiguous */
     if( FD_UNLIKELY( rx_ts && !slotv->metrics.last_shred_ts && slotv->complete_idx!=UINT_MAX && slotv->buffered_idx==slotv->complete_idx ) ) {
       slotv->metrics.last_shred_ts = rx_ts;
+      FD_LOG_INFO(( "slot %lu complete in %ld ms. complete_idx %u, turbine %u repair %u recovered %u code %u", slot, ( rx_ts - slotv->metrics.first_shred_ts )/1000000L, slotv->complete_idx, slotv->metrics.turbine_cnt, slotv->metrics.repair_cnt, slotv->metrics.recovered_cnt, slotv->metrics.parity_cnt ));
     }
 
     /* parent_slot_batch tracks which batch the information came from
@@ -458,9 +417,6 @@ fd_chainer_shred_insert( fd_chainer_t *        chainer,
       slotv->parent_slot       = parent_slot;
       slotv->parent_slot_batch = shred_idx;
       slotv->parent_block_id   = *parent_block_id;
-      if( parent_slot < chainer->root || fd_chainer_slot_version_query( chainer, slotv->parent_slot, &slotv->parent_block_id ) ) {
-        fd_chainer_orphan_remove( chainer, slotv ); /* TODO check safe in FLH case */
-      }
 
       fd_chainer_slotv_t * parent = fd_chainer_slot_version_query( chainer, parent_slot, parent_block_id );
       if( FD_LIKELY( parent && parent->connected ) ) slotv->connected = 1;
@@ -541,7 +497,6 @@ chainer_advance( fd_chainer_t * chainer, fd_chainer_slotv_t * root ) {
 
       if( FD_UNLIKELY( fec->slot_complete ) ) {
         chainer->highest_repaired = fd_ulong_max( chainer->highest_repaired, slotv->slot );
-        fd_chainer_repair_remove( chainer, slotv ); /* nothing left to repair */
         FD_TEST( !fd_hash_check_zero( &slotv->block_id ) );
 
         /* Scan for children. TODO could index children by
@@ -570,13 +525,15 @@ fd_chainer_fec_complete( fd_chainer_t *        chainer,
                          int                   is_leader,
                          long                  rx_ts,
                          fd_hash_t *           mr,
-                         int *                 opt_rejected ) {
+                         int *                 opt_rejected,
+                         fd_chainer_slotv_t ** opt_turbine_finalized ) {
   FD_TEST( slot>chainer->root );
   uint  fec_set_idx = (uint)fec_set_idx_;
   ulong k           = fec_set_idx / FD_FEC_SHRED_CNT;
   FD_TEST( k<chainer->fec_blk_max ); /* guaranteed by fec_resolver */
 
   if( opt_rejected ) *opt_rejected = 0;
+  if( opt_turbine_finalized ) *opt_turbine_finalized = NULL;
 
   fd_chainer_slotv_t * created = NULL;
   for( uint i=0U; i<FD_FEC_SHRED_CNT; i++ ) {
@@ -624,8 +581,11 @@ fd_chainer_fec_complete( fd_chainer_t *        chainer,
       if( FD_UNLIKELY( turbine->complete_idx!=UINT_MAX &&
                        turbine->buffered_fec_idx==turbine->complete_idx &&
                        fd_hash_check_zero( &turbine->block_id ) ) ) {
-        if( FD_LIKELY( finalize_block_id( chainer, turbine ) ) ) orphans_resolve( chainer ); /* children waiting on this block_id */
-        else FD_LOG_WARNING(( "failed to finalize block_id for slot %lu, parent_slot %lu parent_bid is zero %d", slot, turbine->parent_slot, fd_hash_check_zero( &turbine->parent_block_id ) ));
+        if( FD_LIKELY( finalize_block_id( chainer, turbine ) ) ) {
+          if( opt_turbine_finalized ) *opt_turbine_finalized = turbine;
+        } else {
+          FD_LOG_WARNING(( "failed to finalize block_id for slot %lu, parent_slot %lu parent_bid is zero %d", slot, turbine->parent_slot, fd_hash_check_zero( &turbine->parent_block_id ) ));
+        }
       }
     }
 
@@ -666,10 +626,6 @@ fd_chainer_fec_evicted( fd_chainer_t * chainer,
     if( FD_UNLIKELY( slotv->buffered_idx!=UINT_MAX && slotv->buffered_idx>=fec_set_idx ) ) {
       slotv->buffered_idx = fec_set_idx - 1U;
     }
-    if( FD_UNLIKELY( slotv->highest_requested!=UINT_MAX && slotv->highest_requested>=fec_set_idx ) ) {
-      slotv->highest_requested = fec_set_idx - 1U;
-    }
-    if( FD_LIKELY( !slotv->abandoned ) ) fd_chainer_repair_add( chainer, slotv ); /* abandoned versions stay off the worklists */
   }
 }
 
@@ -692,18 +648,12 @@ fd_chainer_verified_parent_fec_count( fd_chainer_t * chainer,
   if( FD_UNLIKELY( !parent_slotv ) ) {
     if( FD_UNLIKELY( parent_slot<=chainer->root ) ) {
       /* Names a parent that is a dead fork. */
-      fd_chainer_orphan_remove( chainer, slotv );
-      fd_chainer_repair_remove( chainer, slotv );
       return NULL;
     }
     parent_slotv = acquire_slotv( chainer, parent_slot );
     parent_slotv->block_id = *parent_block_id;
     abandon_turbine( chainer, parent_slot );
-    orphans_resolve( chainer ); /* siblings waiting on this parent */
   }
-
-  fd_chainer_orphan_remove( chainer, slotv );
-  fd_chainer_repair_add( chainer, slotv );
 
   /* parent now identified, connect this slotv if the parent is. */
   if( FD_UNLIKELY( parent_slotv->connected ) ) slotv->connected = 1;
@@ -743,9 +693,8 @@ fd_chainer_verified_hash_insert( fd_chainer_t * chainer,
     /* Replay with the full root the shared FEC already holds, never the
        prefix */
     fd_hash_t shared_mr = shared->merkle_root;
-    created = fd_chainer_fec_complete( chainer, slot, fec_set_idx, shared->slot_complete, shared->data_complete, 0, 0L /* arrival time unknown: replayed into a new version */, &shared_mr, NULL );
+    created = fd_chainer_fec_complete( chainer, slot, fec_set_idx, shared->slot_complete, shared->data_complete, 0, 0L /* arrival time unknown: replayed into a new version */, &shared_mr, NULL, NULL );
   }
-  fd_chainer_repair_add( chainer, slotv ); /* new sentinel -> re-add for shred fill */
   chainer_advance( chainer, slotv );
   return created;
 }
@@ -760,7 +709,6 @@ fd_chainer_verified_block_insert( fd_chainer_t * chainer,
 
   fd_chainer_slotv_t * slotv = acquire_slotv( chainer, slot );
   slotv->block_id = block_id;
-  orphans_resolve( chainer );
 
   fd_chainer_slotv_t * turbine = turbine_slotv_query( chainer, slot );
   if( FD_UNLIKELY( turbine && fd_hash_check_zero( &turbine->block_id ) ) ) {
@@ -768,7 +716,7 @@ fd_chainer_verified_block_insert( fd_chainer_t * chainer,
        this slot have already started arriving, suggesting we are way
        behind on repairing this slot.  At this point just abandon the
        turbine version and only deliver votor verified versions. */
-    slotv_abandon( chainer, turbine );
+    turbine->abandoned = 1;
   }
   return slotv;
 }
@@ -827,9 +775,6 @@ fd_chainer_publish( fd_chainer_t *    chainer,
       }
       fd_memset( fd_chainer_slotv_fecs( chainer, s ), 0xff, chainer->fec_blk_max*sizeof(uint) );
 
-      fd_chainer_orphan_remove( chainer, s );
-      fd_chainer_repair_remove( chainer, s );
-
       int survives = slot==new_root && ( !canonical || s==canonical );
       if( FD_LIKELY( !survives ) ) {
         fd_slotv_map_ele_remove_fast( slotv_map, s, slotv_pool );
@@ -840,7 +785,6 @@ fd_chainer_publish( fd_chainer_t *    chainer,
   }
 
   chainer->root = new_root;
-  orphans_resolve( chainer ); /* parents now at or below the root are settled */
 
   /* Connect the surviving version(s) of the new root. */
   for( ulong i=slotv_iter_init( chainer, new_root ); i!=ULONG_MAX; i=slotv_iter_next( chainer, i ) ) {
@@ -902,124 +846,6 @@ fd_chainer_print( fd_chainer_t * chainer ) {
   fflush( stdout );
 }
 
-/* Worklist helpers */
-
-/* work_ele returns the worklist ele shadowing slotv, or NULL if the
-   slotv is in neither treap. */
-
-static inline fd_chainer_work_t *
-work_ele( fd_chainer_t * chainer, fd_chainer_slotv_t const * slotv ) {
-  ulong slotv_idx = fd_slotv_pool_idx( chainer->slotv_pool, slotv );
-  return fd_work_map_ele_query( chainer->work_map, &slotv_idx, NULL, chainer->work_pool );
-}
-
-/* work_ele_acquire returns the ele shadowing slotv, creating (and
-   map-inserting) it if none exists yet. */
-
-static inline fd_chainer_work_t *
-work_ele_acquire( fd_chainer_t * chainer, fd_chainer_slotv_t * slotv ) {
-  fd_chainer_work_t * ele = work_ele( chainer, slotv );
-  if( FD_LIKELY( ele ) ) return ele;
-  ele            = fd_work_pool_ele_acquire( chainer->work_pool );
-  ele->slotv_idx = fd_slotv_pool_idx( chainer->slotv_pool, slotv );
-  ele->slot      = slotv->slot;
-  ele->in_repair = 0;
-  ele->in_orphan = 0;
-  fd_work_map_ele_insert( chainer->work_map, ele, chainer->work_pool );
-  return ele;
-}
-
-void
-fd_chainer_repair_add( fd_chainer_t *       chainer,
-                       fd_chainer_slotv_t * slotv ) {
-  fd_chainer_work_t * ele = work_ele_acquire( chainer, slotv );
-  if( FD_UNLIKELY( ele->in_repair ) ) return;
-  fd_work_repair_ele_insert( chainer->repair_treap, ele, chainer->work_pool );
-  ele->in_repair = 1;
-}
-
-void
-fd_chainer_repair_remove( fd_chainer_t *       chainer,
-                          fd_chainer_slotv_t * slotv ) {
-  fd_chainer_work_t * ele = work_ele( chainer, slotv );
-  if( FD_UNLIKELY( !ele || !ele->in_repair ) ) return;
-  fd_work_repair_ele_remove( chainer->repair_treap, ele, chainer->work_pool );
-  ele->in_repair = 0;
-
-  if( FD_LIKELY( ele->in_orphan ) ) return; /* still on the orphan worklist */
-  fd_work_map_ele_remove_fast( chainer->work_map, ele, chainer->work_pool );
-  fd_work_pool_ele_release( chainer->work_pool, ele );
-}
-
-void
-fd_chainer_orphan_add( fd_chainer_t *       chainer,
-                       fd_chainer_slotv_t * slotv ) {
-  fd_chainer_work_t * ele = work_ele_acquire( chainer, slotv );
-  if( FD_UNLIKELY( ele->in_orphan ) ) return;
-  fd_work_orphan_ele_insert( chainer->orphan_treap, ele, chainer->work_pool );
-  ele->in_orphan = 1;
-}
-
-void
-fd_chainer_orphan_remove( fd_chainer_t *       chainer,
-                          fd_chainer_slotv_t * slotv ) {
-  fd_chainer_work_t * ele = work_ele( chainer, slotv );
-  if( FD_UNLIKELY( !ele || !ele->in_orphan ) ) return;
-  fd_work_orphan_ele_remove( chainer->orphan_treap, ele, chainer->work_pool );
-  ele->in_orphan = 0;
-
-  if( FD_LIKELY( ele->in_repair ) ) return; /* still on the repair worklist */
-  fd_work_map_ele_remove_fast( chainer->work_map, ele, chainer->work_pool );
-  fd_work_pool_ele_release( chainer->work_pool, ele );
-}
-
-ulong
-fd_chainer_repair_iter_init( fd_chainer_t * chainer ) {
-  return fd_work_repair_fwd_iter_init( chainer->repair_treap, chainer->work_pool );
-}
-
-ulong
-fd_chainer_repair_iter_next( fd_chainer_t * chainer,
-                             ulong          iter ) {
-  return fd_work_repair_fwd_iter_next( iter, chainer->work_pool );
-}
-
-ulong
-fd_chainer_orphan_iter_init( fd_chainer_t * chainer ) {
-  return fd_work_orphan_fwd_iter_init( chainer->orphan_treap, chainer->work_pool );
-}
-
-ulong
-fd_chainer_orphan_iter_next( fd_chainer_t * chainer,
-                             ulong          iter ) {
-  return fd_work_orphan_fwd_iter_next( iter, chainer->work_pool );
-}
-
-int
-fd_chainer_work_iter_done( ulong iter ) {
-  return iter==ULONG_MAX;
-}
-
-fd_chainer_slotv_t *
-fd_chainer_work_iter_ele( fd_chainer_t * chainer,
-                          ulong          iter ) {
-  return fd_slotv_pool_ele( chainer->slotv_pool, fd_work_pool_ele( chainer->work_pool, iter )->slotv_idx );
-}
-
-int
-fd_chainer_in_repair( fd_chainer_t *             chainer,
-                      fd_chainer_slotv_t const * slotv ) {
-  fd_chainer_work_t * ele = work_ele( chainer, slotv );
-  return ele && ele->in_repair;
-}
-
-int
-fd_chainer_in_orphan( fd_chainer_t *             chainer,
-                      fd_chainer_slotv_t const * slotv ) {
-  fd_chainer_work_t * ele = work_ele( chainer, slotv );
-  return ele && ele->in_orphan;
-}
-
 int
 fd_chainer_verify( fd_chainer_t const * chainer ) {
 # define FAIL( msg ) do { FD_LOG_WARNING(( "fd_chainer_verify: %s", msg )); return -1; } while(0)
@@ -1033,18 +859,11 @@ fd_chainer_verify( fd_chainer_t const * chainer ) {
 
   fd_chainer_slotv_t const * slotv_pool = chainer_->slotv_pool;
   fd_slotv_map_t     const * slotv_map  = chainer_->slotv_map;
-  fd_chainer_work_t  const * work_pool  = chainer_->work_pool;
-  fd_work_map_t      const * work_map   = chainer_->work_map;
-  fd_work_repair_t   const * rtreap     = chainer_->repair_treap;
-  fd_work_orphan_t   const * otreap     = chainer_->orphan_treap;
   fd_chainer_fec_t   const * fec_pool   = chainer_->fec_pool;
   fd_fec_map_t       const * fec_map    = chainer_->fec_map;
 
   if( FD_UNLIKELY( fd_slotv_map_verify( slotv_map, fd_slotv_pool_max( slotv_pool ), slotv_pool )==-1 ) ) FAIL( "slotv map corrupted" );
-  if( FD_UNLIKELY( fd_work_map_verify ( work_map,  fd_work_pool_max ( work_pool  ), work_pool  )==-1 ) ) FAIL( "work map corrupted"  );
   if( FD_UNLIKELY( fd_fec_map_verify  ( fec_map,   fd_fec_pool_max  ( fec_pool   ), fec_pool   )==-1 ) ) FAIL( "fec map corrupted"   );
-  if( FD_UNLIKELY( fd_work_repair_verify( rtreap, work_pool )==-1 ) ) FAIL( "repair treap corrupted" );
-  if( FD_UNLIKELY( fd_work_orphan_verify( otreap, work_pool )==-1 ) ) FAIL( "orphan treap corrupted" );
 
   /* The root, if set, must have at least one connected version -- it is
      by definition the start of every ancestry chain.  Uniquely among
@@ -1104,32 +923,7 @@ fd_chainer_verify( fd_chainer_t const * chainer ) {
        worklist (see slotv_abandon). */
 
     if( FD_UNLIKELY( slotv->abandoned && !slotv->turbine ) ) FAIL( "abandoned non-turbine slotv" );
-    if( FD_UNLIKELY( slotv->abandoned && ( fd_chainer_in_repair( chainer_, slotv ) || fd_chainer_in_orphan( chainer_, slotv ) ) ) ) FAIL( "abandoned slotv on a worklist" );
   }
-
-  /* Worklist consistency.  Every work ele must shadow a live slotv, be
-     in at least one treap (else it should have been gc'd), and carry the
-     slot of its slotv.  The per-treap membership counts must match the
-     treap element counts. */
-
-  ulong ele_max       = fd_slotv_pool_max( slotv_pool );
-  ulong in_treap_cnt  = 0UL;
-  ulong in_orphan_cnt = 0UL;
-  for( fd_work_map_iter_t it = fd_work_map_iter_init( work_map, work_pool );
-                               !fd_work_map_iter_done( it, work_map, work_pool );
-                           it = fd_work_map_iter_next( it, work_map, work_pool ) ) {
-    fd_chainer_work_t const * ele = fd_work_map_iter_ele_const( it, work_map, work_pool );
-    if( FD_UNLIKELY( ele->slotv_idx>=ele_max            ) ) FAIL( "work ele slotv_idx out of range" );
-    if( FD_UNLIKELY( !ele->in_repair && !ele->in_orphan ) ) FAIL( "work ele in neither treap (should be gc'd)" );
-    if( FD_UNLIKELY( ele->slot!=fd_slotv_pool_ele_const( slotv_pool, ele->slotv_idx )->slot ) ) FAIL( "work ele slot mismatches slotv" );
-    in_treap_cnt  += !!ele->in_repair;
-    in_orphan_cnt += !!ele->in_orphan;
-  }
-
-  /* No treap may hold an ele not accounted for in the work map. */
-
-  if( FD_UNLIKELY( in_treap_cnt !=fd_work_repair_ele_cnt( rtreap ) ) ) FAIL( "repair treap holds eles that are not in the work map" );
-  if( FD_UNLIKELY( in_orphan_cnt!=fd_work_orphan_ele_cnt( otreap ) ) ) FAIL( "orphan treap holds eles that are not in the work map" );
 
   for( fd_fec_map_iter_t it = fd_fec_map_iter_init( fec_map, fec_pool );
                              !fd_fec_map_iter_done( it, fec_map, fec_pool );
