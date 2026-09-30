@@ -1216,6 +1216,9 @@ handle_replay( fd_votor_tile_t *           ctx,
   }
 
   if( FD_UNLIKELY( !ctx->init ) ) return;
+
+  /* Replay verified these certs before publishing the footer (or, as
+     leader, built them from ours), so skip re-verifying them. */
   ag_cert_t *    cert = &ctx->scratch.cert;
   blst_p2_affine sig_aff[1];
   if( footer->has_fast_final_cert ) {
@@ -1224,14 +1227,14 @@ handle_replay( fd_votor_tile_t *           ctx,
     fd_bls_set_copy( cert->fast_final.agg.set, footer->fast_final_cert.signer_set );
     blst_p2_uncompress( sig_aff, footer->fast_final_cert.sig );
     blst_p2_from_affine( &cert->fast_final.agg.sig, sig_aff );
-    ag_pool_add_cert( ctx->pool, cert, ctx->scratch.bad );
+    ag_pool_add_verified_cert( ctx->pool, cert, ctx->scratch.bad );
     if( FD_UNLIKELY( !fd_bls_set_is_null( ctx->scratch.bad ) ) ) ban_bad_ranks( ctx, ctx->scratch.bad, cert->fast_final.slot );
   } else if( footer->has_final_cert ) {
     *cert = (ag_cert_t){ .kind = AG_CERT_KIND_FINAL, .final = { .slot = footer->final_cert.slot, .shred_version = ctx->shred_version } };
     fd_bls_set_copy( cert->final.agg.set, footer->final_cert.signer_set );
     blst_p2_uncompress( sig_aff, footer->final_cert.sig );
     blst_p2_from_affine( &cert->final.agg.sig, sig_aff );
-    ag_pool_add_cert( ctx->pool, cert, ctx->scratch.bad );
+    ag_pool_add_verified_cert( ctx->pool, cert, ctx->scratch.bad );
     if( FD_UNLIKELY( !fd_bls_set_is_null( ctx->scratch.bad ) ) ) ban_bad_ranks( ctx, ctx->scratch.bad, cert->final.slot );
 
     *cert = (ag_cert_t){ .kind = AG_CERT_KIND_NOTAR, .notar = { .slot = footer->notar_cert.slot, .shred_version = ctx->shred_version } };
@@ -1239,7 +1242,7 @@ handle_replay( fd_votor_tile_t *           ctx,
     fd_bls_set_copy( cert->notar.agg.set, footer->notar_cert.signer_set );
     blst_p2_uncompress( sig_aff, footer->notar_cert.sig );
     blst_p2_from_affine( &cert->notar.agg.sig, sig_aff );
-    ag_pool_add_cert( ctx->pool, cert, ctx->scratch.bad );
+    ag_pool_add_verified_cert( ctx->pool, cert, ctx->scratch.bad );
     if( FD_UNLIKELY( !fd_bls_set_is_null( ctx->scratch.bad ) ) ) ban_bad_ranks( ctx, ctx->scratch.bad, cert->notar.slot );
   }
 }
