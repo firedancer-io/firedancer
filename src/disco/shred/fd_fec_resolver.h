@@ -260,9 +260,11 @@ typedef struct fd_fec_resolver_spilled fd_fec_resolver_spilled_t;
    SHRED_IGNORED, even if that particular shred hadn't been received.
 
    However, if the shred is part of an in progress FEC set but has
-   already been received, FEC resolver returns SHRED_DUPLICATE and
-   populates out_merkle_root if it is non-NULL. out_shred will be
-   populated similarly to when returning SHRED_OKAY.
+   already been received: if source is REPAIR, FEC resolver returns
+   SHRED_DUPLICATE and populates out_merkle_root if it is non-NULL, and
+   out_shred is populated similarly to when returning SHRED_OKAY.  For
+   any other source it returns SHRED_IGNORED without validating the
+   shred or writing to out_{fec_set,shred,merkle_root}.
 
    If the shred fails validation for any other reason, returns
    SHRED_REJECTED and does not write to out_{fec_set,shred}. If

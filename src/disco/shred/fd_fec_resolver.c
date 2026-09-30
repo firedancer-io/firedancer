@@ -633,8 +633,6 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
                                                           + FD_SHRED_CODE_HEADER_SZ - FD_ED25519_SIG_SZ;
   ulong merkle_protected_sz  = fd_ulong_if( is_data_shred, data_merkle_protected_sz, parity_merkle_protected_sz );
 
-  fd_bmtree_hash_leaf( leaf, (uchar const *)shred + sizeof(fd_ed25519_sig_t), merkle_protected_sz, FD_BMTREE_LONG_PREFIX_SZ );
-
   /* in_type_idx is between [0, code.data_cnt) or [0, code.code_cnt),
      where data_cnt <= FD_FEC_SHRED_CNT and code_cnt <= FD_FEC_SHRED_CNT
      On the other hand, shred_idx, goes from [0, code.data_cnt +
@@ -694,6 +692,7 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
 
     fd_bmtree_node_t _root[1] = {0};
     if( FD_LIKELY( !resolver->bypass_verify ) ) {
+      fd_bmtree_hash_leaf( leaf, (uchar const *)shred + sizeof(fd_ed25519_sig_t), merkle_protected_sz, FD_BMTREE_LONG_PREFIX_SZ );
       fd_shred_merkle_t const * proof = fd_shred_merkle_nodes( shred );
       int rv = fd_bmtree_commitp_insert_with_proof( tree, shred_idx, leaf, (uchar const *)proof, tree_depth, _root );
       if( FD_UNLIKELY( !rv ) ) {
@@ -778,16 +777,22 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
       return FD_FEC_RESOLVER_SHRED_REJECTED;
     }
 
+    /* A repaired duplicate still takes the walk: repair may have
+       evicted this set and be re-repairing it, and ignoring its shreds
+       would keep the set from ever completing.  Any other arrival at an
+       index the set holds is ignored before the leaf hash. */
+    int shred_dup = !!(fd_uint_if( is_data_shred, ctx->set->data_shred_rcvd, ctx->set->parity_shred_rcvd ) & (1U << in_type_idx));
+    if( FD_UNLIKELY( shred_dup & !is_repair ) ) return FD_FEC_RESOLVER_SHRED_IGNORED;
+
     if( FD_UNLIKELY( resolver->bypass_verify ) ) {
       if( FD_LIKELY( out_merkle_root ) ) *out_merkle_root = ctx->root;
     } else {
+      fd_bmtree_hash_leaf( leaf, (uchar const *)shred + sizeof(fd_ed25519_sig_t), merkle_protected_sz, FD_BMTREE_LONG_PREFIX_SZ );
       fd_shred_merkle_t const * proof = fd_shred_merkle_nodes( shred );
       int rv = fd_bmtree_commitp_insert_with_proof( ctx->tree, shred_idx, leaf, (uchar const *)proof, tree_depth, out_merkle_root );
       if( !rv ) return FD_FEC_RESOLVER_SHRED_REJECTED;
     }
 
-    /* Check to make sure this is not a duplicate */
-    int shred_dup = !!(fd_uint_if( is_data_shred, ctx->set->data_shred_rcvd, ctx->set->parity_shred_rcvd ) & (1U << in_type_idx));
     if( FD_UNLIKELY( shred_dup ) ) {
       *out_shred = is_data_shred ? ctx->set->data_shreds[ in_type_idx ].s : ctx->set->parity_shreds[ in_type_idx ].s;
       return FD_FEC_RESOLVER_SHRED_DUPLICATE;

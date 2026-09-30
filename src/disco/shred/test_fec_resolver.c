@@ -174,7 +174,7 @@ test_one_batch( void ) {
     for( ulong j=10UL; j<20UL; j++ ) ADD_SHRED_SRC( r2, set->parity_shreds[ j ], FD_FEC_RESOLVER_SHRED_SRC_REPAIR,     OKAY );
     for( ulong j=20UL; j<31UL; j++ ) ADD_SHRED_SRC( r2, set->parity_shreds[ j ], FD_FEC_RESOLVER_SHRED_SRC_BAD_REPAIR, OKAY );
     for( ulong j=0UL; j<5UL; j++ )   ADD_SHRED_SRC( r2, set->parity_shreds[ j ], FD_FEC_RESOLVER_SHRED_SRC_REPAIR,     DUPLICATE );
-    for( ulong j=5UL; j<10UL; j++ )  ADD_SHRED_SRC( r2, set->parity_shreds[ j ], FD_FEC_RESOLVER_SHRED_SRC_BAD_REPAIR, DUPLICATE );
+    for( ulong j=5UL; j<10UL; j++ )  ADD_SHRED_SRC( r2, set->parity_shreds[ j ], FD_FEC_RESOLVER_SHRED_SRC_BAD_REPAIR, IGNORED   ); /* only repair duplicates are walked */
     ADD_SHRED_SRC( r2, set->data_shreds[ 0 ], FD_FEC_RESOLVER_SHRED_SRC_REPAIR, COMPLETES );
 
     FD_TEST( *out_fec==out_sets+4UL+(i%4UL) );
@@ -613,13 +613,17 @@ test_merkle_root( void ) {
   FD_TEST( FD_FEC_RESOLVER_SHRED_REJECTED==fd_fec_resolver_add_shred( r, shred, 2048UL, MAX, FD_FEC_RESOLVER_SHRED_SRC_TURBINE, pubkey, out_fec, out_shred, &actual, NULL ) );
   FD_TEST( 0==memcmp( &actual, &expected, sizeof(fd_bmtree_node_t) ) );
 
-  /* Test merkle root is not written on REJECTED. */
+  /* A corrupted copy at an index the set already holds: turbine is
+     ignored before the walk, repair is walked and rejected, and
+     neither writes the merkle root. */
 
   shred = set->data_shreds[ 0 ].s;
   (*(uchar *)fd_shred_data_payload( shred ))++;
   memset( &actual, 0, sizeof(fd_bmtree_node_t) );
   memset( &expected, 0, sizeof(fd_bmtree_node_t) );
-  FD_TEST( FD_FEC_RESOLVER_SHRED_REJECTED==fd_fec_resolver_add_shred( r, shred, 2048UL, MAX, FD_FEC_RESOLVER_SHRED_SRC_TURBINE, pubkey, out_fec, out_shred, &actual, NULL ) );
+  FD_TEST( FD_FEC_RESOLVER_SHRED_IGNORED ==fd_fec_resolver_add_shred( r, shred, 2048UL, MAX, FD_FEC_RESOLVER_SHRED_SRC_TURBINE, pubkey, out_fec, out_shred, &actual, NULL ) );
+  FD_TEST( 0==memcmp( &actual, &expected, sizeof(fd_bmtree_node_t) ) );
+  FD_TEST( FD_FEC_RESOLVER_SHRED_REJECTED==fd_fec_resolver_add_shred( r, shred, 2048UL, MAX, FD_FEC_RESOLVER_SHRED_SRC_REPAIR,  pubkey, out_fec, out_shred, &actual, NULL ) );
   FD_TEST( 0==memcmp( &actual, &expected, sizeof(fd_bmtree_node_t) ) );
 
   /* Test merkle root is not written if NULL. */
