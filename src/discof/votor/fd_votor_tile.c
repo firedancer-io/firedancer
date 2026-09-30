@@ -1092,7 +1092,9 @@ handle_epoch( fd_votor_tile_t *           ctx,
 
   fd_multi_epoch_leaders_epoch_msg_init( ctx->mleaders, msg );
   fd_multi_epoch_leaders_epoch_msg_fini( ctx->mleaders );
-  if( FD_UNLIKELY( ctx->next_leader_slot==ULONG_MAX ) ) ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, msg->start_slot, &ctx->id_key );
+  /* Slot 0 is genesis.  Slot 1 is ParentReady on genesis (see
+     ag_pool_init) even though it does not start a window. */
+  if( FD_UNLIKELY( ctx->next_leader_slot==ULONG_MAX ) ) ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, fd_ulong_max( msg->start_slot, 1UL ), &ctx->id_key );
 
   ctx->init = ag_pool_finalized_slot( ctx->pool )!=ULONG_MAX && !!ctx->shred_version;
 }
@@ -1164,7 +1166,7 @@ handle_replay( fd_votor_tile_t *           ctx,
     ag_block_id_t                      block_id        = ag_block_id( slot_completed->slot,        slot_completed->block_id.uc        );
     ag_block_id_t                      parent_block_id = ag_block_id( slot_completed->parent_slot, slot_completed->parent_block_id.uc );
     if( FD_UNLIKELY( ag_pool_finalized_slot( ctx->pool )==ULONG_MAX ) ) {
-      ag_pool_init( ctx->pool, block_id.slot );
+      ag_pool_init( ctx->pool, &block_id );
       if( FD_LIKELY( ctx->shred_version ) ) ag_votor_init( ctx->votor, block_id.slot, fd_clock_tile_now( ctx->clock ), ctx->ns_per_slot, ctx->shred_version, sign_bls, ctx );
       ctx->init = !!ctx->curr_epoch_info && !!ctx->shred_version;
     } else if( FD_UNLIKELY( block_id.slot!=0 ) ) {
@@ -1496,7 +1498,7 @@ after_credit( fd_votor_tile_t *   ctx,
 
   ulong finalized_slot = ag_pool_finalized_slot( ctx->pool );
   while( FD_UNLIKELY( ctx->next_leader_slot<=finalized_slot ) ) {
-    ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, ctx->next_leader_slot+AG_SLOTS_PER_WINDOW, &ctx->id_key );
+    ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, ag_first_slot_in_window( ctx->next_leader_slot )+AG_SLOTS_PER_WINDOW, &ctx->id_key );
     if( FD_UNLIKELY( ctx->next_leader_slot==ULONG_MAX ) ) return; /* schedule exhausted */
   }
 
@@ -1511,7 +1513,7 @@ after_credit( fd_votor_tile_t *   ctx,
   fd_stem_publish( stem, OUT_IDX_VOTOR, FD_VOTOR_SIG_LEADER, ctx->votor_out_chunk, sizeof(fd_votor_msg_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->votor_out_chunk = fd_dcache_compact_next( ctx->votor_out_chunk, sizeof(fd_votor_msg_t), ctx->votor_out_chunk0, ctx->votor_out_wmark );
 
-  ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, ctx->next_leader_slot+AG_SLOTS_PER_WINDOW, &ctx->id_key );
+  ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, ag_first_slot_in_window( ctx->next_leader_slot )+AG_SLOTS_PER_WINDOW, &ctx->id_key );
   *charge_busy = 1;
 }
 
