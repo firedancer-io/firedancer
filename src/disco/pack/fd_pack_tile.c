@@ -929,8 +929,8 @@ after_credit( fd_pack_ctx_t *     ctx,
         break;
       case FD_PACK_STRATEGY_AUCTION: {
         int allow = fd_pack_auction_running( ctx->pack ) | (now>=ctx->auction_final_start_tick);
-        flags     = FD_PACK_SCHEDULE_VOTE | fd_int_if( i==0,                          FD_PACK_SCHEDULE_BUNDLE, 0 )
-                                          | fd_int_if( allow & (i<pacing_execle_cnt), FD_PACK_SCHEDULE_TXN,    0 );
+        flags     = FD_PACK_SCHEDULE_VOTE | FD_PACK_SCHEDULE_BUNDLE
+                                          | fd_int_if( allow & (i<pacing_execle_cnt), FD_PACK_SCHEDULE_TXN, 0 );
         break;
       }
     }
