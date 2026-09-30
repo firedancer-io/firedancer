@@ -578,7 +578,12 @@ test_disk_query_highest( fd_wksp_t * wksp ) {
   FD_TEST( pread( disk_fd, raw_entry, sizeof(fd_shredb_entry_t), (off_t)store->wire_off )==(long)sizeof(fd_shredb_entry_t) );
   ulong first_shred_sz = fd_shred_sz( shred );
   FD_TEST( first_shred_sz<FD_SHRED_MAX_SZ );
-  FD_TEST( !raw_entry->shred[ first_shred_sz ] );
+  FD_TEST( raw_entry->shred_sz==first_shred_sz );
+  /* Every byte past the shred is zero through the end of the struct
+     (the writer only zeroes that tail, not the whole entry). */
+  for( ulong i=__builtin_offsetof( fd_shredb_entry_t, shred )+first_shred_sz; i<sizeof(fd_shredb_entry_t); i++ ) {
+    FD_TEST( !((uchar const *)raw_entry)[ i ] );
+  }
   ulong first_tag = raw_entry->tag;
 
   fd_memset( buf, 0, sizeof(buf) );

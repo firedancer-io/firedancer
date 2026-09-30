@@ -940,6 +940,8 @@ disk_exact_publish( fd_store_t *              store,
   return result;
 }
 
+FD_STATIC_ASSERT( __builtin_offsetof( fd_shredb_entry_t, shred )==__builtin_offsetof( fd_shredb_entry_t, shred_sz )+sizeof(ushort), shredb_entry_hdr_packed );
+
 int
 fd_store_disk_insert( fd_store_t       * store,
                       int                disk_fd,
@@ -971,11 +973,12 @@ fd_store_disk_insert( fd_store_t       * store,
 
   fd_shredb_entry_t wr_entry[1];
   ulong shred_sz = fd_ulong_min( fd_shred_sz( shred ), FD_SHRED_MAX_SZ );
-  fd_memset( wr_entry, 0, sizeof(wr_entry) );
+  ulong tail_off = __builtin_offsetof( fd_shredb_entry_t, shred )+shred_sz;
   wr_entry->tag      = disk_cell_tag( ticket, FD_SHREDB_CELL_READY );
   wr_entry->key      = key;
   wr_entry->shred_sz = (ushort)shred_sz;
   fd_memcpy( wr_entry->shred, shred, shred_sz );
+  fd_memset( (uchar *)wr_entry+tail_off, 0, sizeof(wr_entry)-tail_off );
 
   off_t off = (off_t)(store->wire_off + ring_idx*sizeof(fd_shredb_entry_t));
   if( FD_UNLIKELY( store_pwrite_all( disk_fd, wr_entry, sizeof(wr_entry), off ) ) )
