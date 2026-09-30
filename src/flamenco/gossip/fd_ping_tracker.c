@@ -22,6 +22,7 @@ struct fd_ping_peer {
   uchar            expected_pong_hash[ 32UL ];
 
   uchar state;
+  uchar require_pong;
 
   long  next_ping_nanos;
   long  valid_until_nanos;
@@ -272,18 +273,19 @@ remove_peer( fd_ping_tracker_t * ping_tracker,
   pool_ele_release( ping_tracker->pool, peer );
 }
 
-void
-fd_ping_tracker_track( fd_ping_tracker_t * ping_tracker,
-                       uchar const *       peer_pubkey,
-                       ulong               peer_stake,
-                       fd_ip4_port_t       peer_address,
-                       long                now ) {
+static void
+fd_ping_tracker_track_impl( fd_ping_tracker_t * ping_tracker,
+                            uchar const *       peer_pubkey,
+                            ulong               peer_stake,
+                            fd_ip4_port_t       peer_address,
+                            int                 require_pong,
+                            long                now ) {
   if( FD_UNLIKELY( !peer_address.addr ) ) return;
 
   fd_ping_peer_t * peer = peer_map_ele_query( ping_tracker->peers, fd_type_pun_const( peer_pubkey ), NULL, ping_tracker->pool );
 
   if( FD_UNLIKELY( !peer ) ) {
-    if( FD_LIKELY( peer_stake>=FD_GOSSIP_STAKED_THRESHOLD ) ) return;
+    if( FD_LIKELY( peer_stake>=FD_GOSSIP_STAKED_THRESHOLD && !require_pong ) ) return;
 
     if( FD_UNLIKELY( !pool_free( ping_tracker->pool ) ) ) {
       peer = lru_list_ele_peek_head( ping_tracker->lru, ping_tracker->pool );
@@ -297,6 +299,7 @@ fd_ping_tracker_track( fd_ping_tracker_t * ping_tracker,
     peer->valid_until_nanos = 0L;
     peer->next_ping_nanos   = now;
     peer->state             = FD_PING_TRACKER_STATE_UNPINGED;
+    peer->require_pong      = (uchar)!!require_pong;
     ping_tracker->metrics->unpinged_cnt++;
     ping_tracker->metrics->tracked_cnt++;
 
@@ -307,12 +310,21 @@ fd_ping_tracker_track( fd_ping_tracker_t * ping_tracker,
     peer_map_ele_insert( ping_tracker->peers, peer, ping_tracker->pool );
     lru_list_ele_push_tail( ping_tracker->lru, peer, ping_tracker->pool );
   } else {
-    if( FD_LIKELY( peer_stake>=FD_GOSSIP_STAKED_THRESHOLD ) ) {
+    if( FD_UNLIKELY( require_pong ) ) peer->require_pong = 1U;
+
+    if( FD_LIKELY( peer_stake>=FD_GOSSIP_STAKED_THRESHOLD && !peer->require_pong ) ) {
       /* Node went from unstaked (or low staked) to
          >=FD_GOSSIP_STAKED_THRESHOLD lamports.  No longer need to ping
          it. */
       ping_tracker->metrics->stake_changed_cnt++;
       remove_peer( ping_tracker, peer, now, FD_PING_TRACKER_CHANGE_TYPE_INACTIVE_STAKED );
+      return;
+    }
+
+    if( FD_UNLIKELY( !require_pong && peer->require_pong &&
+                     (peer_address.addr!=peer->address.addr || peer_address.port!=peer->address.port) ) ) {
+      /* A relayed ContactInfo does not prove that the peer owns its
+         packet source address. */
       return;
     }
 
@@ -349,20 +361,33 @@ fd_ping_tracker_track( fd_ping_tracker_t * ping_tracker,
 }
 
 void
+fd_ping_tracker_track( fd_ping_tracker_t * ping_tracker,
+                       uchar const *       peer_pubkey,
+                       ulong               peer_stake,
+                       fd_ip4_port_t       peer_address,
+                       long                now ) {
+  fd_ping_tracker_track_impl( ping_tracker, peer_pubkey, peer_stake, peer_address, 0, now );
+}
+
+void
+fd_ping_tracker_track_strict( fd_ping_tracker_t * ping_tracker,
+                              uchar const *       peer_pubkey,
+                              ulong               peer_stake,
+                              fd_ip4_port_t       peer_address,
+                              long                now ) {
+  fd_ping_tracker_track_impl( ping_tracker, peer_pubkey, peer_stake, peer_address, 1, now );
+}
+
+void
 fd_ping_tracker_register( fd_ping_tracker_t * ping_tracker,
                           uchar const *       peer_pubkey,
                           ulong               peer_stake,
                           fd_ip4_port_t       peer_address,
                           uchar const *       pong_token,
                           long                now ) {
-  if( FD_UNLIKELY( peer_stake>=FD_GOSSIP_STAKED_THRESHOLD ) ) {
-    ping_tracker->metrics->pong_result[ 0UL ]++;
-    return;
-  }
-
   fd_ping_peer_t * peer = peer_map_ele_query( ping_tracker->peers, fd_type_pun_const( peer_pubkey ), NULL, ping_tracker->pool );
   if( FD_UNLIKELY( !peer ) ) {
-    ping_tracker->metrics->pong_result[ 2UL ]++;
+    ping_tracker->metrics->pong_result[ peer_stake>=FD_GOSSIP_STAKED_THRESHOLD ? 0UL : 2UL ]++;
     return;
   }
 
