@@ -27,6 +27,7 @@ jobs:
     with:
       github-token: ${{ github.token }}
       snapshot-ledger: testnet-438272759-snapload
+      epoch-ledger: mainnet-epoch-450144000-minimized
     secrets: inherit
   build_checks_1:
     if: github.event.pull_request.draft == false

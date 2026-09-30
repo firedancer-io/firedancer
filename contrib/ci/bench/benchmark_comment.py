@@ -28,6 +28,12 @@ def snapshot_load(d, s):
     log = read(d, s, "snapshot.log")
     return (stamp(log, "replay ready at slot") - stamp(log, "reading full snapshot from file")) % 86400  # midnight
 
+def epoch_boundary(d, s):  # seconds fd_runtime_process_new_epoch() took at the boundary the epoch ledger crosses
+    log = re.sub(r"\x1b\[[0-9;]*m", "", read(d, s, "epoch.log"))  # the runtime styles this line when colorized
+    took = re.findall(r"starting epoch \d+ at slot \d+ \(took ([0-9.]+) seconds\)", log)
+    if not took: raise LookupError("epoch.log: no epoch boundary")
+    return float(took[-1])
+
 def drive_skew(d, s, what):  # slowest/fastest member drive write-wait during the run; a stalling drive is noise, not the PR
     pre, post = ({f[2]: int(f[10]) for f in map(str.split, read(d, s, f"{what}.diskstats.{k}").splitlines()) if re.fullmatch(r"nvme\d+n1", f[2])}
                  for k in ("pre", "post"))
@@ -42,6 +48,7 @@ ROWS = (
     ("replay_tps",    "replay tps, mainnet",       "replay",   lambda d, s: summary(d, s, "replay")["tps"],                ",.0f tps",   1.0,  3.0, True),
     ("bench_tps",     "bench tps, localnet",       "bench",    lambda d, s: summary(d, s, "bench")["tps"],                 ",.0f tps",   1.0,  3.0, True),
     ("snapshot_load", "snapshot load, testnet",    "snapshot", snapshot_load,                                              ".2f s",      4.0, 10.0, False),
+    ("epoch_boundary","epoch boundary, mainnet",   "snapshot", epoch_boundary,                                             ".3f s",      5.0, 10.0, False),
     ("mem_mainnet",   "mem total, mainnet",        "replay",   lambda d, s: mem(d, s, "mainnet"),                          ".2f GiB",    0.0,  1.0, False),
     ("mem_testnet",   "mem total, testnet",        "replay",   lambda d, s: mem(d, s, "testnet"),                          ".2f GiB",    0.0,  1.0, False),
     ("mem_ag_mainnet","mem total, ag mainnet",     "replay",   lambda d, s: mem(d, s, "ag.mainnet"),                       ".2f GiB",    0.0,  1.0, False),
@@ -50,7 +57,7 @@ ROWS = (
 )
 SKEW_MAX = 1.3  # clean ci8/9/10 runs stay <= 1.14; the -7..-23% outliers were 1.60-2.47
 SKEW_JOBS = ("snapshot",)
-HIST_HDR = ("TPS", "BENCH", "SNAP", "MEM·M", "MEM·T", "AG·M", "COMPILE", "BINARY")
+HIST_HDR = ("TPS", "BENCH", "SNAP", "EPOCH", "MEM·M", "MEM·T", "AG·M", "COMPILE", "BINARY")
 
 def tier(row, d, skewed=False):
     _, _, _, _, _, warn, red, up = row
@@ -150,11 +157,11 @@ def render(a):
 
     if state["history"]:
         pushes = [{"head": state["head"], "rows": {k: v[2] for k, v in ds.items()}, "tier": worst(state, ds)}] + state["history"]
-        lines = [rule(" ┌─ HISTORY · Δ vs main, per push, newest first ", 82),
+        lines = [rule(" ┌─ HISTORY · Δ vs main, per push, newest first ", 91),
                  " │ " + "HEAD".ljust(7) + "".join(h.rjust(9) for h in HIST_HDR)]
         for p in pushes:
             lines.append(p["tier"] + "│ " + p["head"][:7].ljust(7) + "".join(pct(p["rows"][r[0]], 9) if r[0] in p["rows"] else "…".rjust(9) for r in ROWS))
-        lines.append(rule(" └", 82))
+        lines.append(rule(" └", 91))
         body += f"\n<details><summary>history · {len(pushes)} pushes</summary>\n\n```diff\n" + "\n".join(lines) + "\n```\n\n</details>\n"
 
     st = json.dumps(state, separators=(",", ":"))
