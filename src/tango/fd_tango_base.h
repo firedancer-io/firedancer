@@ -278,10 +278,7 @@ fd_laddr_to_chunk( void const * chunk0,   /* Assumed aligned FD_CHUNK_ALIGN */
 
 static inline ulong
 fd_frag_meta_seq_query( fd_frag_meta_t const * meta ) { /* Assumed non-NULL */
-  FD_COMPILER_MFENCE();
-  ulong seq = FD_VOLATILE_CONST( meta->seq );
-  FD_COMPILER_MFENCE();
-  return seq;
+  return __atomic_load_n( &meta->seq, __ATOMIC_ACQUIRE );
 }
 
 #if FD_HAS_SSE
@@ -414,4 +411,3 @@ fd_frag_meta_ts_decomp( ulong tscomp,   /* In [0,UINT_MAX] */
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_tango_fd_tango_base_h */
-
