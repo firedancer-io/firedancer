@@ -228,7 +228,7 @@ test_retry_token_malleability( void ) {
     }
   }
 
-  static uchar const token[] = {
+  static uchar token[] = {
     0xa5, 0xda, 0xb6, 0xf9, 0x36, 0xa0, 0xaa, 0xc1, 0x13, 0x73, 0xa5, 0x4e, 0x0a, 0x11, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     0xcb, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xd2, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -244,17 +244,18 @@ test_retry_token_malleability( void ) {
   uchar aes_iv [16] = {2};
   long  now         = 50UL;
   long  ttl         = (long)3e9;
+  fd_quic_conn_id_t odcid;
+  ulong             rscid;
+  FD_TEST( fd_quic_retry_server_verify( &pkt, &initial, &odcid, &rscid, aes_key, aes_iv, now, ttl )==FD_QUIC_SUCCESS );
   for( ulong j=0; j<sizeof(token); j++ ) {
     for( int i=0; i<8; i++ ) {
-      retry[j] = (uchar)( initial.token[j] ^ (1<<i) );
-      fd_quic_conn_id_t odcid;
-      ulong             rscid;
+      token[j] = (uchar)( token[j] ^ (1<<i) );
       int res = fd_quic_retry_server_verify( &pkt, &initial, &odcid, &rscid, aes_key, aes_iv, now, ttl );
-      FD_TEST( res==FD_QUIC_SUCCESS );
-      retry[j] = (uchar)( initial.token[j] ^ (1<<i) );
+      FD_TEST( res==FD_QUIC_FAILED );
+      token[j] = (uchar)( token[j] ^ (1<<i) );
     }
   }
-
+  FD_TEST( fd_quic_retry_server_verify( &pkt, &initial, &odcid, &rscid, aes_key, aes_iv, now, ttl )==FD_QUIC_SUCCESS );
 }
 
 /* Ensure that retry tokens expire. */
