@@ -168,7 +168,7 @@ before_credit( fd_mwaitx_tile_t *   ctx,
            A tile parked on backpressure (credit bit) cannot use a
            frag; only its deadline or a credit ring wakes it. */
         for( ulong i=0UL; i<(ulong)ctx->in_cnt[ tid ]; i++ ) {
-          ulong mirror = FD_VOLATILE_CONST( ctx->sleep->seq_mirror[ ctx->in_link[ tid ][ i ] ] );
+          ulong mirror = __atomic_load_n( &ctx->sleep->seq_mirror[ ctx->in_link[ tid ][ i ] ], __ATOMIC_ACQUIRE );
           if( FD_UNLIKELY( fd_seq_lt( FD_VOLATILE_CONST( ctx->sleep->seq_snap[ tid ][ i ] ), mirror ) ) ) {
             cause = FD_SLEEP_UNPARK_RING;
             ctx->metrics_sweep++;

@@ -266,7 +266,7 @@ STEM_(out_publish)( fd_stem_sleep_t const * sleep,
                     ulong                   out_idx,
                     ulong                   seq ) {
   fd_mcache_seq_update( fd_mcache_seq_laddr( mcache ), seq );
-  if( sleep->shmem ) FD_VOLATILE( sleep->shmem->seq_mirror[ sleep->out_link_id[ out_idx ] ] ) = seq;
+  if( sleep->shmem ) __atomic_store_n( &sleep->shmem->seq_mirror[ sleep->out_link_id[ out_idx ] ], seq, __ATOMIC_RELEASE );
 }
 
 static inline int
@@ -348,7 +348,7 @@ STEM_(park)( STEM_CALLBACK_CONTEXT_TYPE * ctx,
        return rings. */
     for( ulong i=0UL; i<in_cnt; i++ ) {
       ulong snap = in[ i ].seq;
-      if( FD_UNLIKELY( backpressured ) ) snap = FD_VOLATILE_CONST( sleep->shmem->seq_mirror[ sleep->in_link_id[ in[ i ].idx ] ] );
+      if( FD_UNLIKELY( backpressured ) ) snap = __atomic_load_n( &sleep->shmem->seq_mirror[ sleep->in_link_id[ in[ i ].idx ] ], __ATOMIC_ACQUIRE );
       sleep->shmem->seq_snap[ sleep->tile_id ][ in[ i ].idx ] = snap;
     }
     if( FD_UNLIKELY( backpressured ) ) __atomic_fetch_or( &sleep->shmem->credit_bits[ my_w ], my_bit, __ATOMIC_SEQ_CST );

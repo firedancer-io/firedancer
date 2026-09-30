@@ -235,10 +235,7 @@ FD_FN_PURE static inline long fd_cnc_heartbeat0( fd_cnc_t const * cnc ) { return
 
 static inline long
 fd_cnc_heartbeat_query( fd_cnc_t const * cnc ) {
-  FD_COMPILER_MFENCE();
-  long then = FD_VOLATILE_CONST( cnc->heartbeat );
-  FD_COMPILER_MFENCE();
-  return then;
+  return __atomic_load_n( &cnc->heartbeat, __ATOMIC_ACQUIRE );
 }
 
 /* fd_cnc_heartbeat is used by an app thread to update the cnc's
@@ -258,9 +255,7 @@ fd_cnc_heartbeat_query( fd_cnc_t const * cnc ) {
 static inline void
 fd_cnc_heartbeat( fd_cnc_t * cnc,
                   long       now ) {
-  FD_COMPILER_MFENCE();
-  FD_VOLATILE( cnc->heartbeat ) = now;
-  FD_COMPILER_MFENCE();
+  __atomic_store_n( &cnc->heartbeat, now, __ATOMIC_RELEASE );
 }
 
 /* fd_cnc_signal query observes the current signal posted to the cnc.
@@ -270,10 +265,7 @@ fd_cnc_heartbeat( fd_cnc_t * cnc,
 
 static inline ulong
 fd_cnc_signal_query( fd_cnc_t const * cnc ) {
-  FD_COMPILER_MFENCE();
-  ulong s = FD_VOLATILE_CONST( cnc->signal );
-  FD_COMPILER_MFENCE();
-  return s;
+  return __atomic_load_n( &cnc->signal, __ATOMIC_ACQUIRE );
 }
 
 /* fd_cnc_signal atomically transitions the cnc to signal s.  Assumes
@@ -321,9 +313,7 @@ fd_cnc_signal_query( fd_cnc_t const * cnc ) {
 static inline void
 fd_cnc_signal( fd_cnc_t * cnc,
                ulong      s ) {
-  FD_COMPILER_MFENCE();
-  FD_VOLATILE( cnc->signal ) = s;
-  FD_COMPILER_MFENCE();
+  __atomic_store_n( &cnc->signal, s, __ATOMIC_RELEASE );
 }
 
 /* fd_cnc_open opens a new command session to an app thread.  Returns 0
