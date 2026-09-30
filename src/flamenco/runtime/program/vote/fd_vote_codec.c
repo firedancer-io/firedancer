@@ -1137,11 +1137,31 @@ deser_vote_authorize_checked_with_seed( fd_vote_authorize_checked_with_seed_args
 /* Vote instruction -- top-level decoder                              */
 /**********************************************************************/
 
+/* FD_VOTE_INSTR_PREFIX_SZ covers the discriminant and every scalar
+   field of every union member.  The rest is deque / seed storage the
+   decoder fills up to the decoded count, which is all consumers read. */
+
+#define FD_VOTE_INSTR_PREFIX_SZ (320UL)
+
+FD_STATIC_ASSERT( offsetof( fd_vote_instruction_t, vote.slots_mem                            )<=FD_VOTE_INSTR_PREFIX_SZ, vote_instr_prefix );
+FD_STATIC_ASSERT( offsetof( fd_vote_instruction_t, update_vote_state.lockouts_mem            )<=FD_VOTE_INSTR_PREFIX_SZ, vote_instr_prefix );
+FD_STATIC_ASSERT( offsetof( fd_vote_instruction_t, compact_update_vote_state.lockouts_mem    )<=FD_VOTE_INSTR_PREFIX_SZ, vote_instr_prefix );
+FD_STATIC_ASSERT( offsetof( fd_vote_instruction_t, tower_sync.lockouts_mem                   )<=FD_VOTE_INSTR_PREFIX_SZ, vote_instr_prefix );
+FD_STATIC_ASSERT( offsetof( fd_vote_instruction_t, authorize_with_seed.current_authority_derived_key_seed         )<=FD_VOTE_INSTR_PREFIX_SZ, vote_instr_prefix );
+FD_STATIC_ASSERT( offsetof( fd_vote_instruction_t, authorize_checked_with_seed.current_authority_derived_key_seed )<=FD_VOTE_INSTR_PREFIX_SZ, vote_instr_prefix );
+FD_STATIC_ASSERT( offsetof( fd_vote_instruction_t, initialize_account_v2 )+sizeof( fd_vote_init_v2_t )<=FD_VOTE_INSTR_PREFIX_SZ, vote_instr_prefix );
+FD_STATIC_ASSERT( sizeof( fd_vote_instruction_t )>=FD_VOTE_INSTR_PREFIX_SZ, vote_instr_prefix );
+
 static int
 fd_vote_instruction_deserialize_inner( fd_vote_instruction_t * instruction,
                                        uchar const *           data,
                                        ulong                   data_sz ) {
-  fd_memset( instruction, 0, sizeof(fd_vote_instruction_t) );
+  /* Zero the scalar prefix only; with handholding, poison the 10 KiB
+     tail so a read past the decoded count shows up. */
+  fd_memset( instruction, 0, FD_VOTE_INSTR_PREFIX_SZ );
+#if FD_TMPL_USE_HANDHOLDING
+  fd_memset( (uchar *)instruction+FD_VOTE_INSTR_PREFIX_SZ, 0xA5, sizeof(fd_vote_instruction_t)-FD_VOTE_INSTR_PREFIX_SZ );
+#endif
 
   uchar const ** p  = &data;
   ulong *        sz = &data_sz;
