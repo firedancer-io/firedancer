@@ -72,7 +72,7 @@ typedef struct fd_ssmanifest_writer fd_ssmanifest_writer_t;
 FD_PROTOTYPES_BEGIN
 
 /* fd_ssmanifest_writer_init creates a new snapshot manifest writer.
-   leader is the slot leader of bank.  Briefly holds the read lock of
+   leader is the slot leader of bank.  Briefly holds the root lock of
    stake_delegations (the root store) to collect the vote accounts of
    the stakes cache, then reads those and the epoch stakes vote accounts
    from accdb at accdb_fork_id.  fd_snap_manifest_serialize reads the

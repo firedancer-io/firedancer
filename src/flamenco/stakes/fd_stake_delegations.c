@@ -28,6 +28,10 @@ struct fd_stake_delegations {
   /* Guards every mutating operation on the struct. */
   fd_rwlock_t lock;
 
+  /* Stops view_{begin,end} from modifying the root while someone is
+     iterating it. */
+  fd_rwlock_t root_lock;
+
   /* File descriptor number for this instance's backing file.
      Every process joining this object must map the same file at this
      descriptor number for the object's lifetime. */
@@ -792,6 +796,7 @@ fd_stake_delegations_new( void * mem,
   stake_delegations->fp_warmed_awarded    = 0;
 
   fd_rwlock_new( &stake_delegations->lock );
+  fd_rwlock_new( &stake_delegations->root_lock );
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( stake_delegations->magic ) = FD_STAKE_DELEGATIONS_MAGIC;
@@ -1604,13 +1609,13 @@ fd_stake_delegations_iter_advance_disk_root_private( fd_stake_delegations_iter_t
 }
 
 void
-fd_stake_delegations_read_lock( fd_stake_delegations_t * stake_delegations ) {
-  fd_rwlock_read( &stake_delegations->lock );
+fd_stake_delegations_root_lock( fd_stake_delegations_t * stake_delegations ) {
+  fd_rwlock_read( &stake_delegations->root_lock );
 }
 
 void
-fd_stake_delegations_read_unlock( fd_stake_delegations_t * stake_delegations ) {
-  fd_rwlock_unread( &stake_delegations->lock );
+fd_stake_delegations_root_unlock( fd_stake_delegations_t * stake_delegations ) {
+  fd_rwlock_unread( &stake_delegations->root_lock );
 }
 
 fd_stake_delegations_iter_t *
@@ -1734,6 +1739,7 @@ fd_stake_delegations_view_begin( fd_stake_delegations_t *   stake_delegations,
                                  ulong *                    warmup_cooldown_rate_epoch,
                                  int                        use_fixed_point_stake_math,
                                  ushort                     fork_idx ) {
+  fd_rwlock_write( &stake_delegations->root_lock );
   fd_rwlock_write( &stake_delegations->lock );
 
   fd_stake_delegation_t * delta_pool = get_delta_pool( stake_delegations );
@@ -1797,6 +1803,7 @@ fd_stake_delegations_view_end( fd_stake_delegations_t *   stake_delegations,
   stake_delegations->frontier_query_fork  = USHORT_MAX;
   disk_root_maintain( stake_delegations );
   fd_rwlock_unwrite( &stake_delegations->lock );
+  fd_rwlock_unwrite( &stake_delegations->root_lock );
 }
 
 void

@@ -60,8 +60,10 @@
    write lock for its whole duration, so mutators are safe to call
    concurrently from any tile.  fd_stake_delegations_{mark,unmark}_delta
    and the iterator are the exception: the caller holds the write lock
-   across the whole mark/iterate/unmark bracket, or the read lock for a
-   plain root iteration.
+   across the whole mark/iterate/unmark bracket.  A plain root iteration
+   while the root cannot advance only needs
+   fd_stake_delegations_root_lock, which keeps view_{begin,end} from
+   modifying the root meanwhile.
 
    max_disk_records bounds the number of delta records that can spill
    to disk.  The disk root capacity is max_stake_accounts plus twice
@@ -503,15 +505,16 @@ fd_stake_delegations_view_end( fd_stake_delegations_t *   stake_delegations,
                                ulong *                    warmup_cooldown_rate_epoch,
                                int                        use_fixed_point_stake_math );
 
-/* fd_stake_delegations_read_{lock,unlock} bracket a plain root
-   iteration by a tile that never mutates the store, such as the
-   snapshot producer.  Mutators are held off while the lock is held. */
+/* fd_stake_delegations_root_{lock,unlock} bracket a plain root
+   iteration by a tile that never mutates the store and runs while the
+   root cannot advance, such as the snapshot producer.  Only
+   view_{begin,end} are held off; forks attach and update freely. */
 
 void
-fd_stake_delegations_read_lock( fd_stake_delegations_t * stake_delegations );
+fd_stake_delegations_root_lock( fd_stake_delegations_t * stake_delegations );
 
 void
-fd_stake_delegations_read_unlock( fd_stake_delegations_t * stake_delegations );
+fd_stake_delegations_root_unlock( fd_stake_delegations_t * stake_delegations );
 
 /* Iterator API for stake delegations.  The iterator is initialized with
    a call to fd_stake_delegations_iter_init.  The caller is responsible
