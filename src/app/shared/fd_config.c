@@ -405,6 +405,12 @@ fd_config_fill( fd_config_t * config,
   else if( FD_LIKELY( !strcmp( config->tiles.pack.schedule_strategy, "revenue"  ) ) ) {
     FD_LOG_ERR(( "the revenue scheduler has been removed.  Please update [tiles.pack.schedule_strategy]" ));
   }
+  else if( FD_LIKELY( !strcmp( config->tiles.pack.schedule_strategy, "auction"  ) ) ) {
+    if( FD_UNLIKELY( !config->is_firedancer ) ) {
+      FD_LOG_ERR(( "the auction strategy is not supported by Frankendancer.  Please update [tiles.pack.schedule_strategy]" ));
+    }
+    config->tiles.pack.schedule_strategy_enum = 2;
+  }
   else FD_LOG_ERR(( "[tiles.pack.schedule_strategy] %s not recognized", config->tiles.pack.schedule_strategy ));
 
   fd_config_fill_net( config );
