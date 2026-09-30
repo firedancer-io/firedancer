@@ -259,7 +259,7 @@ returnable_frag( fd_execrp_tile_t *  ctx,
                  fd_stem_context_t * stem ) {
   fd_startup_gate_busy( ctx->startup_gate );
 
-  if( (sig&0xFFFFFFFFUL)!=ctx->tile_idx ) return 0;
+  FD_TEST( (sig&0xFFFFFFFFUL)==ctx->tile_idx );
 
   FD_MGAUGE_SET( EXECRP, PROCESSING, 1UL );
 
@@ -408,7 +408,7 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( ctx->accdb );
 
   /* First find and setup the in-link from replay to exec. */
-  ctx->replay_in->idx = fd_topo_find_tile_in_link( topo, tile, "replay_execrp", 0UL );
+  ctx->replay_in->idx = fd_topo_find_tile_in_link( topo, tile, "replay_execrp", ctx->tile_idx );
   FD_TEST( ctx->replay_in->idx!=ULONG_MAX );
   fd_topo_link_t const * replay_in_link = &topo->links[ tile->in_link_id[ ctx->replay_in->idx ] ];
   ctx->replay_in->mem    = topo->workspaces[ topo->objs[ replay_in_link->dcache_obj_id ].wksp_id ].wksp;
