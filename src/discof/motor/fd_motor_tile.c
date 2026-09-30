@@ -307,7 +307,7 @@ before_frag( fd_motor_tile_t * ctx,
                                  sig==REPLAY_SIG_LEADER_FOOTER );
   case IN_KIND_PACK:
     if( FD_UNLIKELY( sig==FD_PACK_MSG_DONE_DRAINING || sig==FD_PACK_MSG_REDUCE_MB_BOUND ) ) return 1;
-    FD_FALLTHRU;
+    __attribute__((fallthrough));
   case IN_KIND_EXECLE: {
     ulong slot = fd_disco_execle_sig_slot( sig );
     /* Pack can outrun Motor on replay_out; wait for the leader notice. */
