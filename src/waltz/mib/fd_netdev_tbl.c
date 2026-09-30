@@ -133,7 +133,7 @@ fd_netdev_tbl_reset( fd_netdev_tbl_join_t * tbl ) {
   fd_memset( tbl->bond_tbl, 0, sizeof(fd_netdev_bond_t) * tbl->hdr->bond_max );
 }
 
-void
+ulong
 fd_netdev_tbl_copy( fd_netdev_tbl_join_t *       dst,
                     fd_netdev_tbl_join_t const * src ) {
   ushort dev_max  = dst->hdr->dev_max;
@@ -144,9 +144,19 @@ fd_netdev_tbl_copy( fd_netdev_tbl_join_t *       dst,
     dst->hdr->bond_cnt = src->hdr->bond_cnt;
     fd_memcpy( dst->dev_tbl,  src->dev_tbl,  sizeof(fd_netdev_t)      * dev_max  );
     fd_memcpy( dst->bond_tbl, src->bond_tbl, sizeof(fd_netdev_bond_t) * bond_max );
-    if( FD_LIKELY( fd_seqlock_read_test( &src->hdr->seqlock, seq ) ) ) return;
+    if( FD_LIKELY( fd_seqlock_read_test( &src->hdr->seqlock, seq ) ) ) return seq;
     FD_SPIN_PAUSE();
   }
+}
+
+int
+fd_netdev_tbl_refresh( fd_netdev_tbl_join_t *       dst,
+                       fd_netdev_tbl_join_t const * src,
+                       ulong *                      seq ) {
+  ulong cur = atomic_load_explicit( &src->hdr->seqlock, memory_order_relaxed );
+  if( FD_LIKELY( (cur&1UL) || cur==*seq ) ) return 0;
+  *seq = fd_netdev_tbl_copy( dst, src );
+  return 1;
 }
 
 #if FD_HAS_HOSTED

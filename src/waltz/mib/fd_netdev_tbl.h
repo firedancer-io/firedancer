@@ -159,11 +159,21 @@ fd_netdev_tbl_query( fd_netdev_tbl_join_t * tbl,
 /* fd_netdev_tbl_copy copies *src to *dst, while doing seqlock checks
    on src.  Assumes dst is writable (seq-lock held).  Assumes dst and
    src have identical {dev,bond}_max limits.  Blocking (spins until copy
-   completes). */
+   completes).  Returns the (even) seqlock value the copy is consistent
+   with. */
 
-void
+ulong
 fd_netdev_tbl_copy( fd_netdev_tbl_join_t *       dst,
                     fd_netdev_tbl_join_t const * src );
+
+/* fd_netdev_tbl_refresh copies *src to *dst like fd_netdev_tbl_copy,
+   but only if src is not mid-write and changed since the copy *seq
+   records.  Updates *seq and returns 1 if it copied, else 0. */
+
+int
+fd_netdev_tbl_refresh( fd_netdev_tbl_join_t *       dst,
+                       fd_netdev_tbl_join_t const * src,
+                       ulong *                      seq );
 
 #if FD_HAS_HOSTED
 
