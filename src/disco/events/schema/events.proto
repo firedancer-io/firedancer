@@ -809,6 +809,30 @@ message AlpenglowCertBroadcastTo {
   uint32 port = 3;
 }
 
+// Reception detail for one FEC set. A zero timestamp means the stage was never reached or its stamp was unavailable.
+message BlockReceivedFecSets {
+  // Merkle root of the FEC set: its identity. The final FEC set's merkle root is the block id.
+  bytes fec_merkle_root = 1;
+  // Index of the FEC set's first data shred within the block; FEC sets are listed in block order, so for a fully received block the indices ascend from 0 without gaps.
+  uint32 fec_set_index = 2;
+  // Bitmap of data shreds of the FEC set received (vs recovered). Bit j set if the data shred with data index j was received. 
+  uint32 fec_data_shreds_received = 3;
+  // Bitmap of parity shreds of the FEC set received (vs recovered). Bit j set if the parity shred with parity index j was received. 
+  uint32 fec_parity_shreds_received = 4;
+  // Bitmap of repair shreds of the FEC set received. Bit j set if the repair shred with data index j was received. 
+  uint32 fec_repair_shreds_received = 5;
+  // Number of duplicate shreds received per FEC set, best effort given upstream de-deduplication.
+  uint32 fec_duplicate_shred_count = 6;
+  // Timestamp the first shred of each FEC set was seen.
+  uint64 fec_first_shred_received_nanos = 7;
+  // Timestamp the FEC set became complete/assembled
+  uint64 fec_completed_nanos = 8;
+  // Whether the final shred of the FEC set was from repair. If 0, it was from turbine or our own leader shred. 
+  bool fec_final_shred_source_repair = 9;
+  // Whether the FEC set was received via repair. If 0, it was from turbine or our own leader shred. 
+  bool fec_source_repair = 10;
+}
+
 // The validator received a verified, deduplicated transaction
 message Txn {
   // The source IP address of the transaction sender
@@ -1755,6 +1779,66 @@ message AlpenglowCert {
   uint64 done_time = 13;
 }
 
+// A block that completed reception on this validator or was abandoned and pruned.  A block gets a row if it received a shred marked as final in the slot, and received all shreds up until the final shred, or if it was incomplete but collected later during pruning. Tallies are best-effort: they restart if repair transiently stopped tracking the block, and on equivocated slots they are best-effort — shreds shared between versions of the slot may merge with same counts on every version's row. Delivery is best-effort: rows travel a lossy telemetry link, so a block_completed row can arrive without its block_received row or vice versa. 
+message BlockReceived {
+  // Slot number of the block.
+  uint64 slot = 1;
+  // Block identifier; with slot, the alternate join key to block_completed. For blocks that never completed reception (or abandoned early), this can the null hash.
+  bytes block_id = 2;
+  // Slot number of the block's parent.
+  uint64 parent_slot = 3;
+  // Block identifier of the block's parent.
+  bytes parent_block_id = 4;
+  // Whether the block was cancelled due to a notar version becoming known. These blocks will only get reported if they are eventually pruned, so if the root does not advance, they will not be reported.
+  bool cancelled = 5;
+  // Either reached SafeToNotar locally or attached to a NotarFallback or stronger cert, rather than being the version received over turbine. Always false before alpenglow, and false for blocks this validator produced as leader. A slot can report both, on separate rows.
+  bool notarized = 6;
+  // Whether the validator considered itself caught up to the cluster when the row was emitted. False from boot until rotor/repair closes on the network tip (set immediately for genesis bootstrap); never cleared within a run.
+  bool caught_up = 7;
+  // Number of FEC sets in the block; for blocks that never completed reception, the number delivered to replay when the row was emitted. 0 if reassembly no longer tracked the block when the row was emitted.
+  uint64 fec_set_count = 8;
+  // Network arrival at the shred tile of the block's first shred, stamped before signature verification. Leader blocks: when the first entry batch reached the shredding stage, before any network send. 0 if repair pruned the block before completion.
+  uint64 first_shred_received_time = 9;
+  // Network arrival of the shred that made the block contiguous; not necessarily the highest-numbered shred. Minus first_shred_received_time: reception duration, valid only when this is nonzero. Leader blocks: when the final entry batch reached the shredding stage. 0 if the block never became fully contiguous (dead or abandoned mid-reception) or repair pruned it before completion.
+  uint64 last_shred_received_time = 10;
+  // First repair request for a specific missing shred (window request); highest-shred and orphan requests do not stamp this, so it can be 0 while their request counts are not. 0 if no window request was sent or repair pruned the block; always 0 for leader blocks.
+  uint64 first_repair_request_time = 11;
+  // Arrival of the last repair response matched to an outstanding specific-shred request; shreds from highest-shred and orphan responses do not stamp this. 0 if none was matched or repair pruned the block; always 0 for leader blocks.
+  uint64 last_repair_received_time = 12;
+  // Parity (recovery) shreds received. Near 0 for leader blocks: only network echoes of the block's own parity shreds land here. 0 if repair pruned the block before completion.
+  uint32 parity_shred_received = 13;
+  // Shreds received over the network via turbine, plus repair deliveries whose provenance could not be verified (failed nonce) and coding shreds arriving in repair responses (nonconformant: repair serves only data shreds). Pieces cleared and re-fetched after a wrong-version detection or eviction count once per delivery, so source tallies can exceed the block's shred counts. Near 0 for leader blocks. 0 if repair pruned the block before completion.
+  uint32 turbine_shred_received = 14;
+  // Shreds obtained from peers via repair; nonce-verified deliveries only. Re-fetched pieces count once per delivery (see turbine_shred_count). Always 0 for leader blocks. 0 if repair pruned the block before completion.
+  uint32 repair_shred_received = 15;
+  // Shreds reconstructed locally from parity data. Re-recovered pieces count once per recovery (see turbine_shred_count). Always 0 for leader blocks, which produce rather than recover their shreds. 0 if repair pruned the block before completion.
+  uint32 recovered_shred_count = 16;
+  // FEC set index of the last piece of the block to complete reception, which with out-of-order repair need not be the block's final index. 4294967295 when the reception statistics are unpopulated; not a FEC index.
+  uint32 last_completed_fec_set_index = 17;
+  // Whether the shred marking the block complete was received. False if repair pruned the block before completion.
+  bool slot_complete_flag = 18;
+  // Whether any of the block's FEC sets was ever quarantined by an equivocation hold: set when a conflicting version of a FEC set was assembled at that position, and inherited by everything chaining onto or arriving during an unresolved conflict, including from ancestor slots; persists after resolution. A lone conflicting shred discarded before reassembly does not register. False if reassembly no longer tracked the block when the row was emitted.
+  bool equivocation_detected_shred = 19;
+  // Repair requests re-sent after a response timeout. Always 0 for leader blocks. 0 if repair pruned the block before completion.
+  uint32 repair_requests_retransmitted = 20;
+  // Repair responses matched to an outstanding specific-shred request. Shreds delivered by verified highest-shred and orphan responses count in repair_shred_count but are not matched here, so this can be 0 while repair_shred_count is not. Always 0 for leader blocks. 0 if repair pruned the block before completion.
+  uint32 repair_responses_received = 21;
+  // Repair requests for one specific missing shred, by index. Always 0 for leader blocks. 0 if repair pruned the block before completion.
+  uint32 repair_request_window_count = 22;
+  // Repair requests for the highest-numbered shred a peer holds, used to learn the block's length. Highest-shred requests seeded at boot, before the block was tracked, bypass this counter. Always 0 for leader blocks. 0 if repair pruned the block before completion.
+  uint32 repair_request_highest_window_count = 23;
+  // Repair requests for the block's ancestry when its parent is unknown; a response carries shreds from up to 11 ancestor blocks. Always 0 for leader blocks. 0 if repair pruned the block before completion.
+  uint32 repair_request_orphan_count = 24;
+  // Alpenglow ShredForBlockId requests, analogous to legacy window requests. Asks a peer for a specific missing shred, addressed by the block id it belongs to. Always 0 before alpenglow and for leader blocks.
+  uint32 repair_request_shred_for_block_id_count = 25;
+  // Alpenglow ParentAndFecCount requests, analogous to legacy orphan requests. Asks a peer for the block's parent and its FEC set count. Always 0 before alpenglow and for leader blocks.
+  uint32 repair_request_parent_fec_count = 26;
+  // Alpenglow FecRoot requests: asks a peer for a FEC set's merkle root for a specified FEC set index. Always 0 before alpenglow and for leader blocks.
+  uint32 repair_request_fec_root_count = 27;
+  // Per-FEC-set reception detail, one entry per FEC set in block order: which pieces made up the block, how each arrived, and when. Summed, the counts reconcile with the block-level shred counts on this row, except that block-level tallies also cover pieces cleared after wrong-version detection. Best-effort: empty when reassembly no longer tracked the block when the row was emitted, and truncated to the FEC sets delivered so far on blocks that never completed reception. Empty does not mean the block had no FEC sets.
+  repeated BlockReceivedFecSets fec_sets = 28;
+}
+
 // Combined event type
 message Event {
   oneof event {
@@ -1778,5 +1862,6 @@ message Event {
     RuntimeVoteAccount runtime_vote_account = 18;
     AlpenglowVote alpenglow_vote = 19;
     AlpenglowCert alpenglow_cert = 20;
+    BlockReceived block_received = 21;
   }
 }
