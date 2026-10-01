@@ -222,6 +222,7 @@ check_file( const char * path,
 
 static char const *
 configure_stage_help( char const * name ) {
+  if( !strcmp( name, "iavf"             ) ) return "create VF 0 and PF UDP hardware drop rules";
   if( !strcmp( name, "uverbs"           ) ) return "load the ib_uverbs kernel module";
   if( !strcmp( name, "hugetlbfs"        ) ) return "mount the huge page filesystems";
   if( !strcmp( name, "sysctl"           ) ) return "apply required kernel sysctl tunables";
