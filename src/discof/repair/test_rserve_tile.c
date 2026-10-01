@@ -22,6 +22,22 @@ test_stem_publish( ulong chunk,
   do { (void)(stem); (void)(out_idx); (void)(sig); (void)(ctl); (void)(tsorig);          \
        (void)(tspub); test_stem_publish( (chunk), (sz) ); } while(0)
 
+/* Pings are signed by the sign tile, which isn't running here. */
+
+#include "../../disco/keyguard/fd_keyguard_client.h"
+
+static ulong sign_cnt;
+
+static void
+test_keyguard_sign( uchar * signature ) {
+  memset( signature, 0, 64UL );
+  sign_cnt++;
+}
+
+#define fd_keyguard_client_sign( client, signature, data, data_len, sign_type ) \
+  do { (void)(client); (void)(data); (void)(data_len); (void)(sign_type);       \
+       test_keyguard_sign( (signature) ); } while(0)
+
 #include "fd_rserve_tile.c"
 
 #include <unistd.h>
@@ -70,7 +86,8 @@ setup( ctx_t * ctx,
   ctx->net_out_wmark  = (sizeof(out_mem)>>FD_CHUNK_LG_SZ)-(2048UL>>FD_CHUNK_LG_SZ)-1UL;
   ctx->net_out_chunk  = 0UL;
   fd_ip4_udp_hdr_init( ctx->serve_hdr, FD_RSERVE_MAX_PACKET_SIZE, 0, 8700 );
-  pub_cnt = 0UL;
+  pub_cnt  = 0UL;
+  sign_cnt = 0UL;
 }
 
 /* ping_cache_add marks the client as having completed a ping, as
@@ -276,6 +293,40 @@ test_no_blockdb( fd_repair_t * client ) {
   FD_LOG_NOTICE(( "pass: test_no_blockdb" ));
 }
 
+/* Requests from peers not in the ping cache are answered with a ping
+   until the ping bucket runs dry, and are then dropped before any
+   signature work. */
+
+static void
+test_ping_rate_limit( fd_repair_t * client ) {
+  static ctx_t ctx[1];
+  setup( ctx, 1 );
+  ctx->ping_bucket[0] = (fd_token_bucket_t){ .ts=fd_tickcount(), .rate=0.f, .burst=2.f, .balance=2.f };
+
+  for( ulong i=0UL; i<2UL; i++ ) {
+    fd_repair_msg_t * msg = fd_repair_shred( client, &server_pub, now_ms(), 1U, 10UL, 3UL );
+    FD_TEST( request( ctx, (uchar const *)msg, sign( msg ) )==sizeof(fd_repair_ping_t) );
+  }
+  FD_TEST( sign_cnt==2UL );
+  FD_TEST( ctx->metrics->fail_ping_cache_lookup==2UL );
+
+  fd_repair_msg_t * msg = fd_repair_shred( client, &server_pub, now_ms(), 1U, 10UL, 3UL );
+  ulong sz = sign( msg );
+  msg->header.sig[ 0 ] ^= 1;
+  FD_TEST( !request( ctx, (uchar const *)msg, sz ) );
+  FD_TEST( sign_cnt==2UL );
+  FD_TEST( ctx->metrics->fail_ping_rate_limit  ==1UL );
+  FD_TEST( ctx->metrics->fail_sigverify_request==0UL );
+
+  /* Peers that completed a ping are still served */
+  ping_cache_add( ctx );
+  msg = fd_repair_shred( client, &server_pub, now_ms(), 1U, 10UL, 3UL );
+  FD_TEST( !request( ctx, (uchar const *)msg, sign( msg ) ) );
+  FD_TEST( ctx->metrics->disk_read_miss      ==1UL );
+  FD_TEST( ctx->metrics->fail_ping_rate_limit==1UL );
+  FD_LOG_NOTICE(( "pass: test_ping_rate_limit" ));
+}
+
 /* Net frags are returned to the stem unless the previous poll found no
    frag. */
 
@@ -466,6 +517,7 @@ main( int     argc,
   test_meta_requests     ( client );
   test_legacy_sigverify  ( client );
   test_no_blockdb        ( client );
+  test_ping_rate_limit   ( client );
   test_idle_gate();
   test_shred_for_block_id( client, wksp );
 

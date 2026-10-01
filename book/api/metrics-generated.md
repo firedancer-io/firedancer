@@ -1044,6 +1044,7 @@
 | <span class="metrics-name">rserve_&#8203;failed_&#8203;invalid_&#8203;shred_&#8203;index</span> | counter | How many requests we've received that had invalid shred indices |
 | <span class="metrics-name">rserve_&#8203;failed_&#8203;invalid_&#8203;fec_&#8203;set_&#8203;index</span> | counter | How many FEC set root requests we've received with a FEC set index that is unaligned or past the end of the block |
 | <span class="metrics-name">rserve_&#8203;failed_&#8203;ping_&#8203;cache_&#8203;lookup</span> | counter | Requests from nodes not in the ping cache, which triggered a ping-back instead of a response |
+| <span class="metrics-name">rserve_&#8203;failed_&#8203;ping_&#8203;rate_&#8203;limit</span> | counter | Requests from nodes not in the ping cache dropped because pings were rate limited |
 | <span class="metrics-name">rserve_&#8203;disk_&#8203;read_&#8203;busy</span> | counter | Repair reads dropped because the requested index binding or ring cell changed |
 | <span class="metrics-name">rserve_&#8203;disk_&#8203;read_&#8203;miss</span> | counter | Repair reads not found in the store |
 | <span class="metrics-name">rserve_&#8203;disk_&#8203;read_&#8203;scan_&#8203;limit</span> | counter | Highest-shred repair reads dropped because the cached upper bound was no longer readable |
