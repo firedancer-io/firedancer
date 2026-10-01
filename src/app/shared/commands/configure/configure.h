@@ -79,6 +79,7 @@ typedef struct configure_stage {
 
 extern configure_stage_t fd_cfg_stage_hugetlbfs;
 extern configure_stage_t fd_cfg_stage_uverbs;
+extern configure_stage_t fd_cfg_stage_iavf;
 extern configure_stage_t fd_cfg_stage_sysctl;
 extern configure_stage_t fd_cfg_stage_hyperthreads;
 extern configure_stage_t fd_cfg_stage_bonding;
@@ -128,6 +129,11 @@ int
 configure_stage( configure_stage_t * stage,
                  configure_cmd_t     command,
                  config_t const *    config );
+
+/* configure_udp_ports lists the UDP listen ports */
+uint
+configure_udp_ports( fd_config_t const * config,
+                     ushort              ports[ 32 ] );
 
 void configure_cmd_args( int * pargc, char *** pargv, args_t * args );
 void configure_cmd_perm( args_t * args, fd_cap_chk_t * chk, config_t const * config );
