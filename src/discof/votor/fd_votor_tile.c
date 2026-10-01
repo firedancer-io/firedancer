@@ -44,7 +44,7 @@
 #define QUIC_BAN_TIMEOUT_NS     (10L*1000L*1000L*1000L) /* 10 seconds */
 #define QUIC_DIAL_STABLE_NS     (10L*1000L*1000L*1000L) /* a conn that lives this long resets the peer's redial backoff */
 #define QUIC_DIAL_BACKOFF_MIN_NS (1L*1000L*1000L*1000L) /* first redial delay after a conn closed early */
-#define QUIC_DIAL_BACKOFF_MAX_NS (64L*1000L*1000L*1000L) /* redial delay doubles up to this */
+#define QUIC_DIAL_BACKOFF_MAX_NS (2L*1000L*1000L*1000L) /* redial delay doubles up to this */
 #define QUIC_CLOSE_CODE_UNKNOWN (2U)
 #define QUIC_CLOSE_CODE_EVICTED (3U)
 #define QUIC_CLOSE_CODE_BANNED  (4U)
