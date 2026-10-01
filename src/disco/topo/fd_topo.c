@@ -232,31 +232,36 @@ fd_topo_tile_extra_normal_pages( fd_topo_tile_t const * tile ) {
   }
 
   if( !strcmp( tile->name, "net" ) ) {
-      /* net tile uses normal pages to hold xsk rings */
+      /* net tile uses normal pages to hold xsk rings.  The tile's free
+         TX ring lives in its scratch workspace, so it is not counted
+         here. */
 
       /* xdp_desc struct is in linux UAPI so its size can be
          safely assumed */
       ulong xdp_desc_sz_bytes    = 16UL;
-      ulong xsk_rings_sz_bytes   = 0UL;
       ulong xdp_address_sz_bytes = sizeof(ulong);
 
-      /* rx ring */
-      xsk_rings_sz_bytes += tile->xdp.xdp_rx_queue_size * xdp_desc_sz_bytes;
-      /* tx ring */
-      xsk_rings_sz_bytes += tile->xdp.xdp_tx_queue_size * xdp_desc_sz_bytes;
+      ulong ring_sz[4] = {
+        tile->xdp.xdp_rx_queue_size     * xdp_desc_sz_bytes,    /* rx ring         */
+        tile->xdp.xdp_tx_queue_size     * xdp_desc_sz_bytes,    /* tx ring         */
+        tile->xdp.xdp_rx_queue_size*2UL * xdp_address_sz_bytes, /* fill ring       */
+        tile->xdp.xdp_tx_queue_size     * xdp_address_sz_bytes  /* completion ring */
+      };
 
-      /* completion ring */
-      xsk_rings_sz_bytes += tile->xdp.xdp_tx_queue_size * xdp_address_sz_bytes;
-      /* free ring */
-      xsk_rings_sz_bytes += tile->xdp.free_ring_depth   * xdp_address_sz_bytes;
+      ulong xsk_pages = 0UL;
+      for( ulong i=0UL; i<4UL; i++ ) {
+        /* Each ring is a separate mapping that also stores a ring
+           header.  This is 320 bytes per ring as of linux v6.18.3,
+           however could change in the future so allow up to a full
+           4KB page per ring to be safe. */
+        xsk_pages += fd_ulong_align_up( ring_sz[ i ], FD_SHMEM_NORMAL_PAGE_SZ ) / FD_SHMEM_NORMAL_PAGE_SZ + 1UL;
+      }
 
-      key_pages += fd_ulong_align_up( xsk_rings_sz_bytes, FD_SHMEM_NORMAL_PAGE_SZ ) / FD_SHMEM_NORMAL_PAGE_SZ;
+      /* Net tile 0 also binds an XSK to loopback (see fd_xdp_tile.c
+         privileged_init) */
+      ulong xsk_cnt = ( strcmp( tile->xdp.if_virt, "lo" ) && !tile->kind_id ) ? 2UL : 1UL;
 
-      /* All 4 rings must store a ring header. This is 320 bytes
-         per ring as of linux v6.18.3, however could change in
-         the future so allow up to a full 4KB page per ring to
-         be safe. */
-      key_pages += 4UL;
+      key_pages += xsk_cnt * xsk_pages;
   }
 
   return key_pages;
