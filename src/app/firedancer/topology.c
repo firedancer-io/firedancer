@@ -182,7 +182,8 @@ setup_topo_store( fd_topo_t *  topo,
                   ulong        shred_cache_mib,
                   ulong        fec_set_cnt,
                   ulong        max_shreds_per_block,
-                  char const * db_path ) {
+                  char const * db_path,
+                  int          alpenglow ) {
   if( FD_UNLIKELY( !shred_cache_mib ) )
     FD_LOG_ERR(( "tiles.shred.shred_cache_size_mib must be non-zero; the FEC payload cache cannot be disabled" ));
   if( FD_UNLIKELY( shred_cache_mib>(ULONG_MAX>>20) ) )
@@ -203,6 +204,7 @@ setup_topo_store( fd_topo_t *  topo,
   FD_TEST( fd_pod_insertf_ulong( topo->props, fec_set_cnt,       "obj.%lu.fec_set_cnt",       obj->id ) );
   FD_TEST( fd_pod_insertf_ulong( topo->props, max_shreds_per_block, "obj.%lu.max_shreds_per_block", obj->id ) );
   FD_TEST( fd_pod_insertf_ulong( topo->props, seed,              "obj.%lu.seed",              obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, (ulong)!!alpenglow, "obj.%lu.alpenglow",        obj->id ) );
   if( db_path ) {
     FD_TEST( fd_pod_insertf_cstr( topo->props, db_path,          "obj.%lu.disk_path",         obj->id ) );
   }
@@ -1241,7 +1243,8 @@ fd_topo_initialize( config_t * config ) {
                                                 config->tiles.shred.shred_cache_size_mib,
                                                 store_fec_set_cnt,
                                                 config->limits.max_shreds_per_block,
-                                                config->paths.shredb );
+                                                config->paths.shredb,
+                                                alpenglow_enabled );
   FOR(shred_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "shred", i ) ], store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ], store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   if( alpenglow_enabled ) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, repair, 0UL ) ], store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE ); /* rotor */

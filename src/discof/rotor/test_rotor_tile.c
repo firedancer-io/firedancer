@@ -563,7 +563,7 @@ setup_ctx( ctx_t * ctx, fd_wksp_t * wksp ) {
   void * toss_mem      = fd_wksp_alloc_laddr( wksp, toss_queue_align(),      toss_queue_footprint(),                                  1UL );
   void * repair_mem    = fd_wksp_alloc_laddr( wksp, fd_repair_align(),       fd_repair_footprint(),                                   1UL );
   void * redeliver_mem = fd_wksp_alloc_laddr( wksp, out_queue_align(),       out_queue_footprint( redeliver_max ),                    1UL );
-  void * store_mem     = fd_wksp_alloc_laddr( wksp, fd_store_align(),        fd_store_footprint( 1024UL, 64UL, 0UL, 0UL, 0UL ),       1UL );
+  void * store_mem     = fd_wksp_alloc_laddr( wksp, fd_store_align(),        fd_store_footprint( 1024UL, 64UL, 0UL, 0UL, 0UL, 0 ),       1UL );
   FD_TEST( chainer_mem && schedulor_mem && requestor_mem && policy_mem && rtt_mem && signs_map_mem && toss_mem && repair_mem && redeliver_mem && store_mem );
 
   ctx->chainer       = fd_chainer_join     ( fd_chainer_new     ( chainer_mem,   TEST_SLOT_MAX, FD_SHRED_BLK_MAX, ctx->repair_seed     ) );
@@ -575,7 +575,7 @@ setup_ctx( ctx_t * ctx, fd_wksp_t * wksp ) {
   ctx->toss_queue    = toss_queue_join     ( toss_queue_new     ( toss_mem                                                             ) );
   ctx->protocol      = fd_repair_join      ( fd_repair_new      ( repair_mem,    &ctx->identity_public_key                             ) );
   ctx->redeliver     = out_queue_join      ( out_queue_new      ( redeliver_mem, redeliver_max                                         ) );
-  ctx->store         = fd_store_join       ( fd_store_new       ( store_mem,     1024UL, 64UL, 0UL, 0UL, 0UL, FD_SHRED_BLK_MAX, 42UL   ) );
+  ctx->store         = fd_store_join       ( fd_store_new       ( store_mem,     1024UL, 64UL, 0UL, 0UL, 0UL, FD_SHRED_BLK_MAX, 42UL, 0 ) );
   FD_TEST( ctx->chainer && ctx->schedulor && ctx->requestor && ctx->policy && ctx->rtt && ctx->signs_map && ctx->toss_queue && ctx->protocol && ctx->redeliver && ctx->store );
   FD_TEST( fd_store_map_ljoin( ctx->store, ctx->store_map ) );
   ctx->receive_event = fd_wksp_alloc_laddr( wksp, alignof(fd_event_block_received_t), sizeof(fd_event_block_received_t), 1UL );
