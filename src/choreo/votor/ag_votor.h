@@ -4,6 +4,7 @@
 #include "ag_votor_base.h"
 #include "../../ballet/bls/fd_bls.h"
 #include "ag_pool.h"
+#include "ag_hist.h"
 
 #define AG_VOTOR_REASON_BLOCK_REPLAYED  (0)
 #define AG_VOTOR_REASON_PARENT_READY    (1)
@@ -88,6 +89,38 @@ void
 ag_votor_set_rank( ag_votor_t * self,
                    ulong        epoch_slot,
                    ulong        epoch_rank );
+
+/* ag_votor_set_vote_bound stops us voting at or below bound, which only
+   moves up.  ag_votor_vote_bound returns it, ULONG_MAX when none is set. */
+
+void
+ag_votor_set_vote_bound( ag_votor_t * self,
+                         ulong        bound );
+
+FD_FN_PURE ulong
+ag_votor_vote_bound( ag_votor_t const * self );
+
+/* ag_votor_mark_unsent records that a vote we built never left the
+   machine, so no final vote follows on its slot. */
+
+void
+ag_votor_mark_unsent( ag_votor_t *      self,
+                      ag_vote_t const * vote );
+
+/* ag_votor_hist_export writes our own votes since the anchor into out.
+   Returns 1 if it had to drop old windows to fit. */
+
+int
+ag_votor_hist_export( ag_votor_t * self,
+                      ulong        last_leader_slot,
+                      ag_hist_t *  out );
+
+/* ag_votor_hist_adopt merges an adopted history into our slot states.
+   Returns how many notar hashes disagreed with ours. */
+
+ulong
+ag_votor_hist_adopt( ag_votor_t *      self,
+                     ag_hist_t const * hist );
 
 /* Algorithm 1, lines 9-25. Votor::handle_pool_event */
 
