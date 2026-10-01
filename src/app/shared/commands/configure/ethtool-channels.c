@@ -29,36 +29,6 @@ fini_perm( fd_cap_chk_t *      chk,
   fd_cap_chk_root( chk, NAME, "modify network device configuration with ethtool" );
 }
 
-/* FIXME: Centrally define listen port list to avoid this configure
-   stage from going out of sync with port mappings. */
-static uint
-get_ports( fd_config_t const * config,
-           ushort *            ports ) {
-  uint port_cnt = 0U;
-
-#define ADD_PORT( p ) do { \
-  ushort __port = ( p ); \
-  if( FD_UNLIKELY( __port==0U ) ) break; \
-  int __dupe = 0; \
-  for( uint __p=0U; !__dupe && __p<port_cnt; ++__p ) __dupe = (ports[ __p ]==__port); \
-  if( FD_UNLIKELY( __dupe ) ) break; \
-  ports[ port_cnt ] = __port; \
-  port_cnt++; \
-} while(0)
-
-  ADD_PORT( config->tiles.shred.shred_listen_port              );
-  ADD_PORT( config->tiles.quic.quic_transaction_listen_port    );
-  ADD_PORT( config->tiles.quic.regular_transaction_listen_port );
-    ADD_PORT( config->gossip.port                              );
-    ADD_PORT( config->tiles.repair.repair_client_listen_port   );
-    ADD_PORT( config->tiles.rserve.repair_serve_listen_port    );
-    ADD_PORT( config->firedancer.development.votor.quic_client_listen_port );
-    ADD_PORT( config->firedancer.development.votor.quic_server_listen_port );
-#undef ADD_PORT
-
-  return port_cnt;
-}
-
 /* Attempts to initialize the device in simple or dedicated mode.  If
    strict is true, FD_LOG_ERR's on failure.  Otherwise, returns 1 on
    failure. Returns 0 on success. */
@@ -144,7 +114,7 @@ init_device( char const *        device,
        are multiple net tiles, create a group of rules for each tile. */
     int ntuple_error = 0;
     ushort ports[ 32 ];
-    uint port_cnt = get_ports( config, ports );
+    uint port_cnt = configure_udp_ports( config, ports );
     uint rule_idx = 0;
     uint const rule_group_cnt = fd_uint_pow2_up( queue_cnt );
     for( uint r=0U; !ntuple_error && r<rule_group_cnt; r++ ) {
@@ -280,7 +250,7 @@ check_device_is_configured( char const *        device,
   } else {
     int ports_valid;
     ushort ports[ 32 ];
-    uint port_cnt = get_ports( config, ports );
+    uint port_cnt = configure_udp_ports( config, ports );
     int listen_gre = config->net.xdp.listen_gre;
     FD_TEST( 0==fd_ethtool_ioctl_ntuple_validate( &ioc, ports, port_cnt, queue_cnt, listen_gre ? 0U : UINT_MAX, &ports_valid ));
     if( !ports_valid ) return 0;
