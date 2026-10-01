@@ -136,6 +136,7 @@ bench_retry_server_verify( void ) {
   fd_quic_pkt_t const pkt = {0};
 
   fd_quic_initial_t initial = { .dst_conn_id_len = 8 };
+  FD_STORE( ulong, initial.dst_conn_id, 1234UL ); /* token rscid */
   initial.token     = token;
   initial.token_len = sizeof(token);
   fd_quic_conn_id_t odcid;
@@ -237,6 +238,7 @@ test_retry_token_malleability( void ) {
     0x27, 0x5e, 0xd0, 0x18, 0xc7
   };
   fd_quic_initial_t initial = { .dst_conn_id_len = 8 };
+  FD_STORE( ulong, initial.dst_conn_id, 1234UL ); /* token rscid */
   initial.token     = token;
   initial.token_len = sizeof(token);
   fd_quic_pkt_t const pkt = {0};
@@ -256,6 +258,17 @@ test_retry_token_malleability( void ) {
     }
   }
   FD_TEST( fd_quic_retry_server_verify( &pkt, &initial, &odcid, &rscid, aes_key, aes_iv, now, ttl )==FD_QUIC_SUCCESS );
+
+  /* Token must not be accepted for an Initial with a different DCID */
+  for( ulong j=0; j<8; j++ ) {
+    for( int i=0; i<8; i++ ) {
+      initial.dst_conn_id[j] = (uchar)( initial.dst_conn_id[j] ^ (1<<i) );
+      int res = fd_quic_retry_server_verify( &pkt, &initial, &odcid, &rscid, aes_key, aes_iv, now, ttl );
+      FD_TEST( res==FD_QUIC_FAILED );
+      initial.dst_conn_id[j] = (uchar)( initial.dst_conn_id[j] ^ (1<<i) );
+    }
+  }
+  FD_TEST( fd_quic_retry_server_verify( &pkt, &initial, &odcid, &rscid, aes_key, aes_iv, now, ttl )==FD_QUIC_SUCCESS );
 }
 
 /* Ensure that retry tokens expire. */
@@ -272,6 +285,7 @@ test_retry_token_time( void ) {
     0x09, 0x2c, 0x8d, 0xa8, 0x5e,
   };
   fd_quic_initial_t initial = { .dst_conn_id_len = 8 };
+  FD_STORE( ulong, initial.dst_conn_id, 1234UL ); /* token rscid */
   initial.token     = token;
   initial.token_len = sizeof(token);
   fd_quic_pkt_t const pkt = {0};
