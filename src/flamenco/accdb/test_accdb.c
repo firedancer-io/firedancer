@@ -2333,8 +2333,9 @@ test_batch_io( void ) {
     ulong slots[1] = { 1UL }, lamports[1] = { 1000UL+k }, data_lens[1] = { data_len }, offs[1] = { off };
     int execs[1] = { 0 };
     ulong ignored, replaced, loaded, rl, il;
+    uchar results[1];
     FD_TEST( !fd_accdb_snapshot_write_batch( accdb, SENTINEL, 1UL, pubkeys, slots, lamports, data_lens, execs,
-                                             offs, &ignored, &replaced, &loaded, &rl, &il ) );
+                                             offs, &ignored, &replaced, &loaded, &rl, &il, results ) );
     FD_TEST( loaded==1UL );
   }
   fd_accdb_snapshot_load_end( accdb );
@@ -2373,7 +2374,7 @@ test_batch_io( void ) {
   /* Nocache batch through a readonly join (sharing the writer's ring
      is fine since both run on this thread and never overlap). */
   ulong  ro_epoch = ULONG_MAX;
-  void * ro_mem   = aligned_alloc( fd_accdb_align(), fd_accdb_footprint( test_shmem_mem->max_live_slots ) );
+  void * ro_mem   = aligned_alloc( fd_accdb_align(), fd_accdb_footprint( test_shmem_mem->max_live_slots, 0 ) );
   FD_TEST( ro_mem );
   fd_accdb_t * ro = fd_accdb_join_readonly( ro_mem, test_shmem_mem, &ro_epoch, fd );
   FD_TEST( ro );
