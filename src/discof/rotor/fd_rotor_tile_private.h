@@ -8,7 +8,7 @@
 #include "../repair/fd_repair_metrics.h"
 #include "../repair/fd_inflight.h"
 #include "../repair/fd_policy.h"
-#include "../chainer/fd_chainer.h"
+#include "fd_rotor.h"
 #include "fd_schedulor.h"
 #include "fd_requestor.h"
 #include "../../disco/fd_clock_tile.h"
@@ -117,12 +117,12 @@ struct ctx {
   ulong       repair_seed;
   fd_pubkey_t identity_public_key;
 
-  fd_chainer_t *      chainer;   /* slot version / FEC store */
-  fd_schedulor_t *    schedulor; /* blocks to check, by timeout */
-  fd_requestor_t *    requestor; /* cursor walk of the block being repaired */
-  fd_repair_t *       protocol;  /* repair message construction */
-  fd_policy_t *       policy;    /* repair peers and selection */
-  fd_inflights_t *    rtt;       /* sent requests by nonce, for response latency only; expired after FD_ROTOR_INFLIGHT_TIMEOUT_NS */
+  fd_rotor_t     * rotor;     /* slot version / FEC store */
+  fd_schedulor_t * schedulor; /* blocks to check, by timeout */
+  fd_requestor_t * requestor; /* cursor walk of the block being repaired */
+  fd_repair_t    * protocol;  /* repair message construction */
+  fd_policy_t    * policy;    /* repair peers and selection */
+  fd_inflights_t * rtt;       /* sent requests by nonce, for response latency only; expired after FD_ROTOR_INFLIGHT_TIMEOUT_NS */
 
   fd_event_block_received_t * receive_event;
 
@@ -133,7 +133,7 @@ struct ctx {
   int              halt_signing;
 
   /* When set, publish_fec_replay re-publishes the entire ancestry path
-     of FECs from the chainer root down to the FEC being delivered, so
+     of FECs from the rotor root down to the FEC being delivered, so
      replay can reconstruct a fork it evicted.  See fd_rotor_tile.h. */
   int         deliver_from_root;
   out_ele_t * redeliver;

@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_discof_rotor_fd_requestor_h
 #define HEADER_fd_src_discof_rotor_fd_requestor_h
 
-/* fd_requestor walks one block ({slot, block_id}, a chainer slot
+/* fd_requestor walks one block ({slot, block_id}, a rotor slot
    version) and produces the repair requests it needs, one per call.
    It keeps only a cursor: the shred position the walk has reached.
 
@@ -50,7 +50,7 @@
    block_id_only is set; that is a development flag for exercising
    block-id repair in isolation. */
 
-#include "../chainer/fd_chainer.h"
+#include "fd_rotor.h"
 
 /* fd_requestor_block_advance results */
 
@@ -135,7 +135,7 @@ fd_requestor_block_start( fd_requestor_t *  self,
 
 int
 fd_requestor_block_advance( fd_requestor_t *     self,
-                            fd_chainer_t *       chainer,
+                            fd_rotor_t *         rotor,
                             fd_rotor_request_t * out_request,
                             ulong *              out_slot,
                             fd_hash_t *          out_block_id );

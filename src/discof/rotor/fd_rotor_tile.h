@@ -36,9 +36,9 @@
    re-key its replay bank from {slot, 0} to a {slot, block_id} that the
    verified copy's bank already occupies.
 
-   To prevent that, the chainer ABANDONS the turbine version of a slot
+   To prevent that, the rotor ABANDONS the turbine version of a slot
    the moment a votor-driven version of it is created while the turbine
-   block_id is still unknown (see fd_chainer.h): the abandoned version
+   block_id is still unknown (see fd_rotor.h): the abandoned version
    keeps absorbing turbine shreds (they fill the FECs the verified
    version shares) but never delivers another FEC and never finalizes a
    block_id.
@@ -101,12 +101,12 @@
    immediately replay, since it has evicted an ancestor.  When that
    occurs, replay should drain the rotor in-link dcache and send a
    REPLAY_SIG_MISSING_FEC to rotor.  Rotor then sends it's next FEC set
-   with the full lineage starting from the chainer root.  It does this
+   with the full lineage starting from the rotor root.  It does this
    only for the next FEC set to deliver.  If repeated evictions occur,
    rotor can expect repeated REPLAY_SIG_MISSING_FEC messages to arrive,
    and many redundant FECs to be delivered.
 
-   We assume currently that chainer will not require eviction.  The
+   We assume currently that rotor will not require eviction.  The
    default size is bounded to the Agave cap on future certs it tracks.
    We can bound rotor even tighter once dynamic vote timeouts are
    implemented, and thus rotor should always have all the data replay
@@ -124,7 +124,7 @@
    regular shreds. Thus the net tile routes them directly to the rotor
    tile.  The routing is done entirely by packet size, so rotor tile
    filters and validates aggressively.  The responses are matches by
-   nonce and verified before being ingested by the chainer. */
+   nonce and verified before being ingested by the rotor. */
 
 /* keep in line with repair tile sigs */
 #define REPAIR_SIG_FEC         (0UL)
@@ -139,7 +139,7 @@ struct fd_rotor_fec_metrics {
   uint  stats_valid;        /* 1 if the counters below are populated */
 
   /* 1 if the FEC was delivered under a votor-driven version of its slot
-     -- one the chainer created from a cert and filled by block id
+     -- one the rotor created from a cert and filled by block id
      repair -- and 0 if it was delivered under the slot's turbine
      version, our own leader blocks included. */
   uchar votor_repaired;

@@ -5,7 +5,7 @@
    It is a data structure, not a state machine: the tile decides when a
    block needs checking and how long it should sleep.
 
-   A block is identified by {slot, block_id}, the chainer's identity for
+   A block is identified by {slot, block_id}, the rotor's identity for
    a slot version, and its check carries the time it is due.  A block
    has at most one queued check: insert on a block with a check already
    queued is a no-op, so any caller may ask for a check without knowing
@@ -31,16 +31,16 @@ FD_PROTOTYPES_BEGIN
 FD_FN_CONST ulong
 fd_schedulor_align( void );
 
-/* fd_schedulor_footprint returns the footprint for slotv_max blocks,
-   which must equal the chainer's slotv pool max.  Returns 0 if
-   slotv_max is 0 or too large. */
+/* fd_schedulor_footprint returns the footprint for block_max blocks,
+   which must equal the rotor's block pool max.  Returns 0 if
+   block_max is 0 or too large. */
 
 FD_FN_CONST ulong
-fd_schedulor_footprint( ulong slotv_max );
+fd_schedulor_footprint( ulong block_max );
 
 void *
 fd_schedulor_new( void * mem,
-                  ulong  slotv_max,
+                  ulong  block_max,
                   ulong  seed );
 
 fd_schedulor_t *
@@ -107,13 +107,13 @@ fd_schedulor_verify( fd_schedulor_t const * self );
 
 /* fd_schedulor_print prints every queued check in pop order (timeout,
    then slot) with its time remaining relative to now.  mem is the
-   memory a schedulor was created in with slotv_max; it may be a
+   memory a schedulor was created in with block_max; it may be a
    read-only mapping from another process, so local addresses are
    recomputed from mem rather than read from the struct. */
 
 void
 fd_schedulor_print( void const * mem,
-                    ulong        slotv_max,
+                    ulong        block_max,
                     long         now );
 
 FD_PROTOTYPES_END

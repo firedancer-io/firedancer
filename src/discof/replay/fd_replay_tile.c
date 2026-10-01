@@ -2816,7 +2816,7 @@ can_process_rotor_fec( fd_replay_tile_t      * ctx,
   }
 
   /* Recovery redelivery re-publishes the entire ancestry path from the
-     chainer root, but most of those blocks are already replayed.  A
+     rotor root, but most of those blocks are already replayed.  A
      fully replayed block is always keyed by {slot, block_id_real}; a
      turbine block still in flight is keyed by {slot, 0}.  Rotor fills
      in block_id on redelivered FECs whenever it knows it, so try the id
@@ -4170,7 +4170,7 @@ process_rotor_fec( fd_replay_tile_t      * ctx,
     /* block is complete and DMR block id is now known so re-key.  The
        map does not support duplicate keys: rotor guarantees at most one
        delivery stream per block (a turbine copy of a slot with a
-       votor-driven version is abandoned in the chainer, see
+       votor-driven version is abandoned in the rotor, see
        fd_rotor_tile.h), so {slot, block_id} can never already be
        occupied by another LIVE bank.  It can however be occupied by a
        STALE entry: a previously-completed copy of this block whose bank

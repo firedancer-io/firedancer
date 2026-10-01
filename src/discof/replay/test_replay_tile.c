@@ -3112,7 +3112,7 @@ deliver_rotor_fec_bid( fd_replay_tile_t * ctx,
 }
 
 /* test_process_rotor_fec_skip_replayed: on recovery rotor re-delivers
-   the entire ancestry path from the chainer root, but most of those
+   the entire ancestry path from the rotor root, but most of those
    blocks are already replayed.  Replay must SKIP a redelivered FEC
    whose (slot, block_id) names an already-replayed block -- returning
    before it touches the store or creates a duplicate bank -- while
@@ -3284,7 +3284,7 @@ test_drain_rotor_fecs( fd_wksp_t * wksp ) {
    no re-notify) but WAIT keeps its keep-and-retry contract.  Recovery
    therefore hinges on the re-delivered path eventually presenting a FEC
    whose parent is live, i.e. PROCESS_FEC_OK.  Rotor guarantees this by
-   re-delivering from the chainer root down; the root bank is the
+   re-delivering from the rotor root down; the root bank is the
    (non-evictable) published root, so its direct child's FEC 0 is always
    OK -- which is what the OK step below demonstrates. */
 static void

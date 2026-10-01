@@ -63,7 +63,7 @@ has( fd_blockdb_t const * db,
   return !!fd_blockdb_query( db, slot, &block_id );
 }
 
-/* block_id computes the double-merkle root the way the chainer does,
+/* block_id computes the double-merkle root the way the rotor does,
    from full 32B FEC roots. */
 
 static uchar tree_mem[ FD_BMTREE_COMMIT_FOOTPRINT( 0UL ) ] __attribute__((aligned(FD_BMTREE_COMMIT_ALIGN)));

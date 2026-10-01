@@ -106,12 +106,12 @@ fd_requestor_block_id( fd_requestor_t const * self ) {
 /* block_query returns the live, repairable version for {slot,
    block_id}, or NULL if it is gone or rooted. */
 
-static fd_chainer_slotv_t const *
-block_query( fd_chainer_t *       chainer,
-             ulong                slot,
-             fd_hash_t const *    block_id ) {
-  if( FD_UNLIKELY( slot<=chainer->root ) ) return NULL;
-  fd_chainer_slotv_t const * block = fd_chainer_slot_version_query( chainer, slot, block_id );
+static fd_rotor_blk_t const *
+block_query( fd_rotor_t *      rotor,
+             ulong             slot,
+             fd_hash_t const * block_id ) {
+  if( FD_UNLIKELY( slot<=rotor->root ) ) return NULL;
+  fd_rotor_blk_t const * block = fd_rotor_slot_version_query( rotor, slot, block_id );
   return block;
 }
 
@@ -131,13 +131,13 @@ emit( fd_requestor_t const * self,
 }
 
 /* parent_orphaned returns 1 if the block names a parent we do not
-   hold: its ancestry is known but not yet in the chainer. */
+   hold: its ancestry is known but not yet in the rotor. */
 
 static inline int
-parent_orphaned( fd_chainer_t *             chainer,
-                 fd_chainer_slotv_t const * block ) {
+parent_orphaned( fd_rotor_t *           rotor,
+                 fd_rotor_blk_t const * block ) {
   if( block->parent_slot==AG_UNKNOWN_SLOT ) return 1;
-  int parent_present = block->parent_slot<=chainer->root || !!fd_chainer_slot_version_query( chainer, block->parent_slot, &block->parent_block_id );
+  int parent_present = block->parent_slot<=rotor->root || !!fd_rotor_slot_version_query( rotor, block->parent_slot, &block->parent_block_id );
   return !parent_present;
 }
 
@@ -145,9 +145,9 @@ parent_orphaned( fd_chainer_t *             chainer,
    returns 1, or returns 0 if the parent slot is already known. */
 
 static int
-parent_next( fd_requestor_t const *     self,
-             fd_chainer_slotv_t const * block,
-             fd_rotor_request_t *       request ) {
+parent_next( fd_requestor_t const * self,
+             fd_rotor_blk_t const * block,
+             fd_rotor_request_t *   request ) {
   if( block->parent_slot!=AG_UNKNOWN_SLOT ) return 0;
   int verified = !fd_hash_check_zero( &block->block_id );
   if( verified )             { emit( self, request, AG_REPAIR_KIND_PARENT_FEC_COUNT, 0U, &block->block_id, NULL ); return 1; }
@@ -161,13 +161,13 @@ parent_next( fd_requestor_t const *     self,
    highest window while the tip is unknown. */
 
 static int
-metadata_next( fd_requestor_t const *     self,
-               fd_chainer_t *             chainer,
-               fd_chainer_slotv_t const * block,
-               fd_rotor_request_t *       request ) {
+metadata_next( fd_requestor_t const * self,
+               fd_rotor_t *           rotor,
+               fd_rotor_blk_t const * block,
+               fd_rotor_request_t *   request ) {
   int verified = !fd_hash_check_zero( &block->block_id );
 
-  if( parent_orphaned( chainer, block ) ) {
+  if( parent_orphaned( rotor, block ) ) {
     if( !self->block_id_only ) { emit( self, request, FD_REPAIR_KIND_ORPHAN,           0U, NULL,             NULL ); return 1; }
     else if( verified )        { emit( self, request, AG_REPAIR_KIND_PARENT_FEC_COUNT, 0U, &block->block_id, NULL ); return 1; }
   }
@@ -187,17 +187,17 @@ metadata_next( fd_requestor_t const *     self,
    FecSetRoot for a set past the end gets no answer. */
 
 static int
-fill_next( fd_requestor_t *           self,
-           fd_chainer_t *             chainer,
-           fd_chainer_slotv_t const * block,
-           fd_rotor_request_t *       request ) {
+fill_next( fd_requestor_t *       self,
+           fd_rotor_t *           rotor,
+           fd_rotor_blk_t const * block,
+           fd_rotor_request_t *   request ) {
   int verified = !fd_hash_check_zero( &block->block_id );
   if( FD_UNLIKELY( !verified && self->block_id_only ) ) return 0; /* no fill rung to walk */
 
   uint shred_max = block->complete_idx;
   if( FD_UNLIKELY( shred_max==UINT_MAX ) ) {
     if( FD_UNLIKELY( verified ) ) return 0;                           /* getParentFecSetCount realizes the count */
-    shred_max = (uint)( chainer->fec_blk_max*FD_FEC_SHRED_CNT ) - 1U; /* blind */
+    shred_max = (uint)( rotor->fec_blk_max*FD_FEC_SHRED_CNT ) - 1U; /* blind */
   }
 
   /* never behind the buffered prefix, which is all present */
@@ -205,11 +205,11 @@ fill_next( fd_requestor_t *           self,
 
   while( self->cursor<=shred_max ) {
     uint idx = self->cursor;
-    if( fd_chainer_shred_test( chainer, block, idx ) ) { self->cursor++; continue; }
+    if( fd_rotor_shred_test( rotor, block, idx ) ) { self->cursor++; continue; }
     uint fec_set_idx = idx & ~( (uint)FD_FEC_SHRED_CNT - 1U );
 
     if( verified ) {
-      fd_chainer_fec_t const * fec = fd_chainer_fec_query( chainer, block->slot, fec_set_idx, &block->block_id );
+      fd_rotor_fec_t const * fec = fd_rotor_fec_query( rotor, block->slot, fec_set_idx, &block->block_id );
       if( FD_UNLIKELY( !fec ) ) {
         /* No entry at this set: ask for its root and move to the next
            set.  Its shreds are asked for once the sentinel lands and
@@ -249,7 +249,7 @@ fd_requestor_block_start( fd_requestor_t *  self,
 
 int
 fd_requestor_block_advance( fd_requestor_t *     self,
-                            fd_chainer_t *       chainer,
+                            fd_rotor_t *         rotor,
                             fd_rotor_request_t * out_request,
                             ulong *              out_slot,
                             fd_hash_t *          out_block_id ) {
@@ -264,25 +264,25 @@ fd_requestor_block_advance( fd_requestor_t *     self,
      repair for individual shreds       - otherwise, request individual shreds or FEC_ROOT
      repair for metadata. */
 
-  fd_chainer_slotv_t const * block = block_query( chainer, self->slot, &self->block_id );
+  fd_rotor_blk_t const * block = block_query( rotor, self->slot, &self->block_id );
 
   if( FD_UNLIKELY( !block ) )                   { self->active = 0; return FD_REQUESTOR_ADVANCE_DONE;             } /* gone or rooted mid-walk */
   if( parent_next( self, block, out_request ) ) { self->active = 0; return FD_REQUESTOR_ADVANCE_REQUESTED_PARENT; } /* one request, carried in *out_request */
 
   /* TODO doc why some parent exists is good */
-  int some_parent_exists = fd_slotv_map_idx_query_const( chainer->slotv_map, &block->parent_slot, ULONG_MAX, chainer->slotv_pool )!=ULONG_MAX;
-  int parent_seen        = !parent_orphaned( chainer, block ) || some_parent_exists;
+  int some_parent_exists = fd_block_map_idx_query_const( rotor->block_map, &block->parent_slot, ULONG_MAX, rotor->block_pool )!=ULONG_MAX;
+  int parent_seen        = !parent_orphaned( rotor, block ) || some_parent_exists;
 
   uint fill_max = ( !parent_seen || block->complete_idx==UINT_MAX )
                     ? FD_REQUESTOR_ORPHAN_FILL_MAX /* request up to FILL_MAX individual shreds */
                     : UINT_MAX;                    /* no limit */
 
-  if( self->fill_cnt<fill_max && fill_next( self, chainer, block, out_request ) ) {
+  if( self->fill_cnt<fill_max && fill_next( self, rotor, block, out_request ) ) {
     self->fill_cnt++;
     return FD_REQUESTOR_ADVANCE_REQUEST;
   }
 
-  if( metadata_next( self, chainer, block, out_request ) ) { self->active = 0; return FD_REQUESTOR_ADVANCE_REQUESTED_PARENT; } /* one request, carried in *out_request */
+  if( metadata_next( self, rotor, block, out_request ) ) { self->active = 0; return FD_REQUESTOR_ADVANCE_REQUESTED_PARENT; } /* one request, carried in *out_request */
 
   self->active = 0;
   return self->fill_cnt ? FD_REQUESTOR_ADVANCE_REQUESTED : FD_REQUESTOR_ADVANCE_DONE;
