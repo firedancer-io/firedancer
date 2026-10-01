@@ -133,6 +133,14 @@ test_root( fd_progcache_join_t *  join,
   return fd_progcache_attach_child( join, xid );
 }
 
+FD_UNIT_TEST( sbpf_program_footprint_max ) {
+  fd_sbpf_elf_info_t info = {0};
+  info.sbpf_version  = FD_SBPF_V0;
+  info.calldests_max = FD_SBPF_TEXT_CNT_MAX;
+  FD_TEST( FD_SBPF_PROGRAM_FOOTPRINT==fd_sbpf_program_footprint( &info ) );
+  FD_TEST( fd_ulong_is_aligned( FD_SBPF_PROGRAM_FOOTPRINT, fd_sbpf_program_align() ) );
+}
+
 /* test_invalid_owner: Account exists but is not owned by BPF loader */
 
 FD_UNIT_TEST( invalid_owner ) {
