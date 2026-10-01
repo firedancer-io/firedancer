@@ -379,54 +379,38 @@ fd_vm_is_check_size_enabled( fd_vm_t const * vm ) {
      INVAL     - NULL vm (or, for fd_vm_exec_trace, the vm is not
                  attached to trace).  FIXME: ADD OTHER INPUT ARG CHECKS?
 
-     SIGTEXT   - A jump/call set the program counter outside the text
-                 region or the program counter incremented beyond the
-                 text region.  pc will be at the out of bounds location.
-                 ic and cu will not include the out of bounds location.
-                 For a call, the call stack frame was allocated.
+     SIGTEXT   - The program counter moved beyond the text region or
+                 a callx targeted outside the text region.
 
      SIGSPLIT  - A jump/call set the program counter into the middle of
                  a multiword instruction or a multiword instruction went
-                 past the text region end.  pc will be at the split.  ic
-                 and cu will not include the split.  For a call, the
-                 call stack frame was allocated.
+                 past the text region end.
 
      SIGCALL   - A call set the program counter to a non-function
-                 location.  pc will be at the non-function location.  ic
-                 and cu will include the call but not include the
-                 non-function location.  The call stack frame was
-                 allocated.
+                 location.
 
-     SIGSTACK  - The call depth limit was exceeded.  pc will be at the
-                 call.  ic and cu will include the call but not the call
-                 target.  The call stack frame was not allocated.
+     SIGSTACK  - The call depth limit was exceeded.
 
      SIGILL    - An invalid instruction was encountered (including an
-                 invalid opcode and an endian swap with an invalid bit
-                 width).  pc will be at the invalid instruction.  ic and
-                 cu will not include the invalid instruction.
+                 invalid opcode, an endian swap with an invalid bit
+                 width and an invalid call target).
 
      SIGSEGV   - An invalid memory access (outside the program memory
-                 map) was encountered.  pc will be at the faulting
-                 instruction.  ic and cu will not include the faulting
-                 instruction.
+                 map) was encountered.
 
-     SIGBUS    - An unaligned memory access was encountered.  pc will be
-                 at the faulting instruction.  ic and cu will not
-                 include the faulting instruction.  (Note: currently
-                 mapped to SIGSEGV and then only if check_align is
-                 enabled.)
+     SIGBUS    - An unaligned memory access was encountered.  (Note:
+                 currently mapped to SIGSEGV and then only if
+                 check_align is enabled.)
 
      SIGRDONLY - A write to read-only memory address was encountered.
-                 pc will be at the faulting instruction.  ic and cu will
-                 not include the faulting instruction.  (Note: currently
-                 mapped to SIGSEGV.)
+                 (Note: currently mapped to SIGSEGV.)
 
-     SIGCOST   - The compute limit was exceeded.  pc will be at the
-                 first non-executed instruction (if pc is a syscall, the
-                 syscall might have been partially executed when it ran
-                 out of budget .. see safety tip below).  ic will cover
-                 all executed instructions.  cu will be zero.
+     SIGCOST   - The compute limit was exceeded.  cu will be zero.
+
+   On a fault, pc, ic and the call stack are undefined.  cu is the
+   remaining compute budget as billed by the Agave instruction meter
+   (consensus critical).  A fault that coincides with the compute limit
+   being exceeded may be reported as either fault.
 
    This will considers any error returned by a syscall as a fault and
    returns the syscall error code here.  See syscall documentation for
