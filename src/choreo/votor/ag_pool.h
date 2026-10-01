@@ -62,6 +62,16 @@ ag_pool_advance_epoch( ag_pool_t *             self,
                        ulong                   epoch_rank,
                        ulong                   epoch_slot );
 
+/* Replaces our rank in the epoch starting at epoch_slot, for when our
+   identity changes after the epoch advanced.  The epoch's live slot
+   states then treat the new rank's votes as ours.  USHORT_MAX if we
+   are not ranked in that epoch. */
+
+void
+ag_pool_set_rank( ag_pool_t * self,
+                  ulong       epoch_slot,
+                  ulong       epoch_rank );
+
 /* Definition 13. Pool::add_cert */
 
 int
@@ -124,6 +134,9 @@ ag_pool_poll_pool_event( ag_pool_t *       self,
 int
 ag_pool_poll_repair_event( ag_pool_t *         self,
                            ag_event_repair_t * event );
+
+FD_FN_PURE ulong
+ag_pool_pool_event_cnt( ag_pool_t const * self );
 
 FD_PROTOTYPES_END
 

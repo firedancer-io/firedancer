@@ -1307,9 +1307,9 @@ maybe_switch_identity( fd_replay_tile_t * ctx ) {
   ctx->identity_idx++;
   fd_vote_tracker_reset( ctx->vote_tracker );
 
-  /* Save the current sequence so downstream consumers, namely tower,
-     know what sequence to consume up to. */
-  ctx->keyswitch->result = fd_mcache_seq_query( ctx->replay_out_seq );
+  /* Save the current sequence so the voter knows what sequence to
+     consume up to.  Tower reads replay_out, votor reads replay_slot. */
+  ctx->keyswitch->result = fd_mcache_seq_query( ctx->alpenglow ? ctx->slot_out_seq : ctx->replay_out_seq );
   fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
 }
 
@@ -1385,6 +1385,14 @@ try_become_leader_ag( fd_replay_tile_t *  ctx,
   if( FD_UNLIKELY( !fd_banks_can_start_bank( ctx->banks ) ) ) return 0;
   if( FD_UNLIKELY( ctx->halt_replay ) ) return 0;
   if( !ctx->supports_leader ) return 0;
+
+  /* Don't become leader if the slot is not scheduled for the identity.
+     This can only happen in cases where the identity just switched. */
+  fd_pubkey_t const * leader = fd_multi_epoch_leaders_get_leader_for_slot( ctx->mleaders, ctx->next_leader_slot );
+  if( FD_UNLIKELY( !leader || !fd_pubkey_eq( leader, ctx->identity_pubkey ) ) ) {
+    ctx->next_leader_slot = ULONG_MAX;
+    return 0;
+  }
 
   /* In Alpenglow, the "reset" block is signaled by ParentReady (a state
      transition in the Votor consensus logic).  ParentReady can occur
@@ -5236,6 +5244,7 @@ unprivileged_init( fd_topo_t const *      topo,
   for( ulong i=0UL; i<ctx->exec_cnt; i++ ) FD_TEST( ctx->exec_out[ i ].idx!=ULONG_MAX );
 
   ctx->replay_out_seq = fd_mcache_seq_laddr_const( topo->links[ tile->out_link_id[ ctx->replay_out->idx ] ].mcache );
+  ctx->slot_out_seq   = fd_mcache_seq_laddr_const( topo->links[ tile->out_link_id[ ctx->slot_out->idx   ] ].mcache );
 
   ctx->rpc_enabled = fd_topo_find_tile( topo, "rpc", 0UL )!=ULONG_MAX;
 

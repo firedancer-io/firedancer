@@ -509,6 +509,62 @@ test_missing_bls_selector_records_final( void ) {
 }
 
 static void
+test_set_rank( void ) {
+  ag_votor_t * votor = setup_votor( 0L );
+  ag_votor_advance_epoch ( votor, TEST_NS_PER_SLOT, 0UL, 2UL, g_bls_selector[0] );
+  ag_votor_set_rank      ( votor, 0UL, 1UL );
+  ag_votor_set_bls_pubkey( votor, 0UL, g_bls_selector[1] );
+
+  ag_block_id_t parent = genesis_block_id();
+  ag_vote_t vote = send_block_and_expect_notar( votor, 1UL, &parent );
+  FD_TEST( ag_vote_rank( &vote )==1UL );
+  FD_TEST( !memcmp( g_last_bls_selector, g_bls_selector[1], FD_BLS_PUB_COMPRESSED_SZ ) );
+
+  parent = ag_block_id( 1UL, vote.notar.block_hash );
+  vote = send_block_and_expect_notar( votor, 2UL, &parent );
+  FD_TEST( ag_vote_rank( &vote )==0UL );
+  FD_TEST( !memcmp( g_last_bls_selector, g_bls_selector[0], FD_BLS_PUB_COMPRESSED_SZ ) );
+
+  teardown_votor( votor );
+}
+
+/* After an identity switch votor signs nothing more in a window it
+   already voted in, not even a final vote, since the new identity may
+   have skipped the rest of that window on another machine.  It votes
+   again from the next window. */
+
+static void
+test_wait_to_vote( void ) {
+  ag_votor_t * votor = setup_votor( 0L );
+
+  ag_block_id_t parent = genesis_block_id();
+  ag_vote_t     vote   = send_block_and_expect_notar( votor, 1UL, &parent );
+  ag_votor_wait_to_vote( votor );
+
+  ag_event_pool_t event = { .kind = AG_EVENT_POOL_CERT_CREATED, .cert_created = cert_build_notar( &vote.notar, 1UL, g_epoch_info ) };
+  ag_votor_handle_pool_event( votor, &event, 0L );
+  FD_TEST_NO_MSG( votor );
+
+  parent = ag_block_id( 1UL, vote.notar.block_hash );
+  for( ulong slot=2UL; slot<AG_SLOTS_PER_WINDOW; slot++ ) {
+    ag_event_replay_t block = { .slot = slot };
+    block.block_info.parent = parent;
+    random_hash( block.block_info.hash );
+    ag_votor_handle_replay_event( votor, &block );
+    FD_TEST_NO_MSG( votor );
+    parent = ag_block_id( slot, block.block_info.hash );
+  }
+
+  event = (ag_event_pool_t){ .kind = AG_EVENT_POOL_PARENT_READY };
+  event.parent_ready.slot   = AG_SLOTS_PER_WINDOW;
+  event.parent_ready.parent = parent;
+  ag_votor_handle_pool_event( votor, &event, 0L );
+  send_block_and_expect_notar( votor, AG_SLOTS_PER_WINDOW, &parent );
+
+  teardown_votor( votor );
+}
+
+static void
 test_missing_bls_selector_still_skips_other_epoch( void ) {
   for( int notar=0; notar<2; notar++ ) {
     ag_votor_t * votor = setup_votor( 0L );
@@ -593,6 +649,8 @@ main( int     argc,
   test_set_bls_pubkey();
   test_missing_bls_selector_records_notar();
   test_missing_bls_selector_records_final();
+  test_set_rank();
+  test_wait_to_vote();
   test_missing_bls_selector_still_skips_other_epoch();
   test_prunes_to_finalized_window();
 
