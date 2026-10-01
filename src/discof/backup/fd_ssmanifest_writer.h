@@ -61,9 +61,13 @@ struct fd_ssmanifest_writer {
   /* stakes cache */
   fd_accdb_t *                 accdb;
   fd_accdb_fork_id_t           accdb_fork_id;
+  fd_stake_delegations_t *     stake_delegations;
   fd_stake_history_t           stake_history; /* view into the bank's sysvar cache */
   ulong                        vote_account_cnt;
   ulong                        vote_account_idx;
+  ulong                        stake_delegation_cnt;
+  ulong                        stake_delegation_idx;
+  fd_stake_delegations_iter_t  stake_delegation_iter;
   fd_ssmanifest_vote_account_t vote_account[ 1UL<<FD_SSMANIFEST_VOTE_ACCOUNT_LG_SLOT_CNT ];
 };
 
@@ -73,11 +77,13 @@ FD_PROTOTYPES_BEGIN
 
 /* fd_ssmanifest_writer_init creates a new snapshot manifest writer.
    leader is the slot leader of bank.  Briefly views the root of
-   stake_delegations to collect the vote accounts of the stakes cache,
-   then reads those and the epoch stakes vote accounts from accdb at
-   accdb_fork_id.  fd_snap_manifest_serialize reads the stakes cache
-   accounts again.  acc_data is scratch of at least
-   FD_RUNTIME_ACC_SZ_MAX bytes.  Sets writer->serialized_sz. */
+   stake_delegations to collect the vote accounts of the stakes cache
+   and count the delegations, then reads those and the epoch stakes
+   vote accounts from accdb at accdb_fork_id.
+   fd_snap_manifest_serialize reads the stakes cache accounts again and
+   views the root once per chunk of delegations it writes.  acc_data is
+   scratch of at least FD_RUNTIME_ACC_SZ_MAX bytes.  Sets
+   writer->serialized_sz. */
 
 fd_ssmanifest_writer_t *
 fd_ssmanifest_writer_init( fd_ssmanifest_writer_t * writer,
@@ -103,6 +109,14 @@ fd_ssmanifest_writer_init( fd_ssmanifest_writer_t * writer,
    Produces 1 GiB-ish data for a mainnet snapshot. */
 
 #define FD_SSMANIFEST_BUF_MIN (32UL<<20)
+
+/* A stakes cache delegation entry: the stake account's pubkey, then
+   its delegation as laid out in the stake account.  One call writes
+   as many as fit the minimum buffer. */
+
+#define FD_SSMANIFEST_STAKE_DELEGATION_SZ         (sizeof(fd_pubkey_t)+sizeof(fd_delegation_t))
+#define FD_SSMANIFEST_STAKE_DELEGATIONS_PER_CHUNK (FD_SSMANIFEST_BUF_MIN/FD_SSMANIFEST_STAKE_DELEGATION_SZ)
+
 ulong
 fd_snap_manifest_serialize( fd_ssmanifest_writer_t * enc,
                             uchar out_buf[ FD_SSMANIFEST_BUF_MIN ],

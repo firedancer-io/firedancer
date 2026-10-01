@@ -27,6 +27,10 @@
 #define MAX_LIVE_SLOTS      16UL
 #define MAX_TXN_PER_SLOT    4096UL
 #define VALIDATOR_CNT       3UL
+
+/* One more delegation than the writer puts in a chunk, so it has to
+   resume its walk of the root after releasing the root lock. */
+#define BULK_DELEGATION_CNT (FD_SSMANIFEST_STAKE_DELEGATIONS_PER_CHUNK+1UL)
 #define ROOT_SLOT           1770UL /* epoch 4 with 432 slots/epoch */
 #define EPOCH_CREDITS_CNT   3UL
 
@@ -234,7 +238,12 @@ count_occurrences( uchar const * buf,
                    void const *  needle,
                    ulong         needle_sz ) {
   ulong cnt = 0UL;
-  for( ulong i=0UL; i+needle_sz<=buf_sz; i++ ) cnt += (ulong)!memcmp( buf+i, needle, needle_sz );
+  uchar const * end = buf+buf_sz;
+  for( uchar const * p=buf; ; p++ ) {
+    p = memchr( p, *(uchar const *)needle, (ulong)( end-p ) );
+    if( !p || p+needle_sz>end ) break;
+    cnt += (ulong)!memcmp( p, needle, needle_sz );
+  }
   return cnt;
 }
 
@@ -373,16 +382,23 @@ test_manifest_roundtrip( fd_svm_mini_t * mini,
 
   /* Stakes cache: a second bootstrap delegation to validator 0 (stakes
      add up), a delegation to validator 1 still warming up (effective
-     stake, not delegated stake), a delegation to a vote account
-     without an account (skipped), and a stake history sysvar with two
-     entries (copied verbatim). */
+     stake, not delegated stake), a deactivating delegation to a vote
+     account without an account (skipped), a bulk of delegations to as
+     many such vote accounts, more than the manifest lists and most of
+     them spilled to disk, and a stake history sysvar with two entries
+     (copied verbatim). */
   fd_stake_delegations_t * stake_delegations = fd_banks_stake_delegations_root_query( mini->banks );
   fd_pubkey_t second_stake  = { .ul = { 0xF7, 12 } };
   fd_pubkey_t warming_stake = { .ul = { 0xF8, 13 } };
   fd_pubkey_t phantom_stake = { .ul = { 0xF6, 11 } };
-  fd_stake_delegations_root_update( stake_delegations, &second_stake,  &votes[0],     2000000UL, ULONG_MAX,        ULONG_MAX, 0UL, 3000000UL, (uint)FD_STAKE_STATE_SZ );
-  fd_stake_delegations_root_update( stake_delegations, &warming_stake, &votes[1],     4000000UL, bank->f.epoch-1UL, ULONG_MAX, 0UL, 5000000UL, (uint)FD_STAKE_STATE_SZ );
-  fd_stake_delegations_root_update( stake_delegations, &phantom_stake, &phantom_vote, 5000000UL, ULONG_MAX,        ULONG_MAX, 0UL, 6000000UL, (uint)FD_STAKE_STATE_SZ );
+  fd_stake_delegations_root_update( stake_delegations, &second_stake,  &votes[0],     2000000UL, ULONG_MAX,         ULONG_MAX,     0UL, 3000000UL, (uint)FD_STAKE_STATE_SZ );
+  fd_stake_delegations_root_update( stake_delegations, &warming_stake, &votes[1],     4000000UL, bank->f.epoch-1UL, ULONG_MAX,     0UL, 5000000UL, (uint)FD_STAKE_STATE_SZ );
+  fd_stake_delegations_root_update( stake_delegations, &phantom_stake, &phantom_vote, 5000000UL, ULONG_MAX,         bank->f.epoch, 0UL, 6000000UL, (uint)FD_STAKE_STATE_SZ );
+  for( ulong i=0UL; i<BULK_DELEGATION_CNT; i++ ) {
+    fd_pubkey_t bulk_stake = { .ul = { 0xB0, i } };
+    fd_pubkey_t bulk_vote  = { .ul = { 0xB1, i } };
+    fd_stake_delegations_root_update( stake_delegations, &bulk_stake, &bulk_vote, 1UL, ULONG_MAX, ULONG_MAX, 0UL, 2UL, (uint)FD_STAKE_STATE_SZ );
+  }
   fd_stake_history_entry_t const history[2] = {
     { .epoch = 4UL, .effective = 7UL, .activating = 8UL, .deactivating = 9UL },
     { .epoch = 3UL, .effective = 4UL, .activating = 5UL, .deactivating = 6UL },
@@ -401,58 +417,63 @@ test_manifest_roundtrip( fd_svm_mini_t * mini,
   FD_TEST( manifest_sz>0UL );
   FD_LOG_NOTICE(( "manifest serialized size: %lu", manifest_sz ));
 
-  /* The writer emits an empty primary stake-delegations map.  Inject
-     one entry to verify that the parser consumes but does not retain
-     primary stake delegations in fd_snapshot_manifest_t. */
-  fd_pubkey_t ignored_stake_pubkey;
-  fd_pubkey_t ignored_vote_pubkey;
-  for( ulong i=0UL; i<sizeof(fd_pubkey_t); i++ ) {
-    ignored_stake_pubkey.uc[i] = (uchar)(0x80UL+i);
-    ignored_vote_pubkey.uc[i]  = (uchar)(0xC0UL+i);
-  }
-  ulong const stake_delegation_sz = 2UL*sizeof(fd_pubkey_t) + 3UL*sizeof(ulong) + sizeof(double);
-
-  uchar * buf       = test_alloc( wksp, alignof(uchar), manifest_sz+stake_delegation_sz );
+  uchar * buf       = test_alloc( wksp, alignof(uchar), manifest_sz );
   uchar * chunk_buf = test_alloc( wksp, alignof(uchar), FD_SSMANIFEST_BUF_MIN );
 
-  ulong total_written             = 0UL;
-  ulong stake_delegations_len_off = ULONG_MAX;
-  int   injected                  = 0;
+  ulong const delegation_cnt            = VALIDATOR_CNT+3UL+BULK_DELEGATION_CNT;
+  ulong       stake_delegations_len_off = ULONG_MAX;
+  ulong       total_written             = 0UL;
   for(;;) {
     ulong sz = fd_snap_manifest_serialize( writer, chunk_buf, FD_SSMANIFEST_BUF_MIN );
     if( !sz ) break;
-    FD_TEST( total_written + sz <= manifest_sz+stake_delegation_sz );
-
-    /* This uniquely identifies the writer's stake-history chunk, which
-       starts with empty stake delegations, unused=0, epoch. */
-    if( FD_UNLIKELY( !injected &&
-                     sz>=3UL*sizeof(ulong) &&
-                     FD_LOAD( ulong, chunk_buf      )==0UL &&
-                     FD_LOAD( ulong, chunk_buf+ 8UL )==0UL &&
-                     FD_LOAD( ulong, chunk_buf+16UL )==bank->f.epoch ) ) {
-      uchar * dst = buf+total_written;
-      stake_delegations_len_off = (ulong)(dst-buf);
-      FD_STORE( ulong, dst, 1UL );
-      dst += 8UL;
-      memcpy( dst, &ignored_stake_pubkey, sizeof(fd_pubkey_t) );
-      dst += sizeof(fd_pubkey_t);
-      memcpy( dst, &ignored_vote_pubkey, sizeof(fd_pubkey_t) );
-      dst += sizeof(fd_pubkey_t);
-      FD_STORE( ulong, dst, 1234UL ); dst += sizeof(ulong);
-      FD_STORE( ulong, dst, 5UL    ); dst += sizeof(ulong);
-      FD_STORE( ulong, dst, 9UL    ); dst += sizeof(ulong);
-      FD_STORE( double, dst, 0.25  ); dst += sizeof(double);
-      memcpy( dst, chunk_buf+8UL, sz-8UL );
-      total_written += sz+stake_delegation_sz;
-      injected = 1;
-    } else {
-      memcpy( buf + total_written, chunk_buf, sz );
-      total_written += sz;
+    FD_TEST( total_written+sz<=manifest_sz );
+    /* the writer emits the delegation count as a chunk of its own */
+    if( sz==sizeof(ulong) && FD_LOAD( ulong, chunk_buf )==delegation_cnt ) {
+      stake_delegations_len_off = total_written;
     }
+    memcpy( buf+total_written, chunk_buf, sz );
+    total_written += sz;
   }
-  FD_TEST( injected );
+  FD_TEST( total_written==manifest_sz );
   FD_TEST( stake_delegations_len_off!=ULONG_MAX );
-  FD_TEST( total_written==manifest_sz+stake_delegation_sz );
+
+  /* Stakes cache delegations: every delegation of the root, in the
+     root's order, byte for byte.  The parser discards them, so they
+     are checked in the serialized bytes. */
+  {
+    uchar needle[ 96UL ];
+    memcpy( needle,      &second_stake, 32UL );
+    memcpy( needle+32UL, &votes[0],     32UL );
+    FD_STORE( ulong, needle+64UL, 2000000UL );
+    FD_STORE( ulong, needle+72UL, ULONG_MAX );
+    FD_STORE( ulong, needle+80UL, ULONG_MAX );
+    FD_STORE( ulong, needle+88UL, 0UL       );
+    FD_TEST( count_occurrences( buf, total_written, needle, 96UL )==1UL );
+    memcpy( needle,      &warming_stake, 32UL );
+    memcpy( needle+32UL, &votes[1],      32UL );
+    FD_STORE( ulong, needle+64UL, 4000000UL         );
+    FD_STORE( ulong, needle+72UL, bank->f.epoch-1UL );
+    FD_TEST( count_occurrences( buf, total_written, needle, 96UL )==1UL );
+    memcpy( needle,      &phantom_stake, 32UL );
+    memcpy( needle+32UL, &phantom_vote,  32UL );
+    FD_STORE( ulong, needle+64UL, 5000000UL     );
+    FD_STORE( ulong, needle+72UL, ULONG_MAX     );
+    FD_STORE( ulong, needle+80UL, bank->f.epoch );
+    FD_TEST( count_occurrences( buf, total_written, needle, 96UL )==1UL );
+
+    uchar const * entry = buf+stake_delegations_len_off+sizeof(ulong);
+    fd_stake_delegations_iter_t iter_[1];
+    fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
+    for( ulong i=0UL; i<delegation_cnt; i++ ) {
+      FD_TEST( !fd_stake_delegations_iter_done( iter ) );
+      fd_stake_delegation_t const * d = fd_stake_delegations_iter_ele( iter );
+      FD_TEST( !memcmp( entry,      &d->stake_account, 32UL ) );
+      FD_TEST( !memcmp( entry+32UL, &d->vote_account,  32UL ) );
+      entry += 96UL;
+      fd_stake_delegations_iter_next( iter );
+    }
+    FD_TEST( fd_stake_delegations_iter_done( iter ) );
+  }
 
   /* Epoch stakes maps: every set lists each vote account with its
      authorized voter and under its node.  The parser discards both
@@ -473,8 +494,9 @@ test_manifest_roundtrip( fd_svm_mini_t * mini,
     memcpy( needle,      &extra_vote,  32UL );
     memcpy( needle+32UL, &extra_voter, 32UL );
     FD_TEST( count_occurrences( buf, total_written, needle, 64UL )==1UL );
-    /* the phantom and late vote accounts only appear as stakes entries */
-    FD_TEST( count_occurrences( buf, total_written, &phantom_vote, 32UL )==1UL );
+    /* the phantom and late vote accounts only appear as stakes entries,
+       the phantom one also in its delegation */
+    FD_TEST( count_occurrences( buf, total_written, &phantom_vote, 32UL )==2UL );
     FD_TEST( count_occurrences( buf, total_written, &late_vote,    32UL )==1UL );
 
     /* node entries: node, vote count, votes, total stake */
@@ -517,7 +539,7 @@ test_manifest_roundtrip( fd_svm_mini_t * mini,
   FD_TEST( fd_ssmanifest_parser_consume( parser, buf, stake_delegations_len_off+sizeof(ulong) )==
            FD_SSMANIFEST_PARSER_ADVANCE_AGAIN );
 
-  FD_STORE( ulong, buf+stake_delegations_len_off, 1UL );
+  FD_STORE( ulong, buf+stake_delegations_len_off, delegation_cnt );
   memset( manifest, 0, sizeof(fd_snapshot_manifest_t) );
   fd_ssmanifest_parser_init( parser, manifest );
 
@@ -592,10 +614,12 @@ test_manifest_roundtrip( fd_svm_mini_t * mini,
   /* stake history entries copied verbatim, once */
   FD_TEST( count_occurrences( buf, total_written, history, sizeof(history) )==1UL );
 
+  /* the parser does not retain the delegations */
   int found_stake_delegation = 0;
   for( ulong i=0UL; i+sizeof(fd_pubkey_t)<=sizeof(*manifest); i++ ) {
-    if( !memcmp( (uchar const *)manifest+i, &ignored_stake_pubkey, sizeof(fd_pubkey_t) ) ||
-        !memcmp( (uchar const *)manifest+i, &ignored_vote_pubkey,  sizeof(fd_pubkey_t) ) ) {
+    if( !memcmp( (uchar const *)manifest+i, &second_stake,  sizeof(fd_pubkey_t) ) ||
+        !memcmp( (uchar const *)manifest+i, &warming_stake, sizeof(fd_pubkey_t) ) ||
+        !memcmp( (uchar const *)manifest+i, &phantom_stake, sizeof(fd_pubkey_t) ) ) {
       found_stake_delegation = 1;
       break;
     }
@@ -1864,6 +1888,8 @@ main( int     argc,
   fd_svm_mini_limits_default( limits );
   limits->wksp_addl_sz       = TEST_WKSP_ADDL_SZ;
   limits->wksp_addl_part_cnt = TEST_WKSP_ADDL_PART_CNT;
+  /* room in the disk root for the bulk delegations */
+  limits->max_disk_records   = BULK_DELEGATION_CNT;
   fd_svm_mini_t * mini = fd_svm_test_boot( &argc, &argv, limits );
   FD_TEST( mini );
   fd_wksp_t * wksp = mini->wksp;

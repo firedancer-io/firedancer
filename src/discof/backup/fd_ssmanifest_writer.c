@@ -37,26 +37,28 @@
 #define SORT_BEFORE(a,b) (0>memcmp( (a).node.uc, (b).node.uc, sizeof(fd_pubkey_t) ))
 #include "../../util/tmpl/fd_sort.c"
 
-#define STATE_BLOCKHASH_QUEUE        1
-#define STATE_HASHES                 2
-#define STATE_HARD_FORKS             3
-#define STATE_COUNTERS               4
-#define STATE_VOTE_ACCOUNTS          5
-#define STATE_VOTE_ACCOUNT_ENTRIES   6
-#define STATE_STAKE_HISTORY          7
-#define STATE_BANK_TRAILER           8
-#define STATE_ACCOUNT_STORAGE_ENTRY  9
-#define STATE_BANK_HASH_INFO        10
-#define STATE_EPOCH_STAKES          11
-#define STATE_EPOCH_STAKES_STAKES   12
-#define STATE_EPOCH_STAKES_EPOCH    13
-#define STATE_EPOCH_STAKE_HISTORY   14
-#define STATE_EPOCH_TOTAL_STAKE     15
-#define STATE_NODE_VOTE_ACCOUNTS    16
-#define STATE_AUTH_VOTER            17
-#define STATE_LTHASH                18
-#define STATE_BLOCK_ID              19
-#define STATE_DONE                  20
+#define STATE_BLOCKHASH_QUEUE           1
+#define STATE_HASHES                    2
+#define STATE_HARD_FORKS                3
+#define STATE_COUNTERS                  4
+#define STATE_VOTE_ACCOUNTS             5
+#define STATE_VOTE_ACCOUNT_ENTRIES      6
+#define STATE_STAKE_DELEGATIONS         7
+#define STATE_STAKE_DELEGATION_ENTRIES  8
+#define STATE_STAKE_HISTORY             9
+#define STATE_BANK_TRAILER             10
+#define STATE_ACCOUNT_STORAGE_ENTRY    11
+#define STATE_BANK_HASH_INFO           12
+#define STATE_EPOCH_STAKES             13
+#define STATE_EPOCH_STAKES_STAKES      14
+#define STATE_EPOCH_STAKES_EPOCH       15
+#define STATE_EPOCH_STAKE_HISTORY      16
+#define STATE_EPOCH_TOTAL_STAKE        17
+#define STATE_NODE_VOTE_ACCOUNTS       18
+#define STATE_AUTH_VOTER               19
+#define STATE_LTHASH                   20
+#define STATE_BLOCK_ID                 21
+#define STATE_DONE                     22
 #define STATE_INIT STATE_BLOCKHASH_QUEUE
 
 /* Epoch stakes entries are keyed max(E-3,0)..E+1, as agave retains.
@@ -110,9 +112,10 @@ find_epoch_credits( fd_bank_t *          bank,
 
 #define ENCODE_FN     static ulong manifest_estimate( fd_ssmanifest_writer_t * enc )
 #define PREP          ulong sz = 0UL;
-#define PUSH_VAL(t,n)        do { sz += sizeof(t); (void)(n); } while(0)
-#define PUSH_BYTES(src,n)    do { sz += (n); (void)(src); } while(0)
-#define PUSH_VOTE_ACCOUNT(v) do { sz += VOTE_ACCOUNT_HDR_SZ+(v)->data_len; } while(0)
+#define PUSH_VAL(t,n)             do { sz += sizeof(t); (void)(n); } while(0)
+#define PUSH_BYTES(src,n)         do { sz += (n); (void)(src); } while(0)
+#define PUSH_VOTE_ACCOUNT(v)      do { sz += VOTE_ACCOUNT_HDR_SZ+(v)->data_len; } while(0)
+#define PUSH_STAKE_DELEGATIONS(n) do { sz += (n)*FD_SSMANIFEST_STAKE_DELEGATION_SZ; } while(0)
 #define RET_EXPR      sz
 #include "fd_ssmanifest_encoder.c"
 
@@ -143,28 +146,40 @@ fd_ssmanifest_writer_init( fd_ssmanifest_writer_t * enc,
     fd_sysvar_stake_history_view( &enc->stake_history, stake_history_data, stake_history_sz );
   }
 
-  /* Calculate delegated stake per vote account */
+  /* Count delegations and sum delegated stake per vote account */
   fd_ssmanifest_vote_account_t * map = vote_account_map_join( vote_account_map_new( enc->vote_account ) );
-  ulong map_cnt         = 0UL;
-  int   use_fixed_point = FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 );
+  ulong map_cnt             = 0UL;
+  int   capped              = 0;
+  int   use_fixed_point     = FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 );
+  enc->stake_delegations    = stake_delegations;
+  enc->stake_delegation_cnt = 0UL;
 
   FD_CHECK_CRIT( bank->stake_delegations_fork_id==USHORT_MAX, "snapshot bank is not the root" );
   fd_stake_delegations_view_begin( stake_delegations, bank->f.epoch, &enc->stake_history, &bank->f.warmup_cooldown_rate_epoch, use_fixed_point, USHORT_MAX );
+
   fd_stake_delegations_iter_t iter_[1];
   for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
        !fd_stake_delegations_iter_done( iter );
        fd_stake_delegations_iter_next( iter ) ) {
     fd_stake_delegation_t const * delegation = fd_stake_delegations_iter_ele( iter );
     fd_ssmanifest_vote_account_t * vote_account = vote_account_map_query( map, delegation->vote_account, NULL );
-    if( FD_UNLIKELY( !vote_account ) ) {
-      FD_CHECK_ERR( map_cnt<FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS, "too many vote accounts referenced by stake delegations" );
+    if( FD_UNLIKELY( !vote_account && map_cnt<FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ) ) {
       vote_account        = vote_account_map_insert( map, delegation->vote_account );
       vote_account->stake = 0UL;
       map_cnt++;
     }
-    vote_account->stake += fd_stake_delegation_activation_status( delegation, bank->f.epoch, &enc->stake_history, &bank->f.warmup_cooldown_rate_epoch, use_fixed_point ).effective;
+    if( FD_LIKELY( vote_account ) ) {
+      vote_account->stake += fd_stake_delegation_activation_status( delegation, bank->f.epoch, &enc->stake_history, &bank->f.warmup_cooldown_rate_epoch, use_fixed_point ).effective;
+    } else {
+      capped = 1;
+    }
+    enc->stake_delegation_cnt++;
   }
+
   fd_stake_delegations_view_end( stake_delegations, &enc->stake_history, &bank->f.warmup_cooldown_rate_epoch, use_fixed_point );
+  if( FD_UNLIKELY( capped ) ) {
+    FD_LOG_WARNING(( "more than %lu vote accounts have stake delegated, the snapshot lists only that many", FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ));
+  }
 
   /* Agave fails to load if a delegation's vote account is valid but
      absent here, or if an entry here is not a valid vote account.  To
@@ -280,6 +295,38 @@ write_vote_account( fd_ssmanifest_writer_t const *       enc,
   return p;
 }
 
+/* write_stake_delegations writes the next n delegations of the root,
+   viewing it for just this call.  The walk resumes where the previous
+   call stopped, which the store allows as long as the root does not
+   advance, and it does not while a snapshot is being made. */
+
+static uchar *
+write_stake_delegations( fd_ssmanifest_writer_t * enc,
+                         ulong                    n,
+                         uchar *                  p ) {
+  fd_bank_t *              bank              = enc->bank;
+  fd_stake_delegations_t * stake_delegations = enc->stake_delegations;
+  int                      use_fixed_point   = FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 );
+
+  fd_stake_delegations_view_begin( stake_delegations, bank->f.epoch, &enc->stake_history, &bank->f.warmup_cooldown_rate_epoch, use_fixed_point, USHORT_MAX );
+  fd_stake_delegations_iter_t * iter = &enc->stake_delegation_iter;
+  if( !enc->stake_delegation_idx ) {
+    fd_stake_delegations_iter_init( iter, stake_delegations );
+  }
+  for( ulong i=0UL; i<n; i++ ) {
+    FD_CHECK_CRIT( !fd_stake_delegations_iter_done( iter ), "stake delegations changed during snapshot" );
+    fd_stake_delegation_t const * delegation = fd_stake_delegations_iter_ele( iter );
+    FD_STORE( fd_pubkey_t,     p, delegation->stake_account                         ); p += sizeof(fd_pubkey_t);
+    FD_STORE( fd_delegation_t, p, fd_delegation_from_stake_delegation( delegation ) ); p += sizeof(fd_delegation_t);
+    fd_stake_delegations_iter_next( iter );
+  }
+  if( enc->stake_delegation_idx+n==enc->stake_delegation_cnt ) {
+    FD_CHECK_CRIT( fd_stake_delegations_iter_done( iter ), "stake delegations changed during snapshot" );
+  }
+  fd_stake_delegations_view_end( stake_delegations, &enc->stake_history, &bank->f.warmup_cooldown_rate_epoch, use_fixed_point );
+  return p;
+}
+
 #define PUSH_BYTES( src, n )                                              \
   do {                                                                    \
     if( FD_UNLIKELY( p+(n) > p1 ) ) fail( enc, buf_sz, __LINE__ );        \
@@ -291,6 +338,12 @@ write_vote_account( fd_ssmanifest_writer_t const *       enc,
     ulong max_sz = VOTE_ACCOUNT_HDR_SZ+FD_RUNTIME_ACC_SZ_MAX;             \
     if( FD_UNLIKELY( p+max_sz > p1 ) ) fail( enc, buf_sz, __LINE__ );     \
     p = write_vote_account( enc, (v), p );                                \
+  } while(0)
+#define PUSH_STAKE_DELEGATIONS( n )                                       \
+  do {                                                                    \
+    ulong bytes = (n)*FD_SSMANIFEST_STAKE_DELEGATION_SZ;                  \
+    if( FD_UNLIKELY( p+bytes > p1 ) ) fail( enc, buf_sz, __LINE__ );      \
+    p = write_stake_delegations( enc, (n), p );                           \
   } while(0)
 #define RET_EXPR (ulong)( p - out_buf )
 #include "fd_ssmanifest_encoder.c"
