@@ -300,7 +300,7 @@ fd_topob_sleep_finish( fd_topo_t * topo ) {
 
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &topo->tiles[ i ];
-    int pinned = !strcmp( tile->name, "mwaitx" ) || !strcmp( tile->name, "sock" )
+    int pinned = !strcmp( tile->name, "mwaitx" ) || !strcmp( tile->name, "sock" ) || !strcmp( tile->name, "iavf" )
               || !strcmp( tile->name, "solcap" ) || !strcmp( tile->name, "snapsv" );
     for( char const ** p = CRITICAL_TILES; *p; p++ ) pinned |= !strcmp( tile->name, *p );
     for( char const ** p = THROUGHPUT_TILES; *p; p++ ) pinned |= !strcmp( tile->name, *p );
@@ -553,6 +553,7 @@ static char const * ALWAYS[] = {
   "benchs",
   "net",
   "mlx5",
+  "iavf",
   "sock",
   "quic",
   "bundle",
@@ -596,6 +597,7 @@ static char const * HOT_TILES[] = {
   "replay", /* FIREDANCER only */
   "execrp", /* FIREDANCER only */
   "mlx5",
+  "iavf",
   NULL
 };
 

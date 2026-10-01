@@ -46,6 +46,7 @@ class Tile(Enum):
     MLX5 = 41
     WAKER = 42
     MWAITX = 43
+    IAVF = 44
 
     SNAPMK = 50
     SNAPZP = 51
