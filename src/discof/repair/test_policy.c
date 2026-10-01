@@ -359,6 +359,21 @@ next_msg( fd_policy_t * policy, fd_reqlim_t * dedup, fd_forest_t * forest, fd_re
   return NULL;
 }
 
+/* park_due walks from now, one call per ns, until the policy parks
+   (a NULL with next_due in the future) and returns next_due.  Every
+   call must be fruitless. */
+static long
+park_due( fd_policy_t * policy, fd_reqlim_t * dedup, fd_forest_t * forest, fd_repair_t * repair, long now, ulong highest ) {
+  int charge_busy;
+  for( ulong i=0UL; i<16UL; i++ ) {
+    long t = now+(long)i;
+    FD_TEST( !fd_policy_next( policy, dedup, forest, repair, t, highest, &charge_busy ) );
+    if( policy->next_due>t ) return policy->next_due;
+  }
+  FD_TEST( 0 ); /* never parked */
+  return 0L;
+}
+
 /* Declined head-slot shred candidates are memoized until the dedup
    window opens, a shred arrives, or the highest known slot moves. */
 static void
@@ -425,16 +440,20 @@ test_shred_skip_memo( fd_wksp_t * wksp ) {
      resets the iterator to UINT_MAX, the next visit restores the
      concrete index, and the memo must still match. */
   fd_policy_set_turbine_slot0( policy, 1UL ); /* live slot: throttle applies */
-  fd_forest_blk_recv( forest, blk )[0].first = FAR_MS; /* deadline far out: throttle active, memo capped at 1ms */
+  fd_forest_blk_recv( forest, blk )[0].first = FAR_MS; /* deadline far out: throttle active for FAR_MS + DEFER_REPAIR_MS */
   blk->first_shred_ts         = fd_tickcount();
   blk->complete_idx           = 8U;   /* end known: iterator yields concrete missing idxs */
   long t3 = t2+50L;
   FD_TEST( !next_msg( policy, dedup, forest, repair, t3, 1UL ) );
   FD_TEST( fd_policy_skip( policy, 1UL )->slot==1UL && fd_policy_skip( policy, 1UL )->throttled );
   long until = fd_policy_skip( policy, 1UL )->until;
-  FD_TEST( until==t3+(long)1e6 );
-  FD_TEST( !next_msg( policy, dedup, forest, repair, t3+10L, 1UL ) );
+  /* The memo runs to the throttle deadline itself, not a 1 ms cap. */
+  long throttle_ns = (long)( ( (double)FAR_MS + 150.0 )*1e6 );
+  FD_TEST( until>t3+throttle_ns-(long)1e8 && until<=t3+throttle_ns );
+  FD_TEST( park_due( policy, dedup, forest, repair, t3+10L, 1UL )==until ); /* a lap of hits on the only slot */
   FD_TEST( fd_policy_skip( policy, 1UL )->until==until ); /* memo hit: throttle not re-derived */
+  FD_TEST( !next_msg( policy, dedup, forest, repair, until-1L-3L, 1UL ) );
+  FD_TEST( fd_policy_skip( policy, 1UL )->until==until );
 
   /* Throttle clears: the hole is requested. */
   fd_forest_blk_recv( forest, blk )[0].first = 0;
@@ -443,14 +462,106 @@ test_shred_skip_memo( fd_wksp_t * wksp ) {
   FD_TEST( msg && msg->kind==FD_REPAIR_KIND_SHRED && msg->shred.slot==1UL );
 }
 
-/* The throttle applies to every live slot, not just the head.  Two
-   concurrently throttled slots (head and its parent) round-robin
-   through the iterator; each must be memoized on its own so neither is
-   re-derived nor clobbers the other. */
+/* A throttle memo is revalidated when first_shred_ts moves earlier (an
+   out-of-order shred), which pulls the deadline in without changing
+   the candidate. */
+static void
+test_skip_memo_anchor( fd_wksp_t * wksp ) {
+  ulong const slot_max = 16UL;
+  void * forest_mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( slot_max, FD_SHRED_BLK_MAX ), 1UL );
+  void * dedup_mem  = fd_wksp_alloc_laddr( wksp, fd_reqlim_align(), fd_reqlim_footprint( slot_max ), 1UL );
+  void * repair_mem = fd_wksp_alloc_laddr( wksp, fd_repair_align(), fd_repair_footprint(),           1UL );
+  FD_TEST( forest_mem && dedup_mem && repair_mem );
+  fd_pubkey_t identity = {0};
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( forest_mem, slot_max, FD_SHRED_BLK_MAX, 0UL ) );
+  fd_reqlim_t * dedup  = fd_reqlim_join( fd_reqlim_new( dedup_mem, slot_max, 0UL ) );
+  fd_repair_t * repair = fd_repair_join( fd_repair_new( repair_mem, &identity ) );
+  fd_policy_t * policy = new_policy( wksp );
+  FD_TEST( forest && dedup && repair && policy );
+  fd_forest_init( forest, 0UL );
+  fd_policy_set_turbine_slot0( policy, 1UL );
+  fd_pubkey_t   peer = { .ul = { 1UL } };
+  fd_ip4_port_t addr = { .addr = 1U, .port = 1U };
+  FD_TEST( fd_policy_peer_upsert( policy, &peer, &addr ) );
+
+  /* Head slot, throttled: first shred seen now, first FEC stamped far
+     out. */
+  fd_forest_blk_t * blk = fd_forest_blk_insert( forest, 1UL, 0UL, NULL );
+  FD_TEST( blk );
+  blk->buffered_idx = 2U;
+  fd_forest_blk_recv( forest, blk )[0].first = FAR_MS;
+  blk->first_shred_ts = fd_tickcount();
+  fd_policy_skip_t * skip = fd_policy_skip( policy, 1UL );
+  long now = 1000000000L;
+  int cb;
+  for( ulong i=0UL; i<4UL && !skip->throttled; i++ ) FD_TEST( !fd_policy_next( policy, dedup, forest, repair, now+(long)i, 1UL, &cb ) );
+  FD_TEST( skip->throttled && skip->slot==1UL && skip->anchor==blk->first_shred_ts );
+
+  /* An out-of-order shred moves first_shred_ts back past the whole
+     window: the candidate is unchanged but no longer throttled, and
+     the memo must not hold it. */
+  blk->first_shred_ts -= (long)( ( (double)FAR_MS + 1000.0 )*1e6*fd_tempo_tick_per_ns( NULL ) );
+  fd_repair_msg_t const * msg = next_msg( policy, dedup, forest, repair, now+10L, 1UL );
+  FD_TEST( msg && msg->kind==FD_REPAIR_KIND_SHRED && msg->shred.slot==1UL && msg->shred.shred_idx==3UL );
+}
+
+/* A memo hit reports the earliest unexpired memo of any slot, not just
+   its own. */
+static void
+test_skip_memo_min_due( fd_wksp_t * wksp ) {
+  ulong const slot_max = 16UL;
+  void * forest_mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( slot_max, FD_SHRED_BLK_MAX ), 1UL );
+  void * dedup_mem  = fd_wksp_alloc_laddr( wksp, fd_reqlim_align(), fd_reqlim_footprint( slot_max ), 1UL );
+  void * repair_mem = fd_wksp_alloc_laddr( wksp, fd_repair_align(), fd_repair_footprint(),           1UL );
+  FD_TEST( forest_mem && dedup_mem && repair_mem );
+  fd_pubkey_t identity = {0};
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( forest_mem, slot_max, FD_SHRED_BLK_MAX, 0UL ) );
+  fd_reqlim_t * dedup  = fd_reqlim_join( fd_reqlim_new( dedup_mem, slot_max, 0UL ) );
+  fd_repair_t * repair = fd_repair_join( fd_repair_new( repair_mem, &identity ) );
+  fd_policy_t * policy = new_policy( wksp );
+  FD_TEST( forest && dedup && repair && policy );
+  fd_forest_init( forest, 0UL );
+  fd_policy_set_turbine_slot0( policy, 1UL );
+  fd_pubkey_t   peer = { .ul = { 1UL } };
+  fd_ip4_port_t addr = { .addr = 1U, .port = 1U };
+  FD_TEST( fd_policy_peer_upsert( policy, &peer, &addr ) );
+
+  /* Two throttled slots; declining both writes two memos. */
+  fd_forest_blk_t * blk1 = fd_forest_blk_insert( forest, 1UL, 0UL, NULL );
+  fd_forest_blk_t * blk2 = fd_forest_blk_insert( forest, 2UL, 1UL, NULL );
+  FD_TEST( blk1 && blk2 );
+  blk1->buffered_idx = 4U; fd_forest_blk_recv( forest, blk1 )[0].first = FAR_MS; blk1->first_shred_ts = fd_tickcount();
+  blk2->buffered_idx = 2U; fd_forest_blk_recv( forest, blk2 )[0].first = FAR_MS; blk2->first_shred_ts = fd_tickcount();
+  fd_policy_skip_t * skip1 = fd_policy_skip( policy, 1UL );
+  fd_policy_skip_t * skip2 = fd_policy_skip( policy, 2UL );
+  long now = 1000000000L;
+  int cb;
+  for( ulong i=0UL; i<8UL && !( skip1->throttled && skip1->slot==1UL && skip2->throttled && skip2->slot==2UL ); i++ ) {
+    FD_TEST( !fd_policy_next( policy, dedup, forest, repair, now+(long)i, 2UL, &cb ) );
+  }
+  FD_TEST( skip1->throttled && skip2->throttled );
+
+  /* A memo hit on either slot reports the earlier expiry.  Try both
+     orders: the earlier memo on slot 1, then on slot 2, so one of the
+     hits is on the slot with the later memo. */
+  for( int earlier=1; earlier<=2; earlier++ ) {
+    long early = now+1000L*(long)earlier;
+    skip1->until = earlier==1 ? early : now+(long)1e9;
+    skip2->until = earlier==2 ? early : now+(long)1e9;
+    ulong hits = 0UL;
+    for( ulong i=0UL; i<8UL; i++ ) {
+      long t = now+100L+(long)i;
+      FD_TEST( !fd_policy_next( policy, dedup, forest, repair, t, 2UL, &cb ) );
+      if( policy->next_due!=t ) { FD_TEST( policy->next_due==early ); hits++; }
+    }
+    FD_TEST( hits>=2UL ); /* both slots hit their memo */
+  }
+}
+
 /* An older slot (below the head) with no known interior hole probes
    the highest shred first; while that probe is still rate limited it
    asks for the tail shred directly; once both are rate limited it sends
-   nothing and writes no memo (only the head memoizes dedup declines). */
+   nothing and memoizes until whichever window opens first. */
 static void
 test_non_head_tail_request( fd_wksp_t * wksp ) {
   ulong const slot_max = 16UL;
@@ -492,17 +603,28 @@ test_non_head_tail_request( fd_wksp_t * wksp ) {
   FD_TEST( blk->req_window_cnt==0U && blk->first_req_ts==0L );
 
   /* The repair tile records the tail request in the dedup table.  Now
-     both are rate limited: nothing is sent.  A dedup memo is written
-     even though this is not the head slot -- it is keyed on slot and
-     idx, so it can only ever match the candidate it was written for,
-     and the read side additionally gates it on the head.  Writing it
-     unconditionally just keeps the store simple. */
+     both are rate limited: nothing is sent, and the memo runs to the
+     earlier of the probe and tail windows (skip->head is 0: an older
+     slot probes first). */
   long t1 = now+20L;
   FD_TEST( !fd_reqlim_next( dedup, fd_reqlim_key( FD_REPAIR_KIND_SHRED, 1UL, 5U ), t1 ) );
   fd_policy_skip_t * skip = fd_policy_skip( policy, 1UL );
   FD_TEST( !next_msg( policy, dedup, forest, repair, t1+1L, 2UL ) );
-  FD_TEST( skip->slot==1UL && skip->idx==5U && !skip->throttled );
+  FD_TEST( skip->slot==1UL && skip->idx==5U && !skip->throttled && !skip->head );
+  FD_TEST( skip->until==now+FD_REQLIM_DEDUP_TIMEOUT ); /* the probe opens first */
   FD_TEST( !next_msg( policy, dedup, forest, repair, t1+10L, 2UL ) );
+  /* Parked: once the walk returns to the memo it reports that window,
+     not "try again now" on every pass. */
+  {
+    int cb; int parked = 0;
+    for( ulong i=0UL; i<8UL && !parked; i++ ) {
+      long t = t1+20L+(long)i;
+      FD_TEST( !fd_policy_next( policy, dedup, forest, repair, t, 2UL, &cb ) );
+      parked = policy->next_due==now+FD_REQLIM_DEDUP_TIMEOUT;
+      if( !parked ) FD_TEST( policy->next_due==t );
+    }
+    FD_TEST( parked );
+  }
 
   /* Probe window expires first: probe again. */
   msg = next_msg( policy, dedup, forest, repair, now+FD_REQLIM_DEDUP_TIMEOUT, 2UL );
@@ -515,6 +637,94 @@ test_non_head_tail_request( fd_wksp_t * wksp ) {
   FD_TEST( msg && msg->kind==FD_REPAIR_KIND_SHRED && msg->shred.slot==1UL && msg->shred.shred_idx==6UL );
 }
 
+/* Every NULL from fd_policy_next reports when another call could
+   produce a request: now when the turn was only skipped, the timer
+   when a walk exhausted the forest with a pending window or orphan,
+   LONG_MAX when only a frag can help. */
+static void
+test_next_due( fd_wksp_t * wksp ) {
+  ulong const slot_max = 16UL;
+  void * forest_mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( slot_max, FD_SHRED_BLK_MAX ), 1UL );
+  void * dedup_mem  = fd_wksp_alloc_laddr( wksp, fd_reqlim_align(), fd_reqlim_footprint( slot_max ), 1UL );
+  void * repair_mem = fd_wksp_alloc_laddr( wksp, fd_repair_align(), fd_repair_footprint(),           1UL );
+  FD_TEST( forest_mem && dedup_mem && repair_mem );
+
+  fd_pubkey_t identity = {0};
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( forest_mem, slot_max, FD_SHRED_BLK_MAX, 0UL ) );
+  fd_reqlim_t * dedup  = fd_reqlim_join( fd_reqlim_new( dedup_mem, slot_max, 0UL ) );
+  fd_repair_t * repair = fd_repair_join( fd_repair_new( repair_mem, &identity ) );
+  fd_policy_t * policy = new_policy( wksp );
+  FD_TEST( forest && dedup && repair && policy );
+  int charge_busy;
+  long now = 1000000000L;
+
+  /* No root: nothing to do until a frag. */
+  FD_TEST( !fd_policy_next( policy, dedup, forest, repair, now, 1UL, &charge_busy ) );
+  FD_TEST( policy->next_due==LONG_MAX );
+
+  fd_forest_init( forest, 0UL );
+  fd_pubkey_t   peer = { .ul = { 1UL } };
+  fd_ip4_port_t addr = { .addr = 1U, .port = 1U };
+  FD_TEST( fd_policy_peer_upsert( policy, &peer, &addr ) );
+
+  /* Empty forest: a fruitless walk with no timers pending. */
+  ulong turns = 0UL;
+  while( turns<8UL && !fd_policy_next( policy, dedup, forest, repair, now+(long)turns, 1UL, &charge_busy ) && policy->next_due<=now+(long)turns ) turns++;
+  FD_TEST( policy->next_due==LONG_MAX );
+
+  /* Head slot with a deduped candidate: the declined turn says try
+     again now (the iterator moved on), and once the walk is exhausted
+     the window expiry is the timer. */
+  fd_forest_blk_t * blk = fd_forest_blk_insert( forest, 1UL, 0UL, NULL );
+  FD_TEST( blk );
+  blk->buffered_idx = 4U;
+  fd_repair_msg_t const * msg = next_msg( policy, dedup, forest, repair, now, 1UL );
+  FD_TEST( msg && msg->kind==FD_REPAIR_KIND_SHRED && msg->shred.shred_idx==5UL );
+  long t1 = now+10L;
+  FD_TEST( !fd_reqlim_next( dedup, fd_reqlim_key( FD_REPAIR_KIND_SHRED, 1UL, 5U ), t1 ) );
+  long until = t1+FD_REQLIM_DEDUP_TIMEOUT;
+  int saw_now = 0, saw_timer = 0;
+  for( ulong i=0UL; i<8UL; i++ ) {
+    long t = t1+1L+(long)i;
+    FD_TEST( !fd_policy_next( policy, dedup, forest, repair, t, 1UL, &charge_busy ) );
+    if( policy->next_due==t )     saw_now   = 1; /* fresh decline: the iterator may have more */
+    if( policy->next_due==until ) { saw_timer = 1; break; } /* back at the declined candidate: idle */
+    FD_TEST( policy->next_due==t );
+  }
+  FD_TEST( saw_now && saw_timer );
+
+  /* A pending orphan is a timer too: once requested it is re-queued
+     at its dedup expiry, and an exhausted walk reports the earlier of
+     that and the skip window. */
+  FD_TEST( fd_forest_blk_insert( forest, 9UL, 7UL, NULL ) ); /* parent 7 unknown: orphan */
+  fd_forest_orphan_ent_t const * orphanq = fd_forest_orphanq_const( forest );
+  FD_TEST( fd_forest_orphanq_cnt( orphanq ) );
+  long t2 = t1+100L;
+  msg = fd_policy_next( policy, dedup, forest, repair, t2, 1UL, &charge_busy );
+  FD_TEST( msg && msg->kind==FD_REPAIR_KIND_ORPHAN && msg->orphan.slot==9UL );
+  long orphan_due = orphanq[ 0 ].due;
+  FD_TEST( orphan_due>t2 );
+  FD_TEST( park_due( policy, dedup, forest, repair, t2+1L, 1UL )==fd_long_min( until, orphan_due ) );
+
+  /* A turn that lands back on the memoized candidate counts the orphan
+     too: move the orphan ahead of the skip window and walk until a turn
+     hits the memo. */
+  fd_forest_orphan_ent_t * orphanq_w = fd_forest_orphanq( forest );
+  long early = t2+50L;
+  orphanq_w[ 0 ].due = early;
+  int saw_memo = 0;
+  for( ulong i=0UL; i<16UL && !saw_memo; i++ ) {
+    long t = t2+2L+(long)i;
+    FD_TEST( !fd_policy_next( policy, dedup, forest, repair, t, 1UL, &charge_busy ) );
+    if( policy->next_due!=t ) { FD_TEST( policy->next_due==early ); saw_memo = 1; }
+  }
+  FD_TEST( saw_memo );
+}
+
+/* The throttle applies to every live slot, not just the head.  Two
+   concurrently throttled slots (head and its parent) round-robin
+   through the iterator; each must be memoized on its own so neither is
+   re-derived nor clobbers the other. */
 static void
 test_skip_memo_non_head_throttle( fd_wksp_t * wksp ) {
   ulong const slot_max = 16UL;
@@ -563,7 +773,10 @@ test_skip_memo_non_head_throttle( fd_wksp_t * wksp ) {
   FD_TEST( skip2->slot==2UL && skip2->idx==3U && skip2->throttled );
   long until1 = skip1->until;
   long until2 = skip2->until;
-  FD_TEST( until1<=now+(long)turn+(long)1e6 && until2<=now+(long)turn+(long)1e6 );
+  /* The memos run to the throttle deadlines themselves. */
+  long far_ns = (long)( ( (double)FAR_MS + 150.0 )*1e6 );
+  FD_TEST( until1>now+far_ns-(long)1e8 && until1<=now+(long)turn+far_ns );
+  FD_TEST( until2>now+far_ns-(long)1e8 && until2<=now+(long)turn+far_ns );
 
   /* Further turns within both windows: each slot hits its own memo.
      Neither is re-derived (until would move with now) nor clobbered. */
@@ -1051,6 +1264,193 @@ test_multi_peer_bucket_transitions( fd_wksp_t * wksp ) {
         == fd_policy_peer_pool_used( policy->peers.pool ) );
 }
 
+
+/* memo_env sets up a live-slot policy for the idle-walk regressions
+   below. */
+typedef struct {
+  fd_forest_t * forest;
+  fd_reqlim_t * dedup;
+  fd_repair_t * repair;
+  fd_policy_t * policy;
+} memo_env_t;
+
+static memo_env_t
+memo_env( fd_wksp_t * wksp ) {
+  ulong const slot_max = 16UL;
+  void * forest_mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( slot_max, FD_SHRED_BLK_MAX ), 1UL );
+  void * dedup_mem  = fd_wksp_alloc_laddr( wksp, fd_reqlim_align(), fd_reqlim_footprint( slot_max ), 1UL );
+  void * repair_mem = fd_wksp_alloc_laddr( wksp, fd_repair_align(), fd_repair_footprint(),           1UL );
+  FD_TEST( forest_mem && dedup_mem && repair_mem );
+  fd_pubkey_t identity = {0};
+  memo_env_t e = {
+    .forest = fd_forest_join( fd_forest_new( forest_mem, slot_max, FD_SHRED_BLK_MAX, 0UL ) ),
+    .dedup  = fd_reqlim_join( fd_reqlim_new( dedup_mem, slot_max, 0UL ) ),
+    .repair = fd_repair_join( fd_repair_new( repair_mem, &identity ) ),
+    .policy = new_policy( wksp )
+  };
+  FD_TEST( e.forest && e.dedup && e.repair && e.policy );
+  fd_forest_init( e.forest, 0UL );
+  fd_policy_set_turbine_slot0( e.policy, 1UL );
+  fd_pubkey_t   peer = { .ul = { 1UL } };
+  fd_ip4_port_t addr = { .addr = 1U, .port = 1U };
+  FD_TEST( fd_policy_peer_upsert( e.policy, &peer, &addr ) );
+  return e;
+}
+
+/* memo_blk inserts slot with shreds 0..2 buffered, throttled until
+   rem_ms from now (0: not throttled). */
+static fd_forest_blk_t *
+memo_blk( memo_env_t * e, ulong slot, ulong parent, double rem_ms ) {
+  fd_forest_blk_t * blk = fd_forest_blk_insert( e->forest, slot, parent, NULL );
+  FD_TEST( blk );
+  blk->buffered_idx = 2U;
+  if( rem_ms>0.0 ) {
+    double tpn = fd_tempo_tick_per_ns( NULL ); /* before the tickcount: the first call calibrates */
+    fd_forest_blk_recv( e->forest, blk )[0].first = 1;
+    blk->first_shred_ts = fd_tickcount() - (long)( ( 151.0-rem_ms )*1e6*tpn );
+  }
+  return blk;
+}
+
+/* memo_unthrottle makes blk requestable now without touching its memo
+   (the memo's deadline passed). */
+static void
+memo_unthrottle( memo_env_t * e, fd_forest_blk_t * blk ) {
+  fd_forest_blk_recv( e->forest, blk )[0].first = 0;
+  blk->first_shred_ts = 0L;
+}
+
+/* memo_walk runs the repair tile's loop with no frags: call
+   fd_policy_next, and on NULL jump to next_due.  Returns the time of
+   the first request, or LONG_MAX if none within max_ns. */
+static long
+memo_walk( memo_env_t * e, long now, long max_ns, ulong highest, ulong * opt_slot ) {
+  long t = now;
+  for( ulong i=0UL; i<256UL && t<=now+max_ns; i++ ) {
+    int cb;
+    fd_repair_msg_t const * msg = fd_policy_next( e->policy, e->dedup, e->forest, e->repair, t, highest, &cb );
+    if( msg ) {
+      if( opt_slot ) *opt_slot = msg->kind==FD_REPAIR_KIND_SHRED ? msg->shred.slot : msg->highest_shred.slot;
+      return t;
+    }
+    t = fd_long_max( e->policy->next_due, t+1L );
+  }
+  return LONG_MAX;
+}
+
+/* A wake at the earliest memo lands on the next slot in rotation, not
+   on the slot that is due.  The walk must still reach the due slot
+   before parking again (it used to park on the next slot's memo). */
+static void
+test_idle_lap_expired_memo( fd_wksp_t * wksp ) {
+  memo_env_t e[1] = { memo_env( wksp ) };
+  fd_forest_blk_t * b1 = memo_blk( e, 1UL, 0UL, 60.0 );
+  fd_forest_blk_t * b2 = memo_blk( e, 2UL, 1UL, 70.0 );
+  fd_forest_blk_t * b3 = memo_blk( e, 3UL, 2UL, 20.0 );
+  (void)b1; (void)b2;
+  long now = 1000000000L;
+  long due = park_due( e->policy, e->dedup, e->forest, e->repair, now, 3UL );
+  long due3 = fd_policy_skip( e->policy, 3UL )->until;
+  FD_TEST( due==due3 ); /* parks on the earliest memo */
+  memo_unthrottle( e, b3 );
+  ulong slot = 0UL;
+  long t = memo_walk( e, due, (long)100e6, 3UL, &slot );
+  FD_TEST( t<due+16L && slot==3UL ); /* within a lap of its memo's expiry, not at slot 1's 40 ms later */
+}
+
+/* A slot&3 collision overwrites a live memo; the walk must not park
+   past the evicted slot's deadline (slots 1 and 5 share an entry). */
+static void
+test_idle_lap_collision( fd_wksp_t * wksp ) {
+  memo_env_t e[1] = { memo_env( wksp ) };
+  fd_forest_blk_t * b1 = memo_blk( e, 1UL, 0UL, 10.0 );
+  memo_blk( e, 5UL, 0UL, 70.0 );
+  memo_blk( e, 2UL, 0UL, 60.0 );
+  long now = 1000000000L;
+  int cb;
+  /* Two slots keep evicting each other, so the walk never completes a
+     lap of hits and never parks on a partial set of deadlines. */
+  for( ulong i=0UL; i<32UL; i++ ) {
+    long t = now+(long)i;
+    FD_TEST( !fd_policy_next( e->policy, e->dedup, e->forest, e->repair, t, 5UL, &cb ) );
+    FD_TEST( e->policy->next_due==t );
+  }
+  memo_unthrottle( e, b1 );
+  ulong slot = 0UL;
+  FD_TEST( memo_walk( e, now+100L, (long)100e6, 5UL, &slot )<now+(long)1e6 && slot==1UL );
+}
+
+/* A fresh child queued behind its memoized parents is walked before
+   the policy parks. */
+static void
+test_idle_lap_new_child( fd_wksp_t * wksp ) {
+  memo_env_t e[1] = { memo_env( wksp ) };
+  memo_blk( e, 1UL, 0UL, 120.0 );
+  memo_blk( e, 2UL, 0UL, 120.0 );
+  long now = 1000000000L;
+  park_due( e->policy, e->dedup, e->forest, e->repair, now, 4UL );
+  memo_blk( e, 3UL, 1UL, 0.0 ); /* never requested, not throttled */
+  ulong slot = 0UL;
+  long t = memo_walk( e, now+100L, (long)200e6, 4UL, &slot );
+  FD_TEST( t<now+(long)1e6 && slot==3UL );
+}
+
+/* When the main list empties, the orphan list is walked at once. */
+static void
+test_idle_orphan_list( fd_wksp_t * wksp ) {
+  memo_env_t e[1] = { memo_env( wksp ) };
+  fd_forest_blk_t * s = memo_blk( e, 1UL, 0UL, 0.0 );
+  FD_TEST( fd_forest_blk_insert( e->forest, 5UL, 4UL, NULL ) ); /* parent 4 unknown: orphan subtree */
+  long now = 1000000000L;
+  int cb;
+  /* Request the orphan so its re-request is 80 ms out, then complete
+     slot 1 so the next pop empties the main list. */
+  ulong kinds = 0UL;
+  for( ulong i=0UL; i<16UL && !(kinds&1UL); i++ ) {
+    fd_repair_msg_t const * msg = fd_policy_next( e->policy, e->dedup, e->forest, e->repair, now+(long)i, 5UL, &cb );
+    if( msg && msg->kind==FD_REPAIR_KIND_ORPHAN ) kinds |= 1UL;
+  }
+  FD_TEST( kinds&1UL );
+  s->complete_idx = s->buffered_idx;
+  ulong slot = 0UL;
+  long t = memo_walk( e, now+100L, (long)200e6, 5UL, &slot );
+  FD_TEST( t<now+(long)1e6 && slot==5UL ); /* orphan subtree, not the 80 ms orphan due */
+}
+
+/* A shred read out of rx order across shred tiles backfills an earlier
+   stamp and pulls the throttle deadline in with first_shred_ts
+   unchanged: the memo must not hold the old deadline. */
+static void
+test_throttle_memo_stamp( fd_wksp_t * wksp ) {
+  memo_env_t e[1] = { memo_env( wksp ) };
+  double tpn = fd_tempo_tick_per_ns( NULL );
+  fd_forest_blk_t * blk = fd_forest_blk_insert( e->forest, 1UL, 0UL, NULL );
+  FD_TEST( blk );
+  blk->first_shred_ts = fd_tickcount() - (long)( 101e6*tpn );
+  blk->buffered_idx   = 31U;                           /* candidate 32, FEC set 1 unstamped */
+  fd_forest_blk_recv( e->forest, blk )[0].first = 100; /* FEC 0 reached at +100 ms */
+  long now = 1000000000L;
+  long due = park_due( e->policy, e->dedup, e->forest, e->repair, now, 1UL );
+  FD_TEST( due>now+(long)140e6 );                      /* deadline +250 ms from first shred */
+  fd_forest_blk_recv( e->forest, blk )[1].first = 50;  /* the other tile's FEC 1 shred, rx +50 ms */
+  int cb;
+  FD_TEST( !fd_policy_next( e->policy, e->dedup, e->forest, e->repair, now+10L, 1UL, &cb ) );
+  FD_TEST( fd_policy_skip( e->policy, 1UL )->until<due-(long)40e6 ); /* re-derived, not a memo hit */
+}
+
+/* A slot above the head never probes; its dedup memo must still hit
+   (it used to expire at once, and the walk spun). */
+static void
+test_idle_above_head( fd_wksp_t * wksp ) {
+  memo_env_t e[1] = { memo_env( wksp ) };
+  memo_blk( e, 3UL, 0UL, 0.0 );
+  long now = 1000000000L;
+  ulong slot = 0UL;
+  FD_TEST( memo_walk( e, now, 100L, 1UL, &slot )==now && slot==3UL );                  /* tail request (3,3) */
+  FD_TEST( !fd_reqlim_next( e->dedup, fd_reqlim_key( FD_REPAIR_KIND_SHRED, 3UL, 3U ), now ) );
+  FD_TEST( park_due( e->policy, e->dedup, e->forest, e->repair, now+1L, 1UL )==now+FD_REQLIM_DEDUP_TIMEOUT );
+}
+
 static uchar metrics_scratch[ FD_METRICS_FOOTPRINT( 0 ) ] __attribute__((aligned(FD_METRICS_ALIGN)));
 
 int
@@ -1072,6 +1472,15 @@ main( int argc, char ** argv ) {
   test_shred_skip_memo( wksp );
   test_skip_memo_non_head_throttle( wksp );
   test_non_head_tail_request( wksp );
+  test_next_due( wksp );
+  test_skip_memo_anchor( wksp );
+  test_skip_memo_min_due( wksp );
+  test_idle_lap_expired_memo( wksp );
+  test_idle_lap_collision( wksp );
+  test_idle_lap_new_child( wksp );
+  test_idle_orphan_list( wksp );
+  test_throttle_memo_stamp( wksp );
+  test_idle_above_head( wksp );
   test_orphan_dedup_reschedule( wksp );
   test_orphan_reclaim_and_rehead( wksp );
   test_orphan_rehead_revival( wksp );
