@@ -7,6 +7,7 @@
 #include "../../tango/dcache/fd_dcache.h"
 #include "../../waltz/xdp/fd_xdp1.h"
 #include "../../waltz/ip/fd_fib4.h"
+#include "iavf/fd_iavf.h"
 
 struct fd_topo;
 typedef struct fd_topo fd_topo_t;
@@ -180,8 +181,10 @@ fd_mlx5_tile_fib4_join( fd_fib4_t *                 out,
 
 /* fd_iavf_fds lists the VFIO descriptors inherited by IAVF tiles. */
 struct fd_iavf_fds {
-  ulong fd_cnt;
-  int   fds[ 3UL*16UL ];
+  ulong member_cnt;
+  int   container_fd[ FD_IAVF_MEMBER_MAX ];
+  int   group_fd    [ FD_IAVF_MEMBER_MAX ];
+  int   device_fd   [ FD_IAVF_MEMBER_MAX ];
 };
 typedef struct fd_iavf_fds fd_iavf_fds_t;
 
@@ -190,10 +193,10 @@ fd_topo_install_iavf( fd_topo_t *     topo,
                       fd_iavf_fds_t * fds );
 
 fd_fib4_t *
-fd_iavf_tile_fib4_join( fd_fib4_t *            out,
-                        fd_topo_t const *      topo,
+fd_iavf_tile_fib4_join( fd_fib4_t *                 out,
+                        fd_topo_t const *           topo,
                         struct fd_topo_tile const * tile,
-                        int                    main_table );
+                        int                         main_table );
 
 /* fd_mlx5_fds identifies the shared uverbs descriptors inherited by mlx5 tiles
    from the supervisor.  rx_comp_channel_fd[ i ] is inherited only by mlx5:i,

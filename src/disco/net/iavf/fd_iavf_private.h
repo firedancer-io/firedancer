@@ -5,6 +5,33 @@
 #if defined(__linux__)
 
 #define FD_IAVF_BAR0_MAP_SZ (0x9000UL)
+#define FD_IAVF_PAGE_SZ     (4096UL)
+
+/* Intel IAVF_QTX_TAIL and IAVF_QRX_TAIL registers. */
+#define FD_IAVF_TX_TAIL(queue_id) (0x0000UL + 4UL*(queue_id))
+#define FD_IAVF_RX_TAIL(queue_id) (0x2000UL + 4UL*(queue_id))
+
+static inline void
+fd_iavf_hw_dma_to_device( void ) {
+#if FD_HAS_X86
+  FD_COMPILER_MFENCE();
+#elif FD_HAS_ARM
+  __asm__ __volatile__( "dmb oshst" ::: "memory" );
+#else
+  FD_HW_MFENCE_ST();
+#endif
+}
+
+static inline void
+fd_iavf_hw_dma_from_device( void ) {
+#if FD_HAS_X86
+  __asm__ __volatile__( "lfence" ::: "memory" );
+#elif FD_HAS_ARM
+  __asm__ __volatile__( "dmb oshld" ::: "memory" );
+#else
+  FD_HW_MFENCE();
+#endif
+}
 
 /* fd_iavf_vfio owns the Linux VFIO descriptors and mapped BAR0 registers. */
 struct fd_iavf_vfio {
@@ -14,34 +41,20 @@ struct fd_iavf_vfio {
   volatile uchar * bar0;
   ulong            bar0_sz;
   ulong            iova_pgsizes;
-  uint             reset_state;
 };
 typedef struct fd_iavf_vfio fd_iavf_vfio_t;
 
 /* fd_iavf_adminq owns the Intel Admin Transmit and Receive Queues. */
 struct fd_iavf_adminq {
   void * dma_memory;
-  ulong  dma_memory_sz;
   ulong  dma_iova;
   uint   atq_prod;
   uint   arq_cons;
   uint   version_major;
-  uint   version_minor;
   uchar  pending_event[ 16 ];
   ulong  pending_event_sz;
 };
 typedef struct fd_iavf_adminq fd_iavf_adminq_t;
-
-/* fd_iavf_adminq_regs contains the Intel Admin Queue register state. */
-struct fd_iavf_adminq_regs {
-  uint atq_head;
-  uint atq_tail;
-  uint atq_len;
-  uint arq_head;
-  uint arq_tail;
-  uint arq_len;
-};
-typedef struct fd_iavf_adminq_regs fd_iavf_adminq_regs_t;
 
 /* fd_iavf_vf_info contains resources assigned by the Physical Function. */
 struct fd_iavf_vf_info {
@@ -68,7 +81,7 @@ typedef struct fd_iavf_tx_desc fd_iavf_tx_desc_t;
 
 FD_STATIC_ASSERT( sizeof(fd_iavf_tx_desc_t)==16UL, iavf_tx_desc_sz );
 
-/* Intel 32-byte receive descriptor hardware format. */
+/* fd_iavf_rx_desc is the Intel 32-byte receive descriptor. */
 struct fd_iavf_rx_desc {
   ulong qword[ 4 ];
 };
@@ -79,29 +92,25 @@ FD_STATIC_ASSERT( sizeof(fd_iavf_rx_desc_t)==32UL, iavf_rx_desc_sz );
 
 /* fd_iavf_queue owns one Intel transmit and receive descriptor ring. */
 struct fd_iavf_queue {
-  void *          dma_memory;
-  ulong           dma_memory_sz;
-  ulong           dma_iova;
-  void *          tx_ring;
-  void *          rx_ring;
+  void *             dma_memory;
+  fd_iavf_tx_desc_t * tx_ring;
+  fd_iavf_rx_desc_t * rx_ring;
   /* tx_comp_ring records the producer endpoint of each Report Status batch. */
-  ulong *         tx_comp_ring;
-  ulong           tx_ring_iova;
-  ulong           rx_ring_iova;
-  uint            tx_depth;
-  uint            rx_depth;
-  ulong           tx_prod;
-  ulong           tx_posted;
-  ulong           tx_cons;
-  ulong           tx_comp_prod;
-  ulong           tx_comp_cons;
-  ulong           rx_prod;
-  ulong           rx_posted;
-  ulong           rx_cons;
-  uint            rx_discard;
-  volatile uint * tx_tail;
-  volatile uint * rx_tail;
-  int             enabled;
+  ulong *            tx_comp_ring;
+  uint               tx_depth;
+  uint               rx_depth;
+  ulong              tx_prod;
+  ulong              tx_posted;
+  ulong              tx_cons;
+  ulong              tx_comp_prod;
+  ulong              tx_comp_cons;
+  ulong              rx_prod;
+  ulong              rx_posted;
+  ulong              rx_cons;
+  uint               rx_discard;
+  volatile uint *    tx_tail;
+  volatile uint *    rx_tail;
+  int                enabled;
 };
 typedef struct fd_iavf_queue fd_iavf_queue_t;
 
@@ -146,62 +155,58 @@ int
 fd_iavf_virtchnl_version( fd_iavf_vfio_t *   vfio,
                           fd_iavf_adminq_t * adminq );
 
-/* fd_iavf_get_vf_resources discovers the Ethernet resources assigned to
+/* fd_iavf_virtchnl_get_resources discovers the Ethernet resources assigned to
    this Virtual Function.  It returns 0 on success and -1 on failure. */
 int
-fd_iavf_get_vf_resources( fd_iavf_vfio_t *    vfio,
-                          fd_iavf_adminq_t *  adminq,
-                          fd_iavf_vf_info_t * info );
+fd_iavf_virtchnl_get_resources( fd_iavf_vfio_t *    vfio,
+                                fd_iavf_adminq_t *  adminq,
+                                fd_iavf_vf_info_t * info );
 
-/* fd_iavf_poll_link drains unsolicited virtchnl events and updates
+/* fd_iavf_virtchnl_poll_link drains unsolicited virtchnl events and updates
    info.  changed is set when the reported link state or speed changed. */
 int
-fd_iavf_poll_link( fd_iavf_vfio_t *    vfio,
-                   fd_iavf_adminq_t *  adminq,
-                   fd_iavf_vf_info_t * info,
-                   int *               changed );
-
-void
-fd_iavf_adminq_regs( fd_iavf_vfio_t const *  vfio,
-                     fd_iavf_adminq_regs_t * regs );
+fd_iavf_virtchnl_poll_link( fd_iavf_vfio_t *    vfio,
+                            fd_iavf_adminq_t *  adminq,
+                            fd_iavf_vf_info_t * info,
+                            int *               changed );
 
 ulong
 fd_iavf_queue_footprint( uint tx_depth,
                          uint rx_depth );
 
-/* fd_iavf_configure_queue maps and configures one transmit and receive queue.
-   The queues remain disabled until fd_iavf_enable_queue succeeds. */
+/* fd_iavf_virtchnl_configure_queue maps and configures one queue pair.
+   It remains disabled until fd_iavf_virtchnl_enable_queue succeeds. */
 int
-fd_iavf_configure_queue( fd_iavf_vfio_t *          vfio,
-                         fd_iavf_adminq_t *        adminq,
-                         fd_iavf_vf_info_t const * info,
-                         fd_iavf_queue_t *         queue,
-                         void *                    dma_memory,
-                         ulong                     dma_memory_sz,
-                         ulong                     dma_iova,
-                         uint                      tx_depth,
-                         uint                      rx_depth,
-                         uint                      rx_buffer_sz,
-                         uint                      max_frame_sz );
+fd_iavf_virtchnl_configure_queue( fd_iavf_vfio_t *          vfio,
+                                  fd_iavf_adminq_t *        adminq,
+                                  fd_iavf_vf_info_t const * info,
+                                  fd_iavf_queue_t *         queue,
+                                  void *                    dma_memory,
+                                  ulong                     dma_memory_sz,
+                                  ulong                     dma_iova,
+                                  uint                      tx_depth,
+                                  uint                      rx_depth,
+                                  uint                      rx_buffer_sz,
+                                  uint                      max_frame_sz );
 
 int
-fd_iavf_enable_queue( fd_iavf_vfio_t *    vfio,
-                      fd_iavf_adminq_t *  adminq,
-                      fd_iavf_vf_info_t * info,
-                      fd_iavf_queue_t *   queue );
+fd_iavf_virtchnl_enable_queue( fd_iavf_vfio_t *    vfio,
+                               fd_iavf_adminq_t *  adminq,
+                               fd_iavf_vf_info_t * info,
+                               fd_iavf_queue_t *   queue );
 
 int
-fd_iavf_add_mac( fd_iavf_vfio_t *          vfio,
-                 fd_iavf_adminq_t *        adminq,
-                 fd_iavf_vf_info_t const * info );
+fd_iavf_virtchnl_add_mac( fd_iavf_vfio_t *          vfio,
+                          fd_iavf_adminq_t *        adminq,
+                          fd_iavf_vf_info_t const * info );
 
-/* fd_iavf_configure_rss maps every table entry to a configured queue.
+/* fd_iavf_virtchnl_configure_rss maps every table entry to a configured queue.
    All queue_cnt queues must be configured before reception is enabled. */
 int
-fd_iavf_configure_rss( fd_iavf_vfio_t *          vfio,
-                       fd_iavf_adminq_t *        adminq,
-                       fd_iavf_vf_info_t const * info,
-                       uint                      queue_cnt );
+fd_iavf_virtchnl_configure_rss( fd_iavf_vfio_t *          vfio,
+                                fd_iavf_adminq_t *        adminq,
+                                fd_iavf_vf_info_t const * info,
+                                uint                      queue_cnt );
 
 FD_PROTOTYPES_END
 #endif

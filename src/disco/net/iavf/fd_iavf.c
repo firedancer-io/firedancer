@@ -22,32 +22,29 @@
 #define FD_IAVF_PCI_SYSFS "/sys/bus/pci/devices"
 
 /* Intel IAVF_VFGEN_RSTAT register and virtchnl_vfr_states values. */
-#define FD_IAVF_VFGEN_RSTAT           (0x8800UL)
-#define FD_IAVF_VFGEN_RSTAT_STATE     (0x3U)
-#define FD_IAVF_VFR_STATE_COMPLETED   (1U)
-#define FD_IAVF_VFR_STATE_ACTIVE      (2U)
+#define FD_IAVF_VFGEN_RSTAT         (0x8800UL)
+#define FD_IAVF_VFGEN_RSTAT_STATE   (0x3U)
+#define FD_IAVF_VFR_STATE_COMPLETED (1U)
+#define FD_IAVF_VFR_STATE_ACTIVE    (2U)
 
 /* Intel IAVF Admin Queue registers. */
-#define FD_IAVF_VF_ARQBAH  (0x6000UL)
-#define FD_IAVF_VF_ARQBAL  (0x6c00UL)
-#define FD_IAVF_VF_ARQH    (0x7400UL)
-#define FD_IAVF_VF_ARQLEN  (0x8000UL)
-#define FD_IAVF_VF_ARQT    (0x7000UL)
-#define FD_IAVF_VF_ATQBAH  (0x7800UL)
-#define FD_IAVF_VF_ATQBAL  (0x7c00UL)
-#define FD_IAVF_VF_ATQH    (0x6400UL)
-#define FD_IAVF_VF_ATQLEN  (0x6800UL)
-#define FD_IAVF_VF_ATQT    (0x8400UL)
-#define FD_IAVF_AQ_ENABLE  (1U<<31)
-#define FD_IAVF_AQ_HEAD    (0x3ffU)
+#define FD_IAVF_VF_ARQBAH (0x6000UL)
+#define FD_IAVF_VF_ARQBAL (0x6c00UL)
+#define FD_IAVF_VF_ARQH   (0x7400UL)
+#define FD_IAVF_VF_ARQLEN (0x8000UL)
+#define FD_IAVF_VF_ARQT   (0x7000UL)
+#define FD_IAVF_VF_ATQBAH (0x7800UL)
+#define FD_IAVF_VF_ATQBAL (0x7c00UL)
+#define FD_IAVF_VF_ATQH   (0x6400UL)
+#define FD_IAVF_VF_ATQLEN (0x6800UL)
+#define FD_IAVF_VF_ATQT   (0x8400UL)
+#define FD_IAVF_AQ_ENABLE (1U<<31)
+#define FD_IAVF_AQ_HEAD   (0x3ffU)
 
-#define FD_IAVF_TX_TAIL(queue_id) (0x0000UL + 4UL*(queue_id))
-#define FD_IAVF_RX_TAIL(queue_id) (0x2000UL + 4UL*(queue_id))
-
-#define FD_IAVF_ADMINQ_DEPTH       (32UL)
-#define FD_IAVF_ADMINQ_BUF_SZ      (4096UL)
-#define FD_IAVF_ADMINQ_DESC_OFF    (0UL)
-#define FD_IAVF_ADMINQ_RECV_OFF    (4096UL)
+#define FD_IAVF_ADMINQ_DEPTH        (32UL)
+#define FD_IAVF_ADMINQ_BUF_SZ       (4096UL)
+#define FD_IAVF_ADMINQ_DESC_OFF     (0UL)
+#define FD_IAVF_ADMINQ_RECV_OFF     (4096UL)
 #define FD_IAVF_ADMINQ_SEND_BUF_OFF (8192UL)
 #define FD_IAVF_ADMINQ_RECV_BUF_OFF (FD_IAVF_ADMINQ_SEND_BUF_OFF + FD_IAVF_ADMINQ_DEPTH*FD_IAVF_ADMINQ_BUF_SZ)
 #define FD_IAVF_ADMINQ_FOOTPRINT    (FD_IAVF_ADMINQ_RECV_BUF_OFF + FD_IAVF_ADMINQ_DEPTH*FD_IAVF_ADMINQ_BUF_SZ)
@@ -78,16 +75,16 @@ FD_STATIC_ASSERT( sizeof(fd_iavf_aq_desc_t)==32UL, iavf_aq_desc_sz );
 #define FD_IAVF_AQ_FLAG_SI  (1U<<13)
 
 /* Intel Admin Queue virtualization opcodes and virtchnl operations. */
-#define FD_IAVF_AQ_SEND_MSG_TO_PF (0x0801U)
-#define FD_IAVF_AQ_SEND_MSG_TO_VF (0x0802U)
+#define FD_IAVF_AQ_SEND_MSG_TO_PF         (0x0801U)
+#define FD_IAVF_AQ_SEND_MSG_TO_VF         (0x0802U)
 #define FD_IAVF_VIRTCHNL_VERSION          (1U)
 #define FD_IAVF_VIRTCHNL_GET_VF_RESOURCES (3U)
 #define FD_IAVF_VIRTCHNL_CONFIG_QUEUES    (6U)
 #define FD_IAVF_VIRTCHNL_CONFIG_IRQ_MAP   (7U)
 #define FD_IAVF_VIRTCHNL_ENABLE_QUEUES    (8U)
-#define FD_IAVF_VIRTCHNL_ADD_ETH_ADDR    (10U)
-#define FD_IAVF_VIRTCHNL_CONFIG_RSS_KEY  (23U)
-#define FD_IAVF_VIRTCHNL_CONFIG_RSS_LUT  (24U)
+#define FD_IAVF_VIRTCHNL_ADD_ETH_ADDR     (10U)
+#define FD_IAVF_VIRTCHNL_CONFIG_RSS_KEY   (23U)
+#define FD_IAVF_VIRTCHNL_CONFIG_RSS_LUT   (24U)
 #define FD_IAVF_VIRTCHNL_EVENT            (17U)
 
 #define FD_IAVF_VIRTCHNL_CAP_L2             (1U<<0)
@@ -182,9 +179,9 @@ typedef struct fd_iavf_virtchnl_rxq_info fd_iavf_virtchnl_rxq_info_t;
 FD_STATIC_ASSERT( sizeof(fd_iavf_virtchnl_rxq_info_t)==40UL, iavf_virtchnl_rxq_info_sz );
 
 struct fd_iavf_virtchnl_queue_config {
-  ushort vsi_id;
-  ushort queue_pair_cnt;
-  uint   pad;
+  ushort                      vsi_id;
+  ushort                      queue_pair_cnt;
+  uint                        pad;
   fd_iavf_virtchnl_txq_info_t tx;
   fd_iavf_virtchnl_rxq_info_t rx;
   /* Linux virtchnl legacy sizing includes one extra zero queue pair. */
@@ -288,7 +285,7 @@ fd_iavf_read_ulong( char const * path,
 
   char buf[ 64 ];
   ssize_t read_sz = read( fd, buf, sizeof(buf)-1UL );
-  int err = 0;
+  int     err     = 0;
   if( FD_UNLIKELY( read_sz<0 ) )                          err = errno;
   else if( FD_UNLIKELY( (ulong)read_sz==sizeof(buf)-1UL ) ) err = EOVERFLOW;
   if( FD_UNLIKELY( close( fd ) && !err ) )                err = errno;
@@ -336,8 +333,8 @@ fd_iavf_read_link_name( char *       name,
   target[ target_sz ] = '\0';
 
   char const * base = strrchr( target, '/' );
-  base = base ? base+1 : target;
-  ulong base_sz = strlen( base );
+  base              = base ? base+1 : target;
+  ulong base_sz     = strlen( base );
   if( FD_UNLIKELY( !base_sz || base_sz>=name_max ) ) {
     errno = EPROTO;
     return -1;
@@ -371,7 +368,7 @@ fd_iavf_member_interfaces( char const * interface,
   }
   if( !*member_cnt ) { errno = ENODEV; return -1; }
   for( ulong i=0UL; i<*member_cnt; i++ ) {
-    char path[ PATH_MAX ];
+    char path  [ PATH_MAX ];
     char driver[ FD_IAVF_DRIVER_NAME_MAX ];
     FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/class/net/%s/device/driver", members[i] ) );
     if( fd_iavf_read_link_name( driver, sizeof(driver), path, 0 ) ) return -1;
@@ -393,9 +390,9 @@ fd_iavf_iommu_group_check( char const * pci_addr,
 
   ulong device_cnt = 0UL;
   ulong match_cnt  = 0UL;
-  int err = 0;
+  int   err        = 0;
   for(;;) {
-    errno = 0;
+    errno                 = 0;
     struct dirent * entry = readdir( devices );
     if( !entry ) {
       err = errno;
@@ -442,7 +439,7 @@ fd_iavf_pci_probe( fd_iavf_pci_info_t * info,
     return -1;
   }
 
-  char path[ PATH_MAX ];
+  char  path[ PATH_MAX ];
   ulong value;
   fd_iavf_path_join( path, device_path, "vendor" );
   if( FD_UNLIKELY( fd_iavf_read_ulong( path, 0, &value ) ) ) return -1;
@@ -521,12 +518,11 @@ fd_iavf_vfio_cleanup( fd_iavf_vfio_t * vfio,
 static int
 fd_iavf_vfio_wait_reset( fd_iavf_vfio_t * vfio ) {
   volatile uint const * reset_reg = (volatile uint const *)(vfio->bar0 + FD_IAVF_VFGEN_RSTAT);
-  struct timespec delay = { .tv_sec=0L, .tv_nsec=1000000L };
+  struct timespec       delay     = { .tv_sec=0L, .tv_nsec=1000000L };
   for( ulong retry=0UL; retry<10000UL; retry++ ) {
     uint reset_state = *reset_reg & FD_IAVF_VFGEN_RSTAT_STATE;
     if( reset_state==FD_IAVF_VFR_STATE_COMPLETED ||
         reset_state==FD_IAVF_VFR_STATE_ACTIVE ) {
-      vfio->reset_state = reset_state;
       return 0;
     }
     if( FD_UNLIKELY( nanosleep( &delay, NULL ) && errno!=EINTR ) ) return -1;
@@ -555,7 +551,7 @@ fd_iavf_vfio_enable_pci( fd_iavf_vfio_t * vfio ) {
     return -1;
   }
   command = (ushort)(command | PCI_COMMAND_MEMORY | PCI_COMMAND_MASTER);
-  errno = 0;
+  errno   = 0;
   if( FD_UNLIKELY( pwrite( vfio->device_fd, &command, sizeof(command), command_off )!=(ssize_t)sizeof(command) ) ) {
     if( !errno ) errno = EIO;
     return -1;
@@ -614,80 +610,80 @@ fd_iavf_vfio_init( fd_iavf_vfio_t *           vfio,
     .group_fd     = -1,
     .device_fd    = -1
   };
-  int container_set = 0;
-  char const * operation = "open(/dev/vfio/vfio)";
+  int          container_set = 0;
+  char const * operation     = "open(/dev/vfio/vfio)";
 
   vfio->container_fd = open( "/dev/vfio/vfio", O_RDWR|O_CLOEXEC );
   if( FD_UNLIKELY( vfio->container_fd<0 ) ) goto fail;
-  operation = "VFIO_GET_API_VERSION";
+  operation       = "VFIO_GET_API_VERSION";
   int api_version = ioctl( vfio->container_fd, VFIO_GET_API_VERSION );
   if( FD_UNLIKELY( api_version<0 ) ) goto fail;
   if( FD_UNLIKELY( api_version!=VFIO_API_VERSION ) ) {
     operation = "unsupported VFIO API version";
-    errno = EPROTONOSUPPORT;
+    errno     = EPROTONOSUPPORT;
     goto fail;
   }
-  operation = "VFIO_CHECK_EXTENSION(TYPE1v2)";
+  operation             = "VFIO_CHECK_EXTENSION(TYPE1v2)";
   int type1v2_supported = ioctl( vfio->container_fd, VFIO_CHECK_EXTENSION, VFIO_TYPE1v2_IOMMU );
   if( FD_UNLIKELY( type1v2_supported<0 ) ) goto fail;
   if( FD_UNLIKELY( !type1v2_supported ) ) {
     operation = "VFIO TYPE1v2 IOMMU unsupported";
-    errno = EPROTONOSUPPORT;
+    errno     = EPROTONOSUPPORT;
     goto fail;
   }
 
   char group_path[ 64 ];
   int group_path_sz = snprintf( group_path, sizeof(group_path), "/dev/vfio/%u", info->iommu_group );
   FD_TEST( group_path_sz>=0 && (ulong)group_path_sz<sizeof(group_path) );
-  operation = "open VFIO group";
+  operation      = "open VFIO group";
   vfio->group_fd = open( group_path, O_RDWR|O_CLOEXEC );
   if( FD_UNLIKELY( vfio->group_fd<0 ) ) goto fail;
 
-  operation = "VFIO_GROUP_GET_STATUS";
+  operation                             = "VFIO_GROUP_GET_STATUS";
   struct vfio_group_status group_status = { .argsz=sizeof(group_status) };
   if( FD_UNLIKELY( ioctl( vfio->group_fd, VFIO_GROUP_GET_STATUS, &group_status ) ) ) goto fail;
   if( FD_UNLIKELY( !(group_status.flags & VFIO_GROUP_FLAGS_VIABLE) ) ) {
     operation = "VFIO group not viable";
-    errno = EBUSY;
+    errno     = EBUSY;
     goto fail;
   }
   if( FD_UNLIKELY( group_status.flags & VFIO_GROUP_FLAGS_CONTAINER_SET ) ) {
     operation = "VFIO group already has a container";
-    errno = EBUSY;
+    errno     = EBUSY;
     goto fail;
   }
   operation = "VFIO_GROUP_SET_CONTAINER";
   if( FD_UNLIKELY( ioctl( vfio->group_fd, VFIO_GROUP_SET_CONTAINER, &vfio->container_fd ) ) ) goto fail;
   container_set = 1;
-  operation = "VFIO_SET_IOMMU";
+  operation     = "VFIO_SET_IOMMU";
   if( FD_UNLIKELY( ioctl( vfio->container_fd, VFIO_SET_IOMMU, VFIO_TYPE1v2_IOMMU ) ) ) goto fail;
 
-  operation = "VFIO_IOMMU_GET_INFO";
+  operation                               = "VFIO_IOMMU_GET_INFO";
   struct vfio_iommu_type1_info iommu_info = { .argsz=sizeof(iommu_info) };
   if( FD_UNLIKELY( ioctl( vfio->container_fd, VFIO_IOMMU_GET_INFO, &iommu_info ) ) ) goto fail;
   if( FD_UNLIKELY( !(iommu_info.flags & VFIO_IOMMU_INFO_PGSIZES) || !iommu_info.iova_pgsizes ) ) {
     operation = "VFIO IOMMU page sizes missing";
-    errno = EPROTO;
+    errno     = EPROTO;
     goto fail;
   }
   vfio->iova_pgsizes = (ulong)iommu_info.iova_pgsizes;
 
-  operation = "VFIO_GROUP_GET_DEVICE_FD";
+  operation       = "VFIO_GROUP_GET_DEVICE_FD";
   vfio->device_fd = ioctl( vfio->group_fd, VFIO_GROUP_GET_DEVICE_FD, info->pci_addr );
   if( FD_UNLIKELY( vfio->device_fd<0 ) ) goto fail;
 
-  operation = "VFIO_DEVICE_GET_INFO";
+  operation                           = "VFIO_DEVICE_GET_INFO";
   struct vfio_device_info device_info = { .argsz=sizeof(device_info) };
   if( FD_UNLIKELY( ioctl( vfio->device_fd, VFIO_DEVICE_GET_INFO, &device_info ) ) ) goto fail;
   if( FD_UNLIKELY( !(device_info.flags & VFIO_DEVICE_FLAGS_PCI) ||
                     !(device_info.flags & VFIO_DEVICE_FLAGS_RESET) ) ) {
     operation = "VFIO device lacks PCI or reset support";
-    errno = EOPNOTSUPP;
+    errno     = EOPNOTSUPP;
     goto fail;
   }
   if( FD_UNLIKELY( device_info.num_regions<=VFIO_PCI_BAR0_REGION_INDEX ) ) {
     operation = "VFIO BAR0 region missing";
-    errno = EPROTO;
+    errno     = EPROTO;
     goto fail;
   }
 
@@ -752,8 +748,8 @@ fd_iavf_vfio_dma_map( fd_iavf_vfio_t * vfio,
 static inline uint
 fd_iavf_mmio_read( fd_iavf_vfio_t const * vfio,
                    ulong                  reg ) {
-  volatile uint const * ptr = (volatile uint const *)(vfio->bar0 + reg);
-  uint value = *ptr;
+  volatile uint const * ptr   = (volatile uint const *)(vfio->bar0 + reg);
+  uint                  value = *ptr;
   FD_COMPILER_MFENCE();
   return value;
 }
@@ -764,94 +760,61 @@ fd_iavf_mmio_write( fd_iavf_vfio_t * vfio,
                     uint             value ) {
   FD_COMPILER_MFENCE();
   volatile uint * ptr = (volatile uint *)(vfio->bar0 + reg);
-  *ptr = value;
+  *ptr                = value;
   FD_COMPILER_MFENCE();
-}
-
-static inline void
-fd_iavf_dma_to_device( void ) {
-#if FD_HAS_X86
-  FD_COMPILER_MFENCE();
-#elif FD_HAS_ARM
-  __asm__ __volatile__( "dmb oshst" ::: "memory" );
-#else
-  FD_HW_MFENCE_ST();
-#endif
-}
-
-static inline void
-fd_iavf_dma_from_device( void ) {
-#if FD_HAS_X86
-  __asm__ __volatile__( "lfence" ::: "memory" );
-#elif FD_HAS_ARM
-  __asm__ __volatile__( "dmb oshld" ::: "memory" );
-#else
-  FD_HW_MFENCE();
-#endif
-}
-
-void
-fd_iavf_adminq_regs( fd_iavf_vfio_t const *  vfio,
-                     fd_iavf_adminq_regs_t * regs ) {
-  regs->atq_head = fd_iavf_mmio_read( vfio, FD_IAVF_VF_ATQH   );
-  regs->atq_tail = fd_iavf_mmio_read( vfio, FD_IAVF_VF_ATQT   );
-  regs->atq_len  = fd_iavf_mmio_read( vfio, FD_IAVF_VF_ATQLEN );
-  regs->arq_head = fd_iavf_mmio_read( vfio, FD_IAVF_VF_ARQH   );
-  regs->arq_tail = fd_iavf_mmio_read( vfio, FD_IAVF_VF_ARQT   );
-  regs->arq_len  = fd_iavf_mmio_read( vfio, FD_IAVF_VF_ARQLEN );
 }
 
 static inline fd_iavf_aq_desc_t *
-fd_iavf_atq_desc( fd_iavf_adminq_t * adminq,
-                  uint               idx ) {
+fd_iavf_adminq_atq_desc( fd_iavf_adminq_t * adminq,
+                         uint               idx ) {
   return (fd_iavf_aq_desc_t *)((uchar *)adminq->dma_memory + FD_IAVF_ADMINQ_DESC_OFF) + idx;
 }
 
 static inline fd_iavf_aq_desc_t *
-fd_iavf_arq_desc( fd_iavf_adminq_t * adminq,
-                  uint               idx ) {
+fd_iavf_adminq_arq_desc( fd_iavf_adminq_t * adminq,
+                         uint               idx ) {
   return (fd_iavf_aq_desc_t *)((uchar *)adminq->dma_memory + FD_IAVF_ADMINQ_RECV_OFF) + idx;
 }
 
 static inline uchar *
-fd_iavf_atq_buf( fd_iavf_adminq_t * adminq,
-                 uint               idx ) {
+fd_iavf_adminq_atq_buf( fd_iavf_adminq_t * adminq,
+                        uint               idx ) {
   return (uchar *)adminq->dma_memory + FD_IAVF_ADMINQ_SEND_BUF_OFF + (ulong)idx*FD_IAVF_ADMINQ_BUF_SZ;
 }
 
 static inline uchar *
-fd_iavf_arq_buf( fd_iavf_adminq_t * adminq,
-                 uint               idx ) {
+fd_iavf_adminq_arq_buf( fd_iavf_adminq_t * adminq,
+                        uint               idx ) {
   return (uchar *)adminq->dma_memory + FD_IAVF_ADMINQ_RECV_BUF_OFF + (ulong)idx*FD_IAVF_ADMINQ_BUF_SZ;
 }
 
 static inline ulong
-fd_iavf_atq_buf_iova( fd_iavf_adminq_t const * adminq,
-                      uint                     idx ) {
+fd_iavf_adminq_atq_buf_iova( fd_iavf_adminq_t const * adminq,
+                             uint                     idx ) {
   return adminq->dma_iova + FD_IAVF_ADMINQ_SEND_BUF_OFF + (ulong)idx*FD_IAVF_ADMINQ_BUF_SZ;
 }
 
 static inline ulong
-fd_iavf_arq_buf_iova( fd_iavf_adminq_t const * adminq,
-                      uint                     idx ) {
+fd_iavf_adminq_arq_buf_iova( fd_iavf_adminq_t const * adminq,
+                             uint                     idx ) {
   return adminq->dma_iova + FD_IAVF_ADMINQ_RECV_BUF_OFF + (ulong)idx*FD_IAVF_ADMINQ_BUF_SZ;
 }
 
 static inline void
-fd_iavf_aq_desc_set_addr( fd_iavf_aq_desc_t * desc,
-                          ulong               iova ) {
+fd_iavf_adminq_desc_set_addr( fd_iavf_aq_desc_t * desc,
+                              ulong               iova ) {
   desc->addr_high = (uint)(iova>>32);
   desc->addr_low  = (uint)iova;
 }
 
 static void
-fd_iavf_arq_post( fd_iavf_adminq_t * adminq,
-                  uint               idx ) {
-  fd_iavf_aq_desc_t * desc = fd_iavf_arq_desc( adminq, idx );
+fd_iavf_adminq_arq_post( fd_iavf_adminq_t * adminq,
+                         uint               idx ) {
+  fd_iavf_aq_desc_t * desc = fd_iavf_adminq_arq_desc( adminq, idx );
   fd_memset( desc, 0, sizeof(*desc) );
   desc->flags   = FD_IAVF_AQ_FLAG_BUF|FD_IAVF_AQ_FLAG_LB;
   desc->datalen = FD_IAVF_ADMINQ_BUF_SZ;
-  fd_iavf_aq_desc_set_addr( desc, fd_iavf_arq_buf_iova( adminq, idx ) );
+  fd_iavf_adminq_desc_set_addr( desc, fd_iavf_adminq_arq_buf_iova( adminq, idx ) );
 }
 
 ulong
@@ -878,12 +841,11 @@ fd_iavf_adminq_init( fd_iavf_vfio_t *   vfio,
   if( FD_UNLIKELY( fd_iavf_vfio_dma_map( vfio, dma_memory, FD_IAVF_ADMINQ_FOOTPRINT, dma_iova ) ) ) return -1;
 
   *adminq = (fd_iavf_adminq_t) {
-    .dma_memory    = dma_memory,
-    .dma_memory_sz = FD_IAVF_ADMINQ_FOOTPRINT,
-    .dma_iova      = dma_iova
+    .dma_memory = dma_memory,
+    .dma_iova   = dma_iova
   };
-  for( uint idx=0U; idx<(uint)FD_IAVF_ADMINQ_DEPTH; idx++ ) fd_iavf_arq_post( adminq, idx );
-  fd_iavf_dma_to_device();
+  for( uint idx=0U; idx<(uint)FD_IAVF_ADMINQ_DEPTH; idx++ ) fd_iavf_adminq_arq_post( adminq, idx );
+  fd_iavf_hw_dma_to_device();
 
   ulong atq_iova = dma_iova + FD_IAVF_ADMINQ_DESC_OFF;
   fd_iavf_mmio_write( vfio, FD_IAVF_VF_ATQH,   0U );
@@ -929,35 +891,35 @@ fd_iavf_virtchnl_op_name( uint op ) {
 }
 
 static int
-fd_iavf_atq_send( fd_iavf_vfio_t *   vfio,
-                  fd_iavf_adminq_t * adminq,
-                  uint               virtchnl_op,
-                  void const *       message,
-                  ulong              message_sz ) {
+fd_iavf_adminq_send( fd_iavf_vfio_t *   vfio,
+                     fd_iavf_adminq_t * adminq,
+                     uint               virtchnl_op,
+                     void const *       message,
+                     ulong              message_sz ) {
   FD_TEST( message || !message_sz );
   FD_TEST( message_sz<=FD_IAVF_ADMINQ_BUF_SZ );
 
-  uint idx  = adminq->atq_prod;
-  uint next = (idx+1U) & ((uint)FD_IAVF_ADMINQ_DEPTH-1U);
-  fd_iavf_aq_desc_t * desc = fd_iavf_atq_desc( adminq, idx );
+  uint                idx  = adminq->atq_prod;
+  uint                next = (idx+1U) & ((uint)FD_IAVF_ADMINQ_DEPTH-1U);
+  fd_iavf_aq_desc_t * desc = fd_iavf_adminq_atq_desc( adminq, idx );
   fd_memset( desc, 0, sizeof(*desc) );
   desc->flags       = FD_IAVF_AQ_FLAG_SI;
   desc->opcode      = FD_IAVF_AQ_SEND_MSG_TO_PF;
   desc->cookie_high = virtchnl_op;
   if( message_sz ) {
-    fd_memcpy( fd_iavf_atq_buf( adminq, idx ), message, message_sz );
+    fd_memcpy( fd_iavf_adminq_atq_buf( adminq, idx ), message, message_sz );
     desc->flags   |= FD_IAVF_AQ_FLAG_BUF|FD_IAVF_AQ_FLAG_RD;
-    desc->datalen  = (ushort)message_sz;
-    fd_iavf_aq_desc_set_addr( desc, fd_iavf_atq_buf_iova( adminq, idx ) );
+    desc->datalen = (ushort)message_sz;
+    fd_iavf_adminq_desc_set_addr( desc, fd_iavf_adminq_atq_buf_iova( adminq, idx ) );
   }
-  fd_iavf_dma_to_device();
+  fd_iavf_hw_dma_to_device();
   adminq->atq_prod = next;
   fd_iavf_mmio_write( vfio, FD_IAVF_VF_ATQT, next );
 
   struct timespec delay = { .tv_sec=0L, .tv_nsec=1000000L };
   for( ulong retry=0UL; retry<2000UL; retry++ ) {
     if( (fd_iavf_mmio_read( vfio, FD_IAVF_VF_ATQH ) & FD_IAVF_AQ_HEAD)==next ) {
-      fd_iavf_dma_from_device();
+      fd_iavf_hw_dma_from_device();
       if( FD_UNLIKELY( (desc->flags & FD_IAVF_AQ_FLAG_ERR) || desc->retval ) ) {
         FD_LOG_WARNING(( "%s Admin Queue send failed, status %hu (%i-%s)", fd_iavf_virtchnl_op_name( virtchnl_op ), desc->retval, EIO, fd_io_strerror( EIO ) ));
         errno = EIO;
@@ -978,28 +940,28 @@ fd_iavf_atq_send( fd_iavf_vfio_t *   vfio,
 }
 
 static int
-fd_iavf_arq_recv( fd_iavf_vfio_t *   vfio,
-                  fd_iavf_adminq_t * adminq,
-                  uint *             virtchnl_op,
-                  int *              virtchnl_status,
-                  void *             message,
-                  ulong *            message_sz ) {
+fd_iavf_adminq_recv( fd_iavf_vfio_t *   vfio,
+                     fd_iavf_adminq_t * adminq,
+                     uint *             virtchnl_op,
+                     int *              virtchnl_status,
+                     void *             message,
+                     ulong *            message_sz ) {
   uint head = fd_iavf_mmio_read( vfio, FD_IAVF_VF_ARQH ) & FD_IAVF_AQ_HEAD;
   uint idx  = adminq->arq_cons;
   if( head==idx ) return 0;
 
-  fd_iavf_dma_from_device();
-  fd_iavf_aq_desc_t * desc = fd_iavf_arq_desc( adminq, idx );
-  fd_iavf_aq_desc_t completed = *desc;
-  ulong completed_sz = completed.datalen;
-  int err = 0;
-  if( FD_UNLIKELY( completed.opcode!=FD_IAVF_AQ_SEND_MSG_TO_VF ||
-                   (completed.flags & FD_IAVF_AQ_FLAG_ERR) || completed.retval ) ) err = EIO;
-  else if( FD_UNLIKELY( completed_sz>*message_sz || completed_sz>FD_IAVF_ADMINQ_BUF_SZ ) ) err = EMSGSIZE;
-  else if( completed_sz ) fd_memcpy( message, fd_iavf_arq_buf( adminq, idx ), completed_sz );
+  fd_iavf_hw_dma_from_device();
+  fd_iavf_aq_desc_t * desc      = fd_iavf_adminq_arq_desc( adminq, idx );
+  fd_iavf_aq_desc_t   comp_desc = *desc;
+  ulong               comp_sz   = comp_desc.datalen;
+  int                 err       = 0;
+  if( FD_UNLIKELY( comp_desc.opcode!=FD_IAVF_AQ_SEND_MSG_TO_VF ||
+                   (comp_desc.flags & FD_IAVF_AQ_FLAG_ERR) || comp_desc.retval ) ) err = EIO;
+  else if( FD_UNLIKELY( comp_sz>*message_sz || comp_sz>FD_IAVF_ADMINQ_BUF_SZ ) ) err = EMSGSIZE;
+  else if( comp_sz ) fd_memcpy( message, fd_iavf_adminq_arq_buf( adminq, idx ), comp_sz );
 
-  fd_iavf_arq_post( adminq, idx );
-  fd_iavf_dma_to_device();
+  fd_iavf_adminq_arq_post( adminq, idx );
+  fd_iavf_hw_dma_to_device();
   fd_iavf_mmio_write( vfio, FD_IAVF_VF_ARQT, idx );
   adminq->arq_cons = (idx+1U) & ((uint)FD_IAVF_ADMINQ_DEPTH-1U);
 
@@ -1007,9 +969,9 @@ fd_iavf_arq_recv( fd_iavf_vfio_t *   vfio,
     errno = err;
     return -1;
   }
-  *virtchnl_op     = completed.cookie_high;
-  *virtchnl_status = (int)completed.cookie_low;
-  *message_sz      = completed_sz;
+  *virtchnl_op     = comp_desc.cookie_high;
+  *virtchnl_status = (int)comp_desc.cookie_low;
+  *message_sz      = comp_sz;
   return 1;
 }
 
@@ -1024,16 +986,16 @@ fd_iavf_virtchnl_request( fd_iavf_vfio_t *   vfio,
   FD_TEST( response_sz );
   FD_TEST( response || !*response_sz );
   ulong response_capacity = *response_sz;
-  *response_sz = 0UL;
-  if( FD_UNLIKELY( fd_iavf_atq_send( vfio, adminq, virtchnl_op, request, request_sz ) ) ) return -1;
+  *response_sz            = 0UL;
+  if( FD_UNLIKELY( fd_iavf_adminq_send( vfio, adminq, virtchnl_op, request, request_sz ) ) ) return -1;
 
   struct timespec delay = { .tv_sec=0L, .tv_nsec=1000000L };
   for( ulong retry=0UL; retry<2000UL; retry++ ) {
     uchar message[ FD_IAVF_ADMINQ_BUF_SZ ];
     ulong message_sz = sizeof(message);
     uint received_op;
-    int received_status;
-    int received = fd_iavf_arq_recv( vfio, adminq, &received_op, &received_status,
+    int  received_status;
+    int received = fd_iavf_adminq_recv( vfio, adminq, &received_op, &received_status,
                                         message, &message_sz );
     if( FD_UNLIKELY( received<0 ) ) goto fail;
     if( !received ) {
@@ -1092,8 +1054,8 @@ fd_iavf_virtchnl_version( fd_iavf_vfio_t *   vfio,
   fd_iavf_virtchnl_version_t response;
   ulong response_sz = sizeof(response);
   if( FD_UNLIKELY( fd_iavf_virtchnl_request( vfio, adminq, FD_IAVF_VIRTCHNL_VERSION,
-                                                &requested, sizeof(requested),
-                                                &response, &response_sz ) ) ) return -1;
+                                             &requested, sizeof(requested),
+                                             &response, &response_sz ) ) ) return -1;
   if( FD_UNLIKELY( response_sz!=sizeof(response) ) ) {
     FD_LOG_WARNING(( "unsupported virtchnl version reply, size %lu (%i-%s)", response_sz, EPROTONOSUPPORT, fd_io_strerror( EPROTONOSUPPORT ) ));
     errno = EPROTONOSUPPORT;
@@ -1105,12 +1067,11 @@ fd_iavf_virtchnl_version( fd_iavf_vfio_t *   vfio,
     return -1;
   }
   adminq->version_major = response.major;
-  adminq->version_minor = response.minor;
   return 0;
 }
 
 static uint
-fd_iavf_link_speed_mbps( uint link_speed ) {
+fd_iavf_virtchnl_link_speed_mbps( uint link_speed ) {
   switch( link_speed ) {
   case 1U<<0: return 2500U;
   case 1U<<1: return 100U;
@@ -1125,8 +1086,8 @@ fd_iavf_link_speed_mbps( uint link_speed ) {
 }
 
 static int
-fd_iavf_apply_pending_event( fd_iavf_adminq_t *  adminq,
-                             fd_iavf_vf_info_t * info ) {
+fd_iavf_virtchnl_apply_event( fd_iavf_adminq_t *  adminq,
+                              fd_iavf_vf_info_t * info ) {
   if( !adminq->pending_event_sz ) return 0;
   FD_TEST( adminq->pending_event_sz==sizeof(fd_iavf_virtchnl_event_t) );
   fd_iavf_virtchnl_event_t event;
@@ -1137,7 +1098,7 @@ fd_iavf_apply_pending_event( fd_iavf_adminq_t *  adminq,
     info->link_up          = !!event.link_up;
     info->link_speed_mbps  = (info->capability_flags & FD_IAVF_VIRTCHNL_CAP_ADV_LINK_SPEED)
                              ? event.link_speed
-                             : fd_iavf_link_speed_mbps( event.link_speed );
+                             : fd_iavf_virtchnl_link_speed_mbps( event.link_speed );
     return 0;
   }
   if( FD_UNLIKELY( event.event==2 ) ) {
@@ -1154,10 +1115,10 @@ fd_iavf_apply_pending_event( fd_iavf_adminq_t *  adminq,
 }
 
 static int
-fd_iavf_wait_link_event( fd_iavf_vfio_t *    vfio,
-                         fd_iavf_adminq_t *  adminq,
-                         fd_iavf_vf_info_t * info ) {
-  if( FD_UNLIKELY( fd_iavf_apply_pending_event( adminq, info ) ) ) return -1;
+fd_iavf_virtchnl_wait_link( fd_iavf_vfio_t *    vfio,
+                            fd_iavf_adminq_t *  adminq,
+                            fd_iavf_vf_info_t * info ) {
+  if( FD_UNLIKELY( fd_iavf_virtchnl_apply_event( adminq, info ) ) ) return -1;
   if( info->link_state_valid ) return 0;
 
   struct timespec delay = { .tv_sec=0L, .tv_nsec=1000000L };
@@ -1165,8 +1126,8 @@ fd_iavf_wait_link_event( fd_iavf_vfio_t *    vfio,
     uchar message[ FD_IAVF_ADMINQ_BUF_SZ ];
     ulong message_sz = sizeof(message);
     uint virtchnl_op;
-    int virtchnl_status;
-    int received = fd_iavf_arq_recv( vfio, adminq, &virtchnl_op, &virtchnl_status,
+    int  virtchnl_status;
+    int received = fd_iavf_adminq_recv( vfio, adminq, &virtchnl_op, &virtchnl_status,
                                         message, &message_sz );
     if( FD_UNLIKELY( received<0 ) ) {
       int err = errno;
@@ -1191,16 +1152,16 @@ fd_iavf_wait_link_event( fd_iavf_vfio_t *    vfio,
     }
     fd_memcpy( adminq->pending_event, message, message_sz );
     adminq->pending_event_sz = message_sz;
-    if( FD_UNLIKELY( fd_iavf_apply_pending_event( adminq, info ) ) ) return -1;
+    if( FD_UNLIKELY( fd_iavf_virtchnl_apply_event( adminq, info ) ) ) return -1;
     if( info->link_state_valid ) return 0;
   }
   return 0;
 }
 
 int
-fd_iavf_get_vf_resources( fd_iavf_vfio_t *    vfio,
-                          fd_iavf_adminq_t *  adminq,
-                          fd_iavf_vf_info_t * info ) {
+fd_iavf_virtchnl_get_resources( fd_iavf_vfio_t *    vfio,
+                                fd_iavf_adminq_t *  adminq,
+                                fd_iavf_vf_info_t * info ) {
   if( FD_UNLIKELY( !vfio || !adminq || !info || adminq->version_major!=1U ) ) {
     errno = EINVAL;
     return -1;
@@ -1213,8 +1174,8 @@ fd_iavf_get_vf_resources( fd_iavf_vfio_t *    vfio,
   uchar response[ FD_IAVF_ADMINQ_BUF_SZ ];
   ulong response_sz = sizeof(response);
   if( FD_UNLIKELY( fd_iavf_virtchnl_request( vfio, adminq, FD_IAVF_VIRTCHNL_GET_VF_RESOURCES,
-                                                &requested_caps, sizeof(requested_caps),
-                                                response, &response_sz ) ) ) return -1;
+                                             &requested_caps, sizeof(requested_caps),
+                                             response, &response_sz ) ) ) return -1;
   if( FD_UNLIKELY( response_sz<sizeof(fd_iavf_virtchnl_vf_resource_t) ) ) {
     FD_LOG_WARNING(( "VF resource reply too short, %lu bytes (%i-%s)", response_sz, EPROTO, fd_io_strerror( EPROTO ) ));
     errno = EPROTO;
@@ -1238,8 +1199,8 @@ fd_iavf_get_vf_resources( fd_iavf_vfio_t *    vfio,
     return -1;
   }
 
-  fd_iavf_virtchnl_vsi_resource_t selected = {0};
-  ulong selected_cnt = 0UL;
+  fd_iavf_virtchnl_vsi_resource_t selected     = {0};
+  ulong                           selected_cnt = 0UL;
   for( ulong vsi_idx=0UL; vsi_idx<(ulong)resources.num_vsis; vsi_idx++ ) {
     fd_iavf_virtchnl_vsi_resource_t vsi;
     fd_memcpy( &vsi, response+sizeof(resources)+vsi_idx*sizeof(vsi), sizeof(vsi) );
@@ -1262,50 +1223,50 @@ fd_iavf_get_vf_resources( fd_iavf_vfio_t *    vfio,
     return -1;
   }
 
-  info->vsi_id             = selected.vsi_id;
-  info->queue_pair_cnt     = fd_ushort_min( resources.num_queue_pairs, selected.num_queue_pairs );
-  info->vector_cnt         = resources.max_vectors;
-  info->max_mtu            = resources.max_mtu;
-  info->capability_flags   = resources.capability_flags;
-  info->rss_key_sz         = resources.rss_key_sz;
-  info->rss_lut_sz         = resources.rss_lut_sz;
+  info->vsi_id           = selected.vsi_id;
+  info->queue_pair_cnt   = fd_ushort_min( resources.num_queue_pairs, selected.num_queue_pairs );
+  info->vector_cnt       = resources.max_vectors;
+  info->max_mtu          = resources.max_mtu;
+  info->capability_flags = resources.capability_flags;
+  info->rss_key_sz       = resources.rss_key_sz;
+  info->rss_lut_sz       = resources.rss_lut_sz;
   if( FD_UNLIKELY( !info->rss_key_sz || info->rss_key_sz>FD_IAVF_ADMINQ_BUF_SZ-6UL ||
                    !info->rss_lut_sz || info->rss_lut_sz>FD_IAVF_ADMINQ_BUF_SZ-6UL ) ) {
     errno = EPROTO;
     return -1;
   }
   fd_memcpy( info->mac_addr, selected.default_mac_addr, sizeof(info->mac_addr) );
-  return fd_iavf_wait_link_event( vfio, adminq, info );
+  return fd_iavf_virtchnl_wait_link( vfio, adminq, info );
 }
 
 int
-fd_iavf_poll_link( fd_iavf_vfio_t *    vfio,
-                   fd_iavf_adminq_t *  adminq,
-                   fd_iavf_vf_info_t * info,
-                   int *               changed ) {
+fd_iavf_virtchnl_poll_link( fd_iavf_vfio_t *    vfio,
+                            fd_iavf_adminq_t *  adminq,
+                            fd_iavf_vf_info_t * info,
+                            int *               changed ) {
   if( FD_UNLIKELY( !vfio || !adminq || !info || !changed ) ) {
     errno = EINVAL;
     return -1;
   }
 
-  int const old_valid = info->link_state_valid;
-  int const old_up    = info->link_up;
-  uint const old_speed = info->link_speed_mbps;
-  uint reset_state = fd_iavf_mmio_read( vfio, FD_IAVF_VFGEN_RSTAT ) & FD_IAVF_VFGEN_RSTAT_STATE;
+  int const  old_valid   = info->link_state_valid;
+  int const  old_up      = info->link_up;
+  uint const old_speed   = info->link_speed_mbps;
+  uint       reset_state = fd_iavf_mmio_read( vfio, FD_IAVF_VFGEN_RSTAT ) & FD_IAVF_VFGEN_RSTAT_STATE;
   if( FD_UNLIKELY( (reset_state!=FD_IAVF_VFR_STATE_COMPLETED && reset_state!=FD_IAVF_VFR_STATE_ACTIVE) ||
                    !(fd_iavf_mmio_read( vfio, FD_IAVF_VF_ATQLEN ) & FD_IAVF_AQ_ENABLE) ||
                    !(fd_iavf_mmio_read( vfio, FD_IAVF_VF_ARQLEN ) & FD_IAVF_AQ_ENABLE) ) ) {
     errno = ECONNRESET;
     return -1;
   }
-  if( FD_UNLIKELY( fd_iavf_apply_pending_event( adminq, info ) ) ) return -1;
+  if( FD_UNLIKELY( fd_iavf_virtchnl_apply_event( adminq, info ) ) ) return -1;
 
   for( ulong i=0UL; i<FD_IAVF_ADMINQ_DEPTH; i++ ) {
     uchar message[ FD_IAVF_ADMINQ_BUF_SZ ];
     ulong message_sz = sizeof(message);
     uint virtchnl_op;
-    int virtchnl_status;
-    int const received = fd_iavf_arq_recv( vfio, adminq, &virtchnl_op, &virtchnl_status,
+    int  virtchnl_status;
+    int const received = fd_iavf_adminq_recv( vfio, adminq, &virtchnl_op, &virtchnl_status,
                                               message, &message_sz );
     if( FD_UNLIKELY( received<0 ) ) {
       int err = errno;
@@ -1322,7 +1283,7 @@ fd_iavf_poll_link( fd_iavf_vfio_t *    vfio,
     }
     fd_memcpy( adminq->pending_event, message, message_sz );
     adminq->pending_event_sz = message_sz;
-    if( FD_UNLIKELY( fd_iavf_apply_pending_event( adminq, info ) ) ) return -1;
+    if( FD_UNLIKELY( fd_iavf_virtchnl_apply_event( adminq, info ) ) ) return -1;
   }
 
   *changed = old_valid!=info->link_state_valid ||
@@ -1343,17 +1304,17 @@ fd_iavf_queue_footprint( uint tx_depth,
 }
 
 int
-fd_iavf_configure_queue( fd_iavf_vfio_t *          vfio,
-                         fd_iavf_adminq_t *        adminq,
-                         fd_iavf_vf_info_t const * info,
-                         fd_iavf_queue_t *         queue,
-                         void *                    dma_memory,
-                         ulong                     dma_memory_sz,
-                         ulong                     dma_iova,
-                         uint                      tx_depth,
-                         uint                      rx_depth,
-                         uint                      rx_buffer_sz,
-                         uint                      max_frame_sz ) {
+fd_iavf_virtchnl_configure_queue( fd_iavf_vfio_t *          vfio,
+                                  fd_iavf_adminq_t *        adminq,
+                                  fd_iavf_vf_info_t const * info,
+                                  fd_iavf_queue_t *         queue,
+                                  void *                    dma_memory,
+                                  ulong                     dma_memory_sz,
+                                  ulong                     dma_iova,
+                                  uint                      tx_depth,
+                                  uint                      rx_depth,
+                                  uint                      rx_buffer_sz,
+                                  uint                      max_frame_sz ) {
   ulong footprint = fd_iavf_queue_footprint( tx_depth, rx_depth );
   if( FD_UNLIKELY( !vfio || !adminq || !info || !queue || !dma_memory || !footprint ||
                    !vfio->bar0 || vfio->bar0_sz<FD_IAVF_BAR0_MAP_SZ ||
@@ -1372,15 +1333,11 @@ fd_iavf_configure_queue( fd_iavf_vfio_t *          vfio,
   if( FD_UNLIKELY( fd_iavf_vfio_dma_map( vfio, dma_memory, footprint, dma_iova ) ) ) return -1;
   ulong tx_ring_sz = fd_ulong_align_up( (ulong)tx_depth*sizeof(fd_iavf_tx_desc_t), 4096UL );
   ulong rx_ring_sz = fd_ulong_align_up( (ulong)rx_depth*sizeof(fd_iavf_rx_desc_t), 4096UL );
-  *queue = (fd_iavf_queue_t) {
+  *queue           = (fd_iavf_queue_t) {
     .dma_memory   = dma_memory,
-    .dma_memory_sz= footprint,
-    .dma_iova     = dma_iova,
     .tx_ring      = dma_memory,
-    .rx_ring      = (uchar *)dma_memory + tx_ring_sz,
+    .rx_ring      = (fd_iavf_rx_desc_t *)((uchar *)dma_memory + tx_ring_sz),
     .tx_comp_ring = (ulong *)((uchar *)dma_memory + tx_ring_sz + rx_ring_sz),
-    .tx_ring_iova = dma_iova,
-    .rx_ring_iova = dma_iova + tx_ring_sz,
     .tx_depth     = tx_depth,
     .rx_depth     = rx_depth,
     .tx_tail      = (volatile uint *)(vfio->bar0 + FD_IAVF_TX_TAIL( 0U )),
@@ -1390,11 +1347,11 @@ fd_iavf_configure_queue( fd_iavf_vfio_t *          vfio,
   fd_iavf_virtchnl_queue_config_t config = {
     .vsi_id         = info->vsi_id,
     .queue_pair_cnt = 1U,
-    .tx = {
+    .tx             = {
       .vsi_id    = info->vsi_id,
       .queue_id  = 0U,
       .ring_len  = (ushort)tx_depth,
-      .ring_iova = queue->tx_ring_iova
+      .ring_iova = dma_iova
     },
     .rx = {
       .vsi_id         = info->vsi_id,
@@ -1402,12 +1359,12 @@ fd_iavf_configure_queue( fd_iavf_vfio_t *          vfio,
       .ring_len       = rx_depth,
       .data_buffer_sz = rx_buffer_sz,
       .max_frame_sz   = max_frame_sz,
-      .ring_iova      = queue->rx_ring_iova
+      .ring_iova      = dma_iova + tx_ring_sz
     }
   };
   ulong response_sz = 0UL;
   if( FD_UNLIKELY( fd_iavf_virtchnl_request( vfio, adminq, FD_IAVF_VIRTCHNL_CONFIG_QUEUES,
-                                                &config, sizeof(config), NULL, &response_sz ) ) ) return -1;
+                                             &config, sizeof(config), NULL, &response_sz ) ) ) return -1;
 
   fd_iavf_virtchnl_irq_map_t irq_map = {
     .vector_cnt   = 1U,
@@ -1420,18 +1377,18 @@ fd_iavf_configure_queue( fd_iavf_vfio_t *          vfio,
   };
   response_sz = 0UL;
   if( FD_UNLIKELY( fd_iavf_virtchnl_request( vfio, adminq, FD_IAVF_VIRTCHNL_CONFIG_IRQ_MAP,
-                                                &irq_map, sizeof(irq_map), NULL, &response_sz ) ) ) return -1;
+                                             &irq_map, sizeof(irq_map), NULL, &response_sz ) ) ) return -1;
   return 0;
 }
 
 int
-fd_iavf_enable_queue( fd_iavf_vfio_t *    vfio,
-                      fd_iavf_adminq_t *  adminq,
-                      fd_iavf_vf_info_t * info,
-                      fd_iavf_queue_t *   queue ) {
+fd_iavf_virtchnl_enable_queue( fd_iavf_vfio_t *    vfio,
+                               fd_iavf_adminq_t *  adminq,
+                               fd_iavf_vf_info_t * info,
+                               fd_iavf_queue_t *   queue ) {
   if( FD_UNLIKELY( !vfio || !adminq || !info || !queue || queue->enabled || !queue->rx_posted ||
                    queue->rx_posted!=queue->rx_prod ||
-                   queue->rx_prod-queue->rx_cons>=queue->rx_depth ) ) {
+                   queue->rx_prod-queue->rx_cons>= queue->rx_depth ) ) {
     errno = EINVAL;
     return -1;
   }
@@ -1442,17 +1399,17 @@ fd_iavf_enable_queue( fd_iavf_vfio_t *    vfio,
   };
   ulong response_sz = 0UL;
   if( FD_UNLIKELY( fd_iavf_virtchnl_request( vfio, adminq, FD_IAVF_VIRTCHNL_ENABLE_QUEUES,
-                                                &select, sizeof(select), NULL, &response_sz ) ) ) return -1;
-  queue->enabled = 1;
+                                             &select, sizeof(select), NULL, &response_sz ) ) ) return -1;
+  queue->enabled         = 1;
   info->link_state_valid = 0;
-  return fd_iavf_wait_link_event( vfio, adminq, info );
+  return fd_iavf_virtchnl_wait_link( vfio, adminq, info );
 }
 
-/* fd_iavf_add_mac registers the PF-assigned primary MAC with the VF VSI. */
+/* fd_iavf_virtchnl_add_mac registers the PF-assigned primary MAC with the VF VSI. */
 int
-fd_iavf_add_mac( fd_iavf_vfio_t *          vfio,
-                 fd_iavf_adminq_t *        adminq,
-                 fd_iavf_vf_info_t const * info ) {
+fd_iavf_virtchnl_add_mac( fd_iavf_vfio_t *          vfio,
+                          fd_iavf_adminq_t *        adminq,
+                          fd_iavf_vf_info_t const * info ) {
   if( FD_UNLIKELY( !vfio || !adminq || !info || (info->mac_addr[0] & 1U) ||
                    !(info->mac_addr[0] | info->mac_addr[1] | info->mac_addr[2] |
                      info->mac_addr[3] | info->mac_addr[4] | info->mac_addr[5]) ) ) {
@@ -1474,12 +1431,12 @@ fd_iavf_add_mac( fd_iavf_vfio_t *          vfio,
                                    &request, sizeof(request), NULL, &response_sz );
 }
 
-/* fd_iavf_configure_rss selects the first queue_cnt queues in the VF VSI. */
+/* fd_iavf_virtchnl_configure_rss selects the first queue_cnt queues in the VF VSI. */
 int
-fd_iavf_configure_rss( fd_iavf_vfio_t *          vfio,
-                       fd_iavf_adminq_t *        adminq,
-                       fd_iavf_vf_info_t const * info,
-                       uint                      queue_cnt ) {
+fd_iavf_virtchnl_configure_rss( fd_iavf_vfio_t *          vfio,
+                                fd_iavf_adminq_t *        adminq,
+                                fd_iavf_vf_info_t const * info,
+                                uint                      queue_cnt ) {
   if( FD_UNLIKELY( !vfio || !adminq || !info || !queue_cnt ||
                    queue_cnt>info->queue_pair_cnt || queue_cnt>16U ||
                    !info->rss_key_sz || info->rss_key_sz>4090U ||

@@ -451,9 +451,11 @@ main_pid_namespace( void * _args ) {
       }
 
       if( need_iavf ) {
-        int fd_flags = strcmp( tile->name, "iavf" ) ? FD_CLOEXEC : 0;
-        for( ulong i=0UL; i<iavf_fds.fd_cnt; i++ ) {
-          if( FD_UNLIKELY( fcntl( iavf_fds.fds[i], F_SETFD, fd_flags )<0 ) ) {
+        int const fd_flags = strcmp( tile->name, "iavf" ) ? FD_CLOEXEC : 0;
+        for( ulong i=0UL; i<iavf_fds.member_cnt; i++ ) {
+          if( FD_UNLIKELY( fcntl( iavf_fds.container_fd[ i ], F_SETFD, fd_flags )<0 ||
+                           fcntl( iavf_fds.group_fd    [ i ], F_SETFD, fd_flags )<0 ||
+                           fcntl( iavf_fds.device_fd   [ i ], F_SETFD, fd_flags )<0 ) ) {
             FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
           }
         }
@@ -628,8 +630,10 @@ main_pid_namespace( void * _args ) {
   for( ulong i=0UL; i<child_cnt; i++ )
     allow_fds[ allow_fds_cnt++ ] = fds[ i ].fd; /* read end of child pipes */
   if( need_iavf ) {
-    for( ulong i=0UL; i<iavf_fds.fd_cnt; i++ ) {
-      if( FD_UNLIKELY( close( iavf_fds.fds[i] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    for( ulong i=0UL; i<iavf_fds.member_cnt; i++ ) {
+      if( FD_UNLIKELY( close( iavf_fds.container_fd[ i ] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      if( FD_UNLIKELY( close( iavf_fds.group_fd    [ i ] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      if( FD_UNLIKELY( close( iavf_fds.device_fd   [ i ] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     }
   }
   if( need_mlx5 ) {
