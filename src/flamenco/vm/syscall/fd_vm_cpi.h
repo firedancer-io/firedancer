@@ -10,10 +10,9 @@
    CPI syscall handlers and are thus untrusted.  Addresses are in VM
    address space.  Struct parameter offsets and sizes match exactly.
    Structs also have alignment requirements in VM address space.  These
-   alignments are provided as const macros.  Since we cannot guarantee
-   that a type is aligned in host address space even when aligned in VM
-   address space (FIXME: HMMM ... THAT DOESN'T SOUND RIGHT), all structs
-   support unaligned access (i.e. alignof(type)==1UL).
+   alignments are provided as const macros.  Alignment is not checked
+   for deprecated loader programs, so host addresses may be unaligned.
+   Thus, all structs support unaligned access (i.e. alignof(type)==1UL).
 
    Unfortunately, the Solana protocol provides this API twice:
    In a C-style ABI and in Rust ABI. */
@@ -37,10 +36,11 @@ typedef struct fd_vm_c_instruction fd_vm_c_instruction_t;
 
 #define FD_VM_C_ACCOUNT_META_ALIGN (8UL)
 #define FD_VM_C_ACCOUNT_META_SIZE  (16UL)
-struct fd_vm_c_account_meta {
+struct __attribute__((packed)) fd_vm_c_account_meta {
   ulong pubkey_addr;
   uchar is_writable;
   uchar is_signer;
+  uchar _padding_0[6];
 };
 
 typedef struct fd_vm_c_account_meta fd_vm_c_account_meta_t;
@@ -48,7 +48,7 @@ typedef struct fd_vm_c_account_meta fd_vm_c_account_meta_t;
 #define FD_VM_C_ACCOUNT_INFO_ALIGN (8UL)
 #define FD_VM_C_ACCOUNT_INFO_SIZE  (56UL)
 
-struct fd_vm_c_account_info {
+struct __attribute__((packed)) fd_vm_c_account_info {
   ulong pubkey_addr;
   ulong lamports_addr;
   ulong data_sz;
@@ -58,6 +58,7 @@ struct fd_vm_c_account_info {
   uchar is_signer;
   uchar is_writable;
   uchar executable;
+  uchar _padding_0[5];
 };
 
 typedef struct fd_vm_c_account_info fd_vm_c_account_info_t;
