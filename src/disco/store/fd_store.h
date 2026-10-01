@@ -226,13 +226,8 @@ struct fd_store {
   ulong        cache_pinned_cnt;
   ulong        spill_free_gaddr;
   ulong        spill_free_cnt;
-  ulong        spill_reclaim_gaddr;
-  ulong        spill_reclaim_cnt;
-  ulong        spill_reclaiming_cnt;
-  ulong        spill_reuse_cnt;
   ulong        spill_slot_cnt;
   atomic_ulong spill_live_cnt;
-  atomic_ulong spill_allocated_cnt;
   atomic_ulong fec_spill_cnt;
   atomic_ulong fec_spill_bytes;
   atomic_ulong fec_spill_read_cnt;
@@ -284,12 +279,14 @@ FD_PROTOTYPES_BEGIN
    messages in flight.
 
    Payloads enter the RAM cache and spill by LRU to page-sized file slots.
-   Freed slots are immediately eligible for reuse.  The file layout is:
+   Freed slots are immediately eligible for reuse and keep their disk
+   blocks; a new slot is only used when none is free.  The file layout
+   is:
 
     [ sparse spill slots (payload_slot_sz*fec_max) ][ shred ring ]
 
-    wire_off is the fixed start of the shred ring.  Unused spill slots
-    do not consume disk blocks.
+    wire_off is the fixed start of the shred ring.  Spill slots that
+    were never used do not consume disk blocks.
 
     Shred-ring writers reserve cells and mark only the target cell WRITING
     while its pwrite is in progress. */
@@ -342,7 +339,6 @@ fd_store_footprint( ulong fec_max,
                    fd_store_layout_append( &l, FD_STORE_PAYLOAD_PAGE_SZ, cache_slot_cnt, payload_slot_sz ) ||
                    fd_store_layout_append( &l, alignof(ulong),           cache_slot_cnt, sizeof(ulong) ) ||
                    fd_store_layout_append( &l, alignof(uint),            fec_max,         sizeof(uint) ) ||
-                   fd_store_layout_append( &l, alignof(uint),            fec_max,         sizeof(uint) ) ||
                    fd_store_layout_append( &l, FD_STORE_PAYLOAD_PAGE_SZ, 1UL,             payload_slot_sz ) ) ) return 0UL;
   if( FD_UNLIKELY( fec_set_cnt && fd_store_layout_append( &l, alignof(fd_fec_set_t), fec_set_cnt, sizeof(fd_fec_set_t) ) ) ) return 0UL;
   if( shred_storage_gib ) {
@@ -393,10 +389,6 @@ void *       fd_store_delete( void * shstore );
 int fd_store_file_create( char const * path,
                           ulong        wire_off,
                           ulong        disk_max_shreds );
-
-/* Reclaims one spill slot.  Returns non-zero if there was work. */
-
-int fd_store_disk_maintain( fd_store_t * store, int disk_fd );
 
 
 FD_FN_PURE static inline fd_wksp_t *
