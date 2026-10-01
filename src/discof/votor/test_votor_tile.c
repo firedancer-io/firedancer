@@ -408,26 +408,6 @@ test_auth_vtr_keyswitch_clear( void ) {
 }
 
 static void
-test_own_bls_key( void ) {
-  static fd_votor_tile_t ctx;
-  static auth_vtr_t      auth_vtr_mem[ 1UL<<AUTH_VTR_LG_SLOT_CNT ];
-  fd_vote_stake_weight_t stakes[ TEST_VOTER_MAX ];
-  ag_epoch_info_t *      epoch_info = &epoch_info_mem;
-
-  build_stakes( stakes, 3UL, 10UL );
-  rank_voters( epoch_info, stakes, 3UL );
-  ag_bls_key_t bls_keys[2];
-  memcpy( bls_keys[0], epoch_info->validators[0].bls_key, sizeof(ag_bls_key_t) );
-  memcpy( bls_keys[1], epoch_info->validators[1].bls_key, sizeof(ag_bls_key_t) );
-  init_keys( &ctx, auth_vtr_mem, bls_keys, 2UL );
-
-  FD_TEST( own_bls_key( &ctx, epoch_info, USHORT_MAX )==NULL                              );
-  FD_TEST( own_bls_key( &ctx, epoch_info, 0          )==epoch_info->validators[0].bls_key );
-  FD_TEST( own_bls_key( &ctx, epoch_info, 1          )==epoch_info->validators[1].bls_key );
-  FD_TEST( own_bls_key( &ctx, epoch_info, 2          )==NULL                              );
-}
-
-static void
 test_sign_bls_request( void ) {
   static fd_votor_tile_t ctx;
   static auth_vtr_t      auth_vtr_mem[ 1UL<<AUTH_VTR_LG_SLOT_CNT ];
@@ -485,7 +465,11 @@ test_sign_bls_request( void ) {
   }
 }
 
-static peer_t peers_mem[ 1UL<<PEERS_LG_SLOT_CNT ];
+static peer_t         peers_mem        [ 1UL<<PEERS_LG_SLOT_CNT         ];
+static contact_info_t contact_infos_mem[ 1UL<<CONTACT_INFOS_LG_SLOT_CNT ];
+static uchar          reconn_prq_mem   [ 1UL<<19 ] __attribute__((aligned(128)));
+static uchar          quic_mem         [ 1UL<<24 ] __attribute__((aligned(FD_QUIC_ALIGN)));
+static uchar          pool_mem         [ (AG_SLOTS_PER_WINDOW+AG_REWARD_SLOT_DELTA)*sizeof(ag_slot_state_t)+(4UL<<20) ] __attribute__((aligned(128)));
 
 static peer_t *
 test_peer( fd_votor_tile_t * ctx,
@@ -493,73 +477,359 @@ test_peer( fd_votor_tile_t * ctx,
            ushort            curr_rank ) {
   fd_pubkey_t id_key = {0}; id_key.uc[ 0 ] = id;
   peer_t * peer = peers_insert( ctx->peers, id_key );
-  peer->prev_rank = USHORT_MAX;
-  peer->curr_rank = curr_rank;
-  peer->next_rank = USHORT_MAX;
-  peer->tx_conn   = NULL;
-  peer->rx_conn   = NULL;
-  peer->ban_ts    = 0L;
+  peer->prev_rank      = USHORT_MAX;
+  peer->curr_rank      = curr_rank;
+  peer->next_rank      = USHORT_MAX;
+  peer->tx_conn        = NULL;
+  peer->rx_conn        = NULL;
+  peer->ban_ts         = 0L;
+  peer->conn_ts        = 0L;
+  peer->conn_backoff   = 0L;
+  peer->reconn_pending = 0;
   return peer;
 }
 
+static contact_info_t *
+test_ci( fd_votor_tile_t * ctx,
+         peer_t const *    peer,
+         ushort            port ) {
+  contact_info_t * ci = contact_infos_insert( ctx->contact_infos, peer->id_key );
+  ci->ip4  = FD_IP4_ADDR( 10, 0, 0, 1 );
+  ci->port = port;
+  return ci;
+}
+
+static int
+test_aio_drop( void *                    ctx,
+               fd_aio_pkt_info_t const * batch,
+               ulong                     batch_cnt,
+               ulong *                   opt_batch_idx,
+               int                       flush ) {
+  (void)ctx; (void)batch; (void)batch_cnt; (void)opt_batch_idx; (void)flush;
+  return FD_AIO_SUCCESS;
+}
+
+/* test_ctx_new sets up the peer, contact info and reconnect state of ctx,
+   with us (id 1) ranked, and a client quic with conn_cnt conns. */
+
 static void
-test_can_dial( void ) {
+test_ctx_new( fd_votor_tile_t * ctx,
+              ulong             conn_cnt ) {
+  static fd_aio_t aio;
+  ctx->peers         = peers_join( peers_new( peers_mem ) );
+  ctx->contact_infos = contact_infos_join( contact_infos_new( contact_infos_mem ) );
+  FD_TEST( reconn_prq_footprint( RECONN_MAX )<=sizeof(reconn_prq_mem) );
+  ctx->reconn_prq    = reconn_prq_join( reconn_prq_new( reconn_prq_mem, RECONN_MAX ) );
+  FD_TEST( ag_pool_footprint( AG_SLOTS_PER_WINDOW+AG_REWARD_SLOT_DELTA )<=sizeof(pool_mem) );
+  ctx->pool          = ag_pool_join( ag_pool_new( pool_mem, AG_SLOTS_PER_WINDOW+AG_REWARD_SLOT_DELTA, 42UL ) );
+  FD_TEST( ctx->peers && ctx->contact_infos && ctx->reconn_prq && ctx->pool );
+  ag_pool_init( ctx->pool, 0UL );
+  fd_clock_tile_init( ctx->clock );
+  memset( &ctx->id_key, 0, sizeof(fd_pubkey_t) ); ctx->id_key.uc[ 0 ] = 1;
+  test_peer( ctx, 1, 0 );
+
+  fd_quic_limits_t limits = { .conn_cnt=conn_cnt, .handshake_cnt=conn_cnt, .conn_id_cnt=FD_QUIC_MIN_CONN_ID_CNT, .inflight_frame_cnt=16UL, .min_inflight_frame_cnt_conn=4UL };
+  FD_TEST( fd_quic_footprint( &limits )<=sizeof(quic_mem) );
+  ctx->quic_client = fd_quic_join( fd_quic_new( quic_mem, &limits ) );
+  FD_TEST( ctx->quic_client );
+  ctx->quic_client->config.role         = FD_QUIC_ROLE_CLIENT;
+  ctx->quic_client->config.idle_timeout = 5L*1000L*1000L*1000L;
+  ctx->quic_client->config.ack_delay    = 2L*1000L*1000L;
+  memcpy( ctx->quic_client->config.identity_public_key, ctx->id_key.uc, 32UL );
+  fd_quic_set_aio_net_tx( ctx->quic_client, fd_aio_join( fd_aio_new( &aio, NULL, test_aio_drop ) ) );
+  FD_TEST( fd_quic_init( ctx->quic_client ) );
+}
+
+static void
+test_ctx_delete( fd_votor_tile_t * ctx ) {
+  fd_quic_delete( fd_quic_leave( fd_quic_fini( ctx->quic_client ) ) );
+  ag_pool_delete( ag_pool_leave( ctx->pool ) );
+  reconn_prq_delete( reconn_prq_leave( ctx->reconn_prq ) );
+  contact_infos_delete( contact_infos_leave( ctx->contact_infos ) );
+  peers_delete( peers_leave( ctx->peers ) );
+}
+
+/* test_drop_conn forgets peer's tx conn as if we closed it ourselves. */
+
+static void
+test_drop_conn( peer_t * peer ) {
+  fd_quic_conn_set_context( peer->tx_conn, NULL );
+  peer->tx_conn = NULL;
+}
+
+static void
+test_connect_peer( void ) {
   static fd_votor_tile_t ctx;
-  ctx.peers = peers_join( peers_new( peers_mem ) );
-  FD_TEST( ctx.peers );
-  memset( &ctx.id_key, 0, sizeof(fd_pubkey_t) ); ctx.id_key.uc[ 0 ] = 1;
+  test_ctx_new( &ctx, 4UL );
+  long             now   = 100L*1000L*1000L*1000L;
+  peer_t *         self  = peers_query( ctx.peers, ctx.id_key, NULL );
+  peer_t *         other = test_peer( &ctx, 2, 0 );
+  contact_info_t * ci    = test_ci( &ctx, other, 8000 );
 
-  long     now   = 100L*1000L*1000L*1000L;
-  peer_t * other = test_peer( &ctx, 2, 0 );
-
-  /* Not in the peer set (unstaked): never dial, since peers would
-     refuse us with NOT_ADMITTED. */
-  FD_TEST( !can_dial( &ctx, other, now ) );
-
-  /* Ranked only in the previous epoch: until AG_REWARD_SLOT_DELTA slots
-     past the boundary.  Only in the next: within
-     QUIC_DIAL_NEXT_EPOCH_SLOTS of it.  Neither before anything is
-     finalized. */
-  ctx.curr_epoch_slot = 100000UL;
+  /* Unstaked in the current epoch: connect only ahead of the next
+     epoch, within QUIC_CONN_AHEAD_NS of it (50 slots at 200 ms), and never
+     before anything is finalized; otherwise peers would refuse us with
+     NOT_ADMITTED. */
   ctx.next_epoch_slot = 200000UL;
-  peer_t * self = test_peer( &ctx, 1, USHORT_MAX );
-  self->prev_rank = 0;
-  FD_TEST( !in_boundary_window( &ctx, self, ULONG_MAX                              ) );
-  FD_TEST(  in_boundary_window( &ctx, self, 100000UL+AG_REWARD_SLOT_DELTA-1UL      ) );
-  FD_TEST( !in_boundary_window( &ctx, self, 100000UL+AG_REWARD_SLOT_DELTA          ) );
-  self->prev_rank = USHORT_MAX; self->next_rank = 0;
-  FD_TEST( !in_boundary_window( &ctx, self, ULONG_MAX                              ) );
-  FD_TEST( !in_boundary_window( &ctx, self, 200000UL-QUIC_DIAL_NEXT_EPOCH_SLOTS-1UL ) );
-  FD_TEST(  in_boundary_window( &ctx, self, 200000UL-QUIC_DIAL_NEXT_EPOCH_SLOTS     ) );
-  self->next_rank = USHORT_MAX;
-  FD_TEST( !in_boundary_window( &ctx, self, 200000UL-QUIC_DIAL_NEXT_EPOCH_SLOTS     ) );
-
-  /* Ranked in the current epoch: dial everyone but ourselves. */
+  ctx.ns_per_slot     = 200000000L;
+  self->curr_rank = USHORT_MAX;
+  struct { ushort prev; ushort next; ulong root; int ok; } win[] = {
+    { USHORT_MAX, 0,          ULONG_MAX,   0 },
+    { USHORT_MAX, 0,          200000UL-51, 0 },
+    { USHORT_MAX, 0,          200000UL-50, 1 },
+    { USHORT_MAX, 0,          200000UL,    1 },
+    { USHORT_MAX, USHORT_MAX, 200000UL-50, 0 },
+    { 0,          USHORT_MAX, 200000UL-50, 0 },
+  };
+  for( ulong i=0UL; i<sizeof(win)/sizeof(win[0]); i++ ) {
+    self->prev_rank = win[i].prev; self->next_rank = win[i].next;
+    ag_pool_init( ctx.pool, win[i].root );
+    quic_client_connect( &ctx, other, ci, now );
+    FD_TEST( !!other->tx_conn==win[i].ok );
+    if( other->tx_conn ) test_drop_conn( other );
+  }
+  self->prev_rank = USHORT_MAX; self->next_rank = USHORT_MAX;
   self->curr_rank = 1;
-  FD_TEST(  can_dial( &ctx, other, now ) );
-  FD_TEST( !can_dial( &ctx, self,  now ) );
 
-  /* A peer marked for eviction is not dialed. */
+  /* Never ourselves, nor a peer marked for eviction. */
+  quic_client_connect( &ctx, self, ci, now ); FD_TEST( !self->tx_conn );
   other->curr_rank = USHORT_MAX;
-  FD_TEST( !can_dial( &ctx, other, now ) );
+  quic_client_connect( &ctx, other, ci, now ); FD_TEST( !other->tx_conn );
   other->curr_rank = 0;
 
-  /* An existing conn or a ban holds off the dial. */
-  fd_quic_conn_t conn[1];
-  other->tx_conn = conn;                                FD_TEST( !can_dial( &ctx, other, now ) );
-  other->tx_conn = NULL;
-  other->ban_ts  = now-QUIC_BAN_TIMEOUT_NS+1L;          FD_TEST( !can_dial( &ctx, other, now ) );
-  other->ban_ts  = now-QUIC_BAN_TIMEOUT_NS;             FD_TEST(  can_dial( &ctx, other, now ) );
+  /* A ban holds off the connect; a pending backoff does not. */
+  other->ban_ts = now-QUIC_BAN_TIMEOUT_NS+1L;
+  quic_client_connect( &ctx, other, ci, now ); FD_TEST( !other->tx_conn );
+  other->ban_ts = now-QUIC_BAN_TIMEOUT_NS;
+  other->conn_ts = now-1L; other->conn_backoff = QUIC_CONN_BACKOFF_MAX_NS;
+  quic_client_connect( &ctx, other, ci, now );
+  FD_TEST( other->tx_conn && other->conn_ts==now );
 
-  /* A closed conn, whether or not it ever handshaked, frees the peer
-     for an immediate redial. */
+  /* An existing conn holds off a second connect. */
+  fd_quic_conn_t * conn = other->tx_conn;
+  quic_client_connect( &ctx, other, ci, now+1L ); FD_TEST( other->tx_conn==conn && other->conn_ts==now );
+
+  test_ctx_delete( &ctx );
+}
+
+/* A conn that closes on its own sets the backoff and queues one reconnect
+   for when it expires: one PTO of the conn's RTT estimate, doubled on
+   every close, capped at max, cleared by a completed handshake. */
+
+static void
+test_conn_final_backoff( void ) {
+  static fd_votor_tile_t ctx;
+  test_ctx_new( &ctx, 1UL );
+  peer_t *       other = test_peer( &ctx, 2, 0 );
+  fd_quic_conn_t conn[1];
   memset( conn, 0, sizeof(conn) );
   fd_quic_conn_set_context( conn, &other->id_key );
+  conn->rtt->smoothed_rtt     = 50e6f;
+  conn->rtt->var_rtt          = 5e6f;
+  conn->peer_max_ack_delay_ns = 25e6f;
+  long pto = 95000000L; /* 50 ms + 4*5 ms + 25 ms */
+
+  long t      = fd_clock_tile_now( ctx.clock );
+  long expect = pto;
+  for( ulong i=0UL; i<16UL; i++ ) {
+    other->tx_conn = conn; other->conn_ts = t;
+    quic_client_conn_final( conn, &ctx );
+    FD_TEST( !other->tx_conn && other->conn_backoff==expect );
+    FD_TEST( other->reconn_pending && reconn_prq_cnt( ctx.reconn_prq )==1UL );
+    FD_TEST( ctx.reconn_prq[ 0 ].timeout==other->conn_ts+expect );
+    reconn_prq_remove_min( ctx.reconn_prq ); other->reconn_pending = 0;
+    expect = fd_long_min( 2L*expect, QUIC_CONN_BACKOFF_MAX_NS );
+  }
+  FD_TEST( other->conn_backoff==QUIC_CONN_BACKOFF_MAX_NS );
+
+  /* However long it lived, a conn that never completed its handshake
+     keeps the (capped) backoff; a completed handshake clears it, so the
+     next close backs off from one PTO again. */
+  other->tx_conn = conn; other->conn_ts = fd_clock_tile_now( ctx.clock )-QUIC_CONN_BACKOFF_MAX_NS;
+  quic_client_conn_final( conn, &ctx );
+  FD_TEST( other->conn_backoff==QUIC_CONN_BACKOFF_MAX_NS );
+  reconn_prq_remove_min( ctx.reconn_prq ); other->reconn_pending = 0;
+  static fd_quic_tls_hs_t hs;
+  memcpy( hs.hs.cli.server_pubkey, other->id_key.uc, sizeof(fd_pubkey_t) );
+  conn->tls_hs = &hs;
+  other->tx_conn = conn;
+  quic_client_conn_hs_complete( conn, &ctx );
+  FD_TEST( other->tx_conn==conn && other->conn_backoff==0L );
+  conn->tls_hs = NULL;
+  quic_client_conn_final( conn, &ctx );
+  FD_TEST( other->conn_backoff==pto && ctx.reconn_prq[ 0 ].timeout==other->conn_ts+pto );
+
+  /* A second close while a reconnect is queued does not queue another. */
   other->tx_conn = conn;
   quic_client_conn_final( conn, &ctx );
-  FD_TEST( !other->tx_conn && can_dial( &ctx, other, now ) );
+  FD_TEST( reconn_prq_cnt( ctx.reconn_prq )==1UL );
 
-  peers_delete( peers_leave( ctx.peers ) );
+  /* A conn we closed ourselves (context cleared) queues nothing. */
+  reconn_prq_remove_all( ctx.reconn_prq ); other->reconn_pending = 0;
+  fd_quic_conn_set_context( conn, NULL );
+  quic_client_conn_final( conn, &ctx );
+  FD_TEST( !reconn_prq_cnt( ctx.reconn_prq ) );
+
+  test_ctx_delete( &ctx );
+}
+
+/* A connect that fails for lack of conns is not a connect, so it must not
+   restart the peer's backoff, but it is retried. */
+
+static void
+test_connect_fail_keeps_backoff( void ) {
+  static fd_votor_tile_t ctx;
+  test_ctx_new( &ctx, 1UL );
+  long             now = 100L*1000L*1000L*1000L;
+  peer_t *         a   = test_peer( &ctx, 2, 0 );
+  peer_t *         b   = test_peer( &ctx, 3, 0 );
+  contact_info_t * ci  = test_ci( &ctx, a, 8000 );
+
+  quic_client_connect( &ctx, a, ci, now ); /* takes the only conn */
+  FD_TEST( a->tx_conn && a->conn_ts==now );
+
+  b->conn_ts = now-QUIC_CONN_BACKOFF_MAX_NS; b->conn_backoff = QUIC_CONN_BACKOFF_MAX_NS;
+  quic_client_connect( &ctx, b, ci, now );
+  FD_TEST( !b->tx_conn && b->conn_ts==now-QUIC_CONN_BACKOFF_MAX_NS && b->conn_backoff==QUIC_CONN_BACKOFF_MAX_NS );
+  FD_TEST( b->reconn_pending && reconn_prq_cnt( ctx.reconn_prq )==1UL && ctx.reconn_prq[ 0 ].timeout==now+QUIC_CONN_BACKOFF_MIN_NS );
+
+  test_ctx_delete( &ctx );
+}
+
+static void
+test_gossip_connects_new_address( void ) {
+  static fd_votor_tile_t            ctx;
+  static fd_gossip_update_message_t msg;
+  test_ctx_new( &ctx, 4UL );
+  peer_t * other = test_peer( &ctx, 2, 0 );
+  memcpy( msg.origin, other->id_key.uc, sizeof(fd_pubkey_t) );
+  fd_gossip_socket_t * sock = &msg.contact_info->value->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_ALPENGLOW ];
+  sock->ip4  = FD_IP4_ADDR( 10, 0, 0, 1 );
+  sock->port = fd_ushort_bswap( 8000 );
+
+  /* A new address connects at once with a fresh backoff. */
+  other->conn_backoff = QUIC_CONN_BACKOFF_MAX_NS;
+  handle_gossip( &ctx, FD_GOSSIP_UPDATE_TAG_CONTACT_INFO, &msg );
+  FD_TEST( contact_infos_query( ctx.contact_infos, other->id_key, NULL ) );
+  FD_TEST( other->tx_conn && other->conn_backoff==0L );
+
+  /* A refresh of the same address connects nothing, even without a conn,
+     and keeps the backoff. */
+  test_drop_conn( other );
+  other->conn_backoff = QUIC_CONN_BACKOFF_MAX_NS;
+  handle_gossip( &ctx, FD_GOSSIP_UPDATE_TAG_CONTACT_INFO, &msg );
+  FD_TEST( !other->tx_conn && other->conn_backoff==QUIC_CONN_BACKOFF_MAX_NS );
+
+  /* A changed address, in place or after a removal, connects at once with
+     a fresh backoff. */
+  sock->port = fd_ushort_bswap( 8001 );
+  handle_gossip( &ctx, FD_GOSSIP_UPDATE_TAG_CONTACT_INFO, &msg );
+  FD_TEST( other->tx_conn && other->conn_backoff==0L );
+
+  /* A removal forgets the address but leaves the conn up. */
+  handle_gossip( &ctx, FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE, &msg );
+  FD_TEST( !contact_infos_query( ctx.contact_infos, other->id_key, NULL ) && other->tx_conn );
+  other->conn_backoff = QUIC_CONN_BACKOFF_MAX_NS;
+  sock->ip4 = FD_IP4_ADDR( 10, 0, 0, 2 );
+  handle_gossip( &ctx, FD_GOSSIP_UPDATE_TAG_CONTACT_INFO, &msg );
+  FD_TEST( other->tx_conn && other->conn_backoff==0L );
+
+  /* 0.0.0.0 is unreachable, like port 0, so it is a removal. */
+  sock->ip4 = 0U;
+  handle_gossip( &ctx, FD_GOSSIP_UPDATE_TAG_CONTACT_INFO, &msg );
+  FD_TEST( other->tx_conn && !contact_infos_query( ctx.contact_infos, other->id_key, NULL ) );
+
+  test_ctx_delete( &ctx );
+}
+
+/* after_credit connects queued peers once due and leaves the rest,
+   requeues one whose backoff grew, and drops entries for peers that
+   can no longer be connected. */
+
+static void
+test_reconnect( void ) {
+  static fd_votor_tile_t ctx;
+  test_ctx_new( &ctx, 4UL );
+  ctx.quic_server = ctx.quic_client; /* after_credit services both */
+  ctx.net_tx_cnt  = 0UL;
+  ctx.init        = 0;               /* stop after the reconnects */
+  peer_t * a     = test_peer( &ctx, 2, 0 );
+  peer_t * b     = test_peer( &ctx, 3, 0 );
+  peer_t * later = test_peer( &ctx, 4, 0 );
+  peer_t * noci  = test_peer( &ctx, 5, 0 );
+  test_ci( &ctx, a,     8000 );
+  test_ci( &ctx, b,     8001 );
+  test_ci( &ctx, later, 8002 );
+
+  long     t    = fd_clock_tile_now( ctx.clock );
+  long     wait = 60L*1000L*1000L*1000L;
+  reconn_t e;
+  a->conn_ts = t-QUIC_CONN_BACKOFF_MIN_NS; a->conn_backoff = QUIC_CONN_BACKOFF_MIN_NS;
+  e = (reconn_t){ .timeout = t,      .id_key = a->id_key     }; reconn_prq_insert( ctx.reconn_prq, &e ); a->reconn_pending     = 1;
+  e = (reconn_t){ .timeout = t,      .id_key = noci->id_key  }; reconn_prq_insert( ctx.reconn_prq, &e ); noci->reconn_pending  = 1;
+  e = (reconn_t){ .timeout = t+wait, .id_key = later->id_key }; reconn_prq_insert( ctx.reconn_prq, &e ); later->reconn_pending = 1;
+
+  /* b's entry predates a larger backoff: it goes back in. */
+  b->conn_ts = t; b->conn_backoff = QUIC_CONN_BACKOFF_MAX_NS;
+  e = (reconn_t){ .timeout = t,      .id_key = b->id_key     }; reconn_prq_insert( ctx.reconn_prq, &e ); b->reconn_pending     = 1;
+
+  int busy = 0;
+  after_credit( &ctx, NULL, NULL, &busy );
+  FD_TEST( a->tx_conn && !a->reconn_pending );
+  FD_TEST( !noci->tx_conn && !noci->reconn_pending );
+  FD_TEST( !later->tx_conn && later->reconn_pending );
+  FD_TEST( !b->tx_conn && b->reconn_pending && reconn_prq_cnt( ctx.reconn_prq )==2UL );
+  FD_TEST( ctx.reconn_prq[ 0 ].timeout==t+wait || ctx.reconn_prq[ 0 ].timeout==t+QUIC_CONN_BACKOFF_MAX_NS );
+
+  /* Unstaked, a due entry is dropped without a connect. */
+  peers_query( ctx.peers, ctx.id_key, NULL )->curr_rank = USHORT_MAX;
+  test_drop_conn( a ); a->conn_backoff = 0L;
+  e = (reconn_t){ .timeout = t, .id_key = a->id_key }; reconn_prq_insert( ctx.reconn_prq, &e ); a->reconn_pending = 1;
+  after_credit( &ctx, NULL, NULL, &busy );
+  FD_TEST( !a->tx_conn && !a->reconn_pending && reconn_prq_cnt( ctx.reconn_prq )==2UL );
+
+  test_ctx_delete( &ctx );
+}
+
+/* Ranked only in the next epoch, housekeeping queues one connect per
+   peer once the epoch is within QUIC_CONN_AHEAD_NS, spread over the first
+   half of it, and only once per epoch. */
+
+static void
+test_conn_ahead( void ) {
+  static fd_votor_tile_t ctx;
+  static fd_keyswitch_t  keyswitch[1];
+  test_ctx_new( &ctx, 4UL );
+  ctx.auth_vtr_keyswitch = fd_keyswitch_join( fd_keyswitch_new( keyswitch, FD_KEYSWITCH_STATE_LOCKED ) );
+  ctx.next_epoch_slot    = 200000UL;
+  ctx.ns_per_slot        = 200000000L;
+  ctx.quic_server        = ctx.quic_client; /* after_credit services both */
+  ctx.init               = 0;               /* stop after the reconnects */
+  peer_t * self = peers_query( ctx.peers, ctx.id_key, NULL );
+  self->curr_rank = USHORT_MAX; self->next_rank = 0;
+  peer_t * a = test_peer( &ctx, 2, 0 ); test_ci( &ctx, a, 8000 );
+  peer_t * b = test_peer( &ctx, 3, 0 ); test_ci( &ctx, b, 8001 );
+  test_peer( &ctx, 4, 0 ); /* no contact info: nothing to connect to */
+
+  ag_pool_init( ctx.pool, 200000UL-51UL );
+  during_housekeeping( &ctx );
+  FD_TEST( !reconn_prq_cnt( ctx.reconn_prq ) && ctx.conn_ahead_slot!=ctx.next_epoch_slot );
+
+  ag_pool_init( ctx.pool, 200000UL-50UL );
+  long t = fd_clock_tile_now( ctx.clock );
+  during_housekeeping( &ctx );
+  FD_TEST( reconn_prq_cnt( ctx.reconn_prq )==2UL && a->reconn_pending && b->reconn_pending );
+  FD_TEST( ctx.conn_ahead_slot==ctx.next_epoch_slot );
+  long lo = fd_long_min( ctx.reconn_prq[ 0 ].timeout, ctx.reconn_prq[ 1 ].timeout );
+  long hi = fd_long_max( ctx.reconn_prq[ 0 ].timeout, ctx.reconn_prq[ 1 ].timeout );
+  FD_TEST( lo>=t && hi-lo>=QUIC_CONN_AHEAD_NS/4L-1000000L && hi<=t+QUIC_CONN_AHEAD_NS/2L );
+
+  /* Not again for the same epoch. */
+  reconn_prq_remove_all( ctx.reconn_prq ); a->reconn_pending = 0; b->reconn_pending = 0;
+  during_housekeeping( &ctx );
+  FD_TEST( !reconn_prq_cnt( ctx.reconn_prq ) );
+
+  test_ctx_delete( &ctx );
 }
 
 int
@@ -577,9 +847,13 @@ main( int     argc,
   test_auth_vtr_keyswitch_rejected();
   test_auth_vtr_keyswitch_refreshes_epochs();
   test_auth_vtr_keyswitch_clear();
-  test_own_bls_key();
   test_sign_bls_request();
-  test_can_dial();
+  test_connect_peer();
+  test_conn_final_backoff();
+  test_connect_fail_keeps_backoff();
+  test_gossip_connects_new_address();
+  test_reconnect();
+  test_conn_ahead();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
