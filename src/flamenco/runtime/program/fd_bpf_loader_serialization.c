@@ -164,6 +164,7 @@ write_account( fd_borrowed_account_t *   account,
 
   acc_region_metas[instr_acc_idx].original_data_len = dlen;
   acc_region_metas[instr_acc_idx].acc               = account->acc;
+  acc_region_metas[instr_acc_idx].touched           = account->touched;
 
   /* Legacy behavior: no virtual_address_space_adjustments (also implies no direct mapping)
      https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/serialization.rs#L132-L142 */
@@ -606,6 +607,8 @@ fd_bpf_loader_input_serialize_for_abiv0( fd_exec_instr_ctx_t *     ctx,
     } else {
       acc_idx_seen[acc_idx] = 1;
       dup_acc_idx[acc_idx]  = i;
+
+      acc_region_metas[i].vm_addr = 0UL; /* abiv0 has no account pointer table */
 
       FD_STORE( uchar, serialized_params, FD_NON_DUP_MARKER );
       serialized_params += sizeof(uchar);

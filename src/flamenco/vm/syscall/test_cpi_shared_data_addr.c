@@ -177,9 +177,9 @@ test_env_setup( fd_svm_mini_t * mini ) {
   /* VM acc_region_metas */
   static fd_vm_acc_region_meta_t arm[3];
   memset( arm, 0, sizeof(arm) );
-  arm[0].acc = txn_out->accounts.account[0];
-  arm[1].acc = txn_out->accounts.account[1];  arm[1].original_data_len = INIT_DLEN;
-  arm[2].acc = txn_out->accounts.account[2];  arm[2].original_data_len = INIT_DLEN;
+  arm[0].acc = txn_out->accounts.account[0];  arm[0].touched = &txn_out->accounts.touched[0];
+  arm[1].acc = txn_out->accounts.account[1];  arm[1].touched = &txn_out->accounts.touched[1];  arm[1].original_data_len = INIT_DLEN;
+  arm[2].acc = txn_out->accounts.account[2];  arm[2].touched = &txn_out->accounts.touched[2];  arm[2].original_data_len = INIT_DLEN;
 
   /* Initialize VM */
   static uchar rodata[100];
@@ -373,7 +373,7 @@ setup_c_cpi_memory( fd_vm_t * vm,
 /* Test runner */
 
 typedef void (* cpi_setup_fn_t  )( fd_vm_t *, ulong *, ulong *, ulong * );
-typedef int  (* cpi_syscall_fn_t)( void *, ulong, ulong, ulong, ulong, ulong, ulong * );
+typedef int  (* cpi_syscall_fn_t)( void *, ulong, ulong, ulong, ulong, ulong );
 
 static void
 run_cpi_test( fd_svm_mini_t *   mini,
@@ -387,8 +387,7 @@ run_cpi_test( fd_svm_mini_t *   mini,
   ulong instr_va, acct_infos_va, num_infos;
   setup_fn( mini->vm, &instr_va, &acct_infos_va, &num_infos );
 
-  ulong ret = 0UL;
-  int err = syscall_fn( mini->vm, instr_va, acct_infos_va, num_infos, 0UL, 0UL, &ret );
+  int err = syscall_fn( mini->vm, instr_va, acct_infos_va, num_infos, 0UL, 0UL );
   FD_TEST( err == expected_err );
 }
 

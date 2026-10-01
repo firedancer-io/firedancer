@@ -10,7 +10,7 @@
    in particular it bypasses the normal exit handlers and atexit(3) junk
    which gets installed by the C runtime. */
 
-void
+void __attribute__((noreturn))
 fd_sys_util_exit_group( int code );
 
 /* fd_sys_util_nanosleep() sleeps the calling thread for the provided

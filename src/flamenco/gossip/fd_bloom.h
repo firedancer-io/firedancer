@@ -55,10 +55,49 @@ fd_bloom_insert( fd_bloom_t *  bloom,
                  uchar const * key,
                  ulong         key_sz );
 
+/* fd_bloom_insert8 inserts up to 8 32 byte elements stored contiguously
+   at ele (8*32 bytes are read).  Element i is inserted if bit i of
+   lanes is set.  Sets the same bits as calling fd_bloom_insert on each
+   inserted element. */
+
+void
+fd_bloom_insert8( fd_bloom_t *  bloom,
+                  uchar const * ele,
+                  uint          lanes );
+
+/* fd_bloom_insert16 sets the same bits as fd_bloom_insert8 of ele_a
+   then of ele_b, hashing both blocks with interleaved chains. */
+
+void
+fd_bloom_insert16( fd_bloom_t *  bloom,
+                   uchar const * ele_a,
+                   uint          lanes_a,
+                   uchar const * ele_b,
+                   uint          lanes_b );
+
 int
 fd_bloom_contains( fd_bloom_t *  bloom,
                    uchar const * key,
                    ulong         key_sz );
+
+/* fd_bloom_contains8 tests the 8 32 byte elements stored contiguously
+   at ele (8*32 bytes are read) and returns the bit set of those bloom
+   contains: bit i is fd_bloom_contains( bloom, ele+32*i, 32 ). */
+
+uint
+fd_bloom_contains8( fd_bloom_t const * bloom,
+                    uchar const *      ele );
+
+/* fd_bloom_contains_multi tests one key against cnt (<=32) blooms and
+   returns the bit set of those that contain it: bit i is
+   fd_bloom_contains( blooms[i], key, key_sz ).  The key is hashed once
+   under every bloom's keys. */
+
+uint
+fd_bloom_contains_multi( fd_bloom_t * const * blooms,
+                         ulong                cnt,
+                         uchar const *        key,
+                         ulong                key_sz );
 
 int
 fd_bloom_init_inplace( ulong *      keys,

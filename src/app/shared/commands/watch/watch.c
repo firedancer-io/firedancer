@@ -1145,13 +1145,17 @@ write_repair( config_t const * config,
               ulong const *    prev_link ) {
   ulong repair_tile_idx = fd_topo_find_tile( &config->topo, "repair", 0UL );
   char const * repair_label = "repair      ";
+  int          is_rotor     = 0;
   if( repair_tile_idx==ULONG_MAX ) {
     repair_tile_idx = fd_topo_find_tile( &config->topo, "rotor", 0UL );
     repair_label    = "rotor       ";
+    is_rotor        = 1;
   }
   if( repair_tile_idx==ULONG_MAX ) return 0U;
-  ulong repair_slot = cur_tile[ repair_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, REPAIR, SLOT_HIGHEST_REPAIRED ) ];
-  ulong turbine_slot = cur_tile[ repair_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, REPAIR, SLOT_CURRENT ) ];
+  ulong highest_off  = is_rotor ? MIDX( GAUGE, ROTOR, SLOT_HIGHEST_REPAIRED ) : MIDX( GAUGE, REPAIR, SLOT_HIGHEST_REPAIRED );
+  ulong current_off  = is_rotor ? MIDX( GAUGE, ROTOR, SLOT_CURRENT          ) : MIDX( GAUGE, REPAIR, SLOT_CURRENT          );
+  ulong repair_slot  = cur_tile[ repair_tile_idx*FD_METRICS_TOTAL_SZ+highest_off ];
+  ulong turbine_slot = cur_tile[ repair_tile_idx*FD_METRICS_TOTAL_SZ+current_off ];
   long repair_lag = (long)repair_slot-(long)turbine_slot;
   PRINT( ROWH( "▲", RED, "%s" )
          K( "rx" ) "%s"
@@ -1251,9 +1255,11 @@ write_rserve( config_t const * config,
 static uint
 write_replay( config_t const * config,
               ulong const *    cur_tile ) {
+  int   repair_is_rotor = 0;
   ulong repair_tile_idx = fd_topo_find_tile( &config->topo, "repair", 0UL );
   if( repair_tile_idx==ULONG_MAX ) { // alpenglow
-    repair_tile_idx = fd_topo_find_tile( &config->topo, "rotor", 0UL );
+    repair_tile_idx  = fd_topo_find_tile( &config->topo, "rotor", 0UL );
+    repair_is_rotor  = 1;
   }
   ulong replay_tile_idx = fd_topo_find_tile( &config->topo, "replay", 0UL );
   if( replay_tile_idx==ULONG_MAX ) return 0U;
@@ -1265,7 +1271,7 @@ write_replay( config_t const * config,
 
   ulong turbine_slot;
   if( repair_tile_idx!=ULONG_MAX ) {
-    turbine_slot = cur_tile[ repair_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, REPAIR, SLOT_CURRENT ) ];
+    turbine_slot = cur_tile[ repair_tile_idx*FD_METRICS_TOTAL_SZ+( repair_is_rotor ? MIDX( GAUGE, ROTOR, SLOT_CURRENT ) : MIDX( GAUGE, REPAIR, SLOT_CURRENT ) ) ];
   } else {
     turbine_slot = reset_slot;
   }
@@ -1313,6 +1319,55 @@ write_replay( config_t const * config,
     live_banks );
   return 1U;
 }
+
+#define VOTOR_RATE( metric ) (__extension__({                                           \
+    ulong cnt = diff_tile( config, "votor", prev_tile, cur_tile, MIDX( COUNTER, VOTOR, metric ) ); \
+    COUNTF( (double)cnt*1e9/(double)SNAP_DT_NS() );                                     \
+  }))
+
+static uint
+write_votor( config_t const * config,
+             ulong const *    cur_tile,
+             ulong const *    prev_tile ) {
+  ulong votor_tile_idx = fd_topo_find_tile( &config->topo, "votor", 0UL );
+  if( votor_tile_idx==ULONG_MAX ) return 0U;
+  ulong const * t = &cur_tile[ votor_tile_idx*FD_METRICS_TOTAL_SZ ];
+
+  ulong replay_tile_idx = fd_topo_find_tile( &config->topo, "replay", 0UL );
+  ulong reset_slot      = replay_tile_idx!=ULONG_MAX ? cur_tile[ replay_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, REPLAY, RESET_SLOT ) ] : 0UL;
+
+  ulong  finalized_slot = t[ MIDX( GAUGE, VOTOR, FINALIZED_SLOT       ) ];
+  ulong  slots_used     = t[ MIDX( GAUGE, VOTOR, SLOT_STATE_USED      ) ];
+  ulong  slots_max      = t[ MIDX( GAUGE, VOTOR, SLOT_STATE_MAX       ) ];
+  ulong  peers          = t[ MIDX( GAUGE, VOTOR, PEERS_CONNECTED      ) ];
+  long   rank           = (long)t[ MIDX( GAUGE, VOTOR, RANK           ) ];
+  double slots_pct      = slots_max ? 100.0*(double)slots_used/(double)slots_max : 0.0;
+  long   final_lag      = (long)finalized_slot-(long)reset_slot;
+
+  PRINT( ROWH( "◇", CYAN, "votor       " )
+         K( "final" ) BOLD "%lu" RESET " %s%+03ld" RESET
+         K( "slots" ) "%s%lu" RESET U( "/%lu" ),
+    finalized_slot,
+    final_lag<-32L ? RED : DIM,
+    final_lag,
+    sev_color( slots_pct ), slots_used, slots_max );
+  if( FD_UNLIKELY( rank<0L ) ) {
+    PRINT( "  " YELLOW "unstaked" RESET );
+  } else {
+    PRINT( K( "votes" ) "%s" U( "/s" )
+           K( "certs" ) "%s" U( "/s" )
+           K( "peers" ) "%lu"
+           K( "rank" )  "%ld",
+      VOTOR_RATE( VOTE_RX_SUCCESS ),
+      VOTOR_RATE( CERT_RX_SUCCESS ),
+      peers,
+      rank );
+  }
+  PRINT( CLEARLN "\n" );
+  return 1U;
+}
+
+#undef VOTOR_RATE
 
 static uint
 write_gui( config_t const * config,
@@ -1726,6 +1781,7 @@ write_summary( config_t const *           config,
   lines_printed += write_repair( config, cur_tile, cur_link, prev_link );
   lines_printed += write_rserve( config, cur_tile, cur_link, prev_link );
   lines_printed += write_replay( config, cur_tile );
+  lines_printed += write_votor( config, cur_tile, prev_tile );
   lines_printed += write_gui( config, cur_tile, prev_tile );
   lines_printed += write_event( config, cur_tile );
   lines_printed += write_backup( config, cur_tile );

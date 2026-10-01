@@ -93,25 +93,47 @@ typedef struct fd_policy_peers fd_policy_peers_t;
 #define FD_POLICY_LATENCY_THRESH       100e6L /* less than this is a BEST peer, otherwise a WORST peer */
 #define FD_POLICY_FAST_PER_SLOW        6U     /* pick 6 fast peers per 1 slow peer */
 #define FD_POLICY_EWMA_ALPHA_DENOM     8UL    /* EWMA weight = 1/DENOM, i.e. ewma = 7/8*old + 1/8*sample */
+#define FD_POLICY_SKIP_CNT             4UL    /* per-slot skip memos */
 /* Policy parameters end */
+
+/* fd_policy_skip memoizes the last declined request for a slot so that
+   fd_policy_next can skip its turn without re-deriving the decline.
+   Memos are direct-mapped by slot: the requests list may flip between
+   throttled slots so we need to track >=2 (turbine head and its parent). */
+struct fd_policy_skip {
+  ulong slot;
+  uint  idx;
+  int   throttled;
+  long  until;
+};
+typedef struct fd_policy_skip fd_policy_skip_t;
 
 struct fd_policy {
   fd_policy_peers_t peers; /* repair peers (strategy & data) */
   long              tsmax; /* maximum time for an iteration before resetting the DFS to root */
   long              tsref; /* reference timestamp for resetting DFS */
 
-  struct {
-    ulong slot;
-    uint  idx;
-    int   throttled;
-    long  until;
-  } skip;
+  fd_policy_skip_t  skip[ FD_POLICY_SKIP_CNT ];
 
   fd_rnonce_ss_t    rnonce_ss[1];
 
   ulong turbine_slot0;
 };
 typedef struct fd_policy fd_policy_t;
+
+/* fd_policy_skip returns the skip memo that slot maps to. */
+
+FD_FN_PURE static inline fd_policy_skip_t *
+fd_policy_skip( fd_policy_t * policy, ulong slot ) {
+  return &policy->skip[ slot & (FD_POLICY_SKIP_CNT-1UL) ];
+}
+
+/* fd_policy_peer_cnt returns how many repair peers are known. */
+
+FD_FN_PURE static inline ulong
+fd_policy_peer_cnt( fd_policy_t const * policy ) {
+  return fd_policy_peer_pool_used( policy->peers.pool );
+}
 
 /* Constructors */
 

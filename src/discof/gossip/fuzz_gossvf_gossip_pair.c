@@ -73,6 +73,13 @@ typedef struct {
   int                 gossip_stem_out_reliable[ 1 ];
   ulong               gossip_drain_seq;
 
+  /* Signatures the node's signer owes, answered in request order after
+     the callback that requested them returns (the sign tile is
+     asynchronous) */
+  uchar sign_sig[ FD_GOSSIP_SIGN_PEND_MAX ][ 64UL ];
+  ulong sign_head;
+  ulong sign_cnt;
+
   fd_gossvf_tile_ctx_t vf[ 1 ];
   fd_frag_meta_t *     vf_mcache;
   fd_stem_context_t    vf_stem[ 1 ];
@@ -388,14 +395,18 @@ pair_send_fn( void *                _node,
   pair_queue_push( node->env, pkt );
 }
 
+static void pair_drain_signs( pair_node_t * node, long now );
+
 static void
 pair_sign_fn( void *       _node,
               uchar const * data,
               ulong        sz,
-              int          sign_type,
-              uchar *      out_signature ) {
+              int          sign_type ) {
   pair_node_t * node = (pair_node_t *)_node;
   pair_identity_t * id = &identities[ node->idx ];
+
+  FD_TEST( node->sign_cnt<FD_GOSSIP_SIGN_PEND_MAX );
+  uchar * out_signature = node->sign_sig[ (node->sign_head+node->sign_cnt++)%FD_GOSSIP_SIGN_PEND_MAX ];
 
   if( sign_type==FD_KEYGUARD_SIGN_TYPE_ED25519 ) {
     fd_ed25519_sign( out_signature, data, sz, id->pub->uc, id->priv, sha512 );
@@ -573,6 +584,8 @@ pair_setup_gossip( pair_node_t * node,
                   node->gossip_stem_min_cr_avail,
                   node->gossip_stem_out_reliable );
   node->gossip_drain_seq = 0UL;
+  node->sign_head        = 0UL;
+  node->sign_cnt         = 0UL;
 
   fd_gossip_contact_info_t contact[1];
   memset( contact, 0, sizeof(contact) );
@@ -592,8 +605,11 @@ pair_setup_gossip( pair_node_t * node,
   };
 
   fd_ip4_port_t entrypoint = node->env->nodes[ node->idx ^ 1UL ].addr;
+  uchar ping_seed[ 32 ];
+  for( ulong i=0UL; i<32UL; i++ ) ping_seed[ i ] = fd_rng_uchar( node->rng );
   void * gossip = fd_gossip_new( gossip_mem,
                                  node->rng,
+                                 ping_seed,
                                  PAIR_MAX_VALUES,
                                  1UL,
                                  &entrypoint,
@@ -612,7 +628,7 @@ pair_setup_gossip( pair_node_t * node,
                                  node->net_out );
   node->gossip = fd_gossip_join( gossip );
   FD_TEST( node->gossip );
-  fd_gossip_set_shred_version( node->gossip, PAIR_SHRED_VERSION, node->env->now );
+  fd_gossip_set_shred_version( node->gossip, PAIR_SHRED_VERSION );
 
   return _mem;
 }
@@ -662,6 +678,7 @@ pair_drain_vf_output( pair_node_t * node,
       case 0U:
         fd_gossip_rx( node->gossip, peer, payload, meta->sz, now, node->gossip_stem );
         fd_gossip_advance( node->gossip, now, node->gossip_stem, NULL );
+        pair_drain_signs( node, now );
         pair_drain_gossip_updates( node );
         break;
       case 1U: {
@@ -674,6 +691,21 @@ pair_drain_vf_output( pair_node_t * node,
       default:
         break;
     }
+  }
+}
+
+/* pair_drain_signs answers the signs a node requested, in order, as
+   the sign tile would; each answer may request more (a pushed value's
+   completion does not, but keep looping until quiet). */
+
+static void
+pair_drain_signs( pair_node_t * node,
+                  long          now ) {
+  while( node->sign_cnt ) {
+    uchar const * sig = node->sign_sig[ node->sign_head ];
+    node->sign_head = (node->sign_head+1UL)%FD_GOSSIP_SIGN_PEND_MAX;
+    node->sign_cnt--;
+    fd_gossip_sign_response( node->gossip, sig, node->gossip_stem, now );
   }
 }
 
@@ -706,6 +738,7 @@ pair_advance_node( pair_node_t * node,
                    long          now ) {
   fd_clock_tile_set( node->vf->clock, now );
   fd_gossip_advance( node->gossip, now, node->gossip_stem, NULL );
+  pair_drain_signs( node, now );
   pair_drain_gossip_updates( node );
 }
 
@@ -801,7 +834,7 @@ pair_set_shred_version( pair_node_t * node,
                         ushort        shred_version,
                         long          now ) {
   node->vf->shred_version = shred_version;
-  fd_gossip_set_shred_version( node->gossip, shred_version, now );
+  fd_gossip_set_shred_version( node->gossip, shred_version );
   pair_advance_node( node, now );
 }
 
@@ -975,10 +1008,11 @@ pair_push_duplicate_shred( pair_node_t * node,
   shred->chunk_index = (uchar)pair_bounded( cur, 3UL );
   shred->chunk_len   = pair_bounded( cur, sizeof(shred->chunk)+1UL );
   for( ulong i=0UL; i<shred->chunk_len; i++ ) shred->chunk[ i ] = pair_u8( cur );
-  fd_gossip_push_duplicate_shred( node->gossip, shred, node->gossip_stem, now );
+  fd_gossip_push_duplicate_shred( node->gossip, shred, now );
   if( FD_UNLIKELY( pair_u8( cur ) & 1U ) ) {
-    fd_gossip_push_duplicate_shred( node->gossip, shred, node->gossip_stem, now );
+    fd_gossip_push_duplicate_shred( node->gossip, shred, now );
   }
+  pair_drain_signs( node, now );
   pair_drain_gossip_updates( node );
 }
 
@@ -995,7 +1029,8 @@ pair_push_vote( pair_node_t * node,
     for( ulong i=0UL; i<txn_sz; i++ ) txn[ i ] = pair_u8( cur );
   }
   if( FD_UNLIKELY( !txn_sz ) ) return;
-  fd_gossip_push_vote( node->gossip, txn, txn_sz, node->gossip_stem, now );
+  fd_gossip_push_vote( node->gossip, txn, txn_sz, now );
+  pair_drain_signs( node, now );
   pair_drain_gossip_updates( node );
 }
 

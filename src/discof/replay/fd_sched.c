@@ -16,7 +16,6 @@
 
 #define FD_SCHED_MAX_STAGING_LANES_LOG     (2)
 #define FD_SCHED_MAX_STAGING_LANES         (1UL<<FD_SCHED_MAX_STAGING_LANES_LOG)
-#define FD_SCHED_MAX_EXEC_TILE_CNT         (64UL)
 #define FD_SCHED_MAX_PRINT_BUF_SZ          (2UL<<20)
 #define FD_SCHED_POISON_MAX_ACCT_PER_SLOT  (64UL)
 
@@ -35,9 +34,10 @@ FD_STATIC_ASSERT( FD_MAX_TXN_PER_SLOT_SHRED==((FD_SHRED_DATA_PAYLOAD_MAX_PER_SLO
    batch. */
 #define FD_SCHED_MAX_PAYLOAD_PER_FEC       (63985UL)
 FD_STATIC_ASSERT( FD_SCHED_MAX_PAYLOAD_PER_FEC>=FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ, bump sched fec size bound ); /* FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ is the bound we want, but older ledgers have larger FEC sets. */
-#define FD_SCHED_MAX_FEC_BUF_SZ            (FD_SCHED_MAX_PAYLOAD_PER_FEC+FD_TXN_MTU)
-FD_STATIC_ASSERT( FD_TXN_MTU>=sizeof(fd_microblock_hdr_t), resize buffer for residual data );
-FD_STATIC_ASSERT( FD_TXN_MTU>=sizeof(ulong),               resize buffer for residual data );
+#define FD_SCHED_MAX_RESIDUAL_SZ           (FD_TXN_MTU>FD_BLOCK_MARKER_SER_MAX ? FD_TXN_MTU : FD_BLOCK_MARKER_SER_MAX)
+#define FD_SCHED_MAX_FEC_BUF_SZ            (FD_SCHED_MAX_PAYLOAD_PER_FEC+FD_SCHED_MAX_RESIDUAL_SZ)
+FD_STATIC_ASSERT( FD_SCHED_MAX_RESIDUAL_SZ>=sizeof(fd_microblock_hdr_t), resize buffer for residual data );
+FD_STATIC_ASSERT( FD_SCHED_MAX_RESIDUAL_SZ>=sizeof(ulong),               resize buffer for residual data );
 
 #define FD_SCHED_MAX_TXN_PER_FEC           ((FD_SCHED_MAX_PAYLOAD_PER_FEC-1UL)/FD_TXN_MIN_SERIALIZED_SZ+1UL) /* 478 */
 #define FD_SCHED_MAX_MBLK_PER_FEC          ((FD_SCHED_MAX_PAYLOAD_PER_FEC-1UL)/sizeof(fd_microblock_hdr_t)+1UL) /* 1334 */
@@ -307,7 +307,6 @@ struct fd_sched {
   ulong                 exec_cnt;      /* Immutable. */
   ulong                 poh_simd_min;  /* Immutable. */
   ulong                 poh_simd_max;  /* Immutable. */
-  ulong                 poh_simd_iters_max; /* Immutable. */
   int                   bypass_poh_verify; /* Test/fuzz: skip the PoH end_hash compare in maybe_mixin. */
   int                   bypass_alut_resolution; /* Test/fuzz: skip ALUT resolution (no accdb). */
   long                  txn_in_flight_last_tick;
@@ -843,7 +842,6 @@ fd_sched_new( void *     mem,
   sched->exec_cnt               = exec_cnt;
   sched->poh_simd_max           = fd_sha256_simd_lane_max(); FD_CHECK_ERR( sched->poh_simd_max<=FD_SCHED_POH_PARA, "overly wide PoH SHA batch" );
   sched->poh_simd_min           = fd_sha256_simd_lane_min();
-  sched->poh_simd_iters_max     = fd_ulong_max( (FD_SCHED_MAX_POH_HASHES_PER_TASK<<8)/fd_sha256_simd_iter_cost_q8(), 1UL );
   sched->bypass_poh_verify      = 0;
   sched->bypass_alut_resolution = 0;
   sched->root_idx               = ULONG_MAX;
@@ -2418,7 +2416,7 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
         FD_LOG_INFO(( "bad block: TOO_MANY_TXNS, microblock header declared too many transactions, slot %lu, parent slot %lu, txn_parsed_cnt %u, hdr->txn_cnt %lu", block->slot, block->parent_slot, block->txn_parsed_cnt, hdr->txn_cnt ));
         return FD_SCHED_DEAD_REASON_TOO_MANY_TXNS;
       }
-      if( FD_UNLIKELY( hdr->hash_cnt>fd_ulong_sat_sub( FD_RUNTIME_MAX_HASHES_PER_TICK, block->curr_tick_hashcnt ) ) ) {
+      if( FD_UNLIKELY( !sched->is_alpenglow && hdr->hash_cnt>fd_ulong_sat_sub( FD_RUNTIME_MAX_HASHES_PER_TICK, block->curr_tick_hashcnt ) ) ) {
         FD_LOG_INFO(( "bad block: TICK_HASHES_OVERFLOW_INGEST, slot %lu, parent slot %lu, curr_tick_hashcnt %lu, hdr->hash_cnt %lu", block->slot, block->parent_slot, block->curr_tick_hashcnt, hdr->hash_cnt ));
         return FD_SCHED_DEAD_REASON_TICK_HASHES_OVERFLOW_INGEST;
       }
@@ -2540,6 +2538,12 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
     if( block->txns_rem==0UL && block->mblks_rem==0UL && block->fec_sob ) {
       CHECK_LEFT( sizeof(ulong) );
       FD_TEST( block->fec_buf_soff==0U );
+      if( FD_UNLIKELY( sched->is_alpenglow && !FD_LOAD( ulong, block->fec_buf ) && !block->fec_eob ) ) {
+        /* Block marker split across FEC sets */
+        fd_block_marker_t peek[1];
+        if( FD_UNLIKELY( FD_BLOCK_MARKER_DE_ERR_SZ==fd_block_marker_de( peek, block->fec_buf, (ulong)block->fec_buf_sz ) &&
+                         block->fec_buf_sz<FD_BLOCK_MARKER_SER_MAX ) ) return FD_SCHED_DEAD_REASON_NONE;
+      }
       block->mblks_rem     = FD_LOAD( ulong, block->fec_buf );
       block->fec_buf_soff += (uint)sizeof(ulong);
 
@@ -2711,6 +2715,22 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
 
   /* Can't parse out a full transaction yet, EAGAIN. */
   if( FD_UNLIKELY( !pay_sz || !txn_sz ) ) return -1;
+
+  /* The pool slots this transaction will land in are cold: warm the
+     lines written below (the start of the payload copy, the metadata,
+     the start of the parsed txn and the whole info record) while the
+     ALUT resolution and the dispatcher insert run.  A hint only. */
+  ulong next_idx = fd_rdisp_peek_free_txn( sched->rdisp );
+  if( FD_LIKELY( next_idx && next_idx<sched->depth ) ) {
+    fd_txn_p_t * next_p = sched->txn_pool+next_idx;
+    __builtin_prefetch( next_p->payload,      1, 3 );
+    __builtin_prefetch( next_p->payload+64UL, 1, 3 );
+    __builtin_prefetch( &next_p->payload_sz,  1, 3 );
+    __builtin_prefetch( TXN( next_p ),        1, 3 );
+    ulong info_lo = fd_ulong_align_dn( (ulong)(sched->txn_info_pool+next_idx     ), 64UL );
+    ulong info_hi = fd_ulong_align_up( (ulong)(sched->txn_info_pool+next_idx+1UL ), 64UL );
+    for( ulong line=info_lo; line<info_hi; line+=64UL ) __builtin_prefetch( (void const *)line, 1, 3 );
+  }
 
   if( FD_UNLIKELY( block->txn_parsed_cnt>=sched->max_txn_per_slot ) ) {
     /* Transaction count is enforced as invariant
@@ -2985,8 +3005,11 @@ dispatch_poh( fd_sched_t * sched, fd_sched_block_t * block, ulong bank_idx, int 
   }
   FD_TEST( cnt ); /* poh_hashing_queued_cnt>0 implies at least one queued microblock. */
 
-  /* See FD_SCHED_MAX_POH_HASHES_PER_TASK. */
-  hashcnt = fd_ulong_min( hashcnt, fd_ulong_if( cnt>=sched->poh_simd_min, sched->poh_simd_iters_max, FD_SCHED_MAX_POH_HASHES_PER_TASK ) );
+  /* See FD_SCHED_MAX_POH_HASHES_PER_TASK.  A batch's per iteration
+     cost depends on its width. */
+  ulong iters_max = FD_SCHED_MAX_POH_HASHES_PER_TASK;
+  if( cnt>=sched->poh_simd_min ) iters_max = fd_ulong_max( (FD_SCHED_MAX_POH_HASHES_PER_TASK<<8)/fd_sha256_simd_iter_cost_q8( cnt ), 1UL );
+  hashcnt = fd_ulong_min( hashcnt, iters_max );
   out->task_type = FD_SCHED_TT_POH_HASH;
   poh->bank_idx  = bank_idx;
   poh->exec_idx  = (ulong)exec_tile_idx;

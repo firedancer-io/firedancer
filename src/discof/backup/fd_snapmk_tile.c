@@ -117,6 +117,7 @@ struct fd_snapmk {
   ulong          zp_cnt; /* [0,zp_cnt] out links are to zp */
   ulong const *  zp_cons_fseq[ SNAPZP_TILE_MAX ];
   atomic_ulong * file_off_p;
+  atomic_ulong * appendvec_slot_ticket_p;
 
   /* snaprd worker thread */
 
@@ -225,6 +226,7 @@ struct fd_snapmk {
   ulong   cache_max[ FD_ACCDB_CACHE_CLASS_CNT ];
 
   /* accdb shared memory */
+  fd_accdb_t *                  accdb;
   fd_accdb_shmem_t *            accdb_shmem;
   fd_accdb_fork_shmem_t const * accdb_shfork;
   fd_accdb_fork_id_t const *    accdb_root_fork;
@@ -280,6 +282,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_txncache_align(),              fd_txncache_footprint( max_live_slots )                      );
   l = FD_LAYOUT_APPEND( l, alignof(ulong),                   zp_cnt*FD_SNAPMK_ZP_DEPTH*sizeof(ulong)                      );
   l = FD_LAYOUT_APPEND( l, fd_txncache_writer_arena_align(), fd_txncache_writer_arena_sz( tile->snapmk.max_txn_per_slot ) );
+  l = FD_LAYOUT_APPEND( l, fd_accdb_align(),                 fd_accdb_footprint( max_live_slots, 0 )                      );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -312,12 +315,13 @@ populate_allowed_fds( fd_topo_t const *      topo,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
   fd_snapmk_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-  if( FD_UNLIKELY( out_fds_cnt<3UL+(ulong)ctx->snap_max ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<4UL+(ulong)ctx->snap_max ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   out_fds[ out_cnt++ ] = ctx->snap_dir_fd;
+  out_fds[ out_cnt++ ] = FD_ACCDB_FD_RO;
   for( uint i=0U; i<ctx->snap_max; i++ )
     out_fds[ out_cnt++ ] = FD_SNAP_FD( i ); /* snapshot pool */
   return out_cnt;
@@ -333,7 +337,8 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
       out_cnt, out,
       (uint)fd_log_private_logfile_fd(),
       (uint)ctx->snap_dir_fd,
-      (uint)FD_SNAP_FD( 0 ), (uint)FD_SNAP_FD( ctx->snap_max-1U ) );
+      (uint)FD_SNAP_FD( 0 ), (uint)FD_SNAP_FD( ctx->snap_max-1U ),
+      (uint)FD_ACCDB_FD_RO );
   return sock_filter_policy_fd_snapmk_tile_instr_cnt;
 }
 
@@ -351,6 +356,7 @@ unprivileged_init( fd_topo_t const *      topo,
   void *        _txnc_lj = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),              fd_txncache_footprint( max_live_slots ) );
   ulong *       _rd_shdw = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),                   zp_cnt*FD_SNAPMK_ZP_DEPTH*sizeof(ulong) );
   void *        _arena   = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_writer_arena_align(), fd_txncache_writer_arena_sz( tile->snapmk.max_txn_per_slot ) );
+  void *        _accdb   = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),                 fd_accdb_footprint( max_live_slots, 0 ) );
   ulong end = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   ctx->status_cache_writer_arena    = _arena;
   ctx->status_cache_writer_arena_sz = fd_txncache_writer_arena_sz( tile->snapmk.max_txn_per_slot );
@@ -388,7 +394,9 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( ctx->txncache );
 
   ulong * zp_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->snapmk.zp_fseq_id ) ); FD_TEST( zp_fseq );
-  ctx->file_off_p = fd_fseq_app_laddr( zp_fseq );
+  atomic_ulong * zp_app = fd_fseq_app_laddr( zp_fseq );
+  ctx->file_off_p              = &zp_app[ 0 ];
+  ctx->appendvec_slot_ticket_p = &zp_app[ 1 ];
 
   void * _accdb_shmem = fd_topo_obj_laddr( topo, tile->snapmk.accdb_obj_id );
   fd_accdb_shmem_t * accdb_shmem_ro = fd_accdb_shmem_join( _accdb_shmem );
@@ -399,6 +407,8 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->accdb_tile_id = fd_topo_find_tile( topo, "accdb", 0UL );
   ulong * epoch_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->snapmk.accdb_epoch_obj_id ) );
   FD_TEST( epoch_fseq );
+  ctx->accdb = fd_accdb_join_readonly( _accdb, accdb_shmem_ro, epoch_fseq, FD_ACCDB_FD_RO );
+  FD_TEST( ctx->accdb );
   fd_backup_cache_join( ctx->acc_cache, accdb_shmem_ro, epoch_fseq );
   {
     FD_SCRATCH_ALLOC_INIT( l, accdb_shmem_ro );
@@ -1106,7 +1116,7 @@ snapmk_tar_headers( fd_snapmk_t * ctx ) {
   memcpy( p, &meta, sizeof(fd_tar_meta_t) );
   p += sizeof(fd_tar_meta_t);
 
-  ctx->manifest_sz = fd_snap_manifest_serialized_sz( ctx->bank, &ctx->leader );
+  ctx->manifest_sz = ctx->manifest_writer->serialized_sz;
   fd_backup_tar_file_hdr( &meta, ctx->manifest_sz );
   fd_cstr_printf_check( meta.name, sizeof(meta.name), NULL, "snapshots/%lu/%lu", slot, slot );
   fd_tar_meta_set_chksum( &meta );
@@ -1363,6 +1373,7 @@ after_credit( fd_snapmk_t *       ctx,
       fd_backup_start_msg_t * frag = zp_alloc( ctx, i, sizeof(fd_backup_start_msg_t), &chunk );
       memset( frag, 0, sizeof(fd_backup_start_msg_t) );
       frag->slot     = ctx->bank->f.slot;
+      frag->slot_lo  = ctx->incremental ? ctx->base_slot+1UL : 0UL;
       frag->snap_idx = ctx->snap_idx;
       frag->fork_id  = ctx->bank->accdb_fork_id.val;
       ulong ctl = fd_frag_meta_ctl( FD_BACKUP_ORIG_START, 0, 0, 0 );
@@ -1562,7 +1573,7 @@ after_credit( fd_snapmk_t *       ctx,
     ulong snap_idx = ctx->startup_pool_idx++;
     fd_backup_inode_t * inode = &ctx->pool[ snap_idx ];
     struct stat st;
-    if( FD_UNLIKELY( 0!=fstat( FD_SNAP_FD( snap_idx ), &st ) ) ) break;
+    if( FD_UNLIKELY( 0!=syscall( SYS_fstat, FD_SNAP_FD( snap_idx ), &st ) ) ) break;
     ctx->pool_sz[ snap_idx ] = (ulong)st.st_size;
     if( FD_UNLIKELY( inode->full_slot==ULONG_MAX ) ) break;
     fd_snapmk_msg_found_t * msg = &snapmk_msg_alloc( ctx )->found;
@@ -1765,7 +1776,8 @@ snap_start( fd_snapmk_t *                  ctx,
     FD_LOG_ERR(( "lseek(%s) failed: %i-%s", ctx->pool[ ctx->snap_idx ].name, errno, fd_io_strerror( errno ) ));
   }
 
-  atomic_store_explicit( ctx->file_off_p, 0UL, memory_order_relaxed );
+  atomic_store_explicit( ctx->file_off_p,              0UL,               memory_order_relaxed );
+  atomic_store_explicit( ctx->appendvec_slot_ticket_p, ctx->bank->f.slot, memory_order_relaxed );
 
   /* compression buffers */
 
@@ -1786,7 +1798,7 @@ snap_start( fd_snapmk_t *                  ctx,
   /* misc */
 
   ctx->leader = msg->leader;
-  fd_ssmanifest_writer_init( ctx->manifest_writer, bank, &ctx->leader );
+  fd_ssmanifest_writer_init( ctx->manifest_writer, bank, &ctx->leader, ctx->accdb, root_fork_id, ctx->raw );
 
   /* accdb cache/disk parsers */
 

@@ -61,7 +61,8 @@ fd_exec_instr_ctx_try_borrow_account( fd_exec_instr_ctx_t const * ctx,
                             ref,
                             ctx,
                             idx_in_instr,
-                            &ctx->runtime->accounts.refcnt[idx_in_txn] );
+                            &ctx->runtime->accounts.refcnt[idx_in_txn],
+                            &ctx->txn_out->accounts.touched[idx_in_txn] );
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 

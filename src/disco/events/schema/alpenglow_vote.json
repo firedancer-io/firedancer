@@ -13,7 +13,7 @@
             "variants": {
                 "notar":          { "description": "Cast on the slot's first block once its parent is ready at a window start, or once we notarized its parent in the previous slot (Algorithm 2, Definition 15)." },
                 "final":          { "description": "Cast once the block we notarized has a notarization cert and we cast no skip or fallback vote in the slot (Algorithm 2, Definition 18). Names only the slot." },
-                "skip":           { "description": "Cast for every unvoted slot of the leader window on timeout (Definition 17), on SafeToNotar or SafeToSkip (Algorithm 1), a dead block or the crashed-leader timer. Names only the slot." },
+                "skip":           { "description": "Cast for every unvoted slot of the leader window on timeout (Definition 17), or on SafeToNotar or SafeToSkip (Algorithm 1). Names only the slot." },
                 "notar_fallback": { "description": "Cast on SafeToNotar. At most three per slot (Definition 12)." },
                 "skip_fallback":  { "description": "Cast on SafeToSkip. Names only the slot." }
             }
@@ -21,19 +21,19 @@
         "received_from_ip":                   { "type": "IPv6",                                              "description": "IPv4 address of the peer we received the vote from; ourselves if our_vote, stored as an IPv4-mapped IPv6 address (all zeros if unknown)." },
         "received_from_identity":             { "type": "Pubkey",                                            "description": "Validator identity of the peer we received the vote from (determined from the QUIC client-side TLS certificate); ourselves if our_vote (all zeros if unknown_peer). Not necessarily the voter; see voter_identity." },
         "our_vote":                           { "type": "Bool",                                              "description": "Whether this is our own vote, which we store like any other; received_from_identity is then our identity." },
-        "broadcast_reason": {
+        "reason": {
             "type": "LowCardinality(String)",
-            "description": "Why we cast the vote, based on the Alpenglow voting algorithm (not_broadcasted if it is not ours). References: Algorithms 1 and 2, Definitions 15, 16 and 17.",
+            "description": "Why we cast the vote, based on the Alpenglow voting algorithm (not_our_vote if it is not ours). References: Algorithms 1 and 2, Definitions 15, 16 and 17.",
             "variants": {
-                "not_broadcasted":        { "description": "Not our vote, so we did not broadcast it; see our_vote." },
+                "not_our_vote":           { "description": "Not our vote; see our_vote." },
                 "block_replayed":         { "description": "Replay completed the block normally, so we vote notar for it." },
-                "block_dead":             { "description": "Replay ruled the block dead, so we vote skip on the entire rest of the window containing this slot." },
                 "parent_ready":           { "description": "We hold the certs that make a block a valid parent for the leader window starting at this slot (a notar, notar-fallback or fast-final cert for it, or it is finalized, and skip certs for every slot in between), so we vote notar for the window's first block we held pending." },
                 "block_notarized":        { "description": "We hold a notar cert for the block we voted notar for and cast no skip or fallback vote in the slot, so we vote final for it." },
                 "timeout":                { "description": "The slot's timeout fired with no vote cast in it, so we vote skip on the entire rest of the window containing this slot." },
-                "timeout_crashed_leader": { "description": "The window's crashed-leader timeout fired with no shred and no vote for its first slot, so we vote skip on every slot of the window." },
                 "safe_to_notar":          { "description": "No block but this one can be fast-finalized in the slot: notar votes for it reach 40% of stake, or 20% with skip votes bringing the total to 60%, and its parent is notar-fallback certified (Definition 16). Having voted skip or notar for another block in the slot, we vote notar-fallback for it and skip every unvoted slot of the window." },
-                "safe_to_skip":           { "description": "No block can be fast-finalized in the slot: skip votes plus notar votes for every block but the most-voted one reach 40% of stake (Definition 16). Having voted notar in the slot, we vote skip-fallback for it and skip every unvoted slot of the window." }
+                "safe_to_skip":           { "description": "No block can be fast-finalized in the slot: skip votes plus notar votes for every block but the most-voted one reach 40% of stake (Definition 16). Having voted notar in the slot, we vote skip-fallback for it and skip every unvoted slot of the window." },
+                "reward":                 { "description": "Our notar or skip vote sent to the leader of slot+8, who packs the slot's reward cert, apart from the broadcast, and resent every probe timeout until that leader acknowledges it or we replay slot+8." },
+                "reward_acked":           { "description": "The leader of slot+8 acknowledged a packet carrying our notar or skip vote, which ends its reward resends. The row timestamp is when the acknowledgement arrived; broadcast_to is empty." }
             }
         },
         "broadcast_to": {
@@ -67,13 +67,13 @@
                 "accepted":               { "description": "Vote is accepted and next step is to aggregate (and broadcast, if our_vote)." }
             }
         },
-        "quorum_reached_safe_to_notar":       { "type": "Bool",                                              "description": "Notar votes for block_id reached 40% of stake, or 20% with skip votes bringing the total to 60% (Definition 16). Crossing a quorum triggers BLS verification of the votes (see verify_start_time)." },
-        "quorum_reached_safe_to_skip":        { "type": "Bool",                                              "description": "Skip votes plus notar votes for every block but the most-voted one reached 40% of stake (Definition 16). Crossing a quorum triggers BLS verification of the votes (see verify_start_time)." },
         "quorum_reached_final_cert":          { "type": "Bool",                                              "description": "Final votes for the slot reached 60% of stake (Table 6). Crossing a quorum triggers BLS verification of the votes (see verify_start_time)." },
         "quorum_reached_fast_final_cert":     { "type": "Bool",                                              "description": "Notar votes for block_id reached 80% of stake (Table 6). Crossing a quorum triggers BLS verification of the votes (see verify_start_time)." },
         "quorum_reached_notar_cert":          { "type": "Bool",                                              "description": "Notar votes for block_id reached 60% of stake (Table 6). Crossing a quorum triggers BLS verification of the votes (see verify_start_time)." },
         "quorum_reached_notar_fallback_cert": { "type": "Bool",                                              "description": "Notar and notar-fallback votes for block_id reached 60% of stake (Table 6). Crossing a quorum triggers BLS verification of the votes (see verify_start_time)." },
         "quorum_reached_skip_cert":           { "type": "Bool",                                              "description": "Skip and skip-fallback votes for the slot reached 60% of stake (Table 6). Crossing a quorum triggers BLS verification of the votes (see verify_start_time)." },
+        "quorum_reached_safe_to_notar":       { "type": "Bool",                                              "description": "Notar votes for block_id reached 40% of stake, or 20% with skip votes bringing the total to 60% (Definition 16). Crossing a quorum triggers BLS verification of the votes (see verify_start_time)." },
+        "quorum_reached_safe_to_skip":        { "type": "Bool",                                              "description": "Skip votes plus notar votes for every block but the most-voted one reached 40% of stake (Definition 16). Crossing a quorum triggers BLS verification of the votes (see verify_start_time)." },
         "aggregation_start_time":             { "type": "DateTime64(9)", "compression": "DoubleDelta, ZSTD", "description": "When we started aggregating the vote into the running BLS aggregate for its slot, kind and block (only if processing_result is accepted, 0 otherwise)." },
         "verify_start_time":                  { "type": "DateTime64(9)", "compression": "DoubleDelta, ZSTD", "description": "When we started BLS verifying the aggregate this vote completed (only if this vote brought a tally to a quorum of Table 6 or Definition 16, which is when we verify signatures, 0 otherwise)." },
         "broadcast_start_time":               { "type": "DateTime64(9)", "compression": "DoubleDelta, ZSTD", "description": "When we started broadcasting the vote to our peers (only if our_vote, 0 otherwise)." },

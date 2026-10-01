@@ -1,11 +1,13 @@
 #include "../replay/fd_replay_tile.h"
 #include "../tower/fd_tower_tile.h"
 #include "../genesis/fd_genesi_tile.h"
-#include "../../disco/shred/fd_shred_tile.h"
+#include "../votor/fd_votor_tile.h"
+#include "../../choreo/votor/ag_cert.h"
 
 #include "../../ballet/base64/fd_base64.h"
 #include "../../ballet/json/fd_jtok.h"
 #include "../../disco/topo/fd_topo.h"
+#include "../../util/pod/fd_pod_format.h"
 #include "../../disco/fd_clock_tile.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../disco/keyguard/fd_keyload.h"
@@ -18,6 +20,7 @@
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../flamenco/runtime/fd_runtime_const.h"
 #include "../../flamenco/accdb/fd_accdb.h"
+#include "../../flamenco/alpenglow/fd_alpenglow.h"
 #include "../../flamenco/accdb/fd_accdb_shmem.h"
 #include "../../tango/fseq/fd_fseq.h"
 #include "../../flamenco/gossip/fd_gossip_message.h"
@@ -55,8 +58,8 @@
 #define IN_KIND_GENESI      (1)
 #define IN_KIND_GOSSIP_OUT  (2)
 #define IN_KIND_TOWER       (3)
-#define IN_KIND_SHRED       (4)
 #define IN_KIND_EPOCH       (5)
+#define IN_KIND_VOTOR       (6)
 
 #define ACCDB_IO_URING_DEPTH (128UL)
 
@@ -440,6 +443,7 @@ fd_rpc_mleaders_get_leader_for_slot( fd_multi_epoch_leaders_t const * mleaders,
 
 struct fd_rpc_tile {
   int delay_startup;
+  int alpenglow;
   int waker_rearm_pending;
 
   fd_http_server_t * http;
@@ -460,9 +464,14 @@ struct fd_rpc_tile {
 
   ulong cluster_confirmed_slot;
 
-  /* Highest slot relayed to turbine (Agave MaxSlots::retransmit) */
-  ulong max_retransmit_slot;
-  ulong shred_slot; /* copied in during_frag, shred_out is unreliable */
+  /* Highest slot relayed to turbine (Agave MaxSlots::retransmit),
+     one fseq per shred tile, written by shred */
+  ulong         shred_rtx_cnt;
+  ulong const * shred_rtx[ FD_TOPO_MAX_TILES ];
+
+  /* Address of the account holding the alpenglow genesis certificate,
+     for getAgGenesisCert. */
+  fd_pubkey_t ag_genesis_cert_addr[ 1 ];
 
   ulong processed_idx;
   ulong confirmed_idx;
@@ -508,18 +517,16 @@ struct fd_rpc_tile {
   int    snapshot_server_enabled;
   char   snapshot_server_url[ FD_URL_MAX ];
 
-  struct {
-    union {
-      /* Scratch used by getLeaderSchedule to group the epoch's leader
-         schedule by identity. */
-      fd_rpc_gls_pair_t gls_pairs[ (MAX_SLOTS_PER_EPOCH + FD_EPOCH_SLOTS_PER_ROTATION - 1UL) / FD_EPOCH_SLOTS_PER_ROTATION ];
+  union {
+    /* Scratch used by getLeaderSchedule to group the epoch's leader
+       schedule by identity. */
+    fd_rpc_gls_pair_t gls_pairs[ (MAX_SLOTS_PER_EPOCH + FD_EPOCH_SLOTS_PER_ROTATION - 1UL) / FD_EPOCH_SLOTS_PER_ROTATION ];
 
-      /* Scratch buffer for fd_accdb_read_{one_nocache,nocache_batch}:
-         holds the account data bytes returned by the readonly accdb
-         path.  Sized to the runtime account data maximum.  Must not be
-         in accdb shmem. */
-      uchar accdb_data_buf[ FD_RUNTIME_ACC_SZ_MAX ];
-    };
+    /* Scratch buffer for fd_accdb_read_{one_nocache,nocache_batch}:
+       holds the account data bytes returned by the readonly accdb
+       path.  Sized to the runtime account data maximum.  Must not be
+       in accdb shmem. */
+    uchar accdb_data_buf[ FD_RUNTIME_ACC_SZ_MAX ];
   } scratch;
 };
 
@@ -756,7 +763,8 @@ before_frag( fd_rpc_tile_t *   ctx,
              ulong             seq FD_PARAM_UNUSED,
              ulong             sig ) {
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP_OUT ) ) {
-    if( sig==FD_GOSSIP_UPDATE_TAG_VOTE ) return !ctx->ws_subscribers_vote_cnt;
+    /* To match Agave, voteSubscribe shouldn't work under Alpenglow. */
+    if( sig==FD_GOSSIP_UPDATE_TAG_VOTE ) return ctx->alpenglow || !ctx->ws_subscribers_vote_cnt;
     return sig!=FD_GOSSIP_UPDATE_TAG_CONTACT_INFO &&
            sig!=FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE;
   }
@@ -766,32 +774,9 @@ before_frag( fd_rpc_tile_t *   ctx,
            sig!=REPLAY_SIG_ROOT_ADVANCED  && sig!=REPLAY_SIG_DROP_BANK_REF;
   }
 
-  if( ctx->in_kind[ in_idx ]==IN_KIND_SHRED ) {
-    /* Keep only turbine shreds the shred tile relayed */
-    uint src = fd_shred_sig_src( sig );
-    int  res = fd_shred_sig_res( sig );
-    return !( src==SHRED_SIG_SRC_TURBINE && ( res==SHRED_SIG_RESULT_OKAY || res==SHRED_SIG_RESULT_COMPLETES ) );
-  }
+  if( ctx->in_kind[ in_idx ]==IN_KIND_VOTOR ) return sig!=FD_VOTOR_SIG_CERTED;
 
   return 0;
-}
-
-static inline void
-during_frag( fd_rpc_tile_t * ctx,
-             ulong           in_idx,
-             ulong           seq FD_PARAM_UNUSED,
-             ulong           sig FD_PARAM_UNUSED,
-             ulong           chunk,
-             ulong           sz,
-             ulong           ctl FD_PARAM_UNUSED ) {
-  if( ctx->in_kind[ in_idx ]!=IN_KIND_SHRED ) return;
-
-  /* Unreliable link: copy the slot before the overrun check */
-  if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) ) {
-    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
-  }
-  fd_shred_base_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
-  ctx->shred_slot = msg->shred.slot;
 }
 
 static int
@@ -929,6 +914,12 @@ fd_rpc_publish_slot_event( fd_rpc_tile_t *                    ctx,
   FD_MCNT_INC( RPC, WEBSOCKET_EVENT_SENT_SLOT,          sent_cnt );
 }
 
+static inline void
+fd_rpc_cluster_finalized( fd_rpc_tile_t * ctx,
+                          ulong           slot ) {
+  ctx->cluster_confirmed_slot = ctx->cluster_confirmed_slot==ULONG_MAX ? slot : fd_ulong_max( ctx->cluster_confirmed_slot, slot );
+}
+
 static inline int
 returnable_frag( fd_rpc_tile_t *     ctx,
                  ulong               in_idx,
@@ -1005,6 +996,13 @@ returnable_frag( fd_rpc_tile_t *     ctx,
         if( FD_LIKELY( ctx->finalized_idx!=ULONG_MAX ) ) fd_stem_publish( stem, ctx->replay_out->idx, ctx->finalized_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
         FD_TEST( msg->bank_idx<ctx->max_live_slots );
         ctx->finalized_idx = msg->bank_idx;
+
+        if( FD_UNLIKELY( ctx->alpenglow ) ) {
+          if( FD_LIKELY( ctx->confirmed_idx!=ULONG_MAX ) ) fd_stem_publish( stem, ctx->replay_out->idx, ctx->confirmed_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
+          ctx->confirmed_idx = msg->bank_idx;
+
+          if( FD_LIKELY( ctx->cluster_confirmed_slot!=ULONG_MAX ) ) fd_rpc_cluster_finalized( ctx, msg->slot );
+        }
         break;
       }
       case REPLAY_SIG_DROP_BANK_REF: {
@@ -1071,6 +1069,11 @@ returnable_frag( fd_rpc_tile_t *     ctx,
     ctx->has_epoch_schedule = 1;
 
     fd_rpc_mleaders_ingest( ctx->mleaders, msg );
+  } else if( ctx->in_kind[ in_idx ]==IN_KIND_VOTOR ) {
+    fd_votor_msg_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+    if( FD_LIKELY( msg->certed.kind==AG_CERT_KIND_FINAL || msg->certed.kind==AG_CERT_KIND_FAST_FINAL ) ) {
+      fd_rpc_cluster_finalized( ctx, msg->certed.slot );
+    }
   } else if( ctx->in_kind[ in_idx ]==IN_KIND_GENESI ) {
     ctx->has_genesis_hash = 1;
     fd_genesis_meta_t const * genesis_meta = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
@@ -1092,20 +1095,6 @@ returnable_frag( fd_rpc_tile_t *     ctx,
   }
 
   return 0;
-}
-
-static inline void
-after_frag( fd_rpc_tile_t *     ctx,
-            ulong               in_idx,
-            ulong               seq    FD_PARAM_UNUSED,
-            ulong               sig    FD_PARAM_UNUSED,
-            ulong               sz     FD_PARAM_UNUSED,
-            ulong               tsorig FD_PARAM_UNUSED,
-            ulong               tspub  FD_PARAM_UNUSED,
-            fd_stem_context_t * stem   FD_PARAM_UNUSED ) {
-  /* Unreliable inputs are handled here, after the overrun check */
-  if( ctx->in_kind[ in_idx ]!=IN_KIND_SHRED ) return;
-  ctx->max_retransmit_slot = fd_ulong_max( ctx->max_retransmit_slot, ctx->shred_slot );
 }
 
 #define STAGE_JSON(__ctx) (__extension__({ \
@@ -2045,6 +2034,73 @@ getGenesisHash( fd_rpc_tile_t *         ctx,
   return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":\"%s\",\"id\":%s}\n", genesis_hash_b58, id_cstr );
 }
 
+/* getAgGenesisCert returns the alpenglow genesis certificate, or null
+   if Tower consensus is active still.
+
+   The account holds a wincode encoded WireBlockCertMessage,
+
+     u64   block.slot
+     [u8;32]  block.block_id
+     [u8;192] signature.signature   (uncompressed BLS signature)
+     u64   signature.bitmap_len
+     [u8]  signature.bitmap
+
+   and the result is that struct as JSON, with the fixed size byte
+   arrays and the bitmap encoded as arrays of numbers, or null if the
+   account is empty or does not exist. */
+
+#define FD_RPC_AG_GENESIS_CERT_HDR_SZ (8UL+32UL+FD_BLS_SIG_SZ+8UL)
+
+static fd_http_server_response_t
+getAgGenesisCert( fd_rpc_tile_t *         ctx,
+                  char const *            id_cstr,
+                  fd_rpc_params_t const * params ) {
+  FD_MCNT_INC( RPC, REQUEST_SERVED_GET_AG_GENESIS_CERT, 1UL );
+
+  fd_http_server_response_t response;
+  if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id_cstr, params, 0, 0, &response ) ) ) return response;
+
+  if( FD_UNLIKELY( ctx->finalized_idx==ULONG_MAX ) ) {
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32065,\"message\":\"Firedancer Error: banks uninitialized\"},\"id\":%s}\n", id_cstr );
+  }
+
+  bank_info_t * info = &ctx->banks[ ctx->finalized_idx ];
+  ulong acct_lamports;
+  int   acct_executable;
+  uchar acct_owner[ 32UL ];
+  ulong acct_data_len;
+  fd_accdb_read_one_nocache( ctx->accdb, info->accdb_fork_id, ctx->ag_genesis_cert_addr->uc,
+                             &acct_lamports, &acct_executable, acct_owner,
+                             ctx->scratch.accdb_data_buf, &acct_data_len );
+  if( FD_UNLIKELY( !acct_lamports || !acct_data_len ) ) {
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":null,\"id\":%s}\n", id_cstr );
+  }
+
+  uchar const * data       = ctx->scratch.accdb_data_buf;
+  ulong         bitmap_sz  = 0UL;
+  int           malformed  = acct_data_len<FD_RPC_AG_GENESIS_CERT_HDR_SZ;
+  if( FD_LIKELY( !malformed ) ) {
+    bitmap_sz = FD_LOAD( ulong, data+FD_RPC_AG_GENESIS_CERT_HDR_SZ-8UL );
+    malformed = bitmap_sz>acct_data_len-FD_RPC_AG_GENESIS_CERT_HDR_SZ;
+  }
+  if( FD_UNLIKELY( malformed ) ) {
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32603,\"message\":\"Firedancer Error: malformed genesis certificate\"},\"id\":%s}\n", id_cstr );
+  }
+
+  uchar const * block_id  = data+8UL;
+  uchar const * signature = block_id+32UL;
+  uchar const * bitmap    = data+FD_RPC_AG_GENESIS_CERT_HDR_SZ;
+
+  fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"result\":{\"block\":{\"slot\":%lu,\"blockId\":[", FD_LOAD( ulong, data ) );
+  for( ulong i=0UL; i<32UL;         i++ ) fd_http_server_printf( ctx->http, i ? ",%u" : "%u", (uint)block_id [ i ] );
+  fd_http_server_printf( ctx->http, "]},\"signature\":{\"signature\":[" );
+  for( ulong i=0UL; i<FD_BLS_SIG_SZ; i++ ) fd_http_server_printf( ctx->http, i ? ",%u" : "%u", (uint)signature[ i ] );
+  fd_http_server_printf( ctx->http, "],\"bitmap\":[" );
+  for( ulong i=0UL; i<bitmap_sz;    i++ ) fd_http_server_printf( ctx->http, i ? ",%u" : "%u", (uint)bitmap   [ i ] );
+  fd_http_server_printf( ctx->http, "]}},\"id\":%s}\n", id_cstr );
+  return STAGE_JSON( ctx );
+}
+
 /* Determines if the node is healthy.  Agave defines this as follows,
 
     - On boot, nodes must go through the entire snapshot slot database
@@ -2074,6 +2130,11 @@ getGenesisHash( fd_rpc_tile_t *         ctx,
       if it is less than or equal to 128, the node is healthy, otherwise
       it is unhealthy with a "slotsBehind" value equal to the
       difference.
+
+   Under alpenglow there are no optimistic confirmations.  The cluster
+   slot is instead the highest slot for which votor has observed a
+   finalization certificate (slow or fast), and the node stays Unknown
+   until it has seen one.
 
    Firedancer currently only implements the final two checks, and does
    not forcibly mark the node as healthy while waiting for a
@@ -2354,7 +2415,12 @@ getMaxRetransmitSlot( fd_rpc_tile_t *         ctx,
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id_cstr, params, 0, 0, &response ) ) ) return response;
 
-  return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%s}\n", ctx->max_retransmit_slot, id_cstr );
+  ulong max_retransmit_slot = 0UL;
+  for( ulong i=0UL; i<ctx->shred_rtx_cnt; i++ ) {
+    ulong slot = fd_fseq_query( ctx->shred_rtx[ i ] );
+    if( FD_LIKELY( slot!=ULONG_MAX ) ) max_retransmit_slot = fd_ulong_max( max_retransmit_slot, slot );
+  }
+  return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%s}\n", max_retransmit_slot, id_cstr );
 }
 
 UNIMPLEMENTED(getMaxShredInsertSlot)
@@ -2961,6 +3027,7 @@ rpc_json_request( fd_rpc_tile_t * ctx,
   else if( FD_LIKELY( !strcmp( method, "requestAirdrop"                    ) ) ) response = requestAirdrop( ctx, id_cstr, params );
   else if( FD_LIKELY( !strcmp( method, "sendTransaction"                   ) ) ) response = sendTransaction( ctx, id_cstr, params );
   else if( FD_LIKELY( !strcmp( method, "simulateTransaction"               ) ) ) response = simulateTransaction( ctx, id_cstr, params );
+  else if( FD_LIKELY( !strcmp( method, "getAgGenesisCert"                  ) ) ) response = getAgGenesisCert( ctx, id_cstr, params );
   else {
     FD_MCNT_INC( RPC, REQUEST_SERVED_UNKNOWN, 1UL );
     response = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32601,\"message\":\"Method not found\"},\"id\":%s}\n", id_cstr );
@@ -3137,6 +3204,8 @@ unprivileged_init( fd_topo_t const *      topo,
   void * _zstd_wksp   = FD_SCRATCH_ALLOC_APPEND( l, 16UL,                     zstd_wksp_sz                                           );
 
   ctx->delay_startup       = tile->rpc.delay_startup;
+  ctx->alpenglow           = tile->rpc.alpenglow;
+  fd_alpenglow_pda( "carlgration", ctx->ag_genesis_cert_addr );
   ctx->waker_rearm_pending = 0;
   ctx->ws_subscribers_vote = _ws_sub_vote;
   ctx->ws_subscribers_vote_cnt = 0UL;
@@ -3161,8 +3230,6 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( ctx->waker_fseq );
 
   ctx->cluster_confirmed_slot = ULONG_MAX;
-  ctx->max_retransmit_slot    = 0UL;
-  ctx->shred_slot             = 0UL;
   ctx->genesis_max_message_size = tile->rpc.genesis_max_message_size;
   ctx->genesis_tar_max_sz = fd_rpc_genesis_tar_max_sz( tile->rpc.genesis_max_message_size );
   ctx->genesis_tar_bz_max_sz = fd_rpc_genesis_tar_bz_max_sz( tile->rpc.genesis_max_message_size );
@@ -3192,13 +3259,20 @@ unprivileged_init( fd_topo_t const *      topo,
     ctx->in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->in[ i ].mem, link->dcache, link->mtu );
     ctx->in[ i ].mtu    = link->mtu;
 
-    if     ( FD_LIKELY( !strcmp( link->name, "replay_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
+    if     ( FD_LIKELY( !strcmp( link->name, "replay_slot"  ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
     else if( FD_LIKELY( !strcmp( link->name, "genesi_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_GENESI;
     else if( FD_LIKELY( !strcmp( link->name, "gossip_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_OUT;
     else if( FD_LIKELY( !strcmp( link->name, "tower_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_TOWER;
-    else if( FD_LIKELY( !strcmp( link->name, "shred_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_SHRED;
     else if( FD_LIKELY( !strcmp( link->name, "replay_epoch" ) ) ) ctx->in_kind[ i ] = IN_KIND_EPOCH;
+    else if( FD_UNLIKELY( !strcmp( link->name, "votor_out"  ) ) ) ctx->in_kind[ i ] = IN_KIND_VOTOR;
     else FD_LOG_ERR(( "unexpected link name %s", link->name ));
+  }
+
+  for( ctx->shred_rtx_cnt=0UL; ctx->shred_rtx_cnt<FD_TOPO_MAX_TILES; ctx->shred_rtx_cnt++ ) {
+    ulong rtx_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "shred_rtx.%lu", ctx->shred_rtx_cnt );
+    if( FD_UNLIKELY( rtx_obj_id==ULONG_MAX ) ) break;
+    ctx->shred_rtx[ ctx->shred_rtx_cnt ] = fd_fseq_join( fd_topo_obj_laddr( topo, rtx_obj_id ) );
+    FD_TEST( ctx->shred_rtx[ ctx->shred_rtx_cnt ] );
   }
 
   *ctx->replay_out = out1( topo, tile, "rpc_replay" ); FD_TEST( ctx->replay_out->idx!=ULONG_MAX );
@@ -3295,9 +3369,7 @@ rlimit_file_cnt( fd_topo_t const *      topo FD_PARAM_UNUSED,
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 #define STEM_CALLBACK_BEFORE_CREDIT       before_credit
 #define STEM_CALLBACK_BEFORE_FRAG         before_frag
-#define STEM_CALLBACK_DURING_FRAG         during_frag
 #define STEM_CALLBACK_RETURNABLE_FRAG     returnable_frag
-#define STEM_CALLBACK_AFTER_FRAG          after_frag
 
 #include "../../disco/stem/fd_stem.c"
 

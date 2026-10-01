@@ -695,6 +695,8 @@ test_recover_preserves_snapin_stake_delegations( fd_wksp_t * wksp, fd_snapshot_m
   manifest->epoch_stakes[3].vote_stakes[0].stake      = 5000UL;
   manifest->epoch_stakes[3].vote_stakes[0].commission = 10U;
   manifest->epoch_stakes[3].vote_stakes[0].has_identity_bls = 1;
+  manifest->epoch_stakes[3].vote_stakes[0].commission_block_bps      = 1111U;
+  manifest->epoch_stakes[3].vote_stakes[0].pending_delegator_rewards = 11UL;
 
   uchar valid_bls[2][ FD_BLS_PUBKEY_COMPRESSED_SZ ];
   fd_hex_decode( valid_bls[0], "97f1d3a73197d7942695638c4fa9ac0fc3688c4f9774b905a14e3a3f171bac586c55e83ff97a1aeffb3af00adb22c6bb", sizeof(valid_bls[0]) );
@@ -709,6 +711,8 @@ test_recover_preserves_snapin_stake_delegations( fd_wksp_t * wksp, fd_snapshot_m
   manifest->epoch_stakes[2].vote_stakes[0].stake            = 4000UL;
   manifest->epoch_stakes[2].vote_stakes[0].commission       = 11U;
   manifest->epoch_stakes[2].vote_stakes[0].has_identity_bls = 1;
+  manifest->epoch_stakes[2].vote_stakes[0].commission_block_bps      = 2222U;
+  manifest->epoch_stakes[2].vote_stakes[0].pending_delegator_rewards = 22UL;
   manifest->epoch_stakes[2].total_stake                     = 4000UL;
 
   uchar pubkey_z[32]; fd_memset( pubkey_z, 0xEE, 32UL );
@@ -720,10 +724,19 @@ test_recover_preserves_snapin_stake_delegations( fd_wksp_t * wksp, fd_snapshot_m
   manifest->epoch_stakes[1].vote_stakes[0].stake            = 3000UL;
   manifest->epoch_stakes[1].vote_stakes[0].commission       = 17U;
   manifest->epoch_stakes[1].vote_stakes[0].has_identity_bls = 1;
+  manifest->epoch_stakes[1].vote_stakes[0].commission_block_bps      = 4321U;
+  manifest->epoch_stakes[1].vote_stakes[0].pending_delegator_rewards = 99UL;
   manifest->epoch_stakes[1].total_stake                     = 3000UL;
 
   FD_TEST( VALIDATE_MANIFEST( manifest )==0 );
   FD_TEST( fd_ssload_recover_apply( manifest, bank, seed )==0 );
+  {
+    ushort block_bps; ulong pending;
+    FD_TEST( fd_vote_stakes_query_block_revenue_t_1( vote_stakes, bank->vote_stakes_fork_id, (fd_pubkey_t *)pubkey_x, &block_bps, &pending ) );
+    FD_TEST( block_bps==1111U && pending==11UL );
+    FD_TEST( fd_vote_stakes_query_block_revenue_t_2( vote_stakes, bank->vote_stakes_fork_id, (fd_pubkey_t *)pubkey_w, &block_bps, &pending ) );
+    FD_TEST( block_bps==2222U && pending==22UL );
+  }
 
   fd_pubkey_t node_out;
   ushort      commission_out;
@@ -750,6 +763,9 @@ test_recover_preserves_snapin_stake_delegations( fd_wksp_t * wksp, fd_snapshot_m
   fd_vote_stakes_iter_ele( vote_stakes, bank->vote_stakes_fork_id, FD_VOTE_STAKES_ITER_T_3, iter,
                            &iter_pubkey, NULL, NULL, NULL, NULL, NULL, NULL, &rank_out, NULL, NULL );
   FD_TEST( fd_pubkey_eq( &iter_pubkey, (fd_pubkey_t *)pubkey_z ) && rank_out==0U );
+  ushort block_bps_out; ulong pending_out;
+  fd_vote_stakes_iter_block_revenue( vote_stakes, bank->vote_stakes_fork_id, FD_VOTE_STAKES_ITER_T_3, iter, &block_bps_out, &pending_out );
+  FD_TEST( block_bps_out==4321U && pending_out==99UL );
 
   iter = fd_vote_stakes_iter_init( vote_stakes, bank->vote_stakes_fork_id, FD_VOTE_STAKES_ITER_T_4, iter_mem );
   FD_TEST( fd_vote_stakes_iter_done( vote_stakes, bank->vote_stakes_fork_id, FD_VOTE_STAKES_ITER_T_4, iter ) );

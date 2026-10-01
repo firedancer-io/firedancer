@@ -19,6 +19,7 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #include <rdma/ib_user_ioctl_cmds.h>
@@ -82,8 +83,6 @@
 #define MLX5_QP_FLAG_UAR_PAGE_INDEX (1024U)
 #endif
 
-/* FD_MLX5_UAR_DB_OFFSET is SQ doorbell register offset */
-#define FD_MLX5_UAR_DB_OFFSET       (0x800UL) /* MLX5_BF_OFFSET */
 #define FD_MLX5_ETH_INLINE_HDR_SZ   (18UL)    /* MLX5_ETH_L2_INLINE_HEADER_SIZE */
 #define FD_MLX5_LINK_LAYER_ETHERNET (2U)      /* IB_LINK_LAYER_ETHERNET */
 #define FD_UVERBS_NAME_MAX          (32UL)
@@ -292,6 +291,47 @@ fd_mlx5_uverbs_avail( void ) {
   return !stat( "/sys/class/infiniband_verbs", &class_stat ) && S_ISDIR( class_stat.st_mode );
 }
 
+int
+fd_mlx5_uverbs_modprobe( int is_dry_run ) {
+  pid_t pid = fork();
+  if( FD_UNLIKELY( pid<0 ) ) {
+    FD_LOG_WARNING(( "fork() for modprobe failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    return -1;
+  }
+  if( !pid ) {
+    int null_fd = open( "/dev/null", O_RDWR );
+    if( FD_UNLIKELY( null_fd<0 ) ) {
+      FD_LOG_WARNING(( "open(/dev/null) for modprobe failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      _exit( 1 );
+    }
+    if( FD_UNLIKELY( dup2( null_fd, STDIN_FILENO )<0 ||
+                     ( is_dry_run && dup2( null_fd, STDOUT_FILENO )<0 ) ) ) {
+      FD_LOG_WARNING(( "dup2() for modprobe failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      _exit( 1 );
+    }
+    if( null_fd!=STDIN_FILENO &&
+        !( is_dry_run && null_fd==STDOUT_FILENO ) ) close( null_fd );
+
+    char * argv[] = { "modprobe", "--quiet", "ib_uverbs", NULL, NULL };
+    if( is_dry_run ) {
+      argv[2] = "--dry-run";
+      argv[3] = "ib_uverbs";
+    }
+    char * const envp[] = { NULL };
+    execve( "/sbin/modprobe", argv, envp );
+    FD_LOG_WARNING(( "execve(/sbin/modprobe) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    _exit( 1 );
+  }
+
+  int status;
+  while( FD_UNLIKELY( waitpid( pid, &status, 0 )<0 ) ) {
+    if( errno==EINTR ) continue;
+    FD_LOG_WARNING(( "waitpid() for modprobe failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    return -1;
+  }
+  return WIFEXITED( status ) && !WEXITSTATUS( status ) ? 0 : -1;
+}
+
 struct fd_mlx5_pd {
   fd_uverbs_ctx_t * ctx;    /* uverbs context */
   uint              handle; /* protection domain handle */
@@ -411,6 +451,13 @@ struct fd_uverbs_destroy_uar_req {
 };
 typedef struct fd_uverbs_destroy_uar_req fd_uverbs_destroy_uar_req_t;
 FD_STATIC_ASSERT( sizeof(fd_uverbs_destroy_uar_req_t)==40UL, uverbs_destroy_uar_req_sz );
+
+struct fd_uverbs_create_comp_channel_req {
+  struct ib_uverbs_cmd_hdr hdr;
+  ulong                    response;
+};
+typedef struct fd_uverbs_create_comp_channel_req fd_uverbs_create_comp_channel_req_t;
+FD_STATIC_ASSERT( sizeof(fd_uverbs_create_comp_channel_req_t)==16UL, uverbs_create_comp_channel_req_sz );
 
 struct fd_uverbs_create_cq_req {
   struct ib_uverbs_cmd_hdr hdr;
@@ -635,30 +682,6 @@ fd_rdma_name_valid( char const * name,
   return 0;
 }
 
-static int
-fd_mlx5_check_driver( char const * rdma_name ) {
-  char path[ FD_RDMA_PATH_MAX ];
-  FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL,
-                                 "/sys/class/infiniband/%s/device/driver", rdma_name ) );
-
-  char target[ FD_RDMA_PATH_MAX ];
-  ssize_t target_sz = readlink( path, target, sizeof(target)-1UL );
-  if( FD_UNLIKELY( target_sz<0 ) ) return -1;
-  if( FD_UNLIKELY( (ulong)target_sz==sizeof(target)-1UL ) ) {
-    errno = ENAMETOOLONG;
-    return -1;
-  }
-  target[ target_sz ] = '\0';
-
-  char const * driver = strrchr( target, '/' );
-  driver = driver ? driver+1 : target;
-  if( FD_UNLIKELY( strcmp( driver, "mlx5_core" ) ) ) {
-    errno = ENODEV;
-    return -1;
-  }
-  return 0;
-}
-
 /* fd_uverbs_* helpers build and submit Linux uverbs commands */
 static int
 fd_uverbs_name_valid( char const * name ) {
@@ -676,7 +699,6 @@ fd_uverbs_resolve( char         uverbs_name[ FD_UVERBS_NAME_MAX ],
     errno = EINVAL;
     return -1;
   }
-  if( FD_UNLIKELY( fd_mlx5_check_driver( rdma_name ) ) ) return -1;
 
   DIR * uverbs_dir = opendir( "/sys/class/infiniband_verbs" );
   if( FD_UNLIKELY( !uverbs_dir ) ) return -1;
@@ -1103,15 +1125,30 @@ fd_uverbs_map_uar( fd_uverbs_ctx_t * ctx,
   void * uar_mapping = mmap( NULL, FD_MLX5_PAGE_SZ, PROT_WRITE, MAP_SHARED,
                              ctx->cmd_fd, (off_t)mmap_offset );
   if( FD_UNLIKELY( uar_mapping==MAP_FAILED ) ) return NULL;
-  return (volatile uchar *)uar_mapping + FD_MLX5_UAR_DB_OFFSET;
+  return (volatile uchar *)uar_mapping;
+}
+
+static int
+fd_uverbs_create_comp_channel( fd_uverbs_ctx_t * ctx ) {
+  fd_uverbs_create_comp_channel_req_t       req [1];
+  struct ib_uverbs_create_comp_channel_resp resp[1];
+  fd_memset( req,  0, sizeof(req ) );
+  fd_memset( resp, 0, sizeof(resp) );
+
+  req->response = (ulong)resp;
+  FD_TEST( !fd_uverbs_init_cmd_hdr( &req->hdr, IB_USER_VERBS_CMD_CREATE_COMP_CHANNEL,
+                                    sizeof(req), sizeof(resp) ) );
+  if( FD_UNLIKELY( fd_uverbs_write_cmd( ctx->cmd_fd, req, sizeof(req) ) ) ) return -1;
+  return (int)resp->fd;
 }
 
 static uint *
-fd_uverbs_create_cq( uint *               handle,
-                     fd_uverbs_ctx_t *    ctx,
-                     fd_mlx5_cq_t const * cq,
-                     uint                 page_id,
-                     uint                 max_cqe ) {
+fd_uverbs_create_cq( uint *            handle,
+                     fd_uverbs_ctx_t * ctx,
+                     fd_mlx5_cq_t *    cq,
+                     int               comp_channel_fd,
+                     uint              page_id,
+                     uint              max_cqe ) {
   if( FD_UNLIKELY( !handle ) ) {
     errno = EINVAL;
     return NULL;
@@ -1131,7 +1168,7 @@ fd_uverbs_create_cq( uint *               handle,
   req->response                = (ulong)resp;
   req->user_handle             = (ulong)cq;
   req->cqe                     = cq->depth-1U;
-  req->comp_channel            = -1;
+  req->comp_channel            = comp_channel_fd;
   req->mlx5.fields.buf_addr    = (ulong)cq->entries;
   req->mlx5.fields.db_addr     = (ulong)cq->control;
   req->mlx5.fields.cqe_size    = sizeof(fd_mlx5_cqe_t);
@@ -1156,6 +1193,7 @@ fd_uverbs_create_cq( uint *               handle,
     return NULL;
   }
 
+  cq->cqn = resp->mlx5.cqn;
   *handle = resp->cq_handle;
   return handle;
 }
@@ -1540,17 +1578,23 @@ fd_uverbs_init( fd_uverbs_ctx_t *       uverbs,
       return NULL;
     }
 
+    int rx_comp_channel_fd = -1;
+    if( tile->rx_comp_channel_fd ) {
+      rx_comp_channel_fd = fd_uverbs_create_comp_channel( uverbs );
+      if( FD_UNLIKELY( rx_comp_channel_fd<0 ) ) return NULL;
+      *tile->rx_comp_channel_fd = rx_comp_channel_fd;
+    }
+
     uint uar_page_id;
     uint rx_cq_handle;
     uint tx_cq_handle;
-    if( FD_UNLIKELY( !fd_uverbs_alloc_uar( uverbs, &uar_page_id, &tx_qp->uar_mmap_offset )                  ||
-                     !fd_uverbs_create_cq( &rx_cq_handle, uverbs, tile->rx_cq, uar_page_id, caps->max_cqe ) ||
-                     !fd_uverbs_create_cq( &tx_cq_handle, uverbs, tile->tx_cq, uar_page_id, caps->max_cqe ) ||
-                     !fd_uverbs_register_mr( tile->lkey, pd, tile->packet_memory, tile->packet_memory_sz,
-                                             tile->packet_iova, caps->max_mr_size )                         ||
-                     !fd_uverbs_create_tx_qp( uverbs, tx_qp, pd, tx_cq_handle, uar_page_id )                ||
-                     !fd_uverbs_start_tx_qp( uverbs, tx_qp )                                                ||
-                     !fd_uverbs_create_rx_wq( uverbs, rx_wq, pd, rx_cq_handle )                             ||
+    if( FD_UNLIKELY( !fd_uverbs_alloc_uar( uverbs, &uar_page_id, &tx_qp->uar_mmap_offset )                                                       ||
+                     !fd_uverbs_create_cq( &rx_cq_handle, uverbs, tile->rx_cq, rx_comp_channel_fd, uar_page_id, caps->max_cqe )                  ||
+                     !fd_uverbs_create_cq( &tx_cq_handle, uverbs, tile->tx_cq, -1, uar_page_id, caps->max_cqe )                                  ||
+                     !fd_uverbs_register_mr( tile->lkey, pd, tile->packet_memory, tile->packet_memory_sz, tile->packet_iova, caps->max_mr_size ) ||
+                     !fd_uverbs_create_tx_qp( uverbs, tx_qp, pd, tx_cq_handle, uar_page_id )                                                     ||
+                     !fd_uverbs_start_tx_qp( uverbs, tx_qp )                                                                                     ||
+                     !fd_uverbs_create_rx_wq( uverbs, rx_wq, pd, rx_cq_handle )                                                                  ||
                      !fd_uverbs_start_rx_wq( uverbs, rx_wq ) ) ) {
       return NULL;
     }

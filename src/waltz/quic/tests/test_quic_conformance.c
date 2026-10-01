@@ -929,6 +929,156 @@ FD_UNIT_TEST( quic_ack_unsent_future_pktnum ) {
   FD_TEST( conn->highest_acked[ 2 ] == 0UL );
 }
 
+static ulong test_ack_range_cnt;
+static ulong test_ack_range_lo[ 16 ];
+static ulong test_ack_range_hi[ 16 ];
+
+static void
+test_cb_ack_range( fd_quic_conn_t * conn FD_PARAM_UNUSED,
+                   ulong            pkt_num_lo,
+                   ulong            pkt_num_hi,
+                   void *           quic_ctx FD_PARAM_UNUSED ) {
+  if( test_ack_range_cnt < 16UL ) {
+    test_ack_range_lo[ test_ack_range_cnt ] = pkt_num_lo;
+    test_ack_range_hi[ test_ack_range_cnt ] = pkt_num_hi;
+  }
+  test_ack_range_cnt++;
+}
+
+FD_UNIT_TEST( quic_ack_ranges_callback ) {
+  fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_CLIENT );
+  fd_quic_t *       quic  = sandbox->quic;
+  fd_quic_state_t * state = fd_quic_get_state( quic );
+  quic->cb.ack_range      = test_cb_ack_range;
+
+  fd_quic_conn_t * conn = fd_quic_sandbox_new_conn_established( sandbox, rng );
+  conn->tx_max_data                    = 1UL<<20;
+  conn->tx_initial_max_stream_data_uni = 1UL<<15;
+  conn->idle_timeout_ns                = (long)60e9;
+
+  for( uint j = 0; j < 10; j++ ) {
+    conn->flags          = ( conn->flags & ~FD_QUIC_CONN_FLAGS_PING_SENT ) | FD_QUIC_CONN_FLAGS_PING;
+    conn->upd_pkt_number = FD_QUIC_PKT_NUM_PENDING;
+    sandbox->wallclock  += (long)10e6;
+    conn->svc_meta.next_timeout = sandbox->wallclock;
+    fd_quic_svc_timers_schedule( state->svc_timers, conn, sandbox->wallclock );
+    fd_quic_service( quic, sandbox->wallclock );
+  }
+  FD_TEST( conn->pkt_number[2] == 10UL );
+
+  /* ACK [7,9], [3,4], [0,1] */
+  test_ack_range_cnt = 0UL;
+  uchar ack_buf[ 64 ];
+  uchar * p = ack_buf;
+  *p++ = 0x02; /* ACK */
+  *p++ = 0x09; /* largest acked */
+  *p++ = 0x00; /* ack delay */
+  *p++ = 0x02; /* range count */
+  *p++ = 0x02; /* [7,9] */
+  *p++ = 0x01;
+  *p++ = 0x01; /* [3,4] */
+  *p++ = 0x00;
+  *p++ = 0x01; /* [0,1] */
+  ulong ack_buf_sz = (ulong)( p - ack_buf );
+
+  fd_quic_sandbox_send_lone_frame( sandbox, conn, ack_buf, ack_buf_sz );
+
+  FD_TEST( test_ack_range_cnt == 3UL );
+  FD_TEST( test_ack_range_lo[ 0 ] == 7UL && test_ack_range_hi[ 0 ] == 9UL );
+  FD_TEST( test_ack_range_lo[ 1 ] == 3UL && test_ack_range_hi[ 1 ] == 4UL );
+  FD_TEST( test_ack_range_lo[ 2 ] == 0UL && test_ack_range_hi[ 2 ] == 1UL );
+}
+
+FD_UNIT_TEST( quic_dgram_rtt_sample ) {
+  fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_CLIENT );
+  fd_quic_t *       quic  = sandbox->quic;
+  fd_quic_state_t * state = fd_quic_get_state( quic );
+
+  fd_quic_conn_t * conn = fd_quic_sandbox_new_conn_established( sandbox, rng );
+  conn->idle_timeout_ns          = (long)60e9;
+  conn->tx_max_datagram_sz       = 1232U;
+  conn->tx_max_datagram_frame_sz = 1200UL;
+  fd_quic_service( quic, sandbox->wallclock );
+  long  tx_time = state->now;
+  ulong used    = conn->used_pkt_meta;
+
+  uchar pkt_buf[ 1500 ];
+  uchar dgram[ 8 ] = {0};
+  ulong pkt_num = ULONG_MAX;
+
+  /* a DATAGRAM-only packet is tracked, and an ACK whose largest is that
+     packet samples RTT from it and frees it (RFC 9002 Section 5.1) */
+
+  FD_TEST( fd_quic_conn_tx_dgram( conn, pkt_buf, sizeof(pkt_buf), dgram, sizeof(dgram), &pkt_num ) );
+  FD_TEST( conn->used_pkt_meta==used+1UL );
+  fd_quic_pkt_t       pkt = { .rtt_pkt_number = 0UL, .rtt_ack_time = 0L };
+  fd_quic_frame_ctx_t ctx = { .quic = quic, .conn = conn, .pkt = &pkt };
+  fd_quic_process_ack_range( conn, &ctx, fd_quic_enc_level_appdata_id, pkt_num, 0UL, 1, tx_time+(long)30e6, 0UL );
+  FD_TEST( pkt.rtt_pkt_number==pkt_num );
+  FD_TEST( pkt.rtt_ack_time  ==(long)30e6 );
+  FD_TEST( conn->used_pkt_meta==used );
+
+  /* a repeated ACK is not newly acked */
+
+  pkt = (fd_quic_pkt_t){ .rtt_pkt_number = 0UL, .rtt_ack_time = 0L };
+  fd_quic_process_ack_range( conn, &ctx, fd_quic_enc_level_appdata_id, pkt_num, 0UL, 1, tx_time+(long)60e6, 0UL );
+  FD_TEST( pkt.rtt_ack_time==0L );
+
+  /* acked in a lower range, then named largest: not newly acked */
+
+  FD_TEST( fd_quic_conn_tx_dgram( conn, pkt_buf, sizeof(pkt_buf), dgram, sizeof(dgram), &pkt_num ) );
+  pkt = (fd_quic_pkt_t){ .rtt_pkt_number = 0UL, .rtt_ack_time = 0L };
+  fd_quic_process_ack_range( conn, &ctx, fd_quic_enc_level_appdata_id, pkt_num, 0UL, 0, tx_time+(long)60e6, 0UL );
+  FD_TEST( pkt.rtt_ack_time==0L );
+  pkt = (fd_quic_pkt_t){ .rtt_pkt_number = 0UL, .rtt_ack_time = 0L };
+  fd_quic_process_ack_range( conn, &ctx, fd_quic_enc_level_appdata_id, pkt_num, 0UL, 1, tx_time+(long)70e6, 0UL );
+  FD_TEST( pkt.rtt_ack_time==0L );
+  FD_TEST( conn->used_pkt_meta==used );
+
+  /* a lost DATAGRAM packet is freed without scheduling any retransmit */
+
+  FD_TEST( fd_quic_conn_tx_dgram( conn, pkt_buf, sizeof(pkt_buf), dgram, sizeof(dgram), &pkt_num ) );
+  FD_TEST( conn->used_pkt_meta==used+1UL );
+  uint  flags = conn->flags;
+  ulong retx  = quic->metrics.pkt_retransmissions_cnt[ fd_quic_enc_level_appdata_id ];
+  fd_quic_pkt_meta_retry( quic, conn, pkt_num+1UL, fd_quic_enc_level_appdata_id );
+  FD_TEST( conn->used_pkt_meta==used );
+  FD_TEST( conn->flags==flags );
+  FD_TEST( quic->metrics.pkt_retransmissions_cnt[ fd_quic_enc_level_appdata_id ]==retx );
+}
+
+FD_UNIT_TEST( quic_ack_ranges_callback_handshake ) {
+  fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_CLIENT );
+  fd_quic_t *       quic  = sandbox->quic;
+  fd_quic_state_t * state = fd_quic_get_state( quic );
+  quic->cb.ack_range      = test_cb_ack_range;
+
+  fd_quic_conn_t * conn = fd_quic_sandbox_new_conn_established( sandbox, rng );
+  conn->idle_timeout_ns = (long)60e9;
+
+  for( uint j = 0; j < 10; j++ ) {
+    conn->flags          = ( conn->flags & ~FD_QUIC_CONN_FLAGS_PING_SENT ) | FD_QUIC_CONN_FLAGS_PING;
+    conn->upd_pkt_number = FD_QUIC_PKT_NUM_PENDING;
+    sandbox->wallclock  += (long)10e6;
+    conn->svc_meta.next_timeout = sandbox->wallclock;
+    fd_quic_svc_timers_schedule( state->svc_timers, conn, sandbox->wallclock );
+    fd_quic_service( quic, sandbox->wallclock );
+  }
+  FD_TEST( conn->pkt_number[2] == 10UL );
+
+  /* Handshake ACKs are not reported */
+  conn->pkt_number[1] = fd_ulong_max( conn->pkt_number[1], 1UL );
+  test_ack_range_cnt = 0UL;
+  fd_quic_pkt_t hs_pkt = {
+    .enc_level = fd_quic_enc_level_handshake_id,
+    .rcv_time  = sandbox->wallclock,
+  };
+  uchar const hs_ack[] = { 0x02, 0x00, 0x00, 0x00, 0x00 };
+  fd_quic_sandbox_send_frame( sandbox, conn, &hs_pkt, hs_ack, sizeof(hs_ack) );
+  FD_TEST( conn->state == FD_QUIC_CONN_STATE_ACTIVE );
+  FD_TEST( test_ack_range_cnt == 0UL );
+}
+
 static ulong datagram_rx_cnt;
 static uchar datagram_rx_buf[ 64 ];
 static ulong datagram_rx_sz;
@@ -987,11 +1137,13 @@ FD_UNIT_TEST( quic_datagram_express_tx ) {
   uchar const msg[] = { 'd', 'g', 'r', 'a', 'm' };
   ulong const pkt_num = conn->pkt_number[ 2 ]; /* application packet number space */
 
-  FD_TEST( !fd_quic_conn_tx_dgram( conn, pkt, 1UL, msg, sizeof(msg) ) );
+  FD_TEST( !fd_quic_conn_tx_dgram( conn, pkt, 1UL, msg, sizeof(msg), NULL ) );
   FD_TEST( conn->pkt_number[2]==pkt_num );
 
-  ulong pkt_sz = fd_quic_conn_tx_dgram( conn, pkt, sizeof(pkt), msg, sizeof(msg) );
+  ulong tx_pkt_num = ULONG_MAX;
+  ulong pkt_sz = fd_quic_conn_tx_dgram( conn, pkt, sizeof(pkt), msg, sizeof(msg), &tx_pkt_num );
   FD_TEST( pkt_sz>=FD_QUIC_SHORTEST_PKT );
+  FD_TEST( tx_pkt_num==pkt_num );
   FD_TEST( conn->pkt_number[2]==pkt_num+1UL );
 
   datagram_rx_cnt = 0UL;
@@ -1023,7 +1175,7 @@ FD_UNIT_TEST( quic_datagram_express_tx ) {
   FD_TEST( !memcmp( datagram_rx_buf, msg, sizeof(msg) ) );
 
   conn->tx_max_datagram_frame_sz = 1UL+1UL+sizeof(msg)-1UL;
-  FD_TEST( !fd_quic_conn_tx_dgram( conn, pkt, sizeof(pkt), msg, sizeof(msg) ) );
+  FD_TEST( !fd_quic_conn_tx_dgram( conn, pkt, sizeof(pkt), msg, sizeof(msg), NULL ) );
   FD_TEST( conn->pkt_number[2]==pkt_num+1UL );
 }
 

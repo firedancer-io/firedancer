@@ -298,6 +298,70 @@ test_t1_vary_radix( void ) {
   fd_epoch_leaders_delete( fd_epoch_leaders_leave( lsched ) );
   fd_rng_delete( fd_rng_leave( r ) );
 }
+/* An unstaked source below more than fanout staked nodes has no
+   children, in the contiguous layout and in a strided one (columns
+   past shred_cnt untouched). */
+static void
+test_unstaked_no_dest( void ) {
+  ulong cnt = 32UL;
+  fd_shred_dest_weighted_t info[32];
+  fd_memset( info, 0, sizeof(info) );
+  for( ulong i=0UL; i<cnt; i++ ) {
+    info[i].pubkey.uc[0]   = (uchar)(cnt-i);
+    info[i].stake_lamports = i<24UL ? (1UL<<40)>>i : 0UL; /* 24 staked, 8 unstaked */
+    info[i].ip4            = (uint)(i+1UL);
+    stakes[i].id_key       = info[i].pubkey;
+    stakes[i].vote_key     = info[i].pubkey;
+    stakes[i].stake        = info[i].stake_lamports;
+  }
+  fd_pubkey_t const * src_key = &info[ 30 ].pubkey; /* unstaked */
+  fd_epoch_leaders_t * lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( _l_footprint, 0UL, 0UL, 100UL, 24UL, stakes ) );
+  fd_shred_dest_t * sdest = fd_shred_dest_join( fd_shred_dest_new( _sd_footprint, info, cnt, lsched, src_key, TEST_HASH_SEED ) );
+  FD_TEST( sdest );
+
+  fd_shred_t shred[ 4 ];
+  fd_shred_t const * shred_ptr[ 4 ];
+  for( ulong j=0UL; j<4UL; j++ ) {
+    shred_ptr[ j ]   = shred+j;
+    shred[ j ].slot  = 7UL;
+    shred[ j ].idx   = (uint)j;
+    shred[ j ].variant = fd_shred_variant( FD_SHRED_TYPE_MERKLE_DATA, 2 );
+  }
+  ulong fanout = 6UL; /* 23 staked non-leaders > fanout: quick exit */
+
+  fd_shred_dest_idx_t tight[ 6*4 ];
+  memset( tight, 0x11, sizeof(tight) );
+  ulong max_dest_cnt = 99UL;
+  FD_TEST( tight==fd_shred_dest_compute_children( sdest, shred_ptr, 4UL, tight, 4UL, fanout, fanout, &max_dest_cnt ) );
+  FD_TEST( max_dest_cnt==0UL );
+  for( ulong i=0UL; i<6UL*4UL; i++ ) FD_TEST( tight[ i ]==FD_SHRED_DEST_NO_DEST );
+
+  fd_shred_dest_idx_t strided[ 6*7 ];
+  memset( strided, 0x11, sizeof(strided) );
+  FD_TEST( strided==fd_shred_dest_compute_children( sdest, shred_ptr, 4UL, strided, 7UL, fanout, fanout, NULL ) );
+  for( ulong j=0UL; j<6UL; j++ ) {
+    for( ulong i=0UL; i<4UL; i++ ) FD_TEST( strided[ j*7UL+i ]==FD_SHRED_DEST_NO_DEST );
+    for( ulong i=4UL; i<7UL; i++ ) FD_TEST( strided[ j*7UL+i ]==0x11111111U );
+  }
+
+  /* A staked source with the same stakes does get children. */
+  fd_shred_dest_delete( fd_shred_dest_leave( sdest ) );
+  sdest = fd_shred_dest_join( fd_shred_dest_new( _sd_footprint, info, cnt, lsched, &info[ 1 ].pubkey, TEST_HASH_SEED ) );
+  FD_TEST( sdest );
+  int any_dest = 0;
+  for( ulong slot=0UL; slot<100UL && !any_dest; slot++ ) {
+    if( !memcmp( fd_epoch_leaders_get( lsched, slot ), &info[ 1 ].pubkey, 32UL ) ) continue;
+    for( ulong j=0UL; j<4UL; j++ ) shred[ j ].slot = slot;
+    memset( tight, 0x11, sizeof(tight) );
+    FD_TEST( tight==fd_shred_dest_compute_children( sdest, shred_ptr, 4UL, tight, 4UL, fanout, fanout, &max_dest_cnt ) );
+    any_dest |= max_dest_cnt>0UL;
+  }
+  FD_TEST( any_dest );
+
+  fd_shred_dest_delete( fd_shred_dest_leave( sdest ) );
+  fd_epoch_leaders_delete( fd_epoch_leaders_leave( lsched ) );
+}
+
 static void
 test_change_contact( void ) {
   ulong cnt = t1_dest_info_sz / sizeof(fd_shred_dest_weighted_t);
@@ -413,6 +477,8 @@ main( int     argc,
   test_t1_vary_radix();
   FD_LOG_NOTICE(( "Testing batching" ));
   test_batching();
+  FD_LOG_NOTICE(( "Testing unstaked NO_DEST fill" ));
+  test_unstaked_no_dest();
   FD_LOG_NOTICE(( "Testing contact change" ));
   test_change_contact();
   FD_LOG_NOTICE(( "Testing performance" ));

@@ -1,8 +1,9 @@
 /* The mwaitx tile converts doorbell rings into futex wakes: it naps in
    hardware wake-on-store on the doorbell cache line (umonitor/umwait
    on Intel, monitorx/mwaitx on AMD, pause spin fallback), and is the
-   sole issuer of FUTEX_WAKE in the system.  It also services parked
-   tiles' deadlines and runs the verifying sweep (seq_mirror vs
+   sole issuer of FUTEX_WAKE in the system (a tile parked in epoll on
+   its own fds is woken through its eventfd instead).  It also services
+   parked tiles' deadlines and runs the verifying sweep (seq_mirror vs
    seq_snap) that bounds any lost doorbell to ~one nap. */
 
 #include "fd_sleep.h"
@@ -33,6 +34,9 @@ struct fd_mwaitx_tile {
   /* polled in link ids per tile, for the verifying sweep */
   uint  in_cnt [ FD_SLEEP_TILE_MAX ];
   uint  in_link[ FD_SLEEP_TILE_MAX ][ FD_SLEEP_IN_MAX ];
+
+  /* eventfd doorbell per tile, -1 for a futex waiter */
+  int   eventfd[ FD_SLEEP_TILE_MAX ];
 
   long  next_sweep; /* tick of the next deadline/sweep pass */
 
@@ -90,6 +94,16 @@ idle_mwaitx( ulong const * line,
 
 #endif
 
+static inline void
+wake( fd_mwaitx_tile_t * ctx,
+      ulong              tid,
+      int                cause ) {
+  int eventfd = ctx->eventfd[ tid ];
+  if( FD_UNLIKELY( eventfd>=0 ) ) fd_sleep_wake_eventfd( &ctx->sleep->tile[ tid ].word, eventfd, cause );
+  else                            fd_sleep_wake_one    ( &ctx->sleep->tile[ tid ].word, cause );
+  ctx->metrics_wake++;
+}
+
 static void
 before_credit( fd_mwaitx_tile_t *   ctx,
                fd_stem_context_t * stem,
@@ -123,17 +137,16 @@ before_credit( fd_mwaitx_tile_t *   ctx,
     while( rung ) {
       ulong tid = (w<<6) + (ulong)fd_ulong_find_lsb( rung );
       rung &= rung-1UL;
-      if( FD_LIKELY( !FD_VOLATILE_CONST( ctx->sleep->tile[ tid ].word ) ) ) {
-        fd_sleep_wake_one( &ctx->sleep->tile[ tid ].word );
-        ctx->metrics_wake++;
-      }
+      if( FD_LIKELY( !FD_VOLATILE_CONST( ctx->sleep->tile[ tid ].word ) ) ) wake( ctx, tid, FD_SLEEP_UNPARK_RING );
       *charge_busy = 1;
     }
   }
 
   /* Every nap period, service tile deadlines, and sweep all parked
      tiles to catch any lost doorbells due to small unavoidable race
-     windows in the read-then-park sequence. */
+     windows in the read-then-park sequence.  A tile with nothing due
+     parks untimed and relies on this pass for its cap, so every parked
+     tile is visited every pass. */
 
   if( FD_LIKELY( now<ctx->next_sweep ) ) return;
   ctx->next_sweep = now+MWAITX_NAP_TICKS;
@@ -145,9 +158,9 @@ before_credit( fd_mwaitx_tile_t *   ctx,
       parked &= parked-1UL;
       if( FD_UNLIKELY( FD_VOLATILE_CONST( ctx->sleep->tile[ tid ].word ) ) ) continue; /* already woken */
 
-      int wake = 0;
+      int cause = -1;
       if( FD_UNLIKELY( (long)FD_VOLATILE_CONST( ctx->sleep->tile[ tid ].deadline )<=now ) ) {
-        wake = 1;
+        cause = FD_SLEEP_UNPARK_DEADLINE;
         ctx->metrics_deadline++;
       } else if( FD_LIKELY( !(FD_VOLATILE_CONST( ctx->sleep->credit_bits[ w ] ) & (1UL<<(tid&63UL))) ) ) {
         /* Producer mirror is ahead of the parked tile's snapshot, a
@@ -155,18 +168,17 @@ before_credit( fd_mwaitx_tile_t *   ctx,
            A tile parked on backpressure (credit bit) cannot use a
            frag; only its deadline or a credit ring wakes it. */
         for( ulong i=0UL; i<(ulong)ctx->in_cnt[ tid ]; i++ ) {
-          ulong mirror = FD_VOLATILE_CONST( ctx->sleep->seq_mirror[ ctx->in_link[ tid ][ i ] ] );
+          ulong mirror = __atomic_load_n( &ctx->sleep->seq_mirror[ ctx->in_link[ tid ][ i ] ], __ATOMIC_ACQUIRE );
           if( FD_UNLIKELY( fd_seq_lt( FD_VOLATILE_CONST( ctx->sleep->seq_snap[ tid ][ i ] ), mirror ) ) ) {
-            wake = 1;
+            cause = FD_SLEEP_UNPARK_RING;
             ctx->metrics_sweep++;
             break;
           }
         }
       }
 
-      if( FD_UNLIKELY( wake ) ) {
-        fd_sleep_wake_one( &ctx->sleep->tile[ tid ].word );
-        ctx->metrics_wake++;
+      if( FD_UNLIKELY( cause>=0 ) ) {
+        wake( ctx, tid, cause );
         *charge_busy = 1;
       }
     }
@@ -186,8 +198,10 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->tile_cnt = topo->tile_cnt;
 
   for( ulong i=0UL; i<FD_SLEEP_TILE_MAX; i++ ) ctx->in_cnt[ i ] = 0U;
+  for( ulong i=0UL; i<FD_SLEEP_TILE_MAX; i++ ) ctx->eventfd[ i ] = -1;
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t const * t = &topo->tiles[ i ];
+    if( FD_UNLIKELY( t->sleep_eventfd ) ) ctx->eventfd[ t->id ] = FD_SLEEP_EVENTFD( t->id );
     ulong polled = 0UL;
     for( ulong j=0UL; j<t->in_cnt; j++ ) {
       if( FD_UNLIKELY( !t->in_link_poll[ j ] ) ) continue;
@@ -222,10 +236,19 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           fd_topo_tile_t const * tile,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
-  (void)topo;
   (void)tile;
 
-  populate_sock_filter_policy_fd_mwaitx_tile( out_cnt, out, (uint)fd_log_private_logfile_fd() );
+  ulong id_lo = ULONG_MAX;
+  ulong id_hi = 0UL;
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    if( FD_LIKELY( !topo->tiles[ i ].sleep_eventfd ) ) continue;
+    id_lo = fd_ulong_min( id_lo, topo->tiles[ i ].id     );
+    id_hi = fd_ulong_max( id_hi, topo->tiles[ i ].id+1UL );
+  }
+  if( FD_LIKELY( id_lo==ULONG_MAX ) ) id_lo = id_hi = 0UL;
+
+  populate_sock_filter_policy_fd_mwaitx_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(),
+                                              (uint)FD_SLEEP_EVENTFD( id_lo ), (uint)FD_SLEEP_EVENTFD( id_hi ) );
   return sock_filter_policy_fd_mwaitx_tile_instr_cnt;
 }
 
@@ -234,7 +257,6 @@ populate_allowed_fds( fd_topo_t const *      topo,
                       fd_topo_tile_t const * tile,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
-  (void)topo;
   (void)tile;
 
   if( FD_UNLIKELY( out_fds_cnt<2UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
@@ -243,6 +265,11 @@ populate_allowed_fds( fd_topo_t const *      topo,
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    if( FD_LIKELY( !topo->tiles[ i ].sleep_eventfd ) ) continue;
+    if( FD_UNLIKELY( out_cnt>=out_fds_cnt ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+    out_fds[ out_cnt++ ] = FD_SLEEP_EVENTFD( topo->tiles[ i ].id ); /* eventfd doorbell */
+  }
   return out_cnt;
 }
 

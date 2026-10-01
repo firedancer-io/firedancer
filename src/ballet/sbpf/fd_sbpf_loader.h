@@ -103,7 +103,12 @@
    */
 #define FD_SBPF_TEXT_CNT_MAX (FD_RUNTIME_ACC_SZ_MAX / 8UL)
 #define FD_SBPF_CALLDESTS_PRIVATE_WORD_CNT ( (FD_SBPF_TEXT_CNT_MAX +63UL)>>6 )
-#define FD_SBPF_PROGRAM_FOOTPRINT (sizeof(fd_sbpf_program_t) + sizeof(fd_sbpf_calldests_private_t)-sizeof(ulong) + sizeof(ulong)*FD_SBPF_CALLDESTS_PRIVATE_WORD_CNT )
+#define FD_SBPF_PROGRAM_FOOTPRINT                                      \
+  FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_INIT,  \
+    alignof(fd_sbpf_program_t), sizeof(fd_sbpf_program_t) ),           \
+    alignof(fd_sbpf_calldests_private_t),                              \
+    sizeof(fd_sbpf_calldests_private_t)-sizeof(ulong) + sizeof(ulong)*FD_SBPF_CALLDESTS_PRIVATE_WORD_CNT ), \
+    alignof(fd_sbpf_program_t) )
 
 /* fd_sbpf_syscall_func_t is a callback implementing an sBPF syscall.
    vm is a handle to the running VM.  Returns 0 on success or an integer
@@ -121,8 +126,7 @@ typedef int
                            ulong   arg1,
                            ulong   arg2,
                            ulong   arg3,
-                           ulong   arg4,
-                           ulong * _ret );
+                           ulong   arg4 );
 
 /* fd_sbpf_syscalls_t maps syscall IDs => a name and a VM specific
    context.  FIXME: THIS ALSO PROBABLY BELONGS IN FLAMENCO/VM */

@@ -227,5 +227,34 @@ fd_txn_parse_simple_vote( fd_txn_t const *                txn,
   return 0;
 }
 
+int
+fd_compact_tower_sync_to_votes( fd_compact_tower_sync_serde_t const * serde,
+                                fd_tower_vote_t *                     out,
+                                ulong *                               out_cnt,
+                                ulong *                               out_root ) {
+  if( FD_UNLIKELY( serde->lockouts_cnt>FD_TOWER_VOTE_MAX ) ) return -1;
+
+  fd_tower_vote_t votes[ FD_TOWER_VOTE_MAX ];
+  ulong slot      = fd_ulong_if( serde->root==ULONG_MAX, 0UL, serde->root );
+  ulong prev_conf = FD_TOWER_VOTE_MAX+1UL;
+  /* Only the vote below is checked, Agave pops expired votes from the
+     top only, so a deeper expired vote is a normal state. */
+  for( ulong i=0UL; i<serde->lockouts_cnt; i++ ) {
+    ulong offset = serde->lockouts[ i ].offset;
+    ulong conf   = serde->lockouts[ i ].confirmation_count;
+    int repeats_slot = !offset && (i || serde->root!=ULONG_MAX);
+    if( FD_UNLIKELY( repeats_slot || offset>ULONG_MAX-slot || !conf ||
+                     conf>=prev_conf || conf>FD_TOWER_VOTE_MAX ) ) return -1;
+    if( FD_UNLIKELY( i && offset>(1UL<<prev_conf) ) ) return -1;
+    slot += offset;
+    votes[ i ] = (fd_tower_vote_t){ .slot=slot, .conf=conf };
+    prev_conf = conf;
+  }
+  fd_memcpy( out, votes, serde->lockouts_cnt*sizeof(fd_tower_vote_t) );
+  *out_cnt  = serde->lockouts_cnt;
+  *out_root = serde->root;
+  return 0;
+}
+
 #undef DE
 #undef SER

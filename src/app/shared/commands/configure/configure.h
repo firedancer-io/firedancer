@@ -78,6 +78,7 @@ typedef struct configure_stage {
 } configure_stage_t;
 
 extern configure_stage_t fd_cfg_stage_hugetlbfs;
+extern configure_stage_t fd_cfg_stage_uverbs;
 extern configure_stage_t fd_cfg_stage_sysctl;
 extern configure_stage_t fd_cfg_stage_hyperthreads;
 extern configure_stage_t fd_cfg_stage_bonding;

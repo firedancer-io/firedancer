@@ -1,12 +1,7 @@
 $(call add-hdrs,fd_blake3.h)
 $(call add-objs,fd_blake3,fd_ballet)
-# portable compress: production fallback when FD_BLAKE3_PARA_MAX==1, else test-only
-ifneq ($(FD_HAS_AVX)$(FD_HAS_SVE2),)
-TEST_BLAKE3_OBJS:=test_blake3 fd_blake3_ref
-else
 $(call add-objs,fd_blake3_ref,fd_ballet)
 TEST_BLAKE3_OBJS:=test_blake3
-endif
 ifdef FD_HAS_SSE
 $(call add-objs,fd_blake3_sse41,fd_ballet)
 endif

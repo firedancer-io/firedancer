@@ -12,6 +12,9 @@
    max_shreds_per_block at runtime. */
 #define FD_SCHED_MAX_MBLK_PER_SLOT (MAX_SKIPPED_TICKS)
 
+/* Most exec tiles a scheduler can dispatch to. */
+#define FD_SCHED_MAX_EXEC_TILE_CNT (64UL)
+
 /* fd_sched wraps all the smarts and mechanical chores around scheduling
    transactions for replay execution.  It is built on top of the
    dispatcher fd_rdisp.  The dispatcher is responsible for high

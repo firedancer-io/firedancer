@@ -56,8 +56,8 @@ fd_keyguard_client_new( void *           shmem,
 }
 
 /* fd_keyguard_client_sign_sz is the common request/response path.
-   signature_sz is the size of the signature the sign tile responds
-   with for sign_type. */
+   signature_sz is the response size for the request sig, including
+   public-key queries. */
 
 static void
 fd_keyguard_client_sign_sz( fd_keyguard_client_t * client,
@@ -65,19 +65,18 @@ fd_keyguard_client_sign_sz( fd_keyguard_client_t * client,
                             ulong                  signature_sz,
                             uchar const *          sign_data,
                             ulong                  sign_data_len,
-                            int                    sign_type ) {
+                            ulong                  sig ) {
   FD_TEST( sign_data_len<=client->request_mtu );
 
   uchar * dst = fd_chunk_to_laddr( client->request_mem, client->request_chunk );
   fd_memcpy( dst, sign_data, sign_data_len );
 
-  ulong sig = (ulong)(uint)sign_type;
   fd_keyguard_client_publish( client, sig, sign_data_len );
   client->request_seq   = fd_seq_inc( client->request_seq, 1UL );
   client->request_chunk = fd_dcache_compact_next( client->request_chunk, sign_data_len, client->request_chunk0, client->request_wmark );
 
   if( FD_UNLIKELY( client->sleep ) ) {
-    FD_VOLATILE( client->sleep->seq_mirror[ client->request_link_id ] ) = client->request_seq;
+    __atomic_store_n( &client->sleep->seq_mirror[ client->request_link_id ], client->request_seq, __ATOMIC_RELEASE );
     fd_sleep_wake_check( client->sleep, &client->wake, 1UL );
   }
 
@@ -112,8 +111,36 @@ fd_keyguard_client_sign( fd_keyguard_client_t * client,
                          uchar const *          sign_data,
                          ulong                  sign_data_len,
                          int                    sign_type ) {
-  ulong signature_sz = fd_ulong_if( sign_type==FD_KEYGUARD_SIGN_TYPE_BLS, FD_KEYGUARD_BLS_SIG_SZ, 64UL );
-  fd_keyguard_client_sign_sz( client, signature, signature_sz, sign_data, sign_data_len, sign_type );
+  ulong signature_sz;
+  switch( sign_type ) {
+    case FD_KEYGUARD_SIGN_TYPE_BLS:        signature_sz = FD_KEYGUARD_BLS_SIG_SZ;    break;
+    case FD_KEYGUARD_SIGN_TYPE_BLS_PUBKEY: signature_sz = FD_KEYGUARD_BLS_PUBKEY_SZ; break;
+    default:                               signature_sz = FD_ED25519_SIG_SZ;         break;
+  }
+  fd_keyguard_client_sign_sz( client, signature, signature_sz, sign_data, sign_data_len, (ulong)(uint)sign_type );
+}
+
+void
+fd_keyguard_client_ag_vote_sign( fd_keyguard_client_t * client,
+                                 uchar *                signature,
+                                 ulong                  authority_idx,
+                                 uchar const *          sign_data,
+                                 ulong                  sign_data_len ) {
+  FD_CHECK_CRIT( authority_idx==ULONG_MAX || authority_idx<FD_KEYGUARD_AUTH_VOTERS_MAX, "unexpected authorized voter index" );
+
+  /* Same encoding as fd_keyguard_client_vote_txn_sign. */
+
+  ulong sig = (ulong)FD_KEYGUARD_SIGN_TYPE_BLS;
+  if( authority_idx!=ULONG_MAX ) sig |= (1UL << 32) | (authority_idx << 33);
+  fd_keyguard_client_sign_sz( client, signature, FD_KEYGUARD_BLS_SIG_SZ, sign_data, sign_data_len, sig );
+}
+
+void
+fd_keyguard_client_bls_pubkey( fd_keyguard_client_t * client,
+                               uchar *                public_key,
+                               ulong                  authority_idx ) {
+  FD_CHECK_CRIT( authority_idx==ULONG_MAX || authority_idx<FD_KEYGUARD_AUTH_VOTERS_MAX, "unexpected authorized voter index" );
+  fd_keyguard_client_sign( client, public_key, (uchar const *)&authority_idx, sizeof(authority_idx), FD_KEYGUARD_SIGN_TYPE_BLS_PUBKEY );
 }
 
 void
@@ -123,9 +150,7 @@ fd_keyguard_client_vote_txn_sign( fd_keyguard_client_t * client,
                                   uchar const *          sign_data,
                                   ulong                  sign_data_len ) {
   FD_CHECK_CRIT( sign_data_len<=client->request_mtu, "the request is too large and will not fit in the mtu" );
-  FD_CHECK_CRIT( authority_idx==ULONG_MAX || authority_idx<16UL, "unexpected authorized voter index" );
-
-  uchar * dst = fd_chunk_to_laddr( client->request_mem, client->request_chunk );
+  FD_CHECK_CRIT( authority_idx==ULONG_MAX || authority_idx<FD_KEYGUARD_AUTH_VOTERS_MAX, "unexpected authorized voter index" );
 
   /* In the signature of the message we use the lower 32 bits to
      indicate the sign type.  We can use the upper 32 bits to encode if
@@ -138,38 +163,6 @@ fd_keyguard_client_vote_txn_sign( fd_keyguard_client_t * client,
 
   ulong sig = 0UL;
   if( authority_idx!=ULONG_MAX ) sig |= (1UL << 32) | (authority_idx << 33);
-  memcpy( dst, sign_data, sign_data_len );
-
-  fd_keyguard_client_publish( client, sig, sign_data_len );
-  client->request_seq   = fd_seq_inc( client->request_seq, 1UL );
-  client->request_chunk = fd_dcache_compact_next( client->request_chunk, sign_data_len, client->request_chunk0, client->request_wmark );
-
-  if( FD_UNLIKELY( client->sleep ) ) {
-    FD_VOLATILE( client->sleep->seq_mirror[ client->request_link_id ] ) = client->request_seq;
-    fd_sleep_wake_check( client->sleep, &client->wake, 1UL );
-  }
-
-  fd_frag_meta_t meta;
-  fd_frag_meta_t const * mline;
-  ulong seq_found;
-  long seq_diff;
-  ulong poll_max = ULONG_MAX;
-  FD_MCACHE_WAIT( &meta, mline, seq_found, seq_diff, poll_max, client->response, client->response_depth, client->response_seq );
-  if( FD_UNLIKELY( !poll_max ) ) FD_LOG_ERR(( "sign request timed out while polling" ));
-  if( FD_UNLIKELY( seq_diff ) ) FD_LOG_ERR(( "sign request was overrun while polling" ));
-  FD_HW_MFENCE_LD();
-
-  /* Chunk is in shared memory and might be be written to by an
-      attacking tile after we validate it, so load once. */
-  ulong chunk = FD_VOLATILE_CONST( mline->chunk );
-  FD_TEST( chunk>=client->response_chunk0 && chunk<=client->response_wmark );
-
-  uchar * src = fd_chunk_to_laddr( client->response_mem, chunk );
-  memcpy( signatures, src, 64UL );
-  if( authority_idx!=ULONG_MAX ) memcpy( signatures+64UL, src+64UL, 64UL );
-
-  FD_HW_MFENCE_LD();
-  seq_found = fd_frag_meta_seq_query( mline );
-  if( FD_UNLIKELY( fd_seq_ne( seq_found, client->response_seq ) ) ) FD_LOG_ERR(( "sign request was overrun while reading" ));
-  client->response_seq = fd_seq_inc( client->response_seq, 1UL );
+  ulong signatures_sz = fd_ulong_if( authority_idx!=ULONG_MAX, 2UL*FD_ED25519_SIG_SZ, FD_ED25519_SIG_SZ );
+  fd_keyguard_client_sign_sz( client, signatures, signatures_sz, sign_data, sign_data_len, sig );
 }

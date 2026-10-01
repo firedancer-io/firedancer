@@ -13,6 +13,7 @@
 #include "../../disco/fd_txn_p.h"
 #include "../../disco/events/generated/fd_event_gen.h"
 #include "../../disco/shred/fd_shred_tile.h"
+#include "../../disco/keyguard/fd_keyguard.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
 #include "../../disco/metrics/fd_metrics.h"
@@ -900,7 +901,11 @@ count_vote_txn( fd_tower_tile_t * ctx,
   int hfork_err = fd_hfork_count_vote( ctx->hfork, vote_acc, their_block_id, their_bank_hash, their_last_vote->slot, vtr->stake, total_stake );
   update_metrics_hfork( ctx, hfork_err, their_last_vote->slot, their_block_id );
 
-  int votes_err = fd_votes_count_vote( ctx->votes, vote_acc, vtr->stake, their_last_vote->slot, their_block_id );
+  /* One voter lookup, shared by every slot of this txn (the voter set
+     only changes at epoch boundaries, outside this function). */
+  fd_votes_vtr_t * votes_vtr = fd_votes_vtr_query( ctx->votes, vote_acc );
+
+  int votes_err = fd_votes_count_vote_vtr( ctx->votes, votes_vtr, vtr->stake, their_last_vote->slot, their_block_id );
   update_metrics_vote_slot( ctx, votes_err );
   if( FD_LIKELY( votes_err==FD_VOTES_SUCCESS ) ) publish_slot_confirmed( ctx, their_last_vote->slot, their_block_id, total_stake );
 
@@ -918,8 +923,13 @@ count_vote_txn( fd_tower_tile_t * ctx,
 
      https://github.com/anza-xyz/agave/blob/v2.3.7/core/src/cluster_info_vote_listener.rs#L483-L487 */
 
-  if( FD_UNLIKELY( !fd_tower_blocks_query( ctx->tower, their_last_vote->slot ) ) ) { ctx->metrics.gate_int[ FD_METRICS_ENUM_VOTE_INTERMEDIATE_GATE_V_UNKNOWN_SLOT_IDX ]++; return; }; /* we haven't replayed this block yet */
-  fd_hash_t const * our_block_id = fd_tower_blocks_canonical_block_id( ctx->tower, their_last_vote->slot );
+  fd_tower_blk_t const * our_blk = fd_tower_blocks_query( ctx->tower, their_last_vote->slot );
+  if( FD_UNLIKELY( !our_blk ) ) {
+     /* we haven't replayed this block yet */
+    ctx->metrics.gate_int[ FD_METRICS_ENUM_VOTE_INTERMEDIATE_GATE_V_UNKNOWN_SLOT_IDX ]++;
+    return;
+  };
+  fd_hash_t const * our_block_id = fd_tower_blk_canonical_block_id( our_blk );
   if( FD_UNLIKELY( 0!=memcmp( our_block_id, their_block_id, sizeof(fd_hash_t) ) ) ) { ctx->metrics.gate_int[ FD_METRICS_ENUM_VOTE_INTERMEDIATE_GATE_V_UNKNOWN_BLOCK_ID_IDX ]++; return; } /* we don't recognize this block id */
 
   /* At this point, we know we have replayed the same slot and also have
@@ -955,7 +965,7 @@ count_vote_txn( fd_tower_tile_t * ctx,
 
     if( FD_UNLIKELY( their_intermediate_vote->slot <= ctx->tower->root ) ) { ctx->metrics.vote_slots[ FD_METRICS_ENUM_VOTE_SLOT_RESULT_V_TOO_OLD_IDX ]++; continue; }
 
-    fd_tower_blk_t * tower_blk = fd_tower_blocks_query( ctx->tower, their_intermediate_vote->slot );
+    fd_tower_blk_t const * tower_blk = fd_tower_blocks_query( ctx->tower, their_intermediate_vote->slot );
     if( FD_UNLIKELY( !tower_blk ) ) { ctx->metrics.vote_slots[ FD_METRICS_ENUM_VOTE_SLOT_RESULT_V_UNKNOWN_SLOT_IDX ]++; continue; }
 
     /* Otherwise, we count the vote using our own block id for that slot
@@ -966,8 +976,8 @@ count_vote_txn( fd_tower_tile_t * ctx,
 
        https://github.com/anza-xyz/agave/blob/v2.3.7/core/src/cluster_info_vote_listener.rs#L500 */
 
-    fd_hash_t const * intermediate_block_id = fd_tower_blocks_canonical_block_id( ctx->tower, their_intermediate_vote->slot );
-    int votes_err = fd_votes_count_vote( ctx->votes, vote_acc, vtr->stake, their_intermediate_vote->slot, intermediate_block_id );
+    fd_hash_t const * intermediate_block_id = fd_tower_blk_canonical_block_id( tower_blk );
+    int votes_err = fd_votes_count_vote_vtr( ctx->votes, votes_vtr, vtr->stake, their_intermediate_vote->slot, intermediate_block_id );
     update_metrics_vote_slot( ctx, votes_err );
     if( FD_LIKELY( votes_err==FD_VOTES_SUCCESS ) ) publish_slot_confirmed( ctx, their_intermediate_vote->slot, intermediate_block_id, total_stake );
   }
@@ -1523,7 +1533,7 @@ during_housekeeping( fd_tower_tile_t * ctx ) {
     if( FD_LIKELY( param==FD_KEYSWITCH_PARAM_AV_ADD ) ) {
       fd_pubkey_t pubkey = *(fd_pubkey_t const *)fd_type_pun_const( ctx->auth_vtr_keyswitch->bytes );
       if( FD_UNLIKELY( auth_vtr_query( ctx->auth_vtr, pubkey, NULL ) ) ) FD_LOG_CRIT(( "keyswitch: duplicate authorized voter key, keys not synced up with sign tile" ));
-      if( FD_UNLIKELY( ctx->auth_vtr_path_cnt==AUTH_VOTERS_MAX ) ) FD_LOG_CRIT(( "keyswitch: too many authorized voters, keys not synced up with sign tile" ));
+      if( FD_UNLIKELY( ctx->auth_vtr_path_cnt==FD_KEYGUARD_AUTH_VOTERS_MAX ) ) FD_LOG_CRIT(( "keyswitch: too many authorized voters, keys not synced up with sign tile" ));
 
       auth_vtr_t * auth_vtr = auth_vtr_insert( ctx->auth_vtr, pubkey );
       auth_vtr->paths_idx = ctx->auth_vtr_path_cnt;
@@ -1561,13 +1571,18 @@ during_housekeeping( fd_tower_tile_t * ctx ) {
   }
 
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->identity_keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
-    FD_LOG_DEBUG(( "keyswitch: halting signing" ));
+    ulong seq_must_complete = fd_keyswitch_param_query( ctx->identity_keyswitch );
+    if( FD_UNLIKELY( fd_seq_lt( ctx->replay_in_seq, seq_must_complete ) ) ) return;
+
+    if( FD_LIKELY( !ctx->halt_signing ) ) FD_LOG_DEBUG(( "keyswitch: halting signing" ));
+    ctx->halt_signing = 1;
+    if( FD_UNLIKELY( !publishes_empty( ctx->publishes ) ) ) return;
+
     memcpy( ctx->identity_key, ctx->identity_keyswitch->bytes, 32UL );
     FD_BASE58_ENCODE_32_BYTES( ctx->identity_key->uc, pubkey_str );
     FD_LOG_INFO(( "my identity key: %s (key switched)", pubkey_str ));
-    fd_keyswitch_state( ctx->identity_keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
-    ctx->halt_signing               = 1;
     ctx->identity_keyswitch->result = ctx->out_seq;
+    fd_keyswitch_state( ctx->identity_keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
   }
 }
 
@@ -1627,11 +1642,15 @@ after_credit( fd_tower_tile_t *   ctx,
 static inline int
 before_frag( fd_tower_tile_t * ctx,
              ulong             in_idx,
-             ulong             seq FD_PARAM_UNUSED,
+             ulong             seq,
              ulong             sig ) {
   switch( ctx->in_kind[ in_idx ] ) {
   case IN_KIND_GOSSIP: return sig!=FD_GOSSIP_UPDATE_TAG_DUPLICATE_SHRED;
-  case IN_KIND_REPLAY: return sig!=REPLAY_SIG_SLOT_COMPLETED && sig!=REPLAY_SIG_SLOT_DEAD && sig!=REPLAY_SIG_TXN_EXECUTED;
+  case IN_KIND_REPLAY: {
+    int filter = sig!=REPLAY_SIG_SLOT_COMPLETED && sig!=REPLAY_SIG_SLOT_DEAD && sig!=REPLAY_SIG_TXN_EXECUTED;
+    if( filter ) ctx->replay_in_seq = seq+1UL;
+    return filter;
+  }
   case IN_KIND_SHRED:  return fd_shred_sig_src( sig )!=SHRED_SIG_SRC_TURBINE && fd_shred_sig_src( sig )!=SHRED_SIG_SRC_REPAIR;
   default:             return 0;
   }
@@ -1640,7 +1659,7 @@ before_frag( fd_tower_tile_t * ctx,
 static inline int
 returnable_frag( fd_tower_tile_t *   ctx,
                  ulong               in_idx,
-                 ulong               seq FD_PARAM_UNUSED,
+                 ulong               seq,
                  ulong               sig,
                  ulong               chunk,
                  ulong               sz,
@@ -1707,7 +1726,7 @@ returnable_frag( fd_tower_tile_t *   ctx,
       break;
     case REPLAY_SIG_SLOT_DEAD:;
       fd_replay_slot_dead_t * slot_dead = (fd_replay_slot_dead_t *)fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
-      if( FD_UNLIKELY( slot_dead->slot < ctx->tower->root ) ) return 0; /* ignore dead slots before root */
+      if( FD_UNLIKELY( slot_dead->slot < ctx->tower->root ) ) break; /* ignore dead slots before root */
       fd_epoch_leaders_t const * lsched = fd_multi_epoch_leaders_get_lsched_for_slot( ctx->mleaders, slot_dead->slot );
       FD_TEST( lsched );
       FD_TEST( lsched->epoch==ctx->root_epoch || lsched->epoch==ctx->root_epoch + 1 );
@@ -1718,12 +1737,13 @@ returnable_frag( fd_tower_tile_t *   ctx,
     case REPLAY_SIG_TXN_EXECUTED:;
       FD_TEST( ctx->init ); /* replay_txn_executed should never be received before replay_slot_completed, which sets init to 1. */
       fd_replay_txn_executed_t * txn_executed = fd_type_pun( fd_chunk_to_laddr( ctx->in[in_idx].mem, chunk ) );
-      if( FD_UNLIKELY( !txn_executed->is_committable || txn_executed->is_fees_only || txn_executed->txn_err ) ) return 0;
+      if( FD_UNLIKELY( !txn_executed->is_committable || txn_executed->is_fees_only || txn_executed->txn_err ) ) break;
       count_vote_txn( ctx, TXN(txn_executed->txn), txn_executed->txn->payload );
       break;
     default:
       break;
     }
+    ctx->replay_in_seq = seq+1UL;
     return 0;
   }
   case IN_KIND_SHRED: {
@@ -1850,11 +1870,12 @@ unprivileged_init( fd_topo_t const *      topo,
     }
   }
 
-  ctx->out_mem    = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ 0 ] ].dcache_obj_id ].wksp_id ].wksp;
-  ctx->out_chunk0 = fd_dcache_compact_chunk0( ctx->out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache );
-  ctx->out_wmark  = fd_dcache_compact_wmark ( ctx->out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache, topo->links[ tile->out_link_id[ 0 ] ].mtu );
-  ctx->out_chunk  = ctx->out_chunk0;
-  ctx->out_seq    = 0UL;
+  ctx->out_mem       = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ 0 ] ].dcache_obj_id ].wksp_id ].wksp;
+  ctx->out_chunk0    = fd_dcache_compact_chunk0( ctx->out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache );
+  ctx->out_wmark     = fd_dcache_compact_wmark ( ctx->out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache, topo->links[ tile->out_link_id[ 0 ] ].mtu );
+  ctx->out_chunk     = ctx->out_chunk0;
+  ctx->out_seq       = 0UL;
+  ctx->replay_in_seq = 0UL;
 
   FD_BASE58_ENCODE_32_BYTES( ctx->vote_account->uc, vote_account_b58 );
   FD_BASE58_ENCODE_32_BYTES( ctx->identity_key->uc, identity_key_b58 );

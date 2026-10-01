@@ -639,6 +639,19 @@ fd_tower_blocks_lowest_common_ancestor( fd_tower_t * tower,
                                         ulong        slot1,
                                         ulong        slot2 );
 
+/* fd_tower_blk_canonical_block_id returns the block id we treat as
+   canonical for blk: the confirmed one, else the one we voted for,
+   else the replayed one.  blk must be a valid block map entry; the
+   returned pointer is into blk and stays valid while blk does.
+   fd_tower_blocks_canonical_block_id is the same on a slot lookup. */
+
+static inline fd_hash_t const *
+fd_tower_blk_canonical_block_id( fd_tower_blk_t const * blk ) {
+  if     ( FD_LIKELY( blk->confirmed ) ) return &blk->confirmed_block_id;
+  else if( FD_LIKELY( blk->voted     ) ) return &blk->voted_block_id;
+  else                                   return &blk->replayed_block_id;
+}
+
 fd_hash_t const *
 fd_tower_blocks_canonical_block_id( fd_tower_t * tower,
                                     ulong        slot );

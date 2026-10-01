@@ -10,12 +10,14 @@ struct fd_topo_cpu {
   ulong numa_node;
   ulong sibling;
   ulong die_idx;
+  ulong l3_idx;
 };
 
 typedef struct fd_topo_cpu fd_topo_cpu_t;
 
 struct fd_topo_cpus {
   ulong         numa_node_cnt;
+  ulong         l3_cnt;
 
   ulong         cpu_cnt;
   fd_topo_cpu_t cpu[ FD_TILE_MAX ];
@@ -34,6 +36,13 @@ fd_topo_cpus_init( fd_topo_cpus_t * cpus );
 
 void
 fd_topo_cpus_printf( fd_topo_cpus_t * cpus );
+
+/* fd_topo_cpus_l3_complete returns 1 if the host has more than one L3
+   domain and every online CPU has a known one, the precondition for a
+   layout that places tiles by L3. */
+
+int
+fd_topo_cpus_l3_complete( fd_topo_cpus_t const * cpus );
 
 FD_PROTOTYPES_END
 

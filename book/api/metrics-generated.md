@@ -81,6 +81,14 @@
 | <span class="metrics-name">ipecho_&#8203;conn_&#8203;closed</span><br/>{conn_&#8203;close_&#8203;result="<span class="metrics-enum">error</span>"} | counter | Connections to the ipecho service made and closed, by outcome (Closed abnormally) |
 | <span class="metrics-name">ipecho_&#8203;bytes_&#8203;read</span> | counter | Bytes read from all connections to the ipecho service |
 | <span class="metrics-name">ipecho_&#8203;bytes_&#8203;written</span> | counter | Bytes written to all connections to the ipecho service |
+| <span class="metrics-name">ipecho_&#8203;port_&#8203;check_&#8203;udp_&#8203;sent</span> | counter | Port check UDP packets sent by the ipecho service to the joiner's UDP ports |
+| <span class="metrics-name">ipecho_&#8203;port_&#8203;check_&#8203;tcp</span><br/>{port_&#8203;check_&#8203;tcp_&#8203;result="<span class="metrics-enum">connected</span>"} | counter | Port check TCP connections opened by the ipecho service to the joiner's TCP ports, by outcome (Port check connections connected to the joiner's port) |
+| <span class="metrics-name">ipecho_&#8203;port_&#8203;check_&#8203;tcp</span><br/>{port_&#8203;check_&#8203;tcp_&#8203;result="<span class="metrics-enum">failed</span>"} | counter | Port check TCP connections opened by the ipecho service to the joiner's TCP ports, by outcome (Port check connections refused or errored) |
+| <span class="metrics-name">ipecho_&#8203;port_&#8203;check_&#8203;tcp</span><br/>{port_&#8203;check_&#8203;tcp_&#8203;result="<span class="metrics-enum">timeout</span>"} | counter | Port check TCP connections opened by the ipecho service to the joiner's TCP ports, by outcome (Port check connections timed out) |
+| <span class="metrics-name">ipecho_&#8203;port_&#8203;check_&#8203;tcp</span><br/>{port_&#8203;check_&#8203;tcp_&#8203;result="<span class="metrics-enum">dropped</span>"} | counter | Port check TCP connections opened by the ipecho service to the joiner's TCP ports, by outcome (Port check connections not attempted because the socket could not be created) |
+| <span class="metrics-name">ipecho_&#8203;port_&#8203;check_&#8203;tcp</span><br/>{port_&#8203;check_&#8203;tcp_&#8203;result="<span class="metrics-enum">rejected_&#8203;per_&#8203;ip</span>"} | counter | Port check TCP connections opened by the ipecho service to the joiner's TCP ports, by outcome (Port check connections rejected because too many were in flight for a particular IP) |
+| <span class="metrics-name">ipecho_&#8203;port_&#8203;check_&#8203;tcp</span><br/>{port_&#8203;check_&#8203;tcp_&#8203;result="<span class="metrics-enum">evicted</span>"} | counter | Port check TCP connections opened by the ipecho service to the joiner's TCP ports, by outcome (Port check connections evicted because there were too many in flight connections) |
+| <span class="metrics-name">ipecho_&#8203;port_&#8203;check_&#8203;tcp_&#8203;active</span> | gauge | Port check TCP connections opened by the ipecho service to the joiner's TCP ports currently in flight |
 
 </div>
 
@@ -578,6 +586,7 @@
 | <span class="metrics-name">execle_&#8203;txn_&#8203;version</span><br/>{txn_&#8203;version="<span class="metrics-enum">v1</span>"} | counter | Number of transactions executed, broken down by transaction version (Version 1 transaction format) |
 | <span class="metrics-name">execle_&#8203;instruction_&#8203;executed</span> | counter | Number of top-level instructions executed |
 | <span class="metrics-name">execle_&#8203;cpi_&#8203;executed</span> | counter | Number of cross-program invocations executed |
+| <span class="metrics-name">execle_&#8203;lthash_&#8203;unchanged</span> | counter | Number of committed writable accounts left byte-identical by their transaction, whose lthash update was skipped |
 | <span class="metrics-name">execle_&#8203;cu_&#8203;executed</span> | counter | Estimated compute units executed since tile start |
 | <span class="metrics-name">execle_&#8203;txn_&#8203;regime_&#8203;duration_&#8203;nanos</span><br/>{txn_&#8203;regime="<span class="metrics-enum">setup</span>"} | counter | Mutually exclusive and exhaustive duration spent in transaction execution regimes, in nanoseconds (Transaction setup) |
 | <span class="metrics-name">execle_&#8203;txn_&#8203;regime_&#8203;duration_&#8203;nanos</span><br/>{txn_&#8203;regime="<span class="metrics-enum">exec</span>"} | counter | Mutually exclusive and exhaustive duration spent in transaction execution regimes, in nanoseconds (Transaction execution (includes VM setup/execution)) |
@@ -734,6 +743,8 @@
 | <span class="metrics-name">shred_&#8203;shred_&#8203;repair_&#8203;rx_&#8203;bytes</span> | counter | Bytes received from network packets with repair shreds, including network headers |
 | <span class="metrics-name">shred_&#8203;shred_&#8203;turbine_&#8203;rx</span> | counter | Turbine shreds received |
 | <span class="metrics-name">shred_&#8203;shred_&#8203;turbine_&#8203;rx_&#8203;bytes</span> | counter | Bytes received from network packets with turbine shreds, including network headers |
+| <span class="metrics-name">shred_&#8203;repair_&#8203;completion_&#8203;assisted</span> | counter | FEC sets that completed with at least one repair shred contributing |
+| <span class="metrics-name">shred_&#8203;repair_&#8203;completion_&#8203;lag_&#8203;seconds</span> | histogram | Estimated time repair advanced FEC set completion: the delay from a repair-assisted completion until turbine had delivered as many shreds for that set as repair contributed, i.e. when the set would have completed on turbine alone. Counts arrivals rather than distinct indices, so turbine duplicates bias this low |
 | <span class="metrics-name">shred_&#8203;fec_&#8203;fallback_&#8203;write</span> | counter | FEC payloads synchronously spilled by the shred tile |
 | <span class="metrics-name">shred_&#8203;fec_&#8203;fallback_&#8203;write_&#8203;bytes</span> | counter | FEC payload bytes synchronously spilled by the shred tile |
 
@@ -842,6 +853,7 @@
 | <span class="metrics-name">gossip_&#8203;ping_&#8203;tracker_&#8203;added</span> | counter | Peers ever tracked for ping/pong |
 | <span class="metrics-name">gossip_&#8203;ping_&#8203;tracker_&#8203;stake_&#8203;changed</span> | counter | Times a tracked peer was removed from tracking because it became staked |
 | <span class="metrics-name">gossip_&#8203;ping_&#8203;tracker_&#8203;address_&#8203;changed</span> | counter | Times a tracked peer was removed from tracking because its gossip address changed |
+| <span class="metrics-name">gossip_&#8203;sign_&#8203;queue_&#8203;full</span> | counter | Messages dropped because the maximum number of sign requests were already in flight |
 | <span class="metrics-name">gossip_&#8203;crds_&#8203;capacity</span> | gauge | Capacity of the data store |
 | <span class="metrics-name">gossip_&#8203;crds_&#8203;occupied</span><br/>{crds_&#8203;value="<span class="metrics-enum">contact_&#8203;info_&#8203;v1</span>"} | gauge | Entries in the data store (Contact Info V1) |
 | <span class="metrics-name">gossip_&#8203;crds_&#8203;occupied</span><br/>{crds_&#8203;value="<span class="metrics-enum">vote</span>"} | gauge | Entries in the data store (Vote) |
@@ -999,6 +1011,9 @@
 | <span class="metrics-name">rserve_&#8203;received_&#8203;request_&#8203;count</span><br/>{rserve_&#8203;request_&#8203;types="<span class="metrics-enum">window_&#8203;index</span>"} | counter | Total repair requests received by type, before any validation (Window Index) |
 | <span class="metrics-name">rserve_&#8203;received_&#8203;request_&#8203;count</span><br/>{rserve_&#8203;request_&#8203;types="<span class="metrics-enum">highest_&#8203;window_&#8203;index</span>"} | counter | Total repair requests received by type, before any validation (Highest Window Index) |
 | <span class="metrics-name">rserve_&#8203;received_&#8203;request_&#8203;count</span><br/>{rserve_&#8203;request_&#8203;types="<span class="metrics-enum">orphan</span>"} | counter | Total repair requests received by type, before any validation (Orphan) |
+| <span class="metrics-name">rserve_&#8203;received_&#8203;request_&#8203;count</span><br/>{rserve_&#8203;request_&#8203;types="<span class="metrics-enum">parent_&#8203;fec_&#8203;set_&#8203;count</span>"} | counter | Total repair requests received by type, before any validation (Parent FEC Set Count) |
+| <span class="metrics-name">rserve_&#8203;received_&#8203;request_&#8203;count</span><br/>{rserve_&#8203;request_&#8203;types="<span class="metrics-enum">fec_&#8203;set_&#8203;root</span>"} | counter | Total repair requests received by type, before any validation (FEC Set Root) |
+| <span class="metrics-name">rserve_&#8203;received_&#8203;request_&#8203;count</span><br/>{rserve_&#8203;request_&#8203;types="<span class="metrics-enum">shred_&#8203;for_&#8203;block_&#8203;id</span>"} | counter | Total repair requests received by type, before any validation (Shred For Block Id) |
 | <span class="metrics-name">rserve_&#8203;received_&#8203;request_&#8203;bytes</span> | counter | Total bytes of incoming repair request payloads |
 | <span class="metrics-name">rserve_&#8203;received_&#8203;malformed_&#8203;count</span><br/>{rserve_&#8203;malformed_&#8203;types="<span class="metrics-enum">too_&#8203;small</span>"} | counter | Packets dropped for being malformed, broken down by reason (Too Small) |
 | <span class="metrics-name">rserve_&#8203;received_&#8203;malformed_&#8203;count</span><br/>{rserve_&#8203;malformed_&#8203;types="<span class="metrics-enum">ping</span>"} | counter | Packets dropped for being malformed, broken down by reason (Ping) |
@@ -1010,17 +1025,24 @@
 | <span class="metrics-name">rserve_&#8203;sent_&#8203;response_&#8203;types</span><br/>{rserve_&#8203;sent_&#8203;response_&#8203;types="<span class="metrics-enum">window</span>"} | counter | What types of response messages are we sending (Window) |
 | <span class="metrics-name">rserve_&#8203;sent_&#8203;response_&#8203;types</span><br/>{rserve_&#8203;sent_&#8203;response_&#8203;types="<span class="metrics-enum">highest_&#8203;window</span>"} | counter | What types of response messages are we sending (Highest Window) |
 | <span class="metrics-name">rserve_&#8203;sent_&#8203;response_&#8203;types</span><br/>{rserve_&#8203;sent_&#8203;response_&#8203;types="<span class="metrics-enum">orphan</span>"} | counter | What types of response messages are we sending (Orphan) |
+| <span class="metrics-name">rserve_&#8203;sent_&#8203;response_&#8203;types</span><br/>{rserve_&#8203;sent_&#8203;response_&#8203;types="<span class="metrics-enum">parent_&#8203;fec_&#8203;set_&#8203;count</span>"} | counter | What types of response messages are we sending (Parent FEC Set Count) |
+| <span class="metrics-name">rserve_&#8203;sent_&#8203;response_&#8203;types</span><br/>{rserve_&#8203;sent_&#8203;response_&#8203;types="<span class="metrics-enum">fec_&#8203;set_&#8203;root</span>"} | counter | What types of response messages are we sending (FEC Set Root) |
+| <span class="metrics-name">rserve_&#8203;sent_&#8203;response_&#8203;types</span><br/>{rserve_&#8203;sent_&#8203;response_&#8203;types="<span class="metrics-enum">shred_&#8203;for_&#8203;block_&#8203;id</span>"} | counter | What types of response messages are we sending (Shred For Block Id) |
 | <span class="metrics-name">rserve_&#8203;sent_&#8203;response_&#8203;bytes</span> | counter | Total payload bytes sent in response packets |
 | <span class="metrics-name">rserve_&#8203;missed_&#8203;response_&#8203;types</span><br/>{rserve_&#8203;sent_&#8203;response_&#8203;types="<span class="metrics-enum">ping</span>"} | counter | What types of response messages could we not fulfill (Ping) |
 | <span class="metrics-name">rserve_&#8203;missed_&#8203;response_&#8203;types</span><br/>{rserve_&#8203;sent_&#8203;response_&#8203;types="<span class="metrics-enum">window</span>"} | counter | What types of response messages could we not fulfill (Window) |
 | <span class="metrics-name">rserve_&#8203;missed_&#8203;response_&#8203;types</span><br/>{rserve_&#8203;sent_&#8203;response_&#8203;types="<span class="metrics-enum">highest_&#8203;window</span>"} | counter | What types of response messages could we not fulfill (Highest Window) |
 | <span class="metrics-name">rserve_&#8203;missed_&#8203;response_&#8203;types</span><br/>{rserve_&#8203;sent_&#8203;response_&#8203;types="<span class="metrics-enum">orphan</span>"} | counter | What types of response messages could we not fulfill (Orphan) |
+| <span class="metrics-name">rserve_&#8203;missed_&#8203;response_&#8203;types</span><br/>{rserve_&#8203;sent_&#8203;response_&#8203;types="<span class="metrics-enum">parent_&#8203;fec_&#8203;set_&#8203;count</span>"} | counter | What types of response messages could we not fulfill (Parent FEC Set Count) |
+| <span class="metrics-name">rserve_&#8203;missed_&#8203;response_&#8203;types</span><br/>{rserve_&#8203;sent_&#8203;response_&#8203;types="<span class="metrics-enum">fec_&#8203;set_&#8203;root</span>"} | counter | What types of response messages could we not fulfill (FEC Set Root) |
+| <span class="metrics-name">rserve_&#8203;missed_&#8203;response_&#8203;types</span><br/>{rserve_&#8203;sent_&#8203;response_&#8203;types="<span class="metrics-enum">shred_&#8203;for_&#8203;block_&#8203;id</span>"} | counter | What types of response messages could we not fulfill (Shred For Block Id) |
 | <span class="metrics-name">rserve_&#8203;failed_&#8203;sigverify</span> | counter | How many times we failed to verify the signature of a request |
 | <span class="metrics-name">rserve_&#8203;failed_&#8203;own_&#8203;key</span> | counter | How many requests we've received that were sent by us |
 | <span class="metrics-name">rserve_&#8203;failed_&#8203;invalid_&#8203;token</span> | counter | How many pong requests we've received with outdated or invalid tokens |
 | <span class="metrics-name">rserve_&#8203;failed_&#8203;not_&#8203;for_&#8203;us</span> | counter | How many requests we've received that were not intended for us |
 | <span class="metrics-name">rserve_&#8203;failed_&#8203;outdated</span> | counter | How many requests we've received that had outdated timestamps |
 | <span class="metrics-name">rserve_&#8203;failed_&#8203;invalid_&#8203;shred_&#8203;index</span> | counter | How many requests we've received that had invalid shred indices |
+| <span class="metrics-name">rserve_&#8203;failed_&#8203;invalid_&#8203;fec_&#8203;set_&#8203;index</span> | counter | How many FEC set root requests we've received with a FEC set index that is unaligned or past the end of the block |
 | <span class="metrics-name">rserve_&#8203;failed_&#8203;ping_&#8203;cache_&#8203;lookup</span> | counter | Requests from nodes not in the ping cache, which triggered a ping-back instead of a response |
 | <span class="metrics-name">rserve_&#8203;disk_&#8203;read_&#8203;busy</span> | counter | Repair reads dropped because the requested index binding or ring cell changed |
 | <span class="metrics-name">rserve_&#8203;disk_&#8203;read_&#8203;miss</span> | counter | Repair reads not found in the store |
@@ -1057,6 +1079,7 @@
 | <span class="metrics-name">replay_&#8203;active_&#8203;stake_&#8203;lamports</span> | gauge | Our active stake at the optimistically confirmed slot |
 | <span class="metrics-name">replay_&#8203;cluster_&#8203;active_&#8203;stake_&#8203;lamports</span> | gauge | Total cluster active stake at the optimistically confirmed slot |
 | <span class="metrics-name">replay_&#8203;epoch_&#8203;credits</span> | gauge | Our vote account epoch credits at the optimistically confirmed slot |
+| <span class="metrics-name">replay_&#8203;vote_&#8203;account_&#8203;inadmissible</span> | gauge | 1 if our vote account's stake is not admitted: at the optimistically confirmed slot it fails the validator admission ticket filter (missing, below the V4 rent-exempt minimum, or not V4 with a BLS pubkey), or it passes but has not yet been admitted at an epoch boundary. 0 otherwise |
 | <span class="metrics-name">replay_&#8203;vote_&#8203;slot_&#8203;last_&#8203;rewarded</span> | gauge | Latest slot for which this validator's vote appears in a reward certificate. ULONG_MAX if no participation has been observed, and always ULONG_MAX under Tower |
 | <span class="metrics-name">replay_&#8203;store_&#8203;query_&#8203;work_&#8203;seconds</span> | histogram | Time spent ingesting a queried FEC into the scheduler |
 | <span class="metrics-name">replay_&#8203;store_&#8203;queried</span> | counter | Queries |
@@ -1256,6 +1279,7 @@
 | <span class="metrics-name">execrp_&#8203;poh_&#8203;hashed</span> | counter | PoH SHA-256 calls executed |
 | <span class="metrics-name">execrp_&#8203;instruction_&#8203;executed</span> | counter | Number of top-level instructions executed |
 | <span class="metrics-name">execrp_&#8203;cpi_&#8203;executed</span> | counter | Number of cross-program invocations executed |
+| <span class="metrics-name">execrp_&#8203;lthash_&#8203;unchanged</span> | counter | Number of committed writable accounts left byte-identical by their transaction, whose lthash update was skipped |
 | <span class="metrics-name">execrp_&#8203;txn_&#8203;regime_&#8203;duration_&#8203;nanos</span><br/>{txn_&#8203;regime="<span class="metrics-enum">setup</span>"} | counter | Mutually exclusive and exhaustive duration spent in transaction execution regimes, in nanoseconds (Transaction setup) |
 | <span class="metrics-name">execrp_&#8203;txn_&#8203;regime_&#8203;duration_&#8203;nanos</span><br/>{txn_&#8203;regime="<span class="metrics-enum">exec</span>"} | counter | Mutually exclusive and exhaustive duration spent in transaction execution regimes, in nanoseconds (Transaction execution (includes VM setup/execution)) |
 | <span class="metrics-name">execrp_&#8203;txn_&#8203;regime_&#8203;duration_&#8203;nanos</span><br/>{txn_&#8203;regime="<span class="metrics-enum">commit</span>"} | counter | Mutually exclusive and exhaustive duration spent in transaction execution regimes, in nanoseconds (Transaction result commit) |
@@ -1658,7 +1682,7 @@
 | Metric | Type | Description |
 |--------|------|-------------|
 | <span class="metrics-name">diag_&#8203;bundle_&#8203;status</span> | gauge | Precise status of the bundle subsystem: 0=disabled (no bundle tiles configured), 1=disconnected (all bundle tiles disconnected), 2=connecting (at least one bundle tile connecting, none connected or sleeping), 3=connected (at least one bundle tile connected), 4=sleeping (at least one bundle tile sleeping, none connected) |
-| <span class="metrics-name">diag_&#8203;vote_&#8203;status</span> | gauge | Precise status of the vote subsystem: 0=disabled (non-voting or no tower tile), 1=not started (tower tile not running or no votes cast yet), 2=delinquent (vote distance exceeds threshold or vote stalled), 3=voting (voting normally) |
+| <span class="metrics-name">diag_&#8203;vote_&#8203;status</span> | gauge | Precise status of the vote subsystem: 0=disabled (non-voting or no tower tile), 1=not started (tower tile not running or no votes cast yet), 2=delinquent (vote distance exceeds threshold or vote stalled), 3=voting (voting normally), 4=inadmissible (voting, but the vote account fails the validator admission ticket filter) |
 | <span class="metrics-name">diag_&#8203;replay_&#8203;status</span> | gauge | Precise status of the replay subsystem: 0=disabled (no replay tile), 1=not started (replay tile not running or slots are zero), 2=behind (replay lagging behind turbine or reset slot stalled), 3=running (replay keeping up) |
 | <span class="metrics-name">diag_&#8203;turbine_&#8203;status</span> | gauge | Precise status of the turbine subsystem: 0=disabled (no shred or replay tiles), 1=not started (tiles not all running or turbine slot is zero), 2=stalled (turbine slot not advancing), 3=repair outpacing (repair byte throughput exceeds turbine), 4=running (turbine receiving normally) |
 | <span class="metrics-name">diag_&#8203;builder_&#8203;status</span> | gauge | Precise status of the external block builder subsystem: 0=disabled (no block builder configured), 1=disconnected (block builder disconnected), 2=connecting (block builder connection in progress), 3=unhealthy (connected, but the block builder is not in a usable state), 4=connected (block builder connected and healthy) |
@@ -1963,6 +1987,7 @@
 | <span class="metrics-name">rpc_&#8203;request_&#8203;served</span><br/>{rpc_&#8203;method="<span class="metrics-enum">getSlotLeader</span>"} | counter | Number of RPC requests served (getSlotLeader) |
 | <span class="metrics-name">rpc_&#8203;request_&#8203;served</span><br/>{rpc_&#8203;method="<span class="metrics-enum">getSlotLeaders</span>"} | counter | Number of RPC requests served (getSlotLeaders) |
 | <span class="metrics-name">rpc_&#8203;request_&#8203;served</span><br/>{rpc_&#8203;method="<span class="metrics-enum">getLeaderSchedule</span>"} | counter | Number of RPC requests served (getLeaderSchedule) |
+| <span class="metrics-name">rpc_&#8203;request_&#8203;served</span><br/>{rpc_&#8203;method="<span class="metrics-enum">getAgGenesisCert</span>"} | counter | Number of RPC requests served (getAgGenesisCert) |
 | <span class="metrics-name">rpc_&#8203;conn_&#8203;active</span> | gauge | The number of active HTTP connections to the RPC service |
 | <span class="metrics-name">rpc_&#8203;websocket_&#8203;conn_&#8203;active</span> | gauge | The number of active WebSocket connections to the RPC service |
 | <span class="metrics-name">rpc_&#8203;websocket_&#8203;subscription_&#8203;active</span><br/>{rpc_&#8203;event_&#8203;type="<span class="metrics-enum">vote</span>"} | gauge | The number of active WebSocket subscriptions to the RPC service, broken down by subscription type (vote) |
@@ -2018,11 +2043,10 @@
 | <span class="metrics-name">mlx5_&#8203;pkt_&#8203;tx_&#8203;route_&#8203;fail</span><br/>{route_&#8203;fail="<span class="metrics-enum">interface</span>"} | counter | Number of transmit jobs dropped because route or source address selection failed. (Interface not available) |
 | <span class="metrics-name">mlx5_&#8203;pkt_&#8203;tx_&#8203;route_&#8203;fail</span><br/>{route_&#8203;fail="<span class="metrics-enum">source_&#8203;ip</span>"} | counter | Number of transmit jobs dropped because route or source address selection failed. (No source IP address chosen) |
 | <span class="metrics-name">mlx5_&#8203;pkt_&#8203;tx_&#8203;route_&#8203;fail</span><br/>{route_&#8203;fail="<span class="metrics-enum">unsupported_&#8203;interface</span>"} | counter | Number of transmit jobs dropped because route or source address selection failed. (Interface type not supported) |
-| <span class="metrics-name">mlx5_&#8203;pkt_&#8203;tx_&#8203;invalid</span> | counter | Number of transmit jobs dropped because the IPv4 version or header length was invalid. |
+| <span class="metrics-name">mlx5_&#8203;pkt_&#8203;tx_&#8203;invalid</span> | counter | Number of transmit jobs dropped for invalid packet headers or GRE packets exceeding the MTU. |
 | <span class="metrics-name">mlx5_&#8203;pkt_&#8203;tx_&#8203;no_&#8203;neighbor</span> | counter | Number of transmit jobs dropped because the next-hop neighbor was unresolved. |
 | <span class="metrics-name">mlx5_&#8203;gre_&#8203;pkt_&#8203;tx_&#8203;submitted</span> | counter | Number of GRE transmit jobs submitted to the NIC. |
 | <span class="metrics-name">mlx5_&#8203;gre_&#8203;pkt_&#8203;tx_&#8203;no_&#8203;route</span> | counter | Number of GRE transmit jobs dropped because the inner or outer route was incomplete. |
-| <span class="metrics-name">mlx5_&#8203;gre_&#8203;pkt_&#8203;tx_&#8203;oversize</span> | counter | Number of GRE transmit jobs dropped because the encapsulated packet exceeded the route MTU. |
 | <span class="metrics-name">mlx5_&#8203;tx_&#8203;buffer_&#8203;busy</span> | gauge | Number of TX buffers pending or submitted to the NIC. |
 | <span class="metrics-name">mlx5_&#8203;tx_&#8203;buffer_&#8203;idle</span> | gauge | Number of TX buffers available for a new transmit job. |
 
@@ -2273,29 +2297,38 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| <span class="metrics-name">rotor_&#8203;pkt_&#8203;tx</span> | counter | Network packets sent, including reqs, pings, pongs, etc |
-| <span class="metrics-name">rotor_&#8203;request_&#8203;tx</span><br/>{repair_&#8203;sent_&#8203;request_&#8203;type="<span class="metrics-enum">needed_&#8203;window</span>"} | counter | Client messages sent, by type (Need Window) |
-| <span class="metrics-name">rotor_&#8203;request_&#8203;tx</span><br/>{repair_&#8203;sent_&#8203;request_&#8203;type="<span class="metrics-enum">needed_&#8203;highest_&#8203;window</span>"} | counter | Client messages sent, by type (Need Highest Window) |
-| <span class="metrics-name">rotor_&#8203;request_&#8203;tx</span><br/>{repair_&#8203;sent_&#8203;request_&#8203;type="<span class="metrics-enum">needed_&#8203;orphan</span>"} | counter | Client messages sent, by type (Need Orphans) |
-| <span class="metrics-name">rotor_&#8203;request_&#8203;tx</span><br/>{repair_&#8203;sent_&#8203;request_&#8203;type="<span class="metrics-enum">parent_&#8203;fec_&#8203;count</span>"} | counter | Client messages sent, by type (Parent Fec Count) |
-| <span class="metrics-name">rotor_&#8203;request_&#8203;tx</span><br/>{repair_&#8203;sent_&#8203;request_&#8203;type="<span class="metrics-enum">fec_&#8203;root</span>"} | counter | Client messages sent, by type (Fec Root) |
-| <span class="metrics-name">rotor_&#8203;request_&#8203;tx</span><br/>{repair_&#8203;sent_&#8203;request_&#8203;type="<span class="metrics-enum">shred_&#8203;block_&#8203;id</span>"} | counter | Client messages sent, by type (Shred Block Id) |
-| <span class="metrics-name">rotor_&#8203;request_&#8203;tx</span><br/>{repair_&#8203;sent_&#8203;request_&#8203;type="<span class="metrics-enum">pong</span>"} | counter | Client messages sent, by type (Pong) |
+| <span class="metrics-name">rotor_&#8203;pkt_&#8203;tx</span> | counter | Network packets sent, including requests, pings and pongs |
+| <span class="metrics-name">rotor_&#8203;request_&#8203;tx</span><br/>{repair_&#8203;sent_&#8203;request_&#8203;type="<span class="metrics-enum">needed_&#8203;window</span>"} | counter | Repair requests sent, by type (Need Window) |
+| <span class="metrics-name">rotor_&#8203;request_&#8203;tx</span><br/>{repair_&#8203;sent_&#8203;request_&#8203;type="<span class="metrics-enum">needed_&#8203;highest_&#8203;window</span>"} | counter | Repair requests sent, by type (Need Highest Window) |
+| <span class="metrics-name">rotor_&#8203;request_&#8203;tx</span><br/>{repair_&#8203;sent_&#8203;request_&#8203;type="<span class="metrics-enum">needed_&#8203;orphan</span>"} | counter | Repair requests sent, by type (Need Orphans) |
+| <span class="metrics-name">rotor_&#8203;request_&#8203;tx</span><br/>{repair_&#8203;sent_&#8203;request_&#8203;type="<span class="metrics-enum">parent_&#8203;fec_&#8203;count</span>"} | counter | Repair requests sent, by type (Parent Fec Count) |
+| <span class="metrics-name">rotor_&#8203;request_&#8203;tx</span><br/>{repair_&#8203;sent_&#8203;request_&#8203;type="<span class="metrics-enum">fec_&#8203;root</span>"} | counter | Repair requests sent, by type (Fec Root) |
+| <span class="metrics-name">rotor_&#8203;request_&#8203;tx</span><br/>{repair_&#8203;sent_&#8203;request_&#8203;type="<span class="metrics-enum">shred_&#8203;block_&#8203;id</span>"} | counter | Repair requests sent, by type (Shred Block Id) |
+| <span class="metrics-name">rotor_&#8203;request_&#8203;tx</span><br/>{repair_&#8203;sent_&#8203;request_&#8203;type="<span class="metrics-enum">pong</span>"} | counter | Repair requests sent, by type (Pong) |
 | <span class="metrics-name">rotor_&#8203;slot_&#8203;highest_&#8203;repaired</span> | gauge | Highest slot up to which we have fully repaired |
 | <span class="metrics-name">rotor_&#8203;slot_&#8203;current</span> | gauge | Our view of the current cluster slot, max slot received |
-| <span class="metrics-name">rotor_&#8203;shred_&#8203;old</span> | counter | Shreds received that were older than the root |
-| <span class="metrics-name">rotor_&#8203;slot_&#8203;last_&#8203;requested</span> | gauge | Last slot we requested a single shred for |
-| <span class="metrics-name">rotor_&#8203;orphan_&#8203;last_&#8203;requested</span> | gauge | Last slot we requested an orphan for |
-| <span class="metrics-name">rotor_&#8203;request_&#8203;inflight</span> | gauge | Requests currently in the inflight queue, excluding orphans and highest window requests |
-| <span class="metrics-name">rotor_&#8203;peer_&#8203;requested</span> | counter | Peers requested |
-| <span class="metrics-name">rotor_&#8203;shred_&#8203;rerequested</span> | counter | Times we re-requested a shred from the inflights queue |
+| <span class="metrics-name">rotor_&#8203;slot_&#8203;turbine_&#8203;first</span> | gauge | First turbine slot seen, the catchup target |
+| <span class="metrics-name">rotor_&#8203;block_&#8203;check_&#8203;queued</span> | gauge | Blocks queued in the schedulor awaiting a repair check |
+| <span class="metrics-name">rotor_&#8203;request_&#8203;inflight</span> | gauge | Requests sent whose response has not been matched |
+| <span class="metrics-name">rotor_&#8203;fec_&#8203;delivered</span> | counter | FEC sets published to replay |
+| <span class="metrics-name">rotor_&#8203;shred_&#8203;old</span> | counter | Shreds received that were at or below the root |
+| <span class="metrics-name">rotor_&#8203;shred_&#8203;rx</span> | counter | Data shreds received as repair responses |
+| <span class="metrics-name">rotor_&#8203;shred_&#8203;rx_&#8203;block_&#8203;id</span> | counter | Repair response shreds credited to a ShredForBlockId request |
+| <span class="metrics-name">rotor_&#8203;shred_&#8203;rx_&#8203;positional</span> | counter | Repair response shreds credited to a positional Shred request |
+| <span class="metrics-name">rotor_&#8203;shred_&#8203;rx_&#8203;unmatched</span> | counter | Repair response shreds matching no outstanding request |
+| <span class="metrics-name">rotor_&#8203;meta_&#8203;rx</span> | counter | Alpenglow repair metadata responses received |
+| <span class="metrics-name">rotor_&#8203;meta_&#8203;malformed</span> | counter | Metadata responses that failed to decode |
+| <span class="metrics-name">rotor_&#8203;meta_&#8203;unsolicited</span> | counter | Metadata responses matching no outstanding request |
+| <span class="metrics-name">rotor_&#8203;parent_&#8203;fec_&#8203;count_&#8203;ok</span> | counter | getParentAndFecSetCount responses accepted |
+| <span class="metrics-name">rotor_&#8203;parent_&#8203;fec_&#8203;count_&#8203;failed</span> | counter | getParentAndFecSetCount responses that failed verification |
+| <span class="metrics-name">rotor_&#8203;fec_&#8203;root_&#8203;ok</span> | counter | getFecSetRoot responses accepted |
+| <span class="metrics-name">rotor_&#8203;fec_&#8203;root_&#8203;failed</span> | counter | getFecSetRoot responses that failed verification |
+| <span class="metrics-name">rotor_&#8203;replay_&#8203;root_&#8203;advanced</span> | counter | Root advanced messages received from replay |
+| <span class="metrics-name">rotor_&#8203;replay_&#8203;missing_&#8203;fec</span> | counter | Missing FEC messages received from replay, each arming a from-root redelivery |
 | <span class="metrics-name">rotor_&#8203;ping_&#8203;malformed</span> | counter | Malformed pings received |
 | <span class="metrics-name">rotor_&#8203;ping_&#8203;unknown_&#8203;peer</span> | counter | Pings received from an unknown peer |
 | <span class="metrics-name">rotor_&#8203;ping_&#8203;signature_&#8203;failed</span> | counter | Pings whose signature we failed to verify |
-| <span class="metrics-name">rotor_&#8203;shred_&#8203;block_&#8203;id_&#8203;failed</span> | counter | Times we failed to verify a shred for block id response |
-| <span class="metrics-name">rotor_&#8203;fec_&#8203;root_&#8203;failed</span> | counter | Times we failed to verify a FEC root response |
-| <span class="metrics-name">rotor_&#8203;parent_&#8203;fec_&#8203;count_&#8203;failed</span> | counter | Times we failed to verify a parent FEC count response |
-| <span class="metrics-name">rotor_&#8203;response_&#8203;latency_&#8203;nanos</span> | histogram | Time it took to receive a repair request response, in nanoseconds |
+| <span class="metrics-name">rotor_&#8203;response_&#8203;latency_&#8203;nanos</span> | histogram | Time from sending a repair request to receiving its response, in nanoseconds |
 
 </div>
 
@@ -2334,5 +2367,10 @@
 | <span class="metrics-name">votor_&#8203;cert_&#8203;rx</span><br/>{cert_&#8203;rx_&#8203;result="<span class="metrics-enum">duplicate</span>"} | counter | Result of processing an inbound cert (per cert) (Cert was already in the pool) |
 | <span class="metrics-name">votor_&#8203;cert_&#8203;rx</span><br/>{cert_&#8203;rx_&#8203;result="<span class="metrics-enum">failed_&#8203;verify</span>"} | counter | Result of processing an inbound cert (per cert) (Cert failed the stake threshold or the aggregate signature check) |
 | <span class="metrics-name">votor_&#8203;cert_&#8203;rx</span><br/>{cert_&#8203;rx_&#8203;result="<span class="metrics-enum">banned</span>"} | counter | Result of processing an inbound cert (per cert) (Sender is banned for a failed signature verification) |
+| <span class="metrics-name">votor_&#8203;slot_&#8203;state_&#8203;used</span> | gauge | Number of slots tracked by the voting state machine |
+| <span class="metrics-name">votor_&#8203;slot_&#8203;state_&#8203;max</span> | gauge | Capacity of the voting state machine's slot table |
+| <span class="metrics-name">votor_&#8203;finalized_&#8203;slot</span> | gauge | Highest slot with a finalization cert, or 0 if none |
+| <span class="metrics-name">votor_&#8203;rank</span> | gauge | Rank of this validator in the current epoch (0 is the highest rank), -1 if unranked (unstaked) |
+| <span class="metrics-name">votor_&#8203;peers_&#8203;connected</span> | gauge | Number of peers with an active outbound connection |
 
 </div>

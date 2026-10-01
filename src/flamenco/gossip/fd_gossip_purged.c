@@ -1,18 +1,22 @@
 #include "fd_gossip_purged_private.h"
+#include "fd_gossip_hset.h"
 #include "../../util/rng/fd_rng.h"
 
 struct fd_gossip_purged_private {
   fd_crds_purged_t *            pool;
-  purged_treap_t *              treap;
+  purged_map_t *                map; /* dedup by hash prefix */
   replaced_dlist_t *            replaced_dlist;
   failed_inserts_dlist_t *      failed_inserts_dlist;
   no_contact_info_dlist_t *     no_contact_info_dlist;
 
   /* Per-origin-pubkey map (MAP_MULTI) for no_contact_info entries.
      When we learn a contact info for a pubkey, we drain all
-     associated hashes from the purged treap so peers re-send them.
+     associated hashes from the purged table so peers re-send them.
      Elements live in the purged pool above. */
   nci_origin_map_t *            nci_origin_map;
+
+  /* Dense copy of the hashes for building pull request filters */
+  fd_gossip_hset_t *            hset;
 
   fd_gossip_purged_metrics_t    metrics[1];
 
@@ -35,11 +39,12 @@ fd_gossip_purged_footprint( ulong purged_max ) {
   l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, FD_GOSSIP_PURGED_ALIGN,        sizeof(fd_gossip_purged_t) );
   l = FD_LAYOUT_APPEND( l, purged_pool_align(),           purged_pool_footprint( purged_max ) );
-  l = FD_LAYOUT_APPEND( l, purged_treap_align(),          purged_treap_footprint( purged_max ) );
+  l = FD_LAYOUT_APPEND( l, purged_map_align(),            purged_map_footprint( purged_map_chain_cnt_est( purged_max ) ) );
   l = FD_LAYOUT_APPEND( l, replaced_dlist_align(),        replaced_dlist_footprint() );
   l = FD_LAYOUT_APPEND( l, failed_inserts_dlist_align(),  failed_inserts_dlist_footprint() );
   l = FD_LAYOUT_APPEND( l, no_contact_info_dlist_align(), no_contact_info_dlist_footprint() );
   l = FD_LAYOUT_APPEND( l, nci_origin_map_align(),        nci_origin_map_footprint( nci_origin_max ) );
+  l = FD_LAYOUT_APPEND( l, fd_gossip_hset_align(),        fd_gossip_hset_footprint( purged_max ) );
   return FD_LAYOUT_FINI( l, FD_GOSSIP_PURGED_ALIGN );
 }
 
@@ -72,19 +77,19 @@ fd_gossip_purged_new( void *     shmem,
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   fd_gossip_purged_t * purged       = FD_SCRATCH_ALLOC_APPEND( l, FD_GOSSIP_PURGED_ALIGN,          sizeof(fd_gossip_purged_t) );
   void * _pool                      = FD_SCRATCH_ALLOC_APPEND( l, purged_pool_align(),              purged_pool_footprint( purged_max ) );
-  void * _treap                     = FD_SCRATCH_ALLOC_APPEND( l, purged_treap_align(),             purged_treap_footprint( purged_max ) );
+  void * _map                       = FD_SCRATCH_ALLOC_APPEND( l, purged_map_align(),               purged_map_footprint( purged_map_chain_cnt_est( purged_max ) ) );
   void * _replaced_dlist            = FD_SCRATCH_ALLOC_APPEND( l, replaced_dlist_align(),           replaced_dlist_footprint() );
   void * _failed_inserts_dlist      = FD_SCRATCH_ALLOC_APPEND( l, failed_inserts_dlist_align(),     failed_inserts_dlist_footprint() );
   void * _nci_dlist                 = FD_SCRATCH_ALLOC_APPEND( l, no_contact_info_dlist_align(),    no_contact_info_dlist_footprint() );
   void * _nci_origin_map            = FD_SCRATCH_ALLOC_APPEND( l, nci_origin_map_align(),           nci_origin_map_footprint( nci_origin_max ) );
+  void * _hset                      = FD_SCRATCH_ALLOC_APPEND( l, fd_gossip_hset_align(),           fd_gossip_hset_footprint( purged_max ) );
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, FD_GOSSIP_PURGED_ALIGN ) == (ulong)shmem + fd_gossip_purged_footprint( purged_max ) );
 
   purged->pool = purged_pool_join( purged_pool_new( _pool, purged_max ) );
   FD_TEST( purged->pool );
 
-  purged->treap = purged_treap_join( purged_treap_new( _treap, purged_max ) );
-  FD_TEST( purged->treap );
-  purged_treap_seed( purged->pool, purged_max, fd_rng_ulong( rng ) );
+  purged->map = purged_map_join( purged_map_new( _map, purged_map_chain_cnt_est( purged_max ), fd_rng_ulong( rng ) ) );
+  FD_TEST( purged->map );
 
   purged->replaced_dlist = replaced_dlist_join( replaced_dlist_new( _replaced_dlist ) );
   FD_TEST( purged->replaced_dlist );
@@ -97,6 +102,9 @@ fd_gossip_purged_new( void *     shmem,
 
   purged->nci_origin_map = nci_origin_map_join( nci_origin_map_new( _nci_origin_map, nci_origin_max, fd_rng_ulong( rng ) ) );
   FD_TEST( purged->nci_origin_map );
+
+  purged->hset = fd_gossip_hset_join( fd_gossip_hset_new( _hset, purged_max ) );
+  FD_TEST( purged->hset );
 
   memset( purged->metrics, 0, sizeof(fd_gossip_purged_metrics_t) );
 
@@ -139,6 +147,18 @@ fd_gossip_purged_len( fd_gossip_purged_t const * purged ) {
   return purged_pool_used( purged->pool );
 }
 
+fd_gossip_hset_t const *
+fd_gossip_purged_hset( fd_gossip_purged_t const * purged ) {
+  return purged->hset;
+}
+
+static inline void
+purged_unindex( fd_gossip_purged_t * purged,
+                fd_crds_purged_t *   ele ) {
+  purged_map_ele_remove_fast( purged->map, ele, purged->pool );
+  fd_gossip_hset_remove( purged->hset, purged_pool_idx( purged->pool, ele ) );
+}
+
 static fd_crds_purged_t *
 acquire_ele( fd_gossip_purged_t * purged,
              uchar const *        hash,
@@ -154,7 +174,7 @@ acquire_ele( fd_gossip_purged_t * purged,
       ele = no_contact_info_dlist_ele_pop_head( purged->no_contact_info_dlist, purged->pool );
       nci_origin_map_ele_remove_fast( purged->nci_origin_map, ele, purged->pool );
     }
-    purged_treap_ele_remove( purged->treap, ele, purged->pool );
+    purged_unindex( purged, ele );
     purged->metrics->purged_evicted_cnt++;
   } else {
     ele = purged_pool_ele_acquire( purged->pool );
@@ -162,9 +182,10 @@ acquire_ele( fd_gossip_purged_t * purged,
   }
 
   fd_memcpy( ele->hash, hash, 32UL );
-  ele->treap.hash_prefix      = hash_prefix;
+  ele->map.hash_prefix        = hash_prefix;
   ele->expire.wallclock_nanos = now;
-  purged_treap_ele_insert( purged->treap, ele, purged->pool );
+  purged_map_ele_insert( purged->map, ele, purged->pool );
+  fd_gossip_hset_insert( purged->hset, purged_pool_idx( purged->pool, ele ), hash );
   return ele;
 }
 
@@ -173,7 +194,7 @@ fd_gossip_purged_insert_replaced( fd_gossip_purged_t * purged,
                                   uchar const *        hash,
                                   long                 now ) {
   ulong hash_prefix = fd_ulong_load_8( hash );
-  if( FD_UNLIKELY( purged_treap_ele_query( purged->treap, hash_prefix, purged->pool ) ) ) return;
+  if( FD_UNLIKELY( purged_map_ele_query_const( purged->map, &hash_prefix, NULL, purged->pool ) ) ) return;
 
   fd_crds_purged_t * ele = acquire_ele( purged, hash, hash_prefix, now );
   replaced_dlist_ele_push_tail( purged->replaced_dlist, ele, purged->pool );
@@ -184,7 +205,7 @@ fd_gossip_purged_insert_failed_insert( fd_gossip_purged_t * purged,
                                        uchar const *        hash,
                                        long                 now ) {
   ulong hash_prefix = fd_ulong_load_8( hash );
-  if( FD_UNLIKELY( purged_treap_ele_query( purged->treap, hash_prefix, purged->pool ) ) ) return;
+  if( FD_UNLIKELY( purged_map_ele_query_const( purged->map, &hash_prefix, NULL, purged->pool ) ) ) return;
 
   fd_crds_purged_t * ele = acquire_ele( purged, hash, hash_prefix, now );
   failed_inserts_dlist_ele_push_tail( purged->failed_inserts_dlist, ele, purged->pool );
@@ -196,7 +217,7 @@ fd_gossip_purged_insert_no_contact_info( fd_gossip_purged_t * purged,
                                          uchar const *        hash,
                                          long                 now ) {
   ulong hash_prefix = fd_ulong_load_8( hash );
-  if( FD_UNLIKELY( purged_treap_ele_query( purged->treap, hash_prefix, purged->pool ) ) ) return;
+  if( FD_UNLIKELY( purged_map_ele_query_const( purged->map, &hash_prefix, NULL, purged->pool ) ) ) return;
 
   fd_crds_purged_t * ele = acquire_ele( purged, hash, hash_prefix, now );
   fd_memcpy( ele->origin.uc, origin, 32UL );
@@ -219,7 +240,7 @@ fd_gossip_purged_drain_no_contact_info( fd_gossip_purged_t * purged,
 
     nci_origin_map_ele_remove_fast( purged->nci_origin_map, entry, purged->pool );
     no_contact_info_dlist_ele_remove( purged->no_contact_info_dlist, entry, purged->pool );
-    purged_treap_ele_remove( purged->treap, entry, purged->pool );
+    purged_unindex( purged, entry );
     purged_pool_ele_release( purged->pool, entry );
 
     purged->metrics->purged_cnt--;
@@ -236,7 +257,7 @@ fd_gossip_purged_expire( fd_gossip_purged_t * purged,
     if( FD_LIKELY( head->expire.wallclock_nanos>now-REPLACED_EXPIRE_DURATION_NANOS ) ) break;
 
     replaced_dlist_ele_pop_head( purged->replaced_dlist, purged->pool );
-    purged_treap_ele_remove( purged->treap, head, purged->pool );
+    purged_unindex( purged, head );
     purged_pool_ele_release( purged->pool, head );
 
     purged->metrics->purged_cnt--;
@@ -252,7 +273,7 @@ fd_gossip_purged_expire( fd_gossip_purged_t * purged,
     if( FD_LIKELY( head->expire.wallclock_nanos>now-FAILED_INSERTS_EXPIRE_DURATION_NANOS ) ) break;
 
     failed_inserts_dlist_ele_pop_head( purged->failed_inserts_dlist, purged->pool );
-    purged_treap_ele_remove( purged->treap, head, purged->pool );
+    purged_unindex( purged, head );
     purged_pool_ele_release( purged->pool, head );
 
     purged->metrics->purged_cnt--;
@@ -270,52 +291,11 @@ fd_gossip_purged_expire( fd_gossip_purged_t * purged,
     if( FD_LIKELY( head->expire.wallclock_nanos>now-STAKED_EXPIRE_DURATION_NANOS ) ) break;
 
     no_contact_info_dlist_ele_pop_head( purged->no_contact_info_dlist, purged->pool );
-    purged_treap_ele_remove( purged->treap, head, purged->pool );
+    purged_unindex( purged, head );
     nci_origin_map_ele_remove_fast( purged->nci_origin_map, head, purged->pool );
     purged_pool_ele_release( purged->pool, head );
 
     purged->metrics->purged_cnt--;
     purged->metrics->purged_expired_cnt++;
   }
-}
-
-fd_gossip_purged_mask_iter_t *
-fd_gossip_purged_mask_iter_init( fd_gossip_purged_t const * purged,
-                                 ulong                      mask,
-                                 uint                       mask_bits,
-                                 uchar                      iter_mem[ static 16UL ] ) {
-  ulong start_hash, end_hash;
-  fd_gossip_purged_generate_masks( mask, mask_bits, &start_hash, &end_hash );
-
-  fd_gossip_purged_mask_iter_t * it = (fd_gossip_purged_mask_iter_t *)iter_mem;
-  it->end_hash                      = end_hash;
-  it->idx                           = purged_treap_idx_ge( purged->treap, start_hash, purged->pool );
-  return it;
-}
-
-fd_gossip_purged_mask_iter_t *
-fd_gossip_purged_mask_iter_next( fd_gossip_purged_mask_iter_t * it,
-                                 fd_gossip_purged_t const *     purged ) {
-  fd_crds_purged_t const * val = purged_treap_ele_fast_const( it->idx, purged->pool );
-  it->idx                      = val->treap.next;
-  return it;
-}
-
-int
-fd_gossip_purged_mask_iter_done( fd_gossip_purged_mask_iter_t * it,
-                                 fd_gossip_purged_t const *     purged ) {
-  if( FD_UNLIKELY( purged_treap_idx_is_null( it->idx ) ) ) return 1;
-  fd_crds_purged_t const * val = purged_treap_ele_fast_const( it->idx, purged->pool );
-  if( FD_LIKELY( !purged_treap_idx_is_null( val->treap.next ) ) ) {
-    char const * nxt = (char const *)purged_treap_ele_fast_const( val->treap.next, purged->pool );
-    __builtin_prefetch( nxt ); __builtin_prefetch( nxt+64 );
-  }
-  return it->end_hash<val->treap.hash_prefix;
-}
-
-uchar const *
-fd_gossip_purged_mask_iter_hash( fd_gossip_purged_mask_iter_t * it,
-                                 fd_gossip_purged_t const *     purged ) {
-  fd_crds_purged_t const * val = purged_treap_ele_fast_const( it->idx, purged->pool );
-  return val->hash;
 }

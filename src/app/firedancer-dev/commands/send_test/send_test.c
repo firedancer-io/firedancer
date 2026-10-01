@@ -120,7 +120,7 @@ send_test_topo( config_t * config ) {
   if( use_live_gossip ) {
     /* finish off gossip in_links */
     fd_topob_tile_in( topo, "gossip",  0UL, "metric_in", "txsend_out",  0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-    fd_topob_tile_in( topo, "gossip",  0UL, "metric_in", "sign_gossip", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
+    fd_topob_tile_in( topo, "gossip",  0UL, "metric_in", "sign_gossip", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
   }
 
   /* attach txsend in links */
@@ -249,6 +249,7 @@ send_test_cmd_fn( args_t *   args ,
                   config_t * config ) {
   send_test_topo( config );
 
+  configure_stage( &fd_cfg_stage_uverbs,           CONFIGURE_CMD_INIT, config );
   configure_stage( &fd_cfg_stage_sysctl,           CONFIGURE_CMD_INIT, config );
   configure_stage( &fd_cfg_stage_hugetlbfs,        CONFIGURE_CMD_INIT, config );
   configure_stage( &fd_cfg_stage_bonding,          CONFIGURE_CMD_INIT, config );
@@ -288,6 +289,7 @@ static void
 send_test_cmd_perm( args_t *         args FD_PARAM_UNUSED,
                     fd_cap_chk_t *   chk,
                     config_t const * config ) {
+  configure_stage_perm( &fd_cfg_stage_uverbs,           chk, config );
   configure_stage_perm( &fd_cfg_stage_sysctl,           chk, config );
   configure_stage_perm( &fd_cfg_stage_hugetlbfs,        chk, config );
   configure_stage_perm( &fd_cfg_stage_bonding,          chk, config );

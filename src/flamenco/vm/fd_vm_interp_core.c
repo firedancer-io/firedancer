@@ -114,13 +114,7 @@
    and including the syscall instruction itself.
 
    Execution.
-   Do the syscall.  We use ret reduce the risk of the syscall
-   accidentally modifying other registers (note however since a
-   syscall has the vm handle it still do arbitrary modifications
-   to the vm state) and the risk of a pointer escape on reg from
-   inhibiting compiler optimizations (this risk is likely low in
-   as this is the only point in the whole interpreter core that
-   calls outside this translation unit).
+   Do the syscall. The return value is placed into vm->reg[0].
    At this point, vm->cu is positive.
 
    Error handling.
@@ -169,9 +163,7 @@
   vm->frame_cnt = frame_cnt;                                                  \
   FD_VM_INTERP_SYSCALL_EXEC_DUMP                                              \
   /* Execution */                                                             \
-  ulong ret[1];                                                               \
-  err = syscall->func( vm, reg[1], reg[2], reg[3], reg[4], reg[5], ret );     \
-  reg[0] = ret[0];                                                            \
+  err = syscall->func( vm, reg[1], reg[2], reg[3], reg[4], reg[5] );          \
   /* Error handling */                                                        \
   ulong cu_req = vm->cu;                                                      \
   cu = fd_ulong_min( cu_req, cu );                                            \
@@ -615,10 +607,6 @@ interp_exec:
   FD_VM_INTERP_INSTR_END;
 
   /* 0x60 - 0x6f ******************************************************/
-
-  /* FIXME: CHECK THE CU COST MODEL FOR THESE (IS IT LIKE
-     FD_VM_CONSUME_MEM AND NOT JUST FIXED) */
-  /* FIXME: MEM TRACING DIAGNOSTICS GO IN HERE */
 
   FD_VM_INTERP_INSTR_BEGIN(0x64) /* FD_SBPF_OP_LSH_IMM */
     /* https://github.com/solana-labs/rbpf/blob/8d36530b7071060e2837ebb26f25590db6816048/src/interpreter.rs#L291 */

@@ -92,9 +92,13 @@ fd_keyguard_client_delete( void * shclient ) { return shclient; }
     not correspond to the role assigned to the receiving mcache, it
     will abort the whole program with a critical error.
 
+    FD_KEYGUARD_SIGN_TYPE_BLS_PUBKEY is a public-key query: sign_data
+    contains a ulong authority index and no signing is performed.
+
     The response is written into the signature buffer, which must be at
-    least that large: FD_KEYGUARD_BLS_SIG_SZ (192) bytes for
-    FD_KEYGUARD_SIGN_TYPE_BLS, 64 bytes for every other type.
+    least FD_KEYGUARD_BLS_SIG_SZ (192) bytes for FD_KEYGUARD_SIGN_TYPE_BLS,
+    FD_KEYGUARD_BLS_PUBKEY_SZ (48) bytes for FD_KEYGUARD_SIGN_TYPE_BLS_PUBKEY,
+    or 64 bytes for every other type.
 
     sign_type is in FD_KEYGUARD_SIGN_TYPE_{...}. */
 
@@ -104,6 +108,32 @@ fd_keyguard_client_sign( fd_keyguard_client_t * client,
                          uchar const *          sign_data,
                          ulong                  sign_data_len,
                          int                    sign_type );
+
+/* fd_keyguard_client_ag_vote_sign is fd_keyguard_client_sign for an
+   Alpenglow BLS vote with a choice of key.  authority_idx is ULONG_MAX
+   to sign with the BLS key derived from the identity, or else the index
+   in [0,FD_KEYGUARD_AUTH_VOTERS_MAX) of the authorized voter the caller
+   passes into the toml whose derived BLS key signs.  signature must
+   have capacity for FD_KEYGUARD_BLS_SIG_SZ bytes. */
+
+void
+fd_keyguard_client_ag_vote_sign( fd_keyguard_client_t * client,
+                                 uchar *                signature,
+                                 ulong                  authority_idx,
+                                 uchar const *          sign_data,
+                                 ulong                  sign_data_len );
+
+/* fd_keyguard_client_bls_pubkey returns the compressed BLS public key
+   held by the sign tile.  authority_idx is ULONG_MAX for the identity,
+   or an index in [0,FD_KEYGUARD_AUTH_VOTERS_MAX) of a loaded authorized
+   voter, as in fd_keyguard_client_ag_vote_sign.  public_key must have
+   room for FD_KEYGUARD_BLS_PUBKEY_SZ bytes.  Uses the same blocking
+   request/response channel as signing; only the public key is returned. */
+
+void
+fd_keyguard_client_bls_pubkey( fd_keyguard_client_t * client,
+                               uchar *                public_key,
+                               ulong                  authority_idx );
 
 /* fd_keyguard_client_vote_txn_sign sends a remote signing request to
    the signing server, and blocks (spins) until the response is
@@ -134,7 +164,7 @@ fd_keyguard_client_sign( fd_keyguard_client_t * client,
    written into the signature buffer which must have the capacity to
    hold the maximum number of signatures, which is 2.  There will be
    2 signatures if authority_idx!=ULONG_MAX and 1 otherwise.
-   authority_idx should be in the range [0,16). */
+   authority_idx should be in the range [0,FD_KEYGUARD_AUTH_VOTERS_MAX). */
 
 void
 fd_keyguard_client_vote_txn_sign( fd_keyguard_client_t * client,

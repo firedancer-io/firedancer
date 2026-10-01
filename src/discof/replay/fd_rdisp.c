@@ -261,8 +261,11 @@ typedef struct fd_rdisp_txn fd_rdisp_txn_t;
                                 |-------------
    When FREE, it is in free_acct_dlist only.  When ACTIVE, it is in
    acct_map only.  When CACHED, it is in both free_acct_dlist and
-   cached_acct_map.
+   acct_map, and cached==ACCT_INFO_CACHED.
 */
+#define ACCT_INFO_CACHED UINT_MAX
+FD_STATIC_ASSERT( ((FD_RDISP_MAX_DEPTH<<8)|0xFFUL)<(ulong)ACCT_INFO_CACHED, acct_info_cached ); /* no edge_t is the mark */
+
 struct acct_info {
   /* key, next, and prev are the map_chain fields. Used in the ACTIVE
      and CACHED states.  next and prev set to 0 when in the FREE state.
@@ -284,7 +287,13 @@ struct acct_info {
     struct {
       uint free_ll_next;
       uint free_ll_prev;
-      /* 8 bytes of padding here */
+      /* cached is ACCT_INFO_CACHED in the CACHED state, which tells a
+         CACHED element in acct_map from an ACTIVE one: it aliases
+         last_reference[2], an edge_t of a transaction index in the
+         ACTIVE state, which has its top bit clear.  Not maintained in
+         the FREE state (next and prev tell FREE from CACHED). */
+      uint cached;
+      /* 4 bytes of padding here */
     }; /* When not in the ACTIVE state, used by the free_acct_dlist */
   };
   /* flags: a combination of ACCT_INFO_FLAG_* bitfields above.  Used
@@ -327,7 +336,6 @@ typedef struct acct_info acct_info_t;
 
 FD_STATIC_ASSERT( sizeof(acct_info_t)==64UL, acct_info_t );
 
-/* For the acct_map and the free_acct_map */
 #define MAP_NAME          acct_map
 #define MAP_ELE_T         acct_info_t
 #define MAP_IDX_T         uint
@@ -439,23 +447,21 @@ typedef struct {
   ulong               completed_cnt;
 } per_lane_info_t;
 
-/* We maintain two maps from pubkeys to acct_info_t.  The first one is
-   the main acct_map, just called acct_map.  All pubkeys in this map
-   have >0 references in the one of the staging lane DAGs.  When an
-   account goes to 0 references, it gets removed from main map_chain and
-   moved to free map_chain, called free_acct_map.  The free_acct_map
-   exists to maintain the reference count EMA information lazily.
-   Unless we need the acct_info_t for something in the DAG, we might as
-   well maintain the EMA info.
+/* We maintain one map from pubkeys to acct_info_t, acct_map.  The
+   ACTIVE pubkeys in this map have >0 references in one of the staging
+   lane DAGs.  When an account goes to 0 references it stays in the map
+   as CACHED, which exists to maintain the reference count EMA
+   information lazily.  Unless we need the acct_info_t for something in
+   the DAG, we might as well maintain the EMA info.
 
    When we start up, all the acct_info_t structs are in the
-   free_acct_dlist.  Whenever something is added to the free_acct_map,
-   it's also added to the tail of the free_acct_dlist.  When we need an
-   acct_info_t that's not in the free_acct_map, we pop the head of the
-   free_acct_dlist.  In general, the free_acct_dlist contains everything
-   in the free_acct_map, potentially plus some elements that have never
-   been used; all acct_info_t objects are in exactly one of the main
-   acct_map and the free_acct_dlist (not free_acct_map).  See
+   free_acct_dlist.  Whenever something becomes CACHED, it's also added
+   to the tail of the free_acct_dlist.  When we need an acct_info_t for
+   a pubkey that's not in the map, we pop the head of the
+   free_acct_dlist, evicting it from the map if it was CACHED.  In
+   general, the free_acct_dlist contains everything CACHED, potentially
+   plus some elements that have never been used; all acct_info_t objects
+   are in at least one of acct_map and the free_acct_dlist.  See
    acct_info_t for more information about this. */
 
 struct fd_rdisp {
@@ -476,7 +482,6 @@ struct fd_rdisp {
   per_lane_info_t lanes[4];
 
   acct_map_t   * acct_map;
-  acct_map_t   * free_acct_map;
   /* acct_pool is not an fd_pool, but is just a flat array, since we
      don't need to acquire and release from it because of the dlist. */
   acct_info_t  * acct_pool;
@@ -502,7 +507,9 @@ fd_rdisp_footprint( ulong depth,
 
   ulong chain_cnt      = block_map_chain_cnt_est( block_depth );
   ulong acct_depth     = depth*MAX_ACCT_PER_TXN;
-  ulong acct_chain_cnt = acct_map_chain_cnt_est( acct_depth );
+  /* The map holds at most acct_depth entries, keep load factor at most
+     0.5 to speed up chain operations. */
+  ulong acct_chain_cnt = acct_map_chain_cnt_est( 2UL*acct_depth );
 
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, fd_rdisp_align(),             sizeof(fd_rdisp_t)                              );
@@ -512,7 +519,6 @@ fd_rdisp_footprint( ulong depth,
   l = FD_LAYOUT_APPEND( l, block_pool_align(),           block_pool_footprint        ( block_depth+1UL ) ); /* block_pool */
   l = FD_LAYOUT_APPEND( l, pending_prq_align(),          4UL*pending_prq_footprint   ( depth           ) ); /* pending    */
   l = FD_LAYOUT_APPEND( l, acct_map_align(),             acct_map_footprint          ( acct_chain_cnt  ) ); /* acct_map   */
-  l = FD_LAYOUT_APPEND( l, acct_map_align(),             acct_map_footprint          ( acct_chain_cnt  ) ); /* free_acct_map */
   l = FD_LAYOUT_APPEND( l, alignof(acct_info_t),         (acct_depth+1UL)*sizeof(acct_info_t)            ); /* acct_pool  */
   return FD_LAYOUT_FINI( l, fd_rdisp_align() );
 }
@@ -527,7 +533,7 @@ fd_rdisp_new( void * mem,
 
   ulong chain_cnt      = block_map_chain_cnt_est( block_depth );
   ulong acct_depth     = depth*MAX_ACCT_PER_TXN;
-  ulong acct_chain_cnt = acct_map_chain_cnt_est( acct_depth );
+  ulong acct_chain_cnt = acct_map_chain_cnt_est( 2UL*acct_depth ); /* see fd_rdisp_footprint */
 
   FD_SCRATCH_ALLOC_INIT( l, mem );
   fd_rdisp_t * disp   = FD_SCRATCH_ALLOC_APPEND( l, fd_rdisp_align(),             sizeof(fd_rdisp_t)                              );
@@ -537,7 +543,6 @@ fd_rdisp_new( void * mem,
   void  * _bpool      = FD_SCRATCH_ALLOC_APPEND( l, block_pool_align(),           block_pool_footprint        ( block_depth+1UL ) );
   uchar * _pending    = FD_SCRATCH_ALLOC_APPEND( l, pending_prq_align(),          4UL*pending_prq_footprint   ( depth           ) );
   void  * _acct_map   = FD_SCRATCH_ALLOC_APPEND( l, acct_map_align(),             acct_map_footprint          ( acct_chain_cnt  ) );
-  void  * _freea_map  = FD_SCRATCH_ALLOC_APPEND( l, acct_map_align(),             acct_map_footprint          ( acct_chain_cnt  ) );
   acct_info_t * apool = FD_SCRATCH_ALLOC_APPEND( l, alignof(acct_info_t),         (acct_depth+1UL)*sizeof(acct_info_t)            );
   FD_SCRATCH_ALLOC_FINI( l, fd_rdisp_align() );
 
@@ -571,7 +576,6 @@ fd_rdisp_new( void * mem,
   }
 
   acct_map_new( _acct_map,  acct_chain_cnt, fd_ulong_hash( seed+1UL ) );
-  acct_map_new( _freea_map, acct_chain_cnt, fd_ulong_hash( seed+2UL ) );
 
   free_dlist_t * temp_join = free_dlist_join( free_dlist_new( disp->free_acct_dlist ) );
   for( ulong i=1UL; i<acct_depth+1UL; i++ ) {
@@ -591,7 +595,7 @@ fd_rdisp_join( void * mem ) {
   ulong block_depth    = disp->block_depth;
   ulong chain_cnt      = block_map_chain_cnt_est( block_depth );
   ulong acct_depth     = depth*MAX_ACCT_PER_TXN;
-  ulong acct_chain_cnt = acct_map_chain_cnt_est( acct_depth );
+  ulong acct_chain_cnt = acct_map_chain_cnt_est( 2UL*acct_depth ); /* see fd_rdisp_footprint */
 
   FD_SCRATCH_ALLOC_INIT( l, mem );
   /*                 */ FD_SCRATCH_ALLOC_APPEND( l, fd_rdisp_align(),             sizeof(fd_rdisp_t)                              );
@@ -601,7 +605,6 @@ fd_rdisp_join( void * mem ) {
   void  * _bpool      = FD_SCRATCH_ALLOC_APPEND( l, block_pool_align(),           block_pool_footprint        ( block_depth+1UL ) );
   uchar * _pending    = FD_SCRATCH_ALLOC_APPEND( l, pending_prq_align(),          4UL*pending_prq_footprint   ( depth           ) );
   void  * _acct_map   = FD_SCRATCH_ALLOC_APPEND( l, acct_map_align(),             acct_map_footprint          ( acct_chain_cnt  ) );
-  void  * _freea_map  = FD_SCRATCH_ALLOC_APPEND( l, acct_map_align(),             acct_map_footprint          ( acct_chain_cnt  ) );
   acct_info_t * apool = FD_SCRATCH_ALLOC_APPEND( l, alignof(acct_info_t),         (acct_depth+1UL)*sizeof(acct_info_t)            );
   FD_SCRATCH_ALLOC_FINI( l, fd_rdisp_align() );
 
@@ -618,7 +621,6 @@ fd_rdisp_join( void * mem ) {
   }
 
   disp->acct_map      = acct_map_join( _acct_map );
-  disp->free_acct_map = acct_map_join( _freea_map );
   disp->acct_pool     = apool;
   free_dlist_join( disp->free_acct_dlist );
 
@@ -961,41 +963,36 @@ add_edges( fd_rdisp_t           * disp,
     /* Step 1: lookup the pubkey */
     ulong idx = acct_map_idx_query( disp->acct_map, addr, ULONG_MAX, disp->acct_pool );
     if( FD_UNLIKELY( idx==ULONG_MAX ) ) {
-      idx = acct_map_idx_query( disp->free_acct_map, addr, ULONG_MAX, disp->acct_pool );
-      if( FD_UNLIKELY( idx==ULONG_MAX ) ) {
-        /* The acct pool is sized so that the list cannot be empty at this
-           point.  However, the element at the head might be the free
-           map with a different pubkey. */
-        idx = free_dlist_idx_peek_head( disp->free_acct_dlist, disp->acct_pool );
-        ai = disp->acct_pool+idx;
+      /* The acct pool is sized so that the list cannot be empty at this
+         point.  However, the element at the head might be CACHED with
+         a different pubkey. */
+      idx = free_dlist_idx_peek_head( disp->free_acct_dlist, disp->acct_pool );
+      ai = disp->acct_pool+idx;
 
-        /* CACHED -> FREE transition */
-        if( FD_LIKELY( ai->next!=0U ) ) {
-          acct_map_idx_remove_fast( disp->free_acct_map, idx, disp->acct_pool );
-        }
-
-        /* FREE -> ACTIVE transition */
-        ai->key      = *addr;
-        ai->flags    = 0U;
-        ai->last_ref = 0U;
-        ai->ema_refs = 0.0f;
-      } else {
-        /* CACHED -> ACTIVE transition */
-        ai = disp->acct_pool+idx;
-        ai->flags    = 0U; /* FIXME: unnecessary */
-        acct_map_idx_remove_fast( disp->free_acct_map, idx, disp->acct_pool );
+      /* CACHED -> FREE transition */
+      if( FD_LIKELY( ai->next!=0U ) ) {
+        acct_map_idx_remove_fast( disp->acct_map, idx, disp->acct_pool );
       }
-      /* In either case, at this point, the element is not in any map
-         but is in free_acct_dlist.  It has the right key. last_ref, and
-         ema_refs are valid. flags is 0. */
+
+      /* FREE -> ACTIVE transition */
+      ai->key      = *addr;
+      ai->flags    = 0U;
+      ai->last_ref = 0U;
+      ai->ema_refs = 0.0f;
       free_dlist_idx_remove( disp->free_acct_dlist, idx, disp->acct_pool );
       memset( ai->last_reference, '\0', sizeof(ai->last_reference) );
       acct_map_idx_insert( disp->acct_map, idx, disp->acct_pool );
+    } else {
+      ai = disp->acct_pool+idx;
+      if( FD_UNLIKELY( ai->cached==ACCT_INFO_CACHED ) ) {
+        /* CACHED -> ACTIVE transition.  It has the right key. last_ref,
+           and ema_refs are valid. flags was zeroed when it was cached. */
+        free_dlist_idx_remove( disp->free_acct_dlist, idx, disp->acct_pool );
+        memset( ai->last_reference, '\0', sizeof(ai->last_reference) );
+      }
     }
-    ai = disp->acct_pool+idx;
     /* At this point, in all cases, the acct_info is now in the ACTIVE
-       state.  It's in acct_map, not in free_acct_map, and not in
-       free_acct_dlist. */
+       state.  It's in acct_map and not in free_acct_dlist. */
 
     /* Assume that transactions are drawn randomly from some large
        distribution of potential transactions.  We want to estimate the
@@ -1120,7 +1117,6 @@ add_unstaged_edges( fd_rdisp_t * disp,
     unstaged->keys[ base_idx+i ] = addr[i];
     if( FD_LIKELY( update_score ) ) {
       ulong idx = acct_map_idx_query( disp->acct_map, addr+i, ULONG_MAX, disp->acct_pool );
-      if( FD_UNLIKELY( idx==ULONG_MAX ) ) idx = acct_map_idx_query( disp->free_acct_map, addr+i, ULONG_MAX, disp->acct_pool );
       /* since these are unstaged, we don't bother moving accounts
          around */
       float score_change = 1.0f;
@@ -1129,6 +1125,39 @@ add_unstaged_edges( fd_rdisp_t * disp,
     }
   }
   *(fd_ptr_if( writable, &(unstaged->writable_cnt), &(unstaged->readonly_cnt) ) ) += (uint)addr_cnt;
+}
+
+/* prefetch_accts warms what add_edges (or add_unstaged_edges) touches
+   first for each of the cnt addresses: the chain head of each account,
+   then the element at the head of each chain, which is where the key
+   compare of a hit usually lands (queries move the found element to the
+   front).  The map is large enough that these are otherwise serial
+   cache misses, one account at a time.  The free list head, which a
+   miss takes, is warmed by the caller.  Hints only: the queries below
+   are unchanged. */
+
+static inline void
+prefetch_accts( fd_rdisp_t const *     disp,
+                fd_acct_addr_t const * addrs,
+                ulong                  cnt ) {
+  uint const * heads[ MAX_ACCT_PER_TXN ];
+  uint const * chain = acct_map_private_chain_const( disp->acct_map );
+  ulong seed         = acct_map_seed     ( disp->acct_map );
+  ulong chain_cnt    = acct_map_chain_cnt( disp->acct_map );
+  for( ulong i=0UL; i<cnt; i++ ) {
+    heads[ i ] = chain + acct_map_private_chain_idx( addrs+i, seed, chain_cnt );
+    __builtin_prefetch( heads[ i ], 0, 3 );
+  }
+  for( ulong i=0UL; i<cnt; i++ ) {
+    ulong head = (ulong)*heads[ i ];
+    __builtin_prefetch( disp->acct_pool + fd_ulong_if( head==UINT_MAX, 0UL, head ), 0, 3 );
+  }
+}
+
+ulong
+fd_rdisp_peek_free_txn( fd_rdisp_t const * disp ) {
+  ulong idx = pool_private_meta_const( disp->pool )->free_top;
+  return fd_ulong_if( idx==pool_idx_null( disp->pool ), 0UL, idx );
 }
 
 ulong
@@ -1143,11 +1172,19 @@ fd_rdisp_add_txn( fd_rdisp_t          *  disp,
   if( FD_UNLIKELY( !block || !block->insert_ready ) ) return 0UL;
   if( FD_UNLIKELY( !pool_free( disp->pool       ) ) ) return 0UL;
 
+  fd_acct_addr_t const * imm_addrs = fd_txn_get_acct_addrs( txn, payload );
+
+  /*                   */ prefetch_accts( disp, imm_addrs, fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM ) );
+  if( FD_LIKELY( alts ) ) prefetch_accts( disp, alts, fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_ALT ) );
+  __builtin_prefetch( disp->acct_pool + free_dlist_idx_peek_head( disp->free_acct_dlist, disp->acct_pool ), 1, 3 );
+
   ulong idx = pool_idx_acquire( disp->pool );
   fd_rdisp_txn_t * rtxn = disp->pool + idx;
   if( FD_UNLIKELY( rtxn->in_degree!=IN_DEGREE_FREE ) ) FD_LOG_CRIT(( "pool[%lu].in_degree==%u but free", idx, rtxn->in_degree ));
 
-  fd_acct_addr_t const * imm_addrs = fd_txn_get_acct_addrs( txn, payload );
+  /* The element the next add_txn takes (unless a completion pushes a
+     recently touched one first) is the next cold line in this path. */
+  __builtin_prefetch( disp->pool + fd_rdisp_peek_free_txn( disp ), 1, 3 );
 
   if( FD_UNLIKELY( !block->staged ) ) {
     rtxn->in_degree = IN_DEGREE_UNSTAGED;
@@ -1301,12 +1338,12 @@ fd_rdisp_complete_txn( fd_rdisp_t * disp,
           ai->last_reference[ lane ]= fd_uint_if( ai->last_reference[ lane ]==ref_to_me, e[1], ai->last_reference[ lane ] );
         }
 
-        /* Potentially transition from ACTIVE -> CACHED */
+        /* Potentially transition from ACTIVE -> CACHED: it stays in
+           acct_map, flagged, and joins the tail of the free list. */
         if( FD_UNLIKELY( (ai->last_reference[ 0 ]==0U)&(ai->last_reference[ 1 ]==0U)&
                          (ai->last_reference[ 2 ]==0U)&(ai->last_reference[ 3 ]==0U) ) ) {
-          ai->flags = 0;
-          acct_map_idx_remove_fast( disp->acct_map,        acct_idx, disp->acct_pool );
-          acct_map_idx_insert     ( disp->free_acct_map,   acct_idx, disp->acct_pool );
+          ai->flags  = 0;
+          ai->cached = ACCT_INFO_CACHED;
           free_dlist_idx_push_tail( disp->free_acct_dlist, acct_idx, disp->acct_pool );
         }
       } else {
@@ -1448,9 +1485,32 @@ fd_rdisp_verify( fd_rdisp_t const * disp,
                  uint             * scratch ) {
   ulong acct_depth  = disp->depth*MAX_ACCT_PER_TXN;
   ulong block_depth = disp->block_depth;
-  FD_TEST( 0==acct_map_verify ( disp->acct_map,      acct_depth+1UL,  disp->acct_pool ) );
-  FD_TEST( 0==acct_map_verify ( disp->free_acct_map, acct_depth+1UL,  disp->acct_pool ) );
-  FD_TEST( 0==block_map_verify( disp->blockmap,     block_depth+1UL, disp->block_pool ) );
+  FD_TEST( 0==acct_map_verify ( disp->acct_map,  acct_depth+1UL,  disp->acct_pool ) );
+  FD_TEST( 0==block_map_verify( disp->blockmap, block_depth+1UL, disp->block_pool ) );
+
+  /* Every element of the free list that is in the map is CACHED under
+     its own key, every element in the map is either ACTIVE with a
+     reference in some lane or CACHED, and the CACHED ones are exactly
+     the mapped elements of the free list. */
+  ulong cached_cnt = 0UL;
+  for( free_dlist_iter_t it=free_dlist_iter_fwd_init( disp->free_acct_dlist, disp->acct_pool );
+       !free_dlist_iter_done( it, disp->free_acct_dlist, disp->acct_pool );
+       it=free_dlist_iter_fwd_next( it, disp->free_acct_dlist, disp->acct_pool ) ) {
+    ulong idx = free_dlist_iter_idx( it, disp->free_acct_dlist, disp->acct_pool );
+    acct_info_t const * ai = disp->acct_pool+idx;
+    if( !ai->next ) continue; /* FREE */
+    FD_TEST( ai->cached==ACCT_INFO_CACHED && !ai->flags );
+    FD_TEST( acct_map_idx_query_const( disp->acct_map, &ai->key, ULONG_MAX, disp->acct_pool )==idx );
+    cached_cnt++;
+  }
+  for( acct_map_iter_t it=acct_map_iter_init( disp->acct_map, disp->acct_pool );
+       !acct_map_iter_done( it, disp->acct_map, disp->acct_pool );
+       it=acct_map_iter_next( it, disp->acct_map, disp->acct_pool ) ) {
+    acct_info_t const * ai = acct_map_iter_ele_const( it, disp->acct_map, disp->acct_pool );
+    if( ai->cached==ACCT_INFO_CACHED ) cached_cnt--;
+    else FD_TEST( ai->last_reference[ 0 ] | ai->last_reference[ 1 ] | ai->last_reference[ 2 ] | ai->last_reference[ 3 ] );
+  }
+  FD_TEST( cached_cnt==0UL );
 
   /* Check all the in degree counts are right */
   memset( scratch, '\0', sizeof(uint)*(disp->depth+1UL) );

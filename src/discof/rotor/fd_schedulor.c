@@ -1,4 +1,6 @@
 #include "fd_schedulor.h"
+#include "../../ballet/base58/fd_base58.h" /* FD_BASE58_ENCODE_32_BYTES */
+#include <stdio.h>
 
 #define FD_SCHEDULOR_MAGIC (0xf17eda2ce75c4ed0UL) /* firedancer schedulor v1 */
 
@@ -61,9 +63,9 @@ fd_schedulor_align( void ) {
 }
 
 FD_FN_CONST ulong
-fd_schedulor_footprint( ulong slotv_max ) {
-  ulong task_max = 2UL*slotv_max;
-  if( FD_UNLIKELY( !slotv_max || !pool_footprint( task_max ) || !treap_footprint( task_max ) ) ) return 0UL;
+fd_schedulor_footprint( ulong block_max ) {
+  ulong task_max = 2UL*block_max;
+  if( FD_UNLIKELY( !block_max || !pool_footprint( task_max ) || !treap_footprint( task_max ) ) ) return 0UL;
   ulong chain_cnt = map_chain_cnt_est( task_max );
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_schedulor_t), sizeof(fd_schedulor_t)      );
@@ -75,7 +77,7 @@ fd_schedulor_footprint( ulong slotv_max ) {
 
 void *
 fd_schedulor_new( void * mem,
-                  ulong  slotv_max,
+                  ulong  block_max,
                   ulong  seed ) {
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
@@ -85,15 +87,15 @@ fd_schedulor_new( void * mem,
     FD_LOG_WARNING(( "misaligned mem" ));
     return NULL;
   }
-  ulong footprint = fd_schedulor_footprint( slotv_max );
+  ulong footprint = fd_schedulor_footprint( block_max );
   if( FD_UNLIKELY( !footprint ) ) {
-    FD_LOG_WARNING(( "bad slotv_max %lu", slotv_max ));
+    FD_LOG_WARNING(( "bad block_max %lu", block_max ));
     return NULL;
   }
 
   fd_memset( mem, 0, footprint );
 
-  ulong task_max  = 2UL*slotv_max;
+  ulong task_max  = 2UL*block_max;
   ulong chain_cnt = map_chain_cnt_est( task_max );
 
   FD_SCRATCH_ALLOC_INIT( l, mem );
@@ -180,26 +182,19 @@ task_release( fd_schedulor_t * self,
   pool_ele_release( self->pool, task );
 }
 
-/* schedule asks for version key to be checked at timeout. If the key
-   is not queued a task is created. If queued the timeout is pulled
-   earlier. */
+/* schedule asks for version key to be checked at timeout.  If the key
+   is already queued this is a no-op: the queued check keeps its time. */
 
 static void
 schedule( fd_schedulor_t *   self,
           task_key_t const * key,
           long               timeout ) {
-  timeout = quantize( timeout );
-  task_t * task = map_ele_query( self->map, key, NULL, self->pool );
-  if( FD_LIKELY( task ) ) {
-    if( FD_LIKELY( timeout>=task->timeout ) ) return;
-    treap_ele_remove( self->treap, task, self->pool );
-  } else {
-    if( FD_UNLIKELY( !pool_free( self->pool ) ) ) FD_LOG_CRIT(( "schedulor task pool full (%lu tasks)", self->task_max ));
-    task      = pool_ele_acquire( self->pool );
-    task->key = *key;
-    map_ele_insert( self->map, task, self->pool );
-  }
-  task->timeout = timeout;
+  if( FD_UNLIKELY( map_ele_query( self->map, key, NULL, self->pool ) ) ) return;
+  if( FD_UNLIKELY( !pool_free( self->pool ) ) ) FD_LOG_CRIT(( "schedulor task pool full (%lu tasks)", self->task_max ));
+  task_t * task = pool_ele_acquire( self->pool );
+  task->key     = *key;
+  task->timeout = quantize( timeout );
+  map_ele_insert( self->map, task, self->pool );
   treap_ele_insert( self->treap, task, self->pool );
 }
 
@@ -314,4 +309,40 @@ fd_schedulor_verify( fd_schedulor_t const * self ) {
   return 0;
 
 # undef FAIL
+}
+
+void
+fd_schedulor_print( void const * mem,
+                    ulong        block_max,
+                    long         now ) {
+  fd_schedulor_t const * self = (fd_schedulor_t const *)mem;
+  if( FD_UNLIKELY( self->magic!=FD_SCHEDULOR_MAGIC ) ) {
+    printf( "\n[Schedulor] bad magic 0x%lx (not initialized?)\n", self->magic );
+    return;
+  }
+
+  /* Mirror fd_schedulor_new's layout: the struct's pointers belong to
+     the creating process. */
+
+  ulong task_max  = 2UL*block_max;
+  ulong chain_cnt = map_chain_cnt_est( task_max );
+  FD_SCRATCH_ALLOC_INIT( l, mem );
+  (void)                FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_schedulor_t), sizeof(fd_schedulor_t)      );
+  task_t const *  pool  = pool_join ( FD_SCRATCH_ALLOC_APPEND( l, pool_align(),  pool_footprint ( task_max  ) ) );
+  (void)                FD_SCRATCH_ALLOC_APPEND( l, map_align(),             map_footprint  ( chain_cnt ) );
+  treap_t const * treap = treap_join( FD_SCRATCH_ALLOC_APPEND( l, treap_align(), treap_footprint( task_max  ) ) );
+  if( FD_UNLIKELY( !pool || !treap ) ) {
+    printf( "\n[Schedulor] bad pool or treap (layout mismatch?)\n" );
+    return;
+  }
+
+  printf( "\n[Schedulor] queued: %lu / %lu\n", treap_ele_cnt( treap ), task_max );
+  printf( "%-12s %-10s %s\n", "slot", "due_ms", "block_id" );
+  for( treap_fwd_iter_t iter = treap_fwd_iter_init( treap, pool );
+                        !treap_fwd_iter_done( iter );
+                        iter = treap_fwd_iter_next( iter, pool ) ) {
+    task_t const * task = treap_fwd_iter_ele_const( iter, pool );
+    FD_BASE58_ENCODE_32_BYTES( task->key.block_id.uc, block_id_b58 );
+    printf( "%-12lu %-10ld %s\n", task->key.slot, ( task->timeout-now )/1000000L, block_id_b58 );
+  }
 }

@@ -121,6 +121,17 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
                           fd_stake_delegations_t *       stake_delegations,
                           ulong *                        new_rate_activation_epoch );
 
+/* fd_stakes_vote_account_is_admissible returns 1 if a vote account
+   with the given state passes the validator admission ticket filter
+   applied at the epoch boundary */
+
+int
+fd_stakes_vote_account_is_admissible( fd_bank_t const * bank,
+                                      ulong             lamports,
+                                      uchar const *     owner,
+                                      uchar const *     data,
+                                      ulong             data_len );
+
 /* rewarded_epoch selects the epoch whose effective delegated stakes
    should be accumulated for rewards.  ULONG_MAX disables this work. */
 void

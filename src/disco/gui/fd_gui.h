@@ -348,6 +348,8 @@ struct fd_gui_tile_timers {
 
 typedef struct fd_gui_tile_timers fd_gui_tile_timers_t;
 
+#define FD_GUI_EXEC_DONE_SLOT_CNT (16UL)
+
 struct fd_gui_tile_timers_hist {
   long   sample_time_nanos;
   ushort tile_idx;
@@ -813,13 +815,17 @@ typedef struct fd_gui_snapsv_pending fd_gui_snapsv_pending_t;
 #define FD_GUI_ACCDB_TILE_KIND_ACCDB  3  /* accdb tile itself (prewrite + compaction writes) */
 
 /* 60s-history rings for the per-tile sparkline.  Each bucket is the
-   sum of per-snap deltas that fell into that bucket window.
-   index 0 = current bucket (in-flight), older buckets follow.  When
-   a bucket interval elapses we shift right (older buckets drop off
-   the end) and start a new index-0 bucket.  240 buckets x 250ms =
-   60 second window. */
+   sum of per-snap deltas that fell into that bucket window.  When a
+   bucket interval elapses the per-second rate is formatted once, as
+   the "%.2f," JSON array element it is emitted as, and appended to a
+   packed text ring (oldest first, the oldest dropping off the front
+   once full) so each emit is one copy rather than a printf per sample.
+   240 buckets x 250ms = 60 second window.  The longest element is the
+   rate of a wrapped counter, 2^64/0.25 s: 20 digits, ".00" and the
+   comma. */
 #define FD_GUI_ACCDB_SPARKLINE_SAMPLES   240UL
 #define FD_GUI_ACCDB_SPARKLINE_BUCKET_NS 250000000L
+#define FD_GUI_ACCDB_SPARKLINE_TEXT_MAX  24UL
 
 struct fd_gui_accdb_stats {
   ulong accdb_win_idx;        /* next write index */
@@ -918,12 +924,15 @@ struct fd_gui_accdb_stats {
   long  tile_sparkline_bucket_start_nanos [ FD_GUI_MAX_ACCDB_TILES ];
   ulong tile_sparkline_acq_bucket         [ FD_GUI_MAX_ACCDB_TILES ];
   ulong tile_sparkline_acq_wr_bucket      [ FD_GUI_MAX_ACCDB_TILES ];
-  /* Per-second rates (units/second) for the last N completed buckets.
-     Newest at index 0, oldest at the end.  Filled lazily as snaps
-     complete each bucket interval. */
-  double tile_sparkline_acq_history    [ FD_GUI_MAX_ACCDB_TILES ][ FD_GUI_ACCDB_SPARKLINE_SAMPLES ];
-  double tile_sparkline_acq_wr_history [ FD_GUI_MAX_ACCDB_TILES ][ FD_GUI_ACCDB_SPARKLINE_SAMPLES ];
-  ulong  tile_sparkline_count          [ FD_GUI_MAX_ACCDB_TILES ];  /* completed buckets, capped at FD_GUI_ACCDB_SPARKLINE_SAMPLES */
+  /* Per-second rates of the last N completed buckets as the JSON array
+     body they are emitted as: the "%.2f," elements concatenated oldest
+     first in text[ 0, text_len ).  Elements contain no comma but the
+     one that ends them, so the boundaries are the commas. */
+  char  tile_sparkline_acq_text        [ FD_GUI_MAX_ACCDB_TILES ][ FD_GUI_ACCDB_SPARKLINE_SAMPLES*FD_GUI_ACCDB_SPARKLINE_TEXT_MAX ];
+  char  tile_sparkline_acq_wr_text     [ FD_GUI_MAX_ACCDB_TILES ][ FD_GUI_ACCDB_SPARKLINE_SAMPLES*FD_GUI_ACCDB_SPARKLINE_TEXT_MAX ];
+  ulong tile_sparkline_acq_text_len    [ FD_GUI_MAX_ACCDB_TILES ];
+  ulong tile_sparkline_acq_wr_text_len [ FD_GUI_MAX_ACCDB_TILES ];
+  ulong tile_sparkline_count           [ FD_GUI_MAX_ACCDB_TILES ];  /* completed buckets, capped at FD_GUI_ACCDB_SPARKLINE_SAMPLES */
 };
 
 typedef struct fd_gui_accdb_stats fd_gui_accdb_stats_t;
@@ -1137,6 +1146,21 @@ struct fd_gui {
 
   fd_gui_peers_ctx_t * peers; /* full-client */
 
+  /* One decoded shred event for fd_gui_printf_shreds_window, which
+     prints a window's events column by column and would otherwise
+     decode the batches once per column. */
+  struct {
+    fd_gui_shred_scratch_t * ev;  /* [max] */
+    ulong                    max;
+  } shred_scratch;
+
+  /* Earliest REPLAY_EXEC_DONE timestamp per shred of the
+     FD_GUI_EXEC_DONE_SLOT_CNT most recent slots, LONG_MAX if none */
+  struct {
+    ulong  slot[ FD_GUI_EXEC_DONE_SLOT_CNT ];
+    long * ts; /* [FD_GUI_EXEC_DONE_SLOT_CNT][FD_SHRED_BLK_MAX] */
+  } exec_done;
+
   struct {
     ulong leader_shred_cnt;      /* A gauge counting the number of leader shreds seen on the SHRED_OUT link.  Resets at
                                     the end of a leader slot.  This works because leader fecs are published in order. */
@@ -1272,6 +1296,9 @@ fd_gui_microblock_execution_end( fd_gui_t *     gui,
 
 int
 fd_gui_poll( fd_gui_t * gui, long now );
+
+long
+fd_gui_next_deadline( fd_gui_t const * gui );
 
 void
 fd_gui_handle_block_engine_update( fd_gui_t *                              gui,

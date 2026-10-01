@@ -2,6 +2,7 @@
 #include "fd_topo.h"
 
 #include "../waker/fd_waker.h"
+#include "../sleep/fd_sleep.h"
 #include "../metrics/fd_metrics.h"
 #include "../events/fd_event_report.h"
 #include "../../util/tile/fd_tile_private.h"
@@ -64,6 +65,8 @@ fd_topo_run_tile( fd_topo_t *          topo,
   if( FD_UNLIKELY( topo->sleep_obj_id!=ULONG_MAX ) ) {
     if( FD_UNLIKELY( -1==prctl( PR_SET_TIMERSLACK, 1UL, 0UL, 0UL, 0UL ) ) ) FD_LOG_ERR(( "prctl(PR_SET_TIMERSLACK) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
+
+  fd_tile_rseq_unregister();
 
   ulong pid = fd_sandbox_getpid(); /* Need to read /proc again.. we got a new PID from clone */
   ulong tid = fd_sandbox_gettid(); /* Need to read /proc again.. we got a new TID from clone */
@@ -350,6 +353,7 @@ fd_topo_run_single_process( fd_topo_t *       topo,
       if( FD_UNLIKELY( idx!=ULONG_MAX ) ) waker_client_cnt = fd_ulong_max( waker_client_cnt, idx+1UL );
     }
     fd_waker_install( waker_client_cnt );
+    fd_sleep_eventfd_install( topo );
   }
 
   /* Save the current affinity, it will be restored after creating any child tiles */

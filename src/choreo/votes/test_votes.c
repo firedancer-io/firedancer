@@ -316,6 +316,86 @@ test_votes_update_voters( void ) {
   fd_votes_delete( fd_votes_leave( votes ) );
 }
 
+/* fd_votes_count_vote_vtr with a caller side lookup returns exactly
+   what fd_votes_count_vote returns and leaves the same state, for
+   every ordering of the checks: a too new slot beats an unknown voter
+   (Agave's ordering; the tower tile's metrics tell them apart), a
+   known voter on a too new slot is TOO_NEW, an unknown voter on a slot
+   in range is UNKNOWN_VTR, and a repeat is ALREADY_VOTED. */
+
+void
+test_votes_count_vote_vtr( void ) {
+  ulong slot_max = 8;
+  ulong vtr_max  = 4;
+
+  FD_TEST( fd_votes_footprint( slot_max, vtr_max ) <= SCRATCH_MAX );
+  fd_votes_t * votes = fd_votes_join( fd_votes_new( scratch, slot_max, vtr_max, 0 ) );
+  FD_TEST( votes );
+
+  fd_pubkey_t voters[2] = { { .ul = { 1 } }, { .ul = { 2 } } };
+  ulong       stakes[2] = { 10, 51 };
+  register_voters( votes, voters, 2 );
+  fd_votes_publish( votes, 100 );
+
+  fd_pubkey_t unknown  = { .ul = { 999 } };
+  fd_hash_t   block_id = { .ul = { 200 } };
+
+  fd_votes_vtr_t * v0 = fd_votes_vtr_query( votes, &voters[0] );
+  fd_votes_vtr_t * v1 = fd_votes_vtr_query( votes, &voters[1] );
+  FD_TEST( v0 && v1 && v0!=v1 );
+  FD_TEST( !fd_votes_vtr_query( votes, &unknown ) );
+
+  /* Too new beats unknown, with and without the voter */
+  FD_TEST( fd_votes_count_vote    ( votes, &unknown, 0UL, 100+slot_max, &block_id )==FD_VOTES_ERR_VOTE_TOO_NEW );
+  FD_TEST( fd_votes_count_vote_vtr( votes, NULL,     0UL, 100+slot_max, &block_id )==FD_VOTES_ERR_VOTE_TOO_NEW );
+  FD_TEST( fd_votes_count_vote_vtr( votes, v0, stakes[0], 100+slot_max, &block_id )==FD_VOTES_ERR_VOTE_TOO_NEW );
+  FD_TEST( fd_votes_count_vote    ( votes, &unknown, 0UL, 101,          &block_id )==FD_VOTES_ERR_UNKNOWN_VTR  );
+  FD_TEST( fd_votes_count_vote_vtr( votes, NULL,     0UL, 101,          &block_id )==FD_VOTES_ERR_UNKNOWN_VTR  );
+  FD_TEST( slot_pool_used( votes->slot_pool )==0 ); /* nothing counted, no slot created */
+
+  /* Interleave the two entry points on the same voters and slots and
+     compare against a second votes driven only through
+     fd_votes_count_vote. */
+  static uchar scratch2[ SCRATCH_MAX ] __attribute__((aligned(128)));
+  fd_votes_t * ref = fd_votes_join( fd_votes_new( scratch2, slot_max, vtr_max, 0 ) );
+  FD_TEST( ref );
+  register_voters( ref, voters, 2 );
+  fd_votes_publish( ref, 100 );
+
+  /* Each iteration is one "txn": the voter is looked up once and the
+     handle reused across a run of up to 32 slots (SUCCESS, ALREADY_VOTED
+     and TOO_NEW mixed), as count_vote_txn does; the reference looks the
+     voter up per slot. */
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 7U, 0UL ) );
+  ulong root = 100UL;
+  for( ulong i=0UL; i<4096UL; i++ ) {
+    if( !(i%512UL) ) { root = 100UL+i/512UL; fd_votes_publish( ref, root ); fd_votes_publish( votes, root ); }
+    ulong             vi   = fd_rng_ulong_roll( rng, 3UL ); /* 2: unknown */
+    fd_pubkey_t const * acc = vi<2UL ? &voters[ vi ] : &unknown;
+    ulong             stk  = vi<2UL ? stakes[ vi ] : 0UL;
+    fd_votes_vtr_t *  vtr  = fd_votes_vtr_query( votes, acc );
+    int               direct = (int)fd_rng_uint_roll( rng, 2U );
+    ulong             cnt  = 1UL+fd_rng_ulong_roll( rng, 32UL );
+    for( ulong k=0UL; k<cnt; k++ ) {
+      ulong     slot = root+fd_rng_ulong_roll( rng, slot_max+2UL ); /* in range or too new (the tile filters slots at or below root) */
+      fd_hash_t bid  = { .ul = { 200UL+fd_rng_ulong_roll( rng, 3UL ) } };
+      int e_ref = fd_votes_count_vote( ref, acc, stk, slot, &bid );
+      int e_new = direct ? fd_votes_count_vote( votes, acc, stk, slot, &bid )
+                         : fd_votes_count_vote_vtr( votes, vtr, stk, slot, &bid );
+      FD_TEST( e_ref==e_new );
+      fd_votes_blk_t * b_ref = fd_votes_query( ref,   slot, &bid );
+      fd_votes_blk_t * b_new = fd_votes_query( votes, slot, &bid );
+      FD_TEST( (!b_ref)==(!b_new) );
+      if( b_ref ) FD_TEST( b_ref->stake==b_new->stake && b_ref->flags==b_new->flags );
+    }
+  }
+  FD_TEST( slot_pool_used( votes->slot_pool )==slot_pool_used( ref->slot_pool ) );
+  FD_TEST( blk_pool_used ( votes->blk_pool  )==blk_pool_used ( ref->blk_pool  ) );
+
+  fd_votes_delete( fd_votes_leave( ref ) );
+  fd_votes_delete( fd_votes_leave( votes ) );
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
@@ -326,6 +406,7 @@ main( int argc, char ** argv ) {
   test_votes_spam_block_ids_per_slot();
   test_votes_spam_many_slots();
   test_votes_update_voters();
+  test_votes_count_vote_vtr();
 
   fd_halt();
   return 0;

@@ -81,7 +81,7 @@ typedef struct fd_event_report_iov fd_event_report_iov_t;
 static inline void
 fd_event_report_ring_( fd_event_reporter_t * r ) {
   if( FD_LIKELY( !r->sleep ) ) return;
-  FD_VOLATILE( r->sleep->seq_mirror[ r->link_id ] ) = r->seq;
+  __atomic_store_n( &r->sleep->seq_mirror[ r->link_id ], r->seq, __ATOMIC_RELEASE );
   fd_sleep_wake_check( r->sleep, r->wake, r->wake_cnt );
 }
 

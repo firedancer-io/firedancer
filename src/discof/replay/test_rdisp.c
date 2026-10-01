@@ -68,7 +68,10 @@ add_txn( fd_rdisp_t *         rdisp,
 
   fd_acct_addr_t const * _alt = serializing && fd_rng_uint_roll( rng, 2U )==0U ? NULL : alt;
 
-  return fd_rdisp_add_txn( rdisp, tag, txn, payload, _alt, serializing );
+  ulong peek = fd_rdisp_peek_free_txn( rdisp );
+  ulong idx  = fd_rdisp_add_txn( rdisp, tag, txn, payload, _alt, serializing );
+  FD_TEST( !idx || idx==peek );
+  return idx;
 }
 
 static void ushort_to_acct( fd_acct_addr_t * a, ushort v ) { for( ulong k=0UL; k<16UL; k++ ) FD_STORE( ushort, a->b+2UL*k, v ); }
@@ -115,7 +118,10 @@ add_txn2( fd_rdisp_t *         rdisp,
   acct = alt;
   for( ulong i=4UL; i<6UL; i++ ) for( ulong j=0UL; j<cat_cnts[2][i&1]; j++ ) ushort_to_acct( acct++, categorized[2][i&1][j] );
 
-  return fd_rdisp_add_txn( rdisp, tag, txn, payload, alt, 0 );
+  ulong peek = fd_rdisp_peek_free_txn( rdisp );
+  ulong idx  = fd_rdisp_add_txn( rdisp, tag, txn, payload, alt, 0 );
+  FD_TEST( !idx || idx==peek );
+  return idx;
 }
 
 static inline ulong
@@ -290,8 +296,8 @@ random_test( fd_rng_t * rng,
   for( ulong test_outer=0UL; test_outer<iterations; test_outer+=100UL ) {
     FD_LOG_NOTICE(( "iteration %lu/%lu. RNG at (%u, %lu)", test_outer, iterations, fd_rng_seq( rng ), fd_rng_idx( rng ) ));
     for( ulong test=test_outer; test<test_outer+100UL; test++ ) {
-      /* If we don't reset the signer idx, the free_acct_map starts
-         getting really big since it holds all the cached unique signer
+      /* If we don't reset the signer idx, the CACHED part of acct_map
+         starts getting really big since it holds all the unique signer
          accounts, and fd_rdisp_verify gets really slow.  We can't reset
          it to 0, or it will conflict with ushort_to_acct(0), so just
          reset it to 1. */
@@ -453,7 +459,7 @@ main( int     argc,
   ulong        rand_iters = fd_env_strip_cmdline_ulong ( &argc, &argv, "--random-iterations", NULL, 200UL );
   FD_LOG_NOTICE(( "Using --random-iterations %lu", rand_iters ));
 
-  FD_TEST( fd_rdisp_footprint( 65536UL, 2048UL )==474898560UL );
+  FD_TEST( fd_rdisp_footprint( 65536UL, 2048UL )==474898432UL );
 
   test_mainnet( block_file, exec_tiles, 20UL, 0UL, 1 );
 

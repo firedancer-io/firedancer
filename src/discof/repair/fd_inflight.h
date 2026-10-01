@@ -11,7 +11,7 @@
 
    - Shred requests -- positional FD_REPAIR_KIND_SHRED and Alpenglow
      ShredForBlockId, which are indistinguishable on response -- are
-     keyed by (slot, shred_idx, nonce, fec_root).  fec_root is
+     keyed by (slot, shred_idx, nonce, kind, fec_root).  fec_root is
      all zero for a positional request (i.e., we didnt know the FEC
      root when the request was issued).  For a ShredForBlockId request,
      it is the 20-byte prefix of the known FEC root.
@@ -24,7 +24,7 @@
    Exact updates of shred requests are critical: the repair policy does
    not request any shred twice, so re-requests come only from this
    table.  Whether a shred belongs to a version is decided structurally
-   by the chainer, which keys FECs by root; this table is request
+   by the rotor, which keys FECs by root; this table is request
    accounting only.
 
    Each record is FREE, OUTSTANDING, or POPPED:
@@ -40,7 +40,9 @@
    popped: the caller redispatches it under a fresh nonce and the record
    moves to popped_map / popped_dl rather than being released, so a late
    response to the old nonce still matches.  When the pool is exhausted
-   the oldest POPPED record is evicted first. */
+   the oldest POPPED record is evicted first.  A caller that does not
+   redispatch from the table releases aged records with
+   fd_inflights_expire instead of popping them. */
 
 /* Max number of pending requests */
 #define FD_INFLIGHT_REQ_MAX (1<<20)
@@ -49,7 +51,7 @@ struct fd_inflight_key {
   ulong slot;
   uint  idx;        /* shred idx (shred kinds) or fec_set_idx (AG_REPAIR_KIND_FEC_ROOT) */
   uint  nonce;      /* rnonce or counter nonce (metadata) */
-  uint  kind;       /* FD_REPAIR_KIND_SHRED for every shred request, else AG_REPAIR_KIND_{PARENT_FEC_COUNT,FEC_ROOT} */
+  uint  kind;       /* FD_REPAIR_KIND_SHRED, AG_REPAIR_KIND_SHRED_FOR_BLOCK_ID, AG_REPAIR_KIND_PARENT_FEC_COUNT or AG_REPAIR_KIND_FEC_ROOT */
   /* shred kinds: first FD_SHRED_MERKLE_NODE_SZ bytes of the FEC root a
      ShredForBlockId request was issued against, all-zero for a
      positional request.  All-zero for metadata kinds. */
@@ -83,7 +85,9 @@ fd_inflight_key_init( fd_inflight_key_t * key,
    considered when matching. */
 
 static inline int
-fd_inflight_key_is_shred( fd_inflight_key_t const * k ) { return k->kind==FD_REPAIR_KIND_SHRED; }
+fd_inflight_key_is_shred( fd_inflight_key_t const * k ) {
+  return k->kind==FD_REPAIR_KIND_SHRED || k->kind==AG_REPAIR_KIND_SHRED_FOR_BLOCK_ID;
+}
 
 static inline int
 fd_inflight_key_eq( fd_inflight_key_t const * k0,
@@ -91,7 +95,7 @@ fd_inflight_key_eq( fd_inflight_key_t const * k0,
   if( FD_UNLIKELY( k0->nonce!=k1->nonce ) )                                           return 0;
   if( FD_UNLIKELY( fd_inflight_key_is_shred( k0 )!=fd_inflight_key_is_shred( k1 ) ) ) return 0;
   if( FD_UNLIKELY( !fd_inflight_key_is_shred( k0 ) ) )                                return 1;
-  return ( k0->slot==k1->slot ) & ( k0->idx==k1->idx ) & !memcmp( k0->fec_root, k1->fec_root, FD_SHRED_MERKLE_NODE_SZ );
+  return ( k0->slot==k1->slot ) & ( k0->idx==k1->idx ) & ( k0->kind==k1->kind ) & !memcmp( k0->fec_root, k1->fec_root, FD_SHRED_MERKLE_NODE_SZ );
 }
 
 static inline ulong
@@ -184,14 +188,16 @@ fd_inflights_join( void * shmem );
    calls on a table must use the same clock (the tile clock,
    fd_clock_tile_now) so age and RTT are consistent. */
 
-/* fd_inflights_shred_insert records a shred request to pubkey.
-   block_id is the ShredForBlockId version being repaired and fec_root
-   the root the chainer holds for that version at the requested FEC set
-   (the key a response is matched by); both NULL (or all-zero) for a
-   positional request. */
+/* fd_inflights_shred_insert records a shred request of kind
+   FD_REPAIR_KIND_SHRED (positional) or AG_REPAIR_KIND_SHRED_FOR_BLOCK_ID
+   to pubkey.  block_id is the ShredForBlockId version being repaired
+   and fec_root the root the rotor holds for that version at the
+   requested FEC set (the key a response is matched by); both NULL (or
+   all-zero) for a positional request. */
 
 void
 fd_inflights_shred_insert( fd_inflights_t *    table,
+                           uint                kind,
                            ulong               nonce,
                            fd_pubkey_t const * pubkey,
                            ulong               slot,
@@ -200,9 +206,11 @@ fd_inflights_shred_insert( fd_inflights_t *    table,
                            fd_hash_t const *   fec_root,
                            long                now );
 
-/* fd_inflights_shred_match matches a shred response.  fec_root is the
-   response shred's merkle root (only the first FD_SHRED_MERKLE_NODE_SZ
-   bytes are keyed on), or NULL to match a positional request.  Removes
+/* fd_inflights_shred_match matches a shred response against requests
+   of kind (FD_REPAIR_KIND_SHRED or AG_REPAIR_KIND_SHRED_FOR_BLOCK_ID).
+   fec_root is the response shred's merkle root (only the first
+   FD_SHRED_MERKLE_NODE_SZ bytes are keyed on), or NULL to match a
+   positional request.  Removes
    every record with that key from both the outstanding and popped sets
    and credits the response to the oldest: returns its RTT in
    nanoseconds relative to now (>0), or 0 if nothing matched.  On a
@@ -211,6 +219,7 @@ fd_inflights_shred_insert( fd_inflights_t *    table,
 
 long
 fd_inflights_shred_match( fd_inflights_t *  table,
+                          uint              kind,
                           ulong             nonce,
                           ulong             slot,
                           ulong             shred_idx,
@@ -263,6 +272,15 @@ fd_inflights_should_drain( fd_inflights_t * table, long now ) {
 void
 fd_inflights_pop( fd_inflights_t * table,
                   fd_inflight_t *  out );
+
+/* fd_inflights_expire releases, oldest first, up to max OUTSTANDING or
+   POPPED records inserted before cutoff and returns how many.  For
+   callers that never redispatch from the table. */
+
+ulong
+fd_inflights_expire( fd_inflights_t * table,
+                     long             cutoff,
+                     ulong            max );
 
 /* fd_inflights_outstanding_free returns how many new requests can be
    inserted before an insert would have to evict an OUTSTANDING record

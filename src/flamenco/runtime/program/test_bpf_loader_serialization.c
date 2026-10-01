@@ -4,6 +4,8 @@
 #include "../tests/fd_svm_mini.h"
 #include "../../accdb/fd_accdb.h"
 #include "../../fd_flamenco_base.h"
+#include "../../vm/fd_vm_private.h"
+#include "../fd_system_ids.h"
 #include "../../../ballet/base64/fd_base64.h"
 #include "../../../ballet/json/fd_jtok.h"
 #include <stdio.h>
@@ -546,10 +548,15 @@ cleanup_instr_ctx( fixture_input_t const * in,
   fd_alloc_free( alloc, storage );
 }
 
+/* run_fixture serializes with the three arrays pre-filled with fill.
+   fd_bpf_execute does not zero them, so every entry the serializer
+   leaves unwritten must be one nothing reads: run with 0 and 0xA5. */
+
 static int
 run_fixture( fd_svm_mini_t * mini,
              fd_alloc_t *    alloc,
-             fixture_t *     fix ) {
+             fixture_t *     fix,
+             int             fill ) {
 
   fixture_input_t *  in  = &fix->input;
   fixture_output_t * out = &fix->output;
@@ -572,9 +579,9 @@ run_fixture( fd_svm_mini_t * mini,
   fd_vm_acc_region_meta_t acc_metas[FD_TXN_INSTR_ACCT_MAX];
   ulong                   idata_offset = 0;
 
-  fd_memset( pre_lens,  0, sizeof(pre_lens)  );
-  fd_memset( regions,   0, sizeof(regions)   );
-  fd_memset( acc_metas, 0, sizeof(acc_metas) );
+  fd_memset( pre_lens,  fill, sizeof(pre_lens)  );
+  fd_memset( regions,   fill, sizeof(regions)   );
+  fd_memset( acc_metas, fill, sizeof(acc_metas) );
 
   uchar * serialized = ctx->runtime->bpf_loader_serialization.serialization_mem[ ctx->runtime->instr.stack_sz-1UL ];
 
@@ -610,6 +617,21 @@ run_fixture( fd_svm_mini_t * mini,
           if( !check_acc_meta( &acc_metas[i], &out->acc_metas[i], i ) ) { ok = 0; break; }
         }
       }
+      /* Every region points at a written meta or none */
+      for( uint i=0; ok && i<region_cnt; i++ ) {
+        ulong m = regions[i].acc_region_meta_idx;
+        if( m!=ULONG_MAX && m>=in->num_instr_accounts ) {
+          FD_LOG_WARNING(( "region[%u] acc_region_meta_idx %lu out of range", i, m ));
+          ok = 0;
+        }
+      }
+      /* Deserializing the unmodified buffer reads pre_lens and the metas */
+      if( ok && fd_bpf_loader_input_deserialize_parameters( ctx, pre_lens, serialized, serialized_sz,
+                                                             in->virtual_address_space_adj, in->direct_mapping,
+                                                             in->is_deprecated ) ) {
+        FD_LOG_WARNING(( "deserialize failed on the unmodified buffer" ));
+        ok = 0;
+      }
     }
   } else {
     if( result==0 ) {
@@ -621,6 +643,138 @@ run_fixture( fd_svm_mini_t * mini,
   cleanup_instr_ctx( in, alloc, storage );
 
   return ok ? 0 : -1;
+}
+
+/* Touched flag parity with agave's BorrowedInstructionAccount::touch.
+   Accounts: 0 program, 1 writable and owned by the program, 2 writable
+   and owned by the system program, 3 read-only and owned by the
+   program.  Serialization is followed by optional VM accesses, then
+   deserialization; the expected flags follow agave's
+   deserialize_parameters_for_abiv1, create_memory_region_of_account
+   and access violation handler. */
+
+#define TOUCH_NONE     (0)
+#define TOUCH_WR_DATA1 (1) /* VM write into account 1's data region */
+#define TOUCH_RD_DATA1 (2) /* VM read of account 1's data region */
+#define TOUCH_WR_DATA2 (3) /* VM write into account 2's data region */
+#define TOUCH_SAME_LAM (4) /* rewrite account 2's lamports with the same value */
+#define TOUCH_ADD_LAM  (5) /* raise account 2's lamports */
+
+static fd_vm_t g_vm[1];
+
+static ulong
+touch_vm_haddr( fd_vm_input_region_t * regions,
+                uint                   region_cnt,
+                fd_vm_acc_region_meta_t * metas,
+                ulong                  vaddr,
+                ulong                  sz,
+                uchar                  write ) {
+  g_vm->input_mem_regions     = regions;
+  g_vm->input_mem_regions_cnt = region_cnt;
+  g_vm->acc_region_metas      = metas;
+  return fd_vm_find_input_mem_region( g_vm, vaddr-MM_INPUT_START, sz, write, 0UL );
+}
+
+static void
+test_touched_case( fd_svm_mini_t * mini,
+                   fd_alloc_t *    alloc,
+                   int             vasa,
+                   int             dm,
+                   int             action,
+                   int const       expect[4] ) {
+  static uchar data1[16] = { 1, 2, 3 };
+  fixture_account_t accs[4] = {
+    { .pubkey = { .ul = { 0x10 } }, .lamports = 1UL, .executable = 1 },
+    { .pubkey = { .ul = { 0x11 } }, .owner = { .ul = { 0x10 } }, .data = data1, .data_len = sizeof(data1), .lamports = 1000UL },
+    { .pubkey = { .ul = { 0x12 } }, .lamports = 2000UL },
+    { .pubkey = { .ul = { 0x13 } }, .owner = { .ul = { 0x10 } }, .data = data1, .data_len = sizeof(data1), .lamports = 3000UL },
+  };
+  accs[0].owner = fd_solana_bpf_loader_upgradeable_program_id;
+  accs[2].owner = fd_solana_system_program_id;
+  fixture_instr_account_t iaccs[3] = {
+    { .index_in_transaction = 1, .is_writable = 1 },
+    { .index_in_transaction = 2, .is_writable = 1 },
+    { .index_in_transaction = 3, .is_writable = 0 },
+  };
+  fixture_input_t in = {
+    .name = "touched", .accounts = accs, .instr_accounts = iaccs,
+    .num_accounts = 4UL, .num_instr_accounts = 3UL,
+    .program_id = { .ul = { 0x10 } },
+    .virtual_address_space_adj = (uchar)vasa, .direct_mapping = (uchar)dm
+  };
+
+  uchar **            storage = NULL;
+  fd_exec_instr_ctx_t ctx[1];
+  setup_instr_ctx( &in, 0, mini, alloc, &storage, ctx );
+
+  ulong                   pre_lens[ FD_TXN_INSTR_ACCT_MAX ];
+  static fd_vm_input_region_t regions[ 1000 ];
+  uint                    region_cnt = 0U;
+  fd_vm_acc_region_meta_t metas[ FD_TXN_INSTR_ACCT_MAX ];
+  ulong                   idata_off = 0UL;
+  ulong                   ser_sz    = 0UL;
+  fd_memset( pre_lens, 0xA5, sizeof(pre_lens) ); /* not zeroed in fd_bpf_execute either */
+  fd_memset( regions,  0xA5, sizeof(regions)  );
+  fd_memset( metas,    0xA5, sizeof(metas)    );
+  FD_TEST( !fd_bpf_loader_input_serialize_parameters( ctx, pre_lens, regions, &region_cnt, metas, vasa, dm, 0, 0, &idata_off, &ser_sz ) );
+  uchar * ser = ctx->runtime->bpf_loader_serialization.serialization_mem[ ctx->runtime->instr.stack_sz-1UL ];
+
+  for( ulong i=0UL; i<4UL; i++ ) FD_TEST( !ctx->txn_out->accounts.touched[ i ] );
+
+  switch( action ) {
+  case TOUCH_WR_DATA1: {
+    uchar * p = (uchar *)touch_vm_haddr( regions, region_cnt, metas, metas[0].vm_data_addr, 1UL, 1 );
+    FD_TEST( p );
+    *p = 9;
+    break;
+  }
+  case TOUCH_RD_DATA1:
+    FD_TEST( touch_vm_haddr( regions, region_cnt, metas, metas[0].vm_data_addr, 1UL, 0 ) );
+    break;
+  case TOUCH_WR_DATA2:
+    FD_TEST( !touch_vm_haddr( regions, region_cnt, metas, metas[1].vm_data_addr, 1UL, 1 ) );
+    break;
+  case TOUCH_SAME_LAM:
+  case TOUCH_ADD_LAM: {
+    ulong * p = (ulong *)touch_vm_haddr( regions, region_cnt, metas, metas[1].vm_lamports_addr, 8UL, 1 );
+    FD_TEST( p && *p==2000UL );
+    *p = action==TOUCH_ADD_LAM ? 2001UL : 2000UL;
+    break;
+  }
+  default:
+    break;
+  }
+
+  FD_TEST( !fd_bpf_loader_input_deserialize_parameters( ctx, pre_lens, ser, ser_sz, vasa, dm, 0 ) );
+
+  for( ulong i=0UL; i<4UL; i++ ) {
+    int got = ctx->txn_out->accounts.touched[ i ];
+    if( FD_UNLIKELY( got!=expect[ i ] ) ) {
+      FD_LOG_ERR(( "vasa=%d dm=%d action=%d: account %lu touched=%d, expected %d", vasa, dm, action, i, got, expect[ i ] ));
+    }
+  }
+  cleanup_instr_ctx( &in, alloc, storage );
+}
+
+static void
+test_touched( fd_svm_mini_t * mini,
+              fd_alloc_t *    alloc ) {
+  /* Copying modes: deserialization writes back the data of every
+     writable, program owned account (set_data_from_slice). */
+  for( int vasa=0; vasa<2; vasa++ ) {
+    test_touched_case( mini, alloc, vasa, 0, TOUCH_NONE,     (int[4]){ 0, 1, 0, 0 } );
+    test_touched_case( mini, alloc, vasa, 0, TOUCH_SAME_LAM, (int[4]){ 0, 1, 0, 0 } );
+    test_touched_case( mini, alloc, vasa, 0, TOUCH_ADD_LAM,  (int[4]){ 0, 1, 1, 0 } );
+  }
+  /* Direct mapping: only a write into the account's data region, or a
+     change of a field written back on deserialization, touches. */
+  test_touched_case( mini, alloc, 1, 1, TOUCH_NONE,     (int[4]){ 0, 0, 0, 0 } );
+  test_touched_case( mini, alloc, 1, 1, TOUCH_RD_DATA1, (int[4]){ 0, 0, 0, 0 } );
+  test_touched_case( mini, alloc, 1, 1, TOUCH_WR_DATA1, (int[4]){ 0, 1, 0, 0 } );
+  test_touched_case( mini, alloc, 1, 1, TOUCH_WR_DATA2, (int[4]){ 0, 0, 0, 0 } );
+  test_touched_case( mini, alloc, 1, 1, TOUCH_SAME_LAM, (int[4]){ 0, 0, 0, 0 } );
+  test_touched_case( mini, alloc, 1, 1, TOUCH_ADD_LAM,  (int[4]){ 0, 0, 1, 0 } );
+  FD_LOG_NOTICE(( "touched parity... ok" ));
 }
 
 int
@@ -673,7 +827,7 @@ main( int argc, char ** argv ) {
     fixture_cnt++;
 
     FD_LOG_NOTICE(( "Testing: %s", fix->input.name ));
-    int result = run_fixture( mini, alloc, fix );
+    int result = run_fixture( mini, alloc, fix, 0 ) | run_fixture( mini, alloc, fix, 0xA5 );
 
     if( result==0 ) {
       FD_LOG_NOTICE(( "  PASS" ));
@@ -687,6 +841,8 @@ main( int argc, char ** argv ) {
   FD_LOG_NOTICE(( "Ran %lu fixtures", fixture_cnt ));
 
   fd_alloc_free( alloc, data );
+
+  test_touched( mini, alloc );
   fd_wksp_free_laddr( fd_alloc_delete( fd_alloc_leave( alloc ) ) );
   fd_wksp_delete_anonymous( fix_wksp );
 

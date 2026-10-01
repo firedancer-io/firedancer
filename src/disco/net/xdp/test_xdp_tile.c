@@ -250,11 +250,13 @@ setup_netdev_table( fd_net_ctx_t * ctx ) {
   append_netdev( ctx, (fd_netdev_t) {
     .if_idx = IF_IDX_ETH0,
     .dev_type = ARPHRD_ETHER,
+    .mtu = 1500U,
   } );
   /* Eth1 interface */
   append_netdev( ctx, (fd_netdev_t) {
     .if_idx = IF_IDX_ETH1,
     .dev_type = ARPHRD_ETHER,
+    .mtu = 1500U,
   } );
   /* Lo interface */
   append_netdev( ctx, (fd_netdev_t) {
@@ -379,7 +381,7 @@ main( int     argc,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_net_ctx_t * ctx  = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_net_ctx_t ), sizeof( fd_net_ctx_t ) );
   fd_memset( ctx, 0, sizeof(fd_net_ctx_t) );
-  ctx->net.net_tile_cnt = 1UL;
+  ctx->net.tile_cnt = 1UL;
   ctx->free_tx.queue  = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), topo_tile->xdp.free_ring_depth * sizeof(ulong) );
   ctx->free_tx.depth  = topo_tile->xdp.free_ring_depth;
   void * netdev_tbl_local = FD_SCRATCH_ALLOC_APPEND( l, fd_netdev_tbl_align(), fd_netdev_tbl_footprint( NETDEV_MAX, BOND_MASTER_MAX ) );
@@ -589,27 +591,6 @@ main( int     argc,
 
   struct __attribute__((packed)) {
     fd_eth_hdr_t eth;
-    fd_ip4_hdr_t outer_ip4;
-    fd_gre_hdr_t gre;
-    fd_ip4_hdr_t inner_ip4;
-    fd_udp_hdr_t udp;
-    uchar        data[3];
-  } tx_pkt_during_frag_gre = {
-    .inner_ip4 = {
-      .verihl      = FD_IP4_VERIHL( 4, 5 ),
-      .protocol    = FD_IP4_HDR_PROTOCOL_UDP,
-      .net_tot_len = fd_ushort_bswap( 31 ),
-      .daddr       = gre0_dst_ip
-    },
-    .udp = {
-      .net_len   = fd_ushort_bswap( 11 ),
-      .net_dport = fd_ushort_bswap( SHRED_PORT )
-    },
-    .data = {0xFF, 0xFF, 0}
-  };
-
-  struct __attribute__((packed)) {
-    fd_eth_hdr_t eth;
     fd_ip4_hdr_t ip4;
     fd_udp_hdr_t udp;
     uchar        data[3];
@@ -712,7 +693,6 @@ main( int     argc,
     rx_pkt_gre.data[2]                = (uchar)i;
     rx_pkt.data[2]                    = (uchar)i;
     tx_pkt_before_frag_gre.data[2]    = (uchar)i;
-    tx_pkt_during_frag_gre.data[2]    = (uchar)i;
     tx_pkt_before_during_frag.data[2] = (uchar)i;
     tx_pkt_after_frag_gre.data[2]     = (uchar)i;
     tx_pkt_after_frag.data[2]         = (uchar)i;
@@ -734,8 +714,6 @@ main( int     argc,
 
     void * during_frag_src;
     ulong  during_frag_src_sz;
-    ulong  during_frag_expected_sz;
-    void * during_frag_expected;
 
     void * after_frag_expected;
     ulong  after_frag_expected_sz;
@@ -763,11 +741,8 @@ main( int     argc,
         gre_outer_dst_ip                       = gre0_outer_dst_ip;
         use_gre                                = 1;
 
-        tx_pkt_during_frag_gre.inner_ip4.daddr = gre0_dst_ip;
         during_frag_src                        = &tx_pkt_before_frag_gre;
         during_frag_src_sz                     = sizeof(tx_pkt_before_frag_gre);
-        during_frag_expected_sz                = sizeof(tx_pkt_during_frag_gre);
-        during_frag_expected                   = &tx_pkt_during_frag_gre;
 
         after_frag_expected    = &tx_pkt_after_frag_gre;
         after_frag_expected_sz = sizeof(tx_pkt_after_frag_gre);
@@ -806,11 +781,8 @@ main( int     argc,
         gre_outer_dst_ip                       = gre1_outer_dst_ip;
         use_gre                                = 1;
 
-        tx_pkt_during_frag_gre.inner_ip4.daddr = gre1_dst_ip;
         during_frag_src                        = &tx_pkt_before_frag_gre;
         during_frag_src_sz                     = sizeof(tx_pkt_before_frag_gre);
-        during_frag_expected_sz                = sizeof(tx_pkt_during_frag_gre);
-        during_frag_expected                   = &tx_pkt_during_frag_gre;
 
         after_frag_expected                   = &tx_pkt_after_frag_gre;
         after_frag_expected_sz                = sizeof(tx_pkt_after_frag_gre);
@@ -843,8 +815,6 @@ main( int     argc,
 
         during_frag_src         = &tx_pkt_before_during_frag;
         during_frag_src_sz      = sizeof(tx_pkt_before_during_frag);
-        during_frag_expected_sz = sizeof(tx_pkt_before_during_frag);
-        during_frag_expected    = &tx_pkt_before_during_frag;
 
         after_frag_expected    = &tx_pkt_after_frag;
         after_frag_expected_sz = sizeof(tx_pkt_after_frag);
@@ -897,19 +867,40 @@ main( int     argc,
     ulong sig = fd_disco_netmux_sig( 0, SHRED_PORT, before_frag_dst_ip, DST_PROTO_OUTGOING, before_frag_hdr_sz );
     FD_TEST( before_frag( ctx, 0, tx_seq, sig ) == 0 ) ;
     FD_TEST( ctx->tx_op.frame );
-    FD_TEST( fd_memeq( ctx->tx_op.mac_addrs, before_frag_expected_mac_addr, 12 ) );
-    FD_TEST( ctx->tx_op.src_ip==before_frag_expected_src_ip );
-    FD_TEST( ctx->tx_op.use_gre == use_gre                  );
+    FD_TEST( fd_memeq( ctx->net.tx_route.mac_addrs, before_frag_expected_mac_addr, 12 ) );
+    FD_TEST( ctx->net.tx_route.src_ip==before_frag_expected_src_ip );
+    FD_TEST( ctx->net.tx_route.use_gre == use_gre                  );
+    FD_TEST( ctx->net.tx_route.mtu==1500U );
     if( use_gre ) {
-      FD_TEST( ctx->tx_op.gre_outer_src_ip==gre_outer_src_ip  );
-      FD_TEST( ctx->tx_op.gre_outer_dst_ip==gre_outer_dst_ip  );
+      FD_TEST( ctx->net.tx_route.gre_outer_src_ip==gre_outer_src_ip  );
+      FD_TEST( ctx->net.tx_route.gre_outer_dst_ip==gre_outer_dst_ip  );
     }
 
     /* during_frag */
     uchar * src = fd_chunk_to_laddr( ctx->net.in_dcache_ctx[ 0 ].wksp_base, tx_chunk );
     fd_memcpy( src, during_frag_src, during_frag_src_sz );
     during_frag( ctx, 0, tx_seq, 0, tx_chunk, during_frag_src_sz, 0 );
-    FD_TEST( fd_memeq( ctx->tx_op.frame, during_frag_expected, during_frag_expected_sz ) );
+
+    /* Outer GRE headers must not count toward the inner IPv4 header bounds. */
+    if( i==0U ) {
+      ulong const ip_off = sizeof(fd_eth_hdr_t)+sizeof(fd_ip4_hdr_t)+sizeof(fd_gre_hdr_t);
+      fd_ip4_hdr_t * ip4 = (fd_ip4_hdr_t *)( (uchar *)ctx->tx_op.frame + ip_off );
+      ip4->verihl = FD_IP4_VERIHL( 4,10 );
+      uint  tx_prod_before    = xsk->ring_tx.cached_prod;
+      ulong tx_invalid_before = ctx->net.metrics.tx_invalid_cnt;
+      after_frag( ctx, 0, tx_seq, 0, during_frag_src_sz, 0, 0, NULL );
+      FD_TEST( xsk->ring_tx.cached_prod==tx_prod_before );
+      FD_TEST( ctx->net.metrics.tx_invalid_cnt==tx_invalid_before+1UL );
+      during_frag( ctx, 0, tx_seq, 0, tx_chunk, during_frag_src_sz, 0 );
+
+      /* Reject GRE over the outer MTU, then accept the exact boundary. */
+      ctx->net.tx_route.mtu = (ushort)(after_frag_expected_sz-sizeof(fd_eth_hdr_t)-1UL);
+      after_frag( ctx, 0, tx_seq, 0, during_frag_src_sz, 0, 0, NULL );
+      FD_TEST( xsk->ring_tx.cached_prod==tx_prod_before );
+      FD_TEST( ctx->net.metrics.tx_invalid_cnt==tx_invalid_before+2UL );
+      during_frag( ctx, 0, tx_seq, 0, tx_chunk, during_frag_src_sz, 0 );
+      ctx->net.tx_route.mtu++;
+    }
 
     /* after_frag */
     ulong tx_metric_before = ctx->metrics.tx_submit_cnt;
@@ -922,7 +913,7 @@ main( int     argc,
     void * after_frag_output = (void *)((ulong)tx_ring_entry->addr + (ulong)ctx->umem);
     FD_TEST( fd_memeq( after_frag_output, after_frag_expected, after_frag_expected_sz ) );
     tx_seq++;
-    tx_chunk = fd_dcache_compact_next( tx_chunk, during_frag_expected_sz, tx_chunk0, tx_wmark );
+    tx_chunk = fd_dcache_compact_next( tx_chunk, during_frag_src_sz, tx_chunk0, tx_wmark );
   }
 
   /* GRE packets from invalid source dropped before decapsulation */
@@ -1100,11 +1091,11 @@ main( int     argc,
     after_frag( ctx, 7UL, 0UL, 0UL, sizeof(fd_iproute_msg_t), 0UL, 0UL, netlink_stem );
   }
   ctx->net.iproute_msg.dst_addr = FD_IP4_ADDR( 198,18,0,16 );
-  ctx->net.net_tile_id = 1UL;
+  ctx->net.kind_id = 1UL;
   after_frag( ctx, 7UL, 0UL, 0UL, sizeof(fd_iproute_msg_t), 0UL, 0UL, netlink_stem );
   FD_TEST( netlink_seq==0UL );
 
-  ctx->net.net_tile_id = 0UL;
+  ctx->net.kind_id = 0UL;
   after_frag( ctx, 7UL, 0UL, 0UL, sizeof(fd_iproute_msg_t), 0UL, 0UL, netlink_stem );
   FD_TEST( netlink_seq==1UL );
   FD_TEST( netlink_mcache[ fd_mcache_line_idx( 0UL, netlink_req_depth ) ].sig==FD_NETLINK_ROUTE4_SYNC_SIG );

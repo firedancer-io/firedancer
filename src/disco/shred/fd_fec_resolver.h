@@ -3,6 +3,7 @@
 #include "fd_fec_set.h"
 #include "../../ballet/bmtree/fd_bmtree.h"
 #include "../../ballet/ed25519/fd_ed25519.h"
+#include "../../util/hist/fd_histf.h"
 
 /* This header defines several methods for building and validating FEC
    sets from received shreds.  It's designed just for use by the shred
@@ -259,9 +260,11 @@ typedef struct fd_fec_resolver_spilled fd_fec_resolver_spilled_t;
    SHRED_IGNORED, even if that particular shred hadn't been received.
 
    However, if the shred is part of an in progress FEC set but has
-   already been received, FEC resolver returns SHRED_DUPLICATE and
-   populates out_merkle_root if it is non-NULL. out_shred will be
-   populated similarly to when returning SHRED_OKAY.
+   already been received: if source is REPAIR, FEC resolver returns
+   SHRED_DUPLICATE and populates out_merkle_root if it is non-NULL, and
+   out_shred is populated similarly to when returning SHRED_OKAY.  For
+   any other source it returns SHRED_IGNORED without validating the
+   shred or writing to out_{fec_set,shred,merkle_root}.
 
    If the shred fails validation for any other reason, returns
    SHRED_REJECTED and does not write to out_{fec_set,shred}. If
@@ -298,6 +301,13 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
                            fd_shred_t const        * * out_shred,
                            fd_bmtree_node_t          * out_merkle_root,
                            fd_fec_resolver_spilled_t * out_spilled_fec_set );
+
+/* fd_fec_resolver_completion_lag_hist returns a pointer to the
+   resolver's histogram estimating how much earlier repair made a FEC
+   set complete. */
+
+fd_histf_t const *
+fd_fec_resolver_completion_lag_hist( fd_fec_resolver_t const * resolver );
 
 
 void * fd_fec_resolver_leave( fd_fec_resolver_t * resolver );

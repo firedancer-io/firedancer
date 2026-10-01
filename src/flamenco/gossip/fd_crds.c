@@ -1,6 +1,7 @@
 #include "fd_crds.h"
 
 #include "fd_active_set.h"
+#include "fd_gossip_hset.h"
 #include "../../ballet/sha256/fd_sha256.h"
 #include "../../util/fd_hash32.h" /* for fd_hash32, which we use for CRDS eviction */
 
@@ -150,27 +151,9 @@ struct fd_crds_entry_private {
     uint  prev;
     uint  next;
   } expire;
-
-  /* In order to load balance pull request messages across peers, each
-     message has a mask value that is mask_bits long.  The pull request
-     is only concerned with CRDS entries with a hash where the first
-     mask_bits of the hash match the mask value.
-
-     We need to be able to quickly iterate over all CRDS table entries
-     matching a given mask.  To do this, we store the first 8 bytes of
-     the value_hash in a sorted treap. */
-  struct {
-    ulong hash_prefix; /* TODO: Remove .. just use hash_value */
-    uint  parent;
-    uint  left;
-    uint  right;
-    uint  next;
-    uint  prev;
-    uint  prio;
-  } hash;
 };
 
-FD_STATIC_ASSERT( sizeof(fd_crds_entry_t)==1384UL, crds_entry_footprint );
+FD_STATIC_ASSERT( sizeof(fd_crds_entry_t)==1352UL, crds_entry_footprint );
 
 #define POOL_NAME   crds_pool
 #define POOL_T      fd_crds_entry_t
@@ -260,21 +243,6 @@ FD_STATIC_ASSERT( sizeof(fd_crds_entry_t)==1384UL, crds_entry_footprint );
 #define TREAP_PREV      ci_evict_treap.prev
 #include "../../util/tmpl/fd_treap.c"
 
-#define TREAP_NAME      hash_treap
-#define TREAP_T         fd_crds_entry_t
-#define TREAP_QUERY_T   ulong
-#define TREAP_CMP(q,e)  ((q>e->hash.hash_prefix)-(q<e->hash.hash_prefix))
-#define TREAP_IDX_T     uint
-#define TREAP_OPTIMIZE_ITERATION 1
-#define TREAP_NEXT      hash.next
-#define TREAP_PREV      hash.prev
-#define TREAP_LT(e0,e1) ((e0)->hash.hash_prefix<(e1)->hash.hash_prefix)
-#define TREAP_PARENT    hash.parent
-#define TREAP_LEFT      hash.left
-#define TREAP_RIGHT     hash.right
-#define TREAP_PRIO      hash.prio
-#include "../../util/tmpl/fd_treap.c"
-
 static inline ulong
 lookup_hash( fd_crds_key_t const * key,
              ulong                 seed ) {
@@ -346,8 +314,8 @@ struct fd_crds_private {
   staked_expire_dlist_t *   staked_expire_dlist;
   unstaked_expire_dlist_t * unstaked_expire_dlist;
   ci_fresh_15s_dlist_t *    ci_fresh_15s_dlist;
-  hash_treap_t *            hash_treap;
   lookup_map_t *            lookup_map;
+  fd_gossip_hset_t *        hset;
 
   fd_gossip_purged_t *      purged;
 
@@ -377,8 +345,8 @@ fd_crds_footprint( ulong ele_max ) {
   l = FD_LAYOUT_APPEND( l, staked_expire_dlist_align(),           staked_expire_dlist_footprint()                                );
   l = FD_LAYOUT_APPEND( l, unstaked_expire_dlist_align(),         unstaked_expire_dlist_footprint()                              );
   l = FD_LAYOUT_APPEND( l, ci_fresh_15s_dlist_align(),            ci_fresh_15s_dlist_footprint()                                 );
-  l = FD_LAYOUT_APPEND( l, hash_treap_align(),                    hash_treap_footprint( ele_max )                                );
   l = FD_LAYOUT_APPEND( l, lookup_map_align(),                    lookup_map_footprint( ele_max )                                );
+  l = FD_LAYOUT_APPEND( l, fd_gossip_hset_align(),                fd_gossip_hset_footprint( ele_max )                            );
   l = FD_LAYOUT_APPEND( l, crds_contact_info_pool_align(),        crds_contact_info_pool_footprint( FD_CONTACT_INFO_TABLE_SIZE ) );
   l = FD_LAYOUT_APPEND( l, crds_contact_info_fresh_list_align(),  crds_contact_info_fresh_list_footprint()                       );
   l = FD_LAYOUT_APPEND( l, ci_evict_treap_align(),                ci_evict_treap_footprint( FD_CONTACT_INFO_TABLE_SIZE )         );
@@ -434,8 +402,8 @@ fd_crds_new( void *                       shmem,
   void * _staked_expire_dlist   = FD_SCRATCH_ALLOC_APPEND( l, staked_expire_dlist_align(),           staked_expire_dlist_footprint()                                );
   void * _unstaked_expire_dlist = FD_SCRATCH_ALLOC_APPEND( l, unstaked_expire_dlist_align(),         unstaked_expire_dlist_footprint()                              );
   void * _ci_fresh_15s_dlist    = FD_SCRATCH_ALLOC_APPEND( l, ci_fresh_15s_dlist_align(),            ci_fresh_15s_dlist_footprint()                                 );
-  void * _hash_treap            = FD_SCRATCH_ALLOC_APPEND( l, hash_treap_align(),                    hash_treap_footprint( ele_max )                                );
   void * _lookup_map            = FD_SCRATCH_ALLOC_APPEND( l, lookup_map_align(),                    lookup_map_footprint( ele_max )                                );
+  void * _hset                  = FD_SCRATCH_ALLOC_APPEND( l, fd_gossip_hset_align(),                fd_gossip_hset_footprint( ele_max )                            );
   void * _ci_pool               = FD_SCRATCH_ALLOC_APPEND( l, crds_contact_info_pool_align(),        crds_contact_info_pool_footprint( FD_CONTACT_INFO_TABLE_SIZE ) );
   void * _ci_dlist              = FD_SCRATCH_ALLOC_APPEND( l, crds_contact_info_fresh_list_align(),  crds_contact_info_fresh_list_footprint()                       );
   void * _ci_evict_treap        = FD_SCRATCH_ALLOC_APPEND( l, ci_evict_treap_align(),                ci_evict_treap_footprint( FD_CONTACT_INFO_TABLE_SIZE )         );
@@ -461,12 +429,11 @@ fd_crds_new( void *                       shmem,
   crds->ci_fresh_15s_dlist = ci_fresh_15s_dlist_join( ci_fresh_15s_dlist_new( _ci_fresh_15s_dlist ) );
   FD_TEST( crds->ci_fresh_15s_dlist );
 
-  crds->hash_treap = hash_treap_join( hash_treap_new( _hash_treap, ele_max ) );
-  FD_TEST( crds->hash_treap );
-  hash_treap_seed( crds->pool, ele_max, fd_rng_ulong( rng ) );
-
   crds->lookup_map = lookup_map_join( lookup_map_new( _lookup_map, ele_max, fd_rng_ulong( rng ) ) );
   FD_TEST( crds->lookup_map );
+
+  crds->hset = fd_gossip_hset_join( fd_gossip_hset_new( _hset, ele_max ) );
+  FD_TEST( crds->hset );
 
   crds->purged = purged;
 
@@ -540,7 +507,7 @@ crds_unindex( fd_crds_t *       crds,
   else                            unstaked_expire_dlist_ele_remove( crds->unstaked_expire_dlist, entry, crds->pool );
 
   evict_treap_ele_remove( crds->evict_treap, entry, crds->pool );
-  hash_treap_ele_remove( crds->hash_treap, entry, crds->pool );
+  fd_gossip_hset_remove( crds->hset, crds_pool_idx( crds->pool, entry ) );
   lookup_map_ele_remove( crds->lookup_map, &entry->key, NULL, crds->pool );
 
   if( FD_UNLIKELY( entry->key.tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
@@ -566,7 +533,7 @@ crds_index( fd_crds_t *       crds,
   else                            unstaked_expire_dlist_ele_push_tail( crds->unstaked_expire_dlist, entry, crds->pool );
 
   evict_treap_ele_insert( crds->evict_treap, entry, crds->pool );
-  hash_treap_ele_insert( crds->hash_treap, entry, crds->pool );
+  fd_gossip_hset_insert( crds->hset, crds_pool_idx( crds->pool, entry ), entry->value_hash );
   lookup_map_ele_insert( crds->lookup_map, entry, crds->pool );
 
   if( FD_UNLIKELY( entry->key.tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
@@ -912,7 +879,6 @@ fd_crds_insert( fd_crds_t *               crds,
   incumbent->value_sz               = (ushort)value_bytes_len;
   fd_memcpy( incumbent->value_bytes, value_bytes, value_bytes_len );
   fd_memcpy( incumbent->value_hash, value_hash, 32UL );
-  incumbent->hash.hash_prefix = fd_ulong_load_8( incumbent->value_hash );
 
   if( FD_UNLIKELY( value->tag==FD_GOSSIP_VALUE_NODE_INSTANCE ) ) {
     incumbent->node_instance_token = value->node_instance->token;
@@ -946,6 +912,11 @@ fd_crds_entry_wallclock( fd_crds_entry_t const * entry ) {
 uchar const *
 fd_crds_entry_hash( fd_crds_entry_t const * entry ) {
   return entry->value_hash;
+}
+
+fd_gossip_hset_t const *
+fd_crds_hset( fd_crds_t const * crds ) {
+  return crds->hset;
 }
 
 ulong
@@ -983,55 +954,8 @@ fd_crds_ci_idx( fd_crds_t const * crds,
   return crds_contact_info_pool_idx( crds->ci_pool, ci_entry->ci );
 }
 
-struct fd_crds_mask_iter_private {
-  ulong idx;
-  ulong end_hash;
-};
-
-fd_crds_mask_iter_t *
-fd_crds_mask_iter_init( fd_crds_t const * crds,
-                        ulong             mask,
-                        uint              mask_bits,
-                        uchar             iter_mem[ static 16UL ] ) {
-  ulong start_hash, end_hash;
-  fd_gossip_purged_generate_masks( mask, mask_bits, &start_hash, &end_hash );
-
-  fd_crds_mask_iter_t * it = (fd_crds_mask_iter_t *)iter_mem;
-  it->end_hash             = end_hash;
-  it->idx                  = hash_treap_idx_ge( crds->hash_treap, start_hash, crds->pool );
-  return it;
-}
-
-fd_crds_mask_iter_t *
-fd_crds_mask_iter_init_range( fd_crds_t const * crds,
-                              ulong             start_hash,
-                              ulong             end_hash,
-                              uchar             iter_mem[ static 16UL ] ) {
-  fd_crds_mask_iter_t * it = (fd_crds_mask_iter_t *)iter_mem;
-  it->end_hash             = end_hash;
-  it->idx                  = hash_treap_idx_ge( crds->hash_treap, start_hash, crds->pool );
-  return it;
-}
-
-fd_crds_mask_iter_t *
-fd_crds_mask_iter_next( fd_crds_mask_iter_t * it, fd_crds_t const * crds ) {
-  fd_crds_entry_t const * val = hash_treap_ele_fast_const( it->idx, crds->pool );
-  it->idx                     = val->hash.next;
-  return it;
-}
-
-int
-fd_crds_mask_iter_done( fd_crds_mask_iter_t * it, fd_crds_t const * crds ) {
-  if( FD_UNLIKELY( hash_treap_idx_is_null( it->idx ) ) ) return 1;
-  fd_crds_entry_t const * val = hash_treap_ele_fast_const( it->idx, crds->pool );
-  if( FD_LIKELY( !hash_treap_idx_is_null( val->hash.next ) ) ) {
-    fd_crds_entry_t const * nxt = hash_treap_ele_fast_const( val->hash.next, crds->pool );
-    __builtin_prefetch( &nxt->hash ); __builtin_prefetch( nxt->value_hash );
-  }
-  return it->end_hash < val->hash.hash_prefix;
-}
-
 fd_crds_entry_t const *
-fd_crds_mask_iter_entry( fd_crds_mask_iter_t * it, fd_crds_t const * crds ){
-  return hash_treap_ele_fast_const( it->idx, crds->pool );
+fd_crds_entry_at( fd_crds_t const * crds,
+                  ulong             idx ) {
+  return crds_pool_ele_const( crds->pool, idx );
 }

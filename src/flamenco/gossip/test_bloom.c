@@ -11,6 +11,171 @@ FD_STATIC_ASSERT( FD_BLOOM_FOOTPRINT==128UL, unit_test );
 FD_STATIC_ASSERT( FD_BLOOM_ALIGN    ==alignof(fd_bloom_t), unit_test );
 FD_STATIC_ASSERT( FD_BLOOM_FOOTPRINT==sizeof (fd_bloom_t), unit_test );
 
+static ulong
+ref_fnv( uchar const * ele, ulong ele_sz, ulong key ) {
+  for( ulong i=0UL; i<ele_sz; i++ ) { key ^= (ulong)ele[i]; key *= 1099511628211UL; }
+  return key;
+}
+
+/* The bits set by fd_bloom_insert must match the plain one key at a
+   time FNV construction (Agave wire compatibility). */
+
+void
+test_fnv_reference( void ) {
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 1U, 0UL ) );
+  for( ulong keys_len=1UL; keys_len<=9UL; keys_len++ ) {
+    for( ulong iter=0UL; iter<200UL; iter++ ) {
+      ulong keys[ 9 ];
+      ulong bits[ 64 ] = {0};
+      ulong ref [ 64 ] = {0};
+      ulong bits_len = 1UL + fd_rng_ulong_roll( rng, 64UL*64UL );
+      for( ulong k=0UL; k<keys_len; k++ ) keys[ k ] = fd_rng_ulong( rng );
+      fd_bloom_t bloom[1] = {{ .keys = keys, .keys_len = keys_len, .bits = bits, .bits_len = bits_len }};
+      uchar ele[ 40 ];
+      ulong ele_sz = fd_rng_ulong_roll( rng, 41UL );
+      for( ulong i=0UL; i<ele_sz; i++ ) ele[ i ] = fd_rng_uchar( rng );
+      fd_bloom_insert( bloom, ele, ele_sz );
+      for( ulong k=0UL; k<keys_len; k++ ) {
+        ulong bit = ref_fnv( ele, ele_sz, keys[ k ] ) % bits_len;
+        ref[ bit/64UL ] |= 1UL<<(bit%64UL);
+      }
+      FD_TEST( !memcmp( bits, ref, sizeof(bits) ) );
+      FD_TEST( fd_bloom_contains( bloom, ele, ele_sz ) );
+    }
+  }
+  fd_rng_delete( fd_rng_leave( rng ) );
+}
+
+/* insert8 must set the same bits as fd_bloom_insert of each lane. */
+
+void
+test_insert8( void ) {
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 2U, 0UL ) );
+  for( ulong iter=0UL; iter<20000UL; iter++ ) {
+    ulong keys_len = 1UL + fd_rng_ulong_roll( rng, 9UL );
+    ulong bits_len = 1UL + fd_rng_ulong_roll( rng, 151UL*64UL );
+    if( iter<16UL ) bits_len = iter+1UL;
+    ulong keys[ 9 ];
+    for( ulong k=0UL; k<keys_len; k++ ) keys[ k ] = fd_rng_ulong( rng );
+    if( iter&1UL ) for( ulong k=0UL; k<keys_len; k++ ) keys[ k ] = ULONG_MAX-fd_rng_ulong_roll( rng, 4UL );
+    ulong bits0[ 151 ] = {0};
+    ulong bits1[ 151 ] = {0};
+    fd_bloom_t b0[1] = {{ .keys = keys, .keys_len = keys_len, .bits = bits0, .bits_len = bits_len }};
+    fd_bloom_t b1[1] = {{ .keys = keys, .keys_len = keys_len, .bits = bits1, .bits_len = bits_len }};
+    uchar ele[ 256 ];
+    for( ulong i=0UL; i<256UL; i++ ) ele[ i ] = fd_rng_uchar( rng );
+    uint lanes = fd_rng_uint( rng ) & 0xffU;
+    fd_bloom_insert8( b1, ele, lanes );
+    for( ulong i=0UL; i<8UL; i++ ) if( lanes & (1U<<i) ) fd_bloom_insert( b0, ele+32UL*i, 32UL );
+    FD_TEST( !memcmp( bits0, bits1, sizeof(bits0) ) );
+  }
+  fd_rng_delete( fd_rng_leave( rng ) );
+}
+
+/* insert16 must set the same bits as insert8 of each block. */
+
+void
+test_insert16( void ) {
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 4U, 0UL ) );
+  for( ulong iter=0UL; iter<20000UL; iter++ ) {
+    ulong keys_len = 1UL + fd_rng_ulong_roll( rng, 9UL );
+    ulong bits_len = 1UL + fd_rng_ulong_roll( rng, 151UL*64UL );
+    if( iter<16UL ) bits_len = iter+1UL;
+    ulong keys[ 9 ];
+    for( ulong k=0UL; k<keys_len; k++ ) keys[ k ] = fd_rng_ulong( rng );
+    if( iter&1UL ) for( ulong k=0UL; k<keys_len; k++ ) keys[ k ] = ULONG_MAX-fd_rng_ulong_roll( rng, 4UL );
+    ulong bits0[ 151 ] = {0};
+    ulong bits1[ 151 ] = {0};
+    fd_bloom_t b0[1] = {{ .keys = keys, .keys_len = keys_len, .bits = bits0, .bits_len = bits_len }};
+    fd_bloom_t b1[1] = {{ .keys = keys, .keys_len = keys_len, .bits = bits1, .bits_len = bits_len }};
+    uchar ele[ 512 ];
+    for( ulong i=0UL; i<512UL; i++ ) ele[ i ] = fd_rng_uchar( rng );
+    uint lanes_a = fd_rng_uint( rng ) & 0xffU;
+    uint lanes_b = fd_rng_uint( rng ) & 0xffU;
+    if( (iter%7UL)==0UL ) lanes_a = 0U;
+    if( (iter%11UL)==0UL ) lanes_b = 0U;
+    fd_bloom_insert16( b1, ele, lanes_a, ele+256UL, lanes_b );
+    fd_bloom_insert8( b0, ele, lanes_a );
+    fd_bloom_insert8( b0, ele+256UL, lanes_b );
+    FD_TEST( !memcmp( bits0, bits1, sizeof(bits0) ) );
+  }
+  fd_rng_delete( fd_rng_leave( rng ) );
+}
+
+/* contains8 must answer as fd_bloom_contains on each lane, including
+   the wire filter's attacker chosen shapes: keys_len 0..152, bits_len
+   0..9664, and lanes with a mix of members and non members. */
+
+void
+test_contains8( void ) {
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 3U, 0UL ) );
+  static ulong keys[ 152 ];
+  static ulong bits[ 151 ];
+  for( ulong iter=0UL; iter<20000UL; iter++ ) {
+    ulong keys_len = fd_rng_ulong_roll( rng, 153UL );
+    if( iter&1UL ) keys_len = fd_rng_ulong_roll( rng, 9UL );
+    ulong bits_len = fd_rng_ulong_roll( rng, 151UL*64UL+1UL );
+    if( iter<16UL ) bits_len = iter;
+    for( ulong k=0UL; k<keys_len; k++ ) keys[ k ] = fd_rng_ulong( rng );
+    memset( bits, 0, sizeof(bits) );
+    fd_bloom_t bloom[1] = {{ .keys = keys, .keys_len = keys_len, .bits = bits, .bits_len = bits_len }};
+    uchar ele[ 256 ];
+    for( ulong i=0UL; i<256UL; i++ ) ele[ i ] = fd_rng_uchar( rng );
+    /* insert some lanes, and some random bits so partial matches occur */
+    uint lanes = fd_rng_uint( rng ) & 0xffU;
+    fd_bloom_insert8( bloom, ele, lanes );
+    if( bits_len ) for( ulong n=fd_rng_ulong_roll( rng, 64UL ); n; n-- ) { ulong bit = fd_rng_ulong_roll( rng, bits_len ); bits[ bit/64UL ] |= 1UL<<(bit%64UL); }
+    uint got = fd_bloom_contains8( bloom, ele );
+    uint ref = 0U;
+    for( ulong i=0UL; i<8UL; i++ ) ref |= (uint)fd_bloom_contains( bloom, ele+32UL*i, 32UL )<<i;
+    FD_TEST( got==ref );
+    if( keys_len && bits_len ) FD_TEST( (got&lanes)==lanes );
+    if( !keys_len || !bits_len ) FD_TEST( !got );
+  }
+  fd_rng_delete( fd_rng_leave( rng ) );
+}
+
+/* contains_multi must answer as fd_bloom_contains on each bloom, for
+   the active set's 3 key blooms and for shapes that take the scalar
+   fallback (a bloom with many keys, more than 40 keys in total). */
+
+void
+test_contains_multi( void ) {
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 4U, 0UL ) );
+  static ulong keys[ 32 ][ 48 ];
+  static ulong bits[ 32 ][ 16 ];
+  fd_bloom_t   bloom[ 32 ];
+  fd_bloom_t * blooms[ 32 ];
+  for( ulong iter=0UL; iter<20000UL; iter++ ) {
+    ulong cnt = fd_rng_ulong_roll( rng, 33UL );
+    if( iter&1UL ) cnt = 1UL+fd_rng_ulong_roll( rng, 12UL );
+    for( ulong b=0UL; b<cnt; b++ ) {
+      ulong keys_len = (iter&2UL) ? 3UL : fd_rng_ulong_roll( rng, 49UL );
+      ulong bits_len = fd_rng_ulong_roll( rng, 16UL*64UL+1UL );
+      if( !fd_rng_ulong_roll( rng, 16UL ) ) keys_len = 0UL;
+      if( !fd_rng_ulong_roll( rng, 16UL ) ) bits_len = 0UL;
+      for( ulong k=0UL; k<keys_len; k++ ) keys[ b ][ k ] = fd_rng_ulong( rng );
+      memset( bits[ b ], 0, sizeof(bits[ b ]) );
+      bloom[ b ] = (fd_bloom_t){ .keys = keys[ b ], .keys_len = keys_len, .bits = bits[ b ], .bits_len = bits_len };
+      blooms[ b ] = &bloom[ b ];
+    }
+    uchar key[ 40 ];
+    ulong key_sz = (iter&4UL) ? 32UL : fd_rng_ulong_roll( rng, 41UL );
+    for( ulong i=0UL; i<key_sz; i++ ) key[ i ] = fd_rng_uchar( rng );
+    uint ins = fd_rng_uint( rng );
+    for( ulong b=0UL; b<cnt; b++ ) {
+      if( (ins>>b)&1U ) fd_bloom_insert( &bloom[ b ], key, key_sz );
+      if( bloom[ b ].bits_len ) for( ulong n=fd_rng_ulong_roll( rng, 8UL ); n; n-- ) { ulong bit = fd_rng_ulong_roll( rng, bloom[ b ].bits_len ); bits[ b ][ bit/64UL ] |= 1UL<<(bit%64UL); }
+    }
+    uint got = fd_bloom_contains_multi( blooms, cnt, key, key_sz );
+    uint ref = 0U;
+    for( ulong b=0UL; b<cnt; b++ ) ref |= (uint)fd_bloom_contains( &bloom[ b ], key, key_sz )<<b;
+    FD_TEST( got==ref );
+  }
+  FD_TEST( !fd_bloom_contains_multi( blooms, 0UL, (uchar const *)"x", 1UL ) );
+  fd_rng_delete( fd_rng_leave( rng ) );
+}
+
 void
 test_filters( void ) {
   void * bytes = aligned_alloc( fd_bloom_align(), fd_bloom_footprint( 0.1, 100 ) );
@@ -260,20 +425,73 @@ test_keys_oob( void ) {
   free( bytes );
 }
 
+static void
+bench_insert( void ) {
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 2U, 0UL ) );
+  ulong keys[ 3 ] = { fd_rng_ulong( rng ), fd_rng_ulong( rng ), fd_rng_ulong( rng ) };
+  static ulong bits[ 160 ];
+  fd_bloom_t bloom[1] = {{ .keys = keys, .keys_len = 3UL, .bits = bits, .bits_len = 9000UL }};
+  static uchar hash[ 4096 ][ 32 ];
+  for( ulong i=0UL; i<4096UL; i++ ) for( ulong j=0UL; j<32UL; j++ ) hash[ i ][ j ] = fd_rng_uchar( rng );
+  ulong iter = 10000000UL;
+  long dt = -fd_log_wallclock();
+  for( ulong i=0UL; i<iter; i++ ) fd_bloom_insert( bloom, hash[ i&4095UL ], 32UL );
+  dt += fd_log_wallclock();
+  FD_LOG_NOTICE(( "fd_bloom_insert(32 B, 3 keys) %.2f ns", (double)dt/(double)iter ));
+
+  dt = -fd_log_wallclock();
+  ulong acc = 0UL;
+  for( ulong i=0UL; i<iter; i++ ) acc += (ulong)fd_bloom_contains( bloom, hash[ i&4095UL ], 32UL );
+  dt += fd_log_wallclock();
+  FD_LOG_NOTICE(( "fd_bloom_contains(32 B, 3 keys) %.2f ns (%lu)", (double)dt/(double)iter, acc ));
+
+  dt = -fd_log_wallclock();
+  for( ulong i=0UL; i<iter/8UL; i++ ) acc += (ulong)fd_bloom_contains8( bloom, hash[ (8UL*i)&4095UL ] );
+  dt += fd_log_wallclock();
+  FD_LOG_NOTICE(( "fd_bloom_contains8(32 B, 3 keys) %.2f ns/element (%lu)", (double)dt/(double)iter, acc ));
+
+  ulong keys12[ 12 ][ 3 ];
+  static ulong bits12[ 12 ][ 160 ];
+  fd_bloom_t   bloom12[ 12 ];
+  fd_bloom_t * blooms[ 12 ];
+  for( ulong b=0UL; b<12UL; b++ ) {
+    for( ulong k=0UL; k<3UL; k++ ) keys12[ b ][ k ] = fd_rng_ulong( rng );
+    bloom12[ b ] = (fd_bloom_t){ .keys = keys12[ b ], .keys_len = 3UL, .bits = bits12[ b ], .bits_len = 9000UL };
+    blooms[ b ] = &bloom12[ b ];
+    for( ulong i=0UL; i<2048UL; i++ ) fd_bloom_insert( &bloom12[ b ], hash[ i ], 32UL );
+  }
+  dt = -fd_log_wallclock();
+  for( ulong i=0UL; i<iter/12UL; i++ ) for( ulong b=0UL; b<12UL; b++ ) acc += (ulong)fd_bloom_contains( &bloom12[ b ], hash[ i&4095UL ], 32UL );
+  dt += fd_log_wallclock();
+  FD_LOG_NOTICE(( "12 x fd_bloom_contains(32 B, 3 keys) %.2f ns/value (%lu)", 12.0*(double)dt/(double)iter, acc ));
+  dt = -fd_log_wallclock();
+  for( ulong i=0UL; i<iter/12UL; i++ ) acc += (ulong)fd_bloom_contains_multi( blooms, 12UL, hash[ i&4095UL ], 32UL );
+  dt += fd_log_wallclock();
+  FD_LOG_NOTICE(( "fd_bloom_contains_multi(12 x 3 keys) %.2f ns/value (%lu)", 12.0*(double)dt/(double)iter, acc ));
+  fd_rng_delete( fd_rng_leave( rng ) );
+}
+
 int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
+  int bench = fd_env_strip_cmdline_contains( &argc, &argv, "--bench" );
 
   FD_TEST( fd_bloom_align()==FD_BLOOM_ALIGN );
 
   test_filters();
+  test_fnv_reference();
+  test_insert8();
+  test_insert16();
+  test_contains8();
+  test_contains_multi();
   test_add_contains();
   test_empty_contains();
   test_pull_request_serialize_alignment();
   test_bitvec_deserialize();
   test_epoch_slots_bitvec_deserialize();
   test_keys_oob();
+  if( bench ) bench_insert();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

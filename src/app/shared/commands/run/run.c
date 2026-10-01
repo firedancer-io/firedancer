@@ -21,6 +21,7 @@
 #include "../../../../discof/backup/fd_snap_pool.h"
 #include "../../../../discof/restore/utils/fd_ssarchive.h"
 #include "../../../../disco/waker/fd_waker.h"
+#include "../../../../disco/sleep/fd_sleep.h"
 #include "../../../../util/pod/fd_pod_format.h"
 
 #include "../configure/configure.h"
@@ -420,6 +421,7 @@ main_pid_namespace( void * _args ) {
     if( FD_UNLIKELY( idx!=ULONG_MAX ) ) waker_client_cnt = fd_ulong_max( waker_client_cnt, idx+1UL );
   }
   fd_waker_install( waker_client_cnt );
+  fd_sleep_eventfd_install( &config->topo );
 
   struct spawn_cgroup spawn_cg = {0};
 
@@ -452,6 +454,13 @@ main_pid_namespace( void * _args ) {
         if( FD_UNLIKELY( -1==fcntl( mlx5_fds.async_fd, F_SETFD, fd_flags ) ) ) {
           FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
         }
+        for( ulong i=0UL; i<mlx5_fds.rx_comp_channel_fd_cnt; i++ ) {
+          int const rx_comp_channel_fd_flags = fd_flags || i!=tile->kind_id ? FD_CLOEXEC : 0;
+          if( FD_UNLIKELY( -1==fcntl( mlx5_fds.rx_comp_channel_fd[ i ],
+                                     F_SETFD, rx_comp_channel_fd_flags ) ) ) {
+            FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+          }
+        }
       }
 
       if( FD_LIKELY( config->is_firedancer ) ) {
@@ -471,7 +480,7 @@ main_pid_namespace( void * _args ) {
            not need the accounts.db fd.  Withhold it to keep the gui at
            least privilege. */
         if( FD_UNLIKELY( !strcmp( tile->name, "gui" ) ) ) tile_uses_accdb_ro = 0;
-        if( FD_UNLIKELY( !strcmp( tile->name, "snapmk" ) ) ) tile_uses_accdb = tile_uses_accdb_ro = 0;
+        if( FD_UNLIKELY( !strcmp( tile->name, "snapmk" ) ) ) { tile_uses_accdb = 0; tile_uses_accdb_ro = 1; }
 
         if( FD_UNLIKELY( tile_uses_accdb ) ) {
           if( FD_UNLIKELY( -1==fcntl( FD_ACCDB_FD_RW, F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -530,6 +539,14 @@ main_pid_namespace( void * _args ) {
         if( FD_UNLIKELY( -1==fcntl( FD_WAKER_INNER_FD( j ), F_SETFD, inner_entitled ? 0 : FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       }
 
+      int is_mwaitx = !strcmp( tile->name, "mwaitx" );
+      for( ulong j=0UL; j<config->topo.tile_cnt; j++ ) {
+        if( FD_LIKELY( !config->topo.tiles[ j ].sleep_eventfd ) ) continue;
+
+        int eventfd_entitled = is_mwaitx || tile->id==j;
+        if( FD_UNLIKELY( -1==fcntl( FD_SLEEP_EVENTFD( j ), F_SETFD, eventfd_entitled ? 0 : FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      }
+
       int pipefd[ 2 ];
       if( FD_UNLIKELY( pipe2( pipefd, O_CLOEXEC ) ) ) FD_LOG_ERR(( "pipe2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       fds[ child_cnt ] = (struct pollfd){ .fd = pipefd[ 0 ], .events = 0 };
@@ -584,8 +601,12 @@ main_pid_namespace( void * _args ) {
   for( ulong j=0UL; j<waker_client_cnt; j++ ) {
     if( FD_UNLIKELY( -1==close( FD_WAKER_INNER_FD( j ) ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
+  for( ulong j=0UL; j<config->topo.tile_cnt; j++ ) {
+    if( FD_LIKELY( !config->topo.tiles[ j ].sleep_eventfd ) ) continue;
+    if( FD_UNLIKELY( -1==close( FD_SLEEP_EVENTFD( j ) ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
 
-  int allow_fds[ 6+FD_TOPO_MAX_TILES ];
+  int allow_fds[ 4+FD_TOPO_MAX_TILES ];
   ulong allow_fds_cnt = 0;
   allow_fds[ allow_fds_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( fd_log_private_logfile_fd()!=-1 ) )
@@ -594,15 +615,19 @@ main_pid_namespace( void * _args ) {
   for( ulong i=0UL; i<child_cnt; i++ )
     allow_fds[ allow_fds_cnt++ ] = fds[ i ].fd; /* read end of child pipes */
   if( need_mlx5 ) {
-    allow_fds[ allow_fds_cnt++ ] = mlx5_fds.cmd_fd;
-    allow_fds[ allow_fds_cnt++ ] = mlx5_fds.async_fd;
+    if( FD_UNLIKELY( -1==close( mlx5_fds.cmd_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==close( mlx5_fds.async_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    for( ulong i=0UL; i<mlx5_fds.rx_comp_channel_fd_cnt; i++ ) {
+      if( FD_UNLIKELY( -1==close( mlx5_fds.rx_comp_channel_fd[ i ] ) ) )
+        FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
   }
 
   struct sock_filter seccomp_filter[ 128UL ];
   unsigned int instr_cnt;
   #if defined(__aarch64__) || defined(__riscv)
-  populate_sock_filter_policy_pidns_arm64( 128UL, seccomp_filter, (uint)fd_log_private_logfile_fd() );
-  instr_cnt = sock_filter_policy_pidns_arm64_instr_cnt;
+  populate_sock_filter_policy_pidns_no_poll( 128UL, seccomp_filter, (uint)fd_log_private_logfile_fd() );
+  instr_cnt = sock_filter_policy_pidns_no_poll_instr_cnt;
   #else
   populate_sock_filter_policy_pidns( 128UL, seccomp_filter, (uint)fd_log_private_logfile_fd() );
   instr_cnt = sock_filter_policy_pidns_instr_cnt;

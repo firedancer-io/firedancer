@@ -44,6 +44,7 @@ fd_forest_new( void * shmem, ulong ele_max, ulong shred_max, ulong seed ) {
 
   ulong idxs_sz   = ele_max*fd_forest_blk_idxs_word_cnt( shred_max )*sizeof(fd_forest_blk_idxs_t);
   ulong mroots_sz = ele_max*(shred_max/FD_FEC_SHRED_CNT)*sizeof(fd_forest_mr_t);
+  ulong recv_sz   = ele_max*(shred_max/FD_FEC_SHRED_CNT)*sizeof(fd_forest_recv_t);
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   forest          = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_align(),          sizeof(fd_forest_t)                     );
@@ -51,6 +52,7 @@ fd_forest_new( void * shmem, ulong ele_max, ulong shred_max, ulong seed ) {
   void * idxs     = FD_SCRATCH_ALLOC_APPEND( l, 128UL,                      idxs_sz                                 );
   void * code     = FD_SCRATCH_ALLOC_APPEND( l, 128UL,                      idxs_sz                                 );
   void * mroots   = FD_SCRATCH_ALLOC_APPEND( l, 128UL,                      mroots_sz                               );
+  void * recv     = FD_SCRATCH_ALLOC_APPEND( l, 128UL,                      recv_sz                                 );
   void * ancestry = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_ancestry_align(), fd_forest_ancestry_footprint( ele_max ) );
   void * frontier = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_frontier_align(), fd_forest_frontier_footprint( ele_max ) );
   void * subtrees = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_subtrees_align(), fd_forest_subtrees_footprint( ele_max ) );
@@ -78,6 +80,7 @@ fd_forest_new( void * shmem, ulong ele_max, ulong shred_max, ulong seed ) {
   forest->idxs_gaddr     = fd_wksp_gaddr_fast( wksp, idxs   );
   forest->code_gaddr     = fd_wksp_gaddr_fast( wksp, code   );
   forest->mroots_gaddr   = fd_wksp_gaddr_fast( wksp, mroots );
+  forest->recv_gaddr     = fd_wksp_gaddr_fast( wksp, recv   );
   forest->ancestry_gaddr = fd_wksp_gaddr_fast( wksp, fd_forest_ancestry_join( fd_forest_ancestry_new( ancestry, ele_max, seed        ) ) );
   forest->frontier_gaddr = fd_wksp_gaddr_fast( wksp, fd_forest_frontier_join( fd_forest_frontier_new( frontier, ele_max, seed        ) ) );
   forest->subtrees_gaddr = fd_wksp_gaddr_fast( wksp, fd_forest_subtrees_join( fd_forest_subtrees_new( subtrees, ele_max, seed        ) ) );
@@ -483,9 +486,9 @@ fd_forest_verify( fd_forest_t const * forest ) {
 static fd_forest_blk_t *
 ancestry_frontier_remove( fd_forest_t * forest, ulong slot ) {
   fd_forest_blk_t * pool = fd_forest_pool( forest );
-  fd_forest_blk_t * ele  = NULL;
-  ele =                  fd_forest_ancestry_ele_remove( fd_forest_ancestry( forest ), &slot, NULL, pool );
-  ele = fd_ptr_if( !ele, fd_forest_frontier_ele_remove( fd_forest_frontier( forest ), &slot, NULL, pool ), ele );
+  fd_forest_blk_t * ele;
+  ele = fd_forest_ancestry_ele_remove( fd_forest_ancestry( forest ), &slot, NULL, pool );
+  if( !ele ) ele = fd_forest_frontier_ele_remove( fd_forest_frontier( forest ), &slot, NULL, pool );
   return ele;
 }
 
@@ -560,7 +563,7 @@ advance_consumed_frontier( fd_forest_t * forest, ulong slot, ulong parent_slot )
   ulong parent_pool_idx = fd_forest_pool_idx( pool, fd_forest_query( forest, parent_slot ) );
   fd_forest_ref_t * ele;
   ele = fd_forest_consumed_ele_query( consumed, &slot_pool_idx, NULL, conspool );
-  ele = fd_ptr_if( !ele, fd_forest_consumed_ele_query( consumed, &parent_pool_idx, NULL, conspool ), ele );
+  if( !ele ) ele = fd_forest_consumed_ele_query( consumed, &parent_pool_idx, NULL, conspool );
   if( FD_UNLIKELY( !ele ) ) return;
 
   FD_CHECK_CRIT( fd_forest_deque_cnt( queue ) == 0, "invariant violation" );
@@ -593,11 +596,11 @@ fd_forest_query( fd_forest_t * forest, ulong slot ) {
   fd_forest_subtrees_t * subtrees  = fd_forest_subtrees( forest );
   fd_forest_orphaned_t * orphaned  = fd_forest_orphaned( forest );
 
-  fd_forest_blk_t * ele = NULL;
-  ele =                  fd_forest_ancestry_ele_query( ancestry, &slot, NULL, pool );
-  ele = fd_ptr_if( !ele, fd_forest_frontier_ele_query( frontier, &slot, NULL, pool ), ele );
-  ele = fd_ptr_if( !ele, fd_forest_subtrees_ele_query( subtrees, &slot, NULL, pool ), ele );
-  ele = fd_ptr_if( !ele, fd_forest_orphaned_ele_query( orphaned, &slot, NULL, pool ), ele );
+  fd_forest_blk_t * ele;
+  ele =            fd_forest_ancestry_ele_query( ancestry, &slot, NULL, pool );
+  if( !ele ) ele = fd_forest_frontier_ele_query( frontier, &slot, NULL, pool );
+  if( !ele ) ele = fd_forest_subtrees_ele_query( subtrees, &slot, NULL, pool );
+  if( !ele ) ele = fd_forest_orphaned_ele_query( orphaned, &slot, NULL, pool );
   return ele;
 }
 
@@ -1023,8 +1026,7 @@ acquire( fd_forest_t * forest, ulong slot, ulong parent_slot, ulong * evicted ) 
   blk->lowest_verified_fec = UINT_MAX;
   memset( fd_forest_blk_mroots( forest, blk ), 0, (forest->shred_max/FD_FEC_SHRED_CNT)*sizeof(fd_forest_mr_t) ); /* expensive*/
   blk->confirmed_bid = empty_mr;
-
-  blk->est_buffered_tick_recv = 0;
+  memset( fd_forest_blk_recv( forest, blk ), 0, (forest->shred_max/FD_FEC_SHRED_CNT)*sizeof(fd_forest_recv_t) );
 
   /* Metrics tracking */
 
@@ -1255,6 +1257,22 @@ next_chained_merkle( fd_forest_blk_t * ele, fd_forest_mr_t * mroots, uint fec_id
   return &mroots[fec_idx + 1].cmr;
 }
 
+/* recv_ts_stamp records the first time turbine was observed reaching
+   fec_idx, as a ms offset from first_shred_ts, and backfills any
+   still-unstamped FEC sets below it: first_shred_ts must
+   already be set. */
+
+static void
+recv_ts_stamp( fd_forest_t * forest, fd_forest_blk_t * ele, uint fec_idx, long now ) {
+  fd_forest_recv_t * recv = fd_forest_blk_recv( forest, ele );
+  if( FD_LIKELY( recv[ fec_idx ].first ) ) return;
+  now = fd_long_max( now, ele->first_shred_ts );
+  ulong  off_ms = (ulong)( (double)(now - ele->first_shred_ts) / fd_tempo_tick_per_ns( NULL ) * 1e-6 );
+  ushort stamp  = (ushort)fd_ulong_min( fd_ulong_max( off_ms, 1UL ), (ulong)USHORT_MAX ); /* clamp to >=1: 0 means unstamped */
+  recv[ fec_idx ].first = stamp;
+  for( uint i=fec_idx; i>0U && !recv[ i-1U ].first; i-- ) recv[ i-1U ].first = stamp;
+}
+
 /* data_shred_insert accepts the first complete_idx it sees while
    complete_idx is UINT_MAX, and rejects any subsequent shreds that are
    greater than the complete_idx.  This is applies for the very first
@@ -1268,7 +1286,7 @@ fd_forest_data_shred_insert( fd_forest_t * forest,
                              uint          shred_idx,
                              uint          fec_set_idx,
                              int           slot_complete,
-                             int           ref_tick,
+                             int           ref_tick FD_PARAM_UNUSED,
                              int           src,
                              fd_hash_t   * mr,
                              fd_hash_t   * cmr,
@@ -1370,13 +1388,11 @@ fd_forest_data_shred_insert( fd_forest_t * forest,
     ele->recovered_cnt += (src==SHRED_SRC_RECOVERED);
   }
   if( FD_UNLIKELY( !ele->first_shred_ts || rx_tick<ele->first_shred_ts ) ) ele->first_shred_ts = rx_tick;
+  if( FD_LIKELY( src==SHRED_SRC_TURBINE ) ) recv_ts_stamp( forest, ele, fec_idx, rx_tick );
 
   fd_forest_blk_idxs_insert( idxs, shred_idx );
   while( ele->buffered_idx + 1 < forest->shred_max && fd_forest_blk_idxs_test( idxs, ele->buffered_idx + 1U ) ) {
     ele->buffered_idx++;
-    ele->est_buffered_tick_recv = fd_int_max(ref_tick, ele->est_buffered_tick_recv);
-    /* If the buffered_idx increases, this means the
-       est_buffered_tick_recv is at least ref_tick */
   }
 
   /* If equivocating, buffered_idx needs to be clamped to complete_idx */
@@ -1480,6 +1496,8 @@ fd_forest_code_shred_insert( fd_forest_t * forest, ulong slot, uint shred_idx, l
     ele->turbine_cnt += 1;
     return ele;
   }
+
+  recv_ts_stamp( forest, ele, (uint)(shred_idx/FD_FEC_SHRED_CNT), rx_tick );
 
   fd_forest_blk_idxs_t * code = fd_forest_blk_code( forest, ele );
   if( FD_LIKELY( !fd_forest_blk_idxs_test( code, shred_idx ) ) ) { /* newly seen shred */
@@ -1869,11 +1887,20 @@ fd_forest_iter_next( fd_forest_iter_t * iter, fd_forest_t * forest ) {
        complete shred, but the last shred may have been evicted, so we
        need leq. */
 
-    if( ele->complete_idx != UINT_MAX &&
-        next_shred_idx <= ele->complete_idx &&
-        !fd_forest_blk_idxs_test( fd_forest_blk_idxs( forest, ele ), next_shred_idx ) ) {
-      iter->shred_idx = next_shred_idx;
-      break;
+    if( ele->complete_idx != UINT_MAX && next_shred_idx <= ele->complete_idx ) {
+      fd_forest_blk_idxs_t const * idxs = fd_forest_blk_idxs( forest, ele );
+
+      /* Jump a word at a time to the first missing shred, or to
+         complete_idx if none.  Not after a highest_window_idx request,
+         which tests one shred of the next slot and moves on. */
+
+      if( FD_LIKELY( iter->shred_idx != UINT_MAX ) ) {
+        next_shred_idx = (uint)fd_ulong_min( fd_forest_blk_idxs_next_unset( idxs, next_shred_idx, ele->complete_idx ), ele->complete_idx );
+      }
+      if( !fd_forest_blk_idxs_test( idxs, next_shred_idx ) ) {
+        iter->shred_idx = next_shred_idx;
+        break;
+      }
     }
 
     /* Current slot actually needs a highest_window_idx request */

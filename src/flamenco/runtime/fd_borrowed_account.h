@@ -27,6 +27,9 @@ struct fd_borrowed_account {
   ushort                      index_in_instruction;
 
   ulong *                     refcnt;
+
+  /* The transaction's touched flag for this account. */
+  uchar *                     touched;
 };
 
 typedef struct fd_borrowed_account fd_borrowed_account_t;
@@ -42,11 +45,13 @@ fd_borrowed_account_init( fd_borrowed_account_t *     borrowed_acct,
                           fd_acc_t *                  acc,
                           fd_exec_instr_ctx_t const * instr_ctx,
                           ushort                      index_in_instruction,
-                          ulong *                     refcnt ) {
+                          ulong *                     refcnt,
+                          uchar *                     touched ) {
   borrowed_acct->acc                  = acc;
   borrowed_acct->instr_ctx            = instr_ctx;
   borrowed_acct->index_in_instruction = index_in_instruction;
   borrowed_acct->refcnt               = refcnt;
+  borrowed_acct->touched              = touched;
 }
 
 /* Drop mirrors the behavior of rust's std::mem::drop on mutable borrows.

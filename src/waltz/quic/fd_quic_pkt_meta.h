@@ -24,6 +24,7 @@ union fd_quic_pkt_meta_key {
         FD_QUIC_PKT_META_TYPE_MAX_STREAMS_UNIDIR  max_streams frame (unidir)
         FD_QUIC_PKT_META_TYPE_CLOSE               close frame
         FD_QUIC_PKT_META_TYPE_PING                set to send a PING frame
+        FD_QUIC_PKT_META_TYPE_DATAGRAM            DATAGRAM frame, never retransmitted (RFC 9221 Section 5.2)
     */
     # define          FD_QUIC_PKT_META_TYPE_HS_DATA            (0)
     # define          FD_QUIC_PKT_META_TYPE_STREAM             (1)
@@ -32,6 +33,7 @@ union fd_quic_pkt_meta_key {
     # define          FD_QUIC_PKT_META_TYPE_MAX_STREAMS_UNIDIR (4)
     # define          FD_QUIC_PKT_META_TYPE_CLOSE              (5)
     # define          FD_QUIC_PKT_META_TYPE_PING               (6)
+    # define          FD_QUIC_PKT_META_TYPE_DATAGRAM           (7)
     uchar type: 4;
 
     ulong pkt_num: 60;

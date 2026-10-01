@@ -2,7 +2,13 @@
    16: a frag found by the round robin keeps the stem on its link for
    16 more polls, so consumption comes in runs of 17 alternating between
    the links while both have frags, then runs of what is left.  Every
-   frag is consumed exactly once. */
+   frag is consumed exactly once.
+
+   Each consumed frag is republished to an out link through the
+   callback's stem context, and the out mcache is compared byte for
+   byte with one written directly by fd_mcache_publish in the consumed
+   order: the context's seqs stay live across iterations and now never
+   runs ahead of the clock. */
 
 #include "fd_stem.h"
 #include "../metrics/fd_metrics.h"
@@ -18,6 +24,7 @@ struct test_ctx {
   ulong consumed;
   uchar order[ LINK_CNT*FRAG_CNT ]; /* link idx of each consumed frag, in order */
   ulong seen [ LINK_CNT ][ FRAG_CNT ];
+  long  now;                        /* stem->now of the previous callback */
 };
 typedef struct test_ctx test_ctx_t;
 
@@ -35,11 +42,15 @@ after_frag( test_ctx_t *        ctx,
             ulong               tsorig,
             ulong               tspub,
             fd_stem_context_t * stem ) {
-  (void)sz; (void)tsorig; (void)tspub; (void)stem;
+  (void)sz; (void)tsorig; (void)tspub;
   FD_TEST( in_idx<LINK_CNT && sig==in_idx && seq<FRAG_CNT );
   FD_TEST( ctx->consumed<LINK_CNT*FRAG_CNT );
+  FD_TEST( stem->now>=ctx->now && stem->now<=fd_tickcount() );
+  FD_TEST( stem->seqs[ 0 ]==ctx->consumed && stem->cr_avail[ 0 ]==DEPTH && !stem->out_reliable[ 0 ] ); /* no consumers: no credit accounting */
+  ctx->now = stem->now;
   ctx->seen[ in_idx ][ seq ]++;
   ctx->order[ ctx->consumed++ ] = (uchar)in_idx;
+  FD_TEST( fd_stem_publish( stem, 0UL, (in_idx<<32)|seq, seq, in_idx+1UL, 0UL, 1UL, 2UL )==ctx->consumed-1UL );
 }
 
 #define STEM_BURST                    BURST
@@ -52,6 +63,7 @@ after_frag( test_ctx_t *        ctx,
 #include "fd_stem.c"
 
 static uchar mcache_mem [ LINK_CNT ][ FD_MCACHE_FOOTPRINT( DEPTH, 0UL ) ] __attribute__((aligned(FD_MCACHE_ALIGN)));
+static uchar out_mem    [ 2UL ]      [ FD_MCACHE_FOOTPRINT( DEPTH, 0UL ) ] __attribute__((aligned(FD_MCACHE_ALIGN)));
 static uchar fseq_mem   [ LINK_CNT ][ FD_FSEQ_FOOTPRINT ]                __attribute__((aligned(FD_FSEQ_ALIGN)));
 static uchar metrics_mem[ FD_METRICS_FOOTPRINT( LINK_CNT ) ]             __attribute__((aligned(FD_METRICS_ALIGN)));
 static uchar scratch    [ 1UL<<16 ]                                      __attribute__((aligned(128UL)));
@@ -76,14 +88,30 @@ main( int     argc,
     FD_TEST( in_fseq[ i ] );
   }
 
+  fd_frag_meta_t * out_mcache[ 1 ] = { fd_mcache_join( fd_mcache_new( out_mem[ 0 ], DEPTH, 0UL, 0UL ) ) };
+  fd_frag_meta_t * ref_mcache      =   fd_mcache_join( fd_mcache_new( out_mem[ 1 ], DEPTH, 0UL, 0UL ) );
+  FD_TEST( out_mcache[ 0 ] && ref_mcache );
+
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
-  FD_TEST( stem_scratch_footprint( LINK_CNT, 0UL, 0UL )<=sizeof(scratch) );
+  FD_TEST( stem_scratch_footprint( LINK_CNT, 1UL, 0UL )<=sizeof(scratch) );
   memset( &ctx, 0, sizeof(ctx) );
   fd_stem_sleep_t sleep[ 1 ] = {{ .shmem = NULL }}; /* no sleep object: spin */
-  stem_run1( LINK_CNT, in_mcache, in_fseq, 0UL, NULL, 0UL, NULL, NULL, NULL, BURST, LAZY, rng, scratch, &ctx, sleep );
+  stem_run1( LINK_CNT, in_mcache, in_fseq, 1UL, out_mcache, 0UL, NULL, NULL, NULL, BURST, LAZY, rng, scratch, &ctx, sleep );
 
   FD_TEST( ctx.consumed==LINK_CNT*FRAG_CNT );
   for( ulong i=0UL; i<LINK_CNT; i++ ) for( ulong seq=0UL; seq<FRAG_CNT; seq++ ) FD_TEST( ctx.seen[ i ][ seq ]==1UL );
+
+  /* The out mcache holds exactly the frags the callbacks published,
+     byte for byte, and the run loop published the final seq. */
+  ulong per_link[ LINK_CNT ] = { 0UL };
+  for( ulong k=0UL; k<LINK_CNT*FRAG_CNT; k++ ) {
+    ulong in_idx = ctx.order[ k ];
+    ulong seq    = per_link[ in_idx ]++;
+    fd_mcache_publish( ref_mcache, DEPTH, k, (in_idx<<32)|seq, seq, in_idx+1UL, 0UL, 1UL, 2UL );
+  }
+  fd_mcache_seq_update( fd_mcache_seq_laddr( ref_mcache ), LINK_CNT*FRAG_CNT );
+  FD_TEST( !memcmp( out_mcache[ 0 ], ref_mcache, DEPTH*sizeof(fd_frag_meta_t) ) );
+  FD_TEST( fd_mcache_seq_query( fd_mcache_seq_laddr( out_mcache[ 0 ] ) )==LINK_CNT*FRAG_CNT );
 
   /* Runs of STICKY+1 while both links have frags (2*(STICKY+1) fit in
      FRAG_CNT twice), then each link's remainder in one run. */

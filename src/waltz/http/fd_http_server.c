@@ -165,10 +165,11 @@ fd_http_server_new( void *                     shmem,
   http->oring             = FD_SCRATCH_ALLOC_APPEND( l,  1UL,                                          params.outgoing_buffer_sz                                                            );
   uchar * _zstd_ctx       = FD_SCRATCH_ALLOC_APPEND( l,  16UL,                                         ZSTD_estimateCCtxSize( FD_HTTP_ZSTD_COMPRESSION_LEVEL )                              );
   http->oring_sz       = params.outgoing_buffer_sz;
-  http->stage_err      = 0;
-  http->stage_off      = 0UL;
-  http->stage_len      = 0UL;
-  http->stage_comp_len = 0UL;
+  http->stage_err          = 0;
+  http->stage_off          = 0UL;
+  http->stage_len          = 0UL;
+  http->stage_comp_len     = 0UL;
+  http->stage_reserved_end = 0UL;
 
   http->callbacks             = callbacks;
   http->callback_ctx          = callback_ctx;
@@ -566,6 +567,8 @@ is_expected_network_error( int err ) {
     err==ETIMEDOUT ||
     err==ENETRESET ||
     err==ECONNABORTED ||
+    err==ECONNREFUSED || /* ICMP port unreachable */
+    err==EACCES ||       /* ICMPv6 admin prohibited */
     err==ECONNRESET ||
     err==EPIPE ||
     err==EPERM || /* iptables */
@@ -1598,13 +1601,18 @@ fd_http_server_reserve( fd_http_server_t * http,
       fd_http_server_evict_until( http, clamp );
       memmove( http->oring, http->oring+(http->stage_off%http->oring_sz), http->stage_len );
       http->stage_off += http->stage_len+remaining;
+      http->stage_reserved_end = fd_ulong_max( http->stage_reserved_end, stage_end );
     }
   } else {
     /* The snap can fit in the buffer, we just need to evict whatever
-        was there before. */
+        was there before, unless an earlier reserve already did: a
+        message is staged field by field and each field reserves. */
     ulong stage_end = http->stage_off+http->stage_len+len;
+    if( FD_LIKELY( stage_end<=http->stage_reserved_end ) ) return;
+
     ulong clamp = fd_ulong_if( stage_end>=http->oring_sz, stage_end-http->oring_sz, 0UL );
     fd_http_server_evict_until( http, clamp );
+    http->stage_reserved_end = stage_end;
   }
 }
 
@@ -1662,6 +1670,7 @@ fd_http_server_ws_send( fd_http_server_t * http,
   if( FD_LIKELY( http->pollfds[ http->max_conns+ws_conn_id ].fd==-1 ) ) {
     http->stage_err = 0;
     http->stage_len = 0;
+    http->stage_reserved_end = 0UL;
     http->stage_comp_len = 0;
     return 0;
   }
@@ -1669,6 +1678,7 @@ fd_http_server_ws_send( fd_http_server_t * http,
   if( FD_UNLIKELY( http->stage_err ) ) {
     http->stage_err = 0;
     http->stage_len = 0;
+    http->stage_reserved_end = 0UL;
     http->stage_comp_len = 0;
     return -1;
   }
@@ -1676,6 +1686,7 @@ fd_http_server_ws_send( fd_http_server_t * http,
   if( FD_UNLIKELY( conn->send_frame_cnt==http->max_ws_send_frame_cnt ) ) {
     close_conn( http, ws_conn_id+http->max_conns, FD_HTTP_SERVER_CONNECTION_CLOSE_WS_CLIENT_TOO_SLOW );
     http->stage_len = 0;
+    http->stage_reserved_end = 0UL;
     http->stage_comp_len = 0;
     return 0;
   }
@@ -1698,6 +1709,7 @@ fd_http_server_ws_send( fd_http_server_t * http,
 
   http->stage_off += http->stage_len+http->stage_comp_len;
   http->stage_len = 0;
+  http->stage_reserved_end = 0UL;
   http->stage_comp_len = 0;
 
   return 0;
@@ -1710,6 +1722,7 @@ fd_http_server_ws_broadcast( fd_http_server_t * http ) {
   if( FD_UNLIKELY( http->stage_err ) ) {
     http->stage_err = 0;
     http->stage_len = 0;
+    http->stage_reserved_end = 0UL;
     http->stage_comp_len = 0;
     return -1;
   }
@@ -1740,6 +1753,7 @@ fd_http_server_ws_broadcast( fd_http_server_t * http ) {
 
   http->stage_off += http->stage_len+http->stage_comp_len;
   http->stage_len = 0;
+  http->stage_reserved_end = 0UL;
   http->stage_comp_len = 0;
 
   return 0;
@@ -1809,6 +1823,7 @@ void
 fd_http_server_unstage( fd_http_server_t * http ) {
   http->stage_err = 0;
   http->stage_len = 0UL;
+  http->stage_reserved_end = 0UL;
   http->stage_comp_len = 0UL;
 }
 
@@ -1818,6 +1833,7 @@ fd_http_server_stage_body( fd_http_server_t *          http,
   if( FD_UNLIKELY( http->stage_err ) ) {
     http->stage_err = 0;
     http->stage_len = 0UL;
+    http->stage_reserved_end = 0UL;
     http->stage_comp_len = 0UL;
     return -1;
   }
@@ -1826,5 +1842,6 @@ fd_http_server_stage_body( fd_http_server_t *          http,
   response->_body_len = http->stage_len;
   http->stage_off += http->stage_len;
   http->stage_len = 0;
+  http->stage_reserved_end = 0UL;
   return 0;
 }

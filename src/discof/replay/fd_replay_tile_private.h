@@ -7,6 +7,7 @@
 #include "../../disco/bundle/fd_bundle_crank.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
 #include "../../disco/node_info/fd_node_info.h"
+#include "../../disco/wait_info/fd_wait_info.h"
 #include "../../discof/poh/fd_poh.h"
 #include "../../discof/reasm/fd_reasm.h"
 #include "../../discof/repair/fd_repair_tile.h"
@@ -170,6 +171,14 @@ struct fd_replay_tile {
      set.  This parallels the Agave 'has_new_vote_been_rooted'. */
   int identity_vote_rooted;
   int wait_for_vote_to_start_leader;
+
+  /* vote_account_staked is 1 if stake was delegated to our vote
+     account at boot.  vote_account_inadmissible is 1 while our staked
+     vote account fails the admission ticket filter, or passes it but
+     has not yet been admitted at an epoch boundary. */
+  int vote_account_staked;
+  int vote_account_inadmissible;
+
   int alpenglow;
 
   /* wfs_enabled is 1 if the validator is booted in
@@ -473,6 +482,9 @@ struct fd_replay_tile {
   double      tick_per_ns;
   ulong       highwater_leader_slot;
   ulong       reset_slot;
+  ulong       epoch_end_slot;
+  ulong       slots_per_epoch;
+  ulong       ns_per_slot;
 
   /* Caught up to the cluster: replay has completed a slot within a few
      slots of the cluster tip.  Under tower the tip is the highest FEC
@@ -483,6 +495,7 @@ struct fd_replay_tile {
   ulong       catch_up_max_fec_slot;
   ulong       catch_up_tip_advance_cnt;
   long        boot_timestamp_nanos;
+
   fd_hash_t   reset_cmr; /* chained merkle root of the reset block */
   fd_hash_t   reset_dmr; /* ALPENGLOW-ONLY double merkle root of the reset block */
   long        reset_timestamp_nanos;
@@ -512,18 +525,36 @@ struct fd_replay_tile {
   fd_pubkey_t      vote_account[ 1 ];
 
   fd_node_info_box_t * node_info; /* shared */
+  fd_wait_info_box_t * wait_info; /* shared */
+
+  /* Delinquency, published through wait_info only; not a metric. */
+  int   delinquent_known;
+  ulong delinquent_sample_slot;
+  ulong delinquent_stake_lamports;
+  ulong cluster_active_stake_lamports;
+  /* Alpenglow-only delinquency tracking, from the block footer reward
+     certs since last_vote_slot stalls without vote transactions.
+     Indexed by alpenglow rank, which is epoch-scoped. */
+  ulong ag_last_voted[ AG_VAT_MAX ];
+  ulong ag_last_voted_epoch; /* ULONG_MAX before the first reward cert */
+  ulong ag_last_settled;     /* highest settled slot observed */
+  ulong ag_stamp_since;      /* first slot stamped into an empty table */
 
   fd_keyswitch_t * keyswitch;
-  int              halt_leader;
+  int              halt_replay;
 
   ulong  resolv_tile_cnt;
 
   int in_kind[ 128 ];
   fd_replay_in_link_t in[ 128 ];
 
-  fd_replay_out_link_t exec_out[ 1 ];
+  ulong                exec_cnt;
+  fd_replay_out_link_t exec_out[ FD_SCHED_MAX_EXEC_TILE_CNT ];
 
   fd_replay_out_link_t replay_out[1];
+  ulong const *        replay_out_seq;
+  fd_replay_out_link_t slot_out[1];
+  ulong const *        slot_out_seq;
   fd_replay_out_link_t snapmk_out[1];
   ulong admin_out_idx;
 
@@ -557,6 +588,9 @@ struct fd_replay_tile {
     ulong incremental_interval_blocks;
     ulong next_incremental_block_height;
     ulong base_slot;
+    ulong snap_finished_full;
+    ulong snap_finished_incr;
+    ulong snap_produced_incr_cnt;
   } snapmk;
 
   struct {

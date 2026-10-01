@@ -5,6 +5,10 @@ S2N_BIGNUM_ASMS:=\
   x86/curve25519/curve25519_x25519_alt \
   x86/curve25519/curve25519_x25519base \
   x86/curve25519/curve25519_x25519base_alt \
+  x86/curve25519/edwards25519_scalarmuldouble \
+  x86/curve25519/edwards25519_scalarmuldouble_alt \
+  x86/curve25519/edwards25519_scalarmulbase \
+  x86/curve25519/edwards25519_scalarmulbase_alt \
   x86/fastmul/bignum_mul_4_8 \
   x86/fastmul/bignum_mul_4_8_alt \
   x86/fastmul/bignum_mul_6_12 \
@@ -79,6 +83,8 @@ ifdef FD_HAS_ARM
 S2N_BIGNUM_ASMS:=\
   arm/curve25519/curve25519_x25519_byte_alt \
   arm/curve25519/curve25519_x25519base_byte_alt \
+  arm/curve25519/edwards25519_scalarmuldouble_alt \
+  arm/curve25519/edwards25519_scalarmulbase_alt \
   arm/fastmul/bignum_mul_4_8_alt \
   arm/fastmul/bignum_mul_6_12_alt \
   arm/generic/bignum_demont \

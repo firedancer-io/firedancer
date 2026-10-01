@@ -199,6 +199,11 @@ fd_f25519_sqrt_ratio( fd_f25519_t *       r,
                       fd_f25519_t const * u,
                       fd_f25519_t const * v );
 
+/* fd_f25519_is_square_var returns 1 if a is a square mod p (including
+   a==0) and 0 otherwise.  Variable time, do not use with secret data. */
+int
+fd_f25519_is_square_var( fd_f25519_t const * a );
+
 /* fd_f25519_sqrt_ratio computes r = 1/sqrt(v),
    returns 0 on success, 1 on failure. */
 FD_25519_INLINE int

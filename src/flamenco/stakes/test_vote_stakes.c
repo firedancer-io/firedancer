@@ -104,6 +104,51 @@ main( int argc, char ** argv ) {
   FD_TEST( fd_vote_stakes_query_t_1( vote_stakes, child, &vote_c, NULL, &stake, &commission ) );
   FD_TEST( stake==300UL && commission==30U );
 
+  /* SIMD-0123 fields: defaults on insert, set/query on t-1, and a
+     miss on an absent key is a no-op. */
+  {
+    ushort block_bps;
+    ulong  pending;
+    FD_TEST( fd_vote_stakes_query_block_revenue_t_1( vote_stakes, child, &vote_c, &block_bps, &pending ) );
+    FD_TEST( block_bps==FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS && pending==0UL );
+
+    fd_vote_stakes_set_block_revenue_t_1( vote_stakes, child, &vote_c, 2500U, 777UL );
+    FD_TEST( fd_vote_stakes_query_block_revenue_t_1( vote_stakes, child, &vote_c, &block_bps, &pending ) );
+    FD_TEST( block_bps==2500U && pending==777UL );
+
+    fd_pubkey_t absent = key( 99UL );
+    fd_vote_stakes_set_block_revenue_t_1( vote_stakes, child, &absent, 1U, 1UL );
+    FD_TEST( !fd_vote_stakes_query_block_revenue_t_1( vote_stakes, child, &absent, NULL, NULL ) );
+
+    /* t-2 setter on the rotated root set (vote_a) */
+    FD_TEST( fd_vote_stakes_query_block_revenue_t_2( vote_stakes, child, &vote_a, &block_bps, &pending ) );
+    FD_TEST( block_bps==FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS && pending==0UL );
+    fd_vote_stakes_set_block_revenue_t_2( vote_stakes, child, &vote_a, 1234U, 55UL );
+    FD_TEST( fd_vote_stakes_query_block_revenue_t_2( vote_stakes, child, &vote_a, &block_bps, &pending ) );
+    FD_TEST( block_bps==1234U && pending==55UL );
+
+    /* The iterator reads the same fields. */
+    uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) br_iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
+    ulong seen = 0UL;
+    for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, child, FD_VOTE_STAKES_ITER_T_1, br_iter_mem );
+         !fd_vote_stakes_iter_done( vote_stakes, child, FD_VOTE_STAKES_ITER_T_1, iter );
+         fd_vote_stakes_iter_next( vote_stakes, child, FD_VOTE_STAKES_ITER_T_1, iter ) ) {
+      fd_pubkey_t pubkey;
+      fd_vote_stakes_iter_ele( vote_stakes, child, FD_VOTE_STAKES_ITER_T_1, iter, &pubkey, NULL, NULL,
+                               NULL, NULL, NULL, NULL, NULL, NULL, NULL );
+      fd_vote_stakes_iter_block_revenue( vote_stakes, child, FD_VOTE_STAKES_ITER_T_1, iter, &block_bps, &pending );
+      FD_TEST( fd_pubkey_eq( &pubkey, &vote_c ) && block_bps==2500U && pending==777UL );
+      seen++;
+    }
+    FD_TEST( seen==1UL );
+
+    /* Crossing a boundary rotates t-1 into t-2 with the fields intact. */
+    ulong grandchild = fd_vote_stakes_new_fork( vote_stakes, child, 2UL );
+    FD_TEST( fd_vote_stakes_query_block_revenue_t_2( vote_stakes, grandchild, &vote_c, &block_bps, &pending ) );
+    FD_TEST( block_bps==2500U && pending==777UL );
+    fd_vote_stakes_purge_fork( vote_stakes, grandchild );
+  }
+
   fd_vote_stakes_update_state( vote_stakes, child, &vote_a, 9UL, 10L, 1 );
   ulong sibling = fd_vote_stakes_new_fork( vote_stakes, child, 1UL );
   fd_vote_stakes_update_state( vote_stakes, sibling, &vote_a, 0UL, 0L, 0 );
@@ -141,6 +186,16 @@ main( int argc, char ** argv ) {
   FD_TEST( fd_vote_stakes_query_t_3( vote_stakes, snapshot_root, &vote_b, &node, &stake, &commission ) );
   FD_TEST( fd_pubkey_eq( &node, &node_b ) && stake==200UL && commission==20U );
   FD_TEST( fd_vote_stakes_total_stake( vote_stakes, 1UL )==200UL );
+  {
+    fd_vote_stakes_set_block_revenue_t_n( vote_stakes, snapshot_root, 3UL, &vote_b, 4321U, 99UL );
+    fd_pubkey_t absent = key( 98UL );
+    fd_vote_stakes_set_block_revenue_t_n( vote_stakes, snapshot_root, 3UL, &absent, 1U, 1UL );
+    ushort block_bps; ulong pending;
+    fd_vote_stakes_iter_t * it = fd_vote_stakes_iter_init( vote_stakes, snapshot_root, FD_VOTE_STAKES_ITER_T_3, epoch_iter_mem );
+    FD_TEST( !fd_vote_stakes_iter_done( vote_stakes, snapshot_root, FD_VOTE_STAKES_ITER_T_3, it ) );
+    fd_vote_stakes_iter_block_revenue( vote_stakes, snapshot_root, FD_VOTE_STAKES_ITER_T_3, it, &block_bps, &pending );
+    FD_TEST( block_bps==4321U && pending==99UL );
+  }
   /* Crossing into E+1 must not evict E-1 while an epoch-E fork is
      live. */
   ulong next_epoch_child = fd_vote_stakes_new_fork( vote_stakes, snapshot_root, 3UL );

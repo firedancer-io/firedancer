@@ -615,7 +615,7 @@ unprivileged_init( fd_topo_t const *      topo,
     if( FD_UNLIKELY( !tile->in_link_poll[ i ] ) ) continue;
 
     fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
-    if( !strcmp( link->name, "replay_out" ) ) {
+    if( !strcmp( link->name, "replay_slot" ) ) {
       ctx->in_kind[ polled_in_idx ] = IN_KIND_REPLAY_OUT;
       fd_topo_wksp_t const * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
       ctx->replay_in.mem    = link_wksp->wksp;

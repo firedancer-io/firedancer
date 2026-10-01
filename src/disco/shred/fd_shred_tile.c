@@ -258,6 +258,11 @@ typedef struct {
   ulong       shred_out_wmark;
   ulong       shred_out_chunk;
 
+  /* Highest slot relayed on turbine, published for rpc
+     (getMaxRetransmitSlot).  NULL if rpc is disabled. */
+  ulong *     rtx_fseq;
+  ulong       rtx_slot;
+
   fd_store_t    * store;
   fd_store_map_t  map_join[1];
   int             disk_fd;
@@ -403,6 +408,7 @@ during_housekeeping( fd_shred_ctx_t * ctx ) {
 
 static inline void
 metrics_write( fd_shred_ctx_t * ctx ) {
+  FD_MHIST_COPY( SHRED, REPAIR_COMPLETION_LAG_SECONDS, fd_fec_resolver_completion_lag_hist( ctx->resolver ) );
   FD_MHIST_COPY( SHRED, CONTACT_INFO_PER_MESSAGE,   ctx->metrics->contact_info_cnt             );
   FD_MHIST_COPY( SHRED, BATCH_SIZE_BYTES,           ctx->metrics->batch_sz                     );
   FD_MHIST_COPY( SHRED, MICROBLOCK_PER_BATCH,       ctx->metrics->batch_microblock_cnt         );
@@ -1391,6 +1397,10 @@ after_frag( fd_shred_ctx_t *    ctx,
     if( FD_LIKELY( fd_disco_netmux_sig_proto( sig ) != DST_PROTO_REPAIR &&
                  ( (rv==FD_FEC_RESOLVER_SHRED_OKAY) | (rv==FD_FEC_RESOLVER_SHRED_COMPLETES) ) ) ) {
       /* Relay this shred */
+      if( FD_UNLIKELY( ctx->rtx_fseq && shred->slot>ctx->rtx_slot ) ) {
+        ctx->rtx_slot = shred->slot;
+        fd_fseq_update( ctx->rtx_fseq, shred->slot );
+      }
       ulong max_dest_cnt[1];
       do {
         /* If we've validated the shred and it COMPLETES but we can't
@@ -1497,6 +1507,15 @@ unprivileged_init( fd_topo_t const *      topo,
   ulong fec_sets_required_sz   = fec_set_cnt*sizeof(fd_fec_set_t);
 
   void * fec_sets_shmem = NULL;
+
+  ctx->rtx_fseq = NULL;
+  ctx->rtx_slot = 0UL;
+  ulong rtx_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "shred_rtx.%lu", tile->kind_id );
+  if( FD_UNLIKELY( rtx_obj_id!=ULONG_MAX ) ) {
+    ctx->rtx_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, rtx_obj_id ) );
+    FD_TEST( ctx->rtx_fseq );
+  }
+
   ctx->shred_out_idx = fd_topo_find_tile_out_link( topo, tile, "shred_out", ctx->round_robin_id );
   ctx->store_out_idx = fd_topo_find_tile_out_link( topo, tile, "shred_store",  ctx->round_robin_id );
   if( FD_LIKELY( ctx->shred_out_idx!=ULONG_MAX ) ) { /* firedancer-only */
@@ -1640,7 +1659,7 @@ unprivileged_init( fd_topo_t const *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "ipecho_out"   ) ) )   ctx->in_kind[ i ] = IN_KIND_IPECHO;
     else if( FD_LIKELY( !strcmp( link->name, "tower_out"    ) ) )   ctx->in_kind[ i ] = IN_KIND_ROOTED;
     else if( FD_LIKELY( !strcmp( link->name, "replay_resol" ) ) )   ctx->in_kind[ i ] = IN_KIND_ROOTEDH;
-    else if( FD_LIKELY( !strcmp( link->name, "replay_out"   ) ) )   ctx->in_kind[ i ] = IN_KIND_ROOTEDR;
+    else if( FD_LIKELY( !strcmp( link->name, "replay_slot"  ) ) )   ctx->in_kind[ i ] = IN_KIND_ROOTEDR;
     else if( FD_LIKELY( !strcmp( link->name, "crds_shred"   ) ) ) { ctx->in_kind[ i ] = IN_KIND_CONTACT;
       if( FD_UNLIKELY( has_contact_info_in ) ) FD_LOG_ERR(( "shred tile has multiple contact info in link types, can only be either gossip_out or crds_shred" ));
       has_contact_info_in = 1;

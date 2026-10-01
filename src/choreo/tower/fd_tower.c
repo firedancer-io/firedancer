@@ -1631,9 +1631,7 @@ fd_tower_blocks_canonical_block_id( fd_tower_t * tower,
                                     ulong        slot ) {
   fd_tower_blk_t * blk = blk_map_ele_query( tower->blk_map, &slot, NULL, tower->blk_pool );
   if( FD_UNLIKELY( !blk ) ) return NULL;
-  if     ( FD_LIKELY( blk->confirmed ) ) return &blk->confirmed_block_id;
-  else if( FD_LIKELY( blk->voted     ) ) return &blk->voted_block_id;
-  else                                   return &blk->replayed_block_id;
+  return fd_tower_blk_canonical_block_id( blk );
 }
 
 fd_tower_blk_t *

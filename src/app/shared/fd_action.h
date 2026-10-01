@@ -203,12 +203,29 @@ union fdctl_args {
   } tower;
 
   struct {
+    int metrics;
+    int once;
+    int rotor;
+    int schedulor;
+  } rotor;
+
+  struct {
     ulong ready_slot;
   } ready;
 
   struct {
     ulong slot;
   } snapshot_create;
+
+  struct {
+    ulong min_idle_slots;
+    ulong min_idle_ns;
+    ulong max_delinquent_stake_pct;
+    int   skip_health_check;
+    int   skip_snapshot_check;
+    int   silent;
+    char  name[ 64UL ];
+  } wait;
 };
 
 typedef union fdctl_args args_t;

@@ -337,8 +337,10 @@ fd_shred_dest_compute_children( fd_shred_dest_t          * sdest,
     /* My position is somewhere after all the staked nodes, which means
        my shuffled index is always greater than fanout.  That means I'm
        always at the bottom of the Turbine tree so I don't have to send
-       any shreds to anyone. */
-    for( ulong j=0UL; j<dest_cnt; j++ ) for( ulong i=0UL; i<shred_cnt; i++ ) out[ j*out_stride + i ] = FD_SHRED_DEST_NO_DEST;
+       any shreds to anyone.  Contiguous rows take one memset, NO_DEST
+       is all bytes 0xFF. */
+    if( FD_LIKELY( out_stride==shred_cnt ) ) fd_memset( out, 0xFF, dest_cnt*shred_cnt*sizeof(fd_shred_dest_idx_t) );
+    else for( ulong j=0UL; j<dest_cnt; j++ ) for( ulong i=0UL; i<shred_cnt; i++ ) out[ j*out_stride + i ] = FD_SHRED_DEST_NO_DEST;
     return out;
   }
 

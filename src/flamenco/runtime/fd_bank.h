@@ -259,13 +259,13 @@ struct fd_bank {
   ulong parent_idx;  /* index of the parent in the node pool */
   ulong child_idx;   /* index of the left-child in the node pool */
   ulong sibling_idx; /* index of the right-sibling in the node pool */
+  ulong dead_prev;   /* dead banks list links, only valid while the bank is dead */
+  ulong dead_next;
   ulong state;       /* keeps track of the state of the bank */
   ulong bank_seq;    /* app-wide bank sequence number */
   uchar is_leader;   /* whether the bank is the leader */
 
-  ulong refcnt; /* reference count on the bank, see replay for more details */
-
-  fd_txncache_fork_id_t  txncache_fork_id;
+  fd_txncache_fork_id_t  txncache_fork_id __attribute__((aligned(64UL)));
   fd_progcache_fork_id_t progcache_fork_id;
   fd_accdb_fork_id_t     accdb_fork_id;
   fd_accdb_fork_id_t     parent_accdb_fork_id;
@@ -278,7 +278,9 @@ struct fd_bank {
 
   ulong banks_data_offset; /* offset from this fd_bank_t back to fd_banks_t */
 
-  /* Timestamps written and read only by replay */
+  /* Written by replay only, on its own line */
+
+  ulong refcnt __attribute__((aligned(64UL))); /* reference count on the bank, see replay for more details */
 
   long first_fec_set_received_nanos;
   long preparation_begin_nanos;
@@ -287,8 +289,8 @@ struct fd_bank {
   long block_completed_nanos;
 
   /* This field should only be accessed by the replay and executor
-     tiles. */
-  fd_rwlock_t lthash_lock;
+     tiles.  Taken per transaction, so on its own line. */
+  fd_rwlock_t lthash_lock __attribute__((aligned(64UL)));
 
   struct {
     fd_lthash_value_t      lthash;
@@ -342,6 +344,12 @@ struct fd_bank {
 };
 typedef struct fd_bank fd_bank_t;
 
+FD_STATIC_ASSERT( offsetof(fd_bank_t, txncache_fork_id)%64UL==0UL, fd_bank_exec_line );
+FD_STATIC_ASSERT( offsetof(fd_bank_t, banks_data_offset)+sizeof(ulong)-offsetof(fd_bank_t, txncache_fork_id)<=64UL, fd_bank_exec_line_sz );
+FD_STATIC_ASSERT( offsetof(fd_bank_t, refcnt)%64UL==0UL, fd_bank_refcnt_line );
+FD_STATIC_ASSERT( offsetof(fd_bank_t, lthash_lock)%64UL==0UL, fd_bank_lthash_lock_line );
+FD_STATIC_ASSERT( offsetof(fd_bank_t, f)-offsetof(fd_bank_t, lthash_lock)>=64UL, fd_bank_lthash_lock_alone );
+
 struct fd_banks_prune_cancel_info {
   fd_txncache_fork_id_t  txncache_fork_id;
   fd_progcache_fork_id_t progcache_fork_id;
@@ -363,12 +371,6 @@ fd_bank_stake_delegations_modify( fd_bank_t * bank );
 
    The data is laid out contiguously in memory starting from fd_banks_t;
    this can be seen in fd_banks_footprint(). */
-
-struct fd_bank_idx_seq {
-  ulong idx;
-  ulong seq;
-};
-typedef struct fd_bank_idx_seq fd_bank_idx_seq_t;
 
 struct fd_banks {
   ulong magic;                       /* ==FD_BANKS_MAGIC */
@@ -392,7 +394,7 @@ struct fd_banks {
 
   ulong stake_rewards_offset;
 
-  ulong dead_banks_deque_offset;
+  ulong dead_banks_offset;
 
   /* The epoch credits of every rewarded vote account are captured when a
      bank crosses an epoch boundary, and are read again for the rest of
@@ -658,7 +660,7 @@ fd_banks_advance_root_prepare( fd_banks_t * banks,
                                ulong *      advanceable_bank_idx_out );
 
 /* fd_banks_mark_bank_dead marks the current bank (and all of its
-   descendants) as dead.  Already-dead subtrees are skipped.  If
+   descendants) as dead.  Already-dead banks are not reported again.  If
    opt_idxs is non-NULL, it is populated with each bank index newly
    marked dead.  The caller is responsible for ensuring the buffer is
    large enough to hold the whole subtree.  If opt_idxs_cnt is non-NULL,

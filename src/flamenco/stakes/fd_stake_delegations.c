@@ -1174,6 +1174,30 @@ fd_stake_delegations_refresh( fd_stake_delegations_t *   stake_delegations,
 
 #endif
 
+fd_stake_history_entry_t
+fd_stake_delegations_vote_account_status( fd_stake_delegations_t *   stake_delegations,
+                                          fd_pubkey_t const *        vote_account,
+                                          ulong                      epoch,
+                                          fd_stake_history_t const * stake_history,
+                                          ulong *                    warmup_cooldown_rate_epoch,
+                                          int                        use_fixed_point_stake_math ) {
+  fd_stake_history_entry_t total = {0};
+  fd_rwlock_write( &stake_delegations->lock );
+  fd_stake_delegations_iter_t iter_[1];
+  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
+       !fd_stake_delegations_iter_done( iter );
+       fd_stake_delegations_iter_next( iter ) ) {
+    fd_stake_delegation_t const * d = fd_stake_delegations_iter_ele( iter );
+    if( FD_LIKELY( !fd_pubkey_eq( &d->vote_account, vote_account ) ) ) continue;
+    fd_stake_history_entry_t status = fd_stake_delegation_activation_status( d, epoch, stake_history, warmup_cooldown_rate_epoch, use_fixed_point_stake_math );
+    total.effective    += status.effective;
+    total.activating   += status.activating;
+    total.deactivating += status.deactivating;
+  }
+  fd_rwlock_unwrite( &stake_delegations->lock );
+  return total;
+}
+
 /* Fork-aware delta operations */
 
 ushort

@@ -562,48 +562,27 @@ FD_PROTOTYPES_END
 
 /* FIXME: pretty good case this actually belongs in ballet/sbpf */
 
-/* A FD_VM_TRACE_EVENT_TYPE_* indicates how a fd_vm_trace_event_t should
-   be interpreted. */
-
-#define FD_VM_TRACE_EVENT_TYPE_EXE   (0)
-#define FD_VM_TRACE_EVENT_TYPE_READ  (1)
-#define FD_VM_TRACE_EVENT_TYPE_WRITE (2)
-
 struct fd_vm_trace_event_exe {
   /* This point is aligned 8 */
-  ulong info;                 /* Event info bit field */
+  ulong multiword;            /* 1 if multiword, 0 otherwise */
   ulong pc;                   /* pc */
   ulong ic;                   /* ic */
   ulong cu;                   /* cu */
   ulong ic_correction;        /* ic_correction */
   ulong frame_cnt;            /* frame_cnt */
   ulong reg[ FD_VM_REG_CNT ]; /* registers */
-  ulong text[ 2 ];            /* If the event has valid clear, this is actually text[1] */
+  ulong text[ 2 ];            /* If !multiword, text[1] is omitted */
   /* This point is aligned 8 */
 };
 
 typedef struct fd_vm_trace_event_exe fd_vm_trace_event_exe_t;
 
-struct fd_vm_trace_event_mem {
-  /* This point is aligned 8 */
-  ulong info;  /* Event info bit field */
-  ulong vaddr; /* VM address range associated with event */
-  ulong sz;
-  /* This point is aligned 8
-     If event has valid set:
-       min(sz,event_data_max) bytes user data bytes
-       padding to aligned 8 */
-};
-
-typedef struct fd_vm_trace_event_mem fd_vm_trace_event_mem_t;
-
-#define FD_VM_TRACE_MAGIC (0xfdc377ace3a61c00UL) /* FD VM TRACE MAGIC version 0 */
+#define FD_VM_TRACE_MAGIC (0xfdc377ace3a61c01UL) /* FD VM TRACE MAGIC version 1 */
 
 struct fd_vm_trace {
   /* This point is aligned 8 */
   ulong magic;          /* ==FD_VM_TRACE_MAGIC */
   ulong event_max;      /* Number bytes of event storage */
-  ulong event_data_max; /* Max bytes to capture per data event */
   ulong event_sz;       /* Used bytes of event storage */
   /* This point is aligned 8
      event_max bytes storage
@@ -621,13 +600,11 @@ FD_FN_CONST ulong
 fd_vm_trace_align( void );
 
 FD_FN_CONST ulong
-fd_vm_trace_footprint( ulong event_max,        /* Maximum amount of event storage (<=1 EiB) */
-                       ulong event_data_max ); /* Maximum number of bytes that can be captured in an event (<=1 EiB) */
+fd_vm_trace_footprint( ulong event_max ); /* Maximum amount of event storage (<=1 EiB) */
 
 void *
 fd_vm_trace_new( void * shmem,
-                 ulong  event_max,
-                 ulong  event_data_max );
+                 ulong  event_max );
 
 fd_vm_trace_t *
 fd_vm_trace_join( void * _trace );
@@ -642,28 +619,14 @@ fd_vm_trace_delete( void * _trace );
    the caller's address space where trace events are stored and
    fd_vm_trace_event_sz returns number of bytes of trace events stored
    at that location.  event_max is the number of bytes of event storage
-   (value used to construct the trace) and event_data_max is the maximum
-   number of data bytes that can be captured per event (value used to
-   construct the trace).  event will be aligned 8 and event_sz will be a
-   multiple of 8 in [0,event_max].  The lifetime of the returned pointer
-   is the lifetime of the current join.  The first 8 bytes of an event
-   are an info field used by trace inspection tools how to interpret the
-   event. */
+   (value used to construct the trace).  event will be aligned 8 and
+   event_sz will be a multiple of 8 in [0,event_max].  The lifetime of
+   the returned pointer is the lifetime of the current join.  Events are
+   fd_vm_trace_event_exe_t, with text[1] omitted if !multiword. */
 
-FD_FN_CONST static inline void const * fd_vm_trace_event         ( fd_vm_trace_t const * trace ) { return (void *)(trace+1);     }
-FD_FN_CONST static inline ulong        fd_vm_trace_event_sz      ( fd_vm_trace_t const * trace ) { return trace->event_sz;       }
-FD_FN_CONST static inline ulong        fd_vm_trace_event_max     ( fd_vm_trace_t const * trace ) { return trace->event_max;      }
-FD_FN_CONST static inline ulong        fd_vm_trace_event_data_max( fd_vm_trace_t const * trace ) { return trace->event_data_max; }
-
-/* fd_vm_trace_event_info returns the event info corresponding to the
-   given (type,valid) tuple.  Assumes type is a FD_VM_TRACE_EVENT_TYPE_*
-   and that valid is in [0,1].  fd_vm_trace_event_info_{type,valid}
-   extract from the given info {type,valid}.  Assumes info is valid. */
-
-FD_FN_CONST static inline ulong fd_vm_trace_event_info( int type, int valid ) { return (ulong)((valid<<2) | type); }
-
-FD_FN_CONST static inline int fd_vm_trace_event_info_type ( ulong info ) { return (int)(info & 3UL); } /* EVENT_TYPE_* */
-FD_FN_CONST static inline int fd_vm_trace_event_info_valid( ulong info ) { return (int)(info >> 2);  } /* In [0,1] */
+FD_FN_CONST static inline void const * fd_vm_trace_event    ( fd_vm_trace_t const * trace ) { return (void *)(trace+1); }
+FD_FN_CONST static inline ulong        fd_vm_trace_event_sz ( fd_vm_trace_t const * trace ) { return trace->event_sz;   }
+FD_FN_CONST static inline ulong        fd_vm_trace_event_max( fd_vm_trace_t const * trace ) { return trace->event_max;  }
 
 /* fd_vm_trace_reset frees all events in the trace.  Returns
    FD_VM_SUCCESS (0) on success or FD_VM_ERR code (negative) on failure.
@@ -695,24 +658,6 @@ fd_vm_trace_event_exe( fd_vm_trace_t * trace,
                        ulong           text_cnt,
                        ulong           ic_correction,
                        ulong           frame_cnt );
-
-/* fd_vm_trace_event_mem records an attempt to access the VM address
-   range [vaddr,vaddr+sz).  If write==0, it was a read attempt,
-   otherwise, it was a write attempt.  Data points to the location of
-   the memory range in host memory or NULL if the range is invalid.  If
-   data is not NULL and sz is non-zero, this will record
-   min(sz,event_data_max) of data for the event and mark the event has
-   having valid data.  Returns FD_VM_SUCCESS (0) on success and a
-   FD_VM_ERR code (negative) on failure.  Reasons for failure include
-   INVAL (trace NULL) and FULL (insufficient trace event storage
-   available to store the event). */
-
-int
-fd_vm_trace_event_mem( fd_vm_trace_t * trace,
-                       int             write,
-                       ulong           vaddr,
-                       ulong           sz,
-                       void *          data );
 
 /* fd_vm_trace_printf pretty prints the current trace to stdout.  If
    syscalls is non-NULL, the trace will annotate syscalls in its

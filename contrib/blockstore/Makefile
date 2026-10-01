@@ -17,7 +17,9 @@ all: blockstore2shredcap blockstore_minify
 
 blockstore2shredcap: LDLIBS += -lzstd
 blockstore2shredcap: blockstore2shredcap.c
+	$(CC) $(CFLAGS) $(CPPFLAGS) $(LDFLAGS) $< $(LDLIBS) -o $@
 blockstore_minify: blockstore_minify.c
+	$(CC) $(CFLAGS) $(CPPFLAGS) $(LDFLAGS) $< $(LDLIBS) -o $@
 
 clean:
 	rm -f blockstore2shredcap blockstore_minify

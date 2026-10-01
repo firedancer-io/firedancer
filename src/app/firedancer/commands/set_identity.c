@@ -131,8 +131,8 @@ action_t fd_action_set_identity = {
   .description    = "Change the identity of a running validator",
   .detail         = "Switches the gossip/voting/block-production identity key of an already\n"
                     "running validator to the keypair you provide, without restarting it.  The\n"
-                    "switch is atomic: the validator briefly pauses block production so it never\n"
-                    "signs with a mix of the old and new keys, then resumes under the new\n"
+                    "switch is atomic: the validator briefly pauses replay and block production so\n"
+                    "it never signs with a mix of the old and new keys, then resumes under the new\n"
                     "identity.  On success it prints `Validator identity key switched to <pubkey>`\n"
                     "and exits 0; on any error it exits non-zero and the identity is unchanged.\n"
                     "\n"

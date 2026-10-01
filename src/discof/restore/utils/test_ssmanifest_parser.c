@@ -56,6 +56,9 @@ main( int     argc,
   fd_ssmanifest_parser_t * parser = fd_ssmanifest_parser_join( fd_ssmanifest_parser_new( aligned_alloc( fd_ssmanifest_parser_align(), fd_ssmanifest_parser_footprint() ) ) );
   FD_TEST( parser );
 
+  /* Simulate leftovers from a previous parse attempt. */
+  memset( manifest, 0xA5, sizeof(fd_snapshot_manifest_t) );
+
   fd_ssmanifest_parser_init( parser, manifest );
 
   long ts = -fd_log_wallclock();
@@ -75,6 +78,17 @@ main( int     argc,
   } else {
     FD_LOG_NOTICE(( "manifest does not have block_id" ));
   }
+  /* Vote accounts without a BLS key must not inherit stale bytes. */
+  uchar zero_bls[ 48UL ] = {0};
+  for( ulong i=0UL; i<FD_RUNTIME_MANIFEST_EPOCH_STAKES_LEN; i++ ) {
+    if( manifest->epoch_stakes[i].epoch==ULONG_MAX ) continue;
+    for( ulong j=0UL; j<manifest->epoch_stakes[i].vote_stakes_len; j++ ) {
+      fd_snapshot_manifest_vote_stakes_t const * vs = &manifest->epoch_stakes[i].vote_stakes[j];
+      FD_TEST( vs->has_identity_bls<=1 );
+      if( !vs->has_identity_bls ) FD_TEST( !memcmp( vs->identity_bls, zero_bls, 48UL ) );
+    }
+  }
+
   /* re-entering the parser after DONE must return ERROR. */
   fd_rng_t rng[1]; fd_rng_join( fd_rng_new( rng, (uint)fd_log_wallclock(), 0UL ) );
   uchar garbage[16];

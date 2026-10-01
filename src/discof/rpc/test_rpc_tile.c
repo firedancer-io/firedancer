@@ -84,6 +84,16 @@ create_link( fd_topo_t *  topo,
   return link;
 }
 
+static ulong
+find_in_idx( fd_rpc_tile_t const * ctx,
+             int                   in_kind ) {
+  for( ulong in_idx=0UL; in_idx<ctx->in_cnt; in_idx++ ) {
+    if( ctx->in_kind[ in_idx ]==in_kind ) return in_idx;
+  }
+  FD_LOG_ERR(( "no input of kind %d", in_kind ));
+  return ULONG_MAX;
+}
+
 /* json_value_eq compares the pending values of a and b structurally:
    same kind, same members in the same order, strings compared decoded,
    numbers compared as text if both are integers and as doubles
@@ -540,7 +550,21 @@ main( int     argc,
   fd_topo_link_t * link_rpc_replay = create_link( topo, wksp, "rpc_replay", 4UL, 0UL, 1UL );
   (void)link_rpc_replay;
   fd_topo_link_t * link_gossip_out = create_link( topo, wksp, "gossip_out", 4UL, FD_GOSSIP_UPDATE_SZ_VOTE, 1UL );
-  fd_topo_link_t * link_shred_out  = create_link( topo, wksp, "shred_out",  4UL, sizeof(fd_shred_message_t), 3UL );
+  fd_topo_link_t * link_replay_slot = create_link( topo, wksp, "replay_slot", 4UL, sizeof(fd_replay_root_advanced_t), 1UL );
+  fd_topo_link_t * link_votor_out  = create_link( topo, wksp, "votor_out",  4UL, sizeof(fd_votor_msg_t),             1UL );
+
+  /* Two shred tiles' getMaxRetransmitSlot fseqs */
+  ulong * shred_rtx[ 2 ];
+  for( ulong i=0UL; i<2UL; i++ ) {
+    void * rtx_mem = fd_wksp_alloc_laddr( wksp, fd_fseq_align(), fd_fseq_footprint(), 1UL );
+    FD_TEST( rtx_mem );
+    shred_rtx[ i ] = fd_fseq_join( fd_fseq_new( rtx_mem, ULONG_MAX ) );
+    FD_TEST( shred_rtx[ i ] );
+    fd_topo_obj_t * rtx_obj = fd_topob_obj( topo, "fseq", "wksp" );
+    rtx_obj->wksp_id = topo_wksp->id;
+    rtx_obj->offset  = fd_wksp_gaddr_fast( wksp, rtx_mem );
+    FD_TEST( fd_pod_insertf_ulong( topo->props, rtx_obj->id, "shred_rtx.%lu", i ) );
+  }
 
   fd_topo_tile_t * tile     = fd_topob_tile( topo, "rpc", "wksp", "wksp", 0UL, 0, 0, 0, 1 );
   fd_topo_obj_t *  tile_obj = &topo->objs[ tile->tile_obj_id ];
@@ -556,7 +580,8 @@ main( int     argc,
 
   fd_topob_tile_out( topo, "rpc", 0UL, "rpc_replay", 0UL );
   fd_topob_tile_in( topo, "rpc", 0UL, "wksp", "gossip_out", 0UL, 0, 1 );
-  fd_topob_tile_in( topo, "rpc", 0UL, "wksp", "shred_out",  0UL, 0, 1 );
+  fd_topob_tile_in( topo, "rpc", 0UL, "wksp", "replay_slot", 0UL, 0, 1 );
+  fd_topob_tile_in( topo, "rpc", 0UL, "wksp", "votor_out",  0UL, 0, 1 );
 
   void * waker_fseq_mem = fd_wksp_alloc_laddr( wksp, fd_fseq_align(), fd_fseq_footprint(), 1UL );
   FD_TEST( waker_fseq_mem );
@@ -738,49 +763,14 @@ main( int     argc,
   );
 
   {
-    /* Drive shred frags through the stem callback sequence */
-    ulong shred_in_idx = ctx->in_cnt;
-    for( ulong in_idx=0UL; in_idx<ctx->in_cnt; in_idx++ ) {
-      if( ctx->in_kind[ in_idx ]==IN_KIND_SHRED ) { shred_in_idx = in_idx; break; }
-    }
-    FD_TEST( shred_in_idx<ctx->in_cnt );
-    fd_shred_base_t * shred_msg = fd_chunk_to_laddr( wksp, fd_dcache_compact_chunk0( wksp, link_shred_out->dcache ) );
-    ulong             shred_chunk = fd_laddr_to_chunk( wksp, shred_msg );
-
-#define PUBLISH_SHRED( _slot, _src, _res ) do {                                                                          \
-      memset( shred_msg, 0, sizeof(fd_shred_base_t) );                                                                   \
-      shred_msg->shred.slot = (_slot);                                                                                    \
-      ulong _sig = ((ulong)(_res) << 32UL) | (ulong)(_src);                                                               \
-      if( !before_frag( ctx, shred_in_idx, 0UL, _sig ) ) {                                                                \
-        during_frag( ctx, shred_in_idx, 0UL, _sig, shred_chunk, sizeof(fd_shred_base_t), 0UL );                          \
-        FD_TEST( !returnable_frag( ctx, shred_in_idx, 0UL, _sig, shred_chunk, sizeof(fd_shred_base_t), 0UL, 0UL, 0UL, NULL ) ); \
-        after_frag( ctx, shred_in_idx, 0UL, _sig, sizeof(fd_shred_base_t), 0UL, 0UL, NULL );                                  \
-      }                                                                                                                  \
-    } while( 0 )
-
-    PUBLISH_SHRED( 100UL, SHRED_SIG_SRC_TURBINE, SHRED_SIG_RESULT_OKAY );
-    FD_TEST( ctx->max_retransmit_slot==100UL );
-    PUBLISH_SHRED( 105UL, SHRED_SIG_SRC_TURBINE, SHRED_SIG_RESULT_COMPLETES );
-    FD_TEST( ctx->max_retransmit_slot==105UL );
-    /* Lower slots never move it backwards */
-    PUBLISH_SHRED( 90UL, SHRED_SIG_SRC_TURBINE, SHRED_SIG_RESULT_OKAY );
-    FD_TEST( ctx->max_retransmit_slot==105UL );
-    /* Repair shreds are not retransmitted */
-    PUBLISH_SHRED( 200UL, SHRED_SIG_SRC_REPAIR, SHRED_SIG_RESULT_OKAY );
-    PUBLISH_SHRED( 201UL, SHRED_SIG_SRC_BAD_REPAIR, SHRED_SIG_RESULT_OKAY );
-    FD_TEST( ctx->max_retransmit_slot==105UL );
-    /* Nor are duplicate / equivocating turbine shreds */
-    PUBLISH_SHRED( 202UL, SHRED_SIG_SRC_TURBINE, SHRED_SIG_RESULT_DUPLICATE );
-    PUBLISH_SHRED( 203UL, SHRED_SIG_SRC_TURBINE, SHRED_SIG_RESULT_EQVOC );
-    FD_TEST( ctx->max_retransmit_slot==105UL );
-    /* Nor reconstructed shreds (leader FEC sets ride this sig too) */
-    PUBLISH_SHRED( 204UL, SHRED_SIG_SRC_RECONSTRUCTED, SHRED_SIG_RESULT_COMPLETES );
-    FD_TEST( ctx->max_retransmit_slot==105UL );
-    /* FEC events carry no shred and are filtered before the dcache read */
-    FD_TEST( before_frag( ctx, shred_in_idx, 0UL, SHRED_SIG_FEC_COMPLETE ) );
-    FD_TEST( before_frag( ctx, shred_in_idx, 0UL, SHRED_SIG_FEC_EVICTED  ) );
-    FD_TEST( before_frag( ctx, shred_in_idx, 0UL, SHRED_SIG_FEC_COMPLETE_LEADER ) );
-#undef PUBLISH_SHRED
+    /* Max over the shred tiles' fseqs, unset (ULONG_MAX) reads as 0 */
+    FD_TEST( ctx->shred_rtx_cnt==2UL );
+    fd_fseq_update( shred_rtx[ 1 ], 100UL );
+    expect_rpc_response( ctx,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getMaxRetransmitSlot\"}",
+        "{\"jsonrpc\":\"2.0\",\"result\":100,\"id\":1}"
+    );
+    fd_fseq_update( shred_rtx[ 0 ], 105UL );
 
     expect_rpc_response( ctx,
         "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getMaxRetransmitSlot\"}",
@@ -1206,6 +1196,178 @@ main( int     argc,
         "{\"jsonrpc\":\"2.0\",\"result\":{\"%s\":[%s]},\"id\":1}", dup_id_b58, slots_buf ) );
     expect_rpc_response( ctx,
         "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getLeaderSchedule\",\"params\":[0]}", res_buf );
+  }
+
+  /* -- Alpenglow -- */
+
+  {
+    ulong const replay_in_idx = find_in_idx( ctx, IN_KIND_REPLAY );
+    ulong const votor_in_idx  = find_in_idx( ctx, IN_KIND_VOTOR  );
+    ulong const gossip_in_idx = find_in_idx( ctx, IN_KIND_GOSSIP_OUT );
+
+    fd_frag_meta_t * stem_mcaches[ 1 ]  = { link_rpc_replay->mcache };
+    ulong            stem_seqs[ 1 ]     = { 0UL };
+    ulong            stem_depths[ 1 ]   = { 4UL };
+    ulong            stem_cr_avail[ 1 ] = { ULONG_MAX };
+    ulong            stem_min_cr[ 1 ]   = { ULONG_MAX };
+    int              stem_reliable[ 1 ] = { 1 };
+    fd_stem_context_t stem[ 1 ] = {{
+      .mcaches      = stem_mcaches,
+      .seqs         = stem_seqs,
+      .depths       = stem_depths,
+      .cr_avail     = stem_cr_avail,
+      .min_cr_avail = stem_min_cr,
+      .out_reliable = stem_reliable
+    }};
+    FD_TEST( ctx->replay_out->idx==0UL );
+#define RETURNED_SIG( _n ) ( link_rpc_replay->mcache[ fd_mcache_line_idx( (_n), 4UL ) ].sig )
+
+    ulong  replay_chunk = fd_dcache_compact_chunk0( wksp, link_replay_slot->dcache );
+    void * replay_msg   = fd_chunk_to_laddr( wksp, replay_chunk );
+
+#define DRIVE_ROOT_ADVANCED( _bank_idx, _slot ) do {                                                     \
+      fd_replay_root_advanced_t * _m = replay_msg;                                                       \
+      memset( _m, 0, sizeof(*_m) );                                                                      \
+      _m->bank_idx = (_bank_idx);                                                                        \
+      _m->slot     = (_slot);                                                                            \
+      FD_TEST( !returnable_frag( ctx, replay_in_idx, 0UL, REPLAY_SIG_ROOT_ADVANCED, replay_chunk,        \
+                                 sizeof(*_m), 0UL, 0UL, 0UL, stem ) );                                   \
+    } while( 0 )
+
+    ulong            votor_chunk = fd_dcache_compact_chunk0( wksp, link_votor_out->dcache );
+    fd_votor_msg_t * votor_msg   = fd_chunk_to_laddr( wksp, votor_chunk );
+
+#define DRIVE_CERT( _kind, _slot ) do {                                                                  \
+      memset( votor_msg, 0, sizeof(*votor_msg) );                                                        \
+      votor_msg->certed.kind = (_kind);                                                                  \
+      votor_msg->certed.slot = (_slot);                                                                  \
+      FD_TEST( !before_frag( ctx, votor_in_idx, 0UL, FD_VOTOR_SIG_CERTED ) );                            \
+      FD_TEST( !returnable_frag( ctx, votor_in_idx, 0UL, FD_VOTOR_SIG_CERTED, votor_chunk,               \
+                                 sizeof(*votor_msg), 0UL, 0UL, 0UL, NULL ) );                            \
+    } while( 0 )
+
+#define EXPECT_HEALTH( _res ) expect_rpc_response( ctx,                                                  \
+      "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getHealth\"}", (_res) )
+#define HEALTH_OK             "{\"jsonrpc\":\"2.0\",\"result\":\"ok\",\"id\":1}"
+#define HEALTH_BEHIND( _n )   "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32005,\"message\":\"Node is unhealthy\",\"data\":{\"slotsBehind\":" _n "}},\"id\":1}"
+
+    static char const ag_req [] = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getAgGenesisCert\"}";
+    static char const ag_null[] = "{\"jsonrpc\":\"2.0\",\"result\":null,\"id\":1}";
+    static char const ag_bad [] = "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32603,\"message\":\"Firedancer Error: malformed genesis certificate\"},\"id\":1}";
+
+    FD_TEST( !ctx->alpenglow );
+    FD_TEST( ctx->cluster_confirmed_slot==ULONG_MAX );
+
+    /* Tower: getAgGenesisCert is served like Agave, null without the
+       account, and roots do not feed health (optimistic confirmation
+       does). */
+
+    expect_rpc_response( ctx, ag_req, ag_null );
+    DRIVE_ROOT_ADVANCED( 1UL, 10UL );
+    FD_TEST( ctx->cluster_confirmed_slot==ULONG_MAX );
+
+    ctx->alpenglow = 1;
+
+    /* Agave no longer relays gossip tower votes to voteSubscribe */
+
+    ctx->ws_subscribers_vote_cnt = 1UL;
+    FD_TEST( before_frag( ctx, gossip_in_idx, 0UL, FD_GOSSIP_UPDATE_TAG_VOTE ) );
+    ctx->ws_subscribers_vote_cnt = 0UL;
+
+    /* A root advance aliases confirmed to finalized, returning the
+       previous reference of each */
+
+    ctx->confirmed_idx = 2UL;
+    ctx->finalized_idx = 2UL;
+    ulong seq0 = stem_seqs[ 0 ];
+    DRIVE_ROOT_ADVANCED( 3UL, 30UL );
+    FD_TEST( ctx->finalized_idx==3UL && ctx->confirmed_idx==3UL );
+    FD_TEST( stem_seqs[ 0 ]==seq0+2UL && RETURNED_SIG( seq0 )==2UL && RETURNED_SIG( seq0+1UL )==2UL );
+
+    /* Health.  Roots before votor reports a finalization (the boot root,
+       or footer certs while catching up) leave it Unknown.  Only
+       finalization certs count, and the highest wins.  A root can raise
+       the cluster slot once known, but never lowers a cert slot. */
+
+    FD_TEST( ctx->cluster_confirmed_slot==ULONG_MAX );
+    ctx->banks[ 3 ].slot = 30UL;
+    DRIVE_CERT( AG_CERT_KIND_SKIP,        500UL );
+    FD_TEST( ctx->cluster_confirmed_slot==ULONG_MAX );
+    DRIVE_CERT( AG_CERT_KIND_FAST_FINAL,  200UL );
+    DRIVE_CERT( AG_CERT_KIND_FINAL,       100UL );
+    FD_TEST( ctx->cluster_confirmed_slot==200UL );
+    EXPECT_HEALTH( HEALTH_BEHIND( "170" ) );
+
+    ctx->banks[ 4 ].slot = 400UL;
+    DRIVE_ROOT_ADVANCED( 4UL, 400UL );
+    FD_TEST( ctx->cluster_confirmed_slot==400UL );
+    EXPECT_HEALTH( HEALTH_OK );
+
+    DRIVE_CERT( AG_CERT_KIND_FAST_FINAL, 600UL );
+    ctx->banks[ 3 ].slot = 450UL;
+    DRIVE_ROOT_ADVANCED( 3UL, 450UL );
+    FD_TEST( ctx->cluster_confirmed_slot==600UL );
+    EXPECT_HEALTH( HEALTH_BEHIND( "150" ) );
+
+    /* getAgGenesisCert reads the finalized bank's certificate account,
+       wincode { slot, block_id, sig[192], bitmap_len, bitmap } */
+
+    ctx->finalized_idx            = 0UL;
+    ctx->banks[ 0 ].accdb_fork_id = test_fork_id;
+
+#define WRITE_AG_ACCT( _data, _data_sz ) do {                               \
+      uchar const * _pks[ 1 ] = { ctx->ag_genesis_cert_addr->uc };          \
+      int           _wr [ 1 ] = { 1 };                                      \
+      fd_acc_t      _acc[ 1 ]; memset( _acc, 0, sizeof(_acc) );             \
+      fd_accdb_acquire( writer_accdb, test_fork_id, 1UL, _pks, _wr, _acc ); \
+      _acc[ 0 ].lamports = 1000000UL;                                       \
+      _acc[ 0 ].data_len = (_data_sz);                                      \
+      memcpy( _acc[ 0 ].data, (_data), (_data_sz) );                        \
+      _acc[ 0 ].commit = 1;                                                 \
+      fd_accdb_release( writer_accdb, 1UL, _acc );                          \
+    } while( 0 )
+
+    /* A prefunded account with no data is also no certificate */
+    WRITE_AG_ACCT( "", 0UL );
+    expect_rpc_response( ctx, ag_req, ag_null );
+
+    uchar ag_data[ 8UL+32UL+FD_BLS_SIG_SZ+8UL+3UL ];
+    FD_STORE( ulong, ag_data, 123456789UL );
+    for( ulong i=0UL; i<32UL;          i++ ) ag_data[ 8UL+i ]     = (uchar)(0x10UL+i);
+    for( ulong i=0UL; i<FD_BLS_SIG_SZ; i++ ) ag_data[ 40UL+i ]    = (uchar)(i*7UL);
+    FD_STORE( ulong, ag_data+40UL+FD_BLS_SIG_SZ, 3UL );
+    memcpy( ag_data+48UL+FD_BLS_SIG_SZ, "\x01\x02\x03", 3UL );
+    WRITE_AG_ACCT( ag_data, sizeof(ag_data) );
+
+    char   exp_buf[ 4096 ];
+    char * e = fd_cstr_init( exp_buf );
+    e = fd_cstr_append_cstr( e, "{\"jsonrpc\":\"2.0\",\"result\":{\"block\":{\"slot\":123456789,\"blockId\":[" );
+    for( ulong i=0UL; i<32UL;          i++ ) e = fd_cstr_append_printf( e, "%s%u", i ? "," : "", (uint)(0x10UL+i) );
+    e = fd_cstr_append_cstr( e, "]},\"signature\":{\"signature\":[" );
+    for( ulong i=0UL; i<FD_BLS_SIG_SZ; i++ ) e = fd_cstr_append_printf( e, "%s%u", i ? "," : "", (uint)(uchar)(i*7UL) );
+    e = fd_cstr_append_cstr( e, "],\"bitmap\":[1,2,3]}},\"id\":1}" );
+    fd_cstr_fini( e );
+    expect_rpc_response( ctx, ag_req, exp_buf );
+
+    /* A bitmap longer than the account is refused, not served garbled */
+    FD_STORE( ulong, ag_data+40UL+FD_BLS_SIG_SZ, 4UL );
+    WRITE_AG_ACCT( ag_data, sizeof(ag_data) );
+    expect_rpc_response( ctx, ag_req, ag_bad );
+
+    /* Leave the fixture as the later cases expect it */
+    ctx->alpenglow              = 0;
+    ctx->cluster_confirmed_slot = ULONG_MAX;
+    ctx->processed_idx          = 0UL;
+    ctx->confirmed_idx          = 0UL;
+    ctx->finalized_idx          = 0UL;
+
+#undef RETURNED_SIG
+#undef DRIVE_ROOT_ADVANCED
+#undef DRIVE_CERT
+#undef EXPECT_HEALTH
+#undef HEALTH_OK
+#undef HEALTH_BEHIND
+#undef WRITE_AG_ACCT
   }
 
   /* Reset the HTTP server so the eviction regression starts with empty

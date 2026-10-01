@@ -378,6 +378,19 @@ fd_stake_delegations_refresh( fd_stake_delegations_t *   stake_delegations,
                               int                        use_fixed_point_stake_math,
                               int                        remove_inactive_stakes );
 
+/* fd_stake_delegations_vote_account_status sums the root activation
+   status of every delegation to vote_account at epoch.  Acquires the
+   store write lock; do not call inside a frontier query.  stake_history
+   may be NULL. */
+
+fd_stake_history_entry_t
+fd_stake_delegations_vote_account_status( fd_stake_delegations_t *   stake_delegations,
+                                          fd_pubkey_t const *        vote_account,
+                                          ulong                      epoch,
+                                          fd_stake_history_t const * stake_history,
+                                          ulong *                    warmup_cooldown_rate_epoch,
+                                          int                        use_fixed_point_stake_math );
+
 /* fd_stake_delegations_new_fork allocates a child of parent_fork_idx.
    USHORT_MAX indicates that the parent is the fork. */
 

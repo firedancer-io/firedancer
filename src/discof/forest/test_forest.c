@@ -546,6 +546,75 @@ test_linear_forest_iterator( fd_wksp_t * wksp ) {
   FD_LOG_DEBUG(("success"));
 }
 
+/* The word-at-a-time iterator yields exactly what a bit-at-a-time scan
+   does, over a chain of slots with random received sets. */
+
+static void
+test_iter_random_bitsets( fd_wksp_t * wksp ) {
+  ulong ele_max   = 64UL;
+  ulong shred_max = 2048UL;
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max, shred_max ), 1UL );
+  FD_TEST( mem );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, shred_max, 42UL /* seed */ ) );
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 7U, 0UL ) );
+
+  /* fd_forest_blk_idxs_next_unset against the bit loop */
+  for( ulong trial=0UL; trial<20000UL; trial++ ) {
+    ulong set[ 4 ];
+    uint  density = fd_rng_uint_roll( rng, 5U );
+    for( ulong w=0UL; w<4UL; w++ ) {
+      ulong x = fd_rng_ulong( rng );
+      switch( density ) {
+        case 0: x = 0UL;                                    break;
+        case 1: x = x & fd_rng_ulong( rng );                break;
+        case 2:                                             break;
+        case 3: x = x | fd_rng_ulong( rng ) | fd_rng_ulong( rng ); break;
+        default: x = ULONG_MAX; if( !fd_rng_uint_roll( rng, 4U ) ) x = fd_ulong_clear_bit( x, (int)fd_rng_uint_roll( rng, 64U ) ); break;
+      }
+      set[ w ] = x;
+    }
+    ulong lo = fd_rng_ulong_roll( rng, 256UL );
+    ulong hi = lo + fd_rng_ulong_roll( rng, 256UL-lo );
+    ulong expected = hi+1UL;
+    for( ulong i=lo; i<=hi; i++ ) if( !fd_forest_blk_idxs_test( set, i ) ) { expected = i; break; }
+    FD_TEST( fd_forest_blk_idxs_next_unset( set, lo, hi )==expected );
+  }
+
+  /* a chain 0 - 1 - 2 - ... - 8, random received sets */
+  ulong slot_cnt = 8UL;
+  fd_forest_init( forest, 0 );
+  for( ulong slot=1UL; slot<=slot_cnt; slot++ ) {
+    uint complete_idx = 64U+fd_rng_uint_roll( rng, (uint)shred_max-64U );
+    uint density      = fd_rng_uint_roll( rng, 100U )+1U;        /* percent received */
+    uint hole         = fd_rng_uint_roll( rng, complete_idx );   /* at least one missing, so the slot stays on the list */
+    fd_forest_blk_data_shred_insert( forest, slot, slot-1UL, complete_idx, complete_idx & ~31U, 1, 1 );
+    for( uint idx=0U; idx<complete_idx; idx++ ) {
+      if( idx==hole || fd_rng_uint_roll( rng, 100U )>=density ) continue;
+      fd_forest_blk_data_shred_insert( forest, slot, slot-1UL, idx, idx & ~31U, 0, 0 );
+    }
+  }
+
+  for( ulong slot=1UL; slot<=slot_cnt; slot++ ) {
+    fd_forest_blk_t const * ele = fd_forest_query( forest, slot );
+    FD_TEST( ele && ele->complete_idx!=UINT_MAX );
+    FD_TEST( ele->buffered_idx==UINT_MAX || ele->buffered_idx<ele->complete_idx ); /* UINT_MAX: shred 0 missing */
+    fd_forest_blk_idxs_t const * idxs = fd_forest_blk_idxs( forest, ele );
+    ulong yielded = 0UL;
+    for( uint idx=ele->buffered_idx+1U; idx<=ele->complete_idx; idx++ ) { /* UINT_MAX+1 wraps to 0 as in the iterator */
+      if( fd_forest_blk_idxs_test( idxs, idx ) ) continue;
+      fd_forest_iter_t iter = *fd_forest_iter_next( &forest->iter, forest );
+      FD_TEST( !fd_forest_iter_done( &iter, forest ) );
+      FD_TEST( fd_forest_pool_ele_const( fd_forest_pool_const( forest ), iter.ele_idx )->slot==slot );
+      FD_TEST( iter.shred_idx==idx );
+      yielded++;
+    }
+    FD_TEST( yielded );
+  }
+  FD_TEST( fd_forest_iter_done( fd_forest_iter_next( &forest->iter, forest ), forest ) );
+
+  fd_wksp_free_laddr( fd_forest_delete( fd_forest_leave( forest ) ) );
+}
+
 void
 test_branched_forest_iterator( fd_wksp_t * wksp ) {
   /* Repair forest iterator for a branched chain (expected behavior for
@@ -2157,7 +2226,8 @@ test_sentinel_parent_update_orphreqs_leak( fd_wksp_t * wksp ) {
    accepts a block that fills every extra FEC set, and rejects shred
    idxs / fec_set_idxs at or beyond shred_max instead of aborting.  Also
    checks the production footprint equals the pre-side-array layout
-   (blk 256 B + idxs 4 KiB + code 4 KiB + mroots 64 KiB = 73984 B/blk). */
+   (blk 256 B + idxs 4 KiB + code 4 KiB + mroots 64 KiB + recv 2 KiB
+   = 76032 B/blk). */
 
 static void
 test_shred_max_runtime( fd_wksp_t * wksp ) {
@@ -2168,7 +2238,7 @@ test_shred_max_runtime( fd_wksp_t * wksp ) {
   ulong fp_prod = fd_forest_footprint( ele_max, FD_SHRED_BLK_MAX );
   ulong fp_big  = fd_forest_footprint( ele_max, shred_max );
   FD_TEST( sizeof(fd_forest_blk_t)==256UL );
-  FD_TEST( fp_big-fp_prod==ele_max*3UL*(4096UL+4096UL+65536UL) );
+  FD_TEST( fp_big-fp_prod==ele_max*3UL*(4096UL+4096UL+65536UL+2048UL) );
 
   void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fp_big, 1UL );
   FD_TEST( mem );
@@ -2226,6 +2296,7 @@ main( int argc, char ** argv ) {
   test_print_tree( wksp );
   //test_large_print_tree( wksp);
   test_linear_forest_iterator( wksp );
+  test_iter_random_bitsets( wksp );
   test_branched_forest_iterator( wksp );
   test_frontier( wksp );
   test_fec_clear( wksp );

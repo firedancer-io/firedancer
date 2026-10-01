@@ -393,11 +393,13 @@ ser_epoch_credits( fd_vote_epoch_credits_t const * epoch_credits,
    inflation_rewards_commission_bps, block_revenue_commission_bps,
    and pending_delegator_rewards before the first variable field. */
 
-#define WIRE_OFF_NODE_PUBKEY                    (4UL)
-#define WIRE_OFF_V1V3_COMMISSION                (68UL)  /* 4 + 32 + 32 */
-#define WIRE_OFF_V4_INFLATION_REWARDS_COLLECTOR (68UL)  /* 4 + 32 + 32 */
-#define WIRE_OFF_V4_BLOCK_REVENUE_COLLECTOR     (100UL) /* 4 + 32 + 32 + 32 */
-#define WIRE_OFF_V4_COMMISSION_BPS              (132UL) /* 4 + 32 + 32 + 32 + 32 */
+#define WIRE_OFF_NODE_PUBKEY                     (4UL)
+#define WIRE_OFF_V1V3_COMMISSION                 (68UL)  /* 4 + 32 + 32 */
+#define WIRE_OFF_V4_INFLATION_REWARDS_COLLECTOR  (68UL)  /* 4 + 32 + 32 */
+#define WIRE_OFF_V4_BLOCK_REVENUE_COLLECTOR      (100UL) /* 4 + 32 + 32 + 32 */
+#define WIRE_OFF_V4_COMMISSION_BPS               (132UL) /* 4 + 32 + 32 + 32 + 32 */
+#define WIRE_OFF_V4_BLOCK_REVENUE_COMMISSION_BPS (134UL) /* 4 + 32 + 32 + 32 + 32 + 2 */
+#define WIRE_OFF_V4_PENDING_DELEGATOR_REWARDS    (136UL) /* 4 + 32 + 32 + 32 + 32 + 2 + 2 */
 
 /* Byte size of a Lockout on the wire: u64 slot + u32 confirmation_count */
 #define WIRE_LOCKOUT_SZ     (12UL)
@@ -461,6 +463,85 @@ fd_vote_account_commission_bps( uchar const * data,
 }
 
 int
+fd_vote_account_block_revenue_commission_bps( uchar const * data,
+                                              ulong         data_sz,
+                                              ushort *      out ) {
+  uchar const * ptr       = data;
+  ulong         remaining = data_sz;
+
+  uint discriminant;
+  READ_U32( discriminant, &ptr, &remaining );
+
+  switch( discriminant ) {
+    case fd_vote_state_versioned_enum_v1_14_11: /* fallthrough */
+    case fd_vote_state_versioned_enum_v3:
+      *out = FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS;
+      return 0;
+    case fd_vote_state_versioned_enum_v4:
+      CHECK( data_sz>=WIRE_OFF_V4_BLOCK_REVENUE_COMMISSION_BPS+2UL );
+      *out = FD_LOAD( ushort, data+WIRE_OFF_V4_BLOCK_REVENUE_COMMISSION_BPS );
+      return 0;
+    default:
+      return 1;
+  }
+}
+
+int
+fd_vote_account_pending_delegator_rewards( uchar const * data,
+                                           ulong         data_sz,
+                                           ulong *       out ) {
+  uchar const * ptr       = data;
+  ulong         remaining = data_sz;
+
+  uint discriminant;
+  READ_U32( discriminant, &ptr, &remaining );
+
+  switch( discriminant ) {
+    case fd_vote_state_versioned_enum_v1_14_11: /* fallthrough */
+    case fd_vote_state_versioned_enum_v3:
+      *out = 0UL;
+      return 0;
+    case fd_vote_state_versioned_enum_v4:
+      CHECK( data_sz>=WIRE_OFF_V4_PENDING_DELEGATOR_REWARDS+8UL );
+      *out = FD_LOAD( ulong, data+WIRE_OFF_V4_PENDING_DELEGATOR_REWARDS );
+      return 0;
+    default:
+      return 1;
+  }
+}
+
+/* Returns 1 iff data is an initialized v4 vote state of exactly
+   FD_VOTE_STATE_V4_SZ bytes. */
+static int
+is_v4_with_pending_delegator_rewards( uchar const * data,
+                                      ulong         data_sz ) {
+  if( data_sz!=FD_VOTE_STATE_V4_SZ ) return 0;
+  return FD_LOAD( uint, data )==fd_vote_state_versioned_enum_v4;
+}
+
+int
+fd_vote_account_add_pending_delegator_rewards( uchar * data,
+                                               ulong   data_sz,
+                                               ulong   lamports ) {
+  if( FD_UNLIKELY( !is_v4_with_pending_delegator_rewards( data, data_sz ) ) ) return 1;
+  ulong cur = FD_LOAD( ulong, data+WIRE_OFF_V4_PENDING_DELEGATOR_REWARDS );
+  ulong sum;
+  if( FD_UNLIKELY( __builtin_uaddl_overflow( cur, lamports, &sum ) ) ) return 2;
+  FD_STORE( ulong, data+WIRE_OFF_V4_PENDING_DELEGATOR_REWARDS, sum );
+  return 0;
+}
+
+int
+fd_vote_account_reset_pending_delegator_rewards( uchar * data,
+                                                 ulong   data_sz,
+                                                 ulong * old_out ) {
+  if( FD_UNLIKELY( !is_v4_with_pending_delegator_rewards( data, data_sz ) ) ) return 1;
+  *old_out = FD_LOAD( ulong, data+WIRE_OFF_V4_PENDING_DELEGATOR_REWARDS );
+  FD_STORE( ulong, data+WIRE_OFF_V4_PENDING_DELEGATOR_REWARDS, 0UL );
+  return 0;
+}
+
+int
 fd_vote_account_collectors( uchar const *       data,
                             ulong               data_sz,
                             fd_pubkey_t const * vote_pubkey,
@@ -496,11 +577,18 @@ fd_vote_account_collectors( uchar const *       data,
    On success sets *out_ptr to the first entry and *out_cnt to the
    entry count.  Returns 0 on success, 1 on error. */
 
+/* seek_authorized_voters positions *out_ptr at the first entry of the
+   authorized_voters map (sorted by ascending epoch, WIRE_AUTH_VOTER_SZ
+   bytes each) and stores the entry count in *out_cnt.  All entries
+   are bounds checked.  Returns 0 on success, 1 on malformed data. */
+
 static int
-seek_epoch_credits( uchar const *                    data,
-                    ulong                            data_sz,
-                    fd_vote_epoch_credits_t const ** out_ptr,
-                    ulong *                          out_cnt ) {
+seek_authorized_voters( uchar const *  data,
+                        ulong          data_sz,
+                        uint *         out_discriminant,
+                        uchar const ** out_ptr,
+                        ulong *        out_remaining,
+                        ulong *        out_cnt ) {
   uchar const * ptr       = data;
   ulong         remaining = data_sz;
 
@@ -516,22 +604,6 @@ seek_epoch_credits( uchar const *                    data,
       READ_U64( votes_len, &ptr, &remaining );
       CHECK_U64_MUL_OVERFLOW( votes_len, WIRE_LOCKOUT_SZ );
       SKIP_BYTES( votes_len*WIRE_LOCKOUT_SZ, &ptr, &remaining );
-
-      /* Skip root_slot Option<u64> */
-      uchar has_root_slot;
-      READ_U8( has_root_slot, &ptr, &remaining );
-      if( has_root_slot ) {
-        SKIP_BYTES( 8UL, &ptr, &remaining );
-      }
-
-      /* Skip authorized_voters BTreeMap<u64, Pubkey> */
-      ulong authorized_voters_len;
-      READ_U64( authorized_voters_len, &ptr, &remaining );
-      CHECK_U64_MUL_OVERFLOW( authorized_voters_len, WIRE_AUTH_VOTER_SZ );
-      SKIP_BYTES( authorized_voters_len*WIRE_AUTH_VOTER_SZ, &ptr, &remaining );
-
-      /* Skip prior_voters (fixed size) */
-      SKIP_BYTES( WIRE_PRIOR_VOTERS_SZ, &ptr, &remaining );
       break;
     }
 
@@ -543,22 +615,6 @@ seek_epoch_credits( uchar const *                    data,
       READ_U64( votes_len, &ptr, &remaining );
       CHECK_U64_MUL_OVERFLOW( votes_len, WIRE_LANDED_VOTE_SZ );
       SKIP_BYTES( votes_len*WIRE_LANDED_VOTE_SZ, &ptr, &remaining );
-
-      /* Skip root_slot Option<u64> */
-      uchar has_root_slot;
-      READ_U8( has_root_slot, &ptr, &remaining );
-      if( has_root_slot ) {
-        SKIP_BYTES( 8UL, &ptr, &remaining );
-      }
-
-      /* Skip authorized_voters BTreeMap<u64, Pubkey> */
-      ulong authorized_voters_len;
-      READ_U64( authorized_voters_len, &ptr, &remaining );
-      CHECK_U64_MUL_OVERFLOW( authorized_voters_len, WIRE_AUTH_VOTER_SZ );
-      SKIP_BYTES( authorized_voters_len*WIRE_AUTH_VOTER_SZ, &ptr, &remaining );
-
-      /* Skip prior_voters (fixed size) */
-      SKIP_BYTES( WIRE_PRIOR_VOTERS_SZ, &ptr, &remaining );
       break;
     }
 
@@ -577,24 +633,48 @@ seek_epoch_credits( uchar const *                    data,
       READ_U64( votes_len, &ptr, &remaining );
       CHECK_U64_MUL_OVERFLOW( votes_len, WIRE_LANDED_VOTE_SZ );
       SKIP_BYTES( votes_len*WIRE_LANDED_VOTE_SZ, &ptr, &remaining );
-
-      /* Skip root_slot Option<u64> */
-      uchar has_root_slot;
-      READ_U8( has_root_slot, &ptr, &remaining );
-      if( has_root_slot ) {
-        SKIP_BYTES( 8UL, &ptr, &remaining );
-      }
-
-      /* Skip authorized_voters BTreeMap<u64, Pubkey> */
-      ulong authorized_voters_len;
-      READ_U64( authorized_voters_len, &ptr, &remaining );
-      CHECK_U64_MUL_OVERFLOW( authorized_voters_len, WIRE_AUTH_VOTER_SZ );
-      SKIP_BYTES( authorized_voters_len*WIRE_AUTH_VOTER_SZ, &ptr, &remaining );
       break;
     }
 
     default:
       return 1;
+  }
+
+  /* Skip root_slot Option<u64> */
+  uchar has_root_slot;
+  READ_U8( has_root_slot, &ptr, &remaining );
+  if( has_root_slot ) {
+    SKIP_BYTES( 8UL, &ptr, &remaining );
+  }
+
+  /* Now at authorized_voters BTreeMap<u64, Pubkey> */
+  ulong authorized_voters_len;
+  READ_U64( authorized_voters_len, &ptr, &remaining );
+  CHECK_U64_MUL_OVERFLOW( authorized_voters_len, WIRE_AUTH_VOTER_SZ );
+  CHECK( authorized_voters_len*WIRE_AUTH_VOTER_SZ<=remaining );
+
+  *out_discriminant = discriminant;
+  *out_ptr          = ptr;
+  *out_remaining    = remaining;
+  *out_cnt          = authorized_voters_len;
+  return 0;
+}
+
+static int
+seek_epoch_credits( uchar const *                    data,
+                    ulong                            data_sz,
+                    fd_vote_epoch_credits_t const ** out_ptr,
+                    ulong *                          out_cnt ) {
+  uint          discriminant;
+  uchar const * ptr;
+  ulong         remaining;
+  ulong         authorized_voters_len;
+  CHECK( !seek_authorized_voters( data, data_sz, &discriminant, &ptr, &remaining, &authorized_voters_len ) );
+  SKIP_BYTES( authorized_voters_len*WIRE_AUTH_VOTER_SZ, &ptr, &remaining );
+
+  /* Skip prior_voters (fixed size), absent in v4 */
+  if( discriminant!=fd_vote_state_versioned_enum_v4 ) {
+    SKIP_BYTES( WIRE_PRIOR_VOTERS_SZ, &ptr, &remaining );
   }
 
   /* Now at epoch_credits deque */
@@ -607,6 +687,28 @@ seek_epoch_credits( uchar const *                    data,
   *out_ptr = (fd_vote_epoch_credits_t const *)ptr;
   *out_cnt = epoch_credits_len;
   return 0;
+}
+
+int
+fd_vote_account_authorized_voter( uchar const * data,
+                                  ulong         data_sz,
+                                  ulong         epoch,
+                                  fd_pubkey_t * out ) {
+  uint          discriminant;
+  uchar const * ptr;
+  ulong         remaining;
+  ulong         cnt;
+  CHECK( !seek_authorized_voters( data, data_sz, &discriminant, &ptr, &remaining, &cnt ) );
+
+  /* Take the last entry whose epoch is at or before the requested one. */
+  int found = 0;
+  for( ulong i=0UL; i<cnt; i++, ptr+=WIRE_AUTH_VOTER_SZ ) {
+    if( FD_LOAD( ulong, ptr )>epoch ) continue;
+    fd_memcpy( out, ptr+8UL, 32UL );
+    found = 1;
+  }
+
+  return !found;
 }
 
 int
@@ -1137,11 +1239,31 @@ deser_vote_authorize_checked_with_seed( fd_vote_authorize_checked_with_seed_args
 /* Vote instruction -- top-level decoder                              */
 /**********************************************************************/
 
+/* FD_VOTE_INSTR_PREFIX_SZ covers the discriminant and every scalar
+   field of every union member.  The rest is deque / seed storage the
+   decoder fills up to the decoded count, which is all consumers read. */
+
+#define FD_VOTE_INSTR_PREFIX_SZ (320UL)
+
+FD_STATIC_ASSERT( offsetof( fd_vote_instruction_t, vote.slots_mem                            )<=FD_VOTE_INSTR_PREFIX_SZ, vote_instr_prefix );
+FD_STATIC_ASSERT( offsetof( fd_vote_instruction_t, update_vote_state.lockouts_mem            )<=FD_VOTE_INSTR_PREFIX_SZ, vote_instr_prefix );
+FD_STATIC_ASSERT( offsetof( fd_vote_instruction_t, compact_update_vote_state.lockouts_mem    )<=FD_VOTE_INSTR_PREFIX_SZ, vote_instr_prefix );
+FD_STATIC_ASSERT( offsetof( fd_vote_instruction_t, tower_sync.lockouts_mem                   )<=FD_VOTE_INSTR_PREFIX_SZ, vote_instr_prefix );
+FD_STATIC_ASSERT( offsetof( fd_vote_instruction_t, authorize_with_seed.current_authority_derived_key_seed         )<=FD_VOTE_INSTR_PREFIX_SZ, vote_instr_prefix );
+FD_STATIC_ASSERT( offsetof( fd_vote_instruction_t, authorize_checked_with_seed.current_authority_derived_key_seed )<=FD_VOTE_INSTR_PREFIX_SZ, vote_instr_prefix );
+FD_STATIC_ASSERT( offsetof( fd_vote_instruction_t, initialize_account_v2 )+sizeof( fd_vote_init_v2_t )<=FD_VOTE_INSTR_PREFIX_SZ, vote_instr_prefix );
+FD_STATIC_ASSERT( sizeof( fd_vote_instruction_t )>=FD_VOTE_INSTR_PREFIX_SZ, vote_instr_prefix );
+
 static int
 fd_vote_instruction_deserialize_inner( fd_vote_instruction_t * instruction,
                                        uchar const *           data,
                                        ulong                   data_sz ) {
-  fd_memset( instruction, 0, sizeof(fd_vote_instruction_t) );
+  /* Zero the scalar prefix only; with handholding, poison the 10 KiB
+     tail so a read past the decoded count shows up. */
+  fd_memset( instruction, 0, FD_VOTE_INSTR_PREFIX_SZ );
+#if FD_TMPL_USE_HANDHOLDING
+  fd_memset( (uchar *)instruction+FD_VOTE_INSTR_PREFIX_SZ, 0xA5, sizeof(fd_vote_instruction_t)-FD_VOTE_INSTR_PREFIX_SZ );
+#endif
 
   uchar const ** p  = &data;
   ulong *        sz = &data_sz;

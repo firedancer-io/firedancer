@@ -49,6 +49,7 @@ typedef struct ag_block_hash_set ag_block_hash_set_t;
 
 struct ag_slot_votes {
   ag_slot_voted_stake_hash_t notar_stake_map[ AG_NOTAR_MAP_SLOT_CNT ];
+  fd_bls_set_t               notar_set      [ fd_bls_set_word_cnt ];
   fd_bls_sig_t               notar_sig      [ AG_VAT_MAX ];
   ag_slot_voted_stake_hash_t notar_fallback_stake_map[ AG_NOTAR_FALLBACK_MAP_SLOT_CNT ];
   fd_bls_sig_t               notar_fallback_sig      [ AG_VAT_MAX ][ AG_NOTAR_FALLBACK_VOTE_MAX ];
@@ -103,6 +104,13 @@ FD_PROTOTYPES_BEGIN
 
 void
 ag_slot_state_null( ag_slot_state_t * self );
+
+/* Replaces our rank own_rank (USHORT_MAX if unstaked) and re-derives
+   our notar hash from the notar votes already counted for it. */
+
+void
+ag_slot_state_set_own_rank( ag_slot_state_t * self,
+                            ulong             own_rank );
 
 /* Definition 13. SlotState::add_cert */
 

@@ -545,7 +545,7 @@ after_shred( ctx_t      * ctx,
     if( FD_UNLIKELY( !blk_insert_check( ctx, blk, shred->slot, evicted ) ) ) return;
 
     if( FD_LIKELY( fd_forest_data_shred_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, shred->idx, shred->fec_set_idx, slot_complete, ref_tick, src, mr, cmr, rx_tick ) ) ) {
-      if( FD_UNLIKELY( src == SHRED_SRC_REPAIR && ( rtt = fd_inflights_shred_match( ctx->inflights, nonce, shred->slot, shred->idx, NULL, &peer, NULL, fd_clock_tile_now( ctx->clock ) ) ) > 0 ) ) {
+      if( FD_UNLIKELY( src == SHRED_SRC_REPAIR && ( rtt = fd_inflights_shred_match( ctx->inflights, FD_REPAIR_KIND_SHRED, nonce, shred->slot, shred->idx, NULL, &peer, NULL, fd_clock_tile_now( ctx->clock ) ) ) > 0 ) ) {
         fd_policy_peer_response_update( ctx->policy, &peer, rtt );
         fd_histf_sample( ctx->metrics->response_latency, (ulong)rtt );
         blk->response_cnt++;
@@ -919,14 +919,14 @@ defer_inflight_request( ctx_t * ctx, ulong slot, ulong shred_idx, long now ) {
   fd_inflight_key_t inflight_req[1];
   fd_inflight_key_init( inflight_req, FD_REPAIR_KIND_SHRED, slot, shred_idx, 0UL, NULL );
   if( FD_LIKELY( !fd_inflight_map_ele_query( ctx->inflights->map, inflight_req, NULL, ctx->inflights->pool ) ) ) {
-    fd_inflights_shred_insert( ctx->inflights, 0, &hash, slot, shred_idx, NULL, NULL, now );
+    fd_inflights_shred_insert( ctx->inflights, FD_REPAIR_KIND_SHRED, 0, &hash, slot, shred_idx, NULL, NULL, now );
   }
 }
 
 /* Should be called for any regular FD_REPAIR_KIND_SHRED request made. */
 static void
 record_inflight_request( ctx_t * ctx, ulong nonce, fd_pubkey_t const * peer, ulong slot, ulong shred_idx, long now ) {
-  fd_inflights_shred_insert( ctx->inflights, nonce, peer, slot, shred_idx, NULL, NULL, now );
+  fd_inflights_shred_insert( ctx->inflights, FD_REPAIR_KIND_SHRED, nonce, peer, slot, shred_idx, NULL, NULL, now );
   fd_policy_peer_request_update( ctx->policy, peer );
 }
 
@@ -1047,7 +1047,14 @@ after_credit( ctx_t *             ctx,
 
   /* finally, send the request made by policy */
   fd_repair_send_sign_request( ctx, sign_out, cout, NULL );
-  if( FD_LIKELY( cout->kind == FD_REPAIR_KIND_SHRED ) ) record_inflight_request( ctx, cout->shred.nonce, &cout->shred.to, cout->shred.slot, cout->shred.shred_idx, now );
+  if( FD_LIKELY( cout->kind == FD_REPAIR_KIND_SHRED ) ) {
+    record_inflight_request( ctx, cout->shred.nonce, &cout->shred.to, cout->shred.slot, cout->shred.shred_idx, now );
+    fd_forest_blk_t * blk = fd_forest_query( ctx->forest, cout->shred.slot );
+    if( FD_LIKELY( blk ) ) {
+      blk->req_window_cnt++;
+      if( FD_UNLIKELY( !blk->first_req_ts ) ) blk->first_req_ts = fd_tickcount();
+    }
+  }
 }
 
 static void
@@ -1197,7 +1204,7 @@ unprivileged_init( fd_topo_t const *      topo,
     else if( 0==strcmp( link->name, "shred_out"    ) ) ctx->in_kind[ in_idx ] = IN_KIND_SHRED;
     else if( 0==strcmp( link->name, "snapin_manif" ) ) ctx->in_kind[ in_idx ] = IN_KIND_SNAP;
     else if( 0==strcmp( link->name, "genesi_out"   ) ) ctx->in_kind[ in_idx ] = IN_KIND_GENESIS;
-    else if( 0==strcmp( link->name, "replay_out"   ) ) ctx->in_kind[ in_idx ] = IN_KIND_REPLAY;
+    else if( 0==strcmp( link->name, "replay_slot"  ) ) ctx->in_kind[ in_idx ] = IN_KIND_REPLAY;
     else FD_LOG_ERR(( "repair tile has unexpected input link %s", link->name ));
 
     ctx->in_links[ in_idx ].mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;

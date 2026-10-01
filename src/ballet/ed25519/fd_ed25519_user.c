@@ -1,6 +1,49 @@
 #include "fd_ed25519.h"
 #include "fd_curve25519.h"
 
+/* Backend choice: AVX512 (zen4+), then S2N, then REF (no s2n) */
+#if defined(FD_HAS_S2NBIGNUM) && !FD_HAS_AVX512
+#define FD_ED25519_S2N 1
+#else
+#define FD_ED25519_S2N 0
+#endif
+
+#if FD_ED25519_S2N
+#include "fd_ed25519_s2n.c"
+#else
+
+/* The 2 functions below:
+   - fd_ed25519_scalar_mul_base_tobytes (sensitive, const time)
+   - fd_ed25519_verify_equation (var time)
+   are a convenient interface to switch between our original
+   implementations and s2n-bignum interface. */
+
+/* fd_ed25519_scalar_mul_base_tobytes writes the RFC 8032 encoding of
+   [n]B to out.  n can be a secret. */
+static inline void FD_FN_SENSITIVE
+fd_ed25519_scalar_mul_base_tobytes( uchar       out[ 32 ],
+                                    uchar const n[ 32 ] ) {
+  fd_ed25519_point_t nB[1];
+  fd_ed25519_scalar_mul_base_const_time( nB, n );
+  fd_ed25519_point_tobytes( out, nB );
+}
+
+/* fd_ed25519_verify_equation returns 1 iff [S]B == R + [k]A,
+   computed as [k](-A) + [S]B == R.  A and R must be affine (Z==1).
+   A is clobbered.  k and S are 32-byte little-endian scalars, S < L. */
+static inline int
+fd_ed25519_verify_equation( uchar const                k[ 32 ],
+                            fd_ed25519_point_t *       A,
+                            uchar const                S[ 32 ],
+                            fd_ed25519_point_t const * R ) {
+  fd_ed25519_point_t Rcmp[1];
+  fd_ed25519_point_neg( A, A );
+  fd_ed25519_double_scalar_mul_base( Rcmp, k, A, S );
+  return fd_ed25519_point_eq_z1( Rcmp, R );
+}
+
+#endif
+
 uchar * FD_FN_SENSITIVE
 fd_ed25519_public_from_private( uchar         public_key [ static 32 ],
                                 uchar const   private_key[ static 32 ],
@@ -35,9 +78,6 @@ fd_ed25519_public_from_private( uchar         public_key [ static 32 ],
   //      secret scalar s.  Perform a fixed-base scalar multiplication
   //      [s]B.
 
-  fd_ed25519_point_t sB[1];
-  fd_ed25519_scalar_mul_base_const_time( sB, s );
-
   //  4.  The public key A is the encoding of the point [s]B.  First,
   //      encode the y-coordinate (in the range 0 <= y < p) as a little-
   //      endian string of 32 octets.  The most significant bit of the
@@ -46,7 +86,7 @@ fd_ed25519_public_from_private( uchar         public_key [ static 32 ],
   //      most significant bit of the final octet.  The result is the
   //      public key.
 
-  fd_ed25519_point_tobytes( public_key, sB );
+  fd_ed25519_scalar_mul_base_tobytes( public_key, s );
 
   /* Sanitize */
 
@@ -100,9 +140,7 @@ fd_ed25519_sign( uchar         sig[ static 64 ],
   //      the encoding of this point.
 
   fd_curve25519_scalar_reduce( r, r );           /* reduce r mod L */
-  fd_ed25519_point_t R[1];
-  fd_ed25519_scalar_mul_base_const_time( R, r ); /* R = [r]B */
-  fd_ed25519_point_tobytes( sig, R );
+  fd_ed25519_scalar_mul_base_tobytes( sig, r );  /* R = [r]B */
 
   //  4.  Compute SHA512(dom2(F, C) || R || A || PH(M)), and interpret the
   //      64-octet digest as a little-endian integer k.
@@ -183,14 +221,22 @@ fd_ed25519_sign_batch8( uchar               sig[],        /* n*64 */
 
   /* R[i] = [r[i] mod L]B */
 
+  uchar R_bytes[ 8UL*32UL ];
+#if FD_ED25519_S2N
+  /* s2n serial is faster than non-s2n batch */
+  for( ulong i=0UL; i<n; i++ ) {
+    fd_curve25519_scalar_reduce( r[i], r[i] );
+    fd_ed25519_scalar_mul_base_tobytes( R_bytes+32UL*i, r[i] );
+  }
+#else
+  /* one field inversion shared across the n encodings */
   fd_ed25519_point_t R[ 8UL ];
   for( ulong i=0UL; i<n; i++ ) {
     fd_curve25519_scalar_reduce( r[i], r[i] );
     fd_ed25519_scalar_mul_base_const_time( &R[i], r[i] );
   }
-
-  uchar R_bytes[ 8UL*32UL ];
   fd_ed25519_point_tobytes_batch8( R_bytes, R, n );
+#endif
 
   /* k[i] = SHA-512(R[i] || A[i] || msg[i]); all inputs are public */
 
@@ -298,19 +344,15 @@ fd_ed25519_verify( uchar const   msg[], /* msg_sz */
 
   /* Compute R = [k](-A') + [S]B, with B base point.
      Note: this is not the same as R = [-k]A' + [S]B, because the order
-     of A' is 8l (computing -k mod 8l would work). */
-  fd_ed25519_point_t Rcmp[1];
-  fd_ed25519_point_neg( Aprime, Aprime );
-  fd_ed25519_double_scalar_mul_base( Rcmp, k, Aprime, S );
+     of A' is 8l (computing -k mod 8l would work).
 
-  /* Compare R (computed) and R from signature.
+     Compare R (computed) and R from signature.
      Note: many implementations do this comparison by compressing Rcmd,
      and compare it against the r buf as it appears in the signature.
      This implicitly prevents non-canonical R.
-     However this also hides a field inv to compress Rcmp.
      In our implementation we compare the points (see the comment
      above on "Check public key and point r" for details). */
-  if( FD_LIKELY( fd_ed25519_point_eq_z1( Rcmp, R ) ) ) {
+  if( FD_LIKELY( fd_ed25519_verify_equation( k, Aprime, S, R ) ) ) {
     return FD_ED25519_SUCCESS;
   }
   return FD_ED25519_ERR_MSG;
@@ -380,16 +422,11 @@ int fd_ed25519_verify_batch_single_msg( uchar const   msg[], /* msg_sz */
     fd_curve25519_scalar_reduce( &k[32*j], _k );
   }
 
-  fd_ed25519_point_t res[1];
   for( uchar j=0; j<batch_sz; j++ ) {
     uchar const * S = signatures + 32 + 64*j;
-
-    fd_ed25519_point_neg( &Aprime[j], &Aprime[j] );
-    fd_ed25519_double_scalar_mul_base( res, &k[32*j], &Aprime[j], S );
-    if( FD_UNLIKELY( !fd_ed25519_point_eq_z1( res, &R[j] ) ) ) {
+    if( FD_UNLIKELY( !fd_ed25519_verify_equation( &k[32*j], &Aprime[j], S, &R[j] ) ) ) {
       return FD_ED25519_ERR_MSG;
     }
-
   }
   return FD_ED25519_SUCCESS;
 #endif

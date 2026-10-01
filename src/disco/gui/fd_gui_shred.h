@@ -25,6 +25,16 @@ struct __attribute__((packed)) fd_gui_shred_event {
 };
 typedef struct fd_gui_shred_event fd_gui_shred_event_t;
 
+struct fd_gui_shred_scratch {
+  long   event_time_ns;
+  uint   slot;
+  ushort idx;
+  uchar  event;
+};
+typedef struct fd_gui_shred_scratch fd_gui_shred_scratch_t;
+
+#define FD_GUI_SHRED_SCRATCH_MAX (262144UL)
+
 /* Each block belongs to one insertion-time second.  The index timestamp
    is that second's start; individual insertion times remain in data.
    Entries are a one-byte tag followed by either a literal event or a

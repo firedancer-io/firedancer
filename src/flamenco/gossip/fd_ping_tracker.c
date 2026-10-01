@@ -2,6 +2,7 @@
 #include "../../util/fd_hash32.h"
 
 #include "../../ballet/sha256/fd_sha256.h"
+#include "../../ballet/chacha/fd_chacha_rng.h"
 #include "../../util/log/fd_log.h"
 
 #define FD_PING_TRACKER_STATE_UNPINGED         (0)
@@ -97,8 +98,8 @@ typedef struct fd_ping_peer fd_ping_peer_t;
 #include "../../util/tmpl/fd_map_chain.c"
 
 struct __attribute__((aligned(FD_PING_TRACKER_ALIGN))) fd_ping_tracker_private {
-  fd_rng_t * rng;
-  fd_sha256_t sha[1];
+  fd_chacha_rng_t rng[1];
+  fd_sha256_t     sha[1];
 
   ulong           entrypoints_cnt;
   fd_ip4_port_t * entrypoints;
@@ -142,18 +143,13 @@ fd_ping_tracker_footprint( ulong entrypoints_len ) {
 
 void *
 fd_ping_tracker_new( void *                    shmem,
-                     fd_rng_t *                rng,
+                     uchar const               seed[ static 32 ],
                      ulong                     entrypoints_len,
                      fd_ip4_port_t const *     entrypoints,
                      fd_ping_tracker_change_fn change_fn,
                      void *                    change_fn_ctx ) {
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL shmem" ));
-    return NULL;
-  }
-
-  if( FD_UNLIKELY( !rng ) ) {
-    FD_LOG_WARNING(( "NULL rng" ));
     return NULL;
   }
 
@@ -172,7 +168,8 @@ fd_ping_tracker_new( void *                    shmem,
   void * _refreshing               = FD_SCRATCH_ALLOC_APPEND( l, refreshing_list_align(), refreshing_list_footprint()           );
   void * _peers                    = FD_SCRATCH_ALLOC_APPEND( l, peer_map_align(),        peer_map_footprint( 8192UL )          );
 
-  ping_tracker->rng = rng;
+  FD_TEST( fd_chacha_rng_join( fd_chacha_rng_new( ping_tracker->rng, FD_CHACHA_RNG_MODE_SHIFT ) ) );
+  fd_chacha_rng_init( ping_tracker->rng, seed, FD_CHACHA_RNG_ALGO_CHACHA8 );
   ping_tracker->pool = pool_join( pool_new( _pool, FD_PING_TRACKER_MAX ) );
   FD_TEST( ping_tracker->pool );
   ping_tracker->lru  = lru_list_join( lru_list_new( _lru ) );
@@ -183,7 +180,7 @@ fd_ping_tracker_new( void *                    shmem,
   FD_TEST( ping_tracker->waiting );
   ping_tracker->refreshing = refreshing_list_join( refreshing_list_new( _refreshing ) );
   FD_TEST( ping_tracker->refreshing );
-  ping_tracker->peers = peer_map_join( peer_map_new( _peers, 8192UL, fd_rng_ulong( rng ) ) );
+  ping_tracker->peers = peer_map_join( peer_map_new( _peers, 8192UL, fd_chacha_rng_ulong( ping_tracker->rng ) ) );
   FD_TEST( ping_tracker->peers );
 
   ping_tracker->entrypoints_cnt = entrypoints_len;
@@ -245,10 +242,11 @@ remove_tracking( fd_ping_tracker_t * ping_tracker,
 }
 
 static void
-generate_ping_token( fd_ping_peer_t * peer,
-                     fd_rng_t *       rng ) {
+generate_ping_token( fd_ping_peer_t *  peer,
+                     fd_chacha_rng_t * rng ) {
   fd_memcpy( peer->ping_token, "SOLANA_PING_PONG", 16UL );
-  for( ulong i=16UL; i<32UL; i++ ) peer->ping_token[ i ] = fd_rng_uchar( rng );
+  FD_STORE( ulong, peer->ping_token+16UL, fd_chacha_rng_ulong( rng ) );
+  FD_STORE( ulong, peer->ping_token+24UL, fd_chacha_rng_ulong( rng ) );
 }
 
 static inline void

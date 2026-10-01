@@ -31,7 +31,7 @@ fd_vote_state_v4_create_new_with_defaults( fd_pubkey_t const *           vote_pu
   vote_state->inflation_rewards_commission_bps = (ushort)( vote_init->commission * 100 );
   vote_state->inflation_rewards_collector      = *vote_pubkey;
   vote_state->block_revenue_collector          = vote_init->node_pubkey;
-  vote_state->block_revenue_commission_bps     = DEFAULT_BLOCK_REVENUE_COMMISSION_BPS;
+  vote_state->block_revenue_commission_bps     = FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS;
   vote_state->has_bls_pubkey_compressed        = 0;
 
   init_authorized_voters( &vote_state->authorized_voters, clock->epoch, &vote_init->authorized_voter );

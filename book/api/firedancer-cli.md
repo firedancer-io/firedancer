@@ -165,3 +165,58 @@ validators are found.
 | `--clean` | Remove entries for validators that are no longer running |
 
 <<< @/snippets/commands/ps.ansi
+
+## `wait`
+Waits for a window where it would be safe to stop the running
+validator before exiting, it does not actually stop the validator.
+Various conditions can be waited on, according to the supplied
+arguments:
+
+ - The validator is caught up to the tip of the chain
+ - There is sufficient time until our next leader slot
+ - No full or incremental snapshot is currently being written
+ - A new up to date incremental snapshot has been written
+ - The cluster delinquent stake is below a certain threshold
+
+Once the supplied checks pass, the command exits successfully with
+code 0. If the validator being waited on exits prematurely, or the
+command is interrupted, it fails with a non-zero code as follows:
+
+| Exit code | Meaning |
+|-----------|---------|
+| `0` | A safe window was found |
+| `2` | The validator exited while waiting |
+| `128+sig` | Interrupted by a signal, as a shell reports it (`130` for `SIGINT`, `143` for `SIGTERM`) |
+| `1` | Any other failure |
+
+If run from a terminal, the command prints live diagnostic output, you
+can prevent this with `--silent`.
+
+When it fails, the command prints diagnostic messages to `stderr`.
+Reasons for failure include no running validator being found, more
+than one running validator with nothing to select between them, the
+running validator being a different commit than this binary, a
+`--config` file that is not the one the validator was started with, or
+an idle gap that is larger than an epoch and so can never be
+satisfied.
+
+With no arguments the command discovers the running validator on the
+host automatically. If more than one validator is running, pass
+`--name <name>` to select one (see [`ps`](#ps) to list instances). If
+`--config` is given, that resolved configuration is used to locate and
+attach to the validator, and its topology layout must match the running
+validator. Compatibility with the running validator is checked either
+way, and a version mismatch fails cleanly without changing anything.
+
+| Arguments                          | Description |
+|------------------------------------|-------------|
+| `--min-idle-slots <slots>`         | Minimum number of idle slots required before the next leader slot. Default: 1500. Set to 0 to disable the gap check |
+| `--min-idle-seconds <seconds>`     | Minimum idle time in seconds before the next leader slot. Converted to slots using the live slot duration. Mutually exclusive with `--min-idle-slots`. Set to 0 to disable the gap check |
+| `--max-delinquent-stake <percent>` | Maximum percentage of delinquent stake allowed, in range [0–100]. Default: 5. Set to 100 to disable the check |
+| `--skip-health-check`              | Skip the health check (replay caught-up status) |
+| `--skip-snapshot-check`            | Skip the snapshot check |
+| `--silent`                         | Do not print the live status panel |
+| `--name <name>`   | Name of the validator instance to attach to, if more than one is running on this host |
+| `--config <path>` | Optional path to the configuration TOML file the validator was started with. Its resolved topology layout must match the running validator |
+
+<<< @/snippets/commands/wait.ansi

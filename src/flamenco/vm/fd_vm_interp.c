@@ -10,7 +10,6 @@ int
 fd_vm_exec_notrace( fd_vm_t * vm ) {
 
 # undef FD_VM_INTERP_EXE_TRACING_ENABLED
-# undef FD_VM_INTERP_MEM_TRACING_ENABLED
 
   /* Pull out variables needed for the fd_vm_interp_core template */
   ulong frame_max   = FD_VM_STACK_FRAME_MAX; /* FIXME: vm->frame_max to make this run-time configured */
@@ -26,7 +25,7 @@ fd_vm_exec_notrace( fd_vm_t * vm ) {
   uint  const *             region_ld_sz = vm->region_ld_sz;
   uint  const *             region_st_sz = vm->region_st_sz;
 
-  ulong * FD_RESTRICT reg = vm->reg;
+  ulong * reg = vm->reg;
 
   fd_vm_shadow_t * FD_RESTRICT shadow = vm->shadow;
 
@@ -42,7 +41,6 @@ int
 fd_vm_exec_trace( fd_vm_t * vm ) {
 
 # define FD_VM_INTERP_EXE_TRACING_ENABLED 1
-# define FD_VM_INTERP_MEM_TRACING_ENABLED 1
 
   /* Pull out variables needed for the fd_vm_interp_core template */
   ulong frame_max   = FD_VM_STACK_FRAME_MAX; /* FIXME: vm->frame_max to make this run-time configured */
@@ -58,7 +56,7 @@ fd_vm_exec_trace( fd_vm_t * vm ) {
   uint  const *             region_ld_sz = vm->region_ld_sz;
   uint  const *             region_st_sz = vm->region_st_sz;
 
-  ulong * FD_RESTRICT reg = vm->reg;
+  ulong * reg = vm->reg;
 
   fd_vm_shadow_t * FD_RESTRICT shadow = vm->shadow;
 
@@ -68,7 +66,6 @@ fd_vm_exec_trace( fd_vm_t * vm ) {
 # include "fd_vm_interp_core.c"
 
 # undef FD_VM_INTERP_EXE_TRACING_ENABLED
-# undef FD_VM_INTERP_MEM_TRACING_ENABLED
 
   return err;
 }

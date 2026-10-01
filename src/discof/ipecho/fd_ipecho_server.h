@@ -2,6 +2,7 @@
 #define HEADER_fd_src_discof_ipecho_fd_ipecho_server_h
 
 #include "../../util/fd_util_base.h"
+#include "fd_ipecho_server_port_check.h"
 
 #define FD_IPECHO_SERVER_MAGIC (0xF17EDA2CE5185EC8) /* FIREDANCER SIPECHO V0 */
 
@@ -41,8 +42,9 @@ fd_ipecho_server_init( fd_ipecho_server_t * server,
 void
 fd_ipecho_server_fini( fd_ipecho_server_t * server );
 
-/* fd_ipecho_server_close_conns closes all accepted connections on
-   the server, but leaves the listen socket open. */
+/* fd_ipecho_server_close_conns closes all accepted connections and
+   abandons all in-flight port check connections, but leaves the
+   listen socket and the port check's UDP socket open. */
 
 void
 fd_ipecho_server_close_conns( fd_ipecho_server_t * server );
@@ -53,6 +55,7 @@ fd_ipecho_server_set_shred_version( fd_ipecho_server_t * server,
 
 int
 fd_ipecho_server_epoll_poll( fd_ipecho_server_t * server,
+                             long                 now,
                              int *                charge_busy );
 
 fd_ipecho_server_metrics_t *
@@ -60,5 +63,8 @@ fd_ipecho_server_metrics( fd_ipecho_server_t * server );
 
 int
 fd_ipecho_server_sockfd( fd_ipecho_server_t * server );
+
+fd_ipecho_server_port_check_t *
+fd_ipecho_server_port_check( fd_ipecho_server_t * server );
 
 #endif /* HEADER_fd_src_discof_ipecho_fd_ipecho_server_h */

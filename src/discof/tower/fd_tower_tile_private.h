@@ -107,8 +107,6 @@ typedef struct epoch_vtr epoch_vtr_t;
 #define MAP_NEXT               next
 #include "../../util/tmpl/fd_map_chain.c"
 
-#define AUTH_VOTERS_MAX (16UL)
-
 struct in_ctx {
   int         mcache_only;
   fd_wksp_t * mem;
@@ -191,6 +189,7 @@ struct fd_tower_tile {
   ulong       out_wmark;
   ulong       out_chunk;
   ulong       out_seq;
+  ulong       replay_in_seq;
 
   /* metrics */
 

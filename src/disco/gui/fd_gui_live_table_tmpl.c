@@ -391,7 +391,7 @@ LIVE_TABLE_(idx_fast)( LIVE_TABLE_ROW_T const * e, LIVE_TABLE_ROW_T const * pool
 FD_FN_CONST static inline LIVE_TABLE_ROW_T *       LIVE_TABLE_(ele_fast)      ( ulong i, LIVE_TABLE_ROW_T *       pool ) { return LIVE_TABLE_(private_treap_ele_fast)( i, pool ); }
 FD_FN_CONST static inline LIVE_TABLE_ROW_T const * LIVE_TABLE_(ele_fast_const)( ulong i, LIVE_TABLE_ROW_T const * pool ) { return LIVE_TABLE_(private_treap_ele_fast_const)( i, pool ); }
 
-FD_FN_CONST static inline LIVE_TABLE_(fwd_iter_t)
+FD_FN_PURE static inline LIVE_TABLE_(fwd_iter_t)
 LIVE_TABLE_(fwd_iter_next)( LIVE_TABLE_(fwd_iter_t) iter, LIVE_TABLE_ROW_T const * pool ) { return LIVE_TABLE_(private_treap_fwd_iter_next)( iter, pool ); }
 
 FD_FN_CONST static inline LIVE_TABLE_ROW_T *

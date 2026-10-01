@@ -2057,7 +2057,6 @@ fd_tls_alert_cstr( uint alert ) {
   case FD_TLS_ALERT_NO_APPLICATION_PROTOCOL:
     return "no application protocol";
   default:
-    FD_LOG_WARNING(( "Missing fd_tls_alert_cstr code for %u (memory corruption?)", alert ));
     return "unknown alert";
   /* TODO add the other alert codes */
   }

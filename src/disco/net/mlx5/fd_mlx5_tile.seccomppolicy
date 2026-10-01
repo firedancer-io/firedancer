@@ -6,9 +6,13 @@
 # housekeeping (mostly queue errors and device errors).
 #
 # lo_tx_fd: Send-only raw IPv4 socket bound to lo, owned by mlx5:0.
-uint logfile_fd, uint async_fd, uint lo_tx_fd
+#
+# rx_comp_channel_fd: Uverbs completion channel for this tile's RX CQ.
+#
+# epoll_fd: This tile's private epoll fd, present only in efficient mode.
+uint logfile_fd, uint async_fd, uint lo_tx_fd, uint rx_comp_channel_fd, uint epoll_fd
 
-# Allow mlx5 to send loopback packets with sendmmsg.
+# mlx5: send loopback packets through the raw IPv4 socket
 sendmmsg: (and (eq (arg 0) lo_tx_fd)
                (<= (arg 2) 64)
                (eq (arg 3) MSG_DONTWAIT))
@@ -28,8 +32,25 @@ write: (or (eq (arg 0) 2)
 # arg 0 is the file descriptor to fsync.
 fsync: (eq (arg 0) logfile_fd)
 
-# mlx5: drain uverbs async events so device and queue failures are
-#       detected by the tile
+# mlx5: drain uverbs async events and RX completion events
 #
-# arg 0 is the nonblocking uverbs async event descriptor.
-read: (eq (arg 0) async_fd)
+# arg 0 is the nonblocking async event fd or RX completion channel fd.
+read: (or (eq (arg 0) async_fd)
+          (eq (arg 0) rx_comp_channel_fd))
+
+# power saving: sleep until the repoll deadline
+#
+# arg 0 is CLOCK_MONOTONIC, arg 1 requests an absolute timeout, and arg 3
+# is the unused remainder pointer.
+clock_nanosleep: (and (eq (arg 0) CLOCK_MONOTONIC)
+                      (eq (arg 1) TIMER_ABSTIME)
+                      (eq (arg 3) 0))
+
+# power saving: park until RX work, an async event, a ring, or the
+# next deadline
+#
+# arg 0 is this tile's epoll fd.  arg 2 is the event array size and arg 4
+# is the signal mask, which is always NULL.
+epoll_pwait: (and (eq (arg 0) epoll_fd)
+                  (eq (arg 2) 3)
+                  (eq (arg 4) 0))

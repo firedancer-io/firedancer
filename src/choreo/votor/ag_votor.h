@@ -5,14 +5,12 @@
 #include "../../ballet/bls/fd_bls.h"
 #include "ag_event.h"
 
-#define AG_VOTOR_REASON_BLOCK_REPLAYED         (0)
-#define AG_VOTOR_REASON_BLOCK_DEAD             (1)
-#define AG_VOTOR_REASON_PARENT_READY           (2)
-#define AG_VOTOR_REASON_BLOCK_NOTARIZED        (3)
-#define AG_VOTOR_REASON_TIMEOUT                (4)
-#define AG_VOTOR_REASON_TIMEOUT_CRASHED_LEADER (5)
-#define AG_VOTOR_REASON_SAFE_TO_NOTAR          (6)
-#define AG_VOTOR_REASON_SAFE_TO_SKIP           (7)
+#define AG_VOTOR_REASON_BLOCK_REPLAYED  (0)
+#define AG_VOTOR_REASON_PARENT_READY    (1)
+#define AG_VOTOR_REASON_BLOCK_NOTARIZED (2)
+#define AG_VOTOR_REASON_TIMEOUT         (3)
+#define AG_VOTOR_REASON_SAFE_TO_NOTAR   (4)
+#define AG_VOTOR_REASON_SAFE_TO_SKIP    (5)
 
 typedef struct ag_votor ag_votor_t;
 
@@ -50,11 +48,43 @@ ag_votor_init( ag_votor_t *   self,
 void
 ag_votor_fini( ag_votor_t * self );
 
+/* ag_votor_advance_epoch is called at boot and the epoch boundary and
+   updates the rank and BLS key that is used for voting.  A NULL bls
+   pubkey will disable voting for the epoch corresponding to the
+   epoch_slot. */
+
 void
-ag_votor_advance_epoch( ag_votor_t * self,
-                        long         ns_per_slot,
-                        ulong        epoch_rank,
-                        ulong        epoch_slot );
+ag_votor_advance_epoch( ag_votor_t *       self,
+                        long               ns_per_slot,
+                        ulong              epoch_rank,
+                        ulong              epoch_slot,
+                        ag_bls_key_t const bls_key );
+
+/* ag_votor_set_bls_pubkey updates the BLS key that is used for voting,
+   or stops voting if the BLS key is NULL.  It should be called when
+   authorized voters change.  Votes made while there was no key are
+   never sent. */
+
+void
+ag_votor_set_bls_pubkey( ag_votor_t *       self,
+                         ulong              epoch_slot,
+                         ag_bls_key_t const bls_key );
+
+/* Replaces our rank in the epoch starting at epoch_slot, for when our
+   identity changes after the epoch advanced. */
+
+void
+ag_votor_set_rank( ag_votor_t * self,
+                   ulong        epoch_slot,
+                   ulong        epoch_rank );
+
+/* ag_votor_wait_to_vote is called when our identity changes.  Votor
+   signs no more votes up to the end of the window of the highest slot
+   it voted notar or skip in, since the new identity may have voted in
+   that window on another machine.  Like Agave's --wait-to-vote-slot. */
+
+void
+ag_votor_wait_to_vote( ag_votor_t * self );
 
 /* Algorithm 1, lines 9-25. Votor::handle_pool_event */
 
@@ -62,12 +92,6 @@ void
 ag_votor_handle_pool_event( ag_votor_t *            self,
                             ag_event_pool_t const * event,
                             long                    now );
-
-/* Votor::handle_blockstore_event, FirstShred and InvalidBlock */
-
-void
-ag_votor_handle_block_event( ag_votor_t *             self,
-                             ag_event_block_t const * event );
 
 /* Algorithm 1, lines 1-5. Votor::handle_blockstore_event, Block */
 
@@ -93,6 +117,11 @@ ag_votor_poll_vote_event( ag_votor_t *      self,
 int
 ag_votor_poll_cert_event( ag_votor_t *      self,
                           ag_event_cert_t * event );
+
+FD_FN_PURE ulong ag_votor_slot_state_used( ag_votor_t const * self );
+FD_FN_PURE ulong ag_votor_slot_state_max ( ag_votor_t const * self );
+FD_FN_PURE ulong ag_votor_finalized_slot ( ag_votor_t const * self );
+FD_FN_PURE ulong ag_votor_vote_event_cnt ( ag_votor_t const * self );
 
 FD_PROTOTYPES_END
 

@@ -1129,7 +1129,8 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
    given an account that might have been updated. */
 
 static void
-fd_runtime_lthash_account( fd_bank_t *         bank,
+fd_runtime_lthash_account( fd_runtime_t *      runtime,
+                           fd_bank_t *         bank,
                            fd_pubkey_t const * pubkey,
                            fd_acc_t *          acc,
                            fd_capture_ctx_t *  capture_ctx ) {
@@ -1137,6 +1138,17 @@ fd_runtime_lthash_account( fd_bank_t *         bank,
     acc->data_len   = 0UL;
     acc->executable = 0;
     memset( acc->owner, 0, sizeof(acc->owner) );
+  }
+
+  if( FD_UNLIKELY( acc->prior_data &&
+                   acc->lamports==acc->prior_lamports &&
+                   acc->data_len==acc->prior_data_len &&
+                   (!!acc->executable)==(!!acc->prior_executable) &&
+                   !memcmp( acc->owner, acc->prior_owner, sizeof(acc->owner) ) &&
+                   !memcmp( acc->data,  acc->prior_data,  acc->data_len ) ) ) {
+    runtime->metrics.lthash_unchanged_cnt++;
+    if( FD_LIKELY( acc->lamports ) ) fd_hashes_capture_account( pubkey->uc, acc->owner, acc->lamports, acc->executable, acc->data, acc->data_len, bank, capture_ctx );
+    return;
   }
 
   fd_lthash_value_t lthash_prev[1];
@@ -1173,6 +1185,9 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
          payer account. */
       if( FD_UNLIKELY( !txn_out->accounts.is_writable[ i ] ) ) continue;
 
+      /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime/src/account_saver.rs#L120-L122 */
+      if( FD_UNLIKELY( !txn_out->accounts.touched[ i ] ) ) continue;
+
       fd_pubkey_t const * pubkey = &txn_out->accounts.keys[ i ];
 
       /* Only the txn that owns the accdb reference commits the account
@@ -1202,7 +1217,7 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
         }
       }
 
-      fd_runtime_lthash_account( bank, pubkey, account, runtime->log.capture_ctx );
+      fd_runtime_lthash_account( runtime, bank, pubkey, account, runtime->log.capture_ctx );
     }
 
     /* Atomically add all accumulated tips to the bank once after
@@ -1267,7 +1282,7 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
       }
       nonce_account->executable = nonce_account->prior_executable;
       nonce_account->commit = 1;
-      fd_runtime_lthash_account( bank, &txn_out->accounts.keys[ txn_out->accounts.nonce_idx_in_txn ], nonce_account, runtime->log.capture_ctx );
+      fd_runtime_lthash_account( runtime, bank, &txn_out->accounts.keys[ txn_out->accounts.nonce_idx_in_txn ], nonce_account, runtime->log.capture_ctx );
     }
 
     /* Now, we must only save the fee payer if the nonce account was not
@@ -1281,7 +1296,7 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
       fee_payer_account->executable = fee_payer_account->prior_executable;
 
       fee_payer_account->commit = 1;
-      fd_runtime_lthash_account( bank, &txn_out->accounts.keys[ FD_FEE_PAYER_TXN_IDX ], fee_payer_account, runtime->log.capture_ctx );
+      fd_runtime_lthash_account( runtime, bank, &txn_out->accounts.keys[ FD_FEE_PAYER_TXN_IDX ], fee_payer_account, runtime->log.capture_ctx );
     }
   }
 
@@ -1359,14 +1374,15 @@ fd_runtime_new_txn_out( fd_txn_in_t const * txn_in,
 
   fd_hash_t * blockhash = (fd_hash_t *)((uchar *)txn_in->txn->payload + TXN( txn_in->txn )->recent_blockhash_off);
   memcpy( txn_out->details.blockhash.uc, blockhash->hash, sizeof(fd_hash_t) );
+  memset( txn_out->details.blake_txn_msg_hash.uc, 0, sizeof(fd_hash_t) );
 
   txn_out->accounts.is_setup           = 0;
   txn_out->accounts.is_bundle          = txn_in->bundle.is_bundle;
   if( FD_LIKELY( !txn_in->bundle.is_bundle ) ) txn_out->accounts.cnt= 0UL;
 
-  FD_STATIC_ASSERT( offsetof(fd_txn_out_t, accounts.rm_vote)-offsetof(fd_txn_out_t, accounts.stake_update)==3UL*MAX_TX_ACCOUNT_LOCKS, txn_out_flags_contiguous );
+  FD_STATIC_ASSERT( offsetof(fd_txn_out_t, accounts.touched)-offsetof(fd_txn_out_t, accounts.stake_update)==4UL*MAX_TX_ACCOUNT_LOCKS, txn_out_flags_contiguous );
   memset( txn_out->accounts.is_writable,  0, sizeof(txn_out->accounts.is_writable) );
-  memset( txn_out->accounts.stake_update, 0, 4UL*MAX_TX_ACCOUNT_LOCKS );
+  memset( txn_out->accounts.stake_update, 0, 5UL*MAX_TX_ACCOUNT_LOCKS );
   txn_out->accounts.nonce_idx_in_txn            = ULONG_MAX;
 
   /* For bundle transactions the resolved key list is bound once up
@@ -2073,16 +2089,17 @@ fd_runtime_prepare_bundle_accounts( fd_runtime_t *      runtime,
     err = fd_executor_validate_account_locks( txn_out );
     if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) return err;
 
+    uint bpf_upgradeable = fd_txn_account_has_bpf_loader_upgradeable( txn_out->accounts.keys, txn_out->accounts.cnt );
     for( ushort j=0; j<txn_out->accounts.cnt; j++ ) {
       fd_pubkey_t const * key = &txn_out->accounts.keys[ j ];
+      int writable = fd_runtime_account_is_writable_idx_flat( j, key, TXN( txn_in->txn ), bpf_upgradeable );
       int dup = 0;
-      for( ulong k=0UL; k<acquire_cnt; k++ ) if( FD_UNLIKELY( !memcmp( acquire_pubkeys[ k ], key->uc, 32UL ) ) ) { dup = 1; break; }
+      for( ulong k=0UL; k<acquire_cnt; k++ ) if( FD_UNLIKELY( !memcmp( acquire_pubkeys[ k ], key->uc, 32UL ) ) ) { acquire_writable[ k ] |= writable; dup = 1; break; }
       if( FD_UNLIKELY( dup ) ) continue;
       FD_TEST( acquire_cnt<FD_BUNDLE_ACCT_MAX );
       acquire_pubkeys [ acquire_cnt ] = key->uc;
-      /* Bundle accounts are always acquired writable so that a later
-        txn can cleanly upgrade a read permission to a write. */
-      acquire_writable[ acquire_cnt ] = 1;
+      /* Acquire writable if any bundle member can write this account. */
+      acquire_writable[ acquire_cnt ] = writable;
       acquire_cnt++;
     }
   }

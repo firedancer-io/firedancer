@@ -44,6 +44,7 @@ jobs:
           // The artifacts were written by the fork's run: keep only validated fields under the row ids the renderer knows.
           const rowJob = JSON.parse((await exec.getExecOutput('python3', ['-c', "import json, sys; sys.path.insert(0, 'contrib/ci/bench'); import benchmark_comment as b; print(json.dumps({r[0]: r[2] for r in b.ROWS}))"])).stdout);
           const num = v => v === null || (typeof v === 'number' && Number.isFinite(v) && v > 0);
+          const skew = v => v === undefined || (typeof v === 'number' && Number.isFinite(v) && v >= 1);
           const valid = [];
           let base;
           for (const job of ['replay', 'snapshot', 'bench']) {
@@ -52,9 +53,9 @@ jobs:
             try { r = JSON.parse(fs.readFileSync(rowsFile, 'utf8')); } catch (e) { core.info(`benchmark comment [${job}]: no usable rows (${e.message})`); continue; }
             const ok = r.job === job && r.head === run.head_sha && /^[0-9a-f]{40}$/.test(r.base) && (base === undefined || r.base === base)
                     && r.run_id === run.id && ['running', 'partial', 'done', 'failed'].includes(r.status) && r.rows && typeof r.rows === 'object'
-                    && Object.entries(r.rows).every(([k, m]) => rowJob[k] === job && m && num(m.base) && num(m.new));
+                    && Object.entries(r.rows).every(([k, m]) => rowJob[k] === job && m && num(m.base) && num(m.new) && skew(m.skew) && (m.skew === undefined || job === 'snapshot'));
             if (!ok) { core.info(`benchmark comment [${job}]: rows are not from this run`); continue; }
-            const rows = Object.fromEntries(Object.entries(r.rows).map(([k, m]) => [k, {base: m.base, new: m.new}]));
+            const rows = Object.fromEntries(Object.entries(r.rows).map(([k, m]) => [k, m.skew === undefined ? {base: m.base, new: m.new} : {base: m.base, new: m.new, skew: m.skew}]));
             fs.writeFileSync(rowsFile, JSON.stringify({job, head: r.head, base: r.base, run_id: r.run_id, status: r.status, rows}));
             valid.push(rowsFile);
             base = r.base;

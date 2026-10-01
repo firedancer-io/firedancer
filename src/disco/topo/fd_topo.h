@@ -10,6 +10,7 @@
 #include "../../util/net/fd_net_headers.h"
 #include "../../util/net/fd_ip6.h"
 #include "../pack/fd_pack_acct_blocklist.h"
+#include "../keyguard/fd_keyguard.h"
 
 /* Maximum number of workspaces that may be present in a topology. */
 #define FD_TOPO_MAX_WKSPS         (256UL)
@@ -144,6 +145,7 @@ struct fd_topo_tile {
 
   ulong cpu_idx;                /* The CPU index to pin the tile on.  A value of ULONG_MAX or more indicates the tile should be floating and not pinned to a core. */
   int   floats;                 /* Scheduled by the kernel over the CPUs of the floating tiles on its NUMA node, never a pinned tile's CPU, instead of pinned to cpu_idx (efficient mode).  cpu_idx still places memory and isolation, and is the fallback when no such CPU remains. */
+  int   sleep_eventfd;          /* Parks in epoll on its own fds and is woken through the eventfd FD_SLEEP_EVENTFD( id ), not FUTEX_WAKE (efficient mode only) */
 
   ulong waker_client_idx;       /* Client slot in the fixed inherited fd range (inner epoll fd FD_WAKER_INNER_FD( idx )), or ULONG_MAX if not a waker client */
   ulong waker_fseq_obj_id;      /* fseq object holding the tile's waker readiness word or ULONG_MAX */
@@ -419,7 +421,7 @@ struct fd_topo_tile {
     struct {
       char  identity_key_path[ PATH_MAX ];
       ulong authorized_voter_paths_cnt;
-      char  authorized_voter_paths[ 16 ][ PATH_MAX ];
+      char  authorized_voter_paths[ FD_KEYGUARD_AUTH_VOTERS_MAX ][ PATH_MAX ];
       struct {
         uchar tip_payment_program_addr[ 32 ];
         uchar tip_distribution_program_addr[ 32 ];
@@ -472,6 +474,7 @@ struct fd_topo_tile {
 
       char identity_key_path[ PATH_MAX ];
       int  delay_startup;
+      int  alpenglow;
 
       int    snapshot_server_enabled;
       char   snapshot_server_host[ FD_FQDN_BUF_MAX ];
@@ -611,6 +614,7 @@ struct fd_topo_tile {
       char   identity_key_path[ PATH_MAX ];
       ulong  ping_cache_entries;
       ulong  max_shreds_per_block;
+      ulong  blockdb_max; /* 0 disables the block metadata db */
     } rserve;
 
     struct {
@@ -646,7 +650,7 @@ struct fd_topo_tile {
       ulong accdb_obj_id;
 
       ulong authorized_voter_paths_cnt;
-      char  authorized_voter_paths[ 16 ][ PATH_MAX ];
+      char  authorized_voter_paths[ FD_KEYGUARD_AUTH_VOTERS_MAX ][ PATH_MAX ];
       int   hard_fork_fatal;
       int   wait_for_supermajority;
       ulong max_live_slots;
@@ -658,6 +662,7 @@ struct fd_topo_tile {
 
     struct {
       char   identity_key_path[ PATH_MAX ];
+      ulong  authorized_voter_paths_cnt;
       ushort quic_client_listen_port;
       ushort quic_server_listen_port;
       uint   ip_addr;

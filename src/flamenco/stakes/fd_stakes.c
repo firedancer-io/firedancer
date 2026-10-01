@@ -534,6 +534,22 @@ get_vote_credits( uchar const *        account_data,
   epoch_credits->fast_path_ok = fd_epoch_credits_fast_path_ok( epoch_credits );
 }
 
+int
+fd_stakes_vote_account_is_admissible( fd_bank_t const * bank,
+                                      ulong             lamports,
+                                      uchar const *     owner,
+                                      uchar const *     data,
+                                      ulong             data_len ) {
+  /* Agave's VAT filter also checks lamports against the VoteStateV4
+     rent-exempt minimum, plus one epoch's VAT burn once alpenglow is
+     active. */
+  ulong vat_to_burn_per_epoch = FD_FEATURE_ACTIVE_BANK( bank, alpenglow ) ? fd_slot_params_at_slot( bank, bank->f.slot ).vat_to_burn_per_epoch : 0UL;
+  ulong minimum_balance       = fd_rent_exempt_minimum_balance( &bank->f.rent, FD_VOTE_STATE_V4_SZ ) + vat_to_burn_per_epoch;
+  return lamports>=minimum_balance &&
+         fd_vsv_is_correct_size_owner_and_init( owner, data, data_len ) &&
+         fd_vote_account_is_v4_with_bls_pubkey( data, data_len );
+}
+
 void
 fd_refresh_vote_accounts( fd_bank_t *                    bank,
                           fd_accdb_t *                   accdb,
@@ -627,8 +643,6 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
   /* Vote accounts are read in batches so their disk reads are issued
      together. */
   ulong top_votes_eligible = 0UL;
-  ulong vat_to_burn_per_epoch = alpenglow_enabled ? fd_slot_params_at_slot( bank, bank->f.slot ).vat_to_burn_per_epoch : 0UL;
-  ulong minimum_vote_account_balance = fd_rent_exempt_minimum_balance( &bank->f.rent, FD_VOTE_STATE_V4_SZ ) + vat_to_burn_per_epoch;
   fd_stake_accum_map_iter_t iter = fd_stake_accum_map_iter_init( stake_accum_map, stake_accum_pool );
   while( !fd_stake_accum_map_iter_done( iter, stake_accum_map, stake_accum_pool ) ) {
     fd_stake_accum_t * batch   [ FD_STAKES_ACC_BATCH ];
@@ -657,15 +671,8 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
       ushort      commission_t_1   = 0;
       uchar       bls_key_t_1[ FD_BLS_PUBKEY_COMPRESSED_SZ ];
 
-      /* Agave's VAT filter also checks lamports against the VoteStateV4
-         rent-exempt minimum, plus one epoch's VAT burn once alpenglow is
-         active. */
       if( FD_UNLIKELY( !acc->lamports ) ) continue;
-      if( FD_UNLIKELY( acc->lamports < minimum_vote_account_balance ) ) continue;
-      if( FD_UNLIKELY( !fd_vsv_is_correct_size_owner_and_init( acc->owner, acc->data, acc->data_len ) ||
-                       !fd_vote_account_is_v4_with_bls_pubkey( acc->data, acc->data_len ) ) ) {
-        continue;
-      }
+      if( FD_UNLIKELY( !fd_stakes_vote_account_is_admissible( bank, acc->lamports, acc->owner, acc->data, acc->data_len ) ) ) continue;
 
       FD_TEST( !fd_vote_account_commission_bps( acc->data, acc->data_len, FD_FEATURE_ACTIVE_BANK( bank, commission_rate_in_basis_points ), &commission_t_1 ) );
       FD_TEST( !fd_vote_account_node_pubkey( acc->data, acc->data_len, &node_account_t_1 ) );
@@ -674,6 +681,16 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
       }
 
       fd_vote_stakes_insert( vote_stakes, fork_id, &stake_accum->pubkey, &node_account_t_1, stake_t_1, commission_t_1, bls_key_t_1 );
+      {
+        /* SIMD-0123 fields from the same account image as the inflation
+           commission. */
+        ushort block_revenue_commission_bps;
+        ulong  pending_delegator_rewards;
+        FD_TEST( !fd_vote_account_block_revenue_commission_bps( acc->data, acc->data_len, &block_revenue_commission_bps ) );
+        FD_TEST( !fd_vote_account_pending_delegator_rewards( acc->data, acc->data_len, &pending_delegator_rewards ) );
+        fd_vote_stakes_set_block_revenue_t_1( vote_stakes, fork_id, &stake_accum->pubkey,
+                                              block_revenue_commission_bps, pending_delegator_rewards );
+      }
       top_votes_eligible++;
     }
     fd_accdb_release( accdb, batch_cnt, accs );

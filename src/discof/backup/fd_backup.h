@@ -69,6 +69,7 @@ typedef struct fd_backup_inode fd_backup_inode_t;
 
 struct fd_backup_start_msg {
   ulong  slot;      /* slot number */
+  ulong  slot_lo;   /* lowest appendvec slot this archive may use */
   uint   snap_idx;  /* identifies file descriptor */
   ushort fork_id;   /* accdb fork ID */
 };

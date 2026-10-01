@@ -349,6 +349,29 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
     bundle_acquire( env, &_repr, (txn_cnt) );                                                     \
   } while(0)
 
+  /* Shared reads remain read-only; a later writer upgrades the union.
+     A requested-writable sysvar is still read-only after demotion. */
+  {
+    fd_txn_p_t perms_txn[2] = {0};
+    fd_txn_in_t perms_in[2] = {0};
+    fd_pubkey_t keys[2][4] = { { pubkey1, pubkey2, pubkey3, fd_sysvar_clock_id },
+                              { pubkey1, pubkey2, fd_sysvar_clock_id, pubkey3 } };
+    for( ulong i=0UL; i<2UL; i++ ) {
+      ulong sz = txn_serialize( perms_txn[i].payload, 1UL, &signature, 1UL, 0UL,
+                                i ? 1UL : 3UL, 4UL, keys[i], &dummy_hash );
+      perms_txn[i].payload_sz = (ushort)sz;
+      FD_TEST( fd_txn_parse( perms_txn[i].payload, sz, TXN( &perms_txn[i] ), NULL ) );
+      perms_in[i].txn              = &perms_txn[i];
+      perms_in[i].bundle.is_bundle = 1;
+    }
+    FD_TEST( fd_runtime_prepare_bundle_accounts( env->runtime, env->bank, perms_in, env->txn_out, 2UL )==FD_RUNTIME_EXECUTE_SUCCESS );
+    FD_TEST( env->txn_out[0].accounts.account[2] && !env->txn_out[0].accounts.account[2]->_writable );
+    FD_TEST( env->txn_out[1].accounts.account[3] == env->txn_out[0].accounts.account[2] );
+    FD_TEST( env->txn_out[1].accounts.account[1] &&  env->txn_out[1].accounts.account[1]->_writable );
+    FD_TEST( env->txn_out[1].accounts.account[2] && !env->txn_out[1].accounts.account[2]->_writable );
+    fd_runtime_fini_bundle( env->runtime );
+  }
+
   /* ==========================================================================
      Test 1: rw -> rw — bundle reuses a writable account as writable
      ========================================================================== */
@@ -373,6 +396,7 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
   FD_TEST( env->txn_out[0].accounts.is_writable[1] == 1 );
   FD_TEST( env->txn_out[0].accounts.account[1]->lamports == 1000000UL );
   env->txn_out[0].accounts.account[1]->lamports = 2000000UL;
+  env->txn_out[0].accounts.touched[ 1 ] = 1;
 
   env->txn_in.txn                     = &bundle_txns[1];
   env->txn_in.bundle.is_bundle        = 1;
@@ -415,6 +439,7 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
   FD_TEST( env->txn_out[0].err.is_committable );
   FD_TEST( env->txn_out[0].accounts.is_writable[1] == 1 );
   env->txn_out[0].accounts.account[1]->lamports = 2000001UL;
+  env->txn_out[0].accounts.touched[ 1 ] = 1;
 
   /* tx1: account becomes readonly */
   serialize_bundle_txn( &txn_p, account_keys, 2UL, 1UL );
@@ -437,6 +462,7 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
   FD_TEST( env->txn_out[2].accounts.is_writable[1] == 1 );
   FD_TEST( env->txn_out[2].accounts.account[1]->lamports == 2000001UL );
   env->txn_out[2].accounts.account[1]->lamports = 2000011UL;
+  env->txn_out[2].accounts.touched[ 1 ] = 1;
 
   /* tx3: readonly again */
   serialize_bundle_txn( &txn_p, account_keys, 2UL, 1UL );
@@ -473,6 +499,7 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
   FD_TEST( env->txn_out[0].err.is_committable );
   FD_TEST( env->txn_out[0].accounts.account[1]->lamports == 1000000UL );
   env->txn_out[0].accounts.account[1]->lamports = 2000021UL;
+  env->txn_out[0].accounts.touched[ 1 ] = 1;
   /* Single acquire for the bundle; release once via fini_bundle. */
   env->txn_out[0].err.is_committable = 0;
   fd_runtime_fini_bundle( env->runtime );
@@ -494,6 +521,7 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
   FD_TEST( env->txn_out[0].err.is_committable );
   FD_TEST( env->txn_out[0].accounts.account[1]->lamports == 1000000UL );
   env->txn_out[0].accounts.account[1]->lamports = 2000021UL;
+  env->txn_out[0].accounts.touched[ 1 ] = 1;
 
   serialize_bundle_txn( &txn_p, account_keys, 2UL, 0UL );
   env->txn_in.txn                     = &txn_p;
@@ -503,6 +531,7 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
   FD_TEST( env->txn_out[1].err.is_committable );
   FD_TEST( env->txn_out[1].accounts.account[1]->lamports == 2000021UL );
   env->txn_out[1].accounts.account[1]->lamports = 2000031UL;
+  env->txn_out[1].accounts.touched[ 1 ] = 1;
 
   serialize_bundle_txn( &txn_p, account_keys, 2UL, 0UL );
   env->txn_in.txn                     = &txn_p;
@@ -512,6 +541,7 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
   FD_TEST( env->txn_out[2].err.is_committable );
   FD_TEST( env->txn_out[2].accounts.account[1]->lamports == 2000031UL );
   env->txn_out[2].accounts.account[1]->lamports = 2000041UL;
+  env->txn_out[2].accounts.touched[ 1 ] = 1;
 
   /* tx3: readonly */
   serialize_bundle_txn( &txn_p, account_keys, 2UL, 1UL );
@@ -582,6 +612,7 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
     FD_TEST( env->txn_out[1].accounts.is_writable[1] == 1 );
     FD_TEST( env->txn_out[1].accounts.account[1] == env->txn_out[0].accounts.account[1] ); /* reused */
     env->txn_out[1].accounts.account[1]->lamports = 4000000UL;
+    env->txn_out[1].accounts.touched[ 1 ] = 1;
 
     /* Ownership of the accdb ref must transfer to the writable reuser:
        the writer now owns+commits the final state, while is_writable on
@@ -613,6 +644,63 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
   FD_LOG_NOTICE(( "test owner-readonly + later-writer commit... ok" ));
 
   /* ==========================================================================
+     Test 4c: a later writer that leaves the account untouched still
+     commits what an earlier bundle txn wrote.
+
+     tx0 writes the account, tx1 takes ownership of it writable without
+     touching it.  tx1 commits the shared state, so it must inherit tx0's
+     touched flag, and tx0 keeps its own.
+     ========================================================================== */
+
+  {
+    reset_world();
+    fd_pubkey_t handoff = { .ul[0] = 0x48414e444f4646UL };
+    create_test_account( env->mini->runtime->accdb, env->fork_id, &handoff,
+                         3000000UL, 0UL, NULL, &system );
+    fd_pubkey_t handoff_keys[2] = { pubkey1, handoff };
+    bundle_acquire_repr( handoff_keys, 2UL, 2UL );
+
+    serialize_bundle_txn( &txn_p, handoff_keys, 2UL, 0UL );
+    env->txn_in.txn                     = &txn_p;
+    env->txn_in.bundle.is_bundle        = 1;
+    env->txn_in.bundle.prev_txn_cnt     = 0;
+    fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[0] );
+    FD_TEST( env->txn_out[0].err.is_committable );
+    FD_TEST( env->txn_out[0].accounts.touched[ 1 ]==0 );
+    env->txn_out[0].accounts.account[1]->lamports = 5000000UL;
+    env->txn_out[0].accounts.touched[ 1 ] = 1;
+
+    serialize_bundle_txn( &txn_p, handoff_keys, 2UL, 0UL );
+    env->txn_in.txn                     = &txn_p;
+    env->txn_in.bundle.prev_txn_cnt     = 1;
+    env->txn_in.bundle.prev_txn_outs[0] = &env->txn_out[0];
+    fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[1] );
+    FD_TEST( env->txn_out[1].err.is_committable );
+    FD_TEST( env->txn_out[1].accounts.account[1] == env->txn_out[0].accounts.account[1] ); /* reused */
+    FD_TEST( env->txn_out[1].accounts.account_acquired[1] == 1 );
+    FD_TEST( env->txn_out[0].accounts.account_acquired[1] == 0 );
+    FD_TEST( env->txn_out[1].accounts.touched[ 1 ]==1 ); /* inherited */
+    FD_TEST( env->txn_out[0].accounts.touched[ 1 ]==1 ); /* kept */
+
+    fd_runtime_commit_txn( env->runtime, env->bank, NULL, &env->txn_out[0] );
+    fd_runtime_commit_txn( env->runtime, env->bank, NULL, &env->txn_out[1] );
+    fd_runtime_fini_bundle( env->runtime );
+
+    serialize_bundle_txn( &txn_p, handoff_keys, 2UL, 1UL );
+    env->txn_in.txn              = &txn_p;
+    env->txn_in.bundle.is_bundle = 0;
+    fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[2] );
+    FD_TEST( env->txn_out[2].err.is_committable );
+    FD_TEST( env->txn_out[2].accounts.account[1]->lamports == 5000000UL );
+    env->txn_out[2].err.is_committable = 0;
+    fd_runtime_cancel_txn( env->runtime, NULL, NULL, &env->txn_out[2] );
+
+    env->txn_in.bundle.is_bundle = 1; /* restore for subsequent tests */
+  }
+
+  FD_LOG_NOTICE(( "test untouched later writer commits earlier write... ok" ));
+
+  /* ==========================================================================
      Test 5: Account reclaim divergence between bundle and replay
      ========================================================================== */
 
@@ -638,6 +726,7 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
 
   /* Simulate SBF program draining lamports to 0. */
   env->txn_out[0].accounts.account[1]->lamports = 0UL;
+  env->txn_out[0].accounts.touched[ 1 ] = 1;
 
   serialize_bundle_txn( &txn_p, reclaim_keys, 2UL, 0UL );
   env->txn_in.txn                     = &txn_p;
@@ -743,6 +832,7 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
     env->txn_out[0].accounts.account[1]->lamports   = 0UL;
     env->txn_out[0].accounts.account[1]->data_len   = 0UL;
     env->txn_out[0].accounts.account[1]->executable = 0;
+    env->txn_out[0].accounts.touched[ 1 ] = 1;
     fd_memset( env->txn_out[0].accounts.account[1]->owner, 0, 32UL );
 
     serialize_bundle_txn( &txn_p, stake_keys, 2UL, 0UL );
@@ -861,6 +951,7 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
     upgraded.inner.program_data.has_upgrade_authority_address = 1;
     ulong out_sz = 0UL;
     FD_TEST( !fd_bpf_state_encode( &upgraded, pd_out_data, PROGRAMDATA_METADATA_SIZE, &out_sz ) );
+    env->txn_out[0].accounts.touched[ pd_idx ] = 1;
   }
 
   env->txn_in.txn                     = &coherency_txn[1];
@@ -1082,6 +1173,7 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
                             env->txn_out[0].accounts.account[1]->data_len,
                             &nonce_fee_payer,
                             &bundle_nonce );
+    env->txn_out[0].accounts.touched[ 1 ] = 1;
 
     /* tx1: durable nonce txn whose recent blockhash matches only the
        staged bundle nonce. */
@@ -1168,6 +1260,7 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
     FD_TEST( env->txn_out[1].accounts.stake_update[1] );      /* carried onto new owner */
     env->txn_out[1].accounts.account[1]->lamports   = 0UL;
     env->txn_out[1].accounts.account[1]->data_len   = 0UL;
+    env->txn_out[1].accounts.touched[ 1 ] = 1;
     fd_memset( env->txn_out[1].accounts.account[1]->owner, 0, 32UL );
 
     fd_runtime_commit_txn( env->runtime, env->bank, NULL, &env->txn_out[0] );
@@ -1307,6 +1400,55 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
   }
 
   FD_LOG_NOTICE(( "test nondelegated stake close skips tombstone... ok" ));
+
+  /* ==========================================================================
+     Test: commit skips write-locked accounts left untouched
+     ========================================================================== */
+
+  {
+    fd_pubkey_t gate_key = { .ul[0] = 0xF00DUL };
+    create_test_account( env->mini->runtime->accdb, env->fork_id, &gate_key, 7000000UL, 0UL, NULL, &system );
+    fd_pubkey_t gate_keys[2] = { pubkey1, gate_key };
+
+    serialize_bundle_txn( &txn_p, gate_keys, 2UL, 0UL );
+    env->txn_in.txn                 = &txn_p;
+    env->txn_in.bundle.is_bundle    = 0;
+    env->txn_in.bundle.prev_txn_cnt = 0;
+    fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[0] );
+    FD_TEST( env->txn_out[0].err.is_committable );
+    FD_TEST( env->txn_out[0].err.txn_err==FD_RUNTIME_EXECUTE_SUCCESS );
+    FD_TEST( env->txn_out[0].accounts.is_writable[1]==1 );
+    FD_TEST( env->txn_out[0].accounts.account[1]->lamports==7000000UL );
+    FD_TEST( env->txn_out[0].accounts.touched[ 1 ]==0 );
+
+    /* Simulate state that changed without any mutable access: commit
+       must not publish a new version of the untouched account. */
+    env->txn_out[0].accounts.account[1]->lamports = 8000000UL;
+    fd_runtime_commit_txn( env->runtime, env->bank, NULL, &env->txn_out[0] );
+
+    serialize_bundle_txn( &txn_p, gate_keys, 2UL, 0UL );
+    env->txn_in.txn                 = &txn_p;
+    env->txn_in.bundle.is_bundle    = 0;
+    fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[1] );
+    FD_TEST( env->txn_out[1].err.is_committable );
+    FD_TEST( env->txn_out[1].accounts.account[1]->lamports==7000000UL ); /* prior version retained */
+
+    /* Touched counterpart: the same mutation marked touched must publish. */
+    env->txn_out[1].accounts.account[1]->lamports = 8000000UL;
+    env->txn_out[1].accounts.touched[ 1 ]  = 1;
+    fd_runtime_commit_txn( env->runtime, env->bank, NULL, &env->txn_out[1] );
+
+    serialize_bundle_txn( &txn_p, gate_keys, 2UL, 0UL );
+    env->txn_in.txn                 = &txn_p;
+    env->txn_in.bundle.is_bundle    = 0;
+    fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[2] );
+    FD_TEST( env->txn_out[2].err.is_committable );
+    FD_TEST( env->txn_out[2].accounts.account[1]->lamports==8000000UL ); /* new version published */
+    env->txn_out[2].err.is_committable = 0;
+    fd_runtime_cancel_txn( env->runtime, NULL, NULL, &env->txn_out[2] );
+
+    FD_LOG_NOTICE(( "test untouched account commit skipped... ok" ));
+  }
 }
 
 static void

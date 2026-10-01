@@ -131,6 +131,7 @@ metrics_write( fd_execle_tile_t * ctx ) {
 
   FD_MCNT_SET( EXECLE, INSTRUCTION_EXECUTED, ctx->runtime->metrics.instr_cum );
   FD_MCNT_SET( EXECLE, CPI_EXECUTED,         ctx->runtime->metrics.cpi_cum   );
+  FD_MCNT_SET( EXECLE, LTHASH_UNCHANGED,     ctx->runtime->metrics.lthash_unchanged_cnt );
 
   FD_MCNT_SET( EXECLE, CU_EXECUTED, ctx->runtime->metrics.cu_cum );
 

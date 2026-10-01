@@ -284,9 +284,7 @@ fd_fctl_rx_slow_laddr_const( fd_fctl_t const * fctl,
 static inline void
 fd_fctl_rx_cr_return( ulong * _rx_seq,
                       ulong   rx_seq ) {
-  FD_COMPILER_MFENCE();
-  FD_VOLATILE( *_rx_seq ) = rx_seq;
-  FD_COMPILER_MFENCE();
+  __atomic_store_n( _rx_seq, rx_seq, __ATOMIC_RELEASE );
 }
 
 /**********************************************************************/
@@ -358,7 +356,7 @@ fd_fctl_cr_query( fd_fctl_t const * fctl,
     ulong const * _rx_seq = rx[ rx_idx ].seq_laddr;
     if( FD_UNLIKELY( !_rx_seq ) ) continue; /* Skip inactive rx */
 
-    ulong rx_seq      = FD_VOLATILE_CONST( *_rx_seq );
+    ulong rx_seq      = __atomic_load_n( _rx_seq, __ATOMIC_ACQUIRE );
     ulong rx_cr_query = (ulong)fd_long_max( rx[ rx_idx ].cr_max - fd_long_max( fd_seq_diff( tx_seq, rx_seq ), 0L ), 0L );
     rx_idx_slow       = fd_ulong_if( rx_cr_query<cr_query, rx_idx, rx_idx_slow );
     cr_query          = fd_ulong_min( rx_cr_query, cr_query );
@@ -449,7 +447,7 @@ fd_fctl_cr_query( fd_fctl_t const * fctl,
        ...
        if( ... time for housekeeping ... ) {
          ...
-         FD_VOLATILE( fctl_seq[0] ) = rx_seq; // Update the transmitter and monitors where we are at
+         fd_fctl_rx_cr_return( fctl_seq, rx_seq ); // Update the transmitter and monitors where we are at
          // It is fine to be quite aggressive about this as this is
          // should be a L1 cache hit store the vast majority of the time.
          ...

@@ -175,7 +175,7 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( fd_rpc_client_join( fd_rpc_client_new( ctx->rpc, tile->bencho.rpc_ip_addr, tile->bencho.rpc_port ) ) );
 
   ctx->in_mem = NULL;
-  if( FD_LIKELY( tile->in_cnt ) ) {   /* replay_out, when the topology has replay */
+  if( FD_LIKELY( tile->in_cnt ) ) {   /* replay_slot, when the topology has replay */
     fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ 0 ] ];
     ctx->in_mem = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
   } else if( FD_UNLIKELY( tile->bencho.duration_s ) ) {

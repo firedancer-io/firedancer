@@ -30,6 +30,7 @@ typedef struct {
   fd_accdb_shmem_t *       shmem;
   void *                   snapin_shmem_mem;
   fd_snapin_shmem_t *      snapin_shmem;
+  void *                   stake_mem;
   fd_snapin_tile_t *       worker;
   void *                   join_mem [ TEST_WORKER_MAX ];
   fd_accdb_fork_id_t       root;
@@ -109,6 +110,11 @@ test_env_init( test_env_t * env,
   FD_TEST( dup2( fd, FD_ACCDB_FD_RW )==FD_ACCDB_FD_RW );
   if( fd!=FD_ACCDB_FD_RW ) FD_TEST( !close( fd ) );
 
+  int stake_fd = memfd_create( "snapin_accdb_stake", 0 );
+  FD_TEST( stake_fd>=0 );
+  FD_TEST( dup2( stake_fd, FD_STAKE_DELEGATIONS_FD )==FD_STAKE_DELEGATIONS_FD );
+  if( stake_fd!=FD_STAKE_DELEGATIONS_FD ) FD_TEST( !close( stake_fd ) );
+
   ulong shmem_fp = fd_accdb_shmem_footprint( TEST_MAX_ACCOUNTS, 16UL, 128UL, 32UL,
                                              TEST_CACHE_FOOTPRINT, 2UL,
                                              worker_cnt, 0UL );
@@ -124,6 +130,15 @@ test_env_init( test_env_t * env,
   FD_TEST( env->snapin_shmem_mem );
   env->snapin_shmem = (fd_snapin_shmem_t *)env->snapin_shmem_mem;
   fd_memset( env->snapin_shmem, 0, sizeof(fd_snapin_shmem_t) );
+  env->snapin_shmem->stake_fork = USHORT_MAX;
+
+  /* Replaced versions tombstone snooped stake delegations. */
+  ulong stake_fp = fd_ulong_align_up( fd_stake_delegations_footprint( 16UL, 4UL ), fd_stake_delegations_align() );
+  env->stake_mem = aligned_alloc( fd_stake_delegations_align(), stake_fp );
+  FD_TEST( env->stake_mem );
+  FD_TEST( fd_stake_delegations_new( env->stake_mem, FD_STAKE_DELEGATIONS_FD, 1UL, 16UL, 16UL, 4UL ) );
+  fd_stake_delegations_t * stake_delegations = fd_stake_delegations_join( env->stake_mem, FD_STAKE_DELEGATIONS_FD );
+  FD_TEST( stake_delegations );
 
   ulong worker_fp = fd_ulong_align_up( worker_cnt*sizeof(fd_snapin_tile_t), alignof(fd_snapin_tile_t) );
   env->worker = aligned_alloc( alignof(fd_snapin_tile_t), worker_fp );
@@ -139,9 +154,11 @@ test_env_init( test_env_t * env,
     ctx->accdb = fd_accdb_join( fd_accdb_new( env->join_mem[ i ], env->shmem,
                                                FD_ACCDB_FD_RW, 0UL, NULL, NULL, 0UL, 0 ) );
     FD_TEST( ctx->accdb );
-    ctx->full         = 1;
-    ctx->tile_idx     = i;
-    ctx->shmem        = env->snapin_shmem;
+    ctx->full              = 1;
+    ctx->tile_idx          = i;
+    ctx->incr_fork         = (ulong)USHORT_MAX;
+    ctx->shmem             = env->snapin_shmem;
+    ctx->stake_delegations = stake_delegations;
 
     /* Same reopen as privileged_init.  Direct IO on a memfd needs
        kernel support; fall back to the buffered fd where it is missing
@@ -256,6 +273,20 @@ read_account( test_env_t *          env,
 }
 
 static void
+test_env_free( test_env_t * env ) {
+  for( ulong i=0UL; i<env->worker_cnt; i++ ) {
+    if( env->worker[ i ].writer.accdb_direct_fd!=FD_ACCDB_FD_RW ) FD_TEST( !close( env->worker[ i ].writer.accdb_direct_fd ) );
+    free( env->join_mem[ i ] );
+  }
+  free( env->worker );
+  free( env->stake_mem );
+  free( env->snapin_shmem_mem );
+  free( env->shmem_mem );
+  FD_TEST( !close( FD_ACCDB_FD_RW ) );
+  FD_TEST( !close( FD_STAKE_DELEGATIONS_FD ) );
+}
+
+static void
 test_env_fini( test_env_t *          env,
                test_account_t const * accounts ) {
   /* Every account is still buffered: exactly one flush per worker,
@@ -278,14 +309,7 @@ test_env_fini( test_env_t *          env,
   fd_accdb_snapshot_load_end( env->worker[ 0 ].accdb );
   for( ulong i=0UL; i<TEST_ACCOUNT_CNT; i++ ) read_account( env, &accounts[ i ] );
 
-  for( ulong i=0UL; i<env->worker_cnt; i++ ) {
-    if( env->worker[ i ].writer.accdb_direct_fd!=FD_ACCDB_FD_RW ) FD_TEST( !close( env->worker[ i ].writer.accdb_direct_fd ) );
-    free( env->join_mem[ i ] );
-  }
-  free( env->worker );
-  free( env->snapin_shmem_mem );
-  free( env->shmem_mem );
-  FD_TEST( !close( FD_ACCDB_FD_RW ) );
+  test_env_free( env );
 }
 
 static void
@@ -315,6 +339,112 @@ test_snapin_accdb( ulong worker_cnt ) {
   test_env_fini( env, accounts );
 }
 
+/* Capitalization across a full and an incremental snapshot whose
+   per-version lamport totals pass 2^64 (an incremental stores each vote
+   account once per slot) while capitalization stays small. */
+
+#define TEST_CAP_FULL_SLOT (100UL)
+#define TEST_CAP_BIG       (2000000000000000000UL) /* 2e18, a whale vote account */
+#define TEST_CAP_SMALL     (   1000000000000000UL) /* 1e15 */
+#define TEST_CAP_VERSIONS  (10UL)                  /* 2e19 of versions, past 2^64 */
+
+static void
+cap_stage( fd_snapin_tile_t * ctx,
+           ulong              id,
+           ulong              slot,
+           ulong              lamports ) {
+  uchar pubkey[ 32UL ] = {0};
+  uchar owner [ 32UL ] = { 0x42U };
+  uchar data  [ 1UL  ] = {0};
+  FD_STORE( ulong, pubkey, id );
+  pubkey[ 31 ] = 0xC3U;
+  FD_TEST( !writer_append_account( ctx, pubkey, owner, data, slot, lamports, 0UL, 0 ) );
+}
+
+static void
+cap_flush( test_env_t * env ) {
+  for( ulong i=0UL; i<env->worker_cnt; i++ ) FD_TEST( !writer_flush( &env->worker[ i ] ) );
+}
+
+/* Loads a whale (id 1) and three small accounts as the full snapshot,
+   checks it, then begins an incremental the way INIT_INCR does.
+   Returns the full snapshot's capitalization. */
+
+static ulong
+cap_full_then_begin_incr( test_env_t * env ) {
+  fd_snapin_tile_t * lead = &env->worker[ 0 ];
+  fd_snapin_tile_t * w1   = &env->worker[ 1 ];
+  cap_stage( lead, 1UL, TEST_CAP_FULL_SLOT, TEST_CAP_BIG   );
+  cap_stage( lead, 2UL, TEST_CAP_FULL_SLOT, TEST_CAP_SMALL );
+  cap_stage( w1,   3UL, TEST_CAP_FULL_SLOT, TEST_CAP_SMALL );
+  cap_stage( w1,   4UL, TEST_CAP_FULL_SLOT, TEST_CAP_SMALL );
+  cap_flush( env );
+
+  ulong full_cap = TEST_CAP_BIG + 3UL*TEST_CAP_SMALL;
+  lead->lead.manifest_capitalization = full_cap;
+  FD_TEST( !validate_capitalization( lead ) );
+  lead->lead.recovery.capitalization = full_cap;
+
+  fd_accdb_fork_id_t incr = fd_accdb_attach_child( lead->accdb, env->root );
+  fd_memset( &env->snapin_shmem->values, 0, sizeof(env->snapin_shmem->values) );
+  for( ulong i=0UL; i<env->worker_cnt; i++ ) {
+    env->worker[ i ].full      = 0;
+    env->worker[ i ].incr_fork = (ulong)incr.val;
+  }
+  return full_cap;
+}
+
+/* The testnet case: the whale once per slot, newest first on another
+   worker so the accdb both replaces and ignores versions, and one small
+   balance up by 7.  Input and duplicate lamports each pass 2^64 while
+   capitalization moves by 7.  Saturating sums computed 0 here. */
+
+static void
+test_capitalization_versions_past_2_64( void ) {
+  test_env_t env[1];
+  test_env_init( env, 9UL );
+  fd_snapin_tile_t * lead = &env->worker[ 0 ];
+  ulong full_cap = cap_full_then_begin_incr( env );
+
+  for( ulong v=0UL; v<TEST_CAP_VERSIONS; v++ ) {
+    cap_stage( &env->worker[ 1UL-(v&1UL) ], 1UL, TEST_CAP_FULL_SLOT+TEST_CAP_VERSIONS-v, TEST_CAP_BIG );
+  }
+  cap_stage( lead, 2UL, TEST_CAP_FULL_SLOT+5UL, TEST_CAP_SMALL+7UL );
+  cap_flush( env );
+  FD_TEST( TEST_CAP_BIG>ULONG_MAX/TEST_CAP_VERSIONS );
+
+  lead->lead.manifest_capitalization = full_cap+7UL; FD_TEST( !validate_capitalization( lead ) );
+  lead->lead.manifest_capitalization = full_cap+6UL; FD_TEST(  validate_capitalization( lead ) );
+  lead->lead.manifest_capitalization = full_cap+8UL; FD_TEST(  validate_capitalization( lead ) );
+
+  fd_accdb_snapshot_load_end( lead->accdb );
+  test_env_free( env );
+}
+
+/* A crafted incremental: one balance up by 7, and a new account that
+   holds H lamports and is then closed, with H picked so the saturated
+   sum lands on the full snapshot's capitalization.  Saturating sums
+   accepted a manifest that claims nothing changed. */
+
+static void
+test_capitalization_crafted_mismatch( void ) {
+  test_env_t env[1];
+  test_env_init( env, 9UL );
+  fd_snapin_tile_t * lead = &env->worker[ 0 ];
+  ulong full_cap = cap_full_then_begin_incr( env );
+
+  cap_stage( lead,            2UL, TEST_CAP_FULL_SLOT+5UL, TEST_CAP_SMALL+7UL );
+  cap_stage( lead,            5UL, TEST_CAP_FULL_SLOT+1UL, ULONG_MAX-full_cap-TEST_CAP_SMALL );
+  cap_stage( &env->worker[1], 5UL, TEST_CAP_FULL_SLOT+2UL, 0UL );
+  cap_flush( env );
+
+  lead->lead.manifest_capitalization = full_cap;     FD_TEST(  validate_capitalization( lead ) );
+  lead->lead.manifest_capitalization = full_cap+7UL; FD_TEST( !validate_capitalization( lead ) );
+
+  fd_accdb_snapshot_load_end( lead->accdb );
+  test_env_free( env );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -322,6 +452,8 @@ main( int     argc,
 
   test_snapin_accdb( 1UL );
   test_snapin_accdb( 9UL );
+  test_capitalization_versions_past_2_64();
+  test_capitalization_crafted_mismatch();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

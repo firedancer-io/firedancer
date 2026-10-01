@@ -305,8 +305,14 @@ before_frag( fd_motor_tile_t * ctx,
   case IN_KIND_REPLAY: return !( sig==REPLAY_SIG_RESET         ||
                                  sig==REPLAY_SIG_BECAME_LEADER ||
                                  sig==REPLAY_SIG_LEADER_FOOTER );
-  case IN_KIND_PACK:   return fd_disco_execle_sig_slot( sig )!=ctx->slot; /* done packing is the only pack frag that names our slot */
-  case IN_KIND_EXECLE: return fd_disco_execle_sig_slot( sig )!=ctx->slot; /* microblocks of our block */
+  case IN_KIND_PACK:
+    if( FD_UNLIKELY( sig==FD_PACK_MSG_DONE_DRAINING || sig==FD_PACK_MSG_REDUCE_MB_BOUND ) ) return 1;
+    __attribute__((fallthrough));
+  case IN_KIND_EXECLE: {
+    ulong slot = fd_disco_execle_sig_slot( sig );
+    /* Pack can outrun Motor on replay_out; wait for the leader notice. */
+    return FD_UNLIKELY( ctx->slot==ULONG_MAX || slot>ctx->slot ) ? -1 : slot<ctx->slot;
+  }
   default:             return 1;
   }
 }
@@ -388,6 +394,7 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_motor_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_motor_tile_t ), sizeof( fd_motor_tile_t ) );
 
   ctx->expect_pack_idx = 0U;
+  ctx->slot            = ULONG_MAX;
 
   FD_CHECK_ERR( tile->in_cnt<=sizeof(ctx->in)/sizeof(ctx->in[0]), "too many input links" );
 
@@ -400,7 +407,7 @@ unprivileged_init( fd_topo_t const *      topo,
     ctx->in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->in[ i ].mem, link->dcache, link->mtu );
     ctx->in[ i ].mtu    = link->mtu;
 
-    if(      !strcmp( link->name, "replay_out" ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
+    if(      !strcmp( link->name, "replay_slot" ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
     else if( !strcmp( link->name, "pack_poh"   ) ) ctx->in_kind[ i ] = IN_KIND_PACK;
     else if( !strcmp( link->name, "execle_poh" ) ) ctx->in_kind[ i ] = IN_KIND_EXECLE;
     else FD_LOG_ERR(( "unexpected input link name %s", link->name ));

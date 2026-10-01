@@ -361,6 +361,14 @@ fd_rdisp_add_txn( fd_rdisp_t          *  disp,
                   fd_acct_addr_t const * alts,
                   int                    serializing );
 
+/* fd_rdisp_peek_free_txn returns the transaction index the next
+   successful fd_rdisp_add_txn will return if no transaction is
+   completed and reclaimed in between, or 0 if there are no free
+   transaction indices.  A hint for prefetching the caller's per
+   transaction state; it does not change the dispatcher. */
+ulong
+fd_rdisp_peek_free_txn( fd_rdisp_t const * disp );
+
 /* fd_rdisp_get_next_ready returns the transaction index of a READY
    transaction that was inserted with block tag schedule_block if one
    exists, and 0 otherwise.  The block with the tag schedule_block must
