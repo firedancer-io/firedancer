@@ -567,6 +567,8 @@ is_expected_network_error( int err ) {
     err==ETIMEDOUT ||
     err==ENETRESET ||
     err==ECONNABORTED ||
+    err==ECONNREFUSED || /* ICMP port unreachable */
+    err==EACCES ||       /* ICMPv6 admin prohibited */
     err==ECONNRESET ||
     err==EPIPE ||
     err==EPERM || /* iptables */
