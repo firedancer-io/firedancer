@@ -26,6 +26,9 @@ static char const * const SESSION_NAMES[] = {
 static char const * const SOURCE_NAMES[] = {
   "the stored peer tower", "the vote account (automatic fallback)"
 };
+static char const * const SOURCE_NAMES_ALPENGLOW[] = {
+  "the stored peer vote history", "an empty history (requires --force)"
+};
 static char const * const HANDOFF_NAMES[] = {
   "nothing handed over", "pending", "taken", "declined", "restarted", "cancelled by `failover promote --force`",
   "the dialed machine was a standby"
@@ -39,6 +42,7 @@ static char const * const HANDOFF_NAMES[] = {
 FD_STATIC_ASSERT( ACTION_NAME_CNT ==FD_FAILOVER_ACTION_CNT,       action_names  );
 FD_STATIC_ASSERT( SESSION_NAME_CNT==FD_FAILOVER_SESSION_CNT,      session_names );
 FD_STATIC_ASSERT( SOURCE_NAME_CNT ==FD_FAILOVER_SOURCE_CNT,       source_names  );
+FD_STATIC_ASSERT( sizeof(SOURCE_NAMES_ALPENGLOW)==sizeof(SOURCE_NAMES), source_names_alpenglow );
 FD_STATIC_ASSERT( HANDOFF_NAME_CNT==FD_FAILOVER_HANDOFF_CNT,      handoff_names );
 
 /* Strips key and its value.  fd_env_strip_cmdline_cstr silently drops a
@@ -130,7 +134,9 @@ role_name( uchar role ) {
 }
 
 static char const *
-action_name( uchar action ) {
+action_name( uchar action,
+             int   alpenglow ) {
+  if( alpenglow && action==FD_FAILOVER_ACTION_DEMOTE_DRAIN ) return "handing off, waiting for the vote history stream to drain";
   return action<ACTION_NAME_CNT ? ACTION_NAMES[ action ] : "unknown";
 }
 
@@ -151,7 +157,7 @@ control_result_name( ulong result ) {
     case FD_FAILOVER_CONTROL_RESULT_TAKEN:             return "the peer took our last handoff and may still be voting";
     case FD_FAILOVER_CONTROL_RESULT_STAKED_SEEN:       return "gossip showed the staked identity at another host within the last 15 seconds, an active is publishing";
     case FD_FAILOVER_CONTROL_RESULT_NO_FINAL_TOWER:    return "the active has no eligible final vote state to hand over and keeps the identity, check its voting progress and vote-history logs before retrying";
-    case FD_FAILOVER_CONTROL_RESULT_REPLAY_BEHIND:     return "this standby is too far behind the active's last vote and the active keeps the identity, run `failover promote` again once this machine has caught up";
+    case FD_FAILOVER_CONTROL_RESULT_REPLAY_BEHIND:     return "this standby is too far behind the active's vote history and the active keeps the identity, run `failover promote` again once this machine has caught up";
     case FD_FAILOVER_CONTROL_RESULT_KEY_REQUIRED:      return "provide the active's keypair with `failover promote <keypair>` to prepare this client's target identity";
     case FD_FAILOVER_CONTROL_RESULT_KEY_CONFLICT:      return "the keypair must match the prepared target and must differ from this machine's boot identity";
     case FD_FAILOVER_CONTROL_RESULT_NOT_BOOT_IDENTITY: return "the client must still be using its boot identity when preparing a target";
@@ -178,12 +184,15 @@ failover_confirm( args_t const * args ) {
                     "machine cannot sign, or both machines may vote with the staked identity.\n"
                     "It also permits incomplete or empty vote history, which may lose earlier lockouts.\n"
                     "Promotion tries eligible saved vote state first, then the vote account, and if the\n"
-                    "vote account cannot be adopted it starts from an EMPTY vote history.\n" ));
+                    "vote account cannot be adopted it starts from an EMPTY vote history.  Under Alpenglow\n"
+                    "there is no vote account source, so without saved vote history it starts from an\n"
+                    "EMPTY vote history.\n" ));
   }
   if( FD_UNLIKELY( !args->failover.yes && isatty( STDIN_FILENO ) ) ) {
     if( args->failover.cmd==(int)FD_ADMINCTL_FAILOVER_CMD_HANDOFF ) {
       FD_LOG_STDOUT(( "This asks the active to hand off the staked identity to this standby.  The active\n"
-                      "keeps it if this standby is more than 64 slots behind its last vote.  Otherwise\n"
+                      "keeps it if this standby is more than 64 slots behind its last Tower vote\n"
+                      "or Alpenglow finality anchor.  Otherwise\n"
                       "it gives up the identity first, so if replay here stalls before it catches up\n"
                       "the handoff fails and neither machine votes until `failover promote --force`.\n"
                       "Check that this machine is caught up.  Type yes to continue: " ));
@@ -229,9 +238,10 @@ failover_status_print( fd_adminctl_failover_status_resp_t const * resp ) {
   FD_LOG_STDOUT(( "%-22s %s\n", "failover:", resp->enabled==2 ? "client only, listener disabled" : "enabled" ));
   FD_LOG_STDOUT(( "%-22s %s\n", "role:",   role_name  ( resp->role   ) ));
   if( FD_UNLIKELY( resp->request_paused ) ) {
-    FD_LOG_STDOUT(( "%-22s %s, paused at its deadline and not dialing, `failover promote` resumes it\n", "action:", action_name( resp->action ) ));
+    FD_LOG_STDOUT(( "%-22s %s, paused at its deadline and not dialing, `failover promote` resumes it\n", "action:",
+                    action_name( resp->action, resp->mode==FD_FAILOVER_MODE_ALPENGLOW ) ));
   } else {
-    FD_LOG_STDOUT(( "%-22s %s\n", "action:", action_name( resp->action ) ));
+    FD_LOG_STDOUT(( "%-22s %s\n", "action:", action_name( resp->action, resp->mode==FD_FAILOVER_MODE_ALPENGLOW ) ));
   }
   FD_LOG_STDOUT(( "%-22s %s\n", "stuck:",  !resp->stuck ? "no" : resp->request_paused ? "yes, the handoff request is paused, see the log" : "yes, see the log" ));
   FD_LOG_STDOUT(( "%-22s %s\n", "link:",   resp->link_state<SESSION_NAME_CNT ? SESSION_NAMES[ resp->link_state ] : "unknown" ));
@@ -255,8 +265,9 @@ failover_status_print( fd_adminctl_failover_status_resp_t const * resp ) {
   }
 
   FD_LOG_STDOUT(( "%-22s %s\n", "other holder:", other_holder( resp->promote_result ) ));
+  char const * const * source_names = resp->mode==FD_FAILOVER_MODE_ALPENGLOW ? SOURCE_NAMES_ALPENGLOW : SOURCE_NAMES;
   FD_LOG_STDOUT(( "%-22s %s\n", "takeover adopts:",
-                  resp->promote_source<SOURCE_NAME_CNT ? SOURCE_NAMES[ resp->promote_source ] : "unknown" ));
+                  resp->promote_source<SOURCE_NAME_CNT ? source_names[ resp->promote_source ] : "unknown" ));
   if( FD_UNLIKELY( resp->promote_floor==FD_FAILOVER_SLOT_NULL ) ) FD_LOG_STDOUT(( "%-22s none known\n", "coverage floor:" ));
   else                                                            FD_LOG_STDOUT(( "%-22s slot %lu\n", "coverage floor:", resp->promote_floor ));
 }
@@ -379,7 +390,7 @@ failover_cmd_fn( args_t *   args,
         ulong id = resp.control.handoff_id;
         FD_LOG_STDOUT(( "%-22s accepted\n", cmd_name ));
         FD_LOG_STDOUT(( "%-22s %s\n", "role:",   role_name  ( resp.control.role   ) ));
-        FD_LOG_STDOUT(( "%-22s %s\n", "action:", action_name( resp.control.action ) ));
+        FD_LOG_STDOUT(( "%-22s %s\n", "action:", action_name( resp.control.action, 0 ) ));
         if( args->failover.cmd==(int)FD_ADMINCTL_FAILOVER_CMD_HANDOFF ) {
           FD_LOG_STDOUT(( "%-22s %lu, done when `failover status` here shows role: active and last handoff: %lu, taken\n", "handoff:", id, id ));
         } else {

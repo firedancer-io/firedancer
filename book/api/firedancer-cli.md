@@ -236,9 +236,8 @@ cannot be authenticated, the local request cannot complete the handoff.
 Set `[failover.enabled]` to `true` on both validators. Configure the same
 staked identity in `[paths.identity_key]` and the same vote account in
 `[paths.vote_account]`. Firedancer generates a fresh junk identity in memory
-on each startup. This junk identity's key is not written to a file. Both
-validators boot under their junk identities without voting and listen for
-handoff requests.
+on each startup. The private key is never written to a file. Both validators
+boot under their junk identities without voting and listen for handoff requests.
 
 Once one validator is active, run the following on the standby to request
 a handoff. The staked identity keypair is already loaded from the
@@ -308,11 +307,12 @@ The following applies to both configurations.
 
 The remote validator refuses the handoff if it has no final vote history
 to hand over, the local standby has not started replaying, or the standby
-is more than 64 slots behind its last vote. It keeps its identity in
-these cases. It also refuses a new request while another transition is
-running. Once it agrees to hand off, it gives up the identity before the
-local validator adopts its vote history. If adoption fails or stalls,
-the handoff can fail with neither machine voting.
+is more than 64 slots behind its last Tower vote or Alpenglow finality
+anchor. It keeps its identity in these cases. It also refuses a new
+request while another transition is running. Once it agrees to hand
+off, it gives up the identity before the local validator adopts its
+vote history. If adoption fails or stalls, the handoff can fail with
+neither machine voting.
 
 Exit code 0 means the local validator accepted the request. It does not
 mean the remote validator has agreed to hand off or that the handoff has
@@ -345,9 +345,10 @@ or `--port` when resuming it.
 With `--force`, the local standby takes the identity without contacting
 the remote validator. This is also needed for first use when both
 machines are standbys. Promotion first tries eligible saved peer vote
-history, then the vote account, and starts with empty vote history if
-neither can be adopted. Check for `role: active` and `action: idle` to
-confirm completion.
+history. Tower then tries the vote account and starts with empty vote
+history if neither can be adopted. Alpenglow falls back to empty vote
+history with a slot bound that prevents voting at or below it. Check for
+`role: active` and `action: idle` to confirm completion.
 
 Forced promotion can cancel a handoff that is waiting for the remote
 validator's response. It cannot interrupt a local vote history adoption
