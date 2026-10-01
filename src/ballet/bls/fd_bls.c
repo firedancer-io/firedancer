@@ -95,19 +95,25 @@ fd_bls_agg_construct( fd_bls_agg_t *       agg,
   return agg;
 }
 
-int
-fd_bls_agg_verify( uchar const *        msg,
-                   ulong                msg_sz,
-                   fd_bls_pub_t const * pub,
-                   fd_bls_sig_t const * sig ) {
+static void
+hash_msg( uchar const *    msg,
+          ulong            msg_sz,
+          blst_p2_affine * h ) {
+  blst_p2 p[1];
+  blst_hash_to_g2( p, msg, msg_sz, (uchar const *)FD_BLS_DST, FD_BLS_DST_SZ, NULL, 0UL );
+  blst_p2_to_affine( h, p );
+}
+
+static int
+verify_hashed( blst_p2_affine const * h,
+               fd_bls_pub_t const *   pub,
+               fd_bls_sig_t const *   sig ) {
   if( FD_UNLIKELY( blst_p1_is_inf( pub ) || blst_p2_is_inf( sig ) ) ) return 0; /* the miller loop is wrong on an infinity operand */
 
   blst_p1_affine a[2];
   blst_p2_affine b[2];
-  blst_p2        h[1];
   blst_p1_to_affine( a, pub );
-  blst_hash_to_g2( h, msg, msg_sz, (uchar const *)FD_BLS_DST, FD_BLS_DST_SZ, NULL, 0UL );
-  blst_p2_to_affine( b, h );
+  b[0] = *h;
   a[1] = BLS12_381_NEG_G1;
   blst_p2_to_affine( b+1, sig );
 
@@ -118,30 +124,38 @@ fd_bls_agg_verify( uchar const *        msg,
   return !!blst_fp12_finalverify( r, blst_fp12_one() );
 }
 
-fd_bls_set_t *
-fd_bls_agg_verify_linear( fd_bls_agg_t const * agg,
-                          uchar const *        msg,
-                          ulong                msg_sz,
-                          fd_bls_pub_t const * pub,
-                          fd_bls_sig_t const * sig,
-                          fd_bls_set_t *       bad ) {
+int
+fd_bls_agg_verify( uchar const *        msg,
+                   ulong                msg_sz,
+                   fd_bls_pub_t const * pub,
+                   fd_bls_sig_t const * sig ) {
+  if( FD_UNLIKELY( blst_p1_is_inf( pub ) || blst_p2_is_inf( sig ) ) ) return 0;
+  blst_p2_affine h[1];
+  hash_msg( msg, msg_sz, h );
+  return verify_hashed( h, pub, sig );
+}
+
+static fd_bls_set_t *
+verify_linear_hashed( fd_bls_agg_t const *   agg,
+                      blst_p2_affine const * h,
+                      fd_bls_pub_t const *   pub,
+                      fd_bls_sig_t const *   sig,
+                      fd_bls_set_t *         bad ) {
   fd_bls_set_null( bad );
   for( ulong rank = fd_bls_set_const_iter_init( agg->set );
                    !fd_bls_set_const_iter_done( rank );
              rank = fd_bls_set_const_iter_next( agg->set, rank ) ) {
-    if( FD_UNLIKELY( !fd_bls_agg_verify( msg, msg_sz, pub+rank, sig+rank ) ) ) fd_bls_set_insert( bad, rank );
+    if( FD_UNLIKELY( !verify_hashed( h, pub+rank, sig+rank ) ) ) fd_bls_set_insert( bad, rank );
   }
   return bad;
 }
 
-fd_bls_set_t *
-fd_bls_agg_verify_bisect( fd_bls_agg_t const * agg,
-                          uchar const *        msg,
-                          ulong                msg_sz,
-                          fd_bls_pub_t const * pub,
-                          fd_bls_sig_t const * sig,
-                          fd_bls_set_t *       bad ) {
-  fd_bls_set_null( bad );
+static fd_bls_set_t *
+verify_bisect_hashed( fd_bls_agg_t const *   agg,
+                      blst_p2_affine const * h,
+                      fd_bls_pub_t const *   pub,
+                      fd_bls_sig_t const *   sig,
+                      fd_bls_set_t *         bad ) {
   fd_bls_agg_t key = *agg;
   ulong        cnt = fd_bls_set_cnt( key.set );
   while( FD_LIKELY( cnt>1UL ) ) {
@@ -157,16 +171,40 @@ fd_bls_agg_verify_bisect( fd_bls_agg_t const * agg,
     hi.pub = lo.pub; blst_p1_cneg( &hi.pub, 1 ); blst_p1_add_or_double( &hi.pub, &hi.pub, &key.pub );
     hi.sig = lo.sig; blst_p2_cneg( &hi.sig, 1 ); blst_p2_add_or_double( &hi.sig, &hi.sig, &key.sig );
 
-    int lo_ok = fd_bls_agg_verify( msg, msg_sz, &lo.pub, &lo.sig ); /* verify lo first, because agg is sorted by stake, so lo has higher-staked validators (which we assume are more likely to be honest) */
+    int lo_ok = verify_hashed( h, &lo.pub, &lo.sig ); /* verify lo first, because agg is sorted by stake, so lo has higher-staked validators (which we assume are more likely to be honest) */
     if( FD_LIKELY( lo_ok ) ) key = hi; /* lo is good */
     else { /* lo is bad */
-      int hi_ok = fd_bls_agg_verify( msg, msg_sz, &hi.pub, &hi.sig );
+      int hi_ok = verify_hashed( h, &hi.pub, &hi.sig );
       if( FD_UNLIKELY( !hi_ok ) ) break; /* hi is also bad... have to linear scan */
       key = lo;
     }
     cnt = fd_bls_set_cnt( key.set );
   }
-  return fd_bls_agg_verify_linear( &key, msg, msg_sz, pub, sig, bad );
+  return verify_linear_hashed( &key, h, pub, sig, bad );
+}
+
+fd_bls_set_t *
+fd_bls_agg_verify_linear( fd_bls_agg_t const * agg,
+                          uchar const *        msg,
+                          ulong                msg_sz,
+                          fd_bls_pub_t const * pub,
+                          fd_bls_sig_t const * sig,
+                          fd_bls_set_t *       bad ) {
+  blst_p2_affine h[1];
+  hash_msg( msg, msg_sz, h );
+  return verify_linear_hashed( agg, h, pub, sig, bad );
+}
+
+fd_bls_set_t *
+fd_bls_agg_verify_bisect( fd_bls_agg_t const * agg,
+                          uchar const *        msg,
+                          ulong                msg_sz,
+                          fd_bls_pub_t const * pub,
+                          fd_bls_sig_t const * sig,
+                          fd_bls_set_t *       bad ) {
+  blst_p2_affine h[1];
+  hash_msg( msg, msg_sz, h );
+  return verify_bisect_hashed( agg, h, pub, sig, bad );
 }
 
 int
@@ -176,8 +214,10 @@ fd_bls_agg_verify_subtract( fd_bls_agg_t *       agg,
                             fd_bls_pub_t const * pub,
                             fd_bls_sig_t const * sig,
                             fd_bls_set_t *       bad ) {
-  if( FD_LIKELY( fd_bls_agg_verify( msg, msg_sz, &agg->pub, &agg->sig ) ) ) { fd_bls_set_null( bad ); return 0; }
-  fd_bls_agg_verify_bisect( agg, msg, msg_sz, pub, sig, bad );
+  blst_p2_affine h[1];
+  hash_msg( msg, msg_sz, h );
+  if( FD_LIKELY( verify_hashed( h, &agg->pub, &agg->sig ) ) ) { fd_bls_set_null( bad ); return 0; }
+  verify_bisect_hashed( agg, h, pub, sig, bad );
   fd_bls_agg_t sub = { 0 };
   fd_bls_agg_construct( &sub, pub, sig, bad );
   blst_p1_cneg( &sub.pub, 1 ); blst_p1_add_or_double( &agg->pub, &agg->pub, &sub.pub );
