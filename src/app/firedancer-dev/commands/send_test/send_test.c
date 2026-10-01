@@ -250,6 +250,7 @@ send_test_cmd_fn( args_t *   args ,
   send_test_topo( config );
 
   configure_stage( &fd_cfg_stage_uverbs,           CONFIGURE_CMD_INIT, config );
+  configure_stage( &fd_cfg_stage_iavf,             CONFIGURE_CMD_INIT, config );
   configure_stage( &fd_cfg_stage_sysctl,           CONFIGURE_CMD_INIT, config );
   configure_stage( &fd_cfg_stage_hugetlbfs,        CONFIGURE_CMD_INIT, config );
   configure_stage( &fd_cfg_stage_bonding,          CONFIGURE_CMD_INIT, config );
@@ -268,6 +269,9 @@ send_test_cmd_fn( args_t *   args ,
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
   if( 0==strcmp( config->net.provider, "mlx5" ) ) {
     fd_topo_install_mlx5( &config->topo, NULL );
+  }
+  if( 0==strcmp( config->net.provider, "iavf" ) ) {
+    fd_topo_install_iavf( &config->topo, NULL );
   }
   fd_topo_run_single_process( &config->topo, 2, config->uid, config->gid, fdctl_tile_run );
 
@@ -290,6 +294,7 @@ send_test_cmd_perm( args_t *         args FD_PARAM_UNUSED,
                     fd_cap_chk_t *   chk,
                     config_t const * config ) {
   configure_stage_perm( &fd_cfg_stage_uverbs,           chk, config );
+  configure_stage_perm( &fd_cfg_stage_iavf,             chk, config );
   configure_stage_perm( &fd_cfg_stage_sysctl,           chk, config );
   configure_stage_perm( &fd_cfg_stage_hugetlbfs,        chk, config );
   configure_stage_perm( &fd_cfg_stage_bonding,          chk, config );

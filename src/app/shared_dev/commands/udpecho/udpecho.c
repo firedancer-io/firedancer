@@ -100,6 +100,7 @@ udpecho_cmd_fn( args_t *   args,
   metric_tile->metric.prometheus_listen_port = config->tiles.metric.prometheus_listen_port;
 
   configure_stage( &fd_cfg_stage_uverbs,           CONFIGURE_CMD_INIT, config );
+  configure_stage( &fd_cfg_stage_iavf,             CONFIGURE_CMD_INIT, config );
   configure_stage( &fd_cfg_stage_sysctl,           CONFIGURE_CMD_INIT, config );
   configure_stage( &fd_cfg_stage_hugetlbfs,        CONFIGURE_CMD_INIT, config );
   configure_stage( &fd_cfg_stage_bonding,          CONFIGURE_CMD_INIT, config );
@@ -118,6 +119,9 @@ udpecho_cmd_fn( args_t *   args,
   fd_topo_join_workspaces( topo, FD_SHMEM_JOIN_MODE_READ_WRITE, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
   if( 0==strcmp( config->net.provider, "mlx5" ) ) {
     fd_topo_install_mlx5( topo, NULL );
+  }
+  if( 0==strcmp( config->net.provider, "iavf" ) ) {
+    fd_topo_install_iavf( topo, NULL );
   }
 
   /* FIXME allow running sandboxed/multiprocess */
