@@ -3,6 +3,7 @@
 FD_STATIC_ASSERT( offsetof( fd_vm_vec_t, addr )== 0UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_vm_vec_t, len  )== 8UL, layout );
 FD_STATIC_ASSERT( sizeof  ( fd_vm_vec_t       )==16UL, layout );
+FD_STATIC_ASSERT( alignof ( fd_vm_vec_t )==1UL, layout );
 
 FD_STATIC_ASSERT( offsetof( fd_vm_c_instruction_t, program_id_addr )== 0UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_vm_c_instruction_t, accounts_addr   )== 8UL, layout );
@@ -10,11 +11,14 @@ FD_STATIC_ASSERT( offsetof( fd_vm_c_instruction_t, accounts_len    )==16UL, layo
 FD_STATIC_ASSERT( offsetof( fd_vm_c_instruction_t, data_addr       )==24UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_vm_c_instruction_t, data_len        )==32UL, layout );
 FD_STATIC_ASSERT( sizeof  ( fd_vm_c_instruction_t                  )==FD_VM_C_INSTRUCTION_SIZE, layout );
+FD_STATIC_ASSERT( alignof ( fd_vm_c_instruction_t )==1UL, layout );
 
 FD_STATIC_ASSERT( offsetof( fd_vm_c_account_meta_t, pubkey_addr )==0UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_vm_c_account_meta_t, is_writable )==8UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_vm_c_account_meta_t, is_signer   )==9UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_vm_c_account_meta_t, _padding_0  )==10UL, layout );
 FD_STATIC_ASSERT( sizeof  ( fd_vm_c_account_meta_t              )==FD_VM_C_ACCOUNT_META_SIZE, layout );
+FD_STATIC_ASSERT( alignof ( fd_vm_c_account_meta_t )==1UL, layout );
 
 FD_STATIC_ASSERT( offsetof( fd_vm_c_account_info_t, pubkey_addr   )== 0UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_vm_c_account_info_t, lamports_addr )== 8UL, layout );
@@ -25,22 +29,27 @@ FD_STATIC_ASSERT( offsetof( fd_vm_c_account_info_t, rent_epoch    )==40UL, layou
 FD_STATIC_ASSERT( offsetof( fd_vm_c_account_info_t, is_signer     )==48UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_vm_c_account_info_t, is_writable   )==49UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_vm_c_account_info_t, executable    )==50UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_vm_c_account_info_t, _padding_0    )==51UL, layout );
 FD_STATIC_ASSERT( sizeof  ( fd_vm_c_account_info_t                )==FD_VM_C_ACCOUNT_INFO_SIZE, layout );
+FD_STATIC_ASSERT( alignof ( fd_vm_c_account_info_t )==1UL, layout );
 
 FD_STATIC_ASSERT( offsetof( fd_vm_rust_vec_t, addr )== 0UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_vm_rust_vec_t, cap  )== 8UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_vm_rust_vec_t, len  )==16UL, layout );
 FD_STATIC_ASSERT( sizeof  ( fd_vm_rust_vec_t       )==FD_VM_RUST_VEC_SIZE, layout );
+FD_STATIC_ASSERT( alignof ( fd_vm_rust_vec_t )==1UL, layout );
 
 FD_STATIC_ASSERT( offsetof( fd_vm_rust_instruction_t, accounts )== 0UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_vm_rust_instruction_t, data     )==24UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_vm_rust_instruction_t, pubkey   )==48UL, layout );
 FD_STATIC_ASSERT( sizeof  ( fd_vm_rust_instruction_t           )==FD_VM_RUST_INSTRUCTION_SIZE, layout );
+FD_STATIC_ASSERT( alignof ( fd_vm_rust_instruction_t )==1UL, layout );
 
 FD_STATIC_ASSERT( offsetof( fd_vm_rust_account_meta_t, pubkey      )== 0UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_vm_rust_account_meta_t, is_signer   )==32UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_vm_rust_account_meta_t, is_writable )==33UL, layout );
 FD_STATIC_ASSERT( sizeof  ( fd_vm_rust_account_meta_t              )==FD_VM_RUST_ACCOUNT_META_SIZE, layout );
+FD_STATIC_ASSERT( alignof ( fd_vm_rust_account_meta_t )==1UL, layout );
 
 FD_STATIC_ASSERT( offsetof( fd_vm_rust_account_info_t, pubkey_addr       )== 0UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_vm_rust_account_info_t, lamports_box_addr )== 8UL, layout );
@@ -52,6 +61,7 @@ FD_STATIC_ASSERT( offsetof( fd_vm_rust_account_info_t, is_writable       )==41UL
 FD_STATIC_ASSERT( offsetof( fd_vm_rust_account_info_t, executable        )==42UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_vm_rust_account_info_t, _padding_0        )==43UL, layout );
 FD_STATIC_ASSERT( sizeof  ( fd_vm_rust_account_info_t                    )==FD_VM_RUST_ACCOUNT_INFO_SIZE, layout );
+FD_STATIC_ASSERT( alignof ( fd_vm_rust_account_info_t )==1UL, layout );
 
 int
 main( int     argc,
