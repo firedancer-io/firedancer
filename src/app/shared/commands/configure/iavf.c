@@ -853,10 +853,13 @@ init( fd_config_t const * config ) {
   if( FD_UNLIKELY( -1==fd_iavf_vfio_api_check( &diagnostic ) ) ) {
     FD_LOG_ERR(( "%s (%i-%s)", diagnostic, errno, fd_io_strerror( errno ) ));
   }
-  char const * members[] = { config->net.interface };
-  ulong const member_cnt = 1UL;
-  /* Resolve the PF's iommu_group and check VF BAR allocations when
-     sriov_numvfs==0 before creating a VF or replacing PF ntuple rules */
+  char members[ FD_IAVF_MEMBER_MAX ][ IFNAMSIZ ];
+  ulong member_cnt;
+  if( -1==fd_iavf_member_interfaces( config->net.interface, members, &member_cnt ) ) {
+    FD_LOG_ERR(( "Discovering PFs for interface %s failed (%i-%s)", config->net.interface, errno, fd_io_strerror( errno ) ));
+  }
+  /* Resolve every PF's iommu_group and check VF BAR allocations on PFs with
+     sriov_numvfs==0 before creating any VF or replacing any PF ntuple rules */
   int member_configured[ FD_IAVF_MEMBER_MAX ];
   for( ulong i=0UL; i<member_cnt; i++ ) {
     char const * diagnostic;
@@ -870,6 +873,7 @@ init( fd_config_t const * config ) {
     }
     member_configured[i] = iavf_pf_config_check( config, members[i], FD_CONFIGURE_CHECK_TYPE_PRE_INIT ).result==CONFIGURE_OK;
   }
+  /* Assign the bond MAC to the selected VF on each PF when using a bond */
   uchar mac[ 6 ];
   if( -1==iavf_netdev_mac_get( config->net.interface, mac ) ) {
     FD_LOG_ERR(( "Reading the MAC address of interface %s failed (%i-%s)", config->net.interface, errno, fd_io_strerror( errno ) ));
@@ -887,8 +891,11 @@ fini( fd_config_t const * config,
      stage. Leave existing VFs for init to reuse. The configure fini command
      passes pre_init=0 and runs the PF ntuple and VF removal below */
   if( pre_init ) return 0;
-  char const * members[] = { config->net.interface };
-  ulong const member_cnt = 1UL;
+  char members[ FD_IAVF_MEMBER_MAX ][ IFNAMSIZ ];
+  ulong member_cnt;
+  if( -1==fd_iavf_member_interfaces( config->net.interface, members, &member_cnt ) ) {
+    FD_LOG_ERR(( "Discovering PFs for interface %s failed (%i-%s)", config->net.interface, errno, fd_io_strerror( errno ) ));
+  }
   int changed = 0;
   for( ulong i=0UL; i<member_cnt; i++ ) {
     uint numvfs;
@@ -946,8 +953,11 @@ fini( fd_config_t const * config,
 static configure_result_t
 check( fd_config_t const * config,
        int                 check_type ) {
-  char const * members[] = { config->net.interface };
-  ulong const member_cnt = 1UL;
+  char members[ FD_IAVF_MEMBER_MAX ][ IFNAMSIZ ];
+  ulong member_cnt;
+  if( -1==fd_iavf_member_interfaces( config->net.interface, members, &member_cnt ) ) {
+    PARTIALLY_CONFIGURED( "Discovering PFs for interface %s failed (%i-%s)", config->net.interface, errno, fd_io_strerror( errno ) );
+  }
   ulong missing_cnt = 0UL;
   configure_result_t first = { .result=CONFIGURE_OK };
   for( ulong i=0UL; i<member_cnt; i++ ) {

@@ -210,6 +210,8 @@ metrics_snap_take( metrics_snap_t * s, metrics_src_t const * src ) {
       s->net_tx      += m[ MIDX( COUNTER, IAVF, PKT_TX_COMPLETED ) ];
       for( ulong r=0UL; r<FD_METRICS_ENUM_PKT_RX_DROP_REASON_CNT; r++ ) s->net_rx_drop += m[ MIDX( COUNTER, IAVF, PKT_RX_DROPPED )+r ];
       for( ulong r=0UL; r<FD_METRICS_ENUM_PKT_TX_DROP_REASON_CNT; r++ ) s->net_tx_drop += m[ MIDX( COUNTER, IAVF, PKT_TX_DROPPED )+r ];
+      s->net_rx_drop += m[ MIDX( COUNTER, IAVF, PKT_RX_NO_LINK_DROPPED ) ];
+      s->net_tx_drop += m[ MIDX( COUNTER, IAVF, PKT_TX_NO_LINK_DROPPED ) ];
       break;
     default: /* sock */
       s->net_rx      += m[ MIDX( COUNTER, SOCK, PKT_RX ) ];

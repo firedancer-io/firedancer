@@ -225,14 +225,77 @@ static fd_netdev_t test_netdevs[ 2 ];
 static void
 test_vfs_init( void ) {
   fd_memset( &test_tile, 0, sizeof(test_tile) );
-  test_netdev_hdr = (fd_netdev_tbl_hdr_t) { .dev_cnt=1U };
+  test_netdev_hdr             = (fd_netdev_tbl_hdr_t) { .dev_cnt=2U };
   test_tile.router.netdev_tbl = (fd_netdev_tbl_join_t) { .hdr=&test_netdev_hdr, .dev_tbl=test_netdevs };
-  test_tile.router.if_virt = 2U;
-  test_tile.net.tile_cnt = 1UL;
-  test_tile.vf_cnt = 1UL;
-  test_netdevs[0] = (fd_netdev_t) { .if_idx=2U, .dev_type=ARPHRD_ETHER, .oper_status=FD_OPER_STATUS_UP, .mtu=1500U };
+  test_tile.router.if_virt    = 4U;
+  test_tile.net.tile_cnt      = 1UL;
+  test_tile.vf_cnt            = 2UL;
+  test_netdevs[0]             = (fd_netdev_t) {
+    .if_idx=4U, .dev_type=ARPHRD_ETHER, .oper_status=FD_OPER_STATUS_UP, .mtu=1500U, .mac_addr={ 2,3,4,5,6,7 }
+  };
+  for( ulong i=0UL; i<2UL; i++ ) {
+    test_tile.vfs[i].vf_info.link_usable = 1;
+    test_tile.vfs[i].tx_queue.depth      = 64U;
+  }
+  test_netdevs[1] = (fd_netdev_t) { .if_idx=7U, .dev_type=ARPHRD_ETHER, .oper_status=FD_OPER_STATUS_UP };
+}
+
+static void
+test_vf_selection( void ) {
+  test_vfs_init();
+  test_tile.router.netdev_tbl = (fd_netdev_tbl_join_t) {0};
+  for( ulong i=0UL; i<64UL; i++ ) {
+    FD_TEST( fd_iavf_tile_select_tx_vf( &test_tile, i)==i%2UL );
+  }
+  test_tile.vfs[0].vf_info.link_usable = 0;
+  for( ulong i=0UL; i<64UL; i++ ) FD_TEST( fd_iavf_tile_select_tx_vf( &test_tile, i)==1UL );
+  test_tile.vfs[1].vf_info.link_usable = 0;
+  FD_TEST( fd_iavf_tile_select_tx_vf( &test_tile, 0UL )==ULONG_MAX );
   test_tile.vfs[0].vf_info.link_usable = 1;
-  test_tile.vfs[0].tx_queue.depth = 64U;
+  FD_TEST( 0==fd_iavf_tile_select_tx_vf( &test_tile, 0UL ) );
+
+  test_tile.vf_cnt = 1UL;
+  FD_TEST( 0==fd_iavf_tile_select_tx_vf( &test_tile, 0UL ) );
+  test_tile.vfs[0].vf_info.link_usable = 0;
+  FD_TEST( fd_iavf_tile_select_tx_vf( &test_tile, 0UL )==ULONG_MAX );
+}
+
+static void
+test_bond_route( void ) {
+  static uchar fib_local[ 262144 ] __attribute__((aligned(FD_FIB4_ALIGN)));
+  static uchar fib_main [ 262144 ] __attribute__((aligned(FD_FIB4_ALIGN)));
+  static fd_neigh4_entry_t neigh[ 256 ] __attribute__((aligned(128)));
+  test_vfs_init();
+  FD_TEST( NULL!=fd_fib4_join( test_tile.router.fib_local, fd_fib4_new( fib_local, 16UL, 16UL, 1UL ) ) );
+  FD_TEST( NULL!=fd_fib4_join( test_tile.router.fib_main, fd_fib4_new( fib_main, 16UL, 16UL, 1UL ) ) );
+  FD_TEST( fd_neigh4_hmap_footprint( 16UL )<=sizeof(neigh) );
+  FD_TEST( NULL!=fd_neigh4_hmap_new( neigh, 16UL, 1 ) );
+  FD_TEST( NULL!=fd_neigh4_hmap_join( test_tile.router.neigh4, neigh, 16UL, 8UL, 1UL ) );
+  uint                gw    = FD_IP4_ADDR( 10,0,0,1 );
+  fd_neigh4_entry_t * entry = fd_neigh4_hmap_upsert( test_tile.router.neigh4, &gw );
+  FD_TEST( NULL!=entry );
+  fd_neigh4_entry_t neighbor = { .ip4_addr=gw, .state=FD_NEIGH4_STATE_ACTIVE, .mac_addr={ 2,7,6,5,4,3 } };
+  fd_neigh4_entry_atomic_st( entry, &neighbor );
+  fd_fib4_hop_t hop = { .rtype=FD_FIB4_RTYPE_UNICAST, .if_idx=4U, .ip4_gw=gw, .ip4_src=FD_IP4_ADDR( 10,0,0,2 ) };
+  FD_TEST( fd_fib4_insert( test_tile.router.fib_main, 0U, 0, 0U, &hop ) );
+  uint  dst = FD_IP4_ADDR( 10,181,80,14 );
+  ulong sig = fd_disco_netmux_sig( dst, 9000U, dst, DST_PROTO_OUTGOING, 0UL );
+  FD_TEST( !before_frag( &test_tile, 0UL, 0UL, sig ) );
+  FD_TEST( test_tile.net.tx_route.if_idx==4U );
+  FD_TEST( 0==memcmp( test_tile.net.tx_route.mac_addrs, neighbor.mac_addr, 6UL ) );
+  FD_TEST( 0==memcmp( test_tile.net.tx_route.mac_addrs+6UL, test_netdevs[0].mac_addr, 6UL ) );
+  ulong chosen = test_tile.tx_vf_idx;
+  FD_TEST( !before_frag( &test_tile, 0UL, 0UL, sig ) && test_tile.tx_vf_idx==chosen );
+  test_tile.vfs[chosen].vf_info.link_usable = 0;
+  FD_TEST( !before_frag( &test_tile, 0UL, 0UL, sig ) && test_tile.tx_vf_idx==1UL-chosen );
+  test_tile.vfs[1UL-chosen].vf_info.link_usable = 0;
+  FD_TEST( before_frag( &test_tile, 0UL, 0UL, sig ) );
+  FD_TEST( test_tile.metrics.tx_no_link_cnt==1UL );
+  hop.if_idx = 7U;
+  FD_TEST( fd_fib4_insert( test_tile.router.fib_main, dst, 32, 0U, &hop ) );
+  FD_TEST( before_frag( &test_tile, 0UL, 0UL, sig ) );
+  FD_TEST( test_tile.net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_UNSUPPORTED_INTERFACE_IDX ]==1UL );
+  FD_TEST( test_tile.metrics.tx_no_link_cnt==1UL );
 }
 
 static void
@@ -517,6 +580,33 @@ test_rx_ring( void ) {
 }
 
 static void
+test_vf_batches( void ) {
+  fd_iavf_hw_rx_desc_t desc[ 2 ][ 128 ] = {0};
+  uint chunks[ 2 ][ 128 ]               = {0};
+  uint tail[ 2 ]                        = {0};
+  test_vfs_init();
+  test_tile.net.pkt_buf_chunk0 = 1UL;
+  test_tile.batch_size         = FD_IAVF_BATCH_SIZE;
+  for( ulong i=0UL; i<2UL; i++ ) {
+    fd_iavf_tile_vf_t * vf = &test_tile.vfs[i];
+    vf->rx_desc_buf_chunk      = chunks[i];
+    vf->rx_queue = (fd_iavf_queue_t) { .ring=desc[i], .depth=128U, .tail=&tail[i] };
+    for( ulong j=0UL; j<63UL; j++ ) {
+      fd_iavf_tile_rx_recycle( &test_tile, vf, 1UL+((j*2048UL)>>FD_CHUNK_LG_SZ) );
+    }
+    FD_TEST( vf->rx_pending_cnt==63U && 0==tail[i] && 0==vf->rx_queue.prod );
+  }
+  for( ulong i=0UL; i<2UL; i++ ) {
+    fd_iavf_tile_vf_t * vf = &test_tile.vfs[i];
+    fd_iavf_tile_rx_recycle( &test_tile, vf, 1UL+((63UL*2048UL)>>FD_CHUNK_LG_SZ) );
+    FD_TEST( 0==vf->rx_pending_cnt && tail[i]==64U && vf->rx_queue.posted==64UL );
+    FD_TEST( desc[i][0].qword[0]==64UL );
+    FD_TEST( desc[i][63].qword[0]==64UL+63UL*2048UL );
+    if( 0==i ) FD_TEST( 0==tail[1] && test_tile.vfs[1].rx_pending_cnt==63U );
+  }
+}
+
+static void
 test_packet_memory( void ) {
   ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
   if( cpu_idx>=fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
@@ -549,7 +639,7 @@ test_packet_memory( void ) {
     FD_TEST( packet_iova>=packet_end );
     packet_end = packet_iova+packet_memory_sz;
 
-    for( ulong member=0UL; member<1UL; member++ ) {
+    for( ulong member=0UL; member<2UL; member++ ) {
       fd_iavf_hw_rx_desc_t rx_desc[4] = {0};
       fd_iavf_tx_desc_t tx_desc[4]    = {0};
       uint rx_chunks[4]               = {0};
@@ -585,7 +675,7 @@ test_packet_memory( void ) {
 static void
 test_queue_join( void ) {
   fd_topo_tile_t tile = {0};
-  tile.iavf.member_cnt     = 1UL;
+  tile.iavf.member_cnt     = 2UL;
   tile.iavf.tx_queue_size  = 64U;
   tile.iavf.rx_queue_size  = 128U;
   tile.iavf.route_max      = 16UL;
@@ -706,8 +796,11 @@ main( int argc, char ** argv ) {
   test_tx_poll();
   test_loopback_send();
   test_rx_ring();
+  test_vf_selection();
+  test_bond_route();
   test_inactive_rx();
   test_rx_non_fd_packets();
+  test_vf_batches();
   test_packet_memory();
   test_queue_join();
 

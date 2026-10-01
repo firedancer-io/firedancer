@@ -11,6 +11,7 @@
 #include "../../discof/genesis/fd_genesi_tile.h"
 #include "../../disco/net/fd_net_tile.h"
 #include "../../disco/net/fd_linux_bond.h"
+#include "../../disco/net/iavf/fd_iavf.h"
 #include "../../disco/pack/fd_pack_cost.h"
 #include "../../disco/pack/fd_microblock.h"
 #include "../../ballet/shred/fd_shred.h"
@@ -205,10 +206,6 @@ fd_config_fill_net( fd_config_t * config ) {
   if( FD_UNLIKELY( !if_nametoindex( config->net.interface ) ) )
     FD_LOG_ERR(( "configuration specifies network interface `%s` which does not exist", config->net.interface ));
 
-  if( !strcmp( config->net.provider, "iavf" ) && fd_bonding_is_master( config->net.interface ) ) {
-    FD_LOG_ERR(( "IAVF currently requires one physical interface, bond support is not available" ));
-  }
-
   char driver[ NAME_SZ ];
   fd_net_get_driver( driver, sizeof(driver), config->net.interface );
   if( !strcmp( config->net.provider, "mlx5" ) && FD_UNLIKELY( strcmp( driver, "mlx5_core" ) ) ) {
@@ -218,8 +215,15 @@ fd_config_fill_net( fd_config_t * config ) {
   }
 
   if( 0==strcmp( config->net.provider, "iavf" ) ) {
-    if( FD_UNLIKELY( strcmp( driver, "ice" ) && strcmp( driver, "i40e" ) ) ) {
-      FD_LOG_ERR(( "IAVF requires an ice or i40e physical function, interface %s uses %s", config->net.interface, driver ));
+    char members[ FD_IAVF_MEMBER_MAX ][ 16 ];
+    ulong member_cnt;
+    if( FD_UNLIKELY( -1==fd_iavf_member_interfaces( config->net.interface, members, &member_cnt ) ) ) {
+      int err = errno;
+      if( err==EOPNOTSUPP && fd_bonding_is_active_backup( config->net.interface ) ) {
+        FD_LOG_ERR(( "IAVF does not support bond `%s` in active-backup mode. "
+                     "Only 802.3ad (LACP) bonds are currently supported.", config->net.interface ));
+      }
+      FD_LOG_ERR(( "IAVF requires ice or i40e PFs on a physical interface or 802.3ad bond (%i-%s)", err, fd_io_strerror( err ) ));
     }
   }
 
