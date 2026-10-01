@@ -47,6 +47,7 @@
 #define QUIC_CLOSE_CODE_EVICTED (3U)
 #define QUIC_CLOSE_CODE_BANNED  (4U)
 #define QUIC_CONN_MAX           (AG_VAT_MAX * 2) /* each validator is alloted 2 concurrent conns */
+#define QUIC_CLIENT_CONN_MAX    (AG_VAT_MAX * 3) /* one conn to every validator of the prev, curr and next epochs */
 
 #define REWARD_VOTE_MAX        (AG_REWARD_SLOT_DELTA+AG_SLOTS_PER_WINDOW) /* voting slot+REWARD_VOTE_MAX needs ParentReady past slot+8's window, deciding slot's reward */
 #define REWARD_VOTE_RTT_MIN_NS (10000000L)                                /* retry a reward vote no sooner than 10ms */
@@ -55,10 +56,10 @@
 #define SER_MAX (AG_VOTE_SER_MAX>AG_CERT_SER_MAX ? AG_VOTE_SER_MAX : AG_CERT_SER_MAX)
 
 static fd_quic_limits_t quic_client_limits = {
-  .conn_cnt                    = AG_VAT_MAX,
+  .conn_cnt                    = QUIC_CLIENT_CONN_MAX,
   .handshake_cnt               = 1024UL,
   .conn_id_cnt                 = FD_QUIC_MIN_CONN_ID_CNT,
-  .inflight_frame_cnt          = 16UL * AG_VAT_MAX,
+  .inflight_frame_cnt          = 16UL * QUIC_CLIENT_CONN_MAX,
   .min_inflight_frame_cnt_conn = 8UL,
 };
 
@@ -227,7 +228,7 @@ struct fd_votor_tile {
 
   contact_info_t *   contact_infos;
   peer_t *           peers;
-  fd_pubkey_t        client_peer_id_keys[ QUIC_CONN_MAX ];
+  fd_pubkey_t        client_peer_id_keys[ QUIC_CLIENT_CONN_MAX ];
   fd_pubkey_t        server_peer_id_keys[ QUIC_CONN_MAX ];
   fd_net_rx_bounds_t net_in_bounds[ 32 ];
   uchar              net_buf[ FD_NET_MTU ];
