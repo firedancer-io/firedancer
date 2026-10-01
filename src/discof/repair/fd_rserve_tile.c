@@ -100,8 +100,12 @@ typedef struct ctx {
   fd_pubkey_t identity_public_key;
   int halt_signing;
 
-  /* QoS; prioritize draining input links over handling UDP frags */
-  ulong polled_in_cnt;
+  /* QoS; prioritize draining input links over handling UDP frags.
+     quiet_cnt counts polls since the last non-net frag (or overrun).
+     Net frags are only handled once quiet_cnt>=poll_in_cnt, i.e. after
+     a full round robin pass found every non-net input empty. */
+  ulong poll_in_cnt;
+  ulong quiet_cnt;
 
   fd_ip4_udp_hdrs_t serve_hdr[1];
   ushort            net_id;
@@ -556,22 +560,6 @@ handle_net_request( ctx_t             * ctx,
   }
 }
 
-/* non_net_pending returns 1 if any polled non-net input has a frag (or
-   an overrun) waiting, in which case net frags are deferred so that a
-   slow request cannot delay draining (and thus backpressure) reliable
-   producers like shred_out. */
-
-static inline int
-non_net_pending( ctx_t const *             ctx,
-                 fd_stem_context_t const * stem ) {
-  for( ulong i=0UL; i<ctx->polled_in_cnt; i++ ) {
-    fd_stem_tile_in_t const * in = &stem->in[ i ];
-    if( ctx->in_kind[ in->idx ]==IN_KIND_NET ) continue;
-    if( fd_seq_diff( in->seq, fd_frag_meta_seq_query( in->mline ) )<=0L ) return 1;
-  }
-  return 0;
-}
-
 static inline int
 returnable_frag( ctx_t             * ctx,
                  ulong               in_idx,
@@ -586,9 +574,11 @@ returnable_frag( ctx_t             * ctx,
   uint in_kind = ctx->in_kind[ in_idx ];
   in_ctx_t const * in_ctx = &ctx->in_links[ in_idx ];
 
+  if( in_kind!=IN_KIND_NET ) ctx->quiet_cnt = 0UL;
+
   switch( in_kind ) {
   case IN_KIND_NET: {
-    if( FD_UNLIKELY( ctx->halt_signing || non_net_pending( ctx, stem ) ) ) return 1;
+    if( FD_UNLIKELY( ctx->halt_signing || ctx->quiet_cnt<ctx->poll_in_cnt ) ) return 1;
     if( fd_disco_netmux_sig_proto( sig )!=DST_PROTO_RSERVE ) return 0;
 
     uchar const * buffer = fd_net_rx_translate_frag( &in_ctx->net_rx, chunk, ctl, sz );
@@ -654,6 +644,19 @@ before_credit( ctx_t             * ctx,
     return;
   }
   if( FD_UNLIKELY( fd_store_disk_maintain( ctx->store, ctx->disk_fd ) ) ) *charge_busy = 1;
+}
+
+static inline void
+after_credit( ctx_t             * ctx,
+              fd_stem_context_t * stem        FD_PARAM_UNUSED,
+              int               * opt_poll_in FD_PARAM_UNUSED,
+              int               * charge_busy FD_PARAM_UNUSED ) {
+  ctx->quiet_cnt++;
+}
+
+static inline void
+after_poll_overrun( ctx_t * ctx ) {
+  ctx->quiet_cnt = 0UL;
 }
 
 static inline void
@@ -846,8 +849,9 @@ unprivileged_init( fd_topo_t      const * topo,
 
   FD_TEST( tile->in_cnt>=1UL );
   FD_CHECK_ERR( tile->in_cnt<=MAX_IN_LINKS, "too many input links" );
-  ctx->polled_in_cnt = 0UL;
-  for( ulong in_idx=0UL; in_idx<tile->in_cnt; in_idx++ ) ctx->polled_in_cnt += !!tile->in_link_poll[ in_idx ];
+  ctx->poll_in_cnt = 0UL;
+  ctx->quiet_cnt   = 0UL;
+  for( ulong in_idx=0UL; in_idx<tile->in_cnt; in_idx++ ) ctx->poll_in_cnt += !!tile->in_link_poll[ in_idx ];
   for( ulong in_idx=0UL; in_idx<tile->in_cnt; in_idx++ ) {
     fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ in_idx ] ];
     if( 0==strcmp( link->name, "net_rserve" ) ) {
@@ -928,6 +932,8 @@ populate_allowed_fds( fd_topo_t const *      topo FD_PARAM_UNUSED,
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 #define STEM_CALLBACK_METRICS_WRITE       metrics_write
 #define STEM_CALLBACK_BEFORE_CREDIT       before_credit
+#define STEM_CALLBACK_AFTER_CREDIT        after_credit
+#define STEM_CALLBACK_AFTER_POLL_OVERRUN  after_poll_overrun
 #define STEM_CALLBACK_RETURNABLE_FRAG     returnable_frag
 
 #include "../../disco/stem/fd_stem.c"

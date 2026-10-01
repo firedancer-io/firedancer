@@ -276,11 +276,8 @@ test_no_blockdb( fd_repair_t * client ) {
   FD_LOG_NOTICE(( "pass: test_no_blockdb" ));
 }
 
-/* Net frags are returned to the stem while any non-net input has a
-   frag waiting, regardless of the order inputs are polled in. */
-
-#define TEST_MCACHE_DEPTH (128UL)
-static uchar test_mcache_mem[ FD_MCACHE_FOOTPRINT( TEST_MCACHE_DEPTH, 0UL ) ] __attribute__((aligned(FD_MCACHE_ALIGN)));
+/* Net frags are returned to the stem until a full round of polls has
+   found no non-net frag, regardless of the order inputs are polled in. */
 
 static void
 test_net_deferred( void ) {
@@ -289,42 +286,54 @@ test_net_deferred( void ) {
   ctx->in_kind[ 0 ] = IN_KIND_NET;
   ctx->in_kind[ 1 ] = IN_KIND_NET;
   ctx->in_kind[ 2 ] = IN_KIND_SHRED;
-  ctx->polled_in_cnt = 3UL;
+  ctx->poll_in_cnt  = 3UL;
+  ctx->quiet_cnt    = 0UL;
 
-  fd_frag_meta_t * mcache = fd_mcache_join( fd_mcache_new( test_mcache_mem, TEST_MCACHE_DEPTH, 0UL, 0UL ) );
-  FD_TEST( mcache );
+  ulong net_sig   = fd_disco_netmux_sig( 0U, 0, 0U, DST_PROTO_OUTGOING, 0UL ); /* not ours, dropped once admitted */
+  ulong shred_sig = 0xFFUL;                                                     /* bad source, dropped */
+  int   busy      = 0;
 
-  /* Stem shuffles its ins, so the shred in is not at its own index */
-  fd_stem_tile_in_t in[ 3 ] = {0};
-  in[ 0 ].idx = 2U; in[ 0 ].seq = 0UL; in[ 0 ].mline = mcache + fd_mcache_line_idx( 0UL, TEST_MCACHE_DEPTH );
-  in[ 1 ].idx = 0U; in[ 1 ].seq = 0UL; in[ 1 ].mline = mcache + fd_mcache_line_idx( 0UL, TEST_MCACHE_DEPTH );
-  in[ 2 ].idx = 1U; in[ 2 ].seq = 0UL; in[ 2 ].mline = mcache + fd_mcache_line_idx( 0UL, TEST_MCACHE_DEPTH );
-  fd_stem_context_t stem[1] = {{ .in = in }};
+  /* Startup: deferred until every in has been polled once */
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( returnable_frag( ctx, 0UL, 0UL, net_sig, 0UL, 0UL, 0UL, 0UL, 0UL, NULL )==1 );
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( returnable_frag( ctx, 1UL, 0UL, net_sig, 0UL, 0UL, 0UL, 0UL, 0UL, NULL )==1 );
+  after_credit( ctx, NULL, NULL, &busy ); /* shred empty */
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( returnable_frag( ctx, 0UL, 0UL, net_sig, 0UL, 0UL, 0UL, 0UL, 0UL, NULL )==0 );
 
-  ulong sig = fd_disco_netmux_sig( 0U, 0, 0U, DST_PROTO_OUTGOING, 0UL ); /* not ours, dropped once admitted */
+  /* A shred frag defers both net ins, even if the in polled right
+     before them was empty, until the shred in is found empty again */
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( returnable_frag( ctx, 1UL, 0UL, net_sig,   0UL, 0UL, 0UL, 0UL, 0UL, NULL )==0 );
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( returnable_frag( ctx, 2UL, 0UL, shred_sig, 0UL, 0UL, 0UL, 0UL, 0UL, NULL )==0 );
+  after_credit( ctx, NULL, NULL, &busy ); /* net in 0 empty */
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( returnable_frag( ctx, 1UL, 0UL, net_sig,   0UL, 0UL, 0UL, 0UL, 0UL, NULL )==1 );
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( returnable_frag( ctx, 2UL, 0UL, shred_sig, 0UL, 0UL, 0UL, 0UL, 0UL, NULL )==0 );
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( returnable_frag( ctx, 0UL, 0UL, net_sig,   0UL, 0UL, 0UL, 0UL, 0UL, NULL )==1 );
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( returnable_frag( ctx, 1UL, 0UL, net_sig,   0UL, 0UL, 0UL, 0UL, 0UL, NULL )==1 );
+  after_credit( ctx, NULL, NULL, &busy ); /* shred empty */
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( returnable_frag( ctx, 0UL, 0UL, net_sig,   0UL, 0UL, 0UL, 0UL, 0UL, NULL )==0 );
 
-  /* Shred caught up: net frags are admitted */
-  FD_TEST( returnable_frag( ctx, 1UL, 0UL, sig, 0UL, 0UL, 0UL, 0UL, 0UL, stem )==0 );
-
-  /* Shred frag waiting: net frags are deferred on every net in */
-  fd_mcache_publish( mcache, TEST_MCACHE_DEPTH, 0UL, 0UL, 0UL, 0UL, 0UL, 0UL, 0UL );
-  FD_TEST( returnable_frag( ctx, 0UL, 0UL, sig, 0UL, 0UL, 0UL, 0UL, 0UL, stem )==1 );
-  FD_TEST( returnable_frag( ctx, 1UL, 0UL, sig, 0UL, 0UL, 0UL, 0UL, 0UL, stem )==1 );
-
-  /* Shred overrun also counts as pending */
-  fd_mcache_publish( mcache, TEST_MCACHE_DEPTH, TEST_MCACHE_DEPTH, 0UL, 0UL, 0UL, 0UL, 0UL, 0UL );
-  FD_TEST( returnable_frag( ctx, 0UL, 0UL, sig, 0UL, 0UL, 0UL, 0UL, 0UL, stem )==1 );
-
-  /* Shred drained: net frags are admitted again */
-  in[ 0 ].seq   = TEST_MCACHE_DEPTH+1UL;
-  in[ 0 ].mline = mcache + fd_mcache_line_idx( in[ 0 ].seq, TEST_MCACHE_DEPTH );
-  FD_TEST( returnable_frag( ctx, 0UL, 0UL, sig, 0UL, 0UL, 0UL, 0UL, 0UL, stem )==0 );
+  /* An overrun counts as a non-net frag */
+  after_poll_overrun( ctx );
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( returnable_frag( ctx, 1UL, 0UL, net_sig, 0UL, 0UL, 0UL, 0UL, 0UL, NULL )==1 );
 
   /* Halted signing defers net frags regardless */
+  after_credit( ctx, NULL, NULL, &busy );
+  after_credit( ctx, NULL, NULL, &busy );
   ctx->halt_signing = 1;
-  FD_TEST( returnable_frag( ctx, 0UL, 0UL, sig, 0UL, 0UL, 0UL, 0UL, 0UL, stem )==1 );
+  FD_TEST( returnable_frag( ctx, 0UL, 0UL, net_sig, 0UL, 0UL, 0UL, 0UL, 0UL, NULL )==1 );
+  ctx->halt_signing = 0;
+  FD_TEST( returnable_frag( ctx, 0UL, 0UL, net_sig, 0UL, 0UL, 0UL, 0UL, 0UL, NULL )==0 );
 
-  fd_mcache_delete( fd_mcache_leave( mcache ) );
   FD_LOG_NOTICE(( "pass: test_net_deferred" ));
 }
 
