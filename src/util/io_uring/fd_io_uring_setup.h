@@ -62,6 +62,8 @@ fd_io_uring_params_init( fd_io_uring_params_t * params,
   return params;
 }
 
+#if defined(__linux__)
+
 /* fd_io_uring_init_shmem creates a new io_uring instance (using
    io_uring_setup(2)) with a user-allocated ring.  shmem points to the
    io_uring_shmem allocated ring with {sq,cq}_depth ring space. */
@@ -91,6 +93,8 @@ fd_io_uring_init_mmap(
 
 void *
 fd_io_uring_fini( fd_io_uring_t * ring );
+
+#endif /* defined(__linux__) */
 
 FD_PROTOTYPES_END
 

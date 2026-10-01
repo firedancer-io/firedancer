@@ -5,7 +5,10 @@
 #              tiles may need to pull accounts into the cache from disk,
 #              or purge out of cache to the disk to make forward
 #              progress.
-uint logfile_fd, uint accounts_fd, uint stake_spill_fd
+#
+# accdb_ring_fd: The io_uring used for batched accounts database I/O,
+#                or -1 if disabled.
+uint logfile_fd, uint accounts_fd, uint stake_spill_fd, uint accdb_ring_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -72,3 +75,8 @@ futex: (and (eq (arg 1) FUTEX_WAIT_BITSET)
 # kernel resumes the wait with the remaining timeout via restart_syscall
 # when the tile next runs.
 restart_syscall
+
+# accounts database: submit and wait for batched disk I/O
+#
+# arg 0 is the io_uring file descriptor.
+io_uring_enter: (eq (arg 0) accdb_ring_fd)

@@ -1,5 +1,5 @@
-$(call add-hdrs,fd_accdb.h fd_accdb_base.h fd_accdb_cache.h fd_accdb_shmem.h)
-$(call add-objs,fd_accdb fd_accdb_cache fd_accdb_shmem,fd_flamenco)
+$(call add-hdrs,fd_accdb.h fd_accdb_base.h fd_accdb_cache.h fd_accdb_shmem.h fd_accdb_io_uring.h)
+$(call add-objs,fd_accdb fd_accdb_cache fd_accdb_shmem fd_accdb_io_uring,fd_flamenco)
 $(call add-objs,fd_accdb_tile,fd_disco) # TODO: MOVE TO DISCOF
 
 ifdef FD_HAS_HOSTED

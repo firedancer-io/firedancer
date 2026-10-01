@@ -5,7 +5,10 @@
 #              tiles may need to pull accounts into the cache from disk,
 #              or purge out of cache to the disk to make forward
 #              progress.
-uint logfile_fd, uint accounts_fd, uint store_fd, uint stake_spill_fd
+#
+# accdb_ring_fd: The io_uring used for batched accounts database I/O,
+#                or -1 if disabled.
+uint logfile_fd, uint accounts_fd, uint store_fd, uint stake_spill_fd, uint accdb_ring_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -75,3 +78,8 @@ pread64: (or (eq (arg 0) store_fd)
 
 # stake delegations: full-record disk spill
 pwrite64: (eq (arg 0) stake_spill_fd)
+
+# accounts database: submit and wait for batched disk I/O
+#
+# arg 0 is the io_uring file descriptor.
+io_uring_enter: (eq (arg 0) accdb_ring_fd)

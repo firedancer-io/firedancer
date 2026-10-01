@@ -67,6 +67,8 @@ typedef struct fd_io_uring fd_io_uring_t;
 
 FD_PROTOTYPES_BEGIN
 
+#if defined(__linux__)
+
 /* fd_io_uring_submit flushes the submission queue and waits for
    wait_cnt completions to arrive.  Returns the number of submitted
    entries on success, or a negative errno value on error. */
@@ -83,6 +85,8 @@ fd_io_uring_submit( fd_io_uring_sq_t * sq,
   uint to_submit = tail - head;
   return fd_io_uring_enter( ring_fd, to_submit, wait_cnt, flags, NULL, 0 );
 }
+
+#endif /* defined(__linux__) */
 
 static inline uint
 fd_io_uring_sq_dropped( fd_io_uring_sq_t const * sq ) {

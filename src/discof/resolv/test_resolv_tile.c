@@ -4,6 +4,7 @@
 #include "../../util/tmpl/fd_unit_test.c"
 
 #define TOPO_TAG 2UL
+#define TILE_TAG 3UL /* never freed, holds io_uring memory */
 #define TEST_MAX_LIVE_SLOTS 32UL
 #define TEST_HASH_SEED (0x0123456789abcdefUL)
 
@@ -258,7 +259,9 @@ FD_UNIT_TEST( resolv_stash_map_hashes_full_key ) {
 }
 
 FD_UNIT_TEST( resolv_stash_map_seed_initialized ) {
-  void * tile_mem = fd_wksp_alloc_laddr( mini->wksp, alignof(fd_resolv_ctx_t), sizeof(fd_resolv_ctx_t), TOPO_TAG );
+  fd_topo_tile_t tile = { .tile_obj_id = 0UL };
+  tile.resolv.max_live_slots = TEST_MAX_LIVE_SLOTS;
+  void * tile_mem = fd_wksp_alloc_laddr( mini->wksp, scratch_align(), scratch_footprint( &tile ), TILE_TAG );
   FD_TEST( tile_mem );
 
   static fd_topo_t topo[1];
@@ -268,7 +271,6 @@ FD_UNIT_TEST( resolv_stash_map_seed_initialized ) {
     .wksp_id = 0UL,
     .offset  = (ulong)tile_mem-(ulong)mini->wksp,
   };
-  fd_topo_tile_t tile = { .tile_obj_id = 0UL };
 
   fd_resolv_ctx_t * ctx = tile_mem;
   ctx->map_seed = TEST_HASH_SEED;
@@ -276,7 +278,11 @@ FD_UNIT_TEST( resolv_stash_map_seed_initialized ) {
   fd_tile_resolv.privileged_init( topo, &tile );
   FD_TEST( ctx->map_seed!=TEST_HASH_SEED );
 
-  fd_wksp_free_laddr( tile_mem );
+  /* io_uring teardown is asynchronous, so tile_mem (which backs the
+     ring) is intentionally never freed. */
+#if defined(__linux__)
+  if( ctx->accdb_ring->ioring_fd>=0 ) fd_accdb_io_uring_fini( ctx->accdb_ring );
+#endif
 }
 
 static void

@@ -24,6 +24,7 @@
 #include "../../disco/events/generated/fd_event_gen.h"
 #include "../../util/fd_hash32.h"
 #include "../../ballet/bmtree/fd_bmtree.h"
+#include "../../util/io_uring/fd_io_uring.h"
 #include <stdio.h>
 
 struct fd_replay_in_link {
@@ -157,6 +158,7 @@ struct fd_replay_tile {
   fd_progcache_join_t progcache[1];
 
   fd_accdb_t *    accdb;
+  fd_io_uring_t   accdb_ring[1];
   fd_txncache_t * txncache;
   fd_store_t *    store;
   fd_store_map_t  map_join[1];

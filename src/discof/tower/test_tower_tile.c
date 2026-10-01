@@ -591,6 +591,34 @@ mock_topo_with_accdb( fd_wksp_t *      wksp,
   tile->tower.accdb_obj_id = shmem_obj->id;
 }
 
+/* init_ring does the accdb io_uring setup of privileged_init. */
+
+static void
+init_ring( void * scratch ) {
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_tower_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_tower_tile_t),   sizeof(fd_tower_tile_t) );
+  void *            mem = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_io_uring_align(), fd_accdb_io_uring_footprint( ACCDB_IO_URING_DEPTH ) );
+#if defined(__linux__)
+  if( FD_UNLIKELY( !fd_accdb_io_uring_init( ctx->accdb_ring, mem, ACCDB_IO_URING_DEPTH, FD_ACCDB_FD_RW, 1 ) ) ) {
+    FD_LOG_WARNING(( "failed to create accounts database io_uring, falling back to blocking reads" ));
+  }
+#else
+  (void)mem;
+  ctx->accdb_ring->ioring_fd = -1;
+#endif
+}
+
+/* fini_ring releases the ring created by init_ring.  Must run before
+   the scratch memory is reused. */
+
+static void
+fini_ring( fd_tower_tile_t * ctx ) {
+  if( ctx->accdb_ring->ioring_fd>=0 ) {
+    fd_accdb_attach_io_uring( ctx->accdb, NULL );
+    fd_accdb_io_uring_fini( ctx->accdb_ring );
+  }
+}
+
 static void
 test_fixture_replay( fd_wksp_t * wksp ) {
 
@@ -607,7 +635,7 @@ test_fixture_replay( fd_wksp_t * wksp ) {
   static fd_topo_t topo[1];
   mock_topo_with_accdb( wksp, topo, tile );
 
-  FD_TEST( scratch_align()==128UL );
+  FD_TEST( scratch_align()==fd_ulong_max( 128UL, fd_accdb_io_uring_align() ) );
 
   ulong footprint = scratch_footprint( tile );
   FD_TEST( footprint );
@@ -620,6 +648,7 @@ test_fixture_replay( fd_wksp_t * wksp ) {
      choreo structures, and state initialization. */
 
   ((fd_tower_tile_t *)scratch)->seed = 42UL;
+  init_ring( scratch );
   fd_tower_tile_t * ctx = init_choreo( scratch, topo, tile );
   FD_TEST( ctx );
 
@@ -683,6 +712,7 @@ test_fixture_replay( fd_wksp_t * wksp ) {
     FD_TEST( fd_ghost_query( ctx->ghost, &bid ) );
   }
 
+  fini_ring( ctx );
   FD_LOG_NOTICE(( "pass: test_fixture_replay" ));
 }
 
@@ -738,6 +768,7 @@ eqvoc_setup( fd_wksp_t * wksp ) {
   FD_TEST( scratch );
 
   ((fd_tower_tile_t *)scratch)->seed = 42UL;
+  init_ring( scratch );
   fd_tower_tile_t * ctx = init_choreo( scratch, topo, tile );
   FD_TEST( ctx );
 
@@ -828,6 +859,7 @@ test_eqvoc_rce_same( fd_wksp_t * wksp ) {
   fd_ghost_blk_t * gb = fd_ghost_query( ctx->ghost, &A );
   FD_TEST( gb && gb->valid==1 );
 
+  fini_ring( ctx );
   FD_LOG_NOTICE(( "pass: test_eqvoc_rce_same" ));
 }
 
@@ -854,6 +886,7 @@ test_eqvoc_rec_same( fd_wksp_t * wksp ) {
   fd_ghost_blk_t * gb = fd_ghost_query( ctx->ghost, &A );
   FD_TEST( gb && gb->valid==1 );
 
+  fini_ring( ctx );
   FD_LOG_NOTICE(( "pass: test_eqvoc_rec_same" ));
 }
 
@@ -880,6 +913,7 @@ test_eqvoc_cre_same( fd_wksp_t * wksp ) {
   fd_ghost_blk_t * gb = fd_ghost_query( ctx->ghost, &A );
   FD_TEST( gb && gb->valid==1 );
 
+  fini_ring( ctx );
   FD_LOG_NOTICE(( "pass: test_eqvoc_cre_same" ));
 }
 
@@ -903,6 +937,7 @@ test_eqvoc_rce_diff( fd_wksp_t * wksp ) {
   fd_ghost_blk_t * gb = fd_ghost_query( ctx->ghost, &A );
   FD_TEST( gb && gb->valid==0 );
 
+  fini_ring( ctx );
   FD_LOG_NOTICE(( "pass: test_eqvoc_rce_diff" ));
 }
 
@@ -949,6 +984,7 @@ test_eqvoc_erc_diff( fd_wksp_t * wksp ) {
   fd_ghost_blk_t * gb = fd_ghost_query( ctx->ghost, &A );
   FD_TEST( gb && gb->valid==0 );
 
+  fini_ring( ctx );
   FD_LOG_NOTICE(( "pass: test_eqvoc_erc_diff" ));
 }
 
@@ -984,6 +1020,7 @@ test_eqvoc_cre_diff( fd_wksp_t * wksp ) {
   FD_TEST( tb->confirmed==1 );
   FD_TEST( gb->valid==0 );
 
+  fini_ring( ctx );
   FD_LOG_NOTICE(( "pass: test_eqvoc_cre_diff" ));
 }
 

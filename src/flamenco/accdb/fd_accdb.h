@@ -116,8 +116,9 @@ fd_accdb_join( void * shaccdb );
    external_epoch_slots[] pointer and defers partition reclamation
    accordingly, the same way it does for in-shmem joiner_epochs[].
 
-   Only fd_accdb_read_one_nocache, fd_accdb_exists, and
-   fd_accdb_lamports are supported on a readonly join; any other API is
+   Only fd_accdb_read_one_nocache, fd_accdb_read_nocache_batch,
+   fd_accdb_exists, fd_accdb_lamports, and fd_accdb_attach_io_uring are
+   supported on a readonly join; any other API is
    undefined behavior. */
 
 fd_accdb_t *
@@ -125,6 +126,24 @@ fd_accdb_join_readonly( void *             ljoin,
                         fd_accdb_shmem_t * shmem_ro,
                         ulong *            my_epoch_slot_rw,
                         int                fd_ro );
+
+#if defined(__linux__)
+
+/* fd_accdb_attach_io_uring routes this joiner's batched disk I/O
+   (acquire cold loads, acquire eviction writeback, and nocache batch
+   reads) through ring instead of blocking preadv2/pwritev2.  ring must
+   be owned by the calling thread, have the accdb fd registered as fixed
+   file index 0, and have no other requests in flight while accdb uses
+   it.  See fd_accdb_io_uring.h for a setup helper.  ring==NULL restores
+   the blocking syscall path (the default after join). */
+
+struct fd_io_uring;
+
+void
+fd_accdb_attach_io_uring( fd_accdb_t *         accdb,
+                          struct fd_io_uring * ring );
+
+#endif /* defined(__linux__) */
 
 /* fd_accdb_snapshot_load_{begin,end} suspend compaction while snapshot
    writers build the index.  New layer-0 partitions are tagged Cold;
@@ -494,6 +513,50 @@ fd_accdb_read_one_nocache( fd_accdb_t *       accdb,
                            uchar *            out_owner,
                            uchar *            out_data,
                            ulong *            out_data_len );
+
+/* fd_accdb_read_nocache_batch is the batched form of
+   fd_accdb_read_one_nocache.  Cache hits are copied inline, and all
+   disk reads of the batch are issued together (in parallel if an
+   io_uring is attached).
+
+   Account data is packed into the caller's arena as a sequence of
+   records, one per account in order: out[i].data = cursor+prefix_sz,
+   and cursor then advances by prefix_sz+out[i].data_len rounded up to
+   align (a power of 2).  cursor starts at arena.  Accounts that do not
+   exist have data_len==0 (so consume only prefix_sz).  prefix_sz leaves
+   room for a caller defined header in front of each record.
+
+   Stops before the first account whose record would not fit in
+   arena_sz and returns the number of accounts processed (out[0,ret) is
+   valid).  If arena_sz>=fd_ulong_align_up(prefix_sz+FD_RUNTIME_ACC_SZ_MAX,
+   align), at least one account is always processed when cnt>0.  The caller
+   retries the remainder with a fresh arena. */
+
+struct fd_accdb_nocache_out {
+  ulong   lamports;   /* 0 if the account does not exist */
+  uchar * data;
+  ulong   data_len;
+  int     executable;
+  int     source;     /* FD_ACCDB_READ_ONE_NOCACHE_{MISS,CACHE,DISK} */
+  uchar   owner[ 32 ];
+};
+
+typedef struct fd_accdb_nocache_out fd_accdb_nocache_out_t;
+
+/* FD_ACCDB_NOCACHE_BATCH_MAX bounds cnt in fd_accdb_read_nocache_batch */
+
+#define FD_ACCDB_NOCACHE_BATCH_MAX (128UL)
+
+ulong
+fd_accdb_read_nocache_batch( fd_accdb_t *             accdb,
+                             fd_accdb_fork_id_t       fork_id,
+                             ulong                    cnt,
+                             uchar const * const *    pubkeys,
+                             uchar *                  arena,
+                             ulong                    arena_sz,
+                             ulong                    prefix_sz,
+                             ulong                    align,
+                             fd_accdb_nocache_out_t * out );
 
 /* fd_accdb_lamports returns the lamports of the account at fork_id, or
    zero if the account does not exist. */

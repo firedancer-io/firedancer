@@ -18,6 +18,7 @@
 #define MAX_TXN_PER_SLOT 32
 
 #define TOPO_TAG 2UL
+#define TILE_TAG 3UL /* never freed, holds io_uring memory */
 
 int volatile const fd_startup_skip_checks = 1; /* fd_startup.c */
 
@@ -96,7 +97,7 @@ test_env_create( void ) {
   fd_topo_tile_t * topo_tile = fd_topob_tile( topo, "execrp", "execrp", "execrp", 0UL, 0, 0, 0, 0 );
   topo_tile->execrp.max_live_slots = MAX_LIVE_SLOTS;
 
-  void * tile_mem = fd_wksp_alloc_laddr( env->mini->wksp, scratch_align(), scratch_footprint( topo_tile ), TOPO_TAG );
+  void * tile_mem = fd_wksp_alloc_laddr( env->mini->wksp, scratch_align(), scratch_footprint( topo_tile ), TILE_TAG );
   FD_TEST( tile_mem );
   env->tile_mem = tile_mem;
   topo->objs[ topo_tile->tile_obj_id ].offset = fd_wksp_gaddr_fast( env->mini->wksp, tile_mem );
@@ -123,6 +124,7 @@ test_env_create( void ) {
   topo_tile->execrp.progcache_obj_id = progcache_obj->id;
   topo_tile->execrp.txncache_obj_id  = txncache_obj->id;
 
+  privileged_init( topo, topo_tile );
   unprivileged_init( topo, topo_tile );
 
   env->execrp = tile_mem;
@@ -140,6 +142,10 @@ test_env_create( void ) {
 
 static void
 test_env_destroy( test_env_t * env ) {
+  if( env->execrp->accdb_ring->ioring_fd>=0 ) {
+    fd_accdb_attach_io_uring( env->execrp->accdb, NULL );
+    fd_accdb_io_uring_fini( env->execrp->accdb_ring );
+  }
   ulong tag = TOPO_TAG;
   fd_wksp_tag_free( env->mini->wksp, &tag, 1UL );
 }
@@ -377,17 +383,24 @@ test_execrp_run( test_env_t * env,
 }
 
 FD_UNIT_TEST( execrp_seccomp ) {
-  int   out_fds[4];
-  ulong nfds = populate_allowed_fds( NULL, NULL, 4UL, out_fds );
-  FD_TEST( nfds>=3 && nfds<=4 );
+  test_env_t *           env  = test_env_create();
+  fd_topo_tile_t const * tile = &topo->tiles[ 0 ];
+  int   out_fds[5];
+  ulong nfds = populate_allowed_fds( topo, tile, 5UL, out_fds );
+  /* logfile fd is optional; io_uring fd is last unless io_uring is
+     unavailable */
+  ulong ring_cnt = env->execrp->accdb_ring->ioring_fd>=0 ? 1UL : 0UL;
+  ulong base_cnt = nfds-ring_cnt;
+  FD_TEST( base_cnt>=3 && base_cnt<=4 );
   FD_TEST( out_fds[0]==STDERR_FILENO );
-  /* logfile fd is optional; the stake spill fd is always last */
-  FD_TEST( out_fds[ nfds-2UL ]==FD_ACCDB_FD_RW );
-  FD_TEST( out_fds[ nfds-1UL ]==FD_STAKE_DELEGATIONS_FD );
-  if( nfds==4 ) FD_TEST( out_fds[1]==fd_log_private_logfile_fd() );
+  FD_TEST( out_fds[ base_cnt-2UL ]==FD_ACCDB_FD_RW );
+  FD_TEST( out_fds[ base_cnt-1UL ]==FD_STAKE_DELEGATIONS_FD );
+  if( ring_cnt ) FD_TEST( out_fds[ base_cnt ]==env->execrp->accdb_ring->ioring_fd );
+  if( base_cnt==4 ) FD_TEST( out_fds[1]==fd_log_private_logfile_fd() );
 
   struct sock_filter filter[ sock_filter_policy_fd_execrp_tile_instr_cnt ];
-  populate_allowed_seccomp( NULL, NULL, sock_filter_policy_fd_execrp_tile_instr_cnt, filter );
+  populate_allowed_seccomp( topo, tile, sock_filter_policy_fd_execrp_tile_instr_cnt, filter );
+  test_env_destroy( env );
 }
 
 FD_UNIT_TEST( execrp_metrics_write ) {

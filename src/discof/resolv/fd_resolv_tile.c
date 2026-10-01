@@ -17,6 +17,7 @@
 #include <time.h>
 #include <linux/futex.h>
 #include "generated/fd_resolv_tile_seccomp.h"
+#include "../../flamenco/accdb/fd_accdb_io_uring.h"
 
 #if FD_HAS_AVX
 #include "../../util/simd/fd_avx.h"
@@ -24,6 +25,8 @@
 
 #define IN_KIND_DEDUP  (0)
 #define IN_KIND_REPLAY (1)
+
+#define ACCDB_IO_URING_DEPTH (128UL)
 
 struct blockhash {
   uchar b[ 32 ];
@@ -157,6 +160,7 @@ typedef struct {
   fd_banks_t * banks;
   fd_bank_t * bank;
   fd_accdb_t * accdb;
+  fd_io_uring_t accdb_ring[1];
 
   fd_stashed_txn_m_t * pool;
   map_chain_t *        map_chain;
@@ -183,24 +187,26 @@ typedef struct {
   fd_resolv_out_ctx_t out_pack[ 1UL ];
   fd_resolv_out_ctx_t out_replay[ 1UL ];
 
-  /* Scratch buffers for fd_accdb_read_one_nocache.  RO accdb joiners
+  /* Scratch buffers for fd_accdb_read_nocache_batch.  RO accdb joiners
      must use the nocache API (see fd_accdb.h), which writes the account
      data into caller-provided buffers rather than returning a pointer
-     into the cache.  Reused across alut reads; peek_alut consumes the
-     bytes synchronously inside fd_alut_interp_next. */
-  uchar alut_owner[ 32UL ];
-  uchar alut_data[ FD_RUNTIME_ACC_SZ_MAX ];
+     into the cache.  Reused across txns; peek_aluts consumes the bytes
+     synchronously inside fd_alut_interp_next. */
+  fd_accdb_nocache_out_t alut_out[ FD_TXN_ADDR_TABLE_LOOKUP_MAX ];
+  uchar                  alut_data[ FD_RUNTIME_ACC_SZ_MAX ];
 } fd_resolv_ctx_t;
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
-  return fd_ulong_max( fd_ulong_max( alignof( fd_resolv_ctx_t ), pool_align() ), fd_ulong_max( map_chain_align(), map_align() ) );
+  ulong a = fd_ulong_max( fd_ulong_max( alignof( fd_resolv_ctx_t ), pool_align() ), fd_ulong_max( map_chain_align(), map_align() ) );
+  return fd_ulong_max( a, fd_accdb_io_uring_align() );
 }
 
 FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof( fd_resolv_ctx_t ), sizeof( fd_resolv_ctx_t )                          );
+  l = FD_LAYOUT_APPEND( l, fd_accdb_io_uring_align(), fd_accdb_io_uring_footprint( ACCDB_IO_URING_DEPTH ) );
   l = FD_LAYOUT_APPEND( l, pool_align(),               pool_footprint     ( 1UL<<16UL )                   );
   l = FD_LAYOUT_APPEND( l, map_chain_align(),          map_chain_footprint( 8192UL    )                   );
   l = FD_LAYOUT_APPEND( l, map_align(),                map_footprint( MAP_LG_SLOT_CNT )                   );
@@ -269,30 +275,6 @@ during_frag( fd_resolv_ctx_t * ctx,
 
 /* peek_alut reads a single address lookup table from database cache. */
 
-static int
-peek_alut( fd_resolv_ctx_t *  ctx,
-           fd_txn_m_t *       txnm,
-           fd_alut_interp_t * interp,
-           ulong              alut_idx ) {
-  fd_txn_t const * txn         = fd_txn_m_txn_t_const  ( txnm );
-  uchar const *    txn_payload = fd_txn_m_payload_const( txnm );
-  fd_txn_acct_addr_lut_t const * addr_lut = &fd_txn_get_address_tables_const( txn )[ alut_idx ];
-  fd_pubkey_t addr_lut_acc = FD_LOAD( fd_pubkey_t, txn_payload+addr_lut->addr_off );
-
-  /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/accounts-db/src/accounts.rs#L90-L94
-
-     The resolv tile maps accdb read-only and so must use the nocache
-     read API; fd_accdb_read_one would mutate writer-only shmem. */
-  ulong lamports;
-  int   executable;
-  ulong data_len;
-  fd_accdb_read_one_nocache( ctx->accdb, ctx->bank->accdb_fork_id, addr_lut_acc.uc,
-                             &lamports, &executable, ctx->alut_owner, ctx->alut_data, &data_len );
-  if( FD_UNLIKELY( !lamports ) ) return FD_RUNTIME_TXN_ERR_ADDRESS_LOOKUP_TABLE_NOT_FOUND;
-
-  return fd_alut_interp_next( interp, &addr_lut_acc, ctx->alut_owner, ctx->alut_data, data_len );
-}
-
 /* peek_aluts reads address lookup tables from database cache.
    Gracefully recovers from data races and missing accounts. */
 
@@ -313,12 +295,34 @@ peek_aluts( fd_resolv_ctx_t * ctx,
   /* Write indirect addrs into here */
   fd_acct_addr_t * indir_addrs = fd_txn_m_alut( txnm );
 
+  /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/accounts-db/src/accounts.rs#L90-L94
+
+     The resolv tile maps accdb read-only and so must use the nocache
+     read API; fd_accdb_read_one would mutate writer-only shmem.  All
+     ALUTs of the txn are read as one batch (split only if they do not
+     fit in alut_data). */
+  FD_STATIC_ASSERT( FD_TXN_ADDR_TABLE_LOOKUP_MAX<=FD_ACCDB_NOCACHE_BATCH_MAX, alut_batch );
+  fd_txn_acct_addr_lut_t const * addr_luts = fd_txn_get_address_tables_const( txn );
+  fd_pubkey_t   alut_keys[ FD_TXN_ADDR_TABLE_LOOKUP_MAX ];
+  uchar const * alut_key_ptrs[ FD_TXN_ADDR_TABLE_LOOKUP_MAX ];
+  for( ulong i=0UL; i<alut_cnt; i++ ) {
+    alut_keys[ i ]     = FD_LOAD( fd_pubkey_t, txn_payload+addr_luts[ i ].addr_off );
+    alut_key_ptrs[ i ] = alut_keys[ i ].uc;
+  }
+
   int err = FD_RUNTIME_EXECUTE_SUCCESS;
   fd_alut_interp_t interp[1];
   fd_alut_interp_new( interp, indir_addrs, txn, txn_payload, slot_hashes_view, slot );
-  for( ulong i=0UL; i<alut_cnt; i++ ) {
-    err = peek_alut( ctx, txnm, interp, i );
-    if( FD_UNLIKELY( err ) ) break;
+  for( ulong i=0UL; i<alut_cnt && !err; ) {
+    fd_accdb_nocache_out_t * out = ctx->alut_out;
+    ulong n = fd_accdb_read_nocache_batch( ctx->accdb, ctx->bank->accdb_fork_id, alut_cnt-i, alut_key_ptrs+i,
+                                           ctx->alut_data, sizeof(ctx->alut_data), 0UL, 1UL, out );
+    for( ulong j=0UL; j<n; j++ ) {
+      if( FD_UNLIKELY( !out[ j ].lamports ) ) { err = FD_RUNTIME_TXN_ERR_ADDRESS_LOOKUP_TABLE_NOT_FOUND; break; }
+      err = fd_alut_interp_next( interp, &alut_keys[ i+j ], out[ j ].owner, out[ j ].data, out[ j ].data_len );
+      if( FD_UNLIKELY( err ) ) break;
+    }
+    i += n;
   }
 
   ulong ctr_idx;
@@ -592,7 +596,16 @@ privileged_init( fd_topo_t const *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_resolv_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_resolv_ctx_t ), sizeof( fd_resolv_ctx_t ) );
+  void * _accdb_ring    = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_io_uring_align(),  fd_accdb_io_uring_footprint( ACCDB_IO_URING_DEPTH ) );
   FD_TEST( fd_rng_secure( &ctx->map_seed, sizeof(ctx->map_seed) ) );
+#if defined(__linux__)
+  if( FD_UNLIKELY( !fd_accdb_io_uring_init( ctx->accdb_ring, _accdb_ring, ACCDB_IO_URING_DEPTH, FD_ACCDB_FD_RO, 0 ) ) ) {
+    FD_LOG_WARNING(( "failed to create accounts database io_uring, falling back to blocking reads" ));
+  }
+#else
+  (void)_accdb_ring;
+  ctx->accdb_ring->ioring_fd = -1;
+#endif
 }
 
 static void
@@ -602,6 +615,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_resolv_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_resolv_ctx_t ), sizeof( fd_resolv_ctx_t ) );
+  FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_io_uring_align(), fd_accdb_io_uring_footprint( ACCDB_IO_URING_DEPTH ) );
 
   ctx->round_robin_cnt = fd_topo_tile_name_cnt( topo, tile->name );
   ctx->round_robin_idx = tile->kind_id;
@@ -670,6 +684,9 @@ unprivileged_init( fd_topo_t const *      topo,
   ulong * epoch_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->resolv.accdb_epoch_fseq_obj_id ) );
   FD_TEST( epoch_fseq );
   ctx->accdb = fd_accdb_join_readonly( _accdb_join, accdb_shmem_ro, epoch_fseq, FD_ACCDB_FD_RO );
+#if defined(__linux__)
+  fd_accdb_attach_io_uring( ctx->accdb, ctx->accdb_ring->ioring_fd>=0 ? ctx->accdb_ring : NULL );
+#endif
   FD_TEST( ctx->accdb );
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
@@ -684,10 +701,8 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           fd_topo_tile_t const * tile,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
-  (void)topo;
-  (void)tile;
-
-  populate_sock_filter_policy_fd_resolv_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)FD_ACCDB_FD_RO );
+  fd_resolv_ctx_t const * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  populate_sock_filter_policy_fd_resolv_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)FD_ACCDB_FD_RO, (uint)ctx->accdb_ring->ioring_fd );
   return sock_filter_policy_fd_resolv_tile_instr_cnt;
 }
 
@@ -696,16 +711,16 @@ populate_allowed_fds( fd_topo_t const *      topo,
                       fd_topo_tile_t const * tile,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
-  (void)topo;
-  (void)tile;
+  fd_resolv_ctx_t const * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
-  if( FD_UNLIKELY( out_fds_cnt<3UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<4UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   out_fds[ out_cnt++ ] = FD_ACCDB_FD_RO; /* accounts db readonly fd */
+  if( ctx->accdb_ring->ioring_fd>=0 ) out_fds[ out_cnt++ ] = ctx->accdb_ring->ioring_fd; /* accounts db io_uring */
   return out_cnt;
 }
 
@@ -739,4 +754,5 @@ fd_topo_run_tile_t fd_tile_resolv = {
   .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
   .run                      = stem_run,
+  .rlimit_nproc             = FD_ACCDB_IO_URING_RLIMIT_NPROC,
 };
