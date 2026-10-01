@@ -8,7 +8,6 @@
 #include "../../../ballet/sbpf/fd_sbpf_loader.h"
 #include "../../vm/fd_vm.h"
 #include "../../vm/fd_vm_private.h"
-#include "../../vm/test_vm_util.h"
 #include "generated/vm.pb.h"
 #include "generated/vm_serialization.pb.h"
 #include "../fd_bank.h"
@@ -131,6 +130,10 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
     goto error;
   }
 
+  if( input->vm_ctx.sbpf_version > FD_SBPF_V3 ) {
+    goto error;
+  }
+
   fd_vm_t * vm = fd_vm_join( fd_vm_new( fd_spad_alloc_check( spad, fd_vm_align(), fd_vm_footprint() ) ) );
   if ( !vm ) {
     goto error;
@@ -190,7 +193,7 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
               0, // TODO, text_sz
               0, // TODO
               NULL, // TODO
-              TEST_VM_DEFAULT_SBPF_VERSION,
+              input->vm_ctx.sbpf_version,
               syscalls,
               NULL, // TODO
               sha,
