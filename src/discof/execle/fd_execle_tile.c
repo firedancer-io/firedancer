@@ -530,18 +530,19 @@ handle_bundle( fd_execle_tile_t *  ctx,
     ctx->txn_in[ i ].txn              = &txns[ i ];
     ctx->txn_in[ i ].bundle.is_bundle = 1;
     ctx->txn_in[ i ].index_in_slot    = ctx->_txn_idx + i;
+    ctx->txn_out[ i ].err.txn_err     = FD_RUNTIME_EXECUTE_SUCCESS;
   }
 
-  int   execution_success = 1;
-  ulong failed_idx        = ULONG_MAX;
-
   /* Acquire all accdb resources in order to execute the bundle. */
-  int setup_bundle = 1;
-  int err = fd_runtime_prepare_bundle_accounts( ctx->runtime, bank, ctx->txn_in, ctx->txn_out, txn_cnt );
-  if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
-    execution_success = 0;
-    failed_idx        = 0;
-    setup_bundle      = 0;
+  int const setup_bundle = fd_runtime_prepare_bundle_accounts( ctx->runtime, bank, ctx->txn_in, ctx->txn_out, txn_cnt )==FD_RUNTIME_EXECUTE_SUCCESS;
+  ulong failed_idx = ULONG_MAX;
+  if( FD_UNLIKELY( !setup_bundle ) ) {
+    for( ulong i=0UL; i<txn_cnt; i++ ) {
+      if( ctx->txn_out[ i ].err.txn_err==FD_RUNTIME_EXECUTE_SUCCESS ) continue;
+      failed_idx = i;
+      break;
+    }
+    FD_TEST( failed_idx!=ULONG_MAX );
   }
 
   /* Every transaction in the bundle should be executed in order against
@@ -552,27 +553,14 @@ handle_bundle( fd_execle_tile_t *  ctx,
     fd_txn_in_t *  txn_in  = &ctx->txn_in[ i ];
     fd_txn_out_t * txn_out = &ctx->txn_out[ i ];
 
-    txn_out->err.txn_err = FD_RUNTIME_EXECUTE_SUCCESS;
+    txn->flags &= ~(FD_TXN_P_FLAGS_SANITIZE_SUCCESS | FD_TXN_P_FLAGS_EXECUTE_SUCCESS);
 
-    txn->flags &= ~FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
-    txn->flags &= ~FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
-
-    if( execution_success==0 ) {
-      txn->flags = (txn->flags & 0x00FFFFFFU) | ((uint)(-FD_RUNTIME_TXN_ERR_BUNDLE_PEER)<<24);
-      continue;
-    }
-
-    txn_in->txn              = txn;
-    txn_in->bundle.is_bundle = 1;
+    if( failed_idx!=ULONG_MAX ) continue;
 
     fd_runtime_prepare_and_execute_txn( ctx->runtime, bank, txn_in, txn_out );
 
     txn->flags = (txn->flags & 0x00FFFFFFU) | ((uint)(-txn_out->err.txn_err)<<24);
-    if( FD_UNLIKELY( !txn_out->err.is_committable || txn_out->err.txn_err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
-      execution_success = 0;
-      failed_idx = i;
-      continue;
-    }
+    if( FD_UNLIKELY( !txn_out->err.is_committable || txn_out->err.txn_err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) failed_idx = i;
   }
 
   /* If all of the transactions in the bundle executed successfully, we
@@ -580,7 +568,7 @@ handle_bundle( fd_execle_tile_t *  ctx,
      accumulate unused CUs to the rebate.  Otherwise, if any transaction
      fails, we need to exclude all the bundle transactions and rebate
      all of the CUs. */
-  if( FD_LIKELY( execution_success ) ) {
+  if( FD_LIKELY( failed_idx==ULONG_MAX ) ) {
     for( ulong i=0UL; i<txn_cnt; i++ ) {
 
       fd_txn_in_t *  txn_in    = &ctx->txn_in[ i ];
@@ -630,7 +618,6 @@ handle_bundle( fd_execle_tile_t *  ctx,
       fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_VERSION )+fd_execle_version_from_txn( TXN( &txns[ i ] ) ) ]++;
     }
   } else {
-    FD_TEST( failed_idx != ULONG_MAX );
     /* A failed bundle is dropped in its entirety: every transaction is
        marked non-committable and none of them land in the block. We
        intentionally do NOT emit runtime_txn events here */
@@ -638,7 +625,7 @@ handle_bundle( fd_execle_tile_t *  ctx,
 
       ctx->txn_out[ i ].err.is_committable = 0;
 
-      if( i>failed_idx ) {
+      if( !setup_bundle || i>failed_idx ) {
         ctx->txn_out[ i ].details.load_start_ticks   = LONG_MAX;
         ctx->txn_out[ i ].details.check_start_ticks  = LONG_MAX;
         ctx->txn_out[ i ].details.exec_start_ticks   = LONG_MAX;
@@ -650,7 +637,9 @@ handle_bundle( fd_execle_tile_t *  ctx,
       txns[ i ].execle_cu.actual_consumed_cus = 0U;
       txns[ i ].execle_cu.rebated_cus         = requested_exec_plus_acct_data_cus + non_execution_cus;
       tips[ i ]                               = 0UL;
-      txns[ i ].flags = fd_uint_if( !!(txns[ i ].flags>>24), txns[ i ].flags, txns[ i ].flags | ((uint)(-FD_RUNTIME_TXN_ERR_BUNDLE_PEER)<<24) );
+      int txn_err = ctx->txn_out[ i ].err.txn_err;
+      if( i!=failed_idx || txn_err==FD_RUNTIME_EXECUTE_SUCCESS ) txn_err = FD_RUNTIME_TXN_ERR_BUNDLE_PEER;
+      txns[ i ].flags = (txns[ i ].flags & 0x00FFFFFFU) | ((uint)(-txn_err)<<24);
 
       fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_LANDED )+FD_METRICS_ENUM_TRANSACTION_LANDED_V_UNLANDED_IDX ]++;
       if( i==failed_idx ) fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_RESULT )+(ulong)fd_execle_err_from_runtime_err( ctx->txn_out[ i ].err.txn_err ) ]++;

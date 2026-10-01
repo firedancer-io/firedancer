@@ -1626,6 +1626,73 @@ FD_UNIT_TEST( execle_bundle_peer_fail ) {
   test_env_destroy( env );
 }
 
+FD_UNIT_TEST( execle_bundle_prepare_failure ) {
+  for( ulong failed=0UL; failed<3UL; failed++ ) {
+    test_env_t * env = test_env_create();
+    fd_bank_t * bank = fd_svm_mini_bank( env->mini, env->bank_idx );
+    fd_pubkey_t payer = { .ul = {0xc001UL} };
+    fd_pubkey_t recipients[3] = {{ .ul={0xc002UL} },{ .ul={0xc003UL} },{ .ul={0xc004UL} }};
+    test_fund_account( env, &payer, 1000000000UL );
+    fd_txn_p_t txns[3];
+    for( ulong i=0UL; i<3UL; i++ ) {
+      test_fund_account( env, &recipients[i], 100UL+i );
+      test_build_system_transfer_txn( &txns[i], bank, payer, recipients[i], 1UL );
+      txns[i].flags |= FD_TXN_P_FLAGS_SANITIZE_SUCCESS | FD_TXN_P_FLAGS_EXECUTE_SUCCESS | FD_TXN_P_FLAGS_RESULT_MASK;
+      /* Recycled flags/outputs must not affect member attribution or timing. */
+      env->execle->txn_out[i].err.txn_err = FD_RUNTIME_TXN_ERR_INSUFFICIENT_FUNDS_FOR_FEE;
+      env->execle->txn_out[i].accounts.cnt = 99U;
+      env->execle->txn_out[i].details.load_start_ticks   = 100L;
+      env->execle->txn_out[i].details.check_start_ticks  = 110L;
+      env->execle->txn_out[i].details.exec_start_ticks   = 120L;
+      env->execle->txn_out[i].details.commit_start_ticks = 130L;
+    }
+    /* Duplicate an account within one member so preparation, rather
+       than execution, rejects the bundle. */
+    uchar * accounts = txns[failed].payload+TXN(&txns[failed])->acct_addr_off;
+    fd_memcpy( accounts+32UL, accounts, 32UL );
+    env->execle->metrics.txn_load_cum_ticks   = 7UL;
+    env->execle->metrics.txn_check_cum_ticks  = 11UL;
+    env->execle->metrics.txn_exec_cum_ticks   = 13UL;
+    env->execle->metrics.txn_commit_cum_ticks = 17UL;
+    test_execle_run( env, txns, 3UL, 14U, 35UL, 1 );
+    test_assert_bundle_out( env, 3UL, 14U );
+    FD_TEST( env->execle->metrics.txn_load_cum_ticks==7UL );
+    FD_TEST( env->execle->metrics.txn_check_cum_ticks==11UL );
+    FD_TEST( env->execle->metrics.txn_exec_cum_ticks==13UL );
+    FD_TEST( env->execle->metrics.txn_commit_cum_ticks==17UL );
+    FD_TEST( fd_fseq_query( env->execle->busy_fseq )==0UL );
+    for( ulong i=0UL; i<3UL; i++ ) {
+      fd_txn_out_t const * out = &env->execle->txn_out[i];
+      int err = i==failed ? FD_RUNTIME_TXN_ERR_ACCOUNT_LOADED_TWICE : FD_RUNTIME_TXN_ERR_BUNDLE_PEER;
+      FD_TEST( out->err.txn_err==(i==failed ? err : FD_RUNTIME_EXECUTE_SUCCESS) );
+      FD_TEST( !out->err.is_committable );
+      FD_TEST( out->details.load_start_ticks==LONG_MAX && out->details.check_start_ticks==LONG_MAX );
+      FD_TEST( out->details.exec_start_ticks==LONG_MAX && out->details.commit_start_ticks==LONG_MAX );
+      fd_txn_p_t const * published = fd_chunk_to_laddr( env->execle->out_poh->mem, test_out_poh_meta(i)->chunk );
+      FD_TEST( (published->flags & FD_TXN_P_FLAGS_RESULT_MASK)==((uint)(-err)<<24) );
+      FD_TEST( !(published->flags & (FD_TXN_P_FLAGS_SANITIZE_SUCCESS|FD_TXN_P_FLAGS_EXECUTE_SUCCESS)) );
+      FD_TEST( published->execle_cu.actual_consumed_cus==0U );
+      FD_TEST( published->execle_cu.rebated_cus==txns[i].pack_cu.requested_exec_plus_acct_data_cus+txns[i].pack_cu.non_execution_cus );
+      fd_microblock_trailer_t const * trailer = test_out_poh_trailer_bundle( env, i );
+      FD_TEST( trailer->pack_txn_idx==35UL+i && !trailer->tips );
+      FD_TEST( trailer->txn_ns_dt.load_start==0.f && trailer->txn_ns_dt.check_start==0.f );
+      FD_TEST( trailer->txn_ns_dt.exec_start==0.f && trailer->txn_ns_dt.commit_start==0.f && trailer->txn_ns_dt.commit_end==0.f );
+      FD_TEST( test_read_lamports( env, &recipients[i] )==100UL+i );
+    }
+    FD_TEST( test_read_lamports( env, &payer )==1000000000UL );
+    FD_TEST( fd_metrics_tl[MIDX(COUNTER,EXECLE,TXN_RESULT)+FD_METRICS_ENUM_TRANSACTION_RESULT_V_ACCOUNT_LOADED_TWICE_IDX]==1UL );
+    FD_TEST( fd_metrics_tl[MIDX(COUNTER,EXECLE,TXN_RESULT)+FD_METRICS_ENUM_TRANSACTION_RESULT_V_BUNDLE_PEER_IDX]==2UL );
+    FD_TEST( fd_metrics_tl[MIDX(COUNTER,EXECLE,TXN_RESULT)+FD_METRICS_ENUM_TRANSACTION_RESULT_V_SUCCESS_IDX]==0UL );
+    FD_TEST( fd_metrics_tl[MIDX(COUNTER,EXECLE,TXN_LANDED)+FD_METRICS_ENUM_TRANSACTION_LANDED_V_UNLANDED_IDX]==3UL );
+    test_execle_flush_rebate( env );
+    fd_pack_rebate_t const * rebate = fd_chunk_to_laddr( env->execle->out_pack->mem, test_out_pack_meta(0UL)->chunk );
+    ulong expected = 0UL;
+    for( ulong i=0UL; i<3UL; i++ ) expected += txns[i].pack_cu.requested_exec_plus_acct_data_cus+txns[i].pack_cu.non_execution_cus;
+    FD_TEST( rebate->total_cost_rebate==expected && rebate->microblock_cnt_rebate==3UL );
+    test_env_destroy( env );
+  }
+}
+
 FD_UNIT_TEST( execle_bundle_progcache ) {
   /* Close a deployed/rooted program in the first transaction,
      then try to invoke it in the second transaction (should fail). */
