@@ -867,7 +867,7 @@ after_frag( ctx_t *             ctx,
         complete_msg->fec = *in_msg;
 
         fd_fec_complete_metrics_t * m = &complete_msg->metrics;
-        m->fec_completed_ts_nanos = (ulong)fd_clock_epoch_y( ctx->clock->epoch, rx_tick );
+        m->fec_completed_ts_nanos = fd_clock_epoch_y( ctx->clock->epoch, rx_tick );
 
         m->stats_valid = 0U;
         fd_forest_blk_t const * blk = fd_forest_query( ctx->forest, in_msg->last_shred_hdr.slot );

@@ -1009,6 +1009,12 @@ test_shred_ts_from_tsorig( fd_wksp_t * wksp ) {
   FD_TEST( !fec->metrics.parity_received ); /* coding arrived before the FEC existed */
   FD_TEST( fec->metrics.data_received==0x7fffffffU );
 
+  /* The completion stamp rides to replay on the FEC delivery. */
+  ulong before = rep_cnt;
+  pump( ctx );
+  FD_TEST( rep_cnt==before+1UL );
+  FD_TEST( rep_log[ before ].metrics.fec_completed_ts_nanos==fec->metrics.completed_ts );
+
   FD_LOG_NOTICE(( "pass: test_shred_ts_from_tsorig" ));
 }
 

@@ -40,7 +40,7 @@ struct fd_fec_complete_metrics {
   uint  blk_repair_responses;    /* block: repair responses received */
   uchar blk_chain_verify_failed; /* block: 1 if merkle chain verification flagged this block bad */
 
-  ulong fec_completed_ts_nanos;
+  long  fec_completed_ts_nanos;
 
   ulong blk_first_shred_ts_nanos;      /* when the first shred of the slot arrived */
   ulong blk_last_shred_ts_nanos;       /* when the slot became fully buffered */

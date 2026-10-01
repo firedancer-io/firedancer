@@ -904,6 +904,8 @@ publish_fec( ctx_t *             ctx,
   m->blk_first_req_ts_nanos        = (ulong)block->metrics.first_req_ts;
   m->blk_last_repair_resp_ts_nanos = (ulong)block->metrics.last_repair_resp_ts;
 
+  m->fec_completed_ts_nanos        = fec->metrics.completed_ts;
+
   fd_stem_publish( stem, ctx->replay_out_ctx->idx, ROTOR_SIG_FEC_REPLAY, ctx->replay_out_ctx->chunk, sizeof(fd_rotor_replay_fec_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->replay_out_ctx->chunk = fd_dcache_compact_next( ctx->replay_out_ctx->chunk, sizeof(fd_rotor_replay_fec_t), ctx->replay_out_ctx->chunk0, ctx->replay_out_ctx->wmark );
   ctx->metrics->fecs_delivered++;
