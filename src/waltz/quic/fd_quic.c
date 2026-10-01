@@ -4576,6 +4576,8 @@ fd_quic_pkt_meta_retry( fd_quic_t      *  quic,
   long const pto_duration  = fd_quic_calc_expiry_duration( conn, 0, conn->server );
   long const loss_duration = fd_quic_calc_expiry_duration( conn, 1, conn->server );
 
+  int pto_expired = 0;
+
   while(1) {
     /* find earliest expiring pkt_meta, over smallest pkt number at each enc_level */
     fd_quic_pkt_meta_t * pkt_meta = NULL;
@@ -4599,7 +4601,7 @@ fd_quic_pkt_meta_retry( fd_quic_t      *  quic,
       }
     }
 
-    if( !pkt_meta ) return;
+    if( !pkt_meta ) break;
 
     uint  const enc_level = pkt_meta->enc_level;
     ulong const pkt_num   = pkt_meta->key.pkt_num;
@@ -4608,8 +4610,11 @@ fd_quic_pkt_meta_retry( fd_quic_t      *  quic,
     if( !!(pkt_num >= force_below_pkt_num) & !!(expiry > now) ) {
       /* safe even when expiry is LONG_MAX, because prep_schedule takes min */
       fd_quic_svc_prep_schedule( conn, expiry );
-      return;
+      break;
     };
+
+    pto_expired |= (pkt_num >= force_below_pkt_num) &
+                   (pkt_num >= conn->highest_acked[ fd_quic_enc_level_to_pn_space( enc_level ) ]);
 
     uint type = pkt_meta->key.type;
     int  retx = type!=FD_QUIC_PKT_META_TYPE_DATAGRAM; /* a lost DATAGRAM is only reclaimed */
@@ -4719,6 +4724,9 @@ fd_quic_pkt_meta_retry( fd_quic_t      *  quic,
     fd_quic_pkt_meta_remove( &tracker->sent_pkt_metas[enc_level], pool, pkt_meta );
     conn->used_pkt_meta--;
   }
+
+  /* RFC 9002 Section 6.2.1: back off the PTO once per timer expiration */
+  if( pto_expired ) conn->pto_count = fd_uint_min( conn->pto_count+1U, FD_QUIC_PTO_COUNT_MAX );
 }
 
 /* reclaim resources associated with packet metadata
@@ -4969,6 +4977,7 @@ fd_quic_handle_ack_frame( fd_quic_frame_ctx_t * context,
 
   /* update highest_acked */
   conn->highest_acked[pn_space] = fd_ulong_max( conn->highest_acked[pn_space], largest_ack );
+  conn->pto_count               = 0U;
 
   fd_quic_state_t * state           = fd_quic_get_state( conn->quic );
   long const        now             = state->now;
