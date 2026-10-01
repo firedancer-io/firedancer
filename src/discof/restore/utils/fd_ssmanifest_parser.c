@@ -1725,12 +1725,7 @@ state_process( fd_ssmanifest_parser_t * parser ) {
 
   /* STATE_STAKES_VOTE_ACCOUNTS */
 
-  /* Only staked vote accounts are kept, which is all the consumers
-     look at.  Each entry streams into the next free slot and the slot
-     is committed once the whole entry has been read, so an unstaked
-     entry is overwritten by the next one.  A snapshot with more
-     staked vote accounts than fit is still valid, so the extra ones
-     are dropped with a warning instead of failing the load. */
+  /* Only staked vote accounts are kept. */
   if( FD_UNLIKELY( parser->state==STATE_STAKES_VOTE_ACCOUNTS_LENGTH ) ) {
     manifest->vote_accounts_len = 0UL;
   }
