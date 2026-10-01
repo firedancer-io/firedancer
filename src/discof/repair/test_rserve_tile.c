@@ -276,6 +276,41 @@ test_no_blockdb( fd_repair_t * client ) {
   FD_LOG_NOTICE(( "pass: test_no_blockdb" ));
 }
 
+/* Net frags are returned to the stem unless the previous poll found no
+   frag. */
+
+static void
+test_idle_gate( void ) {
+  static ctx_t ctx[1];
+  setup( ctx, 1 );
+  ctx->in_kind[ 0 ] = IN_KIND_NET;
+  ulong sig = fd_disco_netmux_sig( 0U, 0, 0U, DST_PROTO_OUTGOING, 0UL ); /* not ours, dropped once admitted */
+  int busy = 0;
+
+  /* Startup, and right after any frag was polled */
+  FD_TEST( returnable_frag( ctx, 0UL, 0UL, sig, 0UL, 0UL, 0UL, 0UL, 0UL, NULL )==1 );
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( returnable_frag( ctx, 0UL, 0UL, sig, 0UL, 0UL, 0UL, 0UL, 0UL, NULL )==1 );
+
+  /* A returned frag also counts as busy */
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( !ctx->idle );
+
+  /* An empty poll admits the next frag */
+  after_credit( ctx, NULL, NULL, &busy );
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( ctx->idle );
+  FD_TEST( returnable_frag( ctx, 0UL, 0UL, sig, 0UL, 0UL, 0UL, 0UL, 0UL, NULL )==0 );
+
+  /* An overrun counts as busy */
+  after_credit( ctx, NULL, NULL, &busy );
+  after_credit( ctx, NULL, NULL, &busy );
+  after_poll_overrun( ctx );
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( returnable_frag( ctx, 0UL, 0UL, sig, 0UL, 0UL, 0UL, 0UL, 0UL, NULL )==1 );
+  FD_LOG_NOTICE(( "pass: test_idle_gate" ));
+}
+
 /* ShredForBlockId against a real store.  An alternate version of shred
    33 is stored first, so it owns (slot,idx) and legacy requests serve
    it, while ShredForBlockId serves the block's own version. */
@@ -431,6 +466,7 @@ main( int     argc,
   test_meta_requests     ( client );
   test_legacy_sigverify  ( client );
   test_no_blockdb        ( client );
+  test_idle_gate();
   test_shred_for_block_id( client, wksp );
 
   fd_wksp_delete_anonymous( wksp );
