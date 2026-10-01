@@ -1127,7 +1127,7 @@ auction_begin( fd_pack_ctx_t * ctx,
   ctx->auction_next_tick         = now_tick+ctx->auction_interval_tick;
 
   long  span    = fd_long_max( ctx->leader_slot_end_tick-ctx->leader_slot_start_tick, 1L );
-  long  elapsed = fd_long_min( fd_long_max( now_tick-ctx->leader_slot_start_tick, 0L ), span );
+  long  elapsed = fd_long_min( fd_long_max( now_tick+ctx->auction_interval_tick-ctx->leader_slot_start_tick, 0L ), span );
   ulong limit   = (ulong)( (double)ctx->limits.slot_max_cost*(double)elapsed/(double)span );
   if( FD_UNLIKELY( fd_pack_current_block_cost( ctx->pack )>=limit ) ) {
     ctx->auction_cancelled++;
@@ -1877,8 +1877,8 @@ after_frag( fd_pack_ctx_t *     ctx,
     ctx->leader_slot_end_tick          = end_ticks;
     ctx->auction_final_start_tick      = fd_long_if( ctx->leader_slot%FD_EPOCH_SLOTS_PER_ROTATION==FD_EPOCH_SLOTS_PER_ROTATION-1UL,
                                                      end_ticks-(long)(tick_per_ns*(double)FD_PACK_AUCTION_FINAL_NS), LONG_MAX );
-    ctx->auction_last_attempt_tick     = now_ticks - ctx->auction_spacing_tick;
-    ctx->auction_next_tick             = ctx->auction_last_attempt_tick + ctx->auction_interval_tick;
+    ctx->auction_last_attempt_tick     = now_ticks - ctx->auction_interval_tick;
+    ctx->auction_next_tick             = now_ticks;
     ctx->obs->slot_first_attempt_tick  = ctx->auction_last_attempt_tick;
     ctx->obs->txn_blocked_reason       = -1;
     memset( ctx->obs->inflight_cus,   0, sizeof(ctx->obs->inflight_cus)   );
