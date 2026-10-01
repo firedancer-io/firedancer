@@ -407,17 +407,27 @@ fd_vm_is_check_size_enabled( fd_vm_t const * vm ) {
 
      SIGCOST   - The compute limit was exceeded.  cu will be zero.
 
-   On a fault, pc, ic and the call stack are undefined.  cu is the
-   remaining compute budget as billed by the Agave instruction meter
-   (consensus critical).  A fault that coincides with the compute limit
-   being exceeded may be reported as either fault.
+   Failures fall into two classes with different guarantees:
 
-   This will considers any error returned by a syscall as a fault and
-   returns the syscall error code here.  See syscall documentation for
-   details here.  When a syscall faults, pc will be at the syscall, ic
-   will include the syscall and cu will include the syscall and any
-   additional costs the syscall might have incurred up to that point of
-   the fault.
+   VM exceptions are faults raised by the VM itself (all of the above,
+   e.g. an invalid instruction, an access violation or a division by
+   zero).  On a VM exception, pc, ic and the call stack are undefined.
+   cu is the remaining compute budget as billed by the Agave instruction
+   meter.  Note that the runtime additionally consumes all remaining
+   compute units of the instruction on a VM exception (SIMD-0182,
+   deplete_cu_meter_on_vm_failure).  A VM exception that coincides with
+   the compute limit being exceeded may be reported as either fault.
+
+   Syscall errors are runtime errors returned by a syscall (e.g. a
+   failed CPI).  These are reported as FD_VM_ERR_EBPF_SYSCALL_ERROR and
+   the specific error is recorded in the instruction context's
+   transaction error.  See syscall documentation for details.  Unlike
+   VM exceptions, syscall errors have precise accounting: pc will be at
+   the syscall, ic will include the syscall and cu will include the
+   syscall and any additional costs the syscall might have incurred up
+   to the point of the error (cu is zero if the syscall exceeded the
+   compute budget).  The runtime does not deplete the remaining compute
+   units on a syscall error.
 
    IMPORTANT SAFETY TIP!  Ideally, a syscall should only modify vm's
    state when it knows its overall syscall will be successful.
@@ -437,9 +447,8 @@ fd_vm_is_check_size_enabled( fd_vm_t const * vm ) {
    a vm faults with, for example, SIGSEGV from a speculatively
    executed memory access while a non-speculative execution would have
    faulted with SIGCOST on an earlier instruction.  In these situations,
-   pc will be at the faulting speculatively executed instruction, ic
-   will include all the speculatively executed instructions, cu will be
-   zero and vm's state will include the impact of all the speculation.
+   cu will be zero and vm's state will include the impact of all the
+   speculation.
 
    IMPORTANT SAFETY TIP!  While different vm implementations can
    disagree on why a program faulted (e.g. SIGCOST versus SIGSEGV in the
