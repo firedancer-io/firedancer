@@ -127,6 +127,7 @@ struct fd_bundle_tile {
   uint sock_in_epoll : 1;
   uint epoll_out_armed : 1;
   long cached_ts;
+  long hs_deadline;  /* reset if not connected (TCP+TLS+HTTP/2) by then */
 
   ulong   waker_client_idx;
   ulong * waker_fseq;
@@ -247,9 +248,8 @@ fd_bundle_client_step_reconnect( fd_bundle_tile_t * ctx,
 /* fd_bundle_client_next_deadline returns when
    fd_bundle_client_step next needs to run absent any fd event: the
    earliest pending timeout (keepalive, gRPC deadlines, builder info
-   expiry, reconnect backoff).  Returns now if TLS bytes are buffered
-   inside OpenSSL (no fd event will announce them), LONG_MAX while
-   connecting (completion is an EPOLLOUT event). */
+   expiry, reconnect backoff, handshake timeout).  Returns now if TLS
+   bytes are buffered inside OpenSSL (no fd event will announce them). */
 
 long
 fd_bundle_client_next_deadline( fd_bundle_tile_t const * ctx,

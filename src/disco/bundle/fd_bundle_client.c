@@ -26,7 +26,8 @@
 #include <netinet/ip.h>
 #include <netinet/tcp.h>
 
-#define FD_BUNDLE_CLIENT_REQUEST_TIMEOUT ((long)8e9) /* 8 seconds */
+#define FD_BUNDLE_CLIENT_REQUEST_TIMEOUT   ((long) 8e9) /*  8 seconds */
+#define FD_BUNDLE_CLIENT_HANDSHAKE_TIMEOUT ((long)10e9) /* 10 seconds */
 
 
 __attribute__((weak)) long
@@ -166,7 +167,9 @@ fd_bundle_client_create_conn( fd_bundle_tile_t * ctx ) {
   }
 
   fd_grpc_client_reset( ctx->grpc_client );
-  fd_keepalive_init( ctx->keepalive, ctx->rng, ctx->keepalive_interval, ctx->keepalive_interval, fd_bundle_now( ctx ) );
+  long now = fd_bundle_now( ctx );
+  fd_keepalive_init( ctx->keepalive, ctx->rng, ctx->keepalive_interval, ctx->keepalive_interval, now );
+  ctx->hs_deadline = now + FD_BUNDLE_CLIENT_HANDSHAKE_TIMEOUT;
 }
 
 static int
@@ -279,8 +282,8 @@ long
 fd_bundle_client_next_deadline( fd_bundle_tile_t const * ctx,
                                 long                     now ) {
   /* Connecting: completion/failure arrives as an EPOLLOUT/EPOLLERR
-     event, nothing is time-driven yet. */
-  if( FD_UNLIKELY( ctx->tcp_sock>=0 && !ctx->tcp_sock_connected ) ) return LONG_MAX;
+     event, or the handshake deadline expires. */
+  if( FD_UNLIKELY( ctx->tcp_sock>=0 && !ctx->tcp_sock_connected ) ) return ctx->hs_deadline;
 
   /* Disconnected: next action is the reconnect attempt. */
   if( FD_UNLIKELY( ctx->tcp_sock<0 ) ) return fd_long_max( ctx->backoff_until, now );
@@ -295,6 +298,8 @@ fd_bundle_client_next_deadline( fd_bundle_tile_t const * ctx,
                    !fd_grpc_client_tls_tx_pending( ctx->grpc_client ) ) ) return now;
 
   long deadline = fd_grpc_client_next_deadline( ctx->grpc_client );
+  if( FD_UNLIKELY( !fd_grpc_client_is_connected( ctx->grpc_client ) ) )
+    deadline = fd_long_min( deadline, ctx->hs_deadline );
   if( FD_LIKELY( ctx->keepalive->interval ) )
     deadline = fd_long_min( deadline, ctx->keepalive->inflight ? ctx->keepalive->ts_deadline
                                                                : ctx->keepalive->ts_next_tx );
@@ -348,6 +353,20 @@ fd_bundle_client_step_reconnect( fd_bundle_tile_t * ctx,
 static void
 fd_bundle_client_step1( fd_bundle_tile_t * ctx,
                         int *              charge_busy ) {
+
+  /* Did TCP connect, TLS handshake, or HTTP/2 SETTINGS exchange time out */
+  if( FD_UNLIKELY( ctx->tcp_sock>=0 &&
+                   !fd_grpc_client_is_connected( ctx->grpc_client ) ) ) {
+    long now = fd_bundle_now( ctx );
+    if( FD_UNLIKELY( now>=ctx->hs_deadline ) ) {
+      FD_LOG_WARNING(( "Bundle gRPC connect timed out (handshake incomplete after %.2f seconds)",
+                       (double)FD_BUNDLE_CLIENT_HANDSHAKE_TIMEOUT/1e9 ));
+      fd_bundle_client_reset( ctx );
+      ctx->metrics.transport_fail_cnt++;
+      *charge_busy = 1;
+      return;
+    }
+  }
 
   /* Wait for TCP socket to connect */
   if( FD_UNLIKELY( !ctx->tcp_sock_connected ) ) {
