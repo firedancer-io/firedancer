@@ -121,8 +121,7 @@ fd_solfuzz_block_register_stake_delegation( fd_accdb_t *             accdb,
   fd_stake_state_t const * stake_state = NULL;
   if( memcmp( acc.owner, fd_solana_stake_program_id.key, 32UL )!=0 ||
       !( stake_state = fd_stake_state_view( acc.data, acc.data_len ) ) ||
-      stake_state->stake_type!=FD_STAKE_STATE_STAKE ||
-      stake_state->stake.stake.delegation.stake==0UL ) {
+      stake_state->stake_type!=FD_STAKE_STATE_STAKE ) {
     fd_accdb_unread_one( accdb, &acc );
     return;
   }
