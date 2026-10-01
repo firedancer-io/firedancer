@@ -98,6 +98,7 @@ fd_gossip_footprint( ulong max_values,
 void *
 fd_gossip_new( void *                           shmem,
                fd_rng_t *                       rng,
+               uchar const                      ping_seed[ static 32 ],
                ulong                            max_values,
                ulong                            entrypoints_len,
                fd_ip4_port_t const *            entrypoints,

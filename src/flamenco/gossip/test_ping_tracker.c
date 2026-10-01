@@ -22,6 +22,8 @@ typedef struct peer {
   fd_ip4_port_t address;
 } peer_t;
 
+static uchar const ping_seed[ 32 ] = { 1 };
+
 static ulong generate_random_peer_seq = 1UL;
 
 peer_t
@@ -68,7 +70,7 @@ test_basic( void ) {
   FD_TEST( bytes );
 
 
-  fd_ping_tracker_t * ping_tracker = fd_ping_tracker_join( fd_ping_tracker_new( bytes, rng, entrypoints_len, entrypoints, test_change, change_ctx ) );
+  fd_ping_tracker_t * ping_tracker = fd_ping_tracker_join( fd_ping_tracker_new( bytes, ping_seed, entrypoints_len, entrypoints, test_change, change_ctx ) );
   FD_TEST( ping_tracker );
   long now = fd_log_wallclock();
   for( ulong i=0UL; i<100UL; i++) FD_TEST( !fd_ping_tracker_pop_request( ping_tracker, now, NULL, NULL, NULL ) );
@@ -129,7 +131,7 @@ test_register( void ) {
   FD_TEST( bytes );
 
   ping_tracker_change_ctx_t change_ctx[1] = {0};
-  fd_ping_tracker_t * ping_tracker = fd_ping_tracker_join( fd_ping_tracker_new( bytes, rng, entrypoints_len, entrypoints, test_change, change_ctx ) );
+  fd_ping_tracker_t * ping_tracker = fd_ping_tracker_join( fd_ping_tracker_new( bytes, ping_seed, entrypoints_len, entrypoints, test_change, change_ctx ) );
   FD_TEST( ping_tracker );
 
 
@@ -199,7 +201,7 @@ test_change_address( void ) {
   FD_TEST( bytes );
 
   ping_tracker_change_ctx_t change_ctx[1] = {0};
-  fd_ping_tracker_t * ping_tracker = fd_ping_tracker_join( fd_ping_tracker_new( bytes, rng, entrypoints_len, entrypoints, test_change, change_ctx ) );
+  fd_ping_tracker_t * ping_tracker = fd_ping_tracker_join( fd_ping_tracker_new( bytes, ping_seed, entrypoints_len, entrypoints, test_change, change_ctx ) );
   FD_TEST( ping_tracker );
 
   long now = fd_log_wallclock();
@@ -253,7 +255,7 @@ test_active_address_binding( void ) {
   FD_TEST( bytes );
 
   ping_tracker_change_ctx_t change_ctx[1] = {0};
-  fd_ping_tracker_t * ping_tracker = fd_ping_tracker_join( fd_ping_tracker_new( bytes, rng, entrypoints_len, entrypoints, test_change, change_ctx ) );
+  fd_ping_tracker_t * ping_tracker = fd_ping_tracker_join( fd_ping_tracker_new( bytes, ping_seed, entrypoints_len, entrypoints, test_change, change_ctx ) );
   FD_TEST( ping_tracker );
 
   long now = fd_log_wallclock();
@@ -338,7 +340,7 @@ test_random( void ) {
   FD_TEST( bytes );
 
   ping_tracker_change_ctx_t change_ctx[1] = {0};
-  fd_ping_tracker_t * ping_tracker = fd_ping_tracker_join( fd_ping_tracker_new( bytes, rng, entrypoints_len, entrypoints, test_change, change_ctx ) );
+  fd_ping_tracker_t * ping_tracker = fd_ping_tracker_join( fd_ping_tracker_new( bytes, ping_seed, entrypoints_len, entrypoints, test_change, change_ctx ) );
   FD_TEST( ping_tracker );
 
   long now = fd_log_wallclock();
@@ -376,7 +378,7 @@ test_invalid_transitions( void ) {
   FD_TEST( bytes );
 
   ping_tracker_change_ctx_t change_ctx[1] = {0};
-  fd_ping_tracker_t * ping_tracker = fd_ping_tracker_join( fd_ping_tracker_new( bytes, rng, entrypoints_len, entrypoints, test_change, change_ctx ) );
+  fd_ping_tracker_t * ping_tracker = fd_ping_tracker_join( fd_ping_tracker_new( bytes, ping_seed, entrypoints_len, entrypoints, test_change, change_ctx ) );
   FD_TEST( ping_tracker );
 
   long now = fd_log_wallclock();
@@ -448,7 +450,7 @@ test_remove( void ) {
   FD_TEST( bytes );
 
   ping_tracker_change_ctx_t change_ctx[1] = {0};
-  fd_ping_tracker_t * ping_tracker = fd_ping_tracker_join( fd_ping_tracker_new( bytes, rng, entrypoints_len, entrypoints, test_change, change_ctx ) );
+  fd_ping_tracker_t * ping_tracker = fd_ping_tracker_join( fd_ping_tracker_new( bytes, ping_seed, entrypoints_len, entrypoints, test_change, change_ctx ) );
   FD_TEST( ping_tracker );
 
   long now = fd_log_wallclock();
