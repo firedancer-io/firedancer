@@ -8,17 +8,18 @@
 
 #include "ag_votor_base.h"
 
-/* Capacities of the decoded history.  Agave prunes everything below
-   root, so these bound the unrooted window we can restore, sized for
-   the 30,000 slots without finalization Agave supports. */
-#define AG_VOTE_HISTORY_SLOT_MAX  (32768UL)
-#define AG_VOTE_HISTORY_BLOCK_MAX (4UL*AG_VOTE_HISTORY_SLOT_MAX)
-#define AG_VOTE_HISTORY_VOTE_MAX  (8UL*AG_VOTE_HISTORY_SLOT_MAX)
+/* AG_VOTE_HISTORY_FILE_MAX is the largest file we read, about 180
+   slots of history without finalization.  Agave prunes everything
+   below root, and reads up to its 18 GiB
+   VOTE_HISTORY_PREALLOCATION_SIZE_LIMIT. */
+#define AG_VOTE_HISTORY_FILE_MAX  (32768UL)
 
-/* AG_VOTE_HISTORY_FILE_MAX is the largest file we read, the header
-   plus Agave's 18 GiB VOTE_HISTORY_PREALLOCATION_SIZE_LIMIT on the
-   signed body.  Callers should mmap large files. */
-#define AG_VOTE_HISTORY_FILE_MAX  (76UL+(18UL<<30))
+/* Capacities of the decoded history, the most a file of
+   AG_VOTE_HISTORY_FILE_MAX bytes holds: every slot and vote takes at
+   least 8 bytes, and every block hash 32. */
+#define AG_VOTE_HISTORY_SLOT_MAX  (AG_VOTE_HISTORY_FILE_MAX/8UL)
+#define AG_VOTE_HISTORY_BLOCK_MAX (AG_VOTE_HISTORY_FILE_MAX/32UL)
+#define AG_VOTE_HISTORY_VOTE_MAX  (AG_VOTE_HISTORY_FILE_MAX/8UL)
 
 /* VotePayloadToSign wire tags. */
 #define AG_VOTE_HISTORY_KIND_NOTAR          (1U)

@@ -168,23 +168,20 @@ main( int     argc,
   FD_STORE( uint, buf, 1U );
   FD_TEST( ag_vote_history_file_de( buf, sz, pub, out )==AG_VOTE_HISTORY_FILE_ERR_VERSION );
 
-  /* Agave's 30,000 slots without finalization */
+  /* 180 slots without finalization fit, Agave's 30,000 do not */
+  sz = build_long( pub, priv, 180UL, 0UL );
+  FD_TEST( ag_vote_history_file_de( buf, sz, pub, out )==AG_VOTE_HISTORY_FILE_SUCCESS );
+  FD_TEST( out->voted_cnt==180UL && out->votes_cast_cnt==360UL && out->notarized_blocks_cnt==180UL );
+  FD_TEST( out->parent_ready_slot==180UL && out->parent_ready_cnt==1UL );
   sz = build_long( pub, priv, 30000UL, 0UL );
-  FD_TEST( ag_vote_history_file_de( buf, sz, pub, out )==AG_VOTE_HISTORY_FILE_SUCCESS );
-  FD_TEST( out->voted_cnt==30000UL && out->votes_cast_cnt==60000UL && out->notarized_blocks_cnt==30000UL );
-  FD_TEST( out->parent_ready_slot==30000UL && out->parent_ready_cnt==1UL );
+  FD_TEST( ag_vote_history_file_de( buf, sz, pub, out )==AG_VOTE_HISTORY_FILE_ERR_SIZE );
 
-  /* quadratic parent ready growth passes 8 MiB within 656 slots, and
-     only the highest slot's parents are kept */
-  sz = build_long( pub, priv, 656UL, 4UL );
-  FD_TEST( sz>(8UL<<20) );
+  /* quadratic parent ready growth, only the highest slot's parents are
+     kept */
+  sz = build_long( pub, priv, 16UL, 4UL );
   FD_TEST( ag_vote_history_file_de( buf, sz, pub, out )==AG_VOTE_HISTORY_FILE_SUCCESS );
-  FD_TEST( out->parent_ready_slot==656UL && out->parent_ready_cnt==1UL+4UL*655UL );
-  FD_TEST( out->parent_ready[ out->parent_ready_cnt-1UL ].slot==655UL && out->parent_ready[ out->parent_ready_cnt-1UL ].hash[0]==4 );
-
-  /* a history past the unrooted window */
-  sz = build_long( pub, priv, AG_VOTE_HISTORY_SLOT_MAX+1UL, 0UL );
-  FD_TEST( ag_vote_history_file_de( buf, sz, pub, out )==AG_VOTE_HISTORY_FILE_ERR_FULL );
+  FD_TEST( out->parent_ready_slot==16UL && out->parent_ready_cnt==1UL+4UL*15UL );
+  FD_TEST( out->parent_ready[ out->parent_ready_cnt-1UL ].slot==15UL && out->parent_ready[ out->parent_ready_cnt-1UL ].hash[0]==4 );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

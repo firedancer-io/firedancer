@@ -57,9 +57,9 @@ set_identity_cmd_args( int *    pargc,
       FD_LOG_ERR(( "vote history file %s is empty.  If you wish to change a running validator's identity without "
                    "a vote history file, you can omit the --vote-history-file argument.", vote_history_file ));
     }
-    if( FD_UNLIKELY( args->set_identity.vote_history_sz>FD_TOWER_FILE_MAX ) ) {
+    if( FD_UNLIKELY( args->set_identity.vote_history_sz>AG_VOTE_HISTORY_FILE_MAX ) ) {
       FD_LOG_ERR(( "vote history file %s exceeds %lu bytes.  The firedancer validator process will not be able to "
-                   "process this file.  Please contact the Firedancer team for additional assistance.", vote_history_file, FD_TOWER_FILE_MAX ));
+                   "process this file.  Please contact the Firedancer team for additional assistance.", vote_history_file, AG_VOTE_HISTORY_FILE_MAX ));
 
     }
   }
@@ -126,9 +126,6 @@ set_identity( args_t *   args,
     case FD_SET_IDENTITY_RESULT_INVALID_VOTE_HISTORY:
       FD_LOG_ERR(( "Failed to set identity: the vote history file is invalid or does not belong to the new identity. "
                    "If you believe the vote history file is valid, please contact the Firedancer team for additional assistance." ));
-    case FD_SET_IDENTITY_RESULT_VOTE_HISTORY_UNSUPPORTED:
-      FD_LOG_ERR(( "Failed to set identity: vote history files are not supported when Alpenglow is enabled.  "
-                   "Retry without the --vote-history-file argument." ));
     case FD_ADMINCTL_RESULT_UNKNOWN_COMMAND:
     case FD_ADMINCTL_RESULT_ABI_VERSION_MISMATCH:
     case FD_ADMINCTL_RESULT_ABI_SIZE_MISMATCH:

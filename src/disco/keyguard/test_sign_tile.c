@@ -94,8 +94,8 @@ test_bls_request_signing( void ) {
     213, 125,  40, 244,  22,  34,  81,   8, 254, 105, 239,  43, 186, 178, 113,   1
   };
 
-  fd_keyswitch_t identity_switch[1];
-  fd_keyswitch_t voter_switch[1];
+  static fd_keyswitch_t identity_switch[1];
+  static fd_keyswitch_t voter_switch[1];
   ctx.keyswitch    = fd_keyswitch_join( fd_keyswitch_new( identity_switch, FD_KEYSWITCH_STATE_UNLOCKED ) );
   ctx.av_keyswitch = fd_keyswitch_join( fd_keyswitch_new( voter_switch, FD_KEYSWITCH_STATE_SWITCH_PENDING ) );
   FD_TEST( ctx.keyswitch && ctx.av_keyswitch );

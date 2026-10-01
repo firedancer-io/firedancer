@@ -319,11 +319,12 @@ find_identity_keyswitch( fd_admin_tile_ctx_t * ctx,
 }
 
 static int FD_FN_SENSITIVE
-poll_set_identity( fd_admin_tile_ctx_t *   ctx,
-                   ulong *                 state,
-                   ulong                   identity_outset,
-                   uchar *                 keypair,
-                   fd_tower_file_t const * vote_history ) {
+poll_set_identity( fd_admin_tile_ctx_t * ctx,
+                   ulong *               state,
+                   ulong                 identity_outset,
+                   uchar *               keypair,
+                   void const *          vote_history,
+                   ulong                 vote_history_sz ) {
   fd_topo_t const * topo = ctx->topo;
 
   switch( *state ) {
@@ -367,10 +368,10 @@ poll_set_identity( fd_admin_tile_ctx_t *   ctx,
       fd_keyswitch_t * voter  = find_identity_keyswitch( ctx, ctx->voter_name );
       voter->param = replay->result;
       memcpy( voter->bytes, keypair+32UL, 32UL );
-      /* Copy in the tower vote history if one exists. */
-      FD_TEST( 40UL+sizeof(fd_tower_file_t)<=sizeof(voter->bytes) );
-      FD_STORE( ulong, voter->bytes+32UL, !!vote_history );
-      if( vote_history ) memcpy( voter->bytes+40UL, vote_history, sizeof(fd_tower_file_t) );
+      /* Copy in the vote history if one exists. */
+      FD_TEST( 40UL+vote_history_sz<=sizeof(voter->bytes) );
+      FD_STORE( ulong, voter->bytes+32UL, vote_history_sz );
+      if( vote_history_sz ) memcpy( voter->bytes+40UL, vote_history, vote_history_sz );
       FD_COMPILER_MFENCE();
       voter->state = FD_KEYSWITCH_STATE_SWITCH_PENDING;
       FD_COMPILER_MFENCE();
@@ -689,15 +690,21 @@ set_identity( fd_admin_tile_ctx_t * ctx,
     return;
   }
 
-  fd_tower_file_t vote_history;
+  fd_tower_file_t        tower_file;
+  ag_vote_history_file_t ag_vote_history;
+  void const *           vote_history    = NULL;
+  ulong                  vote_history_sz = 0UL;
   if( req->vote_history_sz ) {
-    if( FD_UNLIKELY( ctx->alpenglow ) ) {
-      FD_LOG_WARNING(( "set-identity failed: vote history files are not supported with Alpenglow" ));
-      report_admin_command_custom_result( &event, "vote_history_unsupported" );
-      fd_adminctl_complete( adminctl, slot_idx, FD_SET_IDENTITY_RESULT_VOTE_HISTORY_UNSUPPORTED );
-      return;
+    int err;
+    if( ctx->alpenglow ) {
+      err             = ag_vote_history_file_de( req->vote_history, req->vote_history_sz, public_key.uc, &ag_vote_history );
+      vote_history    = &ag_vote_history;
+      vote_history_sz = sizeof(ag_vote_history_file_t);
+    } else {
+      err             = fd_tower_file_de( req->vote_history, req->vote_history_sz, &public_key, &tower_file );
+      vote_history    = &tower_file;
+      vote_history_sz = sizeof(fd_tower_file_t);
     }
-    int err = fd_tower_file_de( req->vote_history, req->vote_history_sz, &public_key, &vote_history );
     if( FD_UNLIKELY( err ) ) {
       FD_LOG_WARNING(( "set-identity failed: invalid vote history file (%i)", err ));
       report_admin_command_custom_result( &event, "invalid_vote_history" );
@@ -709,7 +716,7 @@ set_identity( fd_admin_tile_ctx_t * ctx,
   ulong state           = FD_SET_IDENTITY_STATE_UNLOCKED;
   ulong identity_outset = (ulong)fd_log_wallclock();
   for(;;) {
-    if( FD_UNLIKELY( poll_set_identity( ctx, &state, identity_outset, req->keypair, req->vote_history_sz ? &vote_history : NULL ) ) ) break;
+    if( FD_UNLIKELY( poll_set_identity( ctx, &state, identity_outset, req->keypair, vote_history, vote_history_sz ) ) ) break;
   }
 
   memcpy( ctx->identity_pubkey, req->keypair+32UL, 32UL );
