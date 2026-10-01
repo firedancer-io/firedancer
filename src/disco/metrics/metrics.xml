@@ -494,6 +494,28 @@ EXAMPLES
     <gauge name="TxBufferIdle" summary="Number of TX buffers available for a new transmit job." />
 </tile>
 
+<tile name="iavf">
+    <counter name="PktRx" summary="Number of packets successfully published to output links." />
+    <counter name="PktRxBytes" summary="Number of bytes in packets successfully published to output links (including Ethernet header)." />
+    <counter name="PktRxMalformed" summary="Number of packets dropped because they were undersized, oversized, or had malformed Ethernet, IPv4, or UDP headers." />
+    <counter name="PktRxRouteFail" summary="Number of packets dropped due to an incorrect destination IP or failed output link lookup." />
+    <counter name="GrePktRx" summary="Number of GRE packets successfully decapsulated and published." />
+    <counter name="GrePktRxInvalid" summary="Number of GRE packets dropped because the tunnel peer or headers were invalid." />
+    <counter name="GrePktRxIgnored" summary="Number of GRE packets ignored because no GRE tunnel is configured." />
+    <gauge name="RxBufferBusy" summary="Number of RX buffers not currently posted to the NIC." />
+    <gauge name="RxBufferIdle" summary="Number of RX buffers currently posted to the NIC." />
+    <counter name="PktTxCompleted" summary="Number of packets completed by the NIC for transmission." />
+    <counter name="PktTxBytes" summary="Number of bytes transmitted (including Ethernet header)." />
+    <counter name="PktTxNoBuffer" summary="Number of transmit jobs dropped because no TX buffer was available." />
+    <counter name="PktTxRouteFail" enum="RouteFail" summary="Number of transmit jobs dropped because route or source address selection failed." />
+    <counter name="PktTxInvalid" summary="Number of transmit jobs dropped for invalid packet headers or GRE packets exceeding the MTU." />
+    <counter name="PktTxNoNeighbor" summary="Number of transmit jobs dropped because the next-hop neighbor was unresolved." />
+    <counter name="GrePktTxSubmitted" summary="Number of GRE transmit jobs submitted to the NIC." />
+    <counter name="GrePktTxNoRoute" summary="Number of GRE transmit jobs dropped because the inner or outer route was incomplete." />
+    <gauge name="TxBufferBusy" summary="Number of TX buffers pending or submitted to the NIC." />
+    <gauge name="TxBufferIdle" summary="Number of TX buffers available for a new transmit job." />
+</tile>
+
 <enum name="SocketError">
     <int value="0" name="NoError" label="No error" />
     <int value="1" name="Slow" label="ENOBUFS, EAGAIN error" />

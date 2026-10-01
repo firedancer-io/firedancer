@@ -9,6 +9,7 @@
 #include "../../disco/genesis/fd_genesis_cluster.h"
 #include "../../discof/genesis/fd_genesi_tile.h"
 #include "../../disco/net/fd_net_tile.h"
+#include "../../disco/net/fd_linux_bond.h"
 #include "../../disco/pack/fd_pack_cost.h"
 #include "../../disco/pack/fd_microblock.h"
 #include "../../ballet/shred/fd_shred.h"
@@ -16,6 +17,8 @@
 #include "../../discof/restore/utils/fd_ssarchive.h"
 
 #include <unistd.h>
+#include <ifaddrs.h>
+#include <netinet/in.h>
 #include <errno.h>
 #include <stdlib.h> /* strtoul */
 #include <sys/utsname.h>
@@ -231,6 +234,20 @@ fd_config_fillh( fd_config_t * config ) {
                  config->frankendancer.dynamic_port_range ));
 }
 
+static int
+fd_config_host_ip4_owned( uint ip_addr ) {
+  struct ifaddrs * addresses;
+  if( getifaddrs( &addresses ) ) FD_LOG_ERR(( "getifaddrs failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  int found = 0;
+  for( struct ifaddrs const * entry=addresses; entry; entry=entry->ifa_next ) {
+    if( !entry->ifa_addr || entry->ifa_addr->sa_family!=AF_INET ) continue;
+    struct sockaddr_in const * address = (struct sockaddr_in const *)entry->ifa_addr;
+    found |= address->sin_addr.s_addr==ip_addr;
+  }
+  freeifaddrs( addresses );
+  return found;
+}
+
 static void
 fd_config_fill_net( fd_config_t * config ) {
   if( FD_UNLIKELY( !strcmp( config->net.interface, "" ) ) ) {
@@ -252,12 +269,25 @@ fd_config_fill_net( fd_config_t * config ) {
   if( FD_UNLIKELY( !if_nametoindex( config->net.interface ) ) )
     FD_LOG_ERR(( "configuration specifies network interface `%s` which does not exist", config->net.interface ));
 
+  if( !strcmp( config->net.provider, "iavf" ) && fd_bonding_is_master( config->net.interface ) ) {
+    FD_LOG_ERR(( "IAVF currently requires one physical interface, bond support is not available" ));
+  }
+
   char driver[ NAME_SZ ];
   fd_net_get_driver( driver, sizeof(driver), config->net.interface );
   if( !strcmp( config->net.provider, "mlx5" ) && FD_UNLIKELY( strcmp( driver, "mlx5_core" ) ) ) {
     FD_LOG_ERR(( "[net.provider] is set to \"mlx5\" but the network interface in use is not using the "
                  "mlx5_core driver. Please ensure you are using a Mellanox ConnectX NIC of version 4 "
                  "or newer. interface `%s` uses `%s`", config->net.interface, driver ));
+  }
+
+  if( !strcmp( config->net.provider, "iavf" ) ) {
+    if( FD_UNLIKELY( strcmp( driver, "ice" ) && strcmp( driver, "i40e" ) ) ) {
+      FD_LOG_ERR(( "IAVF requires an ice or i40e physical function, interface %s uses %s", config->net.interface, driver ));
+    }
+    if( config->net.bind_address_parsed && !fd_config_host_ip4_owned( config->net.bind_address_parsed ) ) {
+      FD_LOG_ERR(( "IAVF bind address must be assigned to the host" ));
+    }
   }
 
   uint iface_ip;
@@ -649,13 +679,24 @@ fd_config_validate( fd_config_t const * config ) {
                      config->net.mlx5.tx_queue_size>FD_MLX5_QUEUE_DEPTH_MAX ) ) {
       FD_LOG_ERR(( "invalid mlx5 queue depth: RX and TX must not exceed %u", FD_MLX5_QUEUE_DEPTH_MAX ));
     }
+  } else if( 0==strcmp( config->net.provider, "iavf" ) ) {
+    if( FD_UNLIKELY( !config->is_firedancer ) ) FD_LOG_ERR(( "IAVF is available only in Firedancer and Firedancer-dev" ));
+    CFG_HAS_POW2( net.iavf.rx_queue_size );
+    CFG_HAS_POW2( net.iavf.tx_queue_size );
+    if( FD_UNLIKELY( config->net.iavf.rx_queue_size<=FD_IAVF_BATCH_SIZE ||
+                     config->net.iavf.tx_queue_size<FD_IAVF_BATCH_SIZE ||
+                     config->net.iavf.rx_queue_size>FD_IAVF_QUEUE_DEPTH_MAX ||
+                     config->net.iavf.tx_queue_size>FD_IAVF_QUEUE_DEPTH_MAX ) ) {
+      FD_LOG_ERR(( "IAVF queue depths must be powers of two, RX 128-4096 and TX 64-4096" ));
+    }
+    if( FD_UNLIKELY( config->layout.net_tile_count!=1U ) ) FD_LOG_ERR(( "IAVF currently requires one net tile" ));
   } else if( 0==strcmp( config->net.provider, "socket" ) ) {
     CFG_HAS_NON_ZERO( net.socket.receive_buffer_size );
     CFG_HAS_NON_ZERO( net.socket.send_buffer_size );
   } else if( 0==strcmp( config->net.provider, "auto" ) ) {
     /* "auto" is resolved after interface discovery in fd_config_fill(). */
   } else {
-    FD_LOG_ERR(( "invalid `net.provider`: \"%s\"; must be \"auto\", \"xdp\", \"socket\" or \"mlx5\"",
+    FD_LOG_ERR(( "invalid `net.provider`: \"%s\"; must be \"auto\", \"xdp\", \"socket\", \"mlx5\" or \"iavf\"",
                  config->net.provider ));
   }
 

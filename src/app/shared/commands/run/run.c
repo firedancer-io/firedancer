@@ -370,6 +370,10 @@ main_pid_namespace( void * _args ) {
   int config_memfd = fd_config_to_memfd( config );
   if( FD_UNLIKELY( -1==config_memfd ) ) FD_LOG_ERR(( "fd_config_to_memfd() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
+  int need_iavf = 0==strcmp( config->net.provider, "iavf" );
+  fd_iavf_fds_t iavf_fds = {0};
+  if( need_iavf ) fd_topo_install_iavf( (fd_topo_t *)&config->topo, &iavf_fds );
+
   int need_mlx5 = 0==strcmp( config->net.provider, "mlx5" );
   fd_mlx5_fds_t mlx5_fds = { .cmd_fd=-1, .async_fd=-1 };
   if( need_mlx5 ) {
@@ -442,6 +446,15 @@ main_pid_namespace( void * _args ) {
           for( uint i=0U; i<xdp_fds_cnt; i++ ) {
             if( FD_UNLIKELY( -1==fcntl( xdp_fds[i].xsk_map_fd,   F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
             if( FD_UNLIKELY( -1==fcntl( xdp_fds[i].prog_link_fd, F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+          }
+        }
+      }
+
+      if( need_iavf ) {
+        int fd_flags = strcmp( tile->name, "iavf" ) ? FD_CLOEXEC : 0;
+        for( ulong i=0UL; i<iavf_fds.fd_cnt; i++ ) {
+          if( FD_UNLIKELY( fcntl( iavf_fds.fds[i], F_SETFD, fd_flags )<0 ) ) {
+            FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
           }
         }
       }
@@ -614,6 +627,11 @@ main_pid_namespace( void * _args ) {
   allow_fds[ allow_fds_cnt++ ] = args->pipefd[ 1 ]; /* write end of main pipe */
   for( ulong i=0UL; i<child_cnt; i++ )
     allow_fds[ allow_fds_cnt++ ] = fds[ i ].fd; /* read end of child pipes */
+  if( need_iavf ) {
+    for( ulong i=0UL; i<iavf_fds.fd_cnt; i++ ) {
+      if( FD_UNLIKELY( close( iavf_fds.fds[i] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+  }
   if( need_mlx5 ) {
     if( FD_UNLIKELY( -1==close( mlx5_fds.cmd_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( mlx5_fds.async_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -1014,6 +1032,12 @@ fdctl_check_configure( config_t const * config ) {
     if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
       FD_LOG_ERR(( "Network %s. You can run `%s configure init ethtool-loopback` to disable tx-udp-segmentation "
                   "on the loopback device.", check.message, FD_BINARY_NAME ));
+  }
+
+  if( fd_cfg_stage_iavf.enabled( config ) ) {
+    check = fd_cfg_stage_iavf.check( config, FD_CONFIGURE_CHECK_TYPE_RUN );
+    if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
+      FD_LOG_ERR(( "IAVF is not configured correctly, %s. Run `%s configure init iavf`.", check.message, FD_BINARY_NAME ));
   }
 
   check = fd_cfg_stage_sysctl.check( config, FD_CONFIGURE_CHECK_TYPE_RUN );
