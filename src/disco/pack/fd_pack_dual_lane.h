@@ -39,6 +39,14 @@
 #define FD_PACK_DUAL_VERDICT_NEITHER    2
 #define FD_PACK_DUAL_VERDICT_CNT        3
 
+/* Why the TPU copy won.  The order matches the DualLaneTpuWonCause
+   metrics enum. */
+
+#define FD_PACK_DUAL_TPU_WON_BUNDLE_LATE    0 /* the bundle arrived after the TPU copy was scheduled */
+#define FD_PACK_DUAL_TPU_WON_BUNDLE_WAITING 1 /* the bundle was in pack, unscheduled, when the TPU copy was scheduled */
+#define FD_PACK_DUAL_TPU_WON_BUNDLE_FAILED  2 /* the bundle was scheduled first but did not land */
+#define FD_PACK_DUAL_TPU_WON_CNT            3
+
 /* Evicting an entry younger than this suggests the table is too small
    to cover the time between the two copies' arrivals. */
 
@@ -52,6 +60,12 @@ struct fd_pack_dual_pair {
   /* slot of the winning copy's schedule; for NEITHER, of the bundle's
      schedule, or ULONG_MAX if neither was scheduled */
   ulong slot;
+
+  /* When each copy arrived and was scheduled (ns), 0 if not scheduled */
+  long tpu_arrival_ns;
+  long tpu_sched_ns;
+  long bundle_arrival_ns;
+  long bundle_sched_ns;
 };
 typedef struct fd_pack_dual_pair fd_pack_dual_pair_t;
 
@@ -128,6 +142,16 @@ fd_pack_dual_bundle_done( fd_pack_dual_t * dual,
                           ulong            sig8,
                           ulong            bundle_obs_id,
                           int              landed );
+
+/* fd_pack_dual_tpu_won_cause returns the FD_PACK_DUAL_TPU_WON_* cause
+   of a pair whose verdict is FD_PACK_DUAL_VERDICT_TPU_WON. */
+
+static inline int
+fd_pack_dual_tpu_won_cause( fd_pack_dual_pair_t const * pair ) {
+  if( (pair->bundle_sched_ns!=0L) & (pair->bundle_sched_ns<=pair->tpu_sched_ns) ) return FD_PACK_DUAL_TPU_WON_BUNDLE_FAILED;
+  if( pair->bundle_arrival_ns>pair->tpu_sched_ns )                               return FD_PACK_DUAL_TPU_WON_BUNDLE_LATE;
+  return FD_PACK_DUAL_TPU_WON_BUNDLE_WAITING;
+}
 
 /* Statistics */
 

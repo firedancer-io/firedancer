@@ -132,6 +132,10 @@ evaluate( fd_pack_dual_t * dual,
     case FD_PACK_DUAL_VERDICT_TPU_WON:    pair->slot = t->sched_slot; break;
     default:                              pair->slot = bs ? b->sched_slot : ULONG_MAX; break;
   }
+  pair->tpu_arrival_ns    = t->insert_ns;
+  pair->tpu_sched_ns      = ts;
+  pair->bundle_arrival_ns = b->insert_ns;
+  pair->bundle_sched_ns   = bs;
 
   t->done = 1;
   b->done = 1;

@@ -57,6 +57,9 @@ main( int     argc,
   FD_TEST( verdict_cnt==1UL );
   FD_TEST( verdicts[0].verdict==FD_PACK_DUAL_VERDICT_TPU_WON );
   FD_TEST( verdicts[0].slot==7UL && verdicts[0].tpu_offer==50UL && verdicts[0].bundle_offer==900UL );
+  FD_TEST( verdicts[0].tpu_arrival_ns==100L && verdicts[0].tpu_sched_ns==150L );
+  FD_TEST( verdicts[0].bundle_arrival_ns==200L && verdicts[0].bundle_sched_ns==0L );
+  FD_TEST( fd_pack_dual_tpu_won_cause( verdicts ) == FD_PACK_DUAL_TPU_WON_BUNDLE_LATE );
   /* Decided pairs are not decided again */
   fd_pack_dual_bundle_scheduled( dual, S8( 0 ), 11UL, 300L, 8UL );
   fd_pack_dual_bundle_done     ( dual, S8( 0 ), 11UL, 1 );
@@ -82,6 +85,19 @@ main( int     argc,
   fd_pack_dual_tpu_scheduled( dual, sig( 4 ), 125L, 10UL );
   fd_pack_dual_bundle_done( dual, S8( 4 ), 31UL, 0 );
   FD_TEST( verdict_cnt==1UL && verdicts[0].verdict==FD_PACK_DUAL_VERDICT_TPU_WON );
+  FD_TEST( verdicts[0].tpu_arrival_ns==110L    && verdicts[0].tpu_sched_ns==125L    );
+  FD_TEST( verdicts[0].bundle_arrival_ns==100L && verdicts[0].bundle_sched_ns==120L );
+  FD_TEST( fd_pack_dual_tpu_won_cause( verdicts ) == FD_PACK_DUAL_TPU_WON_BUNDLE_FAILED );
+
+  /* Bundle in pack but unscheduled when the TPU copy is scheduled: TPU
+     won while the bundle waited */
+  dual = fresh();
+  fd_pack_dual_insert_bundle( dual, sig( 5 ), 60UL, 900UL, 35UL, 100L );
+  fd_pack_dual_insert_tpu   ( dual, sig( 5 ), 110L );
+  fd_pack_dual_tpu_scheduled( dual, sig( 5 ), 125L, 10UL );
+  FD_TEST( verdict_cnt==1UL && verdicts[0].verdict==FD_PACK_DUAL_VERDICT_TPU_WON );
+  FD_TEST( verdicts[0].bundle_arrival_ns==100L && verdicts[0].bundle_sched_ns==0L );
+  FD_TEST( fd_pack_dual_tpu_won_cause( verdicts ) == FD_PACK_DUAL_TPU_WON_BUNDLE_WAITING );
 
   /* Bundle dropped unscheduled, TPU never scheduled: neither, decided at
      eviction.  Updates for another bundle are ignored. */

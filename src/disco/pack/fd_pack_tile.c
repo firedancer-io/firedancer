@@ -112,6 +112,10 @@ FD_STATIC_ASSERT( FD_METRICS_ENUM_BUNDLE_ARRIVAL_RESULT_V_AFTER_WINDOW_MISSED_ID
 FD_STATIC_ASSERT( FD_METRICS_ENUM_DUAL_LANE_PAIR_RESULT_CNT==FD_PACK_DUAL_VERDICT_CNT*FD_PACK_BOBS_SLOTS_PER_ROTATION, dual_metrics );
 FD_STATIC_ASSERT( FD_METRICS_ENUM_DUAL_LANE_PAIR_RESULT_V_TPU_WON_SLOT0_IDX==FD_PACK_DUAL_VERDICT_TPU_WON*FD_PACK_BOBS_SLOTS_PER_ROTATION, dual_metrics );
 FD_STATIC_ASSERT( FD_METRICS_ENUM_DUAL_LANE_OFFER_CNT==4UL,                                                dual_metrics );
+FD_STATIC_ASSERT( FD_METRICS_ENUM_DUAL_LANE_TPU_WON_CAUSE_CNT==FD_PACK_DUAL_TPU_WON_CNT,                   dual_metrics );
+FD_STATIC_ASSERT( FD_METRICS_ENUM_DUAL_LANE_TPU_WON_CAUSE_V_BUNDLE_LATE_IDX==FD_PACK_DUAL_TPU_WON_BUNDLE_LATE,       dual_metrics );
+FD_STATIC_ASSERT( FD_METRICS_ENUM_DUAL_LANE_TPU_WON_CAUSE_V_BUNDLE_WAITING_IDX==FD_PACK_DUAL_TPU_WON_BUNDLE_WAITING, dual_metrics );
+FD_STATIC_ASSERT( FD_METRICS_ENUM_DUAL_LANE_TPU_WON_CAUSE_V_BUNDLE_FAILED_IDX==FD_PACK_DUAL_TPU_WON_BUNDLE_FAILED,   dual_metrics );
 
 /* Sync with src/app/shared/fd_config.c */
 #define FD_PACK_STRATEGY_PERF     0
@@ -405,10 +409,27 @@ typedef struct {
     ulong      obs_dropped;
     ulong      dual_pair  [ FD_PACK_DUAL_VERDICT_CNT*FD_PACK_BOBS_SLOTS_PER_ROTATION ];
     ulong      dual_offer [ 4 ];
+    ulong      dual_tpu_won[ FD_PACK_DUAL_TPU_WON_CNT ];
     fd_histf_t queue_wait         [ 1 ];
     fd_histf_t arrival_offset     [ 1 ];
     fd_histf_t dual_bundle_won_pct[ 1 ];
     fd_histf_t dual_tpu_won_pct   [ 1 ];
+    fd_histf_t dual_tpu_won_lag   [ 1 ];
+
+    /* Auction strategy: why normal transactions are blocked (-1 if they
+       are not) since txn_blocked_tick, the initial value of
+       auction_last_attempt_tick in this slot (unchanged until the
+       slot's first auction attempt), and the CUs each exec tile has
+       been scheduled but not yet rebated */
+    int        txn_blocked_reason;
+    long       txn_blocked_tick;
+    ulong      txn_blocked_ticks[ FD_METRICS_ENUM_AUCTION_TXN_BLOCKED_REASON_CNT ];
+    long       slot_first_attempt_tick;
+    uchar      in_execle     [ 32 ];
+    ulong      inflight_cus  [ FD_PACK_MAX_EXECLE_TILES ];
+    ulong      last_sched_cus[ FD_PACK_MAX_EXECLE_TILES ];
+    fd_histf_t limit_inflight_pct[ 1 ];
+    fd_histf_t restart_pending   [ 1 ];
   } obs[1];
 
   /* Used between during_frag and after_frag */
@@ -612,6 +633,12 @@ obs_dual_verdict( void *                      _ctx,
     ctx->obs->dual_offer[ FD_METRICS_ENUM_DUAL_LANE_OFFER_V_TPU_WON_BUNDLE_IDX    ] += pair->bundle_offer;
     ctx->obs->dual_offer[ FD_METRICS_ENUM_DUAL_LANE_OFFER_V_TPU_WON_TPU_IDX       ] += pair->tpu_offer;
     fd_histf_sample( ctx->obs->dual_tpu_won_pct, pct );
+
+    int cause = fd_pack_dual_tpu_won_cause( pair );
+    ctx->obs->dual_tpu_won[ cause ]++;
+    if( cause==FD_PACK_DUAL_TPU_WON_BUNDLE_LATE ) {
+      fd_histf_sample( ctx->obs->dual_tpu_won_lag, (ulong)obs_ns_to_ticks( ctx, pair->bundle_arrival_ns-pair->tpu_arrival_ns ) );
+    }
   }
 }
 
@@ -711,10 +738,57 @@ obs_partial( fd_pack_ctx_t * ctx,
    before ctx->leader_slot is reset. */
 static inline void
 obs_leader_end( fd_pack_ctx_t * ctx ) {
-  fd_pack_bobs_charge( ctx->obs->bobs, fd_tickcount(), FD_PACK_BOBS_REASON_NONE );
+  long now = fd_tickcount();
+  fd_pack_bobs_charge( ctx->obs->bobs, now, FD_PACK_BOBS_REASON_NONE );
   ctx->obs->last_leader_slot = ctx->leader_slot;
   ctx->obs->last_pack_end_ns = fd_clock_tile_now( ctx->clock );
   ctx->obs->last_slot_dur_ns = ctx->slot_end_ns - ctx->slot_pack_start_ns;
+
+  if( ctx->obs->txn_blocked_reason>=0 ) {
+    ctx->obs->txn_blocked_ticks[ ctx->obs->txn_blocked_reason ] += (ulong)fd_long_max( now-ctx->obs->txn_blocked_tick, 0L );
+  }
+  ctx->obs->txn_blocked_reason = -1;
+}
+
+/* obs_txn_blocked charges the time since the last call to the reason
+   normal transactions were blocked then, and works out whether, and
+   why, they are blocked now.  They are blocked if the auction strategy
+   would not schedule them on the first idle exec tile although some are
+   eligible.  Called once per loop while leader. */
+static inline void
+obs_txn_blocked( fd_pack_ctx_t * ctx,
+                 long            now,
+                 int             pacing_execle_cnt ) {
+  if( ctx->obs->txn_blocked_reason>=0 ) {
+    ctx->obs->txn_blocked_ticks[ ctx->obs->txn_blocked_reason ] += (ulong)fd_long_max( now-ctx->obs->txn_blocked_tick, 0L );
+  }
+  ctx->obs->txn_blocked_tick = now;
+
+  int reason = -1;
+  if( (ctx->strategy==FD_PACK_STRATEGY_AUCTION) & (ctx->execle_idle_bitset!=0UL) && fd_pack_regular_txn_cnt( ctx->pack ) ) {
+    int allow = fd_pack_auction_running( ctx->pack ) | (now>=ctx->auction_final_start_tick);
+    if( allow ) {
+      if( fd_ulong_find_lsb( ctx->execle_idle_bitset )>=pacing_execle_cnt ) reason = FD_METRICS_ENUM_AUCTION_TXN_BLOCKED_REASON_V_PACER_IDX;
+    } else if( ctx->auction_last_attempt_tick==ctx->obs->slot_first_attempt_tick ) {
+      reason = FD_METRICS_ENUM_AUCTION_TXN_BLOCKED_REASON_V_BEFORE_FIRST_IDX;
+    } else if( ctx->auction_last_attempt_tick+ctx->auction_spacing_tick>=ctx->leader_slot_end_tick ) {
+      reason = FD_METRICS_ENUM_AUCTION_TXN_BLOCKED_REASON_V_SLOT_TAIL_IDX;
+    } else {
+      reason = FD_METRICS_ENUM_AUCTION_TXN_BLOCKED_REASON_V_AFTER_LIMIT_IDX;
+    }
+  }
+  ctx->obs->txn_blocked_reason = reason;
+}
+
+/* obs_limit_inflight records how much of the block cost counted against
+   the auction CU limit was still in flight, as the auction ends on its
+   limit. */
+static inline void
+obs_limit_inflight( fd_pack_ctx_t * ctx ) {
+  ulong inflight = 0UL;
+  for( ulong i=0UL; i<ctx->execle_cnt; i++ ) inflight += ctx->obs->inflight_cus[ i ];
+  ulong pct = fd_ulong_sat_mul( inflight, 100UL )/fd_ulong_max( ctx->auction_cu_limit, 1UL );
+  fd_histf_sample( ctx->obs->limit_inflight_pct, pct );
 }
 
 /* obs_bundle_outcome handles an outcome reported by an execle. */
@@ -840,6 +914,16 @@ metrics_write( fd_pack_ctx_t * ctx ) {
   FD_MCNT_ENUM_COPY( PACK, DUAL_LANE_OFFER_LAMPORTS, ctx->obs->dual_offer );
   FD_MHIST_COPY( PACK, DUAL_LANE_BUNDLE_WON_PRICE_PCT, ctx->obs->dual_bundle_won_pct );
   FD_MHIST_COPY( PACK, DUAL_LANE_TPU_WON_PRICE_PCT,    ctx->obs->dual_tpu_won_pct    );
+  FD_MCNT_ENUM_COPY( PACK, DUAL_LANE_TPU_WON, ctx->obs->dual_tpu_won );
+  FD_MHIST_COPY( PACK, DUAL_LANE_TPU_WON_BUNDLE_LAG_SECONDS, ctx->obs->dual_tpu_won_lag );
+
+  ulong txn_blocked_ns[ FD_METRICS_ENUM_AUCTION_TXN_BLOCKED_REASON_CNT ];
+  for( ulong i=0UL; i<FD_METRICS_ENUM_AUCTION_TXN_BLOCKED_REASON_CNT; i++ ) {
+    txn_blocked_ns[ i ] = (ulong)((double)ctx->obs->txn_blocked_ticks[ i ]/ctx->obs->tick_per_ns);
+  }
+  FD_MCNT_ENUM_COPY( PACK, AUCTION_TXN_BLOCKED_DURATION_NANOS, txn_blocked_ns );
+  FD_MHIST_COPY( PACK, AUCTION_LIMIT_INFLIGHT_PCT,  ctx->obs->limit_inflight_pct );
+  FD_MHIST_COPY( PACK, AUCTION_RESTART_PENDING_TXN, ctx->obs->restart_pending    );
   FD_MCNT_SET( PACK, DUAL_LANE_ENTRY_EVICTED, fd_pack_dual_evicted_young( ctx->obs->dual ) );
 
   fd_pack_metrics_write( ctx->pack );
@@ -1178,12 +1262,15 @@ after_credit( fd_pack_ctx_t *     ctx,
     } else if( now>=ctx->auction_next_tick ) {
       /* End the current auction, if one is running. This will flush
          all transactions held in next_auction.*/
+      if( fd_pack_auction_running( ctx->pack ) ) fd_histf_sample( ctx->obs->restart_pending, fd_pack_regular_txn_cnt( ctx->pack ) );
       auction_end( ctx, now, FD_METRICS_ENUM_PACK_AUCTION_END_V_RESTARTED_IDX );
       /* Start the new auction, holding any new transactions in
          next_auction. */
       auction_begin( ctx, now );
     }
   }
+
+  obs_txn_blocked( ctx, now, pacing_execle_cnt );
 
   if( FD_UNLIKELY( ctx->pending_reduce_mb_bound ) ) {
     ctx->pending_reduce_mb_bound = 0;
@@ -1309,10 +1396,16 @@ after_credit( fd_pack_ctx_t *     ctx,
     ctx->obs->sched_now_ns = fd_clock_tile_now( ctx->clock );
     ctx->obs->sched_ele    = NULL;
     fd_pack_set_time( ctx->pack, ctx->obs->sched_now_ns );
+    ulong cost_before      = fd_pack_current_block_cost( ctx->pack );
     long schedule_duration = -fd_tickcount();
     ulong schedule_cnt = fd_pack_schedule_next_microblock( ctx->pack, CUS_PER_MICROBLOCK, VOTE_FRACTION, (ulong)i, flags, microblock_dst );
     schedule_duration      += fd_tickcount();
     fd_histf_sample( (schedule_cnt>0UL) ? ctx->schedule_duration : ctx->no_sched_duration, (ulong)schedule_duration );
+    if( schedule_cnt ) {
+      ulong sched_cus = fd_pack_current_block_cost( ctx->pack ) - cost_before;
+      ctx->obs->inflight_cus  [ i ] += sched_cus;
+      ctx->obs->last_sched_cus[ i ]  = sched_cus;
+    }
 
     if( have_bundles ) {
       ulong conflict_mask;
@@ -1323,6 +1416,7 @@ after_credit( fd_pack_ctx_t *     ctx,
     if( fd_pack_auction_running( ctx->pack ) ) {
       /* End the auction early if we have reached the CU limit. */
       if( fd_pack_current_block_cost( ctx->pack )>=ctx->auction_cu_limit ) {
+        obs_limit_inflight( ctx );
         auction_end( ctx, now, FD_METRICS_ENUM_PACK_AUCTION_END_V_LIMIT_IDX );
       }
     }
@@ -1763,6 +1857,10 @@ after_frag( fd_pack_ctx_t *     ctx,
                                                      end_ticks-(long)(tick_per_ns*(double)FD_PACK_AUCTION_FINAL_NS), LONG_MAX );
     ctx->auction_last_attempt_tick     = now_ticks - ctx->auction_spacing_tick;
     ctx->auction_next_tick             = ctx->auction_last_attempt_tick + ctx->auction_interval_tick;
+    ctx->obs->slot_first_attempt_tick  = ctx->auction_last_attempt_tick;
+    ctx->obs->txn_blocked_reason       = -1;
+    memset( ctx->obs->inflight_cus,   0, sizeof(ctx->obs->inflight_cus)   );
+    memset( ctx->obs->last_sched_cus, 0, sizeof(ctx->obs->last_sched_cus) );
     ctx->slot_dynamic_max_microblocks  = ctx->slot_max_microblocks;
     ctx->slot_mixin_per_tick           = fd_ulong_if( ctx->_became_leader->hashcnt_per_tick>1UL, ctx->_became_leader->hashcnt_per_tick-1UL, 0UL ); /* 0: low power / alpenglow, no hash budget */
     ctx->slot_tick_duration_ns         = ctx->_became_leader->tick_duration_ns;
@@ -1787,6 +1885,12 @@ after_frag( fd_pack_ctx_t *     ctx,
 
     /* For a previous slot */
     if( FD_UNLIKELY( sig!=ctx->leader_slot ) ) return;
+
+    /* A rebate covers everything the exec tile has finished, which is
+       everything scheduled to it unless a microblock is still
+       outstanding.  Approximate: pack may not yet have seen it finish. */
+    ulong e = ctx->obs->in_execle[ in_idx ];
+    ctx->obs->inflight_cus[ e ] = fd_ulong_if( (ctx->execle_idle_bitset>>e)&1UL, 0UL, ctx->obs->last_sched_cus[ e ] );
 
     fd_pack_rebate_cus( ctx->pack, ctx->rebate->rebate );
     ctx->pending_rebate_sz = 0UL;
@@ -2024,7 +2128,15 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( ctx->obs->dual );
   fd_pack_set_bundle_leave_cb( ctx->pack, obs_bundle_leave, ctx );
   fd_pack_dual_set_verdict_cb( ctx->obs->dual, obs_dual_verdict, ctx );
-  ctx->obs->last_leader_slot = ULONG_MAX;
+  ctx->obs->last_leader_slot   = ULONG_MAX;
+  ctx->obs->txn_blocked_reason = -1;
+  for( ulong i=0UL; i<tile->in_cnt; i++ ) {
+    fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
+    if( ctx->in_kind[ i ]==IN_KIND_EXECLE ) {
+      FD_TEST( link->kind_id<FD_PACK_MAX_EXECLE_TILES );
+      ctx->obs->in_execle[ i ] = (uchar)link->kind_id;
+    }
+  }
 
   ctx->cur_spot                      = NULL;
   ctx->is_bundle                     = 0;
@@ -2133,6 +2245,12 @@ unprivileged_init( fd_topo_t const *      topo,
                                                               FD_MHIST_MAX( PACK, DUAL_LANE_BUNDLE_WON_PRICE_PCT ) ) );
   fd_histf_join( fd_histf_new( ctx->obs->dual_tpu_won_pct,    FD_MHIST_MIN( PACK, DUAL_LANE_TPU_WON_PRICE_PCT    ),
                                                               FD_MHIST_MAX( PACK, DUAL_LANE_TPU_WON_PRICE_PCT    ) ) );
+  fd_histf_join( fd_histf_new( ctx->obs->dual_tpu_won_lag,    FD_MHIST_SECONDS_MIN( PACK, DUAL_LANE_TPU_WON_BUNDLE_LAG_SECONDS ),
+                                                              FD_MHIST_SECONDS_MAX( PACK, DUAL_LANE_TPU_WON_BUNDLE_LAG_SECONDS ) ) );
+  fd_histf_join( fd_histf_new( ctx->obs->limit_inflight_pct,  FD_MHIST_MIN( PACK, AUCTION_LIMIT_INFLIGHT_PCT  ),
+                                                              FD_MHIST_MAX( PACK, AUCTION_LIMIT_INFLIGHT_PCT  ) ) );
+  fd_histf_join( fd_histf_new( ctx->obs->restart_pending,     FD_MHIST_MIN( PACK, AUCTION_RESTART_PENDING_TXN ),
+                                                              FD_MHIST_MAX( PACK, AUCTION_RESTART_PENDING_TXN ) ) );
   ctx->metric_state = 0;
   ctx->metric_state_begin = fd_tickcount();
   memset( ctx->metric_timing,             '\0', 16*sizeof(long)                        );

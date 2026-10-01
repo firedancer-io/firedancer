@@ -956,6 +956,19 @@ EXAMPLES
   <int value="3" name="TpuWonTpu" label="TPU lane offer, pairs the TPU transaction won" />
 </enum>
 
+<enum name="DualLaneTpuWonCause">
+  <int value="0" name="BundleLate" label="The bundle arrived after the TPU transaction was scheduled" />
+  <int value="1" name="BundleWaiting" label="The bundle was in pack, unscheduled, when the TPU transaction was scheduled" />
+  <int value="2" name="BundleFailed" label="The bundle was scheduled first but did not land" />
+</enum>
+
+<enum name="AuctionTxnBlockedReason">
+  <int value="0" name="BeforeFirst" label="No auction has started yet in this slot" />
+  <int value="1" name="AfterLimit" label="The last auction ended on its CU limit, or the next was skipped because of it, and another auction can still start this slot" />
+  <int value="2" name="SlotTail" label="No auction is running and none can start before the slot ends" />
+  <int value="3" name="Pacer" label="An auction is running but the pacer has not enabled normal transactions on the idle exec tile" />
+</enum>
+
 <enum name="RevenueSource">
   <int value="0" name="PriorityFee" label="Priority fees" />
   <int value="1" name="ExecutionFee" label="Execution (signature) fees, before the 50% burn" />
@@ -1066,6 +1079,24 @@ EXAMPLES
     </histogram>
     <histogram name="DualLaneTpuWonPricePct" min="1" max="100000">
         <summary>Bundle lane offer as a percentage of the TPU lane offer, for dual-lane pairs the TPU transaction won</summary>
+    </histogram>
+    <counter name="DualLaneTpuWon" enum="DualLaneTpuWonCause" summary="Dual-lane pairs the TPU transaction won, by what had happened to the bundle when the TPU transaction was scheduled" />
+    <histogram name="DualLaneTpuWonBundleLagSeconds" min="0.000001" max="1.0" converter="seconds">
+        <summary>Time from the TPU transaction's arrival to the bundle's arrival, for dual-lane pairs the TPU transaction won because the bundle arrived after the TPU transaction was scheduled</summary>
+    </histogram>
+
+    <!-- Auction strategy: what further Pebble behaviour would help.
+         TxnBlocked SlotTail suggests a fill phase in every slot, AfterLimit
+         with a high LimitInflightPct suggests a CU limit based on consumed
+         CUs, RestartPendingTxn shows whether ending an auction early (as
+         Pebble never does) leaves its transactions behind, and Pacer
+         shows whether the pacer limits auction lanes. -->
+    <counter name="AuctionTxnBlockedDurationNanos" enum="AuctionTxnBlockedReason" summary="Time while leader with the auction strategy that normal transactions were eligible and an exec tile was idle, but normal transactions were not scheduled, by reason, in nanoseconds" />
+    <histogram name="AuctionLimitInflightPct" min="1" max="1000">
+        <summary>CUs scheduled to exec tiles but not yet rebated, as a percentage of the auction's CU limit, when an auction ended on its CU limit</summary>
+    </histogram>
+    <histogram name="AuctionRestartPendingTxn" min="1" max="10000">
+        <summary>Eligible normal transactions not yet scheduled when an auction was ended by the next auction starting</summary>
     </histogram>
     <counter name="DualLaneEntryEvicted" summary="Dual-lane table entries evicted less than a second after insertion; non-zero means some pairs can be missed" />
 </tile>
@@ -1290,6 +1321,11 @@ EXAMPLES
     </histogram>
     <histogram name="MicroblockPerBatch" min="2" max="256">
         <summary>Microblocks in each microblock batch that is shredded</summary>
+    </histogram>
+    <!-- Shows how long our block's entries wait before being sent, i.e.
+         what an end-of-auction flush (as in Pebble) would save. -->
+    <histogram name="BatchAgeSeconds" min="0.00001" max="0.25" converter="seconds">
+        <summary>Time from the first microblock entering a batch of our own block until the batch was shredded</summary>
     </histogram>
     <histogram name="ShreddingDurationSeconds" min="0.00001" max="0.01" converter="seconds">
         <summary>Duration of producing one FEC set from the shredder</summary>

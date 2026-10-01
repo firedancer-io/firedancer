@@ -263,6 +263,11 @@ void             fd_pack_auction_end         ( fd_pack_t *       pack );
 FD_FN_PURE int   fd_pack_auction_running     ( fd_pack_t const * pack );
 FD_FN_PURE ulong fd_pack_next_auction_txn_cnt( fd_pack_t const * pack );
 
+/* fd_pack_regular_txn_cnt returns the number of normal (non-vote,
+   non-bundle) transactions that are eligible to be scheduled now, i.e.
+   not held in next_auction and not penalized for conflicts. */
+FD_FN_PURE ulong fd_pack_regular_txn_cnt( fd_pack_t const * pack );
+
 /* fd_pack_bank_tile_cnt: returns the value of bank_tile_cnt provided in
    pack when the pack object was initialized with fd_pack_new.  pack
    must be a valid local join.  The result will be in [1,

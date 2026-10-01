@@ -1814,6 +1814,7 @@ test_next_auction( void ) {
   make_vote_transaction( i );                                    FD_TEST( insert( i++, pack )>=0 ); /* votes are never held */
   FD_TEST( fd_pack_next_auction_txn_cnt( pack )==1UL );
   FD_TEST( fd_pack_avail_txn_cnt( pack )==3UL );
+  FD_TEST( fd_pack_regular_txn_cnt( pack )==1UL ); /* neither the held transaction nor the vote */
   FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
 
   /* We expect only the vote and the transaction that arrived before
@@ -1825,8 +1826,10 @@ test_next_auction( void ) {
 
   /* When we end the auction, the transaction that is held in
      next_auction can now be scheduled. */
+  FD_TEST( fd_pack_regular_txn_cnt( pack )==0UL );
   fd_pack_auction_end( pack );
   FD_TEST( fd_pack_next_auction_txn_cnt( pack )==0UL );
+  FD_TEST( fd_pack_regular_txn_cnt( pack )==1UL );
   FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
   FD_TEST( 1UL==fd_pack_schedule_next_microblock( pack, 10000000UL, 1.0f, 0UL, ALL, outcome.results ) );
   fd_pack_microblock_complete( pack, 0UL );
