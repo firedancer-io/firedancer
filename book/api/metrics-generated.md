@@ -1052,7 +1052,7 @@
 | <span class="metrics-name">rserve_&#8203;shreds_&#8203;current</span> | gauge | The number of shreds currently in the shreds database |
 | <span class="metrics-name">rserve_&#8203;shreds_&#8203;max</span> | gauge | Total capacity of shreds that can be stored in the shreds database |
 | <span class="metrics-name">rserve_&#8203;disk_&#8203;current_&#8203;bytes</span> | gauge | Logical bytes occupied by live wire shreds and spilled FEC payloads |
-| <span class="metrics-name">rserve_&#8203;disk_&#8203;allocated_&#8203;bytes</span> | gauge | Logical wire-ring high-water plus allocated spill pages |
+| <span class="metrics-name">rserve_&#8203;disk_&#8203;allocated_&#8203;bytes</span> | gauge | Logical wire-ring high-water plus spill pages high-water |
 | <span class="metrics-name">rserve_&#8203;disk_&#8203;write_&#8203;seconds</span> | histogram | Duration of persisting one accepted data shred |
 | <span class="metrics-name">rserve_&#8203;disk_&#8203;shred_&#8203;inserted</span> | counter | Data shreds persisted to the repair store |
 | <span class="metrics-name">rserve_&#8203;disk_&#8203;write_&#8203;failed</span> | counter | Data shreds rejected by the repair store API |

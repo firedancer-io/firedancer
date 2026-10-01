@@ -214,10 +214,6 @@ after_credit( fd_backt_tile_t *   ctx,
               int *               charge_busy ) {
   (void)opt_poll_in;
 
-  if( FD_LIKELY( ctx->store && ctx->store_disk_fd>=0 &&
-                 fd_store_disk_maintain( ctx->store, ctx->store_disk_fd ) ) )
-    *charge_busy = 1;
-
   int process = ctx->shreds_cnt>=2UL || (ctx->source_exhausted && ctx->shreds_cnt );
   if( FD_UNLIKELY( !process ) ) return; /* need to buffer two in ordinary processing for completes fec lookahead */
   if( FD_UNLIKELY( !ctx->reasm_ready ) ) return;
