@@ -371,13 +371,7 @@ fd_vm_is_check_size_enabled( fd_vm_t const * vm ) {
 
 /* fd_vm_exec runs vm from program start to program halt or program
    fault, appending an execution trace if vm is attached to a trace.
-
-   Since this is running from program start, this will init r1 and r10,
-   pop all stack frames and free all heap allocations.
-
-   IMPORTANT SAFETY TIP!  This currently does not zero out any other
-   registers, the user stack region or the user heap.  (FIXME: SHOULD
-   IT??)
+   vm must be initialized with fd_vm_init before each call.
 
    Returns FD_VM_SUCCESS (0) on success and an FD_VM_ERR code (negative)
    on failure.  Reasons for failure include:
