@@ -605,8 +605,11 @@ pair_setup_gossip( pair_node_t * node,
   };
 
   fd_ip4_port_t entrypoint = node->env->nodes[ node->idx ^ 1UL ].addr;
+  uchar ping_seed[ 32 ];
+  for( ulong i=0UL; i<32UL; i++ ) ping_seed[ i ] = fd_rng_uchar( node->rng );
   void * gossip = fd_gossip_new( gossip_mem,
                                  node->rng,
+                                 ping_seed,
                                  PAIR_MAX_VALUES,
                                  1UL,
                                  &entrypoint,

@@ -519,6 +519,7 @@ privileged_init( fd_topo_t const *      topo,
   ctx->identity_key[ 0 ] = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->gossip.identity_key_path, /* pubkey only: */ 1 ) );
   FD_TEST( fd_rng_secure( &ctx->rng_seed, 4UL ) );
   FD_TEST( fd_rng_secure( &ctx->rng_idx,  8UL ) );
+  FD_TEST( fd_rng_secure( ctx->ping_seed, 32UL ) );
 
   FD_TEST( tile->gossip.entrypoints_cnt<=FD_TOPO_GOSSIP_ENTRYPOINTS_MAX );
   ctx->entrypoints_cnt = tile->gossip.entrypoints_cnt;
@@ -652,6 +653,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->gossip = fd_gossip_join( fd_gossip_new( _gossip,
                                                ctx->rng,
+                                               ctx->ping_seed,
                                                tile->gossip.max_entries,
                                                ctx->entrypoints_cnt,
                                                ctx->entrypoints,

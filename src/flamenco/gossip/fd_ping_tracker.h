@@ -30,7 +30,6 @@
    peer. */
 
 #include "fd_gossip_message.h"
-#include "../../util/rng/fd_rng.h"
 #include "../../util/net/fd_net_headers.h"
 
 #define FD_PING_TRACKER_ALIGN (128UL)
@@ -79,7 +78,7 @@ fd_ping_tracker_footprint( ulong entrypoints_len );
 
 void *
 fd_ping_tracker_new( void *                    shmem,
-                     fd_rng_t *                rng,
+                     uchar const               seed[ static 32 ],
                      ulong                     entrypoints_len,
                      fd_ip4_port_t const *     entrypoints,
                      fd_ping_tracker_change_fn change_fn,

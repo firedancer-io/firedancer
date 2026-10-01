@@ -39,6 +39,7 @@ struct fd_gossip_tile_ctx {
 
   uint  rng_seed;
   ulong rng_idx;
+  uchar ping_seed[ 32 ];
 
   fd_clock_tile_t clock[1];
 

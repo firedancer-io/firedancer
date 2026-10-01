@@ -311,6 +311,7 @@ request_contact_info( fd_gossip_t * gossip,
 void *
 fd_gossip_new( void *                           shmem,
                fd_rng_t *                       rng,
+               uchar const                      ping_seed[ static 32 ],
                ulong                            max_values,
                ulong                            entrypoints_len,
                fd_ip4_port_t const *            entrypoints,
@@ -375,7 +376,7 @@ fd_gossip_new( void *                           shmem,
   gossip->active_set = fd_active_set_join( fd_active_set_new( active_set, gossip->wsample, gossip->crds, rng, identity_pubkey, 0UL, send_fn, send_ctx ) );
   FD_TEST( gossip->active_set );
 
-  gossip->ping_tracker = fd_ping_tracker_join( fd_ping_tracker_new( ping_tracker, rng, gossip->entrypoints_cnt, gossip->entrypoints, ping_tracker_change, gossip ) );
+  gossip->ping_tracker = fd_ping_tracker_join( fd_ping_tracker_new( ping_tracker, ping_seed, gossip->entrypoints_cnt, gossip->entrypoints, ping_tracker_change, gossip ) );
   FD_TEST( gossip->ping_tracker );
 
   gossip->prune_finder = fd_prune_finder_join( fd_prune_finder_new( prune_finder, fd_rng_ulong( rng ) ) );
