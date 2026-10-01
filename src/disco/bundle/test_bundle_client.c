@@ -681,16 +681,18 @@ FD_UNIT_TEST( bundle_client_request_builder_fee_info ) {
     pb_sz = ostream.bytes_written; \
   } while(0)
 
-  /* Invalid Base58 */
-  strcpy( resp.pubkey, "hello" );
+  /* Invalid Base58 and decoded zero keys leave metadata unavailable. */
+  char const * invalid_pubkeys[] = { "hello", "11111111111111111111111111111111" };
   resp.commission = 2;
-  ENCODE_MSG();
-  fd_bundle_client_grpc_rx_msg( state, pb_buf, pb_sz, FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockBuilderFeeInfo );
-  FD_TEST( state->builder_info_avail==0 );
-  FD_TEST( state->builder_info_wait==1 ); /* retry ... */
-  FD_TEST( state->builder_commission==prev_builder_commission );
-  FD_TEST( 0==memcmp( state->builder_pubkey, prev_builder_pubkey, sizeof(prev_builder_pubkey) ) );
-  FD_TEST( state->builder_info_valid_until==prev_builder_valid_until );
+  for( ulong i=0UL; i<2UL; i++ ) {
+    strcpy( resp.pubkey, invalid_pubkeys[i] );
+    ENCODE_MSG();
+    fd_bundle_client_grpc_rx_msg( state, pb_buf, pb_sz, FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockBuilderFeeInfo );
+    FD_TEST( state->builder_info_avail==0 && state->builder_info_wait==1 );
+    FD_TEST( state->builder_commission==prev_builder_commission );
+    FD_TEST( fd_memeq( state->builder_pubkey, prev_builder_pubkey, sizeof(prev_builder_pubkey) ) );
+    FD_TEST( state->builder_info_valid_until==prev_builder_valid_until );
+  }
 
   /* Invalid commission */
   uchar const pubkey[32] = { 1,2,3,4,5 };
@@ -715,6 +717,23 @@ FD_UNIT_TEST( bundle_client_request_builder_fee_info ) {
   FD_TEST( fd_base58_decode_32( resp.pubkey, decoded_builder_pubkey ) );
   FD_TEST( 0==memcmp( state->builder_pubkey, decoded_builder_pubkey, sizeof(decoded_builder_pubkey) ) );
   FD_TEST( state->builder_info_valid_until!=prev_builder_valid_until );
+
+  /* Preserve the last valid metadata when a later response has a zero
+     key, just as for an invalid Base58 response. */
+  long valid_until = state->builder_info_valid_until;
+  strcpy( resp.pubkey, "11111111111111111111111111111111" );
+  resp.commission = 3;
+  ENCODE_MSG();
+  fd_bundle_client_grpc_rx_msg( state, pb_buf, pb_sz, FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockBuilderFeeInfo );
+  FD_TEST( state->builder_info_avail==1 && state->builder_info_wait==1 );
+  FD_TEST( state->builder_commission==2U );
+  FD_TEST( fd_memeq( state->builder_pubkey, decoded_builder_pubkey, sizeof(decoded_builder_pubkey) ) );
+  FD_TEST( state->builder_info_valid_until==valid_until );
+  fd_base58_encode_32( prev_builder_pubkey, NULL, resp.pubkey );
+  ENCODE_MSG();
+  fd_bundle_client_grpc_rx_msg( state, pb_buf, pb_sz, FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockBuilderFeeInfo );
+  FD_TEST( state->builder_info_avail==1 && state->builder_commission==3U );
+  FD_TEST( fd_memeq( state->builder_pubkey, prev_builder_pubkey, sizeof(prev_builder_pubkey) ) );
 
   /* End stream */
   fd_grpc_resp_hdrs_t grpc_resp_hdrs = {
