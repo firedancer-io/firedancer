@@ -10,6 +10,7 @@
 #include "../../disco/keyguard/fd_keyguard.h"
 #include "../../ballet/sha256/fd_sha256.h"
 #include "../leaders/fd_leaders_base.h"
+#include "../../util/fd_hash32.h"
 
 FD_STATIC_ASSERT( FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT==FD_GOSSIP_MESSAGE_CNT,
                   "FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT must match FD_GOSSIP_MESSAGE_CNT" );
@@ -54,7 +55,7 @@ typedef struct stake stake_t;
 #define MAP_PREV               map.prev
 #define MAP_NEXT               map.next
 #define MAP_KEY_EQ(k0,k1)      fd_pubkey_eq( k0, k1 )
-#define MAP_KEY_HASH(key,seed) (seed^fd_ulong_load_8( (key)->uc ))
+#define MAP_KEY_HASH(key,seed) fd_hash32( (key)->uc, (seed) )
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
 #include "../../util/tmpl/fd_map_chain.c"
 
