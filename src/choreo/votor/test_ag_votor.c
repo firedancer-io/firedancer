@@ -564,6 +564,74 @@ test_wait_to_vote( void ) {
   teardown_votor( votor );
 }
 
+/* Restoring the new identity's vote history replaces our votes with
+   its votes.  We voted notar in slot 1, where it never voted.  It voted
+   notar for b in slot 2, and notar for c in slot 3 before skipping it. */
+
+static ag_vote_history_file_t g_history;
+
+static void
+test_restore( void ) {
+  ag_votor_t * votor = setup_votor( 0L );
+
+  ag_block_id_t parent = genesis_block_id();
+  send_block_and_expect_notar( votor, 1UL, &parent );
+
+  ag_block_id_t b = random_block_id( 2UL );
+  ag_block_id_t c = random_block_id( 3UL );
+  memset( &g_history, 0, sizeof(g_history) );
+  g_history.voted      [ g_history.voted_cnt++       ] = 2UL;
+  g_history.voted      [ g_history.voted_cnt++       ] = 3UL;
+  g_history.voted_notar[ g_history.voted_notar_cnt++ ] = b;
+  g_history.voted_notar[ g_history.voted_notar_cnt++ ] = c;
+  g_history.skipped    [ g_history.skipped_cnt++     ] = 3UL;
+  ag_votor_restore( votor, &g_history );
+
+  send_block_and_expect_notar( votor, 1UL, &parent );
+  for( ulong slot=2UL; slot<=3UL; slot++ ) {
+    ag_event_replay_t block = { .slot = slot };
+    block.block_info.parent = parent;
+    random_hash( block.block_info.hash );
+    ag_votor_handle_replay_event( votor, &block );
+    FD_TEST_NO_MSG( votor );
+  }
+
+  ag_vote_t       notar = ag_vote_construct_notar( sec_sign_fn, &g_sk[1], test_bls_public_key, 2UL, b.hash, (ushort)1, TEST_SHRED_VERSION );
+  ag_event_pool_t event = { .kind = AG_EVENT_POOL_CERT_CREATED, .cert_created = cert_build_notar( &notar.notar, 1UL, g_epoch_info ) };
+  ag_votor_handle_pool_event( votor, &event, 0L );
+  ag_vote_t msg = recv( votor );
+  FD_TEST( msg.kind==AG_VOTE_KIND_FINAL && ag_vote_slot( &msg )==2UL );
+
+  notar = ag_vote_construct_notar( sec_sign_fn, &g_sk[1], test_bls_public_key, 3UL, c.hash, (ushort)1, TEST_SHRED_VERSION );
+  event = (ag_event_pool_t){ .kind = AG_EVENT_POOL_CERT_CREATED, .cert_created = cert_build_notar( &notar.notar, 1UL, g_epoch_info ) };
+  ag_votor_handle_pool_event( votor, &event, 0L );
+  FD_TEST_NO_MSG( votor );
+
+  teardown_votor( votor );
+}
+
+/* Votor signs nothing at or below the file's root.  Given a file naming
+   more slots than it has room for, it waits past the file's highest
+   slot instead. */
+
+static void
+test_restore_bounds( void ) {
+  ag_votor_t * votor = setup_votor( 0L );
+
+  memset( &g_history, 0, sizeof(g_history) );
+  g_history.root = 2UL;
+  g_history.its_over[ g_history.its_over_cnt++ ] = 2UL;
+  ag_votor_restore( votor, &g_history );
+  FD_TEST( votor->wait_to_vote_slot==3UL && is_retired( votor, 2UL ) );
+
+  for( ulong i=0UL; i<TEST_SLOT_MAX; i++ ) g_history.voted[ g_history.voted_cnt++ ] = 4UL+i;
+  ag_votor_restore( votor, &g_history );
+  FD_TEST( votor->wait_to_vote_slot==ag_first_slot_in_window( 3UL+TEST_SLOT_MAX )+AG_SLOTS_PER_WINDOW );
+  FD_TEST( !contains_slot( votor, 4UL ) );
+
+  teardown_votor( votor );
+}
+
 static void
 test_missing_bls_selector_still_skips_other_epoch( void ) {
   for( int notar=0; notar<2; notar++ ) {
@@ -651,6 +719,8 @@ main( int     argc,
   test_missing_bls_selector_records_final();
   test_set_rank();
   test_wait_to_vote();
+  test_restore();
+  test_restore_bounds();
   test_missing_bls_selector_still_skips_other_epoch();
   test_prunes_to_finalized_window();
 

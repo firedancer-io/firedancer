@@ -1415,7 +1415,6 @@ during_housekeeping( fd_votor_tile_t * ctx ) {
        leader tracking. */
     if( FD_LIKELY( !ag_votor_vote_event_cnt( ctx->votor ) && !ag_pool_pool_event_cnt( ctx->pool ) ) ) {
       memcpy( ctx->id_key.uc, ctx->id_keyswitch->bytes, sizeof(fd_pubkey_t) );
-      /* FIXME: restore the new identity's vote history. */
       ctx->has_vote_history = !!FD_LOAD( ulong, ctx->id_keyswitch->bytes+32UL );
       if( ctx->has_vote_history ) memcpy( ctx->vote_history, ctx->id_keyswitch->bytes+40UL, sizeof(ag_vote_history_file_t) );
       fd_quic_set_identity_public_key( ctx->quic_client, ctx->id_key.uc );
@@ -1453,7 +1452,8 @@ during_housekeeping( fd_votor_tile_t * ctx ) {
     FD_CHECK_CRIT( ctx->halt_signing, "state machine corruption" );
     load_keys( ctx, ctx->auth_vtr_path_cnt );
     ctx->halt_signing = 0;
-    ag_votor_wait_to_vote( ctx->votor );
+    if( ctx->has_vote_history ) ag_votor_restore( ctx->votor, ctx->vote_history );
+    else                        ag_votor_wait_to_vote( ctx->votor );
     refresh_rank_and_key( ctx );
     connect_peers( ctx, fd_clock_tile_now( ctx->clock ) );
     fd_keyswitch_state( ctx->id_keyswitch, FD_KEYSWITCH_STATE_COMPLETED );

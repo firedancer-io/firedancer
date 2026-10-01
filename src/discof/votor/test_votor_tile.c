@@ -621,7 +621,7 @@ test_id_keyswitch( void ) {
   ag_votor_handle_replay_event( ctx.votor, &block );
   FD_TEST( ag_votor_vote_event_cnt( ctx.votor )==1UL );
 
-  static ag_vote_history_file_t vote_history = { .root = 3UL };
+  static ag_vote_history_file_t vote_history = { .root = 3UL, .voted = { 5UL }, .voted_cnt = 1UL };
   memcpy( ctx.id_keyswitch->bytes, new_id.uc, sizeof(fd_pubkey_t) );
   FD_STORE( ulong, ctx.id_keyswitch->bytes+32UL, sizeof(vote_history) );
   memcpy( ctx.id_keyswitch->bytes+40UL, &vote_history, sizeof(vote_history) );
@@ -729,6 +729,15 @@ test_id_keyswitch( void ) {
   FD_TEST( ag_votor_poll_vote_event( ctx.votor, &vote ) );
   FD_TEST( ag_vote_slot( &vote.vote )==4UL && ag_vote_rank( &vote.vote )==1UL );
   FD_TEST( !memcmp( last_bls_signer, bls_keys[1], sizeof(ag_bls_key_t) ) );
+  FD_TEST( !ag_votor_vote_event_cnt( ctx.votor ) );
+
+  /* The new identity's vote history says it already voted in slot 5. */
+
+  ag_block_id_t b4 = { .slot = 4UL }; memset( b4.hash, 4, sizeof(ag_block_hash_t) );
+  block = (ag_event_replay_t){ .slot = 5UL };
+  block.block_info.parent = b4;
+  memset( block.block_info.hash, 5, sizeof(ag_block_hash_t) );
+  ag_votor_handle_replay_event( ctx.votor, &block );
   FD_TEST( !ag_votor_vote_event_cnt( ctx.votor ) );
 
   ag_pool_delete( ag_pool_leave( ctx.pool ) );

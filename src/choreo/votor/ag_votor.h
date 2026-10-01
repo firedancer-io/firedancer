@@ -4,6 +4,7 @@
 #include "ag_votor_base.h"
 #include "../../ballet/bls/fd_bls.h"
 #include "ag_event.h"
+#include "ag_vote_history_file.h"
 
 #define AG_VOTOR_REASON_BLOCK_REPLAYED  (0)
 #define AG_VOTOR_REASON_PARENT_READY    (1)
@@ -85,6 +86,17 @@ ag_votor_set_rank( ag_votor_t * self,
 
 void
 ag_votor_wait_to_vote( ag_votor_t * self );
+
+/* ag_votor_restore is called instead of ag_votor_wait_to_vote when our
+   identity changes with a vote history file for the new identity.
+   Above the finalized slot it replaces our votes with the file's, and
+   it signs nothing at or below the file's root.  If the file names
+   more slots than votor has room for, it waits past the file's highest
+   slot instead.  Like Agave's set-identity VoteHistory::restore. */
+
+void
+ag_votor_restore( ag_votor_t *                   self,
+                  ag_vote_history_file_t const * history );
 
 /* Algorithm 1, lines 9-25. Votor::handle_pool_event */
 
