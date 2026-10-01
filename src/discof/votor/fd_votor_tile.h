@@ -102,12 +102,13 @@ typedef union fd_votor_msg fd_votor_msg_t;
 #define FD_VOTOR_HIST_SIG (0UL)
 
 struct fd_votor_hist_msg {
-  ulong     replay_slot; /* highest slot replay completed, ULONG_MAX before any */
-  ulong     root_slot;   /* replay's root at the last completed slot, ULONG_MAX before any */
-  ulong     vote_slot;   /* the history's tip, ULONG_MAX while it is empty */
-  int       has_vote;    /* we sent a vote just before this frame, so vote_slot is a vote we signed */
-  int       truncated;   /* the export dropped old windows and lifted the anchor */
-  ag_hist_t hist;
+  fd_pubkey_t identity;    /* identity installed when this history was published */
+  ulong       replay_slot; /* highest slot replay completed, ULONG_MAX before any */
+  ulong       root_slot;   /* replay's root at the last completed slot, ULONG_MAX before any */
+  ulong       vote_slot;   /* the history's tip, ULONG_MAX while it is empty */
+  int         has_vote;    /* we sent a vote just before this frame, so vote_slot is a vote we signed */
+  int         truncated;   /* the export dropped old windows and lifted the anchor */
+  ag_hist_t   hist;
 };
 typedef struct fd_votor_hist_msg fd_votor_hist_msg_t;
 

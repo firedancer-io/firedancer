@@ -799,6 +799,9 @@ ag_votor_wait_to_vote( ag_votor_t * self,
     if( state->voted ) self->wait_to_vote_slot = fd_ulong_max( self->wait_to_vote_slot, ag_first_slot_in_window( state->slot )+AG_SLOTS_PER_WINDOW );
     state->vote_cnt = 0;
   }
+  /* Failover histories must preserve this identity switch floor too.
+     A later adopter must not finalize a notar tracked under the old key. */
+  if( self->wait_to_vote_slot ) ag_votor_set_vote_bound( self, self->wait_to_vote_slot-1UL );
 }
 
 ag_cert_t const *
@@ -943,6 +946,7 @@ ulong
 ag_votor_vote_history( ag_votor_t const * self ) {
   ulong root = self->highest_final_cert_slot;
   FD_TEST( root!=ULONG_MAX ); /* initialized */
+  if( self->vote_bound!=ULONG_MAX ) root = fd_ulong_max( root, self->vote_bound );
 
   slot_state_map_t const * map  = self->slot_states->map;
   slot_state_ele_t const * pool = self->slot_states->pool;

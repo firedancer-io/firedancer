@@ -681,6 +681,7 @@ struct fd_topo_tile {
     struct {
       char   identity_key_path[ PATH_MAX ];
       char   vote_history_path[ PATH_MAX ];
+      int    failover_standby;
       uint   target_gid;
       uint   target_uid;
       ulong  authorized_voter_paths_cnt;
