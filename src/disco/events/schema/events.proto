@@ -1058,6 +1058,14 @@ enum RepairRequestRole {
   REPAIR_REQUEST_ROLE_FINAL = 3;  // The slot's finalized block.
 }
 
+// Tile lifecycle state: 0=booting, 1=running, 2=shutdown
+enum MetricsIavfState {
+  METRICS_IAVF_STATE_UNSPECIFIED = 0;
+  METRICS_IAVF_STATE_BOOTING = 1;  // Booting
+  METRICS_IAVF_STATE_RUNNING = 2;  // Running
+  METRICS_IAVF_STATE_SHUTDOWN = 3;  // Shutdown
+}
+
 // Slot that was voted on
 message SignedVoteTower {
   // Slot being voted on / locked out for
@@ -7740,6 +7748,90 @@ message MetricsMotorRegimeDurationNanos {
   uint64 backpressure_sleeping = 10;
 }
 
+// Transmit jobs dropped, by reason
+message MetricsIavfPktTxDropped {
+  // Invalid packet headers, or GRE packet exceeding the MTU
+  uint64 invalid = 1;
+  // No matching route
+  uint64 no_route = 2;
+  // Unsupported route type
+  uint64 unsupported_route = 3;
+  // Interface not available
+  uint64 interface_missing = 4;
+  // Interface type not supported
+  uint64 unsupported_interface = 5;
+  // No source IP address chosen
+  uint64 source_ip_missing = 6;
+  // Next-hop neighbor unresolved
+  uint64 no_neighbor = 7;
+  // TX ring full or no TX buffer available
+  uint64 ring_full = 8;
+  // GRE tunnel addresses missing or outer route is itself tunnelled
+  uint64 gre_no_route = 9;
+}
+
+// Received packets dropped, by reason
+message MetricsIavfPktRxDropped {
+  // Undersized, oversized, or malformed Ethernet, IPv4 or UDP headers
+  uint64 malformed = 1;
+  // Destination IP does not match the bind address
+  uint64 dst_ip_mismatch = 2;
+  // No output link for the destination UDP port
+  uint64 dst_port_unbound = 3;
+  // GRE tunnel peer or headers invalid
+  uint64 gre_invalid = 4;
+  // GRE packet with no GRE tunnel configured
+  uint64 gre_unconfigured = 5;
+}
+
+// Times the tile tried to park while idle (efficient mode), by result
+message MetricsIavfParkAttempted {
+  // Woken by a doorbell ring
+  uint64 ring = 1;
+  // Deadline or park cap lapsed
+  uint64 deadline = 2;
+  // Pre-park recheck found work, did not park
+  uint64 pending = 3;
+}
+
+// Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
+message MetricsIavfThreadDurationNanos {
+  // Wait (task was runnable but not scheduled)
+  uint64 wait = 1;
+  // Idle (task was not runnable)
+  uint64 idle = 2;
+  // User (task was scheduled and executing in user mode)
+  uint64 user = 3;
+  // System (task was scheduled and executing in kernel mode)
+  uint64 system = 4;
+  // Interrupt (CPU time stolen by hardirq/softirq handlers or a hypervisor; fixed tiles only)
+  uint64 interrupt = 5;
+}
+
+// Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it
+message MetricsIavfRegimeDurationNanos {
+  // Caught up + Housekeeping
+  uint64 caught_up_housekeeping = 1;
+  // Processing + Housekeeping
+  uint64 processing_housekeeping = 2;
+  // Backpressure + Housekeeping
+  uint64 backpressure_housekeeping = 3;
+  // Caught up + Prefrag
+  uint64 caught_up_prefrag = 4;
+  // Processing + Prefrag
+  uint64 processing_prefrag = 5;
+  // Backpressure + Prefrag
+  uint64 backpressure_prefrag = 6;
+  // Caught up + Postfrag
+  uint64 caught_up_postfrag = 7;
+  // Processing + Postfrag
+  uint64 processing_postfrag = 8;
+  // Caught up + Sleeping
+  uint64 caught_up_sleeping = 9;
+  // Backpressure + Sleeping
+  uint64 backpressure_sleeping = 10;
+}
+
 // The validator received a verified, deduplicated transaction
 message Txn {
   // The source IP address of the transaction sender
@@ -12332,6 +12424,90 @@ message RepairRequest {
   RepairRequestRole role = 15;
 }
 
+// Metrics of one iavf tile instance, one row per sweep
+message MetricsIavf {
+  // Identifier shared by every row of one sweep
+  uint64 sample_id = 1;
+  // Why a metrics sweep was taken
+  MetricsSampleReason sample_reason = 2;
+  // Slot that triggered the sweep, 0 for periodic sweeps
+  uint64 sample_slot = 3;
+  // Snapshot load state
+  MetricsSnapctLoadState sample_snapct_state = 4;
+  // Whether replay had caught up to the cluster tip when the sweep was taken (replay IsCaughtUp); set once per run, never cleared
+  bool sample_caught_up = 5;
+  // Tile instances in the sweep, to detect partial sweeps
+  uint64 sample_tile_cnt = 6;
+  // Index of this tile instance among tiles of its kind
+  uint64 kind_id = 7;
+  // Process ID of the tile
+  uint64 pid = 8;
+  // Thread ID of the tile. Same as Pid in production, but might differ in development
+  uint64 tid = 9;
+  // CPU the tile last ran on
+  uint64 last_cpu_index = 10;
+  // counter: cumulative since tile start, query deltas. Involuntary context switches
+  uint64 context_switch_involuntary = 11;
+  // counter: cumulative since tile start, query deltas. Voluntary context switches
+  uint64 context_switch_voluntary = 12;
+  // counter: cumulative since tile start, query deltas. Major page faults
+  uint64 page_fault_major = 13;
+  // counter: cumulative since tile start, query deltas. Minor page faults
+  uint64 page_fault_minor = 14;
+  // Tile lifecycle state: 0=booting, 1=running, 2=shutdown
+  MetricsIavfState state = 15;
+  // Last wall-clock time the tile heartbeated
+  uint64 heartbeat_time = 16;
+  // Whether the tile is currently backpressured
+  bool is_backpressured = 17;
+  // counter: cumulative since tile start, query deltas. Times the tile waited for one or more consumers to catch up to resume publishing
+  uint64 backpressure = 18;
+  // Tile wall time, by regime; regimes are exhaustive and groups Busy, Idle, Backpressure and Housekeeping partition it
+  MetricsIavfRegimeDurationNanos regime_duration_nanos = 19;
+  // Thread wall time since start, by scheduler state; Idle is the remainder, so parts sum to about the lifetime.  User, System and Interrupt have 10 ms resolution; Interrupt is 0 unless it is the only live tile pinned to its CPU
+  MetricsIavfThreadDurationNanos thread_duration_nanos = 20;
+  // Times the tile tried to park while idle (efficient mode), by result
+  MetricsIavfParkAttempted park_attempted = 21;
+  // counter: cumulative since tile start, query deltas. Device IRQs on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
+  uint64 device_irq = 22;
+  // counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
+  uint64 tlb_shootdown = 23;
+  // counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there
+  uint64 timer_irq = 24;
+  // Packets successfully published to output links
+  uint64 pkt_rx = 25;
+  // Bytes of packets successfully published to output links
+  uint64 pkt_rx_bytes = 26;
+  // Received packets dropped, by reason
+  MetricsIavfPktRxDropped pkt_rx_dropped = 27;
+  // Packets dropped because the configured VF or bond member is not accepting traffic
+  uint64 pkt_rx_no_link_dropped = 28;
+  // GRE packets decapsulated and published; subset of PktRx
+  uint64 gre_pkt_rx = 29;
+  // RX buffers not currently posted to the NIC
+  uint64 rx_buffer_used = 30;
+  // RX buffers currently posted to the NIC
+  uint64 rx_buffer_free = 31;
+  // Packets completed by the NIC for transmission
+  uint64 pkt_tx_completed = 32;
+  // Bytes of packets completed by the NIC
+  uint64 pkt_tx_completed_bytes = 33;
+  // Transmit jobs dropped, by reason
+  MetricsIavfPktTxDropped pkt_tx_dropped = 34;
+  // Transmit jobs dropped because no configured VF or bond member can send traffic
+  uint64 pkt_tx_no_link_dropped = 35;
+  // Loopback transmit jobs dropped because the socket send failed or accepted only part of a batch
+  uint64 pkt_tx_loopback_failed = 36;
+  // GRE transmit jobs submitted to the NIC
+  uint64 gre_pkt_tx_submitted = 37;
+  // TX buffers pending or submitted to the NIC
+  uint64 tx_buffer_used = 38;
+  // TX buffers available for a new transmit job
+  uint64 tx_buffer_free = 39;
+  // Packets received by IAVF VFs that are not intended for Firedancer
+  uint64 non_fd_pkt_rx = 40;
+}
+
 // Combined event type
 message Event {
   oneof event {
@@ -12398,5 +12574,6 @@ message Event {
     MetricsLink metrics_link = 61;
     MetricsMotor metrics_motor = 62;
     RepairRequest repair_request = 63;
+    MetricsIavf metrics_iavf = 64;
   }
 }

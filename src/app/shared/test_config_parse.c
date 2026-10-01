@@ -32,6 +32,10 @@ static char const cfg_str_vote_history[] =
   "[paths]\n"
   "  vote_history = \"/data/{name}/vote_history\"\n";
 
+static char const cfg_str_iavf[] =
+  "[net]\nprovider = \"iavf\"\n"
+  "[net.iavf]\nrx_queue_size = 128\ntx_queue_size = 64\n";
+
 extern uchar const firedancer_default_config[];
 extern ulong const firedancer_default_config_sz;
 
@@ -198,8 +202,18 @@ main( int     argc,
   config->firedancer.accounts.max_accounts                     = 1UL;
   config->firedancer.accounts.cache_size_gib                   = 1UL;
   config->firedancer.runtime.program_cache_size_mib            = 32UL;
+  config->firedancer.development.genesis.max_file_size_mib     = 33UL;
   config->tiles.repair.slot_max                                   = 1UL;
   strcpy( config->firedancer.layout.mode, "performance" );
+
+  pod = fd_pod_join( fd_pod_new( pod_mem, sizeof(pod_mem) ) );
+  FD_TEST( fd_toml_parse( cfg_str_iavf, sizeof(cfg_str_iavf)-1UL, pod, scratch, sizeof(scratch), NULL )==FD_TOML_SUCCESS );
+  FD_TEST( fd_config_extract_pod( pod, config )==config );
+  FD_TEST( 0==strcmp( config->net.provider, "iavf" ) );
+  FD_TEST( config->net.iavf.rx_queue_size==128U && config->net.iavf.tx_queue_size==64U );
+  config->layout.net_tile_count = 1U;
+  fd_config_validate( config );
+  strcpy( config->net.provider, "xdp" );
 
   FD_TEST(  genesis_max_file_size_is_valid( config, 4055UL ) );
   FD_TEST( !genesis_max_file_size_is_valid( config, 4056UL ) );

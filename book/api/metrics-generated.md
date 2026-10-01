@@ -1831,6 +1831,43 @@
 
 </div>
 
+## Iavf Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">iavf_&#8203;pkt_&#8203;rx</span> | counter | Packets successfully published to output links |
+| <span class="metrics-name">iavf_&#8203;pkt_&#8203;rx_&#8203;bytes</span> | counter | Bytes of packets successfully published to output links |
+| <span class="metrics-name">iavf_&#8203;pkt_&#8203;rx_&#8203;dropped</span><br/>{pkt_&#8203;rx_&#8203;drop_&#8203;reason="<span class="metrics-enum">malformed</span>"} | counter | Received packets dropped, by reason (Undersized, oversized, or malformed Ethernet, IPv4 or UDP headers) |
+| <span class="metrics-name">iavf_&#8203;pkt_&#8203;rx_&#8203;dropped</span><br/>{pkt_&#8203;rx_&#8203;drop_&#8203;reason="<span class="metrics-enum">dst_&#8203;ip_&#8203;mismatch</span>"} | counter | Received packets dropped, by reason (Destination IP does not match the bind address) |
+| <span class="metrics-name">iavf_&#8203;pkt_&#8203;rx_&#8203;dropped</span><br/>{pkt_&#8203;rx_&#8203;drop_&#8203;reason="<span class="metrics-enum">dst_&#8203;port_&#8203;unbound</span>"} | counter | Received packets dropped, by reason (No output link for the destination UDP port) |
+| <span class="metrics-name">iavf_&#8203;pkt_&#8203;rx_&#8203;dropped</span><br/>{pkt_&#8203;rx_&#8203;drop_&#8203;reason="<span class="metrics-enum">gre_&#8203;invalid</span>"} | counter | Received packets dropped, by reason (GRE tunnel peer or headers invalid) |
+| <span class="metrics-name">iavf_&#8203;pkt_&#8203;rx_&#8203;dropped</span><br/>{pkt_&#8203;rx_&#8203;drop_&#8203;reason="<span class="metrics-enum">gre_&#8203;unconfigured</span>"} | counter | Received packets dropped, by reason (GRE packet with no GRE tunnel configured) |
+| <span class="metrics-name">iavf_&#8203;pkt_&#8203;rx_&#8203;no_&#8203;link_&#8203;dropped</span> | counter | Packets dropped because the configured VF or bond member is not accepting traffic |
+| <span class="metrics-name">iavf_&#8203;gre_&#8203;pkt_&#8203;rx</span> | counter | GRE packets decapsulated and published; subset of PktRx |
+| <span class="metrics-name">iavf_&#8203;rx_&#8203;buffer_&#8203;used</span> | gauge | RX buffers not currently posted to the NIC |
+| <span class="metrics-name">iavf_&#8203;rx_&#8203;buffer_&#8203;free</span> | gauge | RX buffers currently posted to the NIC |
+| <span class="metrics-name">iavf_&#8203;pkt_&#8203;tx_&#8203;completed</span> | counter | Packets completed by the NIC for transmission |
+| <span class="metrics-name">iavf_&#8203;pkt_&#8203;tx_&#8203;completed_&#8203;bytes</span> | counter | Bytes of packets completed by the NIC |
+| <span class="metrics-name">iavf_&#8203;pkt_&#8203;tx_&#8203;dropped</span><br/>{pkt_&#8203;tx_&#8203;drop_&#8203;reason="<span class="metrics-enum">invalid</span>"} | counter | Transmit jobs dropped, by reason (Invalid packet headers, or GRE packet exceeding the MTU) |
+| <span class="metrics-name">iavf_&#8203;pkt_&#8203;tx_&#8203;dropped</span><br/>{pkt_&#8203;tx_&#8203;drop_&#8203;reason="<span class="metrics-enum">no_&#8203;route</span>"} | counter | Transmit jobs dropped, by reason (No matching route) |
+| <span class="metrics-name">iavf_&#8203;pkt_&#8203;tx_&#8203;dropped</span><br/>{pkt_&#8203;tx_&#8203;drop_&#8203;reason="<span class="metrics-enum">unsupported_&#8203;route</span>"} | counter | Transmit jobs dropped, by reason (Unsupported route type) |
+| <span class="metrics-name">iavf_&#8203;pkt_&#8203;tx_&#8203;dropped</span><br/>{pkt_&#8203;tx_&#8203;drop_&#8203;reason="<span class="metrics-enum">interface_&#8203;missing</span>"} | counter | Transmit jobs dropped, by reason (Interface not available) |
+| <span class="metrics-name">iavf_&#8203;pkt_&#8203;tx_&#8203;dropped</span><br/>{pkt_&#8203;tx_&#8203;drop_&#8203;reason="<span class="metrics-enum">unsupported_&#8203;interface</span>"} | counter | Transmit jobs dropped, by reason (Interface type not supported) |
+| <span class="metrics-name">iavf_&#8203;pkt_&#8203;tx_&#8203;dropped</span><br/>{pkt_&#8203;tx_&#8203;drop_&#8203;reason="<span class="metrics-enum">source_&#8203;ip_&#8203;missing</span>"} | counter | Transmit jobs dropped, by reason (No source IP address chosen) |
+| <span class="metrics-name">iavf_&#8203;pkt_&#8203;tx_&#8203;dropped</span><br/>{pkt_&#8203;tx_&#8203;drop_&#8203;reason="<span class="metrics-enum">no_&#8203;neighbor</span>"} | counter | Transmit jobs dropped, by reason (Next-hop neighbor unresolved) |
+| <span class="metrics-name">iavf_&#8203;pkt_&#8203;tx_&#8203;dropped</span><br/>{pkt_&#8203;tx_&#8203;drop_&#8203;reason="<span class="metrics-enum">ring_&#8203;full</span>"} | counter | Transmit jobs dropped, by reason (TX ring full or no TX buffer available) |
+| <span class="metrics-name">iavf_&#8203;pkt_&#8203;tx_&#8203;dropped</span><br/>{pkt_&#8203;tx_&#8203;drop_&#8203;reason="<span class="metrics-enum">gre_&#8203;no_&#8203;route</span>"} | counter | Transmit jobs dropped, by reason (GRE tunnel addresses missing or outer route is itself tunnelled) |
+| <span class="metrics-name">iavf_&#8203;pkt_&#8203;tx_&#8203;no_&#8203;link_&#8203;dropped</span> | counter | Transmit jobs dropped because no configured VF or bond member can send traffic |
+| <span class="metrics-name">iavf_&#8203;pkt_&#8203;tx_&#8203;loopback_&#8203;failed</span> | counter | Loopback transmit jobs dropped because the socket send failed or accepted only part of a batch |
+| <span class="metrics-name">iavf_&#8203;gre_&#8203;pkt_&#8203;tx_&#8203;submitted</span> | counter | GRE transmit jobs submitted to the NIC |
+| <span class="metrics-name">iavf_&#8203;tx_&#8203;buffer_&#8203;used</span> | gauge | TX buffers pending or submitted to the NIC |
+| <span class="metrics-name">iavf_&#8203;tx_&#8203;buffer_&#8203;free</span> | gauge | TX buffers available for a new transmit job |
+| <span class="metrics-name">iavf_&#8203;non_&#8203;fd_&#8203;pkt_&#8203;rx</span> | counter | Packets received by IAVF VFs that are not intended for Firedancer |
+
+</div>
+
 ## Snapmk Tile
 
 <div class="metrics">
