@@ -42,9 +42,7 @@
 #define QUIC_K_PACKET_THRESHOLD (3UL) /* RFC 9002 kPacketThreshold: a packet this many packet numbers older than an acked one is lost */
 #define QUIC_K_GRANULARITY_NS   (1000000L) /* RFC 9002 kGranularity (1ms), same as FD_QUIC_K_GRANULARITY_NS */
 #define QUIC_BAN_TIMEOUT_NS     (10L*1000L*1000L*1000L) /* 10 seconds */
-#define QUIC_DIAL_STABLE_NS     (10L*1000L*1000L*1000L) /* a conn that lives this long resets the peer's redial backoff */
-#define QUIC_DIAL_BACKOFF_MIN_NS (1L*1000L*1000L*1000L) /* first redial delay after a conn closed early */
-#define QUIC_DIAL_BACKOFF_MAX_NS (64L*1000L*1000L*1000L) /* redial delay doubles up to this */
+#define QUIC_DIAL_NEXT_EPOCH_SLOTS (30000UL) /* dial as a next-epoch voter this many slots before it starts */
 #define QUIC_CLOSE_CODE_UNKNOWN (2U)
 #define QUIC_CLOSE_CODE_EVICTED (3U)
 #define QUIC_CLOSE_CODE_BANNED  (4U)
@@ -106,8 +104,6 @@ struct peer {
   fd_quic_conn_t * tx_conn;
   fd_quic_conn_t * rx_conn;
   long             ban_ts;
-  long             dial_ts;
-  long             dial_backoff;
 };
 typedef struct peer peer_t;
 
@@ -606,17 +602,6 @@ quic_aio_tx( void *                    _ctx,
   return FD_AIO_SUCCESS;
 }
 
-/* dial_backoff_next returns the redial delay after a conn we dialed
-   conn_age ns ago closed: doubled if it closed early, reset if it
-   lived. */
-
-FD_FN_CONST static inline long
-dial_backoff_next( long backoff,
-                   long conn_age ) {
-  if( FD_LIKELY( conn_age>=QUIC_DIAL_STABLE_NS ) ) return 0L;
-  return fd_long_min( fd_long_max( 2L*backoff, QUIC_DIAL_BACKOFF_MIN_NS ), QUIC_DIAL_BACKOFF_MAX_NS );
-}
-
 static void
 quic_client_conn_final( fd_quic_conn_t * conn,
                         void *           quic_ctx ) {
@@ -624,12 +609,7 @@ quic_client_conn_final( fd_quic_conn_t * conn,
   fd_pubkey_t const * id_key = fd_quic_conn_get_context( conn );
   if( FD_UNLIKELY( !id_key ) ) return;
   peer_t * peer = peers_query( ctx->peers, *id_key, NULL );
-  if( FD_UNLIKELY( !peer ) ) return;
-
-  long now = fd_clock_tile_now( ctx->clock );
-  peer->tx_conn      = NULL;
-  peer->dial_backoff = dial_backoff_next( peer->dial_backoff, now-peer->dial_ts );
-  peer->dial_ts      = now;
+  if( FD_LIKELY( peer ) ) peer->tx_conn = NULL;
 }
 
 static void
@@ -909,22 +889,30 @@ rank_voters( ag_epoch_info_t *              epoch_info,
   return epoch_info;
 }
 
+FD_FN_PURE static int
+in_boundary_window( fd_votor_tile_t const * ctx,
+                    peer_t const *          self,
+                    ulong                   root ) {
+  if( FD_UNLIKELY( root==ULONG_MAX ) ) return 0;
+  return ( self->prev_rank!=USHORT_MAX && root<ctx->curr_epoch_slot+AG_REWARD_SLOT_DELTA         ) ||
+         ( self->next_rank!=USHORT_MAX && root+QUIC_DIAL_NEXT_EPOCH_SLOTS>=ctx->next_epoch_slot );
+}
+
 /* can_dial returns 1 if we should open a QUIC conn to peer now.  Peers
-   only admit staked validators, so like Agave (PeerListUpdater
-   push_enabled) we dial only while ranked in the current epoch, never
-   ourselves or a peer about to be evicted, and back off redials. */
+   only admit validators in their peer set, so like Agave
+   (PeerListUpdater push_enabled) we dial only while in it ourselves,
+   and never ourselves or a peer about to be evicted. */
 
 static int
 can_dial( fd_votor_tile_t const * ctx,
           peer_t const *          peer,
           long                    now ) {
   peer_t const * self = peers_query_const( ctx->peers, ctx->id_key, NULL );
-  return !!self && self->curr_rank!=USHORT_MAX                                                             &&
-         peer!=self                                                                                        &&
-         ( peer->prev_rank!=USHORT_MAX || peer->curr_rank!=USHORT_MAX || peer->next_rank!=USHORT_MAX )     &&
+  if( FD_UNLIKELY( !self || peer==self ) ) return 0;
+  if( FD_UNLIKELY( self->curr_rank==USHORT_MAX && !in_boundary_window( ctx, self, ag_pool_finalized_slot( ctx->pool ) ) ) ) return 0;
+  return ( peer->prev_rank!=USHORT_MAX || peer->curr_rank!=USHORT_MAX || peer->next_rank!=USHORT_MAX )     &&
          !peer->tx_conn                                                                                    &&
-         now>=peer->ban_ts +QUIC_BAN_TIMEOUT_NS                                                            &&
-         now>=peer->dial_ts+peer->dial_backoff;
+         now>=peer->ban_ts+QUIC_BAN_TIMEOUT_NS;
 }
 
 static void
@@ -936,7 +924,6 @@ peer_connect( fd_votor_tile_t *      ctx,
   fd_quic_conn_t * conn = fd_quic_connect( ctx->quic_client, ci->ip4, ci->port, ctx->src_ip_addr, ctx->quic_client_listen_port, now );
   if( FD_UNLIKELY( !conn ) ) return;
 
-  peer->dial_ts = now;
   ctx->client_peer_id_keys[ conn->conn_idx ] = peer->id_key;
   fd_quic_conn_set_context( conn, &ctx->client_peer_id_keys[ conn->conn_idx ] );
   peer->tx_conn = conn;
@@ -995,8 +982,6 @@ handle_epoch( fd_votor_tile_t *           ctx,
       peer->tx_conn     = NULL;
       peer->rx_conn     = NULL;
       peer->ban_ts      = 0L;
-      peer->dial_ts     = 0L;
-      peer->dial_backoff = 0L;
     }
     peer->prev_rank = (ushort)rank;
   }
@@ -1017,8 +1002,6 @@ handle_epoch( fd_votor_tile_t *           ctx,
       peer->tx_conn     = NULL;
       peer->rx_conn     = NULL;
       peer->ban_ts      = 0L;
-      peer->dial_ts     = 0L;
-      peer->dial_backoff = 0L;
     }
     peer->curr_rank = (ushort)rank;
   }
@@ -1039,8 +1022,6 @@ handle_epoch( fd_votor_tile_t *           ctx,
       peer->tx_conn   = NULL;
       peer->rx_conn   = NULL;
       peer->ban_ts    = 0L;
-      peer->dial_ts   = 0L;
-      peer->dial_backoff = 0L;
     }
     peer->next_rank = (ushort)rank;
   }
@@ -1137,11 +1118,9 @@ handle_gossip( fd_votor_tile_t *                  ctx,
     ci       = contact_infos_insert( ctx->contact_infos, id_key );
     ci->ip4  = new_ci.ip4;
     ci->port = new_ci.port;
-    if( FD_LIKELY( peer ) ) peer->dial_backoff = 0L; /* a new address gets a fresh try */
   } else if( FD_UNLIKELY( ci->ip4 !=new_ci.ip4 || ci->port!=new_ci.port ) ) {
     ci->ip4  = new_ci.ip4;
     ci->port = new_ci.port;
-    if( FD_LIKELY( peer ) ) peer->dial_backoff = 0L; /* the new address gets a fresh try */
     if( FD_UNLIKELY( peer && peer->tx_conn ) ) { /* our conn is to the old address */
       fd_quic_conn_set_context( peer->tx_conn, NULL );
       fd_quic_conn_close( peer->tx_conn, 0U );

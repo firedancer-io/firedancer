@@ -485,17 +485,6 @@ test_sign_bls_request( void ) {
   }
 }
 
-static void
-test_dial_backoff_next( void ) {
-  long b = 0L;
-  b = dial_backoff_next( b, 30000000L );             FD_TEST( b==QUIC_DIAL_BACKOFF_MIN_NS    ); /* refused 30ms after dial */
-  b = dial_backoff_next( b, 30000000L );             FD_TEST( b==2L*QUIC_DIAL_BACKOFF_MIN_NS );
-  for( ulong i=0UL; i<16UL; i++ ) b = dial_backoff_next( b, 0L );
-  FD_TEST( b==QUIC_DIAL_BACKOFF_MAX_NS );
-  b = dial_backoff_next( b, QUIC_DIAL_STABLE_NS-1L ); FD_TEST( b==QUIC_DIAL_BACKOFF_MAX_NS    );
-  b = dial_backoff_next( b, QUIC_DIAL_STABLE_NS    ); FD_TEST( b==0L                          ); /* a conn that lived resets */
-}
-
 static peer_t peers_mem[ 1UL<<PEERS_LG_SLOT_CNT ];
 
 static peer_t *
@@ -504,14 +493,12 @@ test_peer( fd_votor_tile_t * ctx,
            ushort            curr_rank ) {
   fd_pubkey_t id_key = {0}; id_key.uc[ 0 ] = id;
   peer_t * peer = peers_insert( ctx->peers, id_key );
-  peer->prev_rank    = USHORT_MAX;
-  peer->curr_rank    = curr_rank;
-  peer->next_rank    = USHORT_MAX;
-  peer->tx_conn      = NULL;
-  peer->rx_conn      = NULL;
-  peer->ban_ts       = 0L;
-  peer->dial_ts      = 0L;
-  peer->dial_backoff = 0L;
+  peer->prev_rank = USHORT_MAX;
+  peer->curr_rank = curr_rank;
+  peer->next_rank = USHORT_MAX;
+  peer->tx_conn   = NULL;
+  peer->rx_conn   = NULL;
+  peer->ban_ts    = 0L;
   return peer;
 }
 
@@ -529,12 +516,23 @@ test_can_dial( void ) {
      refuse us with NOT_ADMITTED. */
   FD_TEST( !can_dial( &ctx, other, now ) );
 
-  /* Ranked only in the next or the previous epoch: no. */
+  /* Ranked only in the previous epoch: until AG_REWARD_SLOT_DELTA slots
+     past the boundary.  Only in the next: within
+     QUIC_DIAL_NEXT_EPOCH_SLOTS of it.  Neither before anything is
+     finalized. */
+  ctx.curr_epoch_slot = 100000UL;
+  ctx.next_epoch_slot = 200000UL;
   peer_t * self = test_peer( &ctx, 1, USHORT_MAX );
-  self->next_rank = 0;
-  FD_TEST( !can_dial( &ctx, other, now ) );
-  self->next_rank = USHORT_MAX; self->prev_rank = 0;
-  FD_TEST( !can_dial( &ctx, other, now ) );
+  self->prev_rank = 0;
+  FD_TEST( !in_boundary_window( &ctx, self, ULONG_MAX                              ) );
+  FD_TEST(  in_boundary_window( &ctx, self, 100000UL+AG_REWARD_SLOT_DELTA-1UL      ) );
+  FD_TEST( !in_boundary_window( &ctx, self, 100000UL+AG_REWARD_SLOT_DELTA          ) );
+  self->prev_rank = USHORT_MAX; self->next_rank = 0;
+  FD_TEST( !in_boundary_window( &ctx, self, ULONG_MAX                              ) );
+  FD_TEST( !in_boundary_window( &ctx, self, 200000UL-QUIC_DIAL_NEXT_EPOCH_SLOTS-1UL ) );
+  FD_TEST(  in_boundary_window( &ctx, self, 200000UL-QUIC_DIAL_NEXT_EPOCH_SLOTS     ) );
+  self->next_rank = USHORT_MAX;
+  FD_TEST( !in_boundary_window( &ctx, self, 200000UL-QUIC_DIAL_NEXT_EPOCH_SLOTS     ) );
 
   /* Ranked in the current epoch: dial everyone but ourselves. */
   self->curr_rank = 1;
@@ -546,132 +544,21 @@ test_can_dial( void ) {
   FD_TEST( !can_dial( &ctx, other, now ) );
   other->curr_rank = 0;
 
-  /* Existing conn, ban and backoff all hold off the dial. */
+  /* An existing conn or a ban holds off the dial. */
   fd_quic_conn_t conn[1];
   other->tx_conn = conn;                                FD_TEST( !can_dial( &ctx, other, now ) );
   other->tx_conn = NULL;
   other->ban_ts  = now-QUIC_BAN_TIMEOUT_NS+1L;          FD_TEST( !can_dial( &ctx, other, now ) );
   other->ban_ts  = now-QUIC_BAN_TIMEOUT_NS;             FD_TEST(  can_dial( &ctx, other, now ) );
-  other->dial_ts = now-1L; other->dial_backoff = 2L;    FD_TEST( !can_dial( &ctx, other, now ) );
-  other->dial_backoff = 1L;                             FD_TEST(  can_dial( &ctx, other, now ) );
 
-  /* A conn that closes right after the dial backs off the next one; a
-     conn that lived resets it. */
-  fd_clock_tile_init( ctx.clock );
-  long t = fd_clock_tile_now( ctx.clock );
+  /* A closed conn, whether or not it ever handshaked, frees the peer
+     for an immediate redial. */
   memset( conn, 0, sizeof(conn) );
   fd_quic_conn_set_context( conn, &other->id_key );
-  other->tx_conn = conn; other->dial_ts = t; other->dial_backoff = 0L;
+  other->tx_conn = conn;
   quic_client_conn_final( conn, &ctx );
-  FD_TEST( !other->tx_conn && other->dial_backoff==QUIC_DIAL_BACKOFF_MIN_NS );
-  FD_TEST( !can_dial( &ctx, other, t+1L ) );
-  other->tx_conn = conn; other->dial_ts = t-QUIC_DIAL_STABLE_NS;
-  quic_client_conn_final( conn, &ctx );
-  FD_TEST( !other->tx_conn && other->dial_backoff==0L );
+  FD_TEST( !other->tx_conn && can_dial( &ctx, other, now ) );
 
-  /* A conn that closes short of stable (after ~9 s) backs off from the
-     close, not from the dial. */
-  other->tx_conn = conn; other->dial_ts = t-QUIC_DIAL_STABLE_NS+QUIC_DIAL_BACKOFF_MIN_NS;
-  quic_client_conn_final( conn, &ctx );
-  FD_TEST( other->dial_backoff==QUIC_DIAL_BACKOFF_MIN_NS );
-  long closed = other->dial_ts;
-  FD_TEST( closed>=t );
-  FD_TEST( !can_dial( &ctx, other, closed+QUIC_DIAL_BACKOFF_MIN_NS-1L ) );
-  FD_TEST(  can_dial( &ctx, other, closed+QUIC_DIAL_BACKOFF_MIN_NS    ) );
-
-  peers_delete( peers_leave( ctx.peers ) );
-}
-
-static int
-test_aio_drop( void *                    ctx,
-               fd_aio_pkt_info_t const * batch,
-               ulong                     batch_cnt,
-               ulong *                   opt_batch_idx,
-               int                       flush ) {
-  (void)ctx; (void)batch; (void)batch_cnt; (void)opt_batch_idx; (void)flush;
-  return FD_AIO_SUCCESS;
-}
-
-static uchar quic_mem[ 1UL<<24 ] __attribute__((aligned(FD_QUIC_ALIGN)));
-
-/* A connect that fails for lack of conns is not a dial, so it must not
-   restart the peer's backoff. */
-
-static void
-test_connect_fail_keeps_backoff( void ) {
-  static fd_votor_tile_t ctx;
-  static fd_aio_t        aio;
-  ctx.peers = peers_join( peers_new( peers_mem ) );
-  FD_TEST( ctx.peers );
-  memset( &ctx.id_key, 0, sizeof(fd_pubkey_t) ); ctx.id_key.uc[ 0 ] = 1;
-  test_peer( &ctx, 1, 0 );
-
-  fd_quic_limits_t limits = { .conn_cnt=1UL, .handshake_cnt=1UL, .conn_id_cnt=FD_QUIC_MIN_CONN_ID_CNT, .inflight_frame_cnt=16UL, .min_inflight_frame_cnt_conn=8UL };
-  FD_TEST( fd_quic_footprint( &limits )<=sizeof(quic_mem) );
-  ctx.quic_client = fd_quic_join( fd_quic_new( quic_mem, &limits ) );
-  FD_TEST( ctx.quic_client );
-  ctx.quic_client->config.role         = FD_QUIC_ROLE_CLIENT;
-  ctx.quic_client->config.idle_timeout = 5L*1000L*1000L*1000L;
-  ctx.quic_client->config.ack_delay    = 2L*1000L*1000L;
-  memcpy( ctx.quic_client->config.identity_public_key, ctx.id_key.uc, 32UL );
-  fd_quic_set_aio_net_tx( ctx.quic_client, fd_aio_join( fd_aio_new( &aio, NULL, test_aio_drop ) ) );
-  FD_TEST( fd_quic_init( ctx.quic_client ) );
-
-  contact_info_t ci = { .ip4=FD_IP4_ADDR( 10, 0, 0, 1 ), .port=8000 };
-  long     now = 100L*1000L*1000L*1000L;
-  peer_t * a   = test_peer( &ctx, 2, 0 );
-  peer_t * b   = test_peer( &ctx, 3, 0 );
-
-  peer_connect( &ctx, a, &ci, now ); /* takes the only conn */
-  FD_TEST( a->tx_conn && a->dial_ts==now );
-
-  b->dial_ts = now-QUIC_DIAL_BACKOFF_MAX_NS; b->dial_backoff = QUIC_DIAL_BACKOFF_MAX_NS;
-  peer_connect( &ctx, b, &ci, now );
-  FD_TEST( !b->tx_conn && b->dial_ts==now-QUIC_DIAL_BACKOFF_MAX_NS );
-  FD_TEST( can_dial( &ctx, b, now+1L ) );
-
-  fd_quic_delete( fd_quic_leave( fd_quic_fini( ctx.quic_client ) ) );
-  peers_delete( peers_leave( ctx.peers ) );
-}
-
-static contact_info_t contact_infos_mem[ 1UL<<CONTACT_INFOS_LG_SLOT_CNT ];
-
-static void
-test_gossip_address_resets_backoff( void ) {
-  static fd_votor_tile_t            ctx;
-  static fd_gossip_update_message_t msg;
-  ctx.peers         = peers_join( peers_new( peers_mem ) );
-  ctx.contact_infos = contact_infos_join( contact_infos_new( contact_infos_mem ) );
-  FD_TEST( ctx.peers && ctx.contact_infos );
-  fd_clock_tile_init( ctx.clock );
-  memset( &ctx.id_key, 0, sizeof(fd_pubkey_t) ); ctx.id_key.uc[ 0 ] = 1; /* unranked, so nothing is dialed */
-
-  peer_t * other = test_peer( &ctx, 2, 0 );
-  memcpy( msg.origin, other->id_key.uc, sizeof(fd_pubkey_t) );
-  fd_gossip_socket_t * sock = &msg.contact_info->value->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_ALPENGLOW ];
-  sock->ip4  = FD_IP4_ADDR( 10, 0, 0, 1 );
-  sock->port = fd_ushort_bswap( 8000 );
-  handle_gossip( &ctx, FD_GOSSIP_UPDATE_TAG_CONTACT_INFO, &msg );
-  FD_TEST( contact_infos_query( ctx.contact_infos, other->id_key, NULL ) );
-
-  /* A refresh of the same address keeps the backoff. */
-  other->dial_backoff = QUIC_DIAL_BACKOFF_MAX_NS;
-  handle_gossip( &ctx, FD_GOSSIP_UPDATE_TAG_CONTACT_INFO, &msg );
-  FD_TEST( other->dial_backoff==QUIC_DIAL_BACKOFF_MAX_NS );
-
-  /* A changed address, in place or after a removal, resets it. */
-  sock->port = fd_ushort_bswap( 8001 );
-  handle_gossip( &ctx, FD_GOSSIP_UPDATE_TAG_CONTACT_INFO, &msg );
-  FD_TEST( other->dial_backoff==0L );
-
-  other->dial_backoff = QUIC_DIAL_BACKOFF_MAX_NS;
-  handle_gossip( &ctx, FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE, &msg );
-  FD_TEST( !contact_infos_query( ctx.contact_infos, other->id_key, NULL ) );
-  sock->ip4 = FD_IP4_ADDR( 10, 0, 0, 2 );
-  handle_gossip( &ctx, FD_GOSSIP_UPDATE_TAG_CONTACT_INFO, &msg );
-  FD_TEST( other->dial_backoff==0L );
-
-  contact_infos_delete( contact_infos_leave( ctx.contact_infos ) );
   peers_delete( peers_leave( ctx.peers ) );
 }
 
@@ -692,10 +579,7 @@ main( int     argc,
   test_auth_vtr_keyswitch_clear();
   test_own_bls_key();
   test_sign_bls_request();
-  test_dial_backoff_next();
   test_can_dial();
-  test_gossip_address_resets_backoff();
-  test_connect_fail_keeps_backoff();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
