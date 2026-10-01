@@ -2060,7 +2060,11 @@ background_compact( fd_accdb_t * accdb,
 
     fd_accdb_accmeta_t * accmeta = NULL;
     ulong source_packed = 0UL;
-    uint acc_idx = FD_VOLATILE_CONST( accdb->acc_map[ fd_hash32( meta->pubkey, accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL) ] );
+    /* fd_accdb_snapshot_write_batch briefly parks UINT_MAX-1 in the
+       chain head as a lock, wait for it to publish the real head. */
+    uint * chain = &accdb->acc_map[ fd_hash32( meta->pubkey, accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL) ];
+    uint acc_idx;
+    while( FD_UNLIKELY( (acc_idx=FD_VOLATILE_CONST( *chain ))==UINT_MAX-1U ) ) FD_SPIN_PAUSE();
     while( acc_idx!=UINT_MAX ) {
       fd_accdb_accmeta_t * candidate = &accdb->acc_pool[ acc_idx ];
       uint next_idx = FD_VOLATILE_CONST( candidate->map.next );
