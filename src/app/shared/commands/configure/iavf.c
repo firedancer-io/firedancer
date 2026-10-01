@@ -733,6 +733,9 @@ iavf_drops_install( char const *        pf_if,
     if( err ) goto done;
   }
 
+  err = fd_ethtool_ioctl_ntuple_clear( &ioc );
+  if( err ) goto done;
+
   struct ethtool_rxnfc count = { .cmd=ETHTOOL_GRXCLSRLCNT };
   if( iavf_ethtool( &ioc, &count ) ) { err = errno; goto done; }
   uint capacity = (uint)(count.data & ~((ulong)RX_CLS_LOC_SPECIAL));
