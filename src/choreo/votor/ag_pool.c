@@ -15,6 +15,10 @@ struct slot_state_ele {
   ulong           slot;
   ulong           next;
   ag_slot_state_t slot_state;
+
+  /* s2n_waiting_parent_cert entries of this slot's blocks */
+  uint s2n_waiting_idx[ AG_EQVOC_BLOCK_HASH_MAX ];
+  uint s2n_waiting_cnt;
 };
 typedef struct slot_state_ele slot_state_ele_t;
 
@@ -31,15 +35,21 @@ typedef struct slot_state_ele slot_state_ele_t;
 #define MAP_NEXT               next
 #include "../../util/tmpl/fd_map_chain.c"
 
+/* s2n_waiting_parent_cert holds one entry per replayed block whose
+   parent is not yet certified, keyed by parent.  An entry is freed when
+   its parent is certified or when the child's slot is pruned. */
+
 struct s2n_waiting_parent_cert_ele {
   ag_block_id_t parent;
-  ulong         next;
+  uint          next;
+  uint          prev;
   ag_block_id_t child;
 };
 typedef struct s2n_waiting_parent_cert_ele s2n_waiting_parent_cert_ele_t;
 
-#define POOL_NAME s2n_waiting_parent_cert_pool
-#define POOL_T    s2n_waiting_parent_cert_ele_t
+#define POOL_NAME  s2n_waiting_parent_cert_pool
+#define POOL_T     s2n_waiting_parent_cert_ele_t
+#define POOL_IDX_T uint
 #include "../../util/tmpl/fd_pool.c"
 
 #define MAP_NAME               s2n_waiting_parent_cert_map
@@ -49,6 +59,10 @@ typedef struct s2n_waiting_parent_cert_ele s2n_waiting_parent_cert_ele_t;
 #define MAP_KEY_EQ(k0,k1)      (ag_block_id_eq((k0),(k1)))
 #define MAP_KEY_HASH(key,seed) (fd_hash((seed),(key),sizeof(ag_block_id_t)))
 #define MAP_NEXT               next
+#define MAP_PREV               prev
+#define MAP_IDX_T              uint
+#define MAP_MULTI              1
+#define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
 #include "../../util/tmpl/fd_map_chain.c"
 
 struct slot_states {
@@ -105,6 +119,7 @@ ag_pool_align( void ) {
 ulong
 ag_pool_footprint( ulong slot_max ) {
   if( FD_UNLIKELY( slot_max<AG_SLOTS_PER_WINDOW+AG_REWARD_SLOT_DELTA ) ) return 0UL;
+  if( FD_UNLIKELY( slot_max>UINT_MAX/AG_EQVOC_BLOCK_HASH_MAX ) ) return 0UL;
 
   ulong slot_chain_cnt = slot_state_map_chain_cnt_est( slot_max );
   ulong s2n_max        = slot_max*AG_EQVOC_BLOCK_HASH_MAX;
@@ -112,7 +127,7 @@ ag_pool_footprint( ulong slot_max ) {
   ulong own_vote_max   = slot_max*( AG_NOTAR_FALLBACK_VOTE_MAX + 1UL /* notar or skip */ + 1UL /* skip_fallback */ );
   ulong s2n_chain_cnt  = s2n_waiting_parent_cert_map_chain_cnt_est( s2n_max );
   ulong parent_ready_max = ag_parent_ready_tracker_out_max( slot_max );
-  ulong pool_event_max   = slot_max + parent_ready_max;
+  ulong pool_event_max   = slot_max + parent_ready_max + s2n_max;
 
   return FD_LAYOUT_FINI(
     FD_LAYOUT_APPEND(
@@ -176,8 +191,7 @@ ag_pool_new( void * mem,
   ulong slot_chain_cnt = slot_state_map_chain_cnt_est( slot_max );
   ulong s2n_chain_cnt  = s2n_waiting_parent_cert_map_chain_cnt_est( s2n_max );
   ulong parent_ready_max = ag_parent_ready_tracker_out_max( slot_max );
-  ulong pool_event_max   = slot_max + parent_ready_max;
-
+  ulong pool_event_max   = slot_max + parent_ready_max + s2n_max;
 
   FD_SCRATCH_ALLOC_INIT( l, mem );
   ag_pool_t * pool                         = FD_SCRATCH_ALLOC_APPEND( l, alignof(ag_pool_t),                   sizeof(ag_pool_t)                                       );
@@ -299,11 +313,11 @@ ag_pool_strerror( int err ) {
   }
 }
 
-static ag_slot_state_t *
-slot_state( ag_pool_t * self,
-            ulong       slot ) {
+static slot_state_ele_t *
+slot_state_ele( ag_pool_t * self,
+                ulong       slot ) {
   slot_state_ele_t * ele = slot_state_map_ele_query( self->slot_states->map, &slot, NULL, self->slot_states->pool );
-  if( FD_LIKELY( ele ) ) return &ele->slot_state;
+  if( FD_LIKELY( ele ) ) return ele;
 
   ag_epoch_info_t const * info = fd_ptr_if  ( slot>=self->next_epoch_slot, self->next_epoch_info, fd_ptr_if  ( slot>=self->curr_epoch_slot, self->curr_epoch_info, self->prev_epoch_info ) );
   ulong                   rank = fd_ulong_if( slot>=self->next_epoch_slot, self->next_epoch_rank, fd_ulong_if( slot>=self->curr_epoch_slot, self->curr_epoch_rank, self->prev_epoch_rank ) );
@@ -314,11 +328,71 @@ slot_state( ag_pool_t * self,
   ele       = slot_state_pool_ele_acquire( self->slot_states->pool );
   ele->slot = slot;
   ag_slot_state_null( &ele->slot_state );
+  ele->s2n_waiting_cnt       = 0U;
   ele->slot_state.slot       = slot;
   ele->slot_state.epoch_info = info;
   ele->slot_state.own_rank   = rank;
   slot_state_map_ele_insert( self->slot_states->map, ele, self->slot_states->pool );
-  return &ele->slot_state;
+  return ele;
+}
+
+static ag_slot_state_t *
+slot_state( ag_pool_t * self,
+            ulong       slot ) {
+  return &slot_state_ele( self, slot )->slot_state;
+}
+
+/* s2n_waiting_add records that child is waiting on parent's cert. */
+
+static void
+s2n_waiting_add( ag_pool_t *           self,
+                 slot_state_ele_t *    child_ele,
+                 ag_block_id_t const * parent,
+                 ag_block_id_t const * child ) {
+  s2n_waiting_parent_cert_ele_t * pool = self->s2n_waiting_parent_cert->pool;
+  uint idx = (uint)s2n_waiting_parent_cert_pool_idx_acquire( pool );
+  pool[ idx ].parent = *parent;
+  pool[ idx ].child  = *child;
+  s2n_waiting_parent_cert_map_idx_insert( self->s2n_waiting_parent_cert->map, idx, pool );
+  child_ele->s2n_waiting_idx[ child_ele->s2n_waiting_cnt++ ] = idx;
+}
+
+/* s2n_waiting_pop removes one child waiting on parent's cert into
+   *child and returns its slot state, or NULL if none are left. */
+
+static slot_state_ele_t *
+s2n_waiting_pop( ag_pool_t *           self,
+                 ag_block_id_t const * parent,
+                 ag_block_id_t *       child ) {
+  s2n_waiting_parent_cert_ele_t * pool = self->s2n_waiting_parent_cert->pool;
+  ulong idx = s2n_waiting_parent_cert_map_idx_remove( self->s2n_waiting_parent_cert->map, parent, ULONG_MAX, pool );
+  if( FD_LIKELY( idx==ULONG_MAX ) ) return NULL;
+  *child = pool[ idx ].child;
+  s2n_waiting_parent_cert_pool_idx_release( pool, idx );
+
+  /* entries are freed with their child's slot, so it must be live */
+  slot_state_ele_t * child_ele = slot_state_map_ele_query( self->slot_states->map, &child->slot, NULL, self->slot_states->pool );
+  FD_TEST( child_ele );
+
+  /* unlink from the child's entry list (swap-remove) */
+  uint i = 0U;
+  while( child_ele->s2n_waiting_idx[ i ]!=idx ) i++;
+  child_ele->s2n_waiting_idx[ i ] = child_ele->s2n_waiting_idx[ --child_ele->s2n_waiting_cnt ];
+  return child_ele;
+}
+
+/* s2n_waiting_release frees every waiting entry of a slot being
+   pruned, i.e. children whose parent was never certified. */
+
+static void
+s2n_waiting_release( ag_pool_t *        self,
+                     slot_state_ele_t * ele ) {
+  s2n_waiting_parent_cert_ele_t * pool = self->s2n_waiting_parent_cert->pool;
+  for( uint i=0U; i<ele->s2n_waiting_cnt; i++ ) {
+    s2n_waiting_parent_cert_map_idx_remove_fast( self->s2n_waiting_parent_cert->map, ele->s2n_waiting_idx[ i ], pool );
+    s2n_waiting_parent_cert_pool_idx_release( pool, ele->s2n_waiting_idx[ i ] );
+  }
+  ele->s2n_waiting_cnt = 0U;
 }
 
 static inline ag_finalization_event_t
@@ -338,9 +412,37 @@ handle_finalization( ag_pool_t *                     self,
   ulong retained_slot       = fd_ulong_sat_sub( first_unpruned_slot, AG_REWARD_SLOT_DELTA );
   for( ulong slot = fd_ulong_sat_sub( self->parent_ready_tracker->root, AG_REWARD_SLOT_DELTA ); slot<retained_slot; slot++ ) {
     slot_state_ele_t * ele = slot_state_map_ele_remove( self->slot_states->map, &slot, NULL, self->slot_states->pool );
-    if( FD_LIKELY( ele ) ) slot_state_pool_ele_release( self->slot_states->pool, ele );
+    if( FD_UNLIKELY( !ele ) ) continue;
+    s2n_waiting_release( self, ele );
+    slot_state_pool_ele_release( self->slot_states->pool, ele );
   }
   ag_parent_ready_tracker_prune( self->parent_ready_tracker, first_unpruned_slot );
+}
+
+/* notify_children_certified wakes up every child waiting on parent,
+   which just became notar-fallback or stronger. */
+
+static void
+notify_children_certified( ag_pool_t *             self,
+                           ag_block_id_t const *   parent,
+                           ag_epoch_info_t const * parent_epoch_info,
+                           fd_bls_set_t *          bad ) {
+  ag_block_id_t      child_id;
+  slot_state_ele_t * child_ele;
+  while( (child_ele = s2n_waiting_pop( self, parent, &child_id )) ) {
+    ag_slot_state_t * child_state = &child_ele->slot_state;
+    fd_bls_set_t      bad_child[ fd_bls_set_word_cnt ];
+    int output = ag_slot_state_notify_parent_certified( child_state, child_id.hash, bad_child );
+    if( FD_LIKELY( child_state->epoch_info==parent_epoch_info ) ) fd_bls_set_union( bad, bad, bad_child );
+    switch( output ) {
+    case -1: repair_events_push( self->repair_events, (ag_event_repair_t){ .seq = self->seq++, .block = child_id } ); break;
+    case  0: break;
+    case  1:
+      FD_TEST( !pool_events_full( self->pool_events ) ); /* sized for every waiting child */
+      pool_events_push( self->pool_events, (ag_event_pool_t){ .seq = self->seq++, .kind = AG_EVENT_POOL_SAFE_TO_NOTAR, .safe_to_notar = child_id } );
+      break;
+    }
+  }
 }
 
 static void
@@ -349,7 +451,9 @@ add_valid_cert( ag_pool_t *       self,
                 fd_bls_set_t *    bad ) {
   ulong slot = ag_cert_slot( cert );
 
-  ag_slot_state_add_cert( slot_state( self, slot ), cert );
+  ag_slot_state_t *       cert_state      = slot_state( self, slot );
+  ag_epoch_info_t const * cert_epoch_info = cert_state->epoch_info; /* read now, handle_finalization may prune cert_state */
+  ag_slot_state_add_cert( cert_state, cert );
 
   switch( cert->kind ) {
   case AG_CERT_KIND_FINAL: {
@@ -365,6 +469,7 @@ add_valid_cert( ag_pool_t *       self,
     ag_finalization_event_t finalization_event = finalization_event_default( self );
     ag_finality_tracker_mark_fast_finalized( self->finality_tracker, &block_id, &finalization_event );
     handle_finalization( self, &finalization_event );
+    notify_children_certified( self, &block_id, cert_epoch_info, bad );
     repair_events_push( self->repair_events, (ag_event_repair_t){ .seq = self->seq++, .block = block_id } );
     break;
   }
@@ -379,21 +484,7 @@ add_valid_cert( ag_pool_t *       self,
       handle_finalization( self, &finalization_event );
     }
 
-    s2n_waiting_parent_cert_ele_t * child = s2n_waiting_parent_cert_map_ele_remove( self->s2n_waiting_parent_cert->map, &block_id, NULL, self->s2n_waiting_parent_cert->pool );
-    if( FD_LIKELY( child ) ) {
-      ag_block_id_t child_id = child->child; /* copy before the release below */
-      s2n_waiting_parent_cert_pool_ele_release( self->s2n_waiting_parent_cert->pool, child );
-
-      ag_slot_state_t * child_state = slot_state( self, child_id.slot );
-      fd_bls_set_t      bad_child[ fd_bls_set_word_cnt ];
-      int output = ag_slot_state_notify_parent_certified( child_state, child_id.hash, bad_child );
-      if( FD_LIKELY( child_state->epoch_info==slot_state( self, slot )->epoch_info ) ) fd_bls_set_union( bad, bad, bad_child );
-      switch( output ) {
-      case -1: repair_events_push( self->repair_events, (ag_event_repair_t){ .seq = self->seq++, .block = child_id } ); break;
-      case  0: break;
-      case  1: pool_events_push( self->pool_events, (ag_event_pool_t){ .seq = self->seq++, .kind = AG_EVENT_POOL_SAFE_TO_NOTAR, .safe_to_notar = child_id } ); break;
-      }
-    }
+    notify_children_certified( self, &block_id, cert_epoch_info, bad );
 
     ag_parent_ready_tracker_mark_notar_fallback( self->parent_ready_tracker, &block_id, self->scratch.parent_readys, &self->scratch.parent_ready_cnt );
     ag_parent_ready_t const * readys    = self->scratch.parent_readys;
@@ -609,25 +700,24 @@ ag_pool_add_block( ag_pool_t *           self,
     pool_events_push( self->pool_events, event );
   }
 
-  ag_slot_state_notify_parent_known( slot_state( self, slot ), block_hash );
+  slot_state_ele_t * block_ele   = slot_state_ele( self, slot );
+  ag_slot_state_t *  block_state = &block_ele->slot_state;
+  ulong              known_cnt   = block_state->parents_cnt;
+  ag_slot_state_notify_parent_known( block_state, block_hash );
   slot_state_ele_t * parent_state_ = slot_state_map_ele_query( self->slot_states->map, &parent_slot, NULL, self->slot_states->pool );
   ag_slot_state_t *  parent_state  = parent_state_ ? &parent_state_->slot_state : NULL;
   if( FD_LIKELY( parent_state && ag_slot_state_is_notar_fallback_or_stronger( parent_state, parent_hash ) ) ) {
-    int output = ag_slot_state_notify_parent_certified( slot_state( self, slot ), block_hash, bad );
+    int output = ag_slot_state_notify_parent_certified( block_state, block_hash, bad );
     switch( output ) {
-    case -1: repair_events_push( self->repair_events, (ag_event_repair_t){ .seq = self->seq++, .block = *block_id } ); return AG_POOL_SUCCESS;
+    case -1: repair_events_push( self->repair_events, (ag_event_repair_t){ .seq = self->seq++, .block = *block_id } ); break;
     case  0: break;
-    case  1: pool_events_push( self->pool_events, (ag_event_pool_t){ .seq = self->seq++, .kind = AG_EVENT_POOL_SAFE_TO_NOTAR, .safe_to_notar = *block_id } ); return AG_POOL_SUCCESS;
+    case  1: pool_events_push( self->pool_events, (ag_event_pool_t){ .seq = self->seq++, .kind = AG_EVENT_POOL_SAFE_TO_NOTAR, .safe_to_notar = *block_id } ); break;
     }
+    return AG_POOL_SUCCESS;
   }
-
-  s2n_waiting_parent_cert_ele_t * ele = s2n_waiting_parent_cert_map_ele_query( self->s2n_waiting_parent_cert->map, parent_id, NULL, self->s2n_waiting_parent_cert->pool );
-  if( FD_UNLIKELY( !ele ) ) {
-    ele         = s2n_waiting_parent_cert_pool_ele_acquire( self->s2n_waiting_parent_cert->pool );
-    ele->parent = *parent_id;
-    s2n_waiting_parent_cert_map_ele_insert( self->s2n_waiting_parent_cert->map, ele, self->s2n_waiting_parent_cert->pool );
-  }
-  ele->child = *block_id;
+  /* parent not certified yet: wait for its cert, unless this block
+     was already added (and is thus already waiting) */
+  if( FD_LIKELY( block_state->parents_cnt>known_cnt ) ) s2n_waiting_add( self, block_ele, parent_id, block_id );
 
   return AG_POOL_SUCCESS;
 }

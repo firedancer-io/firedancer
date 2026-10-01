@@ -45,11 +45,21 @@ contains_slot( ag_pool_t const * pool,
   return slot_state_map_ele_query_const( pool->slot_states->map, &slot, NULL, pool->slot_states->pool )!=NULL;
 }
 
-static ag_block_id_t const *
-s2n_waiting_child( ag_pool_t const *     pool,
-                   ag_block_id_t const * parent ) {
-  s2n_waiting_parent_cert_ele_t const * ele = s2n_waiting_parent_cert_map_ele_query_const( pool->s2n_waiting_parent_cert->map, parent, NULL, pool->s2n_waiting_parent_cert->pool );
-  return ele ? &ele->child : NULL;
+static int
+parent_status( ag_pool_t const *     pool,
+               ag_block_id_t const * block ) {
+  slot_state_ele_t const * e = slot_state_map_ele_query_const( pool->slot_states->map, &block->slot, NULL, pool->slot_states->pool );
+  if( !e ) return 0;
+  for( ulong i=0UL; i<e->slot_state.parents_cnt; i++ ) {
+    if( !memcmp( e->slot_state.parents[i].hash, block->hash, sizeof(ag_block_hash_t) ) ) return e->slot_state.parents[i].kind;
+  }
+  return 0;
+}
+
+static ulong
+s2n_waiting_cnt( ag_pool_t const * pool ) {
+  s2n_waiting_parent_cert_ele_t const * p = pool->s2n_waiting_parent_cert->pool;
+  return s2n_waiting_parent_cert_pool_max( p ) - s2n_waiting_parent_cert_pool_free( p );
 }
 
 static ag_epoch_info_t const *
@@ -1196,6 +1206,39 @@ test_safe_to_notar_fast_final_cert_only( void ) {
   teardown_pool( pool );
 }
 
+/* Same as above, but the child is replayed before the parent's
+   fast-final cert arrives. */
+
+static void
+test_safe_to_notar_fast_final_cert_after_block( void ) {
+  ag_pool_t * pool = setup_pool();
+
+  ulong     slot1 = 1UL;
+  ulong     slot2 = 2UL;
+  ag_block_hash_t hash1; random_hash( hash1 );
+  ag_block_hash_t hash2; random_hash( hash2 );
+
+  ag_block_id_t child  = ag_block_id( slot2, hash2 );
+  ag_block_id_t parent = ag_block_id( slot1, hash1 );
+  ag_pool_add_block( pool, &child, &parent, bad );
+  drain_events( pool );
+
+  fast_finalize( pool, slot1, hash1 );
+  FD_TEST( parent_status( pool, &child )==AG_PARENT_STATUS_CERTIFIED );
+
+  ag_vote_t skip = ag_vote_construct_skip( sec_sign_fn, &g_sk[0], test_bls_public_key, slot2, 0, TEST_SHRED_VERSION );
+  FD_TEST( ag_pool_add_vote( pool, &skip, bad, &quorum_reached )==AG_POOL_SUCCESS );
+  for( ulong v=1UL; v<6UL; v++ ) {
+    ag_vote_t vote = ag_vote_construct_notar( sec_sign_fn, &g_sk[v], test_bls_public_key, slot2, hash2, (ushort)v, TEST_SHRED_VERSION );
+    FD_TEST( ag_pool_add_vote( pool, &vote, bad, &quorum_reached )==AG_POOL_SUCCESS );
+  }
+
+  FD_TEST( drained_safe_to_notar( pool, slot2, hash2 ) );
+  FD_TEST( s2n_waiting_cnt( pool )==0UL );
+
+  teardown_pool( pool );
+}
+
 /* Firedancer-only test */
 
 static void
@@ -1215,8 +1258,7 @@ test_safe_to_notar_awaiting_votes( void ) {
 
   FD_TEST( !drained_safe_to_notar( pool, slot2, hash2 ) );
 
-  ag_block_id_t const * waiting = s2n_waiting_child( pool, &parent );
-  FD_TEST( waiting && ag_block_id_eq( waiting, &child ) );
+  FD_TEST( parent_status( pool, &child )==AG_PARENT_STATUS_CERTIFIED );
 
   teardown_pool( pool );
 }
@@ -1251,9 +1293,8 @@ test_safe_to_notar_not_queued_for_parent_cert( void ) {
   ag_pool_add_block( pool, &child_a, &parent, bad );
 
   FD_TEST( drained_safe_to_notar( pool, slot2, hash_a ) );
-
-  ag_block_id_t const * waiting = s2n_waiting_child( pool, &parent );
-  FD_TEST( waiting && ag_block_id_eq( waiting, &child_b ) );
+  FD_TEST( parent_status( pool, &child_a )==AG_PARENT_STATUS_CERTIFIED );
+  FD_TEST( parent_status( pool, &child_b )==AG_PARENT_STATUS_CERTIFIED );
 
   teardown_pool( pool );
 }
@@ -1578,6 +1619,114 @@ test_add_block_below_watermark( void ) {
   teardown_pool( pool );
 }
 
+/* A parent cert reaches every replayed child of that parent, including
+   equivocating children in the same slot and children further out, but
+   not children of a different block in the parent's slot. */
+
+static void
+test_parent_cert_notifies_all_children( void ) {
+  ag_pool_t * pool = setup_pool();
+
+  ag_block_id_t parent  = random_block_id( 1UL );
+  ag_block_id_t sibling = random_block_id( 1UL );
+  ag_block_id_t child_a = random_block_id( 2UL );
+  ag_block_id_t child_b = random_block_id( 2UL );
+  ag_block_id_t child_c = random_block_id( 5UL );
+  ag_block_id_t other   = random_block_id( 3UL );
+  FD_TEST( ag_pool_add_block( pool, &child_a, &parent,  bad )==AG_POOL_SUCCESS );
+  FD_TEST( ag_pool_add_block( pool, &child_b, &parent,  bad )==AG_POOL_SUCCESS );
+  FD_TEST( ag_pool_add_block( pool, &child_c, &parent,  bad )==AG_POOL_SUCCESS );
+  FD_TEST( ag_pool_add_block( pool, &other,   &sibling, bad )==AG_POOL_SUCCESS );
+  FD_TEST( parent_status( pool, &child_a )==AG_PARENT_STATUS_KNOWN );
+  FD_TEST( parent_status( pool, &child_b )==AG_PARENT_STATUS_KNOWN );
+  FD_TEST( parent_status( pool, &child_c )==AG_PARENT_STATUS_KNOWN );
+
+  notar_cert( pool, parent.slot, parent.hash, 7UL );
+  drain_events( pool );
+
+  FD_TEST( parent_status( pool, &child_a )==AG_PARENT_STATUS_CERTIFIED );
+  FD_TEST( parent_status( pool, &child_b )==AG_PARENT_STATUS_CERTIFIED );
+  FD_TEST( parent_status( pool, &child_c )==AG_PARENT_STATUS_CERTIFIED );
+  FD_TEST( parent_status( pool, &other   )==AG_PARENT_STATUS_KNOWN     );
+
+  teardown_pool( pool );
+}
+
+/* Waiting entries are freed with their child's slot when the parent is
+   never certified, and are not created twice for a re-added block or
+   at all for a block whose parent is already certified. */
+
+static void
+test_s2n_waiting_freed_on_prune( void ) {
+  ag_pool_t * pool = setup_pool();
+  ag_block_hash_t gh; genesis_hash( gh );
+
+  ag_block_id_t parent = random_block_id( 1UL );
+  for( ulong s=2UL; s<6UL; s++ ) {
+    ag_block_id_t a = random_block_id( s );
+    ag_block_id_t b = random_block_id( s );
+    FD_TEST( ag_pool_add_block( pool, &a, &parent, bad )==AG_POOL_SUCCESS );
+    FD_TEST( ag_pool_add_block( pool, &a, &parent, bad )==AG_POOL_SUCCESS );
+    FD_TEST( ag_pool_add_block( pool, &b, &parent, bad )==AG_POOL_SUCCESS );
+  }
+  FD_TEST( s2n_waiting_cnt( pool )==8UL );
+
+  ag_block_id_t cparent = ag_block_id( 6UL, gh );
+  notar_cert( pool, cparent.slot, cparent.hash, 7UL );
+  ag_block_id_t cchild = ag_block_id( 7UL, gh );
+  FD_TEST( ag_pool_add_block( pool, &cchild, &cparent, bad )==AG_POOL_SUCCESS );
+  FD_TEST( s2n_waiting_cnt( pool )==8UL );
+  drain_events( pool );
+
+  /* finalize a different fork, so parent is never certified */
+  ulong slot = 6UL + AG_REWARD_SLOT_DELTA + SLOTS_PER_WINDOW;
+  for( ulong s=1UL; s<=slot; s++ ) fast_finalize( pool, s, gh );
+  FD_TEST_PRUNED_TO_WATERMARK( pool );
+  FD_TEST( !contains_slot( pool, 5UL ) );
+  FD_TEST( s2n_waiting_cnt( pool )==0UL );
+  s2n_waiting_parent_cert_ele_t * s2n_pool = pool->s2n_waiting_parent_cert->pool;
+  FD_TEST( !s2n_waiting_parent_cert_map_verify( pool->s2n_waiting_parent_cert->map, s2n_waiting_parent_cert_pool_max( s2n_pool ), s2n_pool ) );
+
+  teardown_pool( pool );
+}
+
+/* One parent cert makes every waiting child safe-to-notar, across
+   slots and equivocating siblings. */
+
+static void
+test_parent_cert_burst( void ) {
+  ag_pool_t * pool = setup_pool();
+
+  ulong slot_lo = 2UL;
+  ulong slot_hi = 18UL;
+
+  ag_block_id_t parent = random_block_id( 1UL );
+  for( ulong s=slot_lo; s<slot_hi; s++ ) {
+    ag_block_id_t a = random_block_id( s );
+    ag_block_id_t b = random_block_id( s );
+    FD_TEST( ag_pool_add_block( pool, &a, &parent, bad )==AG_POOL_SUCCESS );
+    FD_TEST( ag_pool_add_block( pool, &b, &parent, bad )==AG_POOL_SUCCESS );
+    ag_vote_t skip = ag_vote_construct_skip( sec_sign_fn, &g_sk[0], test_bls_public_key, s, 0, TEST_SHRED_VERSION );
+    FD_TEST( ag_pool_add_vote( pool, &skip, bad, &quorum_reached )==AG_POOL_SUCCESS );
+    add_notar_votes( pool, s, a.hash, 1UL, 6UL  );
+    add_notar_votes( pool, s, b.hash, 6UL, 11UL );
+  }
+  drain_events( pool );
+
+  ag_vote_notar_t nv[ NV ];
+  for( ulong v=0UL; v<7UL; v++ ) nv[v] = ag_vote_construct_notar( sec_sign_fn, &g_sk[v], test_bls_public_key, parent.slot, parent.hash, (ushort)v, TEST_SHRED_VERSION ).notar;
+  ag_cert_t c = cert_build_notar( nv, 7UL, g_epoch_info );
+  FD_TEST( ag_pool_add_cert( pool, &c, bad )==AG_POOL_SUCCESS );
+
+  ulong s2n_cnt = 0UL;
+  ag_event_pool_t e;
+  while( ag_pool_poll_pool_event( pool, &e ) ) s2n_cnt += e.kind==AG_EVENT_POOL_SAFE_TO_NOTAR;
+  FD_TEST( s2n_cnt==2UL*(slot_hi-slot_lo) );
+  FD_TEST( s2n_waiting_cnt( pool )==0UL );
+
+  teardown_pool( pool );
+}
+
 static ag_slot_state_t const *
 slot_state_at( ag_pool_t const * pool,
                ulong             slot ) {
@@ -1656,6 +1805,7 @@ main( int     argc,
   test_parent_ready_upon_finalization();
   test_safe_to_notar_notar_cert_only();
   test_safe_to_notar_fast_final_cert_only();
+  test_safe_to_notar_fast_final_cert_after_block();
   test_safe_to_notar_awaiting_votes();
   test_safe_to_notar_not_queued_for_parent_cert();
 
@@ -1669,6 +1819,9 @@ main( int     argc,
   test_retired_epoch_already_pruned();
   test_standstill_recovery_no_final_cert();
   test_add_block_below_watermark();
+  test_parent_cert_notifies_all_children();
+  test_s2n_waiting_freed_on_prune();
+  test_parent_cert_burst();
   test_set_rank();
 
   FD_LOG_NOTICE(( "pass" ));
