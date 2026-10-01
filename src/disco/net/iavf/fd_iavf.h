@@ -20,6 +20,13 @@ typedef struct fd_iavf_pci_info fd_iavf_pci_info_t;
 
 FD_PROTOTYPES_BEGIN
 
+/* fd_iavf_member_interfaces lists physical PFs for an interface or an
+   802.3ad bond. Each PF must use ice or i40e. */
+int
+fd_iavf_member_interfaces( char const * interface,
+                           char         members[ FD_IAVF_MEMBER_MAX ][ 16 ],
+                           ulong *      member_cnt );
+
 /* fd_iavf_pci_probe validates an Intel Ethernet VF in an isolated IOMMU
    group.  On failure it clears info and sets errno. */
 int

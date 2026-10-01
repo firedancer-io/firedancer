@@ -17,6 +17,7 @@
 #include <unistd.h>
 #include <linux/rtnetlink.h>
 #include <linux/futex.h>
+#include <linux/if_bonding.h>
 
 #include "../../../util/pod/fd_pod_format.h"
 #include "generated/fd_iavf_tile_seccomp.h"
@@ -87,6 +88,8 @@ struct __attribute__((aligned(64UL))) fd_iavf_tile {
 
   struct {
     ulong tx_no_buffer_cnt;
+    ulong tx_no_link_cnt;
+    ulong rx_no_link_cnt;
   } metrics;
 };
 typedef struct fd_iavf_tile fd_iavf_tile_t;
@@ -276,6 +279,32 @@ fd_iavf_tile_rx_recycle( fd_iavf_tile_t *        ctx,
 }
 
 static inline int
+fd_iavf_tile_member_active( fd_iavf_tile_t *              ctx,
+                            fd_iavf_tile_member_t const * member,
+                            uchar                         actor_state ) {
+  if( !member->vf_info.link_state_valid || !member->vf_info.link_up ) return 0;
+  fd_netdev_t const * master = fd_netdev_tbl_query( &ctx->router.netdev_tbl, ctx->router.if_virt );
+  fd_netdev_t const * dev    = fd_netdev_tbl_query( &ctx->router.netdev_tbl, member->if_idx );
+  if( !master || !dev || master->oper_status!=FD_OPER_STATUS_UP || dev->oper_status!=FD_OPER_STATUS_UP ) return 0;
+  if( member->if_idx==ctx->router.if_virt ) return 1;
+  return master->bond_mode==BOND_MODE_8023AD && master->bond_aggregator_id &&
+         dev->master_idx==(int)ctx->router.if_virt &&
+         dev->bond_aggregator_id==master->bond_aggregator_id &&
+         !!(dev->bond_actor_state & actor_state);
+}
+
+static ulong
+fd_iavf_tile_select_tx_member( fd_iavf_tile_t * ctx,
+                               ulong            hash ) {
+  ulong available[ FD_IAVF_MEMBER_MAX ];
+  ulong available_cnt = 0UL;
+  for( ulong i=0UL; i<ctx->member_cnt; i++ ) {
+    if( fd_iavf_tile_member_active( ctx, &ctx->members[i], LACP_STATE_DISTRIBUTING ) ) available[ available_cnt++ ] = i;
+  }
+  return available_cnt ? available[ hash%available_cnt ] : ULONG_MAX;
+}
+
+static inline int
 fd_iavf_tile_poll_rx( fd_iavf_tile_t *    ctx,
                       fd_stem_context_t * stem ) {
   int busy            = 0;
@@ -287,7 +316,8 @@ fd_iavf_tile_poll_rx( fd_iavf_tile_t *    ctx,
     int comp_cnt = fd_iavf_hw_poll_rx( &member->queue, comp, ctx->batch_size );
     if( FD_UNLIKELY( comp_cnt<0 ) ) FD_LOG_ERR(( "IAVF RX poll failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( !comp_cnt ) continue;
-    busy = 1;
+    busy        = 1;
+    int active  = fd_iavf_tile_member_active( ctx, member, LACP_STATE_COLLECTING );
     ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
     for( uint i=0U; i<(uint)comp_cnt; i++ ) {
       ulong chunk = member->rx_desc_buf_chunk[ comp[i].desc_idx ];
@@ -295,7 +325,8 @@ fd_iavf_tile_poll_rx( fd_iavf_tile_t *    ctx,
         FD_LOG_CRIT(( "RX completion chunk %lu is out of bounds", chunk ));
       }
       ulong freed_chunk = chunk;
-      if( FD_UNLIKELY( comp[i].error_flags ) ) ctx->net.metrics.rx_malformed_cnt++;
+      if( FD_UNLIKELY( !active ) ) ctx->metrics.rx_no_link_cnt++;
+      else if( FD_UNLIKELY( comp[i].error_flags ) ) ctx->net.metrics.rx_malformed_cnt++;
       else fd_net_rx_pkt( &ctx->net, stem, chunk, comp[i].frame_sz, tspub, &freed_chunk );
       if( FD_UNLIKELY( !freed_chunk ) ) FD_LOG_CRIT(( "invalid RX chunk in mcache" ));
       fd_iavf_tile_rx_recycle( ctx, member, freed_chunk );
@@ -434,7 +465,11 @@ before_frag( fd_iavf_tile_t * ctx,
   if( route->use_loopback ) target_idx = 0UL;
   if( kind_id!=target_idx ) return 1;
 
-  ctx->tx_member = 0UL;
+  ctx->tx_member = route->use_loopback ? 0UL : fd_iavf_tile_select_tx_member( ctx, hash );
+  if( FD_UNLIKELY( ctx->tx_member==ULONG_MAX ) ) {
+    ctx->metrics.tx_no_link_cnt++;
+    return 1;
+  }
   fd_iavf_queue_t const * queue = &ctx->members[ ctx->tx_member ].queue;
   if( FD_UNLIKELY( !route->use_loopback && queue->tx_prod-queue->tx_cons>=queue->tx_depth-1UL ) ) {
     ctx->metrics.tx_no_buffer_cnt++;
@@ -575,6 +610,7 @@ metrics_write( fd_iavf_tile_t * ctx ) {
   FD_MCNT_SET(   IAVF, PKT_RX_BYTES,       ctx->net.metrics.rx_bytes_total       );
   FD_MCNT_SET(   IAVF, PKT_RX_MALFORMED,   ctx->net.metrics.rx_malformed_cnt     );
   FD_MCNT_SET(   IAVF, PKT_RX_ROUTE_FAIL,  ctx->net.metrics.rx_route_fail_cnt    );
+  FD_MCNT_SET(   IAVF, PKT_RX_NO_LINK,     ctx->metrics.rx_no_link_cnt           );
   FD_MCNT_SET(   IAVF, GRE_PKT_RX,         ctx->net.metrics.rx_gre_cnt           );
   FD_MCNT_SET(   IAVF, GRE_PKT_RX_INVALID, ctx->net.metrics.rx_gre_invalid_cnt   );
   FD_MCNT_SET(   IAVF, GRE_PKT_RX_IGNORED, ctx->net.metrics.rx_gre_ignored_cnt   );
@@ -584,6 +620,7 @@ metrics_write( fd_iavf_tile_t * ctx ) {
   FD_MCNT_SET(   IAVF, PKT_TX_COMPLETED,      ctx->net.metrics.tx_pkt_cnt            );
   FD_MCNT_SET(   IAVF, PKT_TX_BYTES,          ctx->net.metrics.tx_bytes_total        );
   FD_MCNT_SET(   IAVF, PKT_TX_NO_BUFFER,      ctx->metrics.tx_no_buffer_cnt          );
+  FD_MCNT_SET(   IAVF, PKT_TX_NO_LINK,        ctx->metrics.tx_no_link_cnt            );
   FD_MCNT_ENUM_COPY( IAVF, PKT_TX_ROUTE_FAIL, ctx->net.metrics.tx_route_fail_cnt     );
   FD_MCNT_SET(   IAVF, PKT_TX_INVALID,        ctx->net.metrics.tx_invalid_cnt        );
   FD_MCNT_SET(   IAVF, PKT_TX_NO_NEIGHBOR,    ctx->router.metrics.tx_neigh_fail_cnt  );

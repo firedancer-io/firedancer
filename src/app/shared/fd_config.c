@@ -9,7 +9,7 @@
 #include "../../disco/genesis/fd_genesis_cluster.h"
 #include "../../discof/genesis/fd_genesi_tile.h"
 #include "../../disco/net/fd_net_tile.h"
-#include "../../disco/net/fd_linux_bond.h"
+#include "../../disco/net/iavf/fd_iavf.h"
 #include "../../disco/pack/fd_pack_cost.h"
 #include "../../disco/pack/fd_microblock.h"
 #include "../../ballet/shred/fd_shred.h"
@@ -269,10 +269,6 @@ fd_config_fill_net( fd_config_t * config ) {
   if( FD_UNLIKELY( !if_nametoindex( config->net.interface ) ) )
     FD_LOG_ERR(( "configuration specifies network interface `%s` which does not exist", config->net.interface ));
 
-  if( !strcmp( config->net.provider, "iavf" ) && fd_bonding_is_master( config->net.interface ) ) {
-    FD_LOG_ERR(( "IAVF currently requires one physical interface, bond support is not available" ));
-  }
-
   char driver[ NAME_SZ ];
   fd_net_get_driver( driver, sizeof(driver), config->net.interface );
   if( !strcmp( config->net.provider, "mlx5" ) && FD_UNLIKELY( strcmp( driver, "mlx5_core" ) ) ) {
@@ -282,8 +278,10 @@ fd_config_fill_net( fd_config_t * config ) {
   }
 
   if( !strcmp( config->net.provider, "iavf" ) ) {
-    if( FD_UNLIKELY( strcmp( driver, "ice" ) && strcmp( driver, "i40e" ) ) ) {
-      FD_LOG_ERR(( "IAVF requires an ice or i40e physical function, interface %s uses %s", config->net.interface, driver ));
+    char members[ FD_IAVF_MEMBER_MAX ][ 16 ];
+    ulong member_cnt;
+    if( FD_UNLIKELY( fd_iavf_member_interfaces( config->net.interface, members, &member_cnt ) ) ) {
+      FD_LOG_ERR(( "IAVF requires ice or i40e PFs on a physical interface or 802.3ad bond (%i-%s)", errno, fd_io_strerror( errno ) ));
     }
     if( config->net.bind_address_parsed && !fd_config_host_ip4_owned( config->net.bind_address_parsed ) ) {
       FD_LOG_ERR(( "IAVF bind address must be assigned to the host" ));

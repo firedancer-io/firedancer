@@ -563,8 +563,8 @@ iavf_bind_vfio( char const * vf_pci ) {
   return 0;
 }
 
-/* iavf_owned records only resources acquired by this configure stage. */
-struct iavf_owned {
+/* iavf_owned_v1 preserves records written before bond support. */
+struct iavf_owned_v1 {
   uint                        version;
   char                        pf_pci[ FD_IAVF_PCI_ADDR_SZ ];
   char                        vf_pci[ FD_IAVF_PCI_ADDR_SZ ];
@@ -574,7 +574,49 @@ struct iavf_owned {
   struct ethtool_rx_flow_spec drops[ IAVF_DROP_MAX ];
   ulong                       checksum;
 };
+typedef struct iavf_owned_v1 iavf_owned_v1_t;
+
+/* iavf_owned records only resources acquired by this configure stage. */
+struct iavf_owned {
+  uint                        version;
+  char                        pf_pci[ FD_IAVF_PCI_ADDR_SZ ];
+  char                        vf_pci[ FD_IAVF_PCI_ADDR_SZ ];
+  char                        owner_if[ IFNAMSIZ ];
+  uint                        vf_created;
+  int                         ntuple_was_enabled;
+  uint                        drop_cnt;
+  struct ethtool_rx_flow_spec drops[ IAVF_DROP_MAX ];
+  ulong                       checksum;
+};
 typedef struct iavf_owned iavf_owned_t;
+
+static int
+iavf_owned_decode( char const *   pf_if,
+                   void const *   data,
+                   ulong          data_sz,
+                   iavf_owned_t * owned ) {
+  if( data_sz==sizeof(iavf_owned_v1_t) ) {
+    iavf_owned_v1_t old;
+    fd_memcpy( &old, data, sizeof(old) );
+    if( old.version!=1U || old.checksum!=fd_hash( 0UL, &old, offsetof(iavf_owned_v1_t,checksum) ) ) return EBADMSG;
+    *owned = (iavf_owned_t) {
+      .version            = 2U, .vf_created=old.vf_created,
+      .ntuple_was_enabled = old.ntuple_was_enabled, .drop_cnt=old.drop_cnt
+    };
+    fd_memcpy( owned->pf_pci, old.pf_pci, sizeof(old.pf_pci) );
+    fd_memcpy( owned->vf_pci, old.vf_pci, sizeof(old.vf_pci) );
+    fd_memcpy( owned->drops, old.drops, sizeof(old.drops) );
+    fd_cstr_ncpy( owned->owner_if, pf_if, sizeof(owned->owner_if) );
+  } else if( data_sz==sizeof(*owned) ) {
+    fd_memcpy( owned, data, sizeof(*owned) );
+    if( owned->version!=2U || owned->checksum!=fd_hash( 0UL, owned, offsetof(iavf_owned_t,checksum) ) ) return EBADMSG;
+  } else return EBADMSG;
+  if( !owned->pf_pci[0] || owned->pf_pci[12] || owned->vf_pci[12] ||
+      !owned->owner_if[0] || !memchr( owned->owner_if, '\0', sizeof(owned->owner_if) ) ||
+      owned->drop_cnt>IAVF_DROP_MAX || owned->vf_created>1U ||
+      (owned->ntuple_was_enabled!=0 && owned->ntuple_was_enabled!=1) ) return EBADMSG;
+  return 0;
+}
 
 static void
 iavf_owned_path( char const * pf_if,
@@ -595,14 +637,14 @@ iavf_owned_read( char const *   pf_if,
   int err = 0;
   if( flock( fd, (locked_fd ? LOCK_EX : LOCK_SH) | LOCK_NB ) || fstat( fd, &st ) ) err = errno;
   else if( !S_ISREG( st.st_mode ) || st.st_uid || st.st_nlink!=1UL ||
-           (st.st_mode & 0777)!=0600 || st.st_size!=(off_t)sizeof(*owned) ) err = EBADMSG;
+           (st.st_mode & 0777)!=0600 ||
+           (st.st_size!=(off_t)sizeof(*owned) && st.st_size!=(off_t)sizeof(iavf_owned_v1_t)) ) err = EBADMSG;
   else {
-    long sz = pread( fd, owned, sizeof(*owned), 0L );
+    uchar data[ sizeof(iavf_owned_t) ];
+    long sz = pread( fd, data, (ulong)st.st_size, 0L );
     if( sz<0L ) err = errno;
-    else if( sz!=(long)sizeof(*owned) || owned->version!=1U ||
-             owned->drop_cnt>IAVF_DROP_MAX || owned->pf_pci[12] || owned->vf_pci[12] ||
-             owned->vf_created>1U || (owned->ntuple_was_enabled!=0 && owned->ntuple_was_enabled!=1) ||
-             owned->checksum!=fd_hash( 0UL, owned, offsetof(iavf_owned_t,checksum) ) ) err = EBADMSG;
+    else if( sz!=st.st_size ) err = EBADMSG;
+    else err = iavf_owned_decode( pf_if, data, (ulong)sz, owned );
   }
   if( !err && locked_fd ) *locked_fd = fd;
   else if( close( fd ) && !err ) err = errno;
@@ -733,8 +775,8 @@ done:
 }
 
 static int
-iavf_owned_remove( char const *         pf_if,
-                   iavf_owned_t const * owned ) {
+iavf_owned_validate( char const *         pf_if,
+                     iavf_owned_t const * owned ) {
   char pf_pci[ FD_IAVF_PCI_ADDR_SZ ];
   if( iavf_pf_pci( pf_if, pf_pci ) ) return -1;
   if( strcmp( pf_pci, owned->pf_pci ) ) { errno = ESTALE; return -1; }
@@ -744,7 +786,7 @@ iavf_owned_remove( char const *         pf_if,
   if( numvfs && !owned->vf_created ) { errno = EBUSY; return -1; }
   if( numvfs && owned->vf_created ) {
     char vf_pci[ FD_IAVF_PCI_ADDR_SZ ];
-    if( numvfs!=1U ) { errno = EBUSY; return -1; }
+    if( numvfs!=1U || !owned->vf_pci[0] ) { errno = EBUSY; return -1; }
     if( iavf_vf_pci( pf_if, vf_pci ) || iavf_validate_vf( pf_if, vf_pci ) ) return -1;
     if( owned->vf_pci[0] && strcmp( vf_pci, owned->vf_pci ) ) { errno = ESTALE; return -1; }
     uint user_pid;
@@ -757,6 +799,27 @@ iavf_owned_remove( char const *         pf_if,
     }
   }
 
+  fd_ethtool_ioctl_t ioc;
+  if( !fd_ethtool_ioctl_init( &ioc, pf_if ) ) return -1;
+  int err = 0;
+  for( uint i=0U; i<owned->drop_cnt; i++ ) {
+    struct ethtool_rx_flow_spec current;
+    if( iavf_drop_get( &ioc, owned->drops[i].location, &current ) ) {
+      if( errno==ENOENT || errno==EINVAL ) continue;
+      err = errno;
+      break;
+    }
+    if( !iavf_drop_equal( &current, &owned->drops[i] ) ) { err = ESTALE; break; }
+  }
+  fd_ethtool_ioctl_fini( &ioc );
+  if( err ) { errno = err; return -1; }
+  return 0;
+}
+
+static int
+iavf_owned_remove( char const *         pf_if,
+                   iavf_owned_t const * owned ) {
+  if( iavf_owned_validate( pf_if, owned ) ) return -1;
   fd_ethtool_ioctl_t ioc;
   if( !fd_ethtool_ioctl_init( &ioc, pf_if ) ) return -1;
   int err = 0;
@@ -779,6 +842,8 @@ iavf_owned_remove( char const *         pf_if,
 done:
   fd_ethtool_ioctl_fini( &ioc );
   if( err ) { errno = err; return -1; }
+  uint numvfs;
+  if( iavf_numvfs_get( pf_if, &numvfs ) ) return -1;
   if( numvfs && owned->vf_created && iavf_numvfs_set( pf_if, 0U ) ) return -1;
   char owned_path[ PATH_MAX ];
   iavf_owned_path( pf_if, owned_path );
@@ -786,79 +851,185 @@ done:
 }
 
 static int
-iavf_init_device( char const *        pf_if,
-                  uchar const         mac[ 6 ],
-                  fd_config_t const * config ) {
-  iavf_owned_t owned = { .version=1U, .ntuple_was_enabled=1 };
-  if( iavf_pf_pci( pf_if, owned.pf_pci ) ) return -1;
+iavf_init_preflight( char const *        pf_if,
+                     fd_config_t const * config,
+                     iavf_owned_t *      owned ) {
+  *owned = (iavf_owned_t) { .version=2U, .ntuple_was_enabled=1 };
+  fd_cstr_ncpy( owned->owner_if, config->net.interface, sizeof(owned->owner_if) );
+  if( iavf_pf_pci( pf_if, owned->pf_pci ) ) return -1;
   char driver[ FD_IAVF_DRIVER_NAME_MAX ];
-  if( iavf_pci_driver( owned.pf_pci, driver ) ) return -1;
+  if( iavf_pci_driver( owned->pf_pci, driver ) ) return -1;
   if( strcmp( driver, "ice" ) && strcmp( driver, "i40e" ) ) { errno = EPROTONOSUPPORT; return -1; }
   uint numvfs;
   if( iavf_numvfs_get( pf_if, &numvfs ) ) return -1;
   if( numvfs ) { errno = EBUSY; return -1; }
-
   char owned_path[ PATH_MAX ];
   iavf_owned_path( pf_if, owned_path );
-  int owned_fd = open( owned_path, O_RDWR | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0600 );
-  if( owned_fd<0 ) return -1;
+  struct stat st;
+  if( !lstat( owned_path, &st ) ) { errno = EEXIST; return -1; }
+  return errno==ENOENT ? 0 : -1;
+}
+
+static int
+iavf_init_device( char const *        pf_if,
+                  uchar const         mac[ 6 ],
+                  fd_config_t const * config,
+                  iavf_owned_t *      owned,
+                  int                 owned_fd ) {
+  char pf_pci[ FD_IAVF_PCI_ADDR_SZ ];
+  uint numvfs;
+  if( iavf_pf_pci( pf_if, pf_pci ) || iavf_numvfs_get( pf_if, &numvfs ) ) return -1;
+  if( numvfs || strcmp( pf_pci, owned->pf_pci ) ) { errno = ESTALE; return -1; }
   int err = 0;
-  if( flock( owned_fd, LOCK_EX | LOCK_NB ) ||
-      iavf_owned_save( owned_fd, &owned ) || iavf_numvfs_set( pf_if, 1U ) ) err = errno;
+  if( iavf_numvfs_set( pf_if, 1U ) ) err = errno;
   if( !err ) {
-    owned.vf_created = 1U;
-    if( iavf_owned_save( owned_fd, &owned ) ) err = errno;
+    owned->vf_created = 1U;
+    if( iavf_owned_save( owned_fd, owned ) ) err = errno;
   }
-  if( !err && (iavf_vf_pci( pf_if, owned.vf_pci ) || iavf_validate_vf( pf_if, owned.vf_pci ) ||
-      iavf_owned_save( owned_fd, &owned ) || iavf_policy_set( pf_if, mac ) ||
-      iavf_bind_vfio( owned.vf_pci )) ) err = errno;
+  if( !err && (iavf_vf_pci( pf_if, owned->vf_pci ) || iavf_validate_vf( pf_if, owned->vf_pci ) ||
+      iavf_owned_save( owned_fd, owned ) || iavf_policy_set( pf_if, mac ) ||
+      iavf_bind_vfio( owned->vf_pci )) ) err = errno;
   fd_iavf_pci_info_t pci_info;
-  if( !err && fd_iavf_pci_probe( &pci_info, owned.vf_pci ) ) err = errno;
-  if( !err && iavf_drops_install( pf_if, config, &owned, owned_fd ) ) err = errno;
-  if( !err ) return close( owned_fd );
-  if( iavf_owned_remove( pf_if, &owned ) ) {
-    FD_LOG_WARNING(( "IAVF rollback for %s failed (%i-%s), ownership retained in %s",
-                     pf_if, errno, fd_io_strerror( errno ), owned_path ));
+  if( !err && fd_iavf_pci_probe( &pci_info, owned->vf_pci ) ) err = errno;
+  if( !err && iavf_drops_install( pf_if, config, owned, owned_fd ) ) err = errno;
+  if( err ) { errno = err; return -1; }
+  return 0;
+}
+
+static int
+iavf_owned_interfaces( char const * owner_if,
+                       char         members[ FD_IAVF_MEMBER_MAX ][ IFNAMSIZ ],
+                       ulong *      member_cnt ) {
+  *member_cnt = 0UL;
+  DIR * dir   = opendir( IAVF_RUN_ROOT );
+  if( !dir ) return -1;
+  int err             = 0;
+  char const prefix[] = "firedancer-iavf-";
+  char const suffix[] = ".owned";
+  for(;;) {
+    errno                 = 0;
+    struct dirent * entry = readdir( dir );
+    if( !entry ) { err = errno; break; }
+    ulong len       = strlen( entry->d_name );
+    ulong prefix_sz = sizeof(prefix)-1UL;
+    ulong suffix_sz = sizeof(suffix)-1UL;
+    if( len<=prefix_sz+suffix_sz || len>=prefix_sz+suffix_sz+IFNAMSIZ ||
+        memcmp( entry->d_name, prefix, prefix_sz ) ||
+        memcmp( entry->d_name+len-suffix_sz, suffix, suffix_sz ) ) continue;
+    char pf_if[ IFNAMSIZ ] = {0};
+    fd_memcpy( pf_if, entry->d_name+prefix_sz, len-prefix_sz-suffix_sz );
+    iavf_owned_t owned;
+    if( iavf_owned_read( pf_if, &owned, NULL ) ) {
+      err = errno;
+      FD_LOG_WARNING(( "IAVF ownership for %s unreadable (%i-%s)", pf_if, err, fd_io_strerror( err ) ));
+      break;
+    }
+    if( strcmp( owned.owner_if, owner_if ) ) continue;
+    if( *member_cnt>=FD_IAVF_MEMBER_MAX ) { err = E2BIG; break; }
+    fd_cstr_ncpy( members[ (*member_cnt)++ ], pf_if, IFNAMSIZ );
   }
-  close( owned_fd );
-  errno = err;
-  return -1;
+  if( closedir( dir ) && !err ) err = errno;
+  if( err ) { errno = err; return -1; }
+  return 0;
 }
 
 static void
 init( fd_config_t const * config ) {
+  char  members[ FD_IAVF_MEMBER_MAX ][ IFNAMSIZ ];
+  ulong member_cnt;
+  if( fd_iavf_member_interfaces( config->net.interface, members, &member_cnt ) ) {
+    FD_LOG_ERR(( "IAVF member discovery failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
   uchar mac[ 6 ];
   if( iavf_interface_mac( config->net.interface, mac ) ) {
     FD_LOG_ERR(( "interface MAC read failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
+  iavf_owned_t owned    [ FD_IAVF_MEMBER_MAX ];
+  int          owned_fds[ FD_IAVF_MEMBER_MAX ];
+  for( ulong i=0UL; i<member_cnt; i++ ) {
+    if( iavf_init_preflight( members[i], config, &owned[i] ) ) {
+      FD_LOG_ERR(( "IAVF preflight for %s failed (%i-%s)", members[i], errno, fd_io_strerror( errno ) ));
+    }
+  }
+  ulong reserved_cnt = 0UL;
+  int   err          = 0;
+  for( ulong i=0UL; i<member_cnt; i++ ) {
+    char owned_path[ PATH_MAX ];
+    iavf_owned_path( members[i], owned_path );
+    int fd = open( owned_path, O_RDWR | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0600 );
+    if( fd<0 ) { err = errno; break; }
+    owned_fds[ reserved_cnt++ ] = fd;
+    if( flock( fd, LOCK_EX | LOCK_NB ) || iavf_owned_save( fd, &owned[i] ) ) { err = errno; break; }
+  }
+  if( err ) {
+    for( ulong i=0UL; i<reserved_cnt; i++ ) {
+      char owned_path[ PATH_MAX ];
+      iavf_owned_path( members[i], owned_path );
+      if( unlink( owned_path ) ) FD_LOG_WARNING(( "IAVF reservation cleanup for %s failed (%i-%s)", members[i], errno, fd_io_strerror( errno ) ));
+      close( owned_fds[i] );
+    }
+    FD_LOG_ERR(( "IAVF ownership reservation failed (%i-%s)", err, fd_io_strerror( err ) ));
+  }
   if( !iavf_vfio_avail() && iavf_vfio_modprobe() ) {
-    FD_LOG_ERR(( "vfio-pci module load failed" ));
+    err = errno;
   }
-  if( iavf_init_device( config->net.interface, mac, config ) ) {
-    FD_LOG_ERR(( "IAVF configure for %s failed (%i-%s)", config->net.interface, errno, fd_io_strerror( errno ) ));
+  for( ulong i=0UL; i<member_cnt; i++ ) {
+    if( err ) break;
+    if( iavf_init_device( members[i], mac, config, &owned[i], owned_fds[i] ) ) {
+      err = errno;
+      FD_LOG_WARNING(( "IAVF configure for %s failed (%i-%s)", members[i], err, fd_io_strerror( err ) ));
+    }
   }
+  if( err ) {
+    for( ulong i=member_cnt; i>0UL; i-- ) {
+      if( iavf_owned_remove( members[i-1UL], &owned[i-1UL] ) ) {
+        FD_LOG_WARNING(( "IAVF rollback for %s failed (%i-%s), ownership retained", members[i-1UL], errno, fd_io_strerror( errno ) ));
+      }
+    }
+  }
+  for( ulong i=0UL; i<member_cnt; i++ ) {
+    if( close( owned_fds[i] ) && !err ) err = errno;
+  }
+  if( err ) FD_LOG_ERR(( "IAVF configure failed (%i-%s)", err, fd_io_strerror( err ) ));
 }
 
 static int
 fini( fd_config_t const * config,
       int                 pre_init FD_PARAM_UNUSED ) {
-  iavf_owned_t owned;
-  int owned_fd;
-  if( iavf_owned_read( config->net.interface, &owned, &owned_fd ) ) {
-    if( errno==ENOENT ) return 0;
+  char  members[ FD_IAVF_MEMBER_MAX ][ IFNAMSIZ ];
+  ulong member_cnt;
+  if( iavf_owned_interfaces( config->net.interface, members, &member_cnt ) ) {
     FD_LOG_ERR(( "IAVF ownership read failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
-  if( iavf_owned_remove( config->net.interface, &owned ) ) {
-    FD_LOG_ERR(( "IAVF cleanup failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  iavf_owned_t owned    [ FD_IAVF_MEMBER_MAX ];
+  int          owned_fds[ FD_IAVF_MEMBER_MAX ];
+  ulong locked_cnt = 0UL;
+  int   err        = 0;
+  for( ulong i=0UL; i<member_cnt; i++ ) {
+    if( iavf_owned_read( members[i], &owned[i], &owned_fds[i] ) ) { err = errno; break; }
+    locked_cnt++;
+    if( strcmp( owned[i].owner_if, config->net.interface ) ) { err = ESTALE; break; }
+    if( iavf_owned_validate( members[i], &owned[i] ) ) { err = errno; break; }
   }
-  if( close( owned_fd ) ) FD_LOG_ERR(( "IAVF ownership close failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  return 1;
+  if( !err ) {
+    for( ulong i=0UL; i<member_cnt; i++ ) {
+      if( iavf_owned_remove( members[i], &owned[i] ) ) {
+        err = errno;
+        FD_LOG_WARNING(( "IAVF cleanup for %s failed (%i-%s), ownership retained", members[i], err, fd_io_strerror( err ) ));
+        break;
+      }
+    }
+  }
+  for( ulong i=0UL; i<locked_cnt; i++ ) {
+    if( close( owned_fds[i] ) && !err ) err = errno;
+  }
+  if( err ) FD_LOG_ERR(( "IAVF cleanup failed (%i-%s)", err, fd_io_strerror( err ) ));
+  return !!member_cnt;
 }
 
 static configure_result_t
-check( fd_config_t const * config,
-       int                 check_type FD_PARAM_UNUSED ) {
-  char const * pf_if = config->net.interface;
+iavf_check_device( fd_config_t const * config,
+                   char const *        pf_if ) {
   iavf_owned_t owned;
   if( iavf_owned_read( pf_if, &owned, NULL ) ) {
     if( errno==ENOENT ) NOT_CONFIGURED( "IAVF ownership record missing" );
@@ -868,7 +1039,8 @@ check( fd_config_t const * config,
   char vf_pci[ FD_IAVF_PCI_ADDR_SZ ];
   char driver[ FD_IAVF_DRIVER_NAME_MAX ];
   uint numvfs;
-  if( iavf_pf_pci( pf_if, pf_pci ) || strcmp( owned.pf_pci, pf_pci ) ||
+  if( strcmp( owned.owner_if, config->net.interface ) ||
+      iavf_pf_pci( pf_if, pf_pci ) || strcmp( owned.pf_pci, pf_pci ) ||
       iavf_numvfs_get( pf_if, &numvfs ) || numvfs!=1U || !owned.vf_created ||
       iavf_vf_pci( pf_if, vf_pci ) || strcmp( owned.vf_pci, vf_pci ) ||
       iavf_validate_vf( pf_if, vf_pci ) ||
@@ -877,7 +1049,7 @@ check( fd_config_t const * config,
   }
   uchar            mac[ 6 ];
   iavf_vf_policy_t policy;
-  if( iavf_interface_mac( pf_if, mac ) || iavf_policy_get( pf_if, &policy ) ||
+  if( iavf_interface_mac( config->net.interface, mac ) || iavf_policy_get( pf_if, &policy ) ||
       !policy.mac_valid || memcmp( policy.mac, mac, 6UL ) ||
       !policy.spoofchk_valid || policy.spoofchk ||
       !policy.trust_valid || policy.trust ||
@@ -902,6 +1074,31 @@ check( fd_config_t const * config,
   }
   fd_ethtool_ioctl_fini( &ioc );
   if( !valid ) PARTIALLY_CONFIGURED( "PF UDP drop rules differ" );
+  CONFIGURE_OK();
+}
+
+static configure_result_t
+check( fd_config_t const * config,
+       int                 check_type FD_PARAM_UNUSED ) {
+  char  members[ FD_IAVF_MEMBER_MAX ][ IFNAMSIZ ];
+  char  owned[ FD_IAVF_MEMBER_MAX ][ IFNAMSIZ ];
+  ulong member_cnt;
+  ulong owned_cnt;
+  if( fd_iavf_member_interfaces( config->net.interface, members, &member_cnt ) ) {
+    PARTIALLY_CONFIGURED( "IAVF member discovery failed (%i-%s)", errno, fd_io_strerror( errno ) );
+  }
+  if( iavf_owned_interfaces( config->net.interface, owned, &owned_cnt ) ) {
+    PARTIALLY_CONFIGURED( "IAVF ownership unreadable (%i-%s)", errno, fd_io_strerror( errno ) );
+  }
+  if( !owned_cnt ) NOT_CONFIGURED( "IAVF ownership records missing" );
+  if( member_cnt!=owned_cnt ) PARTIALLY_CONFIGURED( "IAVF members differ from the owned configuration" );
+  for( ulong i=0UL; i<member_cnt; i++ ) {
+    int found = 0;
+    for( ulong j=0UL; j<owned_cnt; j++ ) found |= !strcmp( members[i], owned[j] );
+    if( !found ) PARTIALLY_CONFIGURED( "IAVF member %s has no ownership record", members[i] );
+    configure_result_t result = iavf_check_device( config, members[i] );
+    if( result.result!=CONFIGURE_OK ) return result;
+  }
   CONFIGURE_OK();
 }
 

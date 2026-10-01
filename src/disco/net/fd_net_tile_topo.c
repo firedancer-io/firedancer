@@ -7,6 +7,7 @@
 #include "../../app/shared/fd_config.h" /* FIXME layering violation */
 #include "../../util/pod/fd_pod_format.h"
 #include "fd_linux_bond.h"
+#include "iavf/fd_iavf.h"
 #include "../../waltz/ip/fd_iproute.h"
 
 #include <errno.h>
@@ -167,8 +168,9 @@ setup_iavf_tile( fd_topo_t *             topo,
   FD_STATIC_ASSERT( sizeof(tile->iavf.if_name)==IF_NAMESIZE, str_bounds );
   fd_cstr_ncpy( tile->iavf.if_name, net_cfg->interface, IF_NAMESIZE );
 
-  tile->iavf.member_cnt = 1UL;
-  fd_cstr_ncpy( tile->iavf.members[0], net_cfg->interface, IF_NAMESIZE );
+  if( FD_UNLIKELY( fd_iavf_member_interfaces( net_cfg->interface, tile->iavf.members, &tile->iavf.member_cnt ) ) ) {
+    FD_LOG_ERR(( "IAVF member discovery failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
 
   tile->iavf.net.bind_address = net_cfg->bind_address_parsed;
   tile->iavf.rx_queue_size    = net_cfg->iavf.rx_queue_size;
