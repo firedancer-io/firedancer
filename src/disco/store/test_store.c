@@ -380,8 +380,7 @@ test_spill( fd_wksp_t * wksp ) {
   ulong reused_off = fec0->data_off;
   FD_TEST( fd_store_remove( st, map, &mr0 ) );
   FD_TEST( st->spill_slot_cnt==1UL );
-  FD_TEST( st->spill_reclaim_cnt==1UL );
-  FD_TEST( !st->spill_free_cnt );
+  FD_TEST( st->spill_free_cnt==1UL );
 
   fd_hash_t mr3 = { { 3 } };
   fd_store_fec_t * fec3 = insert_payload( st, map, fd, &mr3, 0xD0, fec_data_max );
@@ -389,7 +388,6 @@ test_spill( fd_wksp_t * wksp ) {
   FD_TEST( fec2->data_state==FD_STORE_FEC_DATA_DISK );
   FD_TEST( fec2->data_off==reused_off );
   FD_TEST( st->spill_slot_cnt==1UL );
-  FD_TEST( !st->spill_reclaim_cnt );
   FD_TEST( st->spill_free_cnt==0UL );
   FD_TEST( !fd_store_fec_data_view( st, fd, fec2, view ) );
   FD_TEST( view->data[0]==0xC0 );
@@ -398,13 +396,68 @@ test_spill( fd_wksp_t * wksp ) {
   FD_TEST( !fstat( fd, spill_stat1 ) );
   FD_TEST( spill_stat1->st_blocks==spill_stat0->st_blocks );
 
+  /* A freed slot keeps its disk blocks for the next spill. */
   FD_TEST( fd_store_remove( st, map, &mr2 ) );
-  FD_TEST( st->spill_reclaim_cnt==1UL );
-  FD_TEST( fd_store_disk_maintain( st, fd ) );
-  struct stat reclaimed_stat[1];
-  FD_TEST( !fstat( fd, reclaimed_stat ) );
-  FD_TEST( reclaimed_stat->st_blocks<spill_stat0->st_blocks );
-  FD_TEST( st->spill_free_cnt==1UL );
+  FD_TEST( st->spill_free_cnt==1UL && st->spill_slot_cnt==1UL );
+  struct stat freed_stat[1];
+  FD_TEST( !fstat( fd, freed_stat ) );
+  FD_TEST( freed_stat->st_blocks==spill_stat0->st_blocks );
+
+  close( fd );
+  fd_wksp_free_laddr( fd_store_delete( fd_store_leave( st ) ) );
+}
+
+/* Spill slots in use stay a dense prefix: churn reuses freed slots, so
+   the file's spill blocks track the most payloads spilled at once, not
+   the number of spills. */
+
+void
+test_spill_high_water( fd_wksp_t * wksp ) {
+  ulong fec_max      = 16UL;
+  ulong fec_data_max = 64UL;
+  ulong cache_bytes  = 1UL * fd_store_payload_slot_sz( fec_data_max );
+
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_store_align(), fd_store_footprint( fec_max, fec_data_max, 0UL, cache_bytes, 0UL ), 1UL );
+  fd_store_t * st = fd_store_join( fd_store_new( mem, fec_max, fec_data_max, 0UL, cache_bytes, 0UL, FD_SHRED_BLK_MAX, 0UL ) );
+  FD_TEST( st && st->cache_slot_cnt==1UL );
+  int fd = store_file_open( st, O_RDWR );
+  FD_TEST( fd>=0 );
+  fd_store_map_t map[1];
+  FD_TEST( fd_store_map_ljoin( st, map ) );
+  struct stat stat0[1];
+  FD_TEST( !fstat( fd, stat0 ) );
+
+  /* Five payloads through a one-slot cache: four spill to slots 0..3. */
+  fd_hash_t mr[ 5 ];
+  for( ulong i=0UL; i<5UL; i++ ) {
+    mr[ i ] = (fd_hash_t){ { (uchar)(i+1UL) } };
+    insert_payload( st, map, fd, &mr[ i ], (uchar)(0xA0+i), fec_data_max );
+  }
+  FD_TEST( st->spill_slot_cnt==4UL && st->fec_spill_cnt==4UL );
+  struct stat peak[1];
+  FD_TEST( !fstat( fd, peak ) );
+  FD_TEST( peak->st_blocks>stat0->st_blocks );
+
+  /* 100 rounds of remove-oldest, insert-new keep four spilled at once:
+     every spill reuses a freed slot, so no slot past the prefix is ever
+     touched and the file does not grow. */
+  for( ulong r=0UL; r<100UL; r++ ) {
+    FD_TEST( fd_store_remove( st, map, &mr[ r%5UL ] ) );
+    mr[ r%5UL ] = (fd_hash_t){ .ul = { 0x100UL+r } };
+    fd_store_fec_t * fec = insert_payload( st, map, fd, &mr[ r%5UL ], (uchar)r, fec_data_max );
+    FD_TEST( fec );
+  }
+  FD_TEST( st->spill_slot_cnt==4UL && st->fec_spill_cnt==104UL );
+  struct stat churn[1];
+  FD_TEST( !fstat( fd, churn ) );
+  FD_TEST( churn->st_blocks==peak->st_blocks );
+
+  /* Freeing everything keeps the blocks: the high-water mark stays. */
+  for( ulong i=0UL; i<5UL; i++ ) FD_TEST( fd_store_remove( st, map, &mr[ i ] ) );
+  FD_TEST( !st->spill_live_cnt && st->spill_free_cnt==4UL && st->spill_slot_cnt==4UL );
+  struct stat freed[1];
+  FD_TEST( !fstat( fd, freed ) );
+  FD_TEST( freed->st_blocks==peak->st_blocks );
 
   close( fd );
   fd_wksp_free_laddr( fd_store_delete( fd_store_leave( st ) ) );
@@ -1130,6 +1183,7 @@ main( int argc, char ** argv ) {
   test_fec_data_max( wksp );
   test_fec_sets_arena( wksp );
   test_spill       ( wksp );
+  test_spill_high_water( wksp );
   test_preevict    ( wksp );
   test_pinned_spill( wksp );
   test_disk_query_highest( wksp );
