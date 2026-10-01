@@ -282,12 +282,6 @@ fd_topo_initialize( config_t * config ) {
   int gossip_vote_enabled = leader_enabled || ( rpc_enabled && !alpenglow_enabled );
   int failover_enabled    = config->firedancer.failover.enabled;
 
-  /* --alpenglow sets the flag after the config was validated, so the
-     pair is refused here as well. */
-  if( FD_UNLIKELY( failover_enabled && alpenglow_enabled ) ) {
-    FD_LOG_ERR(( "failover in this build supports Tower only, run without --alpenglow or set [failover.enabled] to false" ));
-  }
-
   char const * repair = alpenglow_enabled ? "rotor" : "repair";
   char const * poh    = alpenglow_enabled ? "motor" : "poh";
 
@@ -441,6 +435,10 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_wksp( topo, "admin_failov" );
     fd_topob_wksp( topo, "failov_admin" );
     if( !alpenglow_enabled ) fd_topob_wksp( topo, "adopt_tower" );
+    else {
+      fd_topob_wksp( topo, "failov_votor" );
+      fd_topob_wksp( topo, "votor_hist"   );
+    }
     if( !config->tiles.gui.enabled ) fd_topob_wksp( topo, "gossip_ciseen" );
   }
 
@@ -561,6 +559,10 @@ fd_topo_initialize( config_t * config ) {
     if( !alpenglow_enabled ) {
     /**/               fd_topob_link( topo, "adopt_tower",   "adopt_tower",   32UL,                                     FD_FAILOVER_TOWER_STATE_MAX,   1UL );
     /**/               fd_topob_link( topo, "tower_adopt",   "adopt_tower",   32UL,                                     sizeof(fd_tower_adopt_result_t), 1UL );
+    } else {
+    /**/               fd_topob_link( topo, "failov_votor",  "failov_votor",  32UL,                                     FD_FAILOVER_STATE_MAX,           1UL );
+    /**/               fd_topob_link( topo, "votor_failov",  "failov_votor",  32UL,                                     sizeof(fd_votor_adopt_result_t), 1UL );
+    /**/               fd_topob_link( topo, "votor_hist",    "votor_hist",    1024UL,                                   sizeof(fd_votor_hist_msg_t),     1UL );
     }
     if( !config->tiles.gui.enabled ) {
                        fd_topob_link( topo, "gossip_ciseen", "gossip_ciseen", 65536UL*2UL,                              sizeof(fd_gossip_update_message_t), 1UL );
@@ -872,6 +874,14 @@ fd_topo_initialize( config_t * config ) {
        stay the tower tile's first output link. */
     /**/               fd_topob_tile_out(   topo, "failov",  0UL,                       "adopt_tower",   0UL                                                );
     /**/               fd_topob_tile_in (   topo, "failov",  0UL,          "metric_in", "tower_adopt",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  }
+  if( alpenglow_enabled && failover_enabled ) {
+    /* The votor stands in for the tower here, its history frames are
+       read like tower_out and the votor side is wired with the other
+       Alpenglow links below. */
+    /**/               fd_topob_tile_in (   topo, "failov",  0UL,          "metric_in", "votor_hist",    0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+    /**/               fd_topob_tile_out(   topo, "failov",  0UL,                       "failov_votor",  0UL                                                );
+    /**/               fd_topob_tile_in (   topo, "failov",  0UL,          "metric_in", "votor_failov",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   }
 
   FOR(execrp_tile_cnt) fd_topob_tile_in (   topo, "execrp",  i,            "metric_in", "replay_execrp", i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
@@ -1293,6 +1303,12 @@ fd_topo_initialize( config_t * config ) {
       /**/             fd_topob_tile_in (   topo, "rpc",    0UL,          "metric_in", "votor_out",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
     }
 
+    /* Before sign_votor, the stem numbers only polled inputs. */
+    if( FD_UNLIKELY( failover_enabled ) ) {
+      /**/             fd_topob_tile_in (   topo, "votor",  0UL,          "metric_in", "failov_votor",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
+      /**/             fd_topob_tile_out(   topo, "votor",  0UL,                       "votor_hist",    0UL                                                  );
+      /**/             fd_topob_tile_out(   topo, "votor",  0UL,                       "votor_failov",  0UL                                                  );
+    }
     /**/               fd_topob_tile_in (   topo, "sign",   0UL,          "metric_in", "votor_sign",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
     /**/               fd_topob_tile_out(   topo, "votor",  0UL,                       "votor_sign",    0UL                                                  );
     /**/               fd_topob_tile_in (   topo, "votor",  0UL,          "metric_in", "sign_votor",    0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );

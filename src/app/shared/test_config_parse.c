@@ -220,7 +220,8 @@ main( int     argc,
   FD_TEST( !failover_is_valid( config, 1, "0.0.0.0",   0,    "vote.json", 0 ) );
   FD_TEST( !failover_is_valid( config, 1, "localhost", 8010, "vote.json", 0 ) );
   FD_TEST( !failover_is_valid( config, 1, "0.0.0.0",   8010, "",          0 ) );
-  FD_TEST( !failover_is_valid( config, 1, "0.0.0.0",   8010, "vote.json", 1 ) );
+  FD_TEST(  failover_is_valid( config, 1, "0.0.0.0",   8010, "vote.json", 1 ) );
+  FD_TEST( !failover_is_valid( config, 1, "0.0.0.0",   0,    "vote.json", 1 ) );
   FD_TEST(  failover_is_valid( config, 0, "",          0,    "",          1 ) );
 
   /* Ensure we can selectively override a field */

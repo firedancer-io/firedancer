@@ -1187,8 +1187,9 @@ failover_adopt_hist( fd_votor_tile_t * ctx,
 
 /* Under failover the junk key never votes, and the staked key votes
    only after a history was adopted.  We boot under the junk key, so
-   any other key is the staked one.  The queued votes drained before
-   the switch, so the last history frame holds every vote we cast and
+   any other key is the staked one.  A key set-identity installs, other
+   than the junk one, votes the upstream way.  The queued votes drained
+   before the switch, so the last history frame holds every vote we cast and
    the failover tile drains up to the sequence after it. */
 static void
 failover_switched( fd_votor_tile_t * ctx ) {
@@ -1205,10 +1206,12 @@ failover_switched( fd_votor_tile_t * ctx ) {
     }
   }
   FD_BASE58_ENCODE_32_BYTES( ctx->id_key.uc, id_key_b58 );
-  int standby = fd_pubkey_eq( &ctx->id_key, &ctx->boot_id_key );
-  ctx->vote_authority = !standby && ctx->failover_hist_adopted;
-  FD_LOG_NOTICE(( "failover: switched to identity `%s`, this machine is now %s", id_key_b58, standby ? "a standby" : "the active voter" ));
-  if( FD_UNLIKELY( !standby && !ctx->failover_hist_adopted ) ) FD_LOG_WARNING(( "failover: the staked identity was installed without an adopted vote history, refusing to vote until an adoption precedes an identity switch" ));
+  int operator = !!FD_VOLATILE_CONST( ctx->id_keyswitch->operator );
+  int standby  = fd_pubkey_eq( &ctx->id_key, &ctx->boot_id_key );
+  ctx->vote_authority = !standby && ( operator || ctx->failover_hist_adopted );
+  FD_LOG_NOTICE(( "failover: switched to identity `%s`%s, this machine is now %s", id_key_b58, operator ? " by set-identity" : "",
+                  ctx->vote_authority ? "the active voter" : "a standby" ));
+  if( FD_UNLIKELY( !operator && !standby && !ctx->failover_hist_adopted ) ) FD_LOG_WARNING(( "failover: the staked identity was installed without an adopted vote history, refusing to vote until an adoption precedes an identity switch" ));
   ctx->failover_hist_adopted = 0;
   ctx->id_keyswitch->result  = ctx->hist_seq;
 }
@@ -1304,12 +1307,19 @@ failover_adopt_copy( fd_votor_tile_t * ctx,
 }
 
 /* The answer echoes the request's sequence number, the failover tile
-   waits for it. */
+   waits for it.  While we vote nothing replaces our history, only a
+   request that crossed set-identity can arrive then. */
 static void
 failover_adopt_answer( fd_votor_tile_t *   ctx,
                        ulong               sig,
                        fd_stem_context_t * stem ) {
-  fd_votor_adopt_result_t result = failover_adopt_hist( ctx, ctx->adopt_req, ctx->adopt_req_sz );
+  fd_votor_adopt_result_t result;
+  if( FD_UNLIKELY( ctx->vote_authority ) ) {
+    FD_LOG_WARNING(( "failover: refusing a vote history adoption, this machine votes" ));
+    result = (fd_votor_adopt_result_t){ .result=FD_VOTOR_ADOPT_ERR_INVALID, .root=ULONG_MAX, .vote_slot=ULONG_MAX, .vote_bound=ULONG_MAX };
+  } else {
+    result = failover_adopt_hist( ctx, ctx->adopt_req, ctx->adopt_req_sz );
+  }
   fd_memcpy( fd_chunk_to_laddr( ctx->failov_out_mem, ctx->failov_out_chunk ), &result, sizeof(result) );
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
   fd_stem_publish( stem, ctx->failov_out_idx, sig, ctx->failov_out_chunk, sizeof(result), 0UL, tspub, tspub );
