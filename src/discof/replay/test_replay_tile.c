@@ -179,6 +179,14 @@ mock_multi_epoch_leaders_next_slot_fn( fd_multi_epoch_leaders_t const * mleaders
   return mock_next_leader_slot>=start_slot ? mock_next_leader_slot : ULONG_MAX;
 }
 
+static fd_pubkey_t mock_slot_leader;
+
+fd_pubkey_t const *
+mock_multi_epoch_leaders_leader_for_slot_fn( fd_multi_epoch_leaders_t const * mleaders FD_PARAM_UNUSED,
+                                             ulong                            slot FD_PARAM_UNUSED ) {
+  return &mock_slot_leader;
+}
+
 fd_txncache_fork_id_t
 mock_txncache_attach_child_fn( fd_txncache_t *       tc FD_PARAM_UNUSED,
                                fd_txncache_fork_id_t parent_fork_id FD_PARAM_UNUSED ) {
@@ -229,6 +237,7 @@ mock_runtime_block_execute_prepare_fn( fd_banks_t *         banks FD_PARAM_UNUSE
 }
 
 #define fd_multi_epoch_leaders_get_next_slot mock_multi_epoch_leaders_next_slot_fn
+#define fd_multi_epoch_leaders_get_leader_for_slot mock_multi_epoch_leaders_leader_for_slot_fn
 #define fd_txncache_attach_child             mock_txncache_attach_child_fn
 #define fd_progcache_attach_child            mock_progcache_attach_child_fn
 #define fd_accdb_attach_child                mock_accdb_attach_child_fn
@@ -456,6 +465,7 @@ setup_ctx_with_fork_width( fd_replay_tile_t * ctx,
   ctx->published_root_bank_idx = root_bank->idx;
 
   mock_next_leader_slot       = ULONG_MAX;
+  memset( &mock_slot_leader, 0, sizeof(fd_pubkey_t) );
   mock_txncache_fork_id_next  = 0UL;
   mock_progcache_fork_id_next = 0UL;
   mock_accdb_fork_id_next     = 0U;
@@ -3726,6 +3736,60 @@ test_identity_switch_quiesces_replay( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_identity_switch_quiesces_replay" ));
 }
 
+/* Votor switches identity after replay does, so a ParentReady it
+   published for the old identity can survive the switch.  Once
+   unhalted, replay leads that slot only if the new identity is still
+   its scheduled leader. */
+
+static void
+test_ag_set_identity_leader_slot( fd_wksp_t * wksp,
+                                  int         same_identity ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  setup_ctx( ctx, wksp );
+  setup_node_info( ctx );
+  fd_hash_t parent_bid = { .ul = { 0xBEEFUL } };
+  setup_ag_block_id_map( ctx, wksp, &parent_bid );
+  ctx->alpenglow = 1;
+
+  static fd_keyswitch_t keyswitch[ 1 ];
+  ctx->keyswitch = fd_keyswitch_join( fd_keyswitch_new( keyswitch, FD_KEYSWITCH_STATE_UNLOCKED ) );
+  FD_TEST( ctx->keyswitch );
+  void * vote_tracker_mem = fd_wksp_alloc_laddr( wksp, fd_vote_tracker_align(), fd_vote_tracker_footprint(), 1UL );
+  FD_TEST( vote_tracker_mem );
+  ctx->vote_tracker = fd_vote_tracker_join( fd_vote_tracker_new( vote_tracker_mem, 42UL ) );
+  FD_TEST( ctx->vote_tracker );
+  ctx->replay_out_seq = fd_mcache_seq_laddr_const( test_stem_mcaches[ ctx->replay_out->idx ] );
+  ctx->slot_out_seq   = fd_mcache_seq_laddr_const( test_stem_mcaches[ ctx->slot_out->idx   ] );
+  fd_mcache_seq_update( fd_mcache_seq_laddr( test_stem_mcaches[ ctx->replay_out->idx ] ), 40UL );
+  fd_mcache_seq_update( fd_mcache_seq_laddr( test_stem_mcaches[ ctx->slot_out->idx   ] ),  7UL );
+
+  fd_pubkey_t old_identity = { .ul = { 1UL } };
+  fd_pubkey_t new_identity = { .ul = { same_identity ? 1UL : 2UL } };
+  ctx->identity_pubkey[ 0 ] = old_identity;
+  mock_slot_leader          = old_identity;
+
+  *ctx->votor_leader    = (fd_votor_leader_t){ .slot = 1UL, .parent_slot = 0UL, .parent_block_id = parent_bid };
+  ctx->next_leader_slot = 1UL;
+
+  memcpy( keyswitch->bytes, new_identity.uc, sizeof(fd_pubkey_t) );
+  fd_keyswitch_state( keyswitch, FD_KEYSWITCH_STATE_SWITCH_PENDING );
+  during_housekeeping( ctx );
+  FD_TEST( ctx->halt_replay && keyswitch->state==FD_KEYSWITCH_STATE_COMPLETED );
+  FD_TEST( keyswitch->result==7UL ); /* votor reads replay_slot */
+  FD_TEST( fd_pubkey_eq( ctx->identity_pubkey, &new_identity ) );
+  FD_TEST( !try_become_leader_ag( ctx, test_stem ) );
+
+  fd_keyswitch_state( keyswitch, FD_KEYSWITCH_STATE_UNHALT_PENDING );
+  during_housekeeping( ctx );
+  FD_TEST( !ctx->halt_replay && keyswitch->state==FD_KEYSWITCH_STATE_COMPLETED );
+
+  FD_TEST( try_become_leader_ag( ctx, test_stem )==same_identity );
+  FD_TEST( ctx->is_leader==same_identity );
+  if( !same_identity ) FD_TEST( ctx->next_leader_slot==ULONG_MAX );
+
+  FD_LOG_NOTICE(( "pass: test_ag_set_identity_leader_slot(same_identity=%d)", same_identity ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -3772,6 +3836,8 @@ main( int     argc,
   test_drain_rotor_fecs_skip_wait_reentry( wksp );  fd_wksp_reset( wksp, 42U );
   test_process_rotor_fec_skip_replayed( wksp );     fd_wksp_reset( wksp, 42U );
   test_rotor_fec_turbine_keying( wksp );            fd_wksp_reset( wksp, 42U );
+  test_ag_set_identity_leader_slot( wksp, 1 );      fd_wksp_reset( wksp, 42U );
+  test_ag_set_identity_leader_slot( wksp, 0 );      fd_wksp_reset( wksp, 42U );
   test_dead_block_children_drop( wksp );
   test_stale_id_key_does_not_shadow_rebuild( wksp ); fd_wksp_reset( wksp, 42U );
   test_identity_switch_quiesces_replay( wksp );

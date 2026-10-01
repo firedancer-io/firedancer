@@ -7,6 +7,14 @@
 
 static ag_epoch_info_t epoch_info_mem;
 
+/* The secret BLS key of voter i in build_stakes. */
+
+static void
+voter_sec( fd_bls_sec_t * sec,
+           ulong          i ) {
+  memset( sec, (int)( i*7UL + 1UL ), FD_BLS_SEC_SZ );
+}
+
 /* Builds cnt voters with distinct identities and valid BLS keys, staked
    base, base+1, ... rank_voters drops any voter whose BLS key fails to
    deserialize, so the keys have to be real points. */
@@ -21,7 +29,7 @@ build_stakes( fd_vote_stake_weight_t * out,
     out[i].id_key.uc  [ 0 ] = (uchar)( i + 1UL );
     out[i].vote_key.uc[ 0 ] = (uchar)( i + 0x80UL );
 
-    fd_bls_sec_t sec; memset( &sec, (int)( i*7UL + 1UL ), FD_BLS_SEC_SZ );
+    fd_bls_sec_t sec; voter_sec( &sec, i );
     fd_bls_pub_t pub; fd_bls_sec_to_pub( &sec, &pub );
     blst_p1_compress( out[i].bls_key, &pub );
   }
@@ -196,7 +204,7 @@ test_load_keys( int identity_is_voter ) {
      without opening keyfiles. */
   fd_keyguard_client_t * client = ctx.keyguard_client;
   bls_pubkey_client_init( client, bls_keys, 17UL );
-  load_keys( &ctx, &tile );
+  load_keys( &ctx, tile.votor.authorized_voter_paths_cnt );
   FD_TEST( client->request_seq==17UL && client->response_seq==17UL );
   FD_TEST( ctx.auth_vtr_path_cnt==16UL );
   FD_TEST( paths_idx_of( &ctx, bls_keys[0] )==ULONG_MAX );
@@ -210,6 +218,26 @@ test_load_keys( int identity_is_voter ) {
     FD_TEST( request->sz==sizeof(ulong) );
   }
   FD_TEST( FD_LOAD( ulong, bls_pubkey_request )==15UL );
+}
+
+static fd_keyswitch_t id_keyswitch_mem[1];
+
+#define TEST_POOL_SLOT_MAX (AG_SLOTS_PER_WINDOW+AG_REWARD_SLOT_DELTA)
+
+static uchar pool_scratch[ 160UL<<20 ] __attribute__((aligned(128))); /* ag_pool_footprint( TEST_POOL_SLOT_MAX ) is ~134 MiB, mostly untouched */
+
+/* Returns a pool holding epoch_info from slot 0, in which we are rank. */
+
+static ag_pool_t *
+test_pool( ag_epoch_info_t const * epoch_info,
+           ulong                   rank ) {
+  FD_TEST( ag_pool_footprint( TEST_POOL_SLOT_MAX )<=sizeof(pool_scratch) );
+  FD_TEST( fd_ulong_is_aligned( (ulong)pool_scratch, ag_pool_align() ) );
+  ag_pool_t * pool = ag_pool_join( ag_pool_new( pool_scratch, TEST_POOL_SLOT_MAX, 42UL ) );
+  FD_TEST( pool );
+  ag_pool_init( pool, 0UL );
+  ag_pool_advance_epoch( pool, epoch_info, rank, 0UL );
+  return pool;
 }
 
 /* Once the admin tile has added an authorized voter to the sign tiles,
@@ -231,8 +259,9 @@ test_auth_vtr_keyswitch_add( int identity_is_voter ) {
   if( identity_is_voter ) memcpy( bls_keys[3], bls_keys[0], sizeof(ag_bls_key_t) );
   init_keys( &ctx, auth_vtr_mem, bls_keys, 3UL );
   ctx.auth_vtr_path_cnt  = 2UL;
-  ctx.auth_vtr_keyswitch = fd_keyswitch_join( fd_keyswitch_new( keyswitch, FD_KEYSWITCH_STATE_LOCKED ) );
-  FD_TEST( ctx.auth_vtr_keyswitch );
+  ctx.auth_vtr_keyswitch = fd_keyswitch_join( fd_keyswitch_new( keyswitch,        FD_KEYSWITCH_STATE_LOCKED   ) );
+  ctx.id_keyswitch       = fd_keyswitch_join( fd_keyswitch_new( id_keyswitch_mem, FD_KEYSWITCH_STATE_UNLOCKED ) );
+  FD_TEST( ctx.auth_vtr_keyswitch && ctx.id_keyswitch );
   fd_clock_tile_init( ctx.clock );
   fd_keyguard_client_t * client = ctx.keyguard_client;
   bls_pubkey_client_init( client, &bls_keys[3], 1UL );
@@ -267,8 +296,9 @@ test_auth_vtr_keyswitch_rejected( void ) {
   static fd_keyswitch_t  keyswitch[1];
 
   ctx.auth_vtr_path_cnt  = 2UL;
-  ctx.auth_vtr_keyswitch = fd_keyswitch_join( fd_keyswitch_new( keyswitch, FD_KEYSWITCH_STATE_UNHALT_PENDING ) );
-  FD_TEST( ctx.auth_vtr_keyswitch );
+  ctx.auth_vtr_keyswitch = fd_keyswitch_join( fd_keyswitch_new( keyswitch,        FD_KEYSWITCH_STATE_UNHALT_PENDING ) );
+  ctx.id_keyswitch       = fd_keyswitch_join( fd_keyswitch_new( id_keyswitch_mem, FD_KEYSWITCH_STATE_UNLOCKED       ) );
+  FD_TEST( ctx.auth_vtr_keyswitch && ctx.id_keyswitch );
   fd_clock_tile_init( ctx.clock );
   during_housekeeping( &ctx );
   FD_TEST( keyswitch->state==FD_KEYSWITCH_STATE_UNLOCKED && ctx.auth_vtr_path_cnt==2UL );
@@ -287,6 +317,18 @@ capture_sign_bls( void *         signer_ctx,
   memcpy( last_bls_signer, public_key, FD_BLS_PUB_COMPRESSED_SZ );
   fd_bls_sec_t sec; memset( &sec, 1, sizeof(fd_bls_sec_t) );
   fd_bls_sec_sign( &sec, payload, payload_sz, sig );
+}
+
+/* Signs with the fd_bls_sec_t at signer_ctx. */
+
+static void
+sec_sign_bls( void *         signer_ctx,
+              fd_bls_sig_t * sig,
+              uchar const *  public_key,
+              uchar const *  payload,
+              ulong          payload_sz ) {
+  (void)public_key;
+  fd_bls_sec_sign( (fd_bls_sec_t const *)signer_ctx, payload, payload_sz, sig );
 }
 
 /* Votor already holds the epoch when the voter is added, so the add has
@@ -315,8 +357,9 @@ test_auth_vtr_keyswitch_refreshes_epochs( void ) {
   memcpy( bls_keys[1], epoch_info->validators[1].bls_key, sizeof(ag_bls_key_t) );
   init_keys( &ctx, auth_vtr_mem, bls_keys, 1UL ); /* only the identity */
   ctx.auth_vtr_path_cnt  = 0UL;
-  ctx.auth_vtr_keyswitch = fd_keyswitch_join( fd_keyswitch_new( keyswitch, FD_KEYSWITCH_STATE_LOCKED ) );
-  FD_TEST( ctx.auth_vtr_keyswitch );
+  ctx.auth_vtr_keyswitch = fd_keyswitch_join( fd_keyswitch_new( keyswitch,        FD_KEYSWITCH_STATE_LOCKED   ) );
+  ctx.id_keyswitch       = fd_keyswitch_join( fd_keyswitch_new( id_keyswitch_mem, FD_KEYSWITCH_STATE_UNLOCKED ) );
+  FD_TEST( ctx.auth_vtr_keyswitch && ctx.id_keyswitch );
   fd_clock_tile_init( ctx.clock );
   bls_pubkey_client_init( ctx.keyguard_client, &bls_keys[1], 1UL );
 
@@ -327,6 +370,7 @@ test_auth_vtr_keyswitch_refreshes_epochs( void ) {
   FD_TEST( ctx.votor );
   ag_votor_init         ( ctx.votor, 0UL, 0L, 400000000L, (ushort)1, capture_sign_bls, NULL );
   ag_votor_advance_epoch( ctx.votor, 400000000L, 1UL, 0UL, NULL );
+  ctx.pool = test_pool( epoch_info, 1UL );
 
   keyswitch->param = FD_KEYSWITCH_PARAM_AV_ADD;
   fd_keyswitch_state( keyswitch, FD_KEYSWITCH_STATE_SWITCH_PENDING );
@@ -343,6 +387,7 @@ test_auth_vtr_keyswitch_refreshes_epochs( void ) {
   FD_TEST( vote.vote.kind==AG_VOTE_KIND_NOTAR );
   FD_TEST( !memcmp( last_bls_signer, bls_keys[1], sizeof(ag_bls_key_t) ) );
 
+  ag_pool_delete( ag_pool_leave( ctx.pool ) );
   ag_votor_delete( ag_votor_leave( ctx.votor ) );
 }
 
@@ -372,8 +417,9 @@ test_auth_vtr_keyswitch_clear( void ) {
   memcpy( bls_keys[2], epoch_info->validators[0].bls_key, sizeof(ag_bls_key_t) );
   init_keys( &ctx, auth_vtr_mem, bls_keys, 3UL ); /* the identity, authorized voters 0 and 1 */
   ctx.auth_vtr_path_cnt  = 2UL;
-  ctx.auth_vtr_keyswitch = fd_keyswitch_join( fd_keyswitch_new( keyswitch, FD_KEYSWITCH_STATE_LOCKED ) );
-  FD_TEST( ctx.auth_vtr_keyswitch );
+  ctx.auth_vtr_keyswitch = fd_keyswitch_join( fd_keyswitch_new( keyswitch,        FD_KEYSWITCH_STATE_LOCKED   ) );
+  ctx.id_keyswitch       = fd_keyswitch_join( fd_keyswitch_new( id_keyswitch_mem, FD_KEYSWITCH_STATE_UNLOCKED ) );
+  FD_TEST( ctx.auth_vtr_keyswitch && ctx.id_keyswitch );
   fd_clock_tile_init( ctx.clock );
   bls_pubkey_client_init( ctx.keyguard_client, bls_keys, 1UL ); /* the identity's key, if asked */
 
@@ -381,6 +427,7 @@ test_auth_vtr_keyswitch_clear( void ) {
   FD_TEST( ctx.votor );
   ag_votor_init         ( ctx.votor, 0UL, 0L, 400000000L, (ushort)1, capture_sign_bls, NULL );
   ag_votor_advance_epoch( ctx.votor, 400000000L, 0UL, 0UL, bls_keys[2] );
+  ctx.pool = test_pool( epoch_info, 0UL );
 
   keyswitch->param = FD_KEYSWITCH_PARAM_AV_CLEAR;
   fd_keyswitch_state( keyswitch, FD_KEYSWITCH_STATE_SWITCH_PENDING );
@@ -404,6 +451,283 @@ test_auth_vtr_keyswitch_clear( void ) {
   during_housekeeping( &ctx );
   FD_TEST( keyswitch->state==FD_KEYSWITCH_STATE_UNLOCKED );
 
+  ag_pool_delete( ag_pool_leave( ctx.pool ) );
+  ag_votor_delete( ag_votor_leave( ctx.votor ) );
+}
+
+static fd_quic_limits_t const test_quic_limits = {
+  .conn_cnt                    = 3UL,
+  .handshake_cnt               = 3UL,
+  .conn_id_cnt                 = FD_QUIC_MIN_CONN_ID_CNT,
+  .inflight_frame_cnt          = 16UL,
+  .min_inflight_frame_cnt_conn = 4UL,
+};
+
+static uchar quic_client_scratch[ 8UL<<20 ] __attribute__((aligned(FD_QUIC_ALIGN)));
+static uchar quic_server_scratch[ 8UL<<20 ] __attribute__((aligned(FD_QUIC_ALIGN)));
+
+static int
+drop_aio_send( void *                    ctx,
+               fd_aio_pkt_info_t const * batch,
+               ulong                     batch_cnt,
+               ulong *                   opt_batch_idx,
+               int                       flush ) {
+  (void)ctx; (void)batch; (void)batch_cnt; (void)opt_batch_idx; (void)flush;
+  return FD_AIO_SUCCESS;
+}
+
+static fd_quic_t *
+test_quic( uchar *           mem,
+           ulong             mem_sz,
+           int               role,
+           fd_votor_tile_t * ctx,
+           fd_aio_t const *  aio ) {
+  FD_TEST( fd_quic_footprint( &test_quic_limits )<=mem_sz );
+  fd_quic_t * quic = fd_quic_join( fd_quic_new( mem, &test_quic_limits ) );
+  FD_TEST( quic );
+  fd_quic_set_aio_net_tx( quic, aio );
+  quic->config.role         = role;
+  quic->config.idle_timeout = 5L*1000L*1000L*1000L;
+  quic->config.ack_delay    = 2L*1000L*1000L;
+  quic->config.sign         = sign_ed25519;
+  quic->config.sign_ctx     = ctx;
+  memcpy( quic->config.identity_public_key, ctx->id_key.uc, sizeof(fd_pubkey_t) );
+  FD_TEST( fd_quic_init( quic ) );
+  return quic;
+}
+
+/* During set-identity votor halts right after replay.  It keeps voting
+   until it has consumed replay_slot through the seq replay switched at,
+   then stops voting, lets the votes it already signed go out under the
+   old identity, takes the new identity and drops the old identity's
+   connections.  On resume it votes as the new identity's rank and
+   redials its peers. */
+
+static void
+test_id_keyswitch( void ) {
+  static fd_votor_tile_t ctx;
+  static auth_vtr_t      auth_vtr_mem     [ 1UL<<AUTH_VTR_LG_SLOT_CNT      ];
+  static peer_t          peers_mem        [ 1UL<<PEERS_LG_SLOT_CNT         ];
+  static contact_info_t  contact_infos_mem[ 1UL<<CONTACT_INFOS_LG_SLOT_CNT ];
+  static uchar           mleaders_mem[ FD_MULTI_EPOCH_LEADERS_FOOTPRINT ] __attribute__((aligned(FD_MULTI_EPOCH_LEADERS_ALIGN)));
+  static fd_keyswitch_t  av_keyswitch_mem[1];
+  static fd_aio_t        aio_mem[1];
+
+  /* We switch from rank 0 to rank 1, and peer with rank 2. */
+
+  fd_vote_stake_weight_t stakes[ TEST_VOTER_MAX ];
+  build_stakes( stakes, 3UL, 10UL );
+  ag_epoch_info_t * epoch_info = rank_voters( &epoch_info_mem, stakes, 3UL );
+  fd_pubkey_t old_id;  memcpy( old_id.uc,  epoch_info->validators[0].id_key, sizeof(fd_pubkey_t) );
+  fd_pubkey_t new_id;  memcpy( new_id.uc,  epoch_info->validators[1].id_key, sizeof(fd_pubkey_t) );
+  fd_pubkey_t peer_id; memcpy( peer_id.uc, epoch_info->validators[2].id_key, sizeof(fd_pubkey_t) );
+  ctx.id_key          = old_id;
+  ctx.curr_epoch_info = epoch_info;
+  ctx.curr_epoch_slot = 0UL;
+
+  ag_bls_key_t bls_keys[2];
+  memcpy( bls_keys[0], epoch_info->validators[0].bls_key, sizeof(ag_bls_key_t) );
+  memcpy( bls_keys[1], epoch_info->validators[1].bls_key, sizeof(ag_bls_key_t) );
+  init_keys( &ctx, auth_vtr_mem, bls_keys, 1UL ); /* the old identity's key */
+  ctx.auth_vtr_path_cnt = 0UL;
+  bls_pubkey_client_init( ctx.keyguard_client, &bls_keys[1], 1UL ); /* the new identity's key, asked on resume */
+  ctx.auth_vtr_keyswitch = fd_keyswitch_join( fd_keyswitch_new( av_keyswitch_mem, FD_KEYSWITCH_STATE_UNLOCKED ) );
+  ctx.id_keyswitch       = fd_keyswitch_join( fd_keyswitch_new( id_keyswitch_mem, FD_KEYSWITCH_STATE_LOCKED   ) );
+  FD_TEST( ctx.auth_vtr_keyswitch && ctx.id_keyswitch );
+  fd_clock_tile_init( ctx.clock );
+
+  ctx.votor = ag_votor_join( ag_votor_new( votor_scratch, 64UL, 42UL ) );
+  FD_TEST( ctx.votor );
+  ag_votor_init         ( ctx.votor, 0UL, 0L, 400000000L, (ushort)1, capture_sign_bls, NULL );
+  ag_votor_advance_epoch( ctx.votor, 400000000L, 0UL, 0UL, bls_keys[0] );
+  ctx.pool = test_pool( epoch_info, 0UL );
+  ag_block_id_t root = { .slot = 0UL };
+  ag_block_id_t b1   = { .slot = 1UL }; memset( b1.hash, 1, sizeof(ag_block_hash_t) );
+  FD_TEST( ag_pool_add_block( ctx.pool, &b1, &root, ctx.scratch.bad )==AG_POOL_SUCCESS );
+
+  ctx.mleaders      = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( mleaders_mem ) );
+  ctx.peers         = peers_join        ( peers_new        ( peers_mem         ) );
+  ctx.contact_infos = contact_infos_join( contact_infos_new( contact_infos_mem ) );
+  FD_TEST( ctx.mleaders && ctx.peers && ctx.contact_infos );
+
+  /* The new identity leads every slot, and the window at slot 4 is
+     already in progress. */
+
+  static uchar stake_msg_mem[ FD_STAKE_CI_STAKE_MSG_HEADER_SZ+FD_STAKE_CI_STAKE_MSG_RECORD_SZ ] __attribute__((aligned(8)));
+  fd_stake_weight_msg_t * stake_msg = fd_type_pun( stake_msg_mem );
+  *stake_msg = (fd_stake_weight_msg_t){ .epoch = 0UL, .staked_vote_cnt = 1UL, .start_slot = 0UL, .slot_cnt = 64UL };
+  *(fd_vote_stake_weight_t *)fd_type_pun( stake_msg+1 ) = (fd_vote_stake_weight_t){ .vote_key = new_id, .id_key = new_id, .stake = 10UL };
+  fd_multi_epoch_leaders_stake_msg_init( ctx.mleaders, stake_msg );
+  fd_multi_epoch_leaders_stake_msg_fini( ctx.mleaders );
+  ctx.highest_parent_ready_slot = 4UL;
+  fd_aio_t * aio = fd_aio_join( fd_aio_new( aio_mem, NULL, drop_aio_send ) );
+  FD_TEST( aio );
+  ctx.quic_client = test_quic( quic_client_scratch, sizeof(quic_client_scratch), FD_QUIC_ROLE_CLIENT, &ctx, aio );
+  ctx.quic_server = test_quic( quic_server_scratch, sizeof(quic_server_scratch), FD_QUIC_ROLE_SERVER, &ctx, aio );
+  ctx.src_ip_addr             = FD_IP4_ADDR( 127, 0, 0, 1 );
+  ctx.quic_client_listen_port = (ushort)9000;
+
+  /* Votor dials only while its identity is ranked, so both identities
+     are peers at their ranks. */
+
+  fd_pubkey_t const ids[3] = { old_id, new_id, peer_id };
+  peer_t *          peer   = NULL;
+  for( ulong i=0UL; i<3UL; i++ ) {
+    peer = peers_insert( ctx.peers, ids[ i ] );
+    peer->prev_rank = USHORT_MAX;
+    peer->curr_rank = (ushort)i;
+    peer->next_rank = USHORT_MAX;
+    peer->tx_conn   = NULL;
+    peer->rx_conn   = NULL;
+    peer->ban_ts    = 0L;
+  }
+  contact_info_t * ci = contact_infos_insert( ctx.contact_infos, peer_id );
+  ci->ip4  = FD_IP4_ADDR( 127, 0, 0, 2 );
+  ci->port = (ushort)9001;
+  for( ulong i=0UL; i<REWARD_VOTE_MAX; i++ ) ctx.reward_votes[ i ].slot = ULONG_MAX;
+  connect_peers( &ctx, fd_clock_tile_now( ctx.clock ) );
+  fd_quic_conn_t * old_conn = peer->tx_conn;
+  FD_TEST( old_conn );
+  ctx.reward_votes[ 1UL ].slot = 1UL;
+
+  /* The peer's established inbound conn survives the switch, since it
+     identifies the peer, not us.  Inbound conns still in a handshake
+     state are not rx_conns until they go active, and would complete as
+     the old identity. */
+
+  fd_quic_get_state( ctx.quic_server )->now = fd_clock_tile_now( ctx.clock );
+  ulong             rx_conn_id  = 1UL;
+  ulong             hs_conn_id  = 2UL;
+  ulong             hc_conn_id  = 3UL;
+  fd_quic_conn_id_t rx_peer_cid = fd_quic_conn_id_new( &rx_conn_id, 8UL );
+  fd_quic_conn_id_t hs_peer_cid = fd_quic_conn_id_new( &hs_conn_id, 8UL );
+  fd_quic_conn_id_t hc_peer_cid = fd_quic_conn_id_new( &hc_conn_id, 8UL );
+  fd_quic_conn_t *  rx_conn     = fd_quic_conn_create( ctx.quic_server, rx_conn_id, &rx_peer_cid, ci->ip4, (ushort)9002, ctx.src_ip_addr, ctx.quic_server_listen_port, 1 );
+  fd_quic_conn_t *  hs_conn     = fd_quic_conn_create( ctx.quic_server, hs_conn_id, &hs_peer_cid, ci->ip4, (ushort)9003, ctx.src_ip_addr, ctx.quic_server_listen_port, 1 );
+  fd_quic_conn_t *  hc_conn     = fd_quic_conn_create( ctx.quic_server, hc_conn_id, &hc_peer_cid, ci->ip4, (ushort)9004, ctx.src_ip_addr, ctx.quic_server_listen_port, 1 );
+  FD_TEST( rx_conn && hs_conn && hc_conn );
+  rx_conn->state = FD_QUIC_CONN_STATE_ACTIVE;
+  hc_conn->state = FD_QUIC_CONN_STATE_HANDSHAKE_COMPLETE;
+  peer->rx_conn  = rx_conn;
+
+  ctx.in_kind[ 0 ] = IN_KIND_NET;
+  ulong net_sig = fd_disco_netmux_sig( 0U, (ushort)0, 0U, DST_PROTO_VOTOR, FD_NETMUX_SIG_MIN_HDR_SZ );
+  FD_TEST( !before_frag( &ctx, 0UL, 0UL, net_sig ) );
+
+  /* A vote signed as the old identity is waiting to go out. */
+
+  ag_event_replay_t block = { .slot = 1UL };
+  memcpy( block.block_info.hash, b1.hash, sizeof(ag_block_hash_t) );
+  ag_votor_handle_replay_event( ctx.votor, &block );
+  FD_TEST( ag_votor_vote_event_cnt( ctx.votor )==1UL );
+
+  memcpy( ctx.id_keyswitch->bytes, new_id.uc, sizeof(fd_pubkey_t) );
+  ctx.id_keyswitch->param = 8UL;
+  fd_keyswitch_state( ctx.id_keyswitch, FD_KEYSWITCH_STATE_SWITCH_PENDING );
+
+  /* Replay switched at seq 8, so votor keeps voting as the old identity
+     until it has consumed replay_slot through seq 7. */
+
+  ctx.in_kind[ 1 ] = IN_KIND_REPLAY;
+  FD_TEST( !before_frag( &ctx, 1UL, 6UL, REPLAY_SIG_SLOT_COMPLETED ) );
+  during_housekeeping( &ctx );
+  FD_TEST( ctx.id_keyswitch->state==FD_KEYSWITCH_STATE_SWITCH_PENDING && !ctx.halt_signing );
+  FD_TEST( !before_frag( &ctx, 0UL, 0UL, net_sig ) );
+  FD_TEST( before_frag( &ctx, 1UL, 7UL, REPLAY_SIG_ROOT_ADVANCED ) );
+
+  during_housekeeping( &ctx );
+  FD_TEST( ctx.id_keyswitch->state==FD_KEYSWITCH_STATE_SWITCH_PENDING );
+  FD_TEST( fd_pubkey_eq( &ctx.id_key, &old_id ) && peer->tx_conn==old_conn );
+  FD_TEST( before_frag( &ctx, 0UL, 0UL, net_sig ) );
+
+  /* Halted, votor signs nothing more, and the queued vote goes out. */
+
+  block = (ag_event_replay_t){ .slot = 2UL };
+  block.block_info.parent = b1;
+  memset( block.block_info.hash, 2, sizeof(ag_block_hash_t) );
+  ag_votor_handle_replay_event( ctx.votor, &block );
+  ag_event_vote_t vote;
+  FD_TEST( ag_votor_poll_vote_event( ctx.votor, &vote ) );
+  FD_TEST( ag_vote_slot( &vote.vote )==1UL && ag_vote_rank( &vote.vote )==0UL );
+  FD_TEST( !ag_votor_vote_event_cnt( ctx.votor ) );
+
+  /* The other voters skip slot 1, which the old identity notarized, so
+     the pool queues a safe-to-skip decided with the old rank.  Votor
+     must handle it while it has no key, or the new identity would skip
+     the rest of the window on the old identity's behalf. */
+
+  fd_bls_sec_t secs[3];
+  for( ulong rank=0UL; rank<3UL; rank++ ) voter_sec( &secs[ rank ], 2UL-rank ); /* ranked by descending stake */
+  ag_vote_t pool_votes[3] = {
+    ag_vote_construct_notar( sec_sign_bls, &secs[0], epoch_info->validators[0].bls_key, 1UL, b1.hash, (ushort)0, (ushort)1 ),
+    ag_vote_construct_skip ( sec_sign_bls, &secs[1], epoch_info->validators[1].bls_key, 1UL,          (ushort)1, (ushort)1 ),
+    ag_vote_construct_skip ( sec_sign_bls, &secs[2], epoch_info->validators[2].bls_key, 1UL,          (ushort)2, (ushort)1 )
+  };
+  uchar quorum_reached;
+  for( ulong i=0UL; i<3UL; i++ ) {
+    FD_TEST( ag_pool_add_vote( ctx.pool, &pool_votes[ i ], ctx.scratch.bad, &quorum_reached )==AG_POOL_SUCCESS );
+    FD_TEST( fd_bls_set_is_null( ctx.scratch.bad ) );
+  }
+
+  during_housekeeping( &ctx );
+  FD_TEST( ctx.id_keyswitch->state==FD_KEYSWITCH_STATE_SWITCH_PENDING );
+  FD_TEST( fd_pubkey_eq( &ctx.id_key, &old_id ) );
+
+  ag_event_pool_t pool_event;
+  int             safe_to_skip = 0;
+  while( ag_pool_poll_pool_event( ctx.pool, &pool_event ) ) {
+    safe_to_skip |= pool_event.kind==AG_EVENT_POOL_SAFE_TO_SKIP && pool_event.safe_to_skip==1UL;
+    ag_votor_handle_pool_event( ctx.votor, &pool_event, 0L );
+  }
+  FD_TEST( safe_to_skip );
+  FD_TEST( !ag_votor_vote_event_cnt( ctx.votor ) );
+
+  during_housekeeping( &ctx );
+  FD_TEST( ctx.id_keyswitch->state==FD_KEYSWITCH_STATE_COMPLETED );
+  FD_TEST( fd_pubkey_eq( &ctx.id_key, &new_id ) );
+  FD_TEST( ctx.next_leader_slot==8UL );
+  FD_TEST( !memcmp( ctx.quic_client->config.identity_public_key, new_id.uc, sizeof(fd_pubkey_t) ) );
+  FD_TEST( !memcmp( ctx.quic_server->config.identity_public_key, new_id.uc, sizeof(fd_pubkey_t) ) );
+  FD_TEST( !peer->tx_conn && peer->rx_conn==rx_conn && ctx.reward_votes[ 1UL ].slot==ULONG_MAX );
+  FD_TEST( rx_conn->state==FD_QUIC_CONN_STATE_ACTIVE );
+  FD_TEST( hs_conn->state==FD_QUIC_CONN_STATE_CLOSE_PENDING && hc_conn->state==FD_QUIC_CONN_STATE_CLOSE_PENDING );
+  FD_TEST( before_frag( &ctx, 0UL, 0UL, net_sig ) );
+
+  /* Epoch and gossip updates still arrive while halted, but must not
+     dial before the sign tile has the new key. */
+
+  connect_peers( &ctx, fd_clock_tile_now( ctx.clock ) );
+  FD_TEST( !peer->tx_conn );
+
+  /* The admin tile switches the sign tile's keys, then resumes votor. */
+
+  fd_keyswitch_state( ctx.id_keyswitch, FD_KEYSWITCH_STATE_UNHALT_PENDING );
+  during_housekeeping( &ctx );
+  FD_TEST( ctx.id_keyswitch->state==FD_KEYSWITCH_STATE_COMPLETED );
+  FD_TEST( !before_frag( &ctx, 0UL, 0UL, net_sig ) );
+  FD_TEST( paths_idx_of( &ctx, bls_keys[1] )==ULONG_MAX && paths_idx_of( &ctx, bls_keys[0] )==(ulong)LONG_MAX );
+  FD_TEST( ag_pool_slot_state( ctx.pool, 1UL )->own_rank==1UL );
+  FD_TEST( peer->tx_conn && peer->tx_conn!=old_conn );
+  FD_TEST( fd_pubkey_eq( fd_quic_conn_get_context( peer->tx_conn ), &peer_id ) );
+
+  /* Votes now carry the new identity's rank and key.  Block 2 arrived
+     while votor was halted, so its vote is never sent. */
+
+  ag_block_id_t b2 = { .slot = 2UL }; memset( b2.hash, 2, sizeof(ag_block_hash_t) );
+  ag_event_pool_t parent_ready = { .kind = AG_EVENT_POOL_PARENT_READY };
+  parent_ready.parent_ready.slot   = 4UL;
+  parent_ready.parent_ready.parent = b2;
+  ag_votor_handle_pool_event( ctx.votor, &parent_ready, 0L );
+  block = (ag_event_replay_t){ .slot = 4UL };
+  block.block_info.parent = b2;
+  memset( block.block_info.hash, 4, sizeof(ag_block_hash_t) );
+  ag_votor_handle_replay_event( ctx.votor, &block );
+  FD_TEST( ag_votor_poll_vote_event( ctx.votor, &vote ) );
+  FD_TEST( ag_vote_slot( &vote.vote )==4UL && ag_vote_rank( &vote.vote )==1UL );
+  FD_TEST( !memcmp( last_bls_signer, bls_keys[1], sizeof(ag_bls_key_t) ) );
+  FD_TEST( !ag_votor_vote_event_cnt( ctx.votor ) );
+
+  ag_pool_delete( ag_pool_leave( ctx.pool ) );
   ag_votor_delete( ag_votor_leave( ctx.votor ) );
 }
 
@@ -800,7 +1124,8 @@ test_conn_ahead( void ) {
   static fd_votor_tile_t ctx;
   static fd_keyswitch_t  keyswitch[1];
   test_ctx_new( &ctx, 4UL );
-  ctx.auth_vtr_keyswitch = fd_keyswitch_join( fd_keyswitch_new( keyswitch, FD_KEYSWITCH_STATE_LOCKED ) );
+  ctx.auth_vtr_keyswitch = fd_keyswitch_join( fd_keyswitch_new( keyswitch,        FD_KEYSWITCH_STATE_LOCKED   ) );
+  ctx.id_keyswitch       = fd_keyswitch_join( fd_keyswitch_new( id_keyswitch_mem, FD_KEYSWITCH_STATE_UNLOCKED ) );
   ctx.next_epoch_slot    = 200000UL;
   ctx.ns_per_slot        = 200000000L;
   ctx.quic_server        = ctx.quic_client; /* after_credit services both */
@@ -847,6 +1172,7 @@ main( int     argc,
   test_auth_vtr_keyswitch_rejected();
   test_auth_vtr_keyswitch_refreshes_epochs();
   test_auth_vtr_keyswitch_clear();
+  test_id_keyswitch();
   test_sign_bls_request();
   test_connect_peer();
   test_conn_final_backoff();

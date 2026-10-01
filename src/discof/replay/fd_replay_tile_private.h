@@ -533,6 +533,7 @@ struct fd_replay_tile {
   fd_replay_out_link_t replay_out[1];
   ulong const *        replay_out_seq;
   fd_replay_out_link_t slot_out[1];
+  ulong const *        slot_out_seq;
   fd_replay_out_link_t snapmk_out[1];
   ulong admin_out_idx;
 

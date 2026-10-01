@@ -105,6 +105,13 @@ FD_PROTOTYPES_BEGIN
 void
 ag_slot_state_null( ag_slot_state_t * self );
 
+/* Replaces our rank own_rank (USHORT_MAX if unstaked) and re-derives
+   our notar hash from the notar votes already counted for it. */
+
+void
+ag_slot_state_set_own_rank( ag_slot_state_t * self,
+                            ulong             own_rank );
+
 /* Definition 13. SlotState::add_cert */
 
 void

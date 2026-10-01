@@ -1558,6 +1558,51 @@ test_add_block_below_watermark( void ) {
   teardown_pool( pool );
 }
 
+static ag_slot_state_t const *
+slot_state_at( ag_pool_t const * pool,
+               ulong             slot ) {
+  slot_state_ele_t const * e = slot_state_map_ele_query_const( pool->slot_states->map, &slot, NULL, pool->slot_states->pool );
+  FD_TEST( e );
+  return &e->slot_state;
+}
+
+/* Our rank changes mid-epoch on set-identity.  Live slot states in that
+   epoch then treat the new rank's votes as ours, and the other epochs
+   keep theirs. */
+
+static void
+test_set_rank( void ) {
+  ag_pool_t * pool = setup_pool();
+  ag_pool_advance_epoch( pool, make_epoch_info( 1UL, g_info, NV ), 0UL, 8UL );
+
+  ag_block_hash_t a; random_hash( a );
+  ag_block_hash_t b; random_hash( b );
+  add_notar_votes( pool, 1UL, a, 0UL, 1UL );
+  add_notar_votes( pool, 1UL, b, 1UL, 2UL );
+  add_notar_votes( pool, 2UL, a, 0UL, 1UL );
+  add_notar_votes( pool, 9UL, a, 0UL, 1UL );
+  ag_slot_state_t const * s1 = slot_state_at( pool, 1UL );
+  ag_slot_state_t const * s2 = slot_state_at( pool, 2UL );
+  ag_slot_state_t const * s9 = slot_state_at( pool, 9UL );
+  FD_TEST( s1->own_rank==0UL && !memcmp( s1->votes.own_notar_hash, a, sizeof(ag_block_hash_t) ) );
+
+  ag_pool_set_rank( pool, 0UL, 1UL );
+  FD_TEST( s1->own_rank==1UL && !memcmp( s1->votes.own_notar_hash, b,                  sizeof(ag_block_hash_t) ) );
+  FD_TEST( s2->own_rank==1UL && !memcmp( s2->votes.own_notar_hash, ag_block_hash_null, sizeof(ag_block_hash_t) ) );
+  FD_TEST( s9->own_rank==0UL && !memcmp( s9->votes.own_notar_hash, a,                  sizeof(ag_block_hash_t) ) );
+
+  add_notar_votes( pool, 2UL, b, 1UL, 2UL );
+  FD_TEST( !memcmp( s2->votes.own_notar_hash, b, sizeof(ag_block_hash_t) ) );
+  add_notar_votes( pool, 3UL, b, 1UL, 2UL );
+  ag_slot_state_t const * s3 = slot_state_at( pool, 3UL );
+  FD_TEST( s3->own_rank==1UL && !memcmp( s3->votes.own_notar_hash, b, sizeof(ag_block_hash_t) ) );
+
+  ag_pool_set_rank( pool, 8UL, USHORT_MAX );
+  FD_TEST( s9->own_rank==USHORT_MAX && !memcmp( s9->votes.own_notar_hash, ag_block_hash_null, sizeof(ag_block_hash_t) ) );
+
+  teardown_pool( pool );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -1603,6 +1648,7 @@ main( int     argc,
   test_retired_epoch_already_pruned();
   test_standstill_recovery_no_final_cert();
   test_add_block_below_watermark();
+  test_set_rank();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

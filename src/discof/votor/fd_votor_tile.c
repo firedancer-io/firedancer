@@ -24,6 +24,7 @@
 #include "../../util/net/fd_net_headers.h"
 #include "../../waltz/quic/fd_quic.h"
 #include "../../waltz/quic/fd_quic_conn.h"
+#include "../../waltz/quic/fd_quic_private.h"
 #include "../../waltz/quic/tls/fd_quic_tls.h"
 #include "../replay/fd_replay_tile.h"
 
@@ -208,6 +209,9 @@ struct fd_votor_tile {
   /* Signing */
 
   fd_pubkey_t          id_key;
+  fd_keyswitch_t *     id_keyswitch;
+  int                  halt_signing;      /* switching identity, see during_housekeeping */
+  ulong                replay_in_seq;     /* seq after the last replay_slot frag consumed */
   auth_vtr_t *         auth_vtr;
   ulong                auth_vtr_path_cnt;
   fd_keyswitch_t *     auth_vtr_keyswitch;
@@ -606,6 +610,7 @@ quic_client_connect( fd_votor_tile_t *      ctx,
                      peer_t *               peer,
                      contact_info_t const * ci,
                      long                   now ) {
+  if( FD_UNLIKELY( ctx->halt_signing ) ) return; /* halted for an identity switch, and the TLS handshake must sign */
   peer_t const * self = peers_query_const( ctx->peers, ctx->id_key, NULL );
   if( FD_UNLIKELY( !self || peer==self ) ) return;
   if( FD_UNLIKELY( self->curr_rank==USHORT_MAX ) ) { /* not voting yet: only connect ahead, within QUIC_CONN_AHEAD_NS of our first ranked epoch */
@@ -631,6 +636,20 @@ quic_client_connect( fd_votor_tile_t *      ctx,
   fd_quic_conn_set_context( conn, &ctx->client_peer_id_keys[ conn->conn_idx ] );
   peer->tx_conn = conn;
   for( ulong i=0UL; i<REWARD_VOTE_MAX; i++ ) if( ctx->reward_votes[ i ].conn==conn ) ctx->reward_votes[ i ].conn = NULL;
+}
+
+/* connect_peers connects to every peer with contact info that
+   quic_client_connect allows. */
+
+static void
+connect_peers( fd_votor_tile_t * ctx,
+               long              now ) {
+  for( ulong slot=0UL; slot<peers_slot_cnt(); slot++ ) {
+    peer_t * peer = &ctx->peers[ slot ];
+    if( FD_LIKELY( peers_key_inval( peer->id_key ) ) ) continue;
+    contact_info_t const * ci = contact_infos_query( ctx->contact_infos, peer->id_key, NULL );
+    if( FD_LIKELY( ci ) ) quic_client_connect( ctx, peer, ci, now );
+  }
 }
 
 static void
@@ -1038,13 +1057,7 @@ handle_epoch( fd_votor_tile_t *           ctx,
 
   /* quic_connect new peers */
 
-  long now = fd_clock_tile_now( ctx->clock );
-  for( ulong slot=0UL; slot<peers_slot_cnt(); slot++ ) {
-    peer_t * peer = &ctx->peers[ slot ];
-    if( FD_LIKELY( peers_key_inval( peer->id_key ) ) ) continue;
-    contact_info_t const * ci = contact_infos_query( ctx->contact_infos, peer->id_key, NULL );
-    if( FD_LIKELY( ci ) ) quic_client_connect( ctx, peer, ci, now );
-  }
+  connect_peers( ctx, fd_clock_tile_now( ctx->clock ) );
 
   /* quic_conn_close evicted peers */
 
@@ -1102,7 +1115,7 @@ handle_epoch( fd_votor_tile_t *           ctx,
   }
 
   ag_pool_advance_epoch ( ctx->pool,  epoch_info,       own_rank, msg->start_slot );
-  ag_votor_advance_epoch( ctx->votor, ctx->ns_per_slot, own_rank, msg->start_slot, own_bls_key );
+  ag_votor_advance_epoch( ctx->votor, ctx->ns_per_slot, own_rank, msg->start_slot, ctx->halt_signing ? NULL : own_bls_key );
 
   /* update our leader schedule */
 
@@ -1253,6 +1266,61 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 }
 
 static void
+load_keys( fd_votor_tile_t * ctx,
+           ulong             path_cnt ) {
+  /* special case the identity.  We already know the bls pubkey */
+  auth_vtr_key_t bls_key;
+  fd_keyguard_client_bls_pubkey( ctx->keyguard_client, bls_key.uc, ULONG_MAX );
+  auth_vtr_clear( ctx->auth_vtr );
+  auth_vtr_insert( ctx->auth_vtr, bls_key )->paths_idx = ULONG_MAX;
+
+  /* For any of the other authorized voters, we need to request the BLS
+     pubkey from the sign tile. */
+  for( ulong i=0UL; i<path_cnt; i++ ) {
+    fd_keyguard_client_bls_pubkey( ctx->keyguard_client, bls_key.uc, i );
+    auth_vtr_t const * exists = auth_vtr_query_const( ctx->auth_vtr, bls_key, NULL );
+    if( FD_UNLIKELY( exists ) ) {
+      if( FD_LIKELY( exists->paths_idx==ULONG_MAX ) ) continue; /* the identity is also an authorized voter */
+      FD_LOG_ERR(( "authorized voter key duplicate at index %lu", i ));
+    }
+    auth_vtr_t * auth_vtr = auth_vtr_insert( ctx->auth_vtr, bls_key );
+    auth_vtr->paths_idx = i;
+  }
+  ctx->auth_vtr_path_cnt = path_cnt;
+}
+
+static void
+refresh_rank_and_key( fd_votor_tile_t * ctx ) {
+  ag_epoch_info_t const * epoch_infos[3] = { ctx->prev_epoch_info, ctx->curr_epoch_info, ctx->next_epoch_info };
+  ulong                   epoch_slots[3] = { ctx->prev_epoch_slot, ctx->curr_epoch_slot, ctx->next_epoch_slot };
+  char const *            voting     [3] = { "unknown", "unknown", "unknown" };
+  for( ulong i=0UL; i<3UL; i++ ) {
+    ag_epoch_info_t const * epoch_info = epoch_infos[ i ];
+    if( FD_UNLIKELY( !epoch_info ) ) continue;
+    ushort own_rank = USHORT_MAX;
+    for( ulong rank=0UL; rank<epoch_info->validator_cnt; rank++ ) {
+      if( FD_UNLIKELY( !memcmp( epoch_info->validators[ rank ].id_key, ctx->id_key.uc, sizeof(ag_id_key_t) ) ) ) own_rank = (ushort)rank;
+    }
+    uchar const * own_bls_key = NULL; /* NULL if we are not ranked or cannot sign with our key, in which case we do not vote */
+    if( FD_LIKELY( own_rank!=USHORT_MAX ) ) {
+      ag_validator_info_t const * validator = &epoch_info->validators[ own_rank ];
+      if( FD_LIKELY( auth_vtr_query_const( ctx->auth_vtr, *(auth_vtr_key_t const *)fd_type_pun_const( validator->bls_key ), NULL ) ) ) {
+        own_bls_key = validator->bls_key;
+      } else {
+        FD_BASE58_ENCODE_32_BYTES( validator->vote_key, vote_key_b58 );
+        FD_LOG_WARNING(( "no identity or authorized voter keypair matches the BLS key of vote account %s, unable to vote", vote_key_b58 ));
+      }
+    }
+    ag_pool_set_rank       ( ctx->pool,  epoch_slots[ i ], own_rank );
+    ag_votor_set_rank      ( ctx->votor, epoch_slots[ i ], own_rank );
+    ag_votor_set_bls_pubkey( ctx->votor, epoch_slots[ i ], own_bls_key );
+    voting[ i ] = own_bls_key ? "enabled" : "disabled";
+  }
+  FD_LOG_INFO(( "keyswitch: authorized voter count is now %lu; voting %s in the current epoch and %s in the next epoch",
+                ctx->auth_vtr_path_cnt, voting[ 1 ], voting[ 2 ] ));
+}
+
+static void
 during_housekeeping( fd_votor_tile_t * ctx ) {
   if( FD_UNLIKELY( fd_clock_tile_recal_due( ctx->clock ) ) ) fd_clock_tile_recal( ctx->clock );
 
@@ -1310,10 +1378,7 @@ during_housekeeping( fd_votor_tile_t * ctx ) {
       /* Nuke the entire set of auth voters and just rederive the BLS
          pubkey for the identity from the sign tile. */
 
-      fd_keyguard_client_bls_pubkey( ctx->keyguard_client, bls_key.uc, ULONG_MAX );
-      auth_vtr_clear( ctx->auth_vtr );
-      auth_vtr_insert( ctx->auth_vtr, bls_key )->paths_idx = ULONG_MAX;
-      ctx->auth_vtr_path_cnt = 0UL;
+      load_keys( ctx, 0UL );
     } else {
       FD_LOG_CRIT(( "keyswitch: unexpected authorized voter operation %lu", param ));
     }
@@ -1321,32 +1386,68 @@ during_housekeeping( fd_votor_tile_t * ctx ) {
     /* The epochs votor holds chose their keys when they advanced, so
        choose them again for each of them. */
 
-    ag_epoch_info_t const * epoch_infos[3] = { ctx->prev_epoch_info, ctx->curr_epoch_info, ctx->next_epoch_info };
-    ulong                   epoch_slots[3] = { ctx->prev_epoch_slot, ctx->curr_epoch_slot, ctx->next_epoch_slot };
-    char const *            voting     [3] = { "unknown", "unknown", "unknown" };
-    for( ulong i=0UL; i<3UL; i++ ) {
-      ag_epoch_info_t const * epoch_info = epoch_infos[ i ];
-      if( FD_UNLIKELY( !epoch_info ) ) continue;
-      ushort own_rank = USHORT_MAX;
-      for( ulong rank=0UL; rank<epoch_info->validator_cnt; rank++ ) {
-        if( FD_UNLIKELY( !memcmp( epoch_info->validators[ rank ].id_key, ctx->id_key.uc, sizeof(ag_id_key_t) ) ) ) own_rank = (ushort)rank;
-      }
-      uchar const * own_bls_key = NULL; /* NULL if we are not ranked or cannot sign with our key, in which case we do not vote */
-      if( FD_LIKELY( own_rank!=USHORT_MAX ) ) {
-        ag_validator_info_t const * validator = &epoch_info->validators[ own_rank ];
-        if( FD_LIKELY( auth_vtr_query_const( ctx->auth_vtr, *(auth_vtr_key_t const *)fd_type_pun_const( validator->bls_key ), NULL ) ) ) {
-          own_bls_key = validator->bls_key;
-        } else {
-          FD_BASE58_ENCODE_32_BYTES( validator->vote_key, vote_key_b58 );
-          FD_LOG_WARNING(( "no identity or authorized voter keypair matches the BLS key of vote account %s, unable to vote", vote_key_b58 ));
+    refresh_rank_and_key( ctx );
+    fd_keyswitch_state( ctx->auth_vtr_keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
+  }
+
+  /* Identity key switch.  The admin tile halts votor right after replay
+     but there may be frags in flight.  Votor needs to consume up to and
+     including the latest recorded replay message.  Votor also needs to
+     wait for all outgoing votes to drain as well, and for queued pool
+     events, which the pool decided with the old identity's rank. */
+
+  if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->id_keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
+    if( FD_UNLIKELY( fd_seq_lt( ctx->replay_in_seq, fd_keyswitch_param_query( ctx->id_keyswitch ) ) ) ) return;
+    /* Halt signing at first by removing our BLS keys from votor. */
+    if( !ctx->halt_signing ) {
+      ctx->halt_signing = 1;
+      ag_epoch_info_t const * epoch_infos[3] = { ctx->prev_epoch_info, ctx->curr_epoch_info, ctx->next_epoch_info };
+      ulong                   epoch_slots[3] = { ctx->prev_epoch_slot, ctx->curr_epoch_slot, ctx->next_epoch_slot };
+      for( ulong i=0UL; i<3UL; i++ ) if( FD_LIKELY( epoch_infos[ i ] ) ) ag_votor_set_bls_pubkey( ctx->votor, epoch_slots[ i ], NULL );
+    }
+    /* If votes and pool events drained close quic conns and update
+       leader tracking. */
+    if( FD_LIKELY( !ag_votor_vote_event_cnt( ctx->votor ) && !ag_pool_pool_event_cnt( ctx->pool ) ) ) {
+      memcpy( ctx->id_key.uc, ctx->id_keyswitch->bytes, sizeof(fd_pubkey_t) );
+      fd_quic_set_identity_public_key( ctx->quic_client, ctx->id_key.uc );
+      fd_quic_set_identity_public_key( ctx->quic_server, ctx->id_key.uc );
+      for( ulong slot=0UL; slot<peers_slot_cnt(); slot++ ) {
+        peer_t * peer = &ctx->peers[ slot ];
+        if( FD_LIKELY( peers_key_inval( peer->id_key ) ) ) continue;
+        if( FD_LIKELY( peer->tx_conn ) ) {
+          fd_quic_conn_set_context( peer->tx_conn, NULL );
+          fd_quic_conn_close( peer->tx_conn, 0U );
+          peer->tx_conn = NULL;
         }
       }
-      ag_votor_set_bls_pubkey( ctx->votor, epoch_slots[ i ], own_bls_key );
-      voting[ i ] = own_bls_key ? "enabled" : "disabled";
+      /* Keep established server conns, which identify the peer, not us.
+         Close handshakes in progress, which are not yet rx_conns and
+         would complete as the old identity. */
+      fd_quic_state_t * server_state = fd_quic_get_state( ctx->quic_server );
+      for( ulong i=0UL; i<ctx->quic_server->limits.conn_cnt; i++ ) {
+        fd_quic_conn_t * conn = fd_quic_conn_at_idx( server_state, i );
+        if( FD_LIKELY( conn->state!=FD_QUIC_CONN_STATE_HANDSHAKE && conn->state!=FD_QUIC_CONN_STATE_HANDSHAKE_COMPLETE ) ) continue;
+        fd_quic_conn_set_context( conn, NULL );
+        fd_quic_conn_close( conn, 0U );
+      }
+      for( ulong i=0UL; i<REWARD_VOTE_MAX; i++ ) ctx->reward_votes[ i ].slot = ULONG_MAX;
+      /* Skip the window in progress, it may already have a leader. */
+      ulong next_window = ag_first_slot_in_window( ctx->highest_parent_ready_slot )+AG_SLOTS_PER_WINDOW;
+      ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, fd_ulong_max( ctx->curr_epoch_slot, next_window ), &ctx->id_key );
+      fd_keyswitch_state( ctx->id_keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
     }
-    FD_LOG_INFO(( "keyswitch: authorized voter count is now %lu; voting %s in the current epoch and %s in the next epoch",
-                  ctx->auth_vtr_path_cnt, voting[ 1 ], voting[ 2 ] ));
-    fd_keyswitch_state( ctx->auth_vtr_keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
+  }
+
+  /* Once we can resume signing load auth voters and reconn to peers.
+     Votor signs nothing in slots it already voted in. */
+  if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->id_keyswitch )==FD_KEYSWITCH_STATE_UNHALT_PENDING ) ) {
+    FD_CHECK_CRIT( ctx->halt_signing, "state machine corruption" );
+    load_keys( ctx, ctx->auth_vtr_path_cnt );
+    ctx->halt_signing = 0;
+    ag_votor_wait_to_vote( ctx->votor );
+    refresh_rank_and_key( ctx );
+    connect_peers( ctx, fd_clock_tile_now( ctx->clock ) );
+    fd_keyswitch_state( ctx->id_keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
   }
 }
 
@@ -1613,8 +1714,6 @@ before_frag( fd_votor_tile_t * ctx,
              ulong             in_idx,
              ulong             seq,
              ulong             sig ) {
-  (void)seq;
-
   switch( ctx->in_kind[ in_idx ] ) {
   case IN_KIND_EPOCH:
     return 0;
@@ -1623,9 +1722,10 @@ before_frag( fd_votor_tile_t * ctx,
   case IN_KIND_IPECHO:
     return 0;
   case IN_KIND_NET:
-    if( FD_UNLIKELY( !ctx->curr_epoch_info ) ) return 1;
+    if( FD_UNLIKELY( !ctx->curr_epoch_info || ctx->halt_signing ) ) return 1; /* halted, no TLS handshake may sign */
     return fd_disco_netmux_sig_proto( sig )!=DST_PROTO_VOTOR;
   case IN_KIND_REPLAY:
+    ctx->replay_in_seq = seq+1UL;
     if( FD_UNLIKELY( !ctx->curr_epoch_info ) ) return 1;
     return sig!=REPLAY_SIG_SLOT_COMPLETED && sig!=REPLAY_SIG_SLOT_DEAD;
   default:
@@ -1714,29 +1814,6 @@ after_frag( fd_votor_tile_t *   ctx,
   default:
     FD_LOG_ERR(( "unexpected in_kind %d", ctx->in_kind[ in_idx ] ));
   }
-}
-
-static void
-load_keys( fd_votor_tile_t *      ctx,
-           fd_topo_tile_t const * tile ) {
-  /* special case the identity.  We already know the bls pubkey */
-  auth_vtr_key_t bls_key;
-  fd_keyguard_client_bls_pubkey( ctx->keyguard_client, bls_key.uc, ULONG_MAX );
-  auth_vtr_insert( ctx->auth_vtr, bls_key )->paths_idx = ULONG_MAX;
-
-  /* For any of the other authorized voters, we need to request the BLS
-     pubkey from the sign tile. */
-  for( ulong i=0UL; i<tile->votor.authorized_voter_paths_cnt; i++ ) {
-    fd_keyguard_client_bls_pubkey( ctx->keyguard_client, bls_key.uc, i );
-    auth_vtr_t const * exists = auth_vtr_query_const( ctx->auth_vtr, bls_key, NULL );
-    if( FD_UNLIKELY( exists ) ) {
-      if( FD_LIKELY( exists->paths_idx==ULONG_MAX ) ) continue; /* the identity is also an authorized voter */
-      FD_LOG_ERR(( "authorized voter key duplicate at index %lu", i ));
-    }
-    auth_vtr_t * auth_vtr = auth_vtr_insert( ctx->auth_vtr, bls_key );
-    auth_vtr->paths_idx = i;
-  }
-  ctx->auth_vtr_path_cnt = tile->votor.authorized_voter_paths_cnt;
 }
 
 static void
@@ -1849,7 +1926,7 @@ unprivileged_init( fd_topo_t const *      topo,
       ctx->in_kind[ i ] = IN_KIND_NET;
       fd_net_rx_bounds_init( &ctx->net_in_bounds[ i ], link->dcache );
     }
-    else if( FD_LIKELY( !strcmp( link->name, "replay_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
+    else if( FD_LIKELY( !strcmp( link->name, "replay_slot"  ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
     else if( FD_LIKELY( !strcmp( link->name, "sign_votor"   ) ) ) ctx->in_kind[ i ] = IN_KIND_SIGN;
     else FD_LOG_ERR(( "votor tile has unexpected input link %lu %s", i, link->name ));
 
@@ -1902,10 +1979,14 @@ unprivileged_init( fd_topo_t const *      topo,
           fd_topo_find_link_consumer( topo, sign_out ) ) ) ) ) {
     FD_LOG_ERR(( "failed to construct keyguard client" ));
   }
-  load_keys( ctx, tile );
+  load_keys( ctx, tile->votor.authorized_voter_paths_cnt );
 
   ctx->auth_vtr_keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->av_keyswitch_obj_id ) );
   FD_TEST( ctx->auth_vtr_keyswitch );
+  ctx->id_keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
+  FD_TEST( ctx->id_keyswitch );
+  ctx->halt_signing  = 0;
+  ctx->replay_in_seq = 0UL;
 
   fd_aio_t * quic_tx_aio = fd_aio_join( fd_aio_new( ctx->quic_tx_aio, ctx, quic_aio_tx ) );
   FD_TEST( quic_tx_aio );

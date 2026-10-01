@@ -560,6 +560,21 @@ ag_slot_state_null( ag_slot_state_t * self ) {
   self->sent_safe_to_skip         = 0;
 }
 
+void
+ag_slot_state_set_own_rank( ag_slot_state_t * self,
+                            ulong             own_rank ) {
+  self->own_rank = own_rank;
+  fd_memset( self->votes.own_notar_hash, 0, sizeof(ag_block_hash_t) );
+  if( FD_UNLIKELY( own_rank==USHORT_MAX ) ) return;
+
+  for( ulong slot_idx=0UL; slot_idx<notar_map_slot_cnt(); slot_idx++ ) {
+    ag_slot_voted_stake_hash_t const * notar = &self->votes.notar_stake_map[ slot_idx ];
+    if( FD_LIKELY( notar_map_key_inval( notar->hash ) || !fd_bls_set_test( notar->agg.set, own_rank ) ) ) continue;
+    memcpy( self->votes.own_notar_hash, notar->hash.block_hash, sizeof(ag_block_hash_t) );
+    return;
+  }
+}
+
 FD_FN_PURE int
 ag_slot_state_is_notar_fallback( ag_slot_state_t const * self,
                                  ag_block_hash_t const   block_hash ) {
