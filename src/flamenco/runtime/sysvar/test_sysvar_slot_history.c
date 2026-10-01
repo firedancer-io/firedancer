@@ -274,6 +274,79 @@ test_sysvar_slot_history_update_zero_blocks( fd_wksp_t * wksp ) {
   test_sysvar_cache_env_destroy( env );
 }
 
+/* A missing account starts from SlotHistory::default() (slot 0 set) */
+
+static void
+test_sysvar_slot_history_update_missing( fd_wksp_t * wksp ) {
+  test_sysvar_cache_env_t env[1];
+  FD_TEST( test_sysvar_cache_env_create( env, wksp ) );
+  env->bank->f.rent = (fd_rent_t){ .lamports_per_uint8_year=3480UL, .exemption_threshold=2.0, .burn_percent=100 };
+
+  env->bank->f.slot = 11UL;
+  fd_sysvar_slot_history_update( env->bank, env->accdb, NULL );
+  FD_TEST( fd_sysvar_cache_restore( env->bank, env->accdb ) );
+
+  ulong sz = 0UL;
+  uchar const * data = fd_sysvar_cache_data_query( env->sysvar_cache, &fd_sysvar_slot_history_id, &sz );
+  FD_TEST( data && sz==FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ );
+  fd_slot_history_view_t view[1];
+  FD_TEST( fd_sysvar_slot_history_view( view, data, sz ) );
+  FD_TEST( view->next_slot==12UL );
+  FD_TEST( fd_sysvar_slot_history_find_slot( view,  0UL )==FD_SLOT_HISTORY_SLOT_FOUND     );
+  FD_TEST( fd_sysvar_slot_history_find_slot( view,  1UL )==FD_SLOT_HISTORY_SLOT_NOT_FOUND );
+  FD_TEST( fd_sysvar_slot_history_find_slot( view, 11UL )==FD_SLOT_HISTORY_SLOT_FOUND     );
+
+  test_sysvar_cache_env_destroy( env );
+}
+
+/* The updater rewrites the account at max(canonical size, serialized
+   size), dropping or zeroing any trailing bytes. */
+
+static void
+test_sysvar_slot_history_update_normalizes_size( fd_wksp_t * wksp,
+                                                  ulong const blocks_len,
+                                                  ulong const extra_sz ) {
+  test_sysvar_cache_env_t env[1];
+  FD_TEST( test_sysvar_cache_env_create( env, wksp ) );
+
+  fd_rent_t const rent = {
+    .lamports_per_uint8_year = 3480UL,
+    .exemption_threshold     = 2.0,
+    .burn_percent            = 100
+  };
+  env->bank->f.rent = rent;
+
+  ulong   ser_sz  = MIN_SZ + blocks_len*sizeof(ulong);
+  ulong   data_sz = ser_sz + extra_sz;
+  uchar * data    = malloc( data_sz );
+  FD_TEST( data );
+  fd_memset( data, 0xAB, data_sz );
+  data[ 0 ] = 1;
+  FD_STORE( ulong, data+1, blocks_len );
+  fd_memset( data+HEADER_SZ, 0, blocks_len*sizeof(ulong) );
+  FD_STORE( ulong, data+HEADER_SZ+blocks_len*sizeof(ulong),     blocks_len*BITS_PER_BLOCK );
+  FD_STORE( ulong, data+HEADER_SZ+blocks_len*sizeof(ulong)+8UL, 100UL );
+  fd_sysvar_account_update( env->bank, env->accdb, NULL, &fd_sysvar_slot_history_id, data, data_sz );
+  free( data );
+
+  env->bank->f.slot = 100UL;
+  fd_sysvar_slot_history_update( env->bank, env->accdb, NULL );
+
+  ulong want_sz = fd_ulong_max( ser_sz, FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ );
+  fd_acc_t acc = fd_accdb_read_one( env->accdb, env->bank->accdb_fork_id, fd_sysvar_slot_history_id.uc );
+  FD_TEST( acc.data_len==want_sz );
+  FD_TEST( acc.lamports>=fd_rent_exempt_minimum_balance( &rent, want_sz ) );
+  for( ulong i=ser_sz; i<acc.data_len; i++ ) FD_TEST( !acc.data[ i ] );
+  fd_slot_history_view_t view[1];
+  FD_TEST( fd_sysvar_slot_history_view( view, acc.data, acc.data_len ) );
+  FD_TEST( view->blocks_len==blocks_len );
+  FD_TEST( view->next_slot==101UL );
+  FD_TEST( fd_sysvar_slot_history_find_slot( view, 100UL )==FD_SLOT_HISTORY_SLOT_FOUND );
+  fd_accdb_unread_one( env->accdb, &acc );
+
+  test_sysvar_cache_env_destroy( env );
+}
+
 static void
 test_sysvar_slot_history( fd_wksp_t * wksp ) {
   test_sysvar_slot_history_validate           ();
@@ -284,4 +357,8 @@ test_sysvar_slot_history( fd_wksp_t * wksp ) {
   test_sysvar_slot_history_update             ( wksp );
   test_sysvar_slot_history_update_large_gap   ( wksp );
   test_sysvar_slot_history_update_zero_blocks ( wksp );
+  test_sysvar_slot_history_update_missing     ( wksp );
+  test_sysvar_slot_history_update_normalizes_size( wksp, BLOCKS_LEN,     64UL );
+  test_sysvar_slot_history_update_normalizes_size( wksp, 4UL,            0UL  );
+  test_sysvar_slot_history_update_normalizes_size( wksp, BLOCKS_LEN+4UL, 64UL );
 }

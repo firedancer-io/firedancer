@@ -1,5 +1,6 @@
 #include "test_sysvar_cache_util.h"
 #include "fd_sysvar_slot_hashes.h"
+#include "fd_sysvar.h"
 #include "fd_sysvar_cache.h"
 #include "../fd_system_ids.h"
 
@@ -178,10 +179,60 @@ test_sysvar_slot_hashes_eviction( fd_wksp_t * wksp ) {
   test_sysvar_cache_env_destroy( env );
 }
 
+/* The updater rewrites the account at the canonical size, whatever
+   size it had before. */
+
+static void
+test_sysvar_slot_hashes_update_normalizes_size( fd_wksp_t *   wksp,
+                                                 ulong const   data_len ) {
+  test_sysvar_cache_env_t env[1];
+  FD_TEST( test_sysvar_cache_env_create( env, wksp ) );
+
+  fd_rent_t const rent = {
+    .lamports_per_uint8_year = 3480UL,
+    .exemption_threshold     = 2.0,
+    .burn_percent            = 100
+  };
+  env->bank->f.rent = rent;
+
+  static uchar data[ FD_SYSVAR_SLOT_HASHES_BINCODE_SZ+64UL ];
+  fd_memset( data, 0xAB, sizeof(data) );
+  FD_STORE( ulong, data, 1UL );
+  fd_slot_hash_t * entries = fd_type_pun( data+sizeof(ulong) );
+  entries[0].slot = 7UL;
+  FD_TEST( data_len<=sizeof(data) );
+  fd_sysvar_account_update( env->bank, env->accdb, NULL, &fd_sysvar_slot_hashes_id, data, data_len );
+
+  env->bank->f.parent_slot     = 8UL;
+  env->bank->f.bank_hash.ul[0] = 0x1234UL;
+  fd_sysvar_slot_hashes_update( env->bank, env->accdb, NULL );
+
+  fd_acc_t acc = fd_accdb_read_one( env->accdb, env->bank->accdb_fork_id, fd_sysvar_slot_hashes_id.uc );
+  FD_TEST( acc.data_len==FD_SYSVAR_SLOT_HASHES_BINCODE_SZ );
+  FD_TEST( acc.lamports>=fd_rent_exempt_minimum_balance( &rent, FD_SYSVAR_SLOT_HASHES_BINCODE_SZ ) );
+  fd_slot_hashes_t view[1];
+  FD_TEST( fd_sysvar_slot_hashes_view( view, acc.data, acc.data_len ) );
+  FD_TEST( view->cnt==2UL );
+  FD_TEST( view->elems[0].slot==8UL );
+  FD_TEST( view->elems[1].slot==7UL );
+  ulong used_sz = sizeof(ulong) + 2UL*sizeof(fd_slot_hash_t);
+  for( ulong i=used_sz; i<acc.data_len; i++ ) FD_TEST( !acc.data[ i ] );
+  fd_accdb_unread_one( env->accdb, &acc );
+
+  FD_TEST( fd_sysvar_cache_restore( env->bank, env->accdb ) );
+  ulong sz = 0UL;
+  FD_TEST( fd_sysvar_cache_data_query( env->sysvar_cache, &fd_sysvar_slot_hashes_id, &sz ) );
+  FD_TEST( sz==FD_SYSVAR_SLOT_HASHES_BINCODE_SZ );
+
+  test_sysvar_cache_env_destroy( env );
+}
+
 static void
 test_sysvar_slot_hashes( fd_wksp_t * wksp ) {
   test_sysvar_slot_hashes_validate_and_view();
   test_sysvar_slot_hashes_init    ( wksp );
   test_sysvar_slot_hashes_update  ( wksp );
   test_sysvar_slot_hashes_eviction( wksp );
+  test_sysvar_slot_hashes_update_normalizes_size( wksp, sizeof(ulong)+sizeof(fd_slot_hash_t) );
+  test_sysvar_slot_hashes_update_normalizes_size( wksp, FD_SYSVAR_SLOT_HASHES_BINCODE_SZ+64UL );
 }

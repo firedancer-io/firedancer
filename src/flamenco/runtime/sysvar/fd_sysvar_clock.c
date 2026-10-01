@@ -53,6 +53,18 @@ unix_timestamp_from_genesis( fd_bank_t * bank ) {
       (long)( fd_uint128_sat_mul( bank->f.slot, bank->f.slot_params.ns_per_slot ) / NS_IN_S ) );
 }
 
+/* Agave Bank::clock() reads a missing or undecodable account as Clock::default()
+   https://github.com/anza-xyz/agave/blob/v4.0.0/runtime/src/bank.rs */
+
+static void
+read_clock_or_default( fd_bank_t const *       bank,
+                       fd_accdb_t *            accdb,
+                       fd_sol_sysvar_clock_t * clock ) {
+  if( FD_UNLIKELY( !fd_sysvar_clock_read( accdb, bank->accdb_fork_id, clock ) ) ) {
+    memset( clock, 0, sizeof(fd_sol_sysvar_clock_t) );
+  }
+}
+
 static void
 fd_sysvar_clock_write( fd_bank_t *                   bank,
                        fd_accdb_t *                  accdb,
@@ -264,9 +276,8 @@ fd_sysvar_clock_update( fd_bank_t *          bank,
                         fd_capture_ctx_t *   capture_ctx,
                         fd_runtime_stack_t * runtime_stack,
                         ulong const *        parent_epoch ) {
-  fd_sol_sysvar_clock_t clock_[1];
-  fd_sol_sysvar_clock_t * clock = fd_sysvar_clock_read( accdb, bank->accdb_fork_id, clock_ );
-  if( FD_UNLIKELY( !clock ) ) FD_LOG_ERR(( "fd_sysvar_clock_read failed" ));
+  fd_sol_sysvar_clock_t clock[1];
+  read_clock_or_default( bank, accdb, clock );
 
   fd_epoch_schedule_t const * epoch_schedule = &bank->f.epoch_schedule;
   ulong                       current_slot   = bank->f.slot;
@@ -323,9 +334,8 @@ void
 fd_sysvar_clock_update_slot_alpenglow( fd_bank_t *        bank,
                                        fd_accdb_t *       accdb,
                                        fd_capture_ctx_t * capture_ctx ) {
-  fd_sol_sysvar_clock_t clock_[1];
-  fd_sol_sysvar_clock_t * clock = fd_sysvar_clock_read( accdb, bank->accdb_fork_id, clock_ );
-  if( FD_UNLIKELY( !clock ) ) FD_LOG_ERR(( "fd_sysvar_clock_read failed" ));
+  fd_sol_sysvar_clock_t clock[1];
+  read_clock_or_default( bank, accdb, clock );
 
   fd_epoch_schedule_t const * epoch_schedule = &bank->f.epoch_schedule;
   ulong current_epoch = fd_slot_to_epoch( epoch_schedule, bank->f.slot,        NULL );

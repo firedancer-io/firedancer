@@ -41,13 +41,36 @@ fd_sysvar_slot_history_init( fd_bank_t *        bank,
   fd_sysvar_account_update( bank, accdb, capture_ctx, &fd_sysvar_slot_history_id, data, FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ );
 }
 
+/* write_default_slot_history writes SlotHistory::default()
+   https://github.com/anza-xyz/solana-sdk/blob/slot-history%40v2.2.1/slot-history/src/lib.rs#L36-L42 */
+
+static void
+write_default_slot_history( fd_bank_t *        bank,
+                            fd_accdb_t *       accdb,
+                            fd_capture_ctx_t * capture_ctx ) {
+  static uchar data[ FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ ];
+  fd_memset( data, 0, sizeof(data) );
+  data[ 0 ] = 1;
+  FD_STORE( ulong, data+1UL, FD_SLOT_HISTORY_BLOCKS_LEN );
+  FD_STORE( ulong, data+9UL, 1UL ); /* slot 0 */
+  FD_STORE( ulong, data+9UL+FD_SLOT_HISTORY_BLOCKS_LEN*sizeof(ulong),     FD_SLOT_HISTORY_MAX_ENTRIES );
+  FD_STORE( ulong, data+9UL+FD_SLOT_HISTORY_BLOCKS_LEN*sizeof(ulong)+8UL, 1UL );
+  fd_sysvar_account_update( bank, accdb, capture_ctx, &fd_sysvar_slot_history_id, data, sizeof(data) );
+}
+
 void
 fd_sysvar_slot_history_update( fd_bank_t *        bank,
                                fd_accdb_t *       accdb,
                                fd_capture_ctx_t * capture_ctx ) {
   fd_accdb_svm_update_t update[1];
   fd_acc_t acc = fd_accdb_svm_open_rw( bank, accdb, update, &fd_sysvar_slot_history_id, 0 );
-  FD_TEST( acc.lamports ); /* Slot history account must exist */
+  if( FD_UNLIKELY( !acc.lamports ) ) {
+    /* Agave starts from SlotHistory::default() if the account is missing
+       https://github.com/anza-xyz/agave/blob/v4.0.0/runtime/src/bank.rs (update_slot_history) */
+    write_default_slot_history( bank, accdb, capture_ctx );
+    acc = fd_accdb_svm_open_rw( bank, accdb, update, &fd_sysvar_slot_history_id, 0 );
+    FD_TEST( acc.lamports );
+  }
   FD_TEST( !memcmp( acc.owner, fd_sysvar_owner_id.uc, sizeof(fd_pubkey_t) ) ); /* Slot history account must be owned by sysvar owner */
 
   if( FD_UNLIKELY( acc.data[ 0 ]!=1 ) ) {
@@ -98,6 +121,12 @@ fd_sysvar_slot_history_update( fd_bank_t *        bank,
   FD_STORE( ulong, word, FD_LOAD( ulong, word ) | (1UL << (cur_slot % FD_SLOT_HISTORY_BITS_PER_BLOCK)) );
 
   FD_STORE( ulong, footer+8UL, cur_slot+1UL );
+
+  /* Agave rewrites the account at max(size_of, serialized_size)
+     https://github.com/anza-xyz/solana-sdk/blob/account%40v4.3.0/account/src/lib.rs#L618 */
+  ulong new_sz = fd_ulong_max( min_sz, FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ );
+  fd_memset( acc.data+min_sz, 0, new_sz-min_sz );
+  acc.data_len = new_sz;
 
   fd_sysvar_adjust_balance_for_rent( bank, &acc );
   fd_accdb_svm_close_rw( bank, accdb, capture_ctx, &acc, update );
