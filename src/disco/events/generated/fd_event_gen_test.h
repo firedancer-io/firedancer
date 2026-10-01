@@ -595,6 +595,54 @@ fd_event_alpenglow_cert_fill_max( fd_event_alpenglow_cert_t * msg ) {
 static void
 fd_event_alpenglow_cert_fill_max_v( void * msg ) { fd_event_alpenglow_cert_fill_max( (fd_event_alpenglow_cert_t *)msg ); }
 
+static inline void
+fd_event_block_received_fill_max( fd_event_block_received_t * msg ) {
+  fd_memset( msg, 0, sizeof(*msg) );
+  msg->slot = ULONG_MAX;
+  fd_memset( msg->block_id, 0xFF, 32UL );
+  msg->parent_slot = ULONG_MAX;
+  fd_memset( msg->parent_block_id, 0xFF, 32UL );
+  msg->cancelled = 1;
+  msg->notarized = 1;
+  msg->caught_up = 1;
+  msg->fec_set_count = ULONG_MAX;
+  msg->first_shred_received_time = ULONG_MAX;
+  msg->last_shred_received_time = ULONG_MAX;
+  msg->first_repair_request_time = ULONG_MAX;
+  msg->last_repair_received_time = ULONG_MAX;
+  msg->parity_shred_received = UINT_MAX;
+  msg->turbine_shred_received = UINT_MAX;
+  msg->repair_shred_received = UINT_MAX;
+  msg->recovered_shred_count = UINT_MAX;
+  msg->last_completed_fec_set_index = UINT_MAX;
+  msg->slot_complete_flag = 1;
+  msg->equivocation_detected_shred = 1;
+  msg->repair_requests_retransmitted = UINT_MAX;
+  msg->repair_responses_received = UINT_MAX;
+  msg->repair_request_window_count = UINT_MAX;
+  msg->repair_request_highest_window_count = UINT_MAX;
+  msg->repair_request_orphan_count = UINT_MAX;
+  msg->repair_request_shred_for_block_id_count = UINT_MAX;
+  msg->repair_request_parent_fec_count = UINT_MAX;
+  msg->repair_request_fec_root_count = UINT_MAX;
+  msg->fec_sets_cnt = 1024UL;
+  for( ulong k=0UL; k<1024UL; k++ ) {
+    fd_memset( msg->fec_sets[ k ].fec_merkle_root, 0xFF, 32UL );
+    msg->fec_sets[ k ].fec_set_index = UINT_MAX;
+    msg->fec_sets[ k ].fec_data_shreds_received = UINT_MAX;
+    msg->fec_sets[ k ].fec_parity_shreds_received = UINT_MAX;
+    msg->fec_sets[ k ].fec_repair_shreds_received = UINT_MAX;
+    msg->fec_sets[ k ].fec_duplicate_shred_count = UINT_MAX;
+    msg->fec_sets[ k ].fec_first_shred_received_nanos = ULONG_MAX;
+    msg->fec_sets[ k ].fec_completed_nanos = ULONG_MAX;
+    msg->fec_sets[ k ].fec_final_shred_source_repair = 1;
+    msg->fec_sets[ k ].fec_source_repair = 1;
+  }
+}
+
+static void
+fd_event_block_received_fill_max_v( void * msg ) { fd_event_block_received_fill_max( (fd_event_block_received_t *)msg ); }
+
 typedef struct {
   ulong        type;    /* event schema id */
   ulong        buf_max; /* modeled encode bound */
@@ -621,9 +669,10 @@ static const fd_event_gen_test_case_t fd_event_gen_test_cases[] = {
   { 18UL, FD_EVENT_RUNTIME_VOTE_ACCOUNT_BUF_MAX, sizeof(fd_event_runtime_vote_account_t), "runtime_vote_account", fd_event_runtime_vote_account_fill_max_v },
   { 19UL, FD_EVENT_ALPENGLOW_VOTE_BUF_MAX, sizeof(fd_event_alpenglow_vote_t), "alpenglow_vote", fd_event_alpenglow_vote_fill_max_v },
   { 20UL, FD_EVENT_ALPENGLOW_CERT_BUF_MAX, sizeof(fd_event_alpenglow_cert_t), "alpenglow_cert", fd_event_alpenglow_cert_fill_max_v },
+  { 21UL, FD_EVENT_BLOCK_RECEIVED_BUF_MAX, sizeof(fd_event_block_received_t), "block_received", fd_event_block_received_fill_max_v },
 };
 
-#define FD_EVENT_GEN_TEST_CASE_CNT (17UL)
+#define FD_EVENT_GEN_TEST_CASE_CNT (18UL)
 
 FD_PROTOTYPES_END
 

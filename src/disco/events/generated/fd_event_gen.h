@@ -945,11 +945,80 @@ fd_event_alpenglow_cert_footprint( fd_event_alpenglow_cert_t const * msg ) {
    submsg + inner submsg + all fields, padded for encoder slack). */
 #define FD_EVENT_ALPENGLOW_CERT_BUF_MAX (176828UL)
 
+/* Reception detail for one FEC set. A zero timestamp means the stage was never reached or its stamp was unavailable. */
+struct fd_event_block_received_fec_sets {
+  uchar fec_merkle_root[ 32UL ];        /* Merkle root of the FEC set: its identity. The final FEC set's merkle root is the block id. */
+  uint  fec_set_index;                  /* Index of the FEC set's first data shred within the block; FEC sets are listed in block order, so for a fully received block the indices ascend from 0 without gaps. */
+  uint  fec_data_shreds_received;       /* Bitmap of data shreds of the FEC set received (vs recovered). Bit j set if the data shred with data index j was received.  */
+  uint  fec_parity_shreds_received;     /* Bitmap of parity shreds of the FEC set received (vs recovered). Bit j set if the parity shred with parity index j was received.  */
+  uint  fec_repair_shreds_received;     /* Bitmap of repair shreds of the FEC set received. Bit j set if the repair shred with data index j was received.  */
+  uint  fec_duplicate_shred_count;      /* Number of duplicate shreds received per FEC set, best effort given upstream de-deduplication. */
+  ulong fec_first_shred_received_nanos; /* Timestamp the first shred of each FEC set was seen. */
+  ulong fec_completed_nanos;            /* Timestamp the FEC set became complete/assembled */
+  int   fec_final_shred_source_repair;  /* Whether the final shred of the FEC set was from repair. If 0, it was from turbine or our own leader shred.  */
+  int   fec_source_repair;              /* Whether the FEC set was received via repair. If 0, it was from turbine or our own leader shred.  */
+} __attribute__((aligned(8)));
+typedef struct fd_event_block_received_fec_sets fd_event_block_received_fec_sets_t;
+
+/* A block that completed reception on this validator or was abandoned and pruned.  A block gets a row if it received a shred marked as final in the slot, and received all shreds up until the final shred, or if it was incomplete but collected later during pruning. Tallies are best-effort: they restart if repair transiently stopped tracking the block, and on equivocated slots they are best-effort — shreds shared between versions of the slot may merge with same counts on every version's row. Delivery is best-effort: rows travel a lossy telemetry link, so a block_completed row can arrive without its block_received row or vice versa.  */
+struct fd_event_block_received {
+  ulong                              slot;                                    /* Slot number of the block. */
+  uchar                              block_id[ 32UL ];                        /* Block identifier; with slot, the alternate join key to block_completed. For blocks that never completed reception (or abandoned early), this can the null hash. */
+  ulong                              parent_slot;                             /* Slot number of the block's parent. */
+  uchar                              parent_block_id[ 32UL ];                 /* Block identifier of the block's parent. */
+  int                                cancelled;                               /* Whether the block was cancelled due to a notar version becoming known. These blocks will only get reported if they are eventually pruned, so if the root does not advance, they will not be reported. */
+  int                                notarized;                               /* Either reached SafeToNotar locally or attached to a NotarFallback or stronger cert, rather than being the version received over turbine. Always false before alpenglow, and false for blocks this validator produced as leader. A slot can report both, on separate rows. */
+  int                                caught_up;                               /* Whether the validator considered itself caught up to the cluster when the row was emitted. False from boot until rotor/repair closes on the network tip (set immediately for genesis bootstrap); never cleared within a run. */
+  ulong                              fec_set_count;                           /* Number of FEC sets in the block; for blocks that never completed reception, the number delivered to replay when the row was emitted. 0 if reassembly no longer tracked the block when the row was emitted. */
+  ulong                              first_shred_received_time;               /* Network arrival at the shred tile of the block's first shred, stamped before signature verification. Leader blocks: when the first entry batch reached the shredding stage, before any network send. 0 if repair pruned the block before completion. */
+  ulong                              last_shred_received_time;                /* Network arrival of the shred that made the block contiguous; not necessarily the highest-numbered shred. Minus first_shred_received_time: reception duration, valid only when this is nonzero. Leader blocks: when the final entry batch reached the shredding stage. 0 if the block never became fully contiguous (dead or abandoned mid-reception) or repair pruned it before completion. */
+  ulong                              first_repair_request_time;               /* First repair request for a specific missing shred (window request); highest-shred and orphan requests do not stamp this, so it can be 0 while their request counts are not. 0 if no window request was sent or repair pruned the block; always 0 for leader blocks. */
+  ulong                              last_repair_received_time;               /* Arrival of the last repair response matched to an outstanding specific-shred request; shreds from highest-shred and orphan responses do not stamp this. 0 if none was matched or repair pruned the block; always 0 for leader blocks. */
+  uint                               parity_shred_received;                   /* Parity (recovery) shreds received. Near 0 for leader blocks: only network echoes of the block's own parity shreds land here. 0 if repair pruned the block before completion. */
+  uint                               turbine_shred_received;                  /* Shreds received over the network via turbine, plus repair deliveries whose provenance could not be verified (failed nonce) and coding shreds arriving in repair responses (nonconformant: repair serves only data shreds). Pieces cleared and re-fetched after a wrong-version detection or eviction count once per delivery, so source tallies can exceed the block's shred counts. Near 0 for leader blocks. 0 if repair pruned the block before completion. */
+  uint                               repair_shred_received;                   /* Shreds obtained from peers via repair; nonce-verified deliveries only. Re-fetched pieces count once per delivery (see turbine_shred_count). Always 0 for leader blocks. 0 if repair pruned the block before completion. */
+  uint                               recovered_shred_count;                   /* Shreds reconstructed locally from parity data. Re-recovered pieces count once per recovery (see turbine_shred_count). Always 0 for leader blocks, which produce rather than recover their shreds. 0 if repair pruned the block before completion. */
+  uint                               last_completed_fec_set_index;            /* FEC set index of the last piece of the block to complete reception, which with out-of-order repair need not be the block's final index. 4294967295 when the reception statistics are unpopulated; not a FEC index. */
+  int                                slot_complete_flag;                      /* Whether the shred marking the block complete was received. False if repair pruned the block before completion. */
+  int                                equivocation_detected_shred;             /* Whether any of the block's FEC sets was ever quarantined by an equivocation hold: set when a conflicting version of a FEC set was assembled at that position, and inherited by everything chaining onto or arriving during an unresolved conflict, including from ancestor slots; persists after resolution. A lone conflicting shred discarded before reassembly does not register. False if reassembly no longer tracked the block when the row was emitted. */
+  uint                               repair_requests_retransmitted;           /* Repair requests re-sent after a response timeout. Always 0 for leader blocks. 0 if repair pruned the block before completion. */
+  uint                               repair_responses_received;               /* Repair responses matched to an outstanding specific-shred request. Shreds delivered by verified highest-shred and orphan responses count in repair_shred_count but are not matched here, so this can be 0 while repair_shred_count is not. Always 0 for leader blocks. 0 if repair pruned the block before completion. */
+  uint                               repair_request_window_count;             /* Repair requests for one specific missing shred, by index. Always 0 for leader blocks. 0 if repair pruned the block before completion. */
+  uint                               repair_request_highest_window_count;     /* Repair requests for the highest-numbered shred a peer holds, used to learn the block's length. Highest-shred requests seeded at boot, before the block was tracked, bypass this counter. Always 0 for leader blocks. 0 if repair pruned the block before completion. */
+  uint                               repair_request_orphan_count;             /* Repair requests for the block's ancestry when its parent is unknown; a response carries shreds from up to 11 ancestor blocks. Always 0 for leader blocks. 0 if repair pruned the block before completion. */
+  uint                               repair_request_shred_for_block_id_count; /* Alpenglow ShredForBlockId requests, analogous to legacy window requests. Asks a peer for a specific missing shred, addressed by the block id it belongs to. Always 0 before alpenglow and for leader blocks. */
+  uint                               repair_request_parent_fec_count;         /* Alpenglow ParentAndFecCount requests, analogous to legacy orphan requests. Asks a peer for the block's parent and its FEC set count. Always 0 before alpenglow and for leader blocks. */
+  uint                               repair_request_fec_root_count;           /* Alpenglow FecRoot requests: asks a peer for a FEC set's merkle root for a specified FEC set index. Always 0 before alpenglow and for leader blocks. */
+  ulong                              fec_sets_cnt;                            /* Number of fec_sets entries (<= 1024) */
+  fd_event_block_received_fec_sets_t fec_sets[ 1024UL ];                      /* Per-FEC-set reception detail, one entry per FEC set in block order: which pieces made up the block, how each arrived, and when. Summed, the counts reconcile with the block-level shred counts on this row, except that block-level tallies also cover pieces cleared after wrong-version detection. Best-effort: empty when reassembly no longer tracked the block when the row was emitted, and truncated to the FEC sets delivered so far on blocks that never completed reception. Empty does not mean the block had no FEC sets. (dynamic: stored at end, shipped at used length) */
+};
+typedef struct fd_event_block_received fd_event_block_received_t;
+
+#define FD_EVENT_BLOCK_RECEIVED_PREFIX_SZ (offsetof(fd_event_block_received_t, fec_sets))
+
+#define FD_EVENT_BLOCK_RECEIVED_FEC_SETS_MAX (1024UL)
+
+FD_STATIC_ASSERT( sizeof(((fd_event_block_received_t *)0)->fec_sets[0])%8UL==0UL, block_received_fec_sets_align );
+
+/* Packed (wire) footprint of a block_received event: prefix plus used
+   dynamic array entries.  msg may point at a full struct or at a
+   packed event's prefix. */
+static inline ulong
+fd_event_block_received_footprint( fd_event_block_received_t const * msg ) {
+  return FD_EVENT_BLOCK_RECEIVED_PREFIX_SZ
+       + msg->fec_sets_cnt*sizeof(((fd_event_block_received_t *)0)->fec_sets[0])
+       ;
+}
+
+/* Worst-case encoded size of a block_received event (envelope + Event
+   submsg + inner submsg + all fields, padded for encoder slack). */
+#define FD_EVENT_BLOCK_RECEIVED_BUF_MAX (147917UL)
+
 /* Largest generated event struct; a consumer can stage any incoming
    event in a buffer of this size, aligned to
    FD_EVENT_GEN_STRUCT_ALIGN. */
-#define FD_EVENT_GEN_STRUCT_MAX   (sizeof (union { fd_event_signed_vote_t signed_vote_; fd_event_slot_confirmed_t slot_confirmed_; fd_event_accdb_compaction_completed_t accdb_compaction_completed_; fd_event_accdb_partition_added_t accdb_partition_added_; fd_event_block_equivocated_t block_equivocated_; fd_event_runtime_txn_t runtime_txn_; fd_event_block_completed_t block_completed_; fd_event_snapshot_created_t snapshot_created_; fd_event_admin_command_t admin_command_; fd_event_runtime_block_t runtime_block_; fd_event_runtime_reward_t runtime_reward_; fd_event_runtime_stake_delegation_t runtime_stake_delegation_; fd_event_runtime_rooted_t runtime_rooted_; fd_event_runtime_epoch_t runtime_epoch_; fd_event_runtime_vote_account_t runtime_vote_account_; fd_event_alpenglow_vote_t alpenglow_vote_; fd_event_alpenglow_cert_t alpenglow_cert_; }))
-#define FD_EVENT_GEN_STRUCT_ALIGN (alignof(union { fd_event_signed_vote_t signed_vote_; fd_event_slot_confirmed_t slot_confirmed_; fd_event_accdb_compaction_completed_t accdb_compaction_completed_; fd_event_accdb_partition_added_t accdb_partition_added_; fd_event_block_equivocated_t block_equivocated_; fd_event_runtime_txn_t runtime_txn_; fd_event_block_completed_t block_completed_; fd_event_snapshot_created_t snapshot_created_; fd_event_admin_command_t admin_command_; fd_event_runtime_block_t runtime_block_; fd_event_runtime_reward_t runtime_reward_; fd_event_runtime_stake_delegation_t runtime_stake_delegation_; fd_event_runtime_rooted_t runtime_rooted_; fd_event_runtime_epoch_t runtime_epoch_; fd_event_runtime_vote_account_t runtime_vote_account_; fd_event_alpenglow_vote_t alpenglow_vote_; fd_event_alpenglow_cert_t alpenglow_cert_; }))
+#define FD_EVENT_GEN_STRUCT_MAX   (sizeof (union { fd_event_signed_vote_t signed_vote_; fd_event_slot_confirmed_t slot_confirmed_; fd_event_accdb_compaction_completed_t accdb_compaction_completed_; fd_event_accdb_partition_added_t accdb_partition_added_; fd_event_block_equivocated_t block_equivocated_; fd_event_runtime_txn_t runtime_txn_; fd_event_block_completed_t block_completed_; fd_event_snapshot_created_t snapshot_created_; fd_event_admin_command_t admin_command_; fd_event_runtime_block_t runtime_block_; fd_event_runtime_reward_t runtime_reward_; fd_event_runtime_stake_delegation_t runtime_stake_delegation_; fd_event_runtime_rooted_t runtime_rooted_; fd_event_runtime_epoch_t runtime_epoch_; fd_event_runtime_vote_account_t runtime_vote_account_; fd_event_alpenglow_vote_t alpenglow_vote_; fd_event_alpenglow_cert_t alpenglow_cert_; fd_event_block_received_t block_received_; }))
+#define FD_EVENT_GEN_STRUCT_ALIGN (alignof(union { fd_event_signed_vote_t signed_vote_; fd_event_slot_confirmed_t slot_confirmed_; fd_event_accdb_compaction_completed_t accdb_compaction_completed_; fd_event_accdb_partition_added_t accdb_partition_added_; fd_event_block_equivocated_t block_equivocated_; fd_event_runtime_txn_t runtime_txn_; fd_event_block_completed_t block_completed_; fd_event_snapshot_created_t snapshot_created_; fd_event_admin_command_t admin_command_; fd_event_runtime_block_t runtime_block_; fd_event_runtime_reward_t runtime_reward_; fd_event_runtime_stake_delegation_t runtime_stake_delegation_; fd_event_runtime_rooted_t runtime_rooted_; fd_event_runtime_epoch_t runtime_epoch_; fd_event_runtime_vote_account_t runtime_vote_account_; fd_event_alpenglow_vote_t alpenglow_vote_; fd_event_alpenglow_cert_t alpenglow_cert_; fd_event_block_received_t block_received_; }))
 
 FD_PROTOTYPES_BEGIN
 
@@ -1123,6 +1192,16 @@ fd_event_alpenglow_cert_serialize( fd_circq_t *                      circq,
                                    ulong                             link_seq,
                                    fd_event_alpenglow_cert_t const * msg );
 
+/* Serialize a block_received event into the circq, reserving an event id
+   from the client and writing the standard event envelope.  Mirrors
+   the hand-written fd_pb_* path. */
+void
+fd_event_block_received_serialize( fd_circq_t *                      circq,
+                                   fd_event_client_t *               client,
+                                   long                              timestamp_nanos,
+                                   ulong                             link_seq,
+                                   fd_event_block_received_t const * msg );
+
 /* Serialize an event of the given type id (the schema id carried in the
    report frag's sig) from a fully-formed fd_event_<name>_t at ev. */
 void
@@ -1272,6 +1351,20 @@ fd_event_report_alpenglow_cert( fd_event_alpenglow_cert_t const * msg ) {
     { (void const *)msg->broadcast_to, msg->broadcast_to_cnt*sizeof(msg->broadcast_to[0]) },
   };
   fd_event_report_gather_( 20UL, iov, sizeof(iov)/sizeof(iov[0]) );
+}
+
+/* Report a block_received event (BlockReceived, id 21) to the event tile via
+   the thread-local reporter (no-op when the tile has no event link).
+   The event travels packed: fixed prefix followed by the used entries
+   of each dynamic array. */
+static inline void
+fd_event_report_block_received( fd_event_block_received_t const * msg ) {
+  FD_TEST( msg->fec_sets_cnt<=1024UL );
+  fd_event_report_iov_t iov[] = {
+    { (void const *)msg, FD_EVENT_BLOCK_RECEIVED_PREFIX_SZ },
+    { (void const *)msg->fec_sets, msg->fec_sets_cnt*sizeof(msg->fec_sets[0]) },
+  };
+  fd_event_report_gather_( 21UL, iov, sizeof(iov)/sizeof(iov[0]) );
 }
 
 FD_PROTOTYPES_END

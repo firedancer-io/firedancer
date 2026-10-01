@@ -1060,6 +1060,87 @@ fd_event_alpenglow_cert_serialize( fd_circq_t *                      circq,
 }
 
 void
+fd_event_block_received_serialize( fd_circq_t *                      circq,
+                                   fd_event_client_t *               client,
+                                   long                              timestamp_nanos,
+                                   ulong                             link_seq,
+                                   fd_event_block_received_t const * msg ) {
+  uchar * buffer = fd_circq_push_back( circq, 1UL, FD_EVENT_BLOCK_RECEIVED_BUF_MAX );
+  FD_TEST( buffer );
+
+  ulong event_id = fd_event_client_id_reserve( client );
+
+  fd_pb_encoder_t encoder[1];
+  fd_pb_encoder_init( encoder, buffer, FD_EVENT_BLOCK_RECEIVED_BUF_MAX );
+
+  /* Pushes fail (returning NULL) rather than overflow; accumulate so
+     a FD_EVENT_BLOCK_RECEIVED_BUF_MAX that under-models the encoder aborts loudly instead
+     of silently truncating fields off published rows. */
+  int ok = 1;
+
+  FD_TEST( circq->cursor_push_seq );
+  ok &= !!fd_pb_push_uint64( encoder, 1U, circq->cursor_push_seq-1UL );
+  ok &= !!fd_pb_push_uint64( encoder, 2U, event_id );
+  ok &= !!fd_pb_push_uint64( encoder, 3U, link_seq );
+  ok &= !!fd_pb_push_uint64( encoder, 4U, (ulong)timestamp_nanos );
+
+  FD_TEST( msg->fec_sets_cnt<=1024UL );
+
+  uchar const * _dyn = (uchar const *)msg + FD_EVENT_BLOCK_RECEIVED_PREFIX_SZ;
+  fd_event_block_received_fec_sets_t const * fec_sets = (fd_event_block_received_fec_sets_t const *)_dyn;
+  _dyn += msg->fec_sets_cnt*sizeof(fec_sets[0]);
+  ulong fec_sets_cnt = msg->fec_sets_cnt;
+
+  ok &= !!fd_pb_submsg_open( encoder, 5U ); /* Event */
+  ok &= !!fd_pb_submsg_open( encoder, 21U ); /* BlockReceived */
+  if( msg->slot ) ok &= !!fd_pb_push_uint64( encoder, 1U, (ulong)msg->slot );
+  ok &= !!fd_pb_push_bytes ( encoder, 2U, msg->block_id, 32UL );
+  if( msg->parent_slot ) ok &= !!fd_pb_push_uint64( encoder, 3U, (ulong)msg->parent_slot );
+  ok &= !!fd_pb_push_bytes ( encoder, 4U, msg->parent_block_id, 32UL );
+  if( msg->cancelled ) ok &= !!fd_pb_push_bool  ( encoder, 5U, msg->cancelled );
+  if( msg->notarized ) ok &= !!fd_pb_push_bool  ( encoder, 6U, msg->notarized );
+  if( msg->caught_up ) ok &= !!fd_pb_push_bool  ( encoder, 7U, msg->caught_up );
+  if( msg->fec_set_count ) ok &= !!fd_pb_push_uint64( encoder, 8U, (ulong)msg->fec_set_count );
+  if( msg->first_shred_received_time ) ok &= !!fd_pb_push_uint64( encoder, 9U, (ulong)msg->first_shred_received_time );
+  if( msg->last_shred_received_time ) ok &= !!fd_pb_push_uint64( encoder, 10U, (ulong)msg->last_shred_received_time );
+  if( msg->first_repair_request_time ) ok &= !!fd_pb_push_uint64( encoder, 11U, (ulong)msg->first_repair_request_time );
+  if( msg->last_repair_received_time ) ok &= !!fd_pb_push_uint64( encoder, 12U, (ulong)msg->last_repair_received_time );
+  if( msg->parity_shred_received ) ok &= !!fd_pb_push_uint32( encoder, 13U, (uint)msg->parity_shred_received );
+  if( msg->turbine_shred_received ) ok &= !!fd_pb_push_uint32( encoder, 14U, (uint)msg->turbine_shred_received );
+  if( msg->repair_shred_received ) ok &= !!fd_pb_push_uint32( encoder, 15U, (uint)msg->repair_shred_received );
+  if( msg->recovered_shred_count ) ok &= !!fd_pb_push_uint32( encoder, 16U, (uint)msg->recovered_shred_count );
+  if( msg->last_completed_fec_set_index ) ok &= !!fd_pb_push_uint32( encoder, 17U, (uint)msg->last_completed_fec_set_index );
+  if( msg->slot_complete_flag ) ok &= !!fd_pb_push_bool  ( encoder, 18U, msg->slot_complete_flag );
+  if( msg->equivocation_detected_shred ) ok &= !!fd_pb_push_bool  ( encoder, 19U, msg->equivocation_detected_shred );
+  if( msg->repair_requests_retransmitted ) ok &= !!fd_pb_push_uint32( encoder, 20U, (uint)msg->repair_requests_retransmitted );
+  if( msg->repair_responses_received ) ok &= !!fd_pb_push_uint32( encoder, 21U, (uint)msg->repair_responses_received );
+  if( msg->repair_request_window_count ) ok &= !!fd_pb_push_uint32( encoder, 22U, (uint)msg->repair_request_window_count );
+  if( msg->repair_request_highest_window_count ) ok &= !!fd_pb_push_uint32( encoder, 23U, (uint)msg->repair_request_highest_window_count );
+  if( msg->repair_request_orphan_count ) ok &= !!fd_pb_push_uint32( encoder, 24U, (uint)msg->repair_request_orphan_count );
+  if( msg->repair_request_shred_for_block_id_count ) ok &= !!fd_pb_push_uint32( encoder, 25U, (uint)msg->repair_request_shred_for_block_id_count );
+  if( msg->repair_request_parent_fec_count ) ok &= !!fd_pb_push_uint32( encoder, 26U, (uint)msg->repair_request_parent_fec_count );
+  if( msg->repair_request_fec_root_count ) ok &= !!fd_pb_push_uint32( encoder, 27U, (uint)msg->repair_request_fec_root_count );
+  for( ulong k=0UL; k<fec_sets_cnt; k++ ) {
+    ok &= !!fd_pb_submsg_open( encoder, 28U );
+    ok &= !!fd_pb_push_bytes ( encoder, 1U, fec_sets[ k ].fec_merkle_root, 32UL );
+    if( fec_sets[ k ].fec_set_index ) ok &= !!fd_pb_push_uint32( encoder, 2U, (uint)fec_sets[ k ].fec_set_index );
+    if( fec_sets[ k ].fec_data_shreds_received ) ok &= !!fd_pb_push_uint32( encoder, 3U, (uint)fec_sets[ k ].fec_data_shreds_received );
+    if( fec_sets[ k ].fec_parity_shreds_received ) ok &= !!fd_pb_push_uint32( encoder, 4U, (uint)fec_sets[ k ].fec_parity_shreds_received );
+    if( fec_sets[ k ].fec_repair_shreds_received ) ok &= !!fd_pb_push_uint32( encoder, 5U, (uint)fec_sets[ k ].fec_repair_shreds_received );
+    if( fec_sets[ k ].fec_duplicate_shred_count ) ok &= !!fd_pb_push_uint32( encoder, 6U, (uint)fec_sets[ k ].fec_duplicate_shred_count );
+    if( fec_sets[ k ].fec_first_shred_received_nanos ) ok &= !!fd_pb_push_uint64( encoder, 7U, (ulong)fec_sets[ k ].fec_first_shred_received_nanos );
+    if( fec_sets[ k ].fec_completed_nanos ) ok &= !!fd_pb_push_uint64( encoder, 8U, (ulong)fec_sets[ k ].fec_completed_nanos );
+    if( fec_sets[ k ].fec_final_shred_source_repair ) ok &= !!fd_pb_push_bool  ( encoder, 9U, fec_sets[ k ].fec_final_shred_source_repair );
+    if( fec_sets[ k ].fec_source_repair ) ok &= !!fd_pb_push_bool  ( encoder, 10U, fec_sets[ k ].fec_source_repair );
+    ok &= !!fd_pb_submsg_close( encoder );
+  }
+  ok &= !!fd_pb_submsg_close( encoder );
+  ok &= !!fd_pb_submsg_close( encoder );
+  FD_TEST( ok );
+  fd_circq_resize_back( circq, fd_pb_encoder_out_sz( encoder ) );
+}
+
+void
 fd_event_serialize_by_type( ulong               type,
                             fd_circq_t *        circq,
                             fd_event_client_t * client,
@@ -1146,6 +1227,14 @@ fd_event_serialize_by_type( ulong               type,
     FD_TEST( msg->broadcast_to_cnt<=2000UL );
     FD_TEST( ev_sz==fd_event_alpenglow_cert_footprint( msg ) );
     fd_event_alpenglow_cert_serialize( circq, client, timestamp_nanos, link_seq, msg );
+    break;
+  }
+  case 21UL: {
+    FD_TEST( ev_sz>=FD_EVENT_BLOCK_RECEIVED_PREFIX_SZ );
+    fd_event_block_received_t const * msg = (fd_event_block_received_t const *)ev;
+    FD_TEST( msg->fec_sets_cnt<=1024UL );
+    FD_TEST( ev_sz==fd_event_block_received_footprint( msg ) );
+    fd_event_block_received_serialize( circq, client, timestamp_nanos, link_seq, msg );
     break;
   }
   default: FD_LOG_ERR(( "unexpected event type %lu", type ));
