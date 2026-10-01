@@ -130,9 +130,7 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
     goto error;
   }
 
-  if( input->vm_ctx.sbpf_version > FD_SBPF_V3 ) {
-    goto error;
-  }
+  FD_TEST( input->vm_ctx.sbpf_version<=FD_SBPF_V3 );
 
   fd_vm_t * vm = fd_vm_join( fd_vm_new( fd_spad_alloc_check( spad, fd_vm_align(), fd_vm_footprint() ) ) );
   if ( !vm ) {
