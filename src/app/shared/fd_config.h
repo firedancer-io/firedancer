@@ -435,6 +435,10 @@ struct fd_config {
     } accdb;
 
     struct {
+      ulong exit_at_slot;
+    } dragon;
+
+    struct {
       int min_size;
     } hugetlbfs;
   } development;
@@ -541,6 +545,84 @@ struct fd_config {
       ulong  send_buffer_size_mb;
       int    delay_startup;
     } rpc;
+
+    struct {
+      int    enabled;
+      char   listen_address[ 64 ];
+      ushort listen_port;
+      int    grpc_web;
+      char   x_token[ 256 ];
+      char   compression[ 8 ];
+      ulong  compression_min_bytes;
+      ulong  compression_level;
+      ulong  max_clients;
+      ulong  max_streams_per_client;
+      ulong  send_buffer_size_mb;
+      ulong  channel_capacity;
+      ulong  max_message_bytes;
+      ulong  max_request_bytes;
+      ulong  idle_timeout_seconds;
+      ulong  ping_interval_seconds;
+      int    delay_startup;
+      int    accounts;
+      ulong  internal_link_dcache_mb;
+      int    finalized;
+      ulong  buffer_size_mib;
+      char   filter_at[ 8 ];
+      ulong  cuckoo_bytes_per_client;
+
+      /* [tiles.dragon.filter_limits], yellowstone's
+         plugin/filter/limits.rs knobs under their own names. */
+      struct {
+        struct {
+          ulong max;
+          int   any;
+          ulong account_max;
+          ulong account_reject_cnt;
+          char  account_reject[ FD_DRAGON_REJECT_MAX ][ FD_BASE58_ENCODED_32_SZ ];
+          ulong owner_max;
+          ulong owner_reject_cnt;
+          char  owner_reject[ FD_DRAGON_REJECT_MAX ][ FD_BASE58_ENCODED_32_SZ ];
+          ulong data_slice_max;
+          ulong cuckoo_max_size;
+        } accounts;
+
+        struct {
+          ulong max;
+        } slots;
+
+        struct {
+          ulong max;
+          int   any;
+          ulong account_include_max;
+          ulong account_include_reject_cnt;
+          char  account_include_reject[ FD_DRAGON_REJECT_MAX ][ FD_BASE58_ENCODED_32_SZ ];
+          ulong account_exclude_max;
+          ulong account_required_max;
+          ulong cuckoo_max_size;
+        } transactions, transactions_status;
+
+        struct {
+          ulong max;
+          ulong account_include_max;
+          int   account_include_any;
+          ulong account_include_reject_cnt;
+          char  account_include_reject[ FD_DRAGON_REJECT_MAX ][ FD_BASE58_ENCODED_32_SZ ];
+          int   include_transactions;
+          int   include_accounts;
+          int   include_entries;
+          ulong cuckoo_max_size;
+        } blocks;
+
+        struct {
+          ulong max;
+        } blocks_meta;
+
+        struct {
+          ulong max;
+        } entries;
+      } filter_limits;
+    } dragon;
 
     struct {
       ushort repair_client_listen_port;

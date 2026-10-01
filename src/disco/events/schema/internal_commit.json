@@ -1,0 +1,130 @@
+{
+    "name": "internal_commit",
+    "id": 200,
+    "internal": true,
+    "description": "One record per committed transaction, carrying everything a consumer needs to rebuild the transaction's metadata and the post state of the accounts it wrote",
+    "fields": {
+        "bank_seq":               { "type": "UInt64",    "description": "Bank sequence number of the bank the transaction committed on; the join key to the bank the consumer tracks" },
+        "slot":                   { "type": "UInt64",    "description": "Slot of that bank" },
+        "index_in_slot":          { "type": "UInt64",    "description": "0-indexed position of this transaction within its block" },
+        "commit_index_in_slot":   { "type": "UInt64",    "description": "0-indexed commit-completion order within this slot; orders account writes of the same slot" },
+        "is_leader":              { "type": "Bool",      "description": "True if the bank is a block this validator is producing" },
+        "is_simple_vote":         { "type": "Bool",      "description": "True if the transaction was classified as a simple vote" },
+        "is_fees_only":           { "type": "Bool",      "description": "True if the transaction landed but only fees were charged" },
+        "logs_truncated":         { "type": "Bool",      "description": "True if the log collector dropped messages past its limit" },
+        "accounts_included":      { "type": "Bool",      "description": "True if touched lists every account the transaction wrote and an account record follows for each; false when account reporting is off" },
+        "signature":              { "type": "Signature", "description": "First signature of the transaction" },
+        "txn_err":                { "type": "Int64",     "description": "Firedancer transaction error code, 0 on success" },
+        "exec_err":               { "type": "Int64",     "description": "Firedancer instruction error code, meaningful when txn_err is the instruction error" },
+        "exec_err_kind":          { "type": "Int64",     "description": "Source kind of exec_err" },
+        "exec_err_idx":           { "type": "UInt32",    "description": "Index of the instruction that failed, UINT_MAX if not applicable" },
+        "custom_err":             { "type": "UInt32",    "description": "Custom error code returned by the program, UINT_MAX if not applicable" },
+        "rent_err_account_idx":   { "type": "UInt32",    "description": "Account index the rent state check rejected, UINT_MAX if not applicable" },
+        "execution_fee":          { "type": "UInt64",    "description": "Execution (base) fee charged to the fee payer" },
+        "priority_fee":           { "type": "UInt64",    "description": "Priority fee charged to the fee payer" },
+        "compute_unit_limit":     { "type": "UInt64",    "description": "Compute unit limit of the transaction" },
+        "compute_units_consumed": { "type": "UInt64",    "description": "Compute units the transaction consumed" },
+        "cost_units":             { "type": "UInt64",    "description": "Cost-tracker cost of the transaction" },
+        "acct_addr_cnt":          { "type": "UInt32",    "description": "Number of leading keys entries that come from the transaction message itself; the rest are loaded from address lookup tables" },
+        "adtl_writable_cnt":      { "type": "UInt32",    "description": "Number of keys entries after the first acct_addr_cnt that are writable; the remainder are the readonly loaded addresses" },
+        "return_data_program_id": { "type": "Pubkey",    "description": "Program that set the return data, all zero if none did" },
+        "payload": {
+            "type": "Array",
+            "description": "Raw transaction payload",
+            "max_len": 4096,
+            "dynamic": true,
+            "element": { "type": "UInt8", "description": "Payload byte" }
+        },
+        "keys": {
+            "type": "Array",
+            "description": "Account keys of the transaction, in message order followed by the writable and then the readonly loaded addresses",
+            "max_len": 64,
+            "dynamic": true,
+            "element": { "type": "Pubkey", "description": "Account key" }
+        },
+        "pre_lamports": {
+            "type": "Array",
+            "description": "Lamport balance of each key before the transaction, in keys order",
+            "max_len": 64,
+            "dynamic": true,
+            "element": { "type": "UInt64", "description": "Lamports" }
+        },
+        "post_lamports": {
+            "type": "Array",
+            "description": "Lamport balance of each key after the transaction, in keys order",
+            "max_len": 64,
+            "dynamic": true,
+            "element": { "type": "UInt64", "description": "Lamports" }
+        },
+        "is_writable": {
+            "type": "Array",
+            "description": "Whether each key was locked writable, in keys order",
+            "max_len": 64,
+            "dynamic": true,
+            "element": { "type": "UInt8", "description": "1 if writable" }
+        },
+        "logs": {
+            "type": "Array",
+            "description": "Log collector buffer as it stands at commit: each message is a protobuf tagged, length prefixed record",
+            "max_len": 14000,
+            "dynamic": true,
+            "element": { "type": "UInt8", "description": "Log buffer byte" }
+        },
+        "trace": {
+            "type": "Array",
+            "description": "Instructions in execution order, top level and inner",
+            "max_len": 65,
+            "dynamic": true,
+            "element": {
+                "type": "Tuple",
+                "description": "One executed instruction",
+                "fields": {
+                    "program_id_idx": { "type": "UInt32", "description": "Index into keys of the program that ran" },
+                    "stack_height":   { "type": "UInt32", "description": "Instruction stack height, 1 for a top level instruction" },
+                    "acct_cnt":       { "type": "UInt32", "description": "Number of trace_accts entries this instruction owns" },
+                    "acct_off":       { "type": "UInt32", "description": "Offset of this instruction's first entry in trace_accts" },
+                    "data_off":       { "type": "UInt32", "description": "Offset of this instruction's data in trace_data" },
+                    "data_sz":        { "type": "UInt32", "description": "Size of this instruction's data" }
+                }
+            }
+        },
+        "trace_accts": {
+            "type": "Array",
+            "description": "Account indices of every instruction in trace, concatenated in trace order",
+            "max_len": 16575,
+            "dynamic": true,
+            "element": { "type": "UInt8", "description": "Index into keys" }
+        },
+        "trace_data": {
+            "type": "Array",
+            "description": "Instruction data of every instruction in trace, concatenated in trace order",
+            "max_len": 665600,
+            "dynamic": true,
+            "element": { "type": "UInt8", "description": "Instruction data byte" }
+        },
+        "return_data": {
+            "type": "Array",
+            "description": "Return data the transaction left behind",
+            "max_len": 1024,
+            "dynamic": true,
+            "element": { "type": "UInt8", "description": "Return data byte" }
+        },
+        "touched": {
+            "type": "Array",
+            "description": "Every account the transaction wrote, in the order their account records follow this one on the link, empty unless accounts_included; the post state itself travels in those records",
+            "max_len": 64,
+            "dynamic": true,
+            "element": {
+                "type": "Tuple",
+                "description": "Post state of one written account",
+                "fields": {
+                    "key_idx":    { "type": "UInt32", "description": "Index into keys of the account written" },
+                    "executable": { "type": "UInt32", "description": "1 if the post state is executable" },
+                    "lamports":   { "type": "UInt64", "description": "Post state lamports; 0 means the account was closed" },
+                    "data_sz":    { "type": "UInt64", "description": "Size of the post state data" },
+                    "owner":      { "type": "Pubkey", "description": "Post state owner" }
+                }
+            }
+        }
+    }
+}

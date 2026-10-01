@@ -11,7 +11,7 @@
    or knowingly skipped) before the constant is bumped.  String keys of
    the user's own file are separately forced through the classification
    lists below. */
-FD_STATIC_ASSERT( sizeof(fd_config_t)==26557680UL, update_fd_config_to_json_for_the_layout_change );
+FD_STATIC_ASSERT( sizeof(fd_config_t)==26564064UL, update_fd_config_to_json_for_the_layout_change );
 
 #define REDACTED "[redacted]"
 
@@ -129,6 +129,8 @@ static char const * const jw_redacted_keys[] = {
   "gossip.entrypoints",
   "tiles.gui.gui_listen_address",
   "tiles.rpc.rpc_listen_address",
+  "tiles.dragon.listen_address",
+  "tiles.dragon.x_token",
   "development.bundle.ssl_key_log_file",
   "development.ledger_input.path",
   "capture.dump_proto_dir",
@@ -167,8 +169,15 @@ static char const * const jw_reported_keys[] = {
   "tiles.bundle.tip_distribution_program_addr",
   "tiles.bundle.tip_payment_program_addr",
   "tiles.bundle.tip_distribution_authority",
+  "tiles.dragon.compression",
+  "tiles.dragon.filter_at",
   "tiles.pack.schedule_strategy",
   "tiles.pack.account_blocklist",
+  "tiles.dragon.filter_limits.accounts.account_reject",
+  "tiles.dragon.filter_limits.accounts.owner_reject",
+  "tiles.dragon.filter_limits.transactions.account_include_reject",
+  "tiles.dragon.filter_limits.transactions_status.account_include_reject",
+  "tiles.dragon.filter_limits.blocks.account_include_reject",
   "tiles.replay.enable_features",
   "development.core_dump",
   "development.bench.affinity",
@@ -200,6 +209,11 @@ static char const * const jw_array_keys[] = {
   "snapshots.sources.gossip.block_list",
   "snapshots.sources.servers",
   "tiles.pack.account_blocklist",
+  "tiles.dragon.filter_limits.accounts.account_reject",
+  "tiles.dragon.filter_limits.accounts.owner_reject",
+  "tiles.dragon.filter_limits.transactions.account_include_reject",
+  "tiles.dragon.filter_limits.transactions_status.account_include_reject",
+  "tiles.dragon.filter_limits.blocks.account_include_reject",
   "tiles.replay.enable_features",
   "tiles.shred.additional_shred_destinations_retransmit",
   "tiles.shred.additional_shred_destinations_leader",
@@ -523,6 +537,9 @@ fd_config_to_json( fd_config_t const * config,
     jw_obj_open( &w, "accdb" );
       jw_ulong( &w, "partition_size_gib", config->development.accdb.partition_size_gib );
     jw_obj_close( &w );
+    jw_obj_open( &w, "dragon" );
+      jw_ulong( &w, "exit_at_slot", config->development.dragon.exit_at_slot );
+    jw_obj_close( &w );
     jw_obj_open( &w, "hugetlbfs" );
       jw_bool( &w, "min_size", config->development.hugetlbfs.min_size );
     jw_obj_close( &w );
@@ -610,6 +627,90 @@ fd_config_to_json( fd_config_t const * config,
       jw_ulong( &w, "max_websocket_connections", config->tiles.rpc.max_websocket_connections );
       jw_ulong( &w, "send_buffer_size_mb",       config->tiles.rpc.send_buffer_size_mb );
       jw_bool ( &w, "delay_startup",             config->tiles.rpc.delay_startup );
+    jw_obj_close( &w );
+    jw_obj_open( &w, "dragon" );
+      jw_bool ( &w, "enabled",                   config->tiles.dragon.enabled );
+      jw_path ( &w, "listen_address",            config->tiles.dragon.listen_address );
+      jw_ulong( &w, "listen_port",               config->tiles.dragon.listen_port );
+      jw_bool ( &w, "grpc_web",                  config->tiles.dragon.grpc_web );
+      jw_path ( &w, "x_token",                   config->tiles.dragon.x_token );
+      jw_str  ( &w, "compression",               config->tiles.dragon.compression );
+      jw_ulong( &w, "compression_min_bytes",     config->tiles.dragon.compression_min_bytes );
+      jw_ulong( &w, "compression_level",         config->tiles.dragon.compression_level );
+      jw_ulong( &w, "max_clients",               config->tiles.dragon.max_clients );
+      jw_ulong( &w, "max_streams_per_client",    config->tiles.dragon.max_streams_per_client );
+      jw_ulong( &w, "send_buffer_size_mb",       config->tiles.dragon.send_buffer_size_mb );
+      jw_ulong( &w, "channel_capacity",          config->tiles.dragon.channel_capacity );
+      jw_ulong( &w, "max_message_bytes",         config->tiles.dragon.max_message_bytes );
+      jw_ulong( &w, "max_request_bytes",         config->tiles.dragon.max_request_bytes );
+      jw_ulong( &w, "idle_timeout_seconds",      config->tiles.dragon.idle_timeout_seconds );
+      jw_ulong( &w, "ping_interval_seconds",     config->tiles.dragon.ping_interval_seconds );
+      jw_bool ( &w, "delay_startup",             config->tiles.dragon.delay_startup );
+      jw_bool ( &w, "accounts",                  config->tiles.dragon.accounts );
+      jw_ulong( &w, "internal_link_dcache_mb",   config->tiles.dragon.internal_link_dcache_mb );
+      jw_bool ( &w, "finalized",        config->tiles.dragon.finalized );
+      jw_ulong( &w, "buffer_size_mib",  config->tiles.dragon.buffer_size_mib );
+      jw_str( &w, "filter_at",       config->tiles.dragon.filter_at );
+      jw_ulong( &w, "cuckoo_bytes_per_client",   config->tiles.dragon.cuckoo_bytes_per_client );
+      jw_obj_open( &w, "filter_limits" );
+        jw_obj_open( &w, "accounts" );
+          jw_ulong  ( &w, "max",             config->tiles.dragon.filter_limits.accounts.max );
+          jw_bool   ( &w, "any",             config->tiles.dragon.filter_limits.accounts.any );
+          jw_ulong  ( &w, "account_max",     config->tiles.dragon.filter_limits.accounts.account_max );
+          jw_str_arr( &w, "account_reject",  config->tiles.dragon.filter_limits.accounts.account_reject[ 0 ],
+                      sizeof(config->tiles.dragon.filter_limits.accounts.account_reject[ 0 ]),
+                      config->tiles.dragon.filter_limits.accounts.account_reject_cnt );
+          jw_ulong  ( &w, "owner_max",       config->tiles.dragon.filter_limits.accounts.owner_max );
+          jw_str_arr( &w, "owner_reject",    config->tiles.dragon.filter_limits.accounts.owner_reject[ 0 ],
+                      sizeof(config->tiles.dragon.filter_limits.accounts.owner_reject[ 0 ]),
+                      config->tiles.dragon.filter_limits.accounts.owner_reject_cnt );
+          jw_ulong  ( &w, "data_slice_max",  config->tiles.dragon.filter_limits.accounts.data_slice_max );
+          jw_ulong  ( &w, "cuckoo_max_size", config->tiles.dragon.filter_limits.accounts.cuckoo_max_size );
+        jw_obj_close( &w );
+        jw_obj_open( &w, "slots" );
+          jw_ulong  ( &w, "max",             config->tiles.dragon.filter_limits.slots.max );
+        jw_obj_close( &w );
+        jw_obj_open( &w, "transactions" );
+          jw_ulong  ( &w, "max",                  config->tiles.dragon.filter_limits.transactions.max );
+          jw_bool   ( &w, "any",                  config->tiles.dragon.filter_limits.transactions.any );
+          jw_ulong  ( &w, "account_include_max",  config->tiles.dragon.filter_limits.transactions.account_include_max );
+          jw_str_arr( &w, "account_include_reject", config->tiles.dragon.filter_limits.transactions.account_include_reject[ 0 ],
+                      sizeof(config->tiles.dragon.filter_limits.transactions.account_include_reject[ 0 ]),
+                      config->tiles.dragon.filter_limits.transactions.account_include_reject_cnt );
+          jw_ulong  ( &w, "account_exclude_max",  config->tiles.dragon.filter_limits.transactions.account_exclude_max );
+          jw_ulong  ( &w, "account_required_max", config->tiles.dragon.filter_limits.transactions.account_required_max );
+          jw_ulong  ( &w, "cuckoo_max_size",      config->tiles.dragon.filter_limits.transactions.cuckoo_max_size );
+        jw_obj_close( &w );
+        jw_obj_open( &w, "transactions_status" );
+          jw_ulong  ( &w, "max",                  config->tiles.dragon.filter_limits.transactions_status.max );
+          jw_bool   ( &w, "any",                  config->tiles.dragon.filter_limits.transactions_status.any );
+          jw_ulong  ( &w, "account_include_max",  config->tiles.dragon.filter_limits.transactions_status.account_include_max );
+          jw_str_arr( &w, "account_include_reject", config->tiles.dragon.filter_limits.transactions_status.account_include_reject[ 0 ],
+                      sizeof(config->tiles.dragon.filter_limits.transactions_status.account_include_reject[ 0 ]),
+                      config->tiles.dragon.filter_limits.transactions_status.account_include_reject_cnt );
+          jw_ulong  ( &w, "account_exclude_max",  config->tiles.dragon.filter_limits.transactions_status.account_exclude_max );
+          jw_ulong  ( &w, "account_required_max", config->tiles.dragon.filter_limits.transactions_status.account_required_max );
+          jw_ulong  ( &w, "cuckoo_max_size",      config->tiles.dragon.filter_limits.transactions_status.cuckoo_max_size );
+        jw_obj_close( &w );
+        jw_obj_open( &w, "blocks" );
+          jw_ulong  ( &w, "max",                  config->tiles.dragon.filter_limits.blocks.max );
+          jw_ulong  ( &w, "account_include_max",  config->tiles.dragon.filter_limits.blocks.account_include_max );
+          jw_bool   ( &w, "account_include_any",  config->tiles.dragon.filter_limits.blocks.account_include_any );
+          jw_str_arr( &w, "account_include_reject", config->tiles.dragon.filter_limits.blocks.account_include_reject[ 0 ],
+                      sizeof(config->tiles.dragon.filter_limits.blocks.account_include_reject[ 0 ]),
+                      config->tiles.dragon.filter_limits.blocks.account_include_reject_cnt );
+          jw_bool   ( &w, "include_transactions", config->tiles.dragon.filter_limits.blocks.include_transactions );
+          jw_bool   ( &w, "include_accounts",     config->tiles.dragon.filter_limits.blocks.include_accounts );
+          jw_bool   ( &w, "include_entries",      config->tiles.dragon.filter_limits.blocks.include_entries );
+          jw_ulong  ( &w, "cuckoo_max_size",      config->tiles.dragon.filter_limits.blocks.cuckoo_max_size );
+        jw_obj_close( &w );
+        jw_obj_open( &w, "blocks_meta" );
+          jw_ulong  ( &w, "max",             config->tiles.dragon.filter_limits.blocks_meta.max );
+        jw_obj_close( &w );
+        jw_obj_open( &w, "entries" );
+          jw_ulong  ( &w, "max",             config->tiles.dragon.filter_limits.entries.max );
+        jw_obj_close( &w );
+      jw_obj_close( &w );
     jw_obj_close( &w );
     jw_obj_open( &w, "repair" );
       jw_ulong( &w, "repair_client_listen_port", config->tiles.repair.repair_client_listen_port );

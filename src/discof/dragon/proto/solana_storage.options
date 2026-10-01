@@ -1,0 +1,55 @@
+# Every variable-length field is a callback.  Dragon encodes these
+# messages field by field out of its own buffers (transaction payloads,
+# account data, log lines), so nanopb never needs a static array, and a
+# decoded message never needs heap.
+
+solana.storage.ConfirmedBlock.ConfirmedBlock.previous_blockhash          type:FT_CALLBACK
+solana.storage.ConfirmedBlock.ConfirmedBlock.blockhash                   type:FT_CALLBACK
+solana.storage.ConfirmedBlock.ConfirmedBlock.transactions                type:FT_CALLBACK
+solana.storage.ConfirmedBlock.ConfirmedBlock.rewards                     type:FT_CALLBACK
+
+solana.storage.ConfirmedBlock.Transaction.signatures                     type:FT_CALLBACK
+
+solana.storage.ConfirmedBlock.Message.account_keys                       type:FT_CALLBACK
+solana.storage.ConfirmedBlock.Message.recent_blockhash                   type:FT_CALLBACK
+solana.storage.ConfirmedBlock.Message.instructions                       type:FT_CALLBACK
+solana.storage.ConfirmedBlock.Message.address_table_lookups              type:FT_CALLBACK
+
+solana.storage.ConfirmedBlock.MessageAddressTableLookup.account_key      type:FT_CALLBACK
+solana.storage.ConfirmedBlock.MessageAddressTableLookup.writable_indexes type:FT_CALLBACK
+solana.storage.ConfirmedBlock.MessageAddressTableLookup.readonly_indexes type:FT_CALLBACK
+
+solana.storage.ConfirmedBlock.TransactionStatusMeta.pre_balances               type:FT_CALLBACK
+solana.storage.ConfirmedBlock.TransactionStatusMeta.post_balances              type:FT_CALLBACK
+solana.storage.ConfirmedBlock.TransactionStatusMeta.inner_instructions         type:FT_CALLBACK
+solana.storage.ConfirmedBlock.TransactionStatusMeta.log_messages               type:FT_CALLBACK
+solana.storage.ConfirmedBlock.TransactionStatusMeta.pre_token_balances         type:FT_CALLBACK
+solana.storage.ConfirmedBlock.TransactionStatusMeta.post_token_balances        type:FT_CALLBACK
+solana.storage.ConfirmedBlock.TransactionStatusMeta.rewards                    type:FT_CALLBACK
+solana.storage.ConfirmedBlock.TransactionStatusMeta.loaded_writable_addresses  type:FT_CALLBACK
+solana.storage.ConfirmedBlock.TransactionStatusMeta.loaded_readonly_addresses  type:FT_CALLBACK
+
+solana.storage.ConfirmedBlock.TransactionError.err                       type:FT_CALLBACK
+
+solana.storage.ConfirmedBlock.InnerInstructions.instructions             type:FT_CALLBACK
+solana.storage.ConfirmedBlock.InnerInstruction.accounts                  type:FT_CALLBACK
+solana.storage.ConfirmedBlock.InnerInstruction.data                      type:FT_CALLBACK
+
+solana.storage.ConfirmedBlock.CompiledInstruction.accounts               type:FT_CALLBACK
+solana.storage.ConfirmedBlock.CompiledInstruction.data                   type:FT_CALLBACK
+
+solana.storage.ConfirmedBlock.TokenBalance.mint                          type:FT_CALLBACK
+solana.storage.ConfirmedBlock.TokenBalance.owner                         type:FT_CALLBACK
+solana.storage.ConfirmedBlock.TokenBalance.program_id                    type:FT_CALLBACK
+
+solana.storage.ConfirmedBlock.UiTokenAmount.amount                       type:FT_CALLBACK
+solana.storage.ConfirmedBlock.UiTokenAmount.ui_amount_string             type:FT_CALLBACK
+
+solana.storage.ConfirmedBlock.ReturnData.program_id                      type:FT_CALLBACK
+solana.storage.ConfirmedBlock.ReturnData.data                            type:FT_CALLBACK
+
+solana.storage.ConfirmedBlock.Reward.pubkey                              type:FT_CALLBACK
+solana.storage.ConfirmedBlock.Reward.commission                          type:FT_CALLBACK
+solana.storage.ConfirmedBlock.Reward.commission_bps                      type:FT_CALLBACK
+
+solana.storage.ConfirmedBlock.Rewards.rewards                            type:FT_CALLBACK

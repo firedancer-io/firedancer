@@ -1583,7 +1583,13 @@ fd_executor_txn_check( fd_bank_t *    bank,
 
     /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/transaction_account_state_info.rs#L105-L125 */
     err = fd_executor_check_rent_state_with_account( &txn_out->accounts.keys[ i ], &pre_state, &post_state );
-    if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) return err;
+    if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
+      /* Agave names the rejected account in the error, by its index in
+         the transaction, which is this loop's index
+         (svm/src/transaction_account_state_info.rs:105-125). */
+      txn_out->err.rent_err_account_idx = (uint)i;
+      return err;
+    }
 
     if     ( !memcmp( acc->owner, &fd_solana_stake_program_id, sizeof(fd_pubkey_t) ) ) txn_out->accounts.stake_update[ i ] = 1;
     else if( !memcmp( acc->owner, &fd_solana_vote_program_id,  sizeof(fd_pubkey_t) ) ) txn_out->accounts.vote_update[ i ] = 1;

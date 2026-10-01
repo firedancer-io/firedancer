@@ -681,6 +681,11 @@ run-solcap-tests: bin unit-test
 	MACHINE=$(MACHINE) \
 	contrib/test/run_solcap_tests.sh
 
+run-dragon-tests: bin unit-test
+	OBJDIR=$(OBJDIR) \
+	MACHINE=$(MACHINE) \
+	contrib/test/run_dragon_tests.sh
+
 seccomp-policies:
 	$(FIND) . -name '*.seccomppolicy' -print0 | xargs -0 -n 1 $(PYTHON) contrib/codegen/generate_filters.py
 

@@ -13,6 +13,7 @@
 #include "../../discof/repair/fd_repair_tile.h"
 #include "../../discof/rotor/fd_rotor_tile.h"
 #include "../../discof/replay/fd_sched.h"
+#include "../../discof/dragon/fd_dragon_tile.h"
 #include "../../discof/votor/fd_votor_tile.h"
 #include "../../flamenco/capture/fd_capture_ctx.h"
 #include "../../flamenco/genesis/fd_genesis_parse.h"
@@ -145,6 +146,23 @@ typedef struct fd_replay_txn_timing_slot fd_replay_txn_timing_slot_t;
 #include "../../util/tmpl/fd_map_chain.c"
 
 FD_STATIC_ASSERT( FD_EVENT_BLOCK_COMPLETED_TXN_TIMING_MAX>=FD_MAX_TXN_PER_SLOT, txn_timing_ships_full_block );
+
+/* FD_REPLAY_DRAGON_GRANT_MAX bounds how many distinct replay_out
+   sequence numbers one bank index can have outstanding dragon grants
+   at.  A bank generation takes one when it is published and one when
+   it becomes the root; when more pile up the two oldest are folded
+   into the newer one's sequence number, which only makes them harder
+   to release, never easier. */
+
+#define FD_REPLAY_DRAGON_GRANT_MAX (4UL)
+
+struct fd_replay_dragon_grant {
+  ulong entry_cnt;
+  ulong seq[ FD_REPLAY_DRAGON_GRANT_MAX ]; /* ascending */
+  ulong cnt[ FD_REPLAY_DRAGON_GRANT_MAX ];
+};
+
+typedef struct fd_replay_dragon_grant fd_replay_dragon_grant_t;
 
 struct fd_replay_tile {
   fd_wksp_t * wksp;
@@ -564,6 +582,20 @@ struct fd_replay_tile {
      Replay needs to know if the rpc as a consumer is enabled so it can
      increment the bank's refcnt before publishing bank_idx. */
   int rpc_enabled;
+
+  /* The dragon tile is the same kind of consumer as rpc, except that
+     it reads replay_out unreliably, so it can miss the notification
+     that granted it a reference.  dragon_grant records, per bank
+     index, the references granted to it and the replay_out sequence
+     number each one was published with; a release from dragon gives
+     back the ones below the bound it carries.  A release for grants
+     dragon never saw is then a no-op, which is what lets it recover
+     every reference it could be holding after an overrun, and the
+     bound keeps a release decided before a bank index was recycled
+     from taking back the next bank's grant.  Indexed by bank index,
+     max_live_slots entries. */
+  int                      dragon_enabled;
+  fd_replay_dragon_grant_t * dragon_grant;
 
   /* For dumping blocks to protobuf. For backtest only. */
   fd_block_dump_ctx_t * block_dump_ctx;

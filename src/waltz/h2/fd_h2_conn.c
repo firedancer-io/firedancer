@@ -70,7 +70,7 @@ fd_h2_gen_settings( fd_h2_settings_t const * settings,
   };
   fd_memcpy( buf, &hdr, 9UL );
 
-  fd_h2_setting_encode( buf+9,  FD_H2_SETTINGS_HEADER_TABLE_SIZE,      0U                               );
+  fd_h2_setting_encode( buf+9,  FD_H2_SETTINGS_HEADER_TABLE_SIZE,      settings->header_table_size      );
   fd_h2_setting_encode( buf+15, FD_H2_SETTINGS_ENABLE_PUSH,            0U                               );
   fd_h2_setting_encode( buf+21, FD_H2_SETTINGS_MAX_CONCURRENT_STREAMS, settings->max_concurrent_streams );
   fd_h2_setting_encode( buf+27, FD_H2_SETTINGS_INITIAL_WINDOW_SIZE,    settings->initial_window_size    );
@@ -135,6 +135,18 @@ fd_h2_rx_data( fd_h2_conn_t *            conn,
     goto skip_frame;
   }
   stream->rx_wnd -= wnd_sz;
+
+  /* Keep the stream receive window above half its initial size so the
+     peer always has credit to send on.  A frame is charged chunk by
+     chunk, so the credit goes back once the whole frame is in. */
+  uint stream_wnd_max = conn->self_settings.initial_window_size;
+  if( FD_UNLIKELY( ( rbuf_avail>=frame_rem                 ) &
+                   ( !fin_flag                             ) &
+                   ( stream->rx_wnd < stream_wnd_max/2U     ) &
+                   ( stream_wnd_max <= 0x7fffffffU          ) ) ) {
+    fd_h2_tx_window_update( rbuf_tx, stream_id, stream_wnd_max - stream->rx_wnd );
+    stream->rx_wnd = stream_wnd_max;
+  }
 
   fd_h2_stream_rx_data( stream, conn, fin_flag );
 
@@ -211,16 +223,25 @@ fd_h2_rx_headers( fd_h2_conn_t *            conn,
   conn->rx_stream_id = stream_id;
 
   /* Validate discarded blocks and keep state from the first fragment of
-     a live block in case its stream is released before CONTINUATION. */
+     a live block in case its stream is released before CONTINUATION.
+     A conn with a dynamic table hands discarded blocks to the app
+     instead, which decodes them to keep the table in sync. */
   if( FD_UNLIKELY( !stream || !(frame_flags & FD_H2_FLAG_END_HEADERS) ) ) {
     conn->rx_hdrs_discard = (uchar)!stream;
     if( !(frame_flags & FD_H2_FLAG_END_HEADERS) ) conn->flags |= FD_H2_CONN_FLAGS_CONTINUATION;
-    fd_hpack_skip_init( &conn->rx_hpack );
-    if( FD_UNLIKELY( fd_hpack_skip_feed( &conn->rx_hpack, payload, payload_sz, !!(frame_flags & FD_H2_FLAG_END_HEADERS) ) ) ) {
-      fd_h2_conn_error( conn, FD_H2_ERR_COMPRESSION );
-      return 0;
+    if( conn->rx_dtable ) {
+      if( !stream ) {
+        cb->headers( conn, NULL, payload, payload_sz, frame_flags );
+        return 1;
+      }
+    } else {
+      fd_hpack_skip_init( &conn->rx_hpack );
+      if( FD_UNLIKELY( fd_hpack_skip_feed( &conn->rx_hpack, payload, payload_sz, !!(frame_flags & FD_H2_FLAG_END_HEADERS) ) ) ) {
+        fd_h2_conn_error( conn, FD_H2_ERR_COMPRESSION );
+        return 0;
+      }
+      if( !stream ) return 1;
     }
-    if( !stream ) return 1;
   }
 
   fd_h2_stream_rx_headers( stream, conn, frame_flags );
@@ -268,14 +289,19 @@ fd_h2_rx_continuation( fd_h2_conn_t *            conn,
     conn->flags &= (uchar)~FD_H2_CONN_FLAGS_CONTINUATION;
   }
 
-  if( FD_UNLIKELY( fd_hpack_skip_feed( &conn->rx_hpack, payload, payload_sz, !!(frame_flags & FD_H2_FLAG_END_HEADERS) ) ) ) {
-    fd_h2_conn_error( conn, FD_H2_ERR_COMPRESSION );
-    return 0;
+  if( !conn->rx_dtable ) {
+    if( FD_UNLIKELY( fd_hpack_skip_feed( &conn->rx_hpack, payload, payload_sz, !!(frame_flags & FD_H2_FLAG_END_HEADERS) ) ) ) {
+      fd_h2_conn_error( conn, FD_H2_ERR_COMPRESSION );
+      return 0;
+    }
+    if( FD_UNLIKELY( conn->rx_hdrs_discard ) ) return 1;
   }
-  if( FD_UNLIKELY( conn->rx_hdrs_discard ) ) return 1;
 
-  fd_h2_stream_t * stream = cb->stream_query( conn, stream_id );
-  if( FD_UNLIKELY( !stream ) ) return 1;
+  fd_h2_stream_t * stream = conn->rx_hdrs_discard ? NULL : cb->stream_query( conn, stream_id );
+  if( FD_UNLIKELY( !stream ) ) {
+    if( conn->rx_dtable ) cb->headers( conn, NULL, payload, payload_sz, frame_flags );
+    return 1;
+  }
 
   fd_h2_stream_rx_headers( stream, conn, frame_flags );
   if( FD_UNLIKELY( stream->state==FD_H2_STREAM_STATE_ILLEGAL ) ) {
@@ -681,6 +707,13 @@ fd_h2_rx1( fd_h2_conn_t *            conn,
     return;
   }
 
+  /* RFC 9113 Section 3.4: the peer's first frame must be SETTINGS */
+  if( FD_UNLIKELY( (!!( conn->flags & FD_H2_CONN_FLAGS_WAIT_SETTINGS_0 ) ) &
+                   (    frame_type!=FD_H2_FRAME_TYPE_SETTINGS           ) ) ) {
+    fd_h2_conn_error( conn, FD_H2_ERR_PROTOCOL );
+    return;
+  }
+
   /* Peek padding */
   uint pad_sz = 0U;
   /* Bytes remaining in this frame payload excluding padding length and padding. */
@@ -777,6 +810,15 @@ fd_h2_rx( fd_h2_conn_t *            conn,
   /* All other logic below can only proceed if new data arrived. */
   if( FD_UNLIKELY( !fd_h2_rbuf_used_sz( rbuf_rx ) ) ) return;
 
+  /* A server's SETTINGS frame must be the first frame it sends
+     (RFC 9113 Section 3.4).  A client may pipeline its preface, its own
+     SETTINGS, and requests before reading anything, so emit ours before
+     handling any of it. */
+  if( FD_UNLIKELY( conn->flags & FD_H2_CONN_FLAGS_SERVER_INITIAL ) ) {
+    fd_h2_tx_control( conn, rbuf_tx, cb );
+    if( FD_UNLIKELY( conn->flags & FD_H2_CONN_FLAGS_SERVER_INITIAL ) ) return; /* rbuf_tx full */
+  }
+
   /* Slowloris defense: Guess how much bytes are required to progress
      ahead of time based on the frame's type and size. */
   if( FD_UNLIKELY( rbuf_rx->hi_off < conn->rx_suppress ) ) return;
@@ -823,15 +865,12 @@ fd_h2_tx_control( fd_h2_conn_t *            conn,
 
 goaway:
   case FD_H2_CONN_FLAGS_LG_SEND_GOAWAY: {
-    fd_h2_goaway_t goaway = {
-      .hdr = {
-        .typlen = fd_h2_frame_typlen( FD_H2_FRAME_TYPE_GOAWAY, 8UL )
-      },
-      .last_stream_id = 0, /* FIXME */
-      .error_code     = fd_uint_bswap( (uint)conn->conn_error )
-    };
+    /* Streams above last_stream_id are the ones the peer may safely
+       retry elsewhere (RFC 9113 Section 6.8).  Claim every
+       peer-initiated stream ID we have seen. */
+    uint last_stream_id = conn->rx_stream_next>=2U ? conn->rx_stream_next-2U : 0U;
     conn->flags = FD_H2_CONN_FLAGS_DEAD;
-    fd_h2_rbuf_push( rbuf_tx, &goaway, sizeof(fd_h2_goaway_t) );
+    fd_h2_tx_goaway( rbuf_tx, last_stream_id, (uint)conn->conn_error );
     cb->conn_final( conn, conn->conn_error, 0 /* local */ );
     break;
   }

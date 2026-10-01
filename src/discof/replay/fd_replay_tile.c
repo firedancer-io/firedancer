@@ -115,6 +115,7 @@
 #define IN_KIND_SNAPMK     (11)
 #define IN_KIND_ADMIN      (12)
 #define IN_KIND_VOTOR      (13)
+#define IN_KIND_DRAGON     (14)
 
 #define DEBUG_LOGGING 0
 
@@ -175,6 +176,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_timing_slot_pool_align(),         fd_timing_slot_pool_footprint( FD_REPLAY_TXN_TIMING_SLOTS ) );
   l = FD_LAYOUT_APPEND( l, alignof(fd_replay_txn_timing_t),     FD_REPLAY_TXN_TIMING_SLOTS*tile->replay.max_txn_per_slot*sizeof(fd_replay_txn_timing_t) );
   l = FD_LAYOUT_APPEND( l, alignof(ulong),                      tile->replay.max_live_slots*sizeof(ulong) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_replay_dragon_grant_t),   tile->replay.max_live_slots*sizeof(fd_replay_dragon_grant_t) );
   l = FD_LAYOUT_APPEND( l, alignof(fd_reasm_fec_t *),           (tile->replay.max_shreds_per_block/FD_FEC_SHRED_CNT)*sizeof(fd_reasm_fec_t *) );
 
   if( FD_UNLIKELY( tile->replay.dump_block_to_pb ) ) {
@@ -1091,6 +1093,93 @@ try_advance_root_ag( fd_replay_tile_t * ctx,
   }
 }
 
+/* dragon_grant_add records that the reference just granted to the
+   dragon tile for bank_idx was published with sequence number seq.
+   Grants arrive in sequence order; when the table is full the two
+   oldest fold into the newer one's sequence number, which delays
+   their release rather than allowing an early one. */
+
+static void
+dragon_grant_add( fd_replay_tile_t * ctx,
+                  ulong              bank_idx,
+                  ulong              seq ) {
+  fd_replay_dragon_grant_t * g = &ctx->dragon_grant[ bank_idx ];
+
+  if( FD_LIKELY( g->entry_cnt && g->seq[ g->entry_cnt-1UL ]==seq ) ) {
+    g->cnt[ g->entry_cnt-1UL ]++;
+    return;
+  }
+
+  if( FD_UNLIKELY( g->entry_cnt>=FD_REPLAY_DRAGON_GRANT_MAX ) ) {
+    g->cnt[ 0 ] += g->cnt[ 1 ];
+    g->seq[ 0 ]  = g->seq[ 1 ];
+    for( ulong i=1UL; i<FD_REPLAY_DRAGON_GRANT_MAX-1UL; i++ ) {
+      g->seq[ i ] = g->seq[ i+1UL ];
+      g->cnt[ i ] = g->cnt[ i+1UL ];
+    }
+    g->entry_cnt--;
+  }
+
+  g->seq[ g->entry_cnt ] = seq;
+  g->cnt[ g->entry_cnt ] = 1UL;
+  g->entry_cnt++;
+}
+
+/* dragon_grant_release gives back the grants for bank_idx that were
+   published below seq_bound, and returns how many there were. */
+
+static ulong
+dragon_grant_release( fd_replay_tile_t * ctx,
+                      ulong              bank_idx,
+                      ulong              seq_bound ) {
+  fd_replay_dragon_grant_t * g = &ctx->dragon_grant[ bank_idx ];
+
+  ulong released = 0UL;
+  ulong keep     = 0UL;
+  for( ulong i=0UL; i<g->entry_cnt; i++ ) {
+    if( g->seq[ i ]<seq_bound ) {
+      released += g->cnt[ i ];
+      continue;
+    }
+    g->seq[ keep ] = g->seq[ i ];
+    g->cnt[ keep ] = g->cnt[ i ];
+    keep++;
+  }
+  g->entry_cnt = keep;
+  return released;
+}
+
+/* dragon_detach handles the dragon tile's last message.  Nothing
+   releases a reference once the tile is gone, and a bank that keeps
+   one is a bank that can never be pruned: the storage root stops
+   advancing, and when the pool fills the prunable bank never drains
+   and FEC processing stops with it.  So every grant goes back, and
+   none is made for the rest of the run.
+
+   Clearing the banks-wide flag stops the executors producing records
+   nobody reads.  They load it once per commit (fd_bank_dragon_enabled)
+   and it is an aligned int, so a block whose records stop partway is
+   the worst this can do, and the only reader of those records has
+   left. */
+
+static void
+dragon_detach( fd_replay_tile_t * ctx ) {
+  ulong released = 0UL;
+  for( ulong bank_idx=0UL; bank_idx<ctx->max_live_slots; bank_idx++ ) {
+    ulong cnt = dragon_grant_release( ctx, bank_idx, ULONG_MAX );
+    if( FD_LIKELY( !cnt ) ) continue;
+    released += cnt;
+    fd_bank_t * bank = fd_banks_bank_query( ctx->banks, bank_idx );
+    if( FD_UNLIKELY( !bank ) ) continue;
+    bank->refcnt -= cnt;
+  }
+
+  ctx->dragon_enabled        = 0;
+  ctx->banks->dragon_enabled = 0;
+
+  FD_LOG_WARNING(( "dragon detached: %lu bank references given back, no more are granted", released ));
+}
+
 static void
 publish_slot_completed( fd_replay_tile_t *        ctx,
                         fd_stem_context_t *       stem,
@@ -1192,6 +1281,10 @@ publish_slot_completed( fd_replay_tile_t *        ctx,
      they are done using the bank. */
   if( FD_LIKELY( !ctx->alpenglow ) ) bank->refcnt++; /* tower_tile */
   if( FD_LIKELY( ctx->rpc_enabled ) ) bank->refcnt++; /* rpc tile */
+  if( FD_UNLIKELY( ctx->dragon_enabled ) ) { /* dragon tile */
+    bank->refcnt++;
+    dragon_grant_add( ctx, bank->idx, stem->seqs[ ctx->replay_out->idx ] );
+  }
   slot_info->bank_idx = bank->idx;
   slot_info->bank_seq = bank->bank_seq;
   slot_info->accdb_fork_id = bank->accdb_fork_id;
@@ -1977,6 +2070,12 @@ publish_root_advanced( fd_replay_tile_t *  ctx,
       bank->refcnt++;
       FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for rpc (confirmed alias)", bank->idx, bank->f.slot, bank->refcnt ));
     }
+  }
+
+  if( FD_UNLIKELY( ctx->dragon_enabled ) ) {
+    bank->refcnt++;
+    dragon_grant_add( ctx, bank->idx, stem->seqs[ ctx->replay_out->idx ] );
+    FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for dragon", bank->idx, bank->f.slot, bank->refcnt ));
   }
 
   /* Increment the reference count on the consensus root bank to account
@@ -5207,6 +5306,39 @@ returnable_frag( fd_replay_tile_t *  ctx,
       FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt decremented to %lu for %s", bank->idx, bank->f.slot, bank->refcnt, ctx->in_kind[ in_idx ]==IN_KIND_RPC ? "rpc" : "gui" ));
       break;
     }
+    case IN_KIND_DRAGON: {
+      /* A release gives back every reference granted for the bank
+         index below the bound it carries, so dragon can recover
+         references it lost track of by releasing every index, and a
+         release it decided on before this index was recycled cannot
+         take back the grant of the bank now at it.  A release naming
+         grants replay does not have does nothing.  The detach
+         sentinel is the tile's last message. */
+      if( FD_UNLIKELY( sz<sizeof(fd_dragon_release_t) ) ) {
+        FD_LOG_WARNING(( "dragon released with a %lu byte message", sz ));
+        break;
+      }
+      fd_dragon_release_t const * rel = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+      ulong bank_idx = rel->bank_idx;
+      if( FD_UNLIKELY( bank_idx==FD_DRAGON_RELEASE_DETACH ) ) {
+        dragon_detach( ctx );
+        break;
+      }
+      if( FD_UNLIKELY( bank_idx>=ctx->max_live_slots ) ) {
+        FD_LOG_WARNING(( "dragon released out of range bank idx %lu", bank_idx ));
+        break;
+      }
+      ulong cnt = dragon_grant_release( ctx, bank_idx, rel->seq_bound );
+      if( FD_LIKELY( !cnt ) ) break;
+      fd_bank_t * bank = fd_banks_bank_query( ctx->banks, bank_idx );
+      if( FD_UNLIKELY( !bank ) ) {
+        FD_LOG_WARNING(( "dragon released bank idx %lu, which replay does not have", bank_idx ));
+        break;
+      }
+      bank->refcnt -= cnt;
+      FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt decremented by %lu to %lu for dragon", bank->idx, bank->f.slot, cnt, bank->refcnt ));
+      break;
+    }
     case IN_KIND_SNAPMK:
       msg_snapmk( ctx, stem, sig, in_idx, chunk );
       break;
@@ -5343,6 +5475,7 @@ unprivileged_init( fd_topo_t const *      topo,
   void * timing_pool_mem    = FD_SCRATCH_ALLOC_APPEND( l, fd_timing_slot_pool_align(),  fd_timing_slot_pool_footprint( FD_REPLAY_TXN_TIMING_SLOTS ) );
   void * timing_rec_mem     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_replay_txn_timing_t), FD_REPLAY_TXN_TIMING_SLOTS*tile->replay.max_txn_per_slot*sizeof(fd_replay_txn_timing_t) );
   void * timing_of_bank_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),               tile->replay.max_live_slots*sizeof(ulong) );
+  void * dragon_grant_mem   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_replay_dragon_grant_t), tile->replay.max_live_slots*sizeof(fd_replay_dragon_grant_t) );
   void * backfill_path_mem  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_reasm_fec_t *),    (tile->replay.max_shreds_per_block/FD_FEC_SHRED_CNT)*sizeof(fd_reasm_fec_t *) );
   void * block_dump_ctx     = NULL;
   if( FD_UNLIKELY( tile->replay.dump_block_to_pb ) ) {
@@ -5467,6 +5600,9 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->timing_slot_of_bank = timing_of_bank_mem;
   for( ulong i=0UL; i<tile->replay.max_live_slots; i++ ) ctx->timing_slot_of_bank[ i ] = fd_timing_slot_pool_idx_null( ctx->timing_slot_pool );
   ctx->backfill_path = backfill_path_mem;
+
+  ctx->dragon_grant = dragon_grant_mem;
+  fd_memset( ctx->dragon_grant, 0, tile->replay.max_live_slots*sizeof(fd_replay_dragon_grant_t) );
 
   ctx->dump_proto_ctx = NULL;
   if( FD_UNLIKELY( strcmp( "", tile->replay.dump_proto_dir ) ) ) {
@@ -5618,6 +5754,7 @@ unprivileged_init( fd_topo_t const *      topo,
     else if( !strcmp( link->name, "repair_out"    ) ) ctx->in_kind[ i ] = IN_KIND_REPAIR;
     else if( !strcmp( link->name, "txsend_out"    ) ) ctx->in_kind[ i ] = IN_KIND_TXSEND;
     else if( !strcmp( link->name, "rpc_replay"    ) ) ctx->in_kind[ i ] = IN_KIND_RPC;
+    else if( !strcmp( link->name, "dragon_replay" ) ) ctx->in_kind[ i ] = IN_KIND_DRAGON;
     else if( !strcmp( link->name, "gossip_misc"   ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_OUT;
     else if( !strcmp( link->name, "snapmk_out"    ) ) ctx->in_kind[ i ] = IN_KIND_SNAPMK;
     else if( !strcmp( link->name, "admin_replay"  ) ) ctx->in_kind[ i ] = IN_KIND_ADMIN;
@@ -5659,7 +5796,8 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->replay_out_seq = fd_mcache_seq_laddr_const( topo->links[ tile->out_link_id[ ctx->replay_out->idx ] ].mcache );
   ctx->slot_out_seq   = fd_mcache_seq_laddr_const( topo->links[ tile->out_link_id[ ctx->slot_out->idx   ] ].mcache );
 
-  ctx->rpc_enabled = fd_topo_find_tile( topo, "rpc", 0UL )!=ULONG_MAX;
+  ctx->rpc_enabled    = fd_topo_find_tile( topo, "rpc",    0UL )!=ULONG_MAX;
+  ctx->dragon_enabled = fd_topo_find_tile( topo, "dragon", 0UL )!=ULONG_MAX;
 
   if( FD_UNLIKELY( strcmp( "", tile->replay.solcap_capture ) ) ) {
     ulong idx = fd_topo_find_tile_out_link( topo, tile, "cap_repl", 0UL );
@@ -5705,6 +5843,12 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->report_runtime_diffs = tile->replay.report_runtime_diffs;
   ctx->banks->report_runtime_diffs = tile->replay.report_runtime_diffs;
+
+  /* Every tile that executes against these banks reads the dragon
+     flags from them, so replay publishes them once here. */
+  ctx->banks->dragon_enabled  = tile->replay.dragon_enabled;
+  ctx->banks->dragon_accounts = tile->replay.dragon_accounts;
+  FD_TEST( ctx->dragon_enabled==!!tile->replay.dragon_enabled );
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )

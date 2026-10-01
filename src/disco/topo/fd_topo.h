@@ -11,6 +11,7 @@
 #include "../../util/net/fd_ip6.h"
 #include "../pack/fd_pack_acct_blocklist.h"
 #include "../keyguard/fd_keyguard.h"
+#include "../../discof/dragon/fd_dragon_limits.h" /* for fd_dragon_filter_limits_t */
 
 /* Maximum number of workspaces that may be present in a topology. */
 #define FD_TOPO_MAX_WKSPS          ( 256UL)
@@ -136,6 +137,9 @@ struct fd_topo_tile {
   int   is_waker_client;        /* Tile has file descriptors which must be serviced by the external waker tile. */
   int   is_agave;               /* If the tile needs to run in the Agave (Anza) address space or not. */
   int   allow_shutdown;         /* If the tile is allowed to shutdown gracefully.  If false, when the tile exits it will tear down the entire application. */
+  int   restartable;            /* If the tile could be started again against a running validator: it consumes its inputs unreliably and reconciles the
+                                   state it shares with other tiles when it boots.  Nothing starts a tile a second time; the supervisor reports the
+                                   attribute when such a tile exits gracefully. */
 
   ulong cpu_idx;                /* The CPU index to pin the tile on.  A value of ULONG_MAX or more indicates the tile should be floating and not pinned to a core. */
   int   floats;                 /* Scheduled by the kernel over the CPUs of the floating tiles on its NUMA node, never a pinned tile's CPU, instead of pinned to cpu_idx (efficient mode).  cpu_idx still places memory and isolation, and is the fallback when no such CPU remains. */
@@ -157,6 +161,10 @@ struct fd_topo_tile {
   ulong event_link_id; /* If not ULONG_MAX, the link_id of a dedicated unreliable link to the event tile that this tile reports
                           telemetry events on via the thread-local fd_event_report_* macros.  This link is deliberately NOT part
                           of out_link_id[] / out_cnt: it is written directly (outside fd_stem) by the thread-local reporter. */
+
+  ulong event_internal_link_id; /* If not ULONG_MAX, the link_id of a dedicated unreliable link carrying internal records
+                                   (see src/disco/events/generated/fd_event_internal_gen.h) to the one in-process consumer that
+                                   asked for them.  Written directly by the thread-local reporter, like event_link_id. */
 
   ulong tile_obj_id;
   ulong metrics_obj_id;
@@ -478,6 +486,57 @@ struct fd_topo_tile {
     } rpc;
 
     struct {
+      uint   listen_addr; /* network order */
+      ushort listen_port;
+      int    grpc_web;
+
+      char   x_token[ 256 ];
+
+      int    compression;           /* FD_GRPC_SERVER_COMPRESSION_* */
+      ulong  compression_min_bytes;
+      int    compression_level;
+
+      ulong  max_clients;
+      ulong  max_streams_per_client;
+      ulong  send_buffer_size_mb;
+      ulong  channel_capacity;
+      ulong  max_message_bytes;
+      ulong  max_request_bytes;
+      long   idle_timeout_nanos;
+      long   ping_interval_nanos;
+      ulong  cuckoo_bytes_per_client;
+
+      fd_dragon_filter_limits_t filter_limits;
+
+      ulong  max_live_banks;
+      int    alpenglow;
+
+      int    finalized;       /* serve the confirmed and finalized levels from the buffer */
+      int    filter_at;       /* FD_DRAGON_FILTER_AT_* */
+      ulong  buffer_size_mib;
+      /* The buffer: an mcache in the tile's workspace and a dcache of
+         buffer_size_mib in a workspace of its own.  Only set when
+         finalized is on. */
+      ulong  buf_mcache_obj_id;
+      ulong  buf_dcache_obj_id;
+
+      /* The accounts database.  Only joined when finalized is on. */
+      ulong  accdb_obj_id;
+      ulong  accdb_epoch_fseq_obj_id;
+
+      int    delay_startup;
+      int    accounts;
+
+      /* Test-only: the tile takes its graceful exit path once it sees
+         this slot completed.  0 leaves it alone. */
+      ulong  exit_at_slot;
+
+      /* Number of record links the topology wired into this tile, which
+         is how many reassembly buffers it needs. */
+      ulong  record_link_cnt;
+    } dragon;
+
+    struct {
       uint   prometheus_listen_addr;
       ushort prometheus_listen_port;
     } metric;
@@ -541,6 +600,9 @@ struct fd_topo_tile {
       } bundle;
 
       int alpenglow;
+
+      int dragon_enabled;  /* produce the internal records for the dragon tile */
+      int dragon_accounts; /* include written account state in them */
     } replay;
 
     struct {
@@ -560,6 +622,7 @@ struct fd_topo_tile {
       int   dump_txn_as_fixture;
       int   dump_syscall_to_pb;
       int   report_runtime_diffs;
+      int   dragon_enabled;  /* produce the internal records for the dragon tile */
     } execrp;
 
     struct {
@@ -672,6 +735,7 @@ struct fd_topo_tile {
       ulong max_live_slots;
 
       ulong rpc_epoch_obj_id;
+      ulong dragon_epoch_obj_id;
       ulong resolv_epoch_obj_ids[ 16 ];
       ulong resolv_epoch_obj_cnt;
       ulong snapmk_epoch_obj_id;
@@ -751,6 +815,7 @@ struct fd_topo_tile {
       ulong progcache_obj_id;
       ulong accdb_obj_id;
       int   report_runtime_diffs;
+      int   dragon_enabled;  /* produce the internal records for the dragon tile */
     } execle;
 
     struct {

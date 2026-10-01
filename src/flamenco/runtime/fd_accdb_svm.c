@@ -2,7 +2,19 @@
 #include "fd_hashes.h"
 #include "fd_bank.h"
 #include "../capture/fd_capture_ctx.h"
+#include "../events/fd_event_internal.h"
 #include "../events/fd_event_runtime.h"
+
+/* record_account_change reports an account the runtime wrote outside of
+   any transaction, alongside the solcap capture of the same write. */
+
+static void
+record_account_change( fd_bank_t const * bank,
+                       fd_acc_t const *  acc ) {
+  if( FD_LIKELY( !fd_bank_dragon_enabled( bank ) ) ) return;
+  fd_event_internal_write_emit( bank, acc->pubkey, acc->owner, acc->lamports, acc->executable,
+                                acc->data, acc->data_len, fd_bank_dragon_accounts( bank ) );
+}
 
 static void
 log_account_change( fd_bank_t const *  bank,
@@ -73,6 +85,7 @@ fd_accdb_svm_close_rw( fd_bank_t *             bank,
   fd_bank_lthash_end_locking_modify( bank );
 
   log_account_change( bank, acc, capture_ctx );
+  record_account_change( bank, acc );
   if( FD_UNLIKELY( fd_bank_report_runtime_diffs( bank ) && !update->skip_event_diff ) ) fd_event_runtime_block_account( bank, acc->pubkey, update->owner_before, acc->owner, update->lamports_before, acc->lamports, update->data_len_before, acc->data_len, acc->executable );
   acc->commit = 1;
   fd_accdb_unwrite_one( accdb, acc );
@@ -97,6 +110,7 @@ fd_accdb_svm_credit( fd_bank_t *         bank,
 
   fd_lthash_value_t post[1];
   fd_hashes_update_simple( post, hash, pubkey->uc, acc.owner, acc.lamports, acc.executable, acc.data, acc.data_len, bank, capture_ctx );
+  record_account_change( bank, &acc );
   if( FD_UNLIKELY( fd_bank_report_runtime_diffs( bank ) ) ) {
     if( FD_UNLIKELY( is_vote_reward ) ) fd_event_runtime_reward_emit( bank, FD_EVENT_RUNTIME_REWARD_KIND_VOTE, acc.pubkey, acc.owner, lamports_pre, acc.lamports, 0UL, 0UL, 0UL );
     else                                fd_event_runtime_block_account( bank, acc.pubkey, acc.owner, acc.owner, lamports_pre, acc.lamports, acc.data_len, acc.data_len, acc.executable );
@@ -138,6 +152,7 @@ fd_accdb_svm_write( fd_bank_t *         bank,
 
   fd_lthash_value_t post[1];
   fd_hashes_update_simple( post, hash, pubkey->uc, acc.owner, acc.lamports, acc.executable, acc.data, acc.data_len, bank, capture_ctx );
+  record_account_change( bank, &acc );
   if( FD_UNLIKELY( fd_bank_report_runtime_diffs( bank ) && !skip_event_diff ) ) fd_event_runtime_block_account( bank, acc.pubkey, owner_pre, acc.owner, lamports_pre, acc.lamports, data_len_pre, acc.data_len, acc.executable );
   acc.commit = 1;
   fd_accdb_unwrite_one( accdb, &acc );
@@ -164,6 +179,7 @@ fd_accdb_svm_remove( fd_bank_t *         bank,
 
   fd_lthash_value_t post[1];
   fd_hashes_update_simple( post, hash, pubkey->uc, acc.owner, acc.lamports, acc.executable, acc.data, acc.data_len, bank, capture_ctx );
+  record_account_change( bank, &acc );
   if( FD_UNLIKELY( fd_bank_report_runtime_diffs( bank ) ) ) fd_event_runtime_block_account( bank, acc.pubkey, acc.owner, acc.owner, burned, 0UL, acc.data_len, 0UL, 0 );
   acc.commit = 1;
   fd_accdb_unwrite_one( accdb, &acc );

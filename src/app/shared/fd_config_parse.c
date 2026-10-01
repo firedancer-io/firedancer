@@ -296,6 +296,69 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( ulong,  tiles.rpc.send_buffer_size_mb                    );
   CFG_POP      ( bool,   tiles.rpc.delay_startup                          );
 
+  CFG_POP      ( bool,   tiles.dragon.enabled                             );
+  CFG_POP      ( cstr,   tiles.dragon.listen_address                      );
+  CFG_POP      ( ushort, tiles.dragon.listen_port                         );
+  CFG_POP      ( bool,   tiles.dragon.grpc_web                            );
+  CFG_POP      ( cstr,   tiles.dragon.x_token                             );
+  CFG_POP      ( cstr,   tiles.dragon.compression                         );
+  CFG_POP      ( ulong,  tiles.dragon.compression_min_bytes               );
+  CFG_POP      ( ulong,  tiles.dragon.compression_level                   );
+  CFG_POP      ( ulong,  tiles.dragon.max_clients                         );
+  CFG_POP      ( ulong,  tiles.dragon.max_streams_per_client              );
+  CFG_POP      ( ulong,  tiles.dragon.send_buffer_size_mb                  );
+  CFG_POP      ( ulong,  tiles.dragon.channel_capacity                    );
+  CFG_POP      ( ulong,  tiles.dragon.max_message_bytes                   );
+  CFG_POP      ( ulong,  tiles.dragon.max_request_bytes                   );
+  CFG_POP      ( ulong,  tiles.dragon.idle_timeout_seconds                );
+  CFG_POP      ( ulong,  tiles.dragon.ping_interval_seconds               );
+  CFG_POP      ( bool,   tiles.dragon.delay_startup                       );
+  CFG_POP      ( bool,   tiles.dragon.accounts                            );
+  CFG_POP      ( ulong,  tiles.dragon.internal_link_dcache_mb             );
+  CFG_POP      ( bool,   tiles.dragon.finalized                           );
+  CFG_POP      ( ulong,  tiles.dragon.buffer_size_mib                     );
+  CFG_POP      ( cstr,   tiles.dragon.filter_at                           );
+  CFG_POP      ( ulong,  tiles.dragon.cuckoo_bytes_per_client             );
+
+  CFG_POP      ( ulong,  tiles.dragon.filter_limits.accounts.max                     );
+  CFG_POP      ( bool,   tiles.dragon.filter_limits.accounts.any                     );
+  CFG_POP      ( ulong,  tiles.dragon.filter_limits.accounts.account_max             );
+  CFG_POP_ARRAY( cstr,   tiles.dragon.filter_limits.accounts.account_reject          );
+  CFG_POP      ( ulong,  tiles.dragon.filter_limits.accounts.owner_max               );
+  CFG_POP_ARRAY( cstr,   tiles.dragon.filter_limits.accounts.owner_reject            );
+  CFG_POP      ( ulong,  tiles.dragon.filter_limits.accounts.data_slice_max          );
+  CFG_POP      ( ulong,  tiles.dragon.filter_limits.accounts.cuckoo_max_size         );
+
+  CFG_POP      ( ulong,  tiles.dragon.filter_limits.slots.max                        );
+
+  CFG_POP      ( ulong,  tiles.dragon.filter_limits.transactions.max                 );
+  CFG_POP      ( bool,   tiles.dragon.filter_limits.transactions.any                 );
+  CFG_POP      ( ulong,  tiles.dragon.filter_limits.transactions.account_include_max  );
+  CFG_POP_ARRAY( cstr,   tiles.dragon.filter_limits.transactions.account_include_reject );
+  CFG_POP      ( ulong,  tiles.dragon.filter_limits.transactions.account_exclude_max  );
+  CFG_POP      ( ulong,  tiles.dragon.filter_limits.transactions.account_required_max );
+  CFG_POP      ( ulong,  tiles.dragon.filter_limits.transactions.cuckoo_max_size      );
+
+  CFG_POP      ( ulong,  tiles.dragon.filter_limits.transactions_status.max                 );
+  CFG_POP      ( bool,   tiles.dragon.filter_limits.transactions_status.any                 );
+  CFG_POP      ( ulong,  tiles.dragon.filter_limits.transactions_status.account_include_max  );
+  CFG_POP_ARRAY( cstr,   tiles.dragon.filter_limits.transactions_status.account_include_reject );
+  CFG_POP      ( ulong,  tiles.dragon.filter_limits.transactions_status.account_exclude_max  );
+  CFG_POP      ( ulong,  tiles.dragon.filter_limits.transactions_status.account_required_max );
+  CFG_POP      ( ulong,  tiles.dragon.filter_limits.transactions_status.cuckoo_max_size      );
+
+  CFG_POP      ( ulong,  tiles.dragon.filter_limits.blocks.max                        );
+  CFG_POP      ( ulong,  tiles.dragon.filter_limits.blocks.account_include_max        );
+  CFG_POP      ( bool,   tiles.dragon.filter_limits.blocks.account_include_any        );
+  CFG_POP_ARRAY( cstr,   tiles.dragon.filter_limits.blocks.account_include_reject     );
+  CFG_POP      ( bool,   tiles.dragon.filter_limits.blocks.include_transactions       );
+  CFG_POP      ( bool,   tiles.dragon.filter_limits.blocks.include_accounts           );
+  CFG_POP      ( bool,   tiles.dragon.filter_limits.blocks.include_entries            );
+  CFG_POP      ( ulong,  tiles.dragon.filter_limits.blocks.cuckoo_max_size            );
+
+  CFG_POP      ( ulong,  tiles.dragon.filter_limits.blocks_meta.max                   );
+  CFG_POP      ( ulong,  tiles.dragon.filter_limits.entries.max                       );
+
   CFG_POP      ( ushort, tiles.repair.repair_client_listen_port           );
   CFG_POP      ( ulong,  tiles.repair.slot_max                            );
 
@@ -364,6 +427,8 @@ fd_config_extract_pod( uchar *       pod,
   }
 
   CFG_POP      ( ulong,  development.accdb.partition_size_gib             );
+
+  CFG_POP      ( ulong,  development.dragon.exit_at_slot                  );
 
   CFG_POP      ( bool,   development.hugetlbfs.min_size                   );
 

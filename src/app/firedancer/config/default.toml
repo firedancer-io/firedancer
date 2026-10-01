@@ -1961,6 +1961,308 @@ telemetry = true
         # loading.
         delay_startup = true
 
+    # The dragon tile implements the Dragon's Mouth gRPC protocol.
+    # It's wire compatible with yellowstone-grpc and shares the same
+    # protocol definition, so that clients and applications can simply
+    # be pointed to Firedancer and run unmodified.
+    [tiles.dragon]
+        # If the dragon server is enabled.
+        enabled = false
+
+        # The address to listen on.  By default, if enabled, the server
+        # will only be accessible from the local machine.  If you wish
+        # to expose it to the network, you can change the listen
+        # address.
+        #
+        # The Firedancer team makes a best effort to secure the
+        # endpoint but exposing it to the internet from a production
+        # validator is not recommended as it increases the attack
+        # surface of the validator.
+        listen_address = "127.0.0.1"
+
+        # The port to listen on.  10000 is the port the yellowstone
+        # reference configuration uses.
+        listen_port = 10000
+
+        # If grpc_web is true, the port also speaks gRPC-Web (HTTP/1.1),
+        # for native browser and GUI support.
+        # If false, the port speaks gRPC (HTTP/2) only.
+        grpc_web = true
+
+        # Shared secret that every request must carry in the x-token
+        # metadata header.  An empty string accepts every request.
+        x_token = ""
+
+        # Response compression.  "zstd" compresses a response message
+        # when the client advertises zstd in grpc-accept-encoding, and
+        # accepts zstd compressed request messages.  "none" turns both
+        # directions off; clients keep working either way, because a
+        # gRPC server may always answer uncompressed, and a client that
+        # asks for a codec the server does not have gets identity.
+        #
+        # zstd is the codec tonic (and so every Rust client, including
+        # the yellowstone reference client) speaks.  Clients built on
+        # grpc-go, grpc-js or python grpcio offer gzip instead and fall
+        # back to identity here.
+        compression = "zstd"
+
+        # Messages smaller than this are sent uncompressed, as
+        # compressing them costs more than it saves.
+        compression_min_bytes = 1024
+
+        # zstd compression level, from 1 (fastest) upwards.  The server
+        # compresses on the tile's own core, so a high level here slows
+        # every subscriber down, and it also sizes the compression
+        # context that the tile reserves at boot: 663 KiB at level 1,
+        # 1.34 MiB at level 3, 705 MiB at level 22.
+        compression_level = 1
+
+        # Memory model.  The tile reserves everything it will ever
+        # use at boot, so its whole footprint follows from the options
+        # in this section.  With C = max_clients and S =
+        # max_streams_per_client, the number of concurrent calls is
+        # C*S (at most 64), and the footprint is
+        #
+        #   transport
+        #     send_buffer_size_mb                   the one send ring
+        #     + C*S * ( channel_capacity*16 + max_request_bytes )
+        #     + C * ( 64 KiB + 256 KiB + 16 KiB )   rings, header block
+        #     + 663 KiB                             the zstd contexts
+        #     + max_request_bytes                   decompressor output
+        #     + compress_bound( max_message_bytes )   compressor output
+        #   service
+        #     + C*S * 12 KiB                        one filter set each
+        #     + (C*S + 1) * cuckoo_bytes_per_client
+        #     + max_message_bytes                   one account update
+        #     + 2 * max_message_bytes               the blocks of a pass
+        #     + 16 MiB                              the buffer's tables
+        #   ingest and core
+        #     + <record links> * 16 MiB             record reassembly
+        #     + 2 * runtime max_live_slots * 1 KiB  the fork graph
+        #     + 10 MiB                              one account read
+        #
+        # where the last three terms of the service part and the last
+        # of the ingest part are reserved only with finalized.  With
+        # the values below, one record link, and max_live_slots at its
+        # default, that is about 355 MiB: 232 MiB of transport (of
+        # which the large send slots are 64 MiB), 97 MiB of service and
+        # 26 MiB of ingest.  The tile logs the same itemization at
+        # startup, so the arithmetic never has to be redone by hand.
+        #
+        # The buffer itself is a separate workspace of buffer_size_mib,
+        # and the record links are separate workspaces, one per
+        # producing tile of internal_link_dcache_mb each.
+
+        # Maximum number of simultaneous client connections.  A
+        # connection beyond this is refused; nothing is evicted, so
+        # that one client cannot displace another.
+        #
+        # A call occupies one client slot of the deferred store's
+        # masks, so max_clients times max_streams_per_client is at most
+        # 64.
+        max_clients = 16
+
+        # Maximum number of simultaneous gRPC calls per connection.  A
+        # yellowstone client holds one long lived Subscribe stream and
+        # makes an occasional unary call alongside it.
+        max_streams_per_client = 2
+
+        # Bytes of response queue each call gets.  A subscriber that
+        # falls behind by more than this is closed with "lagged to send
+        # an update", so a larger value tolerates slower clients.
+        #
+        # A subscription at the confirmed or finalized commitment is
+        # served a whole bank at once, so the ring has to hold every
+        # message it matched on one block for as long as the slowest
+        # subscriber takes to read it.
+        #
+        # Every update of every subscriber is staged once in this one
+        # ring, so its size does not scale with max_clients: it is how
+        # far behind the tile's output a subscriber may fall, in
+        # bytes, before it is closed with "lagged to send an update".
+        # Divide it by the tile's output rate to read it as seconds of
+        # slack.
+        send_buffer_size_mb = 1024
+
+        # The same bound counted in messages rather than bytes, which
+        # is what yellowstone's channel_capacity bounds: how many
+        # updates a subscriber may leave unread.  Whichever of the two
+        # is reached first closes the subscriber.  Each costs 16 bytes
+        # per stream, reserved at boot.  100000 is the yellowstone
+        # reference configuration's value.
+        channel_capacity = 100000
+
+        # The largest update the tile will assemble and deliver.  A
+        # single gRPC message goes out whole, staged in the send ring
+        # and drained a frame at a time; this is the bound above
+        # which an update is dropped altogether, counted in
+        # dragon_account_oversize / dragon_block_oversize and logged
+        # once per subscription.  A mainnet account reaches 10 MiB, so
+        # the default has room for one with its metadata; a block that
+        # carries the accounts of a busy slot can exceed it.
+        #
+        # Three buffers of this size are reserved for assembling
+        # updates, so raising it costs memory whether or not any client
+        # subscribes to accounts or blocks, and send_buffer_size_mb
+        # must leave room for two of them.
+        max_message_bytes = 16777216
+
+        # Largest request message accepted.  A SubscribeRequest listing
+        # thousands of accounts is hundreds of kilobytes, so this is
+        # generous; anything larger is answered with
+        # RESOURCE_EXHAUSTED.
+        max_request_bytes = 1048576
+
+        # Close a connection that has been silent for this long, in
+        # seconds.  0 keeps idle connections forever.  A peer that
+        # vanished without a FIN is reclaimed sooner than this, by the
+        # TCP keepalive the server sets on every connection.
+        idle_timeout_seconds = 300
+
+        # Cadence of the empty SubscribeUpdatePing the server sends on
+        # every subscription, which is how a yellowstone client learns
+        # the stream is alive when nothing it asked for is happening.
+        # 0 disables it.
+        ping_interval_seconds = 10
+
+        # If delay_startup is true, the dragon tile does not serve
+        # clients until the validator has replayed a slot, so that a
+        # client cannot observe an empty chain state while snapshots
+        # are still loading.
+        delay_startup = true
+
+        # If accounts is true, the records the execution and replay
+        # tiles produce for the dragon tile carry the post state of
+        # every account a transaction or the runtime wrote, which is
+        # what account subscriptions and full blocks are served from.
+        # With it false, the tile still serves slots, transactions and
+        # block metadata, and account subscriptions are refused.
+        accounts = true
+
+        # Size of the data region of each record link, in MiB.  There is
+        # one such link per execution tile and one from replay, each
+        # carrying records of up to 64 KiB per fragment, and its depth is
+        # the largest power of two that fits this budget.  The depth is
+        # how far the dragon tile may fall behind a producer before it
+        # loses records and gives up on the banks in flight, so this
+        # trades memory for tolerance of a slow client.
+        internal_link_dcache_mb = 256
+
+        # If finalized is true, the tile serves the confirmed and
+        # finalized commitment levels, and whole blocks at any level.
+        # It does so by keeping what it may have to serve at those
+        # levels, transactions and account writes alike, in a buffer of
+        # its own until the bank reaches the level, so a bank's
+        # reference to the accounts database goes back to replay as
+        # soon as the bank is sealed.  With it false, a subscription
+        # asking for one of those levels, or for whole blocks, is
+        # refused with INVALID_ARGUMENT and nothing is kept.
+        finalized = true
+
+        # Size of that buffer in MiB.  The buffer is a ring in the order
+        # the records arrived, backed by exactly this much memory in
+        # its own workspace (1024 is one gigantic page).  A slot's
+        # content is delivered from the ring when the slot reaches the
+        # level; a slot the ring has already wrapped past by then is
+        # given up on, and its subscribers see it missing at the
+        # deferred levels.  Mainnet averages about 22 MiB per slot with
+        # every write kept, so 1024 covers about 45 slots of
+        # finalization lag.
+        buffer_size_mib = 1024
+
+        # Where the subscription filters run for the deferred levels:
+        # "ingest" evaluates them as a record arrives and keeps only
+        # what some subscriber matched, with account data trimmed to
+        # the union of the slices the matching subscribers asked for;
+        # "send" keeps everything with full account data and evaluates
+        # the filters at delivery, so a subscriber that arrives while a
+        # slot is in flight is still served that slot in full.  "ingest"
+        # uses less memory; "send" is what yellowstone does.
+        filter_at = "ingest"
+
+        # Bytes one subscription may spend on cuckoo account filters.
+        # A cuckoo filter is a compressed account set a client uploads
+        # instead of naming every address: about 3 bytes per account,
+        # so the default holds roughly half a million of them.  One
+        # buffer of this size is reserved per concurrent call plus one
+        # to decode into, so this multiplies by max_clients times
+        # max_streams_per_client plus one.  0 refuses every request
+        # that carries a cuckoo filter.
+        cuckoo_bytes_per_client = 1048576
+
+    # What one client may ask of the server.  These are yellowstone's
+    # filter limits under their own names (plugin/filter/limits.rs):
+    # `max` bounds the filters of one kind in a request, `any` whether
+    # a filter of that kind may match everything, the `*_max` keys the
+    # addresses one of its lists may name, and the `*_reject` lists
+    # name addresses no filter may ask for (at most 16 each).
+    #
+    # Yellowstone's defaults are unlimited.  This server reserves the
+    # memory for one filter set up front, so the most permissive it can
+    # be is what that set holds: 64 filters of all kinds together, 256
+    # addresses across all of a request's lists, 16 data slices, and 4
+    # state predicates per accounts filter.  The values below are those
+    # structural maximums, and a larger value is refused at startup.
+    [tiles.dragon.filter_limits.accounts]
+        max = 64
+        any = true
+        account_max = 256
+        account_reject = []
+        owner_max = 256
+        owner_reject = []
+        data_slice_max = 16
+        # Bytes of the CuckooFilter.data field one accounts filter may
+        # carry, which cuckoo_bytes_per_client bounds as well.
+        cuckoo_max_size = 1048576
+
+    [tiles.dragon.filter_limits.slots]
+        max = 64
+
+    [tiles.dragon.filter_limits.transactions]
+        max = 64
+        any = true
+        account_include_max = 256
+        account_include_reject = []
+        account_exclude_max = 256
+        account_required_max = 256
+        cuckoo_max_size = 1048576
+
+    [tiles.dragon.filter_limits.transactions_status]
+        max = 64
+        any = true
+        account_include_max = 256
+        account_include_reject = []
+        account_exclude_max = 256
+        account_required_max = 256
+        cuckoo_max_size = 1048576
+
+    [tiles.dragon.filter_limits.blocks]
+        # Each blocks filter costs a share of a pass over the accounts
+        # of every bank, so the server holds at most 8 across all its
+        # clients, whatever max allows one client.
+        max = 8
+        account_include_max = 256
+        account_include_any = true
+        account_include_reject = []
+        # Whether a blocks subscription may ask for the transactions,
+        # the accounts and the entries of a block.  A block that
+        # carries its accounts is the largest message this server
+        # produces, so an operator who does not want to serve those
+        # turns include_accounts off.  Entries are never served in any
+        # case; the knob exists so that a client asking for them is
+        # refused with yellowstone's text rather than served a block
+        # with none.
+        include_transactions = true
+        include_accounts = true
+        include_entries = true
+        cuckoo_max_size = 1048576
+
+    [tiles.dragon.filter_limits.blocks_meta]
+        max = 64
+
+    [tiles.dragon.filter_limits.entries]
+        max = 64
+
 # These options can be useful for development, but should not be used
 # when connecting to a live cluster, as they may cause the validator to
 # be unstable or have degraded performance or security.  The program
@@ -2337,6 +2639,18 @@ telemetry = true
         # partitions allow finer-grained compaction at the cost of more
         # frequent partition rotations.
         partition_size_gib = 32
+
+    # Test-only controls for the dragon tile.  Nothing here belongs in
+    # a production configuration.
+    [development.dragon]
+        # The dragon tile takes its graceful exit path once it sees
+        # this slot completed: it tells replay to take back every bank
+        # reference it was granted, closes its clients and exits with
+        # code 0.  The validator keeps running without it, and nothing
+        # starts it again.
+        #
+        # This exists to exercise that path; leave it at 0.
+        exit_at_slot = 0
 
     [development.hugetlbfs]
         # If true the hugetlbfs mounts created by the `hugetlbfs`
