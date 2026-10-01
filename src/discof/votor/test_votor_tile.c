@@ -1189,6 +1189,41 @@ test_gossip_before_stake( void ) {
   test_ctx_delete( &ctx );
 }
 
+/* A tile ranked 0 in a three-voter epoch with consensus up at slot 0,
+   failover on, booted under its own key, for the history tests. */
+
+static ag_epoch_info_t *
+hist_setup( fd_votor_tile_t * ctx ) {
+  memset( ctx, 0, sizeof(fd_votor_tile_t) );
+  fd_vote_stake_weight_t stakes[ TEST_VOTER_MAX ];
+  build_stakes( stakes, 3UL, 10UL );
+  ag_epoch_info_t * epoch_info = rank_voters( &epoch_info_mem, stakes, 3UL );
+  memcpy( ctx->id_key.uc, epoch_info->validators[0].id_key, sizeof(fd_pubkey_t) );
+  ctx->boot_id_key              = ctx->id_key;
+  ctx->curr_epoch_info          = epoch_info;
+  ctx->failover_enabled         = 1;
+  ctx->hist_out_idx             = ULONG_MAX;
+  ctx->failov_out_idx           = ULONG_MAX;
+  ctx->last_leader_slot         = ULONG_MAX;
+  ctx->adopted_last_leader_slot = ULONG_MAX;
+  ctx->last_vote_slot           = ULONG_MAX;
+  ctx->root_slot                = ULONG_MAX;
+
+  ctx->pool  = test_pool( epoch_info, 0UL );
+  ctx->votor = ag_votor_join( ag_votor_new( votor_scratch, 64UL, 42UL ) );
+  FD_TEST( ctx->votor );
+  ag_votor_init         ( ctx->votor, &(ag_block_id_t){ .slot = 0UL }, 0L, 400000000L, (ushort)1, capture_sign_bls, NULL );
+  ag_votor_advance_epoch( ctx->votor, 400000000L, 0UL, 0UL, epoch_info->validators[0].bls_key );
+  ctx->init = 1;
+  return epoch_info;
+}
+
+static void
+hist_teardown( fd_votor_tile_t * ctx ) {
+  ag_votor_delete( ag_votor_leave( ctx->votor ) );
+  ag_pool_delete( ag_pool_leave( ctx->pool ) );
+}
+
 /* after_credit connects queued peers once due and leaves the rest,
    requeues one whose backoff grew, and drops entries for peers that
    can no longer be connected. */
@@ -1614,6 +1649,161 @@ test_vote_history_write( void ) {
   FD_LOG_NOTICE(( "pass: test_vote_history_write" ));
 }
 
+/* An adopted history fences the window of the last LEADER it reports
+   and the window of its vote bound, and a lower bound or leader slot
+   never lowers the fence. */
+
+static void
+test_history_raises_the_leader_floor( void ) {
+  static fd_votor_tile_t ctx;
+  hist_setup( &ctx );
+
+  ag_hist_t hist = { .anchor = 0UL, .last_leader_slot = 12UL, .vote_bound = 17UL, .rec_cnt = 1UL };
+  hist.rec[ 0 ].slot  = 1UL;
+  hist.rec[ 0 ].flags = AG_HIST_FLAG_VOTED;
+  uchar req[ AG_HIST_SER_MAX ];
+  ulong req_sz;
+  FD_TEST( !ag_hist_ser( &hist, req, sizeof(req), &req_sz ) );
+  fd_votor_adopt_result_t result = failover_adopt_hist( &ctx, req, req_sz );
+  FD_TEST( result.result==FD_VOTOR_ADOPT_SUCCESS && result.vote_slot==1UL && result.vote_bound==17UL );
+  FD_TEST( ag_votor_vote_bound( ctx.votor )==17UL );
+  FD_TEST( ctx.adopted_last_leader_slot==ag_first_slot_in_window( 17UL ) );
+  FD_TEST( leader_floor( &ctx )==ag_first_slot_in_window( 17UL ) );
+
+  hist.last_leader_slot = 4UL;
+  hist.vote_bound       = 6UL;
+  FD_TEST( !ag_hist_ser( &hist, req, sizeof(req), &req_sz ) );
+  result = failover_adopt_hist( &ctx, req, req_sz );
+  FD_TEST( result.result==FD_VOTOR_ADOPT_SUCCESS && result.vote_bound==17UL );
+  FD_TEST( ctx.adopted_last_leader_slot==ag_first_slot_in_window( 17UL ) );
+
+  uchar empty[ FD_VOTOR_ADOPT_EMPTY_SZ ];
+  FD_STORE( ulong, empty, 2UL );
+  result = failover_adopt_hist( &ctx, empty, sizeof(empty) );
+  FD_TEST( result.result==FD_VOTOR_ADOPT_SUCCESS && result.vote_bound==17UL );
+  FD_TEST( ctx.adopted_last_leader_slot==ag_first_slot_in_window( 17UL ) );
+
+  /* A history older than the votes this machine sent is refused. */
+  ctx.last_vote_slot = 3UL;
+  result = failover_adopt_hist( &ctx, req, req_sz );
+  FD_TEST( result.result==FD_VOTOR_ADOPT_ERR_STALE );
+
+  hist_teardown( &ctx );
+}
+
+/* Without the failover links failover_init leaves failover off.  The
+   identity votes as soon as it is ranked, replay completions and votes
+   leave the failover state alone, a vote that never left the machine
+   keeps its notar mark as upstream does, and an identity switch leads
+   from upstream's next window with no leader floor and no vote
+   authority change. */
+
+static void
+test_failover_off( void ) {
+  static fd_votor_tile_t ctx;
+  static fd_topo_t       topo[1];
+  static fd_topo_tile_t  tile[1];
+  static auth_vtr_t      auth_vtr_mem[ 1UL<<AUTH_VTR_LG_SLOT_CNT ];
+  static peer_t          peers_mem[ 1UL<<PEERS_LG_SLOT_CNT ];
+  static uchar           mleaders_mem[ FD_MULTI_EPOCH_LEADERS_FOOTPRINT ] __attribute__((aligned(FD_MULTI_EPOCH_LEADERS_ALIGN)));
+  static fd_keyswitch_t  av_keyswitch_mem[1];
+  static fd_aio_t        aio_mem[1];
+  memset( &ctx, 0, sizeof(fd_votor_tile_t) );
+  memset( topo, 0, sizeof(fd_topo_t)       );
+  memset( tile, 0, sizeof(fd_topo_tile_t)  );
+
+  fd_vote_stake_weight_t stakes[ TEST_VOTER_MAX ];
+  build_stakes( stakes, 3UL, 10UL );
+  ag_epoch_info_t * epoch_info = rank_voters( &epoch_info_mem, stakes, 3UL );
+  memcpy( ctx.id_key.uc, epoch_info->validators[0].id_key, sizeof(fd_pubkey_t) );
+  failover_init( &ctx, topo, tile );
+  FD_TEST( !ctx.failover_enabled && ctx.vote_authority );
+  FD_TEST( ctx.hist_out_idx==ULONG_MAX && ctx.failov_out_idx==ULONG_MAX );
+
+  ag_bls_key_t bls_key; memcpy( bls_key, epoch_info->validators[0].bls_key, sizeof(ag_bls_key_t) );
+  init_keys( &ctx, auth_vtr_mem, &bls_key, 1UL );
+  ctx.curr_epoch_info  = epoch_info;
+  ctx.next_epoch_slot  = ULONG_MAX;
+  ctx.next_leader_slot = ULONG_MAX;
+  ctx.pool  = test_pool( epoch_info, 0UL );
+  ctx.votor = ag_votor_join( ag_votor_new( votor_scratch, 64UL, 42UL ) );
+  FD_TEST( ctx.votor );
+  ag_votor_init         ( ctx.votor, &(ag_block_id_t){ .slot = 0UL }, 0L, 400000000L, (ushort)1, capture_sign_bls, NULL );
+  ag_votor_advance_epoch( ctx.votor, 400000000L, 0UL, 0UL, NULL ); /* no key until set_rank_and_bls_key picks ours */
+  set_rank_and_bls_key( &ctx );
+  ctx.init = 1;
+
+  /* We lead every slot of epoch 0. */
+
+  ctx.mleaders   = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( mleaders_mem ) );
+  ctx.peers      = peers_join( peers_new( peers_mem ) );
+  ctx.reconn_prq = reconn_prq_join( reconn_prq_new( reconn_prq_mem, RECONN_MAX ) );
+  FD_TEST( ctx.mleaders && ctx.peers && ctx.reconn_prq );
+  static uchar stake_msg_mem[ FD_STAKE_CI_STAKE_MSG_HEADER_SZ+FD_STAKE_CI_STAKE_MSG_RECORD_SZ ] __attribute__((aligned(8)));
+  fd_stake_weight_msg_t * stake_msg = fd_type_pun( stake_msg_mem );
+  *stake_msg = (fd_stake_weight_msg_t){ .epoch = 0UL, .staked_vote_cnt = 1UL, .start_slot = 0UL, .slot_cnt = 64UL };
+  *(fd_vote_stake_weight_t *)fd_type_pun( stake_msg+1 ) = (fd_vote_stake_weight_t){ .vote_key = ctx.id_key, .id_key = ctx.id_key, .stake = 10UL };
+  fd_multi_epoch_leaders_stake_msg_init( ctx.mleaders, stake_msg );
+  fd_multi_epoch_leaders_stake_msg_fini( ctx.mleaders );
+  fd_aio_t * aio = fd_aio_join( fd_aio_new( aio_mem, NULL, drop_aio_send ) );
+  ctx.quic_client = test_quic( quic_client_scratch, sizeof(quic_client_scratch), FD_QUIC_ROLE_CLIENT, &ctx, aio );
+  ctx.quic_server = test_quic( quic_server_scratch, sizeof(quic_server_scratch), FD_QUIC_ROLE_SERVER, &ctx, aio );
+  ctx.auth_vtr_keyswitch = fd_keyswitch_join( fd_keyswitch_new( av_keyswitch_mem, FD_KEYSWITCH_STATE_UNLOCKED ) );
+  ctx.id_keyswitch       = fd_keyswitch_join( fd_keyswitch_new( id_keyswitch_mem, FD_KEYSWITCH_STATE_UNLOCKED ) );
+  FD_TEST( ctx.auth_vtr_keyswitch && ctx.id_keyswitch );
+  fd_clock_tile_init( ctx.clock );
+  ctx.vote_history_dir_fd = -1;
+  for( ulong i=0UL; i<REWARD_VOTE_MAX; i++ ) ctx.reward_votes[ i ].slot = ULONG_MAX;
+
+  /* A completed slot gets our notar, and the failover state stays where
+     failover_init put it. */
+
+  static fd_replay_message_t replay;
+  memset( &replay, 0, sizeof(replay) );
+  replay.slot_completed.slot        = 1UL;
+  replay.slot_completed.root_slot   = 0UL;
+  replay.slot_completed.parent_slot = 0UL;
+  memset( replay.slot_completed.block_id.uc, 1, sizeof(fd_hash_t) );
+  handle_replay( &ctx, REPLAY_SIG_SLOT_COMPLETED, &replay );
+  FD_TEST( !ctx.highest_completed_slot && ctx.root_slot==ULONG_MAX );
+  FD_TEST( ag_votor_metrics( ctx.votor ).vote_events_cnt==1UL );
+
+  /* The notar goes out against an epoch we do not know, so it never
+     leaves the machine.  Upstream drops it and the slot keeps its notar
+     mark. */
+
+  ctx.curr_epoch_info = NULL;
+  int charge_busy = 0;
+  after_credit( &ctx, NULL, NULL, &charge_busy );
+  ctx.curr_epoch_info = epoch_info;
+  FD_TEST( !ag_votor_metrics( ctx.votor ).vote_events_cnt );
+  static ag_hist_t hist;
+  ag_votor_hist_export( ctx.votor, ULONG_MAX, &hist );
+  ulong rec_idx = ULONG_MAX;
+  for( ulong i=0UL; i<hist.rec_cnt; i++ ) if( hist.rec[ i ].slot==1UL ) rec_idx = i;
+  FD_TEST( rec_idx!=ULONG_MAX );
+  FD_TEST( ( hist.rec[ rec_idx ].flags & AG_HIST_FLAG_VOTED_NOTAR ) && !( hist.rec[ rec_idx ].flags & AG_HIST_FLAG_BAD_WINDOW ) );
+  FD_TEST( ag_votor_vote_bound( ctx.votor )==ULONG_MAX );
+
+  /* A switch leads from the next window, the leader floor is not
+     consulted and the vote authority stays. */
+
+  ctx.last_leader_slot          = 40UL; /* a floor would move the leader slot past 40 */
+  ctx.highest_parent_ready_slot = 4UL;
+  memcpy( ctx.id_keyswitch->bytes, ctx.id_key.uc, sizeof(fd_pubkey_t) );
+  ctx.id_keyswitch->result = 77UL;
+  fd_keyswitch_state( ctx.id_keyswitch, FD_KEYSWITCH_STATE_SWITCH_PENDING );
+  during_housekeeping( &ctx );
+  FD_TEST( ctx.id_keyswitch->state==FD_KEYSWITCH_STATE_COMPLETED );
+  FD_TEST( ctx.next_leader_slot==8UL && ctx.vote_authority );
+  FD_TEST( ctx.id_keyswitch->result==77UL );
+
+  fd_quic_delete( fd_quic_leave( fd_quic_fini( ctx.quic_client ) ) );
+  fd_quic_delete( fd_quic_leave( fd_quic_fini( ctx.quic_server ) ) );
+  reconn_prq_delete( reconn_prq_leave( ctx.reconn_prq ) );
+  hist_teardown( &ctx );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -1641,6 +1831,8 @@ main( int     argc,
   test_conn_ahead();
   test_park();
   test_vote_history_write();
+  test_history_raises_the_leader_floor();
+  test_failover_off();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
