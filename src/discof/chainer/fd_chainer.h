@@ -94,7 +94,7 @@ FD_STATIC_ASSERT( FD_FEC_SHRED_CNT==32UL, fd_chainer_fec_bitmap );
 struct fd_chainer_fec {
   fd_hash_t merkle_root; /* key: first FD_SHRED_MERKLE_NODE_SZ bytes */
   uint      slot;        /* slot this FEC belongs to */
-  uint      data_idxs;   /* received data shreds in this FEC */
+  uint      data_idxs;   /* available data shreds, including recovered shreds */
   uint      next;        /* reserved by pool and map_chain */
   uint      prev;        /* reserved by map_chain (doubly-linked chains) */
   uint      fec_set_idx  : 28; /* position within the slot (multiple of FD_FEC_SHRED_CNT) */
@@ -102,9 +102,21 @@ struct fd_chainer_fec {
   uint      slot_complete: 1;
   uint      data_complete: 1;
   uint      is_leader    : 1;
+
+  /* Reception for the current resolver attempt.  Shared by all versions
+     owning this root; cleared on eviction.  Reconstructed/leader shreds
+     do not set received bits.  Completed sets retain their snapshot. */
+  struct {
+    uint data_received;
+    uint parity_received;
+    uint repair_received; /* subset of data_received */
+    int  last_shred_src;  /* FD_CHAINER_SRC_*, excluding RECOVERED */
+    long first_shred_ts;  /* wallclock ns from the incoming fragment's tsorig */
+    long completed_ts;    /* tsorig of the shred that completed the FEC */
+  } metrics;
 };
 typedef struct fd_chainer_fec fd_chainer_fec_t;
-FD_STATIC_ASSERT( sizeof(fd_chainer_fec_t)==52UL, fd_chainer_fec );
+FD_STATIC_ASSERT( sizeof(fd_chainer_fec_t)==88UL, fd_chainer_fec );
 
 #define POOL_NAME  fd_fec_pool
 #define POOL_T     fd_chainer_fec_t
@@ -127,7 +139,7 @@ struct fd_chainer_slotv {
   ulong           next; /* reserved by pool and map_chain */
   ulong           prev; /* reserved by map_chain */
 
-  uchar           turbine;   /* 1 for the slotv created through turbine */
+  uchar           turbine;           /* 1 for the slotv created through turbine */
   uchar           abandoned; /* 1 once a votor-driven version of the slot was
                                 created while this (turbine) version's block_id
                                 was still unknown: keeps accepting shred/FEC
@@ -208,6 +220,11 @@ typedef struct out_ele out_ele_t;
 #define DEQUE_T    out_ele_t
 #include "../../util/tmpl/fd_deque_dynamic.c"
 
+/* Optional block reporting callback.  Called when an incomplete block
+   is pruned, or a block is completed.  NULL disables reporting. */
+typedef void (*fd_chainer_block_event_fn)( void *                    ctx,
+                                          fd_chainer_slotv_t const * slotv );
+
 struct fd_chainer {
   ulong root;             /* root slot, ULONG_MAX if unset */
   ulong highest_repaired; /* max slot ever marked fully_delivered (contiguous-from-root repaired tip) */
@@ -226,6 +243,9 @@ struct fd_chainer {
   out_ele_t * out_queue; /* delivered FEC pool idxs awaiting publish to replay */
 
   ulong magic; /* ==FD_CHAINER_MAGIC */
+
+  fd_chainer_block_event_fn block_event_fn;
+  void *                    block_event_ctx;
 };
 typedef struct fd_chainer fd_chainer_t;
 
@@ -305,9 +325,11 @@ int
 fd_chainer_verify( fd_chainer_t const * chainer );
 
 void
-fd_chainer_init( fd_chainer_t *    chainer,
-                 ulong             slot,
-                 fd_hash_t const * block_id );
+fd_chainer_init( fd_chainer_t *            chainer,
+                 ulong                     slot,
+                 fd_hash_t const *         block_id,
+                 fd_chainer_block_event_fn block_event_fn,
+                 void *                    block_event_ctx );
 
 /* Mutators that can create a slotv return it, or NULL if everything
    they touched already existed; no call creates more than one.
@@ -339,10 +361,16 @@ fd_chainer_shred_insert( fd_chainer_t *    chainer,
                          ulong             parent_slot,
                          fd_hash_t const * parent_block_id );
 
+/* Best-effort tracking for an existing FEC; does not create FEC entries.
+   code_idx is the relative coding index (0..31).
+   Coding shreds, including nonconformant repair responses, count as
+   turbine. */
+
 void
 fd_chainer_code_shred_insert( fd_chainer_t *    chainer,
                               ulong             slot,
                               uint              fec_set_idx,
+                              uint              code_idx,
                               long              rx_ts,
                               fd_hash_t const * mr );
 

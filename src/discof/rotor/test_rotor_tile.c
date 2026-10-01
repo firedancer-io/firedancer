@@ -425,6 +425,7 @@ deliver_code_shred( ctx_t * ctx, ulong slot, uint fec_set_idx, uint idx, fd_hash
   shred->slot        = slot;
   shred->idx         = idx;
   shred->fec_set_idx = fec_set_idx;
+  shred->code.idx    = (ushort)idx;
 
   deliver_frag( ctx, IN_IDX_SHRED, ( (ulong)(uint)res<<32 ) | (ulong)src, base, sizeof(fd_shred_base_t) );
 }
@@ -539,6 +540,7 @@ static fd_pubkey_t peer_key[ 2 ];
 static void
 setup_ctx( ctx_t * ctx, fd_wksp_t * wksp ) {
   memset( ctx, 0, sizeof(*ctx) );
+  fd_event_tl = NULL;
   fd_clock_tile_init( ctx->clock );
 
   pub_cnt = 0UL; pub_cursor = 0UL;
@@ -576,6 +578,8 @@ setup_ctx( ctx_t * ctx, fd_wksp_t * wksp ) {
   ctx->store         = fd_store_join       ( fd_store_new       ( store_mem,     1024UL, 64UL, 0UL, 0UL, 0UL, FD_SHRED_BLK_MAX, 42UL   ) );
   FD_TEST( ctx->chainer && ctx->schedulor && ctx->requestor && ctx->policy && ctx->rtt && ctx->signs_map && ctx->toss_queue && ctx->protocol && ctx->redeliver && ctx->store );
   FD_TEST( fd_store_map_ljoin( ctx->store, ctx->store_map ) );
+  ctx->receive_event = fd_wksp_alloc_laddr( wksp, alignof(fd_event_block_received_t), sizeof(fd_event_block_received_t), 1UL );
+  FD_TEST( ctx->receive_event );
 
   /* Out links.  fd_chunk_to_laddr( mem, 0 )==mem, so chunk0=0 over a
      flat buffer behaves like a compact dcache. */
@@ -655,7 +659,7 @@ setup_ctx( ctx_t * ctx, fd_wksp_t * wksp ) {
   /* Snapshot: root the chainer the way handle_snap does. */
 
   snap_bid = mkhash( 0xB1D100UL );
-  fd_chainer_init( ctx->chainer, SNAP_SLOT, &snap_bid );
+  fd_chainer_init( ctx->chainer, SNAP_SLOT, &snap_bid, report_block_received, ctx );
   FD_TEST( !fd_chainer_verify( ctx->chainer ) );
 
   /* Two repair peers, as if discovered via gossip. */
@@ -784,6 +788,120 @@ test_turbine_block( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: turbine block delivers and finalizes" ));
 }
 
+/* Exercise the real event reporter independently of the mocked stem
+   outputs: event links publish directly to an unreliable mcache. */
+
+static void
+enable_event_reporting( fd_wksp_t * wksp ) {
+  static fd_event_reporter_t reporter[1];
+  memset( reporter, 0, sizeof(reporter) );
+  FD_TEST( fd_tile_rotor.max_event_sz );
+  ulong mtu = fd_tile_rotor.max_event_sz( NULL );
+  FD_TEST( mtu==sizeof(fd_event_block_received_t) );
+  ulong depth = 128UL;
+  ulong data_sz = fd_dcache_req_data_sz( mtu, depth, 1UL, 1 );
+  void * mcache_mem = fd_wksp_alloc_laddr( wksp, fd_mcache_align(), fd_mcache_footprint( depth, 0UL ), 1UL );
+  void * dcache_mem = fd_wksp_alloc_laddr( wksp, fd_dcache_align(), fd_dcache_footprint( data_sz, 0UL ), 1UL );
+  FD_TEST( mcache_mem && dcache_mem );
+  reporter->mcache = fd_mcache_join( fd_mcache_new( mcache_mem, depth, 0UL, 0UL ) );
+  void * dcache = fd_dcache_join( fd_dcache_new( dcache_mem, data_sz, 0UL ) );
+  FD_TEST( reporter->mcache && dcache );
+  reporter->depth     = depth;
+  reporter->seq_store = fd_mcache_seq_laddr( reporter->mcache );
+  reporter->mem       = wksp;
+  reporter->chunk0    = fd_dcache_compact_chunk0( wksp, dcache );
+  reporter->wmark     = fd_dcache_compact_wmark( wksp, dcache, mtu );
+  reporter->chunk     = reporter->chunk0;
+  reporter->mtu       = mtu;
+  fd_event_tl = reporter;
+}
+
+static fd_event_block_received_t const *
+expect_block_received( ulong seq ) {
+  fd_event_reporter_t * r = fd_event_tl;
+  FD_TEST( r && seq<r->seq );
+  FD_TEST( fd_mcache_seq_query( r->seq_store )==r->seq );
+  fd_frag_meta_t const * frag = &r->mcache[ fd_mcache_line_idx( seq, r->depth ) ];
+  FD_TEST( frag->seq==seq );
+  FD_TEST( FD_EVENT_SIG_TYPE( frag->sig )==21UL );
+  fd_event_block_received_t const * ev = fd_chunk_to_laddr_const( r->mem, frag->chunk );
+  FD_TEST( ev->fec_sets_cnt<=FD_EVENT_BLOCK_RECEIVED_FEC_SETS_MAX );
+  FD_TEST( FD_EVENT_SIG_SZ( frag->sig )==fd_event_block_received_footprint( ev ) );
+  /* These fields need new bookkeeping and remain zero for now. */
+  FD_TEST( !ev->equivocation_detected_shred );
+  for( ulong i=0UL; i<ev->fec_sets_cnt; i++ ) {
+    fd_event_block_received_fec_sets_t const * f = &ev->fec_sets[ i ];
+    FD_TEST( !f->fec_duplicate_shred_count );
+    FD_TEST( !(f->fec_repair_shreds_received & ~f->fec_data_shreds_received) );
+    FD_TEST( f->fec_source_repair==!!f->fec_repair_shreds_received );
+  }
+  return ev;
+}
+
+static void
+test_block_received_event( fd_wksp_t * wksp ) {
+  static ctx_t ctx[1];
+  setup_ctx( ctx, wksp );
+  enable_event_reporting( wksp );
+  memset( ctx->receive_event, 0xA5, sizeof(fd_event_block_received_t) );
+
+  /* Leave an earlier slot incomplete so root advancement must emit its
+     row.  Complete the next slot out of order, independently of replay. */
+  blk_t incomplete = { .slot = SNAP_SLOT+1UL, .parent_slot = SNAP_SLOT, .parent_block_id = snap_bid, .fec_cnt = 2U };
+  incomplete.fec_root[ 0 ] = mkhash( 0xEC00UL );
+  incomplete.fec_root[ 1 ] = mkhash( 0xEC01UL );
+  blk_build( &incomplete );
+  deliver_turbine_fec_set( ctx, &incomplete, 0U );
+  FD_TEST( fd_event_tl->seq==0UL );
+
+  blk_t complete = { .slot = SNAP_SLOT+2UL, .parent_slot = SNAP_SLOT, .parent_block_id = snap_bid, .fec_cnt = 2U };
+  complete.fec_root[ 0 ] = mkhash( 0xEC10UL );
+  complete.fec_root[ 1 ] = mkhash( 0xEC11UL );
+  blk_build( &complete );
+  deliver_turbine_fec_set( ctx, &complete, 1U );
+  FD_TEST( fd_event_tl->seq==0UL );
+  deliver_turbine_fec_set( ctx, &complete, 0U );
+  FD_TEST( fd_event_tl->seq==1UL );
+  fd_event_block_received_t const * ev = expect_block_received( 0UL );
+  FD_TEST( ev->slot==complete.slot && ev->parent_slot==SNAP_SLOT );
+  FD_TEST( !memcmp( ev->parent_block_id, snap_bid.uc, 32UL ) );
+  FD_TEST( !ev->cancelled && !ev->notarized && ev->slot_complete_flag );
+  FD_TEST( ev->fec_set_count==2UL && ev->fec_sets_cnt==2UL );
+  FD_TEST( ev->turbine_shred_received==2U*FD_FEC_SHRED_CNT );
+  FD_TEST( !ev->repair_shred_received && !ev->recovered_shred_count && !ev->parity_shred_received );
+  FD_TEST( ev->first_shred_received_time && ev->last_shred_received_time>=ev->first_shred_received_time );
+  for( ulong k=0UL; k<2UL; k++ ) {
+    FD_TEST( ev->fec_sets[ k ].fec_set_index==k*FD_FEC_SHRED_CNT );
+    FD_TEST( !memcmp( ev->fec_sets[ k ].fec_merkle_root, complete.fec_root[ k ].uc, 32UL ) );
+    FD_TEST( ev->fec_sets[ k ].fec_data_shreds_received==UINT_MAX );
+    FD_TEST( !ev->fec_sets[ k ].fec_parity_shreds_received && !ev->fec_sets[ k ].fec_repair_shreds_received );
+    FD_TEST( !ev->fec_sets[ k ].fec_final_shred_source_repair );
+    FD_TEST( ev->fec_sets[ k ].fec_first_shred_received_nanos );
+    FD_TEST( ev->fec_sets[ k ].fec_completed_nanos>=ev->fec_sets[ k ].fec_first_shred_received_nanos );
+  }
+
+  deliver_fec_complete( ctx, complete.slot, 0U, blk_fec_flags( &complete, 0U ), &complete.fec_root[ 0 ] );
+  FD_TEST( fd_event_tl->seq==1UL ); /* duplicate completion */
+
+  /* Pending replay deliveries defer the root.  The incomplete block
+     reports exactly once when after_credit eventually prunes it. */
+  deliver_replay_root( ctx, complete.slot, &complete.block_id );
+  FD_TEST( ctx->chainer->root==SNAP_SLOT );
+  FD_TEST( fd_event_tl->seq==1UL );
+  pump( ctx );
+  FD_TEST( ctx->chainer->root==complete.slot );
+  FD_TEST( fd_event_tl->seq==2UL );
+  ev = expect_block_received( 1UL );
+  FD_TEST( ev->slot==incomplete.slot && ev->parent_slot==SNAP_SLOT );
+  FD_TEST( ev->fec_set_count==1UL && ev->fec_sets_cnt==1UL );
+  FD_TEST( !ev->slot_complete_flag && !ev->last_shred_received_time );
+  FD_TEST( ev->turbine_shred_received==FD_FEC_SHRED_CNT );
+  FD_TEST( !memcmp( ev->fec_sets[ 0 ].fec_merkle_root, incomplete.fec_root[ 0 ].uc, 32UL ) );
+  fd_event_tl = NULL;
+
+  FD_LOG_NOTICE(( "pass: block_received reports completion and deferred pruning" ));
+}
+
 /* A turbine block can finalize before its parent arrives.  Replace
    its zero-ID check so it keeps repairing ancestry, including when a
    requestor walk under the old key is already active. */
@@ -860,11 +978,15 @@ test_shred_ts_from_tsorig( fd_wksp_t * wksp ) {
 
   test_tsorig = fd_frag_meta_ts_comp( fd_tickcount()-lag_tk );
 
-  for( uint i=0U; i<FD_FEC_SHRED_CNT; i++ )
-    deliver_shred( ctx, blk->slot, i,
-                   (uchar)( i==FD_FEC_SHRED_CNT-1U ? FD_SHRED_DATA_FLAG_SLOT_COMPLETE|FD_SHRED_DATA_FLAG_DATA_COMPLETE : 0 ),
+  deliver_code_shred( ctx, blk->slot, 0U, 31U, &blk->fec_root[ 0 ], SHRED_SIG_SRC_TURBINE, SHRED_SIG_RESULT_OKAY );
+  FD_TEST( !fd_chainer_slot_query( ctx->chainer, blk->slot ) );
+  FD_TEST( !fd_schedulor_block_query( ctx->schedulor, blk->slot, &(fd_hash_t){0} ) );
+  for( uint i=0U; i<FD_FEC_SHRED_CNT-1U; i++ )
+    deliver_shred( ctx, blk->slot, i, 0,
                    &blk->fec_root[ 0 ], 0U, SHRED_SIG_SRC_TURBINE,
                    i ? AG_UNKNOWN_SLOT : blk->parent_slot, i ? NULL : &blk->parent_block_id );
+  deliver_shred( ctx, blk->slot, FD_FEC_SHRED_CNT-1U, FD_SHRED_DATA_FLAG_SLOT_COMPLETE|FD_SHRED_DATA_FLAG_DATA_COMPLETE,
+                 &blk->fec_root[ 0 ], 0U, SHRED_SIG_SRC_RECONSTRUCTED, AG_UNKNOWN_SLOT, NULL );
   deliver_fec_complete( ctx, blk->slot, 0U, FD_SHRED_DATA_FLAG_SLOT_COMPLETE|FD_SHRED_DATA_FLAG_DATA_COMPLETE, &blk->fec_root[ 0 ] );
 
   test_tsorig = 0UL;
@@ -881,6 +1003,11 @@ test_shred_ts_from_tsorig( fd_wksp_t * wksp ) {
   FD_TEST( now-v->metrics.first_shred_ts > lag_ns/2 );
   FD_TEST( now-v->metrics.first_shred_ts < lag_ns*4 );
   FD_TEST( v->metrics.last_shred_ts>=v->metrics.first_shred_ts );
+  fd_chainer_fec_t const * fec = fd_chainer_fec_query( ctx->chainer, blk->slot, 0U, &blk->block_id );
+  FD_TEST( fec && fec->metrics.first_shred_ts==v->metrics.first_shred_ts );
+  FD_TEST( fec->metrics.completed_ts==v->metrics.last_shred_ts );
+  FD_TEST( !fec->metrics.parity_received ); /* coding arrived before the FEC existed */
+  FD_TEST( fec->metrics.data_received==0x7fffffffU );
 
   FD_LOG_NOTICE(( "pass: test_shred_ts_from_tsorig" ));
 }
@@ -893,6 +1020,7 @@ static void
 test_reception_stats( fd_wksp_t * wksp ) {
   static ctx_t ctx[1];
   setup_ctx( ctx, wksp );
+  enable_event_reporting( wksp );
 
   blk_t blk[1] = {{ .slot = SNAP_SLOT+1UL, .parent_slot = SNAP_SLOT, .parent_block_id = snap_bid, .fec_cnt = 2U }};
   blk->fec_root[ 0 ] = mkhash( 0xB0UL );
@@ -919,6 +1047,13 @@ test_reception_stats( fd_wksp_t * wksp ) {
   FD_TEST( v0->metrics.parity_cnt   ==1U                  );
   FD_TEST( !fd_chainer_verify( ctx->chainer ) );
 
+  /* The shred tile forwards recovered data before its FEC completion.
+     Neither recovery nor a duplicate repair delivery changes the final
+     network source (the coding shred above). */
+  deliver_shred( ctx, blk->slot, FD_FEC_SHRED_CNT-1U, FD_SHRED_DATA_FLAG_DATA_COMPLETE,
+                 &blk->fec_root[ 0 ], 0U, SHRED_SIG_SRC_RECONSTRUCTED, AG_UNKNOWN_SLOT, NULL );
+  deliver_shred( ctx, blk->slot, FD_FEC_SHRED_CNT-2U, 0,
+                 &blk->fec_root[ 0 ], 0U, SHRED_SIG_SRC_REPAIR, AG_UNKNOWN_SLOT, NULL );
   deliver_fec_complete( ctx, blk->slot, 0U, FD_SHRED_DATA_FLAG_DATA_COMPLETE, &blk->fec_root[ 0 ] );
   pump( ctx );
 
@@ -968,6 +1103,26 @@ test_reception_stats( fd_wksp_t * wksp ) {
   FD_TEST( m->votor_repaired    ==0                     );
   FD_TEST( m->blk_last_completed_fec_idx==FD_FEC_SHRED_CNT ); /* set 1 completed most recently */
 
+  /* The telemetry row and replay snapshot share cumulative reception
+     counters, including parity and locally recovered shreds. */
+  FD_TEST( fd_event_tl->seq==1UL );
+  fd_event_block_received_t const * ev = expect_block_received( 0UL );
+  FD_TEST( ev->turbine_shred_received==m->blk_turbine_cnt );
+  FD_TEST( ev->repair_shred_received==m->blk_repair_cnt );
+  FD_TEST( ev->recovered_shred_count==m->blk_recovered_cnt );
+  FD_TEST( ev->parity_shred_received==m->blk_parity_cnt );
+  FD_TEST( ev->first_shred_received_time==m->blk_first_shred_ts_nanos );
+  FD_TEST( ev->last_shred_received_time==m->blk_last_shred_ts_nanos );
+  FD_TEST( ev->fec_set_count==2UL && ev->fec_sets_cnt==2UL );
+  FD_TEST( ev->fec_sets[ 0 ].fec_data_shreds_received==0x7fffffffU );
+  FD_TEST( ev->fec_sets[ 0 ].fec_parity_shreds_received==(1U<<3) );
+  FD_TEST( ev->fec_sets[ 0 ].fec_repair_shreds_received==(1U<<30) );
+  FD_TEST( !ev->fec_sets[ 0 ].fec_final_shred_source_repair && ev->fec_sets[ 0 ].fec_source_repair );
+  FD_TEST( ev->fec_sets[ 0 ].fec_first_shred_received_nanos==first_ts );
+  FD_TEST( ev->fec_sets[ 0 ].fec_completed_nanos>=first_ts );
+  FD_TEST( ev->fec_sets[ 1 ].fec_data_shreds_received==UINT_MAX );
+  FD_TEST( !ev->fec_sets[ 1 ].fec_parity_shreds_received && !ev->fec_sets[ 1 ].fec_repair_shreds_received );
+
   /* highest_fec_complete_slot is the cluster tip, not this FEC's slot.  Rotor delivers
      only replayable FECs in order, so replay cannot derive the tip
      from what it receives -- a FEC set completing for a far-ahead slot
@@ -1006,6 +1161,7 @@ test_reception_stats( fd_wksp_t * wksp ) {
   FD_TEST( !fd_chainer_verify( ctx->chainer ) );
 
   FD_LOG_NOTICE(( "pass: test_reception_stats" ));
+  fd_event_tl = NULL;
 }
 
 /* The schedulor paces re-requests.  A new block is queued due now, the
@@ -1072,6 +1228,7 @@ static void
 test_votor_block_supersedes( fd_wksp_t * wksp ) {
   static ctx_t ctx[1];
   setup_ctx( ctx, wksp );
+  enable_event_reporting( wksp );
 
   blk_t turb[1] = {{ .slot = SNAP_SLOT+1UL, .parent_slot = SNAP_SLOT, .parent_block_id = snap_bid, .fec_cnt = 2U }};
   turb->fec_root[ 0 ] = mkhash( 0xC0UL );
@@ -1119,6 +1276,23 @@ test_votor_block_supersedes( fd_wksp_t * wksp ) {
   FD_TEST( serve_shred_requests( ctx, from, vot, served )==FD_FEC_SHRED_CNT );
   pump( ctx );
   FD_TEST( fd_chainer_slotv_complete( v1 ) && v1->metrics.last_shred_ts );
+  FD_TEST( fd_event_tl->seq==1UL );
+  fd_event_block_received_t const * ev = expect_block_received( 0UL );
+  FD_TEST( ev->slot==vot->slot && ev->notarized && !ev->cancelled );
+  FD_TEST( !memcmp( ev->block_id, vot->block_id.uc, 32UL ) );
+  FD_TEST( ev->fec_set_count==1UL && ev->fec_sets_cnt==1UL );
+  FD_TEST( ev->repair_shred_received==FD_FEC_SHRED_CNT );
+  FD_TEST( ev->repair_responses_received==FD_FEC_SHRED_CNT );
+  FD_TEST( ev->repair_request_shred_for_block_id_count==FD_FEC_SHRED_CNT );
+  FD_TEST( ev->repair_request_parent_fec_count==1U && ev->repair_request_fec_root_count==1U );
+  FD_TEST( ev->first_repair_request_time && ev->last_repair_received_time>=ev->first_repair_request_time );
+  FD_TEST( !memcmp( ev->fec_sets[ 0 ].fec_merkle_root, vot->fec_root[ 0 ].uc, 32UL ) );
+  FD_TEST( ev->fec_sets[ 0 ].fec_data_shreds_received==UINT_MAX );
+  FD_TEST( ev->fec_sets[ 0 ].fec_repair_shreds_received==UINT_MAX );
+  FD_TEST( !ev->fec_sets[ 0 ].fec_parity_shreds_received );
+  FD_TEST( ev->fec_sets[ 0 ].fec_final_shred_source_repair && ev->fec_sets[ 0 ].fec_source_repair );
+  FD_TEST( ev->fec_sets[ 0 ].fec_first_shred_received_nanos==ev->first_shred_received_time );
+  FD_TEST( ev->fec_sets[ 0 ].fec_completed_nanos>=ev->last_shred_received_time );
   FD_TEST( ctx->metrics->shred_match_block_id==FD_FEC_SHRED_CNT );
   fd_rotor_fec_metrics_t const * m = &rep_log[ rep_cnt-1UL ].metrics;
   FD_TEST( m->stats_valid==1U && m->votor_repaired==1U );
@@ -1147,6 +1321,15 @@ test_votor_block_supersedes( fd_wksp_t * wksp ) {
     if( fd_hash_eq( &rep_log[ i ].mr, &vot->fec_root[ 0 ]  ) ) vot_cnt++;
   }
   FD_TEST( turb_cnt==0UL && vot_cnt==1UL );
+  FD_TEST( fd_event_tl->seq==1UL ); /* abandoned version waits for pruning */
+
+  deliver_replay_root( ctx, vot->slot, &vot->block_id );
+  FD_TEST( ctx->chainer->root==vot->slot );
+  FD_TEST( fd_event_tl->seq==2UL );
+  ev = expect_block_received( 1UL );
+  FD_TEST( ev->slot==turb->slot && ev->cancelled && !ev->notarized );
+  FD_TEST( ev->fec_set_count==1UL && ev->fec_sets_cnt==1UL );
+  fd_event_tl = NULL;
 
   FD_TEST( !fd_chainer_verify( ctx->chainer ) );
   FD_LOG_NOTICE(( "pass: votor block supersedes the turbine version" ));
@@ -1365,12 +1548,16 @@ test_fec_evicted( fd_wksp_t * wksp ) {
   FD_TEST( v0 && v0->buffered_idx==2U*FD_FEC_SHRED_CNT-1U );
   FD_TEST( v0->buffered_fec_idx==FD_FEC_SHRED_CNT-1U );
   FD_TEST( v0->complete_idx==2U*FD_FEC_SHRED_CNT-1U );
+  fd_chainer_fec_t const * fec = fd_chainer_fec_query( ctx->chainer, blk->slot, FD_FEC_SHRED_CNT, &v0->block_id );
+  FD_TEST( fec && fec->metrics.data_received==UINT_MAX && fec->metrics.first_shred_ts );
 
   ulong queued = fd_schedulor_queued_cnt( ctx->schedulor );
   deliver_fec_evicted( ctx, blk->slot, FD_FEC_SHRED_CNT, &blk->fec_root[ 1 ] );
   FD_TEST( v0->buffered_idx==FD_FEC_SHRED_CNT-1U );                        /* prefix rewound */
   FD_TEST( fd_schedulor_queued_cnt( ctx->schedulor )==queued );            /* no new check */
   FD_TEST( !fd_chainer_shred_test( ctx->chainer, v0, FD_FEC_SHRED_CNT ) ); /* shreds gone */
+  FD_TEST( !fec->metrics.data_received && !fec->metrics.parity_received && !fec->metrics.repair_received );
+  FD_TEST( !fec->metrics.first_shred_ts && !fec->metrics.completed_ts );
   FD_TEST( !fd_chainer_verify( ctx->chainer ) );
 
   force_check( ctx, blk->slot, &v0->block_id );
@@ -1476,6 +1663,9 @@ main( int argc, char ** argv ) {
   FD_TEST( wksp );
 
   test_turbine_block( wksp );
+
+  fd_wksp_reset( wksp, 1U );
+  test_block_received_event( wksp );
 
   for( int block_id_only=0; block_id_only<2; block_id_only++ ) {
     for( int active_walk=0; active_walk<2; active_walk++ ) {
