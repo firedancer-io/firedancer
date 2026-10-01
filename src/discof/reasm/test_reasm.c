@@ -107,8 +107,6 @@ test_store_release( fd_wksp_t * wksp ) {
 
   FD_TEST( !fd_store_query( map, &a ) );
   FD_TEST( fd_store_query( map, &b )==fec_b );
-  FD_TEST( store->spill_reclaim_cnt==1UL );
-  FD_TEST( fd_store_disk_maintain( store, fd ) );
   FD_TEST( store->spill_free_cnt==1UL );
 
   /* Invalid orphan release. */

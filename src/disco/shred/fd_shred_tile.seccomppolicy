@@ -22,10 +22,6 @@ fsync: (eq (arg 0) logfile_fd)
 # disk store: pwrite64 writes wire shreds and spilled FEC payload pages.
 pwrite64: (eq (arg 0) disk_fd)
 
-# disk store: reclaim released spill pages without changing file size.
-fallocate: (and (eq (arg 0) disk_fd)
-                (eq (arg 1) 3))
-
 # power saving: sleep when there is no work to do
 #
 # In the efficient scheduler mode, an idle tile parks on its sleep word
