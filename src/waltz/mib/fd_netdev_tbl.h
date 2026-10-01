@@ -31,6 +31,10 @@ struct fd_netdev {
   ushort dev_type;       /* one of ARPHRD_ETHER/_LOOPBACK_/IPGRE*/
   uint   gre_dst_ip;
   uint   gre_src_ip;
+  /* Linux IFLA_BOND_AD_INFO and IFLA_BOND_SLAVE_AD attributes. */
+  ushort bond_aggregator_id;
+  uchar  bond_mode;
+  uchar  bond_actor_state;
 };
 
 typedef struct fd_netdev fd_netdev_t;
