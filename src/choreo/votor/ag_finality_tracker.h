@@ -111,6 +111,13 @@ FD_FN_PURE int
 ag_finality_tracker_has_parent( ag_finality_tracker_t const * self,
                                 ag_block_id_t const *         block );
 
+/* Returns the parent of block, or NULL if block's parent is unknown or
+   was pruned. */
+
+FD_FN_PURE ag_block_id_t const *
+ag_finality_tracker_parent( ag_finality_tracker_t const * self,
+                            ag_block_id_t const *         block );
+
 FD_PROTOTYPES_END
 
 #endif

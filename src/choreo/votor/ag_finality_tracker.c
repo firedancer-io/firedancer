@@ -536,3 +536,10 @@ ag_finality_tracker_has_parent( ag_finality_tracker_t const * self,
                                 ag_block_id_t const *         block ) {
   return !!parent_map_ele_query_const( self->parents.map, block, NULL, self->parents.pool );
 }
+
+ag_block_id_t const *
+ag_finality_tracker_parent( ag_finality_tracker_t const * self,
+                            ag_block_id_t const *         block ) {
+  parent_ele_t const * pe = parent_map_ele_query_const( self->parents.map, block, NULL, self->parents.pool );
+  return pe ? &pe->parent_block_id : NULL;
+}

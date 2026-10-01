@@ -45,11 +45,15 @@ contains_slot( ag_pool_t const * pool,
   return slot_state_map_ele_query_const( pool->slot_states->map, &slot, NULL, pool->slot_states->pool )!=NULL;
 }
 
-static ag_block_id_t const *
-s2n_waiting_child( ag_pool_t const *     pool,
-                   ag_block_id_t const * parent ) {
-  s2n_waiting_parent_cert_ele_t const * ele = s2n_waiting_parent_cert_map_ele_query_const( pool->s2n_waiting_parent_cert->map, parent, NULL, pool->s2n_waiting_parent_cert->pool );
-  return ele ? &ele->child : NULL;
+static int
+parent_status( ag_pool_t const *     pool,
+               ag_block_id_t const * block ) {
+  slot_state_ele_t const * e = slot_state_map_ele_query_const( pool->slot_states->map, &block->slot, NULL, pool->slot_states->pool );
+  if( !e ) return 0;
+  for( ulong i=0UL; i<e->slot_state.parents_cnt; i++ ) {
+    if( !memcmp( e->slot_state.parents[i].hash, block->hash, sizeof(ag_block_hash_t) ) ) return e->slot_state.parents[i].kind;
+  }
+  return 0;
 }
 
 static ag_epoch_info_t const *
@@ -1195,8 +1199,7 @@ test_safe_to_notar_awaiting_votes( void ) {
 
   FD_TEST( !drained_safe_to_notar( pool, slot2, hash2 ) );
 
-  ag_block_id_t const * waiting = s2n_waiting_child( pool, &parent );
-  FD_TEST( waiting && ag_block_id_eq( waiting, &child ) );
+  FD_TEST( parent_status( pool, &child )==AG_PARENT_STATUS_CERTIFIED );
 
   teardown_pool( pool );
 }
@@ -1231,9 +1234,8 @@ test_safe_to_notar_not_queued_for_parent_cert( void ) {
   ag_pool_add_block( pool, &child_a, &parent, bad );
 
   FD_TEST( drained_safe_to_notar( pool, slot2, hash_a ) );
-
-  ag_block_id_t const * waiting = s2n_waiting_child( pool, &parent );
-  FD_TEST( waiting && ag_block_id_eq( waiting, &child_b ) );
+  FD_TEST( parent_status( pool, &child_a )==AG_PARENT_STATUS_CERTIFIED );
+  FD_TEST( parent_status( pool, &child_b )==AG_PARENT_STATUS_CERTIFIED );
 
   teardown_pool( pool );
 }
@@ -1558,6 +1560,39 @@ test_add_block_below_watermark( void ) {
   teardown_pool( pool );
 }
 
+/* A parent cert reaches every replayed child of that parent, including
+   equivocating children in the same slot and children further out, but
+   not children of a different block in the parent's slot. */
+
+static void
+test_parent_cert_notifies_all_children( void ) {
+  ag_pool_t * pool = setup_pool();
+
+  ag_block_id_t parent  = random_block_id( 1UL );
+  ag_block_id_t sibling = random_block_id( 1UL );
+  ag_block_id_t child_a = random_block_id( 2UL );
+  ag_block_id_t child_b = random_block_id( 2UL );
+  ag_block_id_t child_c = random_block_id( 5UL );
+  ag_block_id_t other   = random_block_id( 3UL );
+  FD_TEST( ag_pool_add_block( pool, &child_a, &parent,  bad )==AG_POOL_SUCCESS );
+  FD_TEST( ag_pool_add_block( pool, &child_b, &parent,  bad )==AG_POOL_SUCCESS );
+  FD_TEST( ag_pool_add_block( pool, &child_c, &parent,  bad )==AG_POOL_SUCCESS );
+  FD_TEST( ag_pool_add_block( pool, &other,   &sibling, bad )==AG_POOL_SUCCESS );
+  FD_TEST( parent_status( pool, &child_a )==AG_PARENT_STATUS_KNOWN );
+  FD_TEST( parent_status( pool, &child_b )==AG_PARENT_STATUS_KNOWN );
+  FD_TEST( parent_status( pool, &child_c )==AG_PARENT_STATUS_KNOWN );
+
+  notar_cert( pool, parent.slot, parent.hash, 7UL );
+  drain_events( pool );
+
+  FD_TEST( parent_status( pool, &child_a )==AG_PARENT_STATUS_CERTIFIED );
+  FD_TEST( parent_status( pool, &child_b )==AG_PARENT_STATUS_CERTIFIED );
+  FD_TEST( parent_status( pool, &child_c )==AG_PARENT_STATUS_CERTIFIED );
+  FD_TEST( parent_status( pool, &other   )==AG_PARENT_STATUS_KNOWN     );
+
+  teardown_pool( pool );
+}
+
 static ag_slot_state_t const *
 slot_state_at( ag_pool_t const * pool,
                ulong             slot ) {
@@ -1648,6 +1683,7 @@ main( int     argc,
   test_retired_epoch_already_pruned();
   test_standstill_recovery_no_final_cert();
   test_add_block_below_watermark();
+  test_parent_cert_notifies_all_children();
   test_set_rank();
 
   FD_LOG_NOTICE(( "pass" ));
