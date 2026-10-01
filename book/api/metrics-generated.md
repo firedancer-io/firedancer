@@ -2086,6 +2086,7 @@
 | <span class="metrics-name">iavf_&#8203;pkt_&#8203;rx_&#8203;bytes</span> | counter | Number of bytes in packets successfully published to output links (including Ethernet header). |
 | <span class="metrics-name">iavf_&#8203;pkt_&#8203;rx_&#8203;malformed</span> | counter | Number of packets dropped because they were undersized, oversized, or had malformed Ethernet, IPv4, or UDP headers. |
 | <span class="metrics-name">iavf_&#8203;pkt_&#8203;rx_&#8203;route_&#8203;fail</span> | counter | Number of packets dropped due to an incorrect destination IP or failed output link lookup. |
+| <span class="metrics-name">iavf_&#8203;pkt_&#8203;rx_&#8203;no_&#8203;link</span> | counter | Number of packets dropped because the configured VF or bond member is not accepting traffic. |
 | <span class="metrics-name">iavf_&#8203;gre_&#8203;pkt_&#8203;rx</span> | counter | Number of GRE packets successfully decapsulated and published. |
 | <span class="metrics-name">iavf_&#8203;gre_&#8203;pkt_&#8203;rx_&#8203;invalid</span> | counter | Number of GRE packets dropped because the tunnel peer or headers were invalid. |
 | <span class="metrics-name">iavf_&#8203;gre_&#8203;pkt_&#8203;rx_&#8203;ignored</span> | counter | Number of GRE packets ignored because no GRE tunnel is configured. |
@@ -2094,6 +2095,7 @@
 | <span class="metrics-name">iavf_&#8203;pkt_&#8203;tx_&#8203;completed</span> | counter | Number of packets completed by the NIC for transmission. |
 | <span class="metrics-name">iavf_&#8203;pkt_&#8203;tx_&#8203;bytes</span> | counter | Number of bytes transmitted (including Ethernet header). |
 | <span class="metrics-name">iavf_&#8203;pkt_&#8203;tx_&#8203;no_&#8203;buffer</span> | counter | Number of transmit jobs dropped because no TX buffer was available. |
+| <span class="metrics-name">iavf_&#8203;pkt_&#8203;tx_&#8203;no_&#8203;link</span> | counter | Number of transmit jobs dropped because no configured VF or bond member can send traffic. |
 | <span class="metrics-name">iavf_&#8203;pkt_&#8203;tx_&#8203;route_&#8203;fail</span><br/>{route_&#8203;fail="<span class="metrics-enum">no_&#8203;route</span>"} | counter | Number of transmit jobs dropped because route or source address selection failed. (No matching route) |
 | <span class="metrics-name">iavf_&#8203;pkt_&#8203;tx_&#8203;route_&#8203;fail</span><br/>{route_&#8203;fail="<span class="metrics-enum">route_&#8203;type</span>"} | counter | Number of transmit jobs dropped because route or source address selection failed. (Unsupported route type) |
 | <span class="metrics-name">iavf_&#8203;pkt_&#8203;tx_&#8203;route_&#8203;fail</span><br/>{route_&#8203;fail="<span class="metrics-enum">interface</span>"} | counter | Number of transmit jobs dropped because route or source address selection failed. (Interface not available) |

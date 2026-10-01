@@ -208,6 +208,7 @@ get_net_stats( ulong volatile const * net_metrics[ FD_TOPO_MAX_TILES ],
       rx_byte_now   = metrics[ MIDX( COUNTER, IAVF, PKT_RX_BYTES ) ];
       rx_drop_now   = metrics[ MIDX( COUNTER, IAVF, PKT_RX_MALFORMED  ) ];
       /* */ rx_drop_now += metrics[ MIDX( COUNTER, IAVF, PKT_RX_ROUTE_FAIL ) ];
+      /* */ rx_drop_now += metrics[ MIDX( COUNTER, IAVF, PKT_RX_NO_LINK ) ];
       tx_ok_now     = metrics[ MIDX( COUNTER, IAVF, PKT_TX_COMPLETED ) ];
       tx_byte_now   = metrics[ MIDX( COUNTER, IAVF, PKT_TX_BYTES     ) ];
     }

@@ -54,6 +54,57 @@ ifoper_to_oper_status( uint if_oper ) {
   }
 }
 
+static int
+fd_netdev_netlink_bond_info( fd_netdev_t * netdev,
+                             void const * data,
+                             ulong        data_sz ) {
+  struct rtattr const * bond_data = NULL;
+  struct rtattr const * slave_data = NULL;
+  int is_bond = 0;
+  int is_slave = 0;
+  long remaining = (long)data_sz;
+  struct rtattr const * attr = data;
+  for( ; RTA_OK( attr, remaining ); attr=RTA_NEXT( attr, remaining ) ) {
+    uint type = attr->rta_type & NLA_TYPE_MASK;
+    if( type==IFLA_INFO_KIND ) is_bond = RTA_PAYLOAD(attr)==5UL && !memcmp( RTA_DATA(attr), "bond", 5UL );
+    else if( type==IFLA_INFO_SLAVE_KIND ) is_slave = RTA_PAYLOAD(attr)==5UL && !memcmp( RTA_DATA(attr), "bond", 5UL );
+    else if( type==IFLA_INFO_DATA ) bond_data = attr;
+    else if( type==IFLA_INFO_SLAVE_DATA ) slave_data = attr;
+  }
+  if( remaining ) return EPROTO;
+  for( uint slave=0U; slave<2U; slave++ ) {
+    struct rtattr const * nested = slave ? slave_data : bond_data;
+    if( !nested || !(slave ? is_slave : is_bond) ) continue;
+    remaining = (long)RTA_PAYLOAD(nested);
+    attr = RTA_DATA(nested);
+    for( ; RTA_OK( attr, remaining ); attr=RTA_NEXT( attr, remaining ) ) {
+      uint type = attr->rta_type & NLA_TYPE_MASK;
+      ulong size = RTA_PAYLOAD(attr);
+      if( !slave && type==IFLA_BOND_MODE ) {
+        if( size!=sizeof(uchar) ) return EPROTO;
+        netdev->bond_mode = FD_LOAD( uchar, RTA_DATA(attr) );
+      } else if( slave && type==IFLA_BOND_SLAVE_AD_AGGREGATOR_ID ) {
+        if( size!=sizeof(ushort) ) return EPROTO;
+        netdev->bond_aggregator_id = FD_LOAD( ushort, RTA_DATA(attr) );
+      } else if( slave && type==IFLA_BOND_SLAVE_AD_ACTOR_OPER_PORT_STATE ) {
+        if( size!=sizeof(uchar) ) return EPROTO;
+        netdev->bond_actor_state = FD_LOAD( uchar, RTA_DATA(attr) );
+      } else if( !slave && type==IFLA_BOND_AD_INFO ) {
+        long ad_remaining = (long)size;
+        struct rtattr const * ad = RTA_DATA(attr);
+        for( ; RTA_OK( ad, ad_remaining ); ad=RTA_NEXT( ad, ad_remaining ) ) {
+          if( (ad->rta_type & NLA_TYPE_MASK)!=IFLA_BOND_AD_INFO_AGGREGATOR ) continue;
+          if( RTA_PAYLOAD(ad)!=sizeof(ushort) ) return EPROTO;
+          netdev->bond_aggregator_id = FD_LOAD( ushort, RTA_DATA(ad) );
+        }
+        if( ad_remaining ) return EPROTO;
+      }
+    }
+    if( remaining ) return EPROTO;
+  }
+  return 0;
+}
+
 int
 fd_netdev_netlink_load_table( fd_netdev_tbl_join_t * tbl,
                               fd_netlink_t *         netlink ) {
@@ -181,6 +232,11 @@ fd_netdev_netlink_load_table( fd_netdev_tbl_join_t * tbl,
       } /* IFLA_MASTER */
 
       case IFLA_LINKINFO : {
+        if( ifi->ifi_type==ARPHRD_ETHER ) {
+          err = fd_netdev_netlink_bond_info( netdev, rta, rta_sz );
+          if( FD_UNLIKELY( err ) ) goto fail;
+          break;
+        }
         if( ifi->ifi_type!=ARPHRD_IPGRE ) continue;
 
         struct rtattr * info_rat    = rta;

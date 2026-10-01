@@ -365,9 +365,11 @@ metrics_snap_take( metrics_snap_t * s, metrics_src_t const * src ) {
     case 3: /* iavf */
       s->net_rx      += m[ MIDX( COUNTER, IAVF, PKT_RX ) ];
       s->net_tx      += m[ MIDX( COUNTER, IAVF, PKT_TX_COMPLETED ) ];
-      s->net_rx_drop += m[ MIDX( COUNTER, IAVF, PKT_RX_MALFORMED ) ] + m[ MIDX( COUNTER, IAVF, PKT_RX_ROUTE_FAIL ) ];
+      s->net_rx_drop += m[ MIDX( COUNTER, IAVF, PKT_RX_MALFORMED ) ] + m[ MIDX( COUNTER, IAVF, PKT_RX_ROUTE_FAIL ) ]
+                     + m[ MIDX( COUNTER, IAVF, PKT_RX_NO_LINK ) ];
       s->net_tx_drop += m[ MIDX( COUNTER, IAVF, PKT_TX_NO_BUFFER ) ] + m[ MIDX( COUNTER, IAVF, PKT_TX_NO_NEIGHBOR ) ]
-                     + m[ MIDX( COUNTER, IAVF, PKT_TX_ROUTE_FAIL ) ] + m[ MIDX( COUNTER, IAVF, PKT_TX_INVALID ) ];
+                     + m[ MIDX( COUNTER, IAVF, PKT_TX_ROUTE_FAIL ) ] + m[ MIDX( COUNTER, IAVF, PKT_TX_INVALID ) ]
+                     + m[ MIDX( COUNTER, IAVF, PKT_TX_NO_LINK ) ];
       break;
     default: /* sock */
       s->net_rx      += m[ MIDX( COUNTER, SOCK, PKT_RX ) ];

@@ -1,5 +1,6 @@
 #include "fd_iavf_private.h"
 #include "../../../util/fd_util.h"
+#include "../fd_linux_bond.h"
 
 #include <ctype.h>
 #include <dirent.h>
@@ -342,6 +343,40 @@ fd_iavf_read_link_name( char *       name,
     return -1;
   }
   fd_memcpy( name, base, base_sz+1UL );
+  return 0;
+}
+
+int
+fd_iavf_member_interfaces( char const * interface,
+                           char         members[ FD_IAVF_MEMBER_MAX ][ 16 ],
+                           ulong *      member_cnt ) {
+  if( !interface || !members || !member_cnt || !interface[0] || strlen(interface)>=16UL ) {
+    errno = EINVAL;
+    return -1;
+  }
+  *member_cnt = 0UL;
+  if( fd_bonding_is_master( interface ) ) {
+    if( !fd_bonding_is_lacp( interface ) ) { errno = EOPNOTSUPP; return -1; }
+    fd_bonding_slave_iter_t iter[1];
+    for( fd_bonding_slave_iter_init( iter, interface );
+         !fd_bonding_slave_iter_done( iter );
+         fd_bonding_slave_iter_next( iter ) ) {
+      char const * name = fd_bonding_slave_iter_ele( iter );
+      if( *member_cnt>=FD_IAVF_MEMBER_MAX || strlen(name)>=16UL ) { errno = E2BIG; return -1; }
+      fd_cstr_ncpy( members[ (*member_cnt)++ ], name, 16UL );
+    }
+  } else {
+    fd_cstr_ncpy( members[0], interface, 16UL );
+    *member_cnt = 1UL;
+  }
+  if( !*member_cnt ) { errno = ENODEV; return -1; }
+  for( ulong i=0UL; i<*member_cnt; i++ ) {
+    char path[ PATH_MAX ];
+    char driver[ FD_IAVF_DRIVER_NAME_MAX ];
+    FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/class/net/%s/device/driver", members[i] ) );
+    if( fd_iavf_read_link_name( driver, sizeof(driver), path, 0 ) ) return -1;
+    if( strcmp(driver,"ice") && strcmp(driver,"i40e") ) { errno = EPROTONOSUPPORT; return -1; }
+  }
   return 0;
 }
 
