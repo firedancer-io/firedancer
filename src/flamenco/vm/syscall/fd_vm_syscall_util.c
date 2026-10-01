@@ -199,8 +199,14 @@ fd_vm_syscall_sol_log_data( /**/            void *  _vm,
 
   /* https://github.com/anza-xyz/agave/blob/v2.0.6/programs/bpf_loader/src/syscalls/logging.rs#L156 */
 
+  fd_log_collector_t * log = vm->instr_ctx->runtime->log.log_collector;
+  if( FD_LIKELY( log->disabled ) ) {
+    vm->reg[0] = 0UL;
+    return FD_VM_SUCCESS;
+  }
+
   char msg[ FD_LOG_COLLECTOR_MAX ];
-  ulong bytes_written = fd_log_collector_check_and_truncate( vm->instr_ctx->runtime->log.log_collector, msg_sz );
+  ulong bytes_written = fd_log_collector_check_and_truncate( log, msg_sz );
   if( FD_LIKELY( bytes_written < ULONG_MAX ) ) {
     fd_memcpy( msg, "Program data: ", 14 );
     char * buf = msg + 14;

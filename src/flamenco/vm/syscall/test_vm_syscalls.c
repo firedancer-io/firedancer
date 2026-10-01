@@ -891,6 +891,29 @@ main( int     argc,
                                 data_chunk_num,
                                 0UL, FD_VM_SUCCESS, expected_log, expected_log_sz );
 
+  /* With logs disabled, log_data must still charge CUs and fault on
+     bad memory, but record nothing */
+
+  fd_log_collector_t * log = vm->instr_ctx->runtime->log.log_collector;
+  fd_log_collector_init( log, 0 );
+
+  vm->reg[0] = 0UL;
+  FD_TEST( fd_vm_syscall_sol_log_data( vm, FD_VM_MEM_MAP_HEAP_REGION_START, data_chunk_num, 0, 0, 0 )==FD_VM_SUCCESS );
+  FD_TEST( vm->reg[0]==0UL );
+  FD_TEST( fd_log_collector_debug_len( log )==0UL );
+  FD_TEST( log->buf_sz==0UL );
+  test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_out );
+
+  fd_vm_vec_t oob_vec = { .addr = FD_VM_MEM_MAP_HEAP_REGION_START + vm->heap_max, .len = 5UL };
+  memcpy( &vm->heap[0] + sizeof(fd_vm_vec_t), &oob_vec, sizeof(oob_vec) );
+  FD_TEST( fd_vm_syscall_sol_log_data( vm, FD_VM_MEM_MAP_HEAP_REGION_START, data_chunk_num, 0, 0, 0 )==FD_VM_SYSCALL_ERR_SEGFAULT );
+  FD_TEST( log->buf_sz==0UL );
+  test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_out );
+
+  FD_TEST( fd_vm_syscall_sol_log_data( vm, FD_VM_MEM_MAP_HEAP_REGION_START + vm->heap_max, 1UL, 0, 0, 0 )==FD_VM_SYSCALL_ERR_SEGFAULT );
+  FD_TEST( log->buf_sz==0UL );
+  test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_out );
+
 # undef APPEND
 
   fd_vm_delete    ( fd_vm_leave    ( vm  ) );
