@@ -534,6 +534,40 @@ test_masks( void ) {
 }
 
 
+static void
+test_zero_builder( void ) {
+  for( int swap3=0; swap3<2; swap3++ ) {
+    fd_bundle_crank_gen_t g[1];
+    fd_bundle_crank_gen_init( g, _4R3gSG8BpU4t19KYj8CfnbtRpnT8gtk4dvTHxVRwc2r7,
+                                _T1pyyaTNZsKv2WcRAB8oVnk93mLJw2XzjtVYqCsaHqt,
+                                _3iPuTgpWaaC6jYEY7kd993QBthGsQTK3yPCrNJyPMhCD,
+                                _GZctHpWXmsZC1YHACTGGcHhYxjdRqQvTpYkb9LMvxDib, "NONE", 0UL );
+    fd_bundle_crank_tip_payment_config_t old[1] = {{ .discriminator = 0x82ccfa1ee0aa0c9bUL }};
+    fd_memcpy( old->tip_receiver,  _GiLHMES95axFbFX7ogCTwL6QQ1uqspajz9SHMpt5dCGh, 32UL );
+    fd_memcpy( old->block_builder, _feeywn2ffX8DivmRvBJ9i9YZnss7WBouTmujfQcEdeY, 32UL );
+    old->commission_pct = 5UL;
+    fd_acct_addr_t zero[1] = {{ .b={0} }};
+    fd_acct_addr_t const * owner = swap3 ? zero : _4R3gSG8BpU4t19KYj8CfnbtRpnT8gtk4dvTHxVRwc2r7;
+    uchar before[sizeof(g)];
+    fd_memcpy( before, g, sizeof(g) );
+    uchar payload[FD_TXN_MTU];
+    uchar txn_buf[FD_TXN_MAX_SZ] __attribute__((aligned(8)));
+    fd_memset( payload, 0xa5, sizeof(payload) );
+    fd_memset( txn_buf, 0xa5, sizeof(txn_buf) );
+    /* The epoch differs from the generator's initial epoch.  Reject
+       before changing either templates/map or caller-owned outputs. */
+    FD_TEST( g->configured_epoch!=740UL );
+    FD_TEST( fd_bundle_crank_generate( g, old, zero, _GwHH8ciFhR8vejWCqmg8FWZUCNtubPY2esALvy5tBvji,
+                                      owner, 740UL, 5UL, payload, (fd_txn_t *)txn_buf )==ULONG_MAX );
+    FD_TEST( fd_memeq( before, g, sizeof(g) ) );
+    for( ulong i=0UL; i<sizeof(payload); i++ ) FD_TEST( payload[i]==0xa5 );
+    for( ulong i=0UL; i<sizeof(txn_buf); i++ ) FD_TEST( txn_buf[i]==0xa5 );
+    ulong sz = crank_generate_and_test( g, old, _feeywn2ffX8DivmRvBJ9i9YZnss7WBouTmujfQcEdeY,
+        _GwHH8ciFhR8vejWCqmg8FWZUCNtubPY2esALvy5tBvji, owner, 740UL, 5UL, payload, (fd_txn_t *)txn_buf );
+    FD_TEST( sz==(swap3 ? FD_BUNDLE_CRANK_3_SZ : FD_BUNDLE_CRANK_2_SZ) );
+  }
+}
+
 int
 main( int argc,
     char ** argv ) {
@@ -543,6 +577,7 @@ main( int argc,
   test_no_duplicates();
   test_crank_cnt();
   test_masks();
+  test_zero_builder();
 
 
   FD_LOG_NOTICE(( "pass" ));

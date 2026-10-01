@@ -300,6 +300,11 @@ fd_bundle_crank_generate( fd_bundle_crank_gen_t                       * gen,
                           uchar                                       * out_payload,
                           fd_txn_t                                    * out_txn ) {
 
+  if( FD_UNLIKELY( pidx_map_key_inval( *new_block_builder ) ) ) {
+    FD_LOG_WARNING(( "Found null block builder pubkey.  Refusing to crank bundles." ));
+    return ULONG_MAX;
+  }
+
   if( FD_UNLIKELY( epoch!=gen->configured_epoch ) ) fd_bundle_crank_update_epoch( gen, epoch );
 
   if( FD_UNLIKELY( old_tip_payment_config->discriminator != 0x82ccfa1ee0aa0c9bUL ) ) {
