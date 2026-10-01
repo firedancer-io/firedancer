@@ -182,6 +182,7 @@ fd_topob_tile( fd_topo_t *    topo,
   tile->in_cnt              = 0UL;
   tile->out_cnt             = 0UL;
   tile->event_link_id       = ULONG_MAX;
+  tile->event_internal_link_id = ULONG_MAX;
   tile->uses_obj_cnt        = 0UL;
   tile->is_waker_client     = is_waker_client;
   tile->floats              = cpu_idx<ULONG_MAX && !!(cpu_idx & FD_TOPOB_CPU_SHARED);
@@ -556,6 +557,7 @@ static char const * ALWAYS[] = {
   "gui",    /* FIREDANCER only */
   "guih",   /* FRANK only */
   "rpc",    /* FIREDANCER only */
+  "dragon", /* FIREDANCER only */
   "gossvf", /* FIREDANCER only */
   "gossip", /* FIREDANCER only */
   "repair", /* FIREDANCER only */

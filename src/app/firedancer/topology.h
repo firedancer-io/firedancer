@@ -71,7 +71,18 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
                         fd_config_t *    config );
 
 void
-wire_event_links( fd_topo_t * topo );
+wire_dragon_buffer( fd_topo_t *      topo,
+                    fd_topo_tile_t * dragon,
+                    ulong            buffer_size_mib );
+
+void
+wire_event_links( fd_topo_t * topo,
+                  int         telemetry_enabled,
+                  int         dragon_enabled );
+
+void
+wire_event_internal_links( fd_topo_t * topo,
+                           ulong       dcache_mb );
 
 FD_PROTOTYPES_END
 

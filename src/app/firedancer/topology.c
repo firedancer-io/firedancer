@@ -10,6 +10,9 @@
 #include "../../discof/repair/fd_repair.h"
 #include "../../discof/replay/fd_replay_tile.h"
 #include "../../discof/votor/fd_votor_tile.h"
+#include "../../discof/dragon/fd_dragon_rpc.h"
+#include "../../discof/dragon/fd_dragon_tile.h"
+#include "../../disco/events/fd_event_report.h"
 #include "../../disco/keyguard/fd_keyguard.h"
 #include "../../discof/backup/fd_snapmk_tile.h"
 #include "../../discof/backup/fd_snapsv_tile.h"
@@ -58,7 +61,9 @@ tile_max_event_sz( fd_topo_tile_t const * tile ) {
 }
 
 void
-wire_event_links( fd_topo_t * topo ) {
+wire_event_links( fd_topo_t * topo,
+                  int         telemetry_enabled,
+                  int         dragon_enabled ) {
   fd_topob_wksp( topo, "event_in" );
 
   ulong tile_cnt = topo->tile_cnt;
@@ -86,7 +91,187 @@ wire_event_links( fd_topo_t * topo ) {
     fd_topob_tile_uses( topo, tile, &topo->objs[ link->mcache_obj_id ], FD_SHMEM_JOIN_MODE_READ_WRITE );
     fd_topob_tile_uses( topo, tile, &topo->objs[ link->dcache_obj_id ], FD_SHMEM_JOIN_MODE_READ_WRITE );
 
-    fd_topob_tile_in( topo, "event", 0UL, "metric_in", link_name, link->kind_id, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+    /* The event tile consumes them for telemetry, the dragon tile for
+       what it serves; either or both may be there. */
+    if( telemetry_enabled ) fd_topob_tile_in( topo, "event",  0UL, "metric_in", link_name, link->kind_id, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+    if( dragon_enabled    ) fd_topob_tile_in( topo, "dragon", 0UL, "metric_in", link_name, link->kind_id, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+  }
+}
+
+/* wire_dragon_buffer creates the buffer the dragon tile serves the
+   confirmed and finalized levels from: the mcache in the tile's
+   workspace, the dcache alone in a workspace of exactly buffer_size_mib. */
+
+void
+wire_dragon_buffer( fd_topo_t *      topo,
+                    fd_topo_tile_t * dragon,
+                    ulong            buffer_size_mib ) {
+  fd_topob_wksp( topo, "dragon_buf" );
+  fd_topo_obj_t * mcache = fd_topob_obj( topo, "mcache", "dragon" );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, FD_DRAGON_BUF_DEPTH, "obj.%lu.depth", mcache->id ) );
+  fd_topo_obj_t * dcache = fd_topob_obj( topo, "dcache", "dragon_buf" );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, ( buffer_size_mib<<20 )-FD_DRAGON_BUF_RESERVE, "obj.%lu.data_sz", dcache->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, 0UL,                                           "obj.%lu.app_sz",  dcache->id ) );
+  fd_topob_tile_uses( topo, dragon, mcache, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topob_tile_uses( topo, dragon, dcache, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, mcache->id, "dragon_buf.mcache" ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, dcache->id, "dragon_buf.dcache" ) );
+}
+
+/* dragon_reject_list decodes one [tiles.dragon.filter_limits] reject
+   list into the limit table.  An address that is not base58 is a
+   configuration error. */
+
+static void
+dragon_reject_list( fd_dragon_filter_limits_t * limits,
+                    int                         idx,
+                    char const                  (* b58)[ FD_BASE58_ENCODED_32_SZ ],
+                    ulong                       cnt,
+                    char const *                key ) {
+  FD_CHECK_ERR( cnt<=FD_DRAGON_REJECT_MAX, "[tiles.dragon.filter_limits] reject list is too long" );
+  for( ulong i=0UL; i<cnt; i++ ) {
+    if( FD_UNLIKELY( !fd_base58_decode_32( b58[ i ], limits->reject[ idx ][ i ] ) ) )
+      FD_LOG_ERR(( "[tiles.dragon.filter_limits.%s] entry `%s` is not a base58 address", key, b58[ i ] ));
+  }
+  limits->reject_cnt[ idx ] = cnt;
+}
+
+/* dragon_filter_limits turns [tiles.dragon.filter_limits] into the
+   table the tile evaluates requests against.  Every limit is checked
+   against what one filter set structurally holds, so that a value an
+   operator cannot get is a startup error rather than a bound that
+   silently does not apply. */
+
+static void
+dragon_filter_limits( config_t const *            config,
+                      fd_dragon_filter_limits_t * limits ) {
+  fd_dragon_filter_limits_default( limits );
+
+# define CHECK_MAX(v,lim,key) do {                                                       \
+    FD_CHECK_ERR( (v)<=(lim), "[tiles.dragon.filter_limits." key "] is above what this "  \
+                              "server can serve" );                                      \
+  } while(0)
+
+  __typeof__(config->tiles.dragon.filter_limits) const * f = &config->tiles.dragon.filter_limits;
+
+  CHECK_MAX( f->accounts.max,            FD_DRAGON_FILTER_MAX,      "accounts.max"            );
+  CHECK_MAX( f->slots.max,               FD_DRAGON_FILTER_MAX,      "slots.max"               );
+  CHECK_MAX( f->transactions.max,        FD_DRAGON_FILTER_MAX,      "transactions.max"        );
+  CHECK_MAX( f->transactions_status.max, FD_DRAGON_FILTER_MAX,      "transactions_status.max" );
+  CHECK_MAX( f->blocks.max,              FD_DRAGON_FILTER_MAX,      "blocks.max"              );
+  CHECK_MAX( f->blocks_meta.max,         FD_DRAGON_FILTER_MAX,      "blocks_meta.max"         );
+  CHECK_MAX( f->entries.max,             FD_DRAGON_FILTER_MAX,      "entries.max"             );
+  CHECK_MAX( f->accounts.account_max,    FD_DRAGON_FILTER_ACCT_MAX, "accounts.account_max"    );
+  CHECK_MAX( f->accounts.owner_max,      FD_DRAGON_FILTER_ACCT_MAX, "accounts.owner_max"      );
+  CHECK_MAX( f->accounts.data_slice_max, FD_DRAGON_DATA_SLICE_MAX,  "accounts.data_slice_max" );
+  CHECK_MAX( f->transactions.account_include_max,         FD_DRAGON_FILTER_ACCT_MAX, "transactions.account_include_max"         );
+  CHECK_MAX( f->transactions.account_exclude_max,         FD_DRAGON_FILTER_ACCT_MAX, "transactions.account_exclude_max"         );
+  CHECK_MAX( f->transactions.account_required_max,        FD_DRAGON_FILTER_ACCT_MAX, "transactions.account_required_max"        );
+  CHECK_MAX( f->transactions_status.account_include_max,  FD_DRAGON_FILTER_ACCT_MAX, "transactions_status.account_include_max"  );
+  CHECK_MAX( f->transactions_status.account_exclude_max,  FD_DRAGON_FILTER_ACCT_MAX, "transactions_status.account_exclude_max"  );
+  CHECK_MAX( f->transactions_status.account_required_max, FD_DRAGON_FILTER_ACCT_MAX, "transactions_status.account_required_max" );
+  CHECK_MAX( f->blocks.account_include_max,               FD_DRAGON_FILTER_ACCT_MAX, "blocks.account_include_max"               );
+
+  /* A cuckoo filter has to fit the arena a subscription gets. */
+  ulong cuckoo_max = config->tiles.dragon.cuckoo_bytes_per_client;
+  CHECK_MAX( f->accounts.cuckoo_max_size,            cuckoo_max, "accounts.cuckoo_max_size"            );
+  CHECK_MAX( f->transactions.cuckoo_max_size,        cuckoo_max, "transactions.cuckoo_max_size"        );
+  CHECK_MAX( f->transactions_status.cuckoo_max_size, cuckoo_max, "transactions_status.cuckoo_max_size" );
+  CHECK_MAX( f->blocks.cuckoo_max_size,              cuckoo_max, "blocks.cuckoo_max_size"              );
+# undef CHECK_MAX
+
+  limits->filter_max[ FD_DRAGON_FILTER_ACCOUNTS            ] = f->accounts.max;
+  limits->filter_max[ FD_DRAGON_FILTER_SLOTS               ] = f->slots.max;
+  limits->filter_max[ FD_DRAGON_FILTER_TRANSACTIONS        ] = f->transactions.max;
+  limits->filter_max[ FD_DRAGON_FILTER_TRANSACTIONS_STATUS ] = f->transactions_status.max;
+  limits->filter_max[ FD_DRAGON_FILTER_BLOCKS              ] = f->blocks.max;
+  limits->filter_max[ FD_DRAGON_FILTER_BLOCKS_META         ] = f->blocks_meta.max;
+  limits->filter_max[ FD_DRAGON_FILTER_ENTRY               ] = f->entries.max;
+
+  limits->any[ FD_DRAGON_FILTER_ACCOUNTS            ] = !!f->accounts.any;
+  limits->any[ FD_DRAGON_FILTER_TRANSACTIONS        ] = !!f->transactions.any;
+  limits->any[ FD_DRAGON_FILTER_TRANSACTIONS_STATUS ] = !!f->transactions_status.any;
+  limits->any[ FD_DRAGON_FILTER_BLOCKS              ] = !!f->blocks.account_include_any;
+
+  limits->cuckoo_max_size[ FD_DRAGON_FILTER_ACCOUNTS            ] = f->accounts.cuckoo_max_size;
+  limits->cuckoo_max_size[ FD_DRAGON_FILTER_TRANSACTIONS        ] = f->transactions.cuckoo_max_size;
+  limits->cuckoo_max_size[ FD_DRAGON_FILTER_TRANSACTIONS_STATUS ] = f->transactions_status.cuckoo_max_size;
+  limits->cuckoo_max_size[ FD_DRAGON_FILTER_BLOCKS              ] = f->blocks.cuckoo_max_size;
+
+  limits->account_max         = f->accounts.account_max;
+  limits->owner_max           = f->accounts.owner_max;
+  limits->data_slice_max      = f->accounts.data_slice_max;
+  limits->txn_include_max     = f->transactions.account_include_max;
+  limits->txn_exclude_max     = f->transactions.account_exclude_max;
+  limits->txn_required_max    = f->transactions.account_required_max;
+  limits->status_include_max  = f->transactions_status.account_include_max;
+  limits->status_exclude_max  = f->transactions_status.account_exclude_max;
+  limits->status_required_max = f->transactions_status.account_required_max;
+  limits->blocks_include_max  = f->blocks.account_include_max;
+
+  limits->include_transactions = !!f->blocks.include_transactions;
+  limits->include_accounts     = !!f->blocks.include_accounts;
+  limits->include_entries      = !!f->blocks.include_entries;
+
+  dragon_reject_list( limits, FD_DRAGON_REJECT_ACCOUNT,        f->accounts.account_reject,
+                      f->accounts.account_reject_cnt, "accounts.account_reject" );
+  dragon_reject_list( limits, FD_DRAGON_REJECT_OWNER,          f->accounts.owner_reject,
+                      f->accounts.owner_reject_cnt, "accounts.owner_reject" );
+  dragon_reject_list( limits, FD_DRAGON_REJECT_TXN_INCLUDE,    f->transactions.account_include_reject,
+                      f->transactions.account_include_reject_cnt, "transactions.account_include_reject" );
+  dragon_reject_list( limits, FD_DRAGON_REJECT_STATUS_INCLUDE, f->transactions_status.account_include_reject,
+                      f->transactions_status.account_include_reject_cnt, "transactions_status.account_include_reject" );
+  dragon_reject_list( limits, FD_DRAGON_REJECT_BLOCKS_INCLUDE, f->blocks.account_include_reject,
+                      f->blocks.account_include_reject_cnt, "blocks.account_include_reject" );
+}
+
+/* wire_event_internal_links gives every producer of internal records
+   (the execution tiles and replay) a link of its own to the dragon
+   tile.  A record producer is never flow controlled by dragon, so the
+   links are unreliable and dragon polls them; the depth is how far
+   dragon may fall behind before it loses records.  The links are
+   written outside fd_stem by the thread-local reporter, like the event
+   links, so the topology sees no producer.
+
+   The link names are <tile>_evint, which is what fits the 13 character
+   link name. */
+
+void
+wire_event_internal_links( fd_topo_t * topo,
+                           ulong       dcache_mb ) {
+  fd_topob_wksp( topo, "evint" );
+
+  ulong const budget = dcache_mb<<20;
+
+  fd_topo_tile_t * dragon_tile = &topo->tiles[ fd_topo_find_tile( topo, "dragon", 0UL ) ];
+  dragon_tile->dragon.record_link_cnt = 0UL;
+
+  ulong tile_cnt = topo->tile_cnt;
+  for( ulong i=0UL; i<tile_cnt; i++ ) {
+    fd_topo_tile_t * tile = &topo->tiles[ i ];
+    if( FD_LIKELY( strcmp( tile->name, "execrp" ) &&
+                   strcmp( tile->name, "execle" ) &&
+                   strcmp( tile->name, "replay" ) ) ) continue;
+
+    char link_name[ sizeof(((fd_topo_link_t *)0)->name) ];
+    FD_TEST( fd_cstr_printf_check( link_name, sizeof(link_name), NULL, "%s_evint", tile->name ) );
+
+    /* The dcache must cover depth*MTU (a smaller region risks
+       undetected torn reads), so the depth is the largest power of two
+       that fits the operator's budget. */
+    ulong depth = 8192UL;
+    while( depth>1UL && fd_dcache_req_data_sz( FD_EVENT_INTERNAL_MTU, depth, 1UL, 1 )>budget ) depth >>= 1;
+
+    fd_topo_link_t * link = fd_topob_link( topo, link_name, "evint", depth, FD_EVENT_INTERNAL_MTU, 1UL );
+    link->permit_no_producers = 1; /* written outside fd_stem; topo sees no producer */
+
+    tile->event_internal_link_id = link->id;
+
+    fd_topob_tile_uses( topo, tile, &topo->objs[ link->mcache_obj_id ], FD_SHMEM_JOIN_MODE_READ_WRITE );
+    fd_topob_tile_uses( topo, tile, &topo->objs[ link->dcache_obj_id ], FD_SHMEM_JOIN_MODE_READ_WRITE );
+
+    fd_topob_tile_in( topo, "dragon", 0UL, "metric_in", link_name, link->kind_id, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+    dragon_tile->dragon.record_link_cnt++;
   }
 }
 
@@ -284,6 +469,7 @@ fd_topo_initialize( config_t * config ) {
   int snapshots_enabled = !!config->gossip.entrypoints_cnt;
   int snapmk_enabled    = !!snapzp_tile_cnt;
   int rpc_enabled       = config->tiles.rpc.enabled;
+  int dragon_enabled    = config->tiles.dragon.enabled;
   int telemetry_enabled = config->telemetry && strcmp( config->tiles.event.url, "" );
   int leader_enabled    = !!config->firedancer.layout.enable_block_production;
   int rserve_enabled    = config->tiles.rserve.enabled;
@@ -649,6 +835,17 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_tile( topo, "rpc", "rpc", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 1, 0, 1 );
   }
 
+  if( FD_UNLIKELY( dragon_enabled ) ) {
+    fd_topob_wksp( topo, "dragon" );
+    fd_topob_wksp( topo, "dragon_repl" );
+    /* The tile serves clients and never feeds the validator, so it may
+       exit on its own without taking the validator down. */
+    fd_topo_tile_t * dragon = fd_topob_tile( topo, "dragon", "dragon", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0, 1 );
+    dragon->allow_shutdown = 1;
+    dragon->restartable    = 1;
+    if( FD_LIKELY( config->tiles.dragon.finalized ) ) wire_dragon_buffer( topo, dragon, config->tiles.dragon.buffer_size_mib );
+  }
+
   if( FD_UNLIKELY( solcap_enabled ) ) {
     fd_topob_wksp( topo, "solcap" );
     fd_topob_tile( topo, "solcap", "solcap", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0, 0 );
@@ -971,6 +1168,22 @@ fd_topo_initialize( config_t * config ) {
       fd_topob_tile_in( topo, "rpc",  0UL, "metric_in", "tower_out",    0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
     }
     fd_topob_tile_in( topo, "rpc",    0UL, "metric_in", "replay_epoch", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+  }
+
+  if( FD_UNLIKELY( dragon_enabled ) ) {
+    /* Bank reference releases.  Deep enough that the tile can give
+       back everything it could ever hold, which is one reference per
+       bank replay can have live plus one per bank in the fork graph,
+       without waiting on replay to consume. */
+    fd_topob_link( topo, "dragon_replay", "dragon_repl", FD_DRAGON_RELEASE_LINK_DEPTH, sizeof(fd_dragon_release_t), FD_DRAGON_RELEASE_BURST );
+    fd_topob_tile_out( topo, "dragon", 0UL, "dragon_replay", 0UL );
+
+    /* Unreliable: serving clients must never backpressure replay. */
+    /* Slot statuses are what a finalized subscriber cannot lose, so
+       replay is flow controlled by the dragon tile on this link; the
+       record and event links stay unreliable. */
+    fd_topob_tile_in( topo, "dragon", 0UL, "metric_in", "replay_out",    0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    fd_topob_tile_in( topo, "replay", 0UL, "metric_in", "dragon_replay", 0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   }
 
   if( FD_UNLIKELY( solcap_enabled ) ) {
@@ -1321,6 +1534,13 @@ fd_topo_initialize( config_t * config ) {
   if( FD_UNLIKELY( rpc_enabled ) ) {
     fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "rpc", 0UL ) ], accdb_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
   }
+  /* The dragon tile reads the end of a block's account state at the
+     bank's fork, which is what it serves the commitment levels above
+     processed from.  Without them it reads nothing and joins
+     nothing. */
+  if( FD_UNLIKELY( dragon_enabled && config->tiles.dragon.finalized ) ) {
+    fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "dragon", 0UL ) ], accdb_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
+  }
   FOR(resolv_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "resolv", i ) ], accdb_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
   if( FD_LIKELY( config->tiles.gui.enabled ) ) {
     fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "gui", 0UL ) ], accdb_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
@@ -1352,6 +1572,14 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_tile_uses( topo, rpc_tile,   fseq_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
     fd_topob_tile_uses( topo, accdb_tile, fseq_obj, FD_SHMEM_JOIN_MODE_READ_ONLY  );
     FD_TEST( fd_pod_insertf_ulong( topo->props, fseq_obj->id, "accdb_epoch.rpc" ) );
+  }
+  if( FD_UNLIKELY( dragon_enabled && config->tiles.dragon.finalized ) ) {
+    fd_topo_obj_t * fseq_obj = fd_topob_obj( topo, "fseq", "metric" );
+    fd_topo_tile_t * dragon_tile = &topo->tiles[ fd_topo_find_tile( topo, "dragon", 0UL ) ];
+    fd_topo_tile_t * accdb_tile  = &topo->tiles[ fd_topo_find_tile( topo, "accdb",  0UL ) ];
+    fd_topob_tile_uses( topo, dragon_tile, fseq_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+    fd_topob_tile_uses( topo, accdb_tile,  fseq_obj, FD_SHMEM_JOIN_MODE_READ_ONLY  );
+    FD_TEST( fd_pod_insertf_ulong( topo->props, fseq_obj->id, "accdb_epoch.dragon" ) );
   }
   for( ulong i=0UL; i<resolv_tile_cnt; i++ ) {
     fd_topo_obj_t * fseq_obj = fd_topob_obj( topo, "fseq", "metric" );
@@ -1393,7 +1621,8 @@ fd_topo_initialize( config_t * config ) {
     }
   }
 
-  if( FD_LIKELY( telemetry_enabled ) ) wire_event_links( topo );
+  if( FD_LIKELY( telemetry_enabled || dragon_enabled ) ) wire_event_links( topo, telemetry_enabled, dragon_enabled );
+  if( FD_UNLIKELY( dragon_enabled ) ) wire_event_internal_links( topo, config->tiles.dragon.internal_link_dcache_mb );
 
   if( FD_LIKELY( telemetry_enabled ) ) {
     topo->resolved_config_json_len = fd_config_to_json( config, topo->resolved_config_json, sizeof(topo->resolved_config_json) );
@@ -1672,7 +1901,9 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     fd_cstr_ncpy( tile->replay.solcap_capture, config->capture.solcap_capture, sizeof(tile->replay.solcap_capture) );
     fd_cstr_ncpy( tile->replay.dump_proto_dir, config->capture.dump_proto_dir, sizeof(tile->replay.dump_proto_dir) );
     tile->replay.dump_block_to_pb = config->capture.dump_block_to_pb;
-    tile->replay.report_runtime_diffs = config->development.event.report_runtime_diffs;
+    tile->replay.report_runtime_diffs = config->development.event.report_runtime_diffs || config->tiles.dragon.enabled;
+    tile->replay.dragon_enabled       = config->tiles.dragon.enabled;
+    tile->replay.dragon_accounts      = config->tiles.dragon.enabled && config->tiles.dragon.accounts;
 
     if( FD_UNLIKELY( config->tiles.bundle.enabled ) ) {
 #define PARSE_BUNDLE_PUBKEY( _tile, f ) \
@@ -1703,7 +1934,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->execrp.dump_txn_to_pb = config->capture.dump_txn_to_pb;
     tile->execrp.dump_txn_as_fixture = config->capture.dump_txn_as_fixture;
     tile->execrp.dump_syscall_to_pb = config->capture.dump_syscall_to_pb;
-    tile->execrp.report_runtime_diffs = config->development.event.report_runtime_diffs;
+    tile->execrp.report_runtime_diffs = config->development.event.report_runtime_diffs || config->tiles.dragon.enabled;
+    tile->execrp.dragon_enabled       = config->tiles.dragon.enabled;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "votor" ) ) ) {
     tile->votor.quic_client_listen_port = config->firedancer.development.votor.quic_client_listen_port;
@@ -1736,7 +1968,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->accdb.accdb_obj_id = fd_pod_query_ulong( config->topo.props, "accdb", ULONG_MAX );
     tile->accdb.max_live_slots = config->firedancer.runtime.max_live_slots;
 
-    tile->accdb.rpc_epoch_obj_id = fd_pod_query_ulong( config->topo.props, "accdb_epoch.rpc", ULONG_MAX );
+    tile->accdb.rpc_epoch_obj_id    = fd_pod_query_ulong( config->topo.props, "accdb_epoch.rpc",    ULONG_MAX );
+    tile->accdb.dragon_epoch_obj_id = fd_pod_query_ulong( config->topo.props, "accdb_epoch.dragon", ULONG_MAX );
 
     tile->accdb.resolv_epoch_obj_cnt = config->firedancer.layout.enable_block_production ? config->firedancer.layout.resolv_tile_count : 0UL;
     FD_TEST( tile->accdb.resolv_epoch_obj_cnt<=sizeof(tile->accdb.resolv_epoch_obj_ids)/sizeof(tile->accdb.resolv_epoch_obj_ids[0]) );
@@ -1825,7 +2058,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->execle.progcache_obj_id   = fd_pod_query_ulong( config->topo.props, "progcache", ULONG_MAX ); FD_TEST( tile->execle.progcache_obj_id!=ULONG_MAX );
     tile->execle.accdb_obj_id       = fd_pod_query_ulong( config->topo.props, "accdb",     ULONG_MAX ); FD_TEST( tile->execle.accdb_obj_id    !=ULONG_MAX );
     tile->execle.max_live_slots     = config->firedancer.runtime.max_live_slots;
-    tile->execle.report_runtime_diffs = config->development.event.report_runtime_diffs;
+    tile->execle.report_runtime_diffs = config->development.event.report_runtime_diffs || config->tiles.dragon.enabled;
+    tile->execle.dragon_enabled       = config->tiles.dragon.enabled;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "poh" ) ) ) {
     fd_cstr_ncpy( tile->poh.identity_key_path, config->paths.identity_key, sizeof(tile->poh.identity_key_path) );
@@ -1949,6 +2183,107 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
                     "[snapshots.server.http_listen_port] must be in [1,65535]" );
       tile->rpc.snapshot_server_port = (ushort)listen_port;
     }
+
+  } else if( FD_UNLIKELY( !strcmp( tile->name, "dragon" ) ) ) {
+
+    if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->tiles.dragon.listen_address, &tile->dragon.listen_addr ) ) )
+      FD_LOG_ERR(( "failed to parse [tiles.dragon.listen_address] `%s`", config->tiles.dragon.listen_address ));
+    tile->dragon.listen_port = config->tiles.dragon.listen_port;
+    tile->dragon.grpc_web    = config->tiles.dragon.grpc_web;
+
+    FD_CHECK_ERR( strlen( config->tiles.dragon.x_token )<sizeof(tile->dragon.x_token),
+                  "[tiles.dragon.x_token] is too long" );
+    fd_cstr_ncpy( tile->dragon.x_token, config->tiles.dragon.x_token, sizeof(tile->dragon.x_token) );
+
+    if     ( !strcmp( config->tiles.dragon.compression, "zstd" ) ) tile->dragon.compression = FD_GRPC_SERVER_COMPRESSION_ZSTD;
+    else if( !strcmp( config->tiles.dragon.compression, "none" ) ) tile->dragon.compression = FD_GRPC_SERVER_COMPRESSION_NONE;
+    else FD_LOG_ERR(( "[tiles.dragon.compression] must be \"zstd\" or \"none\"" ));
+    tile->dragon.compression_min_bytes = config->tiles.dragon.compression_min_bytes;
+    int level_max = fd_grpc_server_compression_level_max();
+    if( FD_UNLIKELY( config->tiles.dragon.compression_level<1UL ||
+                     config->tiles.dragon.compression_level>(ulong)level_max ) )
+      FD_LOG_ERR(( "[tiles.dragon.compression_level] must be in [1,%i]", level_max ));
+    tile->dragon.compression_level = (int)config->tiles.dragon.compression_level;
+
+    FD_CHECK_ERR( config->tiles.dragon.max_clients>=1UL && config->tiles.dragon.max_clients<=FD_DRAGON_CLIENT_MAX,
+                  "[tiles.dragon.max_clients] must be in [1,64]" );
+    FD_CHECK_ERR( config->tiles.dragon.max_streams_per_client>=1UL &&
+                  config->tiles.dragon.max_streams_per_client<=FD_DRAGON_CLIENT_MAX,
+                  "[tiles.dragon.max_streams_per_client] must be in [1,64]" );
+    tile->dragon.max_clients            = config->tiles.dragon.max_clients;
+    tile->dragon.max_streams_per_client = config->tiles.dragon.max_streams_per_client;
+
+    /* Two messages of the largest size fit the send ring, so staging
+       one never reaches the bytes of the one staged before it.  The
+       request buffer holds one whole request. */
+    FD_CHECK_ERR( config->tiles.dragon.max_request_bytes>=1024UL &&
+                  config->tiles.dragon.max_request_bytes<(1UL<<31),
+                  "[tiles.dragon.max_request_bytes] must be in [1024,2^31)" );
+    FD_CHECK_ERR( config->tiles.dragon.max_message_bytes>=4096UL &&
+                  config->tiles.dragon.max_message_bytes<(1UL<<31),
+                  "[tiles.dragon.max_message_bytes] must be in [4096,2^31)" );
+    FD_CHECK_ERR( config->tiles.dragon.send_buffer_size_mb>=1UL &&
+                  config->tiles.dragon.send_buffer_size_mb<=(1UL<<20),
+                  "[tiles.dragon.send_buffer_size_mb] must be in [1,1048576]" );
+    FD_CHECK_ERR( ( config->tiles.dragon.send_buffer_size_mb<<20 ) >=
+                  3UL*( config->tiles.dragon.max_message_bytes+5UL ),
+                  "[tiles.dragon.send_buffer_size_mb] must hold three messages of [tiles.dragon.max_message_bytes]" );
+    FD_CHECK_ERR( config->tiles.dragon.channel_capacity>=2UL &&
+                  config->tiles.dragon.channel_capacity<=(1UL<<24),
+                  "[tiles.dragon.channel_capacity] must be in [2,16777216]" );
+    FD_CHECK_ERR( config->tiles.dragon.compression_min_bytes<=config->tiles.dragon.max_message_bytes,
+                  "[tiles.dragon.compression_min_bytes] is above [tiles.dragon.max_message_bytes], so nothing would ever be compressed" );
+
+    tile->dragon.send_buffer_size_mb    = config->tiles.dragon.send_buffer_size_mb;
+    tile->dragon.channel_capacity       = config->tiles.dragon.channel_capacity;
+    tile->dragon.max_message_bytes      = config->tiles.dragon.max_message_bytes;
+    tile->dragon.max_request_bytes      = config->tiles.dragon.max_request_bytes;
+    tile->dragon.idle_timeout_nanos     = (long)config->tiles.dragon.idle_timeout_seconds*1000000000L;
+    tile->dragon.ping_interval_nanos    = (long)config->tiles.dragon.ping_interval_seconds*1000000000L;
+
+    tile->dragon.delay_startup          = config->tiles.dragon.delay_startup;
+    tile->dragon.accounts               = config->tiles.dragon.accounts;
+
+    FD_CHECK_ERR( config->tiles.dragon.internal_link_dcache_mb>=1UL &&
+                  config->tiles.dragon.internal_link_dcache_mb<=(64UL<<10),
+                  "[tiles.dragon.internal_link_dcache_mb] must be in [1,65536]" );
+
+    /* The cuckoo arena holds whole buckets of eight bytes. */
+    FD_CHECK_ERR( config->tiles.dragon.cuckoo_bytes_per_client<=(1UL<<31),
+                  "[tiles.dragon.cuckoo_bytes_per_client] must be at most 2^31" );
+    tile->dragon.cuckoo_bytes_per_client = config->tiles.dragon.cuckoo_bytes_per_client;
+
+    dragon_filter_limits( config, &tile->dragon.filter_limits );
+
+    /* The fork graph tracks the banks replay can have live, and the
+       bank indices replay reports are bounded by the same number. */
+    tile->dragon.max_live_banks = config->firedancer.runtime.max_live_slots;
+    tile->dragon.alpenglow      = config->firedancer.development.alpenglow;
+
+    FD_CHECK_ERR( config->tiles.dragon.max_clients*config->tiles.dragon.max_streams_per_client<=FD_DRAGON_CLIENT_MAX,
+                  "[tiles.dragon.max_clients] times [tiles.dragon.max_streams_per_client] must be at most 64" );
+    tile->dragon.finalized = config->tiles.dragon.finalized;
+    FD_CHECK_ERR( !config->tiles.dragon.finalized ||
+                  ( config->tiles.dragon.buffer_size_mib>=16UL && config->tiles.dragon.buffer_size_mib<=(1UL<<20) ),
+                  "[tiles.dragon.buffer_size_mib] must be in [16,1048576]" );
+    tile->dragon.buffer_size_mib = config->tiles.dragon.buffer_size_mib;
+    if     ( !strcmp( config->tiles.dragon.filter_at, "ingest" ) ) tile->dragon.filter_at = FD_DRAGON_FILTER_AT_INGEST;
+    else if( !strcmp( config->tiles.dragon.filter_at, "send"   ) ) tile->dragon.filter_at = FD_DRAGON_FILTER_AT_SEND;
+    else FD_LOG_ERR(( "[tiles.dragon.filter_at] must be \"ingest\" or \"send\"" ));
+    tile->dragon.buf_mcache_obj_id = fd_pod_query_ulong( config->topo.props, "dragon_buf.mcache", ULONG_MAX );
+    tile->dragon.buf_dcache_obj_id = fd_pod_query_ulong( config->topo.props, "dragon_buf.dcache", ULONG_MAX );
+    FD_TEST( !config->tiles.dragon.finalized || ( tile->dragon.buf_mcache_obj_id!=ULONG_MAX && tile->dragon.buf_dcache_obj_id!=ULONG_MAX ) );
+
+    tile->dragon.accdb_obj_id            = ULONG_MAX;
+    tile->dragon.accdb_epoch_fseq_obj_id = ULONG_MAX;
+    if( FD_LIKELY( config->tiles.dragon.finalized ) ) {
+      tile->dragon.accdb_obj_id            = fd_pod_query_ulong( config->topo.props, "accdb",              ULONG_MAX );
+      tile->dragon.accdb_epoch_fseq_obj_id = fd_pod_query_ulong( config->topo.props, "accdb_epoch.dragon", ULONG_MAX );
+      FD_TEST( tile->dragon.accdb_obj_id           !=ULONG_MAX );
+      FD_TEST( tile->dragon.accdb_epoch_fseq_obj_id!=ULONG_MAX );
+    }
+
+    tile->dragon.exit_at_slot = config->development.dragon.exit_at_slot;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "backt" ) ) ) {
 

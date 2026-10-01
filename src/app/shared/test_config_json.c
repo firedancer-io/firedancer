@@ -16,7 +16,7 @@ FD_IMPORT_CSTR( config_json_src,  "src/app/shared/fd_config_json.c"  );
 
 static ulong
 extractor_cstr_keys( char const * src,
-                     char         out[][ 64 ],
+                     char         out[][ 96 ],
                      int *        arr,
                      ulong        max ) {
   ulong cnt = 0UL;
@@ -35,7 +35,7 @@ extractor_cstr_keys( char const * src,
     while( *q==' ' || *q==',' ) q++;
     ulong len = 0UL;
     while( q[ len ]!=',' && q[ len ]!=' ' && q[ len ]!=')' ) len++;
-    FD_TEST( cnt<max && len<64UL );
+    FD_TEST( cnt<max && len<96UL );
     ulong dup = 0UL;
     for( ; dup<cnt; dup++ ) if( strlen( out[ dup ] )==len && !strncmp( out[ dup ], q, len ) ) break;
     if( dup<cnt ) continue;
@@ -135,7 +135,7 @@ main( int     argc,
   /* every string key the extractor accepts for firedancer must also
      classify, since the extractor vocabulary is wider than default.toml
      (e.g. the capture keys); a synthetic toml exercises all of them */
-  static char keys[ 128 ][ 64 ]; static int is_arr[ 128 ];
+  static char keys[ 160 ][ 96 ]; static int is_arr[ 160 ];
   char const * podf = strstr( config_parse_src, "fd_config_extract_podf" );
   FD_TEST( podf );
   ulong key_cnt = extractor_cstr_keys( podf, keys, is_arr, 128UL );
@@ -151,7 +151,7 @@ main( int     argc,
 
   /* and the reverse: every classified key must exist in the extractor
      vocabulary, catching dead list entries */
-  static char all_keys[ 160 ][ 64 ]; static int all_arr[ 160 ];
+  static char all_keys[ 192 ][ 96 ]; static int all_arr[ 192 ];
   ulong all_cnt = extractor_cstr_keys( config_parse_src, all_keys, all_arr, 160UL );
   for( int list=0; list<2; list++ ) {
     char const * p = strstr( config_json_src, list ? "jw_reported_keys[] = {" : "jw_redacted_keys[] = {" );

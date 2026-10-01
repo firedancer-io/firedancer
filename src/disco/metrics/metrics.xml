@@ -1835,6 +1835,179 @@ EXAMPLES
     <counter name="AccdbBytesCopied" summary="Number of bytes copied out of the account database cache on a cache hit" />
 </tile>
 
+<enum name="DragonMethod" normalize="false">
+    <int value="0" name="unknown" label="Unknown or unsupported method" />
+    <int value="1" name="subscribe" label="Subscribe" />
+    <int value="2" name="subscribeDeshred" label="SubscribeDeshred" />
+    <int value="3" name="subscribeGossip" label="SubscribeGossip" />
+    <int value="4" name="subscribeReplayInfo" label="SubscribeReplayInfo" />
+    <int value="5" name="ping" label="Ping" />
+    <int value="6" name="getLatestBlockhash" label="GetLatestBlockhash" />
+    <int value="7" name="getBlockHeight" label="GetBlockHeight" />
+    <int value="8" name="getSlot" label="GetSlot" />
+    <int value="9" name="isBlockhashValid" label="IsBlockhashValid" />
+    <int value="10" name="getVersion" label="GetVersion" />
+    <int value="11" name="healthCheck" label="Health/Check" />
+    <int value="12" name="healthWatch" label="Health/Watch" />
+</enum>
+
+<enum name="DragonSlotStatus" normalize="false">
+    <int value="0" name="processed" label="Processed" />
+    <int value="1" name="confirmed" label="Confirmed" />
+    <int value="2" name="finalized" label="Finalized" />
+    <int value="3" name="firstShredReceived" label="FirstShredReceived" />
+    <int value="4" name="completed" label="Completed" />
+    <int value="5" name="createdBank" label="CreatedBank" />
+    <int value="6" name="dead" label="Dead" />
+</enum>
+
+<enum name="DragonDiscardReason" normalize="false">
+    <int value="0" name="dead" label="The slot was marked dead" />
+    <int value="1" name="loser" label="Another bank of the slot was confirmed or rooted" />
+    <int value="2" name="dropped" label="Replay asked for the bank reference back" />
+    <int value="3" name="pruned" label="The bank does not descend from the root" />
+    <int value="4" name="stale" label="The bank never resolved and fell behind" />
+    <int value="5" name="flush" label="Replay restarted its bank sequence, or an input gap" />
+    <int value="6" name="pending" label="The bank owed a commitment status its records never let it seal for" />
+</enum>
+
+<enum name="DragonIncompleteReason" normalize="false">
+    <int value="0" name="none" label="The bank is sealed" />
+    <int value="1" name="pending" label="The bank has not frozen yet" />
+    <int value="2" name="dropped" label="The bank reference was taken back" />
+    <int value="3" name="records" label="Fewer transaction records than the bank executed" />
+    <int value="4" name="sysvars" label="A sysvar write of the slot was not seen" />
+    <int value="5" name="gap" label="An input link overran, so records may be missing" />
+</enum>
+
+<tile name="dragon">
+    <counter name="CallServed" enum="DragonMethod" summary="Number of Dragon's Mouth calls received, broken down by method" />
+    <gauge name="ConnActive" summary="The number of open HTTP/2 connections to the Dragon's Mouth service" />
+    <gauge name="CallActive" summary="The number of gRPC calls currently being served" />
+    <gauge name="SubscriptionActive" summary="The number of open Subscribe streams" />
+    <counter name="ConnOpened" summary="Number of connections accepted" />
+    <counter name="ConnClosed" summary="Number of connections closed" />
+    <counter name="UpdateSent" summary="Number of SubscribeUpdate messages sent to subscribers" />
+    <counter name="ServerPingSent" summary="Number of server side pings sent on subscription streams" />
+    <counter name="PongSent" summary="Number of pongs sent in reply to a client ping" />
+    <counter name="MsgSent" summary="Number of response messages handed to the transport" />
+    <counter name="MsgBytesSent" summary="Number of response message bytes handed to the transport, before compression" />
+    <counter name="MsgWireBytesSent" summary="Number of response message bytes sent on the wire, after compression" />
+    <counter name="MsgCompressedSent" summary="Number of response messages that were sent compressed" />
+    <counter name="MsgSharedSent" summary="Number of response messages a subscriber took from bytes staged once for several subscribers" />
+    <counter name="AuthFailed" summary="Number of calls rejected because the x-token metadata was missing or wrong" />
+    <counter name="Unimplemented" summary="Number of calls rejected because the method is not served" />
+    <counter name="FilterRejected" summary="Number of SubscribeRequests rejected because they violate a filter limit" />
+    <counter name="FromSlotRejected" summary="Number of SubscribeRequests rejected because they ask to replay from a past slot" />
+    <counter name="SlowClientClosed" summary="Number of subscription streams closed because the client did not keep up" />
+    <counter name="SlowClientConnClosed" summary="Number of connections closed because a client that did not keep up never took the status that ended its subscription" />
+    <counter name="RequestDecodeFailed" summary="Number of requests that could not be decoded" />
+    <counter name="CallRefused" summary="Number of calls refused because no call slot was free" />
+    <counter name="RequestError" summary="Number of requests the transport rejected as malformed or unsupported" />
+    <counter name="RequestMsgReceived" summary="Number of request messages received from clients" />
+    <counter name="RequestBytesReceived" summary="Number of request message bytes received from clients" />
+    <counter name="AcceptError" summary="Number of times accepting a connection failed" />
+    <counter name="PollError" summary="Number of times polling the server's sockets failed" />
+    <counter name="EpollRegisterError" summary="Number of connections whose socket could not be put in the tile's epoll set" />
+    <counter name="CallRejected" summary="Number of streams the transport refused before the service saw them" />
+    <counter name="TooSlowRing" summary="Number of streams closed because the send ring needed back bytes they had not sent" />
+    <counter name="TooSlowRefs" summary="Number of streams closed because they held as many pending segments as they may" />
+    <counter name="MsgTooBig" summary="Number of sends refused because the message is larger than [tiles.dragon.max_message_bytes]" />
+    <counter name="DeadlineExceeded" summary="Number of calls ended because the client's grpc-timeout ran out" />
+    <counter name="HandshakeTimeout" summary="Number of connections closed because the HTTP/2 handshake did not complete in time" />
+    <counter name="IdleTimeout" summary="Number of connections closed for being idle" />
+    <counter name="CuckooFilterInstalled" summary="Number of cuckoo account filters installed by subscriptions" />
+    <counter name="ReplayFragReceived" summary="Number of fragments received on the replay link" />
+    <counter name="SlotCompletedReceived" summary="Number of completed slot messages received from the replay tile" />
+    <counter name="ReplayOverrun" summary="Number of times the tile fell behind the replay link and had to resynchronize" />
+    <counter name="SlotUpdateSent" summary="Number of SubscribeUpdateSlot messages sent to subscribers" />
+    <gauge name="BlockhashTracked" summary="Number of blockhash statuses retained for IsBlockhashValid" />
+    <gauge name="BlockMetaTracked" summary="Number of block metas retained for the unary calls" />
+    <counter name="SlotStatus" enum="DragonSlotStatus" summary="Number of slot statuses reported by the geyser core, broken down by status" />
+    <gauge name="BankTracked" summary="Number of banks in the fork graph" />
+    <gauge name="BankRefHeld" summary="Number of replay bank references the fork graph has not given back yet" />
+    <gauge name="BankRefQueued" summary="Number of bank reference releases waiting to be published to replay" />
+    <counter name="BankCreated" summary="Number of banks added to the fork graph" />
+    <counter name="BankDiscarded" enum="DragonDiscardReason" summary="Number of banks dropped from the fork graph, broken down by reason" />
+    <counter name="BankIncomplete" enum="DragonIncompleteReason" summary="Number of times a bank was found not sealed, broken down by reason" />
+    <counter name="BankRefAcquired" summary="Number of bank references granted by replay" />
+    <counter name="BankRefReleased" summary="Number of bank references given back to replay" />
+    <counter name="BankRefLost" summary="Number of bank references that could not be queued for release, recovered on the next input gap" />
+    <counter name="BankUnknown" summary="Number of notifications naming a bank the fork graph never saw" />
+    <counter name="RootChainBroken" summary="Number of root advances whose chain of ancestors did not reach the previous root, so some banks were pruned without a finalized status" />
+    <counter name="BankRefUnnamed" summary="Number of bank references given up without a release because the bank had no pool index, recovered on the next input gap" />
+    <counter name="ForkGraphFlush" summary="Number of times the whole fork graph was dropped" />
+    <counter name="ForkGraphFull" summary="Number of banks dropped to make room in the fork graph" />
+    <counter name="RecordReceived" summary="Number of complete records reassembled from the record links" />
+    <counter name="TxnEventReceived" summary="Number of runtime_txn events received from the event links" />
+    <counter name="RecordMultiFrag" summary="Number of records that did not fit one fragment" />
+    <counter name="RecordMalformed" summary="Number of records dropped because their framing or their fields did not hold up" />
+    <counter name="RecordGapDropped" summary="Number of partial records dropped because the tile fell behind a record link" />
+    <counter name="RecordOverrun" summary="Number of times the tile fell behind a record link" />
+    <counter name="RecordBadChunk" summary="Number of record fragments skipped because they named a chunk outside the link's dcache" />
+    <counter name="TxnRecord" summary="Number of commit records accounted for against a bank" />
+    <counter name="WriteRecord" summary="Number of runtime write records accounted for against a bank" />
+    <counter name="RecordBankGone" summary="Number of records dropped because the bank they name is gone or has no room" />
+    <counter name="AccountUpdate" summary="Number of account writes reported by the geyser core" />
+    <counter name="AccountUpdateBytes" summary="Number of account data bytes carried by those writes" />
+    <gauge name="RecordLinkLagFragHighWater" summary="The most fragments a record link was ever seen to be ahead of the tile, which the link depth bounds" />
+    <counter name="RecordGap" summary="Number of times the banks in flight were given up on because a record link lost fragments" />
+
+    <counter name="TxnUpdateSent" summary="Number of SubscribeUpdateTransaction messages sent to subscribers" />
+    <counter name="TxnStatusSent" summary="Number of SubscribeUpdateTransactionStatus messages sent to subscribers" />
+    <counter name="BlockMetaSent" summary="Number of SubscribeUpdateBlockMeta messages sent to subscribers" />
+    <counter name="TxnUpdateBytes" summary="Number of transaction message bytes sent to subscribers" />
+    <counter name="TxnStatusBytes" summary="Number of transaction status message bytes sent to subscribers" />
+    <counter name="BlockMetaBytes" summary="Number of block meta message bytes sent to subscribers" />
+    <counter name="SlotUpdateBytes" summary="Number of slot status message bytes sent to subscribers" />
+    <counter name="TxnMetaFailed" summary="Number of commit records whose transaction could not be parsed, so nothing was sent for them" />
+    <counter name="EncodeFailed" summary="Number of messages that did not fit the encoder's buffer" />
+    <counter name="DeferredRejected" summary="Number of SubscribeRequests rejected because they ask for a commitment level this server does not serve" />
+    <counter name="BankDegraded" summary="Number of banks given up on at the confirmed and finalized levels because the buffer could not hold one of their entries" />
+    <counter name="ContentLost" summary="Number of banks that reached confirmed or finalized without the buffer being able to serve their content, whose slot status went out regardless" />
+    <counter name="ContentLostClosed" summary="Number of subscriptions ended with an error because a bank whose content they wanted was lost" />
+    <gauge name="BankPending" summary="Number of banks that owe a confirmed or finalized status, waiting for the records of their block" />
+    <counter name="BankPendingOwed" summary="Number of times a bank's confirmed or finalized status had to wait for the records of its block" />
+    <counter name="BankPendingTimeout" summary="Number of banks whose owed status went out without their content because the records it waited for never arrived" />
+    <counter name="BankPendingDropped" summary="Number of banks whose owed status went out without their content because the records it waited for are gone" />
+    <gauge name="BufferBanks" summary="Number of banks the buffer holds entries or a block summary for" />
+    <gauge name="BufferEntries" summary="Number of transactions and account writes the buffer holds for banks not yet served" />
+    <gauge name="BufferBytes" summary="Bytes of the buffer's ring from the oldest entry of a bank not yet served to the write position" />
+    <counter name="BufferBytesHighWater" summary="The most bytes of the buffer's ring that banks not yet served ever spanned at once" />
+    <counter name="BufferEntriesHighWater" summary="The most entries the buffer ever held for banks not yet served at once" />
+    <counter name="BufferTxnStored" summary="Number of transactions written to the buffer" />
+    <counter name="BufferAccountStored" summary="Number of account writes written to the buffer" />
+    <counter name="BufferBytesStored" summary="Number of bytes written to the buffer" />
+    <counter name="BufferPushFailed" summary="Number of entries larger than the whole ring, whose bank was given up on" />
+    <counter name="BufferBankFull" summary="Number of banks the buffer's bank table had no room for" />
+    <counter name="BufferOverrun" summary="Number of banks whose entries the ring overwrote before they were served, which is a buffer too small for the finalization lag" />
+
+    <counter name="AccountUpdateSent" summary="Number of SubscribeUpdateAccount messages sent to subscribers" />
+    <counter name="AccountUpdateBytesSent" summary="Number of account message bytes sent to subscribers" />
+    <counter name="AccountSkipped" summary="Number of account writes not served because the record carried the account's identity but not its data" />
+    <counter name="AccountEntryStored" summary="Number of account writes buffered for a bank's confirmed and finalized levels or block" />
+    <counter name="AccountPartial" summary="Number of account updates not sent because the buffer holds less of the account's data than the subscription asked for" />
+    <counter name="AccountRead" summary="Number of accounts read at a bank's fork of the accounts database" />
+    <counter name="AccountReadClosed" summary="Number of those reads that found no account, which is an account the block closed" />
+    <counter name="BankSealed" summary="Number of banks reported sealed, which is when their block can be served" />
+    <counter name="BlockSent" summary="Number of SubscribeUpdateBlock messages sent to subscribers" />
+    <counter name="BlockBytesSent" summary="Number of block message bytes sent to subscribers" />
+    <counter name="AccountOversize" summary="Number of account updates dropped because they are larger than one message may be, which is [tiles.dragon.max_message_bytes]" />
+    <counter name="BlockOversize" summary="Number of blocks dropped because they are larger than one message may be, which is [tiles.dragon.max_message_bytes]" />
+
+    <histogram name="RecordSizeBytes" min="128" max="4194304">
+      <summary>Distribution of the size of the commit records reassembled from the record links</summary>
+    </histogram>
+
+    <histogram name="SendRefHighWater" min="1" max="65536">
+      <summary>Distribution, over the calls that ended, of the most pending output segments each one held at once</summary>
+    </histogram>
+
+    <histogram name="AccountReadDurationSeconds" min="0.0000001" max="0.01" converter="seconds">
+      <summary>Duration of a read of one account at a bank's fork of the accounts database</summary>
+    </histogram>
+</tile>
+
 <enum name="Softirq">
     <int value="0" name="Net" label="NET_TX, NET_RX" />
     <int value="1" name="Disk" label="BLOCK" />

@@ -29,6 +29,7 @@
 #define TEST_OUT_CNT   4UL
 #define TEST_REPAIR_IN_IDX 0UL
 #define TEST_EXECRP_IN_IDX 1UL
+#define TEST_DRAGON_IN_IDX 2UL
 
 /* ---- Mock store ---- */
 
@@ -3726,6 +3727,76 @@ test_identity_switch_quiesces_replay( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_identity_switch_quiesces_replay" ));
 }
 
+/* The dragon tile's detach.  A reference granted to a tile that has
+   exited is a reference nothing can release, and a bank that holds one
+   can never be pruned: the storage root stops advancing, and once the
+   pool is full FEC processing stops with it.  The sentinel release
+   therefore gives every grant back, on every bank index, and stops
+   replay granting more. */
+
+static void
+test_dragon_detach( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  setup_ctx( ctx, wksp );
+
+  static fd_replay_dragon_grant_t grant[ TEST_BANKS_MAX ];
+  memset( grant, 0, sizeof(grant) );
+  ctx->dragon_grant          = grant;
+  ctx->dragon_enabled        = 1;
+  ctx->banks->dragon_enabled = 1;
+
+  fd_bank_t * root = fd_banks_root( ctx->banks );
+  root->refcnt            = 0UL;
+  ctx->notified_root_slot = 0UL;
+
+  /* Two references on the root bank, as two root advances grant them. */
+  publish_root_advanced( ctx, test_stem, root );
+  publish_root_advanced( ctx, test_stem, root );
+  FD_TEST( root->refcnt==2UL );
+
+  /* A grant for a bank index replay no longer has a bank at. */
+  dragon_grant_add( ctx, TEST_BANKS_MAX-1UL, 7UL );
+  FD_TEST( !fd_banks_bank_query( ctx->banks, TEST_BANKS_MAX-1UL ) );
+
+  /* This is what a reference costs: the storage root cannot leave a
+     bank that has one. */
+  fd_bank_t * child = fd_banks_new_bank( ctx->banks, root->idx, 0L, 0 );
+  child = fd_banks_clone_from_parent( ctx->banks, child->idx );
+  FD_TEST( child );
+  child->f.slot = 1UL;
+  fd_banks_mark_bank_frozen( child );
+  ulong advanceable_idx = ULONG_MAX;
+  FD_TEST( !fd_banks_advance_root_prepare( ctx->banks, child->idx, &advanceable_idx ) );
+
+  ctx->in_kind[ TEST_DRAGON_IN_IDX ] = IN_KIND_DRAGON;
+  ctx->in    [ TEST_DRAGON_IN_IDX ] = ctx->in[ TEST_REPAIR_IN_IDX ];
+
+  ulong chunk = ctx->in[ TEST_DRAGON_IN_IDX ].chunk0;
+  fd_dragon_release_t * rel = fd_chunk_to_laddr( ctx->in[ TEST_DRAGON_IN_IDX ].mem, chunk );
+  rel->bank_idx  = FD_DRAGON_RELEASE_DETACH;
+  rel->seq_bound = ULONG_MAX;
+  FD_TEST( !returnable_frag( ctx, TEST_DRAGON_IN_IDX, 0UL, FD_DRAGON_RELEASE_DETACH, chunk,
+                             sizeof(fd_dragon_release_t), 0UL, 0UL,
+                             fd_frag_meta_ts_comp( fd_tickcount() ), test_stem ) );
+
+  FD_TEST( !root->refcnt );
+  FD_TEST( !ctx->dragon_enabled );
+  FD_TEST( !ctx->banks->dragon_enabled );
+  FD_TEST( !dragon_grant_release( ctx, root->idx,          ULONG_MAX ) );
+  FD_TEST( !dragon_grant_release( ctx, TEST_BANKS_MAX-1UL, ULONG_MAX ) );
+
+  FD_TEST( fd_banks_advance_root_prepare( ctx->banks, child->idx, &advanceable_idx ) );
+  FD_TEST( advanceable_idx==child->idx );
+
+  /* The root advances again: nothing is granted, so the bank stays
+     free to be rooted and pruned. */
+  publish_root_advanced( ctx, test_stem, root );
+  FD_TEST( !root->refcnt );
+  FD_TEST( !dragon_grant_release( ctx, root->idx, ULONG_MAX ) );
+
+  FD_LOG_NOTICE(( "pass: test_dragon_detach" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -3775,6 +3846,7 @@ main( int     argc,
   test_dead_block_children_drop( wksp );
   test_stale_id_key_does_not_shadow_rebuild( wksp ); fd_wksp_reset( wksp, 42U );
   test_identity_switch_quiesces_replay( wksp );
+  test_dragon_detach( wksp );
 
   FD_TEST( mock_store_view_success_cnt==mock_store_view_release_cnt );
 

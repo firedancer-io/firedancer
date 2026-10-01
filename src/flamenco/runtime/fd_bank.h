@@ -375,6 +375,8 @@ fd_bank_stake_delegations_modify( fd_bank_t * bank );
 struct fd_banks {
   ulong magic;                       /* ==FD_BANKS_MAGIC */
   int   report_runtime_diffs;        /* telemetry: emit the runtime events; report_runtime_diffs flag */
+  int   dragon_enabled;              /* dragon: emit the internal records of every commit and runtime write */
+  int   dragon_accounts;             /* dragon: include the post state of written accounts in those records */
   ulong max_total_banks;             /* Maximum number of banks */
   ulong max_fork_width;              /* Maximum fork width executing through any given slot. */
   ulong max_stake_accounts;          /* Maximum number of stake accounts */
@@ -436,6 +438,25 @@ static inline int
 fd_bank_report_runtime_diffs( fd_bank_t const * bank ) {
   fd_banks_t const * banks_data = fd_type_pun_const( (uchar const *)bank - bank->banks_data_offset );
   return banks_data->report_runtime_diffs;
+}
+
+/* fd_bank_dragon_enabled and fd_bank_dragon_accounts return the
+   banks-wide dragon flags for a bank.  The replay tile sets them at
+   init and clears enabled if the dragon tile detaches, so a producer
+   reads them per record rather than caching them.  Callers use them
+   to gate fd_event_internal calls: enabled asks for the records at
+   all, accounts for the post state of the accounts a write touched. */
+
+static inline int
+fd_bank_dragon_enabled( fd_bank_t const * bank ) {
+  fd_banks_t const * banks_data = fd_type_pun_const( (uchar const *)bank - bank->banks_data_offset );
+  return banks_data->dragon_enabled;
+}
+
+static inline int
+fd_bank_dragon_accounts( fd_bank_t const * bank ) {
+  fd_banks_t const * banks_data = fd_type_pun_const( (uchar const *)bank - bank->banks_data_offset );
+  return banks_data->dragon_accounts;
 }
 
 /* Bank accessors and mutators.  Different accessors are emitted for

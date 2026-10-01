@@ -255,6 +255,12 @@ struct fd_txn_out {
     int  exec_err_kind;
     uint exec_err_idx;
     uint custom_err;
+    /* Account index the rent state check rejected, when txn_err is
+       FD_RUNTIME_TXN_ERR_INSUFFICIENT_FUNDS_FOR_RENT; UINT_MAX
+       otherwise.  Agave carries it in the error itself
+       (TransactionError::InsufficientFundsForRent { account_index },
+       svm/src/rent_calculator.rs:59-71). */
+    uint rent_err_account_idx;
   } err;
 
   struct {

@@ -63,6 +63,7 @@ class Tile(Enum):
 
     ROTOR = 108
     VOTOR = 109
+    DRAGON = 110
 
 class MetricType(Enum):
     COUNTER = 0

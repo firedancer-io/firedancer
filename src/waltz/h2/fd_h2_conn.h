@@ -6,6 +6,7 @@
 
 #include "fd_h2_rbuf.h"
 #include "fd_h2_proto.h"
+#include "fd_hpack.h"
 
 /* fd_h2_settings_t contains HTTP/2 settings that fd_h2 understands. */
 
@@ -14,6 +15,7 @@ struct fd_h2_settings {
   uint max_frame_size;
   uint max_header_list_size;
   uint max_concurrent_streams;
+  uint header_table_size; /* set to 0=client, 4096=server, then read-only */
 };
 
 typedef struct fd_h2_settings fd_h2_settings_t;
@@ -36,8 +38,10 @@ struct fd_h2_conn {
   ulong   rx_suppress;    /* skip frame handlers until this RX offset */
 
   uint  rx_data_cnt_rem; /* current RX frame: "Application data" remaining in DATA frame */
+  uint  rx_fc_debt;      /* current RX frame: flow control bytes not yet charged */
   uint  rx_stream_id;    /* current RX frame: stream ID */
   uint  rx_stream_next;  /* next unused RX stream ID */
+  uint  rx_hdrs_sz;      /* current RX field block: bytes received so far */
 
   uint  rx_wnd_wmark;    /* receive window refill threshold */
   uint  rx_wnd_max;      /* receive window max size */
@@ -54,6 +58,8 @@ struct fd_h2_conn {
   uchar  rx_frame_flags;  /* current RX frame: flags */
   uchar  rx_pad_rem;      /* current RX frame: pad bytes remaining */
   uchar  ping_tx;         /* no of sent PING frames pending their ACK */
+
+  fd_hpack_dtable_t rx_hpack; /* HPACK dynamic table for inbound field blocks */
 };
 
 /* FD_H2_CONN_FLAGS_* give flags related to conn lifecycle */
@@ -81,7 +87,11 @@ struct fd_h2_conn {
    preface was received, a SETTINGS frame was sent, a SETTINGS frame was
    received, a SETTINGS ACK was sent, and a SETTINGS ACK was received. */
 
-#define FD_H2_CONN_FLAGS_HANDSHAKING (0xf0)
+#define FD_H2_CONN_FLAGS_HANDSHAKING           \
+    ( FD_H2_CONN_FLAGS_CLIENT_INITIAL      |   \
+      FD_H2_CONN_FLAGS_WAIT_SETTINGS_ACK_0 |   \
+      FD_H2_CONN_FLAGS_WAIT_SETTINGS_0     |   \
+      FD_H2_CONN_FLAGS_SERVER_INITIAL )
 
 FD_PROTOTYPES_BEGIN
 
@@ -264,6 +274,67 @@ fd_h2_tx_rst_stream( fd_h2_rbuf_t * rbuf_tx,
     .error_code = fd_uint_bswap( h2_err )
   };
   fd_h2_rbuf_push( rbuf_tx, &rst_stream, sizeof(fd_h2_rst_stream_t) );
+}
+
+/* fd_h2_tx_goaway writes a GOAWAY frame for sending.  The conn stays
+   usable: streams at or below last_stream_id continue, and the peer is
+   expected to open no new ones (RFC 9113 Section 6.8).  The caller
+   refuses streams above last_stream_id, typically by returning NULL
+   from the stream_create callback, and closes the conn once the open
+   streams are done.  rbuf_tx must have at least sizeof(fd_h2_goaway_t)
+   free space.  (This is a low-level API) */
+
+static inline void
+fd_h2_tx_goaway( fd_h2_rbuf_t * rbuf_tx,
+                 uint           last_stream_id,
+                 uint           err_code ) {
+  fd_h2_goaway_t goaway = {
+    .hdr = {
+      .typlen      = fd_h2_frame_typlen( FD_H2_FRAME_TYPE_GOAWAY, 8UL ),
+      .flags       = 0U,
+      .r_stream_id = 0U
+    },
+    .last_stream_id = fd_uint_bswap( last_stream_id ),
+    .error_code     = fd_uint_bswap( err_code )
+  };
+  fd_h2_rbuf_push( rbuf_tx, &goaway, sizeof(fd_h2_goaway_t) );
+}
+
+/* fd_h2_conn_rx_wnd_set sets the connection receive window to wnd_max
+   bytes.  wnd_max is in [65535,2^31).  RFC 9113 Section 6.9.2 fixes the
+   initial connection window at 65535 bytes and provides no setting to
+   change it, so the extra credit is granted by a WINDOW_UPDATE frame.
+   The conn requests one whenever the remaining window drops below the
+   refill threshold; the caller grants the initial increment by setting
+   FD_H2_CONN_FLAGS_WINDOW_UPDATE once the handshake is done. */
+
+static inline void
+fd_h2_conn_rx_wnd_set( fd_h2_conn_t * conn,
+                       uint           wnd_max ) {
+  conn->rx_wnd_max   = wnd_max;
+  conn->rx_wnd       = fd_uint_min( conn->rx_wnd, wnd_max );
+  conn->rx_wnd_wmark = (uint)( 0.7f * (float)wnd_max );
+}
+
+/* fd_h2_tx_window_update writes a WINDOW_UPDATE frame for sending.
+   stream_id is 0 for the connection-level window.  increment is in
+   [1,2^31).  rbuf_tx must have at least
+   sizeof(fd_h2_window_update_t) free space.  (This is a low-level
+   API) */
+
+static inline void
+fd_h2_tx_window_update( fd_h2_rbuf_t * rbuf_tx,
+                        uint           stream_id,
+                        uint           increment ) {
+  fd_h2_window_update_t window_update = {
+    .hdr = {
+      .typlen      = fd_h2_frame_typlen( FD_H2_FRAME_TYPE_WINDOW_UPDATE, 4UL ),
+      .flags       = 0U,
+      .r_stream_id = fd_uint_bswap( stream_id )
+    },
+    .increment = fd_uint_bswap( increment )
+  };
+  fd_h2_rbuf_push( rbuf_tx, &window_update, sizeof(fd_h2_window_update_t) );
 }
 
 FD_PROTOTYPES_END

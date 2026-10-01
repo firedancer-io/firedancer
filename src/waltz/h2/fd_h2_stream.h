@@ -101,13 +101,16 @@ fd_h2_stream_error( fd_h2_stream_t * stream,
 
 /* fd_h2_rst_stream generates a RST_STREAM frame on the given stream.
    On return, the stream is in CLOSED state, and the underlying stream
-   object and map entry can be discarded.  conn->active_stream_cnt is
-   decremented accordingly. */
+   object and map entry can be discarded.  conn->stream_active_cnt is
+   decremented accordingly.  rbuf_tx must have at least
+   sizeof(fd_h2_rst_stream_t) free space. */
 
-void
+static inline void
 fd_h2_rst_stream( fd_h2_conn_t *   conn,
                   fd_h2_rbuf_t *   rbuf_tx,
-                  fd_h2_stream_t * stream );
+                  fd_h2_stream_t * stream ) {
+  fd_h2_stream_error( stream, conn, rbuf_tx, FD_H2_ERR_CANCEL );
+}
 
 static inline void
 fd_h2_stream_close_rx( fd_h2_stream_t * stream,

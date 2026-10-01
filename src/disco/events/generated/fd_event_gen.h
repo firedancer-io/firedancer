@@ -1134,47 +1134,75 @@ fd_event_serialize_by_type( ulong               type,
                             void const *        ev,
                             ulong               ev_sz );
 
+/* FD_EVENT_SIGNED_VOTE_ID is the type of a signed_vote event on an event link
+   (FD_EVENT_SIG_TYPE of its frag). */
+#define FD_EVENT_SIGNED_VOTE_ID (3UL)
+
 /* Report a signed_vote event (SignedVote, id 3) to the event tile via
    the thread-local reporter (no-op when the tile has no event link). */
 static inline void
 fd_event_report_signed_vote( fd_event_signed_vote_t const * msg ) {
-  fd_event_report_( 3UL, msg, sizeof(fd_event_signed_vote_t) );
+  fd_event_report_( FD_EVENT_SIGNED_VOTE_ID, msg, sizeof(fd_event_signed_vote_t) );
 }
+
+/* FD_EVENT_SLOT_CONFIRMED_ID is the type of a slot_confirmed event on an event link
+   (FD_EVENT_SIG_TYPE of its frag). */
+#define FD_EVENT_SLOT_CONFIRMED_ID (4UL)
 
 /* Report a slot_confirmed event (SlotConfirmed, id 4) to the event tile via
    the thread-local reporter (no-op when the tile has no event link). */
 static inline void
 fd_event_report_slot_confirmed( fd_event_slot_confirmed_t const * msg ) {
-  fd_event_report_( 4UL, msg, sizeof(fd_event_slot_confirmed_t) );
+  fd_event_report_( FD_EVENT_SLOT_CONFIRMED_ID, msg, sizeof(fd_event_slot_confirmed_t) );
 }
+
+/* FD_EVENT_ACCDB_COMPACTION_COMPLETED_ID is the type of a accdb_compaction_completed event on an event link
+   (FD_EVENT_SIG_TYPE of its frag). */
+#define FD_EVENT_ACCDB_COMPACTION_COMPLETED_ID (5UL)
 
 /* Report a accdb_compaction_completed event (AccdbCompactionCompleted, id 5) to the event tile via
    the thread-local reporter (no-op when the tile has no event link). */
 static inline void
 fd_event_report_accdb_compaction_completed( fd_event_accdb_compaction_completed_t const * msg ) {
-  fd_event_report_( 5UL, msg, sizeof(fd_event_accdb_compaction_completed_t) );
+  fd_event_report_( FD_EVENT_ACCDB_COMPACTION_COMPLETED_ID, msg, sizeof(fd_event_accdb_compaction_completed_t) );
 }
+
+/* FD_EVENT_ACCDB_PARTITION_ADDED_ID is the type of a accdb_partition_added event on an event link
+   (FD_EVENT_SIG_TYPE of its frag). */
+#define FD_EVENT_ACCDB_PARTITION_ADDED_ID (6UL)
 
 /* Report a accdb_partition_added event (AccdbPartitionAdded, id 6) to the event tile via
    the thread-local reporter (no-op when the tile has no event link). */
 static inline void
 fd_event_report_accdb_partition_added( fd_event_accdb_partition_added_t const * msg ) {
-  fd_event_report_( 6UL, msg, sizeof(fd_event_accdb_partition_added_t) );
+  fd_event_report_( FD_EVENT_ACCDB_PARTITION_ADDED_ID, msg, sizeof(fd_event_accdb_partition_added_t) );
 }
+
+/* FD_EVENT_BLOCK_EQUIVOCATED_ID is the type of a block_equivocated event on an event link
+   (FD_EVENT_SIG_TYPE of its frag). */
+#define FD_EVENT_BLOCK_EQUIVOCATED_ID (7UL)
 
 /* Report a block_equivocated event (BlockEquivocated, id 7) to the event tile via
    the thread-local reporter (no-op when the tile has no event link). */
 static inline void
 fd_event_report_block_equivocated( fd_event_block_equivocated_t const * msg ) {
-  fd_event_report_( 7UL, msg, sizeof(fd_event_block_equivocated_t) );
+  fd_event_report_( FD_EVENT_BLOCK_EQUIVOCATED_ID, msg, sizeof(fd_event_block_equivocated_t) );
 }
+
+/* FD_EVENT_RUNTIME_TXN_ID is the type of a runtime_txn event on an event link
+   (FD_EVENT_SIG_TYPE of its frag). */
+#define FD_EVENT_RUNTIME_TXN_ID (8UL)
 
 /* Report a runtime_txn event (RuntimeTxn, id 8) to the event tile via
    the thread-local reporter (no-op when the tile has no event link). */
 static inline void
 fd_event_report_runtime_txn( fd_event_runtime_txn_t const * msg ) {
-  fd_event_report_( 8UL, msg, sizeof(fd_event_runtime_txn_t) );
+  fd_event_report_( FD_EVENT_RUNTIME_TXN_ID, msg, sizeof(fd_event_runtime_txn_t) );
 }
+
+/* FD_EVENT_BLOCK_COMPLETED_ID is the type of a block_completed event on an event link
+   (FD_EVENT_SIG_TYPE of its frag). */
+#define FD_EVENT_BLOCK_COMPLETED_ID (9UL)
 
 /* Report a block_completed event (BlockCompleted, id 9) to the event tile via
    the thread-local reporter (no-op when the tile has no event link).
@@ -1187,64 +1215,100 @@ fd_event_report_block_completed( fd_event_block_completed_t const * msg ) {
     { (void const *)msg, FD_EVENT_BLOCK_COMPLETED_PREFIX_SZ },
     { (void const *)msg->txn_timing, msg->txn_timing_cnt*sizeof(msg->txn_timing[0]) },
   };
-  fd_event_report_gather_( 9UL, iov, sizeof(iov)/sizeof(iov[0]) );
+  fd_event_report_gather_( FD_EVENT_BLOCK_COMPLETED_ID, iov, sizeof(iov)/sizeof(iov[0]) );
 }
+
+/* FD_EVENT_SNAPSHOT_CREATED_ID is the type of a snapshot_created event on an event link
+   (FD_EVENT_SIG_TYPE of its frag). */
+#define FD_EVENT_SNAPSHOT_CREATED_ID (11UL)
 
 /* Report a snapshot_created event (SnapshotCreated, id 11) to the event tile via
    the thread-local reporter (no-op when the tile has no event link). */
 static inline void
 fd_event_report_snapshot_created( fd_event_snapshot_created_t const * msg ) {
-  fd_event_report_( 11UL, msg, sizeof(fd_event_snapshot_created_t) );
+  fd_event_report_( FD_EVENT_SNAPSHOT_CREATED_ID, msg, sizeof(fd_event_snapshot_created_t) );
 }
+
+/* FD_EVENT_ADMIN_COMMAND_ID is the type of a admin_command event on an event link
+   (FD_EVENT_SIG_TYPE of its frag). */
+#define FD_EVENT_ADMIN_COMMAND_ID (12UL)
 
 /* Report a admin_command event (AdminCommand, id 12) to the event tile via
    the thread-local reporter (no-op when the tile has no event link). */
 static inline void
 fd_event_report_admin_command( fd_event_admin_command_t const * msg ) {
-  fd_event_report_( 12UL, msg, sizeof(fd_event_admin_command_t) );
+  fd_event_report_( FD_EVENT_ADMIN_COMMAND_ID, msg, sizeof(fd_event_admin_command_t) );
 }
+
+/* FD_EVENT_RUNTIME_BLOCK_ID is the type of a runtime_block event on an event link
+   (FD_EVENT_SIG_TYPE of its frag). */
+#define FD_EVENT_RUNTIME_BLOCK_ID (13UL)
 
 /* Report a runtime_block event (RuntimeBlock, id 13) to the event tile via
    the thread-local reporter (no-op when the tile has no event link). */
 static inline void
 fd_event_report_runtime_block( fd_event_runtime_block_t const * msg ) {
-  fd_event_report_( 13UL, msg, sizeof(fd_event_runtime_block_t) );
+  fd_event_report_( FD_EVENT_RUNTIME_BLOCK_ID, msg, sizeof(fd_event_runtime_block_t) );
 }
+
+/* FD_EVENT_RUNTIME_REWARD_ID is the type of a runtime_reward event on an event link
+   (FD_EVENT_SIG_TYPE of its frag). */
+#define FD_EVENT_RUNTIME_REWARD_ID (14UL)
 
 /* Report a runtime_reward event (RuntimeReward, id 14) to the event tile via
    the thread-local reporter (no-op when the tile has no event link). */
 static inline void
 fd_event_report_runtime_reward( fd_event_runtime_reward_t const * msg ) {
-  fd_event_report_( 14UL, msg, sizeof(fd_event_runtime_reward_t) );
+  fd_event_report_( FD_EVENT_RUNTIME_REWARD_ID, msg, sizeof(fd_event_runtime_reward_t) );
 }
+
+/* FD_EVENT_RUNTIME_STAKE_DELEGATION_ID is the type of a runtime_stake_delegation event on an event link
+   (FD_EVENT_SIG_TYPE of its frag). */
+#define FD_EVENT_RUNTIME_STAKE_DELEGATION_ID (15UL)
 
 /* Report a runtime_stake_delegation event (RuntimeStakeDelegation, id 15) to the event tile via
    the thread-local reporter (no-op when the tile has no event link). */
 static inline void
 fd_event_report_runtime_stake_delegation( fd_event_runtime_stake_delegation_t const * msg ) {
-  fd_event_report_( 15UL, msg, sizeof(fd_event_runtime_stake_delegation_t) );
+  fd_event_report_( FD_EVENT_RUNTIME_STAKE_DELEGATION_ID, msg, sizeof(fd_event_runtime_stake_delegation_t) );
 }
+
+/* FD_EVENT_RUNTIME_ROOTED_ID is the type of a runtime_rooted event on an event link
+   (FD_EVENT_SIG_TYPE of its frag). */
+#define FD_EVENT_RUNTIME_ROOTED_ID (16UL)
 
 /* Report a runtime_rooted event (RuntimeRooted, id 16) to the event tile via
    the thread-local reporter (no-op when the tile has no event link). */
 static inline void
 fd_event_report_runtime_rooted( fd_event_runtime_rooted_t const * msg ) {
-  fd_event_report_( 16UL, msg, sizeof(fd_event_runtime_rooted_t) );
+  fd_event_report_( FD_EVENT_RUNTIME_ROOTED_ID, msg, sizeof(fd_event_runtime_rooted_t) );
 }
+
+/* FD_EVENT_RUNTIME_EPOCH_ID is the type of a runtime_epoch event on an event link
+   (FD_EVENT_SIG_TYPE of its frag). */
+#define FD_EVENT_RUNTIME_EPOCH_ID (17UL)
 
 /* Report a runtime_epoch event (RuntimeEpoch, id 17) to the event tile via
    the thread-local reporter (no-op when the tile has no event link). */
 static inline void
 fd_event_report_runtime_epoch( fd_event_runtime_epoch_t const * msg ) {
-  fd_event_report_( 17UL, msg, sizeof(fd_event_runtime_epoch_t) );
+  fd_event_report_( FD_EVENT_RUNTIME_EPOCH_ID, msg, sizeof(fd_event_runtime_epoch_t) );
 }
+
+/* FD_EVENT_RUNTIME_VOTE_ACCOUNT_ID is the type of a runtime_vote_account event on an event link
+   (FD_EVENT_SIG_TYPE of its frag). */
+#define FD_EVENT_RUNTIME_VOTE_ACCOUNT_ID (18UL)
 
 /* Report a runtime_vote_account event (RuntimeVoteAccount, id 18) to the event tile via
    the thread-local reporter (no-op when the tile has no event link). */
 static inline void
 fd_event_report_runtime_vote_account( fd_event_runtime_vote_account_t const * msg ) {
-  fd_event_report_( 18UL, msg, sizeof(fd_event_runtime_vote_account_t) );
+  fd_event_report_( FD_EVENT_RUNTIME_VOTE_ACCOUNT_ID, msg, sizeof(fd_event_runtime_vote_account_t) );
 }
+
+/* FD_EVENT_ALPENGLOW_VOTE_ID is the type of a alpenglow_vote event on an event link
+   (FD_EVENT_SIG_TYPE of its frag). */
+#define FD_EVENT_ALPENGLOW_VOTE_ID (19UL)
 
 /* Report a alpenglow_vote event (AlpenglowVote, id 19) to the event tile via
    the thread-local reporter (no-op when the tile has no event link).
@@ -1257,8 +1321,12 @@ fd_event_report_alpenglow_vote( fd_event_alpenglow_vote_t const * msg ) {
     { (void const *)msg, FD_EVENT_ALPENGLOW_VOTE_PREFIX_SZ },
     { (void const *)msg->broadcast_to, msg->broadcast_to_cnt*sizeof(msg->broadcast_to[0]) },
   };
-  fd_event_report_gather_( 19UL, iov, sizeof(iov)/sizeof(iov[0]) );
+  fd_event_report_gather_( FD_EVENT_ALPENGLOW_VOTE_ID, iov, sizeof(iov)/sizeof(iov[0]) );
 }
+
+/* FD_EVENT_ALPENGLOW_CERT_ID is the type of a alpenglow_cert event on an event link
+   (FD_EVENT_SIG_TYPE of its frag). */
+#define FD_EVENT_ALPENGLOW_CERT_ID (20UL)
 
 /* Report a alpenglow_cert event (AlpenglowCert, id 20) to the event tile via
    the thread-local reporter (no-op when the tile has no event link).
@@ -1271,7 +1339,7 @@ fd_event_report_alpenglow_cert( fd_event_alpenglow_cert_t const * msg ) {
     { (void const *)msg, FD_EVENT_ALPENGLOW_CERT_PREFIX_SZ },
     { (void const *)msg->broadcast_to, msg->broadcast_to_cnt*sizeof(msg->broadcast_to[0]) },
   };
-  fd_event_report_gather_( 20UL, iov, sizeof(iov)/sizeof(iov[0]) );
+  fd_event_report_gather_( FD_EVENT_ALPENGLOW_CERT_ID, iov, sizeof(iov)/sizeof(iov[0]) );
 }
 
 FD_PROTOTYPES_END

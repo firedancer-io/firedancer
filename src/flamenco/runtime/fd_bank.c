@@ -472,6 +472,8 @@ fd_banks_new( void * shmem,
   }
 
   banks_data->report_runtime_diffs = 0;
+  banks_data->dragon_enabled     = 0;
+  banks_data->dragon_accounts    = 0;
   banks_data->max_total_banks    = max_total_banks;
   banks_data->max_fork_width     = max_fork_width;
   banks_data->max_stake_accounts = max_stake_accounts;

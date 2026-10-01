@@ -236,7 +236,7 @@ cb_headers( fd_h2_conn_t *   conn,
   ep->headers_cnt++;
   if( FD_UNLIKELY( g_replay_trace ) ) {
     FD_LOG_NOTICE(( "[%03lu] %s cb headers stream=%u data_sz=%lu flags=0x%lx",
-                    g_replay_step, fuzz_endpoint_name( ep ), stream->stream_id, data_sz, flags ));
+                    g_replay_step, fuzz_endpoint_name( ep ), stream ? stream->stream_id : 0U, data_sz, flags ));
   }
 }
 

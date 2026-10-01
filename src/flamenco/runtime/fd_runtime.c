@@ -1,5 +1,6 @@
 #include "fd_runtime.h"
 #include "fd_bank.h"
+#include "../events/fd_event_internal.h"
 #include "../events/fd_event_runtime.h"
 
 #include "../types/fd_cast.h"
@@ -294,6 +295,9 @@ static void
 fd_runtime_freeze( fd_bank_t *        bank,
                    fd_accdb_t *       accdb,
                    fd_capture_ctx_t * capture_ctx ) {
+  /* Everything this writes happens after the block's transactions. */
+  fd_event_internal_write_phase( 2 );
+
   if( FD_LIKELY( bank->f.slot ) ) fd_sysvar_recent_hashes_update( bank, accdb, capture_ctx );
   fd_sysvar_slot_history_update( bank, accdb, capture_ctx );
   fd_runtime_settle_fees( bank, accdb, capture_ctx );
@@ -844,6 +848,9 @@ fd_runtime_block_execute_prepare( fd_banks_t *         banks,
                                   fd_runtime_stack_t * runtime_stack,
                                   fd_capture_ctx_t *   capture_ctx,
                                   int *                is_epoch_boundary ) {
+  /* Everything this writes happens before the block's transactions. */
+  fd_event_internal_write_phase( 0 );
+
   /* Cache the Alpenglow migration slot inside the bank so that we can
      read it inside transaction execution. */
   bank->f.alpenglow_migration_slot = fd_alpenglow_migration_slot( bank, accdb );
@@ -1106,20 +1113,22 @@ fd_runtime_lthash_account( fd_runtime_t *      runtime,
                            fd_pubkey_t const * pubkey,
                            fd_acc_t *          acc,
                            fd_capture_ctx_t *  capture_ctx ) {
-  if( FD_UNLIKELY( !acc->lamports ) ) {
-    acc->data_len   = 0UL;
-    acc->executable = 0;
-    memset( acc->owner, 0, sizeof(acc->owner) );
-  }
+  /* A closed account hashes as empty and unowned.  The account itself
+     keeps what the transaction left in it until the commit record has
+     been emitted (fd_runtime_dead_accounts_normalize). */
+  static uchar const no_owner[ 32UL ] = {0};
+  ulong         data_len   = acc->lamports ? acc->data_len      : 0UL;
+  int           executable = acc->lamports ? !!acc->executable : 0;
+  uchar const * owner      = acc->lamports ? acc->owner         : no_owner;
 
   if( FD_UNLIKELY( acc->prior_data &&
                    acc->lamports==acc->prior_lamports &&
-                   acc->data_len==acc->prior_data_len &&
-                   (!!acc->executable)==(!!acc->prior_executable) &&
-                   !memcmp( acc->owner, acc->prior_owner, sizeof(acc->owner) ) &&
-                   !memcmp( acc->data,  acc->prior_data,  acc->data_len ) ) ) {
+                   data_len==acc->prior_data_len &&
+                   (!!executable)==(!!acc->prior_executable) &&
+                   !memcmp( owner, acc->prior_owner, sizeof(acc->owner) ) &&
+                   !memcmp( acc->data, acc->prior_data, data_len ) ) ) {
     runtime->metrics.lthash_unchanged_cnt++;
-    if( FD_LIKELY( acc->lamports ) ) fd_hashes_capture_account( pubkey->uc, acc->owner, acc->lamports, acc->executable, acc->data, acc->data_len, bank, capture_ctx );
+    if( FD_LIKELY( acc->lamports ) ) fd_hashes_capture_account( pubkey->uc, owner, acc->lamports, executable, acc->data, data_len, bank, capture_ctx );
     return;
   }
 
@@ -1132,7 +1141,23 @@ fd_runtime_lthash_account( fd_runtime_t *      runtime,
 
   fd_lthash_value_t lthash_post[1];
   if( FD_LIKELY( acc->prior_lamports || acc->lamports ) ) {
-    fd_hashes_update_simple( lthash_post, lthash_prev, pubkey->uc, acc->owner, acc->lamports, acc->executable, acc->data, acc->data_len, bank, capture_ctx );
+    fd_hashes_update_simple( lthash_post, lthash_prev, pubkey->uc, owner, acc->lamports, executable, acc->data, data_len, bank, capture_ctx );
+  }
+}
+
+/* fd_runtime_dead_accounts_normalize empties every closed account the
+   transaction commits, which is how the accounts database stores a
+   closed account.  It runs once the commit record has been emitted, so
+   that the record carries the account as the transaction left it. */
+
+static void
+fd_runtime_dead_accounts_normalize( fd_txn_out_t * txn_out ) {
+  for( ulong i=0UL; i<txn_out->accounts.cnt; i++ ) {
+    fd_acc_t * acc = txn_out->accounts.account[ i ];
+    if( FD_LIKELY( !acc || !acc->commit || acc->lamports ) ) continue;
+    acc->data_len   = 0UL;
+    acc->executable = 0;
+    memset( acc->owner, 0, sizeof(acc->owner) );
   }
 }
 
@@ -1274,6 +1299,15 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
 
   if( FD_UNLIKELY( fd_bank_report_runtime_diffs( bank ) ) ) fd_event_runtime_txn_emit( txn_in, txn_out, bank );
 
+  /* The account writes of this transaction are final here, and the
+     instruction trace and log buffer still hold what it produced.  A
+     transaction the cost tracker rejected above is not in the block, so
+     it gets no record; the block it would have overflowed is dead. */
+  if( FD_UNLIKELY( fd_bank_dragon_enabled( bank ) && txn_out->err.is_committable ) )
+    fd_event_internal_commit_emit( runtime, bank, txn_in, txn_out, fd_bank_dragon_accounts( bank ) );
+
+  fd_runtime_dead_accounts_normalize( txn_out );
+
   if( FD_LIKELY( !txn_out->accounts.is_bundle ) ) {
     fd_accdb_release_ab( runtime->accdb,
                          txn_out->accounts.cnt, runtime->accounts.account,
@@ -1377,6 +1411,7 @@ fd_runtime_new_txn_out( fd_txn_in_t const * txn_in,
   txn_out->err.exec_err_kind  = FD_EXECUTOR_ERR_KIND_NONE;
   txn_out->err.exec_err_idx   = UINT_MAX;
   txn_out->err.custom_err     = 0;
+  txn_out->err.rent_err_account_idx = UINT_MAX;
 }
 
 void
