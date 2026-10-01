@@ -256,7 +256,7 @@ after_credit( fd_genesi_tile_t *  ctx,
     dst->blob_sz = ctx->genesis_blob_sz;
     fd_memcpy( dst_blob, ctx->genesis_blob, ctx->genesis_blob_sz );
 
-    fd_stem_publish( stem, 0UL, msg_sz, ctx->out.chunk0, msg_sz, 0UL, 0UL, 0UL );
+    fd_stem_publish( stem, 0UL, msg_sz, ctx->out.chunk0, 0UL, 0UL, 0UL, 0UL );
     *charge_busy = 1;
     FD_LOG_NOTICE(( "loaded local genesis.bin from file %s%s%s", fd_log_style_dim(), ctx->genesis_path, fd_log_style_normal() ));
 
