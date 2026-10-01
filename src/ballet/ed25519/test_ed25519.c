@@ -1131,6 +1131,111 @@ test_sc_muladd( fd_rng_t * rng ) {
   log_bench( "fd_curve25519_scalar_muladd", iter, dt );
 }
 
+/* ref_wnaf is the previous bit-at-a-time implementation of
+   fd_curve25519_scalar_wnaf, kept as the reference for the
+   differential test below. */
+
+static void FD_FN_NO_ASAN
+ref_wnaf( short       _t[ 256 ],
+          uchar const _s[ 32 ],
+          int         bits ) {
+  short max = (short)((1 << bits) - 1);
+
+  for( int i=0; i<255; i++ ) _t[i] = ((short)_s[i>>3] >> (i&7)) & 1;
+  _t[255] = 0;
+
+  int i;
+  for( i=0; i<256; i++ ) if( _t[i] ) break;
+
+  while( i<256 ) {
+    short ti = 1;
+    int j;
+    for( j=i+1; j<256; j++ ) {
+      short tj = _t[j];
+      if( !tj ) continue;
+      short delta = (short)(1 << fd_int_min( j-i, 14 ));
+      if( delta>(2*max) ) break;
+      short tip = (short)(ti + delta);
+      if( tip<=max ) { ti = tip; _t[j] = 0; continue; }
+      short tim = (short)(ti - delta);
+      if( tim>=-max ) {
+        ti = tim; _t[j] = 0;
+        for(;;) {
+          j++;
+          if( !_t[j] ) { _t[j] = 1; break; }
+          _t[j] = 0;
+        }
+        break;
+      }
+      break;
+    }
+    _t[i] = ti;
+    i = j;
+  }
+}
+
+/* wnaf_scalar fills s with the case-th test scalar: random, all ones,
+   sparse, dense, single bit (top bit set), zero low limbs, and the all
+   ones top limb.  Bit 255 is randomly set to check it is ignored. */
+
+static void
+wnaf_scalar( fd_rng_t * rng,
+             uchar      s[ 32 ],
+             ulong      kase ) {
+  ulong * u = (ulong *)s;
+  switch( kase%7UL ) {
+  case 0: fd_rng_b256( rng, s ); break;
+  case 1: memset( s, 0xff, 32UL ); break;
+  case 2: fd_rng_b256( rng, s ); for( ulong i=0UL; i<4UL; i++ ) u[i] &= fd_rng_ulong( rng ) & fd_rng_ulong( rng ); break;
+  case 3: fd_rng_b256( rng, s ); for( ulong i=0UL; i<4UL; i++ ) u[i] |= fd_rng_ulong( rng ) | fd_rng_ulong( rng ); break;
+  case 4: memset( s, 0, 32UL ); u[ fd_rng_ulong_roll( rng, 4UL ) ] |= 1UL<<fd_rng_ulong_roll( rng, 64UL ); u[3] |= 1UL<<62; break;
+  case 5: fd_rng_b256( rng, s ); for( ulong i=0UL; i<fd_rng_ulong_roll( rng, 4UL ); i++ ) u[i] = 0UL; break;
+  default: fd_rng_b256( rng, s ); u[3] = ULONG_MAX; break;
+  }
+  u[3] = (u[3] & ~(1UL<<63)) | (fd_rng_ulong( rng ) & (1UL<<63));
+}
+
+void
+test_sc_wnaf( fd_rng_t * rng ) {
+  ulong iter = g_bench ? 3000000UL : 100000UL;
+  for( ulong i=0UL; i<iter; i++ ) {
+    uchar s[32]; wnaf_scalar( rng, s, i );
+    int bits = 1 + (int)fd_rng_uint_roll( rng, 12U );
+    short t0[256], t1[256];
+    ref_wnaf( t0, s, bits );
+    fd_curve25519_scalar_wnaf( t1, s, bits );
+    if( FD_UNLIKELY( !fd_memeq( t0, t1, sizeof(t0) ) ) ) {
+      FD_LOG_ERR(( "fd_curve25519_scalar_wnaf mismatch: scalar " FD_LOG_HEX16_FMT " " FD_LOG_HEX16_FMT " bits %i",
+                   FD_LOG_HEX16_FMT_ARGS( s ), FD_LOG_HEX16_FMT_ARGS( s+16 ), bits ));
+    }
+  }
+  FD_LOG_NOTICE(( "fd_curve25519_scalar_wnaf: ok (%lu cases)", iter ));
+
+  /* bench over random reduced scalars (branch behaviour matters) */
+
+  static uchar s[ 1024 ][ 32 ];
+  for( ulong i=0UL; i<1024UL; i++ ) { uchar h[64]; fd_curve25519_scalar_reduce( s[i], fd_rng_b512( rng, h ) ); }
+  iter = g_bench ? 1000000UL : 0UL;
+  for( int bits=4; bits<=8; bits+=4 ) {
+    short _t[256]; short * t = _t;
+    char cstr[128];
+    long dt = fd_log_wallclock();
+    for( ulong rem=iter; rem; rem-- ) {
+      FD_COMPILER_FORGET( t );
+      ref_wnaf( t, s[ rem&1023UL ], bits );
+    }
+    dt = fd_log_wallclock() - dt;
+    log_bench( fd_cstr_printf( cstr, 128UL, NULL, "ref_wnaf(%i)", bits ), iter, dt );
+    dt = fd_log_wallclock();
+    for( ulong rem=iter; rem; rem-- ) {
+      FD_COMPILER_FORGET( t );
+      fd_curve25519_scalar_wnaf( t, s[ rem&1023UL ], bits );
+    }
+    dt = fd_log_wallclock() - dt;
+    log_bench( fd_cstr_printf( cstr, 128UL, NULL, "fd_curve25519_scalar_wnaf(%i)", bits ), iter, dt );
+  }
+}
+
 void
 test_sc_unaligned_output( fd_rng_t * rng ) {
   uchar in[64];
@@ -1889,6 +1994,7 @@ main( int     argc,
   test_sc_validate  ( rng );
   test_sc_reduce    ( rng );
   test_sc_muladd    ( rng );
+  test_sc_wnaf      ( rng );
   test_sc_unaligned_output( rng );
 
   test_public_from_private( rng, sha );
