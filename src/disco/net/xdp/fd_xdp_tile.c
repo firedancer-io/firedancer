@@ -1156,7 +1156,7 @@ privileged_init( fd_topo_t const *      topo,
   ctx->net.pkt_buf_wmark     = umem_wmark;
 
   ctx->free_tx.queue = free_tx;
-  ctx->free_tx.depth = tile->xdp.xdp_tx_queue_size;
+  ctx->free_tx.depth = tile->xdp.free_ring_depth;
 
   /* Create and install XSKs */
 
