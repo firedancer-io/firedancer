@@ -21,6 +21,7 @@
 #include "../../util/pod/fd_pod_format.h"
 #include "../../flamenco/gossip/fd_gossip_message.h"
 #include "../../util/net/fd_net_headers.h"
+#include "../../waltz/fd_token_bucket.h"
 
 #include <linux/futex.h>
 #include "generated/fd_rserve_tile_seccomp.h"
@@ -39,6 +40,11 @@
 
 /* 10 minutes in milliseconds. */
 #define FD_RSERVE_SIGNED_REPAIR_WINDOW (60L*10L*1000L)
+
+/* Pings to peers not in the ping cache each cost a request to the sign
+   tile, so they are rate limited globally. */
+#define FD_RSERVE_PING_RATE  (512.f) /* per second */
+#define FD_RSERVE_PING_BURST (512.f)
 
 /* static map from request type to response metric array index */
 static uint response_metric_index[AG_REPAIR_KIND_SHRED_FOR_BLOCK_ID + 1] = {
@@ -104,6 +110,8 @@ typedef struct ctx {
   uint polled:1;
   uint idle:1;
 
+  fd_token_bucket_t ping_bucket[1];
+
   fd_ip4_udp_hdrs_t serve_hdr[1];
   ushort            net_id;
 
@@ -125,6 +133,7 @@ typedef struct ctx {
     ulong fail_invalid_shred_idx;
     ulong fail_invalid_fec_set_idx;
     ulong fail_ping_cache_lookup;
+    ulong fail_ping_rate_limit;
     ulong disk_read_busy;
     ulong disk_read_miss;
     ulong disk_read_scan_limit;
@@ -332,6 +341,21 @@ handle_net_request( ctx_t             * ctx,
     return;
   }
 
+  /* Check whether we've heard a pong response from this peer at this
+     exact source address. Keying on (pubkey, address) means a peer that
+     ponged from one address cannot have repair responses redirected to
+     a spoofed source address. */
+  ping_cache_key_t key[1];
+  memset( key, 0, sizeof(ping_cache_key_t) );
+  key->pubkey = header->from;
+  key->ip4    = ip4->saddr;
+  key->port   = udp->net_sport;
+  ping_cache_entry_t * entry = ping_map_ele_query( ctx->rserve->ping_map, key, NULL, ctx->rserve->ping_pool );
+  if( FD_UNLIKELY( !entry && !fd_token_bucket_consume( ctx->ping_bucket, 1.f, fd_tickcount() ) ) ) {
+    ctx->metrics->fail_ping_rate_limit++;
+    return;
+  }
+
   /* Verify the signature. */
 
   /* The signed bytes are the tag followed by everything after the
@@ -347,16 +371,6 @@ handle_net_request( ctx_t             * ctx,
     return;
   }
 
-  /* Check whether we've heard a pong response from this peer at this
-     exact source address. Keying on (pubkey, address) means a peer that
-     ponged from one address cannot have repair responses redirected to
-     a spoofed source address. */
-  ping_cache_key_t key[1];
-  memset( key, 0, sizeof(ping_cache_key_t) );
-  key->pubkey = header->from;
-  key->ip4    = ip4->saddr;
-  key->port   = udp->net_sport;
-  ping_cache_entry_t * entry = ping_map_ele_query( ctx->rserve->ping_map, key, NULL, ctx->rserve->ping_pool );
   if( FD_LIKELY( entry ) ) {
     switch( tag ) {
       case FD_REPAIR_KIND_SHRED:
@@ -718,6 +732,7 @@ metrics_write( ctx_t * ctx ) {
   FD_MCNT_SET( RSERVE, FAILED_INVALID_SHRED_INDEX,         ctx->metrics->fail_invalid_shred_idx );
   FD_MCNT_SET( RSERVE, FAILED_INVALID_FEC_SET_INDEX,       ctx->metrics->fail_invalid_fec_set_idx );
   FD_MCNT_SET( RSERVE, FAILED_PING_CACHE_LOOKUP,           ctx->metrics->fail_ping_cache_lookup );
+  FD_MCNT_SET( RSERVE, FAILED_PING_RATE_LIMIT,             ctx->metrics->fail_ping_rate_limit );
   FD_MCNT_SET( RSERVE, DISK_READ_BUSY,                     ctx->metrics->disk_read_busy );
   FD_MCNT_SET( RSERVE, DISK_READ_MISS,                     ctx->metrics->disk_read_miss );
   FD_MCNT_SET( RSERVE, DISK_READ_SCAN_LIMIT,               ctx->metrics->disk_read_scan_limit );
@@ -820,6 +835,15 @@ unprivileged_init( fd_topo_t      const * topo,
   ctx->net_id = (ushort)0;
   ctx->polled = 0;
   ctx->idle   = 0;
+
+  float tick_per_s = (float)fd_tempo_tick_per_ns( NULL )*1e9f;
+  ctx->ping_bucket[0] = (fd_token_bucket_t){
+    .ts      = fd_tickcount(),
+    .rate    = FD_RSERVE_PING_RATE/tick_per_s,
+    .burst   = FD_RSERVE_PING_BURST,
+    .balance = FD_RSERVE_PING_BURST
+  };
+
   fd_ip4_udp_hdr_init( ctx->serve_hdr, FD_RSERVE_MAX_PACKET_SIZE, 0, tile->rserve.repair_serve_listen_port );
   fd_sha512_new( ctx->sha512 );
 

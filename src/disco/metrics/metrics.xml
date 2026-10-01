@@ -1521,6 +1521,7 @@ EXAMPLES
     <counter name="FailedInvalidShredIndex" summary="How many requests we've received that had invalid shred indices" />
     <counter name="FailedInvalidFecSetIndex" summary="How many FEC set root requests we've received with a FEC set index that is unaligned or past the end of the block" />
     <counter name="FailedPingCacheLookup" summary="Requests from nodes not in the ping cache, which triggered a ping-back instead of a response" />
+    <counter name="FailedPingRateLimit" summary="Requests from nodes not in the ping cache dropped because pings were rate limited" />
     <counter name="DiskReadBusy" summary="Repair reads dropped because the requested index binding or ring cell changed" />
     <counter name="DiskReadMiss" summary="Repair reads not found in the store" />
     <counter name="DiskReadScanLimit" summary="Highest-shred repair reads dropped because the cached upper bound was no longer readable" />
