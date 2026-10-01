@@ -150,7 +150,9 @@ acquire_slotv( fd_chainer_t * chainer, ulong slot ) {
 void
 fd_chainer_init( fd_chainer_t *    chainer,
                  ulong             slot,
-                 fd_hash_t const * block_id ) {
+                 fd_hash_t const * block_id,
+                 fd_chainer_block_event_fn block_event_fn,
+                 void *                    block_event_ctx ) {
   fd_chainer_slotv_t * slotv = acquire_slotv( chainer, slot );
   slotv->parent_slot       = slot;
   slotv->complete_idx      = 0;
@@ -164,6 +166,9 @@ fd_chainer_init( fd_chainer_t *    chainer,
 
   chainer->root             = slot;
   chainer->highest_repaired = slot;
+
+  chainer->block_event_fn   = block_event_fn;
+  chainer->block_event_ctx  = block_event_ctx;
 }
 
 /* slotv_fec returns the FEC that slotv owns at fec_set_idx, or NULL if
@@ -224,6 +229,7 @@ fec_join( fd_chainer_t *       chainer,
     fec->slot_complete = 0;
     fec->data_complete = 0;
     fec->is_leader     = 0;
+    fd_memset( &fec->metrics, 0, sizeof(fec->metrics) );
     fd_fec_map_ele_insert( fec_map, fec, fec_pool );
   }
   fd_chainer_slotv_fecs( chainer, slotv )[ k ] = (uint)fd_fec_pool_idx( fec_pool, fec );
@@ -312,6 +318,13 @@ finalize_block_id( fd_chainer_t * chainer, fd_chainer_slotv_t * slotv ) {
   return 1;
 }
 
+static void
+fec_shred_received( fd_chainer_fec_t * fec, int src, long rx_ts ) {
+  fec->metrics.last_shred_src = src;
+  if( FD_UNLIKELY( rx_ts && ( !fec->metrics.first_shred_ts || rx_ts<fec->metrics.first_shred_ts ) ) )
+    fec->metrics.first_shred_ts = rx_ts;
+}
+
 fd_chainer_slotv_t *
 fd_chainer_shred_insert( fd_chainer_t *        chainer,
                          ulong                 slot,
@@ -373,6 +386,14 @@ fd_chainer_shred_insert( fd_chainer_t *        chainer,
   fec->data_idxs |= bit;
   if( FD_UNLIKELY( slot_complete ) ) fec->slot_complete = 1;
 
+  /* Reconstructed notifications precede FEC completion, but must not
+     replace the source of the network shred that enabled recovery. */
+  if( FD_LIKELY( new_shred && !fec->complete && ( src==FD_CHAINER_SRC_TURBINE || src==FD_CHAINER_SRC_REPAIR ) ) ) {
+    fec->metrics.data_received |= bit;
+    if( src==FD_CHAINER_SRC_REPAIR ) fec->metrics.repair_received |= bit;
+    fec_shred_received( fec, src, rx_ts );
+  }
+
   /* Update every version that owns this FEC root at this position. */
 
   uint fec_idx = (uint)fd_fec_pool_idx( chainer->fec_pool, fec );
@@ -429,16 +450,20 @@ void
 fd_chainer_code_shred_insert( fd_chainer_t *    chainer,
                               ulong             slot,
                               uint              fec_set_idx,
+                              uint              code_idx,
                               long              rx_ts,
                               fd_hash_t const * mr ) {
   ulong k = fec_set_idx / FD_FEC_SHRED_CNT;
-  if( FD_UNLIKELY( k>=chainer->fec_blk_max ) ) return;
+  if( FD_UNLIKELY( k>=chainer->fec_blk_max || code_idx>=FD_FEC_SHRED_CNT ) ) return;
 
-  /* Purely metrics, so best effort tracing.  Coding shreds do not create
-     fec entries. */
-
+  /* Best effort: coding shreds do not create FEC entries. */
   fd_chainer_fec_t * fec = fec_query( chainer, mr );
-  if( FD_UNLIKELY( !fec ) ) return;
+  if( FD_UNLIKELY( !fec || fec->complete ) ) return;
+
+  uint bit = 1U << code_idx;
+  if( FD_UNLIKELY( fec->metrics.parity_received & bit ) ) return;
+  fec->metrics.parity_received |= bit;
+  fec_shred_received( fec, FD_CHAINER_SRC_TURBINE, rx_ts );
 
   uint fec_idx = (uint)fd_fec_pool_idx( chainer->fec_pool, fec );
   for( ulong i =slotv_iter_init( chainer, slot );
@@ -537,7 +562,7 @@ fd_chainer_fec_complete( fd_chainer_t *        chainer,
 
   fd_chainer_slotv_t * created = NULL;
   for( uint i=0U; i<FD_FEC_SHRED_CNT; i++ ) {
-    fd_chainer_slotv_t * c = fd_chainer_shred_insert( chainer, slot, fec_set_idx_ + i, slot_complete && ( i==FD_FEC_SHRED_CNT-1 ), FD_CHAINER_SRC_RECOVERED, rx_ts, mr, AG_UNKNOWN_SLOT, NULL );
+    fd_chainer_slotv_t * c = fd_chainer_shred_insert( chainer, slot, fec_set_idx_ + i, slot_complete && ( i==FD_FEC_SHRED_CNT-1 ), is_leader ? FD_CHAINER_SRC_LEADER : FD_CHAINER_SRC_RECOVERED, rx_ts, mr, AG_UNKNOWN_SLOT, NULL );
     if( FD_UNLIKELY( c ) ) created = c; /* only the first insert can create */
   }
 
@@ -551,6 +576,12 @@ fd_chainer_fec_complete( fd_chainer_t *        chainer,
     return created;
   }
 
+  if( FD_LIKELY( !fec->complete ) ) {
+    fec->metrics.completed_ts = rx_ts;
+    /* Leader sets arrive as a whole; tsorig is the entry batch arrival.
+       Metadata replay of a shared complete FEC must preserve its stamps. */
+    if( FD_UNLIKELY( is_leader ) ) fec_shred_received( fec, FD_CHAINER_SRC_LEADER, rx_ts );
+  }
   fec->complete = 1; /* set is now reconstructable -> deliverable */
   if( FD_UNLIKELY( slot_complete ) ) fec->slot_complete = 1;
   if( FD_UNLIKELY( data_complete ) ) fec->data_complete = 1;
@@ -564,6 +595,7 @@ fd_chainer_fec_complete( fd_chainer_t *        chainer,
 
     slotv->metrics.last_completed_fec_idx = fec_set_idx;
 
+    int was_complete = slotv->complete_idx!=UINT_MAX && slotv->buffered_fec_idx==slotv->complete_idx;
     for(;;) {
       fd_chainer_fec_t * next = slotv_fec( chainer, slotv, slotv->buffered_fec_idx + 1U );
       if( !next || !next->complete ) break;
@@ -583,10 +615,16 @@ fd_chainer_fec_complete( fd_chainer_t *        chainer,
                        fd_hash_check_zero( &turbine->block_id ) ) ) {
         if( FD_LIKELY( finalize_block_id( chainer, turbine ) ) ) {
           if( opt_turbine_finalized ) *opt_turbine_finalized = turbine;
+          /* A notification flag independent of last_shred_ts is also needed
+             for metadata-only completion (rx_ts==0) and later eviction. */
+          if( FD_UNLIKELY( chainer->block_event_fn && !slotv->abandoned ) ) chainer->block_event_fn( chainer->block_event_ctx, slotv );
         } else {
           FD_LOG_WARNING(( "failed to finalize block_id for slot %lu, parent_slot %lu parent_bid is zero %d", slot, turbine->parent_slot, fd_hash_check_zero( &turbine->parent_block_id ) ));
         }
       }
+    } else if( FD_UNLIKELY( !was_complete && slotv->complete_idx!=UINT_MAX &&
+                           slotv->buffered_fec_idx==slotv->complete_idx && chainer->block_event_fn ) ) {
+      chainer->block_event_fn( chainer->block_event_ctx, slotv );
     }
 
     chainer_advance( chainer, slotv );
@@ -615,6 +653,7 @@ fd_chainer_fec_evicted( fd_chainer_t * chainer,
      under pressure. */
 
   fec->data_idxs = 0U;
+  fd_memset( &fec->metrics, 0, sizeof(fec->metrics) );
   uint fec_idx = (uint)fd_fec_pool_idx( chainer->fec_pool, fec );
 
   /* find slots that have this FEC root */
@@ -758,6 +797,14 @@ fd_chainer_publish( fd_chainer_t *    chainer,
      unknown) and its FEC list is cleared, since a rooted slot's FEC
      data is never needed again. */
   for( ulong slot=root; slot<=new_root; slot++ ) {
+    /* All siblings must report before releasing their shared FECs. */
+    if( FD_UNLIKELY( chainer->block_event_fn ) ) {
+      for( ulong i=slotv_iter_init( chainer, slot ); i!=ULONG_MAX; i=slotv_iter_next( chainer, i ) ) {
+        fd_chainer_slotv_t * s = slotv_iter_ele( chainer, i );
+        if( FD_UNLIKELY( s->abandoned || s->complete_idx==UINT_MAX || s->buffered_idx!=s->complete_idx ) )
+          chainer->block_event_fn( chainer->block_event_ctx, s );
+      }
+    }
     for( ulong i=slotv_iter_init( chainer, slot ); i!=ULONG_MAX; ) {
       fd_chainer_slotv_t * s    = slotv_iter_ele ( chainer, i );
       ulong                next = slotv_iter_next( chainer, i );

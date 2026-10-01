@@ -33,7 +33,7 @@ test_fec_pool_layout( void ) {
   FD_TEST( fec_max<(ulong)UINT_MAX       );
   FD_TEST( fec_max<fd_fec_pool_idx_null( NULL ) );
   FD_TEST( fec_max<fd_fec_map_ele_max()   );
-  FD_TEST( sizeof(fd_chainer_fec_t)==52UL );
+  FD_TEST( sizeof(fd_chainer_fec_t)==88UL );
   FD_TEST( sizeof(((fd_chainer_fec_t *)NULL)->slot)==sizeof(uint) );
   FD_TEST( sizeof(((fd_chainer_fec_t *)NULL)->data_idxs)==sizeof(uint) );
 
@@ -240,7 +240,7 @@ test_basic( fd_wksp_t * wksp ) {
   fd_chainer_t * chainer = setup( wksp );
 
   fd_hash_t bid0 = mkhash( 100UL );
-  fd_chainer_init( chainer, 10UL, &bid0 );
+  fd_chainer_init( chainer, 10UL, &bid0, NULL, NULL );
   FD_TEST( !fd_chainer_verify( chainer ) );
 
   FD_TEST( chainer->root==10UL );
@@ -322,7 +322,7 @@ test_basic( fd_wksp_t * wksp ) {
      block in a second chainer must produce the same id */
 
   fd_chainer_t * other = setup( wksp );
-  fd_chainer_init( other, 10UL, &bid0 );
+  fd_chainer_init( other, 10UL, &bid0, NULL, NULL );
   FD_TEST( !feed_fec( other, 11UL, 0U,  0, &r0, 10UL,            &bid0 ) );
   FD_TEST( !feed_fec( other, 11UL, 32U, 1, &r1, AG_UNKNOWN_SLOT, NULL  ) );
   FD_TEST( fd_hash_eq( &slotv_at( other, 11UL, 0UL )->block_id, &bid11 ) );
@@ -344,7 +344,7 @@ test_shared_prefix( fd_wksp_t * wksp ) {
   fd_chainer_t * chainer = setup( wksp );
 
   fd_hash_t bid0 = mkhash( 100UL );
-  fd_chainer_init( chainer, 20UL, &bid0 );
+  fd_chainer_init( chainer, 20UL, &bid0, NULL, NULL );
 
   fd_hash_t r0  = mkhash( 1UL );
   fd_hash_t r1  = mkhash( 2UL );
@@ -464,7 +464,7 @@ test_notar_fallback_in_flight( fd_wksp_t * wksp ) {
   fd_chainer_slotv_t * slotv_pool = chainer->slotv_pool;
 
   fd_hash_t bid0 = mkhash( 100UL );
-  fd_chainer_init( chainer, 30UL, &bid0 );
+  fd_chainer_init( chainer, 30UL, &bid0, NULL, NULL );
 
   fd_hash_t r0 = mkhash( 1UL );
   FD_TEST( !feed_fec( chainer, 31UL, 0U, 0, &r0, 30UL, &bid0 ) );
@@ -524,7 +524,7 @@ test_sentinel_before_turbine( fd_wksp_t * wksp ) {
   fd_chainer_t * chainer = setup( wksp );
 
   fd_hash_t bid0 = mkhash( 100UL );
-  fd_chainer_init( chainer, 40UL, &bid0 );
+  fd_chainer_init( chainer, 40UL, &bid0, NULL, NULL );
 
   fd_hash_t r0 = mkhash( 1UL );
   fd_hash_t r1 = mkhash( 2UL );
@@ -603,7 +603,7 @@ test_turbine_shred_after_notar_fallback( fd_wksp_t * wksp ) {
   fd_chainer_t * chainer = setup( wksp );
 
   fd_hash_t bid0 = mkhash( 100UL );
-  fd_chainer_init( chainer, 50UL, &bid0 );
+  fd_chainer_init( chainer, 50UL, &bid0, NULL, NULL );
 
   fd_hash_t r0 = mkhash( 1UL );
   fd_hash_t r1 = mkhash( 2UL );
@@ -669,7 +669,7 @@ test_publish( fd_wksp_t * wksp ) {
   ulong fec_free0   = fd_fec_pool_free  ( fec_pool   );
 
   fd_hash_t bid0 = mkhash( 100UL );
-  fd_chainer_init( chainer, 60UL, &bid0 );
+  fd_chainer_init( chainer, 60UL, &bid0, NULL, NULL );
 
   /* slot 61: two FEC sets, chained to the root */
 
@@ -735,7 +735,7 @@ test_publish_large_block( fd_wksp_t * wksp ) {
   ulong fec_free0   = fd_fec_pool_free  ( fec_pool   );
 
   fd_hash_t bid0 = mkhash( 100UL );
-  fd_chainer_init( chainer, 70UL, &bid0 );
+  fd_chainer_init( chainer, 70UL, &bid0, NULL, NULL );
 
   /* slot 71: 64 FEC sets = 2048 shreds */
 
@@ -798,7 +798,7 @@ test_publish_noncanonical_v0( fd_wksp_t * wksp ) {
   ulong fec_free0   = fd_fec_pool_free  ( fec_pool   );
 
   fd_hash_t bid0 = mkhash( 100UL );
-  fd_chainer_init( chainer, 60UL, &bid0 );
+  fd_chainer_init( chainer, 60UL, &bid0, NULL, NULL );
 
   /* slot 61 version 0: complete turbine block chained to the root */
 
@@ -861,7 +861,7 @@ test_versions_full( fd_wksp_t * wksp ) {
   fd_chainer_t * chainer = setup( wksp );
 
   fd_hash_t bid0 = mkhash( 100UL );
-  fd_chainer_init( chainer, 80UL, &bid0 );
+  fd_chainer_init( chainer, 80UL, &bid0, NULL, NULL );
 
   fd_hash_t r0 = mkhash( 1UL );
   FD_TEST( !feed_fec( chainer, 81UL, 0U, 0, &r0, 80UL, &bid0 ) ); /* version 0 */
@@ -897,7 +897,7 @@ test_prefix_key( fd_wksp_t * wksp ) {
   fd_chainer_t * chainer = setup( wksp );
 
   fd_hash_t bid0 = mkhash( 100UL );
-  fd_chainer_init( chainer, 40UL, &bid0 );
+  fd_chainer_init( chainer, 40UL, &bid0, NULL, NULL );
 
   /* full roots with a non-zero tail, so the padded prefix differs */
   fd_hash_t r0 = mkhash( 1UL ); r0.uc[ 24 ] = 0x5a;
@@ -979,7 +979,7 @@ test_equivocation_drop( fd_wksp_t * wksp ) {
   fd_chainer_fec_t * fec_pool = chainer->fec_pool;
 
   fd_hash_t bid0 = mkhash( 100UL );
-  fd_chainer_init( chainer, 90UL, &bid0 );
+  fd_chainer_init( chainer, 90UL, &bid0, NULL, NULL );
 
   fd_hash_t r0    = mkhash( 1UL );
   fd_hash_t r0dup = mkhash( 2UL );
@@ -1023,7 +1023,7 @@ test_verify_detects( fd_wksp_t * wksp ) {
   FD_TEST( fd_chainer_verify( NULL ) );
 
   fd_hash_t bid0 = mkhash( 100UL );
-  fd_chainer_init( chainer, 110UL, &bid0 );
+  fd_chainer_init( chainer, 110UL, &bid0, NULL, NULL );
 
   fd_hash_t r0 = mkhash( 1UL );
   fd_hash_t r1 = mkhash( 2UL );
@@ -1090,7 +1090,7 @@ test_output_order_redeliver( fd_wksp_t * wksp ) {
   fd_chainer_t * chainer = setup( wksp );
 
   fd_hash_t bid0 = mkhash( 100UL );
-  fd_chainer_init( chainer, 50UL, &bid0 );
+  fd_chainer_init( chainer, 50UL, &bid0, NULL, NULL );
 
   fd_hash_t A  = mkhash( 1UL ); /* set 0   (shared)             */
   fd_hash_t B  = mkhash( 2UL ); /* set 32  (shared)             */
@@ -1159,7 +1159,7 @@ test_output_order_out_of_order( fd_wksp_t * wksp ) {
   fd_chainer_t * chainer = setup( wksp );
 
   fd_hash_t bid0 = mkhash( 100UL );
-  fd_chainer_init( chainer, 60UL, &bid0 );
+  fd_chainer_init( chainer, 60UL, &bid0, NULL, NULL );
 
   fd_hash_t A  = mkhash( 1UL ); /* set 0  (shared)             */
   fd_hash_t B  = mkhash( 2UL ); /* set 32 (shared)             */
@@ -1220,7 +1220,7 @@ test_shred_limit( fd_wksp_t * wksp ) {
   fd_chainer_t * chainer = setup( wksp );
 
   fd_hash_t bid0 = mkhash( 100UL );
-  fd_chainer_init( chainer, 10UL, &bid0 );
+  fd_chainer_init( chainer, 10UL, &bid0, NULL, NULL );
 
   uint const shred_max = (uint)FD_SHRED_BLK_MAX;
 
@@ -1267,7 +1267,7 @@ test_bench_shred_limit( fd_wksp_t * wksp ) {
   FD_TEST( last>=FD_SHRED_BLK_MAX );                        /* beyond the production limit */
 
   fd_hash_t bid0 = mkhash( 100UL );
-  fd_chainer_init( chainer, 10UL, &bid0 );
+  fd_chainer_init( chainer, 10UL, &bid0, NULL, NULL );
 
   /* turbine version of slot 11: set 0 and the last set */
   fd_hash_t r0 = mkhash( 1UL );
@@ -1318,6 +1318,114 @@ test_bench_shred_limit( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: bench shred limit owns/shares/prunes FEC sets above FD_FEC_BLK_MAX" ));
 }
 
+/* Reception follows the resolver attempt, independently of synthetic
+   recovered inserts and metadata replay into another block version. */
+struct fec_reception_prune_ctx {
+  fd_chainer_t * chainer;
+  uint reports;
+};
+
+static void
+check_fec_reception_prune( void * ctx_, fd_chainer_slotv_t const * slotv ) {
+  struct fec_reception_prune_ctx * ctx = ctx_;
+  if( slotv->slot!=11UL ) return;
+  fd_chainer_fec_t const * fec = fd_chainer_fec_query( ctx->chainer, slotv->slot, 32U, &slotv->block_id );
+  FD_TEST( fec );
+  FD_TEST( fd_fec_map_ele_query_const( ctx->chainer->fec_map, &fec->merkle_root, NULL, ctx->chainer->fec_pool )==fec );
+  FD_TEST( fec->metrics.data_received==1U && fec->metrics.repair_received==1U );
+  FD_TEST( fec->metrics.parity_received==(1U<<31) );
+  FD_TEST( fec->metrics.first_shred_ts==200L && fec->metrics.completed_ts==210L );
+  ctx->reports++;
+}
+
+static void
+test_fec_reception( fd_wksp_t * wksp ) {
+  fd_chainer_t * chainer = setup( wksp );
+  fd_hash_t root = mkhash( 900UL );
+  fd_hash_t mr   = mkhash( 901UL );
+  fd_chainer_init( chainer, 10UL, &root, NULL, NULL );
+
+  /* Coding shreds are ignored until the FEC exists. */
+  fd_chainer_code_shred_insert( chainer, 11UL, 32U, 31U, 100L, &mr );
+  FD_TEST( !fd_chainer_slot_query( chainer, 11UL ) );
+  fd_chainer_slotv_t * v = fd_chainer_shred_insert( chainer, 11UL, 32U, 0, FD_CHAINER_SRC_REPAIR, 110L, &mr, AG_UNKNOWN_SLOT, NULL );
+  FD_TEST( v && v->turbine );
+  fd_chainer_fec_t * fec = fec_at( chainer, 11UL, 32U, 0UL );
+  FD_TEST( fec && fec->data_idxs==1U && !fec->metrics.parity_received );
+  fd_chainer_code_shred_insert( chainer, 11UL, 32U, 31U, 120L, &mr );
+  FD_TEST( fec->metrics.parity_received==(1U<<31) );
+  FD_TEST( fec->metrics.first_shred_ts==110L && !fec->metrics.completed_ts );
+  FD_TEST( v->metrics.parity_cnt==1U && v->metrics.turbine_cnt==1U );
+  FD_TEST( !fd_chainer_verify( chainer ) );
+
+  /* Start again after eviction.  Refetched bits describe this attempt;
+     the block-level counts retain the earlier delivery. */
+  fd_chainer_fec_evicted( chainer, 11UL, 32U, &mr );
+  FD_TEST( !fec->data_idxs && !fec->metrics.data_received && !fec->metrics.parity_received && !fec->metrics.repair_received );
+  FD_TEST( !fec->metrics.first_shred_ts && !fec->metrics.completed_ts );
+  FD_TEST( fec->metrics.last_shred_src==FD_CHAINER_SRC_TURBINE );
+  fd_chainer_code_shred_insert( chainer, 11UL, 32U, 31U, 200L, &mr );
+  fd_chainer_shred_insert( chainer, 11UL, 32U, 0, FD_CHAINER_SRC_REPAIR, 210L, &mr, AG_UNKNOWN_SLOT, NULL );
+  fd_chainer_code_shred_insert( chainer, 11UL, 32U, 31U, 220L, &mr ); /* duplicate */
+  fd_chainer_shred_insert( chainer, 11UL, 32U, 0, FD_CHAINER_SRC_TURBINE, 230L, &mr, AG_UNKNOWN_SLOT, NULL ); /* duplicate */
+  FD_TEST( fec->metrics.last_shred_src==FD_CHAINER_SRC_REPAIR );
+  FD_TEST( v->metrics.parity_cnt==2U && v->metrics.repair_cnt==2U );
+  fd_chainer_shred_insert( chainer, 11UL, 33U, 0, FD_CHAINER_SRC_RECOVERED, 210L, &mr, AG_UNKNOWN_SLOT, NULL );
+  fd_chainer_fec_complete( chainer, 11UL, 32U, 0, 1, 0, 210L, &mr, NULL, NULL );
+  FD_TEST( fec->data_idxs==UINT_MAX );
+  FD_TEST( fec->metrics.data_received==1U && fec->metrics.repair_received==1U );
+  FD_TEST( fec->metrics.parity_received==(1U<<31) );
+  FD_TEST( fec->metrics.last_shred_src==FD_CHAINER_SRC_REPAIR );
+  FD_TEST( fec->metrics.first_shred_ts==200L && fec->metrics.completed_ts==210L );
+  FD_TEST( v->metrics.recovered_cnt==31U );
+
+  uchar saved[ sizeof(fec->metrics) ];
+  memcpy( saved, &fec->metrics, sizeof(saved) );
+  fd_chainer_shred_insert( chainer, 11UL, 34U, 0, FD_CHAINER_SRC_TURBINE, 300L, &mr, AG_UNKNOWN_SLOT, NULL );
+  fd_chainer_code_shred_insert( chainer, 11UL, 32U, 30U, 310L, &mr );
+  fd_chainer_fec_complete( chainer, 11UL, 32U, 0, 1, 0, 320L, &mr, NULL, NULL );
+  FD_TEST( !memcmp( saved, &fec->metrics, sizeof(saved) ) );
+
+  fd_hash_t bid = mkhash( 902UL );
+  fd_chainer_verified_block_insert( chainer, 11UL, bid );
+  fd_chainer_verified_hash_insert( chainer, 11UL, &bid, 32U, mr.uc );
+  FD_TEST( fd_chainer_fec_query( chainer, 11UL, 32U, &bid )==fec );
+  FD_TEST( !memcmp( saved, &fec->metrics, sizeof(saved) ) );
+  FD_TEST( !fd_chainer_verify( chainer ) );
+
+  /* Leader sets are produced, not received or recovered. */
+  fd_hash_t leader_mr = mkhash( 903UL );
+  fd_chainer_fec_complete( chainer, 12UL, 0U, 0, 1, 1, 400L, &leader_mr, NULL, NULL );
+  fd_chainer_fec_t * leader = fec_at( chainer, 12UL, 0U, 0UL );
+  fd_chainer_slotv_t * lv = fd_chainer_turbine_slotv_query( chainer, 12UL );
+  FD_TEST( leader && leader->data_idxs==UINT_MAX );
+  FD_TEST( !leader->metrics.data_received && !leader->metrics.parity_received && !leader->metrics.repair_received );
+  FD_TEST( leader->metrics.first_shred_ts==400L && leader->metrics.completed_ts==400L );
+  FD_TEST( leader->metrics.last_shred_src==FD_CHAINER_SRC_LEADER );
+  FD_TEST( !lv->metrics.turbine_cnt && !lv->metrics.repair_cnt && !lv->metrics.recovered_cnt );
+  FD_TEST( !fd_chainer_verify( chainer ) );
+
+  struct fec_reception_prune_ctx prune_ctx = { .chainer = chainer };
+  chainer->block_event_fn  = check_fec_reception_prune;
+  chainer->block_event_ctx = &prune_ctx;
+  fd_chainer_publish( chainer, 12UL, NULL, NULL );
+  FD_TEST( prune_ctx.reports==2U );
+  FD_TEST( !fd_chainer_verify( chainer ) );
+
+  /* Reusing a freed FEC pool entry must not leak reception state. */
+  fd_hash_t reused_mr = mkhash( 904UL );
+  fd_chainer_shred_insert( chainer, 13UL, 0U, 0, FD_CHAINER_SRC_TURBINE, 500L, &reused_mr, AG_UNKNOWN_SLOT, NULL );
+  fd_chainer_code_shred_insert( chainer, 13UL, 0U, 5U, 500L, &reused_mr );
+  fd_chainer_fec_t * reused = fec_at( chainer, 13UL, 0U, 0UL );
+  FD_TEST( reused && reused->metrics.data_received==1U && !reused->metrics.repair_received );
+  FD_TEST( reused->metrics.parity_received==(1U<<5) );
+  FD_TEST( reused->metrics.first_shred_ts==500L && !reused->metrics.completed_ts );
+  FD_TEST( reused->metrics.last_shred_src==FD_CHAINER_SRC_TURBINE );
+  FD_TEST( !fd_chainer_verify( chainer ) );
+  teardown( chainer );
+  FD_LOG_NOTICE(( "pass: FEC reception survives recovery, duplicates and sharing; resets on eviction" ));
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
@@ -1329,6 +1437,7 @@ main( int argc, char ** argv ) {
   FD_TEST( wksp );
 
   test_fec_pool_layout();
+  test_fec_reception                     ( wksp );
   test_basic                             ( wksp );
   test_shared_prefix                     ( wksp );
   test_notar_fallback_in_flight          ( wksp );

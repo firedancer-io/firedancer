@@ -70,7 +70,76 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_signs_map_align(),    fd_signs_map_footprint ( lg_sign_depth( tile ) )                                  );
   l = FD_LAYOUT_APPEND( l, toss_queue_align(),      toss_queue_footprint   ()                                                         );
   l = FD_LAYOUT_APPEND( l, out_queue_align(),       out_queue_footprint    ( fec_max( tile ) )                                        );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_event_block_received_t), sizeof(fd_event_block_received_t) );
   return FD_LAYOUT_FINI( l, scratch_align() );
+}
+
+static void
+report_block_received( void * ctx_, fd_chainer_slotv_t const * block ) {
+  if( FD_LIKELY( !fd_event_tl ) ) return;
+  ctx_t * ctx = (ctx_t *)ctx_;
+
+  fd_event_block_received_t * ev = ctx->receive_event;
+  fd_memset( ev, 0, FD_EVENT_BLOCK_RECEIVED_PREFIX_SZ );
+
+  ev->slot        = block->slot;
+  ev->parent_slot = block->parent_slot;
+  ev->cancelled   = block->abandoned;
+  ev->caught_up   = (ctx->current_slot - ctx->chainer->highest_repaired) <= 4 ;
+  /* Matches publish_fec's votor_repaired.  TODO distinguish an actual
+     notarization from an ancestry-only version created by metadata. */
+  ev->notarized   = !block->turbine;
+  fd_memcpy( ev->block_id, block->block_id.uc, sizeof(fd_hash_t) );
+  fd_memcpy( ev->parent_block_id, block->parent_block_id.uc, sizeof(fd_hash_t) );
+
+  /* A complete reception has every shred through the known tip.  For
+     incomplete/abandoned versions, report only the delivered prefix.
+     complete_idx and delivered_idx are inclusive shred indices. */
+  int complete = !block->abandoned && block->complete_idx!=UINT_MAX && block->buffered_idx==block->complete_idx;
+  uint last_idx = complete ? block->complete_idx : block->delivered_idx;
+  ev->fec_set_count = last_idx==UINT_MAX ? 0UL : ((ulong)last_idx+1UL)/FD_FEC_SHRED_CNT;
+
+  ev->first_shred_received_time    = (ulong)block->metrics.first_shred_ts;
+  ev->last_shred_received_time     = (ulong)block->metrics.last_shred_ts;
+  ev->first_repair_request_time    = (ulong)block->metrics.first_req_ts;
+  ev->last_repair_received_time    = (ulong)block->metrics.last_repair_resp_ts;
+  ev->parity_shred_received        = block->metrics.parity_cnt;
+  ev->turbine_shred_received       = block->metrics.turbine_cnt;
+  ev->repair_shred_received        = block->metrics.repair_cnt;
+  ev->recovered_shred_count        = block->metrics.recovered_cnt;
+  ev->last_completed_fec_set_index = block->metrics.last_completed_fec_idx;
+  /* Matches publish_fec.  TODO separate a tip learned from verified
+     metadata from an actually received slot-complete shred. */
+  ev->slot_complete_flag = block->complete_idx!=UINT_MAX;
+
+  ev->repair_requests_retransmitted           = block->metrics.req_retransmit_cnt;
+  ev->repair_responses_received               = block->metrics.repair_responses;
+  ev->repair_request_window_count             = block->metrics.req_window_cnt;
+  ev->repair_request_highest_window_count     = block->metrics.req_highest_cnt;
+  ev->repair_request_orphan_count             = block->metrics.req_orphan_cnt;
+  ev->repair_request_shred_for_block_id_count = block->metrics.req_shred_bid_cnt;
+  ev->repair_request_parent_fec_count         = block->metrics.req_parent_cnt;
+  ev->repair_request_fec_root_count           = block->metrics.req_fec_root_cnt;
+
+  ulong fec_cnt = fd_ulong_min( ev->fec_set_count, FD_FEC_BLK_MAX );
+  for( ulong k=0UL; k<fec_cnt; k++ ) {
+    fd_chainer_fec_t const * fec = fd_chainer_fec_query( ctx->chainer, block->slot, (uint)(k*FD_FEC_SHRED_CNT), &block->block_id );
+    if( FD_UNLIKELY( !fec ) ) continue;
+    fd_event_block_received_fec_sets_t * f = &ev->fec_sets[ ev->fec_sets_cnt++ ];
+    fd_memset( f, 0, sizeof(*f) );
+    fd_memcpy( f->fec_merkle_root, fec->merkle_root.uc, sizeof(f->fec_merkle_root) );
+    f->fec_set_index = fec->fec_set_idx;
+    f->fec_data_shreds_received       = fec->metrics.data_received;
+    f->fec_parity_shreds_received     = fec->metrics.parity_received;
+    f->fec_repair_shreds_received     = fec->metrics.repair_received;
+    f->fec_first_shred_received_nanos = (ulong)fec->metrics.first_shred_ts;
+    f->fec_completed_nanos            = (ulong)fec->metrics.completed_ts;
+    f->fec_final_shred_source_repair  = fec->metrics.last_shred_src==FD_CHAINER_SRC_REPAIR;
+    f->fec_source_repair              = !!fec->metrics.repair_received;
+  }
+
+  /* TODO equivocation_detected_shred and fec_duplicate_shred_count. */
+  fd_event_report_block_received( ev );
 }
 
 /* Sign pipeline */
@@ -387,7 +456,7 @@ static inline void
 handle_snap( ctx_t *       ctx,
              uchar const * chunk ) {
   fd_snapshot_manifest_t const * manifest = (fd_snapshot_manifest_t const *)fd_type_pun_const( chunk );
-  fd_chainer_init( ctx->chainer, manifest->slot, (fd_hash_t const *)fd_type_pun_const( manifest->block_id ) );
+  fd_chainer_init( ctx->chainer, manifest->slot, (fd_hash_t const *)fd_type_pun_const( manifest->block_id ), report_block_received, ctx );
 }
 
 static inline void
@@ -397,7 +466,7 @@ handle_genesis( ctx_t *       ctx,
   FD_TEST( sizeof(fd_genesis_meta_t)<=sig );
   fd_genesis_meta_t const * meta = (fd_genesis_meta_t const *)fd_type_pun_const( chunk );
   fd_hash_t block_id = {0};
-  if( meta->bootstrap ) fd_chainer_init( ctx->chainer, 0, &block_id );
+  if( meta->bootstrap ) fd_chainer_init( ctx->chainer, 0, &block_id, report_block_received, ctx );
 }
 
 static void maybe_seed_catchup( ctx_t * ctx );
@@ -604,7 +673,7 @@ handle_shred( ctx_t *            ctx,
 
   if( FD_UNLIKELY( !is_data ) ) {
     if( FD_LIKELY( fd_shred_sig_res( sig )!=SHRED_SIG_RESULT_DUPLICATE ) )
-      fd_chainer_code_shred_insert( ctx->chainer, shred->slot, shred->fec_set_idx, rx_ts, mr );
+      fd_chainer_code_shred_insert( ctx->chainer, shred->slot, shred->fec_set_idx, shred->code.idx, rx_ts, mr );
     return;
   }
   if( FD_UNLIKELY( sig_src==SHRED_SIG_SRC_REPAIR && fd_rnonce_ss_normal_repair( (uint)nonce ) ) ) {
@@ -1078,6 +1147,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->signs_map     = FD_SCRATCH_ALLOC_APPEND( l, fd_signs_map_align(),  fd_signs_map_footprint( lg_sign_depth( tile ) )                                  );
   ctx->toss_queue    = FD_SCRATCH_ALLOC_APPEND( l, toss_queue_align(),    toss_queue_footprint  ()                                                         );
   ctx->redeliver     = FD_SCRATCH_ALLOC_APPEND( l, out_queue_align(),     out_queue_footprint   ( fec_max( tile ) )                                        );
+  ctx->receive_event = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_event_block_received_t), sizeof(fd_event_block_received_t) );
   ulong scratch_top  = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
@@ -1316,8 +1386,14 @@ metrics_write( ctx_t * ctx ) {
 
 #include "../../disco/stem/fd_stem.c"
 
+static ulong
+max_event_sz( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
+  return sizeof(fd_event_block_received_t);
+}
+
 fd_topo_run_tile_t fd_tile_rotor = {
   .name                     = "rotor",
+  .max_event_sz             = max_event_sz,
   .loose_footprint          = loose_footprint,
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,

@@ -143,7 +143,7 @@ test_turbine( fd_wksp_t * wksp ) {
   fd_rotor_request_t reqs[ REQ_MAX ]; ulong cnt;
 
   fd_hash_t bid0 = mkhash( 100UL );
-  fd_chainer_init( chainer, 10UL, &bid0 );
+  fd_chainer_init( chainer, 10UL, &bid0, NULL, NULL );
   drain_chainer( chainer );
 
   /* slot 11: first FEC set complete, tip unknown -> blind fill of the
@@ -197,7 +197,7 @@ test_ancestry( fd_wksp_t * wksp ) {
   fd_rotor_request_t reqs[ REQ_MAX ]; ulong cnt;
 
   fd_hash_t bid0 = mkhash( 100UL );
-  fd_chainer_init( chainer, 10UL, &bid0 );
+  fd_chainer_init( chainer, 10UL, &bid0, NULL, NULL );
   drain_chainer( chainer );
 
   /* slot 20 names parent 15, which we do not have, and its tip is
@@ -271,7 +271,7 @@ test_verified( fd_wksp_t * wksp ) {
   fd_rotor_request_t reqs[ REQ_MAX ]; ulong cnt;
 
   fd_hash_t bid0 = mkhash( 100UL );
-  fd_chainer_init( chainer, 10UL, &bid0 );
+  fd_chainer_init( chainer, 10UL, &bid0, NULL, NULL );
   drain_chainer( chainer );
 
   fd_hash_t bid12 = mkhash( 200UL );
@@ -325,7 +325,7 @@ test_gone( fd_wksp_t * wksp ) {
   fd_rotor_request_t reqs[ REQ_MAX ]; ulong cnt;
 
   fd_hash_t bid0 = mkhash( 100UL );
-  fd_chainer_init( chainer, 10UL, &bid0 );
+  fd_chainer_init( chainer, 10UL, &bid0, NULL, NULL );
   drain_chainer( chainer );
 
   fd_hash_t bidX = mkhash( 999UL );
@@ -390,7 +390,7 @@ test_moving( fd_wksp_t * wksp ) {
   fd_requestor_t * r       = requestor_setup();
 
   fd_hash_t bid0 = mkhash( 100UL );
-  fd_chainer_init( chainer, 10UL, &bid0 );
+  fd_chainer_init( chainer, 10UL, &bid0, NULL, NULL );
   drain_chainer( chainer );
 
   /* slot 11 with a known tip and holes at 40, 50, 60 */
