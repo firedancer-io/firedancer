@@ -631,6 +631,90 @@ void const * fd_pack_peek_bundle_meta( fd_pack_t const * pack );
 void fd_pack_set_initializer_bundles_ready( fd_pack_t * pack );
 
 
+/* Bundle observability hooks.  These let the caller follow each bundle
+   through pack to attribute why it did or did not land.  They never
+   change scheduling decisions.
+
+   fd_pack_set_bundle_leave_cb registers fn to be called whenever a
+   transaction that is part of a pending bundle leaves pack, passing ctx
+   through.  fn may be NULL to unregister.  Function pointers are
+   process-local, so this must be called after each join.
+
+   The callback is invoked as fn( ctx, txn_idx, reason, info ).  txn_idx
+   identifies the transaction, and matches what fd_pack_txn_idx
+   returned for it while it was pending.  reason is one of the
+   FD_PACK_BUNDLE_LEAVE_* values.
+
+   For FD_PACK_BUNDLE_LEAVE_SCHEDULED, fn is called once per bundle with
+   the index of the bundle's first transaction.  info describes state
+   interference: bits [0,8) hold the FD_PACK_WRITER_* kind of the most
+   recent writer, in the current block, of any account the bundle
+   references, considering only writes after the bundle's first
+   transaction arrived (its scheduler_arrival_time_nanos compared to
+   the times given to fd_pack_set_time), and bits [8,64) hold the number
+   of such accounts.  For the other reasons, fn is called once for each
+   transaction in the bundle, in no particular order, and info is 0.
+
+   Initializer bundles trigger the callback like any other bundle.  fn
+   must not call into pack. */
+
+#define FD_PACK_BUNDLE_LEAVE_SCHEDULED 1 /* scheduled to an execle */
+#define FD_PACK_BUNDLE_LEAVE_EXPIRED   2 /* fd_pack_expire_before */
+#define FD_PACK_BUNDLE_LEAVE_DELETED   3 /* fd_pack_delete_transaction, e.g. a copy was executed */
+#define FD_PACK_BUNDLE_LEAVE_EVICTED   4 /* deleted to make room for another insert */
+#define FD_PACK_BUNDLE_LEAVE_REPLACED  5 /* replaced by a newer transaction, e.g. a newer initializer bundle */
+
+#define FD_PACK_WRITER_NONE   0
+#define FD_PACK_WRITER_TXN    1
+#define FD_PACK_WRITER_BUNDLE 2
+#define FD_PACK_WRITER_VOTE   3
+
+typedef void (* fd_pack_bundle_leave_fn_t)( void * ctx, ulong txn_idx, int reason, ulong info );
+
+void
+fd_pack_set_bundle_leave_cb( fd_pack_t *               pack,
+                             fd_pack_bundle_leave_fn_t fn,
+                             void *                    ctx );
+
+/* fd_pack_txn_idx returns the index identifying the transaction txn,
+   which must be a pointer returned by fd_pack_insert_txn_init or
+   fd_pack_insert_bundle_init that has been successfully inserted and
+   has not left pack.  The index is in [0, fd_pack_txn_idx_max( pack )). */
+
+ulong fd_pack_txn_idx    ( fd_pack_t const * pack, fd_txn_e_t const * txn );
+ulong fd_pack_txn_idx_max( fd_pack_t const * pack );
+
+/* fd_pack_set_time sets the current time, in the same units as
+   scheduler_arrival_time_nanos, used to timestamp writes for the
+   interference information passed to the bundle leave callback.
+   Callers that don't use the callback don't need to call this. */
+
+void fd_pack_set_time( fd_pack_t * pack, long now );
+
+/* fd_pack_bundle_attempt returns what happened to bundles in the most
+   recent call to fd_pack_schedule_next_microblock, as one of the
+   FD_PACK_BUNDLE_ATTEMPT_* values.  If the value is
+   FD_PACK_BUNDLE_ATTEMPT_CONFLICT and opt_conflict_bank_mask is
+   non-NULL, *opt_conflict_bank_mask is set to a bitmask of the bank
+   tiles whose outstanding microblocks use accounts the head bundle
+   needs.  pack must be a valid local join. */
+
+#define FD_PACK_BUNDLE_ATTEMPT_NOT_TRIED    0 /* FD_PACK_SCHEDULE_BUNDLE not set */
+#define FD_PACK_BUNDLE_ATTEMPT_VOTE_PREEMPT 1 /* votes were scheduled, so no bundle was tried */
+#define FD_PACK_BUNDLE_ATTEMPT_SCHEDULED    2
+#define FD_PACK_BUNDLE_ATTEMPT_EMPTY        3 /* no pending bundles */
+#define FD_PACK_BUNDLE_ATTEMPT_IB_WAIT      4 /* waiting on the initializer bundle */
+#define FD_PACK_BUNDLE_ATTEMPT_CONFLICT     5 /* head bundle conflicts with an outstanding microblock */
+#define FD_PACK_BUNDLE_ATTEMPT_DOES_NOT_FIT 6 /* block limits, or every pending bundle skipped for this block */
+
+int fd_pack_bundle_attempt( fd_pack_t const * pack, ulong * opt_conflict_bank_mask );
+
+/* fd_pack_pending_bundle_txn_cnt returns the number of pending
+   transactions that are part of a bundle. */
+
+ulong fd_pack_pending_bundle_txn_cnt( fd_pack_t const * pack );
+
+
 /* FD_PACK_SCHEDULE_{VOTE,BUNDLE,TXN} form a set of bitflags used in
    fd_pack_schedule_next_microblock below.  They control what types of
    scheduling are allowed.  The names should be self-explanatory. */

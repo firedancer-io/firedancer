@@ -882,6 +882,86 @@ EXAMPLES
   <int value="5" name="NextAuction" label="Transactions that are currently held waiting for the next auction" />
 </enum>
 
+<enum name="BundleOutcome">
+  <!-- Order must match FD_PACK_BOBS_CAUSE_* in fd_pack_bundle_obs.h -->
+  <int value="0" name="Landed" label="Bundle landed" />
+  <int value="1" name="Rejected" label="Pack rejected the bundle on insertion (see TxnInserted)" />
+  <int value="2" name="Partial" label="Bundle cancelled because one of its transactions never reached pack" />
+  <int value="3" name="ExecStateTpu" label="Bundle failed with an instruction error after a normal transaction in this block wrote an account it uses, after it arrived" />
+  <int value="4" name="ExecStateBundle" label="Bundle failed with an instruction error after another bundle in this block wrote an account it uses, after it arrived (lost to a competing bundle)" />
+  <int value="5" name="ExecStateOther" label="Bundle failed with an instruction error, with no such write seen in this block" />
+  <int value="6" name="ExecDuplicate" label="Bundle failed because a transaction was already processed or its nonce already advanced" />
+  <int value="7" name="ExecOther" label="Bundle failed in execution for another reason" />
+  <int value="8" name="ExecUnknown" label="Bundle was scheduled but its outcome was not reported" />
+  <int value="9" name="DupDeleted" label="Bundle deleted because a transaction with the same signature was executed elsewhere" />
+  <int value="10" name="BlockedLaneVote" label="Never scheduled; mostly waited while the bundle lane executed votes" />
+  <int value="11" name="BlockedLaneTxn" label="Never scheduled; mostly waited while the bundle lane executed normal transactions" />
+  <int value="12" name="BlockedLaneBundle" label="Never scheduled; mostly waited while the bundle lane executed other bundles" />
+  <int value="13" name="BlockedVotePreempt" label="Never scheduled; mostly waited while votes took the idle bundle lane" />
+  <int value="14" name="BlockedIbNotReady" label="Never scheduled; mostly waited for the initializer bundle" />
+  <int value="15" name="BlockedConflictTpu" label="Never scheduled; mostly waited on account conflicts with in-flight normal transactions" />
+  <int value="16" name="BlockedConflictBundle" label="Never scheduled; mostly waited on account conflicts with an in-flight bundle" />
+  <int value="17" name="BlockedConflictVote" label="Never scheduled; mostly waited on account conflicts with in-flight votes" />
+  <int value="18" name="BlockedDoesNotFit" label="Never scheduled; mostly waited because it did not fit in the block limits" />
+  <int value="19" name="Late" label="Never scheduled; arrived after the last slot of our leader rotation ended" />
+  <int value="20" name="Expired" label="Never scheduled; expired without waiting in a leader slot" />
+  <int value="21" name="Evicted" label="Never scheduled; evicted to make room without waiting in a leader slot" />
+</enum>
+
+<enum name="BundleArrivalResult">
+  <int value="0" name="BeforeWindowLanded" label="Arrived while not leader, before our next slot; landed" />
+  <int value="1" name="BeforeWindowMissed" label="Arrived while not leader, before our next slot; did not land" />
+  <int value="2" name="EarlyLanded" label="Arrived in the first third of a leader slot; landed" />
+  <int value="3" name="EarlyMissed" label="Arrived in the first third of a leader slot; did not land" />
+  <int value="4" name="MidLanded" label="Arrived in the middle third of a leader slot; landed" />
+  <int value="5" name="MidMissed" label="Arrived in the middle third of a leader slot; did not land" />
+  <int value="6" name="LateLanded" label="Arrived in the last third of a leader slot; landed" />
+  <int value="7" name="LateMissed" label="Arrived in the last third of a leader slot; did not land" />
+  <int value="8" name="AfterWindowLanded" label="Arrived just after our leader rotation ended; landed" />
+  <int value="9" name="AfterWindowMissed" label="Arrived just after our leader rotation ended; did not land" />
+</enum>
+
+<enum name="BundleBlockedReason">
+  <!-- Order must match FD_PACK_BOBS_REASON_* in fd_pack_bundle_obs.h -->
+  <int value="0" name="LaneVote" label="The bundle lane was busy with votes" />
+  <int value="1" name="LaneTxn" label="The bundle lane was busy with normal transactions" />
+  <int value="2" name="LaneBundle" label="The bundle lane was busy with another bundle" />
+  <int value="3" name="VotePreempt" label="The bundle lane was idle, but votes took its microblock" />
+  <int value="4" name="IbNotReady" label="Waiting for the initializer bundle" />
+  <int value="5" name="ConflictTpu" label="The head bundle conflicted with in-flight normal transactions" />
+  <int value="6" name="ConflictBundle" label="The head bundle conflicted with an in-flight bundle" />
+  <int value="7" name="ConflictVote" label="The head bundle conflicted with in-flight votes" />
+  <int value="8" name="DoesNotFit" label="The head bundle did not fit in the block limits" />
+</enum>
+
+<enum name="DualLanePairResult">
+  <int value="0" name="BundleWonSlot0" label="Bundle won, first slot of the leader rotation" />
+  <int value="1" name="BundleWonSlot1" label="Bundle won, second slot of the leader rotation" />
+  <int value="2" name="BundleWonSlot2" label="Bundle won, third slot of the leader rotation" />
+  <int value="3" name="BundleWonSlot3" label="Bundle won, fourth slot of the leader rotation" />
+  <int value="4" name="TpuWonSlot0" label="TPU transaction won, first slot of the leader rotation" />
+  <int value="5" name="TpuWonSlot1" label="TPU transaction won, second slot of the leader rotation" />
+  <int value="6" name="TpuWonSlot2" label="TPU transaction won, third slot of the leader rotation" />
+  <int value="7" name="TpuWonSlot3" label="TPU transaction won, fourth slot of the leader rotation" />
+  <int value="8" name="NeitherSlot0" label="Neither landed, first slot of the leader rotation (or not leader)" />
+  <int value="9" name="NeitherSlot1" label="Neither landed, second slot of the leader rotation" />
+  <int value="10" name="NeitherSlot2" label="Neither landed, third slot of the leader rotation" />
+  <int value="11" name="NeitherSlot3" label="Neither landed, fourth slot of the leader rotation" />
+</enum>
+
+<enum name="DualLaneOffer">
+  <int value="0" name="BundleWonBundle" label="Bundle lane offer, pairs the bundle won" />
+  <int value="1" name="BundleWonTpu" label="TPU lane offer, pairs the bundle won" />
+  <int value="2" name="TpuWonBundle" label="Bundle lane offer, pairs the TPU transaction won" />
+  <int value="3" name="TpuWonTpu" label="TPU lane offer, pairs the TPU transaction won" />
+</enum>
+
+<enum name="RevenueSource">
+  <int value="0" name="PriorityFee" label="Priority fees" />
+  <int value="1" name="ExecutionFee" label="Execution (signature) fees, before the 50% burn" />
+  <int value="2" name="Tip" label="Tips credited to tip accounts" />
+</enum>
+
 <enum name="BundleCrankResult">
   <int value="0" name="NotNeeded" label="On-chain state in the correct state" />
   <int value="1" name="Inserted" label="Inserted an initializer bundle to update the on-chain state" />
@@ -959,6 +1039,35 @@ EXAMPLES
     <histogram name="CuPct" min="0" max="100">
         <summary>Percent of the total block cost limit used for each block pack produced</summary>
     </histogram>
+
+    <!-- Bundle failure attribution.  Every bundle pack receives ends in
+         exactly one BundleOutcome, counted when it reaches its final
+         state (landed, failed, rejected, deleted, expired or evicted).
+         Tips are static estimates: top-level System transfers to Jito
+         tip accounts, which miss tips paid via CPI. -->
+    <counter name="BundleOutcome" enum="BundleOutcome" summary="Bundles by the single cause they ended with: landed, or why they did not land" />
+    <counter name="BundleOutcomeTipLamports" enum="BundleOutcome" summary="Statically estimated tip lamports of bundles, by the cause they ended with. Missed tips are all causes except Landed, ExecStateBundle and DupDeleted" />
+    <counter name="BundleArrival" enum="BundleArrivalResult" summary="Bundles by when they arrived relative to our leader slots, and whether they landed" />
+    <counter name="BundleBlockedDurationNanos" enum="BundleBlockedReason" summary="Time the bundle at the head of the queue could not be scheduled while we were leader, by reason, in nanoseconds" />
+    <histogram name="BundleQueueWaitSeconds" min="0.000001" max="1.0" converter="seconds">
+        <summary>Time from a bundle's arrival (or the start of our next leader slot, if later) until it was scheduled</summary>
+    </histogram>
+    <histogram name="BundleArrivalOffsetSeconds" min="0.0001" max="0.5" converter="seconds">
+        <summary>Time from the start of the current leader slot until a bundle arrived, for bundles that arrived while we were leader</summary>
+    </histogram>
+    <counter name="BundleObsDropped" summary="Bundles excluded from bundle and dual-lane metrics because the observation table was full" />
+
+    <!-- Dual-lane attribution: the same signed transaction (same
+         signature) received both in a bundle and over TPU. -->
+    <counter name="DualLanePair" enum="DualLanePairResult" summary="Transactions received both in a bundle and over TPU, by which copy won and the position of the slot in our leader rotation" />
+    <counter name="DualLaneOfferLamports" enum="DualLaneOffer" summary="Lamports offered by each lane of dual-lane pairs, by winner: priority fees plus statically estimated tips. The TPU lane counts the transaction itself, the bundle lane its whole bundle. The winner's offer approximates the revenue earned" />
+    <histogram name="DualLaneBundleWonPricePct" min="1" max="100000">
+        <summary>Bundle lane offer as a percentage of the TPU lane offer, for dual-lane pairs the bundle won</summary>
+    </histogram>
+    <histogram name="DualLaneTpuWonPricePct" min="1" max="100000">
+        <summary>Bundle lane offer as a percentage of the TPU lane offer, for dual-lane pairs the TPU transaction won</summary>
+    </histogram>
+    <counter name="DualLaneEntryEvicted" summary="Dual-lane table entries evicted less than a second after insertion; non-zero means some pairs can be missed" />
 </tile>
 
 <!-- Frankendancer transaction result -->
@@ -1079,6 +1188,7 @@ EXAMPLES
     <counter name="InstructionExecuted" summary="Number of top-level instructions executed" />
     <counter name="CpiExecuted" summary="Number of cross-program invocations executed" />
     <counter name="LthashUnchanged" summary="Number of committed writable accounts left byte-identical by their transaction, whose lthash update was skipped" />
+    <counter name="RevenueLamports" enum="RevenueSource" summary="Fees and tips of transactions committed to blocks we produced, in lamports" />
     <counter name="CuExecuted" summary="Estimated compute units executed since tile start" />
 
     <counter name="TxnRegimeDurationNanos" converter="nanoseconds" enum="TxnRegime" summary="Mutually exclusive and exhaustive duration spent in transaction execution regimes, in nanoseconds" />

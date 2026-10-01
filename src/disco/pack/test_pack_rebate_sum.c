@@ -235,6 +235,23 @@ main( int     argc,
   FD_TEST(                            0UL==fd_pack_rebate_sum_report ( sum, report.rebate         ) );
   FD_TEST(                            0UL==fd_pack_rebate_sum_add_txn( sum, microblock, _alt, 0UL ) );
 
+  /* Bundle outcomes alone produce a report, survive clear, and are
+     reported once */
+  fd_pack_bundle_outcome_t outcome[1] = {{ .obs_id = 7UL, .landed = 1 }};
+  FD_TEST( fd_pack_rebate_sum_add_bundle_outcome( sum, outcome ) );
+  outcome->obs_id = 8UL; outcome->landed = 0; outcome->txn_err = -9;
+  FD_TEST( fd_pack_rebate_sum_add_bundle_outcome( sum, outcome ) );
+  fd_pack_rebate_sum_clear( sum );
+  FD_TEST( SZ(0UL)==fd_pack_rebate_sum_report( sum, report.rebate ) );
+  FD_TEST( report.rebate->bundle_outcome_cnt==2UL );
+  FD_TEST( report.rebate->bundle_outcomes[0].obs_id==7UL && report.rebate->bundle_outcomes[0].landed==1 );
+  FD_TEST( report.rebate->bundle_outcomes[1].obs_id==8UL && report.rebate->bundle_outcomes[1].landed==0 && report.rebate->bundle_outcomes[1].txn_err==-9 );
+  FD_TEST( 0UL==fd_pack_rebate_sum_report( sum, report.rebate ) );
+  for( ulong i=0UL; i<FD_PACK_REBATE_MAX_BUNDLE_OUTCOMES; i++ ) FD_TEST( fd_pack_rebate_sum_add_bundle_outcome( sum, outcome ) );
+  FD_TEST( !fd_pack_rebate_sum_add_bundle_outcome( sum, outcome ) );
+  FD_TEST( SZ(0UL)==fd_pack_rebate_sum_report( sum, report.rebate ) );
+  FD_TEST( report.rebate->bundle_outcome_cnt==FD_PACK_REBATE_MAX_BUNDLE_OUTCOMES );
+
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;

@@ -1854,6 +1854,173 @@ test_next_auction( void ) {
   fd_pack_delete( fd_pack_leave( pack ) );
 }
 
+#define OBS_EVENTS_MAX 64UL
+struct obs_event { ulong idx; int reason; ulong info; };
+static struct obs_event obs_events[ OBS_EVENTS_MAX ];
+static ulong            obs_event_cnt;
+
+static void
+obs_leave_cb( void * ctx,
+              ulong  txn_idx,
+              int    reason,
+              ulong  info ) {
+  FD_TEST( ctx==(void *)&obs_event_cnt );
+  FD_TEST( obs_event_cnt<OBS_EVENTS_MAX );
+  obs_events[ obs_event_cnt++ ] = (struct obs_event){ .idx = txn_idx, .reason = reason, .info = info };
+}
+
+/* Inserts a one-transaction bundle that arrived at time arrival and
+   returns its pack index.  sig_out, if non-NULL, receives its
+   signature. */
+static ulong
+insert_obs_bundle( fd_pack_t *        pack,
+                   ulong              i,
+                   char const *       writes,
+                   char const *       reads,
+                   long               arrival,
+                   ulong              expires_at,
+                   fd_ed25519_sig_t * sig_out ) {
+  fd_txn_e_t * _bundle[1];
+  ulong _deleted;
+  fd_txn_e_t * const * bundle = fd_pack_insert_bundle_init( pack, _bundle, 1UL );
+  make_transaction1( bundle[0]->txnp, i, 500U, 500U, 11.0, writes, reads, NULL, NULL );
+  bundle[0]->txnp->scheduler_arrival_time_nanos = arrival;
+  if( sig_out ) fd_memcpy( sig_out, txnp_get_signatures( bundle[0]->txnp ), sizeof(fd_ed25519_sig_t) );
+  FD_TEST( fd_pack_insert_bundle_fini( pack, bundle, 1UL, expires_at, 0, NULL, &_deleted )>=0 );
+  ulong idx = fd_pack_txn_idx( pack, bundle[0] );
+  FD_TEST( idx<fd_pack_txn_idx_max( pack ) );
+  return idx;
+}
+
+static ulong
+obs_schedule( fd_pack_t * pack,
+              ulong       bank,
+              int         flags ) {
+  float vote_fraction = fd_float_if( !!(flags & FD_PACK_SCHEDULE_VOTE), 1.0f, 0.0f );
+  return fd_pack_schedule_next_microblock( pack, FD_PACK_TEST_MAX_COST_PER_BLOCK, vote_fraction, bank, flags, outcome.results );
+}
+
+static void
+test_bundle_observe( void ) {
+  FD_LOG_NOTICE(( "TEST BUNDLE OBSERVE" ));
+  fd_pack_t * pack = init_all( 128UL, 3UL, 1UL, &outcome );
+  fd_pack_set_bundle_leave_cb( pack, obs_leave_cb, &obs_event_cnt );
+  fd_pack_end_block( pack ); /* start from a fresh block (initializer bundle state) */
+  obs_event_cnt = 0UL;
+  ulong mask;
+
+  /* Nothing pending */
+  FD_TEST( !obs_schedule( pack, 0UL, FD_PACK_SCHEDULE_BUNDLE ) );
+  FD_TEST( fd_pack_bundle_attempt( pack, NULL )==FD_PACK_BUNDLE_ATTEMPT_EMPTY );
+
+  ulong a = insert_obs_bundle( pack, 0UL, "A", "", 10L, 1000UL, NULL );
+  FD_TEST( fd_pack_pending_bundle_txn_cnt( pack )==1UL );
+
+  /* A new block needs an initializer bundle first */
+  FD_TEST( !obs_schedule( pack, 0UL, FD_PACK_SCHEDULE_BUNDLE ) );
+  FD_TEST( fd_pack_bundle_attempt( pack, NULL )==FD_PACK_BUNDLE_ATTEMPT_IB_WAIT );
+  fd_pack_set_initializer_bundles_ready( pack );
+
+  /* Not tried when the flag is off */
+  FD_TEST( !obs_schedule( pack, 0UL, FD_PACK_SCHEDULE_TXN ) );
+  FD_TEST( fd_pack_bundle_attempt( pack, NULL )==FD_PACK_BUNDLE_ATTEMPT_NOT_TRIED );
+
+  /* A vote takes the microblock */
+  make_vote_transaction( 1UL );
+  FD_TEST( insert( 1UL, pack )>=0 );
+  FD_TEST( obs_schedule( pack, 0UL, FD_PACK_SCHEDULE_VOTE | FD_PACK_SCHEDULE_BUNDLE )==1UL );
+  FD_TEST( fd_pack_bundle_attempt( pack, NULL )==FD_PACK_BUNDLE_ATTEMPT_VOTE_PREEMPT );
+  fd_pack_microblock_complete( pack, 0UL );
+  FD_TEST( obs_event_cnt==0UL );
+
+  /* A TPU transaction writes X at time 100 and stays in flight on bank 1 */
+  fd_pack_set_time( pack, 100L );
+  make_transaction( 2UL, 500U, 500U, 11.0, "X", "", NULL, NULL );
+  FD_TEST( insert( 2UL, pack )>=0 );
+  FD_TEST( obs_schedule( pack, 1UL, FD_PACK_SCHEDULE_TXN )==1UL );
+
+  /* Bundle A is scheduled with no interference */
+  fd_pack_set_time( pack, 200L );
+  FD_TEST( obs_schedule( pack, 0UL, FD_PACK_SCHEDULE_BUNDLE )==1UL );
+  FD_TEST( fd_pack_bundle_attempt( pack, NULL )==FD_PACK_BUNDLE_ATTEMPT_SCHEDULED );
+  FD_TEST( obs_event_cnt==1UL );
+  FD_TEST( obs_events[0].idx==a && obs_events[0].reason==FD_PACK_BUNDLE_LEAVE_SCHEDULED && obs_events[0].info==FD_PACK_WRITER_NONE );
+
+  /* Bundle B reads X, arrived at 50, conflicts with bank 1 */
+  ulong b = insert_obs_bundle( pack, 3UL, "B", "X", 50L, 1000UL, NULL );
+  FD_TEST( !obs_schedule( pack, 2UL, FD_PACK_SCHEDULE_BUNDLE ) );
+  FD_TEST( fd_pack_bundle_attempt( pack, &mask )==FD_PACK_BUNDLE_ATTEMPT_CONFLICT );
+  FD_TEST( mask==(1UL<<1) );
+
+  /* Once bank 1 is done, B schedules, and X was written after B arrived */
+  fd_pack_microblock_complete( pack, 1UL );
+  fd_pack_set_time( pack, 300L );
+  FD_TEST( obs_schedule( pack, 2UL, FD_PACK_SCHEDULE_BUNDLE )==1UL );
+  FD_TEST( obs_event_cnt==2UL );
+  FD_TEST( obs_events[1].idx==b && obs_events[1].reason==FD_PACK_BUNDLE_LEAVE_SCHEDULED );
+  FD_TEST( obs_events[1].info==(FD_PACK_WRITER_TXN | (1UL<<8)) );
+  fd_pack_microblock_complete( pack, 0UL );
+  fd_pack_microblock_complete( pack, 2UL );
+
+  /* A bundle arriving after the write sees no interference */
+  ulong c = insert_obs_bundle( pack, 4UL, "C", "X", 150L, 1000UL, NULL );
+  FD_TEST( obs_schedule( pack, 0UL, FD_PACK_SCHEDULE_BUNDLE )==1UL );
+  FD_TEST( obs_events[2].idx==c && obs_events[2].info==FD_PACK_WRITER_NONE );
+  fd_pack_microblock_complete( pack, 0UL );
+
+  /* Bundle D writes Y at 400; E read Y and arrived at 350 */
+  fd_pack_set_time( pack, 400L );
+  insert_obs_bundle( pack, 5UL, "Y", "", 390L, 1000UL, NULL );
+  FD_TEST( obs_schedule( pack, 0UL, FD_PACK_SCHEDULE_BUNDLE )==1UL );
+  fd_pack_microblock_complete( pack, 0UL );
+  fd_pack_set_time( pack, 500L );
+  ulong e = insert_obs_bundle( pack, 6UL, "E", "Y", 350L, 1000UL, NULL );
+  FD_TEST( obs_schedule( pack, 0UL, FD_PACK_SCHEDULE_BUNDLE )==1UL );
+  FD_TEST( obs_event_cnt==5UL );
+  FD_TEST( obs_events[4].idx==e && obs_events[4].info==(FD_PACK_WRITER_BUNDLE | (1UL<<8)) );
+  fd_pack_microblock_complete( pack, 0UL );
+
+  /* Block limits stop bundles */
+  fd_pack_end_block( pack );
+  fd_pack_set_initializer_bundles_ready( pack );
+  ulong h = insert_obs_bundle( pack, 10UL, "H", "", 550L, 1000UL, NULL );
+  fd_pack_limits_t limits[1];
+  fd_pack_get_block_limits( pack, NULL, limits );
+  ulong max_microblocks = limits->max_microblocks_per_block;
+  limits->max_microblocks_per_block = 0UL;
+  fd_pack_set_block_limits( pack, limits );
+  FD_TEST( !obs_schedule( pack, 0UL, FD_PACK_SCHEDULE_BUNDLE ) );
+  FD_TEST( fd_pack_bundle_attempt( pack, NULL )==FD_PACK_BUNDLE_ATTEMPT_DOES_NOT_FIT );
+  limits->max_microblocks_per_block = max_microblocks;
+  fd_pack_set_block_limits( pack, limits );
+  FD_TEST( obs_schedule( pack, 0UL, FD_PACK_SCHEDULE_BUNDLE )==1UL );
+  FD_TEST( obs_event_cnt==6UL && obs_events[5].idx==h );
+  fd_pack_microblock_complete( pack, 0UL );
+
+  /* Deleting by signature */
+  fd_ed25519_sig_t sig[1];
+  ulong f = insert_obs_bundle( pack, 7UL, "F", "", 600L, 1000UL, sig );
+  FD_TEST( fd_pack_delete_transaction( pack, (fd_ed25519_sig_t const *)sig )==1UL );
+  FD_TEST( obs_event_cnt==7UL );
+  FD_TEST( obs_events[6].idx==f && obs_events[6].reason==FD_PACK_BUNDLE_LEAVE_DELETED && obs_events[6].info==0UL );
+
+  /* Expiring */
+  ulong g = insert_obs_bundle( pack, 8UL, "G", "", 700L, 1500UL, NULL );
+  FD_TEST( fd_pack_expire_before( pack, 2000UL )==1UL );
+  FD_TEST( obs_event_cnt==8UL );
+  FD_TEST( obs_events[7].idx==g && obs_events[7].reason==FD_PACK_BUNDLE_LEAVE_EXPIRED );
+
+  /* Normal transactions never trigger the callback */
+  make_transaction( 9UL, 500U, 500U, 11.0, "Z", "", NULL, NULL );
+  FD_TEST( insert1( &txnp_scratch[ 9UL ], 3000UL, pack )>=0 );
+  FD_TEST( fd_pack_delete_transaction( pack, txnp_get_signatures( &txnp_scratch[ 9UL ] ) )==1UL );
+  FD_TEST( obs_event_cnt==8UL );
+
+  FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+  fd_pack_delete( fd_pack_leave( pack ) );
+  for( ulong j=0UL; j<11UL; j++ ) fd_memset( TXN( &txnp_scratch[ j ] ), (uchar)0, FD_TXN_MAX_SZ );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -1882,6 +2049,7 @@ main( int     argc,
   test_nonce();
   test_bundle_nonce();
   test_next_auction();
+  test_bundle_observe();
   if( extra_benchmark ) {
     performance_test( extra_benchmark );
     performance_test2();
