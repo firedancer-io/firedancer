@@ -1066,6 +1066,41 @@ test_gossip_connects_new_address( void ) {
   test_ctx_delete( &ctx );
 }
 
+/* A tile ranked 0 in a three-voter epoch with consensus up at slot 0,
+   failover on, booted under its own key, for the history tests. */
+
+static ag_epoch_info_t *
+hist_setup( fd_votor_tile_t * ctx ) {
+  memset( ctx, 0, sizeof(fd_votor_tile_t) );
+  fd_vote_stake_weight_t stakes[ TEST_VOTER_MAX ];
+  build_stakes( stakes, 3UL, 10UL );
+  ag_epoch_info_t * epoch_info = rank_voters( &epoch_info_mem, stakes, 3UL );
+  memcpy( ctx->id_key.uc, epoch_info->validators[0].id_key, sizeof(fd_pubkey_t) );
+  ctx->boot_id_key              = ctx->id_key;
+  ctx->curr_epoch_info          = epoch_info;
+  ctx->failover_enabled         = 1;
+  ctx->hist_out_idx             = ULONG_MAX;
+  ctx->failov_out_idx           = ULONG_MAX;
+  ctx->last_leader_slot         = ULONG_MAX;
+  ctx->adopted_last_leader_slot = ULONG_MAX;
+  ctx->last_vote_slot           = ULONG_MAX;
+  ctx->root_slot                = ULONG_MAX;
+
+  ctx->pool  = test_pool( epoch_info, 0UL );
+  ctx->votor = ag_votor_join( ag_votor_new( votor_scratch, 64UL, 42UL ) );
+  FD_TEST( ctx->votor );
+  ag_votor_init         ( ctx->votor, 0UL, 0L, 400000000L, (ushort)1, capture_sign_bls, NULL );
+  ag_votor_advance_epoch( ctx->votor, 400000000L, 0UL, 0UL, epoch_info->validators[0].bls_key );
+  ctx->init = 1;
+  return epoch_info;
+}
+
+static void
+hist_teardown( fd_votor_tile_t * ctx ) {
+  ag_votor_delete( ag_votor_leave( ctx->votor ) );
+  ag_pool_delete( ag_pool_leave( ctx->pool ) );
+}
+
 /* after_credit connects queued peers once due and leaves the rest,
    requeues one whose backoff grew, and drops entries for peers that
    can no longer be connected. */
@@ -1157,6 +1192,48 @@ test_conn_ahead( void ) {
   test_ctx_delete( &ctx );
 }
 
+/* An adopted history fences the window of the last LEADER it reports
+   and the window of its vote bound, and a lower bound or leader slot
+   never lowers the fence. */
+
+static void
+test_history_raises_the_leader_floor( void ) {
+  static fd_votor_tile_t ctx;
+  hist_setup( &ctx );
+
+  ag_hist_t hist = { .anchor = 0UL, .last_leader_slot = 12UL, .vote_bound = 17UL, .rec_cnt = 1UL };
+  hist.rec[ 0 ].slot  = 1UL;
+  hist.rec[ 0 ].flags = AG_HIST_FLAG_VOTED;
+  uchar req[ AG_HIST_SER_MAX ];
+  ulong req_sz;
+  FD_TEST( !ag_hist_ser( &hist, req, sizeof(req), &req_sz ) );
+  fd_votor_adopt_result_t result = failover_adopt_hist( &ctx, req, req_sz );
+  FD_TEST( result.result==FD_VOTOR_ADOPT_SUCCESS && result.vote_slot==1UL && result.vote_bound==17UL );
+  FD_TEST( ag_votor_vote_bound( ctx.votor )==17UL );
+  FD_TEST( ctx.adopted_last_leader_slot==ag_first_slot_in_window( 17UL ) );
+  FD_TEST( leader_floor( &ctx )==ag_first_slot_in_window( 17UL ) );
+
+  hist.last_leader_slot = 4UL;
+  hist.vote_bound       = 6UL;
+  FD_TEST( !ag_hist_ser( &hist, req, sizeof(req), &req_sz ) );
+  result = failover_adopt_hist( &ctx, req, req_sz );
+  FD_TEST( result.result==FD_VOTOR_ADOPT_SUCCESS && result.vote_bound==17UL );
+  FD_TEST( ctx.adopted_last_leader_slot==ag_first_slot_in_window( 17UL ) );
+
+  uchar empty[ FD_VOTOR_ADOPT_EMPTY_SZ ];
+  FD_STORE( ulong, empty, 2UL );
+  result = failover_adopt_hist( &ctx, empty, sizeof(empty) );
+  FD_TEST( result.result==FD_VOTOR_ADOPT_SUCCESS && result.vote_bound==17UL );
+  FD_TEST( ctx.adopted_last_leader_slot==ag_first_slot_in_window( 17UL ) );
+
+  /* A history older than the votes this machine sent is refused. */
+  ctx.last_vote_slot = 3UL;
+  result = failover_adopt_hist( &ctx, req, req_sz );
+  FD_TEST( result.result==FD_VOTOR_ADOPT_ERR_STALE );
+
+  hist_teardown( &ctx );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -1180,6 +1257,7 @@ main( int     argc,
   test_gossip_connects_new_address();
   test_reconnect();
   test_conn_ahead();
+  test_history_raises_the_leader_floor();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

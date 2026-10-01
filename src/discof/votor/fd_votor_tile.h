@@ -2,6 +2,7 @@
 #define HEADER_fd_src_discof_votor_fd_votor_tile_h
 
 #include "../../ballet/bls/fd_bls.h"
+#include "../../choreo/votor/ag_hist.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../waltz/quic/tls/fd_quic_tls.h"
 
@@ -73,6 +74,50 @@ union fd_votor_msg {
   fd_votor_reward_t reward;
 };
 typedef union fd_votor_msg fd_votor_msg_t;
+
+/* fd_votor_hist_msg is one frame on the votor_hist link to the failover
+   tile.  It holds the slot view the failover controller runs its
+   deadlines on and our own vote history since the finality anchor.  A
+   frame follows every own vote, every completed slot and every LEADER,
+   and one more goes out when an identity switch halts us. */
+
+#define FD_VOTOR_HIST_SIG (0UL)
+
+struct fd_votor_hist_msg {
+  ulong     replay_slot; /* highest slot replay completed, ULONG_MAX before any */
+  ulong     root_slot;   /* replay's root at the last completed slot, ULONG_MAX before any */
+  ulong     vote_slot;   /* the history's tip, ULONG_MAX while it is empty */
+  int       has_vote;    /* the frame follows a broadcast vote */
+  int       truncated;   /* the export dropped old windows and lifted the anchor */
+  ag_hist_t hist;
+};
+typedef struct fd_votor_hist_msg fd_votor_hist_msg_t;
+
+/* Adoption of a peer's vote history.  The request on failov_votor is
+   the serialized history, or a bound slot alone to start from an empty
+   history, and then we cast no vote and lead no window at or below the
+   bound.  The answer on votor_failov echoes the request sequence
+   number.  The codes match FD_TOWER_ADOPT_* so the failover tile reads
+   both tiles alike, and STALE comes after them. */
+
+#define FD_VOTOR_ADOPT_EMPTY_SZ (8UL) /* an empty request, the bound slot as a ulong */
+
+#define FD_VOTOR_ADOPT_SUCCESS             (0UL)
+#define FD_VOTOR_ADOPT_ERR_DECODE          (1UL)
+#define FD_VOTOR_ADOPT_ERR_INVALID         (2UL)
+#define FD_VOTOR_ADOPT_ERR_UNREPLAYED_ROOT (3UL) /* the history's finality anchor is past our replayed slots */
+#define FD_VOTOR_ADOPT_ERR_BLOCK_MISMATCH  (4UL) /* not raised here, keeps the numbering */
+#define FD_VOTOR_ADOPT_ERR_UNREPLAYED      (5UL) /* consensus is not up yet, ask again as replay moves */
+#define FD_VOTOR_ADOPT_ERR_STALE           (6UL) /* older than the votes this identity sent from here */
+#define FD_VOTOR_ADOPT_RESULT_CNT          (7UL)
+
+struct fd_votor_adopt_result {
+  ulong result;
+  ulong root;       /* our finality anchor after the adoption */
+  ulong vote_slot;  /* the adopted history's tip, ULONG_MAX for an empty one */
+  ulong vote_bound; /* we cast no vote at or below this slot, ULONG_MAX when there is none */
+};
+typedef struct fd_votor_adopt_result fd_votor_adopt_result_t;
 
 extern fd_topo_run_tile_t fd_tile_votor;
 
