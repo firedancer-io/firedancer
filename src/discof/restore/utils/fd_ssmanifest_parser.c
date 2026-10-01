@@ -1801,6 +1801,12 @@ state_process( fd_ssmanifest_parser_t * parser ) {
     parser->manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ parser->idx2 ].commission *= 100;
   }
 
+  if( FD_UNLIKELY( parser->epoch_idx!=ULONG_MAX && !parser->option &&
+      (  parser->state==STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_BLS_PUBKEY_COMPRESSED_OPTION
+      || parser->state==STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_BLS_PUBKEY_COMPRESSED_OPTION ) ) ) {
+    memset( parser->manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ parser->idx2 ].identity_bls, 0, 48UL );
+  }
+
   if( FD_UNLIKELY( parser->state==STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_LENGTH ) ) parser->account_data_start = parser->off;
 
   switch( parser->state ) {
@@ -2046,8 +2052,8 @@ state_is_optional_extras_field( fd_ssmanifest_parser_t * parser ) {
    when the node pubkey field of one completes, default the inflation
    collector to the vote account, the block revenue collector to the
    node identity (both parsed by then), the block revenue commission to
-   FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS and the pending
-   delegator rewards to 0. */
+   FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, the pending delegator
+   rewards to 0 and clear the BLS pubkey. */
 
 static void
 state_default_collectors( fd_ssmanifest_parser_t * parser ) {
@@ -2065,6 +2071,8 @@ state_default_collectors( fd_ssmanifest_parser_t * parser ) {
   memcpy( vote_stakes->commission_block,     vote_stakes->identity, 32UL );
   vote_stakes->commission_block_bps      = FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS;
   vote_stakes->pending_delegator_rewards = 0UL;
+  vote_stakes->has_identity_bls          = 0;
+  memset( vote_stakes->identity_bls, 0, 48UL );
 }
 
 int
