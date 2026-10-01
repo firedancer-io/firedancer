@@ -3486,6 +3486,99 @@ fd_gui_printf_timeline_query_shreds( fd_gui_t *   gui,
   jsonp_close_envelope( gui->http );
 }
 
+int
+fd_gui_printf_timeline_query_agg_revenue( fd_gui_t *   gui,
+                                          char const * granularity,
+                                          ulong        g,
+                                          long         reference,
+                                          ulong        count,
+                                          ulong        id ) {
+  if( FD_UNLIKELY( reference<0L || !count || count>FD_GUI_TIMELINE_QUERY_MAX_BUCKETS || g>=FD_GUI_TIMELINE_GRANULARITY_CNT ) ) return -1;
+  fd_gui_timeline_granularity_t const * desc = &fd_gui_timeline_granularities[ g ];
+  ulong ns = fd_gui_timeline_granularity_ns( g );
+
+  ulong * txn_fees  = gui->timeline_revenue_scratch[ 0 ];
+  ulong * prio_fees = gui->timeline_revenue_scratch[ 1 ];
+  ulong * tips      = gui->timeline_revenue_scratch[ 2 ];
+  memset( txn_fees,  0xFF, count*sizeof(ulong) );
+  memset( prio_fees, 0xFF, count*sizeof(ulong) );
+  memset( tips,      0xFF, count*sizeof(ulong) );
+
+  /* The buckets are visited in ascending time order, so the record for
+     the previous bucket's day is reused until the query crosses into
+     the next day. */
+
+  ulong stored = desc->stored_idx;
+  ulong step   = fd_gui_timeline_stored_granularity_ns[ stored ];
+  ulong cur_day_idx = ULONG_MAX;
+  fd_gui_timeline_day_t const * cur_day = NULL;
+  for( ulong i=0UL; i<count; i++ ) {
+    for( ulong j=0UL; j<desc->merge_cnt; j++ ) {
+      ulong ts      = (ulong)reference + i*ns + j*step;
+      ulong day_idx = ts/(ulong)FD_GUI_TIMELINE_DAY_NS;
+      if( FD_UNLIKELY( day_idx!=cur_day_idx ) ) {
+        cur_day_idx = day_idx;
+        cur_day     = fd_gui_timeline_day_get( gui, day_idx );
+      }
+      if( FD_UNLIKELY( !cur_day ) ) continue;
+      ulong idx = (ts%(ulong)FD_GUI_TIMELINE_DAY_NS) / step;
+      txn_fees [ i ] = fd_gui_timeline_combine( txn_fees [ i ], fd_gui_timeline_field_get( cur_day, (int)stored, FD_GUI_TIMELINE_FIELD_TXN_FEES,  idx ), FD_GUI_TIMELINE_FIELD_TXN_FEES  );
+      prio_fees[ i ] = fd_gui_timeline_combine( prio_fees[ i ], fd_gui_timeline_field_get( cur_day, (int)stored, FD_GUI_TIMELINE_FIELD_PRIO_FEES, idx ), FD_GUI_TIMELINE_FIELD_PRIO_FEES );
+      tips     [ i ] = fd_gui_timeline_combine( tips     [ i ], fd_gui_timeline_field_get( cur_day, (int)stored, FD_GUI_TIMELINE_FIELD_TIPS,       idx ), FD_GUI_TIMELINE_FIELD_TIPS       );
+    }
+  }
+
+  long first, last;
+  int  avail = gui->db && gui->hist &&
+               fd_gui_store_ts_live_timestamp_bounds( gui->db, FD_GUI_HIST_TIMELINE_DAY, &first, &last ) &&
+               first>=FD_GUI_TIMELINE_DAY_NS;
+
+  long avail_start = 0L;
+  if( FD_LIKELY( avail ) ) {
+    ulong last_window  = (ulong)fd_long_max( last, 0L ) / (ulong)FD_GUI_HIST_RES_1S_NS;
+    ulong horizon      = last_window>=FD_GUI_STORE_TS_IDX_DEPTH ? last_window-(FD_GUI_STORE_TS_IDX_DEPTH-1UL) : 0UL;
+    ulong horizon_ns   = horizon*(ulong)FD_GUI_HIST_RES_1S_NS;
+    ulong horizon_end  = ((horizon_ns+(ulong)FD_GUI_TIMELINE_DAY_NS-1UL)/(ulong)FD_GUI_TIMELINE_DAY_NS)*(ulong)FD_GUI_TIMELINE_DAY_NS;
+    long  oldest_end   = fd_long_max( first, (long)horizon_end );
+    avail_start        = oldest_end-FD_GUI_TIMELINE_DAY_NS;
+    avail              = oldest_end<=last;
+  }
+
+  jsonp_open_envelope( gui->http, "timeline", "query_agg_revenue" );
+  jsonp_ulong( gui->http, "id", id );
+  jsonp_open_object( gui->http, "value" );
+  jsonp_string( gui->http, "granularity", granularity );
+  jsonp_long_as_str( gui->http, "reference_ts_ns", reference );
+  if( FD_LIKELY( avail ) ) {
+    jsonp_long_as_str( gui->http, "available_start_ns", avail_start );
+    jsonp_long_as_str( gui->http, "available_end_ns", last );
+  } else {
+    jsonp_null( gui->http, "available_start_ns" );
+    jsonp_null( gui->http, "available_end_ns" );
+  }
+  jsonp_open_array( gui->http, "txn_fees" );
+  for( ulong i=0UL; i<count; i++ ) {
+    if( FD_UNLIKELY( txn_fees[ i ]==ULONG_MAX ) ) jsonp_null( gui->http, NULL );
+    else                                          jsonp_ulong_as_str( gui->http, NULL, txn_fees[ i ] );
+  }
+  jsonp_close_array( gui->http );
+  jsonp_open_array( gui->http, "prio_fees" );
+  for( ulong i=0UL; i<count; i++ ) {
+    if( FD_UNLIKELY( prio_fees[ i ]==ULONG_MAX ) ) jsonp_null( gui->http, NULL );
+    else                                           jsonp_ulong_as_str( gui->http, NULL, prio_fees[ i ] );
+  }
+  jsonp_close_array( gui->http );
+  jsonp_open_array( gui->http, "tips" );
+  for( ulong i=0UL; i<count; i++ ) {
+    if( FD_UNLIKELY( tips[ i ]==ULONG_MAX ) ) jsonp_null( gui->http, NULL );
+    else                                      jsonp_ulong_as_str( gui->http, NULL, tips[ i ] );
+  }
+  jsonp_close_array( gui->http );
+  jsonp_close_object( gui->http );
+  jsonp_close_envelope( gui->http );
+  return 0;
+}
+
 void
 fd_gui_peers_printf_wfs_add( fd_gui_peers_ctx_t * peers,
                              ulong const *        idxs,

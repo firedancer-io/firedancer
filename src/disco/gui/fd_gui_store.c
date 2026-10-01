@@ -767,24 +767,25 @@ fd_gui_store_kv_evict( fd_gui_store_t * db,
 }
 
 int
-fd_gui_store_ts_append( fd_gui_store_t * db,
-                        ulong            ring_idx,
-                        void const *     val ) {
-  if( FD_UNLIKELY( ring_idx>=db->ring_cnt ) ) { FD_LOG_WARNING(( "fd_gui_store_ts_append: bad ring_idx %lu", ring_idx )); return FD_GUI_STORE_ERR; }
+fd_gui_store_ts_emplace( fd_gui_store_t * db,
+                         ulong            ring_idx,
+                         long             ts,
+                         void **          val_out ) {
+  if( FD_UNLIKELY( ring_idx>=db->ring_cnt ) ) { FD_LOG_WARNING(( "fd_gui_store_ts_emplace: bad ring_idx %lu", ring_idx )); return FD_GUI_STORE_ERR; }
   fd_gui_store_ring_t * p = &db->super->ring[ ring_idx ];
-  if( FD_UNLIKELY( p->kind!=FD_GUI_STORE_KIND_TS ) ) { FD_LOG_WARNING(( "fd_gui_store_ts_append: ring_idx %lu is not a TS ring", ring_idx )); return FD_GUI_STORE_ERR; }
+  if( FD_UNLIKELY( p->kind!=FD_GUI_STORE_KIND_TS ) ) { FD_LOG_WARNING(( "fd_gui_store_ts_emplace: ring_idx %lu is not a TS ring", ring_idx )); return FD_GUI_STORE_ERR; }
 
   if( FD_UNLIKELY( p->head_cur >= fd_gui_store_ring_head_limit( db, ring_idx, p ) ) ) {
     if( FD_UNLIKELY( !fd_gui_store_region_grow( db, ring_idx ) ) ) { db->metrics->map_full[ ring_idx ]++; return FD_GUI_STORE_MAP_FULL; }
   }
 
   /* Window is derived from the timestamp embedded in the value; the
-     value is stored verbatim with no store-added header. */
-  ulong   window = fd_gui_store_ts_window( p, val );
+     value is stored verbatim with no store-added header.  Seed the
+     timestamp so the stored record is consistent with its window. */
   ulong   cur    = p->head_cur;
-
   uchar * slot   = fd_gui_store_slot( db, ring_idx, p, cur );
-  fd_memcpy( slot, val, p->val_sz );
+  fd_memcpy( slot + p->ts_off, &ts, sizeof(ts) );
+  ulong   window = fd_gui_store_ts_window( p, slot );
   p->head_cur = cur + 1UL;
   db->metrics->ts_appends[ ring_idx ]++;
 
@@ -796,7 +797,23 @@ fd_gui_store_ts_append( fd_gui_store_t * db,
     e->first_cur = cur;
     e->span      = 0U;
   }
+  *val_out = slot;
   return FD_GUI_STORE_SUCCESS;
+}
+
+int
+fd_gui_store_ts_append( fd_gui_store_t * db,
+                        ulong            ring_idx,
+                        void const *     val ) {
+  if( FD_UNLIKELY( ring_idx>=db->ring_cnt ) ) { FD_LOG_WARNING(( "fd_gui_store_ts_append: bad ring_idx %lu", ring_idx )); return FD_GUI_STORE_ERR; }
+  fd_gui_store_ring_t const * p = &db->super->ring[ ring_idx ];
+  if( FD_UNLIKELY( p->kind!=FD_GUI_STORE_KIND_TS ) ) { FD_LOG_WARNING(( "fd_gui_store_ts_append: ring_idx %lu is not a TS ring", ring_idx )); return FD_GUI_STORE_ERR; }
+  long ts;
+  fd_memcpy( &ts, (uchar const *)val + p->ts_off, sizeof(ts) );
+  void * slot = NULL;
+  int rc = fd_gui_store_ts_emplace( db, ring_idx, ts, &slot );
+  if( FD_LIKELY( rc==FD_GUI_STORE_SUCCESS ) ) fd_memcpy( slot, val, p->val_sz );
+  return rc;
 }
 
 int
@@ -827,34 +844,22 @@ fd_gui_store_ts_scan_bound( fd_gui_store_t * db,
   fd_gui_store_ts_idx_ent_t const * row = fd_gui_store_ts_idx_row( db, ring_idx );
   ulong lo = ULONG_MAX; /* min first_cur */
   ulong hi = 0UL;       /* max last_cur+1 */
-  int   any = 0;
 
-  if( FD_LIKELY( window_hi-window_lo<FD_GUI_STORE_TS_IDX_DEPTH ) ) {
-    for( ulong bucket=window_lo; bucket<=window_hi; bucket++ ) {
-      fd_gui_store_ts_idx_ent_t const * e = &row[ bucket % FD_GUI_STORE_TS_IDX_DEPTH ];
-      if( e->first_cur==ULONG_MAX || e->window!=(uint)bucket ) continue; /* empty slot, or aliased by another bucket */
-      if( FD_UNLIKELY( e->span==UINT_MAX ) ) {
-        *lo_cur = p->evict_cur;
-        *hi_cur = p->head_cur;
-        return;
-      }
-      ulong last_cur = e->first_cur + (ulong)e->span;
-      if( last_cur<p->evict_cur ) continue; /* fully evicted bucket */
-      any = 1;
-      lo  = fd_ulong_min( lo, e->first_cur );
-      hi  = fd_ulong_max( hi, last_cur + 1UL );
-    }
-    if( !any ) { /* empty */
-      *lo_cur = p->head_cur;
-      *hi_cur = p->head_cur;
-      return;
-    }
-    *lo_cur = fd_ulong_max( lo, p->evict_cur );
-    *hi_cur = fd_ulong_min( hi, p->head_cur );
-  } else {
-    *lo_cur = p->evict_cur;
-    *hi_cur = p->head_cur;
+  for( ulong bucket=window_lo; bucket<=window_hi; bucket++ ) {
+    fd_gui_store_ts_idx_ent_t const * e = &row[ bucket % FD_GUI_STORE_TS_IDX_DEPTH ];
+    if( e->first_cur==ULONG_MAX || e->window!=(uint)bucket ) continue; /* empty slot, or aliased by another bucket */
+    ulong last_cur = e->first_cur + (ulong)e->span;
+    if( last_cur<p->evict_cur ) continue; /* fully evicted bucket */
+    lo = fd_ulong_min( lo, e->first_cur );
+    hi = fd_ulong_max( hi, last_cur + 1UL );
   }
+  if( lo==ULONG_MAX ) { /* empty */
+    *lo_cur = p->head_cur;
+    *hi_cur = p->head_cur;
+    return;
+  }
+  *lo_cur = fd_ulong_max( lo, p->evict_cur );
+  *hi_cur = fd_ulong_min( hi, p->head_cur );
 }
 
 static void
@@ -891,7 +896,6 @@ fd_gui_store_ts_scan_begin( fd_gui_store_t *          db,
                             fd_gui_store_ts_filter_fn filter,
                             void *                    filter_ctx ) {
   memset( iter, 0, sizeof(fd_gui_store_ts_iter_t) );
-  iter->_window_hi  = window_hi;
   iter->_filter     = filter;
   iter->_filter_ctx = filter_ctx;
 
@@ -901,10 +905,20 @@ fd_gui_store_ts_scan_begin( fd_gui_store_t *          db,
 
   iter->_db         = (void *)db;
   iter->_rec_sz     = ring_idx + 1UL; /* ring_idx, biased so 0 means uninitialised */
-  iter->_window_lo  = window_lo;
   db->metrics->ts_reads[ ring_idx ]++;
-  ulong lo_cur, hi_cur;
-  fd_gui_store_ts_scan_bound( db, ring_idx, window_lo, window_hi, &lo_cur, &hi_cur );
+
+  /* Clamp the request to the windows the index still covers. */
+  ulong lo_cur = p->head_cur;
+  ulong hi_cur = p->head_cur;
+  if( FD_LIKELY( p->evict_cur<p->head_cur ) ) {
+    ulong last_window = fd_gui_store_ts_window( p, fd_gui_store_slot( db, ring_idx, p, p->head_cur-1UL ) );
+    ulong horizon     = last_window>=FD_GUI_STORE_TS_IDX_DEPTH ? last_window-(FD_GUI_STORE_TS_IDX_DEPTH-1UL) : 0UL;
+    window_lo = fd_ulong_max( window_lo, horizon );
+    window_hi = fd_ulong_min( window_hi, last_window );
+    if( FD_LIKELY( window_lo<=window_hi ) ) fd_gui_store_ts_scan_bound( db, ring_idx, window_lo, window_hi, &lo_cur, &hi_cur );
+  }
+  iter->_window_lo  = window_lo;
+  iter->_window_hi  = window_hi;
   iter->_cur        = (void *)lo_cur;
   iter->_cur_hi     = hi_cur;
   fd_gui_store_ts_scan_advance( iter );

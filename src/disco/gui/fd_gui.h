@@ -176,6 +176,30 @@ typedef struct fd_gui_rate_entry fd_gui_rate_entry_t;
 
 #define FD_GUI_LANDED_VOTE_MAX      (4096UL)
 
+#define FD_GUI_HTTP_MIN_SEND_BUFFER_SZ        (256UL<<20)
+
+#define FD_GUI_TIMELINE_STORED_GRANULARITY_CNT (7UL)
+#define FD_GUI_TIMELINE_GRANULARITY_CNT        (20UL)
+#define FD_GUI_TIMELINE_QUERY_MAX_BUCKETS      (10000UL) /* TODO: tune */
+
+struct fd_gui_timeline_granularity {
+  char const * name;
+  ulong        stored_idx; /* stored granularity the buckets are built from */
+  ulong        merge_cnt;  /* stored buckets merged into one bucket */
+};
+typedef struct fd_gui_timeline_granularity fd_gui_timeline_granularity_t;
+extern fd_gui_timeline_granularity_t const fd_gui_timeline_granularities[ FD_GUI_TIMELINE_GRANULARITY_CNT ];
+extern ulong const fd_gui_timeline_stored_granularity_ns[ FD_GUI_TIMELINE_STORED_GRANULARITY_CNT ];
+
+/* fd_gui_timeline_granularity_ns returns the bucket duration of
+   granularity g in nanoseconds. */
+
+static inline ulong
+fd_gui_timeline_granularity_ns( ulong g ) {
+  fd_gui_timeline_granularity_t const * desc = &fd_gui_timeline_granularities[ g ];
+  return fd_gui_timeline_stored_granularity_ns[ desc->stored_idx ]*desc->merge_cnt;
+}
+
 /* Stored timeline-day bucket layout. */
 #define FD_GUI_TIMELINE_DAY_NS                 (86400000000000L)
 
@@ -205,9 +229,9 @@ typedef struct fd_gui_rate_entry fd_gui_rate_entry_t;
   X( PUBLISHED,       published,        uint,   uint,   uint,   uint,   uint,   ulong,  ulong  ) \
   X( COMPUTE_UNITS,   compute_units,    uint,   uint,   ulong,  ulong,  ulong,  ulong,  ulong  ) \
   X( MAX_COMPUTE,     max_compute,      uint,   uint,   uint,   uint,   uint,   uint,   uint   ) \
-  X( TXN_FEES,        txn_fees,         uint,   uint,   uint,   ulong,  ulong,  ulong,  ulong  ) \
-  X( PRIO_FEES,       prio_fees,        uint,   uint,   uint,   ulong,  ulong,  ulong,  ulong  ) \
-  X( TIPS,            tips,             uint,   uint,   uint,   ulong,  ulong,  ulong,  ulong  ) \
+  X( TXN_FEES,        txn_fees,         ulong,  ulong,  ulong,  ulong,  ulong,  ulong,  ulong  ) \
+  X( PRIO_FEES,       prio_fees,        ulong,  ulong,  ulong,  ulong,  ulong,  ulong,  ulong  ) \
+  X( TIPS,            tips,             ulong,  ulong,  ulong,  ulong,  ulong,  ulong,  ulong  ) \
   X( NONVOTE_SUCCESS, nonvote_success,  uint,   uint,   uint,   uint,   uint,   ulong,  ulong  ) \
   X( NONVOTE_FAILED,  nonvote_failed,   uint,   uint,   uint,   uint,   uint,   ulong,  ulong  ) \
   X( VOTE_SUCCESS,    vote_success,     uint,   uint,   uint,   uint,   uint,   ulong,  ulong  ) \
@@ -324,6 +348,35 @@ fd_gui_timeline_field_set( fd_gui_timeline_day_t * day,
   if( sz==sizeof(ushort) ) { *(ushort *)ptr = value==ULONG_MAX ? USHORT_MAX : (ushort)fd_ulong_min( value, (ulong)USHORT_MAX-1UL ); return; }
   if( sz==sizeof(uint  ) ) { *(uint   *)ptr = value==ULONG_MAX ? UINT_MAX   : (uint  )fd_ulong_min( value, (ulong)UINT_MAX-1UL   ); return; }
   *(ulong *)ptr = value;
+}
+
+/* fd_gui_timeline_combine returns the result of folding value into the
+   accumulator acc for field. */
+
+static inline ulong
+fd_gui_timeline_combine( ulong acc,
+                         ulong value,
+                         int   field ) {
+  if( value==ULONG_MAX ) return acc;
+  if( acc==ULONG_MAX )   return value;
+  switch( field ) {
+    case FD_GUI_TIMELINE_FIELD_START_SLOT:  return fd_ulong_min( acc, value );
+    case FD_GUI_TIMELINE_FIELD_END_SLOT:
+    case FD_GUI_TIMELINE_FIELD_MAX_COMPUTE: return fd_ulong_max( acc, value );
+    default:                                return fd_ulong_min( ULONG_MAX-1UL, fd_ulong_sat_add( acc, value ) );
+  }
+}
+
+/* fd_gui_timeline_field_accum folds value into a stored bucket. */
+
+static inline void
+fd_gui_timeline_field_accum( fd_gui_timeline_day_t * day,
+                             int                     granularity,
+                             int                     field,
+                             ulong                   idx,
+                             ulong                   value ) {
+  ulong acc = fd_gui_timeline_field_get( day, granularity, field, idx );
+  fd_gui_timeline_field_set( day, granularity, field, idx, fd_gui_timeline_combine( acc, value, field ) );
 }
 
 struct fd_gui_tile_timers {
@@ -616,10 +669,13 @@ typedef struct fd_gui_store_txn_end fd_gui_store_txn_end_t;
 struct fd_gui_store_replay_txn {
   long  insert_time_ns;
   long  completion_time_ns;
+  ulong block_compute_unit_limit;
   ulong slot;
   ulong txn_idx;
   ulong txn_exec_idx;
   ulong txn_sigverify_exec_idx;
+  uint  txn_start_shred_idx; /* UINT_MAX if unknown; USHORT_MAX is a valid saturated index */
+  uint  txn_end_shred_idx;   /* Exclusive end, capped at the block's last shred; UINT_MAX if unknown */
   uchar signature[ FD_TXN_SIGNATURE_SZ ];
 
   long sigverify_start_ns;
@@ -703,6 +759,7 @@ struct __attribute__((packed)) fd_gui_leader_slot {
   long      txn_insert_time_max_ns;
   fd_hash_t block_hash;                   /* block hash of the produced block */
   ulong     max_microblocks;              /* initial max microblocks packable into the slot */
+  ulong     max_compute_units;            /* block CU limit announced on becoming leader */
   uint      microblocks_upper_bound;      /* final/exact microblock upper bound */
   uint      begin_microblocks;            /* microblocks started (pack -> bank) */
   uint      end_microblocks;              /* microblocks ended (bank -> poh) */
@@ -1154,6 +1211,9 @@ struct fd_gui {
     ulong                    max;
   } shred_scratch;
 
+  /* 3 fields: txn_fees, prio_fees, tips */
+  ulong timeline_revenue_scratch[ 3 ][ FD_GUI_TIMELINE_QUERY_MAX_BUCKETS ];
+
   /* Earliest REPLAY_EXEC_DONE timestamp per shred of the
      FD_GUI_EXEC_DONE_SLOT_CNT most recent slots, LONG_MAX if none */
   struct {
@@ -1185,6 +1245,19 @@ struct fd_gui {
 typedef struct fd_gui fd_gui_t;
 
 FD_PROTOTYPES_BEGIN
+
+/* fd_gui_timeline_day_get returns the retained calendar day for day_idx, or NULL if not found. */
+
+fd_gui_timeline_day_t *
+fd_gui_timeline_day_get( fd_gui_t * gui,
+                         ulong      day_idx );
+
+/* fd_gui_handle_replay_txn records replay transaction metadata. */
+
+void
+fd_gui_handle_replay_txn( fd_gui_t *                       gui,
+                          fd_replay_txn_executed_t const * txn,
+                          long                             now );
 
 /* fd_gui_tile_timers_diff computes the compact, display-ready diff of a
    single tile's timers between two raw cumulative samples `prev` and
@@ -1290,6 +1363,7 @@ fd_gui_microblock_execution_end( fd_gui_t *     gui,
                                  fd_txn_p_t *   txns,
                                  ulong          pack_txn_idx,
                                  fd_txn_ns_dt_t txn_ns_dt,
+                                 long           exec_end_ticks,
                                  ulong          tips,
                                  ulong          bank_seq,
                                  long           now );
@@ -1507,6 +1581,7 @@ fd_gui_slot_leader_get_or_create( fd_gui_t * gui,
     .txn_insert_time_min_ns  = LONG_MAX,
     .txn_insert_time_max_ns  = LONG_MIN,
     .max_microblocks         = ULONG_MAX,
+    .max_compute_units       = ULONG_MAX,
     .microblocks_upper_bound = UINT_MAX,
     .begin_microblocks       = 0U,
     .end_microblocks         = 0U,

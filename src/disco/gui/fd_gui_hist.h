@@ -164,6 +164,15 @@ fd_gui_hist_ts_append( fd_gui_t *   gui,
                        int          dbi,
                        void const * val );
 
+/* fd_gui_hist_ts_emplace is fd_gui_hist_ts_append without the copy: it
+   appends a record whose timestamp field is stored_ts and returns a
+   pointer to it in the store, or NULL on the same failures. */
+
+void *
+fd_gui_hist_ts_emplace( fd_gui_t * gui,
+                        int        dbi,
+                        long       stored_ts );
+
 int
 fd_gui_hist_range_begin( fd_gui_t *                   gui,
                          fd_gui_hist_iter_t *         iter,

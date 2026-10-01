@@ -422,36 +422,34 @@ fd_gui_hist_kv_get_or_create( fd_gui_t *   gui,
   return NULL;
 }
 
-int
-fd_gui_hist_ts_append( fd_gui_t *   gui,
-                       int          dbi,
-                       void const * val ) {
-  if( FD_UNLIKELY( dbi<0 || dbi>=FD_GUI_HIST_CNT ) ) { FD_LOG_WARNING(( "fd_gui_hist_ts_append: bad dbi %d", dbi )); return -1; }
-  if( FD_UNLIKELY( !fd_gui_hist_is_timeseries( dbi ) ) ) { FD_LOG_WARNING(( "fd_gui_hist_ts_append: dbi %d is not time-series", dbi )); return -1; }
+void *
+fd_gui_hist_ts_emplace( fd_gui_t * gui,
+                        int        dbi,
+                        long       stored_ts ) {
+  if( FD_UNLIKELY( dbi<0 || dbi>=FD_GUI_HIST_CNT ) ) { FD_LOG_WARNING(( "fd_gui_hist_ts_emplace: bad dbi %d", dbi )); return NULL; }
+  if( FD_UNLIKELY( !fd_gui_hist_is_timeseries( dbi ) ) ) { FD_LOG_WARNING(( "fd_gui_hist_ts_emplace: dbi %d is not time-series", dbi )); return NULL; }
   fd_gui_store_t * db = fd_gui_hist_db( gui );
 
   ulong rec_sz = fd_gui_hist_rec_sz( dbi );
-  if( FD_UNLIKELY( !rec_sz ) ) { FD_LOG_WARNING(( "fd_gui_hist_ts_append: dbi %d has no record type", dbi )); return -1; }
+  if( FD_UNLIKELY( !rec_sz ) ) { FD_LOG_WARNING(( "fd_gui_hist_ts_emplace: dbi %d has no record type", dbi )); return NULL; }
 
-  ulong ts_off = fd_gui_hist_dbi_ts_off( dbi );
-  long stored_ts;
-  fd_memcpy( &stored_ts, (uchar const *)val + ts_off, sizeof(stored_ts) );
   fd_gui_hist_t * hist = fd_gui_hist( gui );
   if( FD_UNLIKELY( hist->has_last_ts[ dbi ] && stored_ts<hist->last_ts[ dbi ] ) ) {
-    FD_LOG_WARNING(( "fd_gui_hist_ts_append: dbi %d insertion timestamp decreased from %ld to %ld", dbi, hist->last_ts[ dbi ], stored_ts ));
-    return -1;
+    FD_LOG_WARNING(( "fd_gui_hist_ts_emplace: dbi %d insertion timestamp decreased from %ld to %ld", dbi, hist->last_ts[ dbi ], stored_ts ));
+    return NULL;
   }
 
   /* Reserve space ahead of the append. */
   int forced_eviction = fd_gui_hist_reserve( gui, dbi );
+  void * val = NULL;
   int rc;
   for(;;) {
-    rc = fd_gui_store_ts_append( db, (ulong)dbi, val );
+    rc = fd_gui_store_ts_emplace( db, (ulong)dbi, stored_ts, &val );
     if( FD_LIKELY( rc==FD_GUI_STORE_SUCCESS ) ) {
       hist->last_ts[ dbi ]     = stored_ts;
       hist->has_last_ts[ dbi ] = 1;
       if( FD_UNLIKELY( forced_eviction ) ) hist->metrics.reserves[ dbi ]++;
-      return 0;
+      return val;
     }
     if( FD_LIKELY( rc!=FD_GUI_STORE_MAP_FULL ) ) break;
     if( FD_UNLIKELY( !fd_gui_hist_map_full_evict_step( gui ) ) ) break;
@@ -459,9 +457,25 @@ fd_gui_hist_ts_append( fd_gui_t *   gui,
   }
   if( FD_UNLIKELY( rc==FD_GUI_STORE_MAP_FULL ) ) {
     fd_gui_hist( gui )->metrics.map_full[ dbi ]++;
-    FD_LOG_WARNING(( "fd_gui_hist_ts_append: dropping a record for dbi %d; store full and nothing left to evict", dbi ));
+    FD_LOG_WARNING(( "fd_gui_hist_ts_emplace: dropping a record for dbi %d; store full and nothing left to evict", dbi ));
   }
-  return -1;
+  return NULL;
+}
+
+int
+fd_gui_hist_ts_append( fd_gui_t *   gui,
+                       int          dbi,
+                       void const * val ) {
+  if( FD_UNLIKELY( dbi<0 || dbi>=FD_GUI_HIST_CNT ) ) { FD_LOG_WARNING(( "fd_gui_hist_ts_append: bad dbi %d", dbi )); return -1; }
+  if( FD_UNLIKELY( !fd_gui_hist_is_timeseries( dbi ) ) ) { FD_LOG_WARNING(( "fd_gui_hist_ts_append: dbi %d is not time-series", dbi )); return -1; }
+  ulong rec_sz = fd_gui_hist_rec_sz( dbi );
+  if( FD_UNLIKELY( !rec_sz ) ) { FD_LOG_WARNING(( "fd_gui_hist_ts_append: dbi %d has no record type", dbi )); return -1; }
+  long stored_ts;
+  fd_memcpy( &stored_ts, (uchar const *)val + fd_gui_hist_dbi_ts_off( dbi ), sizeof(stored_ts) );
+  void * dst = fd_gui_hist_ts_emplace( gui, dbi, stored_ts );
+  if( FD_UNLIKELY( !dst ) ) return -1;
+  fd_memcpy( dst, val, rec_sz );
+  return 0;
 }
 
 static void
