@@ -1934,7 +1934,8 @@ fd_feature_id_t const ids[] = {
                                  /* EDGMC5kxFxGk4ixsNkGt8bW7QL5hDMXnbwaZvYMwNfzF */
     .name                      = "syscall_parameter_address_restrictions",
     .implemented               = 1,
-    .cleaned_up                = 0 },
+    .cleaned_up                = 0,
+    .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, virtual_address_space_adjustments)>>3,
     .id                        = {"\x01\xa9\xeb\x3a\x1c\x9f\x2f\xce\xe8\xc0\xcd\xb8\xed\x0e\x11\x05\xc7\x11\xe8\x8a\xf9\xbc\x53\x87\x31\xd1\x6f\x54\xa0\x7d\x7d\x2f"},
