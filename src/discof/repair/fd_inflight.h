@@ -24,7 +24,7 @@
    Exact updates of shred requests are critical: the repair policy does
    not request any shred twice, so re-requests come only from this
    table.  Whether a shred belongs to a version is decided structurally
-   by the chainer, which keys FECs by root; this table is request
+   by the rotor, which keys FECs by root; this table is request
    accounting only.
 
    Each record is FREE, OUTSTANDING, or POPPED:
@@ -191,7 +191,7 @@ fd_inflights_join( void * shmem );
 /* fd_inflights_shred_insert records a shred request of kind
    FD_REPAIR_KIND_SHRED (positional) or AG_REPAIR_KIND_SHRED_FOR_BLOCK_ID
    to pubkey.  block_id is the ShredForBlockId version being repaired
-   and fec_root the root the chainer holds for that version at the
+   and fec_root the root the rotor holds for that version at the
    requested FEC set (the key a response is matched by); both NULL (or
    all-zero) for a positional request. */
 

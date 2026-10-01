@@ -1,6 +1,6 @@
 #include "fd_schedulor.h"
 
-#define SLOTV_MAX (64UL)
+#define BLOCK_MAX (64UL)
 #define Q FD_SCHEDULOR_QUANTUM_NS /* all test times are whole quanta so they survive a quantum change */
 
 #define PARENT  FD_SCHEDULOR_PARENT_TIMEOUT_NS
@@ -19,9 +19,9 @@ bid( ulong n ) {
 
 static fd_schedulor_t *
 setup( void ) {
-  ulong footprint = fd_schedulor_footprint( SLOTV_MAX );
+  ulong footprint = fd_schedulor_footprint( BLOCK_MAX );
   FD_TEST( footprint && footprint<=sizeof(mem) );
-  fd_schedulor_t * s = fd_schedulor_join( fd_schedulor_new( mem, SLOTV_MAX, 42UL ) );
+  fd_schedulor_t * s = fd_schedulor_join( fd_schedulor_new( mem, BLOCK_MAX, 42UL ) );
   FD_TEST( s );
   FD_TEST( !fd_schedulor_verify( s ) );
   FD_TEST( fd_schedulor_queued_cnt( s )==0UL );
@@ -238,17 +238,17 @@ test_versions( void ) {
   FD_LOG_NOTICE(( "pass: blocks keyed by {slot, block_id}, rename, stale insert" ));
 }
 
-/* Every slotv has a check at once and they drain in slot order. */
+/* Every block has a check at once and they drain in slot order. */
 
 static void
 test_full( void ) {
   fd_schedulor_t * s = setup();
 
-  for( ulong i=0UL; i<SLOTV_MAX; i++ ) { fd_hash_t b = bid( i+1UL ); insert( s, 1000UL-i, &b, 0L ); } /* reverse slot order, non-zero ids */
-  FD_TEST( fd_schedulor_queued_cnt( s )==SLOTV_MAX );
+  for( ulong i=0UL; i<BLOCK_MAX; i++ ) { fd_hash_t b = bid( i+1UL ); insert( s, 1000UL-i, &b, 0L ); } /* reverse slot order, non-zero ids */
+  FD_TEST( fd_schedulor_queued_cnt( s )==BLOCK_MAX );
 
   ulong prev_slot = 0UL;
-  for( ulong i=0UL; i<SLOTV_MAX; i++ ) {
+  for( ulong i=0UL; i<BLOCK_MAX; i++ ) {
     ulong slot; fd_hash_t block_id;
     FD_TEST( fd_schedulor_block_pop( s, 0L, &slot, &block_id ) );
     FD_TEST( slot>prev_slot );
@@ -257,9 +257,9 @@ test_full( void ) {
     insert( s, slot, &block_id, REQUEST ); /* re-park each */
   }
   pop_expect( s, 0L, ULONG_MAX, NULL );
-  FD_TEST( fd_schedulor_queued_cnt( s )==SLOTV_MAX );
+  FD_TEST( fd_schedulor_queued_cnt( s )==BLOCK_MAX );
 
-  for( ulong i=0UL; i<SLOTV_MAX; i++ ) { fd_hash_t b = bid( i+1UL ); remove_( s, 1000UL-i, &b ); }
+  for( ulong i=0UL; i<BLOCK_MAX; i++ ) { fd_hash_t b = bid( i+1UL ); remove_( s, 1000UL-i, &b ); }
   FD_TEST( fd_schedulor_queued_cnt( s )==0UL );
 
   teardown( s );

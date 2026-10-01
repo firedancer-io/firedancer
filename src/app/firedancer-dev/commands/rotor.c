@@ -1,6 +1,6 @@
 /* The rotor command attaches to a running validator's rotor tile.
 
-   `rotor forest` (default) prints the alpenglow chainer's state as a
+   `rotor forest` (default) prints the alpenglow rotor's state as a
    forest tree; `rotor metrics` prints per-second repair request /
    response counters and network drop counters; `rotor schedulor`
    prints every block queued for a repair check. */
@@ -22,52 +22,52 @@
 extern action_t fd_action_rotor;
 
 /* Bound on distinct slots mirrored into the forest per tick.  The
-   chainer can hold up to fd_chainer_blk_max( slot_max ) versions (66k
+   rotor can hold up to fd_rotor_blk_max( slot_max ) versions (66k
    at the default slot_max of 30000) but the forest footprint is
    dominated by per-block merkle root arrays (~64 KiB per block at
-   FD_SHRED_BLK_MAX), so a forest sized to the chainer would need
+   FD_SHRED_BLK_MAX), so a forest sized to the rotor would need
    gigabytes.  4096 blocks is ~350 MiB and plenty for the catchup
    windows we want to look at; excess slots are reported as omitted. */
 
 #define ROTOR_FOREST_BLK_MAX (4096UL)
 
-/* rotor_chainer_reloc snapshots the chainer struct at chainer_laddr and
+/* rotor_rotor_reloc snapshots the rotor struct at rotor_laddr and
    fixes up its internal pointers for THIS process's mapping.  The tile
    stored direct pointers valid only in its own address space, so we
-   replay fd_chainer_new's layout to recompute local addresses.  MUST
-   mirror fd_chainer_new. */
+   replay fd_rotor_new's layout to recompute local addresses.  MUST
+   mirror fd_rotor_new. */
 
-static fd_chainer_t
-rotor_chainer_reloc( void * chainer_laddr, ulong ele_max, ulong max_shreds_per_block ) {
-  fd_chainer_t c = *(fd_chainer_t *)chainer_laddr;
+static fd_rotor_t
+rotor_rotor_reloc( void * rotor_laddr, ulong ele_max, ulong max_shreds_per_block ) {
+  fd_rotor_t c = *(fd_rotor_t *)rotor_laddr;
 
-  ulong blk_max       = fd_chainer_blk_max( ele_max );
+  ulong blk_max       = fd_rotor_blk_max( ele_max );
   ulong fec_max       = blk_max * ( max_shreds_per_block / FD_FEC_SHRED_CNT );
   ulong fec_chain_cnt = fd_fec_map_chain_cnt_est( fec_max );
-  ulong blk_chain_cnt = fd_slotv_map_chain_cnt_est( blk_max );
+  ulong blk_chain_cnt = fd_block_map_chain_cnt_est( blk_max );
 
-  FD_SCRATCH_ALLOC_INIT( l, chainer_laddr );
-  (void)          FD_SCRATCH_ALLOC_APPEND( l, fd_chainer_align(),      sizeof(fd_chainer_t)                        );
-  c.fec_pool     = fd_fec_pool_join    ( FD_SCRATCH_ALLOC_APPEND( l, fd_fec_pool_align(),     fd_fec_pool_footprint    ( fec_max )        ) );
-  c.fec_map      = fd_fec_map_join     ( FD_SCRATCH_ALLOC_APPEND( l, fd_fec_map_align(),      fd_fec_map_footprint     ( fec_chain_cnt )  ) );
-  c.slotv_pool   = fd_slotv_pool_join  ( FD_SCRATCH_ALLOC_APPEND( l, fd_slotv_pool_align(),   fd_slotv_pool_footprint  ( blk_max )        ) );
-  c.fec_tbl      =                       FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),           fec_max*sizeof(uint)                        );
-  c.slotv_map    = fd_slotv_map_join   ( FD_SCRATCH_ALLOC_APPEND( l, fd_slotv_map_align(),    fd_slotv_map_footprint   ( blk_chain_cnt ) ) );
-  c.bfs          = bfs_join            ( FD_SCRATCH_ALLOC_APPEND( l, bfs_align(),             bfs_footprint            ( blk_max )        ) );
-  c.out_queue    = out_queue_join      ( FD_SCRATCH_ALLOC_APPEND( l, out_queue_align(),       out_queue_footprint      ( fec_max )        ) );
+  FD_SCRATCH_ALLOC_INIT( l, rotor_laddr );
+  (void)         FD_SCRATCH_ALLOC_APPEND( l, fd_rotor_align(), sizeof(fd_rotor_t) );
+  c.fec_pool   = fd_fec_pool_join   ( FD_SCRATCH_ALLOC_APPEND( l, fd_fec_pool_align(),   fd_fec_pool_footprint  ( fec_max       ) ) );
+  c.fec_map    = fd_fec_map_join    ( FD_SCRATCH_ALLOC_APPEND( l, fd_fec_map_align(),    fd_fec_map_footprint   ( fec_chain_cnt ) ) );
+  c.block_pool = fd_block_pool_join ( FD_SCRATCH_ALLOC_APPEND( l, fd_block_pool_align(), fd_block_pool_footprint( blk_max       ) ) );
+  c.fec_tbl    =                     FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),         fec_max*sizeof(uint)                    );
+  c.block_map  = fd_block_map_join  ( FD_SCRATCH_ALLOC_APPEND( l, fd_block_map_align(),  fd_block_map_footprint ( blk_chain_cnt ) ) );
+  c.bfs        = bfs_join           ( FD_SCRATCH_ALLOC_APPEND( l, bfs_align(),           bfs_footprint          ( blk_max       ) ) );
+  c.out_queue  = out_queue_join     ( FD_SCRATCH_ALLOC_APPEND( l, out_queue_align(),     out_queue_footprint    ( fec_max       ) ) );
 
   return c;
 }
 
-/* slotv_better returns 1 if a is a better representative of its slot
+/* block_better returns 1 if a is a better representative of its slot
    than b for the forest, which tracks one version per slot.  Prefer
    versions that still deliver (not abandoned), then versions whose
    parent is known (they can link into the tree), then the one with the
    most contiguous shreds. */
 
 static int
-slotv_better( fd_chainer_slotv_t const * a,
-              fd_chainer_slotv_t const * b ) {
+block_better( fd_rotor_blk_t const * a,
+              fd_rotor_blk_t const * b ) {
   if( a->abandoned != b->abandoned ) return !a->abandoned;
   int a_parent = a->parent_slot!=AG_UNKNOWN_SLOT;
   int b_parent = b->parent_slot!=AG_UNKNOWN_SLOT;
@@ -77,33 +77,33 @@ slotv_better( fd_chainer_slotv_t const * a,
 
 /* slot_best returns the version of slot the forest should mirror. */
 
-static fd_chainer_slotv_t *
-slot_best( fd_chainer_t * chainer, ulong slot ) {
-  fd_chainer_slotv_t * pool = chainer->slotv_pool;
-  fd_chainer_slotv_t * best = NULL;
-  for( ulong idx = fd_slotv_map_idx_query_const( chainer->slotv_map, &slot, ULONG_MAX, pool );
+static fd_rotor_blk_t *
+slot_best( fd_rotor_t * rotor, ulong slot ) {
+  fd_rotor_blk_t * pool = rotor->block_pool;
+  fd_rotor_blk_t * best = NULL;
+  for( ulong idx = fd_block_map_idx_query_const( rotor->block_map, &slot, ULONG_MAX, pool );
              idx != ULONG_MAX;
-             idx = fd_slotv_map_idx_next_const( idx, ULONG_MAX, pool ) ) {
-    fd_chainer_slotv_t * slotv = fd_slotv_pool_ele( pool, idx );
-    if( !best || slotv_better( slotv, best ) ) best = slotv;
+             idx = fd_block_map_idx_next_const( idx, ULONG_MAX, pool ) ) {
+    fd_rotor_blk_t * block = fd_block_pool_ele( pool, idx );
+    if( !best || block_better( block, best ) ) best = block;
   }
   return best;
 }
 
-/* forest_mirror_slotv inserts slotv into forest as a block with the
+/* forest_mirror_block inserts block into forest as a block with the
    same parent and the same buffered / complete shred indices.  The
    shred bitset is filled directly for the contiguous prefix, then the
    boundary shreds go through fd_forest_data_shred_insert so the forest
    runs its own buffered_idx scan and consumed-frontier advance.
-   Returns 0 on success, -1 if slotv was skipped. */
+   Returns 0 on success, -1 if block was skipped. */
 
 static int
-forest_mirror_slotv( fd_forest_t *              forest,
-                     fd_chainer_slotv_t const * slotv ) {
-  ulong slot        = slotv->slot;
-  ulong parent_slot = slotv->parent_slot; /* AG_UNKNOWN_SLOT==ULONG_MAX is the forest sentinel too */
-  uint  buffered    = slotv->buffered_idx;
-  uint  complete    = slotv->complete_idx;
+forest_mirror_block( fd_forest_t *          forest,
+                     fd_rotor_blk_t const * block ) {
+  ulong slot        = block->slot;
+  ulong parent_slot = block->parent_slot; /* AG_UNKNOWN_SLOT==ULONG_MAX is the forest sentinel too */
+  uint  buffered    = block->buffered_idx;
+  uint  complete    = block->complete_idx;
   ulong shred_max   = forest->shred_max;
 
   /* The tile is mutating underneath us; drop anything that would trip
@@ -123,7 +123,7 @@ forest_mirror_slotv( fd_forest_t *              forest,
      seen".  Use a fixed non-zero dummy so repeated inserts agree. */
   static fd_hash_t dummy_mr = { .ul = { 1UL, 0UL, 0UL, 0UL } };
   fd_hash_t        cmr      = { 0 };
-  long             rx_ts    = slotv->metrics.first_shred_ts;
+  long             rx_ts    = block->metrics.first_shred_ts;
 
   if( buffered!=UINT_MAX ) {
     /* Mark [0, buffered) received directly, then insert `buffered`
@@ -142,24 +142,24 @@ forest_mirror_slotv( fd_forest_t *              forest,
   return 0;
 }
 
-/* forest_mirror_chainer rebuilds forest (rooted at the chainer root)
-   from every slot in chainer.  Returns the number of distinct slots
+/* forest_mirror_rotor rebuilds forest (rooted at the rotor root)
+   from every slot in rotor.  Returns the number of distinct slots
    that could not be mirrored (forest full or inconsistent snapshot). */
 
 static ulong
-forest_mirror_chainer( fd_forest_t *  forest,
-                       fd_chainer_t * chainer ) {
-  fd_chainer_slotv_t * pool = chainer->slotv_pool;
-  fd_slotv_map_t     * map  = chainer->slotv_map;
-  ulong omitted = 0UL;
+forest_mirror_rotor( fd_forest_t * forest,
+                     fd_rotor_t *  rotor ) {
+  fd_rotor_blk_t * pool    = rotor->block_pool;
+  fd_block_map_t * map     = rotor->block_map;
+  ulong            omitted = 0UL;
 
-  for( fd_slotv_map_iter_t it = fd_slotv_map_iter_init( map, pool );
-                               !fd_slotv_map_iter_done( it, map, pool );
-                           it = fd_slotv_map_iter_next( it, map, pool ) ) {
-    fd_chainer_slotv_t * slotv = fd_slotv_map_iter_ele( it, map, pool );
-    if( FD_UNLIKELY( slotv->slot==chainer->root ) ) continue;      /* forest root, created by fd_forest_init */
-    if( FD_UNLIKELY( slotv!=slot_best( chainer, slotv->slot ) ) ) continue; /* one version per slot */
-    if( FD_UNLIKELY( forest_mirror_slotv( forest, slotv ) ) ) omitted++;
+  for( fd_block_map_iter_t it = fd_block_map_iter_init( map, pool );
+                               !fd_block_map_iter_done( it, map, pool );
+                           it = fd_block_map_iter_next( it, map, pool ) ) {
+    fd_rotor_blk_t * block = fd_block_map_iter_ele( it, map, pool );
+    if( FD_UNLIKELY( block->slot==rotor->root ) ) continue;      /* forest root, created by fd_forest_init */
+    if( FD_UNLIKELY( block!=slot_best( rotor, block->slot ) ) ) continue; /* one version per slot */
+    if( FD_UNLIKELY( forest_mirror_block( forest, block ) ) ) omitted++;
   }
   return omitted;
 }
@@ -307,7 +307,7 @@ metrics_snap_take( metrics_snap_t * s, metrics_src_t const * src ) {
   for( ulong i=0UL; i<FD_METRICS_ENUM_REPAIR_SENT_REQUEST_TYPE_CNT; i++ ) s->req[ i ] = r[ MIDX( COUNTER, ROTOR, REQUEST_TX )+i ];
   s->pkt_tx      = r[ MIDX( COUNTER, ROTOR, PKT_TX ) ];
   /* SHRED_REREQUESTED is not in this branch's ROTOR metric set -- the
-     per-version repair tally it came from went away with the chainer
+     per-version repair tally it came from went away with the rotor
      rewrite.  Reported as 0 until something re-adds it. */
   s->rerequest   = 0UL;
   s->shred_old   = r[ MIDX( COUNTER, ROTOR, SHRED_OLD ) ];
@@ -533,8 +533,8 @@ static void
 rotor_cmd_args( int *    pargc,
                 char *** pargv,
                 args_t * args ) {
-  args->rotor.once    = fd_env_strip_cmdline_contains( pargc, pargv, "--once"    );
-  args->rotor.chainer = fd_env_strip_cmdline_contains( pargc, pargv, "--chainer" );
+  args->rotor.once  = fd_env_strip_cmdline_contains( pargc, pargv, "--once"  );
+  args->rotor.rotor = fd_env_strip_cmdline_contains( pargc, pargv, "--rotor" );
   args->rotor.metrics   = 0;
   args->rotor.schedulor = 0;
   if( *pargc>0 ) {
@@ -578,19 +578,19 @@ rotor_schedulor_fn( args_t *   args,
 
   ulong ele_max              = tile->rotor.slot_max;
   ulong max_shreds_per_block = tile->rotor.max_shreds_per_block;
-  ulong slotv_max            = fd_chainer_blk_max( ele_max );
+  ulong block_max            = fd_rotor_blk_max( ele_max );
 
-  /* Walk the tile scratch layout (ctx, protocol, chainer, schedulor) to
+  /* Walk the tile scratch layout (ctx, protocol, rotor, schedulor) to
      the schedulor local address; mirrors the rotor tile's
      unprivileged_init. */
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  (void)                 FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t),        sizeof(ctx_t)                                             );
-  (void)                 FD_SCRATCH_ALLOC_APPEND( l, fd_repair_align(),    fd_repair_footprint()                                     );
-  (void)                 FD_SCRATCH_ALLOC_APPEND( l, fd_chainer_align(),   fd_chainer_footprint( ele_max, max_shreds_per_block )     );
-  void * schedulor_laddr = FD_SCRATCH_ALLOC_APPEND( l, fd_schedulor_align(), fd_schedulor_footprint( slotv_max )                     );
+  (void)                   FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t),       sizeof(ctx_t)                                           );
+  (void)                   FD_SCRATCH_ALLOC_APPEND( l, fd_repair_align(),    fd_repair_footprint   ()                                );
+  (void)                   FD_SCRATCH_ALLOC_APPEND( l, fd_rotor_align(),     fd_rotor_footprint    ( ele_max, max_shreds_per_block ) );
+  void * schedulor_laddr = FD_SCRATCH_ALLOC_APPEND( l, fd_schedulor_align(), fd_schedulor_footprint( block_max )                     );
 
   for(;;) {
-    fd_schedulor_print( schedulor_laddr, slotv_max, fd_log_wallclock() );
+    fd_schedulor_print( schedulor_laddr, block_max, fd_log_wallclock() );
     fflush( stdout );
     if( args->rotor.once ) break;
     sleep( 1 );
@@ -606,17 +606,17 @@ rotor_forest_fn( args_t *   args,
   ulong ele_max              = tile->rotor.slot_max;
   ulong max_shreds_per_block = tile->rotor.max_shreds_per_block;
 
-  /* Walk the tile scratch layout (ctx, protocol, chainer) to the chainer
+  /* Walk the tile scratch layout (ctx, protocol, rotor) to the rotor
      local address; mirrors the rotor tile's unprivileged_init. */
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   (void)               FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t),        sizeof(ctx_t)                    );
   (void)               FD_SCRATCH_ALLOC_APPEND( l, fd_repair_align(),    fd_repair_footprint()            );
-  void * chainer_laddr = FD_SCRATCH_ALLOC_APPEND( l, fd_chainer_align(), fd_chainer_footprint( ele_max, max_shreds_per_block ) );
+  void * rotor_laddr = FD_SCRATCH_ALLOC_APPEND( l, fd_rotor_align(), fd_rotor_footprint( ele_max, max_shreds_per_block ) );
 
-  /* Private forest, rebuilt from the chainer snapshot on every tick.
+  /* Private forest, rebuilt from the rotor snapshot on every tick.
      fd_forest_new requires wksp-backed memory (it stores gaddrs), so
      carve it out of an anonymous workspace. */
-  ulong forest_blk_max = fd_ulong_min( ROTOR_FOREST_BLK_MAX, fd_ulong_pow2_up( fd_chainer_blk_max( ele_max )+1UL ) );
+  ulong forest_blk_max = fd_ulong_min( ROTOR_FOREST_BLK_MAX, fd_ulong_pow2_up( fd_rotor_blk_max( ele_max )+1UL ) );
   ulong forest_fp      = fd_forest_footprint( forest_blk_max, max_shreds_per_block );
   if( FD_UNLIKELY( !forest_fp ) ) FD_LOG_ERR(( "bad forest params (blk_max %lu, shred_max %lu)", forest_blk_max, max_shreds_per_block ));
   ulong page_cnt = ( forest_fp + (16UL<<20) ) / FD_SHMEM_NORMAL_PAGE_SZ; /* forest + wksp metadata slack */
@@ -626,22 +626,22 @@ rotor_forest_fn( args_t *   args,
   if( FD_UNLIKELY( !forest_mem ) ) FD_LOG_ERR(( "failed to alloc forest" ));
 
   for(;;) {
-    fd_chainer_t c = rotor_chainer_reloc( chainer_laddr, ele_max, max_shreds_per_block );
-    if( FD_UNLIKELY( c.magic!=FD_CHAINER_MAGIC ) ) FD_LOG_ERR(( "bad chainer magic 0x%lx (tile not initialized?)", c.magic ));
+    fd_rotor_t c = rotor_rotor_reloc( rotor_laddr, ele_max, max_shreds_per_block );
+    if( FD_UNLIKELY( c.magic!=FD_ROTOR_MAGIC ) ) FD_LOG_ERR(( "bad rotor magic 0x%lx (tile not initialized?)", c.magic ));
 
-    if( args->rotor.chainer ) fd_chainer_print( &c );
+    if( args->rotor.rotor ) fd_rotor_print( &c );
 
     if( FD_UNLIKELY( c.root==ULONG_MAX ) ) {
-      printf( "\n[Chainer] root not set yet\n" );
+      printf( "\n[Rotor] root not set yet\n" );
     } else {
       fd_forest_t * forest = fd_forest_join( fd_forest_new( forest_mem, forest_blk_max, max_shreds_per_block, 42UL ) );
       if( FD_UNLIKELY( !forest ) ) FD_LOG_ERR(( "fd_forest_new failed" ));
       fd_forest_init( forest, c.root );
 
-      ulong omitted = forest_mirror_chainer( forest, &c );
+      ulong omitted = forest_mirror_rotor( forest, &c );
 
-      printf( "\n[Chainer] root: %lu, highest repaired: %lu, slotvs: %lu",
-              c.root, c.highest_repaired, fd_slotv_pool_used( c.slotv_pool ) );
+      printf( "\n[Rotor] root: %lu, highest repaired: %lu, blocks: %lu",
+              c.root, c.highest_repaired, fd_block_pool_used( c.block_pool ) );
       if( FD_UNLIKELY( omitted ) ) printf( " (%lu slots not shown: forest capacity %lu)", omitted, forest_blk_max );
       printf( "\n" );
       fflush( stdout ); /* fd_forest_print starts with a log line on stderr */
@@ -672,7 +672,7 @@ action_t fd_action_rotor = {
   .description = "Inspect a running validator's alpenglow rotor tile",
   .detail      = "Attaches to a running validator's rotor tile and prints once a second.\n"
                  "\n"
-                 "  forest   (default) mirror every chainer slot into a forest and print it\n"
+                 "  forest   (default) mirror every rotor slot into a forest and print it\n"
                  "           (ancestry tree, repair frontier, orphaned subtrees) so it is\n"
                  "           easy to see what is missing\n"
                  "  metrics  per-second repair request counters by type, re-requests,\n"
@@ -683,6 +683,6 @@ action_t fd_action_rotor = {
                  "           its slot, ms until due (negative if overdue) and block id\n"
                  "\n"
                  "  --once     print a single snapshot and exit\n"
-                 "  --chainer  (forest) also dump the raw chainer slot-version list",
-  .usage       = "rotor [forest|metrics|schedulor] [--once] [--chainer]",
+                 "  --rotor  (forest) also dump the raw rotor slot-version list",
+  .usage       = "rotor [forest|metrics|schedulor] [--once] [--rotor]",
 };

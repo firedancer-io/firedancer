@@ -63,9 +63,9 @@ fd_schedulor_align( void ) {
 }
 
 FD_FN_CONST ulong
-fd_schedulor_footprint( ulong slotv_max ) {
-  ulong task_max = 2UL*slotv_max;
-  if( FD_UNLIKELY( !slotv_max || !pool_footprint( task_max ) || !treap_footprint( task_max ) ) ) return 0UL;
+fd_schedulor_footprint( ulong block_max ) {
+  ulong task_max = 2UL*block_max;
+  if( FD_UNLIKELY( !block_max || !pool_footprint( task_max ) || !treap_footprint( task_max ) ) ) return 0UL;
   ulong chain_cnt = map_chain_cnt_est( task_max );
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_schedulor_t), sizeof(fd_schedulor_t)      );
@@ -77,7 +77,7 @@ fd_schedulor_footprint( ulong slotv_max ) {
 
 void *
 fd_schedulor_new( void * mem,
-                  ulong  slotv_max,
+                  ulong  block_max,
                   ulong  seed ) {
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
@@ -87,15 +87,15 @@ fd_schedulor_new( void * mem,
     FD_LOG_WARNING(( "misaligned mem" ));
     return NULL;
   }
-  ulong footprint = fd_schedulor_footprint( slotv_max );
+  ulong footprint = fd_schedulor_footprint( block_max );
   if( FD_UNLIKELY( !footprint ) ) {
-    FD_LOG_WARNING(( "bad slotv_max %lu", slotv_max ));
+    FD_LOG_WARNING(( "bad block_max %lu", block_max ));
     return NULL;
   }
 
   fd_memset( mem, 0, footprint );
 
-  ulong task_max  = 2UL*slotv_max;
+  ulong task_max  = 2UL*block_max;
   ulong chain_cnt = map_chain_cnt_est( task_max );
 
   FD_SCRATCH_ALLOC_INIT( l, mem );
@@ -313,7 +313,7 @@ fd_schedulor_verify( fd_schedulor_t const * self ) {
 
 void
 fd_schedulor_print( void const * mem,
-                    ulong        slotv_max,
+                    ulong        block_max,
                     long         now ) {
   fd_schedulor_t const * self = (fd_schedulor_t const *)mem;
   if( FD_UNLIKELY( self->magic!=FD_SCHEDULOR_MAGIC ) ) {
@@ -324,7 +324,7 @@ fd_schedulor_print( void const * mem,
   /* Mirror fd_schedulor_new's layout: the struct's pointers belong to
      the creating process. */
 
-  ulong task_max  = 2UL*slotv_max;
+  ulong task_max  = 2UL*block_max;
   ulong chain_cnt = map_chain_cnt_est( task_max );
   FD_SCRATCH_ALLOC_INIT( l, mem );
   (void)                FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_schedulor_t), sizeof(fd_schedulor_t)      );

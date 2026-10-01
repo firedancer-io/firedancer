@@ -205,7 +205,7 @@ union fdctl_args {
   struct {
     int metrics;
     int once;
-    int chainer;
+    int rotor;
     int schedulor;
   } rotor;
 
