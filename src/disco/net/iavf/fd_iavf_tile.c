@@ -296,14 +296,20 @@ fd_iavf_tile_rx_recycle( fd_iavf_tile_t *    ctx,
 static inline int
 fd_iavf_tile_vf_usable( fd_iavf_tile_t *          ctx,
                         fd_iavf_tile_vf_t const * vf,
-                        uchar                     actor_state FD_PARAM_UNUSED ) {
+                        uchar                     actor_state ) {
   if( !vf->vf_info.link_usable ) return 0;
 
   fd_netdev_t const * interface = fd_netdev_tbl_query( &ctx->router.netdev_tbl, ctx->router.if_virt );
   fd_netdev_t const * pf        = fd_netdev_tbl_query( &ctx->router.netdev_tbl, vf->if_idx );
   if( !interface || !pf ) return 0;
   if( interface->oper_status!=FD_OPER_STATUS_UP || pf->oper_status!=FD_OPER_STATUS_UP ) return 0;
-  return vf->if_idx==ctx->router.if_virt;
+  if( vf->if_idx==ctx->router.if_virt ) return 1;
+
+  /* An up VF must still follow its PF's LACP state */
+  return interface->bond_mode==BOND_MODE_8023AD && interface->bond_aggregator_id &&
+         pf->master_idx==(int)ctx->router.if_virt &&
+         pf->bond_aggregator_id==interface->bond_aggregator_id &&
+         (0!=(pf->bond_actor_state & actor_state));
 }
 
 static ulong

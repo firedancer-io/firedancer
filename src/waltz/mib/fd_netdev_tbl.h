@@ -31,6 +31,10 @@ struct fd_netdev {
   ushort dev_type;       /* one of ARPHRD_ETHER/_LOOPBACK_/IPGRE*/
   uint   gre_dst_ip;
   uint   gre_src_ip;
+  /* Bond mode and LACP state determine which bond members to use for TX */
+  ushort bond_aggregator_id;
+  uchar  bond_mode;
+  uchar  bond_actor_state;
 };
 
 typedef struct fd_netdev fd_netdev_t;

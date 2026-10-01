@@ -827,9 +827,12 @@ init( fd_config_t const * config ) {
       FD_LOG_ERR(( "vfio-pci driver still unavailable after trying to load its kernel module" ));
     }
   }
-  char const * members[] = { config->net.interface };
-  ulong const member_cnt = 1UL;
-  /* Require IOMMU support before creating the VF. */
+  char members[ FD_IAVF_MEMBER_MAX ][ IFNAMSIZ ];
+  ulong member_cnt;
+  if( fd_iavf_member_interfaces( config->net.interface, members, &member_cnt ) ) {
+    FD_LOG_ERR(( "IAVF member discovery failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+  /* Check every bond member before creating a VF on any PF. */
   int member_configured[ FD_IAVF_MEMBER_MAX ];
   for( ulong i=0UL; i<member_cnt; i++ ) {
     char const * diagnostic;
@@ -857,8 +860,11 @@ static int
 fini( fd_config_t const * config,
       int                 pre_init ) {
   if( pre_init ) return 0;
-  char const * members[] = { config->net.interface };
-  ulong const member_cnt = 1UL;
+  char members[ FD_IAVF_MEMBER_MAX ][ IFNAMSIZ ];
+  ulong member_cnt;
+  if( fd_iavf_member_interfaces( config->net.interface, members, &member_cnt ) ) {
+    FD_LOG_ERR(( "IAVF member discovery failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
   int changed = 0;
   for( ulong i=0UL; i<member_cnt; i++ ) {
     uint numvfs;
@@ -904,8 +910,11 @@ fini( fd_config_t const * config,
 static configure_result_t
 check( fd_config_t const * config,
        int                 check_type ) {
-  char const * members[] = { config->net.interface };
-  ulong const member_cnt = 1UL;
+  char members[ FD_IAVF_MEMBER_MAX ][ IFNAMSIZ ];
+  ulong member_cnt;
+  if( fd_iavf_member_interfaces( config->net.interface, members, &member_cnt ) ) {
+    PARTIALLY_CONFIGURED( "IAVF member discovery failed (%i-%s)", errno, fd_io_strerror( errno ) );
+  }
   ulong missing_cnt = 0UL;
   configure_result_t first = { .result=CONFIGURE_OK };
   for( ulong i=0UL; i<member_cnt; i++ ) {

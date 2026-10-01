@@ -29,6 +29,16 @@ FD_PROTOTYPES_BEGIN
 int
 fd_iavf_vfio_avail( void );
 
+/* fd_iavf_member_interfaces lists PFs for VF creation on interface or its
+   802.3ad bond members. Writes names to members and count to member_cnt.
+   Each PF must use ice or i40e. Returns 0 on success or -1 with errno set.
+   Outputs are valid only on success. Some bond sysfs errors terminate
+   the process. */
+int
+fd_iavf_member_interfaces( char const * interface,
+                           char         members[ FD_IAVF_MEMBER_MAX ][ IF_NAMESIZE ],
+                           ulong *      member_cnt );
+
 /* fd_iavf_sriov_bios_guide returns a static BIOS setup explanation for the
    detected manufacturer and CPU, with a vendor URL when available.
    Returns generic settings when detection fails. */
