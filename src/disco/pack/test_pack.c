@@ -1961,14 +1961,15 @@ test_bundle_observe( void ) {
   FD_TEST( obs_schedule( pack, 2UL, FD_PACK_SCHEDULE_BUNDLE )==1UL );
   FD_TEST( obs_event_cnt==2UL );
   FD_TEST( obs_events[1].idx==b && obs_events[1].reason==FD_PACK_BUNDLE_LEAVE_SCHEDULED );
-  FD_TEST( obs_events[1].info==(FD_PACK_WRITER_TXN | (1UL<<8)) );
+  FD_TEST( obs_events[1].info==(FD_PACK_WRITER_TXN | (1UL<<16)) );
   fd_pack_microblock_complete( pack, 0UL );
   fd_pack_microblock_complete( pack, 2UL );
 
-  /* A bundle arriving after the write sees no interference */
+  /* A bundle arriving after the write sees no interference, but sees
+     that a TPU transaction wrote X earlier in the block */
   ulong c = insert_obs_bundle( pack, 4UL, "C", "X", 150L, 1000UL, NULL );
   FD_TEST( obs_schedule( pack, 0UL, FD_PACK_SCHEDULE_BUNDLE )==1UL );
-  FD_TEST( obs_events[2].idx==c && obs_events[2].info==FD_PACK_WRITER_NONE );
+  FD_TEST( obs_events[2].idx==c && obs_events[2].info==(FD_PACK_WRITER_NONE | (FD_PACK_WRITER_TXN<<8)) );
   fd_pack_microblock_complete( pack, 0UL );
 
   /* Bundle D writes Y at 400; E read Y and arrived at 350 */
@@ -1980,7 +1981,7 @@ test_bundle_observe( void ) {
   ulong e = insert_obs_bundle( pack, 6UL, "E", "Y", 350L, 1000UL, NULL );
   FD_TEST( obs_schedule( pack, 0UL, FD_PACK_SCHEDULE_BUNDLE )==1UL );
   FD_TEST( obs_event_cnt==5UL );
-  FD_TEST( obs_events[4].idx==e && obs_events[4].info==(FD_PACK_WRITER_BUNDLE | (1UL<<8)) );
+  FD_TEST( obs_events[4].idx==e && obs_events[4].info==(FD_PACK_WRITER_BUNDLE | (1UL<<16)) );
   fd_pack_microblock_complete( pack, 0UL );
 
   /* Block limits stop bundles */

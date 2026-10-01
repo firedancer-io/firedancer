@@ -2741,6 +2741,8 @@ fd_pack_try_schedule_bundle( fd_pack_t  * pack,
   long  interfere_last    = LONG_MIN;
   int   interfere_kind    = FD_PACK_WRITER_NONE;
   ulong interfere_cnt     = 0UL;
+  long  prior_last        = LONG_MIN; /* writes in this block before the bundle arrived */
+  int   prior_kind        = FD_PACK_WRITER_NONE;
 
   treap_rev_iter_t   _end  = _cur;
   treap_rev_iter_t   _next;
@@ -2808,6 +2810,9 @@ fd_pack_try_schedule_bundle( fd_pack_t  * pack,
         interfere_last = in_wcost_table->last_write;
         interfere_kind = in_wcost_table->last_writer;
       }
+    } else if( in_wcost_table && in_wcost_table->last_write>prior_last ) {
+      prior_last = in_wcost_table->last_write;
+      prior_kind = in_wcost_table->last_writer;
     }
 
     if( FD_LIKELY( any_writers ) ) { /* UNLIKELY? */
@@ -2848,7 +2853,7 @@ fd_pack_try_schedule_bundle( fd_pack_t  * pack,
   }
   if( FD_UNLIKELY( pack->bundle_leave_fn ) ) {
     pack->bundle_leave_fn( pack->bundle_leave_ctx, (ulong)_txn0, FD_PACK_BUNDLE_LEAVE_SCHEDULED,
-                           (ulong)interfere_kind | (interfere_cnt<<8) );
+                           (ulong)interfere_kind | ((ulong)prior_kind<<8) | (interfere_cnt<<16) );
   }
   pack_memcpy_fini();
   return retval;

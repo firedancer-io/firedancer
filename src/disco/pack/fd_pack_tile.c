@@ -112,6 +112,10 @@ FD_STATIC_ASSERT( FD_METRICS_ENUM_BUNDLE_ARRIVAL_RESULT_V_AFTER_WINDOW_MISSED_ID
 FD_STATIC_ASSERT( FD_METRICS_ENUM_DUAL_LANE_PAIR_RESULT_CNT==FD_PACK_DUAL_VERDICT_CNT*FD_PACK_BOBS_SLOTS_PER_ROTATION, dual_metrics );
 FD_STATIC_ASSERT( FD_METRICS_ENUM_DUAL_LANE_PAIR_RESULT_V_TPU_WON_SLOT0_IDX==FD_PACK_DUAL_VERDICT_TPU_WON*FD_PACK_BOBS_SLOTS_PER_ROTATION, dual_metrics );
 FD_STATIC_ASSERT( FD_METRICS_ENUM_DUAL_LANE_OFFER_CNT==4UL,                                                dual_metrics );
+FD_STATIC_ASSERT( FD_METRICS_ENUM_BUNDLE_PRIOR_WRITER_V_NONE_IDX  ==FD_PACK_WRITER_NONE,   prior_writer_metrics );
+FD_STATIC_ASSERT( FD_METRICS_ENUM_BUNDLE_PRIOR_WRITER_V_TPU_IDX   ==FD_PACK_WRITER_TXN,    prior_writer_metrics );
+FD_STATIC_ASSERT( FD_METRICS_ENUM_BUNDLE_PRIOR_WRITER_V_BUNDLE_IDX==FD_PACK_WRITER_BUNDLE, prior_writer_metrics );
+FD_STATIC_ASSERT( FD_METRICS_ENUM_BUNDLE_PRIOR_WRITER_V_VOTE_IDX  ==FD_PACK_WRITER_VOTE,   prior_writer_metrics );
 FD_STATIC_ASSERT( FD_METRICS_ENUM_DUAL_LANE_TPU_WON_CAUSE_CNT==FD_PACK_DUAL_TPU_WON_CNT,                   dual_metrics );
 FD_STATIC_ASSERT( FD_METRICS_ENUM_DUAL_LANE_TPU_WON_CAUSE_V_BUNDLE_LATE_IDX==FD_PACK_DUAL_TPU_WON_BUNDLE_LATE,       dual_metrics );
 FD_STATIC_ASSERT( FD_METRICS_ENUM_DUAL_LANE_TPU_WON_CAUSE_V_BUNDLE_WAITING_IDX==FD_PACK_DUAL_TPU_WON_BUNDLE_WAITING, dual_metrics );
@@ -430,6 +434,13 @@ typedef struct {
     ulong      last_sched_cus[ FD_PACK_MAX_EXECLE_TILES ];
     fd_histf_t limit_inflight_pct[ 1 ];
     fd_histf_t restart_pending   [ 1 ];
+
+    /* Pebble's late first auction: bundles that failed on state written
+       before they arrived, and the leader slot whose first bundle
+       arrival has been recorded */
+    ulong      state_other_prior[ FD_METRICS_ENUM_BUNDLE_PRIOR_WRITER_CNT ];
+    ulong      first_bundle_slot;
+    fd_histf_t first_bundle_offset[ 1 ];
   } obs[1];
 
   /* Used between during_frag and after_frag */
@@ -687,6 +698,10 @@ obs_bundle_inserted( fd_pack_ctx_t *              ctx,
   int   phase      = obs_phase( ctx, arrival_ns );
   if( (ctx->leader_slot!=ULONG_MAX) & (arrival_ns>=ctx->slot_pack_start_ns) ) {
     fd_histf_sample( ctx->obs->arrival_offset, (ulong)obs_ns_to_ticks( ctx, arrival_ns-ctx->slot_pack_start_ns ) );
+    if( ctx->obs->first_bundle_slot!=ctx->leader_slot ) {
+      ctx->obs->first_bundle_slot = ctx->leader_slot;
+      fd_histf_sample( ctx->obs->first_bundle_offset, (ulong)obs_ns_to_ticks( ctx, arrival_ns-ctx->slot_pack_start_ns ) );
+    }
   }
 
   if( FD_UNLIKELY( result<0 ) ) {
@@ -797,7 +812,12 @@ obs_bundle_outcome( fd_pack_ctx_t *                  ctx,
                     fd_pack_bundle_outcome_t const * outcome ) {
   fd_pack_bobs_ele_t * ele = fd_pack_bobs_query_id( ctx->obs->bobs, outcome->obs_id );
   if( FD_UNLIKELY( !ele || ele->state!=FD_PACK_BOBS_STATE_SCHEDULED ) ) return;
-  obs_finalize( ctx, ele, fd_pack_bobs_cause_exec( outcome->landed, obs_exec_err_kind( outcome->txn_err ), ele->interference ) );
+  int cause = fd_pack_bobs_cause_exec( outcome->landed, obs_exec_err_kind( outcome->txn_err ), ele->interference );
+  if( cause==FD_PACK_BOBS_CAUSE_EXEC_STATE_OTHER ) {
+    ulong prior = fd_ulong_min( (ele->interference>>8)&0xFFUL, FD_METRICS_ENUM_BUNDLE_PRIOR_WRITER_CNT-1UL );
+    ctx->obs->state_other_prior[ prior ]++;
+  }
+  obs_finalize( ctx, ele, cause );
 }
 
 FD_FN_CONST static inline ulong
@@ -924,6 +944,8 @@ metrics_write( fd_pack_ctx_t * ctx ) {
   FD_MCNT_ENUM_COPY( PACK, AUCTION_TXN_BLOCKED_DURATION_NANOS, txn_blocked_ns );
   FD_MHIST_COPY( PACK, AUCTION_LIMIT_INFLIGHT_PCT,  ctx->obs->limit_inflight_pct );
   FD_MHIST_COPY( PACK, AUCTION_RESTART_PENDING_TXN, ctx->obs->restart_pending    );
+  FD_MCNT_ENUM_COPY( PACK, BUNDLE_EXEC_STATE_OTHER_PRIOR_WRITER, ctx->obs->state_other_prior );
+  FD_MHIST_COPY( PACK, BUNDLE_FIRST_ARRIVAL_OFFSET_SECONDS, ctx->obs->first_bundle_offset );
   FD_MCNT_SET( PACK, DUAL_LANE_ENTRY_EVICTED, fd_pack_dual_evicted_young( ctx->obs->dual ) );
 
   fd_pack_metrics_write( ctx->pack );
@@ -2130,6 +2152,7 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_pack_dual_set_verdict_cb( ctx->obs->dual, obs_dual_verdict, ctx );
   ctx->obs->last_leader_slot   = ULONG_MAX;
   ctx->obs->txn_blocked_reason = -1;
+  ctx->obs->first_bundle_slot  = ULONG_MAX;
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
     if( ctx->in_kind[ i ]==IN_KIND_EXECLE ) {
@@ -2251,6 +2274,8 @@ unprivileged_init( fd_topo_t const *      topo,
                                                               FD_MHIST_MAX( PACK, AUCTION_LIMIT_INFLIGHT_PCT  ) ) );
   fd_histf_join( fd_histf_new( ctx->obs->restart_pending,     FD_MHIST_MIN( PACK, AUCTION_RESTART_PENDING_TXN ),
                                                               FD_MHIST_MAX( PACK, AUCTION_RESTART_PENDING_TXN ) ) );
+  fd_histf_join( fd_histf_new( ctx->obs->first_bundle_offset, FD_MHIST_SECONDS_MIN( PACK, BUNDLE_FIRST_ARRIVAL_OFFSET_SECONDS ),
+                                                              FD_MHIST_SECONDS_MAX( PACK, BUNDLE_FIRST_ARRIVAL_OFFSET_SECONDS ) ) );
   ctx->metric_state = 0;
   ctx->metric_state_begin = fd_tickcount();
   memset( ctx->metric_timing,             '\0', 16*sizeof(long)                        );

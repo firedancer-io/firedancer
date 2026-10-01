@@ -962,6 +962,13 @@ EXAMPLES
   <int value="2" name="BundleFailed" label="The bundle was scheduled first but did not land" />
 </enum>
 
+<enum name="BundlePriorWriter">
+  <int value="0" name="None" label="Nothing in this block wrote an account the bundle uses before it arrived" />
+  <int value="1" name="Tpu" label="A normal transaction wrote it last" />
+  <int value="2" name="Bundle" label="Another bundle wrote it last" />
+  <int value="3" name="Vote" label="A vote wrote it last" />
+</enum>
+
 <enum name="AuctionTxnBlockedReason">
   <int value="0" name="BeforeFirst" label="No auction has started yet in this slot" />
   <int value="1" name="AfterLimit" label="The last auction ended on its CU limit, or the next was skipped because of it, and another auction can still start this slot" />
@@ -1097,6 +1104,15 @@ EXAMPLES
     </histogram>
     <histogram name="AuctionRestartPendingTxn" min="1" max="10000">
         <summary>Eligible normal transactions not yet scheduled when an auction was ended by the next auction starting</summary>
+    </histogram>
+    <!-- Pebble starts its first auction only after the first bundle burst
+         of the slot, so the state searchers simulated on is not changed
+         by normal transactions first.  Tpu in ExecStateOtherPriorWriter
+         is what that could save; FirstArrivalOffset is how much later
+         the first auction would start. -->
+    <counter name="BundleExecStateOtherPriorWriter" enum="BundlePriorWriter" summary="Bundles that failed with an instruction error with no write to their accounts after they arrived (ExecStateOther), by the kind of transaction that last wrote one of their accounts earlier in the block, before they arrived" />
+    <histogram name="BundleFirstArrivalOffsetSeconds" min="0.0001" max="0.5" converter="seconds">
+        <summary>Time from the start of a leader slot until the first bundle arrived during it</summary>
     </histogram>
     <counter name="DualLaneEntryEvicted" summary="Dual-lane table entries evicted less than a second after insertion; non-zero means some pairs can be missed" />
 </tile>

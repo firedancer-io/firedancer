@@ -656,8 +656,12 @@ void fd_pack_set_initializer_bundles_ready( fd_pack_t * pack );
    recent writer, in the current block, of any account the bundle
    references, considering only writes after the bundle's first
    transaction arrived (its scheduler_arrival_time_nanos compared to
-   the times given to fd_pack_set_time), and bits [8,64) hold the number
-   of such accounts.  For the other reasons, fn is called once for each
+   the times given to fd_pack_set_time), bits [8,16) hold the kind of
+   the most recent writer of any of those accounts in the current block
+   but before the bundle arrived (FD_PACK_WRITER_NONE if a later write
+   to the same account counted as interference instead), and bits
+   [16,64) hold the number of accounts written after the bundle
+   arrived.  For the other reasons, fn is called once for each
    transaction in the bundle, in no particular order, and info is 0.
 
    Initializer bundles trigger the callback like any other bundle.  fn
