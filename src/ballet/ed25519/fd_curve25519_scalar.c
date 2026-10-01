@@ -274,87 +274,47 @@ fd_curve25519_scalar_muladd( uchar       s[ 32 ],
   return s;
 }
 
-void FD_FN_NO_ASAN
+void
 fd_curve25519_scalar_wnaf( short       _t[ 256 ], /* 256-entry */
                            uchar const _vs[ 32 ], /* 32-byte, assumes valid scalar */
-                           int         bits ) {          /* range: [1:12], 1 = NAF */
-  short max = (short)((1 << bits) - 1);
-  uchar const * _s = (uchar const *)_vs;
+                           int         bits ) {   /* range: [1:12], 1 = NAF */
 
-  /* Unpack s bits into _t */
+  /* Standard wNAF over the scalar as a multi-limb integer: at each set
+     bit take the low bits+1 bits as a signed odd digit d, subtract d
+     (which clears the window and, when d<0, carries a 1 into bit
+     pos+bits+1) and jump to the next set bit with tzcnt.  Bit 255 is
+     ignored on input; a carry can set _t[255]. */
 
-  for( int i=0; i<255; i++ ) _t[i] = ((short)_s[i>>3] >> (i&7)) & 1;
-  _t[255] = 0; /* Guarantee 0 termination even if bad data passed */
+  ulong n[5] = { fd_ulong_load_8( _vs ), fd_ulong_load_8( _vs+8 ), fd_ulong_load_8( _vs+16 ), fd_ulong_load_8( _vs+24 ) & ~(1UL<<63), 0UL };
+  memset( _t, 0, 256UL*sizeof(short) );
 
-  /* At this point _t[*] in [0,1] */
-
-  int i;
-
-  for( i=0; i<256; i++ ) if( _t[i] ) break; /* Find first non-zero t */
-
-  while( i<256 ) {
-
-    /* At this point [0,i) have been made sparse and t[i] is 1.
-       Absorb as many tj for j in (i,256) into ti as possible */
-
-    short ti = 1;
-
-    int j;
-    for( j=i+1; j<256; j++ ) {
-      short tj = _t[j];
-      if( !tj ) continue;
-
-      /* At this point, we've zeroed out (i,j) and we know tj is
-         1.  We also know that ti is odd and in [-max,max].  Thus, if
-         2^shift>(2*max), ti +/- 2^shift*tj is _not_ in [-max,max] and
-         we can't merge this j and any following into i. */
-
-      short delta = (short)(1 << fd_int_min( j-i, 14 )); /* Note: delta is even, and delta <= 2^14 */
-      if( delta>(2*max) ) break;
-
-      /* See if we can add tj to ti.  If so, this implies we are
-         subtracting 1 from tj, making it 0. */
-
-      short tip = (short)(ti + delta); /* odd + even -> odd */
-      if( tip<=max ) { /* Yep ... add it to ti and zero it out */
-        ti    = tip; /* odd */
-        _t[j] = 0;
-        continue;
-      }
-
-      /* See if we can instead subtract tj from ti.  This implies we are
-         adding 1 to tj, making it 2.  We carry-propagate this into tk
-         for k>j, turning tj and possibly later tk to 0.  We note that
-         delta for the next iteration will be so large that we can't
-         possibly absorb it into ti so we can abort this inner loop.
-
-         Note that if this carry propagates to _t[255] (which is
-         strictly zero initially), we have _t[k]==0 for k in [j,254) and
-         _t[255]==1.  The outer loop iteration will resume at i==255 and
-         detect it is done when it can't scan further for additional j
-         to absorb.  Hence we will never carry propagate off the end and
-         the loop below is guaranteed to terminate. */
-
-      short tim = (short)(ti - delta); /* odd + even -> odd */
-      if( tim>=-max ) { /* Yep ... sub it from ti and carry propagate */
-        ti    = tim; /* odd */
-        _t[j] = 0;
-        for(;;) {
-          j++;
-          if( !_t[j] ) { _t[j] = 1; break; }
-          _t[j] = 0;
-        }
-        break;
-      }
-
-      /* We can't absorb tj into ti */
-
-      break;
+  ulong wid  = (ulong)bits+1UL;
+  ulong mask = (1UL<<wid)-1UL;
+  ulong half = 1UL<<(ulong)bits;
+  ulong pos  = 0UL;
+  for(;;) {
+    ulong w = pos>>6, b = pos&63UL;
+    ulong x = n[w]>>b;
+    if( FD_UNLIKELY( !x ) ) {
+      do { w++; if( w>=4UL ) return; } while( !n[w] );
+      pos = (w<<6) + (ulong)fd_ulong_find_lsb( n[w] );
+    } else {
+      pos += (ulong)fd_ulong_find_lsb( x );
     }
-
-    /* Finalize ti and advance */
-
-    _t[i] = ti;
-    i = j;
+    if( FD_UNLIKELY( pos>=256UL ) ) return;
+    w = pos>>6; b = pos&63UL;
+    ulong lo = n[w]>>b;
+    if( b ) lo |= n[w+1]<<(64UL-b);
+    ulong d = lo & mask;
+    n[w] &= ~(mask<<b);
+    if( b>(64UL-wid) ) n[w+1] &= ~(mask>>(64UL-b));
+    if( d>=half ) {
+      _t[pos] = (short)((long)d - (long)(mask+1UL));
+      ulong cp = pos+wid, cw = cp>>6, cb = cp&63UL;
+      for(;;) { ulong o = n[cw]; n[cw] = o + (1UL<<cb); if( FD_LIKELY( n[cw]>=o ) ) break; cw++; cb = 0UL; }
+    } else {
+      _t[pos] = (short)d;
+    }
+    pos += wid;
   }
 }
