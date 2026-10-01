@@ -166,6 +166,8 @@ struct fd_rotor_fec_metrics {
   ulong blk_first_req_ts_nanos;        /* block: when the first specific-shred repair request was sent, 0 if none */
   ulong blk_last_repair_resp_ts_nanos; /* block: when the most recent matched repair response arrived, 0 if none */
 
+  long  fec_completed_ts_nanos; /* this FEC: network arrival (wallclock ns) of the shred that completed it, 0 if unavailable */
+
   /* Highest slot rotor has completed a FEC set for off the network, our
      own leader FEC sets excluded: the cluster tip.  Not a per-block
      figure like the rest of these metrics. */

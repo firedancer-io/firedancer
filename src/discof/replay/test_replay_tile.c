@@ -788,7 +788,7 @@ test_reception_metrics_sidecar( fd_wksp_t * wksp ) {
 
   fd_reasm_fec_t * f1_0 = ingest_fec_complete_with_metrics( ctx, &mr1_0, &mr_root,
       1UL, 0U, 1U, 32U, 1, 0, &metrics_a );
-  FD_TEST( f1_0->fec_completed_ts_nanos==metrics_a.fec_completed_ts_nanos );
+  FD_TEST( f1_0->fec_completed_ts_nanos==(ulong)metrics_a.fec_completed_ts_nanos );
   FD_TEST( ctx->reception_stats[ 1UL % ctx->reception_stats_cnt ].slot==1UL );
 
   fd_fec_complete_metrics_t metrics_invalid = {
@@ -797,7 +797,7 @@ test_reception_metrics_sidecar( fd_wksp_t * wksp ) {
   };
   fd_reasm_fec_t * f1_32 = ingest_fec_complete_with_metrics( ctx, &mr1_32, &mr1_0,
       1UL, 32U, 1U, 32U, 1, 0, &metrics_invalid );
-  FD_TEST( f1_32->fec_completed_ts_nanos==metrics_invalid.fec_completed_ts_nanos );
+  FD_TEST( f1_32->fec_completed_ts_nanos==(ulong)metrics_invalid.fec_completed_ts_nanos );
 
   fd_event_block_completed_t ev = {0};
   block_completed_event_fill_reception( ctx, &ev, ULONG_MAX, &mr1_32, 1UL );
@@ -810,7 +810,7 @@ test_reception_metrics_sidecar( fd_wksp_t * wksp ) {
   metrics_b.fec_completed_ts_nanos = 23UL;
   fd_reasm_fec_t * f1_64 = ingest_fec_complete_with_metrics( ctx, &mr1_64, &mr1_32,
       1UL, 64U, 1U, 32U, 1, 1, &metrics_b );
-  FD_TEST( f1_64->fec_completed_ts_nanos==metrics_b.fec_completed_ts_nanos );
+  FD_TEST( f1_64->fec_completed_ts_nanos==(ulong)metrics_b.fec_completed_ts_nanos );
   FD_TEST( ctx->reception_stats[ 1UL % ctx->reception_stats_cnt ].slot==1UL );
 
   memset( &ev, 0, sizeof(ev) );

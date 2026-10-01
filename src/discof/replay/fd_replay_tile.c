@@ -4246,7 +4246,7 @@ process_fec_complete( fd_replay_tile_t *         ctx,
     return;
   }
 
-  fec->fec_completed_ts_nanos = complete_msg->metrics.fec_completed_ts_nanos;
+  fec->fec_completed_ts_nanos = (ulong)complete_msg->metrics.fec_completed_ts_nanos;
   if( FD_LIKELY( complete_msg->metrics.stats_valid ) ) {
     /* Repair builds these cumulative snapshots from fd_forest_blk_t,
        which is keyed by slot rather than block identity.  Retain only
@@ -4425,7 +4425,7 @@ process_rotor_fec( fd_replay_tile_t      * ctx,
   sched_fec->alut_ctx->fork_id = fd_banks_bank_query( ctx->banks, ctx->published_root_bank_idx )->accdb_fork_id;
   sched_fec->alut_ctx->accdb   = ctx->accdb;
   sched_fec->alut_ctx->els     = ctx->published_root_slot;
-  sched_fec->completed_ns      = now; // TODO deliver data with rotor
+  sched_fec->completed_ns      = fec->metrics.fec_completed_ts_nanos;
 
   if( sched_fec->is_first_in_block ) {
     bank->refcnt++;
