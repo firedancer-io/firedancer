@@ -382,6 +382,7 @@ struct fd_ssmanifest_parser_private {
   uchar   option;
   uint    variant;
   uchar   ns_per_slot[ 16UL ];
+  ulong   vote_account_stake;
 
   ulong   idx1;
   ulong   idx2;
@@ -849,12 +850,12 @@ state_dst( fd_ssmanifest_parser_t * parser ) {
     case STATE_INFLATION_FOUNDATION_TERM:                                                                     return (uchar*)&manifest->inflation_params.foundation_term;
     case STATE_INFLATION_UNUSED:                                                                              return NULL;
     case STATE_STAKES_VOTE_ACCOUNTS_LENGTH:                                                                   return (uchar*)&parser->length1;
-    case STATE_STAKES_VOTE_ACCOUNTS_KEY:                                                                      return idx1<FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ? manifest->vote_accounts[ idx1 ].vote_account_pubkey : NULL;
-    case STATE_STAKES_VOTE_ACCOUNTS_STAKE:                                                                    return idx1<FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ? (uchar*)&manifest->vote_accounts[ idx1 ].stake : NULL;
+    case STATE_STAKES_VOTE_ACCOUNTS_KEY:                                                                      return manifest->vote_accounts_len<FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ? manifest->vote_accounts[ manifest->vote_accounts_len ].vote_account_pubkey : NULL;
+    case STATE_STAKES_VOTE_ACCOUNTS_STAKE:                                                                    return (uchar*)&parser->vote_account_stake;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_LAMPORTS:                                                           return NULL;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_LENGTH:                                                        return (uchar*)&parser->length2;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_VARIANT:                                                       return (uchar*)&parser->variant;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_NODE_PUBKEY:                                                return idx1<FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ? (uchar*)&manifest->vote_accounts[ idx1 ].node_account_pubkey : NULL;
+    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_NODE_PUBKEY:                                                return manifest->vote_accounts_len<FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ? (uchar*)&manifest->vote_accounts[ manifest->vote_accounts_len ].node_account_pubkey : NULL;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_AUTHORIZED_WITHDRAWER:                                      return NULL;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_INFLATION_REWARDS_COLLECTOR:                                return NULL;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_BLOCK_REVENUE_COLLECTOR:                                    return NULL;
@@ -873,7 +874,7 @@ state_dst( fd_ssmanifest_parser_t * parser ) {
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_EPOCH_CREDITS:                                              return NULL;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_LAST_TIMESTAMP_SLOT:                                        return NULL;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_LAST_TIMESTAMP_TIMESTAMP:                                   return NULL;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_NODE_PUBKEY:                                                return idx1<FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ? (uchar*)&manifest->vote_accounts[ idx1 ].node_account_pubkey : NULL;
+    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_NODE_PUBKEY:                                                return manifest->vote_accounts_len<FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ? (uchar*)&manifest->vote_accounts[ manifest->vote_accounts_len ].node_account_pubkey : NULL;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_AUTHORIZED_WITHDRAWER:                                      return NULL;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_COMMISSION:                                                 return NULL;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_VOTES_LENGTH:                                               return (uchar*)&parser->length3;
@@ -887,7 +888,7 @@ state_dst( fd_ssmanifest_parser_t * parser ) {
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_EPOCH_CREDITS:                                              return NULL;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_LAST_TIMESTAMP_SLOT:                                        return NULL;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_LAST_TIMESTAMP_TIMESTAMP:                                   return NULL;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_NODE_PUBKEY:                                            return idx1<FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ? (uchar*)&manifest->vote_accounts[ idx1 ].node_account_pubkey : NULL;
+    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_NODE_PUBKEY:                                            return manifest->vote_accounts_len<FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ? (uchar*)&manifest->vote_accounts[ manifest->vote_accounts_len ].node_account_pubkey : NULL;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_AUTHORIZED_WITHDRAWER:                                  return NULL;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_COMMISSION:                                             return NULL;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_VOTES_LENGTH:                                           return (uchar*)&parser->length3;
@@ -901,7 +902,7 @@ state_dst( fd_ssmanifest_parser_t * parser ) {
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_EPOCH_CREDITS:                                          return NULL;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_LAST_TIMESTAMP_SLOT:                                    return NULL;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_LAST_TIMESTAMP_TIMESTAMP:                               return NULL;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_NODE_PUBKEY:                                             return idx1<FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ? (uchar*)&manifest->vote_accounts[ idx1 ].node_account_pubkey : NULL;
+    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_NODE_PUBKEY:                                             return manifest->vote_accounts_len<FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ? (uchar*)&manifest->vote_accounts[ manifest->vote_accounts_len ].node_account_pubkey : NULL;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_AUTHORIZED_VOTER:                                        return NULL;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_AUTHORIZED_VOTER_EPOCH:                                  return NULL;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_PRIOR_VOTERS:                                            return NULL;
@@ -1724,13 +1725,22 @@ state_process( fd_ssmanifest_parser_t * parser ) {
 
   /* STATE_STAKES_VOTE_ACCOUNTS */
 
-  /* A snapshot with more vote accounts than fit is still valid, so
-     keep the first ones and skip the rest. */
+  /* Only staked vote accounts are kept, which is all the consumers
+     look at.  Each entry streams into the next free slot and the slot
+     is committed once the whole entry has been read, so an unstaked
+     entry is overwritten by the next one.  A snapshot with more
+     staked vote accounts than fit is still valid, so the extra ones
+     are dropped with a warning instead of failing the load. */
   if( FD_UNLIKELY( parser->state==STATE_STAKES_VOTE_ACCOUNTS_LENGTH ) ) {
-    if( FD_UNLIKELY( parser->length1>FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ) ) {
-      FD_LOG_WARNING(( "snapshot has %lu vote accounts, only the first %lu are kept", parser->length1, FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ));
+    manifest->vote_accounts_len = 0UL;
+  }
+  if( FD_UNLIKELY( parser->state==STATE_STAKES_VOTE_ACCOUNTS_VALUE_RENT_EPOCH && parser->vote_account_stake ) ) {
+    if( FD_LIKELY( manifest->vote_accounts_len<FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ) ) {
+      manifest->vote_accounts[ manifest->vote_accounts_len ].stake = parser->vote_account_stake;
+      manifest->vote_accounts_len++;
+    } else {
+      FD_LOG_WARNING(( "snapshot has more than %lu staked vote accounts, dropping one", FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ));
     }
-    manifest->vote_accounts_len = fd_ulong_min( parser->length1, FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS );
   }
 
   if( FD_UNLIKELY( parser->state==STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_LENGTH && !parser->length2 ) ) {
