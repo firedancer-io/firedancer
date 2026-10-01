@@ -3806,7 +3806,7 @@ nocache_lookup( fd_accdb_t *              accdb,
   }
 
   if( FD_UNLIKELY( !accmeta ) ) {
-    accdb->metrics->accounts_acquired_per_class[ 0 ]++;
+    snap->accmeta = NULL;
     return 0;
   }
 
@@ -3820,9 +3820,18 @@ nocache_lookup( fd_accdb_t *              accdb,
   snap->lamports = accmeta->lamports;
   snap->cidx     = FD_VOLATILE_CONST( accmeta->cache_idx );
 
-  accdb->metrics->accounts_acquired_per_class[ fd_accdb_cache_class( FD_ACCDB_SIZE_DATA( snap->es ) ) ]++;
-
   return !!snap->lamports;
+}
+
+/* nocache_count records an acquisition metric for a snapshot produced
+   by nocache_lookup.  Separate from nocache_lookup so that batch reads
+   only count accounts that are actually returned to the caller. */
+
+static inline void
+nocache_count( fd_accdb_t *                    accdb,
+               fd_accdb_nocache_snap_t const * snap ) {
+  ulong cls = snap->accmeta ? fd_accdb_cache_class( FD_ACCDB_SIZE_DATA( snap->es ) ) : 0UL;
+  accdb->metrics->accounts_acquired_per_class[ cls ]++;
 }
 
 /* nocache_copy copies the account described by snap into out_owner and
@@ -3924,7 +3933,9 @@ fd_accdb_read_one_nocache( fd_accdb_t *       accdb,
 
   fd_accdb_nocache_snap_t snap[1];
   int source = FD_ACCDB_READ_ONE_NOCACHE_MISS;
-  if( FD_UNLIKELY( !nocache_lookup( accdb, fork_id, pubkey, snap ) ) ) {
+  int exists = nocache_lookup( accdb, fork_id, pubkey, snap );
+  nocache_count( accdb, snap );
+  if( FD_UNLIKELY( !exists ) ) {
     *out_lamports = 0UL;
   } else {
     fd_accdb_io_op_t op[1];
@@ -3966,9 +3977,12 @@ fd_accdb_read_nocache_batch( fd_accdb_t *             accdb,
     fd_accdb_nocache_snap_t snap[1] = {0};
     int   exists   = nocache_lookup( accdb, fork_id, pubkeys[ i ], snap );
     ulong data_len = exists ? (ulong)FD_ACCDB_SIZE_DATA( snap->es ) : 0UL;
+    ulong avail    = arena_sz-cursor; /* cursor<=arena_sz invariant */
+    if( FD_UNLIKELY( prefix_sz>avail || data_len>avail-prefix_sz ) ) break;
     ulong rec_sz   = fd_ulong_align_up( prefix_sz+data_len, align );
-    if( FD_UNLIKELY( cursor+rec_sz>arena_sz ) ) break;
+    if( FD_UNLIKELY( rec_sz<prefix_sz+data_len || rec_sz>avail ) ) break;
 
+    nocache_count( accdb, snap );
     o->data     = arena+cursor+prefix_sz;
     o->data_len = data_len;
     cursor     += rec_sz;

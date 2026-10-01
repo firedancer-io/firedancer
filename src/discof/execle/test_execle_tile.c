@@ -24,6 +24,7 @@
 #define MAX_TXN_PER_SLOT 32
 
 #define TOPO_TAG 2UL
+#define TILE_TAG 3UL /* never freed, holds io_uring memory */
 
 int volatile const fd_startup_skip_checks = 1; /* fd_startup.c */
 
@@ -121,7 +122,7 @@ test_env_create( void ) {
   fd_topo_tile_t * topo_tile = fd_topob_tile( topo, "execle", "execle", "execle", 0UL, 0, 0, 0, 0 );
   topo_tile->execle.max_live_slots = MAX_LIVE_SLOTS;
 
-  void * tile_mem = fd_wksp_alloc_laddr( env->mini->wksp, scratch_align(), scratch_footprint( topo_tile ), TOPO_TAG );
+  void * tile_mem = fd_wksp_alloc_laddr( env->mini->wksp, scratch_align(), scratch_footprint( topo_tile ), TILE_TAG );
   FD_TEST( tile_mem );
   env->tile_mem = tile_mem;
   topo->objs[ topo_tile->tile_obj_id ].offset = fd_wksp_gaddr_fast( env->mini->wksp, tile_mem );
