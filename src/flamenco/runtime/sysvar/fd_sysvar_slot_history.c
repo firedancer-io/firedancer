@@ -123,7 +123,10 @@ fd_sysvar_slot_history_update( fd_bank_t *        bank,
   FD_STORE( ulong, footer+8UL, cur_slot+1UL );
 
   /* Agave rewrites the account at max(size_of, serialized_size)
-     https://github.com/anza-xyz/solana-sdk/blob/account%40v4.3.0/account/src/lib.rs#L618 */
+     https://github.com/anza-xyz/solana-sdk/blob/account%40v4.3.0/account/src/lib.rs#L618
+     Oversized (>FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ) histories are
+     intentionally unsupported: the subsequent sysvar cache restore
+     rejects them and the runtime aborts via FD_LOG_ERR. */
   ulong new_sz = fd_ulong_max( min_sz, FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ );
   fd_memset( acc.data+min_sz, 0, new_sz-min_sz );
   acc.data_len = new_sz;
