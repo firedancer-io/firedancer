@@ -32,6 +32,12 @@ fd_file_util_write_uint( char const * path,
   return fd_file_util_write_ulong( path, value );
 }
 
+/* fd_file_util_write_cstr writes a string without creating or truncating
+   the file. Returns 0 on success or -1 with errno set on failure */
+int
+fd_file_util_write_cstr( char const * path,
+                         char const * value );
+
 /* fd_file_util_mkdir_all() recursively creates directories such that
    the full path provided can exist.  Directories that already exist are
    left as they are, and new directories that are created will be owned

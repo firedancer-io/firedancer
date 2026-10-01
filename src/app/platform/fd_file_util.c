@@ -85,6 +85,23 @@ fd_file_util_write_ulong( char const * path,
 }
 
 int
+fd_file_util_write_cstr( char const * path,
+                         char const * value ) {
+  int fd = open( path, O_WRONLY | O_CLOEXEC );
+  if( FD_UNLIKELY( -1==fd ) ) return -1;
+
+  ulong value_sz = strlen( value );
+  long  written  = write( fd, value, value_sz );
+  if( FD_UNLIKELY( -1==written || (ulong)written!=value_sz ) ) {
+    int err = -1==written ? errno : EIO;
+    close( fd );
+    errno = err;
+    return -1;
+  }
+  return close( fd );
+}
+
+int
 fd_file_util_mkdir_all( const char * _path,
                         uint         uid,
                         uint         gid,
