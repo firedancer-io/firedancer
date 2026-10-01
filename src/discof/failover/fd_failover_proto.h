@@ -22,8 +22,9 @@
 #define FD_FAILOVER_SLOT_NULL (ULONG_MAX)
 
 /* Consensus payload formats */
-#define FD_FAILOVER_MODE_TOWER (0U)
-#define FD_FAILOVER_MODE_CNT   (1U)
+#define FD_FAILOVER_MODE_TOWER     (0U)
+#define FD_FAILOVER_MODE_ALPENGLOW (1U)
+#define FD_FAILOVER_MODE_CNT       (2U)
 
 /* Roles for each endpoint */
 #define FD_FAILOVER_ROLE_STANDBY (0UL) /* Run under the junk identity. */
@@ -67,6 +68,13 @@
    CompactTowerSync with block id and bank hash is under 512 bytes. */
 #define FD_FAILOVER_TOWER_STATE_MAX (512UL)
 
+/* Upper bound in alpenglow mode, a vote history of AG_HIST_MAX records
+   is 5266 bytes.  FD_FAILOVER_STATE_MAX sizes everything that holds a
+   payload of either mode. */
+#define FD_FAILOVER_ALPENGLOW_STATE_MAX (6144UL)
+#define FD_FAILOVER_STATE_MAX           (FD_FAILOVER_ALPENGLOW_STATE_MAX)
+FD_STATIC_ASSERT( FD_FAILOVER_STATE_MAX>=FD_FAILOVER_TOWER_STATE_MAX, state_max );
+
 /* Wire protocol message bodies. Little endian, packed, fixed layout. */
 struct __attribute__((packed)) fd_failover_hello {
   ushort version;             /* FD_FAILOVER_VERSION */
@@ -94,7 +102,7 @@ struct __attribute__((packed)) fd_failover_demoted {
 typedef struct fd_failover_demoted fd_failover_demoted_t;
 FD_STATIC_ASSERT( sizeof(fd_failover_demoted_t)==27UL, wire_layout );
 
-#define FD_FAILOVER_DEMOTED_PAYLOAD_MAX (sizeof(fd_failover_demoted_t)+FD_FAILOVER_TOWER_STATE_MAX)
+#define FD_FAILOVER_DEMOTED_PAYLOAD_MAX (sizeof(fd_failover_demoted_t)+FD_FAILOVER_STATE_MAX)
 
 struct __attribute__((packed)) fd_failover_promote_ack {
   ulong handoff_id;
@@ -200,10 +208,22 @@ fd_failover_demoted_encode( uchar *       out,
                             uchar const * state,
                             ulong         state_sz );
 
+/* Writes an alpenglow DEMOTED payload, the header and then the vote
+   history, the same way.  Returns the payload size, 0 for an empty or
+   oversized history. */
+ulong
+fd_failover_demoted_encode_alpenglow( uchar *       out,
+                                      ulong         handoff_id,
+                                      ulong         target_boot_id,
+                                      ulong         last_vote_slot,
+                                      uchar const * state,
+                                      ulong         state_sz );
+
 /* Validates a DEMOTED payload.  The tower has to decode exactly and end
    at last_vote_slot.  Returns 1 on success, the tower is then at
    payload+sizeof(fd_failover_demoted_t).  Returns 0 on failure with out
-   left unchanged. */
+   left unchanged.  In alpenglow mode the vote history has to decode
+   exactly and end at last_vote_slot. */
 int
 fd_failover_demoted_decode( fd_failover_demoted_t * out,
                             uchar const *           payload,

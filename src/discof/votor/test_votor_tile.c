@@ -1234,6 +1234,132 @@ test_history_raises_the_leader_floor( void ) {
   hist_teardown( &ctx );
 }
 
+/* Under failover, booted under the junk key (rank 0), the staked key
+   (rank 1) votes only after an adoption unless set-identity installed
+   it, and the junk key never votes, also when set-identity installs it.
+   The switch itself is upstream's, this checks the failover rule at its
+   end and the rank it leaves for the resume. */
+
+static void
+operator_switch( int    operator,
+                 ulong  new_rank,
+                 int    expect_votes ) {
+  static fd_votor_tile_t ctx;
+  static auth_vtr_t      auth_vtr_mem[ 1UL<<AUTH_VTR_LG_SLOT_CNT ];
+  ag_epoch_info_t * epoch_info = hist_setup( &ctx );
+  ag_bls_key_t bls_key; memcpy( bls_key, epoch_info->validators[ new_rank ].bls_key, sizeof(ag_bls_key_t) );
+  init_keys( &ctx, auth_vtr_mem, &bls_key, 1UL ); /* the new identity's key, as the resume loads it */
+  ctx.id_keyswitch = fd_keyswitch_join( fd_keyswitch_new( id_keyswitch_mem, FD_KEYSWITCH_STATE_SWITCH_PENDING ) );
+  FD_TEST( ctx.id_keyswitch );
+  ctx.id_keyswitch->operator = (ulong)operator;
+  ctx.hist_seq               = 77UL;
+
+  memcpy( ctx.id_key.uc, epoch_info->validators[ new_rank ].id_key, sizeof(fd_pubkey_t) );
+  failover_switched( &ctx );
+  FD_TEST( ctx.vote_authority==expect_votes && !ctx.failover_hist_adopted );
+  FD_TEST( ctx.id_keyswitch->result==77UL );
+  refresh_rank_and_key( &ctx );
+
+  ag_event_replay_t block = { .slot = 1UL };
+  memset( block.block_info.hash, 1, sizeof(ag_block_hash_t) );
+  ag_votor_handle_replay_event( ctx.votor, &block );
+  ag_event_vote_t vote;
+  FD_TEST( ag_votor_poll_vote_event( ctx.votor, &vote )==expect_votes );
+  if( expect_votes ) FD_TEST( ag_vote_rank( &vote.vote )==new_rank );
+
+  hist_teardown( &ctx );
+}
+
+/* With failover on, the end of upstream's switch applies the failover
+   rule and leaves the history watermark for the admin tile. */
+
+static void
+test_switch_runs_the_failover_rule( void ) {
+  static fd_votor_tile_t ctx;
+  static auth_vtr_t      auth_vtr_mem[ 1UL<<AUTH_VTR_LG_SLOT_CNT ];
+  static peer_t          peers_mem[ 1UL<<PEERS_LG_SLOT_CNT ];
+  static uchar           mleaders_mem[ FD_MULTI_EPOCH_LEADERS_FOOTPRINT ] __attribute__((aligned(FD_MULTI_EPOCH_LEADERS_ALIGN)));
+  static fd_keyswitch_t  av_keyswitch_mem[1];
+  static fd_aio_t        aio_mem[1];
+  ag_epoch_info_t * epoch_info = hist_setup( &ctx );
+  ag_bls_key_t bls_key; memcpy( bls_key, epoch_info->validators[0].bls_key, sizeof(ag_bls_key_t) );
+  init_keys( &ctx, auth_vtr_mem, &bls_key, 1UL );
+  ctx.vote_authority = 1;
+  ctx.hist_seq       = 77UL;
+  ctx.mleaders = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( mleaders_mem ) );
+  ctx.peers    = peers_join( peers_new( peers_mem ) );
+  FD_TEST( ctx.mleaders && ctx.peers );
+  fd_aio_t * aio = fd_aio_join( fd_aio_new( aio_mem, NULL, drop_aio_send ) );
+  ctx.quic_client = test_quic( quic_client_scratch, sizeof(quic_client_scratch), FD_QUIC_ROLE_CLIENT, &ctx, aio );
+  ctx.quic_server = test_quic( quic_server_scratch, sizeof(quic_server_scratch), FD_QUIC_ROLE_SERVER, &ctx, aio );
+  ctx.auth_vtr_keyswitch = fd_keyswitch_join( fd_keyswitch_new( av_keyswitch_mem, FD_KEYSWITCH_STATE_UNLOCKED ) );
+  ctx.id_keyswitch       = fd_keyswitch_join( fd_keyswitch_new( id_keyswitch_mem, FD_KEYSWITCH_STATE_UNLOCKED ) );
+  FD_TEST( ctx.auth_vtr_keyswitch && ctx.id_keyswitch );
+  fd_clock_tile_init( ctx.clock );
+
+  /* A failover switch to the junk key we booted under, no adoption. */
+  memcpy( ctx.id_keyswitch->bytes, ctx.boot_id_key.uc, sizeof(fd_pubkey_t) );
+  fd_keyswitch_state( ctx.id_keyswitch, FD_KEYSWITCH_STATE_SWITCH_PENDING );
+  during_housekeeping( &ctx );
+  FD_TEST( ctx.id_keyswitch->state==FD_KEYSWITCH_STATE_COMPLETED );
+  FD_TEST( !ctx.vote_authority && ctx.id_keyswitch->result==77UL );
+
+  hist_teardown( &ctx );
+}
+
+static void
+test_operator_switch_votes( void ) {
+  operator_switch( 0, 1UL, 0 ); /* staked, no adoption */
+  operator_switch( 1, 1UL, 1 ); /* staked, by set-identity */
+  operator_switch( 1, 0UL, 0 ); /* back to the junk key, by set-identity */
+}
+
+/* While this machine votes, an adoption, which can only be one that
+   crossed set-identity, is refused and moves nothing.  Once it stands
+   by again the same request is taken. */
+
+static void
+test_adopt_refused_while_voting( void ) {
+  static fd_votor_tile_t ctx;
+  hist_setup( &ctx );
+  ctx.vote_authority = 1;
+
+  static uchar          reply_mem[ 512 ] __attribute__((aligned(FD_CHUNK_SZ)));
+  static fd_frag_meta_t mcache[ 8 ];
+  fd_frag_meta_t * mcaches[] = { mcache };
+  ulong seqs[] = { 0UL }, depths[] = { 8UL };
+  ulong cr_avail = 64UL, min_cr_avail = 64UL;
+  int   reliable = 0;
+  fd_stem_context_t stem[ 1 ] = {{
+    .mcaches=mcaches, .seqs=seqs, .depths=depths,
+    .cr_avail=&cr_avail, .min_cr_avail=&min_cr_avail,
+    .cr_decrement_amount=1UL, .out_reliable=&reliable
+  }};
+  ctx.failov_out_idx    = 0UL;
+  ctx.failov_out_mem    = reply_mem;
+  ctx.failov_out_chunk0 = 0UL;
+  ctx.failov_out_wmark  = 4UL;
+  ctx.failov_out_chunk  = 0UL;
+  ctx.in_kind[ 0 ]      = IN_KIND_FAILOV;
+  FD_STORE( ulong, ctx.adopt_req, 9UL ); /* empty history, no vote at or below slot 9 */
+  ctx.adopt_req_sz = FD_VOTOR_ADOPT_EMPTY_SZ;
+
+  after_frag( &ctx, 0UL, 0UL, 901UL, FD_VOTOR_ADOPT_EMPTY_SZ, 0UL, 0UL, stem );
+  fd_votor_adopt_result_t const * reply = fd_chunk_to_laddr_const( reply_mem, mcache[0].chunk );
+  FD_TEST( seqs[0]==1UL && mcache[0].sig==901UL );
+  FD_TEST( reply->result==FD_VOTOR_ADOPT_ERR_INVALID && !ctx.failover_hist_adopted );
+  FD_TEST( ag_votor_vote_bound( ctx.votor )==ULONG_MAX );
+
+  ctx.vote_authority = 0;
+  after_frag( &ctx, 0UL, 1UL, 902UL, FD_VOTOR_ADOPT_EMPTY_SZ, 0UL, 0UL, stem );
+  reply = fd_chunk_to_laddr_const( reply_mem, mcache[1].chunk );
+  FD_TEST( seqs[0]==2UL && mcache[1].sig==902UL );
+  FD_TEST( reply->result==FD_VOTOR_ADOPT_SUCCESS && ctx.failover_hist_adopted );
+  FD_TEST( ag_votor_vote_bound( ctx.votor )==9UL );
+
+  hist_teardown( &ctx );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -1258,6 +1384,9 @@ main( int     argc,
   test_reconnect();
   test_conn_ahead();
   test_history_raises_the_leader_floor();
+  test_switch_runs_the_failover_rule();
+  test_operator_switch_votes();
+  test_adopt_refused_while_voting();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
