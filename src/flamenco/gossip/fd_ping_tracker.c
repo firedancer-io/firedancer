@@ -153,11 +153,6 @@ fd_ping_tracker_new( void *                    shmem,
     return NULL;
   }
 
-  if( FD_UNLIKELY( !seed ) ) {
-    FD_LOG_WARNING(( "NULL seed" ));
-    return NULL;
-  }
-
   if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shmem, fd_ping_tracker_align() ) ) ) {
     FD_LOG_WARNING(( "misaligned shmem" ));
     return NULL;
