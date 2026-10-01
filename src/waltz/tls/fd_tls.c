@@ -291,7 +291,7 @@ fd_tls_send_cert_verify( fd_tls_t const *       this,
   return 0L;
 }
 
-static long fd_tls_server_hs_start           ( fd_tls_t const *, fd_tls_estate_srv_t *, uchar const *, ulong, uint );
+FD_FN_SENSITIVE static long fd_tls_server_hs_start           ( fd_tls_t const *, fd_tls_estate_srv_t *, uchar const *, ulong, uint );
 static long fd_tls_server_hs_wait_cert       ( fd_tls_t const *, fd_tls_estate_srv_t *, uchar const *, ulong, uint );
 static long fd_tls_server_hs_wait_cert_verify( fd_tls_t const *, fd_tls_estate_srv_t *, uchar const *, ulong, uint );
 static long fd_tls_server_hs_wait_finished   ( fd_tls_t const *, fd_tls_estate_srv_t *, uchar const *, ulong, uint );
@@ -407,7 +407,7 @@ fd_tls_server_hs_retry( fd_tls_t const *              server,
    - EncryptedExtensions, for further handshake data
    - Finished, completing the server's handshake message sequence */
 
-static long
+FD_FN_SENSITIVE static long
 fd_tls_server_hs_start( fd_tls_t const *      const server,
                         fd_tls_estate_srv_t * const handshake,
                         uchar const *         const record,
