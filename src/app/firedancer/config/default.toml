@@ -1175,6 +1175,9 @@ telemetry = true
     #   NICs.  Requires Linux 5.8 or newer and uses a kernel-bypass
     #   packet data path.  Bonding is supported when every bond member
     #   is a port on the same NIC.
+    #
+    #  "iavf"
+    #   Full kernel bypass for Intel ice and i40e driver based NICs.
     provider = "auto"
 
     # Which interface to bind to for network traffic.  Currently,
@@ -1382,6 +1385,14 @@ telemetry = true
         # loss caused by excessive scheduling or inter-CPU latency.
         rx_queue_size = 32768
         tx_queue_size = 32768
+
+
+    # This section contains Intel VF network configuration.
+    # Only active if [net.provider] is set to "iavf".
+    [net.iavf]
+        # Power of two depths, RX 128-4096 and TX 64-4096.
+        rx_queue_size = 2048
+        tx_queue_size = 2048
 
 # Tiles are described in detail in the layout section above.  While the
 # layout configuration determines how many of each tile to place on

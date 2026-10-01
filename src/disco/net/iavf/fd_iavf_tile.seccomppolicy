@@ -1,0 +1,17 @@
+# logfile_fd, logging descriptor
+# lo_tx_fd, socket for traffic to local services
+uint logfile_fd, uint lo_tx_fd
+
+write: (or (eq (arg 0) 2)
+           (eq (arg 0) logfile_fd))
+fsync: (eq (arg 0) logfile_fd)
+
+sendmmsg: (and (eq (arg 0) lo_tx_fd)
+               (<= (arg 2) 64)
+               (eq (arg 3) MSG_DONTWAIT))
+
+futex: (and (eq (arg 1) FUTEX_WAIT_BITSET)
+            (eq (arg 2) 0)
+            (eq (arg 4) 0)
+            (eq (arg 5) FUTEX_BITSET_MATCH_ANY))
+rt_sigreturn

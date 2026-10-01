@@ -261,6 +261,9 @@ bench_cmd_fn( args_t *   args,
   if( 0==strcmp( config->net.provider, "mlx5" ) ) {
     fd_topo_install_mlx5( &config->topo, NULL );
   }
+  if( 0==strcmp( config->net.provider, "iavf" ) ) {
+    fd_topo_install_iavf( &config->topo, NULL );
+  }
 
   if( !args->load.no_watch ) {
     /* watch incompatible with sandbox */

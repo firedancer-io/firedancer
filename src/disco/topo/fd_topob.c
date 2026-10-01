@@ -538,6 +538,7 @@ static char const * ALWAYS[] = {
   "benchs",
   "net",
   "mlx5",
+  "iavf",
   "sock",
   "quic",
   "bundle",
@@ -581,6 +582,7 @@ static char const * HOT_TILES[] = {
   "replay", /* FIREDANCER only */
   "execrp", /* FIREDANCER only */
   "mlx5",
+  "iavf",
   NULL
 };
 

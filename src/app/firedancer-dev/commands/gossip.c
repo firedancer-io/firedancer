@@ -173,6 +173,7 @@ configure_args( void ) {
 
   ulong stage_idx = 0UL;
   args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_uverbs;
+  args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_iavf;
   args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_hugetlbfs;
   args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_sysctl;
   args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_bonding;
@@ -218,6 +219,9 @@ gossip_cmd_fn( args_t *   args,
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
   if( 0==strcmp( config->net.provider, "mlx5" ) ) {
     fd_topo_install_mlx5( &config->topo, NULL );
+  }
+  if( 0==strcmp( config->net.provider, "iavf" ) ) {
+    fd_topo_install_iavf( &config->topo, NULL );
   }
   fd_topo_fill( &config->topo );
 

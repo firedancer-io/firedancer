@@ -2076,6 +2076,38 @@
 
 </div>
 
+## Iavf Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">iavf_&#8203;pkt_&#8203;rx</span> | counter | Number of packets successfully published to output links. |
+| <span class="metrics-name">iavf_&#8203;pkt_&#8203;rx_&#8203;bytes</span> | counter | Number of bytes in packets successfully published to output links (including Ethernet header). |
+| <span class="metrics-name">iavf_&#8203;pkt_&#8203;rx_&#8203;malformed</span> | counter | Number of packets dropped because they were undersized, oversized, or had malformed Ethernet, IPv4, or UDP headers. |
+| <span class="metrics-name">iavf_&#8203;pkt_&#8203;rx_&#8203;route_&#8203;fail</span> | counter | Number of packets dropped due to an incorrect destination IP or failed output link lookup. |
+| <span class="metrics-name">iavf_&#8203;gre_&#8203;pkt_&#8203;rx</span> | counter | Number of GRE packets successfully decapsulated and published. |
+| <span class="metrics-name">iavf_&#8203;gre_&#8203;pkt_&#8203;rx_&#8203;invalid</span> | counter | Number of GRE packets dropped because the tunnel peer or headers were invalid. |
+| <span class="metrics-name">iavf_&#8203;gre_&#8203;pkt_&#8203;rx_&#8203;ignored</span> | counter | Number of GRE packets ignored because no GRE tunnel is configured. |
+| <span class="metrics-name">iavf_&#8203;rx_&#8203;buffer_&#8203;busy</span> | gauge | Number of RX buffers not currently posted to the NIC. |
+| <span class="metrics-name">iavf_&#8203;rx_&#8203;buffer_&#8203;idle</span> | gauge | Number of RX buffers currently posted to the NIC. |
+| <span class="metrics-name">iavf_&#8203;pkt_&#8203;tx_&#8203;completed</span> | counter | Number of packets completed by the NIC for transmission. |
+| <span class="metrics-name">iavf_&#8203;pkt_&#8203;tx_&#8203;bytes</span> | counter | Number of bytes transmitted (including Ethernet header). |
+| <span class="metrics-name">iavf_&#8203;pkt_&#8203;tx_&#8203;no_&#8203;buffer</span> | counter | Number of transmit jobs dropped because no TX buffer was available. |
+| <span class="metrics-name">iavf_&#8203;pkt_&#8203;tx_&#8203;route_&#8203;fail</span><br/>{route_&#8203;fail="<span class="metrics-enum">no_&#8203;route</span>"} | counter | Number of transmit jobs dropped because route or source address selection failed. (No matching route) |
+| <span class="metrics-name">iavf_&#8203;pkt_&#8203;tx_&#8203;route_&#8203;fail</span><br/>{route_&#8203;fail="<span class="metrics-enum">route_&#8203;type</span>"} | counter | Number of transmit jobs dropped because route or source address selection failed. (Unsupported route type) |
+| <span class="metrics-name">iavf_&#8203;pkt_&#8203;tx_&#8203;route_&#8203;fail</span><br/>{route_&#8203;fail="<span class="metrics-enum">interface</span>"} | counter | Number of transmit jobs dropped because route or source address selection failed. (Interface not available) |
+| <span class="metrics-name">iavf_&#8203;pkt_&#8203;tx_&#8203;route_&#8203;fail</span><br/>{route_&#8203;fail="<span class="metrics-enum">source_&#8203;ip</span>"} | counter | Number of transmit jobs dropped because route or source address selection failed. (No source IP address chosen) |
+| <span class="metrics-name">iavf_&#8203;pkt_&#8203;tx_&#8203;route_&#8203;fail</span><br/>{route_&#8203;fail="<span class="metrics-enum">unsupported_&#8203;interface</span>"} | counter | Number of transmit jobs dropped because route or source address selection failed. (Interface type not supported) |
+| <span class="metrics-name">iavf_&#8203;pkt_&#8203;tx_&#8203;invalid</span> | counter | Number of transmit jobs dropped for invalid packet headers or GRE packets exceeding the MTU. |
+| <span class="metrics-name">iavf_&#8203;pkt_&#8203;tx_&#8203;no_&#8203;neighbor</span> | counter | Number of transmit jobs dropped because the next-hop neighbor was unresolved. |
+| <span class="metrics-name">iavf_&#8203;gre_&#8203;pkt_&#8203;tx_&#8203;submitted</span> | counter | Number of GRE transmit jobs submitted to the NIC. |
+| <span class="metrics-name">iavf_&#8203;gre_&#8203;pkt_&#8203;tx_&#8203;no_&#8203;route</span> | counter | Number of GRE transmit jobs dropped because the inner or outer route was incomplete. |
+| <span class="metrics-name">iavf_&#8203;tx_&#8203;buffer_&#8203;busy</span> | gauge | Number of TX buffers pending or submitted to the NIC. |
+| <span class="metrics-name">iavf_&#8203;tx_&#8203;buffer_&#8203;idle</span> | gauge | Number of TX buffers available for a new transmit job. |
+
+</div>
+
 ## Snapmk Tile
 
 <div class="metrics">
