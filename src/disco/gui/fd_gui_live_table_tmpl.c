@@ -254,6 +254,14 @@ FD_STATIC_ASSERT( LIVE_TABLE_MAX_SORT_KEY_CNT >= 2UL, "Requires at least 2 sort 
 #include "../../util/bits/fd_bits.h"
 #include "../../util/math/fd_stat.h"
 
+/* LIVE_TABLE_FOR_ACTIVE( join, i ) { ... } runs the body for each
+   active sort key slot i in increasing order. */
+
+#define LIVE_TABLE_FOR_ACTIVE( join, i )                                                                            \
+  for( ulong _w=0UL; _w<(LIVE_TABLE_MAX_SORT_KEY_CNT+63UL)/64UL; _w++ )                                             \
+    for( ulong _bits=(join)->active_bits[ _w ], i=(_w<<6)+(ulong)fd_ulong_find_lsb_w_default( _bits, 0 ); _bits; \
+         _bits&=_bits-1UL, i=(_w<<6)+(ulong)fd_ulong_find_lsb_w_default( _bits, 0 ) )
+
 #if LIVE_TABLE_IMPL_STYLE!=2 /* need structures, prototypes and inlines */
 struct LIVE_TABLE_(private_column) {
   char * col_name; /* cstr */
@@ -331,9 +339,12 @@ LIVE_TABLE_(private_row_lt)(LIVE_TABLE_ROW_T const * a, LIVE_TABLE_ROW_T const *
 struct LIVE_TABLE_() {
   LIVE_TABLE_(private_dlist_t) * dlist;
 
-  LIVE_TABLE_(private_treap_t) * treaps          [ LIVE_TABLE_MAX_SORT_KEY_CNT ];
-  void *                         treaps_shmem    [ LIVE_TABLE_MAX_SORT_KEY_CNT ];
-  int                            treaps_is_active[ LIVE_TABLE_MAX_SORT_KEY_CNT ];
+  LIVE_TABLE_(private_treap_t) * treaps      [ LIVE_TABLE_MAX_SORT_KEY_CNT ];
+  void *                         treaps_shmem[ LIVE_TABLE_MAX_SORT_KEY_CNT ];
+
+  /* Bit i set when sort key slot i holds a treap, so insert and remove
+     visit only the active slots instead of scanning every slot. */
+  ulong active_bits[ (LIVE_TABLE_MAX_SORT_KEY_CNT+63UL)/64UL ];
 
   ulong count;
   ulong max_rows;
@@ -343,6 +354,14 @@ struct LIVE_TABLE_() {
 typedef struct LIVE_TABLE_() LIVE_TABLE_(t);
 
 typedef LIVE_TABLE_(private_treap_fwd_iter_t) LIVE_TABLE_(fwd_iter_t);
+
+FD_FN_PURE static inline int
+LIVE_TABLE_(private_is_active)( LIVE_TABLE_(t) const * join, ulong i ) { return (int)((join->active_bits[ i>>6 ]>>(i&63UL)) & 1UL); }
+
+static inline void
+LIVE_TABLE_(private_set_active)( LIVE_TABLE_(t) * join, ulong i, int active ) {
+  join->active_bits[ i>>6 ] = fd_ulong_if( active, join->active_bits[ i>>6 ] | (1UL<<(i&63UL)), join->active_bits[ i>>6 ] & ~(1UL<<(i&63UL)) );
+}
 
 FD_PROTOTYPES_BEGIN
 
@@ -419,9 +438,7 @@ FD_FN_PURE static inline ulong LIVE_TABLE_(col_cnt)(                  void ) { r
 FD_FN_PURE static inline ulong
 LIVE_TABLE_(active_sort_key_cnt)( LIVE_TABLE_(t) * join ) {
   ulong count = 0UL;
-  for( ulong i=0; i<LIVE_TABLE_MAX_SORT_KEY_CNT; i++ ) {
-    if( FD_LIKELY( join->treaps_is_active[ i ] ) ) count++;
-  }
+  for( ulong w=0UL; w<(LIVE_TABLE_MAX_SORT_KEY_CNT+63UL)/64UL; w++ ) count += (ulong)fd_ulong_popcnt( join->active_bits[ w ] );
   return count;
 }
 
@@ -467,7 +484,7 @@ LIVE_TABLE_(private_sort_key_create)( LIVE_TABLE_(t) * join, ulong sort_key_idx,
 
   LIVE_TABLE_(private_active_sort_key_idx) = sort_key_idx;
   join->treaps[ sort_key_idx ] = LIVE_TABLE_(private_treap_join)( LIVE_TABLE_(private_treap_new)( join->treaps_shmem[ sort_key_idx ], join->max_rows ) );
-  join->treaps_is_active[ sort_key_idx ] = 1;
+  LIVE_TABLE_(private_set_active)( join, sort_key_idx, 1 );
 #if FD_TMPL_USE_HANDHOLDING
   FD_TEST( sort_key_idx<LIVE_TABLE_MAX_SORT_KEY_CNT );
   FD_TEST( join->treaps[ sort_key_idx ] );
@@ -488,8 +505,7 @@ LIVE_TABLE_(private_sort_key_create)( LIVE_TABLE_(t) * join, ulong sort_key_idx,
 
 static inline ulong
 LIVE_TABLE_(private_query_sort_key)( LIVE_TABLE_(t) * join, LIVE_TABLE_(sort_key_t) const * sort_key ) {
-  for( ulong i=0; i<LIVE_TABLE_MAX_SORT_KEY_CNT; i++ ) {
-    if( FD_UNLIKELY( !join->treaps_is_active[ i ] ) ) continue;
+  LIVE_TABLE_FOR_ACTIVE( join, i ) {
     ulong j = 0UL;
     ulong k = 0UL;
 
@@ -576,7 +592,7 @@ LIVE_TABLE_(new)( void * shmem, ulong max_rows ) {
   _table->max_rows   = max_rows;
   _table->count      = 0UL;
   _table->evict_idx  = 0UL;
-  for( ulong i=0; i<LIVE_TABLE_MAX_SORT_KEY_CNT; i++ ) _table->treaps_is_active[ i ] = 0;
+  for( ulong w=0UL; w<(LIVE_TABLE_MAX_SORT_KEY_CNT+63UL)/64UL; w++ ) _table->active_bits[ w ] = 0UL;
 
   LIVE_TABLE_(private_column_t) cols[ LIVE_TABLE_COLUMN_CNT ] = LIVE_TABLE_COLUMNS;
   FD_STATIC_ASSERT( LIVE_TABLE_COLUMN_CNT == sizeof(cols)/sizeof(LIVE_TABLE_(private_column_t)), column count is wrong  );
@@ -620,8 +636,7 @@ LIVE_TABLE_(leave)( LIVE_TABLE_(t) * join ) {
   }
 
   LIVE_TABLE_(private_dlist_delete)( LIVE_TABLE_(private_dlist_leave)( join->dlist ) );
-  for( ulong i=0; i<LIVE_TABLE_MAX_SORT_KEY_CNT; i++ ) {
-    if( FD_LIKELY( !join->treaps_is_active[ i ] ) ) continue;
+  LIVE_TABLE_FOR_ACTIVE( join, i ) {
     LIVE_TABLE_(private_active_sort_key_idx) = i;
     FD_TEST( LIVE_TABLE_(private_treap_delete)( LIVE_TABLE_(private_treap_leave)( join->treaps[ i ] ) ) );
   }
@@ -653,8 +668,7 @@ LIVE_TABLE_(idx_remove)( LIVE_TABLE_(t) * join, ulong pool_idx, LIVE_TABLE_ROW_T
   FD_TEST( join->count >= 1UL );
 #endif
   /* remove from all active treaps */
-  for( ulong i=0; i<LIVE_TABLE_MAX_SORT_KEY_CNT; i++ ) {
-    if( FD_LIKELY( !join->treaps_is_active[ i ] ) ) continue;
+  LIVE_TABLE_FOR_ACTIVE( join, i ) {
     LIVE_TABLE_(private_active_sort_key_idx) = i;
     LIVE_TABLE_(private_treap_idx_remove)( join->treaps[ i ], pool_idx, pool );
   }
@@ -669,8 +683,7 @@ LIVE_TABLE_(idx_insert)( LIVE_TABLE_(t) * join, ulong pool_idx, LIVE_TABLE_ROW_T
   FD_TEST( !LIVE_TABLE_(private_treap_idx_is_null)( pool_idx ) );
 #endif
   /* insert into all active treaps */
-  for( ulong i=0; i<LIVE_TABLE_MAX_SORT_KEY_CNT; i++ ) {
-    if( FD_LIKELY( !join->treaps_is_active[ i ] ) ) continue;
+  LIVE_TABLE_FOR_ACTIVE( join, i ) {
     LIVE_TABLE_(private_active_sort_key_idx) = i;
     LIVE_TABLE_(private_treap_idx_insert)( join->treaps[ i ], pool_idx, pool );
   }
@@ -690,7 +703,7 @@ LIVE_TABLE_(sort_key_remove)( LIVE_TABLE_(t) * join, LIVE_TABLE_(sort_key_t) con
   FD_TEST( sort_key_idx<LIVE_TABLE_MAX_SORT_KEY_CNT );
   FD_TEST( join->treaps[ sort_key_idx ] );
 #endif
-  join->treaps_is_active[ sort_key_idx ] = 0;
+  LIVE_TABLE_(private_set_active)( join, sort_key_idx, 0 );
   LIVE_TABLE_(private_treap_delete)( LIVE_TABLE_(private_treap_leave)( join->treaps[ sort_key_idx ] ) );
   join->treaps[ sort_key_idx ] = NULL;
 }
@@ -699,11 +712,13 @@ LIVE_TABLE_STATIC LIVE_TABLE_(fwd_iter_t)
 LIVE_TABLE_(fwd_iter_init)( LIVE_TABLE_(t) * join, LIVE_TABLE_(sort_key_t) const * sort_key, LIVE_TABLE_ROW_T * pool ) {
   ulong sort_key_idx = LIVE_TABLE_(private_query_sort_key)( join, sort_key );
   if( FD_UNLIKELY( sort_key_idx==ULONG_MAX ) ) {
-    for( ulong i=0UL; i<LIVE_TABLE_MAX_SORT_KEY_CNT; i++ ) {
-      if( FD_UNLIKELY( join->treaps_is_active[ i ] ) ) continue;
-      sort_key_idx = i;
+    for( ulong w=0UL; w<(LIVE_TABLE_MAX_SORT_KEY_CNT+63UL)/64UL; w++ ) {
+      ulong free = ~join->active_bits[ w ];
+      if( FD_LIKELY( !free ) ) continue;
+      sort_key_idx = (w<<6)+(ulong)fd_ulong_find_lsb( free );
       break;
     }
+    if( FD_UNLIKELY( sort_key_idx>=LIVE_TABLE_MAX_SORT_KEY_CNT ) ) sort_key_idx = ULONG_MAX; /* pad bits of the last word */
     if( FD_UNLIKELY( sort_key_idx==ULONG_MAX ) ) {
       /* Cache is full.  Evict the next slot in round-robin order. */
       sort_key_idx = join->evict_idx;
@@ -715,7 +730,7 @@ LIVE_TABLE_(fwd_iter_init)( LIVE_TABLE_(t) * join, LIVE_TABLE_(sort_key_t) const
   LIVE_TABLE_(private_active_sort_key_idx) = sort_key_idx;
 #if FD_TMPL_USE_HANDHOLDING
   FD_TEST( sort_key_idx!=ULONG_MAX );
-  FD_TEST( join->treaps_is_active[ sort_key_idx ] );
+  FD_TEST( LIVE_TABLE_(private_is_active)( join, sort_key_idx ) );
 #endif
   return LIVE_TABLE_(private_treap_fwd_iter_init)( join->treaps[ sort_key_idx ], pool );
 }
@@ -738,9 +753,7 @@ LIVE_TABLE_(verify_sort_key)( LIVE_TABLE_(sort_key_t) const * key ) {
 LIVE_TABLE_STATIC int
 LIVE_TABLE_(verify)( LIVE_TABLE_(t) const * join, LIVE_TABLE_ROW_T const * pool ) {
   ulong prev_sk_idx = LIVE_TABLE_(private_active_sort_key_idx);
-  for( ulong i=0UL; i<LIVE_TABLE_MAX_SORT_KEY_CNT; i++ ) {
-    if( FD_LIKELY( !join->treaps_is_active[ i ] ) ) continue;
-
+  LIVE_TABLE_FOR_ACTIVE( join, i ) {
     LIVE_TABLE_(private_active_sort_key_idx) = i;
     if( FD_UNLIKELY( LIVE_TABLE_(private_treap_verify)( join->treaps[ i ], pool ) ) ) {
       FD_LOG_CRIT(("failed verify"));
@@ -771,3 +784,4 @@ LIVE_TABLE_(verify)( LIVE_TABLE_(t) const * join, LIVE_TABLE_ROW_T const * pool 
 #undef LIVE_TABLE_COL_ARRAY
 #undef LIVE_TABLE_IMPL_STYLE
 #undef LIVE_TABLE_STATIC
+#undef LIVE_TABLE_FOR_ACTIVE

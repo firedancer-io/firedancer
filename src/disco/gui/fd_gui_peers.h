@@ -561,6 +561,14 @@ fd_gui_peers_poll( fd_gui_peers_ctx_t * peers,
 long
 fd_gui_peers_next_deadline( fd_gui_peers_ctx_t const * peers );
 
+/* fd_gui_peers_rate_update advances the per-peer gossip bandwidth
+   rate filters to now and re-keys the peers whose rates changed in the
+   live table.  Called by fd_gui_peers_poll once per
+   FD_GUI_PEERS_METRIC_RATE_UPDATE_INTERVAL_MILLIS; exposed for tests. */
+void
+fd_gui_peers_rate_update( fd_gui_peers_ctx_t * peers,
+                          long                 now );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_disco_gui_fd_gui_peers_h */
