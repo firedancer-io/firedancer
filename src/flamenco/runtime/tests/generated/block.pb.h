@@ -61,6 +61,9 @@ collector applies (the vote account address for inflation
 rewards, node_pubkey for block revenue). */
     fd_exec_test_prev_vote_account_inflation_rewards_collector_t inflation_rewards_collector;
     fd_exec_test_prev_vote_account_block_revenue_collector_t block_revenue_collector;
+    /* SIMD-0123 block revenue sharing */
+    uint32_t block_revenue_commission_bps;
+    uint64_t pending_delegator_rewards;
 } fd_exec_test_prev_vote_account_t;
 
 typedef struct fd_exec_test_block_bank {
@@ -200,7 +203,7 @@ extern "C" {
 #define FD_EXEC_TEST_COST_TRACKER_INIT_DEFAULT   {0}
 #define FD_EXEC_TEST_INFLATION_INIT_DEFAULT      {0, 0, 0, 0, 0}
 #define FD_EXEC_TEST_EPOCH_CREDIT_INIT_DEFAULT   {0, 0, 0}
-#define FD_EXEC_TEST_PREV_VOTE_ACCOUNT_INIT_DEFAULT {{0}, {0}, 0, 0, 0, NULL, _FD_EXEC_TEST_VOTE_ACCOUNT_VERSION_MIN, {0, {0}}, {0, {0}}}
+#define FD_EXEC_TEST_PREV_VOTE_ACCOUNT_INIT_DEFAULT {{0}, {0}, 0, 0, 0, NULL, _FD_EXEC_TEST_VOTE_ACCOUNT_VERSION_MIN, {0, {0}}, {0, {0}}, 0, 0}
 #define FD_EXEC_TEST_BLOCK_BANK_INIT_DEFAULT     {0, NULL, 0, false, FD_EXEC_TEST_FEE_RATE_GOVERNOR_INIT_DEFAULT, 0, 0, 0, {0}, false, FD_EXEC_TEST_INFLATION_INIT_DEFAULT, 0, {0}, {0}, {0}, 0, false, FD_EXEC_TEST_FEATURE_SET_INIT_DEFAULT, 0, NULL, 0, NULL}
 #define FD_EXEC_TEST_BLOCK_CONTEXT_INIT_DEFAULT  {0, NULL, 0, NULL, false, FD_EXEC_TEST_BLOCK_BANK_INIT_DEFAULT}
 #define FD_EXEC_TEST_LEADER_SCHEDULE_EFFECTS_INIT_DEFAULT {0, 0, 0, 0, 0, {0}}
@@ -210,7 +213,7 @@ extern "C" {
 #define FD_EXEC_TEST_COST_TRACKER_INIT_ZERO      {0}
 #define FD_EXEC_TEST_INFLATION_INIT_ZERO         {0, 0, 0, 0, 0}
 #define FD_EXEC_TEST_EPOCH_CREDIT_INIT_ZERO      {0, 0, 0}
-#define FD_EXEC_TEST_PREV_VOTE_ACCOUNT_INIT_ZERO {{0}, {0}, 0, 0, 0, NULL, _FD_EXEC_TEST_VOTE_ACCOUNT_VERSION_MIN, {0, {0}}, {0, {0}}}
+#define FD_EXEC_TEST_PREV_VOTE_ACCOUNT_INIT_ZERO {{0}, {0}, 0, 0, 0, NULL, _FD_EXEC_TEST_VOTE_ACCOUNT_VERSION_MIN, {0, {0}}, {0, {0}}, 0, 0}
 #define FD_EXEC_TEST_BLOCK_BANK_INIT_ZERO        {0, NULL, 0, false, FD_EXEC_TEST_FEE_RATE_GOVERNOR_INIT_ZERO, 0, 0, 0, {0}, false, FD_EXEC_TEST_INFLATION_INIT_ZERO, 0, {0}, {0}, {0}, 0, false, FD_EXEC_TEST_FEATURE_SET_INIT_ZERO, 0, NULL, 0, NULL}
 #define FD_EXEC_TEST_BLOCK_CONTEXT_INIT_ZERO     {0, NULL, 0, NULL, false, FD_EXEC_TEST_BLOCK_BANK_INIT_ZERO}
 #define FD_EXEC_TEST_LEADER_SCHEDULE_EFFECTS_INIT_ZERO {0, 0, 0, 0, 0, {0}}
@@ -236,6 +239,8 @@ extern "C" {
 #define FD_EXEC_TEST_PREV_VOTE_ACCOUNT_VERSION_TAG 6
 #define FD_EXEC_TEST_PREV_VOTE_ACCOUNT_INFLATION_REWARDS_COLLECTOR_TAG 7
 #define FD_EXEC_TEST_PREV_VOTE_ACCOUNT_BLOCK_REVENUE_COLLECTOR_TAG 8
+#define FD_EXEC_TEST_PREV_VOTE_ACCOUNT_BLOCK_REVENUE_COMMISSION_BPS_TAG 9
+#define FD_EXEC_TEST_PREV_VOTE_ACCOUNT_PENDING_DELEGATOR_REWARDS_TAG 10
 #define FD_EXEC_TEST_BLOCK_BANK_BLOCKHASH_QUEUE_TAG 1
 #define FD_EXEC_TEST_BLOCK_BANK_RBH_LAMPORTS_PER_SIGNATURE_TAG 2
 #define FD_EXEC_TEST_BLOCK_BANK_FEE_RATE_GOVERNOR_TAG 3
@@ -309,7 +314,9 @@ X(a, STATIC,   SINGULAR, UINT32,   commission_bps,    4) \
 X(a, POINTER,  REPEATED, MESSAGE,  epoch_credits,     5) \
 X(a, STATIC,   SINGULAR, UENUM,    version,           6) \
 X(a, STATIC,   SINGULAR, BYTES,    inflation_rewards_collector,   7) \
-X(a, STATIC,   SINGULAR, BYTES,    block_revenue_collector,   8)
+X(a, STATIC,   SINGULAR, BYTES,    block_revenue_collector,   8) \
+X(a, STATIC,   SINGULAR, UINT32,   block_revenue_commission_bps,   9) \
+X(a, STATIC,   SINGULAR, UINT64,   pending_delegator_rewards,  10)
 #define FD_EXEC_TEST_PREV_VOTE_ACCOUNT_CALLBACK NULL
 #define FD_EXEC_TEST_PREV_VOTE_ACCOUNT_DEFAULT NULL
 #define fd_exec_test_prev_vote_account_t_epoch_credits_MSGTYPE fd_exec_test_epoch_credit_t

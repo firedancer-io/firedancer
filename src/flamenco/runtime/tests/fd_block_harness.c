@@ -7,6 +7,7 @@
 #include "../fd_system_ids.h"
 #include "../fd_runtime_stack_tmpl.h"
 #include "../../stakes/fd_stake_types.h"
+#include "../program/vote/fd_vote_codec.h"
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../progcache/fd_progcache_admin.h"
 #include "../../log_collector/fd_log_collector.h"
@@ -69,6 +70,15 @@ fd_solfuzz_block_update_prev_epoch_stakes( fd_vote_stakes_t *                 vo
     uchar const no_bls[ FD_BLS_PUBKEY_COMPRESSED_SZ ] = {0};
     if( use_t_1 ) fd_vote_stakes_snap_insert_t_1( vote_stakes, vote_stakes_fork_id, &vote_pubkey, &node_pubkey, stake, commission, no_bls );
     else          fd_vote_stakes_snap_insert_t_2( vote_stakes, vote_stakes_fork_id, &vote_pubkey, &node_pubkey, stake, commission, no_bls );
+
+    /* SIMD-0123 fields exist in v4 state only; older versions keep the
+       100% default and no pending rewards. */
+    if( vote_accounts[i].version == FD_EXEC_TEST_VOTE_ACCOUNT_VERSION_V4 ) {
+      ushort block_revenue_commission_bps = (ushort)vote_accounts[i].block_revenue_commission_bps;
+      ulong  pending_delegator_rewards    = vote_accounts[i].pending_delegator_rewards;
+      if( use_t_1 ) fd_vote_stakes_set_block_revenue_t_1( vote_stakes, vote_stakes_fork_id, &vote_pubkey, block_revenue_commission_bps, pending_delegator_rewards );
+      else          fd_vote_stakes_set_block_revenue_t_2( vote_stakes, vote_stakes_fork_id, &vote_pubkey, block_revenue_commission_bps, pending_delegator_rewards );
+    }
   }
 }
 

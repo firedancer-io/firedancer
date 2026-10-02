@@ -989,7 +989,7 @@ test_stake_rewards_metadata_survives_three_fork_thrash( void * mem ) {
     branch[i] = fd_stake_rewards_init(
         stake_rewards, &parent_blockhash, 0UL, 1U, 0U, 1UL );
     fd_stake_rewards_insert(
-        stake_rewards, branch[i], &pubkey, 1UL, 1UL );
+        stake_rewards, branch[i], &pubkey, 1UL, 1UL, 0UL );
     fd_stake_rewards_fini( stake_rewards, branch[i] );
   }
 
@@ -1008,7 +1008,7 @@ test_stake_rewards_metadata_survives_three_fork_thrash( void * mem ) {
     ushort new_fork = fd_stake_rewards_init(
         stake_rewards, &parent_blockhash, 0UL, 1U, 0U, 1UL );
     fd_stake_rewards_insert(
-        stake_rewards, new_fork, &pubkey, 1UL, 1UL );
+        stake_rewards, new_fork, &pubkey, 1UL, 1UL, 0UL );
     fd_stake_rewards_fini( stake_rewards, new_fork );
     fd_stake_rewards_release( stake_rewards, old_fork );
     branch[branch_idx] = new_fork;
