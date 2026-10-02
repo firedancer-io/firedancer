@@ -291,30 +291,37 @@ fd_curve25519_scalar_wnaf( short       _t[ 256 ], /* 256-entry */
   ulong wid  = (ulong)bits+1UL;
   ulong mask = (1UL<<wid)-1UL;
   ulong half = 1UL<<(ulong)bits;
-  ulong pos  = 0UL;
-  for(;;) {
-    ulong w = pos>>6, b = pos&63UL;
-    ulong x = n[w]>>b;
+
+  /* Each iteration consumes a wid-bit window and moves pos past it,
+     so there are at most 256/wid digits */
+  for( ulong pos=0UL; pos<256UL; pos+=wid ) {
+
+    /* Note that pos never decreases */
+    ulong w = pos>>6;
+    ulong x = n[w]>>(pos&63UL);
     if( FD_UNLIKELY( !x ) ) {
-      do { w++; if( w>=4UL ) return; } while( !n[w] );
-      pos = (w<<6) + (ulong)fd_ulong_find_lsb( n[w] );
-    } else {
-      pos += (ulong)fd_ulong_find_lsb( x );
+      do { if( ++w>=4UL ) return; x = n[w]; } while( !x );
+      pos = w<<6;
     }
-    if( FD_UNLIKELY( pos>=256UL ) ) return;
-    w = pos>>6; b = pos&63UL;
+    pos += (ulong)fd_ulong_find_lsb( x ); /* w<=3 so pos<=255 */
+
+    /* Extract and clear the window */
+    ulong b  = pos&63UL;
     ulong lo = n[w]>>b;
     if( b ) lo |= n[w+1]<<(64UL-b);
     ulong d = lo & mask;
     n[w] &= ~(mask<<b);
-    if( b>(64UL-wid) ) n[w+1] &= ~(mask>>(64UL-b));
-    if( d>=half ) {
-      _t[pos] = (short)((long)d - (long)(mask+1UL));
-      ulong cp = pos+wid, cw = cp>>6, cb = cp&63UL;
-      for(;;) { ulong o = n[cw]; n[cw] = o + (1UL<<cb); if( FD_LIKELY( n[cw]>=o ) ) break; cw++; cb = 0UL; }
-    } else {
-      _t[pos] = (short)d;
+    if( b>64UL-wid ) n[w+1] &= ~(mask>>(64UL-b));
+
+    if( d<half ) { _t[pos] = (short)d; continue; }
+
+    /* Negative digit: add 1 at bit pos+wid. */
+    _t[pos] = (short)((long)d - (long)(mask+1UL));
+    ulong cp = pos+wid;
+    for( ulong cw=cp>>6, cb=cp&63UL; cw<5UL; cw++, cb=0UL ) {
+      ulong o = n[cw];
+      n[cw] = o + (1UL<<cb);
+      if( FD_LIKELY( n[cw]>=o ) ) break;
     }
-    pos += wid;
   }
 }
