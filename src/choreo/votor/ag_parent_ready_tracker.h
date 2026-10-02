@@ -4,6 +4,12 @@
 #include "ag_votor_base.h"
 #include "ag_finality_tracker.h"
 
+/* AG_PARENT_READY_MAX bounds the parents tracked per slot.  Chains of
+   skip-certified windows can make more parents ready than this, the
+   excess is dropped. */
+
+#define AG_PARENT_READY_MAX (AG_SLOTS_PER_WINDOW*AG_NOTAR_FALLBACK_CERT_MAX)
+
 struct ag_parent_ready {
   ulong         slot;
   ag_block_id_t parent;
@@ -20,7 +26,7 @@ struct ag_parent_ready_state {
   uchar           notar_fallbacks_cnt;
 
   int           is_ready;
-  ag_block_id_t ready_ids[AG_SLOTS_PER_WINDOW*AG_NOTAR_FALLBACK_CERT_MAX];
+  ag_block_id_t ready_ids[AG_PARENT_READY_MAX];
   ulong         ready_id_cnt;
 };
 typedef struct ag_parent_ready_state ag_parent_ready_state_t;
@@ -57,6 +63,16 @@ ag_parent_ready_tracker_align( void );
 
 FD_FN_CONST ulong
 ag_parent_ready_tracker_footprint( ulong slot_max );
+
+/* ag_parent_ready_tracker_out_max returns the max number of
+   newly_certified entries a single mark call can output.  A skip chain
+   spans at most every tracked slot, and each window start in it gains
+   at most AG_PARENT_READY_MAX parents. */
+
+FD_FN_CONST static inline ulong
+ag_parent_ready_tracker_out_max( ulong slot_max ) {
+  return ( fd_ulong_pow2_up( slot_max )/AG_SLOTS_PER_WINDOW + 1UL )*AG_PARENT_READY_MAX;
+}
 
 void *
 ag_parent_ready_tracker_new( void * shmem,
