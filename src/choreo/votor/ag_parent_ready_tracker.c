@@ -231,7 +231,7 @@ ag_parent_ready_tracker_mark_skipped( ag_parent_ready_tracker_t * self,
     if( FD_UNLIKELY( ag_is_start_of_window( s ) ) ) {
       for( ulong i=0UL; i<potential_cnt; i++ ) {
         if( FD_UNLIKELY( !add_to_ready( fstate, &potential_parents[i] ) ) ) continue;
-        FD_TEST( *newly_certified_cnt < ag_parent_ready_state_pool_max( self->states.pool ) ); /* caller sized for slot_max */
+        FD_TEST( *newly_certified_cnt < ag_parent_ready_tracker_out_max( ag_parent_ready_state_pool_max( self->states.pool ) ) );
         newly_certified[ *newly_certified_cnt ].slot   = s;
         newly_certified[ *newly_certified_cnt ].parent = potential_parents[i];
         (*newly_certified_cnt)++;

@@ -64,6 +64,16 @@ ag_parent_ready_tracker_align( void );
 FD_FN_CONST ulong
 ag_parent_ready_tracker_footprint( ulong slot_max );
 
+/* ag_parent_ready_tracker_out_max returns the max number of
+   newly_certified entries a single mark call can output.  A skip chain
+   spans at most every tracked slot, and each window start in it gains
+   at most AG_PARENT_READY_MAX parents. */
+
+FD_FN_CONST static inline ulong
+ag_parent_ready_tracker_out_max( ulong slot_max ) {
+  return ( fd_ulong_pow2_up( slot_max )/AG_SLOTS_PER_WINDOW + 1UL )*AG_PARENT_READY_MAX;
+}
+
 void *
 ag_parent_ready_tracker_new( void * shmem,
                              ulong  slot_max,

@@ -362,6 +362,40 @@ test_ready_overflow( void ) {
   teardown_tracker( tracker );
 }
 
+/* Skip certs arriving ahead of the window start's own skip cert build
+   a long chain, so one mark_skipped can make up to AG_PARENT_READY_MAX
+   parents ready at every window start up to slot_max. */
+
+static void
+test_out_overflow( void ) {
+  ag_parent_ready_tracker_t * tracker = setup_tracker( TEST_SLOT_MAX );
+
+  static ag_parent_ready_t out[ ( TEST_SLOT_MAX/AG_SLOTS_PER_WINDOW+1UL )*AG_PARENT_READY_MAX ];
+  FD_TEST( sizeof(out)/sizeof(out[0])==ag_parent_ready_tracker_out_max( TEST_SLOT_MAX ) );
+  ulong out_cnt;
+
+  for( ulong slot=1UL; slot<4UL; slot++ ) {
+    for( ulong j=0UL; j<AG_NOTAR_FALLBACK_CERT_MAX; j++ ) {
+      ag_block_id_t id = random_block_id( slot );
+      id.hash[0] = (uchar)j;
+      ag_parent_ready_tracker_mark_notar_fallback( tracker, &id, out, &out_cnt );
+    }
+  }
+  for( ulong slot=3UL; slot>=1UL; slot-- ) {
+    ag_parent_ready_tracker_mark_skipped( tracker, slot, out, &out_cnt );
+  }
+
+  ulong last = TEST_SLOT_MAX-2UL;
+  for( ulong slot=5UL; slot<=last; slot++ ) {
+    ag_parent_ready_tracker_mark_skipped( tracker, slot, out, &out_cnt );
+  }
+  ag_parent_ready_tracker_mark_skipped( tracker, 4UL, out, &out_cnt );
+  FD_TEST( out_cnt==13UL*( (last+1UL)/AG_SLOTS_PER_WINDOW - 1UL ) ); /* window starts 8..last+1 */
+  FD_TEST( out_cnt>TEST_SLOT_MAX );
+
+  teardown_tracker( tracker );
+}
+
 /* src/consensus/pool/parent_ready_tracker.rs::wait_for_parent_ready */
 
 static void
@@ -570,6 +604,7 @@ main( int     argc,
   test_no_double_counting_skip_chain();
   test_no_double_counting_notar_and_skip();
   test_ready_overflow();
+  test_out_overflow();
   test_wait_for_parent_ready();
   test_wait_tie_break();
   test_wait_does_not_allocate();
