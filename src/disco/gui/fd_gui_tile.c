@@ -990,7 +990,7 @@ unprivileged_init( fd_topo_t const *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "shred_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_SHRED_OUT;
     else if( FD_LIKELY( !strcmp( link->name, "gossvf_gui"   ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSVF_GUI;
     else if( FD_LIKELY( !strcmp( link->name, "gossip_gui"    ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_GUI;
-    else if( FD_LIKELY( !strcmp( link->name, "gossip_ci"     ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_OUT;
+    else if( FD_LIKELY( !strcmp( link->name, "gossip_ciseen" ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_OUT;
     else if( FD_LIKELY( !strcmp( link->name, "snapct_gui"    ) ) ) ctx->in_kind[ i ] = IN_KIND_SNAPCT;
     else if( FD_LIKELY( !strcmp( link->name, "repair_net"    ) ) ) ctx->in_kind[ i ] = IN_KIND_REPAIR_NET;
     else if( FD_LIKELY( !strcmp( link->name, "tower_out"     ) ) ) ctx->in_kind[ i ] = IN_KIND_TOWER_OUT;

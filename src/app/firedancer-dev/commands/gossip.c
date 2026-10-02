@@ -139,24 +139,24 @@ fd_gossip_subtopo( config_t * config, ulong tile_to_cpu[ FD_TILE_MAX ] FD_PARAM_
 
   fd_topob_wksp( topo, "gossvf_gossip" );
   fd_topob_wksp( topo, "gossip_gossvf" );
-  fd_topob_wksp( topo, "gossip_ci"   );
-  fd_topob_wksp( topo, "gossip_misc" );
+  fd_topob_wksp( topo, "gossip_ciaddr" );
+  fd_topob_wksp( topo, "gossip_misc"   );
 
   fd_topob_link(     topo, "gossip_gossvf", "gossip_gossvf", 65536UL*4, sizeof(fd_gossip_ping_update_t), 1UL );
   fd_topob_tile_out( topo, "gossip", 0UL, "gossip_gossvf", 0UL );
 
-  fd_topob_link( topo, "gossip_ci",   "gossip_ci",   65536UL*4, sizeof(fd_gossip_update_message_t), 1UL );
-  fd_topob_link( topo, "gossip_misc", "gossip_misc", 65536UL*2, sizeof(fd_gossip_update_message_t), 1UL )->permit_no_consumers = 1;
-  fd_topob_tile_out( topo, "gossip", 0UL, "gossip_ci",   0UL );
-  fd_topob_tile_out( topo, "gossip", 0UL, "gossip_misc", 0UL );
+  fd_topob_link( topo, "gossip_ciaddr", "gossip_ciaddr", 65536UL*2, sizeof(fd_gossip_update_message_t), 1UL );
+  fd_topob_link( topo, "gossip_misc",   "gossip_misc",   65536UL*2, sizeof(fd_gossip_update_message_t), 1UL )->permit_no_consumers = 1;
+  fd_topob_tile_out( topo, "gossip", 0UL, "gossip_ciaddr", 0UL );
+  fd_topob_tile_out( topo, "gossip", 0UL, "gossip_misc",   0UL );
   for( ulong i=0UL; i<gossvf_tile_count; i++ ) {
     fd_topob_link(     topo, "gossvf_gossip", "gossvf_gossip", 65536UL*4, FD_GOSSIP_GOSSVF_MTU, 1UL );
     fd_topob_tile_out( topo, "gossvf", i, "gossvf_gossip", i );
     fd_topob_tile_in(  topo, "gossip", 0UL, "metric_in", "gossvf_gossip", i, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
 
-    /* Only one link_kind for gossip_ci broadcast link */
+    /* Only one link_kind for gossip_ciaddr broadcast link */
     fd_topob_tile_in( topo, "gossvf", i, "metric_in", "gossip_gossvf", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-    fd_topob_tile_in( topo, "gossvf", i, "metric_in", "gossip_ci",     0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    fd_topob_tile_in( topo, "gossvf", i, "metric_in", "gossip_ciaddr", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   }
 
   fd_topob_wksp( topo, "gossip_sign"  );

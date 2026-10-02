@@ -727,6 +727,11 @@ pair_drain_gossip_updates( pair_node_t * node ) {
     if( FD_UNLIKELY( meta->sig!=FD_GOSSIP_UPDATE_TAG_CONTACT_INFO &&
                      meta->sig!=FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE ) ) continue;
 
+    /* gossvf reads gossip_ciaddr only; the gossip_ciseen mirror of the
+       same update lives in that link's slice of the shared dcache. */
+    fd_gossip_out_ctx_t const * seen = node->gossip_out + FD_GOSSIP_UPDATE_LINK_CI_SEEN;
+    if( FD_UNLIKELY( meta->chunk>=seen->chunk0 && meta->chunk<=seen->wmark ) ) continue;
+
     fd_gossip_update_message_t * update =
       (fd_gossip_update_message_t *)fd_chunk_to_laddr( node->gossip_out->mem, meta->chunk );
 

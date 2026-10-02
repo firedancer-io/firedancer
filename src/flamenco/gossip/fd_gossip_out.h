@@ -14,10 +14,11 @@ struct fd_gossip_out_ctx {
 
 typedef struct fd_gossip_out_ctx fd_gossip_out_ctx_t;
 
-#define FD_GOSSIP_UPDATE_LINK_CI   (0UL)
-#define FD_GOSSIP_UPDATE_LINK_VOTE (1UL)
-#define FD_GOSSIP_UPDATE_LINK_MISC (2UL)
-#define FD_GOSSIP_UPDATE_LINK_CNT  (3UL)
+#define FD_GOSSIP_UPDATE_LINK_CI_ADDR (0UL)
+#define FD_GOSSIP_UPDATE_LINK_CI_SEEN (1UL)
+#define FD_GOSSIP_UPDATE_LINK_VOTE    (2UL)
+#define FD_GOSSIP_UPDATE_LINK_MISC    (3UL)
+#define FD_GOSSIP_UPDATE_LINK_CNT     (4UL)
 
 FD_FN_CONST static inline ulong
 fd_gossip_update_link( ulong tag ) {
@@ -25,7 +26,7 @@ fd_gossip_update_link( ulong tag ) {
     case FD_GOSSIP_UPDATE_TAG_VOTE:            return FD_GOSSIP_UPDATE_LINK_VOTE;
     case FD_GOSSIP_UPDATE_TAG_DUPLICATE_SHRED:
     case FD_GOSSIP_UPDATE_TAG_WFS_DONE:        return FD_GOSSIP_UPDATE_LINK_MISC;
-    default:                                   return FD_GOSSIP_UPDATE_LINK_CI;
+    default:                                   return FD_GOSSIP_UPDATE_LINK_CI_ADDR;
   }
 }
 
