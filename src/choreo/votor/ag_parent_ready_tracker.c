@@ -109,6 +109,7 @@ add_to_ready( ag_parent_ready_state_t * state,
     state->ready_id_cnt   = 1UL;
     state->is_ready       = 1;
   } else {
+    FD_TEST( state->ready_id_cnt < AG_SLOTS_PER_WINDOW*AG_NOTAR_FALLBACK_CERT_MAX );
     state->ready_ids[ state->ready_id_cnt++ ] = *id;
   }
 }
