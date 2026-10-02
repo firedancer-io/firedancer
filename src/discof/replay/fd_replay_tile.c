@@ -2106,12 +2106,13 @@ try_become_leader( fd_replay_tile_t *  ctx,
 
   /* If we have evicted the reset bank we can't become leader it may be
      inactive or have been resused, we can't become leader.  We may miss
-     our leader slot if we happen to evict our reset bank.  As soon as
-     we re-replay the slot, we will be able to become leader again. */
+     our leader slot if we happen to evict our reset bank.  The block id
+     maps to the re-replayed bank before it freezes, so we can only
+     become leader again once it is frozen. */
   fd_block_id_ele_t * block_id_ele = fd_block_id_map_ele_query( ctx->block_id_map, &ctx->reset_cmr, NULL, ctx->block_id_arr );
   if( FD_UNLIKELY( !block_id_ele ) ) return 0;
   fd_bank_t * reset_bank = fd_banks_bank_query( ctx->banks, fd_block_id_ele_get_idx( ctx->block_id_arr, block_id_ele ) );
-  if( FD_UNLIKELY( !reset_bank || reset_bank->bank_seq!=block_id_ele->bank_seq || reset_bank->state==FD_BANK_STATE_PRUNABLE ) ) return 0;
+  if( FD_UNLIKELY( !reset_bank || reset_bank->bank_seq!=block_id_ele->bank_seq || reset_bank->state!=FD_BANK_STATE_FROZEN ) ) return 0;
 
   if( FD_UNLIKELY( !fd_banks_can_start_bank( ctx->banks ) ) ) return 0;
   if( FD_UNLIKELY( ctx->halt_replay ) ) return 0;
@@ -4138,7 +4139,7 @@ process_tower_slot_done( fd_replay_tile_t *           ctx,
     return;
   }
   fd_bank_t * bank = fd_banks_bank_query( ctx->banks, fd_block_id_ele_get_idx( ctx->block_id_arr, block_id_ele ) );
-  if( FD_UNLIKELY( !bank || bank->bank_seq!=block_id_ele->bank_seq || bank->state==FD_BANK_STATE_PRUNABLE ) ) {
+  if( FD_UNLIKELY( !bank || bank->bank_seq!=block_id_ele->bank_seq || bank->state!=FD_BANK_STATE_FROZEN ) ) {
     FD_LOG_WARNING(( "ignoring reset block update from tower because bank has been evicted (slot=%lu)", msg->reset_slot ));
     return;
   }
