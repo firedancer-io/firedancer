@@ -160,6 +160,49 @@ wait_children( struct child_info * children,
   return exited_child;
 }
 
+static void
+test_rserve_shred_links( config_t const * config ) {
+  fd_topo_t const * topo       = &config->topo;
+  ulong             rserve_idx = fd_topo_find_tile( topo, "rserve", 0UL );
+  if( FD_UNLIKELY( rserve_idx==ULONG_MAX ) ) return;
+
+  fd_topo_tile_t const * rserve = &topo->tiles[ rserve_idx ];
+  ulong shred_cnt = fd_topo_tile_name_cnt( topo, "shred" );
+  for( ulong i=0UL; i<shred_cnt; i++ ) {
+    ulong in_idx = fd_topo_find_tile_in_link( topo, rserve, "shred_out", i );
+    if( in_idx==ULONG_MAX ) in_idx = fd_topo_find_tile_in_link( topo, rserve, "shred_bat", i ); /* efficient mode */
+    FD_TEST( in_idx!=ULONG_MAX );
+    FD_TEST( rserve->in_link_reliable[ in_idx ] );
+  }
+}
+
+/* Under alpenglow in efficient mode rotor reads shred_bat (which then
+   carries every FEC complete and eviction) and shred_out has no
+   reader; performance mode keeps rotor on shred_out. */
+
+static void
+test_rotor_shred_links( config_t const * config ) {
+  fd_topo_t const * topo      = &config->topo;
+  ulong             rotor_idx = fd_topo_find_tile( topo, "repair", 0UL );
+  if( FD_UNLIKELY( rotor_idx==ULONG_MAX ) ) return;
+
+  int efficient = !strcmp( config->firedancer.layout.mode, "efficient" );
+  fd_topo_tile_t const * rotor = &topo->tiles[ rotor_idx ];
+  ulong shred_cnt = fd_topo_tile_name_cnt( topo, "shred" );
+  for( ulong i=0UL; i<shred_cnt; i++ ) {
+    ulong bat_in = fd_topo_find_tile_in_link( topo, rotor, "shred_bat", i );
+    ulong out_in = fd_topo_find_tile_in_link( topo, rotor, "shred_out", i );
+    FD_TEST( (bat_in!=ULONG_MAX)==efficient );
+    FD_TEST( (out_in!=ULONG_MAX)==!efficient );
+    FD_TEST( rotor->in_link_reliable[ efficient ? bat_in : out_in ] );
+    if( efficient ) {
+      ulong out_idx = fd_topo_find_link( topo, "shred_out", i );
+      FD_TEST( out_idx!=ULONG_MAX );
+      FD_TEST( fd_topo_find_link_consumer( topo, &topo->links[ out_idx ] )==ULONG_MAX );
+    }
+  }
+}
+
 /* In efficient mode with auto affinity the layout packs the mwaitx
    tile with the tiles it wakes most, so on a host with more than one
    L3 domain and a core for every pinned tile mwaitx shares its L3 with
@@ -272,6 +315,18 @@ test_efficient_layout( config_t const * config ) {
   eff_config->tiles.gui.enabled = 1;
   fd_topo_initialize( eff_config );
   test_efficient_l3_layout( eff_config );
+
+  for( int efficient=0; efficient<2; efficient++ ) {
+    static config_t ag_config[1];
+    *ag_config = *config;
+    ag_config->firedancer.development.alpenglow = 1;
+    if( efficient ) strcpy( ag_config->firedancer.layout.mode, "efficient" );
+    ag_config->tiles.gui.enabled = 1;
+    fd_topo_initialize( ag_config );
+    FD_TEST( fd_topo_find_tile( &ag_config->topo, "repair", 0UL )!=ULONG_MAX );
+    test_rotor_shred_links( ag_config );
+    test_rserve_shred_links( ag_config );
+  }
 }
 
 int
