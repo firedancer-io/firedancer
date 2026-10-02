@@ -5,6 +5,7 @@
 #include "../../choreo/votor/ag_cert_serde.h"
 #include "../../choreo/votor/ag_pool.h"
 #include "../../choreo/votor/ag_slot_state.h"
+#include "../../choreo/votor/ag_vote_history_file.h"
 #include "../../choreo/votor/ag_vote_serde.h"
 #include "../../choreo/votor/ag_votor.h"
 #include "../../disco/events/generated/fd_event_gen.h"
@@ -216,6 +217,9 @@ struct fd_votor_tile {
   ulong                auth_vtr_path_cnt;
   fd_keyswitch_t *     auth_vtr_keyswitch;
   fd_keyguard_client_t keyguard_client[1];
+
+  ag_vote_history_file_t vote_history[1];  /* the new identity's decoded vote history, if has_vote_history */
+  int                    has_vote_history;
 
   /* Initialization */
 
@@ -1408,7 +1412,11 @@ during_housekeeping( fd_votor_tile_t * ctx ) {
     /* If votes and pool events drained close quic conns and update
        leader tracking. */
     if( FD_LIKELY( !ag_votor_vote_event_cnt( ctx->votor ) && !ag_pool_pool_event_cnt( ctx->pool ) ) ) {
+      int identity_changed = !!memcmp( ctx->id_key.uc, ctx->id_keyswitch->bytes, sizeof(fd_pubkey_t) );
       memcpy( ctx->id_key.uc, ctx->id_keyswitch->bytes, sizeof(fd_pubkey_t) );
+      ulong vote_history_sz = FD_LOAD( ulong, ctx->id_keyswitch->bytes+32UL );
+      ctx->has_vote_history = identity_changed && vote_history_sz &&
+                              !ag_vote_history_file_de( ctx->id_keyswitch->bytes+40UL, vote_history_sz, ctx->id_key.uc, ctx->vote_history );
       fd_quic_set_identity_public_key( ctx->quic_client, ctx->id_key.uc );
       fd_quic_set_identity_public_key( ctx->quic_server, ctx->id_key.uc );
       for( ulong slot=0UL; slot<peers_slot_cnt(); slot++ ) {
@@ -1444,7 +1452,8 @@ during_housekeeping( fd_votor_tile_t * ctx ) {
     FD_CHECK_CRIT( ctx->halt_signing, "state machine corruption" );
     load_keys( ctx, ctx->auth_vtr_path_cnt );
     ctx->halt_signing = 0;
-    ag_votor_wait_to_vote( ctx->votor );
+    if( ctx->has_vote_history ) ag_votor_restore( ctx->votor, ctx->vote_history );
+    else                        ag_votor_wait_to_vote( ctx->votor );
     refresh_rank_and_key( ctx );
     connect_peers( ctx, fd_clock_tile_now( ctx->clock ) );
     fd_keyswitch_state( ctx->id_keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
@@ -1985,8 +1994,9 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( ctx->auth_vtr_keyswitch );
   ctx->id_keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
   FD_TEST( ctx->id_keyswitch );
-  ctx->halt_signing  = 0;
-  ctx->replay_in_seq = 0UL;
+  ctx->halt_signing     = 0;
+  ctx->replay_in_seq    = 0UL;
+  ctx->has_vote_history = 0;
 
   fd_aio_t * quic_tx_aio = fd_aio_join( fd_aio_new( ctx->quic_tx_aio, ctx, quic_aio_tx ) );
   FD_TEST( quic_tx_aio );

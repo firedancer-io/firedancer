@@ -28,7 +28,7 @@ struct __attribute__((aligned(FD_KEYSWITCH_ALIGN))) fd_keyswitch_private {
   ulong state;
   ulong result;
   ulong param;
-  uchar bytes[ 32768UL ];
+  uchar bytes[ 32768UL+64UL ]; /* fits a key and a 32 KiB vote history */
   /* Padding to FD_KEYSWITCH_ALIGN here */
 };
 
