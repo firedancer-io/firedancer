@@ -89,6 +89,11 @@
 #define FD_ROTOR_SRC_RECOVERED (2)
 #define FD_ROTOR_SRC_LEADER    (3)
 
+#define ABANDON_REASON_NOT_CANCELLED         (1) /* Not cancelled. */
+#define ABANDON_REASON_MERKLE_ROOT_MISMATCH  (2)
+#define ABANDON_REASON_VOTOR_BLOCK_ID_EVENT  (3)
+#define ABANDON_REASON_VOTOR_BLOCK_ID_PARENT (4)
+
 FD_STATIC_ASSERT( FD_FEC_SHRED_CNT==32UL, fd_rotor_fec_bitmap );
 
 struct fd_rotor_fec {
@@ -140,6 +145,7 @@ struct fd_rotor_blk {
   ulong           prev; /* reserved by map_chain */
 
   uchar           turbine;   /* 1 for the block created through turbine */
+  uchar           is_leader; /* 1 once a FEC set we produced as leader completed under this (turbine) version */
   uchar           abandoned; /* 1 once a votor-driven version of the slot was
                                 created while this (turbine) version's block_id
                                 was still unknown: keeps accepting shred/FEC
@@ -164,6 +170,8 @@ struct fd_rotor_blk {
 
   /* Reception statistics. */
   struct {
+    int  abandoned_reason; /* ABANDON_REASON_* */
+
     uint turbine_cnt;   /* data shreds received via turbine, plus every coding shred */
     uint repair_cnt;    /* data shreds received via repair */
     uint recovered_cnt; /* data shreds reconstructed via reed-solomon */
@@ -171,6 +179,8 @@ struct fd_rotor_blk {
 
     uint last_completed_fec_idx; /* fec_set_idx of the FEC set that most recently completed for this version */
 
+    long first_meta_ts;  /* the version's first verified getParentAndFecCount or FecRoot response arrived, wallclock ns, 0 if none */
+    long abandoned_ts;   /* the version was abandoned, wallclock ns, 0 if not abandoned */
     long first_shred_ts; /* the version's first shred arrived, wallclock ns */
     long last_shred_ts;  /* the version became fully buffered (buffered_idx==complete_idx), wallclock ns */
 
@@ -181,7 +191,9 @@ struct fd_rotor_blk {
     uint req_parent_cnt;     /* alpenglow ancestry requests sent (ParentAndFecCount) */
     uint req_fec_root_cnt;   /* alpenglow FEC-set-root requests sent (FecRoot) */
     uint req_retransmit_cnt; /* requests re-issued after a timeout or a bad response, shred or metadata */
-    uint repair_responses;   /* repair responses matched to an outstanding request */
+    uint shred_repair_responses;     /* shred repair responses matched to an outstanding request */
+    uint parent_fec_count_responses; /* verified ParentAndFecCount responses matched to an outstanding request */
+    uint fec_root_responses;         /* verified FecRoot responses matched to an outstanding request */
 
     long first_req_ts;        /* wallclock ns of the first specific-shred request sent, 0 if none */
     long last_repair_resp_ts; /* wallclock ns of the most recent matched repair response, 0 if none */
@@ -412,12 +424,14 @@ fd_rotor_fec_evicted( fd_rotor_t * rotor,
 /* fd_rotor_verified_block_insert records {slot, block_id} as a
    verified version, abandoning the slot's turbine version if its
    block_id is still unknown.  Returns the new version, or NULL if it
-   already existed. */
+   already existed.  now is the wallclock ns the block id became known
+   and stamps an abandoned turbine version's abandoned_ts. */
 
 fd_rotor_blk_t *
 fd_rotor_verified_block_insert( fd_rotor_t * rotor,
                                 ulong        slot,
-                                fd_hash_t    block_id );
+                                fd_hash_t    block_id,
+                                long         now );
 
 /* fd_rotor_verified_parent_fec_count is rotor's entrypoint for
    updating information on what a slots fec set count, parent slot, and
@@ -426,7 +440,9 @@ fd_rotor_verified_block_insert( fd_rotor_t * rotor,
    calling this function; rotor does no verification.  Will CRIT if
    {slot, block_id} does not exist in the rotor yet, otherwise creates
    {parent, p_bid} block if it doesn't exist yet, and returns parent
-   block.  May return NULL if the parent block is on a dead fork. */
+   block.  May return NULL if the parent block is on a dead fork.
+   rx_ts is the wallclock ns the response arrived and stamps the
+   block's first_meta_ts. */
 
 fd_rotor_blk_t *
 fd_rotor_verified_parent_fec_count( fd_rotor_t * rotor,
@@ -434,7 +450,8 @@ fd_rotor_verified_parent_fec_count( fd_rotor_t * rotor,
                                     fd_hash_t *  block_id,
                                     uint         fec_set_cnt,
                                     ulong        parent_slot,
-                                    fd_hash_t *  parent_block_id );
+                                    fd_hash_t *  parent_block_id,
+                                    long         rx_ts );
 
 /* fd_rotor_verified_hash_insert is rotor's entrypoint for updating
    information on what a block's FEC root is.  This mirrors the Alpenglow
@@ -445,14 +462,16 @@ fd_rotor_verified_parent_fec_count( fd_rotor_t * rotor,
    the root was already complete under another version the completion
    is replayed, which can create the slot's turbine version (returned);
    otherwise returns NULL.  mr_prefix is the 20-byte root prefix the
-   getFecSetRoot response carries. */
+   getFecSetRoot response carries.  rx_ts is as in
+   fd_rotor_verified_parent_fec_count. */
 
 fd_rotor_blk_t *
 fd_rotor_verified_hash_insert( fd_rotor_t * rotor,
                                ulong        slot,
                                fd_hash_t *  block_id,
                                uint         fec_set_idx,
-                               uchar const  mr_prefix[ static FD_SHRED_MERKLE_NODE_SZ ] );
+                               uchar const  mr_prefix[ static FD_SHRED_MERKLE_NODE_SZ ],
+                               long         rx_ts );
 
 /* fd_rotor_fec_query returns the FEC that the version of slot
    identified by block_id owns at fec_set_idx, or NULL. */
@@ -501,7 +520,9 @@ fd_rotor_publish( fd_rotor_t *      rotor,
 #define FD_ROTOR_REQ_PARENT     (4)
 #define FD_ROTOR_REQ_FEC_ROOT   (5)
 #define FD_ROTOR_REQ_RETRANSMIT (6)
-#define FD_ROTOR_REQ_RESPONSE   (7)
+#define FD_ROTOR_RESP_SHRED     (7)
+#define FD_ROTOR_RESP_PARENT    (8)
+#define FD_ROTOR_RESP_FEC_ROOT  (9)
 
 static inline void
 fd_rotor_repair_tally( fd_rotor_blk_t * block, int kind, long now ) {
@@ -510,7 +531,7 @@ fd_rotor_repair_tally( fd_rotor_blk_t * block, int kind, long now ) {
   if( FD_LIKELY( now ) ) {
     if( kind==FD_ROTOR_REQ_WINDOW || kind==FD_ROTOR_REQ_SHRED_BID ) {
       if( FD_UNLIKELY( !block->metrics.first_req_ts ) ) block->metrics.first_req_ts = now;
-    } else if( kind==FD_ROTOR_REQ_RESPONSE ) {
+    } else if( kind==FD_ROTOR_RESP_SHRED ) {
       block->metrics.last_repair_resp_ts = now;
     }
   }
@@ -523,7 +544,9 @@ fd_rotor_repair_tally( fd_rotor_blk_t * block, int kind, long now ) {
     case FD_ROTOR_REQ_PARENT:     block->metrics.req_parent_cnt++;     break;
     case FD_ROTOR_REQ_FEC_ROOT:   block->metrics.req_fec_root_cnt++;   break;
     case FD_ROTOR_REQ_RETRANSMIT: block->metrics.req_retransmit_cnt++; break;
-    case FD_ROTOR_REQ_RESPONSE:   block->metrics.repair_responses++;   break;
+    case FD_ROTOR_RESP_SHRED:     block->metrics.shred_repair_responses++;     break;
+    case FD_ROTOR_RESP_PARENT:    block->metrics.parent_fec_count_responses++; break;
+    case FD_ROTOR_RESP_FEC_ROOT:  block->metrics.fec_root_responses++;         break;
     default: FD_LOG_CRIT(( "bad rotor repair tally kind %d", kind ));
   }
 }

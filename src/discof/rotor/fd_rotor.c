@@ -112,6 +112,7 @@ acquire_block( fd_rotor_t * rotor, ulong slot ) {
   fd_rotor_blk_t * block = fd_block_pool_ele_acquire( block_pool );
   block->slot              = slot;
   block->turbine           = 0;
+  block->is_leader         = 0;
   block->abandoned         = 0;
   block->parent_slot       = AG_UNKNOWN_SLOT;
   block->parent_slot_batch = UINT_MAX;
@@ -121,23 +122,27 @@ acquire_block( fd_rotor_t * rotor, ulong slot ) {
   block->delivered_idx     = UINT_MAX;
   block->connected         = 0;
 
-  block->metrics.turbine_cnt         = 0U;
-  block->metrics.repair_cnt          = 0U;
-  block->metrics.recovered_cnt       = 0U;
-  block->metrics.parity_cnt          = 0U;
-  block->metrics.first_shred_ts      = 0L;
-  block->metrics.last_shred_ts       = 0L;
-  block->metrics.req_window_cnt      = 0U;
-  block->metrics.req_highest_cnt     = 0U;
-  block->metrics.req_orphan_cnt      = 0U;
-  block->metrics.req_shred_bid_cnt   = 0U;
-  block->metrics.req_parent_cnt      = 0U;
-  block->metrics.req_fec_root_cnt    = 0U;
-  block->metrics.req_retransmit_cnt  = 0U;
-  block->metrics.repair_responses    = 0U;
-  block->metrics.first_req_ts        = 0L;
-  block->metrics.last_repair_resp_ts = 0L;
-  block->metrics.last_completed_fec_idx = UINT_MAX;
+  block->metrics.turbine_cnt                = 0U;
+  block->metrics.repair_cnt                 = 0U;
+  block->metrics.recovered_cnt              = 0U;
+  block->metrics.parity_cnt                 = 0U;
+  block->metrics.first_meta_ts              = 0L;
+  block->metrics.abandoned_ts               = 0L;
+  block->metrics.first_shred_ts             = 0L;
+  block->metrics.last_shred_ts              = 0L;
+  block->metrics.req_window_cnt             = 0U;
+  block->metrics.req_highest_cnt            = 0U;
+  block->metrics.req_orphan_cnt             = 0U;
+  block->metrics.req_shred_bid_cnt          = 0U;
+  block->metrics.req_parent_cnt             = 0U;
+  block->metrics.req_fec_root_cnt           = 0U;
+  block->metrics.req_retransmit_cnt         = 0U;
+  block->metrics.shred_repair_responses     = 0U;
+  block->metrics.parent_fec_count_responses = 0U;
+  block->metrics.fec_root_responses         = 0U;
+  block->metrics.first_req_ts               = 0L;
+  block->metrics.last_repair_resp_ts        = 0L;
+  block->metrics.last_completed_fec_idx     = UINT_MAX;
 
   fd_memset( &block->block_id,        0, sizeof(fd_hash_t) );
   fd_memset( &block->parent_block_id, 0, sizeof(fd_hash_t) );
@@ -236,16 +241,12 @@ fd_rotor_shred_test( fd_rotor_t *           rotor,
   return !!( fec->data_idxs & ( 1U << ( shred_idx & ( (uint)FD_FEC_SHRED_CNT - 1U ) ) ) );
 }
 
-/* abandon_turbine abandons slot's turbine version, if one exists. */
-
 static void
-abandon_turbine( fd_rotor_t * rotor, ulong slot ) {
-  for( ulong i=block_iter_init( rotor, slot ); i!=ULONG_MAX; i=block_iter_next( rotor, i ) ) {
-    fd_rotor_blk_t * block = block_iter_ele( rotor, i );
-    if( FD_LIKELY( !block->turbine || block->abandoned ) ) continue;
-    if( FD_LIKELY( fd_hash_check_zero( &block->block_id ) ) ) block->abandoned = 1;
-    return;
-  }
+rotor_invalidate( fd_rotor_blk_t * block, long rx_ts, int reason ) {
+  if( !fd_hash_check_zero( &block->block_id ) || block->abandoned ) return;
+  block->abandoned = 1;
+  block->metrics.abandoned_ts = rx_ts;
+  block->metrics.abandoned_reason = reason;
 }
 
 /* turbine_block_query returns the turbine version of slot, or NULL. */
@@ -350,7 +351,7 @@ fd_rotor_shred_insert( fd_rotor_t *      rotor,
     fd_rotor_fec_t * fect = block_fec( rotor, turbine, fec_set_idx );
     if     ( FD_UNLIKELY( !fect ) )                                 fec_join( rotor, slot, fec_set_idx, turbine, mr );
     else if( FD_UNLIKELY( !fd_hash_eq( &fect->merkle_root, mr ) &&
-                           fd_hash_check_zero( &turbine->block_id ) ) ) turbine->abandoned = 1;
+                           fd_hash_check_zero( &turbine->block_id ) ) ) rotor_invalidate( turbine, rx_ts, ABANDON_REASON_MERKLE_ROOT_MISMATCH );
   }
 
   fd_rotor_fec_t * fec = fd_fec_map_ele_query( rotor->fec_map, mr, NULL, rotor->fec_pool );
@@ -572,6 +573,7 @@ fd_rotor_fec_complete( fd_rotor_t *      rotor,
     if( FD_UNLIKELY( fd_rotor_block_fecs( rotor, block )[ k ]!=fec_idx || block->abandoned ) ) continue;
 
     block->metrics.last_completed_fec_idx = fec_set_idx;
+    if( FD_UNLIKELY( is_leader && block->turbine ) ) block->is_leader = 1;
 
     int was_complete = block->complete_idx!=UINT_MAX && block->buffered_fec_idx==block->complete_idx;
     for(;;) {
@@ -650,7 +652,8 @@ fd_rotor_verified_parent_fec_count( fd_rotor_t * rotor,
                                     fd_hash_t *  block_id,
                                     uint         fec_set_cnt,
                                     ulong        parent_slot,
-                                    fd_hash_t *  parent_block_id ) {
+                                    fd_hash_t *  parent_block_id,
+                                    long         rx_ts ) {
   fd_rotor_blk_t * block = fd_rotor_slot_version_query( rotor, slot, block_id );
   if( FD_UNLIKELY( !block ) ) FD_LOG_CRIT(( "block not found for slot %lu", slot ));
 
@@ -658,6 +661,8 @@ fd_rotor_verified_parent_fec_count( fd_rotor_t * rotor,
   block->complete_idx    = ( fec_set_cnt*FD_FEC_SHRED_CNT ) - 1;
   block->parent_slot     = parent_slot;
   block->parent_block_id = *parent_block_id;
+
+  if( FD_LIKELY( !block->metrics.first_meta_ts ) ) block->metrics.first_meta_ts = rx_ts;
 
   fd_rotor_blk_t * parent_block = fd_rotor_slot_version_query( rotor, parent_slot, parent_block_id );
   if( FD_UNLIKELY( !parent_block ) ) {
@@ -667,7 +672,12 @@ fd_rotor_verified_parent_fec_count( fd_rotor_t * rotor,
     }
     parent_block = acquire_block( rotor, parent_slot );
     parent_block->block_id = *parent_block_id;
-    abandon_turbine( rotor, parent_slot );
+
+    for( ulong i=block_iter_init( rotor, parent_slot ); i!=ULONG_MAX; i=block_iter_next( rotor, i ) ) {
+      fd_rotor_blk_t * block = block_iter_ele( rotor, i );
+      if( FD_LIKELY( !block->turbine || block->abandoned ) ) continue;
+      rotor_invalidate( block, rx_ts, ABANDON_REASON_VOTOR_BLOCK_ID_PARENT );
+    }
   }
 
   /* parent now identified, connect this block if the parent is. */
@@ -680,9 +690,14 @@ fd_rotor_verified_hash_insert( fd_rotor_t * rotor,
                                ulong        slot,
                                fd_hash_t *  block_id,
                                uint         fec_set_idx,
-                               uchar const  mr_prefix[ static FD_SHRED_MERKLE_NODE_SZ ] ) {
+                               uchar const  mr_prefix[ static FD_SHRED_MERKLE_NODE_SZ ],
+                               long         rx_ts ) {
   fd_rotor_blk_t * block = fd_rotor_slot_version_query( rotor, slot, block_id );
   if( FD_UNLIKELY( !block ) ) FD_LOG_CRIT(( "block not found for slot %lu - verify this is a CRIT", slot ));
+
+  /* Stamp before the early return: a verified answer for an already
+     known FEC set still counts as metadata received. */
+  if( FD_LIKELY( !block->metrics.first_meta_ts ) ) block->metrics.first_meta_ts = rx_ts;
 
   /* Already have this version's FEC entry -> nothing to fetch. */
   if( FD_UNLIKELY( block_fec( rotor, block, fec_set_idx ) ) ) return NULL;
@@ -708,7 +723,7 @@ fd_rotor_verified_hash_insert( fd_rotor_t * rotor,
     /* Replay with the full root the shared FEC already holds, never the
        prefix */
     fd_hash_t shared_mr = shared->merkle_root;
-    created = fd_rotor_fec_complete( rotor, slot, fec_set_idx, shared->slot_complete, shared->data_complete, 0, 0L /* arrival time unknown: replayed into a new version */, &shared_mr, NULL, NULL );
+    created = fd_rotor_fec_complete( rotor, slot, fec_set_idx, shared->slot_complete, shared->data_complete, shared->is_leader, shared->metrics.first_shred_ts, &shared_mr, NULL, NULL );
   }
   rotor_advance( rotor, block );
   return created;
@@ -717,7 +732,8 @@ fd_rotor_verified_hash_insert( fd_rotor_t * rotor,
 fd_rotor_blk_t *
 fd_rotor_verified_block_insert( fd_rotor_t * rotor,
                                 ulong        slot,
-                                fd_hash_t    block_id ) {
+                                fd_hash_t    block_id,
+                                long         now ) {
   FD_TEST( slot>rotor->root );
 
   if( FD_LIKELY( fd_rotor_slot_version_query( rotor, slot, &block_id ) ) ) return NULL;
@@ -731,7 +747,7 @@ fd_rotor_verified_block_insert( fd_rotor_t * rotor,
        this slot have already started arriving, suggesting we are way
        behind on repairing this slot.  At this point just abandon the
        turbine version and only deliver votor verified versions. */
-    turbine->abandoned = 1;
+    rotor_invalidate( turbine, now, ABANDON_REASON_VOTOR_BLOCK_ID_EVENT );
   }
   return block;
 }
@@ -943,7 +959,7 @@ fd_rotor_verify( fd_rotor_t const * rotor ) {
                        block->buffered_idx<block->buffered_fec_idx ) ) ) FAIL( "buffered_fec_idx runs ahead of buffered_idx" );
 
     /* An abandoned version is always a turbine version and never on a
-       worklist (see abandon_turbine). */
+       worklist. */
 
     if( FD_UNLIKELY( block->abandoned && !block->turbine ) ) FAIL( "abandoned non-turbine block" );
   }

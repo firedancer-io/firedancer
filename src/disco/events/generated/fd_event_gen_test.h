@@ -603,22 +603,27 @@ fd_event_block_received_fill_max( fd_event_block_received_t * msg ) {
   msg->parent_slot = ULONG_MAX;
   fd_memset( msg->parent_block_id, 0xFF, 32UL );
   msg->cancelled = 1;
+  msg->cancelled_reason = INT_MAX;
+  msg->cancelled_time = ULONG_MAX;
   msg->notarized = 1;
+  msg->is_leader = 1;
   msg->caught_up = 1;
   msg->fec_set_count = ULONG_MAX;
   msg->first_shred_received_time = ULONG_MAX;
   msg->last_shred_received_time = ULONG_MAX;
   msg->first_repair_request_time = ULONG_MAX;
   msg->last_repair_received_time = ULONG_MAX;
-  msg->parity_shred_received = UINT_MAX;
+  msg->first_meta_received_time = ULONG_MAX;
   msg->turbine_shred_received = UINT_MAX;
+  msg->parity_shred_received = UINT_MAX;
   msg->repair_shred_received = UINT_MAX;
   msg->recovered_shred_count = UINT_MAX;
   msg->last_completed_fec_set_index = UINT_MAX;
-  msg->slot_complete_flag = 1;
+  msg->slot_complete = 1;
   msg->equivocation_detected_shred = 1;
-  msg->repair_requests_retransmitted = UINT_MAX;
-  msg->repair_responses_received = UINT_MAX;
+  msg->repair_shred_responses_received = UINT_MAX;
+  msg->parent_fec_count_responses_received = UINT_MAX;
+  msg->fec_root_responses_received = UINT_MAX;
   msg->repair_request_window_count = UINT_MAX;
   msg->repair_request_highest_window_count = UINT_MAX;
   msg->repair_request_orphan_count = UINT_MAX;
@@ -627,16 +632,15 @@ fd_event_block_received_fill_max( fd_event_block_received_t * msg ) {
   msg->repair_request_fec_root_count = UINT_MAX;
   msg->fec_sets_cnt = 1024UL;
   for( ulong k=0UL; k<1024UL; k++ ) {
-    fd_memset( msg->fec_sets[ k ].fec_merkle_root, 0xFF, 32UL );
-    msg->fec_sets[ k ].fec_set_index = UINT_MAX;
-    msg->fec_sets[ k ].fec_data_shreds_received = UINT_MAX;
-    msg->fec_sets[ k ].fec_parity_shreds_received = UINT_MAX;
-    msg->fec_sets[ k ].fec_repair_shreds_received = UINT_MAX;
-    msg->fec_sets[ k ].fec_duplicate_shred_count = UINT_MAX;
-    msg->fec_sets[ k ].fec_first_shred_received_nanos = ULONG_MAX;
-    msg->fec_sets[ k ].fec_completed_nanos = ULONG_MAX;
-    msg->fec_sets[ k ].fec_final_shred_source_repair = 1;
-    msg->fec_sets[ k ].fec_source_repair = 1;
+    fd_memset( msg->fec_sets[ k ].merkle_root, 0xFF, 32UL );
+    msg->fec_sets[ k ].index = UINT_MAX;
+    msg->fec_sets[ k ].data_shreds_received_mask = UINT_MAX;
+    msg->fec_sets[ k ].parity_shreds_received_mask = UINT_MAX;
+    msg->fec_sets[ k ].repair_shreds_received_mask = UINT_MAX;
+    msg->fec_sets[ k ].duplicate_shred_count = UINT_MAX;
+    msg->fec_sets[ k ].first_shred_received_time = ULONG_MAX;
+    msg->fec_sets[ k ].completed_time = ULONG_MAX;
+    msg->fec_sets[ k ].final_shred_source = INT_MAX;
   }
 }
 

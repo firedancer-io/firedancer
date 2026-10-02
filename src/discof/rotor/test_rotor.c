@@ -365,7 +365,7 @@ test_shared_prefix( fd_wksp_t * wksp ) {
   /* a notar-fallback cert names a different block for slot 21 */
 
   fd_hash_t bidX = mkhash( 200UL );
-  fd_rotor_verified_block_insert( rotor, 21UL, bidX );
+  fd_rotor_verified_block_insert( rotor, 21UL, bidX, 0L );
   FD_TEST( !fd_rotor_verify( rotor ) );
 
   fd_rotor_blk_t * v1 = block_at( rotor, 21UL, 1UL );
@@ -375,7 +375,9 @@ test_shared_prefix( fd_wksp_t * wksp ) {
 
   /* getParentAndFecCount response: three FEC sets, parent is the root */
 
-  FD_TEST( fd_rotor_verified_parent_fec_count( rotor, 21UL, &bidX, 3U, 20UL, &bid0 )==fd_rotor_slot_version_query( rotor, 20UL, &bid0 ) ); /* returns the parent version */
+  FD_TEST( !v1->metrics.first_meta_ts );
+  FD_TEST( fd_rotor_verified_parent_fec_count( rotor, 21UL, &bidX, 3U, 20UL, &bid0, 100L )==fd_rotor_slot_version_query( rotor, 20UL, &bid0 ) ); /* returns the parent version */
+  FD_TEST( v1->metrics.first_meta_ts==100L ); /* stamped by the first metadata response */
   FD_TEST( !fd_rotor_verify( rotor ) );
   FD_TEST( v1->complete_idx==95U );
   FD_TEST( v1->parent_slot ==20UL );
@@ -386,10 +388,11 @@ test_shared_prefix( fd_wksp_t * wksp ) {
      without any repair. */
 
   fd_hash_t mr = r0;
-  fd_rotor_verified_hash_insert( rotor, 21UL, &bidX, 0U, mr.uc );
+  fd_rotor_verified_hash_insert( rotor, 21UL, &bidX, 0U, mr.uc, 200L );
+  FD_TEST( v1->metrics.first_meta_ts==100L ); /* later responses do not restamp */
   FD_TEST( !fd_rotor_verify( rotor ) );
   mr = r1;
-  fd_rotor_verified_hash_insert( rotor, 21UL, &bidX, 32U, mr.uc );
+  fd_rotor_verified_hash_insert( rotor, 21UL, &bidX, 32U, mr.uc, 0L );
   FD_TEST( !fd_rotor_verify( rotor ) );
 
   fd_rotor_fec_t * v1f0 = fec_at( rotor, 21UL, 0U,  1UL );
@@ -418,7 +421,7 @@ test_shared_prefix( fd_wksp_t * wksp ) {
      root, so a sentinel is created and its shreds must be repaired */
 
   mr = r2b;
-  fd_rotor_verified_hash_insert( rotor, 21UL, &bidX, 64U, mr.uc );
+  fd_rotor_verified_hash_insert( rotor, 21UL, &bidX, 64U, mr.uc, 0L );
   FD_TEST( !fd_rotor_verify( rotor ) );
 
   fd_rotor_fec_t * v1f2 = fec_at( rotor, 21UL, 64U, 1UL );
@@ -474,7 +477,7 @@ test_notar_fallback_in_flight( fd_wksp_t * wksp ) {
   FD_TEST( fd_hash_check_zero( &v0->block_id ) ); /* so no block_id yet */
 
   fd_hash_t bidY = mkhash( 200UL );
-  fd_rotor_verified_block_insert( rotor, 31UL, bidY );
+  fd_rotor_verified_block_insert( rotor, 31UL, bidY, 123L );
   FD_TEST( !fd_rotor_verify( rotor ) );
 
   fd_rotor_blk_t * v1 = block_at( rotor, 31UL, 1UL );
@@ -499,14 +502,16 @@ test_notar_fallback_in_flight( fd_wksp_t * wksp ) {
 
   FD_TEST( v0->buffered_idx==31U && v0->buffered_fec_idx==31U );
   FD_TEST( fec_at( rotor, 31UL, 0U, 0UL ) );
-  FD_TEST( v0->abandoned );
+  FD_TEST( v0->abandoned && v0->metrics.abandoned_ts==123L );
+  FD_TEST( !v1->metrics.abandoned_ts );
 
   /* a repeat of the same cert is a no-op -- no third version */
 
   ulong block_free = fd_block_pool_free( block_pool );
-  fd_rotor_verified_block_insert( rotor, 31UL, bidY );
+  fd_rotor_verified_block_insert( rotor, 31UL, bidY, 456L );
   FD_TEST( !fd_rotor_verify( rotor ) );
   FD_TEST( fd_block_pool_free( block_pool )==block_free );
+  FD_TEST( v0->metrics.abandoned_ts==123L );
   FD_TEST( !block_at( rotor, 31UL, 2UL ) );
 
   FD_TEST( !fd_rotor_verify( rotor ) );
@@ -540,13 +545,13 @@ test_sentinel_before_turbine( fd_wksp_t * wksp ) {
      FEC set) */
 
   fd_hash_t bidZ = mkhash( 200UL );
-  fd_rotor_verified_block_insert( rotor, 41UL, bidZ );
+  fd_rotor_verified_block_insert( rotor, 41UL, bidZ, 0L );
   FD_TEST( !fd_rotor_verify( rotor ) );
-  FD_TEST( fd_rotor_verified_parent_fec_count( rotor, 41UL, &bidZ, 2U, 40UL, &bid0 ) );
+  FD_TEST( fd_rotor_verified_parent_fec_count( rotor, 41UL, &bidZ, 2U, 40UL, &bid0, 0L ) );
   FD_TEST( !fd_rotor_verify( rotor ) );
 
   fd_hash_t mr = r1;
-  fd_rotor_verified_hash_insert( rotor, 41UL, &bidZ, 32U, mr.uc );
+  fd_rotor_verified_hash_insert( rotor, 41UL, &bidZ, 32U, mr.uc, 0L );
   FD_TEST( !fd_rotor_verify( rotor ) );
 
   fd_rotor_blk_t * v1 = block_at( rotor, 41UL, 1UL );
@@ -616,7 +621,7 @@ test_turbine_shred_after_notar_fallback( fd_wksp_t * wksp ) {
      has arrived for set 1 */
 
   fd_hash_t bidY = mkhash( 200UL );
-  fd_rotor_verified_block_insert( rotor, 51UL, bidY );
+  fd_rotor_verified_block_insert( rotor, 51UL, bidY, 0L );
   FD_TEST( !fd_rotor_verify( rotor ) );
   FD_TEST( block_at( rotor, 51UL, 1UL ) );
 
@@ -810,7 +815,7 @@ test_publish_noncanonical_v0( fd_wksp_t * wksp ) {
   /* a notar-fallback cert names a different block for slot 61 */
 
   fd_hash_t bidX = mkhash( 200UL );
-  fd_rotor_verified_block_insert( rotor, 61UL, bidX );
+  fd_rotor_verified_block_insert( rotor, 61UL, bidX, 0L );
   FD_TEST( !fd_rotor_verify( rotor ) );
   fd_rotor_blk_t * v1 = block_at( rotor, 61UL, 1UL );
   FD_TEST( v1 );
@@ -869,7 +874,7 @@ test_versions_full( fd_wksp_t * wksp ) {
 
   for( ulong v=1UL; v<FD_ROTOR_SLOT_VER_MAX; v++ ) {
     fd_hash_t bid = mkhash( 200UL+v );
-    fd_rotor_verified_block_insert( rotor, 81UL, bid );
+    fd_rotor_verified_block_insert( rotor, 81UL, bid, 0L );
     FD_TEST( !fd_rotor_verify( rotor ) );
 
     fd_rotor_blk_t * block = block_at( rotor, 81UL, v );
@@ -907,10 +912,10 @@ test_prefix_key( fd_wksp_t * wksp ) {
 
   /* a notar-fallback version of slot 41 learns both roots by prefix */
   fd_hash_t bidZ = mkhash( 200UL );
-  fd_rotor_verified_block_insert( rotor, 41UL, bidZ );
-  FD_TEST( fd_rotor_verified_parent_fec_count( rotor, 41UL, &bidZ, 2U, 40UL, &bid0 ) );
-  fd_rotor_verified_hash_insert( rotor, 41UL, &bidZ, 0U,  p0.uc );
-  fd_rotor_verified_hash_insert( rotor, 41UL, &bidZ, 32U, p1.uc );
+  fd_rotor_verified_block_insert( rotor, 41UL, bidZ, 0L );
+  FD_TEST( fd_rotor_verified_parent_fec_count( rotor, 41UL, &bidZ, 2U, 40UL, &bid0, 0L ) );
+  fd_rotor_verified_hash_insert( rotor, 41UL, &bidZ, 0U,  p0.uc, 0L );
+  fd_rotor_verified_hash_insert( rotor, 41UL, &bidZ, 32U, p1.uc, 0L );
   FD_TEST( !fd_rotor_verify( rotor ) );
 
   fd_rotor_blk_t * vZ = fd_rotor_slot_version_query( rotor, 41UL, &bidZ );
@@ -920,6 +925,14 @@ test_prefix_key( fd_wksp_t * wksp ) {
   FD_TEST( fd_hash_eq( &s0->merkle_root, &p0 ) && !s0->complete );
   FD_TEST( fd_hash_eq( &s1->merkle_root, &p1 ) && !s1->complete );
   ulong fec_used = fd_fec_pool_used( rotor->fec_pool );
+
+  /* A verified getFecRoot answer for a set the version already holds
+     changes nothing but still stamps the first metadata arrival. */
+
+  FD_TEST( !vZ->metrics.first_meta_ts );
+  FD_TEST( !fd_rotor_verified_hash_insert( rotor, 41UL, &bidZ, 0U, p0.uc, 300L ) );
+  FD_TEST( vZ->metrics.first_meta_ts==300L );
+  FD_TEST( fd_rotor_fec_query( rotor, 41UL, 0U, &bidZ )==s0 && fd_fec_pool_used( rotor->fec_pool )==fec_used );
 
   /* Case 1: repaired shreds arrive with the full root, no version named.
      Set 0 completes; set 1 gets a single shred.  Both sentinels take
@@ -946,9 +959,9 @@ test_prefix_key( fd_wksp_t * wksp ) {
      without any shreds. */
 
   fd_hash_t bidY = mkhash( 300UL );
-  fd_rotor_verified_block_insert( rotor, 41UL, bidY );
-  FD_TEST( fd_rotor_verified_parent_fec_count( rotor, 41UL, &bidY, 2U, 40UL, &bid0 ) );
-  fd_rotor_verified_hash_insert( rotor, 41UL, &bidY, 0U, p0.uc );
+  fd_rotor_verified_block_insert( rotor, 41UL, bidY, 0L );
+  FD_TEST( fd_rotor_verified_parent_fec_count( rotor, 41UL, &bidY, 2U, 40UL, &bid0, 0L ) );
+  fd_rotor_verified_hash_insert( rotor, 41UL, &bidY, 0U, p0.uc, 0L );
   FD_TEST( !fd_rotor_verify( rotor ) );
 
   fd_rotor_blk_t * vY = fd_rotor_slot_version_query( rotor, 41UL, &bidY );
@@ -1053,8 +1066,8 @@ test_verify_detects( fd_wksp_t * wksp ) {
 
   fd_hash_t bidA = mkhash( 200UL );
   fd_hash_t bidB = mkhash( 201UL );
-  fd_rotor_verified_block_insert( rotor, 111UL, bidA );
-  fd_rotor_verified_block_insert( rotor, 111UL, bidB );
+  fd_rotor_verified_block_insert( rotor, 111UL, bidA, 0L );
+  fd_rotor_verified_block_insert( rotor, 111UL, bidB, 0L );
   FD_TEST( !fd_rotor_verify( rotor ) );
 
   fd_rotor_blk_t * v1 = fd_rotor_slot_version_query( rotor, 111UL, &bidA );
@@ -1116,18 +1129,18 @@ test_output_order_redeliver( fd_wksp_t * wksp ) {
 
   /* a notar-fallback cert names a different block for slot 51 */
   fd_hash_t bidX = mkhash( 200UL );
-  fd_rotor_verified_block_insert( rotor, 51UL, bidX );
-  FD_TEST( fd_rotor_verified_parent_fec_count( rotor, 51UL, &bidX, 5U, 50UL, &bid0 ) );
+  fd_rotor_verified_block_insert( rotor, 51UL, bidX, 0L );
+  FD_TEST( fd_rotor_verified_parent_fec_count( rotor, 51UL, &bidX, 5U, 50UL, &bid0, 0L ) );
 
   /* shared prefix: sets 0,32 match version 0 and deliver without repair */
   fd_hash_t mr;
-  mr = A; fd_rotor_verified_hash_insert( rotor, 51UL, &bidX, 0U,  mr.uc );
-  mr = B; fd_rotor_verified_hash_insert( rotor, 51UL, &bidX, 32U, mr.uc );
+  mr = A; fd_rotor_verified_hash_insert( rotor, 51UL, &bidX, 0U,  mr.uc, 0L );
+  mr = B; fd_rotor_verified_hash_insert( rotor, 51UL, &bidX, 32U, mr.uc, 0L );
 
   /* diverging tail: sets 64,96,128 are new roots -> sentinels, then repaired */
-  mr = C1; fd_rotor_verified_hash_insert( rotor, 51UL, &bidX, 64U,  mr.uc );
-  mr = D1; fd_rotor_verified_hash_insert( rotor, 51UL, &bidX, 96U,  mr.uc );
-  mr = E1; fd_rotor_verified_hash_insert( rotor, 51UL, &bidX, 128U, mr.uc );
+  mr = C1; fd_rotor_verified_hash_insert( rotor, 51UL, &bidX, 64U,  mr.uc, 0L );
+  mr = D1; fd_rotor_verified_hash_insert( rotor, 51UL, &bidX, 96U,  mr.uc, 0L );
+  mr = E1; fd_rotor_verified_hash_insert( rotor, 51UL, &bidX, 128U, mr.uc, 0L );
   FD_TEST( !fd_rotor_verify( rotor ) );
 
   FD_TEST( !feed_fec( rotor, 51UL, 64U,  0, &C1, AG_UNKNOWN_SLOT, NULL ) );
@@ -1179,14 +1192,14 @@ test_output_order_out_of_order( fd_wksp_t * wksp ) {
 
   /* notar-fallback version 1 shares 0,32 and diverges at 64,96 */
   fd_hash_t bidX = mkhash( 200UL );
-  fd_rotor_verified_block_insert( rotor, 61UL, bidX );
-  FD_TEST( fd_rotor_verified_parent_fec_count( rotor, 61UL, &bidX, 4U, 60UL, &bid0 ) );
+  fd_rotor_verified_block_insert( rotor, 61UL, bidX, 0L );
+  FD_TEST( fd_rotor_verified_parent_fec_count( rotor, 61UL, &bidX, 4U, 60UL, &bid0, 0L ) );
 
   fd_hash_t mr;
-  mr = A;  fd_rotor_verified_hash_insert( rotor, 61UL, &bidX, 0U,  mr.uc );
-  mr = B;  fd_rotor_verified_hash_insert( rotor, 61UL, &bidX, 32U, mr.uc );
-  mr = C1; fd_rotor_verified_hash_insert( rotor, 61UL, &bidX, 64U, mr.uc );
-  mr = D1; fd_rotor_verified_hash_insert( rotor, 61UL, &bidX, 96U, mr.uc );
+  mr = A;  fd_rotor_verified_hash_insert( rotor, 61UL, &bidX, 0U,  mr.uc, 0L );
+  mr = B;  fd_rotor_verified_hash_insert( rotor, 61UL, &bidX, 32U, mr.uc, 0L );
+  mr = C1; fd_rotor_verified_hash_insert( rotor, 61UL, &bidX, 64U, mr.uc, 0L );
+  mr = D1; fd_rotor_verified_hash_insert( rotor, 61UL, &bidX, 96U, mr.uc, 0L );
 
   /* the shared prefix (0,32) delivered when its roots were recorded */
   fd_rotor_blk_t * v1 = block_at( rotor, 61UL, 1UL );
@@ -1239,10 +1252,10 @@ test_shred_limit( fd_wksp_t * wksp ) {
 
   /* a getParentAndFecCount naming exactly the limit connects the version */
   fd_hash_t bidX = mkhash( 200UL );
-  fd_rotor_verified_block_insert( rotor, 11UL, bidX );
+  fd_rotor_verified_block_insert( rotor, 11UL, bidX, 0L );
   fd_rotor_blk_t * v1 = fd_rotor_slot_version_query( rotor, 11UL, &bidX );
   FD_TEST( v1 && v1->complete_idx==UINT_MAX && v1->parent_slot==AG_UNKNOWN_SLOT );
-  FD_TEST( fd_rotor_verified_parent_fec_count( rotor, 11UL, &bidX, (uint)FD_FEC_BLK_MAX, 10UL, &bid0 )==fd_rotor_slot_version_query( rotor, 10UL, &bid0 ) ); /* returns the parent version */
+  FD_TEST( fd_rotor_verified_parent_fec_count( rotor, 11UL, &bidX, (uint)FD_FEC_BLK_MAX, 10UL, &bid0, 0L )==fd_rotor_slot_version_query( rotor, 10UL, &bid0 ) ); /* returns the parent version */
   FD_TEST( v1->complete_idx==shred_max-1U && v1->connected );
   FD_TEST( !fd_rotor_verify( rotor ) );
 
@@ -1286,11 +1299,11 @@ test_bench_shred_limit( fd_wksp_t * wksp ) {
      each version's row holds its own root at the high position */
   fd_hash_t bidX = mkhash( 200UL );
   fd_hash_t rB   = mkhash( 3UL );
-  fd_rotor_verified_block_insert( rotor, 11UL, bidX );
-  FD_TEST( fd_rotor_verified_parent_fec_count( rotor, 11UL, &bidX, shred_max/(uint)FD_FEC_SHRED_CNT, 10UL, &bid0 ) );
+  fd_rotor_verified_block_insert( rotor, 11UL, bidX, 0L );
+  FD_TEST( fd_rotor_verified_parent_fec_count( rotor, 11UL, &bidX, shred_max/(uint)FD_FEC_SHRED_CNT, 10UL, &bid0, 0L ) );
   fd_hash_t mr;
-  mr = r0; fd_rotor_verified_hash_insert( rotor, 11UL, &bidX, 0U,   mr.uc );
-  mr = rB; fd_rotor_verified_hash_insert( rotor, 11UL, &bidX, last, mr.uc );
+  mr = r0; fd_rotor_verified_hash_insert( rotor, 11UL, &bidX, 0U,   mr.uc, 0L );
+  mr = rB; fd_rotor_verified_hash_insert( rotor, 11UL, &bidX, last, mr.uc, 0L );
   FD_TEST( !fd_rotor_verify( rotor ) );
   fd_rotor_blk_t * v1 = block_at( rotor, 11UL, 1UL );
   FD_TEST( v1->complete_idx==shred_max-1U && v1->delivered_idx==31U );
@@ -1387,8 +1400,8 @@ test_fec_reception( fd_wksp_t * wksp ) {
   FD_TEST( !memcmp( saved, &fec->metrics, sizeof(saved) ) );
 
   fd_hash_t bid = mkhash( 902UL );
-  fd_rotor_verified_block_insert( rotor, 11UL, bid );
-  fd_rotor_verified_hash_insert( rotor, 11UL, &bid, 32U, mr.uc );
+  fd_rotor_verified_block_insert( rotor, 11UL, bid, 0L );
+  fd_rotor_verified_hash_insert( rotor, 11UL, &bid, 32U, mr.uc, 0L );
   FD_TEST( fd_rotor_fec_query( rotor, 11UL, 32U, &bid )==fec );
   FD_TEST( !memcmp( saved, &fec->metrics, sizeof(saved) ) );
   FD_TEST( !fd_rotor_verify( rotor ) );

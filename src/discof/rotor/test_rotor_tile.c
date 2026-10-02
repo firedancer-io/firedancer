@@ -836,9 +836,8 @@ expect_block_received( ulong seq ) {
   FD_TEST( !ev->equivocation_detected_shred );
   for( ulong i=0UL; i<ev->fec_sets_cnt; i++ ) {
     fd_event_block_received_fec_sets_t const * f = &ev->fec_sets[ i ];
-    FD_TEST( !f->fec_duplicate_shred_count );
-    FD_TEST( !(f->fec_repair_shreds_received & ~f->fec_data_shreds_received) );
-    FD_TEST( f->fec_source_repair==!!f->fec_repair_shreds_received );
+    FD_TEST( !f->duplicate_shred_count );
+    FD_TEST( !(f->repair_shreds_received_mask & ~f->data_shreds_received_mask) );
   }
   return ev;
 }
@@ -870,19 +869,19 @@ test_block_received_event( fd_wksp_t * wksp ) {
   fd_event_block_received_t const * ev = expect_block_received( 0UL );
   FD_TEST( ev->slot==complete.slot && ev->parent_slot==SNAP_SLOT );
   FD_TEST( !memcmp( ev->parent_block_id, snap_bid.uc, 32UL ) );
-  FD_TEST( !ev->cancelled && !ev->notarized && ev->slot_complete_flag );
+  FD_TEST( !ev->cancelled && !ev->cancelled_time && !ev->notarized && !ev->is_leader && ev->slot_complete );
   FD_TEST( ev->fec_set_count==2UL && ev->fec_sets_cnt==2UL );
   FD_TEST( ev->turbine_shred_received==2U*FD_FEC_SHRED_CNT );
   FD_TEST( !ev->repair_shred_received && !ev->recovered_shred_count && !ev->parity_shred_received );
   FD_TEST( ev->first_shred_received_time && ev->last_shred_received_time>=ev->first_shred_received_time );
   for( ulong k=0UL; k<2UL; k++ ) {
-    FD_TEST( ev->fec_sets[ k ].fec_set_index==k*FD_FEC_SHRED_CNT );
-    FD_TEST( !memcmp( ev->fec_sets[ k ].fec_merkle_root, complete.fec_root[ k ].uc, 32UL ) );
-    FD_TEST( ev->fec_sets[ k ].fec_data_shreds_received==UINT_MAX );
-    FD_TEST( !ev->fec_sets[ k ].fec_parity_shreds_received && !ev->fec_sets[ k ].fec_repair_shreds_received );
-    FD_TEST( !ev->fec_sets[ k ].fec_final_shred_source_repair );
-    FD_TEST( ev->fec_sets[ k ].fec_first_shred_received_nanos );
-    FD_TEST( ev->fec_sets[ k ].fec_completed_nanos>=ev->fec_sets[ k ].fec_first_shred_received_nanos );
+    FD_TEST( ev->fec_sets[ k ].index==k*FD_FEC_SHRED_CNT );
+    FD_TEST( !memcmp( ev->fec_sets[ k ].merkle_root, complete.fec_root[ k ].uc, 32UL ) );
+    FD_TEST( ev->fec_sets[ k ].data_shreds_received_mask==UINT_MAX );
+    FD_TEST( !ev->fec_sets[ k ].parity_shreds_received_mask && !ev->fec_sets[ k ].repair_shreds_received_mask );
+    FD_TEST( ev->fec_sets[ k ].final_shred_source!=FD_EVENT_BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_REPAIR );
+    FD_TEST( ev->fec_sets[ k ].first_shred_received_time );
+    FD_TEST( ev->fec_sets[ k ].completed_time>=ev->fec_sets[ k ].first_shred_received_time );
   }
 
   deliver_fec_complete( ctx, complete.slot, 0U, blk_fec_flags( &complete, 0U ), &complete.fec_root[ 0 ] );
@@ -898,13 +897,80 @@ test_block_received_event( fd_wksp_t * wksp ) {
   FD_TEST( fd_event_tl->seq==2UL );
   ev = expect_block_received( 1UL );
   FD_TEST( ev->slot==incomplete.slot && ev->parent_slot==SNAP_SLOT );
-  FD_TEST( ev->fec_set_count==1UL && ev->fec_sets_cnt==1UL );
-  FD_TEST( !ev->slot_complete_flag && !ev->last_shred_received_time );
+  /* The final shred never arrived, so the block's length is unknown:
+     no FEC set count, and no per-set detail even for the set held. */
+  FD_TEST( !ev->fec_set_count && !ev->fec_sets_cnt );
+  FD_TEST( !ev->slot_complete && !ev->last_shred_received_time );
   FD_TEST( ev->turbine_shred_received==FD_FEC_SHRED_CNT );
-  FD_TEST( !memcmp( ev->fec_sets[ 0 ].fec_merkle_root, incomplete.fec_root[ 0 ].uc, 32UL ) );
   fd_event_tl = NULL;
 
   FD_LOG_NOTICE(( "pass: block_received reports completion and deferred pruning" ));
+}
+
+/* A block we produced arrives as leader shreds and leader FEC
+   completions, and its row reports is_leader. */
+
+static void
+test_leader_block_received( fd_wksp_t * wksp ) {
+  static ctx_t ctx[1];
+  setup_ctx( ctx, wksp );
+  enable_event_reporting( wksp );
+
+  blk_t blk[1] = {{ .slot = SNAP_SLOT+1UL, .parent_slot = SNAP_SLOT, .parent_block_id = snap_bid, .fec_cnt = 2U }};
+  blk->fec_root[ 0 ] = mkhash( 0x1EA0UL );
+  blk->fec_root[ 1 ] = mkhash( 0x1EA1UL );
+  blk_build( blk );
+
+  for( uint k=0U; k<blk->fec_cnt; k++ ) {
+    uchar flags = blk_fec_flags( blk, k );
+    for( uint i=0U; i<FD_FEC_SHRED_CNT; i++ ) {
+      deliver_shred( ctx, blk->slot, k*FD_FEC_SHRED_CNT+i, (uchar)( i==FD_FEC_SHRED_CNT-1U ? flags : 0 ), &blk->fec_root[ k ],
+                     0U, SHRED_SIG_SRC_LEADER, blk->parent_slot, &blk->parent_block_id );
+    }
+    deliver_fec_complete_sig( ctx, blk->slot, k*FD_FEC_SHRED_CNT, flags, &blk->fec_root[ k ], SHRED_SIG_FEC_COMPLETE_LEADER );
+  }
+
+  fd_rotor_blk_t const * v = fd_rotor_turbine_block_query( ctx->rotor, blk->slot );
+  FD_TEST( v && v->is_leader && fd_rotor_block_complete( v ) );
+  FD_TEST( fd_event_tl->seq==1UL );
+  fd_event_block_received_t const * ev = expect_block_received( 0UL );
+  FD_TEST( ev->slot==blk->slot && ev->is_leader && !ev->notarized && !ev->cancelled );
+  FD_TEST( !ev->turbine_shred_received && !ev->repair_shred_received && !ev->recovered_shred_count );
+  for( ulong k=0UL; k<ev->fec_sets_cnt; k++ ) {
+    FD_TEST( ev->fec_sets[ k ].final_shred_source==FD_EVENT_BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_LEADER );
+  }
+
+  /* A notarized fork of the slot shares our first FEC set.  Its
+     FecRoot answer replays the shared leader completion into the votor
+     version, which must not inherit leader provenance. */
+  blk_t vot[1] = {{ .slot = blk->slot, .parent_slot = SNAP_SLOT, .parent_block_id = snap_bid, .fec_cnt = 2U }};
+  vot->fec_root[ 0 ] = blk->fec_root[ 0 ];
+  vot->fec_root[ 1 ] = mkhash( 0x1EA9UL );
+  blk_build( vot );
+  deliver_votor( ctx, vot->slot, &vot->block_id );
+  fd_rotor_blk_t const * v1 = fd_rotor_slot_version_query( ctx->rotor, vot->slot, &vot->block_id );
+  FD_TEST( v1 && v1!=v && !v->abandoned ); /* our block's id was already known */
+
+  force_check( ctx, vot->slot, &vot->block_id );
+  ulong from = req_cnt;
+  pump( ctx );
+  req_t * meta = req_find( from, AG_REPAIR_KIND_PARENT_FEC_COUNT, vot->slot, 0U, &vot->block_id );
+  FD_TEST( meta );
+  respond_parent_fec_count( ctx, vot, meta->nonce, 0 );
+  force_check( ctx, vot->slot, &vot->block_id );
+  from = req_cnt;
+  pump( ctx );
+  req_t * root = req_find( from, AG_REPAIR_KIND_FEC_ROOT, vot->slot, 0U, &vot->block_id );
+  FD_TEST( root );
+  respond_fec_root( ctx, vot, 0U, root->nonce, 0 );
+  fd_rotor_fec_t const * shared = fd_rotor_fec_query( ctx->rotor, vot->slot, 0U, &vot->block_id );
+  FD_TEST( shared && shared->complete && shared->is_leader );
+  FD_TEST( v1->buffered_fec_idx==FD_FEC_SHRED_CNT-1U ); /* the shared set completed under v1 */
+  FD_TEST( !v1->is_leader && v->is_leader );
+  fd_event_tl = NULL;
+
+  FD_TEST( !fd_rotor_verify( ctx->rotor ) );
+  FD_LOG_NOTICE(( "pass: block_received reports is_leader for our own blocks" ));
 }
 
 /* A turbine block can finalize before its parent arrives.  Replace
@@ -1125,14 +1191,14 @@ test_reception_stats( fd_wksp_t * wksp ) {
   FD_TEST( ev->first_shred_received_time==m->blk_first_shred_ts_nanos );
   FD_TEST( ev->last_shred_received_time==m->blk_last_shred_ts_nanos );
   FD_TEST( ev->fec_set_count==2UL && ev->fec_sets_cnt==2UL );
-  FD_TEST( ev->fec_sets[ 0 ].fec_data_shreds_received==0x7fffffffU );
-  FD_TEST( ev->fec_sets[ 0 ].fec_parity_shreds_received==(1U<<3) );
-  FD_TEST( ev->fec_sets[ 0 ].fec_repair_shreds_received==(1U<<30) );
-  FD_TEST( !ev->fec_sets[ 0 ].fec_final_shred_source_repair && ev->fec_sets[ 0 ].fec_source_repair );
-  FD_TEST( ev->fec_sets[ 0 ].fec_first_shred_received_nanos==first_ts );
-  FD_TEST( ev->fec_sets[ 0 ].fec_completed_nanos>=first_ts );
-  FD_TEST( ev->fec_sets[ 1 ].fec_data_shreds_received==UINT_MAX );
-  FD_TEST( !ev->fec_sets[ 1 ].fec_parity_shreds_received && !ev->fec_sets[ 1 ].fec_repair_shreds_received );
+  FD_TEST( ev->fec_sets[ 0 ].data_shreds_received_mask==0x7fffffffU );
+  FD_TEST( ev->fec_sets[ 0 ].parity_shreds_received_mask==(1U<<3) );
+  FD_TEST( ev->fec_sets[ 0 ].repair_shreds_received_mask==(1U<<30) );
+  FD_TEST( ev->fec_sets[ 0 ].final_shred_source!=FD_EVENT_BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_REPAIR );
+  FD_TEST( ev->fec_sets[ 0 ].first_shred_received_time==first_ts );
+  FD_TEST( ev->fec_sets[ 0 ].completed_time>=first_ts );
+  FD_TEST( ev->fec_sets[ 1 ].data_shreds_received_mask==UINT_MAX );
+  FD_TEST( !ev->fec_sets[ 1 ].parity_shreds_received_mask && !ev->fec_sets[ 1 ].repair_shreds_received_mask );
 
   /* highest_fec_complete_slot is the cluster tip, not this FEC's slot.  Rotor delivers
      only replayable FECs in order, so replay cannot derive the tip
@@ -1253,12 +1319,15 @@ test_votor_block_supersedes( fd_wksp_t * wksp ) {
   deliver_turbine_fec_set( ctx, turb, 0U );
   pump( ctx );
 
+  long before_votor = fd_clock_tile_now( ctx->clock );
   deliver_votor( ctx, vot->slot, &vot->block_id );
   FD_TEST( !fd_rotor_verify( ctx->rotor ) );
   fd_rotor_blk_t * v1 = fd_rotor_slot_version_query( ctx->rotor, vot->slot, &vot->block_id );
   fd_rotor_blk_t * v0 = fd_rotor_turbine_block_query( ctx->rotor, turb->slot );
   FD_TEST( v0 && v1 && v0!=v1 );
   FD_TEST( v0->abandoned ); /* the cert, not turbine, decides this slot now */
+  FD_TEST( v0->metrics.abandoned_ts>=before_votor && v0->metrics.abandoned_ts<=fd_clock_tile_now( ctx->clock ) );
+  FD_TEST( !v1->metrics.abandoned_ts );
   FD_TEST( fd_schedulor_block_query( ctx->schedulor, vot->slot, &vot->block_id ) );
 
   /* the votor block's metadata round trip */
@@ -1278,6 +1347,7 @@ test_votor_block_supersedes( fd_wksp_t * wksp ) {
   respond_fec_root( ctx, vot, 0U, root->nonce, 0 );
   FD_TEST( ctx->metrics->meta_ok_fec_root==1UL );
   FD_TEST( fd_rotor_fec_query( ctx->rotor, vot->slot, 0U, &vot->block_id ) );
+  FD_TEST( !v1->metrics.first_req_ts ); /* metadata requests are not specific-shred requests */
 
   /* its shreds are repaired by block id */
   uint served[ BLK_FEC_MAX ] = {0};
@@ -1289,21 +1359,22 @@ test_votor_block_supersedes( fd_wksp_t * wksp ) {
   FD_TEST( fd_rotor_block_complete( v1 ) && v1->metrics.last_shred_ts );
   FD_TEST( fd_event_tl->seq==1UL );
   fd_event_block_received_t const * ev = expect_block_received( 0UL );
-  FD_TEST( ev->slot==vot->slot && ev->notarized && !ev->cancelled );
+  FD_TEST( ev->slot==vot->slot && ev->notarized && !ev->cancelled && !ev->cancelled_time );
   FD_TEST( !memcmp( ev->block_id, vot->block_id.uc, 32UL ) );
   FD_TEST( ev->fec_set_count==1UL && ev->fec_sets_cnt==1UL );
   FD_TEST( ev->repair_shred_received==FD_FEC_SHRED_CNT );
-  FD_TEST( ev->repair_responses_received==FD_FEC_SHRED_CNT );
+  FD_TEST( ev->repair_shred_responses_received==FD_FEC_SHRED_CNT );
+  FD_TEST( ev->parent_fec_count_responses_received==1U && ev->fec_root_responses_received==1U );
   FD_TEST( ev->repair_request_shred_for_block_id_count==FD_FEC_SHRED_CNT );
   FD_TEST( ev->repair_request_parent_fec_count==1U && ev->repair_request_fec_root_count==1U );
   FD_TEST( ev->first_repair_request_time && ev->last_repair_received_time>=ev->first_repair_request_time );
-  FD_TEST( !memcmp( ev->fec_sets[ 0 ].fec_merkle_root, vot->fec_root[ 0 ].uc, 32UL ) );
-  FD_TEST( ev->fec_sets[ 0 ].fec_data_shreds_received==UINT_MAX );
-  FD_TEST( ev->fec_sets[ 0 ].fec_repair_shreds_received==UINT_MAX );
-  FD_TEST( !ev->fec_sets[ 0 ].fec_parity_shreds_received );
-  FD_TEST( ev->fec_sets[ 0 ].fec_final_shred_source_repair && ev->fec_sets[ 0 ].fec_source_repair );
-  FD_TEST( ev->fec_sets[ 0 ].fec_first_shred_received_nanos==ev->first_shred_received_time );
-  FD_TEST( ev->fec_sets[ 0 ].fec_completed_nanos>=ev->last_shred_received_time );
+  FD_TEST( !memcmp( ev->fec_sets[ 0 ].merkle_root, vot->fec_root[ 0 ].uc, 32UL ) );
+  FD_TEST( ev->fec_sets[ 0 ].data_shreds_received_mask==UINT_MAX );
+  FD_TEST( ev->fec_sets[ 0 ].repair_shreds_received_mask==UINT_MAX );
+  FD_TEST( !ev->fec_sets[ 0 ].parity_shreds_received_mask );
+  FD_TEST( ev->fec_sets[ 0 ].final_shred_source==FD_EVENT_BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_REPAIR );
+  FD_TEST( ev->fec_sets[ 0 ].first_shred_received_time==ev->first_shred_received_time );
+  FD_TEST( ev->fec_sets[ 0 ].completed_time>=ev->last_shred_received_time );
   FD_TEST( ctx->metrics->shred_match_block_id==FD_FEC_SHRED_CNT );
   fd_rotor_fec_metrics_t const * m = &rep_log[ rep_cnt-1UL ].metrics;
   FD_TEST( m->stats_valid==1U && m->votor_repaired==1U );
@@ -1315,7 +1386,7 @@ test_votor_block_supersedes( fd_wksp_t * wksp ) {
   FD_TEST( m->blk_repair_cnt==FD_FEC_SHRED_CNT && !m->blk_turbine_cnt );
   FD_TEST( m->blk_first_req_ts_nanos && m->blk_last_repair_resp_ts_nanos>=m->blk_first_req_ts_nanos );
   FD_TEST( !rep_log[ 0 ].metrics.votor_repaired );
-  FD_TEST( !v0->metrics.repair_responses ); /* request credit stays on the votor version */
+  FD_TEST( !v0->metrics.shred_repair_responses ); /* request credit stays on the votor version */
 
   /* the abandoned turbine version takes no further FEC completions and
      never derives a block id */
@@ -1334,12 +1405,18 @@ test_votor_block_supersedes( fd_wksp_t * wksp ) {
   FD_TEST( turb_cnt==0UL && vot_cnt==1UL );
   FD_TEST( fd_event_tl->seq==1UL ); /* abandoned version waits for pruning */
 
+  long v0_abandoned_ts = v0->metrics.abandoned_ts; /* the first abandon's stamp holds */
+  FD_TEST( v0_abandoned_ts );
   deliver_replay_root( ctx, vot->slot, &vot->block_id );
   FD_TEST( ctx->rotor->root==vot->slot );
   FD_TEST( fd_event_tl->seq==2UL );
   ev = expect_block_received( 1UL );
   FD_TEST( ev->slot==turb->slot && ev->cancelled && !ev->notarized );
-  FD_TEST( ev->fec_set_count==1UL && ev->fec_sets_cnt==1UL );
+  FD_TEST( ev->cancelled_time==(ulong)v0_abandoned_ts );
+  /* The abandoned version still recorded set 1 and its slot-complete
+     flag, so its length is known even though it never delivered. */
+  FD_TEST( ev->fec_set_count==2UL && ev->fec_sets_cnt==2UL && ev->slot_complete );
+  FD_TEST( !memcmp( ev->fec_sets[ 1 ].merkle_root, turb->fec_root[ 1 ].uc, 32UL ) );
   fd_event_tl = NULL;
 
   FD_TEST( !fd_rotor_verify( ctx->rotor ) );
@@ -1375,6 +1452,7 @@ test_meta_verify( fd_wksp_t * wksp ) {
   FD_TEST( ctx->metrics->failed_parent_fec_count==1UL );
   FD_TEST( ctx->metrics->meta_ok_parent_fec_count==0UL );
   FD_TEST( v->complete_idx==UINT_MAX );                       /* untouched */
+  FD_TEST( !v->metrics.parent_fec_count_responses );          /* failed proofs are not tallied */
 
   respond_parent_fec_count( ctx, blk, nonce, 0 );             /* the request was consumed */
   FD_TEST( ctx->metrics->unsolicited_meta==1UL );
@@ -1382,6 +1460,7 @@ test_meta_verify( fd_wksp_t * wksp ) {
 
   respond_parent_fec_count( ctx, blk, nonce+1000U, 0 );       /* never-sent nonce */
   FD_TEST( ctx->metrics->unsolicited_meta==2UL );
+  FD_TEST( !v->metrics.parent_fec_count_responses );          /* nor are unmatched nonces */
 
   /* the next check asks again, and that answer is applied */
   force_check( ctx, blk->slot, &blk->block_id );
@@ -1393,7 +1472,27 @@ test_meta_verify( fd_wksp_t * wksp ) {
   respond_parent_fec_count( ctx, blk, again->nonce, 0 );
   FD_TEST( ctx->metrics->meta_ok_parent_fec_count==1UL );
   FD_TEST( v->complete_idx==FD_FEC_SHRED_CNT-1U );
+  FD_TEST( v->metrics.parent_fec_count_responses==1U && !v->metrics.fec_root_responses );
   FD_TEST( ctx->metrics->meta_rx==4UL );
+
+  /* A verified answer naming a parent behind the root ends repair of
+     the block, but it is still the block's first metadata. */
+  blk_t dead[1] = {{ .slot = SNAP_SLOT+2UL, .parent_slot = SNAP_SLOT-1UL, .parent_block_id = mkhash( 0xDEADUL ), .fec_cnt = 1U }};
+  dead->fec_root[ 0 ] = mkhash( 0xD1UL );
+  blk_build( dead );
+  deliver_votor( ctx, dead->slot, &dead->block_id );
+  force_check( ctx, dead->slot, &dead->block_id );
+  from = req_cnt;
+  pump( ctx );
+  req_t * dmeta = req_find( from, AG_REPAIR_KIND_PARENT_FEC_COUNT, dead->slot, 0U, &dead->block_id );
+  FD_TEST( dmeta );
+  fd_rotor_blk_t * dv = fd_rotor_slot_version_query( ctx->rotor, dead->slot, &dead->block_id );
+  FD_TEST( dv && !dv->metrics.first_meta_ts );
+  respond_parent_fec_count( ctx, dead, dmeta->nonce, 0 );
+  FD_TEST( ctx->metrics->meta_ok_parent_fec_count==1UL ); /* not applied */
+  FD_TEST( !fd_schedulor_block_query( ctx->schedulor, dead->slot, &dead->block_id ) );
+  FD_TEST( dv->metrics.parent_fec_count_responses==1U );
+  FD_TEST( dv->metrics.first_meta_ts && dv->complete_idx==UINT_MAX ); /* stamped from net arrival, not applied */
 
   FD_TEST( !fd_rotor_verify( ctx->rotor ) );
   FD_LOG_NOTICE(( "pass: metadata responses are verified by proof and nonce" ));
@@ -1962,6 +2061,9 @@ main( int argc, char ** argv ) {
 
   fd_wksp_reset( wksp, 1U );
   test_block_received_event( wksp );
+
+  fd_wksp_reset( wksp, 1U );
+  test_leader_block_received( wksp );
 
   for( int block_id_only=0; block_id_only<2; block_id_only++ ) {
     for( int active_walk=0; active_walk<2; active_walk++ ) {

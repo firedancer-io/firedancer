@@ -83,6 +83,10 @@ typedef struct sign_req sign_req_t;
 /* Max number of validators that can be actively queried */
 #define FD_REPAIR_PEER_MAX (FD_CONTACT_INFO_TABLE_SIZE)
 
+FD_STATIC_ASSERT( FD_EVENT_BLOCK_RECEIVED_FEC_SETS_MAX>=FD_FEC_BLK_MAX, block_received_fec_sets_max );
+FD_STATIC_ASSERT( FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_MERKLE_ROOT_MISMATCH==ABANDON_REASON_MERKLE_ROOT_MISMATCH, block_received_cancelled_reason_merkle_root_mismatch );
+FD_STATIC_ASSERT( FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_NOTARIZED_VERSION==ABANDON_REASON_VOTOR_BLOCK_ID_EVENT, block_received_cancelled_reason_votor_block_id_event );
+FD_STATIC_ASSERT( FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_VERIFIED_PARENT==ABANDON_REASON_VOTOR_BLOCK_ID_PARENT, block_received_cancelled_reason_votor_block_id_parent );
 struct sign_pending {
   fd_repair_msg_t msg;
   pong_data_t     pong_data; /* populated only for pong msgs */

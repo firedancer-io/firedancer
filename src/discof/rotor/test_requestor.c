@@ -49,7 +49,7 @@ shred( fd_rotor_t * rotor, ulong slot, uint idx, int slot_complete, fd_hash_t co
 
 static void
 hash_insert( fd_rotor_t * rotor, ulong slot, fd_hash_t * block_id, uint fec_set_idx, fd_hash_t * mr ) {
-  fd_rotor_verified_hash_insert( rotor, slot, block_id, fec_set_idx, mr->uc );
+  fd_rotor_verified_hash_insert( rotor, slot, block_id, fec_set_idx, mr->uc, 0L );
   drain_rotor( rotor );
 }
 
@@ -246,7 +246,7 @@ test_ancestry( fd_wksp_t * wksp ) {
 
   /* the parent shows up under the block_id the child names: the fill
      is no longer bounded and no Orphan is asked: M+1..TIP-1 */
-  FD_TEST( fd_rotor_verified_block_insert( rotor, 15UL, bid15 ) );
+  FD_TEST( fd_rotor_verified_block_insert( rotor, 15UL, bid15, 0L ) );
   drain_rotor( rotor );
   FD_TEST( run_walk( r, rotor, 22UL, &ZERO, reqs, &cnt )==FD_REQUESTOR_ADVANCE_REQUESTED );
   FD_TEST( cnt==TIP-M-1UL );
@@ -280,7 +280,7 @@ test_verified( fd_wksp_t * wksp ) {
   drain_rotor( rotor );
 
   fd_hash_t bid12 = mkhash( 200UL );
-  fd_rotor_verified_block_insert( rotor, 12UL, bid12 );
+  fd_rotor_verified_block_insert( rotor, 12UL, bid12, 0L );
   drain_rotor( rotor );
 
   /* nothing known: ask for parent and count */
@@ -288,7 +288,7 @@ test_verified( fd_wksp_t * wksp ) {
   FD_TEST( cnt==1UL ); expect_req( &reqs[ 0 ], AG_REPAIR_KIND_PARENT_FEC_COUNT, 0U, &bid12, NULL );
 
   /* response: 2 FEC sets, parent is the root -> ask for both roots */
-  FD_TEST(  fd_rotor_verified_parent_fec_count( rotor, 12UL, &bid12, 2U, 10UL, &bid0 ) ); /* the root exists: nothing created */
+  FD_TEST(  fd_rotor_verified_parent_fec_count( rotor, 12UL, &bid12, 2U, 10UL, &bid0, 0L ) ); /* the root exists: nothing created */
   drain_rotor( rotor );
   FD_TEST( run_walk( r, rotor, 12UL, &bid12, reqs, &cnt )==FD_REQUESTOR_ADVANCE_REQUESTED );
   FD_TEST( cnt==2UL );
@@ -351,9 +351,9 @@ test_moving( fd_wksp_t * wksp ) {
      is asked; its sentinel lands before the next call, so the walk
      goes on to the root of set 1 (the cursor already passed set 0) */
   fd_hash_t bid12 = mkhash( 200UL ), root0 = mkhash( 3UL );
-  fd_rotor_verified_block_insert( rotor, 12UL, bid12 );
+  fd_rotor_verified_block_insert( rotor, 12UL, bid12, 0L );
   drain_rotor( rotor );
-  FD_TEST(  fd_rotor_verified_parent_fec_count( rotor, 12UL, &bid12, 2U, 10UL, &bid0 ) );
+  FD_TEST(  fd_rotor_verified_parent_fec_count( rotor, 12UL, &bid12, 2U, 10UL, &bid0, 0L ) );
   drain_rotor( rotor );
   fd_requestor_block_start( r, 12UL, &bid12 );
   FD_TEST( advance( r, rotor, req )==FD_REQUESTOR_ADVANCE_REQUEST && req->kind==AG_REPAIR_KIND_FEC_ROOT && req->idx==0U );

@@ -91,23 +91,22 @@ report_block_received( void * ctx_, fd_rotor_blk_t const * block ) {
   fd_event_block_received_t * ev = ctx->receive_event;
   fd_memset( ev, 0, FD_EVENT_BLOCK_RECEIVED_PREFIX_SZ );
 
-  ev->slot        = block->slot;
-  ev->parent_slot = block->parent_slot;
-  ev->cancelled   = block->abandoned;
-  ev->caught_up   = (ctx->current_slot - ctx->rotor->highest_repaired) <= 4 ;
+  ev->slot             = block->slot;
+  ev->parent_slot      = block->parent_slot;
+  ev->cancelled        = block->abandoned;
+  ev->cancelled_time   = (ulong)block->metrics.abandoned_ts;
+  ev->cancelled_reason = !block->abandoned ? FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_NOT_CANCELLED : block->metrics.abandoned_reason;
+  ev->is_leader        = block->is_leader;
+  ev->caught_up        = (ctx->current_slot - ctx->rotor->highest_repaired) <= 4 ;
   /* Matches publish_fec's votor_repaired.  TODO distinguish an actual
      notarization from an ancestry-only version created by metadata. */
   ev->notarized   = !block->turbine;
   fd_memcpy( ev->block_id, block->block_id.uc, sizeof(fd_hash_t) );
   fd_memcpy( ev->parent_block_id, block->parent_block_id.uc, sizeof(fd_hash_t) );
 
-  /* A complete reception has every shred through the known tip.  For
-     incomplete/abandoned versions, report only the delivered prefix.
-     complete_idx and delivered_idx are inclusive shred indices. */
-  int complete = !block->abandoned && block->complete_idx!=UINT_MAX && block->buffered_idx==block->complete_idx;
-  uint last_idx = complete ? block->complete_idx : block->delivered_idx;
-  ev->fec_set_count = last_idx==UINT_MAX ? 0UL : ((ulong)last_idx+1UL)/FD_FEC_SHRED_CNT;
+  ev->fec_set_count = block->complete_idx==UINT_MAX ? 0UL : ((ulong)block->complete_idx+1UL)/FD_FEC_SHRED_CNT;
 
+  ev->first_meta_received_time     = (ulong)block->metrics.first_meta_ts;
   ev->first_shred_received_time    = (ulong)block->metrics.first_shred_ts;
   ev->last_shred_received_time     = (ulong)block->metrics.last_shred_ts;
   ev->first_repair_request_time    = (ulong)block->metrics.first_req_ts;
@@ -119,10 +118,11 @@ report_block_received( void * ctx_, fd_rotor_blk_t const * block ) {
   ev->last_completed_fec_set_index = block->metrics.last_completed_fec_idx;
   /* Matches publish_fec.  TODO separate a tip learned from verified
      metadata from an actually received slot-complete shred. */
-  ev->slot_complete_flag = block->complete_idx!=UINT_MAX;
+  ev->slot_complete                = block->complete_idx!=UINT_MAX;
 
-  ev->repair_requests_retransmitted           = block->metrics.req_retransmit_cnt;
-  ev->repair_responses_received               = block->metrics.repair_responses;
+  ev->repair_shred_responses_received         = block->metrics.shred_repair_responses;
+  ev->parent_fec_count_responses_received     = block->metrics.parent_fec_count_responses;
+  ev->fec_root_responses_received             = block->metrics.fec_root_responses;
   ev->repair_request_window_count             = block->metrics.req_window_cnt;
   ev->repair_request_highest_window_count     = block->metrics.req_highest_cnt;
   ev->repair_request_orphan_count             = block->metrics.req_orphan_cnt;
@@ -136,15 +136,16 @@ report_block_received( void * ctx_, fd_rotor_blk_t const * block ) {
     if( FD_UNLIKELY( !fec ) ) continue;
     fd_event_block_received_fec_sets_t * f = &ev->fec_sets[ ev->fec_sets_cnt++ ];
     fd_memset( f, 0, sizeof(*f) );
-    fd_memcpy( f->fec_merkle_root, fec->merkle_root.uc, sizeof(f->fec_merkle_root) );
-    f->fec_set_index = fec->fec_set_idx;
-    f->fec_data_shreds_received       = fec->metrics.data_received;
-    f->fec_parity_shreds_received     = fec->metrics.parity_received;
-    f->fec_repair_shreds_received     = fec->metrics.repair_received;
-    f->fec_first_shred_received_nanos = (ulong)fec->metrics.first_shred_ts;
-    f->fec_completed_nanos            = (ulong)fec->metrics.completed_ts;
-    f->fec_final_shred_source_repair  = fec->metrics.last_shred_src==FD_ROTOR_SRC_REPAIR;
-    f->fec_source_repair              = !!fec->metrics.repair_received;
+    fd_memcpy( f->merkle_root, fec->merkle_root.uc, sizeof(f->merkle_root) );
+    f->index                       = fec->fec_set_idx;
+    f->data_shreds_received_mask   = fec->metrics.data_received;
+    f->parity_shreds_received_mask = fec->metrics.parity_received;
+    f->repair_shreds_received_mask = fec->metrics.repair_received;
+    f->first_shred_received_time   = (ulong)fec->metrics.first_shred_ts;
+    f->completed_time              = (ulong)fec->metrics.completed_ts;
+    f->final_shred_source          = fec->metrics.last_shred_src==FD_ROTOR_SRC_REPAIR ? FD_EVENT_BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_REPAIR :
+                                     fec->metrics.last_shred_src==FD_ROTOR_SRC_LEADER ? FD_EVENT_BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_LEADER :
+                                     FD_EVENT_BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_TURBINE;
   }
 
   /* TODO equivocation_detected_shred and fec_duplicate_shred_count. */
@@ -358,7 +359,8 @@ static inline void
 handle_meta_response( ctx_t *       ctx,
                       uchar const * data,
                       ulong         data_sz,
-                      long          now ) {
+                      long          now,
+                      long          rx_ts ) {
   ag_repair_response_t response[1];
   ctx->metrics->meta_rx++;
   if( FD_UNLIKELY( ag_repair_response_de( response, data, data_sz, ctx->rotor->fec_blk_max ) ) ) { ctx->metrics->meta_malformed++; return; }
@@ -381,11 +383,16 @@ handle_meta_response( ctx_t *       ctx,
         ctx->metrics->failed_parent_fec_count++;
         return;
       }
+      fd_rotor_blk_t * block = fd_rotor_slot_version_query( ctx->rotor, slot, &block_id );
+      fd_rotor_repair_tally( block, FD_ROTOR_RESP_PARENT, rx_ts );
       if( FD_UNLIKELY( res->parent_slot < ctx->rotor->root ) ) {
+        /* Still verified metadata: stamp it, since
+           fd_rotor_verified_parent_fec_count will not. */
+        if( FD_LIKELY( block && !block->metrics.first_meta_ts ) ) block->metrics.first_meta_ts = rx_ts;
         fd_schedulor_block_remove( ctx->schedulor, slot, &block_id ); /* dead fork: will never connect */
         return;
       }
-      fd_rotor_blk_t * parent = fd_rotor_verified_parent_fec_count( ctx->rotor, slot, &block_id, res->fec_set_count, res->parent_slot, &res->parent_block_id );
+      fd_rotor_blk_t * parent = fd_rotor_verified_parent_fec_count( ctx->rotor, slot, &block_id, res->fec_set_count, res->parent_slot, &res->parent_block_id, rx_ts );
       if( FD_UNLIKELY( parent ) ) fd_schedulor_block_insert( ctx->schedulor, parent->slot, &parent->block_id, now );
       ctx->metrics->meta_ok_parent_fec_count++;
       break;
@@ -394,14 +401,15 @@ handle_meta_response( ctx_t *       ctx,
       if( FD_UNLIKELY( kind!=AG_REPAIR_KIND_FEC_ROOT ) ) return;
 
       ag_fec_root_res_t * res = &response->fec_set_root;
-      fd_rotor_blk_t const * v = fd_rotor_slot_version_query( ctx->rotor, slot, &block_id );
+      fd_rotor_blk_t * v = fd_rotor_slot_version_query( ctx->rotor, slot, &block_id );
       if( FD_UNLIKELY( !v ) ) return;
       uint fec_set_count = ( v->complete_idx+1U ) / FD_FEC_SHRED_CNT;
       if( FD_UNLIKELY( ag_repair_fec_set_root_verify( res, &block_id, fec_set_idx, fec_set_count ) ) ) {
         ctx->metrics->failed_fec_root++;
         return;
       }
-      fd_rotor_blk_t * created = fd_rotor_verified_hash_insert( ctx->rotor, slot, &block_id, fec_set_idx, res->root );
+      fd_rotor_repair_tally( v, FD_ROTOR_RESP_FEC_ROOT, rx_ts );
+      fd_rotor_blk_t * created = fd_rotor_verified_hash_insert( ctx->rotor, slot, &block_id, fec_set_idx, res->root, rx_ts );
       if( FD_UNLIKELY( created ) ) fd_schedulor_block_insert( ctx->schedulor, created->slot, &created->block_id, now );
       ctx->metrics->meta_ok_fec_root++;
       break;
@@ -456,7 +464,7 @@ after_frag( ctx_t *             ctx,
             ulong               sig    FD_PARAM_UNUSED,
             ulong               sz,
             ulong               tsorig FD_PARAM_UNUSED,
-            ulong               tspub  FD_PARAM_UNUSED,
+            ulong               tspub,
             fd_stem_context_t * stem   FD_PARAM_UNUSED ) {
   if( FD_LIKELY( ctx->in_kind[ in_idx ]!=IN_KIND_NET ) ) return; /* returnable_frag */
 
@@ -464,7 +472,14 @@ after_frag( ctx_t *             ctx,
   if( FD_UNLIKELY( !fd_ip4_udp_hdr_strip( ctx->net_buf, sz, &data, &data_sz, &eth, &ip4, &udp ) ) ) { ctx->metrics->malformed_ping++; return; }
 
   if( FD_LIKELY( data_sz==sizeof(fd_repair_ping_t) ) ) handle_ping( ctx, data, data_sz, ip4, udp );
-  else                                                 handle_meta_response( ctx, data, data_sz, fd_tickcount() );
+  else {
+    /* net publishes the rx tick in tspub (tsorig is 0) */
+    long now_tick = fd_tickcount();
+    long rx_tick  = fd_frag_meta_ts_decomp( tspub, now_tick );
+    if( FD_UNLIKELY( rx_tick>now_tick ) ) rx_tick -= 1L<<32;
+    long rx_ts = fd_clock_tile_tickcount_to_wallclock( ctx->clock, rx_tick );
+    handle_meta_response( ctx, data, data_sz, now_tick, rx_ts );
+  }
 }
 
 static inline void
@@ -588,7 +603,8 @@ handle_votor( ctx_t *       ctx,
 
   fd_votor_repair_t const * nf = (fd_votor_repair_t const *)fd_type_pun_const( chunk );
   if( FD_UNLIKELY( nf->slot <= ctx->rotor->root ) ) return;
-  fd_rotor_blk_t * created = fd_rotor_verified_block_insert( ctx->rotor, nf->slot, nf->block_id );
+  long wallclock = fd_clock_tile_tickcount_to_wallclock( ctx->clock, now ); /* rotor metrics are stamped in wallclock */
+  fd_rotor_blk_t * created = fd_rotor_verified_block_insert( ctx->rotor, nf->slot, nf->block_id, wallclock );
   if( FD_LIKELY( created ) ) fd_schedulor_block_insert( ctx->schedulor, created->slot, &created->block_id, now );
 }
 
@@ -712,7 +728,7 @@ handle_shred( ctx_t *            ctx,
       fd_rotor_blk_t * block = fd_hash_check_zero( &req_block_id )
                                  ? fd_rotor_turbine_block_query( ctx->rotor, shred->slot )
                                  : fd_rotor_slot_version_query( ctx->rotor, shred->slot, &req_block_id );
-      fd_rotor_repair_tally( block, FD_ROTOR_REQ_RESPONSE, rx_ts );
+      fd_rotor_repair_tally( block, FD_ROTOR_RESP_SHRED, rx_ts );
     }
   }
 
@@ -908,7 +924,7 @@ publish_fec( ctx_t *             ctx,
   m->blk_req_parent_cnt     = block->metrics.req_parent_cnt;
   m->blk_req_fec_root_cnt   = block->metrics.req_fec_root_cnt;
   m->blk_req_retransmit_cnt = block->metrics.req_retransmit_cnt;
-  m->blk_repair_responses   = block->metrics.repair_responses;
+  m->blk_repair_responses   = block->metrics.shred_repair_responses;
 
   m->blk_first_shred_ts_nanos      = (ulong)block->metrics.first_shred_ts;
   m->blk_last_shred_ts_nanos       = (ulong)block->metrics.last_shred_ts;
