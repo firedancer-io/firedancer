@@ -492,7 +492,7 @@ fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
   bank->epoch_credits_fork_id = fd_epoch_credits_store_new_fork( fd_bank_epoch_credits( bank ) );
   ulong epoch_credits_len = 0UL;
   fd_epoch_credits_view_t epoch_credits_view[1];
-  FD_TEST( fd_epoch_credits_view_init( epoch_credits_view, fd_bank_epoch_credits( bank ), bank->epoch_credits_fork_id, 1 ) );
+  FD_TEST( fd_epoch_credits_view_init( epoch_credits_view, fd_bank_epoch_credits( bank ), bank->epoch_credits_fork_id ) );
 
   /* Populate the top votes for the end of the T-1 epoch if the
      snapshot is in epoch T. */

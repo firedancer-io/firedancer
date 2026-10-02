@@ -1290,7 +1290,7 @@ test_wait_info_produced_incr_cnt( fd_wksp_t * wksp ) {
   /* Produced incremental: count advances. */
 
   root->refcnt++;
-  FD_TEST( fd_epoch_credits_view_init( ctx->snapmk.epoch_credits_view, fd_bank_epoch_credits( root ), root->epoch_credits_fork_id, 0 ) );
+  FD_TEST( fd_epoch_credits_view_init( ctx->snapmk.epoch_credits_view, fd_bank_epoch_credits( root ), root->epoch_credits_fork_id ) );
   ctx->snapmk.active      = 1;
   ctx->snapmk.incremental = 1;
   snapmk_done( ctx, NULL, 1 );
@@ -1301,7 +1301,7 @@ test_wait_info_produced_incr_cnt( fd_wksp_t * wksp ) {
   /* Produced full: it does not. */
 
   root->refcnt++;
-  FD_TEST( fd_epoch_credits_view_init( ctx->snapmk.epoch_credits_view, fd_bank_epoch_credits( root ), root->epoch_credits_fork_id, 0 ) );
+  FD_TEST( fd_epoch_credits_view_init( ctx->snapmk.epoch_credits_view, fd_bank_epoch_credits( root ), root->epoch_credits_fork_id ) );
   ctx->snapmk.active      = 1;
   ctx->snapmk.incremental = 0;
   snapmk_done( ctx, NULL, 1 );
@@ -1312,7 +1312,7 @@ test_wait_info_produced_incr_cnt( fd_wksp_t * wksp ) {
   /* Failed incremental: it does not. */
 
   root->refcnt++;
-  FD_TEST( fd_epoch_credits_view_init( ctx->snapmk.epoch_credits_view, fd_bank_epoch_credits( root ), root->epoch_credits_fork_id, 0 ) );
+  FD_TEST( fd_epoch_credits_view_init( ctx->snapmk.epoch_credits_view, fd_bank_epoch_credits( root ), root->epoch_credits_fork_id ) );
   ctx->snapmk.active      = 1;
   ctx->snapmk.incremental = 1;
   snapmk_done( ctx, NULL, 0 );

@@ -24,7 +24,6 @@ struct fd_epoch_credits_view {
   ulong                      len;
   ulong                      set_idx;
   ulong                      cache_idx;
-  int                        write;
 };
 typedef struct fd_epoch_credits_view fd_epoch_credits_view_t;
 
@@ -86,8 +85,7 @@ fd_epoch_credits_store_release( fd_epoch_credits_store_t * store,
 fd_epoch_credits_view_t *
 fd_epoch_credits_view_init( fd_epoch_credits_view_t *  view,
                             fd_epoch_credits_store_t * store,
-                            ushort                     fork_id,
-                            int                        write );
+                            ushort                     fork_id );
 
 void
 fd_epoch_credits_view_fini( fd_epoch_credits_view_t * view );

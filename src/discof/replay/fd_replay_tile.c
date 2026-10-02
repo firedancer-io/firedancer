@@ -4714,7 +4714,7 @@ snapmk_start( fd_replay_tile_t *  ctx,
      pinned in memory until snapmk_done. */
   fd_epoch_credits_store_t * epoch_credits      = fd_bank_epoch_credits( bank );
   fd_epoch_credits_view_t *  epoch_credits_view = ctx->snapmk.epoch_credits_view;
-  FD_TEST( fd_epoch_credits_view_init( epoch_credits_view, epoch_credits, bank->epoch_credits_fork_id, 0 ) );
+  FD_TEST( fd_epoch_credits_view_init( epoch_credits_view, epoch_credits, bank->epoch_credits_fork_id ) );
 
   /* Send SNAP_START message to snapmk. */
   fd_pubkey_t const * leader = fd_epoch_leaders_get( fd_bank_epoch_leaders_query( bank, bank->f.epoch ), bank->f.slot );

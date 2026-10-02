@@ -980,7 +980,7 @@ calculate_reward_points_partitioned( fd_bank_t *                    bank,
   fd_vote_rewards_t *     vote_ele     = runtime_stack->stakes.vote_ele;
   fd_vote_rewards_map_t * vote_ele_map = runtime_stack->stakes.vote_map;
   fd_epoch_credits_view_t epoch_credits_view[1];
-  FD_TEST( fd_epoch_credits_view_init( epoch_credits_view, fd_bank_epoch_credits( bank ), bank->epoch_credits_fork_id, 0 ) );
+  FD_TEST( fd_epoch_credits_view_init( epoch_credits_view, fd_bank_epoch_credits( bank ), bank->epoch_credits_fork_id ) );
   fd_epoch_credits_t * epoch_credits_arr = epoch_credits_view->credits;
 
   fd_stake_delegations_iter_t iter_[1];
@@ -1106,7 +1106,7 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
 
   fd_calculated_stake_rewards_t calculated_stake_rewards_[1];
   fd_epoch_credits_view_t       epoch_credits_view[1];
-  FD_TEST( fd_epoch_credits_view_init( epoch_credits_view, fd_bank_epoch_credits( bank ), bank->epoch_credits_fork_id, 0 ) );
+  FD_TEST( fd_epoch_credits_view_init( epoch_credits_view, fd_bank_epoch_credits( bank ), bank->epoch_credits_fork_id ) );
   fd_epoch_credits_t * epoch_credits_arr = epoch_credits_view->credits;
 
   fd_stake_delegations_iter_t iter_[1];
@@ -1283,7 +1283,7 @@ setup_stake_partitions( fd_bank_t *                    bank,
 
   fd_stake_rewards_t * stake_rewards     = fd_bank_stake_rewards_modify( bank );
   fd_epoch_credits_view_t epoch_credits_view[1];
-  FD_TEST( fd_epoch_credits_view_init( epoch_credits_view, fd_bank_epoch_credits( bank ), bank->epoch_credits_fork_id, 0 ) );
+  FD_TEST( fd_epoch_credits_view_init( epoch_credits_view, fd_bank_epoch_credits( bank ), bank->epoch_credits_fork_id ) );
   fd_epoch_credits_t * epoch_credits_arr = epoch_credits_view->credits;
 
   fd_stake_delegations_iter_t iter_[1];
@@ -2080,7 +2080,7 @@ recalculate_partitioned_rewards( fd_bank_t *          bank,
   fd_vote_rewards_map_reset( vote_ele_map );
 
   fd_epoch_credits_view_t epoch_credits_view[1];
-  FD_TEST( fd_epoch_credits_view_init( epoch_credits_view, fd_bank_epoch_credits( bank ), bank->epoch_credits_fork_id, snapshot_boot ) );
+  FD_TEST( fd_epoch_credits_view_init( epoch_credits_view, fd_bank_epoch_credits( bank ), bank->epoch_credits_fork_id ) );
   ulong                epoch_credits_len = epoch_credits_view->len;
   fd_epoch_credits_t * epoch_credits_arr = epoch_credits_view->credits;
 

@@ -1110,7 +1110,7 @@ test_bank_epoch_credits_singleton( void * mem ) {
   fd_bank_t * root = fd_banks_init_bank( banks );
   FD_TEST( root );
   fd_epoch_credits_view_t view[1];
-  FD_TEST( fd_epoch_credits_view_init( view, fd_bank_epoch_credits( root ), root->epoch_credits_fork_id, 1 ) );
+  FD_TEST( fd_epoch_credits_view_init( view, fd_bank_epoch_credits( root ), root->epoch_credits_fork_id ) );
   view->credits[0].cnt = 1U;
   view->len            = 1UL;
   fd_epoch_credits_view_fini( view );
@@ -1123,18 +1123,33 @@ test_bank_epoch_credits_singleton( void * mem ) {
   child_b = fd_banks_clone_from_parent( banks, child_b->idx );
   FD_TEST( child_b );
 
-  FD_TEST( fd_epoch_credits_view_init( view, fd_bank_epoch_credits( child_a ), child_a->epoch_credits_fork_id, 1 ) );
+  FD_TEST( fd_epoch_credits_view_init( view, fd_bank_epoch_credits( child_a ), child_a->epoch_credits_fork_id ) );
   view->credits[0].cnt = 2U;
   view->len            = 2UL;
   fd_epoch_credits_view_fini( view );
 
   fd_bank_t * shared_banks[] = { root, child_a, child_b };
   for( ulong i=0UL; i<3UL; i++ ) {
-    FD_TEST( fd_epoch_credits_view_init( view, fd_bank_epoch_credits( shared_banks[i] ), shared_banks[i]->epoch_credits_fork_id, 0 ) );
+    FD_TEST( fd_epoch_credits_view_init( view, fd_bank_epoch_credits( shared_banks[i] ), shared_banks[i]->epoch_credits_fork_id ) );
     FD_TEST( view->credits[0].cnt==2U );
     FD_TEST( view->len==2UL );
     fd_epoch_credits_view_fini( view );
   }
+}
+
+/* new_fork must never hand out the init bank's set. */
+
+static void
+test_bank_epoch_credits_init_bank_set( void * mem ) {
+  fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, 4UL, 2UL, 16UL, 256UL, 4UL, 0, 7777UL ) );
+  FD_TEST( banks );
+
+  fd_bank_t * root = fd_banks_init_bank( banks );
+  FD_TEST( root );
+  fd_epoch_credits_store_t * store = fd_bank_epoch_credits( root );
+  ushort fork_id = fd_epoch_credits_store_new_fork( store );
+  FD_TEST( fork_id!=root->epoch_credits_fork_id );
+  fd_epoch_credits_store_release( store, fork_id );
 }
 
 /* Logical epoch-credit capacity follows max_total_banks, and
@@ -1166,7 +1181,7 @@ test_bank_epoch_credits_disk_cache( void * mem ) {
     }
 
     fd_epoch_credits_view_t view[1];
-    FD_TEST( fd_epoch_credits_view_init( view, fd_bank_epoch_credits( chain[i] ), chain[i]->epoch_credits_fork_id, 1 ) );
+    FD_TEST( fd_epoch_credits_view_init( view, fd_bank_epoch_credits( chain[i] ), chain[i]->epoch_credits_fork_id ) );
     view->credits[0].base_credits = 1000UL+i;
     view->credits[0].cnt          = (uchar)(i+1UL);
     view->len                     = 1UL;
@@ -1179,12 +1194,12 @@ test_bank_epoch_credits_disk_cache( void * mem ) {
   }
 
   fd_epoch_credits_view_t pinned[1];
-  FD_TEST( fd_epoch_credits_view_init( pinned, fd_bank_epoch_credits( chain[0] ), chain[0]->epoch_credits_fork_id, 0 ) );
+  FD_TEST( fd_epoch_credits_view_init( pinned, fd_bank_epoch_credits( chain[0] ), chain[0]->epoch_credits_fork_id ) );
   FD_TEST( pinned->credits[0].base_credits==1000UL );
 
   for( ulong i=1UL; i<max_total_banks; i++ ) {
     fd_epoch_credits_view_t view[1];
-    FD_TEST( fd_epoch_credits_view_init( view, fd_bank_epoch_credits( chain[i] ), chain[i]->epoch_credits_fork_id, 0 ) );
+    FD_TEST( fd_epoch_credits_view_init( view, fd_bank_epoch_credits( chain[i] ), chain[i]->epoch_credits_fork_id ) );
     FD_TEST( view->len==1UL );
     FD_TEST( view->credits[0].base_credits==1000UL+i );
     FD_TEST( view->credits[0].cnt==(uchar)(i+1UL) );
@@ -1200,14 +1215,14 @@ test_bank_epoch_credits_disk_cache( void * mem ) {
   fd_epoch_credits_store_release( fd_bank_epoch_credits( tip ), tip->epoch_credits_fork_id );
   tip->epoch_credits_fork_id = fd_epoch_credits_store_new_fork( fd_bank_epoch_credits( tip ) );
   fd_epoch_credits_view_t view[1];
-  FD_TEST( fd_epoch_credits_view_init( view, fd_bank_epoch_credits( tip ), tip->epoch_credits_fork_id, 0 ) );
+  FD_TEST( fd_epoch_credits_view_init( view, fd_bank_epoch_credits( tip ), tip->epoch_credits_fork_id ) );
   FD_TEST( view->len==0UL );
   fd_epoch_credits_view_fini( view );
-  FD_TEST( fd_epoch_credits_view_init( view, fd_bank_epoch_credits( tip ), tip->epoch_credits_fork_id, 1 ) );
+  FD_TEST( fd_epoch_credits_view_init( view, fd_bank_epoch_credits( tip ), tip->epoch_credits_fork_id ) );
   view->credits[0].base_credits = 2000UL;
   view->len                     = 1UL;
   fd_epoch_credits_view_fini( view );
-  FD_TEST( fd_epoch_credits_view_init( view, fd_bank_epoch_credits( tip ), tip->epoch_credits_fork_id, 0 ) );
+  FD_TEST( fd_epoch_credits_view_init( view, fd_bank_epoch_credits( tip ), tip->epoch_credits_fork_id ) );
   FD_TEST( view->credits[0].base_credits==2000UL );
   fd_epoch_credits_view_fini( view );
 }
@@ -1681,7 +1696,7 @@ main( int argc, char ** argv ) {
   /* bank11 shares its epoch credits set with bank9.  Clearing bank11
      gives it a fresh, empty set and leaves bank9's set intact. */
   fd_epoch_credits_view_t ec_view[1];
-  FD_TEST( fd_epoch_credits_view_init( ec_view, fd_bank_epoch_credits( bank11 ), bank11->epoch_credits_fork_id, 1 ) );
+  FD_TEST( fd_epoch_credits_view_init( ec_view, fd_bank_epoch_credits( bank11 ), bank11->epoch_credits_fork_id ) );
   ec_view->credits[0].base_credits = 77UL;
   ec_view->len                     = 1UL;
   fd_epoch_credits_view_fini( ec_view );
@@ -1690,10 +1705,10 @@ main( int argc, char ** argv ) {
   FD_TEST( bank11->f.slot == 0UL );
   FD_TEST( bank11->f.capitalization == 0UL );
 
-  FD_TEST( fd_epoch_credits_view_init( ec_view, fd_bank_epoch_credits( bank11 ), bank11->epoch_credits_fork_id, 0 ) );
+  FD_TEST( fd_epoch_credits_view_init( ec_view, fd_bank_epoch_credits( bank11 ), bank11->epoch_credits_fork_id ) );
   FD_TEST( ec_view->len==0UL );
   fd_epoch_credits_view_fini( ec_view );
-  FD_TEST( fd_epoch_credits_view_init( ec_view, fd_bank_epoch_credits( bank9 ), bank9->epoch_credits_fork_id, 0 ) );
+  FD_TEST( fd_epoch_credits_view_init( ec_view, fd_bank_epoch_credits( bank9 ), bank9->epoch_credits_fork_id ) );
   FD_TEST( ec_view->len==1UL && ec_view->credits[0].base_credits==77UL );
   fd_epoch_credits_view_fini( ec_view );
 
@@ -1721,6 +1736,7 @@ main( int argc, char ** argv ) {
 
   test_bank_clear( mem );
   test_bank_epoch_credits_singleton( mem );
+  test_bank_epoch_credits_init_bank_set( mem );
   test_bank_epoch_credits_disk_cache( mem );
   test_bank_epoch_credits_fork_id_width();
 

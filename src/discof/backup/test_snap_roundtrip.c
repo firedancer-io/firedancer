@@ -60,7 +60,7 @@ test_allocs_reclaim( fd_wksp_t * wksp ) {
 static void
 seed_epoch_credits( fd_bank_t * bank ) {
   fd_epoch_credits_view_t view[1];
-  FD_TEST( fd_epoch_credits_view_init( view, fd_bank_epoch_credits( bank ), bank->epoch_credits_fork_id, 1 ) );
+  FD_TEST( fd_epoch_credits_view_init( view, fd_bank_epoch_credits( bank ), bank->epoch_credits_fork_id ) );
   FD_TEST( view->len==VALIDATOR_CNT );
   FD_TEST( EPOCH_CREDITS_CNT<=FD_EPOCH_CREDITS_MAX );
   for( ulong i=0UL; i<view->len; i++ ) {
@@ -81,7 +81,7 @@ static void
 check_epoch_credits( fd_bank_t *                                bank,
                      fd_snapshot_manifest_vote_stakes_t const * vs ) {
   fd_epoch_credits_view_t view[1];
-  FD_TEST( fd_epoch_credits_view_init( view, fd_bank_epoch_credits( bank ), bank->epoch_credits_fork_id, 0 ) );
+  FD_TEST( fd_epoch_credits_view_init( view, fd_bank_epoch_credits( bank ), bank->epoch_credits_fork_id ) );
   fd_epoch_credits_t const * ec = NULL;
   for( ulong i=0UL; i<view->len; i++ ) {
     fd_epoch_credits_t const * cand = &view->credits[ i ];
@@ -363,7 +363,7 @@ test_manifest_roundtrip( fd_svm_mini_t * mini,
   seed_epoch_credits( bank );
 
   fd_epoch_credits_view_t epoch_credits_view[1];
-  FD_TEST( fd_epoch_credits_view_init( epoch_credits_view, fd_bank_epoch_credits( bank ), bank->epoch_credits_fork_id, 0 ) );
+  FD_TEST( fd_epoch_credits_view_init( epoch_credits_view, fd_bank_epoch_credits( bank ), bank->epoch_credits_fork_id ) );
 
   fd_ssmanifest_writer_t * writer   = test_alloc( wksp, alignof(fd_ssmanifest_writer_t), sizeof(fd_ssmanifest_writer_t) );
   uchar *                  acc_data = test_alloc( wksp, 1UL, FD_RUNTIME_ACC_SZ_MAX );

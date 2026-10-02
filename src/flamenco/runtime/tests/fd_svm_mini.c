@@ -317,7 +317,7 @@ fd_svm_mini_init_mock_validators( fd_svm_mini_t *              mini,
   fd_accdb_fork_id_t root_fk = fd_banks_root( mini->banks )->accdb_fork_id;
 
   fd_epoch_credits_view_t epoch_credits_view[1];
-  FD_TEST( fd_epoch_credits_view_init( epoch_credits_view, fd_bank_epoch_credits( bank ), bank->epoch_credits_fork_id, 1 ) );
+  FD_TEST( fd_epoch_credits_view_init( epoch_credits_view, fd_bank_epoch_credits( bank ), bank->epoch_credits_fork_id ) );
 
   for( ulong i=0UL; i<N; i++ ) {
 
@@ -653,7 +653,7 @@ fd_svm_mini_reset( fd_svm_mini_t *        mini,
   }
 
   fd_epoch_credits_view_t epoch_credits_view[1];
-  FD_TEST( fd_epoch_credits_view_init( epoch_credits_view, fd_bank_epoch_credits( bank ), bank->epoch_credits_fork_id, 1 ) );
+  FD_TEST( fd_epoch_credits_view_init( epoch_credits_view, fd_bank_epoch_credits( bank ), bank->epoch_credits_fork_id ) );
   epoch_credits_view->len = 0UL;
   fd_epoch_credits_view_fini( epoch_credits_view );
 

@@ -540,8 +540,7 @@ fd_banks_init_bank( fd_banks_t * banks ) {
   bank->f.alpenglow_migration_slot        = ULONG_MAX;
   fd_event_runtime_slot_diffs_reset( bank->idx );
   bank->stake_rewards_fork_id             = USHORT_MAX;
-  bank->epoch_credits_fork_id             = 0;
-  fd_epoch_credits_store_acquire( fd_banks_get_epoch_credits( banks ), bank->epoch_credits_fork_id );
+  bank->epoch_credits_fork_id             = fd_epoch_credits_store_new_fork( fd_banks_get_epoch_credits( banks ) );
   bank->stake_delegations_fork_id         = USHORT_MAX;
   bank->parent_accdb_fork_id.val          = USHORT_MAX;
   bank->cost_tracker_pool_idx             = fd_bank_cost_tracker_pool_idx_null( fd_banks_get_cost_tracker_pool( banks ) );

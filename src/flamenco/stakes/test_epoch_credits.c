@@ -38,7 +38,7 @@ set_write( fd_epoch_credits_store_t * store,
            ulong                      base,
            ulong                      len ) {
   fd_epoch_credits_view_t view[1];
-  FD_TEST( fd_epoch_credits_view_init( view, store, fork_id, 1 ) );
+  FD_TEST( fd_epoch_credits_view_init( view, store, fork_id ) );
   for( ulong i=0UL; i<len; i++ ) view->credits[i].base_credits = base+i;
   view->len = len;
   fd_epoch_credits_view_fini( view );
@@ -50,7 +50,7 @@ set_check( fd_epoch_credits_store_t * store,
            ulong                      base,
            ulong                      len ) {
   fd_epoch_credits_view_t view[1];
-  FD_TEST( fd_epoch_credits_view_init( view, store, fork_id, 0 ) );
+  FD_TEST( fd_epoch_credits_view_init( view, store, fork_id ) );
   FD_TEST( view->len==len );
   for( ulong i=0UL; i<len; i++ ) FD_TEST( view->credits[i].base_credits==base+i );
   fd_epoch_credits_view_fini( view );
@@ -76,7 +76,7 @@ test_footprint( void ) {
   FD_TEST( fp1>=set_sz && fp1<2UL*set_sz );
   FD_TEST( fp8_2-fp8_1>=set_sz && fp8_2-fp8_1<=set_sz+FD_EPOCH_CREDITS_STORE_ALIGN );
   FD_TEST( fp_c>=CACHE_CNT*set_sz );
-  FD_TEST( fp_max-fp_c < 4096UL*(2UL*sizeof(ulong)+1UL)+FD_EPOCH_CREDITS_STORE_ALIGN );
+  FD_TEST( fp_max-fp_c < 4096UL*3UL*sizeof(ulong)+FD_EPOCH_CREDITS_STORE_ALIGN );
 }
 
 static void
@@ -101,8 +101,9 @@ test_new_join( int fd ) {
   free( mem );
 }
 
-/* Fresh sets come from the lowest free id, are empty, and are zeroed
-   when first written.  Releasing the last reference frees the id. */
+/* Fresh sets reuse the most recently freed id, are empty, and are
+   zeroed when first viewed.  Releasing the last reference frees the
+   id. */
 
 static void
 test_refcnt( int fd ) {
@@ -126,7 +127,7 @@ test_refcnt( int fd ) {
   set_check( store, c, 0UL, 0UL );
 
   fd_epoch_credits_view_t view[1];
-  FD_TEST( fd_epoch_credits_view_init( view, store, c, 1 ) );
+  FD_TEST( fd_epoch_credits_view_init( view, store, c ) );
   for( ulong i=0UL; i<3UL; i++ ) FD_TEST( !view->credits[i].base_credits );
   view->len = 0UL;
   fd_epoch_credits_view_fini( view );
@@ -154,7 +155,7 @@ test_spill_reload( int   fd,
   }
 
   fd_epoch_credits_view_t pinned[1];
-  FD_TEST( fd_epoch_credits_view_init( pinned, store, ids[0], 0 ) );
+  FD_TEST( fd_epoch_credits_view_init( pinned, store, ids[0] ) );
   FD_TEST( pinned->credits[0].base_credits==1000UL );
 
   for( ulong round=0UL; round<2UL; round++ ) {

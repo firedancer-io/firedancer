@@ -725,7 +725,7 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
   ulong vote_reward_cnt = 0UL;
 
   fd_epoch_credits_view_t epoch_credits_view[1];
-  FD_TEST( fd_epoch_credits_view_init( epoch_credits_view, fd_bank_epoch_credits( bank ), bank->epoch_credits_fork_id, 1 ) );
+  FD_TEST( fd_epoch_credits_view_init( epoch_credits_view, fd_bank_epoch_credits( bank ), bank->epoch_credits_fork_id ) );
 
   /* Populate the vote rewards map with the final set of filtered vote
      accounts for the t-1 epoch. */

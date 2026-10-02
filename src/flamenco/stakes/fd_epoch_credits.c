@@ -7,15 +7,18 @@
 #define FD_EPOCH_CREDITS_STORE_MAGIC (0xF17EDA2CEC5E7000UL) /* FIREDANCER EPOCH CREDITS STORE V0 */
 
 #define SET_SZ (sizeof(fd_epoch_credits_t)*FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS)
-
-/* Only a write view makes len nonzero, and it marks its cache entry
-   dirty.  So a set with a nonzero len that is not cached is on disk. */
-
 struct set {
-  ulong len;
-  ulong refcnt;
+  ulong  len;
+  ulong  refcnt;
+  ushort next;
+  ushort cache_idx; /* USHORT_MAX if the set is not cached */
 };
 typedef struct set set_t;
+
+#define POOL_NAME  set_pool
+#define POOL_T     set_t
+#define POOL_IDX_T ushort
+#include "../../util/tmpl/fd_pool.c"
 
 struct cache_ent {
   ulong              set_idx; /* ULONG_MAX if the entry is empty */
@@ -28,7 +31,6 @@ typedef struct cache_ent cache_ent_t;
 
 struct fd_epoch_credits_store {
   ulong magic;
-  ulong set_cnt;
   ulong cache_cnt;
   int   disk_fd;
   ulong set_off;
@@ -49,15 +51,9 @@ cache( fd_epoch_credits_store_t * store ) {
 static inline set_t *
 set_query( fd_epoch_credits_store_t * store,
            ulong                      set_idx ) {
-  FD_CHECK_CRIT( set_idx<store->set_cnt, "invariant violation: invalid epoch credits set index" );
-  return sets( store ) + set_idx;
-}
-
-static inline void
-cache_ent_clear( cache_ent_t * ent ) {
-  ent->set_idx = ULONG_MAX;
-  ent->lru     = 0UL;
-  ent->dirty   = 0;
+  set_t * pool = sets( store );
+  FD_CHECK_CRIT( set_idx<set_pool_max( pool ), "invariant violation: invalid epoch credits set index" );
+  return pool + set_idx;
 }
 
 static void
@@ -99,26 +95,29 @@ disk_write( fd_epoch_credits_store_t * store,
   }
 }
 
-/* cache_get returns the cache entry holding set_idx.  On a miss it
-   reuses the least recently used unpinned entry, writing its set back
-   first if dirty. */
-
 static cache_ent_t *
 cache_get( fd_epoch_credits_store_t * store,
            ulong                      set_idx ) {
-  cache_ent_t * ent    = cache( store );
+  set_t *       set = sets( store );
+  cache_ent_t * ent = cache( store );
+  if( set[ set_idx ].cache_idx!=USHORT_MAX ) return ent + set[ set_idx ].cache_idx;
+
+  /* Pick cache eviction victim */
   cache_ent_t * victim = NULL;
   for( ulong i=0UL; i<store->cache_cnt; i++ ) {
-    if( ent[i].set_idx==set_idx ) return ent+i;
-    if( !ent[i].pin_cnt && ( !victim || ent[i].lru<victim->lru ) ) victim = ent+i;
+    if( !ent[i].pin_cnt && (!victim || ent[i].lru<victim->lru) ) victim = ent+i;
   }
   FD_CHECK_CRIT( victim, "every epoch credits cache entry is pinned" );
 
-  set_t * set = sets( store );
-  if( victim->dirty ) disk_write( store, victim->credits, victim->set_idx, set[ victim->set_idx ].len*sizeof(fd_epoch_credits_t) );
+  /* Write back cache entry to disk */
+  if( victim->set_idx!=ULONG_MAX ) {
+    if( victim->dirty ) disk_write( store, victim->credits, victim->set_idx, set[ victim->set_idx ].len*sizeof(fd_epoch_credits_t) );
+    set[ victim->set_idx ].cache_idx = USHORT_MAX;
+  }
   if( set[ set_idx ].len ) disk_read( store, victim->credits, set_idx, set[ set_idx ].len*sizeof(fd_epoch_credits_t) );
-  victim->set_idx = set_idx;
-  victim->dirty   = 0;
+  victim->set_idx          = set_idx;
+  victim->dirty            = 0;
+  set[ set_idx ].cache_idx = (ushort)( victim - ent );
   return victim;
 }
 
@@ -134,9 +133,9 @@ fd_epoch_credits_store_footprint( ulong max_live_slots,
   cache_cnt = fd_ulong_min( cache_cnt, max_live_slots );
 
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, FD_EPOCH_CREDITS_STORE_ALIGN, sizeof(fd_epoch_credits_store_t) );
-  l = FD_LAYOUT_APPEND( l, alignof(set_t),               sizeof(set_t)*max_live_slots      );
-  l = FD_LAYOUT_APPEND( l, alignof(cache_ent_t),         sizeof(cache_ent_t)*cache_cnt     );
+  l = FD_LAYOUT_APPEND( l, FD_EPOCH_CREDITS_STORE_ALIGN, sizeof(fd_epoch_credits_store_t)     );
+  l = FD_LAYOUT_APPEND( l, set_pool_align(),             set_pool_footprint( max_live_slots ) );
+  l = FD_LAYOUT_APPEND( l, alignof(cache_ent_t),         sizeof(cache_ent_t)*cache_cnt        );
   return FD_LAYOUT_FINI( l, FD_EPOCH_CREDITS_STORE_ALIGN );
 }
 
@@ -168,16 +167,21 @@ fd_epoch_credits_store_new( void * shmem,
   cache_cnt = fd_ulong_min( cache_cnt, max_live_slots );
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
-  fd_epoch_credits_store_t * store     = FD_SCRATCH_ALLOC_APPEND( l, FD_EPOCH_CREDITS_STORE_ALIGN, sizeof(fd_epoch_credits_store_t) );
-  set_t *                    set_mem   = FD_SCRATCH_ALLOC_APPEND( l, alignof(set_t),               sizeof(set_t)*max_live_slots      );
-  cache_ent_t *              cache_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(cache_ent_t),         sizeof(cache_ent_t)*cache_cnt     );
+  fd_epoch_credits_store_t * store     = FD_SCRATCH_ALLOC_APPEND( l, FD_EPOCH_CREDITS_STORE_ALIGN, sizeof(fd_epoch_credits_store_t)     );
+  void *                     set_mem   = FD_SCRATCH_ALLOC_APPEND( l, set_pool_align(),             set_pool_footprint( max_live_slots ) );
+  cache_ent_t *              cache_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(cache_ent_t),         sizeof(cache_ent_t)*cache_cnt        );
   FD_SCRATCH_ALLOC_FINI( l, FD_EPOCH_CREDITS_STORE_ALIGN );
 
+  set_t * set_pool = set_pool_join( set_pool_new( set_mem, max_live_slots ) );
+  if( FD_UNLIKELY( !set_pool ) ) {
+    FD_LOG_WARNING(( "failed to create epoch credits set pool" ));
+    return NULL;
+  }
+
   fd_memset( store, 0, sizeof(fd_epoch_credits_store_t) );
-  store->set_cnt   = max_live_slots;
   store->cache_cnt = cache_cnt;
   store->disk_fd   = disk_fd;
-  store->set_off   = (ulong)set_mem   - (ulong)store;
+  store->set_off   = (ulong)set_pool  - (ulong)store;
   store->cache_off = (ulong)cache_mem - (ulong)store;
   for( ulong i=0UL; i<cache_cnt; i++ ) cache_mem[ i ].pin_cnt = 0UL;
   fd_epoch_credits_store_reset( store );
@@ -219,33 +223,36 @@ fd_epoch_credits_store_join( void * shmem,
 
 void
 fd_epoch_credits_store_reset( fd_epoch_credits_store_t * store ) {
-  fd_memset( sets( store ), 0, sizeof(set_t)*store->set_cnt );
+  set_t * pool = sets( store );
+  ulong   max  = set_pool_max( pool );
+  for( ulong i=0UL; i<max; i++ ) pool[ i ] = (set_t){ .cache_idx = USHORT_MAX };
+  set_pool_reset( pool );
   store->lru = 0UL;
   cache_ent_t * ent = cache( store );
   for( ulong i=0UL; i<store->cache_cnt; i++ ) {
     FD_CHECK_CRIT( !ent[i].pin_cnt, "invariant violation: resetting pinned epoch credits cache" );
-    cache_ent_clear( ent+i );
+    ent[i].set_idx = ULONG_MAX;
+    ent[i].lru     = 0UL;
+    ent[i].dirty   = 0;
   }
 }
 
 ushort
 fd_epoch_credits_store_new_fork( fd_epoch_credits_store_t * store ) {
-  set_t * set     = sets( store );
-  ulong   set_idx = 0UL;
-  while( set_idx<store->set_cnt && set[ set_idx ].refcnt ) set_idx++;
-  FD_CHECK_CRIT( set_idx<store->set_cnt, "invariant violation: no free epoch credits sets" );
-  set[ set_idx ].refcnt = 1UL;
+  set_t * pool = sets( store );
+  FD_CHECK_CRIT( set_pool_free( pool ), "invariant violation: no free epoch credits sets" );
+  ulong set_idx = set_pool_idx_acquire( pool );
+  pool[ set_idx ].refcnt = 1UL;
   return (ushort)set_idx;
 }
 
 void
 fd_epoch_credits_store_acquire( fd_epoch_credits_store_t * store,
                                 ushort                     fork_id ) {
-  set_query( store, (ulong)fork_id )->refcnt++;
+  set_t * set = set_query( store, (ulong)fork_id );
+  FD_CHECK_CRIT( set->refcnt, "invariant violation: acquiring an unreferenced epoch credits set" );
+  set->refcnt++;
 }
-
-/* Freeing a set drops its cache entry, which cannot be pinned because
-   every pin holds a reference. */
 
 void
 fd_epoch_credits_store_release( fd_epoch_credits_store_t * store,
@@ -255,39 +262,37 @@ fd_epoch_credits_store_release( fd_epoch_credits_store_t * store,
   if( --set->refcnt ) return;
 
   set->len = 0UL;
-  cache_ent_t * ent = cache( store );
-  for( ulong i=0UL; i<store->cache_cnt; i++ ) {
-    if( ent[i].set_idx==(ulong)fork_id ) {
-      cache_ent_clear( ent+i );
-      break;
-    }
+  if( set->cache_idx!=USHORT_MAX ) {
+    cache_ent_t * ent = cache( store ) + set->cache_idx;
+    ent->set_idx   = ULONG_MAX;
+    ent->lru       = 0UL;
+    ent->dirty     = 0;
+    set->cache_idx = USHORT_MAX;
   }
+  set_pool_idx_release( sets( store ), (ulong)fork_id );
 }
 
 fd_epoch_credits_view_t *
 fd_epoch_credits_view_init( fd_epoch_credits_view_t *  view,
                             fd_epoch_credits_store_t * store,
-                            ushort                     fork_id,
-                            int                        write ) {
+                            ushort                     fork_id ) {
   if( FD_UNLIKELY( !view || !store ) ) return NULL;
 
-  ulong   set_idx = (ulong)fork_id;
-  set_t * set     = set_query( store, set_idx );
-  FD_CHECK_CRIT( set->refcnt, "invariant violation: viewing unreferenced epoch credits set" );
-  cache_ent_t * ent = cache_get( store, set_idx );
+  ulong         set_idx = (ulong)fork_id;
+  set_t *       set     = set_query( store, set_idx );
+  cache_ent_t * ent     = cache_get( store, set_idx );
 
   set->refcnt++;
   ent->pin_cnt++;
   ent->lru = ++store->lru;
-  if( FD_UNLIKELY( write && !set->len ) ) fd_memset( ent->credits, 0, SET_SZ );
+  if( FD_UNLIKELY( !set->len ) ) fd_memset( ent->credits, 0, SET_SZ );
 
   *view = (fd_epoch_credits_view_t) {
     .credits   = ent->credits,
     .store     = store,
     .len       = set->len,
     .set_idx   = set_idx,
-    .cache_idx = (ulong)( ent - cache( store ) ),
-    .write     = !!write
+    .cache_idx = (ulong)(ent-cache( store ))
   };
   return view;
 }
@@ -301,11 +306,9 @@ fd_epoch_credits_view_fini( fd_epoch_credits_view_t * view ) {
   FD_CHECK_CRIT( view->cache_idx<store->cache_cnt && ent->set_idx==view->set_idx && ent->pin_cnt,
                  "invariant violation: invalid epoch credits view" );
 
-  if( view->write ) {
-    FD_CHECK_CRIT( view->len<=FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS, "invariant violation: invalid epoch credits length" );
-    sets( store )[ view->set_idx ].len = view->len;
-    ent->dirty = 1;
-  }
+  FD_CHECK_CRIT( view->len<=FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS, "invariant violation: invalid epoch credits length" );
+  sets( store )[ view->set_idx ].len = view->len;
+  ent->dirty = 1;
 
   ent->pin_cnt--;
   fd_epoch_credits_store_release( store, (ushort)view->set_idx );

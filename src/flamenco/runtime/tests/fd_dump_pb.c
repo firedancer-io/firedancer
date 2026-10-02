@@ -745,7 +745,7 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
      recalculate partitioned epoch rewards. */
   fd_vote_rewards_map_t * vote_ele_map = runtime_stack->stakes.vote_map;
   fd_epoch_credits_view_t epoch_credits_view[1];
-  FD_TEST( fd_epoch_credits_view_init( epoch_credits_view, fd_bank_epoch_credits( parent_bank ), parent_bank->epoch_credits_fork_id, 0 ) );
+  FD_TEST( fd_epoch_credits_view_init( epoch_credits_view, fd_bank_epoch_credits( parent_bank ), parent_bank->epoch_credits_fork_id ) );
   for( pb_size_t i=0U; i<va_t1_cnt; i++ ) {
     fd_pubkey_t va_pubkey = FD_LOAD( fd_pubkey_t, va_t1[i].address );
     uint idx = (uint)fd_vote_rewards_map_idx_query( vote_ele_map, &va_pubkey, UINT_MAX, runtime_stack->stakes.vote_ele );
