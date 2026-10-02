@@ -564,6 +564,27 @@ test_shred_reject( void ) {
   shred = set->parity_shreds[ 3 ].s;
   shred->idx = 31; shred->code.idx = 31; shred->code.code_cnt = 32;            SIGN_ACCEPT( shred );
   shred->idx = 32; shred->code.idx = 32; shred->code.code_cnt = 32;            SIGN_REJECT( shred );
+
+  /* The leader key has verified many times by now, so its signer
+     cache entry is warm: a corrupt signature, a signature by another
+     key, and a mismatched pubkey are still rejected, and the intact
+     shred still accepted. */
+  shred = set->parity_shreds[ 4 ].s;
+  fake_resign( shred, signer_ctx );
+  shred->signature[ 5 ]++;
+  FD_TEST( FD_FEC_RESOLVER_SHRED_REJECTED==fd_fec_resolver_add_shred( r, shred, 2048UL, MAX, FD_FEC_RESOLVER_SHRED_SRC_TURBINE, pubkey, out_fec, out_shred, out_merkle_root, NULL ) );
+  shred->signature[ 5 ]--;
+  uchar other_key[ 64 ]; for( ulong i=0UL; i<64UL; i++ ) other_key[ i ] = (uchar)(i*37UL+11UL);
+  fd_sha512_t _sha[1]; fd_sha512_t * sha = fd_sha512_join( fd_sha512_new( _sha ) );
+  fd_ed25519_public_from_private( other_key+32UL, other_key, sha );
+  FD_TEST( FD_FEC_RESOLVER_SHRED_REJECTED==fd_fec_resolver_add_shred( r, shred, 2048UL, MAX, FD_FEC_RESOLVER_SHRED_SRC_TURBINE, other_key+32UL, out_fec, out_shred, out_merkle_root, NULL ) );
+  FD_TEST( FD_FEC_RESOLVER_SHRED_OKAY    ==fd_fec_resolver_add_shred( r, shred, 2048UL, MAX, FD_FEC_RESOLVER_SHRED_SRC_TURBINE, pubkey,         out_fec, out_shred, out_merkle_root, NULL ) );
+  shred = set->parity_shreds[ 5 ].s;
+  signer_ctx_t other_signer[ 1 ];
+  signer_ctx_init( other_signer, other_key );
+  fake_resign( shred, other_signer );
+  FD_TEST( FD_FEC_RESOLVER_SHRED_REJECTED==fd_fec_resolver_add_shred( r, shred, 2048UL, MAX, FD_FEC_RESOLVER_SHRED_SRC_TURBINE, pubkey, out_fec, out_shred, out_merkle_root, NULL ) );
+  fd_sha512_delete( fd_sha512_leave( sha ) );
 }
 
 void
