@@ -120,8 +120,6 @@ FD_PROTOTYPES_BEGIN
      the max fork width that can execute through the boundary instead of
      by the max number of banks.  See fd_banks_footprint() for more
      details.
-  Epoch-credit set metadata is bounded by the former, while only four
-  full sets are cached in memory and the remainder spill to disk.
 
   There are also some important states that a bank can be in:
   - Initialized: This bank has been created and linked to a parent bank
@@ -430,11 +428,6 @@ fd_bank_report_runtime_diffs( fd_bank_t const * bank ) {
 
 /* Bank accessors and mutators.  Different accessors are emitted for
    different types depending on if the field has a lock or not. */
-
-/* fd_bank_epoch_credits returns the epoch credits store.  A bank's set
-   is shared with its ancestors, so the bank must replace it with
-   fd_epoch_credits_store_new_fork before it captures new epoch credits,
-   i.e. when it crosses an epoch boundary or restores a snapshot. */
 
 fd_epoch_credits_store_t *
 fd_bank_epoch_credits( fd_bank_t const * bank );
