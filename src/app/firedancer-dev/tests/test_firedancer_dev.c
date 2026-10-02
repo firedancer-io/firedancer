@@ -12,6 +12,7 @@
 #include "../../shared_dev/commands/dev.h"
 #include "../../../discof/genesis/fd_genesi_tile.h"
 #include "../../../disco/topo/fd_cpu_topo.h"
+#include "../../../disco/net/fd_net_tile.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -212,11 +213,59 @@ test_efficient_l3_layout( config_t const * config ) {
   FD_TEST( mwaitx_cpu!=replay_cpu && mwaitx_cpu!=execrp_cpu && replay_cpu!=execrp_cpu );
 }
 
-/* test_efficient_layout checks the efficient mode topology for the
-   same config with the gui enabled. */
+/* Every net tile gives each shred tile its own net_shred link, read
+   by that shred tile only. */
+
+static void
+test_net_shred_links( config_t const * config ) {
+  fd_topo_t const * topo      = &config->topo;
+  char const *      net_name  = fd_net_tile_name( config->net.provider );
+  ulong             net_cnt   = fd_topo_tile_name_cnt( topo, net_name );
+  ulong             shred_cnt = fd_topo_tile_name_cnt( topo, "shred" );
+  FD_TEST( net_cnt && shred_cnt );
+  for( ulong i=0UL; i<net_cnt; i++ ) {
+    fd_topo_tile_t const * net = &topo->tiles[ fd_topo_find_tile( topo, net_name, i ) ];
+    ulong out_idx[ FD_NET_SHRED_OUT_MAX ];
+    FD_TEST( fd_topo_net_shred_outs( topo, net, out_idx )==shred_cnt );
+    for( ulong k=0UL; k<shred_cnt; k++ ) {
+      fd_topo_link_t const * link  = &topo->links[ net->out_link_id[ out_idx[ k ] ] ];
+      fd_topo_tile_t const * shred = &topo->tiles[ fd_topo_find_tile( topo, "shred", k ) ];
+      FD_TEST( fd_topo_find_tile_in_link( topo, shred, "net_shred", link->kind_id )!=ULONG_MAX );
+      ulong readers = 0UL;
+      for( ulong t=0UL; t<topo->tile_cnt; t++ ) {
+        if( strcmp( topo->tiles[ t ].name, "shred" ) ) continue;
+        readers += fd_topo_find_tile_in_link( topo, &topo->tiles[ t ], "net_shred", link->kind_id )!=ULONG_MAX;
+      }
+      FD_TEST( readers==1UL );
+    }
+  }
+}
+
+static void
+test_net_shred_layouts( config_t const * config ) {
+  static config_t cfg[1];
+  for( int ag=0; ag<2; ag++ ) {
+    for( int eff=0; eff<2; eff++ ) {
+      *cfg = *config;
+      cfg->layout.shred_tile_count = 4U;
+      cfg->firedancer.development.alpenglow = ag;
+      strcpy( cfg->firedancer.layout.mode, eff ? "efficient" : "performance" );
+      fd_topo_initialize( cfg );
+      test_net_shred_links( cfg );
+    }
+  }
+}
+
+/* test_efficient_layout checks the net_shred wiring of config's
+   topology (already initialized) and of the 4 shred tile layouts, then
+   the efficient mode topology for the same config with the gui
+   enabled. */
 
 static void
 test_efficient_layout( config_t const * config ) {
+  test_net_shred_links( config );
+  test_net_shred_layouts( config );
+
   static config_t eff_config[1];
   *eff_config = *config;
   strcpy( eff_config->firedancer.layout.mode, "efficient" );
