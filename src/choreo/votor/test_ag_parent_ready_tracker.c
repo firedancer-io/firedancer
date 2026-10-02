@@ -329,6 +329,39 @@ test_no_double_counting_notar_and_skip( void ) {
   teardown_tracker( tracker );
 }
 
+/* Two windows where every slot is notarized-fallback (4 blocks each)
+   and skip-certified make 1+12+16 parents ready for slot 8, more than
+   ready_ids can hold.  The excess must be dropped, not written past
+   the end. */
+
+static void
+test_ready_overflow( void ) {
+  ag_parent_ready_tracker_t * tracker = setup_tracker( TEST_SLOT_MAX );
+
+  ag_parent_ready_t out[ TEST_SLOT_MAX ];
+  ulong out_cnt;
+
+  for( ulong slot=1UL; slot<8UL; slot++ ) {
+    for( ulong j=0UL; j<AG_NOTAR_FALLBACK_CERT_MAX; j++ ) {
+      ag_block_id_t id = random_block_id( slot );
+      id.hash[0] = (uchar)j;
+      ag_parent_ready_tracker_mark_notar_fallback( tracker, &id, out, &out_cnt );
+    }
+  }
+  for( ulong slot=7UL; slot>=1UL; slot-- ) {
+    ag_parent_ready_tracker_mark_skipped( tracker, slot, out, &out_cnt );
+  }
+
+  ulong cnt;
+  ag_parent_ready_tracker_parents_ready( tracker, 4UL, &cnt );
+  FD_TEST( cnt==13UL );
+  ag_parent_ready_tracker_parents_ready( tracker, 8UL, &cnt );
+  FD_TEST( cnt==AG_PARENT_READY_MAX );
+  FD_TEST( ag_parent_ready_tracker_wait_for_parent_ready( tracker, 8UL ).slot==4UL );
+
+  teardown_tracker( tracker );
+}
+
 /* src/consensus/pool/parent_ready_tracker.rs::wait_for_parent_ready */
 
 static void
@@ -536,6 +569,7 @@ main( int     argc,
   test_out_of_order_notars();
   test_no_double_counting_skip_chain();
   test_no_double_counting_notar_and_skip();
+  test_ready_overflow();
   test_wait_for_parent_ready();
   test_wait_tie_break();
   test_wait_does_not_allocate();

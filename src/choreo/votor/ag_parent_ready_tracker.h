@@ -4,6 +4,12 @@
 #include "ag_votor_base.h"
 #include "ag_finality_tracker.h"
 
+/* AG_PARENT_READY_MAX bounds the parents tracked per slot.  Chains of
+   skip-certified windows can make more parents ready than this, the
+   excess is dropped. */
+
+#define AG_PARENT_READY_MAX (AG_SLOTS_PER_WINDOW*AG_NOTAR_FALLBACK_CERT_MAX)
+
 struct ag_parent_ready {
   ulong         slot;
   ag_block_id_t parent;
@@ -20,7 +26,7 @@ struct ag_parent_ready_state {
   uchar           notar_fallbacks_cnt;
 
   int           is_ready;
-  ag_block_id_t ready_ids[AG_SLOTS_PER_WINDOW*AG_NOTAR_FALLBACK_CERT_MAX];
+  ag_block_id_t ready_ids[AG_PARENT_READY_MAX];
   ulong         ready_id_cnt;
 };
 typedef struct ag_parent_ready_state ag_parent_ready_state_t;
