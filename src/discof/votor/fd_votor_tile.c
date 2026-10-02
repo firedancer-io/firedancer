@@ -2241,6 +2241,14 @@ during_housekeeping( fd_votor_tile_t * ctx ) {
   }
 }
 
+/* active_conn_cnt is the number of ACTIVE client conns.  Every tx_conn
+   is a client conn, so with none a broadcast walk would send nothing. */
+
+static inline ulong
+active_conn_cnt( fd_votor_tile_t const * ctx ) {
+  return ctx->quic_client->metrics.conn_state_cnt[ FD_QUIC_CONN_STATE_ACTIVE ];
+}
+
 static inline long
 next_deadline( fd_votor_tile_t * ctx ) {
   long reconn = reconn_prq_cnt( ctx->reconn_prq ) ? ctx->reconn_prq[ 0 ].timeout : LONG_MAX;
@@ -2503,12 +2511,14 @@ after_credit( fd_votor_tile_t *   ctx,
     ag_cert_t const * broadcast = NULL;
     if( FD_LIKELY( event->kind!=AG_POOL_EVENT_IMPLICITLY_FINALIZED && event->kind!=AG_POOL_EVENT_IMPLICITLY_SKIPPED ) ) broadcast = ag_votor_handle_pool_event( ctx->votor, event, now );
     if( FD_UNLIKELY( broadcast && !cert_tx_skip( ctx, ag_cert_slot( broadcast ) ) ) ) {
-      ulong ser_sz               = ag_cert_ser( broadcast, ctx->scratch.ser );
-      long  broadcast_start_time = fd_clock_tile_now( ctx->clock );
-      for( ulong slot=0UL; slot<peers_slot_cnt( ctx->peers ); slot++ ) {
-        peer_t const * peer = &ctx->peers[ slot ];
-        if( FD_LIKELY( peers_key_inval( peer->id_key ) || !peer->tx_conn || peer->tx_conn->state!=FD_QUIC_CONN_STATE_ACTIVE ) ) continue;
-        quic_client_datagram_tx( ctx, stem, peer->tx_conn, ctx->scratch.ser, ser_sz );
+      long broadcast_start_time = fd_clock_tile_now( ctx->clock );
+      if( FD_LIKELY( active_conn_cnt( ctx ) ) ) {
+        ulong ser_sz = ag_cert_ser( broadcast, ctx->scratch.ser );
+        for( ulong slot=0UL; slot<peers_slot_cnt( ctx->peers ); slot++ ) {
+          peer_t const * peer = &ctx->peers[ slot ];
+          if( FD_LIKELY( peers_key_inval( peer->id_key ) || !peer->tx_conn || peer->tx_conn->state!=FD_QUIC_CONN_STATE_ACTIVE ) ) continue;
+          quic_client_datagram_tx( ctx, stem, peer->tx_conn, ctx->scratch.ser, ser_sz );
+        }
       }
 
       ulong stake;
@@ -2520,7 +2530,7 @@ after_credit( fd_votor_tile_t *   ctx,
       case AG_CERT_KIND_SKIP:           stake = broadcast->skip.stake;           break;
       default:                          FD_LOG_CRIT(( "unreachable" ));
       }
-      if( FD_UNLIKELY( stake ) ) report_alpenglow_cert( ctx, NULL, broadcast, ctx->scratch.ser[ 1 ], FD_EVENT_ALPENGLOW_CERT_PROCESSING_RESULT_ACCEPTED, 0L, broadcast_start_time );
+      if( FD_UNLIKELY( stake ) ) report_alpenglow_cert( ctx, NULL, broadcast, (uchar)( broadcast->kind+AG_CERT_SERDE_TAG_FINAL ), FD_EVENT_ALPENGLOW_CERT_PROCESSING_RESULT_ACCEPTED, 0L, broadcast_start_time );
     }
 
     if( FD_UNLIKELY( event->kind==AG_POOL_EVENT_SAFE_TO_NOTAR || event->kind==AG_POOL_EVENT_IMPLICITLY_FINALIZED || event->kind==AG_POOL_EVENT_IMPLICITLY_SKIPPED ) ) {
@@ -2641,7 +2651,6 @@ after_credit( fd_votor_tile_t *   ctx,
     int sent = epoch_info && rank<epoch_info->validator_cnt && vote_slot>=ctx->vote_history_slot && vote_slot>=ctx->catchup_vote_slot && !fd_bls_sig_is_inf( ag_vote_sig( &ctx->scratch.vote ) );
     if( FD_LIKELY( sent ) ) {
       if( FD_LIKELY( ctx->vote_history_fd_dir!=-1 ) ) write_vote_history( ctx );
-      ulong ser_sz               = ag_vote_ser( &ctx->scratch.vote, ctx->scratch.ser );
       long  broadcast_start_time = fd_clock_tile_now( ctx->clock );
 
       uint                kind                 = ctx->scratch.vote.kind;
@@ -2664,13 +2673,16 @@ after_credit( fd_votor_tile_t *   ctx,
         if( FD_LIKELY( peer ) ) reward_vote_tx( ctx, stem, rv, peer, now ); /* the reward leader first, tracked so its ACK clears the retry */
       }
 
-      for( ulong slot=0UL; slot<peers_slot_cnt( ctx->peers ); slot++ ) {
-        peer_t const * peer = &ctx->peers[ slot ];
-        if( FD_LIKELY(    peers_key_inval( peer->id_key )
-                       || !peer->tx_conn
-                       || peer->tx_conn->state!=FD_QUIC_CONN_STATE_ACTIVE
-                       || peer==reward_leader ) ) continue;
-        quic_client_datagram_tx( ctx, stem, peer->tx_conn, ctx->scratch.ser, ser_sz );
+      if( FD_LIKELY( active_conn_cnt( ctx ) ) ) {
+        ulong ser_sz = ag_vote_ser( &ctx->scratch.vote, ctx->scratch.ser );
+        for( ulong slot=0UL; slot<peers_slot_cnt( ctx->peers ); slot++ ) {
+          peer_t const * peer = &ctx->peers[ slot ];
+          if( FD_LIKELY(    peers_key_inval( peer->id_key )
+                         || !peer->tx_conn
+                         || peer->tx_conn->state!=FD_QUIC_CONN_STATE_ACTIVE
+                         || peer==reward_leader ) ) continue;
+          quic_client_datagram_tx( ctx, stem, peer->tx_conn, ctx->scratch.ser, ser_sz );
+        }
       }
 
       long  aggregation_start_time = fd_clock_tile_now( ctx->clock );
@@ -2690,8 +2702,8 @@ after_credit( fd_votor_tile_t *   ctx,
       default:
         FD_LOG_CRIT(( "unhandled kind" ));
       }
-      report_alpenglow_vote( ctx, NULL, &ctx->scratch.vote, ctx->scratch.ser[ 1 ], result, quorum_reached, FD_EVENT_ALPENGLOW_VOTE_REASON_BLOCK_REPLAYED+reason, aggregation_start_time, broadcast_start_time, reward_leader );
-      if( FD_UNLIKELY( reward_leader && ( !reward_leader->tx_conn || reward_leader->tx_conn->state!=FD_QUIC_CONN_STATE_ACTIVE ) ) ) report_alpenglow_vote( ctx, NULL, &ctx->scratch.vote, ctx->scratch.ser[ 1 ], result, 0, FD_EVENT_ALPENGLOW_VOTE_REASON_REWARD_NO_CONNECTION, 0L, 0L, reward_leader );
+      report_alpenglow_vote( ctx, NULL, &ctx->scratch.vote, (uchar)( kind+AG_VOTE_SERDE_TAG_NOTAR ), result, quorum_reached, FD_EVENT_ALPENGLOW_VOTE_REASON_BLOCK_REPLAYED+reason, aggregation_start_time, broadcast_start_time, reward_leader );
+      if( FD_UNLIKELY( reward_leader && ( !reward_leader->tx_conn || reward_leader->tx_conn->state!=FD_QUIC_CONN_STATE_ACTIVE ) ) ) report_alpenglow_vote( ctx, NULL, &ctx->scratch.vote, (uchar)( kind+AG_VOTE_SERDE_TAG_NOTAR ), result, 0, FD_EVENT_ALPENGLOW_VOTE_REASON_REWARD_NO_CONNECTION, 0L, 0L, reward_leader );
     }
     if( FD_UNLIKELY( ctx->failover_enabled ) ) failover_after_vote( ctx, stem, vote_slot, sent );
     *opt_poll_in = 0;
