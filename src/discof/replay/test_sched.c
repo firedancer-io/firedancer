@@ -883,6 +883,58 @@ run_ag_leader_budget_cases( void ) {
     FD_TEST( budget>=131072UL );
     FD_TEST( budget+1UL<=FD_SCHED_MAX_MBLK_PER_SLOT*shreds/FD_SHRED_BLK_MAX );
   }
+
+  /* The same through a real Alpenglow sched: after the header, a batch
+     declaring the whole budget plus the alpentick is accepted, and one
+     declaring a microblock past sched's own limit is not. */
+  ulong depth         = fd_ulong_max( FD_SCHED_MIN_DEPTH, 512UL );
+  ulong block_cnt_max = 4UL;
+  for( ulong shreds=FD_SHRED_BLK_MAX; shreds<=16UL*FD_SHRED_BLK_MAX; shreds*=16UL ) {
+    for( int over=0; over<2; over++ ) {
+      void * mem = aligned_alloc( fd_sched_align(), fd_sched_footprint( depth, block_cnt_max, shreds, FD_MAX_TXN_PER_SLOT ) );
+      FD_TEST( mem );
+      fd_rng_t rng[1]; fd_rng_join( fd_rng_new( rng, 0U, 0UL ) );
+      fd_sched_t * sched = fd_sched_join( fd_sched_new( mem, rng, depth, block_cnt_max, shreds, FD_MAX_TXN_PER_SLOT, TEST_EXEC_CNT ) );
+      FD_TEST( sched );
+      fd_sched_block_add_done( sched, 1UL, ULONG_MAX, TEST_ROOT_SLOT );
+
+      static uchar          buf[ FD_BLOCK_MARKER_SER_MAX ] __attribute__((aligned(64)));
+      static fd_store_fec_t store_fec[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
+      fd_hash_t prev_hash[ 1 ]; hash_from_seed( prev_hash, 0x5eedUL );
+
+      ulong sz = encode_ag_component( buf, AG_COMP_HEADER, prev_hash );
+      fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
+      store_fec->data_sz     = (uint)sz;
+      store_fec->shred_sz[0] = (ushort)sz;
+      fd_sched_fec_t hdr[ 1 ] = {{
+        .bank_idx = 2UL, .parent_bank_idx = 1UL,
+        .slot = TEST_ROOT_SLOT+1UL, .parent_slot = TEST_ROOT_SLOT,
+        .fec = store_fec, .data = buf, .shred_cnt = 1U,
+        .is_last_in_batch = 1U, .is_first_in_block = 1U,
+      }};
+      FD_TEST( fd_sched_fec_can_ingest( sched, hdr ) );
+      FD_TEST( fd_sched_fec_ingest( sched, hdr ) );
+
+      ulong mblk_cnt = over ? FD_SCHED_MAX_MBLK_PER_SLOT*shreds/FD_SHRED_BLK_MAX+1UL
+                            : fd_poh_alpenglow_max_microblocks_per_slot( shreds )+1UL;
+      FD_STORE( ulong, buf, mblk_cnt );
+      fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
+      store_fec->data_sz     = (uint)sizeof(ulong);
+      store_fec->shred_sz[0] = (ushort)sizeof(ulong);
+      fd_sched_fec_t batch[ 1 ] = {{
+        .bank_idx = 2UL, .parent_bank_idx = 1UL,
+        .slot = TEST_ROOT_SLOT+1UL, .parent_slot = TEST_ROOT_SLOT,
+        .fec = store_fec, .data = buf, .shred_cnt = 1U,
+      }};
+      FD_TEST( fd_sched_fec_can_ingest( sched, batch ) );
+      FD_TEST( (!fd_sched_fec_ingest( sched, batch ))==over );
+      FD_TEST( fd_sched_get_dead_reason( sched, 2UL )==( over ? FD_SCHED_DEAD_REASON_TOO_MANY_MICROBLOCKS : FD_SCHED_DEAD_REASON_NONE ) );
+
+      while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
+      fd_sched_delete( fd_sched_leave( sched ) );
+      free( mem );
+    }
+  }
 }
 
 static void
