@@ -292,6 +292,7 @@ collect_cpu( fd_boot_report_t * r ) {
   if( FD_LIKELY( 0==uname( &un ) ) ) {
     if(      !strcmp ( un.machine, "x86_64"     ) ) r->cpu_arch = 1;
     else if( !strncmp( un.machine, "aarch64", 7 ) || !strncmp( un.machine, "arm", 3 ) ) r->cpu_arch = 2;
+    else if( !strncmp( un.machine, "riscv64", 7 ) ) r->cpu_arch = 4;
   }
 
 # if defined(__x86_64__)
