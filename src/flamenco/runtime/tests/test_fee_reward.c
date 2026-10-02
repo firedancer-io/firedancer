@@ -15,6 +15,8 @@
 #include "../../stakes/test_stake_delegations_util.h"
 #include "../../stakes/fd_stake_types.h"
 #include "../program/fd_vote_program.h"
+#include "../../stakes/fd_vote_stakes.h"
+#include "../program/vote/fd_vote_codec.h"
 
 /* Read the lamport balance of an account at a given fork.
    Returns 0 if the account does not exist. */
@@ -962,6 +964,358 @@ test_simd0232_fee_reserved_sweep( fd_svm_mini_t * mini ) {
   FD_LOG_NOTICE(( "test_simd0232_fee_reserved_sweep: PASSED (%lu keys)", reserved_cnt ));
 }
 
+
+/**********************************************************************/
+/* SIMD-0123: block revenue split between the commission collector    */
+/* and the leader's vote account (pending delegator rewards).         */
+/**********************************************************************/
+
+/* Reads the pending_delegator_rewards field of a vote account. */
+static ulong
+read_vote_pending( fd_svm_mini_t *     mini,
+                   fd_accdb_fork_id_t  fork_id,
+                   fd_pubkey_t const * vote ) {
+  fd_acc_t acc = fd_accdb_read_one( mini->runtime->accdb, fork_id, vote->key );
+  FD_TEST( acc.lamports>0UL );
+  ulong pending;
+  FD_TEST( !fd_vote_account_pending_delegator_rewards( acc.data, acc.data_len, &pending ) );
+  fd_accdb_unread_one( mini->runtime->accdb, &acc );
+  return pending;
+}
+
+/* Rewrites the rooted copy of a vote account through a caller
+   supplied edit of its lamports, owner and data. */
+typedef void (*vote_edit_fn_t)( fd_acc_t * acc, ulong arg );
+
+static void
+edit_rooted_vote_account( fd_svm_mini_t *     mini,
+                          fd_pubkey_t const * vote,
+                          vote_edit_fn_t      edit,
+                          ulong               arg ) {
+  fd_accdb_fork_id_t root_fk = fd_banks_root( mini->banks )->accdb_fork_id;
+  fd_acc_t acc = fd_accdb_read_one( mini->runtime->accdb, root_fk, vote->key );
+  FD_TEST( acc.lamports>0UL );
+  uchar data[ FD_VOTE_STATE_V4_SZ ];
+  FD_TEST( acc.data_len<=sizeof(data) );
+  fd_memcpy( data, acc.data, acc.data_len );
+  fd_acc_t copy = {0};
+  fd_memcpy( copy.pubkey, vote->key, 32UL );
+  fd_memcpy( copy.owner,  acc.owner, 32UL );
+  copy.lamports = acc.lamports;
+  copy.data_len = acc.data_len;
+  copy.data     = data;
+  fd_accdb_unread_one( mini->runtime->accdb, &acc );
+  edit( &copy, arg );
+  fd_svm_mini_put_account_rooted( mini, &copy );
+}
+
+static void edit_set_pending  ( fd_acc_t * acc, ulong arg ) { ulong old; FD_TEST( !fd_vote_account_reset_pending_delegator_rewards( acc->data, acc->data_len, &old ) ); FD_TEST( !fd_vote_account_add_pending_delegator_rewards( acc->data, acc->data_len, arg ) ); }
+static void edit_set_system_owner( fd_acc_t * acc, ulong arg ) { (void)arg; fd_memcpy( acc->owner, fd_solana_system_program_id.uc, 32UL ); }
+static void edit_set_v3       ( fd_acc_t * acc, ulong arg ) { (void)arg; FD_STORE( uint, acc->data, (uint)fd_vote_state_versioned_enum_v3 ); }
+
+/* Like setup_simd0232_fee_block, additionally enabling
+   block_revenue_sharing and setting the leader's block revenue
+   commission in the t-2 vote stakes (the state the leader schedule was
+   derived from). */
+static ulong
+setup_simd0123_fee_block( fd_svm_mini_t *     mini,
+                          fd_pubkey_t const * block_collector_opt,
+                          ushort              block_revenue_commission_bps,
+                          int                 block_revenue_sharing,
+                          ulong               execution_fees,
+                          ulong               priority_fees,
+                          ulong *             root_idx_out,
+                          fd_pubkey_t *       leader_vote_out ) {
+  fd_svm_mini_params_t params[1];
+  fd_svm_mini_params_default( params );
+  ulong root_idx = fd_svm_mini_reset( mini, params );
+  *root_idx_out  = root_idx;
+
+  fd_bank_t * root_bank = fd_svm_mini_bank( mini, root_idx );
+  FD_FEATURE_SET_ACTIVE( &root_bank->f.features, custom_commission_collector, 0UL );
+  FD_FEATURE_SET_ACTIVE( &root_bank->f.features, block_revenue_sharing, block_revenue_sharing ? 0UL : FD_FEATURE_DISABLED );
+
+  ulong child_idx = fd_svm_mini_attach_child( mini, root_idx, 2UL );
+  fd_bank_t * bank = fd_svm_mini_bank( mini, child_idx );
+
+  fd_epoch_leaders_t const * leaders     = fd_bank_epoch_leaders_query( bank, bank->f.epoch );
+  fd_pubkey_t const *        leader_vote = fd_epoch_leaders_get_vote( leaders, bank->f.slot );
+  FD_TEST( leader_vote );
+  *leader_vote_out = *leader_vote;
+
+  fd_vote_stakes_set_block_revenue_t_2( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id, leader_vote,
+                                        block_revenue_commission_bps, 0UL );
+
+  if( block_collector_opt ) {
+    fd_collector_overrides_upsert( fd_bank_collector_overrides( bank ),
+                                   bank->collector_overrides_fork_id,
+                                   fd_ulong_sat_sub( bank->f.epoch, 1UL ),
+                                   leader_vote,
+                                   0, NULL,
+                                   1, block_collector_opt );
+  }
+
+  bank->f.execution_fees = execution_fees;
+  bank->f.priority_fees  = priority_fees;
+  return child_idx;
+}
+
+/* SIMD0232_FEE_REWARD (1500000) at 2500 bps */
+#define SIMD0123_VALIDATOR_FEE ( 375000UL)
+#define SIMD0123_DELEGATOR_FEE (1125000UL)
+
+/* Feature off: the split does not apply even with a commission set,
+   and the vote account is untouched. */
+static void
+test_simd0123_fee_feature_off( fd_svm_mini_t * mini ) {
+  ulong root_idx; fd_pubkey_t vote;
+  ulong child_idx = setup_simd0123_fee_block( mini, NULL, 2500U, 0, SIMD0232_FEE_EXECUTION, SIMD0232_FEE_PRIORITY, &root_idx, &vote );
+  fd_bank_t *        bank    = fd_svm_mini_bank   ( mini, child_idx );
+  fd_accdb_fork_id_t fork_id = fd_svm_mini_fork_id( mini, child_idx );
+  fd_pubkey_t const * leader = get_leader( bank );
+  fd_svm_mini_add_lamports( mini, fork_id, leader, 1000000000UL );
+  ulong leader_before = read_lamports( mini, fork_id, leader );
+  ulong vote_before   = read_lamports( mini, fork_id, &vote );
+
+  fd_svm_mini_freeze( mini, child_idx );
+
+  FD_TEST( read_lamports( mini, fork_id, leader )==leader_before+SIMD0232_FEE_REWARD );
+  FD_TEST( read_lamports( mini, fork_id, &vote )==vote_before );
+  FD_TEST( read_vote_pending( mini, fork_id, &vote )==0UL );
+  FD_LOG_NOTICE(( "test_simd0123_fee_feature_off: PASSED" ));
+}
+
+/* Default commission (10000 bps): everything is commission, the vote
+   account is not written. */
+static void
+test_simd0123_fee_default_commission( fd_svm_mini_t * mini ) {
+  ulong root_idx; fd_pubkey_t vote;
+  ulong child_idx = setup_simd0123_fee_block( mini, NULL, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 1, SIMD0232_FEE_EXECUTION, SIMD0232_FEE_PRIORITY, &root_idx, &vote );
+  fd_bank_t *        bank    = fd_svm_mini_bank   ( mini, child_idx );
+  fd_accdb_fork_id_t fork_id = fd_svm_mini_fork_id( mini, child_idx );
+  fd_pubkey_t const * leader = get_leader( bank );
+  fd_svm_mini_add_lamports( mini, fork_id, leader, 1000000000UL );
+  ulong leader_before = read_lamports( mini, fork_id, leader );
+  ulong vote_before   = read_lamports( mini, fork_id, &vote );
+
+  fd_svm_mini_freeze( mini, child_idx );
+
+  FD_TEST( read_lamports( mini, fork_id, leader )==leader_before+SIMD0232_FEE_REWARD );
+  FD_TEST( read_lamports( mini, fork_id, &vote )==vote_before );
+  FD_TEST( read_vote_pending( mini, fork_id, &vote )==0UL );
+  FD_LOG_NOTICE(( "test_simd0123_fee_default_commission: PASSED" ));
+}
+
+/* Zero commission: the collector is not written at all, everything
+   goes to the vote account and its pending field. */
+static void
+test_simd0123_fee_zero_commission( fd_svm_mini_t * mini ) {
+  fd_pubkey_t collector; memset( collector.uc, 0xA1, 32UL );
+  ulong root_idx; fd_pubkey_t vote;
+  ulong child_idx = setup_simd0123_fee_block( mini, &collector, 0U, 1, SIMD0232_FEE_EXECUTION, SIMD0232_FEE_PRIORITY, &root_idx, &vote );
+  fd_accdb_fork_id_t fork_id = fd_svm_mini_fork_id( mini, child_idx );
+  ulong vote_before = read_lamports( mini, fork_id, &vote );
+
+  fd_svm_mini_freeze( mini, child_idx );
+
+  FD_TEST( read_lamports( mini, fork_id, &collector )==0UL ); /* never created */
+  FD_TEST( read_lamports( mini, fork_id, &vote )==vote_before+SIMD0232_FEE_REWARD );
+  FD_TEST( read_vote_pending( mini, fork_id, &vote )==SIMD0232_FEE_REWARD );
+  FD_LOG_NOTICE(( "test_simd0123_fee_zero_commission: PASSED" ));
+}
+
+/* 2500 bps: commission to the collector, the rest to the vote account. */
+static void
+test_simd0123_fee_split( fd_svm_mini_t * mini ) {
+  ulong root_idx; fd_pubkey_t vote;
+  ulong child_idx = setup_simd0123_fee_block( mini, NULL, 2500U, 1, SIMD0232_FEE_EXECUTION, SIMD0232_FEE_PRIORITY, &root_idx, &vote );
+  fd_bank_t *        bank    = fd_svm_mini_bank   ( mini, child_idx );
+  fd_accdb_fork_id_t fork_id = fd_svm_mini_fork_id( mini, child_idx );
+  fd_pubkey_t const * leader = get_leader( bank );
+  fd_svm_mini_add_lamports( mini, fork_id, leader, 1000000000UL );
+  ulong leader_before = read_lamports( mini, fork_id, leader );
+  ulong vote_before   = read_lamports( mini, fork_id, &vote );
+
+  fd_svm_mini_freeze( mini, child_idx );
+
+  FD_TEST( read_lamports( mini, fork_id, leader )==leader_before+SIMD0123_VALIDATOR_FEE );
+  FD_TEST( read_lamports( mini, fork_id, &vote )==vote_before+SIMD0123_DELEGATOR_FEE );
+  FD_TEST( read_vote_pending( mini, fork_id, &vote )==SIMD0123_DELEGATOR_FEE );
+  FD_LOG_NOTICE(( "test_simd0123_fee_split: PASSED" ));
+}
+
+/* A stored commission above 10000 bps is clamped to 10000. */
+static void
+test_simd0123_fee_commission_clamped( fd_svm_mini_t * mini ) {
+  ulong root_idx; fd_pubkey_t vote;
+  ulong child_idx = setup_simd0123_fee_block( mini, NULL, USHORT_MAX, 1, SIMD0232_FEE_EXECUTION, SIMD0232_FEE_PRIORITY, &root_idx, &vote );
+  fd_bank_t *        bank    = fd_svm_mini_bank   ( mini, child_idx );
+  fd_accdb_fork_id_t fork_id = fd_svm_mini_fork_id( mini, child_idx );
+  fd_pubkey_t const * leader = get_leader( bank );
+  fd_svm_mini_add_lamports( mini, fork_id, leader, 1000000000UL );
+  ulong leader_before = read_lamports( mini, fork_id, leader );
+  ulong vote_before   = read_lamports( mini, fork_id, &vote );
+
+  fd_svm_mini_freeze( mini, child_idx );
+
+  FD_TEST( read_lamports( mini, fork_id, leader )==leader_before+SIMD0232_FEE_REWARD );
+  FD_TEST( read_lamports( mini, fork_id, &vote )==vote_before );
+  FD_TEST( read_vote_pending( mini, fork_id, &vote )==0UL );
+  FD_LOG_NOTICE(( "test_simd0123_fee_commission_clamped: PASSED" ));
+}
+
+/* The commission is truncated, the remainder goes to delegators:
+   reward 1500001 at 3333 bps -> 499950 / 1000051. */
+static void
+test_simd0123_fee_rounding( fd_svm_mini_t * mini ) {
+  ulong root_idx; fd_pubkey_t vote;
+  ulong child_idx = setup_simd0123_fee_block( mini, NULL, 3333U, 1, 1UL, 1500000UL, &root_idx, &vote );
+  fd_bank_t *        bank    = fd_svm_mini_bank   ( mini, child_idx );
+  fd_accdb_fork_id_t fork_id = fd_svm_mini_fork_id( mini, child_idx );
+  fd_pubkey_t const * leader = get_leader( bank );
+  fd_svm_mini_add_lamports( mini, fork_id, leader, 1000000000UL );
+  ulong leader_before = read_lamports( mini, fork_id, leader );
+  ulong vote_before   = read_lamports( mini, fork_id, &vote );
+
+  fd_svm_mini_freeze( mini, child_idx );
+
+  FD_TEST( read_lamports( mini, fork_id, leader )==leader_before+499950UL );
+  FD_TEST( read_lamports( mini, fork_id, &vote )==vote_before+1000051UL );
+  FD_TEST( read_vote_pending( mini, fork_id, &vote )==1000051UL );
+  FD_LOG_NOTICE(( "test_simd0123_fee_rounding: PASSED" ));
+}
+
+/* The delegator share accumulates on top of an existing pending
+   balance. */
+static void
+test_simd0123_fee_pending_accumulates( fd_svm_mini_t * mini ) {
+  ulong root_idx; fd_pubkey_t vote;
+  ulong child_idx = setup_simd0123_fee_block( mini, NULL, 2500U, 1, SIMD0232_FEE_EXECUTION, SIMD0232_FEE_PRIORITY, &root_idx, &vote );
+  edit_rooted_vote_account( mini, &vote, edit_set_pending, 40UL );
+  fd_accdb_fork_id_t fork_id = fd_svm_mini_fork_id( mini, child_idx );
+  ulong vote_before = read_lamports( mini, fork_id, &vote );
+
+  fd_svm_mini_freeze( mini, child_idx );
+
+  FD_TEST( read_lamports( mini, fork_id, &vote )==vote_before+SIMD0123_DELEGATOR_FEE );
+  FD_TEST( read_vote_pending( mini, fork_id, &vote )==40UL+SIMD0123_DELEGATOR_FEE );
+  FD_LOG_NOTICE(( "test_simd0123_fee_pending_accumulates: PASSED" ));
+}
+
+/* A vote address that is not vote program owned burns the delegator
+   share; the commission is still paid. */
+static void
+test_simd0123_fee_wrong_owner_burns( fd_svm_mini_t * mini ) {
+  ulong root_idx; fd_pubkey_t vote;
+  ulong child_idx = setup_simd0123_fee_block( mini, NULL, 2500U, 1, SIMD0232_FEE_EXECUTION, SIMD0232_FEE_PRIORITY, &root_idx, &vote );
+  edit_rooted_vote_account( mini, &vote, edit_set_system_owner, 0UL );
+  fd_bank_t *        bank    = fd_svm_mini_bank   ( mini, child_idx );
+  fd_accdb_fork_id_t fork_id = fd_svm_mini_fork_id( mini, child_idx );
+  fd_pubkey_t const * leader = get_leader( bank );
+  fd_svm_mini_add_lamports( mini, fork_id, leader, 1000000000UL );
+  ulong leader_before = read_lamports( mini, fork_id, leader );
+  ulong vote_before   = read_lamports( mini, fork_id, &vote );
+  ulong cap_before    = bank->f.capitalization;
+
+  fd_svm_mini_freeze( mini, child_idx );
+
+  FD_TEST( read_lamports( mini, fork_id, leader )==leader_before+SIMD0123_VALIDATOR_FEE );
+  FD_TEST( read_lamports( mini, fork_id, &vote )==vote_before );
+  FD_TEST( read_vote_pending( mini, fork_id, &vote )==0UL );
+  /* fees leave capitalization; only the commission returns */
+  FD_TEST( bank->f.capitalization==cap_before-(SIMD0232_FEE_EXECUTION+SIMD0232_FEE_PRIORITY)+SIMD0123_VALIDATOR_FEE );
+  FD_LOG_NOTICE(( "test_simd0123_fee_wrong_owner_burns: PASSED" ));
+}
+
+/* A pre-v4 vote state burns the delegator share. */
+static void
+test_simd0123_fee_pre_v4_burns( fd_svm_mini_t * mini ) {
+  ulong root_idx; fd_pubkey_t vote;
+  ulong child_idx = setup_simd0123_fee_block( mini, NULL, 2500U, 1, SIMD0232_FEE_EXECUTION, SIMD0232_FEE_PRIORITY, &root_idx, &vote );
+  edit_rooted_vote_account( mini, &vote, edit_set_v3, 0UL );
+  fd_bank_t *        bank    = fd_svm_mini_bank   ( mini, child_idx );
+  fd_accdb_fork_id_t fork_id = fd_svm_mini_fork_id( mini, child_idx );
+  fd_pubkey_t const * leader = get_leader( bank );
+  fd_svm_mini_add_lamports( mini, fork_id, leader, 1000000000UL );
+  ulong leader_before = read_lamports( mini, fork_id, leader );
+  ulong vote_before   = read_lamports( mini, fork_id, &vote );
+
+  fd_svm_mini_freeze( mini, child_idx );
+
+  FD_TEST( read_lamports( mini, fork_id, leader )==leader_before+SIMD0123_VALIDATOR_FEE );
+  FD_TEST( read_lamports( mini, fork_id, &vote )==vote_before );
+  FD_LOG_NOTICE(( "test_simd0123_fee_pre_v4_burns: PASSED" ));
+}
+
+/* An overflowing pending field burns the delegator share and leaves
+   the field unchanged. */
+static void
+test_simd0123_fee_pending_overflow_burns( fd_svm_mini_t * mini ) {
+  ulong root_idx; fd_pubkey_t vote;
+  ulong child_idx = setup_simd0123_fee_block( mini, NULL, 2500U, 1, SIMD0232_FEE_EXECUTION, SIMD0232_FEE_PRIORITY, &root_idx, &vote );
+  ulong pending0 = ULONG_MAX-SIMD0123_DELEGATOR_FEE+1UL;
+  edit_rooted_vote_account( mini, &vote, edit_set_pending, pending0 );
+  fd_accdb_fork_id_t fork_id = fd_svm_mini_fork_id( mini, child_idx );
+  ulong vote_before = read_lamports( mini, fork_id, &vote );
+
+  fd_svm_mini_freeze( mini, child_idx );
+
+  FD_TEST( read_lamports( mini, fork_id, &vote )==vote_before );
+  FD_TEST( read_vote_pending( mini, fork_id, &vote )==pending0 );
+  FD_LOG_NOTICE(( "test_simd0123_fee_pending_overflow_burns: PASSED" ));
+}
+
+/* A collector that fails validation burns only the commission; the
+   delegator share is still deposited. */
+static void
+test_simd0123_fee_collector_burn_keeps_delegator_share( fd_svm_mini_t * mini ) {
+  fd_bank_t * probe = fd_banks_root( mini->banks );
+  FD_TEST( SIMD0123_VALIDATOR_FEE<fd_rent_exempt_minimum_balance( &probe->f.rent, 0UL ) ); /* setup assumption */
+  fd_pubkey_t collector; memset( collector.uc, 0xA2, 32UL );
+  ulong root_idx; fd_pubkey_t vote;
+  ulong child_idx = setup_simd0123_fee_block( mini, &collector, 2500U, 1, SIMD0232_FEE_EXECUTION, SIMD0232_FEE_PRIORITY, &root_idx, &vote );
+  fd_accdb_fork_id_t fork_id = fd_svm_mini_fork_id( mini, child_idx );
+  ulong vote_before = read_lamports( mini, fork_id, &vote );
+
+  fd_svm_mini_freeze( mini, child_idx );
+
+  FD_TEST( read_lamports( mini, fork_id, &collector )==0UL );
+  FD_TEST( read_lamports( mini, fork_id, &vote )==vote_before+SIMD0123_DELEGATOR_FEE );
+  FD_TEST( read_vote_pending( mini, fork_id, &vote )==SIMD0123_DELEGATOR_FEE );
+  FD_LOG_NOTICE(( "test_simd0123_fee_collector_burn_keeps_delegator_share: PASSED" ));
+}
+
+/* Collector overridden to the vote account itself: both legs land on
+   the vote account, only the delegator share reaches the field. */
+static void
+test_simd0123_fee_vote_account_collector( fd_svm_mini_t * mini ) {
+  fd_svm_mini_params_t params[1];
+  fd_svm_mini_params_default( params );
+  ulong root_idx = fd_svm_mini_reset( mini, params );
+  fd_bank_t * root_bank = fd_svm_mini_bank( mini, root_idx );
+  FD_FEATURE_SET_ACTIVE( &root_bank->f.features, custom_commission_collector, 0UL );
+  FD_FEATURE_SET_ACTIVE( &root_bank->f.features, block_revenue_sharing,       0UL );
+
+  ulong child_idx = fd_svm_mini_attach_child( mini, root_idx, 2UL );
+  fd_bank_t *        bank    = fd_svm_mini_bank   ( mini, child_idx );
+  fd_accdb_fork_id_t fork_id = fd_svm_mini_fork_id( mini, child_idx );
+
+  fd_epoch_leaders_t const * leaders = fd_bank_epoch_leaders_query( bank, bank->f.epoch );
+  fd_pubkey_t vote = *fd_epoch_leaders_get_vote( leaders, bank->f.slot );
+  fd_vote_stakes_set_block_revenue_t_2( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id, &vote, 2500U, 0UL );
+  fd_collector_overrides_upsert( fd_bank_collector_overrides( bank ), bank->collector_overrides_fork_id,
+                                 fd_ulong_sat_sub( bank->f.epoch, 1UL ), &vote, 0, NULL, 1, &vote );
+  bank->f.execution_fees = SIMD0232_FEE_EXECUTION;
+  bank->f.priority_fees  = SIMD0232_FEE_PRIORITY;
+  ulong vote_before = read_lamports( mini, fork_id, &vote );
+
+  fd_svm_mini_freeze( mini, child_idx );
+
+  FD_TEST( read_lamports( mini, fork_id, &vote )==vote_before+SIMD0232_FEE_REWARD );
+  FD_TEST( read_vote_pending( mini, fork_id, &vote )==SIMD0123_DELEGATOR_FEE );
+  FD_LOG_NOTICE(( "test_simd0123_fee_vote_account_collector: PASSED" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -989,6 +1343,19 @@ main( int     argc,
   test_simd0232_fee_relax_deposit( mini );
   test_simd0232_fee_reserved_sweep( mini );
   test_simd0232_fee_capture_chain( mini );
+
+  test_simd0123_fee_feature_off( mini );
+  test_simd0123_fee_default_commission( mini );
+  test_simd0123_fee_zero_commission( mini );
+  test_simd0123_fee_split( mini );
+  test_simd0123_fee_commission_clamped( mini );
+  test_simd0123_fee_rounding( mini );
+  test_simd0123_fee_pending_accumulates( mini );
+  test_simd0123_fee_wrong_owner_burns( mini );
+  test_simd0123_fee_pre_v4_burns( mini );
+  test_simd0123_fee_pending_overflow_burns( mini );
+  test_simd0123_fee_collector_burn_keeps_delegator_share( mini );
+  test_simd0123_fee_vote_account_collector( mini );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_svm_test_halt( mini );

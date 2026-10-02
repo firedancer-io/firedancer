@@ -21,6 +21,7 @@ typedef struct fork fork_t;
 struct __attribute__((packed, aligned(4UL))) partition_ele {
   fd_pubkey_t pubkey;
   ulong       lamports;
+  ulong       block_reward;     /* SIMD-0123 block revenue share, lamports only */
   ulong       credits_observed;
   uint        next;
 };
@@ -35,6 +36,7 @@ struct fork_info {
   uint  ready;   /* finalized and cached, including empty windows */
   ulong starting_block_height;
   ulong total_stake_rewards;
+  ulong total_block_rewards;
   ulong refcnt;
 };
 typedef struct fork_info fork_info_t;
@@ -315,6 +317,7 @@ fork_reset_meta( fork_info_t * fork_info ) {
   fork_info->ready                 = 0U;
   fork_info->starting_block_height = 0UL;
   fork_info->total_stake_rewards   = 0UL;
+  fork_info->total_block_rewards   = 0UL;
   fork_info->refcnt                = 0UL;
 }
 
@@ -433,7 +436,8 @@ fd_stake_rewards_insert( fd_stake_rewards_t * stake_rewards,
                          ushort               fork_idx,
                          fd_pubkey_t const *  pubkey,
                          ulong                lamports,
-                         ulong                credits_observed ) {
+                         ulong                credits_observed,
+                         ulong                block_reward ) {
 
   FD_STATIC_ASSERT( sizeof(fd_pubkey_t)==32UL, partition_hash_size );
   FD_CHECK_CRIT( stake_rewards->staging_fork==(uint)fork_idx,
@@ -446,6 +450,7 @@ fd_stake_rewards_insert( fd_stake_rewards_t * stake_rewards,
   /* The total covers the whole epoch, not just the window, so that it
      does not depend on where the window happens to sit. */
   fork_info->total_stake_rewards += lamports;
+  fork_info->total_block_rewards += block_reward;
 
   if( FD_UNLIKELY( partition_index<fork_info->win_lo || partition_index>fork_info->win_hi ) ) return;
 
@@ -458,6 +463,7 @@ fd_stake_rewards_insert( fd_stake_rewards_t * stake_rewards,
   partition_ele_t * partition_ele = buf + curr_fork_len;
   partition_ele->pubkey           = *pubkey;
   partition_ele->lamports         = lamports;
+  partition_ele->block_reward     = block_reward;
   partition_ele->credits_observed = credits_observed;
   partition_ele->next             = UINT_MAX;
 
@@ -572,7 +578,8 @@ fd_stake_rewards_iter_ele( fd_stake_rewards_t * stake_rewards,
                            ushort               fork_idx,
                            fd_pubkey_t *        pubkey_out,
                            ulong *              lamports_out,
-                           ulong *              credits_observed_out ) {
+                           ulong *              credits_observed_out,
+                           ulong *              block_reward_out ) {
   FD_CHECK_CRIT( stake_rewards->iter_fork==(uint)fork_idx,
                  "iterator fork mismatch" );
   FD_CHECK_CRIT( stake_rewards->iter_idx!=UINT_MAX,
@@ -584,12 +591,19 @@ fd_stake_rewards_iter_ele( fd_stake_rewards_t * stake_rewards,
   *pubkey_out           = ele->pubkey;
   *lamports_out         = ele->lamports;
   *credits_observed_out = ele->credits_observed;
+  if( block_reward_out ) *block_reward_out = ele->block_reward;
 }
 
 ulong
 fd_stake_rewards_total_rewards( fd_stake_rewards_t const * stake_rewards,
                                 ushort                     fork_idx ) {
   return get_fork_info( stake_rewards, fork_idx )->total_stake_rewards;
+}
+
+ulong
+fd_stake_rewards_total_block_rewards( fd_stake_rewards_t const * stake_rewards,
+                                      ushort                     fork_idx ) {
+  return get_fork_info( stake_rewards, fork_idx )->total_block_rewards;
 }
 
 uint
