@@ -63,7 +63,7 @@ typedef struct ag_event_timeout ag_event_timeout_t;
    Votor, but instead are translated into outgoing messages to other
    tiles (see fd_votor_tile.h). */
 
-/* Definition 11. ConsensusMessage::Vote, queued for the tile to send */
+/* Definition 11. ConsensusMessage::Vote */
 
 struct ag_event_vote {
   ulong     seq;
@@ -73,7 +73,7 @@ struct ag_event_vote {
 };
 typedef struct ag_event_vote ag_event_vote_t;
 
-/* Definition 11. ConsensusMessage::Cert, queued for the tile to send */
+/* Definition 11. PoolImpl::votor_event_channel */
 
 struct ag_event_cert {
   ulong     seq;
@@ -81,6 +81,8 @@ struct ag_event_cert {
   ag_cert_t cert;
 };
 typedef struct ag_event_cert ag_event_cert_t;
+
+/* Section 2.8. PoolImpl::repair_channel */
 
 struct ag_event_repair {
   ulong         seq;
