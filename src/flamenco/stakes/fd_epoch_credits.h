@@ -5,34 +5,17 @@
 
 /* fd_epoch_credits_store_t holds the epoch credits of every rewarded
    vote account.  They are captured when a bank crosses an epoch
-   boundary, and are read again for the rest of the epoch: by a
-   recalculation that repositions a stake rewards window, and by
-   snapshot creation.  Sibling banks crossing the same boundary capture
-   different sets, inherited by descendants and reference counted so
-   that a set lives exactly as long as the banks and pinned readers
-   using it.
-
-   Sets are identified by fork id.  There is one logical set per live
-   slot, but only a configured number of full sets reside in memory.
-   Unpinned cache entries spill to a backing file.  Every process
-   joining the store must have that file open at the same descriptor.
-
-   All operations take an internal exclusive lock. */
-
-/* Sets beyond the in-memory cache spill to this boot-created, unlinked
-   file.  123457 is the stake-delegation spill, 123458/123459 are store,
-   123460/123461 are accdb, and 123462+ are reserved by XDP. */
+   boundary, and are read again for the rest of the epoch.  The
+   representation of the epoch credits is stored across an in-memory
+   cache and a backing file.  Generally, the epoch credits are not
+   expected to spill to disk and will only happen in degenerate network
+   conditions. */
 
 #define FD_EPOCH_CREDITS_FD          (123456)
 #define FD_EPOCH_CREDITS_STORE_ALIGN (128UL)
 
 struct fd_epoch_credits_store;
 typedef struct fd_epoch_credits_store fd_epoch_credits_store_t;
-
-/* A view pins one set in the memory cache.  credits and len are valid
-   until fini.  write must be nonzero when credits or len will be
-   modified.  Every successful init must be paired with fini promptly so
-   another cold set can reuse the cache entry. */
 
 struct fd_epoch_credits_view {
   fd_epoch_credits_t *       credits;
@@ -66,9 +49,6 @@ fd_epoch_credits_store_new( void * shmem,
                             int    disk_fd,
                             ulong  max_live_slots,
                             ulong  cache_cnt );
-
-/* disk_fd must match the descriptor provided to
-   fd_epoch_credits_store_new. */
 
 fd_epoch_credits_store_t *
 fd_epoch_credits_store_join( void * shmem,

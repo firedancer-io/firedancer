@@ -439,9 +439,9 @@ setup_ctx_with_fork_width( fd_replay_tile_t * ctx,
 
   /* Real banks — initialize root bank. */
 
-  void * banks_mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( TEST_BANKS_MAX, max_fork_width, 2048UL, 2048UL, 4UL ), 1UL );
+  void * banks_mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( TEST_BANKS_MAX, max_fork_width, 2048UL, 2048UL ), 1UL );
   FD_TEST( banks_mem );
-  ctx->banks = fd_banks_join( fd_banks_new( banks_mem, FD_STAKE_DELEGATIONS_FD, TEST_BANKS_MAX, max_fork_width, 2048UL, 32768UL, 2048UL, 4UL, 0, 42UL ) );
+  ctx->banks = fd_banks_join( fd_banks_new( banks_mem, FD_STAKE_DELEGATIONS_FD, TEST_BANKS_MAX, max_fork_width, 2048UL, 32768UL, 2048UL, 0, 42UL ) );
   FD_TEST( ctx->banks );
   fd_bank_t * root_bank = fd_banks_init_bank( ctx->banks );
   FD_TEST( root_bank );
@@ -1264,9 +1264,9 @@ test_wait_info_produced_incr_cnt( fd_wksp_t * wksp ) {
   ulong chunk0 = fd_dcache_compact_chunk0( ctx->in[ in_idx ].mem, dcache );
 
   ulong const bank_cnt = 4UL;
-  void * banks_mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( bank_cnt, bank_cnt, 8UL, 8UL, 4UL ), 1UL );
+  void * banks_mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( bank_cnt, bank_cnt, 8UL, 8UL ), 1UL );
   FD_TEST( banks_mem );
-  ctx->banks = fd_banks_join( fd_banks_new( banks_mem, FD_STAKE_DELEGATIONS_FD, bank_cnt, bank_cnt, 8UL, 128UL, 8UL, 4UL, 0, 43UL ) );
+  ctx->banks = fd_banks_join( fd_banks_new( banks_mem, FD_STAKE_DELEGATIONS_FD, bank_cnt, bank_cnt, 8UL, 128UL, 8UL, 0, 43UL ) );
   FD_TEST( ctx->banks );
 
   fd_bank_t * root = fd_banks_init_bank( ctx->banks );
@@ -1448,9 +1448,9 @@ test_consensus_root_notification_handoff( fd_wksp_t * wksp ) {
   setup_node_info( ctx );
 
   ulong const bank_cnt = 4UL;
-  void * banks_mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( bank_cnt, bank_cnt, 8UL, 8UL, 4UL ), 1UL );
+  void * banks_mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( bank_cnt, bank_cnt, 8UL, 8UL ), 1UL );
   FD_TEST( banks_mem );
-  ctx->banks = fd_banks_join( fd_banks_new( banks_mem, FD_STAKE_DELEGATIONS_FD, bank_cnt, bank_cnt, 8UL, 128UL, 8UL, 4UL, 0, 43UL ) );
+  ctx->banks = fd_banks_join( fd_banks_new( banks_mem, FD_STAKE_DELEGATIONS_FD, bank_cnt, bank_cnt, 8UL, 128UL, 8UL, 0, 43UL ) );
   FD_TEST( ctx->banks );
 
   fd_bank_t * root = fd_banks_init_bank( ctx->banks );
@@ -1641,9 +1641,9 @@ setup_rooting_ctx( fd_replay_tile_t * ctx,
   ctx->alpenglow = 1;
 
   ulong const bank_cnt = 8UL;
-  void * banks_mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( bank_cnt, bank_cnt, 8UL, 8UL, 4UL ), 1UL );
+  void * banks_mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( bank_cnt, bank_cnt, 8UL, 8UL ), 1UL );
   FD_TEST( banks_mem );
-  ctx->banks = fd_banks_join( fd_banks_new( banks_mem, FD_STAKE_DELEGATIONS_FD, bank_cnt, bank_cnt, 8UL, 128UL, 8UL, 4UL, 0, 43UL ) );
+  ctx->banks = fd_banks_join( fd_banks_new( banks_mem, FD_STAKE_DELEGATIONS_FD, bank_cnt, bank_cnt, 8UL, 128UL, 8UL, 0, 43UL ) );
   FD_TEST( ctx->banks );
 
   fd_bank_t * root = fd_banks_init_bank( ctx->banks );

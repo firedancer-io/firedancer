@@ -234,8 +234,7 @@ ulong
 fd_banks_footprint( ulong max_total_banks,
                     ulong max_fork_width,
                     ulong max_stake_accounts,
-                    ulong max_vote_accounts,
-                    ulong epoch_credits_cache_cnt ) {
+                    ulong max_vote_accounts ) {
 
   /* max_fork_width is used in the macro below. */
 
@@ -250,7 +249,7 @@ fd_banks_footprint( ulong max_total_banks,
   l = FD_LAYOUT_APPEND( l, fd_banks_dead_align(),             fd_banks_dead_footprint() );
   l = FD_LAYOUT_APPEND( l, fd_bank_cost_tracker_pool_align(), fd_bank_cost_tracker_pool_footprint( max_fork_width ) );
   l = FD_LAYOUT_APPEND( l, fd_stake_rewards_align(),          fd_stake_rewards_footprint( max_stake_accounts, max_total_banks, FD_BANKS_STAKE_REWARDS_CACHE_CNT ) );
-  l = FD_LAYOUT_APPEND( l, fd_epoch_credits_store_align(),    fd_epoch_credits_store_footprint( max_total_banks, epoch_credits_cache_cnt ) );
+  l = FD_LAYOUT_APPEND( l, fd_epoch_credits_store_align(),    fd_epoch_credits_store_footprint( max_total_banks, max_fork_width ) );
   l = FD_LAYOUT_APPEND( l, fd_collector_overrides_align(),    fd_collector_overrides_footprint( FD_COLLECTOR_OVERRIDES_MAX( max_fork_width ) ) );
   return FD_LAYOUT_FINI( l, fd_banks_align() );
 }
@@ -263,7 +262,6 @@ fd_banks_new( void * shmem,
               ulong  max_stake_accounts,
               ulong  max_disk_records,
               ulong  max_vote_accounts,
-              ulong  epoch_credits_cache_cnt,
               ulong  bench_max_cost_per_block,
               ulong  seed ) {
   if( FD_UNLIKELY( !shmem ) ) {
@@ -284,10 +282,6 @@ fd_banks_new( void * shmem,
     FD_LOG_WARNING(( "max_fork_width is too large" ));
     return NULL;
   }
-  if( FD_UNLIKELY( !epoch_credits_cache_cnt ) ) {
-    FD_LOG_WARNING(( "epoch_credits_cache_cnt must be nonzero" ));
-    return NULL;
-  }
   /* The collector override store reserves one membership bit for the
      root in addition to max_fork_width child fork bits. */
   if( FD_UNLIKELY( max_fork_width>FD_COLLECTOR_OVERRIDES_MAX_FORK_WIDTH ) ) {
@@ -306,10 +300,10 @@ fd_banks_new( void * shmem,
   void *       dead_banks_mem          = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_dead_align(),             fd_banks_dead_footprint() );
   void *       cost_tracker_pool_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_cost_tracker_pool_align(), fd_bank_cost_tracker_pool_footprint( max_fork_width ) );
   void *       stake_rewards_pool_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_rewards_align(),          fd_stake_rewards_footprint( max_stake_accounts, max_total_banks, FD_BANKS_STAKE_REWARDS_CACHE_CNT ) );
-  void *       epoch_credits_mem       = FD_SCRATCH_ALLOC_APPEND( l, fd_epoch_credits_store_align(),    fd_epoch_credits_store_footprint( max_total_banks, epoch_credits_cache_cnt ) );
+  void *       epoch_credits_mem       = FD_SCRATCH_ALLOC_APPEND( l, fd_epoch_credits_store_align(),    fd_epoch_credits_store_footprint( max_total_banks, max_fork_width ) );
   void *       collector_overrides_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_collector_overrides_align(),    fd_collector_overrides_footprint( FD_COLLECTOR_OVERRIDES_MAX( max_fork_width ) ) );
 
-  if( FD_UNLIKELY( FD_SCRATCH_ALLOC_FINI( l, fd_banks_align() ) != (ulong)banks_data + fd_banks_footprint( max_total_banks, max_fork_width, max_stake_accounts, max_vote_accounts, epoch_credits_cache_cnt ) ) ) {
+  if( FD_UNLIKELY( FD_SCRATCH_ALLOC_FINI( l, fd_banks_align() ) != (ulong)banks_data + fd_banks_footprint( max_total_banks, max_fork_width, max_stake_accounts, max_vote_accounts ) ) ) {
     FD_LOG_WARNING(( "fd_banks_new: bad layout" ));
     return NULL;
   }
@@ -379,7 +373,7 @@ fd_banks_new( void * shmem,
   }
   banks_data->stake_rewards_offset = (ulong)stake_rewards - (ulong)banks_data;
 
-  fd_epoch_credits_store_t * epoch_credits = fd_epoch_credits_store_join( fd_epoch_credits_store_new( epoch_credits_mem, FD_EPOCH_CREDITS_FD, max_total_banks, epoch_credits_cache_cnt ), FD_EPOCH_CREDITS_FD );
+  fd_epoch_credits_store_t * epoch_credits = fd_epoch_credits_store_join( fd_epoch_credits_store_new( epoch_credits_mem, FD_EPOCH_CREDITS_FD, max_total_banks, max_fork_width ), FD_EPOCH_CREDITS_FD );
   if( FD_UNLIKELY( !epoch_credits ) ) {
     FD_LOG_WARNING(( "Failed to create epoch credits" ));
     return NULL;
@@ -417,7 +411,6 @@ fd_banks_new( void * shmem,
   banks_data->max_fork_width     = max_fork_width;
   banks_data->max_stake_accounts = max_stake_accounts;
   banks_data->max_vote_accounts  = max_vote_accounts;
-  banks_data->epoch_credits_cache_cnt = epoch_credits_cache_cnt;
   banks_data->root_idx           = ULONG_MAX;
   banks_data->evict_rr_idx       = seed;
   banks_data->prunable_idx       = ULONG_MAX;
@@ -459,7 +452,7 @@ fd_banks_join( void * banks_data_mem ) {
   void * dead_banks_mem        = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_dead_align(),             fd_banks_dead_footprint() );
   void * cost_tracker_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_cost_tracker_pool_align(), fd_bank_cost_tracker_pool_footprint( banks_data->max_fork_width ) );
   void * stake_rewards_mem     = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_rewards_align(),          fd_stake_rewards_footprint( banks_data->max_stake_accounts, banks_data->max_total_banks, FD_BANKS_STAKE_REWARDS_CACHE_CNT ) );
-  void * epoch_credits_mem     = FD_SCRATCH_ALLOC_APPEND( l, fd_epoch_credits_store_align(),    fd_epoch_credits_store_footprint( banks_data->max_total_banks, banks_data->epoch_credits_cache_cnt ) );
+  void * epoch_credits_mem     = FD_SCRATCH_ALLOC_APPEND( l, fd_epoch_credits_store_align(),    fd_epoch_credits_store_footprint( banks_data->max_total_banks, banks_data->max_fork_width ) );
   void * collector_overrides_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_collector_overrides_align(),  fd_collector_overrides_footprint( FD_COLLECTOR_OVERRIDES_MAX( banks_data->max_fork_width ) ) );
   (void)collector_overrides_mem;
 

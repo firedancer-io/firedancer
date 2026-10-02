@@ -380,7 +380,6 @@ struct fd_banks {
   ulong max_fork_width;              /* Maximum fork width executing through any given slot. */
   ulong max_stake_accounts;          /* Maximum number of stake accounts */
   ulong max_vote_accounts;           /* Maximum number of vote accounts */
-  ulong epoch_credits_cache_cnt;     /* Maximum number of epoch credit sets in memory */
   ulong root_idx;                    /* root idx */
   ulong bank_seq;                    /* app-wide bank sequence number counter; starts at 1 (0 is reserved as an invalid bank_seq sentinel) */
   ulong evict_rr_idx;                /* internal index for round-robin banks eviction */
@@ -528,8 +527,7 @@ ulong
 fd_banks_footprint( ulong max_total_banks,
                     ulong max_fork_width,
                     ulong max_stake_accounts,
-                    ulong max_vote_accounts,
-                    ulong epoch_credits_cache_cnt );
+                    ulong max_vote_accounts );
 
 /* fd_banks_new() creates a new fd_banks_t struct.  This function
    lays out the memory for all of the constituent fd_bank_t structs
@@ -545,7 +543,6 @@ fd_banks_new( void * mem,
               ulong  max_stake_accounts,
               ulong  max_disk_records,
               ulong  max_vote_accounts,
-              ulong  epoch_credits_cache_cnt,
               ulong  bench_max_cost_per_block, /* [development.bench], floors the block cost limit */
               ulong  seed );
 
