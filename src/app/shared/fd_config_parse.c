@@ -134,6 +134,17 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( ulong,  snapshots.server.send_timeout_millis                );
   CFG_POP      ( ulong,  snapshots.server.send_buffer_size_kib               );
 
+  CFG_POP      ( bool,   failover.enabled                                    );
+  CFG_POP      ( cstr,   failover.listen_address                             );
+  CFG_POP      ( ushort, failover.listen_port                                );
+
+  /* Keys of earlier failover editions stay unrecognized, an ignored one
+     could boot both machines under the staked key, but we say what
+     replaced them. */
+  if( FD_UNLIKELY( !fd_pod_query( pod, "failover.junk_identity_key", NULL ) ) ) FD_LOG_WARNING(( "[failover.junk_identity_key] is gone, the junk identity is generated at [paths.base]/junk-identity.json" ));
+  if( FD_UNLIKELY( !fd_pod_query( pod, "failover.port",              NULL ) ) ) FD_LOG_WARNING(( "[failover.port] is now [failover.listen_port]" ));
+  if( FD_UNLIKELY( !fd_pod_query( pod, "failover.peer_address",      NULL ) ) ) FD_LOG_WARNING(( "[failover.peer_address] is gone, give the active's address to `failover promote --address`" ));
+
   CFG_POP      ( bool,   development.hard_fork_fatal                         );
   CFG_POP      ( bool,   development.fixed_fec_sets                          );
   CFG_POP      ( bool,   development.alpenglow                               );
