@@ -75,6 +75,50 @@ FD_STATIC_ASSERT( ( FD_SHRED_BATCH_FEC_SETS_EXTRA * FD_SHREDDER_CHAINED_FEC_SET_
 FD_STATIC_ASSERT( ( FD_SHRED_BATCH_WMARK_NORMAL   ) > ( FD_POH_SHRED_MTU ), FD_SHRED_BATCH_WMARK_NORMAL   );
 FD_STATIC_ASSERT( ( FD_SHRED_BATCH_WMARK_CHAINED  ) > ( FD_POH_SHRED_MTU ), FD_SHRED_BATCH_WMARK_CHAINED  );
 
+/* fd_shred_batch_step is the shred tile's batching rule for an entry
+   frag from motor: entry_sz bytes of entries arriving with pos
+   bytes in the open batch, block_complete from its meta, and new_slot
+   set if it is the first frag of its slot.  It returns
+   FD_SHRED_BATCH_INCLUDE if the frag is appended to the open batch,
+   ORed with FD_SHRED_BATCH_SHRED if a batch is shredded on it.
+
+   A frag that completes the block or opens a slot is appended and the
+   batch shredded after it.  A frag that would take the batch past the
+   watermark shreds the open batch and opens the next one.  A marker
+   (block_complete==-1) shreds an open batch and is then a batch of its
+   own. */
+
+#define FD_SHRED_BATCH_INCLUDE (1)
+#define FD_SHRED_BATCH_SHRED   (2)
+
+FD_FN_CONST static inline int
+fd_shred_batch_step( ulong pos,
+                     ulong entry_sz,
+                     int   block_complete,
+                     int   new_slot ) {
+  ulong wmark   = FD_SHRED_BATCH_WMARK_CHAINED;
+  int   marker  = block_complete==-1;
+  int   forced  = (block_complete!=0) | new_slot;
+  int   exceeds = pos+entry_sz>wmark;
+  int   include = (!marker) & ( forced | (!exceeds) );
+  int   shred   = marker ? pos>0UL : ( forced | exceeds );
+  return include | (shred<<1);
+}
+
+/* fd_shred_batch_pos returns the bytes in the open batch after the
+   frag fd_shred_batch_step describes. */
+
+FD_FN_CONST static inline ulong
+fd_shred_batch_pos( ulong pos,
+                    ulong entry_sz,
+                    int   block_complete,
+                    int   new_slot ) {
+  int step = fd_shred_batch_step( pos, entry_sz, block_complete, new_slot );
+  if( step==FD_SHRED_BATCH_INCLUDE                         ) return pos+entry_sz;
+  if( step==FD_SHRED_BATCH_SHRED && block_complete!=-1     ) return entry_sz; /* opened the next batch */
+  return 0UL; /* shredded after it, or a marker */
+}
+
 /* There are two different raw buffer sizes depending on the FEC
    set type: normal and chained (see fd_shredder.h for further details).
    In order to support all three, we allocate the largest of them (i.e.
