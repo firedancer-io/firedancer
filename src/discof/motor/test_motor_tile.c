@@ -56,14 +56,14 @@ main( int     argc,
     link->dcache_obj_id = i+1UL;
     link->dcache        = test_dcache_new( wksp, depth, mtus[i] );
     topo->objs[i+1UL].id = i+1UL;
-    if( i<3UL ) tile->in_link_id[i] = i;
+    if( i<3UL ) { tile->in_link_id[i] = i; tile->in_link_poll[i] = 1; }
     else        tile->out_link_id[i-3UL] = i;
   }
   tile->in_cnt  = 3UL;
   tile->out_cnt = 2UL;
   unprivileged_init( topo, tile );
   fd_motor_tile_t * ctx = scratch;
-  FD_TEST( ctx->slot==ULONG_MAX && !ctx->expect_pack_idx );
+  FD_TEST( ctx->slot==ULONG_MAX && !ctx->expect_pack_idx && ctx->poll_cnt==3UL );
 
   fd_frag_meta_t * mcaches[2] = { test_mcache_new( wksp, depth ), test_mcache_new( wksp, depth ) };
   ulong seqs[2]             = { 0UL, 0UL };
@@ -82,7 +82,16 @@ main( int     argc,
   FD_TEST( before_frag( ctx, 0UL, 0UL, fd_disco_execle_sig( 0UL, 0UL ) )==-1 );
   FD_TEST( before_frag( ctx, 1UL, 0UL, fd_disco_execle_sig( 0UL, 0UL ) )==-1 );
 
-  for( ulong slot=1UL; slot<=2UL; slot++ ) {
+  /* A parking stem (slot 1) flushes the open frag after poll_cnt idle
+     loops, a spinning one (slot 2) after twice that, and done_packing
+     flushes it (slot 3).  The sleep region has no consumers to wake. */
+  static ushort          wake_off[3];
+  static fd_sleep_wake_t wake[1];
+  void * sleep_mem = fd_wksp_alloc_laddr( wksp, fd_sleep_align(), fd_sleep_footprint(), 1UL );
+  fd_sleep_t * parking = fd_sleep_join( fd_sleep_new( sleep_mem, 1.0 ) );
+  FD_TEST( parking );
+
+  for( ulong slot=1UL; slot<=3UL; slot++ ) {
     uint pack_idx = ctx->expect_pack_idx;
     ulong execle_sig = fd_disco_execle_sig( slot, pack_idx );
     ulong pack_sig   = fd_disco_execle_sig( slot, pack_idx+1U );
@@ -138,9 +147,35 @@ main( int     argc,
     fd_memset( trailer, 0, sizeof(*trailer) );
     FD_TEST( !before_frag( ctx, 0UL, 0UL, execle_sig ) );
     FD_TEST( !returnable_frag( ctx, 0UL, 0UL, execle_sig, execle_chunk, sizeof(*txn)+sizeof(*trailer), 0UL, 0UL, 0UL, stem ) );
-    FD_TEST( ctx->expect_pack_idx==pack_idx+1U && seqs[0]==4UL*(slot-1UL)+2UL );
+    after_frag( ctx, 0UL, 0UL, execle_sig, 0UL, 0UL, 0UL, stem ); /* as the stem does for a taken frag */
+
+    /* The header went out alone, the entry waits in the open frag */
+    FD_TEST( ctx->expect_pack_idx==pack_idx+1U && seqs[0]==4UL*(slot-1UL)+1UL && ctx->shred->pend_sz );
+    fd_entry_batch_meta_t const * hdr = fd_chunk_to_laddr_const( wksp, mcaches[0][4UL*(slot-1UL)].chunk );
+    FD_TEST( hdr->block_complete==-1 && !hdr->entry_cnt );
+
+    if( slot<3UL ) {
+      stem->sleep    = slot==1UL ? parking : NULL;
+      stem->wake     = wake;
+      stem->wake_off = wake_off;
+      ulong idle_max = slot==1UL ? 3UL : 6UL;
+      for( ulong i=0UL; i<idle_max+1UL; i++ ) {
+        int busy = 0;
+        int poll = 1;
+        before_credit( ctx, stem, &busy );
+        after_credit( ctx, stem, &poll, &busy );
+        FD_TEST( busy==(i+1UL==idle_max) && seqs[0]==4UL*(slot-1UL)+1UL+(ulong)(i+1UL>=idle_max) );
+      }
+      stem->sleep = NULL;
+    }
+
     FD_TEST( !returnable_frag( ctx, 1UL, 0UL, pack_sig, pack_chunk, sizeof(*done), 0UL, 0UL, 0UL, stem ) );
     FD_TEST( ctx->expect_pack_idx==pack_idx+2U && seqs[1]==slot );
+    FD_TEST( seqs[0]==4UL*(slot-1UL)+2UL && !ctx->shred->pend_sz ); /* done_packing flushes */
+    fd_frag_meta_t const * em = mcaches[0]+4UL*(slot-1UL)+1UL;
+    fd_entry_batch_meta_t const * ent = fd_chunk_to_laddr_const( wksp, em->chunk );
+    FD_TEST( !ent->block_complete && ent->entry_cnt==1 && ent->txn_cnt==1 );
+    FD_TEST( em->sz==sizeof(fd_entry_batch_meta_t)+sizeof(fd_entry_batch_header_t)+FD_TXN_SIGNATURE_SZ );
     fd_poh_leader_slot_ended_t const * ended = fd_chunk_to_laddr_const( wksp, mcaches[1][slot-1UL].chunk );
     FD_TEST( ended->completed && ended->slot==slot && ended->microblock_count==1UL );
 
@@ -149,8 +184,10 @@ main( int     argc,
     footer->slot = slot;
     FD_TEST( !returnable_frag( ctx, 2UL, 0UL, REPLAY_SIG_LEADER_FOOTER, replay_chunk, sizeof(*footer), 0UL, 0UL, 0UL, stem ) );
     FD_TEST( seqs[0]==4UL*slot && seqs[1]==slot );
+    fd_entry_batch_meta_t const * ftr  = fd_chunk_to_laddr_const( wksp, mcaches[0][4UL*slot-2UL].chunk );
     fd_entry_batch_meta_t const * meta = fd_chunk_to_laddr_const( wksp, mcaches[0][4UL*slot-1UL].chunk );
-    FD_TEST( meta->block_complete==1 );
+    FD_TEST( ftr->block_complete==-1 && !ftr->entry_cnt );
+    FD_TEST( meta->block_complete==1 && meta->entry_cnt==1 && !meta->txn_cnt );
   }
 
   fd_wksp_delete_anonymous( wksp );
