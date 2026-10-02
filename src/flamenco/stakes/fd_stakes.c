@@ -567,6 +567,7 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
   ulong staked_accounts            = 0UL;
   int   use_fixed_point_stake_math = FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 );
   int   alpenglow_enabled          = FD_FEATURE_ACTIVE_BANK( bank, alpenglow );
+  int   block_revenue_sharing      = FD_FEATURE_ACTIVE_BANK( bank, block_revenue_sharing );
   int   accumulate_reward_stakes   = alpenglow_enabled && rewarded_epoch!=ULONG_MAX;
 
   fd_stake_accum_t *     stake_accum_pool = runtime_stack->stakes.stake_accum;
@@ -655,7 +656,16 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
       continue;
     }
 
-    if( FD_UNLIKELY( !fd_stakes_vote_account_is_admissible( bank, acc.lamports, acc.owner, acc.data, acc.data_len ) ) ) {
+    /* SIMD-0123: delegator rewards do not count towards the balance
+       https://github.com/anza-xyz/agave/blob/v4.4/vote/src/vote_account.rs#L225-L234 */
+    ulong available_balance = acc.lamports;
+    if( block_revenue_sharing ) {
+      ulong pending_delegator_rewards = 0UL;
+      if( FD_LIKELY( !fd_vote_account_pending_delegator_rewards( acc.data, acc.data_len, &pending_delegator_rewards ) ) ) {
+        available_balance = fd_ulong_sat_sub( acc.lamports, pending_delegator_rewards );
+      }
+    }
+    if( FD_UNLIKELY( !fd_stakes_vote_account_is_admissible( bank, available_balance, acc.owner, acc.data, acc.data_len ) ) ) {
       fd_accdb_unread_one( accdb, &acc );
       continue;
     }

@@ -23,6 +23,7 @@ struct fd_calculated_stake_rewards {
   ulong staker_rewards;
   ulong voter_rewards;
   ulong new_credits_observed;
+  ulong block_reward; /* SIMD-0123 share of the vote account pending delegator rewards */
   uchar success;
 };
 typedef struct fd_calculated_stake_rewards fd_calculated_stake_rewards_t;
@@ -110,6 +111,7 @@ struct fd_runtime_stack {
     ulong       total_rewards;
     ulong       distributed_rewards;
     fd_w_u128_t total_points;
+    ulong       block_rewards; /* SIMD-0123 pending delegator rewards swept out of vote accounts at the boundary */
 
     ulong stake_rewards_cnt;
 

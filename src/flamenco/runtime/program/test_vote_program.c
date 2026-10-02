@@ -668,6 +668,31 @@ test_deposit_delegator_rewards_unstaked( fd_svm_mini_t * mini ) {
   FD_LOG_NOTICE(( "test_deposit_delegator_rewards_unstaked... ok" ));
 }
 
+/* Stake in the next epoch's schedule only (t-1 set, what
+   sol_get_epoch_stake reports) -> InvalidArgument, nothing moves. */
+static void
+test_deposit_delegator_rewards_next_epoch_only( fd_svm_mini_t * mini ) {
+  static test_env_t env[1];
+  setup_test( env, mini );
+  enable_simd0123_features( env );
+  setup_account_initialize_txn( env );
+  fd_runtime_prepare_and_execute_txn( env->mini->runtime, env->bank, env->txn_in, env->txn_out );
+  FD_TEST( txn_succeeded( env ) );
+  fd_runtime_commit_txn( env->mini->runtime, env->bank, NULL, env->txn_out );
+  fd_pubkey_t vote[1]; fd_hex_decode( vote, HEX_VOTE, 32 );
+  uchar bls_key[ FD_BLS_PUBKEY_COMPRESSED_SZ ] = {0};
+  fd_vote_stakes_snap_insert_t_1( fd_bank_vote_stakes( env->bank ), env->bank->vote_stakes_fork_id, vote, vote, 1000UL, 0U, bls_key );
+  FD_TEST(  fd_vote_stakes_query_t_1( fd_bank_vote_stakes( env->bank ), env->bank->vote_stakes_fork_id, vote, NULL, NULL, NULL ) );
+  FD_TEST( !fd_vote_stakes_query_t_2( fd_bank_vote_stakes( env->bank ), env->bank->vote_stakes_fork_id, vote, NULL, NULL, NULL, NULL, NULL, NULL ) );
+  ulong vote_before = fd_accdb_lamports( env->mini->runtime->accdb, env->bank->accdb_fork_id, vote->key );
+
+  char hex[ 4096 ];
+  build_deposit_hex( hex, '2', HEX_VOTE, NULL, "03010003", 250000UL );
+  exec_txn_hex( env, hex, 0, FD_EXECUTOR_INSTR_ERR_INVALID_ARG );
+  FD_TEST( fd_accdb_lamports( env->mini->runtime->accdb, env->bank->accdb_fork_id, vote->key )==vote_before );
+  FD_LOG_NOTICE(( "test_deposit_delegator_rewards_next_epoch_only... ok" ));
+}
+
 /* Happy path: lamports move from the signer to the vote account and
    the pending field grows by exactly the deposit, twice. */
 static void
@@ -1448,6 +1473,7 @@ main( int     argc,
   test_update_validator_identity_collector_sync( mini, 1 );
   test_deposit_delegator_rewards_feature_gate( mini );
   test_deposit_delegator_rewards_unstaked( mini );
+  test_deposit_delegator_rewards_next_epoch_only( mini );
   test_deposit_delegator_rewards( mini );
   test_deposit_delegator_rewards_rejections( mini );
   test_deposit_delegator_rewards_v3_state( mini );

@@ -146,7 +146,7 @@ validate_one_partition( model_t const *      m,
     fd_pubkey_t pubkey;
     ulong       lamports;
     ulong       credits_observed;
-    fd_stake_rewards_iter_ele( m->stake_rewards, f->fork_idx, &pubkey, &lamports, &credits_observed );
+    fd_stake_rewards_iter_ele( m->stake_rewards, f->fork_idx, &pubkey, &lamports, &credits_observed, NULL );
 
     ulong match = ULONG_MAX;
     for( ulong i=0UL; i<f->entry_cnt; i++ ) {
@@ -360,7 +360,7 @@ insert_reward( model_t *       m,
   e.lamports         = (fuzz_u8( r ) & 7U) ? 1UL + fuzz_bounded( r, FUZZ_REWARD_LAMPORT_BOUND ) : 0UL;
   e.credits_observed = fuzz_bounded( r, FUZZ_CREDITS_OBSERVED_BOUND );
 
-  fd_stake_rewards_insert( m->stake_rewards, f->fork_idx, &e.pubkey, e.lamports, e.credits_observed );
+  fd_stake_rewards_insert( m->stake_rewards, f->fork_idx, &e.pubkey, e.lamports, e.credits_observed, 0UL );
 
   f->entry[ f->entry_cnt++ ] = e;
   f->total_rewards += e.lamports;

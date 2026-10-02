@@ -1069,6 +1069,39 @@ delegation_may_need_adjustment( fd_bank_t *                   bank,
   return !( status.effective==0UL && status.activating==0UL );
 }
 
+/* Calculates block reward for a stake account based on SIMD-0123.
+   https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.5/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L173 */
+static ulong
+calculate_block_reward( fd_bank_t *                   bank,
+                        fd_runtime_stack_t *          runtime_stack,
+                        fd_stake_history_t const *    stake_history,
+                        fd_stake_delegation_t const * stake_delegation,
+                        ulong                         rewarded_epoch ) {
+  fd_pubkey_t const * vote_pubkey = &stake_delegation->vote_account;
+  ulong pending_delegator_rewards;
+  if( !fd_vote_stakes_query_block_revenue_t_1( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id, vote_pubkey, NULL, &pending_delegator_rewards ) ) {
+    return 0UL;
+  }
+  fd_stake_accum_t const * accumulated = fd_stake_accum_map_ele_query_const(
+      runtime_stack->stakes.stake_accum_map, vote_pubkey, NULL, runtime_stack->stakes.stake_accum );
+  ulong total_active_stake = accumulated ? accumulated->reward_stake : 0UL;
+  if( total_active_stake==0UL ) return 0UL;
+
+  ulong stake = fd_stake_delegation_activation_status( stake_delegation,
+                                                       rewarded_epoch,
+                                                       stake_history,
+                                                       &bank->f.warmup_cooldown_rate_epoch,
+                                                       FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ) ).effective;
+  /* During recalculation, if stake account has already received rewards,
+     it's possible to have `stake > total_active_stake`. If
+     `pending_delegator_rewards` is a huge number, we could potentially
+     overflow a `u64`. We can also have individual rewards look greater
+     than the pending rewards. This is harmless in practice, but we
+     clamp it just to be safe */
+  uint128 reward = (uint128)pending_delegator_rewards * (uint128)stake / (uint128)total_active_stake;
+  return fd_ulong_min( reward>(uint128)ULONG_MAX ? ULONG_MAX : (ulong)reward, pending_delegator_rewards );
+}
+
 /* Calculates epoch rewards for stake/vote accounts.
    Returns vote rewards, stake rewards, and the sum of all stake rewards
    in lamports.
@@ -1100,6 +1133,10 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
   runtime_stack->stakes.stake_rewards_cnt = 0UL;
 
   int alpenglow_enabled = rewarded_epoch_is_alpenglow( bank, accdb, rewarded_epoch );
+  int block_revenue_sharing = FD_FEATURE_ACTIVE_BANK( bank, block_revenue_sharing );
+  /* Name intentionally doesn't match -- "adjust delegations for rent" is
+     part of relaxing post-exec min balance checks. */
+  int adjust_delegations_for_rent = FD_FEATURE_ACTIVE_BANK( bank, relax_post_exec_min_balance_check );
 
   fd_calculated_stake_rewards_t calculated_stake_rewards_[1];
   fd_epoch_credits_t *          epoch_credits_arr = fd_bank_epoch_credits( bank );
@@ -1132,6 +1169,9 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
       continue;
     }
 
+    /* https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.5/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L856-L867 */
+    ulong block_reward = block_revenue_sharing ? calculate_block_reward( bank, runtime_stack, stake_history, stake_delegation, rewarded_epoch ) : 0UL;
+
     int cached = !is_recalculation && stake_delegation_idx<runtime_stack->max_stake_accounts;
     uint idx;
     if( FD_LIKELY( cached ) ) {
@@ -1146,21 +1186,19 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
        balance requirements based on new rent and delegation parameters.
        https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L568-L608 */
     if( FD_UNLIKELY( idx==UINT_MAX ) ) {
-      if( !FD_FEATURE_ACTIVE_BANK( bank, relax_post_exec_min_balance_check ) ) continue;
-
       /* If the stake account's resulting lamports would cause it to be
          below the rent exempt minimum balance, it needs to be queued
          for update (and thus affects the epoch reward partitions). */
-      if( !delegation_may_need_adjustment(
-            bank,
-            stake_delegation,
-            stake_history,
-            rewarded_epoch,
-            stake_delegation->stake,
-            stake_delegation->lamports,
-            fd_rent_exempt_minimum_balance( &bank->f.rent, stake_delegation->acc_dlen ) ) ) {
-        continue;
-      }
+      int may_need_adjustment = adjust_delegations_for_rent &&
+                                delegation_may_need_adjustment(
+                                  bank,
+                                  stake_delegation,
+                                  stake_history,
+                                  rewarded_epoch,
+                                  stake_delegation->stake,
+                                  stake_delegation->lamports,
+                                  fd_rent_exempt_minimum_balance( &bank->f.rent, stake_delegation->acc_dlen ) );
+      if( !may_need_adjustment && !block_reward ) continue;
 
       /* Place an empty entry for this stake delegation idx so that
          the partitioning logic factors it in. */
@@ -1168,7 +1206,8 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
         .success              = 1,
         .staker_rewards       = 0,
         .voter_rewards        = 0,
-        .new_credits_observed = stake_delegation->credits_observed
+        .new_credits_observed = stake_delegation->credits_observed,
+        .block_reward         = block_reward
       };
       runtime_stack->stakes.stake_rewards_cnt++;
       continue;
@@ -1216,29 +1255,27 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
          account, there may be a required balance update for the stake
          account if rent increased.
          https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/runtime/src/inflation_rewards/mod.rs#L132-L152 */
-      if( !FD_FEATURE_ACTIVE_BANK( bank, relax_post_exec_min_balance_check ) ) continue;
-
-      /* staker rewards is 0 in the error case, so we can just use
-         the current stake and lamports in the function args. */
-      if( !delegation_may_need_adjustment(
-            bank,
-            stake_delegation,
-            stake_history,
-            rewarded_epoch,
-            stake_delegation->stake,
-            stake_delegation->lamports,
-            fd_rent_exempt_minimum_balance( &bank->f.rent, stake_delegation->acc_dlen ) ) ) {
-        continue;
-      }
+      int may_need_adjustment = adjust_delegations_for_rent &&
+                                delegation_may_need_adjustment(
+                                  bank,
+                                  stake_delegation,
+                                  stake_history,
+                                  rewarded_epoch,
+                                  stake_delegation->stake,
+                                  stake_delegation->lamports,
+                                  fd_rent_exempt_minimum_balance( &bank->f.rent, stake_delegation->acc_dlen ) );
+      if( !may_need_adjustment && !block_reward ) continue;
 
       *calculated_stake_rewards = (fd_calculated_stake_rewards_t){
         .success              = 1,
         .staker_rewards       = 0,
         .voter_rewards        = 0,
-        .new_credits_observed = stake_delegation->credits_observed
+        .new_credits_observed = stake_delegation->credits_observed,
+        .block_reward         = block_reward
       };
     } else {
-      calculated_stake_rewards->success = 1;
+      calculated_stake_rewards->success      = 1;
+      calculated_stake_rewards->block_reward = block_reward;
     }
 
     if( capture_ctx && capture_ctx->capture_solcap ) {
@@ -1274,6 +1311,10 @@ setup_stake_partitions( fd_bank_t *                    bank,
                         uint128                        total_points ) {
 
   int alpenglow_enabled = rewarded_epoch_is_alpenglow( bank, accdb, rewarded_epoch );
+  int block_revenue_sharing = FD_FEATURE_ACTIVE_BANK( bank, block_revenue_sharing );
+  /* Name intentionally doesn't match -- "adjust delegations for rent" is
+     part of relaxing post-exec min balance checks. */
+  int adjust_delegations_for_rent = FD_FEATURE_ACTIVE_BANK( bank, relax_post_exec_min_balance_check );
 
   fd_stake_rewards_t * stake_rewards     = fd_bank_stake_rewards_modify( bank );
   fd_epoch_credits_t * epoch_credits_arr = fd_bank_epoch_credits( bank );
@@ -1298,27 +1339,28 @@ setup_stake_partitions( fd_bank_t *                    bank,
 
       calculated_stake_rewards = calculated_stake_rewards_;
 
+      /* https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.5/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L856-L867 */
+      ulong block_reward = block_revenue_sharing ? calculate_block_reward( bank, runtime_stack, stake_history, stake_delegation, rewarded_epoch ) : 0UL;
+
       fd_vote_rewards_t * vote_ele = runtime_stack->stakes.vote_ele;
       fd_vote_rewards_map_t * vote_ele_map = runtime_stack->stakes.vote_map;
       uint idx = (uint)fd_vote_rewards_map_idx_query( vote_ele_map, &stake_delegation->vote_account, UINT_MAX, vote_ele );
       if( FD_UNLIKELY( idx==UINT_MAX ) ) {
-        if( !FD_FEATURE_ACTIVE_BANK( bank, relax_post_exec_min_balance_check ) ) continue;
-
         /* If the stake account's resulting lamports would cause it to be
            below the rent exempt minimum balance, it needs to be queued
            for update (and thus affects the epoch reward partitions). */
-        if( !delegation_may_need_adjustment(
-              bank,
-              stake_delegation,
-              stake_history,
-              rewarded_epoch,
-              stake_delegation->stake,
-              stake_delegation->lamports,
-              fd_rent_exempt_minimum_balance( &bank->f.rent, stake_delegation->acc_dlen ) ) ) {
-          continue;
-        }
+        int may_need_adjustment = adjust_delegations_for_rent &&
+                                  delegation_may_need_adjustment(
+                                    bank,
+                                    stake_delegation,
+                                    stake_history,
+                                    rewarded_epoch,
+                                    stake_delegation->stake,
+                                    stake_delegation->lamports,
+                                    fd_rent_exempt_minimum_balance( &bank->f.rent, stake_delegation->acc_dlen ) );
+        if( !may_need_adjustment && !block_reward ) continue;
 
-        fd_stake_rewards_insert( stake_rewards, fork_idx, &stake_delegation->stake_account, 0UL, stake_delegation->credits_observed );
+        fd_stake_rewards_insert( stake_rewards, fork_idx, &stake_delegation->stake_account, 0UL, stake_delegation->credits_observed, block_reward );
         continue;
       }
 
@@ -1355,25 +1397,22 @@ setup_stake_partitions( fd_bank_t *                    bank,
            account, there may be a required balance update for the stake
            account if rent increased.
            https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/runtime/src/inflation_rewards/mod.rs#L132-L152 */
-        if( !FD_FEATURE_ACTIVE_BANK( bank, relax_post_exec_min_balance_check ) ) continue;
+        int may_need_adjustment = adjust_delegations_for_rent &&
+                                  delegation_may_need_adjustment(
+                                    bank,
+                                    stake_delegation,
+                                    stake_history,
+                                    rewarded_epoch,
+                                    stake_delegation->stake,
+                                    stake_delegation->lamports,
+                                    fd_rent_exempt_minimum_balance( &bank->f.rent, stake_delegation->acc_dlen ) );
+        if( !may_need_adjustment && !block_reward ) continue;
 
-        /* staker rewards is 0 in the error case, so we can just use
-           the current stake and lamports in the function args. */
-        if( !delegation_may_need_adjustment(
-              bank,
-              stake_delegation,
-              stake_history,
-              rewarded_epoch,
-              stake_delegation->stake,
-              stake_delegation->lamports,
-              fd_rent_exempt_minimum_balance( &bank->f.rent, stake_delegation->acc_dlen ) ) ) {
-          continue;
-        }
-
-        fd_stake_rewards_insert( stake_rewards, fork_idx, &stake_delegation->stake_account, 0UL, stake_delegation->credits_observed );
+        fd_stake_rewards_insert( stake_rewards, fork_idx, &stake_delegation->stake_account, 0UL, stake_delegation->credits_observed, block_reward );
         continue;
       } else {
-        calculated_stake_rewards->success = 1;
+        calculated_stake_rewards->success      = 1;
+        calculated_stake_rewards->block_reward = block_reward;
       }
     } else {
       calculated_stake_rewards = &runtime_stack->stakes.stake_rewards_result[ stake_delegation_idx ];
@@ -1386,7 +1425,8 @@ setup_stake_partitions( fd_bank_t *                    bank,
       fork_idx,
       &stake_delegation->stake_account,
       calculated_stake_rewards->staker_rewards,
-      calculated_stake_rewards->new_credits_observed
+      calculated_stake_rewards->new_credits_observed,
+      calculated_stake_rewards->block_reward
     );
   }
 
@@ -1532,6 +1572,101 @@ calculate_rewards_for_partitioning( fd_bank_t *                            bank,
   result->capitalization               = bank->f.capitalization;
 }
 
+/* Sweeps the given vote account's pending delegator rewards.
+   maybe_stake is the validator's reward epoch delegated stake, NULL if
+   unknown.  Only accounts holding pending rewards are rewritten.
+   https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.5/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L233 */
+static void
+sweep_vote_account( fd_bank_t *         bank,
+                    fd_accdb_t *        accdb,
+                    fd_capture_ctx_t *  capture_ctx,
+                    fd_pubkey_t const * vote_address,
+                    ulong const *       maybe_stake,
+                    ulong *             total_block_reward_lamports ) {
+  ulong pending_delegator_rewards = 0UL;
+  {
+    fd_acc_t ro = fd_accdb_read_one( accdb, bank->accdb_fork_id, vote_address->uc );
+    int skip = !ro.lamports ||
+               memcmp( ro.owner, fd_solana_vote_program_id.uc, sizeof(fd_pubkey_t) ) ||
+               fd_vote_account_pending_delegator_rewards( ro.data, ro.data_len, &pending_delegator_rewards ) ||
+               !pending_delegator_rewards;
+    fd_accdb_unread_one( accdb, &ro );
+    if( FD_LIKELY( skip ) ) return;
+  }
+
+  fd_accdb_svm_update_t update[1];
+  fd_acc_t              acc = fd_accdb_svm_open_rw( bank, accdb, update, vote_address, 0 );
+  ulong                 pending_reset;
+  /* The read above already parsed this data as a v4 state. */
+  FD_TEST( !fd_vote_account_reset_pending_delegator_rewards( acc.data, acc.data_len, &pending_reset ) );
+  /* If validator has no stake, delegator rewards go back to the validator, no
+     distribution needed.
+     If the validator's stake is not known, it likely did not pay VAT, so that
+     validator's block rewards get burned. */
+  if( !( maybe_stake && *maybe_stake==0UL ) ) {
+    /* https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.5/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L249-L259 */
+    FD_TEST( acc.lamports>=pending_delegator_rewards );
+    acc.lamports                 -= pending_delegator_rewards;
+    *total_block_reward_lamports += pending_delegator_rewards;
+  }
+  fd_accdb_svm_close_rw( bank, accdb, capture_ctx, &acc, update );
+}
+
+/* reward_epoch_delegated_stakes lookup: under Alpenglow the t-1 set
+   decides whether the validator is known, otherwise the stake
+   accumulator does.  The stake is the accumulator's reward epoch stake.
+   Returns stake_out or NULL if the validator is unknown.
+   https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.5/runtime/src/alpenglow_epoch_type.rs#L72 */
+static ulong const *
+reward_epoch_delegated_stake( fd_bank_t *          bank,
+                              fd_runtime_stack_t * runtime_stack,
+                              fd_pubkey_t const *  vote_address,
+                              int                  alpenglow_enabled,
+                              ulong *              stake_out ) {
+  fd_stake_accum_t const * accumulated = fd_stake_accum_map_ele_query_const(
+      runtime_stack->stakes.stake_accum_map, vote_address, NULL, runtime_stack->stakes.stake_accum );
+  int known = alpenglow_enabled
+            ? fd_vote_stakes_query_block_revenue_t_1( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id, vote_address, NULL, NULL )
+            : !!accumulated;
+  *stake_out = accumulated ? accumulated->reward_stake : 0UL;
+  return known ? stake_out : NULL;
+}
+
+/* Sweeps pending delegator rewards out of the vote accounts.
+   Returns the swept lamports.
+
+   Important. We must iterate the t-3 set, because both the fee settlement
+   and the vote program limit pending_delegator_rewards to leaders, i.e. t-2 set
+   (t-2 set has already rotated to t-3 when we call sweep_pending_delegator_rewards).
+
+   https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.5/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L1258-L1290 */
+static ulong
+sweep_pending_delegator_rewards( fd_bank_t *          bank,
+                                 fd_accdb_t *         accdb,
+                                 fd_capture_ctx_t *   capture_ctx,
+                                 fd_runtime_stack_t * runtime_stack,
+                                 int                  alpenglow_enabled ) {
+  ulong total_block_reward_lamports = 0UL;
+
+  fd_vote_stakes_t const * vote_stakes = fd_bank_vote_stakes( bank );
+  ulong                    fork_id     = bank->vote_stakes_fork_id;
+  uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
+  for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_3, iter_mem );
+       !fd_vote_stakes_iter_done( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_3, iter );
+       fd_vote_stakes_iter_next( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_3, iter ) ) {
+    fd_pubkey_t vote_address;
+    fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_3, iter,
+                             &vote_address, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL );
+    /* https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.5/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L1276-L1278 */
+    ulong         stake;
+    ulong const * maybe_stake = reward_epoch_delegated_stake( bank, runtime_stack, &vote_address, alpenglow_enabled, &stake );
+    /* https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.5/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L1279-L1285 */
+    sweep_vote_account( bank, accdb, capture_ctx, &vote_address, maybe_stake, &total_block_reward_lamports );
+  }
+
+  return total_block_reward_lamports;
+}
+
 /* Calculate rewards from previous epoch and distribute vote rewards
    https://github.com/anza-xyz/agave/blob/v3.0.4/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L148
    https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L234-L296 */
@@ -1558,6 +1693,17 @@ calculate_rewards_and_distribute_vote_rewards( fd_bank_t *                    ba
                                       capture_ctx,
                                       prev_epoch,
                                       rewards_calc_result );
+
+  /* Sweep while stake_accum still holds the reward epoch delegated stakes.
+     https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.5/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L1258-L1290 */
+  runtime_stack->stakes.block_rewards = 0UL;
+  if( FD_FEATURE_ACTIVE_BANK( bank, block_revenue_sharing ) ) {
+    runtime_stack->stakes.block_rewards = sweep_pending_delegator_rewards( bank,
+                                                                           accdb,
+                                                                           capture_ctx,
+                                                                           runtime_stack,
+                                                                           rewarded_epoch_is_alpenglow( bank, accdb, prev_epoch ) );
+  }
 
 
   /* Distribute the commission rewards.  distributed_rewards includes
@@ -1702,6 +1848,7 @@ static int
 distribute_epoch_reward_to_stake_acc( fd_bank_t *         bank,
                                       fd_capture_ctx_t *  capture_ctx,
                                       ulong               reward_lamports,
+                                      ulong               block_reward,
                                       ulong               new_credits_observed,
                                       ulong               partition_idx,
                                       fd_acc_t *          acc,
@@ -1723,8 +1870,10 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *         bank,
 
   fd_lthash_adder_push_solana_account( adder_pre, sum_pre, stake_pubkey->uc, acc->data, acc->data_len, acc->lamports, (uchar)!!acc->executable, acc->owner );
 
+  /* https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.5/runtime/src/bank/partitioned_epoch_rewards/distribution.rs#L263-L268 */
   ulong lamports_pre = acc->lamports;
   FD_TEST( !__builtin_add_overflow( acc->lamports, reward_lamports, &acc->lamports ) );
+  FD_TEST( !__builtin_add_overflow( acc->lamports, block_reward,    &acc->lamports ) );
 
   ulong old_credits_observed                = stake_state->stake.stake.credits_observed;
   stake_state->stake.stake.credits_observed = new_credits_observed;
@@ -1769,11 +1918,11 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *         bank,
                                                 *stake_pubkey,
                                                 bank->f.slot,
                                                 acc->lamports,
-                                                (long)reward_lamports,
+                                                (long)( reward_lamports+block_reward ),
                                                 new_credits_observed,
                                                 (long)( new_credits_observed - old_credits_observed ),
                                                 stake_state->stake.stake.delegation.stake,
-                                                (long)reward_lamports );
+                                                (long)( reward_lamports+block_reward ) );
   }
 
   FD_STORE( fd_stake_state_t, acc->data, *stake_state );
@@ -1802,8 +1951,10 @@ distribute_epoch_rewards_in_partition( fd_stake_rewards_t *      stake_rewards,
                                        fd_accdb_t *              accdb,
                                        fd_capture_ctx_t *        capture_ctx ) {
 
-  ulong lamports_distributed = 0UL;
-  ulong lamports_burned      = 0UL;
+  ulong lamports_distributed     = 0UL;
+  ulong lamports_burned          = 0UL;
+  ulong block_reward_distributed = 0UL;
+  ulong block_reward_burned      = 0UL;
 
   fd_lthash_adder_t adder_pre[1], adder_post[1];
   fd_lthash_adder_new( adder_pre  );
@@ -1820,6 +1971,7 @@ distribute_epoch_rewards_in_partition( fd_stake_rewards_t *      stake_rewards,
   fd_acc_t      accs            [ STAKE_REWARD_ACC_BATCH_SZ ];
   ulong         reward_lamports [ STAKE_REWARD_ACC_BATCH_SZ ];
   ulong         credits_observed[ STAKE_REWARD_ACC_BATCH_SZ ];
+  ulong         block_rewards   [ STAKE_REWARD_ACC_BATCH_SZ ];
 
   for( ulong i=0UL; i<STAKE_REWARD_ACC_BATCH_SZ; i++ ) {
     pubkey_ptrs[ i ] = pubkeys[ i ].uc;
@@ -1837,7 +1989,8 @@ distribute_epoch_rewards_in_partition( fd_stake_rewards_t *      stake_rewards,
                                  bank->stake_rewards_fork_id,
                                  &pubkeys         [ batch_cnt ],
                                  &reward_lamports [ batch_cnt ],
-                                 &credits_observed[ batch_cnt ] );
+                                 &credits_observed[ batch_cnt ],
+                                 &block_rewards   [ batch_cnt ] );
     }
 
     fd_accdb_acquire( accdb, bank->accdb_fork_id, batch_cnt, pubkey_ptrs, writable, accs );
@@ -1847,14 +2000,17 @@ distribute_epoch_rewards_in_partition( fd_stake_rewards_t *      stake_rewards,
       if( FD_LIKELY( !distribute_epoch_reward_to_stake_acc( bank,
                                                             capture_ctx,
                                                             reward_lamports[ i ],
+                                                            block_rewards[ i ],
                                                             credits_observed[ i ],
                                                             partition_idx,
                                                             &accs[ i ],
                                                             adder_pre, sum_pre,
                                                             adder_post, sum_post ) ) ) {
-        lamports_distributed += reward_lamports[ i ];
+        lamports_distributed     += reward_lamports[ i ];
+        block_reward_distributed += block_rewards[ i ];
       } else {
-        lamports_burned += reward_lamports[ i ];
+        lamports_burned     += reward_lamports[ i ];
+        block_reward_burned += block_rewards[ i ];
       }
     }
 
@@ -1870,11 +2026,14 @@ distribute_epoch_rewards_in_partition( fd_stake_rewards_t *      stake_rewards,
   fd_bank_lthash_end_locking_modify( bank );
 
   /* Update the epoch rewards sysvar with the amount distributed and burnt */
-  fd_sysvar_epoch_rewards_distribute( bank, accdb, capture_ctx, lamports_distributed + lamports_burned );
+  fd_sysvar_epoch_rewards_distribute( bank, accdb, capture_ctx,
+                                      lamports_distributed + lamports_burned,
+                                      block_reward_distributed + block_reward_burned );
 
-  FD_LOG_DEBUG(( "lamports burned: %lu, lamports distributed: %lu", lamports_burned, lamports_distributed ));
+  FD_LOG_DEBUG(( "lamports burned: %lu, lamports distributed: %lu, block rewards burned: %lu, block rewards distributed: %lu",
+                 lamports_burned, lamports_distributed, block_reward_burned, block_reward_distributed ));
 
-  bank->f.capitalization = bank->f.capitalization + lamports_distributed;
+  bank->f.capitalization = bank->f.capitalization + lamports_distributed + block_reward_distributed;
 }
 
 static int
@@ -2007,7 +2166,8 @@ fd_begin_partitioned_rewards( fd_bank_t *                    bank,
       num_partitions,
       runtime_stack->stakes.total_rewards,
       runtime_stack->stakes.total_points.ud,
-      parent_blockhash );
+      parent_blockhash,
+      runtime_stack->stakes.block_rewards );
 
   if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( bank, alpenglow ) ) ) {
     ulong capitalization;
