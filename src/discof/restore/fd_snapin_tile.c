@@ -1340,12 +1340,13 @@ writer_flush( fd_snapin_tile_t * ctx ) {
     for( ulong i=0UL; i<cnt; i++ ) {
       ulong idx = batch_off+i;
 
-      pubkeys     [ i ] = ctx->writer.buf+buf_off;
+      fd_accdb_disk_meta_t const * record = (fd_accdb_disk_meta_t const *)( ctx->writer.buf+buf_off );
+      pubkeys     [ i ] = record->pubkey;
       slots       [ i ] = (ulong)batch->slots    [ idx ];
       data_lens   [ i ] = (ulong)batch->data_lens[ idx ];
       file_offsets[ i ] = base_off+buf_off;
 
-      buf_off += sizeof(fd_accdb_disk_meta_t)+FD_ACCDB_SIZE_DATA( ((fd_accdb_disk_meta_t const *)pubkeys[ i ])->size );
+      buf_off += sizeof(fd_accdb_disk_meta_t)+FD_ACCDB_SIZE_DATA( record->size );
       fd_uwide_inc( &input_lamports_hi, &input_lamports, input_lamports_hi, input_lamports, batch->lamports[ idx ] );
     }
 
@@ -1364,13 +1365,14 @@ writer_flush( fd_snapin_tile_t * ctx ) {
     for( ulong i=0UL; i<cnt; i++ ) {
       if( FD_UNLIKELY( results[ i ]==FD_ACCDB_SNAPSHOT_WRITE_IGNORED ) ) continue;
 
-      ulong               lamports = batch->lamports[ batch_off+i ];
-      fd_pubkey_t const * pubkey   = (fd_pubkey_t const *)pubkeys[ i ];
-      uchar const *       owner    = pubkeys[ i ]+offsetof(fd_accdb_disk_meta_t, owner);
-      uchar const *       data     = pubkeys[ i ]+sizeof(fd_accdb_disk_meta_t);
+      fd_accdb_disk_meta_t const * record   = (fd_accdb_disk_meta_t const *)pubkeys[ i ];
+      ulong                        lamports = batch->lamports[ batch_off+i ];
+      fd_pubkey_t const *          pubkey   = (fd_pubkey_t const *)record->pubkey;
+      uchar const *                owner    = record->owner;
+      uchar const *                data     = (uchar const *)(record+1UL);
 
       if( lamports && !memcmp( owner, fd_solana_stake_program_id.uc, 32UL ) && data_lens[ i ]<=FD_SNAPIN_STAKE_DATA_MAX ) {
-        fd_accdb_disk_unpack( stake_data, data_lens[ i ], ((fd_accdb_disk_meta_t const *)pubkeys[ i ])->size, data );
+        fd_accdb_disk_unpack( stake_data, data_lens[ i ], record->size, data );
         fd_stake_state_t const * stake_state = fd_stake_state_view( stake_data, data_lens[ i ] );
         if( stake_state && stake_state->stake_type==FD_STAKE_STATE_STAKE ) {
           snoop_stake_delegation( ctx, stake_fork, slots[ i ], pubkey, lamports, stake_state, data_lens[ i ] );
