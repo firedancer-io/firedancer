@@ -209,12 +209,12 @@ ENCODE_FN {
                                        &block_revenue_commission_bps, &pending_delegator_rewards );
 
     if( iter_kind==FD_VOTE_STAKES_ITER_T_1 ) {
-      fd_bank_epoch_credits_view_t epoch_credits_view[1];
-      FD_TEST( fd_bank_epoch_credits_view_init( epoch_credits_view, enc->bank, 0 ) );
+      fd_epoch_credits_view_t epoch_credits_view[1];
+      FD_TEST( fd_epoch_credits_view_init( epoch_credits_view, fd_bank_epoch_credits( enc->bank ), enc->bank->epoch_credits_fork_id, 0 ) );
       fd_epoch_credits_t const * found = find_epoch_credits( epoch_credits_view, &pubkey );
       FD_TEST( found );
       *ec_copy = *found;
-      fd_bank_epoch_credits_view_fini( epoch_credits_view );
+      fd_epoch_credits_view_fini( epoch_credits_view );
       ec     = ec_copy;
       ec_cnt = ec->cnt;
       co_epoch = bank->f.epoch;

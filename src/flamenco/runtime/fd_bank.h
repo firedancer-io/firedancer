@@ -431,25 +431,13 @@ fd_bank_report_runtime_diffs( fd_bank_t const * bank ) {
 /* Bank accessors and mutators.  Different accessors are emitted for
    different types depending on if the field has a lock or not. */
 
-/* fd_bank_epoch_credits_view_{init,fini} pin the epoch-credit set of
-   the fork the bank belongs to.  See fd_epoch_credits_view_init. */
+/* fd_bank_epoch_credits returns the epoch credits store.  A bank's set
+   is shared with its ancestors, so the bank must replace it with
+   fd_epoch_credits_store_new_fork before it captures new epoch credits,
+   i.e. when it crosses an epoch boundary or restores a snapshot. */
 
-typedef fd_epoch_credits_view_t fd_bank_epoch_credits_view_t;
-
-fd_bank_epoch_credits_view_t *
-fd_bank_epoch_credits_view_init( fd_bank_epoch_credits_view_t * view,
-                                 fd_bank_t *                    bank,
-                                 int                            write );
-
-void
-fd_bank_epoch_credits_view_fini( fd_bank_epoch_credits_view_t * view );
-
-/* fd_bank_epoch_credits_new_fork acquires a fresh set for the bank and
-   must be called before the bank captures new epoch credits, i.e. when
-   it crosses an epoch boundary or restores a snapshot. */
-
-void
-fd_bank_epoch_credits_new_fork( fd_bank_t * bank );
+fd_epoch_credits_store_t *
+fd_bank_epoch_credits( fd_bank_t const * bank );
 
 fd_collector_overrides_t *
 fd_bank_collector_overrides( fd_bank_t const * bank );

@@ -59,8 +59,8 @@ test_allocs_reclaim( fd_wksp_t * wksp ) {
 
 static void
 seed_epoch_credits( fd_bank_t * bank ) {
-  fd_bank_epoch_credits_view_t view[1];
-  FD_TEST( fd_bank_epoch_credits_view_init( view, bank, 1 ) );
+  fd_epoch_credits_view_t view[1];
+  FD_TEST( fd_epoch_credits_view_init( view, fd_bank_epoch_credits( bank ), bank->epoch_credits_fork_id, 1 ) );
   FD_TEST( view->len==VALIDATOR_CNT );
   FD_TEST( EPOCH_CREDITS_CNT<=FD_EPOCH_CREDITS_MAX );
   for( ulong i=0UL; i<view->len; i++ ) {
@@ -74,14 +74,14 @@ seed_epoch_credits( fd_bank_t * bank ) {
       ec->credits_delta[ j ]      = (uint)( 100UL*j + 7UL*i + 50UL );
     }
   }
-  fd_bank_epoch_credits_view_fini( view );
+  fd_epoch_credits_view_fini( view );
 }
 
 static void
 check_epoch_credits( fd_bank_t *                                bank,
                      fd_snapshot_manifest_vote_stakes_t const * vs ) {
-  fd_bank_epoch_credits_view_t view[1];
-  FD_TEST( fd_bank_epoch_credits_view_init( view, bank, 0 ) );
+  fd_epoch_credits_view_t view[1];
+  FD_TEST( fd_epoch_credits_view_init( view, fd_bank_epoch_credits( bank ), bank->epoch_credits_fork_id, 0 ) );
   fd_epoch_credits_t const * ec = NULL;
   for( ulong i=0UL; i<view->len; i++ ) {
     fd_epoch_credits_t const * cand = &view->credits[ i ];
@@ -95,7 +95,7 @@ check_epoch_credits( fd_bank_t *                                bank,
     FD_TEST( vs->epoch_credits[j].credits     ==ec->base_credits+(ulong)ec->credits_delta[j] );
     FD_TEST( vs->epoch_credits[j].prev_credits==ec->base_credits+(ulong)ec->prev_credits_delta[j] );
   }
-  fd_bank_epoch_credits_view_fini( view );
+  fd_epoch_credits_view_fini( view );
 }
 
 typedef struct {

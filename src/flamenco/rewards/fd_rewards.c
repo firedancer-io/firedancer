@@ -979,8 +979,8 @@ calculate_reward_points_partitioned( fd_bank_t *                    bank,
 
   fd_vote_rewards_t *     vote_ele     = runtime_stack->stakes.vote_ele;
   fd_vote_rewards_map_t * vote_ele_map = runtime_stack->stakes.vote_map;
-  fd_bank_epoch_credits_view_t epoch_credits_view[1];
-  FD_TEST( fd_bank_epoch_credits_view_init( epoch_credits_view, bank, 0 ) );
+  fd_epoch_credits_view_t epoch_credits_view[1];
+  FD_TEST( fd_epoch_credits_view_init( epoch_credits_view, fd_bank_epoch_credits( bank ), bank->epoch_credits_fork_id, 0 ) );
   fd_epoch_credits_t * epoch_credits_arr = epoch_credits_view->credits;
 
   fd_stake_delegations_iter_t iter_[1];
@@ -1039,7 +1039,7 @@ calculate_reward_points_partitioned( fd_bank_t *                    bank,
     }
   }
 
-  fd_bank_epoch_credits_view_fini( epoch_credits_view );
+  fd_epoch_credits_view_fini( epoch_credits_view );
   return total_points;
 }
 
@@ -1105,8 +1105,8 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
   int alpenglow_enabled = rewarded_epoch_is_alpenglow( bank, accdb, rewarded_epoch );
 
   fd_calculated_stake_rewards_t calculated_stake_rewards_[1];
-  fd_bank_epoch_credits_view_t  epoch_credits_view[1];
-  FD_TEST( fd_bank_epoch_credits_view_init( epoch_credits_view, bank, 0 ) );
+  fd_epoch_credits_view_t       epoch_credits_view[1];
+  FD_TEST( fd_epoch_credits_view_init( epoch_credits_view, fd_bank_epoch_credits( bank ), bank->epoch_credits_fork_id, 0 ) );
   fd_epoch_credits_t * epoch_credits_arr = epoch_credits_view->credits;
 
   fd_stake_delegations_iter_t iter_[1];
@@ -1260,7 +1260,7 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
     runtime_stack->stakes.vote_ele[ idx ].vote_rewards += calculated_stake_rewards->voter_rewards;
     runtime_stack->stakes.stake_rewards_cnt++;
   }
-  fd_bank_epoch_credits_view_fini( epoch_credits_view );
+  fd_epoch_credits_view_fini( epoch_credits_view );
 }
 
 /* setup_stake_partitions hashes every stake reward of the epoch into
@@ -1282,8 +1282,8 @@ setup_stake_partitions( fd_bank_t *                    bank,
   int alpenglow_enabled = rewarded_epoch_is_alpenglow( bank, accdb, rewarded_epoch );
 
   fd_stake_rewards_t * stake_rewards     = fd_bank_stake_rewards_modify( bank );
-  fd_bank_epoch_credits_view_t epoch_credits_view[1];
-  FD_TEST( fd_bank_epoch_credits_view_init( epoch_credits_view, bank, 0 ) );
+  fd_epoch_credits_view_t epoch_credits_view[1];
+  FD_TEST( fd_epoch_credits_view_init( epoch_credits_view, fd_bank_epoch_credits( bank ), bank->epoch_credits_fork_id, 0 ) );
   fd_epoch_credits_t * epoch_credits_arr = epoch_credits_view->credits;
 
   fd_stake_delegations_iter_t iter_[1];
@@ -1399,7 +1399,7 @@ setup_stake_partitions( fd_bank_t *                    bank,
   }
 
   fd_stake_rewards_fini( stake_rewards, fork_idx );
-  fd_bank_epoch_credits_view_fini( epoch_credits_view );
+  fd_epoch_credits_view_fini( epoch_credits_view );
 }
 
 /* Calculate epoch reward and return vote and stake rewards.
@@ -2079,8 +2079,8 @@ recalculate_partitioned_rewards( fd_bank_t *          bank,
   fd_vote_rewards_map_t * vote_ele_map = runtime_stack->stakes.vote_map;
   fd_vote_rewards_map_reset( vote_ele_map );
 
-  fd_bank_epoch_credits_view_t epoch_credits_view[1];
-  FD_TEST( fd_bank_epoch_credits_view_init( epoch_credits_view, bank, snapshot_boot ) );
+  fd_epoch_credits_view_t epoch_credits_view[1];
+  FD_TEST( fd_epoch_credits_view_init( epoch_credits_view, fd_bank_epoch_credits( bank ), bank->epoch_credits_fork_id, snapshot_boot ) );
   ulong                epoch_credits_len = epoch_credits_view->len;
   fd_epoch_credits_t * epoch_credits_arr = epoch_credits_view->credits;
 
@@ -2158,7 +2158,7 @@ recalculate_partitioned_rewards( fd_bank_t *          bank,
       epoch_credits_arr[i].commission = runtime_stack->stakes.vote_ele[i].commission;
     }
   }
-  fd_bank_epoch_credits_view_fini( epoch_credits_view );
+  fd_epoch_credits_view_fini( epoch_credits_view );
 
   /* If partitioned rewards are active, the rewarded epoch is always the immediately
       preceding epoch.

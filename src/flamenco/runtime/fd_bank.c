@@ -104,24 +104,10 @@ fd_banks_get_stake_rewards( fd_banks_t * banks_data ) {
   return fd_type_pun( (uchar *)banks_data + banks_data->stake_rewards_offset );
 }
 
-fd_bank_epoch_credits_view_t *
-fd_bank_epoch_credits_view_init( fd_bank_epoch_credits_view_t * view,
-                                 fd_bank_t *                    bank,
-                                 int                            write ) {
-  if( FD_UNLIKELY( !bank ) ) return NULL;
+fd_epoch_credits_store_t *
+fd_bank_epoch_credits( fd_bank_t const * bank ) {
   fd_banks_t * banks_data = fd_type_pun( (uchar *)bank - bank->banks_data_offset );
-  return fd_epoch_credits_view_init( view, fd_banks_get_epoch_credits( banks_data ), bank->epoch_credits_fork_id, write );
-}
-
-void
-fd_bank_epoch_credits_view_fini( fd_bank_epoch_credits_view_t * view ) {
-  fd_epoch_credits_view_fini( view );
-}
-
-void
-fd_bank_epoch_credits_new_fork( fd_bank_t * bank ) {
-  fd_banks_t * banks_data = fd_type_pun( (uchar *)bank - bank->banks_data_offset );
-  bank->epoch_credits_fork_id = fd_epoch_credits_store_new_fork( fd_banks_get_epoch_credits( banks_data ), bank->epoch_credits_fork_id );
+  return fd_banks_get_epoch_credits( banks_data );
 }
 
 fd_collector_overrides_t *
