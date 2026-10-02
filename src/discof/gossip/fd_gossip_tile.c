@@ -33,7 +33,18 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_gossip_tile_ctx_t), sizeof(fd_gossip_tile_ctx_t)                                                  );
   l = FD_LAYOUT_APPEND( l, fd_gossip_align(),             fd_gossip_footprint( tile->gossip.max_entries, tile->gossip.entrypoints_cnt ) );
+  l = FD_LAYOUT_APPEND( l, fd_gui_gossip_bw_align(),      fd_gui_gossip_bw_footprint()                                                  );
   return FD_LAYOUT_FINI( l, scratch_align() );
+}
+
+static void
+gui_bw_flush( fd_gossip_tile_ctx_t * ctx,
+              fd_stem_context_t *    stem ) {
+  fd_gui_gossip_bw_rec_t * dst = fd_chunk_to_laddr( ctx->gui_out->mem, ctx->gui_out->chunk );
+  ulong cnt = fd_gui_gossip_bw_flush( ctx->gui_bw, dst );
+  ulong sz  = cnt*sizeof(fd_gui_gossip_bw_rec_t);
+  fd_stem_publish( stem, ctx->gui_out->idx, cnt, ctx->gui_out->chunk, sz, 0UL, 0UL, 0UL );
+  ctx->gui_out->chunk = fd_dcache_compact_next( ctx->gui_out->chunk, sz, ctx->gui_out->chunk0, ctx->gui_out->wmark );
 }
 
 static void
@@ -68,6 +79,10 @@ gossip_send_fn( void *                ctx,
 
   fd_stem_publish( stem, gossip_ctx->net_out->idx, sig, gossip_ctx->net_out->chunk, packet_sz, 0UL, tsorig, tspub );
   gossip_ctx->net_out->chunk = fd_dcache_compact_next( gossip_ctx->net_out->chunk, packet_sz, gossip_ctx->net_out->chunk0, gossip_ctx->net_out->wmark );
+
+  if( FD_LIKELY( gossip_ctx->has_gui ) ) {
+    if( FD_UNLIKELY( fd_gui_gossip_bw_add( gossip_ctx->gui_bw, peer_address->addr, peer_address->port, payload, payload_sz, stem->now ) ) ) gui_bw_flush( gossip_ctx, stem );
+  }
 }
 
 static void
@@ -168,6 +183,21 @@ during_housekeeping( fd_gossip_tile_ctx_t * ctx ) {
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
     ctx->is_halting_signing = 1;
     if( FD_LIKELY( !fd_gossip_sign_pend_cnt( ctx->gossip ) ) ) fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
+  }
+}
+
+static inline long
+next_deadline( fd_gossip_tile_ctx_t const * ctx ) {
+  return fd_gui_gossip_bw_next_deadline( ctx->gui_bw );
+}
+
+static inline void
+before_credit( fd_gossip_tile_ctx_t * ctx,
+               fd_stem_context_t *    stem,
+               int *                  charge_busy ) {
+  if( FD_UNLIKELY( fd_gui_gossip_bw_due( ctx->gui_bw, stem->now ) ) ) {
+    gui_bw_flush( ctx, stem );
+    *charge_busy = 1;
   }
 }
 
@@ -276,7 +306,9 @@ after_credit( fd_gossip_tile_ctx_t * ctx,
      the new one. */
   if( FD_UNLIKELY( ctx->is_halting_signing ) ) return;
 
-  long now = fd_clock_tile_now( ctx->clock );
+  /* The stem's tick, at most one loop iteration stale, saves an rdtsc
+     per iteration. */
+  long now = fd_clock_tile_tickcount_to_wallclock( ctx->clock, stem->now );
   fd_gossip_advance( ctx->gossip, now, stem, charge_busy );
 
   /* Peer table saturation detection.  After fd_gossip_advance updates
@@ -520,6 +552,7 @@ privileged_init( fd_topo_t const *      topo,
   FD_TEST( fd_rng_secure( &ctx->rng_seed, 4UL ) );
   FD_TEST( fd_rng_secure( &ctx->rng_idx,  8UL ) );
   FD_TEST( fd_rng_secure( ctx->ping_seed, 32UL ) );
+  FD_TEST( fd_rng_secure( &ctx->gui_bw_seed, 8UL ) );
 
   FD_TEST( tile->gossip.entrypoints_cnt<=FD_TOPO_GOSSIP_ENTRYPOINTS_MAX );
   ctx->entrypoints_cnt = tile->gossip.entrypoints_cnt;
@@ -566,6 +599,7 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_gossip_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gossip_tile_ctx_t), sizeof(fd_gossip_tile_ctx_t) );
   void * _gossip             = FD_SCRATCH_ALLOC_APPEND( l, fd_gossip_align(),             fd_gossip_footprint( tile->gossip.max_entries, tile->gossip.entrypoints_cnt ) );
+  void * _gui_bw             = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_gossip_bw_align(),      fd_gui_gossip_bw_footprint()                                                  );
 
   FD_TEST( fd_rng_join( fd_rng_new( ctx->rng, ctx->rng_seed, ctx->rng_idx ) ) );
 
@@ -612,6 +646,11 @@ unprivileged_init( fd_topo_t const *      topo,
   *ctx->sign_out   = out1( topo, tile, "gossip_sign"   );
   *ctx->gossip_out = out1( topo, tile, "gossip_out"    );
   *ctx->gossvf_out = out1( topo, tile, "gossip_gossvf" );
+
+  ctx->has_gui = fd_topo_find_tile_out_link( topo, tile, "gossip_gui", 0UL )!=ULONG_MAX;
+  if( FD_LIKELY( ctx->has_gui ) ) *ctx->gui_out = out1( topo, tile, "gossip_gui" );
+  ctx->gui_bw = fd_gui_gossip_bw_join( fd_gui_gossip_bw_new( _gui_bw, ctx->gui_bw_seed ) );
+  FD_TEST( ctx->gui_bw );
 
   fd_topo_link_t const * sign_in  = &topo->links[ tile->in_link_id [ sign_in_tile_idx  ] ];
   fd_topo_link_t const * sign_out = &topo->links[ tile->out_link_id[ ctx->sign_out->idx ] ];
@@ -741,6 +780,8 @@ FD_STATIC_ASSERT( FD_PING_TRACKER_MAX+2UL*FD_GOSSIP_MESSAGE_MAX_CRDS>=FD_CONTACT
 
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 #define STEM_CALLBACK_METRICS_WRITE       metrics_write
+#define STEM_CALLBACK_NEXT_DEADLINE       next_deadline
+#define STEM_CALLBACK_BEFORE_CREDIT       before_credit
 #define STEM_CALLBACK_AFTER_CREDIT        after_credit
 #define STEM_CALLBACK_BEFORE_FRAG         before_frag
 #define STEM_CALLBACK_DURING_FRAG         during_frag

@@ -344,6 +344,7 @@ fd_topo_initialize( config_t * config ) {
   }
   fd_topob_wksp( topo, "metric_in"    );
   if( FD_LIKELY( config->tiles.gui.enabled ) ) fd_topob_wksp( topo, "diag_gui" );
+  if( FD_LIKELY( config->tiles.gui.enabled ) ) fd_topob_wksp( topo, "gossip_gui" );
 
   fd_topob_wksp( topo, "net_gossip"   );
   fd_topob_wksp( topo, "net_shred"    );
@@ -555,8 +556,11 @@ fd_topo_initialize( config_t * config ) {
   }
 
   FOR(execrp_tile_cnt) fd_topob_link( topo, "execrp_replay", "execrp_replay", 16384UL,                                  sizeof(fd_execrp_task_done_msg_t), 1UL );
-  if( FD_LIKELY( config->tiles.gui.enabled ) )
+  if( FD_LIKELY( config->tiles.gui.enabled ) ) {
     fd_topob_link( topo, "diag_gui", "diag_gui", 4UL, sizeof(fd_diag_system_resources_t), 1UL );
+    /**/                 fd_topob_link( topo, "gossip_gui",  "gossip_gui",    256UL,                                    FD_GUI_GOSSIP_BW_MTU,          1UL );
+    FOR(gossvf_tile_cnt) fd_topob_link( topo, "gossvf_gui",  "gossip_gui",    256UL,                                    FD_GUI_GOSSIP_BW_MTU,          1UL );
+  }
 
   ushort parsed_tile_to_cpu[ FD_TILE_MAX ];
   /* Unassigned tiles will be floating, unless auto topology is enabled. */
@@ -1116,11 +1120,14 @@ fd_topo_initialize( config_t * config ) {
 
     /**/                 fd_topob_tile(     topo, "gui",     "gui",     "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0, 1, 0, 1 );
 
+    /**/                   fd_topob_tile_out( topo, "gossip", 0UL,                        "gossip_gui",    0UL                                                );
+    FOR(gossvf_tile_cnt)   fd_topob_tile_out( topo, "gossvf", i,                          "gossvf_gui",    i                                                  );
+
     /*                                        topo, tile_name, tile_kind_id, fseq_wksp,   link_name,       link_kind_id, reliable,            polled */
-    FOR(net_tile_cnt)      fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "net_gossvf",    i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+    FOR(gossvf_tile_cnt)   fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "gossvf_gui",    i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
     /**/                   fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "repair_net",    0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
     FOR(shred_tile_cnt)    fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "shred_out",     i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-    /**/                   fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "gossip_net",    0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+    /**/                   fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "gossip_gui",    0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
     /**/                   fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "gossip_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     if( !alpenglow_enabled ) {
       /**/                 fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "tower_out",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );

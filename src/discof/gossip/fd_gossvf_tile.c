@@ -12,6 +12,7 @@
 #include "../../ballet/siphash13/fd_siphash13.h"
 #include "../../util/net/fd_net_headers.h"
 #include "../../disco/net/fd_net_tile.h"
+#include "../../disco/gui/fd_gui_gossip_bw.h"
 #include <linux/futex.h>
 #include "generated/fd_gossvf_tile_seccomp.h"
 
@@ -197,6 +198,18 @@ struct fd_gossvf_tile_ctx {
     fd_wksp_t * mem;
   } out[ 1 ];
 
+  int has_gui;
+  ulong gui_bw_seed;
+  fd_gui_gossip_bw_t * gui_bw;
+
+  struct {
+    ulong       idx;
+    ulong       chunk0;
+    ulong       chunk;
+    ulong       wmark;
+    fd_wksp_t * mem;
+  } gui_out[ 1 ];
+
   struct {
     ulong message_rx[ FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_CNT ];
     ulong message_rx_bytes[ FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_CNT ];
@@ -223,6 +236,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, stake_pool_align(),              stake_pool_footprint( MAX_SHRED_DESTS )                           );
   l = FD_LAYOUT_APPEND( l, stake_map_align(),               stake_map_footprint( stake_map_chain_cnt_est( MAX_SHRED_DESTS ) ) );
   l = FD_LAYOUT_APPEND( l, fd_tcache_align(),               fd_tcache_footprint( tile->gossvf.tcache_depth, 0UL )             );
+  l = FD_LAYOUT_APPEND( l, fd_gui_gossip_bw_align(),        fd_gui_gossip_bw_footprint()                                      );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -236,6 +250,31 @@ during_housekeeping( fd_gossvf_tile_ctx_t * ctx ) {
     memcpy( ctx->identity_pubkey->uc, ctx->keyswitch->bytes, 32UL );
     ctx->instance_creation_wallclock_nanos = (long)ctx->keyswitch->param;
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
+  }
+}
+
+static void
+gui_bw_flush( fd_gossvf_tile_ctx_t * ctx,
+              fd_stem_context_t *    stem ) {
+  fd_gui_gossip_bw_rec_t * dst = fd_chunk_to_laddr( ctx->gui_out->mem, ctx->gui_out->chunk );
+  ulong cnt = fd_gui_gossip_bw_flush( ctx->gui_bw, dst );
+  ulong sz  = cnt*sizeof(fd_gui_gossip_bw_rec_t);
+  fd_stem_publish( stem, ctx->gui_out->idx, cnt, ctx->gui_out->chunk, sz, 0UL, 0UL, 0UL );
+  ctx->gui_out->chunk = fd_dcache_compact_next( ctx->gui_out->chunk, sz, ctx->gui_out->chunk0, ctx->gui_out->wmark );
+}
+
+static inline long
+next_deadline( fd_gossvf_tile_ctx_t const * ctx ) {
+  return fd_gui_gossip_bw_next_deadline( ctx->gui_bw );
+}
+
+static inline void
+before_credit( fd_gossvf_tile_ctx_t * ctx,
+               fd_stem_context_t *    stem,
+               int *                  charge_busy ) {
+  if( FD_UNLIKELY( fd_gui_gossip_bw_due( ctx->gui_bw, stem->now ) ) ) {
+    gui_bw_flush( ctx, stem );
+    *charge_busy = 1;
   }
 }
 
@@ -795,6 +834,10 @@ handle_net( fd_gossvf_tile_ctx_t * ctx,
   ctx->peer.addr = ip4_hdr->saddr;
   ctx->peer.port = udp_hdr->net_sport;
 
+  if( FD_LIKELY( ctx->has_gui ) ) {
+    if( FD_UNLIKELY( fd_gui_gossip_bw_add( ctx->gui_bw, ctx->peer.addr, ctx->peer.port, payload, payload_sz, stem->now ) ) ) gui_bw_flush( ctx, stem );
+  }
+
   long now = fd_clock_tile_now( ctx->clock );
 
   fd_gossip_message_t * message = ctx->_message;
@@ -1003,6 +1046,7 @@ privileged_init( fd_topo_t const *      topo,
   fd_gossvf_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_gossvf_tile_ctx_t ), sizeof( fd_gossvf_tile_ctx_t ) );
   FD_TEST( fd_rng_secure( &ctx->seed, 8U ) );
   FD_TEST( fd_rng_secure( ctx->dedup_key, 16U ) );
+  FD_TEST( fd_rng_secure( &ctx->gui_bw_seed, 8U ) );
 
   if( FD_UNLIKELY( !strcmp( tile->gossvf.identity_key_path, "" ) ) ) FD_LOG_ERR(( "identity_key_path not set" ));
 
@@ -1033,6 +1077,7 @@ unprivileged_init( fd_topo_t const *      topo,
   void * _stake_pool         = FD_SCRATCH_ALLOC_APPEND( l, stake_pool_align(),              stake_pool_footprint( MAX_SHRED_DESTS )                           );
   void * _stake_map          = FD_SCRATCH_ALLOC_APPEND( l, stake_map_align(),               stake_map_footprint( stake_map_chain_cnt_est( MAX_SHRED_DESTS ) ) );
   void * _tcache             = FD_SCRATCH_ALLOC_APPEND( l, fd_tcache_align(),               fd_tcache_footprint( tile->gossvf.tcache_depth, 0UL )             );
+  void * _gui_bw             = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_gossip_bw_align(),        fd_gui_gossip_bw_footprint()                                      );
 
   ctx->peers = peer_pool_join( peer_pool_new( _peer_pool, FD_CONTACT_INFO_TABLE_SIZE ) );
   FD_TEST( ctx->peers );
@@ -1120,7 +1165,21 @@ unprivileged_init( fd_topo_t const *      topo,
     else FD_LOG_ERR(( "unexpected input link name %s", link->name ));
   }
 
-  FD_TEST( tile->out_cnt==1UL );
+  ulong gui_out_idx = fd_topo_find_tile_out_link( topo, tile, "gossvf_gui", tile->kind_id );
+  FD_TEST( tile->out_cnt==1UL+(gui_out_idx!=ULONG_MAX) );
+  FD_TEST( !strcmp( topo->links[ tile->out_link_id[ 0UL ] ].name, "gossvf_gossip" ) );
+  ctx->has_gui = gui_out_idx!=ULONG_MAX;
+  if( FD_LIKELY( ctx->has_gui ) ) {
+    fd_topo_link_t const * gui_out = &topo->links[ tile->out_link_id[ gui_out_idx ] ];
+    ctx->gui_out->idx    = gui_out_idx;
+    ctx->gui_out->mem    = topo->workspaces[ topo->objs[ gui_out->dcache_obj_id ].wksp_id ].wksp;
+    ctx->gui_out->chunk0 = fd_dcache_compact_chunk0( ctx->gui_out->mem, gui_out->dcache );
+    ctx->gui_out->wmark  = fd_dcache_compact_wmark ( ctx->gui_out->mem, gui_out->dcache, gui_out->mtu );
+    ctx->gui_out->chunk  = ctx->gui_out->chunk0;
+  }
+  ctx->gui_bw = fd_gui_gossip_bw_join( fd_gui_gossip_bw_new( _gui_bw, ctx->gui_bw_seed ) );
+  FD_TEST( ctx->gui_bw );
+
   fd_topo_link_t const * gossvf_out = &topo->links[ tile->out_link_id[ 0UL ] ];
   ctx->out->mem    = topo->workspaces[ topo->objs[ gossvf_out->dcache_obj_id ].wksp_id ].wksp;
   ctx->out->chunk0 = fd_dcache_compact_chunk0( ctx->out->mem, gossvf_out->dcache );
@@ -1170,6 +1229,8 @@ populate_allowed_fds( fd_topo_t const *      topo,
 
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 #define STEM_CALLBACK_METRICS_WRITE       metrics_write
+#define STEM_CALLBACK_BEFORE_CREDIT       before_credit
+#define STEM_CALLBACK_NEXT_DEADLINE       next_deadline
 #define STEM_CALLBACK_BEFORE_FRAG         before_frag
 #define STEM_CALLBACK_DURING_FRAG         during_frag
 #define STEM_CALLBACK_AFTER_FRAG          after_frag

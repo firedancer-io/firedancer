@@ -7,6 +7,7 @@
 #include "../../flamenco/gossip/fd_gossip.h"
 #include "../../flamenco/runtime/fd_runtime_const.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
+#include "../../disco/gui/fd_gui_gossip_bw.h"
 
 typedef struct {
   int         kind;
@@ -37,11 +38,15 @@ struct fd_gossip_tile_ctx {
 
   uchar gossvf_staged[ FD_GOSSIP_GOSSVF_MTU ] __attribute__((aligned(128)));
 
+  ulong gui_bw_seed;
   uint  rng_seed;
   ulong rng_idx;
   uchar ping_seed[ 32 ];
 
   fd_clock_tile_t clock[1];
+
+  int has_gui;
+  fd_gui_gossip_bw_t * gui_bw;
 
   fd_gossip_in_ctx_t in[ 128UL ];
 
@@ -50,6 +55,7 @@ struct fd_gossip_tile_ctx {
   fd_gossip_out_ctx_t gossvf_out[ 1 ];
   fd_gossip_out_ctx_t sign_out[ 1 ];
   fd_gossip_out_ctx_t gossip_wfs[ 1 ];
+  fd_gossip_out_ctx_t gui_out[ 1 ];
 
   ulong sign_out_mtu;
   uchar sign_staged[ 64UL ];

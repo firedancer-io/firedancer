@@ -16,6 +16,7 @@
 
 #include "fd_gui_config_parse.h"
 #include "fd_gui_ema.h"
+#include "fd_gui_gossip_bw.h"
 
 #include "../../disco/metrics/generated/fd_metrics_enums.h"
 #include "../../flamenco/gossip/fd_gossip_message.h"
@@ -457,24 +458,17 @@ fd_gui_peers_new( void *             shmem,
 fd_gui_peers_ctx_t *
 fd_gui_peers_join( void * shmem );
 
-/* fd_gui_peers_handle_gossip_message_rx parses gossip messages from the
-   net_gossvf link for ingress messages and the gossip_net link for
-   egress messages and tracks per-peer, per-message bytes.  payload and
-   payload_sz corresponds to the frag data after the network headers
-   have been stripped. is_rx is true if the frag is an incoming message
-   from the net_gossvf link. Otherwise, the frag is assumed to be an
-   outgoing message from the gossip_net link. peer_sock is the ipv4
-   address and port from the stripped net headers, which identifies the
-   peers that sent or will receive the message.
+/* fd_gui_peers_handle_gossip_bw adds rec_cnt per-socket gossip byte
+   counts to the peers owning those gossip sockets.  is_rx is true for
+   ingress records from the gossvf tiles and false for egress records
+   from the gossip tile.  Records for sockets with no known peer are
+   ignored. */
 
-   Note that gossip_net frags are unverified gossip messages from the
-   network.  Messages that cannot be parsed are ignored. */
 void
-fd_gui_peers_handle_gossip_message( fd_gui_peers_ctx_t *       peers,
-                                    uchar const *              payload,
-                                    ulong                      payload_sz,
-                                    fd_gossip_socket_t const * peer_sock,
-                                    int                        is_rx );
+fd_gui_peers_handle_gossip_bw( fd_gui_peers_ctx_t *           peers,
+                               fd_gui_gossip_bw_rec_t const * rec,
+                               ulong                          rec_cnt,
+                               int                            is_rx );
 
 /* fd_gui_peers_handle_gossip_message_tx parses frags on the gossip_out
    link and uses the contact info update to build up the peer table. */
