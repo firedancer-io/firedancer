@@ -12,6 +12,7 @@
 #include "../netlink/fd_netlink_tile.h"
 #include "../stem/fd_stem.h"
 #include "../topo/fd_topo.h"
+#include "fd_net_tile.h"
 #include "../../waltz/mib/fd_netdev_tbl.h"
 #include "../../waltz/ip/fd_fib4.h"
 #include "../../waltz/neigh/fd_neigh4_map.h"
@@ -109,6 +110,8 @@ struct fd_net_tile {
   ulong  rx_proto_ids   [ FD_NET_RX_PROTO_CNT ];
   ulong  rx_out_link_idx[ FD_NET_RX_PROTO_CNT ];
   ulong  rx_out_cnt;
+  ulong  shred_out_cnt;                         /* >1: steer turbine/repair across shred tiles */
+  ulong  shred_out_idx[ FD_NET_SHRED_OUT_MAX ]; /* out link read by shred:k */
   uint   gre_tunnel_ip[ FD_NET_GRE_MAX ];
 
   /* sock is a raw socket for packets that failed userland routing */
@@ -534,7 +537,15 @@ fd_net_rx_proto_add( fd_net_tile_t *           ctx,
                      fd_topo_tile_t const *    tile,
                      fd_net_rx_proto_t const * proto ) {
   if( FD_UNLIKELY( !proto->listen_port ) ) return;
-  ulong out_idx = fd_topo_find_tile_out_link( topo, tile, proto->out_link, tile->kind_id );
+  ulong out_idx;
+  if( proto->proto_id==DST_PROTO_SHRED || proto->proto_id==DST_PROTO_REPAIR ) {
+    /* A net tile may have one net_shred link per shred tile, found by
+       fd_net_rx_protos_init.  fd_net_rx_proto_lookup steers across
+       them. */
+    out_idx = ctx->shred_out_cnt ? ctx->shred_out_idx[ 0 ] : ULONG_MAX;
+  } else {
+    out_idx = fd_topo_find_tile_out_link( topo, tile, proto->out_link, tile->kind_id );
+  }
 
   if( FD_UNLIKELY( out_idx==ULONG_MAX ) ) {
     if( FD_UNLIKELY( proto->out_link_required ) ) {
@@ -564,6 +575,10 @@ fd_net_rx_protos_init( fd_net_tile_t *        ctx,
                        fd_topo_tile_t const * tile ) {
   ctx->rx_out_cnt = tile->out_cnt;
 
+  /* Turbine and repair shreds use the net_shred link of the shred tile
+     that owns them (fd_net_shred_steer) */
+  ctx->shred_out_cnt = fd_topo_net_shred_outs( topo, tile, ctx->shred_out_idx );
+
   fd_net_rx_proto_t protos[ FD_NET_RX_PROTO_CNT ];
   fd_net_rx_protos_list( protos, &tile->net );
   for( ulong i=0UL; i<FD_NET_RX_PROTO_CNT; i++ ) {
@@ -571,9 +586,14 @@ fd_net_rx_protos_init( fd_net_tile_t *        ctx,
   }
 }
 
+/* fd_net_rx_proto_lookup picks the output link for a datagram of
+   payload_sz bytes at payload sent to dst_port.  Returns 0 if it has
+   no route. */
 static inline int
 fd_net_rx_proto_lookup( fd_net_tile_t const * ctx,
                         ushort                dst_port,
+                        uchar const *         payload,
+                        ulong                 payload_sz,
                         ulong *               out_idx,
                         ulong *               proto_id ) {
   ulong proto_idx = ULONG_MAX;
@@ -587,6 +607,9 @@ fd_net_rx_proto_lookup( fd_net_tile_t const * ctx,
 
   *out_idx  = ctx->rx_out_link_idx[ proto_idx ];
   *proto_id = ctx->rx_proto_ids   [ proto_idx ];
+  if( FD_UNLIKELY( ctx->shred_out_cnt>1UL && ( *proto_id==DST_PROTO_SHRED || *proto_id==DST_PROTO_REPAIR ) ) ) {
+    *out_idx = ctx->shred_out_idx[ fd_net_shred_steer( payload, payload_sz, ctx->shred_out_cnt ) ];
+  }
   return *out_idx<ctx->rx_out_cnt;
 }
 
@@ -726,7 +749,7 @@ fd_net_rx_pkt( fd_net_tile_t *     ctx,
   ushort const dst_port = fd_ushort_bswap( udp_hdr->net_dport );
   ulong out_idx;
   ulong proto_id;
-  if( FD_UNLIKELY( !fd_net_rx_proto_lookup( ctx, dst_port, &out_idx, &proto_id ) ) ) {
+  if( FD_UNLIKELY( !fd_net_rx_proto_lookup( ctx, dst_port, (uchar const *)eth_hdr+dgram_off, udp_sz-sizeof(fd_udp_hdr_t), &out_idx, &proto_id ) ) ) {
     /* Missing output links for configured ports still count as drops. */
     if( iavf_non_fd_pkts_rx_total ) {
       ulong proto_idx = 0UL;
