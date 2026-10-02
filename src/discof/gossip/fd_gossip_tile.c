@@ -295,7 +295,8 @@ after_credit( fd_gossip_tile_ctx_t * ctx,
   if( FD_UNLIKELY( !ctx->my_contact_info->shred_version ) ) return;
 
   if( FD_UNLIKELY( ctx->wfs_state==FD_GOSSIP_WFS_STATE_PUBLISH ) ) {
-    fd_stem_publish( ctx->stem, ctx->gossip_out->idx, FD_GOSSIP_UPDATE_TAG_WFS_DONE, ctx->gossip_out->chunk, 0UL, 0UL, 0UL, 0UL );
+    fd_gossip_out_ctx_t const * out = ctx->update_out + fd_gossip_update_link( FD_GOSSIP_UPDATE_TAG_WFS_DONE );
+    fd_stem_publish( ctx->stem, out->idx, FD_GOSSIP_UPDATE_TAG_WFS_DONE, out->chunk, 0UL, 0UL, 0UL, 0UL );
     ctx->wfs_state = FD_GOSSIP_WFS_STATE_DONE;
     *opt_poll_in = 0;
     *charge_busy = 1;
@@ -325,7 +326,8 @@ after_credit( fd_gossip_tile_ctx_t * ctx,
                             (now-ctx->peer_sat_hwm_nanos)>FD_GOSSIP_PEER_SAT_QUIET_NS ) ) {
       FD_LOG_INFO(( "gossip peer table saturated (%lu peers, quiet for %ld ms)",
                     peer_cnt, (now-ctx->peer_sat_hwm_nanos)/(1000L*1000L) ));
-      fd_stem_publish( ctx->stem, ctx->gossip_out->idx, FD_GOSSIP_UPDATE_TAG_PEER_SATURATED, ctx->gossip_out->chunk, 0UL, 0UL, 0UL, 0UL );
+      fd_gossip_out_ctx_t const * out = ctx->update_out + fd_gossip_update_link( FD_GOSSIP_UPDATE_TAG_PEER_SATURATED );
+      fd_stem_publish( ctx->stem, out->idx, FD_GOSSIP_UPDATE_TAG_PEER_SATURATED, out->chunk, 0UL, 0UL, 0UL, 0UL );
       ctx->peer_sat_published = 1;
       *opt_poll_in = 0;
       *charge_busy = 1;
@@ -644,7 +646,11 @@ unprivileged_init( fd_topo_t const *      topo,
 
   *ctx->net_out    = out1( topo, tile, "gossip_net"    );
   *ctx->sign_out   = out1( topo, tile, "gossip_sign"   );
-  *ctx->gossip_out = out1( topo, tile, "gossip_out"    );
+  ctx->update_out[ FD_GOSSIP_UPDATE_LINK_CI   ] = out1( topo, tile, "gossip_ci"   );
+  ctx->update_out[ FD_GOSSIP_UPDATE_LINK_VOTE ] = fd_topo_find_tile_out_link( topo, tile, "gossip_vote", 0UL )!=ULONG_MAX
+                                                ? out1( topo, tile, "gossip_vote" )
+                                                : (fd_gossip_out_ctx_t){ .idx = ULONG_MAX }; /* no vote readers */
+  ctx->update_out[ FD_GOSSIP_UPDATE_LINK_MISC ] = out1( topo, tile, "gossip_misc" );
   *ctx->gossvf_out = out1( topo, tile, "gossip_gossvf" );
 
   ctx->has_gui = fd_topo_find_tile_out_link( topo, tile, "gossip_gui", 0UL )!=ULONG_MAX;
@@ -707,7 +713,7 @@ unprivileged_init( fd_topo_t const *      topo,
                                                ctx,
                                                gossip_activity_update_fn,
                                                ctx,
-                                               ctx->gossip_out,
+                                               ctx->update_out,
                                                ctx->net_out ) );
   FD_TEST( ctx->gossip );
 
@@ -757,19 +763,24 @@ populate_allowed_fds( fd_topo_t const *      topo,
    of after_credit (which calls fd_gossip_advance) followed by
    processing one input fragment (returnable_frag).
 
-   The two reliable output links and their per-iteration worst cases:
+   The reliable output links and their per-iteration worst cases:
 
    gossvf_out (via gossip_ping_tracker_change_fn):
      tx_ping evictions + expiries            FD_PING_TRACKER_MAX
      fd_ping_tracker_track from rx_values    2*FD_GOSSIP_MESSAGE_MAX_CRDS
      Total: FD_PING_TRACKER_MAX + 2*FD_GOSSIP_MESSAGE_MAX_CRDS
 
-   gossip_out (via fd_gossip_tx_publish_chunk):
+   gossip_ci (via fd_gossip_tx_publish_chunk):
      fd_crds_advance expire (ContactInfos)   FD_CONTACT_INFO_TABLE_SIZE
      fd_crds_insert publish + evictions      2*FD_GOSSIP_MESSAGE_MAX_CRDS
      Total: FD_CONTACT_INFO_TABLE_SIZE + 2*FD_GOSSIP_MESSAGE_MAX_CRDS
 
-   Among the reliable output links, gossvf_out dominates. */
+   gossip_vote and gossip_misc carry a subset of the fd_crds_insert
+   publishes (at most FD_GOSSIP_MESSAGE_MAX_CRDS each, plus a few local
+   pushes), so gossip_ci bounds them.
+
+   Among the reliable output links, gossvf_out dominates.  Every
+   reliable out link must be at least STEM_BURST deep. */
 FD_STATIC_ASSERT( FD_PING_TRACKER_MAX+2UL*FD_GOSSIP_MESSAGE_MAX_CRDS>=FD_CONTACT_INFO_TABLE_SIZE+2UL*FD_GOSSIP_MESSAGE_MAX_CRDS, "STEM_BURST does not account for worst case output link" );
 #define STEM_BURST (FD_PING_TRACKER_MAX+2UL*FD_GOSSIP_MESSAGE_MAX_CRDS)
 

@@ -549,7 +549,7 @@ main( int     argc,
 
   fd_topo_link_t * link_rpc_replay = create_link( topo, wksp, "rpc_replay", 4UL, 0UL, 1UL );
   (void)link_rpc_replay;
-  fd_topo_link_t * link_gossip_out = create_link( topo, wksp, "gossip_out", 4UL, FD_GOSSIP_UPDATE_SZ_VOTE, 1UL );
+  fd_topo_link_t * link_gossip_out = create_link( topo, wksp, "gossip_vote", 4UL, FD_GOSSIP_UPDATE_SZ_VOTE, 1UL );
   fd_topo_link_t * link_replay_slot = create_link( topo, wksp, "replay_slot", 4UL, sizeof(fd_replay_root_advanced_t), 1UL );
   fd_topo_link_t * link_votor_out  = create_link( topo, wksp, "votor_out",  4UL, sizeof(fd_votor_msg_t),             1UL );
 
@@ -579,7 +579,7 @@ main( int     argc,
   tile->id_keyswitch_obj_id           = keyswitch_obj->id;
 
   fd_topob_tile_out( topo, "rpc", 0UL, "rpc_replay", 0UL );
-  fd_topob_tile_in( topo, "rpc", 0UL, "wksp", "gossip_out", 0UL, 0, 1 );
+  fd_topob_tile_in( topo, "rpc", 0UL, "wksp", "gossip_vote", 0UL, 0, 1 );
   fd_topob_tile_in( topo, "rpc", 0UL, "wksp", "replay_slot", 0UL, 0, 1 );
   fd_topob_tile_in( topo, "rpc", 0UL, "wksp", "votor_out",  0UL, 0, 1 );
 

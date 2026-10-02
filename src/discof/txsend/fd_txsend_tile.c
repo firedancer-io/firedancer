@@ -818,7 +818,7 @@ unprivileged_init( fd_topo_t const *      topo,
     if( !strcmp( link->name, "net_txsend"   ) ) {
       fd_net_rx_bounds_init( &ctx->net_in_bounds[ i ], link->dcache );
       ctx->in_kind[ i ] = IN_KIND_NET;
-    } else if( !strcmp( link->name, "gossip_out" ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP;
+    } else if( !strcmp( link->name, "gossip_ci"  ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP;
     else if( !strcmp( link->name, "replay_epoch" ) ) ctx->in_kind[ i ] = IN_KIND_EPOCH;
     else if( !strcmp( link->name, "tower_out"    ) ) ctx->in_kind[ i ] = IN_KIND_TOWER;
     else if( !strcmp( link->name, "sign_txsend"  ) ) ctx->in_kind[ i ] = IN_KIND_SIGN;

@@ -1207,7 +1207,7 @@ unprivileged_init( fd_topo_t const *      topo,
       sign_repair_in_idx[ sign_repair_idx++ ] = in_idx;
       sign_link_depth                         = link->depth;
     }
-    else if( 0==strcmp( link->name, "gossip_out"   ) ) ctx->in_kind[ in_idx ] = IN_KIND_GOSSIP;
+    else if( 0==strcmp( link->name, "gossip_ci"    ) ) ctx->in_kind[ in_idx ] = IN_KIND_GOSSIP;
     else if( 0==strcmp( link->name, "shred_out"    ) ) ctx->in_kind[ in_idx ] = IN_KIND_SHRED;
     else if( 0==strcmp( link->name, "snapin_manif" ) ) ctx->in_kind[ in_idx ] = IN_KIND_SNAP;
     else if( 0==strcmp( link->name, "genesi_out"   ) ) ctx->in_kind[ in_idx ] = IN_KIND_GENESIS;

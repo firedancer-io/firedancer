@@ -470,7 +470,7 @@ fd_gui_peers_handle_gossip_bw( fd_gui_peers_ctx_t *           peers,
                                ulong                          rec_cnt,
                                int                            is_rx );
 
-/* fd_gui_peers_handle_gossip_message_tx parses frags on the gossip_out
+/* fd_gui_peers_handle_gossip_message_tx parses frags on the gossip_ci
    link and uses the contact info update to build up the peer table. */
 
 void
