@@ -67,8 +67,10 @@ fd_reward_epoch_stakes_set( fd_bank_t *                    bank,
                              NULL, NULL, NULL, NULL, NULL, NULL, NULL );
     fd_stake_accum_t const * accumulated = fd_stake_accum_map_ele_query_const(
         map, &entries[ entries_cnt ].vote_pubkey, NULL, pool );
-    FD_TEST( accumulated );
-    entries[ entries_cnt ].delegated_stake = accumulated->reward_stake;
+    if( FD_UNLIKELY( !accumulated ) ) {
+      FD_LOG_WARNING(( "vote account missing from stake accumulation map (corrupt snapshot?)" ));
+    }
+    entries[ entries_cnt ].delegated_stake = accumulated ? accumulated->reward_stake : 0UL;
     entries_cnt++;
   }
   fd_reward_epoch_stake_sort_inplace( entries, entries_cnt );
