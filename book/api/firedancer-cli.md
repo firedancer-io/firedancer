@@ -23,7 +23,8 @@ Firedancer-only configure stages for the full client:
 ## `set-identity`
 The Firedancer binary supports the `set-identity` command documented in
 [`fdctl` command reference](/api/cli.md#set-identity), but removes
-configuration options `require-tower` and `force`.
+configuration options `require-tower` and `force`, and adds
+`--vote-history-file`.
 
 Unlike `fdctl`, the `firedancer` binary does not require the `--config`
 argument: with no arguments the command discovers the running validator
@@ -33,13 +34,19 @@ on the host automatically. If more than one validator is running, pass
 configuration file: only the `name` and `[hugetlbfs.mount_path]` values
 are used, and they must match the running validator. Compatibility with
 the running validator is checked either way, and a version mismatch
-fails cleanly without changing anything.
+fails cleanly without changing anything. `--vote-history-file` can be
+passed alongside an agave-produced tower file (e.g.
+`tower-1_9-<pubkey>.bin`). The file will be restored and lockouts
+will be preserved as described in the file. If the file is invalid, the
+command will fail and the identity of the running validator will not
+be changed.
 
-| Arguments         | Description |
-|-------------------|-------------|
-| `<keypair>`       | Path to a `identity.json` keypair file, or `-` to read the JSON formatted key from `stdin` |
-| `--name <name>`   | Name of the validator instance to attach to, if more than one is running on this host |
-| `--config <path>` | Optional path to a configuration TOML file naming the validator to attach to. Only the `name` and `[hugetlbfs.mount_path]` values are used, and they must match the running validator |
+| Arguments                    | Description |
+|------------------------------|-------------|
+| `<keypair>`                  | Path to a `identity.json` keypair file, or `-` to read the JSON formatted key from `stdin` |
+| `--name <name>`              | Name of the validator instance to attach to, if more than one is running on this host |
+| `--config <path>`            | Optional path to a configuration TOML file naming the validator to attach to. Only the `name` and `[hugetlbfs.mount_path]` values are used, and they must match the running validator |
+| `--vote-history-file <path>` | Optional path to the tower file saved by the validator previously running with the new identity |
 
 ## `get-identity`
 Prints the base58 encoded identity public key the running validator is
