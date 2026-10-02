@@ -661,7 +661,11 @@ fd_topo_initialize( config_t * config ) {
   fd_topos_net_tiles( topo, net_tile_cnt, &config->net, config->tiles.netlink.max_routes, config->tiles.netlink.max_peer_routes, config->tiles.netlink.max_neighbors, tile_to_cpu );
 
   FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_gossvf", i, config->net.ingress_buffer_size );
-  FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_shred",  i, config->net.ingress_buffer_size );
+  /* One net_shred link per (net, shred) pair: net tiles steer each
+     shred to the tile owning its FEC set (fd_net_shred_steer), so a
+     shred tile no longer reads and drops the others' packets.  Link
+     net_shred:i*shred_tile_cnt+k is read by shred:k. */
+  FOR(net_tile_cnt) for( ulong k=0UL; k<shred_tile_cnt; k++ ) fd_topos_net_rx_link( topo, "net_shred", i, config->net.ingress_buffer_size );
   if( rserve_enabled ) FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_rserve", i, config->net.ingress_buffer_size );
   if( leader_enabled ) FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_quic",   i, config->net.ingress_buffer_size );
 
@@ -727,7 +731,7 @@ fd_topo_initialize( config_t * config ) {
   FOR(gossvf_tile_cnt) for( ulong j=0UL; j<net_tile_cnt; j++ )
                       fd_topob_tile_in(     topo, "gossvf",  i,            "metric_in", "net_gossvf",    j,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   FOR(shred_tile_cnt) for( ulong j=0UL; j<net_tile_cnt; j++ )
-                      fd_topob_tile_in (    topo, "shred",   i,            "metric_in", "net_shred",     j,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+                      fd_topob_tile_in (    topo, "shred",   i,            "metric_in", "net_shred",     j*shred_tile_cnt+i, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   FOR(shred_tile_cnt) fd_topob_tile_in(     topo, "rotor",   0UL,          "metric_in", "shred_rotor",   i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* Repair pings and metadata responses are retried, may be dropped or overrun */
   /**/                fd_topob_tile_out(    topo, "rotor",   0UL,                       "repair_net",    0UL                                                );
   FOR(quic_tile_cnt) for( ulong j=0UL; j<net_tile_cnt; j++ )
@@ -900,7 +904,7 @@ fd_topo_initialize( config_t * config ) {
       /* TODO: This needs to be reliable, else we could miss shreds that
          are required to replay the chain, but we can't change it yet as
          the XDP tile does not support reliable consumers. */
-      FOR(net_tile_cnt) fd_topob_tile_in(  topo, "event", 0UL, "metric_in", "net_shred", i, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+      FOR(net_tile_cnt*shred_tile_cnt) fd_topob_tile_in(  topo, "event", 0UL, "metric_in", "net_shred", i, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
     }
 
     if( FD_UNLIKELY( config->development.event.report_transactions && leader_enabled ) ) {

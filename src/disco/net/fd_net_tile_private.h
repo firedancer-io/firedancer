@@ -9,6 +9,7 @@
 #include "../metrics/fd_metrics.h"
 #include "../stem/fd_stem.h"
 #include "../topo/fd_topo.h"
+#include "fd_net_tile.h"
 #include "../../waltz/mib/fd_netdev_tbl.h"
 
 #include "../../waltz/ip/fd_iproute.h"
@@ -78,6 +79,8 @@ struct fd_net_tile {
   ulong  dst_protos[ FD_NET_RX_PORT_MAX ];
   ulong  dst_out_idx[ FD_NET_RX_PORT_MAX ];
   ulong  rx_out_cnt;
+  ulong  shred_out_cnt;                         /* >1: steer turbine/repair across shred tiles */
+  ulong  shred_out_idx[ FD_NET_SHRED_OUT_MAX ]; /* out link read by shred:k */
   uint   gre_tunnel_ip[ FD_NET_GRE_MAX ];
 
   struct {
@@ -251,18 +254,16 @@ fd_net_tx_pkt_prep( fd_net_tile_t * ctx,
   return 1;
 }
 
-/* fd_net_rx_dst_port_add maps an IPv4 UDP destination port to the
-   output link with the requested name and tile kind. */
+/* fd_net_rx_dst_port_add_idx maps an IPv4 UDP destination port to the
+   output link out_idx (ULONG_MAX if missing). */
 static inline void
-fd_net_rx_dst_port_add( fd_net_tile_t *        ctx,
-                        fd_topo_t const *      topo,
-                        fd_topo_tile_t const * tile,
-                        ulong                  dst_proto,
-                        char const *           out_link,
-                        ushort                 dst_port,
-                        int                    required ) {
+fd_net_rx_dst_port_add_idx( fd_net_tile_t * ctx,
+                            ulong           dst_proto,
+                            ulong           out_idx,
+                            char const *    out_link,
+                            ushort          dst_port,
+                            int             required ) {
   if( FD_UNLIKELY( !dst_port ) ) return;
-  ulong out_idx = fd_topo_find_tile_out_link( topo, tile, out_link, tile->kind_id );
 
   if( FD_UNLIKELY( out_idx==ULONG_MAX ) ) {
     if( FD_UNLIKELY( required ) ) {
@@ -281,25 +282,51 @@ fd_net_rx_dst_port_add( fd_net_tile_t *        ctx,
   ctx->dst_port_cnt++;
 }
 
+/* fd_net_rx_dst_port_add maps an IPv4 UDP destination port to the
+   output link with the requested name and tile kind. */
+static inline void
+fd_net_rx_dst_port_add( fd_net_tile_t *        ctx,
+                        fd_topo_t const *      topo,
+                        fd_topo_tile_t const * tile,
+                        ulong                  dst_proto,
+                        char const *           out_link,
+                        ushort                 dst_port,
+                        int                    required ) {
+  if( FD_UNLIKELY( !dst_port ) ) return;
+  ulong out_idx = fd_topo_find_tile_out_link( topo, tile, out_link, tile->kind_id );
+  fd_net_rx_dst_port_add_idx( ctx, dst_proto, out_idx, out_link, dst_port, required );
+}
+
 static inline void
 fd_net_rx_dst_ports_init( fd_net_tile_t *        ctx,
                           fd_topo_t const *      topo,
                           fd_topo_tile_t const * tile ) {
   ctx->rx_out_cnt = tile->out_cnt;
 
-  fd_net_rx_dst_port_add( ctx, topo, tile, DST_PROTO_TPU_UDP,  "net_quic",   tile->net.legacy_transaction_listen_port, 1 );
-  fd_net_rx_dst_port_add( ctx, topo, tile, DST_PROTO_TPU_QUIC, "net_quic",   tile->net.quic_transaction_listen_port,   1 );
-  fd_net_rx_dst_port_add( ctx, topo, tile, DST_PROTO_SHRED,    "net_shred",  tile->net.shred_listen_port,              1 );
-  fd_net_rx_dst_port_add( ctx, topo, tile, DST_PROTO_GOSSIP,   "net_gossvf", tile->net.gossip_listen_port,             1 );
-  fd_net_rx_dst_port_add( ctx, topo, tile, DST_PROTO_REPAIR,   "net_shred",  tile->net.repair_client_listen_port,      1 );
-  fd_net_rx_dst_port_add( ctx, topo, tile, DST_PROTO_RSERVE,   "net_rserve", tile->net.repair_serve_listen_port,       0 );
-  fd_net_rx_dst_port_add( ctx, topo, tile, DST_PROTO_VOTOR,    "net_votor",  tile->net.votor_quic_client_listen_port,  1 );
-  fd_net_rx_dst_port_add( ctx, topo, tile, DST_PROTO_VOTOR,    "net_votor",  tile->net.votor_quic_server_listen_port,  1 );
+  /* Turbine and repair shreds use the net_shred link of the shred tile
+     that owns them (fd_net_shred_steer) */
+  ctx->shred_out_cnt = fd_topo_net_shred_outs( topo, tile, ctx->shred_out_idx );
+  ulong shred_out    = ctx->shred_out_cnt ? ctx->shred_out_idx[ 0 ] : ULONG_MAX;
+
+  fd_net_rx_dst_port_add    ( ctx, topo, tile, DST_PROTO_TPU_UDP,  "net_quic",   tile->net.legacy_transaction_listen_port, 1 );
+  fd_net_rx_dst_port_add    ( ctx, topo, tile, DST_PROTO_TPU_QUIC, "net_quic",   tile->net.quic_transaction_listen_port,   1 );
+  fd_net_rx_dst_port_add_idx( ctx, DST_PROTO_SHRED,  shred_out,    "net_shred",  tile->net.shred_listen_port,              1 );
+  fd_net_rx_dst_port_add    ( ctx, topo, tile, DST_PROTO_GOSSIP,   "net_gossvf", tile->net.gossip_listen_port,             1 );
+  fd_net_rx_dst_port_add_idx( ctx, DST_PROTO_REPAIR, shred_out,    "net_shred",  tile->net.repair_client_listen_port,      1 );
+  fd_net_rx_dst_port_add    ( ctx, topo, tile, DST_PROTO_RSERVE,   "net_rserve", tile->net.repair_serve_listen_port,       0 );
+  fd_net_rx_dst_port_add    ( ctx, topo, tile, DST_PROTO_VOTOR,    "net_votor",  tile->net.votor_quic_client_listen_port,  1 );
+  fd_net_rx_dst_port_add    ( ctx, topo, tile, DST_PROTO_VOTOR,    "net_votor",  tile->net.votor_quic_server_listen_port,  1 );
+
 }
 
+/* fd_net_rx_dst_port_lookup picks the output link for a datagram of
+   payload_sz bytes at payload sent to net_dport.  Returns 0 if it has
+   no route. */
 static inline int
 fd_net_rx_dst_port_lookup( fd_net_tile_t const * ctx,
                            ushort                net_dport,
+                           uchar const *         payload,
+                           ulong                 payload_sz,
                            ulong *               out_idx,
                            ulong *               dst_proto ) {
   ulong rule_idx = ULONG_MAX;
@@ -313,6 +340,9 @@ fd_net_rx_dst_port_lookup( fd_net_tile_t const * ctx,
 
   *out_idx   = ctx->dst_out_idx[ rule_idx ];
   *dst_proto = ctx->dst_protos [ rule_idx ];
+  if( FD_UNLIKELY( ctx->shred_out_cnt>1UL && ( *dst_proto==DST_PROTO_SHRED || *dst_proto==DST_PROTO_REPAIR ) ) ) {
+    *out_idx = ctx->shred_out_idx[ fd_net_shred_steer( payload, payload_sz, ctx->shred_out_cnt ) ];
+  }
   return *out_idx<ctx->rx_out_cnt;
 }
 
@@ -431,7 +461,7 @@ fd_net_rx_pkt( fd_net_tile_t *     ctx,
   ushort const dst_port = fd_ushort_bswap( udp_hdr->net_dport );
   ulong out_idx;
   ulong dst_proto;
-  if( FD_UNLIKELY( !fd_net_rx_dst_port_lookup( ctx, dst_port, &out_idx, &dst_proto ) ) ) {
+  if( FD_UNLIKELY( !fd_net_rx_dst_port_lookup( ctx, dst_port, (uchar const *)eth_hdr+dgram_off, udp_sz-sizeof(fd_udp_hdr_t), &out_idx, &dst_proto ) ) ) {
     /* Missing output links for configured ports still count as drops. */
     if( iavf_non_fd_pkts_rx_total ) {
       ulong port_idx = 0UL;

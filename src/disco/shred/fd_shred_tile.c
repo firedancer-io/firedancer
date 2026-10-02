@@ -827,7 +827,7 @@ alpenglow_marker:
     if( FD_UNLIKELY( fd_disco_netmux_sig_proto( sig )==DST_PROTO_REPAIR && dgram_sz<=FD_REPAIR_RES_DE_MAX ) ) {
       ctx->skip_frag = 1;
       ctx->fwd_meta  = ctx->repair_out_idx!=ULONG_MAX &&
-                       fd_disco_netmux_sig_hash( sig )%ctx->round_robin_cnt==ctx->round_robin_id;
+                       fd_net_shred_steer( dcache_entry+hdr_sz, dgram_sz, ctx->round_robin_cnt )==ctx->round_robin_id;
       if( ctx->fwd_meta ) { /* trim trailing bytes outside the datagram */
         fd_memcpy( ctx->shred_buffer, dcache_entry, hdr_sz+dgram_sz );
         ctx->shred_buffer_sz = hdr_sz+dgram_sz;
