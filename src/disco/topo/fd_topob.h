@@ -81,7 +81,8 @@ fd_topob_obj_named( fd_topo_t *  topo,
    the appropriate mode.
 
    mode should be one of FD_SHMEM_JOIN_MODE_READ_ONLY or
-   FD_SHMEM_JOIN_MODE_READ_WRITE. */
+   FD_SHMEM_JOIN_MODE_READ_WRITE.  Adding an object the tile already
+   uses keeps one entry, upgraded to READ_WRITE if either mode is. */
 
 void
 fd_topob_tile_uses( fd_topo_t *           topo,
