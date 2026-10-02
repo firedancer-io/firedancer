@@ -240,6 +240,7 @@ typedef struct {
   /* Netdev table */
   fd_netdev_tbl_join_t netdev_tbl;    /* local copy in scratch (hot path) */
   fd_netdev_tbl_join_t netdev_shared; /* shared table in netbase (seqlock protected) */
+  ulong                netdev_seq;    /* netdev_shared seqlock value of the netdev_tbl copy */
 
   struct {
     ulong rx_fill_blocked_cnt;
@@ -469,10 +470,9 @@ net_tx_periodic_wakeup( fd_net_ctx_t * ctx,
 static void
 during_housekeeping( fd_net_ctx_t * ctx ) {
   long now = fd_tickcount();
-  if( FD_LIKELY( !fd_seqlock_locked_hint( &ctx->netdev_shared.hdr->seqlock ) ) ) {
-    fd_netdev_tbl_copy( &ctx->netdev_tbl, &ctx->netdev_shared );
+  if( FD_UNLIKELY( fd_netdev_tbl_refresh( &ctx->netdev_tbl, &ctx->netdev_shared, &ctx->netdev_seq ) ) ) {
+    fd_net_gre_tunnels_refresh( &ctx->net, &ctx->netdev_tbl );
   }
-  fd_net_gre_tunnels_refresh( &ctx->net, &ctx->netdev_tbl );
 
   ctx->metrics.rx_busy_cnt = 0UL;
   ctx->metrics.rx_idle_cnt = 0UL;
@@ -1280,6 +1280,8 @@ init_device_table( fd_net_ctx_t * ctx,
   FD_TEST( fd_netdev_tbl_join( &ctx->netdev_shared, netdev_tbl_shm ) );
   FD_TEST( fd_netdev_tbl_new( netdev_tbl_local, NETDEV_MAX, BOND_MASTER_MAX ) );
   FD_TEST( fd_netdev_tbl_join( &ctx->netdev_tbl, netdev_tbl_local ) );
+  ctx->netdev_seq = fd_netdev_tbl_copy( &ctx->netdev_tbl, &ctx->netdev_shared );
+  fd_net_gre_tunnels_refresh( &ctx->net, &ctx->netdev_tbl );
 }
 
 FD_FN_UNUSED static void
