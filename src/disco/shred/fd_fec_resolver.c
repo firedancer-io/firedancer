@@ -268,13 +268,21 @@ struct __attribute__((aligned(FD_FEC_RESOLVER_ALIGN))) fd_fec_resolver {
   fd_sha512_t   sha512[1];
   fd_reedsol_t  reedsol[1];
 
+  /* ed25519_cache: per leader pubkey precomputation for verifying the
+     FEC set signatures.  A leader signs every set of its slots, so
+     the few keys active at once repeat for hundreds of sets. */
+  fd_ed25519_cache_t * ed25519_cache;
+
   /* The footprint for the objects follows the struct and is in the same
      order as the pointers, namely:
        ctx_pool
        ctx_map
        done_pool
-       done_map */
+       done_map
+       ed25519_cache */
 };
+
+#define ED25519_CACHE_ENT_CNT (16UL)
 
 typedef struct fd_fec_resolver fd_fec_resolver_t;
 
@@ -293,11 +301,12 @@ fd_fec_resolver_footprint( ulong depth,
   ulong done_chain_cnt = done_map_chain_cnt_est( done_depth );
 
   ulong layout = FD_LAYOUT_INIT;
-  layout = FD_LAYOUT_APPEND( layout, FD_FEC_RESOLVER_ALIGN,  sizeof(fd_fec_resolver_t)             );
-  layout = FD_LAYOUT_APPEND( layout, alignof(set_ctx_t),     sizeof(set_ctx_t)*depth_sum           );
-  layout = FD_LAYOUT_APPEND( layout, ctx_map_align(),        ctx_map_footprint  ( ctx_chain_cnt  ) );
-  layout = FD_LAYOUT_APPEND( layout, done_pool_align(),      done_pool_footprint( done_depth     ) );
-  layout = FD_LAYOUT_APPEND( layout, done_map_align(),       done_map_footprint ( done_chain_cnt ) );
+  layout = FD_LAYOUT_APPEND( layout, FD_FEC_RESOLVER_ALIGN,    sizeof(fd_fec_resolver_t)                           );
+  layout = FD_LAYOUT_APPEND( layout, alignof(set_ctx_t),       sizeof(set_ctx_t)*depth_sum                         );
+  layout = FD_LAYOUT_APPEND( layout, ctx_map_align(),          ctx_map_footprint  ( ctx_chain_cnt  )               );
+  layout = FD_LAYOUT_APPEND( layout, done_pool_align(),        done_pool_footprint( done_depth     )               );
+  layout = FD_LAYOUT_APPEND( layout, done_map_align(),         done_map_footprint ( done_chain_cnt )               );
+  layout = FD_LAYOUT_APPEND( layout, fd_ed25519_cache_align(), fd_ed25519_cache_footprint( ED25519_CACHE_ENT_CNT ) );
 
   return FD_LAYOUT_FINI( layout, FD_FEC_RESOLVER_ALIGN );
 }
@@ -332,13 +341,15 @@ fd_fec_resolver_new( void                    * shmem,
   ulong seed1 = fd_ulong_hash( seed + 13503953896175478587UL );  /* sqrt(3)-1 */
   ulong seed2 = fd_ulong_hash( seed +  4354685564936845356UL );  /* sqrt(5)-2 */
   ulong seed3 = fd_ulong_hash( seed + 11912009170470909682UL );  /* sqrt(7)-2 */
+  ulong seed4 = fd_ulong_hash( seed +  5883258537300569243UL );  /* sqrt(11)-3 */
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
-  void * self        = FD_SCRATCH_ALLOC_APPEND( l, FD_FEC_RESOLVER_ALIGN,  sizeof(fd_fec_resolver_t)                 );
-  void * _ctx_pool   = FD_SCRATCH_ALLOC_APPEND( l, alignof(set_ctx_t),     sizeof(set_ctx_t)*depth_sum               );
-  void * _ctx_map    = FD_SCRATCH_ALLOC_APPEND( l, ctx_map_align(),        ctx_map_footprint  ( ctx_chain_cnt  ) );
-  void * _done_pool  = FD_SCRATCH_ALLOC_APPEND( l, done_pool_align(),      done_pool_footprint( done_depth         ) );
-  void * _done_map   = FD_SCRATCH_ALLOC_APPEND( l, done_map_align(),       done_map_footprint ( done_chain_cnt ) );
+  void * self        = FD_SCRATCH_ALLOC_APPEND( l, FD_FEC_RESOLVER_ALIGN,    sizeof(fd_fec_resolver_t)                           );
+  void * _ctx_pool   = FD_SCRATCH_ALLOC_APPEND( l, alignof(set_ctx_t),       sizeof(set_ctx_t)*depth_sum                         );
+  void * _ctx_map    = FD_SCRATCH_ALLOC_APPEND( l, ctx_map_align(),          ctx_map_footprint  ( ctx_chain_cnt  )               );
+  void * _done_pool  = FD_SCRATCH_ALLOC_APPEND( l, done_pool_align(),        done_pool_footprint( done_depth     )               );
+  void * _done_map   = FD_SCRATCH_ALLOC_APPEND( l, done_map_align(),         done_map_footprint ( done_chain_cnt )               );
+  void * _ed_cache   = FD_SCRATCH_ALLOC_APPEND( l, fd_ed25519_cache_align(), fd_ed25519_cache_footprint( ED25519_CACHE_ENT_CNT ) );
   FD_SCRATCH_ALLOC_FINI( l, FD_FEC_RESOLVER_ALIGN );
 
   fd_fec_resolver_t * resolver = (fd_fec_resolver_t *)self;
@@ -347,13 +358,14 @@ fd_fec_resolver_new( void                    * shmem,
   void * _complete_list = resolver->complete_list;
   void * _done_heap     = resolver->done_heap;
 
-  if( FD_UNLIKELY( !ctx_map_new  ( _ctx_map, ctx_chain_cnt, seed0   ) ) ) { FD_LOG_WARNING(( "ctx_map_new fail"   )); return NULL; }
-  if( FD_UNLIKELY( !ctx_treap_new( _ctx_treap, depth_sum            ) ) ) { FD_LOG_WARNING(( "ctx_treap_new fail" )); return NULL; }
-  if( FD_UNLIKELY( !ctx_list_new ( _free_list                       ) ) ) { FD_LOG_WARNING(( "ctx_list_new fail"  )); return NULL; }
-  if( FD_UNLIKELY( !ctx_list_new ( _complete_list                   ) ) ) { FD_LOG_WARNING(( "ctx_list_new fail"  )); return NULL; }
-  if( FD_UNLIKELY( !done_pool_new( _done_pool, done_depth           ) ) ) { FD_LOG_WARNING(( "done_pool_new fail" )); return NULL; }
-  if( FD_UNLIKELY( !done_map_new ( _done_map, done_chain_cnt, seed1 ) ) ) { FD_LOG_WARNING(( "done_map_new fail"  )); return NULL; }
-  if( FD_UNLIKELY( !done_heap_new( _done_heap, done_depth           ) ) ) { FD_LOG_WARNING(( "done_heap_new fail" )); return NULL; }
+  if( FD_UNLIKELY( !ctx_map_new         ( _ctx_map, ctx_chain_cnt, seed0          ) ) ) { FD_LOG_WARNING(( "ctx_map_new fail"       )); return NULL; }
+  if( FD_UNLIKELY( !ctx_treap_new       ( _ctx_treap, depth_sum                   ) ) ) { FD_LOG_WARNING(( "ctx_treap_new fail"     )); return NULL; }
+  if( FD_UNLIKELY( !ctx_list_new        ( _free_list                              ) ) ) { FD_LOG_WARNING(( "ctx_list_new fail"      )); return NULL; }
+  if( FD_UNLIKELY( !ctx_list_new        ( _complete_list                          ) ) ) { FD_LOG_WARNING(( "ctx_list_new fail"      )); return NULL; }
+  if( FD_UNLIKELY( !done_pool_new       ( _done_pool, done_depth                  ) ) ) { FD_LOG_WARNING(( "done_pool_new fail"     )); return NULL; }
+  if( FD_UNLIKELY( !done_map_new        ( _done_map, done_chain_cnt, seed1        ) ) ) { FD_LOG_WARNING(( "done_map_new fail"      )); return NULL; }
+  if( FD_UNLIKELY( !done_heap_new       ( _done_heap, done_depth                  ) ) ) { FD_LOG_WARNING(( "done_heap_new fail"     )); return NULL; }
+  if( FD_UNLIKELY( !fd_ed25519_cache_new( _ed_cache, ED25519_CACHE_ENT_CNT, seed4 ) ) ) { FD_LOG_WARNING(( "ed25519_cache_new fail" )); return NULL; }
 
   fd_histf_join( fd_histf_new( resolver->completion_lag_hist, FD_MHIST_SECONDS_MIN( SHRED, REPAIR_COMPLETION_LAG_SECONDS ),
                                                               FD_MHIST_SECONDS_MAX( SHRED, REPAIR_COMPLETION_LAG_SECONDS ) ) );
@@ -401,17 +413,19 @@ fd_fec_resolver_join( void * shmem ) {
   ulong done_chain_cnt = done_map_chain_cnt_est( done_depth );
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
-  /*     self     */   FD_SCRATCH_ALLOC_APPEND( l, FD_FEC_RESOLVER_ALIGN,  sizeof(fd_fec_resolver_t)             );
-  void * _ctx_pool   = FD_SCRATCH_ALLOC_APPEND( l, alignof(set_ctx_t),     sizeof(set_ctx_t)*depth_sum           );
-  void * _ctx_map    = FD_SCRATCH_ALLOC_APPEND( l, ctx_map_align(),        ctx_map_footprint  ( ctx_chain_cnt  ) );
-  void * _done_pool  = FD_SCRATCH_ALLOC_APPEND( l, done_pool_align(),      done_pool_footprint( done_depth     ) );
-  void * _done_map   = FD_SCRATCH_ALLOC_APPEND( l, done_map_align(),       done_map_footprint ( done_chain_cnt ) );
+  /*     self     */   FD_SCRATCH_ALLOC_APPEND( l, FD_FEC_RESOLVER_ALIGN,    sizeof(fd_fec_resolver_t)                           );
+  void * _ctx_pool   = FD_SCRATCH_ALLOC_APPEND( l, alignof(set_ctx_t),       sizeof(set_ctx_t)*depth_sum                         );
+  void * _ctx_map    = FD_SCRATCH_ALLOC_APPEND( l, ctx_map_align(),          ctx_map_footprint  ( ctx_chain_cnt  )               );
+  void * _done_pool  = FD_SCRATCH_ALLOC_APPEND( l, done_pool_align(),        done_pool_footprint( done_depth     )               );
+  void * _done_map   = FD_SCRATCH_ALLOC_APPEND( l, done_map_align(),         done_map_footprint ( done_chain_cnt )               );
+  void * _ed_cache   = FD_SCRATCH_ALLOC_APPEND( l, fd_ed25519_cache_align(), fd_ed25519_cache_footprint( ED25519_CACHE_ENT_CNT ) );
   FD_SCRATCH_ALLOC_FINI( l, FD_FEC_RESOLVER_ALIGN );
 
-  resolver->ctx_pool  = (set_ctx_t *)_ctx_pool;
-  resolver->ctx_map   = ctx_map_join  ( _ctx_map   );  if( FD_UNLIKELY( !resolver->ctx_map       ) ) return NULL;
-  resolver->done_pool = done_pool_join( _done_pool );  if( FD_UNLIKELY( !resolver->done_pool     ) ) return NULL;
-  resolver->done_map  = done_map_join ( _done_map  );  if( FD_UNLIKELY( !resolver->done_map      ) ) return NULL;
+  resolver->ctx_pool      = (set_ctx_t *)_ctx_pool;
+  resolver->ctx_map       = ctx_map_join         ( _ctx_map   );  if( FD_UNLIKELY( !resolver->ctx_map       ) ) return NULL;
+  resolver->done_pool     = done_pool_join       ( _done_pool );  if( FD_UNLIKELY( !resolver->done_pool     ) ) return NULL;
+  resolver->done_map      = done_map_join        ( _done_map  );  if( FD_UNLIKELY( !resolver->done_map      ) ) return NULL;
+  resolver->ed25519_cache = fd_ed25519_cache_join( _ed_cache  );  if( FD_UNLIKELY( !resolver->ed25519_cache ) ) return NULL;
   if( FD_UNLIKELY(      ctx_treap_join( resolver->ctx_treap     )!=      resolver->ctx_treap     ) ) return NULL;
   if( FD_UNLIKELY(      ctx_list_join ( resolver->free_list     )!=      resolver->free_list     ) ) return NULL;
   if( FD_UNLIKELY(      ctx_list_join ( resolver->complete_list )!=      resolver->complete_list ) ) return NULL;
@@ -702,7 +716,7 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
         return FD_FEC_RESOLVER_SHRED_REJECTED;
       }
 
-      if( FD_UNLIKELY( FD_ED25519_SUCCESS != fd_ed25519_verify( _root->hash, 32UL, shred->signature, leader_pubkey, sha512 ) ) ) {
+      if( FD_UNLIKELY( FD_ED25519_SUCCESS != fd_ed25519_verify_cached( _root->hash, 32UL, shred->signature, leader_pubkey, sha512, resolver->ed25519_cache ) ) ) {
         ctx_list_ele_push_head( free_list, ctx, ctx_pool );
         resolver->free_list_cnt++;
         FD_MCNT_INC( SHRED, SHRED_INITIAL_REJECTED, 1UL );
@@ -1052,14 +1066,15 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
 
 
 void * fd_fec_resolver_leave( fd_fec_resolver_t * resolver ) {
-  fd_sha512_leave( resolver->sha512        );
-  done_heap_leave( resolver->done_heap     );
-  ctx_list_leave ( resolver->complete_list );
-  ctx_list_leave ( resolver->free_list     );
-  ctx_treap_leave( resolver->ctx_treap     );
-  done_map_leave ( resolver->done_map      );
-  done_pool_leave( resolver->done_pool     );
-  ctx_map_leave  ( resolver->ctx_map       );
+  fd_ed25519_cache_leave( resolver->ed25519_cache );
+  fd_sha512_leave       ( resolver->sha512        );
+  done_heap_leave       ( resolver->done_heap     );
+  ctx_list_leave        ( resolver->complete_list );
+  ctx_list_leave        ( resolver->free_list     );
+  ctx_treap_leave       ( resolver->ctx_treap     );
+  done_map_leave        ( resolver->done_map      );
+  done_pool_leave       ( resolver->done_pool     );
+  ctx_map_leave         ( resolver->ctx_map       );
 
   return (void *)resolver;
 }
@@ -1076,21 +1091,23 @@ void * fd_fec_resolver_delete( void * shmem ) {
   ulong done_chain_cnt = done_map_chain_cnt_est( done_depth );
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
-  /*     self      */  FD_SCRATCH_ALLOC_APPEND( l, FD_FEC_RESOLVER_ALIGN,  sizeof(fd_fec_resolver_t)                 );
-  /*     _ctx_pool */  FD_SCRATCH_ALLOC_APPEND( l, alignof(set_ctx_t),     sizeof(set_ctx_t)*depth_sum               );
-  void * _ctx_map    = FD_SCRATCH_ALLOC_APPEND( l, ctx_map_align(),        ctx_map_footprint  ( ctx_chain_cnt  ) );
-  void * _done_pool  = FD_SCRATCH_ALLOC_APPEND( l, done_pool_align(),      done_pool_footprint( done_depth         ) );
-  void * _done_map   = FD_SCRATCH_ALLOC_APPEND( l, done_map_align(),       done_map_footprint ( done_chain_cnt ) );
+  /*     self      */  FD_SCRATCH_ALLOC_APPEND( l, FD_FEC_RESOLVER_ALIGN,    sizeof(fd_fec_resolver_t)                           );
+  /*     _ctx_pool */  FD_SCRATCH_ALLOC_APPEND( l, alignof(set_ctx_t),       sizeof(set_ctx_t)*depth_sum                         );
+  void * _ctx_map    = FD_SCRATCH_ALLOC_APPEND( l, ctx_map_align(),          ctx_map_footprint  ( ctx_chain_cnt  )               );
+  void * _done_pool  = FD_SCRATCH_ALLOC_APPEND( l, done_pool_align(),        done_pool_footprint( done_depth     )               );
+  void * _done_map   = FD_SCRATCH_ALLOC_APPEND( l, done_map_align(),         done_map_footprint ( done_chain_cnt )               );
+  void * _ed_cache   = FD_SCRATCH_ALLOC_APPEND( l, fd_ed25519_cache_align(), fd_ed25519_cache_footprint( ED25519_CACHE_ENT_CNT ) );
   FD_SCRATCH_ALLOC_FINI( l, FD_FEC_RESOLVER_ALIGN );
 
-  fd_sha512_delete( resolver->sha512        );
-  done_heap_delete( resolver->done_heap     );
-  done_map_delete ( _done_map               );
-  done_pool_delete( _done_pool              );
-  ctx_list_delete ( resolver->complete_list );
-  ctx_list_delete ( resolver->free_list     );
-  ctx_treap_delete( resolver->ctx_treap     );
-  ctx_map_delete  ( _ctx_map                );
+  fd_ed25519_cache_delete( _ed_cache               );
+  fd_sha512_delete       ( resolver->sha512        );
+  done_heap_delete       ( resolver->done_heap     );
+  done_map_delete        ( _done_map               );
+  done_pool_delete       ( _done_pool              );
+  ctx_list_delete        ( resolver->complete_list );
+  ctx_list_delete        ( resolver->free_list     );
+  ctx_treap_delete       ( resolver->ctx_treap     );
+  ctx_map_delete         ( _ctx_map                );
 
   return shmem;
 }
