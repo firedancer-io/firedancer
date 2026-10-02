@@ -188,6 +188,7 @@ ENCODE_FN {
     fd_pubkey_t node_account = {0};
     ushort      commission   = 0;
     ulong       ec_cnt       = 0UL;
+    fd_epoch_credits_t         ec_copy[1];
     fd_epoch_credits_t const * ec = NULL;
     uchar bls_key[ FD_BLS_PUB_COMPRESSED_SZ ] = {0};
 
@@ -208,8 +209,13 @@ ENCODE_FN {
                                        &block_revenue_commission_bps, &pending_delegator_rewards );
 
     if( iter_kind==FD_VOTE_STAKES_ITER_T_1 ) {
-      ec = find_epoch_credits( enc->bank, &pubkey );
-      FD_TEST( ec );
+      fd_bank_epoch_credits_view_t epoch_credits_view[1];
+      FD_TEST( fd_bank_epoch_credits_view_init( epoch_credits_view, enc->bank, 0 ) );
+      fd_epoch_credits_t const * found = find_epoch_credits( epoch_credits_view, &pubkey );
+      FD_TEST( found );
+      *ec_copy = *found;
+      fd_bank_epoch_credits_view_fini( epoch_credits_view );
+      ec     = ec_copy;
       ec_cnt = ec->cnt;
       co_epoch = bank->f.epoch;
     } else if( iter_kind==FD_VOTE_STAKES_ITER_T_2 ) {

@@ -49,11 +49,10 @@ epoch_stakes_iter_kind( fd_bank_t const * bank,
 }
 
 static fd_epoch_credits_t const *
-find_epoch_credits( fd_bank_t *          bank,
-                    fd_pubkey_t const * pubkey ) {
-  ulong epoch_credits_len = *fd_bank_epoch_credits_len( bank );
-  for( ulong i=0UL; i<epoch_credits_len; i++ ) {
-    fd_epoch_credits_t const * epoch_credits = &fd_bank_epoch_credits( bank )[ i ];
+find_epoch_credits( fd_bank_epoch_credits_view_t const * view,
+                    fd_pubkey_t const *                  pubkey ) {
+  for( ulong i=0UL; i<view->len; i++ ) {
+    fd_epoch_credits_t const * epoch_credits = &view->credits[ i ];
     if( fd_memeq( epoch_credits->pubkey, pubkey, sizeof(fd_pubkey_t) ) ) return epoch_credits;
   }
   return NULL;

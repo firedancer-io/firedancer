@@ -13,7 +13,10 @@
 #
 # accdb_ro_fd: The read-only accounts database file descriptor, used
 #         to read vote accounts for the snapshot manifest.
-uint logfile_fd, uint dir_fd, uint pool_min_fd, uint pool_max_fd, uint accdb_ro_fd
+#
+# epoch_credits_fd: Disk backing for epoch-credit sets beyond the
+#                   in-memory cache.
+uint logfile_fd, uint dir_fd, uint pool_min_fd, uint pool_max_fd, uint accdb_ro_fd, uint epoch_credits_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -118,3 +121,7 @@ futex: (or (eq (arg 1) FUTEX_WAIT)
 # kernel resumes the wait with the remaining timeout via restart_syscall
 # when the tile next runs.
 restart_syscall
+
+# epoch credits: cold fork sets are loaded from and evicted to disk.
+pread64:  (eq (arg 0) epoch_credits_fd)
+pwrite64: (eq (arg 0) epoch_credits_fd)

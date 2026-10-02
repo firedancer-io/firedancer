@@ -22,6 +22,14 @@ FD_PROTOTYPES_BEGIN
 #define FD_BANKS_MAX_BANKS (4096UL)
 #define FD_BANKS_ALIGN     (128UL)
 
+/* Epoch-credit sets beyond the four-set in-memory cache spill to this
+   boot-created, unlinked file.  123457 is the stake-delegation spill,
+   123458/123459 are store, 123460/123461 are accdb, and 123462+ are
+   reserved by XDP. */
+
+#define FD_EPOCH_CREDITS_FD              (123456)
+#define FD_BANKS_EPOCH_CREDITS_CACHE_CNT (4UL)
+
 /* A fd_bank_t struct is the representation of the bank state on Solana
    for a given block.  More specifically, the bank state corresponds to
    all information needed during execution that is not stored on-chain,
@@ -119,6 +127,8 @@ FD_PROTOTYPES_BEGIN
      the max fork width that can execute through the boundary instead of
      by the max number of banks.  See fd_banks_footprint() for more
      details.
+  Epoch-credit set metadata is bounded by the former, while only four
+  full sets are cached in memory and the remainder spill to disk.
 
   There are also some important states that a bank can be in:
   - Initialized: This bank has been created and linked to a parent bank
@@ -400,16 +410,25 @@ struct fd_banks {
      bank crosses an epoch boundary, and are read again for the rest of
      the epoch: by a recalculation that repositions a stake rewards
      window, and by snapshot creation.  Sibling banks crossing the same
-     boundary capture different sets, so the store holds one set per
-     boundary-crossing fork, inherited by descendants and reference
-     counted so that a set lives exactly as long as the banks reading it.
-     There is one more set than max_fork_width because a bank sitting
-     behind a boundary still holds the previous epoch's set while every
-     fork crosses. */
+     boundary capture different sets, inherited by descendants and
+     reference counted so that a set lives exactly as long as the banks
+     and pinned readers using it.
 
-  ulong epoch_credits_offset;
+     There is one logical set per max_total_banks, but only
+     FD_BANKS_EPOCH_CREDITS_CACHE_CNT full sets reside in memory.
+     Unpinned cache entries spill to FD_EPOCH_CREDITS_FD. */
+
+  ulong epoch_credits_cache_offset;
   ulong epoch_credits_len_offset;
   ulong epoch_credits_refcnt_offset;
+  ulong epoch_credits_disk_valid_offset;
+
+  fd_rwlock_t epoch_credits_lock;
+  ulong       epoch_credits_lru;
+  ulong       epoch_credits_cache_set_idx[ FD_BANKS_EPOCH_CREDITS_CACHE_CNT ];
+  ulong       epoch_credits_cache_pin_cnt[ FD_BANKS_EPOCH_CREDITS_CACHE_CNT ];
+  ulong       epoch_credits_cache_lru    [ FD_BANKS_EPOCH_CREDITS_CACHE_CNT ];
+  uchar       epoch_credits_cache_dirty  [ FD_BANKS_EPOCH_CREDITS_CACHE_CNT ];
 
   /* The set of epoch leaders for the current and previous epochs is
      allocated out-of-line and tracked by epoch_leaders_offset.  Only
@@ -441,17 +460,32 @@ fd_bank_report_runtime_diffs( fd_bank_t const * bank ) {
 /* Bank accessors and mutators.  Different accessors are emitted for
    different types depending on if the field has a lock or not. */
 
-/* fd_bank_epoch_credits{,_len} return the epoch credits of the fork the
-   bank belongs to.  fd_bank_epoch_credits_new_fork acquires a fresh set
-   for the bank and must be called before the bank captures new epoch
-   credits, i.e. when it crosses an epoch boundary or restores a
-   snapshot. */
+/* A view pins the epoch-credit set of the fork the bank belongs to in
+   the four-entry memory cache.  write must be nonzero when credits or
+   len will be modified.  Every successful init must be paired with fini
+   promptly so another cold set can reuse the cache entry. */
 
-fd_epoch_credits_t *
-fd_bank_epoch_credits( fd_bank_t * bank );
+struct fd_bank_epoch_credits_view {
+  fd_epoch_credits_t * credits;
+  fd_banks_t *         banks;
+  ulong                len;
+  ulong                set_idx;
+  ulong                cache_idx;
+  int                  write;
+};
+typedef struct fd_bank_epoch_credits_view fd_bank_epoch_credits_view_t;
 
-ulong *
-fd_bank_epoch_credits_len( fd_bank_t * bank );
+fd_bank_epoch_credits_view_t *
+fd_bank_epoch_credits_view_init( fd_bank_epoch_credits_view_t * view,
+                                 fd_bank_t *                    bank,
+                                 int                            write );
+
+void
+fd_bank_epoch_credits_view_fini( fd_bank_epoch_credits_view_t * view );
+
+/* fd_bank_epoch_credits_new_fork acquires a fresh set for the bank and
+   must be called before the bank captures new epoch credits, i.e. when
+   it crosses an epoch boundary or restores a snapshot. */
 
 void
 fd_bank_epoch_credits_new_fork( fd_bank_t * bank );
