@@ -30,9 +30,11 @@ struct fd_ssmanifest_epoch_map {
 typedef struct fd_ssmanifest_epoch_map fd_ssmanifest_epoch_map_t;
 
 struct fd_ssmanifest_writer {
-  uint        state;
-  fd_bank_t * bank;
-  fd_pubkey_t leader; /* slot leader of the bank */
+  uint                       state;
+  fd_bank_t *                bank;
+  fd_pubkey_t                leader; /* slot leader of the bank */
+  fd_epoch_credits_t const * epoch_credits;
+  ulong                      epoch_credits_cnt;
   uchar       epoch_idx;
   uchar       epoch_cnt;
   uint        vote_cnt;
@@ -48,19 +50,22 @@ typedef struct fd_ssmanifest_writer fd_ssmanifest_writer_t;
 FD_PROTOTYPES_BEGIN
 
 /* fd_ssmanifest_writer_init creates a new snapshot manifest writer.
-   leader is the slot leader of bank.  Reads the vote account of every
-   epoch stakes entry from accdb at accdb_fork_id to fill the epoch
-   maps.  acc_data is scratch of at least FD_RUNTIME_ACC_SZ_MAX bytes.
-   Sets writer->serialized_sz.  Guaranteed to succeed for a valid
-   bank. */
+   leader is the slot leader of bank.  epoch_credits points to the
+   epoch_credits_cnt epoch credits of bank, which must stay valid until
+   the manifest is serialized.  Reads the vote account of every epoch
+   stakes entry from accdb at accdb_fork_id to fill the epoch maps.
+   acc_data is scratch of at least FD_RUNTIME_ACC_SZ_MAX bytes.  Sets
+   writer->serialized_sz.  Guaranteed to succeed for a valid bank. */
 
 fd_ssmanifest_writer_t *
-fd_ssmanifest_writer_init( fd_ssmanifest_writer_t * writer,
-                           fd_bank_t *              bank,
-                           fd_pubkey_t const *      leader,
-                           fd_accdb_t *             accdb,
-                           fd_accdb_fork_id_t       accdb_fork_id,
-                           uchar *                  acc_data );
+fd_ssmanifest_writer_init( fd_ssmanifest_writer_t *   writer,
+                           fd_bank_t *                bank,
+                           fd_pubkey_t const *        leader,
+                           fd_epoch_credits_t const * epoch_credits,
+                           ulong                      epoch_credits_cnt,
+                           fd_accdb_t *               accdb,
+                           fd_accdb_fork_id_t         accdb_fork_id,
+                           uchar *                    acc_data );
 
 /* fd_snap_manifest_serialize serializes up to buf_sz worth of snapshot
    manifest data into out_buf.  Returns the number of bytes written.

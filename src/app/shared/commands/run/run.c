@@ -510,8 +510,7 @@ main_pid_namespace( void * _args ) {
             FD_LOG_ERR(( "fcntl(FD_STORE_FD_RO,F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
         }
 
-        int tile_uses_epoch_credits = !strcmp( tile->name, "replay" ) || !strcmp( tile->name, "snapmk" );
-        if( FD_UNLIKELY( -1==fcntl( FD_EPOCH_CREDITS_FD, F_SETFD, tile_uses_epoch_credits ? 0 : FD_CLOEXEC ) ) )
+        if( FD_UNLIKELY( -1==fcntl( FD_EPOCH_CREDITS_FD, F_SETFD, !strcmp( tile->name, "replay" ) ? 0 : FD_CLOEXEC ) ) )
           FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
         int tile_uses_stake_spill = !strcmp( tile->name, "replay" ) || !strcmp( tile->name, "execle" ) ||

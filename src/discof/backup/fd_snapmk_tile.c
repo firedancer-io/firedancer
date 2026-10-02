@@ -315,14 +315,13 @@ populate_allowed_fds( fd_topo_t const *      topo,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
   fd_snapmk_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-  if( FD_UNLIKELY( out_fds_cnt<5UL+(ulong)ctx->snap_max ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<4UL+(ulong)ctx->snap_max ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   out_fds[ out_cnt++ ] = ctx->snap_dir_fd;
   out_fds[ out_cnt++ ] = FD_ACCDB_FD_RO;
-  out_fds[ out_cnt++ ] = FD_EPOCH_CREDITS_FD; /* epoch credits disk spill */
   for( uint i=0U; i<ctx->snap_max; i++ )
     out_fds[ out_cnt++ ] = FD_SNAP_FD( i ); /* snapshot pool */
   return out_cnt;
@@ -339,8 +338,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
       (uint)fd_log_private_logfile_fd(),
       (uint)ctx->snap_dir_fd,
       (uint)FD_SNAP_FD( 0 ), (uint)FD_SNAP_FD( ctx->snap_max-1U ),
-      (uint)FD_ACCDB_FD_RO,
-      (uint)FD_EPOCH_CREDITS_FD );
+      (uint)FD_ACCDB_FD_RO );
   return sock_filter_policy_fd_snapmk_tile_instr_cnt;
 }
 
@@ -1800,7 +1798,9 @@ snap_start( fd_snapmk_t *                  ctx,
   /* misc */
 
   ctx->leader = msg->leader;
-  fd_ssmanifest_writer_init( ctx->manifest_writer, bank, &ctx->leader, ctx->accdb, root_fork_id, ctx->raw );
+  fd_epoch_credits_t const * epoch_credits = fd_type_pun_const( (uchar const *)fd_bank_epoch_credits( bank ) + msg->epoch_credits_off );
+  fd_ssmanifest_writer_init( ctx->manifest_writer, bank, &ctx->leader, epoch_credits, msg->epoch_credits_cnt,
+                             ctx->accdb, root_fork_id, ctx->raw );
 
   /* accdb cache/disk parsers */
 

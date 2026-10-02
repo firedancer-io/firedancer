@@ -4710,15 +4710,23 @@ snapmk_start( fd_replay_tile_t *  ctx,
   ctx->snapmk.bank_idx    = bank->idx;
   ctx->snapmk.incremental = !!incremental;
 
+  /* Snapmk reads the bank's epoch credits in place, so they stay
+     pinned in memory until snapmk_done. */
+  fd_epoch_credits_store_t * epoch_credits      = fd_bank_epoch_credits( bank );
+  fd_epoch_credits_view_t *  epoch_credits_view = ctx->snapmk.epoch_credits_view;
+  FD_TEST( fd_epoch_credits_view_init( epoch_credits_view, epoch_credits, bank->epoch_credits_fork_id, 0 ) );
+
   /* Send SNAP_START message to snapmk. */
   fd_pubkey_t const * leader = fd_epoch_leaders_get( fd_bank_epoch_leaders_query( bank, bank->f.epoch ), bank->f.slot );
   FD_CHECK_CRIT( leader, "no leader for snapshot slot" );
   fd_replay_snap_start_t * msg = fd_chunk_to_laddr( ctx->snapmk_out->mem, ctx->snapmk_out->chunk );
   *msg = (fd_replay_snap_start_t) {
-    .bank_idx  = ctx->published_root_bank_idx,
-    .base_slot = incremental ? ctx->snapmk.base_slot : bank->f.slot,
-    .slot      = bank->f.slot,
-    .leader    = *leader
+    .bank_idx          = ctx->published_root_bank_idx,
+    .base_slot         = incremental ? ctx->snapmk.base_slot : bank->f.slot,
+    .slot              = bank->f.slot,
+    .leader            = *leader,
+    .epoch_credits_off = (ulong)epoch_credits_view->credits - (ulong)epoch_credits,
+    .epoch_credits_cnt = epoch_credits_view->len
   };
   ulong out_idx = ctx->snapmk_out->idx;
   ulong sig     = REPLAY_SIG_SNAP_START;
@@ -4770,6 +4778,7 @@ snapmk_done( fd_replay_tile_t *  ctx,
     }
   }
 
+  fd_epoch_credits_view_fini( ctx->snapmk.epoch_credits_view );
   bank->refcnt--;
   ctx->snapmk.active = 0;
 }

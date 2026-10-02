@@ -49,10 +49,10 @@ epoch_stakes_iter_kind( fd_bank_t const * bank,
 }
 
 static fd_epoch_credits_t const *
-find_epoch_credits( fd_epoch_credits_view_t const * view,
-                    fd_pubkey_t const *             pubkey ) {
-  for( ulong i=0UL; i<view->len; i++ ) {
-    fd_epoch_credits_t const * epoch_credits = &view->credits[ i ];
+find_epoch_credits( fd_ssmanifest_writer_t const * enc,
+                    fd_pubkey_t const *            pubkey ) {
+  for( ulong i=0UL; i<enc->epoch_credits_cnt; i++ ) {
+    fd_epoch_credits_t const * epoch_credits = &enc->epoch_credits[ i ];
     if( fd_memeq( epoch_credits->pubkey, pubkey, sizeof(fd_pubkey_t) ) ) return epoch_credits;
   }
   return NULL;
@@ -67,16 +67,20 @@ find_epoch_credits( fd_epoch_credits_view_t const * view,
 #include "fd_ssmanifest_encoder.c"
 
 fd_ssmanifest_writer_t *
-fd_ssmanifest_writer_init( fd_ssmanifest_writer_t * enc,
-                           fd_bank_t *              bank,
-                           fd_pubkey_t const *      leader,
-                           fd_accdb_t *             accdb,
-                           fd_accdb_fork_id_t       accdb_fork_id,
-                           uchar *                  acc_data ) {
-  enc->state       = STATE_BLOCKHASH_QUEUE;
-  enc->bank        = bank;
-  enc->leader      = *leader;
-  enc->epoch_idx   = 0;
+fd_ssmanifest_writer_init( fd_ssmanifest_writer_t *   enc,
+                           fd_bank_t *                bank,
+                           fd_pubkey_t const *        leader,
+                           fd_epoch_credits_t const * epoch_credits,
+                           ulong                      epoch_credits_cnt,
+                           fd_accdb_t *               accdb,
+                           fd_accdb_fork_id_t         accdb_fork_id,
+                           uchar *                    acc_data ) {
+  enc->state             = STATE_BLOCKHASH_QUEUE;
+  enc->bank              = bank;
+  enc->leader            = *leader;
+  enc->epoch_credits     = epoch_credits;
+  enc->epoch_credits_cnt = epoch_credits_cnt;
+  enc->epoch_idx         = 0;
   enc->epoch_cnt   = 0;
   enc->vote_cnt    = 0;
   enc->vote_idx    = 0;

@@ -362,9 +362,13 @@ test_manifest_roundtrip( fd_svm_mini_t * mini,
 
   seed_epoch_credits( bank );
 
+  fd_epoch_credits_view_t epoch_credits_view[1];
+  FD_TEST( fd_epoch_credits_view_init( epoch_credits_view, fd_bank_epoch_credits( bank ), bank->epoch_credits_fork_id, 0 ) );
+
   fd_ssmanifest_writer_t * writer   = test_alloc( wksp, alignof(fd_ssmanifest_writer_t), sizeof(fd_ssmanifest_writer_t) );
   uchar *                  acc_data = test_alloc( wksp, 1UL, FD_RUNTIME_ACC_SZ_MAX );
-  fd_ssmanifest_writer_init( writer, bank, &identities[0], mini->runtime->accdb, bank->accdb_fork_id, acc_data );
+  fd_ssmanifest_writer_init( writer, bank, &identities[0], epoch_credits_view->credits, epoch_credits_view->len,
+                             mini->runtime->accdb, bank->accdb_fork_id, acc_data );
   ulong manifest_sz = writer->serialized_sz;
   FD_TEST( manifest_sz>0UL );
   FD_LOG_NOTICE(( "manifest serialized size: %lu", manifest_sz ));
@@ -424,6 +428,7 @@ test_manifest_roundtrip( fd_svm_mini_t * mini,
   FD_TEST( injected );
   FD_TEST( stake_delegations_len_off!=ULONG_MAX );
   FD_TEST( total_written==manifest_sz+stake_delegation_sz );
+  fd_epoch_credits_view_fini( epoch_credits_view );
 
   /* Epoch stakes maps: every set lists each vote account with its
      authorized voter and under its node.  The parser discards both
