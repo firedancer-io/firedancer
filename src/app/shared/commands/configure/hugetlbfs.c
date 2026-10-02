@@ -47,6 +47,31 @@ static char const * PAGE_NAMES[ 2 ] = {
   "gigantic"
 };
 
+static fd_topo_t const * const * extra_topos;
+static ulong                     extra_topo_cnt;
+
+void
+fd_cfg_stage_hugetlbfs_extra_topos( fd_topo_t const * const * topos,
+                                    ulong                     cnt ) {
+  extra_topos    = topos;
+  extra_topo_cnt = cnt;
+}
+
+/* page_cnt returns the number of huge (kind 0) or gigantic (kind 1)
+   pages needed on numa_idx by the topology of config and any extra
+   topologies that share the mounts. */
+
+static ulong
+page_cnt( config_t const * config,
+          ulong            numa_idx,
+          ulong            kind ) {
+  ulong cnt = kind ? fd_topo_gigantic_page_cnt( &config->topo, numa_idx ) : fd_topo_huge_page_cnt( &config->topo, numa_idx, 0 );
+  for( ulong i=0UL; i<extra_topo_cnt; i++ ) {
+    cnt += kind ? fd_topo_gigantic_page_cnt( extra_topos[ i ], numa_idx ) : fd_topo_huge_page_cnt( extra_topos[ i ], numa_idx, 0 );
+  }
+  return cnt;
+}
+
 static void
 init( config_t const * config ) {
   char const * mount_path[ 2 ] = {
@@ -57,8 +82,8 @@ init( config_t const * config ) {
   ulong numa_node_cnt = fd_shmem_numa_cnt();
   for( ulong i=0UL; i<numa_node_cnt; i++ ) {
     ulong required_pages[ 2 ] = {
-      fd_topo_huge_page_cnt( &config->topo, i, 0 ),
-      fd_topo_gigantic_page_cnt( &config->topo, i ),
+      page_cnt( config, i, 0UL ),
+      page_cnt( config, i, 1UL ),
     };
 
     for( ulong j=0UL; j<2UL; j++ ) {
@@ -154,8 +179,8 @@ init( config_t const * config ) {
 
   ulong min_size[ 2 ] = {0};
   for( ulong i=0UL; i<numa_node_cnt; i++ ) {
-    min_size[ 0 ] += FD_PAGE_SIZE[ 0 ] * fd_topo_huge_page_cnt( &config->topo, i, 0 );
-    min_size[ 1 ] += FD_PAGE_SIZE[ 1 ] * fd_topo_gigantic_page_cnt( &config->topo, i );
+    min_size[ 0 ] += FD_PAGE_SIZE[ 0 ] * page_cnt( config, i, 0UL );
+    min_size[ 1 ] += FD_PAGE_SIZE[ 1 ] * page_cnt( config, i, 1UL );
   }
 
   for( ulong i=0UL; i<2UL; i++ ) {
@@ -313,8 +338,8 @@ check( config_t const * config,
   ulong numa_node_cnt = fd_shmem_numa_cnt();
   ulong required_min_size[ 2 ] = {0};
   for( ulong i=0UL; i<numa_node_cnt; i++ ) {
-    required_min_size[ 0 ] += FD_PAGE_SIZE[ 0 ] * fd_topo_huge_page_cnt( &config->topo, i, 0 );
-    required_min_size[ 1 ] += FD_PAGE_SIZE[ 1 ] * fd_topo_gigantic_page_cnt( &config->topo, i );
+    required_min_size[ 0 ] += FD_PAGE_SIZE[ 0 ] * page_cnt( config, i, 0UL );
+    required_min_size[ 1 ] += FD_PAGE_SIZE[ 1 ] * page_cnt( config, i, 1UL );
   }
 
   struct stat st;

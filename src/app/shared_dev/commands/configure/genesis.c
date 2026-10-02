@@ -111,6 +111,55 @@ estimate_hashes_per_tick( ulong tick_dur_us,
 }
 
 
+static config_t const * const * extra_validator_configs;
+static ulong                    extra_validator_cnt;
+
+void
+fd_cfg_stage_genesis_extra_validators( config_t const * const * configs,
+                                       ulong                    cnt ) {
+  FD_TEST( cnt<=FD_GENESIS_EXTRA_VALIDATOR_MAX );
+  extra_validator_configs = configs;
+  extra_validator_cnt     = cnt;
+}
+
+/* load_validator reads the identity, stake, and vote account keys of
+   the validator described by config. */
+
+static void
+load_validator( config_t const *         config,
+                fd_genesis_validator_t * out ) {
+  uchar const * identity_key_ = fd_keyload_load( config->paths.identity_key, 0 );
+  if( FD_UNLIKELY( !identity_key_ ) ) FD_LOG_ERR(( "Failed to load identity key `%s`", config->paths.identity_key ));
+  memcpy( out->identity_pubkey.key, identity_key_+32UL, 32 );
+
+  /* The identity is the authorized voter, so the vote account carries
+     the BLS key the sign tile derives from it. */
+  fd_keyguard_bls_key_t bls_key[1];
+  fd_sha512_t           sha[1];
+  fd_keyguard_bls_key_derive( bls_key, identity_key_+32UL, identity_key_, fd_sha512_join( fd_sha512_new( sha ) ) );
+  memcpy( out->bls_pubkey, bls_key->public_key, sizeof(out->bls_pubkey) );
+  fd_memzero_explicit( bls_key, sizeof(bls_key) );
+  fd_keyload_unload( identity_key_, 0 );
+
+  char file_path[ PATH_MAX ];
+  FD_TEST( fd_cstr_printf_check( file_path, PATH_MAX, NULL, "%s/stake-account.json", config->paths.base ) );
+  uchar const * stake_pubkey_ = fd_keyload_load( file_path, 1 );
+  if( FD_UNLIKELY( !stake_pubkey_ ) ) FD_LOG_ERR(( "Failed to load stake account key `%s`", file_path ));
+  memcpy( out->stake_pubkey.key, stake_pubkey_, 32 );
+  fd_keyload_unload( stake_pubkey_, 1 );
+
+  if( !strcmp( config->paths.vote_account, "" ) ) {
+    FD_TEST( fd_cstr_printf_check( file_path, PATH_MAX, NULL, "%s/vote-account.json", config->paths.base ) );
+  } else {
+    fd_cstr_fini( fd_cstr_append_cstr_safe( fd_cstr_init( file_path ), config->paths.vote_account, PATH_MAX-1UL ) );
+  }
+
+  uchar const * vote_pubkey_ = fd_keyload_load( file_path, 1 );
+  if( FD_UNLIKELY( !vote_pubkey_ ) ) FD_LOG_ERR(( "Failed to load vote account key `%s`", file_path ));
+  memcpy( out->vote_pubkey.key, vote_pubkey_, 32 );
+  fd_keyload_unload( vote_pubkey_, 1 );
+}
+
 /* Create a new genesis.bin file contents into the provided blob buffer
    and return the size of the buffer.  Will abort on error if the
    provided buffer is not large enough. */
@@ -124,18 +173,17 @@ create_genesis( config_t const * config,
 
   /* Read in keys */
 
-  uchar const * identity_key_ = fd_keyload_load( config->paths.identity_key, 0 );
-  if( FD_UNLIKELY( !identity_key_ ) ) FD_LOG_ERR(( "Failed to load identity key" ));
-  memcpy( options->identity_pubkey.key, identity_key_+32UL, 32 );
+  fd_genesis_validator_t primary[1];
+  load_validator( config, primary );
+  options->identity_pubkey = primary->identity_pubkey;
+  options->stake_pubkey    = primary->stake_pubkey;
+  options->vote_pubkey     = primary->vote_pubkey;
+  memcpy( options->bls_pubkey, primary->bls_pubkey, sizeof(options->bls_pubkey) );
 
-  /* The identity is the authorized voter, so the vote account carries
-     the BLS key the sign tile derives from it. */
-  fd_keyguard_bls_key_t bls_key[1];
-  fd_sha512_t           sha[1];
-  fd_keyguard_bls_key_derive( bls_key, identity_key_+32UL, identity_key_, fd_sha512_join( fd_sha512_new( sha ) ) );
-  memcpy( options->bls_pubkey, bls_key->public_key, sizeof(options->bls_pubkey) );
-  fd_memzero_explicit( bls_key, sizeof(bls_key) );
-  fd_keyload_unload( identity_key_, 0 );
+  static fd_genesis_validator_t extra[ FD_GENESIS_EXTRA_VALIDATOR_MAX ];
+  for( ulong i=0UL; i<extra_validator_cnt; i++ ) load_validator( extra_validator_configs[ i ], &extra[ i ] );
+  options->extra_validators    = extra;
+  options->extra_validator_cnt = extra_validator_cnt;
 
   char file_path[ PATH_MAX ];
   FD_TEST( fd_cstr_printf_check( file_path, PATH_MAX, NULL, "%s/faucet.json", config->paths.base ) );
@@ -143,23 +191,6 @@ create_genesis( config_t const * config,
   if( FD_UNLIKELY( !faucet_pubkey_ ) ) FD_LOG_ERR(( "Failed to load faucet key" ));
   memcpy( options->faucet_pubkey.key, faucet_pubkey_, 32 );
   fd_keyload_unload( faucet_pubkey_, 1 );
-
-  FD_TEST( fd_cstr_printf_check( file_path, PATH_MAX, NULL, "%s/stake-account.json", config->paths.base ) );
-  uchar const * stake_pubkey_ = fd_keyload_load( file_path, 1 );
-  if( FD_UNLIKELY( !stake_pubkey_ ) ) FD_LOG_ERR(( "Failed to load stake account key" ));
-  memcpy( options->stake_pubkey.key, stake_pubkey_, 32 );
-  fd_keyload_unload( stake_pubkey_, 1 );
-
-  if( !strcmp( config->paths.vote_account, "" ) ) {
-    FD_TEST( fd_cstr_printf_check( file_path, PATH_MAX, NULL, "%s/vote-account.json", config->paths.base ) );
-  } else {
-    fd_cstr_fini( fd_cstr_append_cstr_safe( fd_cstr_init( file_path ), config->paths.vote_account, PATH_MAX-1UL ) );
-  }
-
-  uchar const * vote_pubkey_ = fd_keyload_load( file_path, 1 );
-  if( FD_UNLIKELY( !vote_pubkey_ ) ) FD_LOG_ERR(( "Failed to load vote account key" ));
-  memcpy( options->vote_pubkey.key, vote_pubkey_, 32 );
-  fd_keyload_unload( vote_pubkey_, 1 );
 
   options->creation_time      = (ulong)fd_log_wallclock() / (ulong)1e9;
   options->faucet_balance     = 500000000000000000UL;

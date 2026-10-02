@@ -8,6 +8,20 @@
 #include "../features/fd_features.h"
 
 
+/* fd_genesis_validator_t describes a bootstrap validator.  See
+   fd_genesis_options_t for the meaning of the fields. */
+
+struct fd_genesis_validator {
+  fd_pubkey_t identity_pubkey;
+  fd_pubkey_t stake_pubkey;
+  fd_pubkey_t vote_pubkey;
+  uchar       bls_pubkey[ 48 ];
+};
+
+typedef struct fd_genesis_validator fd_genesis_validator_t;
+
+#define FD_GENESIS_EXTRA_VALIDATOR_MAX (63UL)
+
 /* fd_genesis_options_t exists as a convenient way to specify options
    for genesis creation. */
 
@@ -44,6 +58,13 @@ struct fd_genesis_options {
      solana-genesis --alpenglow.  The caller must also enable the
      alpenglow feature in features. */
   int   alpenglow;
+
+  /* extra_validators points to extra_validator_cnt additional bootstrap
+     validators, each staked with vote_account_stake like the primary
+     one.  extra_validator_cnt is at most
+     FD_GENESIS_EXTRA_VALIDATOR_MAX. */
+  fd_genesis_validator_t const * extra_validators;
+  ulong                          extra_validator_cnt;
 
   /* features points to an externally owned feature map.
      Adds a feature account to the genesis blob for feature enabled at

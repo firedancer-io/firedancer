@@ -8,6 +8,7 @@ ifdef FD_HAS_DOUBLE
 $(call add-objs,commands/gossip,fd_firedancer_dev)
 $(call add-objs,commands/bench,fd_firedancer_dev)
 $(call add-objs,commands/dev,fd_firedancer_dev)
+$(call add-objs,commands/cluster,fd_firedancer_dev)
 $(call add-objs,commands/backtest,fd_firedancer_dev)
 $(call add-objs,commands/snapshot_load,fd_firedancer_dev)
 $(call add-objs,commands/repair,fd_firedancer_dev)

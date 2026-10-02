@@ -1369,6 +1369,66 @@ write_votor( config_t const * config,
 
 #undef VOTOR_RATE
 
+/* Other nodes of a local cluster, summarized in the cluster row.  Only
+   a few gauges are read straight from their metrics each frame, the
+   previous counters are kept to compute rates. */
+
+static config_t * const * cluster_peers;
+static ulong              cluster_peer_cnt;
+static ulong              cluster_prev_votes[ 64UL ];
+static ulong              cluster_prev_certs[ 64UL ];
+
+static ulong const *
+peer_tile_metrics( config_t const * peer,
+                   char const *     name ) {
+  ulong idx = fd_topo_find_tile( &peer->topo, name, 0UL );
+  if( FD_UNLIKELY( idx==ULONG_MAX ) ) return NULL;
+  return (ulong const *)fd_metrics_tile( peer->topo.tiles[ idx ].metrics );
+}
+
+static uint
+write_cluster( void ) {
+  if( FD_LIKELY( !cluster_peer_cnt ) ) return 0U;
+
+  long  now       = fd_log_wallclock();
+  ulong up        = 0UL;
+  ulong slot_min  = ULONG_MAX, slot_max  = 0UL;
+  ulong final_min = ULONG_MAX, final_max = 0UL;
+  ulong votes     = 0UL,       certs     = 0UL;
+  for( ulong i=0UL; i<cluster_peer_cnt; i++ ) {
+    ulong const * replay = peer_tile_metrics( cluster_peers[ i ], "replay" );
+    ulong const * votor  = peer_tile_metrics( cluster_peers[ i ], "votor"  );
+    if( FD_UNLIKELY( !replay || !votor ) ) continue;
+
+    long heartbeat = (long)FD_VOLATILE_CONST( replay[ MIDX( GAUGE, TILE, HEARTBEAT_TIMESTAMP_NANOS ) ] );
+    up += (ulong)( now-heartbeat<(long)2e9 );
+
+    ulong slot  = FD_VOLATILE_CONST( replay[ MIDX( GAUGE, REPLAY, RESET_SLOT     ) ] );
+    ulong final = FD_VOLATILE_CONST( votor [ MIDX( GAUGE, VOTOR,  FINALIZED_SLOT ) ] );
+    slot_min  = fd_ulong_min( slot_min,  slot  ); slot_max  = fd_ulong_max( slot_max,  slot  );
+    final_min = fd_ulong_min( final_min, final ); final_max = fd_ulong_max( final_max, final );
+
+    ulong v = FD_VOLATILE_CONST( votor[ MIDX( COUNTER, VOTOR, VOTE_RX_SUCCESS ) ] );
+    ulong c = FD_VOLATILE_CONST( votor[ MIDX( COUNTER, VOTOR, CERT_RX_SUCCESS ) ] );
+    votes += v-cluster_prev_votes[ i ]; cluster_prev_votes[ i ] = v;
+    certs += c-cluster_prev_certs[ i ]; cluster_prev_certs[ i ] = c;
+  }
+  if( FD_UNLIKELY( slot_min==ULONG_MAX ) ) slot_min = final_min = 0UL;
+
+  PRINT( ROWH( "◎", CYAN, "cluster     " )
+         K( "nodes" ) "%s%lu" RESET U( "/%lu up" )
+         K( "slot" ) "%lu" U( "-" ) "%s%lu" RESET
+         K( "final" ) "%lu" U( "-" ) "%lu"
+         K( "votes" ) "%s" U( "/s" )
+         K( "certs" ) "%s" U( "/s" ) CLEARLN "\n",
+    up<cluster_peer_cnt ? RED : "", up, cluster_peer_cnt,
+    slot_min, slot_max-slot_min>4UL ? RED : "", slot_max,
+    final_min, final_max,
+    COUNTF( (double)votes*1e9/(double)SNAP_DT_NS() ),
+    COUNTF( (double)certs*1e9/(double)SNAP_DT_NS() ) );
+  return 1U;
+}
+
 static uint
 write_gui( config_t const * config,
            ulong const *    cur_tile,
@@ -1782,6 +1842,7 @@ write_summary( config_t const *           config,
   lines_printed += write_rserve( config, cur_tile, cur_link, prev_link );
   lines_printed += write_replay( config, cur_tile );
   lines_printed += write_votor( config, cur_tile, prev_tile );
+  lines_printed += write_cluster();
   lines_printed += write_gui( config, cur_tile, prev_tile );
   lines_printed += write_event( config, cur_tile );
   lines_printed += write_backup( config, cur_tile );
@@ -2034,6 +2095,17 @@ watch_cmd_fn( args_t *   args,
 
   if( FD_LIKELY( args->watch.drain_output_fd==-1 ) ) fd_bootinfo_check_layout( config );
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_ONLY, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
+  FD_TEST( args->watch.peer_cnt<=sizeof(cluster_prev_votes)/sizeof(cluster_prev_votes[0]) );
+  cluster_peers    = args->watch.peers;
+  cluster_peer_cnt = args->watch.peer_cnt;
+  /* Only the metrics of the peers are read, and joining every
+     workspace of every node would exceed FD_SHMEM_JOIN_MAX. */
+  for( ulong i=0UL; i<cluster_peer_cnt; i++ ) {
+    fd_topo_t * topo = &cluster_peers[ i ]->topo;
+    ulong wksp_id = fd_topo_find_wksp( topo, "metric_in" );
+    FD_TEST( wksp_id!=ULONG_MAX );
+    fd_topo_join_workspace( topo, &topo->workspaces[ wksp_id ], FD_SHMEM_JOIN_MODE_READ_ONLY, 0 );
+  }
 
   struct sock_filter seccomp_filter[ 128UL ];
   uint drain_output_fd = args->watch.drain_output_fd >= 0 ? (uint)args->watch.drain_output_fd : (uint)-1;
@@ -2060,6 +2132,10 @@ watch_cmd_fn( args_t *   args,
   }
 
   fd_topo_fill( &config->topo );
+  for( ulong i=0UL; i<cluster_peer_cnt; i++ ) {
+    fd_topo_t * topo = &cluster_peers[ i ]->topo;
+    fd_topo_workspace_fill( topo, &topo->workspaces[ fd_topo_find_wksp( topo, "metric_in" ) ] );
+  }
 
   watch_full = args->watch.full;
   run( config, args->watch.drain_output_fd );

@@ -624,7 +624,7 @@ verify_addresses( fd_gossvf_tile_ctx_t * ctx,
                   fd_stem_context_t *    stem ) {
   int is_loopback_peer = (ctx->peer.addr==ctx->src_addr.addr && ctx->peer.port==ctx->src_addr.port) ||
                          (ctx->peer.addr==ctx->gossip_addr.addr && ctx->peer.port==ctx->gossip_addr.port) ||
-                         (fd_ip4_addr_is_loopback( ctx->peer.addr ) && ctx->peer.port==ctx->src_addr.port);
+                         (!ctx->allow_private_address && fd_ip4_addr_is_loopback( ctx->peer.addr ) && ctx->peer.port==ctx->src_addr.port);
 
   ulong values_len;
   fd_gossip_value_t * values;
@@ -680,7 +680,7 @@ verify_addresses( fd_gossvf_tile_ctx_t * ctx,
 
     int is_self_addr = (addr.addr==ctx->gossip_addr.addr && addr.port==ctx->gossip_addr.port) ||
                        (addr.addr==ctx->src_addr.addr && addr.port==ctx->src_addr.port);
-    int is_loopback  = fd_ip4_addr_is_loopback( addr.addr ) && addr.port==ctx->gossip_addr.port;
+    int is_loopback  = !ctx->allow_private_address && fd_ip4_addr_is_loopback( addr.addr ) && addr.port==ctx->gossip_addr.port;
     int drop         = (is_self_addr | is_loopback) || !check_addr( addr, ctx->allow_private_address ) || ping_if_unponged( ctx, addr, value->origin, stem );
 
     if( FD_UNLIKELY( drop ) ) {

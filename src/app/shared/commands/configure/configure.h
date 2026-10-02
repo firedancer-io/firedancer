@@ -129,6 +129,22 @@ configure_stage( configure_stage_t * stage,
                  configure_cmd_t     command,
                  config_t const *    config );
 
+/* fd_cfg_stage_hugetlbfs_extra_topos makes the hugetlbfs stage also
+   reserve pages for topos[0,cnt), for running multiple validators on
+   the same mounts.  topos must outlive the stage. */
+
+void
+fd_cfg_stage_hugetlbfs_extra_topos( fd_topo_t const * const * topos,
+                                    ulong                     cnt );
+
+/* fd_cfg_stage_genesis_extra_validators adds the validators described
+   by configs[0,cnt) as extra staked bootstrap validators in the genesis
+   created by the genesis stage.  configs must outlive the stage. */
+
+void
+fd_cfg_stage_genesis_extra_validators( config_t const * const * configs,
+                                       ulong                    cnt );
+
 void configure_cmd_args( int * pargc, char *** pargv, args_t * args );
 void configure_cmd_perm( args_t * args, fd_cap_chk_t * chk, config_t const * config );
 void configure_cmd_fn  ( args_t * args, config_t * config );

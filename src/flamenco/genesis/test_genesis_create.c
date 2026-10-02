@@ -329,6 +329,51 @@ main( int     argc,
   FD_TEST( vsv->v4.has_bls_pubkey_compressed );
   FD_TEST( !memcmp( vsv->v4.bls_pubkey_compressed, options->bls_pubkey, sizeof(options->bls_pubkey) ) );
 
+  /* Extra bootstrap validators each get a funded identity, a vote
+     account with their BLS key, and a bootstrap stake delegation */
+
+  ulong const prev_account_cnt = genesis->account_cnt;
+  fd_genesis_validator_t extra[ 3 ];
+  for( ulong v=0UL; v<3UL; v++ ) {
+    extra[ v ].identity_pubkey = (fd_pubkey_t){ .ul = { 1, v, 0, 1 } };
+    extra[ v ].stake_pubkey    = (fd_pubkey_t){ .ul = { 1, v, 0, 3 } };
+    extra[ v ].vote_pubkey     = (fd_pubkey_t){ .ul = { 1, v, 0, 4 } };
+    for( ulong i=0UL; i<sizeof(extra[ v ].bls_pubkey); i++ ) extra[ v ].bls_pubkey[ i ] = (uchar)(0x80UL+v+i);
+  }
+  options->extra_validators    = extra;
+  options->extra_validator_cnt = 3UL;
+
+  result_sz = fd_genesis_create( result_mem, sizeof(result_mem), options );
+  FD_TEST( result_sz );
+  FD_TEST( fd_genesis_parse( genesis, result_mem, result_sz ) );
+  FD_TEST( genesis->account_cnt==prev_account_cnt+3UL*3UL );
+
+  for( ulong v=0UL; v<3UL; v++ ) {
+    FD_TEST( find_account( genesis, result_mem, &extra[ v ].identity_pubkey, account ) );
+    FD_TEST( fd_pubkey_eq( &account->owner, &fd_solana_system_program_id ) );
+    FD_TEST( account->lamports );
+
+    FD_TEST( find_account( genesis, result_mem, &extra[ v ].vote_pubkey, account ) );
+    FD_TEST( fd_vote_state_versioned_deserialize( vsv, account->data, account->data_len ) );
+    FD_TEST( vsv->kind==fd_vote_state_versioned_enum_v4 );
+    FD_TEST( fd_pubkey_eq( &vsv->v4.node_pubkey, &extra[ v ].identity_pubkey ) );
+    FD_TEST( vsv->v4.has_bls_pubkey_compressed );
+    FD_TEST( !memcmp( vsv->v4.bls_pubkey_compressed, extra[ v ].bls_pubkey, sizeof(extra[ v ].bls_pubkey) ) );
+
+    FD_TEST( find_account( genesis, result_mem, &extra[ v ].stake_pubkey, account ) );
+    FD_TEST( fd_pubkey_eq( &account->owner, &fd_solana_stake_program_id ) );
+    FD_TEST( account->data_len==FD_STAKE_STATE_SZ );
+    fd_stake_state_t const * stake = fd_stake_state_view( account->data, account->data_len );
+    FD_TEST( stake && stake->stake_type==FD_STAKE_STATE_STAKE );
+    FD_TEST( fd_pubkey_eq( &stake->stake.stake.delegation.voter_pubkey, &extra[ v ].vote_pubkey ) );
+    FD_TEST( stake->stake.stake.delegation.activation_epoch==ULONG_MAX );
+  }
+
+  options->extra_validator_cnt = FD_GENESIS_EXTRA_VALIDATOR_MAX+1UL;
+  fd_log_level_logfile_set( fd_int_max( log_level, 4 ) );
+  FD_TEST( !fd_genesis_create( result_mem, sizeof(result_mem), options ) );
+  fd_log_level_logfile_set( log_level );
+
   FD_LOG_NOTICE(( "pass" ));
 
   fd_scratch_detach( NULL );

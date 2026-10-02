@@ -213,6 +213,7 @@ extern action_t fd_action_version;
 extern action_t fd_action_bench;
 extern action_t fd_action_bundle_client;
 extern action_t fd_action_dev;
+extern action_t fd_action_cluster;
 extern action_t fd_action_dump;
 extern action_t fd_action_flame;
 extern action_t fd_action_help;
@@ -261,6 +262,7 @@ action_t * ACTIONS[] = {
   &fd_action_bench,
   &fd_action_bundle_client,
   &fd_action_dev,
+  &fd_action_cluster,
   &fd_action_dump,
   &fd_action_flame,
   &fd_action_load,
