@@ -475,34 +475,6 @@ fd_gui_peers_gossip_stats_snap( fd_gui_peers_ctx_t *          peers,
   gossip_stats->messages_count_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PRUNE_IDX         ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, MESSAGE_TX_PRUNE ) );
 }
 
-static int
-fd_gui_peers_contact_info_eq( fd_gossip_contact_info_t const * ci1,
-                              fd_gossip_contact_info_t const * ci2 ) {
-  int ci_eq =
-       ci1->shred_version       == ci2->shred_version
-    && ci1->outset              == ci2->outset
- // && ci1->wallclock_nanos     == ci2->wallclock_nanos
-    && ci1->version.client      == ci2->version.client
-    && ci1->version.major       == ci2->version.major
-    && ci1->version.minor       == ci2->version.minor
-    && ci1->version.patch       == ci2->version.patch
-    && ci1->version.commit      == ci2->version.commit
-    && ci1->version.feature_set == ci2->version.feature_set;
-
-    if( FD_LIKELY( !ci_eq ) ) return 0;
-    for( ulong j=0UL; j<(FD_GOSSIP_CONTACT_INFO_SOCKET_CNT); j++ ) {
-      if( FD_UNLIKELY( ci1->sockets[ j ].is_ipv6 != ci2->sockets[ j ].is_ipv6 ) ) return 0;
-
-      if( FD_UNLIKELY( ci1->sockets[ j ].is_ipv6 ) ) {
-        if( FD_UNLIKELY( memcmp( ci1->sockets[ j ].ip6, ci2->sockets[ j ].ip6, 16UL ) ) ) return 0;
-      } else {
-        if( FD_UNLIKELY( ci1->sockets[ j ].ip4 != ci2->sockets[ j ].ip4 ) ) return 0;
-      }
-      if( FD_UNLIKELY( ci1->sockets[ j ].port != ci2->sockets[ j ].port ) ) return 0;
-    }
-    return 1;
-}
-
 void
 fd_gui_peers_handle_gossip_bw( fd_gui_peers_ctx_t *           peers,
                                fd_gui_gossip_bw_rec_t const * rec,
@@ -668,7 +640,7 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
           FD_TEST( found );
 #endif
           /* update does nothing */
-          if( FD_UNLIKELY( fd_gui_peers_contact_info_eq( &peer->row.contact_info, update->contact_info->value ) ) ) {
+          if( FD_UNLIKELY( fd_gossip_contact_info_eq( &peer->row.contact_info, update->contact_info->value ) ) ) {
             peer->row.wallclock_nanos   = FD_MILLI_TO_NANOSEC( update->wallclock );
             peer->row.update_time_nanos = now;
             wfs_handle_contact_info_update( peers, (fd_pubkey_t const *)update->origin, now );

@@ -1170,7 +1170,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
     if(      !strcmp( link->name, "gossip_gossvf" ) ) ctx->in[ i ].kind = IN_KIND_PINGS;
     else if( !strcmp( link->name, "ipecho_out"    ) ) ctx->in[ i ].kind = IN_KIND_SHRED_VERSION;
-    else if( !strcmp( link->name, "gossip_ci"     ) ) ctx->in[ i ].kind = IN_KIND_GOSSIP;
+    else if( !strcmp( link->name, "gossip_ciaddr" ) ) ctx->in[ i ].kind = IN_KIND_GOSSIP;
     else if( !strcmp( link->name, "net_gossvf"    ) ) {
       ctx->in[ i ].kind = IN_KIND_NET;
       fd_net_rx_bounds_init( &ctx->net_in_bounds[ i ], link->dcache );

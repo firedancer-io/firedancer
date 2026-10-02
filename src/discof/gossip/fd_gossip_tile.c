@@ -646,11 +646,14 @@ unprivileged_init( fd_topo_t const *      topo,
 
   *ctx->net_out    = out1( topo, tile, "gossip_net"    );
   *ctx->sign_out   = out1( topo, tile, "gossip_sign"   );
-  ctx->update_out[ FD_GOSSIP_UPDATE_LINK_CI   ] = out1( topo, tile, "gossip_ci"   );
-  ctx->update_out[ FD_GOSSIP_UPDATE_LINK_VOTE ] = fd_topo_find_tile_out_link( topo, tile, "gossip_vote", 0UL )!=ULONG_MAX
-                                                ? out1( topo, tile, "gossip_vote" )
-                                                : (fd_gossip_out_ctx_t){ .idx = ULONG_MAX }; /* no vote readers */
-  ctx->update_out[ FD_GOSSIP_UPDATE_LINK_MISC ] = out1( topo, tile, "gossip_misc" );
+  ctx->update_out[ FD_GOSSIP_UPDATE_LINK_CI_ADDR ] = out1( topo, tile, "gossip_ciaddr" );
+  ctx->update_out[ FD_GOSSIP_UPDATE_LINK_CI_SEEN ] = fd_topo_find_tile_out_link( topo, tile, "gossip_ciseen", 0UL )!=ULONG_MAX
+                                                   ? out1( topo, tile, "gossip_ciseen" )
+                                                   : (fd_gossip_out_ctx_t){ .idx = ULONG_MAX }; /* no gui */
+  ctx->update_out[ FD_GOSSIP_UPDATE_LINK_VOTE    ] = fd_topo_find_tile_out_link( topo, tile, "gossip_vote", 0UL )!=ULONG_MAX
+                                                   ? out1( topo, tile, "gossip_vote" )
+                                                   : (fd_gossip_out_ctx_t){ .idx = ULONG_MAX }; /* no vote readers */
+  ctx->update_out[ FD_GOSSIP_UPDATE_LINK_MISC    ] = out1( topo, tile, "gossip_misc"   );
   *ctx->gossvf_out = out1( topo, tile, "gossip_gossvf" );
 
   ctx->has_gui = fd_topo_find_tile_out_link( topo, tile, "gossip_gui", 0UL )!=ULONG_MAX;
@@ -770,14 +773,15 @@ populate_allowed_fds( fd_topo_t const *      topo,
      fd_ping_tracker_track from rx_values    2*FD_GOSSIP_MESSAGE_MAX_CRDS
      Total: FD_PING_TRACKER_MAX + 2*FD_GOSSIP_MESSAGE_MAX_CRDS
 
-   gossip_ci (via fd_gossip_tx_publish_chunk):
+   gossip_ciaddr and gossip_ciseen (via fd_gossip_tx_publish_chunk),
+   each at most one frag per contact info event:
      fd_crds_advance expire (ContactInfos)   FD_CONTACT_INFO_TABLE_SIZE
      fd_crds_insert publish + evictions      2*FD_GOSSIP_MESSAGE_MAX_CRDS
      Total: FD_CONTACT_INFO_TABLE_SIZE + 2*FD_GOSSIP_MESSAGE_MAX_CRDS
 
    gossip_vote and gossip_misc carry a subset of the fd_crds_insert
    publishes (at most FD_GOSSIP_MESSAGE_MAX_CRDS each, plus a few local
-   pushes), so gossip_ci bounds them.
+   pushes), so the contact info links bound them.
 
    Among the reliable output links, gossvf_out dominates.  Every
    reliable out link must be at least STEM_BURST deep. */

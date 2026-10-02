@@ -1944,7 +1944,7 @@ unprivileged_init( fd_topo_t const *      topo,
     fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
 
     if     ( FD_LIKELY( !strcmp( link->name, "replay_epoch" ) ) ) ctx->in_kind[ i ] = IN_KIND_EPOCH;
-    else if( FD_LIKELY( !strcmp( link->name, "gossip_ci"    ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP;
+    else if( FD_LIKELY( !strcmp( link->name, "gossip_ciaddr" ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP;
     else if( FD_LIKELY( !strcmp( link->name, "ipecho_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_IPECHO;
     else if( FD_LIKELY( !strcmp( link->name, "net_votor"    ) ) ) {
       ctx->in_kind[ i ] = IN_KIND_NET;
