@@ -2,6 +2,7 @@
 #include "fd_sock_tile_private.h"
 #include "../../fd_disco_base.h"
 #include "../../topo/fd_topo.h"
+#include "../fd_net_tile.h"
 #include "../../../util/net/fd_eth.h"
 #include "../../../util/net/fd_ip4.h"
 #include "../../../util/net/fd_udp.h"
@@ -327,6 +328,9 @@ unprivileged_init( fd_topo_t const *      topo,
     }
   }
 
+  FD_STATIC_ASSERT( sizeof(ctx->shred_rx)/sizeof(ctx->shred_rx[0])==FD_NET_SHRED_OUT_MAX, shred_rx );
+  ctx->shred_rx_cnt = fd_topo_net_shred_outs( topo, tile, ctx->shred_rx );
+
   FD_CHECK_ERR( tile->in_cnt<=MAX_NET_INS, "too many input links" );
 
   /* The loopback-only sock tile has no TX links and is not counted */
@@ -470,6 +474,20 @@ poll_rx_socket( fd_sock_tile_t *    ctx,
     ulong sig   = fd_disco_netmux_sig( sa->sin_addr.s_addr, fd_ushort_bswap( sa->sin_port ), sa->sin_addr.s_addr, proto, hdr_sz );
     ulong tspub = fd_frag_meta_ts_comp( ts );
 
+    /* Shreds go to the shred tile owning their FEC set */
+    ulong copy_rx = ULONG_MAX;
+    if( ctx->shred_rx_cnt>1UL && ( proto==DST_PROTO_SHRED || proto==DST_PROTO_REPAIR ) ) {
+      copy_rx = ctx->shred_rx[ fd_net_shred_steer( payload, payload_sz, ctx->shred_rx_cnt ) ];
+      if( copy_rx==rx_link ) copy_rx = ULONG_MAX;
+    }
+    if( FD_UNLIKELY( copy_rx!=ULONG_MAX ) ) {
+      fd_sock_link_rx_t * copy_link = ctx->link_rx + copy_rx;
+      uchar * copy_buf = fd_chunk_to_laddr( copy_link->base, copy_link->chunk );
+      memcpy( copy_buf, eth_hdr, frame_sz );
+      fd_stem_publish( stem, copy_rx, sig, copy_link->chunk, frame_sz, 0UL, 0UL, tspub );
+      copy_link->chunk = fd_dcache_compact_next( copy_link->chunk, FD_NET_MTU, copy_link->chunk0, copy_link->wmark );
+      continue;
+    }
     if( FD_UNLIKELY( chunk!=chunk_pub ) ) {
       memcpy( fd_chunk_to_laddr( base, chunk_pub ), eth_hdr, frame_sz );
     }

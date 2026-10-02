@@ -150,6 +150,8 @@ test_hardware( char const * rdma_name,
                   rdma_name, port_num, tile_cnt, rx_depth, tx_depth ));
 }
 
+static uchar const test_dgram[ 2048 ] = {0};
+
 static void
 test_rx_routes( void ) {
   static fd_topo_t topo[1];
@@ -196,15 +198,15 @@ test_rx_routes( void ) {
 
   ulong out_idx;
   ulong proto;
-  FD_TEST( fd_net_rx_dst_port_lookup( &tile->net, 8001U, &out_idx, &proto ) );
+  FD_TEST( fd_net_rx_dst_port_lookup( &tile->net, 8001U, test_dgram, 64UL, &out_idx, &proto ) );
   FD_TEST( out_idx==fd_topo_find_tile_out_link( topo, topo_tile, "net_gossvf", 0UL ) );
   FD_TEST( proto==DST_PROTO_GOSSIP );
 
-  FD_TEST( fd_net_rx_dst_port_lookup( &tile->net, 8002U, &out_idx, &proto ) );
+  FD_TEST( fd_net_rx_dst_port_lookup( &tile->net, 8002U, test_dgram, 64UL, &out_idx, &proto ) );
   FD_TEST( out_idx==fd_topo_find_tile_out_link( topo, topo_tile, "net_shred", 0UL ) );
   FD_TEST( proto==DST_PROTO_REPAIR );
 
-  FD_TEST( fd_net_rx_dst_port_lookup( &tile->net, 8003U, &out_idx, &proto ) );
+  FD_TEST( fd_net_rx_dst_port_lookup( &tile->net, 8003U, test_dgram, 64UL, &out_idx, &proto ) );
   FD_TEST( out_idx==fd_topo_find_tile_out_link( topo, topo_tile, "net_rserve", 0UL ) );
   FD_TEST( proto==DST_PROTO_RSERVE );
 
@@ -212,13 +214,85 @@ test_rx_routes( void ) {
   fd_memset( tile1, 0, sizeof(tile1) );
   fd_net_rx_dst_ports_init( &tile1->net, topo, topo_tile1 );
 
-  FD_TEST( fd_net_rx_dst_port_lookup( &tile1->net, 9000U, &out_idx, &proto ) );
+  FD_TEST( fd_net_rx_dst_port_lookup( &tile1->net, 9000U, test_dgram, 64UL, &out_idx, &proto ) );
   FD_TEST( out_idx==fd_topo_find_tile_out_link( topo, topo_tile1, "net_quic", 1UL ) );
   FD_TEST( proto==DST_PROTO_TPU_UDP );
 
-  FD_TEST( fd_net_rx_dst_port_lookup( &tile1->net, 9001U, &out_idx, &proto ) );
+  FD_TEST( fd_net_rx_dst_port_lookup( &tile1->net, 9001U, test_dgram, 64UL, &out_idx, &proto ) );
   FD_TEST( out_idx==fd_topo_find_tile_out_link( topo, topo_tile1, "net_shred", 1UL ) );
   FD_TEST( proto==DST_PROTO_REPAIR );
+}
+
+/* test_rx_shred_steer checks that a net tile with one net_shred link
+   per shred tile sends each shred to shred:(sig%shred_cnt), the tile
+   that keeps it, and that a shared net_shred link is not steered. */
+
+static void
+test_rx_shred_steer( void ) {
+  static fd_topo_t topo[1];
+  FD_TEST( fd_topob_new( topo, "test_mlx5_rx_steer" ) );
+  fd_topob_wksp( topo, "net_umem" );
+
+  ulong const shred_cnt = 4UL;
+  fd_topo_tile_t * net0 = fd_topob_tile( topo, "mlx5", "net_umem", "net_umem", 0UL, 0, 0, 0 );
+  fd_topo_tile_t * net1 = fd_topob_tile( topo, "mlx5", "net_umem", "net_umem", 1UL, 0, 0, 0 );
+  for( ulong k=0UL; k<shred_cnt; k++ ) fd_topob_tile( topo, "shred", "net_umem", "net_umem", 0UL, 0, 0, 0 );
+  fd_pod_insert_cstr( topo->props, "net.provider", "mlx5" );
+  for( ulong i=0UL; i<2UL; i++ ) {
+    fd_topo_obj_t * umem_obj = fd_topob_obj( topo, "dcache", "net_umem" );
+    fd_pod_insertf_ulong( topo->props, umem_obj->id, "net.%lu.umem", i );
+  }
+  net0->mlx5.batch_size = 8U;
+  net1->mlx5.batch_size = 8U;
+  net0->mlx5.net.shred_listen_port         = 8000U;
+  net0->mlx5.net.repair_client_listen_port = 8002U;
+  net1->mlx5.net.shred_listen_port         = 8000U;
+  net1->mlx5.net.repair_client_listen_port = 8002U;
+
+  /* net0: one link per shred tile, read in scrambled order */
+  for( ulong k=0UL; k<shred_cnt; k++ ) fd_topos_net_rx_link( topo, "net_shred", 0UL, 128UL );
+  ulong const reader[ 4 ] = { 2UL, 0UL, 3UL, 1UL };
+  for( ulong k=0UL; k<shred_cnt; k++ ) fd_topob_tile_in( topo, "shred", reader[ k ], "net_umem", "net_shred", k, 0, 1 );
+
+  /* net1 (negative control): one link read by every shred tile */
+  fd_topos_net_rx_link( topo, "net_shred",  1UL, 128UL );
+  for( ulong k=0UL; k<shred_cnt; k++ ) fd_topob_tile_in( topo, "shred", k, "net_umem", "net_shred", shred_cnt, 0, 1 );
+
+  fd_net_tile_t ctx0[1]; fd_memset( ctx0, 0, sizeof(ctx0) );
+  fd_net_tile_t ctx1[1]; fd_memset( ctx1, 0, sizeof(ctx1) );
+  fd_net_rx_dst_ports_init( ctx0, topo, net0 );
+  fd_net_rx_dst_ports_init( ctx1, topo, net1 );
+  FD_TEST( ctx0->shred_out_cnt==shred_cnt );
+  FD_TEST( ctx1->shred_out_cnt==1UL );
+
+  ulong want_out[ 4 ];
+  for( ulong k=0UL; k<shred_cnt; k++ ) want_out[ reader[ k ] ] = fd_topo_find_tile_out_link( topo, net0, "net_shred", k );
+  ulong shared_out = fd_topo_find_tile_out_link( topo, net1, "net_shred", shred_cnt );
+  FD_TEST( shared_out!=ULONG_MAX );
+
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 1234U, 0UL ) );
+  uchar dgram[ 1228 ];
+  ulong hits[ 4 ] = {0};
+  for( ulong iter=0UL; iter<4096UL; iter++ ) {
+    for( ulong b=0UL; b<sizeof(dgram); b++ ) dgram[ b ] = fd_rng_uchar( rng );
+    ulong  sig   = fd_ulong_load_8( dgram );
+    ushort port  = (iter&1UL) ? (ushort)8002U : (ushort)8000U;
+    ulong  proto = (iter&1UL) ? DST_PROTO_REPAIR : DST_PROTO_SHRED;
+    ulong  out_idx; ulong got_proto;
+    FD_TEST( fd_net_rx_dst_port_lookup( ctx0, port, dgram, sizeof(dgram), &out_idx, &got_proto ) );
+    FD_TEST( got_proto==proto );
+    FD_TEST( out_idx==want_out[ sig%shred_cnt ] );
+    hits[ sig%shred_cnt ]++;
+    FD_TEST( fd_net_rx_dst_port_lookup( ctx1, port, dgram, sizeof(dgram), &out_idx, &got_proto ) );
+    FD_TEST( out_idx==shared_out );
+  }
+  for( ulong k=0UL; k<shred_cnt; k++ ) FD_TEST( hits[ k ]>800UL );
+
+  /* Short datagrams go to shred:0 */
+  ulong out_idx; ulong proto;
+  FD_TEST( fd_net_rx_dst_port_lookup( ctx0, 8000U, dgram, 7UL, &out_idx, &proto ) );
+  FD_TEST( out_idx==want_out[ 0 ] );
+  fd_rng_delete( fd_rng_leave( rng ) );
 }
 
 #define SHRED_PORT ((ushort)4242)
@@ -619,6 +693,7 @@ main( int     argc,
   fd_boot( &argc, &argv );
   test_queue_footprint();
   test_rx_routes();
+  test_rx_shred_steer();
   test_rx_cqe_normal();
   test_rx_cq_arm();
   test_park_flushes_tx();
