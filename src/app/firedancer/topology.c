@@ -390,6 +390,8 @@ fd_topo_initialize( config_t * config ) {
 
   fd_topob_wksp( topo, "repair_sign"   );
   fd_topob_wksp( topo, "sign_repair"   );
+  fd_topob_wksp( topo, "tower_sign"    );
+  fd_topob_wksp( topo, "sign_tower"    );
 
   if( rserve_enabled ) {
     fd_topob_wksp( topo, "rserve_sign"   );
@@ -535,6 +537,8 @@ fd_topo_initialize( config_t * config ) {
 
   FOR(sign_tile_cnt-1) fd_topob_link( topo, "repair_sign",   "repair_sign",   256UL,                                    FD_REPAIR_MAX_PREIMAGE_SZ,     1UL ); /* See repair_tile.c for explanation */
   FOR(sign_tile_cnt-1) fd_topob_link( topo, "sign_repair",   "sign_repair",   256UL,                                    sizeof(fd_ed25519_sig_t),      1UL );
+  /**/                 fd_topob_link( topo, "tower_sign",    "tower_sign",    128UL,                                    FD_KEYGUARD_SIGN_REQ_MTU,      1UL );
+  /**/                 fd_topob_link( topo, "sign_tower",    "sign_tower",    128UL,                                    sizeof(fd_ed25519_sig_t),      1UL );
 
   if( !alpenglow_enabled ) {
     /**/               fd_topob_link( topo, "txsend_sign",   "txsend_sign",   128UL,                                    FD_TXN_MTU_V0,                 1UL ); /* TODO: Depth probably doesn't need to be 128 */
@@ -794,6 +798,10 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_in (   topo, "tower",   0UL,          "metric_in", "replay_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(shred_tile_cnt)  fd_topob_tile_in(    topo, "tower",   0UL,          "metric_in", "shred_out",     i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_out(   topo, "tower",   0UL,                       "tower_out",     0UL                                                );
+  /**/                 fd_topob_tile_in (   topo, "sign",    0UL,          "metric_in", "tower_sign",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
+  /**/                 fd_topob_tile_out(   topo, "tower",   0UL,                       "tower_sign",    0UL                                                  );
+  /**/                 fd_topob_tile_in (   topo, "tower",   0UL,          "metric_in", "sign_tower",    0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
+  /**/                 fd_topob_tile_out(   topo, "sign",    0UL,                       "sign_tower",    0UL                                                  );
   }
 
   if( !alpenglow_enabled ) {
