@@ -4043,6 +4043,48 @@ test_ag_set_identity_leader_slot( fd_wksp_t * wksp,
   FD_LOG_NOTICE(( "pass: test_ag_set_identity_leader_slot(same_identity=%d)", same_identity ));
 }
 
+/* An Alpenglow leader's RESET and BECAME_LEADER carry the microblock
+   budget derived from the larger of the bank's max_shred_idx and the
+   configured shred limit (the bench override or FD_SHRED_BLK_MAX). */
+
+static void
+test_ag_leader_microblock_budget( fd_wksp_t * wksp,
+                                  ulong       max_shred_idx,
+                                  ulong       max_shreds_per_block,
+                                  ulong       expect ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  setup_ctx( ctx, wksp );
+  fd_hash_t parent_bid = { .ul = { 0xBEEFUL } };
+  setup_ag_root( ctx, &parent_bid );
+  ctx->max_shreds_per_block = max_shreds_per_block;
+  fd_banks_root( ctx->banks )->f.slot_params.max_shred_idx = max_shred_idx;
+
+  fd_pubkey_t identity = { .ul = { 1UL } };
+  ctx->identity_pubkey[ 0 ]     = identity;
+  mock_leader_for_slot_override = 1;
+  mock_leader_schedule_loaded   = 1;
+  mock_slot_leader              = identity;
+
+  *ctx->votor_leader    = (fd_votor_leader_t){ .slot = 1UL, .parent_slot = 0UL, .parent_block_id = parent_bid };
+  ctx->next_leader_slot = 1UL;
+
+  ulong out_idx = ctx->replay_out->idx;
+  ulong seq0    = test_stem_seqs[ out_idx ];
+  FD_TEST( try_become_leader( ctx, test_stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL ) );
+  FD_TEST( test_stem_seqs[ out_idx ]==seq0+2UL );
+
+  fd_frag_meta_t const * m0 = test_stem_mcaches[ out_idx ] + fd_mcache_line_idx( seq0,     test_stem_depths[ out_idx ] );
+  fd_frag_meta_t const * m1 = test_stem_mcaches[ out_idx ] + fd_mcache_line_idx( seq0+1UL, test_stem_depths[ out_idx ] );
+  FD_TEST( m0->sig==REPLAY_SIG_RESET && m1->sig==REPLAY_SIG_BECAME_LEADER );
+  fd_poh_reset_t     const * reset = fd_chunk_to_laddr_const( ctx->replay_out->mem, m0->chunk );
+  fd_became_leader_t const * msg   = fd_chunk_to_laddr_const( ctx->replay_out->mem, m1->chunk );
+  FD_TEST( reset->max_microblocks_in_slot==expect );
+  FD_TEST( msg->max_microblocks_in_slot  ==expect );
+  FD_TEST( msg->limits.slot_max_data_shreds==max_shred_idx );
+
+  FD_LOG_NOTICE(( "pass: test_ag_leader_microblock_budget(%lu, %lu)", max_shred_idx, max_shreds_per_block ));
+}
+
 /* Like deliver_rotor_fec_bid, for one of our own leader FECs. */
 
 static int
@@ -4934,6 +4976,10 @@ main( int     argc,
   test_rotor_fec_redelivered_final( wksp );         fd_wksp_reset( wksp, 42U );
   test_ag_set_identity_leader_slot( wksp, 1 );      fd_wksp_reset( wksp, 42U );
   test_ag_set_identity_leader_slot( wksp, 0 );      fd_wksp_reset( wksp, 42U );
+  test_ag_leader_microblock_budget( wksp, 32768UL, FD_SHRED_BLK_MAX,  160754UL ); fd_wksp_reset( wksp, 42U );
+  test_ag_leader_microblock_budget( wksp, 16384UL, FD_SHRED_BLK_MAX,  131072UL ); fd_wksp_reset( wksp, 42U );
+  test_ag_leader_microblock_budget( wksp, 32768UL, 524288UL,         2586284UL ); fd_wksp_reset( wksp, 42U );
+  test_ag_leader_microblock_budget( wksp, 65536UL, FD_SHRED_BLK_MAX,  322456UL ); fd_wksp_reset( wksp, 42U );
   test_dead_block_children_drop( wksp );
   test_stale_id_key_does_not_shadow_rebuild( wksp ); fd_wksp_reset( wksp, 42U );
   test_identity_switch_quiesces_replay( wksp );     fd_wksp_reset( wksp, 42U );
