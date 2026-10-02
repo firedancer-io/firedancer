@@ -189,6 +189,115 @@ test_hpack_wr_varint( void ) {
   }
 }
 
+/* Every two fragment boundaries, including empty fragments.  Invalid
+   blocks may fail before the final fragment, but the error is sticky. */
+
+static void
+test_hpack_skip_splits( uchar const * bin,
+                        ulong         binsz,
+                        uint          expected ) {
+  for( ulong split0=0UL; split0<=binsz; split0++ ) {
+    for( ulong split1=split0; split1<=binsz; split1++ ) {
+      fd_hpack_skip_t skip[1];
+      fd_hpack_skip_init( skip );
+      uint err0 = fd_hpack_skip_feed( skip, bin,        split0,          0 );
+      uint err1 = fd_hpack_skip_feed( skip, bin+split0, split1-split0,   0 );
+      uint err2 = fd_hpack_skip_feed( skip, bin+split1, binsz-split1,    1 );
+      if( expected==FD_H2_SUCCESS ) FD_TEST( !err0 && !err1 );
+      FD_TEST( err2==expected );
+    }
+  }
+  fd_hpack_skip_t skip[1];
+  fd_hpack_skip_init( skip );
+  for( ulong i=0UL; i<binsz; i++ ) {
+    uint err = fd_hpack_skip_feed( skip, bin+i, 1UL, 0 );
+    if( expected==FD_H2_SUCCESS ) FD_TEST( !err );
+  }
+  FD_TEST( fd_hpack_skip_feed( skip, bin+binsz, 0UL, 1 )==expected );
+}
+
+FD_UNIT_TEST( hpack_skip ) {
+  /* RFC examples with the dynamic references removed above. */
+  test_hpack_skip_splits( rfc7541_c31_bin, sizeof(rfc7541_c31_bin), FD_H2_SUCCESS );
+  test_hpack_skip_splits( rfc7541_c32_bin, sizeof(rfc7541_c32_bin), FD_H2_SUCCESS );
+  test_hpack_skip_splits( rfc7541_c33_bin, sizeof(rfc7541_c33_bin), FD_H2_SUCCESS );
+  test_hpack_skip_splits( rfc7541_c41_bin, sizeof(rfc7541_c41_bin), FD_H2_SUCCESS );
+  test_hpack_skip_splits( rfc7541_c42_bin, sizeof(rfc7541_c42_bin), FD_H2_SUCCESS );
+  test_hpack_skip_splits( rfc7541_c43_bin, sizeof(rfc7541_c43_bin), FD_H2_SUCCESS );
+  test_hpack_skip_splits( rfc7541_c51_bin, sizeof(rfc7541_c51_bin), FD_H2_SUCCESS );
+  test_hpack_skip_splits( rfc7541_c61_bin, sizeof(rfc7541_c61_bin), FD_H2_SUCCESS );
+
+  struct { uchar bin[ 16 ]; ulong sz; uint err; } const cases[] = {
+    { {0},                                              0UL, FD_H2_SUCCESS         }, /* empty block */
+    { {0x20,0x20,0x88},                                 3UL, FD_H2_SUCCESS         }, /* leading updates */
+    { {0x01,0x80},                                      2UL, FD_H2_SUCCESS         }, /* empty Huffman value */
+    { {0x00,0x80,0x00},                                 3UL, FD_H2_SUCCESS         }, /* empty name and value */
+    { {0x40,0x01,'x',0x00,0x10,0x01,'y',0x00},         8UL, FD_H2_SUCCESS         }, /* literal forms */
+    { {0x11,0x00,0x01,0x00,0x41,0x00},                 6UL, FD_H2_SUCCESS         }, /* indexed names */
+    { {0x0f,0x2e,0x00},                                 3UL, FD_H2_SUCCESS         }, /* name index 61 */
+    { {0x0f,0x80,0x80,0x80,0x80,0x80,0x80,0x80,0,0}, 10UL, FD_H2_SUCCESS         }, /* long valid integer */
+    { {0x80},                                           1UL, FD_H2_ERR_COMPRESSION }, /* index zero */
+    { {0xbe},                                           1UL, FD_H2_ERR_COMPRESSION }, /* dynamic index */
+    { {0x0f,0x2f,0x00},                                 3UL, FD_H2_ERR_COMPRESSION }, /* dynamic name */
+    { {0x7e,0x00},                                      2UL, FD_H2_ERR_COMPRESSION }, /* dynamic name, six-bit prefix */
+    { {0x21},                                           1UL, FD_H2_ERR_COMPRESSION }, /* table size above zero */
+    { {0x3f,0x01,0x00},                                 3UL, FD_H2_ERR_COMPRESSION }, /* table size varint */
+    { {0x88,0x20},                                      2UL, FD_H2_ERR_COMPRESSION }, /* update after field */
+    { {0x01},                                           1UL, FD_H2_ERR_COMPRESSION }, /* missing value length */
+    { {0x00},                                           1UL, FD_H2_ERR_COMPRESSION }, /* missing name length */
+    { {0x00,0x02,'x'},                                  3UL, FD_H2_ERR_COMPRESSION }, /* truncated name */
+    { {0x00,0x01,'x',0x01},                             4UL, FD_H2_ERR_COMPRESSION }, /* truncated value */
+    { {0x0f,0x80},                                      2UL, FD_H2_ERR_COMPRESSION }, /* truncated integer */
+    { {0x0f,0x80,0x80,0x80,0x80,0x80,0x80,0x80,0x80,0,0},11UL,FD_H2_ERR_COMPRESSION }, /* too many integer octets */
+    { {0x01,0x81,0x00},                                 3UL, FD_H2_ERR_COMPRESSION }, /* incorrect Huffman padding */
+    { {0x01,0x81,0xff},                                 3UL, FD_H2_ERR_COMPRESSION }, /* padding longer than seven bits */
+    { {0x01,0x84,0xff,0xff,0xff,0xff},                   6UL, FD_H2_ERR_COMPRESSION }, /* Huffman EOS symbol */
+    { {0x01,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff},10UL,FD_H2_ERR_COMPRESSION } /* oversized length integer */
+  };
+  for( ulong i=0UL; i<sizeof(cases)/sizeof(cases[0]); i++ )
+    test_hpack_skip_splits( cases[i].bin, cases[i].sz, cases[i].err );
+
+  /* fd_hpack_rd also rejects the table size varint instead of decoding
+     its tail as the field 0x01 0x00 */
+  fd_hpack_rd_t rd[1];
+  fd_h2_hdr_t   hdr[1];
+  uchar *       scratch = NULL;
+  fd_hpack_rd_init( rd, (uchar const *)"\x3f\x01\x00", 3UL );
+  FD_TEST( fd_hpack_rd_next( rd, hdr, &scratch, NULL )==FD_H2_ERR_COMPRESSION );
+
+  /* These prefixes cannot become valid with further fragments.  Fail
+     immediately instead of waiting for END_HEADERS or a string tail. */
+  struct { uchar bin[ 8 ]; ulong sz; } const bad_prefixes[] = {
+    { {0xff},                                1UL }, /* indexed lower bound exceeds 61 */
+    { {0x7f},                                1UL }, /* name lower bound exceeds 61 */
+    { {0x0f,0xaf},                           2UL }, /* unfinished name index already exceeds 61 */
+    { {0x01,0x85,0xff,0xff,0xff,0xff},        6UL }  /* EOS before last encoded string octet */
+  };
+  for( ulong i=0UL; i<sizeof(bad_prefixes)/sizeof(bad_prefixes[0]); i++ ) {
+    fd_hpack_skip_t skip[1];
+    fd_hpack_skip_init( skip );
+    FD_TEST( fd_hpack_skip_feed( skip, bad_prefixes[i].bin, bad_prefixes[i].sz, 0 )==FD_H2_ERR_COMPRESSION );
+  }
+
+  /* A single Huffman literal larger than a 16 KiB frame.  Twenty
+     thousand zero octets encode 32,000 '0' symbols exactly. */
+  static uchar large[ 20005 ];
+  large[0] = 0x01;
+  large[1] = 0xff;
+  large[2] = 0xa1;
+  large[3] = 0x9b;
+  large[4] = 0x01;
+  for( ulong chunk=1UL; chunk<=257UL; chunk+=32UL ) {
+    fd_hpack_skip_t skip[1];
+    fd_hpack_skip_init( skip );
+    for( ulong off=0UL; off<sizeof(large); ) {
+      ulong sz = fd_ulong_min( chunk, sizeof(large)-off );
+      FD_TEST( fd_hpack_skip_feed( skip, large+off, sz, off+sz==sizeof(large) )==FD_H2_SUCCESS );
+      off += sz;
+    }
+  }
+}
+
 FD_UNIT_TEST( hpack ) {
   test_hpack_rd( rfc7541_c31_bin, sizeof(rfc7541_c31_bin), rfc7541_c31_dec );
   test_hpack_rd( rfc7541_c32_bin, sizeof(rfc7541_c32_bin), rfc7541_c32_dec );
