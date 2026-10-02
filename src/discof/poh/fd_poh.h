@@ -2,12 +2,23 @@
 #define HEADER_fd_src_discof_poh_fd_poh_h
 
 #include "../../disco/pack/fd_pack.h"
+#include "../../disco/shred/fd_shred_batch.h"
 
 /* The maximum number of microblocks pack may put in a slot.  This is
-   not consensus critical; Alpenglow has one tick per block, so there
-   is no hash budget bounding microblocks and pack is given this fixed
-   budget instead. */
-#define FD_POH_ALPENGLOW_MAX_MICROBLOCKS_PER_SLOT (131072UL)
+   not consensus critical.  Alpenglow has one tick per block, so the
+   hash budget does not bound microblocks.  The budget is instead how
+   many minimum size entries fit in max_data_shreds, shredded the way
+   pack sizes its data limit (fd_shred_batch_pack_data_max): 161,070 at
+   32,768 shreds, and never below the old fixed 131,072.  Pack's data
+   limit stops landing entries first, so only microblocks that do not
+   land (data rebated, count not) can reach it. */
+
+FD_FN_CONST static inline ulong
+fd_poh_alpenglow_max_microblocks_per_slot( ulong max_data_shreds ) {
+  ulong entry_max = sizeof(fd_entry_batch_header_t)+FD_TPU_MTU;
+  ulong entry_min = sizeof(fd_entry_batch_header_t)+FD_TXN_MIN_SERIALIZED_SZ;
+  return fd_ulong_max( fd_shred_batch_pack_data_max( max_data_shreds, entry_max )/entry_min, 131072UL );
+}
 
 /* Per-transaction lifecycle timing for a leader block, captured by poh
    in mix order for telemetry purposes.  The records are stored in a
