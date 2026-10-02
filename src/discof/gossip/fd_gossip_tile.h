@@ -51,7 +51,7 @@ struct fd_gossip_tile_ctx {
   fd_gossip_in_ctx_t in[ 128UL ];
 
   fd_gossip_out_ctx_t net_out[ 1 ];
-  fd_gossip_out_ctx_t gossip_out[ 1 ];
+  fd_gossip_out_ctx_t update_out[ FD_GOSSIP_UPDATE_LINK_CNT ]; /* gossip_ci, gossip_vote, gossip_misc */
   fd_gossip_out_ctx_t gossvf_out[ 1 ];
   fd_gossip_out_ctx_t sign_out[ 1 ];
   fd_gossip_out_ctx_t gossip_wfs[ 1 ];
@@ -93,7 +93,7 @@ struct fd_gossip_tile_ctx {
   /* Peer table saturation detection.  We track the high-water mark
      of the peer count (staked + unstaked).  When the count stops
      increasing for FD_GOSSIP_PEER_SAT_QUIET_NS and at least one
-     peer is present, we publish PEER_SATURATED on gossip_out. */
+     peer is present, we publish PEER_SATURATED on gossip_ci. */
   ulong peer_sat_hwm;        /* high-water mark of peer count       */
   long  peer_sat_hwm_nanos;  /* wallclock when HWM last increased   */
   int   peer_sat_published;  /* one-shot latch (0 -> 1)             */

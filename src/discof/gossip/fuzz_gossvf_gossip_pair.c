@@ -61,7 +61,7 @@ typedef struct {
 
   fd_gossip_t * gossip;
   fd_rng_t      rng[ 1 ];
-  fd_gossip_out_ctx_t gossip_out[ 1 ];
+  fd_gossip_out_ctx_t gossip_out[ FD_GOSSIP_UPDATE_LINK_CNT ];
   fd_gossip_out_ctx_t net_out[ 1 ];
   fd_frag_meta_t *    gossip_mcache;
   fd_stem_context_t   gossip_stem[ 1 ];
@@ -143,7 +143,7 @@ pair_mem_align( void ) {
 static ulong
 pair_node_layout_append( ulong l ) {
   l = FD_LAYOUT_APPEND( l, fd_gossip_align(), fd_gossip_footprint( PAIR_MAX_VALUES, 1UL ) );
-  l = FD_LAYOUT_APPEND( l, FD_CHUNK_ALIGN,    PAIR_OUT_DBUF_SZ );
+  l = FD_LAYOUT_APPEND( l, FD_CHUNK_ALIGN,    FD_GOSSIP_UPDATE_LINK_CNT*PAIR_OUT_DBUF_SZ );
   l = FD_LAYOUT_APPEND( l, fd_mcache_align(), fd_mcache_footprint( PAIR_OUT_DEPTH, 0UL ) );
 
   l = FD_LAYOUT_APPEND( l, peer_pool_align(),  peer_pool_footprint( PAIR_PEER_CAP ) );
@@ -563,13 +563,15 @@ pair_setup_gossip( pair_node_t * node,
                                                fd_gossip_footprint( PAIR_MAX_VALUES, 1UL ) );
   FD_TEST( fd_rng_join( fd_rng_new( node->rng, (uint)seed, seed>>32 ) ) );
 
-  void * gossip_dcache = FD_SCRATCH_ALLOC_APPEND( mem, FD_CHUNK_ALIGN, PAIR_OUT_DBUF_SZ );
-  node->gossip_out->mem    = gossip_dcache;
-  node->gossip_out->chunk0 = fd_laddr_to_chunk( gossip_dcache, gossip_dcache );
-  node->gossip_out->chunk  = node->gossip_out->chunk0;
-  node->gossip_out->wmark  = node->gossip_out->chunk0 + pair_wmark( PAIR_OUT_DBUF_SZ,
-                                                                     FD_NET_MTU );
-  node->gossip_out->idx    = 0UL;
+  uchar * gossip_dcache = FD_SCRATCH_ALLOC_APPEND( mem, FD_CHUNK_ALIGN, FD_GOSSIP_UPDATE_LINK_CNT*PAIR_OUT_DBUF_SZ );
+  for( ulong i=0UL; i<FD_GOSSIP_UPDATE_LINK_CNT; i++ ) {
+    node->gossip_out[ i ].mem    = (fd_wksp_t *)gossip_dcache;
+    node->gossip_out[ i ].chunk0 = fd_laddr_to_chunk( gossip_dcache, gossip_dcache+i*PAIR_OUT_DBUF_SZ );
+    node->gossip_out[ i ].chunk  = node->gossip_out[ i ].chunk0;
+    node->gossip_out[ i ].wmark  = node->gossip_out[ i ].chunk0 + pair_wmark( PAIR_OUT_DBUF_SZ,
+                                                                              FD_NET_MTU );
+    node->gossip_out[ i ].idx    = 0UL;
+  }
   node->net_out[0] = node->gossip_out[0];
 
   void * mcache_mem = FD_SCRATCH_ALLOC_APPEND( mem, fd_mcache_align(), fd_mcache_footprint( PAIR_OUT_DEPTH, 0UL ) );

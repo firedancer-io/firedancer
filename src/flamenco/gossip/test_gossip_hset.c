@@ -180,7 +180,7 @@ test_tables( fd_rng_t * rng,
   fd_gossip_purged_t * purged = fd_gossip_purged_join( fd_gossip_purged_new( purged_mem, rng, ele_max ) );
   FD_TEST( purged );
 
-  fd_gossip_out_ctx_t out[1] = {{0}};
+  fd_gossip_out_ctx_t out[ FD_GOSSIP_UPDATE_LINK_CNT ] = {{0}};
   fd_stem_context_t   stem[1];
   memset( stem, 0, sizeof(stem) );
   fd_crds_t * crds = fd_crds_join( fd_crds_new( crds_mem, NULL, 0UL, NULL, NULL, rng, ele_max, purged, dummy_activity, NULL, out ) );
