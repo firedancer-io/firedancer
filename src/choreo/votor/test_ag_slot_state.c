@@ -54,6 +54,15 @@ make_state( ulong                   slot,
   return slot_state;
 }
 
+static void
+assert_maps_empty( ag_slot_state_t const * ss ) {
+  ag_slot_votes_t const * votes = &ss->votes;
+  for( ulong i=0UL; i<AG_NOTAR_MAP_SLOT_CNT;               i++ ) FD_TEST( notar_map_key_inval( votes->notar_stake_map[ i ].hash ) );
+  for( ulong i=0UL; i<AG_NOTAR_FALLBACK_MAP_SLOT_CNT;      i++ ) FD_TEST( notar_fallback_map_key_inval( votes->notar_fallback_stake_map[ i ].hash ) );
+  for( ulong i=0UL; i<AG_NOTAR_MAP_USED_WORD_CNT;          i++ ) FD_TEST( !votes->notar_stake_used[ i ] );
+  for( ulong i=0UL; i<AG_NOTAR_FALLBACK_MAP_USED_WORD_CNT; i++ ) FD_TEST( !votes->notar_fallback_stake_used[ i ] );
+}
+
 typedef struct {
   struct {
     ag_event_cert_t   certs          [ AG_SLOT_STATE_OUT_CERT_MAX   ]; ulong certs_cnt;
@@ -335,7 +344,10 @@ test_null_ignores_stale_sigs( void ) {
   out_t t;
 
   fd_memset( &slot_state_mem.votes, 0x5a, sizeof(slot_state_mem.votes) );
+  fd_memset( slot_state_mem.votes.notar_stake_used,          0xff, sizeof(slot_state_mem.votes.notar_stake_used)          );
+  fd_memset( slot_state_mem.votes.notar_fallback_stake_used, 0xff, sizeof(slot_state_mem.votes.notar_fallback_stake_used) );
   ag_slot_state_t * ss = make_state( slot, epoch_info );
+  assert_maps_empty( ss );
 
   ag_vote_t n1 = ag_vote_construct_notar( sec_sign_fn, &g_sk[1], test_bls_public_key, slot, hash, 1UL, TEST_SHRED_VERSION );
   ag_vote_t s1 = ag_vote_construct_skip ( sec_sign_fn, &g_sk[1], test_bls_public_key, slot, 1UL,       TEST_SHRED_VERSION );
@@ -592,14 +604,16 @@ test_map_capacity( void ) {
 
   for( ulong i=0UL; i<AG_VAT_MAX; i++ ) {
     ag_block_hash_t hash; random_hash( hash );
-    FD_TEST( notar_map_insert( ss->votes.notar_stake_map, FD_LOAD( ag_block_hash_key_t, hash ) ) );
-    FD_TEST( notar_map_query ( ss->votes.notar_stake_map, FD_LOAD( ag_block_hash_key_t, hash ), NULL ) );
+    FD_TEST( notar_stake_insert( &ss->votes, FD_LOAD( ag_block_hash_key_t, hash ) ) );
+    FD_TEST( notar_map_query   ( ss->votes.notar_stake_map, FD_LOAD( ag_block_hash_key_t, hash ), NULL ) );
   }
   for( ulong i=0UL; i<AG_VAT_MAX*AG_NOTAR_FALLBACK_VOTE_MAX; i++ ) {
     ag_block_hash_t hash; random_hash( hash );
-    FD_TEST( notar_fallback_map_insert( ss->votes.notar_fallback_stake_map, FD_LOAD( ag_block_hash_key_t, hash ) ) );
-    FD_TEST( notar_fallback_map_query ( ss->votes.notar_fallback_stake_map, FD_LOAD( ag_block_hash_key_t, hash ), NULL ) );
+    FD_TEST( notar_fallback_stake_insert( &ss->votes, FD_LOAD( ag_block_hash_key_t, hash ) ) );
+    FD_TEST( notar_fallback_map_query   ( ss->votes.notar_fallback_stake_map, FD_LOAD( ag_block_hash_key_t, hash ), NULL ) );
   }
+  ag_slot_state_null( ss );
+  assert_maps_empty( ss );
   free( em );
 }
 
@@ -648,6 +662,8 @@ test_safe_to_skip_relocates_across_wrap( void ) {
   ag_vote_t skip6 = ag_vote_construct_skip( sec_sign_fn, &g_sk[6], test_bls_public_key, slot, 6UL, TEST_SHRED_VERSION );
   add_vote_helper( ss, &skip6, epoch_info, &t );
   FD_TEST( t.ok && t.o.votor_events_cnt==1UL && t.o.votor_events[0].kind==AG_EVENT_POOL_SAFE_TO_SKIP && ss->sent_safe_to_skip && fd_bls_set_is_null( t.o.bad ) );
+  ag_slot_state_null( ss );
+  assert_maps_empty( ss );
   free( em );
 }
 
@@ -895,6 +911,114 @@ test_notar_fallback_stake_tally( void ) {
   free( em );
 }
 
+/* ag_slot_state_null clears only the stake map slots marked used.
+   Drive a slot state's maps and a reference map that is fully cleared
+   through random inserts, relocating removes and nulls on colliding
+   keys that wrap around the end of the map, and require identical maps
+   and used bits covering every occupied slot. */
+
+#define CLEAR_KEY_CNT (48UL)
+#define CLEAR_WIN     (8UL)  /* keys home in the last and first CLEAR_WIN slots */
+
+static ag_slot_voted_stake_hash_t clear_ref_notar[ AG_NOTAR_MAP_SLOT_CNT          ];
+static ag_slot_voted_stake_hash_t clear_ref_nf   [ AG_NOTAR_FALLBACK_MAP_SLOT_CNT ];
+
+static void
+wrap_key( fd_rng_t *            rng,
+          ulong                 slot_cnt,
+          ag_block_hash_key_t * key ) {
+  for(;;) {
+    for( ulong i=0UL; i<4UL; i++ ) FD_STORE( ulong, key->block_hash+8UL*i, fd_rng_ulong( rng ) );
+    ulong home = (ulong)notar_map_key_hash( *key ) & (slot_cnt-1UL); /* both maps hash alike */
+    if( home<CLEAR_WIN || home>=slot_cnt-CLEAR_WIN ) return;
+  }
+}
+
+static int
+used_test( ulong const * used,
+           ulong         idx ) {
+  return (int)( ( used[ idx>>6 ]>>(idx&63UL) ) & 1UL );
+}
+
+static void
+assert_clear_window( ag_slot_voted_stake_hash_t const * map,
+                     ag_slot_voted_stake_hash_t const * ref,
+                     ulong const *                      used,
+                     ulong                              slot_cnt ) {
+  for( ulong j=0UL; j<2UL*( CLEAR_WIN+CLEAR_KEY_CNT ); j++ ) {
+    ulong i = ( slot_cnt-CLEAR_WIN-CLEAR_KEY_CNT+j ) & (slot_cnt-1UL);
+    FD_TEST( !memcmp( map[ i ].hash.block_hash, ref[ i ].hash.block_hash, sizeof(ag_block_hash_key_t) ) );
+    if( notar_map_key_inval( map[ i ].hash ) ) continue;
+    FD_TEST( map[ i ].stake==ref[ i ].stake );
+    FD_TEST( used_test( used, i ) );
+  }
+}
+
+static void
+test_null_clears_used_only( void ) {
+  ulong n = 3UL;
+  generate_validators( n );
+  void * em; ag_epoch_info_t * epoch_info = make_epoch( n, &em );
+  ag_slot_state_t * ss    = make_state( 1UL, epoch_info );
+  ag_slot_votes_t * votes = &ss->votes;
+
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 1234U, 0UL ) );
+  ag_block_hash_key_t notar_key[ CLEAR_KEY_CNT ];
+  ag_block_hash_key_t nf_key   [ CLEAR_KEY_CNT ];
+  for( ulong i=0UL; i<CLEAR_KEY_CNT; i++ ) {
+    wrap_key( rng, AG_NOTAR_MAP_SLOT_CNT,          &notar_key[ i ] );
+    wrap_key( rng, AG_NOTAR_FALLBACK_MAP_SLOT_CNT, &nf_key   [ i ] );
+  }
+  notar_map_clear         ( clear_ref_notar );
+  notar_fallback_map_clear( clear_ref_nf    );
+
+  ulong null_cnt = 0UL;
+  for( ulong iter=0UL; iter<200000UL; iter++ ) {
+    uint r = fd_rng_uint( rng );
+    if( FD_UNLIKELY( !(r&255U) ) ) {
+      ag_slot_state_null( ss );
+      notar_map_clear         ( clear_ref_notar );
+      notar_fallback_map_clear( clear_ref_nf    );
+      assert_maps_empty( ss );
+      null_cnt++;
+      continue;
+    }
+    ulong k = (ulong)( (r>>8)%CLEAR_KEY_CNT );
+    if( r&(1U<<31) ) {
+      ag_block_hash_key_t          key = notar_key[ k ];
+      ag_slot_voted_stake_hash_t * e   = notar_map_query( votes->notar_stake_map, key, NULL );
+      ag_slot_voted_stake_hash_t * f   = notar_map_query( clear_ref_notar,        key, NULL );
+      FD_TEST( !e==!f );
+      if( e ) { notar_map_remove( votes->notar_stake_map, e ); notar_map_remove( clear_ref_notar, f ); }
+      else    { notar_stake_insert( votes, key )->stake = iter; notar_map_insert( clear_ref_notar, key )->stake = iter; }
+      assert_clear_window( votes->notar_stake_map, clear_ref_notar, votes->notar_stake_used, AG_NOTAR_MAP_SLOT_CNT );
+    } else {
+      ag_block_hash_key_t          key = nf_key[ k ];
+      ag_slot_voted_stake_hash_t * e   = notar_fallback_map_query( votes->notar_fallback_stake_map, key, NULL );
+      ag_slot_voted_stake_hash_t * f   = notar_fallback_map_query( clear_ref_nf,                    key, NULL );
+      FD_TEST( !e==!f );
+      if( e ) { notar_fallback_map_remove( votes->notar_fallback_stake_map, e ); notar_fallback_map_remove( clear_ref_nf, f ); }
+      else    { notar_fallback_stake_insert( votes, key )->stake = iter; notar_fallback_map_insert( clear_ref_nf, key )->stake = iter; }
+      assert_clear_window( votes->notar_fallback_stake_map, clear_ref_nf, votes->notar_fallback_stake_used, AG_NOTAR_FALLBACK_MAP_SLOT_CNT );
+    }
+  }
+  FD_TEST( null_cnt>100UL );
+
+  /* Negative control: an insert that bypasses the used bits survives
+     a null, so the checks above do depend on them. */
+
+  ag_slot_state_null( ss );
+  ag_slot_voted_stake_hash_t * stale = notar_map_insert( votes->notar_stake_map, notar_key[ 0 ] );
+  FD_TEST( stale );
+  ag_slot_state_null( ss );
+  FD_TEST( notar_map_query( votes->notar_stake_map, notar_key[ 0 ], NULL )==stale );
+  notar_map_remove( votes->notar_stake_map, stale );
+  assert_maps_empty( ss );
+
+  fd_rng_delete( fd_rng_leave( rng ) );
+  free( em );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -925,6 +1049,8 @@ main( int     argc,
 
   test_notar_stake_tally();
   test_notar_fallback_stake_tally();
+
+  test_null_clears_used_only();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

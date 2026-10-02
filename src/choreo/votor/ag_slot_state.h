@@ -21,10 +21,12 @@
 #define AG_SLOT_STATE_OUT_EVENT_MAX  (3UL)
 #define AG_SLOT_STATE_OUT_REPAIR_MAX (3UL)
 
-#define AG_NOTAR_MAP_LG_SLOT_CNT          (11)
-#define AG_NOTAR_MAP_SLOT_CNT             (1UL<<AG_NOTAR_MAP_LG_SLOT_CNT)
-#define AG_NOTAR_FALLBACK_MAP_LG_SLOT_CNT (13)
-#define AG_NOTAR_FALLBACK_MAP_SLOT_CNT    (1UL<<AG_NOTAR_FALLBACK_MAP_LG_SLOT_CNT)
+#define AG_NOTAR_MAP_LG_SLOT_CNT            (11)
+#define AG_NOTAR_MAP_SLOT_CNT               (1UL<<AG_NOTAR_MAP_LG_SLOT_CNT)
+#define AG_NOTAR_MAP_USED_WORD_CNT          ((AG_NOTAR_MAP_SLOT_CNT+63UL)>>6)
+#define AG_NOTAR_FALLBACK_MAP_LG_SLOT_CNT   (13)
+#define AG_NOTAR_FALLBACK_MAP_SLOT_CNT      (1UL<<AG_NOTAR_FALLBACK_MAP_LG_SLOT_CNT)
+#define AG_NOTAR_FALLBACK_MAP_USED_WORD_CNT ((AG_NOTAR_FALLBACK_MAP_SLOT_CNT+63UL)>>6)
 FD_STATIC_ASSERT( AG_NOTAR_MAP_SLOT_CNT         >AG_VAT_MAX,                            notar_map          );
 FD_STATIC_ASSERT( AG_NOTAR_FALLBACK_MAP_SLOT_CNT>AG_VAT_MAX*AG_NOTAR_FALLBACK_VOTE_MAX, notar_fallback_map ); /* TODO tighten further */
 
@@ -48,13 +50,15 @@ struct ag_block_hash_set {
 typedef struct ag_block_hash_set ag_block_hash_set_t;
 
 struct ag_slot_votes {
-  ag_slot_voted_stake_hash_t notar_stake_map[ AG_NOTAR_MAP_SLOT_CNT ];
-  fd_bls_set_t               notar_set      [ fd_bls_set_word_cnt ];
-  fd_bls_sig_t               notar_sig      [ AG_VAT_MAX ];
-  ag_slot_voted_stake_hash_t notar_fallback_stake_map[ AG_NOTAR_FALLBACK_MAP_SLOT_CNT ];
-  fd_bls_sig_t               notar_fallback_sig      [ AG_VAT_MAX ][ AG_NOTAR_FALLBACK_VOTE_MAX ];
-  ag_block_hash_t            notar_fallback_sig_hash [ AG_VAT_MAX ][ AG_NOTAR_FALLBACK_VOTE_MAX ];
-  uchar                      notar_fallback_sig_cnt  [ AG_VAT_MAX ];
+  ag_slot_voted_stake_hash_t notar_stake_map [ AG_NOTAR_MAP_SLOT_CNT ];
+  ulong                      notar_stake_used[ AG_NOTAR_MAP_USED_WORD_CNT ];
+  fd_bls_set_t               notar_set       [ fd_bls_set_word_cnt ];
+  fd_bls_sig_t               notar_sig       [ AG_VAT_MAX ];
+  ag_slot_voted_stake_hash_t notar_fallback_stake_map [ AG_NOTAR_FALLBACK_MAP_SLOT_CNT ];
+  ulong                      notar_fallback_stake_used[ AG_NOTAR_FALLBACK_MAP_USED_WORD_CNT ];
+  fd_bls_sig_t               notar_fallback_sig       [ AG_VAT_MAX ][ AG_NOTAR_FALLBACK_VOTE_MAX ];
+  ag_block_hash_t            notar_fallback_sig_hash  [ AG_VAT_MAX ][ AG_NOTAR_FALLBACK_VOTE_MAX ];
+  uchar                      notar_fallback_sig_cnt   [ AG_VAT_MAX ];
   ulong                      skip_stake;
   fd_bls_sig_t               skip_sig[ AG_VAT_MAX ];
   fd_bls_agg_t               skip_agg;
@@ -101,6 +105,9 @@ struct __attribute__((aligned(128UL))) ag_slot_state {
 typedef struct ag_slot_state ag_slot_state_t;
 
 FD_PROTOTYPES_BEGIN
+
+/* Resets self to an empty slot state.  self must be zeroed memory or a
+   slot state, as only the used stake map slots are cleared. */
 
 void
 ag_slot_state_null( ag_slot_state_t * self );

@@ -28,6 +28,40 @@
 #define MAP_MEMOIZE           0
 #include "../../util/tmpl/fd_map.c"
 
+static ag_slot_voted_stake_hash_t *
+stake_used_insert( ag_slot_voted_stake_hash_t * map,
+                   ulong *                      used,
+                   ag_slot_voted_stake_hash_t * entry ) {
+  FD_TEST( entry );
+  ulong idx = (ulong)( entry - map );
+  used[ idx>>6 ] |= 1UL<<(idx&63UL);
+  entry->stake = 0UL;
+  memset( &entry->agg, 0, sizeof(fd_bls_agg_t) ); /* zero is the point at infinity */
+  return entry;
+}
+
+static void
+stake_used_clear( ag_slot_voted_stake_hash_t * map,
+                  ulong *                      used,
+                  ulong                        word_cnt ) {
+  for( ulong i=0UL; i<word_cnt; i++ ) {
+    for( ulong w=used[ i ]; w; w=fd_ulong_pop_lsb( w ) ) map[ (i<<6) + (ulong)fd_ulong_find_lsb( w ) ].hash = ag_block_hash_key_null;
+    used[ i ] = 0UL;
+  }
+}
+
+static inline ag_slot_voted_stake_hash_t *
+notar_stake_insert( ag_slot_votes_t *   votes,
+                    ag_block_hash_key_t key ) {
+  return stake_used_insert( votes->notar_stake_map, votes->notar_stake_used, notar_map_insert( votes->notar_stake_map, key ) );
+}
+
+static inline ag_slot_voted_stake_hash_t *
+notar_fallback_stake_insert( ag_slot_votes_t *   votes,
+                             ag_block_hash_key_t key ) {
+  return stake_used_insert( votes->notar_fallback_stake_map, votes->notar_fallback_stake_used, notar_fallback_map_insert( votes->notar_fallback_stake_map, key ) );
+}
+
 #define AG_SAFE_TO_NOTAR_STATUS_SAFE_TO_NOTAR  (0)
 #define AG_SAFE_TO_NOTAR_STATUS_MISSING_BLOCK  (1)
 #define AG_SAFE_TO_NOTAR_STATUS_AWAITING_VOTES (2)
@@ -267,11 +301,7 @@ count_notar_stake( ag_slot_state_t *       self,
 
   ag_slot_votes_t *            votes                = &self->votes;
   ag_slot_voted_stake_hash_t * voted_stake_for_hash = notar_map_query( votes->notar_stake_map, key, NULL );
-  if( FD_UNLIKELY( !voted_stake_for_hash ) ) {
-    voted_stake_for_hash = notar_map_insert( votes->notar_stake_map, key );
-    voted_stake_for_hash->stake = 0UL;
-    memset( &voted_stake_for_hash->agg, 0, sizeof(fd_bls_agg_t) ); /* zero is the point at infinity */
-  }
+  if( FD_UNLIKELY( !voted_stake_for_hash ) ) voted_stake_for_hash = notar_stake_insert( votes, key );
   voted_stake_for_hash->stake += stake;
   blst_p1_add_or_double( &voted_stake_for_hash->agg.pub, &voted_stake_for_hash->agg.pub, pub );
   blst_p2_add_or_double( &voted_stake_for_hash->agg.sig, &voted_stake_for_hash->agg.sig, sig );
@@ -375,11 +405,7 @@ count_notar_fallback_stake( ag_slot_state_t *                self,
 
   ag_slot_votes_t *            votes                = &self->votes;
   ag_slot_voted_stake_hash_t * voted_stake_for_hash = notar_fallback_map_query( votes->notar_fallback_stake_map, key, NULL );
-  if( FD_UNLIKELY( !voted_stake_for_hash ) ) {
-    voted_stake_for_hash = notar_fallback_map_insert( votes->notar_fallback_stake_map, key );
-    voted_stake_for_hash->stake = 0UL;
-    memset( &voted_stake_for_hash->agg, 0, sizeof(fd_bls_agg_t) ); /* zero is the point at infinity */
-  }
+  if( FD_UNLIKELY( !voted_stake_for_hash ) ) voted_stake_for_hash = notar_fallback_stake_insert( votes, key );
   voted_stake_for_hash->stake += stake;
   blst_p1_add_or_double( &voted_stake_for_hash->agg.pub, &voted_stake_for_hash->agg.pub, pub );
   blst_p2_add_or_double( &voted_stake_for_hash->agg.sig, &voted_stake_for_hash->agg.sig, sig );
@@ -533,9 +559,9 @@ count_finalize_stake( ag_slot_state_t *       self,
 void
 ag_slot_state_null( ag_slot_state_t * self ) {
   ag_slot_votes_t * votes = &self->votes;
-  notar_map_clear( votes->notar_stake_map );
+  stake_used_clear( votes->notar_stake_map, votes->notar_stake_used, AG_NOTAR_MAP_USED_WORD_CNT );
   fd_bls_set_null( votes->notar_set );
-  notar_fallback_map_clear( votes->notar_fallback_stake_map );
+  stake_used_clear( votes->notar_fallback_stake_map, votes->notar_fallback_stake_used, AG_NOTAR_FALLBACK_MAP_USED_WORD_CNT );
   fd_memset( votes->notar_fallback_sig_cnt, 0, sizeof(votes->notar_fallback_sig_cnt) );
   votes->skip_stake = 0UL;
   fd_bls_agg_null( &votes->skip_agg );
