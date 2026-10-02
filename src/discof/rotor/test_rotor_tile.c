@@ -273,6 +273,11 @@ blk_build( blk_t * b ) {
   }
 }
 
+static int
+fd_rotor_block_complete( fd_rotor_blk_t const * block ) {
+  return block->complete_idx!=UINT_MAX && block->buffered_fec_idx==block->complete_idx;
+}
+
 /* blk_fec_flags returns the data-shred flags on the last shred of FEC
    set k. */
 
