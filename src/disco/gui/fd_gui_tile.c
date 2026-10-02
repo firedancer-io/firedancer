@@ -46,8 +46,8 @@ FD_STATIC_ASSERT( FD_METRICS_ENUM_GUI_DB_CNT==FD_GUI_HIST_CNT, gui_db_enum );
 #define IN_KIND_PACK_POH      ( 3UL)
 #define IN_KIND_EXECLE_POH    ( 4UL)
 #define IN_KIND_SHRED_OUT     ( 5UL) /* firedancer only */
-#define IN_KIND_NET_GOSSVF    ( 6UL) /* firedancer only */
-#define IN_KIND_GOSSIP_NET    ( 7UL) /* firedancer only */
+#define IN_KIND_GOSSVF_GUI    ( 6UL) /* firedancer only */
+#define IN_KIND_GOSSIP_GUI    ( 7UL) /* firedancer only */
 #define IN_KIND_GOSSIP_OUT    ( 8UL) /* firedancer only */
 #define IN_KIND_SNAPCT        ( 9UL) /* firedancer only */
 #define IN_KIND_REPAIR_NET    (10UL) /* firedancer only */
@@ -137,8 +137,7 @@ typedef struct {
       ulong shred_idx;
     } repair_net;
 
-    uchar net_gossvf[ FD_NET_MTU ];
-    uchar gossip_net[ FD_NET_MTU ];
+    fd_gui_gossip_bw_rec_t gossip_bw[ FD_GUI_GOSSIP_BW_REC_MAX ];
 
     struct {
       fd_snapsv_msg_t snapsv_out;
@@ -170,8 +169,6 @@ typedef struct {
   int             in_reliable[ FD_TOPO_MAX_TILE_IN_LINKS ];
   ulong           in_bank_idx[ FD_TOPO_MAX_TILE_IN_LINKS ];
   fd_gui_in_ctx_t in[ FD_TOPO_MAX_TILE_IN_LINKS ];
-
-  fd_net_rx_bounds_t net_in_bounds[ FD_TOPO_MAX_TILE_IN_LINKS ];
 } fd_gui_ctx_t;
 
 FD_FN_CONST static inline ulong
@@ -380,15 +377,10 @@ during_frag( fd_gui_ctx_t * ctx,
       }
       break;
     }
-    case IN_KIND_NET_GOSSVF: {
-      FD_TEST( sz<=sizeof(ctx->parsed.net_gossvf) );
-      uchar const * net_src = fd_net_rx_translate_frag( &ctx->net_in_bounds[ in_idx ], chunk, ctl, sz );
-      fd_memcpy( ctx->parsed.net_gossvf, net_src, sz );
-      break;
-    }
-    case IN_KIND_GOSSIP_NET: {
-      FD_TEST( sz<=sizeof(ctx->parsed.gossip_net) );
-      fd_memcpy( ctx->parsed.gossip_net, src, sz );
+    case IN_KIND_GOSSVF_GUI:
+    case IN_KIND_GOSSIP_GUI: {
+      FD_TEST( sz<=sizeof(ctx->parsed.gossip_bw) && !(sz%sizeof(fd_gui_gossip_bw_rec_t)) );
+      fd_memcpy( ctx->parsed.gossip_bw, src, sz );
       break;
     }
     case IN_KIND_SNAPSV_OUT: {
@@ -554,33 +546,9 @@ after_frag( fd_gui_ctx_t *      ctx,
       fd_gui_handle_repair_request( ctx->gui, ctx->parsed.repair_net.slot, ctx->parsed.repair_net.shred_idx, tsorig_ns, fd_clock_tile_now( ctx->clock ) );
       break;
     }
-    case IN_KIND_NET_GOSSVF: {
-      uchar * payload;
-      ulong payload_sz;
-      fd_ip4_hdr_t * ip4_hdr;
-      fd_udp_hdr_t * udp_hdr;
-      if( FD_LIKELY( fd_ip4_udp_hdr_strip( ctx->parsed.net_gossvf, sz, &payload, &payload_sz, NULL, &ip4_hdr, &udp_hdr ) ) ) {
-        fd_gossip_socket_t socket = {
-          .is_ipv6 = 0,
-          .ip4 = ip4_hdr->saddr,
-          .port = udp_hdr->net_sport,
-        };
-        fd_gui_peers_handle_gossip_message( ctx->peers, payload, payload_sz, &socket, 1 );
-      }
-      break;
-    }
-    case IN_KIND_GOSSIP_NET: {
-      uchar * payload;
-      ulong payload_sz;
-      fd_ip4_hdr_t * ip4_hdr;
-      fd_udp_hdr_t * udp_hdr;
-      FD_TEST( fd_ip4_udp_hdr_strip( ctx->parsed.gossip_net, sz, &payload, &payload_sz, NULL, &ip4_hdr, &udp_hdr ) );
-      fd_gossip_socket_t socket = {
-        .is_ipv6 = 0,
-        .ip4 = ip4_hdr->daddr,
-        .port = udp_hdr->net_dport,
-      };
-      fd_gui_peers_handle_gossip_message( ctx->peers, payload, payload_sz, &socket, 0 );
+    case IN_KIND_GOSSVF_GUI:
+    case IN_KIND_GOSSIP_GUI: {
+      fd_gui_peers_handle_gossip_bw( ctx->peers, ctx->parsed.gossip_bw, sz/sizeof(fd_gui_gossip_bw_rec_t), ctx->in_kind[ in_idx ]==IN_KIND_GOSSVF_GUI );
       break;
     }
     case IN_KIND_GOSSIP_OUT: {
@@ -1020,11 +988,8 @@ unprivileged_init( fd_topo_t const *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "pack_poh"     ) ) ) ctx->in_kind[ i ] = IN_KIND_PACK_POH;
     else if( FD_LIKELY( !strcmp( link->name, "execle_poh"   ) ) ) ctx->in_kind[ i ] = IN_KIND_EXECLE_POH;
     else if( FD_LIKELY( !strcmp( link->name, "shred_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_SHRED_OUT;
-    else if( FD_LIKELY( !strcmp( link->name, "net_gossvf"   ) ) ) {
-      ctx->in_kind[ i ] = IN_KIND_NET_GOSSVF;
-      fd_net_rx_bounds_init( &ctx->net_in_bounds[ i ], link->dcache );
-    }
-    else if( FD_LIKELY( !strcmp( link->name, "gossip_net"    ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_NET;
+    else if( FD_LIKELY( !strcmp( link->name, "gossvf_gui"   ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSVF_GUI;
+    else if( FD_LIKELY( !strcmp( link->name, "gossip_gui"    ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_GUI;
     else if( FD_LIKELY( !strcmp( link->name, "gossip_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_OUT;
     else if( FD_LIKELY( !strcmp( link->name, "snapct_gui"    ) ) ) ctx->in_kind[ i ] = IN_KIND_SNAPCT;
     else if( FD_LIKELY( !strcmp( link->name, "repair_net"    ) ) ) ctx->in_kind[ i ] = IN_KIND_REPAIR_NET;

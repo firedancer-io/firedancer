@@ -508,27 +508,28 @@ fd_gui_peers_contact_info_eq( fd_gossip_contact_info_t const * ci1,
 }
 
 void
-fd_gui_peers_handle_gossip_message( fd_gui_peers_ctx_t *       peers,
-                                    uchar const *              payload,
-                                    ulong                      payload_sz,
-                                    fd_gossip_socket_t const * peer_sock,
-                                    int                        is_rx ) {
-  fd_gui_peers_node_t * peer = fd_gui_peers_node_sock_map_ele_query( peers->node_sock_map, peer_sock, NULL, peers->contact_info_table );
+fd_gui_peers_handle_gossip_bw( fd_gui_peers_ctx_t *           peers,
+                               fd_gui_gossip_bw_rec_t const * rec,
+                               ulong                          rec_cnt,
+                               int                            is_rx ) {
+  for( ulong i=0UL; i<rec_cnt; i++ ) {
+    fd_gossip_socket_t peer_sock = { .is_ipv6 = 0, .ip4 = rec[ i ].ip4, .port = rec[ i ].port };
+    fd_gui_peers_node_t * peer = fd_gui_peers_node_sock_map_ele_query( peers->node_sock_map, &peer_sock, NULL, peers->contact_info_table );
 
-  /* We set MAP_MULTI=1 since there are not guarantees that duplicates
-     sockets won't exist. In cases where we see multiple sockets the
-     update timestamp in fd_gui_peers_node_t is the tiebreaker */
-  for( fd_gui_peers_node_t * p = peer; p!=NULL; p=(fd_gui_peers_node_t *)fd_gui_peers_node_sock_map_ele_next_const( p, NULL, peers->contact_info_table ) ) {
-    if( p->row.update_time_nanos>peer->row.update_time_nanos ) peer = p;
+    /* We set MAP_MULTI=1 since there are not guarantees that duplicates
+       sockets won't exist. In cases where we see multiple sockets the
+       update timestamp in fd_gui_peers_node_t is the tiebreaker */
+    for( fd_gui_peers_node_t * p = peer; p!=NULL; p=(fd_gui_peers_node_t *)fd_gui_peers_node_sock_map_ele_next_const( p, NULL, peers->contact_info_table ) ) {
+      if( p->row.update_time_nanos>peer->row.update_time_nanos ) peer = p;
+    }
+
+    if( FD_UNLIKELY( !peer ) ) continue; /* NOP, peer not known yet */
+
+    ulong tag = rec[ i ].tag;
+    if( FD_UNLIKELY( tag>=FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT ) ) continue; /* NOP, unknown message kind */
+    fd_ptr_if( is_rx, &peer->row.gossvf_rx[ tag ], &peer->row.gossip_tx[ tag ] )->cur += rec[ i ].sz;
+    fd_ptr_if( is_rx, (fd_gui_peers_metric_rate_t *)&peer->row.gossvf_rx_sum, (fd_gui_peers_metric_rate_t *)&peer->row.gossip_tx_sum )->cur += rec[ i ].sz;
   }
-
-  if( FD_UNLIKELY( !peer ) ) return; /* NOP, peer not known yet */
-  if( FD_UNLIKELY( payload_sz<sizeof(uint) ) ) return; /* NOP, corrupt */
-
-  uint tag = FD_LOAD( uint, payload );
-  if( FD_UNLIKELY( tag >= FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT ) ) return; /* NOP, unknown message kind */
-  fd_ptr_if( is_rx, &peer->row.gossvf_rx[ tag ], &peer->row.gossip_tx[ tag ] )->cur += payload_sz;
-  fd_ptr_if( is_rx, (fd_gui_peers_metric_rate_t *)&peer->row.gossvf_rx_sum, (fd_gui_peers_metric_rate_t *)&peer->row.gossip_tx_sum )->cur += payload_sz;
 }
 
 /* geoip_lookup finds the segment covering ip_addr (network byte
