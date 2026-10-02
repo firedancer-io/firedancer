@@ -326,6 +326,12 @@ test_efficient_layout( config_t const * config ) {
     FD_TEST( fd_topo_find_tile( &ag_config->topo, "repair", 0UL )!=ULONG_MAX );
     test_rotor_shred_links( ag_config );
     test_rserve_shred_links( ag_config );
+
+    /* votor reads gossip_ciaddr (content changes and removes), the gui
+       stays the only gossip_ciseen reader */
+    fd_topo_tile_t const * votor = &ag_config->topo.tiles[ fd_topo_find_tile( &ag_config->topo, "votor", 0UL ) ];
+    FD_TEST( fd_topo_find_tile_in_link( &ag_config->topo, votor, "gossip_ciaddr", 0UL )!=ULONG_MAX );
+    FD_TEST( fd_topo_find_tile_in_link( &ag_config->topo, votor, "gossip_ciseen", 0UL )==ULONG_MAX );
   }
 }
 
