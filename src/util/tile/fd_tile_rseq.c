@@ -27,9 +27,12 @@ fd_tile_rseq_unregister( void ) {
   struct rseq * rs = (struct rseq *)( tp + (ulong)__rseq_offset );
   if( FD_UNLIKELY( (int)FD_VOLATILE_CONST( rs->cpu_id )<0 ) ) return 0; /* unregistered or registration failed */
 
-  /* __rseq_size is the used feature size (20 on this ABI), glibc
-     registers it rounded up to the 32 byte struct rseq alignment. */
-  uint len = fd_uint_align_up( fd_uint_max( __rseq_size, 32U ), 32U );
+  /* The kernel requires the exact registered length to unregister.
+     glibc registers max(__rseq_size,32) bytes, where __rseq_size is the
+     used feature size (32 or 20 for glibc<2.41; AT_RSEQ_FEATURE_SIZE for
+     glibc>=2.41, e.g. 28, or 33 on Linux>=7.0).  The length is not
+     rounded up to the area alignment. */
+  uint len = fd_uint_max( __rseq_size, 32U );
   if( FD_UNLIKELY( syscall( SYS_rseq, rs, len, RSEQ_FLAG_UNREGISTER, 0x53053053U /* x86 RSEQ_SIG */ ) ) ) {
     FD_LOG_WARNING(( "rseq(RSEQ_FLAG_UNREGISTER) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     return 0;
