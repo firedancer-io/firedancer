@@ -211,6 +211,7 @@ server_cb_headers( fd_h2_conn_t *   conn,
                    ulong            flags ) {
   (void)conn; (void)data; (void)data_sz;
   g_server->headers_cnt++;
+  if( !stream ) return; /* the field block of a refused stream */
   g_server->last_remote_stream_id = stream->stream_id;
   if( FD_UNLIKELY( g_replay_trace ) ) {
     FD_LOG_NOTICE(( "[%03lu] server cb headers stream=%u data_sz=%lu flags=0x%lx",

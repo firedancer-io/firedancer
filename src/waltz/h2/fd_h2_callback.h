@@ -43,6 +43,8 @@ struct fd_h2_callbacks {
                   int            closed_by );  /* 0=local 1=peer */
 
   /* headers delivers a chunk of incoming HPACK-encoded header data.
+     stream can be NULL (when the stream was refused), but the headers
+     callback may still be required, e.g. to decode headers.
      the low bits of flags are the frame flags (e.g. END_STREAM or
      END_HEADERS).  If FD_H2_VFLAG_CONTINUATION is set, indicates that
      the header block comes from a continuation frame. */
