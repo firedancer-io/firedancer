@@ -1063,10 +1063,7 @@ query_voters( fd_tower_tile_t *            ctx,
 
 static void
 clear_votes( fd_tower_t * tower ) {
-  for( ulong i=0UL; i<fd_tower_vote_cnt( tower->votes ); i++ ) {
-    fd_tower_blk_t * blk = fd_tower_blocks_query( tower, fd_tower_vote_peek_index_const( tower->votes, i )->slot );
-    if( FD_LIKELY( blk ) ) blk->voted = 0;
-  }
+  for( ulong i=0UL; i<tower->blk_max; i++ ) tower->blk_pool[ i ].voted = 0; /* blocks stay voted after their votes expire */
   fd_tower_vote_remove_all( tower->votes );
 }
 
@@ -1074,7 +1071,8 @@ static ulong
 vote_history_ahead( fd_tower_t *            tower,
                     fd_ghost_t *            ghost,
                     fd_tower_file_t const * file ) {
-  int   ahead   = file->root>tower->root && !fd_tower_blocks_query( tower, file->root );
+  fd_tower_blk_t const * root_blk = fd_tower_blocks_query( tower, file->root );
+  int   ahead   = file->root>tower->root && ( !root_blk || !fd_ghost_query( ghost, &root_blk->replayed_block_id ) );
   ulong wait    = file->votes[ file->votes_cnt-1UL ].slot+1UL;
   int   missing = 0; 
   for( ulong i=0UL; i<file->votes_cnt; i++ ) {
@@ -1107,8 +1105,8 @@ static void
 adopt_vote_history( fd_tower_tile_t * ctx ) {
   /* A minor note is that adopt_vote_history ignores the tower
      file's latest vote timestamp. The only downside of this is that
-     if the Firedancer validator's wallclock is behind the the tower
-     file's latest vote timestamp, it's votes will land, but will not
+     if the Firedancer validator's wallclock is behind the tower
+     file's latest vote timestamp, its votes will land, but will not
      execute successfully.  This will self-heal when the wallclock of
      the switched-to validator catches up to the tower file's latest
      vote timestamp. */
@@ -1134,7 +1132,8 @@ adopt_vote_history( fd_tower_tile_t * ctx ) {
   }
   if( FD_LIKELY( !fd_tower_vote_empty( ctx->scratch_tower ) && !fd_tower_vote_empty( tower->votes ) &&
                  fd_tower_vote_peek_tail_const( tower->votes )->slot<=fd_tower_vote_peek_tail_const( ctx->scratch_tower )->slot ) ) clear_votes( tower );
-  int root_replayed = file->root<=tower->root || fd_tower_blocks_query( tower, file->root );
+  fd_tower_blk_t const * root_blk = fd_tower_blocks_query( tower, file->root );
+  int root_replayed = file->root<=tower->root || ( root_blk && fd_ghost_query( ctx->ghost, &root_blk->replayed_block_id ) );
   fd_tower_reconcile( tower, ctx->scratch_tower, root_replayed ? file->root : tower->root );
 }
 
@@ -1165,7 +1164,7 @@ check_vote_history( fd_tower_tile_t *                  ctx,
   if( FD_LIKELY( data && fd_sysvar_slot_history_view( slot_history, data, sz ) ) ) floor = vote_history_floor( tower, file, slot_history );
 
   /* If the tower file is ahead of what we have replayed, we need to
-     wait to catchup (or for lockout to expire) to make sure we aren't
+     wait to catch up (or for lockout to expire) to make sure we aren't
      accidentally violating lockout or double voting. */
   ulong wait = vote_history_ahead( tower, ctx->ghost, file );
   if( FD_LIKELY( last>tower->root ) ) adopt_vote_history( ctx );
