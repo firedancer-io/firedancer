@@ -384,41 +384,9 @@ make_tower_file( uchar *                               buf,
                  uchar const *                         keypair,
                  fd_compact_tower_sync_serde_t const * sync,
                  fd_sha512_t *                         sha ) {
-  fd_tower_vote_t votes[ FD_TOWER_VOTE_MAX ];
-  ulong           votes_cnt;
-  ulong           root;
-  FD_TEST( !fd_compact_tower_sync_to_votes( sync, votes, &votes_cnt, &root ) );
-
-  ulong const data_off = 4UL+64UL+8UL; /* kind, signature, data_sz */
-  ulong       off      = data_off;
-# define PUT( T, v ) do { FD_STORE( T, buf+off, (v) ); off += sizeof(T); } while(0)
-  fd_memcpy( buf+off, keypair+32UL, 32UL ); off += 32UL; /* node_pubkey */
-  PUT( ulong,  8UL     ); /* threshold_depth */
-  PUT( double, 2.0/3.0 ); /* threshold_size */
-  fd_memset( buf+off, 0, 65UL ); off += 65UL; /* node_pubkey, authorized_withdrawer, commission */
-  PUT( ulong, votes_cnt );
-  for( ulong i=0UL; i<votes_cnt; i++ ) {
-    PUT( ulong, votes[ i ].slot       );
-    PUT( uint,  (uint)votes[ i ].conf );
-  }
-  PUT( uchar, root!=ULONG_MAX );
-  if( root!=ULONG_MAX ) PUT( ulong, root );
-  PUT( ulong, 0UL ); /* authorized_voters */
-  fd_memset( buf+off, 0, 32UL*48UL+8UL ); off += 32UL*48UL+8UL; /* prior_voters buf, idx */
-  PUT( uchar, 1   ); /* prior_voters is_empty */
-  PUT( ulong, 0UL ); /* epoch_credits */
-  PUT( ulong, 0UL ); PUT( long, 0L ); /* vote_state last_timestamp */
-  PUT( uint,  3U  ); /* VoteTransaction::TowerSync */
-  ulong sync_sz;
-  FD_TEST( !fd_compact_tower_sync_ser( sync, buf+off, FD_TOWER_FILE_MAX-off, &sync_sz ) );
-  off += sync_sz;
-  PUT( ulong, 0UL ); PUT( long, 0L ); /* last_timestamp */
-# undef PUT
-
-  FD_STORE( uint,  buf,          1U           ); /* SavedTowerVersions::Current */
-  FD_STORE( ulong, buf+4UL+64UL, off-data_off );
-  fd_ed25519_sign( buf+4UL, buf+data_off, off-data_off, keypair+32UL, keypair, sha );
-  return off;
+  ulong sz = fd_tower_file_ser( sync, (fd_pubkey_t const *)fd_type_pun_const( keypair+32UL ), buf );
+  fd_ed25519_sign( buf+FD_TOWER_FILE_SIG_OFF, buf+FD_TOWER_FILE_DATA_OFF, sz-FD_TOWER_FILE_DATA_OFF, keypair+32UL, keypair, sha );
+  return sz;
 }
 
 static void
@@ -443,7 +411,7 @@ test_tower_file_root( void ) {
   uchar           buf[ FD_TOWER_FILE_MAX ];
   fd_tower_file_t out;
   FD_TEST( fd_tower_file_de( buf, make_tower_file( buf, keypair, &sync, sha ), &identity, &out )==FD_TOWER_FILE_SUCCESS );
-  FD_TEST( out.root==100UL && out.votes_cnt==3UL && out.votes[ 2 ].slot==111UL );
+  FD_TEST( out.root==100UL && out.votes_cnt==3UL && out.votes[ 2 ].slot==111UL && out.timestamp_slot==111UL );
 
   sync.root                 = ULONG_MAX;
   sync.lockouts[ 0 ].offset = 105UL;

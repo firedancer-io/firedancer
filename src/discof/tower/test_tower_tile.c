@@ -822,8 +822,7 @@ test_fixture_replay( fd_wksp_t * wksp ) {
 
   /* Set fields normally handled by privileged_init. */
 
-  ctx->checkpt_fd = -1;
-  ctx->restore_fd = -1;
+  ctx->tower_dir_fd = -1;
   memset( ctx->identity_key, 0x11, sizeof(fd_pubkey_t) );
   memset( ctx->vote_account, 0x22, sizeof(fd_pubkey_t) );
 
@@ -938,8 +937,7 @@ eqvoc_setup( fd_wksp_t * wksp ) {
   fd_tower_tile_t * ctx = init_choreo( scratch, topo, tile );
   FD_TEST( ctx );
 
-  ctx->checkpt_fd = -1;
-  ctx->restore_fd = -1;
+  ctx->tower_dir_fd = -1;
   memset( ctx->identity_key, 0x11, sizeof(fd_pubkey_t) );
   memset( ctx->vote_account, 0x22, sizeof(fd_pubkey_t) );
 

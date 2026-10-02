@@ -1,15 +1,18 @@
 #ifndef HEADER_fd_src_choreo_tower_fd_tower_file_h
 #define HEADER_fd_src_choreo_tower_fd_tower_file_h
 
-/* Reads Agave's tower file, tower-1_9-<pubkey>.bin, bincode of
-   SavedTowerVersions::Current, a 64 byte Ed25519 signature by the node
-   identity over a Tower1_14_11 body.  Read only, the writer follows. */
+/* Reads and writes Agave's tower file, tower-1_9-<pubkey>.bin, bincode
+   of SavedTowerVersions::Current, a 64 byte Ed25519 signature by the
+   node identity over a Tower1_14_11 body. */
 
 #include "fd_tower.h"
 #include "fd_tower_serdes.h"
 
-/* FD_TOWER_FILE_MAX is the largest file we read. */
-#define FD_TOWER_FILE_MAX (8192UL)
+/* FD_TOWER_FILE_MAX is the largest file we read.  The signature is at
+   FD_TOWER_FILE_SIG_OFF and covers [FD_TOWER_FILE_DATA_OFF, size). */
+#define FD_TOWER_FILE_MAX      (8192UL)
+#define FD_TOWER_FILE_SIG_OFF  (4UL)          /* u32 kind precedes the signature */
+#define FD_TOWER_FILE_DATA_OFF (4UL+64UL+8UL) /* kind, signature, data_sz */
 
 /* Return codes of fd_tower_file_de. */
 #define FD_TOWER_FILE_SUCCESS      ( 0)
@@ -47,6 +50,16 @@ fd_tower_file_de( uchar const *       buf,
                   ulong               buf_sz,
                   fd_pubkey_t const * identity,
                   fd_tower_file_t *   out );
+
+/* fd_tower_file_ser writes the tower file for sync, our last vote, into
+   buf, except the signature, which the caller computes with identity's
+   private key over [buf+FD_TOWER_FILE_DATA_OFF, buf+size) and stores
+   at buf+FD_TOWER_FILE_SIG_OFF.  The vote state fields Agave does not
+   restore from are left zero.  Returns the file size. */
+ulong
+fd_tower_file_ser( fd_compact_tower_sync_serde_t const * sync,
+                   fd_pubkey_t const *                   identity,
+                   uchar                                 buf[ static FD_TOWER_FILE_MAX ] );
 
 FD_PROTOTYPES_END
 
