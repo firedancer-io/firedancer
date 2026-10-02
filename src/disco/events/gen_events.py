@@ -266,12 +266,12 @@ def field_is_supported(f: Field) -> bool:
     """Whether the C codegen can emit a fixed-size struct + serializer for a
     field.  Variable-length types (Bytes/String/Array) are supported only when
     bounded by max_len.  An enum (LowCardinality(String)) is supported only at
-    the top level and only with variants: variant-less enums have no C
-    representation, and nested enums would get proto enums but no C value
-    defines.  Tuple/Flatten subfields and non-Tuple Array elements are limited
-    to what the emitters actually handle: scalar or fixed-byte (a shape
-    outside this set previously passed the gate and then crashed the emitters
-    with a raw KeyError)."""
+    the top level or as a Tuple/Flatten subfield, and only with variants:
+    variant-less enums have no C representation, and enum Array elements get
+    no C value defines.  Tuple/Flatten subfields and non-Tuple Array elements
+    are otherwise limited to what the emitters actually handle: scalar or
+    fixed-byte (a shape outside this set previously passed the gate and then
+    crashed the emitters with a raw KeyError)."""
     _NON_LEAF = (ClickHouseType.String, ClickHouseType.Bytes,
                  ClickHouseType.Flatten, ClickHouseType.Tuple, ClickHouseType.Array)
     _SUB_UNSUPPORTED = _NON_LEAF + (ClickHouseType.LowCardinalityString,)
@@ -280,7 +280,8 @@ def field_is_supported(f: Field) -> bool:
     if f.chtype in (ClickHouseType.String, ClickHouseType.Bytes):
         return f.max_len is not None
     if f.chtype in (ClickHouseType.Flatten, ClickHouseType.Tuple):
-        return all(sf.chtype not in _SUB_UNSUPPORTED and sf.variants is None
+        return all((sf.chtype == ClickHouseType.LowCardinalityString and sf.variants is not None) or
+                   (sf.chtype not in _SUB_UNSUPPORTED and sf.variants is None)
                    for sf in f.fields.values())
     if f.chtype == ClickHouseType.Array:
         if f.max_len is None:
@@ -421,10 +422,17 @@ def generate_c_header(schemas: List[Schema]) -> str:
 
     # Enum #defines, structs, and per-event buffer sizes.
     for s in eligible:
-        # Enums for LowCardinality(String) fields.  Values match the proto
-        # enum (variants numbered from 1); the proto's mandatory
-        # _UNSPECIFIED=0 sentinel is not emitted on the C side.
+        # Enums for LowCardinality(String) fields, including Tuple subfields
+        # (named <field>_<subfield>).  Values match the proto enum (variants
+        # numbered from 1); the proto's mandatory _UNSPECIFIED=0 sentinel is
+        # not emitted on the C side.
+        enum_fields = []
         for name, f in s.fields.items():
+            enum_fields.append((name, f))
+            tflds = tuple_fields_of( f )
+            if tflds is not None:
+                enum_fields += [(f"{name}_{sn}", sf) for sn, sf in tflds.items()]
+        for name, f in enum_fields:
             if not f.variants:
                 continue
             names = [c_enum_value(s.name, name, vn) for vn in f.variants]
