@@ -373,8 +373,7 @@ fd_banks_new( void * shmem,
   }
   banks_data->stake_rewards_offset = (ulong)stake_rewards - (ulong)banks_data;
 
-  fd_epoch_credits_store_t * epoch_credits = fd_epoch_credits_store_join(
-      fd_epoch_credits_store_new( epoch_credits_mem, FD_EPOCH_CREDITS_FD, max_total_banks ), FD_EPOCH_CREDITS_FD );
+  fd_epoch_credits_store_t * epoch_credits = fd_epoch_credits_store_join( fd_epoch_credits_store_new( epoch_credits_mem, FD_EPOCH_CREDITS_FD, max_total_banks ), FD_EPOCH_CREDITS_FD );
   if( FD_UNLIKELY( !epoch_credits ) ) {
     FD_LOG_WARNING(( "Failed to create epoch credits" ));
     return NULL;
@@ -760,7 +759,6 @@ fd_banks_advance_root( fd_banks_t * banks,
     }
     if( FD_LIKELY( head->epoch_credits_fork_id!=USHORT_MAX ) ) {
       fd_epoch_credits_store_release( fd_banks_get_epoch_credits( banks ), head->epoch_credits_fork_id );
-      head->epoch_credits_fork_id = USHORT_MAX;
     }
     head->stake_rewards_fork_id       = USHORT_MAX;
     head->collector_overrides_fork_id = USHORT_MAX;
@@ -1051,7 +1049,6 @@ fd_banks_prune_one_leaf( fd_banks_t *                   banks,
   }
   if( FD_LIKELY( bank->epoch_credits_fork_id!=USHORT_MAX ) ) {
     fd_epoch_credits_store_release( fd_banks_get_epoch_credits( banks ), bank->epoch_credits_fork_id );
-    bank->epoch_credits_fork_id = USHORT_MAX;
   }
   bank->collector_overrides_fork_id = USHORT_MAX;
   bank->stake_rewards_fork_id       = USHORT_MAX;
