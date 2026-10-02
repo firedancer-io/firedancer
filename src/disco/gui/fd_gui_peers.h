@@ -103,6 +103,25 @@ FD_STATIC_ASSERT( FD_CONTACT_INFO_TABLE_SIZE < UINT_MAX, gui_peer_idx_fits_uint 
 
 #define FD_GUI_PEERS_GOSSIP_TOP_PEERS_CNT (64UL)
 
+static inline void
+fd_gui_peers_top_insert( ulong *  top,
+                         double * val,
+                         ulong *  cnt,
+                         ulong    max,
+                         ulong    idx,
+                         double   v ) {
+  ulong n = *cnt;
+  if( FD_LIKELY( n==max ) ) {
+    if( FD_LIKELY( !max || !(v>val[ n-1UL ]) ) ) return;
+    n--; /* drop the smallest */
+  }
+  ulong i = n;
+  while( i && v>val[ i-1UL ] ) { top[ i ] = top[ i-1UL ]; val[ i ] = val[ i-1UL ]; i--; }
+  top[ i ] = idx;
+  val[ i ] = v;
+  *cnt = n+1UL;
+}
+
 /* Some table columns are rates of change, which require keeping a
    historical value / timestamp. */
 struct fd_gui_peers_metric_rate {
@@ -180,21 +199,21 @@ struct fd_gui_peers_node {
   } dlist_live_table;
   ulong sort_keys_live_table;
 
+  /* Peers that received or sent bytes since their rates last settled
+     to zero.  Only these need their rate EMAs advanced. */
+  int bw_dirty;
   struct {
-    uint parent;
-    uint left;
-    uint right;
-    uint prio;
-    uint next;
-    uint prev;
-  } treaps_bandwidth_tracking[ 2UL ];
-    struct {
     ulong next;
     ulong prev;
-  } dlist_bandwidth_tracking;
-  ulong sort_keys_bandwidth_tracking;
+  } bw_dirty_dlist;
 };
 typedef struct fd_gui_peers_node fd_gui_peers_node_t;
+
+#define DLIST_NAME  fd_gui_peers_bw_dirty_dlist
+#define DLIST_ELE_T fd_gui_peers_node_t
+#define DLIST_PREV  bw_dirty_dlist.prev
+#define DLIST_NEXT  bw_dirty_dlist.next
+#include "../../util/tmpl/fd_dlist.c"
 
 struct fd_gui_peers_gossip_stats {
   long  sample_time;
@@ -323,22 +342,6 @@ static int live_table_col_stake_lt ( void const * a, void const * b ) { return f
 
 #define FD_GUI_PEERS_LIVE_TABLE_DEFAULT_SORT_KEY ((fd_gui_peers_live_table_sort_key_t){ .col = { 0, 1, 2, 3, 4, 5, 6, 7, 8 }, .dir = { -1, -1, -1, -1, -1, -1, -1, -1, -1 } })
 
-#define LIVE_TABLE_NAME fd_gui_peers_bandwidth_tracking
-#define LIVE_TABLE_TREAP treaps_bandwidth_tracking
-#define LIVE_TABLE_SORT_KEYS sort_keys_bandwidth_tracking
-#define LIVE_TABLE_DLIST dlist_bandwidth_tracking
-#define LIVE_TABLE_COLUMN_CNT (2UL)
-#define LIVE_TABLE_IDX_T uint
-#define LIVE_TABLE_MAX_SORT_KEY_CNT (2UL)
-#define LIVE_TABLE_ROW_T fd_gui_peers_node_t
-#define LIVE_TABLE_COLUMNS LIVE_TABLE_COL_ARRAY( \
-  LIVE_TABLE_COL_ENTRY( "Ingress Total", row.gossvf_rx_sum.rate_ema.value, live_table_col_double_lt ), \
-  LIVE_TABLE_COL_ENTRY( "Egress Total",  row.gossip_tx_sum.rate_ema.value, live_table_col_double_lt )  )
-#include "fd_gui_live_table_tmpl.c"
-
-#define FD_GUI_PEERS_BW_TRACKING_INGRESS_SORT_KEY ((fd_gui_peers_bandwidth_tracking_sort_key_t){ .col = { 0, 1 }, .dir = { -1, 0 } })
-#define FD_GUI_PEERS_BW_TRACKING_EGRESS_SORT_KEY  ((fd_gui_peers_bandwidth_tracking_sort_key_t){ .col = { 0, 1 }, .dir = { 0, -1 } })
-
 struct fd_gui_peers_ws_conn {
   int connected;
   long connected_time;
@@ -374,7 +377,7 @@ struct fd_gui_peers_ctx {
   fd_gui_peers_node_pubkey_map_t * node_pubkey_map;
   fd_gui_peers_node_sock_map_t  * node_sock_map;
   fd_gui_peers_live_table_t * live_table;
-  fd_gui_peers_bandwidth_tracking_t * bw_tracking;
+  fd_gui_peers_bw_dirty_dlist_t bw_dirty_dlist[ 1 ];
 
   fd_http_server_t * http;
   fd_topo_t const * topo;
