@@ -102,6 +102,7 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
   }
 
   if( input->vm_ctx.return_data.data && input->vm_ctx.return_data.data->size>0U ) {
+    if( FD_UNLIKELY( input->vm_ctx.return_data.data->size>sizeof(ctx->txn_out->details.return_data.data) ) ) goto error;
     ctx->txn_out->details.return_data.len = input->vm_ctx.return_data.data->size;
     fd_memcpy( ctx->txn_out->details.return_data.data, input->vm_ctx.return_data.data->bytes, ctx->txn_out->details.return_data.len );
   }
