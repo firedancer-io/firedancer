@@ -211,6 +211,17 @@ fd_ed25519_double_scalar_mul_base_split( fd_ed25519_point_t *       r,
                                          uchar const                n2[ 32 ],
                                          fd_ed25519_point_t const * b_tbl );
 
+/* fd_ed25519_double_scalar_mul_base_split_decode is the same but
+   advances dec between its point ops.  The caller still calls
+   fd_ed25519_point_decode_fini. */
+fd_ed25519_point_t *
+fd_ed25519_double_scalar_mul_base_split_decode( fd_ed25519_point_t *        r,
+                                                uchar const                 n1[ 32 ],
+                                                fd_ed25519_point_t const *  a_tbl,
+                                                uchar const                 n2[ 32 ],
+                                                fd_ed25519_point_t const *  b_tbl,
+                                                fd_ed25519_point_decode_t * dec );
+
 /* fd_ed25519_multi_scalar_mul computes r = n0 * a0 + n1 * a1 + ..., and returns r.
    n is a vector of sz scalars. a is a vector of sz points.
    Precondition: all points in a[] must be affine (Z==1), e.g. from
@@ -258,6 +269,23 @@ fd_ed25519_point_validate( uchar const buf[ 32 ] );
 int
 fd_ed25519_point_frombytes_1x( fd_ed25519_point_t * r,
                                uchar const          buf[ 32 ] );
+
+/* Staged fd_ed25519_point_frombytes_1x, so the decode's long
+   dependency chain can be interleaved with other work.  init starts
+   decoding buf (only read here), step advances up to n chain ops and
+   fini stores the point in r and returns what frombytes_1x would. */
+
+void
+fd_ed25519_point_decode_init( fd_ed25519_point_decode_t * st,
+                              uchar const                 buf[ 32 ] );
+
+void
+fd_ed25519_point_decode_step( fd_ed25519_point_decode_t * st,
+                              ulong                       n );
+
+int
+fd_ed25519_point_decode_fini( fd_ed25519_point_t *        r,
+                              fd_ed25519_point_decode_t * st );
 
 /* fd_ed25519_point_tobytes serializes a point a into
    a 32-byte buffer out, and returns out.

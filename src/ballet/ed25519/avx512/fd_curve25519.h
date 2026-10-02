@@ -26,6 +26,10 @@ typedef struct fd_curve25519_edwards fd_curve25519_edwards_t;
 typedef fd_curve25519_edwards_t fd_ed25519_point_t;
 typedef fd_curve25519_edwards_t fd_ristretto255_point_t;
 
+/* A decode in progress, see fd_ed25519_point_decode_init */
+
+typedef fd_r43x6_ge_decode_t fd_ed25519_point_decode_t;
+
 #include "../table/fd_curve25519_table_avx512.c"
 
 FD_PROTOTYPES_BEGIN

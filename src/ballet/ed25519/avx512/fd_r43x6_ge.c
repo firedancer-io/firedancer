@@ -157,6 +157,140 @@ fail:
   return -1;
 }
 
+/* Staged decode: fd_r43x6_ge_decode split around its pow22523.  Keep
+   in sync with fd_r43x6_ge_decode and fd_r43x6_pow22523. */
+
+void
+fd_r43x6_ge_decode_init( fd_r43x6_ge_decode_t * st,
+                         void const *           _vs ) {
+
+  ulong _s[4] __attribute__((aligned(32)));
+  memcpy( _s, _vs, 32UL );
+  ulong y0 = _s[0];
+  ulong y1 = _s[1];
+  ulong y2 = _s[2];
+  ulong y3 = _s[3];
+
+  st->x_0 = (int)(y3>>63);
+
+  y3 &= ~(1UL<<63);
+
+  fd_r43x6_t y = fd_r43x6_unpack( wv( y0, y1, y2, y3 ) );
+
+  fd_r43x6_t const one = fd_r43x6_one();
+  fd_r43x6_t const d   = fd_r43x6_d();
+
+  fd_r43x6_t ysq = fd_r43x6_sqr( y );                                /*       y^2     in u44 */
+  fd_r43x6_t u   = fd_r43x6_sub( ysq, one );                         /* u =   y^2 - 1 in u44 */
+  fd_r43x6_t v   = fd_r43x6_add_fast( fd_r43x6_mul( d, ysq ), one ); /* v = d y^2 + 1 in u44 */
+
+  fd_r43x6_t v2  = fd_r43x6_sqr( v        ); /* v^2               in u44 */
+  fd_r43x6_t v4  = fd_r43x6_sqr( v2       ); /* v^4               in u44 */
+  fd_r43x6_t v3  = fd_r43x6_mul( v,   v2  ); /* v^3               in u44 */
+  fd_r43x6_t uv3 = fd_r43x6_mul( u,   v3  ); /* u v^3             in u44 */
+  fd_r43x6_t uv7 = fd_r43x6_mul( uv3, v4  ); /* u v^7             in u44 */
+
+  st->y   = y;
+  st->u   = u;
+  st->v   = v;
+  st->uv3 = uv3;
+
+  /* Chain: t0 = pow22523( uv7 ), stage 0 is z2 = sqr( z ) */
+
+  st->z     = uv7;
+  st->x     = uv7;
+  st->m     = uv7;
+  st->stage = 0UL;
+  st->rem   = 1UL;
+}
+
+/* decode_stage ends the current chain stage with its multiply. */
+
+static void
+decode_stage( fd_r43x6_ge_decode_t * st ) {
+
+  /* Squarings per stage, as in fd_r43x6_pow22523 */
+
+  static ulong const sqr_cnt[12] = { 1UL, 2UL, 0UL, 1UL, 5UL, 10UL, 20UL, 10UL, 50UL, 100UL, 50UL, 2UL };
+
+  fd_r43x6_t x = st->x;
+  switch( st->stage ) {
+  case  0UL:                                    st->z2      = x; break; /* z2       = z^2                   */
+  case  1UL: x = fd_r43x6_mul( x, st->z       ); st->z9      = x; break; /* z9       = z2^(2^2) z            */
+  case  2UL: x = fd_r43x6_mul( x, st->z2      );                  break; /* z11      = z9 z2                 */
+  case  3UL: x = fd_r43x6_mul( x, st->z9      );                  break; /* z2e5m1   = z11^2 z9              */
+  case  4UL: x = fd_r43x6_mul( x, st->m       ); st->z2e10m1 = x; break; /* z2e10m1  = z2e5m1^(2^5) z2e5m1   */
+  case  5UL: x = fd_r43x6_mul( x, st->m       );                  break; /* z2e20m1  = z2e10m1^(2^10) z2e10m1 */
+  case  6UL: x = fd_r43x6_mul( x, st->m       );                  break; /* z2e40m1  = z2e20m1^(2^20) z2e20m1 */
+  case  7UL: x = fd_r43x6_mul( x, st->z2e10m1 ); st->z2e50m1 = x; break; /* z2e50m1  = z2e40m1^(2^10) z2e10m1 */
+  case  8UL: x = fd_r43x6_mul( x, st->m       );                  break; /* z2e100m1 = z2e50m1^(2^50) z2e50m1 */
+  case  9UL: x = fd_r43x6_mul( x, st->m       );                  break; /* z2e200m1 = z2e100m1^(2^100) z2e100m1 */
+  case 10UL: x = fd_r43x6_mul( x, st->z2e50m1 );                  break; /* z2e250m1 = z2e200m1^(2^50) z2e50m1 */
+  default:   x = fd_r43x6_mul( x, st->z       );                  break; /* t0       = z2e250m1^(2^2) z      */
+  }
+  st->x = x;
+  st->m = x;
+  st->stage++;
+  st->rem = st->stage<12UL ? sqr_cnt[ st->stage ] : 0UL;
+}
+
+void
+fd_r43x6_ge_decode_step_slow( fd_r43x6_ge_decode_t * st,
+                              ulong                  n ) {
+  while( n && st->stage<12UL ) {
+    ulong k = fd_ulong_min( st->rem, n );
+    fd_r43x6_t x = st->x;
+    for( ulong i=0UL; i<k; i++ ) x = fd_r43x6_sqr( x );
+    st->x    = x;
+    st->rem -= k;
+    n       -= k;
+    if( n && !st->rem ) { decode_stage( st ); n--; }
+  }
+}
+
+int
+fd_r43x6_ge_decode_fini( wwl_t * _P03, wwl_t * _P14, wwl_t * _P25,
+                         fd_r43x6_ge_decode_t * st ) {
+
+  fd_r43x6_ge_decode_step_slow( st, ULONG_MAX );
+
+  fd_r43x6_t const one = fd_r43x6_one();
+  fd_r43x6_t y   = st->y;
+  fd_r43x6_t u   = st->u;
+  fd_r43x6_t v   = st->v;
+  int        x_0 = st->x_0;
+
+  fd_r43x6_t x   = fd_r43x6_mul( st->uv3, st->x ); /* x         in u44 */
+
+  fd_r43x6_t x2  = fd_r43x6_sqr( x );           /* x^2       in u44 */
+  fd_r43x6_t vx2 = fd_r43x6_mul( v, x2 );       /* v x^2     in u44 */
+  fd_r43x6_t t1  = fd_r43x6_sub_fast( vx2, u ); /* v x^2 - u in s44 */
+  fd_r43x6_t t2  = fd_r43x6_add_fast( vx2, u ); /* v x^2 + u in u45 */
+  int t1nz = fd_r43x6_is_nonzero( t1 );
+  int t2nz = fd_r43x6_is_nonzero( t2 );
+  if( FD_UNLIKELY( t1nz & t2nz ) ) goto fail; /* case 3 */
+  fd_r43x6_t t3  = fd_r43x6_if( t1nz, fd_r43x6_imag(), one ); /* in u43 */
+  /**/       x   = fd_r43x6_mul( x, t3 );                     /* in u44 */
+
+  int x_mod_2 = fd_r43x6_diagnose( x );
+
+  x = fd_r43x6_if( x_0!=x_mod_2, fd_r43x6_neg( x ) /* in u44 */, x );
+
+  FD_R43X6_QUAD_PACK( *_P,
+    x,                      /* in u44 */
+    y,                      /* Reduced */
+    one,                    /* Reduced */
+    fd_r43x6_mul( x, y ) ); /* in u44 */
+  FD_R43X6_QUAD_FOLD_UNSIGNED( *_P, *_P );
+  return 0;
+
+fail:
+  *_P03 = fd_r43x6_zero();
+  *_P14 = fd_r43x6_zero();
+  *_P25 = fd_r43x6_zero();
+  return -1;
+}
+
 int
 fd_r43x6_ge_decode2( wwl_t * _Pa03, wwl_t * _Pa14, wwl_t * _Pa25,
                      void const * _vsa,

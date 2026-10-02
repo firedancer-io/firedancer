@@ -164,6 +164,27 @@ fd_ed25519_point_frombytes_1x( fd_ed25519_point_t * r,
   return FD_R43X6_GE_DECODE( r->P, buf );
 }
 
+void
+fd_ed25519_point_decode_init( fd_ed25519_point_decode_t * st,
+                              uchar const                 buf[ 32 ] ) {
+  fd_r43x6_ge_decode_init( st, buf );
+}
+
+void
+fd_ed25519_point_decode_step( fd_ed25519_point_decode_t * st,
+                              ulong                       n ) {
+  fd_r43x6_ge_decode_step( st, n );
+}
+
+int
+fd_ed25519_point_decode_fini( fd_ed25519_point_t *        r,
+                              fd_ed25519_point_decode_t * st ) {
+  FD_R43X6_QUAD_DECL( _P );
+  int err = fd_r43x6_ge_decode_fini( &_P03, &_P14, &_P25, st );
+  FD_R43X6_QUAD_MOV( r->P, _P );
+  return err;
+}
+
 /*
   Affine (only for init(), can be slow)
 */
