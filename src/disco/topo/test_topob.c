@@ -918,6 +918,27 @@ FD_UNIT_TEST( test_parse_affinity_bounds ) {
   parse_affinity_topob_fails( "s65536", 1 );
 }
 
+/* ---- Tile object uses -------------------------------------------------- */
+
+FD_UNIT_TEST( test_tile_uses_dedup ) {
+  static fd_topo_tile_t tile[ 1 ];
+  fd_topo_obj_t a = { .id = 7UL };
+  fd_topo_obj_t b = { .id = 9UL };
+
+  fd_topob_tile_uses( NULL, tile, &a, FD_SHMEM_JOIN_MODE_READ_ONLY  );
+  fd_topob_tile_uses( NULL, tile, &b, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topob_tile_uses( NULL, tile, &a, FD_SHMEM_JOIN_MODE_READ_ONLY  );
+  FD_TEST( tile->uses_obj_cnt==2UL );
+  FD_TEST( tile->uses_obj_mode[ 0 ]==FD_SHMEM_JOIN_MODE_READ_ONLY );
+
+  /* A repeat never downgrades, and upgrades to read-write */
+  fd_topob_tile_uses( NULL, tile, &b, FD_SHMEM_JOIN_MODE_READ_ONLY  );
+  fd_topob_tile_uses( NULL, tile, &a, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  FD_TEST( tile->uses_obj_cnt==2UL );
+  FD_TEST( tile->uses_obj_id[ 0 ]==7UL && tile->uses_obj_mode[ 0 ]==FD_SHMEM_JOIN_MODE_READ_WRITE );
+  FD_TEST( tile->uses_obj_id[ 1 ]==9UL && tile->uses_obj_mode[ 1 ]==FD_SHMEM_JOIN_MODE_READ_WRITE );
+}
+
 /* ======================================================================== */
 
 int

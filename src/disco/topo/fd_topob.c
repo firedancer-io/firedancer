@@ -146,6 +146,15 @@ fd_topob_tile_uses( fd_topo_t *           topo,
                     int                   mode ) {
   (void)topo;
 
+  /* Links can share an object (e.g. net rx links share the UMEM
+     dcache), keep one entry with the strongest mode */
+  for( ulong i=0UL; i<tile->uses_obj_cnt; i++ ) {
+    if( FD_UNLIKELY( tile->uses_obj_id[ i ]==obj->id ) ) {
+      tile->uses_obj_mode[ i ] = fd_int_max( tile->uses_obj_mode[ i ], mode );
+      return;
+    }
+  }
+
   if( FD_UNLIKELY( tile->uses_obj_cnt>=FD_TOPO_MAX_TILE_OBJS ) ) FD_LOG_ERR(( "tile `%s` uses too many objects", tile->name ));
 
   tile->uses_obj_id[ tile->uses_obj_cnt ] = obj->id;
@@ -302,10 +311,7 @@ fd_topob_sleep_finish( fd_topo_t * topo ) {
 
   FD_TEST( topo->tile_cnt<=FD_SLEEP_TILE_MAX );
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
-    fd_topo_tile_t * tile = &topo->tiles[ i ];
-    ulong j;
-    for( j=0UL; j<tile->uses_obj_cnt; j++ ) if( FD_UNLIKELY( tile->uses_obj_id[ j ]==topo->sleep_obj_id ) ) break;
-    if( FD_LIKELY( j==tile->uses_obj_cnt ) ) fd_topob_tile_uses( topo, tile, &topo->objs[ topo->sleep_obj_id ], FD_SHMEM_JOIN_MODE_READ_WRITE );
+    fd_topob_tile_uses( topo, &topo->tiles[ i ], &topo->objs[ topo->sleep_obj_id ], FD_SHMEM_JOIN_MODE_READ_WRITE );
   }
 }
 
