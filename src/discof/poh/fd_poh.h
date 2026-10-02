@@ -2,6 +2,7 @@
 #define HEADER_fd_src_discof_poh_fd_poh_h
 
 #include "../../disco/pack/fd_pack.h"
+#include "../../disco/shred/fd_shred_batch.h"
 
 /* The maximum number of microblocks pack may put in a slot: one per
    non-tick hash position (one per tick in low power mode), less the
@@ -12,14 +13,25 @@
    compute_dynamic_max_microblocks in fd_pack_tile.c), so the reserve
    is gone by the end of the slot rather than hashed through. */
 
-/* Alpenglow has one tick per block, so the hash budget does not bound
-   microblocks; pack is given this fixed budget instead. */
-#define FD_POH_ALPENGLOW_MAX_MICROBLOCKS_PER_SLOT (131072UL)
-
 FD_FN_CONST static inline ulong
 fd_poh_max_microblocks_per_slot( ulong ticks_per_slot,
                                  ulong hashcnt_per_tick ) {
   return ticks_per_slot*(fd_ulong_max( hashcnt_per_tick, 2UL )-1UL)-1UL; /* low power genesis encodes hashes_per_tick as 0 or 1 */
+}
+
+/* Alpenglow has one tick per block, so the hash budget does not bound
+   microblocks.  The budget is instead how many minimum size entries
+   fit in max_data_shreds, shredded the way pack sizes its data limit
+   (fd_shred_batch_pack_data_max): 161,070 at 32,768 shreds, and never
+   below the old fixed 131,072.  Pack's data limit stops landing
+   entries first, so only microblocks that do not land (data rebated,
+   count not) can reach it. */
+
+FD_FN_CONST static inline ulong
+fd_poh_alpenglow_max_microblocks_per_slot( ulong max_data_shreds ) {
+  ulong entry_max = sizeof(fd_entry_batch_header_t)+FD_TPU_MTU;
+  ulong entry_min = sizeof(fd_entry_batch_header_t)+FD_TXN_MIN_SERIALIZED_SZ;
+  return fd_ulong_max( fd_shred_batch_pack_data_max( max_data_shreds, entry_max )/entry_min, 131072UL );
 }
 
 /* When we are hashing in the background in case a prior leader skips

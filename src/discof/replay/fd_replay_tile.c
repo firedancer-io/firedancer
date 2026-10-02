@@ -1788,7 +1788,7 @@ try_become_leader( fd_replay_tile_t *  ctx,
   FD_TEST( last_hash );
   fd_memcpy( reset->completed_blockhash, last_hash->uc, sizeof(fd_hash_t) );
 
-  reset->max_microblocks_in_slot = FD_POH_ALPENGLOW_MAX_MICROBLOCKS_PER_SLOT;
+  reset->max_microblocks_in_slot = fd_poh_alpenglow_max_microblocks_per_slot( fd_ulong_max( reset_bank->f.slot_params.max_shred_idx, ctx->max_shreds_per_block ) );
   reset->next_leader_slot = ctx->next_leader_slot;
   reset->wfs_paused       = !ctx->wfs_complete;
 
@@ -1866,7 +1866,10 @@ try_become_leader( fd_replay_tile_t *  ctx,
   memcpy( msg->bundle->last_blockhash,     bank->f.poh.hash,      sizeof(fd_hash_t)   );
   memcpy( msg->bundle->tip_receiver_owner, tip_receiver_owner.uc, sizeof(fd_pubkey_t) );
 
-  msg->max_microblocks_in_slot = FD_POH_ALPENGLOW_MAX_MICROBLOCKS_PER_SLOT;
+  /* Pack sizes its data limit by max( max_shred_idx, bench override ).
+     ctx->max_shreds_per_block is the override or FD_SHRED_BLK_MAX, so
+     the budget covers that data limit and is never below 131,072. */
+  msg->max_microblocks_in_slot = fd_poh_alpenglow_max_microblocks_per_slot( fd_ulong_max( bank->f.slot_params.max_shred_idx, ctx->max_shreds_per_block ) );
 
   msg->total_skipped_ticks = 0UL; /* even when slots are skipped, ticks increment by exactly one for every block */
   msg->epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, ctx->next_leader_slot, NULL );
