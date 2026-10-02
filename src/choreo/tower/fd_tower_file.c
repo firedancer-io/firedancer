@@ -8,8 +8,8 @@
 #define THRESHOLD_SIZE   (2.0/3.0)
 #define TOWER_SYNC_MAX   (512UL)
 
-#define SIG_OFF  (4UL)          /* u32 kind precedes the signature */
-#define DATA_OFF (4UL+64UL+8UL) /* kind, signature, data_sz */
+#define SIG_OFF  FD_TOWER_FILE_SIG_OFF
+#define DATA_OFF FD_TOWER_FILE_DATA_OFF
 
 #define LOAD( T, dst ) do {                              \
     if( FD_UNLIKELY( sizeof(T)>buf_sz-off ) ) return FD_TOWER_FILE_ERR_SIZE; \
@@ -123,3 +123,44 @@ fd_tower_file_de( uchar const *       buf,
 
 #undef LOAD
 #undef SKIP
+
+ulong
+fd_tower_file_ser( fd_compact_tower_sync_serde_t const * sync,
+                   fd_pubkey_t const *                   identity,
+                   uchar                                 buf[ static FD_TOWER_FILE_MAX ] ) {
+  fd_tower_vote_t votes[ FD_TOWER_VOTE_MAX ];
+  ulong           votes_cnt;
+  ulong           root;
+  FD_TEST( !fd_compact_tower_sync_to_votes( sync, votes, &votes_cnt, &root ) && votes_cnt );
+  ulong last      = votes[ votes_cnt-1UL ].slot;
+  long  timestamp = fd_long_if( sync->timestamp_option, sync->timestamp, 0L );
+
+  ulong off = DATA_OFF;
+# define PUT( T, v ) do { FD_STORE( T, buf+off, (v) ); off += sizeof(T); } while(0)
+  fd_memcpy( buf+off, identity->uc, 32UL ); off += 32UL;
+  PUT( ulong,  THRESHOLD_DEPTH );
+  PUT( double, THRESHOLD_SIZE  );
+  fd_memset( buf+off, 0, 65UL ); off += 65UL; /* node_pubkey, authorized_withdrawer, commission */
+  PUT( ulong, votes_cnt );
+  for( ulong i=0UL; i<votes_cnt; i++ ) {
+    PUT( ulong, votes[ i ].slot       );
+    PUT( uint,  (uint)votes[ i ].conf );
+  }
+  PUT( uchar, root!=ULONG_MAX );
+  if( root!=ULONG_MAX ) PUT( ulong, root );
+  PUT( ulong, 0UL ); /* authorized_voters */
+  fd_memset( buf+off, 0, 32UL*48UL+8UL ); off += 32UL*48UL+8UL; /* prior_voters buf, idx */
+  PUT( uchar, 1   ); /* prior_voters is_empty */
+  PUT( ulong, 0UL ); /* epoch_credits */
+  PUT( ulong, 0UL ); PUT( long, 0L ); /* vote_state last_timestamp */
+  PUT( uint,  LAST_VOTE_KIND );
+  ulong sync_sz;
+  FD_TEST( !fd_compact_tower_sync_ser( sync, buf+off, FD_TOWER_FILE_MAX-off, &sync_sz ) );
+  off += sync_sz;
+  PUT( ulong, last ); PUT( long, timestamp ); /* last_timestamp */
+# undef PUT
+
+  FD_STORE( uint,  buf,             SAVED_TOWER_KIND );
+  FD_STORE( ulong, buf+SIG_OFF+64UL, off-DATA_OFF    );
+  return off;
+}

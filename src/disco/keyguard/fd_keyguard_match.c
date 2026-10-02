@@ -390,6 +390,18 @@ fd_keyguard_payload_matches_event( uchar const * data,
   return 1;
 }
 
+/* Tower1_14_11 starts with node_pubkey, threshold_depth 8 and
+   threshold_size 2/3, see fd_tower_file.c. */
+
+FD_FN_PURE static int
+fd_keyguard_payload_matches_tower( uchar const * data,
+                                   ulong         sz,
+                                   int           sign_type ) {
+  if( sign_type!=FD_KEYGUARD_SIGN_TYPE_ED25519 ) return 0;
+  if( sz<48UL ) return 0;
+  return FD_LOAD( ulong, data+32UL )==8UL && FD_LOAD( double, data+40UL )==2.0/3.0;
+}
+
 FD_FN_PURE ulong
 fd_keyguard_payload_match( uchar const * data,
                            ulong         sz,
@@ -407,5 +419,6 @@ fd_keyguard_payload_match( uchar const * data,
   res |= fd_ulong_if( fd_keyguard_payload_matches_event     ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_EVENT,      0 );
   res |= fd_ulong_if( fd_keyguard_payload_matches_ag_vote   ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_AG_VOTE,    0 );
   res |= fd_ulong_if( fd_keyguard_payload_matches_bls_pubkey( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_BLS_PUBKEY, 0 );
+  res |= fd_ulong_if( fd_keyguard_payload_matches_tower     ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_TOWER,      0 );
   return res;
 }
