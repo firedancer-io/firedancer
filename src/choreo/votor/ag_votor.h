@@ -14,6 +14,14 @@
 
 typedef struct ag_votor ag_votor_t;
 
+struct ag_votor_metrics {
+  ulong slot_state_pool_used;
+  ulong slot_state_pool_free;
+  ulong highest_final_cert_slot;
+  ulong vote_events_cnt;
+};
+typedef struct ag_votor_metrics ag_votor_metrics_t;
+
 FD_PROTOTYPES_BEGIN
 
 FD_FN_CONST ulong
@@ -48,6 +56,9 @@ ag_votor_init( ag_votor_t *   self,
 void
 ag_votor_fini( ag_votor_t * self );
 
+FD_FN_PURE ag_votor_metrics_t
+ag_votor_metrics( ag_votor_t const * self );
+
 /* ag_votor_advance_epoch is called at boot and the epoch boundary and
    updates the rank and BLS key that is used for voting.  A NULL bls
    pubkey will disable voting for the epoch corresponding to the
@@ -60,15 +71,15 @@ ag_votor_advance_epoch( ag_votor_t *       self,
                         ulong              epoch_slot,
                         ag_bls_key_t const bls_key );
 
-/* ag_votor_set_bls_pubkey updates the BLS key that is used for voting,
+/* ag_votor_set_bls_key updates the BLS key that is used for voting,
    or stops voting if the BLS key is NULL.  It should be called when
    authorized voters change.  Votes made while there was no key are
    never sent. */
 
 void
-ag_votor_set_bls_pubkey( ag_votor_t *       self,
-                         ulong              epoch_slot,
-                         ag_bls_key_t const bls_key );
+ag_votor_set_bls_key( ag_votor_t *       self,
+                      ulong              epoch_slot,
+                      ag_bls_key_t const bls_key );
 
 /* Replaces our rank in the epoch starting at epoch_slot, for when our
    identity changes after the epoch advanced. */
@@ -120,11 +131,6 @@ ag_votor_poll_vote_event( ag_votor_t *      self,
 int
 ag_votor_poll_cert_event( ag_votor_t *      self,
                           ag_event_cert_t * event );
-
-FD_FN_PURE ulong ag_votor_slot_state_used( ag_votor_t const * self );
-FD_FN_PURE ulong ag_votor_slot_state_max ( ag_votor_t const * self );
-FD_FN_PURE ulong ag_votor_finalized_slot ( ag_votor_t const * self );
-FD_FN_PURE ulong ag_votor_vote_event_cnt ( ag_votor_t const * self );
 
 FD_PROTOTYPES_END
 
