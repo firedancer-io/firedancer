@@ -13,20 +13,20 @@
 #include "../keyguard/fd_keyguard.h"
 
 /* Maximum number of workspaces that may be present in a topology. */
-#define FD_TOPO_MAX_WKSPS         (256UL)
+#define FD_TOPO_MAX_WKSPS          ( 256UL)
 /* Maximum number of links that may be present in a topology. */
-#define FD_TOPO_MAX_LINKS         (256UL)
+#define FD_TOPO_MAX_LINKS          (1024UL)
 /* Maximum number of tiles that may be present in a topology. */
-#define FD_TOPO_MAX_TILES         (256UL)
+#define FD_TOPO_MAX_TILES          ( 256UL)
 /* Maximum number of objects that may be present in a topology. */
-#define FD_TOPO_MAX_OBJS          (4096UL)
+#define FD_TOPO_MAX_OBJS           (4096UL)
 /* Maximum number of links that may go into any one tile in the
    topology. */
-#define FD_TOPO_MAX_TILE_IN_LINKS  ( 128UL)
+#define FD_TOPO_MAX_TILE_IN_LINKS  ( 256UL)
 /* Maximum number of links that a tile may write to. */
-#define FD_TOPO_MAX_TILE_OUT_LINKS ( 32UL)
+#define FD_TOPO_MAX_TILE_OUT_LINKS (  64UL)
 /* Maximum number of objects that a tile can use. */
-#define FD_TOPO_MAX_TILE_OBJS      ( 256UL)
+#define FD_TOPO_MAX_TILE_OBJS      (1024UL)
 
 FD_STATIC_ASSERT( FD_SLEEP_LINK_MAX==FD_TOPO_MAX_LINKS,          sleep_limits );
 FD_STATIC_ASSERT( FD_SLEEP_IN_MAX  ==FD_TOPO_MAX_TILE_IN_LINKS,  sleep_limits );

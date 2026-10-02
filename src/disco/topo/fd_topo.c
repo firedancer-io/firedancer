@@ -462,6 +462,12 @@ fd_topo_print_log( int         stdout,
     PRINT( "  %s%-23s%s  %s\n", c_dim, "Agave Affinity", c_normal, agave_affinity );
   }
 
+  if( FD_LIKELY( !stdout ) ) {
+    if( FD_LIKELY( cur>message ) ) cur[ -1 ] = '\0'; /* Strip trailing newline */
+    FD_LOG_INFO(( "%s", message ));
+    return;
+  }
+
   SECTION( "Workspaces (%lu)", topo->wksp_cnt );
   PRINT( "  %s%3s  %10s  %-13s  %5s  %-8s  %4s  %12s  %12s%s\n", c_dim, "ID", "SIZE", "NAME", "PAGES", "PAGE SZ", "NUMA", "FOOTPRINT", "LOOSE", c_normal );
   for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
@@ -546,7 +552,8 @@ fd_topo_print_log( int         stdout,
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &topo->tiles[ i ];
 
-    char in[ 256 ] = {0};
+    /* Worst case ", -1023" per link */
+    char in[ 8UL*FD_TOPO_MAX_TILE_IN_LINKS ] = {0};
     char * cur_in = in;
     ulong remaining_in = sizeof( in ) - 1;
 
@@ -556,7 +563,7 @@ fd_topo_print_log( int         stdout,
       else PRINTIN( "%2ld", (long)-tile->in_link_id[ j ] );
     }
 
-    char out[ 256 ] = {0};
+    char out[ 8UL*FD_TOPO_MAX_TILE_OUT_LINKS ] = {0};
     char * cur_out = out;
     ulong remaining_out = sizeof( out ) - 1;
 
@@ -608,8 +615,7 @@ fd_topo_print_log( int         stdout,
     if( FD_LIKELY( i != topo->tile_cnt-1 ) ) PRINT( "\n" );
   }
 
-  if( FD_UNLIKELY( stdout ) ) FD_LOG_STDOUT(( "%s\n", message ));
-  else                        FD_LOG_INFO(( "%s", message ));
+  FD_LOG_STDOUT(( "%s\n", message ));
 
 #undef PRINT
 #undef PRINTIN
