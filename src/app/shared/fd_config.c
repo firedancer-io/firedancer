@@ -131,6 +131,13 @@ fd_config_fillf( fd_config_t * config ) {
     FD_TEST( fd_cstr_printf_check( config->paths.stake_delegations, sizeof(config->paths.stake_delegations), NULL, "%s/stakedelegations.db", config->paths.base ) );
   }
 
+  if( FD_UNLIKELY( strcmp( config->paths.epoch_credits, "" ) ) ) {
+    replace( config->paths.epoch_credits, "{user}", config->user );
+    replace( config->paths.epoch_credits, "{name}", config->name );
+  } else {
+    FD_TEST( fd_cstr_printf_check( config->paths.epoch_credits, sizeof(config->paths.epoch_credits), NULL, "%s/epochcredits.db", config->paths.base ) );
+  }
+
   if( FD_UNLIKELY( strcmp( config->paths.shredb, "" ) ) ) {
     replace( config->paths.shredb, "{user}", config->user );
     replace( config->paths.shredb, "{name}", config->name );

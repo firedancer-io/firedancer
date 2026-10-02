@@ -1798,7 +1798,9 @@ snap_start( fd_snapmk_t *                  ctx,
   /* misc */
 
   ctx->leader = msg->leader;
-  fd_ssmanifest_writer_init( ctx->manifest_writer, bank, &ctx->leader, ctx->accdb, root_fork_id, ctx->raw );
+  fd_epoch_credits_t const * epoch_credits = fd_type_pun_const( (uchar const *)fd_bank_epoch_credits( bank ) + msg->epoch_credits_off );
+  fd_ssmanifest_writer_init( ctx->manifest_writer, bank, &ctx->leader, epoch_credits, msg->epoch_credits_cnt,
+                             ctx->accdb, root_fork_id, ctx->raw );
 
   /* accdb cache/disk parsers */
 

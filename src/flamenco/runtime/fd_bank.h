@@ -6,6 +6,7 @@
 #include "../stakes/fd_stake_delegations.h"
 #include "../stakes/fd_vote_stakes.h"
 #include "../stakes/fd_collector_overrides.h"
+#include "../stakes/fd_epoch_credits.h"
 #include "../progcache/fd_progcache_xid.h"
 #include "../fd_rwlock.h"
 #include "fd_blockhashes.h"
@@ -396,20 +397,7 @@ struct fd_banks {
 
   ulong dead_banks_offset;
 
-  /* The epoch credits of every rewarded vote account are captured when a
-     bank crosses an epoch boundary, and are read again for the rest of
-     the epoch: by a recalculation that repositions a stake rewards
-     window, and by snapshot creation.  Sibling banks crossing the same
-     boundary capture different sets, so the store holds one set per
-     boundary-crossing fork, inherited by descendants and reference
-     counted so that a set lives exactly as long as the banks reading it.
-     There is one more set than max_fork_width because a bank sitting
-     behind a boundary still holds the previous epoch's set while every
-     fork crosses. */
-
   ulong epoch_credits_offset;
-  ulong epoch_credits_len_offset;
-  ulong epoch_credits_refcnt_offset;
 
   /* The set of epoch leaders for the current and previous epochs is
      allocated out-of-line and tracked by epoch_leaders_offset.  Only
@@ -441,20 +429,8 @@ fd_bank_report_runtime_diffs( fd_bank_t const * bank ) {
 /* Bank accessors and mutators.  Different accessors are emitted for
    different types depending on if the field has a lock or not. */
 
-/* fd_bank_epoch_credits{,_len} return the epoch credits of the fork the
-   bank belongs to.  fd_bank_epoch_credits_new_fork acquires a fresh set
-   for the bank and must be called before the bank captures new epoch
-   credits, i.e. when it crosses an epoch boundary or restores a
-   snapshot. */
-
-fd_epoch_credits_t *
-fd_bank_epoch_credits( fd_bank_t * bank );
-
-ulong *
-fd_bank_epoch_credits_len( fd_bank_t * bank );
-
-void
-fd_bank_epoch_credits_new_fork( fd_bank_t * bank );
+fd_epoch_credits_store_t *
+fd_bank_epoch_credits( fd_bank_t const * bank );
 
 fd_collector_overrides_t *
 fd_bank_collector_overrides( fd_bank_t const * bank );

@@ -208,7 +208,7 @@ ENCODE_FN {
                                        &block_revenue_commission_bps, &pending_delegator_rewards );
 
     if( iter_kind==FD_VOTE_STAKES_ITER_T_1 ) {
-      ec = find_epoch_credits( enc->bank, &pubkey );
+      ec = find_epoch_credits( enc, &pubkey );
       FD_TEST( ec );
       ec_cnt = ec->cnt;
       co_epoch = bank->f.epoch;

@@ -282,13 +282,18 @@ struct fd_replay_drop_bank_ref {
 typedef struct fd_replay_drop_bank_ref fd_replay_drop_bank_ref_t;
 
 /* The replay tile broadcasts fd_replay_snap_start_t
-   (REPLAY_SIG_SNAP_START) just before starting snapshot creation. */
+   (REPLAY_SIG_SNAP_START) just before starting snapshot creation.
+   Replay keeps the bank's epoch credits in memory until the snapshot
+   is done, at epoch_credits_off bytes from the bank's epoch credits
+   store. */
 
 struct fd_replay_snap_start {
   ulong       bank_idx;
   ulong       base_slot;
   ulong       slot;   /* ==base_slot implies full snapshot, else incremental */
   fd_pubkey_t leader; /* leader of slot, written to the manifest for Agave */
+  ulong       epoch_credits_off;
+  ulong       epoch_credits_cnt;
 };
 typedef struct fd_replay_snap_start fd_replay_snap_start_t;
 

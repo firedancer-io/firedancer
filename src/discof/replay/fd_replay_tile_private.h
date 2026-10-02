@@ -590,6 +590,7 @@ struct fd_replay_tile {
     ulong snap_finished_full;
     ulong snap_finished_incr;
     ulong snap_produced_incr_cnt;
+    fd_epoch_credits_view_t epoch_credits_view[1];
   } snapmk;
 
   struct {
