@@ -50,7 +50,7 @@ struct fd_entry_batch_meta {
 
   /* Entries (fd_entry_batch_header_t each followed by its raw
      transactions) in this frag, and their total transaction count.
-     PoH coalesces microblocks between ticks into one frag; markers
+     Motor coalesces entries into one frag (fd_motor_shred_t); markers
      carry none. */
   ushort entry_cnt;
   ushort txn_cnt;
@@ -84,7 +84,7 @@ FD_STATIC_ASSERT( FD_PACK_MAX_TXN_PER_BUNDLE<=MAX_TXN_PER_MICROBLOCK, bundle_fit
 
 /* FD_POH_SHRED_ENTRY_MAX is the largest entry the pack tile will
    produce: 48B of header (hash and 2 ulongs) plus the raw
-   transactions.  PoH appends entries to a frag until it holds at least
+   transactions.  Motor appends entries to a frag until it holds at least
    FD_POH_SHRED_BATCH_SZ bytes of them, so FD_POH_SHRED_MTU is the
    fd_entry_batch_meta_t metadata plus one byte short of that plus one
    more entry. */
