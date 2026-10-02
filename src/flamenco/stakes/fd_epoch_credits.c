@@ -263,11 +263,8 @@ fd_epoch_credits_store_reset( fd_epoch_credits_store_t * store ) {
 }
 
 ushort
-fd_epoch_credits_store_new_fork( fd_epoch_credits_store_t * store,
-                                 ushort                     prev_fork_id ) {
+fd_epoch_credits_store_new_fork( fd_epoch_credits_store_t * store ) {
   fd_rwlock_write( &store->lock );
-
-  if( FD_LIKELY( prev_fork_id!=USHORT_MAX ) ) release_locked( store, (ulong)prev_fork_id );
 
   ulong * refcnt   = set_refcnt( store );
   ulong   free_idx = ULONG_MAX;
@@ -300,27 +297,6 @@ fd_epoch_credits_store_release( fd_epoch_credits_store_t * store,
                                 ushort                     fork_id ) {
   fd_rwlock_write( &store->lock );
   release_locked( store, (ulong)fork_id );
-  fd_rwlock_unwrite( &store->lock );
-}
-
-void
-fd_epoch_credits_store_clear( fd_epoch_credits_store_t * store,
-                              ushort                     fork_id ) {
-  ulong set_idx = (ulong)fork_id;
-
-  fd_rwlock_write( &store->lock );
-  FD_CHECK_CRIT( set_idx<store->set_cnt && set_refcnt( store )[set_idx],
-                 "invariant violation: clearing unreferenced epoch credits set" );
-
-  set_len       ( store )[set_idx] = 0UL;
-  set_disk_valid( store )[set_idx] = 0U;
-  cache_ent_t * ent = cache_ent( store );
-  for( ulong i=0UL; i<store->cache_cnt; i++ ) {
-    if( ent[i].set_idx==set_idx ) {
-      ent[i].dirty = 0U;
-      break;
-    }
-  }
   fd_rwlock_unwrite( &store->lock );
 }
 

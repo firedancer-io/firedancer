@@ -1131,8 +1131,7 @@ void
 initialize_epoch_credits_fd( config_t const * config ) {
   if( FD_UNLIKELY( !config->is_firedancer ) ) return;
 
-  char spill_path[ PATH_MAX ];
-  FD_TEST( fd_cstr_printf_check( spill_path, sizeof(spill_path), NULL, "%s.epochcredits", config->paths.accounts ) );
+  char const * spill_path = config->paths.epoch_credits;
   int spill_fd = open( spill_path, O_RDWR|O_CREAT|O_TRUNC|O_NOATIME, S_IRUSR|S_IWUSR );
   if( FD_UNLIKELY( -1==spill_fd ) ) FD_LOG_ERR(( "failed to open %s (%i-%s)", spill_path, errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( -1==unlink( spill_path ) ) ) FD_LOG_ERR(( "unlink(%s) failed (%i-%s)", spill_path, errno, fd_io_strerror( errno ) ));

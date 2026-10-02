@@ -554,7 +554,8 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
                           fd_stake_history_t const *     history,
                           ulong                          rewarded_epoch,
                           ulong *                        new_rate_activation_epoch ) {
-  bank->epoch_credits_fork_id = fd_epoch_credits_store_new_fork( fd_bank_epoch_credits( bank ), bank->epoch_credits_fork_id );
+  fd_epoch_credits_store_release( fd_bank_epoch_credits( bank ), bank->epoch_credits_fork_id );
+  bank->epoch_credits_fork_id = fd_epoch_credits_store_new_fork( fd_bank_epoch_credits( bank ) );
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
   ulong              fork_id     = bank->vote_stakes_fork_id;

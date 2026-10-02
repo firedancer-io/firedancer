@@ -109,18 +109,19 @@ test_refcnt( int fd ) {
   void * mem;
   fd_epoch_credits_store_t * store = store_create( &mem, fd, 4UL, CACHE_CNT );
 
-  ushort a = fd_epoch_credits_store_new_fork( store, USHORT_MAX );
+  ushort a = fd_epoch_credits_store_new_fork( store );
   FD_TEST( a==0 );
   set_write( store, a, 100UL, 3UL );
 
   fd_epoch_credits_store_acquire( store, a );
-  ushort b = fd_epoch_credits_store_new_fork( store, a );
+  fd_epoch_credits_store_release( store, a );
+  ushort b = fd_epoch_credits_store_new_fork( store );
   FD_TEST( b==1 );
   set_check( store, a, 100UL, 3UL );
   set_check( store, b, 0UL,   0UL );
 
   fd_epoch_credits_store_release( store, a );
-  ushort c = fd_epoch_credits_store_new_fork( store, USHORT_MAX );
+  ushort c = fd_epoch_credits_store_new_fork( store );
   FD_TEST( c==a );
   set_check( store, c, 0UL, 0UL );
 
@@ -146,7 +147,7 @@ test_spill_reload( int   fd,
   ushort ids[ CACHE_CNT+2UL ];
   FD_TEST( set_cnt<=sizeof(ids)/sizeof(ids[0]) );
   for( ulong i=0UL; i<set_cnt; i++ ) {
-    ids[i] = fd_epoch_credits_store_new_fork( store, USHORT_MAX );
+    ids[i] = fd_epoch_credits_store_new_fork( store );
     set_write( store, ids[i], 1000UL*(i+1UL), i+1UL );
     if( i<cache_cnt ) FD_TEST( !spill_sz( fd ) );
     else              FD_TEST(  spill_sz( fd ) );
@@ -176,7 +177,7 @@ test_single_entry_cache( int fd ) {
   fd_epoch_credits_store_t * store = store_create( &mem, fd, set_cnt, 1UL );
 
   for( ulong i=0UL; i<set_cnt; i++ ) {
-    ushort id = fd_epoch_credits_store_new_fork( store, USHORT_MAX );
+    ushort id = fd_epoch_credits_store_new_fork( store );
     set_write( store, id, 100UL*(i+1UL), i+1UL );
   }
   for( ulong round=0UL; round<2UL; round++ ) {
@@ -196,13 +197,14 @@ test_new_fork_full( int fd ) {
   fd_epoch_credits_store_t * store = store_create( &mem, fd, set_cnt, CACHE_CNT );
 
   for( ulong i=0UL; i<set_cnt; i++ ) {
-    ushort id = fd_epoch_credits_store_new_fork( store, USHORT_MAX );
+    ushort id = fd_epoch_credits_store_new_fork( store );
     FD_TEST( id==(ushort)i );
     set_write( store, id, 10UL*(i+1UL), 1UL );
   }
 
   ushort tip = (ushort)(set_cnt-1UL);
-  ushort id  = fd_epoch_credits_store_new_fork( store, tip );
+  fd_epoch_credits_store_release( store, tip );
+  ushort id  = fd_epoch_credits_store_new_fork( store );
   FD_TEST( id==tip );
   set_check( store, id, 0UL, 0UL );
   set_write( store, id, 2000UL, 1UL );
@@ -211,26 +213,22 @@ test_new_fork_full( int fd ) {
   free( mem );
 }
 
+/* Reset drops every set, including spilled ones. */
+
 static void
-test_clear_reset( int fd ) {
+test_reset( int fd ) {
   ulong const set_cnt = CACHE_CNT+1UL;
   void * mem;
   fd_epoch_credits_store_t * store = store_create( &mem, fd, set_cnt, CACHE_CNT );
 
-  ushort a = fd_epoch_credits_store_new_fork( store, USHORT_MAX );
-  set_write( store, a, 7UL, 2UL );
-  fd_epoch_credits_store_clear( store, a );
-  set_check( store, a, 0UL, 0UL );
-
-  /* A cleared set reloads empty after it is evicted. */
-  for( ulong i=1UL; i<set_cnt; i++ ) {
-    ushort id = fd_epoch_credits_store_new_fork( store, USHORT_MAX );
+  for( ulong i=0UL; i<set_cnt; i++ ) {
+    ushort id = fd_epoch_credits_store_new_fork( store );
     set_write( store, id, 50UL, 1UL );
   }
-  set_check( store, a, 0UL, 0UL );
+  FD_TEST( spill_sz( fd ) );
 
   fd_epoch_credits_store_reset( store );
-  FD_TEST( fd_epoch_credits_store_new_fork( store, USHORT_MAX )==0 );
+  FD_TEST( fd_epoch_credits_store_new_fork( store )==0 );
   set_check( store, 0, 0UL, 0UL );
 
   free( mem );
@@ -250,7 +248,7 @@ main( int     argc,
   for( ulong cache_cnt=2UL; cache_cnt<=CACHE_CNT; cache_cnt++ ) test_spill_reload( fd, cache_cnt );
   test_single_entry_cache( fd );
   test_new_fork_full( fd );
-  test_clear_reset( fd );
+  test_reset( fd );
 
   FD_TEST( !close( fd ) );
   FD_LOG_NOTICE(( "pass" ));

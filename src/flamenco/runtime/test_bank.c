@@ -1161,7 +1161,8 @@ test_bank_epoch_credits_disk_cache( void * mem ) {
       fd_bank_t * child = fd_banks_new_bank( banks, chain[i-1UL]->idx, 0L, 0 );
       chain[i] = fd_banks_clone_from_parent( banks, child->idx );
       FD_TEST( chain[i] );
-      chain[i]->epoch_credits_fork_id = fd_epoch_credits_store_new_fork( fd_bank_epoch_credits( chain[i] ), chain[i]->epoch_credits_fork_id );
+      fd_epoch_credits_store_release( fd_bank_epoch_credits( chain[i] ), chain[i]->epoch_credits_fork_id );
+      chain[i]->epoch_credits_fork_id = fd_epoch_credits_store_new_fork( fd_bank_epoch_credits( chain[i] ) );
     }
 
     fd_epoch_credits_view_t view[1];
@@ -1196,7 +1197,8 @@ test_bank_epoch_credits_disk_cache( void * mem ) {
   /* All logical IDs are occupied.  Replacing a bank's uniquely held set
      must release that ID before acquiring its replacement. */
   fd_bank_t * tip = chain[max_total_banks-1UL];
-  tip->epoch_credits_fork_id = fd_epoch_credits_store_new_fork( fd_bank_epoch_credits( tip ), tip->epoch_credits_fork_id );
+  fd_epoch_credits_store_release( fd_bank_epoch_credits( tip ), tip->epoch_credits_fork_id );
+  tip->epoch_credits_fork_id = fd_epoch_credits_store_new_fork( fd_bank_epoch_credits( tip ) );
   fd_epoch_credits_view_t view[1];
   FD_TEST( fd_epoch_credits_view_init( view, fd_bank_epoch_credits( tip ), tip->epoch_credits_fork_id, 0 ) );
   FD_TEST( view->len==0UL );
@@ -1676,9 +1678,24 @@ main( int argc, char ** argv ) {
 
   /* Set the cost tracker to some non-zero values. */
 
+  /* bank11 shares its epoch credits set with bank9.  Clearing bank11
+     gives it a fresh, empty set and leaves bank9's set intact. */
+  fd_epoch_credits_view_t ec_view[1];
+  FD_TEST( fd_epoch_credits_view_init( ec_view, fd_bank_epoch_credits( bank11 ), bank11->epoch_credits_fork_id, 1 ) );
+  ec_view->credits[0].base_credits = 77UL;
+  ec_view->len                     = 1UL;
+  fd_epoch_credits_view_fini( ec_view );
+
   fd_banks_clear_bank( banks, bank11 );
   FD_TEST( bank11->f.slot == 0UL );
   FD_TEST( bank11->f.capitalization == 0UL );
+
+  FD_TEST( fd_epoch_credits_view_init( ec_view, fd_bank_epoch_credits( bank11 ), bank11->epoch_credits_fork_id, 0 ) );
+  FD_TEST( ec_view->len==0UL );
+  fd_epoch_credits_view_fini( ec_view );
+  FD_TEST( fd_epoch_credits_view_init( ec_view, fd_bank_epoch_credits( bank9 ), bank9->epoch_credits_fork_id, 0 ) );
+  FD_TEST( ec_view->len==1UL && ec_view->credits[0].base_credits==77UL );
+  fd_epoch_credits_view_fini( ec_view );
 
   test_bank_advancing( mem );
 

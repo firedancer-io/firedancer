@@ -1212,7 +1212,8 @@ fd_banks_clear_bank( fd_banks_t * banks,
   fd_collector_overrides_reset( collector_overrides );
   bank->collector_overrides_fork_id = fd_collector_overrides_get_root_idx( collector_overrides );
 
-  fd_epoch_credits_store_clear( fd_banks_get_epoch_credits( banks ), bank->epoch_credits_fork_id );
+  fd_epoch_credits_store_release( fd_banks_get_epoch_credits( banks ), bank->epoch_credits_fork_id );
+  bank->epoch_credits_fork_id = fd_epoch_credits_store_new_fork( fd_banks_get_epoch_credits( banks ) );
 }
 
 void

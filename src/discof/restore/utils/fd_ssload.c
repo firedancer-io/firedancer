@@ -488,7 +488,8 @@ fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
 
   bank->f.total_epoch_stake = manifest->epoch_stakes[t_1_idx].total_stake;
 
-  bank->epoch_credits_fork_id = fd_epoch_credits_store_new_fork( fd_bank_epoch_credits( bank ), bank->epoch_credits_fork_id );
+  fd_epoch_credits_store_release( fd_bank_epoch_credits( bank ), bank->epoch_credits_fork_id );
+  bank->epoch_credits_fork_id = fd_epoch_credits_store_new_fork( fd_bank_epoch_credits( bank ) );
   ulong epoch_credits_len = 0UL;
   fd_epoch_credits_view_t epoch_credits_view[1];
   FD_TEST( fd_epoch_credits_view_init( epoch_credits_view, fd_bank_epoch_credits( bank ), bank->epoch_credits_fork_id, 1 ) );
