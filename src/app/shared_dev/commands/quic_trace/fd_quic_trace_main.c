@@ -204,7 +204,7 @@ quic_trace_cmd_fn( args_t *   args,
   if( !target_tile ) FD_LOG_ERR(( "%s tile not found in topology", tile_names[trace_send] ));
 
   ulong const target_in_cnt  = target_tile->in_cnt;
-  if( FD_UNLIKELY( !trace_send && target_in_cnt != 1UL ) ) { /* FIXME */
+  if( FD_UNLIKELY( !trace_send && target_in_cnt != 1UL && args->quic_trace.event!=EVENT_ERROR ) ) { /* FIXME */
     FD_LOG_ERR(( "Sorry, fd_quic_trace does not support multiple net tiles yet" ));
   }
 

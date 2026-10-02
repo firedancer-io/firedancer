@@ -599,6 +599,7 @@ unprivileged_init( fd_topo_t const *      topo,
   quic->config.ack_delay                  = tile->quic.ack_delay_millis    * (long)1e6;
   quic->config.initial_rx_max_stream_data = FD_TXN_MTU;
   quic->config.retry                      = tile->quic.retry;
+  quic->config.allow_unauth_client_cert   = 1; /* TPU serves unauthenticated peers like Agave */
   fd_memcpy( quic->config.identity_public_key, ctx->tls_pub_key, ED25519_PUB_KEY_SZ );
 
   quic->config.sign         = quic_tls_cv_sign;

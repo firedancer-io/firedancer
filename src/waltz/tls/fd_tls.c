@@ -931,6 +931,10 @@ fd_tls_handle_cert_verify( fd_tls_estate_base_t *    hs,
     read_sz = (ulong)(wire - record);
   } while(0);
 
+  /* Without a key to verify against the peer stays unauthenticated and
+     the signature is not checked. */
+  if( !pubkey ) return (long)read_sz;
+
   /* Verify signature *************************************************/
 
   /* Export transcript hash ClientHello..server Certificate
@@ -1016,8 +1020,6 @@ fd_tls_server_hs_wait_cert( fd_tls_t const *      server,
                             ulong           const record_sz,
                             uint                  encryption_level ) {
 
-  (void)server;
-
   if( FD_UNLIKELY( encryption_level != FD_TLS_LEVEL_HANDSHAKE ) )
     return fd_tls_alert( &handshake->base, FD_TLS_ALERT_INTERNAL_ERROR, FD_TLS_REASON_WRONG_ENC_LVL );
 
@@ -1045,14 +1047,23 @@ fd_tls_server_hs_wait_cert( fd_tls_t const *      server,
 
     /* Decode Certificate */
 
-    fd_tls_extract_cert_pubkey_res_t extract;
-    decode_res = fd_tls_handle_cert_chain( &handshake->base, wire, msg_sz, &extract );
-    if( FD_UNLIKELY( decode_res<0L ) )
-      return fd_tls_alert( &handshake->base, (uint)(-decode_res), FD_TLS_REASON_CERT_PARSE );
-    if( FD_UNLIKELY( extract.key_type!=FD_TLS_KEY_ED25519 || extract.pubkey_len!=32UL ) )
+    fd_tls_extract_cert_pubkey_res_t extract = fd_tls_extract_cert_pubkey( wire, msg_sz );
+    int is_x509    = extract.pubkey || extract.alert==FD_TLS_ALERT_UNSUPPORTED_CERTIFICATE;
+    int is_ed25519 = extract.pubkey && extract.key_type==FD_TLS_KEY_ED25519 && extract.pubkey_len==32UL;
+    if( FD_LIKELY( is_ed25519 ) ) {
+      fd_memcpy( handshake->client_pubkey, extract.pubkey, 32UL );
+    } else if( server->allow_unauth_client_cert && is_x509 ) {
+      /* Peer gets no identity, like an unstaked peer in Agave */
+      handshake->client_cert_unauth = 1;
+      fd_memset( handshake->client_pubkey, 0, 32UL );
+    } else if( !extract.pubkey ) {
+      uint   alert  = extract.alert  ? extract.alert  : FD_TLS_ALERT_DECODE_ERROR;
+      ushort reason = extract.reason ? extract.reason : FD_TLS_REASON_CERT_PARSE;
+      return fd_tls_alert( &handshake->base, alert, reason );
+    } else {
       return fd_tls_alert( &handshake->base, FD_TLS_ALERT_UNSUPPORTED_CERTIFICATE, FD_TLS_REASON_CERT_KEY_TYPE );
-    fd_memcpy( handshake->client_pubkey, extract.pubkey, 32UL );
-    wire += (ulong)decode_res;
+    }
+    wire += msg_sz;
 
     read_sz = (ulong)(wire - record);
   } while(0);
@@ -1088,7 +1099,8 @@ fd_tls_server_hs_wait_cert_verify( fd_tls_t const *      server,
 
   long res = fd_tls_handle_cert_verify( &hs->base, &transcript_clone,
                                         record, record_sz,
-                                        hs->client_pubkey, 32UL, FD_TLS_KEY_ED25519, 1 );
+                                        hs->client_cert_unauth ? NULL : hs->client_pubkey,
+                                        32UL, FD_TLS_KEY_ED25519, 1 );
   if( FD_UNLIKELY( res<0L ) ) return res;
 
   fd_sha256_append( &transcript, record, (ulong)res );

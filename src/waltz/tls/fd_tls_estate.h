@@ -143,6 +143,7 @@ struct fd_tls_estate_srv {
 
   uchar client_cert : 1;  /* 0: no client auth  1: client cert */
   uchar hello_retry : 1;
+  uchar client_cert_unauth : 1;  /* 1: client cert not authenticated, client_pubkey is zero */
 
   fd_tls_transcript_t transcript;
   uchar               client_hs_secret[32];

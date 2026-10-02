@@ -217,6 +217,11 @@ struct __attribute__((aligned(16UL))) fd_quic_config {
   uchar alpn[ 32 ];
   ulong alpn_sz;
 
+  /* allow_unauth_client_cert (server): accept client certificates
+     that are not X.509 with an Ed25519 key as unauthenticated peers.
+     See fd_tls_t. */
+  int allow_unauth_client_cert;
+
   ulong initial_rx_max_stream_data; /* per-stream, rx buf sz in bytes, set by the user. */
   ulong max_datagram_frame_size;    /* RFC 9221 RX frame limit; zero disables DATAGRAM */
 

@@ -282,7 +282,12 @@ struct fd_tls {
 
   /* Flags */
   ulong quic            :  1;
-  ulong _flags_reserved : 63;
+  /* allow_unauth_client_cert (server): accept a client certificate
+     that is not X.509 with an Ed25519 key.  Such a peer stays
+     unauthenticated: client_cert_unauth is set and client_pubkey is
+     zero.  Otherwise the handshake is aborted. */
+  ulong allow_unauth_client_cert : 1;
+  ulong _flags_reserved : 62;
 };
 
 typedef struct fd_tls fd_tls_t;

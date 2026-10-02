@@ -783,6 +783,56 @@ test_tls_client_accepts_cert_req( fd_rng_t * rng ) {
   }
 }
 
+/* A client certificate that is not X.509 with an Ed25519 key completes
+   the handshake unauthenticated when allow_unauth_client_cert is set:
+   client_pubkey stays zero and the CertificateVerify signature is not
+   checked.  By default the handshake is aborted. */
+static void
+test_tls_server_client_cert_unauth( fd_rng_t * rng ) {
+  fd_tls_t _client[1]; fd_tls_t * client = fd_tls_join( fd_tls_new( _client ) );
+  fd_tls_t _server[1]; fd_tls_t * server = fd_tls_join( fd_tls_new( _server ) );
+  prepare_tls_pair( rng, client, server );
+
+  fd_tls_estate_srv_t hs[1]; FD_TEST( fd_tls_estate_srv_new( hs ) );
+  hs->base.state  = FD_TLS_HS_WAIT_CERT;
+  hs->client_cert = 1;
+  fd_sha256_t transcript; fd_sha256_init( &transcript );
+  fd_tls_transcript_store( &hs->transcript, &transcript );
+
+  /* Certificate: empty context, one entry whose body is not DER */
+  static uchar const cert[] = {
+    FD_TLS_MSG_CERT, 0,0,14,
+    0,            /* certificate_request_context */
+    0,0,10,       /* certificate_list */
+    0,0,5, 0x30,0x03,0x01,0x02,0x03,
+    0,0           /* extensions */
+  };
+  /* Rejected by default */
+  FD_TEST( fd_tls_server_handshake( server, hs, cert, sizeof(cert), FD_TLS_LEVEL_HANDSHAKE )==-(long)FD_TLS_ALERT_UNSUPPORTED_CERTIFICATE );
+  FD_TEST( hs->base.reason==FD_TLS_REASON_X509_PARSE );
+
+  /* Accepted as unauthenticated when allowed */
+  FD_TEST( fd_tls_estate_srv_new( hs ) );
+  hs->base.state  = FD_TLS_HS_WAIT_CERT;
+  hs->client_cert = 1;
+  fd_tls_transcript_store( &hs->transcript, &transcript );
+  server->allow_unauth_client_cert = 1;
+  FD_TEST( fd_tls_server_handshake( server, hs, cert, sizeof(cert), FD_TLS_LEVEL_HANDSHAKE )==(long)sizeof(cert) );
+  FD_TEST( hs->base.state==FD_TLS_HS_WAIT_CV );
+  FD_TEST( hs->client_cert_unauth );
+  uchar zero[32] = {0};
+  FD_TEST( fd_memeq( hs->client_pubkey, zero, 32UL ) );
+
+  /* CertificateVerify with a signature that cannot be valid */
+  uchar vfy[ 4+4+64 ] = { FD_TLS_MSG_CERT_VERIFY, 0,0,68, 0x08,0x07, 0,64 };
+  FD_TEST( fd_tls_server_handshake( server, hs, vfy, sizeof(vfy), FD_TLS_LEVEL_HANDSHAKE )==(long)sizeof(vfy) );
+  FD_TEST( hs->base.state==FD_TLS_HS_WAIT_FINISHED );
+
+  fd_tls_estate_srv_delete( hs );
+  fd_tls_delete( fd_tls_leave( server ) );
+  fd_tls_delete( fd_tls_leave( client ) );
+}
+
 static void
 test_tls_cert_req_rules( fd_rng_t * rng ) {
   uchar wire[128] = {0};
@@ -1426,6 +1476,7 @@ main( int     argc,
   test_tls_client_unsolicited_cert_type( rng );
   test_tls_client_accepts_cert_req( rng );
   test_tls_cert_req_rules( rng );
+  test_tls_server_client_cert_unauth( rng );
   test_tls_ee_solicitation( rng );
   test_tls_client_hello_sigalgs( rng );
   test_tls_client_rejects_oversz_sni( rng );

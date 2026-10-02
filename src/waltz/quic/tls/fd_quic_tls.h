@@ -107,6 +107,9 @@ struct fd_quic_tls_cfg {
   /* alpn: either "solana-tpu" or "alpenglow-v1" */
   uchar const * alpn;
   ulong         alpn_sz;
+
+  /* allow_unauth_client_cert: see fd_tls_t */
+  int allow_unauth_client_cert;
 };
 
 /* structure for organising handshake data */
