@@ -95,6 +95,12 @@
     be replayed.  The new Dispatcher will change this by taking a FEC
     set as input instead. */
 
+/* Agave defines TIME_TO_COMPLETE_BLOCK_BROADCAST to adjust their slot
+   end.  Our own telemetry data of finishing pack => shredding last
+   batch suggests roughly the same delay, so we mirror the constant. */
+
+#define AG_TIME_TO_COMPLETE_BROADCAST_NS (6000000L)
+
 #define IN_KIND_SNAP       ( 0)
 #define IN_KIND_GENESIS    ( 1)
 #define IN_KIND_IPECHO     ( 2)
@@ -1703,7 +1709,7 @@ try_become_leader_ag( fd_replay_tile_t *  ctx,
   fd_became_leader_t * msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
   msg->slot                = ctx->next_leader_slot;
   msg->slot_start_ns       = now_nanos;
-  msg->slot_end_ns         = now_nanos+(long)bank->f.slot_params.ns_per_slot_adjusted;
+  msg->slot_end_ns         = ctx->leader_window_start_ns+(long)( ( ctx->next_leader_slot%AG_SLOTS_PER_WINDOW+1UL )*bank->f.slot_params.ns_per_slot )-(long)FD_TARGET_SLOT_ADJUSTMENT_NS-AG_TIME_TO_COMPLETE_BROADCAST_NS; /* like Agave block_timeout: deadlines from the window start, adjusted once per window */
   msg->bank                = NULL;
   msg->bank_idx            = bank->idx;
   msg->bank_seq            = bank->bank_seq;
@@ -4981,8 +4987,9 @@ returnable_frag( fd_replay_tile_t *  ctx,
     case IN_KIND_VOTOR: {
       if( FD_UNLIKELY( sig==FD_VOTOR_SIG_LEADER ) ) {
         fd_votor_leader_t const * leader = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
-        *ctx->votor_leader    = *leader;
-        ctx->next_leader_slot = leader->slot;
+        *ctx->votor_leader          = *leader;
+        ctx->next_leader_slot       = leader->slot;
+        ctx->leader_window_start_ns = fd_clock_tile_now( ctx->clock );
         try_become_leader_ag( ctx, stem );
       } else if( FD_LIKELY( sig==FD_VOTOR_SIG_CERTED ) ) {
         fd_votor_certed_t const * certed = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
