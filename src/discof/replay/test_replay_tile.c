@@ -2850,6 +2850,131 @@ test_banks_evict_backfill( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_banks_evict_backfill" ));
 }
 
+/* Backfill keys the replacement of an evicted reset bank under the
+   reset block id before the replacement freezes.  Becoming leader must
+   wait for the freeze. */
+
+static void
+test_become_leader_waits_for_rereplayed_reset( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  setup_ctx( ctx, wksp );
+
+  fd_hash_t mr_root = { .ul = { 100 } };
+  fd_hash_t mr1_0   = { .ul = { 200 } };
+  fd_hash_t mr1_32  = { .ul = { 300 } };
+  fd_hash_t mr2_0   = { .ul = { 400 } };
+
+  init_root_fec( ctx, &mr_root );
+  fd_reasm_fec_t * f1_0 = ingest_fec_complete( ctx, &mr1_0, &mr_root, 1, 0, 1, 32, 1, 0 );
+  ingest_fec_complete( ctx, &mr1_32, &mr1_0, 1, 32, 1, 32, 1, 1 );
+  drive_one_fec( ctx, 1UL, 0U );
+  drive_one_fec( ctx, 1UL, 32U );
+
+  fd_bank_t * reset = fd_banks_bank_query( ctx->banks, f1_0->bank_idx );
+  reset->state  = FD_BANK_STATE_FROZEN;
+  reset->refcnt = 0UL;
+
+  ctx->reset_cmr             = mr1_32;
+  ctx->reset_slot            = 1UL;
+  ctx->next_leader_slot      = 4UL;
+  ctx->next_leader_tickcount = 0L;
+
+  FD_TEST( fd_banks_get_evictable_bank( ctx->banks, NULL )==reset->idx );
+  FD_TEST( !try_become_leader( ctx, test_stem ) );
+  fd_banks_prune_cancel_info_t cancel[ 1 ];
+  FD_TEST( fd_banks_prune_one_bank( ctx->banks, cancel ) );
+  FD_TEST( !try_become_leader( ctx, test_stem ) );
+
+  ingest_fec_complete( ctx, &mr2_0, &mr1_32, 2, 0, 1, 32, 1, 1 );
+  drive_one_fec( ctx, 2UL, 0U );
+
+  fd_block_id_ele_t * ele = fd_block_id_map_ele_query( ctx->block_id_map, &mr1_32, NULL, ctx->block_id_arr );
+  FD_TEST( ele );
+  fd_bank_t * replacement = fd_banks_bank_query( ctx->banks, fd_block_id_ele_get_idx( ctx->block_id_arr, ele ) );
+  FD_TEST( replacement && replacement->bank_seq==ele->bank_seq );
+  FD_TEST( replacement->state==FD_BANK_STATE_INIT );
+  FD_TEST( !try_become_leader( ctx, test_stem ) );
+
+  start_non_epoch_boundary_fec( ctx, f1_0, 0 );
+  FD_TEST( replacement->state==FD_BANK_STATE_REPLAYABLE );
+  FD_TEST( !try_become_leader( ctx, test_stem ) );
+
+  fd_banks_mark_bank_frozen( replacement );
+  FD_TEST( try_become_leader( ctx, test_stem ) );
+  FD_TEST( ctx->leader_bank->parent_idx==replacement->idx );
+
+  FD_LOG_NOTICE(( "pass: test_become_leader_waits_for_rereplayed_reset" ));
+}
+
+/* Tower can name a reset block whose replacement is still replaying.
+   The reset must wait for the tower update that follows the freeze. */
+
+static void
+test_tower_reset_waits_for_rereplayed_bank( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  setup_ctx( ctx, wksp );
+
+  fd_hash_t mr_root = { .ul = { 100 } };
+  fd_hash_t mr1_0   = { .ul = { 200 } };
+  fd_hash_t mr1_32  = { .ul = { 300 } };
+  fd_hash_t mr2_0   = { .ul = { 400 } };
+
+  init_root_fec( ctx, &mr_root );
+  fd_reasm_fec_t * f1_0 = ingest_fec_complete( ctx, &mr1_0, &mr_root, 1, 0, 1, 32, 1, 0 );
+  ingest_fec_complete( ctx, &mr1_32, &mr1_0, 1, 32, 1, 32, 1, 1 );
+  drive_one_fec( ctx, 1UL, 0U );
+  drive_one_fec( ctx, 1UL, 32U );
+
+  fd_bank_t * evicted = fd_banks_bank_query( ctx->banks, f1_0->bank_idx );
+  evicted->state  = FD_BANK_STATE_FROZEN;
+  evicted->refcnt = 0UL;
+  FD_TEST( fd_banks_get_evictable_bank( ctx->banks, NULL )==evicted->idx );
+  fd_banks_prune_cancel_info_t cancel[ 1 ];
+  FD_TEST( fd_banks_prune_one_bank( ctx->banks, cancel ) );
+
+  ingest_fec_complete( ctx, &mr2_0, &mr1_32, 2, 0, 1, 32, 1, 1 );
+  drive_one_fec( ctx, 2UL, 0U );
+  start_non_epoch_boundary_fec( ctx, f1_0, 0 );
+  fd_bank_t * replacement = fd_banks_bank_query( ctx->banks, f1_0->bank_idx );
+  FD_TEST( replacement && replacement->state==FD_BANK_STATE_REPLAYABLE );
+
+  fd_bank_t * root = fd_banks_root( ctx->banks );
+  fd_tower_slot_done_t msg = {
+    .replay_slot     = root->f.slot,
+    .replay_bank_idx = root->idx,
+    .vote_slot       = ULONG_MAX,
+    .reset_slot      = 1UL,
+    .reset_block_id  = mr1_32,
+    .root_slot       = ULONG_MAX,
+  };
+
+  static ulong test_metrics[ FD_METRICS_TOTAL_SZ/sizeof(ulong) ];
+  volatile ulong * saved_metrics_tl = fd_metrics_tl;
+  fd_metrics_tl = test_metrics;
+  ulong out_idx = ctx->replay_out->idx;
+  ulong seq0    = test_stem_seqs[ out_idx ];
+
+  root->refcnt++;
+  process_tower_slot_done( ctx, test_stem, &msg, 0UL );
+  FD_TEST( fd_hash_eq( &ctx->reset_cmr, &mr_root ) );
+  FD_TEST( ctx->reset_slot==0UL );
+  FD_TEST( test_stem_seqs[ out_idx ]==seq0 );
+
+  fd_banks_mark_bank_frozen( replacement );
+  root->refcnt++;
+  process_tower_slot_done( ctx, test_stem, &msg, 1UL );
+  fd_metrics_tl = saved_metrics_tl;
+  FD_TEST( fd_hash_eq( &ctx->reset_cmr, &mr1_32 ) );
+  FD_TEST( ctx->reset_slot==1UL );
+  FD_TEST( test_stem_seqs[ out_idx ]==seq0+1UL );
+  fd_frag_meta_t const * meta = test_stem_mcaches[ out_idx ] + fd_mcache_line_idx( seq0, test_stem_depths[ out_idx ] );
+  FD_TEST( meta->sig==REPLAY_SIG_RESET );
+  fd_poh_reset_t const * reset = fd_chunk_to_laddr_const( ctx->replay_out->mem, meta->chunk );
+  FD_TEST( reset->bank_idx==replacement->idx );
+
+  FD_LOG_NOTICE(( "pass: test_tower_reset_waits_for_rereplayed_bank" ));
+}
+
 static void
 test_backfill_partial_sched_capacity( fd_wksp_t * wksp ) {
   static fd_replay_tile_t ctx[ 1 ];
@@ -4608,6 +4733,8 @@ main( int     argc,
   test_reused_parent_bank_idx_not_leader_bank( wksp ); fd_wksp_reset( wksp, 42U );
   test_oc_skips_unfrozen_bank( wksp );              fd_wksp_reset( wksp, 42U );
   test_banks_evict_backfill( wksp );                fd_wksp_reset( wksp, 42U );
+  test_become_leader_waits_for_rereplayed_reset( wksp ); fd_wksp_reset( wksp, 42U );
+  test_tower_reset_waits_for_rereplayed_bank( wksp );    fd_wksp_reset( wksp, 42U );
   test_backfill_partial_sched_capacity( wksp );     fd_wksp_reset( wksp, 42U );
   test_double_confirm_backfill( wksp );             fd_wksp_reset( wksp, 42U );
   test_partial_exec_evict( wksp );                  fd_wksp_reset( wksp, 42U );
