@@ -62,6 +62,9 @@ struct fd_became_leader {
   /* The epoch of the slot for which we are becoming leader. */
   ulong epoch;
 
+  /* The block height of the slot for which we are becoming leader. */
+  ulong block_height;
+
   /* Consensus-critical cost limits for the slot we are becoming leader.
      These are typically unchanging, but may change after a feature
      activation. */
@@ -95,6 +98,7 @@ typedef struct fd_rooted_bank fd_rooted_bank_t;
 
 struct fd_completed_bank {
    ulong slot;
+   ulong block_height;
    uchar hash[32];
 };
 

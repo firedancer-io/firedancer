@@ -1029,7 +1029,8 @@ fd_ext_bank_load_account( void const *  bank,
 CALLED_FROM_RUST static void
 publish_became_leader( fd_pohh_tile_t * ctx,
                        ulong            slot,
-                       ulong            epoch ) {
+                       ulong            epoch,
+                       ulong            block_height ) {
   double tick_per_ns = fd_tempo_tick_per_ns( NULL );
   fd_histf_sample( ctx->begin_leader_delay, (ulong)((double)(fd_log_wallclock()-ctx->reset_slot_start_ns)/tick_per_ns) );
 
@@ -1093,6 +1094,7 @@ publish_became_leader( fd_pohh_tile_t * ctx,
   leader->epoch                   = epoch;
   leader->bundle->config[0]       = config[0];
   leader->slot                    = slot;
+  leader->block_height            = block_height;
 
   leader->limits.slot_max_cost                     = ctx->limits.slot_max_cost;
   leader->limits.slot_max_vote_cost                = ctx->limits.slot_max_vote_cost;
@@ -1143,6 +1145,7 @@ publish_became_leader( fd_pohh_tile_t * ctx,
 CALLED_FROM_RUST void
 fd_ext_poh_begin_leader( void const * bank,
                          ulong        slot,
+                         ulong        block_height,
                          ulong        epoch,
                          ulong        hashcnt_per_tick,
                          ulong        tick_duration_ns,
@@ -1238,7 +1241,7 @@ fd_ext_poh_begin_leader( void const * bank,
   FD_TEST( ctx->highwater_leader_slot==ULONG_MAX || slot>=ctx->highwater_leader_slot );
   ctx->highwater_leader_slot = fd_ulong_max( fd_ulong_if( ctx->highwater_leader_slot==ULONG_MAX, 0UL, ctx->highwater_leader_slot ), slot );
 
-  publish_became_leader( ctx, slot, epoch );
+  publish_became_leader( ctx, slot, epoch, block_height );
 
   /* PoH ends the slot once it "ticks" through all of the hashes, but
      we only want that to happen if we received a done packing message

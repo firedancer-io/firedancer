@@ -1616,15 +1616,19 @@ test_nonce( void ) {
   fd_pack_t * pack = init_all( 1024UL, 1UL, 128UL, &outcome );
   ulong i = 0UL;
 
-  make_nonce_transaction( i, 11.0, 4, 0, 'h' );   FD_TEST( insert( i++, pack )==FD_PACK_INSERT_ACCEPT_NONCE_NONVOTE_ADD     );
-  make_nonce_transaction( i, 10.0, 4, 0, 'h' );   FD_TEST( insert( i++, pack )==FD_PACK_INSERT_REJECT_NONCE_PRIORITY        );
-  make_nonce_transaction( i, 14.0, 4, 0, 'h' );   FD_TEST( insert( i++, pack )==FD_PACK_INSERT_ACCEPT_NONCE_NONVOTE_REPLACE );
-  /* Changing any of the tuple makes it a different nonce */
-  make_nonce_transaction( i, 11.0, 5, 0, 'h' );   FD_TEST( insert( i++, pack )==FD_PACK_INSERT_ACCEPT_NONCE_NONVOTE_ADD     );
-  make_nonce_transaction( i, 11.0, 4, 1, 'h' );   FD_TEST( insert( i++, pack )==FD_PACK_INSERT_ACCEPT_NONCE_NONVOTE_ADD     );
-  make_nonce_transaction( i, 11.0, 4, 0, 'j' );   FD_TEST( insert( i++, pack )==FD_PACK_INSERT_ACCEPT_NONCE_NONVOTE_ADD     );
+  fd_txn_p_t * p = txnp_scratch+i;
 
-  make_nonce_transaction( i, 11.0, 4, 5, 'h' );   FD_TEST( insert( i++, pack )==FD_PACK_INSERT_REJECT_INVALID_NONCE         );
+  make_nonce_transaction( i, 11.0, 4, 0, 'h' );   FD_TEST( insert1( p, 0UL, pack )==FD_PACK_INSERT_ACCEPT_NONCE_NONVOTE_ADD     ); i++; p++;
+  make_nonce_transaction( i, 10.0, 4, 0, 'h' );   FD_TEST( insert1( p, 0UL, pack )==FD_PACK_INSERT_REJECT_NONCE_PRIORITY        ); i++; p++;
+  make_nonce_transaction( i, 14.0, 4, 0, 'h' );   FD_TEST( insert1( p, 0UL, pack )==FD_PACK_INSERT_ACCEPT_NONCE_NONVOTE_REPLACE ); i++; p++;
+
+  make_nonce_transaction( i, 11.0, 5, 0, 'h' );   FD_TEST( insert1( p, 0UL, pack )==FD_PACK_INSERT_ACCEPT_NONCE_NONVOTE_ADD     ); i++; p++;
+  make_nonce_transaction( i, 11.0, 4, 1, 'h' );   FD_TEST( insert1( p, 0UL, pack )==FD_PACK_INSERT_ACCEPT_NONCE_NONVOTE_ADD     ); i++; p++;
+
+  make_nonce_transaction( i, 11.0, 4, 5, 'h' );   FD_TEST( insert1( p, 0UL, pack )==FD_PACK_INSERT_REJECT_INVALID_NONCE         ); i++; p++;
+
+  make_nonce_transaction( i, 11.0, 4, 0, 'h' );   FD_TEST( insert1( p, 1UL, pack )==FD_PACK_INSERT_ACCEPT_NONCE_NONVOTE_REPLACE ); i++; p++;
+  make_nonce_transaction( i, 14.0, 4, 0, 'h' );   FD_TEST( insert1( p, 0UL, pack )==FD_PACK_INSERT_REJECT_NONCE_PRIORITY        ); i++; p++;
   FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
 }
 
@@ -1734,7 +1738,7 @@ test_bundle_nonce( void ) {
   bundle = fd_pack_insert_bundle_init( pack, _bundle, 3UL );
   make_nonce_transaction1( bundle[0]->txnp, 0UL, 2.0, 5, 0, 'b' );
   make_transaction1      ( bundle[1]->txnp, 1UL, 100U, 100U, 5.0, "A", "B", NULL, NULL );
-  make_nonce_transaction1( bundle[2]->txnp, 2UL, 2.0, 5, 0, 'c' );
+  make_nonce_transaction1( bundle[2]->txnp, 2UL, 2.0, 4, 0, 'c' );
   fd_ed25519_sig_t sig; memcpy( &sig, txnp_get_signatures( bundle[1]->txnp ), sizeof(fd_ed25519_sig_t) );
   result = fd_pack_insert_bundle_fini( pack, bundle, 3UL, 1000UL, 0, NULL, &_deleted );
   FD_TEST( result==FD_PACK_INSERT_ACCEPT_NONCE_NONVOTE_REPLACE );
@@ -1761,19 +1765,18 @@ test_bundle_nonce( void ) {
     fd_txn_e_t * txn = fd_pack_insert_txn_init( pack );
     make_nonce_transaction1( txn->txnp, j, 2.0, 4, 0, (char)( 'A'+j ) );
     ulong _deleted;
-    FD_TEST( fd_pack_insert_txn_fini( pack, txn, 1000UL, &_deleted )==FD_PACK_INSERT_ACCEPT_NONCE_NONVOTE_ADD );
+    FD_TEST( fd_pack_insert_txn_fini( pack, txn, 1000UL+j, &_deleted )==
+        fd_int_if( j==0UL, FD_PACK_INSERT_ACCEPT_NONCE_NONVOTE_ADD, FD_PACK_INSERT_ACCEPT_NONCE_NONVOTE_REPLACE ) );
   }
   bundle = fd_pack_insert_bundle_init( pack, _bundle, 3UL );
   make_nonce_transaction1( bundle[0]->txnp, 0UL, 2.0, 4, 0, 'a' );
   make_nonce_transaction1( bundle[1]->txnp, 1UL, 2.0, 5, 0, 'b' );
-  make_nonce_transaction1( bundle[2]->txnp, 2UL, 2.0, 4, 0, 'c' );
+  make_nonce_transaction1( bundle[2]->txnp, 2UL, 2.0, 3, 0, 'c' );
   result = fd_pack_insert_bundle_fini( pack, bundle, 3UL, 1000UL, 0, NULL, &_deleted );
   FD_TEST( result==FD_PACK_INSERT_ACCEPT_NONCE_NONVOTE_REPLACE );
-  FD_TEST( fd_pack_avail_txn_cnt( pack )==32UL );
-  for( ulong j=0UL; j<pack_depth; j++ ) {
-    fd_pack_schedule_next_microblock( pack, FD_PACK_TEST_MAX_COST_PER_BLOCK, 0.0f, 0UL, FD_PACK_SCHEDULE_BUNDLE|FD_PACK_SCHEDULE_TXN, outcome.results );
-    fd_pack_microblock_complete( pack, 0UL );
-  }
+  FD_TEST( fd_pack_avail_txn_cnt( pack )==3UL );
+  fd_pack_schedule_next_microblock( pack, FD_PACK_TEST_MAX_COST_PER_BLOCK, 0.0f, 0UL, FD_PACK_SCHEDULE_BUNDLE|FD_PACK_SCHEDULE_TXN, outcome.results );
+  fd_pack_microblock_complete( pack, 0UL );
   FD_TEST( fd_pack_avail_txn_cnt( pack )==0UL );
   FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
 

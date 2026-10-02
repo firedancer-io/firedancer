@@ -175,11 +175,14 @@ test_env_create( test_env_t * env ) {
   fd_memset( env->ctx, 0, sizeof(fd_resolv_ctx_t) );
   env->ctx->startup_gate->started = 1;
 
-  env->ctx->completed_slot     = 200UL;
-  env->ctx->flush_pool_idx     = ULONG_MAX;
-  env->ctx->pool               = pool_join( pool_new( FD_SCRATCH_ALLOC_APPEND( l, pool_align(), pool_footprint( 1UL<<16UL ) ), 1UL<<16UL ) );
-  env->ctx->map_chain          = map_chain_join( map_chain_new( FD_SCRATCH_ALLOC_APPEND( l, map_chain_align(), map_chain_footprint( 8192UL ) ), 8192UL, TEST_HASH_SEED ) );
-  env->ctx->blockhash_map      = map_join( map_new( FD_SCRATCH_ALLOC_APPEND( l, map_align(), map_footprint( MAP_LG_SLOT_CNT ) ), MAP_LG_SLOT_CNT, TEST_HASH_SEED ) );
+  ulong map_chain_cnt = 2UL*map_chain_cnt_est( BLOCKHASH_RING_LEN );
+  env->ctx->completed_slot         = 200UL;
+  env->ctx->completed_block_height = 200UL;
+  env->ctx->flush_pool_idx         = ULONG_MAX;
+  env->ctx->pool                   = pool_join( pool_new( FD_SCRATCH_ALLOC_APPEND( l, pool_align(), pool_footprint( 1UL<<16UL ) ), 1UL<<16UL ) );
+  env->ctx->map_chain              = map_chain_join( map_chain_new( FD_SCRATCH_ALLOC_APPEND( l, map_chain_align(), map_chain_footprint( 8192UL ) ), 8192UL, TEST_HASH_SEED ) );
+  env->ctx->blockhash_map          = map_join( map_new( FD_SCRATCH_ALLOC_APPEND( l, map_align(), map_footprint( map_chain_cnt ) ), map_chain_cnt, TEST_HASH_SEED ) );
+  env->ctx->nonce_blockhash_map    = map_join( map_new( FD_SCRATCH_ALLOC_APPEND( l, map_align(), map_footprint( map_chain_cnt ) ), map_chain_cnt, TEST_HASH_SEED ) );
   FD_TEST( env->ctx->pool );
   FD_TEST( env->ctx->map_chain );
   FD_TEST( map_chain_seed( env->ctx->map_chain )==TEST_HASH_SEED );
@@ -215,27 +218,25 @@ test_env_destroy( test_env_t * env ) {
 
 FD_UNIT_TEST( resolv_blockhash_map_hashes_full_key ) {
 # define COLLISION_CNT (64UL)
-  void * map_mem = fd_wksp_alloc_laddr( mini->wksp, map_align(), map_footprint( MAP_LG_SLOT_CNT ), TOPO_TAG );
+  ulong map_chain_cnt = 2UL*map_chain_cnt_est( BLOCKHASH_RING_LEN );
+  void * map_mem = fd_wksp_alloc_laddr( mini->wksp, map_align(), map_footprint( map_chain_cnt ), TOPO_TAG );
   FD_TEST( map_mem );
-  blockhash_map_t * blockhash_map = map_join( map_new( map_mem, MAP_LG_SLOT_CNT, TEST_HASH_SEED ) );
+  map_t * blockhash_map = map_join( map_new( map_mem, map_chain_cnt, TEST_HASH_SEED ) );
   FD_TEST( blockhash_map );
   FD_TEST( map_seed( blockhash_map )==TEST_HASH_SEED );
 
-  blockhash_map_t * inserted[ COLLISION_CNT ];
+  blockhash_map_t inserted[ COLLISION_CNT ];
   for( ulong i=0UL; i<COLLISION_CNT; i++ ) {
     blockhash_t key = {0};
     uint  prefix = 0x12345678U;
     ulong suffix = i+1UL;
     fd_memcpy( key.b,     &prefix, sizeof(prefix) );
     fd_memcpy( key.b+8UL, &suffix, sizeof(suffix) );
-    inserted[ i ] = map_insert( blockhash_map, key );
-    FD_TEST( inserted[ i ] );
-  }
+    FD_TEST( ULONG_MAX==map_idx_query( blockhash_map, &key, ULONG_MAX, inserted ) );
 
-  ulong adjacent_cnt = 0UL;
-  for( ulong i=1UL; i<COLLISION_CNT; i++ )
-    adjacent_cnt += inserted[ i ]==inserted[ i-1UL ]+1;
-  FD_TEST( adjacent_cnt<COLLISION_CNT/2UL );
+    inserted[ i ].key = key;
+    map_idx_insert( blockhash_map, i, inserted );
+  }
 
   fd_wksp_free_laddr( map_leave( blockhash_map ) );
 # undef COLLISION_CNT
@@ -283,8 +284,22 @@ static void
 test_add_blockhash( test_env_t * env,
                     fd_hash_t *  hash,
                     ulong        slot ) {
-  blockhash_map_t * entry = map_insert( env->ctx->blockhash_map, *(blockhash_t *)hash->uc );
-  entry->slot = slot;
+  blockhash_map_t * entry       = env->ctx->blockhash_ring      +(env->ctx->blockhash_ring_idx%BLOCKHASH_RING_LEN);
+  blockhash_map_t * nonce_entry = env->ctx->nonce_blockhash_ring+(env->ctx->blockhash_ring_idx%BLOCKHASH_RING_LEN);
+
+  /* See fd_durable_nonce_from_blockhash */
+  struct {
+    char      tag[13];
+    fd_hash_t bh[1];
+  } hash_buf[1] = {{ .tag = "DURABLE_NONCE", .bh = { *hash } }};
+
+  memcpy( entry->key.b, hash, 32UL );   fd_sha256_hash( hash_buf, sizeof(hash_buf), nonce_entry->key.b );
+  entry->slot         = slot;           nonce_entry->slot         = slot;
+  entry->block_height = slot;           nonce_entry->block_height = slot;
+
+  map_ele_insert( env->ctx->blockhash_map,       entry,       env->ctx->blockhash_ring       );
+  map_ele_insert( env->ctx->nonce_blockhash_map, nonce_entry, env->ctx->nonce_blockhash_ring );
+  env->ctx->blockhash_ring_idx++;
 }
 
 static void
@@ -302,26 +317,29 @@ FD_UNIT_TEST( resolv_is_durable_nonce ) {
   fd_txn_m_t * txnm = (fd_txn_m_t *)buf;
 
   test_make_txnm( txnm, &hash, 1, 4U, 3U, 3U );
-  FD_TEST( fd_resolv_is_durable_nonce( fd_txn_m_txn_t( txnm ), fd_txn_m_payload( txnm ) ) );
+  FD_TEST( fd_disco_tpu_is_durable_nonce( fd_txn_m_txn_t( txnm ), fd_txn_m_payload( txnm ) ) );
 
   test_make_txnm( txnm, &hash, 0, 4U, 3U, 3U );
-  FD_TEST( !fd_resolv_is_durable_nonce( fd_txn_m_txn_t( txnm ), fd_txn_m_payload( txnm ) ) );
+  FD_TEST( !fd_disco_tpu_is_durable_nonce( fd_txn_m_txn_t( txnm ), fd_txn_m_payload( txnm ) ) );
 
   test_make_txnm( txnm, &hash, 1, 5U, 3U, 3U );
-  FD_TEST( !fd_resolv_is_durable_nonce( fd_txn_m_txn_t( txnm ), fd_txn_m_payload( txnm ) ) );
+  FD_TEST( !fd_disco_tpu_is_durable_nonce( fd_txn_m_txn_t( txnm ), fd_txn_m_payload( txnm ) ) );
 
   test_make_txnm( txnm, &hash, 1, 4U, 2U, 3U );
-  FD_TEST( !fd_resolv_is_durable_nonce( fd_txn_m_txn_t( txnm ), fd_txn_m_payload( txnm ) ) );
+  FD_TEST( !fd_disco_tpu_is_durable_nonce( fd_txn_m_txn_t( txnm ), fd_txn_m_payload( txnm ) ) );
 
   test_make_txnm( txnm, &hash, 1, 4U, 3U, 2U );
-  FD_TEST( !fd_resolv_is_durable_nonce( fd_txn_m_txn_t( txnm ), fd_txn_m_payload( txnm ) ) );
+  FD_TEST( !fd_disco_tpu_is_durable_nonce( fd_txn_m_txn_t( txnm ), fd_txn_m_payload( txnm ) ) );
 }
 
-FD_UNIT_TEST( resolv_durable_nonce_passthrough ) {
+FD_UNIT_TEST( resolv_durable_nonce ) {
   test_env_t env[1];
   test_env_create( env );
 
-  fd_hash_t durable_hash = { .ul = { 0xdeadbeefUL } };
+  fd_hash_t hash = { .ul = { 0xfeedUL } };
+  test_add_blockhash( env, &hash, 125UL );
+
+  fd_hash_t durable_hash = { .ul = { 0x9af781fcada1b490, 0x60638414e047e3e1, 0x2a3c8375f0b67f7, 0xfeb08e84ac3cb6f9 } };
   test_ingest_txn( env, &durable_hash, 1 );
 
   FD_TEST( env->stem_seqs[0]==1UL );
@@ -329,10 +347,10 @@ FD_UNIT_TEST( resolv_durable_nonce_passthrough ) {
   FD_TEST( env->stem_seqs[0]>0UL );
   fd_frag_meta_t const * meta = env->out_mcache[0] + fd_mcache_line_idx( 0UL, env->stem_depths[0] );
   FD_TEST( meta->seq==0UL );
-  FD_TEST( meta->sig==env->ctx->completed_slot );
+  FD_TEST( meta->sig==125UL );
 
   fd_txn_m_t const * published = fd_chunk_to_laddr_const( env->ctx->out_pack->mem, meta->chunk );
-  FD_TEST( published->reference_slot==env->ctx->completed_slot );
+  FD_TEST( published->reference_block_height==125UL );
 
   test_env_destroy( env );
 }
@@ -348,7 +366,8 @@ FD_UNIT_TEST( resolv_blockhash_unknown ) {
   FD_TEST( pool_free( env->ctx->pool )==( (1UL<<16UL)-1UL ) );
   FD_TEST( env->ctx->metrics.stash[ FD_METRICS_ENUM_RESOLVE_STASH_OPERATION_V_INSERTED_IDX ]==1UL );
 
-  env->ctx->_completed_slot_msg.slot = 250UL;
+  env->ctx->_completed_slot_msg.slot         = 250UL;
+  env->ctx->_completed_slot_msg.block_height = 250UL;
   env->ctx->_completed_slot_msg.block_hash = hash;
   after_frag( env->ctx, 1UL, 0UL, REPLAY_SIG_SLOT_COMPLETED, sizeof(fd_replay_slot_completed_t), 0UL, 0UL, env->stem );
 
@@ -365,7 +384,7 @@ FD_UNIT_TEST( resolv_blockhash_unknown ) {
   FD_TEST( meta->sig==250UL );
 
   fd_txn_m_t const * published = fd_chunk_to_laddr_const( env->ctx->out_pack->mem, meta->chunk );
-  FD_TEST( published->reference_slot==250UL );
+  FD_TEST( published->reference_block_height==250UL );
 
   test_env_destroy( env );
 }
@@ -385,7 +404,7 @@ FD_UNIT_TEST( resolv_blockhash_known ) {
   FD_TEST( meta->sig==125UL );
 
   fd_txn_m_t const * published = fd_chunk_to_laddr_const( env->ctx->out_pack->mem, meta->chunk );
-  FD_TEST( published->reference_slot==125UL );
+  FD_TEST( published->reference_block_height==125UL );
 
   test_env_destroy( env );
 }
@@ -394,6 +413,7 @@ FD_UNIT_TEST( resolv_blockhash_expired ) {
   test_env_t env[1];
   test_env_create( env );
   env->ctx->completed_slot = 300UL;
+  env->ctx->completed_block_height = 300UL;
 
   fd_hash_t hash = { .ul = { 0xbeadUL } };
   test_add_blockhash( env, &hash, 100UL );

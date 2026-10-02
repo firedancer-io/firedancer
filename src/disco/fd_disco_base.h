@@ -131,6 +131,28 @@ fd_disco_compact_wmark( void * wksp, ulong mtu ) {
   return (wksp_hi >> FD_CHUNK_LG_SZ) - chunk_mtu;
 }
 
+/* Returns 0 if not a durable nonce transaction and 1 if it may be a
+   durable nonce transaction.  This is suitable for TPU purposes, but
+   not for replay purposes, where it needs to be exact in all edge
+   cases. */
+FD_FN_PURE static inline int
+fd_disco_tpu_is_durable_nonce( fd_txn_t const * txn,
+                               uchar    const * payload ) {
+  if( FD_UNLIKELY( txn->instr_cnt==0 ) ) return 0;
+
+  fd_txn_instr_t const * ix0 = &txn->instr[ 0 ];
+  fd_acct_addr_t const * prog0 = fd_txn_get_acct_addrs( txn, payload ) + ix0->program_id;
+  /* First instruction must be SystemProgram nonceAdvance instruction */
+  fd_acct_addr_t const system_program[1] = { { { 0 } } };
+  if( FD_LIKELY( memcmp( prog0, system_program, sizeof(fd_acct_addr_t) ) ) )        return 0;
+
+  /* instruction with three accounts and a four byte instruction data, a
+     little-endian uint value 4 */
+  if( FD_UNLIKELY( (ix0->data_sz!=4) | (ix0->acct_cnt!=3) ) ) return 0;
+
+  return fd_uint_load_4( payload + ix0->data_off )==4U;
+}
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_disco_fd_disco_base_h */

@@ -34,16 +34,27 @@ typedef struct blockhash blockhash_t;
 struct blockhash_map {
   blockhash_t key;
   ulong       slot;
+  ulong       block_height;
+  /* The map_chain variables: */
+  uint        next;
+  /* It's probably not worth 4 bytes of cache per element to store
+     chain_prev, since the query/delete ratio is probably about 1000:1,
+     but alignof is 8, so we'd just store padding here instead */
+  uint        prev;
 };
 
 typedef struct blockhash_map blockhash_map_t;
-
-static const blockhash_t null_blockhash = { 0 };
 
 /* The blockhash ring holds recent blockhashes, so we can identify when
    a transaction arrives, what slot it will expire (and can no longer be
    packed) in.  This is useful so we don't send transactions to pack
    that are no longer packable.
+
+   Similarly, we also store the nonce version of the blockhash, which is
+   stored in nonce accounts when a transaction executes in the following
+   slot.  Since nonce transactions stay valid for arbitrarily long, this
+   just helps us order nonce transactions that try to advance the same
+   account.
 
    Unfortunately, poorly written transaction senders frequently send
    transactions from millions of slots ago, so we need a large ring to
@@ -56,22 +67,14 @@ static const blockhash_t null_blockhash = { 0 };
 #define BLOCKHASH_RING_LEN   (1UL<<BLOCKHASH_LG_RING_CNT)
 
 #define MAP_NAME               map
-#define MAP_T                  blockhash_map_t
+#define MAP_ELE_T              blockhash_map_t
 #define MAP_KEY_T              blockhash_t
-#define MAP_LG_SLOT_CNT        (BLOCKHASH_LG_RING_CNT+1UL)
-#define MAP_KEY_NULL           null_blockhash
-#if FD_HAS_AVX
-# define MAP_KEY_INVAL(k)      _mm256_testz_si256( wb_ldu( (k).b ), wb_ldu( (k).b ) )
-#else
-# define MAP_KEY_INVAL(k)      MAP_KEY_EQUAL(k, null_blockhash)
-#endif
-#define MAP_KEY_EQUAL(k0,k1)   (!memcmp((k0).b,(k1).b, 32UL))
-#define MAP_MEMOIZE            0
-#define MAP_KEY_EQUAL_IS_SLOW  1
-#define MAP_KEY_HASH(key,seed) ((uint)fd_hash32( (key).b, (seed) ))
-#define MAP_QUERY_OPT          1
+#define MAP_IDX_T              uint
+#define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
+#define MAP_KEY_EQ(k0,k1)      (!memcmp((k0)->b,(k1)->b, 32UL))
+#define MAP_KEY_HASH(key,seed) ((uint)fd_hash32( (key)->b, (seed) ))
 
-#include "../../util/tmpl/fd_map_dynamic.c"
+#include "../../util/tmpl/fd_map_chain.c"
 
 typedef struct {
   union {
@@ -140,9 +143,10 @@ typedef struct {
   int   bundle_failed;
   ulong bundle_id;
 
-  blockhash_map_t * blockhash_map;
+  map_t * blockhash_map;
+  map_t * nonce_blockhash_map;
 
-  ulong flushing_slot;
+  ulong flushing_block_height;
   ulong flush_pool_idx;
 
   /* In the full client, the resolv tile is passed only a rooted bank
@@ -165,8 +169,15 @@ typedef struct {
   fd_startup_gate_t startup_gate[1];
 
   ulong completed_slot;
+  ulong completed_block_height;
+  /* The total number of blockhashes that have been inserted in
+     blockhash_ring (and since nonce_blockhash_ring is parallel, also in
+     nonce_blockhash_ring. */
   ulong blockhash_ring_idx;
-  blockhash_t blockhash_ring[ BLOCKHASH_RING_LEN ];
+
+  /* These are the pools used the blockhash_map */
+  blockhash_map_t blockhash_ring      [ BLOCKHASH_RING_LEN ];
+  blockhash_map_t nonce_blockhash_ring[ BLOCKHASH_RING_LEN ];
 
   fd_replay_root_advanced_t  _rooted_slot_msg;
   fd_replay_slot_completed_t _completed_slot_msg;
@@ -199,12 +210,15 @@ scratch_align( void ) {
 
 FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
+  /* The map is normally full, so make the chain cnt a bit bigger */
+  ulong map_chain_cnt = 2UL*map_chain_cnt_est( BLOCKHASH_RING_LEN );
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof( fd_resolv_ctx_t ), sizeof( fd_resolv_ctx_t )                          );
-  l = FD_LAYOUT_APPEND( l, pool_align(),               pool_footprint     ( 1UL<<16UL )                   );
-  l = FD_LAYOUT_APPEND( l, map_chain_align(),          map_chain_footprint( 8192UL    )                   );
-  l = FD_LAYOUT_APPEND( l, map_align(),                map_footprint( MAP_LG_SLOT_CNT )                   );
-  l = FD_LAYOUT_APPEND( l, fd_accdb_align(),           fd_accdb_footprint( tile->resolv.max_live_slots, 0 )  );
+  l = FD_LAYOUT_APPEND( l, alignof( fd_resolv_ctx_t ), sizeof( fd_resolv_ctx_t )                            );
+  l = FD_LAYOUT_APPEND( l, pool_align(),               pool_footprint     ( 1UL<<16UL )                     );
+  l = FD_LAYOUT_APPEND( l, map_chain_align(),          map_chain_footprint( 8192UL    )                     );
+  l = FD_LAYOUT_APPEND( l, map_align(),                map_footprint( map_chain_cnt   )                     );
+  l = FD_LAYOUT_APPEND( l, map_align(),                map_footprint( map_chain_cnt   )                     );
+  l = FD_LAYOUT_APPEND( l, fd_accdb_align(),           fd_accdb_footprint( tile->resolv.max_live_slots, 0 ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -344,7 +358,7 @@ publish_txn( fd_resolv_ctx_t *          ctx,
 
   fd_txn_t const * txnt = fd_txn_m_txn_t( txnm );
 
-  txnm->reference_slot = ctx->flushing_slot;
+  txnm->reference_block_height = ctx->flushing_block_height;
 
   if( FD_UNLIKELY( txnt->addr_table_adtl_cnt ) ) {
     if( FD_UNLIKELY( !ctx->bank ) ) {
@@ -357,7 +371,7 @@ publish_txn( fd_resolv_ctx_t *          ctx,
 
   ulong realized_sz = fd_txn_m_realized_footprint( txnm, 1, 1 );
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-  fd_stem_publish( stem, 0UL, txnm->reference_slot, ctx->out_pack->chunk, realized_sz, 0UL, 0UL, tspub );
+  fd_stem_publish( stem, 0UL, txnm->reference_block_height, ctx->out_pack->chunk, realized_sz, 0UL, 0UL, tspub );
   ctx->out_pack->chunk = fd_dcache_compact_next( ctx->out_pack->chunk, realized_sz, ctx->out_pack->chunk0, ctx->out_pack->wmark );
 
   return 1;
@@ -387,27 +401,6 @@ after_credit( fd_resolv_ctx_t *   ctx,
   ctx->flush_pool_idx = next;
 }
 
-/* Returns 0 if not a durable nonce transaction and 1 if it may be a
-   durable nonce transaction */
-
-FD_FN_PURE static inline int
-fd_resolv_is_durable_nonce( fd_txn_t const * txn,
-                            uchar    const * payload ) {
-  if( FD_UNLIKELY( txn->instr_cnt==0 ) ) return 0;
-
-  fd_txn_instr_t const * ix0 = &txn->instr[ 0 ];
-  fd_acct_addr_t const * prog0 = fd_txn_get_acct_addrs( txn, payload ) + ix0->program_id;
-  /* First instruction must be SystemProgram nonceAdvance instruction */
-  fd_acct_addr_t const system_program[1] = { { { SYS_PROG_ID } } };
-  if( FD_LIKELY( memcmp( prog0, system_program, sizeof(fd_acct_addr_t) ) ) )        return 0;
-
-  /* instruction with three accounts and a four byte instruction data, a
-     little-endian uint value 4 */
-  if( FD_UNLIKELY( (ix0->data_sz!=4) | (ix0->acct_cnt!=3) ) ) return 0;
-
-  return fd_uint_load_4( payload + ix0->data_off )==4U;
-}
-
 static inline void
 after_frag( fd_resolv_ctx_t *   ctx,
             ulong               in_idx,
@@ -428,28 +421,40 @@ after_frag( fd_resolv_ctx_t *   ctx,
 
         /* Equivocating slot with same blockhash, ignore.  See fd_txncache.h on how this is possible.
            TODO make sure matches how agave handles it */
-        if( FD_UNLIKELY( map_query( ctx->blockhash_map, *(blockhash_t *)msg->block_hash.uc, NULL ) ) ) {
+        if( FD_UNLIKELY( map_ele_query( ctx->blockhash_map, (blockhash_t *)msg->block_hash.uc, NULL, ctx->blockhash_ring ) ) ) {
           FD_LOG_WARNING(( "slot with same blockhash, ignoring: %lu", msg->slot ));
           return;
         }
 
-        /* blockhash_ring is initialized to all zeros. blockhash=0 is an illegal map query */
-        if( FD_UNLIKELY( memcmp( &ctx->blockhash_ring[ ctx->blockhash_ring_idx%BLOCKHASH_RING_LEN ], (uchar[ 32UL ]){ 0UL }, sizeof(blockhash_t) ) ) ) {
-          blockhash_map_t * entry = map_query( ctx->blockhash_map, ctx->blockhash_ring[ ctx->blockhash_ring_idx%BLOCKHASH_RING_LEN ], NULL );
-          if( FD_LIKELY( entry ) ) map_remove( ctx->blockhash_map, entry );
+        /* if we've already inserted BLOCKHASH_RING_LEN, then we need to
+           delete the one we're overwriting */
+        if( FD_UNLIKELY( ctx->blockhash_ring_idx>=BLOCKHASH_RING_LEN ) ) {
+          map_idx_remove_fast( ctx->blockhash_map,       ctx->blockhash_ring_idx%BLOCKHASH_RING_LEN, ctx->blockhash_ring       );
+          map_idx_remove_fast( ctx->nonce_blockhash_map, ctx->blockhash_ring_idx%BLOCKHASH_RING_LEN, ctx->nonce_blockhash_ring );
         }
+        blockhash_map_t * entry       = ctx->blockhash_ring      +(ctx->blockhash_ring_idx%BLOCKHASH_RING_LEN);
+        blockhash_map_t * nonce_entry = ctx->nonce_blockhash_ring+(ctx->blockhash_ring_idx%BLOCKHASH_RING_LEN);
 
-        memcpy( ctx->blockhash_ring[ ctx->blockhash_ring_idx%BLOCKHASH_RING_LEN ].b, msg->block_hash.uc, 32UL );
+        /* See fd_durable_nonce_from_blockhash */
+        struct {
+          char      tag[13];
+          fd_hash_t bh[1];
+        } hash_buf[1] = {{ .tag = "DURABLE_NONCE", .bh = { msg->block_hash } }};
+
+        memcpy( entry->key.b, msg->block_hash.uc, 32UL );  fd_sha256_hash( hash_buf, sizeof(hash_buf), nonce_entry->key.b );
+        entry->slot         = msg->slot;                   nonce_entry->slot         = msg->slot;
+        entry->block_height = msg->block_height;           nonce_entry->block_height = msg->block_height;
+
+        map_ele_insert( ctx->blockhash_map,       entry,       ctx->blockhash_ring       );
+        map_ele_insert( ctx->nonce_blockhash_map, nonce_entry, ctx->nonce_blockhash_ring );
         ctx->blockhash_ring_idx++;
-
-        blockhash_map_t * blockhash = map_insert( ctx->blockhash_map, *(blockhash_t *)msg->block_hash.uc );
-        blockhash->slot = msg->slot;
 
         blockhash_t * hash = (blockhash_t *)msg->block_hash.uc;
         ctx->flush_pool_idx  = map_chain_idx_query_const( ctx->map_chain, &hash, ULONG_MAX, ctx->pool );
-        ctx->flushing_slot   = msg->slot;
+        ctx->flushing_block_height  = msg->block_height;
 
-        ctx->completed_slot = msg->slot;
+        ctx->completed_slot         = msg->slot;
+        ctx->completed_block_height = msg->block_height;
         break;
       }
       case REPLAY_SIG_ROOT_ADVANCED: {
@@ -484,11 +489,12 @@ after_frag( fd_resolv_ctx_t *   ctx,
   FD_TEST( txnm->txn_t_sz<=FD_TXN_MAX_SZ );
   fd_txn_t const * txnt = fd_txn_m_txn_t( txnm );
 
-  /* If we find the recent blockhash, life is simple.  We drop
-     transactions that couldn't possibly execute any more, and forward
-     to pack ones that could.
+  /* If the transaction doesn't look like a nonce transaction and we
+     find the recent blockhash, life is simple.  We drop transactions
+     that couldn't possibly execute any more, and forward to pack ones
+     that could.
 
-     If we can't find the recent blockhash ... it means one of four
+     If we can't find the recent blockhash ... it means one of three
      things,
 
      (1) The blockhash is really old (more than 19 days) or just
@@ -496,11 +502,11 @@ after_frag( fd_resolv_ctx_t *   ctx,
      (2) The blockhash is not that old, but was created before this
          validator was started.
      (3) It's really new (we haven't seen the bank yet).
-     (4) It's a durable nonce transaction, or part of a bundle (just let
-         it pass).
 
-    For durable nonce transactions, there isn't much we can do except
-    pass them along and see if they execute.
+    For durable nonce transactions, we map the value in the recent
+    blockhash field to a slot and its block height.  This doesn't
+    immediately let us discard any transactions, but it lets pack order
+    nonce transactions, which allows it to throw out old ones.
 
     For the other three cases ... we don't want to flood pack with what
     might be junk transactions, so we accumulate them into a local
@@ -517,16 +523,18 @@ after_frag( fd_resolv_ctx_t *   ctx,
     return;
   }
 
-  txnm->reference_slot = ctx->completed_slot;
+  txnm->reference_block_height = ctx->completed_block_height;
+
+  int is_durable_nonce = fd_disco_tpu_is_durable_nonce( txnt, fd_txn_m_payload( txnm ) );
+  map_t const *           map  = fd_ptr_if( is_durable_nonce, ctx->nonce_blockhash_map, ctx->blockhash_map );
+  blockhash_map_t const * pool = is_durable_nonce ? ctx->nonce_blockhash_ring : ctx->blockhash_ring;
 
   blockhash_t const * recent_blockhash = (blockhash_t const *)( fd_txn_m_payload( txnm )+txnt->recent_blockhash_off );
-  blockhash_map_t const * blockhash = NULL;
-  if( FD_LIKELY( !map_key_inval( *recent_blockhash ) ) ) {
-    blockhash = map_query( ctx->blockhash_map, *recent_blockhash, NULL );
-  }
+
+  blockhash_map_t const * blockhash = map_ele_query_const( map, recent_blockhash, NULL, pool );
   if( FD_LIKELY( blockhash ) ) {
-    txnm->reference_slot = blockhash->slot;
-    if( FD_UNLIKELY( txnm->reference_slot+151UL<ctx->completed_slot ) ) {
+    txnm->reference_block_height = blockhash->block_height;
+    if( FD_UNLIKELY( (!is_durable_nonce) & (txnm->reference_block_height+151UL<ctx->completed_block_height) ) ) {
       if( FD_UNLIKELY( txnm->block_engine.bundle_id ) ) ctx->bundle_failed = 1;
       ctx->metrics.blockhash_expired++;
       return;
@@ -534,7 +542,6 @@ after_frag( fd_resolv_ctx_t *   ctx,
   }
 
   int is_bundle_member = !!txnm->block_engine.bundle_id;
-  int is_durable_nonce = fd_resolv_is_durable_nonce( txnt, fd_txn_m_payload( txnm ) );
 
   if( FD_UNLIKELY( !is_bundle_member && !is_durable_nonce && !blockhash ) ) {
     ulong pool_idx;
@@ -582,7 +589,7 @@ after_frag( fd_resolv_ctx_t *   ctx,
 
   ulong realized_sz = fd_txn_m_realized_footprint( txnm, 1, 1 );
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-  fd_stem_publish( stem, 0UL, txnm->reference_slot, ctx->out_pack->chunk, realized_sz, 0UL, tsorig, tspub );
+  fd_stem_publish( stem, 0UL, txnm->reference_block_height, ctx->out_pack->chunk, realized_sz, 0UL, tsorig, tspub );
   ctx->out_pack->chunk = fd_dcache_compact_next( ctx->out_pack->chunk, realized_sz, ctx->out_pack->chunk0, ctx->out_pack->wmark );
 }
 
@@ -610,8 +617,9 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->bundle_failed = 0;
   ctx->bundle_id     = 0UL;
 
-  ctx->completed_slot = 0UL;
-  ctx->blockhash_ring_idx = 0UL;
+  ctx->completed_slot         = 0UL;
+  ctx->completed_block_height = 0UL;
+  ctx->blockhash_ring_idx     = 0UL;
 
   ctx->flush_pool_idx = ULONG_MAX;
 
@@ -623,11 +631,16 @@ unprivileged_init( fd_topo_t const *      topo,
 
   FD_TEST( ctx->lru_list==lru_list_join( lru_list_new( ctx->lru_list ) ) );
 
-  memset( ctx->blockhash_ring, 0, sizeof( ctx->blockhash_ring ) );
+  memset( ctx->blockhash_ring,       0, sizeof( ctx->blockhash_ring      ) );
+  memset( ctx->nonce_blockhash_ring, 0, sizeof( ctx->nonce_blockhash_ring ) );
   memset( &ctx->metrics, 0, sizeof( ctx->metrics ) );
 
-  ctx->blockhash_map = map_join( map_new( FD_SCRATCH_ALLOC_APPEND( l, map_align(), map_footprint( MAP_LG_SLOT_CNT ) ), MAP_LG_SLOT_CNT, ctx->map_seed ) );
-  FD_TEST( ctx->blockhash_map );
+  ulong map_chain_cnt = 2UL*map_chain_cnt_est( BLOCKHASH_RING_LEN );
+  ulong footprint     = map_footprint( map_chain_cnt );
+  ctx->blockhash_map       = map_join( map_new( FD_SCRATCH_ALLOC_APPEND( l, map_align(), footprint ), map_chain_cnt, ctx->map_seed ) );
+  ctx->nonce_blockhash_map = map_join( map_new( FD_SCRATCH_ALLOC_APPEND( l, map_align(), footprint ), map_chain_cnt, ctx->map_seed ) );
+  FD_TEST( ctx->blockhash_map       );
+  FD_TEST( ctx->nonce_blockhash_map );
 
   FD_TEST( tile->in_cnt<=sizeof( ctx->in )/sizeof( ctx->in[ 0 ] ) );
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {

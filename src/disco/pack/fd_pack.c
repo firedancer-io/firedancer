@@ -70,6 +70,10 @@ struct fd_pack_private_ord_txn {
   /* The noncemap map_chain fields */
   ushort noncemap_next;
   ushort noncemap_prev;
+  /* For nonce transactions, we store the provided expires_at value here
+     for use by the noncemap comparison functionality.  The actual
+     expires_at value for nonce transactions is rewritten */
+  ulong  nonce_expires_at;
 
   /* We want rewards*compute_est to fit in a ulong so that r1/c1 < r2/c2 can be
      computed as r1*c2 < r2*c1, with the product fitting in a ulong.
@@ -262,21 +266,22 @@ typedef struct fd_pack_wcost_ele fd_pack_wcost_ele_t;
 #include "../../util/tmpl/fd_map_chain.c"
 
 
-/* noncemap: A map from (nonce account, nonce authority, recent
-   blockhash) to a durable nonce transaction containing it.  We only
-   want to allow one transaction in the pool at a time with a given
-   (nonce account, recent blockhash) tuple value.  The question is: can
-   adding this limitation cause us to throw out potentially valuable
-   transaction?  The answer is yes, but only very rarely, and the
-   savings are worth it.  Suppose we have durable nonce transactions t1
-   and t2 that advance the same nonce account and have the same value
-   for the recent blockhash.
+/* noncemap: A map from (nonce account, nonce authority) to a durable
+   nonce transaction containing it.  We only want to allow one
+   transaction in the pool at a time with a given (nonce account, nonce
+   authority) tuple value, keeping the one with the blockhash value
+   derived from the newest blockhash, breaking ties by value.  The
+   question is: can adding this limitation cause us to throw out
+   potentially valuable transaction?  The answer is yes, but only very
+   rarely, and the savings are worth it.  Suppose we have durable nonce
+   transactions t1 and t2 that advance the same nonce account.
 
+   If t1 and t2 have the same recent blockhash value:
    - If t1 lands on chain, then it will advance the nonce account, and
-   t2 will certainly not land on chain.
+   t2 certainly cannot land on chain.
    - If t1 fails with AlreadyExecuted, that means the nonce account was
    advanced when t1 landed in a previous block, so t2 will certainly not
-   land on chain.
+   land on chain either.
    - If t1 fails with BlockhashNotFound, then the nonce account was
    advanced in some previous transaction, so again, t2 will certainly
    not land on chain.
@@ -287,11 +292,26 @@ typedef struct fd_pack_wcost_ele fd_pack_wcost_ele_t;
    fails for an unrelated reason, it's possible that t2 could land on
    chain, but again, historical data says this is rare.
 
+   Otherwise, suppose t1's recent blockhash value is the value based on
+   slot s1's blockhash (which is written to nonce accounts when
+   executing in slot s1+1) and similarly for s2, and that s1<s2.
+   Then we'll throw out t1 and only try to pack t2.
+
+   The sender will only send t2 if they think the nonce account contains
+   (or will contain) the value based on slot s2's blockhash, which means
+   they think a transaction landed or will land in slot s2+1.
+   If a transaction updating the nonce account did land in slot s2+1,
+   then t1 can never land, so throwing it out is safe.
+   It's possible, but seems unlikely, that the sender could be
+   speculating and has only seen slot s2 but not s2+1 yet.  In that
+   case, if we are leader for both s2+1, we could pack t1 in s2+1 and t2
+   in a later slot.  Again, this is a case where we'll take the small
+   hit in exchange for the simplification.
+
    We need to include the nonce authority in the hash to prevent one
    user from being able to DoS another user. */
 
 typedef struct {
-  uchar const * recent_blockhash;
   fd_acct_addr_t const * nonce_acct;
   fd_acct_addr_t const * nonce_auth;
 } noncemap_extract_t;
@@ -302,7 +322,6 @@ static inline void
 noncemap_extract( fd_txn_e_t const   * k,
                   noncemap_extract_t * out ) {
   fd_txn_t const * txn = TXN(k->txnp);
-  out->recent_blockhash = fd_txn_get_recent_blockhash( txn, k->txnp->payload );
 
   ulong nonce_idx = k->txnp->payload[ txn->instr[ 0 ].acct_off+0 ];
   ulong autho_idx = k->txnp->payload[ txn->instr[ 0 ].acct_off+2 ];
@@ -323,7 +342,6 @@ noncemap_key_eq_internal( fd_txn_e_t const * k0,
   noncemap_extract( k0, e0 );
   noncemap_extract( k1, e1 );
 
-  if( FD_UNLIKELY( memcmp( e0->recent_blockhash, e1->recent_blockhash, 32UL ) ) ) return 0;
   if( FD_UNLIKELY( memcmp( e0->nonce_acct,       e1->nonce_acct,       32UL ) ) ) return 0;
   if( FD_UNLIKELY( memcmp( e0->nonce_auth,       e1->nonce_auth,       32UL ) ) ) return 0;
   return 1;
@@ -339,26 +357,20 @@ noncemap_key_hash_internal( ulong              seed,
   noncemap_extract_t e[1];
   noncemap_extract( k, e );
 
-  ulong k0 = FD_LOAD( ulong, e->recent_blockhash+ 0 );
-  ulong k1 = FD_LOAD( ulong, e->recent_blockhash+ 8 );
-  ulong k2 = FD_LOAD( ulong, e->recent_blockhash+16 );
-  ulong k3 = FD_LOAD( ulong, e->recent_blockhash+24 );
-  ulong k4 = FD_LOAD( ulong, e->nonce_acct->b   + 0 );
-  ulong k5 = FD_LOAD( ulong, e->nonce_acct->b   + 8 );
-  ulong k6 = FD_LOAD( ulong, e->nonce_acct->b   +16 );
-  ulong k7 = FD_LOAD( ulong, e->nonce_acct->b   +24 );
-  ulong k8 = FD_LOAD( ulong, e->nonce_auth->b   + 0 );
-  ulong k9 = FD_LOAD( ulong, e->nonce_auth->b   + 8 );
-  ulong ka = FD_LOAD( ulong, e->nonce_auth->b   +16 );
-  ulong kb = FD_LOAD( ulong, e->nonce_auth->b   +24 );
+  ulong k0 = FD_LOAD( ulong, e->nonce_acct->b   + 0 );
+  ulong k1 = FD_LOAD( ulong, e->nonce_acct->b   + 8 );
+  ulong k2 = FD_LOAD( ulong, e->nonce_acct->b   +16 );
+  ulong k3 = FD_LOAD( ulong, e->nonce_acct->b   +24 );
+  ulong k4 = FD_LOAD( ulong, e->nonce_auth->b   + 0 );
+  ulong k5 = FD_LOAD( ulong, e->nonce_auth->b   + 8 );
+  ulong k6 = FD_LOAD( ulong, e->nonce_auth->b   +16 );
+  ulong k7 = FD_LOAD( ulong, e->nonce_auth->b   +24 );
 
   ulong acc = 96 * 0x9E3779B185EBCA87ULL;
   acc += fd_xxh3_mix16b( k4, k5, 0xcb00c391bb52283cUL, 0xa32e531b8b65d088UL, seed );
   acc += fd_xxh3_mix16b( k6, k7, 0x4ef90da297486471UL, 0xd8acdea946ef1938UL, seed );
   acc += fd_xxh3_mix16b( k2, k3, 0x78e5c0cc4ee679cbUL, 0x2172ffcc7dd05a82UL, seed );
-  acc += fd_xxh3_mix16b( k8, k9, 0x8e2443f7744608b8UL, 0x4c263a81e69035e0UL, seed );
   acc += fd_xxh3_mix16b( k0, k1, 0xbe4ba423396cfeb8UL, 0x1cad21f72c81017cUL, seed );
-  acc += fd_xxh3_mix16b( ka, kb, 0xdb979083e96dd4deUL, 0x1f67b3b7a4a44072UL, seed );
   acc = acc ^ (acc >> 37);
   acc *= 0x165667919E3779F9ULL;
   acc = acc ^ (acc >> 32);
@@ -373,11 +385,10 @@ noncemap_key_hash_internal( ulong              seed,
   noncemap_extract_t e[1];
   noncemap_extract( k, e );
 
-  uchar buf[ 96 ];
-  memcpy( buf,    e->recent_blockhash, 32UL );
-  memcpy( buf+32, e->nonce_acct->b,     32UL );
-  memcpy( buf+64, e->nonce_auth->b,     32UL );
-  return fd_hash( seed, buf, 96UL );
+  uchar buf[ 64 ];
+  memcpy( buf,      e->nonce_acct->b,     32UL );
+  memcpy( buf+32UL, e->nonce_auth->b,     32UL );
+  return fd_hash( seed, buf, 64UL );
 }
 
 #endif
@@ -1469,8 +1480,6 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
      accessed with adj_lut[n]. */
   fd_acct_addr_t const * alt_adj = ord->txn_e->alt_accts - fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM );
 
-  ord->expires_at = expires_at;
-
   int est_result = fd_pack_estimate_rewards_and_compute( txne, ord, pack->lim );
   if( FD_UNLIKELY( !est_result ) ) REJECT( ESTIMATION_FAIL );
   int is_vote          = est_result==1;
@@ -1488,7 +1497,9 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
   }
 
   /* Reject any transactions that have already expired */
-  if( FD_UNLIKELY( expires_at<pack->expire_before                          ) ) REJECT( EXPIRED          );
+  if( FD_UNLIKELY( (!is_durable_nonce) & (expires_at<pack->expire_before )) ) REJECT( EXPIRED          );
+
+  ord->nonce_expires_at = fd_ulong_if( is_durable_nonce, expires_at, 0UL );
 
   int replaces = 0;
   /* If it's a durable nonce and we already have one, delete one or the
@@ -1496,12 +1507,18 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
   if( FD_UNLIKELY( is_durable_nonce ) ) {
     fd_pack_ord_txn_t * same_nonce = noncemap_ele_query( pack->noncemap, txne, NULL, pack->pool );
     if( FD_LIKELY( same_nonce ) ) { /* Seems like most nonce transactions are effectively duplicates */
-      if( FD_LIKELY( same_nonce->root == FD_ORD_TXN_ROOT_PENDING_BUNDLE || COMPARE_WORSE( ord, same_nonce ) ) ) REJECT( NONCE_PRIORITY );
+      if( FD_LIKELY( same_nonce->root == FD_ORD_TXN_ROOT_PENDING_BUNDLE || same_nonce->nonce_expires_at>expires_at ||
+            (same_nonce->nonce_expires_at==expires_at && COMPARE_WORSE( ord, same_nonce ) ) ) ) REJECT( NONCE_PRIORITY );
       ulong _delete_cnt = delete_transaction( pack, same_nonce, 0, 0 ); /* Not a bundle, so delete_full_bundle is 0 */
       *delete_cnt += _delete_cnt;
       replaces = 1;
     }
+    /* Replace the expires_at value with a synthetic one to give nonce
+       transactions a finite lifetime. */
+    expires_at = pack->expire_before + FD_PACK_NONCE_SYNTHETIC_LIFETIME;
   }
+
+  ord->expires_at = expires_at;
 
   if( FD_UNLIKELY( pack->pending_txn_cnt == pack->pack_depth ) ) {
     float threshold_score = (float)ord->rewards/(float)ord->compute_est;
@@ -1644,6 +1661,15 @@ fd_pack_insert_bundle_fini( fd_pack_t          * pack,
     if( FD_UNLIKELY( est_result==1 ) ) { err = FD_PACK_INSERT_REJECT_BUNDLE_BLACKLIST; break; }
     int nonce_result = fd_pack_validate_durable_nonce( ord->txn_e );
     if( FD_UNLIKELY( !nonce_result ) ) { err = FD_PACK_INSERT_REJECT_INVALID_NONCE;    break; }
+    /* The expires_at field is interpreted differently for nonce vs.
+       non-nonce transactions, but bundles are required to have the same
+       value for that field, so we've lost the value we would put in
+       nonce_expires_at.  Turns out, that's never read for bundles
+       though.  So for now, we just use the incorrect expires_at.
+       If you're already getting revert protection from being a bundle,
+       it seems dumb to use a durable nonce as another form of revert
+       protection anyway.  We're expecting the sender of the bundles to
+       do the nonce filtering anyway. */
     int is_durable_nonce = nonce_result==2;
     nonce_txn_cnt += !!is_durable_nonce;
 
@@ -1655,6 +1681,7 @@ fd_pack_insert_bundle_fini( fd_pack_t          * pack,
     ord->expires_at = expires_at;
 
     if( FD_UNLIKELY( is_durable_nonce ) ) {
+      ord->nonce_expires_at = expires_at;
       nonce_hash63[ i ] = noncemap_key_hash( ord->txn_e, pack->noncemap->seed ) & 0x7FFFFFFFFFFFFFFFUL;
       fd_pack_ord_txn_t * same_nonce = noncemap_ele_query( pack->noncemap, ord->txn_e, NULL, pack->pool );
       if( FD_LIKELY( same_nonce ) ) {
