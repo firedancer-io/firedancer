@@ -1,4 +1,4 @@
-#include "../poh/fd_poh.h"
+#include "fd_motor_shred.h"
 #include "../../flamenco/alpenglow/fd_block_marker_serde.h"
 #include "../replay/fd_replay_tile.h"
 #include "../../disco/tiles.h"
@@ -19,8 +19,9 @@
    produces an entire entry batch (a fixed-32 shred FEC set) containing
    exclusively those two fields (the remainder is padding).
 
-   Following the header are entries.  As in PoH, each entry is sent to
-   shred which groups into entry batches that divide into FEC sets.
+   Following the header are entries.  As in PoH, entries are sent to
+   shred (coalesced into frags, see fd_motor_shred_t) which groups them
+   into entry batches that divide into FEC sets.
    Unlike in PoH, entries cannot be interleaved with ticks.  Every entry
    in the block has num_hashes==1.  A transaction entry hashes
    sha256(prev || merkle_root(txn signatures)), where the mixin is
@@ -82,36 +83,57 @@ struct fd_motor_tile {
 
   fd_startup_gate_t startup_gate[1];
 
+  ulong poll_cnt; /* polled ins */
   int in_kind[ 64 ];
   fd_motor_in_t in[ 64 ];
 
-  fd_poh_out_t shred_out[ 1 ];
-  fd_poh_out_t replay_out[ 1 ];
+  fd_motor_shred_t shred[ 1 ];
+  fd_poh_out_t   replay_out[ 1 ];
 };
 typedef struct fd_motor_tile fd_motor_tile_t;
 
 FD_STATIC_ASSERT( FD_POH_SHRED_MTU-sizeof(fd_entry_batch_meta_t)>=FD_BLOCK_MARKER_SER_MAX, fd_motor_tile );
 
-static ulong
-prepare_header( fd_motor_tile_t * ctx ) {
-  fd_block_marker_t marker[1];
-  marker->kind                   = FD_BLOCK_MARKER_KIND_HEADER;
-  marker->header.parent_slot     = ctx->parent_slot;
-  marker->header.parent_block_id = ctx->parent_dmr;
-
-  ulong marker_sz = fd_block_marker_ser( marker, (uchar *)fd_chunk_to_laddr( ctx->shred_out->mem, ctx->shred_out->chunk )+sizeof(fd_entry_batch_meta_t) );
-  if( FD_UNLIKELY( !marker_sz ) ) FD_LOG_ERR(( "fd_block_marker_ser(HEADER) failed" ));
-  return marker_sz;
+static void
+fill_meta( fd_motor_tile_t *       ctx,
+           fd_entry_batch_meta_t * meta,
+           int                     block_complete ) {
+  meta->parent_offset         = ctx->slot - ctx->parent_slot;
+  meta->reference_tick        = 0UL; /* Alpenglow blocks have no tick schedule */
+  meta->block_complete        = block_complete;
+  meta->parent_block_id_valid = 1;
+  memcpy( meta->parent_block_id, ctx->parent_cmr.uc, sizeof(fd_hash_t) );
+  meta->entry_cnt             = 0;
+  meta->txn_cnt               = 0;
 }
 
-static ulong
-prepare_entry( fd_motor_tile_t *               ctx,
+/* Markers carry no entry and go to shred as a frag of their own */
+
+static void
+publish_marker( fd_motor_tile_t *         ctx,
+                fd_stem_context_t *       stem,
+                fd_block_marker_t const * marker ) {
+  fd_entry_batch_meta_t * meta = fd_motor_shred_prepare( ctx->shred, stem );
+  fill_meta( ctx, meta, -1 );
+  ulong marker_sz = fd_block_marker_ser( marker, (uchar *)(meta+1) );
+  if( FD_UNLIKELY( !marker_sz ) ) FD_LOG_ERR(( "fd_block_marker_ser(%u) failed", marker->kind ));
+  fd_motor_shred_publish( ctx->shred, stem, ctx->slot, marker_sz );
+}
+
+static void
+publish_entry( fd_motor_tile_t *               ctx,
+               fd_stem_context_t *             stem,
                fd_microblock_trailer_t const * trailer,
                ulong                           txn_cnt,
                fd_txn_p_t const *              txns ) {
   ulong executed_txn_cnt = 0UL;
-  for( ulong i=0UL; i<txn_cnt; i++ ) executed_txn_cnt += !!(txns[ i ].flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS);
-  if( FD_UNLIKELY( !executed_txn_cnt ) ) return 0UL;
+  ulong payload_sz       = 0UL;
+  for( ulong i=0UL; i<txn_cnt; i++ ) {
+    ulong executed    = !!(txns[ i ].flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS);
+    executed_txn_cnt += executed;
+    payload_sz       += fd_ulong_if( (int)executed, txns[ i ].payload_sz, 0UL );
+  }
+  if( FD_UNLIKELY( !executed_txn_cnt ) ) return;
 
   if( FD_LIKELY( ctx->timing_tables ) ) {
     fd_leader_txn_timing_table_t * table = fd_leader_txn_timing_table( ctx->timing_tables, ctx->timing_table_idx, ctx->timing_table_max );
@@ -132,69 +154,38 @@ prepare_entry( fd_motor_tile_t *               ctx,
   memcpy( data+32UL, trailer->hash,    sizeof(fd_hash_t) );
   fd_sha256_hash( data, sizeof(data), ctx->poh_hash.uc );
 
-  fd_entry_batch_header_t * entry = (fd_entry_batch_header_t *)((uchar *)fd_chunk_to_laddr( ctx->shred_out->mem, ctx->shred_out->chunk )+sizeof(fd_entry_batch_meta_t));
+  fd_entry_batch_meta_t meta[1];
+  fill_meta( ctx, meta, 0 );
+  fd_entry_batch_header_t * entry = (fd_entry_batch_header_t *)fd_motor_shred_append( ctx->shred, stem, ctx->slot, meta, sizeof(fd_entry_batch_header_t)+payload_sz );
   entry->hashcnt_delta            = 1UL; /* every Alpenglow entry has num_hashes==1 */
   entry->txn_cnt                  = executed_txn_cnt;
   memcpy( entry->hash, ctx->poh_hash.uc, sizeof(fd_hash_t) );
 
-  uchar * payload    = (uchar *)(entry+1UL);
-  ulong   payload_sz = 0UL;
+  uchar * payload = (uchar *)(entry+1UL);
   for( ulong i=0UL; i<txn_cnt; i++ ) {
     fd_txn_p_t const * txn = txns + i;
     if( FD_UNLIKELY( !(txn->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS) ) ) continue;
 
-    fd_memcpy( payload+payload_sz, txn->payload, txn->payload_sz );
-    payload_sz += txn->payload_sz;
+    fd_memcpy( payload, txn->payload, txn->payload_sz );
+    payload += txn->payload_sz;
   }
 
-  return sizeof(fd_entry_batch_header_t)+payload_sz;
+  fd_motor_shred_commit( ctx->shred, stem, executed_txn_cnt );
 }
 
-static ulong
-prepare_footer( fd_motor_tile_t *                 ctx,
-                fd_replay_leader_footer_t const * footer ) {
-  fd_block_marker_t marker[1];
-  marker->kind    = FD_BLOCK_MARKER_KIND_FOOTER;
-  marker->footer  = footer->footer;
+static void
+publish_alpentick( fd_motor_tile_t *   ctx,
+                   fd_stem_context_t * stem ) {
+  fd_entry_batch_meta_t * meta = fd_motor_shred_prepare( ctx->shred, stem );
+  fill_meta( ctx, meta, 1 );
+  meta->entry_cnt = 1;
 
-  ulong marker_sz = fd_block_marker_ser( marker, (uchar *)fd_chunk_to_laddr( ctx->shred_out->mem, ctx->shred_out->chunk )+sizeof(fd_entry_batch_meta_t) );
-  if( FD_UNLIKELY( !marker_sz ) ) FD_LOG_ERR(( "fd_block_marker_ser(FOOTER) failed" ));
-  return marker_sz;
-}
-
-static ulong
-prepare_alpentick( fd_motor_tile_t * ctx ) {
-  fd_entry_batch_header_t * entry = (fd_entry_batch_header_t *)((uchar *)fd_chunk_to_laddr( ctx->shred_out->mem, ctx->shred_out->chunk )+sizeof(fd_entry_batch_meta_t));
+  fd_entry_batch_header_t * entry = (fd_entry_batch_header_t *)(meta+1);
   entry->hashcnt_delta            = 1UL;
   entry->txn_cnt                  = 0UL;
   memcpy( entry->hash, ctx->poh_hash.uc, sizeof(fd_hash_t) );
 
-  return sizeof(fd_entry_batch_header_t);
-}
-
-static void
-publish_shred( fd_motor_tile_t *   ctx,
-               fd_stem_context_t * stem,
-               ulong               payload_sz,
-               int                 block_complete ) {
-  fd_entry_batch_meta_t * meta = fd_chunk_to_laddr( ctx->shred_out->mem, ctx->shred_out->chunk );
-  meta->parent_offset          = ctx->slot - ctx->parent_slot;
-  meta->reference_tick         = 0UL; /* Alpenglow blocks have no tick schedule */
-  meta->block_complete         = block_complete;
-
-  memcpy( meta->parent_block_id, ctx->parent_cmr.uc, sizeof(fd_hash_t) );
-  meta->parent_block_id_valid = 1;
-
-  /* markers carry no entry, everything else exactly one */
-  int entry = block_complete!=-1;
-  meta->entry_cnt = (ushort)entry;
-  meta->txn_cnt   = (ushort)fd_ulong_if( entry, ((fd_entry_batch_header_t const *)(meta+1))->txn_cnt, 0UL );
-
-  ulong sz    = sizeof(fd_entry_batch_meta_t)+payload_sz;
-  ulong sig   = fd_disco_poh_sig( ctx->slot, POH_PKT_TYPE_MICROBLOCK, 0UL );
-  ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
-  fd_stem_publish( stem, ctx->shred_out->idx, sig, ctx->shred_out->chunk, sz, 0UL, 0UL, tspub );
-  ctx->shred_out->chunk = fd_dcache_compact_next( ctx->shred_out->chunk, sz, ctx->shred_out->chunk0, ctx->shred_out->wmark );
+  fd_motor_shred_publish( ctx->shred, stem, ctx->slot, sizeof(fd_entry_batch_header_t) );
 }
 
 static void
@@ -214,21 +205,32 @@ init_block( fd_motor_tile_t *          ctx,
     table->cnt  = 0UL;
   }
 
-  publish_shred( ctx, stem, prepare_header( ctx ), -1 );
+  fd_block_marker_t marker[1];
+  marker->kind                   = FD_BLOCK_MARKER_KIND_HEADER;
+  marker->header.parent_slot     = ctx->parent_slot;
+  marker->header.parent_block_id = ctx->parent_dmr;
+  publish_marker( ctx, stem, marker );
 }
 
 static void
 fini_block( fd_motor_tile_t *                 ctx,
             fd_stem_context_t *               stem,
             fd_replay_leader_footer_t const * footer ) {
-  publish_shred( ctx, stem, prepare_footer( ctx, footer ), -1 );
-  publish_shred( ctx, stem, prepare_alpentick( ctx ), 1 );
+  fd_block_marker_t marker[1];
+  marker->kind   = FD_BLOCK_MARKER_KIND_FOOTER;
+  marker->footer = footer->footer;
+  publish_marker( ctx, stem, marker );
+  publish_alpentick( ctx, stem );
 }
 
 static void
 done_packing( fd_motor_tile_t *         ctx,
               fd_stem_context_t *       stem,
               fd_done_packing_t const * msg ) {
+
+  /* Motor finishes every block it starts, abandoned or not, so its
+     entries are never dropped. */
+  fd_motor_shred_flush( ctx->shred, stem );
 
   fd_sha256_hash( ctx->poh_hash.uc, sizeof(fd_hash_t), ctx->poh_hash.uc ); /* alpentick */
 
@@ -291,15 +293,24 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 }
 
 static inline void
+before_credit( fd_motor_tile_t *   ctx,
+               fd_stem_context_t * stem,
+               int *               charge_busy ) {
+  (void)stem;
+  (void)charge_busy;
+
+  fd_motor_shred_loop( ctx->shred );
+}
+
+static inline void
 after_credit( fd_motor_tile_t *   ctx,
               fd_stem_context_t * stem,
               int *               opt_poll_in,
               int *               charge_busy ) {
-  (void)stem;
   (void)opt_poll_in;
-  (void)charge_busy;
 
   fd_startup_gate_idle( ctx->startup_gate );
+  fd_motor_shred_idle( ctx->shred, stem, ctx->poll_cnt, charge_busy );
 }
 
 static int
@@ -372,8 +383,7 @@ returnable_frag( fd_motor_tile_t *   ctx,
       ulong txn_cnt = (sz-sizeof(fd_microblock_trailer_t))/sizeof(fd_txn_p_t);
       fd_txn_p_t const * txns = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
       fd_microblock_trailer_t const * trailer = fd_type_pun_const( (uchar const *)txns+sz-sizeof(fd_microblock_trailer_t) );
-      ulong payload_sz = prepare_entry( ctx, trailer, txn_cnt, txns );
-      if( FD_LIKELY( payload_sz ) ) publish_shred( ctx, stem, payload_sz, 0 );
+      publish_entry( ctx, stem, trailer, txn_cnt, txns );
       break;
     }
     default: {
@@ -383,6 +393,19 @@ returnable_frag( fd_motor_tile_t *   ctx,
   }
 
   return 0;
+}
+
+static inline void
+after_frag( fd_motor_tile_t *   ctx,
+            ulong               in_idx,
+            ulong               seq,
+            ulong               sig,
+            ulong               sz,
+            ulong               tsorig,
+            ulong               tspub,
+            fd_stem_context_t * stem ) {
+  (void)in_idx; (void)seq; (void)sig; (void)sz; (void)tsorig; (void)tspub; (void)stem;
+  fd_motor_shred_busy( ctx->shred );
 }
 
 static void
@@ -397,6 +420,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->slot            = ULONG_MAX;
 
   FD_CHECK_ERR( tile->in_cnt<=sizeof(ctx->in)/sizeof(ctx->in[0]), "too many input links" );
+  ctx->poll_cnt = fd_topo_tile_producer_cnt( topo, tile );
 
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
@@ -414,7 +438,8 @@ unprivileged_init( fd_topo_t const *      topo,
   }
 
   *ctx->replay_out = out1( topo, tile, "poh_replay" );
-  *ctx->shred_out  = out1( topo, tile, "poh_shred"  );
+  fd_poh_out_t shred_out = out1( topo, tile, "poh_shred" );
+  fd_motor_shred_init( ctx->shred, &shred_out );
 
   ulong ldr_tt_obj_id   = fd_pod_query_ulong( topo->props, "ldr_tt", ULONG_MAX );
   ctx->timing_tables    = ldr_tt_obj_id==ULONG_MAX ? NULL : fd_topo_obj_laddr( topo, ldr_tt_obj_id );
@@ -457,7 +482,10 @@ populate_allowed_fds( fd_topo_t const *      topo,
   return out_cnt;
 }
 
-#define STEM_BURST (2UL) /* footer + alpentick */
+/* The open frag, the footer and the alpentick.  An entry publishes at
+   most two (the open frag, then itself if it ends its frag), and after
+   the idle flush in after_credit nothing is open. */
+#define STEM_BURST (3UL)
 
 /* See explanation in fd_pack */
 #define STEM_LAZY  (128L*3000L)
@@ -465,9 +493,11 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_motor_tile_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_motor_tile_t)
 
+#define STEM_CALLBACK_BEFORE_CREDIT       before_credit
 #define STEM_CALLBACK_AFTER_CREDIT        after_credit
 #define STEM_CALLBACK_BEFORE_FRAG         before_frag
 #define STEM_CALLBACK_RETURNABLE_FRAG     returnable_frag
+#define STEM_CALLBACK_AFTER_FRAG          after_frag
 
 #include "../../disco/stem/fd_stem.c"
 
