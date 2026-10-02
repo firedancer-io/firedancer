@@ -717,23 +717,21 @@ during_frag( fd_shred_ctx_t * ctx,
       ctx->skip_frag = 1;
     }
 
-    ulong   pending_batch_wmark = FD_SHRED_BATCH_WMARK_CHAINED;
     uchar * chained_merkle_root = ctx->chained_merkle_root;
 
-    /* If this microblock completes the block, the batch is then
-       finalized here.  Otherwise, we check whether the new entry
-       would exceed the pending_batch_wmark.  If true, then the
-       batch is closed now, shredded, and a new batch is started
-       with the incoming microblock.  If false, no shredding takes
-       place, and the microblock is added to the current batch.
-       Pack limits entry bytes so this batching cannot exceed
-       max_shred_idx. */
+    /* If this frag completes the block, the batch is then finalized
+       here.  Otherwise, we check whether its entries would exceed the
+       watermark.  If true, then the batch is closed now, shredded,
+       and a new batch is started with the incoming entries.  If
+       false, no shredding takes place, and the entries are added to
+       the current batch (see fd_shred_batch_step, which motor also
+       follows).  Pack limits entry bytes so this batching cannot
+       exceed max_shred_idx. */
     int is_marker                = entry_meta->block_complete==-1;
     int writing_marker           = 0;
-    int forced_end_batch         = entry_meta->block_complete | new_slot;
-    int batch_would_exceed_wmark = ( ctx->pending_batch.pos + entry_sz ) > pending_batch_wmark;
-    int include_in_current_batch = !is_marker && ( forced_end_batch | ( !batch_would_exceed_wmark ) );
-    int process_current_batch    = is_marker ? !!ctx->pending_batch.pos : ( forced_end_batch | batch_would_exceed_wmark );
+    int step                     = fd_shred_batch_step( ctx->pending_batch.pos, entry_sz, entry_meta->block_complete, new_slot );
+    int include_in_current_batch = !!( step & FD_SHRED_BATCH_INCLUDE );
+    int process_current_batch    = !!( step & FD_SHRED_BATCH_SHRED   );
     int init_new_batch           = !include_in_current_batch;
 
     if( FD_LIKELY( include_in_current_batch ) ) {
