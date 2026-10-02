@@ -631,7 +631,9 @@ ag_votor_set_rank( ag_votor_t * self,
 }
 
 void
-ag_votor_wait_to_vote( ag_votor_t * self ) {
+ag_votor_wait_to_vote( ag_votor_t * self,
+                       ulong        wait_to_vote_slot ) {
+  self->wait_to_vote_slot = fd_ulong_max( self->wait_to_vote_slot, wait_to_vote_slot );
   slot_state_map_t const * map  = self->slot_states->map;
   slot_state_ele_t const * pool = self->slot_states->pool;
   for( slot_state_map_iter_t iter = slot_state_map_iter_init( map, pool );

@@ -614,7 +614,7 @@ test_wait_to_vote( void ) {
 
   ag_block_id_t parent = genesis_block_id();
   ag_vote_t     vote   = send_block_and_expect_notar( votor, 1UL, &parent );
-  ag_votor_wait_to_vote( votor );
+  ag_votor_wait_to_vote( votor, 0UL );
 
   ag_pool_event_t event = { .kind = AG_POOL_EVENT_CERT_CREATED, .cert_created = cert_build_notar( &vote.notar, 1UL, g_epoch_info ) };
   ag_votor_handle_pool_event( votor, &event, 0L );
@@ -632,6 +632,29 @@ test_wait_to_vote( void ) {
 
   parent_ready( votor, AG_SLOTS_PER_WINDOW, &parent );
   send_block_and_expect_notar( votor, AG_SLOTS_PER_WINDOW, &parent );
+
+  teardown_votor( votor );
+}
+
+/* The new identity's vote history file gives the slot it can vote from.
+   Votor signs nothing below it, even in a window it never voted in. */
+
+static void
+test_wait_to_vote_slot( void ) {
+  ag_votor_t * votor = setup_votor( 0L );
+  ag_votor_wait_to_vote( votor, 2UL*AG_SLOTS_PER_WINDOW );
+
+  ag_block_id_t parent = random_block_id( AG_SLOTS_PER_WINDOW-1UL );
+  parent_ready( votor, AG_SLOTS_PER_WINDOW, &parent );
+  ag_block_info_t block = {0};
+  block.parent = parent;
+  random_hash( block.hash );
+  ag_votor_process_replay( votor, AG_SLOTS_PER_WINDOW, &block );
+  FD_TEST_NO_MSG( votor );
+
+  parent = random_block_id( 2UL*AG_SLOTS_PER_WINDOW-1UL );
+  parent_ready( votor, 2UL*AG_SLOTS_PER_WINDOW, &parent );
+  send_block_and_expect_notar( votor, 2UL*AG_SLOTS_PER_WINDOW, &parent );
 
   teardown_votor( votor );
 }
@@ -794,6 +817,7 @@ main( int     argc,
   test_missing_bls_selector_records_final();
   test_set_rank();
   test_wait_to_vote();
+  test_wait_to_vote_slot();
   test_window_start_at_first_unpruned();
   test_boot_mid_window_notar_child();
   test_missing_bls_selector_still_skips_other_epoch();

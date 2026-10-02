@@ -649,6 +649,8 @@ test_id_keyswitch( void ) {
   FD_TEST( ag_votor_metrics( ctx.votor ).vote_events_cnt==1UL );
 
   memcpy( ctx.id_keyswitch->bytes, new_id.uc, sizeof(fd_pubkey_t) );
+  FD_STORE( ulong, ctx.id_keyswitch->bytes+32UL, sizeof(ulong) ); /* the vote history file's wait_to_vote_slot */
+  FD_STORE( ulong, ctx.id_keyswitch->bytes+40UL, 4UL );
   ctx.id_keyswitch->param = 8UL;
   fd_keyswitch_state( ctx.id_keyswitch, FD_KEYSWITCH_STATE_SWITCH_PENDING );
 
@@ -713,6 +715,7 @@ test_id_keyswitch( void ) {
   during_housekeeping( &ctx );
   FD_TEST( ctx.id_keyswitch->state==FD_KEYSWITCH_STATE_COMPLETED );
   FD_TEST( fd_pubkey_eq( &ctx.id_key, &new_id ) );
+  FD_TEST( ctx.wait_to_vote_slot==4UL );
   FD_TEST( ctx.next_leader_slot==8UL );
   FD_TEST( !memcmp( ctx.quic_client->config.identity_public_key, new_id.uc, sizeof(fd_pubkey_t) ) );
   FD_TEST( !memcmp( ctx.quic_server->config.identity_public_key, new_id.uc, sizeof(fd_pubkey_t) ) );

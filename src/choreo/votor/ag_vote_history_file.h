@@ -14,8 +14,10 @@
 #define AG_VOTE_HISTORY_BLOCK_MAX (4UL*AG_VOTE_HISTORY_SLOT_MAX)
 #define AG_VOTE_HISTORY_VOTE_MAX  (8UL*AG_VOTE_HISTORY_SLOT_MAX)
 
-/* AG_VOTE_HISTORY_FILE_MAX is the largest file we read. */
-#define AG_VOTE_HISTORY_FILE_MAX  (8UL<<20)
+/* AG_VOTE_HISTORY_FILE_MAX is the largest file we read, about 180
+   slots of history without finalization.  It fills the 32 KiB
+   set-identity adminctl payload. */
+#define AG_VOTE_HISTORY_FILE_MAX  (32688UL)
 
 /* Parent ready sets grow quadratically with fallback certificates, so
    they are bounded by the file instead: each (slot, parent) pair
@@ -30,7 +32,7 @@
 #define AG_VOTE_HISTORY_KIND_SKIP_FALLBACK  (5U)
 #define AG_VOTE_HISTORY_KIND_GENESIS        (6U)
 
-/* Return codes of ag_vote_history_file_de. */
+/* Return codes of ag_vote_history_file_{de,scan}. */
 #define AG_VOTE_HISTORY_FILE_SUCCESS      ( 0)
 #define AG_VOTE_HISTORY_FILE_ERR_SIZE     (-1) /* truncated, too large, or the lengths disagree */
 #define AG_VOTE_HISTORY_FILE_ERR_VERSION  (-2) /* not SavedVoteHistoryVersions::Current */
@@ -90,6 +92,17 @@ ag_vote_history_file_de( uchar const *            buf,
                          ulong                    buf_sz,
                          uchar const              identity[ static 32 ],
                          ag_vote_history_file_t * out );
+
+/* ag_vote_history_file_scan does validation on a vote history file and
+   returns in *wait_to_vote_slot the first slot of the leader window
+   after the highest slot the file voted in, or after its root if that
+   is higher.  Returns AG_VOTE_HISTORY_FILE_SUCCESS, or an
+   AG_VOTE_HISTORY_FILE_ERR_* code with *wait_to_vote_slot unchanged. */
+int
+ag_vote_history_file_scan( uchar const * buf,
+                           ulong         buf_sz,
+                           uchar const   identity[ static 32 ],
+                           ulong *       wait_to_vote_slot );
 
 FD_PROTOTYPES_END
 

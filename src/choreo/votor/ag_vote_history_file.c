@@ -159,9 +159,125 @@ ag_vote_history_file_de( uchar const *            buf,
   return AG_VOTE_HISTORY_FILE_SUCCESS;
 }
 
+#define SKIP( sz ) do {                                                        \
+    if( FD_UNLIKELY( (sz)>buf_sz-off ) ) return AG_VOTE_HISTORY_FILE_ERR_SIZE; \
+    off += (sz);                                                               \
+  } while(0)
+
+/* LOAD_SLOT loads a slot that must not be below root.  root comes
+   last, so slots are folded into min_slot and checked at the end.
+   LOAD_VOTE also folds a slot we voted in into max_vote. */
+#define LOAD_SLOT( dst ) do {                   \
+    LOAD( ulong, dst );                         \
+    min_slot = fd_ulong_min( min_slot, (dst) ); \
+  } while(0)
+
+#define LOAD_VOTE( dst ) do {                   \
+    LOAD_SLOT( dst );                           \
+    max_vote = fd_ulong_max( max_vote, (dst) ); \
+  } while(0)
+
+#define LOAD_VOTES() do {                                           \
+    ulong n_; LOAD_LEN( n_, 8UL );                                  \
+    for( ulong i_=0UL; i_<n_; i_++ ) { ulong s_; LOAD_VOTE( s_ ); } \
+  } while(0)
+
+int
+ag_vote_history_file_scan( uchar const * buf,
+                           ulong         buf_sz,
+                           uchar const   identity[ static 32 ],
+                           ulong *       wait_to_vote_slot ) {
+  if( FD_UNLIKELY( buf_sz>AG_VOTE_HISTORY_FILE_MAX ) ) return AG_VOTE_HISTORY_FILE_ERR_SIZE;
+  ulong off = 0UL;
+
+  uint kind; LOAD( uint, kind );
+  if( FD_UNLIKELY( kind!=SAVED_KIND ) ) return AG_VOTE_HISTORY_FILE_ERR_VERSION;
+
+  if( FD_UNLIKELY( buf_sz<DATA_OFF ) ) return AG_VOTE_HISTORY_FILE_ERR_SIZE;
+  uchar const * sig = buf+SIG_OFF;
+  off = SIG_OFF+64UL;
+  ulong data_sz; LOAD( ulong, data_sz );
+  if( FD_UNLIKELY( data_sz!=buf_sz-DATA_OFF ) ) return AG_VOTE_HISTORY_FILE_ERR_SIZE;
+
+  fd_sha512_t sha[ 1 ];
+  if( FD_UNLIKELY( FD_ED25519_SUCCESS!=fd_ed25519_verify( buf+DATA_OFF, data_sz, sig, identity, sha ) ) ) return AG_VOTE_HISTORY_FILE_ERR_SIG;
+
+  if( FD_UNLIKELY( 32UL>buf_sz-off ) ) return AG_VOTE_HISTORY_FILE_ERR_SIZE;
+  if( FD_UNLIKELY( !fd_memeq( buf+off, identity, 32UL ) ) ) return AG_VOTE_HISTORY_FILE_ERR_IDENTITY;
+  off += 32UL;
+
+  ulong min_slot = ULONG_MAX;
+  ulong max_vote = 0UL;
+
+  LOAD_VOTES(); /* voted */
+
+  ulong notar_cnt; LOAD_LEN( notar_cnt, 40UL );
+  for( ulong i=0UL; i<notar_cnt; i++ ) {
+    ulong slot; LOAD_VOTE( slot );
+    SKIP( 32UL );
+  }
+
+  ulong notar_fallback_cnt; LOAD_LEN( notar_fallback_cnt, 16UL );
+  for( ulong i=0UL; i<notar_fallback_cnt; i++ ) {
+    ulong slot;     LOAD_VOTE( slot );
+    ulong hash_cnt; LOAD_LEN( hash_cnt, 32UL );
+    SKIP( hash_cnt*32UL );
+  }
+
+  LOAD_VOTES(); /* voted_skip_fallback */
+  LOAD_VOTES(); /* skipped */
+  LOAD_VOTES(); /* its_over */
+
+  ulong votes_slot_cnt; LOAD_LEN( votes_slot_cnt, 16UL );
+  for( ulong i=0UL; i<votes_slot_cnt; i++ ) {
+    ulong slot;     LOAD_VOTE( slot );
+    ulong vote_cnt; LOAD_LEN( vote_cnt, 11UL );
+    for( ulong j=0UL; j<vote_cnt; j++ ) {
+      uchar tag; LOAD( uchar, tag );
+      ulong hash_sz;
+      switch( tag ) {
+      case AG_VOTE_HISTORY_KIND_NOTAR:
+      case AG_VOTE_HISTORY_KIND_NOTAR_FALLBACK:
+      case AG_VOTE_HISTORY_KIND_GENESIS:       hash_sz = 32UL; break;
+      case AG_VOTE_HISTORY_KIND_FINAL:
+      case AG_VOTE_HISTORY_KIND_SKIP:
+      case AG_VOTE_HISTORY_KIND_SKIP_FALLBACK: hash_sz = 0UL;  break;
+      default:                                 return AG_VOTE_HISTORY_FILE_ERR_HISTORY;
+      }
+      ulong vote_slot; LOAD( ulong, vote_slot );
+      SKIP( hash_sz+2UL ); /* block hash, shred_version */
+      if( FD_UNLIKELY( vote_slot!=slot ) ) return AG_VOTE_HISTORY_FILE_ERR_HISTORY;
+    }
+  }
+
+  ulong notarized_cnt; LOAD_LEN( notarized_cnt, 40UL );
+  for( ulong i=0UL; i<notarized_cnt; i++ ) {
+    ulong slot; LOAD_SLOT( slot );
+    SKIP( 32UL );
+  }
+
+  ulong parent_ready_slot_cnt; LOAD_LEN( parent_ready_slot_cnt, 16UL );
+  for( ulong i=0UL; i<parent_ready_slot_cnt; i++ ) {
+    ulong slot;      LOAD_SLOT( slot );
+    ulong block_cnt; LOAD_LEN( block_cnt, 40UL );
+    SKIP( block_cnt*40UL );
+  }
+
+  ulong root; LOAD( ulong, root );
+  if( FD_UNLIKELY( off!=buf_sz    ) ) return AG_VOTE_HISTORY_FILE_ERR_SIZE;
+  if( FD_UNLIKELY( min_slot<root ) ) return AG_VOTE_HISTORY_FILE_ERR_HISTORY;
+
+  *wait_to_vote_slot = fd_ulong_sat_add( ag_first_slot_in_window( fd_ulong_max( max_vote, root ) ), AG_SLOTS_PER_WINDOW );
+  return AG_VOTE_HISTORY_FILE_SUCCESS;
+}
+
 #undef LOAD
 #undef LOAD_HASH
 #undef LOAD_LEN
 #undef PUSH
 #undef LOAD_SLOTS
 #undef LOAD_BLOCK
+#undef SKIP
+#undef LOAD_SLOT
+#undef LOAD_VOTE
+#undef LOAD_VOTES
