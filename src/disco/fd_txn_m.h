@@ -13,10 +13,11 @@
 #define FD_TXN_M_TPU_SOURCE_TXSEND (5UL)
 
 struct fd_txn_m {
-  /* The computed slot that this transaction is referencing, aka. the
-     slot number of the reference_blockhash.  If it could not be
-     determined, this will be the current slot. */
-  ulong    reference_slot;
+  /* The block height of the computed slot that this transaction is
+     referencing, aka. the block height of the reference_blockhash.  If
+     it could not be determined, this will be the block height of the
+     current slot. */
+  ulong    reference_block_height;
 
   ushort   payload_sz;
 

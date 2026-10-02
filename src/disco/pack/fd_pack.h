@@ -41,6 +41,14 @@
 /* The percentage of the transaction fees that are burned */
 #define FD_PACK_TXN_FEE_BURN_PCT        50UL
 
+/* Durable nonce transactions don't have a fixed lifetime (see
+   expire_before, etc.) but we arbitrarily give them one to prevent them
+   from remaining perpetually e.g. between leader rotations.  The unit
+   here is arbitrary, but 500 makes the most sense for slots.  TODO:
+   make this configurable. */
+#define FD_PACK_NONCE_SYNTHETIC_LIFETIME 500UL
+
+
 /* The Solana network and Firedancer implementation details impose
    several limits on what pack can produce.  These limits are grouped in
    this one struct fd_pack_limits_t, which is just a convenient way to
@@ -438,10 +446,20 @@ FD_STATIC_ASSERT( FD_PACK_INSERT_ACCEPT_NONCE_NONVOTE_REPLACE<FD_PACK_INSERT_RET
 
    expires_at (for _fini only) bounds the lifetime of the inserted
    transaction.  No particular unit is prescribed, and it need not be
-   higher than the previous call to txn_fini.  If fd_pack_expire_before
-   has been previously called with a value larger (strictly) than the
-   provided expires_at, the transaction will be rejected with EXPIRED.
-   See fd_pack_expire_before for more details.
+   higher than the previous call to txn_fini.  For durable nonce
+   transactions and non-durable nonce transactions, it is interpreted
+   somewhat differently.  For normal (non-durable nonce) transactions,
+   if fd_pack_expire_before has been previously called with a value
+   larger (strictly) than the provided expires_at, the transaction will
+   be rejected with EXPIRED.  See fd_pack_expire_before for more
+   details.  The Solana protocol doesn't subject durable nonce
+   transactions to the same expiration process, however pack gives them
+   a synthetic expires_at of FD_PACK_NONCE_SYNTHETIC_LIFETIME larger
+   than largest value with which fd_pack_expire_before has been
+   previously called.  Instead, the expires_at value for durable nonce
+   transactions is primarily used as an ordering key: pack only keeps
+   the transaction with the highest expires_at value for a given (nonce,
+   nonce authority) tuple.
 
    pack must be a local join of a pack object.  From the caller's
    perspective, these functions cannot fail, though pack may reject a
@@ -486,8 +504,17 @@ void         fd_pack_insert_txn_cancel( fd_pack_t * pack, fd_txn_e_t * txn      
 
    expires_at has the same meaning as above.  Although transactions in
    the bundle may have different recent blockhashes, all transactions in
-   the bundle have the same expires_at value, since if one expires, the
-   whole bundle becomes invalid.
+   the bundle have the same expires_at value, which should be that of
+   the oldest, since if one expires, the whole bundle becomes invalid.
+   The alternative interpretation of expires_at for durable nonce
+   transactions means that they should be excluded in the calculation of
+   the oldest.
+
+   Bundles containing durable nonce transactions are always treated as
+   having a newer nonce than any non-bundle transaction with the same
+   (nonce account, authority) pair.  Within bundles, the older bundle is
+   always treated as having a newer nonce (slightly counter-intuitively,
+   but keeping in line with the bundle FIFO policy).
 
    If initializer_bundle is non-zero, this bundle will be inserted at
    the front of the bundle queue so that it is the next bundle
@@ -737,10 +764,12 @@ void fd_pack_rebate_cus( fd_pack_t * pack, fd_pack_rebate_t const * rebate );
 int fd_pack_microblock_complete( fd_pack_t * pack, ulong bank_tile );
 
 /* fd_pack_expire_before deletes all available transactions with
-   expires_at values strictly less than expire_before.  pack must be a
-   local join of a pack object.  Returns the number of transactions
-   deleted.  Subsequent calls to fd_pack_expire_before with the same or
-   a smaller value are no-ops. */
+   expires_at values strictly less than expire_before.  For durable
+   nonce transactions, this considers the synthetic expiration value as
+   explained in insert_txn_fini.  pack must be a local join of a pack
+   object.  Returns the number of transactions deleted.  Subsequent
+   calls to fd_pack_expire_before with the same or a smaller value are
+   no-ops. */
 ulong fd_pack_expire_before( fd_pack_t * pack, ulong expire_before );
 
 /* fd_pack_delete_txn removes a transaction (identified by its first
