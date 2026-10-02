@@ -187,7 +187,7 @@ setup_xdp_tile( fd_topo_t *             topo,
 
   tile->xdp.xsk_core_dump = xsk_core_dump;
 
-  /* Allocate free ring (TX frames are shared by all XSKs of a tile) */
+  /* Allocate free ring */
 
   tile->xdp.free_ring_depth = tile->xdp.xdp_tx_queue_size;
 }
