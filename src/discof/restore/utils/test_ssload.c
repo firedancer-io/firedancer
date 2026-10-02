@@ -579,13 +579,13 @@ test_recover_preserves_snapin_stake_delegations( fd_wksp_t * wksp, fd_snapshot_m
   ulong seed               = 42UL;
 
   ulong banks_footprint = fd_banks_footprint( max_banks, max_forks,
-                                              max_stake, max_vote );
+                                              max_stake, max_vote, 4UL );
   void * banks_mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(),
                                           banks_footprint, 2UL );
   FD_TEST( banks_mem );
 
   fd_banks_t * banks = fd_banks_join( fd_banks_new( banks_mem, FD_STAKE_DELEGATIONS_FD, max_banks, max_forks,
-                                                    max_stake, max_disk_records, max_vote,
+                                                    max_stake, max_disk_records, max_vote, 4UL,
                                                     0UL /* max_cost_per_block */, seed ) );
   FD_TEST( banks );
 

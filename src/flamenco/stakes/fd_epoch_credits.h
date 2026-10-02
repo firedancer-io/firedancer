@@ -13,7 +13,7 @@
    using it.
 
    Sets are identified by fork id.  There is one logical set per live
-   slot, but only FD_EPOCH_CREDITS_CACHE_CNT full sets reside in memory.
+   slot, but only a configured number of full sets reside in memory.
    Unpinned cache entries spill to a backing file.  Every process
    joining the store must have that file open at the same descriptor.
 
@@ -24,7 +24,6 @@
    123460/123461 are accdb, and 123462+ are reserved by XDP. */
 
 #define FD_EPOCH_CREDITS_FD          (123456)
-#define FD_EPOCH_CREDITS_CACHE_CNT   (4UL)
 #define FD_EPOCH_CREDITS_STORE_ALIGN (128UL)
 
 struct fd_epoch_credits_store;
@@ -51,16 +50,22 @@ ulong
 fd_epoch_credits_store_align( void );
 
 /* fd_epoch_credits_store_footprint returns the footprint of a store
-   with one logical set per live slot, or 0 if max_live_slots is zero or
-   does not fit a fork id. */
+   with one logical set per live slot, of which at most cache_cnt reside
+   in memory.  Returns 0 if max_live_slots is zero or does not fit a
+   fork id, or if cache_cnt is zero.  A cache_cnt above max_live_slots
+   is reduced to max_live_slots.  A view waits while every cache entry
+   is pinned, so a caller must not hold a view while it starts a view
+   of another set unless cache_cnt is at least 2. */
 
 ulong
-fd_epoch_credits_store_footprint( ulong max_live_slots );
+fd_epoch_credits_store_footprint( ulong max_live_slots,
+                                  ulong cache_cnt );
 
 void *
 fd_epoch_credits_store_new( void * shmem,
                             int    disk_fd,
-                            ulong  max_live_slots );
+                            ulong  max_live_slots,
+                            ulong  cache_cnt );
 
 /* disk_fd must match the descriptor provided to
    fd_epoch_credits_store_new. */

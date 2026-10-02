@@ -7,6 +7,8 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#define CACHE_CNT (4UL)
+
 static ulong
 spill_sz( int fd ) {
   struct stat st;
@@ -17,13 +19,14 @@ spill_sz( int fd ) {
 static fd_epoch_credits_store_t *
 store_create( void ** mem_out,
               int     fd,
-              ulong   max_live_slots ) {
-  ulong footprint = fd_epoch_credits_store_footprint( max_live_slots );
+              ulong   max_live_slots,
+              ulong   cache_cnt ) {
+  ulong footprint = fd_epoch_credits_store_footprint( max_live_slots, cache_cnt );
   FD_TEST( footprint );
   void * mem = aligned_alloc( fd_epoch_credits_store_align(), footprint );
   FD_TEST( mem );
   FD_TEST( !ftruncate( fd, 0L ) );
-  fd_epoch_credits_store_t * store = fd_epoch_credits_store_join( fd_epoch_credits_store_new( mem, fd, max_live_slots ), fd );
+  fd_epoch_credits_store_t * store = fd_epoch_credits_store_join( fd_epoch_credits_store_new( mem, fd, max_live_slots, cache_cnt ), fd );
   FD_TEST( store );
   *mem_out = mem;
   return store;
@@ -53,36 +56,42 @@ set_check( fd_epoch_credits_store_t * store,
   fd_epoch_credits_view_fini( view );
 }
 
-/* Only the per-set metadata grows with max_live_slots.  At most
-   FD_EPOCH_CREDITS_CACHE_CNT full sets are resident. */
+/* Only the per-set metadata grows with max_live_slots.  Each cache
+   entry holds one full set, and the cache never exceeds max_live_slots
+   entries. */
 
 static void
 test_footprint( void ) {
   ulong set_sz = sizeof(fd_epoch_credits_t)*FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS;
 
-  FD_TEST( !fd_epoch_credits_store_footprint( 0UL        ) );
-  FD_TEST( !fd_epoch_credits_store_footprint( USHORT_MAX ) );
+  FD_TEST( !fd_epoch_credits_store_footprint( 0UL,        CACHE_CNT ) );
+  FD_TEST( !fd_epoch_credits_store_footprint( USHORT_MAX, CACHE_CNT ) );
+  FD_TEST( !fd_epoch_credits_store_footprint( 8UL,        0UL       ) );
 
-  ulong fp1    = fd_epoch_credits_store_footprint( 1UL                         );
-  ulong fp_c   = fd_epoch_credits_store_footprint( FD_EPOCH_CREDITS_CACHE_CNT  );
-  ulong fp_max = fd_epoch_credits_store_footprint( 4096UL                      );
+  ulong fp1    = fd_epoch_credits_store_footprint( 1UL,       CACHE_CNT );
+  ulong fp8_1  = fd_epoch_credits_store_footprint( 8UL,       1UL       );
+  ulong fp8_2  = fd_epoch_credits_store_footprint( 8UL,       2UL       );
+  ulong fp_c   = fd_epoch_credits_store_footprint( CACHE_CNT, CACHE_CNT );
+  ulong fp_max = fd_epoch_credits_store_footprint( 4096UL,    CACHE_CNT );
   FD_TEST( fp1>=set_sz && fp1<2UL*set_sz );
-  FD_TEST( fp_c>=FD_EPOCH_CREDITS_CACHE_CNT*set_sz );
+  FD_TEST( fp8_2-fp8_1>=set_sz && fp8_2-fp8_1<=set_sz+FD_EPOCH_CREDITS_STORE_ALIGN );
+  FD_TEST( fp_c>=CACHE_CNT*set_sz );
   FD_TEST( fp_max-fp_c < 4096UL*(2UL*sizeof(ulong)+1UL)+FD_EPOCH_CREDITS_STORE_ALIGN );
 }
 
 static void
 test_new_join( int fd ) {
-  ulong  footprint = fd_epoch_credits_store_footprint( 4UL );
+  ulong  footprint = fd_epoch_credits_store_footprint( 4UL, CACHE_CNT );
   uchar * mem      = aligned_alloc( fd_epoch_credits_store_align(), footprint+fd_epoch_credits_store_align() );
   FD_TEST( mem );
 
-  FD_TEST( !fd_epoch_credits_store_new( NULL,    fd, 4UL ) );
-  FD_TEST( !fd_epoch_credits_store_new( mem+1UL, fd, 4UL ) );
-  FD_TEST( !fd_epoch_credits_store_new( mem,     -1, 4UL ) );
-  FD_TEST( !fd_epoch_credits_store_new( mem,     fd, 0UL ) );
+  FD_TEST( !fd_epoch_credits_store_new( NULL,    fd, 4UL, CACHE_CNT ) );
+  FD_TEST( !fd_epoch_credits_store_new( mem+1UL, fd, 4UL, CACHE_CNT ) );
+  FD_TEST( !fd_epoch_credits_store_new( mem,     -1, 4UL, CACHE_CNT ) );
+  FD_TEST( !fd_epoch_credits_store_new( mem,     fd, 0UL, CACHE_CNT ) );
+  FD_TEST( !fd_epoch_credits_store_new( mem,     fd, 4UL, 0UL       ) );
 
-  FD_TEST( fd_epoch_credits_store_new( mem, fd, 4UL )==mem );
+  FD_TEST( fd_epoch_credits_store_new( mem, fd, 4UL, CACHE_CNT )==mem );
   FD_TEST( !fd_epoch_credits_store_join( NULL, fd    ) );
   FD_TEST( !fd_epoch_credits_store_join( mem,  fd+1  ) );
   FD_TEST(  fd_epoch_credits_store_join( mem,  fd    ) );
@@ -98,7 +107,7 @@ test_new_join( int fd ) {
 static void
 test_refcnt( int fd ) {
   void * mem;
-  fd_epoch_credits_store_t * store = store_create( &mem, fd, 4UL );
+  fd_epoch_credits_store_t * store = store_create( &mem, fd, 4UL, CACHE_CNT );
 
   ushort a = fd_epoch_credits_store_new_fork( store, USHORT_MAX );
   FD_TEST( a==0 );
@@ -128,17 +137,19 @@ test_refcnt( int fd ) {
    reload intact.  A pinned set is never evicted. */
 
 static void
-test_spill_reload( int fd ) {
-  ulong const set_cnt = FD_EPOCH_CREDITS_CACHE_CNT+2UL;
+test_spill_reload( int   fd,
+                   ulong cache_cnt ) {
+  ulong const set_cnt = cache_cnt+2UL;
   void * mem;
-  fd_epoch_credits_store_t * store = store_create( &mem, fd, set_cnt );
+  fd_epoch_credits_store_t * store = store_create( &mem, fd, set_cnt, cache_cnt );
 
-  ushort ids[ FD_EPOCH_CREDITS_CACHE_CNT+2UL ];
+  ushort ids[ CACHE_CNT+2UL ];
+  FD_TEST( set_cnt<=sizeof(ids)/sizeof(ids[0]) );
   for( ulong i=0UL; i<set_cnt; i++ ) {
     ids[i] = fd_epoch_credits_store_new_fork( store, USHORT_MAX );
     set_write( store, ids[i], 1000UL*(i+1UL), i+1UL );
-    if( i<FD_EPOCH_CREDITS_CACHE_CNT ) FD_TEST( !spill_sz( fd ) );
-    else                               FD_TEST(  spill_sz( fd ) );
+    if( i<cache_cnt ) FD_TEST( !spill_sz( fd ) );
+    else              FD_TEST(  spill_sz( fd ) );
   }
 
   fd_epoch_credits_view_t pinned[1];
@@ -156,14 +167,33 @@ test_spill_reload( int fd ) {
   free( mem );
 }
 
+/* A single cache entry works when no other set is pinned. */
+
+static void
+test_single_entry_cache( int fd ) {
+  ulong const set_cnt = 3UL;
+  void * mem;
+  fd_epoch_credits_store_t * store = store_create( &mem, fd, set_cnt, 1UL );
+
+  for( ulong i=0UL; i<set_cnt; i++ ) {
+    ushort id = fd_epoch_credits_store_new_fork( store, USHORT_MAX );
+    set_write( store, id, 100UL*(i+1UL), i+1UL );
+  }
+  for( ulong round=0UL; round<2UL; round++ ) {
+    for( ulong i=0UL; i<set_cnt; i++ ) set_check( store, (ushort)i, 100UL*(i+1UL), i+1UL );
+  }
+
+  free( mem );
+}
+
 /* With every id in use, replacing a uniquely held set must release it
    before acquiring the replacement. */
 
 static void
 test_new_fork_full( int fd ) {
-  ulong const set_cnt = FD_EPOCH_CREDITS_CACHE_CNT+1UL;
+  ulong const set_cnt = CACHE_CNT+1UL;
   void * mem;
-  fd_epoch_credits_store_t * store = store_create( &mem, fd, set_cnt );
+  fd_epoch_credits_store_t * store = store_create( &mem, fd, set_cnt, CACHE_CNT );
 
   for( ulong i=0UL; i<set_cnt; i++ ) {
     ushort id = fd_epoch_credits_store_new_fork( store, USHORT_MAX );
@@ -183,9 +213,9 @@ test_new_fork_full( int fd ) {
 
 static void
 test_clear_reset( int fd ) {
-  ulong const set_cnt = FD_EPOCH_CREDITS_CACHE_CNT+1UL;
+  ulong const set_cnt = CACHE_CNT+1UL;
   void * mem;
-  fd_epoch_credits_store_t * store = store_create( &mem, fd, set_cnt );
+  fd_epoch_credits_store_t * store = store_create( &mem, fd, set_cnt, CACHE_CNT );
 
   ushort a = fd_epoch_credits_store_new_fork( store, USHORT_MAX );
   set_write( store, a, 7UL, 2UL );
@@ -217,7 +247,8 @@ main( int     argc,
   test_footprint();
   test_new_join( fd );
   test_refcnt( fd );
-  test_spill_reload( fd );
+  for( ulong cache_cnt=2UL; cache_cnt<=CACHE_CNT; cache_cnt++ ) test_spill_reload( fd, cache_cnt );
+  test_single_entry_cache( fd );
   test_new_fork_full( fd );
   test_clear_reset( fd );
 

@@ -735,6 +735,15 @@ telemetry = true
     # or test environments to decrease memory usage or test edge cases.
     max_fork_width = 32
 
+    # The number of epoch credit sets kept in memory.  A slot that
+    # crosses an epoch boundary captures the epoch credits of every
+    # rewarded vote account into a set of about 2.4 MiB, which its
+    # descendants share.  Sets beyond this count are written to a file
+    # next to the accounts database and read back when needed.  Usually
+    # only one or two sets are live, so the file is not used except in
+    # degenerate network conditions.  Must be at least 1.
+    epoch_credits_cache_count = 4
+
     # Total size of the program cache workspace in MiB.
     #
     # The program cache pre-loads frequently executed programs for

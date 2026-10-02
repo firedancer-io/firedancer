@@ -136,6 +136,7 @@ snapshot_load_topo( config_t * config ) {
   fd_topo_obj_t * banks_obj = setup_topo_banks( topo, "banks",
       config->firedancer.runtime.max_live_slots,
       config->firedancer.runtime.max_fork_width,
+      config->firedancer.runtime.epoch_credits_cache_count,
       config->development.bench.max_cost_per_block );
   FD_TEST( fd_pod_insertf_ulong( topo->props, banks_obj->id, "banks" ) );
 
