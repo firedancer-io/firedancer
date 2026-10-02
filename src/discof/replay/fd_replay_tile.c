@@ -1702,6 +1702,7 @@ try_become_leader_ag( fd_replay_tile_t *  ctx,
 
   fd_became_leader_t * msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
   msg->slot                = ctx->next_leader_slot;
+  msg->block_height        = bank->f.block_height;
   msg->slot_start_ns       = now_nanos;
   msg->slot_end_ns         = now_nanos+(long)bank->f.slot_params.ns_per_slot_adjusted;
   msg->bank                = NULL;
@@ -2230,6 +2231,7 @@ try_become_leader( fd_replay_tile_t *  ctx,
 
   fd_became_leader_t * msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
   msg->slot                = ctx->next_leader_slot;
+  msg->block_height        = bank->f.block_height;
   msg->slot_start_ns       = now_nanos;
   msg->slot_end_ns         = now_nanos+(long)bank->f.slot_params.ns_per_slot_adjusted;
   msg->bank                = NULL;
