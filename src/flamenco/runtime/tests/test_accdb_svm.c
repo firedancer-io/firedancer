@@ -1,6 +1,7 @@
 #include "fd_svm_mini.h"
 #include "../fd_accdb_svm.h"
 #include "../fd_bank.h"
+#include "../fd_hashes.h"
 #include "../../../ballet/lthash/fd_lthash.h"
 
 static const fd_pubkey_t acct_a = {{ 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,
@@ -253,6 +254,80 @@ test_fork_isolation( fd_svm_mini_t * mini,
   FD_LOG_NOTICE(( "test_fork_isolation passed" ));
 }
 
+/* acct_lthash is pubkey's lthash on fork_id, from a fresh read */
+
+static void
+acct_lthash( fd_accdb_t *        accdb,
+             fd_accdb_fork_id_t  fork_id,
+             fd_pubkey_t const * pubkey,
+             fd_lthash_value_t * out ) {
+  fd_acc_t acc = fd_accdb_read_one( accdb, fork_id, pubkey->uc );
+  fd_hashes_account_lthash_simple( pubkey->uc, acc.owner, acc.lamports, acc.executable, acc.data, acc.data_len, out );
+  fd_accdb_unread_one( accdb, &acc );
+}
+
+/* check_lthash_step: bank lthash moved by lthash(post)-lthash(pre) */
+
+static void
+check_lthash_step( fd_bank_t const *         bank,
+                   fd_lthash_value_t const * before,
+                   fd_lthash_value_t const * pre,
+                   fd_lthash_value_t const * post ) {
+  fd_lthash_value_t expect = *before;
+  fd_lthash_sub( &expect, pre  );
+  fd_lthash_add( &expect, post );
+  FD_TEST( fd_lthash_eq( &expect, &bank->f.lthash ) );
+}
+
+static void
+test_write_lthash( fd_svm_mini_t * mini,
+                   ulong           root_idx ) {
+  fd_accdb_t * accdb = mini->runtime->accdb;
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 42U, 0UL ) );
+
+  static uchar data[ 10240 ];
+  static ulong const sz_tbl[] = { 0UL, 4UL, 951UL, 952UL, 2000UL, 3762UL, 3763UL, 4096UL, 8192UL, 10240UL };
+  fd_pubkey_t const * keys[3] = { &acct_a, &acct_b, &acct_c };
+
+  /* Seed and root a fork so later writes see an ancestor's image */
+  ulong seed_idx = fd_svm_mini_attach_child( mini, root_idx, 11UL );
+  fd_bank_t *        bank    = fd_svm_mini_bank   ( mini, seed_idx );
+  fd_accdb_fork_id_t fork_id = fd_svm_mini_fork_id( mini, seed_idx );
+
+  for( ulong round=0UL; round<2UL; round++ ) {
+    for( ulong iter=0UL; iter<64UL; iter++ ) {
+      fd_pubkey_t const * key = keys[ fd_rng_uint_roll( rng, 3U ) ];
+      ulong sz = sz_tbl[ fd_rng_ulong_roll( rng, sizeof(sz_tbl)/sizeof(sz_tbl[0]) ) ];
+      for( ulong i=0UL; i<sz; i++ ) data[ i ] = fd_rng_uchar( rng );
+
+      fd_lthash_value_t before = bank->f.lthash;
+      fd_lthash_value_t pre, post;
+      acct_lthash( accdb, fork_id, key, &pre );
+      if( fd_rng_uint_roll( rng, 4U ) ) {
+        fd_accdb_svm_write( bank, accdb, NULL, key, fd_rng_uint_roll( rng, 2U ) ? &owner1 : &owner2, data, sz,
+                            fd_rng_ulong_roll( rng, 3000UL ), (int)fd_rng_uint_roll( rng, 2U ), 0 );
+      } else {
+        fd_accdb_svm_credit( bank, accdb, NULL, key, 1UL+fd_rng_ulong_roll( rng, 1000UL ), 0 );
+      }
+      acct_lthash( accdb, fork_id, key, &post );
+      check_lthash_step( bank, &before, &pre, &post );
+
+      /* The write moved the bank lthash, so the check can fail */
+      if( !fd_lthash_eq( &pre, &post ) ) FD_TEST( !fd_lthash_eq( &before, &bank->f.lthash ) );
+    }
+
+    if( round ) break;
+    fd_banks_mark_bank_frozen( bank );
+    fd_svm_mini_advance_root( mini, seed_idx );
+    ulong child_idx = fd_svm_mini_attach_child( mini, seed_idx, 12UL );
+    bank    = fd_svm_mini_bank   ( mini, child_idx );
+    fork_id = fd_svm_mini_fork_id( mini, child_idx );
+  }
+
+  fd_rng_delete( fd_rng_leave( rng ) );
+  FD_LOG_NOTICE(( "test_write_lthash passed" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -295,6 +370,9 @@ main( int     argc,
 
   root_idx = fd_svm_mini_reset( mini, params );
   test_fork_isolation( mini, root_idx );
+
+  root_idx = fd_svm_mini_reset( mini, params );
+  test_write_lthash( mini, root_idx );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_svm_test_halt( mini );

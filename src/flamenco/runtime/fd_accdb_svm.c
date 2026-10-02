@@ -89,14 +89,12 @@ fd_accdb_svm_credit( fd_bank_t *         bank,
 
   fd_acc_t acc = fd_accdb_write_one( accdb, bank->accdb_fork_id, pubkey->uc );
 
-  fd_lthash_value_t hash[1];
-  fd_hashes_account_lthash_simple( acc.pubkey, acc.owner, acc.lamports, acc.executable, acc.data, acc.data_len, hash );
   ulong lamports_pre = acc.lamports;
   FD_TEST( !__builtin_uaddl_overflow( acc.lamports, lamports_add, &acc.lamports ) );
   FD_TEST( !__builtin_uaddl_overflow( bank->f.capitalization, lamports_add, &bank->f.capitalization ) );
 
-  fd_lthash_value_t post[1];
-  fd_hashes_update_simple( post, hash, pubkey->uc, acc.owner, acc.lamports, acc.executable, acc.data, acc.data_len, bank, capture_ctx );
+  fd_hashes_update_pair( pubkey->uc, acc.owner, lamports_pre, acc.executable, acc.data, acc.data_len,
+                                     acc.owner, acc.lamports, acc.executable, acc.data, acc.data_len, bank, capture_ctx );
   if( FD_UNLIKELY( fd_bank_report_runtime_diffs( bank ) ) ) {
     if( FD_UNLIKELY( is_vote_reward ) ) fd_event_runtime_reward_emit( bank, FD_EVENT_RUNTIME_REWARD_KIND_VOTE, acc.pubkey, acc.owner, lamports_pre, acc.lamports, 0UL, 0UL, 0UL );
     else                                fd_event_runtime_block_account( bank, acc.pubkey, acc.owner, acc.owner, lamports_pre, acc.lamports, acc.data_len, acc.data_len, acc.executable );
@@ -121,9 +119,6 @@ fd_accdb_svm_write( fd_bank_t *         bank,
   ulong data_len_pre = acc.data_len;
   uchar owner_pre[ 32 ]; fd_memcpy( owner_pre, acc.owner, 32UL );
 
-  fd_lthash_value_t hash[1];
-  fd_hashes_account_lthash_simple( acc.pubkey, acc.owner, acc.lamports, acc.executable, acc.data, acc.data_len, hash );
-
   if( FD_UNLIKELY( acc.lamports<lamports_min ) ) {
     ulong delta = lamports_min - acc.lamports;
     acc.lamports = lamports_min;
@@ -136,8 +131,9 @@ fd_accdb_svm_write( fd_bank_t *         bank,
   fd_memcpy( acc.data, data, sz );
   acc.data_len = sz;
 
-  fd_lthash_value_t post[1];
-  fd_hashes_update_simple( post, hash, pubkey->uc, acc.owner, acc.lamports, acc.executable, acc.data, acc.data_len, bank, capture_ctx );
+  /* acc.prior_* is the account as acquired (acc.data is a copy) */
+  fd_hashes_update_pair( pubkey->uc, acc.prior_owner, acc.prior_lamports, acc.prior_executable, acc.prior_data, acc.prior_data_len,
+                                     acc.owner,       acc.lamports,       acc.executable,       acc.data,       acc.data_len,       bank, capture_ctx );
   if( FD_UNLIKELY( fd_bank_report_runtime_diffs( bank ) && !skip_event_diff ) ) fd_event_runtime_block_account( bank, acc.pubkey, owner_pre, acc.owner, lamports_pre, acc.lamports, data_len_pre, acc.data_len, acc.executable );
   acc.commit = 1;
   fd_accdb_unwrite_one( accdb, &acc );
