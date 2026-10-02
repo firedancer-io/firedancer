@@ -135,18 +135,24 @@ typedef union fd_shred_message fd_shred_message_t;
    every individual shred message (SHRED_SIG_SRC_*, the raw shred
    bytes, with its FEC set's merkle root in the record) and every
    SHRED_SIG_FEC_COMPLETE{,_LEADER} (an fd_fec_complete_t), in shred_out
-   order.  A frag has sig==record
-   count and holds the records back to back, each an fd_shred_bat_rec_t
-   followed by sz payload bytes padded to 8.  The shred tile publishes
-   a batch when it has FD_SHRED_BAT_REC_MAX records or
-   FD_SHRED_BAT_FLUSH_NS after its first record, so readers wake once
-   per batch instead of once per shred. */
+   order.  When rotor reads it (alpenglow) it carries every shred_out
+   message, also each SHRED_SIG_FEC_COMPLETE_AGAIN, SHRED_SIG_FUTURE
+   (no payload) and SHRED_SIG_FEC_EVICTED (an fd_fec_evicted_t), and a
+   batch is published as soon as it holds a FEC complete, so
+   completions are not delayed.  A frag has
+   sig==record count and holds the records back to back, each an
+   fd_shred_bat_rec_t followed by sz payload bytes padded to 8.  The
+   shred tile publishes a batch when it has FD_SHRED_BAT_REC_MAX
+   records or FD_SHRED_BAT_FLUSH_NS after its first record, so readers
+   wake once per batch instead of once per shred. */
 
 struct fd_shred_bat_rec {
   ulong     sig;         /* the shred_out sig */
   uint      tsorig;      /* the shred_out tsorig */
   uint      sz;          /* payload bytes */
-  fd_hash_t merkle_root; /* the shred's FEC set (fd_shred_base_t), zero for a FEC complete */
+  uint      rnonce;      /* the fd_shred_base_t rnonce, repair shreds only */
+  uint      _pad;
+  fd_hash_t merkle_root; /* the shred's FEC set (fd_shred_base_t), zero for a FEC complete or eviction */
 };
 typedef struct fd_shred_bat_rec fd_shred_bat_rec_t;
 
@@ -155,6 +161,7 @@ typedef struct fd_shred_bat_rec fd_shred_bat_rec_t;
 #define FD_SHRED_BAT_FLUSH_NS (2L*1000L*1000L)
 
 FD_STATIC_ASSERT( sizeof(fd_fec_complete_t)<=FD_SHRED_MAX_SZ, shred_bat_rec_sz );
+FD_STATIC_ASSERT( sizeof(fd_fec_evicted_t )<=FD_SHRED_MAX_SZ, shred_bat_rec_sz );
 
 static inline void const *
 fd_shred_bat_rec_payload( fd_shred_bat_rec_t const * rec ) {

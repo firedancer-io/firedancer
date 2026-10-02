@@ -147,6 +147,7 @@ static fd_ed25519_sig_t const sig_null = {0};
 #define IN_KIND_REPLAY  (6)
 #define IN_KIND_SIGN    (7)
 #define IN_KIND_EPOCH   (8)
+#define IN_KIND_SHRED_BAT (9) /* shred_bat, efficient mode: every shred_out message, batched */
 
 struct fd_repair_tile {
 
@@ -210,6 +211,7 @@ struct fd_repair_tile {
   fd_ip4_udp_hdrs_t net_hdr[1];
   ushort            net_id;
   uchar             net_buf[ FD_NET_MTU ];
+  fd_shred_base_t   bat_shred[1]; /* a shred_bat shred record as its shred_out message */
 
   /* Links */
 
@@ -1301,6 +1303,49 @@ after_credit( fd_repair_tile_t *  ctx,
   }
 }
 
+/* handle_shred_future handles a SHRED_SIG_FUTURE for slot. */
+
+static void
+handle_shred_future( fd_repair_tile_t * ctx,
+                     ulong              slot ) {
+  if( FD_LIKELY( ctx->staked || slot<ctx->rotor->root+ctx->rotor->slot_max || slot<=ctx->catchup_slot ) ) return;
+  ctx->catchup_slot = slot;
+  fd_repair_slot_catchup( ctx->rotor, ctx->rotor->root+ctx->rotor->slot_max );
+}
+
+/* handle_shred_bat handles the records of one shred_bat frag exactly
+   as the same messages on shred_out.  A shred record carries the
+   merkle root and rnonce of its shred_out message; a FEC complete or
+   eviction payload is the shred_out message itself.  Each record's
+   tsorig is its shred's network rx, so batching does not inflate a
+   repair rtt. */
+
+static void
+handle_shred_bat( fd_repair_tile_t *         ctx,
+                  fd_shred_bat_rec_t const * rec,
+                  ulong                      rec_cnt ) {
+  if( FD_UNLIKELY( rec_cnt>FD_SHRED_BAT_REC_MAX ) ) FD_LOG_ERR(( "shred_bat frag with %lu records", rec_cnt ));
+  for( ulong i=0UL; i<rec_cnt; i++, rec=fd_shred_bat_rec_next( rec ) ) {
+    ulong sig = rec->sig;
+    if( FD_UNLIKELY( fd_shred_sig_src( sig )==SHRED_SIG_FUTURE ) ) { handle_shred_future( ctx, fd_shred_sig_future_slot( sig ) ); continue; }
+
+    long now_tick = fd_tickcount();
+    long rx_tick  = fd_frag_meta_ts_decomp( rec->tsorig, now_tick );
+    if( FD_UNLIKELY( rx_tick>now_tick ) ) rx_tick -= 1L<<32;
+    long rx_ts = fd_clock_tile_tickcount_to_wallclock( ctx->clock, rx_tick );
+
+    uchar const * payload = fd_shred_bat_rec_payload( rec );
+    if( FD_LIKELY( fd_shred_sig_src( sig )<=SHRED_SIG_SRC_BAD_REPAIR ) ) {
+      if( FD_UNLIKELY( rec->sz>FD_SHRED_MAX_SZ ) ) FD_LOG_ERR(( "shred_bat shred record of %u bytes", rec->sz ));
+      ctx->bat_shred->merkle_root = rec->merkle_root;
+      fd_memcpy( ctx->bat_shred->shred_, payload, rec->sz );
+      ctx->bat_shred->rnonce = rec->rnonce;
+      payload = (uchar const *)ctx->bat_shred;
+    }
+    handle_shred( ctx, sig, payload, rx_ts );
+  }
+}
+
 static int
 before_frag( fd_repair_tile_t * ctx,
              ulong              in_idx,
@@ -1312,12 +1357,12 @@ before_frag( fd_repair_tile_t * ctx,
   case IN_KIND_SHRED: {
     if( FD_UNLIKELY( ctx->rotor->root==ULONG_MAX ) ) return -1; /* hold until the snapshot or genesis gives the root */
     if( FD_LIKELY( fd_shred_sig_src( sig )!=SHRED_SIG_FUTURE ) ) return 0;
-    ulong slot = fd_shred_sig_future_slot( sig );
-    if( FD_LIKELY( ctx->staked || slot<ctx->rotor->root+ctx->rotor->slot_max || slot<=ctx->catchup_slot ) ) return 1;
-    ctx->catchup_slot = slot;
-    fd_repair_slot_catchup( ctx->rotor, ctx->rotor->root+ctx->rotor->slot_max );
+    handle_shred_future( ctx, fd_shred_sig_future_slot( sig ) );
     return 1;
   }
+  case IN_KIND_SHRED_BAT:
+    if( FD_UNLIKELY( ctx->rotor->root==ULONG_MAX ) ) return -1; /* hold until the snapshot or genesis gives the root */
+    return 0;
   case IN_KIND_SNAP: {
     ulong msg = fd_ssmsg_sig_message( sig );
     return msg!=FD_SSMSG_MANIFEST_FULL && msg!=FD_SSMSG_MANIFEST_INCREMENTAL && msg!=FD_SSMSG_DONE;
@@ -1415,6 +1460,9 @@ after_frag( fd_repair_tile_t *  ctx,
     handle_shred( ctx, sig, src, fd_clock_tile_tickcount_to_wallclock( ctx->clock, rx_tick ) );
     break;
   }
+  case IN_KIND_SHRED_BAT:
+    handle_shred_bat( ctx, (fd_shred_bat_rec_t const *)fd_type_pun_const( src ), sig );
+    break;
   case IN_KIND_SNAP:
     handle_snapshot( ctx, sig, src );
     break;
@@ -1569,6 +1617,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
     if     ( FD_LIKELY( !strcmp( link->name, "genesi_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_GENESIS;
     else if( FD_LIKELY( !strcmp( link->name, "shred_out"     ) ) ) ctx->in_kind[ i ] = IN_KIND_SHRED;
+    else if( FD_LIKELY( !strcmp( link->name, "shred_bat"     ) ) ) ctx->in_kind[ i ] = IN_KIND_SHRED_BAT;
     else if( FD_LIKELY( !strcmp( link->name, "snapin_manif"  ) ) ) ctx->in_kind[ i ] = IN_KIND_SNAP;
     else if( FD_LIKELY( !strcmp( link->name, "votor_out"     ) ) ) ctx->in_kind[ i ] = IN_KIND_VOTOR;
     else if( FD_LIKELY( !strcmp( link->name, "shred_rotor"   ) ) ) ctx->in_kind[ i ] = IN_KIND_NET;

@@ -258,6 +258,7 @@ typedef struct {
   ulong       shred_bat_tsorig;   /* tsorig of the first pending record */
   long        shred_bat_deadline; /* tickcount the pending records are due, LONG_MAX if none */
   long        shred_bat_flush_ticks;
+  int         shred_bat_fec_events; /* also batch FEC completes and evictions, flushing on a complete */
 
   /* Highest slot relayed on turbine, published for rpc
      (getMaxRetransmitSlot).  NULL if rpc is disabled. */
@@ -434,16 +435,19 @@ shred_bat_flush( fd_shred_ctx_t *    ctx,
 }
 
 /* shred_bat_append appends a copy of a shred_out message to the
-   pending shred_bat frag, publishing it once full.  At most two
-   publishes per complete_fec_set (32 recovered shreds plus a leader
-   complete) and one per received shred, well within STEM_BURST. */
+   pending shred_bat frag, publishing it once full, or right away for
+   a FEC complete when shred_bat_fec_events.  At most two publishes per
+   complete_fec_set (32 recovered shreds plus a complete) and three per
+   received shred (a future slot, an eviction and the shred), well
+   within STEM_BURST. */
 
 static inline void
 shred_bat_append( fd_shred_ctx_t *    ctx,
                   fd_stem_context_t * stem,
                   ulong               sig,
                   ulong               tsorig,
-                  uchar const *       merkle_root, /* NULL for a FEC complete */
+                  uchar const *       merkle_root, /* NULL for a FEC complete or eviction */
+                  uint                rnonce,
                   void const *        payload,
                   ulong               sz ) {
   if( FD_LIKELY( ctx->shred_bat_idx==ULONG_MAX ) ) return;
@@ -455,11 +459,14 @@ shred_bat_append( fd_shred_ctx_t *    ctx,
   rec->sig    = sig;
   rec->tsorig = (uint)tsorig;
   rec->sz     = (uint)sz;
+  rec->rnonce = rnonce;
+  rec->_pad   = 0U;
   if( FD_LIKELY( merkle_root ) ) memcpy( rec->merkle_root.uc, merkle_root, sizeof(fd_hash_t) );
   else                           memset( rec->merkle_root.uc, 0,           sizeof(fd_hash_t) );
   fd_memcpy( rec+1, payload, sz );
   ctx->shred_bat_sz += sizeof(fd_shred_bat_rec_t) + fd_ulong_align_up( sz, 8UL );
-  if( FD_UNLIKELY( ++ctx->shred_bat_cnt==FD_SHRED_BAT_REC_MAX ) ) shred_bat_flush( ctx, stem );
+  int fec_done = ctx->shred_bat_fec_events & ( sig==SHRED_SIG_FEC_COMPLETE || sig==SHRED_SIG_FEC_COMPLETE_LEADER || sig==SHRED_SIG_FEC_COMPLETE_AGAIN );
+  if( FD_UNLIKELY( ( ++ctx->shred_bat_cnt==FD_SHRED_BAT_REC_MAX ) | fec_done ) ) shred_bat_flush( ctx, stem );
 }
 
 /* The pending shred_bat records never keep the tile from parking, it
@@ -1045,7 +1052,7 @@ complete_fec_set( fd_shred_ctx_t *         ctx,
     for( int i=0; !again && i<32; i++ ) {
       if( fd_uint_extract_bit( set->data_shred_rcvd, i )==0 ) {
         fd_shred_t * const missing = &set->data_shreds[ i ].s[0];
-        shred_bat_append( ctx, stem, missing_sig, tsorig, merkle_root->hash, missing, fd_shred_sz( missing ) );
+        shred_bat_append( ctx, stem, missing_sig, tsorig, merkle_root->hash, UINT_MAX, missing, fd_shred_sz( missing ) );
 
         fd_shred_base_t * shred_msg = (fd_shred_base_t *)fd_chunk_to_laddr( ctx->shred_out_mem, ctx->shred_out_chunk );
         fd_memcpy_nt_nofence( shred_msg->shred_, missing, fd_shred_sz( missing ) );
@@ -1096,7 +1103,7 @@ complete_fec_set( fd_shred_ctx_t *         ctx,
     }
 
     fd_stem_publish( stem, ctx->shred_out_idx, sig, ctx->shred_out_chunk, sizeof(fd_fec_complete_t), 0UL, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
-    if( FD_LIKELY( sig!=SHRED_SIG_FEC_COMPLETE_AGAIN ) ) shred_bat_append( ctx, stem, sig, tsorig, NULL, complete_msg, sizeof(fd_fec_complete_t) );
+    if( FD_LIKELY( sig!=SHRED_SIG_FEC_COMPLETE_AGAIN || ctx->shred_bat_fec_events ) ) shred_bat_append( ctx, stem, sig, tsorig, NULL, UINT_MAX, complete_msg, sizeof(fd_fec_complete_t) );
     ctx->shred_out_chunk = fd_dcache_compact_next( ctx->shred_out_chunk, sizeof(fd_fec_complete_t), ctx->shred_out_chunk0, ctx->shred_out_wmark );
 
   }
@@ -1265,6 +1272,7 @@ after_frag( fd_shred_ctx_t *    ctx,
 
       fd_stem_publish( stem, ctx->shred_out_idx, SHRED_SIG_FEC_EVICTED, ctx->shred_out_chunk, sizeof(fd_fec_evicted_t), 0, ctx->tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
       ctx->shred_out_chunk = fd_dcache_compact_next( ctx->shred_out_chunk, sizeof(fd_fec_evicted_t), ctx->shred_out_chunk0, ctx->shred_out_wmark );
+      if( FD_UNLIKELY( ctx->shred_bat_fec_events ) ) shred_bat_append( ctx, stem, SHRED_SIG_FEC_EVICTED, ctx->tsorig, NULL, UINT_MAX, evicted_msg, sizeof(fd_fec_evicted_t) );
     }
 
     /* Send rotor future slots past max_live_slots so that unstaked
@@ -1284,6 +1292,7 @@ after_frag( fd_shred_ctx_t *    ctx,
       if( FD_LIKELY( signed_ ) ) {
         ctx->future_slot = shred->slot;
         fd_stem_publish( stem, ctx->shred_out_idx, fd_shred_sig_future( shred->slot ), 0UL, 0UL, 0UL, ctx->tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
+        if( FD_UNLIKELY( ctx->shred_bat_fec_events ) ) shred_bat_append( ctx, stem, fd_shred_sig_future( shred->slot ), ctx->tsorig, NULL, UINT_MAX, shred, 0UL );
       }
     }
 
@@ -1310,7 +1319,7 @@ after_frag( fd_shred_ctx_t *    ctx,
       ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
       fd_stem_publish( stem, ctx->shred_out_idx, _sig, ctx->shred_out_chunk, sizeof(fd_shred_base_t), 0UL, ctx->tsorig, tspub );
       ctx->shred_out_chunk = fd_dcache_compact_next( ctx->shred_out_chunk, sizeof(fd_shred_base_t), ctx->shred_out_chunk0, ctx->shred_out_wmark );
-      shred_bat_append( ctx, stem, _sig, ctx->tsorig, ctx->out_merkle_roots[0].hash, shred, fd_shred_sz( shred ) );
+      shred_bat_append( ctx, stem, _sig, ctx->tsorig, ctx->out_merkle_roots[0].hash, nonce, shred, fd_shred_sz( shred ) );
     }
 
     if( FD_LIKELY( fd_disco_netmux_sig_proto( sig ) != DST_PROTO_REPAIR &&
@@ -1432,6 +1441,11 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->shred_bat_sz          = 0UL;
   ctx->shred_bat_deadline    = LONG_MAX;
   ctx->shred_bat_flush_ticks = (long)((double)FD_SHRED_BAT_FLUSH_NS*fd_tempo_tick_per_ns( NULL ));
+  /* rotor reads every shred_out message on shred_bat if it consumes
+     it (alpenglow, efficient mode) */
+  ulong rotor_idx = fd_topo_find_tile( topo, "rotor", 0UL );
+  ctx->shred_bat_fec_events  = ctx->shred_bat_idx!=ULONG_MAX && rotor_idx!=ULONG_MAX &&
+                               fd_topo_find_tile_in_link( topo, &topo->tiles[ rotor_idx ], "shred_bat", ctx->round_robin_id )!=ULONG_MAX;
   if( FD_UNLIKELY( ctx->shred_bat_idx!=ULONG_MAX ) ) {
     fd_topo_link_t const * shred_bat = &topo->links[ tile->out_link_id[ ctx->shred_bat_idx ] ];
     FD_TEST( shred_bat->mtu>=FD_SHRED_BAT_MTU );

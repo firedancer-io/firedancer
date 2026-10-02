@@ -606,13 +606,17 @@ fd_topo_initialize( config_t * config ) {
     /**/               fd_topob_link( topo, "sign_failov",   "sign_failov",   128UL,                                    sizeof(fd_ed25519_sig_t),      1UL );
   }
 
-  FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_out",     "shred_out",     shred_depth,                              sizeof(fd_shred_message_t),     FD_SHRED_STEM_BURST );
   FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_rotor",   "shred_rotor",   1024UL,                                   FD_REPAIR_NET_FRAME_MAX,        1UL                 );
   /* In efficient mode the readers of shred_out that tolerate a few ms
      (rserve, gui) read it batched on shred_bat instead, so they
      wake per batch rather than per shred (see fd_shred_bat_rec_t).
-     repair keeps reading shred_out.  2048 batches are 32k-64k shreds,
-     similar backpressure headroom to shred_out. */
+     rotor reads it too: the shred tile then also batches every FEC
+     complete and eviction and flushes on each complete, so FEC
+     completion is not delayed.  shred_out then has no reader.  2048
+     batches are 32k-64k shreds, similar backpressure headroom to
+     shred_out. */
+  int rotor_bat = efficient_mode;
+  FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_out",     "shred_out",     shred_depth,                              sizeof(fd_shred_message_t),    FD_SHRED_STEM_BURST )->permit_no_consumers = !!rotor_bat;
   if( efficient_mode ) {
     FOR(shred_tile_cnt) fd_topob_link( topo, "shred_bat",    "shred_bat",     2048UL,                                   FD_SHRED_BAT_MTU,              1UL )->permit_no_consumers = 1;
   }
@@ -807,7 +811,7 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_in(    topo, "rotor",   0UL,          "metric_in", "replay_epoch",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_in(    topo, "rotor",   0UL,          "metric_in", "replay_slot",   0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_in(    topo, "rotor",   0UL,          "metric_in", "replay_rotor",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-  FOR(shred_tile_cnt)  fd_topob_tile_in(    topo, "rotor",   0UL,          "metric_in", "shred_out",     i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  FOR(shred_tile_cnt)  fd_topob_tile_in(    topo, "rotor",   0UL,          "metric_in", rotor_bat ? "shred_bat" : "shred_out", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   if( snapshots_enabled ) {
                        fd_topob_tile_in(    topo, "rotor",   0UL,          "metric_in", "snapin_manif",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   }
