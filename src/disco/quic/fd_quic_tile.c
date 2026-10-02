@@ -351,6 +351,7 @@ quic_stream_rx( fd_quic_conn_t * conn,
       return FD_QUIC_SUCCESS;
     }
     if( data_sz==0 ) return FD_QUIC_SUCCESS; /* ignore empty */
+    if( FD_UNLIKELY( !conn->called_conn_new ) ) return FD_QUIC_FAILED;
     if( FD_UNLIKELY( oversz ) ) {
       ctx->metrics.quic_txn_too_large++;
       return FD_QUIC_SUCCESS; /* drop */
