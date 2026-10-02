@@ -391,7 +391,6 @@ fd_progcache_reset( fd_progcache_join_t * cache ) {
   cache->shmem->txn.child_tail_idx = UINT_MAX;
   reset_rec_map( cache );
   cache->shmem->txn.root = fd_progcache_fork_id_initial();
-  cache->shmem->txn.seq  = fd_progcache_fork_id_initial();
 }
 
 static int
