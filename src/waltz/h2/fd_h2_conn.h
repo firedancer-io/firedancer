@@ -6,6 +6,7 @@
 
 #include "fd_h2_rbuf.h"
 #include "fd_h2_proto.h"
+#include "fd_hpack.h"
 
 /* fd_h2_settings_t contains HTTP/2 settings that fd_h2 understands. */
 
@@ -51,9 +52,14 @@ struct fd_h2_conn {
   ushort flags;           /* bit set of FD_H2_CONN_FLAGS_* */
   uchar  conn_error;
   uchar  setting_tx;      /* no of sent SETTINGS frames pending their ACK */
-  uchar  rx_frame_flags;  /* current RX frame: flags */
+  union { /* DATA and a field block cannot be in progress together */
+    uchar rx_frame_flags;  /* DATA frame flags */
+    uchar rx_hdrs_discard; /* discard the current HEADERS/CONTINUATION block */
+  };
   uchar  rx_pad_rem;      /* current RX frame: pad bytes remaining */
   uchar  ping_tx;         /* no of sent PING frames pending their ACK */
+  uchar  allow_server_requests; /* opt in to nonstandard peer-initiated streams as a client */
+  fd_hpack_skip_t rx_hpack; /* field-block validation survives stream release */
 };
 
 /* FD_H2_CONN_FLAGS_* give flags related to conn lifecycle */
@@ -81,7 +87,8 @@ struct fd_h2_conn {
    preface was received, a SETTINGS frame was sent, a SETTINGS frame was
    received, a SETTINGS ACK was sent, and a SETTINGS ACK was received. */
 
-#define FD_H2_CONN_FLAGS_HANDSHAKING (0xf0)
+#define FD_H2_CONN_FLAGS_HANDSHAKING ( FD_H2_CONN_FLAGS_CLIENT_INITIAL  | FD_H2_CONN_FLAGS_WAIT_SETTINGS_ACK_0 | \
+                                       FD_H2_CONN_FLAGS_WAIT_SETTINGS_0 | FD_H2_CONN_FLAGS_SERVER_INITIAL       )
 
 FD_PROTOTYPES_BEGIN
 
@@ -249,22 +256,13 @@ fd_h2_conn_error( fd_h2_conn_t * conn,
 
 /* fd_h2_tx_rst_stream writes a RST_STREAM frame for sending.  rbuf_tx
    must have at least sizeof(fd_h2_rst_stream_t) free space.  (This is
-   a low-level API) */
+   a low-level API.  Not inlined, which keeps its stack frame out of the
+   DATA receive path.) */
 
-static inline void
+void
 fd_h2_tx_rst_stream( fd_h2_rbuf_t * rbuf_tx,
                      uint           stream_id,
-                     uint           h2_err ) {
-  fd_h2_rst_stream_t rst_stream = {
-    .hdr = {
-      .typlen      = fd_h2_frame_typlen( FD_H2_FRAME_TYPE_RST_STREAM, 4UL ),
-      .flags       = 0U,
-      .r_stream_id = fd_uint_bswap( stream_id )
-    },
-    .error_code = fd_uint_bswap( h2_err )
-  };
-  fd_h2_rbuf_push( rbuf_tx, &rst_stream, sizeof(fd_h2_rst_stream_t) );
-}
+                     uint           h2_err );
 
 FD_PROTOTYPES_END
 

@@ -117,6 +117,22 @@ test_padded_data_excludes_padding( void ) {
   CHECK( g_rec.data_flags==0UL );
   CHECK( conn->rx_pad_rem==0U );
   CHECK( fd_h2_rbuf_used_sz( rbuf_rx )==0UL );
+  /* Padding counts against flow control once per frame (RFC 9113 6.1) */
+  fd_h2_frame_hdr_t hdr = {
+    .typlen      = fd_h2_frame_typlen( FD_H2_FRAME_TYPE_DATA, sizeof(payload) ),
+    .flags       = FD_H2_FLAG_PADDED,
+    .r_stream_id = fd_uint_bswap( 1U )
+  };
+  fd_h2_rbuf_push( rbuf_rx, &hdr, sizeof(hdr) );
+  fd_h2_rbuf_push( rbuf_rx, payload, 3UL );
+  fd_h2_rx( conn, rbuf_rx, rbuf_tx, scratch, sizeof(scratch), cb );
+  fd_h2_rbuf_push( rbuf_rx, payload+3, sizeof(payload)-3UL );
+  fd_h2_rbuf_push( rbuf_tx, scratch, sizeof(tx_mem)-25UL ); /* below the DATA control reserve */
+  fd_h2_rx( conn, rbuf_rx, rbuf_tx, scratch, sizeof(scratch), cb );
+  CHECK( fd_h2_rbuf_used_sz( rbuf_rx )==sizeof(payload)-3UL );
+  fd_h2_rbuf_skip( rbuf_tx, sizeof(tx_mem)-25UL );
+  fd_h2_rx( conn, rbuf_rx, rbuf_tx, scratch, sizeof(scratch), cb );
+  CHECK( conn->rx_wnd==65535U-32U && g_rec.stream.rx_wnd==65535U-32U );
 }
 
 static void

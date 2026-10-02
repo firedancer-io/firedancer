@@ -51,7 +51,42 @@ struct fd_hpack_rd {
 
 typedef struct fd_hpack_rd fd_hpack_rd_t;
 
+/* fd_hpack_skip_t incrementally decodes a field block whose fields are
+   discarded.  It retains no input or decoded strings, so both records
+   and Huffman strings may cross fragment boundaries.  Like fd_hpack_rd,
+   it assumes the peer's dynamic table size has been forced to zero. */
+
+struct fd_hpack_skip {
+  ulong  integer;     /* current integer, or encoded string bytes remaining */
+  ushort huff_state;  /* 0 for raw strings, otherwise Huffman decoder state */
+  uchar  phase;
+  uchar  int_shift;   /* 0, or 7 plus the shift of the next continuation octet */
+  uchar  field_seen;  /* table size updates are only allowed before fields */
+};
+
+typedef struct fd_hpack_skip fd_hpack_skip_t;
+
 FD_PROTOTYPES_BEGIN
+
+/* Start a new field block. */
+
+static inline void
+fd_hpack_skip_init( fd_hpack_skip_t * skip ) {
+  *skip = (fd_hpack_skip_t){0};
+}
+
+/* Decode a fragment without retaining its fields.  fin marks the end of
+   the field block, not the end of a string or an individual frame.
+   Returns FD_H2_SUCCESS for a valid complete block or an incomplete
+   prefix when !fin.  Returns FD_H2_ERR_COMPRESSION for invalid HPACK,
+   integers with more than eight continuation octets, or an unfinished
+   record when fin.  Errors remain sticky until fd_hpack_skip_init. */
+
+uint
+fd_hpack_skip_feed( fd_hpack_skip_t * skip,
+                    uchar const *     src,
+                    ulong             srcsz,
+                    int               fin );
 
 /* fd_hpack_rd_init initializes a hpack_rd for reading of the header
    block in src.  hpack_rd has a read interest in src for its entire

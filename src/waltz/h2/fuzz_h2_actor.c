@@ -319,6 +319,7 @@ fuzz_endpoint_reset( fuzz_endpoint_t * ep,
   }
 
   ep->conn_mem->flags = 0U; /* Skip the preface handshake and fuzz framing-state directly. */
+  ep->conn_mem->allow_server_requests = 1U; /* The server actor opens streams too. */
   ep->conn_mem->self_settings.max_concurrent_streams = (uint)FUZZ_MAX_STREAMS;
   ep->conn_mem->peer_settings.max_concurrent_streams = (uint)FUZZ_MAX_STREAMS;
   ep->conn_mem->self_settings.max_frame_size         = (uint)(FUZZ_RX_BUFSZ - sizeof(fd_h2_frame_hdr_t));

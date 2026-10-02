@@ -255,16 +255,16 @@ fd_grpc_client_send_stream_quota( fd_h2_rbuf_t *        rbuf_tx,
 }
 
 /* fd_grpc_client_send_timeout is called when a stream timeout triggers.
-   Calls back to the user, writes a RST_STREAM frame, and frees the
-   stream object. */
+   Writes a RST_STREAM frame unless the stream is already closed, calls
+   back to the user, and frees the stream object. */
 
 static void
 fd_grpc_client_send_timeout( fd_h2_rbuf_t *        rbuf_tx,
                              fd_grpc_client_t *    client,
                              fd_grpc_h2_stream_t * stream,
                              int                   deadline_kind ) {
-  client->callbacks->rx_timeout( client->ctx, stream->request_ctx, deadline_kind );
   fd_h2_stream_error( &stream->s, client->conn, rbuf_tx, FD_H2_ERR_CANCEL );
+  client->callbacks->rx_timeout( client->ctx, stream->request_ctx, deadline_kind );
   fd_grpc_client_stream_release( client, stream );
 }
 
@@ -308,7 +308,7 @@ fd_grpc_client_service_streams( fd_grpc_client_t * client,
     fd_ulong_max( sizeof(fd_h2_window_update_t), sizeof(fd_h2_rst_stream_t) );
   fd_h2_conn_t * conn    = client->conn;
   fd_h2_rbuf_t * rbuf_tx = client->frame_tx;
-  if( FD_UNLIKELY( conn->flags ) ) return;
+  if( FD_UNLIKELY( conn->flags & (FD_H2_CONN_FLAGS_DEAD|FD_H2_CONN_FLAGS_SEND_GOAWAY) ) ) return;
   uint  const wnd_max    = conn->self_settings.initial_window_size;
   uint  const wnd_thres  = wnd_max / 2;
   for( ulong i=0UL; i<(client->stream_cnt); i++ ) {
@@ -329,7 +329,7 @@ fd_grpc_client_service_streams( fd_grpc_client_t * client,
       continue;
     }
 
-    if( FD_UNLIKELY( stream->s.rx_wnd < wnd_thres ) ) {
+    if( FD_UNLIKELY( stream->s.rx_wnd < wnd_thres && stream->s.state!=FD_H2_STREAM_STATE_CLOSED ) ) {
       uint const bump = wnd_max - stream->s.rx_wnd;
       fd_grpc_client_send_stream_quota( rbuf_tx, stream, bump );
     }
@@ -892,7 +892,14 @@ fd_grpc_h2_cb_headers(
     return;
   }
 
-  if( !stream->hdrs_received && !!( flags & FD_H2_FLAG_END_HEADERS) ) {
+  if( !( flags & FD_H2_FLAG_END_HEADERS ) ) return;
+  /* END_STREAM may have arrived earlier in the block.  Reset before
+     callbacks consume the TX space reserved by fd_h2_rx. */
+  int const rx_end = ( flags & FD_H2_FLAG_END_STREAM ) ||
+                    h2_stream->state==FD_H2_STREAM_STATE_CLOSING_RX || h2_stream->state==FD_H2_STREAM_STATE_CLOSED;
+  if( rx_end ) fd_h2_stream_error( h2_stream, conn, client->frame_tx, FD_H2_SUCCESS );
+
+  if( !stream->hdrs_received ) {
     /* Got initial response header */
     stream->hdrs_received = 1;
     stream->has_header_deadline = 0;
@@ -902,8 +909,7 @@ fd_grpc_h2_cb_headers(
     }
   }
 
-  if( ( flags & (FD_H2_FLAG_END_HEADERS|FD_H2_FLAG_END_STREAM) )
-              ==(FD_H2_FLAG_END_HEADERS|FD_H2_FLAG_END_STREAM)   ) {
+  if( rx_end ) {
     client->callbacks->rx_end( client->ctx, stream->request_ctx, &stream->hdrs );
     fd_grpc_client_stream_release( client, stream );
     return;
@@ -940,8 +946,8 @@ fd_grpc_h2_cb_data(
       stream->msg_sz = fd_uint_bswap( FD_LOAD( uint, (void *)( (ulong)stream->msg_buf+1 ) ) );
       if( FD_UNLIKELY( sizeof(fd_grpc_hdr_t)  + stream->msg_sz > stream->msg_buf_max ) ) {
         FD_LOG_WARNING(( "Received oversized gRPC message (%lu bytes), killing request", stream->msg_sz ));
-        client->callbacks->rx_end( client->ctx, stream->request_ctx, &stream->hdrs );
         fd_h2_stream_error( h2_stream, conn, client->frame_tx, FD_H2_ERR_INTERNAL );
+        client->callbacks->rx_end( client->ctx, stream->request_ctx, &stream->hdrs );
         fd_grpc_client_stream_release( client, stream );
         return;
       }
@@ -961,6 +967,9 @@ fd_grpc_h2_cb_data(
     if( stream->msg_buf_used >= wmark ) {
       /* Data complete */
       void const * msg_ptr = stream->msg_buf + sizeof(fd_grpc_hdr_t);
+      /* The first wrapped callback has no END_STREAM flag, but the H2
+         state already reflects the end of the carrying DATA frame. */
+      if( FD_UNLIKELY( h2_stream->state==FD_H2_STREAM_STATE_CLOSING_RX ) ) fd_h2_stream_error( h2_stream, conn, client->frame_tx, FD_H2_SUCCESS );
       client->callbacks->rx_msg( client->ctx, msg_ptr, stream->msg_sz, stream->request_ctx );
       stream->msg_buf_used = 0UL;
       stream->msg_sz       = 0UL;
@@ -977,6 +986,7 @@ fd_grpc_h2_cb_data(
     if( FD_UNLIKELY( stream->msg_buf_used ) ) {
       FD_LOG_WARNING(( "Received incomplete gRPC message" ));
     }
+    fd_h2_stream_error( h2_stream, conn, client->frame_tx, FD_H2_SUCCESS );
     client->callbacks->rx_end( client->ctx, stream->request_ctx, &stream->hdrs );
     fd_grpc_client_stream_release( client, stream );
   }

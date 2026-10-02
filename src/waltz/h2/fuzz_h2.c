@@ -205,6 +205,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
 
   if( seed&1 ) {
     fd_h2_conn_init_client( g_ctx.conn );
+    g_ctx.conn->allow_server_requests = (uchar)( (seed>>1)&1U );
   } else {
     fd_h2_conn_init_server( g_ctx.conn );
   }

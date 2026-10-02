@@ -44,6 +44,7 @@ test_grpc_client_mock_conn( fd_grpc_client_t * client ) {
 static ulong  g_cb_request_ctx;
 
 static ulong g_rx_start_cnt;
+static int   g_rx_start_fill_tx;
 
 static void
 cb_rx_start( void * app_ctx,
@@ -51,9 +52,11 @@ cb_rx_start( void * app_ctx,
   (void)app_ctx;
   g_cb_request_ctx = request_ctx;
   g_rx_start_cnt++;
+  while( g_rx_start_fill_tx && fd_h2_rbuf_free_sz( client->frame_tx ) ) fd_h2_rbuf_push( client->frame_tx, "", 1UL );
 }
 
 static ulong g_rx_end_cnt;
+static int   g_rx_end_fill_tx;
 static fd_grpc_resp_hdrs_t g_cb_resp_hdrs;
 
 static void
@@ -64,7 +67,30 @@ cb_rx_end( void * app_ctx,
   g_cb_request_ctx = request_ctx;
   g_cb_resp_hdrs   = *resp_hdrs;
   g_rx_end_cnt++;
+  while( g_rx_end_fill_tx && fd_h2_rbuf_free_sz( client->frame_tx ) ) fd_h2_rbuf_push( client->frame_tx, "", 1UL );
 }
+
+static ulong g_rx_msg_cnt;
+static fd_grpc_h2_stream_t * g_rx_msg_closed_stream;
+
+static void
+cb_rx_msg( void *       app_ctx,
+           void const * protobuf,
+           ulong        protobuf_sz,
+           ulong        request_ctx ) {
+  (void)app_ctx; (void)protobuf; (void)protobuf_sz; (void)request_ctx;
+  g_rx_msg_cnt++;
+  if( !g_rx_msg_closed_stream ) return;
+  FD_TEST( g_rx_msg_closed_stream->s.state==FD_H2_STREAM_STATE_CLOSED );
+  ulong const tx_used = fd_h2_rbuf_used_sz( client->frame_tx );
+  ulong const pending = client->request_tx_op->chunk_sz;
+  client->conn->tx_wnd = g_rx_msg_closed_stream->s.tx_wnd = 100U;
+  fd_h2_tx_op_copy( client->conn, &g_rx_msg_closed_stream->s, client->frame_tx, client->request_tx_op );
+  FD_TEST( fd_h2_rbuf_used_sz( client->frame_tx )==tx_used && client->request_tx_op->chunk_sz==pending );
+  while( fd_h2_rbuf_free_sz( client->frame_tx ) ) fd_h2_rbuf_push( client->frame_tx, "", 1UL );
+}
+
+static int g_rx_timeout_fill_tx;
 
 static struct {
   int    deadline_kind;
@@ -77,6 +103,18 @@ cb_rx_timeout( void * app_ctx,
   (void)app_ctx;
   g_cb_request_ctx = request_ctx;
   g_timeout_details.deadline_kind = deadline_kind;
+  while( g_rx_timeout_fill_tx && fd_h2_rbuf_free_sz( client->frame_tx ) ) fd_h2_rbuf_push( client->frame_tx, "", 1UL );
+}
+
+static void
+test_rx_frame( uint          type,
+               uint          flags,
+               uint          stream_id,
+               uchar const * data,
+               ulong         data_sz ) {
+  fd_h2_tx( client->frame_rx, data, data_sz, type, flags, stream_id );
+  fd_h2_rx( client->conn, client->frame_rx, client->frame_tx, client->frame_scratch,
+            client->frame_scratch_max, &fd_grpc_client_h2_callbacks );
 }
 
 FD_UNIT_TEST( header_deadline ) {
@@ -107,19 +145,39 @@ FD_UNIT_TEST( header_deadline ) {
   fd_grpc_client_deadline_set( stream, FD_GRPC_DEADLINE_HEADER, deadline );
   FD_TEST( client->stream_cnt==1 );
   FD_TEST( !fd_grpc_client_stream_acquire_is_safe( client ) );
+
+  /* Deadlines fire mid field block, but not once the conn is closing */
+  uchar const status = 0x88;
+  test_rx_frame( FD_H2_FRAME_TYPE_HEADERS, 0U, (uint)stream_id, &status, 1UL );
+  client->conn->flags |= FD_H2_CONN_FLAGS_SEND_GOAWAY;
   fd_grpc_client_service_streams( client, deadline+1L );
+  FD_TEST( client->stream_cnt==1 );
+  client->conn->flags &= (uchar)~FD_H2_CONN_FLAGS_SEND_GOAWAY;
+
+  /* Queue the reset before rx_timeout fills the remaining TX space. */
+  static uchar const filler[ 4096 ] = {0};
+  ulong const prefix = client->frame_tx_buf_max-sizeof(fd_h2_rst_stream_t);
+  fd_h2_rbuf_push( client->frame_tx, filler, prefix );
+  g_rx_timeout_fill_tx = 1;
+  fd_grpc_client_service_streams( client, deadline+1L );
+  g_rx_timeout_fill_tx = 0;
   FD_TEST( client->stream_cnt==0 );
   FD_TEST( client->conn->stream_active_cnt[1]==0U );
   FD_TEST( fd_grpc_client_stream_acquire_is_safe( client ) );
   stream = NULL; /* already freed */
 
-  FD_TEST( fd_h2_rbuf_used_sz( client->frame_tx )==sizeof(fd_h2_rst_stream_t) );
+  FD_TEST( !fd_h2_rbuf_free_sz( client->frame_tx ) );
+  fd_h2_rbuf_skip( client->frame_tx, prefix );
   fd_h2_rst_stream_t rst_stream;
   fd_h2_rbuf_pop_copy( client->frame_tx, &rst_stream, sizeof(fd_h2_rst_stream_t) );
   FD_TEST( rst_stream.hdr.typlen==fd_h2_frame_typlen( FD_H2_FRAME_TYPE_RST_STREAM, 4UL ) );
   FD_TEST( rst_stream.hdr.flags ==0 );
   FD_TEST( fd_uint_bswap( rst_stream.hdr.r_stream_id )==stream_id );
   FD_TEST( fd_uint_bswap( rst_stream.error_code      )==FD_H2_ERR_CANCEL );
+  /* Late frames for the expired stream are dropped */
+  test_rx_frame( FD_H2_FRAME_TYPE_CONTINUATION, FD_H2_FLAG_END_HEADERS, (uint)stream_id, &status, 1UL );
+  test_rx_frame( FD_H2_FRAME_TYPE_HEADERS,      FD_H2_FLAG_END_HEADERS, (uint)stream_id, &status, 1UL );
+  FD_TEST( !client->conn->flags && !client->conn->conn_error && fd_h2_rbuf_is_empty( client->frame_tx ) );
 }
 
 FD_UNIT_TEST( rx_end_deadline ) {
@@ -143,6 +201,18 @@ FD_UNIT_TEST( rx_end_deadline ) {
   FD_TEST( client->stream_cnt==0 );
   FD_TEST( client->conn->stream_active_cnt[1]==0U );
   FD_TEST( fd_grpc_client_stream_acquire_is_safe( client ) );
+
+  /* No frames on a stream closed by END_STREAM mid field block */
+  fd_h2_rbuf_skip( client->frame_tx, fd_h2_rbuf_used_sz( client->frame_tx ) );
+  stream = fd_grpc_client_stream_acquire( client, 0UL );
+  fd_h2_stream_close_tx( &stream->s, client->conn );
+  fd_grpc_client_deadline_set( stream, FD_GRPC_DEADLINE_RX_END, deadline );
+  uchar const status = 0x88;
+  test_rx_frame( FD_H2_FRAME_TYPE_HEADERS, FD_H2_FLAG_END_STREAM, stream->s.stream_id, &status, 1UL );
+  stream->s.rx_wnd = 0U;
+  fd_grpc_client_service_streams( client, deadline-1L );
+  fd_grpc_client_service_streams( client, deadline+1L );
+  FD_TEST( client->stream_cnt==0 && fd_h2_rbuf_is_empty( client->frame_tx ) );
 }
 
 FD_UNIT_TEST( rx_stream_quota ) {
@@ -374,6 +444,108 @@ FD_UNIT_TEST( empty_data_end_stream_releases_stream ) {
   FD_TEST( client->conn->stream_active_cnt[1]==0U );
 }
 
+/* END_STREAM on a HEADERS frame continued by CONTINUATION ends the
+   request once the field block completes; END_STREAM on CONTINUATION
+   is undefined and ignored.  A request the server ends before we
+   half-closed it gets RST_STREAM(NO_ERROR), freeing its stream slot.
+   c==0: split END_STREAM, c==1: same after we half-closed,
+   c==2: DATA END_STREAM, c==3: END_STREAM on CONTINUATION,
+   c==4: c==0 with rx_start filling all remaining TX space */
+
+FD_UNIT_TEST( split_end_stream_headers ) {
+  static uchar const hdrs[] = {0x88,0x5f,0x10,'a','p','p','l','i','c','a','t','i','o','n','/','g','r','p','c'};
+  for( int c=0; c<5; c++ ) {
+    fd_grpc_client_reset( client );
+    test_grpc_client_mock_conn( client );
+    client->conn->peer_settings.max_concurrent_streams = 1U;
+    fd_grpc_h2_stream_t * stream = fd_grpc_client_stream_acquire( client, 0UL );
+    if( c==1 ) fd_h2_stream_close_tx( &stream->s, client->conn );
+    g_rx_end_cnt       = 0UL;
+    g_rx_start_fill_tx = c==4;
+    test_rx_frame( FD_H2_FRAME_TYPE_HEADERS, ( c<2 || c==4 ) ? FD_H2_FLAG_END_STREAM : 0U, 1U, hdrs, 1UL );
+    FD_TEST( client->stream_cnt==1UL );
+    static uchar const filler[ 4096 ] = {0};
+    ulong const tx_prefix = c==4 ? client->frame_tx_buf_max-sizeof(fd_h2_ping_t) : 0UL;
+    if( c==4 ) fd_h2_rbuf_push( client->frame_tx, filler, tx_prefix );
+    test_rx_frame( FD_H2_FRAME_TYPE_CONTINUATION, FD_H2_FLAG_END_HEADERS|( c==3 ? FD_H2_FLAG_END_STREAM : 0U ),
+                   1U, hdrs+1, sizeof(hdrs)-1UL );
+    if( c==2 ) test_rx_frame( FD_H2_FRAME_TYPE_DATA, FD_H2_FLAG_END_STREAM, 1U, hdrs, 0UL );
+    ulong const live = (ulong)( c==3 );
+    FD_TEST( !client->conn->conn_error && g_rx_end_cnt==1UL-live );
+    FD_TEST( client->stream_cnt==live && client->conn->stream_active_cnt[1]==(uint)live );
+    if( c==4 ) fd_h2_rbuf_skip( client->frame_tx, tx_prefix );
+    fd_h2_rst_stream_t rst = {0};
+    if( c==0 || c==2 || c==4 ) fd_h2_rbuf_pop_copy( client->frame_tx, &rst, sizeof(rst) );
+    if( c==4 ) fd_h2_rbuf_skip( client->frame_tx, fd_h2_rbuf_used_sz( client->frame_tx ) );
+    FD_TEST( fd_uint_bswap( rst.error_code )==FD_H2_SUCCESS && fd_h2_rbuf_is_empty( client->frame_tx ) );
+    FD_TEST( fd_grpc_client_stream_acquire_is_safe( client )==!live );
+  }
+  g_rx_start_fill_tx = 0;
+}
+
+/* A final DATA frame may wrap after a complete message, so its first
+   callback can fill TX before the END_STREAM callback.  A pending send
+   must not resume after the reset, even when flow-control credit returns. */
+
+FD_UNIT_TEST( data_end_stream_before_callbacks ) {
+  static uchar const messages[] = {0,0,0,0,1,'a',0,0,0,0,1,'b'};
+  static uchar const request[]  = {0,0,0,0,3,'a','b','c'};
+  static uchar const filler[ 4096 ] = {0};
+  for( int c=0; c<4; c++ ) {
+    fd_grpc_client_reset( client );
+    test_grpc_client_mock_conn( client );
+    client->conn->peer_settings.max_concurrent_streams = 1U;
+    fd_grpc_h2_stream_t * stream = fd_grpc_client_stream_acquire( client, 1UL );
+    stream->hdrs.h2_status     = 200U;
+    stream->hdrs.is_grpc_proto = 1U;
+    g_rx_msg_closed_stream = stream;
+    g_rx_msg_cnt           = 0UL;
+    g_rx_end_cnt           = 0UL;
+    g_rx_end_fill_tx       = 1;
+
+    /* One complete outbound DATA frame precedes the reset.  The rest of
+       this request remains parked until the response cancels it. */
+    client->conn->tx_wnd = stream->s.tx_wnd = 1U;
+    fd_h2_tx_op_init( client->request_tx_op, request, sizeof(request), 0U );
+    fd_h2_tx_op_copy( client->conn, &stream->s, client->frame_tx, client->request_tx_op );
+    FD_TEST( client->request_tx_op->chunk_sz==sizeof(request)-1UL );
+    ulong const tx_prefix = client->frame_tx_buf_max-2UL*sizeof(fd_h2_window_update_t);
+    fd_h2_rbuf_push( client->frame_tx, filler, tx_prefix-fd_h2_rbuf_used_sz( client->frame_tx ) );
+
+    if( c==1 ) {
+      ulong const offset = client->frame_rx_buf_max-sizeof(fd_h2_frame_hdr_t)-6UL;
+      fd_h2_rbuf_push( client->frame_rx, filler, offset );
+      fd_h2_rbuf_skip( client->frame_rx, offset );
+    }
+    uchar response[ sizeof(messages) ];
+    memcpy( response, messages, sizeof(messages) );
+    ulong response_sz = sizeof(messages);
+    if( c>=2 ) {
+      ulong const offset = c==2 ? 0UL : 6UL;
+      fd_grpc_hdr_t oversized = { .msg_sz = fd_uint_bswap( (uint)client->frame_rx_buf_max ) };
+      memcpy( response+offset, &oversized, sizeof(oversized) );
+      response_sz = offset+sizeof(oversized);
+    }
+    test_rx_frame( FD_H2_FRAME_TYPE_DATA, FD_H2_FLAG_END_STREAM, stream->s.stream_id, response, response_sz );
+    FD_TEST( !client->conn->conn_error && !client->stream_cnt && !client->conn->stream_active_cnt[1] );
+    FD_TEST( g_rx_msg_cnt==( c==2 ? 0UL : c==3 ? 1UL : 2UL ) && g_rx_end_cnt==1UL );
+    FD_TEST( !client->request_stream && !client->request_tx_op->chunk_sz );
+
+    fd_h2_frame_hdr_t data_hdr;
+    fd_h2_rbuf_pop_copy( client->frame_tx, &data_hdr, sizeof(data_hdr) );
+    FD_TEST( data_hdr.typlen==fd_h2_frame_typlen( FD_H2_FRAME_TYPE_DATA, 1UL ) );
+    fd_h2_rbuf_skip( client->frame_tx, tx_prefix-sizeof(data_hdr) );
+    fd_h2_rst_stream_t rst;
+    fd_h2_rbuf_pop_copy( client->frame_tx, &rst, sizeof(rst) );
+    FD_TEST( rst.hdr.typlen==fd_h2_frame_typlen( FD_H2_FRAME_TYPE_RST_STREAM, 4UL ) );
+    FD_TEST( fd_uint_bswap( rst.error_code )==( c==2 ? FD_H2_ERR_INTERNAL : FD_H2_SUCCESS ) );
+    fd_h2_rbuf_skip( client->frame_tx, fd_h2_rbuf_used_sz( client->frame_tx ) );
+    FD_TEST( fd_grpc_client_stream_acquire_is_safe( client ) );
+  }
+  g_rx_msg_closed_stream = NULL;
+  g_rx_end_fill_tx       = 0;
+}
+
 FD_UNIT_TEST( grpc_stream_error_releases_h2_quota ) {
   fd_grpc_client_reset( client );
   test_grpc_client_mock_conn( client );
@@ -424,6 +596,22 @@ FD_UNIT_TEST( grpc_stream_error_releases_h2_quota ) {
   FD_TEST( rst_stream.hdr.flags==0 );
   FD_TEST( fd_uint_bswap( rst_stream.hdr.r_stream_id )==stream_id );
   FD_TEST( fd_uint_bswap( rst_stream.error_code )==FD_H2_ERR_INTERNAL );
+
+  /* Corrupt headers once END_STREAM closed the stream: no RST_STREAM */
+  ulong const rx_end_cnt = g_rx_end_cnt;
+  stream = fd_grpc_client_stream_acquire( client, 2UL );
+  fd_h2_stream_close_tx( &stream->s, client->conn );
+  test_rx_frame( FD_H2_FRAME_TYPE_HEADERS, FD_H2_FLAG_END_STREAM|FD_H2_FLAG_END_HEADERS, stream->s.stream_id, (uchar const *)"corrupt", 7UL );
+  FD_TEST( g_rx_end_cnt==rx_end_cnt+1UL && !client->stream_cnt && fd_h2_rbuf_is_empty( client->frame_tx ) );
+
+  /* Zero stream WINDOW_UPDATE: one RST_STREAM, request ended */
+  stream = fd_grpc_client_stream_acquire( client, 3UL );
+  uint const zero = 0U;
+  test_rx_frame( FD_H2_FRAME_TYPE_WINDOW_UPDATE, 0U, stream->s.stream_id, (uchar const *)&zero, 4UL );
+  FD_TEST( g_rx_end_cnt==rx_end_cnt+2UL && !client->stream_cnt && !client->conn->stream_active_cnt[1] && !client->request_stream );
+  FD_TEST( !client->conn->conn_error && fd_h2_rbuf_used_sz( client->frame_tx )==sizeof(fd_h2_rst_stream_t) );
+  fd_h2_rbuf_pop_copy( client->frame_tx, &rst_stream, sizeof(fd_h2_rst_stream_t) );
+  FD_TEST( fd_uint_bswap( rst_stream.error_code )==FD_H2_ERR_PROTOCOL );
 }
 
 FD_UNIT_TEST( tls_socket_eof_disconnects ) {
@@ -636,6 +824,7 @@ main( int     argc,
 
   fd_grpc_client_callbacks_t callbacks = {
     .rx_start   = cb_rx_start,
+    .rx_msg     = cb_rx_msg,
     .rx_end     = cb_rx_end,
     .rx_timeout = cb_rx_timeout
   };
