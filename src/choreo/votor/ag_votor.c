@@ -591,6 +591,7 @@ ag_votor_restore( ag_votor_t *                   self,
   slot_state_map_t * map       = self->slot_states->map;
   slot_state_ele_t * pool      = self->slot_states->pool;
   ulong              finalized = self->highest_final_cert_slot;
+  ulong              unpruned  = first_unpruned_slot( self ); /* we still vote on blocks back to here */
 
   self->wait_to_vote_slot = fd_ulong_max( self->wait_to_vote_slot, history->root+1UL );
 
@@ -613,12 +614,12 @@ ag_votor_restore( ag_votor_t *                   self,
     state->retired     = 0;
   }
 
-  for( ulong i=0UL; i<history->voted_cnt;    i++ ) if( history->voted   [i]>finalized ) state_mut( self, history->voted   [i] )->voted      = 1;
-  for( ulong i=0UL; i<history->skipped_cnt;  i++ ) if( history->skipped [i]>finalized ) state_mut( self, history->skipped [i] )->bad_window = 1;
-  for( ulong i=0UL; i<history->its_over_cnt; i++ ) if( history->its_over[i]>finalized ) state_mut( self, history->its_over[i] )->retired    = 1;
+  for( ulong i=0UL; i<history->voted_cnt;    i++ ) if( history->voted   [i]>=unpruned ) state_mut( self, history->voted   [i] )->voted      = 1;
+  for( ulong i=0UL; i<history->skipped_cnt;  i++ ) if( history->skipped [i]>=unpruned ) state_mut( self, history->skipped [i] )->bad_window = 1;
+  for( ulong i=0UL; i<history->its_over_cnt; i++ ) if( history->its_over[i]>=unpruned ) state_mut( self, history->its_over[i] )->retired    = 1;
   for( ulong i=0UL; i<history->voted_notar_cnt; i++ ) {
     ag_block_id_t const * block = &history->voted_notar[i];
-    if( block->slot<=finalized ) continue;
+    if( block->slot<unpruned ) continue;
     slot_state_ele_t * state = state_mut( self, block->slot );
     state->voted_notar = 1;
     memcpy( state->voted_notar_hash, block->hash, sizeof(ag_block_hash_t) );

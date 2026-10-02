@@ -697,9 +697,11 @@ set_identity( fd_admin_tile_ctx_t * ctx,
   if( req->vote_history_sz ) {
     int err;
     if( ctx->alpenglow ) {
+      /* Votor decodes the file again, the decoded history does not fit
+         in its keyswitch. */
       err             = ag_vote_history_file_de( req->vote_history, req->vote_history_sz, public_key.uc, &ag_vote_history );
-      vote_history    = &ag_vote_history;
-      vote_history_sz = sizeof(ag_vote_history_file_t);
+      vote_history    = req->vote_history;
+      vote_history_sz = req->vote_history_sz;
     } else {
       err             = fd_tower_file_de( req->vote_history, req->vote_history_sz, &public_key, &tower_file );
       vote_history    = &tower_file;

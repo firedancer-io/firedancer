@@ -89,10 +89,11 @@ ag_votor_wait_to_vote( ag_votor_t * self );
 
 /* ag_votor_restore is called instead of ag_votor_wait_to_vote when our
    identity changes with a vote history file for the new identity.
-   Above the finalized slot it replaces our votes with the file's, and
-   it signs nothing at or below the file's root.  If the file names
-   more slots than votor has room for, it waits past the file's highest
-   slot instead.  Like Agave's set-identity VoteHistory::restore. */
+   Above the finalized slot it clears our votes, it records the file's
+   votes in every slot we still vote in, and it signs nothing at or
+   below the file's root.  If the file names more slots than votor has
+   room for, it waits past the file's highest slot instead.  Like
+   Agave's set-identity VoteHistory::restore. */
 
 void
 ag_votor_restore( ag_votor_t *                   self,

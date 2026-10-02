@@ -1,5 +1,6 @@
 #define FD_TILE_TEST 1
 #include "fd_votor_tile.c"
+#include "../../ballet/ed25519/fd_ed25519.h"
 
 #define TEST_VOTER_MAX (4UL)
 
@@ -496,6 +497,28 @@ test_quic( uchar *           mem,
   return quic;
 }
 
+/* Writes a vote history file rooted at root with one voted slot, signed
+   by the keypair priv/pub, to buf and returns its size. */
+
+static ulong
+build_vote_history( uchar *     buf,
+                    uchar const pub [ 32 ],
+                    uchar const priv[ 32 ],
+                    ulong       root,
+                    ulong       voted ) {
+  ulong sz = 4UL+64UL+8UL;                         /* kind, signature, data_sz */
+  FD_STORE( uint, buf, 0U );                       /* SavedVoteHistoryVersions::Current */
+  memcpy( buf+sz, pub, 32UL );       sz += 32UL;
+  FD_STORE( ulong, buf+sz, 1UL   );  sz += 8UL;    /* voted */
+  FD_STORE( ulong, buf+sz, voted );  sz += 8UL;
+  memset( buf+sz, 0, 8UL*8UL );      sz += 8UL*8UL; /* every other set and map is empty */
+  FD_STORE( ulong, buf+sz, root  );  sz += 8UL;
+  FD_STORE( ulong, buf+68UL, sz-76UL );
+  fd_sha512_t sha[1];
+  fd_ed25519_sign( buf+4UL, buf+76UL, sz-76UL, pub, priv, fd_sha512_join( fd_sha512_new( sha ) ) );
+  return sz;
+}
+
 /* During set-identity votor halts right after replay.  It keeps voting
    until it has consumed replay_slot through the seq replay switched at,
    then stops voting, lets the votes it already signed go out under the
@@ -513,10 +536,14 @@ test_id_keyswitch( void ) {
   static fd_keyswitch_t  av_keyswitch_mem[1];
   static fd_aio_t        aio_mem[1];
 
-  /* We switch from rank 0 to rank 1, and peer with rank 2. */
+  /* We switch from rank 0 to rank 1, and peer with rank 2.  Rank 1
+     signs its vote history file, so it needs a real key. */
 
   fd_vote_stake_weight_t stakes[ TEST_VOTER_MAX ];
   build_stakes( stakes, 3UL, 10UL );
+  uchar       new_priv[ 32 ]; memset( new_priv, 0x55, sizeof(new_priv) );
+  fd_sha512_t sha[1];
+  fd_ed25519_public_from_private( stakes[1].id_key.uc, new_priv, fd_sha512_join( fd_sha512_new( sha ) ) );
   ag_epoch_info_t * epoch_info = rank_voters( &epoch_info_mem, stakes, 3UL );
   fd_pubkey_t old_id;  memcpy( old_id.uc,  epoch_info->validators[0].id_key, sizeof(fd_pubkey_t) );
   fd_pubkey_t new_id;  memcpy( new_id.uc,  epoch_info->validators[1].id_key, sizeof(fd_pubkey_t) );
@@ -621,10 +648,8 @@ test_id_keyswitch( void ) {
   ag_votor_handle_replay_event( ctx.votor, &block );
   FD_TEST( ag_votor_vote_event_cnt( ctx.votor )==1UL );
 
-  static ag_vote_history_file_t vote_history = { .root = 3UL, .voted = { 5UL }, .voted_cnt = 1UL };
   memcpy( ctx.id_keyswitch->bytes, new_id.uc, sizeof(fd_pubkey_t) );
-  FD_STORE( ulong, ctx.id_keyswitch->bytes+32UL, sizeof(vote_history) );
-  memcpy( ctx.id_keyswitch->bytes+40UL, &vote_history, sizeof(vote_history) );
+  FD_STORE( ulong, ctx.id_keyswitch->bytes+32UL, build_vote_history( ctx.id_keyswitch->bytes+40UL, new_id.uc, new_priv, 3UL, 5UL ) );
   ctx.id_keyswitch->param = 8UL;
   fd_keyswitch_state( ctx.id_keyswitch, FD_KEYSWITCH_STATE_SWITCH_PENDING );
 

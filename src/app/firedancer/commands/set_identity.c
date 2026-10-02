@@ -58,8 +58,8 @@ set_identity_cmd_args( int *    pargc,
                    "a vote history file, you can omit the --vote-history-file argument.", vote_history_file ));
     }
     if( FD_UNLIKELY( args->set_identity.vote_history_sz>AG_VOTE_HISTORY_FILE_MAX ) ) {
-      FD_LOG_ERR(( "vote history file %s exceeds %lu bytes.  The firedancer validator process will not be able to "
-                   "process this file.  Please contact the Firedancer team for additional assistance.", vote_history_file, AG_VOTE_HISTORY_FILE_MAX ));
+      FD_LOG_ERR(( "vote history file %s exceeds %lu bytes.  The firedancer validator will not be able to process this file. "
+                   "Retry without the --vote-history-file argument.", vote_history_file, AG_VOTE_HISTORY_FILE_MAX ));
 
     }
   }

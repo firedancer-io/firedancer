@@ -321,8 +321,6 @@ struct fd_votor_tile {
 };
 typedef struct fd_votor_tile fd_votor_tile_t;
 
-FD_STATIC_ASSERT( 40UL+sizeof(ag_vote_history_file_t)<=sizeof(((fd_keyswitch_t *)0)->bytes), vote_history );
-
 static void
 report_alpenglow_vote( fd_votor_tile_t * ctx,
                        fd_quic_conn_t *  conn,
@@ -1414,9 +1412,11 @@ during_housekeeping( fd_votor_tile_t * ctx ) {
     /* If votes and pool events drained close quic conns and update
        leader tracking. */
     if( FD_LIKELY( !ag_votor_vote_event_cnt( ctx->votor ) && !ag_pool_pool_event_cnt( ctx->pool ) ) ) {
+      int identity_changed = !!memcmp( ctx->id_key.uc, ctx->id_keyswitch->bytes, sizeof(fd_pubkey_t) );
       memcpy( ctx->id_key.uc, ctx->id_keyswitch->bytes, sizeof(fd_pubkey_t) );
-      ctx->has_vote_history = !!FD_LOAD( ulong, ctx->id_keyswitch->bytes+32UL );
-      if( ctx->has_vote_history ) memcpy( ctx->vote_history, ctx->id_keyswitch->bytes+40UL, sizeof(ag_vote_history_file_t) );
+      ulong vote_history_sz = FD_LOAD( ulong, ctx->id_keyswitch->bytes+32UL );
+      ctx->has_vote_history = identity_changed && vote_history_sz &&
+                              !ag_vote_history_file_de( ctx->id_keyswitch->bytes+40UL, vote_history_sz, ctx->id_key.uc, ctx->vote_history );
       fd_quic_set_identity_public_key( ctx->quic_client, ctx->id_key.uc );
       fd_quic_set_identity_public_key( ctx->quic_server, ctx->id_key.uc );
       for( ulong slot=0UL; slot<peers_slot_cnt(); slot++ ) {
