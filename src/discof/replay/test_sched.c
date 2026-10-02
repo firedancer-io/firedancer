@@ -5,6 +5,7 @@
 #include "../../util/fd_util.h"
 #include "fd_execrp.h"
 #include "fd_sched.h"
+#include "../poh/fd_poh.h"
 #include "../../ballet/sha256/fd_sha256.h"
 #include "../../flamenco/txn/fd_txn_generate.h"
 #include "../../flamenco/alpenglow/fd_block_marker_serde.h"
@@ -866,6 +867,22 @@ run_many_entries_case( ulong entry_cnt,
   while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
   delete_sched( sched );
   fd_wksp_free_laddr( stream );
+}
+
+/* A leader using its whole Alpenglow microblock budget, plus the
+   alpentick, stays within what sched accepts at the same shred limit,
+   and the budget is never below the old fixed 131,072. */
+static void
+run_ag_leader_budget_cases( void ) {
+  FD_TEST( fd_poh_alpenglow_max_microblocks_per_slot( FD_SHRED_BLK_MAX )==131072UL );
+  FD_TEST( fd_poh_alpenglow_max_microblocks_per_slot( 2UL*FD_SHRED_BLK_MAX )==160754UL );
+  FD_TEST( fd_poh_alpenglow_max_microblocks_per_slot( 32UL*FD_SHRED_BLK_MAX )==2586284UL );
+  FD_TEST( fd_poh_alpenglow_max_microblocks_per_slot( 0UL )==131072UL );
+  for( ulong shreds=FD_SHRED_BLK_MAX; shreds<=FD_SHRED_BLK_MAX_RAISED; shreds*=2UL ) {
+    ulong budget = fd_poh_alpenglow_max_microblocks_per_slot( shreds );
+    FD_TEST( budget>=131072UL );
+    FD_TEST( budget+1UL<=FD_SCHED_MAX_MBLK_PER_SLOT*shreds/FD_SHRED_BLK_MAX );
+  }
 }
 
 static void
@@ -4912,6 +4929,7 @@ main( int     argc,
   test_sched_footprint();
   run_ag_structure_cases();
   run_many_entries_cases();
+  run_ag_leader_budget_cases();
   run_interleaved_fec_residual_case();
   run_unparseable_residual_case();
   run_shred_window_overflow_case();
