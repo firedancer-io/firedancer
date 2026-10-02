@@ -213,6 +213,7 @@ struct fd_votor_tile {
   fd_keyswitch_t *     id_keyswitch;
   int                  halt_signing;      /* switching identity, see during_housekeeping */
   ulong                replay_in_seq;     /* seq after the last replay_slot frag consumed */
+  ulong                wait_to_vote_slot; /* from the new identity's vote history file, 0 if none */
   auth_vtr_t *         auth_vtr;
   ulong                auth_vtr_path_cnt;
   fd_keyswitch_t *     auth_vtr_keyswitch;
@@ -1415,6 +1416,7 @@ during_housekeeping( fd_votor_tile_t * ctx ) {
        leader tracking. */
     if( FD_LIKELY( !ag_votor_metrics( ctx->votor ).vote_events_cnt && !ag_pool_metrics( ctx->pool ).pool_events_cnt ) ) {
       memcpy( ctx->id_key.uc, ctx->id_keyswitch->bytes, sizeof(fd_pubkey_t) );
+      ctx->wait_to_vote_slot = FD_LOAD( ulong, ctx->id_keyswitch->bytes+32UL ) ? FD_LOAD( ulong, ctx->id_keyswitch->bytes+40UL ) : 0UL;
       fd_quic_set_identity_public_key( ctx->quic_client, ctx->id_key.uc );
       fd_quic_set_identity_public_key( ctx->quic_server, ctx->id_key.uc );
       for( ulong slot=0UL; slot<peers_slot_cnt(); slot++ ) {
@@ -1450,7 +1452,7 @@ during_housekeeping( fd_votor_tile_t * ctx ) {
     FD_CHECK_CRIT( ctx->halt_signing, "state machine corruption" );
     load_keys( ctx, ctx->auth_vtr_path_cnt );
     ctx->halt_signing = 0;
-    ag_votor_wait_to_vote( ctx->votor );
+    ag_votor_wait_to_vote( ctx->votor, ctx->wait_to_vote_slot );
     set_rank_and_bls_key( ctx );
     connect_peers( ctx, fd_clock_tile_now( ctx->clock ) );
     fd_keyswitch_state( ctx->id_keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
@@ -2050,8 +2052,9 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( ctx->auth_vtr_keyswitch );
   ctx->id_keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
   FD_TEST( ctx->id_keyswitch );
-  ctx->halt_signing  = 0;
-  ctx->replay_in_seq = 0UL;
+  ctx->halt_signing      = 0;
+  ctx->replay_in_seq     = 0UL;
+  ctx->wait_to_vote_slot = 0UL;
 
   fd_aio_t * quic_tx_aio = fd_aio_join( fd_aio_new( ctx->quic_tx_aio, ctx, quic_aio_tx ) );
   FD_TEST( quic_tx_aio );
