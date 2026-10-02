@@ -24,29 +24,29 @@ fd_zksdk_verify_proof_ciphertext_commitment_equality(
     Instead of verifying them one by one, it's more efficient to pack
     them up in a single MSM (and to do so we have to mul by 1, w, w^2).
 
-    (         z_s P_src =?= c H + Y_0     ) * w^2
+    (         z_s P_src =?= c H + Y_0     ) * 1
     ( z_x G + z_s D_src =?= c C_src + Y_1 ) * w
-    (     z_x G + z_r H =?= c C_dst + Y_2 ) * 1
+    (     z_x G + z_r H =?= c C_dst + Y_2 ) * w^2
 
     We store points and scalars in the following arrays:
 
         points  scalars
-    0   G       z_x w + z_x
-    1   H       z_r - c w^2
-    2   Y_0     -w^2
-    3   Y_1     -w
-    4   P_src   z_s w^2
+    0   G       z_x w + z_x w^2
+    1   H       z_r w^2 - c
+    2   Y_1     -w
+    3   Y_2     -w^2
+    4   P_src   z_s
     5   C_src   -c w
     6   D_src   z_s w
-    7   C_dst   -c
+    7   C_dst   -c w^2
     ----------------------- MSM
-        Y_2
+        Y_0
   */
 
   /* Validate all inputs */
   uchar scalars[ 8 * 32 ];
   fd_ristretto255_point_t points[8];
-  fd_ristretto255_point_t y2[1];
+  fd_ristretto255_point_t y0[1];
   fd_ristretto255_point_t res[1];
 
   /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/sigma_proofs/ciphertext_commitment_equality.rs#L146-L152 */
@@ -69,13 +69,13 @@ fd_zksdk_verify_proof_ciphertext_commitment_equality(
 
   fd_ristretto255_point_set( &points[0], fd_zksdk_basepoint_G );
   fd_ristretto255_point_set( &points[1], fd_zksdk_basepoint_H );
-  if( FD_UNLIKELY( fd_ristretto255_point_decompress( &points[2], proof->y0 )==NULL ) ) {
+  if( FD_UNLIKELY( fd_ristretto255_point_decompress( y0, proof->y0 )==NULL ) ) {
     return FD_ZKSDK_VERIFY_PROOF_ERROR;
   }
-  if( FD_UNLIKELY( fd_ristretto255_point_decompress( &points[3], proof->y1 )==NULL ) ) {
+  if( FD_UNLIKELY( fd_ristretto255_point_decompress( &points[2], proof->y1 )==NULL ) ) {
     return FD_ZKSDK_VERIFY_PROOF_ERROR;
   }
-  if( FD_UNLIKELY( fd_ristretto255_point_decompress( y2, proof->y2 )==NULL ) ) {
+  if( FD_UNLIKELY( fd_ristretto255_point_decompress( &points[3], proof->y2 )==NULL ) ) {
     return FD_ZKSDK_VERIFY_PROOF_ERROR;
   }
   if( FD_UNLIKELY( fd_ristretto255_point_decompress( &points[4], pubkey )==NULL ) ) {
@@ -120,20 +120,24 @@ fd_zksdk_verify_proof_ciphertext_commitment_equality(
      Note: we use a slightly different MSM but they're equivalent. */
 
   /* Compute scalars */
-  fd_curve25519_scalar_neg(    &scalars[ 7*32 ], c );                              // -c
+  uchar ww[ 32 ];
+  fd_curve25519_scalar_mul(    ww, w, w );
+  fd_curve25519_scalar_add(    &scalars[ 0*32 ], w, ww );
+  fd_curve25519_scalar_mul(    &scalars[ 0*32 ], &scalars[ 0*32 ], proof->zx );    // z_x w + z_x w^2
+  fd_curve25519_scalar_neg(    &scalars[ 1*32 ], c );
+  fd_curve25519_scalar_muladd( &scalars[ 1*32 ], proof->zr, ww, &scalars[ 1*32 ] ); // z_r w^2 - c
+  fd_curve25519_scalar_neg(    &scalars[ 2*32 ], w );                              // -w
+  fd_curve25519_scalar_neg(    &scalars[ 3*32 ], ww );                             // -w^2
+  fd_curve25519_scalar_set(    &scalars[ 4*32 ], proof->zs );                      // z_s
+  fd_curve25519_scalar_mul(    &scalars[ 5*32 ], &scalars[ 2*32 ], c );            // -c w
   fd_curve25519_scalar_mul(    &scalars[ 6*32 ], proof->zs, w );                   // z_s w
-  fd_curve25519_scalar_mul(    &scalars[ 5*32 ], &scalars[ 7*32 ], w );            // -c w
-  fd_curve25519_scalar_mul(    &scalars[ 4*32 ], &scalars[ 6*32 ], w );            // z_s w^2
-  fd_curve25519_scalar_neg(    &scalars[ 3*32 ], w );                              // -w
-  fd_curve25519_scalar_mul(    &scalars[ 2*32 ], &scalars[ 3*32 ], w );            // -w^2
-  fd_curve25519_scalar_muladd( &scalars[ 1*32 ], &scalars[ 5*32 ], w, proof->zr ); // z_r - c w^2
-  fd_curve25519_scalar_muladd( &scalars[ 0*32 ], proof->zx, w, proof->zx );        // z_x w + z_x
+  fd_curve25519_scalar_mul(    &scalars[ 7*32 ], &scalars[ 3*32 ], c );            // -c w^2
 
   /* Compute the final MSM */
   fd_ristretto255_multi_scalar_mul( res, scalars, points, 8 );
 
   /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/sigma_proofs/ciphertext_commitment_equality.rs#L222-L226 */
-  if( FD_LIKELY( fd_ristretto255_point_eq( res, y2 ) ) ) {
+  if( FD_LIKELY( fd_ristretto255_point_eq( res, y0 ) ) ) {
     return FD_ZKSDK_VERIFY_PROOF_SUCCESS;
   }
   return FD_ZKSDK_VERIFY_PROOF_ERROR;
