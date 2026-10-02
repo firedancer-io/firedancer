@@ -7,10 +7,17 @@
 #include "../runtime/program/fd_bpf_loader_program.h"
 #include "../runtime/program/vote/fd_vote_codec_tmpl.h"
 #include "../runtime/sysvar/fd_sysvar_rent.h"
+#include "../alpenglow/fd_alpenglow.h"
+#include "../rewards/fd_epoch_inflation_account.h"
 #include "../../ballet/sha256/fd_sha256.h"
 
 /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/genesis/src/main.rs#L69 */
 #define FD_GENESIS_VAT_MINIMUM_LAMPORTS (1600000000UL*100UL)
+
+/* Size of the bincode encoded genesis certificate: slot (8), block id
+   (32), BLS signature (192), bitmap Vec<u8> length (8) and 3 bytes of
+   base2 bitmap header. */
+#define FD_GENESIS_CERT_SZ (243UL)
 
 /* TODO: Unify type with the one in fd_genesis_parse.c */
 
@@ -322,70 +329,69 @@ genesis_create( void *                       buf,
   };
   ulong const faucet_account_index = genesis->accounts_len++;
 
-  /* Create identity account (vote authority, withdraw authority) */
+  /* Create identity (vote authority, withdraw authority), vote, and
+     stake accounts for each bootstrap validator */
 
-  fd_genesis_account_pair_t const identity_account = {
-    .key = options->identity_pubkey,
-    .account = {
-      .lamports   = 500000000000UL /* 500 SOL */,
-      .owner      = fd_solana_system_program_id
-    }
-  };
-  ulong const identity_account_index = genesis->accounts_len++;
+  REQUIRE( options->extra_validator_cnt<=FD_GENESIS_EXTRA_VALIDATOR_MAX );
+  ulong const validator_cnt = 1UL+options->extra_validator_cnt;
+  fd_genesis_validator_t validators[ 1UL+FD_GENESIS_EXTRA_VALIDATOR_MAX ];
+  validators[ 0 ].identity_pubkey = options->identity_pubkey;
+  validators[ 0 ].stake_pubkey    = options->stake_pubkey;
+  validators[ 0 ].vote_pubkey     = options->vote_pubkey;
+  fd_memcpy( validators[ 0 ].bls_pubkey, options->bls_pubkey, sizeof(options->bls_pubkey) );
+  for( ulong v=1UL; v<validator_cnt; v++ ) validators[ v ] = options->extra_validators[ v-1UL ];
 
-  /* Create vote account */
+  ulong const validator_idx = genesis->accounts_len;
+  genesis->accounts_len += 3UL*validator_cnt;
 
-  ulong const vote_account_index = genesis->accounts_len++;
-
-  uchar vote_state_data[ FD_VOTE_STATE_V4_SZ ] = {0};
-
-  FD_SCRATCH_SCOPE_BEGIN {
-    fd_vote_state_versioned_t versioned[1];
-    fd_vote_state_versioned_new( versioned, fd_vote_state_versioned_enum_v4 );
-
-    fd_vote_state_v4_t * vote_state              = &versioned->v4;
-    vote_state->node_pubkey                      = options->identity_pubkey;
-    vote_state->authorized_withdrawer            = options->identity_pubkey;
-    vote_state->inflation_rewards_collector      = options->vote_pubkey;
-    vote_state->block_revenue_collector          = options->identity_pubkey;
-    vote_state->inflation_rewards_commission_bps = 10000;
-    vote_state->block_revenue_commission_bps     = 0;
-    vote_state->has_bls_pubkey_compressed        = 1;
-
-    fd_vote_authorized_voter_t * voter = fd_vote_authorized_voters_pool_ele_acquire( vote_state->authorized_voters.pool );
-    *voter = (fd_vote_authorized_voter_t) {
-      .epoch  = 0UL,
-      .pubkey = options->identity_pubkey,
-      .prio   = options->identity_pubkey.uc[0],
-    };
-    fd_vote_authorized_voters_treap_ele_insert( vote_state->authorized_voters.treap, voter, vote_state->authorized_voters.pool );
-
-    REQUIRE( !fd_vote_state_versioned_serialize( versioned, vote_state_data, sizeof(vote_state_data) ) );
-  }
-  FD_SCRATCH_SCOPE_END;
-
-  /* Create stake account */
-
-  ulong const stake_account_index = genesis->accounts_len++;
-
-  uchar stake_data[ FD_STAKE_STATE_SZ ] = {0};
+  REQUIRE( fd_scratch_alloc_is_safe( 8UL, validator_cnt*FD_VOTE_STATE_V4_SZ ) );
+  uchar * vote_state_data = fd_scratch_alloc( 8UL, validator_cnt*FD_VOTE_STATE_V4_SZ );
+  fd_memset( vote_state_data, 0, validator_cnt*FD_VOTE_STATE_V4_SZ );
+  REQUIRE( fd_scratch_alloc_is_safe( 8UL, validator_cnt*FD_STAKE_STATE_SZ ) );
+  uchar * stake_data = fd_scratch_alloc( 8UL, validator_cnt*FD_STAKE_STATE_SZ );
+  fd_memset( stake_data, 0, validator_cnt*FD_STAKE_STATE_SZ );
 
   ulong stake_state_min_bal = fd_rent_exempt_minimum_balance( &genesis->rent, FD_STAKE_STATE_SZ   );
   ulong vote_min_bal        = fd_rent_exempt_minimum_balance( &genesis->rent, FD_VOTE_STATE_V4_SZ ) +
                               FD_GENESIS_VAT_MINIMUM_LAMPORTS;
 
-  do {
-    FD_STORE( fd_stake_state_t, stake_data, ((fd_stake_state_t) {
+  for( ulong v=0UL; v<validator_cnt; v++ ) {
+    fd_genesis_validator_t const * val = &validators[ v ];
+
+    fd_vote_state_versioned_t versioned[1];
+    fd_vote_state_versioned_new( versioned, fd_vote_state_versioned_enum_v4 );
+
+    fd_vote_state_v4_t * vote_state              = &versioned->v4;
+    vote_state->node_pubkey                      = val->identity_pubkey;
+    vote_state->authorized_withdrawer            = val->identity_pubkey;
+    vote_state->inflation_rewards_collector      = val->vote_pubkey;
+    vote_state->block_revenue_collector          = val->identity_pubkey;
+    vote_state->inflation_rewards_commission_bps = 10000;
+    vote_state->block_revenue_commission_bps     = 0;
+    vote_state->has_bls_pubkey_compressed        = 1;
+    fd_memcpy( vote_state->bls_pubkey_compressed, val->bls_pubkey, sizeof(val->bls_pubkey) );
+
+    fd_vote_authorized_voter_t * voter = fd_vote_authorized_voters_pool_ele_acquire( vote_state->authorized_voters.pool );
+    *voter = (fd_vote_authorized_voter_t) {
+      .epoch  = 0UL,
+      .pubkey = val->identity_pubkey,
+      .prio   = val->identity_pubkey.uc[0],
+    };
+    fd_vote_authorized_voters_treap_ele_insert( vote_state->authorized_voters.treap, voter, vote_state->authorized_voters.pool );
+
+    REQUIRE( !fd_vote_state_versioned_serialize( versioned, vote_state_data+v*FD_VOTE_STATE_V4_SZ, FD_VOTE_STATE_V4_SZ ) );
+
+    FD_STORE( fd_stake_state_t, stake_data+v*FD_STAKE_STATE_SZ, ((fd_stake_state_t) {
       .stake_type = FD_STAKE_STATE_STAKE,
       .stake = {
         .meta = {
           .rent_exempt_reserve = stake_state_min_bal,
-          .staker              = options->identity_pubkey,
-          .withdrawer          = options->identity_pubkey,
+          .staker              = val->identity_pubkey,
+          .withdrawer          = val->identity_pubkey,
         },
         .stake = (fd_stake_t) {
           .delegation = (fd_delegation_t) {
-            .voter_pubkey         = options->vote_pubkey,
+            .voter_pubkey         = val->vote_pubkey,
             .stake                = fd_ulong_max( stake_state_min_bal, options->vote_account_stake ),
             .activation_epoch     = ULONG_MAX, /* bootstrap stake denoted with ULONG_MAX */
             .deactivation_epoch   = ULONG_MAX,
@@ -395,7 +401,7 @@ genesis_create( void *                       buf,
         }
       }
     }) );
-  } while(0);
+  }
 
   /* Read enabled features */
 
@@ -434,6 +440,10 @@ genesis_create( void *                       buf,
   ulong token_idx = genesis->accounts_len;
   REQUIRE( !__builtin_add_overflow( genesis->accounts_len, token_cnt, &genesis->accounts_len ) );
 
+  /* Genesis certificate and epoch inflation account */
+  ulong alpenglow_idx = genesis->accounts_len;
+  if( options->alpenglow ) genesis->accounts_len += 2UL;
+
   ulong accounts_sz;
   REQUIRE( !__builtin_mul_overflow( genesis->accounts_len, sizeof(fd_genesis_account_pair_t), &accounts_sz ) );
   REQUIRE( fd_scratch_alloc_is_safe( alignof(fd_genesis_account_pair_t), accounts_sz ) );
@@ -443,25 +453,34 @@ genesis_create( void *                       buf,
   fd_memset( genesis->accounts, 0,      accounts_sz );
 
   genesis->accounts[ faucet_account_index ] = faucet_account;
-  genesis->accounts[ identity_account_index ] = identity_account;
-  genesis->accounts[ stake_account_index ] = (fd_genesis_account_pair_t) {
-    .key     = options->stake_pubkey,
-    .account = (fd_genesis_account_t) {
-      .lamports   = fd_ulong_max( stake_state_min_bal, options->vote_account_stake ),
-      .data_len   = FD_STAKE_STATE_SZ,
-      .data       = stake_data,
-      .owner      = fd_solana_stake_program_id
-    }
-  };
-  genesis->accounts[ vote_account_index ] = (fd_genesis_account_pair_t) {
-    .key     = options->vote_pubkey,
-    .account = (fd_genesis_account_t) {
-      .lamports   = vote_min_bal,
-      .data_len   = FD_VOTE_STATE_V4_SZ,
-      .data       = vote_state_data,
-      .owner      = fd_solana_vote_program_id
-    }
-  };
+  for( ulong v=0UL; v<validator_cnt; v++ ) {
+    fd_genesis_validator_t const * val = &validators[ v ];
+    genesis->accounts[ validator_idx+3UL*v ] = (fd_genesis_account_pair_t) {
+      .key     = val->identity_pubkey,
+      .account = (fd_genesis_account_t) {
+        .lamports   = 500000000000UL /* 500 SOL */,
+        .owner      = fd_solana_system_program_id
+      }
+    };
+    genesis->accounts[ validator_idx+3UL*v+1UL ] = (fd_genesis_account_pair_t) {
+      .key     = val->vote_pubkey,
+      .account = (fd_genesis_account_t) {
+        .lamports   = vote_min_bal,
+        .data_len   = FD_VOTE_STATE_V4_SZ,
+        .data       = vote_state_data+v*FD_VOTE_STATE_V4_SZ,
+        .owner      = fd_solana_vote_program_id
+      }
+    };
+    genesis->accounts[ validator_idx+3UL*v+2UL ] = (fd_genesis_account_pair_t) {
+      .key     = val->stake_pubkey,
+      .account = (fd_genesis_account_t) {
+        .lamports   = fd_ulong_max( stake_state_min_bal, options->vote_account_stake ),
+        .data_len   = FD_STAKE_STATE_SZ,
+        .data       = stake_data+v*FD_STAKE_STATE_SZ,
+        .owner      = fd_solana_stake_program_id
+      }
+    };
+  }
 
   /* Set up primordial accounts */
 
@@ -498,6 +517,43 @@ genesis_create( void *                       buf,
     };
   }
 #undef FEATURE_ENABLED_SZ
+
+  /* Alpenglow at genesis skips the migration.  Like Agave, add a fake
+     genesis certificate for slot 0 and an empty epoch inflation state.
+     https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/runtime/src/genesis_utils.rs#L340-L364 */
+
+  uchar genesis_cert_data   [ FD_GENESIS_CERT_SZ              ] = {0};
+  uchar epoch_inflation_data[ FD_EPOCH_INFLATION_ACCOUNT_NONE ] = {0};
+  if( options->alpenglow ) {
+    /* WireBlockCertMessage { block: { slot: 0, block_id: 0 },
+       signature: { signature: 0, bitmap: encode_base2( [] ) } }
+       bincode encoded.  The bitmap is a Vec<u8> holding the base2
+       version byte (0) and a u16 bit count (0). */
+    FD_STORE( ulong, genesis_cert_data+232UL, 3UL );
+
+    fd_pubkey_t genesis_cert_addr;
+    fd_alpenglow_pda( "carlgration", &genesis_cert_addr );
+    genesis->accounts[ alpenglow_idx ] = (fd_genesis_account_pair_t) {
+      .key     = genesis_cert_addr,
+      .account = (fd_genesis_account_t) {
+        .lamports   = fd_rent_exempt_minimum_balance( &genesis->rent, FD_GENESIS_CERT_SZ ),
+        .data_len   = FD_GENESIS_CERT_SZ,
+        .data       = genesis_cert_data,
+        .owner      = fd_solana_system_program_id
+      }
+    };
+
+    FD_STORE( ulong, epoch_inflation_data+8UL, genesis->epoch_schedule.slots_per_epoch );
+    genesis->accounts[ alpenglow_idx+1UL ] = (fd_genesis_account_pair_t) {
+      .key     = fd_epoch_inflation_account_address(),
+      .account = (fd_genesis_account_t) {
+        .lamports   = fd_ulong_max( fd_rent_exempt_minimum_balance( &genesis->rent, FD_EPOCH_INFLATION_ACCOUNT_NONE ), 1UL ),
+        .data_len   = FD_EPOCH_INFLATION_ACCOUNT_NONE,
+        .data       = epoch_inflation_data,
+        .owner      = fd_solana_system_program_id
+      }
+    };
+  }
 
   /* Deploy an SPL Token compatible program and set up the token
      accounts */
@@ -616,7 +672,7 @@ genesis_create( void *                       buf,
       }
     }
 
-    REQUIRE( token_idx==genesis->accounts_len );
+    REQUIRE( token_idx==alpenglow_idx );
   }
 
   /* Sort and check for duplicates */

@@ -31,8 +31,10 @@ union fdctl_args {
   } monitor;
 
   struct {
-    int drain_output_fd;
-    int full;
+    int                        drain_output_fd;
+    int                        full;
+    struct fd_config * const * peers; /* other local cluster nodes, summarized in one row */
+    ulong                      peer_cnt;
   } watch;
 
   struct {
@@ -77,6 +79,11 @@ union fdctl_args {
   struct {
     int no_watch;
   } backtest;
+
+  struct {
+    ulong nodes;
+    int   no_configure;
+  } cluster;
 
   struct {
     int no_watch;

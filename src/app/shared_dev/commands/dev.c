@@ -192,6 +192,7 @@ dev_cmd_fn( args_t *   args,
       args_t watch_args;
       watch_args.watch.drain_output_fd = pipefd[0];
       watch_args.watch.full = args->dev.full_watch;
+      watch_args.watch.peer_cnt = 0UL;
 
       watch_pid = fork();
       if( !watch_pid ) watch_cmd_fn( &watch_args, config );
@@ -233,6 +234,7 @@ dev_cmd_fn( args_t *   args,
       args_t watch_args;
       watch_args.watch.drain_output_fd = pipefd[0];
       watch_args.watch.full = args->dev.full_watch;
+      watch_args.watch.peer_cnt = 0UL;
       fd_log_private_restore_stderr = dup( STDERR_FILENO );
       if( FD_UNLIKELY( fd_log_private_restore_stderr==-1 ) ) FD_LOG_ERR(( "dup() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       if( FD_UNLIKELY( -1==dup2( pipefd[ 1 ], STDERR_FILENO ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));

@@ -279,6 +279,101 @@ main( int     argc,
     }
   }
 
+  /* Alpenglow at genesis, token accounts included so the Alpenglow
+     accounts land after them in the account table. */
+
+  for( ulong i=0UL; i<sizeof(options->bls_pubkey); i++ ) options->bls_pubkey[ i ] = (uchar)(i+1UL);
+  options->alpenglow = 1;
+  features->alpenglow = 0UL;
+
+  result_sz = fd_genesis_create( result_mem, sizeof(result_mem), options );
+  FD_TEST( result_sz );
+  FD_TEST( fd_genesis_parse( genesis, result_mem, result_sz ) );
+  FD_TEST( genesis->account_cnt==20UL+FD_GENESIS_TOKEN_ACCOUNTS_PER_ACCOUNT*16UL+3UL+3UL );
+
+  fd_pubkey_t const * alpenglow_feature = &ids[ offsetof( fd_features_t, alpenglow )>>3 ].id;
+  FD_TEST( find_account( genesis, result_mem, alpenglow_feature, account ) );
+  FD_TEST( fd_pubkey_eq( &account->owner, &fd_solana_feature_program_id ) );
+
+  /* Agave genesis certificate: slot 0, zero block id, zero signature,
+     bitmap Vec<u8> [ 0, 0, 0 ] */
+  fd_pubkey_t cert_addr[1];
+  uchar const * cert_seed    = (uchar const *)"carlgration";
+  ulong const   cert_seed_sz = 11UL;
+  FD_TEST( FD_PUBKEY_SUCCESS==fd_pubkey_find_program_address( alpenglow_feature, 1UL, &cert_seed, &cert_seed_sz, cert_addr, &bump, &custom_err ) );
+  FD_TEST( find_account( genesis, result_mem, cert_addr, account ) );
+  FD_TEST( fd_pubkey_eq( &account->owner, &fd_solana_system_program_id ) );
+  FD_TEST( account->data_len==243UL );
+  FD_TEST( account->lamports==fd_rent_exempt_minimum_balance( &rent, 243UL ) );
+  for( ulong i=0UL; i<232UL; i++ ) FD_TEST( account->data[ i ]==0U );
+  FD_TEST( FD_LOAD( ulong, account->data+232UL )==3UL );
+  for( ulong i=240UL; i<243UL; i++ ) FD_TEST( account->data[ i ]==0U );
+
+  fd_pubkey_t infl_addr[1];
+  uchar const * infl_seed    = (uchar const *)"vote_reward_account";
+  ulong const   infl_seed_sz = 19UL;
+  FD_TEST( FD_PUBKEY_SUCCESS==fd_pubkey_find_program_address( alpenglow_feature, 1UL, &infl_seed, &infl_seed_sz, infl_addr, &bump, &custom_err ) );
+  FD_TEST( find_account( genesis, result_mem, infl_addr, account ) );
+  FD_TEST( fd_pubkey_eq( &account->owner, &fd_solana_system_program_id ) );
+  FD_TEST( account->data_len==25UL );
+  FD_TEST( account->lamports==fd_rent_exempt_minimum_balance( &rent, 25UL ) );
+  FD_TEST( FD_LOAD( ulong, account->data      )==0UL );
+  FD_TEST( FD_LOAD( ulong, account->data+8UL  )==genesis->epoch_schedule.slots_per_epoch );
+  FD_TEST( FD_LOAD( ulong, account->data+16UL )==0UL );
+  FD_TEST( account->data[ 24 ]==0U );
+
+  FD_TEST( find_account( genesis, result_mem, &options->vote_pubkey, account ) );
+  static fd_vote_state_versioned_t vsv[1];
+  FD_TEST( fd_vote_state_versioned_deserialize( vsv, account->data, account->data_len ) );
+  FD_TEST( vsv->kind==fd_vote_state_versioned_enum_v4 );
+  FD_TEST( vsv->v4.has_bls_pubkey_compressed );
+  FD_TEST( !memcmp( vsv->v4.bls_pubkey_compressed, options->bls_pubkey, sizeof(options->bls_pubkey) ) );
+
+  /* Extra bootstrap validators each get a funded identity, a vote
+     account with their BLS key, and a bootstrap stake delegation */
+
+  ulong const prev_account_cnt = genesis->account_cnt;
+  fd_genesis_validator_t extra[ 3 ];
+  for( ulong v=0UL; v<3UL; v++ ) {
+    extra[ v ].identity_pubkey = (fd_pubkey_t){ .ul = { 1, v, 0, 1 } };
+    extra[ v ].stake_pubkey    = (fd_pubkey_t){ .ul = { 1, v, 0, 3 } };
+    extra[ v ].vote_pubkey     = (fd_pubkey_t){ .ul = { 1, v, 0, 4 } };
+    for( ulong i=0UL; i<sizeof(extra[ v ].bls_pubkey); i++ ) extra[ v ].bls_pubkey[ i ] = (uchar)(0x80UL+v+i);
+  }
+  options->extra_validators    = extra;
+  options->extra_validator_cnt = 3UL;
+
+  result_sz = fd_genesis_create( result_mem, sizeof(result_mem), options );
+  FD_TEST( result_sz );
+  FD_TEST( fd_genesis_parse( genesis, result_mem, result_sz ) );
+  FD_TEST( genesis->account_cnt==prev_account_cnt+3UL*3UL );
+
+  for( ulong v=0UL; v<3UL; v++ ) {
+    FD_TEST( find_account( genesis, result_mem, &extra[ v ].identity_pubkey, account ) );
+    FD_TEST( fd_pubkey_eq( &account->owner, &fd_solana_system_program_id ) );
+    FD_TEST( account->lamports );
+
+    FD_TEST( find_account( genesis, result_mem, &extra[ v ].vote_pubkey, account ) );
+    FD_TEST( fd_vote_state_versioned_deserialize( vsv, account->data, account->data_len ) );
+    FD_TEST( vsv->kind==fd_vote_state_versioned_enum_v4 );
+    FD_TEST( fd_pubkey_eq( &vsv->v4.node_pubkey, &extra[ v ].identity_pubkey ) );
+    FD_TEST( vsv->v4.has_bls_pubkey_compressed );
+    FD_TEST( !memcmp( vsv->v4.bls_pubkey_compressed, extra[ v ].bls_pubkey, sizeof(extra[ v ].bls_pubkey) ) );
+
+    FD_TEST( find_account( genesis, result_mem, &extra[ v ].stake_pubkey, account ) );
+    FD_TEST( fd_pubkey_eq( &account->owner, &fd_solana_stake_program_id ) );
+    FD_TEST( account->data_len==FD_STAKE_STATE_SZ );
+    fd_stake_state_t const * stake = fd_stake_state_view( account->data, account->data_len );
+    FD_TEST( stake && stake->stake_type==FD_STAKE_STATE_STAKE );
+    FD_TEST( fd_pubkey_eq( &stake->stake.stake.delegation.voter_pubkey, &extra[ v ].vote_pubkey ) );
+    FD_TEST( stake->stake.stake.delegation.activation_epoch==ULONG_MAX );
+  }
+
+  options->extra_validator_cnt = FD_GENESIS_EXTRA_VALIDATOR_MAX+1UL;
+  fd_log_level_logfile_set( fd_int_max( log_level, 4 ) );
+  FD_TEST( !fd_genesis_create( result_mem, sizeof(result_mem), options ) );
+  fd_log_level_logfile_set( log_level );
+
   FD_LOG_NOTICE(( "pass" ));
 
   fd_scratch_detach( NULL );

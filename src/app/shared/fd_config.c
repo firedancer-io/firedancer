@@ -450,6 +450,8 @@ fd_config_fill( fd_config_t * config,
 
     strncpy( config->cluster, "development", sizeof(config->cluster) );
 
+    if( FD_LIKELY( config->is_firedancer ) ) config->firedancer.development.alpenglow = 1;
+
     if( FD_UNLIKELY( !config->is_firedancer ) ) {
       /* By default only_known is true for validators to ensure secure
         snapshot download, but in development it doesn't matter and

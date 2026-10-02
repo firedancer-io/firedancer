@@ -8,6 +8,20 @@
 #include "../features/fd_features.h"
 
 
+/* fd_genesis_validator_t describes a bootstrap validator.  See
+   fd_genesis_options_t for the meaning of the fields. */
+
+struct fd_genesis_validator {
+  fd_pubkey_t identity_pubkey;
+  fd_pubkey_t stake_pubkey;
+  fd_pubkey_t vote_pubkey;
+  uchar       bls_pubkey[ 48 ];
+};
+
+typedef struct fd_genesis_validator fd_genesis_validator_t;
+
+#define FD_GENESIS_EXTRA_VALIDATOR_MAX (63UL)
+
 /* fd_genesis_options_t exists as a convenient way to specify options
    for genesis creation. */
 
@@ -32,6 +46,25 @@ struct fd_genesis_options {
   ulong         token_program_elf_sz;
 
   int   warmup_epochs;
+
+  /* bls_pubkey is the compressed BLS pubkey written into the vote
+     account.  Should be derived from the identity key with
+     fd_keyguard_bls_key_derive, else the validator cannot vote under
+     Alpenglow. */
+  uchar bls_pubkey[ 48 ];
+
+  /* alpenglow creates a cluster that runs Alpenglow from slot 0.  Adds
+     the genesis certificate and epoch inflation accounts, like Agave
+     solana-genesis --alpenglow.  The caller must also enable the
+     alpenglow feature in features. */
+  int   alpenglow;
+
+  /* extra_validators points to extra_validator_cnt additional bootstrap
+     validators, each staked with vote_account_stake like the primary
+     one.  extra_validator_cnt is at most
+     FD_GENESIS_EXTRA_VALIDATOR_MAX. */
+  fd_genesis_validator_t const * extra_validators;
+  ulong                          extra_validator_cnt;
 
   /* features points to an externally owned feature map.
      Adds a feature account to the genesis blob for feature enabled at
