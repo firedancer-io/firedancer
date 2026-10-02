@@ -621,6 +621,47 @@ ag_votor_wait_to_vote( ag_votor_t * self ) {
 }
 
 void
+ag_votor_restore( ag_votor_t *                   self,
+                  ag_vote_history_file_t const * history ) {
+  slot_state_map_t * map       = self->slot_states->map;
+  slot_state_ele_t * pool      = self->slot_states->pool;
+  ulong              finalized = self->highest_final_cert_slot;
+  ulong              unpruned  = first_unpruned_slot( self ); /* we still vote on blocks back to here */
+
+  self->wait_to_vote_slot = fd_ulong_max( self->wait_to_vote_slot, history->root+1UL );
+
+  if( FD_UNLIKELY( history->voted_cnt+history->voted_notar_cnt+history->skipped_cnt+history->its_over_cnt>slot_state_pool_free( pool ) ) ) {
+    ulong last = history->root;
+    for( ulong i=0UL; i<history->voted_cnt; i++ ) last = fd_ulong_max( last, history->voted[i] );
+    ag_votor_wait_to_vote( self );
+    self->wait_to_vote_slot = fd_ulong_max( self->wait_to_vote_slot, ag_first_slot_in_window( last )+AG_SLOTS_PER_WINDOW );
+    return;
+  }
+
+  for( slot_state_map_iter_t iter = slot_state_map_iter_init( map, pool );
+                                   !slot_state_map_iter_done( iter, map, pool );
+                             iter = slot_state_map_iter_next( iter, map, pool ) ) {
+    slot_state_ele_t * state = slot_state_map_iter_ele( iter, map, pool );
+    if( state->slot<=finalized ) continue;
+    state->voted       = 0;
+    state->voted_notar = 0;
+    state->bad_window  = 0;
+    state->retired     = 0;
+  }
+
+  for( ulong i=0UL; i<history->voted_cnt;    i++ ) if( history->voted   [i]>=unpruned ) state_mut( self, history->voted   [i] )->voted      = 1;
+  for( ulong i=0UL; i<history->skipped_cnt;  i++ ) if( history->skipped [i]>=unpruned ) state_mut( self, history->skipped [i] )->bad_window = 1;
+  for( ulong i=0UL; i<history->its_over_cnt; i++ ) if( history->its_over[i]>=unpruned ) state_mut( self, history->its_over[i] )->retired    = 1;
+  for( ulong i=0UL; i<history->voted_notar_cnt; i++ ) {
+    ag_block_id_t const * block = &history->voted_notar[i];
+    if( block->slot<unpruned ) continue;
+    slot_state_ele_t * state = state_mut( self, block->slot );
+    state->voted_notar = 1;
+    memcpy( state->voted_notar_hash, block->hash, sizeof(ag_block_hash_t) );
+  }
+}
+
+void
 ag_votor_handle_pool_event( ag_votor_t *            self,
                             ag_event_pool_t const * event,
                             long                    now ) {

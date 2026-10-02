@@ -8,19 +8,18 @@
 
 #include "ag_votor_base.h"
 
-/* Capacities of the decoded history.  Agave prunes everything below
-   root, so these bound the unrooted window we can restore. */
-#define AG_VOTE_HISTORY_SLOT_MAX  (4096UL)
-#define AG_VOTE_HISTORY_BLOCK_MAX (4UL*AG_VOTE_HISTORY_SLOT_MAX)
-#define AG_VOTE_HISTORY_VOTE_MAX  (8UL*AG_VOTE_HISTORY_SLOT_MAX)
+/* AG_VOTE_HISTORY_FILE_MAX is the largest file we read, about 180
+   slots of history without finalization.  Agave prunes everything
+   below root, and reads up to its 18 GiB
+   VOTE_HISTORY_PREALLOCATION_SIZE_LIMIT. */
+#define AG_VOTE_HISTORY_FILE_MAX  (32768UL)
 
-/* AG_VOTE_HISTORY_FILE_MAX is the largest file we read. */
-#define AG_VOTE_HISTORY_FILE_MAX  (8UL<<20)
-
-/* Parent ready sets grow quadratically with fallback certificates, so
-   they are bounded by the file instead: each (slot, parent) pair
-   encodes to at least a 40 byte Block. */
-#define AG_VOTE_HISTORY_PARENT_READY_MAX (AG_VOTE_HISTORY_FILE_MAX/40UL)
+/* Capacities of the decoded history, the most a file of
+   AG_VOTE_HISTORY_FILE_MAX bytes holds: every slot and vote takes at
+   least 8 bytes, and every block hash 32. */
+#define AG_VOTE_HISTORY_SLOT_MAX  (AG_VOTE_HISTORY_FILE_MAX/8UL)
+#define AG_VOTE_HISTORY_BLOCK_MAX (AG_VOTE_HISTORY_FILE_MAX/32UL)
+#define AG_VOTE_HISTORY_VOTE_MAX  (AG_VOTE_HISTORY_FILE_MAX/8UL)
 
 /* VotePayloadToSign wire tags. */
 #define AG_VOTE_HISTORY_KIND_NOTAR          (1U)
@@ -48,17 +47,14 @@ struct ag_vote_history_vote {
 };
 typedef struct ag_vote_history_vote ag_vote_history_vote_t;
 
-/* A parent ready pair: block is a ready parent for slot. */
-struct ag_vote_history_parent_ready {
-  ulong         slot;
-  ag_block_id_t block;
-};
-typedef struct ag_vote_history_parent_ready ag_vote_history_parent_ready_t;
-
 /* A decoded and verified vote history.  Agave's maps are flattened
    into (slot, value) arrays in file order: voted_notar and
    voted_notar_fallback as blocks, votes_cast as votes whose
-   block.slot is the map key, parent_ready as (slot, block) pairs. */
+   block.slot is the map key.  parent_ready holds the ready parents of
+   parent_ready_slot, the highest slot in Agave's parent_ready_slots.
+   That map grows quadratically with fallback certificates, and
+   dropping its lower slots only delays notar votes until certificates
+   arrive again. */
 struct ag_vote_history_file {
   ulong root;
 
@@ -71,8 +67,9 @@ struct ag_vote_history_file {
   ag_block_id_t voted_notar_fallback[ AG_VOTE_HISTORY_BLOCK_MAX ]; ulong voted_notar_fallback_cnt;
   ag_block_id_t notarized_blocks    [ AG_VOTE_HISTORY_BLOCK_MAX ]; ulong notarized_blocks_cnt;
 
-  ag_vote_history_parent_ready_t parent_ready[ AG_VOTE_HISTORY_PARENT_READY_MAX ];
-  ulong                          parent_ready_cnt;
+  ulong         parent_ready_slot;
+  ag_block_id_t parent_ready[ AG_VOTE_HISTORY_BLOCK_MAX ];
+  ulong         parent_ready_cnt;
 
   ag_vote_history_vote_t votes_cast[ AG_VOTE_HISTORY_VOTE_MAX ];
   ulong                  votes_cast_cnt;
