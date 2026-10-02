@@ -1074,12 +1074,14 @@ static ulong
 vote_history_ahead( fd_tower_t *            tower,
                     fd_ghost_t *            ghost,
                     fd_tower_file_t const * file ) {
-  int   ahead = file->root>tower->root && !fd_tower_blocks_query( tower, file->root );
-  ulong wait  = file->votes[ file->votes_cnt-1UL ].slot+1UL;
+  int   ahead   = file->root>tower->root && !fd_tower_blocks_query( tower, file->root );
+  ulong wait    = file->votes[ file->votes_cnt-1UL ].slot+1UL;
+  int   missing = 0; 
   for( ulong i=0UL; i<file->votes_cnt; i++ ) {
     fd_tower_vote_t const * vote = &file->votes[ i ];
     fd_tower_blk_t  const * blk  = fd_tower_blocks_query( tower, vote->slot );
-    if( vote->slot>tower->root && ( !blk || !fd_ghost_query( ghost, &blk->replayed_block_id ) ) ) {
+    missing |= vote->slot>tower->root && ( !blk || !fd_ghost_query( ghost, &blk->replayed_block_id ) );
+    if( missing ) {
       ahead = 1;
       wait  = fd_ulong_max( wait, vote->slot+(1UL<<vote->conf)+1UL );
     }
@@ -1123,9 +1125,6 @@ adopt_vote_history( fd_tower_tile_t * ctx ) {
     FD_LOG_WARNING(( "set-identity: last vote %lu in vote history is for a different bank than we replayed", last ));
   }
 
-  /* Take the votes on blocks we have replayed.  The missing ones are a
-     suffix, held off by wait_to_vote_slot.  Reconcile keeps our tower
-     if it is newer, i.e. we voted since. */
   fd_tower_vote_remove_all( ctx->scratch_tower );
   for( ulong i=0UL; i<file->votes_cnt; i++ ) {
     fd_tower_vote_t const * vote = &file->votes[ i ];
@@ -1133,6 +1132,8 @@ adopt_vote_history( fd_tower_tile_t * ctx ) {
     if( FD_UNLIKELY( vote->slot>tower->root && ( !blk || !fd_ghost_query( ctx->ghost, &blk->replayed_block_id ) ) ) ) break;
     fd_tower_vote_push_tail( ctx->scratch_tower, *vote );
   }
+  if( FD_LIKELY( !fd_tower_vote_empty( ctx->scratch_tower ) && !fd_tower_vote_empty( tower->votes ) &&
+                 fd_tower_vote_peek_tail_const( tower->votes )->slot<=fd_tower_vote_peek_tail_const( ctx->scratch_tower )->slot ) ) clear_votes( tower );
   int root_replayed = file->root<=tower->root || fd_tower_blocks_query( tower, file->root );
   fd_tower_reconcile( tower, ctx->scratch_tower, root_replayed ? file->root : tower->root );
 }
