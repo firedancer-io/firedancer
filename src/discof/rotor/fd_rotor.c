@@ -45,14 +45,14 @@ fd_rotor_new( void * shmem,
   rotor->root             = ULONG_MAX;
   rotor->highest_repaired = 0UL;
   rotor->wksp_gaddr       = fd_wksp_gaddr_fast( wksp, rotor );
-  rotor->fec_pool         = fd_fec_pool_join   ( fd_fec_pool_new   ( fec_pool,   fec_max             ) );
-  rotor->fec_map          = fd_fec_map_join    ( fd_fec_map_new    ( fec_map,    fec_chain_cnt, seed ) );
-  rotor->block_pool       = fd_block_pool_join ( fd_block_pool_new ( block_pool, blk_max             ) );
+  rotor->fec_pool         = fd_fec_pool_join  ( fd_fec_pool_new   ( fec_pool,   fec_max             ) );
+  rotor->fec_map          = fd_fec_map_join   ( fd_fec_map_new    ( fec_map,    fec_chain_cnt, seed ) );
+  rotor->block_pool       = fd_block_pool_join( fd_block_pool_new ( block_pool, blk_max             ) );
   rotor->fec_tbl          = fec_tbl;
   rotor->fec_blk_max      = fec_blk_max;
-  rotor->block_map        = fd_block_map_join  ( fd_block_map_new  ( block_map,  blk_chain_cnt, seed ) );
-  rotor->bfs              = bfs_join           ( bfs_new           ( bfs,        blk_max             ) );
-  rotor->out_queue        = out_queue_join     ( out_queue_new     ( out_queue,  fec_max             ) );
+  rotor->block_map        = fd_block_map_join ( fd_block_map_new  ( block_map,  blk_chain_cnt, seed ) );
+  rotor->bfs              = bfs_join          ( bfs_new           ( bfs,        blk_max             ) );
+  rotor->out_queue        = out_queue_join    ( out_queue_new     ( out_queue,  fec_max             ) );
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( rotor->magic ) = FD_ROTOR_MAGIC;
@@ -193,15 +193,6 @@ fd_rotor_fec_query( fd_rotor_t *      rotor,
   return block_fec( rotor, block, fec_set_idx );
 }
 
-/* fec_query returns the FEC whose merkle_root matches mr, or NULL. */
-
-static fd_rotor_fec_t *
-fec_query( fd_rotor_t * rotor, fd_hash_t const * mr ) {
-  fd_fec_map_t   * fec_map  = rotor->fec_map;
-  fd_rotor_fec_t * fec_pool = rotor->fec_pool;
-  return fd_fec_map_ele_query( fec_map, mr, NULL, fec_pool );
-}
-
 /* fec_join records that block includes the FEC at (slot, fec_set_idx)
    with root mr, creating the entry if this root has not been seen yet. */
 
@@ -257,23 +248,25 @@ abandon_turbine( fd_rotor_t * rotor, ulong slot ) {
   }
 }
 
-/* turbine_block_find returns the turbine version of slot, or NULL. */
+/* turbine_block_query returns the turbine version of slot, or NULL. */
 
-static fd_rotor_blk_t *
-turbine_block_find( fd_rotor_t * rotor, ulong slot ) {
-  for( ulong i=block_iter_init( rotor, slot ); i!=ULONG_MAX; i=block_iter_next( rotor, i ) ) {
-    fd_rotor_blk_t * block = block_iter_ele( rotor, i );
+fd_rotor_blk_t *
+fd_rotor_turbine_block_query( fd_rotor_t const * rotor, ulong slot ) {
+  for( ulong i =fd_block_map_idx_query_const( rotor->block_map, &slot, ULONG_MAX, rotor->block_pool );
+             i!=ULONG_MAX;
+             i =fd_block_map_idx_next_const( i, ULONG_MAX, rotor->block_pool ) ) {
+    fd_rotor_blk_t * block = fd_block_pool_ele( rotor->block_pool, i );
     if( FD_LIKELY( block->turbine ) ) return block;
   }
   return NULL;
 }
 
-/* turbine_block_query returns the turbine version of slot -- creating
+/* turbine_block_insert returns the turbine version of slot -- creating
    it if none exists. */
 
 static fd_rotor_blk_t *
-turbine_block_query( fd_rotor_t * rotor, ulong slot ) {
-  fd_rotor_blk_t * block = turbine_block_find( rotor, slot );
+turbine_block_insert( fd_rotor_t * rotor, ulong slot ) {
+  fd_rotor_blk_t * block = fd_rotor_turbine_block_query( rotor, slot );
   if( FD_LIKELY( block ) ) return block;
   block = acquire_block( rotor, slot );
   block->turbine = 1;
@@ -324,6 +317,7 @@ fec_shred_received( fd_rotor_fec_t * fec, int src, long rx_ts ) {
     fec->metrics.first_shred_ts = rx_ts;
 }
 
+
 fd_rotor_blk_t *
 fd_rotor_shred_insert( fd_rotor_t *      rotor,
                        ulong             slot,
@@ -337,56 +331,44 @@ fd_rotor_shred_insert( fd_rotor_t *      rotor,
   FD_TEST( slot>rotor->root );
   uint  fec_set_idx = shred_idx & ~( (uint)FD_FEC_SHRED_CNT - 1U );
   ulong k           = fec_set_idx / FD_FEC_SHRED_CNT;
-  uint  shred_max   = (uint)( rotor->fec_blk_max*FD_FEC_SHRED_CNT );
-  FD_TEST( k<rotor->fec_blk_max ); /* guaranteed by fec_resolver */
 
-  /* Identify the slot versions this shred belongs to.  The turbine
-     version is created here. */
+  /* The turbine version is created here if no notar version exists yet */
 
   fd_rotor_blk_t * created = NULL;
-  fd_rotor_blk_t * turbine = turbine_block_find( rotor, slot );
-  if( FD_UNLIKELY( !turbine ) ) {
-    turbine = turbine_block_query( rotor, slot );
+  fd_rotor_blk_t * turbine = fd_rotor_turbine_block_query( rotor, slot );
+  if( FD_UNLIKELY( !turbine && !fd_rotor_slot_query( rotor, slot ) ) ) {
+    turbine = turbine_block_insert( rotor, slot );
     created = turbine;
   }
 
-  /* If a votor-driven version of the slot already exists (block-id
-     repair started before this turbine shred arrived), abandon the
-     turbine version. */
-  if( FD_UNLIKELY( !turbine->abandoned && fd_hash_check_zero( &turbine->block_id ) ) ) {
-    for( ulong i=block_iter_init( rotor, slot ); i!=ULONG_MAX; i=block_iter_next( rotor, i ) ) {
-      if( FD_UNLIKELY( i!=fd_block_pool_idx( rotor->block_pool, turbine ) ) ) {
-        turbine->abandoned = 1;
-        break;
-      }
-    }
+  /* If we have a turbine version:
+       - if it has no FEC for this position, use this one
+       - it it has a FEC, and it's the same mr, we're good
+       - it it has a FEC, and it's different, mark it abandoned */
+
+  if( FD_LIKELY( turbine ) ) {
+    fd_rotor_fec_t * fect = block_fec( rotor, turbine, fec_set_idx );
+    if     ( FD_UNLIKELY( !fect ) )                                 fec_join( rotor, slot, fec_set_idx, turbine, mr );
+    else if( FD_UNLIKELY( !fd_hash_eq( &fect->merkle_root, mr ) &&
+                           fd_hash_check_zero( &turbine->block_id ) ) ) turbine->abandoned = 1;
   }
 
-  /* If the turbine version holds no root at this position it adopts
-     this one, whether it is newly seen FEC or an entry a getFecRoot
-     sentinel already created.  If turbine already holds a *different*
-     root here and nothing authorized this one, the shred is an
-     unauthorized equivocation and is dropped. */
-
-  fd_rotor_fec_t * fec         = fec_query( rotor, mr );
-  fd_rotor_fec_t * turbine_fec = block_fec( rotor, turbine, fec_set_idx );
-  if( FD_LIKELY( !turbine_fec ) ) {
-    fec = fec_join( rotor, slot, fec_set_idx, turbine, mr );
-  } else if( FD_UNLIKELY( !fec ) ) {
-    return created; /* shred dropped, but the version it made is real */
+  fd_rotor_fec_t * fec = fd_fec_map_ele_query( rotor->fec_map, mr, NULL, rotor->fec_pool );
+  if( FD_UNLIKELY( !fec ) ) {
+    return created; /* shred dropped, no block has an interest */
   }
 
   /* A sentinel holds only the zero-padded prefix until now.  Fill in
      the full root the shred carries. */
   fec->merkle_root = *mr;
 
-  uint bit       = 1U << ( shred_idx - fec_set_idx );
-  int  new_shred = !( fec->data_idxs & bit ); /* the versions that own this root have not counted it yet */
+  uint bit        = 1U << ( shred_idx - fec_set_idx );
+  int  new_shred  = !( fec->data_idxs & bit );
   fec->data_idxs |= bit;
   if( FD_UNLIKELY( slot_complete ) ) fec->slot_complete = 1;
 
-  /* Reconstructed notifications precede FEC completion, but must not
-     replace the source of the network shred that enabled recovery. */
+  /* Reconstructed notifications must not replace the source of the
+     network shred that enabled recovery. */
   if( FD_LIKELY( new_shred && !fec->complete && ( src==FD_ROTOR_SRC_TURBINE || src==FD_ROTOR_SRC_REPAIR ) ) ) {
     fec->metrics.data_received |= bit;
     if( src==FD_ROTOR_SRC_REPAIR ) fec->metrics.repair_received |= bit;
@@ -396,10 +378,8 @@ fd_rotor_shred_insert( fd_rotor_t *      rotor,
   /* Update every version that owns this FEC root at this position. */
 
   uint fec_idx = (uint)fd_fec_pool_idx( rotor->fec_pool, fec );
-  for( ulong _i =block_iter_init( rotor, slot );
-             _i!=ULONG_MAX;
-             _i =block_iter_next( rotor, _i ) ) {
-    fd_rotor_blk_t * block = block_iter_ele( rotor, _i );
+  for( ulong i =block_iter_init( rotor, slot ); i!=ULONG_MAX; i =block_iter_next( rotor, i ) ) {
+    fd_rotor_blk_t * block = block_iter_ele( rotor, i );
     if( FD_UNLIKELY( fd_rotor_block_fecs( rotor, block )[ k ]!=fec_idx ) ) continue;
 
     /* update reception statistics */
@@ -413,6 +393,7 @@ fd_rotor_shred_insert( fd_rotor_t *      rotor,
     if( FD_UNLIKELY( rx_ts && ( !block->metrics.first_shred_ts || rx_ts<block->metrics.first_shred_ts ) ) ) block->metrics.first_shred_ts = rx_ts;
 
     /* update slot-level shred indexing */
+    uint shred_max = (uint)( rotor->fec_blk_max*FD_FEC_SHRED_CNT );
     if( FD_UNLIKELY( slot_complete ) ) block->complete_idx = shred_idx;
     while( block->buffered_idx + 1 < shred_max && fd_rotor_shred_test( rotor, block, block->buffered_idx + 1U ) ) {
       block->buffered_idx++;
@@ -424,7 +405,6 @@ fd_rotor_shred_insert( fd_rotor_t *      rotor,
     /* Stamped once, when the version first becomes contiguous */
     if( FD_UNLIKELY( rx_ts && !block->metrics.last_shred_ts && block->complete_idx!=UINT_MAX && block->buffered_idx==block->complete_idx ) ) {
       block->metrics.last_shred_ts = rx_ts;
-      FD_LOG_INFO(( "slot %lu complete in %ld ms. complete_idx %u, turbine %u repair %u recovered %u code %u", slot, ( rx_ts - block->metrics.first_shred_ts )/1000000L, block->complete_idx, block->metrics.turbine_cnt, block->metrics.repair_cnt, block->metrics.recovered_cnt, block->metrics.parity_cnt ));
     }
 
     /* parent_slot_batch tracks which batch the information came from
@@ -456,7 +436,7 @@ fd_rotor_code_shred_insert( fd_rotor_t *      rotor,
   if( FD_UNLIKELY( k>=rotor->fec_blk_max || code_idx>=FD_FEC_SHRED_CNT ) ) return;
 
   /* Best effort: coding shreds do not create FEC entries. */
-  fd_rotor_fec_t * fec = fec_query( rotor, mr );
+  fd_rotor_fec_t * fec = fd_fec_map_ele_query( rotor->fec_map, mr, NULL, rotor->fec_pool );
   if( FD_UNLIKELY( !fec || fec->complete ) ) return;
 
   uint bit = 1U << code_idx;
@@ -569,7 +549,7 @@ fd_rotor_fec_complete( fd_rotor_t *      rotor,
      unauthorized equivocating root -- in which case it was dropped and
      there is nothing to complete. */
 
-  fd_rotor_fec_t * fec = fec_query( rotor, mr );
+  fd_rotor_fec_t * fec = fd_fec_map_ele_query( rotor->fec_map, mr, NULL, rotor->fec_pool );
   if( FD_UNLIKELY( !fec ) ) {
     if( opt_rejected ) *opt_rejected = 1;
     return created;
@@ -577,10 +557,9 @@ fd_rotor_fec_complete( fd_rotor_t *      rotor,
 
   if( FD_LIKELY( !fec->complete ) ) {
     fec->metrics.completed_ts = rx_ts;
-    /* Leader sets arrive as a whole; tsorig is the entry batch arrival.
-       Metadata replay of a shared complete FEC must preserve its stamps. */
     if( FD_UNLIKELY( is_leader ) ) fec_shred_received( fec, FD_ROTOR_SRC_LEADER, rx_ts );
   }
+
   fec->complete = 1; /* set is now reconstructable -> deliverable */
   if( FD_UNLIKELY( slot_complete ) ) fec->slot_complete = 1;
   if( FD_UNLIKELY( data_complete ) ) fec->data_complete = 1;
@@ -588,8 +567,8 @@ fd_rotor_fec_complete( fd_rotor_t *      rotor,
 
   uint fec_idx = (uint)fd_fec_pool_idx( rotor->fec_pool, fec );
 
-  for( ulong _i=block_iter_init( rotor, slot ); _i!=ULONG_MAX; _i=block_iter_next( rotor, _i ) ) {
-    fd_rotor_blk_t * block = block_iter_ele( rotor, _i );
+  for( ulong i=block_iter_init( rotor, slot ); i!=ULONG_MAX; i=block_iter_next( rotor, i ) ) {
+    fd_rotor_blk_t * block = block_iter_ele( rotor, i );
     if( FD_UNLIKELY( fd_rotor_block_fecs( rotor, block )[ k ]!=fec_idx || block->abandoned ) ) continue;
 
     block->metrics.last_completed_fec_idx = fec_set_idx;
@@ -614,8 +593,6 @@ fd_rotor_fec_complete( fd_rotor_t *      rotor,
                        fd_hash_check_zero( &turbine->block_id ) ) ) {
         if( FD_LIKELY( finalize_block_id( rotor, turbine ) ) ) {
           if( opt_turbine_finalized ) *opt_turbine_finalized = turbine;
-          /* A notification flag independent of last_shred_ts is also needed
-             for metadata-only completion (rx_ts==0) and later eviction. */
           if( FD_UNLIKELY( rotor->block_event_fn && !block->abandoned ) ) rotor->block_event_fn( rotor->block_event_ctx, block );
         } else {
           FD_LOG_WARNING(( "failed to finalize block_id for slot %lu, parent_slot %lu parent_bid is zero %d", slot, turbine->parent_slot, fd_hash_check_zero( &turbine->parent_block_id ) ));
@@ -636,7 +613,7 @@ fd_rotor_fec_evicted( fd_rotor_t * rotor,
                       ulong        slot,
                       uint         fec_set_idx,
                       fd_hash_t *  merkle_root ) {
-  fd_rotor_fec_t * fec = fec_query( rotor, merkle_root );
+  fd_rotor_fec_t * fec = fd_fec_map_ele_query( rotor->fec_map, merkle_root, NULL, rotor->fec_pool );
   if( FD_UNLIKELY( !fec ) ) return;
   ulong k = fec_set_idx / FD_FEC_SHRED_CNT;
   FD_TEST( k<rotor->fec_blk_max ); /* guaranteed by fec_resolver */
@@ -718,7 +695,7 @@ fd_rotor_verified_hash_insert( fd_rotor_t * rotor,
      already-complete and replay the completion through
      fd_rotor_fec_complete.  Otherwise create an incomplete entry that
      is awaiting shreds. */
-  fd_rotor_fec_t * shared          = fec_query( rotor, &mr );
+  fd_rotor_fec_t * shared          = fd_fec_map_ele_query( rotor->fec_map, &mr, NULL, rotor->fec_pool );
   int              shared_complete = shared && shared->complete;
 
   fd_rotor_fec_t * fec = fec_join( rotor, slot, fec_set_idx, block, &mr );
@@ -748,7 +725,7 @@ fd_rotor_verified_block_insert( fd_rotor_t * rotor,
   fd_rotor_blk_t * block = acquire_block( rotor, slot );
   block->block_id = block_id;
 
-  fd_rotor_blk_t * turbine = turbine_block_query( rotor, slot );
+  fd_rotor_blk_t * turbine = fd_rotor_turbine_block_query( rotor, slot );
   if( FD_UNLIKELY( turbine && fd_hash_check_zero( &turbine->block_id ) ) ) {
     /* Turbine block is not yet complete, but votor repair events for
        this slot have already started arriving, suggesting we are way

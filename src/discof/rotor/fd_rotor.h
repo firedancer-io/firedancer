@@ -139,7 +139,7 @@ struct fd_rotor_blk {
   ulong           next; /* reserved by pool and map_chain */
   ulong           prev; /* reserved by map_chain */
 
-  uchar           turbine;           /* 1 for the block created through turbine */
+  uchar           turbine;   /* 1 for the block created through turbine */
   uchar           abandoned; /* 1 once a votor-driven version of the slot was
                                 created while this (turbine) version's block_id
                                 was still unknown: keeps accepting shred/FEC
@@ -559,28 +559,9 @@ fd_rotor_block_fecs( fd_rotor_t const *     rotor,
    whole and finalized; after that it is the only way to find the
    version the turbine stream built, since its key has changed. */
 
-FD_FN_PURE static inline fd_rotor_blk_t *
+fd_rotor_blk_t *
 fd_rotor_turbine_block_query( fd_rotor_t const * rotor,
-                              ulong              slot ) {
-  fd_rotor_blk_t * block_pool = (fd_rotor_blk_t *)rotor->block_pool;
-  fd_block_map_t * block_map  = (fd_block_map_t *)rotor->block_map;
-  for( ulong idx = fd_block_map_idx_query_const( block_map, &slot, ULONG_MAX, block_pool );
-             idx != ULONG_MAX;
-             idx = fd_block_map_idx_next_const( idx, ULONG_MAX, block_pool ) ) {
-    fd_rotor_blk_t * block = fd_block_pool_ele( block_pool, idx );
-    if( FD_LIKELY( block->turbine ) ) return block;
-  }
-  return NULL;
-}
-
-/* fd_rotor_block_complete returns 1 if every FEC set of the version
-   is reconstructable: its tip is known and the complete sets buffered
-   contiguously from 0 reach it. */
-
-FD_FN_PURE static inline int
-fd_rotor_block_complete( fd_rotor_blk_t const * block ) {
-  return block->complete_idx!=UINT_MAX && block->buffered_fec_idx==block->complete_idx;
-}
+                              ulong              slot );
 
 /* fd_rotor_slot_query returns any version of slot, or NULL if the slot
    has no versions in the rotor. */

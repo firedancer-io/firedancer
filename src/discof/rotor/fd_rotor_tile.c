@@ -81,9 +81,13 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static void
 report_block_received( void * ctx_, fd_rotor_blk_t const * block ) {
-  if( FD_LIKELY( !fd_event_tl ) ) return;
   ctx_t * ctx = (ctx_t *)ctx_;
+  long rx_ts = fd_clock_tile_now( ctx->clock );
+  if( FD_LIKELY( block->complete_idx!=UINT_MAX && block->buffered_fec_idx==block->complete_idx ) ) {
+    FD_LOG_INFO(( "slot %lu complete in %ld ms. complete_idx %u, turbine %u repair %u recovered %u code %u", block->slot, ( rx_ts - block->metrics.first_shred_ts )/1000000L, block->complete_idx, block->metrics.turbine_cnt, block->metrics.repair_cnt, block->metrics.recovered_cnt, block->metrics.parity_cnt ));
+  }
 
+  if( FD_LIKELY( !fd_event_tl ) ) return;
   fd_event_block_received_t * ev = ctx->receive_event;
   fd_memset( ev, 0, FD_EVENT_BLOCK_RECEIVED_PREFIX_SZ );
 

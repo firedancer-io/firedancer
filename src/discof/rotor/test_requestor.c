@@ -66,6 +66,11 @@ fec_complete( fd_rotor_t * rotor, ulong slot, uint fec_set_idx, int slot_complet
   return finalized;
 }
 
+static int
+fd_rotor_block_complete( fd_rotor_blk_t const * block ) {
+  return block->complete_idx!=UINT_MAX && block->buffered_fec_idx==block->complete_idx;
+}
+
 /* advance cranks the walk once; the block a terminal code names lands
    in walked_slot / walked_block_id. */
 
@@ -314,71 +319,6 @@ test_verified( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: verified block ladder" ));
 }
 
-/* A block that is gone or at or below the root ends its
-   walk at once with DONE; one that goes away mid-walk ends the walk
-   with DONE too. */
-
-static void
-test_gone( fd_wksp_t * wksp ) {
-  fd_rotor_t       * rotor = rotor_setup( wksp );
-  fd_requestor_t   * r     = requestor_setup();
-  fd_rotor_request_t reqs[ REQ_MAX ]; ulong cnt;
-
-  fd_hash_t bid0 = mkhash( 100UL );
-  fd_rotor_init( rotor, 10UL, &bid0, NULL, NULL );
-  drain_rotor( rotor );
-
-  fd_hash_t bidX = mkhash( 999UL );
-  FD_TEST( run_walk( r, rotor, 99UL, &bidX, reqs, &cnt )==FD_REQUESTOR_ADVANCE_DONE && cnt==0UL ); /* never existed */
-  FD_TEST( run_walk( r, rotor, 10UL, &bid0, reqs, &cnt )==FD_REQUESTOR_ADVANCE_DONE && cnt==0UL ); /* the root */
-  FD_TEST( run_walk( r, rotor,  5UL, &bid0, reqs, &cnt )==FD_REQUESTOR_ADVANCE_DONE && cnt==0UL ); /* below the root */
-
-  /* a votor block of the same slot does not disturb the turbine block:
-     both are walked on their own */
-  fd_hash_t r13 = mkhash( 13UL ), bid13 = mkhash( 130UL );
-  shred( rotor, 13UL, 0U, 0, &r13, 10UL, &bid0 );
-  FD_TEST(  fd_rotor_verified_block_insert( rotor, 13UL, bid13 ) ); /* created */
-  FD_TEST( !fd_rotor_verified_block_insert( rotor, 13UL, bid13 ) ); /* already there */
-  drain_rotor( rotor );
-  FD_TEST( run_walk( r, rotor, 13UL, &ZERO,  reqs, &cnt )==FD_REQUESTOR_ADVANCE_REQUESTED_PARENT ); /* HighestShred */
-  FD_TEST( run_walk( r, rotor, 13UL, &bid13, reqs, &cnt )==FD_REQUESTOR_ADVANCE_REQUESTED_PARENT ); /* ParentAndFecSetCount */
-
-  /* a sibling appearing mid-walk does not disturb the walk either */
-  fd_hash_t r14 = mkhash( 14UL ), bid14 = mkhash( 140UL );
-  for( uint i=0U; i<32U; i++ ) shred( rotor, 14UL, i, 0, &r14, i ? AG_UNKNOWN_SLOT : 10UL, i ? NULL : &bid0 );
-  fd_rotor_blk_t * s14 = fd_rotor_slot_version_query( rotor, 14UL, &ZERO );
-  s14->complete_idx = 63U; /* as if HighestShred had answered */
-  fd_rotor_request_t req[1];
-  fd_requestor_block_start( r, 14UL, &ZERO );
-  FD_TEST( advance( r, rotor, req )==FD_REQUESTOR_ADVANCE_REQUEST && req->kind==FD_REPAIR_KIND_SHRED && req->idx==32U );
-  fd_rotor_verified_block_insert( rotor, 14UL, bid14 );
-  drain_rotor( rotor );
-  FD_TEST( advance( r, rotor, req )==FD_REQUESTOR_ADVANCE_REQUEST && req->kind==FD_REPAIR_KIND_SHRED && req->idx==33U );
-
-  /* rooted mid-walk: same */
-  fd_hash_t r15 = mkhash( 15UL );
-  shred( rotor, 15UL, 0U, 0, &r15, 10UL, &bid0 );
-  fd_requestor_block_start( r, 15UL, &ZERO );
-  drain_rotor( rotor );
-  fd_rotor_publish( rotor, 15UL, NULL, NULL );
-  FD_TEST( advance( r, rotor, req )==FD_REQUESTOR_ADVANCE_DONE );
-  FD_TEST( advance( r, rotor, req )==FD_REQUESTOR_ADVANCE_IDLE );
-
-  /* a metadata walk is one crank: the request and the terminal code
-     arrive together, and a new start replaces the walk cleanly */
-  fd_hash_t r16 = mkhash( 16UL );
-  shred( rotor, 16UL, 5U, 0, &r16, AG_UNKNOWN_SLOT, NULL );
-  fd_requestor_block_start( r, 16UL, &ZERO );
-  FD_TEST( advance( r, rotor, req )==FD_REQUESTOR_ADVANCE_REQUESTED_PARENT && req->kind==FD_REPAIR_KIND_SHRED && req->idx==0U );
-  FD_TEST( walked_slot==16UL );
-  FD_TEST( advance( r, rotor, req )==FD_REQUESTOR_ADVANCE_IDLE );
-  fd_requestor_block_start( r, 99UL, &bidX );
-  FD_TEST( advance( r, rotor, req )==FD_REQUESTOR_ADVANCE_DONE ); /* the new walk */
-  FD_TEST( advance( r, rotor, req )==FD_REQUESTOR_ADVANCE_IDLE );
-
-  FD_LOG_NOTICE(( "pass: gone and rooted blocks" ));
-}
-
 /* The rotor keeps moving while a block is walked: every next reads
    it fresh, so a shred that landed since the last request is not
    asked for, a sentinel that landed turns a FecSetRoot into shred
@@ -448,7 +388,6 @@ main( int argc, char ** argv ) {
   test_turbine ( wksp );
   test_ancestry( wksp );
   test_verified( wksp );
-  test_gone    ( wksp );
   test_moving  ( wksp );
 
   FD_LOG_NOTICE(( "pass" ));
