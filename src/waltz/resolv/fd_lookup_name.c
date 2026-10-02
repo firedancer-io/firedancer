@@ -216,13 +216,15 @@ name_from_dns_search( struct address buf[ static MAXADDRS ],
                       char const *   name,
                       int            family ) {
   fd_resolvconf_t conf;
-  size_t l;
+  size_t l, dots;
+  char * p, * z;
 
   if( fd_get_resolv_conf( &conf ) < 0 ) return -1;
 
   /* Count dots, suppress search when >=ndots or name ends in
    * a dot, which is an explicit request for global scope. */
-  for( l=0; name[l]; l++ ) {}
+  for( dots=l=0; name[l]; l++ ) if( name[l]=='.' ) dots++;
+  if( dots>=conf.ndots || name[l-1]=='.' ) conf.search[0] = 0;
 
   /* Strip final dot for canon, fail if multiple trailing dots. */
   if( name[l-1]=='.' ) l--;
@@ -237,6 +239,19 @@ name_from_dns_search( struct address buf[ static MAXADDRS ],
    * the full requested name to name_from_dns. */
   memcpy( canon, name, l );
   canon[l] = '.';
+
+  for( p=conf.search; *p; p=z ) {
+    for( ; fd_isspace(*p); p++ );
+    for( z=p; *z && !fd_isspace(*z); z++ );
+    if( z==p ) break;
+    size_t dl = (size_t)( z-p );
+    if( dl < FD_FQDN_BUF_MAX - l - 1 ) {
+      memcpy( canon+l+1, p, dl );
+      canon[l+1+dl] = 0;
+      int cnt = name_from_dns( buf, canon, canon, family, &conf );
+      if( cnt ) return cnt;
+    }
+  }
 
   canon[l] = 0;
   return name_from_dns( buf, canon, name, family, &conf );

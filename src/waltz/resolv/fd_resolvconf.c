@@ -18,6 +18,7 @@ fd_get_resolv_conf( fd_resolvconf_t * conf ) {
   conf->ndots = 1;
   conf->timeout = 5;
   conf->attempts = 2;
+  conf->search[0] = 0;
 
   if( fd_etc_resolv_conf_fd<0 ) goto no_resolv_conf;
 
@@ -71,6 +72,15 @@ fd_get_resolv_conf( fd_resolvconf_t * conf ) {
       *z=0;
       if( fd_lookup_ipliteral( conf->ns+nns, p, AF_UNSPEC ) > 0 )
         nns++;
+      continue;
+    }
+    if( ( !strncmp( line, "domain", 6 ) || !strncmp( line, "search", 6 ) )
+        && fd_isspace( line[6] ) ) {
+      for( p=line+7; fd_isspace(*p); p++ );
+      ulong l = strlen( p );
+      /* This can never happen anyway with chosen buffer sizes. */
+      if( l >= sizeof(conf->search) ) continue;
+      memcpy( conf->search, p, l+1 );
       continue;
     }
   }

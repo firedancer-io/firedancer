@@ -238,6 +238,104 @@ test_network_completion( void ) {
   fd_adns_ns_port = 53;
 }
 
+/* expect_query receives a query at the mock nameserver and checks
+   its question name (dotted form).  Returns the query length. */
+
+static long
+expect_query( int                  ns_fd,
+              uchar *              query,
+              struct sockaddr_in * cli,
+              char const *         name ) {
+  socklen_t cli_len = sizeof(*cli);
+  long qlen = recvfrom( ns_fd, query, 512UL, 0, fd_type_pun( cli ), &cli_len );
+  FD_TEST( qlen>12L );
+  char  got[ FD_FQDN_BUF_MAX ];
+  ulong out = 0UL;
+  for( ulong i=12UL; query[ i ]; i += 1UL+query[ i ] ) {
+    if( out ) got[ out++ ] = '.';
+    memcpy( got+out, query+i+1UL, query[ i ] );
+    out += query[ i ];
+  }
+  got[ out ] = 0;
+  if( FD_UNLIKELY( strcmp( got, name ) ) ) FD_LOG_ERR(( "expected query for \"%s\", got \"%s\"", name, got ));
+  return qlen;
+}
+
+/* reply_to answers query (with the EDNS0 OPT RR stripped) with the
+   given rcode and optionally one A record. */
+
+static void
+reply_to( int                        ns_fd,
+          uchar const *              query,
+          long                       qlen,
+          struct sockaddr_in const * cli,
+          uint                       rcode,
+          uint                       addr ) {
+  uchar reply[ 512 ];
+  ulong sz = (ulong)qlen-11UL; /* strip OPT RR */
+  memcpy( reply, query, sz );
+  reply[ 2 ]  = 0x81;
+  reply[ 3 ]  = (uchar)( 0x80|rcode );
+  reply[ 7 ]  = (uchar)!!addr;
+  reply[ 11 ] = 0;
+  if( addr ) {
+    static uchar const rr[] = { 0xc0, 0x0c, 0, 1, 0, 1, 0, 0, 0, 60, 0, 4 };
+    memcpy( reply+sz, rr, sizeof(rr) ); sz += sizeof(rr);
+    memcpy( reply+sz, &addr, 4UL );     sz += 4UL;
+  }
+  FD_TEST( sz==(ulong)sendto( ns_fd, reply, sz, 0, fd_type_pun_const( cli ), sizeof(*cli) ) );
+}
+
+static void
+test_search_domains( void ) {
+  int ns_fd = socket( AF_INET, SOCK_DGRAM|SOCK_CLOEXEC, 0 );
+  FD_TEST( ns_fd>=0 );
+  struct sockaddr_in ns_sa = { .sin_family = AF_INET, .sin_addr = { .s_addr = FD_IP4_ADDR( 127, 0, 0, 1 ) } };
+  FD_TEST( !bind( ns_fd, fd_type_pun( &ns_sa ), sizeof(ns_sa) ) );
+  socklen_t ns_sa_len = sizeof(ns_sa);
+  FD_TEST( !getsockname( ns_fd, fd_type_pun( &ns_sa ), &ns_sa_len ) );
+  fd_adns_ns_port = fd_ushort_bswap( ns_sa.sin_port );
+
+  FD_TEST( 0==close( fd_etc_resolv_conf_fd ) );
+  fd_etc_resolv_conf_fd = memfd_with( "nameserver 127.0.0.1\nsearch a.test b.test\n" );
+
+  fd_adns_t * adns = new_adns( 4UL );
+  fd_adns_result_t res[ 1 ];
+  uchar query[ 512 ];
+  struct sockaddr_in cli;
+  long qlen;
+
+  /* Fewer than ndots dots: each search domain, then the bare name.
+     NXDOMAIN advances to the next candidate. */
+  FD_TEST( 0==fd_adns_resolve( adns, "peer", 1UL ) );
+  FD_TEST( 0==fd_adns_advance( adns, 0L, res ) );
+  qlen = expect_query( ns_fd, query, &cli, "peer.a.test" );
+  reply_to( ns_fd, query, qlen, &cli, 3U, 0U );
+  FD_TEST( 0==fd_adns_advance( adns, 1L, res ) );
+  FD_TEST( 0==fd_adns_advance( adns, 2L, res ) );
+  qlen = expect_query( ns_fd, query, &cli, "peer.b.test" );
+  reply_to( ns_fd, query, qlen, &cli, 3U, 0U );
+  FD_TEST( 0==fd_adns_advance( adns, 3L, res ) );
+  FD_TEST( 0==fd_adns_advance( adns, 4L, res ) );
+  qlen = expect_query( ns_fd, query, &cli, "peer" );
+  reply_to( ns_fd, query, qlen, &cli, 0U, FD_IP4_ADDR( 7, 7, 7, 7 ) );
+  FD_TEST( 1==fd_adns_advance( adns, 5L, res ) );
+  FD_TEST( res->req_id==1UL && !res->err && res->addr_cnt==1UL );
+  FD_TEST( res->addrs[ 0 ]==FD_IP4_ADDR( 7, 7, 7, 7 ) );
+
+  /* >=ndots dots: no search */
+  FD_TEST( 0==fd_adns_resolve( adns, "peer.example", 4UL ) );
+  FD_TEST( 0==fd_adns_advance( adns, 0L, res ) );
+  qlen = expect_query( ns_fd, query, &cli, "peer.example" );
+  reply_to( ns_fd, query, qlen, &cli, 3U, 0U );
+  FD_TEST( 1==fd_adns_advance( adns, 1L, res ) );
+  FD_TEST( res->req_id==4UL && res->err==FD_EAI_NONAME );
+
+  fd_adns_delete( fd_adns_leave( adns ) );
+  FD_TEST( 0==close( ns_fd ) );
+  fd_adns_ns_port = 53;
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -251,6 +349,7 @@ main( int     argc,
   test_backpressure();
   test_answer_parse();
   test_network_completion();
+  test_search_domains();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
