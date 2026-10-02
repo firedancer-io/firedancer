@@ -248,19 +248,41 @@ verify_one( uchar const          msg[],
     /* A is cached, so it decodes and is not small order: the checks of
        the uncached path reduce to the ones on R.  frombytes_1x gives
        the same point as frombytes_2x, so the small order checks
-       agree. */
+       agree.  When the equation is evaluated, R's decode is
+       interleaved with the scalar mul and its checks run afterwards,
+       in the same order. */
 
-    if( FD_UNLIKELY( fd_ed25519_point_frombytes_1x( R, r ) ) ) return FD_ED25519_ERR_SIG;
+    if( FD_UNLIKELY( !*_ok ) ) {
+      if( FD_UNLIKELY( fd_ed25519_point_frombytes_1x( R, r ) ) ) return FD_ED25519_ERR_SIG;
+      if( FD_UNLIKELY( fd_ed25519_affine_is_small_order( R ) ) ) return FD_ED25519_ERR_SIG;
+      return FD_ED25519_SUCCESS;
+    }
+
+    fd_ed25519_point_decode_t dec[1];
+    fd_ed25519_point_decode_init( dec, r );
+
+    uchar k[ 64 ];
+    fd_sha512_fini( fd_sha512_append( fd_sha512_append( fd_sha512_append( fd_sha512_init( sha ),
+                    r, 32UL ), public_key, 32UL ), msg, msg_sz ), k );
+    fd_curve25519_scalar_reduce( k, k );
+
+    /* Rcmp = [k](-A') + [S]B */
+
+    fd_ed25519_point_t Rcmp[1];
+    fd_ed25519_double_scalar_mul_base_split_decode( Rcmp, k, a_tbl, S, cache->b_tbl, dec );
+
+    if( FD_UNLIKELY( fd_ed25519_point_decode_fini( R, dec ) ) ) return FD_ED25519_ERR_SIG;
     if( FD_UNLIKELY( fd_ed25519_affine_is_small_order( R ) ) ) return FD_ED25519_ERR_SIG;
 
-  } else {
-
-    int res = fd_ed25519_point_frombytes_2x( Aprime, public_key, R, r );
-    if( FD_UNLIKELY( res ) ) return res == -1 ? FD_ED25519_ERR_PUBKEY : FD_ED25519_ERR_SIG;
-    if( FD_UNLIKELY( fd_ed25519_affine_is_small_order( Aprime ) ) ) return FD_ED25519_ERR_PUBKEY;
-    if( FD_UNLIKELY( fd_ed25519_affine_is_small_order( R      ) ) ) return FD_ED25519_ERR_SIG;
-
+    cache->credit = fd_ulong_min( cache->credit+1UL, CREDIT_MAX );
+    *_ok = fd_ed25519_point_eq_z1( Rcmp, R );
+    return FD_ED25519_SUCCESS;
   }
+
+  int res = fd_ed25519_point_frombytes_2x( Aprime, public_key, R, r );
+  if( FD_UNLIKELY( res ) ) return res == -1 ? FD_ED25519_ERR_PUBKEY : FD_ED25519_ERR_SIG;
+  if( FD_UNLIKELY( fd_ed25519_affine_is_small_order( Aprime ) ) ) return FD_ED25519_ERR_PUBKEY;
+  if( FD_UNLIKELY( fd_ed25519_affine_is_small_order( R      ) ) ) return FD_ED25519_ERR_SIG;
 
   if( FD_UNLIKELY( !*_ok ) ) return FD_ED25519_SUCCESS;
 
@@ -271,18 +293,13 @@ verify_one( uchar const          msg[],
                   r, 32UL ), public_key, 32UL ), msg, msg_sz ), k );
   fd_curve25519_scalar_reduce( k, k );
 
-  /* Rcmp = [k](-A') + [S]B, identical group element either way */
+  /* Rcmp = [k](-A') + [S]B */
 
   fd_ed25519_point_t Rcmp[1];
-  if( FD_LIKELY( a_tbl ) ) {
-    fd_ed25519_double_scalar_mul_base_split( Rcmp, k, a_tbl, S, cache->b_tbl );
-    *_ok = fd_ed25519_point_eq_z1( Rcmp, R );
-  } else {
-    fd_ed25519_point_neg( Aprime, Aprime );
-    fd_ed25519_double_scalar_mul_base( Rcmp, k, Aprime, S );
-    *_ok = fd_ed25519_point_eq_z1( Rcmp, R );
-    if( FD_LIKELY( *_ok ) ) cache_admit( cache, public_key, h, Aprime );
-  }
+  fd_ed25519_point_neg( Aprime, Aprime );
+  fd_ed25519_double_scalar_mul_base( Rcmp, k, Aprime, S );
+  *_ok = fd_ed25519_point_eq_z1( Rcmp, R );
+  if( FD_LIKELY( *_ok ) ) cache_admit( cache, public_key, h, Aprime );
   return FD_ED25519_SUCCESS;
 }
 

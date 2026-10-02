@@ -265,6 +265,50 @@ int
 fd_r43x6_ge_decode( wwl_t * _P03, wwl_t * _P14, wwl_t * _P25,
                     void const * _vs );
 
+/* Staged fd_r43x6_ge_decode, so its pow22523 chain (~260 dependent
+   ops) can be interleaved with other work.  init starts it, step
+   advances the chain by n ops and fini completes it.  Results are bit
+   identical to fd_r43x6_ge_decode. */
+
+struct fd_r43x6_ge_decode {
+  fd_r43x6_t x;               /* chain accumulator */
+  fd_r43x6_t m;               /* chain value at the start of the current stage */
+  fd_r43x6_t z, z2, z9;       /* named chain multipliers (see fd_r43x6_pow22523) */
+  fd_r43x6_t z2e10m1, z2e50m1;
+  fd_r43x6_t y, u, v, uv3;    /* head results used by the tail */
+  ulong      stage;           /* chain stage, in [0,12], 12 is complete */
+  ulong      rem;             /* squarings left in the current stage */
+  int        x_0;
+};
+typedef struct fd_r43x6_ge_decode fd_r43x6_ge_decode_t;
+
+void
+fd_r43x6_ge_decode_init( fd_r43x6_ge_decode_t * st,
+                         void const *           _vs );
+
+/* Internal: step across a stage boundary */
+
+void
+fd_r43x6_ge_decode_step_slow( fd_r43x6_ge_decode_t * st,
+                              ulong                  n );
+
+static inline void
+fd_r43x6_ge_decode_step( fd_r43x6_ge_decode_t * st,
+                         ulong                  n ) {
+  if( FD_LIKELY( st->rem>=n ) ) { /* stays within the current stage */
+    fd_r43x6_t x = st->x;
+    for( ulong i=0UL; i<n; i++ ) x = fd_r43x6_sqr( x );
+    st->x    = x;
+    st->rem -= n;
+  } else if( FD_LIKELY( st->stage<12UL ) ) {
+    fd_r43x6_ge_decode_step_slow( st, n );
+  }
+}
+
+int
+fd_r43x6_ge_decode_fini( wwl_t * _P03, wwl_t * _P14, wwl_t * _P25,
+                         fd_r43x6_ge_decode_t * st );
+
 /* FD_R43X6_GE_DECODE2( Pa,sa, Pb,sb ) does:
 
      if(      GE_DECODE( Pa,sa ) ) { (PbX,PbY,PbZ,PbT) = 0; return -1; }

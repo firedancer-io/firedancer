@@ -32,6 +32,11 @@ typedef struct fd_curve25519_edwards fd_curve25519_edwards_t;
 typedef fd_curve25519_edwards_t fd_ed25519_point_t;
 typedef fd_curve25519_edwards_t fd_ristretto255_point_t;
 
+/* Not staged here: init records buf and fini decodes it. */
+
+struct fd_ed25519_point_decode { uchar buf[ 32 ]; };
+typedef struct fd_ed25519_point_decode fd_ed25519_point_decode_t;
+
 #include "../table/fd_curve25519_table_ref.c"
 
 FD_PROTOTYPES_BEGIN
