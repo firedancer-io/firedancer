@@ -26,18 +26,30 @@ fd_gui_ema_init( fd_gui_ema_t * ema,
 }
 
 static inline double
-fd_gui_ema_advance( fd_gui_ema_t * ema,
-                    long           now_nanos,
-                    double         sample ) {
-  long dt = now_nanos - ema->last_update_nanos;
-  if( FD_UNLIKELY( dt<=0L ) ) return ema->value;
+fd_gui_ema_alpha( long dt_nanos,
+                  long half_life_nanos ) {
+  return 1.0 - exp( -0.69314718055994 * (double)dt_nanos / (double)half_life_nanos );
+}
 
-  double alpha      = 1.0 - exp( -0.69314718055994 * (double)dt / (double)ema->half_life_nanos );
+static inline double
+fd_gui_ema_advance_alpha( fd_gui_ema_t * ema,
+                          long           now_nanos,
+                          double         sample,
+                          double         alpha ) {
   double new_weight = fmax( alpha + (1.0 - alpha) * ema->weight, DBL_EPSILON );
   ema->value = (alpha * sample + (1.0 - alpha) * ema->weight * ema->value) / new_weight;
   ema->weight            = new_weight;
   ema->last_update_nanos = now_nanos;
   return ema->value;
+}
+
+static inline double
+fd_gui_ema_advance( fd_gui_ema_t * ema,
+                    long           now_nanos,
+                    double         sample ) {
+  long dt = now_nanos - ema->last_update_nanos;
+  if( FD_UNLIKELY( dt<=0L ) ) return ema->value;
+  return fd_gui_ema_advance_alpha( ema, now_nanos, sample, fd_gui_ema_alpha( dt, ema->half_life_nanos ) );
 }
 
 static inline double
