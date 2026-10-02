@@ -186,9 +186,10 @@ record_read( fd_accdb_t * accdb,
   ulong want = sizeof(fd_accdb_disk_meta_t)+data_len;
   ulong got  = 0UL;
   while( got<want ) {
-    long result = pread( accdb->fd, accdb->bounce+got, want-got, (long)(off+got) );
+    struct iovec iov = { .iov_base = accdb->bounce+got, .iov_len = want-got };
+    long result = preadv2( accdb->fd, &iov, 1, (long)(off+got), 0 );
     if( FD_UNLIKELY( -1==result && (errno==EINTR || errno==EAGAIN || errno==EWOULDBLOCK) ) ) continue;
-    else if( FD_UNLIKELY( -1==result ) ) FD_LOG_ERR(( "pread() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+    else if( FD_UNLIKELY( -1==result ) ) FD_LOG_ERR(( "preadv2() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
     else if( FD_UNLIKELY( !result ) ) FD_LOG_ERR(( "accounts database is corrupt, data expected at offset %lu with size %lu exceeded file extents", off+got, want ));
     fd_accdb_partition_read_bump( accdb, off+got, (ulong)result );
     got += (ulong)result;

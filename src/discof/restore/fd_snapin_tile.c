@@ -51,8 +51,9 @@ FD_STATIC_ASSERT( FD_SNAPIN_WRITE_BUF_SZ%FD_SNAPIN_DIRECT_ALIGN==0UL, write_buf_
 FD_STATIC_ASSERT( FD_SNAPSHOT_DATA_MTU<FD_SNAPIN_WRITE_BUF_MAX, write_buf );
 FD_STATIC_ASSERT( FD_ACCDB_DISK_REC_BOUND( FD_RUNTIME_ACC_SZ_MAX )<=FD_SNAPIN_WRITE_BUF_MAX, max_account );
 
-/* the largest valid stake delegations have an account size of 4008 */
-#define FD_SNAPIN_STAKE_DATA_MAX    (4096UL)
+/* the largest valid stake delegations (v1 stakes) have an account size
+   of 4008 */
+#define FD_SNAPIN_STAKE_DATA_MAX    (4008UL)
 
 /* The snapin tiles are state machines that parse and load a full and
    optionally an incremental snapshot.  They are responsible for loading
