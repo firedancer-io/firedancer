@@ -1,0 +1,228 @@
+#define _GNU_SOURCE
+#include "fd_epoch_credits.h"
+#include "../runtime/fd_runtime_const.h"
+
+#include <stdlib.h> /* aligned_alloc */
+#include <sys/mman.h> /* memfd_create */
+#include <sys/stat.h>
+#include <unistd.h>
+
+static ulong
+spill_sz( int fd ) {
+  struct stat st;
+  FD_TEST( !fstat( fd, &st ) );
+  return (ulong)st.st_size;
+}
+
+static fd_epoch_credits_store_t *
+store_create( void ** mem_out,
+              int     fd,
+              ulong   max_live_slots ) {
+  ulong footprint = fd_epoch_credits_store_footprint( max_live_slots );
+  FD_TEST( footprint );
+  void * mem = aligned_alloc( fd_epoch_credits_store_align(), footprint );
+  FD_TEST( mem );
+  FD_TEST( !ftruncate( fd, 0L ) );
+  fd_epoch_credits_store_t * store = fd_epoch_credits_store_join( fd_epoch_credits_store_new( mem, fd, max_live_slots ), fd );
+  FD_TEST( store );
+  *mem_out = mem;
+  return store;
+}
+
+static void
+set_write( fd_epoch_credits_store_t * store,
+           ushort                     fork_id,
+           ulong                      base,
+           ulong                      len ) {
+  fd_epoch_credits_view_t view[1];
+  FD_TEST( fd_epoch_credits_view_init( view, store, fork_id, 1 ) );
+  for( ulong i=0UL; i<len; i++ ) view->credits[i].base_credits = base+i;
+  view->len = len;
+  fd_epoch_credits_view_fini( view );
+}
+
+static void
+set_check( fd_epoch_credits_store_t * store,
+           ushort                     fork_id,
+           ulong                      base,
+           ulong                      len ) {
+  fd_epoch_credits_view_t view[1];
+  FD_TEST( fd_epoch_credits_view_init( view, store, fork_id, 0 ) );
+  FD_TEST( view->len==len );
+  for( ulong i=0UL; i<len; i++ ) FD_TEST( view->credits[i].base_credits==base+i );
+  fd_epoch_credits_view_fini( view );
+}
+
+/* Only the per-set metadata grows with max_live_slots.  At most
+   FD_EPOCH_CREDITS_CACHE_CNT full sets are resident. */
+
+static void
+test_footprint( void ) {
+  ulong set_sz = sizeof(fd_epoch_credits_t)*FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS;
+
+  FD_TEST( !fd_epoch_credits_store_footprint( 0UL        ) );
+  FD_TEST( !fd_epoch_credits_store_footprint( USHORT_MAX ) );
+
+  ulong fp1    = fd_epoch_credits_store_footprint( 1UL                         );
+  ulong fp_c   = fd_epoch_credits_store_footprint( FD_EPOCH_CREDITS_CACHE_CNT  );
+  ulong fp_max = fd_epoch_credits_store_footprint( 4096UL                      );
+  FD_TEST( fp1>=set_sz && fp1<2UL*set_sz );
+  FD_TEST( fp_c>=FD_EPOCH_CREDITS_CACHE_CNT*set_sz );
+  FD_TEST( fp_max-fp_c < 4096UL*(2UL*sizeof(ulong)+1UL)+FD_EPOCH_CREDITS_STORE_ALIGN );
+}
+
+static void
+test_new_join( int fd ) {
+  ulong  footprint = fd_epoch_credits_store_footprint( 4UL );
+  uchar * mem      = aligned_alloc( fd_epoch_credits_store_align(), footprint+fd_epoch_credits_store_align() );
+  FD_TEST( mem );
+
+  FD_TEST( !fd_epoch_credits_store_new( NULL,    fd, 4UL ) );
+  FD_TEST( !fd_epoch_credits_store_new( mem+1UL, fd, 4UL ) );
+  FD_TEST( !fd_epoch_credits_store_new( mem,     -1, 4UL ) );
+  FD_TEST( !fd_epoch_credits_store_new( mem,     fd, 0UL ) );
+
+  FD_TEST( fd_epoch_credits_store_new( mem, fd, 4UL )==mem );
+  FD_TEST( !fd_epoch_credits_store_join( NULL, fd    ) );
+  FD_TEST( !fd_epoch_credits_store_join( mem,  fd+1  ) );
+  FD_TEST(  fd_epoch_credits_store_join( mem,  fd    ) );
+
+  fd_memset( mem, 0, sizeof(ulong) );
+  FD_TEST( !fd_epoch_credits_store_join( mem, fd ) );
+  free( mem );
+}
+
+/* Fresh sets come from the lowest free id, are empty, and are zeroed
+   when first written.  Releasing the last reference frees the id. */
+
+static void
+test_refcnt( int fd ) {
+  void * mem;
+  fd_epoch_credits_store_t * store = store_create( &mem, fd, 4UL );
+
+  ushort a = fd_epoch_credits_store_new_fork( store, USHORT_MAX );
+  FD_TEST( a==0 );
+  set_write( store, a, 100UL, 3UL );
+
+  fd_epoch_credits_store_acquire( store, a );
+  ushort b = fd_epoch_credits_store_new_fork( store, a );
+  FD_TEST( b==1 );
+  set_check( store, a, 100UL, 3UL );
+  set_check( store, b, 0UL,   0UL );
+
+  fd_epoch_credits_store_release( store, a );
+  ushort c = fd_epoch_credits_store_new_fork( store, USHORT_MAX );
+  FD_TEST( c==a );
+  set_check( store, c, 0UL, 0UL );
+
+  fd_epoch_credits_view_t view[1];
+  FD_TEST( fd_epoch_credits_view_init( view, store, c, 1 ) );
+  for( ulong i=0UL; i<3UL; i++ ) FD_TEST( !view->credits[i].base_credits );
+  view->len = 0UL;
+  fd_epoch_credits_view_fini( view );
+
+  free( mem );
+}
+
+/* More live sets than cache entries spill to the backing file and
+   reload intact.  A pinned set is never evicted. */
+
+static void
+test_spill_reload( int fd ) {
+  ulong const set_cnt = FD_EPOCH_CREDITS_CACHE_CNT+2UL;
+  void * mem;
+  fd_epoch_credits_store_t * store = store_create( &mem, fd, set_cnt );
+
+  ushort ids[ FD_EPOCH_CREDITS_CACHE_CNT+2UL ];
+  for( ulong i=0UL; i<set_cnt; i++ ) {
+    ids[i] = fd_epoch_credits_store_new_fork( store, USHORT_MAX );
+    set_write( store, ids[i], 1000UL*(i+1UL), i+1UL );
+    if( i<FD_EPOCH_CREDITS_CACHE_CNT ) FD_TEST( !spill_sz( fd ) );
+    else                               FD_TEST(  spill_sz( fd ) );
+  }
+
+  fd_epoch_credits_view_t pinned[1];
+  FD_TEST( fd_epoch_credits_view_init( pinned, store, ids[0], 0 ) );
+  FD_TEST( pinned->credits[0].base_credits==1000UL );
+
+  for( ulong round=0UL; round<2UL; round++ ) {
+    for( ulong i=1UL; i<set_cnt; i++ ) set_check( store, ids[i], 1000UL*(i+1UL), i+1UL );
+  }
+
+  FD_TEST( pinned->credits[0].base_credits==1000UL );
+  fd_epoch_credits_view_fini( pinned );
+  set_check( store, ids[0], 1000UL, 1UL );
+
+  free( mem );
+}
+
+/* With every id in use, replacing a uniquely held set must release it
+   before acquiring the replacement. */
+
+static void
+test_new_fork_full( int fd ) {
+  ulong const set_cnt = FD_EPOCH_CREDITS_CACHE_CNT+1UL;
+  void * mem;
+  fd_epoch_credits_store_t * store = store_create( &mem, fd, set_cnt );
+
+  for( ulong i=0UL; i<set_cnt; i++ ) {
+    ushort id = fd_epoch_credits_store_new_fork( store, USHORT_MAX );
+    FD_TEST( id==(ushort)i );
+    set_write( store, id, 10UL*(i+1UL), 1UL );
+  }
+
+  ushort tip = (ushort)(set_cnt-1UL);
+  ushort id  = fd_epoch_credits_store_new_fork( store, tip );
+  FD_TEST( id==tip );
+  set_check( store, id, 0UL, 0UL );
+  set_write( store, id, 2000UL, 1UL );
+  set_check( store, id, 2000UL, 1UL );
+
+  free( mem );
+}
+
+static void
+test_clear_reset( int fd ) {
+  ulong const set_cnt = FD_EPOCH_CREDITS_CACHE_CNT+1UL;
+  void * mem;
+  fd_epoch_credits_store_t * store = store_create( &mem, fd, set_cnt );
+
+  ushort a = fd_epoch_credits_store_new_fork( store, USHORT_MAX );
+  set_write( store, a, 7UL, 2UL );
+  fd_epoch_credits_store_clear( store, a );
+  set_check( store, a, 0UL, 0UL );
+
+  /* A cleared set reloads empty after it is evicted. */
+  for( ulong i=1UL; i<set_cnt; i++ ) {
+    ushort id = fd_epoch_credits_store_new_fork( store, USHORT_MAX );
+    set_write( store, id, 50UL, 1UL );
+  }
+  set_check( store, a, 0UL, 0UL );
+
+  fd_epoch_credits_store_reset( store );
+  FD_TEST( fd_epoch_credits_store_new_fork( store, USHORT_MAX )==0 );
+  set_check( store, 0, 0UL, 0UL );
+
+  free( mem );
+}
+
+int
+main( int     argc,
+      char ** argv ) {
+  fd_boot( &argc, &argv );
+
+  int fd = memfd_create( "test_epoch_credits", 0 );
+  FD_TEST( fd>=0 );
+
+  test_footprint();
+  test_new_join( fd );
+  test_refcnt( fd );
+  test_spill_reload( fd );
+  test_new_fork_full( fd );
+  test_clear_reset( fd );
+
+  FD_TEST( !close( fd ) );
+  FD_LOG_NOTICE(( "pass" ));
+  fd_halt();
+  return 0;
+}

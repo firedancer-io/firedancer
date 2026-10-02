@@ -20,9 +20,14 @@ endif
 $(call add-hdrs,fd_collector_overrides.h)
 $(call add-objs,fd_collector_overrides,fd_flamenco)
 
+$(call add-hdrs,fd_epoch_credits.h)
+$(call add-objs,fd_epoch_credits,fd_flamenco)
+
 ifdef FD_HAS_HOSTED
 $(call make-unit-test,test_vote_stakes,test_vote_stakes,fd_flamenco fd_ballet fd_util)
 $(call run-unit-test,test_vote_stakes)
 $(call make-unit-test,test_collector_overrides,test_collector_overrides,fd_flamenco fd_ballet fd_util)
 $(call run-unit-test,test_collector_overrides)
+$(call make-unit-test,test_epoch_credits,test_epoch_credits,fd_flamenco fd_ballet fd_util)
+$(call run-unit-test,test_epoch_credits)
 endif

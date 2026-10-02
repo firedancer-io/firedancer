@@ -1,7 +1,7 @@
 #define _GNU_SOURCE
 #include "run.h"
 #include "../../../../flamenco/accdb/fd_accdb.h"
-#include "../../../../flamenco/runtime/fd_bank.h"
+#include "../../../../flamenco/stakes/fd_epoch_credits.h"
 #include "../../../../flamenco/stakes/fd_stake_delegations.h"
 #include "../../../../disco/store/fd_store.h"
 

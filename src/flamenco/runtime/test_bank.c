@@ -1138,18 +1138,18 @@ test_bank_epoch_credits_singleton( void * mem ) {
 }
 
 /* Logical epoch-credit capacity follows max_total_banks, not
-   max_fork_width.  More than FD_BANKS_EPOCH_CREDITS_CACHE_CNT live sets
+   max_fork_width.  More than FD_EPOCH_CREDITS_CACHE_CNT live sets
    spill and reload without evicting a pinned reader. */
 
 static void
 test_bank_epoch_credits_disk_cache( void * mem ) {
-  ulong const max_total_banks = FD_BANKS_EPOCH_CREDITS_CACHE_CNT+1UL;
+  ulong const max_total_banks = FD_EPOCH_CREDITS_CACHE_CNT+1UL;
   FD_TEST( !ftruncate( FD_EPOCH_CREDITS_FD, 0L ) );
   fd_banks_t * banks = fd_banks_join(
       fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, max_total_banks, 1UL, 16UL, 256UL, 4UL, 0, 7778UL ) );
   FD_TEST( banks );
 
-  fd_bank_t * chain[ FD_BANKS_EPOCH_CREDITS_CACHE_CNT+1UL ];
+  fd_bank_t * chain[ FD_EPOCH_CREDITS_CACHE_CNT+1UL ];
   chain[0] = fd_banks_init_bank( banks );
   FD_TEST( chain[0] );
 
@@ -1171,8 +1171,8 @@ test_bank_epoch_credits_disk_cache( void * mem ) {
 
     struct stat spill_stat;
     FD_TEST( !fstat( FD_EPOCH_CREDITS_FD, &spill_stat ) );
-    if( i<FD_BANKS_EPOCH_CREDITS_CACHE_CNT ) FD_TEST( spill_stat.st_size==0L );
-    else                                     FD_TEST( spill_stat.st_size>0L  );
+    if( i<FD_EPOCH_CREDITS_CACHE_CNT ) FD_TEST( spill_stat.st_size==0L );
+    else                               FD_TEST( spill_stat.st_size>0L  );
   }
 
   fd_bank_epoch_credits_view_t pinned[1];
