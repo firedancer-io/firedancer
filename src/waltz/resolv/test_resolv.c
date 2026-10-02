@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include <sys/mman.h>
 #include <unistd.h>
+#include <string.h>
 #include "fd_lookup.h"
 #include "../../util/fd_util.h"
 
@@ -20,6 +21,7 @@ main( int     argc,
   FD_TEST( 0==lseek( fd_etc_resolv_conf_fd, 0, SEEK_SET ) );
   fd_resolvconf_t conf;
   FD_TEST( 0==fd_get_resolv_conf( &conf ) );
+  FD_TEST( 0==strcmp( conf.search, "." ) );
   FD_TEST( 0==close( fd_etc_resolv_conf_fd ) );
 
   /* Chop off trailing newline */
@@ -30,6 +32,21 @@ main( int     argc,
   FD_TEST( sz==(ssize_t)( test_resolvconf_sz-1UL ) );
   FD_TEST( 0==lseek( fd_etc_resolv_conf_fd, 0, SEEK_SET ) );
   FD_TEST( 0==fd_get_resolv_conf( &conf ) );
+  FD_TEST( 0==close( fd_etc_resolv_conf_fd ) );
+
+  /* Search domains: last search/domain line wins, ndots clamped */
+
+  static char const search_conf[] =
+    "domain ignored.test\n"
+    "search  a.test b.test\n"
+    "options ndots:20\n";
+  fd_etc_resolv_conf_fd = memfd_create( "resolv.conf", 0 );
+  FD_TEST( fd_etc_resolv_conf_fd>=0 );
+  sz = write( fd_etc_resolv_conf_fd, search_conf, sizeof(search_conf)-1UL );
+  FD_TEST( sz==(ssize_t)( sizeof(search_conf)-1UL ) );
+  FD_TEST( 0==fd_get_resolv_conf( &conf ) );
+  FD_TEST( 0==strcmp( conf.search, "a.test b.test\n" ) );
+  FD_TEST( conf.ndots==15U );
   FD_TEST( 0==close( fd_etc_resolv_conf_fd ) );
 
   FD_LOG_NOTICE(( "pass" ));

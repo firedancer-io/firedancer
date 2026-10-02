@@ -18,7 +18,6 @@ musl libc.  It was imported circa 2025-May.
 - Removed pthread cleanup API usages
 - Replaced internal musl API usages with public libc variants
 - Removed malloc calls
-- Removed support for search domains
 - Removed unused code incurred by keeping API compatibility.
 - Replaced stdio.h (fopen, fgets, etc) with fd_io`
 - Reuses /etc/hosts and /etc/resolv.conf file descriptors for better
