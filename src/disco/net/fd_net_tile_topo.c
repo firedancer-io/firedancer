@@ -385,7 +385,7 @@ fd_topos_net_tiles( fd_topo_t *             topo,
   }
 }
 
-static void
+static fd_topo_link_t *
 add_umem_rx_link( fd_topo_t *  topo,
                   char const * link_name,
                   ulong        net_kind_id,
@@ -416,6 +416,7 @@ add_umem_rx_link( fd_topo_t *  topo,
   if( FD_UNLIKELY( link->dcache_obj_id==ULONG_MAX ) ) FD_LOG_ERR(( "umem dcache not found for net %lu", net_kind_id ));
 
   topo->link_cnt++;
+  return link;
 }
 
 void
@@ -424,23 +425,66 @@ fd_topos_net_rx_link( fd_topo_t *  topo,
                       ulong        net_kind_id,
                       ulong        depth ) {
   char const * provider = fd_pod_query_cstr( topo->props, "net.provider", "" );
+  /* A net tile may own several links of one name (net_shred, one per
+     shred tile), so wire up the link just created by its kind_id. */
   if( 0==strcmp( provider, "xdp" ) ) {
-    add_umem_rx_link( topo, link_name, net_kind_id, depth, 0UL );
-    fd_topob_tile_out( topo, "net", net_kind_id, link_name, net_kind_id );
+    fd_topo_link_t * link = add_umem_rx_link( topo, link_name, net_kind_id, depth, 0UL );
+    fd_topob_tile_out( topo, "net", net_kind_id, link_name, link->kind_id );
   } else if( 0==strcmp( provider, "mlx5" ) ) {
     ulong tile_id = fd_topo_find_tile( topo, "mlx5", net_kind_id );
     if( FD_UNLIKELY( tile_id==ULONG_MAX ) ) FD_LOG_ERR(( "tile mlx5:%lu not found", net_kind_id ));
-    add_umem_rx_link( topo, link_name, net_kind_id, depth, topo->tiles[ tile_id ].mlx5.batch_size );
-    fd_topob_tile_out( topo, "mlx5", net_kind_id, link_name, net_kind_id );
+    fd_topo_link_t * link = add_umem_rx_link( topo, link_name, net_kind_id, depth, topo->tiles[ tile_id ].mlx5.batch_size );
+    fd_topob_tile_out( topo, "mlx5", net_kind_id, link_name, link->kind_id );
   } else if( 0==strcmp( provider, "iavf" ) ) {
     ulong tile_id = fd_topo_find_tile( topo, "iavf", net_kind_id );
     if( FD_UNLIKELY( tile_id==ULONG_MAX ) ) FD_LOG_ERR(( "tile iavf:%lu not found", net_kind_id ));
-    add_umem_rx_link( topo, link_name, net_kind_id, depth, topo->tiles[ tile_id ].iavf.member_cnt*FD_IAVF_BATCH_SIZE );
-    fd_topob_tile_out( topo, "iavf", net_kind_id, link_name, net_kind_id );
+    fd_topo_link_t * link = add_umem_rx_link( topo, link_name, net_kind_id, depth, topo->tiles[ tile_id ].iavf.member_cnt*FD_IAVF_BATCH_SIZE );
+    fd_topob_tile_out( topo, "iavf", net_kind_id, link_name, link->kind_id );
   } else if( 0==strcmp( provider, "socket" ) ) {
-    fd_topob_link( topo, link_name, "net_umem", depth, FD_NET_MTU, 64 );
-    fd_topob_tile_out( topo, "sock", net_kind_id, link_name, net_kind_id );
+    fd_topo_link_t * link = fd_topob_link( topo, link_name, "net_umem", depth, FD_NET_MTU, 64 );
+    fd_topob_tile_out( topo, "sock", net_kind_id, link_name, link->kind_id );
   }
+}
+
+ulong
+fd_topo_net_shred_outs( fd_topo_t const *      topo,
+                        fd_topo_tile_t const * net_tile,
+                        ulong                  out_idx[ FD_NET_SHRED_OUT_MAX ] ) {
+  ulong cnt = 0UL;
+  for( ulong i=0UL; i<net_tile->out_cnt; i++ ) {
+    if( strcmp( topo->links[ net_tile->out_link_id[ i ] ].name, "net_shred" ) ) continue;
+    if( FD_UNLIKELY( cnt>=FD_NET_SHRED_OUT_MAX ) ) FD_LOG_ERR(( "%s:%lu has too many net_shred links", net_tile->name, net_tile->kind_id ));
+    out_idx[ cnt++ ] = i;
+  }
+  if( cnt<=1UL ) return cnt;
+
+  /* One link per shred tile: order the links by their reader */
+  ulong shred_cnt = fd_topo_tile_name_cnt( topo, "shred" );
+  if( FD_UNLIKELY( cnt!=shred_cnt ) ) {
+    FD_LOG_ERR(( "%s:%lu has %lu net_shred links for %lu shred tiles", net_tile->name, net_tile->kind_id, cnt, shred_cnt ));
+  }
+  ulong by_shred[ FD_NET_SHRED_OUT_MAX ];
+  ulong seen = 0UL;
+  for( ulong i=0UL; i<cnt; i++ ) {
+    ulong link_id   = net_tile->out_link_id[ out_idx[ i ] ];
+    ulong shred_idx = ULONG_MAX;
+    for( ulong t=0UL; t<topo->tile_cnt; t++ ) {
+      fd_topo_tile_t const * tile = &topo->tiles[ t ];
+      if( strcmp( tile->name, "shred" ) ) continue;
+      for( ulong j=0UL; j<tile->in_cnt; j++ ) {
+        if( tile->in_link_id[ j ]!=link_id ) continue;
+        if( FD_UNLIKELY( shred_idx!=ULONG_MAX ) ) FD_LOG_ERR(( "net_shred link %lu has multiple shred readers", link_id ));
+        shred_idx = tile->kind_id;
+      }
+    }
+    if( FD_UNLIKELY( shred_idx>=cnt || (seen>>shred_idx)&1UL ) ) {
+      FD_LOG_ERR(( "net_shred link %lu of %s:%lu is not read by exactly one distinct shred tile", link_id, net_tile->name, net_tile->kind_id ));
+    }
+    seen |= 1UL<<shred_idx;
+    by_shred[ shred_idx ] = out_idx[ i ];
+  }
+  memcpy( out_idx, by_shred, cnt*sizeof(ulong) );
+  return cnt;
 }
 
 void

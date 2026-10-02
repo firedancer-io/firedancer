@@ -75,6 +75,25 @@ fd_net_rx_translate_frag( fd_net_rx_bounds_t const * bounds,
   return (void const *)p;
 }
 
+/* FD_NET_SHRED_OUT_MAX is the max number of shred tiles a net tile
+   steers turbine and repair packets across. */
+
+#define FD_NET_SHRED_OUT_MAX (16UL)
+
+/* fd_net_shred_steer returns which of shred_cnt shred tiles owns a
+   turbine or repair datagram.  All shreds of a FEC set carry the same
+   signature, so keying on its first 8 bytes keeps FEC sets whole.  The
+   shred tile filters with the same rule.  Datagrams too short to hold
+   a shred go to tile 0, which drops them. */
+
+FD_FN_PURE static inline ulong
+fd_net_shred_steer( uchar const * dgram,
+                    ulong         dgram_sz,
+                    ulong         shred_cnt ) {
+  if( FD_UNLIKELY( dgram_sz<sizeof(ulong) ) ) return 0UL;
+  return fd_ulong_load_8( dgram ) % shred_cnt;
+}
+
 FD_PROTOTYPES_END
 
 /* Topology APIs */
@@ -118,6 +137,16 @@ fd_topos_net_rx_link( fd_topo_t *  topo,
                       char const * link_name,
                       ulong        net_kind_id,
                       ulong        depth );
+
+/* fd_topo_net_shred_outs finds net_tile's net_shred out links.  With
+   one link per shred tile, out_idx[ k ] is the out link read by shred:k
+   and the return is the shred tile count.  A single link (read by every
+   shred tile) returns 1, none returns 0. */
+
+ulong
+fd_topo_net_shred_outs( fd_topo_t const *           topo,
+                        struct fd_topo_tile const * net_tile,
+                        ulong                       out_idx[ FD_NET_SHRED_OUT_MAX ] );
 
 /* fd_topob_tile_in_net registers a net TX link with all net tiles. */
 
