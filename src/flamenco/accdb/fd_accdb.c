@@ -1245,18 +1245,15 @@ acc_unlink( fd_accdb_t * accdb,
          recycled it to an unrelated account. */
       fd_accdb_cache_line_t * mine = cache_try_pin( stale, accmeta->key.pubkey, accmeta->key.generation );
       if( FD_LIKELY( mine ) ) {
-        /* Genuinely our line, still pinned by a reader.  The accmeta
-           slot is about to be deferred-released and recycled; if a
-           later writeback of this dirty line fires, it would pair the
-           recycled accmeta's pubkey with the old owner/data.  Set
-           persisted so the writeback gate never fires. */
+        /* Genuinely our line, still pinned.  The pin is either a reader
+           of a tombstone self-unlink, or a transient cache_try_pin from
+           a reader holding a stale cache_idx from this line's previous
+           life (any unlink kind).  The accmeta slot is about to be
+           deferred-released and recycled; if a later writeback of this
+           dirty line fires, it would pair the recycled accmeta's pubkey
+           with the old owner/data.  Set persisted so the writeback gate
+           never fires, and leave the line to CLOCK. */
         FD_VOLATILE( mine->persisted ) = 1;
-
-        /* Only the tombstone self-unlink may be pinned here old-version
-           and purge unlinks are never pinned, because a reader on a
-           live fork resolves to the newest version, not the one these
-           unlink. */
-        FD_TEST( accmeta->lamports==0UL );
 
         FD_ATOMIC_FETCH_AND_SUB( &mine->refcnt, 1U );
       }
