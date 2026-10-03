@@ -47,6 +47,7 @@
 
 #define FD_QUIC_K_TIME_THRESHOLD 1.125f
 #define FD_QUIC_K_GRANULARITY_NS 1000000L
+#define FD_QUIC_PTO_COUNT_MAX    16U
 
 /* fd_quic_state_t is the internal state of an fd_quic_t.  Valid for
    lifetime of join. */
@@ -441,14 +442,18 @@ fd_quic_calc_expiry_duration( fd_quic_conn_t * conn, int ack_driven, int is_serv
      > 6.2.1. Computing PTO
      > When an ack-eliciting packet is transmitted, the sender schedules
      > a timer for the PTO period as follows:
-     > PTO = smoothed_rtt + max(4*rttvar, kGranularity) + max_ack_delay */
+     > PTO = smoothed_rtt + max(4*rttvar, kGranularity) + max_ack_delay
+
+     > 6.2.1. Computing PTO
+     > When a PTO timer expires, the PTO backoff MUST be increased,
+     > resulting in the PTO period being set to twice its current value. */
 
   fd_rtt_estimate_t * rtt = conn->rtt;
 
   float pto_rttvar = fmaxf( 4.0f * rtt->var_rtt, (float)FD_QUIC_K_GRANULARITY_NS );
   long pto_duration = (long)( rtt->smoothed_rtt +
                               pto_rttvar        +
-                              conn->peer_max_ack_delay_ns );
+                              conn->peer_max_ack_delay_ns ) << conn->pto_count;
 
   long loss_duration = fd_long_max(
       (long)( FD_QUIC_K_TIME_THRESHOLD * fmaxf( rtt->smoothed_rtt, rtt->latest_rtt ) ),
