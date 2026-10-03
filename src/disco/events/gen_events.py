@@ -25,8 +25,10 @@ class ClickHouseType(Enum):
     UInt8 = auto()
     UInt16 = auto()
     UInt32 = auto()
+    NullableUInt32 = auto()
     UInt64 = auto()
     UInt128 = auto()
+    NullableUInt64 = auto()
     Int64 = auto()
     Pubkey = auto()
     Hash = auto()
@@ -45,8 +47,10 @@ class ClickHouseType(Enum):
         "UInt8": "UInt8",
         "UInt16": "UInt16",
         "UInt32": "UInt32",
+        "Nullable(UInt32)": "NullableUInt32",
         "UInt64": "UInt64",
         "UInt128": "UInt128",
+        "Nullable(UInt64)": "NullableUInt64",
         "Int64": "Int64",
         "Pubkey": "Pubkey",
         "Hash": "Hash",
@@ -66,8 +70,10 @@ class ClickHouseType(Enum):
         "UInt8": "uint32",
         "UInt16": "uint32",
         "UInt32": "uint32",
+        "NullableUInt32": "uint32",
         "UInt64": "uint64",
         "UInt128": "bytes",
+        "NullableUInt64": "uint64",
         "Int64": "sint64",
         "Pubkey": "bytes",
         "Hash": "bytes",
@@ -190,7 +196,12 @@ def generate_message_fields(fields: Dict[str, Field], prefix: str = "") -> List[
             proto_type = inner.shared_name or f"{prefix}{to_pascal_case(name)}"
         else:
             proto_type = inner.chtype.to_protobuf_type()
-        label = "repeated " if f.chtype == ClickHouseType.Array else ""
+        if f.chtype == ClickHouseType.Array:
+            label = "repeated "
+        elif f.chtype in (ClickHouseType.NullableUInt32, ClickHouseType.NullableUInt64):
+            label = "optional "
+        else:
+            label = ""
         lines += [f"  // {f.description}", f"  {label}{proto_type} {name} = {i};"]
 
     return lines
@@ -275,6 +286,8 @@ def field_is_supported(f: Field) -> bool:
     _NON_LEAF = (ClickHouseType.String, ClickHouseType.Bytes,
                  ClickHouseType.Flatten, ClickHouseType.Tuple, ClickHouseType.Array)
     _SUB_UNSUPPORTED = _NON_LEAF + (ClickHouseType.LowCardinalityString,)
+    if f.chtype in (ClickHouseType.NullableUInt32, ClickHouseType.NullableUInt64):
+        return False
     if f.chtype == ClickHouseType.LowCardinalityString:
         return f.variants is not None
     if f.chtype in (ClickHouseType.String, ClickHouseType.Bytes):
