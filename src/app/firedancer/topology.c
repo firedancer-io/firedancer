@@ -390,8 +390,6 @@ fd_topo_initialize( config_t * config ) {
 
   fd_topob_wksp( topo, "repair_sign"   );
   fd_topob_wksp( topo, "sign_repair"   );
-  fd_topob_wksp( topo, "tower_sign"    );
-  fd_topob_wksp( topo, "sign_tower"    );
 
   if( rserve_enabled ) {
     fd_topob_wksp( topo, "rserve_sign"   );
@@ -402,6 +400,8 @@ fd_topo_initialize( config_t * config ) {
   if( !alpenglow_enabled ) {
     fd_topob_wksp( topo, "txsend_sign"   );
     fd_topob_wksp( topo, "sign_txsend"   );
+    fd_topob_wksp( topo, "tower_sign"    );
+    fd_topob_wksp( topo, "sign_tower"    );
   }
 
   if( alpenglow_enabled ) {
@@ -537,12 +537,12 @@ fd_topo_initialize( config_t * config ) {
 
   FOR(sign_tile_cnt-1) fd_topob_link( topo, "repair_sign",   "repair_sign",   256UL,                                    FD_REPAIR_MAX_PREIMAGE_SZ,     1UL ); /* See repair_tile.c for explanation */
   FOR(sign_tile_cnt-1) fd_topob_link( topo, "sign_repair",   "sign_repair",   256UL,                                    sizeof(fd_ed25519_sig_t),      1UL );
-  /**/                 fd_topob_link( topo, "tower_sign",    "tower_sign",    128UL,                                    FD_KEYGUARD_SIGN_REQ_MTU,      1UL );
-  /**/                 fd_topob_link( topo, "sign_tower",    "sign_tower",    128UL,                                    sizeof(fd_ed25519_sig_t),      1UL );
 
   if( !alpenglow_enabled ) {
     /**/               fd_topob_link( topo, "txsend_sign",   "txsend_sign",   128UL,                                    FD_TXN_MTU_V0,                 1UL ); /* TODO: Depth probably doesn't need to be 128 */
     /**/               fd_topob_link( topo, "sign_txsend",   "sign_txsend",   128UL,                                    sizeof(fd_ed25519_sig_t)*2UL,  1UL ); /* TODO: Depth probably doesn't need to be 128 */
+    /**/               fd_topob_link( topo, "tower_sign",    "tower_sign",    128UL,                                    FD_KEYGUARD_SIGN_REQ_MTU,      1UL );
+    /**/               fd_topob_link( topo, "sign_tower",    "sign_tower",    128UL,                                    sizeof(fd_ed25519_sig_t),      1UL );
   }
 
   FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_out",     "shred_out",     shred_depth,                              sizeof(fd_shred_message_t),    FD_SHRED_STEM_BURST );
