@@ -145,7 +145,8 @@ fd_slot_params_at_slot( fd_bank_t const * bank,
    slot, using the given default params, features, and epoch schedule.
 
    This takes into account the fact that the reduce_slot_time feature
-   gates take effect an epoch after they have been activated. */
+   gates take effect an epoch after they have been activated, except
+   for genesis activations, which take effect at slot 0. */
 
 fd_slot_params_t
 fd_slot_params_lookup( fd_slot_params_t const *    default_params,
