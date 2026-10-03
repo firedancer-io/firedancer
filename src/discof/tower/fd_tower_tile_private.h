@@ -137,8 +137,8 @@ struct fd_tower_tile {
      names are exchanged, so the live file is always a complete file. */
 
   int  tower_dir_fd;
-  int  tower_fd  [ 2 ];       /* [0] staging (tower-1_9-<identity>.bin.new), [1] live (.bin) */
-  char tower_name[ 2 ][ 64 ];
+  int  tower_fd  [ 2 ];       /* [0] staging (<name>.new), [1] live (<name>), -1 if not written */
+  char tower_name[ 2 ][ PATH_MAX ];
   int  tower_file_dirty;      /* voted since the last write */
 
   fd_eqvoc_t * eqvoc;

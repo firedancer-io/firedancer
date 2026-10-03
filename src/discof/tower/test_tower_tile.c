@@ -1228,6 +1228,33 @@ test_vote_history_pending_replay( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_vote_history_pending_replay" ));
 }
 
+static void
+test_tower_file_paths( void ) {
+  char dir[ PATH_MAX ];
+  char name[ 2 ][ PATH_MAX ];
+
+  tower_file_paths( "/home/fd/.firedancer/fd1/tower-1_9-{identity}.bin", "8RDP", dir, name );
+  FD_TEST( !strcmp( dir,       "/home/fd/.firedancer/fd1" ) );
+  FD_TEST( !strcmp( name[ 0 ], "tower-1_9-8RDP.bin.new"   ) );
+  FD_TEST( !strcmp( name[ 1 ], "tower-1_9-8RDP.bin"       ) );
+
+  tower_file_paths( "/data/fd/tower.bin", "8RDP", dir, name );
+  FD_TEST( !strcmp( dir,       "/data/fd"      ) );
+  FD_TEST( !strcmp( name[ 0 ], "tower.bin.new" ) );
+  FD_TEST( !strcmp( name[ 1 ], "tower.bin"     ) );
+
+  tower_file_paths( "/tower.bin", "8RDP", dir, name );
+  FD_TEST( !strcmp( dir,       "/"             ) );
+  FD_TEST( !strcmp( name[ 0 ], "tower.bin.new" ) );
+  FD_TEST( !strcmp( name[ 1 ], "tower.bin"     ) );
+
+  tower_file_paths( "/data/{identity}/tower.bin", "8RDP", dir, name );
+  FD_TEST( !strcmp( dir,       "/data/8RDP"    ) );
+  FD_TEST( !strcmp( name[ 1 ], "tower.bin"     ) );
+
+  FD_LOG_NOTICE(( "pass: test_tower_file_paths" ));
+}
+
 static int
 tower_file_authorized( fd_compact_tower_sync_serde_t const * sync,
                        fd_pubkey_t const *                   identity ) {
@@ -1276,6 +1303,7 @@ main( int     argc,
   test_count_vote_txn();
   test_parent_vote_txn_recent_blockhash();
   test_tower_file_keyguard();
+  test_tower_file_paths();
 
   char const * _page_sz = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",  NULL, "gigantic"              );
   ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 4UL                     );

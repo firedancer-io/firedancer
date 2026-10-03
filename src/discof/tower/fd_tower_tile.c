@@ -1908,6 +1908,28 @@ returnable_frag( fd_tower_tile_t *   ctx,
   }
 }
 
+/* tower_file_paths replaces {identity} in the tower file path, then
+   splits it into its directory and the staging (name[0]) and live
+   (name[1]) file names. */
+
+static void
+tower_file_paths( char const * tower_path,
+                  char const * identity_b58,
+                  char         dir [ static PATH_MAX ],
+                  char         name[ static 2 ][ PATH_MAX ] ) {
+  char         path[ PATH_MAX ];
+  char const * at = strstr( tower_path, "{identity}" );
+  if( FD_LIKELY( at ) ) FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "%.*s%s%s", (int)(at-tower_path), tower_path, identity_b58, at+sizeof("{identity}")-1UL ) );
+  else                  fd_cstr_ncpy( path, tower_path, PATH_MAX );
+
+  char const * slash = strrchr( path, '/' ); /* absolute, see fd_config_parse.c */
+  FD_TEST( slash );
+  int dir_len = (int)fd_ulong_max( (ulong)(slash-path), 1UL );
+  FD_TEST( fd_cstr_printf_check( dir,       PATH_MAX, NULL, "%.*s",   dir_len, path ) );
+  FD_TEST( fd_cstr_printf_check( name[ 1 ], PATH_MAX, NULL, "%s",     slash+1       ) );
+  FD_TEST( fd_cstr_printf_check( name[ 0 ], PATH_MAX, NULL, "%s.new", name[ 1 ]     ) );
+}
+
 static void
 privileged_init( fd_topo_t const *      topo,
                  fd_topo_tile_t const * tile ) {
@@ -1954,13 +1976,19 @@ privileged_init( fd_topo_t const *      topo,
 
   /* The tower file, see tower_file_write. */
 
-  FD_BASE58_ENCODE_32_BYTES( ctx->identity_key->uc, identity_key_b58 );
-  ctx->tower_dir_fd = open( tile->tower.base_path, O_RDONLY|O_DIRECTORY );
-  if( FD_UNLIKELY( -1==ctx->tower_dir_fd ) ) FD_LOG_ERR(( "open(`%s`) failed (%i-%s)", tile->tower.base_path, errno, fd_io_strerror( errno ) ));
-  for( ulong i=0UL; i<2UL; i++ ) {
-    FD_TEST( fd_cstr_printf_check( ctx->tower_name[ i ], sizeof(ctx->tower_name[ i ]), NULL, "tower-1_9-%s.bin%s", identity_key_b58, i ? "" : ".new" ) );
-    ctx->tower_fd[ i ] = openat( ctx->tower_dir_fd, ctx->tower_name[ i ], O_WRONLY|O_CREAT, 0644 );
-    if( FD_UNLIKELY( -1==ctx->tower_fd[ i ] ) ) FD_LOG_ERR(( "open(`%s/%s`) failed (%i-%s)", tile->tower.base_path, ctx->tower_name[ i ], errno, fd_io_strerror( errno ) ));
+  ctx->tower_dir_fd  = -1;
+  ctx->tower_fd[ 0 ] = -1;
+  ctx->tower_fd[ 1 ] = -1;
+  if( FD_LIKELY( tile->tower.tower_path[ 0 ] ) ) {
+    FD_BASE58_ENCODE_32_BYTES( ctx->identity_key->uc, identity_key_b58 );
+    char dir[ PATH_MAX ];
+    tower_file_paths( tile->tower.tower_path, identity_key_b58, dir, ctx->tower_name );
+    ctx->tower_dir_fd = open( dir, O_RDONLY|O_DIRECTORY );
+    if( FD_UNLIKELY( -1==ctx->tower_dir_fd ) ) FD_LOG_ERR(( "open(`%s`) failed (%i-%s)", dir, errno, fd_io_strerror( errno ) ));
+    for( ulong i=0UL; i<2UL; i++ ) {
+      ctx->tower_fd[ i ] = openat( ctx->tower_dir_fd, ctx->tower_name[ i ], O_WRONLY|O_CREAT, 0644 );
+      if( FD_UNLIKELY( -1==ctx->tower_fd[ i ] ) ) FD_LOG_ERR(( "open(`%s/%s`) failed (%i-%s)", dir, ctx->tower_name[ i ], errno, fd_io_strerror( errno ) ));
+    }
   }
 }
 
@@ -2060,9 +2088,11 @@ populate_allowed_fds( fd_topo_t const *      topo,
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
-  out_fds[ out_cnt++ ] = ctx->tower_dir_fd;
-  out_fds[ out_cnt++ ] = ctx->tower_fd[ 0 ];
-  out_fds[ out_cnt++ ] = ctx->tower_fd[ 1 ];
+  if( FD_LIKELY( -1!=ctx->tower_dir_fd ) ) {
+    out_fds[ out_cnt++ ] = ctx->tower_dir_fd;
+    out_fds[ out_cnt++ ] = ctx->tower_fd[ 0 ];
+    out_fds[ out_cnt++ ] = ctx->tower_fd[ 1 ];
+  }
   out_fds[ out_cnt++ ] = FD_ACCDB_FD_RW; /* accounts database */
 
   return out_cnt;
