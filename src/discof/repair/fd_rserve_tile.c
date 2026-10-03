@@ -103,6 +103,8 @@ typedef struct ctx {
   fd_ip4_udp_hdrs_t serve_hdr[1];
   ushort            net_id;
 
+  uchar net_buf[ FD_NET_MTU ];
+
   struct {
     ulong received_request_count[FD_METRICS_ENUM_RSERVE_REQUEST_TYPES_CNT];
     ulong received_request_bytes;
@@ -555,35 +557,65 @@ handle_net_request( ctx_t             * ctx,
 
 
 static inline int
+before_frag( ctx_t * ctx,
+             ulong   in_idx,
+             ulong   seq FD_PARAM_UNUSED,
+             ulong   sig ) {
+  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_NET ) ) return fd_disco_netmux_sig_proto( sig )!=DST_PROTO_RSERVE;
+  return 0;
+}
+
+static inline void
+during_frag( ctx_t * ctx,
+             ulong   in_idx,
+             ulong   seq FD_PARAM_UNUSED,
+             ulong   sig FD_PARAM_UNUSED,
+             ulong   chunk,
+             ulong   sz,
+             ulong   ctl ) {
+  if( FD_LIKELY( ctx->in_kind[ in_idx ]!=IN_KIND_NET ) ) return;
+  uchar const * buffer = fd_net_rx_translate_frag( &ctx->in_links[ in_idx ].net_rx, chunk, ctl, sz );
+  fd_memcpy( ctx->net_buf, buffer, sz );
+}
+
+static inline void
+after_frag( ctx_t *             ctx,
+            ulong               in_idx,
+            ulong               seq    FD_PARAM_UNUSED,
+            ulong               sig    FD_PARAM_UNUSED,
+            ulong               sz,
+            ulong               tsorig FD_PARAM_UNUSED,
+            ulong               tspub  FD_PARAM_UNUSED,
+            fd_stem_context_t * stem ) {
+  if( FD_LIKELY( ctx->in_kind[ in_idx ]!=IN_KIND_NET ) ) return; /* returnable_frag */
+
+  uchar * payload; ulong payload_sz;
+  fd_udp_hdr_t * udp;
+  fd_ip4_hdr_t * ip4;
+  if( FD_UNLIKELY( !fd_ip4_udp_hdr_strip( ctx->net_buf, sz, &payload, &payload_sz, NULL, &ip4, &udp ) ) ) {
+    FD_LOG_WARNING(( "rserve: malformed packet (sz=%lu)", sz ));
+    return;
+  }
+  handle_net_request( ctx, stem, payload, payload_sz, udp, ip4 );
+}
+
+static inline int
 returnable_frag( ctx_t             * ctx,
                  ulong               in_idx,
                  ulong               seq FD_PARAM_UNUSED,
                  ulong               sig,
                  ulong               chunk,
                  ulong               sz,
-                 ulong               ctl,
+                 ulong               ctl FD_PARAM_UNUSED,
                  ulong               tsorig FD_PARAM_UNUSED,
                  ulong               tspub FD_PARAM_UNUSED,
-                 fd_stem_context_t * stem ) {
+                 fd_stem_context_t * stem FD_PARAM_UNUSED ) {
   uint in_kind = ctx->in_kind[ in_idx ];
   in_ctx_t const * in_ctx = &ctx->in_links[ in_idx ];
 
   switch( in_kind ) {
-  case IN_KIND_NET: {
-    if( FD_UNLIKELY( ctx->halt_signing ) ) return 1;
-    if( fd_disco_netmux_sig_proto( sig )!=DST_PROTO_RSERVE ) return 0;
-
-    uchar const * buffer = fd_net_rx_translate_frag( &in_ctx->net_rx, chunk, ctl, sz );
-    uchar * payload; ulong payload_sz;
-    fd_udp_hdr_t * udp;
-    fd_ip4_hdr_t * ip4;
-    if( FD_UNLIKELY( !fd_ip4_udp_hdr_strip( buffer, sz, &payload, &payload_sz, NULL, &ip4, &udp ) ) ) {
-      FD_LOG_WARNING(( "rserve: malformed packet (sz=%lu)", sz ));
-      return 0;
-    }
-    handle_net_request( ctx, stem, payload, payload_sz, udp, ip4 );
-    return 0;
-  }
+  case IN_KIND_NET:
+    return ctx->halt_signing; /* after_frag */
   case IN_KIND_SIGN: return 0; /* handled internally by keyguard_client */
   case IN_KIND_SHRED: {
     int shred_result = fd_shred_sig_res( sig );
@@ -908,7 +940,10 @@ populate_allowed_fds( fd_topo_t const *      topo FD_PARAM_UNUSED,
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 #define STEM_CALLBACK_METRICS_WRITE       metrics_write
 #define STEM_CALLBACK_BEFORE_CREDIT       before_credit
+#define STEM_CALLBACK_BEFORE_FRAG         before_frag
+#define STEM_CALLBACK_DURING_FRAG         during_frag
 #define STEM_CALLBACK_RETURNABLE_FRAG     returnable_frag
+#define STEM_CALLBACK_AFTER_FRAG          after_frag
 
 #include "../../disco/stem/fd_stem.c"
 
