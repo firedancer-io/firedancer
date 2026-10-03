@@ -1228,6 +1228,40 @@ test_vote_history_pending_replay( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_vote_history_pending_replay" ));
 }
 
+static int
+tower_file_authorized( fd_compact_tower_sync_serde_t const * sync,
+                       fd_pubkey_t const *                   identity ) {
+  fd_keyguard_authority_t authority = {0};
+  memcpy( authority.identity_pubkey, identity->uc, 32UL );
+  uchar buf[ FD_TOWER_FILE_MAX ];
+  ulong sz = fd_tower_file_ser( sync, identity, buf );
+  return fd_keyguard_payload_authorize( &authority, buf+FD_TOWER_FILE_DATA_OFF, sz-FD_TOWER_FILE_DATA_OFF, FD_KEYGUARD_ROLE_TOWER, FD_KEYGUARD_SIGN_TYPE_ED25519 );
+}
+
+static void
+test_tower_file_keyguard( void ) {
+  fd_pubkey_t identity;
+  memset( identity.uc, 0x42, 32UL );
+
+  /* the shortest tower the tile writes, and a full one */
+  fd_compact_tower_sync_serde_t sync;
+  memset( &sync, 0, sizeof(sync) );
+  sync.root          = 100UL;
+  sync.lockouts_cnt  = 1;
+  sync.lockouts[ 0 ] = ( __typeof__(sync.lockouts[0]) ){ .offset=1UL, .confirmation_count=1 };
+  FD_TEST( tower_file_authorized( &sync, &identity ) );
+
+  sync.lockouts_cnt     = (ushort)FD_TOWER_VOTE_MAX;
+  sync.timestamp_option = 1;
+  for( ulong i=0UL; i<FD_TOWER_VOTE_MAX; i++ ) {
+    ulong conf = FD_TOWER_VOTE_MAX-i;
+    sync.lockouts[ i ] = ( __typeof__(sync.lockouts[0]) ){ .offset=1UL<<(conf+1UL), .confirmation_count=(uchar)conf };
+  }
+  FD_TEST( tower_file_authorized( &sync, &identity ) );
+
+  FD_LOG_NOTICE(( "pass: test_tower_file_keyguard" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -1241,6 +1275,7 @@ main( int     argc,
   test_vote_history_floor();
   test_count_vote_txn();
   test_parent_vote_txn_recent_blockhash();
+  test_tower_file_keyguard();
 
   char const * _page_sz = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",  NULL, "gigantic"              );
   ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 4UL                     );
