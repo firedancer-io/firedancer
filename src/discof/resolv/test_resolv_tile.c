@@ -175,7 +175,8 @@ test_env_create( test_env_t * env ) {
   fd_memset( env->ctx, 0, sizeof(fd_resolv_ctx_t) );
   env->ctx->startup_gate->started = 1;
 
-  env->ctx->completed_slot     = 200UL;
+  env->ctx->completed_block_height     = 200UL;
+  env->ctx->root_block_height      = 168UL;
   env->ctx->flush_pool_idx     = ULONG_MAX;
   env->ctx->pool               = pool_join( pool_new( FD_SCRATCH_ALLOC_APPEND( l, pool_align(), pool_footprint( 1UL<<16UL ) ), 1UL<<16UL ) );
   env->ctx->map_chain          = map_chain_join( map_chain_new( FD_SCRATCH_ALLOC_APPEND( l, map_chain_align(), map_chain_footprint( 8192UL ) ), 8192UL, TEST_HASH_SEED ) );
@@ -282,9 +283,9 @@ FD_UNIT_TEST( resolv_stash_map_seed_initialized ) {
 static void
 test_add_blockhash( test_env_t * env,
                     fd_hash_t *  hash,
-                    ulong        slot ) {
+                    ulong        block_height ) {
   blockhash_map_t * entry = map_insert( env->ctx->blockhash_map, *(blockhash_t *)hash->uc );
-  entry->slot = slot;
+  entry->block_height = block_height;
 }
 
 static void
@@ -329,10 +330,10 @@ FD_UNIT_TEST( resolv_durable_nonce_passthrough ) {
   FD_TEST( env->stem_seqs[0]>0UL );
   fd_frag_meta_t const * meta = env->out_mcache[0] + fd_mcache_line_idx( 0UL, env->stem_depths[0] );
   FD_TEST( meta->seq==0UL );
-  FD_TEST( meta->sig==env->ctx->completed_slot );
+  FD_TEST( meta->sig==env->ctx->root_block_height );
 
   fd_txn_m_t const * published = fd_chunk_to_laddr_const( env->ctx->out_pack->mem, meta->chunk );
-  FD_TEST( published->reference_slot==env->ctx->completed_slot );
+  FD_TEST( published->reference_block_height==env->ctx->completed_block_height );
 
   test_env_destroy( env );
 }
@@ -349,6 +350,7 @@ FD_UNIT_TEST( resolv_blockhash_unknown ) {
   FD_TEST( env->ctx->metrics.stash[ FD_METRICS_ENUM_RESOLVE_STASH_OPERATION_V_INSERTED_IDX ]==1UL );
 
   env->ctx->_completed_slot_msg.slot = 250UL;
+  env->ctx->_completed_slot_msg.block_height = 250UL;
   env->ctx->_completed_slot_msg.block_hash = hash;
   after_frag( env->ctx, 1UL, 0UL, REPLAY_SIG_SLOT_COMPLETED, sizeof(fd_replay_slot_completed_t), 0UL, 0UL, env->stem );
 
@@ -362,10 +364,10 @@ FD_UNIT_TEST( resolv_blockhash_unknown ) {
   FD_TEST( env->stem_seqs[0]>0UL );
   fd_frag_meta_t const * meta = env->out_mcache[0] + fd_mcache_line_idx( 0UL, env->stem_depths[0] );
   FD_TEST( meta->seq==0UL );
-  FD_TEST( meta->sig==250UL );
+  FD_TEST( meta->sig==env->ctx->root_block_height );
 
   fd_txn_m_t const * published = fd_chunk_to_laddr_const( env->ctx->out_pack->mem, meta->chunk );
-  FD_TEST( published->reference_slot==250UL );
+  FD_TEST( published->reference_block_height==250UL );
 
   test_env_destroy( env );
 }
@@ -382,10 +384,10 @@ FD_UNIT_TEST( resolv_blockhash_known ) {
   FD_TEST( env->stem_seqs[0]>0UL );
   fd_frag_meta_t const * meta = env->out_mcache[0] + fd_mcache_line_idx( 0UL, env->stem_depths[0] );
   FD_TEST( meta->seq==0UL );
-  FD_TEST( meta->sig==125UL );
+  FD_TEST( meta->sig==env->ctx->root_block_height );
 
   fd_txn_m_t const * published = fd_chunk_to_laddr_const( env->ctx->out_pack->mem, meta->chunk );
-  FD_TEST( published->reference_slot==125UL );
+  FD_TEST( published->reference_block_height==125UL );
 
   test_env_destroy( env );
 }
@@ -393,7 +395,7 @@ FD_UNIT_TEST( resolv_blockhash_known ) {
 FD_UNIT_TEST( resolv_blockhash_expired ) {
   test_env_t env[1];
   test_env_create( env );
-  env->ctx->completed_slot = 300UL;
+  env->ctx->root_block_height = 300UL;
 
   fd_hash_t hash = { .ul = { 0xbeadUL } };
   test_add_blockhash( env, &hash, 100UL );
