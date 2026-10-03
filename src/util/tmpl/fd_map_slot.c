@@ -663,9 +663,7 @@ MAP_(update_fast)( MAP_(t) *         join,
                    MAP_KEY_T const * key,
                    ulong             memo,
                    MAP_ELE_T *       sentinel ) {
-# if FD_TMPL_USE_HANDHOLDING
-  FD_TEST( memo==MAP_(key_hash)( key, join->seed ) );
-# endif
+  FD_DCHECK_CRIT( memo==MAP_(key_hash)( key, join->seed ), "invalid memo" );
 
   ulong ele_idx = memo & join->ele_mask;
 
@@ -687,9 +685,7 @@ MAP_(insert_fast)( MAP_(t) *         join,
                    MAP_KEY_T const * key,
                    ulong             memo,
                    MAP_ELE_T *       sentinel ) {
-# if FD_TMPL_USE_HANDHOLDING
-  FD_TEST( memo==MAP_(key_hash)( key, join->seed ) );
-# endif
+  FD_DCHECK_CRIT( memo==MAP_(key_hash)( key, join->seed ), "invalid memo" );
 
   ulong ele_idx = memo & join->ele_mask;
 
@@ -717,9 +713,7 @@ MAP_(upsert_fast)( MAP_(t) *         join,
                    MAP_KEY_T const * key,
                    ulong             memo,
                    MAP_ELE_T *       sentinel ) {
-# if FD_TMPL_USE_HANDHOLDING
-  FD_TEST( memo==MAP_(key_hash)( key, join->seed ) );
-# endif
+  FD_DCHECK_CRIT( memo==MAP_(key_hash)( key, join->seed ), "invalid memo" );
 
   ulong ele_idx = memo & join->ele_mask;
 
@@ -785,12 +779,10 @@ MAP_(remove)( MAP_(t) *   join,
   ulong       ele_mask = join->ele_mask;
   ulong       hole_idx = (ulong)(ele - ele0);
 
-# if FD_TMPL_USE_HANDHOLDING
-  FD_TEST( fd_ulong_is_aligned( (ulong)ele0, alignof(MAP_ELE_T) ) );
-  FD_TEST( ele0<=ele );
-  FD_TEST( ele<=(ele0+ele_mask) );
-  FD_TEST( !MAP_(ele_is_free( ele ) ) );
-# endif
+  FD_DCHECK_CRIT( fd_ulong_is_aligned( (ulong)ele0, alignof(MAP_ELE_T) ), "misaligned ele0"   );
+  FD_DCHECK_CRIT( ele0<=ele,                                              "ele out of bounds" );
+  FD_DCHECK_CRIT( ele<=(ele0+ele_mask),                                   "ele out of bounds" );
+  FD_DCHECK_CRIT( !MAP_(ele_is_free)( ele ),                              "ele is free"       );
 
   MAP_(private_ele_free)( join->ctx, ele );
 

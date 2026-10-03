@@ -941,9 +941,7 @@ MAP_(verify)( MAP_T const * join ) {
 MAP_IMPL_STATIC MAP_T *
 MAP_(insert)( MAP_T *           join,
               MAP_KEY_T const * key ) {
-# if FD_TMPL_USE_HANDHOLDING
-  if( FD_UNLIKELY( MAP_(key_cnt)( join )>=MAP_(key_max)( join ) ) ) FD_LOG_CRIT(( "map is full" ));
-# endif
+  FD_DCHECK_CRIT( MAP_(key_cnt)( join )<MAP_(key_max)( join ), "map is full" );
   MAP_(private_t) * map = MAP_(private)( join );
 
   /* Pop the free stack to allocate an element (this is guaranteed to
@@ -974,9 +972,7 @@ MAP_(insert)( MAP_T *           join,
 
 MAP_IMPL_STATIC MAP_T *
 MAP_(pop_free_ele)( MAP_T * join ) {
-# if FD_TMPL_USE_HANDHOLDING
-  if( FD_UNLIKELY( !MAP_(key_cnt)( join ) ) ) FD_LOG_CRIT(( "map is empty" ));
-# endif
+  FD_DCHECK_CRIT( !!MAP_(key_cnt)( join ), "map is empty" );
   MAP_(private_t) * map = MAP_(private)( join );
 
   /* Pop the free stack to allocate an element (this is guaranteed to
