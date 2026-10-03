@@ -43,10 +43,13 @@ ftruncate: (and (or (eq (arg 0) tower_fd_0)
                 (<= (arg 1) FD_TOWER_FILE_MAX))
 
 # arg 0 and arg 2 are the directory of the two names, arg 4 is the flags,
-# always RENAME_EXCHANGE (2).
+# RENAME_EXCHANGE (2) for a write, or RENAME_NOREPLACE (1) to give the
+# files the name of a new identity.  A rename that replaces a file is
+# not allowed.
 renameat2: (and (eq (arg 0) dir_fd)
                 (eq (arg 2) dir_fd)
-                (eq (arg 4) 2))
+                (or (eq (arg 4) 1)
+                    (eq (arg 4) 2)))
 
 # accounts database: write to the accounts database
 #

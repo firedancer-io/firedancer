@@ -139,6 +139,7 @@ struct fd_tower_tile {
   int  tower_dir_fd;
   int  tower_fd  [ 2 ];       /* [0] staging (<name>.new), [1] live (<name>), -1 if not written */
   char tower_name[ 2 ][ PATH_MAX ];
+  char tower_name_tmpl[ PATH_MAX ]; /* file name, {identity} is replaced by the identity at each write */
   int  tower_file_dirty;      /* voted since the last write */
 
   fd_eqvoc_t * eqvoc;
