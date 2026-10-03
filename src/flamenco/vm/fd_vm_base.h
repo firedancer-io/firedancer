@@ -709,6 +709,9 @@ fd_vm_syscall_register( fd_sbpf_syscalls_t *   syscalls,
    (tried to register too many system calls ... compile time map size
    needs to be adjusted).
 
+   If features is NULL, slot is ignored and all feature-gated syscalls
+   are registered.
+
    is_deploy should be 1 if the set of syscalls registered should be that
    used to verify programs before they are deployed, and 0 if it
    should be the set used to execute programs. */

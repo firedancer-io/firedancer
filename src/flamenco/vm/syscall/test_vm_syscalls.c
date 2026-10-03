@@ -1,6 +1,7 @@
 #include "fd_vm_syscall.h"
 #include "../test_vm_util.h"
 #include "../../runtime/fd_bank.h"
+#include "../../../ballet/murmur3/fd_murmur3.h"
 
 #include <stdlib.h> // ARM64: malloc(3), free(3)
 
@@ -291,6 +292,32 @@ dump_syscall_table( void ) {
       FD_LOG_NOTICE(( "  %08x %s", (uint)entry->key, entry->name ));
     }
   }
+
+  fd_sbpf_syscalls_delete( fd_sbpf_syscalls_leave( syscalls ) );
+}
+
+/* Feature-gated syscalls must stay unregistered at slot 0 when their
+   feature is disabled (slot 0 is a valid feature_slot). */
+
+static void
+test_register_slot0( void ) {
+  fd_sbpf_syscalls_t _syscalls[ 1UL<<FD_SBPF_SYSCALLS_LG_SLOT_CNT ] = {0};
+  fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_join( fd_sbpf_syscalls_new( _syscalls ) );
+  FD_TEST( syscalls );
+
+  ulong sha512_key = (ulong)fd_murmur3_32( "sol_sha512", 10UL, 0U );
+
+  fd_features_t features[1];
+  fd_features_disable_all( features );
+  FD_TEST( fd_vm_syscall_register_slot( syscalls, 0UL, features, 0 )==FD_VM_SUCCESS );
+  FD_TEST( !fd_sbpf_syscalls_query( syscalls, sha512_key, NULL ) );
+
+  features->enable_sha512_syscall = 0UL;
+  FD_TEST( fd_vm_syscall_register_slot( syscalls, 0UL, features, 0 )==FD_VM_SUCCESS );
+  FD_TEST( fd_sbpf_syscalls_query( syscalls, sha512_key, NULL ) );
+
+  FD_TEST( fd_vm_syscall_register_all( syscalls, 0 )==FD_VM_SUCCESS );
+  FD_TEST( fd_sbpf_syscalls_query( syscalls, sha512_key, NULL ) );
 
   fd_sbpf_syscalls_delete( fd_sbpf_syscalls_leave( syscalls ) );
 }
@@ -921,6 +948,7 @@ main( int     argc,
   fd_rng_delete   ( fd_rng_leave   ( rng ) );
 
   dump_syscall_table();
+  test_register_slot0();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
