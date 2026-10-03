@@ -630,7 +630,7 @@ ag_slot_state_add_cert( ag_slot_state_t * self,
   case AG_CERT_KIND_NOTAR_FALLBACK: {
     ag_cert_notar_fallback_t const * n = &cert->notar_fallback;
     if( FD_LIKELY( !ag_slot_state_is_notar_fallback( self, n->block_hash ) ) ) {
-      FD_TEST( self->certs.notar_fallback_cnt < AG_NOTAR_FALLBACK_CERT_MAX );
+      FD_CHECK_CRIT( self->certs.notar_fallback_cnt<AG_NOTAR_FALLBACK_CERT_MAX, "consensus safety violation" ); /* Lemma 48 */
       self->certs.notar_fallback[ self->certs.notar_fallback_cnt++ ] = *n;
     }
     break;

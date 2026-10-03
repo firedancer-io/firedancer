@@ -118,6 +118,7 @@ ag_pool_footprint( ulong slot_max ) {
   ulong cert_max       = slot_max*( AG_NOTAR_FALLBACK_CERT_MAX + 1UL /* notar */ + 1UL /* skip */ );
   ulong own_vote_max   = slot_max*( AG_NOTAR_FALLBACK_VOTE_MAX + 1UL /* notar or skip */ + 1UL /* skip_fallback */ );
   ulong s2n_chain_cnt  = s2n_waiting_parent_cert_map_chain_cnt_est( s2n_max );
+  ulong ready_max      = slot_max + AG_SLOTS_PER_WINDOW + 1UL; /* [root-AG_REWARD_SLOT_DELTA-AG_SLOTS_PER_WINDOW, root+slot_max-AG_REWARD_SLOT_DELTA] */
 
   return FD_LAYOUT_FINI(
     FD_LAYOUT_APPEND(
@@ -141,7 +142,7 @@ ag_pool_footprint( ulong slot_max ) {
       alignof(slot_states_t),               sizeof(slot_states_t)                                   ),
       slot_state_pool_align(),              slot_state_pool_footprint( slot_max )                   ),
       slot_state_map_align(),               slot_state_map_footprint ( slot_chain_cnt )             ),
-      ag_parent_ready_tracker_align(),      ag_parent_ready_tracker_footprint( slot_max )           ),
+      ag_parent_ready_tracker_align(),      ag_parent_ready_tracker_footprint( ready_max )          ),
       ag_finality_tracker_align(),          ag_finality_tracker_footprint( slot_max )               ),
       alignof(s2n_waiting_parent_cert_t),   sizeof(s2n_waiting_parent_cert_t)                       ),
       s2n_waiting_parent_cert_pool_align(), s2n_waiting_parent_cert_pool_footprint( s2n_max )       ),
@@ -180,6 +181,7 @@ ag_pool_new( void * mem,
   ulong own_vote_max   = slot_max*( AG_NOTAR_FALLBACK_VOTE_MAX + 1UL /* notar or skip */ + 1UL /* skip_fallback */ );
   ulong slot_chain_cnt = slot_state_map_chain_cnt_est( slot_max );
   ulong s2n_chain_cnt  = s2n_waiting_parent_cert_map_chain_cnt_est( s2n_max );
+  ulong ready_max      = slot_max + AG_SLOTS_PER_WINDOW + 1UL;
 
 
   FD_SCRATCH_ALLOC_INIT( l, mem );
@@ -187,7 +189,7 @@ ag_pool_new( void * mem,
   void *      slot_states                  = FD_SCRATCH_ALLOC_APPEND( l, alignof(slot_states_t),               sizeof(slot_states_t)                                   );
   void *      slot_state_pool              = FD_SCRATCH_ALLOC_APPEND( l, slot_state_pool_align(),              slot_state_pool_footprint( slot_max )                   );
   void *      slot_state_map               = FD_SCRATCH_ALLOC_APPEND( l, slot_state_map_align(),               slot_state_map_footprint ( slot_chain_cnt )             );
-  void *      parent_ready_tracker         = FD_SCRATCH_ALLOC_APPEND( l, ag_parent_ready_tracker_align(),      ag_parent_ready_tracker_footprint( slot_max )           );
+  void *      parent_ready_tracker         = FD_SCRATCH_ALLOC_APPEND( l, ag_parent_ready_tracker_align(),      ag_parent_ready_tracker_footprint( ready_max )          );
   void *      finality_tracker             = FD_SCRATCH_ALLOC_APPEND( l, ag_finality_tracker_align(),          ag_finality_tracker_footprint( slot_max )               );
   void *      s2n_waiting_parent_cert      = FD_SCRATCH_ALLOC_APPEND( l, alignof(s2n_waiting_parent_cert_t),   sizeof(s2n_waiting_parent_cert_t)                       );
   void *      s2n_waiting_parent_cert_pool = FD_SCRATCH_ALLOC_APPEND( l, s2n_waiting_parent_cert_pool_align(), s2n_waiting_parent_cert_pool_footprint( s2n_max )       );
@@ -215,7 +217,7 @@ ag_pool_new( void * mem,
   pool->slot_states->pool = slot_state_pool_join( slot_state_pool_new( slot_state_pool, slot_max                   ) );
   pool->slot_states->map  = slot_state_map_join ( slot_state_map_new ( slot_state_map,  slot_chain_cnt, seed ) );
 
-  pool->parent_ready_tracker = ag_parent_ready_tracker_join( ag_parent_ready_tracker_new( parent_ready_tracker, slot_max, seed ) );
+  pool->parent_ready_tracker = ag_parent_ready_tracker_join( ag_parent_ready_tracker_new( parent_ready_tracker, ready_max, seed ) );
 
   pool->finality_tracker = ag_finality_tracker_join( ag_finality_tracker_new( finality_tracker, slot_max, seed ) );
 
@@ -278,10 +280,15 @@ ag_pool_delete( void * mem ) {
 }
 
 void
-ag_pool_init( ag_pool_t * self,
-              ulong       slot ) {
-  ag_finality_tracker_init( self->finality_tracker, slot );
-  self->parent_ready_tracker->root = slot;
+ag_pool_init( ag_pool_t *           self,
+              ag_block_id_t const * root ) {
+  ag_finality_tracker_init( self->finality_tracker, root->slot );
+  self->parent_ready_tracker->root = fd_ulong_sat_sub( root->slot, AG_REWARD_SLOT_DELTA+AG_SLOTS_PER_WINDOW );
+
+  ag_parent_ready_tracker_mark_notar_fallback( self->parent_ready_tracker, root, self->scratch.parent_readys, &self->scratch.parent_ready_cnt );
+  for( ulong i=0UL; i<self->scratch.parent_ready_cnt; i++ ) {
+    pool_events_push( self->pool_events, (ag_event_pool_t){ .seq = self->seq++, .kind = AG_EVENT_POOL_PARENT_READY, .parent_ready = self->scratch.parent_readys[i] } );
+  }
 }
 
 void
@@ -340,20 +347,14 @@ finalization_event_default( ag_pool_t * self ) {
 }
 
 static void
-handle_finalization( ag_pool_t *                     self,
-                     ag_finalization_event_t const * event ) {
-  ag_parent_ready_t new_parents_ready = ag_parent_ready_tracker_handle_finalization( self->parent_ready_tracker, event, self->scratch.parent_readys, &self->scratch.parent_ready_cnt );
-  if( FD_LIKELY( new_parents_ready.slot!=ULONG_MAX ) ) {
-    ag_event_pool_t event = { .seq = self->seq++, .kind = AG_EVENT_POOL_PARENT_READY, .parent_ready = { .slot = new_parents_ready.slot, .parent = new_parents_ready.parent } };
-    pool_events_push( self->pool_events, event );
-  }
+handle_finalization( ag_pool_t * self ) {
   ulong first_unpruned_slot = ag_finality_tracker_first_unpruned_slot( self->finality_tracker );
   ulong retained_slot       = fd_ulong_sat_sub( first_unpruned_slot, AG_REWARD_SLOT_DELTA );
   for( ulong slot = fd_ulong_sat_sub( self->parent_ready_tracker->root, AG_REWARD_SLOT_DELTA ); slot<retained_slot; slot++ ) {
     slot_state_ele_t * ele = slot_state_map_ele_remove( self->slot_states->map, &slot, NULL, self->slot_states->pool );
     if( FD_LIKELY( ele ) ) slot_state_pool_ele_release( self->slot_states->pool, ele );
   }
-  ag_parent_ready_tracker_prune( self->parent_ready_tracker, first_unpruned_slot );
+  ag_parent_ready_tracker_prune( self->parent_ready_tracker, fd_ulong_sat_sub( first_unpruned_slot, AG_REWARD_SLOT_DELTA+AG_SLOTS_PER_WINDOW ) );
 }
 
 static void
@@ -368,7 +369,7 @@ add_valid_cert( ag_pool_t *       self,
   case AG_CERT_KIND_FINAL: {
     ag_finalization_event_t finalization_event = finalization_event_default( self );
     ag_finality_tracker_mark_finalized( self->finality_tracker, slot, &finalization_event );
-    handle_finalization( self, &finalization_event );
+    handle_finalization( self );
     break;
   }
 
@@ -377,7 +378,13 @@ add_valid_cert( ag_pool_t *       self,
     ag_block_id_t block_id = ag_block_id( slot, ff_cert->block_hash );
     ag_finalization_event_t finalization_event = finalization_event_default( self );
     ag_finality_tracker_mark_fast_finalized( self->finality_tracker, &block_id, &finalization_event );
-    handle_finalization( self, &finalization_event );
+    handle_finalization( self );
+
+    ag_parent_ready_tracker_mark_notar_fallback( self->parent_ready_tracker, &block_id, self->scratch.parent_readys, &self->scratch.parent_ready_cnt );
+    for( ulong i=0UL; i<self->scratch.parent_ready_cnt; i++ ) {
+      pool_events_push( self->pool_events, (ag_event_pool_t){ .seq = self->seq++, .kind = AG_EVENT_POOL_PARENT_READY, .parent_ready = self->scratch.parent_readys[i] } );
+    }
+
     repair_events_push( self->repair_events, (ag_event_repair_t){ .seq = self->seq++, .block = block_id } );
     break;
   }
@@ -389,7 +396,7 @@ add_valid_cert( ag_pool_t *       self,
     if( FD_LIKELY( cert->kind==AG_CERT_KIND_NOTAR ) ) {
       ag_finalization_event_t finalization_event = finalization_event_default( self );
       ag_finality_tracker_mark_notarized( self->finality_tracker, &block_id, &finalization_event );
-      handle_finalization( self, &finalization_event );
+      handle_finalization( self );
     }
 
     s2n_waiting_parent_cert_ele_t * child = s2n_waiting_parent_cert_map_ele_remove( self->s2n_waiting_parent_cert->map, &block_id, NULL, self->s2n_waiting_parent_cert->pool );
@@ -409,15 +416,8 @@ add_valid_cert( ag_pool_t *       self,
     }
 
     ag_parent_ready_tracker_mark_notar_fallback( self->parent_ready_tracker, &block_id, self->scratch.parent_readys, &self->scratch.parent_ready_cnt );
-    ag_parent_ready_t const * readys    = self->scratch.parent_readys;
-    ulong                     ready_cnt = self->scratch.parent_ready_cnt;
-    for( ulong i=0UL; i<ready_cnt; i++ ) {
-      ag_parent_ready_t const * ready = &readys[i];
-      FD_TEST( ag_is_start_of_window( ready->slot ) ); /* readiness is granted at window starts */
-      ag_event_pool_t event = { .seq = self->seq++, .kind = AG_EVENT_POOL_PARENT_READY };
-      event.parent_ready.slot   = ready->slot;
-      event.parent_ready.parent = ready->parent;
-      pool_events_push( self->pool_events, event );
+    for( ulong i=0UL; i<self->scratch.parent_ready_cnt; i++ ) {
+      pool_events_push( self->pool_events, (ag_event_pool_t){ .seq = self->seq++, .kind = AG_EVENT_POOL_PARENT_READY, .parent_ready = self->scratch.parent_readys[i] } );
     }
 
     repair_events_push( self->repair_events, (ag_event_repair_t){ .seq = self->seq++, .block = block_id } );
@@ -426,15 +426,8 @@ add_valid_cert( ag_pool_t *       self,
 
   case AG_CERT_KIND_SKIP: {
     ag_parent_ready_tracker_mark_skipped( self->parent_ready_tracker, slot, self->scratch.parent_readys, &self->scratch.parent_ready_cnt );
-    ag_parent_ready_t const * readys    = self->scratch.parent_readys;
-    ulong                     ready_cnt = self->scratch.parent_ready_cnt;
-    for( ulong i=0UL; i<ready_cnt; i++ ) {
-      ag_parent_ready_t const * ready = &readys[i];
-      FD_TEST( ag_is_start_of_window( ready->slot ) ); /* readiness is granted at window starts */
-      ag_event_pool_t event = { .seq = self->seq++, .kind = AG_EVENT_POOL_PARENT_READY };
-      event.parent_ready.slot   = ready->slot;
-      event.parent_ready.parent = ready->parent;
-      pool_events_push( self->pool_events, event );
+    for( ulong i=0UL; i<self->scratch.parent_ready_cnt; i++ ) {
+      pool_events_push( self->pool_events, (ag_event_pool_t){ .seq = self->seq++, .kind = AG_EVENT_POOL_PARENT_READY, .parent_ready = self->scratch.parent_readys[i] } );
     }
     break;
   }
@@ -614,11 +607,8 @@ ag_pool_add_block( ag_pool_t *           self,
 
   ag_finalization_event_t finalization_event = finalization_event_default( self );
   ag_finality_tracker_add_parent( self->finality_tracker, block_id, parent_id, &finalization_event );
-  ag_parent_ready_t       new_parents_ready  = ag_parent_ready_tracker_handle_finalization( self->parent_ready_tracker, &finalization_event, self->scratch.parent_readys, &self->scratch.parent_ready_cnt );
-  if( FD_UNLIKELY( new_parents_ready.slot!=ULONG_MAX ) ) {
-    ag_event_pool_t event = { .seq = self->seq++, .kind = AG_EVENT_POOL_PARENT_READY, .parent_ready = { .slot = new_parents_ready.slot, .parent = new_parents_ready.parent } };
-    pool_events_push( self->pool_events, event );
-  }
+  handle_finalization( self );
+  if( FD_UNLIKELY( slot<fd_ulong_sat_sub( ag_finality_tracker_first_unpruned_slot( self->finality_tracker ), AG_REWARD_SLOT_DELTA ) ) ) return AG_POOL_SUCCESS; /* pruned by the parent link */
 
   ag_slot_state_notify_parent_known( slot_state( self, slot ), block_hash );
   slot_state_ele_t * parent_state_ = slot_state_map_ele_query( self->slot_states->map, &parent_slot, NULL, self->slot_states->pool );
@@ -718,11 +708,12 @@ ag_pool_finalized_block_hash( ag_pool_t const * self ) {
   return ag_finality_tracker_highest_finalized_block_hash( self->finality_tracker );
 }
 
-ag_block_id_t const *
-ag_pool_parents_ready( ag_pool_t * self,
-                       ulong       slot,
-                       ulong *     cnt ) {
-  return ag_parent_ready_tracker_parents_ready( self->parent_ready_tracker, slot, cnt );
+ulong
+ag_pool_parents_ready( ag_pool_t const * self,
+                       ulong             slot,
+                       ag_block_id_t *   out,
+                       ulong             out_max ) {
+  return ag_parent_ready_tracker_parents_ready( self->parent_ready_tracker, slot, out, out_max );
 }
 
 ag_block_id_t
@@ -736,6 +727,7 @@ ag_pool_poll_pool_event( ag_pool_t *       self,
                          ag_event_pool_t * event ) {
   if( FD_LIKELY( pool_events_empty( self->pool_events ) ) ) return 0;
   *event = pool_events_pop( self->pool_events );
+  if( FD_UNLIKELY( event->kind==AG_EVENT_POOL_PARENT_READY ) ) ag_parent_ready_tracker_delivered( self->parent_ready_tracker, event->parent_ready.slot );
   return 1;
 }
 

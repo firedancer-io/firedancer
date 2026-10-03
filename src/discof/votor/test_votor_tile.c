@@ -237,7 +237,7 @@ test_pool( ag_epoch_info_t const * epoch_info,
   FD_TEST( fd_ulong_is_aligned( (ulong)pool_scratch, ag_pool_align() ) );
   ag_pool_t * pool = ag_pool_join( ag_pool_new( pool_scratch, TEST_POOL_SLOT_MAX, 42UL ) );
   FD_TEST( pool );
-  ag_pool_init( pool, 0UL );
+  ag_pool_init( pool, &(ag_block_id_t){ .slot = 0UL } );
   ag_pool_advance_epoch( pool, epoch_info, rank, 0UL );
   return pool;
 }
@@ -370,7 +370,7 @@ test_auth_vtr_keyswitch_refreshes_epochs( void ) {
   FD_TEST( ag_votor_footprint( 64UL )<=sizeof(votor_scratch) );
   ctx.votor = ag_votor_join( ag_votor_new( votor_scratch, 64UL, 42UL ) );
   FD_TEST( ctx.votor );
-  ag_votor_init         ( ctx.votor, 0UL, 0L, 400000000L, (ushort)1, capture_sign_bls, NULL );
+  ag_votor_init         ( ctx.votor, &(ag_block_id_t){ .slot = 0UL }, 0L, 400000000L, (ushort)1, capture_sign_bls, NULL );
   ag_votor_advance_epoch( ctx.votor, 400000000L, 1UL, 0UL, NULL );
   ctx.pool = test_pool( epoch_info, 1UL );
 
@@ -427,7 +427,7 @@ test_auth_vtr_keyswitch_clear( void ) {
 
   ctx.votor = ag_votor_join( ag_votor_new( votor_scratch, 64UL, 42UL ) );
   FD_TEST( ctx.votor );
-  ag_votor_init         ( ctx.votor, 0UL, 0L, 400000000L, (ushort)1, capture_sign_bls, NULL );
+  ag_votor_init         ( ctx.votor, &(ag_block_id_t){ .slot = 0UL }, 0L, 400000000L, (ushort)1, capture_sign_bls, NULL );
   ag_votor_advance_epoch( ctx.votor, 400000000L, 0UL, 0UL, bls_keys[2] );
   ctx.pool = test_pool( epoch_info, 0UL );
 
@@ -540,7 +540,7 @@ test_id_keyswitch( void ) {
 
   ctx.votor = ag_votor_join( ag_votor_new( votor_scratch, 64UL, 42UL ) );
   FD_TEST( ctx.votor );
-  ag_votor_init         ( ctx.votor, 0UL, 0L, 400000000L, (ushort)1, capture_sign_bls, NULL );
+  ag_votor_init         ( ctx.votor, &(ag_block_id_t){ .slot = 0UL }, 0L, 400000000L, (ushort)1, capture_sign_bls, NULL );
   ag_votor_advance_epoch( ctx.votor, 400000000L, 0UL, 0UL, bls_keys[0] );
   ctx.pool = test_pool( epoch_info, 0UL );
   ag_block_id_t root = { .slot = 0UL };
@@ -720,6 +720,11 @@ test_id_keyswitch( void ) {
   parent_ready.parent_ready.slot   = 4UL;
   parent_ready.parent_ready.parent = b2;
   ag_votor_handle_pool_event( ctx.votor, &parent_ready, 0L );
+  ag_event_pool_t b2_cert = { .kind = AG_EVENT_POOL_CERT_CREATED, .cert_created = { .kind = AG_CERT_KIND_NOTAR_FALLBACK, .notar_fallback = { .slot = 2UL } } };
+  memcpy( b2_cert.cert_created.notar_fallback.block_hash, b2.hash, sizeof(ag_block_hash_t) );
+  ag_votor_handle_pool_event( ctx.votor, &b2_cert, 0L );
+  ag_event_pool_t skip3 = { .kind = AG_EVENT_POOL_CERT_CREATED, .cert_created = { .kind = AG_CERT_KIND_SKIP, .skip = { .slot = 3UL } } };
+  ag_votor_handle_pool_event( ctx.votor, &skip3, 0L );
   block = (ag_event_replay_t){ .slot = 4UL };
   block.block_info.parent = b2;
   memset( block.block_info.hash, 4, sizeof(ag_block_hash_t) );
@@ -849,7 +854,7 @@ test_ctx_new( fd_votor_tile_t * ctx,
   FD_TEST( ag_pool_footprint( AG_SLOTS_PER_WINDOW+AG_REWARD_SLOT_DELTA )<=sizeof(pool_mem) );
   ctx->pool          = ag_pool_join( ag_pool_new( pool_mem, AG_SLOTS_PER_WINDOW+AG_REWARD_SLOT_DELTA, 42UL ) );
   FD_TEST( ctx->peers && ctx->contact_infos && ctx->reconn_prq && ctx->pool );
-  ag_pool_init( ctx->pool, 0UL );
+  ag_pool_init( ctx->pool, &(ag_block_id_t){ .slot = 0UL } );
   fd_clock_tile_init( ctx->clock );
   memset( &ctx->id_key, 0, sizeof(fd_pubkey_t) ); ctx->id_key.uc[ 0 ] = 1;
   test_peer( ctx, 1, 0 );
@@ -909,7 +914,8 @@ test_connect_peer( void ) {
   };
   for( ulong i=0UL; i<sizeof(win)/sizeof(win[0]); i++ ) {
     self->prev_rank = win[i].prev; self->next_rank = win[i].next;
-    ag_pool_init( ctx.pool, win[i].root );
+    if( win[i].root==ULONG_MAX ) ag_pool_fini( ctx.pool );
+    else                         ag_pool_init( ctx.pool, &(ag_block_id_t){ .slot = win[i].root } );
     quic_client_connect( &ctx, other, ci, now );
     FD_TEST( !!other->tx_conn==win[i].ok );
     if( other->tx_conn ) test_drop_conn( other );
@@ -1138,11 +1144,11 @@ test_conn_ahead( void ) {
   peer_t * b = test_peer( &ctx, 3, 0 ); test_ci( &ctx, b, 8001 );
   test_peer( &ctx, 4, 0 ); /* no contact info: nothing to connect to */
 
-  ag_pool_init( ctx.pool, 200000UL-51UL );
+  ag_pool_init( ctx.pool, &(ag_block_id_t){ .slot = 200000UL-51UL } );
   during_housekeeping( &ctx );
   FD_TEST( !reconn_prq_cnt( ctx.reconn_prq ) && ctx.conn_ahead_slot!=ctx.next_epoch_slot );
 
-  ag_pool_init( ctx.pool, 200000UL-50UL );
+  ag_pool_init( ctx.pool, &(ag_block_id_t){ .slot = 200000UL-50UL } );
   long t = fd_clock_tile_now( ctx.clock );
   during_housekeeping( &ctx );
   FD_TEST( reconn_prq_cnt( ctx.reconn_prq )==2UL && a->reconn_pending && b->reconn_pending );
