@@ -1123,16 +1123,11 @@ fd_runtime_lthash_account( fd_runtime_t *      runtime,
     return;
   }
 
-  fd_lthash_value_t lthash_prev[1];
-  if( FD_LIKELY( acc->prior_data ) ) {
-    fd_hashes_account_lthash_simple( pubkey->uc, acc->prior_owner, acc->prior_lamports, acc->prior_executable, acc->prior_data, acc->prior_data_len, lthash_prev );
-  } else {
-    fd_lthash_zero( lthash_prev );
-  }
-
-  fd_lthash_value_t lthash_post[1];
   if( FD_LIKELY( acc->prior_lamports || acc->lamports ) ) {
-    fd_hashes_update_simple( lthash_post, lthash_prev, pubkey->uc, acc->owner, acc->lamports, acc->executable, acc->data, acc->data_len, bank, capture_ctx );
+    /* Zero lamports hashes to zero, as does a missing prior */
+    ulong prior_lamports = acc->prior_data ? acc->prior_lamports : 0UL;
+    fd_hashes_update_pair( pubkey->uc, acc->prior_owner, prior_lamports, acc->prior_executable, acc->prior_data, acc->prior_data_len,
+                                       acc->owner,       acc->lamports,  acc->executable,       acc->data,       acc->data_len,       bank, capture_ctx );
   }
 }
 

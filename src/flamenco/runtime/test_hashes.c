@@ -685,12 +685,66 @@ test_fd_hashes_update_lthash( void ) {
   FD_LOG_NOTICE(( "test_fd_hashes_update_lthash passed" ));
 }
 
+/* rand_account fills a random account image */
+
+static void
+rand_account( fd_rng_t * rng,
+              uchar      pubkey[ static 32 ],
+              uchar      owner [ static 32 ],
+              ulong *    lamports,
+              int *      executable,
+              uchar *    data,
+              ulong *    data_len ) {
+  for( ulong i=0UL; i<32UL; i++ ) pubkey[ i ] = fd_rng_uchar( rng );
+  for( ulong i=0UL; i<32UL; i++ ) owner [ i ] = fd_rng_uchar( rng );
+  *lamports   = fd_rng_uint_roll( rng, 8U ) ? fd_rng_ulong( rng ) : 0UL;
+  *executable = (int)fd_rng_uint_roll( rng, 3U ); /* any non-zero is set */
+  *data_len   = fd_rng_uint_roll( rng, 2U ) ? fd_rng_ulong_roll( rng, 10241UL ) : 3762UL+fd_rng_ulong_roll( rng, 3UL );
+  for( ulong i=0UL; i<*data_len; i++ ) data[ i ] = fd_rng_uchar( rng );
+}
+
+static void
+test_fd_hashes_account_lthash_pair( void ) {
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 1234U, 0UL ) );
+
+  static uchar data0[ 10240 ];
+  static uchar data1[ 10240 ];
+  for( ulong iter=0UL; iter<2000UL; iter++ ) {
+    uchar pubkey0[ 32 ], owner0[ 32 ]; ulong lamports0; int exec0; ulong len0;
+    uchar pubkey1[ 32 ], owner1[ 32 ]; ulong lamports1; int exec1; ulong len1;
+    rand_account( rng, pubkey0, owner0, &lamports0, &exec0, data0, &len0 );
+    rand_account( rng, pubkey1, owner1, &lamports1, &exec1, data1, &len1 );
+    if( fd_rng_uint_roll( rng, 2U ) ) memcpy( pubkey1, pubkey0, 32UL ); /* pre/post of one account */
+
+    fd_lthash_value_t ref0, ref1, out0, out1;
+    fd_hashes_account_lthash_simple( pubkey0, owner0, lamports0, exec0, data0, len0, &ref0 );
+    fd_hashes_account_lthash_simple( pubkey1, owner1, lamports1, exec1, data1, len1, &ref1 );
+    fd_hashes_account_lthash_pair( pubkey0, owner0, lamports0, exec0, data0, len0, &out0,
+                                   pubkey1, owner1, lamports1, exec1, data1, len1, &out1 );
+    if( FD_UNLIKELY( !fd_lthash_equal( &out0, &ref0 ) || !fd_lthash_equal( &out1, &ref1 ) ) ) {
+      FD_LOG_ERR(( "fd_hashes_account_lthash_pair mismatch (len0 %lu len1 %lu)", len0, len1 ));
+    }
+
+    /* A bit flip in account 0 changes only its lthash */
+    if( FD_UNLIKELY( !lamports0 ) ) continue;
+    owner0[ fd_rng_ulong_roll( rng, 32UL ) ] ^= (uchar)( 1U<<fd_rng_uint_roll( rng, 8U ) );
+    fd_hashes_account_lthash_pair( pubkey0, owner0, lamports0, exec0, data0, len0, &out0,
+                                   pubkey1, owner1, lamports1, exec1, data1, len1, &out1 );
+    FD_TEST( !fd_lthash_equal( &out0, &ref0 ) );
+    FD_TEST(  fd_lthash_equal( &out1, &ref1 ) );
+  }
+
+  fd_rng_delete( fd_rng_leave( rng ) );
+  FD_LOG_NOTICE(( "test_fd_hashes_account_lthash_pair passed" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
   test_fd_hashes_account_lthash();
+  test_fd_hashes_account_lthash_pair();
   test_fd_hashes_hash_bank();
   test_fd_hashes_apply_hard_forks();
   test_fd_hashes_update_lthash();
