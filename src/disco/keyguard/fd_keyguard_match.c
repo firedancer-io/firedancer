@@ -390,14 +390,16 @@ fd_keyguard_payload_matches_event( uchar const * data,
   return 1;
 }
 
+/* Tower1_14_11: node_pubkey, threshold_depth, threshold_size, ... */
+
 FD_FN_PURE static int
 fd_keyguard_payload_matches_tower( uchar const * data,
                                    ulong         sz,
                                    int           sign_type ) {
-  if( sign_type!=FD_KEYGUARD_SIGN_TYPE_ED25519 ) return 0;
-  if( sz<FD_KEYGUARD_TOWER_SZ_MIN ) return 0;
-  return FD_LOAD( ulong, data+32UL )==FD_KEYGUARD_TOWER_THRESHOLD_DEPTH &&
-         FD_LOAD( ulong, data+40UL )==FD_KEYGUARD_TOWER_THRESHOLD_SIZE;
+  return sign_type==FD_KEYGUARD_SIGN_TYPE_ED25519 &&
+         sz>=1793UL                               &&        /* smallest Tower1_14_11 */
+         FD_LOAD( ulong, data+32UL )==8UL         &&        /* threshold_depth */
+         FD_LOAD( ulong, data+40UL )==0x3FE5555555555555UL; /* threshold_size, 2/3 as f64 bits */
 }
 
 FD_FN_PURE ulong
