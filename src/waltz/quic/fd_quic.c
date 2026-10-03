@@ -2835,6 +2835,7 @@ fd_quic_tls_cb_handshake_complete( fd_quic_tls_hs_t * hs,
   switch( conn->state ) {
     case FD_QUIC_CONN_STATE_ABORT:
     case FD_QUIC_CONN_STATE_CLOSE_PENDING:
+    case FD_QUIC_CONN_STATE_PEER_CLOSE:
     case FD_QUIC_CONN_STATE_DEAD:
       /* ignore */
       return;
