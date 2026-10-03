@@ -151,6 +151,10 @@ fd_genesis_parse( fd_genesis_t * genesis,
   CHECK_LEFT( 8UL );                                                                 INC( 8UL ); /* unused */
 
   CHECK_LEFT( 8UL ); genesis->epoch_schedule.slots_per_epoch             = FD_LOAD( ulong, CURSOR ); INC( 8UL );
+  if( FD_UNLIKELY( genesis->epoch_schedule.slots_per_epoch>FD_RUNTIME_SLOTS_PER_EPOCH ) ) {
+    FD_LOG_WARNING(( "genesis slots_per_epoch %lu exceeds supported max %lu", genesis->epoch_schedule.slots_per_epoch, FD_RUNTIME_SLOTS_PER_EPOCH ));
+    return NULL;
+  }
   CHECK_LEFT( 8UL ); genesis->epoch_schedule.leader_schedule_slot_offset = FD_LOAD( ulong, CURSOR ); INC( 8UL );
   CHECK_LEFT( 1UL ); genesis->epoch_schedule.warmup                      = FD_LOAD( uchar, CURSOR ); INC( 1UL );
   CHECK( genesis->epoch_schedule.warmup<=1U );

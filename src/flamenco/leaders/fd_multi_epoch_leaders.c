@@ -98,6 +98,9 @@ fd_multi_epoch_leaders_stake_msg_init( fd_multi_epoch_leaders_t   * mleaders,
   if( FD_UNLIKELY( msg->staked_vote_cnt > MAX_STAKE_WEIGHTS ) )
     FD_LOG_ERR(( "Multi-epoch leaders received a malformed update with %lu stakes in it,"
                  " but the maximum allowed is %lu", msg->staked_vote_cnt, MAX_STAKE_WEIGHTS ));
+  if( FD_UNLIKELY( msg->slot_cnt > MAX_SLOTS_PER_EPOCH ) )
+    FD_LOG_ERR(( "Multi-epoch leaders received a malformed update with %lu slots in it,"
+                 " but the maximum allowed is %lu", msg->slot_cnt, MAX_SLOTS_PER_EPOCH ));
 
   mleaders->scratch->epoch             = msg->epoch;
   mleaders->scratch->start_slot        = msg->start_slot;
@@ -113,6 +116,9 @@ fd_multi_epoch_leaders_epoch_msg_init( fd_multi_epoch_leaders_t   * mleaders,
   if( FD_UNLIKELY( msg->staked_vote_cnt > MAX_STAKE_WEIGHTS ) )
     FD_LOG_ERR(( "Multi-epoch leaders received a malformed update with %lu stakes in it,"
                  " but the maximum allowed is %lu", msg->staked_vote_cnt, MAX_STAKE_WEIGHTS ));
+  if( FD_UNLIKELY( msg->slot_cnt > MAX_SLOTS_PER_EPOCH ) )
+    FD_LOG_ERR(( "Multi-epoch leaders received a malformed update with %lu slots in it,"
+                 " but the maximum allowed is %lu", msg->slot_cnt, MAX_SLOTS_PER_EPOCH ));
 
   mleaders->scratch->epoch             = msg->epoch;
   mleaders->scratch->start_slot        = msg->start_slot;
