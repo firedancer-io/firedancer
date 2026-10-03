@@ -2155,7 +2155,7 @@ try_become_leader( fd_replay_tile_t *  ctx,
     ulong child_idx = reset_bank->child_idx;
     while( child_idx!=ULONG_MAX ) {
       fd_bank_t * child_bank = fd_banks_bank_query( ctx->banks, child_idx );
-      max_active_descendant = fd_ulong_max( max_active_descendant, child_bank->f.slot );
+      max_active_descendant = fd_ulong_max( max_active_descendant, ctx->block_id_arr[ child_idx ].slot );
       child_idx = child_bank->sibling_idx;
     }
 

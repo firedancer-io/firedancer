@@ -2906,6 +2906,49 @@ test_become_leader_waits_for_rereplayed_reset( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_become_leader_waits_for_rereplayed_reset" ));
 }
 
+/* The leader-start grace check must see the slot of a reset bank child
+   that is still in FD_BANK_STATE_INIT, whose f is stale from the
+   previous pool occupant. */
+
+static void
+test_become_leader_grace_init_child( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  setup_ctx( ctx, wksp );
+
+  fd_hash_t mr_root = { .ul = { 100 } };
+  fd_hash_t mr1_0   = { .ul = { 200 } };
+  fd_hash_t mr1_32  = { .ul = { 300 } };
+  fd_hash_t mr2_0   = { .ul = { 400 } };
+
+  init_root_fec( ctx, &mr_root );
+  fd_reasm_fec_t * f1_0 = ingest_fec_complete( ctx, &mr1_0, &mr_root, 1, 0, 1, 32, 1, 0 );
+  ingest_fec_complete( ctx, &mr1_32, &mr1_0, 1, 32, 1, 32, 1, 1 );
+  drive_one_fec( ctx, 1UL, 0U );
+  drive_one_fec( ctx, 1UL, 32U );
+
+  fd_bank_t * reset = fd_banks_bank_query( ctx->banks, f1_0->bank_idx );
+  start_non_epoch_boundary_fec( ctx, f1_0, 0 );
+  fd_banks_mark_bank_frozen( reset );
+
+  fd_reasm_fec_t * f2_0 = ingest_fec_complete( ctx, &mr2_0, &mr1_32, 2, 0, 1, 32, 1, 1 );
+  drive_one_fec( ctx, 2UL, 0U );
+  fd_bank_t * child = fd_banks_bank_query( ctx->banks, f2_0->bank_idx );
+  FD_TEST( child->parent_idx==reset->idx );
+  FD_TEST( child->state==FD_BANK_STATE_INIT );
+
+  ctx->reset_cmr             = mr1_32;
+  ctx->reset_slot            = 1UL;
+  ctx->next_leader_slot      = 4UL;
+  ctx->next_leader_tickcount = fd_tickcount();
+
+  FD_TEST( !try_become_leader( ctx, test_stem ) );
+
+  ctx->next_leader_tickcount = LONG_MIN/2L;
+  FD_TEST( try_become_leader( ctx, test_stem ) );
+
+  FD_LOG_NOTICE(( "pass: test_become_leader_grace_init_child" ));
+}
+
 /* Tower can name a reset block whose replacement is still replaying.
    The reset must wait for the tower update that follows the freeze. */
 
@@ -4734,6 +4777,7 @@ main( int     argc,
   test_oc_skips_unfrozen_bank( wksp );              fd_wksp_reset( wksp, 42U );
   test_banks_evict_backfill( wksp );                fd_wksp_reset( wksp, 42U );
   test_become_leader_waits_for_rereplayed_reset( wksp ); fd_wksp_reset( wksp, 42U );
+  test_become_leader_grace_init_child( wksp );           fd_wksp_reset( wksp, 42U );
   test_tower_reset_waits_for_rereplayed_bank( wksp );    fd_wksp_reset( wksp, 42U );
   test_backfill_partial_sched_capacity( wksp );     fd_wksp_reset( wksp, 42U );
   test_double_confirm_backfill( wksp );             fd_wksp_reset( wksp, 42U );
