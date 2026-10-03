@@ -737,11 +737,17 @@ handle_shred( ctx_t *            ctx,
   fd_hash_t parent_block_id = {0};
   if( FD_UNLIKELY( shred->idx==0U && !ag_parse_parent_marker( shred, &parent_slot, &parent_block_id ) ) ) {
     FD_LOG_WARNING(( "invalid block header in slot: %lu, ignoring shred 0", shred->slot ));
+    fd_rotor_invalidate( ctx->rotor, shred->slot, rx_ts, ABANDON_REASON_INVALID_BLOCK_HEADER );
+    return;
+  }
+  if( FD_UNLIKELY( shred->idx==0U && parent_slot!=shred->slot-shred->data.parent_off ) ) {
+    FD_LOG_WARNING(( "block header parent slot %lu disagrees with parent_off %u in slot: %lu, ignoring shred 0", parent_slot, (uint)shred->data.parent_off, shred->slot ));
+    fd_rotor_invalidate( ctx->rotor, shred->slot, rx_ts, ABANDON_REASON_PARENT_OFF_MISMATCH );
     return;
   }
 
   int slot_complete = !!(shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE);
-  fd_rotor_blk_t * created = fd_rotor_shred_insert( ctx->rotor, shred->slot, shred->idx, slot_complete, shred_src( sig_src ), rx_ts, mr, parent_slot, &parent_block_id );
+  fd_rotor_blk_t * created = fd_rotor_shred_insert( ctx->rotor, shred->slot, shred->idx, slot_complete, shred_src( sig_src ), rx_ts, mr, shred->data.parent_off, parent_slot, &parent_block_id );
   if( FD_UNLIKELY( created ) ) fd_schedulor_block_insert( ctx->schedulor, created->slot, &created->block_id, now ); /* first turbine shred of the slot */
 }
 

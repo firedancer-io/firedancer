@@ -950,6 +950,8 @@ fd_event_alpenglow_cert_footprint( fd_event_alpenglow_cert_t const * msg ) {
 #define FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_MERKLE_ROOT_MISMATCH (2) /* Received two merkle roots for the same FEC set. */
 #define FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_NOTARIZED_VERSION    (3) /* A verified version of the block became known. */
 #define FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_VERIFIED_PARENT      (4) /* A verified version of a verified block's parent became known. */
+#define FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_PARENT_OFF_MISMATCH  (5) /* A data shred's parent_off disagreed with the slot's other shreds or with its block header. */
+#define FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_INVALID_BLOCK_HEADER (6) /* Shred 0 did not carry a valid block header. */
 
 /* The source of the final shred that completed the FEC set. */
 #define FD_EVENT_BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_TURBINE (1) /* Received via turbine. */

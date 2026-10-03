@@ -114,6 +114,7 @@ acquire_block( fd_rotor_t * rotor, ulong slot ) {
   block->turbine           = 0;
   block->is_leader         = 0;
   block->abandoned         = 0;
+  block->parent_off        = 0;
   block->parent_slot       = AG_UNKNOWN_SLOT;
   block->parent_slot_batch = UINT_MAX;
   block->complete_idx      = UINT_MAX;
@@ -327,6 +328,7 @@ fd_rotor_shred_insert( fd_rotor_t *      rotor,
                        int               src,
                        long              rx_ts,
                        fd_hash_t const * mr,
+                       ushort            parent_off,
                        ulong             parent_slot,
                        fd_hash_t const * parent_block_id ) {
   FD_TEST( slot>rotor->root );
@@ -382,6 +384,13 @@ fd_rotor_shred_insert( fd_rotor_t *      rotor,
   for( ulong i =block_iter_init( rotor, slot ); i!=ULONG_MAX; i =block_iter_next( rotor, i ) ) {
     fd_rotor_blk_t * block = block_iter_ele( rotor, i );
     if( FD_UNLIKELY( fd_rotor_block_fecs( rotor, block )[ k ]!=fec_idx ) ) continue;
+
+    /* Every data shred of a slot carries the same parent_off (see
+       Parent Discovery).  0 means the caller has no shred header. */
+    if( FD_LIKELY( parent_off ) ) {
+      if( FD_UNLIKELY( !block->parent_off ) ) block->parent_off = parent_off;
+      if( FD_UNLIKELY( block->parent_off!=parent_off && block->turbine ) ) rotor_invalidate( block, rx_ts, ABANDON_REASON_PARENT_OFF_MISMATCH );
+    }
 
     /* update reception statistics */
     if( FD_LIKELY( new_shred ) ) {
@@ -542,7 +551,7 @@ fd_rotor_fec_complete( fd_rotor_t *      rotor,
 
   fd_rotor_blk_t * created = NULL;
   for( uint i=0U; i<FD_FEC_SHRED_CNT; i++ ) {
-    fd_rotor_blk_t * c = fd_rotor_shred_insert( rotor, slot, fec_set_idx_ + i, slot_complete && ( i==FD_FEC_SHRED_CNT-1 ), is_leader ? FD_ROTOR_SRC_LEADER : FD_ROTOR_SRC_RECOVERED, rx_ts, mr, AG_UNKNOWN_SLOT, NULL );
+    fd_rotor_blk_t * c = fd_rotor_shred_insert( rotor, slot, fec_set_idx_ + i, slot_complete && ( i==FD_FEC_SHRED_CNT-1 ), is_leader ? FD_ROTOR_SRC_LEADER : FD_ROTOR_SRC_RECOVERED, rx_ts, mr, 0, AG_UNKNOWN_SLOT, NULL );
     if( FD_UNLIKELY( c ) ) created = c; /* only the first insert can create */
   }
 
@@ -750,6 +759,15 @@ fd_rotor_verified_block_insert( fd_rotor_t * rotor,
     rotor_invalidate( turbine, now, ABANDON_REASON_VOTOR_BLOCK_ID_EVENT );
   }
   return block;
+}
+
+void
+fd_rotor_invalidate( fd_rotor_t * rotor,
+                     ulong        slot,
+                     long         rx_ts,
+                     int          reason ) {
+  fd_rotor_blk_t * turbine = turbine_block_insert( rotor, slot );
+  rotor_invalidate( turbine, rx_ts, reason );
 }
 
 void

@@ -389,9 +389,19 @@ mk_block_header_marker( uchar * buf, ulong parent_slot, fd_hash_t const * parent
   return off;
 }
 
+/* deliver_shred_hdr feeds one data shred whose parent_off is given
+   independently of the parent its shred-0 block header names, so a
+   header that disagrees with the shred can be crafted.  On shred 0 a
+   NULL parent_block_id leaves the payload empty: no block header.
+
+   deliver_shred derives parent_off from parent_slot, so callers pass
+   the block's parent on every shred (only shred 0 carries the header).
+   AG_UNKNOWN_SLOT is only for a lone shred of a slot no other shred
+   is fed for, and gets parent_off 1. */
+
 static void
-deliver_shred( ctx_t * ctx, ulong slot, uint idx, uchar flags, fd_hash_t const * mr,
-               uint rnonce, uint src, ulong parent_slot, fd_hash_t const * parent_block_id ) {
+deliver_shred_hdr( ctx_t * ctx, ulong slot, uint idx, uchar flags, fd_hash_t const * mr,
+                   uint rnonce, uint src, ushort parent_off, ulong parent_slot, fd_hash_t const * parent_block_id ) {
   static fd_shred_base_t base[1];
   memset( base, 0, sizeof(fd_shred_base_t) );
   base->merkle_root = *mr;
@@ -402,16 +412,24 @@ deliver_shred( ctx_t * ctx, ulong slot, uint idx, uchar flags, fd_hash_t const *
   shred->slot        = slot;
   shred->idx         = idx;
   shred->fec_set_idx = idx & ~( (uint)FD_FEC_SHRED_CNT-1U );
-  shred->data.parent_off = 1;
+  shred->data.parent_off = parent_off;
   shred->data.flags      = flags;
 
   ulong payload_sz = 0UL;
-  if( FD_UNLIKELY( idx==0U ) ) {
+  if( FD_UNLIKELY( idx==0U && parent_block_id ) ) {
     payload_sz = mk_block_header_marker( (uchar *)shred+FD_SHRED_DATA_HEADER_SZ, parent_slot, parent_block_id );
   }
   shred->data.size = (ushort)( FD_SHRED_DATA_HEADER_SZ+payload_sz );
 
   deliver_frag( ctx, IN_IDX_SHRED, (ulong)src, base, sizeof(fd_shred_base_t) );
+}
+
+static void
+deliver_shred( ctx_t * ctx, ulong slot, uint idx, uchar flags, fd_hash_t const * mr,
+               uint rnonce, uint src, ulong parent_slot, fd_hash_t const * parent_block_id ) {
+  FD_TEST( idx || parent_block_id );
+  ushort parent_off = parent_slot==AG_UNKNOWN_SLOT ? (ushort)1 : (ushort)( slot - parent_slot );
+  deliver_shred_hdr( ctx, slot, idx, flags, mr, rnonce, src, parent_off, parent_slot, parent_block_id );
 }
 
 /* deliver_code_shred feeds one coding shred of a FEC set the way
@@ -1055,9 +1073,9 @@ test_shred_ts_from_tsorig( fd_wksp_t * wksp ) {
   for( uint i=0U; i<FD_FEC_SHRED_CNT-1U; i++ )
     deliver_shred( ctx, blk->slot, i, 0,
                    &blk->fec_root[ 0 ], 0U, SHRED_SIG_SRC_TURBINE,
-                   i ? AG_UNKNOWN_SLOT : blk->parent_slot, i ? NULL : &blk->parent_block_id );
+                   blk->parent_slot, &blk->parent_block_id );
   deliver_shred( ctx, blk->slot, FD_FEC_SHRED_CNT-1U, FD_SHRED_DATA_FLAG_SLOT_COMPLETE|FD_SHRED_DATA_FLAG_DATA_COMPLETE,
-                 &blk->fec_root[ 0 ], 0U, SHRED_SIG_SRC_RECONSTRUCTED, AG_UNKNOWN_SLOT, NULL );
+                 &blk->fec_root[ 0 ], 0U, SHRED_SIG_SRC_RECONSTRUCTED, blk->parent_slot, &blk->parent_block_id );
   deliver_fec_complete( ctx, blk->slot, 0U, FD_SHRED_DATA_FLAG_SLOT_COMPLETE|FD_SHRED_DATA_FLAG_DATA_COMPLETE, &blk->fec_root[ 0 ] );
 
   test_tsorig = 0UL;
@@ -1112,7 +1130,7 @@ test_reception_stats( fd_wksp_t * wksp ) {
     deliver_shred( ctx, blk->slot, i, 0, &blk->fec_root[ 0 ], 0U, SHRED_SIG_SRC_TURBINE,
                    blk->parent_slot, &blk->parent_block_id );
   deliver_shred( ctx, blk->slot, FD_FEC_SHRED_CNT-2U, 0, &blk->fec_root[ 0 ], 0U, SHRED_SIG_SRC_REPAIR,
-                 AG_UNKNOWN_SLOT, NULL );
+                 blk->parent_slot, &blk->parent_block_id );
   deliver_code_shred( ctx, blk->slot, 0U, 3U, &blk->fec_root[ 0 ], SHRED_SIG_SRC_TURBINE, SHRED_SIG_RESULT_OKAY      );
   deliver_code_shred( ctx, blk->slot, 0U, 3U, &blk->fec_root[ 0 ], SHRED_SIG_SRC_TURBINE, SHRED_SIG_RESULT_DUPLICATE );
 
@@ -1128,9 +1146,9 @@ test_reception_stats( fd_wksp_t * wksp ) {
      Neither recovery nor a duplicate repair delivery changes the final
      network source (the coding shred above). */
   deliver_shred( ctx, blk->slot, FD_FEC_SHRED_CNT-1U, FD_SHRED_DATA_FLAG_DATA_COMPLETE,
-                 &blk->fec_root[ 0 ], 0U, SHRED_SIG_SRC_RECONSTRUCTED, AG_UNKNOWN_SLOT, NULL );
+                 &blk->fec_root[ 0 ], 0U, SHRED_SIG_SRC_RECONSTRUCTED, blk->parent_slot, &blk->parent_block_id );
   deliver_shred( ctx, blk->slot, FD_FEC_SHRED_CNT-2U, 0,
-                 &blk->fec_root[ 0 ], 0U, SHRED_SIG_SRC_REPAIR, AG_UNKNOWN_SLOT, NULL );
+                 &blk->fec_root[ 0 ], 0U, SHRED_SIG_SRC_REPAIR, blk->parent_slot, &blk->parent_block_id );
   deliver_fec_complete( ctx, blk->slot, 0U, FD_SHRED_DATA_FLAG_DATA_COMPLETE, &blk->fec_root[ 0 ] );
   pump( ctx );
 
@@ -1163,7 +1181,7 @@ test_reception_stats( fd_wksp_t * wksp ) {
   for( uint i=FD_FEC_SHRED_CNT; i<2U*FD_FEC_SHRED_CNT; i++ )
     deliver_shred( ctx, blk->slot, i,
                    (uchar)( i==2U*FD_FEC_SHRED_CNT-1U ? FD_SHRED_DATA_FLAG_SLOT_COMPLETE|FD_SHRED_DATA_FLAG_DATA_COMPLETE : 0 ),
-                   &blk->fec_root[ 1 ], 0U, SHRED_SIG_SRC_TURBINE, AG_UNKNOWN_SLOT, NULL );
+                   &blk->fec_root[ 1 ], 0U, SHRED_SIG_SRC_TURBINE, blk->parent_slot, &blk->parent_block_id );
   deliver_fec_complete( ctx, blk->slot, FD_FEC_SHRED_CNT,
                         FD_SHRED_DATA_FLAG_SLOT_COMPLETE|FD_SHRED_DATA_FLAG_DATA_COMPLETE, &blk->fec_root[ 1 ] );
   pump( ctx );
@@ -2047,6 +2065,205 @@ test_park( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_park" ));
 }
 
+/* A shred 0 whose block header names a parent other than the one its
+   parent_off implies is dropped, and the slot's turbine version is
+   invalidated.  Its queued check is not touched, but when it comes due
+   the walk ends at once and the check is not requeued, so the version
+   asks for nothing more.  A notarized block id for the slot that
+   arrives later still creates its own version, which is repaired by
+   block id and delivers under that id. */
+
+static void
+test_bad_parent_header( fd_wksp_t * wksp ) {
+  static ctx_t ctx[1];
+  setup_ctx( ctx, wksp );
+
+  ulong     slot  = SNAP_SLOT+2UL;
+  fd_hash_t zero  = {0};
+  fd_hash_t troot = mkhash( 0x170UL );
+
+  /* turbine streams shreds 1.. of the first set: the version exists,
+     its parent is unknown, so its check asks for shred 0 */
+
+  for( uint i=1U; i<FD_FEC_SHRED_CNT; i++ ) {
+    deliver_shred_hdr( ctx, slot, i, 0, &troot, 0U, SHRED_SIG_SRC_TURBINE, 1, AG_UNKNOWN_SLOT, NULL );
+  }
+  fd_rotor_blk_t * v0 = fd_rotor_turbine_block_query( ctx->rotor, slot );
+  FD_TEST( v0 && !v0->abandoned );
+  FD_TEST( fd_schedulor_block_query( ctx->schedulor, slot, &zero ) );
+
+  ulong from = req_cnt;
+  pump( ctx );
+  req_t * r0 = req_find( from, FD_REPAIR_KIND_SHRED, slot, 0U, NULL );
+  FD_TEST( r0 );
+  FD_TEST( fd_schedulor_block_query( ctx->schedulor, slot, &zero ) ); /* parked */
+
+  /* the response's header names SNAP_SLOT, but parent_off says
+     slot-1: shred 0 is dropped and the version invalidated */
+
+  deliver_shred_hdr( ctx, slot, 0U, 0, &troot, r0->nonce, SHRED_SIG_SRC_REPAIR, 1, SNAP_SLOT, &snap_bid );
+  FD_TEST( v0->abandoned );
+  FD_TEST( fd_rotor_turbine_block_query( ctx->rotor, slot )==v0 );
+  FD_TEST( !fd_rotor_shred_test( ctx->rotor, v0, 0U ) );
+  FD_TEST( v0->parent_slot==AG_UNKNOWN_SLOT );
+  FD_TEST( v0->buffered_idx==UINT_MAX );
+  FD_TEST( !fd_rotor_verify( ctx->rotor ) );
+
+  /* removal from the schedulor is lazy: the parked check stays until
+     it comes due, then the walk ends at once and it is not requeued */
+
+  FD_TEST( fd_schedulor_block_query( ctx->schedulor, slot, &zero ) );
+  force_check( ctx, slot, &zero );
+  ulong checks = ctx->metrics->checks;
+  from = req_cnt;
+  pump( ctx );
+  FD_TEST( ctx->metrics->checks==checks+1UL );
+  FD_TEST( !fd_schedulor_block_query( ctx->schedulor, slot, &zero ) );
+  FD_TEST( !fd_schedulor_queued_cnt( ctx->schedulor ) );
+  FD_TEST( req_cnt==from );
+
+  /* the rest of the set still lands, but no completion, delivery, or
+     new check for the invalidated version */
+
+  deliver_fec_complete( ctx, slot, 0U, FD_SHRED_DATA_FLAG_DATA_COMPLETE, &troot );
+  pump( ctx );
+  FD_TEST( v0->buffered_fec_idx==UINT_MAX && v0->delivered_idx==UINT_MAX );
+  FD_TEST( !fd_schedulor_queued_cnt( ctx->schedulor ) );
+  FD_TEST( !rep_cnt );
+
+  /* a notarized block id for the slot: a new version and a new check */
+
+  blk_t vot[1] = {{ .slot = slot, .parent_slot = SNAP_SLOT, .parent_block_id = snap_bid, .fec_cnt = 1U }};
+  vot->fec_root[ 0 ] = mkhash( 0x179UL );
+  blk_build( vot );
+
+  ulong invalidated_from = req_cnt;
+  deliver_votor( ctx, vot->slot, &vot->block_id );
+  fd_rotor_blk_t * v1 = fd_rotor_slot_version_query( ctx->rotor, vot->slot, &vot->block_id );
+  FD_TEST( v1 && v1!=v0 && !v1->turbine && !v1->abandoned );
+  FD_TEST( fd_schedulor_block_query( ctx->schedulor, vot->slot, &vot->block_id ) );
+  FD_TEST( fd_schedulor_queued_cnt( ctx->schedulor )==1UL );
+  FD_TEST( !fd_rotor_verify( ctx->rotor ) );
+
+  /* it is driven to completion by ParentAndFecSetCount, FecSetRoot
+     and ShredForBlockId */
+
+  from = req_cnt;
+  pump( ctx );
+  req_t * meta = req_find( from, AG_REPAIR_KIND_PARENT_FEC_COUNT, vot->slot, 0U, &vot->block_id );
+  FD_TEST( meta );
+  respond_parent_fec_count( ctx, vot, meta->nonce, 0 );
+  FD_TEST( v1->complete_idx==FD_FEC_SHRED_CNT-1U && v1->parent_slot==SNAP_SLOT && v1->connected );
+
+  force_check( ctx, vot->slot, &vot->block_id );
+  from = req_cnt;
+  pump( ctx );
+  req_t * root = req_find( from, AG_REPAIR_KIND_FEC_ROOT, vot->slot, 0U, &vot->block_id );
+  FD_TEST( root );
+  respond_fec_root( ctx, vot, 0U, root->nonce, 0 );
+
+  uint served[ BLK_FEC_MAX ] = {0};
+  force_check( ctx, vot->slot, &vot->block_id );
+  from = req_cnt;
+  pump( ctx );
+  FD_TEST( serve_shred_requests( ctx, from, vot, served )==FD_FEC_SHRED_CNT );
+  pump( ctx );
+
+  FD_TEST( v1->complete_idx==FD_FEC_SHRED_CNT-1U && v1->buffered_fec_idx==FD_FEC_SHRED_CNT-1U );
+  FD_TEST( v1->delivered_idx==FD_FEC_SHRED_CNT-1U );
+  FD_TEST( rep_cnt==1UL );
+  rep_expect( 0UL, vot->slot, 0U, &vot->fec_root[ 0 ], &vot->block_id, 1 );
+
+  /* the turbine version never came back: no positional request for the
+     slot since it was invalidated, and it is still abandoned */
+
+  FD_TEST( !req_count( invalidated_from, FD_REPAIR_KIND_SHRED,         slot ) );
+  FD_TEST( !req_count( invalidated_from, FD_REPAIR_KIND_HIGHEST_SHRED, slot ) );
+  FD_TEST( !req_count( invalidated_from, FD_REPAIR_KIND_ORPHAN,        slot ) );
+  FD_TEST( v0->abandoned && fd_hash_check_zero( &v0->block_id ) );
+  FD_TEST( !fd_schedulor_block_query( ctx->schedulor, slot, &zero ) );
+
+  deliver_replay_root( ctx, vot->slot, &vot->block_id );
+  FD_TEST( ctx->rotor->root==vot->slot );
+  FD_TEST( !fd_rotor_turbine_block_query( ctx->rotor, slot ) );
+
+  FD_TEST( !fd_rotor_verify( ctx->rotor ) );
+  FD_LOG_NOTICE(( "pass: bad parent header invalidates turbine, notarized version still delivers" ));
+}
+
+/* Other ways shred 0 is rejected.  A shred 0 with no block header
+   invalidates the turbine version just like a mismatched one.  A bad
+   shred 0 that arrives before any other shred of its slot is dropped,
+   but leaves an abandoned turbine version and no check, so the slot's
+   later turbine shreds ask for nothing. */
+
+static void
+test_bad_parent_header_variants( fd_wksp_t * wksp ) {
+  static ctx_t ctx[1];
+  setup_ctx( ctx, wksp );
+
+  fd_hash_t zero = {0};
+
+  /* no block header */
+
+  ulong     slot0 = SNAP_SLOT+1UL;
+  fd_hash_t root0 = mkhash( 0x180UL );
+  for( uint i=1U; i<FD_FEC_SHRED_CNT; i++ ) {
+    deliver_shred_hdr( ctx, slot0, i, 0, &root0, 0U, SHRED_SIG_SRC_TURBINE, 1, AG_UNKNOWN_SLOT, NULL );
+  }
+  fd_rotor_blk_t * v0 = fd_rotor_turbine_block_query( ctx->rotor, slot0 );
+  FD_TEST( v0 && !v0->abandoned );
+  deliver_shred_hdr( ctx, slot0, 0U, 0, &root0, 0U, SHRED_SIG_SRC_TURBINE, 1, AG_UNKNOWN_SLOT, NULL );
+  FD_TEST( v0->abandoned );
+  FD_TEST( !fd_rotor_shred_test( ctx->rotor, v0, 0U ) );
+
+  /* its check, queued at creation, is dropped on the next pass */
+
+  ulong from = req_cnt;
+  pump( ctx );
+  FD_TEST( !fd_schedulor_block_query( ctx->schedulor, slot0, &zero ) );
+  FD_TEST( !req_count( from, FD_REPAIR_KIND_SHRED,         slot0 ) );
+  FD_TEST( !req_count( from, FD_REPAIR_KIND_HIGHEST_SHRED, slot0 ) );
+
+  /* a mismatched shred 0 first: an abandoned version, no check, and
+     the rest of the slot lands on it without queueing one */
+
+  ulong     slot1 = SNAP_SLOT+3UL;
+  fd_hash_t root1 = mkhash( 0x181UL );
+  ulong     queued = fd_schedulor_queued_cnt( ctx->schedulor );
+  deliver_shred_hdr( ctx, slot1, 0U, 0, &root1, 0U, SHRED_SIG_SRC_TURBINE, 1, SNAP_SLOT, &snap_bid );
+  fd_rotor_blk_t * vb = fd_rotor_turbine_block_query( ctx->rotor, slot1 );
+  FD_TEST( vb && vb->abandoned );
+  FD_TEST( vb->metrics.abandoned_reason==ABANDON_REASON_PARENT_OFF_MISMATCH );
+  FD_TEST( !fd_rotor_shred_test( ctx->rotor, vb, 0U ) );
+  FD_TEST( !fd_schedulor_block_query( ctx->schedulor, slot1, &zero ) );
+  FD_TEST( fd_schedulor_queued_cnt( ctx->schedulor )==queued );
+
+  for( uint i=1U; i<FD_FEC_SHRED_CNT; i++ ) {
+    deliver_shred_hdr( ctx, slot1, i, 0, &root1, 0U, SHRED_SIG_SRC_TURBINE, 1, AG_UNKNOWN_SLOT, NULL );
+  }
+  FD_TEST( fd_rotor_turbine_block_query( ctx->rotor, slot1 )==vb && vb->abandoned );
+  FD_TEST( fd_schedulor_queued_cnt( ctx->schedulor )==queued );
+  from = req_cnt;
+  pump( ctx );
+  FD_TEST( !req_count( from, FD_REPAIR_KIND_SHRED,         slot1 ) );
+  FD_TEST( !req_count( from, FD_REPAIR_KIND_HIGHEST_SHRED, slot1 ) );
+
+  /* and a header that agrees with parent_off is accepted */
+
+  ulong     slot2 = SNAP_SLOT+4UL;
+  fd_hash_t root2 = mkhash( 0x182UL );
+  deliver_shred_hdr( ctx, slot2, 0U, 0, &root2, 0U, SHRED_SIG_SRC_TURBINE, (ushort)( slot2-SNAP_SLOT ), SNAP_SLOT, &snap_bid );
+  fd_rotor_blk_t * v1 = fd_rotor_turbine_block_query( ctx->rotor, slot2 );
+  FD_TEST( v1 && !v1->abandoned );
+  FD_TEST( fd_rotor_shred_test( ctx->rotor, v1, 0U ) );
+  FD_TEST( v1->parent_slot==SNAP_SLOT && fd_hash_eq( &v1->parent_block_id, &snap_bid ) );
+  FD_TEST( v1->connected );
+
+  FD_TEST( !fd_rotor_verify( ctx->rotor ) );
+  FD_LOG_NOTICE(( "pass: shred 0 rejection variants" ));
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
@@ -2116,6 +2333,12 @@ main( int argc, char ** argv ) {
 
   fd_wksp_reset( wksp, 1U );
   test_park( wksp );
+
+  fd_wksp_reset( wksp, 1U );
+  test_bad_parent_header( wksp );
+
+  fd_wksp_reset( wksp, 1U );
+  test_bad_parent_header_variants( wksp );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

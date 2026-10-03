@@ -161,7 +161,7 @@ feed_fec_src( fd_rotor_t *      rotor,
               fd_hash_t const * parent_block_id ) {
   for( uint i=0U; i<FD_FEC_SHRED_CNT; i++ ) {
     int last = ( i==(uint)FD_FEC_SHRED_CNT-1U );
-    fd_rotor_shred_insert( rotor, slot, fec_set_idx+i, slot_complete && last, src, test_rx_tick, mr,
+    fd_rotor_shred_insert( rotor, slot, fec_set_idx+i, slot_complete && last, src, test_rx_tick, mr, 1,
                            i ? AG_UNKNOWN_SLOT : parent_slot,
                            i ? NULL            : parent_block_id );
     FD_TEST( !fd_rotor_verify( rotor ) );
@@ -258,7 +258,7 @@ test_basic( fd_wksp_t * wksp ) {
   /* first FEC set of slot 11, shred by shred */
 
   for( uint i=0U; i<FD_FEC_SHRED_CNT; i++ ) {
-    fd_rotor_shred_insert( rotor, 11UL, i, 0, FD_ROTOR_SRC_TURBINE, test_rx_tick, &r0, i ? AG_UNKNOWN_SLOT : 10UL, i ? NULL : &bid0 );
+    fd_rotor_shred_insert( rotor, 11UL, i, 0, FD_ROTOR_SRC_TURBINE, test_rx_tick, &r0, 1, i ? AG_UNKNOWN_SLOT : 10UL, i ? NULL : &bid0 );
     FD_TEST( !fd_rotor_verify( rotor ) );
 
     fd_rotor_blk_t * block = block_at( rotor, 11UL, 0UL );
@@ -628,7 +628,7 @@ test_turbine_shred_after_notar_fallback( fd_wksp_t * wksp ) {
   /* turbine delivers set 1 of the honest block */
 
   for( uint i=32U; i<64U; i++ ) {
-    fd_rotor_shred_insert( rotor, 51UL, i, i==63U, FD_ROTOR_SRC_TURBINE, test_rx_tick, &r1, AG_UNKNOWN_SLOT, NULL );
+    fd_rotor_shred_insert( rotor, 51UL, i, i==63U, FD_ROTOR_SRC_TURBINE, test_rx_tick, &r1, 1, AG_UNKNOWN_SLOT, NULL );
     FD_TEST( !fd_rotor_verify( rotor ) );
   }
   fd_hash_t mr = r1;
@@ -659,6 +659,153 @@ test_turbine_shred_after_notar_fallback( fd_wksp_t * wksp ) {
 
   teardown( rotor );
   FD_LOG_NOTICE(( "pass: turbine shred after notar-fallback" ));
+}
+
+/* (e, continued) A turbine block invalidated because its shred-0 block
+   header was rejected.  Like a cert-abandoned block it keeps taking
+   shreds but never extends its FEC prefix, finalizes or delivers.  A
+   slot with no turbine version yet gets an abandoned one, so shreds
+   that arrive later cannot start a live version.  Only the turbine
+   version is touched, and a later notarized block id for the slot still
+   builds its own version, which reuses the turbine data whose roots it
+   learns and delivers under the cert's id. */
+
+static void
+test_invalidate( fd_wksp_t * wksp ) {
+  fd_rotor_t     * rotor      = setup( wksp );
+  fd_rotor_blk_t * block_pool = rotor->block_pool;
+
+  fd_hash_t bid0 = mkhash( 100UL );
+  fd_rotor_init( rotor, 90UL, &bid0, NULL, NULL );
+
+  /* a slot with no turbine version: an abandoned one is created, and
+     shreds that arrive after land on it rather than a new version */
+
+  fd_hash_t r9 = mkhash( 9UL );
+  ulong block_free = fd_block_pool_free( block_pool );
+  fd_rotor_invalidate( rotor, 92UL, test_rx_tick, ABANDON_REASON_INVALID_BLOCK_HEADER );
+  FD_TEST( !fd_rotor_verify( rotor ) );
+  fd_rotor_blk_t * v9 = fd_rotor_turbine_block_query( rotor, 92UL );
+  FD_TEST( v9 && v9->abandoned && v9->parent_slot==AG_UNKNOWN_SLOT );
+  FD_TEST( v9->metrics.abandoned_reason==ABANDON_REASON_INVALID_BLOCK_HEADER );
+  FD_TEST( fd_block_pool_free( block_pool )==block_free-1UL );
+
+  for( uint i=1U; i<FD_FEC_SHRED_CNT; i++ ) {
+    FD_TEST( !fd_rotor_shred_insert( rotor, 92UL, i, 0, FD_ROTOR_SRC_TURBINE, test_rx_tick, &r9, 1, AG_UNKNOWN_SLOT, NULL ) );
+  }
+  FD_TEST( !fd_rotor_verify( rotor ) );
+  FD_TEST( block_at( rotor, 92UL, 0UL )==v9 && !block_at( rotor, 92UL, 1UL ) );
+  FD_TEST( v9->abandoned && fd_rotor_shred_test( rotor, v9, 1U ) );
+  FD_TEST( fd_block_pool_free( block_pool )==block_free-1UL );
+  block_free = fd_block_pool_free( block_pool );
+
+  /* turbine streams set 0 of slot 91 without shred 0 (its header was
+     rejected), so the parent stays unknown, then it is invalidated */
+
+  fd_hash_t r0 = mkhash( 1UL );
+  fd_hash_t r1 = mkhash( 2UL );
+  for( uint i=1U; i<FD_FEC_SHRED_CNT; i++ ) {
+    fd_rotor_shred_insert( rotor, 91UL, i, 0, FD_ROTOR_SRC_TURBINE, test_rx_tick, &r0, 1, AG_UNKNOWN_SLOT, NULL );
+  }
+  fd_rotor_blk_t * v0 = block_at( rotor, 91UL, 0UL );
+  FD_TEST( v0 && v0->turbine && !v0->abandoned );
+  FD_TEST( v0->parent_slot==AG_UNKNOWN_SLOT );
+
+  fd_rotor_invalidate( rotor, 91UL, test_rx_tick, ABANDON_REASON_INVALID_BLOCK_HEADER );
+  FD_TEST( !fd_rotor_verify( rotor ) );
+  FD_TEST( v0->abandoned );
+  FD_TEST( fd_rotor_turbine_block_query( rotor, 91UL )==v0 );
+  FD_TEST( fd_block_pool_free( block_pool )==block_free-1UL ); /* marked, not freed */
+
+  /* the rest of the block still lands, but nothing is delivered, the
+     FEC prefix does not move and no block_id is derived */
+
+  fd_hash_t mr = r0;
+  FD_TEST( !fec_complete( rotor, 91UL, 0U, 0, 0, 0, &mr ) );
+  FD_TEST( !feed_fec( rotor, 91UL, 32U, 1, &r1, AG_UNKNOWN_SLOT, NULL ) );
+  FD_TEST( v0->complete_idx==63U && v0->buffered_idx==63U );
+  FD_TEST( v0->buffered_fec_idx==UINT_MAX );
+  FD_TEST( v0->delivered_idx   ==UINT_MAX );
+  FD_TEST( fd_hash_check_zero( &v0->block_id ) );
+  expect_out( rotor, NULL, 0UL );
+
+  /* a notarized block id for the slot gets a version of its own, which
+     the invalidation does not reach */
+
+  fd_hash_t bidN = mkhash( 200UL );
+  FD_TEST( fd_rotor_verified_block_insert( rotor, 91UL, bidN, 0L ) );
+  FD_TEST( !fd_rotor_verify( rotor ) );
+  fd_rotor_blk_t * v1 = fd_rotor_slot_version_query( rotor, 91UL, &bidN );
+  FD_TEST( v1 && v1!=v0 && !v1->turbine && !v1->abandoned );
+
+  fd_rotor_invalidate( rotor, 91UL, test_rx_tick, ABANDON_REASON_INVALID_BLOCK_HEADER );
+  FD_TEST( !fd_rotor_verify( rotor ) );
+  FD_TEST( !v1->abandoned );
+
+  /* its metadata names roots turbine already completed, so it picks up
+     both sets without repair and delivers them in order */
+
+  FD_TEST( fd_rotor_verified_parent_fec_count( rotor, 91UL, &bidN, 2U, 90UL, &bid0, 0L ) );
+  FD_TEST( v1->connected );
+  mr = r0; fd_rotor_verified_hash_insert( rotor, 91UL, &bidN, 0U,  mr.uc, 0L );
+  mr = r1; fd_rotor_verified_hash_insert( rotor, 91UL, &bidN, 32U, mr.uc, 0L );
+  FD_TEST( !fd_rotor_verify( rotor ) );
+  FD_TEST( v1->complete_idx==63U && v1->buffered_fec_idx==63U );
+  FD_TEST( v1->delivered_idx==63U );
+  FD_TEST( fd_hash_eq( &v1->block_id, &bidN ) );
+  FD_TEST( fd_rotor_highest_repaired_slot( rotor )==91UL );
+  out_rec_t exp[] = { { 91UL, 0U, r0 }, { 91UL, 32U, r1 } };
+  expect_out( rotor, exp, 2UL );
+
+  /* the invalidated version is still abandoned and rooting the
+     notarized version prunes it */
+
+  FD_TEST( v0->abandoned && fd_hash_check_zero( &v0->block_id ) );
+  fd_rotor_publish( rotor, 91UL, &bidN, NULL );
+  FD_TEST( !fd_rotor_verify( rotor ) );
+  FD_TEST( !fd_rotor_turbine_block_query( rotor, 91UL ) );
+  FD_TEST( fd_rotor_slot_version_query( rotor, 91UL, &bidN )==v1 );
+
+  teardown( rotor );
+  FD_LOG_NOTICE(( "pass: invalidated turbine block, later notarized version delivers" ));
+}
+
+/* (e, continued) A turbine block whose data shreds disagree on
+   parent_off is abandoned on the first disagreeing shred: it never
+   completes a FEC, finalizes or delivers.  Shreds without a header
+   (parent_off 0, as from FEC completion) are not compared. */
+
+static void
+test_parent_off_mismatch( fd_wksp_t * wksp ) {
+  fd_rotor_t * rotor = setup( wksp );
+
+  fd_hash_t bid0 = mkhash( 100UL );
+  fd_rotor_init( rotor, 90UL, &bid0, NULL, NULL );
+
+  fd_hash_t r0 = mkhash( 1UL );
+  fd_rotor_shred_insert( rotor, 91UL, 0U, 0, FD_ROTOR_SRC_TURBINE, test_rx_tick, &r0, 1, 90UL, &bid0 );
+  fd_rotor_blk_t * v0 = block_at( rotor, 91UL, 0UL );
+  FD_TEST( v0 && v0->turbine && !v0->abandoned && v0->parent_off==1 );
+
+  for( uint i=1U; i<FD_FEC_SHRED_CNT-1U; i++ ) {
+    fd_rotor_shred_insert( rotor, 91UL, i, 0, FD_ROTOR_SRC_TURBINE, test_rx_tick, &r0, i==5U ? 0 : 1, AG_UNKNOWN_SLOT, NULL );
+  }
+  FD_TEST( !v0->abandoned );
+
+  fd_rotor_shred_insert( rotor, 91UL, FD_FEC_SHRED_CNT-1U, 0, FD_ROTOR_SRC_TURBINE, test_rx_tick, &r0, 2, AG_UNKNOWN_SLOT, NULL );
+  FD_TEST( !fd_rotor_verify( rotor ) );
+  FD_TEST( v0->abandoned );
+  FD_TEST( v0->metrics.abandoned_reason==ABANDON_REASON_PARENT_OFF_MISMATCH );
+  FD_TEST( v0->parent_off==1 );
+
+  fd_hash_t mr = r0;
+  FD_TEST( !fec_complete( rotor, 91UL, 0U, 1, 1, 0, &mr ) );
+  FD_TEST( v0->buffered_fec_idx==UINT_MAX && v0->delivered_idx==UINT_MAX );
+  FD_TEST( fd_hash_check_zero( &v0->block_id ) );
+  expect_out( rotor, NULL, 0UL );
+
+  teardown( rotor );
+  FD_LOG_NOTICE(( "pass: parent_off mismatch abandons the turbine version" ));
 }
 
 /* (f) Rooting and pruning: everything below the new root goes away and
@@ -939,7 +1086,7 @@ test_prefix_key( fd_wksp_t * wksp ) {
      the full root in place: same entries, no new FEC. */
 
   FD_TEST( !feed_fec( rotor, 41UL, 0U, 0, &r0, 40UL, &bid0 ) );
-  fd_rotor_shred_insert( rotor, 41UL, 35U, 0, FD_ROTOR_SRC_TURBINE, test_rx_tick, &r1, AG_UNKNOWN_SLOT, NULL );
+  fd_rotor_shred_insert( rotor, 41UL, 35U, 0, FD_ROTOR_SRC_TURBINE, test_rx_tick, &r1, 1, AG_UNKNOWN_SLOT, NULL );
   FD_TEST( !fd_rotor_verify( rotor ) );
 
   FD_TEST( fd_rotor_fec_query( rotor, 41UL, 0U,  &bidZ )==s0 );
@@ -973,7 +1120,7 @@ test_prefix_key( fd_wksp_t * wksp ) {
   for( uint i=0U; i<32U; i++ ) FD_TEST( fd_rotor_shred_test( rotor, vY, i ) );
   FD_TEST( vY->buffered_idx==31U );
 
-  fd_rotor_shred_insert( rotor, 41UL, 3U, 0, FD_ROTOR_SRC_TURBINE, test_rx_tick, &r0, AG_UNKNOWN_SLOT, NULL ); /* a duplicate of a shred we hold: no-op */
+  fd_rotor_shred_insert( rotor, 41UL, 3U, 0, FD_ROTOR_SRC_TURBINE, test_rx_tick, &r0, 1, AG_UNKNOWN_SLOT, NULL ); /* a duplicate of a shred we hold: no-op */
   FD_TEST( !fd_rotor_verify( rotor ) );
   FD_TEST( fd_fec_pool_used( rotor->fec_pool )==fec_used );
 
@@ -1361,7 +1508,7 @@ test_fec_reception( fd_wksp_t * wksp ) {
   /* Coding shreds are ignored until the FEC exists. */
   fd_rotor_code_shred_insert( rotor, 11UL, 32U, 31U, 100L, &mr );
   FD_TEST( !fd_rotor_slot_query( rotor, 11UL ) );
-  fd_rotor_blk_t * v = fd_rotor_shred_insert( rotor, 11UL, 32U, 0, FD_ROTOR_SRC_REPAIR, 110L, &mr, AG_UNKNOWN_SLOT, NULL );
+  fd_rotor_blk_t * v = fd_rotor_shred_insert( rotor, 11UL, 32U, 0, FD_ROTOR_SRC_REPAIR, 110L, &mr, 1, AG_UNKNOWN_SLOT, NULL );
   FD_TEST( v && v->turbine );
   fd_rotor_fec_t * fec = fec_at( rotor, 11UL, 32U, 0UL );
   FD_TEST( fec && fec->data_idxs==1U && !fec->metrics.parity_received );
@@ -1378,12 +1525,12 @@ test_fec_reception( fd_wksp_t * wksp ) {
   FD_TEST( !fec->metrics.first_shred_ts && !fec->metrics.completed_ts );
   FD_TEST( fec->metrics.last_shred_src==FD_ROTOR_SRC_TURBINE );
   fd_rotor_code_shred_insert( rotor, 11UL, 32U, 31U, 200L, &mr );
-  fd_rotor_shred_insert( rotor, 11UL, 32U, 0, FD_ROTOR_SRC_REPAIR, 210L, &mr, AG_UNKNOWN_SLOT, NULL );
+  fd_rotor_shred_insert( rotor, 11UL, 32U, 0, FD_ROTOR_SRC_REPAIR, 210L, &mr, 1, AG_UNKNOWN_SLOT, NULL );
   fd_rotor_code_shred_insert( rotor, 11UL, 32U, 31U, 220L, &mr ); /* duplicate */
-  fd_rotor_shred_insert( rotor, 11UL, 32U, 0, FD_ROTOR_SRC_TURBINE, 230L, &mr, AG_UNKNOWN_SLOT, NULL ); /* duplicate */
+  fd_rotor_shred_insert( rotor, 11UL, 32U, 0, FD_ROTOR_SRC_TURBINE, 230L, &mr, 1, AG_UNKNOWN_SLOT, NULL ); /* duplicate */
   FD_TEST( fec->metrics.last_shred_src==FD_ROTOR_SRC_REPAIR );
   FD_TEST( v->metrics.parity_cnt==2U && v->metrics.repair_cnt==2U );
-  fd_rotor_shred_insert( rotor, 11UL, 33U, 0, FD_ROTOR_SRC_RECOVERED, 210L, &mr, AG_UNKNOWN_SLOT, NULL );
+  fd_rotor_shred_insert( rotor, 11UL, 33U, 0, FD_ROTOR_SRC_RECOVERED, 210L, &mr, 1, AG_UNKNOWN_SLOT, NULL );
   fd_rotor_fec_complete( rotor, 11UL, 32U, 0, 1, 0, 210L, &mr, NULL, NULL );
   FD_TEST( fec->data_idxs==UINT_MAX );
   FD_TEST( fec->metrics.data_received==1U && fec->metrics.repair_received==1U );
@@ -1394,7 +1541,7 @@ test_fec_reception( fd_wksp_t * wksp ) {
 
   uchar saved[ sizeof(fec->metrics) ];
   memcpy( saved, &fec->metrics, sizeof(saved) );
-  fd_rotor_shred_insert( rotor, 11UL, 34U, 0, FD_ROTOR_SRC_TURBINE, 300L, &mr, AG_UNKNOWN_SLOT, NULL );
+  fd_rotor_shred_insert( rotor, 11UL, 34U, 0, FD_ROTOR_SRC_TURBINE, 300L, &mr, 1, AG_UNKNOWN_SLOT, NULL );
   fd_rotor_code_shred_insert( rotor, 11UL, 32U, 30U, 310L, &mr );
   fd_rotor_fec_complete( rotor, 11UL, 32U, 0, 1, 0, 320L, &mr, NULL, NULL );
   FD_TEST( !memcmp( saved, &fec->metrics, sizeof(saved) ) );
@@ -1427,7 +1574,7 @@ test_fec_reception( fd_wksp_t * wksp ) {
 
   /* Reusing a freed FEC pool entry must not leak reception state. */
   fd_hash_t reused_mr = mkhash( 904UL );
-  fd_rotor_shred_insert( rotor, 13UL, 0U, 0, FD_ROTOR_SRC_TURBINE, 500L, &reused_mr, AG_UNKNOWN_SLOT, NULL );
+  fd_rotor_shred_insert( rotor, 13UL, 0U, 0, FD_ROTOR_SRC_TURBINE, 500L, &reused_mr, 1, AG_UNKNOWN_SLOT, NULL );
   fd_rotor_code_shred_insert( rotor, 13UL, 0U, 5U, 500L, &reused_mr );
   fd_rotor_fec_t * reused = fec_at( rotor, 13UL, 0U, 0UL );
   FD_TEST( reused && reused->metrics.data_received==1U && !reused->metrics.repair_received );
@@ -1456,6 +1603,8 @@ main( int argc, char ** argv ) {
   test_notar_fallback_in_flight          ( wksp );
   test_sentinel_before_turbine           ( wksp );
   test_turbine_shred_after_notar_fallback( wksp );
+  test_invalidate                        ( wksp );
+  test_parent_off_mismatch               ( wksp );
   test_prefix_key                        ( wksp );
   test_output_order_redeliver            ( wksp );
   test_output_order_out_of_order         ( wksp );
