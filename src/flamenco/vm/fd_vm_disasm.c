@@ -245,20 +245,20 @@ fd_vm_disasm_instr( ulong const *              text,
   if( FD_UNLIKELY( (!text) | (!text_cnt) | (!out) | (!out_max) | (!_out_len) ) ) return FD_VM_ERR_INVAL;
   if( FD_UNLIKELY( (*_out_len)>=out_max ) ) return FD_VM_ERR_INVAL;
 
-  fd_sbpf_instr_t i0 = fd_sbpf_instr( text[0] );
+  fd_sbpf_instr_t i0 = fd_sbpf_instr( FD_LOAD( ulong, text ) );
 
   switch( i0.opcode.any.op_class ) {
 
   case FD_SBPF_OPCODE_CLASS_LD: {
     if( FD_UNLIKELY( text_cnt<2UL ) ) return FD_VM_ERR_INVAL;
-    fd_sbpf_instr_t i1 = fd_sbpf_instr( text[1] );
+    fd_sbpf_instr_t i1 = fd_sbpf_instr( FD_LOAD( ulong, text+1 ) );
     /* FIXME: VALIDATE I1 IS PROPER */
     OUT_PRINTF( "lddw r%d, 0x%lx", i0.dst_reg, (ulong)((ulong)i0.imm | (ulong)((ulong)i1.imm << 32UL)) );
     return FD_VM_SUCCESS;
   }
 
   case FD_SBPF_OPCODE_CLASS_ST: { /* FIXME: FIGURE OUT WHAT'S UP HERE */
-    OUT_PRINTF( "FIXME: %016lx (ST)", text[0] );
+    OUT_PRINTF( "FIXME: %016lx (ST)", FD_LOAD( ulong, text ) );
     return FD_VM_SUCCESS;
   }
 
@@ -295,7 +295,7 @@ fd_vm_disasm_program( ulong const *              text,
   ulong label_pc[ 65536 ]; ulong label_cnt = 0UL;
 
   for( ulong i=0UL; i<text_cnt; i++ ) {
-    fd_sbpf_instr_t instr = fd_sbpf_instr( text[i] );
+    fd_sbpf_instr_t instr = fd_sbpf_instr( FD_LOAD( ulong, text+i ) );
     if     ( instr.opcode.raw==FD_SBPF_OP_CALL_IMM ) func_cnt++;
     else if( instr.opcode.raw==FD_SBPF_OP_EXIT     ) func_cnt++;
     else if( instr.opcode.raw==FD_SBPF_OP_CALL_REG ) continue;
@@ -309,7 +309,7 @@ fd_vm_disasm_program( ulong const *              text,
   label_cnt = 0UL;
 
   for( ulong i=0UL; i<text_cnt; i++ ) {
-    fd_sbpf_instr_t instr = fd_sbpf_instr( text[i] );
+    fd_sbpf_instr_t instr = fd_sbpf_instr( FD_LOAD( ulong, text+i ) );
     if     ( instr.opcode.raw==FD_SBPF_OP_CALL_IMM ) func_pc[ func_cnt++ ] = i + instr.imm + 1UL; /* FIXME: what if out of bounds? */
     else if( instr.opcode.raw==FD_SBPF_OP_EXIT     ) func_pc[ func_cnt++ ] = i + instr.imm + 1UL; /* FIXME: what if out of bounds? */
     else if( instr.opcode.raw==FD_SBPF_OP_CALL_REG ) continue;
@@ -340,7 +340,7 @@ fd_vm_disasm_program( ulong const *              text,
        AND NOT JUST FOR DISASSEMBLY ... POTENTIAL CONSENSUS FAILURE
        MECHANISM! */
 
-    fd_sbpf_instr_t instr = fd_sbpf_instr( text[i] );
+    fd_sbpf_instr_t instr = fd_sbpf_instr( FD_LOAD( ulong, text+i ) );
     ulong extra_cnt = fd_ulong_if( instr.opcode.any.op_class==FD_SBPF_OPCODE_CLASS_LD, 1UL, 0UL );
     if( FD_UNLIKELY( (i+extra_cnt)>=text_cnt ) ) return FD_VM_ERR_INVAL; /* Truncated multiword instruction at end of text */
 
