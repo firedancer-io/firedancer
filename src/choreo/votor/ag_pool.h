@@ -54,9 +54,12 @@ ag_pool_leave( ag_pool_t const * pool );
 void *
 ag_pool_delete( void * mem );
 
+/* ag_pool_init starts the pool at root, a finalized block that is
+   treated as notarized (Section 2.9). */
+
 void
-ag_pool_init( ag_pool_t * self,
-              ulong       slot );
+ag_pool_init( ag_pool_t *           self,
+              ag_block_id_t const * root );
 
 void
 ag_pool_fini( ag_pool_t * self );
@@ -134,12 +137,14 @@ ag_pool_finalized_slot( ag_pool_t const * self );
 FD_FN_PURE uchar const *
 ag_pool_finalized_block_hash( ag_pool_t const * self );
 
-/* Definition 15. Pool::parents_ready */
+/* Definition 15. Pool::parents_ready.  Writes up to out_max ready
+   parents of slot to out and returns how many are ready. */
 
-ag_block_id_t const *
-ag_pool_parents_ready( ag_pool_t * self,
-                       ulong       slot,
-                       ulong *     cnt );
+ulong
+ag_pool_parents_ready( ag_pool_t const * self,
+                       ulong             slot,
+                       ag_block_id_t *   out,
+                       ulong             out_max );
 
 /* Definition 15. Pool::wait_for_parent_ready; slot ULONG_MAX is the pending receiver */
 

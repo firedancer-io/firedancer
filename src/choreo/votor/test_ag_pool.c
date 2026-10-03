@@ -83,8 +83,9 @@ static int
 is_parent_ready( ag_pool_t *           pool,
                  ulong                 slot,
                  ag_block_id_t const * parent ) {
-  ulong                 cnt   = 0UL;
-  ag_block_id_t const * ready = ag_pool_parents_ready( pool, slot, &cnt );
+  ag_block_id_t ready[ 64 ];
+  ulong         cnt = ag_pool_parents_ready( pool, slot, ready, 64UL );
+  FD_TEST( cnt<=64UL );
   for( ulong i=0UL; i<cnt; i++ ) if( ag_block_id_eq( &ready[i], parent ) ) return 1;
   return 0;
 }
@@ -92,14 +93,13 @@ is_parent_ready( ag_pool_t *           pool,
 static int
 votor_event_pop( ag_pool_t *       pool,
                  ag_event_pool_t * out ) {
-  if( FD_UNLIKELY( pool_events_empty( pool->pool_events ) ) ) return 0;
-  *out = pool_events_pop( pool->pool_events );
-  return 1;
+  return ag_pool_poll_pool_event( pool, out );
 }
 
 static void
 drain_events( ag_pool_t * pool ) {
-  pool_events_remove_all  ( pool->pool_events   );
+  ag_event_pool_t event;
+  while( ag_pool_poll_pool_event( pool, &event ) );
   repair_events_remove_all( pool->repair_events );
 }
 
@@ -193,7 +193,7 @@ setup_pool( void ) {
   FD_TEST( ag_pool_footprint( slot_max )<=sizeof(scratch) );
   ag_pool_t * pool = ag_pool_join( ag_pool_new( scratch, slot_max, 42UL ) );
   FD_TEST( pool );
-  ag_pool_init( pool, 0UL );
+  ag_pool_init( pool, &(ag_block_id_t){ .slot = 0UL } );
 
   g_epoch_info = make_epoch_info( 0UL, g_info, NV );
   ag_pool_advance_epoch( pool, g_epoch_info, 0UL, 0UL );
@@ -687,7 +687,7 @@ test_branch_certified_out_of_order( void ) {
   for( ulong s=2UL; s<SLOTS_PER_WINDOW; s++ ) add_skip_votes( pool, s, 0UL, 7UL );
 
   ulong next = SLOTS_PER_WINDOW;
-  ulong cnt; ag_pool_parents_ready( pool, next, &cnt );
+  ulong cnt = ag_pool_parents_ready( pool, next, NULL, 0UL );
   FD_TEST( cnt==0UL );
 
   ulong slot1 = 1UL;
@@ -696,7 +696,7 @@ test_branch_certified_out_of_order( void ) {
 
   ag_block_id_t parent = ag_block_id( slot1, hash1 );
   FD_TEST( is_parent_ready( pool, next, &parent ) );
-  ag_pool_parents_ready( pool, next, &cnt );
+  cnt = ag_pool_parents_ready( pool, next, NULL, 0UL );
   FD_TEST( cnt==1UL );
 
   teardown_pool( pool );
@@ -711,7 +711,7 @@ test_branch_certified_late_cert( void ) {
   for( ulong s=2UL; s<SLOTS_PER_WINDOW; s++ ) add_skip_votes( pool, s, 0UL, 7UL );
 
   ulong next = SLOTS_PER_WINDOW;
-  ulong cnt; ag_pool_parents_ready( pool, next, &cnt );
+  ulong cnt = ag_pool_parents_ready( pool, next, NULL, 0UL );
   FD_TEST( cnt==0UL );
 
   ulong slot1 = 1UL;
@@ -1002,7 +1002,7 @@ test_slow_finalize_closing_gap_no_double_parent_ready( void ) {
   FD_TEST( pool_first_unpruned_slot( pool )==next_start );
   FD_TEST( min_live_slot( pool )<=next_start && min_live_slot( pool )+AG_REWARD_SLOT_DELTA>=next_start );
 
-  ulong cnt; ag_pool_parents_ready( pool, next_start, &cnt );
+  ulong cnt = ag_pool_parents_ready( pool, next_start, NULL, 0UL );
   FD_TEST( cnt==1UL );
 
   teardown_pool( pool );
@@ -1091,7 +1091,35 @@ test_standstill_recovery( void ) {
   teardown_pool( pool );
 }
 
-/* src/consensus/pool.rs::parent_ready_upon_finalization */
+/* A parent link that jumps the root past the block being added must not
+   leave that block's slot state behind, below the retained window. */
+
+static void
+test_add_block_root_jump( void ) {
+  ag_pool_t * pool = setup_pool();
+  ag_block_hash_t gh; genesis_hash( gh );
+
+  ag_block_id_t genesis = ag_block_id( 0UL, gh );
+  ag_block_id_t block1  = ag_block_id( 1UL, gh );
+  ag_pool_add_block( pool, &block1, &genesis, bad );
+  fast_finalize( pool, 1UL, gh );
+  for( ulong s=3UL; s<=40UL; s++ ) fast_finalize( pool, s, gh );
+  FD_TEST( pool_first_unpruned_slot( pool )==1UL );
+
+  ag_block_id_t block3 = ag_block_id( 3UL, gh );
+  FD_TEST( ag_pool_add_block( pool, &block3, &block1, bad )==AG_POOL_SUCCESS );
+  FD_TEST( pool_first_unpruned_slot( pool )==40UL );
+  FD_TEST( !ag_pool_slot_state( pool, 3UL ) );
+  FD_TEST_PRUNED_TO_WATERMARK( pool );
+
+  teardown_pool( pool );
+}
+
+/* src/consensus/pool.rs::parent_ready_upon_finalization.  Diverges
+   from the reference on purpose: block0 is finalized only implicitly,
+   through replayed parent links, and the pool holds no notarization or
+   notar-fallback cert for it, so Definition 15 makes it no parent until
+   one arrives. */
 
 static void
 test_parent_ready_upon_finalization( void ) {
@@ -1122,16 +1150,24 @@ test_parent_ready_upon_finalization( void ) {
   ag_pool_add_block( pool, &block2, &block1, bad );
   ag_pool_add_block( pool, &block1, &block0, bad );
 
-  int found = 0;
   event_cnt = take_events( pool );
-  for( ulong i=0UL; i<event_cnt; i++ ) {
-    if( event( i )->kind==AG_EVENT_POOL_PARENT_READY ) {
-      FD_TEST( event( i )->parent_ready.slot==slot1 );
-      FD_TEST( ag_block_id_eq( &event( i )->parent_ready.parent, &block0 ) );
-      found = 1;
+  for( ulong i=0UL; i<event_cnt; i++ ) FD_TEST( event( i )->kind!=AG_EVENT_POOL_PARENT_READY );
+
+  int found = 0;
+  for( ulong v=0UL; v<7UL; v++ ) {
+    ag_vote_t vote = ag_vote_construct_notar( sec_sign_fn, &g_sk[v], test_bls_public_key, block0.slot, block0.hash, (ushort)v, TEST_SHRED_VERSION );
+    FD_TEST( ag_pool_add_vote( pool, &vote, bad, &quorum_reached )==AG_POOL_SUCCESS );
+    event_cnt = take_events( pool );
+    for( ulong i=0UL; i<event_cnt; i++ ) {
+      if( event( i )->kind==AG_EVENT_POOL_PARENT_READY ) {
+        FD_TEST( event( i )->parent_ready.slot==slot1 );
+        FD_TEST( ag_block_id_eq( &event( i )->parent_ready.parent, &block0 ) );
+        found++;
+      }
     }
   }
-  FD_TEST( found );
+  FD_TEST( found==1 );
+  FD_TEST( is_parent_ready( pool, slot1, &block0 ) );
 
   teardown_pool( pool );
 }
@@ -1346,12 +1382,16 @@ test_wait_for_parent_ready( void ) {
   ag_pool_add_block( pool, &block2, &block1, bad );
   ag_pool_add_block( pool, &block1, &block0, bad );
 
+  parent = ag_pool_wait_for_parent_ready( pool, slot1 ); /* block0 has no cert, see test_parent_ready_upon_finalization */
+  FD_TEST( parent.slot==ULONG_MAX );
+
+  add_notar_votes( pool, block0.slot, block0.hash, 0UL, 7UL );
   parent = ag_pool_wait_for_parent_ready( pool, slot1 );
   FD_TEST( parent.slot!=ULONG_MAX );
   FD_TEST( ag_block_id_eq( &parent, &block0 ) );
 
-  ulong                 cnt   = 0UL;
-  ag_block_id_t const * ready = ag_pool_parents_ready( pool, slot1, &cnt );
+  ag_block_id_t ready[ 4 ];
+  ulong         cnt = ag_pool_parents_ready( pool, slot1, ready, 4UL );
   FD_TEST( cnt==1UL );
   FD_TEST( ag_block_id_eq( &ready[0], &parent ) );
 
@@ -1380,7 +1420,7 @@ setup_two_epoch_pool( ag_epoch_info_t ** out_a,
   FD_TEST( ag_pool_footprint( slot_max )<=sizeof(scratch) );
   ag_pool_t * pool = ag_pool_join( ag_pool_new( scratch, slot_max, 42UL ) );
   FD_TEST( pool );
-  ag_pool_init( pool, 0UL );
+  ag_pool_init( pool, &(ag_block_id_t){ .slot = 0UL } );
 
   ag_validator_info_t heavy[ NV ];
   for( ulong i=0UL; i<NV; i++ ) {
@@ -1654,6 +1694,7 @@ main( int     argc,
   test_slow_finalize_closing_gap_no_double_parent_ready();
   test_standstill_recovery();
   test_parent_ready_upon_finalization();
+  test_add_block_root_jump();
   test_safe_to_notar_notar_cert_only();
   test_safe_to_notar_fast_final_cert_only();
   test_safe_to_notar_awaiting_votes();

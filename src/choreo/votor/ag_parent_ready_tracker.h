@@ -2,7 +2,6 @@
 #define HEADER_fd_src_choreo_votor_ag_parent_ready_tracker_h
 
 #include "ag_votor_base.h"
-#include "ag_finality_tracker.h"
 
 struct ag_parent_ready {
   ulong         slot;
@@ -19,9 +18,13 @@ struct ag_parent_ready_state {
   ag_block_hash_t notar_fallbacks[AG_NOTAR_FALLBACK_CERT_MAX];
   uchar           notar_fallbacks_cnt;
 
-  int           is_ready;
-  ag_block_id_t ready_ids[AG_SLOTS_PER_WINDOW*AG_NOTAR_FALLBACK_CERT_MAX];
-  ulong         ready_id_cnt;
+  /* window starts only.  The ready parents of a window start are the
+     notar fallbacks of slots [b_lo,slot), Definition 15 with every
+     slot strictly between b_lo and slot skip certified. */
+
+  ulong         b_lo;            /* highest slot below that is not skipped, ULONG_MAX if slot-1 */
+  ag_block_id_t parent_ready_lo; /* lowest ready parent by (slot,hash), slot ULONG_MAX if none */
+  int           ready;           /* a ParentReady for this slot is queued but not delivered */
 };
 typedef struct ag_parent_ready_state ag_parent_ready_state_t;
 
@@ -88,26 +91,34 @@ ag_parent_ready_tracker_mark_skipped( ag_parent_ready_tracker_t * self,
                                       ag_parent_ready_t *         newly_certified,
                                       ulong *                     newly_certified_cnt );
 
-/* Definition 15. ParentReadyTracker::handle_finalization */
+/* ag_parent_ready_tracker_delivered marks the ParentReady queued for
+   slot as delivered, so the next ready parent queues another. */
 
-ag_parent_ready_t
-ag_parent_ready_tracker_handle_finalization( ag_parent_ready_tracker_t *     self,
-                                             ag_finalization_event_t const * event,
-                                             ag_parent_ready_t *             newly_certified,
-                                             ulong *                         newly_certified_cnt );
+void
+ag_parent_ready_tracker_delivered( ag_parent_ready_tracker_t * self,
+                                   ulong                       slot );
 
-/* Definition 15. ParentReadyTracker::parents_ready */
+/* Definition 15. ParentReadyTracker::parents_ready.  Writes up to
+   out_max ready parents of slot to out and returns how many are ready. */
 
-ag_block_id_t const *
-ag_parent_ready_tracker_parents_ready( ag_parent_ready_tracker_t * self,
-                                       ulong                       slot,
-                                       ulong *                     cnt );
+ulong
+ag_parent_ready_tracker_parents_ready( ag_parent_ready_tracker_t const * self,
+                                       ulong                             slot,
+                                       ag_block_id_t *                   out,
+                                       ulong                             out_max );
+
+/* Definition 15. Pool::is_parent_ready */
+
+int
+ag_parent_ready_tracker_is_parent_ready( ag_parent_ready_tracker_t const * self,
+                                         ulong                             slot,
+                                         ag_block_id_t const *             parent );
 
 /* Definition 15. ParentReadyTracker::wait_for_parent_ready; slot ULONG_MAX is the pending receiver */
 
 ag_block_id_t
-ag_parent_ready_tracker_wait_for_parent_ready( ag_parent_ready_tracker_t * self,
-                                               ulong                       slot );
+ag_parent_ready_tracker_wait_for_parent_ready( ag_parent_ready_tracker_t const * self,
+                                               ulong                             slot );
 
 /* Section 2.9. ParentReadyTracker::prune */
 

@@ -44,14 +44,17 @@ ag_votor_leave( ag_votor_t const * votor );
 void *
 ag_votor_delete( void * mem );
 
+/* ag_votor_init starts votor at root, a finalized block that is
+   treated as notarized (Section 2.9). */
+
 void
-ag_votor_init( ag_votor_t *   self,
-               ulong          slot,
-               long           now,
-               long           ns_per_slot,
-               ushort         shred_version,
-               fd_bls_sign_fn sign_fn,
-               void *         sign_ctx );
+ag_votor_init( ag_votor_t *          self,
+               ag_block_id_t const * root,
+               long                  now,
+               long                  ns_per_slot,
+               ushort                shred_version,
+               fd_bls_sign_fn        sign_fn,
+               void *                sign_ctx );
 
 void
 ag_votor_fini( ag_votor_t * self );

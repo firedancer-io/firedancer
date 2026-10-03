@@ -7,7 +7,6 @@ ag_parent_ready_tracker_align( void ) {
 
 ulong
 ag_parent_ready_tracker_footprint( ulong slot_max ) {
-  slot_max = fd_ulong_pow2_up( slot_max );
   ulong chain_cnt = ag_parent_ready_state_map_chain_cnt_est( slot_max );
   return FD_LAYOUT_FINI(
     FD_LAYOUT_APPEND(
@@ -39,8 +38,6 @@ ag_parent_ready_tracker_new( void * shmem,
     FD_LOG_WARNING(( "bad slot_max (%lu)", slot_max ));
     return NULL;
   }
-
-  slot_max = fd_ulong_pow2_up( slot_max );
 
   fd_memset( shmem, 0, footprint );
 
@@ -101,32 +98,10 @@ ag_parent_ready_tracker_delete( void * shtracker ) {
   return shtracker;
 }
 
-static void
-add_to_ready( ag_parent_ready_state_t * state,
-              ag_block_id_t const *     id ) {
-  if( FD_LIKELY( !state->is_ready ) ) {
-    state->ready_ids[ 0 ] = *id;
-    state->ready_id_cnt   = 1UL;
-    state->is_ready       = 1;
-  } else {
-    state->ready_ids[ state->ready_id_cnt++ ] = *id;
-  }
-}
-
-static ag_block_id_t
-wait_for_parent_ready( ag_parent_ready_state_t * state ) {
-  if( FD_UNLIKELY( state->is_ready ) ) {
-    ag_block_id_t arg_min = state->ready_ids[0];
-    for( ulong i=1; i<state->ready_id_cnt; i++ ) {
-      ag_block_id_t const * id = &state->ready_ids[i];
-      if( FD_UNLIKELY( id->slot<arg_min.slot ) || ( id->slot==arg_min.slot && 0>memcmp( id->hash, arg_min.hash, sizeof(ag_block_hash_t) ) ) ) {
-        arg_min = *id;
-      }
-    }
-    return arg_min;
-  } else {
-    return (ag_block_id_t){ .slot = ULONG_MAX };
-  }
+FD_FN_PURE static int
+block_id_lt( ag_block_id_t const * a,
+             ag_block_id_t const * b ) {
+  return a->slot<b->slot || ( a->slot==b->slot && 0>memcmp( a->hash, b->hash, sizeof(ag_block_hash_t) ) );
 }
 
 static ag_parent_ready_state_t *
@@ -140,25 +115,41 @@ slot_state( ag_parent_ready_tracker_t * self,
     FD_LOG_ERR(( "parent_ready_tracker: state pool exhausted (slot_max exceeded) at slot %lu", slot ));
   }
 
-  state                      = ag_parent_ready_state_pool_ele_acquire( pool );
-  state->slot                = slot;
-  state->skip                = 0;
-  state->notar_fallbacks_cnt = (uchar)0;
-  state->is_ready            = 0;
-  state->ready_id_cnt        = 0UL;
+  state                       = ag_parent_ready_state_pool_ele_acquire( pool );
+  state->slot                 = slot;
+  state->skip                 = 0;
+  state->notar_fallbacks_cnt  = (uchar)0;
+  state->b_lo                 = ULONG_MAX;
+  state->parent_ready_lo.slot = ULONG_MAX;
+  state->ready                = 0;
   ag_parent_ready_state_map_ele_insert( self->states.map, state, pool );
   return state;
 }
 
+static void
+add_to_ready( ag_parent_ready_tracker_t * self,
+              ulong                       slot,
+              ag_block_id_t const *       parent,
+              ag_parent_ready_t *         newly_certified,
+              ulong *                     newly_certified_cnt ) {
+  ag_parent_ready_state_t * state = slot_state( self, slot );
+  if( FD_LIKELY( state->parent_ready_lo.slot==ULONG_MAX || block_id_lt( parent, &state->parent_ready_lo ) ) ) state->parent_ready_lo = *parent;
+  if( FD_UNLIKELY( state->ready ) ) return;
+  state->ready = 1;
+  newly_certified[ *newly_certified_cnt ].slot   = slot;
+  newly_certified[ *newly_certified_cnt ].parent = state->parent_ready_lo;
+  (*newly_certified_cnt)++;
+}
+
 void
 ag_parent_ready_tracker_mark_notar_fallback( ag_parent_ready_tracker_t * self,
-                                             ag_block_id_t const *       id,
+                                             ag_block_id_t const *       block_id,
                                              ag_parent_ready_t *         newly_certified,
                                              ulong *                     newly_certified_cnt ) {
   *newly_certified_cnt = 0UL;
 
-  ulong         slot = id->slot;
-  uchar const * hash = id->hash;
+  ulong         slot = block_id->slot;
+  uchar const * hash = block_id->hash;
 
   if( FD_UNLIKELY( slot < self->root ) ) return;
 
@@ -166,124 +157,113 @@ ag_parent_ready_tracker_mark_notar_fallback( ag_parent_ready_tracker_t * self,
   for( ulong i=0UL; i<state->notar_fallbacks_cnt; i++ ) {
     if( FD_UNLIKELY( 0==memcmp( state->notar_fallbacks[i], hash, sizeof(ag_block_hash_t) ) ) ) return;
   }
+  FD_CHECK_CRIT( state->notar_fallbacks_cnt<AG_NOTAR_FALLBACK_CERT_MAX, "consensus safety violation" ); /* Lemma 48 */
   memcpy( state->notar_fallbacks[ state->notar_fallbacks_cnt++ ], hash, sizeof(ag_block_hash_t) );
 
-  for( ulong slot_=slot+1; ; slot_++ ) {
-    ag_parent_ready_state_t * state_ = slot_state( self, slot_ );
-    if( FD_UNLIKELY( ag_is_start_of_window( slot_ ) ) ) {
-      add_to_ready( state_, id );
-      newly_certified[ *newly_certified_cnt ].slot   = slot_;
-      newly_certified[ *newly_certified_cnt ].parent = *id;
-      (*newly_certified_cnt)++;
-    }
-    if( FD_LIKELY( !state_->skip ) ) break;
+  for( ulong s=slot+1UL; ; s++ ) {
+    if( FD_UNLIKELY( ag_is_start_of_window( s ) ) ) add_to_ready( self, s, block_id, newly_certified, newly_certified_cnt );
+    ag_parent_ready_state_t const * next = ag_parent_ready_state_map_ele_query_const( self->states.map, &s, NULL, self->states.pool );
+    if( FD_LIKELY( !next || !next->skip ) ) break;
   }
-  return;
 }
 
 void
 ag_parent_ready_tracker_mark_skipped( ag_parent_ready_tracker_t * self,
-                                      ulong                       marked_slot,
+                                      ulong                       skipped_slot,
                                       ag_parent_ready_t *         newly_certified,
                                       ulong *                     newly_certified_cnt ) {
   *newly_certified_cnt = 0UL;
 
-  if( FD_UNLIKELY( marked_slot < self->root ) ) return;
-  ag_parent_ready_state_t * state = slot_state( self, marked_slot );
+  if( FD_UNLIKELY( skipped_slot < self->root ) ) return;
+  ag_parent_ready_state_t * state = slot_state( self, skipped_slot );
   if( FD_UNLIKELY( state->skip ) ) return;
   state->skip = 1;
 
-  ag_block_id_t potential_parents[ AG_SLOTS_PER_WINDOW*AG_NOTAR_FALLBACK_CERT_MAX ];
-  ulong         potential_cnt = 0UL;
+  /* The skip extends every chain ending at skipped_slot down to b_lo,
+     the highest slot below skipped_slot that is not skipped.  The
+     newly ready parents are the notar fallbacks of [b_lo,skipped_slot).
+     Setting b_lo makes all of them ready, and parent_ready_lo is set to
+     their minimum. */
 
-  for( ulong slot=marked_slot; slot>=fd_ulong_max( ag_first_slot_in_window( marked_slot ), self->root ); slot-- ) {
-    ag_parent_ready_state_t * state = slot_state( self, slot );
-
-    if( FD_LIKELY( slot!=marked_slot ) ) {
-      for( ulong i=0UL; i<state->notar_fallbacks_cnt; i++ ) {
-        FD_TEST( potential_cnt < AG_SLOTS_PER_WINDOW*AG_NOTAR_FALLBACK_CERT_MAX );
-        potential_parents[ potential_cnt ] = ag_block_id( slot, state->notar_fallbacks[i] );
-        potential_cnt++;
-      }
+  ag_block_id_t parent = { .slot = ULONG_MAX };
+  ulong         b_lo   = ULONG_MAX;
+  ulong         first  = ag_first_slot_in_window( skipped_slot );
+  for( ulong slot=skipped_slot; slot>fd_ulong_max( first, self->root ); ) {
+    slot--;
+    ag_parent_ready_state_t const * prev = ag_parent_ready_state_map_ele_query_const( self->states.map, &slot, NULL, self->states.pool );
+    for( ulong i=0UL; prev && i<prev->notar_fallbacks_cnt; i++ ) {
+      ag_block_id_t nf = ag_block_id( slot, prev->notar_fallbacks[i] );
+      if( parent.slot==ULONG_MAX || block_id_lt( &nf, &parent ) ) parent = nf;
     }
-
-    if( FD_LIKELY( !state->skip ) ) break;
-
-    for( ulong i=0UL; i<state->ready_id_cnt; i++ ) {
-      FD_TEST( potential_cnt < AG_SLOTS_PER_WINDOW*AG_NOTAR_FALLBACK_CERT_MAX );
-      potential_parents[ potential_cnt ] = state->ready_ids[i];
-      potential_cnt++;
-    }
+    if( FD_LIKELY( !prev || !prev->skip ) ) { b_lo = slot; break; }
+  }
+  if( FD_UNLIKELY( b_lo==ULONG_MAX ) ) { /* [first,skipped_slot) all skipped, the window start knows the rest */
+    ag_parent_ready_state_t const * start = ag_parent_ready_state_map_ele_query_const( self->states.map, &first, NULL, self->states.pool );
+    b_lo = ( start && start->b_lo!=ULONG_MAX ) ? start->b_lo : fd_ulong_sat_sub( first, 1UL );
+    if( start && start->parent_ready_lo.slot!=ULONG_MAX && start->parent_ready_lo.slot>=self->root && ( parent.slot==ULONG_MAX || block_id_lt( &start->parent_ready_lo, &parent ) ) ) parent = start->parent_ready_lo;
   }
 
-  for( ulong s=marked_slot+1UL; ; s++ ) {
-    ag_parent_ready_state_t * fstate = slot_state( self, s );
+  for( ulong s=skipped_slot+1UL; ; s++ ) {
     if( FD_UNLIKELY( ag_is_start_of_window( s ) ) ) {
-      for( ulong i=0UL; i<potential_cnt; i++ ) {
-        add_to_ready( fstate, &potential_parents[i] );
-        FD_TEST( *newly_certified_cnt < ag_parent_ready_state_pool_max( self->states.pool ) ); /* caller sized for slot_max */
-        newly_certified[ *newly_certified_cnt ].slot   = s;
-        newly_certified[ *newly_certified_cnt ].parent = potential_parents[i];
-        (*newly_certified_cnt)++;
-      }
+      slot_state( self, s )->b_lo = b_lo;
+      if( FD_LIKELY( parent.slot!=ULONG_MAX ) ) add_to_ready( self, s, &parent, newly_certified, newly_certified_cnt );
     }
-    if( FD_LIKELY( !fstate->skip ) ) break;
-  }
-  return;
-}
-
-static void
-keep_highest( ag_parent_ready_t *       best,
-              ag_parent_ready_t const * ready,
-              ulong                     ready_cnt ) {
-  for( ulong i=0UL; i<ready_cnt; i++ ) {
-    if( FD_LIKELY( best->slot==ULONG_MAX || ready[i].slot>=best->slot ) ) *best = ready[i];
+    ag_parent_ready_state_t const * next = ag_parent_ready_state_map_ele_query_const( self->states.map, &s, NULL, self->states.pool );
+    if( FD_LIKELY( !next || !next->skip ) ) break;
   }
 }
 
-ag_parent_ready_t
-ag_parent_ready_tracker_handle_finalization( ag_parent_ready_tracker_t *     self,
-                                             ag_finalization_event_t const * event,
-                                             ag_parent_ready_t *             newly_certified,
-                                             ulong *                         newly_certified_cnt ) {
-  ag_parent_ready_t best;
-  fd_memset( &best, 0, sizeof(ag_parent_ready_t) );
-  best.slot = ULONG_MAX;
-
-  if( FD_LIKELY( event->finalized.slot!=ULONG_MAX ) ) {
-    ag_parent_ready_tracker_mark_notar_fallback( self, &event->finalized, newly_certified, newly_certified_cnt );
-    keep_highest( &best, newly_certified, *newly_certified_cnt );
-  }
-
-  for( ulong j=0UL; j<event->implicitly_finalized_cnt; j++ ) {
-    ag_parent_ready_tracker_mark_notar_fallback( self, &event->implicitly_finalized[j], newly_certified, newly_certified_cnt );
-    keep_highest( &best, newly_certified, *newly_certified_cnt );
-  }
-
-  for( ulong j=0UL; j<event->implicitly_skipped_cnt; j++ ) {
-    ag_parent_ready_tracker_mark_skipped( self, event->implicitly_skipped[j], newly_certified, newly_certified_cnt );
-    keep_highest( &best, newly_certified, *newly_certified_cnt );
-  }
-
-  return best;
-}
-
-ag_block_id_t const *
-ag_parent_ready_tracker_parents_ready( ag_parent_ready_tracker_t * self,
-                                       ulong                       slot,
-                                       ulong *                     cnt ) {
+void
+ag_parent_ready_tracker_delivered( ag_parent_ready_tracker_t * self,
+                                   ulong                       slot ) {
   ag_parent_ready_state_t * state = ag_parent_ready_state_map_ele_query( self->states.map, &slot, NULL, self->states.pool );
-  if( FD_UNLIKELY( !state ) ) { *cnt = 0UL; return NULL; }
-  *cnt = state->ready_id_cnt;
-  return state->ready_ids;
+  if( FD_LIKELY( state ) ) state->ready = 0;
+}
+
+ulong
+ag_parent_ready_tracker_parents_ready( ag_parent_ready_tracker_t const * self,
+                                       ulong                             slot,
+                                       ag_block_id_t *                   out,
+                                       ulong                             out_max ) {
+  if( FD_UNLIKELY( !ag_is_start_of_window( slot ) || slot<=self->root ) ) return 0UL;
+
+  ag_parent_ready_state_t const * state = ag_parent_ready_state_map_ele_query_const( self->states.map, &slot, NULL, self->states.pool );
+  ulong                           b_lo  = ( state && state->b_lo!=ULONG_MAX ) ? state->b_lo : slot-1UL;
+
+  ulong cnt = 0UL;
+  for( ulong s=fd_ulong_max( b_lo, self->root ); s<slot; s++ ) {
+    ag_parent_ready_state_t const * nf = ag_parent_ready_state_map_ele_query_const( self->states.map, &s, NULL, self->states.pool );
+    for( ulong i=0UL; nf && i<nf->notar_fallbacks_cnt; i++ ) {
+      if( FD_LIKELY( cnt<out_max ) ) out[ cnt ] = ag_block_id( s, nf->notar_fallbacks[i] );
+      cnt++;
+    }
+  }
+  return cnt;
+}
+
+int
+ag_parent_ready_tracker_is_parent_ready( ag_parent_ready_tracker_t const * self,
+                                         ulong                             slot,
+                                         ag_block_id_t const *             parent ) {
+  if( FD_UNLIKELY( !ag_is_start_of_window( slot ) || parent->slot>=slot || parent->slot<self->root ) ) return 0;
+
+  ag_parent_ready_state_t const * state = ag_parent_ready_state_map_ele_query_const( self->states.map, &slot, NULL, self->states.pool );
+  ulong                           b_lo  = ( state && state->b_lo!=ULONG_MAX ) ? state->b_lo : slot-1UL;
+  if( FD_UNLIKELY( parent->slot<b_lo ) ) return 0;
+
+  ag_parent_ready_state_t const * nf = ag_parent_ready_state_map_ele_query_const( self->states.map, &parent->slot, NULL, self->states.pool );
+  for( ulong i=0UL; nf && i<nf->notar_fallbacks_cnt; i++ ) {
+    if( FD_UNLIKELY( 0==memcmp( nf->notar_fallbacks[i], parent->hash, sizeof(ag_block_hash_t) ) ) ) return 1;
+  }
+  return 0;
 }
 
 ag_block_id_t
-ag_parent_ready_tracker_wait_for_parent_ready( ag_parent_ready_tracker_t * self,
-                                               ulong                       slot ) {
-  ag_parent_ready_state_t * state = ag_parent_ready_state_map_ele_query( self->states.map, &slot, NULL, self->states.pool );
-  if( FD_UNLIKELY( !state ) ) return (ag_block_id_t){ .slot = ULONG_MAX };
-  return wait_for_parent_ready( state );
+ag_parent_ready_tracker_wait_for_parent_ready( ag_parent_ready_tracker_t const * self,
+                                               ulong                             slot ) {
+  ag_parent_ready_state_t const * state = ag_parent_ready_state_map_ele_query_const( self->states.map, &slot, NULL, self->states.pool );
+  if( FD_UNLIKELY( !state || state->parent_ready_lo.slot<self->root ) ) return (ag_block_id_t){ .slot = ULONG_MAX };
+  return state->parent_ready_lo;
 }
 
 void
