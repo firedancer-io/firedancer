@@ -30,12 +30,17 @@ fsync: (eq (arg 0) logfile_fd)
 # tower: write the tower file to the staging file, then exchange the
 #        staging and live names so the live file is always complete
 #
-# arg 0 is the file descriptor to write to or truncate.
-pwrite64: (or (eq (arg 0) tower_fd_0)
-              (eq (arg 0) tower_fd_1))
+# arg 0 is the file descriptor to write to or truncate.  The whole file
+# is written at offset 0 (arg 3), and it is at most FD_TOWER_FILE_MAX
+# bytes (arg 2 of pwrite64, arg 1 of ftruncate).
+pwrite64: (and (or (eq (arg 0) tower_fd_0)
+                   (eq (arg 0) tower_fd_1))
+               (<= (arg 2) FD_TOWER_FILE_MAX)
+               (eq (arg 3) 0))
 
-ftruncate: (or (eq (arg 0) tower_fd_0)
-               (eq (arg 0) tower_fd_1))
+ftruncate: (and (or (eq (arg 0) tower_fd_0)
+                    (eq (arg 0) tower_fd_1))
+                (<= (arg 1) FD_TOWER_FILE_MAX))
 
 # arg 0 and arg 2 are the directory of the two names, arg 4 is the flags,
 # always RENAME_EXCHANGE (2).

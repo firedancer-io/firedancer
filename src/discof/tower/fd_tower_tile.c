@@ -1,5 +1,6 @@
 #define _GNU_SOURCE /* syscall, RENAME_EXCHANGE */
 #include "fd_tower_tile.h"
+#include "../../choreo/tower/fd_tower_file.h"
 #include <linux/futex.h>
 #include "generated/fd_tower_tile_seccomp.h"
 

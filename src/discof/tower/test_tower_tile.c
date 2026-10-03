@@ -15,7 +15,10 @@ mock_query_voters( fd_tower_tile_t *            ctx,
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include <sys/mman.h>
+#include <sys/prctl.h>
+#include <sys/wait.h>
 
 /* mock_vote_txn builds a vote transaction from a tower.  Constructs an
    fd_tower_t with the given (slot, conf) pairs, serializes it via
@@ -1255,6 +1258,55 @@ test_tower_file_paths( void ) {
   FD_LOG_NOTICE(( "pass: test_tower_file_paths" ));
 }
 
+/* tower_filter_allows does a pwrite or ftruncate under the tower tile
+   seccomp filter in a child, and returns whether it passed the filter.
+   The child then reports on the pipe it was given as the log fd. */
+
+static int
+tower_filter_allows( int   ftrunc,
+                     ulong sz,
+                     long  off ) {
+  int pipe_fd[ 2 ];
+  FD_TEST( !pipe( pipe_fd ) );
+  int file_fd = open( "/dev/null", O_WRONLY );
+  FD_TEST( -1!=file_fd );
+
+  pid_t pid = fork();
+  FD_TEST( -1!=pid );
+  if( !pid ) {
+    static uchar       buf[ 2UL*FD_TOWER_FILE_MAX ];
+    struct sock_filter filter[ 128UL ];
+    populate_sock_filter_policy_fd_tower_tile( 128UL, filter, (uint)pipe_fd[ 1 ], UINT_MAX, (uint)file_fd, UINT_MAX, UINT_MAX );
+    struct sock_fprog prog = { .len = (ushort)sock_filter_policy_fd_tower_tile_instr_cnt, .filter = filter };
+    FD_TEST( !prctl( PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0 ) );
+    FD_TEST( !prctl( PR_SET_SECCOMP, SECCOMP_MODE_FILTER, &prog ) );
+    long ret = ftrunc ? ftruncate( file_fd, (long)sz ) : pwrite( file_fd, buf, sz, off );
+    (void)ret;
+    ret = write( pipe_fd[ 1 ], "y", 1UL );
+    _exit( 0 );
+  }
+
+  close( pipe_fd[ 1 ] );
+  char c;
+  long n = read( pipe_fd[ 0 ], &c, 1UL );
+  int  wstatus;
+  FD_TEST( pid==waitpid( pid, &wstatus, 0 ) );
+  close( pipe_fd[ 0 ] );
+  close( file_fd );
+  return n==1L;
+}
+
+static void
+test_tower_file_seccomp( void ) {
+  FD_TEST(  tower_filter_allows( 0, FD_TOWER_FILE_MAX,     0L ) );
+  FD_TEST( !tower_filter_allows( 0, FD_TOWER_FILE_MAX+1UL, 0L ) );
+  FD_TEST( !tower_filter_allows( 0, 1UL,                   1L ) );
+  FD_TEST(  tower_filter_allows( 1, FD_TOWER_FILE_MAX,     0L ) );
+  FD_TEST( !tower_filter_allows( 1, FD_TOWER_FILE_MAX+1UL, 0L ) );
+
+  FD_LOG_NOTICE(( "pass: test_tower_file_seccomp" ));
+}
+
 static int
 tower_file_authorized( fd_compact_tower_sync_serde_t const * sync,
                        fd_pubkey_t const *                   identity ) {
@@ -1304,6 +1356,7 @@ main( int     argc,
   test_parent_vote_txn_recent_blockhash();
   test_tower_file_keyguard();
   test_tower_file_paths();
+  test_tower_file_seccomp();
 
   char const * _page_sz = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",  NULL, "gigantic"              );
   ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 4UL                     );
