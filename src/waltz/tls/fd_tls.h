@@ -282,7 +282,8 @@ struct fd_tls {
 
   /* Flags */
   ulong quic            :  1;
-  ulong _flags_reserved : 63;
+  ulong req_client_cert :  1;  /* server: send CertificateRequest */
+  ulong _flags_reserved : 62;
 };
 
 typedef struct fd_tls fd_tls_t;

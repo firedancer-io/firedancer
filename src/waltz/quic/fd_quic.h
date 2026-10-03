@@ -161,6 +161,7 @@ struct __attribute__((aligned(16UL))) fd_quic_config {
   X( identity_public_key,         "%x",     hex32, "",             __VA_ARGS__ ) \
   X( sign,                        "%p",     ptr,   "",             __VA_ARGS__ ) \
   X( sign_ctx,                    "%p",     ptr,   "",             __VA_ARGS__ ) \
+  X( req_client_cert,             "%d",     bool,  "bool",         __VA_ARGS__ ) \
   X( initial_rx_max_stream_data,  "%lu",    units, "bytes",        __VA_ARGS__ ) \
   X( max_datagram_frame_size,     "%lu",    units, "bytes",        __VA_ARGS__ ) \
   X( net.dscp,                    "0x%02x", value, "",             __VA_ARGS__ )
@@ -216,6 +217,11 @@ struct __attribute__((aligned(16UL))) fd_quic_config {
   /* alpn: either "solana-tpu" or "alpenglow-v1" */
   uchar alpn[ 32 ];
   ulong alpn_sz;
+
+  /* req_client_cert (server): request a client certificate during the
+     TLS handshake.  Clients are then required to authenticate with an
+     Ed25519 key, available at conn->tls_hs->hs.srv.client_pubkey. */
+  int req_client_cert;
 
   ulong initial_rx_max_stream_data; /* per-stream, rx buf sz in bytes, set by the user. */
   ulong max_datagram_frame_size;    /* RFC 9221 RX frame limit; zero disables DATAGRAM */
