@@ -30,23 +30,36 @@ FD_PROTOTYPES_BEGIN
    configured numa nodes / cpus (roughly equivalent to libnuma's
    numa_num_configured_nodes / numa_num_configured_cpus).  Returns 0 if
    this could not be determined (logs details on failure).  These
-   function are only used during shmem initialization as part of
-   topology discovery so should not do any fancy caching under the hood. */
+   functions are only used during shmem initialization as part of
+   topology discovery so should not do any fancy caching under the hood.
+
+   numa_enabled should be non-zero when NUMA policy syscalls are known
+   to be available (detected via ENOSYS probe), zero otherwise.
+   When zero, ENOENT on the sysfs NUMA node directory is treated as
+   "single NUMA node" rather than an error, since on systems without
+   NUMA the directory is expected to be absent. */
 
 ulong
-fd_numa_node_cnt( void );
+fd_numa_node_cnt( int numa_enabled );
 
 ulong
 fd_numa_cpu_cnt( void );
 
 /* fd_numa_node_idx determines the numa node closest to the given
-   cpu_idx (roughly equivalent to libnuma's numa_node_of_cpu).  Returns
-   ULONG_MAX if this could not be determined (logs details on failure).
+   cpu_idx (roughly equivalent to libnuma's numa_node_of_cpu).
+
+   When numa_enabled is non-zero (NUMA policy syscalls are available),
+   returns ULONG_MAX if the node could not be determined (logs details
+   on failure).  When numa_enabled is zero, returns 0 so that all CPUs
+   map to the single assumed NUMA node.
+
    This function is only used during shmem initialization as part of
-   topology discovery so should not do any fancy caching under the hood. */
+   topology discovery so should not do any fancy caching under the
+   hood. */
 
 ulong
-fd_numa_node_idx( ulong cpu_idx );
+fd_numa_node_idx( ulong cpu_idx,
+                  int   numa_enabled );
 
 /* FIXME: probably should clean up the below APIs to get something
    that allows for cleaner integration with fd_shmem_admin.c (e.g. if we
@@ -74,30 +87,40 @@ fd_numa_munlock( void const * addr,
 /* fd_numa_get_mempolicy retrieves the NUMA memory policy of the
    current thread.  Wraps the `get_mempolicy(2)` Linux syscall.  See:
 
-     https://man7.org/linux/man-pages/man2/get_mempolicy.2.html */
+     https://man7.org/linux/man-pages/man2/get_mempolicy.2.html
+
+   numa_enabled should be non-zero when NUMA policy syscalls are known
+   to be available, zero otherwise.  When zero, ENOSYS is treated as a
+   non-fatal condition and the call returns 0. */
 
 long
 fd_numa_get_mempolicy( int *   mode,
                        ulong * nodemask,
                        ulong   maxnode,
                        void *  addr,
-                       uint    flags );
+                       uint    flags,
+                       int     numa_enabled );
 
 /* fd_numa_set_mempolicy sets the default NUMA memory policy of the
    current thread and its children.  Wraps the `set_mempolicy(2)` Linux
    syscall.  See:
 
-     https://man7.org/linux/man-pages/man2/set_mempolicy.2.html */
+     https://man7.org/linux/man-pages/man2/set_mempolicy.2.html
+
+   See fd_numa_get_mempolicy for the numa_enabled semantics. */
 
 long
 fd_numa_set_mempolicy( int           mode,
                        ulong const * nodemask,
-                       ulong         maxnode );
+                       ulong         maxnode,
+                       int           numa_enabled );
 
 /* fd_numa_mbind sets the NUMA memory policy for a range of memory.
    Wraps the `mbind(2)` Linux syscall.  See:
 
-     https://man7.org/linux/man-pages/man2/mbind.2.html */
+     https://man7.org/linux/man-pages/man2/mbind.2.html
+
+   See fd_numa_get_mempolicy for the numa_enabled semantics. */
 
 long
 fd_numa_mbind( void *        addr,
@@ -105,7 +128,8 @@ fd_numa_mbind( void *        addr,
                int           mode,
                ulong const * nodemask,
                ulong         maxnode,
-               uint          flags );
+               uint          flags,
+               int           numa_enabled );
 
 /* fd_numa_move_page moves pages of a process to another node.  Wraps
    the `move_pages(2)` Linux syscall.  See:
