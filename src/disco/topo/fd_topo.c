@@ -247,16 +247,17 @@ fd_topo_tile_extra_normal_pages( fd_topo_tile_t const * tile ) {
 
       /* completion ring */
       xsk_rings_sz_bytes += tile->xdp.xdp_tx_queue_size * xdp_address_sz_bytes;
-      /* free ring */
-      xsk_rings_sz_bytes += tile->xdp.free_ring_depth   * xdp_address_sz_bytes;
+      /* fill ring */
+      xsk_rings_sz_bytes += tile->xdp.xdp_rx_queue_size * xdp_address_sz_bytes * 2UL;
 
-      key_pages += fd_ulong_align_up( xsk_rings_sz_bytes, FD_SHMEM_NORMAL_PAGE_SZ ) / FD_SHMEM_NORMAL_PAGE_SZ;
+      ulong xsk_cnt = ( strcmp( tile->xdp.if_virt, "lo" ) && !tile->kind_id ) ? 2UL : 1UL;
+      key_pages += xsk_cnt * fd_ulong_align_up( xsk_rings_sz_bytes, FD_SHMEM_NORMAL_PAGE_SZ ) / FD_SHMEM_NORMAL_PAGE_SZ;
 
       /* All 4 rings must store a ring header. This is 320 bytes
          per ring as of linux v6.18.3, however could change in
          the future so allow up to a full 4KB page per ring to
          be safe. */
-      key_pages += 4UL;
+      key_pages += xsk_cnt * 4UL;
   }
 
   return key_pages;

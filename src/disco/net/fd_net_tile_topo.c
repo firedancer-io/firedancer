@@ -190,10 +190,6 @@ setup_xdp_tile( fd_topo_t *             topo,
   /* Allocate free ring */
 
   tile->xdp.free_ring_depth = tile->xdp.xdp_tx_queue_size;
-  if( tile_kind_id==0 ) {
-    /* Allocate additional frames for loopback */
-    tile->xdp.free_ring_depth += 16384UL;
-  }
 }
 
 static void
