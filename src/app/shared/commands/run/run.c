@@ -407,10 +407,13 @@ main_pid_namespace( void * _args ) {
   ulong store_obj_id = fd_pod_query_ulong( config->topo.props, "store", ULONG_MAX );
   int   has_store     = store_obj_id!=ULONG_MAX;
   ulong snap_max                = 0UL;
+  ulong snap_retained_max       = 0UL;
   int   snapshot_upload_enabled = 0;
   int   snapshot_dio_enabled    = 0;
   if( config->is_firedancer ) {
     snap_max                = initialize_snapshot_fds( config );
+    snap_retained_max       = (ulong)config->firedancer.snapshots.max_full_snapshots_to_keep +
+                              (ulong)config->firedancer.snapshots.max_incremental_snapshots_to_keep;
     snapshot_upload_enabled = fd_topo_find_tile( &config->topo, "snapsv", 0UL )!=ULONG_MAX;
     snapshot_dio_enabled    = fd_topo_find_tile( &config->topo, "snapzp", 0UL )!=ULONG_MAX;
   }
@@ -513,19 +516,20 @@ main_pid_namespace( void * _args ) {
         if( FD_UNLIKELY( -1==fcntl( FD_STAKE_DELEGATIONS_FD, F_SETFD, tile_uses_stake_spill ? 0 : FD_CLOEXEC ) ) )
           FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-        int tile_uses_snap_fd     = !strcmp( tile->name, "snapct" ) ||
-                                    !strcmp( tile->name, "snapmk" );
+        int tile_uses_snap_fd     = !strcmp( tile->name, "snapmk" );
         int tile_uses_snap_dio_fd = !strcmp( tile->name, "snapzp" );
         int tile_uses_snap_rd_fd  = !strcmp( tile->name, "snapsv" );
+        int tile_uses_snap_all_fd = !strcmp( tile->name, "snapct" );
         for( ulong j=0UL; j<snap_max; j++ ) {
-          if( FD_UNLIKELY( -1==fcntl( FD_SNAP_FD( j ), F_SETFD, tile_uses_snap_fd ? 0 : FD_CLOEXEC ) ) )
+          int retained = j<snap_retained_max;
+          if( FD_UNLIKELY( -1==fcntl( FD_SNAP_FD( j ), F_SETFD, tile_uses_snap_all_fd || ( tile_uses_snap_fd && retained ) ? 0 : FD_CLOEXEC ) ) )
             FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
           if( snapshot_dio_enabled ) {
-            if( FD_UNLIKELY( -1==fcntl( FD_SNAP_DIO_FD( j ), F_SETFD, tile_uses_snap_dio_fd ? 0 : FD_CLOEXEC ) ) )
+            if( FD_UNLIKELY( -1==fcntl( FD_SNAP_DIO_FD( j ), F_SETFD, tile_uses_snap_dio_fd && retained ? 0 : FD_CLOEXEC ) ) )
               FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
           }
           if( snapshot_upload_enabled ) {
-            if( FD_UNLIKELY( -1==fcntl( FD_SNAP_RO_FD( j ), F_SETFD, tile_uses_snap_rd_fd ? 0 : FD_CLOEXEC ) ) )
+            if( FD_UNLIKELY( -1==fcntl( FD_SNAP_RO_FD( j ), F_SETFD, tile_uses_snap_rd_fd && retained ? 0 : FD_CLOEXEC ) ) )
               FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
           }
         }
