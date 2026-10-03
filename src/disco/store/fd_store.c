@@ -4,7 +4,6 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <unistd.h>
-#include <linux/falloc.h>
 
 #define FD_STORE_FEC_DATA_VIEW_SPILL (1U)
 
@@ -99,11 +98,6 @@ cache_free_laddr( fd_store_t const * store ) {
 static inline uint *
 spill_free_laddr( fd_store_t const * store ) {
   return fd_wksp_laddr_fast( fd_store_wksp( store ), store->spill_free_gaddr );
-}
-
-static inline uint *
-spill_reclaim_laddr( fd_store_t const * store ) {
-  return fd_wksp_laddr_fast( fd_store_wksp( store ), store->spill_reclaim_gaddr );
 }
 
 static inline uchar *
@@ -201,25 +195,10 @@ cache_lru_push_tail_locked( fd_store_t *     store,
 }
 
 static void
-spill_reclaim_push_locked( fd_store_t * store,
-                           uint         spill_slot ) {
-  FD_TEST( spill_slot<store->spill_slot_cnt );
-  FD_TEST( store->spill_reclaim_cnt+store->spill_reclaiming_cnt+store->spill_reuse_cnt<store->fec_max );
-  spill_reclaim_laddr( store )[ store->spill_reclaim_cnt++ ] = spill_slot;
-}
-
-static void
-spill_reuse_push_locked( fd_store_t * store,
-                         uint         spill_slot ) {
-  FD_TEST( spill_slot<store->spill_slot_cnt );
-  FD_TEST( store->spill_reclaim_cnt+store->spill_reclaiming_cnt+store->spill_reuse_cnt<store->fec_max );
-  spill_reclaim_laddr( store )[ store->fec_max-1UL-store->spill_reuse_cnt++ ] = spill_slot;
-}
-
-static uint
-spill_reuse_pop_locked( fd_store_t * store ) {
-  FD_TEST( store->spill_reuse_cnt );
-  return spill_reclaim_laddr( store )[ store->fec_max-store->spill_reuse_cnt-- ];
+spill_free_push_locked( fd_store_t * store,
+                        uint         spill_slot ) {
+  FD_TEST( spill_slot<store->spill_slot_cnt && store->spill_free_cnt<store->spill_slot_cnt );
+  spill_free_laddr( store )[ store->spill_free_cnt++ ] = spill_slot;
 }
 
 static void
@@ -237,7 +216,7 @@ cache_consume_locked( fd_store_t *     store,
     ulong spill_slot = fec->data_off / store->payload_slot_sz;
     FD_TEST( spill_slot<store->spill_slot_cnt && atomic_load_explicit( &store->spill_live_cnt, memory_order_relaxed ) );
     atomic_fetch_sub_explicit( &store->spill_live_cnt, 1UL, memory_order_relaxed );
-    spill_reclaim_push_locked( store, (uint)spill_slot );
+    spill_free_push_locked( store, (uint)spill_slot );
   }
 
   fec->data_off             = 0UL;
@@ -278,21 +257,11 @@ spill_one_locked( fd_store_t                 * store,
   FD_TEST( victim->data_sz<=store->fec_data_max );
 
   uint spill_slot;
-  int  spill_slot_allocated;
-  if( FD_LIKELY( store->spill_reuse_cnt ) ) {
-    spill_slot           = spill_reuse_pop_locked( store );
-    spill_slot_allocated = 1;
-  } else if( FD_LIKELY( store->spill_reclaim_cnt ) ) {
-    spill_slot           = spill_reclaim_laddr( store )[ --store->spill_reclaim_cnt ];
-    spill_slot_allocated = 1;
-  } else if( FD_LIKELY( store->spill_free_cnt ) ) {
-    spill_slot           = spill_free_laddr( store )[ --store->spill_free_cnt ];
-    spill_slot_allocated = 0;
+  if( FD_LIKELY( store->spill_free_cnt ) ) {
+    spill_slot = spill_free_laddr( store )[ --store->spill_free_cnt ];
   } else {
-    if( FD_UNLIKELY( store->spill_slot_cnt>=store->fec_max ) )
-      return store->spill_reclaiming_cnt ? FD_STORE_SPILL_RETRY : FD_STORE_SPILL_NONE;
-    spill_slot           = (uint)store->spill_slot_cnt++;
-    spill_slot_allocated = 0;
+    if( FD_UNLIKELY( store->spill_slot_cnt>=store->fec_max ) ) return FD_STORE_SPILL_NONE;
+    spill_slot = (uint)store->spill_slot_cnt++;
   }
 
   ulong ram_off   = victim->data_off;
@@ -312,8 +281,7 @@ spill_one_locked( fd_store_t                 * store,
   int result;
   if( FD_UNLIKELY( victim->data_pin_cnt || victim->data_consume_pending ) ) {
     int try_next = !!victim->data_pin_cnt;
-    atomic_fetch_add_explicit( &store->spill_allocated_cnt, (ulong)!spill_slot_allocated, memory_order_relaxed );
-    spill_reclaim_push_locked( store, spill_slot );
+    spill_free_push_locked( store, spill_slot );
     victim->data_state = victim->data_consume_pending && !victim->data_pin_cnt
                        ? FD_STORE_FEC_DATA_RAM_WRITING
                        : FD_STORE_FEC_DATA_RAM_READY;
@@ -326,7 +294,6 @@ spill_one_locked( fd_store_t                 * store,
     victim->data_off   = spill_off;
     victim->data_state = FD_STORE_FEC_DATA_DISK;
     atomic_fetch_add_explicit( &store->spill_live_cnt, 1UL, memory_order_relaxed );
-    atomic_fetch_add_explicit( &store->spill_allocated_cnt, (ulong)!spill_slot_allocated, memory_order_relaxed );
     atomic_fetch_add_explicit( &store->fec_spill_cnt, 1UL, memory_order_relaxed );
     atomic_fetch_add_explicit( &store->fec_spill_bytes, data_sz, memory_order_relaxed );
     cache_slot_release_locked( store, ram_off );
@@ -385,7 +352,6 @@ fd_store_new( void       * shmem,
   uchar *        cache_mem      = FD_SCRATCH_ALLOC_APPEND( l, FD_STORE_PAYLOAD_PAGE_SZ, payload_slot_sz*cache_slot_cnt      );
   ulong *        cache_free     = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),           sizeof(ulong)*cache_slot_cnt        );
   uint *         spill_free     = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),            sizeof(uint)*fec_max                );
-  uint *         spill_reclaim  = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),            sizeof(uint)*fec_max                );
   uchar *        spill_read_mem = FD_SCRATCH_ALLOC_APPEND( l, FD_STORE_PAYLOAD_PAGE_SZ, payload_slot_sz                      );
   fd_fec_set_t * fec_sets       = fec_set_cnt
                                 ? FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_fec_set_t), sizeof(fd_fec_set_t)*fec_set_cnt )
@@ -450,7 +416,6 @@ fd_store_new( void       * shmem,
   store->cache_lru_head        = UINT_MAX;
   store->cache_lru_tail        = UINT_MAX;
   store->spill_free_gaddr      = fd_wksp_gaddr_fast( wksp, spill_free );
-  store->spill_reclaim_gaddr   = fd_wksp_gaddr_fast( wksp, spill_reclaim );
   store->spill_read_data_gaddr = fd_wksp_gaddr_fast( wksp, spill_read_mem );
   store->fec_set_cnt           = fec_set_cnt;
   store->fec_sets_gaddr        = fec_set_cnt ? fd_wksp_gaddr_fast( wksp, fec_sets ) : 0UL;
@@ -460,7 +425,6 @@ fd_store_new( void       * shmem,
   fd_rwlock_new( &store->fec_lock );
   atomic_init( &store->fec_spill_cnt, 0UL );
   atomic_init( &store->spill_live_cnt, 0UL );
-  atomic_init( &store->spill_allocated_cnt, 0UL );
   atomic_init( &store->fec_spill_bytes, 0UL );
   atomic_init( &store->fec_spill_read_cnt, 0UL );
   atomic_init( &store->fec_spill_read_bytes, 0UL );
@@ -1278,48 +1242,6 @@ fd_store_disk_query_highest( fd_store_t const * store,
   return FD_STORE_DISK_QUERY_BUSY;
 }
 
-static int
-spill_reclaim_one( fd_store_t * store,
-                   int          disk_fd ) {
-  if( FD_LIKELY( !FD_VOLATILE_CONST( store->spill_reclaim_cnt ) ) ) return 0;
-
-  fd_rwlock_write( &store->cache_lock );
-  if( FD_LIKELY( !store->spill_reclaim_cnt ) ) {
-    fd_rwlock_unwrite( &store->cache_lock );
-    return 0;
-  }
-  uint spill_slot = spill_reclaim_laddr( store )[ --store->spill_reclaim_cnt ];
-  store->spill_reclaiming_cnt++;
-  fd_rwlock_unwrite( &store->cache_lock );
-
-  off_t off = (off_t)((ulong)spill_slot*store->payload_slot_sz);
-  int err = fallocate( disk_fd, FALLOC_FL_PUNCH_HOLE | FALLOC_FL_KEEP_SIZE, off, (off_t)store->payload_slot_sz );
-  int err_no = errno;
-
-  fd_rwlock_write( &store->cache_lock );
-  FD_TEST( store->spill_reclaiming_cnt );
-  store->spill_reclaiming_cnt--;
-  if( FD_LIKELY( !err ) ) {
-    FD_TEST( atomic_load_explicit( &store->spill_allocated_cnt, memory_order_relaxed ) );
-    atomic_fetch_sub_explicit( &store->spill_allocated_cnt, 1UL, memory_order_relaxed );
-    FD_TEST( store->spill_free_cnt<store->spill_slot_cnt );
-    spill_free_laddr( store )[ store->spill_free_cnt++ ] = spill_slot;
-  } else {
-    spill_reuse_push_locked( store, spill_slot );
-  }
-  fd_rwlock_unwrite( &store->cache_lock );
-  if( FD_UNLIKELY( err ) )
-    FD_LOG_WARNING(( "error reclaiming spilled FEC page: (%d-%s)", err_no, fd_io_strerror( err_no ) ));
-  return 1;
-}
-
-int
-fd_store_disk_maintain( fd_store_t * store,
-                        int          disk_fd ) {
-  if( FD_UNLIKELY( !store || disk_fd<0 ) ) return 0;
-  return spill_reclaim_one( store, disk_fd );
-}
-
 int
 fd_store_disk_stats_query( fd_store_t const *      store,
                            fd_store_disk_stats_t * stats ) {
@@ -1329,7 +1251,7 @@ fd_store_disk_stats_query( fd_store_t const *      store,
                          + atomic_load_explicit( &store->spill_live_cnt, memory_order_relaxed )*store->payload_slot_sz;
   stats->allocated_bytes = fd_ulong_min( atomic_load_explicit( &store->disk_reservation_head, memory_order_relaxed ),
                                         store->disk_max_shreds )*sizeof(fd_shredb_entry_t)
-                         + atomic_load_explicit( &store->spill_allocated_cnt, memory_order_relaxed )*store->payload_slot_sz;
+                         + FD_VOLATILE_CONST( store->spill_slot_cnt )*store->payload_slot_sz;
   stats->insert_cnt      = atomic_load_explicit( &store->disk_insert_cnt, memory_order_relaxed );
   stats->write_bytes     = atomic_load_explicit( &store->disk_write_bytes, memory_order_relaxed );
   return 0;

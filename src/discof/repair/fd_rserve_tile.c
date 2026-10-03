@@ -665,9 +665,7 @@ before_credit( ctx_t             * ctx,
     ctx->metrics->fec_preevict_write_cnt   += spill->write_cnt;
     ctx->metrics->fec_preevict_write_bytes += spill->write_bytes;
     *charge_busy = 1;
-    return;
   }
-  if( FD_UNLIKELY( fd_store_disk_maintain( ctx->store, ctx->disk_fd ) ) ) *charge_busy = 1;
 }
 
 static inline void

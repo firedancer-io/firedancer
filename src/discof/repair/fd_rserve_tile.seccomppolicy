@@ -15,8 +15,6 @@ write: (or (eq (arg 0) 2)
 
 pread64: (eq (arg 0) store_fd)
 pwrite64: (eq (arg 0) store_fd)
-fallocate: (and (eq (arg 0) store_fd)
-                (eq (arg 1) 3))
 
 # logging: 'WARNING' and above fsync the logfile to disk immediately
 #
