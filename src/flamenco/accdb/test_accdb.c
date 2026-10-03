@@ -34,6 +34,7 @@ static uchar owner3[ 32UL ] = { 3, 0 };
 #define TEST_CACHE_FOOTPRINT    (32UL<<20UL)
 
 static fd_accdb_shmem_t * test_shmem_mem;
+static int                test_fd;
 
 static fd_accdb_t *
 test_setup_ex( int * out_fd,
@@ -48,6 +49,7 @@ test_setup_ex( int * out_fd,
   int fd = memfd_create( "accdb_test", 0 );
   if( FD_UNLIKELY( fd<0 ) ) FD_LOG_ERR(( "memfd_create failed" ));
   *out_fd = fd;
+  test_fd = fd;
 
   ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, max_live_slots, max_account_writes_per_slot, partition_cnt, cache_fp, cache_min_reserved, joiner_cnt, 0UL );
   FD_TEST( shmem_fp );
@@ -1240,6 +1242,9 @@ test_snapshot_write_one( fd_accdb_t *       accdb,
   ulong file_offsets[ 1 ] = {
     fd_accdb_snapshot_reserve_write( accdb, sizeof(fd_accdb_disk_meta_t)+data_len )
   };
+  fd_accdb_disk_meta_t meta = { .size = (uint)data_len, .data_len = (uint)data_len };
+  fd_memcpy( meta.pubkey, pubkey, 32UL );
+  FD_TEST( pwrite( test_fd, meta.b, sizeof(meta), (long)file_offsets[ 0 ] )==(long)sizeof(meta) );
   ulong ignored, replaced, loaded, ignored_lamports;
   uchar results[ 1 ];
   int result = fd_accdb_snapshot_write_batch( accdb, fork_id, 1UL, pubkeys, slots, lamports_arr,
@@ -1573,6 +1578,7 @@ test_write_batch( fd_accdb_t *                         accdb,
     fd_memcpy( meta.pubkey, pubkeys[ i ], 32UL );
     meta.size       = (uint)data_lens[ i ];
     meta.generation = 0U;
+    meta.data_len   = (uint)data_lens[ i ];
     fd_memset( meta.owner, 0, 32UL );
     FD_TEST( pwrite( store->fd, meta.b, sizeof(meta), (long)file_off )==(long)sizeof(meta) );
     file_off += sizeof(fd_accdb_disk_meta_t)+data_lens[ i ];
@@ -2179,6 +2185,63 @@ test_incremental_retry_reuses_acc_pool( void ) {
    It also drives a real first-partition overflow at partition_cnt==8192
    end-to-end to confirm the switch path runs to completion (no hang)
    and accounts read back correctly. */
+/* Round trip a compressed and an uncompressed record through the snapshot
+   writer, the nocache disk read, a cold load and a cached read. */
+static void
+test_compressed_records( void ) {
+  int fd;
+  fd_accdb_t * accdb = test_setup( &fd, 1024UL, 64UL, 8192UL, 8192UL, 1UL<<30UL );
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( accdb, SENTINEL );
+
+  static uchar sparse[ 8192UL ];
+  static uchar dense [ 8192UL ];
+  for( ulong i=0UL; i<8192UL; i++ ) {
+    sparse[ i ] = (i%97UL)<3UL ? (uchar)( i*7UL+1UL ) : (uchar)0;
+    dense [ i ] = (uchar)( ( i*131UL+17UL ) | 1UL );
+  }
+  uchar         pk_s [ 32UL ] = { 0xC1 };
+  uchar         pk_d [ 32UL ] = { 0xC2 };
+  uchar const * pks  [ 2 ]    = { pk_s,   pk_d  };
+  uchar const * datas[ 2 ]    = { sparse, dense };
+
+  static uchar rec[ FD_ACCDB_DISK_REC_BOUND( 8192UL ) ];
+  fd_accdb_snapshot_load_begin( accdb );
+  for( ulong i=0UL; i<2UL; i++ ) {
+    ulong rec_sz = fd_accdb_disk_pack( rec, pks[ i ], 0U, owner2, datas[ i ], 8192UL );
+    uint  size   = ((fd_accdb_disk_meta_t const *)rec)->size;
+    FD_TEST( !!( size & FD_ACCDB_DISK_COMPRESSED_BIT )==(i==0UL) );
+    FD_TEST( rec_sz==sizeof(fd_accdb_disk_meta_t)+FD_ACCDB_SIZE_DATA( size ) );
+    FD_TEST( i ? rec_sz==sizeof(fd_accdb_disk_meta_t)+8192UL : rec_sz<sizeof(fd_accdb_disk_meta_t)+1024UL );
+    ulong off = fd_accdb_snapshot_reserve_write( accdb, rec_sz );
+    FD_TEST( pwrite( fd, rec, rec_sz, (long)off )==(long)rec_sz );
+
+    ulong slots[ 1 ] = { 1UL };  ulong lamports[ 1 ] = { 100UL+i }; ulong data_lens[ 1 ] = { 8192UL };
+    int executables[ 1 ] = { 0 }; ulong offs[ 1 ] = { off };
+    ulong ignored, replaced, loaded, replaced_lamports, ignored_lamports;
+    uchar results[ 1 ];
+    FD_TEST( !fd_accdb_snapshot_write_batch( accdb, SENTINEL, 1UL, &pks[ i ], slots, lamports, data_lens, executables, offs,
+                                             &ignored, &replaced, &loaded, &replaced_lamports, &ignored_lamports, results ) );
+    FD_TEST( loaded==1UL );
+  }
+  fd_accdb_snapshot_load_end( accdb );
+
+  static uchar out[ 8192UL ];
+  for( ulong i=0UL; i<2UL; i++ ) {
+    ulong lamports; int executable; uchar owner[ 32UL ]; ulong data_len;
+    memset( out, 0xcc, sizeof(out) );
+    FD_TEST( fd_accdb_read_one_nocache( accdb, root, pks[ i ], &lamports, &executable, owner, out, &data_len )==FD_ACCDB_READ_ONE_NOCACHE_DISK );
+    FD_TEST( lamports==100UL+i && data_len==8192UL && !memcmp( owner, owner2, 32UL ) && !memcmp( out, datas[ i ], 8192UL ) );
+    memset( out, 0xcc, sizeof(out) );
+    FD_TEST( accdb_read( accdb, root, pks[ i ], &lamports, out, &data_len, owner ) );
+    FD_TEST( lamports==100UL+i && data_len==8192UL && !memcmp( owner, owner2, 32UL ) && !memcmp( out, datas[ i ], 8192UL ) );
+    memset( out, 0xcc, sizeof(out) );
+    FD_TEST( fd_accdb_read_one_nocache( accdb, root, pks[ i ], &lamports, &executable, owner, out, &data_len )==FD_ACCDB_READ_ONE_NOCACHE_CACHE );
+    FD_TEST( data_len==8192UL && !memcmp( out, datas[ i ], 8192UL ) );
+  }
+
+  test_teardown( accdb, fd );
+}
+
 static void
 test_sentinel_index_wrap( void ) {
   ulong const partition_sz = 1UL<<20; /* arbitrary, only its packing matters here */
@@ -2344,6 +2407,9 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "test_pd_write_bit_and_probe ..." ));
   test_pd_write_bit_and_probe();
+
+  FD_LOG_NOTICE(( "test_compressed_records ..." ));
+  test_compressed_records();
 
   FD_LOG_NOTICE(( "success" ));
 

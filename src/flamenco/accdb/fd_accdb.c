@@ -16,8 +16,12 @@
 
 FD_STATIC_ASSERT( sizeof(fd_accdb_cache_line_t)==FD_ACCDB_CACHE_META_SZ, cache_meta_sz );
 
-#define FD_ACCDB_BOUNCE_SZ (16UL<<20)
-FD_STATIC_ASSERT( FD_ACCDB_BOUNCE_SZ>=FD_RUNTIME_ACC_SZ_MAX+sizeof(fd_accdb_disk_meta_t), bounce_fits_any_record );
+/* Bounce buffer sizes: one record for every join, the run compaction
+   copies at a time for the compaction tile. */
+
+#define FD_ACCDB_RECORD_BOUNCE_SZ FD_ACCDB_DISK_REC_BOUND( FD_RUNTIME_ACC_SZ_MAX )
+#define FD_ACCDB_BOUNCE_SZ        (16UL<<20)
+FD_STATIC_ASSERT( FD_ACCDB_BOUNCE_SZ>=FD_ACCDB_DISK_REC_BOUND( FD_RUNTIME_ACC_SZ_MAX ), bounce_fits_any_record );
 
 #if FD_HAS_RACESAN
 /* Test-only telemetry: background_compact publishes the pubkey + dest
@@ -110,8 +114,9 @@ struct __attribute__((aligned(FD_ACCDB_ALIGN))) fd_accdb_private {
 
   fd_accdb_metrics_t metrics[1];
 
-  /* Compaction bounce buffer. */
+  /* Record bounce buffer. */
   uchar * bounce;
+  ulong   bounce_sz;
 
   /* Track account addresses changed since a full snap.
      Used to determine which accounts should be packed into a full
@@ -166,6 +171,79 @@ fd_accdb_partition_read_bump( fd_accdb_t * accdb,
   fd_accdb_partition_t * p = partition_pool_ele( accdb->partition_pool, partition_idx );
   FD_ATOMIC_FETCH_AND_ADD( &p->bytes_read, bytes );
   FD_ATOMIC_FETCH_AND_ADD( &p->read_ops,   1UL   );
+}
+
+/* record_read reads the record at off through the bounce buffer and
+   recovers its owner and data_len bytes of account data. */
+
+static void
+record_read( fd_accdb_t * accdb,
+             ulong        off,
+             uchar *      owner_out,
+             uchar *      data_out,
+             ulong        data_len ) {
+  fd_accdb_disk_meta_t const * meta = (fd_accdb_disk_meta_t const *)accdb->bounce;
+  ulong want = sizeof(fd_accdb_disk_meta_t)+data_len;
+  ulong got  = 0UL;
+  while( got<want ) {
+    struct iovec iov = { .iov_base = accdb->bounce+got, .iov_len = want-got };
+    long result = preadv2( accdb->fd, &iov, 1, (long)(off+got), 0 );
+    if( FD_UNLIKELY( -1==result && (errno==EINTR || errno==EAGAIN || errno==EWOULDBLOCK) ) ) continue;
+    else if( FD_UNLIKELY( -1==result ) ) FD_LOG_ERR(( "preadv2() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+    else if( FD_UNLIKELY( !result ) ) FD_LOG_ERR(( "accounts database is corrupt, data expected at offset %lu with size %lu exceeded file extents", off+got, want ));
+    fd_accdb_partition_read_bump( accdb, off+got, (ulong)result );
+    got += (ulong)result;
+    accdb->metrics->bytes_read += (ulong)result;
+    accdb->metrics->read_ops++;
+    if( FD_LIKELY( got>=sizeof(fd_accdb_disk_meta_t) ) ) {
+      if( FD_UNLIKELY( FD_ACCDB_SIZE_DATA( meta->size )>data_len ) ) FD_LOG_ERR(( "accounts database is corrupt, record at offset %lu has payload %u for data length %lu", off, FD_ACCDB_SIZE_DATA( meta->size ), data_len ));
+      want = sizeof(fd_accdb_disk_meta_t)+FD_ACCDB_SIZE_DATA( meta->size );
+    }
+  }
+  fd_memcpy( owner_out, meta->owner, 32UL );
+  fd_accdb_disk_unpack( data_out, data_len, meta->size, accdb->bounce+sizeof(fd_accdb_disk_meta_t) );
+}
+
+/* queue_writeback queues the dirty cache line of evicted for writing
+   as two iovs, header and data.  The record is packed into the bounce
+   buffer, compressed if that shrinks it, when the buffer has room;
+   otherwise it is written as is straight from the line. */
+
+static inline void
+queue_writeback( fd_accdb_t *               accdb,
+                 fd_accdb_accmeta_t const * evicted,
+                 fd_accdb_cache_line_t *    line,
+                 ulong *                    bounce_used,
+                 struct iovec *             write_ops,
+                 int *                      write_ops_cnt,
+                 fd_accdb_disk_meta_t *     write_metas,
+                 int *                      write_meta_cnt,
+                 ulong *                    total_write_sz ) {
+  ulong data_len = FD_ACCDB_SIZE_DATA( evicted->executable_size );
+
+  fd_accdb_disk_meta_t * meta;
+  uchar *                data;
+  ulong                  rec_sz;
+  if( FD_LIKELY( *bounce_used+FD_ACCDB_DISK_REC_BOUND( data_len )<=accdb->bounce_sz ) ) {
+    meta   = (fd_accdb_disk_meta_t *)( accdb->bounce+*bounce_used );
+    rec_sz = fd_accdb_disk_pack( accdb->bounce+*bounce_used, evicted->key.pubkey, evicted->key.generation,
+                                 line->owner, (uchar const *)(line+1UL), data_len );
+    data   = (uchar *)( meta+1UL );
+    *bounce_used += rec_sz;
+  } else {
+    FD_TEST( *write_meta_cnt<(int)((FD_ACCDB_CACHE_CLASS_CNT+1UL)*FD_ACCDB_MAX_ACQUIRE_CNT) );
+    meta   = &write_metas[ (*write_meta_cnt)++ ];
+    fd_memcpy( meta->pubkey, evicted->key.pubkey, 32UL );
+    meta->size       = (uint)data_len;
+    meta->generation = evicted->key.generation;
+    meta->data_len   = (uint)data_len;
+    fd_memcpy( meta->owner, line->owner, 32UL );
+    data   = (uchar *)(line+1UL);
+    rec_sz = sizeof(fd_accdb_disk_meta_t)+data_len;
+  }
+  *total_write_sz += rec_sz;
+  write_ops[ (*write_ops_cnt)++ ] = (struct iovec){ .iov_base = meta, .iov_len = sizeof(fd_accdb_disk_meta_t)        };
+  write_ops[ (*write_ops_cnt)++ ] = (struct iovec){ .iov_base = data, .iov_len = rec_sz-sizeof(fd_accdb_disk_meta_t) };
 }
 
 /* Bump the per-partition write counters.  bytes is how much landed on
@@ -242,7 +320,7 @@ fd_accdb_footprint( ulong max_live_slots,
   l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, FD_ACCDB_ALIGN,           sizeof(fd_accdb_t)                     );
   l = FD_LAYOUT_APPEND( l, alignof(fd_accdb_fork_t), max_live_slots*sizeof(fd_accdb_fork_t) );
-  if( compaction ) l = FD_LAYOUT_APPEND( l, FD_ACCDB_ALIGN, FD_ACCDB_BOUNCE_SZ );
+  l = FD_LAYOUT_APPEND( l, FD_ACCDB_ALIGN,           compaction ? FD_ACCDB_BOUNCE_SZ : FD_ACCDB_RECORD_BOUNCE_SZ );
   return FD_LAYOUT_FINI( l, FD_ACCDB_ALIGN );
 }
 
@@ -295,7 +373,8 @@ fd_accdb_new( void *              ljoin,
   FD_SCRATCH_ALLOC_INIT( l2, ljoin );
   fd_accdb_t * accdb      = FD_SCRATCH_ALLOC_APPEND( l2, fd_accdb_align(),           sizeof(fd_accdb_t)                     );
   void * _local_fork_pool = FD_SCRATCH_ALLOC_APPEND( l2, alignof(fd_accdb_fork_t),   max_live_slots*sizeof(fd_accdb_fork_t) );
-  void * _bounce          = compaction ? FD_SCRATCH_ALLOC_APPEND( l2, FD_ACCDB_ALIGN, FD_ACCDB_BOUNCE_SZ ) : NULL;
+  ulong  bounce_sz        = compaction ? FD_ACCDB_BOUNCE_SZ : FD_ACCDB_RECORD_BOUNCE_SZ;
+  void * _bounce          = FD_SCRATCH_ALLOC_APPEND( l2, FD_ACCDB_ALIGN,           bounce_sz                              );
 
   accdb->fd = fd;
   accdb->acquire_state = FD_ACCDB_ACQUIRE_STATE_IDLE;
@@ -334,7 +413,8 @@ fd_accdb_new( void *              ljoin,
   accdb->external_epoch_slots = external_epoch_slots;
   accdb->external_epoch_cnt   = external_epoch_cnt;
 
-  accdb->bounce = _bounce;
+  accdb->bounce    = _bounce;
+  accdb->bounce_sz = bounce_sz;
 
   accdb->deferred_acc_buf = (uint *)( (uchar *)shmem + shmem->deferred_acc_buf_off );
 
@@ -712,6 +792,7 @@ fd_accdb_join_readonly( void *             ljoin,
   FD_SCRATCH_ALLOC_INIT( l2, ljoin );
   fd_accdb_t * accdb      = FD_SCRATCH_ALLOC_APPEND( l2, fd_accdb_align(),         sizeof(fd_accdb_t)                     );
   void * _local_fork_pool = FD_SCRATCH_ALLOC_APPEND( l2, alignof(fd_accdb_fork_t), max_live_slots*sizeof(fd_accdb_fork_t) );
+  void * _bounce          = FD_SCRATCH_ALLOC_APPEND( l2, FD_ACCDB_ALIGN,           FD_ACCDB_RECORD_BOUNCE_SZ              );
 
   accdb->fd    = fd_ro;
   accdb->acquire_state = FD_ACCDB_ACQUIRE_STATE_IDLE;
@@ -752,7 +833,8 @@ fd_accdb_join_readonly( void *             ljoin,
      compaction tile / writer joiners do. */
   accdb->external_epoch_slots = NULL;
   accdb->external_epoch_cnt   = 0UL;
-  accdb->bounce               = NULL;
+  accdb->bounce               = _bounce;
+  accdb->bounce_sz            = FD_ACCDB_RECORD_BOUNCE_SZ;
 
   accdb->deferred_acc_buf    = NULL;
   accdb->deferred_fork_head  = NULL;
@@ -1951,7 +2033,7 @@ static void
 background_compact( fd_accdb_t * accdb,
                     ulong        src_layer,
                     int *        charge_busy ) {
-  FD_TEST( accdb->bounce );
+  FD_TEST( accdb->bounce_sz==FD_ACCDB_BOUNCE_SZ );
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( *accdb->my_epoch_slot ) = FD_VOLATILE_CONST( accdb->shmem->epoch );
@@ -2039,7 +2121,7 @@ background_compact( fd_accdb_t * accdb,
   ulong span = 0UL;
   for(;;) {
     if( FD_UNLIKELY( span+sizeof(fd_accdb_disk_meta_t)>bytes_read ) ) break;
-    ulong record_sz = sizeof(fd_accdb_disk_meta_t) + (ulong)((fd_accdb_disk_meta_t const *)(accdb->bounce+span))->size;
+    ulong record_sz = sizeof(fd_accdb_disk_meta_t) + (ulong)FD_ACCDB_SIZE_DATA( ((fd_accdb_disk_meta_t const *)(accdb->bounce+span))->size );
     if( FD_UNLIKELY( span+record_sz>bytes_read ) ) break;
     span += record_sz;
   }
@@ -2073,7 +2155,7 @@ background_compact( fd_accdb_t * accdb,
       acc_idx = next_idx;
     }
 
-    ulong record_sz = sizeof(fd_accdb_disk_meta_t) + (ulong)meta->size;
+    ulong record_sz = sizeof(fd_accdb_disk_meta_t) + (ulong)FD_ACCDB_SIZE_DATA( meta->size );
     if( FD_UNLIKELY( !accmeta ) ) compact->compaction_dead_records++; /* index entry gone, extent is garbage */
     else {
       live_accmeta[ live_cnt ] = accmeta;
@@ -2618,6 +2700,7 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
   int write_ops_cnt = 0;
   int write_meta_cnt = 0;
   ulong total_write_sz = 0UL;
+  ulong bounce_used = 0UL;
   fd_accdb_disk_meta_t write_metas[ (FD_ACCDB_CACHE_CLASS_CNT+1UL)*FD_ACCDB_MAX_ACQUIRE_CNT ];
   struct iovec write_ops[ 2UL*(FD_ACCDB_CACHE_CLASS_CNT+1UL)*FD_ACCDB_MAX_ACQUIRE_CNT ];
 
@@ -2632,45 +2715,24 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
 
         fd_accdb_accmeta_t const * evicted = &accdb->acc_pool[ evicted_dest_acc[ i ][ j ] ];
         fd_racesan_hook( "writeback:pre_synth" );
-        total_write_sz += sizeof(fd_accdb_disk_meta_t) + FD_ACCDB_SIZE_DATA( evicted->executable_size );
-        FD_TEST( write_meta_cnt<(int)(sizeof(write_metas)/sizeof(write_metas[0])) );
-        fd_memcpy( write_metas[ write_meta_cnt ].pubkey, evicted->key.pubkey, 32UL );
-        write_metas[ write_meta_cnt ].size       = FD_ACCDB_SIZE_DATA( evicted->executable_size );
-        write_metas[ write_meta_cnt ].generation = evicted->key.generation;
-        fd_memcpy( write_metas[ write_meta_cnt ].owner, destination_cache_lines[ i ][ j ]->owner, 32UL );
-        write_ops[ write_ops_cnt++ ] = (struct iovec){ .iov_base = &write_metas[ write_meta_cnt ], .iov_len = sizeof(fd_accdb_disk_meta_t) };
-        write_meta_cnt++;
-        write_ops[ write_ops_cnt++ ] = (struct iovec){ .iov_base = destination_cache_lines[ i ][ j ]+1UL, .iov_len = FD_ACCDB_SIZE_DATA( evicted->executable_size ) };
+        queue_writeback( accdb, evicted, destination_cache_lines[ i ][ j ],
+                         &bounce_used, write_ops, &write_ops_cnt, write_metas, &write_meta_cnt, &total_write_sz );
       }
       if( FD_UNLIKELY( accmetas[ i ] && !exists_in_cache[ i ] && evicted_orig_acc[ i ]!=UINT_MAX ) ) {
         fd_accdb_accmeta_t const * evicted = &accdb->acc_pool[ evicted_orig_acc[ i ] ];
         accdb->metrics->accounts_evicted++;
         accdb->metrics->accounts_evicted_per_class[ fd_accdb_cache_class( FD_ACCDB_SIZE_DATA( evicted->executable_size ) ) ]++;
 
-        total_write_sz += sizeof(fd_accdb_disk_meta_t) + FD_ACCDB_SIZE_DATA( evicted->executable_size );
-        FD_TEST( write_meta_cnt<(int)(sizeof(write_metas)/sizeof(write_metas[0])) );
-        fd_memcpy( write_metas[ write_meta_cnt ].pubkey, evicted->key.pubkey, 32UL );
-        write_metas[ write_meta_cnt ].size       = FD_ACCDB_SIZE_DATA( evicted->executable_size );
-        write_metas[ write_meta_cnt ].generation = evicted->key.generation;
-        fd_memcpy( write_metas[ write_meta_cnt ].owner, original_cache_line[ i ]->owner, 32UL );
-        write_ops[ write_ops_cnt++ ] = (struct iovec){ .iov_base = &write_metas[ write_meta_cnt ], .iov_len = sizeof(fd_accdb_disk_meta_t) };
-        write_meta_cnt++;
-        write_ops[ write_ops_cnt++ ] = (struct iovec){ .iov_base = original_cache_line[ i ]+1UL, .iov_len = FD_ACCDB_SIZE_DATA( evicted->executable_size ) };
+        queue_writeback( accdb, evicted, original_cache_line[ i ],
+                         &bounce_used, write_ops, &write_ops_cnt, write_metas, &write_meta_cnt, &total_write_sz );
       }
     } else {
       if( FD_LIKELY( exists_in_cache[ i ] || evicted_orig_acc[ i ]==UINT_MAX ) ) continue;
       fd_accdb_accmeta_t const * evicted = &accdb->acc_pool[ evicted_orig_acc[ i ] ];
       accdb->metrics->accounts_evicted++;
       accdb->metrics->accounts_evicted_per_class[ fd_accdb_cache_class( FD_ACCDB_SIZE_DATA( evicted->executable_size ) ) ]++;
-      total_write_sz += sizeof(fd_accdb_disk_meta_t) + FD_ACCDB_SIZE_DATA( evicted->executable_size );
-      FD_TEST( write_meta_cnt<(int)(sizeof(write_metas)/sizeof(write_metas[0])) );
-      fd_memcpy( write_metas[ write_meta_cnt ].pubkey, evicted->key.pubkey, 32UL );
-      write_metas[ write_meta_cnt ].size       = FD_ACCDB_SIZE_DATA( evicted->executable_size );
-      write_metas[ write_meta_cnt ].generation = evicted->key.generation;
-      fd_memcpy( write_metas[ write_meta_cnt ].owner, original_cache_line[ i ]->owner, 32UL );
-      write_ops[ write_ops_cnt++ ] = (struct iovec){ .iov_base = &write_metas[ write_meta_cnt ], .iov_len = sizeof(fd_accdb_disk_meta_t) };
-      write_meta_cnt++;
-      write_ops[ write_ops_cnt++ ] = (struct iovec){ .iov_base = original_cache_line[ i ]+1UL, .iov_len = FD_ACCDB_SIZE_DATA( evicted->executable_size ) };
+      queue_writeback( accdb, evicted, original_cache_line[ i ],
+                       &bounce_used, write_ops, &write_ops_cnt, write_metas, &write_meta_cnt, &total_write_sz );
     }
   }
 
@@ -2703,6 +2765,8 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
     batch_contiguous = 0;
   }
 
+  /* Same eviction order as step 5, so write_ops[ 2*pending_cnt ] is the
+     record at hand. */
   ulong cumulative_offset = 0UL;
   for( ulong i=0UL; i<pubkeys_cnt; i++ ) {
     if( FD_UNLIKELY( !accmetas[ i ] && !writable[ i ] ) ) continue;
@@ -2713,6 +2777,7 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
 
         fd_accdb_accmeta_t * evicted = &accdb->acc_pool[ evicted_dest_acc[ i ][ j ] ];
         ulong entry_sz = sizeof(fd_accdb_disk_meta_t) + (ulong)FD_ACCDB_SIZE_DATA( evicted->executable_size );
+        ulong disk_sz  = write_ops[ 2*pending_cnt ].iov_len + write_ops[ 2*pending_cnt+1 ].iov_len;
         /* xchg-to-INVAL atomically captures the old offset and prevents
            a concurrent acc_unlink from also reading and freeing it (the
            xchg there will see INVAL and skip).  Step 10 republishes the
@@ -2726,15 +2791,16 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
         FD_TEST( pending_cnt<(int)(sizeof(pending_accs)/sizeof(pending_accs[0])) );
         pending_accs [ pending_cnt ] = evicted;
         if( FD_LIKELY( batch_contiguous ) ) pending_offs[ pending_cnt ] = file_offset + cumulative_offset;
-        else                                pending_offs[ pending_cnt ] = allocate_next_write( accdb, entry_sz );
+        else                                pending_offs[ pending_cnt ] = allocate_next_write( accdb, disk_sz );
         pending_lines[ pending_cnt ] = destination_cache_lines[ i ][ j ];
         pending_cnt++;
-        cumulative_offset += entry_sz;
+        cumulative_offset += disk_sz;
         FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->shmetrics->disk_used_bytes, entry_sz );
       }
       if( FD_UNLIKELY( accmetas[ i ] && !exists_in_cache[ i ] && evicted_orig_acc[ i ]!=UINT_MAX ) ) {
         fd_accdb_accmeta_t * evicted = &accdb->acc_pool[ evicted_orig_acc[ i ] ];
         ulong entry_sz = sizeof(fd_accdb_disk_meta_t) + (ulong)FD_ACCDB_SIZE_DATA( evicted->executable_size );
+        ulong disk_sz  = write_ops[ 2*pending_cnt ].iov_len + write_ops[ 2*pending_cnt+1 ].iov_len;
         ulong old_off = fd_accdb_acc_xchg_offset( evicted, FD_ACCDB_OFF_INVAL );
         if( FD_LIKELY( old_off!=FD_ACCDB_OFF_INVAL ) ) {
           fd_accdb_shmem_bytes_freed( accdb->shmem, old_off, entry_sz );
@@ -2743,10 +2809,10 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
         FD_TEST( pending_cnt<(int)(sizeof(pending_accs)/sizeof(pending_accs[0])) );
         pending_accs [ pending_cnt ] = evicted;
         if( FD_LIKELY( batch_contiguous ) ) pending_offs[ pending_cnt ] = file_offset + cumulative_offset;
-        else                                pending_offs[ pending_cnt ] = allocate_next_write( accdb, entry_sz );
+        else                                pending_offs[ pending_cnt ] = allocate_next_write( accdb, disk_sz );
         pending_lines[ pending_cnt ] = original_cache_line[ i ];
         pending_cnt++;
-        cumulative_offset += entry_sz;
+        cumulative_offset += disk_sz;
         FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->shmetrics->disk_used_bytes, entry_sz );
       }
     } else {
@@ -2754,6 +2820,7 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
 
       fd_accdb_accmeta_t * evicted = &accdb->acc_pool[ evicted_orig_acc[ i ] ];
       ulong entry_sz = sizeof(fd_accdb_disk_meta_t) + (ulong)FD_ACCDB_SIZE_DATA( evicted->executable_size );
+      ulong disk_sz  = write_ops[ 2*pending_cnt ].iov_len + write_ops[ 2*pending_cnt+1 ].iov_len;
       ulong old_off = fd_accdb_acc_xchg_offset( evicted, FD_ACCDB_OFF_INVAL );
       if( FD_LIKELY( old_off!=FD_ACCDB_OFF_INVAL ) ) {
         fd_accdb_shmem_bytes_freed( accdb->shmem, old_off, entry_sz );
@@ -2762,13 +2829,14 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
       FD_TEST( pending_cnt<(int)(sizeof(pending_accs)/sizeof(pending_accs[0])) );
       pending_accs [ pending_cnt ] = evicted;
       if( FD_LIKELY( batch_contiguous ) ) pending_offs[ pending_cnt ] = file_offset + cumulative_offset;
-      else                                pending_offs[ pending_cnt ] = allocate_next_write( accdb, entry_sz );
+      else                                pending_offs[ pending_cnt ] = allocate_next_write( accdb, disk_sz );
       pending_lines[ pending_cnt ] = original_cache_line[ i ];
       pending_cnt++;
-      cumulative_offset += entry_sz;
+      cumulative_offset += disk_sz;
       FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->shmetrics->disk_used_bytes, entry_sz );
     }
   }
+  FD_TEST( 2*pending_cnt==write_ops_cnt );
 
   // STEP 8.
   //   Fill the output entries with cache pointers and metadata based on
@@ -2899,7 +2967,7 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
        dirty 10 MiB evictions). */
     struct iovec * wp = write_ops;
     for( int k=0; k<pending_cnt; k++ ) {
-      ulong entry_sz = sizeof(fd_accdb_disk_meta_t) + (ulong)FD_ACCDB_SIZE_DATA( pending_accs[ k ]->executable_size );
+      ulong entry_sz  = wp[0].iov_len + wp[1].iov_len;
       ulong entry_off = pending_offs[ k ];
       struct iovec entry_iovs[2] = { wp[0], wp[1] };
       wp += 2;
@@ -2952,7 +3020,6 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
   ulong read_offsets[ FD_ACCDB_CACHE_CLASS_CNT*FD_ACCDB_MAX_ACQUIRE_CNT ];
   uchar * read_bases[ FD_ACCDB_CACHE_CLASS_CNT*FD_ACCDB_MAX_ACQUIRE_CNT ];
   ulong read_sizes[ FD_ACCDB_CACHE_CLASS_CNT*FD_ACCDB_MAX_ACQUIRE_CNT ];
-  struct iovec read_ops[ FD_ACCDB_CACHE_CLASS_CNT*FD_ACCDB_MAX_ACQUIRE_CNT ];
 
   for( ulong i=0UL; i<pubkeys_cnt; i++ ) {
     if( FD_UNLIKELY( !accmetas[ i ] || exists_in_cache[ i ] ) ) continue;
@@ -2987,10 +3054,9 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
     }
     fd_racesan_hook( "accdb_coldload:pre_iovec" );
 
-    read_offsets[ read_ops_cnt ] = fd_accdb_acc_offset(accmetas[ i ]) + offsetof(fd_accdb_disk_meta_t, owner);
+    read_offsets[ read_ops_cnt ] = fd_accdb_acc_offset(accmetas[ i ]);
     read_bases[ read_ops_cnt ]   = original_cache_line[ i ]->owner;
-    read_sizes[ read_ops_cnt ]   = 32UL + FD_ACCDB_SIZE_DATA( accmetas[ i ]->executable_size );
-    read_ops[ read_ops_cnt++ ]   = (struct iovec){ .iov_base = original_cache_line[ i ]->owner, .iov_len = 32UL + FD_ACCDB_SIZE_DATA( accmetas[ i ]->executable_size ) };
+    read_sizes[ read_ops_cnt++ ] = FD_ACCDB_SIZE_DATA( accmetas[ i ]->executable_size );
   }
 
   // STEP 12.
@@ -3008,21 +3074,7 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
   //   remains stable for the duration of this read — no post-read
   //   validation or retry is needed.
   for( ulong i=0UL; i<read_ops_cnt; i++ ) {
-    ulong bytes_read = 0UL;
-    while( FD_LIKELY( bytes_read<read_sizes[ i ] ) ) {
-      long result = preadv2( accdb->fd, &read_ops[ i ], 1, (long)(read_offsets[ i ]+bytes_read), 0 );
-      if( FD_UNLIKELY( -1==result && (errno==EINTR || errno==EAGAIN || errno==EWOULDBLOCK ) ) ) continue;
-      else if( FD_UNLIKELY( -1==result ) ) FD_LOG_ERR(( "preadv2() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
-      else if( FD_UNLIKELY( !result ) ) FD_LOG_ERR(( "accounts database is corrupt, data expected at offset %lu with size %lu exceeded file extents",
-                                                     read_offsets[ i ]+bytes_read, read_sizes[ i ] ));
-      fd_accdb_partition_read_bump( accdb, read_offsets[ i ]+bytes_read, (ulong)result );
-      bytes_read += (ulong)result;
-      accdb->metrics->bytes_read += (ulong)result;
-      accdb->metrics->read_ops++;
-
-      read_ops[ i ].iov_base = read_bases[ i ] + bytes_read;
-      read_ops[ i ].iov_len  = read_sizes[ i ] - bytes_read;
-    }
+    record_read( accdb, read_offsets[ i ], read_bases[ i ], read_bases[ i ]+32UL, read_sizes[ i ] );
   }
 
   // STEP 13.
@@ -3778,36 +3830,7 @@ miss:;
   ulong off = off_packed & FD_ACCDB_OFF_MASK;
   fd_racesan_hook( "accdb_nocache:pre_preadv2" );
 
-  struct iovec iovs[ 2 ] = {
-    { .iov_base = out_owner, .iov_len = 32UL     },
-    { .iov_base = out_data,  .iov_len = data_len },
-  };
-  ulong total = 32UL+data_len;
-  ulong start = off+offsetof( fd_accdb_disk_meta_t, owner );
-  ulong got   = 0UL;
-  int   nio   = data_len ? 2 : 1;
-  while( FD_LIKELY( got<total ) ) {
-    long result = preadv2( accdb->fd, iovs, nio, (long)(start+got), 0 );
-    if( FD_UNLIKELY( -1==result && (errno==EINTR || errno==EAGAIN || errno==EWOULDBLOCK) ) ) continue;
-    else if( FD_UNLIKELY( -1==result ) ) FD_LOG_ERR(( "preadv2() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
-    else if( FD_UNLIKELY( !result ) ) FD_LOG_ERR(( "accounts database is corrupt, data expected at offset %lu with size %lu exceeded file extents", start+got, total ));
-    fd_accdb_partition_read_bump( accdb, start+got, (ulong)result );
-    got += (ulong)result;
-    accdb->metrics->bytes_read += (ulong)result;
-    accdb->metrics->read_ops++;
-
-    long r = result;
-    for( int v=0; v<nio; v++ ) {
-      if( (ulong)r>=iovs[ v ].iov_len ) {
-        r -= (long)iovs[ v ].iov_len;
-        iovs[ v ].iov_len = 0UL;
-      } else {
-        iovs[ v ].iov_base = (uchar *)iovs[ v ].iov_base + r;
-        iovs[ v ].iov_len -= (ulong)r;
-        break;
-      }
-    }
-  }
+  record_read( accdb, off, out_owner, out_data, data_len );
 
   *out_lamports   = snap_lamports;
   *out_executable = executable;
@@ -4043,20 +4066,17 @@ background_preevict( fd_accdb_t * accdb,
           FD_ATOMIC_FETCH_AND_SUB( &shmem->shmetrics->disk_used_bytes, entry_sz );
         }
 
-        fd_accdb_disk_meta_t meta;
-        fd_memcpy( meta.pubkey, accmeta->key.pubkey, 32UL );
-        meta.size       = FD_ACCDB_SIZE_DATA( accmeta->executable_size );
-        meta.generation = accmeta->key.generation;
-        fd_memcpy( meta.owner, line->owner, 32UL );
+        fd_accdb_disk_meta_t * meta = (fd_accdb_disk_meta_t *)accdb->bounce;
+        ulong rec_sz = fd_accdb_disk_pack( accdb->bounce, accmeta->key.pubkey, accmeta->key.generation, line->owner, (uchar const *)(line+1UL), FD_ACCDB_SIZE_DATA( accmeta->executable_size ) );
 
         struct iovec iovs[ 2UL ] = {
-          { .iov_base = &meta,              .iov_len = sizeof(fd_accdb_disk_meta_t) },
-          { .iov_base = (void *)(line+1UL), .iov_len = FD_ACCDB_SIZE_DATA( accmeta->executable_size ) }
+          { .iov_base = meta,     .iov_len = sizeof(fd_accdb_disk_meta_t)        },
+          { .iov_base = meta+1UL, .iov_len = rec_sz-sizeof(fd_accdb_disk_meta_t) }
         };
 
-        ulong file_off = allocate_next_write( accdb, entry_sz );
+        ulong file_off = allocate_next_write( accdb, rec_sz );
         ulong written = 0UL;
-        while( written<entry_sz ) {
+        while( written<rec_sz ) {
           long result = pwritev2( accdb->fd, iovs, 2, (long)(file_off+written), 0 );
           if( FD_UNLIKELY( result==-1 && errno==EINTR ) ) continue;
           else if( FD_UNLIKELY( result<=0 ) ) FD_LOG_ERR(( "pwritev2() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
@@ -4565,19 +4585,16 @@ fd_accdb_debug_clock_evict_line( fd_accdb_t * accdb,
       FD_ATOMIC_FETCH_AND_SUB( &shmem->shmetrics->disk_used_bytes, entry_sz );
     }
 
-    fd_accdb_disk_meta_t meta;
-    fd_memcpy( meta.pubkey, accmeta->key.pubkey, 32UL );
-    meta.size       = FD_ACCDB_SIZE_DATA( accmeta->executable_size );
-    meta.generation = accmeta->key.generation;
-    fd_memcpy( meta.owner, line->owner, 32UL );
+    fd_accdb_disk_meta_t * meta = (fd_accdb_disk_meta_t *)accdb->bounce;
+    ulong rec_sz = fd_accdb_disk_pack( accdb->bounce, accmeta->key.pubkey, accmeta->key.generation, line->owner, (uchar const *)(line+1UL), FD_ACCDB_SIZE_DATA( accmeta->executable_size ) );
 
     struct iovec iovs[ 2UL ] = {
-      { .iov_base = &meta,              .iov_len = sizeof(fd_accdb_disk_meta_t) },
-      { .iov_base = (void *)(line+1UL), .iov_len = FD_ACCDB_SIZE_DATA( accmeta->executable_size ) }
+      { .iov_base = meta,     .iov_len = sizeof(fd_accdb_disk_meta_t)        },
+      { .iov_base = meta+1UL, .iov_len = rec_sz-sizeof(fd_accdb_disk_meta_t) }
     };
-    ulong file_off = allocate_next_write( accdb, entry_sz );
+    ulong file_off = allocate_next_write( accdb, rec_sz );
     ulong written  = 0UL;
-    while( written<entry_sz ) {
+    while( written<rec_sz ) {
       long result = pwritev2( accdb->fd, iovs, 2, (long)(file_off+written), 0 );
       if( FD_UNLIKELY( result==-1 && errno==EINTR ) ) continue;
       else if( FD_UNLIKELY( result<=0 ) ) FD_LOG_ERR(( "pwritev2() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
