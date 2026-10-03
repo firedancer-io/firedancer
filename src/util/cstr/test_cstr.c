@@ -370,11 +370,29 @@ main( int     argc,
     UTF8_TEST(     0x80, "\xc2\x80"         );
     UTF8_TEST(    0x7ff, "\xdf\xbf"         );
     UTF8_TEST(    0x800, "\xe0\xa0\x80"     );
+    UTF8_TEST(   0xd7ff, "\xed\x9f\xbf"     );
+    UTF8_TEST(   0xd800, "\xef\xbf\xbd"     );
+    UTF8_TEST(   0xdbff, "\xef\xbf\xbd"     );
+    UTF8_TEST(   0xdc00, "\xef\xbf\xbd"     );
+    UTF8_TEST(   0xdfff, "\xef\xbf\xbd"     );
+    UTF8_TEST(   0xe000, "\xee\x80\x80"     );
     UTF8_TEST(   0xffff, "\xef\xbf\xbf"     );
     UTF8_TEST(  0x10000, "\xf0\x90\x80\x80" );
     UTF8_TEST( 0x10ffff, "\xf4\x8f\xbf\xbf" );
+    UTF8_TEST( 0x110000, "\xef\xbf\xbd"     );
+    UTF8_TEST( UINT_MAX, "\xef\xbf\xbd"     );
     UTF8_TEST(   0x16e6, "\xe1\x9b\xa6"     );
   } while(0);
+
+  for( uint rune=0xd800U; rune<=0xdfffU; rune++ ) {
+    char buf[5] = { 'H', 'H', 'H', 'H', 'H' };
+    char * p = fd_cstr_append_utf8( fd_cstr_init( buf ), rune );
+    FD_TEST( p==buf+3 );
+    FD_TEST( buf[3]=='H' && buf[4]=='H' );
+    fd_cstr_fini( p );
+    FD_TEST( !memcmp( buf, "\xef\xbf\xbd", 4UL ) );
+    FD_TEST( buf[4]=='H' );
+  }
 
   fd_rng_delete( fd_rng_leave( rng ) );
 
