@@ -311,6 +311,7 @@ struct fd_config {
     char stake_delegations[ PATH_MAX ];
     char shredb[ PATH_MAX ];
     char guidb[ PATH_MAX ];
+    char tower[ PATH_MAX ];
   } paths;
 
   struct {
@@ -555,6 +556,10 @@ struct fd_config {
       ushort repair_serve_listen_port;
       ulong  shred_storage_limit_gib;
     } rserve;
+
+    struct {
+      int write_tower_file;
+    } tower;
 
     struct {
       ulong max_transaction_lookahead_buffer_size;

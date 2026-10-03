@@ -27,6 +27,11 @@ static char const cfg_str_4[] =
 static char const cfg_str_5[] =
   "[development.genesis]\n"
   "  max_file_size_mib = 33";
+static char const cfg_str_tower[] =
+  "[paths]\n"
+  "  tower = \"/data/{name}/tower.bin\"\n"
+  "[tiles.tower]\n"
+  "  write_tower_file = false";
 
 extern uchar const fdctl_default_config[];
 extern ulong const fdctl_default_config_sz;
@@ -40,6 +45,27 @@ genesis_max_file_size_is_valid( config_t * config,
     config->firedancer.development.genesis.max_file_size_mib = max_file_size_mib;
     fd_config_validate( config );
     _exit( 0 );
+  }
+
+  int status = 0;
+  FD_TEST( waitpid( pid, &status, 0 )==pid );
+  return WIFEXITED( status ) && !WEXITSTATUS( status );
+}
+
+static int
+tower_path_is_valid( char const * path ) {
+  int pid = fork();
+  FD_TEST( pid>=0 );
+  if( FD_UNLIKELY( !pid ) ) {
+    char toml[ 256 ];
+    FD_TEST( fd_cstr_printf_check( toml, sizeof(toml), NULL, "[paths]\n  tower = \"%s\"", path ) );
+    static uchar pod_mem[ 1UL<<16 ];
+    static uchar scratch[ 4096 ];
+    static config_t config[1];
+    config->is_firedancer = 1;
+    uchar * pod = fd_pod_join( fd_pod_new( pod_mem, sizeof(pod_mem) ) );
+    FD_TEST( fd_toml_parse( toml, strlen( toml ), pod, scratch, sizeof(scratch), NULL )==FD_TOML_SUCCESS );
+    _exit( fd_config_extract_pod( pod, config )!=config ); /* exits 1 on an invalid path */
   }
 
   int status = 0;
@@ -189,6 +215,24 @@ main( int     argc,
   FD_TEST( fd_toml_parse( cfg_str_5, sizeof(cfg_str_5)-1, pod, scratch, sizeof(scratch), NULL ) == FD_TOML_SUCCESS );
   FD_TEST( fd_config_extract_pod( pod, config ) == config );
   FD_TEST( config->firedancer.development.genesis.max_file_size_mib == 33UL );
+
+  /* Parse the tower file options */
+
+  memset( config, 0, sizeof(config_t) );
+  config->is_firedancer = 1;
+  config->tiles.tower.write_tower_file = 1;
+  pod = fd_pod_join( fd_pod_new( pod_mem, sizeof(pod_mem) ) );
+  FD_TEST( fd_toml_parse( cfg_str_tower, sizeof(cfg_str_tower)-1, pod, scratch, sizeof(scratch), NULL ) == FD_TOML_SUCCESS );
+  FD_TEST( fd_config_extract_pod( pod, config ) == config );
+  FD_TEST( !strcmp( config->paths.tower, "/data/{name}/tower.bin" ) );
+  FD_TEST( !config->tiles.tower.write_tower_file );
+
+  FD_TEST(  tower_path_is_valid( ""                ) ); /* default */
+  FD_TEST(  tower_path_is_valid( "/data/tower.bin" ) );
+  FD_TEST( !tower_path_is_valid( "data/tower.bin"  ) ); /* relative */
+  FD_TEST( !tower_path_is_valid( "/data/"          ) ); /* no file name */
+  FD_TEST(  tower_path_is_valid( "/data/tower-{identity}.bin" ) );
+  FD_TEST( !tower_path_is_valid( "/data/{identity}/tower.bin" ) ); /* not in the file name */
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

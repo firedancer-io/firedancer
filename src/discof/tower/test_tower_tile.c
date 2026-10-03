@@ -15,7 +15,10 @@ mock_query_voters( fd_tower_tile_t *            ctx,
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include <sys/mman.h>
+#include <sys/prctl.h>
+#include <sys/wait.h>
 
 /* mock_vote_txn builds a vote transaction from a tower.  Constructs an
    fd_tower_t with the given (slot, conf) pairs, serializes it via
@@ -822,8 +825,7 @@ test_fixture_replay( fd_wksp_t * wksp ) {
 
   /* Set fields normally handled by privileged_init. */
 
-  ctx->checkpt_fd = -1;
-  ctx->restore_fd = -1;
+  ctx->tower_dir_fd = -1;
   memset( ctx->identity_key, 0x11, sizeof(fd_pubkey_t) );
   memset( ctx->vote_account, 0x22, sizeof(fd_pubkey_t) );
 
@@ -938,8 +940,7 @@ eqvoc_setup( fd_wksp_t * wksp ) {
   fd_tower_tile_t * ctx = init_choreo( scratch, topo, tile );
   FD_TEST( ctx );
 
-  ctx->checkpt_fd = -1;
-  ctx->restore_fd = -1;
+  ctx->tower_dir_fd = -1;
   memset( ctx->identity_key, 0x11, sizeof(fd_pubkey_t) );
   memset( ctx->vote_account, 0x22, sizeof(fd_pubkey_t) );
 
@@ -1230,6 +1231,120 @@ test_vote_history_pending_replay( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_vote_history_pending_replay" ));
 }
 
+/* tower_filter_allows does a pwrite (arg is the size), ftruncate (arg
+   is the length) or renameat2 (arg is the flags) under the tower tile
+   seccomp filter in a child, and returns whether it passed the filter.
+   The child then reports on the pipe it was given as the log fd. */
+
+#define OP_PWRITE    (0)
+#define OP_FTRUNCATE (1)
+#define OP_RENAMEAT2 (2)
+
+static int
+tower_filter_allows( int   op,
+                     ulong arg,
+                     long  off ) {
+  int pipe_fd[ 2 ];
+  FD_TEST( !pipe( pipe_fd ) );
+  int file_fd = open( "/dev/null", O_WRONLY );
+  FD_TEST( -1!=file_fd );
+  int dir_fd = open( "/", O_RDONLY|O_DIRECTORY );
+  FD_TEST( -1!=dir_fd );
+
+  pid_t pid = fork();
+  FD_TEST( -1!=pid );
+  if( !pid ) {
+    static uchar       buf[ 2UL*FD_TOWER_FILE_MAX ];
+    struct sock_filter filter[ 128UL ];
+    populate_sock_filter_policy_fd_tower_tile( 128UL, filter, (uint)pipe_fd[ 1 ], (uint)dir_fd, (uint)file_fd, UINT_MAX, UINT_MAX );
+    struct sock_fprog prog = { .len = (ushort)sock_filter_policy_fd_tower_tile_instr_cnt, .filter = filter };
+    FD_TEST( !prctl( PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0 ) );
+    FD_TEST( !prctl( PR_SET_SECCOMP, SECCOMP_MODE_FILTER, &prog ) );
+    long ret;
+    switch( op ) {
+    case OP_PWRITE:    ret = pwrite( file_fd, buf, arg, off );                                                         break;
+    case OP_FTRUNCATE: ret = ftruncate( file_fd, (long)arg );                                                          break;
+    default:           ret = syscall( SYS_renameat2, dir_fd, "fd_tower_missing", dir_fd, "fd_tower_missing2", (uint)arg ); break;
+    }
+    (void)ret;
+    ret = write( pipe_fd[ 1 ], "y", 1UL );
+    _exit( 0 );
+  }
+
+  close( pipe_fd[ 1 ] );
+  char c;
+  long n = read( pipe_fd[ 0 ], &c, 1UL );
+  int  wstatus;
+  FD_TEST( pid==waitpid( pid, &wstatus, 0 ) );
+  close( pipe_fd[ 0 ] );
+  close( file_fd );
+  close( dir_fd );
+  return n==1L;
+}
+
+static void
+test_tower_file_seccomp( void ) {
+  FD_TEST(  tower_filter_allows( OP_PWRITE,    FD_TOWER_FILE_MAX,     0L ) );
+  FD_TEST( !tower_filter_allows( OP_PWRITE,    FD_TOWER_FILE_MAX+1UL, 0L ) );
+  FD_TEST( !tower_filter_allows( OP_PWRITE,    1UL,                   1L ) );
+  FD_TEST(  tower_filter_allows( OP_FTRUNCATE, FD_TOWER_FILE_MAX,     0L ) );
+  FD_TEST( !tower_filter_allows( OP_FTRUNCATE, FD_TOWER_FILE_MAX+1UL, 0L ) );
+  FD_TEST(  tower_filter_allows( OP_RENAMEAT2, RENAME_EXCHANGE,       0L ) );
+  FD_TEST(  tower_filter_allows( OP_RENAMEAT2, RENAME_NOREPLACE,      0L ) );
+  FD_TEST( !tower_filter_allows( OP_RENAMEAT2, 0UL,                   0L ) ); /* may replace a file */
+
+  FD_LOG_NOTICE(( "pass: test_tower_file_seccomp" ));
+}
+
+static void
+test_tower_file_names( void ) {
+  char name[ 2 ][ PATH_MAX ];
+
+  tower_file_names( "tower-1_9-{identity}.bin", "A", name );
+  FD_TEST( !strcmp( name[ 0 ], "tower-1_9-A.bin.new" ) );
+  FD_TEST( !strcmp( name[ 1 ], "tower-1_9-A.bin"     ) );
+
+  tower_file_names( "tower.bin", "A", name );
+  FD_TEST( !strcmp( name[ 0 ], "tower.bin.new" ) );
+  FD_TEST( !strcmp( name[ 1 ], "tower.bin"     ) );
+
+  FD_LOG_NOTICE(( "pass: test_tower_file_names" ));
+}
+
+static int
+tower_file_authorized( fd_compact_tower_sync_serde_t const * sync,
+                       fd_pubkey_t const *                   identity ) {
+  fd_keyguard_authority_t authority = {0};
+  memcpy( authority.identity_pubkey, identity->uc, 32UL );
+  uchar buf[ FD_TOWER_FILE_MAX ];
+  ulong sz = fd_tower_file_ser( sync, identity, buf );
+  return fd_keyguard_payload_authorize( &authority, buf+FD_TOWER_FILE_DATA_OFF, sz-FD_TOWER_FILE_DATA_OFF, FD_KEYGUARD_ROLE_TOWER, FD_KEYGUARD_SIGN_TYPE_ED25519 );
+}
+
+static void
+test_tower_file_keyguard( void ) {
+  fd_pubkey_t identity;
+  memset( identity.uc, 0x42, 32UL );
+
+  /* the shortest tower the tile writes, and a full one */
+  fd_compact_tower_sync_serde_t sync;
+  memset( &sync, 0, sizeof(sync) );
+  sync.root          = 100UL;
+  sync.lockouts_cnt  = 1;
+  sync.lockouts[ 0 ] = ( __typeof__(sync.lockouts[0]) ){ .offset=1UL, .confirmation_count=1 };
+  FD_TEST( tower_file_authorized( &sync, &identity ) );
+
+  sync.lockouts_cnt     = (ushort)FD_TOWER_VOTE_MAX;
+  sync.timestamp_option = 1;
+  for( ulong i=0UL; i<FD_TOWER_VOTE_MAX; i++ ) {
+    ulong conf = FD_TOWER_VOTE_MAX-i;
+    sync.lockouts[ i ] = ( __typeof__(sync.lockouts[0]) ){ .offset=1UL<<(conf+1UL), .confirmation_count=(uchar)conf };
+  }
+  FD_TEST( tower_file_authorized( &sync, &identity ) );
+
+  FD_LOG_NOTICE(( "pass: test_tower_file_keyguard" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -1243,6 +1358,9 @@ main( int     argc,
   test_vote_history_floor();
   test_count_vote_txn();
   test_parent_vote_txn_recent_blockhash();
+  test_tower_file_keyguard();
+  test_tower_file_seccomp();
+  test_tower_file_names();
 
   char const * _page_sz = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",  NULL, "gigantic"              );
   ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 4UL                     );

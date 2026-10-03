@@ -390,6 +390,18 @@ fd_keyguard_payload_matches_event( uchar const * data,
   return 1;
 }
 
+/* Tower1_14_11: node_pubkey, threshold_depth, threshold_size, ... */
+
+FD_FN_PURE static int
+fd_keyguard_payload_matches_tower( uchar const * data,
+                                   ulong         sz,
+                                   int           sign_type ) {
+  return sign_type==FD_KEYGUARD_SIGN_TYPE_ED25519 &&
+         sz>=1793UL                               &&        /* smallest Tower1_14_11 */
+         FD_LOAD( ulong, data+32UL )==8UL         &&        /* threshold_depth */
+         FD_LOAD( ulong, data+40UL )==0x3FE5555555555555UL; /* threshold_size, 2/3 as f64 bits */
+}
+
 FD_FN_PURE ulong
 fd_keyguard_payload_match( uchar const * data,
                            ulong         sz,
@@ -407,5 +419,6 @@ fd_keyguard_payload_match( uchar const * data,
   res |= fd_ulong_if( fd_keyguard_payload_matches_event     ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_EVENT,      0 );
   res |= fd_ulong_if( fd_keyguard_payload_matches_ag_vote   ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_AG_VOTE,    0 );
   res |= fd_ulong_if( fd_keyguard_payload_matches_bls_pubkey( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_BLS_PUBKEY, 0 );
+  res |= fd_ulong_if( fd_keyguard_payload_matches_tower     ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_TOWER,      0 );
   return res;
 }

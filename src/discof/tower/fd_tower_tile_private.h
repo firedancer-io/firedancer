@@ -14,6 +14,7 @@
 #include "../../choreo/tower/fd_tower_file.h"
 #include "../../choreo/tower/fd_tower_serdes.h"
 #include "../../choreo/tower/fd_tower_stakes.h"
+#include "../../disco/keyguard/fd_keyguard_client.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../disco/fd_txn_m.h"
@@ -118,8 +119,6 @@ typedef struct in_ctx in_ctx_t;
 
 struct fd_tower_tile {
   ulong            seed; /* map seed */
-  int              checkpt_fd;
-  int              restore_fd;
   fd_pubkey_t      identity_key[1];
   fd_pubkey_t      vote_account[1];
   ulong            auth_vtr_path_cnt;  /* number of authorized voter paths passed to tile */
@@ -132,6 +131,16 @@ struct fd_tower_tile {
   fd_keyswitch_t * identity_keyswitch;
   auth_vtr_t *     auth_vtr;
   fd_keyswitch_t * auth_vtr_keyswitch; /* authorized voter keyswitch */
+  fd_keyguard_client_t keyguard_client[1];
+
+  /* The tower file.  Each write goes to the staging file, then the two
+     names are exchanged, so the live file is always a complete file. */
+
+  int  tower_dir_fd;
+  int  tower_fd  [ 2 ];       /* [0] staging (<name>.new), [1] live (<name>), -1 if not written */
+  char tower_name[ 2 ][ PATH_MAX ];
+  char tower_name_tmpl[ PATH_MAX ]; /* file name, {identity} is replaced by the identity at each write */
+  int  tower_file_dirty;      /* voted since the last write */
 
   fd_eqvoc_t * eqvoc;
   fd_ghost_t * ghost;
@@ -156,7 +165,7 @@ struct fd_tower_tile {
   fd_pubkey_t                   vote_accs[VTR_MAX]; /* vote account addresses */
   ulong                         vtr_cnt;            /* actual cnt of elements in above arrays */
   fd_gossip_duplicate_shred_t   duplicate_chunks[FD_EQVOC_CHUNK_CNT];
-  fd_compact_tower_sync_serde_t compact_tower_sync_serde;
+  fd_compact_tower_sync_serde_t compact_tower_sync_serde; /* our last vote, for the tower file */
   uchar                         vote_txn[FD_TPU_PARSED_MTU];
   fd_tower_file_t               vote_history;
   int                           vote_history_pending; /* vote history not yet adopted or dropped */

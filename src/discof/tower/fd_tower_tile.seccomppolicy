@@ -1,13 +1,16 @@
 # logfile_fd: It can be disabled by configuration, but typically tiles
 #             will open a log file on boot and write all messages there.
 #
-# checkpt_fd: The binary file to checkpoint towers to while running.
+# dir_fd: The directory holding the tower file.
+#
+# tower_fd_0, tower_fd_1: The staging and live tower files.  They swap
+#                         roles after every write.
 #
 # accounts_fd: The file descriptor for the accounts database.  Execution
 #              tiles may need to pull accounts into the cache from disk,
 #              or purge out of cache to the disk to make forward
 #              progress.
-uint logfile_fd, uint checkpt_fd, uint restore_fd, uint accounts_fd
+uint logfile_fd, uint dir_fd, uint tower_fd_0, uint tower_fd_1, uint accounts_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -16,24 +19,37 @@ uint logfile_fd, uint checkpt_fd, uint restore_fd, uint accounts_fd
 #
 # arg 0 is the file descriptor to write to.  The boot process ensures
 # that descriptor 2 is always STDERR.
-#
-# fd_tower_checkpt requires write
 write: (or (eq (arg 0) 2)
-           (eq (arg 0) logfile_fd)
-           (eq (arg 0) checkpt_fd))
-
-# fd_tower_restore requires read
-read: (eq (arg 0) restore_fd)
-
-# fd_tower_restore requires fstat (fd_io_sz). TODO read all bytes without fd_io_sz?
-fstat: (eq (arg 0) restore_fd)
+           (eq (arg 0) logfile_fd))
 
 # logging: 'WARNING' and above fsync the logfile to disk immediately
-# tower:   always fsync the tower file to disk immediately.
 #
 # arg 0 is the file descriptor to fsync.
-fsync: (or (eq (arg 0) logfile_fd)
-           (eq (arg 0) checkpt_fd))
+fsync: (eq (arg 0) logfile_fd)
+
+# tower: write the tower file to the staging file, then exchange the
+#        staging and live names so the live file is always complete
+#
+# arg 0 is the file descriptor to write to or truncate.  The whole file
+# is written at offset 0 (arg 3), and it is at most FD_TOWER_FILE_MAX
+# bytes (arg 2 of pwrite64, arg 1 of ftruncate).
+pwrite64: (and (or (eq (arg 0) tower_fd_0)
+                   (eq (arg 0) tower_fd_1))
+               (<= (arg 2) FD_TOWER_FILE_MAX)
+               (eq (arg 3) 0))
+
+ftruncate: (and (or (eq (arg 0) tower_fd_0)
+                    (eq (arg 0) tower_fd_1))
+                (<= (arg 1) FD_TOWER_FILE_MAX))
+
+# arg 0 and arg 2 are the directory of the two names, arg 4 is the flags,
+# RENAME_EXCHANGE (2) for a write, or RENAME_NOREPLACE (1) to give the
+# files the name of a new identity.  A rename that replaces a file is
+# not allowed.
+renameat2: (and (eq (arg 0) dir_fd)
+                (eq (arg 2) dir_fd)
+                (or (eq (arg 4) 1)
+                    (eq (arg 4) 2)))
 
 # accounts database: write to the accounts database
 #

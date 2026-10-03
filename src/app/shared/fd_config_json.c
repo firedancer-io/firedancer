@@ -11,7 +11,7 @@
    or knowingly skipped) before the constant is bumped.  String keys of
    the user's own file are separately forced through the classification
    lists below. */
-FD_STATIC_ASSERT( sizeof(fd_config_t)==26553584UL, update_fd_config_to_json_for_the_layout_change );
+FD_STATIC_ASSERT( sizeof(fd_config_t)==26557688UL, update_fd_config_to_json_for_the_layout_change );
 
 #define REDACTED "[redacted]"
 
@@ -113,6 +113,7 @@ static char const * const jw_redacted_keys[] = {
   "paths.stake_delegations",
   "paths.shredb",
   "paths.guidb",
+  "paths.tower",
   "log.path",
   "gossip.host",
   "snapshots.sources.servers",
@@ -325,6 +326,7 @@ fd_config_to_json( fd_config_t const * config,
     jw_path( &w, "stake_delegations",       config->paths.stake_delegations );
     jw_path( &w, "shredb",                  config->paths.shredb );
     jw_path( &w, "guidb",                   config->paths.guidb );
+    jw_path( &w, "tower",                   config->paths.tower );
     jw_path_arr( &w, "authorized_voter_paths", f->paths.authorized_voter_paths_cnt );
   jw_obj_close( &w );
 
@@ -620,6 +622,9 @@ fd_config_to_json( fd_config_t const * config,
       jw_bool ( &w, "enabled",                   config->tiles.rserve.enabled );
       jw_ulong( &w, "repair_serve_listen_port",  config->tiles.rserve.repair_serve_listen_port );
       jw_ulong( &w, "shred_storage_limit_gib",   config->tiles.rserve.shred_storage_limit_gib );
+    jw_obj_close( &w );
+    jw_obj_open( &w, "tower" );
+      jw_bool ( &w, "write_tower_file",          config->tiles.tower.write_tower_file );
     jw_obj_close( &w );
     jw_obj_open( &w, "replay" );
       jw_ulong( &w, "max_transaction_lookahead_buffer_size", config->tiles.replay.max_transaction_lookahead_buffer_size );

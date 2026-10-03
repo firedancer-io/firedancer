@@ -1,4 +1,6 @@
+#define _GNU_SOURCE /* syscall, RENAME_EXCHANGE */
 #include "fd_tower_tile.h"
+#include "../../choreo/tower/fd_tower_file.h"
 #include <linux/futex.h>
 #include "generated/fd_tower_tile_seccomp.h"
 
@@ -32,7 +34,9 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <stdio.h>
 #include <unistd.h>
+#include <sys/syscall.h>
 
 /* The Tower tile broadly processes three classes of frags, leading to
    three distinct kinds of frag processing:
@@ -135,6 +139,7 @@
 #define IN_KIND_GOSSIP (3)
 #define IN_KIND_IPECHO (4)
 #define IN_KIND_SHRED  (5)
+#define IN_KIND_SIGN   (6)
 
 #define OUT_IDX 0 /* only a single out link tower_out */
 
@@ -560,6 +565,8 @@ publish_slot_done( fd_tower_tile_t *            ctx,
     FD_TEST( !fd_tower_vote_empty( ctx->tower->votes ) );
     FD_TEST( txn->payload_sz && txn->payload_sz<=FD_TPU_MTU );
     fd_memcpy( msg->vote_txn, txn->payload, txn->payload_sz );
+    FD_TEST( fd_txn_parse_simple_vote( TXN(txn), txn->payload, &ctx->compact_tower_sync_serde ) );
+    ctx->tower_file_dirty   = 1;
     msg->vote_txn_sz        = txn->payload_sz;
     msg->authority_idx      = authority_idx;
     msg->vote_created_nanos = fd_log_wallclock();
@@ -1074,7 +1081,7 @@ vote_history_ahead( fd_tower_t *            tower,
   fd_tower_blk_t const * root_blk = fd_tower_blocks_query( tower, file->root );
   int   ahead   = file->root>tower->root && ( !root_blk || !fd_ghost_query( ghost, &root_blk->replayed_block_id ) );
   ulong wait    = file->votes[ file->votes_cnt-1UL ].slot+1UL;
-  int   missing = 0; 
+  int   missing = 0;
   for( ulong i=0UL; i<file->votes_cnt; i++ ) {
     fd_tower_vote_t const * vote = &file->votes[ i ];
     fd_tower_blk_t  const * blk  = fd_tower_blocks_query( tower, vote->slot );
@@ -1634,12 +1641,13 @@ init_choreo( void                 * scratch,
   memset( ctx->vote_txn, 0, sizeof(ctx->vote_txn) );
   ctx->vote_history_pending = 0;
 
-  ctx->halt_signing    = 0;
-  ctx->hard_fork_fatal = tile->tower.hard_fork_fatal;
-  ctx->wfs             = tile->tower.wait_for_supermajority;
-  ctx->shred_version   = 0;
-  ctx->init            = 0;
-  ctx->root_epoch      = ULONG_MAX;
+  ctx->halt_signing     = 0;
+  ctx->tower_file_dirty = 0;
+  ctx->hard_fork_fatal  = tile->tower.hard_fork_fatal;
+  ctx->wfs              = tile->tower.wait_for_supermajority;
+  ctx->shred_version    = 0;
+  ctx->init             = 0;
+  ctx->root_epoch       = ULONG_MAX;
 
   memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
   ctx->metrics.last_vote_slot = ULONG_MAX;
@@ -1647,8 +1655,61 @@ init_choreo( void                 * scratch,
   return ctx;
 }
 
+/* tower_file_names writes the staging (name[0]) and live (name[1])
+   tower file names for the identity, from the file name template tmpl,
+   which can have {identity}. */
+
+static void
+tower_file_names( char const * tmpl,
+                  char const * identity_b58,
+                  char         name[ static 2 ][ PATH_MAX ] ) {
+  char const * at = strstr( tmpl, "{identity}" );
+  if( FD_LIKELY( at ) ) FD_TEST( fd_cstr_printf_check( name[ 1 ], PATH_MAX, NULL, "%.*s%s%s", (int)(at-tmpl), tmpl, identity_b58, at+sizeof("{identity}")-1UL ) );
+  else                  fd_cstr_ncpy( name[ 1 ], tmpl, PATH_MAX );
+  FD_TEST( fd_cstr_printf_check( name[ 0 ], PATH_MAX, NULL, "%s.new", name[ 1 ] ) );
+}
+
+/* tower_file_write saves our last vote the way Agave does, so an
+   operator can move it to another validator with set-identity.  The
+   file is signed by the identity, so it is only written while the sign
+   tile is known to hold the same identity key as we do. */
+
+static void
+tower_file_write( fd_tower_tile_t * ctx ) {
+  /* The first write after a set-identity gives the files the name of
+     the new identity.  A file that already has that name is exchanged
+     with ours, not replaced. */
+
+  FD_BASE58_ENCODE_32_BYTES( ctx->identity_key->uc, identity_key_b58 );
+  char name[ 2 ][ PATH_MAX ];
+  tower_file_names( ctx->tower_name_tmpl, identity_key_b58, name );
+  if( FD_UNLIKELY( strcmp( name[ 1 ], ctx->tower_name[ 1 ] ) ) ) {
+    for( ulong i=0UL; i<2UL; i++ ) {
+      if( FD_LIKELY( !syscall( SYS_renameat2, ctx->tower_dir_fd, ctx->tower_name[ i ], ctx->tower_dir_fd, name[ i ], RENAME_NOREPLACE ) ) ) continue;
+      if( FD_UNLIKELY( errno!=EEXIST || syscall( SYS_renameat2, ctx->tower_dir_fd, ctx->tower_name[ i ], ctx->tower_dir_fd, name[ i ], RENAME_EXCHANGE ) ) )
+        FD_LOG_ERR(( "renameat2(%s, %s) failed (%i-%s)", ctx->tower_name[ i ], name[ i ], errno, fd_io_strerror( errno ) ));
+      FD_LOG_WARNING(( "tower file %s already existed, it is now %s", name[ i ], ctx->tower_name[ i ] ));
+    }
+    FD_LOG_NOTICE(( "tower file %s renamed to %s for the new identity", ctx->tower_name[ 1 ], name[ 1 ] ));
+    memcpy( ctx->tower_name, name, sizeof(name) );
+  }
+
+  uchar buf[ FD_TOWER_FILE_MAX ];
+  ulong sz = fd_tower_file_ser( &ctx->compact_tower_sync_serde, ctx->identity_key, buf );
+  fd_keyguard_client_sign( ctx->keyguard_client, buf+FD_TOWER_FILE_SIG_OFF, buf+FD_TOWER_FILE_DATA_OFF, sz-FD_TOWER_FILE_DATA_OFF, FD_KEYGUARD_SIGN_TYPE_ED25519 );
+
+  if( FD_UNLIKELY( pwrite( ctx->tower_fd[ 0 ], buf, sz, 0L )!=(long)sz ) ) FD_LOG_ERR(( "pwrite(%s) failed (%i-%s)", ctx->tower_name[ 0 ], errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( ftruncate( ctx->tower_fd[ 0 ], (long)sz ) ) )           FD_LOG_ERR(( "ftruncate(%s) failed (%i-%s)", ctx->tower_name[ 0 ], errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( syscall( SYS_renameat2, ctx->tower_dir_fd, ctx->tower_name[ 0 ], ctx->tower_dir_fd, ctx->tower_name[ 1 ], RENAME_EXCHANGE ) ) )
+    FD_LOG_ERR(( "renameat2(%s, %s) failed (%i-%s)", ctx->tower_name[ 0 ], ctx->tower_name[ 1 ], errno, fd_io_strerror( errno ) ));
+  int staging = ctx->tower_fd[ 0 ]; ctx->tower_fd[ 0 ] = ctx->tower_fd[ 1 ]; ctx->tower_fd[ 1 ] = staging;
+  ctx->tower_file_dirty = 0;
+}
+
 static void
 during_housekeeping( fd_tower_tile_t * ctx ) {
+  if( FD_UNLIKELY( ctx->tower_file_dirty && !ctx->halt_signing && ctx->tower_dir_fd!=-1 ) ) tower_file_write( ctx );
+
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->auth_vtr_keyswitch )==FD_KEYSWITCH_STATE_UNHALT_PENDING ) ) {
     if( fd_keyswitch_param_query( ctx->auth_vtr_keyswitch )==FD_KEYSWITCH_PARAM_AV_CLEAR ) ctx->halt_signing = 0;
     fd_keyswitch_state( ctx->auth_vtr_keyswitch, FD_KEYSWITCH_STATE_UNLOCKED );
@@ -1924,18 +1985,29 @@ privileged_init( fd_topo_t const *      topo,
   }
   ctx->auth_vtr_path_cnt = tile->tower.authorized_voter_paths_cnt;
 
-  /* The tower file is used to checkpt and restore the state of the
-     local tower. */
+  /* The tower file, see tower_file_write. */
 
-  char path[ PATH_MAX ];
-  FD_BASE58_ENCODE_32_BYTES( ctx->identity_key->uc, identity_key_b58 );
-  FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "%s/tower-1_9-%s.bin.new", tile->tower.base_path, identity_key_b58 ) );
-  ctx->checkpt_fd = open( path, O_WRONLY|O_CREAT|O_TRUNC, 0600 );
-  if( FD_UNLIKELY( -1==ctx->checkpt_fd ) ) FD_LOG_ERR(( "open(`%s`) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+  ctx->tower_dir_fd  = -1;
+  ctx->tower_fd[ 0 ] = -1;
+  ctx->tower_fd[ 1 ] = -1;
+  if( FD_LIKELY( tile->tower.tower_path[ 0 ] ) ) {
+    char path[ PATH_MAX ];
+    fd_cstr_ncpy( path, tile->tower.tower_path, PATH_MAX );
+    char * slash = strrchr( path, '/' ); /* absolute, {identity} only in the file name, see fd_config_parse.c */
+    FD_TEST( slash );
+    fd_cstr_ncpy( ctx->tower_name_tmpl, slash+1, PATH_MAX );
+    slash[ slash==path ] = '\0'; /* path is now the directory, "/" stays "/" */
 
-  FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "%s/tower-1_9-%s.bin", tile->tower.base_path, identity_key_b58 ) );
-  ctx->restore_fd = open( path, O_RDONLY );
-  if( FD_UNLIKELY( -1==ctx->restore_fd && errno!=ENOENT ) ) FD_LOG_ERR(( "open(`%s`) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+    FD_BASE58_ENCODE_32_BYTES( ctx->identity_key->uc, identity_key_b58 );
+    tower_file_names( ctx->tower_name_tmpl, identity_key_b58, ctx->tower_name );
+
+    ctx->tower_dir_fd = open( path, O_RDONLY|O_DIRECTORY );
+    if( FD_UNLIKELY( -1==ctx->tower_dir_fd ) ) FD_LOG_ERR(( "open(`%s`) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+    for( ulong i=0UL; i<2UL; i++ ) {
+      ctx->tower_fd[ i ] = openat( ctx->tower_dir_fd, ctx->tower_name[ i ], O_WRONLY|O_CREAT, 0644 );
+      if( FD_UNLIKELY( -1==ctx->tower_fd[ i ] ) ) FD_LOG_ERR(( "open(`%s/%s`) failed (%i-%s)", path, ctx->tower_name[ i ], errno, fd_io_strerror( errno ) ));
+    }
+  }
 }
 
 static void
@@ -1969,6 +2041,7 @@ unprivileged_init( fd_topo_t const *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "ipecho_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_IPECHO;
     else if( FD_LIKELY( !strcmp( link->name, "replay_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
     else if( FD_LIKELY( !strcmp( link->name, "shred_out"     ) ) ) ctx->in_kind[ i ] = IN_KIND_SHRED;
+    else if( FD_LIKELY( !strcmp( link->name, "sign_tower"    ) ) ) ctx->in_kind[ i ] = IN_KIND_SIGN;
     else FD_LOG_ERR(( "tower tile has unexpected input link %lu %s", i, link->name ));
 
     ctx->in[ i ].mcache_only = !link->mtu;
@@ -1987,6 +2060,18 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->out_seq       = 0UL;
   ctx->replay_in_seq = 0UL;
 
+  ulong sign_in_idx  = fd_topo_find_tile_in_link ( topo, tile, "sign_tower", tile->kind_id );
+  ulong sign_out_idx = fd_topo_find_tile_out_link( topo, tile, "tower_sign", tile->kind_id );
+  if( FD_LIKELY( sign_in_idx!=ULONG_MAX && sign_out_idx!=ULONG_MAX ) ) {
+    fd_topo_link_t const * sign_in  = &topo->links[ tile->in_link_id [ sign_in_idx  ] ];
+    fd_topo_link_t const * sign_out = &topo->links[ tile->out_link_id[ sign_out_idx ] ];
+    fd_sleep_t * sleep = topo->sleep_obj_id!=ULONG_MAX ? fd_sleep_join( fd_topo_obj_laddr( topo, topo->sleep_obj_id ) ) : NULL;
+    FD_TEST( fd_keyguard_client_join( fd_keyguard_client_new( ctx->keyguard_client, sign_out->mcache, sign_out->dcache, sign_in->mcache, sign_in->dcache,
+                                                              sign_out->mtu, sign_in->mtu, sleep, sign_out->id, fd_topo_find_link_consumer( topo, sign_out ) ) ) );
+  } else {
+    ctx->tower_dir_fd = -1; /* no signer (forktest), the tower file is not written */
+  }
+
   FD_BASE58_ENCODE_32_BYTES( ctx->vote_account->uc, vote_account_b58 );
   FD_BASE58_ENCODE_32_BYTES( ctx->identity_key->uc, identity_key_b58 );
   FD_LOG_INFO(( "my vote account: %s", vote_account_b58 ));
@@ -2002,7 +2087,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_tower_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_tower_tile_t), sizeof(fd_tower_tile_t) );
 
-  populate_sock_filter_policy_fd_tower_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->checkpt_fd, (uint)ctx->restore_fd, FD_ACCDB_FD_RW );
+  populate_sock_filter_policy_fd_tower_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->tower_dir_fd, (uint)ctx->tower_fd[ 0 ], (uint)ctx->tower_fd[ 1 ], FD_ACCDB_FD_RW );
   return sock_filter_policy_fd_tower_tile_instr_cnt;
 }
 
@@ -2015,14 +2100,17 @@ populate_allowed_fds( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_tower_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_tower_tile_t), sizeof(fd_tower_tile_t) );
 
-  if( FD_UNLIKELY( out_fds_cnt<5UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<6UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
-  if( FD_LIKELY( ctx->checkpt_fd!=-1 ) ) out_fds[ out_cnt++ ] = ctx->checkpt_fd;
-  if( FD_LIKELY( ctx->restore_fd!=-1 ) ) out_fds[ out_cnt++ ] = ctx->restore_fd;
+  if( FD_LIKELY( -1!=ctx->tower_dir_fd ) ) {
+    out_fds[ out_cnt++ ] = ctx->tower_dir_fd;
+    out_fds[ out_cnt++ ] = ctx->tower_fd[ 0 ];
+    out_fds[ out_cnt++ ] = ctx->tower_fd[ 1 ];
+  }
   out_fds[ out_cnt++ ] = FD_ACCDB_FD_RW; /* accounts database */
 
   return out_cnt;
@@ -2049,6 +2137,7 @@ max_event_sz( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
 
 fd_topo_run_tile_t fd_tile_tower = {
   .name                     = "tower",
+  .allow_renameat           = 1, /* tower_file_write */
   .max_event_sz             = max_event_sz,
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
