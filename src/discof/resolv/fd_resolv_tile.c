@@ -307,7 +307,8 @@ peek_aluts( fd_resolv_ctx_t * ctx,
   fd_sysvar_cache_t const * sysvar_cache = &ctx->bank->f.sysvar_cache;
   fd_slot_hashes_t slot_hashes_view[1];
   if( FD_UNLIKELY( !fd_sysvar_cache_slot_hashes_view( sysvar_cache, slot_hashes_view ) ) ) {
-    FD_LOG_ERR(( "slot hashes sysvar cache is invalid" ));
+    ctx->metrics.lut[ FD_METRICS_ENUM_LUT_RESOLVE_RESULT_V_ACCOUNT_NOT_FOUND_IDX ]++;
+    return FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND;
   }
 
   /* Write indirect addrs into here */
