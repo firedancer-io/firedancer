@@ -101,9 +101,15 @@ main( int     argc,
     FD_TEST( !returnable_frag( ctx, 2UL, 0UL, REPLAY_SIG_BECAME_LEADER, replay_chunk, sizeof(*leader), 0UL, 0UL, 0UL, stem ) );
     FD_TEST( ctx->slot==slot && ctx->expect_pack_idx==pack_idx );
 
-    /* Keep stale work filtered. */
-    FD_TEST( before_frag( ctx, 0UL, 0UL, fd_disco_execle_sig( slot-1UL, pack_idx ) )==1 );
-    FD_TEST( before_frag( ctx, 1UL, 0UL, fd_disco_execle_sig( slot-1UL, pack_idx ) )==1 );
+    /* Stale work consumes its pack_idx without being processed. */
+    ulong stale_sig = fd_disco_execle_sig( slot-1UL, pack_idx );
+    FD_TEST( !before_frag( ctx, 0UL, 0UL, stale_sig ) );
+    FD_TEST( !before_frag( ctx, 1UL, 0UL, stale_sig ) );
+    FD_TEST( !returnable_frag( ctx, 1UL, 0UL, stale_sig, pack_chunk, sizeof(*done), 0UL, 0UL, 0UL, stem ) );
+    FD_TEST( ctx->expect_pack_idx==pack_idx+1U && seqs[0]==4UL*(slot-1UL)+1UL && seqs[1]==slot-1UL );
+    pack_idx++;
+    execle_sig = fd_disco_execle_sig( slot, pack_idx );
+    pack_sig   = fd_disco_execle_sig( slot, pack_idx+1U );
 
     fd_memset( done, 0, sizeof(*done) );
     done->end_slot_reason = FD_PACK_END_SLOT_REASON_TIME;

@@ -311,7 +311,7 @@ before_frag( fd_motor_tile_t * ctx,
   case IN_KIND_EXECLE: {
     ulong slot = fd_disco_execle_sig_slot( sig );
     /* Pack can outrun Motor on replay_out; wait for the leader notice. */
-    return FD_UNLIKELY( ctx->slot==ULONG_MAX || slot>ctx->slot ) ? -1 : slot<ctx->slot;
+    return FD_UNLIKELY( ctx->slot==ULONG_MAX || slot>ctx->slot ) ? -1 : 0;
   }
   default:             return 1;
   }
@@ -343,6 +343,7 @@ returnable_frag( fd_motor_tile_t *   ctx,
     if( FD_UNLIKELY( ((int)(pack_idx-ctx->expect_pack_idx))<0L ) ) FD_LOG_ERR(( "received out of order pack_idx %u (expecting %u)", pack_idx, ctx->expect_pack_idx ));
     if( FD_UNLIKELY( pack_idx!=ctx->expect_pack_idx ) ) return 1;
     ctx->expect_pack_idx++;
+    if( FD_UNLIKELY( fd_disco_execle_sig_slot( sig )<ctx->slot ) ) return 0;
   }
 
   switch( ctx->in_kind[ in_idx ] ) {
