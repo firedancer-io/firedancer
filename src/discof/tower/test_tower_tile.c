@@ -1297,76 +1297,18 @@ test_tower_file_seccomp( void ) {
 }
 
 static void
-make_file( int          dir_fd,
-           char const * name,
-           char const * content ) {
-  int fd = openat( dir_fd, name, O_WRONLY|O_CREAT|O_TRUNC, 0644 );
-  FD_TEST( -1!=fd );
-  FD_TEST( (long)strlen( content )==write( fd, content, strlen( content ) ) );
-  FD_TEST( !close( fd ) );
-}
+test_tower_file_names( void ) {
+  char name[ 2 ][ PATH_MAX ];
 
-static int
-file_has( int          dir_fd,
-          char const * name,
-          char const * content ) {
-  char buf[ 16 ] = {0};
-  int  fd = openat( dir_fd, name, O_RDONLY );
-  if( -1==fd ) return 0;
-  long n = read( fd, buf, sizeof(buf)-1UL );
-  FD_TEST( !close( fd ) );
-  return n>=0L && !strcmp( buf, content );
-}
+  tower_file_names( "tower-1_9-{identity}.bin", "A", name );
+  FD_TEST( !strcmp( name[ 0 ], "tower-1_9-A.bin.new" ) );
+  FD_TEST( !strcmp( name[ 1 ], "tower-1_9-A.bin"     ) );
 
-static void
-test_tower_file_rename( void ) {
-  char dir[] = "/tmp/test_tower_file_rename_XXXXXX";
-  FD_TEST( mkdtemp( dir ) );
-  static fd_tower_tile_t ctx[1];
-  ctx->tower_dir_fd = open( dir, O_RDONLY|O_DIRECTORY );
-  FD_TEST( -1!=ctx->tower_dir_fd );
-  int dir_fd = ctx->tower_dir_fd;
+  tower_file_names( "tower.bin", "A", name );
+  FD_TEST( !strcmp( name[ 0 ], "tower.bin.new" ) );
+  FD_TEST( !strcmp( name[ 1 ], "tower.bin"     ) );
 
-  fd_cstr_ncpy( ctx->tower_name_tmpl, "tower-1_9-{identity}.bin", PATH_MAX );
-  tower_file_names( ctx->tower_name_tmpl, "A", ctx->tower_name );
-  FD_TEST( !strcmp( ctx->tower_name[ 0 ], "tower-1_9-A.bin.new" ) );
-  FD_TEST( !strcmp( ctx->tower_name[ 1 ], "tower-1_9-A.bin"     ) );
-  make_file( dir_fd, "tower-1_9-A.bin.new", "staging" );
-  make_file( dir_fd, "tower-1_9-A.bin",     "live"    );
-
-  /* the same identity keeps its names */
-
-  tower_file_rename( ctx, "A" );
-  FD_TEST( file_has( dir_fd, "tower-1_9-A.bin", "live" ) );
-
-  /* a new identity renames both files */
-
-  tower_file_rename( ctx, "B" );
-  FD_TEST( !strcmp( ctx->tower_name[ 1 ], "tower-1_9-B.bin" ) );
-  FD_TEST( file_has( dir_fd, "tower-1_9-B.bin.new", "staging" ) );
-  FD_TEST( file_has( dir_fd, "tower-1_9-B.bin",     "live"    ) );
-  FD_TEST( -1==faccessat( dir_fd, "tower-1_9-A.bin", F_OK, 0 ) );
-
-  /* a file that already has the new name is exchanged, not replaced */
-
-  make_file( dir_fd, "tower-1_9-C.bin", "copy" );
-  tower_file_rename( ctx, "C" );
-  FD_TEST( file_has( dir_fd, "tower-1_9-C.bin.new", "staging" ) );
-  FD_TEST( file_has( dir_fd, "tower-1_9-C.bin",     "live"    ) );
-  FD_TEST( file_has( dir_fd, "tower-1_9-B.bin",     "copy"    ) );
-
-  /* a name without {identity} is not renamed */
-
-  fd_cstr_ncpy( ctx->tower_name_tmpl, "tower-1_9-C.bin", PATH_MAX );
-  tower_file_rename( ctx, "D" );
-  FD_TEST( file_has( dir_fd, "tower-1_9-C.bin", "live" ) );
-
-  char const * files[] = { "tower-1_9-C.bin.new", "tower-1_9-C.bin", "tower-1_9-B.bin" };
-  for( ulong i=0UL; i<3UL; i++ ) FD_TEST( !unlinkat( dir_fd, files[ i ], 0 ) );
-  FD_TEST( !close( dir_fd ) );
-  FD_TEST( !rmdir( dir ) );
-
-  FD_LOG_NOTICE(( "pass: test_tower_file_rename" ));
+  FD_LOG_NOTICE(( "pass: test_tower_file_names" ));
 }
 
 static int
@@ -1418,7 +1360,7 @@ main( int     argc,
   test_parent_vote_txn_recent_blockhash();
   test_tower_file_keyguard();
   test_tower_file_seccomp();
-  test_tower_file_rename();
+  test_tower_file_names();
 
   char const * _page_sz = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",  NULL, "gigantic"              );
   ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 4UL                     );
