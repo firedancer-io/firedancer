@@ -390,16 +390,14 @@ fd_keyguard_payload_matches_event( uchar const * data,
   return 1;
 }
 
-/* Tower1_14_11 starts with node_pubkey, threshold_depth 8 and
-   threshold_size 2/3, see fd_tower_file.c. */
-
 FD_FN_PURE static int
 fd_keyguard_payload_matches_tower( uchar const * data,
                                    ulong         sz,
                                    int           sign_type ) {
   if( sign_type!=FD_KEYGUARD_SIGN_TYPE_ED25519 ) return 0;
-  if( sz<48UL ) return 0;
-  return FD_LOAD( ulong, data+32UL )==8UL && FD_LOAD( double, data+40UL )==2.0/3.0;
+  if( sz<FD_KEYGUARD_TOWER_SZ_MIN ) return 0;
+  return FD_LOAD( ulong, data+32UL )==FD_KEYGUARD_TOWER_THRESHOLD_DEPTH &&
+         FD_LOAD( ulong, data+40UL )==FD_KEYGUARD_TOWER_THRESHOLD_SIZE;
 }
 
 FD_FN_PURE ulong

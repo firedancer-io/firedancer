@@ -54,7 +54,7 @@ FD_STATIC_ASSERT( FD_KEYGUARD_AUTH_VOTERS_MAX<=16UL, auth_voters_max_fits_sign_r
 #define FD_KEYGUARD_PAYLOAD_LG_PONG       (10)  /* Gossip/Repair ping/pong protocol */
 #define FD_KEYGUARD_PAYLOAD_LG_AG_VOTE    (11)  /* Alpenglow BLS vote */
 #define FD_KEYGUARD_PAYLOAD_LG_BLS_PUBKEY (12)  /* Alpenglow BLS public key query */
-#define FD_KEYGUARD_PAYLOAD_LG_TOWER      (13)  /* Agave tower file (Tower1_14_11) */
+#define FD_KEYGUARD_PAYLOAD_LG_TOWER      (13)  /* Tower file */
 
 #define FD_KEYGUARD_PAYLOAD_TXN        (1UL<<FD_KEYGUARD_PAYLOAD_LG_TXN       )
 #define FD_KEYGUARD_PAYLOAD_GOSSIP     (1UL<<FD_KEYGUARD_PAYLOAD_LG_GOSSIP    )
@@ -69,6 +69,16 @@ FD_STATIC_ASSERT( FD_KEYGUARD_AUTH_VOTERS_MAX<=16UL, auth_voters_max_fits_sign_r
 #define FD_KEYGUARD_PAYLOAD_AG_VOTE    (1UL<<FD_KEYGUARD_PAYLOAD_LG_AG_VOTE   )
 #define FD_KEYGUARD_PAYLOAD_BLS_PUBKEY (1UL<<FD_KEYGUARD_PAYLOAD_LG_BLS_PUBKEY)
 #define FD_KEYGUARD_PAYLOAD_TOWER      (1UL<<FD_KEYGUARD_PAYLOAD_LG_TOWER     )
+
+/* A tower payload is the signed body of an Agave tower file, bincode of
+   Tower1_14_11.  It has no tag, so it is recognized by the 48 byte
+   prefix Agave always writes: the node identity, threshold_depth and
+   threshold_size.  FD_KEYGUARD_TOWER_SZ_MIN is the smallest body, a
+   vote state with empty vecs and a TowerSync with no lockouts. */
+
+#define FD_KEYGUARD_TOWER_THRESHOLD_DEPTH (8UL)
+#define FD_KEYGUARD_TOWER_THRESHOLD_SIZE  (0x3FE5555555555555UL) /* 2/3 as f64 bits */
+#define FD_KEYGUARD_TOWER_SZ_MIN          (1793UL)
 
 /* Sign types *********************************************************/
 

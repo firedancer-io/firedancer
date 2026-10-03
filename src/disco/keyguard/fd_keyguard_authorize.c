@@ -334,8 +334,12 @@ fd_keyguard_authorize_tower( fd_keyguard_authority_t const * authority,
                              ulong                           sz,
                              int                             sign_type ) {
   if( FD_UNLIKELY( sign_type!=FD_KEYGUARD_SIGN_TYPE_ED25519 ) ) return 0;
-  if( FD_UNLIKELY( sz<32UL ) ) return 0;
-  return fd_memeq( data, authority->identity_pubkey, 32UL ); /* the tower file names our identity */
+  if( FD_UNLIKELY( sz<FD_KEYGUARD_TOWER_SZ_MIN ) ) return 0;
+  uchar prefix[ 48 ];
+  memcpy( prefix, authority->identity_pubkey, 32UL );
+  FD_STORE( ulong, prefix+32UL, FD_KEYGUARD_TOWER_THRESHOLD_DEPTH );
+  FD_STORE( ulong, prefix+40UL, FD_KEYGUARD_TOWER_THRESHOLD_SIZE  );
+  return fd_memeq( data, prefix, 48UL );
 }
 
 int
