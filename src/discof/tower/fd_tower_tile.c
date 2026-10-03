@@ -1081,7 +1081,7 @@ vote_history_ahead( fd_tower_t *            tower,
   fd_tower_blk_t const * root_blk = fd_tower_blocks_query( tower, file->root );
   int   ahead   = file->root>tower->root && ( !root_blk || !fd_ghost_query( ghost, &root_blk->replayed_block_id ) );
   ulong wait    = file->votes[ file->votes_cnt-1UL ].slot+1UL;
-  int   missing = 0; 
+  int   missing = 0;
   for( ulong i=0UL; i<file->votes_cnt; i++ ) {
     fd_tower_vote_t const * vote = &file->votes[ i ];
     fd_tower_blk_t  const * blk  = fd_tower_blocks_query( tower, vote->slot );
@@ -1641,13 +1641,13 @@ init_choreo( void                 * scratch,
   memset( ctx->vote_txn, 0, sizeof(ctx->vote_txn) );
   ctx->vote_history_pending = 0;
 
-  ctx->halt_signing    = 0;
+  ctx->halt_signing     = 0;
   ctx->tower_file_dirty = 0;
-  ctx->hard_fork_fatal = tile->tower.hard_fork_fatal;
-  ctx->wfs             = tile->tower.wait_for_supermajority;
-  ctx->shred_version   = 0;
-  ctx->init            = 0;
-  ctx->root_epoch      = ULONG_MAX;
+  ctx->hard_fork_fatal  = tile->tower.hard_fork_fatal;
+  ctx->wfs              = tile->tower.wait_for_supermajority;
+  ctx->shred_version    = 0;
+  ctx->init             = 0;
+  ctx->root_epoch       = ULONG_MAX;
 
   memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
   ctx->metrics.last_vote_slot = ULONG_MAX;
@@ -1669,30 +1669,6 @@ tower_file_names( char const * tmpl,
   FD_TEST( fd_cstr_printf_check( name[ 0 ], PATH_MAX, NULL, "%s.new", name[ 1 ] ) );
 }
 
-/* tower_file_rename gives the tower files the names of the identity, so
-   the name always matches the identity inside the file.  It runs at the
-   first write after a set-identity, not at the switch, so the old
-   identity's last tower keeps its name until the new identity votes.  A
-   file that already has the new name, e.g. a copy the operator put
-   there, is exchanged with ours, not replaced. */
-
-static void
-tower_file_rename( fd_tower_tile_t * ctx,
-                   char const *      identity_b58 ) {
-  char name[ 2 ][ PATH_MAX ];
-  tower_file_names( ctx->tower_name_tmpl, identity_b58, name );
-  if( FD_LIKELY( !strcmp( name[ 1 ], ctx->tower_name[ 1 ] ) ) ) return;
-
-  for( ulong i=0UL; i<2UL; i++ ) {
-    if( FD_LIKELY( !syscall( SYS_renameat2, ctx->tower_dir_fd, ctx->tower_name[ i ], ctx->tower_dir_fd, name[ i ], RENAME_NOREPLACE ) ) ) continue;
-    if( FD_UNLIKELY( errno!=EEXIST || syscall( SYS_renameat2, ctx->tower_dir_fd, ctx->tower_name[ i ], ctx->tower_dir_fd, name[ i ], RENAME_EXCHANGE ) ) )
-      FD_LOG_ERR(( "renameat2(%s, %s) failed (%i-%s)", ctx->tower_name[ i ], name[ i ], errno, fd_io_strerror( errno ) ));
-    FD_LOG_WARNING(( "tower file %s already existed, it is now %s", name[ i ], ctx->tower_name[ i ] ));
-  }
-  FD_LOG_NOTICE(( "tower file %s renamed to %s for the new identity", ctx->tower_name[ 1 ], name[ 1 ] ));
-  memcpy( ctx->tower_name, name, sizeof(name) );
-}
-
 /* tower_file_write saves our last vote the way Agave does, so an
    operator can move it to another validator with set-identity.  The
    file is signed by the identity, so it is only written while the sign
@@ -1700,8 +1676,23 @@ tower_file_rename( fd_tower_tile_t * ctx,
 
 static void
 tower_file_write( fd_tower_tile_t * ctx ) {
+  /* The first write after a set-identity gives the files the name of
+     the new identity.  A file that already has that name is exchanged
+     with ours, not replaced. */
+
   FD_BASE58_ENCODE_32_BYTES( ctx->identity_key->uc, identity_key_b58 );
-  tower_file_rename( ctx, identity_key_b58 );
+  char name[ 2 ][ PATH_MAX ];
+  tower_file_names( ctx->tower_name_tmpl, identity_key_b58, name );
+  if( FD_UNLIKELY( strcmp( name[ 1 ], ctx->tower_name[ 1 ] ) ) ) {
+    for( ulong i=0UL; i<2UL; i++ ) {
+      if( FD_LIKELY( !syscall( SYS_renameat2, ctx->tower_dir_fd, ctx->tower_name[ i ], ctx->tower_dir_fd, name[ i ], RENAME_NOREPLACE ) ) ) continue;
+      if( FD_UNLIKELY( errno!=EEXIST || syscall( SYS_renameat2, ctx->tower_dir_fd, ctx->tower_name[ i ], ctx->tower_dir_fd, name[ i ], RENAME_EXCHANGE ) ) )
+        FD_LOG_ERR(( "renameat2(%s, %s) failed (%i-%s)", ctx->tower_name[ i ], name[ i ], errno, fd_io_strerror( errno ) ));
+      FD_LOG_WARNING(( "tower file %s already existed, it is now %s", name[ i ], ctx->tower_name[ i ] ));
+    }
+    FD_LOG_NOTICE(( "tower file %s renamed to %s for the new identity", ctx->tower_name[ 1 ], name[ 1 ] ));
+    memcpy( ctx->tower_name, name, sizeof(name) );
+  }
 
   uchar buf[ FD_TOWER_FILE_MAX ];
   ulong sz = fd_tower_file_ser( &ctx->compact_tower_sync_serde, ctx->identity_key, buf );
