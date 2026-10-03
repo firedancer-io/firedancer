@@ -65,6 +65,9 @@ fd_runtime_update_next_leaders( fd_bank_t *          bank,
   ulong epoch    = fd_slot_to_epoch ( epoch_schedule, bank->f.slot, NULL ) + 1UL;
   ulong slot0    = fd_epoch_slot0   ( epoch_schedule, epoch );
   ulong slot_cnt = fd_epoch_slot_cnt( epoch_schedule, epoch );
+  if( FD_UNLIKELY( slot_cnt>FD_RUNTIME_SLOTS_PER_EPOCH ) ) {
+    FD_LOG_ERR(( "epoch %lu has %lu slots, but the maximum supported is %lu", epoch, slot_cnt, FD_RUNTIME_SLOTS_PER_EPOCH ));
+  }
 
   fd_vote_stakes_t const * vote_stakes      = fd_bank_vote_stakes( bank );
   fd_vote_stake_weight_t * epoch_weights    = runtime_stack->stakes.stake_weights;
@@ -101,6 +104,9 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
   ulong epoch    = fd_slot_to_epoch ( epoch_schedule, bank->f.slot, NULL );
   ulong slot0    = fd_epoch_slot0   ( epoch_schedule, epoch );
   ulong slot_cnt = fd_epoch_slot_cnt( epoch_schedule, epoch );
+  if( FD_UNLIKELY( slot_cnt>FD_RUNTIME_SLOTS_PER_EPOCH ) ) {
+    FD_LOG_ERR(( "epoch %lu has %lu slots, but the maximum supported is %lu", epoch, slot_cnt, FD_RUNTIME_SLOTS_PER_EPOCH ));
+  }
 
   fd_vote_stakes_t const * vote_stakes      = fd_bank_vote_stakes( bank );
   fd_vote_stake_weight_t * epoch_weights    = runtime_stack->stakes.stake_weights;

@@ -111,7 +111,21 @@ test_epoch_schedule( fd_snapshot_manifest_t * manifest ) {
   FD_TEST( fd_epoch_schedule_derive( &huge_derived, 1UL<<63, 1UL<<63, 1 ) );
   manifest->epoch_schedule_params.first_normal_epoch = huge_derived.first_normal_epoch;
   manifest->epoch_schedule_params.first_normal_slot  = huge_derived.first_normal_slot;
+  FD_TEST( VALIDATE_MANIFEST( manifest )==-1 );
+
+  /* Exactly max slots_per_epoch. */
+  fd_memset( manifest, 0, sizeof(*manifest) );
+  setup_valid_manifest_base( manifest );
+  manifest->epoch_schedule_params.slots_per_epoch             = FD_RUNTIME_SLOTS_PER_EPOCH;
+  manifest->epoch_schedule_params.leader_schedule_slot_offset = FD_RUNTIME_SLOTS_PER_EPOCH;
   FD_TEST( VALIDATE_MANIFEST( manifest )==0 );
+
+  /* Above max slots_per_epoch. */
+  fd_memset( manifest, 0, sizeof(*manifest) );
+  setup_valid_manifest_base( manifest );
+  manifest->epoch_schedule_params.slots_per_epoch             = FD_RUNTIME_SLOTS_PER_EPOCH + 32UL;
+  manifest->epoch_schedule_params.leader_schedule_slot_offset = FD_RUNTIME_SLOTS_PER_EPOCH + 32UL;
+  FD_TEST( VALIDATE_MANIFEST( manifest )==-1 );
 
   /* Invalid warmup. */
   fd_memset( manifest, 0, sizeof(*manifest) );

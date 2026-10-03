@@ -155,7 +155,7 @@ fd_genesis_new( void * mem,
    and returns the fd_genesis_t object.  On failure, logs warning and
    returns NULL.  Reasons for failure include:
    - Deserialize failed (invalid bincode?)
-   - Hardcoded limit exceeded (builtin count)
+   - Hardcoded limit exceeded (builtin count, slots per epoch)
    - Account count exceeds the capacity genesis was created with (only
      possible for a malformed blob when the capacity was derived from
      the blob size bound with fd_genesis_account_max)
