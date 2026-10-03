@@ -18,6 +18,10 @@ fd_config_check_configf( fd_config_t *  config,
   if( FD_UNLIKELY( config->paths.tower[ 0 ]!='\0' && config->paths.tower[ strlen( config->paths.tower )-1UL ]=='/' ) ) {
     FD_LOG_ERR(( "[config->paths.tower] must be the path of a file, not a directory" ));
   }
+  char const * identity = strstr( config->paths.tower, "{identity}" );
+  if( FD_UNLIKELY( identity && strchr( identity, '/' ) ) ) {
+    FD_LOG_ERR(( "[config->paths.tower] can only have {identity} in the file name, the tower tile renames the file when the identity changes" ));
+  }
 }
 
 fd_configh_t *

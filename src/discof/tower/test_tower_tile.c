@@ -1231,56 +1231,41 @@ test_vote_history_pending_replay( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_vote_history_pending_replay" ));
 }
 
-static void
-test_tower_file_paths( void ) {
-  char dir[ PATH_MAX ];
-  char name[ 2 ][ PATH_MAX ];
-
-  tower_file_paths( "/home/fd/.firedancer/fd1/tower-1_9-{identity}.bin", "8RDP", dir, name );
-  FD_TEST( !strcmp( dir,       "/home/fd/.firedancer/fd1" ) );
-  FD_TEST( !strcmp( name[ 0 ], "tower-1_9-8RDP.bin.new"   ) );
-  FD_TEST( !strcmp( name[ 1 ], "tower-1_9-8RDP.bin"       ) );
-
-  tower_file_paths( "/data/fd/tower.bin", "8RDP", dir, name );
-  FD_TEST( !strcmp( dir,       "/data/fd"      ) );
-  FD_TEST( !strcmp( name[ 0 ], "tower.bin.new" ) );
-  FD_TEST( !strcmp( name[ 1 ], "tower.bin"     ) );
-
-  tower_file_paths( "/tower.bin", "8RDP", dir, name );
-  FD_TEST( !strcmp( dir,       "/"             ) );
-  FD_TEST( !strcmp( name[ 0 ], "tower.bin.new" ) );
-  FD_TEST( !strcmp( name[ 1 ], "tower.bin"     ) );
-
-  tower_file_paths( "/data/{identity}/tower.bin", "8RDP", dir, name );
-  FD_TEST( !strcmp( dir,       "/data/8RDP"    ) );
-  FD_TEST( !strcmp( name[ 1 ], "tower.bin"     ) );
-
-  FD_LOG_NOTICE(( "pass: test_tower_file_paths" ));
-}
-
-/* tower_filter_allows does a pwrite or ftruncate under the tower tile
+/* tower_filter_allows does a pwrite (arg is the size), ftruncate (arg
+   is the length) or renameat2 (arg is the flags) under the tower tile
    seccomp filter in a child, and returns whether it passed the filter.
    The child then reports on the pipe it was given as the log fd. */
 
+#define OP_PWRITE    (0)
+#define OP_FTRUNCATE (1)
+#define OP_RENAMEAT2 (2)
+
 static int
-tower_filter_allows( int   ftrunc,
-                     ulong sz,
+tower_filter_allows( int   op,
+                     ulong arg,
                      long  off ) {
   int pipe_fd[ 2 ];
   FD_TEST( !pipe( pipe_fd ) );
   int file_fd = open( "/dev/null", O_WRONLY );
   FD_TEST( -1!=file_fd );
+  int dir_fd = open( "/", O_RDONLY|O_DIRECTORY );
+  FD_TEST( -1!=dir_fd );
 
   pid_t pid = fork();
   FD_TEST( -1!=pid );
   if( !pid ) {
     static uchar       buf[ 2UL*FD_TOWER_FILE_MAX ];
     struct sock_filter filter[ 128UL ];
-    populate_sock_filter_policy_fd_tower_tile( 128UL, filter, (uint)pipe_fd[ 1 ], UINT_MAX, (uint)file_fd, UINT_MAX, UINT_MAX );
+    populate_sock_filter_policy_fd_tower_tile( 128UL, filter, (uint)pipe_fd[ 1 ], (uint)dir_fd, (uint)file_fd, UINT_MAX, UINT_MAX );
     struct sock_fprog prog = { .len = (ushort)sock_filter_policy_fd_tower_tile_instr_cnt, .filter = filter };
     FD_TEST( !prctl( PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0 ) );
     FD_TEST( !prctl( PR_SET_SECCOMP, SECCOMP_MODE_FILTER, &prog ) );
-    long ret = ftrunc ? ftruncate( file_fd, (long)sz ) : pwrite( file_fd, buf, sz, off );
+    long ret;
+    switch( op ) {
+    case OP_PWRITE:    ret = pwrite( file_fd, buf, arg, off );                                                         break;
+    case OP_FTRUNCATE: ret = ftruncate( file_fd, (long)arg );                                                          break;
+    default:           ret = syscall( SYS_renameat2, dir_fd, "fd_tower_missing", dir_fd, "fd_tower_missing2", (uint)arg ); break;
+    }
     (void)ret;
     ret = write( pipe_fd[ 1 ], "y", 1UL );
     _exit( 0 );
@@ -1293,18 +1278,95 @@ tower_filter_allows( int   ftrunc,
   FD_TEST( pid==waitpid( pid, &wstatus, 0 ) );
   close( pipe_fd[ 0 ] );
   close( file_fd );
+  close( dir_fd );
   return n==1L;
 }
 
 static void
 test_tower_file_seccomp( void ) {
-  FD_TEST(  tower_filter_allows( 0, FD_TOWER_FILE_MAX,     0L ) );
-  FD_TEST( !tower_filter_allows( 0, FD_TOWER_FILE_MAX+1UL, 0L ) );
-  FD_TEST( !tower_filter_allows( 0, 1UL,                   1L ) );
-  FD_TEST(  tower_filter_allows( 1, FD_TOWER_FILE_MAX,     0L ) );
-  FD_TEST( !tower_filter_allows( 1, FD_TOWER_FILE_MAX+1UL, 0L ) );
+  FD_TEST(  tower_filter_allows( OP_PWRITE,    FD_TOWER_FILE_MAX,     0L ) );
+  FD_TEST( !tower_filter_allows( OP_PWRITE,    FD_TOWER_FILE_MAX+1UL, 0L ) );
+  FD_TEST( !tower_filter_allows( OP_PWRITE,    1UL,                   1L ) );
+  FD_TEST(  tower_filter_allows( OP_FTRUNCATE, FD_TOWER_FILE_MAX,     0L ) );
+  FD_TEST( !tower_filter_allows( OP_FTRUNCATE, FD_TOWER_FILE_MAX+1UL, 0L ) );
+  FD_TEST(  tower_filter_allows( OP_RENAMEAT2, RENAME_EXCHANGE,       0L ) );
+  FD_TEST(  tower_filter_allows( OP_RENAMEAT2, RENAME_NOREPLACE,      0L ) );
+  FD_TEST( !tower_filter_allows( OP_RENAMEAT2, 0UL,                   0L ) ); /* may replace a file */
 
   FD_LOG_NOTICE(( "pass: test_tower_file_seccomp" ));
+}
+
+static void
+make_file( int          dir_fd,
+           char const * name,
+           char const * content ) {
+  int fd = openat( dir_fd, name, O_WRONLY|O_CREAT|O_TRUNC, 0644 );
+  FD_TEST( -1!=fd );
+  FD_TEST( (long)strlen( content )==write( fd, content, strlen( content ) ) );
+  FD_TEST( !close( fd ) );
+}
+
+static int
+file_has( int          dir_fd,
+          char const * name,
+          char const * content ) {
+  char buf[ 16 ] = {0};
+  int  fd = openat( dir_fd, name, O_RDONLY );
+  if( -1==fd ) return 0;
+  long n = read( fd, buf, sizeof(buf)-1UL );
+  FD_TEST( !close( fd ) );
+  return n>=0L && !strcmp( buf, content );
+}
+
+static void
+test_tower_file_rename( void ) {
+  char dir[] = "/tmp/test_tower_file_rename_XXXXXX";
+  FD_TEST( mkdtemp( dir ) );
+  static fd_tower_tile_t ctx[1];
+  ctx->tower_dir_fd = open( dir, O_RDONLY|O_DIRECTORY );
+  FD_TEST( -1!=ctx->tower_dir_fd );
+  int dir_fd = ctx->tower_dir_fd;
+
+  fd_cstr_ncpy( ctx->tower_name_tmpl, "tower-1_9-{identity}.bin", PATH_MAX );
+  tower_file_names( ctx->tower_name_tmpl, "A", ctx->tower_name );
+  FD_TEST( !strcmp( ctx->tower_name[ 0 ], "tower-1_9-A.bin.new" ) );
+  FD_TEST( !strcmp( ctx->tower_name[ 1 ], "tower-1_9-A.bin"     ) );
+  make_file( dir_fd, "tower-1_9-A.bin.new", "staging" );
+  make_file( dir_fd, "tower-1_9-A.bin",     "live"    );
+
+  /* the same identity keeps its names */
+
+  tower_file_rename( ctx, "A" );
+  FD_TEST( file_has( dir_fd, "tower-1_9-A.bin", "live" ) );
+
+  /* a new identity renames both files */
+
+  tower_file_rename( ctx, "B" );
+  FD_TEST( !strcmp( ctx->tower_name[ 1 ], "tower-1_9-B.bin" ) );
+  FD_TEST( file_has( dir_fd, "tower-1_9-B.bin.new", "staging" ) );
+  FD_TEST( file_has( dir_fd, "tower-1_9-B.bin",     "live"    ) );
+  FD_TEST( -1==faccessat( dir_fd, "tower-1_9-A.bin", F_OK, 0 ) );
+
+  /* a file that already has the new name is exchanged, not replaced */
+
+  make_file( dir_fd, "tower-1_9-C.bin", "copy" );
+  tower_file_rename( ctx, "C" );
+  FD_TEST( file_has( dir_fd, "tower-1_9-C.bin.new", "staging" ) );
+  FD_TEST( file_has( dir_fd, "tower-1_9-C.bin",     "live"    ) );
+  FD_TEST( file_has( dir_fd, "tower-1_9-B.bin",     "copy"    ) );
+
+  /* a name without {identity} is not renamed */
+
+  fd_cstr_ncpy( ctx->tower_name_tmpl, "tower-1_9-C.bin", PATH_MAX );
+  tower_file_rename( ctx, "D" );
+  FD_TEST( file_has( dir_fd, "tower-1_9-C.bin", "live" ) );
+
+  char const * files[] = { "tower-1_9-C.bin.new", "tower-1_9-C.bin", "tower-1_9-B.bin" };
+  for( ulong i=0UL; i<3UL; i++ ) FD_TEST( !unlinkat( dir_fd, files[ i ], 0 ) );
+  FD_TEST( !close( dir_fd ) );
+  FD_TEST( !rmdir( dir ) );
+
+  FD_LOG_NOTICE(( "pass: test_tower_file_rename" ));
 }
 
 static int
@@ -1355,8 +1417,8 @@ main( int     argc,
   test_count_vote_txn();
   test_parent_vote_txn_recent_blockhash();
   test_tower_file_keyguard();
-  test_tower_file_paths();
   test_tower_file_seccomp();
+  test_tower_file_rename();
 
   char const * _page_sz = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",  NULL, "gigantic"              );
   ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 4UL                     );

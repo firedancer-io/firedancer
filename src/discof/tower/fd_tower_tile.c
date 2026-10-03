@@ -1655,6 +1655,44 @@ init_choreo( void                 * scratch,
   return ctx;
 }
 
+/* tower_file_names writes the staging (name[0]) and live (name[1])
+   tower file names for the identity, from the file name template tmpl,
+   which can have {identity}. */
+
+static void
+tower_file_names( char const * tmpl,
+                  char const * identity_b58,
+                  char         name[ static 2 ][ PATH_MAX ] ) {
+  char const * at = strstr( tmpl, "{identity}" );
+  if( FD_LIKELY( at ) ) FD_TEST( fd_cstr_printf_check( name[ 1 ], PATH_MAX, NULL, "%.*s%s%s", (int)(at-tmpl), tmpl, identity_b58, at+sizeof("{identity}")-1UL ) );
+  else                  fd_cstr_ncpy( name[ 1 ], tmpl, PATH_MAX );
+  FD_TEST( fd_cstr_printf_check( name[ 0 ], PATH_MAX, NULL, "%s.new", name[ 1 ] ) );
+}
+
+/* tower_file_rename gives the tower files the names of the identity, so
+   the name always matches the identity inside the file.  It runs at the
+   first write after a set-identity, not at the switch, so the old
+   identity's last tower keeps its name until the new identity votes.  A
+   file that already has the new name, e.g. a copy the operator put
+   there, is exchanged with ours, not replaced. */
+
+static void
+tower_file_rename( fd_tower_tile_t * ctx,
+                   char const *      identity_b58 ) {
+  char name[ 2 ][ PATH_MAX ];
+  tower_file_names( ctx->tower_name_tmpl, identity_b58, name );
+  if( FD_LIKELY( !strcmp( name[ 1 ], ctx->tower_name[ 1 ] ) ) ) return;
+
+  for( ulong i=0UL; i<2UL; i++ ) {
+    if( FD_LIKELY( !syscall( SYS_renameat2, ctx->tower_dir_fd, ctx->tower_name[ i ], ctx->tower_dir_fd, name[ i ], RENAME_NOREPLACE ) ) ) continue;
+    if( FD_UNLIKELY( errno!=EEXIST || syscall( SYS_renameat2, ctx->tower_dir_fd, ctx->tower_name[ i ], ctx->tower_dir_fd, name[ i ], RENAME_EXCHANGE ) ) )
+      FD_LOG_ERR(( "renameat2(%s, %s) failed (%i-%s)", ctx->tower_name[ i ], name[ i ], errno, fd_io_strerror( errno ) ));
+    FD_LOG_WARNING(( "tower file %s already existed, it is now %s", name[ i ], ctx->tower_name[ i ] ));
+  }
+  FD_LOG_NOTICE(( "tower file %s renamed to %s for the new identity", ctx->tower_name[ 1 ], name[ 1 ] ));
+  memcpy( ctx->tower_name, name, sizeof(name) );
+}
+
 /* tower_file_write saves our last vote the way Agave does, so an
    operator can move it to another validator with set-identity.  The
    file is signed by the identity, so it is only written while the sign
@@ -1662,6 +1700,9 @@ init_choreo( void                 * scratch,
 
 static void
 tower_file_write( fd_tower_tile_t * ctx ) {
+  FD_BASE58_ENCODE_32_BYTES( ctx->identity_key->uc, identity_key_b58 );
+  tower_file_rename( ctx, identity_key_b58 );
+
   uchar buf[ FD_TOWER_FILE_MAX ];
   ulong sz = fd_tower_file_ser( &ctx->compact_tower_sync_serde, ctx->identity_key, buf );
   fd_keyguard_client_sign( ctx->keyguard_client, buf+FD_TOWER_FILE_SIG_OFF, buf+FD_TOWER_FILE_DATA_OFF, sz-FD_TOWER_FILE_DATA_OFF, FD_KEYGUARD_SIGN_TYPE_ED25519 );
@@ -1909,28 +1950,6 @@ returnable_frag( fd_tower_tile_t *   ctx,
   }
 }
 
-/* tower_file_paths replaces {identity} in the tower file path, then
-   splits it into its directory and the staging (name[0]) and live
-   (name[1]) file names. */
-
-static void
-tower_file_paths( char const * tower_path,
-                  char const * identity_b58,
-                  char         dir [ static PATH_MAX ],
-                  char         name[ static 2 ][ PATH_MAX ] ) {
-  char         path[ PATH_MAX ];
-  char const * at = strstr( tower_path, "{identity}" );
-  if( FD_LIKELY( at ) ) FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "%.*s%s%s", (int)(at-tower_path), tower_path, identity_b58, at+sizeof("{identity}")-1UL ) );
-  else                  fd_cstr_ncpy( path, tower_path, PATH_MAX );
-
-  char const * slash = strrchr( path, '/' ); /* absolute, see fd_config_parse.c */
-  FD_TEST( slash );
-  int dir_len = (int)fd_ulong_max( (ulong)(slash-path), 1UL );
-  FD_TEST( fd_cstr_printf_check( dir,       PATH_MAX, NULL, "%.*s",   dir_len, path ) );
-  FD_TEST( fd_cstr_printf_check( name[ 1 ], PATH_MAX, NULL, "%s",     slash+1       ) );
-  FD_TEST( fd_cstr_printf_check( name[ 0 ], PATH_MAX, NULL, "%s.new", name[ 1 ]     ) );
-}
-
 static void
 privileged_init( fd_topo_t const *      topo,
                  fd_topo_tile_t const * tile ) {
@@ -1981,14 +2000,21 @@ privileged_init( fd_topo_t const *      topo,
   ctx->tower_fd[ 0 ] = -1;
   ctx->tower_fd[ 1 ] = -1;
   if( FD_LIKELY( tile->tower.tower_path[ 0 ] ) ) {
+    char path[ PATH_MAX ];
+    fd_cstr_ncpy( path, tile->tower.tower_path, PATH_MAX );
+    char * slash = strrchr( path, '/' ); /* absolute, {identity} only in the file name, see fd_config_parse.c */
+    FD_TEST( slash );
+    fd_cstr_ncpy( ctx->tower_name_tmpl, slash+1, PATH_MAX );
+    slash[ slash==path ] = '\0'; /* path is now the directory, "/" stays "/" */
+
     FD_BASE58_ENCODE_32_BYTES( ctx->identity_key->uc, identity_key_b58 );
-    char dir[ PATH_MAX ];
-    tower_file_paths( tile->tower.tower_path, identity_key_b58, dir, ctx->tower_name );
-    ctx->tower_dir_fd = open( dir, O_RDONLY|O_DIRECTORY );
-    if( FD_UNLIKELY( -1==ctx->tower_dir_fd ) ) FD_LOG_ERR(( "open(`%s`) failed (%i-%s)", dir, errno, fd_io_strerror( errno ) ));
+    tower_file_names( ctx->tower_name_tmpl, identity_key_b58, ctx->tower_name );
+
+    ctx->tower_dir_fd = open( path, O_RDONLY|O_DIRECTORY );
+    if( FD_UNLIKELY( -1==ctx->tower_dir_fd ) ) FD_LOG_ERR(( "open(`%s`) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
     for( ulong i=0UL; i<2UL; i++ ) {
       ctx->tower_fd[ i ] = openat( ctx->tower_dir_fd, ctx->tower_name[ i ], O_WRONLY|O_CREAT, 0644 );
-      if( FD_UNLIKELY( -1==ctx->tower_fd[ i ] ) ) FD_LOG_ERR(( "open(`%s/%s`) failed (%i-%s)", dir, ctx->tower_name[ i ], errno, fd_io_strerror( errno ) ));
+      if( FD_UNLIKELY( -1==ctx->tower_fd[ i ] ) ) FD_LOG_ERR(( "open(`%s/%s`) failed (%i-%s)", path, ctx->tower_name[ i ], errno, fd_io_strerror( errno ) ));
     }
   }
 }

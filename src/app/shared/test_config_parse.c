@@ -231,6 +231,8 @@ main( int     argc,
   FD_TEST(  tower_path_is_valid( "/data/tower.bin" ) );
   FD_TEST( !tower_path_is_valid( "data/tower.bin"  ) ); /* relative */
   FD_TEST( !tower_path_is_valid( "/data/"          ) ); /* no file name */
+  FD_TEST(  tower_path_is_valid( "/data/tower-{identity}.bin" ) );
+  FD_TEST( !tower_path_is_valid( "/data/{identity}/tower.bin" ) ); /* not in the file name */
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

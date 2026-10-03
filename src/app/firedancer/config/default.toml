@@ -253,7 +253,11 @@ telemetry = true
     # "{user}" is present it will be replaced with the user running
     # Firedancer, as above, "{name}" will be replaced with the name of
     # the Firedancer instance, and "{identity}" will be replaced with
-    # the base58 identity key the validator starts with.
+    # the base58 identity key.  "{identity}" is only allowed in the
+    # file name: after `set-identity`, the validator renames the file
+    # to the new identity key before it saves the first vote of that
+    # identity, so the old identity's last vote keeps its name until
+    # then.
     tower = ""
 
 # Firedancer logs to two places by default: stderr and a logfile.
