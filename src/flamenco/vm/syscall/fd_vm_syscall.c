@@ -28,7 +28,7 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *      syscalls,
   int enable_bls12_381_syscall         = 0;
   int enable_sha512_syscall            = 0;
 
-  if( slot ) {
+  if( features ) {
     enable_get_sysvar_syscall        = FD_FEATURE_ACTIVE( slot, features, get_sysvar_syscall_enabled );
     enable_get_epoch_stake_syscall   = FD_FEATURE_ACTIVE( slot, features, enable_get_epoch_stake_syscall );
     enable_bls12_381_syscall         = FD_FEATURE_ACTIVE( slot, features, enable_bls12_381_syscall );
