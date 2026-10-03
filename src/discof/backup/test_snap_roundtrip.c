@@ -6,6 +6,8 @@
 #include "../../flamenco/runtime/program/vote/fd_vote_codec_tmpl.h"
 #include "../../flamenco/runtime/program/vote/fd_vote_state_versioned.h"
 #include "../../flamenco/runtime/program/fd_vote_program.h"
+#include "../../flamenco/stakes/fd_stake_types.h"
+#include "../../flamenco/stakes/fd_stakes.h"
 #include "../../flamenco/runtime/tests/fd_svm_mini.h"
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "../../flamenco/runtime/fd_txncache_shmem.h"
@@ -236,6 +238,21 @@ count_occurrences( uchar const * buf,
   return cnt;
 }
 
+/* put_account stores an account with the given owner and data into
+   the rooted state. */
+
+static void
+put_account( fd_svm_mini_t *     mini,
+             fd_pubkey_t const * pubkey,
+             fd_pubkey_t const * owner,
+             uchar *             data,
+             ulong               data_sz ) {
+  fd_acc_t acc = { .lamports = 1UL, .data = data, .data_len = data_sz };
+  memcpy( acc.pubkey, pubkey, 32UL );
+  memcpy( acc.owner,  owner,  32UL );
+  fd_svm_mini_put_account_rooted( mini, &acc );
+}
+
 /* put_vote_account writes a v4 vote account for node with the given
    authorized voter entries (ascending epochs). */
 
@@ -257,11 +274,7 @@ put_vote_account( fd_svm_mini_t *     mini,
   }
   uchar data[ FD_VOTE_STATE_V4_SZ ] = {0};
   FD_TEST( !fd_vote_state_versioned_serialize( versioned, data, sizeof(data) ) );
-
-  fd_acc_t acc = { .lamports = 1UL, .data = data, .data_len = sizeof(data) };
-  memcpy( acc.pubkey, vote,                         32UL );
-  memcpy( acc.owner,  fd_solana_vote_program_id.uc, 32UL );
-  fd_svm_mini_put_account_rooted( mini, &acc );
+  put_account( mini, vote, &fd_solana_vote_program_id, data, sizeof(data) );
 }
 
 static void
@@ -358,9 +371,32 @@ test_manifest_roundtrip( fd_svm_mini_t * mini,
 
   seed_epoch_credits( bank );
 
+  /* Stakes cache: a second bootstrap delegation to validator 0 (stakes
+     add up), a delegation to validator 1 still warming up (effective
+     stake, not delegated stake), a delegation to a vote account
+     without an account (skipped), and a stake history sysvar with two
+     entries (copied verbatim). */
+  fd_stake_delegations_t * stake_delegations = fd_banks_stake_delegations_root_query( mini->banks );
+  fd_pubkey_t second_stake  = { .ul = { 0xF7, 12 } };
+  fd_pubkey_t warming_stake = { .ul = { 0xF8, 13 } };
+  fd_pubkey_t phantom_stake = { .ul = { 0xF6, 11 } };
+  fd_stake_delegations_root_update( stake_delegations, &second_stake,  &votes[0],     2000000UL, ULONG_MAX,        ULONG_MAX, 0UL, 3000000UL, (uint)FD_STAKE_STATE_SZ );
+  fd_stake_delegations_root_update( stake_delegations, &warming_stake, &votes[1],     4000000UL, bank->f.epoch-1UL, ULONG_MAX, 0UL, 5000000UL, (uint)FD_STAKE_STATE_SZ );
+  fd_stake_delegations_root_update( stake_delegations, &phantom_stake, &phantom_vote, 5000000UL, ULONG_MAX,        ULONG_MAX, 0UL, 6000000UL, (uint)FD_STAKE_STATE_SZ );
+  fd_stake_history_entry_t const history[2] = {
+    { .epoch = 4UL, .effective = 7UL, .activating = 8UL, .deactivating = 9UL },
+    { .epoch = 3UL, .effective = 4UL, .activating = 5UL, .deactivating = 6UL },
+  };
+  {
+    uchar data[ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ] = {0};
+    FD_STORE( ulong, data, 2UL );
+    memcpy( data+8UL, history, sizeof(history) );
+    fd_sysvar_cache_restore_one( &bank->f.sysvar_cache, &fd_sysvar_stake_history_id, 1UL, data, sizeof(data) );
+  }
+
   fd_ssmanifest_writer_t * writer   = test_alloc( wksp, alignof(fd_ssmanifest_writer_t), sizeof(fd_ssmanifest_writer_t) );
   uchar *                  acc_data = test_alloc( wksp, 1UL, FD_RUNTIME_ACC_SZ_MAX );
-  fd_ssmanifest_writer_init( writer, bank, &identities[0], mini->runtime->accdb, bank->accdb_fork_id, acc_data );
+  fd_ssmanifest_writer_init( writer, bank, &identities[0], mini->runtime->accdb, bank->accdb_fork_id, stake_delegations, acc_data );
   ulong manifest_sz = writer->serialized_sz;
   FD_TEST( manifest_sz>0UL );
   FD_LOG_NOTICE(( "manifest serialized size: %lu", manifest_sz ));
@@ -387,17 +423,14 @@ test_manifest_roundtrip( fd_svm_mini_t * mini,
     if( !sz ) break;
     FD_TEST( total_written + sz <= manifest_sz+stake_delegation_sz );
 
-    /* This uniquely identifies the writer's vote-accounts chunk:
-       empty vote accounts, empty stake delegations, unused=0, epoch. */
+    /* This uniquely identifies the writer's stake-history chunk, which
+       starts with empty stake delegations, unused=0, epoch. */
     if( FD_UNLIKELY( !injected &&
-                     sz==4UL*sizeof(ulong) &&
-                     FD_LOAD( ulong, chunk_buf     )==0UL &&
+                     sz>=3UL*sizeof(ulong) &&
+                     FD_LOAD( ulong, chunk_buf      )==0UL &&
                      FD_LOAD( ulong, chunk_buf+ 8UL )==0UL &&
-                     FD_LOAD( ulong, chunk_buf+16UL )==0UL &&
-                     FD_LOAD( ulong, chunk_buf+24UL )==bank->f.epoch ) ) {
+                     FD_LOAD( ulong, chunk_buf+16UL )==bank->f.epoch ) ) {
       uchar * dst = buf+total_written;
-      memcpy( dst, chunk_buf, 8UL );
-      dst += 8UL;
       stake_delegations_len_off = (ulong)(dst-buf);
       FD_STORE( ulong, dst, 1UL );
       dst += 8UL;
@@ -409,7 +442,7 @@ test_manifest_roundtrip( fd_svm_mini_t * mini,
       FD_STORE( ulong, dst, 5UL    ); dst += sizeof(ulong);
       FD_STORE( ulong, dst, 9UL    ); dst += sizeof(ulong);
       FD_STORE( double, dst, 0.25  ); dst += sizeof(double);
-      memcpy( dst, chunk_buf+16UL, sz-16UL );
+      memcpy( dst, chunk_buf+8UL, sz-8UL );
       total_written += sz+stake_delegation_sz;
       injected = 1;
     } else {
@@ -503,6 +536,61 @@ test_manifest_roundtrip( fd_svm_mini_t * mini,
   FD_TEST( manifest->rent_params.burn_percent==bank->f.rent.burn_percent );
   FD_TEST( manifest->has_block_id );
   FD_TEST( !memcmp( manifest->block_id, block_id.uc, sizeof(fd_hash_t) ) );
+
+  /* Stakes cache: one vote account per voter with an account, carrying
+     the sum of its delegations' effective stake at this epoch; the
+     phantom voter is left out. */
+  FD_TEST( manifest->vote_accounts_len==VALIDATOR_CNT );
+  fd_stake_history_t const history_view[1] = { { .entries = history, .len = 2UL } };
+  int use_fixed_point = FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 );
+  for( ulong i=0UL; i<VALIDATOR_CNT; i++ ) {
+    ulong expected_stake  = 0UL;
+    ulong delegated_stake = 0UL;
+    fd_stake_delegations_iter_t iter_[1];
+    for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
+         !fd_stake_delegations_iter_done( iter );
+         fd_stake_delegations_iter_next( iter ) ) {
+      fd_stake_delegation_t const * d = fd_stake_delegations_iter_ele( iter );
+      if( memcmp( &d->vote_account, &votes[i], 32UL ) ) continue;
+      expected_stake  += fd_stake_delegation_activation_status( d, bank->f.epoch, history_view, &bank->f.warmup_cooldown_rate_epoch, use_fixed_point ).effective;
+      delegated_stake += d->stake;
+    }
+    FD_TEST( expected_stake );
+    if( i==1UL ) FD_TEST( expected_stake<delegated_stake ); /* the warming delegation is not fully effective yet */
+    int found = 0;
+    for( ulong j=0UL; j<manifest->vote_accounts_len; j++ ) {
+      fd_snapshot_manifest_vote_account_t const * va = &manifest->vote_accounts[j];
+      if( memcmp( va->vote_account_pubkey, &votes[i], 32UL ) ) continue;
+      FD_TEST( !memcmp( va->node_account_pubkey, &identities[i], 32UL ) );
+      FD_TEST( va->stake==expected_stake );
+      found = 1;
+    }
+    FD_TEST( found );
+
+    /* The entry carries the account exactly as stored, rent_epoch 0,
+       which Agave compares byte for byte with the accounts db. */
+    {
+      ulong lamports;
+      int   executable;
+      uchar owner[ 32UL ];
+      ulong data_len;
+      fd_accdb_read_one_nocache( mini->runtime->accdb, bank->accdb_fork_id, votes[i].uc, &lamports, &executable, owner, acc_data, &data_len );
+      FD_TEST( lamports && data_len==FD_VOTE_STATE_V4_SZ );
+      uchar entry[ 32UL+8UL+8UL+8UL+FD_VOTE_STATE_V4_SZ+32UL+1UL+8UL ];
+      uchar * e = entry;
+      memcpy( e, &votes[i], 32UL );            e += 32UL;
+      FD_STORE( ulong, e, expected_stake );    e += 8UL;
+      FD_STORE( ulong, e, lamports );          e += 8UL;
+      FD_STORE( ulong, e, data_len );          e += 8UL;
+      memcpy( e, acc_data, data_len );         e += data_len;
+      memcpy( e, owner, 32UL );                e += 32UL;
+      *e = (uchar)!!executable;                e += 1UL;
+      FD_STORE( ulong, e, 0UL );               e += 8UL;
+      FD_TEST( count_occurrences( buf, total_written, entry, sizeof(entry) )==1UL );
+    }
+  }
+  /* stake history entries copied verbatim, once */
+  FD_TEST( count_occurrences( buf, total_written, history, sizeof(history) )==1UL );
 
   int found_stake_delegation = 0;
   for( ulong i=0UL; i+sizeof(fd_pubkey_t)<=sizeof(*manifest); i++ ) {

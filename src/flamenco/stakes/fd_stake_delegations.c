@@ -25,8 +25,15 @@ struct fd_stake_delegations {
   ulong fork_pool_offset_;
   ulong delta_map_offset_;
 
-  /* Guards every mutating operation on the struct. */
+  /* Guards the fork descriptors, the delta records, the stake totals
+     and the frontier query state.  Every mutating operation holds it
+     for its whole duration. */
   fd_rwlock_t lock;
+
+  /* Guards the root records.  They only change while both locks are
+     held, so a reader holding either one sees a stable root.  A view
+     of the root itself takes root_lock alone. */
+  fd_rwlock_t root_lock;
 
   /* File descriptor number for this instance's backing file.
      Every process joining this object must map the same file at this
@@ -792,6 +799,7 @@ fd_stake_delegations_new( void * mem,
   stake_delegations->fp_warmed_awarded    = 0;
 
   fd_rwlock_new( &stake_delegations->lock );
+  fd_rwlock_new( &stake_delegations->root_lock );
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( stake_delegations->magic ) = FD_STAKE_DELEGATIONS_MAGIC;
@@ -1011,6 +1019,7 @@ fd_stake_delegations_prune_inactive_root( fd_stake_delegations_t *   stake_deleg
                                           ulong *                    warmup_cooldown_rate_epoch,
                                           int                        use_fixed_point_stake_math,
                                           fd_bank_t const *          emit_bank ) {
+  fd_rwlock_write( &stake_delegations->root_lock );
   fd_rwlock_write( &stake_delegations->lock );
 
   root_map_t *            map        = get_root_map( stake_delegations );
@@ -1063,6 +1072,7 @@ fd_stake_delegations_prune_inactive_root( fd_stake_delegations_t *   stake_deleg
   }
 
   fd_rwlock_unwrite( &stake_delegations->lock );
+  fd_rwlock_unwrite( &stake_delegations->root_lock );
 
   return pruned;
 }
@@ -1532,6 +1542,7 @@ fd_stake_delegations_advance_root( ulong                                epoch,
                                    fd_stake_delegations_t *             stake_delegations,
                                    ushort                               fork_idx,
                                    fd_stake_delegations_delta_stats_t * stake_delegations_delta_stats ) {
+  fd_rwlock_write( &stake_delegations->root_lock );
   fd_rwlock_write( &stake_delegations->lock );
 
   ushort fork_ids[ FD_STAKE_DELEGATIONS_FORK_MAX ];
@@ -1556,6 +1567,7 @@ fd_stake_delegations_advance_root( ulong                                epoch,
   FD_LOG_DEBUG(( "effective_stake=%lu, activating_stake=%lu, deactivating_stake=%lu", stake_delegations->effective_stake, stake_delegations->activating_stake, stake_delegations->deactivating_stake ));
 
   fd_rwlock_unwrite( &stake_delegations->lock );
+  fd_rwlock_unwrite( &stake_delegations->root_lock );
 }
 
 void
@@ -1724,6 +1736,9 @@ fd_stake_delegations_view_begin( fd_stake_delegations_t *   stake_delegations,
                                  ulong *                    warmup_cooldown_rate_epoch,
                                  int                        use_fixed_point_stake_math,
                                  ushort                     fork_idx ) {
+  fd_rwlock_write( &stake_delegations->root_lock );
+  if( fork_idx==USHORT_MAX ) return;
+
   fd_rwlock_write( &stake_delegations->lock );
 
   fd_stake_delegation_t * delta_pool = get_delta_pool( stake_delegations );
@@ -1758,6 +1773,11 @@ fd_stake_delegations_view_end( fd_stake_delegations_t *   stake_delegations,
                                fd_stake_history_t const * stake_history,
                                ulong *                    warmup_cooldown_rate_epoch,
                                int                        use_fixed_point_stake_math ) {
+  if( stake_delegations->frontier_query_fork==USHORT_MAX ) {
+    fd_rwlock_unwrite( &stake_delegations->root_lock );
+    return;
+  }
+
   ulong epoch = stake_delegations->frontier_query_epoch;
 
   fd_stake_delegation_t * delta_pool = get_delta_pool( stake_delegations );
@@ -1787,6 +1807,7 @@ fd_stake_delegations_view_end( fd_stake_delegations_t *   stake_delegations,
   stake_delegations->frontier_query_fork  = USHORT_MAX;
   disk_root_maintain( stake_delegations );
   fd_rwlock_unwrite( &stake_delegations->lock );
+  fd_rwlock_unwrite( &stake_delegations->root_lock );
 }
 
 void

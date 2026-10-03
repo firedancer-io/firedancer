@@ -151,12 +151,13 @@ struct fd_snapmk {
   ulong zp_flush_pending; /* bit set */
   ulong zp_barrier[ SNAPZP_TILE_MAX ];
 
-  fd_banks_t *    banks;
-  fd_bank_t *     bank;
-  fd_pubkey_t     leader; /* slot leader of bank */
-  fd_txncache_t * txncache;
-  fd_ssmanifest_writer_t manifest_writer[1];
-  fd_txncache_writer_t   txncache_writer[1];
+  fd_banks_t *             banks;
+  fd_stake_delegations_t * stake_delegations;
+  fd_bank_t *              bank;
+  fd_pubkey_t              leader; /* slot leader of bank */
+  fd_txncache_t *          txncache;
+  fd_ssmanifest_writer_t   manifest_writer[1];
+  fd_txncache_writer_t     txncache_writer[1];
 
   ulong manifest_pad;
   ulong manifest_sz;
@@ -315,13 +316,14 @@ populate_allowed_fds( fd_topo_t const *      topo,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
   fd_snapmk_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-  if( FD_UNLIKELY( out_fds_cnt<4UL+(ulong)ctx->snap_max ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<5UL+(ulong)ctx->snap_max ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   out_fds[ out_cnt++ ] = ctx->snap_dir_fd;
   out_fds[ out_cnt++ ] = FD_ACCDB_FD_RO;
+  out_fds[ out_cnt++ ] = FD_STAKE_DELEGATIONS_FD;
   for( uint i=0U; i<ctx->snap_max; i++ )
     out_fds[ out_cnt++ ] = FD_SNAP_FD( i ); /* snapshot pool */
   return out_cnt;
@@ -338,7 +340,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
       (uint)fd_log_private_logfile_fd(),
       (uint)ctx->snap_dir_fd,
       (uint)FD_SNAP_FD( 0 ), (uint)FD_SNAP_FD( ctx->snap_max-1U ),
-      (uint)FD_ACCDB_FD_RO );
+      (uint)FD_ACCDB_FD_RO, (uint)FD_STAKE_DELEGATIONS_FD );
   return sock_filter_policy_fd_snapmk_tile_instr_cnt;
 }
 
@@ -387,6 +389,8 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( banks_obj_id!=ULONG_MAX );
   ctx->banks = fd_banks_join( fd_topo_obj_laddr( topo, banks_obj_id ) );
   FD_TEST( ctx->banks );
+  ctx->stake_delegations = fd_banks_stake_delegations_root_query( ctx->banks );
+  FD_TEST( ctx->stake_delegations );
 
   fd_txncache_shmem_t * tc_shmem = fd_txncache_shmem_join( fd_topo_obj_laddr( topo, tile->snapmk.txncache_obj_id ) );
   FD_TEST( tc_shmem );
@@ -1798,7 +1802,7 @@ snap_start( fd_snapmk_t *                  ctx,
   /* misc */
 
   ctx->leader = msg->leader;
-  fd_ssmanifest_writer_init( ctx->manifest_writer, bank, &ctx->leader, ctx->accdb, root_fork_id, ctx->raw );
+  fd_ssmanifest_writer_init( ctx->manifest_writer, bank, &ctx->leader, ctx->accdb, root_fork_id, ctx->stake_delegations, ctx->raw );
 
   /* accdb cache/disk parsers */
 

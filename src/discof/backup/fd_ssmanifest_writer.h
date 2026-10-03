@@ -7,6 +7,22 @@
 #include "../../flamenco/accdb/fd_accdb.h"
 #include "../../flamenco/runtime/fd_bank.h"
 
+/* fd_ssmanifest_vote_account_t is a vote account of the stakes cache:
+   one a stake delegation points at.  Keyed by pubkey in a fixed size
+   hash map while init collects them; init then packs the valid ones
+   into [0,vote_account_cnt). */
+
+struct fd_ssmanifest_vote_account {
+  fd_pubkey_t pubkey;
+  uint        hash;
+  uint        data_len;
+  ulong       stake; /* effective stake at the bank's epoch */
+};
+
+typedef struct fd_ssmanifest_vote_account fd_ssmanifest_vote_account_t;
+
+#define FD_SSMANIFEST_VOTE_ACCOUNT_LG_SLOT_CNT (17) /* 2*FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS keys, fill ratio 0.5 */
+
 /* fd_ssmanifest_epoch_vote_t is a vote account of an epoch stakes set
    that has an authorized voter for the set's epoch.  Agave lists these
    per node (node_id_to_vote_accounts) and per voter
@@ -41,6 +57,14 @@ struct fd_ssmanifest_writer {
   ulong       serialized_sz;
   uchar       vote_stakes_iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ] __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN)));
   fd_ssmanifest_epoch_map_t epoch_map[ FD_RUNTIME_MANIFEST_EPOCH_STAKES_LEN ];
+
+  /* stakes cache */
+  fd_accdb_t *                 accdb;
+  fd_accdb_fork_id_t           accdb_fork_id;
+  fd_stake_history_t           stake_history; /* view into the bank's sysvar cache */
+  ulong                        vote_account_cnt;
+  ulong                        vote_account_idx;
+  fd_ssmanifest_vote_account_t vote_account[ 1UL<<FD_SSMANIFEST_VOTE_ACCOUNT_LG_SLOT_CNT ];
 };
 
 typedef struct fd_ssmanifest_writer fd_ssmanifest_writer_t;
@@ -48,11 +72,12 @@ typedef struct fd_ssmanifest_writer fd_ssmanifest_writer_t;
 FD_PROTOTYPES_BEGIN
 
 /* fd_ssmanifest_writer_init creates a new snapshot manifest writer.
-   leader is the slot leader of bank.  Reads the vote account of every
-   epoch stakes entry from accdb at accdb_fork_id to fill the epoch
-   maps.  acc_data is scratch of at least FD_RUNTIME_ACC_SZ_MAX bytes.
-   Sets writer->serialized_sz.  Guaranteed to succeed for a valid
-   bank. */
+   leader is the slot leader of bank.  Briefly views the root of
+   stake_delegations to collect the vote accounts of the stakes cache,
+   then reads those and the epoch stakes vote accounts from accdb at
+   accdb_fork_id.  fd_snap_manifest_serialize reads the stakes cache
+   accounts again.  acc_data is scratch of at least
+   FD_RUNTIME_ACC_SZ_MAX bytes.  Sets writer->serialized_sz. */
 
 fd_ssmanifest_writer_t *
 fd_ssmanifest_writer_init( fd_ssmanifest_writer_t * writer,
@@ -60,6 +85,7 @@ fd_ssmanifest_writer_init( fd_ssmanifest_writer_t * writer,
                            fd_pubkey_t const *      leader,
                            fd_accdb_t *             accdb,
                            fd_accdb_fork_id_t       accdb_fork_id,
+                           fd_stake_delegations_t * stake_delegations,
                            uchar *                  acc_data );
 
 /* fd_snap_manifest_serialize serializes up to buf_sz worth of snapshot
