@@ -69,8 +69,7 @@
 
    In the case where we are disconnected momentarily, or we are catching
    up, we won't ever receive shreds for the original parent slot, only
-   for the updated parent slot. We currently assume parent_off will
-   update with the parentUpdate marker.
+   for the updated parent slot.
 */
 
 #include <math.h>
@@ -93,6 +92,8 @@
 #define ABANDON_REASON_MERKLE_ROOT_MISMATCH  (2)
 #define ABANDON_REASON_VOTOR_BLOCK_ID_EVENT  (3)
 #define ABANDON_REASON_VOTOR_BLOCK_ID_PARENT (4)
+#define ABANDON_REASON_PARENT_OFF_MISMATCH   (5)
+#define ABANDON_REASON_INVALID_BLOCK_HEADER  (6)
 
 FD_STATIC_ASSERT( FD_FEC_SHRED_CNT==32UL, fd_rotor_fec_bitmap );
 
@@ -157,6 +158,7 @@ struct fd_rotor_blk {
   uint            buffered_idx;     /* idx of highest buffered shred */
   uint            buffered_fec_idx; /* last shred idx of highest buffered FEC set we have received completion for */
 
+  ushort          parent_off;        /* shred header parent_off, 0 if no shred yet.  All data shreds of a version must carry this value. */
   ulong           parent_slot;       /* AG_UNKNOWN_SLOT if unknown */
   fd_hash_t       parent_block_id;   /* block_id of the parent slot */
   uint            parent_slot_batch; /* fec_idx of the last known parent_slot information.
@@ -353,7 +355,9 @@ fd_rotor_init( fd_rotor_t *            rotor,
 /* fd_rotor_shred_insert inserts a data shred into the rotor.  If
    the parent_slot is provided, parent_block_id must also be provided.
    Otherwise caller should pass AG_UNKNOWN_SLOT for parent_slot.  src is
-   one of FD_ROTOR_SRC_*.
+   one of FD_ROTOR_SRC_*.  parent_off is the shred header's parent_off,
+   or 0 if the caller has no shred header (e.g. FEC completion).  A
+   turbine version whose shreds disagree on parent_off is abandoned.
 
    The shred may be rejected (unauthorized equivocation); the caller
    does not need to know.  Returns the turbine version if this call
@@ -370,6 +374,7 @@ fd_rotor_shred_insert( fd_rotor_t *      rotor,
                        int               src,
                        long              rx_ts,
                        fd_hash_t const * mr,
+                       ushort            parent_off,
                        ulong             parent_slot,
                        fd_hash_t const * parent_block_id );
 
@@ -492,6 +497,19 @@ int
 fd_rotor_shred_test( fd_rotor_t *           rotor,
                      fd_rotor_blk_t const * block,
                      uint                   shred_idx );
+
+/* fd_rotor_invalidate abandons the turbine version of slot with
+   reason (ABANDON_REASON_*), e.g. because its shred 0 carries an invalid
+   block header.  If slot has no turbine version, an abandoned one is
+   created so later shreds of slot cannot start a live one.  No-op if
+   the turbine version's block_id is already known.  Verified versions
+   of slot are not touched. */
+
+void
+fd_rotor_invalidate( fd_rotor_t * rotor,
+                     ulong        slot,
+                     long         rx_ts,
+                     int          reason );
 
 /* fd_rotor_publish advances the root to slot.  block_id identifies
    which version of slot is being rooted; every other version of it is

@@ -41,7 +41,7 @@ drain_rotor( fd_rotor_t * rotor ) {
 
 static void
 shred( fd_rotor_t * rotor, ulong slot, uint idx, int slot_complete, fd_hash_t const * mr, ulong parent_slot, fd_hash_t const * parent_bid ) {
-  fd_rotor_shred_insert( rotor, slot, idx, slot_complete, FD_ROTOR_SRC_TURBINE, 0L, mr, parent_slot, parent_bid );
+  fd_rotor_shred_insert( rotor, slot, idx, slot_complete, FD_ROTOR_SRC_TURBINE, 0L, mr, 1, parent_slot, parent_bid );
   drain_rotor( rotor );
 }
 

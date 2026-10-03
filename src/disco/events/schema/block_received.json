@@ -15,7 +15,9 @@
                 "not_cancelled":               { "description": "Not cancelled." },
                 "merkle_root_mismatch":        { "description": "Received two merkle roots for the same FEC set." },
                 "notarized_version":           { "description": "A verified version of the block became known." },
-                "verified_parent":             { "description": "A verified version of a verified block's parent became known." }
+                "verified_parent":             { "description": "A verified version of a verified block's parent became known." },
+                "parent_off_mismatch":         { "description": "A data shred's parent_off disagreed with the slot's other shreds or with its block header." },
+                "invalid_block_header":        { "description": "Shred 0 did not carry a valid block header." }
             }
         },
         "cancelled_time":                          { "type": "DateTime64(9)",                                     "description": "When the block was cancelled. Only turbine versions are cancelled. Occurs when a votor-driven version of the slot arrives while this version's block id is still unknown, or for invalid turbine blocks. 0 if not cancelled." },
