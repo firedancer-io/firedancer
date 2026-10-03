@@ -650,7 +650,7 @@ struct fd_topo_tile {
       ulong max_live_slots;
       char  identity_key[ PATH_MAX ];
       char  vote_account[ PATH_MAX ];
-      char  base_path[PATH_MAX];
+      char  tower_path[ PATH_MAX ];
       ulong max_shreds_per_block;
     } tower;
 

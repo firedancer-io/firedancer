@@ -243,6 +243,19 @@ telemetry = true
     # Firedancer instance.
     guidb = ""
 
+    # File path to the tower file used for safe identity switching.
+    #
+    # If no path is provided, it defaults to the
+    # `tower-1_9-{identity}.bin` path within the base directory above,
+    # which is the file name Agave uses.
+    #
+    # Three substitutions will be performed on this string.  If
+    # "{user}" is present it will be replaced with the user running
+    # Firedancer, as above, "{name}" will be replaced with the name of
+    # the Firedancer instance, and "{identity}" will be replaced with
+    # the base58 identity key the validator starts with.
+    tower = ""
+
 # Firedancer logs to two places by default: stderr and a logfile.
 # stdout is not used for logging, and will only be used to print command
 # output or boot errors.  Messages to "stderr" are abbreviated and not
@@ -1789,6 +1802,12 @@ telemetry = true
         # spill pages are written. This value is not a total disk limit;
         # FEC payload spills can consume additional space.
         shred_storage_limit_gib = 50
+
+    # The tower tile runs the consensus algorithm, and decides which
+    # blocks our validator votes for.  This tower file is compatible
+    # with Agave and Firedancer Validators.
+    [tiles.tower]
+        write_tower_file = true
 
     # The txsend tile is responsible for sending transactions out to
     # the network over QUIC.  In the default configuration, this is just

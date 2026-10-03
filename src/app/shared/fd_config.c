@@ -145,6 +145,14 @@ fd_config_fillf( fd_config_t * config ) {
     FD_TEST( fd_cstr_printf_check( config->paths.guidb, sizeof(config->paths.guidb), NULL, "%s/gui.db", config->paths.base ) );
   }
 
+  /* The tower tile replaces {identity}, only it loads the identity key. */
+  if( FD_UNLIKELY( strcmp( config->paths.tower, "" ) ) ) {
+    replace( config->paths.tower, "{user}", config->user );
+    replace( config->paths.tower, "{name}", config->name );
+  } else {
+    FD_TEST( fd_cstr_printf_check( config->paths.tower, sizeof(config->paths.tower), NULL, "%s/tower-1_9-{identity}.bin", config->paths.base ) );
+  }
+
   for( ulong i=0UL; i<config->firedancer.paths.authorized_voter_paths_cnt; i++ ) {
     replace( config->firedancer.paths.authorized_voter_paths[ i ], "{user}", config->user );
     replace( config->firedancer.paths.authorized_voter_paths[ i ], "{name}", config->name );
