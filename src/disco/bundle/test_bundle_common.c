@@ -115,6 +115,7 @@ test_bundle_env_mock_conn_empty( test_bundle_env_t * env ) {
   long const ts_start = fd_bundle_now( ctx );
   fd_rng_new( ctx->rng, 42U, 42UL );
   ctx->tcp_sock_connected    = 1;
+  ctx->hs_deadline           = LONG_MAX;
   ctx->auther.state          = FD_BUNDLE_AUTH_STATE_DONE_WAIT;
   ctx->keepalive->ts_last_tx = ts_start;
   ctx->keepalive->ts_last_rx = ts_start;
