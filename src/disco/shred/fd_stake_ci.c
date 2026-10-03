@@ -56,6 +56,10 @@ fd_stake_ci_stake_msg_init( fd_stake_ci_t               * info,
     FD_LOG_ERR(( "The stakes -> Firedancer splice sent a malformed update with %lu id weights in it,"
                  " but the maximum allowed is %lu", msg->staked_id_cnt, MAX_STAKE_WEIGHTS ));
   }
+  if( FD_UNLIKELY( msg->slot_cnt > MAX_SLOTS_PER_EPOCH ) ) {
+    FD_LOG_ERR(( "The stakes -> Firedancer splice sent a malformed update with %lu slots in it,"
+                 " but the maximum allowed is %lu", msg->slot_cnt, MAX_SLOTS_PER_EPOCH ));
+  }
 
   info->scratch->epoch             = msg->epoch;
   info->scratch->start_slot        = msg->start_slot;
@@ -77,6 +81,10 @@ fd_stake_ci_epoch_msg_init( fd_stake_ci_t *             info,
   if( FD_UNLIKELY( msg->staked_id_cnt > MAX_STAKE_WEIGHTS ) ) {
     FD_LOG_ERR(( "The stakes -> Firedancer splice sent a malformed update with %lu id weights in it,"
                  " but the maximum allowed is %lu", msg->staked_id_cnt, MAX_STAKE_WEIGHTS ));
+  }
+  if( FD_UNLIKELY( msg->slot_cnt > MAX_SLOTS_PER_EPOCH ) ) {
+    FD_LOG_ERR(( "The stakes -> Firedancer splice sent a malformed update with %lu slots in it,"
+                 " but the maximum allowed is %lu", msg->slot_cnt, MAX_SLOTS_PER_EPOCH ));
   }
 
 
