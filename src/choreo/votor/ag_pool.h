@@ -46,9 +46,11 @@ ag_pool_leave( ag_pool_t const * pool );
 void *
 ag_pool_delete( void * mem );
 
+/* ag_pool_init starts the pool at the given finalized root block. */
+
 void
-ag_pool_init( ag_pool_t * self,
-              ulong       slot );
+ag_pool_init( ag_pool_t *           self,
+              ag_block_id_t const * root );
 
 void
 ag_pool_fini( ag_pool_t * self );

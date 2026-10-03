@@ -587,6 +587,54 @@ test_wait_does_not_allocate( void ) {
   FD_TEST( ag_parent_ready_state_pool_free( tracker->states.pool )==free_before );
 }
 
+/* ag_parent_ready_tracker_init on a root that is not at a window
+   boundary: the root is notarized-fallback and root+1 is ready with
+   exactly the root as its parent. */
+
+static void
+test_init( void ) {
+  FD_TEST( ag_parent_ready_tracker_footprint( TEST_SLOT_MAX )<=sizeof(scratch) );
+  ag_parent_ready_tracker_t * tracker = ag_parent_ready_tracker_join( ag_parent_ready_tracker_new( scratch, TEST_SLOT_MAX, 42UL ) );
+  FD_TEST( tracker );
+
+  ulong         root_slot = SLOTS_PER_WINDOW+1UL;
+  ag_block_id_t root      = random_block_id( root_slot );
+  FD_TEST( !ag_is_start_of_window( root_slot+1UL ) );
+
+  ag_parent_ready_tracker_init( tracker, &root );
+  FD_TEST( tracker->root==root_slot );
+
+  ag_parent_ready_state_t * root_state = ag_parent_ready_state_map_ele_query( tracker->states.map, &root_slot, NULL, tracker->states.pool );
+  FD_TEST( root_state );
+  FD_TEST( root_state->notar_fallbacks_cnt==1 );
+  FD_TEST( !memcmp( root_state->notar_fallbacks[0], root.hash, sizeof(ag_block_hash_t) ) );
+
+  ag_block_id_t parent = ag_parent_ready_tracker_wait_for_parent_ready( tracker, root_slot+1UL );
+  FD_TEST( ag_block_id_eq( &parent, &root ) );
+  ag_parent_ready_state_t * next_state = ag_parent_ready_state_map_ele_query( tracker->states.map, &(ulong){ root_slot+1UL }, NULL, tracker->states.pool );
+  FD_TEST( next_state && next_state->is_ready && next_state->ready_id_cnt==1UL );
+
+  /* Re-marking the root is deduplicated. */
+  ag_parent_ready_t out[ TEST_SLOT_MAX ];
+  ulong out_cnt;
+  ag_parent_ready_tracker_mark_notar_fallback( tracker, &root, out, &out_cnt );
+  FD_TEST( out_cnt==0UL );
+  FD_TEST( root_state->notar_fallbacks_cnt==1 );
+
+  /* Skipping the rest of the root's window makes the root a parent of
+     the next window. */
+  for( ulong s=root_slot+1UL; s<=last_slot_in_window( root_slot ); s++ ) {
+    ag_parent_ready_tracker_mark_skipped( tracker, s, out, &out_cnt );
+    if( s==last_slot_in_window( s ) ) {
+      FD_TEST( out_contains( out, out_cnt, s+1UL, &root ) );
+    } else {
+      FD_TEST( out_cnt==0UL );
+    }
+  }
+
+  teardown_tracker( tracker );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -598,6 +646,7 @@ main( int     argc,
 
   test_basic();
   test_genesis();
+  test_init();
   test_skips();
   test_out_of_order_skips();
   test_out_of_order_notars();

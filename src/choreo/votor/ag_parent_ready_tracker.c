@@ -159,6 +159,18 @@ slot_state( ag_parent_ready_tracker_t * self,
 }
 
 void
+ag_parent_ready_tracker_init( ag_parent_ready_tracker_t * self,
+                              ag_block_id_t const *       root ) {
+  self->root = root->slot;
+
+  ag_parent_ready_state_t * root_state = slot_state( self, root->slot );
+  memcpy( root_state->notar_fallbacks[ 0 ], root->hash, sizeof(ag_block_hash_t) );
+  root_state->notar_fallbacks_cnt = (uchar)1;
+
+  add_to_ready( slot_state( self, root->slot+1UL ), root );
+}
+
+void
 ag_parent_ready_tracker_mark_notar_fallback( ag_parent_ready_tracker_t * self,
                                              ag_block_id_t const *       id,
                                              ag_parent_ready_t *         newly_certified,

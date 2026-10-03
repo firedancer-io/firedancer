@@ -75,10 +75,13 @@ static ulong req_cnt;
 static fd_rotor_replay_fec_t rep_log[ REP_MAX ];
 static ulong                 rep_cnt;
 
+static fd_rotor_block_t rsv_last;
+static ulong            rsv_cnt;
+
 /* drain plays every unprocessed publish: sign requests are answered
    with a dummy signature (which publishes the packet, picked up by the
    same loop), net packets are parsed into req_log, replay frags into
-   rep_log. */
+   rep_log, and the latest rserve frag into rsv_last. */
 
 static void
 drain( ctx_t * ctx ) {
@@ -132,6 +135,9 @@ drain( ctx_t * ctx ) {
 
       FD_TEST( rec.sig==ROTOR_SIG_BLOCK );
       FD_TEST( rec.sz>=FD_ROTOR_BLOCK_SZ( 0 ) );
+      FD_TEST( rec.sz<=sizeof(fd_rotor_block_t) );
+      fd_memcpy( &rsv_last, rec.data, rec.sz );
+      rsv_cnt++;
     } else {
       FD_LOG_ERR(( "unexpected out_idx %lu", rec.out_idx ));
     }
@@ -543,7 +549,7 @@ static fd_hash_t snap_bid;
 static fd_pubkey_t peer_key[ 2 ];
 
 static void
-setup_ctx( ctx_t * ctx, fd_wksp_t * wksp ) {
+setup_ctx_root( ctx_t * ctx, fd_wksp_t * wksp, ulong root_slot, fd_hash_t const * root_bid ) {
   memset( ctx, 0, sizeof(*ctx) );
   fd_event_tl = NULL;
   fd_clock_tile_init( ctx->clock );
@@ -551,6 +557,7 @@ setup_ctx( ctx_t * ctx, fd_wksp_t * wksp ) {
   pub_cnt = 0UL; pub_cursor = 0UL;
   req_cnt = 0UL;
   rep_cnt = 0UL;
+  rsv_cnt = 0UL;
   test_tsorig = 0UL;
   memset( test_out_mem, 0, sizeof(test_out_mem) );
 
@@ -661,10 +668,9 @@ setup_ctx( ctx_t * ctx, fd_wksp_t * wksp ) {
   ctx->pending_key_next  = 0UL;
   ctx->ag_nonce          = 0U;
 
-  /* Snapshot: root the rotor the way handle_snap does. */
+  /* Root the rotor the way handle_snap / handle_genesis does. */
 
-  snap_bid = mkhash( 0xB1D100UL );
-  fd_rotor_init( ctx->rotor, SNAP_SLOT, &snap_bid, report_block_received, ctx );
+  fd_rotor_init( ctx->rotor, root_slot, root_bid, report_block_received, ctx );
   FD_TEST( !fd_rotor_verify( ctx->rotor ) );
 
   /* Two repair peers, as if discovered via gossip. */
@@ -675,6 +681,12 @@ setup_ctx( ctx_t * ctx, fd_wksp_t * wksp ) {
   fd_ip4_port_t addr1 = { .addr = 0x0A000003U, .port = 9002 };
   FD_TEST( fd_policy_peer_upsert( ctx->policy, &peer_key[ 0 ], &addr0 ) );
   FD_TEST( fd_policy_peer_upsert( ctx->policy, &peer_key[ 1 ], &addr1 ) );
+}
+
+static void
+setup_ctx( ctx_t * ctx, fd_wksp_t * wksp ) {
+  snap_bid = mkhash( 0xB1D100UL );
+  setup_ctx_root( ctx, wksp, SNAP_SLOT, &snap_bid );
 }
 
 /* deliver_gossip_peers feeds n contact-info frags the way the gossip
@@ -1935,6 +1947,72 @@ test_inflight_bounded( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: in-flight requests expire and the table stays bounded" ));
 }
 
+/* A cluster booted from genesis roots the rotor at slot 0, whose block
+   id is all zero.  A block whose parent is genesis carries that zero
+   parent id and must still finalize and publish to replay and rserve.
+   A zero parent id for any later parent stays unknown: the block id is
+   not finalized and nothing reaches rserve. */
+
+static void
+test_genesis_parent( fd_wksp_t * wksp ) {
+  static ctx_t ctx[1];
+  fd_hash_t genesis_bid = {0};
+  setup_ctx_root( ctx, wksp, 0UL, &genesis_bid );
+
+  blk_t b1[1] = {{ .slot = 1UL, .parent_slot = 0UL, .parent_block_id = genesis_bid, .fec_cnt = 2U }};
+  b1->fec_root[ 0 ] = mkhash( 0x170UL );
+  b1->fec_root[ 1 ] = mkhash( 0x171UL );
+  blk_build( b1 );
+  deliver_turbine_block( ctx, b1 );
+  pump( ctx );
+
+  fd_rotor_blk_t * v1 = fd_rotor_slot_query( ctx->rotor, b1->slot );
+  FD_TEST( v1 && v1->connected );
+  FD_TEST( fd_hash_eq( &v1->block_id, &b1->block_id ) );
+  FD_TEST( rep_cnt==2UL );
+  rep_expect( 0UL, b1->slot, 0U,               &b1->fec_root[ 0 ], NULL,          0 );
+  rep_expect( 1UL, b1->slot, FD_FEC_SHRED_CNT, &b1->fec_root[ 1 ], &b1->block_id, 1 );
+  FD_TEST( rep_log[ 1 ].parent_slot==0UL && fd_hash_check_zero( &rep_log[ 1 ].parent_block_id ) );
+
+  FD_TEST( rsv_cnt==1UL );
+  FD_TEST( rsv_last.slot==b1->slot );
+  FD_TEST( fd_hash_eq( &rsv_last.block_id, &b1->block_id ) );
+  FD_TEST( rsv_last.parent_slot==0UL );
+  FD_TEST( fd_hash_check_zero( &rsv_last.parent_block_id ) );
+  FD_TEST( rsv_last.fec_set_cnt==2U );
+  FD_TEST( !memcmp( rsv_last.merkle_roots[ 0 ], b1->fec_root[ 0 ].uc, FD_SHRED_MERKLE_NODE_SZ ) );
+  FD_TEST( !memcmp( rsv_last.merkle_roots[ 1 ], b1->fec_root[ 1 ].uc, FD_SHRED_MERKLE_NODE_SZ ) );
+
+  blk_t b2[1] = {{ .slot = 2UL, .parent_slot = b1->slot, .parent_block_id = genesis_bid, .fec_cnt = 1U }};
+  b2->fec_root[ 0 ] = mkhash( 0x172UL );
+  blk_build( b2 );
+  deliver_turbine_block( ctx, b2 );
+  pump( ctx );
+
+  fd_rotor_blk_t * v2 = fd_rotor_slot_query( ctx->rotor, b2->slot );
+  FD_TEST( v2 && v2->parent_slot==b1->slot && fd_rotor_block_complete( v2 ) );
+  FD_TEST( fd_hash_check_zero( &v2->block_id ) );
+  for( ulong i=0UL; i<rep_cnt; i++ ) FD_TEST( rep_log[ i ].slot!=b2->slot || fd_hash_check_zero( &rep_log[ i ].block_id ) );
+  FD_TEST( rsv_cnt==1UL );
+
+  /* publish_block holds the same line on its own, even for a version
+     whose block id is known by other means (votor). */
+
+  ulong cr_avail[ TEST_OUT_MAX ] = {0};
+  fd_stem_context_t stem = { .cr_avail = cr_avail };
+  v2->block_id = b2->block_id;
+  publish_block( ctx, &stem, v2 );
+  drain( ctx );
+  FD_TEST( rsv_cnt==1UL );
+  memset( &v2->block_id, 0, sizeof(fd_hash_t) );
+  publish_block( ctx, &stem, v1 );
+  drain( ctx );
+  FD_TEST( rsv_cnt==2UL && rsv_last.slot==b1->slot );
+
+  FD_TEST( !fd_rotor_verify( ctx->rotor ) );
+  FD_LOG_NOTICE(( "pass: genesis parent finalizes" ));
+}
+
 /* Park scheduling: after_credit leaves in idle_due when a fruitless
    pass can next make progress, and next_deadline hands it to the stem
    in the tickcount domain, capped by the oldest inflight record's
@@ -2113,6 +2191,9 @@ main( int argc, char ** argv ) {
 
   fd_wksp_reset( wksp, 1U );
   test_inflight_bounded( wksp );
+
+  fd_wksp_reset( wksp, 1U );
+  test_genesis_parent( wksp );
 
   fd_wksp_reset( wksp, 1U );
   test_park( wksp );
