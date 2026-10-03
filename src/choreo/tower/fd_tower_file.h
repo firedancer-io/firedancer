@@ -51,11 +51,9 @@ fd_tower_file_de( uchar const *       buf,
                   fd_pubkey_t const * identity,
                   fd_tower_file_t *   out );
 
-/* fd_tower_file_ser writes the tower file for sync, our last vote, into
-   buf, except the signature, which the caller computes with identity's
-   private key over [buf+FD_TOWER_FILE_DATA_OFF, buf+size) and stores
-   at buf+FD_TOWER_FILE_SIG_OFF.  The vote state fields Agave does not
-   restore from are left zero.  Returns the file size. */
+/* fd_tower_file_ser writes the tower file into a caller-owned buffer,
+   except the signature.  The vote state fields Agave does not restore
+   from are not populated.  Returns the file size. */
 ulong
 fd_tower_file_ser( fd_compact_tower_sync_serde_t const * sync,
                    fd_pubkey_t const *                   identity,
