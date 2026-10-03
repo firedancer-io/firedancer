@@ -2054,6 +2054,7 @@ unprivileged_init( fd_topo_t const *      topo,
   memcpy( ctx->quic_server->config.identity_public_key, ctx->id_key.uc, 32UL );
   ctx->quic_server->config.sign                       = sign_ed25519;
   ctx->quic_server->config.sign_ctx                   = ctx;
+  ctx->quic_server->config.req_client_cert            = 1;
   ctx->quic_server->config.alpn[ 0 ]                  = 0x0c;
   memcpy( ctx->quic_server->config.alpn+1, "alpenglow-v1", 12UL );
   ctx->quic_server->config.alpn_sz                    = 13UL;

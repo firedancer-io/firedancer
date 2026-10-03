@@ -165,6 +165,7 @@ LLVMFuzzerTestOneInput( uchar const * input,
   fd_chacha_rng_t chacha[1];
   tls->rng = fd_tls_test_rand( chacha, rng );
   tls->quic = (uchar)(is_quic&1);
+  tls->req_client_cert = (uchar)(cli_cert&1);
   if( !has_alpn  ) tls->alpn_sz      = 0UL;
   if( !has_x509  ) tls->cert_x509_sz = 0UL;
   if( no_signer && !is_server ) tls->sign.sign_fn = NULL;  /* servers must always have a signer */

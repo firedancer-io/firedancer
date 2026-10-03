@@ -85,6 +85,7 @@ fd_quic_tls_new( fd_quic_tls_t *     self,
 
   /* Initialize fd_tls */
   fd_quic_tls_init( &self->tls, cfg->signer, cfg->cert_public_key, cfg->alpn, cfg->alpn_sz, cfg->rng );
+  self->tls.req_client_cert = !!cfg->req_client_cert;
 
   return self;
 }

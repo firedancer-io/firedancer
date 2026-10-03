@@ -44,6 +44,7 @@ LLVMFuzzerInitialize( int  *   argc,
 
   client_tmpl->sign = fd_tls_test_sign( client_sign_ctx );
   server_tmpl->sign = fd_tls_test_sign( server_sign_ctx );
+  server_tmpl->req_client_cert = 1;
 
   for( ulong j=0UL; j<32UL; j++ ) {
     client_tmpl->kex_private_key[j] = fd_rng_uchar( rng );
@@ -186,7 +187,7 @@ LLVMFuzzerTestOneInput( uchar const * input,
     client->hs.cli.server_pubkey_len = 32UL;
     client->hs.cli.server_pubkey_pin = 1;
   }
-  /* fd_tls servers always request client auth.  A client without a
+  /* The server requests client auth.  A client without a
      cert answers with an empty Certificate and may consider itself
      connected, but the server rejects it. */
   int expect_fail = ( pin_pubkey && wrong_pin ) || !client_cert;

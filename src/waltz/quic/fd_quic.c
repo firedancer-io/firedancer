@@ -490,6 +490,8 @@ fd_quic_init( fd_quic_t * quic ) {
 
     .alpn                  = config->alpn,
     .alpn_sz               = config->alpn_sz,
+
+    .req_client_cert       = config->req_client_cert,
   };
 
   /* State: Initialize handshake pool */

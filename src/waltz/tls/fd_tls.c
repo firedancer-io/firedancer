@@ -715,28 +715,31 @@ fd_tls_server_hs_start( fd_tls_t const *      const server,
 
   /* Send CertificateRequest ******************************************/
 
-  static uchar const cert_req[] = {
-    FD_TLS_MSG_CERT_REQ,     /* msg_type */
-    0x00, 0x00, 0x0b,        /* msg_sz */
-    0x00,                    /* certificate_request_context */
-    0x00, 0x08,              /* extensions length prefix */
-    0x00, FD_TLS_EXT_SIGNATURE_ALGORITHMS,
-                             /* ext type */
-    0x00, 0x04,              /* ext sz */
-    0x00, 0x02,              /* sigalg sz */
-    0x08, 0x07,              /* Ed25519 */
-  };
+  handshake->client_cert = !!server->req_client_cert;
+  if( handshake->client_cert ) {
+    static uchar const cert_req[] = {
+      FD_TLS_MSG_CERT_REQ,     /* msg_type */
+      0x00, 0x00, 0x0b,        /* msg_sz */
+      0x00,                    /* certificate_request_context */
+      0x00, 0x08,              /* extensions length prefix */
+      0x00, FD_TLS_EXT_SIGNATURE_ALGORITHMS,
+                               /* ext type */
+      0x00, 0x04,              /* ext sz */
+      0x00, 0x02,              /* sigalg sz */
+      0x08, 0x07,              /* Ed25519 */
+    };
 
-  if( FD_UNLIKELY( !server->sendmsg_fn(
-        handshake,
-        cert_req, sizeof(cert_req),
-        FD_TLS_LEVEL_HANDSHAKE,
-        /* flush */ 0 ) ) )
-    return fd_tls_alert( &handshake->base, FD_TLS_ALERT_INTERNAL_ERROR, FD_TLS_REASON_SENDMSG_FAIL );
+    if( FD_UNLIKELY( !server->sendmsg_fn(
+          handshake,
+          cert_req, sizeof(cert_req),
+          FD_TLS_LEVEL_HANDSHAKE,
+          /* flush */ 0 ) ) )
+      return fd_tls_alert( &handshake->base, FD_TLS_ALERT_INTERNAL_ERROR, FD_TLS_REASON_SENDMSG_FAIL );
 
-  /* Record CertificateRequest in transcript hash */
+    /* Record CertificateRequest in transcript hash */
 
-  fd_sha256_append( &transcript, cert_req, sizeof(cert_req) );
+    fd_sha256_append( &transcript, cert_req, sizeof(cert_req) );
+  }
 
   /* Send Certificate *************************************************/
 
@@ -855,7 +858,7 @@ fd_tls_server_hs_start( fd_tls_t const *      const server,
 
   /* Done */
 
-  handshake->base.state = FD_TLS_HS_WAIT_CERT;
+  handshake->base.state = handshake->client_cert ? FD_TLS_HS_WAIT_CERT : FD_TLS_HS_WAIT_FINISHED;
 
 # undef MSG_BUFSZ
   return (long)read_sz;

@@ -425,6 +425,7 @@ struct fd_cfg {
   int                        is_server;
   cert_t const *             cert;          /* own cert (Ed25519, pkey from sign ctx); NULL: none / mock */
   int                        mock_cert;     /* server: present an fd_x509_mock cert instead */
+  int                        req_cli_cert;  /* server: request a client cert */
   char const *               alpn;          /* single protocol, NULL for none */
   char const *               host;          /* client: SNI and verification hostname */
   fd_x509_ca_store_t const * ca_store;      /* client: verify chain against this store */
@@ -453,6 +454,7 @@ fd_peer_init( fd_peer_t *      f,
   memset( tls, 0, sizeof(*tls) );
   tls->rng        = fd_tls_test_rand( f->chacha, rng );
   tls->secrets_fn = fd_secrets_cb;
+  tls->req_client_cert = !!c->req_cli_cert;
   for( ulong i=0UL; i<32UL; i++ ) tls->kex_private_key[i] = fd_rng_uchar( rng );
   fd_x25519_public( tls->kex_public_key, tls->kex_private_key );
 
@@ -1114,7 +1116,7 @@ test_fd_server_matrix( pki_t * p, fd_rng_t * rng ) {
       .no_middlebox = no_mb,
     } );
     fd_peer_init( f, &(fd_cfg_t){
-      .is_server = 1, .cert = mock ? NULL : &srv_cert, .mock_cert = mock,
+      .is_server = 1, .cert = mock ? NULL : &srv_cert, .mock_cert = mock, .req_cli_cert = 1,
       .alpn = alpn ? "solana-tpu" : NULL,
     }, rng );
 
@@ -1200,7 +1202,7 @@ test_fd_server_failures( pki_t * p, fd_rng_t * rng ) {
       .host = "fd.test", .alpn = c->cli_alpn, .groups = c->groups ? c->groups : "X25519",
       .sigalgs = c->sigalgs, .ciphersuites = c->ciphersuites, .max_version = c->max_version,
     } );
-    fd_peer_init( f, &(fd_cfg_t){ .is_server = 1, .mock_cert = 1, .alpn = c->srv_alpn }, rng );
+    fd_peer_init( f, &(fd_cfg_t){ .is_server = 1, .mock_cert = 1, .req_cli_cert = 1, .alpn = c->srv_alpn }, rng );
 
     pump( f, o, frag_sizes[fi] );
 

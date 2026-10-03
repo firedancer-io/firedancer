@@ -675,6 +675,7 @@ test_tlsrec_handshake_epochs( fd_rng_t * rng ) {
   fd_tls_t tls = {
     .rng  = fd_tls_test_rand( chacha, rng ),
     .sign = fd_tls_test_sign( sign_ctx ),
+    .req_client_cert = 1,
   };
   for( ulong j=0UL; j<32UL; j++ ) tls.kex_private_key[j] = fd_rng_uchar( rng );
   fd_x25519_public( tls.kex_public_key, tls.kex_private_key );
