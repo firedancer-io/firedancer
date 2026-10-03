@@ -1,3 +1,23 @@
+## Contributions
+
+Please reach out to a maintainer before sending a pull request.
+Firedancer may not accept some types of external contributions.
+
+Code contributions, pull request descriptions, issues, and especially
+documentation should be handwritten.
+
+You are welcome to use LLMs for guidance, but please do not post
+unfiltered LLM-generated content.
+
+## Firedancer Team
+
+Feel free to contact the Firedancer team via these channels:
+
+- [GitHub issues](https://github.com/firedancer-io/firedancer/issues)
+- [GitHub discussions](https://github.com/firedancer-io/firedancer/discussions)
+- Solana Tech Discord under `#firedancer-operators`
+- Email (see Git commits)
+
 ## Firedancer Code Style Guide
 
 Below is an incomplete list of code style rules.
