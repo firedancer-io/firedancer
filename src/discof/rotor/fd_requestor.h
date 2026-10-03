@@ -48,7 +48,26 @@
 
    Legacy requests (Shred, HighestShred, Orphan) are suppressed when
    block_id_only is set; that is a development flag for exercising
-   block-id repair in isolation. */
+   block-id repair in isolation.
+
+   Note we MUST maintain the invariant that getParentFecSetCount cannot
+   be called on a turbine block, only on notar-verified blocks.
+   Currently we treat responses from getParentAndFecCount as verified
+   block id -- i.e. this is on the finalized / notarized path that we
+   care about.  However consider we've received a couple shreds from
+   parent slot 2 (turbine version), but we've fully complete slot 3
+   through turbine and computed its block_id. As a result, we could make
+   a getParentandFecCount for this turbine version (the hole!), and that
+   COULD return a response for slot 2 and block_id we think is verified.
+   But really since slot 3 was received from turbine, nothing about it's
+   parent is verified. Then we have a context for slot 2 (turbine) and
+   we have this new "verified" slot2 version -- two versions for
+   turbine. This breaks our bounds assumptions on how many versions of
+   the block we keep.  Any added getParentandFecCount requests must be
+   closely audited.
+
+   This does not apply in the case of the development flag
+   block_id_repair_only. */
 
 #include "fd_rotor.h"
 

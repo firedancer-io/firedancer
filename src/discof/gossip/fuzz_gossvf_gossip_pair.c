@@ -61,7 +61,7 @@ typedef struct {
 
   fd_gossip_t * gossip;
   fd_rng_t      rng[ 1 ];
-  fd_gossip_out_ctx_t gossip_out[ 1 ];
+  fd_gossip_out_ctx_t gossip_out[ FD_GOSSIP_UPDATE_LINK_CNT ];
   fd_gossip_out_ctx_t net_out[ 1 ];
   fd_frag_meta_t *    gossip_mcache;
   fd_stem_context_t   gossip_stem[ 1 ];
@@ -137,13 +137,16 @@ pair_mem_align( void ) {
   a = fd_ulong_max( a, fd_tcache_align () );
   a = fd_ulong_max( a, FD_CHUNK_ALIGN    );
   a = fd_ulong_max( a, fd_mcache_align() );
+  a = fd_ulong_max( a, fd_ed25519_cache_align() );
   return a;
 }
+
+#define PAIR_ED25519_CACHE_ENT_CNT (8UL)
 
 static ulong
 pair_node_layout_append( ulong l ) {
   l = FD_LAYOUT_APPEND( l, fd_gossip_align(), fd_gossip_footprint( PAIR_MAX_VALUES, 1UL ) );
-  l = FD_LAYOUT_APPEND( l, FD_CHUNK_ALIGN,    PAIR_OUT_DBUF_SZ );
+  l = FD_LAYOUT_APPEND( l, FD_CHUNK_ALIGN,    FD_GOSSIP_UPDATE_LINK_CNT*PAIR_OUT_DBUF_SZ );
   l = FD_LAYOUT_APPEND( l, fd_mcache_align(), fd_mcache_footprint( PAIR_OUT_DEPTH, 0UL ) );
 
   l = FD_LAYOUT_APPEND( l, peer_pool_align(),  peer_pool_footprint( PAIR_PEER_CAP ) );
@@ -153,6 +156,7 @@ pair_node_layout_append( ulong l ) {
   l = FD_LAYOUT_APPEND( l, stake_pool_align(), stake_pool_footprint( PAIR_STAKE_CAP ) );
   l = FD_LAYOUT_APPEND( l, stake_map_align(),  stake_map_footprint( stake_map_chain_cnt_est( PAIR_STAKE_CAP ) ) );
   l = FD_LAYOUT_APPEND( l, fd_tcache_align(),  fd_tcache_footprint( PAIR_TCACHE_DEPTH, 0UL ) );
+  l = FD_LAYOUT_APPEND( l, fd_ed25519_cache_align(), fd_ed25519_cache_footprint( PAIR_ED25519_CACHE_ENT_CNT ) );
   l = FD_LAYOUT_APPEND( l, FD_CHUNK_ALIGN,     PAIR_OUT_DBUF_SZ );
   l = FD_LAYOUT_APPEND( l, fd_mcache_align(),  fd_mcache_footprint( PAIR_OUT_DEPTH, 0UL ) );
   return l;
@@ -510,6 +514,7 @@ pair_setup_vf( pair_node_t * node,
   void * stake_pool_mem = FD_SCRATCH_ALLOC_APPEND( mem, stake_pool_align(), stake_pool_footprint( PAIR_STAKE_CAP ) );
   void * stake_map_mem  = FD_SCRATCH_ALLOC_APPEND( mem, stake_map_align(),  stake_map_footprint( stake_map_chain_cnt_est( PAIR_STAKE_CAP ) ) );
   void * tcache_mem     = FD_SCRATCH_ALLOC_APPEND( mem, fd_tcache_align(),  fd_tcache_footprint( PAIR_TCACHE_DEPTH, 0UL ) );
+  void * edcache_mem    = FD_SCRATCH_ALLOC_APPEND( mem, fd_ed25519_cache_align(), fd_ed25519_cache_footprint( PAIR_ED25519_CACHE_ENT_CNT ) );
 
   ctx->peers      = peer_pool_join( peer_pool_new( peer_pool_mem, PAIR_PEER_CAP ) );
   ctx->peer_map   = peer_map_join ( peer_map_new ( peer_map_mem, 2UL*PAIR_PEER_CAP, ctx->seed ) );
@@ -529,6 +534,8 @@ pair_setup_vf( pair_node_t * node,
   ctx->tcache.map     = fd_tcache_map_laddr   ( tcache );
 
   FD_TEST( fd_sha512_join( fd_sha512_new( ctx->sha ) ) );
+  ctx->ed25519_cache = fd_ed25519_cache_join( fd_ed25519_cache_new( edcache_mem, PAIR_ED25519_CACHE_ENT_CNT, ctx->seed ) );
+  FD_TEST( ctx->ed25519_cache );
 
   void * out_dcache = FD_SCRATCH_ALLOC_APPEND( mem, FD_CHUNK_ALIGN, PAIR_OUT_DBUF_SZ );
   ctx->out->mem     = out_dcache;
@@ -563,13 +570,15 @@ pair_setup_gossip( pair_node_t * node,
                                                fd_gossip_footprint( PAIR_MAX_VALUES, 1UL ) );
   FD_TEST( fd_rng_join( fd_rng_new( node->rng, (uint)seed, seed>>32 ) ) );
 
-  void * gossip_dcache = FD_SCRATCH_ALLOC_APPEND( mem, FD_CHUNK_ALIGN, PAIR_OUT_DBUF_SZ );
-  node->gossip_out->mem    = gossip_dcache;
-  node->gossip_out->chunk0 = fd_laddr_to_chunk( gossip_dcache, gossip_dcache );
-  node->gossip_out->chunk  = node->gossip_out->chunk0;
-  node->gossip_out->wmark  = node->gossip_out->chunk0 + pair_wmark( PAIR_OUT_DBUF_SZ,
-                                                                     FD_NET_MTU );
-  node->gossip_out->idx    = 0UL;
+  uchar * gossip_dcache = FD_SCRATCH_ALLOC_APPEND( mem, FD_CHUNK_ALIGN, FD_GOSSIP_UPDATE_LINK_CNT*PAIR_OUT_DBUF_SZ );
+  for( ulong i=0UL; i<FD_GOSSIP_UPDATE_LINK_CNT; i++ ) {
+    node->gossip_out[ i ].mem    = (fd_wksp_t *)gossip_dcache;
+    node->gossip_out[ i ].chunk0 = fd_laddr_to_chunk( gossip_dcache, gossip_dcache+i*PAIR_OUT_DBUF_SZ );
+    node->gossip_out[ i ].chunk  = node->gossip_out[ i ].chunk0;
+    node->gossip_out[ i ].wmark  = node->gossip_out[ i ].chunk0 + pair_wmark( PAIR_OUT_DBUF_SZ,
+                                                                              FD_NET_MTU );
+    node->gossip_out[ i ].idx    = 0UL;
+  }
   node->net_out[0] = node->gossip_out[0];
 
   void * mcache_mem = FD_SCRATCH_ALLOC_APPEND( mem, fd_mcache_align(), fd_mcache_footprint( PAIR_OUT_DEPTH, 0UL ) );
@@ -717,6 +726,11 @@ pair_drain_gossip_updates( pair_node_t * node ) {
     if( FD_UNLIKELY( meta->seq!=seq ) ) continue;
     if( FD_UNLIKELY( meta->sig!=FD_GOSSIP_UPDATE_TAG_CONTACT_INFO &&
                      meta->sig!=FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE ) ) continue;
+
+    /* gossvf reads gossip_ciaddr only; the gossip_ciseen mirror of the
+       same update lives in that link's slice of the shared dcache. */
+    fd_gossip_out_ctx_t const * seen = node->gossip_out + FD_GOSSIP_UPDATE_LINK_CI_SEEN;
+    if( FD_UNLIKELY( meta->chunk>=seen->chunk0 && meta->chunk<=seen->wmark ) ) continue;
 
     fd_gossip_update_message_t * update =
       (fd_gossip_update_message_t *)fd_chunk_to_laddr( node->gossip_out->mem, meta->chunk );

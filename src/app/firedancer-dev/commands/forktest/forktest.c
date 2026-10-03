@@ -110,7 +110,8 @@ forktest_topo( config_t * config ) {
 
   fd_topob_wksp( topo, "net_shred"    );
 
-  fd_topob_wksp( topo, "gossip_out"    );
+  fd_topob_wksp( topo, "gossip_ciaddr" );
+  fd_topob_wksp( topo, "gossip_misc"   );
 
   fd_topob_wksp( topo, "shred_out"     );
   fd_topob_wksp( topo, "replay_epoch"  );
@@ -176,7 +177,8 @@ forktest_topo( config_t * config ) {
     /**/               fd_topob_link( topo, "genesi_out",    "genesi_out",    1UL,                                      fd_genesi_tile_mtu( config->firedancer.development.genesis.max_file_size_mib<<20 ), 1UL );
   }
 
-  /**/                 fd_topob_link( topo, "gossip_out",    "gossip_out",    65536UL*4UL,                              sizeof(fd_gossip_update_message_t), 1UL ); /* TODO: Unclear where this depth comes from ... fix */
+  /**/                 fd_topob_link( topo, "gossip_ciaddr", "gossip_ciaddr", 65536UL*2UL,                              sizeof(fd_gossip_update_message_t), 1UL );
+  /**/                 fd_topob_link( topo, "gossip_misc",   "gossip_misc",   65536UL*2UL,                              sizeof(fd_gossip_update_message_t), 1UL );
 
   /**/                 fd_topob_link( topo, "replay_epoch",  "replay_epoch",  16UL,                                     FD_EPOCH_OUT_MTU,              1UL ); /* min pow2 >= replay's STEM_BURST (14); ideally 2, needs per-link burst */
   /**/                 fd_topob_link( topo, "replay_out",    "replay_out",    65536UL,                                  sizeof(fd_replay_message_t),   1UL );
@@ -274,7 +276,8 @@ forktest_topo( config_t * config ) {
   }
 
   /**/                 fd_topob_tile_in (   topo, "forkt", 0UL,            "metric_in", "replay_epoch",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-  /**/                 fd_topob_tile_out(   topo, "forkt", 0UL,                         "gossip_out",    0UL                                                );
+  /**/                 fd_topob_tile_out(   topo, "forkt", 0UL,                         "gossip_ciaddr", 0UL                                                );
+  /**/                 fd_topob_tile_out(   topo, "forkt", 0UL,                         "gossip_misc",   0UL                                                );
   /**/                 fd_topob_tile_in (   topo, "forkt", 0UL,            "metric_in", "tower_out",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_in (   topo, "forkt", 0UL,            "metric_in", "replay_slot",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
 
@@ -291,7 +294,7 @@ forktest_topo( config_t * config ) {
   FOR(execrp_tile_cnt) fd_topob_tile_out(   topo, "replay",  0UL,                       "replay_execrp", i                                                  );
   FOR(execrp_tile_cnt) fd_topob_tile_in (   topo, "replay",  0UL,          "metric_in", "execrp_replay", i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_in (   topo, "replay",  0UL,          "metric_in", "tower_out",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-  /**/                 fd_topob_tile_in (   topo, "replay",  0UL,          "metric_in", "gossip_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  /**/                 fd_topob_tile_in (   topo, "replay",  0UL,          "metric_in", "gossip_misc",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   if( FD_LIKELY( snapshots_enabled ) ) {
                        fd_topob_tile_in (   topo, "replay",  0UL,          "metric_in", "snapin_manif",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   }
@@ -300,14 +303,14 @@ forktest_topo( config_t * config ) {
   FOR(execrp_tile_cnt) fd_topob_tile_out(   topo, "execrp",  i,                         "execrp_replay", i                                                  );
 
   /**/                 fd_topob_tile_in (   topo, "tower",   0UL,          "metric_in", "replay_epoch",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-  /**/                 fd_topob_tile_in (   topo, "tower",   0UL,          "metric_in", "gossip_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  /**/                 fd_topob_tile_in (   topo, "tower",   0UL,          "metric_in", "gossip_misc",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_in (   topo, "tower",   0UL,          "metric_in", "replay_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(shred_tile_cnt)  fd_topob_tile_in(    topo, "tower",   0UL,          "metric_in", "shred_out",     i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(shred_tile_cnt)  fd_topob_tile_in(    topo, "replay",  0UL,          "metric_in", "shred_out",     i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_out(   topo, "tower",   0UL,                       "tower_out",     0UL                                                );
 
   FOR(shred_tile_cnt)    fd_topob_tile_in ( topo, "shred",   i,            "metric_in", "replay_epoch",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-  FOR(shred_tile_cnt)    fd_topob_tile_in ( topo, "shred",   i,            "metric_in", "gossip_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  FOR(shred_tile_cnt)    fd_topob_tile_in ( topo, "shred",   i,            "metric_in", "gossip_ciaddr", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(shred_tile_cnt)    fd_topob_tile_out( topo, "shred",   i,                         "shred_out",     i                                                  );
   FOR(shred_tile_cnt)    fd_topob_tile_in ( topo, "shred",   i,            "metric_in", "tower_out",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(shred_tile_cnt)    fd_topob_tile_out( topo, "shred",   i,                         "shred_net",     i                                                  );

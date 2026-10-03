@@ -2070,12 +2070,11 @@ fd_gui_peers_printf_node_all( fd_gui_peers_ctx_t *  peers ) {
   jsonp_open_envelope( peers->http, "peers", "update" );
     jsonp_open_object( peers->http, "value" );
       jsonp_open_array( peers->http, "add" );
-        /* We can iter through the bandwidth tracking table since it will always be populated */
-        for( fd_gui_peers_bandwidth_tracking_fwd_iter_t iter = fd_gui_peers_bandwidth_tracking_fwd_iter_init( peers->bw_tracking, &FD_GUI_PEERS_BW_TRACKING_INGRESS_SORT_KEY, peers->contact_info_table );
-             !fd_gui_peers_bandwidth_tracking_fwd_iter_done( iter );
-             iter = fd_gui_peers_bandwidth_tracking_fwd_iter_next( iter, peers->contact_info_table ) ) {
-          ulong contact_info_table_idx = fd_gui_peers_bandwidth_tracking_fwd_iter_idx( iter );
-          peers_printf_node( peers, contact_info_table_idx );
+        for( fd_gui_peers_node_pubkey_map_iter_t iter = fd_gui_peers_node_pubkey_map_iter_init( peers->node_pubkey_map, peers->contact_info_table );
+             !fd_gui_peers_node_pubkey_map_iter_done( iter, peers->node_pubkey_map, peers->contact_info_table );
+             iter = fd_gui_peers_node_pubkey_map_iter_next( iter, peers->node_pubkey_map, peers->contact_info_table ) ) {
+          fd_gui_peers_node_t const * node = fd_gui_peers_node_pubkey_map_iter_ele_const( iter, peers->node_pubkey_map, peers->contact_info_table );
+          peers_printf_node( peers, (ulong)(node-peers->contact_info_table) );
         }
       jsonp_close_array( peers->http );
       jsonp_open_array( peers->http, "update" );

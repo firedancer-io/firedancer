@@ -110,6 +110,9 @@ ag_votor_poll_timeout_event( ag_votor_t *         self,
                              long                 now,
                              ag_event_timeout_t * event );
 
+FD_FN_PURE long
+ag_votor_next_timeout( ag_votor_t const * self );
+
 int
 ag_votor_poll_vote_event( ag_votor_t *      self,
                           ag_event_vote_t * event );

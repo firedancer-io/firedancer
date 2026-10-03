@@ -162,6 +162,55 @@ fd_ed25519_double_scalar_mul_base( fd_ed25519_point_t *       r,
                                    fd_ed25519_point_t const * a,
                                    uchar const                n2[ 32 ] );
 
+/* Split tables for fd_ed25519_double_scalar_mul_base_split.  A scalar
+   is processed as FD_ED25519_SPLIT_SEG_CNT segments of
+   FD_ED25519_SPLIT_SEG_BITS bits.  The A table holds, for each segment
+   j, the odd multiples 1,3,..,2^FD_ED25519_SPLIT_A_BITS-1 of [2^(bj)]A
+   where b=FD_ED25519_SPLIT_SEG_BITS (FD_ED25519_SPLIT_A_SEG_CNT points
+   per segment, table index FD_ED25519_SPLIT_A_SEG_CNT*j+i holds
+   [(2i+1) 2^(bj)]A).  The B table holds, for each segment j>0, the odd
+   multiples 1,3,..,255 of [2^(bj)]B (128 points per segment, table
+   index 128*(j-1)+i holds [(2i+1) 2^(bj)]B).  Segment 0 of B uses
+   fd_ed25519_base_point_wnaf_table.  All points are in precomputed
+   form (see fd_curve25519_into_precomputed).
+
+   More segments trade doublings in the shared loop for a larger per
+   key A table (and a larger fixed B table).  The caches hold 2k-4k
+   keys, so the per key table (which is what misses) is what limits
+   the geometry: 8 segments of 32 bits with a 3 bit A window keeps the
+   per key table at 32 points while halving the doublings.  Larger
+   tables are faster when hot but slower once the key set exceeds the
+   L2. */
+
+#define FD_ED25519_SPLIT_SEG_CNT   (8)
+#define FD_ED25519_SPLIT_SEG_BITS  (256/FD_ED25519_SPLIT_SEG_CNT)
+#define FD_ED25519_SPLIT_A_BITS    (3)
+#define FD_ED25519_SPLIT_A_SEG_CNT (1<<(FD_ED25519_SPLIT_A_BITS-1))
+#define FD_ED25519_SPLIT_A_TBL_CNT ((ulong)(FD_ED25519_SPLIT_SEG_CNT*FD_ED25519_SPLIT_A_SEG_CNT))
+#define FD_ED25519_SPLIT_B_TBL_CNT ((ulong)((FD_ED25519_SPLIT_SEG_CNT-1)*128))
+
+/* fd_ed25519_split_table_a fills tbl with the split table of a (any
+   valid curve point).  fd_ed25519_split_table_b fills tbl with the
+   split table of the base point. */
+void
+fd_ed25519_split_table_a( fd_ed25519_point_t         tbl[ FD_ED25519_SPLIT_A_TBL_CNT ],
+                          fd_ed25519_point_t const * a );
+
+void
+fd_ed25519_split_table_b( fd_ed25519_point_t tbl[ FD_ED25519_SPLIT_B_TBL_CNT ] );
+
+/* fd_ed25519_double_scalar_mul_base_split computes r = n1 * a + n2 * P,
+   where a_tbl is the split table of a, b_tbl is the split table of the
+   base point P, and returns r.  n1, n2 are scalars in [0,2^253).  The
+   result is the same group element fd_ed25519_double_scalar_mul_base
+   computes for any curve point a (including mixed order points). */
+fd_ed25519_point_t *
+fd_ed25519_double_scalar_mul_base_split( fd_ed25519_point_t *       r,
+                                         uchar const                n1[ 32 ],
+                                         fd_ed25519_point_t const * a_tbl,
+                                         uchar const                n2[ 32 ],
+                                         fd_ed25519_point_t const * b_tbl );
+
 /* fd_ed25519_multi_scalar_mul computes r = n0 * a0 + n1 * a1 + ..., and returns r.
    n is a vector of sz scalars. a is a vector of sz points.
    Precondition: all points in a[] must be affine (Z==1), e.g. from
@@ -199,6 +248,16 @@ fd_ed25519_point_frombytes_2x( fd_ed25519_point_t * r1,
    not.  Variable time, do not use with secret data. */
 int
 fd_ed25519_point_validate( uchar const buf[ 32 ] );
+
+/* fd_ed25519_point_frombytes_1x deserializes a 32-byte buffer buf into
+   the point r.  Returns 0 on success and -1 on failure.  On success, r
+   is bit-for-bit identical to the point fd_ed25519_point_frombytes_2x
+   produces for the same buf (in either slot), such that representation
+   dependent checks (e.g. fd_ed25519_affine_is_small_order) give the
+   same answer. */
+int
+fd_ed25519_point_frombytes_1x( fd_ed25519_point_t * r,
+                               uchar const          buf[ 32 ] );
 
 /* fd_ed25519_point_tobytes serializes a point a into
    a 32-byte buffer out, and returns out.

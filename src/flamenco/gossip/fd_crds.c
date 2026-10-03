@@ -552,6 +552,23 @@ crds_index( fd_crds_t *       crds,
   crds->metrics->count[ entry->key.tag ]++;
 }
 
+/* publish_ci_seen mirrors a CONTACT_INFO update already published on
+   gossip_ciaddr onto gossip_ciseen, which carries every contact info
+   update including refreshes of unchanged content. */
+
+static inline void
+publish_ci_seen( fd_crds_t *                        crds,
+                 fd_gossip_update_message_t const * msg,
+                 ulong                              sz,
+                 long                               now,
+                 fd_stem_context_t *                stem ) {
+  fd_gossip_out_ctx_t * out = crds->gossip_update + FD_GOSSIP_UPDATE_LINK_CI_SEEN;
+  if( FD_UNLIKELY( out->idx==ULONG_MAX ) ) return; /* no gui */
+
+  fd_memcpy( fd_gossip_out_get_chunk( out ), msg, sz );
+  fd_gossip_tx_publish_chunk( out, stem, (ulong)msg->tag, sz, now );
+}
+
 static inline void
 crds_release( fd_crds_t *         crds,
               fd_crds_entry_t *   entry,
@@ -564,12 +581,14 @@ crds_release( fd_crds_t *         crds,
   if( FD_UNLIKELY( entry->key.tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
     if( FD_UNLIKELY( evicting ) ) crds->metrics->peer_evicted_cnt++;
 
-    fd_gossip_update_message_t * msg = fd_gossip_out_get_chunk( crds->gossip_update );
+    fd_gossip_out_ctx_t * out = crds->gossip_update + FD_GOSSIP_UPDATE_LINK_CI_ADDR;
+    fd_gossip_update_message_t * msg = fd_gossip_out_get_chunk( out );
     msg->tag = FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE;
     msg->wallclock = (ulong)FD_NANOSEC_TO_MILLI( now );
     msg->contact_info_remove->idx = crds_contact_info_pool_idx( crds->ci_pool, entry->ci );
     fd_memcpy( msg->origin, entry->key.pubkey, 32UL );
-    fd_gossip_tx_publish_chunk( crds->gossip_update, stem, (ulong)msg->tag, FD_GOSSIP_UPDATE_SZ_CONTACT_INFO_REMOVE, now );
+    fd_gossip_tx_publish_chunk( out, stem, (ulong)msg->tag, FD_GOSSIP_UPDATE_SZ_CONTACT_INFO_REMOVE, now );
+    publish_ci_seen( crds, msg, FD_GOSSIP_UPDATE_SZ_CONTACT_INFO_REMOVE, now, stem );
 
     ulong ci_idx = crds_contact_info_pool_idx( crds->ci_pool, entry->ci );
     fd_active_set_remove_peer( crds->active_set, ci_idx );
@@ -690,6 +709,7 @@ static inline void
 publish_update_msg( fd_crds_t *               crds,
                     fd_crds_entry_t *         entry,
                     fd_gossip_value_t const * entry_view,
+                    int                       ci_changed,
                     long                      now,
                     fd_stem_context_t *       stem ) {
   FD_TEST( stem );
@@ -700,20 +720,31 @@ publish_update_msg( fd_crds_t *               crds,
     return;
   }
 
-  fd_gossip_update_message_t * msg = fd_gossip_out_get_chunk( crds->gossip_update );
+  int tag;
+  switch( entry->key.tag ) {
+    case FD_GOSSIP_VALUE_CONTACT_INFO:    tag = FD_GOSSIP_UPDATE_TAG_CONTACT_INFO;    break;
+    case FD_GOSSIP_VALUE_VOTE:            tag = FD_GOSSIP_UPDATE_TAG_VOTE;            break;
+    case FD_GOSSIP_VALUE_DUPLICATE_SHRED: tag = FD_GOSSIP_UPDATE_TAG_DUPLICATE_SHRED; break;
+    default:                              tag = FD_GOSSIP_UPDATE_TAG_SNAPSHOT_HASHES; break;
+  }
+  ulong link = fd_gossip_update_link( (ulong)tag );
+  if( FD_UNLIKELY( tag==FD_GOSSIP_UPDATE_TAG_CONTACT_INFO && !ci_changed ) ) link = FD_GOSSIP_UPDATE_LINK_CI_SEEN;
+  fd_gossip_out_ctx_t * out = crds->gossip_update + link;
+  if( FD_UNLIKELY( out->idx==ULONG_MAX ) ) return; /* nobody reads this kind */
+
+  fd_gossip_update_message_t * msg = fd_gossip_out_get_chunk( out );
+  msg->tag       = tag;
   msg->wallclock = entry->wallclock;
   fd_memcpy( msg->origin, entry->key.pubkey, 32UL );
 
   ulong sz;
   switch( entry->key.tag ) {
     case FD_GOSSIP_VALUE_CONTACT_INFO:
-      msg->tag = FD_GOSSIP_UPDATE_TAG_CONTACT_INFO;
       *msg->contact_info->value = *entry->ci->contact_info;
       msg->contact_info->idx = crds_contact_info_pool_idx( crds->ci_pool, entry->ci );
       sz = FD_GOSSIP_UPDATE_SZ_CONTACT_INFO;
       break;
     case FD_GOSSIP_VALUE_VOTE:
-      msg->tag = FD_GOSSIP_UPDATE_TAG_VOTE;
       /* TODO: dynamic sizing */
       sz = FD_GOSSIP_UPDATE_SZ_VOTE;
       fd_crds_key_t lookup_ci;
@@ -741,7 +772,6 @@ publish_update_msg( fd_crds_t *               crds,
       fd_memcpy( msg->vote->value->transaction, entry_view->vote->transaction, entry_view->vote->transaction_len );
       break;
     case FD_GOSSIP_VALUE_DUPLICATE_SHRED:
-      msg->tag = FD_GOSSIP_UPDATE_TAG_DUPLICATE_SHRED;
       /* TODO: dynamic sizing */
       sz = FD_GOSSIP_UPDATE_SZ_DUPLICATE_SHRED;
       {
@@ -757,7 +787,6 @@ publish_update_msg( fd_crds_t *               crds,
       }
       break;
     case FD_GOSSIP_VALUE_SNAPSHOT_HASHES:
-      msg->tag = FD_GOSSIP_UPDATE_TAG_SNAPSHOT_HASHES;
       /* TODO: dynamic sizing */
       sz = FD_GOSSIP_UPDATE_SZ_SNAPSHOT_HASHES;
       {
@@ -776,11 +805,15 @@ publish_update_msg( fd_crds_t *               crds,
     default:
       FD_LOG_ERR(( "impossible" ));
   }
-  fd_gossip_tx_publish_chunk( crds->gossip_update,
+  fd_gossip_tx_publish_chunk( out,
                               stem,
                               (ulong)msg->tag,
                               sz,
                               now );
+
+  if( FD_UNLIKELY( link==FD_GOSSIP_UPDATE_LINK_CI_ADDR && tag==FD_GOSSIP_UPDATE_TAG_CONTACT_INFO ) ) {
+    publish_ci_seen( crds, msg, sz, now, stem );
+  }
 }
 
 static int
@@ -828,6 +861,7 @@ fd_crds_insert( fd_crds_t *               crds,
 
   fd_crds_entry_t * incumbent = lookup_map_ele_query( crds->lookup_map, &candidate_key, NULL, crds->pool );
   int replacing = !!incumbent;
+  int ci_changed = 1;
 
   uchar value_hash[ 32UL ];
   if( FD_UNLIKELY( !replacing ) ) {
@@ -865,6 +899,7 @@ fd_crds_insert( fd_crds_t *               crds,
     crds_unindex( crds, incumbent );
 
     if( FD_UNLIKELY( value->tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
+      ci_changed = !fd_gossip_contact_info_eq( incumbent->ci->contact_info, value->contact_info );
       fd_gossip_wsample_fresh( crds->wsample, crds_contact_info_pool_idx( crds->ci_pool, incumbent->ci ), 1 );
       fd_gossip_wsample_stake( crds->wsample, crds_contact_info_pool_idx( crds->ci_pool, incumbent->ci ), origin_stake );
       fd_gossip_wsample_ping_tracked( crds->wsample, crds_contact_info_pool_idx( crds->ci_pool, incumbent->ci ), origin_ping_tracked );
@@ -891,7 +926,7 @@ fd_crds_insert( fd_crds_t *               crds,
 
   crds->has_staked_node |= incumbent->stake ? 1 : 0;
 
-  publish_update_msg( crds, incumbent, value, now, stem );
+  publish_update_msg( crds, incumbent, value, ci_changed, now, stem );
 
   return 0L;
 }

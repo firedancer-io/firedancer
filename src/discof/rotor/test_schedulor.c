@@ -21,7 +21,7 @@ static fd_schedulor_t *
 setup( void ) {
   ulong footprint = fd_schedulor_footprint( BLOCK_MAX );
   FD_TEST( footprint && footprint<=sizeof(mem) );
-  fd_schedulor_t * s = fd_schedulor_join( fd_schedulor_new( mem, BLOCK_MAX, 42UL ) );
+  fd_schedulor_t * s = fd_schedulor_join( fd_schedulor_new( mem, BLOCK_MAX, 1.0, 42UL ) ); /* times in ns */
   FD_TEST( s );
   FD_TEST( !fd_schedulor_verify( s ) );
   FD_TEST( fd_schedulor_queued_cnt( s )==0UL );

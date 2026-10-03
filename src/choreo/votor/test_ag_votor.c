@@ -183,8 +183,18 @@ static void
 test_timeouts( void ) {
   ag_votor_t * votor = setup_votor( 0L );
 
+  /* next_timeout is the earliest pending timer (the root's, first in
+     the window), none is due before it, and it moves out as they fire */
+  long first = AG_DELTA_TIMEOUT_NS+TEST_NS_PER_SLOT;
+  FD_TEST( ag_votor_next_timeout( votor )==first );
+  ag_event_timeout_t event;
+  FD_TEST( !ag_votor_poll_timeout_event( votor, first-1L, &event ) );
+  FD_TEST(  ag_votor_poll_timeout_event( votor, first,    &event ) );
+  FD_TEST( ag_votor_next_timeout( votor )==first+TEST_NS_PER_SLOT );
+
   /* should vote skip for all slots */
   handle_timeouts( votor, TEST_WINDOW_ELAPSED_NS );
+  FD_TEST( ag_votor_next_timeout( votor )==LONG_MAX );
 
   ulong skipped_slots[ AG_SLOTS_PER_WINDOW ];
   ulong skipped_cnt = 0UL;
@@ -197,6 +207,49 @@ test_timeouts( void ) {
   for( ulong i=0UL; i<skipped_cnt; i++ ) FD_TEST( skipped_slots[i]==i+1UL );
   FD_TEST_NO_MSG( votor );
 
+  teardown_votor( votor );
+}
+
+/* Windows armed half a slot apart interleave: window 4's first slot is
+   due before window 0's second.  Timers pop earliest first, a later
+   re-arm keeps the earlier deadlines, and a re-arm after the clock
+   steps back moves them ahead of window 0's in every position. */
+
+static void
+check_timeout_order( ag_votor_t *  votor,
+                     ulong const * slots,
+                     long const *  due ) { /* in half slots, past AG_DELTA_TIMEOUT_NS */
+  for( ulong i=0UL; i<8UL; i++ ) {
+    ag_event_timeout_t event;
+    FD_TEST( ag_votor_next_timeout( votor )==AG_DELTA_TIMEOUT_NS+due[ i ]*(TEST_NS_PER_SLOT/2L) );
+    FD_TEST( ag_votor_poll_timeout_event( votor, LONG_MAX-1L, &event ) );
+    FD_TEST( event.slot==slots[ i ] );
+  }
+  FD_TEST( ag_votor_next_timeout( votor )==LONG_MAX );
+}
+
+static void
+arm_window_4( ag_votor_t * votor,
+              long         now ) {
+  ag_block_id_t   parent       = { .slot = 3UL }; memset( parent.hash, 1, sizeof(ag_block_hash_t) );
+  ag_event_pool_t parent_ready = { .kind = AG_EVENT_POOL_PARENT_READY };
+  parent_ready.parent_ready.slot   = 4UL;
+  parent_ready.parent_ready.parent = parent;
+  ag_votor_handle_pool_event( votor, &parent_ready, now );
+}
+
+static void
+test_timeouts_interleaved( void ) {
+  ag_votor_t * votor = setup_votor( 0L );
+  arm_window_4( votor, TEST_NS_PER_SLOT/2L );
+  arm_window_4( votor, 2L*TEST_NS_PER_SLOT );
+  check_timeout_order( votor, (ulong[]){ 0, 4, 1, 5, 2, 6, 3, 7 }, (long[]){ 2, 3, 4, 5, 6, 7, 8, 9 } );
+  teardown_votor( votor );
+
+  votor = setup_votor( 0L );
+  arm_window_4( votor, TEST_NS_PER_SLOT/2L );
+  arm_window_4( votor, -TEST_NS_PER_SLOT/2L );
+  check_timeout_order( votor, (ulong[]){ 4, 0, 5, 1, 6, 2, 7, 3 }, (long[]){ 1, 2, 3, 4, 5, 6, 7, 8 } );
   teardown_votor( votor );
 }
 
@@ -638,6 +691,7 @@ main( int     argc,
   fd_boot( &argc, &argv );
 
   test_timeouts();
+  test_timeouts_interleaved();
   test_boot_mid_window();
   test_notar_and_final();
   test_notar_out_of_order();

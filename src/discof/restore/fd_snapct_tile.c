@@ -2252,7 +2252,7 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( tile->in_cnt<=FD_TOPO_MAX_TILE_IN_LINKS );
   for( ulong i=0UL; i<(tile->in_cnt); i++ ) {
     fd_topo_link_t const * in_link = &topo->links[ tile->in_link_id[ i ] ];
-    if( 0==strcmp( in_link->name, "gossip_out" ) ) {
+    if( 0==strcmp( in_link->name, "gossip_ciaddr" ) ) {
       ctx->in_kind[ i ]  = IN_KIND_GOSSIP;
       ctx->gossip_in_mem = topo->workspaces[ topo->objs[ in_link->dcache_obj_id ].wksp_id ].wksp;
     } else if( 0==strcmp( in_link->name, "snapld_dc" ) ) {

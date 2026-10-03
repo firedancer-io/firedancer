@@ -14,9 +14,10 @@
    come; the schedulor then knows nothing about that block until it is
    inserted again.
 
-   Times are floored to FD_SCHEDULOR_QUANTUM_NS so checks due in the
-   same quantum are served lowest slot first, which keeps repair
-   root-first among whatever is currently due. */
+   Times are tickcounts.  They are floored to FD_SCHEDULOR_QUANTUM_NS
+   (in ticks) so checks due in the same quantum are served lowest slot
+   first, which keeps repair root-first among whatever is currently
+   due. */
 
 #include "../../flamenco/fd_flamenco_base.h" /* fd_hash_t */
 
@@ -41,6 +42,7 @@ fd_schedulor_footprint( ulong block_max );
 void *
 fd_schedulor_new( void * mem,
                   ulong  block_max,
+                  double tick_per_ns,
                   ulong  seed );
 
 fd_schedulor_t *

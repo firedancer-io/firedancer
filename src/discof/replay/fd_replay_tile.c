@@ -95,6 +95,12 @@
     be replayed.  The new Dispatcher will change this by taking a FEC
     set as input instead. */
 
+/* Agave defines TIME_TO_COMPLETE_BLOCK_BROADCAST to adjust their slot
+   end.  Our own telemetry data of finishing pack => shredding last
+   batch suggests roughly the same delay, so we mirror the constant. */
+
+#define AG_TIME_TO_COMPLETE_BROADCAST_NS (6000000L)
+
 #define IN_KIND_SNAP       ( 0)
 #define IN_KIND_GENESIS    ( 1)
 #define IN_KIND_IPECHO     ( 2)
@@ -1703,7 +1709,7 @@ try_become_leader_ag( fd_replay_tile_t *  ctx,
   fd_became_leader_t * msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
   msg->slot                = ctx->next_leader_slot;
   msg->slot_start_ns       = now_nanos;
-  msg->slot_end_ns         = now_nanos+(long)bank->f.slot_params.ns_per_slot_adjusted;
+  msg->slot_end_ns         = ctx->leader_window_start_ns+(long)( ( ctx->next_leader_slot%AG_SLOTS_PER_WINDOW+1UL )*bank->f.slot_params.ns_per_slot )-(long)FD_TARGET_SLOT_ADJUSTMENT_NS-AG_TIME_TO_COMPLETE_BROADCAST_NS; /* like Agave block_timeout: deadlines from the window start, adjusted once per window */
   msg->bank                = NULL;
   msg->bank_idx            = bank->idx;
   msg->bank_seq            = bank->bank_seq;
@@ -2106,12 +2112,13 @@ try_become_leader( fd_replay_tile_t *  ctx,
 
   /* If we have evicted the reset bank we can't become leader it may be
      inactive or have been resused, we can't become leader.  We may miss
-     our leader slot if we happen to evict our reset bank.  As soon as
-     we re-replay the slot, we will be able to become leader again. */
+     our leader slot if we happen to evict our reset bank.  The block id
+     maps to the re-replayed bank before it freezes, so we can only
+     become leader again once it is frozen. */
   fd_block_id_ele_t * block_id_ele = fd_block_id_map_ele_query( ctx->block_id_map, &ctx->reset_cmr, NULL, ctx->block_id_arr );
   if( FD_UNLIKELY( !block_id_ele ) ) return 0;
   fd_bank_t * reset_bank = fd_banks_bank_query( ctx->banks, fd_block_id_ele_get_idx( ctx->block_id_arr, block_id_ele ) );
-  if( FD_UNLIKELY( !reset_bank || reset_bank->bank_seq!=block_id_ele->bank_seq || reset_bank->state==FD_BANK_STATE_PRUNABLE ) ) return 0;
+  if( FD_UNLIKELY( !reset_bank || reset_bank->bank_seq!=block_id_ele->bank_seq || reset_bank->state!=FD_BANK_STATE_FROZEN ) ) return 0;
 
   if( FD_UNLIKELY( !fd_banks_can_start_bank( ctx->banks ) ) ) return 0;
   if( FD_UNLIKELY( ctx->halt_replay ) ) return 0;
@@ -4159,7 +4166,7 @@ process_tower_slot_done( fd_replay_tile_t *           ctx,
     return;
   }
   fd_bank_t * bank = fd_banks_bank_query( ctx->banks, fd_block_id_ele_get_idx( ctx->block_id_arr, block_id_ele ) );
-  if( FD_UNLIKELY( !bank || bank->bank_seq!=block_id_ele->bank_seq || bank->state==FD_BANK_STATE_PRUNABLE ) ) {
+  if( FD_UNLIKELY( !bank || bank->bank_seq!=block_id_ele->bank_seq || bank->state!=FD_BANK_STATE_FROZEN ) ) {
     FD_LOG_WARNING(( "ignoring reset block update from tower because bank has been evicted (slot=%lu)", msg->reset_slot ));
     return;
   }
@@ -5002,8 +5009,9 @@ returnable_frag( fd_replay_tile_t *  ctx,
     case IN_KIND_VOTOR: {
       if( FD_UNLIKELY( sig==FD_VOTOR_SIG_LEADER ) ) {
         fd_votor_leader_t const * leader = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
-        *ctx->votor_leader    = *leader;
-        ctx->next_leader_slot = leader->slot;
+        *ctx->votor_leader          = *leader;
+        ctx->next_leader_slot       = leader->slot;
+        ctx->leader_window_start_ns = fd_clock_tile_now( ctx->clock );
         try_become_leader_ag( ctx, stem );
       } else if( FD_LIKELY( sig==FD_VOTOR_SIG_CERTED ) ) {
         fd_votor_certed_t const * certed = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
@@ -5555,7 +5563,7 @@ unprivileged_init( fd_topo_t const *      topo,
     else if( !strcmp( link->name, "repair_out"    ) ) ctx->in_kind[ i ] = IN_KIND_REPAIR;
     else if( !strcmp( link->name, "txsend_out"    ) ) ctx->in_kind[ i ] = IN_KIND_TXSEND;
     else if( !strcmp( link->name, "rpc_replay"    ) ) ctx->in_kind[ i ] = IN_KIND_RPC;
-    else if( !strcmp( link->name, "gossip_out"    ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_OUT;
+    else if( !strcmp( link->name, "gossip_misc"   ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_OUT;
     else if( !strcmp( link->name, "snapmk_out"    ) ) ctx->in_kind[ i ] = IN_KIND_SNAPMK;
     else if( !strcmp( link->name, "admin_replay"  ) ) ctx->in_kind[ i ] = IN_KIND_ADMIN;
     else if( !strcmp( link->name, "tower_out"     ) ) ctx->in_kind[ i ] = IN_KIND_TOWER;

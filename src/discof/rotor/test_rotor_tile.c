@@ -149,7 +149,7 @@ drain( ctx_t * ctx ) {
 static void
 tick( ctx_t * ctx ) {
   ulong cr_avail[ TEST_OUT_MAX ] = { [ OUT_IDX_REPLAY ] = ULONG_MAX };
-  fd_stem_context_t stem = { .cr_avail = cr_avail };
+  fd_stem_context_t stem = { .cr_avail = cr_avail, .now = fd_tickcount() };
   int charge_busy = 0;
   int poll_in     = 1;
   after_credit( ctx, &stem, &poll_in, &charge_busy );
@@ -277,6 +277,11 @@ blk_build( blk_t * b ) {
     int cnt = fd_bmtree_get_proof( tree, b->proof[ i ], i );
     FD_TEST( cnt==(int)b->proof_len );
   }
+}
+
+static int
+fd_rotor_block_complete( fd_rotor_blk_t const * block ) {
+  return block->complete_idx!=UINT_MAX && block->buffered_fec_idx==block->complete_idx;
 }
 
 /* blk_fec_flags returns the data-shred flags on the last shred of FEC
@@ -574,7 +579,7 @@ setup_ctx_root( ctx_t * ctx, fd_wksp_t * wksp, ulong root_slot, fd_hash_t const 
   FD_TEST( rotor_mem && schedulor_mem && requestor_mem && policy_mem && rtt_mem && signs_map_mem && toss_mem && repair_mem && redeliver_mem && store_mem );
 
   ctx->rotor      = fd_rotor_join    ( fd_rotor_new    ( rotor_mem,     TEST_SLOT_MAX, FD_SHRED_BLK_MAX, ctx->repair_seed     ) );
-  ctx->schedulor  = fd_schedulor_join( fd_schedulor_new( schedulor_mem, TEST_BLOCK_MAX, ctx->repair_seed                      ) );
+  ctx->schedulor  = fd_schedulor_join( fd_schedulor_new( schedulor_mem, TEST_BLOCK_MAX, fd_clock_epoch_w( ctx->clock->epoch ), ctx->repair_seed ) );
   ctx->requestor  = fd_requestor_join( fd_requestor_new( requestor_mem                                                        ) );
   ctx->policy     = fd_policy_join   ( fd_policy_new   ( policy_mem,    TEST_PEER_MAX, ctx->repair_seed, ctx->repair_nonce_ss ) );
   ctx->rtt        = fd_inflights_join( fd_inflights_new( rtt_mem,       ctx->repair_seed+1234UL                               ) );
@@ -843,9 +848,8 @@ expect_block_received( ulong seq ) {
   FD_TEST( !ev->equivocation_detected_shred );
   for( ulong i=0UL; i<ev->fec_sets_cnt; i++ ) {
     fd_event_block_received_fec_sets_t const * f = &ev->fec_sets[ i ];
-    FD_TEST( !f->fec_duplicate_shred_count );
-    FD_TEST( !(f->fec_repair_shreds_received & ~f->fec_data_shreds_received) );
-    FD_TEST( f->fec_source_repair==!!f->fec_repair_shreds_received );
+    FD_TEST( !f->duplicate_shred_count );
+    FD_TEST( !(f->repair_shreds_received_mask & ~f->data_shreds_received_mask) );
   }
   return ev;
 }
@@ -877,19 +881,19 @@ test_block_received_event( fd_wksp_t * wksp ) {
   fd_event_block_received_t const * ev = expect_block_received( 0UL );
   FD_TEST( ev->slot==complete.slot && ev->parent_slot==SNAP_SLOT );
   FD_TEST( !memcmp( ev->parent_block_id, snap_bid.uc, 32UL ) );
-  FD_TEST( !ev->cancelled && !ev->notarized && ev->slot_complete_flag );
+  FD_TEST( !ev->cancelled && !ev->cancelled_time && !ev->notarized && !ev->is_leader && ev->slot_complete );
   FD_TEST( ev->fec_set_count==2UL && ev->fec_sets_cnt==2UL );
   FD_TEST( ev->turbine_shred_received==2U*FD_FEC_SHRED_CNT );
   FD_TEST( !ev->repair_shred_received && !ev->recovered_shred_count && !ev->parity_shred_received );
   FD_TEST( ev->first_shred_received_time && ev->last_shred_received_time>=ev->first_shred_received_time );
   for( ulong k=0UL; k<2UL; k++ ) {
-    FD_TEST( ev->fec_sets[ k ].fec_set_index==k*FD_FEC_SHRED_CNT );
-    FD_TEST( !memcmp( ev->fec_sets[ k ].fec_merkle_root, complete.fec_root[ k ].uc, 32UL ) );
-    FD_TEST( ev->fec_sets[ k ].fec_data_shreds_received==UINT_MAX );
-    FD_TEST( !ev->fec_sets[ k ].fec_parity_shreds_received && !ev->fec_sets[ k ].fec_repair_shreds_received );
-    FD_TEST( !ev->fec_sets[ k ].fec_final_shred_source_repair );
-    FD_TEST( ev->fec_sets[ k ].fec_first_shred_received_nanos );
-    FD_TEST( ev->fec_sets[ k ].fec_completed_nanos>=ev->fec_sets[ k ].fec_first_shred_received_nanos );
+    FD_TEST( ev->fec_sets[ k ].index==k*FD_FEC_SHRED_CNT );
+    FD_TEST( !memcmp( ev->fec_sets[ k ].merkle_root, complete.fec_root[ k ].uc, 32UL ) );
+    FD_TEST( ev->fec_sets[ k ].data_shreds_received_mask==UINT_MAX );
+    FD_TEST( !ev->fec_sets[ k ].parity_shreds_received_mask && !ev->fec_sets[ k ].repair_shreds_received_mask );
+    FD_TEST( ev->fec_sets[ k ].final_shred_source!=FD_EVENT_BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_REPAIR );
+    FD_TEST( ev->fec_sets[ k ].first_shred_received_time );
+    FD_TEST( ev->fec_sets[ k ].completed_time>=ev->fec_sets[ k ].first_shred_received_time );
   }
 
   deliver_fec_complete( ctx, complete.slot, 0U, blk_fec_flags( &complete, 0U ), &complete.fec_root[ 0 ] );
@@ -905,13 +909,80 @@ test_block_received_event( fd_wksp_t * wksp ) {
   FD_TEST( fd_event_tl->seq==2UL );
   ev = expect_block_received( 1UL );
   FD_TEST( ev->slot==incomplete.slot && ev->parent_slot==SNAP_SLOT );
-  FD_TEST( ev->fec_set_count==1UL && ev->fec_sets_cnt==1UL );
-  FD_TEST( !ev->slot_complete_flag && !ev->last_shred_received_time );
+  /* The final shred never arrived, so the block's length is unknown:
+     no FEC set count, and no per-set detail even for the set held. */
+  FD_TEST( !ev->fec_set_count && !ev->fec_sets_cnt );
+  FD_TEST( !ev->slot_complete && !ev->last_shred_received_time );
   FD_TEST( ev->turbine_shred_received==FD_FEC_SHRED_CNT );
-  FD_TEST( !memcmp( ev->fec_sets[ 0 ].fec_merkle_root, incomplete.fec_root[ 0 ].uc, 32UL ) );
   fd_event_tl = NULL;
 
   FD_LOG_NOTICE(( "pass: block_received reports completion and deferred pruning" ));
+}
+
+/* A block we produced arrives as leader shreds and leader FEC
+   completions, and its row reports is_leader. */
+
+static void
+test_leader_block_received( fd_wksp_t * wksp ) {
+  static ctx_t ctx[1];
+  setup_ctx( ctx, wksp );
+  enable_event_reporting( wksp );
+
+  blk_t blk[1] = {{ .slot = SNAP_SLOT+1UL, .parent_slot = SNAP_SLOT, .parent_block_id = snap_bid, .fec_cnt = 2U }};
+  blk->fec_root[ 0 ] = mkhash( 0x1EA0UL );
+  blk->fec_root[ 1 ] = mkhash( 0x1EA1UL );
+  blk_build( blk );
+
+  for( uint k=0U; k<blk->fec_cnt; k++ ) {
+    uchar flags = blk_fec_flags( blk, k );
+    for( uint i=0U; i<FD_FEC_SHRED_CNT; i++ ) {
+      deliver_shred( ctx, blk->slot, k*FD_FEC_SHRED_CNT+i, (uchar)( i==FD_FEC_SHRED_CNT-1U ? flags : 0 ), &blk->fec_root[ k ],
+                     0U, SHRED_SIG_SRC_LEADER, blk->parent_slot, &blk->parent_block_id );
+    }
+    deliver_fec_complete_sig( ctx, blk->slot, k*FD_FEC_SHRED_CNT, flags, &blk->fec_root[ k ], SHRED_SIG_FEC_COMPLETE_LEADER );
+  }
+
+  fd_rotor_blk_t const * v = fd_rotor_turbine_block_query( ctx->rotor, blk->slot );
+  FD_TEST( v && v->is_leader && fd_rotor_block_complete( v ) );
+  FD_TEST( fd_event_tl->seq==1UL );
+  fd_event_block_received_t const * ev = expect_block_received( 0UL );
+  FD_TEST( ev->slot==blk->slot && ev->is_leader && !ev->notarized && !ev->cancelled );
+  FD_TEST( !ev->turbine_shred_received && !ev->repair_shred_received && !ev->recovered_shred_count );
+  for( ulong k=0UL; k<ev->fec_sets_cnt; k++ ) {
+    FD_TEST( ev->fec_sets[ k ].final_shred_source==FD_EVENT_BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_LEADER );
+  }
+
+  /* A notarized fork of the slot shares our first FEC set.  Its
+     FecRoot answer replays the shared leader completion into the votor
+     version, which must not inherit leader provenance. */
+  blk_t vot[1] = {{ .slot = blk->slot, .parent_slot = SNAP_SLOT, .parent_block_id = snap_bid, .fec_cnt = 2U }};
+  vot->fec_root[ 0 ] = blk->fec_root[ 0 ];
+  vot->fec_root[ 1 ] = mkhash( 0x1EA9UL );
+  blk_build( vot );
+  deliver_votor( ctx, vot->slot, &vot->block_id );
+  fd_rotor_blk_t const * v1 = fd_rotor_slot_version_query( ctx->rotor, vot->slot, &vot->block_id );
+  FD_TEST( v1 && v1!=v && !v->abandoned ); /* our block's id was already known */
+
+  force_check( ctx, vot->slot, &vot->block_id );
+  ulong from = req_cnt;
+  pump( ctx );
+  req_t * meta = req_find( from, AG_REPAIR_KIND_PARENT_FEC_COUNT, vot->slot, 0U, &vot->block_id );
+  FD_TEST( meta );
+  respond_parent_fec_count( ctx, vot, meta->nonce, 0 );
+  force_check( ctx, vot->slot, &vot->block_id );
+  from = req_cnt;
+  pump( ctx );
+  req_t * root = req_find( from, AG_REPAIR_KIND_FEC_ROOT, vot->slot, 0U, &vot->block_id );
+  FD_TEST( root );
+  respond_fec_root( ctx, vot, 0U, root->nonce, 0 );
+  fd_rotor_fec_t const * shared = fd_rotor_fec_query( ctx->rotor, vot->slot, 0U, &vot->block_id );
+  FD_TEST( shared && shared->complete && shared->is_leader );
+  FD_TEST( v1->buffered_fec_idx==FD_FEC_SHRED_CNT-1U ); /* the shared set completed under v1 */
+  FD_TEST( !v1->is_leader && v->is_leader );
+  fd_event_tl = NULL;
+
+  FD_TEST( !fd_rotor_verify( ctx->rotor ) );
+  FD_LOG_NOTICE(( "pass: block_received reports is_leader for our own blocks" ));
 }
 
 /* A turbine block can finalize before its parent arrives.  Replace
@@ -938,7 +1009,7 @@ test_turbine_finalized_orphan( fd_wksp_t * wksp, int block_id_only, int active_w
   if( active_walk ) {
     ulong slot;
     fd_hash_t block_id;
-    FD_TEST( fd_schedulor_block_pop( ctx->schedulor, fd_clock_tile_now( ctx->clock ), &slot, &block_id ) );
+    FD_TEST( fd_schedulor_block_pop( ctx->schedulor, fd_tickcount(), &slot, &block_id ) );
     FD_TEST( slot==child->slot && fd_hash_check_zero( &block_id ) );
     fd_requestor_block_start( ctx->requestor, slot, &block_id );
   }
@@ -1132,14 +1203,14 @@ test_reception_stats( fd_wksp_t * wksp ) {
   FD_TEST( ev->first_shred_received_time==m->blk_first_shred_ts_nanos );
   FD_TEST( ev->last_shred_received_time==m->blk_last_shred_ts_nanos );
   FD_TEST( ev->fec_set_count==2UL && ev->fec_sets_cnt==2UL );
-  FD_TEST( ev->fec_sets[ 0 ].fec_data_shreds_received==0x7fffffffU );
-  FD_TEST( ev->fec_sets[ 0 ].fec_parity_shreds_received==(1U<<3) );
-  FD_TEST( ev->fec_sets[ 0 ].fec_repair_shreds_received==(1U<<30) );
-  FD_TEST( !ev->fec_sets[ 0 ].fec_final_shred_source_repair && ev->fec_sets[ 0 ].fec_source_repair );
-  FD_TEST( ev->fec_sets[ 0 ].fec_first_shred_received_nanos==first_ts );
-  FD_TEST( ev->fec_sets[ 0 ].fec_completed_nanos>=first_ts );
-  FD_TEST( ev->fec_sets[ 1 ].fec_data_shreds_received==UINT_MAX );
-  FD_TEST( !ev->fec_sets[ 1 ].fec_parity_shreds_received && !ev->fec_sets[ 1 ].fec_repair_shreds_received );
+  FD_TEST( ev->fec_sets[ 0 ].data_shreds_received_mask==0x7fffffffU );
+  FD_TEST( ev->fec_sets[ 0 ].parity_shreds_received_mask==(1U<<3) );
+  FD_TEST( ev->fec_sets[ 0 ].repair_shreds_received_mask==(1U<<30) );
+  FD_TEST( ev->fec_sets[ 0 ].final_shred_source!=FD_EVENT_BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_REPAIR );
+  FD_TEST( ev->fec_sets[ 0 ].first_shred_received_time==first_ts );
+  FD_TEST( ev->fec_sets[ 0 ].completed_time>=first_ts );
+  FD_TEST( ev->fec_sets[ 1 ].data_shreds_received_mask==UINT_MAX );
+  FD_TEST( !ev->fec_sets[ 1 ].parity_shreds_received_mask && !ev->fec_sets[ 1 ].repair_shreds_received_mask );
 
   /* highest_fec_complete_slot is the cluster tip, not this FEC's slot.  Rotor delivers
      only replayable FECs in order, so replay cannot derive the tip
@@ -1210,7 +1281,7 @@ test_schedulor_drives_requests( fd_wksp_t * wksp ) {
 
   /* Parked at now+PARENT_TIMEOUT: nothing more goes out until then,
      and arriving shreds do not move the queued check. */
-  long now = fd_clock_tile_now( ctx->clock );
+  long now = fd_tickcount();
   FD_TEST( fd_schedulor_next_timeout( ctx->schedulor )>now );
   ulong checks = ctx->metrics->checks;
   for( ulong i=0UL; i<64UL; i++ ) tick( ctx );
@@ -1260,12 +1331,15 @@ test_votor_block_supersedes( fd_wksp_t * wksp ) {
   deliver_turbine_fec_set( ctx, turb, 0U );
   pump( ctx );
 
+  long before_votor = fd_clock_tile_now( ctx->clock );
   deliver_votor( ctx, vot->slot, &vot->block_id );
   FD_TEST( !fd_rotor_verify( ctx->rotor ) );
   fd_rotor_blk_t * v1 = fd_rotor_slot_version_query( ctx->rotor, vot->slot, &vot->block_id );
   fd_rotor_blk_t * v0 = fd_rotor_turbine_block_query( ctx->rotor, turb->slot );
   FD_TEST( v0 && v1 && v0!=v1 );
   FD_TEST( v0->abandoned ); /* the cert, not turbine, decides this slot now */
+  FD_TEST( v0->metrics.abandoned_ts>=before_votor && v0->metrics.abandoned_ts<=fd_clock_tile_now( ctx->clock ) );
+  FD_TEST( !v1->metrics.abandoned_ts );
   FD_TEST( fd_schedulor_block_query( ctx->schedulor, vot->slot, &vot->block_id ) );
 
   /* the votor block's metadata round trip */
@@ -1285,6 +1359,7 @@ test_votor_block_supersedes( fd_wksp_t * wksp ) {
   respond_fec_root( ctx, vot, 0U, root->nonce, 0 );
   FD_TEST( ctx->metrics->meta_ok_fec_root==1UL );
   FD_TEST( fd_rotor_fec_query( ctx->rotor, vot->slot, 0U, &vot->block_id ) );
+  FD_TEST( !v1->metrics.first_req_ts ); /* metadata requests are not specific-shred requests */
 
   /* its shreds are repaired by block id */
   uint served[ BLK_FEC_MAX ] = {0};
@@ -1296,21 +1371,22 @@ test_votor_block_supersedes( fd_wksp_t * wksp ) {
   FD_TEST( fd_rotor_block_complete( v1 ) && v1->metrics.last_shred_ts );
   FD_TEST( fd_event_tl->seq==1UL );
   fd_event_block_received_t const * ev = expect_block_received( 0UL );
-  FD_TEST( ev->slot==vot->slot && ev->notarized && !ev->cancelled );
+  FD_TEST( ev->slot==vot->slot && ev->notarized && !ev->cancelled && !ev->cancelled_time );
   FD_TEST( !memcmp( ev->block_id, vot->block_id.uc, 32UL ) );
   FD_TEST( ev->fec_set_count==1UL && ev->fec_sets_cnt==1UL );
   FD_TEST( ev->repair_shred_received==FD_FEC_SHRED_CNT );
-  FD_TEST( ev->repair_responses_received==FD_FEC_SHRED_CNT );
+  FD_TEST( ev->repair_shred_responses_received==FD_FEC_SHRED_CNT );
+  FD_TEST( ev->parent_fec_count_responses_received==1U && ev->fec_root_responses_received==1U );
   FD_TEST( ev->repair_request_shred_for_block_id_count==FD_FEC_SHRED_CNT );
   FD_TEST( ev->repair_request_parent_fec_count==1U && ev->repair_request_fec_root_count==1U );
   FD_TEST( ev->first_repair_request_time && ev->last_repair_received_time>=ev->first_repair_request_time );
-  FD_TEST( !memcmp( ev->fec_sets[ 0 ].fec_merkle_root, vot->fec_root[ 0 ].uc, 32UL ) );
-  FD_TEST( ev->fec_sets[ 0 ].fec_data_shreds_received==UINT_MAX );
-  FD_TEST( ev->fec_sets[ 0 ].fec_repair_shreds_received==UINT_MAX );
-  FD_TEST( !ev->fec_sets[ 0 ].fec_parity_shreds_received );
-  FD_TEST( ev->fec_sets[ 0 ].fec_final_shred_source_repair && ev->fec_sets[ 0 ].fec_source_repair );
-  FD_TEST( ev->fec_sets[ 0 ].fec_first_shred_received_nanos==ev->first_shred_received_time );
-  FD_TEST( ev->fec_sets[ 0 ].fec_completed_nanos>=ev->last_shred_received_time );
+  FD_TEST( !memcmp( ev->fec_sets[ 0 ].merkle_root, vot->fec_root[ 0 ].uc, 32UL ) );
+  FD_TEST( ev->fec_sets[ 0 ].data_shreds_received_mask==UINT_MAX );
+  FD_TEST( ev->fec_sets[ 0 ].repair_shreds_received_mask==UINT_MAX );
+  FD_TEST( !ev->fec_sets[ 0 ].parity_shreds_received_mask );
+  FD_TEST( ev->fec_sets[ 0 ].final_shred_source==FD_EVENT_BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_REPAIR );
+  FD_TEST( ev->fec_sets[ 0 ].first_shred_received_time==ev->first_shred_received_time );
+  FD_TEST( ev->fec_sets[ 0 ].completed_time>=ev->last_shred_received_time );
   FD_TEST( ctx->metrics->shred_match_block_id==FD_FEC_SHRED_CNT );
   fd_rotor_fec_metrics_t const * m = &rep_log[ rep_cnt-1UL ].metrics;
   FD_TEST( m->stats_valid==1U && m->votor_repaired==1U );
@@ -1322,7 +1398,7 @@ test_votor_block_supersedes( fd_wksp_t * wksp ) {
   FD_TEST( m->blk_repair_cnt==FD_FEC_SHRED_CNT && !m->blk_turbine_cnt );
   FD_TEST( m->blk_first_req_ts_nanos && m->blk_last_repair_resp_ts_nanos>=m->blk_first_req_ts_nanos );
   FD_TEST( !rep_log[ 0 ].metrics.votor_repaired );
-  FD_TEST( !v0->metrics.repair_responses ); /* request credit stays on the votor version */
+  FD_TEST( !v0->metrics.shred_repair_responses ); /* request credit stays on the votor version */
 
   /* the abandoned turbine version takes no further FEC completions and
      never derives a block id */
@@ -1341,12 +1417,18 @@ test_votor_block_supersedes( fd_wksp_t * wksp ) {
   FD_TEST( turb_cnt==0UL && vot_cnt==1UL );
   FD_TEST( fd_event_tl->seq==1UL ); /* abandoned version waits for pruning */
 
+  long v0_abandoned_ts = v0->metrics.abandoned_ts; /* the first abandon's stamp holds */
+  FD_TEST( v0_abandoned_ts );
   deliver_replay_root( ctx, vot->slot, &vot->block_id );
   FD_TEST( ctx->rotor->root==vot->slot );
   FD_TEST( fd_event_tl->seq==2UL );
   ev = expect_block_received( 1UL );
   FD_TEST( ev->slot==turb->slot && ev->cancelled && !ev->notarized );
-  FD_TEST( ev->fec_set_count==1UL && ev->fec_sets_cnt==1UL );
+  FD_TEST( ev->cancelled_time==(ulong)v0_abandoned_ts );
+  /* The abandoned version still recorded set 1 and its slot-complete
+     flag, so its length is known even though it never delivered. */
+  FD_TEST( ev->fec_set_count==2UL && ev->fec_sets_cnt==2UL && ev->slot_complete );
+  FD_TEST( !memcmp( ev->fec_sets[ 1 ].merkle_root, turb->fec_root[ 1 ].uc, 32UL ) );
   fd_event_tl = NULL;
 
   FD_TEST( !fd_rotor_verify( ctx->rotor ) );
@@ -1382,6 +1464,7 @@ test_meta_verify( fd_wksp_t * wksp ) {
   FD_TEST( ctx->metrics->failed_parent_fec_count==1UL );
   FD_TEST( ctx->metrics->meta_ok_parent_fec_count==0UL );
   FD_TEST( v->complete_idx==UINT_MAX );                       /* untouched */
+  FD_TEST( !v->metrics.parent_fec_count_responses );          /* failed proofs are not tallied */
 
   respond_parent_fec_count( ctx, blk, nonce, 0 );             /* the request was consumed */
   FD_TEST( ctx->metrics->unsolicited_meta==1UL );
@@ -1389,6 +1472,7 @@ test_meta_verify( fd_wksp_t * wksp ) {
 
   respond_parent_fec_count( ctx, blk, nonce+1000U, 0 );       /* never-sent nonce */
   FD_TEST( ctx->metrics->unsolicited_meta==2UL );
+  FD_TEST( !v->metrics.parent_fec_count_responses );          /* nor are unmatched nonces */
 
   /* the next check asks again, and that answer is applied */
   force_check( ctx, blk->slot, &blk->block_id );
@@ -1400,7 +1484,27 @@ test_meta_verify( fd_wksp_t * wksp ) {
   respond_parent_fec_count( ctx, blk, again->nonce, 0 );
   FD_TEST( ctx->metrics->meta_ok_parent_fec_count==1UL );
   FD_TEST( v->complete_idx==FD_FEC_SHRED_CNT-1U );
+  FD_TEST( v->metrics.parent_fec_count_responses==1U && !v->metrics.fec_root_responses );
   FD_TEST( ctx->metrics->meta_rx==4UL );
+
+  /* A verified answer naming a parent behind the root ends repair of
+     the block, but it is still the block's first metadata. */
+  blk_t dead[1] = {{ .slot = SNAP_SLOT+2UL, .parent_slot = SNAP_SLOT-1UL, .parent_block_id = mkhash( 0xDEADUL ), .fec_cnt = 1U }};
+  dead->fec_root[ 0 ] = mkhash( 0xD1UL );
+  blk_build( dead );
+  deliver_votor( ctx, dead->slot, &dead->block_id );
+  force_check( ctx, dead->slot, &dead->block_id );
+  from = req_cnt;
+  pump( ctx );
+  req_t * dmeta = req_find( from, AG_REPAIR_KIND_PARENT_FEC_COUNT, dead->slot, 0U, &dead->block_id );
+  FD_TEST( dmeta );
+  fd_rotor_blk_t * dv = fd_rotor_slot_version_query( ctx->rotor, dead->slot, &dead->block_id );
+  FD_TEST( dv && !dv->metrics.first_meta_ts );
+  respond_parent_fec_count( ctx, dead, dmeta->nonce, 0 );
+  FD_TEST( ctx->metrics->meta_ok_parent_fec_count==1UL ); /* not applied */
+  FD_TEST( !fd_schedulor_block_query( ctx->schedulor, dead->slot, &dead->block_id ) );
+  FD_TEST( dv->metrics.parent_fec_count_responses==1U );
+  FD_TEST( dv->metrics.first_meta_ts && dv->complete_idx==UINT_MAX ); /* stamped from net arrival, not applied */
 
   FD_TEST( !fd_rotor_verify( ctx->rotor ) );
   FD_LOG_NOTICE(( "pass: metadata responses are verified by proof and nonce" ));
@@ -1684,6 +1788,7 @@ test_inflights_expire( fd_wksp_t * wksp ) {
   fd_pubkey_t peer   = *(fd_pubkey_t *)fd_type_pun( mkhash( 0x150UL ).uc );
   fd_hash_t   bid    = mkhash( 0x151UL );
   ulong       used0  = fd_inflight_pool_used( t->pool );
+  FD_TEST( fd_inflights_oldest_ts( t )==LONG_MAX );
 
   /* shred requests at t=10,20,30,40 and a metadata request at t=50 */
   for( ulong i=0UL; i<4UL; i++ ) fd_inflights_shred_insert( t, FD_REPAIR_KIND_SHRED, 0x80000000UL|(i+1UL), &peer, 200UL, i, NULL, NULL, 10L*(long)(i+1UL) );
@@ -1695,12 +1800,15 @@ test_inflights_expire( fd_wksp_t * wksp ) {
   FD_TEST( fd_inflights_should_drain( t, 10L+FD_REQLIM_DEDUP_TIMEOUT+1L ) );
   fd_inflights_pop( t, popped );
   FD_TEST( popped->key.idx==0U && t->popped_cnt==1UL && fd_inflights_outstanding_cnt( t )==4UL );
+  FD_TEST( fd_inflights_oldest_ts( t )==10L );                          /* the popped head */
 
   FD_TEST( fd_inflights_expire( t, 10L, ULONG_MAX )==0UL );             /* strictly older only */
   FD_TEST( fd_inflights_expire( t, 35L, 1UL       )==1UL );             /* max honoured: popped t=10 */
   FD_TEST( t->popped_cnt==0UL && fd_inflights_outstanding_cnt( t )==4UL );
+  FD_TEST( fd_inflights_oldest_ts( t )==20L );
   FD_TEST( fd_inflights_expire( t, 35L, ULONG_MAX )==2UL );             /* t=20, t=30 */
   FD_TEST( t->popped_cnt==0UL && fd_inflights_outstanding_cnt( t )==2UL );
+  FD_TEST( fd_inflights_oldest_ts( t )==40L );
   FD_TEST( fd_inflight_pool_used( t->pool )==used0+2UL );
 
   /* survivors still match; expired ones do not */
@@ -1713,18 +1821,21 @@ test_inflights_expire( fd_wksp_t * wksp ) {
   fd_inflight_t out[1];
   FD_TEST( !fd_inflights_meta_match( t, 7UL, out ) );
   FD_TEST( fd_inflights_outstanding_cnt( t )==0UL && fd_inflight_pool_used( t->pool )==used0 );
+  FD_TEST( fd_inflights_oldest_ts( t )==LONG_MAX );
 
   fd_wksp_free_laddr( mem );
   FD_LOG_NOTICE(( "pass: fd_inflights_expire releases aged records from both sets" ));
 }
 
 /* step_clock moves the tile clock forward by dt, as if the tile had been
-   running (or parked) that long. */
+   running (or parked) that long.  That ages in-flight records but not
+   the schedulor's tickcount deadlines, so it also forces blk's check. */
 
 static long
-step_clock( ctx_t * ctx, long dt ) {
+step_clock( ctx_t * ctx, long dt, blk_t const * blk ) {
   long now = fd_clock_tile_now( ctx->clock ) + dt;
   fd_clock_tile_set( ctx->clock, now );
+  force_check( ctx, blk->slot, &(fd_hash_t){0} );
   return now;
 }
 
@@ -1783,7 +1894,7 @@ test_inflight_bounded( fd_wksp_t * wksp ) {
   ulong live_max = 4UL*( steady+1UL );
   ulong peak     = 0UL;
   for( ulong round=0UL; round<ROUNDS; round++ ) {
-    step_clock( ctx, ROUND_NS );
+    step_clock( ctx, ROUND_NS, blk );
     from = req_cnt;
     pump( ctx );
     FD_TEST( req_count( from, FD_REPAIR_KIND_SHRED, blk->slot )==4UL );
@@ -1806,7 +1917,7 @@ test_inflight_bounded( fd_wksp_t * wksp ) {
   /* The next round asks only for the three still missing, and the
      response to the current retry matches it. */
 
-  step_clock( ctx, ROUND_NS );
+  step_clock( ctx, ROUND_NS, blk );
   from = req_cnt;
   pump( ctx );
   FD_TEST( req_count( from, FD_REPAIR_KIND_SHRED, blk->slot )==3UL );
@@ -1821,7 +1932,7 @@ test_inflight_bounded( fd_wksp_t * wksp ) {
 
   for( uint i=HOLE0+6U; i<HOLE0+HOLE_N; i++ )
     deliver_shred( ctx, blk->slot, i, 0, &blk->fec_root[ 1 ], 0U, SHRED_SIG_SRC_TURBINE, blk->parent_slot, &blk->parent_block_id );
-  step_clock( ctx, FD_ROTOR_INFLIGHT_TIMEOUT_NS+1L );
+  step_clock( ctx, FD_ROTOR_INFLIGHT_TIMEOUT_NS+1L, blk );
   from = req_cnt;
   pump( ctx );
   for( ulong i=0UL; i<64UL; i++ ) tick( ctx );
@@ -1902,6 +2013,118 @@ test_genesis_parent( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: genesis parent finalizes" ));
 }
 
+/* Park scheduling: after_credit leaves in idle_due when a fruitless
+   pass can next make progress, and next_deadline hands it to the stem
+   in the tickcount domain, capped by the oldest inflight record's
+   expiry.  Work left over is due now, a queued check is due at its
+   timeout, no sign credit waits for the sign frag, no replay credit
+   polls, expiring inflight records is busy, and nothing pending parks
+   untimed (so no busy spin on an idle tile). */
+
+static void
+test_park( fd_wksp_t * wksp ) {
+  static ctx_t ctx[1];
+  setup_ctx( ctx, wksp );
+
+  /* Idle: no blocks, nothing queued, the park is untimed. */
+  pump( ctx );
+  FD_TEST( !fd_schedulor_queued_cnt( ctx->schedulor ) );
+  tick( ctx );
+  FD_TEST( ctx->idle_due==LONG_MAX );
+  FD_TEST( next_deadline( ctx )==LONG_MAX );
+
+  /* A turbine block with its tip unknown: the check goes out and the
+     block is re-queued, so the park is timed on the queued check. */
+  blk_t blk[1] = {{ .slot = SNAP_SLOT+1UL, .parent_slot = SNAP_SLOT, .parent_block_id = snap_bid, .fec_cnt = 2U }};
+  blk->fec_root[ 0 ] = mkhash( 0xC0UL );
+  blk->fec_root[ 1 ] = mkhash( 0xC1UL );
+  blk_build( blk );
+  deliver_turbine_fec_set( ctx, blk, 0U );
+  /* Each pass that does work (the FEC to replay, then the check) says
+     retry now, so the stem never parks with work behind it. */
+  ulong checks = ctx->metrics->checks;
+  for( ulong i=0UL; i<8UL && ctx->metrics->checks==checks; i++ ) {
+    ulong pubs = pub_cnt;
+    tick( ctx );
+    FD_TEST( pub_cnt>pubs );
+    FD_TEST( next_deadline( ctx )<=fd_tickcount() );
+  }
+  FD_TEST( ctx->metrics->checks==checks+1UL );
+  pump( ctx );
+  long due = fd_schedulor_next_timeout( ctx->schedulor );
+  FD_TEST( due!=LONG_MAX && due>fd_tickcount() );
+  tick( ctx );
+  FD_TEST( ctx->idle_due==due );
+  FD_TEST( next_deadline( ctx )==due );
+
+  /* A lapsed check is serviced on the next pass, which again says
+     retry now. */
+  checks = ctx->metrics->checks;
+  force_check( ctx, blk->slot, &(fd_hash_t){0} );
+  tick( ctx );
+  FD_TEST( ctx->metrics->checks==checks+1UL );
+  FD_TEST( next_deadline( ctx )<=fd_tickcount() );
+  pump( ctx );
+  tick( ctx );
+  FD_TEST( ctx->idle_due==fd_schedulor_next_timeout( ctx->schedulor ) );
+
+  /* No sign credits with a check due: only a sign frag can help, so
+     the lapsed check sets no deadline.  The park is timed only on the
+     expiry of the requests already sent. */
+  force_check( ctx, blk->slot, &(fd_hash_t){0} );
+  ctx->repair_sign_out_ctx[0].credits = 0UL;
+  tick( ctx );
+  FD_TEST( ctx->idle_due==LONG_MAX );
+  long oldest = fd_inflights_oldest_ts( ctx->rtt );
+  FD_TEST( oldest!=LONG_MAX );
+  FD_TEST( next_deadline( ctx )==fd_clock_tile_wallclock_to_tickcount( ctx->clock, oldest+FD_ROTOR_INFLIGHT_TIMEOUT_NS+1L ) );
+  FD_TEST( next_deadline( ctx )>fd_tickcount() );
+  ctx->repair_sign_out_ctx[0].credits = ctx->repair_sign_out_ctx[0].max_credits;
+
+  /* No replay credits: replay never rings rotor for them, so poll. */
+  ulong cr_avail[ TEST_OUT_MAX ] = { [ OUT_IDX_REPLAY ] = 0UL };
+  long now = fd_tickcount();
+  fd_stem_context_t stem = { .cr_avail = cr_avail, .now = now };
+  int charge_busy = 0;
+  int poll_in     = 1;
+  after_credit( ctx, &stem, &poll_in, &charge_busy );
+  FD_TEST( !charge_busy );
+  FD_TEST( ctx->idle_due==now+ns_to_ticks( ctx, REPLAY_CREDIT_POLL_NS ) );
+
+  /* Credits back: the lapsed check is serviced on the next pass. */
+  checks = ctx->metrics->checks;
+  tick( ctx );
+  FD_TEST( ctx->metrics->checks==checks+1UL );
+
+  /* An empty table adds no deadline.  A request parks the tile no
+     longer than its expiry, which is due once the clock passes it. */
+  fd_inflights_expire( ctx->rtt, LONG_MAX, ULONG_MAX );
+  FD_TEST( fd_inflights_oldest_ts( ctx->rtt )==LONG_MAX );
+  ctx->idle_due = LONG_MAX;
+  FD_TEST( next_deadline( ctx )==LONG_MAX );
+  fd_pubkey_t peer = {0};
+  long        sent = fd_clock_tile_now( ctx->clock );
+  for( ulong i=0UL; i<9UL; i++ ) fd_inflights_shred_insert( ctx->rtt, FD_REPAIR_KIND_SHRED, 0x80000000UL|i, &peer, blk->slot, i, NULL, NULL, sent );
+  long expiry = next_deadline( ctx );
+  FD_TEST( expiry==fd_clock_tile_wallclock_to_tickcount( ctx->clock, sent+FD_ROTOR_INFLIGHT_TIMEOUT_NS+1L ) );
+  FD_TEST( expiry>fd_tickcount() );
+
+  /* The backlog goes four per pass, and every pass that expires any is
+     busy, so the stem does not park with more behind it. */
+  fd_clock_tile_set( ctx->clock, sent+FD_ROTOR_INFLIGHT_TIMEOUT_NS+1L );
+  FD_TEST( next_deadline( ctx )<=fd_tickcount() );
+  for( ulong i=0UL; i<4UL; i++ ) {
+    stem.now    = fd_tickcount();
+    charge_busy = 0;
+    after_credit( ctx, &stem, &poll_in, &charge_busy ); /* no replay credits: only the expiry runs */
+    FD_TEST( charge_busy==(i<3UL) ); /* 4, 4, 1, then none */
+  }
+  FD_TEST( !fd_inflights_outstanding_cnt( ctx->rtt ) );
+  FD_TEST( next_deadline( ctx )==ctx->idle_due ); /* back to the replay credit poll */
+
+  FD_LOG_NOTICE(( "pass: test_park" ));
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
@@ -1916,6 +2139,9 @@ main( int argc, char ** argv ) {
 
   fd_wksp_reset( wksp, 1U );
   test_block_received_event( wksp );
+
+  fd_wksp_reset( wksp, 1U );
+  test_leader_block_received( wksp );
 
   for( int block_id_only=0; block_id_only<2; block_id_only++ ) {
     for( int active_walk=0; active_walk<2; active_walk++ ) {
@@ -1968,6 +2194,9 @@ main( int argc, char ** argv ) {
 
   fd_wksp_reset( wksp, 1U );
   test_genesis_parent( wksp );
+
+  fd_wksp_reset( wksp, 1U );
+  test_park( wksp );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

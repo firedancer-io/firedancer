@@ -9,9 +9,10 @@ only.  In other words, RFC 9113 Section 8 is missing entirely.
 
 **HPACK fragmentation**
 
-This library assumes that a single header record (HPACK record) is not
-fragmented across two HTTP frames (e.g. HEADERS and CONTINUATION).
-Throws connection error COMPRESSION_ERROR if the peer does that.
+Fragmented and discarded field blocks are validated incrementally,
+including HPACK records split across frames, without retaining their
+decoded fields.  Live-stream header consumers such as fd_grpc_client
+still require each HPACK record to fit in one frame.
 
 **Server Push**
 
@@ -40,7 +41,9 @@ this.
 > CONTINUATION frames on the same stream. Logically, the CONTINUATION frames
 > are part of the HEADERS frame.
 
-fd_h2 does not support this correctly.
+The receive-side stream state preserves END_STREAM until the field
+block completes.  Header consumers must check that state on END_HEADERS;
+fd_grpc_client does so.
 
 ## HTTP/2 quirks
 
@@ -57,9 +60,11 @@ out-of-band data.
 
 ### Server requests
 
-In the HTTP/2 framing layer, the server may initiate streams.  This is
-unrelated to server push or regular responses.  In HTTP semantics, this
-is as if the HTTP server sent HTTP requests to the client.
+RFC 9113 Section 5.1 forbids HEADERS on an idle server-initiated stream.
+The default client behavior is a connection PROTOCOL_ERROR.
+Setting conn.allow_server_requests explicitly enables the previous,
+nonstandard extension that accepts such streams through stream_create.
+This extension is unrelated to server push or regular responses.
 
 ## Coverage
 

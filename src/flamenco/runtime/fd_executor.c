@@ -1505,8 +1505,9 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
 }
 
 int
-fd_executor_txn_verify( fd_txn_p_t *  txn_p,
-                        fd_sha512_t * shas[ FD_TXN_SIG_MAX ] ) {
+fd_executor_txn_verify( fd_txn_p_t *         txn_p,
+                        fd_sha512_t *        shas[ FD_TXN_SIG_MAX ],
+                        fd_ed25519_cache_t * cache ) {
   fd_txn_t * txn = TXN( txn_p );
 
   uchar * signatures = txn_p->payload + txn->signature_off;
@@ -1514,7 +1515,8 @@ fd_executor_txn_verify( fd_txn_p_t *  txn_p,
   uchar * msg        = txn_p->payload + txn->message_off;
   ulong   msg_sz     = fd_txn_msg_sz( txn, txn_p->payload_sz );
 
-  int res = fd_ed25519_verify_batch_single_msg( msg, msg_sz, signatures, pubkeys, shas, txn->signature_cnt );
+  int res = cache ? fd_ed25519_verify_batch_single_msg_cached( msg, msg_sz, signatures, pubkeys, shas, txn->signature_cnt, cache ) :
+                    fd_ed25519_verify_batch_single_msg       ( msg, msg_sz, signatures, pubkeys, shas, txn->signature_cnt        );
   if( FD_UNLIKELY( res!=FD_ED25519_SUCCESS ) ) return FD_RUNTIME_TXN_ERR_SIGNATURE_FAILURE;
 
   return FD_RUNTIME_EXECUTE_SUCCESS;

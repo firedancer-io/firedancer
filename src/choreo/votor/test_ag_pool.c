@@ -887,6 +887,26 @@ test_duplicate_certs( void ) {
   teardown_pool( pool );
 }
 
+/* A verified cert skips only the signature check: a cert that fails it
+   is accepted, and duplicates are still rejected. */
+
+static void
+test_add_verified_cert( void ) {
+  ag_pool_t * pool = setup_pool();
+
+  ag_block_hash_t hash; random_hash( hash );
+  ag_vote_notar_t nv[ NV ];
+  for( ulong v=0UL; v<NV; v++ ) nv[v] = ag_vote_construct_notar( sec_sign_fn, &g_sk[v], test_bls_public_key, 1UL, hash, (ushort)v, TEST_SHRED_VERSION ).notar;
+  ag_cert_t notar = cert_build_notar( nv, NV, g_epoch_info );
+  notar.notar.block_hash[ 0 ] ^= 1;
+
+  FD_TEST( ag_pool_add_cert         ( pool, &notar, bad )==AG_POOL_ERR_CERT_VERIFY );
+  FD_TEST( ag_pool_add_verified_cert( pool, &notar, bad )==AG_POOL_SUCCESS         );
+  FD_TEST( ag_pool_add_verified_cert( pool, &notar, bad )==AG_POOL_ERR_DUPLICATE   );
+
+  teardown_pool( pool );
+}
+
 /* src/consensus/pool.rs::out_of_bounds_votes */
 
 static void
@@ -1630,6 +1650,7 @@ main( int     argc,
   test_pruning();
   test_duplicate_votes();
   test_duplicate_certs();
+  test_add_verified_cert();
   test_out_of_bounds_votes();
   test_out_of_bounds_certs();
   test_slow_finalize_closing_gap_no_double_parent_ready();

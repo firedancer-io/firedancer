@@ -81,29 +81,32 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static void
 report_block_received( void * ctx_, fd_rotor_blk_t const * block ) {
-  if( FD_LIKELY( !fd_event_tl ) ) return;
   ctx_t * ctx = (ctx_t *)ctx_;
+  long rx_ts = fd_clock_tile_now( ctx->clock );
+  if( FD_LIKELY( block->complete_idx!=UINT_MAX && block->buffered_fec_idx==block->complete_idx ) ) {
+    FD_LOG_INFO(( "slot %lu complete in %ld ms. complete_idx %u, turbine %u repair %u recovered %u code %u", block->slot, ( rx_ts - block->metrics.first_shred_ts )/1000000L, block->complete_idx, block->metrics.turbine_cnt, block->metrics.repair_cnt, block->metrics.recovered_cnt, block->metrics.parity_cnt ));
+  }
 
+  if( FD_LIKELY( !fd_event_tl ) ) return;
   fd_event_block_received_t * ev = ctx->receive_event;
   fd_memset( ev, 0, FD_EVENT_BLOCK_RECEIVED_PREFIX_SZ );
 
-  ev->slot        = block->slot;
-  ev->parent_slot = block->parent_slot;
-  ev->cancelled   = block->abandoned;
-  ev->caught_up   = (ctx->current_slot - ctx->rotor->highest_repaired) <= 4 ;
+  ev->slot             = block->slot;
+  ev->parent_slot      = block->parent_slot;
+  ev->cancelled        = block->abandoned;
+  ev->cancelled_time   = (ulong)block->metrics.abandoned_ts;
+  ev->cancelled_reason = !block->abandoned ? FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_NOT_CANCELLED : block->metrics.abandoned_reason;
+  ev->is_leader        = block->is_leader;
+  ev->caught_up        = (ctx->current_slot - ctx->rotor->highest_repaired) <= 4 ;
   /* Matches publish_fec's votor_repaired.  TODO distinguish an actual
      notarization from an ancestry-only version created by metadata. */
   ev->notarized   = !block->turbine;
   fd_memcpy( ev->block_id, block->block_id.uc, sizeof(fd_hash_t) );
   fd_memcpy( ev->parent_block_id, block->parent_block_id.uc, sizeof(fd_hash_t) );
 
-  /* A complete reception has every shred through the known tip.  For
-     incomplete/abandoned versions, report only the delivered prefix.
-     complete_idx and delivered_idx are inclusive shred indices. */
-  int complete = !block->abandoned && block->complete_idx!=UINT_MAX && block->buffered_idx==block->complete_idx;
-  uint last_idx = complete ? block->complete_idx : block->delivered_idx;
-  ev->fec_set_count = last_idx==UINT_MAX ? 0UL : ((ulong)last_idx+1UL)/FD_FEC_SHRED_CNT;
+  ev->fec_set_count = block->complete_idx==UINT_MAX ? 0UL : ((ulong)block->complete_idx+1UL)/FD_FEC_SHRED_CNT;
 
+  ev->first_meta_received_time     = (ulong)block->metrics.first_meta_ts;
   ev->first_shred_received_time    = (ulong)block->metrics.first_shred_ts;
   ev->last_shred_received_time     = (ulong)block->metrics.last_shred_ts;
   ev->first_repair_request_time    = (ulong)block->metrics.first_req_ts;
@@ -115,10 +118,11 @@ report_block_received( void * ctx_, fd_rotor_blk_t const * block ) {
   ev->last_completed_fec_set_index = block->metrics.last_completed_fec_idx;
   /* Matches publish_fec.  TODO separate a tip learned from verified
      metadata from an actually received slot-complete shred. */
-  ev->slot_complete_flag = block->complete_idx!=UINT_MAX;
+  ev->slot_complete                = block->complete_idx!=UINT_MAX;
 
-  ev->repair_requests_retransmitted           = block->metrics.req_retransmit_cnt;
-  ev->repair_responses_received               = block->metrics.repair_responses;
+  ev->repair_shred_responses_received         = block->metrics.shred_repair_responses;
+  ev->parent_fec_count_responses_received     = block->metrics.parent_fec_count_responses;
+  ev->fec_root_responses_received             = block->metrics.fec_root_responses;
   ev->repair_request_window_count             = block->metrics.req_window_cnt;
   ev->repair_request_highest_window_count     = block->metrics.req_highest_cnt;
   ev->repair_request_orphan_count             = block->metrics.req_orphan_cnt;
@@ -132,15 +136,16 @@ report_block_received( void * ctx_, fd_rotor_blk_t const * block ) {
     if( FD_UNLIKELY( !fec ) ) continue;
     fd_event_block_received_fec_sets_t * f = &ev->fec_sets[ ev->fec_sets_cnt++ ];
     fd_memset( f, 0, sizeof(*f) );
-    fd_memcpy( f->fec_merkle_root, fec->merkle_root.uc, sizeof(f->fec_merkle_root) );
-    f->fec_set_index = fec->fec_set_idx;
-    f->fec_data_shreds_received       = fec->metrics.data_received;
-    f->fec_parity_shreds_received     = fec->metrics.parity_received;
-    f->fec_repair_shreds_received     = fec->metrics.repair_received;
-    f->fec_first_shred_received_nanos = (ulong)fec->metrics.first_shred_ts;
-    f->fec_completed_nanos            = (ulong)fec->metrics.completed_ts;
-    f->fec_final_shred_source_repair  = fec->metrics.last_shred_src==FD_ROTOR_SRC_REPAIR;
-    f->fec_source_repair              = !!fec->metrics.repair_received;
+    fd_memcpy( f->merkle_root, fec->merkle_root.uc, sizeof(f->merkle_root) );
+    f->index                       = fec->fec_set_idx;
+    f->data_shreds_received_mask   = fec->metrics.data_received;
+    f->parity_shreds_received_mask = fec->metrics.parity_received;
+    f->repair_shreds_received_mask = fec->metrics.repair_received;
+    f->first_shred_received_time   = (ulong)fec->metrics.first_shred_ts;
+    f->completed_time              = (ulong)fec->metrics.completed_ts;
+    f->final_shred_source          = fec->metrics.last_shred_src==FD_ROTOR_SRC_REPAIR ? FD_EVENT_BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_REPAIR :
+                                     fec->metrics.last_shred_src==FD_ROTOR_SRC_LEADER ? FD_EVENT_BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_LEADER :
+                                     FD_EVENT_BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_TURBINE;
   }
 
   /* TODO equivocation_detected_shred and fec_duplicate_shred_count. */
@@ -249,6 +254,12 @@ send_sign_request( ctx_t *                 ctx,
   sign_out->credits--;
 }
 
+static inline long
+ns_to_ticks( ctx_t const * ctx,
+             long          ns ) {
+  return (long)( (double)ns*fd_clock_epoch_w( ctx->clock->epoch ) );
+}
+
 static void
 dispatch_request( ctx_t *                    ctx,
                   fd_stem_context_t *        stem,
@@ -348,7 +359,8 @@ static inline void
 handle_meta_response( ctx_t *       ctx,
                       uchar const * data,
                       ulong         data_sz,
-                      long          now ) {
+                      long          now,
+                      long          rx_ts ) {
   ag_repair_response_t response[1];
   ctx->metrics->meta_rx++;
   if( FD_UNLIKELY( ag_repair_response_de( response, data, data_sz, ctx->rotor->fec_blk_max ) ) ) { ctx->metrics->meta_malformed++; return; }
@@ -371,11 +383,16 @@ handle_meta_response( ctx_t *       ctx,
         ctx->metrics->failed_parent_fec_count++;
         return;
       }
+      fd_rotor_blk_t * block = fd_rotor_slot_version_query( ctx->rotor, slot, &block_id );
+      fd_rotor_repair_tally( block, FD_ROTOR_RESP_PARENT, rx_ts );
       if( FD_UNLIKELY( res->parent_slot < ctx->rotor->root ) ) {
+        /* Still verified metadata: stamp it, since
+           fd_rotor_verified_parent_fec_count will not. */
+        if( FD_LIKELY( block && !block->metrics.first_meta_ts ) ) block->metrics.first_meta_ts = rx_ts;
         fd_schedulor_block_remove( ctx->schedulor, slot, &block_id ); /* dead fork: will never connect */
         return;
       }
-      fd_rotor_blk_t * parent = fd_rotor_verified_parent_fec_count( ctx->rotor, slot, &block_id, res->fec_set_count, res->parent_slot, &res->parent_block_id );
+      fd_rotor_blk_t * parent = fd_rotor_verified_parent_fec_count( ctx->rotor, slot, &block_id, res->fec_set_count, res->parent_slot, &res->parent_block_id, rx_ts );
       if( FD_UNLIKELY( parent ) ) fd_schedulor_block_insert( ctx->schedulor, parent->slot, &parent->block_id, now );
       ctx->metrics->meta_ok_parent_fec_count++;
       break;
@@ -384,14 +401,15 @@ handle_meta_response( ctx_t *       ctx,
       if( FD_UNLIKELY( kind!=AG_REPAIR_KIND_FEC_ROOT ) ) return;
 
       ag_fec_root_res_t * res = &response->fec_set_root;
-      fd_rotor_blk_t const * v = fd_rotor_slot_version_query( ctx->rotor, slot, &block_id );
+      fd_rotor_blk_t * v = fd_rotor_slot_version_query( ctx->rotor, slot, &block_id );
       if( FD_UNLIKELY( !v ) ) return;
       uint fec_set_count = ( v->complete_idx+1U ) / FD_FEC_SHRED_CNT;
       if( FD_UNLIKELY( ag_repair_fec_set_root_verify( res, &block_id, fec_set_idx, fec_set_count ) ) ) {
         ctx->metrics->failed_fec_root++;
         return;
       }
-      fd_rotor_blk_t * created = fd_rotor_verified_hash_insert( ctx->rotor, slot, &block_id, fec_set_idx, res->root );
+      fd_rotor_repair_tally( v, FD_ROTOR_RESP_FEC_ROOT, rx_ts );
+      fd_rotor_blk_t * created = fd_rotor_verified_hash_insert( ctx->rotor, slot, &block_id, fec_set_idx, res->root, rx_ts );
       if( FD_UNLIKELY( created ) ) fd_schedulor_block_insert( ctx->schedulor, created->slot, &created->block_id, now );
       ctx->metrics->meta_ok_fec_root++;
       break;
@@ -446,7 +464,7 @@ after_frag( ctx_t *             ctx,
             ulong               sig    FD_PARAM_UNUSED,
             ulong               sz,
             ulong               tsorig FD_PARAM_UNUSED,
-            ulong               tspub  FD_PARAM_UNUSED,
+            ulong               tspub,
             fd_stem_context_t * stem   FD_PARAM_UNUSED ) {
   if( FD_LIKELY( ctx->in_kind[ in_idx ]!=IN_KIND_NET ) ) return; /* returnable_frag */
 
@@ -454,7 +472,14 @@ after_frag( ctx_t *             ctx,
   if( FD_UNLIKELY( !fd_ip4_udp_hdr_strip( ctx->net_buf, sz, &data, &data_sz, &eth, &ip4, &udp ) ) ) { ctx->metrics->malformed_ping++; return; }
 
   if( FD_LIKELY( data_sz==sizeof(fd_repair_ping_t) ) ) handle_ping( ctx, data, data_sz, ip4, udp );
-  else                                                 handle_meta_response( ctx, data, data_sz, fd_clock_tile_now( ctx->clock ) );
+  else {
+    /* net publishes the rx tick in tspub (tsorig is 0) */
+    long now_tick = fd_tickcount();
+    long rx_tick  = fd_frag_meta_ts_decomp( tspub, now_tick );
+    if( FD_UNLIKELY( rx_tick>now_tick ) ) rx_tick -= 1L<<32;
+    long rx_ts = fd_clock_tile_tickcount_to_wallclock( ctx->clock, rx_tick );
+    handle_meta_response( ctx, data, data_sz, now_tick, rx_ts );
+  }
 }
 
 static inline void
@@ -578,7 +603,8 @@ handle_votor( ctx_t *       ctx,
 
   fd_votor_repair_t const * nf = (fd_votor_repair_t const *)fd_type_pun_const( chunk );
   if( FD_UNLIKELY( nf->slot <= ctx->rotor->root ) ) return;
-  fd_rotor_blk_t * created = fd_rotor_verified_block_insert( ctx->rotor, nf->slot, nf->block_id );
+  long wallclock = fd_clock_tile_tickcount_to_wallclock( ctx->clock, now ); /* rotor metrics are stamped in wallclock */
+  fd_rotor_blk_t * created = fd_rotor_verified_block_insert( ctx->rotor, nf->slot, nf->block_id, wallclock );
   if( FD_LIKELY( created ) ) fd_schedulor_block_insert( ctx->schedulor, created->slot, &created->block_id, now );
 }
 
@@ -687,10 +713,11 @@ handle_shred( ctx_t *            ctx,
     ctx->metrics->repair_shred_rx++;
     fd_pubkey_t peer;
     fd_hash_t req_block_id;
-    long rtt = fd_inflights_shred_match( ctx->rtt, AG_REPAIR_KIND_SHRED_FOR_BLOCK_ID, nonce, shred->slot, shred->idx, mr, &peer, &req_block_id, now );
+    long wallclock = fd_clock_tile_tickcount_to_wallclock( ctx->clock, now ); /* inflights are stamped in wallclock */
+    long rtt = fd_inflights_shred_match( ctx->rtt, AG_REPAIR_KIND_SHRED_FOR_BLOCK_ID, nonce, shred->slot, shred->idx, mr, &peer, &req_block_id, wallclock );
     if( FD_LIKELY( rtt ) ) ctx->metrics->shred_match_block_id++;
     else {
-      rtt = fd_inflights_shred_match( ctx->rtt, FD_REPAIR_KIND_SHRED, nonce, shred->slot, shred->idx, NULL, &peer, &req_block_id, now );
+      rtt = fd_inflights_shred_match( ctx->rtt, FD_REPAIR_KIND_SHRED, nonce, shred->slot, shred->idx, NULL, &peer, &req_block_id, wallclock );
       if( FD_LIKELY( rtt ) ) ctx->metrics->shred_match_positional++;
       else                   ctx->metrics->shred_match_miss++;
     }
@@ -701,7 +728,7 @@ handle_shred( ctx_t *            ctx,
       fd_rotor_blk_t * block = fd_hash_check_zero( &req_block_id )
                                  ? fd_rotor_turbine_block_query( ctx->rotor, shred->slot )
                                  : fd_rotor_slot_version_query( ctx->rotor, shred->slot, &req_block_id );
-      fd_rotor_repair_tally( block, FD_ROTOR_REQ_RESPONSE, rx_ts );
+      fd_rotor_repair_tally( block, FD_ROTOR_RESP_SHRED, rx_ts );
     }
   }
 
@@ -770,7 +797,7 @@ returnable_frag( ctx_t *             ctx,
   if( FD_UNLIKELY( sz!=0UL && ( chunk<in_ctx->chunk0 || chunk>in_ctx->wmark || sz>in_ctx->mtu ) ) )
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu] in kind %u", chunk, sz, in_ctx->chunk0, in_ctx->wmark, in_kind ));
 
-  long now = fd_clock_tile_now( ctx->clock );
+  long now = fd_tickcount();
   switch( in_kind ) {
     case IN_KIND_SIGN:    handle_sign( ctx, in_idx, sig, fd_chunk_to_laddr_const( in_ctx->mem, chunk ), stem ); break;
     case IN_KIND_GOSSIP:  handle_gossip( ctx, fd_chunk_to_laddr_const( in_ctx->mem, chunk ), sig ); break;
@@ -897,7 +924,7 @@ publish_fec( ctx_t *             ctx,
   m->blk_req_parent_cnt     = block->metrics.req_parent_cnt;
   m->blk_req_fec_root_cnt   = block->metrics.req_fec_root_cnt;
   m->blk_req_retransmit_cnt = block->metrics.req_retransmit_cnt;
-  m->blk_repair_responses   = block->metrics.repair_responses;
+  m->blk_repair_responses   = block->metrics.shred_repair_responses;
 
   m->blk_first_shred_ts_nanos      = (ulong)block->metrics.first_shred_ts;
   m->blk_last_shred_ts_nanos       = (ulong)block->metrics.last_shred_ts;
@@ -972,18 +999,19 @@ requestor_next( ctx_t *             ctx,
   ulong slot;
   fd_hash_t block_id;
   int result = fd_requestor_block_advance( ctx->requestor, ctx->rotor, request, &slot, &block_id );
+  long wallclock = fd_clock_tile_tickcount_to_wallclock( ctx->clock, now );
   switch( result ) {
   case FD_REQUESTOR_ADVANCE_REQUEST:
-    dispatch_request( ctx, stem, sign_out, request, now );
+    dispatch_request( ctx, stem, sign_out, request, wallclock );
     return 1;
   case FD_REQUESTOR_ADVANCE_DONE:
     return 0;
   case FD_REQUESTOR_ADVANCE_REQUESTED_PARENT:
-    dispatch_request( ctx, stem, sign_out, request, now ); /* the walk's one metadata request */
-    fd_schedulor_block_insert( ctx->schedulor, slot, &block_id, now + FD_SCHEDULOR_PARENT_TIMEOUT_NS );
+    dispatch_request( ctx, stem, sign_out, request, wallclock ); /* the walk's one metadata request */
+    fd_schedulor_block_insert( ctx->schedulor, slot, &block_id, now + ns_to_ticks( ctx, FD_SCHEDULOR_PARENT_TIMEOUT_NS ) );
     return 1;
   case FD_REQUESTOR_ADVANCE_REQUESTED:
-    fd_schedulor_block_insert( ctx->schedulor, slot, &block_id, now + FD_SCHEDULOR_REQUEST_TIMEOUT_NS );
+    fd_schedulor_block_insert( ctx->schedulor, slot, &block_id, now + ns_to_ticks( ctx, FD_SCHEDULOR_REQUEST_TIMEOUT_NS ) );
     return 0;
   case FD_REQUESTOR_ADVANCE_IDLE:
     return 0;
@@ -1008,18 +1036,27 @@ check_credit( ctx_t *             ctx FD_PARAM_UNUSED,
 
 #define REPLAY_MIN_CREDITS (2UL)
 
+/* Replay does not ring rotor when it returns credits (rotor never parks
+   backpressured, see check_credit), so a delivery blocked on credits
+   polls for them at this interval. */
+#define REPLAY_CREDIT_POLL_NS (1000000L)
+
 static void
 after_credit( ctx_t *             ctx,
               fd_stem_context_t * stem,
               int *               opt_poll_in FD_PARAM_UNUSED,
               int *               charge_busy ) {
-  long now = fd_clock_tile_now( ctx->clock );
+  ctx->idle_due = stem->now;
 
   /* 0. Release a few requests too old to be answered (<=1 is sent per call). */
 
-  fd_inflights_expire( ctx->rtt, now-FD_ROTOR_INFLIGHT_TIMEOUT_NS, 4UL );
+  long cutoff = fd_clock_tile_tickcount_to_wallclock( ctx->clock, stem->now )-FD_ROTOR_INFLIGHT_TIMEOUT_NS;
+  if( FD_UNLIKELY( fd_inflights_expire( ctx->rtt, cutoff, 4UL ) ) ) *charge_busy = 1;
 
-  if( FD_UNLIKELY( stem->cr_avail[ ctx->replay_out_ctx->idx ]<REPLAY_MIN_CREDITS ) ) return;
+  if( FD_UNLIKELY( stem->cr_avail[ ctx->replay_out_ctx->idx ]<REPLAY_MIN_CREDITS ) ) {
+    ctx->idle_due = stem->now+ns_to_ticks( ctx, REPLAY_CREDIT_POLL_NS );
+    return;
+  }
 
   /* 1. Deliveries to replay. */
 
@@ -1050,7 +1087,11 @@ after_credit( ctx_t *             ctx,
   if( FD_UNLIKELY( ctx->halt_signing ) ) { *charge_busy = 1; return; }
 
   out_ctx_t * sign_out = sign_avail_credits( ctx );
-  if( FD_UNLIKELY( !sign_out ) ) { ctx->metrics->sign_unavail++; return; }
+  if( FD_UNLIKELY( !sign_out ) ) {
+    ctx->metrics->sign_unavail++;
+    ctx->idle_due = LONG_MAX; /* a sign response frag returns the credit */
+    return;
+  }
 
   /* 2. Fire-and-forget messages. */
 
@@ -1061,19 +1102,30 @@ after_credit( ctx_t *             ctx,
     return;
   }
 
-  if( FD_LIKELY( requestor_next( ctx, stem, sign_out, now ) ) ) {
+  if( FD_LIKELY( requestor_next( ctx, stem, sign_out, stem->now ) ) ) {
     *charge_busy = 1;
     return;
   }
 
   ulong     slot;
   fd_hash_t block_id;
-  if( FD_LIKELY( fd_schedulor_block_pop( ctx->schedulor, now, &slot, &block_id ) ) ) {
+  if( FD_LIKELY( fd_schedulor_block_pop( ctx->schedulor, stem->now, &slot, &block_id ) ) ) {
     fd_requestor_block_start( ctx->requestor, slot, &block_id );
     ctx->metrics->checks++;
-    requestor_next( ctx, stem, sign_out, now );
+    requestor_next( ctx, stem, sign_out, stem->now );
     *charge_busy = 1;
+    return;
   }
+
+  ctx->idle_due = fd_schedulor_next_timeout( ctx->schedulor );
+}
+
+static long
+next_deadline( ctx_t * ctx ) {
+  /* expire releases records strictly older than the cutoff */
+  long oldest = fd_inflights_oldest_ts( ctx->rtt );
+  long expiry = oldest==LONG_MAX ? LONG_MAX : fd_clock_tile_wallclock_to_tickcount( ctx->clock, oldest+FD_ROTOR_INFLIGHT_TIMEOUT_NS+1L );
+  return fd_long_min( ctx->idle_due, expiry );
 }
 
 /* Housekeeping */
@@ -1164,7 +1216,8 @@ unprivileged_init( fd_topo_t const *      topo,
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 
   ctx->rotor      = fd_rotor_join    ( fd_rotor_new    ( ctx->rotor,      tile->rotor.slot_max, tile->rotor.max_shreds_per_block, ctx->repair_seed ) );
-  ctx->schedulor  = fd_schedulor_join( fd_schedulor_new( ctx->schedulor,  fd_rotor_blk_max( tile->rotor.slot_max ), ctx->repair_seed               ) );
+  fd_clock_tile_init( ctx->clock );
+  ctx->schedulor  = fd_schedulor_join( fd_schedulor_new( ctx->schedulor,  fd_rotor_blk_max( tile->rotor.slot_max ), fd_clock_epoch_w( ctx->clock->epoch ), ctx->repair_seed ) );
   ctx->requestor  = fd_requestor_join( fd_requestor_new( ctx->requestor                                                                            ) );
   ctx->protocol   = fd_repair_join   ( fd_repair_new   ( ctx->protocol,   &ctx->identity_public_key                                                ) );
   ctx->policy     = fd_policy_join   ( fd_policy_new   ( ctx->policy,     FD_REPAIR_PEER_MAX, ctx->repair_seed, ctx->repair_nonce_ss               ) );
@@ -1207,7 +1260,7 @@ unprivileged_init( fd_topo_t const *      topo,
       sign_repair_in_idx[ sign_repair_idx++ ] = in_idx;
       sign_link_depth                         = link->depth;
     }
-    else if( 0==strcmp( link->name, "gossip_out"   ) ) ctx->in_kind[ in_idx ] = IN_KIND_GOSSIP;
+    else if( 0==strcmp( link->name, "gossip_ciaddr" ) ) ctx->in_kind[ in_idx ] = IN_KIND_GOSSIP;
     else if( 0==strcmp( link->name, "shred_out"    ) ) ctx->in_kind[ in_idx ] = IN_KIND_SHRED;
     else if( 0==strcmp( link->name, "snapin_manif" ) ) ctx->in_kind[ in_idx ] = IN_KIND_SNAP;
     else if( 0==strcmp( link->name, "genesi_out"   ) ) ctx->in_kind[ in_idx ] = IN_KIND_GENESIS;
@@ -1272,13 +1325,13 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->net_id = (ushort)0;
   fd_ip4_udp_hdr_init( ctx->intake_hdr, 0, 0, tile->rotor.repair_client_listen_port );
 
+  ctx->idle_due         = 0L;
   ctx->turbine_slot0    = ULONG_MAX;
   ctx->catchup_seeded   = 0;
   ctx->current_slot     = 0UL;
   ctx->replay_root_slot = 0;
   memset( ctx->metrics, 0, sizeof(ctx->metrics) );
 
-  fd_clock_tile_init( ctx->clock );
   ctx->pending_key_next = 0UL;
   ctx->ag_nonce         = 0U;
 
@@ -1379,9 +1432,9 @@ metrics_write( ctx_t * ctx ) {
    gated by REPLAY_MIN_CREDITS in after_credit instead. */
 #define STEM_BURST (3UL)
 
-/* Keeps housekeeping time low.  The tile's only reliable consumer is
-   replay. */
-#define STEM_LAZY  (64000)
+/* Rotor's only reliable consumer is replay, on a deep link, so LAZY
+   just needs to keep housekeeping time low.  384 us, as repair. */
+#define STEM_LAZY  (128L*3000L)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(ctx_t)
@@ -1394,6 +1447,7 @@ metrics_write( ctx_t * ctx ) {
 #define STEM_CALLBACK_RETURNABLE_FRAG     returnable_frag
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 #define STEM_CALLBACK_METRICS_WRITE       metrics_write
+#define STEM_CALLBACK_NEXT_DEADLINE       next_deadline
 
 #include "../../disco/stem/fd_stem.c"
 

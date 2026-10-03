@@ -7,6 +7,12 @@
 #include "ref/fd_f25519.c"
 #endif
 
+#ifdef FD_HAS_S2NBIGNUM
+#include <stdint.h>
+#include "../../third_party/s2n-bignum/include/s2n-bignum.h"
+#include "../../util/sanitize/fd_msan.h"
+#endif
+
 void
 fd_f25519_debug( char const * name,
                  fd_f25519_t const * a ) {
@@ -73,6 +79,22 @@ fd_f25519_pow22523( fd_f25519_t *       r,
   return r;
 }
 
+#ifdef FD_HAS_S2NBIGNUM
+
+/* fd_f25519_inv computes r = 1/a, and returns r. */
+fd_f25519_t *
+fd_f25519_inv( fd_f25519_t *       r,
+               fd_f25519_t const * a ) {
+  ulong x[ 4 ];
+  ulong z[ 4 ];
+  fd_f25519_tobytes( (uchar *)x, a );
+  bignum_inv_p25519( z, x );
+  fd_msan_unpoison( z, 32UL );
+  return fd_f25519_frombytes( r, (uchar const *)z );
+}
+
+#else
+
 /* fd_f25519_inv computes r = 1/a, and returns r. */
 fd_f25519_t *
 fd_f25519_inv( fd_f25519_t *       r,
@@ -116,6 +138,8 @@ fd_f25519_inv( fd_f25519_t *       r,
   for( int i=1; i<  5; i++ ) fd_f25519_sqr( t1, t1 ); /* t1 = z**((2**5) * (2**250 - 1)) */
   return fd_f25519_mul( r, t1, t0 );                  /* Recall t0 = z**11; out = z**(2**255 - 21) */
 }
+
+#endif /* FD_HAS_S2NBIGNUM */
 
 /* Variable time Jacobi symbol mod p, a port of
    secp256k1_jacobi64_maybe_var from libsecp256k1 v0.7.1

@@ -1,6 +1,8 @@
 #define FD_TILE_TEST 1
 #include "fd_votor_tile.c"
 
+#include <stdlib.h>
+
 #define TEST_VOTER_MAX (4UL)
 
 /* An ag_epoch_info_t is nearly 300 KiB, too big for the stack. */
@@ -1157,6 +1159,175 @@ test_conn_ahead( void ) {
   test_ctx_delete( &ctx );
 }
 
+/* Park scheduling: next_deadline is the earliest QUIC, skip timeout or
+   reward retry obligation.  Nothing pending parks untimed, a pending
+   skip timer parks until it and fires on the pass that wakes, a reward
+   retry that cannot go out makes no past deadline (no busy spin), and
+   every pass that pops a vote charges busy, so the stem never parks
+   with votes queued. */
+
+#define PARK_SLOT_MAX (AG_SLOTS_PER_WINDOW+AG_REWARD_SLOT_DELTA)
+
+static uchar park_quic_mem [ 2 ][ 1UL<<20 ] __attribute__((aligned(FD_QUIC_ALIGN)));
+static uchar park_votor_mem[ 1UL<<20 ] __attribute__((aligned(128)));
+static uchar park_peers_mem[ 1UL<<20 ] __attribute__((aligned(128)));
+
+static void
+park_sign( void *         ctx,
+           fd_bls_sig_t * sig,
+           uchar const *  public_key,
+           uchar const *  payload,
+           ulong          payload_sz ) {
+  (void)ctx; (void)public_key; (void)payload; (void)payload_sz;
+  memset( sig, 0, sizeof(fd_bls_sig_t) );
+}
+
+static int
+park_aio_tx( void *                    ctx,
+             fd_aio_pkt_info_t const * batch,
+             ulong                     batch_cnt,
+             ulong *                   opt_batch_idx,
+             int                       flush ) {
+  (void)ctx; (void)batch; (void)flush;
+  if( opt_batch_idx ) *opt_batch_idx = batch_cnt;
+  return FD_AIO_SUCCESS;
+}
+
+static fd_quic_t *
+park_quic( void * mem,
+           int    role ) {
+  fd_quic_limits_t limits = { .conn_cnt = 4UL, .handshake_cnt = 4UL, .conn_id_cnt = FD_QUIC_MIN_CONN_ID_CNT,
+                              .inflight_frame_cnt = 64UL, .min_inflight_frame_cnt_conn = 8UL };
+  FD_TEST( fd_quic_footprint( &limits )<=sizeof(park_quic_mem[0]) );
+  fd_quic_t * quic = fd_quic_join( fd_quic_new( mem, &limits ) );
+  FD_TEST( quic );
+  static fd_aio_t aio[ 2 ];
+  fd_quic_set_aio_net_tx( quic, fd_aio_join( fd_aio_new( &aio[ role==FD_QUIC_ROLE_SERVER ], NULL, park_aio_tx ) ) );
+  quic->config.role         = role;
+  quic->config.idle_timeout = (long)5e9;
+  quic->config.ack_delay    = (long)2e6;
+  memset( quic->config.identity_public_key, 1, 32UL );
+  FD_TEST( fd_quic_init( quic ) );
+  return quic;
+}
+
+static void
+test_park( void ) {
+  static fd_votor_tile_t ctx[1];
+  memset( ctx, 0, sizeof(fd_votor_tile_t) );
+  fd_clock_tile_init( ctx->clock );
+
+  void * park_pool_mem = aligned_alloc( ag_pool_align(), fd_ulong_align_up( ag_pool_footprint( PARK_SLOT_MAX ), ag_pool_align() ) );
+  FD_TEST( park_pool_mem );
+  FD_TEST( ag_votor_footprint( PARK_SLOT_MAX )<=sizeof(park_votor_mem) );
+  FD_TEST( peers_footprint()<=sizeof(park_peers_mem) );
+  ctx->pool        = ag_pool_join ( ag_pool_new ( park_pool_mem,  PARK_SLOT_MAX, 42UL ) );
+  ctx->votor       = ag_votor_join( ag_votor_new( park_votor_mem, PARK_SLOT_MAX, 42UL ) );
+  ctx->peers       = peers_join( peers_new( park_peers_mem ) );
+  ctx->reconn_prq  = reconn_prq_join( reconn_prq_new( reconn_prq_mem, RECONN_MAX ) );
+  ctx->quic_client = park_quic( park_quic_mem[ 0 ], FD_QUIC_ROLE_CLIENT );
+  ctx->quic_server = park_quic( park_quic_mem[ 1 ], FD_QUIC_ROLE_SERVER );
+  static uchar mleaders_mem[ FD_MULTI_EPOCH_LEADERS_FOOTPRINT ] __attribute__((aligned(FD_MULTI_EPOCH_LEADERS_ALIGN)));
+  ctx->mleaders    = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( mleaders_mem ) );
+  FD_TEST( ctx->pool && ctx->votor && ctx->peers && ctx->reconn_prq && ctx->mleaders );
+  for( ulong i=0UL; i<REWARD_VOTE_MAX; i++ ) ctx->reward_votes[ i ].slot = ULONG_MAX;
+  ctx->next_leader_slot = ULONG_MAX;
+  ctx->ns_per_slot      = 400000000L;
+  int charge_busy;
+
+  /* Not yet init: no QUIC conns and nothing else counts. */
+  FD_TEST( next_deadline( ctx )==LONG_MAX );
+
+  /* Init sets the skip timers of the root's window: the park is timed
+     on the earliest one (the window's first slot), in the tickcount
+     domain. */
+  long now = fd_clock_tile_now( ctx->clock );
+  uchar bls_pubkey[ FD_BLS_PUB_COMPRESSED_SZ ] = { 1 };
+  ag_pool_init ( ctx->pool, &(ag_block_id_t){ .slot = 0UL } );
+  ag_votor_init( ctx->votor, 0UL, now, ctx->ns_per_slot, 1, park_sign, ctx );
+  ag_votor_advance_epoch( ctx->votor, ctx->ns_per_slot, 0UL, 0UL, bls_pubkey );
+  ctx->shred_version = 1;
+
+  /* Timers are set but after_credit only polls them once init (epoch
+     info missing): counting them would be a past deadline, a spin. */
+  FD_TEST( ag_votor_next_timeout( ctx->votor )!=LONG_MAX );
+  FD_TEST( next_deadline( ctx )==LONG_MAX );
+
+  ctx->init = 1;
+  long timeout = ag_votor_next_timeout( ctx->votor );
+  FD_TEST( timeout==now+AG_DELTA_TIMEOUT_NS+ctx->ns_per_slot );
+  long due = next_deadline( ctx );
+  FD_TEST( due==fd_clock_tile_wallclock_to_tickcount( ctx->clock, timeout ) );
+  FD_TEST( due>fd_tickcount() );
+
+  /* A reconnect due before the timer moves the park up. */
+  reconn_t reconn = { .timeout = timeout-1000L, .id_key = ctx->id_key };
+  reconn_prq_insert( ctx->reconn_prq, &reconn );
+  FD_TEST( next_deadline( ctx )==fd_clock_tile_wallclock_to_tickcount( ctx->clock, timeout-1000L ) );
+  reconn_prq_remove_min( ctx->reconn_prq );
+
+  /* A fruitless pass before the timer does not charge busy (the stem
+     parks) and leaves the deadline where it was. */
+  charge_busy = 0;
+  after_credit( ctx, NULL, NULL, &charge_busy );
+  FD_TEST( !charge_busy );
+  FD_TEST( ag_votor_next_timeout( ctx->votor )==timeout );
+
+  /* The clock reaches the timer: the deadline is due (never park past
+     it) and the pass that wakes pops it.  It is the root's, so no vote,
+     and the park moves on to slot 1's timer, one slot later. */
+  fd_clock_tile_set( ctx->clock, timeout );
+  FD_TEST( next_deadline( ctx )<=fd_tickcount() );
+  charge_busy = 0;
+  after_credit( ctx, NULL, NULL, &charge_busy );
+  FD_TEST( charge_busy );
+  FD_TEST( !ag_votor_poll_vote_event( ctx->votor, &ctx->scratch.vote_event ) );
+  long timeout1 = ag_votor_next_timeout( ctx->votor );
+  FD_TEST( timeout1==timeout+ctx->ns_per_slot );
+  FD_TEST( next_deadline( ctx )>fd_tickcount() );
+  charge_busy = 0;
+  after_credit( ctx, NULL, NULL, &charge_busy );
+  FD_TEST( !charge_busy );
+
+  /* Slot 1's timer skips the rest of the window: three skip votes, one
+     per pass, each charging busy though there is no epoch info to
+     broadcast them against, so the stem never parks with votes queued.
+     Then the passes go quiet. */
+  fd_clock_tile_set( ctx->clock, timeout1 );
+  ulong busy_cnt = 0UL;
+  for( ulong i=0UL; i<16UL; i++ ) {
+    charge_busy = 0;
+    after_credit( ctx, NULL, NULL, &charge_busy );
+    if( !charge_busy ) break;
+    busy_cnt++;
+  }
+  FD_TEST( busy_cnt==3UL ); /* the pop sends the first vote in the same pass */
+  FD_TEST( !ag_votor_poll_vote_event( ctx->votor, &ctx->scratch.vote_event ) );
+  long next = ag_votor_next_timeout( ctx->votor );
+  FD_TEST( next==timeout1+ctx->ns_per_slot ); /* slot 2: still set, a no-op when it fires */
+
+  /* A reward retry whose leader has no active conn waits for the frag
+     that brings one up: it adds no deadline, due or not. */
+  fd_clock_tile_set( ctx->clock, timeout+(long)10e9 );
+  while( ag_votor_poll_timeout_event( ctx->votor, LONG_MAX-1L, &ctx->scratch.timeout_event ) ) ag_votor_handle_timeout_event( ctx->votor, &ctx->scratch.timeout_event );
+  while( ag_votor_poll_vote_event( ctx->votor, &ctx->scratch.vote_event ) );
+  FD_TEST( ag_votor_next_timeout( ctx->votor )==LONG_MAX );
+  FD_TEST( next_deadline( ctx )==LONG_MAX );
+  reward_vote_t * rv = &ctx->reward_votes[ 5UL%REWARD_VOTE_MAX ];
+  rv->slot     = 5UL;
+  rv->retry_ts = timeout;
+  FD_TEST( next_deadline( ctx )==LONG_MAX );
+  charge_busy = 0;
+  after_credit( ctx, NULL, NULL, &charge_busy );
+  FD_TEST( !charge_busy );
+  FD_TEST( next_deadline( ctx )==LONG_MAX );
+  FD_TEST( rv->slot==5UL );
+
+  reconn_prq_delete( reconn_prq_leave( ctx->reconn_prq ) );
+  free( park_pool_mem );
+  FD_LOG_NOTICE(( "pass: test_park" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -1180,6 +1351,7 @@ main( int     argc,
   test_gossip_connects_new_address();
   test_reconnect();
   test_conn_ahead();
+  test_park();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

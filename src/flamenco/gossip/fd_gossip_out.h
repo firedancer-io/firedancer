@@ -2,6 +2,7 @@
 #define HEADER_fd_src_flamenco_gossip_fd_gossip_out_h
 #include "../../util/fd_util.h"
 #include "../../disco/stem/fd_stem.h"
+#include "fd_gossip_message.h"
 
 struct fd_gossip_out_ctx {
   fd_wksp_t * mem;
@@ -12,6 +13,22 @@ struct fd_gossip_out_ctx {
 };
 
 typedef struct fd_gossip_out_ctx fd_gossip_out_ctx_t;
+
+#define FD_GOSSIP_UPDATE_LINK_CI_ADDR (0UL)
+#define FD_GOSSIP_UPDATE_LINK_CI_SEEN (1UL)
+#define FD_GOSSIP_UPDATE_LINK_VOTE    (2UL)
+#define FD_GOSSIP_UPDATE_LINK_MISC    (3UL)
+#define FD_GOSSIP_UPDATE_LINK_CNT     (4UL)
+
+FD_FN_CONST static inline ulong
+fd_gossip_update_link( ulong tag ) {
+  switch( tag ) {
+    case FD_GOSSIP_UPDATE_TAG_VOTE:            return FD_GOSSIP_UPDATE_LINK_VOTE;
+    case FD_GOSSIP_UPDATE_TAG_DUPLICATE_SHRED:
+    case FD_GOSSIP_UPDATE_TAG_WFS_DONE:        return FD_GOSSIP_UPDATE_LINK_MISC;
+    default:                                   return FD_GOSSIP_UPDATE_LINK_CI_ADDR;
+  }
+}
 
 
 FD_PROTOTYPES_BEGIN

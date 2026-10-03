@@ -33,11 +33,11 @@
 #define FD_SLEEP_ALIGN     (128UL)
 #define FD_SLEEP_MAGIC     (0xf17eda2c3751ee90UL) /* firedancer sleep ver 0 */
 
-#define FD_SLEEP_TILE_MAX  (512UL)
+#define FD_SLEEP_TILE_MAX  ( 512UL)
 #define FD_SLEEP_BITS_CNT  (FD_SLEEP_TILE_MAX/64UL)
-#define FD_SLEEP_LINK_MAX  (256UL) /* ==FD_TOPO_MAX_LINKS  */
-#define FD_SLEEP_IN_MAX    (128UL) /* ==FD_TOPO_MAX_TILE_IN_LINKS */
-#define FD_SLEEP_OUT_MAX   ( 32UL) /* ==FD_TOPO_MAX_TILE_OUT_LINKS */
+#define FD_SLEEP_LINK_MAX  (1024UL) /* ==FD_TOPO_MAX_LINKS */
+#define FD_SLEEP_IN_MAX    ( 256UL) /* ==FD_TOPO_MAX_TILE_IN_LINKS */
+#define FD_SLEEP_OUT_MAX   (  64UL) /* ==FD_TOPO_MAX_TILE_OUT_LINKS */
 
 #define FD_SLEEP_LINGER_NS   (0L)        /* park as soon as caught up */
 #define FD_SLEEP_PARK_CAP_NS (20000000L) /* longest park */

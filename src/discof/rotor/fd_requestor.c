@@ -103,18 +103,6 @@ fd_requestor_block_id( fd_requestor_t const * self ) {
 
 /* Block reads */
 
-/* block_query returns the live, repairable version for {slot,
-   block_id}, or NULL if it is gone or rooted. */
-
-static fd_rotor_blk_t const *
-block_query( fd_rotor_t *      rotor,
-             ulong             slot,
-             fd_hash_t const * block_id ) {
-  if( FD_UNLIKELY( slot<=rotor->root ) ) return NULL;
-  fd_rotor_blk_t const * block = fd_rotor_slot_version_query( rotor, slot, block_id );
-  return block;
-}
-
 /* emit fills *request for the block being walked.  block_id and
    fec_root may be NULL for all-zero. */
 
@@ -264,10 +252,11 @@ fd_requestor_block_advance( fd_requestor_t *     self,
      repair for individual shreds       - otherwise, request individual shreds or FEC_ROOT
      repair for metadata. */
 
-  fd_rotor_blk_t const * block = block_query( rotor, self->slot, &self->block_id );
+  fd_rotor_blk_t const * block = fd_rotor_slot_version_query( rotor, self->slot, &self->block_id );
 
-  if( FD_UNLIKELY( !block ) )                   { self->active = 0; return FD_REQUESTOR_ADVANCE_DONE;             } /* gone or rooted mid-walk */
-  if( parent_next( self, block, out_request ) ) { self->active = 0; return FD_REQUESTOR_ADVANCE_REQUESTED_PARENT; } /* one request, carried in *out_request */
+  if( FD_UNLIKELY( !block || self->slot<=rotor->root ) ) { self->active = 0; return FD_REQUESTOR_ADVANCE_DONE;             } /* gone or rooted mid-walk */
+  if( FD_UNLIKELY( block->abandoned ) )                  { self->active = 0; return FD_REQUESTOR_ADVANCE_DONE;             } /* abandoned mid-walk */
+  if( parent_next( self, block, out_request ) )          { self->active = 0; return FD_REQUESTOR_ADVANCE_REQUESTED_PARENT; } /* one request, carried in *out_request */
 
   /* TODO doc why some parent exists is good */
   int some_parent_exists = fd_block_map_idx_query_const( rotor->block_map, &block->parent_slot, ULONG_MAX, rotor->block_pool )!=ULONG_MAX;

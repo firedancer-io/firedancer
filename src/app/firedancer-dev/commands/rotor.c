@@ -590,7 +590,7 @@ rotor_schedulor_fn( args_t *   args,
   void * schedulor_laddr = FD_SCRATCH_ALLOC_APPEND( l, fd_schedulor_align(), fd_schedulor_footprint( block_max )                     );
 
   for(;;) {
-    fd_schedulor_print( schedulor_laddr, block_max, fd_log_wallclock() );
+    fd_schedulor_print( schedulor_laddr, block_max, fd_tickcount() );
     fflush( stdout );
     if( args->rotor.once ) break;
     sleep( 1 );

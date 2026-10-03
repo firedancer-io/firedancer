@@ -78,50 +78,65 @@ fd_h2_gen_settings( fd_h2_settings_t const * settings,
   fd_h2_setting_encode( buf+39, FD_H2_SETTINGS_MAX_HEADER_LIST_SIZE,   settings->max_header_list_size   );
 }
 
-/* fd_h2_rx_data handles a partial DATA frame. */
+/* fd_h2_rx_stream_used returns 1 if stream_id was already opened or
+   implicitly closed by opening a larger ID of the same initiator. */
+
+static inline int
+fd_h2_rx_stream_used( fd_h2_conn_t const * conn,
+                      uint                 stream_id ) {
+  uint next = ((stream_id^conn->tx_stream_next)&1U) ? conn->rx_stream_next : conn->tx_stream_next;
+  return stream_id<next;
+}
+
+/* fd_h2_rx_data handles a partial DATA frame.  The caller reserves TX
+   space for a single RST_STREAM or two WINDOW_UPDATE frames. */
 
 static void
 fd_h2_rx_data( fd_h2_conn_t *            conn,
                fd_h2_rbuf_t *            rbuf_rx,
                fd_h2_rbuf_t *            rbuf_tx,
                fd_h2_callbacks_t const * cb ) {
-  /* A receive might generate a single RST_STREAM or two WINDOW_UPDATE
-     frames */
-  ulong tx_reserve = fd_ulong_max( sizeof(fd_h2_rst_stream_t), 2UL*sizeof(fd_h2_window_update_t) );
-  if( FD_UNLIKELY( fd_h2_rbuf_free_sz( rbuf_tx )<tx_reserve ) ) return;
-
   ulong frame_rem  = conn->rx_data_cnt_rem;
   ulong rbuf_avail = fd_h2_rbuf_used_sz( rbuf_rx );
   uint  stream_id  = conn->rx_stream_id;
   uint  chunk_sz   = (uint)fd_ulong_min( frame_rem, rbuf_avail );
+  uint  wnd_sz     = chunk_sz; /* + Pad Length and Padding on the last chunk */
   uint  fin_flag   = conn->rx_frame_flags & FD_H2_FLAG_END_STREAM;
   if( rbuf_avail<frame_rem ) fin_flag = 0;
+  else if( FD_UNLIKELY( conn->rx_frame_flags & FD_H2_FLAG_PADDED ) ) wnd_sz += 1U + conn->rx_pad_rem;
 
-  fd_h2_stream_t * stream = cb->stream_query( conn, stream_id );
-  if( FD_UNLIKELY( !stream ||
-                   ( stream->state!=FD_H2_STREAM_STATE_OPEN        &&
-                     stream->state!=FD_H2_STREAM_STATE_CLOSING_TX ) ) ) {
-    fd_h2_tx_rst_stream( rbuf_tx, stream_id, FD_H2_ERR_STREAM_CLOSED );
-    goto skip_frame;
-  }
-
-  if( FD_UNLIKELY( chunk_sz > conn->rx_wnd ) ) {
+  if( FD_UNLIKELY( wnd_sz > conn->rx_wnd ) ) {
     fd_h2_conn_error( conn, FD_H2_ERR_FLOW_CONTROL );
     return;
   }
-  conn->rx_wnd -= chunk_sz;
+  conn->rx_wnd -= wnd_sz;
 
-  if( FD_UNLIKELY( chunk_sz > stream->rx_wnd ) ) {
-    fd_h2_tx_rst_stream( rbuf_tx, stream_id, FD_H2_ERR_FLOW_CONTROL );
-    goto skip_frame;
-  }
-  stream->rx_wnd -= chunk_sz;
-
-  fd_h2_stream_rx_data( stream, conn, fin_flag ? FD_H2_FLAG_END_STREAM : 0U );
-  if( FD_UNLIKELY( stream->state==FD_H2_STREAM_STATE_ILLEGAL ) ) {
+  fd_h2_stream_t * stream = cb->stream_query( conn, stream_id );
+  if( FD_UNLIKELY( !stream ) ) {
+    if( fd_h2_rx_stream_used( conn, stream_id ) ) goto skip_frame; /* RFC 9113 5.1 */
     fd_h2_conn_error( conn, FD_H2_ERR_PROTOCOL );
     return;
   }
+  if( FD_UNLIKELY( stream->state!=FD_H2_STREAM_STATE_OPEN &&
+                   stream->state!=FD_H2_STREAM_STATE_CLOSING_TX ) ) {
+    if( stream->state==FD_H2_STREAM_STATE_CLOSED ) goto skip_frame;
+    if( FD_UNLIKELY( stream->state!=FD_H2_STREAM_STATE_CLOSING_RX ) ) {
+      fd_h2_conn_error( conn, FD_H2_ERR_PROTOCOL );
+      return;
+    }
+    fd_h2_stream_error( stream, conn, rbuf_tx, FD_H2_ERR_STREAM_CLOSED );
+    cb->rst_stream( conn, stream, FD_H2_ERR_STREAM_CLOSED, 0 );
+    goto skip_frame;
+  }
+
+  if( FD_UNLIKELY( wnd_sz > stream->rx_wnd ) ) {
+    fd_h2_stream_error( stream, conn, rbuf_tx, FD_H2_ERR_FLOW_CONTROL );
+    cb->rst_stream( conn, stream, FD_H2_ERR_FLOW_CONTROL, 0 );
+    goto skip_frame;
+  }
+  stream->rx_wnd -= wnd_sz;
+
+  fd_h2_stream_rx_data( stream, conn, fin_flag );
 
   ulong sz0, sz1;
   uchar const * peek = fd_h2_rbuf_peek_used( rbuf_rx, &sz0, &sz1 );
@@ -138,7 +153,7 @@ fd_h2_rx_data( fd_h2_conn_t *            conn,
     /* The first callback may have released the stream.  Re-query the stream
        map before dispatching the wrapped tail chunk. */
     stream = cb->stream_query( conn, stream_id );
-    if( FD_LIKELY( stream ) ) {
+    if( FD_LIKELY( stream && !(conn->flags & (FD_H2_CONN_FLAGS_SEND_GOAWAY|FD_H2_CONN_FLAGS_DEAD)) ) ) {
       cb->data( conn, stream, rbuf_rx->buf0, sz1, fin_flag );
     }
   }
@@ -165,32 +180,6 @@ fd_h2_rx_headers( fd_h2_conn_t *            conn,
     return 0;
   }
 
-  fd_h2_stream_t * stream = cb->stream_query( conn, stream_id );
-  if( !stream ) {
-    if( FD_UNLIKELY( (  stream_id    <   conn->rx_stream_next    ) |
-                     ( (stream_id&1) != (conn->rx_stream_next&1) ) ) ) {
-      /* FIXME should send RST_STREAM instead if the user deallocated
-         stream state but we receive a HEADERS frame for a stream that
-         we started ourselves. */
-      fd_h2_conn_error( conn, FD_H2_ERR_PROTOCOL );
-      return 0;
-    }
-    if( FD_UNLIKELY( conn->stream_active_cnt[0] >= conn->self_settings.max_concurrent_streams ) ) {
-      fd_h2_tx_rst_stream( rbuf_tx, stream_id, FD_H2_ERR_REFUSED_STREAM );
-      return 1;
-    }
-    stream = cb->stream_create( conn, stream_id );
-    if( FD_UNLIKELY( !stream ) ) {
-      fd_h2_tx_rst_stream( rbuf_tx, stream_id, FD_H2_ERR_REFUSED_STREAM );
-      return 1;
-    }
-    fd_h2_stream_open( stream, conn, stream_id );
-    stream->tx_wnd = conn->peer_settings.initial_window_size;
-    conn->rx_stream_next = stream_id+2;
-  }
-
-  conn->rx_stream_id = stream_id;
-
   if( FD_UNLIKELY( frame_flags & FD_H2_FLAG_PRIORITY ) ) {
     if( FD_UNLIKELY( payload_sz<5UL ) ) {
       fd_h2_conn_error( conn, FD_H2_ERR_FRAME_SIZE );
@@ -200,8 +189,38 @@ fd_h2_rx_headers( fd_h2_conn_t *            conn,
     payload_sz -= 5UL;
   }
 
-  if( FD_UNLIKELY( !( frame_flags & FD_H2_FLAG_END_HEADERS ) ) ) {
-    conn->flags |= FD_H2_CONN_FLAGS_CONTINUATION;
+  fd_h2_stream_t * stream = cb->stream_query( conn, stream_id );
+  if( FD_UNLIKELY( !stream || stream->state==FD_H2_STREAM_STATE_CLOSED ) ) {
+    stream = NULL;
+    if( !fd_h2_rx_stream_used( conn, stream_id ) ) {
+      if( FD_UNLIKELY( ((stream_id^conn->tx_stream_next)&1U)==0U ||
+                      ((conn->tx_stream_next&1U) && !conn->allow_server_requests) ) ) {
+        fd_h2_conn_error( conn, FD_H2_ERR_PROTOCOL );
+        return 0;
+      }
+      /* Even a refused stream consumes its ID and closes skipped IDs. */
+      conn->rx_stream_next = stream_id+2U;
+      if( FD_LIKELY( conn->stream_active_cnt[0] < conn->self_settings.max_concurrent_streams ) ) {
+        stream = cb->stream_create( conn, stream_id );
+      }
+      if( FD_LIKELY( stream ) ) fd_h2_stream_open( stream, conn, stream_id );
+      else fd_h2_tx_rst_stream( rbuf_tx, stream_id, FD_H2_ERR_REFUSED_STREAM );
+    }
+  }
+
+  conn->rx_stream_id = stream_id;
+
+  /* Validate discarded blocks and keep state from the first fragment of
+     a live block in case its stream is released before CONTINUATION. */
+  if( FD_UNLIKELY( !stream || !(frame_flags & FD_H2_FLAG_END_HEADERS) ) ) {
+    conn->rx_hdrs_discard = (uchar)!stream;
+    if( !(frame_flags & FD_H2_FLAG_END_HEADERS) ) conn->flags |= FD_H2_CONN_FLAGS_CONTINUATION;
+    fd_hpack_skip_init( &conn->rx_hpack );
+    if( FD_UNLIKELY( fd_hpack_skip_feed( &conn->rx_hpack, payload, payload_sz, !!(frame_flags & FD_H2_FLAG_END_HEADERS) ) ) ) {
+      fd_h2_conn_error( conn, FD_H2_ERR_COMPRESSION );
+      return 0;
+    }
+    if( !stream ) return 1;
   }
 
   fd_h2_stream_rx_headers( stream, conn, frame_flags );
@@ -232,7 +251,6 @@ fd_h2_rx_priority( fd_h2_conn_t * conn,
 
 static int
 fd_h2_rx_continuation( fd_h2_conn_t *            conn,
-                       fd_h2_rbuf_t *            rbuf_tx,
                        uchar *                   payload,
                        ulong                     payload_sz,
                        fd_h2_callbacks_t const * cb,
@@ -250,11 +268,14 @@ fd_h2_rx_continuation( fd_h2_conn_t *            conn,
     conn->flags &= (uchar)~FD_H2_CONN_FLAGS_CONTINUATION;
   }
 
-  fd_h2_stream_t * stream = cb->stream_query( conn, stream_id );
-  if( FD_UNLIKELY( !stream ) ) {
-    fd_h2_tx_rst_stream( rbuf_tx, stream_id, FD_H2_ERR_INTERNAL );
-    return 1;
+  if( FD_UNLIKELY( fd_hpack_skip_feed( &conn->rx_hpack, payload, payload_sz, !!(frame_flags & FD_H2_FLAG_END_HEADERS) ) ) ) {
+    fd_h2_conn_error( conn, FD_H2_ERR_COMPRESSION );
+    return 0;
   }
+  if( FD_UNLIKELY( conn->rx_hdrs_discard ) ) return 1;
+
+  fd_h2_stream_t * stream = cb->stream_query( conn, stream_id );
+  if( FD_UNLIKELY( !stream ) ) return 1;
 
   fd_h2_stream_rx_headers( stream, conn, frame_flags );
   if( FD_UNLIKELY( stream->state==FD_H2_STREAM_STATE_ILLEGAL ) ) {
@@ -277,16 +298,12 @@ fd_h2_rx_rst_stream( fd_h2_conn_t *            conn,
     fd_h2_conn_error( conn, FD_H2_ERR_FRAME_SIZE );
     return 0;
   }
-  if( FD_UNLIKELY( !stream_id ) ) {
-    fd_h2_conn_error( conn, FD_H2_ERR_PROTOCOL );
-    return 0;
-  }
-  if( FD_UNLIKELY( stream_id >= fd_ulong_max( conn->rx_stream_next, conn->tx_stream_next ) ) ) {
+  if( FD_UNLIKELY( !stream_id || !fd_h2_rx_stream_used( conn, stream_id ) ) ) {
     fd_h2_conn_error( conn, FD_H2_ERR_PROTOCOL );
     return 0;
   }
   fd_h2_stream_t * stream = cb->stream_query( conn, stream_id );
-  if( FD_LIKELY( stream ) ) {
+  if( FD_LIKELY( stream && stream->state!=FD_H2_STREAM_STATE_CLOSED ) ) {
     uint error_code = fd_uint_bswap( FD_LOAD( uint, payload ) );
     fd_h2_stream_reset( stream, conn );
     cb->rst_stream( conn, stream, error_code, 1 );
@@ -459,6 +476,21 @@ fd_h2_rx_ping( fd_h2_conn_t *            conn,
   return 1;
 }
 
+void
+fd_h2_tx_rst_stream( fd_h2_rbuf_t * rbuf_tx,
+                     uint           stream_id,
+                     uint           h2_err ) {
+  fd_h2_rst_stream_t rst_stream = {
+    .hdr = {
+      .typlen      = fd_h2_frame_typlen( FD_H2_FRAME_TYPE_RST_STREAM, 4UL ),
+      .flags       = 0U,
+      .r_stream_id = fd_uint_bswap( stream_id )
+    },
+    .error_code = fd_uint_bswap( h2_err )
+  };
+  fd_h2_rbuf_push( rbuf_tx, &rst_stream, sizeof(fd_h2_rst_stream_t) );
+}
+
 int
 fd_h2_tx_ping( fd_h2_conn_t * conn,
                fd_h2_rbuf_t * rbuf_tx ) {
@@ -535,19 +567,19 @@ fd_h2_rx_window_update( fd_h2_conn_t *            conn,
 
   } else {
 
-    if( FD_UNLIKELY( stream_id >= fd_ulong_max( conn->rx_stream_next, conn->tx_stream_next ) ) ) {
+    if( FD_UNLIKELY( !fd_h2_rx_stream_used( conn, stream_id ) ) ) {
       fd_h2_conn_error( conn, FD_H2_ERR_PROTOCOL );
       return 0;
     }
 
-    if( FD_UNLIKELY( !increment ) ) {
-      fd_h2_tx_rst_stream( rbuf_tx, stream_id, FD_H2_ERR_PROTOCOL );
+    fd_h2_stream_t * stream = cb->stream_query( conn, stream_id );
+    if( FD_UNLIKELY( !stream || stream->state==FD_H2_STREAM_STATE_CLOSED ) ) {
       return 1;
     }
 
-    fd_h2_stream_t * stream = cb->stream_query( conn, stream_id );
-    if( FD_UNLIKELY( !stream ) ) {
-      fd_h2_tx_rst_stream( rbuf_tx, stream_id, FD_H2_ERR_STREAM_CLOSED );
+    if( FD_UNLIKELY( !increment ) ) {
+      fd_h2_stream_error( stream, conn, rbuf_tx, FD_H2_ERR_PROTOCOL );
+      cb->rst_stream( conn, stream, FD_H2_ERR_PROTOCOL, 0 );
       return 1;
     }
 
@@ -591,7 +623,7 @@ fd_h2_rx_frame( fd_h2_conn_t *            conn,
   case FD_H2_FRAME_TYPE_PUSH_PROMISE:
     return fd_h2_rx_push_promise( conn );
   case FD_H2_FRAME_TYPE_CONTINUATION:
-    return fd_h2_rx_continuation( conn, rbuf_tx, payload, payload_sz, cb, frame_flags, stream_id );
+    return fd_h2_rx_continuation( conn, payload, payload_sz, cb, frame_flags&FD_H2_FLAG_END_HEADERS, stream_id );
   case FD_H2_FRAME_TYPE_PING:
     return fd_h2_rx_ping( conn, rbuf_tx, payload, payload_sz, cb, frame_flags, stream_id );
   case FD_H2_FRAME_TYPE_GOAWAY:
@@ -615,6 +647,7 @@ fd_h2_rx1( fd_h2_conn_t *            conn,
   /* All frames except DATA are fully buffered, thus assume that current
      frame is a DATA frame if rx_data_cnt_rem != 0. */
   if( conn->rx_data_cnt_rem ) {
+    if( FD_UNLIKELY( fd_h2_rbuf_free_sz( rbuf_tx )<2UL*sizeof(fd_h2_window_update_t) ) ) return;
     fd_h2_rx_data( conn, rbuf_rx, rbuf_tx, cb );
     return;
   }
@@ -672,6 +705,9 @@ fd_h2_rx1( fd_h2_conn_t *            conn,
 
   /* Special case: Process data incrementally */
   if( frame_type==FD_H2_FRAME_TYPE_DATA ) {
+    /* Reserve responses before consuming the header, including for
+       empty DATA frames that have no pending-data counter to retry. */
+    if( FD_UNLIKELY( fd_h2_rbuf_free_sz( rbuf_tx )<2UL*sizeof(fd_h2_window_update_t) ) ) return;
     /* The amount of data is the remainder of the
       frame payload after subtracting the length of the other fields
       that are present [that is, padding length and padding]. */
@@ -719,12 +755,10 @@ fd_h2_rx1( fd_h2_conn_t *            conn,
 
   *rbuf_rx = rx_peek;
   uchar * frame = fd_h2_rbuf_pop( rbuf_rx, scratch, payload_sz );
-  int ok =
-    fd_h2_rx_frame( conn, rbuf_tx, frame, payload_sz, cb,
-                    frame_type,
-                    hdr.flags,
-                    fd_h2_frame_stream_id( hdr.r_stream_id ) );
-  (void)ok; /* FIXME */
+  fd_h2_rx_frame( conn, rbuf_tx, frame, payload_sz, cb,
+                  frame_type,
+                  hdr.flags,
+                  fd_h2_frame_stream_id( hdr.r_stream_id ) );
   fd_h2_rbuf_skip( rbuf_rx, pad_sz );
 }
 
@@ -738,7 +772,7 @@ fd_h2_rx( fd_h2_conn_t *            conn,
   /* Pre-receive TX work */
 
   /* Stop handling frames on conn error. */
-  if( FD_UNLIKELY( conn->flags & FD_H2_CONN_FLAGS_DEAD ) ) return;
+  if( FD_UNLIKELY( conn->flags & (FD_H2_CONN_FLAGS_SEND_GOAWAY|FD_H2_CONN_FLAGS_DEAD) ) ) return;
 
   /* All other logic below can only proceed if new data arrived. */
   if( FD_UNLIKELY( !fd_h2_rbuf_used_sz( rbuf_rx ) ) ) return;

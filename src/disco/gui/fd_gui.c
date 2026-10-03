@@ -2384,7 +2384,7 @@ fd_gui_slot_get_canon_safe( fd_gui_t * gui, ulong _slot ) {
       .slot             = _slot,
       .bank_seq         = ULONG_MAX,
       .parent_bank_seq  = ULONG_MAX,
-      .parent_slot      = fd_gui_slot_skipped_get_parent( gui, _slot ),
+      .parent_slot      = ULONG_MAX,
       .vote_slot        = ULONG_MAX,
       .completed_time   = LONG_MAX,
       .parent_completed_time = LONG_MAX,

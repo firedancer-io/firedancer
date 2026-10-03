@@ -98,7 +98,7 @@ struct __attribute__((aligned(128UL))) ag_votor {
   ag_event_vote_t * vote_events;
   ag_event_cert_t * cert_events;
   pending_dlist_t * pending_dlist;
-  timeout_dlist_t * timeout_dlist;
+  timeout_dlist_t * timeout_dlist[ AG_SLOTS_PER_WINDOW ];
 
   struct {
     ulong * slots;
@@ -126,6 +126,32 @@ state_mut( ag_votor_t * self,
   return ele;
 }
 
+/* A slot's deadline is now plus an offset fixed by its position in the
+   window, so each position's list fills in deadline order and its head
+   is its earliest timer.  The walk back from the tail only runs if the
+   slot length changed (block duration feature activation), or the clock
+   stepped back. */
+
+static void
+set_timeout( ag_votor_t *       self,
+             slot_state_ele_t * ele,
+             long               deadline ) {
+  timeout_dlist_t *  list = self->timeout_dlist[ ele->slot%AG_SLOTS_PER_WINDOW ];
+  slot_state_ele_t * pool = self->slot_states->pool;
+  if( FD_LIKELY( !timer_idle( ele ) ) ) {
+    if( FD_LIKELY( ele->timeout<=deadline ) ) return;
+    timeout_dlist_ele_remove( list, ele, pool );
+  }
+  ele->timeout = deadline;
+
+  timeout_dlist_iter_t iter = timeout_dlist_iter_rev_init( list, pool );
+  while( FD_UNLIKELY( !timeout_dlist_iter_done( iter, list, pool ) && timeout_dlist_iter_ele( iter, list, pool )->timeout>deadline ) ) {
+    iter = timeout_dlist_iter_rev_next( iter, list, pool );
+  }
+  if( FD_LIKELY( !timeout_dlist_iter_done( iter, list, pool ) ) ) timeout_dlist_ele_insert_after( list, ele, timeout_dlist_iter_ele( iter, list, pool ), pool );
+  else                                                            timeout_dlist_ele_push_head   ( list, ele, pool );
+}
+
 /* No crashed-leader timeout.  Agave tracks one, but with
    delta_first_fec_set = delta_block its deadline lands on the first
    slot's timeout, so it never skips a window earlier. */
@@ -139,11 +165,20 @@ set_timeouts( ag_votor_t * self,
 
   for( ulong s=slot; s<slot+AG_SLOTS_PER_WINDOW; s++ ) {
     deadline += fd_long_if( ag_is_start_of_window( s ), 0L, self->ns_per_slot );
-    slot_state_ele_t * state = state_mut( self, s );
-    int                idle  = timer_idle( state );
-    state->timeout           = fd_long_min( state->timeout, deadline );
-    if( FD_LIKELY( idle ) ) timeout_dlist_ele_push_tail( self->timeout_dlist, state, self->slot_states->pool );
+    set_timeout( self, state_mut( self, s ), deadline );
   }
+}
+
+static slot_state_ele_t *
+timeout_head( ag_votor_t const * self ) {
+  slot_state_ele_t * pool = self->slot_states->pool;
+  slot_state_ele_t * head = NULL;
+  for( ulong k=0UL; k<AG_SLOTS_PER_WINDOW; k++ ) {
+    if( FD_LIKELY( timeout_dlist_is_empty( self->timeout_dlist[ k ], pool ) ) ) continue;
+    slot_state_ele_t * ele = timeout_dlist_ele_peek_head( self->timeout_dlist[ k ], pool );
+    if( !head || ele->timeout<head->timeout ) head = ele;
+  }
+  return head;
 }
 
 ulong
@@ -172,7 +207,7 @@ ag_votor_footprint( ulong slot_max ) {
       slot_state_pool_align(),  slot_state_pool_footprint( slot_max )             ),
       slot_state_map_align(),   slot_state_map_footprint ( slot_state_chain_cnt ) ),
       pending_dlist_align(),    pending_dlist_footprint()                         ),
-      timeout_dlist_align(),    timeout_dlist_footprint()                         ),
+      timeout_dlist_align(),    timeout_dlist_footprint()*AG_SLOTS_PER_WINDOW     ),
       vote_events_align(),      vote_events_footprint( events_max )               ),
       cert_events_align(),      cert_events_footprint( events_max )               ),
       alignof(ulong),           sizeof(ulong)*slot_max                            ),
@@ -207,7 +242,7 @@ ag_votor_new( void * mem,
   void *       slot_state_pool  = FD_SCRATCH_ALLOC_APPEND( l, slot_state_pool_align(),  slot_state_pool_footprint( slot_max )             );
   void *       slot_state_map   = FD_SCRATCH_ALLOC_APPEND( l, slot_state_map_align(),   slot_state_map_footprint ( slot_state_chain_cnt ) );
   void *       pending_dlist    = FD_SCRATCH_ALLOC_APPEND( l, pending_dlist_align(),    pending_dlist_footprint()                         );
-  void *       timeout_dlist    = FD_SCRATCH_ALLOC_APPEND( l, timeout_dlist_align(),    timeout_dlist_footprint()                         );
+  uchar *      timeout_dlist    = FD_SCRATCH_ALLOC_APPEND( l, timeout_dlist_align(),    timeout_dlist_footprint()*AG_SLOTS_PER_WINDOW     );
   void *       vote_events      = FD_SCRATCH_ALLOC_APPEND( l, vote_events_align(),      vote_events_footprint( events_max )               );
   void *       cert_events      = FD_SCRATCH_ALLOC_APPEND( l, cert_events_align(),      cert_events_footprint( events_max )               );
   void *       slot_scratch     = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),           sizeof(ulong)*slot_max                            );
@@ -232,7 +267,7 @@ ag_votor_new( void * mem,
   votor->vote_events             = vote_events_join( vote_events_new( vote_events, events_max ) );
   votor->cert_events             = cert_events_join( cert_events_new( cert_events, events_max ) );
   votor->pending_dlist           = pending_dlist_join( pending_dlist_new( pending_dlist ) );
-  votor->timeout_dlist           = timeout_dlist_join( timeout_dlist_new( timeout_dlist ) );
+  for( ulong k=0UL; k<AG_SLOTS_PER_WINDOW; k++ ) votor->timeout_dlist[ k ] = timeout_dlist_join( timeout_dlist_new( timeout_dlist+k*timeout_dlist_footprint() ) );
   votor->scratch.slots           = (ulong *)slot_scratch;
 
   return mem;
@@ -482,7 +517,7 @@ prune( ag_votor_t * self ) {
     slot_state_ele_t * ele = slot_state_map_ele_remove( self->slot_states->map, &slot, NULL, self->slot_states->pool );
     if( FD_LIKELY( ele ) ) {
       if( FD_UNLIKELY( ele->pending_block   ) ) pending_dlist_ele_remove( self->pending_dlist, ele, self->slot_states->pool );
-      if( FD_LIKELY  ( !timer_idle( ele )   ) ) timeout_dlist_ele_remove( self->timeout_dlist, ele, self->slot_states->pool );
+      if( FD_LIKELY  ( !timer_idle( ele )   ) ) timeout_dlist_ele_remove( self->timeout_dlist[ slot%AG_SLOTS_PER_WINDOW ], ele, self->slot_states->pool );
       slot_state_pool_ele_release( self->slot_states->pool, ele );
     }
   }
@@ -694,23 +729,21 @@ ag_votor_poll_timeout_event( ag_votor_t *         self,
                              ag_event_timeout_t * event ) {
   self->now = now;
 
-  slot_state_ele_t * pool = self->slot_states->pool;
+  slot_state_ele_t * ele = timeout_head( self );
+  if( FD_LIKELY( !ele || ele->timeout>now ) ) return 0;
+  timeout_dlist_ele_remove( self->timeout_dlist[ ele->slot%AG_SLOTS_PER_WINDOW ], ele, self->slot_states->pool );
+  ele->timeout = LONG_MAX;
 
-  for( timeout_dlist_iter_t iter = timeout_dlist_iter_fwd_init( self->timeout_dlist, pool );
-                                  !timeout_dlist_iter_done( iter, self->timeout_dlist, pool );
-                            iter = timeout_dlist_iter_fwd_next( iter, self->timeout_dlist, pool ) ) {
-    slot_state_ele_t * ele = timeout_dlist_iter_ele( iter, self->timeout_dlist, pool );
+  event->seq  = self->seq++;
+  event->ts   = self->now;
+  event->slot = ele->slot;
+  return 1;
+}
 
-    if( FD_LIKELY( ele->timeout>now ) ) continue;
-    ele->timeout = LONG_MAX;
-
-    event->seq  = self->seq++;
-    event->ts   = self->now;
-    event->slot = ele->slot;
-    timeout_dlist_ele_remove( self->timeout_dlist, ele, pool );
-    return 1;
-  }
-  return 0;
+FD_FN_PURE long
+ag_votor_next_timeout( ag_votor_t const * self ) {
+  slot_state_ele_t const * head = timeout_head( self );
+  return head ? head->timeout : LONG_MAX;
 }
 
 int
