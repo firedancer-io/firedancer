@@ -367,7 +367,7 @@ fiber_acquire_expect( fiber_t *          fiber,
   fiber->acquire.fork_id         = fork_id;
   fiber->acquire.expect_lamports = expect_lamports;
   memcpy( fiber->acquire.pubkey, pubkey, 32UL );
-  fd_racesan_async_new( fiber->async, fiber->stack+FIBER_STACK_MAX, FIBER_STACK_MAX, fiber_acquire_exec, fiber );
+  fd_racesan_async_new( fiber->async, fiber->stack, FIBER_STACK_MAX, fiber_acquire_exec, fiber );
   return fiber->async;
 }
 
@@ -407,7 +407,7 @@ fiber_release_write( fiber_t *          fiber,
   fiber->release_write.fork_id = fork_id;
   fiber->release_write.lamports = lamports;
   memcpy( fiber->release_write.pubkey, pubkey, 32UL );
-  fd_racesan_async_new( fiber->async, fiber->stack+FIBER_STACK_MAX, FIBER_STACK_MAX, fiber_release_write_exec, fiber );
+  fd_racesan_async_new( fiber->async, fiber->stack, FIBER_STACK_MAX, fiber_release_write_exec, fiber );
   return fiber->async;
 }
 
@@ -454,7 +454,7 @@ fiber_acquire_consistent( fiber_t *          fiber,
   fiber->accdb                     = accdb;
   fiber->acquire_consistent.fork_id = fork_id;
   memcpy( fiber->acquire_consistent.pubkey, pubkey, 32UL );
-  fd_racesan_async_new( fiber->async, fiber->stack+FIBER_STACK_MAX, FIBER_STACK_MAX, fiber_acquire_consistent_exec, fiber );
+  fd_racesan_async_new( fiber->async, fiber->stack, FIBER_STACK_MAX, fiber_acquire_consistent_exec, fiber );
   return fiber->async;
 }
 
@@ -492,7 +492,7 @@ fiber_overwrite( fiber_t *          fiber,
   fiber->overwrite.fork_id = fork_id;
   fiber->overwrite.state   = state;
   memcpy( fiber->overwrite.pubkey, pubkey, 32UL );
-  fd_racesan_async_new( fiber->async, fiber->stack+FIBER_STACK_MAX, FIBER_STACK_MAX, fiber_overwrite_exec, fiber );
+  fd_racesan_async_new( fiber->async, fiber->stack, FIBER_STACK_MAX, fiber_overwrite_exec, fiber );
   return fiber->async;
 }
 
@@ -527,7 +527,7 @@ fiber_overwrite_full( fiber_t *          fiber,
   fiber->accdb             = accdb;
   fiber->overwrite.fork_id = fork_id;
   memcpy( fiber->overwrite.pubkey, pubkey, 32UL );
-  fd_racesan_async_new( fiber->async, fiber->stack+FIBER_STACK_MAX, FIBER_STACK_MAX, fiber_overwrite_full_exec, fiber );
+  fd_racesan_async_new( fiber->async, fiber->stack, FIBER_STACK_MAX, fiber_overwrite_full_exec, fiber );
   return fiber->async;
 }
 
@@ -545,7 +545,7 @@ static fd_racesan_async_t *
 fiber_background( fiber_t *    fiber,
                   fd_accdb_t * accdb ) {
   fiber->accdb = accdb;
-  fd_racesan_async_new( fiber->async, fiber->stack+FIBER_STACK_MAX, FIBER_STACK_MAX, fiber_background_exec, fiber );
+  fd_racesan_async_new( fiber->async, fiber->stack, FIBER_STACK_MAX, fiber_background_exec, fiber );
   return fiber->async;
 }
 
@@ -608,7 +608,7 @@ fiber_nocache( fiber_t *          fiber,
   fiber->nocache.expect_data_len = expect_data_len;
   fiber->nocache.expect_data_fill = expect_data_fill;
   memcpy( fiber->nocache.pubkey, pubkey, 32UL );
-  fd_racesan_async_new( fiber->async, fiber->stack+FIBER_STACK_MAX, FIBER_STACK_MAX, fiber_nocache_exec, fiber );
+  fd_racesan_async_new( fiber->async, fiber->stack, FIBER_STACK_MAX, fiber_nocache_exec, fiber );
   return fiber->async;
 }
 
@@ -631,7 +631,7 @@ fiber_compact_loop( fiber_t *    fiber,
                     int          steps ) {
   fiber->accdb              = accdb;
   fiber->compact_loop.steps = steps;
-  fd_racesan_async_new( fiber->async, fiber->stack+FIBER_STACK_MAX, FIBER_STACK_MAX, fiber_compact_loop_exec, fiber );
+  fd_racesan_async_new( fiber->async, fiber->stack, FIBER_STACK_MAX, fiber_compact_loop_exec, fiber );
   return fiber->async;
 }
 
@@ -660,7 +660,7 @@ fiber_probe( fiber_t *          fiber,
   fiber->accdb          = accdb;
   fiber->probe.fork_id  = fork_id;
   memcpy( fiber->probe.pubkey, pubkey, 32UL );
-  fd_racesan_async_new( fiber->async, fiber->stack+FIBER_STACK_MAX, FIBER_STACK_MAX, fiber_probe_exec, fiber );
+  fd_racesan_async_new( fiber->async, fiber->stack, FIBER_STACK_MAX, fiber_probe_exec, fiber );
   return fiber->async;
 }
 
@@ -692,7 +692,7 @@ fiber_pd_commit( fiber_t *          fiber,
   fiber->pd_commit.fork_id  = fork_id;
   fiber->pd_commit.pd_write = pd_write;
   memcpy( fiber->pd_commit.pubkey, pubkey, 32UL );
-  fd_racesan_async_new( fiber->async, fiber->stack+FIBER_STACK_MAX, FIBER_STACK_MAX, fiber_pd_commit_exec, fiber );
+  fd_racesan_async_new( fiber->async, fiber->stack, FIBER_STACK_MAX, fiber_pd_commit_exec, fiber );
   return fiber->async;
 }
 
@@ -745,7 +745,7 @@ fiber_acquire_ab( fiber_t *          fiber,
   fiber->acquire_ab.expect_owner0   = expect_owner0;
   memcpy( fiber->acquire_ab.pubkey_x, pubkey_x, 32UL );
   memcpy( fiber->acquire_ab.pubkey_d, pubkey_d, 32UL );
-  fd_racesan_async_new( fiber->async, fiber->stack+FIBER_STACK_MAX, FIBER_STACK_MAX, fiber_acquire_ab_exec, fiber );
+  fd_racesan_async_new( fiber->async, fiber->stack, FIBER_STACK_MAX, fiber_acquire_ab_exec, fiber );
   return fiber->async;
 }
 
@@ -779,7 +779,7 @@ fiber_overwrite_n( fiber_t *          fiber,
   fiber->overwrite_n.fork_id = fork_id;
   fiber->overwrite_n.rounds  = rounds;
   memcpy( fiber->overwrite_n.pubkey, pubkey, 32UL );
-  fd_racesan_async_new( fiber->async, fiber->stack+FIBER_STACK_MAX, FIBER_STACK_MAX, fiber_overwrite_n_exec, fiber );
+  fd_racesan_async_new( fiber->async, fiber->stack, FIBER_STACK_MAX, fiber_overwrite_n_exec, fiber );
   return fiber->async;
 }
 
