@@ -7,6 +7,45 @@
 FD_STATIC_ASSERT( FD_HISTF_ALIGN    ==alignof(fd_histf_t), unit_test );
 FD_STATIC_ASSERT( FD_HISTF_FOOTPRINT==sizeof (fd_histf_t), unit_test );
 
+static void
+assert_sample( fd_histf_t * hist,
+               ulong        value ) {
+  ulong bucket = 0UL;
+  while( bucket+1UL<FD_HISTF_BUCKET_CNT && value>=fd_histf_left( hist, bucket+1UL ) ) bucket++;
+
+  ulong counts[ FD_HISTF_BUCKET_CNT ];
+  for( ulong b=0UL; b<FD_HISTF_BUCKET_CNT; b++ ) counts[ b ] = fd_histf_cnt( hist, b );
+  ulong sum = fd_histf_sum( hist );
+
+  fd_histf_sample( hist, value );
+
+  for( ulong b=0UL; b<FD_HISTF_BUCKET_CNT; b++ ) FD_TEST( fd_histf_cnt( hist, b )==counts[ b ]+(ulong)(b==bucket) );
+  FD_TEST( fd_histf_sum( hist )==sum+value );
+}
+
+static void
+test_sample_boundaries( ulong min_value,
+                        ulong max_value ) {
+  fd_histf_t hist[ 1UL ];
+  FD_TEST( fd_histf_new( hist, min_value, max_value )==hist );
+
+  assert_sample( hist, ULONG_MAX );
+  FD_TEST( fd_histf_percentile( hist,   0, 42UL )==42UL );
+  FD_TEST( fd_histf_percentile( hist,  50, 42UL )==42UL );
+  FD_TEST( fd_histf_percentile( hist, 100, 42UL )==42UL );
+
+  for( ulong b=0UL; b<FD_HISTF_BUCKET_CNT; b++ ) {
+    ulong left = fd_histf_left( hist, b );
+    assert_sample( hist, left-1UL );
+    assert_sample( hist, left     );
+    assert_sample( hist, left+1UL );
+  }
+
+  ulong values[] = { (ulong)UINT_MAX, (ulong)UINT_MAX+1UL, (1UL<<63)-1UL, 1UL<<63, (1UL<<63)+1UL,
+                     ULONG_MAX-1UL, ULONG_MAX, ULONG_MAX };
+  for( ulong i=0UL; i<sizeof(values)/sizeof(values[0]); i++ ) assert_sample( hist, values[ i ] );
+}
+
 static inline void
 assert_range( fd_histf_t * hist,
               ulong       idx,
@@ -52,6 +91,11 @@ main( int     argc,
   fd_histf_t * hist  = fd_histf_join( shhist ); FD_TEST( !!hist );
 
   FD_LOG_NOTICE(( "Testing sample" ));
+
+  test_sample_boundaries( 1UL, 100UL );
+  test_sample_boundaries( 4UL,  20UL );
+  test_sample_boundaries( 4UL,   5UL );
+  test_sample_boundaries( 1UL, ULONG_MAX );
 
   for( ulong i=0; i<16UL; i++ ) FD_TEST( fd_histf_cnt( hist, i )==0UL );
 
