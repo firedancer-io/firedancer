@@ -717,8 +717,8 @@ interp_exec:
           in all ways except error code. */
 
       /* Special case to handle entrypoint.
-         ebpf::hash_symbol_name(b"entrypoint") = 0xb00c380, and
-         fd_pchash_inverse( 0xb00c380U ) = 0x71e3cf81U */
+         ebpf::hash_symbol_name(b"entrypoint") = 0x71e3cf81, and
+         fd_pchash_inverse( 0x71e3cf81U ) = 0xb00c380U */
       if( FD_UNLIKELY( imm==0x71e3cf81U ) ) {
         FD_VM_INTERP_STACK_PUSH;
         pc = entry_pc - 1;
