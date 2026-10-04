@@ -4,8 +4,7 @@
 #include "ag_votor_base.h"
 #include "ag_cert.h"
 #include "ag_epoch_info.h"
-#include "ag_event.h"
-#include "ag_slot_state.h"
+#include "ag_parent_ready_tracker.h" /* ag_parent_ready_t */
 #include "ag_vote.h"
 
 #define AG_POOL_SUCCESS                ( 0)
@@ -22,7 +21,40 @@
 #define AG_POOL_QUORUM_REACHED_SAFE_TO_NOTAR  (5)
 #define AG_POOL_QUORUM_REACHED_SAFE_TO_SKIP   (6)
 
+#define AG_POOL_EVENT_PARENT_READY  (0) /* Definition 15. PoolEvent::ParentReady */
+#define AG_POOL_EVENT_SAFE_TO_NOTAR (1) /* Definition 16. PoolEvent::SafeToNotar */
+#define AG_POOL_EVENT_SAFE_TO_SKIP  (2) /* Definition 16. PoolEvent::SafeToSkip  */
+#define AG_POOL_EVENT_CERT_CREATED  (3) /* Definition 13. PoolEvent::CertCreated */
+#define AG_POOL_EVENT_STANDSTILL    (4) /* Section 4.1.   PoolEvent::Standstill  */
+
+#define AG_POOL_EVENT_IMPLICITLY_SKIPPED   (5) /* Firedancer only: for other tiles, never routed to ag_votor */
+#define AG_POOL_EVENT_IMPLICITLY_FINALIZED (6) /* Firedancer only: for other tiles, never routed to ag_votor */
+
 typedef struct ag_pool ag_pool_t;
+
+typedef struct ag_slot_state ag_slot_state_t;
+
+struct ag_pool_event {
+  int kind;
+  union {
+    ag_parent_ready_t parent_ready;
+    ag_block_id_t     safe_to_notar;
+    ulong             safe_to_skip;
+    ag_cert_t         cert_created;
+    ag_standstill_t   standstill;
+    ulong             implicitly_skipped;
+    ag_block_id_t     implicitly_finalized;
+  };
+};
+typedef struct ag_pool_event ag_pool_event_t;
+
+struct ag_pool_metrics {
+  ulong slot_state_pool_used;
+  ulong slot_state_pool_free;
+  ulong finalized_slot;
+  ulong pool_events_cnt;
+};
+typedef struct ag_pool_metrics ag_pool_metrics_t;
 
 FD_PROTOTYPES_BEGIN
 
@@ -55,6 +87,9 @@ ag_pool_fini( ag_pool_t * self );
 
 FD_FN_CONST char const *
 ag_pool_strerror( int err );
+
+FD_FN_PURE ag_pool_metrics_t
+ag_pool_metrics( ag_pool_t const * self );
 
 void
 ag_pool_advance_epoch( ag_pool_t *             self,
@@ -138,14 +173,11 @@ ag_pool_wait_for_parent_ready( ag_pool_t * self,
 
 int
 ag_pool_poll_pool_event( ag_pool_t *       self,
-                         ag_event_pool_t * event );
+                         ag_pool_event_t * event );
 
 int
-ag_pool_poll_repair_event( ag_pool_t *         self,
-                           ag_event_repair_t * event );
-
-FD_FN_PURE ulong
-ag_pool_pool_event_cnt( ag_pool_t const * self );
+ag_pool_poll_repair_event( ag_pool_t *     self,
+                           ag_block_id_t * block );
 
 FD_PROTOTYPES_END
 

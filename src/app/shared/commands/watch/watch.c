@@ -1336,9 +1336,9 @@ write_votor( config_t const * config,
   ulong replay_tile_idx = fd_topo_find_tile( &config->topo, "replay", 0UL );
   ulong reset_slot      = replay_tile_idx!=ULONG_MAX ? cur_tile[ replay_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, REPLAY, RESET_SLOT ) ] : 0UL;
 
-  ulong  finalized_slot = t[ MIDX( GAUGE, VOTOR, FINALIZED_SLOT       ) ];
-  ulong  slots_used     = t[ MIDX( GAUGE, VOTOR, SLOT_STATE_USED      ) ];
-  ulong  slots_max      = t[ MIDX( GAUGE, VOTOR, SLOT_STATE_MAX       ) ];
+  ulong  finalized_slot = t[ MIDX( GAUGE, VOTOR, HIGHEST_FINAL_CERT_SLOT ) ];
+  ulong  slots_used     = t[ MIDX( GAUGE, VOTOR, SLOT_STATE_POOL_USED    ) ];
+  ulong  slots_max      = slots_used+t[ MIDX( GAUGE, VOTOR, SLOT_STATE_POOL_FREE ) ];
   ulong  peers          = t[ MIDX( GAUGE, VOTOR, PEERS_CONNECTED      ) ];
   long   rank           = (long)t[ MIDX( GAUGE, VOTOR, RANK           ) ];
   double slots_pct      = slots_max ? 100.0*(double)slots_used/(double)slots_max : 0.0;
