@@ -869,10 +869,11 @@ fd_accdb_attach_child( fd_accdb_t *       accdb,
 
    We close both races by acquiring CACHE_CLAIM_BIT before mutating
    acc->cache_idx.  cold_load_acc spins while CLAIM is held, so it
-   cannot enter the publish path concurrently.  If CLAIM is already
-   held, a cold-loader is already mid-publish; in that case
-   acc->cache_idx is being repointed away from our line, and we must
-   not touch it.  After mutation we release CLAIM.
+   cannot enter the publish path concurrently.  If CLAIM is held with
+   VALID clear, a cold-loader is repointing acc->cache_idx away from
+   our line, so bail (it may be the thread evicting us).  If VALID is
+   set, the holder is another evictor (e.g. of an orphaned line naming
+   this acc) or acc_unlink, so wait.  After mutation we release CLAIM.
 
    Verifies acc->cache_idx still encodes (size_class, line_idx) before
    clobbering, in case the acc was concurrently re-published into a
@@ -885,12 +886,15 @@ evict_clear_acc_cache_ref( fd_accdb_accmeta_t * accmeta,
                            ulong                line_idx ) {
   uint expected_cidx = FD_ACCDB_ACC_CIDX_PACK( (uint)size_class, (uint)line_idx );
 
-  /* CAS-acquire CLAIM.  If a cold-loader already holds CLAIM, they
-     own the publish path; bail without touching accmeta fields (their
-     republish is repointing accmeta->cache_idx away from our line). */
+  /* CAS-acquire CLAIM. */
   for(;;) {
     uint cur = FD_VOLATILE_CONST( accmeta->executable_size );
-    if( FD_UNLIKELY( cur & FD_ACCDB_SIZE_CACHE_CLAIM_BIT ) ) return;
+    if( FD_UNLIKELY( cur & FD_ACCDB_SIZE_CACHE_CLAIM_BIT ) ) {
+      if( !FD_ACCDB_SIZE_CACHE_VALID( cur ) ) return;
+      fd_racesan_hook( "accdb_evict_clear:claim_held" );
+      FD_SPIN_PAUSE();
+      continue;
+    }
     uint nxt = cur | FD_ACCDB_SIZE_CACHE_CLAIM_BIT;
     if( FD_LIKELY( FD_ATOMIC_CAS( &accmeta->executable_size, cur, nxt )==cur ) ) break;
     fd_racesan_hook( "accdb_evict_clear:claim_wait" );

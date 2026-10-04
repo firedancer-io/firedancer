@@ -789,6 +789,14 @@ fiber_done( fiber_t * fiber ) {
   fd_racesan_async_delete( fiber->async );
 }
 
+static void
+async_finish( fd_racesan_async_t * async ) {
+  for( ulong step=0UL; step<STEP_MAX; step++ ) {
+    if( fd_racesan_async_step( async )==FD_RACESAN_ASYNC_RET_EXIT ) return;
+  }
+  FD_LOG_ERR(( "async did not exit within %lu steps", STEP_MAX ));
+}
+
 /* ------------------------------------------------------------------ */
 /* tests                                                              */
 /* ------------------------------------------------------------------ */
@@ -2855,6 +2863,74 @@ test_overwrite_discard_stray_pin_xclass( void ) {
   test_teardown( accdb, fd );
 }
 
+/* test_orphan_evict_vs_real_evict: an orphaned line and P's real line
+   both name P.  Evicting the real line while the orphan's evictor holds
+   P's CLAIM must not leave P VALID with a recycled cache_idx, which
+   hangs cold_load_acc. */
+static void
+test_orphan_evict_vs_real_evict( void ) {
+  int fd;
+  fd_accdb_t * accdb   = test_setup( &fd, 256UL, 16UL, 1024UL, 1024UL, 1UL<<30UL );
+  fd_accdb_t * accdb_r = test_join_extra();
+
+  uchar key_P  [ 32 ] = { 'P', 0 };
+  uchar key_X  [ 32 ] = { 'X', 0 };
+  uchar owner_P[ 32 ] = { 0xAA, 0 };
+
+  fd_accdb_fork_id_t root0 = fd_accdb_attach_child( accdb, SENTINEL );
+
+  /* Orphan via test_overwrite_discard_stray_pin_xclass's schedule. */
+  seq_write_data( accdb, root0, key_X, 500UL, owner_P, 64UL, 0x77 );
+  ulong cls, idx;
+  FD_TEST( fd_accdb_debug_find_line( accdb, key_X, &cls, &idx ) );
+  FD_TEST( cls==0UL );
+
+  fd_racesan_async_t * ar = fiber_acquire_expect( &g_fiber[0], accdb_r, root0, key_X, 500UL );
+  FD_TEST( fd_racesan_async_step_until( ar, "accdb_acquire:pre_try_pin", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+  FD_TEST( fd_accdb_debug_clock_evict_line( accdb, 0UL, idx )!=UINT_MAX );
+  seq_write_data( accdb, root0, key_P, 100UL, owner_P, 100UL, 0xA1 );
+  FD_TEST( fd_racesan_async_step_until( ar, "accdb_try_pin:post_cas", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+  seq_write_data( accdb, root0, key_P, 777UL, owner_P, 600UL, 0xB2 );
+  async_finish( ar );
+  fiber_done( &g_fiber[0] );
+
+  ulong cls2, idx2;
+  FD_TEST( fd_accdb_debug_find_line( accdb, key_P, &cls2, &idx2 ) );
+  FD_TEST( cls2==2UL );
+  fd_accdb_cache_line_t * orphan = fd_accdb_debug_line_addr( accdb, 0UL, idx );
+  fd_accdb_cache_line_t * real   = fd_accdb_debug_line_addr( accdb, cls2, idx2 );
+  FD_TEST( orphan->acc_idx!=UINT_MAX && orphan->acc_idx==real->acc_idx );
+
+  /* E1 evicts the orphan and suspends holding P's CLAIM. */
+  static evict_fiber_t e1[1];
+  static evict_fiber_t e2[1];
+  e1->accdb = accdb; e1->size_class = 0UL;  e1->line_idx = idx;
+  e2->accdb = accdb; e2->size_class = cls2; e2->line_idx = idx2;
+  void * e1_stack = fd_racesan_stack_create( EVICT_FIBER_STACK_SZ );
+  void * e2_stack = fd_racesan_stack_create( EVICT_FIBER_STACK_SZ );
+  fd_racesan_async_new( e1->async, e1_stack, EVICT_FIBER_STACK_SZ, evict_fiber_exec, e1 );
+  fd_racesan_async_new( e2->async, e2_stack, EVICT_FIBER_STACK_SZ, evict_fiber_exec, e2 );
+  FD_TEST( fd_racesan_async_step_until( e1->async, "accdb_evict_clear:post_claim", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+
+  /* E2 evicts the real line and must block on E1's CLAIM. */
+  FD_TEST( fd_racesan_async_step_until( e2->async, "accdb_evict_clear:claim_held", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+
+  async_finish( e1->async );
+  async_finish( e2->async );
+  fd_racesan_async_delete( e1->async );
+  fd_racesan_async_delete( e2->async );
+  fd_racesan_stack_destroy( e1_stack, EVICT_FIBER_STACK_SZ );
+  fd_racesan_stack_destroy( e2_stack, EVICT_FIBER_STACK_SZ );
+
+  /* Hangs if P was left VALID on a recycled line. */
+  ar = fiber_acquire_expect( &g_fiber[0], accdb_r, root0, key_P, 777UL );
+  async_finish( ar );
+  fiber_done( &g_fiber[0] );
+
+  free( accdb_r );
+  test_teardown( accdb, fd );
+}
+
 /* test_overwrite_discard_vs_evictor proves the discard claim leaves no
    window for a concurrent evictor to steal the line.  Release converts
    its own pin into the claim (CAS refcnt 1->EVICT_SENTINEL); refcnt
@@ -3450,6 +3526,7 @@ main( int     argc,
     TEST( test_stray_pin_vs_release_cleanup ),
     TEST( test_overwrite_discard_stray_pin_cls7 ),
     TEST( test_overwrite_discard_stray_pin_xclass ),
+    TEST( test_orphan_evict_vs_real_evict ),
     TEST( test_overwrite_discard_vs_evictor ),
     TEST( test_clock_claim_vs_freed ),
     TEST( test_preevict_release_store_order ),
