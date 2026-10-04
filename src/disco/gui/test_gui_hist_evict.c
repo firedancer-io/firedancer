@@ -1,12 +1,12 @@
-/* test_gui_hist_evict exercises the space-pressure epoch-cascade eviction in
-   fd_gui_hist: fd_gui_hist_evict_oldest (the synchronous drain used by the
-   map-full fallback and driven one batch at a time by
-   fd_gui_hist_evict_step).  It builds multiple epochs' worth of records -- the
-   EPOCH records, the per-slot (slot,bank_seq) entity rows, and the
-   time-bucketed time-series rows -- then evicts the oldest epoch and asserts
-   that exactly that epoch's rows are gone while the newer epochs survive,
-   including the SHRED_EVENTS boundary case (a slot of the NEXT epoch whose
-   event landed in a wallclock second shared with the oldest epoch's tail).
+/* test_gui_hist_evict exercises the space-pressure epoch-cascade eviction
+   in fd_gui_hist: fd_gui_hist_evict_oldest (the synchronous drain of the
+   cascade fd_gui_hist_evict_step drives one batch at a time).  It builds
+   multiple epochs' worth of records -- the EPOCH records, the per-slot
+   (slot,bank_seq) entity rows, and the time-bucketed time-series rows --
+   then evicts the oldest epoch and asserts that exactly that epoch's rows
+   are gone while the newer epochs survive, including the SHRED_EVENTS
+   boundary case (a slot of the NEXT epoch whose event landed in a
+   wallclock second shared with the oldest epoch's tail).
 
    The eviction path only touches gui->db / gui->hist, so the test allocates a
    bare fd_gui_t (like test_gui_consensus) and wires up the two store layers
@@ -594,6 +594,41 @@ test_epoch_region_reclaimed( fd_gui_t * gui ) {
 
   FD_LOG_NOTICE(( "test_epoch_region_reclaimed: used %lu -> %lu bytes; ok",
                   used_before, used_after ));
+}
+
+/* test_reserve_bounded: a write that finds no free region evicts only
+   until one region frees, leaving the oldest epoch resident; the lazy
+   evictor then finishes it.  Epoch A holds one region plus one row of
+   4 KiB shred batches; the rest of the store is filled with one-region
+   timeline records in epoch C's window, which the cascade keeps.
+   Emplace only writes the timestamp, so few pages are touched. */
+
+static void
+test_reserve_bounded( fd_gui_t * gui ) {
+  ulong cap = FD_GUI_STORE_REGION_SZ / fd_ulong_align_up( sizeof(fd_gui_shred_batch_t), 8UL );
+
+  for( ulong e=0UL; e<3UL; e++ ) {
+    put_epoch( gui, 70UL+e, 20000UL+e*5UL, 5UL );
+    put_slot( gui, 20000UL+e*5UL, sec_ns( 1UL + e*100000UL ) );
+  }
+
+  for( ulong i=0UL; i<cap+1UL; i++ ) FD_TEST( fd_gui_hist_ts_emplace( gui, FD_GUI_HIST_SHRED_EVENTS, sec_ns( 1UL + ( i>>10 ) ) ) );
+  ulong day = 0UL;
+  while( fd_gui_store_free_region_cnt( gui->db ) ) FD_TEST( fd_gui_hist_ts_emplace( gui, FD_GUI_HIST_TIMELINE_DAY, sec_ns( 200001UL + day++ ) ) );
+
+  fd_gui_store_metrics_t const * m = fd_gui_store_metrics( gui->db );
+  FD_TEST( fd_gui_hist_ts_emplace( gui, FD_GUI_HIST_TIMELINE_DAY, sec_ns( 200001UL + day ) ) );
+  FD_TEST( m->evict_records[ FD_GUI_HIST_SHRED_EVENTS ]==cap ); /* one region, not the epoch */
+  FD_TEST( epoch_present( gui, 70UL ) );
+  FD_TEST( fd_gui_hist_metrics( gui )->reserves[ FD_GUI_HIST_TIMELINE_DAY ]==1UL );
+
+  while( epoch_present( gui, 70UL ) ) FD_TEST( fd_gui_hist_evict_step( gui ) );
+  FD_TEST( m->evict_records[ FD_GUI_HIST_SHRED_EVENTS ]==cap+1UL );
+  FD_TEST( m->evict_records[ FD_GUI_HIST_TIMELINE_DAY ]==0UL );
+  FD_TEST( epoch_present( gui, 71UL ) && epoch_present( gui, 72UL ) );
+  FD_TEST( gui->epoch.stored_epoch_cnt==2UL );
+
+  FD_LOG_NOTICE(( "test_reserve_bounded: ok" ));
 }
 
 /* ---- store lifecycle (bare fd_gui_t + the two store layers) ----------- */
@@ -1380,6 +1415,11 @@ main( int     argc,
   store_open( s6, 1UL<<30, 8 );
   test_timeline_db( s6->gui );
   store_close( s6 );
+
+  test_store_t rb[ 1 ];
+  store_open( rb, 1UL<<30, 29 );
+  test_reserve_bounded( rb->gui );
+  store_close( rb );
 
   test_store_t sr[ 1 ];
   store_open( sr, 1UL<<30, 13 );

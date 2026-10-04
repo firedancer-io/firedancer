@@ -253,9 +253,9 @@ fd_gui_hist_db_descs( ulong store_bytes ) {
 
 /* ---- space-pressure eviction -----------------------------------------
 
-   Eviction is a small resumable state machine, advanced in small batches
-   at an infrequent cadence.  It evicts the oldest epoch as a whole, in
-   phases:
+   Eviction is a small resumable state machine, advanced one small
+   batch at a time by the lazy evictor and by writes that find the store
+   full.  It evicts the oldest epoch as a whole, in phases:
 
      IDLE       -> nothing in progress (the common case)
      SLOT       -> deleting the epoch's (slot,bank_seq) KV rows
@@ -365,9 +365,151 @@ fd_gui_hist_db( fd_gui_t * gui ) {
   return (fd_gui_store_t *)gui->db;
 }
 
+/* fd_gui_hist_evict_slot_completed_window returns, in *out_window, the
+   wallclock window (floored completion time) of the lowest-bank_seq
+   SLOT record for `slot`, or 0 if there is no such record (or it
+   has no completion time).  Used to bound the TS eviction window.
+   Returns 1 on success. */
+
+static int
+fd_gui_hist_evict_slot_completed_window( fd_gui_t * gui,
+                                         ulong      slot,
+                                         ulong *    out_window ) {
+  fd_gui_slot_t const * rmeta = fd_gui_hist_kv_get_slot_any( gui, FD_GUI_HIST_SLOT, slot );
+  if( FD_UNLIKELY( !rmeta ) ) return 0;
+  if( FD_UNLIKELY( rmeta->completed_time==LONG_MAX ) ) return 0;
+  *out_window = fd_gui_hist_window( rmeta->completed_time, FD_GUI_HIST_RES_1S_NS );
+  return 1;
+}
+
+/* fd_gui_hist_evict_begin sets up an eviction cascade for the oldest epoch.
+   Returns 1 if a cascade was armed (state populated, phase advanced past
+   IDLE), 0 if there is nothing to evict. */
+
+static int
+fd_gui_hist_evict_begin( fd_gui_t * gui ) {
+  fd_gui_hist_t * hist = fd_gui_hist( gui );
+
+  /* Make sure we always keep the current/next epoch. */
+  if( FD_UNLIKELY( gui->epoch.stored_epoch_cnt<FD_GUI_HIST_MIN_EPOCHS ) ) return 0;
+
+  fd_gui_epoch_t const * meta = fd_gui_store_kv_get_any( fd_gui_hist_db( gui ), (ulong)FD_GUI_HIST_EPOCH, NULL );
+  if( FD_UNLIKELY( !meta ) ) return 0;
+  ulong epoch      = meta->epoch;
+  ulong meta_start = meta->start_slot;
+  ulong meta_cnt   = meta->slot_cnt;
+  ulong start_slot = meta_start;
+  ulong end_slot   = meta_start + meta_cnt - 1UL;
+  ulong next_start = meta_start + meta_cnt; /* next epoch's first slot; always valid (>= FD_GUI_HIST_MIN_EPOCHS resident) */
+
+  ulong window_hi = 0UL;
+  int   have_ts   = 0;
+  ulong next_window;
+  if( FD_LIKELY( fd_gui_hist_evict_slot_completed_window( gui, next_start, &next_window ) ) ) {
+    window_hi = ( next_window>0UL ) ? ( next_window-1UL ) : 0UL;
+    have_ts   = next_window>0UL;
+  }
+
+  hist->evict.epoch      = epoch;
+  hist->evict.start_slot = start_slot;
+  hist->evict.end_slot   = end_slot;
+  hist->evict.window_hi  = window_hi;
+  hist->evict.have_ts    = have_ts;
+  hist->evict.phase      = FD_GUI_HIST_EVICT_SLOT;
+  hist->evict.cur_dbi    = FD_GUI_HIST_SLOT;
+  return 1;
+}
+
+/* fd_gui_hist_evict_slot_batch advances KV DB `dbi`'s watermark to
+   evict the (slot,bank_seq) rows with slot <= end_slot, decrementing
+   *budget per reclaimed row.  Returns 1 if the DB's range is fully
+   drained, 0 if it stopped because the budget ran out. */
+
+static int
+fd_gui_hist_evict_slot_batch( fd_gui_t * gui,
+                              int        dbi,
+                              ulong      end_slot,
+                              ulong *    budget ) {
+  fd_gui_hist_slot_key_t hi = { .slot=end_slot+1UL, .bank_seq=0UL };
+  int drained = 1;
+  fd_gui_store_kv_evict( fd_gui_hist_db( gui ), (ulong)dbi, &hi, budget, &drained );
+  return drained;
+}
+
+/* fd_gui_hist_evict_ts_batch advances TS DB `dbi`'s watermark to evict
+   rows with window <= window_hi, decrementing *budget per reclaimed row.
+   Returns 1 if drained, 0 if it stopped on the budget. */
+
+static int
+fd_gui_hist_evict_ts_batch( fd_gui_t * gui,
+                            int        dbi,
+                            ulong      window_hi,
+                            ulong *    budget ) {
+  int drained = 1;
+  fd_gui_store_ts_evict( fd_gui_hist_db( gui ), (ulong)dbi, window_hi+1UL, budget, &drained );
+  return drained;
+}
+
+/* fd_gui_hist_evict_one advances an in-progress cascade by one bounded batch.
+   Returns 1 (it always does work, or
+   resolves the cascade, when not IDLE). */
+
+static int
+fd_gui_hist_evict_one( fd_gui_t * gui ) {
+  fd_gui_hist_t * hist   = fd_gui_hist( gui );
+  ulong           budget = FD_GUI_HIST_EVICT_BATCH;
+
+  switch( hist->evict.phase ) {
+
+  case FD_GUI_HIST_EVICT_SLOT: {
+    int drained = fd_gui_hist_evict_slot_batch( gui, hist->evict.cur_dbi, hist->evict.end_slot, &budget );
+    if( !drained ) return 1; /* budget spent on this DB; resume next step */
+    /* advance to the next slot-keyed KV DB, or to the TS phase */
+    if( hist->evict.cur_dbi==FD_GUI_HIST_SLOT ) {
+      hist->evict.cur_dbi = FD_GUI_HIST_LEADER_SLOT;
+    } else {
+      hist->evict.phase   = FD_GUI_HIST_EVICT_TIMESERIES;
+      hist->evict.cur_dbi = 0; /* fd_gui_hist_evict_one finds the first TS DB below */
+    }
+    return 1;
+  }
+
+  case FD_GUI_HIST_EVICT_TIMESERIES: {
+    /* skip non-TS DBs (the KV DBs interleave by index) */
+    while( hist->evict.cur_dbi<FD_GUI_HIST_CNT && !fd_gui_hist_is_timeseries( hist->evict.cur_dbi ) ) hist->evict.cur_dbi++;
+    if( hist->evict.cur_dbi>=FD_GUI_HIST_CNT || !hist->evict.have_ts ) {
+      hist->evict.phase = FD_GUI_HIST_EVICT_EPOCH;
+      return 1;
+    }
+    int drained = fd_gui_hist_evict_ts_batch( gui, hist->evict.cur_dbi, hist->evict.window_hi, &budget );
+    if( !drained ) return 1;
+    hist->evict.cur_dbi++; /* next step picks up the next TS DB (or the EPOCH phase) */
+    return 1;
+  }
+
+  case FD_GUI_HIST_EVICT_EPOCH: {
+    fd_gui_hist_epoch_key_t hi = { .epoch=hist->evict.epoch+1UL };
+
+    fd_gui_store_t * db      = fd_gui_hist_db( gui );
+    int           drained = 1;
+    fd_gui_store_kv_evict( db, (ulong)FD_GUI_HIST_EPOCH, &hi, &budget, &drained );
+    if( !drained ) return 1; /* budget spent; resume this phase next step */
+    if( FD_LIKELY( gui->epoch.stored_epoch_cnt ) ) gui->epoch.stored_epoch_cnt--;
+
+    hist->evict.phase = FD_GUI_HIST_EVICT_IDLE; /* cascade complete */
+    return 1;
+  }
+
+  default:
+    hist->evict.phase = FD_GUI_HIST_EVICT_IDLE;
+    return 0;
+  }
+}
+
 static int
 fd_gui_hist_reserve_evict_step( fd_gui_t * gui ) {
-  if( FD_LIKELY( fd_gui_hist_evict_oldest( gui ) ) ) return 1;
+  fd_gui_hist_t * hist = fd_gui_hist( gui );
+  if( FD_LIKELY( ( hist->evict.phase!=FD_GUI_HIST_EVICT_IDLE || fd_gui_hist_evict_begin( gui ) ) && fd_gui_hist_evict_one( gui ) ) ) return 1;
   return fd_gui_hist_evict_ts_oldest( gui );
 }
 
@@ -620,147 +762,6 @@ fd_gui_hist_evict_used_pct( fd_gui_t * gui ) {
   ulong size = fd_gui_store_size( db );
   if( FD_UNLIKELY( !size ) ) return 0UL;
   return ( fd_gui_store_used_bytes( db ) * 100UL ) / size;
-}
-
-/* fd_gui_hist_evict_slot_completed_window returns, in *out_window, the
-   wallclock window (floored completion time) of the lowest-bank_seq
-   SLOT record for `slot`, or 0 if there is no such record (or it
-   has no completion time).  Used to bound the TS eviction window.
-   Returns 1 on success. */
-
-static int
-fd_gui_hist_evict_slot_completed_window( fd_gui_t * gui,
-                                         ulong      slot,
-                                         ulong *    out_window ) {
-  fd_gui_slot_t const * rmeta = fd_gui_hist_kv_get_slot_any( gui, FD_GUI_HIST_SLOT, slot );
-  if( FD_UNLIKELY( !rmeta ) ) return 0;
-  if( FD_UNLIKELY( rmeta->completed_time==LONG_MAX ) ) return 0;
-  *out_window = fd_gui_hist_window( rmeta->completed_time, FD_GUI_HIST_RES_1S_NS );
-  return 1;
-}
-
-/* fd_gui_hist_evict_begin sets up an eviction cascade for the oldest epoch.
-   Returns 1 if a cascade was armed (state populated, phase advanced past
-   IDLE), 0 if there is nothing to evict. */
-
-static int
-fd_gui_hist_evict_begin( fd_gui_t * gui ) {
-  fd_gui_hist_t * hist = fd_gui_hist( gui );
-
-  /* Make sure we always keep the current/next epoch. */
-  if( FD_UNLIKELY( gui->epoch.stored_epoch_cnt<FD_GUI_HIST_MIN_EPOCHS ) ) return 0;
-
-  fd_gui_epoch_t const * meta = fd_gui_store_kv_get_any( fd_gui_hist_db( gui ), (ulong)FD_GUI_HIST_EPOCH, NULL );
-  if( FD_UNLIKELY( !meta ) ) return 0;
-  ulong epoch      = meta->epoch;
-  ulong meta_start = meta->start_slot;
-  ulong meta_cnt   = meta->slot_cnt;
-  ulong start_slot = meta_start;
-  ulong end_slot   = meta_start + meta_cnt - 1UL;
-  ulong next_start = meta_start + meta_cnt; /* next epoch's first slot; always valid (>= FD_GUI_HIST_MIN_EPOCHS resident) */
-
-  ulong window_hi = 0UL;
-  int   have_ts   = 0;
-  ulong next_window;
-  if( FD_LIKELY( fd_gui_hist_evict_slot_completed_window( gui, next_start, &next_window ) ) ) {
-    window_hi = ( next_window>0UL ) ? ( next_window-1UL ) : 0UL;
-    have_ts   = next_window>0UL;
-  }
-
-  hist->evict.epoch      = epoch;
-  hist->evict.start_slot = start_slot;
-  hist->evict.end_slot   = end_slot;
-  hist->evict.window_hi  = window_hi;
-  hist->evict.have_ts    = have_ts;
-  hist->evict.phase      = FD_GUI_HIST_EVICT_SLOT;
-  hist->evict.cur_dbi    = FD_GUI_HIST_SLOT;
-  return 1;
-}
-
-/* fd_gui_hist_evict_slot_batch advances KV DB `dbi`'s watermark to
-   evict the (slot,bank_seq) rows with slot <= end_slot, decrementing
-   *budget per reclaimed row.  Returns 1 if the DB's range is fully
-   drained, 0 if it stopped because the budget ran out. */
-
-static int
-fd_gui_hist_evict_slot_batch( fd_gui_t * gui,
-                              int        dbi,
-                              ulong      end_slot,
-                              ulong *    budget ) {
-  fd_gui_hist_slot_key_t hi = { .slot=end_slot+1UL, .bank_seq=0UL };
-  int drained = 1;
-  fd_gui_store_kv_evict( fd_gui_hist_db( gui ), (ulong)dbi, &hi, budget, &drained );
-  return drained;
-}
-
-/* fd_gui_hist_evict_ts_batch advances TS DB `dbi`'s watermark to evict
-   rows with window <= window_hi, decrementing *budget per reclaimed row.
-   Returns 1 if drained, 0 if it stopped on the budget. */
-
-static int
-fd_gui_hist_evict_ts_batch( fd_gui_t * gui,
-                            int        dbi,
-                            ulong      window_hi,
-                            ulong *    budget ) {
-  int drained = 1;
-  fd_gui_store_ts_evict( fd_gui_hist_db( gui ), (ulong)dbi, window_hi+1UL, budget, &drained );
-  return drained;
-}
-
-/* fd_gui_hist_evict_one advances an in-progress cascade by one bounded batch.
-   Returns 1 (it always does work, or
-   resolves the cascade, when not IDLE). */
-
-static int
-fd_gui_hist_evict_one( fd_gui_t * gui ) {
-  fd_gui_hist_t * hist   = fd_gui_hist( gui );
-  ulong           budget = FD_GUI_HIST_EVICT_BATCH;
-
-  switch( hist->evict.phase ) {
-
-  case FD_GUI_HIST_EVICT_SLOT: {
-    int drained = fd_gui_hist_evict_slot_batch( gui, hist->evict.cur_dbi, hist->evict.end_slot, &budget );
-    if( !drained ) return 1; /* budget spent on this DB; resume next step */
-    /* advance to the next slot-keyed KV DB, or to the TS phase */
-    if( hist->evict.cur_dbi==FD_GUI_HIST_SLOT ) {
-      hist->evict.cur_dbi = FD_GUI_HIST_LEADER_SLOT;
-    } else {
-      hist->evict.phase   = FD_GUI_HIST_EVICT_TIMESERIES;
-      hist->evict.cur_dbi = 0; /* fd_gui_hist_evict_one finds the first TS DB below */
-    }
-    return 1;
-  }
-
-  case FD_GUI_HIST_EVICT_TIMESERIES: {
-    /* skip non-TS DBs (the KV DBs interleave by index) */
-    while( hist->evict.cur_dbi<FD_GUI_HIST_CNT && !fd_gui_hist_is_timeseries( hist->evict.cur_dbi ) ) hist->evict.cur_dbi++;
-    if( hist->evict.cur_dbi>=FD_GUI_HIST_CNT || !hist->evict.have_ts ) {
-      hist->evict.phase = FD_GUI_HIST_EVICT_EPOCH;
-      return 1;
-    }
-    int drained = fd_gui_hist_evict_ts_batch( gui, hist->evict.cur_dbi, hist->evict.window_hi, &budget );
-    if( !drained ) return 1;
-    hist->evict.cur_dbi++; /* next step picks up the next TS DB (or the EPOCH phase) */
-    return 1;
-  }
-
-  case FD_GUI_HIST_EVICT_EPOCH: {
-    fd_gui_hist_epoch_key_t hi = { .epoch=hist->evict.epoch+1UL };
-
-    fd_gui_store_t * db      = fd_gui_hist_db( gui );
-    int           drained = 1;
-    fd_gui_store_kv_evict( db, (ulong)FD_GUI_HIST_EPOCH, &hi, &budget, &drained );
-    if( !drained ) return 1; /* budget spent; resume this phase next step */
-    if( FD_LIKELY( gui->epoch.stored_epoch_cnt ) ) gui->epoch.stored_epoch_cnt--;
-
-    hist->evict.phase = FD_GUI_HIST_EVICT_IDLE; /* cascade complete */
-    return 1;
-  }
-
-  default:
-    hist->evict.phase = FD_GUI_HIST_EVICT_IDLE;
-    return 0;
-  }
 }
 
 int

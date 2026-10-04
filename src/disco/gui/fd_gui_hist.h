@@ -251,8 +251,8 @@ fd_gui_hist_evict_step( fd_gui_t * gui );
 /* fd_gui_hist_evict_oldest evicts the single oldest epoch in its
    entirety, synchronously and unconditionally.
 
-   It is the slow-path used when a write hits map-full.  Returns 1 if an
-   epoch was evicted, 0 if there was nothing to evict or the store is
+   Unbounded, so never called on the write path.  Returns 1 if an epoch
+   was evicted, 0 if there was nothing to evict or the store is
    unavailable. */
 
 int
