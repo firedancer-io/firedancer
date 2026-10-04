@@ -489,6 +489,57 @@ main( int     argc,
   FD_TEST( ctx->net.gre_tunnel_ip[1]==gre1_outer_dst_ip );
   for( ulong i=2UL; i<FD_NET_GRE_MAX; i++ ) FD_TEST( ctx->net.gre_tunnel_ip[i]==0U );
 
+  /* TX routes to non-XDP or non-Ethernet interfaces count as
+     unsupported_interface */
+  {
+    ulong * fail_cnt = ctx->net.metrics.tx_route_fail_cnt;
+    ulong   before   = fail_cnt[ FD_METRICS_ENUM_ROUTE_FAIL_V_UNSUPPORTED_INTERFACE_IDX ];
+
+    ctx->if_virt = IF_IDX_ETH0;
+    FD_TEST( net_tx_route( ctx, random_ip, &is_gre_inf )==0 );
+    FD_TEST( fail_cnt[ FD_METRICS_ENUM_ROUTE_FAIL_V_UNSUPPORTED_INTERFACE_IDX ]==before+1UL );
+
+    ctx->if_virt = IF_IDX_ETH1;
+    fd_netdev_t * eth1 = fd_netdev_tbl_query( &ctx->netdev_tbl, IF_IDX_ETH1 );
+    eth1->dev_type = ARPHRD_NONE;
+    FD_TEST( net_tx_route( ctx, random_ip, &is_gre_inf )==0 );
+    FD_TEST( fail_cnt[ FD_METRICS_ENUM_ROUTE_FAIL_V_UNSUPPORTED_INTERFACE_IDX ]==before+2UL );
+    eth1->dev_type = ARPHRD_ETHER;
+
+    ulong metrics[ FD_METRICS_TOTAL_SZ/sizeof(ulong) ] = {0};
+    volatile ulong * saved_metrics = fd_metrics_tl;
+    fd_metrics_tl = metrics;
+    metrics_write( ctx );
+    FD_TEST( fd_metrics_tl[ FD_METRICS_COUNTER_NET_PKT_TX_ROUTE_FAIL_UNSUPPORTED_INTERFACE_OFF ]==before+2UL );
+    fd_metrics_tl = saved_metrics;
+  }
+
+  /* Loopback TX always targets tile 0.  A non-owning tile must not
+     count it as unsupported_interface, while tile 0 must if it lacks
+     the loopback XSK. */
+  {
+    ulong * fail_cnt = ctx->net.metrics.tx_route_fail_cnt;
+    ulong   before   = fail_cnt[ FD_METRICS_ENUM_ROUTE_FAIL_V_UNSUPPORTED_INTERFACE_IDX ];
+    FD_TEST( ctx->xsk_cnt==1U );
+
+    ctx->net.tile_cnt = 2UL;
+    ulong sig = 0UL;
+    for( ushort port=1; ; port++ ) {
+      sig = fd_disco_netmux_sig( 0, port, FD_IP4_ADDR( 127,0,0,1 ), DST_PROTO_OUTGOING, 42UL );
+      if( fd_disco_netmux_sig_hash( sig )%2UL==1UL ) break;
+    }
+
+    ctx->net.kind_id = 1UL;
+    FD_TEST( before_frag( ctx, 0UL, 0UL, sig )==1 );
+    FD_TEST( fail_cnt[ FD_METRICS_ENUM_ROUTE_FAIL_V_UNSUPPORTED_INTERFACE_IDX ]==before );
+
+    ctx->net.kind_id = 0UL;
+    FD_TEST( before_frag( ctx, 0UL, 0UL, sig )==1 );
+    FD_TEST( fail_cnt[ FD_METRICS_ENUM_ROUTE_FAIL_V_UNSUPPORTED_INTERFACE_IDX ]==before+1UL );
+
+    ctx->net.tile_cnt = 1UL;
+  }
+
   /* ctx->net.in_dcache_ctx */
   ctx->net.in_dcache_ctx[ 0 ].wksp_base = fd_wksp_containing( app_tx_dcache_mem );
   ctx->net.in_dcache_ctx[ 0 ].chunk0    = tx_chunk0;
