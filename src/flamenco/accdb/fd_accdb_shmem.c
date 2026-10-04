@@ -432,6 +432,7 @@ fd_accdb_shmem_new( void * shmem,
       line->refcnt         = 0U;
       line->referenced     = 0;
       line->persisted      = 1;
+      line->seq            = 0U;
     }
   }
 
