@@ -489,7 +489,7 @@ static void
 test_set_bls_pubkey( void ) {
   ag_votor_t * votor = setup_votor( 0L );
   ag_votor_advance_epoch( votor, TEST_NS_PER_SLOT, 1UL, 2UL, NULL );
-  ag_votor_set_bls_pubkey( votor, 2UL, g_bls_selector[1] );
+  ag_votor_set_bls_key( votor, 2UL, g_bls_selector[1] );
 
   ag_block_id_t parent = genesis_block_id();
   ag_vote_t vote = send_block_and_expect_notar( votor, 1UL, &parent );
@@ -498,7 +498,7 @@ test_set_bls_pubkey( void ) {
   FD_TEST( ag_vote_rank( &vote )==1UL );
   FD_TEST( !memcmp( g_last_bls_selector, g_bls_selector[1], FD_BLS_PUB_COMPRESSED_SZ ) );
 
-  ag_votor_set_bls_pubkey( votor, 2UL, NULL );
+  ag_votor_set_bls_key( votor, 2UL, NULL );
   ag_event_replay_t block = { .slot = 3UL };
   block.block_info.parent = ag_block_id( 2UL, vote.notar.block_hash );
   random_hash( block.block_info.hash );
@@ -525,7 +525,7 @@ test_missing_bls_selector_records_notar( void ) {
   ag_votor_handle_replay_event( votor, &block );
   FD_TEST_NO_MSG( votor );
 
-  ag_votor_set_bls_pubkey( votor, 2UL, g_bls_selector[1] );
+  ag_votor_set_bls_key( votor, 2UL, g_bls_selector[1] );
   FD_TEST_NO_MSG( votor );
 
   parent = ag_block_id( 2UL, block.block_info.hash );
@@ -566,7 +566,7 @@ test_set_rank( void ) {
   ag_votor_t * votor = setup_votor( 0L );
   ag_votor_advance_epoch ( votor, TEST_NS_PER_SLOT, 0UL, 2UL, g_bls_selector[0] );
   ag_votor_set_rank      ( votor, 0UL, 1UL );
-  ag_votor_set_bls_pubkey( votor, 0UL, g_bls_selector[1] );
+  ag_votor_set_bls_key( votor, 0UL, g_bls_selector[1] );
 
   ag_block_id_t parent = genesis_block_id();
   ag_vote_t vote = send_block_and_expect_notar( votor, 1UL, &parent );

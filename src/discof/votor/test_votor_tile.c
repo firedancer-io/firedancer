@@ -621,7 +621,7 @@ test_id_keyswitch( void ) {
   ag_event_replay_t block = { .slot = 1UL };
   memcpy( block.block_info.hash, b1.hash, sizeof(ag_block_hash_t) );
   ag_votor_handle_replay_event( ctx.votor, &block );
-  FD_TEST( ag_votor_vote_event_cnt( ctx.votor )==1UL );
+  FD_TEST( ag_votor_metrics( ctx.votor ).vote_events_cnt==1UL );
 
   memcpy( ctx.id_keyswitch->bytes, new_id.uc, sizeof(fd_pubkey_t) );
   ctx.id_keyswitch->param = 8UL;
@@ -651,7 +651,7 @@ test_id_keyswitch( void ) {
   ag_event_vote_t vote;
   FD_TEST( ag_votor_poll_vote_event( ctx.votor, &vote ) );
   FD_TEST( ag_vote_slot( &vote.vote )==1UL && ag_vote_rank( &vote.vote )==0UL );
-  FD_TEST( !ag_votor_vote_event_cnt( ctx.votor ) );
+  FD_TEST( !ag_votor_metrics( ctx.votor ).vote_events_cnt );
 
   /* The other voters skip slot 1, which the old identity notarized, so
      the pool queues a safe-to-skip decided with the old rank.  Votor
@@ -682,7 +682,7 @@ test_id_keyswitch( void ) {
     ag_votor_handle_pool_event( ctx.votor, &pool_event, 0L );
   }
   FD_TEST( safe_to_skip );
-  FD_TEST( !ag_votor_vote_event_cnt( ctx.votor ) );
+  FD_TEST( !ag_votor_metrics( ctx.votor ).vote_events_cnt );
 
   during_housekeeping( &ctx );
   FD_TEST( ctx.id_keyswitch->state==FD_KEYSWITCH_STATE_COMPLETED );
@@ -727,7 +727,7 @@ test_id_keyswitch( void ) {
   FD_TEST( ag_votor_poll_vote_event( ctx.votor, &vote ) );
   FD_TEST( ag_vote_slot( &vote.vote )==4UL && ag_vote_rank( &vote.vote )==1UL );
   FD_TEST( !memcmp( last_bls_signer, bls_keys[1], sizeof(ag_bls_key_t) ) );
-  FD_TEST( !ag_votor_vote_event_cnt( ctx.votor ) );
+  FD_TEST( !ag_votor_metrics( ctx.votor ).vote_events_cnt );
 
   ag_pool_delete( ag_pool_leave( ctx.pool ) );
   ag_votor_delete( ag_votor_leave( ctx.votor ) );
