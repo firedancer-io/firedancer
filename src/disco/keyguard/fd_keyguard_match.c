@@ -402,10 +402,14 @@ FD_FN_PURE static int
 fd_keyguard_payload_matches_tower( uchar const * data,
                                    ulong         sz,
                                    int           sign_type ) {
-  return sign_type==FD_KEYGUARD_SIGN_TYPE_ED25519 &&
-         sz>=1793UL                               &&        /* smallest Tower1_14_11 */
-         FD_LOAD( ulong, data+32UL )==8UL         &&        /* threshold_depth */
-         FD_LOAD( ulong, data+40UL )==0x3FE5555555555555UL; /* threshold_size, 2/3 as f64 bits */
+  static uchar const zeros[ 65 ] = {0};
+  if( sign_type!=FD_KEYGUARD_SIGN_TYPE_ED25519         ) return 0;
+  if( sz<1793UL || sz>2522UL                            ) return 0; /* smallest Tower1_14_11, largest the tower tile writes */
+  if( FD_LOAD( ulong, data+32UL )!=8UL                  ) return 0; /* threshold_depth */
+  if( FD_LOAD( ulong, data+40UL )!=0x3FE5555555555555UL ) return 0; /* threshold_size, 2/3 as f64 bits */
+  if( memcmp( data+48UL, zeros, sizeof(zeros) )         ) return 0;
+  ulong votes_cnt = FD_LOAD( ulong, data+113UL );
+  return votes_cnt>=1UL && votes_cnt<=31UL;
 }
 
 FD_FN_PURE ulong
