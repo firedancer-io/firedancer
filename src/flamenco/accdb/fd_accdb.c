@@ -420,6 +420,7 @@ fd_accdb_reset( fd_accdb_t * accdb ) {
       line->refcnt         = 0U;
       line->referenced     = 0;
       line->persisted      = 1;
+      line->seq            = 0U;
     }
   }
 
@@ -1671,6 +1672,8 @@ acquire_cache_line( fd_accdb_t * accdb,
       FD_SPIN_PAUSE();
     }
     result->referenced = 0;
+    FD_VOLATILE( result->seq ) = result->seq+1U;
+    FD_COMPILER_MFENCE();
     *out_evicted_acc_idx = UINT_MAX;
     return result;
   }
@@ -1724,6 +1727,8 @@ acquire_cache_line( fd_accdb_t * accdb,
     }
     *out_evicted_acc_idx    = line->persisted ? UINT_MAX : line->acc_idx;
     line->key.generation    = UINT_MAX;
+    FD_VOLATILE( line->seq ) = line->seq+1U;
+    FD_COMPILER_MFENCE();
     line->refcnt            = 1;
     line->referenced        = 0;
     return line;
@@ -3723,6 +3728,8 @@ fd_accdb_read_one_nocache( fd_accdb_t *       accdb,
     fd_accdb_cache_line_t * line = cache_line( accdb, cls, idx );
 
     for(;;) {
+      uint seq0 = FD_VOLATILE_CONST( line->seq );
+      FD_COMPILER_MFENCE();
       uint gen0 = FD_VOLATILE_CONST( line->key.generation );
       uint rc0  = FD_VOLATILE_CONST( line->refcnt );
       uint ai0  = FD_VOLATILE_CONST( line->acc_idx );
@@ -3737,13 +3744,17 @@ fd_accdb_read_one_nocache( fd_accdb_t *       accdb,
       if( FD_UNLIKELY( ai0==UINT_MAX ) ) goto miss;
 
       FD_COMPILER_MFENCE();
+      fd_racesan_hook( "accdb_nocache:pre_copy" );
       memcpy( out_owner, line->owner, 32UL );
       memcpy( out_data,  (uchar const *)(line+1UL), data_len );
+      fd_racesan_hook( "accdb_nocache:post_copy" );
       FD_COMPILER_MFENCE();
 
       uint gen1 = FD_VOLATILE_CONST( line->key.generation );
       uint rc1  = FD_VOLATILE_CONST( line->refcnt );
       uint ai1  = FD_VOLATILE_CONST( line->acc_idx );
+      uint seq1 = FD_VOLATILE_CONST( line->seq );
+      if( FD_UNLIKELY( seq1!=seq0 ) ) goto miss;
       if( FD_UNLIKELY( rc1==FD_ACCDB_EVICT_SENTINEL ) ) goto miss;
       if( FD_UNLIKELY( gen1!=snap_gen ) ) goto miss;
       if( FD_UNLIKELY( memcmp( line->key.pubkey, pubkey, 32UL ) ) ) goto miss;

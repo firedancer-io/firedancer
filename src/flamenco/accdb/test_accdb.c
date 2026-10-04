@@ -312,6 +312,57 @@ test_background_preevict_ignores_uninitialized_tail( void ) {
   test_teardown( accdb, fd );
 }
 
+/* test_cache_line_seq_on_reuse: read_one_nocache copies from cache
+   lines without pinning them, and uses line->seq to detect that a line
+   was recycled and reloaded with the same key during the copy.  Churn a
+   tiny cache until K's line has held another account and then K again,
+   and check that seq moved. */
+
+static fd_accdb_cache_line_t *
+test_find_line( ulong         cls,
+                uchar const * pubkey ) {
+  for( ulong idx=0UL; idx<test_shmem_mem->cache_class_max[ cls ]; idx++ ) {
+    fd_accdb_cache_line_t * line = (fd_accdb_cache_line_t *)( (uchar *)test_shmem_mem + test_shmem_mem->cache_region_off[ cls ] + idx*fd_accdb_cache_slot_sz[ cls ] );
+    if( line->key.generation!=UINT_MAX && !memcmp( line->key.pubkey, pubkey, 32UL ) ) return line;
+  }
+  return NULL;
+}
+
+void
+test_cache_line_seq_on_reuse( void ) {
+  ulong cache_fp = 0UL;
+  for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) cache_fp += 2UL*fd_accdb_cache_slot_sz[ c ];
+
+  int fd;
+  fd_accdb_t * accdb = test_setup_ex( &fd, 1024UL, 64UL, 8192UL, 8192UL, 1UL<<30UL, cache_fp, 2UL, 1UL );
+
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( accdb, SENTINEL );
+
+  uchar key[ 32UL ] = { 'K' };
+  accdb_write( accdb, root, key, 1UL, NULL, 0UL, owner2 );
+  fd_accdb_cache_line_t * line = test_find_line( 0UL, key );
+  FD_TEST( line );
+  uint seq0 = line->seq;
+
+  int reused = 0;
+  ulong i;
+  for( i=0UL; i<1024UL; i++ ) {
+    uchar other[ 32UL ] = { 'X' };
+    FD_STORE( ulong, other+1, i );
+    accdb_write( accdb, root, other, 1UL, NULL, 0UL, owner3 );
+    if( line->key.generation!=UINT_MAX && memcmp( line->key.pubkey, key, 32UL ) ) reused = 1;
+
+    uchar owner[ 32UL ];
+    FD_TEST( accdb_read( accdb, root, key, NULL, NULL, NULL, owner ) );
+    FD_TEST( !memcmp( owner, owner2, 32UL ) );
+    if( reused && test_find_line( 0UL, key )==line ) break;
+  }
+  FD_TEST( i<1024UL );
+  FD_TEST( line->seq!=seq0 );
+
+  test_teardown( accdb, fd );
+}
+
 void
 test_basic( void ) {
   int fd;
@@ -2245,6 +2296,9 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "test_basic ..." ));
   test_basic();
+
+  FD_LOG_NOTICE(( "test_cache_line_seq_on_reuse ..." ));
+  test_cache_line_seq_on_reuse();
 
   FD_LOG_NOTICE(( "test_background_preevict_ignores_uninitialized_tail ..." ));
   test_background_preevict_ignores_uninitialized_tail();

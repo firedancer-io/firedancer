@@ -313,7 +313,7 @@ struct fd_accdb_cache_line {
   fd_accdb_cache_key_t key;
 
   uint acc_idx;
-  uint cache_idx;
+  uint seq; /* incremented each time line is reused */
 
   uint  refcnt;
   uchar persisted;

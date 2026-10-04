@@ -300,6 +300,8 @@ fd_backup_cache_read( fd_backup_cache_t * ctx,
   memset( hdr, 0, sizeof(snap_acc_hdr_t) );
   memcpy( hdr->pubkey.uc, pubkey->uc, sizeof(fd_pubkey_t) );
 
+  uint seq0 = FD_VOLATILE_CONST( line->seq );
+  FD_COMPILER_MFENCE();
   uint gen0 = FD_VOLATILE_CONST( line->key.generation );
   uint rc0  = FD_VOLATILE_CONST( line->refcnt );
   uint ai0  = FD_VOLATILE_CONST( line->acc_idx );
@@ -323,6 +325,8 @@ fd_backup_cache_read( fd_backup_cache_t * ctx,
   uint gen1 = FD_VOLATILE_CONST( line->key.generation );
   uint rc1  = FD_VOLATILE_CONST( line->refcnt );
   uint ai1  = FD_VOLATILE_CONST( line->acc_idx );
+  uint seq1 = FD_VOLATILE_CONST( line->seq );
+  if( FD_UNLIKELY( seq1!=seq0 ) ) return FD_BACKUP_CACHE_ERR_MISS;
   if( FD_UNLIKELY( rc1==FD_ACCDB_EVICT_SENTINEL ) ) return FD_BACKUP_CACHE_ERR_MISS;
   if( FD_UNLIKELY( gen1!=snap_gen ) ) return FD_BACKUP_CACHE_ERR_MISS;
   if( FD_UNLIKELY( memcmp( line->key.pubkey, pubkey->uc, sizeof(fd_pubkey_t) ) ) ) return FD_BACKUP_CACHE_ERR_MISS;
