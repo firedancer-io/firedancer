@@ -9,9 +9,10 @@
 #define FD_VOTOR_SIG_REPAIR (1)
 #define FD_VOTOR_SIG_LEADER (2)
 #define FD_VOTOR_SIG_REWARD (3)
+#define FD_VOTOR_SIG_QUORUM (4)
 
 #define FD_VOTOR_NET_BURST (2UL*(1UL+FD_QUIC_TLS_HS_DATA_CNT+3UL)) /* 1 ACK + 1 TLS + 3 1-RTT pkts * 2 for both client and server. EXCLUDES DATAGRAMS. */
-#define FD_VOTOR_OUT_BURST (2UL+1UL+AG_SLOTS_PER_WINDOW+1UL) /* 2 certed + 1 repair + 4 reward + 1 leader */
+#define FD_VOTOR_OUT_BURST (2UL+1UL+1UL+AG_SLOTS_PER_WINDOW+1UL) /* 2 certed + 1 quorum + 1 repair + 4 reward + 1 leader */
 
 /* fd_votor_certed notifies that we have a valid cert for the block
    reaching a given state.  A final cert names only its slot, so it is
@@ -68,11 +69,28 @@ struct fd_votor_reward {
 };
 typedef struct fd_votor_reward fd_votor_reward_t;
 
+/* fd_votor_quorum notifies that the pool's votes or certs moved a block
+   to a new state outside of constructing a cert: it became SafeToNotar
+   (Definition 16), or a descendant finalization implicitly finalized or
+   skipped.  block_id is all 0s for a skipped slot. */
+
+#define FD_VOTOR_QUORUM_KIND_SAFE_TO_NOTAR        (0)
+#define FD_VOTOR_QUORUM_KIND_IMPLICITLY_SKIPPED   (1)
+#define FD_VOTOR_QUORUM_KIND_IMPLICITLY_FINALIZED (2)
+
+struct fd_votor_quorum {
+  uint      kind; /* FD_VOTOR_QUORUM_KIND_* */
+  ulong     slot;
+  fd_hash_t block_id;
+};
+typedef struct fd_votor_quorum fd_votor_quorum_t;
+
 union fd_votor_msg {
   fd_votor_certed_t certed;
   fd_votor_repair_t repair;
   fd_votor_leader_t leader;
   fd_votor_reward_t reward;
+  fd_votor_quorum_t quorum;
 };
 typedef union fd_votor_msg fd_votor_msg_t;
 
