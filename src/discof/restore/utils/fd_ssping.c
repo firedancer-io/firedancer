@@ -66,7 +66,7 @@ typedef struct fd_ssping_peer fd_ssping_peer_t;
 #define MAP_PREV               map.prev
 #define MAP_NEXT               map.next
 #define MAP_KEY_EQ(k0,k1)      ((k0)->l==(k1)->l)
-#define MAP_KEY_HASH(key,seed) (seed^(key)->l)
+#define MAP_KEY_HASH(key,seed) (fd_ulong_hash( (seed)^(key)->l ))
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
 #include "../../../util/tmpl/fd_map_chain.c"
 
