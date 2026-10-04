@@ -1789,7 +1789,7 @@ fd_gui_sample_repair_slot( fd_gui_t * gui, long now ) {
     if( FD_UNLIKELY( rotor_tile_idx==ULONG_MAX ) ) return;
     fd_topo_tile_t const * rotor = &gui->topo->tiles[ rotor_tile_idx ];
     volatile ulong const * rotor_metrics = fd_metrics_tile( rotor->metrics );
-    slot = rotor_metrics[ MIDX( GAUGE, ROTOR, SLOT_HIGHEST_REPAIRED ) ];
+    slot = rotor_metrics[ MIDX( GAUGE, ROTOR, SLOT_HIGHEST_DELIVERED ) ];
   } else {
     ulong repair_tile_idx = fd_topo_find_tile( gui->topo, "repair", 0UL );
     if( FD_UNLIKELY( repair_tile_idx==ULONG_MAX ) ) return;

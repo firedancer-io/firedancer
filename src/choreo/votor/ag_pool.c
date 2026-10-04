@@ -3,9 +3,6 @@
 #include "ag_finality_tracker.h"
 #include "ag_parent_ready_tracker.h"
 
-/* pool_events are notifications from the pool to ag_votor (Definitions
-   15 and 16) and, for implicit finalizations and skips, to other tiles. */
-
 #define QUEUE_NAME pool_events
 #define QUEUE_T    ag_pool_event_t
 #include "../../util/tmpl/fd_queue_dynamic.c"

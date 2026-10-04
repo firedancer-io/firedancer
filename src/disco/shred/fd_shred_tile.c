@@ -268,6 +268,7 @@ typedef struct {
   fd_store_map_t  map_join[1];
   int             disk_fd;
   int             store_maintenance;
+  int             alpenglow;
 
   fd_gossip_update_message_t gossip_upd_buf[1];
 
@@ -1074,6 +1075,7 @@ complete_fec_set( fd_shred_ctx_t *         ctx,
   /* Compute merkle root and chained merkle root. */
 
   int replay_fwd = 1;
+  int again      = 0;
   if( FD_LIKELY( ctx->store ) ) { /* firedancer-only */
 
     set->leader_bank = NULL; /* un-used by firedancer */
@@ -1083,7 +1085,8 @@ complete_fec_set( fd_shred_ctx_t *         ctx,
     fd_store_fec_t * fec;
     int insert_err = fd_store_insert( ctx->store, ctx->map_join, mr, last->slot, ctx->round_robin_id, &fec );
     if( FD_UNLIKELY( insert_err==FD_MAP_ERR_KEY ) ) {
-      replay_fwd = 0;
+      replay_fwd = ctx->alpenglow;
+      again      = 1;
     } else {
       FD_TEST( !insert_err && fec );
 
@@ -1124,7 +1127,7 @@ complete_fec_set( fd_shred_ctx_t *         ctx,
     FD_STATIC_ASSERT( FD_SHRED_STEM_BURST>=32UL, shred_out_burst );
     ulong missing_chunk[ 32 ];
     ulong missing_cnt = 0UL;
-    for( int i=0; i<32; i++ ) {
+    for( int i=0; !again && i<32; i++ ) {
       if( fd_uint_extract_bit( set->data_shred_rcvd, i )==0 ) {
         fd_shred_t * const missing = &set->data_shreds[ i ].s[0];
 
@@ -1155,7 +1158,7 @@ complete_fec_set( fd_shred_ctx_t *         ctx,
        completed by the singular coding shred, and that also happens
        to evict a FEC set from the curr_map.  When fix-32 arrives, the
        link burst value can be lowered to 2. */
-    ulong sig = is_leader ? SHRED_SIG_FEC_COMPLETE_LEADER : SHRED_SIG_FEC_COMPLETE;
+    ulong sig = again ? SHRED_SIG_FEC_COMPLETE_AGAIN : ( is_leader ? SHRED_SIG_FEC_COMPLETE_LEADER : SHRED_SIG_FEC_COMPLETE );
 
     fd_fec_complete_t * complete_msg = fd_chunk_to_laddr( ctx->shred_out_mem, ctx->shred_out_chunk );
     complete_msg->last_shred_hdr = *last;
@@ -1506,6 +1509,7 @@ unprivileged_init( fd_topo_t const *      topo,
     FD_TEST( ctx->store->magic==FD_STORE_MAGIC );
     FD_TEST( fd_store_map_ljoin( ctx->store, ctx->map_join ) );
   }
+  ctx->alpenglow = tile->shred.alpenglow;
   /* With rserve disabled, shred:0 remains responsible for punching
      reclaimed spill pages, and will charge busy. */
   ctx->store_maintenance = !!ctx->store && !ctx->round_robin_id &&

@@ -20,6 +20,11 @@ union fd_rnonce_ss {
 typedef union fd_rnonce_ss fd_rnonce_ss_t;
 FD_STATIC_ASSERT( sizeof(fd_rnonce_ss_t)==64, rnonce_ss );
 
+/* FD_RNONCE_SS_DELTA_MAX is how many 2^24 ns ticks after it is computed
+   a nonce still verifies, about 1 s. */
+
+#define FD_RNONCE_SS_DELTA_MAX ((uint)((1000000000UL + (1UL<<24) - 1UL)/(1UL<<24)))  /* == 60 */
+
 FD_PROTOTYPES_BEGIN
 
 FD_FN_CONST static inline int
@@ -100,7 +105,7 @@ fd_rnonce_ss_verify( fd_rnonce_ss_t const * ss,
   temp->private.time      = (uint)(time_ns>>32);
   temp->private.slot      = fd_ulong_if( normal_repair, slot,      slot/128UL );
   temp->private.shred_idx = fd_uint_if ( normal_repair, shred_idx, 0U         );
-#define ALLOWED_TIME_DELTA ((uint)((1000000000UL + (1UL<<24) - 1UL)/(1UL<<24)))  /* == 60 */
+#define ALLOWED_TIME_DELTA FD_RNONCE_SS_DELTA_MAX
 
 #define CHECKN( temp ) do{ if( FD_LIKELY(                                                                                   \
                          ( (fd_hash( 2270897969802886507UL, temp, sizeof(temp) ) + (((ulong)time_ns)>>24) - (ulong)nonce) & \

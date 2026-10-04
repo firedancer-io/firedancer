@@ -37,12 +37,13 @@ typedef struct {
    the same dcache type fd_shred_base_t.  Only repair/bad_repair shreds
    will populate the rnonce field.
 
-   SHRED_SIG_FEC_{EVICTED,COMPLETE,COMPLETE_LEADER} are not generated on
-   every shred, but rather on events where a FEC set is completed by the
-   fec_resolver or evicted from the fec_resolver.  In the case that a
-   FEC set is completed by the 32nd shred in a FEC set, both a shred
-   message and a complete message will be published.  It is convenient
-   for downstream consumers to have both messages available.
+   SHRED_SIG_FEC_{EVICTED,COMPLETE,COMPLETE_LEADER,COMPLETE_AGAIN} are
+   not generated on every shred, but rather on events where a FEC set is
+   completed by the fec_resolver or evicted from the fec_resolver.  In
+   the case that a FEC set is completed by the 32nd shred in a FEC set,
+   both a shred message and a complete message will be published.  It
+   is convenient for downstream consumers to have both messages
+   available.
 
    The last 32 LSB of sig is the data source of the message, and the
    first 32 MSB is the shred processing result. */
@@ -58,6 +59,7 @@ typedef struct {
 #define SHRED_SIG_FEC_EVICTED         (5UL) /* evicted */
 #define SHRED_SIG_FEC_COMPLETE        (6UL) /* FEC set complete */
 #define SHRED_SIG_FEC_COMPLETE_LEADER (7UL) /* leader FEC set complete */
+#define SHRED_SIG_FEC_COMPLETE_AGAIN  (8UL) /* FEC set complete again, it was already in the store (Alpenglow only) */
 
 /* shred processing result (first 32 bits of sig) */
 #define SHRED_SIG_RESULT_COMPLETES     ( 1)

@@ -176,6 +176,8 @@ FD_FN_PURE int
 ag_slot_state_is_notar_fallback_or_stronger( ag_slot_state_t const * self,
                                              ag_block_hash_t const   block_hash );
 
+/* Accessors for reward certs */
+
 FD_FN_PURE fd_bls_agg_t const *
 ag_slot_state_notar_reward_agg( ag_slot_state_t const * self );
 
