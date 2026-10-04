@@ -3434,9 +3434,7 @@ publish_vote_status( fd_gui_t * gui,
    manages consensus related fork switching, rooting, slot confirmation.
 
    The gui tile consumes tower_out via returnable_frag and defers any
-   update whose replay_slot has not yet been recorded from replay, so by
-   the time this runs both tower->replay_slot and tower->reset_slot are
-   guaranteed to have a DB record. */
+   update whose replay_slot or reset_slot has no DB record. */
 void
 fd_gui_handle_tower_update( fd_gui_t *                   gui,
                             fd_tower_slot_done_t const * tower,

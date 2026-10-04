@@ -126,6 +126,10 @@ typedef struct {
   ulong in_cnt;
   ulong idle_cnt;
 
+  fd_frag_meta_t const * replay_mcache;
+  ulong                  replay_depth;
+  ulong                  replay_seq;
+
   long deadline_ticks;
 
   fd_clock_tile_t clock[1];
@@ -467,6 +471,7 @@ after_frag( fd_gui_ctx_t *      ctx,
       break;
     }
     case IN_KIND_REPLAY_OUT: {
+      ctx->replay_seq = seq+1UL;
       if( FD_UNLIKELY( sig==REPLAY_SIG_SLOT_COMPLETED ) ) {
         fd_replay_slot_completed_t const * slot_completed =  (fd_replay_slot_completed_t const *)src;
 
@@ -641,7 +646,13 @@ returnable_frag( fd_gui_ctx_t *      ctx,
   if( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_DONE ) ) {
     FD_TEST( sz>=sizeof(fd_tower_slot_done_t) );
     fd_tower_slot_done_t const * tower = (fd_tower_slot_done_t const *)src;
-    if( FD_UNLIKELY( !fd_gui_slot_get( ctx->gui, tower->replay_slot, tower->replay_bank_seq ) ) ) return 1; /* block not replayed yet: defer polling */
+    if( FD_UNLIKELY( !fd_gui_slot_get( ctx->gui, tower->replay_slot, tower->replay_bank_seq ) ||
+                     ( tower->reset_slot!=ULONG_MAX && !fd_gui_slot_get( ctx->gui, tower->reset_slot, tower->reset_bank_seq ) ) ) ) {
+      /* once replay_slot is drained, a missing record means the store
+         was full, so drop */
+      fd_frag_meta_t const * mline = ctx->replay_mcache + fd_mcache_line_idx( ctx->replay_seq, ctx->replay_depth );
+      return !fd_seq_lt( FD_VOLATILE_CONST( mline->seq ), ctx->replay_seq );
+    }
     fd_gui_handle_tower_update( ctx->gui, tower, fd_clock_tile_now( ctx->clock ) );
   }
 
@@ -979,6 +990,7 @@ unprivileged_init( fd_topo_t const *      topo,
   deadline_update( ctx, fd_clock_tile_now( ctx->clock ) );
   FD_TEST( tile->in_cnt<=sizeof(ctx->in)/sizeof(ctx->in[0]) );
   ctx->in_cnt = tile->in_cnt;
+  ctx->replay_seq = 0UL;
 
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
@@ -1005,6 +1017,11 @@ unprivileged_init( fd_topo_t const *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "diag_gui"       ) ) ) ctx->in_kind[ i ] = IN_KIND_DIAG;
     else if( FD_LIKELY( !strcmp( link->name, "votor_out"      ) ) ) ctx->in_kind[ i ] = IN_KIND_VOTOR_OUT;
     else FD_LOG_ERR(( "gui tile has unexpected input link %lu %s", i, link->name ));
+
+    if( FD_UNLIKELY( ctx->in_kind[ i ]==IN_KIND_REPLAY_OUT ) ) {
+      ctx->replay_mcache = link->mcache;
+      ctx->replay_depth  = fd_mcache_depth( link->mcache );
+    }
 
     if( FD_LIKELY( !strcmp( link->name, "execle_poh" ) ) ) {
       ulong producer = fd_topo_find_link_producer( topo, &topo->links[ tile->in_link_id[ i ] ] );
