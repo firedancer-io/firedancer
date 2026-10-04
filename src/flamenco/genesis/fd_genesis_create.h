@@ -33,6 +33,18 @@ struct fd_genesis_options {
 
   int   warmup_epochs;
 
+  /* bls_pubkey is the compressed BLS pubkey written into the vote
+     account.  Should be derived from the identity key with
+     fd_keyguard_bls_key_derive, else the validator cannot vote under
+     Alpenglow. */
+  uchar bls_pubkey[ 48 ];
+
+  /* alpenglow creates a cluster that runs Alpenglow from slot 0.  Adds
+     the genesis certificate and epoch inflation accounts, like Agave
+     solana-genesis --alpenglow.  The caller must also enable the
+     alpenglow feature in features. */
+  int   alpenglow;
+
   /* features points to an externally owned feature map.
      Adds a feature account to the genesis blob for feature enabled at
      slot 0.  If features==NULL, creates no feature accounts. */

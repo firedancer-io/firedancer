@@ -275,10 +275,10 @@ ag_pool_delete( void * mem ) {
 }
 
 void
-ag_pool_init( ag_pool_t * self,
-              ulong       slot ) {
-  ag_finality_tracker_init( self->finality_tracker, slot );
-  self->parent_ready_tracker->root = slot;
+ag_pool_init( ag_pool_t *           self,
+              ag_block_id_t const * root ) {
+  ag_finality_tracker_init( self->finality_tracker, root->slot );
+  ag_parent_ready_tracker_init( self->parent_ready_tracker, root );
 }
 
 void

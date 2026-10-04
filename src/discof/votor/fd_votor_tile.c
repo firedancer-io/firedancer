@@ -1122,7 +1122,9 @@ handle_epoch( fd_votor_tile_t *           ctx,
 
   fd_multi_epoch_leaders_epoch_msg_init( ctx->mleaders, msg );
   fd_multi_epoch_leaders_epoch_msg_fini( ctx->mleaders );
-  if( FD_UNLIKELY( ctx->next_leader_slot==ULONG_MAX ) ) ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, msg->start_slot, &ctx->id_key );
+  /* Slot 0 is genesis.  Slot 1 is ParentReady on genesis (see
+     ag_pool_init) even though it does not start a window. */
+  if( FD_UNLIKELY( ctx->next_leader_slot==ULONG_MAX ) ) ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, fd_ulong_max( msg->start_slot, 1UL ), &ctx->id_key );
 
   ctx->init = ag_pool_finalized_slot( ctx->pool )!=ULONG_MAX && !!ctx->shred_version;
 }
@@ -1191,7 +1193,7 @@ handle_replay( fd_votor_tile_t *           ctx,
     ag_block_id_t                      block_id        = ag_block_id( slot_completed->slot,        slot_completed->block_id.uc        );
     ag_block_id_t                      parent_block_id = ag_block_id( slot_completed->parent_slot, slot_completed->parent_block_id.uc );
     if( FD_UNLIKELY( ag_pool_finalized_slot( ctx->pool )==ULONG_MAX ) ) {
-      ag_pool_init( ctx->pool, block_id.slot );
+      ag_pool_init( ctx->pool, &block_id );
       if( FD_LIKELY( ctx->shred_version ) ) ag_votor_init( ctx->votor, block_id.slot, fd_clock_tile_now( ctx->clock ), ctx->ns_per_slot, ctx->shred_version, sign_bls, ctx );
       ctx->init = !!ctx->curr_epoch_info && !!ctx->shred_version;
     } else if( FD_UNLIKELY( block_id.slot!=0 ) ) {
@@ -1717,7 +1719,7 @@ after_credit( fd_votor_tile_t *   ctx,
 
   ulong finalized_slot = ag_pool_finalized_slot( ctx->pool );
   while( FD_UNLIKELY( ctx->next_leader_slot<=finalized_slot ) ) {
-    ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, ctx->next_leader_slot+AG_SLOTS_PER_WINDOW, &ctx->id_key );
+    ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, ag_first_slot_in_window( ctx->next_leader_slot )+AG_SLOTS_PER_WINDOW, &ctx->id_key );
     if( FD_UNLIKELY( ctx->next_leader_slot==ULONG_MAX ) ) return; /* schedule exhausted */
   }
 
@@ -1732,7 +1734,7 @@ after_credit( fd_votor_tile_t *   ctx,
   ulong reward_slot = fd_ulong_sat_sub( ctx->next_leader_slot, FD_NUM_SLOTS_FOR_REWARD );
   for( ulong i=0UL; i<AG_SLOTS_PER_WINDOW; i++ ) publish_reward_certs( ctx, stem, reward_slot+i );
 
-  ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, ctx->next_leader_slot+AG_SLOTS_PER_WINDOW, &ctx->id_key );
+  ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, ag_first_slot_in_window( ctx->next_leader_slot )+AG_SLOTS_PER_WINDOW, &ctx->id_key );
   *charge_busy = 1;
 }
 
@@ -1752,8 +1754,9 @@ before_frag( fd_votor_tile_t * ctx,
     if( FD_UNLIKELY( !ctx->curr_epoch_info || ctx->halt_signing ) ) return 1; /* halted, no TLS handshake may sign */
     return fd_disco_netmux_sig_proto( sig )!=DST_PROTO_VOTOR;
   case IN_KIND_REPLAY:
+    /* load epoch info before accepting replay frags */
+    if( FD_UNLIKELY( !ctx->curr_epoch_info ) ) return -1;
     ctx->replay_in_seq = seq+1UL;
-    if( FD_UNLIKELY( !ctx->curr_epoch_info ) ) return 1;
     return sig!=REPLAY_SIG_SLOT_COMPLETED && sig!=REPLAY_SIG_SLOT_DEAD;
   default:
     FD_LOG_ERR(( "unexpected in_kind %d", ctx->in_kind[ in_idx ] ));

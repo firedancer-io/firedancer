@@ -71,7 +71,7 @@ fd_global_options_help( fd_action_help_t * help ) {
   fd_action_help_arg( help, "--no-sandbox",       NULL,      "Disable the security sandbox (development only)" );
   fd_action_help_arg( help, "--no-clone",         NULL,      "Run all tiles in a single process instead of one per tile (development only)" );
   fd_action_help_arg( help, "--max-live-slots",   "<count>", "Override the [runtime.max_live_slots] configuration (development only)" );
-  fd_action_help_arg( help, "--alpenglow",        NULL,      "Run Alpenglow consensus in lieu of Tower consensus" );
+  fd_action_help_arg( help, "--alpenglow",        NULL,      "Run Alpenglow consensus in lieu of Tower consensus (always on for local clusters)" );
   fd_action_help_arg( help, "--efficient",        NULL,      "Override the layout mode to \"efficient\" so tiles sleep when idle" );
   fd_action_help_arg( help, "--version",          NULL,      "Show the current software version" );
   fd_action_help_arg( help, "--help/-h",          NULL,      "Print this help message" );

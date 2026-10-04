@@ -2285,10 +2285,19 @@ enforce_nanosecond_clock_bounds( fd_replay_tile_t * ctx,
   fd_pubkey_t alpenclock_addr;
   fd_alpenglow_pda( "alpenclock", &alpenclock_addr );
 
+  /* The alpenclock account is missing until the first block footer
+     (e.g. when producing the first block after genesis).  Like the
+     runtime, fall back to the clock sysvar. */
+  long parent_nanos;
   fd_acc_t acc = fd_accdb_read_one( ctx->accdb, bank->accdb_fork_id, alpenclock_addr.uc );
-  FD_CHECK_CRIT( acc.lamports && acc.data_len>=sizeof(ulong), "alpenclock account missing" ); /* Firedancer does not support producing the FIRST alpenglow block */
-  long parent_nanos = (long)FD_LOAD( ulong, acc.data );
+  int has_alpenclock = acc.lamports && acc.data_len>=sizeof(ulong);
+  if( FD_LIKELY( has_alpenclock ) ) parent_nanos = (long)FD_LOAD( ulong, acc.data );
   fd_accdb_unread_one( ctx->accdb, &acc );
+  if( FD_UNLIKELY( !has_alpenclock ) ) {
+    fd_sol_sysvar_clock_t clock[1];
+    FD_TEST( fd_sysvar_clock_read( ctx->accdb, bank->accdb_fork_id, clock ) );
+    parent_nanos = fd_long_sat_mul( clock->unix_timestamp, 1000000000L );
+  }
 
   ulong elapsed = fd_slot_params_slot_range_duration_ns( bank, bank->f.parent_slot+1UL, bank->f.slot+1UL /* inclusive */ );
 
@@ -2384,9 +2393,9 @@ boot_genesis( fd_replay_tile_t *        ctx,
               fd_stem_context_t *       stem,
               fd_genesis_meta_t const * meta ) {
 
-  /* TODO boot_genesis for Alpenglow */
-
-  FD_CHECK_ERR( !ctx->alpenglow, "alpenglow does not support genesis yet" );
+  /* Under Alpenglow the genesis certificate certifies slot 0 with a
+     zero block id. */
+  if( ctx->alpenglow ) fd_memset( &ctx->initial_block_id, 0, sizeof(fd_hash_t) );
 
   /* If we are bootstrapping, we can't wait to wait for our identity
      vote to be rooted as this creates a circular dependency. */
@@ -2452,33 +2461,44 @@ boot_genesis( fd_replay_tile_t *        ctx,
   ctx->slots_per_epoch       = 0UL;
   ctx->ns_per_slot           = 0UL;
   ctx->reset_timestamp_nanos = fd_clock_tile_now( ctx->clock );
-  ctx->next_leader_slot      = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, 1UL, ctx->identity_pubkey );
-  if( FD_LIKELY( ctx->next_leader_slot != ULONG_MAX ) ) {
-    double slot_duration_ticks = (double)bank->f.slot_params.ns_per_slot_adjusted*ctx->tick_per_ns;
-    ctx->next_leader_tickcount = (long)((double)(ctx->next_leader_slot-ctx->reset_slot-1UL)*slot_duration_ticks) + fd_tickcount();
-  } else {
-    ctx->next_leader_tickcount = LONG_MAX;
+  if( FD_LIKELY( !ctx->alpenglow ) ) {
+    ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, 1UL, ctx->identity_pubkey );
+    if( FD_LIKELY( ctx->next_leader_slot != ULONG_MAX ) ) {
+      double slot_duration_ticks = (double)bank->f.slot_params.ns_per_slot_adjusted*ctx->tick_per_ns;
+      ctx->next_leader_tickcount = (long)((double)(ctx->next_leader_slot-ctx->reset_slot-1UL)*slot_duration_ticks) + fd_tickcount();
+    } else {
+      ctx->next_leader_tickcount = LONG_MAX;
+    }
   }
 
   ctx->has_cluster_type = 1;
 
   ctx->is_booted = 1;
-  try_become_leader( ctx, stem );
+  if( FD_LIKELY( !ctx->alpenglow ) ) try_become_leader( ctx, stem );
 
   fd_hash_t initial_block_id = ctx->initial_block_id;
-  fd_reasm_fec_t * fec       = fd_reasm_init( ctx->reasm, &initial_block_id, 0 /* genesis slot */ );
-  fec->bank_idx              = (uint)bank->idx;
-  fec->bank_seq              = bank->bank_seq;
+  if( ctx->reasm ) {
+    fd_reasm_fec_t * fec = fd_reasm_init( ctx->reasm, &initial_block_id, 0 /* genesis slot */ );
+    fec->bank_idx        = (uint)bank->idx;
+    fec->bank_seq        = bank->bank_seq;
+  }
   store_xinsert( ctx->store, ctx->map_join, &initial_block_id );
 
   fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ 0 ];
-  block_id_ele->latest_mr = initial_block_id;
-  block_id_ele->dmr       = initial_block_id;
-  block_id_ele->slot      = 0UL;
-  block_id_ele->bank_seq  = bank->bank_seq;
-  bank->f.block_id        = initial_block_id;
+  block_id_ele->latest_mr      = initial_block_id;
+  block_id_ele->dmr            = initial_block_id;
+  block_id_ele->slot           = 0UL;
+  block_id_ele->bank_seq       = bank->bank_seq;
+  block_id_ele->block_id_seen  = 1;
+  block_id_ele->latest_fec_idx = 0U;
+  bank->f.block_id             = initial_block_id;
 
-  FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, block_id_ele, ctx->block_id_arr ) );
+  if( !ctx->alpenglow ) {
+    FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, block_id_ele, ctx->block_id_arr ) );
+  } else {
+    block_id_ele->block_info = ag_block_id( 0UL, initial_block_id.uc );
+    FD_TEST( fd_ag_block_id_map_ele_insert( ctx->ag_block_id_map, block_id_ele, ctx->block_id_arr ) );
+  }
 
   fd_replay_slot_completed_t * slot_info = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
   cost_tracker_snap( bank, slot_info );
@@ -2503,6 +2523,7 @@ boot_genesis( fd_replay_tile_t *        ctx,
     reset->tick_duration_ns = bank->f.slot_params.ns_per_slot_adjusted/reset->ticks_per_slot;
 
     fd_memcpy( reset->completed_cmr, &block_id_ele->latest_mr, sizeof(fd_hash_t) );
+    fd_memcpy( reset->completed_dmr, &block_id_ele->dmr,       sizeof(fd_hash_t) );
 
     fd_blockhashes_t const * block_hash_queue = &bank->f.block_hash_queue;
     fd_hash_t const * last_hash = fd_blockhashes_peek_last_hash( block_hash_queue );

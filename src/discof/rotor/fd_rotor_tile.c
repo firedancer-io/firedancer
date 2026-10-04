@@ -860,7 +860,7 @@ publish_block( ctx_t *             ctx,
                fd_rotor_blk_t *    block ) {
   out_ctx_t * out = ctx->rserve_out_ctx;
   if( FD_UNLIKELY( out->idx==ULONG_MAX ) ) return;
-  if( FD_UNLIKELY( fd_hash_check_zero( &block->block_id ) || fd_hash_check_zero( &block->parent_block_id ) ) ) return;
+  if( FD_UNLIKELY( fd_hash_check_zero( &block->block_id ) || ( block->parent_slot && fd_hash_check_zero( &block->parent_block_id ) ) ) ) return;
   if( FD_UNLIKELY( block->complete_idx>=FD_SHRED_BLK_MAX || block->parent_slot==AG_UNKNOWN_SLOT ) ) return;
 
   uint fec_set_cnt = ( block->complete_idx + 1U ) / FD_FEC_SHRED_CNT;

@@ -7,10 +7,17 @@
 #include "../runtime/program/fd_bpf_loader_program.h"
 #include "../runtime/program/vote/fd_vote_codec_tmpl.h"
 #include "../runtime/sysvar/fd_sysvar_rent.h"
+#include "../alpenglow/fd_alpenglow.h"
+#include "../rewards/fd_epoch_inflation_account.h"
 #include "../../ballet/sha256/fd_sha256.h"
 
 /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/genesis/src/main.rs#L69 */
 #define FD_GENESIS_VAT_MINIMUM_LAMPORTS (1600000000UL*100UL)
+
+/* Size of the bincode encoded genesis certificate: slot (8), block id
+   (32), BLS signature (192), bitmap Vec<u8> length (8) and 3 bytes of
+   base2 bitmap header. */
+#define FD_GENESIS_CERT_SZ (243UL)
 
 /* TODO: Unify type with the one in fd_genesis_parse.c */
 
@@ -351,6 +358,7 @@ genesis_create( void *                       buf,
     vote_state->inflation_rewards_commission_bps = 10000;
     vote_state->block_revenue_commission_bps     = 0;
     vote_state->has_bls_pubkey_compressed        = 1;
+    fd_memcpy( vote_state->bls_pubkey_compressed, options->bls_pubkey, sizeof(options->bls_pubkey) );
 
     fd_vote_authorized_voter_t * voter = fd_vote_authorized_voters_pool_ele_acquire( vote_state->authorized_voters.pool );
     *voter = (fd_vote_authorized_voter_t) {
@@ -434,6 +442,10 @@ genesis_create( void *                       buf,
   ulong token_idx = genesis->accounts_len;
   REQUIRE( !__builtin_add_overflow( genesis->accounts_len, token_cnt, &genesis->accounts_len ) );
 
+  /* Genesis certificate and epoch inflation account */
+  ulong alpenglow_idx = genesis->accounts_len;
+  if( options->alpenglow ) genesis->accounts_len += 2UL;
+
   ulong accounts_sz;
   REQUIRE( !__builtin_mul_overflow( genesis->accounts_len, sizeof(fd_genesis_account_pair_t), &accounts_sz ) );
   REQUIRE( fd_scratch_alloc_is_safe( alignof(fd_genesis_account_pair_t), accounts_sz ) );
@@ -498,6 +510,43 @@ genesis_create( void *                       buf,
     };
   }
 #undef FEATURE_ENABLED_SZ
+
+  /* Alpenglow at genesis skips the migration.  Like Agave, add a fake
+     genesis certificate for slot 0 and an empty epoch inflation state.
+     https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/runtime/src/genesis_utils.rs#L340-L364 */
+
+  uchar genesis_cert_data   [ FD_GENESIS_CERT_SZ              ] = {0};
+  uchar epoch_inflation_data[ FD_EPOCH_INFLATION_ACCOUNT_NONE ] = {0};
+  if( options->alpenglow ) {
+    /* WireBlockCertMessage { block: { slot: 0, block_id: 0 },
+       signature: { signature: 0, bitmap: encode_base2( [] ) } }
+       bincode encoded.  The bitmap is a Vec<u8> holding the base2
+       version byte (0) and a u16 bit count (0). */
+    FD_STORE( ulong, genesis_cert_data+232UL, 3UL );
+
+    fd_pubkey_t genesis_cert_addr;
+    fd_alpenglow_pda( "carlgration", &genesis_cert_addr );
+    genesis->accounts[ alpenglow_idx ] = (fd_genesis_account_pair_t) {
+      .key     = genesis_cert_addr,
+      .account = (fd_genesis_account_t) {
+        .lamports   = fd_rent_exempt_minimum_balance( &genesis->rent, FD_GENESIS_CERT_SZ ),
+        .data_len   = FD_GENESIS_CERT_SZ,
+        .data       = genesis_cert_data,
+        .owner      = fd_solana_system_program_id
+      }
+    };
+
+    FD_STORE( ulong, epoch_inflation_data+8UL, genesis->epoch_schedule.slots_per_epoch );
+    genesis->accounts[ alpenglow_idx+1UL ] = (fd_genesis_account_pair_t) {
+      .key     = fd_epoch_inflation_account_address(),
+      .account = (fd_genesis_account_t) {
+        .lamports   = fd_ulong_max( fd_rent_exempt_minimum_balance( &genesis->rent, FD_EPOCH_INFLATION_ACCOUNT_NONE ), 1UL ),
+        .data_len   = FD_EPOCH_INFLATION_ACCOUNT_NONE,
+        .data       = epoch_inflation_data,
+        .owner      = fd_solana_system_program_id
+      }
+    };
+  }
 
   /* Deploy an SPL Token compatible program and set up the token
      accounts */
@@ -616,7 +665,7 @@ genesis_create( void *                       buf,
       }
     }
 
-    REQUIRE( token_idx==genesis->accounts_len );
+    REQUIRE( token_idx==alpenglow_idx );
   }
 
   /* Sort and check for duplicates */

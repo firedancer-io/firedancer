@@ -282,7 +282,9 @@ static int
 finalize_block_id( fd_rotor_t * rotor, fd_rotor_blk_t * block ) {
   if( FD_UNLIKELY( block->complete_idx==UINT_MAX ) )                 return 0;
   if( FD_UNLIKELY( block->parent_slot==AG_UNKNOWN_SLOT ) )           return 0;
-  if( FD_UNLIKELY( fd_hash_check_zero( &block->parent_block_id ) ) ) return 0;
+  /* Genesis (slot 0) has a zero block id, so only treat a zero parent
+     id as unknown for parents past genesis. */
+  if( FD_UNLIKELY( block->parent_slot && fd_hash_check_zero( &block->parent_block_id ) ) ) return 0;
 
   uint fec_set_cnt = ( block->complete_idx + 1U ) / FD_FEC_SHRED_CNT;
   uchar tree_mem[ FD_BMTREE_COMMIT_FOOTPRINT( 0UL ) ] __attribute__((aligned(FD_BMTREE_COMMIT_ALIGN)));
