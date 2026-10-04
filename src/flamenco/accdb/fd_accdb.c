@@ -2962,8 +2962,13 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
     /* Tombstones (lamports==0) have no on-disk payload to read, and
        background_advance_root may unlink the acc and never assign it a
        disk offset, so the offset_fork spin below would hang forever.
-       Step 15's tombstone reset zeros the owner for these accounts. */
-    if( FD_UNLIKELY( !accmetas[ i ]->lamports ) ) continue;
+       Step 15's tombstone reset zeros the owner for these accounts.
+
+       Exception: when re-creating a closed account on the same fork,
+       wait anyway, or a concurrent evictor will later store the
+       closed account's disk offset into the new account. */
+    int tombstone = !accmetas[ i ]->lamports;
+    if( FD_UNLIKELY( tombstone && !out_accs[ i ]._overwrite ) ) continue;
 
     /* We are guaranteed that if an account is in the cache, the bytes
        are available (all cache operations are atomic via refcnt CAS),
@@ -2982,9 +2987,11 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
        read and no post-read validation is needed. */
     ulong off_packed = FD_VOLATILE_CONST( accmetas[ i ]->offset_fork );
     while( FD_UNLIKELY( (off_packed & FD_ACCDB_OFF_MASK)==FD_ACCDB_OFF_INVAL ) ) {
+      fd_racesan_hook( "accdb_acquire:offset_wait" );
       FD_SPIN_PAUSE();
       off_packed = FD_VOLATILE_CONST( accmetas[ i ]->offset_fork );
     }
+    if( FD_UNLIKELY( tombstone ) ) continue;
     fd_racesan_hook( "accdb_coldload:pre_iovec" );
 
     read_offsets[ read_ops_cnt ] = fd_accdb_acc_offset(accmetas[ i ]) + offsetof(fd_accdb_disk_meta_t, owner);
@@ -3773,7 +3780,10 @@ miss:;
   ulong off_packed = FD_VOLATILE_CONST( accmeta->offset_fork );
   if( FD_UNLIKELY( (off_packed & FD_ACCDB_OFF_MASK)==FD_ACCDB_OFF_INVAL ) ) {
     accdb->metrics->accounts_waited++;
-    while( FD_UNLIKELY( ((off_packed=FD_VOLATILE_CONST( accmeta->offset_fork )) & FD_ACCDB_OFF_MASK)==FD_ACCDB_OFF_INVAL ) ) FD_SPIN_PAUSE();
+    while( FD_UNLIKELY( ((off_packed=FD_VOLATILE_CONST( accmeta->offset_fork )) & FD_ACCDB_OFF_MASK)==FD_ACCDB_OFF_INVAL ) ) {
+      fd_racesan_hook( "accdb_nocache:offset_wait" );
+      FD_SPIN_PAUSE();
+    }
   }
   ulong off = off_packed & FD_ACCDB_OFF_MASK;
   fd_racesan_hook( "accdb_nocache:pre_preadv2" );
@@ -4548,6 +4558,7 @@ fd_accdb_debug_clock_evict_line( fd_accdb_t * accdb,
   }
   uint evicted_acc_idx = line->persisted ? UINT_MAX : acc_idx;
   line->key.generation = UINT_MAX;
+  fd_racesan_hook( "clock_evict:pre_synth" );
 
   /* Write back the dirty line, exactly like the production writeback
      sites: this is the synthesis that would emit a pubkey=NEW/owner=OLD
