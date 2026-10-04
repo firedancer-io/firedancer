@@ -1706,10 +1706,17 @@ try_become_leader_ag( fd_replay_tile_t *  ctx,
   }
 
 
+  /* Like Agave's block_timeout, the block ends relative to the window's
+     ParentReady.  If that is already past, end at once rather than run
+     into votor's skip timeout. */
+  long slot_end_ns = ctx->votor_leader->parent_ready_ns
+                   + (long)( ( ctx->next_leader_slot%AG_SLOTS_PER_WINDOW+1UL )*bank->f.slot_params.ns_per_slot )
+                   - (long)FD_TARGET_SLOT_ADJUSTMENT_NS - AG_TIME_TO_COMPLETE_BROADCAST_NS;
+
   fd_became_leader_t * msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
   msg->slot                = ctx->next_leader_slot;
   msg->slot_start_ns       = now_nanos;
-  msg->slot_end_ns         = ctx->leader_window_start_ns+(long)( ( ctx->next_leader_slot%AG_SLOTS_PER_WINDOW+1UL )*bank->f.slot_params.ns_per_slot )-(long)FD_TARGET_SLOT_ADJUSTMENT_NS-AG_TIME_TO_COMPLETE_BROADCAST_NS; /* like Agave block_timeout: deadlines from the window start, adjusted once per window */
+  msg->slot_end_ns         = fd_long_max( slot_end_ns, now_nanos );
   msg->bank                = NULL;
   msg->bank_idx            = bank->idx;
   msg->bank_seq            = bank->bank_seq;
@@ -1735,8 +1742,9 @@ try_become_leader_ag( fd_replay_tile_t *  ctx,
 
   publish_replay_out( ctx, stem, REPLAY_SIG_BECAME_LEADER, sizeof(fd_became_leader_t) );
 
-  ctx->next_leader_slot      = ULONG_MAX;
-  ctx->next_leader_tickcount = LONG_MAX;
+  ctx->leader_window_start_ns = ctx->votor_leader->parent_ready_ns;
+  ctx->next_leader_slot       = ULONG_MAX;
+  ctx->next_leader_tickcount  = LONG_MAX;
 
   return 1;
 }
@@ -1898,7 +1906,8 @@ try_fini_leader( fd_replay_tile_t *  ctx,
     *ctx->votor_leader = (fd_votor_leader_t){
       .slot            = curr_slot+1UL,
       .parent_slot     = curr_slot,
-      .parent_block_id = ctx->block_id_arr[ completed->idx ].dmr
+      .parent_block_id = ctx->block_id_arr[ completed->idx ].dmr,
+      .parent_ready_ns = ctx->leader_window_start_ns
     };
     ctx->next_leader_slot = curr_slot+1UL;
     try_become_leader_ag( ctx, stem );
@@ -4988,9 +4997,8 @@ returnable_frag( fd_replay_tile_t *  ctx,
     case IN_KIND_VOTOR: {
       if( FD_UNLIKELY( sig==FD_VOTOR_SIG_LEADER ) ) {
         fd_votor_leader_t const * leader = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
-        *ctx->votor_leader          = *leader;
-        ctx->next_leader_slot       = leader->slot;
-        ctx->leader_window_start_ns = fd_clock_tile_now( ctx->clock );
+        *ctx->votor_leader    = *leader;
+        ctx->next_leader_slot = leader->slot;
         try_become_leader_ag( ctx, stem );
       } else if( FD_LIKELY( sig==FD_VOTOR_SIG_CERTED ) ) {
         fd_votor_certed_t const * certed = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );

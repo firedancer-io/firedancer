@@ -22,7 +22,7 @@ fd_rotor_new( void * shmem,
     return NULL;
   }
 
-  fd_memset( shmem, 0, footprint );
+  fd_memset( shmem, 0, sizeof(fd_rotor_t) );
   fd_rotor_t * rotor;
 
   ulong blk_max       = fd_rotor_blk_max( ele_max );
@@ -123,6 +123,7 @@ acquire_block( fd_rotor_t * rotor, ulong slot ) {
   block->delivered_idx     = UINT_MAX;
   block->connected         = 0;
 
+  block->metrics.abandoned_reason           = 0;
   block->metrics.turbine_cnt                = 0U;
   block->metrics.repair_cnt                 = 0U;
   block->metrics.recovered_cnt              = 0U;
