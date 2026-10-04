@@ -344,6 +344,39 @@ test_undelivered_coalesces( void ) {
   teardown_tracker( tracker );
 }
 
+/* Pruning below the cached lowest ready parent of a window start must
+   recompute it from the parents still retained, so the window start
+   still has a parent to wait for and later ParentReady events carry a
+   retained parent. */
+
+static void
+test_prune_recomputes_lowest_ready( void ) {
+  ag_parent_ready_tracker_t * tracker = setup_tracker( TEST_SLOT_MAX );
+
+  ag_parent_ready_t out[ TEST_SLOT_MAX ];
+  ulong             out_cnt;
+
+  ag_block_id_t b1 = random_block_id( 1UL );
+  ag_block_id_t b3 = random_block_id( 3UL );
+  ag_block_id_t b5 = random_block_id( 5UL );
+  ag_parent_ready_tracker_mark_notar_fallback( tracker, &b1, out, &out_cnt );
+  ag_parent_ready_tracker_mark_notar_fallback( tracker, &b3, out, &out_cnt );
+  for( ulong slot=2UL; slot<8UL; slot++ ) ag_parent_ready_tracker_mark_skipped( tracker, slot, out, &out_cnt );
+  ag_parent_ready_tracker_delivered( tracker, 4UL );
+  ag_parent_ready_tracker_delivered( tracker, 8UL );
+  ag_block_id_t lo = ag_parent_ready_tracker_wait_for_parent_ready( tracker, 8UL );
+  FD_TEST( ag_block_id_eq( &lo, &b1 ) );
+
+  ag_parent_ready_tracker_prune( tracker, 2UL );
+  lo = ag_parent_ready_tracker_wait_for_parent_ready( tracker, 8UL );
+  FD_TEST( ag_block_id_eq( &lo, &b3 ) );
+
+  ag_parent_ready_tracker_mark_notar_fallback( tracker, &b5, out, &out_cnt );
+  FD_TEST( out_cnt==1UL && out[0].slot==8UL && ag_block_id_eq( &out[0].parent, &b3 ) );
+
+  teardown_tracker( tracker );
+}
+
 /* src/consensus/pool/parent_ready_tracker.rs::wait_for_parent_ready */
 
 static void
@@ -621,6 +654,7 @@ main( int     argc,
   test_wait_tie_break();
   test_wait_does_not_allocate();
   test_prune();
+  test_prune_recomputes_lowest_ready();
   test_many_parents();
   test_brute_force();
 

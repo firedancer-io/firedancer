@@ -276,4 +276,23 @@ ag_parent_ready_tracker_prune( ag_parent_ready_tracker_t * self,
     if( FD_LIKELY( ele ) ) ag_parent_ready_state_pool_ele_release( pool, ele );
   }
   self->root = new_root;
+
+  /* A window start whose lowest ready parent was pruned takes the
+     lowest of its ready parents [b_lo,slot) still retained. */
+
+  for( ag_parent_ready_state_map_iter_t iter = ag_parent_ready_state_map_iter_init( map, pool );
+                                              !ag_parent_ready_state_map_iter_done( iter, map, pool );
+                                        iter = ag_parent_ready_state_map_iter_next( iter, map, pool ) ) {
+    ag_parent_ready_state_t * state = ag_parent_ready_state_map_iter_ele( iter, map, pool );
+    if( FD_LIKELY( state->parent_ready_lo.slot==ULONG_MAX || state->parent_ready_lo.slot>=new_root ) ) continue;
+    ulong b_lo = state->b_lo!=ULONG_MAX ? state->b_lo : state->slot-1UL;
+    state->parent_ready_lo.slot = ULONG_MAX;
+    for( ulong s=fd_ulong_max( b_lo, new_root ); s<state->slot; s++ ) {
+      ag_parent_ready_state_t const * nf = ag_parent_ready_state_map_ele_query_const( map, &s, NULL, pool );
+      for( ulong i=0UL; nf && i<nf->notar_fallbacks_cnt; i++ ) {
+        ag_block_id_t id = ag_block_id( s, nf->notar_fallbacks[i] );
+        if( state->parent_ready_lo.slot==ULONG_MAX || block_id_lt( &id, &state->parent_ready_lo ) ) state->parent_ready_lo = id;
+      }
+    }
+  }
 }
