@@ -177,6 +177,9 @@ fd_keyguard_payload_matches_txn_msg( uchar const * data,
     sig_cnt = header_b0;
   }
 
+  /* Legacy and v0 txns are at most FD_TXN_MTU_V0 bytes. */
+  if( sz>FD_TXN_MTU_V0 ) return 0;
+
   /* There must be at least one signature. */
   if( sig_cnt==0U ) return 0;
 
@@ -228,6 +231,7 @@ fd_keyguard_payload_matches_prune_data( uchar const * data,
 
   ulong const static_sz = 106UL;
   if( sz < static_sz ) return 0;
+  if( sz > FD_GOSSIP_MTU ) return 0; /* prune messages fit in a gossip packet */
 
   if( FD_LOAD( ulong, data )!=18UL ) return 0;
   if(  memcmp( data+8UL, "\xffSOLANA_PRUNE_DATA", 18UL ) ) return 0;
@@ -251,8 +255,9 @@ fd_keyguard_payload_matches_gossip( uchar const * data,
 
   /* Every gossip message contains a 4 byte enum variant tag (at the
      beginning of the message) and a 32 byte public key (at an arbitrary
-     location). */
-  if( sz<36UL ) return 0;
+     location), and fits in a gossip packet. */
+  if( sz<36UL          ) return 0;
+  if( sz>FD_GOSSIP_MTU ) return 0;
 
   uint tag = FD_LOAD( uint, data );
 
@@ -269,8 +274,9 @@ fd_keyguard_payload_matches_repair( uchar const * data,
 
   /* Every repair message contains a 4 byte enum variant tag (at the
      beginning of the message) and a 32 byte public key (at an arbitrary
-     location). */
-  if( sz<36UL ) return 0;
+     location), and is at most FD_REPAIR_MAX_PREIMAGE_SZ bytes. */
+  if( sz<36UL                      ) return 0;
+  if( sz>FD_REPAIR_MAX_PREIMAGE_SZ ) return 0;
 
   /* Ensure that the kind matches a possible repair request. */
   uint kind = FD_LOAD( uint, data );

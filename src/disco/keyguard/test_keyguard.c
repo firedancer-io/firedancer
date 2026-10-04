@@ -1,5 +1,7 @@
 #include "fd_keyguard.h"
 #include "../../ballet/txn/fd_txn.h"
+#include "../../flamenco/gossip/fd_gossip_value.h"
+#include "../../discof/repair/fd_repair.h"
 
 static uchar v1_buf [ FD_TXN_MTU    ];
 static uchar v1_txn [ FD_TXN_MAX_SZ ];
@@ -239,6 +241,39 @@ test_tower_authorize( void ) {
   FD_TEST(  fd_keyguard_payload_authorize( &authority, body, min_sz,       FD_KEYGUARD_ROLE_TOWER,  FD_KEYGUARD_SIGN_TYPE_ED25519        ) );
 }
 
+static void
+test_tower_match( void ) {
+  /* The identity at the start of a tower body can read as the header of
+     another payload type.  Those types fit in a packet and a tower body
+     does not, so a tower body only matches the tower type. */
+
+  ulong const min_sz = 48UL + (65UL+8UL+1UL+8UL+32UL*48UL+8UL+1UL+8UL+16UL) + (4UL+74UL) + 16UL;
+  static uchar body[ FD_KEYGUARD_SIGN_REQ_MTU ];
+  FD_STORE( ulong,  body+32UL, 8UL     ); /* threshold_depth */
+  FD_STORE( double, body+40UL, 2.0/3.0 ); /* threshold_size */
+
+  uint  const hdr [ 3 ] = { 0x01000001U /* legacy txn, 1 signer, 1 account */, FD_GOSSIP_VALUE_VOTE,       FD_REPAIR_KIND_SHRED       };
+  ulong const type[ 3 ] = { FD_KEYGUARD_PAYLOAD_TXN,                           FD_KEYGUARD_PAYLOAD_GOSSIP, FD_KEYGUARD_PAYLOAD_REPAIR };
+  ulong const max [ 3 ] = { FD_TXN_MTU_V0,                                     FD_GOSSIP_MTU,              FD_REPAIR_MAX_PREIMAGE_SZ  };
+  for( ulong i=0UL; i<3UL; i++ ) {
+    FD_STORE( uint, body, hdr[ i ] );
+    FD_TEST(    fd_keyguard_payload_match( body, min_sz,       FD_KEYGUARD_SIGN_TYPE_ED25519 )==FD_KEYGUARD_PAYLOAD_TOWER );
+    FD_TEST(    fd_keyguard_payload_match( body, max[ i ],     FD_KEYGUARD_SIGN_TYPE_ED25519 ) & type[ i ]                );
+    FD_TEST( !( fd_keyguard_payload_match( body, max[ i ]+1UL, FD_KEYGUARD_SIGN_TYPE_ED25519 ) & type[ i ] )              );
+  }
+
+  /* prune data is 106 bytes plus 32 per prune, the prune count is at
+     offset 58 */
+  FD_STORE( ulong, body, 18UL );
+  memcpy( body+8UL, "\xffSOLANA_PRUNE_DATA", 18UL );
+  FD_STORE( ulong, body+58UL, 53UL );
+  FD_TEST(    fd_keyguard_payload_match( body, 106UL+53UL*32UL, FD_KEYGUARD_SIGN_TYPE_ED25519 )==FD_KEYGUARD_PAYLOAD_TOWER );
+  FD_STORE( ulong, body+58UL, 35UL );
+  FD_TEST(    fd_keyguard_payload_match( body, 106UL+35UL*32UL, FD_KEYGUARD_SIGN_TYPE_ED25519 ) & FD_KEYGUARD_PAYLOAD_PRUNE  );
+  FD_STORE( ulong, body+58UL, 36UL );
+  FD_TEST( !( fd_keyguard_payload_match( body, 106UL+36UL*32UL, FD_KEYGUARD_SIGN_TYPE_ED25519 ) & FD_KEYGUARD_PAYLOAD_PRUNE ) );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -248,6 +283,7 @@ main( int     argc,
   test_ag_vote_authorize();
   test_bls_pubkey_authorize();
   test_tower_authorize();
+  test_tower_match();
   FD_LOG_NOTICE(( "pass" ));
   return 0;
 }
