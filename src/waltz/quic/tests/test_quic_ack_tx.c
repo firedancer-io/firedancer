@@ -132,6 +132,46 @@ main( int     argc,
   FD_TEST( gen->tail==gen->head-1 );
   FD_TEST( gen->is_elicited==0 );
 
+  /* Test fd_quic_ack_gen_abandon_enc_level with interleaved levels */
+
+  fd_quic_ack_gen_init( gen );
+  gen->head = gen->tail = 7U;
+  fd_quic_ack_pkt( gen, 0UL, 3U, 1L );
+  fd_quic_ack_pkt( gen, 1UL, 2U, 2L );
+  fd_quic_ack_pkt( gen, 1UL, 3U, 3L );
+  fd_quic_ack_pkt( gen, 0UL, 0U, 4L );
+  fd_quic_ack_pkt( gen, 2UL, 2U, 5L );
+  fd_quic_ack_pkt( gen, 3UL, 3U, 6L );
+  FD_TEST( gen->head==13U && gen->tail==7U );
+  fd_quic_ack_gen_abandon_enc_level( gen, 2U );
+  FD_TEST( gen->head==10U && gen->tail==7U );
+  static ulong const expected_pn[3] = { 0UL, 1UL, 3UL };
+  for( uint j=0U; j<3U; j++ ) {
+    fd_quic_ack_t const * ack = fd_quic_ack_queue_ele( gen, 7U+j );
+    FD_TEST( ack->enc_level==3U );
+    FD_TEST( ack->pkt_number.offset_lo==expected_pn[j] && ack->pkt_number.offset_hi==expected_pn[j]+1UL );
+  }
+
+  /* All remaining ACKs flush at enc_level 3 */
+  gen->is_elicited = 1;
+  FD_TEST( fd_quic_gen_ack_frames( gen, buf, buf+sizeof(buf), 3U, 10L )==buf+15UL );
+  FD_TEST( gen->tail==gen->head );
+  FD_TEST( gen->is_elicited==0 );
+
+  /* New ACKs after abandonment still work */
+  fd_quic_ack_pkt( gen, 4UL, 3U, 11L );
+  FD_TEST( gen->head==gen->tail+1U );
+  gen->is_elicited = 1;
+  FD_TEST( fd_quic_gen_ack_frames( gen, buf, buf+sizeof(buf), 3U, 11L )==buf+5UL );
+  FD_TEST( gen->tail==gen->head );
+
+  /* Abandoning everything empties the ring */
+  fd_quic_ack_pkt( gen, 10UL, 0U, 12L );
+  fd_quic_ack_pkt( gen, 10UL, 2U, 12L );
+  fd_quic_ack_pkt( gen, 11UL, 0U, 12L );
+  fd_quic_ack_gen_abandon_enc_level( gen, 2U );
+  FD_TEST( gen->tail==gen->head );
+
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;

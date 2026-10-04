@@ -75,12 +75,20 @@ fd_quic_ack_pkt( fd_quic_ack_gen_t * gen,
 void
 fd_quic_ack_gen_abandon_enc_level( fd_quic_ack_gen_t * gen,
                                    uint                enc_level ) {
-  for( ; gen->tail != gen->head; gen->tail++ ) {
-    fd_quic_ack_t const * ack = fd_quic_ack_queue_ele( gen, gen->tail );
-    if( ack->enc_level > enc_level ) break;
-    FD_DEBUG( FD_LOG_DEBUG(( "gen=%p discard ACK for enc=%u range=[%lu,%lu) seq=%u",
-        (void *)gen, enc_level, ack->pkt_number.offset_lo, ack->pkt_number.offset_hi, gen->tail )); )
+  /* Entries in the ring are not ordered by enc_level, so compact the
+     whole ring instead of only popping from the tail. */
+  uint w = gen->tail;
+  for( uint r = gen->tail; r != gen->head; r++ ) {
+    fd_quic_ack_t const * ack = fd_quic_ack_queue_ele( gen, r );
+    if( ack->enc_level <= enc_level ) {
+      FD_DEBUG( FD_LOG_DEBUG(( "gen=%p discard ACK for enc=%u range=[%lu,%lu) seq=%u",
+          (void *)gen, ack->enc_level, ack->pkt_number.offset_lo, ack->pkt_number.offset_hi, r )); )
+      continue;
+    }
+    if( w != r ) *fd_quic_ack_queue_ele( gen, w ) = *ack;
+    w++;
   }
+  gen->head = w;
 }
 
 extern ulong
