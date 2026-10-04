@@ -901,8 +901,15 @@ evict_clear_acc_cache_ref( fd_accdb_accmeta_t * accmeta,
 
   /* CLAIM held.  If accmeta->cache_idx still points at our line, clear
      VALID and INVAL the cache_idx.  Otherwise the accmeta was already
-     re-published into a different line; leave it alone. */
-  if( FD_LIKELY( FD_VOLATILE_CONST( accmeta->cache_idx )==expected_cidx ) ) {
+     re-published into a different line; leave it alone.
+
+     cache_idx is only meaningful while VALID is set.  A line orphaned
+     by acc_unlink's pinned-reader branch still names an accmeta that
+     has since been released to acc_pool, where cache_idx aliases
+     pool.next. */
+  uint es = FD_VOLATILE_CONST( accmeta->executable_size );
+  if( FD_LIKELY( FD_ACCDB_SIZE_CACHE_VALID( es ) &&
+                 FD_VOLATILE_CONST( accmeta->cache_idx )==expected_cidx ) ) {
     FD_ATOMIC_FETCH_AND_AND( &accmeta->executable_size, ~FD_ACCDB_SIZE_CACHE_VALID_BIT );
     FD_VOLATILE( accmeta->cache_idx ) = FD_ACCDB_ACC_CIDX_INVAL;
   }
@@ -4508,6 +4515,15 @@ fd_accdb_debug_line_addr( fd_accdb_t * accdb,
                           ulong        size_class,
                           ulong        line_idx ) {
   return cache_line( accdb, size_class, line_idx );
+}
+
+/* Raw access to the acc_pool free-list link of a released accmeta. */
+
+uint *
+fd_accdb_debug_acc_pool_next( fd_accdb_t * accdb,
+                              uint         acc_idx ) {
+  FD_TEST( (ulong)acc_idx<acc_pool_ele_max( accdb->acc_pool_join ) );
+  return &accdb->acc_pool[ acc_idx ].pool.next;
 }
 
 /* Deterministically evict a single specified cache line via the

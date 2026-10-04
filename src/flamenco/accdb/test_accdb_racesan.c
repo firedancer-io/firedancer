@@ -2061,6 +2061,10 @@ uint fd_accdb_debug_clock_evict_line( fd_accdb_t * accdb, ulong size_class, ulon
    fd_accdb.c, so a test cannot compute this itself. */
 void * fd_accdb_debug_line_addr( fd_accdb_t * accdb, ulong size_class, ulong line_idx );
 
+/* Address of a released accmeta's acc_pool free-list link, which
+   aliases accmeta->cache_idx. */
+uint * fd_accdb_debug_acc_pool_next( fd_accdb_t * accdb, uint acc_idx );
+
 static void
 write_acc( fd_accdb_t *       accdb,
            fd_accdb_fork_id_t fork_id,
@@ -2191,6 +2195,70 @@ test_tombstone_orphan_ebr_poison( void ) {
   if( poisoned ) {
     FD_LOG_ERR(( "POISON CONFIRMED: tombstone-orphan / EBR-leak / writeback poison reproduced" ));
   }
+
+  free( accdb_d );
+  test_teardown( accdb, fd );
+}
+
+/* test_tombstone_orphan_evict_pool_next: acc_unlink's pinned-reader
+   branch leaves the tombstone's cache line naming its accmeta after the
+   accmeta was released to acc_pool.  Evicting that line must not treat
+   the freed accmeta's cache_idx (aliased with pool.next) as live, or a
+   free-list link that happens to equal the line's packed index gets
+   clobbered to CIDX_INVAL. */
+
+static void
+test_tombstone_orphan_evict_pool_next( void ) {
+  int fd;
+  fd_accdb_t * accdb   = test_setup( &fd, 256UL, 16UL, 1024UL, 1024UL, 1UL<<30UL );
+  fd_accdb_t * accdb_d = test_join_extra();
+
+  uchar pubkey_P[ 32 ] = { 'P', 0 };
+  uchar owner   [ 32 ] = { 0xAA, 0 };
+
+  fd_accdb_fork_id_t root0 = fd_accdb_attach_child( accdb, SENTINEL );
+  fd_accdb_fork_id_t F     = fd_accdb_attach_child( accdb, root0 );
+  fd_accdb_fork_id_t D     = fd_accdb_attach_child( accdb, F );
+
+  /* P open on root0, closed on F.  D pins the tombstone's line. */
+  write_acc( accdb, root0, pubkey_P, 100UL, owner, NULL, 0UL );
+  write_acc( accdb, F,     pubkey_P,   0UL, owner, NULL, 0UL );
+
+  ulong cls, idx;
+  FD_TEST( fd_accdb_debug_find_line( accdb, pubkey_P, &cls, &idx ) );
+  fd_accdb_cache_line_t * line = fd_accdb_debug_line_addr( accdb, cls, idx );
+  uint acc_idx = FD_VOLATILE_CONST( line->acc_idx );
+  FD_TEST( acc_idx!=UINT_MAX );
+
+  uchar const * pks[1] = { pubkey_P };
+  int wr[1] = { 1 };
+  fd_acc_t acc_D[1];
+  memset( acc_D, 0, sizeof(acc_D) );
+  fd_accdb_acquire( accdb_d, D, 1UL, pks, wr, acc_D );
+  FD_TEST( acc_D[0].lamports==0UL );
+
+  /* Rooting F unlinks the tombstone under D's pin, orphaning the line.
+     Rooting D drains the deferred frees, releasing the tombstone's
+     accmeta to acc_pool while the line still names it. */
+  fd_accdb_advance_root( accdb, F );
+  drain_background_n( accdb, 4UL );
+  fd_accdb_advance_root( accdb, D );
+  drain_background_n( accdb, 4UL );
+  FD_TEST( FD_VOLATILE_CONST( line->acc_idx )==acc_idx );
+  FD_TEST( FD_VOLATILE_CONST( line->persisted )==1 );
+
+  fd_accdb_release( accdb_d, 1UL, acc_D );
+
+  /* Force the free-list link to collide with the line's packed index. */
+  uint * pool_next = fd_accdb_debug_acc_pool_next( accdb, acc_idx );
+  uint   cidx      = FD_ACCDB_ACC_CIDX_PACK( (uint)cls, (uint)idx );
+  uint   saved     = FD_VOLATILE_CONST( *pool_next );
+  FD_VOLATILE( *pool_next ) = cidx;
+
+  FD_TEST( fd_accdb_debug_clock_evict_line( accdb, cls, idx )==UINT_MAX );
+  FD_TEST( FD_VOLATILE_CONST( *pool_next )==cidx );
+
+  FD_VOLATILE( *pool_next ) = saved;
 
   free( accdb_d );
   test_teardown( accdb, fd );
@@ -3375,6 +3443,7 @@ main( int     argc,
     TEST( test_coldload_vs_overwrite ),
     TEST( test_commit_owner_vs_reader ),
     TEST( test_tombstone_orphan_ebr_poison ),
+    TEST( test_tombstone_orphan_evict_pool_next ),
     TEST( test_sentinel_unlink_no_poison ),
     TEST( test_step14_orphan_no_hang ),
     TEST( test_stray_pin_vs_freepop ),
