@@ -169,6 +169,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   info->program_id      = (uchar)input_txn_idx[ program_idx ];
   txn_out->accounts.cnt = message_account_cnt;
 
+  ulong loaded_data_sz = 0UL;
   for( ulong j=0UL; j < test_ctx->accounts_count; j++ ) {
     if( !account_in_message[j] ) continue;
 
@@ -177,6 +178,10 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
     pb_bytes_array_t const * in_data = fd_solfuzz_acct_data( &test_ctx->accounts[j] );
     uint dlen = in_data ? in_data->size : 0U;
+    loaded_data_sz += dlen;
+    if( FD_UNLIKELY( dlen>FD_RUNTIME_ACC_SZ_MAX || loaded_data_sz>FD_VM_LOADED_ACCOUNTS_DATA_SIZE_LIMIT ) ) {
+      FD_LOG_ERR(( "account data too large (dlen=%u total=%lu)", dlen, loaded_data_sz ));
+    }
     uchar * data_buf = fd_spad_alloc( runner->spad, FD_ACCOUNT_REC_ALIGN, FD_RUNTIME_ACC_SZ_MAX );
     if( dlen ) {
       fd_memcpy( data_buf, in_data->bytes, dlen );
