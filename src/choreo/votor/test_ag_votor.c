@@ -105,10 +105,8 @@ min_live_slot( ag_votor_t const * votor ) {
 static int
 try_recv( ag_votor_t * votor,
           ag_vote_t *  out ) {
-  ag_event_vote_t event;
-  if( FD_UNLIKELY( !ag_votor_poll_vote_event( votor, &event ) ) ) return 0;
-  *out = event.vote;
-  return 1;
+  uchar reason;
+  return ag_votor_poll_vote( votor, out, &reason );
 }
 
 static ag_vote_t
@@ -124,8 +122,8 @@ recv( ag_votor_t * votor ) {
 static void
 handle_timeouts( ag_votor_t * votor,
                  long         now ) {
-  ag_event_timeout_t event;
-  while( ag_votor_poll_timeout_event( votor, now, &event ) ) ag_votor_handle_timeout_event( votor, &event );
+  ulong slot;
+  while( ag_votor_poll_skip_timeout( votor, now, &slot ) ) ag_votor_handle_skip_timeout( votor, slot );
 }
 
 /* The epoch info is nearly 300 KiB, too big for the stack, and only one
@@ -161,8 +159,8 @@ parent_ready( ag_votor_t *          votor,
               ulong                 slot,
               ag_block_id_t const * parent ) {
   ag_vote_t       vote = ag_vote_construct_notar( sec_sign_fn, &g_sk[0], test_bls_public_key, parent->slot, parent->hash, 0, TEST_SHRED_VERSION );
-  ag_event_pool_t ready = { .kind = AG_EVENT_POOL_PARENT_READY, .parent_ready = { .slot = slot, .parent = *parent } };
-  ag_event_pool_t cert  = { .kind = AG_EVENT_POOL_CERT_CREATED, .cert_created = cert_build_notar_fallback( &vote.notar, 1UL, NULL, 0UL, g_epoch_info ) };
+  ag_pool_event_t ready = { .kind = AG_POOL_EVENT_PARENT_READY, .parent_ready = { .slot = slot, .parent = *parent } };
+  ag_pool_event_t cert  = { .kind = AG_POOL_EVENT_CERT_CREATED, .cert_created = cert_build_notar_fallback( &vote.notar, 1UL, NULL, 0UL, g_epoch_info ) };
   ag_votor_handle_pool_event( votor, &ready, 0L );
   ag_votor_handle_pool_event( votor, &cert,  0L );
 }
@@ -180,11 +178,10 @@ static ag_vote_t
 send_block_and_expect_notar( ag_votor_t *          votor,
                              ulong                 slot,
                              ag_block_id_t const * parent ) {
-  ag_event_replay_t block = {0};
-  block.slot              = slot;
-  random_hash( block.block_info.hash );
-  block.block_info.parent = *parent;
-  ag_votor_handle_replay_event( votor, &block );
+  ag_block_info_t block = {0};
+  random_hash( block.hash );
+  block.parent = *parent;
+  ag_votor_process_replay( votor, slot, &block );
 
   ag_vote_t msg = recv( votor );
   FD_TEST( msg.kind==AG_VOTE_KIND_NOTAR );
@@ -201,15 +198,15 @@ test_timeouts( void ) {
   /* next_timeout is the earliest pending timer (the root's, first in
      the window), none is due before it, and it moves out as they fire */
   long first = AG_DELTA_TIMEOUT_NS+TEST_NS_PER_SLOT;
-  FD_TEST( ag_votor_next_timeout( votor )==first );
-  ag_event_timeout_t event;
-  FD_TEST( !ag_votor_poll_timeout_event( votor, first-1L, &event ) );
-  FD_TEST(  ag_votor_poll_timeout_event( votor, first,    &event ) );
-  FD_TEST( ag_votor_next_timeout( votor )==first+TEST_NS_PER_SLOT );
+  FD_TEST( ag_votor_next_skip_timeout( votor )==first );
+  ulong slot;
+  FD_TEST( !ag_votor_poll_skip_timeout( votor, first-1L, &slot ) );
+  FD_TEST(  ag_votor_poll_skip_timeout( votor, first,    &slot ) );
+  FD_TEST( ag_votor_next_skip_timeout( votor )==first+TEST_NS_PER_SLOT );
 
   /* should vote skip for all slots */
   handle_timeouts( votor, TEST_WINDOW_ELAPSED_NS );
-  FD_TEST( ag_votor_next_timeout( votor )==LONG_MAX );
+  FD_TEST( ag_votor_next_skip_timeout( votor )==LONG_MAX );
 
   ulong skipped_slots[ AG_SLOTS_PER_WINDOW ];
   ulong skipped_cnt = 0UL;
@@ -235,19 +232,19 @@ check_timeout_order( ag_votor_t *  votor,
                      ulong const * slots,
                      long const *  due ) { /* in half slots, past AG_DELTA_TIMEOUT_NS */
   for( ulong i=0UL; i<8UL; i++ ) {
-    ag_event_timeout_t event;
-    FD_TEST( ag_votor_next_timeout( votor )==AG_DELTA_TIMEOUT_NS+due[ i ]*(TEST_NS_PER_SLOT/2L) );
-    FD_TEST( ag_votor_poll_timeout_event( votor, LONG_MAX-1L, &event ) );
-    FD_TEST( event.slot==slots[ i ] );
+    ulong slot;
+    FD_TEST( ag_votor_next_skip_timeout( votor )==AG_DELTA_TIMEOUT_NS+due[ i ]*(TEST_NS_PER_SLOT/2L) );
+    FD_TEST( ag_votor_poll_skip_timeout( votor, LONG_MAX-1L, &slot ) );
+    FD_TEST( slot==slots[ i ] );
   }
-  FD_TEST( ag_votor_next_timeout( votor )==LONG_MAX );
+  FD_TEST( ag_votor_next_skip_timeout( votor )==LONG_MAX );
 }
 
 static void
 arm_window_4( ag_votor_t * votor,
               long         now ) {
   ag_block_id_t   parent       = { .slot = 3UL }; memset( parent.hash, 1, sizeof(ag_block_hash_t) );
-  ag_event_pool_t parent_ready = { .kind = AG_EVENT_POOL_PARENT_READY };
+  ag_pool_event_t parent_ready = { .kind = AG_POOL_EVENT_PARENT_READY };
   parent_ready.parent_ready.slot   = 4UL;
   parent_ready.parent_ready.parent = parent;
   ag_votor_handle_pool_event( votor, &parent_ready, now );
@@ -302,7 +299,7 @@ test_notar_and_final( void ) {
 
   /* vote finalize after seeing branch-certified */
   ag_cert_t cert = cert_build_notar( &vote.notar, 1UL, g_epoch_info );
-  ag_event_pool_t event = { .kind = AG_EVENT_POOL_CERT_CREATED, .cert_created = cert };
+  ag_pool_event_t event = { .kind = AG_POOL_EVENT_CERT_CREATED, .cert_created = cert };
   ag_votor_handle_pool_event( votor, &event, 0L );
 
   ag_vote_t msg = recv( votor );
@@ -321,20 +318,18 @@ test_notar_out_of_order( void ) {
   ulong slot2 = slot1+1UL; ag_block_hash_t hash2; random_hash( hash2 );
 
   /* give later block to votor first */
-  ag_event_replay_t block = {0};
-  block.slot              = slot2;
-  block.block_info.parent = ag_block_id( slot1, hash1 );
-  memcpy( block.block_info.hash, hash2, sizeof(ag_block_hash_t) );
-  ag_votor_handle_replay_event( votor, &block );
+  ag_block_info_t block = {0};
+  block.parent = ag_block_id( slot1, hash1 );
+  memcpy( block.hash, hash2, sizeof(ag_block_hash_t) );
+  ag_votor_process_replay( votor, slot2, &block );
 
   /* should not vote yet */
   FD_TEST_NO_MSG( votor );
 
   /* now notify votor of earlier block */
-  block.slot              = slot1;
-  block.block_info.parent = genesis_block_id();
-  memcpy( block.block_info.hash, hash1, sizeof(ag_block_hash_t) );
-  ag_votor_handle_replay_event( votor, &block );
+  block.parent = genesis_block_id();
+  memcpy( block.hash, hash1, sizeof(ag_block_hash_t) );
+  ag_votor_process_replay( votor, slot1, &block );
 
   /* should now see notar votes */
   for( ulong i=0UL; i<2UL; i++ ) {
@@ -360,15 +355,13 @@ test_pending_block_not_notarized_after_skip( void ) {
 
   /* block reconstructs before its parent is ready: stashed as pending, no
      vote yet (parent not in parents_ready) */
-  ag_event_replay_t block = {0};
-  block.slot              = slot;
-  random_hash( block.block_info.hash );
-  block.block_info.parent = parent;
-  ag_votor_handle_replay_event( votor, &block );
+  ag_block_info_t block = {0};
+  random_hash( block.hash );
+  block.parent = parent;
+  ag_votor_process_replay( votor, slot, &block );
 
   /* window times out: we vote skip for every slot in the window */
-  ag_event_timeout_t timeout = { .slot = slot };
-  ag_votor_handle_timeout_event( votor, &timeout );
+  ag_votor_handle_skip_timeout( votor, slot );
 
   /* parent becomes ready late: re-checks pending blocks */
   parent_ready( votor, slot, &parent );
@@ -406,7 +399,7 @@ test_safe_to_notar( void ) {
 
   /* vote notar-fallback after safe-to-notar */
   ag_block_id_t   block = random_block_id( slot );
-  ag_event_pool_t event = { .kind = AG_EVENT_POOL_SAFE_TO_NOTAR, .safe_to_notar = block };
+  ag_pool_event_t event = { .kind = AG_POOL_EVENT_SAFE_TO_NOTAR, .safe_to_notar = block };
   ag_votor_handle_pool_event( votor, &event, 0L );
 
   ag_vote_t msg = recv( votor );
@@ -429,7 +422,7 @@ test_safe_to_skip( void ) {
   send_block_and_expect_notar( votor, slot, &parent );
 
   /* vote skip-fallback after safe-to-skip */
-  ag_event_pool_t event = { .kind = AG_EVENT_POOL_SAFE_TO_SKIP, .safe_to_skip = slot };
+  ag_pool_event_t event = { .kind = AG_POOL_EVENT_SAFE_TO_SKIP, .safe_to_skip = slot };
   ag_votor_handle_pool_event( votor, &event, 0L );
 
   ag_vote_t msg = recv( votor );
@@ -485,10 +478,10 @@ test_missing_bls_selector_disables_voting( void ) {
     if( advances>0UL ) ag_votor_advance_epoch( votor, TEST_NS_PER_SLOT, 0UL, 4UL, g_bls_selector[0] );
     if( advances>1UL ) ag_votor_advance_epoch( votor, TEST_NS_PER_SLOT, 1UL, 6UL, g_bls_selector[1] );
 
-    ag_event_replay_t block = { .slot = 2UL };
-    block.block_info.parent = ag_block_id( 1UL, vote.notar.block_hash );
-    random_hash( block.block_info.hash );
-    ag_votor_handle_replay_event( votor, &block );
+    ag_block_info_t block = {0};
+    block.parent = ag_block_id( 1UL, vote.notar.block_hash );
+    random_hash( block.hash );
+    ag_votor_process_replay( votor, 2UL, &block );
     FD_TEST_NO_MSG( votor );
 
     teardown_votor( votor );
@@ -509,10 +502,10 @@ test_set_bls_pubkey( void ) {
   FD_TEST( !memcmp( g_last_bls_selector, g_bls_selector[1], FD_BLS_PUB_COMPRESSED_SZ ) );
 
   ag_votor_set_bls_key( votor, 2UL, NULL );
-  ag_event_replay_t block = { .slot = 3UL };
-  block.block_info.parent = ag_block_id( 2UL, vote.notar.block_hash );
-  random_hash( block.block_info.hash );
-  ag_votor_handle_replay_event( votor, &block );
+  ag_block_info_t block = {0};
+  block.parent = ag_block_id( 2UL, vote.notar.block_hash );
+  random_hash( block.hash );
+  ag_votor_process_replay( votor, 3UL, &block );
   FD_TEST_NO_MSG( votor );
 
   teardown_votor( votor );
@@ -529,16 +522,16 @@ test_missing_bls_selector_records_notar( void ) {
   ag_block_id_t parent = genesis_block_id();
   ag_vote_t vote = send_block_and_expect_notar( votor, 1UL, &parent );
 
-  ag_event_replay_t block = { .slot = 2UL };
-  block.block_info.parent = ag_block_id( 1UL, vote.notar.block_hash );
-  random_hash( block.block_info.hash );
-  ag_votor_handle_replay_event( votor, &block );
+  ag_block_info_t block = {0};
+  block.parent = ag_block_id( 1UL, vote.notar.block_hash );
+  random_hash( block.hash );
+  ag_votor_process_replay( votor, 2UL, &block );
   FD_TEST_NO_MSG( votor );
 
   ag_votor_set_bls_key( votor, 2UL, g_bls_selector[1] );
   FD_TEST_NO_MSG( votor );
 
-  parent = ag_block_id( 2UL, block.block_info.hash );
+  parent = ag_block_id( 2UL, block.hash );
   vote   = send_block_and_expect_notar( votor, 3UL, &parent );
   FD_TEST( ag_vote_rank( &vote )==1UL );
   FD_TEST( !memcmp( g_last_bls_selector, g_bls_selector[1], FD_BLS_PUB_COMPRESSED_SZ ) );
@@ -557,13 +550,13 @@ test_missing_bls_selector_records_final( void ) {
   ag_block_id_t parent = genesis_block_id();
   ag_vote_t vote = send_block_and_expect_notar( votor, 1UL, &parent );
 
-  ag_event_replay_t block = { .slot = 2UL };
-  block.block_info.parent = ag_block_id( 1UL, vote.notar.block_hash );
-  random_hash( block.block_info.hash );
-  ag_votor_handle_replay_event( votor, &block );
+  ag_block_info_t block = {0};
+  block.parent = ag_block_id( 1UL, vote.notar.block_hash );
+  random_hash( block.hash );
+  ag_votor_process_replay( votor, 2UL, &block );
 
-  ag_vote_t       notar = ag_vote_construct_notar( sec_sign_fn, &g_sk[1], test_bls_public_key, 2UL, block.block_info.hash, (ushort)1, TEST_SHRED_VERSION );
-  ag_event_pool_t event = { .kind = AG_EVENT_POOL_CERT_CREATED, .cert_created = cert_build_notar( &notar.notar, 1UL, g_epoch_info ) };
+  ag_vote_t       notar = ag_vote_construct_notar( sec_sign_fn, &g_sk[1], test_bls_public_key, 2UL, block.hash, (ushort)1, TEST_SHRED_VERSION );
+  ag_pool_event_t event = { .kind = AG_POOL_EVENT_CERT_CREATED, .cert_created = cert_build_notar( &notar.notar, 1UL, g_epoch_info ) };
   ag_votor_handle_pool_event( votor, &event, 0L );
   FD_TEST_NO_MSG( votor );
   FD_TEST( is_retired( votor, 2UL ) );
@@ -604,18 +597,18 @@ test_wait_to_vote( void ) {
   ag_vote_t     vote   = send_block_and_expect_notar( votor, 1UL, &parent );
   ag_votor_wait_to_vote( votor );
 
-  ag_event_pool_t event = { .kind = AG_EVENT_POOL_CERT_CREATED, .cert_created = cert_build_notar( &vote.notar, 1UL, g_epoch_info ) };
+  ag_pool_event_t event = { .kind = AG_POOL_EVENT_CERT_CREATED, .cert_created = cert_build_notar( &vote.notar, 1UL, g_epoch_info ) };
   ag_votor_handle_pool_event( votor, &event, 0L );
   FD_TEST_NO_MSG( votor );
 
   parent = ag_block_id( 1UL, vote.notar.block_hash );
   for( ulong slot=2UL; slot<AG_SLOTS_PER_WINDOW; slot++ ) {
-    ag_event_replay_t block = { .slot = slot };
-    block.block_info.parent = parent;
-    random_hash( block.block_info.hash );
-    ag_votor_handle_replay_event( votor, &block );
+    ag_block_info_t block = {0};
+    block.parent = parent;
+    random_hash( block.hash );
+    ag_votor_process_replay( votor, slot, &block );
     FD_TEST_NO_MSG( votor );
-    parent = ag_block_id( slot, block.block_info.hash );
+    parent = ag_block_id( slot, block.hash );
   }
 
   parent_ready( votor, AG_SLOTS_PER_WINDOW, &parent );
@@ -630,18 +623,19 @@ test_missing_bls_selector_still_skips_other_epoch( void ) {
     ag_votor_t * votor = setup_votor( 0L );
     ag_votor_advance_epoch( votor, TEST_NS_PER_SLOT, 0UL, 2UL, NULL );
 
-    ag_event_pool_t event = { .kind = AG_EVENT_POOL_SAFE_TO_SKIP, .safe_to_skip = 2UL };
+    ag_pool_event_t event = { .kind = AG_POOL_EVENT_SAFE_TO_SKIP, .safe_to_skip = 2UL };
     if( notar ) {
-      event.kind          = AG_EVENT_POOL_SAFE_TO_NOTAR;
+      event.kind          = AG_POOL_EVENT_SAFE_TO_NOTAR;
       event.safe_to_notar = random_block_id( 2UL );
     }
     ag_votor_handle_pool_event( votor, &event, 0L );
 
-    ag_event_vote_t vote;
-    FD_TEST( ag_votor_poll_vote_event( votor, &vote ) );
-    FD_TEST( vote.vote.kind==AG_VOTE_KIND_SKIP );
-    FD_TEST( ag_vote_slot( &vote.vote )==1UL );
-    FD_TEST( vote.reason==( notar ? AG_VOTOR_REASON_SAFE_TO_NOTAR : AG_VOTOR_REASON_SAFE_TO_SKIP ) );
+    ag_vote_t vote;
+    uchar     reason;
+    FD_TEST( ag_votor_poll_vote( votor, &vote, &reason ) );
+    FD_TEST( vote.kind==AG_VOTE_KIND_SKIP );
+    FD_TEST( ag_vote_slot( &vote )==1UL );
+    FD_TEST( reason==( notar ? AG_VOTOR_REASON_SAFE_TO_NOTAR : AG_VOTOR_REASON_SAFE_TO_SKIP ) );
     FD_TEST_NO_MSG( votor );
     ulong slot = 2UL;
     slot_state_ele_t const * state = slot_state_map_ele_query_const( votor->slot_states->map, &slot, NULL, votor->slot_states->pool );
@@ -674,7 +668,7 @@ test_prunes_to_finalized_window( void ) {
      window */
   ag_vote_t fv; fv = ag_vote_construct_final( sec_sign_fn, &g_sk[1], test_bls_public_key, finalized, (ushort)1, TEST_SHRED_VERSION );
   ag_cert_t cert = cert_build_final( &fv.final, 1UL, g_epoch_info );
-  ag_event_pool_t event = { .kind = AG_EVENT_POOL_CERT_CREATED, .cert_created = cert };
+  ag_pool_event_t event = { .kind = AG_POOL_EVENT_CERT_CREATED, .cert_created = cert };
   ag_votor_handle_pool_event( votor, &event, 0L );
   FD_TEST( votor->highest_final_cert_slot==finalized );
 
@@ -704,18 +698,18 @@ test_window_start_at_first_unpruned( void ) {
 
     ag_block_id_t parent = random_block_id( 7UL );
     ag_vote_t     nv     = ag_vote_construct_notar( sec_sign_fn, &g_sk[1], test_bls_public_key, parent.slot, parent.hash, (ushort)1, TEST_SHRED_VERSION );
-    ag_event_pool_t nf_cert = { .kind = AG_EVENT_POOL_CERT_CREATED, .cert_created = cert_build_notar_fallback( &nv.notar, 1UL, NULL, 0UL, g_epoch_info ) };
+    ag_pool_event_t nf_cert = { .kind = AG_POOL_EVENT_CERT_CREATED, .cert_created = cert_build_notar_fallback( &nv.notar, 1UL, NULL, 0UL, g_epoch_info ) };
     if( !cert_last ) ag_votor_handle_pool_event( votor, &nf_cert, 0L );
 
     ag_vote_t       fv    = ag_vote_construct_final( sec_sign_fn, &g_sk[1], test_bls_public_key, 16UL, (ushort)1, TEST_SHRED_VERSION );
-    ag_event_pool_t final = { .kind = AG_EVENT_POOL_CERT_CREATED, .cert_created = cert_build_final( &fv.final, 1UL, g_epoch_info ) };
+    ag_pool_event_t final = { .kind = AG_POOL_EVENT_CERT_CREATED, .cert_created = cert_build_final( &fv.final, 1UL, g_epoch_info ) };
     ag_votor_handle_pool_event( votor, &final, 0L );
     FD_TEST( first_unpruned_slot( votor )==8UL );
 
-    ag_event_replay_t block = { .slot = 8UL };
-    random_hash( block.block_info.hash );
-    block.block_info.parent = parent;
-    ag_votor_handle_replay_event( votor, &block );
+    ag_block_info_t block = {0};
+    random_hash( block.hash );
+    block.parent = parent;
+    ag_votor_process_replay( votor, 8UL, &block );
     if( cert_last ) {
       FD_TEST_NO_MSG( votor );
       ag_votor_handle_pool_event( votor, &nf_cert, 0L );
