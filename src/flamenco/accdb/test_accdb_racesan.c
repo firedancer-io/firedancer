@@ -788,6 +788,14 @@ fiber_done( fiber_t * fiber ) {
   fd_racesan_async_delete( fiber->async );
 }
 
+static void
+async_finish( fd_racesan_async_t * async ) {
+  for( ulong step=0UL; step<STEP_MAX; step++ ) {
+    if( fd_racesan_async_step( async )==FD_RACESAN_ASYNC_RET_EXIT ) return;
+  }
+  FD_LOG_ERR(( "async did not exit within %lu steps", STEP_MAX ));
+}
+
 /* ------------------------------------------------------------------ */
 /* tests                                                              */
 /* ------------------------------------------------------------------ */
@@ -2216,6 +2224,61 @@ evict_fiber_exec( void * _ctx ) {
   fd_accdb_debug_clock_evict_line( f->accdb, f->size_class, f->line_idx );
 }
 
+/* test_tombstone_recreate_vs_evict closes and re-creates an account on
+   the same fork while the tombstone is being written back.  The
+   re-create must wait for the writeback, else the evictor's offset
+   publish lands on the new account and disk reads return the
+   tombstone's owner. */
+static void
+test_tombstone_recreate_vs_evict( void ) {
+  test_shmem_new_tiny();
+  fd_accdb_t * ctl = join_new();
+  fd_accdb_t * je  = join_new();
+  fd_accdb_t * jw  = join_new();
+  fd_accdb_t * jr  = join_new();
+
+  uchar key[ 32UL ];   mk_key( 7UL, key );
+  uchar owner[ 32UL ]; memset( owner, 0, 32UL ); owner[0] = TAG_A;
+
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( ctl, SENTINEL );
+  fd_accdb_fork_id_t F    = fd_accdb_attach_child( ctl, root );
+
+  write_acc( ctl, root, key, LAMP_A, owner, NULL, 0UL );
+  fd_accdb_debug_force_preevict( ctl );
+  write_acc( ctl, F, key, 0UL, owner, NULL, 0UL );
+
+  /* Park an evictor on the tombstone line before it writes back */
+  static evict_fiber_t e[1];
+  e->accdb = je;
+  FD_TEST( fd_accdb_debug_find_line( ctl, key, &e->size_class, &e->line_idx ) );
+  void * e_stack = fd_racesan_stack_create( EVICT_FIBER_STACK_SZ );
+  fd_racesan_async_new( e->async, e_stack, EVICT_FIBER_STACK_SZ, evict_fiber_exec, e );
+  FD_TEST( fd_racesan_async_step_until( e->async, "clock_evict:pre_synth", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+
+  /* Re-create must block on the in-flight writeback */
+  fd_racesan_async_t * w = fiber_overwrite( &g_fiber[0], jw, F, key, 1 );
+  FD_TEST( fd_racesan_async_step_until( w, "accdb_acquire:offset_wait", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+
+  async_finish( e->async );
+  async_finish( w );
+  fiber_done( &g_fiber[0] );
+
+  /* Flush the new version and read it back from disk */
+  fd_accdb_debug_force_preevict( ctl );
+  ulong cls, idx;
+  FD_TEST( !fd_accdb_debug_find_line( ctl, key, &cls, &idx ) );
+  async_finish( fiber_nocache( &g_fiber[1], jr, F, key, LAMP_B, TAG_B, 0UL, 0 ) );
+  fiber_done( &g_fiber[1] );
+
+  fd_racesan_async_delete( e->async );
+  fd_racesan_stack_destroy( e_stack, EVICT_FIBER_STACK_SZ );
+  join_delete( ctl );
+  join_delete( je  );
+  join_delete( jw  );
+  join_delete( jr  );
+  test_shmem_delete();
+}
+
 /* test_sentinel_unlink_no_poison proves the acc_unlink EVICT_SENTINEL
    branch (the "do nothing" else) is correct.
 
@@ -3374,6 +3437,7 @@ main( int     argc,
     TEST( test_coldload_vs_overwrite ),
     TEST( test_commit_owner_vs_reader ),
     TEST( test_tombstone_orphan_ebr_poison ),
+    TEST( test_tombstone_recreate_vs_evict ),
     TEST( test_sentinel_unlink_no_poison ),
     TEST( test_step14_orphan_no_hang ),
     TEST( test_stray_pin_vs_freepop ),
