@@ -38,6 +38,9 @@
 #include <unistd.h>
 #include <sys/syscall.h>
 
+/* TODO: the tower file is not read during boot, just during identity
+   switches. */
+
 /* The Tower tile broadly processes three classes of frags, leading to
    three distinct kinds of frag processing:
 
