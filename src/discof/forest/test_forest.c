@@ -2161,6 +2161,56 @@ test_fec_insert_dup_confirm_larger_complete_idx( fd_wksp_t * wksp ) {
 
 
 
+void
+test_data_shred_insert_reject_oob_confirmed_complete( fd_wksp_t * wksp ) {
+  /* The attacker's version of slot 3 completes at shred 31.  After
+     confirmation with the canonical block_id, the canonical
+     slot_complete shred (shred 95, FEC 2) arrives and matches
+     confirmed_bid but is beyond complete_idx.  It must be rejected
+     without touching lowest_verified_fec, else the last incorrect FEC
+     is computed as 32 (an empty FEC above complete_idx) instead of 0,
+     and fec_clear never resets complete_idx. */
+
+  ulong ele_max = 16;
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max, FD_SHRED_BLK_MAX ), 1UL );
+  FD_TEST( mem );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, FD_SHRED_BLK_MAX, 42UL ) );
+  fd_forest_init( forest, 0 );
+
+  fd_hash_t mr_0     = (fd_hash_t){ .key = { 0 } };
+  fd_hash_t mr_2     = (fd_hash_t){ .key = { 2 } };
+  fd_hash_t mr_3_bad = (fd_hash_t){ .key = { 99 } };
+  fd_hash_t mr_3_1   = (fd_hash_t){ .key = { 31 } };
+  fd_hash_t mr_3_2   = (fd_hash_t){ .key = { 32 } }; /* canonical block_id */
+
+  fd_forest_blk_insert( forest, 2, 0, NULL );
+  fd_forest_data_shred_insert( forest, 2, 0, 31, 0, 1, 0, SHRED_SRC_REPAIR, &mr_2, &mr_0, fd_tickcount() );
+
+  fd_forest_blk_insert( forest, 3, 2, NULL );
+  fd_forest_fec_insert( forest, 3, 2, 31, 0, 1, 0, &mr_3_bad, &mr_2, fd_tickcount() );
+  fd_forest_blk_t * ele = fd_forest_query( forest, 3 );
+  FD_TEST( ele->complete_idx == 31 );
+
+  FD_TEST( fd_forest_fec_chain_verify( forest, ele, &mr_3_2 ) == ele );
+  FD_TEST( fd_hash_eq( &ele->confirmed_bid, &mr_3_2 ) );
+
+  FD_TEST( !fd_forest_data_shred_insert( forest, 3, 2, 95, 64, 1, 0, SHRED_SRC_REPAIR, &mr_3_2, &mr_3_1, fd_tickcount() ) );
+  FD_TEST( ele->lowest_verified_fec == UINT_MAX );
+  FD_TEST( ele->complete_idx == 31 );
+  FD_TEST( fd_hash_eq( &fd_forest_blk_mroots( forest, ele )[2].mr, &(fd_hash_t){ 0 } ) );
+
+  FD_TEST( fd_forest_fec_chain_verify( forest, ele, &mr_3_2 ) == ele );
+  FD_TEST( fd_forest_merkle_last_incorrect_idx( ele ) == 0 );
+  fd_forest_fec_clear( forest, 3, 0, 31 );
+  FD_TEST( ele->complete_idx == UINT_MAX );
+
+  FD_TEST( fd_forest_data_shred_insert( forest, 3, 2, 95, 64, 1, 0, SHRED_SRC_REPAIR, &mr_3_2, &mr_3_1, fd_tickcount() ) );
+  FD_TEST( ele->complete_idx == 95 );
+  FD_TEST( ele->lowest_verified_fec == 2 );
+
+  fd_wksp_free_laddr( fd_forest_delete( fd_forest_leave( forest ) ) );
+}
+
 static void
 test_sentinel_parent_update_orphreqs_leak( fd_wksp_t * wksp ) {
   /* test_sentinel_parent_update_orphreqs_leak
@@ -2319,6 +2369,7 @@ main( int argc, char ** argv ) {
   test_fec_complete_no_poison_verified( wksp );
   test_fec_insert_reject_oob_after_verify( wksp );
   test_fec_insert_dup_confirm_larger_complete_idx( wksp );
+  test_data_shred_insert_reject_oob_confirmed_complete( wksp );
   test_sentinel_parent_update_orphreqs_leak( wksp );
 
   FD_LOG_NOTICE(( "pass" ));
