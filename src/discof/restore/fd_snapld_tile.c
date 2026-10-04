@@ -529,6 +529,7 @@ returnable_frag( fd_snapld_tile_t *  ctx,
 
       ctx->window_deadline = LONG_MAX;
       ctx->bytes_in_window = 0UL;
+      ctx->bytes_in_batch  = 0UL;
       if( ctx->load_file ) {
         if( FD_UNLIKELY( 0!=lseek( ctx->load_full ? ctx->local_full_fd : ctx->local_incr_fd, 0, SEEK_SET ) ) )
           FD_LOG_ERR(( "lseek(0) failed on %s snapshot file (%i-%s)",
