@@ -713,9 +713,8 @@ fiber_acquire_ab_exec( void * _ctx ) {
   fd_accdb_acquire_a( f->accdb, f->acquire_ab.fork_w, 1UL, pka, wra, acc_a );
 
   uchar const * pkb[1] = { f->acquire_ab.pubkey_d };
-  int           wrb[1] = { 0 };
   fd_acc_t acc_b[1]; memset( acc_b, 0, sizeof(acc_b) );
-  fd_accdb_acquire_b( f->accdb, f->acquire_ab.fork_r, 1UL, 1UL, pkb, wrb, acc_b );
+  fd_accdb_acquire_b( f->accdb, f->acquire_ab.fork_r, 1UL, 1UL, pkb, acc_b );
 
   if( f->acquire_ab.expect_lamports ) {
     FD_TEST( acc_b[0].lamports==f->acquire_ab.expect_lamports );

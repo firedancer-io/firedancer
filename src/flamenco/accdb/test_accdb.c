@@ -1147,10 +1147,9 @@ test_acquire_b_refund_accounting( void ) {
      the candidate count (2), exactly as fd_executor.c passes
      txn_out->accounts.cnt. */
   uchar const * pd_pks[2] = { pd_big, pd_none };
-  int           pd_wr [2] = { 0, 0 };
   fd_acc_t      pd_acc[2];
   memset( pd_acc, 0, sizeof(pd_acc) );
-  fd_accdb_acquire_b( accdb, root0, 2UL, 2UL, pd_pks, pd_wr, pd_acc );
+  fd_accdb_acquire_b( accdb, root0, 2UL, 2UL, pd_pks, pd_acc );
 
   fd_accdb_release_ab( accdb, 2UL, cand_acc, 2UL, pd_acc );
 
