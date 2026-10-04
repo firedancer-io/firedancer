@@ -380,13 +380,14 @@ test_auth_vtr_keyswitch_refreshes_epochs( void ) {
 
   /* Block 1 builds on the root, slot 0 with a zero hash. */
 
-  ag_event_replay_t block = { .slot = 1UL };
-  memset( block.block_info.hash, 1, sizeof(ag_block_hash_t) );
-  ag_votor_handle_replay_event( ctx.votor, &block );
+  ag_block_info_t block = {0};
+  memset( block.hash, 1, sizeof(ag_block_hash_t) );
+  ag_votor_process_replay( ctx.votor, 1UL, &block );
 
-  ag_event_vote_t vote;
-  FD_TEST( ag_votor_poll_vote_event( ctx.votor, &vote ) );
-  FD_TEST( vote.vote.kind==AG_VOTE_KIND_NOTAR );
+  ag_vote_t vote;
+  uchar     reason;
+  FD_TEST( ag_votor_poll_vote( ctx.votor, &vote, &reason ) );
+  FD_TEST( vote.kind==AG_VOTE_KIND_NOTAR );
   FD_TEST( !memcmp( last_bls_signer, bls_keys[1], sizeof(ag_bls_key_t) ) );
 
   ag_pool_delete( ag_pool_leave( ctx.pool ) );
@@ -442,12 +443,13 @@ test_auth_vtr_keyswitch_clear( void ) {
 
   /* Block 1 builds on the root, slot 0 with a zero hash. */
 
-  ag_event_replay_t block = { .slot = 1UL };
-  memset( block.block_info.hash, 1, sizeof(ag_block_hash_t) );
-  ag_votor_handle_replay_event( ctx.votor, &block );
+  ag_block_info_t block = {0};
+  memset( block.hash, 1, sizeof(ag_block_hash_t) );
+  ag_votor_process_replay( ctx.votor, 1UL, &block );
 
-  ag_event_vote_t vote;
-  FD_TEST( !ag_votor_poll_vote_event( ctx.votor, &vote ) );
+  ag_vote_t vote;
+  uchar     reason;
+  FD_TEST( !ag_votor_poll_vote( ctx.votor, &vote, &reason ) );
 
   fd_keyswitch_state( keyswitch, FD_KEYSWITCH_STATE_UNHALT_PENDING );
   during_housekeeping( &ctx );
@@ -618,9 +620,9 @@ test_id_keyswitch( void ) {
 
   /* A vote signed as the old identity is waiting to go out. */
 
-  ag_event_replay_t block = { .slot = 1UL };
-  memcpy( block.block_info.hash, b1.hash, sizeof(ag_block_hash_t) );
-  ag_votor_handle_replay_event( ctx.votor, &block );
+  ag_block_info_t block = {0};
+  memcpy( block.hash, b1.hash, sizeof(ag_block_hash_t) );
+  ag_votor_process_replay( ctx.votor, 1UL, &block );
   FD_TEST( ag_votor_metrics( ctx.votor ).vote_events_cnt==1UL );
 
   memcpy( ctx.id_keyswitch->bytes, new_id.uc, sizeof(fd_pubkey_t) );
@@ -644,13 +646,14 @@ test_id_keyswitch( void ) {
 
   /* Halted, votor signs nothing more, and the queued vote goes out. */
 
-  block = (ag_event_replay_t){ .slot = 2UL };
-  block.block_info.parent = b1;
-  memset( block.block_info.hash, 2, sizeof(ag_block_hash_t) );
-  ag_votor_handle_replay_event( ctx.votor, &block );
-  ag_event_vote_t vote;
-  FD_TEST( ag_votor_poll_vote_event( ctx.votor, &vote ) );
-  FD_TEST( ag_vote_slot( &vote.vote )==1UL && ag_vote_rank( &vote.vote )==0UL );
+  block = (ag_block_info_t){0};
+  block.parent = b1;
+  memset( block.hash, 2, sizeof(ag_block_hash_t) );
+  ag_votor_process_replay( ctx.votor, 2UL, &block );
+  ag_vote_t vote;
+  uchar     reason;
+  FD_TEST( ag_votor_poll_vote( ctx.votor, &vote, &reason ) );
+  FD_TEST( ag_vote_slot( &vote )==1UL && ag_vote_rank( &vote )==0UL );
   FD_TEST( !ag_votor_metrics( ctx.votor ).vote_events_cnt );
 
   /* The other voters skip slot 1, which the old identity notarized, so
@@ -675,10 +678,10 @@ test_id_keyswitch( void ) {
   FD_TEST( ctx.id_keyswitch->state==FD_KEYSWITCH_STATE_SWITCH_PENDING );
   FD_TEST( fd_pubkey_eq( &ctx.id_key, &old_id ) );
 
-  ag_event_pool_t pool_event;
+  ag_pool_event_t pool_event;
   int             safe_to_skip = 0;
   while( ag_pool_poll_pool_event( ctx.pool, &pool_event ) ) {
-    safe_to_skip |= pool_event.kind==AG_EVENT_POOL_SAFE_TO_SKIP && pool_event.safe_to_skip==1UL;
+    safe_to_skip |= pool_event.kind==AG_POOL_EVENT_SAFE_TO_SKIP && pool_event.safe_to_skip==1UL;
     ag_votor_handle_pool_event( ctx.votor, &pool_event, 0L );
   }
   FD_TEST( safe_to_skip );
@@ -716,16 +719,16 @@ test_id_keyswitch( void ) {
      while votor was halted, so its vote is never sent. */
 
   ag_block_id_t b2 = { .slot = 2UL }; memset( b2.hash, 2, sizeof(ag_block_hash_t) );
-  ag_event_pool_t parent_ready = { .kind = AG_EVENT_POOL_PARENT_READY };
+  ag_pool_event_t parent_ready = { .kind = AG_POOL_EVENT_PARENT_READY };
   parent_ready.parent_ready.slot   = 4UL;
   parent_ready.parent_ready.parent = b2;
   ag_votor_handle_pool_event( ctx.votor, &parent_ready, 0L );
-  block = (ag_event_replay_t){ .slot = 4UL };
-  block.block_info.parent = b2;
-  memset( block.block_info.hash, 4, sizeof(ag_block_hash_t) );
-  ag_votor_handle_replay_event( ctx.votor, &block );
-  FD_TEST( ag_votor_poll_vote_event( ctx.votor, &vote ) );
-  FD_TEST( ag_vote_slot( &vote.vote )==4UL && ag_vote_rank( &vote.vote )==1UL );
+  block = (ag_block_info_t){0};
+  block.parent = b2;
+  memset( block.hash, 4, sizeof(ag_block_hash_t) );
+  ag_votor_process_replay( ctx.votor, 4UL, &block );
+  FD_TEST( ag_votor_poll_vote( ctx.votor, &vote, &reason ) );
+  FD_TEST( ag_vote_slot( &vote )==4UL && ag_vote_rank( &vote )==1UL );
   FD_TEST( !memcmp( last_bls_signer, bls_keys[1], sizeof(ag_bls_key_t) ) );
   FD_TEST( !ag_votor_metrics( ctx.votor ).vote_events_cnt );
 
@@ -1250,11 +1253,11 @@ test_park( void ) {
 
   /* Timers are set but after_credit only polls them once init (epoch
      info missing): counting them would be a past deadline, a spin. */
-  FD_TEST( ag_votor_next_timeout( ctx->votor )!=LONG_MAX );
+  FD_TEST( ag_votor_next_skip_timeout( ctx->votor )!=LONG_MAX );
   FD_TEST( next_deadline( ctx )==LONG_MAX );
 
   ctx->init = 1;
-  long timeout = ag_votor_next_timeout( ctx->votor );
+  long timeout = ag_votor_next_skip_timeout( ctx->votor );
   FD_TEST( timeout==now+AG_DELTA_TIMEOUT_NS+ctx->ns_per_slot );
   long due = next_deadline( ctx );
   FD_TEST( due==fd_clock_tile_wallclock_to_tickcount( ctx->clock, timeout ) );
@@ -1271,7 +1274,7 @@ test_park( void ) {
   charge_busy = 0;
   after_credit( ctx, NULL, NULL, &charge_busy );
   FD_TEST( !charge_busy );
-  FD_TEST( ag_votor_next_timeout( ctx->votor )==timeout );
+  FD_TEST( ag_votor_next_skip_timeout( ctx->votor )==timeout );
 
   /* The clock reaches the timer: the deadline is due (never park past
      it) and the pass that wakes pops it.  It is the root's, so no vote,
@@ -1281,8 +1284,9 @@ test_park( void ) {
   charge_busy = 0;
   after_credit( ctx, NULL, NULL, &charge_busy );
   FD_TEST( charge_busy );
-  FD_TEST( !ag_votor_poll_vote_event( ctx->votor, &ctx->scratch.vote_event ) );
-  long timeout1 = ag_votor_next_timeout( ctx->votor );
+  uchar reason;
+  FD_TEST( !ag_votor_poll_vote( ctx->votor, &ctx->scratch.vote, &reason ) );
+  long timeout1 = ag_votor_next_skip_timeout( ctx->votor );
   FD_TEST( timeout1==timeout+ctx->ns_per_slot );
   FD_TEST( next_deadline( ctx )>fd_tickcount() );
   charge_busy = 0;
@@ -1302,16 +1306,17 @@ test_park( void ) {
     busy_cnt++;
   }
   FD_TEST( busy_cnt==3UL ); /* the pop sends the first vote in the same pass */
-  FD_TEST( !ag_votor_poll_vote_event( ctx->votor, &ctx->scratch.vote_event ) );
-  long next = ag_votor_next_timeout( ctx->votor );
+  FD_TEST( !ag_votor_poll_vote( ctx->votor, &ctx->scratch.vote, &reason ) );
+  long next = ag_votor_next_skip_timeout( ctx->votor );
   FD_TEST( next==timeout1+ctx->ns_per_slot ); /* slot 2: still set, a no-op when it fires */
 
   /* A reward retry whose leader has no active conn waits for the frag
      that brings one up: it adds no deadline, due or not. */
   fd_clock_tile_set( ctx->clock, timeout+(long)10e9 );
-  while( ag_votor_poll_timeout_event( ctx->votor, LONG_MAX-1L, &ctx->scratch.timeout_event ) ) ag_votor_handle_timeout_event( ctx->votor, &ctx->scratch.timeout_event );
-  while( ag_votor_poll_vote_event( ctx->votor, &ctx->scratch.vote_event ) );
-  FD_TEST( ag_votor_next_timeout( ctx->votor )==LONG_MAX );
+  ulong timeout_slot;
+  while( ag_votor_poll_skip_timeout( ctx->votor, LONG_MAX-1L, &timeout_slot ) ) ag_votor_handle_skip_timeout( ctx->votor, timeout_slot );
+  while( ag_votor_poll_vote( ctx->votor, &ctx->scratch.vote, &reason ) );
+  FD_TEST( ag_votor_next_skip_timeout( ctx->votor )==LONG_MAX );
   FD_TEST( next_deadline( ctx )==LONG_MAX );
   reward_vote_t * rv = &ctx->reward_votes[ 5UL%REWARD_VOTE_MAX ];
   rv->slot     = 5UL;

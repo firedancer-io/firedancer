@@ -3,7 +3,7 @@
 
 #include "ag_votor_base.h"
 #include "../../ballet/bls/fd_bls.h"
-#include "ag_event.h"
+#include "ag_pool.h"
 
 #define AG_VOTOR_REASON_BLOCK_REPLAYED  (0)
 #define AG_VOTOR_REASON_PARENT_READY    (1)
@@ -101,36 +101,38 @@ ag_votor_wait_to_vote( ag_votor_t * self );
 
 void
 ag_votor_handle_pool_event( ag_votor_t *            self,
-                            ag_event_pool_t const * event,
+                            ag_pool_event_t const * event,
                             long                    now );
 
 /* Algorithm 1, lines 1-5. Votor::handle_blockstore_event, Block */
 
 void
-ag_votor_handle_replay_event( ag_votor_t *              self,
-                              ag_event_replay_t const * event );
+ag_votor_process_replay( ag_votor_t *            self,
+                         ulong                   slot,
+                         ag_block_info_t const * block_info );
 
 /* Algorithm 1, lines 6-8. Votor::handle_timeout_event */
 
 void
-ag_votor_handle_timeout_event( ag_votor_t *               self,
-                               ag_event_timeout_t const * event );
+ag_votor_handle_skip_timeout( ag_votor_t * self,
+                              ulong        slot );
 
 int
-ag_votor_poll_timeout_event( ag_votor_t *         self,
-                             long                 now,
-                             ag_event_timeout_t * event );
+ag_votor_poll_skip_timeout( ag_votor_t * self,
+                            long         now,
+                            ulong *      slot );
 
 FD_FN_PURE long
-ag_votor_next_timeout( ag_votor_t const * self );
+ag_votor_next_skip_timeout( ag_votor_t const * self );
 
 int
-ag_votor_poll_vote_event( ag_votor_t *      self,
-                          ag_event_vote_t * event );
+ag_votor_poll_vote( ag_votor_t * self,
+                    ag_vote_t *  vote,
+                    uchar *      reason );
 
 int
-ag_votor_poll_cert_event( ag_votor_t *      self,
-                          ag_event_cert_t * event );
+ag_votor_poll_cert( ag_votor_t * self,
+                    ag_cert_t *  cert );
 
 FD_PROTOTYPES_END
 

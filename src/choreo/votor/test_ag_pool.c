@@ -91,7 +91,7 @@ is_parent_ready( ag_pool_t *           pool,
 
 static int
 votor_event_pop( ag_pool_t *       pool,
-                 ag_event_pool_t * out ) {
+                 ag_pool_event_t * out ) {
   if( FD_UNLIKELY( pool_events_empty( pool->pool_events ) ) ) return 0;
   *out = pool_events_pop( pool->pool_events );
   return 1;
@@ -151,7 +151,7 @@ create_validators( void ) {
   }
 }
 
-static ag_event_pool_t g_event[ TEST_SLOT_MAX ];
+static ag_pool_event_t g_event[ TEST_SLOT_MAX ];
 
 static ulong
 take_events( ag_pool_t * pool ) {
@@ -161,7 +161,7 @@ take_events( ag_pool_t * pool ) {
   return cnt;
 }
 
-static ag_event_pool_t const *
+static ag_pool_event_t const *
 event( ulong i ) {
   return &g_event[ i ];
 }
@@ -280,8 +280,8 @@ drained_safe_to_notar( ag_pool_t *           pool,
                        ag_block_hash_t const hash ) {
   ulong cnt = take_events( pool );
   for( ulong i=0UL; i<cnt; i++ ) {
-    ag_event_pool_t const * e = event( i );
-    if( e->kind!=AG_EVENT_POOL_SAFE_TO_NOTAR ) continue;
+    ag_pool_event_t const * e = event( i );
+    if( e->kind!=AG_POOL_EVENT_SAFE_TO_NOTAR ) continue;
     if( e->safe_to_notar.slot==slot &&
         !memcmp( e->safe_to_notar.hash, hash, sizeof(ag_block_hash_t) ) ) return 1;
   }
@@ -617,6 +617,36 @@ test_fast_finalize_block( void ) {
   teardown_pool( pool );
 }
 
+/* Firedancer-only test: a finalization reports the blocks it implicitly
+   finalizes and the slots it implicitly skips as pool events. */
+
+static void
+test_implicit_finalization_events( void ) {
+  ag_pool_t * pool = setup_pool();
+
+  ag_block_id_t b5 = random_block_id( 5UL );
+  ag_block_id_t b7 = random_block_id( 7UL );
+  FD_TEST( ag_pool_add_block( pool, &b7, &b5, bad )==AG_POOL_SUCCESS );
+  drain_events( pool );
+
+  ag_vote_notar_t nv[ NV ];
+  for( ulong v=0UL; v<NV; v++ ) nv[v] = ag_vote_construct_notar( sec_sign_fn, &g_sk[v], test_bls_public_key, b7.slot, b7.hash, (ushort)v, TEST_SHRED_VERSION ).notar;
+  ag_cert_t c = cert_build_fast_final( nv, NV, g_epoch_info );
+  FD_TEST( ag_pool_add_cert( pool, &c, bad )==AG_POOL_SUCCESS );
+
+  ulong finalized = 0UL;
+  ulong skipped   = 0UL;
+  ulong cnt       = take_events( pool );
+  for( ulong i=0UL; i<cnt; i++ ) {
+    ag_pool_event_t const * e = event( i );
+    finalized += e->kind==AG_POOL_EVENT_IMPLICITLY_FINALIZED && ag_block_id_eq( &e->implicitly_finalized, &b5 );
+    skipped   += e->kind==AG_POOL_EVENT_IMPLICITLY_SKIPPED   && e->implicitly_skipped==6UL;
+  }
+  FD_TEST( finalized==1UL && skipped==1UL );
+
+  teardown_pool( pool );
+}
+
 /* votor/src/event_handler.rs::Finalized request_repair */
 
 static void
@@ -629,10 +659,10 @@ test_fast_final_cert_requests_repair( void ) {
   ag_cert_t c = cert_build_fast_final( nv, NV, g_epoch_info );
   FD_TEST( ag_pool_add_cert( pool, &c, bad )==AG_POOL_SUCCESS );
 
-  ag_event_repair_t repair;
+  ag_block_id_t repair;
   FD_TEST( ag_pool_poll_repair_event( pool, &repair ) );
-  FD_TEST( repair.block.slot==1UL );
-  FD_TEST( !memcmp( repair.block.hash, hash, sizeof(ag_block_hash_t) ) );
+  FD_TEST( repair.slot==1UL );
+  FD_TEST( !memcmp( repair.hash, hash, sizeof(ag_block_hash_t) ) );
   FD_TEST( !ag_pool_poll_repair_event( pool, &repair ) );
 
   teardown_pool( pool );
@@ -1030,7 +1060,7 @@ test_standstill_recovery( void ) {
   ag_standstill_t const * ss = NULL;
   ulong event_cnt = take_events( pool );
   for( ulong i=0UL; i<event_cnt; i++ ) {
-    if( event( i )->kind==AG_EVENT_POOL_STANDSTILL ) ss = &event( i )->standstill;
+    if( event( i )->kind==AG_POOL_EVENT_STANDSTILL ) ss = &event( i )->standstill;
   }
   FD_TEST( ss );
   FD_TEST( ss->slot==slot2 );
@@ -1112,8 +1142,8 @@ test_parent_ready_upon_finalization( void ) {
   ulong cert_created = 0UL, parent_ready_cnt = 0UL;
   ulong event_cnt = take_events( pool );
   for( ulong i=0UL; i<event_cnt; i++ ) {
-    if( event( i )->kind==AG_EVENT_POOL_CERT_CREATED ) cert_created++;
-    if( event( i )->kind==AG_EVENT_POOL_PARENT_READY ) parent_ready_cnt++;
+    if( event( i )->kind==AG_POOL_EVENT_CERT_CREATED ) cert_created++;
+    if( event( i )->kind==AG_POOL_EVENT_PARENT_READY ) parent_ready_cnt++;
   }
   FD_TEST( cert_created==3UL );
   FD_TEST( parent_ready_cnt==0UL );
@@ -1125,7 +1155,7 @@ test_parent_ready_upon_finalization( void ) {
   int found = 0;
   event_cnt = take_events( pool );
   for( ulong i=0UL; i<event_cnt; i++ ) {
-    if( event( i )->kind==AG_EVENT_POOL_PARENT_READY ) {
+    if( event( i )->kind==AG_POOL_EVENT_PARENT_READY ) {
       FD_TEST( event( i )->parent_ready.slot==slot1 );
       FD_TEST( ag_block_id_eq( &event( i )->parent_ready.parent, &block0 ) );
       found = 1;
@@ -1526,7 +1556,7 @@ test_standstill_recovery_no_final_cert( void ) {
   ag_standstill_t const * ss = NULL;
   ulong event_cnt = take_events( pool );
   for( ulong i=0UL; i<event_cnt; i++ ) {
-    if( event( i )->kind==AG_EVENT_POOL_STANDSTILL ) ss = &event( i )->standstill;
+    if( event( i )->kind==AG_POOL_EVENT_STANDSTILL ) ss = &event( i )->standstill;
   }
   FD_TEST( ss );
   FD_TEST( ss->slot    ==1UL ); /* finalized slot + 1 */
@@ -1635,6 +1665,7 @@ main( int     argc,
   test_reward_late_skip_unverified();
   test_reward_wire_cert_base();
   test_fast_finalize_block();
+  test_implicit_finalization_events();
   test_fast_final_cert_requests_repair();
   test_finalized_block_hash();
   test_simple_branch_certified();

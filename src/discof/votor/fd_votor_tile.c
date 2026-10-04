@@ -293,13 +293,10 @@ struct fd_votor_tile {
 
   struct {
     union {
-      ag_vote_t          vote;
-      ag_cert_t          cert;
-      ag_event_pool_t    pool_event;
-      ag_event_repair_t  repair_event;
-      ag_event_timeout_t timeout_event;
-      ag_event_vote_t    vote_event;
-      ag_event_cert_t    cert_event;
+      ag_vote_t       vote;
+      ag_cert_t       cert;
+      ag_pool_event_t pool_event;
+      ag_block_id_t   repair_event;
     };
     ag_epoch_info_t prev_epoch_info;
     ag_epoch_info_t curr_epoch_info;
@@ -1256,9 +1253,9 @@ handle_replay( fd_votor_tile_t *           ctx,
       ag_pool_add_block( ctx->pool, &block_id, &parent_block_id, ctx->scratch.bad );
       if( FD_UNLIKELY( !fd_bls_set_is_null( ctx->scratch.bad ) ) ) ban_bad_ranks( ctx, ctx->scratch.bad, block_id.slot );
     }
-    ag_event_replay_t completed = { .slot = block_id.slot, .block_info = { .parent = parent_block_id } };
-    memcpy( completed.block_info.hash, block_id.hash, sizeof(ag_block_hash_t) );
-    ag_votor_handle_replay_event( ctx->votor, &completed );
+    ag_block_info_t block_info = { .parent = parent_block_id };
+    memcpy( block_info.hash, block_id.hash, sizeof(ag_block_hash_t) );
+    ag_votor_process_replay( ctx->votor, block_id.slot, &block_info );
 
     ulong           reward_slot = block_id.slot-AG_REWARD_SLOT_DELTA;
     reward_vote_t * rv          = &ctx->reward_votes[ reward_slot%REWARD_VOTE_MAX ];
@@ -1476,7 +1473,7 @@ next_deadline( fd_votor_tile_t * ctx ) {
   long reconn = reconn_prq_cnt( ctx->reconn_prq ) ? ctx->reconn_prq[ 0 ].timeout : LONG_MAX;
   long next   = fd_long_min( fd_long_min( fd_quic_get_next_wakeup( ctx->quic_client ), fd_quic_get_next_wakeup( ctx->quic_server ) ), reconn );
   if( FD_LIKELY( ctx->init ) ) {
-    next = fd_long_min( next, ag_votor_next_timeout( ctx->votor ) );
+    next = fd_long_min( next, ag_votor_next_skip_timeout( ctx->votor ) );
     for( ulong i=0UL; i<REWARD_VOTE_MAX; i++ ) {
       reward_vote_t const * rv = &ctx->reward_votes[ i ];
       if( FD_LIKELY( rv->slot==ULONG_MAX || rv->retry_ts>=next ) ) continue;
@@ -1541,17 +1538,42 @@ after_credit( fd_votor_tile_t *   ctx,
   if( FD_UNLIKELY( !ctx->init ) ) return;
 
   if( FD_UNLIKELY( ag_pool_poll_pool_event( ctx->pool, &ctx->scratch.pool_event ) ) ) {
-    ag_votor_handle_pool_event( ctx->votor, &ctx->scratch.pool_event, now );
-    if( FD_UNLIKELY( ctx->scratch.pool_event.kind==AG_EVENT_POOL_PARENT_READY ) ) ctx->highest_parent_ready_slot = fd_ulong_max( ctx->highest_parent_ready_slot, ctx->scratch.pool_event.parent_ready.slot );
+    ag_pool_event_t const * event = &ctx->scratch.pool_event;
+    if( FD_LIKELY( event->kind!=AG_POOL_EVENT_IMPLICITLY_FINALIZED && event->kind!=AG_POOL_EVENT_IMPLICITLY_SKIPPED ) ) ag_votor_handle_pool_event( ctx->votor, event, now );
+
+    if( FD_UNLIKELY( event->kind==AG_POOL_EVENT_SAFE_TO_NOTAR || event->kind==AG_POOL_EVENT_IMPLICITLY_FINALIZED || event->kind==AG_POOL_EVENT_IMPLICITLY_SKIPPED ) ) {
+      fd_votor_quorum_t * quorum = &((fd_votor_msg_t *)fd_chunk_to_laddr( ctx->votor_out_mem, ctx->votor_out_chunk ))->quorum;
+      *quorum = (fd_votor_quorum_t){0};
+      switch( event->kind ) {
+      case AG_POOL_EVENT_SAFE_TO_NOTAR:
+        quorum->kind     = FD_VOTOR_QUORUM_KIND_SAFE_TO_NOTAR;
+        quorum->slot     = event->safe_to_notar.slot;
+        quorum->block_id = FD_LOAD( fd_hash_t, event->safe_to_notar.hash );
+        break;
+      case AG_POOL_EVENT_IMPLICITLY_FINALIZED:
+        quorum->kind     = FD_VOTOR_QUORUM_KIND_IMPLICITLY_FINALIZED;
+        quorum->slot     = event->implicitly_finalized.slot;
+        quorum->block_id = FD_LOAD( fd_hash_t, event->implicitly_finalized.hash );
+        break;
+      case AG_POOL_EVENT_IMPLICITLY_SKIPPED:
+        quorum->kind = FD_VOTOR_QUORUM_KIND_IMPLICITLY_SKIPPED;
+        quorum->slot = event->implicitly_skipped;
+        break;
+      default:
+        FD_LOG_CRIT(( "unreachable" ));
+      }
+      fd_stem_publish( stem, OUT_IDX_VOTOR, FD_VOTOR_SIG_QUORUM, ctx->votor_out_chunk, sizeof(fd_votor_msg_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
+      ctx->votor_out_chunk = fd_dcache_compact_next( ctx->votor_out_chunk, sizeof(fd_votor_msg_t), ctx->votor_out_chunk0, ctx->votor_out_wmark );
+    }
+    if( FD_UNLIKELY( ctx->scratch.pool_event.kind==AG_POOL_EVENT_PARENT_READY ) ) ctx->highest_parent_ready_slot = fd_ulong_max( ctx->highest_parent_ready_slot, ctx->scratch.pool_event.parent_ready.slot );
 
     /* Notify other tiles that we have a cert indicating this slot has
        reached a new state.
 
-       TODO also publish contiguous implicitly finalized and ensure no
-       missed final certs? */
+       TODO ensure no missed final certs? */
 
     ag_cert_t const * cert = &ctx->scratch.pool_event.cert_created;
-    if( FD_UNLIKELY( ctx->scratch.pool_event.kind==AG_EVENT_POOL_CERT_CREATED ) ) {
+    if( FD_UNLIKELY( ctx->scratch.pool_event.kind==AG_POOL_EVENT_CERT_CREATED ) ) {
       ulong                   slot  = ag_cert_slot( cert );
       ag_slot_state_t const * state = ag_pool_slot_state( ctx->pool, slot );
       fd_votor_msg_t *        chunk = fd_chunk_to_laddr( ctx->votor_out_mem, ctx->votor_out_chunk );
@@ -1604,34 +1626,36 @@ after_credit( fd_votor_tile_t *   ctx,
 
   if( FD_UNLIKELY( ag_pool_poll_repair_event( ctx->pool, &ctx->scratch.repair_event ) ) ) {
     fd_votor_msg_t * chunk = fd_chunk_to_laddr( ctx->votor_out_mem, ctx->votor_out_chunk );
-    chunk->repair = (fd_votor_repair_t){ .slot = ctx->scratch.repair_event.block.slot, .block_id = FD_LOAD( fd_hash_t, ctx->scratch.repair_event.block.hash ) };
+    chunk->repair = (fd_votor_repair_t){ .slot = ctx->scratch.repair_event.slot, .block_id = FD_LOAD( fd_hash_t, ctx->scratch.repair_event.hash ) };
     fd_stem_publish( stem, OUT_IDX_VOTOR, FD_VOTOR_SIG_REPAIR, ctx->votor_out_chunk, sizeof(fd_votor_msg_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
     ctx->votor_out_chunk = fd_dcache_compact_next( ctx->votor_out_chunk, sizeof(fd_votor_msg_t), ctx->votor_out_chunk0, ctx->votor_out_wmark );
     *charge_busy = 1;
   }
 
-  if( FD_UNLIKELY( ag_votor_poll_timeout_event( ctx->votor, now, &ctx->scratch.timeout_event ) ) ) { /* a timeout we set on ParentReady */
-    ag_votor_handle_timeout_event( ctx->votor, &ctx->scratch.timeout_event );
+  ulong timeout_slot;
+  if( FD_UNLIKELY( ag_votor_poll_skip_timeout( ctx->votor, now, &timeout_slot ) ) ) { /* a timeout we set on ParentReady */
+    ag_votor_handle_skip_timeout( ctx->votor, timeout_slot );
     *charge_busy = 1;
   }
 
-  if( FD_UNLIKELY( ag_votor_poll_vote_event( ctx->votor, &ctx->scratch.vote_event ) ) ) { /* our own vote */
-    ulong                   vote_slot  = ag_vote_slot( &ctx->scratch.vote_event.vote );
+  uchar reason;
+  if( FD_UNLIKELY( ag_votor_poll_vote( ctx->votor, &ctx->scratch.vote, &reason ) ) ) { /* our own vote */
+    ulong                   vote_slot  = ag_vote_slot( &ctx->scratch.vote );
     ag_epoch_info_t const * epoch_info = fd_ptr_if( vote_slot>=ctx->next_epoch_slot, ctx->next_epoch_info, fd_ptr_if( vote_slot>=ctx->curr_epoch_slot, ctx->curr_epoch_info, ctx->prev_epoch_info ) );
-    ulong                   rank       = ag_vote_rank( &ctx->scratch.vote_event.vote );
+    ulong                   rank       = ag_vote_rank( &ctx->scratch.vote );
     if( FD_LIKELY( epoch_info && rank<epoch_info->validator_cnt ) ) {
       long  aggregation_start_time = fd_clock_tile_now( ctx->clock );
       uchar quorum_reached;
-      int   err = ag_pool_add_vote( ctx->pool, &ctx->scratch.vote_event.vote, ctx->scratch.bad, &quorum_reached );
+      int   err = ag_pool_add_vote( ctx->pool, &ctx->scratch.vote, ctx->scratch.bad, &quorum_reached );
       if( FD_UNLIKELY( !fd_bls_set_is_null( ctx->scratch.bad ) ) ) ban_bad_ranks( ctx, ctx->scratch.bad, vote_slot );
 
-      ulong ser_sz               = ag_vote_ser( &ctx->scratch.vote_event.vote, ctx->scratch.ser );
+      ulong ser_sz               = ag_vote_ser( &ctx->scratch.vote, ctx->scratch.ser );
       long  broadcast_start_time = fd_clock_tile_now( ctx->clock );
 
-      uint                kind                 = ctx->scratch.vote_event.vote.kind;
+      uint                kind                 = ctx->scratch.vote.kind;
       fd_pubkey_t const * reward_leader_pubkey = fd_multi_epoch_leaders_get_leader_for_slot( ctx->mleaders, vote_slot+AG_REWARD_SLOT_DELTA );
       peer_t const *      reward_leader        = NULL;
-      if( FD_LIKELY(    ctx->scratch.vote_event.reason != UCHAR_MAX /* standstill re-broadcast */
+      if( FD_LIKELY(    reason != UCHAR_MAX /* standstill re-broadcast */
                      && reward_leader_pubkey
                      && !fd_pubkey_eq( reward_leader_pubkey, &ctx->id_key )
                      && (kind==AG_VOTE_KIND_NOTAR || kind==AG_VOTE_KIND_SKIP) ) ) {
@@ -1643,7 +1667,7 @@ after_credit( fd_votor_tile_t *   ctx,
         rv->retry_ts = now;
         rv->tx_cnt   = 0UL;
         rv->conn     = NULL;
-        rv->vote     = ctx->scratch.vote_event.vote;
+        rv->vote     = ctx->scratch.vote;
       }
 
       for( ulong slot=0UL; slot<peers_slot_cnt(); slot++ ) {
@@ -1664,16 +1688,16 @@ after_credit( fd_votor_tile_t *   ctx,
       default:
         FD_LOG_CRIT(( "unhandled kind" ));
       }
-      if( FD_LIKELY( ctx->scratch.vote_event.reason!=UCHAR_MAX ) ) report_alpenglow_vote( ctx, NULL, &ctx->scratch.vote_event.vote, ctx->scratch.ser[ 1 ], result, quorum_reached, FD_EVENT_ALPENGLOW_VOTE_REASON_BLOCK_REPLAYED+ctx->scratch.vote_event.reason, aggregation_start_time, broadcast_start_time, reward_leader );
+      if( FD_LIKELY( reason!=UCHAR_MAX ) ) report_alpenglow_vote( ctx, NULL, &ctx->scratch.vote, ctx->scratch.ser[ 1 ], result, quorum_reached, FD_EVENT_ALPENGLOW_VOTE_REASON_BLOCK_REPLAYED+reason, aggregation_start_time, broadcast_start_time, reward_leader );
     }
     *charge_busy = 1;
   }
 
-  if( FD_UNLIKELY( ag_votor_poll_cert_event( ctx->votor, &ctx->scratch.cert_event ) ) ) { /* a cert the pool accepted, or a standstill re-broadcast */
-    ag_pool_add_cert( ctx->pool, &ctx->scratch.cert_event.cert, ctx->scratch.bad );
-    if( FD_UNLIKELY( !fd_bls_set_is_null( ctx->scratch.bad ) ) ) ban_bad_ranks( ctx, ctx->scratch.bad, ag_cert_slot( &ctx->scratch.cert_event.cert ) );
+  if( FD_UNLIKELY( ag_votor_poll_cert( ctx->votor, &ctx->scratch.cert ) ) ) { /* a cert the pool accepted, or a standstill re-broadcast */
+    ag_pool_add_cert( ctx->pool, &ctx->scratch.cert, ctx->scratch.bad );
+    if( FD_UNLIKELY( !fd_bls_set_is_null( ctx->scratch.bad ) ) ) ban_bad_ranks( ctx, ctx->scratch.bad, ag_cert_slot( &ctx->scratch.cert ) );
 
-    ulong ser_sz               = ag_cert_ser( &ctx->scratch.cert_event.cert, ctx->scratch.ser );
+    ulong ser_sz               = ag_cert_ser( &ctx->scratch.cert, ctx->scratch.ser );
     long  broadcast_start_time = fd_clock_tile_now( ctx->clock );
     for( ulong slot=0UL; slot<peers_slot_cnt(); slot++ ) {
       peer_t const * peer = &ctx->peers[ slot ];
@@ -1682,15 +1706,15 @@ after_credit( fd_votor_tile_t *   ctx,
     }
 
     ulong stake;
-    switch( ctx->scratch.cert_event.cert.kind ) {
-    case AG_CERT_KIND_FINAL:          stake = ctx->scratch.cert_event.cert.final.stake;          break;
-    case AG_CERT_KIND_FAST_FINAL:     stake = ctx->scratch.cert_event.cert.fast_final.stake;     break;
-    case AG_CERT_KIND_NOTAR:          stake = ctx->scratch.cert_event.cert.notar.stake;          break;
-    case AG_CERT_KIND_NOTAR_FALLBACK: stake = ctx->scratch.cert_event.cert.notar_fallback.stake; break;
-    case AG_CERT_KIND_SKIP:           stake = ctx->scratch.cert_event.cert.skip.stake;           break;
+    switch( ctx->scratch.cert.kind ) {
+    case AG_CERT_KIND_FINAL:          stake = ctx->scratch.cert.final.stake;          break;
+    case AG_CERT_KIND_FAST_FINAL:     stake = ctx->scratch.cert.fast_final.stake;     break;
+    case AG_CERT_KIND_NOTAR:          stake = ctx->scratch.cert.notar.stake;          break;
+    case AG_CERT_KIND_NOTAR_FALLBACK: stake = ctx->scratch.cert.notar_fallback.stake; break;
+    case AG_CERT_KIND_SKIP:           stake = ctx->scratch.cert.skip.stake;           break;
     default:                          FD_LOG_CRIT(( "unreachable" ));
     }
-    if( FD_UNLIKELY( stake ) ) report_alpenglow_cert( ctx, NULL, &ctx->scratch.cert_event.cert, ctx->scratch.ser[ 1 ], FD_EVENT_ALPENGLOW_CERT_PROCESSING_RESULT_ACCEPTED, 0L, broadcast_start_time );
+    if( FD_UNLIKELY( stake ) ) report_alpenglow_cert( ctx, NULL, &ctx->scratch.cert, ctx->scratch.ser[ 1 ], FD_EVENT_ALPENGLOW_CERT_PROCESSING_RESULT_ACCEPTED, 0L, broadcast_start_time );
     *charge_busy = 1;
   }
 

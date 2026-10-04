@@ -4,7 +4,7 @@
 #include "ag_votor_base.h"
 #include "ag_cert.h"
 #include "ag_epoch_info.h"
-#include "ag_event.h"
+#include "ag_pool.h"
 #include "ag_vote.h"
 
 #define AG_PARENT_STATUS_KNOWN     (1)
@@ -128,16 +128,16 @@ ag_slot_state_add_cert( ag_slot_state_t * self,
 /* Definition 12. SlotState::add_vote */
 
 int
-ag_slot_state_add_vote( ag_slot_state_t *   self,
-                        ag_vote_t const *   vote,
-                        ulong               stake,
-                        ag_event_cert_t *   out_cert_events,
-                        ulong *             out_cert_event_cnt,
-                        ag_event_pool_t *   out_pool_events,
-                        ulong *             out_pool_event_cnt,
-                        ag_event_repair_t * out_repair_events,
-                        ulong *             out_repair_event_cnt,
-                        fd_bls_set_t *      bad );
+ag_slot_state_add_vote( ag_slot_state_t *  self,
+                        ag_vote_t const *  vote,
+                        ulong              stake,
+                        ag_cert_t *        out_cert_events,
+                        ulong *            out_cert_event_cnt,
+                        ag_pool_event_t *  out_pool_events,
+                        ulong *            out_pool_event_cnt,
+                        ag_block_id_t *    out_repair_events,
+                        ulong *            out_repair_event_cnt,
+                        fd_bls_set_t *     bad );
 
 /* Definition 16. SlotState::notify_parent_known */
 
