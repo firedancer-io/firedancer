@@ -2103,7 +2103,6 @@ fd_runtime_prepare_bundle_accounts( fd_runtime_t *      runtime,
 
   fd_pubkey_t   programdata_keys[ FD_BUNDLE_ACCT_MAX ];
   uchar const * pd_pubkeys      [ FD_BUNDLE_ACCT_MAX ];
-  int           pd_writable     [ FD_BUNDLE_ACCT_MAX ];
   ulong         pd_cnt = 0UL;
 
   FD_TEST( bank->parent_accdb_fork_id.val!=USHORT_MAX );
@@ -2131,7 +2130,6 @@ fd_runtime_prepare_bundle_accounts( fd_runtime_t *      runtime,
     FD_TEST( pd_cnt<FD_BUNDLE_ACCT_MAX );
     programdata_keys[ pd_cnt ] = *programdata_key;
     pd_pubkeys[ pd_cnt ]       = programdata_keys[ pd_cnt ].uc;
-    pd_writable[ pd_cnt ]      = 0;
     pd_cnt++;
   }
 
@@ -2140,7 +2138,7 @@ fd_runtime_prepare_bundle_accounts( fd_runtime_t *      runtime,
     programdata.  Skip it entirely for an empty bundle (nothing was
     reserved and nothing is executable). */
   if( FD_LIKELY( acquire_cnt || pd_cnt ) ) {
-    fd_accdb_acquire_b( runtime->accdb, bank->parent_accdb_fork_id, acquire_cnt, pd_cnt, pd_pubkeys, pd_writable, runtime->accounts.executable );
+    fd_accdb_acquire_b( runtime->accdb, bank->parent_accdb_fork_id, acquire_cnt, pd_cnt, pd_pubkeys, runtime->accounts.executable );
   }
   runtime->accounts.executable_cnt = pd_cnt;
 

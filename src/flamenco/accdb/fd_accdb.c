@@ -2320,7 +2320,7 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
                         ulong                 reserved_cnt,
                         ulong                 pubkeys_cnt,
                         uchar const * const * pubkeys,
-                        int *                 writable,
+                        int const *           writable,
                         fd_acc_t *            out_accs ) {
   accdb->metrics->acquire_calls++;
 
@@ -3126,11 +3126,11 @@ fd_accdb_acquire_b( fd_accdb_t *          accdb,
                     ulong                 reserved_cnt,
                     ulong                 pubkeys_cnt,
                     uchar const * const * pubkeys,
-                    int *                 writable,
                     fd_acc_t *            out_accs ) {
+  static int const readonly[ FD_ACCDB_MAX_ACQUIRE_CNT ] = {0};
   FD_TEST( accdb->acquire_state==FD_ACCDB_ACQUIRE_STATE_PHASE_A );
   accdb->acquire_state = FD_ACCDB_ACQUIRE_STATE_OPEN;
-  fd_accdb_acquire_inner( accdb, fork_id, RESERVATION_TYPE_ALREADY_RESERVED, reserved_cnt, pubkeys_cnt, pubkeys, writable, out_accs );
+  fd_accdb_acquire_inner( accdb, fork_id, RESERVATION_TYPE_ALREADY_RESERVED, reserved_cnt, pubkeys_cnt, pubkeys, readonly, out_accs );
 }
 
 /* release_inner drains one group of acquired accs but does NOT change the

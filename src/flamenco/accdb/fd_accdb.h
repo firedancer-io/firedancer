@@ -372,7 +372,6 @@ fd_accdb_acquire_b( fd_accdb_t *          accdb,
                     ulong                 reserved_cnt,
                     ulong                 pubkeys_cnt,
                     uchar const * const * pubkeys,
-                    int *                 writable,
                     fd_acc_t *            out_accs );
 
 /* fd_accdb_release releases previously acquired accounts back to the
