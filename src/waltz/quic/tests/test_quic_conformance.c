@@ -125,6 +125,26 @@ FD_UNIT_TEST( quic_ping_frame ) {
   FD_TEST( conn->ack_gen->is_elicited == 1 );
 }
 
+/* RFC 9000 Section 19.7. NEW_TOKEN Frames
+
+   > A server MUST treat receipt of a NEW_TOKEN frame as a connection
+   > error of type PROTOCOL_VIOLATION. */
+
+FD_UNIT_TEST( quic_new_token_frame ) {
+  uchar const buf[] = { 0x07, 0x01, 0x42 };
+
+  fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_SERVER );
+  fd_quic_conn_t * conn = fd_quic_sandbox_new_conn_established( sandbox, rng );
+  fd_quic_sandbox_send_lone_frame( sandbox, conn, buf, sizeof(buf) );
+  FD_TEST( conn->state  == FD_QUIC_CONN_STATE_ABORT );
+  FD_TEST( conn->reason == FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION );
+
+  fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_CLIENT );
+  conn = fd_quic_sandbox_new_conn_established( sandbox, rng );
+  fd_quic_sandbox_send_lone_frame( sandbox, conn, buf, sizeof(buf) );
+  FD_TEST( conn->state == FD_QUIC_CONN_STATE_ACTIVE );
+}
+
 static __attribute__((noinline)) void
 test_quic_sticky_peer_ip4_( int role ) {
   fd_quic_sandbox_init( sandbox, role );
