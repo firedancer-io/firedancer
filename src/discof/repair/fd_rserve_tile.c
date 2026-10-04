@@ -103,7 +103,8 @@ typedef struct ctx {
   fd_ip4_udp_hdrs_t serve_hdr[1];
   ushort            net_id;
 
-  uchar net_buf[ FD_NET_MTU ];
+  uchar            net_buf[ FD_NET_MTU ];
+  fd_rotor_block_t rotor_buf[1];
 
   struct {
     ulong received_request_count[FD_METRICS_ENUM_RSERVE_REQUEST_TYPES_CNT];
@@ -569,25 +570,48 @@ static inline void
 during_frag( ctx_t * ctx,
              ulong   in_idx,
              ulong   seq FD_PARAM_UNUSED,
-             ulong   sig FD_PARAM_UNUSED,
+             ulong   sig,
              ulong   chunk,
              ulong   sz,
              ulong   ctl ) {
-  if( FD_LIKELY( ctx->in_kind[ in_idx ]!=IN_KIND_NET ) ) return;
-  uchar const * buffer = fd_net_rx_translate_frag( &ctx->in_links[ in_idx ].net_rx, chunk, ctl, sz );
-  fd_memcpy( ctx->net_buf, buffer, sz );
+  in_ctx_t const * in_ctx = &ctx->in_links[ in_idx ];
+  switch( ctx->in_kind[ in_idx ] ) {
+  case IN_KIND_NET: {
+    uchar const * buffer = fd_net_rx_translate_frag( &in_ctx->net_rx, chunk, ctl, sz );
+    fd_memcpy( ctx->net_buf, buffer, sz );
+    break;
+  }
+  case IN_KIND_ROTOR: {
+    if( FD_UNLIKELY( sig!=ROTOR_SIG_BLOCK ) ) break;
+    if( FD_UNLIKELY( sz<FD_ROTOR_BLOCK_SZ( 0 ) || sz>sizeof(fd_rotor_block_t) || chunk<in_ctx->chunk0 || chunk>in_ctx->wmark ) )
+      FD_LOG_ERR(( "rotor_rserve chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, in_ctx->chunk0, in_ctx->wmark ));
+    fd_memcpy( ctx->rotor_buf, fd_chunk_to_laddr_const( in_ctx->mem, chunk ), sz );
+    break;
+  }
+  default: break;
+  }
 }
 
 static inline void
 after_frag( ctx_t *             ctx,
             ulong               in_idx,
             ulong               seq    FD_PARAM_UNUSED,
-            ulong               sig    FD_PARAM_UNUSED,
+            ulong               sig,
             ulong               sz,
             ulong               tsorig FD_PARAM_UNUSED,
             ulong               tspub  FD_PARAM_UNUSED,
             fd_stem_context_t * stem ) {
-  if( FD_LIKELY( ctx->in_kind[ in_idx ]!=IN_KIND_NET ) ) return; /* returnable_frag */
+  uint in_kind = ctx->in_kind[ in_idx ];
+  if( FD_UNLIKELY( in_kind==IN_KIND_ROTOR ) ) {
+    if( FD_UNLIKELY( sig!=ROTOR_SIG_BLOCK ) ) return;
+    fd_rotor_block_t const * msg = ctx->rotor_buf;
+    if( FD_UNLIKELY( sz!=FD_ROTOR_BLOCK_SZ( msg->fec_set_cnt ) ) )
+      FD_LOG_ERR(( "rotor_rserve frag sz %lu does not match fec_set_cnt %u", sz, msg->fec_set_cnt ));
+    FD_TEST( fd_blockdb_insert( ctx->blockdb, msg->slot, &msg->block_id, msg->parent_slot, &msg->parent_block_id,
+                                msg->fec_set_cnt, (uchar const *)msg->merkle_roots ) );
+    return;
+  }
+  if( FD_LIKELY( in_kind!=IN_KIND_NET ) ) return; /* returnable_frag */
 
   uchar * payload; ulong payload_sz;
   fd_udp_hdr_t * udp;
@@ -638,19 +662,7 @@ returnable_frag( ctx_t             * ctx,
     } else ctx->metrics->disk_write_failed++;
     return 0;
   }
-  case IN_KIND_ROTOR: {
-    if( FD_UNLIKELY( sig!=ROTOR_SIG_BLOCK ) ) return 0;
-    if( FD_UNLIKELY( sz<FD_ROTOR_BLOCK_SZ( 0 ) || sz>sizeof(fd_rotor_block_t) || chunk<in_ctx->chunk0 || chunk>in_ctx->wmark ) )
-      FD_LOG_ERR(( "rotor_rserve chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, in_ctx->chunk0, in_ctx->wmark ));
-
-    fd_rotor_block_t const * msg = fd_chunk_to_laddr_const( in_ctx->mem, chunk );
-    if( FD_UNLIKELY( sz!=FD_ROTOR_BLOCK_SZ( msg->fec_set_cnt ) ) )
-      FD_LOG_ERR(( "rotor_rserve frag sz %lu does not match fec_set_cnt %u", sz, msg->fec_set_cnt ));
-
-    FD_TEST( fd_blockdb_insert( ctx->blockdb, msg->slot, &msg->block_id, msg->parent_slot, &msg->parent_block_id,
-                                msg->fec_set_cnt, (uchar const *)msg->merkle_roots ) );
-    return 0;
-  }
+  case IN_KIND_ROTOR: return 0; /* after_frag */
   default: FD_LOG_ERR(( "unexpected input kind (%u)", in_kind ));
   }
 }
