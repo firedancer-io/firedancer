@@ -1405,9 +1405,8 @@ replay_runtime_block_emit( fd_replay_tile_t * ctx,
   if( FD_LIKELY( _leader ) ) leader = *_leader;
   fd_sol_sysvar_clock_t clock = {0};
   if( FD_UNLIKELY( !fd_sysvar_clock_read( ctx->accdb, bank->accdb_fork_id, &clock ) ) ) FD_LOG_ERR(( "failed to read clock sysvar for slot %lu", bank->f.slot ));
-  ulong num_shreds = fd_ulong_if( bank==ctx->leader_bank, (ulong)ctx->block_id_arr[ bank->idx ].fec_cnt*FD_FEC_SHRED_CNT, bank->f.shred_cnt );
   fd_event_runtime_block_emit( bank, block_id->uc, parent_block_id.uc, leader.uc,
-                               execution_fees, priority_fees, tips, num_shreds, &clock,
+                               execution_fees, priority_fees, tips, bank->f.shred_cnt, &clock,
                                ctx->fec_chain + bank->idx*FD_FEC_BLK_MAX,
                                ctx->block_id_arr[ bank->idx ].fec_cnt );
 }
@@ -1866,6 +1865,8 @@ try_fini_leader( fd_replay_tile_t *  ctx,
 
     fd_runtime_block_execute_finalize( ctx->leader_bank, ctx->accdb, ctx->capture_ctx, NULL, ctx->shred_version );
   }
+
+  ctx->leader_bank->f.shred_cnt = (ulong)ctx->block_id_arr[ ctx->leader_bank->idx ].fec_cnt*FD_FEC_SHRED_CNT;
 
   if( FD_UNLIKELY( ctx->report_runtime_diffs ) ) replay_runtime_block_emit( ctx, ctx->leader_bank, execution_fees_pre_settle, priority_fees_pre_settle, tips_pre_settle );
 
@@ -3266,18 +3267,15 @@ insert_fec_set( fd_replay_tile_t *  ctx,
     block_id_ele->latest_mr      = reasm_fec->key;
   }
 
-  if( FD_UNLIKELY( ctx->report_runtime_diffs ) ) {
-    fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ reasm_fec->bank_idx ];
-    if( FD_LIKELY( block_id_ele->fec_cnt<FD_FEC_BLK_MAX ) ) {
-      ctx->fec_chain[ reasm_fec->bank_idx*FD_FEC_BLK_MAX + block_id_ele->fec_cnt ] = reasm_fec->key;
-    }
-    block_id_ele->fec_cnt++;
+  fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ reasm_fec->bank_idx ];
+  if( FD_UNLIKELY( ctx->report_runtime_diffs && block_id_ele->fec_cnt<FD_FEC_BLK_MAX ) ) {
+    ctx->fec_chain[ reasm_fec->bank_idx*FD_FEC_BLK_MAX + block_id_ele->fec_cnt ] = reasm_fec->key;
   }
+  block_id_ele->fec_cnt++;
 
   /* If the FEC set is a slot complete, this means we have finally seen
      the block id (block's last mr). */
   if( FD_UNLIKELY( reasm_fec->slot_complete ) ) {
-    fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ reasm_fec->bank_idx ];
     block_id_ele->block_id_seen  = 1;
     block_id_ele->latest_mr      = reasm_fec->key;
     block_id_ele->latest_fec_idx = reasm_fec->fec_set_idx;
