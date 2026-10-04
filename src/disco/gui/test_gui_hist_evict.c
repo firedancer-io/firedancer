@@ -1,12 +1,12 @@
-/* test_gui_hist_evict exercises the space-pressure epoch-cascade eviction in
-   fd_gui_hist: fd_gui_hist_evict_oldest (the synchronous drain used by the
-   map-full fallback and driven one batch at a time by
-   fd_gui_hist_evict_step).  It builds multiple epochs' worth of records -- the
-   EPOCH records, the per-slot (slot,bank_seq) entity rows, and the
-   time-bucketed time-series rows -- then evicts the oldest epoch and asserts
-   that exactly that epoch's rows are gone while the newer epochs survive,
-   including the SHRED_EVENTS boundary case (a slot of the NEXT epoch whose
-   shred landed in a wallclock second shared with the oldest epoch's tail).
+/* test_gui_hist_evict exercises the space-pressure epoch-cascade eviction
+   in fd_gui_hist: fd_gui_hist_evict_oldest (the synchronous drain of the
+   cascade fd_gui_hist_evict_step drives one batch at a time).  It builds
+   multiple epochs' worth of records -- the EPOCH records, the per-slot
+   (slot,bank_seq) entity rows, and the time-bucketed time-series rows --
+   then evicts the oldest epoch and asserts that exactly that epoch's rows
+   are gone while the newer epochs survive, including the SHRED_EVENTS
+   boundary case (a slot of the NEXT epoch whose event landed in a
+   wallclock second shared with the oldest epoch's tail).
 
    The eviction path only touches gui->db / gui->hist, so the test allocates a
    bare fd_gui_t (like test_gui_consensus) and wires up the two store layers
