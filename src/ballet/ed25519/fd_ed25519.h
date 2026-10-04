@@ -254,6 +254,57 @@ fd_ed25519_verify_batch_single_msg_cached( uchar const          msg[], /* msg_sz
                                            uchar const          batch_sz,
                                            fd_ed25519_cache_t * cache );
 
+/* fd_ed25519_verify_batch_multi_msg independently verifies batch_sz
+   messages.  results[j] is exactly the return code of fd_ed25519_verify
+   for (msgs[j], msg_szs[j], sigs[j], public_keys[j], shas[j]), including
+   error precedence.  No equations are aggregated across signatures.
+
+   Each input array and results has batch_sz entries.  Each sigs[j]
+   points to 64 readable bytes, each public_keys[j] to 32 readable bytes,
+   and each msgs[j] to msg_szs[j] readable bytes (NULL is allowed when
+   msg_szs[j] is zero).  Each shas[j] is a distinct joined SHA-512
+   calculator used as scratch; its state on return is unspecified (it
+   is left untouched when item j is hashed by the internal multi-buffer
+   SHA-512, as messages of up to 1232 bytes in a group are).  The
+   caller grants a read interest in the inputs and a write interest in
+   results and the calculators for the call.  Writable regions must not
+   overlap inputs or each other (for example, results[j] is written
+   before sigs[j] is read).  Does no argument checking.  batch_sz may be
+   any count, including zero, in which case nothing is dereferenced and
+   all arguments may be NULL.
+
+   On AVX-512 builds items are verified in groups of up to 8; a final
+   remainder of 1 or 2 items uses fd_ed25519_verify.  Other builds call
+   fd_ed25519_verify for each item. */
+
+void
+fd_ed25519_verify_batch_multi_msg( uchar const * const msgs[],
+                                   ulong const         msg_szs[],
+                                   uchar const * const sigs[],
+                                   uchar const * const public_keys[],
+                                   fd_sha512_t *       shas[],
+                                   int                 results[],
+                                   ulong               batch_sz );
+
+/* fd_ed25519_verify_batch_multi_msg_cached is
+   fd_ed25519_verify_batch_multi_msg with a signer cache.  On AVX-512
+   builds items are verified in groups of up to 8 without consulting
+   the cache, and only a final remainder of fewer than 4 items uses
+   fd_ed25519_verify_cached, so cache lookups, hits and insertions
+   depend on the batch shape.  Other builds call
+   fd_ed25519_verify_cached for each item.  The results are identical
+   either way. */
+
+void
+fd_ed25519_verify_batch_multi_msg_cached( uchar const * const  msgs[],
+                                          ulong const          msg_szs[],
+                                          uchar const * const  sigs[],
+                                          uchar const * const  public_keys[],
+                                          fd_sha512_t *        shas[],
+                                          int                  results[],
+                                          ulong                batch_sz,
+                                          fd_ed25519_cache_t * cache );
+
 /* fd_ed25519_strerror converts an FD_ED25519_SUCCESS / FD_ED25519_ERR_*
    code into a human readable cstr.  The lifetime of the returned
    pointer is infinite.  The returned pointer is always to a non-NULL
