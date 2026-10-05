@@ -1705,9 +1705,15 @@ tower_file_write( fd_tower_tile_t * ctx ) {
   fd_keyguard_client_sign( ctx->keyguard_client, buf+FD_TOWER_FILE_SIG_OFF, buf+FD_TOWER_FILE_DATA_OFF, sz-FD_TOWER_FILE_DATA_OFF, FD_KEYGUARD_SIGN_TYPE_ED25519 );
 
   /* Write and truncate staging file */
-  if( FD_UNLIKELY( pwritev2( ctx->tower_fd[ 0 ], &(struct iovec){ .iov_base=buf, .iov_len=sz }, 1, 0L, 0 )!=(long)sz ) )
-    FD_LOG_ERR(( "pwritev2(%s) failed (%i-%s)", ctx->tower_name[ 0 ], errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( ftruncate( ctx->tower_fd[ 0 ], (long)sz ) ) ) FD_LOG_ERR(( "ftruncate(%s) failed (%i-%s)", ctx->tower_name[ 0 ], errno, fd_io_strerror( errno ) ));
+  for( ulong off=0UL; off<sz; ) {
+    long n = pwritev2( ctx->tower_fd[ 0 ], &(struct iovec){ .iov_base=buf+off, .iov_len=sz-off }, 1, (long)off, 0 );
+    if( FD_UNLIKELY( -1==n && errno==EINTR ) ) continue;
+    if( FD_UNLIKELY( n<=0 ) ) FD_LOG_ERR(( "pwritev2(%s) failed (%i-%s)", ctx->tower_name[ 0 ], errno, fd_io_strerror( errno ) ));
+    off += (ulong)n;
+  }
+  while( FD_UNLIKELY( ftruncate( ctx->tower_fd[ 0 ], (long)sz ) ) ) {
+    if( FD_UNLIKELY( errno!=EINTR ) ) FD_LOG_ERR(( "ftruncate(%s) failed (%i-%s)", ctx->tower_name[ 0 ], errno, fd_io_strerror( errno ) ));
+  }
 
   /* The exchange makes the new tower live atomically.  Files cannot be
      opened after boot, so old live file is now the staging file. */
