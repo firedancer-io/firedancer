@@ -207,12 +207,12 @@ test_bls_pubkey_authorize( void ) {
 
 static void
 test_tower_authorize( void ) {
-  /* The smallest Tower1_14_11 body: prefix, vote state with empty vecs
-     and no root, TowerSync with no lockouts, last_timestamp.  The
-     largest the tower tile writes adds 31 votes, a root, 31 lockouts
-     with 10 byte offsets and a timestamp. */
-  ulong const min_sz = 48UL + (65UL+8UL+1UL+8UL+32UL*48UL+8UL+1UL+8UL+16UL) + (4UL+74UL) + 16UL;
-  ulong const max_sz = min_sz + 31UL*12UL + 8UL + 31UL*11UL + 8UL;
+  /* The smallest body the tower tile writes: prefix, vote state with
+     one vote and no root, TowerSync with one lockout, last_timestamp.
+     The largest adds 30 votes, a root, a timestamp, and has 31
+     lockouts with 10 byte offsets instead of one with a 1 byte offset. */
+  ulong const min_sz = 48UL + (65UL+8UL+12UL+1UL+8UL+32UL*48UL+8UL+1UL+8UL+16UL) + (4UL+74UL+2UL) + 16UL;
+  ulong const max_sz = min_sz + 30UL*12UL + 8UL + 8UL + (31UL*11UL-2UL);
 
   static uchar body[ FD_KEYGUARD_SIGN_REQ_MTU ];
   fd_keyguard_authority_t authority;
@@ -259,7 +259,7 @@ test_tower_match( void ) {
      another payload type.  Those types fit in a packet and a tower body
      does not, so a tower body only matches the tower type. */
 
-  ulong const min_sz = 48UL + (65UL+8UL+1UL+8UL+32UL*48UL+8UL+1UL+8UL+16UL) + (4UL+74UL) + 16UL;
+  ulong const min_sz = 48UL + (65UL+8UL+12UL+1UL+8UL+32UL*48UL+8UL+1UL+8UL+16UL) + (4UL+74UL+2UL) + 16UL;
   static uchar body[ FD_KEYGUARD_SIGN_REQ_MTU ];
   FD_STORE( ulong,  body+32UL,  8UL     ); /* threshold_depth */
   FD_STORE( double, body+40UL,  2.0/3.0 ); /* threshold_size */
@@ -279,7 +279,7 @@ test_tower_match( void ) {
      offset 58, in the zeroed vote state of a tower body */
   FD_STORE( ulong, body, 18UL );
   memcpy( body+8UL, "\xffSOLANA_PRUNE_DATA", 18UL );
-  FD_TEST(    fd_keyguard_payload_match( body, 106UL+53UL*32UL, FD_KEYGUARD_SIGN_TYPE_ED25519 )==FD_KEYGUARD_PAYLOAD_TOWER );
+  FD_TEST(    fd_keyguard_payload_match( body, 106UL+54UL*32UL, FD_KEYGUARD_SIGN_TYPE_ED25519 )==FD_KEYGUARD_PAYLOAD_TOWER );
   FD_STORE( ulong, body+58UL, 35UL );
   FD_TEST(    fd_keyguard_payload_match( body, 106UL+35UL*32UL, FD_KEYGUARD_SIGN_TYPE_ED25519 ) & FD_KEYGUARD_PAYLOAD_PRUNE  );
   FD_STORE( ulong, body+58UL, 36UL );
