@@ -2080,6 +2080,12 @@ EXAMPLES
     <counter name="ForkDecision" enum="TowerForkDecision" summary="Result of deciding which fork to vote/reset on" />
     <counter name="VoteGate" enum="TowerVoteGate" summary="Result of the vote gating checks after a fork was selected" />
 
+    <!-- Tower file -->
+
+    <counter name="TowerFileWrite" summary="Number of times the tower file was written" />
+    <gauge name="TowerFileSlot" summary="Newest vote slot in the last written tower file, ULONG_MAX if not written yet" />
+    <gauge name="TowerFileSizeBytes" summary="Size of the last written tower file" />
+
     <!-- Votes -->
 
     <counter name="VoteTxn" enum="VoteTxnResult" summary="Result of processing a vote txn (per txn)" />

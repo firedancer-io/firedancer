@@ -18,6 +18,7 @@ mock_query_voters( fd_tower_tile_t *            ctx,
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/prctl.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 
 /* mock_vote_txn builds a vote transaction from a tower.  Constructs an
@@ -1371,6 +1372,7 @@ test_tower_file_write( fd_wksp_t * wksp ) {
 
 # define WRITE() do {                                                                         \
     fd_mcache_publish( rsp_mcache, depth, rsp_seq++, 0UL, rsp_chunk0, 64UL, 0UL, 0UL, 0UL ); \
+    ctx->tower_file_pending = 101UL;                                                          \
     tower_file_write( ctx );                                                                  \
   } while(0)
 
@@ -1406,6 +1408,13 @@ test_tower_file_write( fd_wksp_t * wksp ) {
   FD_TEST( tower_file_is( dir_fd, name[ 2 ][ 1 ], NULL,    &id[ 2 ] ) );
   FD_TEST( tower_file_is( dir_fd, old [ 2 ][ 0 ], "older", NULL     ) );
   FD_TEST( tower_file_is( dir_fd, old [ 2 ][ 1 ], "copy",  NULL     ) );
+
+  struct stat st;
+  FD_TEST( !fstatat( dir_fd, name[ 2 ][ 1 ], &st, 0 ) );
+  FD_TEST( ctx->metrics.tower_file_write==4UL              );
+  FD_TEST( ctx->metrics.tower_file_slot ==101UL            );
+  FD_TEST( !ctx->tower_file_pending                        );
+  FD_TEST( ctx->metrics.tower_file_sz   ==(ulong)st.st_size );
 
 # undef WRITE
 
