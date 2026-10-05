@@ -180,7 +180,10 @@ typedef struct fd_gui_rate_entry fd_gui_rate_entry_t;
 
 #define FD_GUI_TIMELINE_STORED_GRANULARITY_CNT (7UL)
 #define FD_GUI_TIMELINE_GRANULARITY_CNT        (20UL)
-#define FD_GUI_TIMELINE_QUERY_MAX_BUCKETS      (10000UL) /* TODO: tune */
+#define FD_GUI_TIMELINE_QUERY_SHRED_MAX        (262144UL)
+/* At least one bucket per pixel on a 4K display, and enough to cover
+   the widest raw txn_batch view (1.5h) at 2s in a single request. */
+#define FD_GUI_TIMELINE_QUERY_MAX_BUCKETS      (4096UL)
 
 struct fd_gui_timeline_granularity {
   char const * name;
@@ -1122,7 +1125,23 @@ struct fd_gui_summary {
 
 typedef struct fd_gui_summary fd_gui_summary_t;
 
+struct fd_gui_timeline_query_bucket {
+  ulong fields[ FD_GUI_TIMELINE_FIELD_CNT ];
+};
+typedef struct fd_gui_timeline_query_bucket fd_gui_timeline_query_bucket_t;
+
+/* Workspace for timeline queries.  The GUI tile is single threaded and
+   each user runs to completion, so the members alias. */
+
+union fd_gui_timeline_scratch {
+  fd_gui_shred_event_t           events[ FD_GUI_TIMELINE_QUERY_SHRED_MAX ];
+  fd_gui_timeline_query_bucket_t buckets[ FD_GUI_TIMELINE_QUERY_MAX_BUCKETS ];
+};
+typedef union fd_gui_timeline_scratch fd_gui_timeline_scratch_t;
+
 struct fd_gui {
+  fd_gui_timeline_scratch_t timeline_scratch;
+
   fd_http_server_t * http;
   fd_topo_t const * topo;
   fd_accdb_shmem_t const * accdb_shmem;
@@ -1191,7 +1210,6 @@ struct fd_gui {
   struct {
     /* The epoch we are currently in, advanced at epoch_info ingest. */
     ulong current_epoch;
-     ulong stored_epoch_cnt;
 
     int                 has_epoch_schedule;
     fd_epoch_schedule_t epoch_schedule;
@@ -1209,9 +1227,6 @@ struct fd_gui {
     fd_gui_shred_scratch_t * ev;  /* [max] */
     ulong                    max;
   } shred_scratch;
-
-  /* 3 fields: txn_fees, prio_fees, tips */
-  ulong timeline_revenue_scratch[ 3 ][ FD_GUI_TIMELINE_QUERY_MAX_BUCKETS ];
 
   /* Earliest REPLAY_EXEC_DONE timestamp per shred of the
      FD_GUI_EXEC_DONE_SLOT_CNT most recent slots, LONG_MAX if none */
@@ -1531,7 +1546,6 @@ fd_gui_epoch_get_or_create( fd_gui_t * gui,
   fd_gui_hist_epoch_key_t key[ 1 ]; key->epoch = epoch;
   rec = fd_gui_hist_kv_get_or_create( gui, FD_GUI_HIST_EPOCH, key );
   if( FD_UNLIKELY( !rec ) ) return NULL;
-  gui->epoch.stored_epoch_cnt++; /* account the new epoch on successful creation only */
   if( created_out ) *created_out = 1;
   return rec;
 }

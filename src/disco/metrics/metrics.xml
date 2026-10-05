@@ -2075,7 +2075,7 @@ deliberate exception with lint-allow="<rule id>")
     <int value="2" name="ShredEvents" label="shred_events" />
     <int value="3" name="TxnStart" label="txn_start" />
     <int value="4" name="TxnEnd" label="txn_end" />
-    <int value="5" name="Tower" label="tower" />
+    <int value="5" name="Tower" label="Retired: no longer a database, always zero" />
     <int value="6" name="Slot" label="slot" />
     <int value="7" name="LeaderSlot" label="leader_slot" />
     <int value="8" name="Epoch" label="epoch" />
