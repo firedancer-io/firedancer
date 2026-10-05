@@ -245,6 +245,10 @@ telemetry = true
 
     # File path to the tower file used for safe identity switching.
     #
+    # The validator saves its last vote to this file after each vote,
+    # but it never reads the file at boot.  The file is only read when
+    # it is passed to `set-identity --vote-history-file`.
+    #
     # If no path is provided, it defaults to the
     # `tower-1_9-{identity}.bin` path within the base directory above,
     # which is the file name Agave uses.
@@ -257,7 +261,9 @@ telemetry = true
     # file name: after `set-identity`, the validator renames the file
     # to the new identity key before it saves the first vote of that
     # identity, so the old identity's last vote keeps its name until
-    # then.
+    # then.  If a file with the new name already exists, for example
+    # the tower file passed to `set-identity`, it is not replaced but
+    # renamed with an `.old` suffix.
     tower = ""
 
 # Firedancer logs to two places by default: stderr and a logfile.

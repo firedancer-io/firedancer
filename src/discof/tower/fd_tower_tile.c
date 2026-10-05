@@ -1680,8 +1680,9 @@ tower_file_names( char const * tmpl,
 static void
 tower_file_write( fd_tower_tile_t * ctx ) {
   /* The first write after a set-identity gives the files the name of
-     the new identity.  A file that already has that name is exchanged
-     with ours, not replaced. */
+     the new identity.  A file that already has that name, e.g. the
+     tower file passed to set-identity, is kept under a free .old name,
+     not replaced. */
 
   FD_BASE58_ENCODE_32_BYTES( ctx->identity_key->uc, identity_key_b58 );
   char name[ 2 ][ PATH_MAX ];
@@ -1689,9 +1690,18 @@ tower_file_write( fd_tower_tile_t * ctx ) {
   if( FD_UNLIKELY( strcmp( name[ 1 ], ctx->tower_name[ 1 ] ) ) ) {
     for( ulong i=0UL; i<2UL; i++ ) {
       if( FD_LIKELY( !syscall( SYS_renameat2, ctx->tower_dir_fd, ctx->tower_name[ i ], ctx->tower_dir_fd, name[ i ], RENAME_NOREPLACE ) ) ) continue;
-      if( FD_UNLIKELY( errno!=EEXIST || syscall( SYS_renameat2, ctx->tower_dir_fd, ctx->tower_name[ i ], ctx->tower_dir_fd, name[ i ], RENAME_EXCHANGE ) ) )
+      if( FD_UNLIKELY( errno!=EEXIST ) ) FD_LOG_ERR(( "renameat2(%s, %s) failed (%i-%s)", ctx->tower_name[ i ], name[ i ], errno, fd_io_strerror( errno ) ));
+
+      char old[ PATH_MAX ];
+      for( ulong j=0UL;; j++ ) {
+        if( j ) FD_TEST( fd_cstr_printf_check( old, PATH_MAX, NULL, "%s.old.%lu", name[ i ], j ) );
+        else    FD_TEST( fd_cstr_printf_check( old, PATH_MAX, NULL, "%s.old",     name[ i ]    ) );
+        if( FD_LIKELY( !syscall( SYS_renameat2, ctx->tower_dir_fd, name[ i ], ctx->tower_dir_fd, old, RENAME_NOREPLACE ) ) ) break;
+        if( FD_UNLIKELY( errno!=EEXIST ) ) FD_LOG_ERR(( "renameat2(%s, %s) failed (%i-%s)", name[ i ], old, errno, fd_io_strerror( errno ) ));
+      }
+      FD_LOG_WARNING(( "tower file %s already existed, moved it to %s", name[ i ], old ));
+      if( FD_UNLIKELY( syscall( SYS_renameat2, ctx->tower_dir_fd, ctx->tower_name[ i ], ctx->tower_dir_fd, name[ i ], RENAME_NOREPLACE ) ) )
         FD_LOG_ERR(( "renameat2(%s, %s) failed (%i-%s)", ctx->tower_name[ i ], name[ i ], errno, fd_io_strerror( errno ) ));
-      FD_LOG_WARNING(( "tower file %s already existed, it is now %s", name[ i ], ctx->tower_name[ i ] ));
     }
     FD_LOG_NOTICE(( "tower file %s renamed to %s for the new identity", ctx->tower_name[ 1 ], name[ 1 ] ));
     memcpy( ctx->tower_name, name, sizeof(name) );

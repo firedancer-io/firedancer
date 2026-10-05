@@ -23,9 +23,7 @@
 #define FD_TOWER_FILE_ERR_TOWER    (-5) /* thresholds, votes, root or lockouts are not a tower Agave writes */
 
 /* A decoded and verified tower file.  bank_hash and block_id belong
-   to the last vote, votes[votes_cnt-1].  timestamp_slot and timestamp
-   are Agave's last_timestamp pair, stamped with the vote before the
-   newest one. */
+   to the last vote, votes[votes_cnt-1]. */
 struct fd_tower_file {
   fd_tower_vote_t votes[ FD_TOWER_VOTE_MAX ];
   ulong           votes_cnt;

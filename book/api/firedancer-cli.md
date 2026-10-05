@@ -35,11 +35,20 @@ configuration file: only the `name` and `[hugetlbfs.mount_path]` values
 are used, and they must match the running validator. Compatibility with
 the running validator is checked either way, and a version mismatch
 fails cleanly without changing anything. `--vote-history-file` can be
-passed alongside an agave-produced tower file (e.g.
+passed alongside a tower file produced by Agave or Firedancer (e.g.
 `tower-1_9-<pubkey>.bin`). The file will be restored and lockouts
 will be preserved as described in the file. If the file is invalid, the
 command will fail and the identity of the running validator will not
 be changed.
+
+If tower file production is enabled, votes are saved at `[paths.tower]`
+(by default `tower-1_9-<identity>.bin` in the base directory). The file
+is only read by `--vote-history-file`, never when Firedancer boots.
+After `set-identity`, the file is renamed to the new identity
+when that identity first votes, so the old identity's last vote keeps
+its name until then. If a file with the new name already exists, for
+example the tower file passed to `--vote-history-file`, it is not
+replaced but renamed with an `.old` suffix.
 
 | Arguments                    | Description |
 |------------------------------|-------------|
