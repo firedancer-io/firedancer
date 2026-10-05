@@ -143,6 +143,7 @@ struct fd_txsend_tile {
   fd_keyswitch_t * keyswitch;
   fd_keyswitch_t * av_keyswitch;
   ulong tower_in_expect_seq;
+  ulong txsend_out_seq;
   int   halt_net_frags;
 
   fd_startup_gate_t startup_gate[1];

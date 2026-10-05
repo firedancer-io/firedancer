@@ -150,6 +150,7 @@ test_set_identity( int alpenglow ) {
   fd_keyswitch_t * repair_ks = mock_tile( alpenglow ? "rotor" : "repair" );
   fd_keyswitch_t * voter_ks  = mock_tile( ctx.voter_name );
   fd_keyswitch_t * txsend_ks = alpenglow ? NULL : mock_tile( "txsend" );
+  fd_keyswitch_t * gossip_ks = mock_tile( "gossip" );
   fd_keyswitch_t * sign_ks   = mock_tile( "sign" );
   fd_keyswitch_t * gui_ks    = mock_tile( "gui" );
   ctx.topo = test_topo;
@@ -179,16 +180,21 @@ test_set_identity( int alpenglow ) {
   if( !alpenglow ) {
     FD_TEST( state==FD_SET_IDENTITY_STATE_TXSEND_FLUSH_REQUESTED );
     FD_TEST( txsend_ks->state==FD_KEYSWITCH_STATE_SWITCH_PENDING && txsend_ks->param==42UL );
+    txsend_ks->result = 7UL;
     fd_keyswitch_state( txsend_ks, FD_KEYSWITCH_STATE_COMPLETED );
     poll_set_identity( &ctx, &state, 0UL, keypair, NULL );
   }
   FD_TEST( state==FD_SET_IDENTITY_STATE_TXSEND_FLUSHED );
 
+  /* Gossip must push the old identity votes TxSend published before it
+     halts. */
   poll_set_identity( &ctx, &state, 0UL, keypair, NULL );
   FD_TEST( state==FD_SET_IDENTITY_STATE_SIGNERS_HALT_REQUESTED );
   FD_TEST( repair_ks->state==FD_KEYSWITCH_STATE_SWITCH_PENDING && voter_ks->state==FD_KEYSWITCH_STATE_COMPLETED );
+  FD_TEST( gossip_ks->state==FD_KEYSWITCH_STATE_SWITCH_PENDING && gossip_ks->param==( alpenglow ? 0UL : 7UL ) );
   FD_TEST( sign_ks->state==FD_KEYSWITCH_STATE_UNLOCKED && gui_ks->state==FD_KEYSWITCH_STATE_UNLOCKED );
   fd_keyswitch_state( repair_ks, FD_KEYSWITCH_STATE_COMPLETED );
+  fd_keyswitch_state( gossip_ks, FD_KEYSWITCH_STATE_COMPLETED );
   poll_set_identity( &ctx, &state, 0UL, keypair, NULL );
   FD_TEST( state==FD_SET_IDENTITY_STATE_SIGNERS_HALTED );
 
@@ -204,10 +210,12 @@ test_set_identity( int alpenglow ) {
   poll_set_identity( &ctx, &state, 0UL, keypair, NULL );
   FD_TEST( state==FD_SET_IDENTITY_STATE_SIGNERS_UNHALT_REQUESTED );
   FD_TEST( repair_ks->state==FD_KEYSWITCH_STATE_UNHALT_PENDING && voter_ks->state==FD_KEYSWITCH_STATE_UNHALT_PENDING );
+  FD_TEST( gossip_ks->state==FD_KEYSWITCH_STATE_UNHALT_PENDING && gossip_ks->param==0UL /* identity_outset */ );
   FD_TEST( gui_ks->state==FD_KEYSWITCH_STATE_COMPLETED );
   if( !alpenglow ) FD_TEST( txsend_ks->state==FD_KEYSWITCH_STATE_UNHALT_PENDING );
   fd_keyswitch_state( repair_ks, FD_KEYSWITCH_STATE_COMPLETED );
   fd_keyswitch_state( voter_ks,  FD_KEYSWITCH_STATE_COMPLETED );
+  fd_keyswitch_state( gossip_ks, FD_KEYSWITCH_STATE_COMPLETED );
   if( !alpenglow ) fd_keyswitch_state( txsend_ks, FD_KEYSWITCH_STATE_COMPLETED );
   poll_set_identity( &ctx, &state, 0UL, keypair, NULL );
   FD_TEST( state==FD_SET_IDENTITY_STATE_SIGNERS_UNHALTED );
