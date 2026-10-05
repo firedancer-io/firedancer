@@ -1,6 +1,5 @@
 #define _GNU_SOURCE /* syscall, RENAME_EXCHANGE */
 #include "fd_tower_tile.h"
-#include "../../choreo/tower/fd_tower_file.h"
 #include <linux/futex.h>
 #include "generated/fd_tower_tile_seccomp.h"
 
@@ -9,6 +8,7 @@
 #include "../../choreo/hfork/fd_hfork.h"
 #include "../../choreo/votes/fd_votes.h"
 #include "../../choreo/tower/fd_tower.h"
+#include "../../choreo/tower/fd_tower_file.h"
 #include "../../choreo/tower/fd_tower_serdes.h"
 #include "../../choreo/tower/fd_tower_stakes.h"
 #include "../../disco/fd_txn_p.h"
@@ -37,6 +37,7 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <sys/syscall.h>
+#include <sys/uio.h>
 
 /* TODO: the tower file is not read during boot, just during identity
    switches. */
@@ -1698,8 +1699,9 @@ tower_file_write( fd_tower_tile_t * ctx ) {
   ulong sz = fd_tower_file_ser( &ctx->compact_tower_sync_serde, ctx->identity_key, buf );
   fd_keyguard_client_sign( ctx->keyguard_client, buf+FD_TOWER_FILE_SIG_OFF, buf+FD_TOWER_FILE_DATA_OFF, sz-FD_TOWER_FILE_DATA_OFF, FD_KEYGUARD_SIGN_TYPE_ED25519 );
 
-  if( FD_UNLIKELY( pwrite( ctx->tower_fd[ 0 ], buf, sz, 0L )!=(long)sz ) ) FD_LOG_ERR(( "pwrite(%s) failed (%i-%s)", ctx->tower_name[ 0 ], errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( ftruncate( ctx->tower_fd[ 0 ], (long)sz ) ) )           FD_LOG_ERR(( "ftruncate(%s) failed (%i-%s)", ctx->tower_name[ 0 ], errno, fd_io_strerror( errno ) ));
+  struct iovec iov = { .iov_base = buf, .iov_len = sz };
+  if( FD_UNLIKELY( pwritev2( ctx->tower_fd[ 0 ], &iov, 1, 0L, 0 )!=(long)sz ) ) FD_LOG_ERR(( "pwritev2(%s) failed (%i-%s)", ctx->tower_name[ 0 ], errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( ftruncate( ctx->tower_fd[ 0 ], (long)sz ) ) )                FD_LOG_ERR(( "ftruncate(%s) failed (%i-%s)", ctx->tower_name[ 0 ], errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( syscall( SYS_renameat2, ctx->tower_dir_fd, ctx->tower_name[ 0 ], ctx->tower_dir_fd, ctx->tower_name[ 1 ], RENAME_EXCHANGE ) ) )
     FD_LOG_ERR(( "renameat2(%s, %s) failed (%i-%s)", ctx->tower_name[ 0 ], ctx->tower_name[ 1 ], errno, fd_io_strerror( errno ) ));
   int staging = ctx->tower_fd[ 0 ]; ctx->tower_fd[ 0 ] = ctx->tower_fd[ 1 ]; ctx->tower_fd[ 1 ] = staging;
