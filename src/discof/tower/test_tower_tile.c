@@ -1231,19 +1231,19 @@ test_vote_history_pending_replay( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_vote_history_pending_replay" ));
 }
 
-/* tower_filter_allows does a pwrite (arg is the size), ftruncate (arg
-   is the length) or renameat2 (arg is the flags) under the tower tile
-   seccomp filter in a child, and returns whether it passed the filter.
-   The child then reports on the pipe it was given as the log fd. */
+/* tower_filter_allows does a pwritev2 (arg is the size), ftruncate
+   (arg is the length) or renameat2 (arg is the flags) under the tower
+   tile seccomp filter in a child, and returns whether it passed the
+   filter.  The child then reports on the pipe it was given as the log
+   fd. */
 
-#define OP_PWRITE    (0)
+#define OP_PWRITEV2  (0)
 #define OP_FTRUNCATE (1)
 #define OP_RENAMEAT2 (2)
 
 static int
 tower_filter_allows( int   op,
-                     ulong arg,
-                     long  off ) {
+                     ulong arg ) {
   int pipe_fd[ 2 ];
   FD_TEST( !pipe( pipe_fd ) );
   int file_fd = open( "/dev/null", O_WRONLY );
@@ -1254,7 +1254,8 @@ tower_filter_allows( int   op,
   pid_t pid = fork();
   FD_TEST( -1!=pid );
   if( !pid ) {
-    static uchar       buf[ 2UL*FD_TOWER_FILE_MAX ];
+    static uchar       buf[ FD_TOWER_FILE_MAX ];
+    struct iovec       iov = { .iov_base = buf, .iov_len = arg };
     struct sock_filter filter[ 128UL ];
     populate_sock_filter_policy_fd_tower_tile( 128UL, filter, (uint)pipe_fd[ 1 ], (uint)dir_fd, (uint)file_fd, UINT_MAX, UINT_MAX );
     struct sock_fprog prog = { .len = (ushort)sock_filter_policy_fd_tower_tile_instr_cnt, .filter = filter };
@@ -1262,7 +1263,7 @@ tower_filter_allows( int   op,
     FD_TEST( !prctl( PR_SET_SECCOMP, SECCOMP_MODE_FILTER, &prog ) );
     long ret;
     switch( op ) {
-    case OP_PWRITE:    ret = pwrite( file_fd, buf, arg, off );                                                         break;
+    case OP_PWRITEV2:  ret = pwritev2( file_fd, &iov, 1, 0L, 0 );                                                      break;
     case OP_FTRUNCATE: ret = ftruncate( file_fd, (long)arg );                                                          break;
     default:           ret = syscall( SYS_renameat2, dir_fd, "fd_tower_missing", dir_fd, "fd_tower_missing2", (uint)arg ); break;
     }
@@ -1284,14 +1285,11 @@ tower_filter_allows( int   op,
 
 static void
 test_tower_file_seccomp( void ) {
-  FD_TEST(  tower_filter_allows( OP_PWRITE,    FD_TOWER_FILE_MAX,     0L ) );
-  FD_TEST( !tower_filter_allows( OP_PWRITE,    FD_TOWER_FILE_MAX+1UL, 0L ) );
-  FD_TEST( !tower_filter_allows( OP_PWRITE,    1UL,                   1L ) );
-  FD_TEST(  tower_filter_allows( OP_FTRUNCATE, FD_TOWER_FILE_MAX,     0L ) );
-  FD_TEST( !tower_filter_allows( OP_FTRUNCATE, FD_TOWER_FILE_MAX+1UL, 0L ) );
-  FD_TEST(  tower_filter_allows( OP_RENAMEAT2, RENAME_EXCHANGE,       0L ) );
-  FD_TEST(  tower_filter_allows( OP_RENAMEAT2, RENAME_NOREPLACE,      0L ) );
-  FD_TEST( !tower_filter_allows( OP_RENAMEAT2, 0UL,                   0L ) ); /* may replace a file */
+  FD_TEST(  tower_filter_allows( OP_PWRITEV2,  FD_TOWER_FILE_MAX ) );
+  FD_TEST(  tower_filter_allows( OP_FTRUNCATE, FD_TOWER_FILE_MAX ) );
+  FD_TEST(  tower_filter_allows( OP_RENAMEAT2, RENAME_EXCHANGE   ) );
+  FD_TEST(  tower_filter_allows( OP_RENAMEAT2, RENAME_NOREPLACE  ) );
+  FD_TEST( !tower_filter_allows( OP_RENAMEAT2, 0UL               ) ); /* may replace a file */
 
   FD_LOG_NOTICE(( "pass: test_tower_file_seccomp" ));
 }

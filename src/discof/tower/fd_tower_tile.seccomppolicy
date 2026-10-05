@@ -30,35 +30,30 @@ fsync: (eq (arg 0) logfile_fd)
 # tower: write the tower file to the staging file, then exchange the
 #        staging and live names so the live file is always complete
 #
-# arg 0 is the file descriptor to write to or truncate.  The whole file
-# is written at offset 0 (arg 3), and it is at most FD_TOWER_FILE_MAX
-# bytes (arg 2 of pwrite64, arg 1 of ftruncate).
-pwrite64: (and (or (eq (arg 0) tower_fd_0)
-                   (eq (arg 0) tower_fd_1))
-               (<= (arg 2) FD_TOWER_FILE_MAX)
-               (eq (arg 3) 0))
+# arg 0 is the file descriptor to truncate.
+ftruncate: (or (eq (arg 0) tower_fd_0)
+               (eq (arg 0) tower_fd_1))
 
-ftruncate: (and (or (eq (arg 0) tower_fd_0)
-                    (eq (arg 0) tower_fd_1))
-                (<= (arg 1) FD_TOWER_FILE_MAX))
-
-# arg 0 and arg 2 are the directory of the two names, arg 4 is the flags,
-# RENAME_EXCHANGE (2) for a write, or RENAME_NOREPLACE (1) to give the
-# files the name of a new identity and to move a file that already has
-# that name to an .old name.  A rename that replaces a file is not
-# allowed.
+# arg 0 and arg 2 are the directory of the two names, arg 4 is the
+# flags, RENAME_EXCHANGE (2) for a write, or RENAME_NOREPLACE (1) to
+# give the files the name of a new identity and to move a file that
+# already has that name to an .old name.  A rename that replaces a file
+# is not allowed.
 renameat2: (and (eq (arg 0) dir_fd)
                 (eq (arg 2) dir_fd)
                 (or (eq (arg 4) 1)
                     (eq (arg 4) 2)))
 
-# accounts database: write to the accounts database
+# accounts database: write to the accounts database. Users of the
+# accounts database may need to write data to persistent storage if the
+# cache is full (to complete an eviction).
 #
-# Users of the accounts database may need to write data to persistent
-# storage if the cache is full (to complete an eviction).
+# tower: the tower file is also written out with pwritev2.
 #
 # arg 0 is the file descriptor to write to.
-pwritev2: (eq (arg 0) accounts_fd)
+pwritev2: (or (eq (arg 0) accounts_fd)
+              (eq (arg 0) tower_fd_0)
+              (eq (arg 0) tower_fd_1))
 
 # accounts database: read from the accounts database
 #
