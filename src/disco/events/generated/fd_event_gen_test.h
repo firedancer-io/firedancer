@@ -78,6 +78,8 @@ fd_event_accdb_partition_added_fill_max( fd_event_accdb_partition_added_t * msg 
   msg->new_partition_max = ULONG_MAX;
   msg->partition_sz = ULONG_MAX;
   msg->disk_allocated_bytes = ULONG_MAX;
+  msg->duration_fallocate_nanos = ULONG_MAX;
+  msg->preallocated = 1;
 }
 
 static void

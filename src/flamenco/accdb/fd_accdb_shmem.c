@@ -352,6 +352,7 @@ fd_accdb_shmem_new( void * shmem,
   accdb->generation = 0U;
 
   accdb->partition_lock   = 0;
+  accdb->grow_lock        = 0;
   accdb->snapshot_loading = 0;
   accdb->bundle_enabled   = bundle_enabled;
 
@@ -392,6 +393,7 @@ fd_accdb_shmem_new( void * shmem,
   accdb->partition_cnt    = partition_cnt;
   accdb->partition_sz     = partition_sz;
   accdb->partition_max    = 0UL;
+  accdb->partition_fallocated = 0UL;
 
   accdb->partition_pool_off = (ulong)partition_pool - (ulong)shmem;
   for( ulong k=0UL; k<FD_ACCDB_COMPACTION_LAYER_CNT; k++ ) {

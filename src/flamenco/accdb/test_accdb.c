@@ -1314,13 +1314,14 @@ test_revert_whead( void ) {
   fd_accdb_purge( accdb, incr_fork );
   drain_background( accdb );
 
-  /* Revert. */
+  /* Revert.  The file keeps its fallocated extent. */
+  ulong allocated_bytes = shmetrics->disk_allocated_bytes;
   fd_accdb_snapshot_revert_whead( accdb, &recovery );
 
   /* Post-revert invariants. */
   FD_TEST( fd_accdb_shmem_partition_max( test_shmem_mem ) == saved_partition_max );
   FD_TEST( shmetrics->disk_current_bytes == saved_disk_current );
-  FD_TEST( shmetrics->disk_allocated_bytes == saved_partition_max*psz );
+  FD_TEST( shmetrics->disk_allocated_bytes == allocated_bytes );
 
   /* Full-snapshot accounts are still readable on the root fork. */
   ulong lamports;

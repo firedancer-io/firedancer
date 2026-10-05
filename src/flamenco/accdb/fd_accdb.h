@@ -616,9 +616,11 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
 
    First checks for a pending advance_root or purge command from T1; if
    one is present it executes the command, sets *charge_busy to 1, and
-   returns immediately without doing compaction. Otherwise, attempts one
-   step of compaction at each layer, setting *charge_busy if work was
-   done. */
+   returns immediately without doing compaction. Otherwise, if every
+   fallocated partition is in use, grows the file by one partition
+   (fallocate, can take seconds on slow filesystems), sets *charge_busy
+   and returns.  Otherwise, attempts one step of compaction at each
+   layer, setting *charge_busy if work was done. */
 
 void
 fd_accdb_background( fd_accdb_t * accdb,
