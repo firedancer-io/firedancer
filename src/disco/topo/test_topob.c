@@ -471,14 +471,14 @@ static char const * const FD_24X2[] = {
   /*  8 */ "sign",    /*  9 */ "gui",     /* 10 */ "gossvf",  /* 11 */ "repair",
   /* 12 */ "tower",   /* 13 */ "execle",  /* 14 */ "poh",     /* 15 */ "execrp",
   /* 16 */ "execrp",  /* 17 */ "execrp",  /* 18 */ "execrp",  /* 19 */ "execrp",
-  /* 20 */ __,        /* 21 */ __,        /* 22 */ __,        /* 23 */ __,
+  /* 20 */ "execrp",  /* 21 */ "execrp",  /* 22 */ "execrp",  /* 23 */ "execrp",
   /* --- HT siblings (24-47) --- */
   /* 24 */ __,        /* 25 */ "net",     /* 26 */ "verify",  /* 27 */ "verify",
   /* 28 */ "verify",  /* 29 */ "dedup",   /* 30 */ "sign",    /* 31 */ __,
   /* 32 */ "shred",   /* 33 */ "gossvf",  /* 34 */ "gossip",  /* 35 */ "replay",
-  /* 36 */ "execle",  /* 37 */ "execrp",  /* 38 */ __,        /* 39 */ "execrp",
-  /* 40 */ "execrp",  /* 41 */ "execrp",  /* 42 */ "execrp",  /* 43 */ "txsend",
-  /* 44 */ __,        /* 45 */ __,        /* 46 */ __,        /* 47 */ __,
+  /* 36 */ "execle",  /* 37 */ "execrp",  /* 38 */ __,        /* 39 */ __,
+  /* 40 */ __,        /* 41 */ __,        /* 42 */ __,        /* 43 */ __,
+  /* 44 */ __,        /* 45 */ __,        /* 46 */ __,        /* 47 */ "txsend",
 };
 #define FD_24X2_LEN (sizeof(FD_24X2)/sizeof(FD_24X2[0]))
 
@@ -490,15 +490,15 @@ static char const * const FD_32X2[] = {
   /*  8 */ "sign",    /*  9 */ "gui",     /* 10 */ "gossvf",  /* 11 */ "repair",
   /* 12 */ "tower",   /* 13 */ "execle",  /* 14 */ "poh",     /* 15 */ "execrp",
   /* 16 */ "execrp",  /* 17 */ "execrp",  /* 18 */ "execrp",  /* 19 */ "execrp",
-  /* 20 */ __,        /* 21 */ __,        /* 22 */ __,        /* 23 */ __,
-  /* 24 */ __,        /* 25 */ __,        /* 26 */ __,        /* 27 */ __,
+  /* 20 */ "execrp",  /* 21 */ "execrp",  /* 22 */ "execrp",  /* 23 */ "execrp",
+  /* 24 */ "execrp",  /* 25 */ __,        /* 26 */ __,        /* 27 */ __,
   /* 28 */ __,        /* 29 */ __,        /* 30 */ __,        /* 31 */ __,
   /* --- HT siblings (32-63) --- */
   /* 32 */ __,        /* 33 */ "net",     /* 34 */ "verify",  /* 35 */ "verify",
   /* 36 */ "verify",  /* 37 */ "dedup",   /* 38 */ "sign",    /* 39 */ __,
   /* 40 */ "shred",   /* 41 */ "gossvf",  /* 42 */ "gossip",  /* 43 */ "replay",
-  /* 44 */ "execle",  /* 45 */ "execrp",  /* 46 */ __,        /* 47 */ "execrp",
-  /* 48 */ "execrp",  /* 49 */ "execrp",  /* 50 */ "execrp",  /* 51 */ "txsend",
+  /* 44 */ "execle",  /* 45 */ "txsend",  /* 46 */ __,        /* 47 */ __,
+  /* 48 */ __,        /* 49 */ __,        /* 50 */ __,        /* 51 */ __,
   /* 52 */ __,        /* 53 */ __,        /* 54 */ __,        /* 55 */ __,
   /* 56 */ __,        /* 57 */ __,        /* 58 */ __,        /* 59 */ __,
   /* 60 */ __,        /* 61 */ __,        /* 62 */ __,        /* 63 */ __,
@@ -626,16 +626,16 @@ static char const * const FD_32X2_EXTRA_BL[] = {
   /*  8 */ "pack",    /*  9 */ "sign",    /* 10 */ "gui",     /* 11 */ "gossvf",
   /* 12 */ "repair",  /* 13 */ "tower",   /* 14 */ "execle",  /* 15 */ "poh",
   /* 16 */ "execrp",  /* 17 */ "execrp",  /* 18 */ "execrp",  /* 19 */ "execrp",
-  /* 20 */ "execrp",  /* 21 */ __,        /* 22 */ __,        /* 23 */ __,
-  /* 24 */ __,        /* 25 */ __,        /* 26 */ __,        /* 27 */ __,
+  /* 20 */ "execrp",  /* 21 */ "execrp",  /* 22 */ "execrp",  /* 23 */ "execrp",
+  /* 24 */ "execrp",  /* 25 */ "execrp",  /* 26 */ __,        /* 27 */ __,
   /* 28 */ __,        /* 29 */ __,        /* 30 */ __,        /* 31 */ __,
   /* --- HT siblings (32-63) --- */
   /* 32 */ __,        /* 33 */ "net",     /* 34 */ "verify",  /* 35 */ "verify",
   /* 36 */ "verify",  /* 37 */ __,        /* 38 */ "dedup",   /* 39 */ "sign",
   /* 40 */ __,        /* 41 */ "shred",   /* 42 */ "gossvf",  /* 43 */ "gossip",
-  /* 44 */ "replay",  /* 45 */ "execle",  /* 46 */ "execrp",  /* 47 */ __,
-  /* 48 */ "execrp",  /* 49 */ "execrp",  /* 50 */ "execrp",  /* 51 */ "execrp",
-  /* 52 */ "txsend",  /* 53 */ __,        /* 54 */ __,        /* 55 */ __,
+  /* 44 */ "replay",  /* 45 */ "execle",  /* 46 */ "txsend",  /* 47 */ __,
+  /* 48 */ __,        /* 49 */ __,        /* 50 */ __,        /* 51 */ __,
+  /* 52 */ __,        /* 53 */ __,        /* 54 */ __,        /* 55 */ __,
   /* 56 */ __,        /* 57 */ __,        /* 58 */ __,        /* 59 */ __,
   /* 60 */ __,        /* 61 */ __,        /* 62 */ __,        /* 63 */ __,
 };
@@ -652,6 +652,48 @@ static char const * const FD_32X2_EXTRA_BL[] = {
 
 FD_UNIT_TEST( test_firedancer_24x2 ) {
   run_test( 24, FIREDANCER_TILES, BLOCKLIST_0H( 24 ), 0, FD_24X2_LEN, FD_24X2 );
+}
+
+/* Spare cores go to execrp in kind_id order: on 24x2 execrp:0..7 get a
+   physical core to themselves and only the last two share. */
+
+FD_UNIT_TEST( test_execrp_dedicated_order ) {
+  fd_topo_cpus_t cpus[1];
+  make_cpus( cpus, 24, 0 );
+  static fd_topo_t _topo[1];
+  fd_topo_t * topo = _topo;
+  fd_memset( topo, 0, sizeof(*topo) );
+  make_tiles( topo, FIREDANCER_TILES );
+  set_blocklist( topo, BLOCKLIST_0H( 24 ) );
+  topo->sleep_obj_id = ULONG_MAX;
+  fd_topob_auto_layout_cpus( topo, cpus, 0 );
+
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    fd_topo_tile_t const * tile = &topo->tiles[ i ];
+    if( strcmp( tile->name, "execrp" ) ) continue;
+    ulong sibling = cpus->cpu[ tile->cpu_idx ].sibling;
+    FD_TEST( sibling!=ULONG_MAX );
+    int   shared  = 0;
+    for( ulong j=0UL; j<topo->tile_cnt; j++ ) shared |= topo->tiles[ j ].cpu_idx==sibling;
+    FD_TEST( shared==(tile->kind_id>=8UL) );
+  }
+}
+
+/* Blocklisting one side of some HT pairs leaves spare logical CPUs
+   that are half cores */
+FD_UNIT_TEST( test_execrp_dedicated_half_cores ) {
+  fd_topo_cpus_t cpus[1];
+  make_cpus( cpus, 32, 0 );
+  static fd_topo_t _topo[1];
+  fd_topo_t * topo = _topo;
+  fd_memset( topo, 0, sizeof(*topo) );
+  make_tiles( topo, FIREDANCER_TILES );
+  set_blocklist( topo, (ulong const[]){ 0, 32, 24, 25, 26, 27, 28, 29, 30, 31, ULONG_MAX } );
+  topo->sleep_obj_id = ULONG_MAX;
+  fd_topob_auto_layout_cpus( topo, cpus, 0 );
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    if( !strcmp( topo->tiles[ i ].name, "execrp" ) ) FD_TEST( topo->tiles[ i ].cpu_idx!=ULONG_MAX );
+  }
 }
 
 FD_UNIT_TEST( test_firedancer_32x2 ) {
