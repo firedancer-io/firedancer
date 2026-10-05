@@ -1858,8 +1858,6 @@ fd_gui_next_deadline( fd_gui_t const * gui ) {
 int
 fd_gui_poll( fd_gui_t * gui, long now ) {
   if( FD_LIKELY( now>gui->next_sample_1sec ) ) {
-    fd_gui_hist_evict_step( gui );
-
     for( ulong i=0UL; i<gui->tile_cnt; i++ ) {
       fd_gui_hist_ts_append( gui, FD_GUI_HIST_TILE_TIMERS, &gui->summary.tile_timers_packed[ i ] );
     }
@@ -1991,6 +1989,10 @@ fd_gui_poll( fd_gui_t * gui, long now ) {
 
     fd_gui_printf_server_time_nanos( gui, now );
     fd_http_server_ws_broadcast( gui->http );
+
+    /* Lazy eviction must outpace ingest: ~1 ms of batches per tick */
+    long evict_end = fd_tickcount() + (long)( 1e6*gui->tick_per_ns );
+    while( fd_gui_hist_evict_step( gui ) && fd_tickcount()<evict_end ) {}
 
     gui->next_sample_10millis += 10L*1000L*1000L;
     return 1;
