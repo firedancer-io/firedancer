@@ -772,21 +772,3 @@ fd_vsv_is_correct_size_owner_and_init( uchar const * owner,
 
   return fd_vsv_is_correct_size_and_initialized( data, data_len );
 }
-
-/* https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.5/programs/vote/src/vote_state/handler.rs#L196-L209 */
-int
-fd_vsv_add_pending_delegator_rewards( fd_vote_state_versioned_t * self,
-                                      ulong                       amount ) {
-  switch( self->kind ) {
-    case fd_vote_state_versioned_enum_v4: {
-      ulong sum;
-      if( FD_UNLIKELY( __builtin_uaddl_overflow( self->v4.pending_delegator_rewards, amount, &sum ) ) ) {
-        return FD_EXECUTOR_INSTR_ERR_ARITHMETIC_OVERFLOW;
-      }
-      self->v4.pending_delegator_rewards = sum;
-      return FD_EXECUTOR_INSTR_SUCCESS;
-    }
-    default:
-      FD_LOG_CRIT(( "unsupported vote state version: %u", self->kind ));
-  }
-}

@@ -209,13 +209,6 @@ fd_vsv_is_correct_size_owner_and_init( uchar const * owner,
                                        uchar const * data,
                                        ulong         data_len );
 
-/* fd_vsv_add_pending_delegator_rewards adds amount to pending delegator rewards.
-   Returns FD_EXECUTOR_INSTR_SUCCESS on success, or FD_EXECUTOR_INSTR_ERR_ARITHMETIC_OVERFLOW on overflow.
-   https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.5/programs/vote/src/vote_state/handler.rs#L196-L209 */
-int
-fd_vsv_add_pending_delegator_rewards( fd_vote_state_versioned_t * self,
-                                      ulong                       amount );
-
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_program_vote_fd_vote_state_versioned_h */

@@ -4610,7 +4610,16 @@ update_metric_vote_account( fd_replay_tile_t *  ctx,
   /* Unstaked voters are never admitted; don't flag them.  Once set,
      sticky until an epoch boundary actually admits the account. */
   int admitted = fd_vote_stakes_query_t_1( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id, vote_key, NULL, NULL, NULL );
-  if( FD_UNLIKELY( !fd_stakes_vote_account_is_admissible( bank, ro.lamports, ro.owner, ro.data, ro.data_len ) ) ) {
+  /* SIMD-0123: delegator rewards do not count towards the balance
+     https://github.com/anza-xyz/agave/blob/v4.4/vote/src/vote_account.rs#L225-L234 */
+  ulong available_balance = ro.lamports;
+  if( FD_FEATURE_ACTIVE_BANK( bank, block_revenue_sharing ) ) {
+    ulong pending_delegator_rewards = 0UL;
+    if( FD_LIKELY( !fd_vote_account_pending_delegator_rewards( ro.data, ro.data_len, &pending_delegator_rewards ) ) ) {
+      available_balance = fd_ulong_sat_sub( ro.lamports, pending_delegator_rewards );
+    }
+  }
+  if( FD_UNLIKELY( !fd_stakes_vote_account_is_admissible( bank, available_balance, ro.owner, ro.data, ro.data_len ) ) ) {
     ctx->vote_account_inadmissible = ctx->vote_account_staked || admitted;
   } else if( FD_UNLIKELY( ctx->vote_account_inadmissible ) ) {
     ctx->vote_account_inadmissible = ctx->vote_account_staked && !admitted;

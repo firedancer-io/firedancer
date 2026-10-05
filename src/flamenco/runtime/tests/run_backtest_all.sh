@@ -161,6 +161,9 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l double_disinflation_rate -m
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l double_disinflation_rate_snapshot -m 2000000 -e 840
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l relax_fee_payer_constraint -m 2000000 -e 400
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l snapshot-hard-fork -m 2000000 -e 162
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-block-revenue-sharing-agave-v4.4-57a35916-pr15795 --alpenglow -m 2000000 -e 1400
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-remove-inactive-stakes-agave-v4.4-6afe9919 --alpenglow -m 2000000 -e 1100
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-block-revenue-sharing-remove-inactive-stakes-agave-v4.4-57a35916-pr15795 --alpenglow -m 2000000 -e 1400
 
 # Alpenglow
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-legacy-vote-ixs --alpenglow -m 2000000 -e 126
@@ -181,8 +184,3 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-migration-validat
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l sd-disk-spill -m 10000000 -e 17400 --genesis-max-file-size-mib 1024
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l sd-disk-spill-post -m 10000000 -e 17400 --genesis-max-file-size-mib 1024
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l sd-disk-spill-midwin -m 10000000 -e 17400 --genesis-max-file-size-mib 1024
-# SIMD-0123 (block revenue sharing) and SIMD-0599 (remove inactive stakes) on an alpenglow-at-genesis localnet
-# (agave-cluster, testnet feature set); gates activate @ slot 256, boot @ snapshot-20. One ledger per gate and one with both.
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-block-revenue-sharing-agave-v4.4-6afe9919-pr15608 --alpenglow -m 2000000 -e 1100
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-remove-inactive-stakes-agave-v4.4-6afe9919 --alpenglow -m 2000000 -e 1100
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-block-revenue-sharing-remove-inactive-stakes-agave-v4.4-6afe9919-pr15608 --alpenglow -m 2000000 -e 1100

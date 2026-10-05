@@ -502,7 +502,7 @@ fd_vote_account_pending_delegator_rewards( uchar const * data,
       *out = 0UL;
       return 0;
     case fd_vote_state_versioned_enum_v4:
-      CHECK( data_sz>=WIRE_OFF_V4_PENDING_DELEGATOR_REWARDS+8UL );
+      CHECK( data_sz==FD_VOTE_STATE_V4_SZ );
       *out = FD_LOAD( ulong, data+WIRE_OFF_V4_PENDING_DELEGATOR_REWARDS );
       return 0;
     default:

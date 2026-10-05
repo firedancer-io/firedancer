@@ -681,13 +681,20 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
                              NULL, NULL, &commission, NULL, NULL, NULL, NULL );
     add_account_to_dumped_accounts( dumped_accounts, &pubkey );
 
+    ushort block_revenue_commission_bps;
+    ulong  pending_delegator_rewards;
+    fd_vote_stakes_iter_block_revenue( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter,
+                                       &block_revenue_commission_bps, &pending_delegator_rewards );
+
     fd_exec_test_prev_vote_account_t * acc = &va_t1[ va_t1_cnt++ ];
     fd_memcpy( acc->address,     &pubkey, sizeof(fd_pubkey_t) );
     fd_memcpy( acc->node_pubkey, &node,   sizeof(fd_pubkey_t) );
-    acc->stake               = stake;
-    acc->commission_bps      = commission;
-    acc->version             = FD_EXEC_TEST_VOTE_ACCOUNT_VERSION_V4;
-    acc->epoch_credits_count = 0U;
+    acc->stake                        = stake;
+    acc->commission_bps               = commission;
+    acc->block_revenue_commission_bps = block_revenue_commission_bps;
+    acc->pending_delegator_rewards    = pending_delegator_rewards;
+    acc->version                      = FD_EXEC_TEST_VOTE_ACCOUNT_VERSION_V4;
+    acc->epoch_credits_count          = 0U;
     acc->inflation_rewards_collector.size = 0U;
     acc->block_revenue_collector.size     = 0U;
 
@@ -716,13 +723,20 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
                              NULL, NULL, &commission, NULL, NULL, NULL, NULL );
     add_account_to_dumped_accounts( dumped_accounts, &pubkey );
 
+    ushort block_revenue_commission_bps;
+    ulong  pending_delegator_rewards;
+    fd_vote_stakes_iter_block_revenue( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter,
+                                       &block_revenue_commission_bps, &pending_delegator_rewards );
+
     fd_exec_test_prev_vote_account_t * acc = &va_t2[ va_t2_cnt++ ];
     fd_memcpy( acc->address,     &pubkey, sizeof(fd_pubkey_t) );
     fd_memcpy( acc->node_pubkey, &node,   sizeof(fd_pubkey_t) );
-    acc->stake               = stake;
-    acc->commission_bps      = commission;
-    acc->version             = FD_EXEC_TEST_VOTE_ACCOUNT_VERSION_V4;
-    acc->epoch_credits_count = 0U;
+    acc->stake                        = stake;
+    acc->commission_bps               = commission;
+    acc->block_revenue_commission_bps = block_revenue_commission_bps;
+    acc->pending_delegator_rewards    = pending_delegator_rewards;
+    acc->version                      = FD_EXEC_TEST_VOTE_ACCOUNT_VERSION_V4;
+    acc->epoch_credits_count          = 0U;
     acc->inflation_rewards_collector.size = 0U;
     acc->block_revenue_collector.size     = 0U;
 

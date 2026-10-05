@@ -43,6 +43,8 @@ main( int     argc,
   FD_TEST( fd_vote_account_block_revenue_commission_bps( data, OFF_BLOCK_REVENUE_COMMISSION_BPS+1UL, &bps )==1 );
   FD_TEST( fd_vote_account_pending_delegator_rewards( data, OFF_PENDING_DELEGATOR_REWARDS+7UL, &pending )==1 );
   FD_TEST( fd_vote_account_pending_delegator_rewards( data, 2UL, &pending )==1 );
+  FD_TEST( fd_vote_account_pending_delegator_rewards( data, sizeof(data)-1UL, &pending )==1 );
+  FD_TEST( fd_vote_account_pending_delegator_rewards( data, sizeof(data)+1UL, &pending )==1 );
 
   /* mutators: exact v4 size only, overflow leaves the field alone */
   v4_state( data, 0U, 10UL );

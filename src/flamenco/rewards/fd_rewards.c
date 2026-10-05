@@ -1272,9 +1272,6 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
   ulong num_tower_slots             = alpenglow_migration ? migration_num_tower_slots( bank, accdb, rewarded_epoch ) : 0UL;
   ulong slots_in_epoch              = fd_epoch_slot_cnt( &bank->f.epoch_schedule, rewarded_epoch );
   int   block_revenue_sharing       = FD_FEATURE_ACTIVE_BANK( bank, block_revenue_sharing );
-  /* Name intentionally doesn't match -- "adjust delegations for rent" is
-     part of relaxing post-exec min balance checks. */
-  int   adjust_delegations_for_rent = FD_FEATURE_ACTIVE_BANK( bank, relax_post_exec_min_balance_check );
 
   fd_calculated_stake_rewards_t calculated_stake_rewards_[1];
   fd_epoch_credits_t *          epoch_credits_arr = fd_bank_epoch_credits( bank );
@@ -1334,15 +1331,14 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
       /* If the stake account's resulting lamports would cause it to be
          below the rent exempt minimum balance, it needs to be queued
          for update (and thus affects the epoch reward partitions). */
-      int may_need_adjustment = adjust_delegations_for_rent &&
-                                delegation_may_need_adjustment(
-                                  bank,
-                                  stake_delegation,
-                                  stake_history,
-                                  rewarded_epoch,
-                                  stake_delegation->stake,
-                                  stake_delegation->lamports,
-                                  fd_rent_exempt_minimum_balance( &bank->f.rent, stake_delegation->acc_dlen ) );
+      int may_need_adjustment = delegation_may_need_adjustment(
+          bank,
+          stake_delegation,
+          stake_history,
+          rewarded_epoch,
+          stake_delegation->stake,
+          stake_delegation->lamports,
+          fd_rent_exempt_minimum_balance( &bank->f.rent, stake_delegation->acc_dlen ) );
       if( !may_need_adjustment && !block_reward ) continue;
 
       /* Place an empty entry for this stake delegation idx so that
@@ -1407,15 +1403,14 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
          account, there may be a required balance update for the stake
          account if rent increased.
          https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/runtime/src/inflation_rewards/mod.rs#L132-L152 */
-      int may_need_adjustment = adjust_delegations_for_rent &&
-                                delegation_may_need_adjustment(
-                                  bank,
-                                  stake_delegation,
-                                  stake_history,
-                                  rewarded_epoch,
-                                  stake_delegation->stake,
-                                  stake_delegation->lamports,
-                                  fd_rent_exempt_minimum_balance( &bank->f.rent, stake_delegation->acc_dlen ) );
+      int may_need_adjustment = delegation_may_need_adjustment(
+          bank,
+          stake_delegation,
+          stake_history,
+          rewarded_epoch,
+          stake_delegation->stake,
+          stake_delegation->lamports,
+          fd_rent_exempt_minimum_balance( &bank->f.rent, stake_delegation->acc_dlen ) );
       if( !may_need_adjustment && !block_reward ) continue;
 
       *calculated_stake_rewards = (fd_calculated_stake_rewards_t){
@@ -1467,9 +1462,6 @@ setup_stake_partitions( fd_bank_t *                    bank,
   ulong num_tower_slots             = alpenglow_migration ? migration_num_tower_slots( bank, accdb, rewarded_epoch ) : 0UL;
   ulong slots_in_epoch              = fd_epoch_slot_cnt( &bank->f.epoch_schedule, rewarded_epoch );
   int   block_revenue_sharing       = FD_FEATURE_ACTIVE_BANK( bank, block_revenue_sharing );
-  /* Name intentionally doesn't match -- "adjust delegations for rent" is
-     part of relaxing post-exec min balance checks. */
-  int   adjust_delegations_for_rent = FD_FEATURE_ACTIVE_BANK( bank, relax_post_exec_min_balance_check );
 
   fd_stake_rewards_t * stake_rewards     = fd_bank_stake_rewards_modify( bank );
   fd_epoch_credits_t * epoch_credits_arr = fd_bank_epoch_credits( bank );
@@ -1504,15 +1496,14 @@ setup_stake_partitions( fd_bank_t *                    bank,
         /* If the stake account's resulting lamports would cause it to be
            below the rent exempt minimum balance, it needs to be queued
            for update (and thus affects the epoch reward partitions). */
-        int may_need_adjustment = adjust_delegations_for_rent &&
-                                  delegation_may_need_adjustment(
-                                    bank,
-                                    stake_delegation,
-                                    stake_history,
-                                    rewarded_epoch,
-                                    stake_delegation->stake,
-                                    stake_delegation->lamports,
-                                    fd_rent_exempt_minimum_balance( &bank->f.rent, stake_delegation->acc_dlen ) );
+        int may_need_adjustment = delegation_may_need_adjustment(
+            bank,
+            stake_delegation,
+            stake_history,
+            rewarded_epoch,
+            stake_delegation->stake,
+            stake_delegation->lamports,
+            fd_rent_exempt_minimum_balance( &bank->f.rent, stake_delegation->acc_dlen ) );
         if( !may_need_adjustment && !block_reward ) continue;
 
         fd_stake_rewards_insert( stake_rewards, fork_idx, &stake_delegation->stake_account, 0UL, stake_delegation->credits_observed, block_reward );
@@ -1559,15 +1550,14 @@ setup_stake_partitions( fd_bank_t *                    bank,
            account, there may be a required balance update for the stake
            account if rent increased.
            https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/runtime/src/inflation_rewards/mod.rs#L132-L152 */
-        int may_need_adjustment = adjust_delegations_for_rent &&
-                                  delegation_may_need_adjustment(
-                                    bank,
-                                    stake_delegation,
-                                    stake_history,
-                                    rewarded_epoch,
-                                    stake_delegation->stake,
-                                    stake_delegation->lamports,
-                                    fd_rent_exempt_minimum_balance( &bank->f.rent, stake_delegation->acc_dlen ) );
+        int may_need_adjustment = delegation_may_need_adjustment(
+            bank,
+            stake_delegation,
+            stake_history,
+            rewarded_epoch,
+            stake_delegation->stake,
+            stake_delegation->lamports,
+            fd_rent_exempt_minimum_balance( &bank->f.rent, stake_delegation->acc_dlen ) );
         if( !may_need_adjustment && !block_reward ) continue;
 
         fd_stake_rewards_insert( stake_rewards, fork_idx, &stake_delegation->stake_account, 0UL, stake_delegation->credits_observed, block_reward );

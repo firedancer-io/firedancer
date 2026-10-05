@@ -3477,13 +3477,14 @@ setup_simd0123( fd_svm_mini_t * mini,
   fd_svm_mini_params_t params[1];
   fd_svm_mini_params_default( params );
   params->slots_per_epoch    = TEST_SLOTS_PER_EPOCH;
-  params->root_slot          = TEST_ROOT_SLOT;
+  params->root_slot          = TEST_AG_ROOT_SLOT;
+  params->clock              = &test_ag_clock;
   params->mock_validator_cnt = validator_cnt;
   ulong root_idx = fd_svm_mini_reset( mini, params );
 
   activate_alpenglow( mini );
   set_alpenglow_migration( mini, TEST_ROOT_SLOT );
-  init_epoch_inflation_account( mini );
+  init_epoch_inflation_account( mini, 1UL );
 
   fd_bank_t * root_bank = fd_svm_mini_bank( mini, root_idx );
   FD_FEATURE_SET_ACTIVE( &root_bank->f.features, custom_commission_collector, 0UL );
@@ -3493,13 +3494,13 @@ setup_simd0123( fd_svm_mini_t * mini,
     activate_block_revenue_sharing( mini );
   }
 
-  ulong              vat           = fd_slot_params_at_slot( root_bank, TEST_EPOCH_BOUNDARY ).vat_to_burn_per_epoch;
+  ulong              vat           = fd_slot_params_at_slot( root_bank, TEST_AG_EPOCH_BOUNDARY ).vat_to_burn_per_epoch;
   ulong              stake_min_bal = fd_rent_exempt_minimum_balance( &root_bank->f.rent, FD_STAKE_STATE_SZ );
   fd_accdb_fork_id_t root_fk       = fd_svm_mini_fork_id( mini, root_idx );
   for( ulong i=0UL; i<validator_cnt; i++ ) {
     fd_pubkey_t identity_key, vote_key, stake_key;
     mock_validator_keys_idx( params->hash_seed, i, &identity_key, &vote_key, &stake_key );
-    patch_vote_account( mini, root_idx, &vote_key, 0U, 0UL, 1000UL, 0UL );
+    patch_vote_account( mini, root_idx, &vote_key, 0U, 1UL, 1000UL, 0UL );
     set_account_lamports( mini, root_idx, &vote_key, read_lamports( mini, root_fk, &vote_key )+vat );
     top_up_stake_account( mini, root_idx, &stake_key, stake_min_bal );
   }
@@ -3583,12 +3584,12 @@ test_simd0123_sweep_and_distribute( fd_svm_mini_t * mini ) {
   set_vote_pending( mini, root_idx, &vote_key, pending );
 
   fd_accdb_fork_id_t root_fk      = fd_svm_mini_fork_id( mini, root_idx );
-  ulong              vat          = fd_slot_params_at_slot( root_bank, TEST_EPOCH_BOUNDARY ).vat_to_burn_per_epoch;
+  ulong              vat          = fd_slot_params_at_slot( root_bank, TEST_AG_EPOCH_BOUNDARY ).vat_to_burn_per_epoch;
   ulong              vote_before  = read_lamports( mini, root_fk, &vote_key );
   ulong              stake_before = read_lamports( mini, root_fk, &stake_key );
   fd_stake_t         s_before     = read_stake( mini, root_fk, &stake_key );
 
-  ulong              epoch_idx  = fd_svm_mini_attach_child( mini, root_idx, TEST_EPOCH_BOUNDARY );
+  ulong              epoch_idx  = fd_svm_mini_attach_child( mini, root_idx, TEST_AG_EPOCH_BOUNDARY );
   fd_bank_t *        epoch_bank = fd_svm_mini_bank( mini, epoch_idx );
   fd_accdb_fork_id_t epoch_fk   = fd_svm_mini_fork_id( mini, epoch_idx );
 
@@ -3618,7 +3619,7 @@ test_simd0123_sweep_and_distribute( fd_svm_mini_t * mini ) {
   FD_TEST( fd_stake_rewards_total_block_rewards( stake_rewards, epoch_bank->stake_rewards_fork_id )==pending );
 
   ulong              cap_at_epoch = epoch_bank->f.capitalization;
-  ulong              distrib_idx  = fd_svm_mini_attach_child( mini, epoch_idx, TEST_DISTRIB_SLOT );
+  ulong              distrib_idx  = fd_svm_mini_attach_child( mini, epoch_idx, TEST_AG_DISTRIB_SLOT );
   fd_bank_t *        distrib_bank = fd_svm_mini_bank( mini, distrib_idx );
   fd_accdb_fork_id_t distrib_fk   = fd_svm_mini_fork_id( mini, distrib_idx );
 
@@ -3654,14 +3655,14 @@ test_simd0123_truncation_remainder_burned( fd_svm_mini_t * mini ) {
   set_vote_pending( mini, root_idx, &vote_0, pending );
 
   fd_accdb_fork_id_t root_fk        = fd_svm_mini_fork_id( mini, root_idx );
-  ulong              vat            = fd_slot_params_at_slot( root_bank, TEST_EPOCH_BOUNDARY ).vat_to_burn_per_epoch;
+  ulong              vat            = fd_slot_params_at_slot( root_bank, TEST_AG_EPOCH_BOUNDARY ).vat_to_burn_per_epoch;
   ulong              vote_0_before  = read_lamports( mini, root_fk, &vote_0 );
   ulong              stake_0_before = read_lamports( mini, root_fk, &stake_0 );
   ulong              stake_1_before = read_lamports( mini, root_fk, &stake_1 );
   fd_stake_t         s_0_before     = read_stake( mini, root_fk, &stake_0 );
   fd_stake_t         s_1_before     = read_stake( mini, root_fk, &stake_1 );
 
-  ulong              epoch_idx  = fd_svm_mini_attach_child( mini, root_idx, TEST_EPOCH_BOUNDARY );
+  ulong              epoch_idx  = fd_svm_mini_attach_child( mini, root_idx, TEST_AG_EPOCH_BOUNDARY );
   fd_bank_t *        epoch_bank = fd_svm_mini_bank( mini, epoch_idx );
   fd_accdb_fork_id_t epoch_fk   = fd_svm_mini_fork_id( mini, epoch_idx );
 
@@ -3672,7 +3673,7 @@ test_simd0123_truncation_remainder_burned( fd_svm_mini_t * mini ) {
 
   fd_svm_mini_freeze( mini, epoch_idx );
   ulong              cap_at_epoch = epoch_bank->f.capitalization;
-  ulong              distrib_idx  = fd_svm_mini_attach_child( mini, epoch_idx, TEST_DISTRIB_SLOT );
+  ulong              distrib_idx  = fd_svm_mini_attach_child( mini, epoch_idx, TEST_AG_DISTRIB_SLOT );
   fd_bank_t *        distrib_bank = fd_svm_mini_bank( mini, distrib_idx );
   fd_accdb_fork_id_t distrib_fk   = fd_svm_mini_fork_id( mini, distrib_idx );
 
@@ -3706,7 +3707,7 @@ test_simd0123_unadmitted_vote_account_burns( fd_svm_mini_t * mini ) {
   mock_validator_keys_idx( simd0123_seed(), 1UL, &identity_1, &vote_1, &stake_1 );
 
   ulong const pending = 777777UL;
-  ulong       vat     = fd_slot_params_at_slot( root_bank, TEST_EPOCH_BOUNDARY ).vat_to_burn_per_epoch;
+  ulong       vat     = fd_slot_params_at_slot( root_bank, TEST_AG_EPOCH_BOUNDARY ).vat_to_burn_per_epoch;
   ulong       min_bal = fd_rent_exempt_minimum_balance( &root_bank->f.rent, FD_VOTE_STATE_V4_SZ );
   set_vote_pending( mini, root_idx, &vote_1, pending );
   set_account_lamports( mini, root_idx, &vote_1, min_bal+vat+pending-1UL );
@@ -3716,7 +3717,7 @@ test_simd0123_unadmitted_vote_account_burns( fd_svm_mini_t * mini ) {
   ulong              stake_0_before = read_lamports( mini, root_fk, &stake_0 );
   ulong              stake_1_before = read_lamports( mini, root_fk, &stake_1 );
 
-  ulong              epoch_idx  = fd_svm_mini_attach_child( mini, root_idx, TEST_EPOCH_BOUNDARY );
+  ulong              epoch_idx  = fd_svm_mini_attach_child( mini, root_idx, TEST_AG_EPOCH_BOUNDARY );
   fd_bank_t *        epoch_bank = fd_svm_mini_bank( mini, epoch_idx );
   fd_accdb_fork_id_t epoch_fk   = fd_svm_mini_fork_id( mini, epoch_idx );
 
@@ -3732,7 +3733,7 @@ test_simd0123_unadmitted_vote_account_burns( fd_svm_mini_t * mini ) {
 
   fd_svm_mini_freeze( mini, epoch_idx );
   ulong              cap_at_epoch = epoch_bank->f.capitalization;
-  ulong              distrib_idx  = fd_svm_mini_attach_child( mini, epoch_idx, TEST_DISTRIB_SLOT );
+  ulong              distrib_idx  = fd_svm_mini_attach_child( mini, epoch_idx, TEST_AG_DISTRIB_SLOT );
   fd_bank_t *        distrib_bank = fd_svm_mini_bank( mini, distrib_idx );
   fd_accdb_fork_id_t distrib_fk   = fd_svm_mini_fork_id( mini, distrib_idx );
 
@@ -3759,16 +3760,16 @@ test_simd0123_zero_reward_stake_keeps_lamports( fd_svm_mini_t * mini ) {
      The harness keeps no stake totals, so seed the ones the boundary
      records in the stake history: validator 1's effective stake and
      this activating stake, which then warms up. */
-  patch_stake_epochs( mini, root_idx, &stake_0, &vote_0, 0UL, ULONG_MAX );
+  patch_stake_epochs( mini, root_idx, &stake_0, &vote_0, 1UL, ULONG_MAX );
   fd_stake_delegations_set_totals( fd_banks_stake_delegations_root_query( mini->banks ), 1000000000UL, 1000000000UL, 0UL );
   ulong const pending = 4242UL;
   set_vote_pending( mini, root_idx, &vote_0, pending );
 
   fd_accdb_fork_id_t root_fk       = fd_svm_mini_fork_id( mini, root_idx );
-  ulong              vat           = fd_slot_params_at_slot( root_bank, TEST_EPOCH_BOUNDARY ).vat_to_burn_per_epoch;
+  ulong              vat           = fd_slot_params_at_slot( root_bank, TEST_AG_EPOCH_BOUNDARY ).vat_to_burn_per_epoch;
   ulong              vote_0_before = read_lamports( mini, root_fk, &vote_0 );
 
-  ulong              epoch_idx  = fd_svm_mini_attach_child( mini, root_idx, TEST_EPOCH_BOUNDARY );
+  ulong              epoch_idx  = fd_svm_mini_attach_child( mini, root_idx, TEST_AG_EPOCH_BOUNDARY );
   fd_bank_t *        epoch_bank = fd_svm_mini_bank( mini, epoch_idx );
   fd_accdb_fork_id_t epoch_fk   = fd_svm_mini_fork_id( mini, epoch_idx );
 
@@ -3799,11 +3800,11 @@ test_simd0123_feature_inactive( fd_svm_mini_t * mini ) {
   set_vote_pending( mini, root_idx, &vote_key, pending );
 
   fd_accdb_fork_id_t root_fk      = fd_svm_mini_fork_id( mini, root_idx );
-  ulong              vat          = fd_slot_params_at_slot( root_bank, TEST_EPOCH_BOUNDARY ).vat_to_burn_per_epoch;
+  ulong              vat          = fd_slot_params_at_slot( root_bank, TEST_AG_EPOCH_BOUNDARY ).vat_to_burn_per_epoch;
   ulong              vote_before  = read_lamports( mini, root_fk, &vote_key );
   ulong              stake_before = read_lamports( mini, root_fk, &stake_key );
 
-  ulong              epoch_idx  = fd_svm_mini_attach_child( mini, root_idx, TEST_EPOCH_BOUNDARY );
+  ulong              epoch_idx  = fd_svm_mini_attach_child( mini, root_idx, TEST_AG_EPOCH_BOUNDARY );
   fd_bank_t *        epoch_bank = fd_svm_mini_bank( mini, epoch_idx );
   fd_accdb_fork_id_t epoch_fk   = fd_svm_mini_fork_id( mini, epoch_idx );
 
@@ -3814,7 +3815,7 @@ test_simd0123_feature_inactive( fd_svm_mini_t * mini ) {
   FD_TEST( fd_stake_rewards_total_block_rewards( stake_rewards, epoch_bank->stake_rewards_fork_id )==0UL );
 
   fd_svm_mini_freeze( mini, epoch_idx );
-  ulong              distrib_idx = fd_svm_mini_attach_child( mini, epoch_idx, TEST_DISTRIB_SLOT );
+  ulong              distrib_idx = fd_svm_mini_attach_child( mini, epoch_idx, TEST_AG_DISTRIB_SLOT );
   fd_bank_t *        distrib_bank = fd_svm_mini_bank( mini, distrib_idx );
   fd_accdb_fork_id_t distrib_fk  = fd_svm_mini_fork_id( mini, distrib_idx );
   FD_TEST( read_lamports( mini, distrib_fk, &stake_key )==stake_before+1000UL );
