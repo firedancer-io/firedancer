@@ -35,21 +35,24 @@
 #define FD_IAVF_HW_TX_DESC_CMD_ICRC          (4UL)
 #define FD_IAVF_HW_TX_DESC_BUFFER_SHIFT      (34)
 #define FD_IAVF_HW_TX_DESC_BUFFER_MAX        (0x3fffUL)
+
 #define FD_IAVF_HW_RX_DESC_DONE              (1UL<<0)
 #define FD_IAVF_HW_RX_DESC_END_OF_PACKET     (1UL<<1)
 #define FD_IAVF_HW_RX_DESC_RXE               (1UL<<19)
 #define FD_IAVF_HW_RX_DESC_LENGTH_SHIFT      (38)
 #define FD_IAVF_HW_RX_DESC_LENGTH_MASK       (0x3fffUL)
 
+FD_STATIC_ASSERT( FD_NET_MTU<=FD_IAVF_HW_TX_DESC_BUFFER_MAX, iavf_tx_frame_sz );
+
 struct fd_iavf_hw_rx_comp {
-  uint  desc_idx;
+  uint  chunk;
   uint  error_flags;
   ulong frame_sz;
 };
 typedef struct fd_iavf_hw_rx_comp fd_iavf_hw_rx_comp_t;
 
-/* fd_iavf_tile_member owns this tile's queues on one member VF. */
-struct fd_iavf_tile_member {
+/* fd_iavf_tile_vf owns this tile's queues on one VF. */
+struct fd_iavf_tile_vf {
   fd_iavf_vfio_t    vfio;
   fd_iavf_adminq_t  adminq;
   fd_iavf_vf_info_t vf_info;
@@ -63,14 +66,14 @@ struct fd_iavf_tile_member {
   ulong             packet_iova0;
   long              tx_flush_deadline_ticks;
 };
-typedef struct fd_iavf_tile_member fd_iavf_tile_member_t;
+typedef struct fd_iavf_tile_vf fd_iavf_tile_vf_t;
 
 /* fd_iavf_tile is private tile state. */
 struct __attribute__((aligned(64UL))) fd_iavf_tile {
-  fd_iavf_tile_member_t members[ FD_IAVF_MEMBER_MAX ];
-  ulong                 member_cnt;
-  ulong                 tx_member;
-  ulong                 rx_next_member;
+  fd_iavf_tile_vf_t     vfs[ FD_IAVF_MEMBER_MAX ];
+  ulong                 vf_cnt;
+  ulong                 tx_vf;
+  ulong                 rx_next_vf;
   uint                  prepared;
   uint                  batch_size;
   long                  tx_flush_timeout_ticks;
@@ -103,71 +106,76 @@ fd_iavf_hw_join_queues( fd_iavf_tile_t *       ctx,
   ulong tx_ring_sz = fd_ulong_align_up( tile->iavf.tx_queue_size*sizeof(fd_iavf_tx_desc_t), FD_IAVF_PAGE_SZ );
   ulong rx_ring_sz = fd_ulong_align_up( tile->iavf.rx_queue_size*sizeof(fd_iavf_rx_desc_t), FD_IAVF_PAGE_SZ );
   for( ulong i=0UL; i<tile->iavf.member_cnt; i++ ) {
-    fd_iavf_tile_member_t * member = &ctx->members[i];
-    member->adminq.dma_memory      = FD_SCRATCH_ALLOC_APPEND( scratch, FD_IAVF_PAGE_SZ, fd_iavf_adminq_footprint() );
-    member->queue.dma_memory       = FD_SCRATCH_ALLOC_APPEND( scratch, FD_IAVF_PAGE_SZ, queue_sz                   );
-    member->queue.tx_ring          = member->queue.dma_memory;
-    member->queue.rx_ring          = (fd_iavf_rx_desc_t *)((uchar *)member->queue.dma_memory + tx_ring_sz);
-    member->queue.tx_comp_ring     = (ulong *)((uchar *)member->queue.dma_memory + tx_ring_sz + rx_ring_sz);
-    member->rx_desc_buf_chunk      = FD_SCRATCH_ALLOC_APPEND( scratch, alignof(uint),   tile->iavf.rx_queue_size*sizeof(uint)   );
-    member->tx_desc_buf_chunk      = FD_SCRATCH_ALLOC_APPEND( scratch, alignof(uint),   tile->iavf.tx_queue_size*sizeof(uint)   );
-    member->tx_desc_frame_sz       = FD_SCRATCH_ALLOC_APPEND( scratch, alignof(ushort), tile->iavf.tx_queue_size*sizeof(ushort) );
+    fd_iavf_tile_vf_t * vf = &ctx->vfs[i];
+    vf->adminq.dma_memory      = FD_SCRATCH_ALLOC_APPEND( scratch, FD_IAVF_PAGE_SZ, fd_iavf_adminq_footprint() );
+    vf->queue.dma_memory       = FD_SCRATCH_ALLOC_APPEND( scratch, FD_IAVF_PAGE_SZ, queue_sz                   );
+    vf->queue.tx_ring          = vf->queue.dma_memory;
+    vf->queue.rx_ring          = (fd_iavf_rx_desc_t *)((uchar *)vf->queue.dma_memory + tx_ring_sz);
+    vf->queue.tx_comp_ring     = (ulong *)((uchar *)vf->queue.dma_memory + tx_ring_sz + rx_ring_sz);
+    vf->rx_desc_buf_chunk      = FD_SCRATCH_ALLOC_APPEND( scratch, alignof(uint),   tile->iavf.rx_queue_size*sizeof(uint)   );
+    vf->tx_desc_buf_chunk      = FD_SCRATCH_ALLOC_APPEND( scratch, alignof(uint),   tile->iavf.tx_queue_size*sizeof(uint)   );
+    vf->tx_desc_frame_sz       = FD_SCRATCH_ALLOC_APPEND( scratch, alignof(ushort), tile->iavf.tx_queue_size*sizeof(ushort) );
   }
   return (void *)FD_SCRATCH_ALLOC_FINI( scratch, 1UL );
 }
 
-static int
-fd_iavf_hw_rx_enqueue( fd_iavf_queue_t * queue,
-                       ulong             buffer_iova,
-                       uint *            desc_idx ) {
-  if( FD_UNLIKELY( !queue || !queue->rx_ring || !buffer_iova ||
-                   !fd_ulong_is_aligned( buffer_iova, 128UL ) ||
-                   queue->rx_prod-queue->rx_cons>= queue->rx_depth-1UL ) ) {
-    FD_LOG_WARNING(( "RX post invalid or queue full, IOVA %#lx, prod %lu, cons %lu, depth %u",
-                     buffer_iova, queue ? queue->rx_prod : 0UL, queue ? queue->rx_cons : 0UL,
-                     queue ? queue->rx_depth : 0U ));
-    errno = EINVAL;
-    return -1;
-  }
-  uint idx                 = (uint)(queue->rx_prod & (queue->rx_depth-1U));
-  fd_iavf_rx_desc_t * desc = queue->rx_ring + idx;
-  desc->qword[0]           = buffer_iova;
-  desc->qword[1]           = 0UL;
-  desc->qword[2]           = 0UL;
-  desc->qword[3]           = 0UL;
-  queue->rx_prod++;
-  if( desc_idx ) *desc_idx = idx;
-  return 0;
+static inline ulong
+fd_iavf_hw_buffer_iova( fd_iavf_tile_t const *    ctx,
+                        fd_iavf_tile_vf_t const * vf,
+                        ulong                     chunk ) {
+  return vf->packet_iova0 + ((chunk-ctx->net.pkt_buf_chunk0)<<FD_CHUNK_LG_SZ);
 }
 
-static void
-fd_iavf_hw_rx_flush( fd_iavf_queue_t * queue ) {
-  if( FD_UNLIKELY( queue->rx_posted==queue->rx_prod ) ) return;
+static int
+fd_iavf_hw_rx_enqueue( fd_iavf_tile_t *    ctx,
+                       fd_iavf_tile_vf_t * vf,
+                       uint                recv_cnt ) {
+  fd_iavf_queue_t * queue       = &vf->queue;
+  ulong const       outstanding = queue->rx_prod-queue->rx_cons;
+
+  FD_TEST( recv_cnt<=FD_IAVF_BATCH_SIZE );
+  if( FD_UNLIKELY( outstanding>=queue->rx_depth || recv_cnt>=queue->rx_depth-outstanding ) ) {
+    errno = ENOSPC;
+    return -1;
+  }
+
+  for( uint i=0U; i<recv_cnt; i++ ) {
+    uint const          chunk    = vf->rx_pending_chunk[i];
+    uint const          desc_idx = (uint)((queue->rx_prod+i) & (queue->rx_depth-1U));
+    fd_iavf_rx_desc_t * desc     = queue->rx_ring + desc_idx;
+
+    desc->qword[0] = fd_iavf_hw_buffer_iova( ctx, vf, chunk );
+    desc->qword[1] = 0UL;
+    desc->qword[2] = 0UL;
+    desc->qword[3] = 0UL;
+
+    vf->rx_desc_buf_chunk[ desc_idx ] = chunk;
+  }
+  queue->rx_prod += recv_cnt;
 
   fd_iavf_hw_dma_to_device();
   *queue->rx_tail = (uint)(queue->rx_prod & (queue->rx_depth-1U));
   FD_COMPILER_MFENCE();
   queue->rx_posted = queue->rx_prod;
+  return 0;
 }
 
-static int
-fd_iavf_hw_tx_enqueue( fd_iavf_queue_t * queue,
-                       ulong             frame_iova,
-                       ulong             frame_sz ) {
-  if( FD_UNLIKELY( !queue || !queue->enabled || !frame_iova || frame_sz<14UL ||
-                   frame_sz>FD_IAVF_HW_TX_DESC_BUFFER_MAX ||
-                   queue->tx_prod-queue->tx_cons>= queue->tx_depth-1UL ) ) {
-    errno = EINVAL;
-    return -1;
-  }
+static void
+fd_iavf_hw_tx_enqueue( fd_iavf_tile_t *    ctx,
+                       fd_iavf_tile_vf_t * vf,
+                       ulong               frame_sz ) {
+  fd_iavf_queue_t * queue = &vf->queue;
+
+  FD_TEST( queue->tx_prod-queue->tx_cons<queue->tx_depth-1UL );
+
   uint idx                 = (uint)(queue->tx_prod & (queue->tx_depth-1U));
   fd_iavf_tx_desc_t * desc = queue->tx_ring + idx;
-  desc->buffer_iova        = frame_iova;
+  desc->buffer_iova        = fd_iavf_hw_buffer_iova( ctx, vf, vf->tx_desc_buf_chunk[idx] );
   desc->cmd_type_offset_buffer_sz =
       ((FD_IAVF_HW_TX_DESC_CMD_EOP | FD_IAVF_HW_TX_DESC_CMD_ICRC)<<FD_IAVF_HW_TX_DESC_CMD_SHIFT) |
       (frame_sz<<FD_IAVF_HW_TX_DESC_BUFFER_SHIFT);
+  vf->tx_desc_frame_sz[idx] = (ushort)frame_sz;
   queue->tx_prod++;
-  return 0;
 }
 
 static void
@@ -188,7 +196,9 @@ fd_iavf_hw_tx_flush( fd_iavf_queue_t * queue ) {
 }
 
 static ulong
-fd_iavf_hw_poll_tx( fd_iavf_queue_t * queue ) {
+fd_iavf_hw_poll_tx( fd_iavf_tile_vf_t * vf,
+                    ulong *             comp_bytes ) {
+  fd_iavf_queue_t * queue = &vf->queue;
   ulong tx_cons   = queue->tx_cons;
   ulong comp_cons = queue->tx_comp_cons;
   while( comp_cons<queue->tx_comp_prod ) {
@@ -201,8 +211,12 @@ fd_iavf_hw_poll_tx( fd_iavf_queue_t * queue ) {
     comp_cons++;
   }
   ulong const comp_cnt = tx_cons-queue->tx_cons;
+  *comp_bytes = 0UL;
   if( comp_cnt ) {
     fd_iavf_hw_dma_from_device();
+    for( ulong i=queue->tx_cons; i<tx_cons; i++ ) {
+      *comp_bytes += vf->tx_desc_frame_sz[ i & (queue->tx_depth-1U) ];
+    }
     queue->tx_cons      = tx_cons;
     queue->tx_comp_cons = comp_cons;
   }
@@ -210,10 +224,11 @@ fd_iavf_hw_poll_tx( fd_iavf_queue_t * queue ) {
 }
 
 static int
-fd_iavf_hw_poll_rx( fd_iavf_queue_t *      queue,
+fd_iavf_hw_poll_rx( fd_iavf_tile_vf_t *    vf,
                     fd_iavf_hw_rx_comp_t * comp,
                     uint                   comp_capacity ) {
-  if( FD_UNLIKELY( !queue || !queue->enabled || !comp || !comp_capacity ) ) {
+  fd_iavf_queue_t * queue = &vf->queue;
+  if( FD_UNLIKELY( !queue->enabled || !comp || !comp_capacity ) ) {
     errno = EINVAL;
     return -1;
   }
@@ -230,7 +245,7 @@ fd_iavf_hw_poll_rx( fd_iavf_queue_t *      queue,
     queue->rx_discard = (uint)!(status & FD_IAVF_HW_RX_DESC_END_OF_PACKET);
     error_flags |= queue->rx_discard;
     comp[ comp_cnt++ ] = (fd_iavf_hw_rx_comp_t) {
-      .desc_idx    = desc_idx,
+      .chunk       = vf->rx_desc_buf_chunk[ desc_idx ],
       .error_flags = error_flags,
       .frame_sz    = (status>>FD_IAVF_HW_RX_DESC_LENGTH_SHIFT) & FD_IAVF_HW_RX_DESC_LENGTH_MASK
     };
@@ -244,49 +259,32 @@ fd_iavf_hw_poll_rx( fd_iavf_queue_t *      queue,
 }
 
 static inline ulong
-fd_iavf_tile_buffer_iova( fd_iavf_tile_t const *        ctx,
-                          fd_iavf_tile_member_t const * member,
-                          ulong                         chunk ) {
-  return member->packet_iova0 + ((chunk-ctx->net.pkt_buf_chunk0)<<FD_CHUNK_LG_SZ);
-}
-
-static inline ulong
 fd_iavf_tile_tx_chunk( fd_iavf_tile_t const * ctx,
                        ulong                  tx_idx ) {
-  fd_iavf_tile_member_t const * member = &ctx->members[ ctx->tx_member ];
-  return member->tx_desc_buf_chunk[ tx_idx & (member->queue.tx_depth-1U) ];
+  fd_iavf_tile_vf_t const * vf = &ctx->vfs[ ctx->tx_vf ];
+  return vf->tx_desc_buf_chunk[ tx_idx & (vf->queue.tx_depth-1U) ];
 }
 
 static inline void
-fd_iavf_tile_rx_flush( fd_iavf_tile_t *        ctx,
-                       fd_iavf_tile_member_t * member ) {
-  for( uint i=0U; i<member->rx_pending_cnt; i++ ) {
-    uint chunk = member->rx_pending_chunk[i];
-    uint desc_idx;
-    FD_TEST( !fd_iavf_hw_rx_enqueue( &member->queue, fd_iavf_tile_buffer_iova( ctx, member, chunk ), &desc_idx ) );
-    member->rx_desc_buf_chunk[ desc_idx ] = chunk;
+fd_iavf_tile_rx_recycle( fd_iavf_tile_t *    ctx,
+                         fd_iavf_tile_vf_t * vf,
+                         ulong               chunk ) {
+  vf->rx_pending_chunk[ vf->rx_pending_cnt++ ] = (uint)chunk;
+  if( vf->rx_pending_cnt==ctx->batch_size ) {
+    FD_TEST( !fd_iavf_hw_rx_enqueue( ctx, vf, vf->rx_pending_cnt ) );
+    vf->rx_pending_cnt = 0U;
   }
-  fd_iavf_hw_rx_flush( &member->queue );
-  member->rx_pending_cnt = 0U;
-}
-
-static inline void
-fd_iavf_tile_rx_recycle( fd_iavf_tile_t *        ctx,
-                         fd_iavf_tile_member_t * member,
-                         ulong                   chunk ) {
-  member->rx_pending_chunk[ member->rx_pending_cnt++ ] = (uint)chunk;
-  if( member->rx_pending_cnt==ctx->batch_size ) fd_iavf_tile_rx_flush( ctx, member );
 }
 
 static inline int
-fd_iavf_tile_member_active( fd_iavf_tile_t *              ctx,
-                            fd_iavf_tile_member_t const * member,
-                            uchar                         actor_state ) {
-  if( !member->vf_info.link_state_valid || !member->vf_info.link_up ) return 0;
+fd_iavf_tile_vf_active( fd_iavf_tile_t *          ctx,
+                        fd_iavf_tile_vf_t const * vf,
+                        uchar                     actor_state ) {
+  if( !vf->vf_info.link_state_valid || !vf->vf_info.link_up ) return 0;
   fd_netdev_t const * master = fd_netdev_tbl_query( &ctx->router.netdev_tbl, ctx->router.if_virt );
-  fd_netdev_t const * dev    = fd_netdev_tbl_query( &ctx->router.netdev_tbl, member->if_idx );
+  fd_netdev_t const * dev    = fd_netdev_tbl_query( &ctx->router.netdev_tbl, vf->if_idx );
   if( !master || !dev || master->oper_status!=FD_OPER_STATUS_UP || dev->oper_status!=FD_OPER_STATUS_UP ) return 0;
-  if( member->if_idx==ctx->router.if_virt ) return 1;
+  if( vf->if_idx==ctx->router.if_virt ) return 1;
   return master->bond_mode==BOND_MODE_8023AD && master->bond_aggregator_id &&
          dev->master_idx==(int)ctx->router.if_virt &&
          dev->bond_aggregator_id==master->bond_aggregator_id &&
@@ -294,12 +292,12 @@ fd_iavf_tile_member_active( fd_iavf_tile_t *              ctx,
 }
 
 static ulong
-fd_iavf_tile_select_tx_member( fd_iavf_tile_t * ctx,
-                               ulong            hash ) {
+fd_iavf_tile_select_tx_vf( fd_iavf_tile_t * ctx,
+                           ulong            hash ) {
   ulong available[ FD_IAVF_MEMBER_MAX ];
   ulong available_cnt = 0UL;
-  for( ulong i=0UL; i<ctx->member_cnt; i++ ) {
-    if( fd_iavf_tile_member_active( ctx, &ctx->members[i], LACP_STATE_DISTRIBUTING ) ) available[ available_cnt++ ] = i;
+  for( ulong i=0UL; i<ctx->vf_cnt; i++ ) {
+    if( fd_iavf_tile_vf_active( ctx, &ctx->vfs[i], LACP_STATE_DISTRIBUTING ) ) available[ available_cnt++ ] = i;
   }
   return available_cnt ? available[ hash%available_cnt ] : ULONG_MAX;
 }
@@ -307,20 +305,20 @@ fd_iavf_tile_select_tx_member( fd_iavf_tile_t * ctx,
 static inline int
 fd_iavf_tile_poll_rx( fd_iavf_tile_t *    ctx,
                       fd_stem_context_t * stem ) {
-  int busy            = 0;
-  ulong start         = ctx->rx_next_member;
-  ctx->rx_next_member = (start+1UL)%ctx->member_cnt;
-  for( ulong m_idx=0UL; m_idx<ctx->member_cnt; m_idx++ ) {
-    fd_iavf_tile_member_t * member = &ctx->members[ (start+m_idx)%ctx->member_cnt ];
+  int busy        = 0;
+  ulong start     = ctx->rx_next_vf;
+  ctx->rx_next_vf = (start+1UL)%ctx->vf_cnt;
+  for( ulong vf_idx=0UL; vf_idx<ctx->vf_cnt; vf_idx++ ) {
+    fd_iavf_tile_vf_t * vf = &ctx->vfs[ (start+vf_idx)%ctx->vf_cnt ];
     fd_iavf_hw_rx_comp_t comp[ FD_IAVF_BATCH_SIZE ];
-    int comp_cnt = fd_iavf_hw_poll_rx( &member->queue, comp, ctx->batch_size );
+    int comp_cnt = fd_iavf_hw_poll_rx( vf, comp, ctx->batch_size );
     if( FD_UNLIKELY( comp_cnt<0 ) ) FD_LOG_ERR(( "IAVF RX poll failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( !comp_cnt ) continue;
     busy        = 1;
-    int active  = fd_iavf_tile_member_active( ctx, member, LACP_STATE_COLLECTING );
+    int active  = fd_iavf_tile_vf_active( ctx, vf, LACP_STATE_COLLECTING );
     ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
     for( uint i=0U; i<(uint)comp_cnt; i++ ) {
-      ulong chunk = member->rx_desc_buf_chunk[ comp[i].desc_idx ];
+      ulong chunk = comp[i].chunk;
       if( FD_UNLIKELY( chunk<ctx->net.pkt_buf_chunk0 || chunk>ctx->net.pkt_buf_wmark ) ) {
         FD_LOG_CRIT(( "RX completion chunk %lu is out of bounds", chunk ));
       }
@@ -329,20 +327,18 @@ fd_iavf_tile_poll_rx( fd_iavf_tile_t *    ctx,
       else if( FD_UNLIKELY( comp[i].error_flags ) ) ctx->net.metrics.rx_malformed_cnt++;
       else fd_net_rx_pkt( &ctx->net, stem, chunk, comp[i].frame_sz, tspub, &freed_chunk );
       if( FD_UNLIKELY( !freed_chunk ) ) FD_LOG_CRIT(( "invalid RX chunk in mcache" ));
-      fd_iavf_tile_rx_recycle( ctx, member, freed_chunk );
+      fd_iavf_tile_rx_recycle( ctx, vf, freed_chunk );
     }
   }
   return busy;
 }
 
 static inline int
-fd_iavf_tile_poll_tx( fd_iavf_tile_t *        ctx,
-                      fd_iavf_tile_member_t * member ) {
-  ulong tx_cons  = member->queue.tx_cons;
-  ulong comp_cnt = fd_iavf_hw_poll_tx( &member->queue );
-  for( ulong i=0UL; i<comp_cnt; i++ ) {
-    ctx->net.metrics.tx_bytes_total += member->tx_desc_frame_sz[ (tx_cons+i) & (member->queue.tx_depth-1U) ];
-  }
+fd_iavf_tile_poll_tx( fd_iavf_tile_t *    ctx,
+                      fd_iavf_tile_vf_t * vf ) {
+  ulong comp_bytes;
+  ulong comp_cnt = fd_iavf_hw_poll_tx( vf, &comp_bytes );
+  ctx->net.metrics.tx_bytes_total += comp_bytes;
   ctx->net.metrics.tx_pkt_cnt += comp_cnt;
   return !!comp_cnt;
 }
@@ -402,14 +398,14 @@ before_credit( fd_iavf_tile_t *    ctx,
     fd_iavf_tile_lo_tx_flush( ctx );
     *charge_busy = 1;
   }
-  for( ulong i=0UL; i<ctx->member_cnt; i++ ) {
-    fd_iavf_tile_member_t * member = &ctx->members[i];
-    fd_iavf_queue_t *       queue  = &member->queue;
-    if( queue->tx_prod!=queue->tx_posted && now>=member->tx_flush_deadline_ticks ) {
+  for( ulong i=0UL; i<ctx->vf_cnt; i++ ) {
+    fd_iavf_tile_vf_t * vf    = &ctx->vfs[i];
+    fd_iavf_queue_t *   queue = &vf->queue;
+    if( queue->tx_prod!=queue->tx_posted && now>=vf->tx_flush_deadline_ticks ) {
       fd_iavf_hw_tx_flush( queue );
       *charge_busy = 1;
     }
-    if( queue->tx_cons!=queue->tx_posted ) *charge_busy |= fd_iavf_tile_poll_tx( ctx, member );
+    if( queue->tx_cons!=queue->tx_posted ) *charge_busy |= fd_iavf_tile_poll_tx( ctx, vf );
   }
 }
 
@@ -465,12 +461,12 @@ before_frag( fd_iavf_tile_t * ctx,
   if( route->use_loopback ) target_idx = 0UL;
   if( kind_id!=target_idx ) return 1;
 
-  ctx->tx_member = route->use_loopback ? 0UL : fd_iavf_tile_select_tx_member( ctx, hash );
-  if( FD_UNLIKELY( ctx->tx_member==ULONG_MAX ) ) {
+  ctx->tx_vf = route->use_loopback ? 0UL : fd_iavf_tile_select_tx_vf( ctx, hash );
+  if( FD_UNLIKELY( ctx->tx_vf==ULONG_MAX ) ) {
     ctx->metrics.tx_no_link_cnt++;
     return 1;
   }
-  fd_iavf_queue_t const * queue = &ctx->members[ ctx->tx_member ].queue;
+  fd_iavf_queue_t const * queue = &ctx->vfs[ ctx->tx_vf ].queue;
   if( FD_UNLIKELY( !route->use_loopback && queue->tx_prod-queue->tx_cons>=queue->tx_depth-1UL ) ) {
     ctx->metrics.tx_no_buffer_cnt++;
     return 1;
@@ -493,7 +489,7 @@ during_frag( fd_iavf_tile_t * ctx,
 
   if( FD_UNLIKELY( fd_net_iproute_msg_stage( &ctx->net, in_idx, chunk, frame_sz ) ) ) return;
 
-  ulong   dst_chunk = fd_iavf_tile_tx_chunk( ctx, ctx->members[ ctx->tx_member ].queue.tx_prod );
+  ulong   dst_chunk = fd_iavf_tile_tx_chunk( ctx, ctx->vfs[ ctx->tx_vf ].queue.tx_prod );
   uchar * dst       = fd_chunk_to_laddr( ctx->net.pkt_buf_wksp_base, dst_chunk );
   /* Speculatively copy frame from in link into buffer */
   fd_net_tx_pkt_cpy( &ctx->net, dst, chunk, frame_sz, in_idx );
@@ -533,10 +529,10 @@ after_frag( fd_iavf_tile_t *    ctx,
     return;
   }
 
-  ulong                   chunk  = fd_iavf_tile_tx_chunk( ctx, ctx->members[ ctx->tx_member ].queue.tx_prod );
-  uchar *                 frame  = fd_chunk_to_laddr( ctx->net.pkt_buf_wksp_base, chunk );
-  fd_iavf_tile_member_t * member = &ctx->members[ ctx->tx_member ];
-  fd_iavf_queue_t *       queue  = &member->queue;
+  ulong               chunk = fd_iavf_tile_tx_chunk( ctx, ctx->vfs[ ctx->tx_vf ].queue.tx_prod );
+  uchar *             frame = fd_chunk_to_laddr( ctx->net.pkt_buf_wksp_base, chunk );
+  fd_iavf_tile_vf_t * vf    = &ctx->vfs[ ctx->tx_vf ];
+  fd_iavf_queue_t *   queue = &vf->queue;
 
   if( FD_UNLIKELY( !fd_net_tx_pkt_prep( &ctx->net, frame, &frame_sz, in_idx ) ) ) return;
 
@@ -572,21 +568,20 @@ after_frag( fd_iavf_tile_t *    ctx,
 
     ulong freed_chunk;
     if( fd_net_rx_pkt( &ctx->net, stem, chunk, frame_sz, (ulong)fd_frag_meta_ts_comp( fd_tickcount() ), &freed_chunk ) ) {
-      member->tx_desc_buf_chunk[ queue->tx_prod & (queue->tx_depth-1U) ] = (uint)freed_chunk;
+      vf->tx_desc_buf_chunk[ queue->tx_prod & (queue->tx_depth-1U) ] = (uint)freed_chunk;
     }
     ctx->net.metrics.tx_pkt_cnt++;
     ctx->net.metrics.tx_bytes_total += frame_sz;
     return;
   }
 
-  member->tx_desc_frame_sz[ queue->tx_prod & (queue->tx_depth-1U) ] = (ushort)frame_sz;
-  FD_TEST( !fd_iavf_hw_tx_enqueue( queue, fd_iavf_tile_buffer_iova( ctx, member, chunk ), frame_sz ) );
+  fd_iavf_hw_tx_enqueue( ctx, vf, frame_sz );
   ctx->net.metrics.tx_gre_cnt += (ulong)ctx->net.tx_route.use_gre;
   ulong pending = queue->tx_prod-queue->tx_posted;
   if( pending>=ctx->batch_size || queue->tx_prod-queue->tx_cons>=queue->tx_depth-1UL ) {
     fd_iavf_hw_tx_flush( queue );
   } else if( pending==1UL ) {
-    member->tx_flush_deadline_ticks = fd_tickcount()+ctx->tx_flush_timeout_ticks;
+    vf->tx_flush_deadline_ticks = fd_tickcount()+ctx->tx_flush_timeout_ticks;
   }
 }
 
@@ -597,8 +592,8 @@ metrics_write( fd_iavf_tile_t * ctx ) {
   ulong rx_buffer_busy_cnt = 0UL;
   ulong tx_buffer_idle_cnt = 0UL;
   ulong tx_buffer_busy_cnt = 0UL;
-  for( ulong i=0UL; i<ctx->member_cnt; i++ ) {
-    fd_iavf_queue_t const * queue   = &ctx->members[i].queue;
+  for( ulong i=0UL; i<ctx->vf_cnt; i++ ) {
+    fd_iavf_queue_t const * queue   = &ctx->vfs[i].queue;
     ulong                   rx_idle = fd_ulong_min( queue->rx_prod-queue->rx_cons, queue->rx_depth );
     ulong                   tx_busy = fd_ulong_min( queue->tx_prod-queue->tx_cons, queue->tx_depth );
     rx_buffer_idle_cnt += rx_idle;
@@ -632,13 +627,13 @@ metrics_write( fd_iavf_tile_t * ctx ) {
 
 static inline void
 during_housekeeping( fd_iavf_tile_t * ctx ) {
-  for( ulong i=0UL; i<ctx->member_cnt; i++ ) {
-    fd_iavf_tile_member_t * member = &ctx->members[i];
+  for( ulong i=0UL; i<ctx->vf_cnt; i++ ) {
+    fd_iavf_tile_vf_t * vf = &ctx->vfs[i];
     int changed;
-    if( FD_UNLIKELY( fd_iavf_virtchnl_poll_link( &member->vfio, &member->adminq, &member->vf_info, &changed ) ) ) {
+    if( FD_UNLIKELY( fd_iavf_virtchnl_poll_link( &vf->vfio, &vf->adminq, &vf->vf_info, &changed ) ) ) {
       FD_LOG_ERR(( "VF link event or reset failure (%i-%s)", errno, fd_io_strerror( errno ) ));
     }
-    if( changed ) FD_LOG_INFO(( "VF member %lu link %s", i, member->vf_info.link_up ? "up" : "down" ));
+    if( changed ) FD_LOG_INFO(( "VF %lu link %s", i, vf->vf_info.link_up ? "up" : "down" ));
   }
   if( FD_LIKELY( !fd_seqlock_locked_hint( &ctx->router.netdev_shared.hdr->seqlock ) ) ) {
     fd_netdev_tbl_copy( &ctx->router.netdev_tbl, &ctx->router.netdev_shared );
@@ -747,8 +742,8 @@ fd_iavf_tile_packet_memory( fd_topo_t const *      topo,
   ctx->net.pkt_buf_wksp_base = wksp_base;
   ctx->net.pkt_buf_chunk0    = chunk0;
   ctx->net.pkt_buf_wmark     = wmark;
-  for( ulong i=0UL; i<ctx->member_cnt; i++ ) {
-    ctx->members[i].packet_iova0 = FD_IAVF_PACKET_IOVA + (ulong)dcache-map_start;
+  for( ulong i=0UL; i<ctx->vf_cnt; i++ ) {
+    ctx->vfs[i].packet_iova0 = FD_IAVF_PACKET_IOVA + (ulong)dcache-map_start;
   }
   if( map_memory ) *map_memory = (void *)map_start;
   if( map_memory_sz ) *map_memory_sz = map_end-map_start;
@@ -760,15 +755,18 @@ fd_iavf_tile_init_buffers( fd_topo_t const *      topo,
                            fd_iavf_tile_t *       ctx ) {
   ulong frame_chunks = FD_NET_MTU>>FD_CHUNK_LG_SZ;
   ulong next_chunk   = ctx->net.pkt_buf_chunk0;
-  for( ulong i=0UL; i<ctx->member_cnt; i++ ) {
-    fd_iavf_tile_member_t * member = &ctx->members[i];
+  for( ulong i=0UL; i<ctx->vf_cnt; i++ ) {
+    fd_iavf_tile_vf_t * vf = &ctx->vfs[i];
     for( ulong j=0UL; j<tile->iavf.rx_queue_size-ctx->batch_size; j++ ) {
-      fd_iavf_tile_rx_recycle( ctx, member, next_chunk );
+      fd_iavf_tile_rx_recycle( ctx, vf, next_chunk );
       next_chunk += frame_chunks;
     }
-    if( member->rx_pending_cnt ) fd_iavf_tile_rx_flush( ctx, member );
+    if( vf->rx_pending_cnt ) {
+      FD_TEST( !fd_iavf_hw_rx_enqueue( ctx, vf, vf->rx_pending_cnt ) );
+      vf->rx_pending_cnt = 0U;
+    }
     for( ulong j=0UL; j<tile->iavf.tx_queue_size; j++ ) {
-      member->tx_desc_buf_chunk[j] = (uint)next_chunk;
+      vf->tx_desc_buf_chunk[j] = (uint)next_chunk;
       next_chunk += frame_chunks;
     }
   }
@@ -818,58 +816,58 @@ fd_topo_install_iavf( fd_topo_t *     topo,
   for( ulong i=0UL; i<tile->out_cnt; i++ ) fd_iavf_tile_join_obj_workspace( topo, topo->links[ tile->out_link_id[i] ].mcache_obj_id );
   fd_iavf_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   fd_memset( ctx, 0, sizeof(*ctx) );
-  ctx->member_cnt = tile->iavf.member_cnt;
+  ctx->vf_cnt     = tile->iavf.member_cnt;
   ctx->batch_size = FD_IAVF_BATCH_SIZE;
   (void)fd_iavf_hw_join_queues( ctx, tile );
   void * packet_memory;
   ulong  packet_memory_sz;
   fd_iavf_tile_packet_memory( topo, tile, ctx, &packet_memory, &packet_memory_sz );
   fd_net_rx_dst_ports_init( &ctx->net, topo, tile );
-  for( ulong i=0UL; i<ctx->member_cnt; i++ ) {
-    fd_iavf_tile_member_t * member = &ctx->members[i];
+  for( ulong i=0UL; i<ctx->vf_cnt; i++ ) {
+    fd_iavf_tile_vf_t * vf = &ctx->vfs[i];
     char vf_pci[ FD_IAVF_PCI_ADDR_SZ ];
     fd_iavf_tile_vf_pci( tile->iavf.members[i], vf_pci );
     fd_iavf_pci_info_t pci;
-    if( FD_UNLIKELY( fd_iavf_pci_probe( &pci, vf_pci ) || fd_iavf_vfio_init( &member->vfio, &pci ) ) ) {
+    if( FD_UNLIKELY( fd_iavf_pci_probe( &pci, vf_pci ) || fd_iavf_vfio_init( &vf->vfio, &pci ) ) ) {
       FD_LOG_ERR(( "VFIO setup for %s failed (%i-%s)", vf_pci, errno, fd_io_strerror( errno ) ));
     }
-    void * adminq_memory = member->adminq.dma_memory;
-    if( FD_UNLIKELY( fd_iavf_adminq_init( &member->vfio, &member->adminq, adminq_memory,
+    void * adminq_memory = vf->adminq.dma_memory;
+    if( FD_UNLIKELY( fd_iavf_adminq_init( &vf->vfio, &vf->adminq, adminq_memory,
                                           fd_iavf_adminq_footprint(), FD_IAVF_ADMINQ_IOVA ) ||
-                     fd_iavf_virtchnl_version( &member->vfio, &member->adminq ) ||
-                     fd_iavf_virtchnl_get_resources( &member->vfio, &member->adminq, &member->vf_info ) ) ) {
+                     fd_iavf_virtchnl_version( &vf->vfio, &vf->adminq ) ||
+                     fd_iavf_virtchnl_get_resources( &vf->vfio, &vf->adminq, &vf->vf_info ) ) ) {
       FD_LOG_ERR(( "VF resource setup failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     }
-    void * queue_memory = member->queue.dma_memory;
-    if( FD_UNLIKELY( fd_iavf_virtchnl_configure_queue( &member->vfio, &member->adminq, &member->vf_info,
-                                                       &member->queue, queue_memory,
+    void * queue_memory = vf->queue.dma_memory;
+    if( FD_UNLIKELY( fd_iavf_virtchnl_configure_queue( &vf->vfio, &vf->adminq, &vf->vf_info,
+                                                       &vf->queue, queue_memory,
                                                        fd_iavf_queue_footprint( tile->iavf.tx_queue_size, tile->iavf.rx_queue_size ),
                                                        FD_IAVF_QUEUE_IOVA, tile->iavf.tx_queue_size, tile->iavf.rx_queue_size,
                                                        FD_NET_MTU, FD_NET_MTU ) ||
-                     fd_iavf_virtchnl_add_mac( &member->vfio, &member->adminq, &member->vf_info ) ||
-                     fd_iavf_virtchnl_configure_rss( &member->vfio, &member->adminq, &member->vf_info, 1U ) ||
-                     fd_iavf_vfio_dma_map( &member->vfio, packet_memory, packet_memory_sz, FD_IAVF_PACKET_IOVA ) ) ) {
+                     fd_iavf_virtchnl_add_mac( &vf->vfio, &vf->adminq, &vf->vf_info ) ||
+                     fd_iavf_virtchnl_configure_rss( &vf->vfio, &vf->adminq, &vf->vf_info, 1U ) ||
+                     fd_iavf_vfio_dma_map( &vf->vfio, packet_memory, packet_memory_sz, FD_IAVF_PACKET_IOVA ) ) ) {
       FD_LOG_ERR(( "VF queue setup failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     }
   }
   fd_iavf_tile_init_buffers( topo, tile, ctx );
-  if( fds ) fds->member_cnt = ctx->member_cnt;
-  for( ulong i=0UL; i<ctx->member_cnt; i++ ) {
-    fd_iavf_tile_member_t * member = &ctx->members[i];
-    if( FD_UNLIKELY( fd_iavf_virtchnl_enable_queue( &member->vfio, &member->adminq, &member->vf_info, &member->queue ) ) ) {
+  if( fds ) fds->member_cnt = ctx->vf_cnt;
+  for( ulong i=0UL; i<ctx->vf_cnt; i++ ) {
+    fd_iavf_tile_vf_t * vf = &ctx->vfs[i];
+    if( FD_UNLIKELY( fd_iavf_virtchnl_enable_queue( &vf->vfio, &vf->adminq, &vf->vf_info, &vf->queue ) ) ) {
       FD_LOG_ERR(( "VF queue enable failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     }
     if( fds ) {
-      fds->container_fd[ i ] = member->vfio.container_fd;
-      fds->group_fd    [ i ] = member->vfio.group_fd;
-      fds->device_fd   [ i ] = member->vfio.device_fd;
+      fds->container_fd[ i ] = vf->vfio.container_fd;
+      fds->group_fd    [ i ] = vf->vfio.group_fd;
+      fds->device_fd   [ i ] = vf->vfio.device_fd;
     }
-    if( FD_UNLIKELY( munmap( (void *)member->vfio.bar0, FD_IAVF_BAR0_MAP_SZ ) ) ) {
+    if( FD_UNLIKELY( munmap( (void *)vf->vfio.bar0, FD_IAVF_BAR0_MAP_SZ ) ) ) {
       FD_LOG_ERR(( "VF BAR unmap failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     }
-    member->vfio.bar0     = NULL;
-    member->queue.tx_tail = NULL;
-    member->queue.rx_tail = NULL;
+    vf->vfio.bar0     = NULL;
+    vf->queue.tx_tail = NULL;
+    vf->queue.rx_tail = NULL;
   }
   ctx->prepared = 1U;
 }
@@ -886,13 +884,13 @@ privileged_init( fd_topo_t const *      topo,
   }
   (void)fd_iavf_hw_join_queues( ctx, tile );
   fd_iavf_tile_packet_memory( topo, tile, ctx, NULL, NULL );
-  for( ulong i=0UL; i<ctx->member_cnt; i++ ) {
-    fd_iavf_tile_member_t * member = &ctx->members[i];
-    if( FD_UNLIKELY( fd_iavf_vfio_map_bar( &member->vfio ) ) ) FD_LOG_ERR(( "VF BAR mapping failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-    member->queue.tx_tail = (volatile uint *)(member->vfio.bar0 + FD_IAVF_TX_TAIL( 0U ));
-    member->queue.rx_tail = (volatile uint *)(member->vfio.bar0 + FD_IAVF_RX_TAIL( 0U ));
-    member->if_idx        = if_nametoindex( tile->iavf.members[i] );
-    if( FD_UNLIKELY( !member->if_idx ) ) FD_LOG_ERR(( "PF interface lookup failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  for( ulong i=0UL; i<ctx->vf_cnt; i++ ) {
+    fd_iavf_tile_vf_t * vf = &ctx->vfs[i];
+    if( FD_UNLIKELY( fd_iavf_vfio_map_bar( &vf->vfio ) ) ) FD_LOG_ERR(( "VF BAR mapping failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    vf->queue.tx_tail = (volatile uint *)(vf->vfio.bar0 + FD_IAVF_TX_TAIL( 0U ));
+    vf->queue.rx_tail = (volatile uint *)(vf->vfio.bar0 + FD_IAVF_RX_TAIL( 0U ));
+    vf->if_idx        = if_nametoindex( tile->iavf.members[i] );
+    if( FD_UNLIKELY( !vf->if_idx ) ) FD_LOG_ERR(( "PF interface lookup failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
   ctx->router.if_virt = if_nametoindex( tile->iavf.if_name );
   if( FD_UNLIKELY( !ctx->router.if_virt ) ) FD_LOG_ERR(( "interface lookup failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -988,14 +986,14 @@ populate_allowed_fds( fd_topo_t const *      topo,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
   fd_iavf_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-  if( FD_UNLIKELY( out_fds_cnt<4UL+3UL*ctx->member_cnt ) ) FD_LOG_ERR(( "allowed FD array is too small" ));
+  if( FD_UNLIKELY( out_fds_cnt<4UL+3UL*ctx->vf_cnt ) ) FD_LOG_ERR(( "allowed FD array is too small" ));
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2;
   if( fd_log_private_logfile_fd()!=-1 ) out_fds[ out_cnt++ ] = fd_log_private_logfile_fd();
-  for( ulong i=0UL; i<ctx->member_cnt; i++ ) {
-    out_fds[ out_cnt++ ] = ctx->members[i].vfio.container_fd;
-    out_fds[ out_cnt++ ] = ctx->members[i].vfio.group_fd;
-    out_fds[ out_cnt++ ] = ctx->members[i].vfio.device_fd;
+  for( ulong i=0UL; i<ctx->vf_cnt; i++ ) {
+    out_fds[ out_cnt++ ] = ctx->vfs[i].vfio.container_fd;
+    out_fds[ out_cnt++ ] = ctx->vfs[i].vfio.group_fd;
+    out_fds[ out_cnt++ ] = ctx->vfs[i].vfio.device_fd;
   }
   if( ctx->lo_tx_sock>=0 ) out_fds[ out_cnt++ ] = ctx->lo_tx_sock;
   return out_cnt;
@@ -1005,9 +1003,9 @@ static inline long
 next_deadline( fd_iavf_tile_t * ctx ) {
   long deadline = fd_tickcount() + ctx->tx_flush_timeout_ticks;
   if( ctx->lo_tx_cnt ) deadline = fd_long_min( deadline, ctx->lo_tx_deadline_ticks );
-  for( ulong i=0UL; i<ctx->member_cnt; i++ ) {
-    fd_iavf_tile_member_t const * member = &ctx->members[i];
-    if( member->queue.tx_prod!=member->queue.tx_posted ) deadline = fd_long_min( deadline, member->tx_flush_deadline_ticks );
+  for( ulong i=0UL; i<ctx->vf_cnt; i++ ) {
+    fd_iavf_tile_vf_t const * vf = &ctx->vfs[i];
+    if( vf->queue.tx_prod!=vf->queue.tx_posted ) deadline = fd_long_min( deadline, vf->tx_flush_deadline_ticks );
   }
   return deadline;
 }
