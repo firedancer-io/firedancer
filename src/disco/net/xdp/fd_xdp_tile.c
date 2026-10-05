@@ -249,7 +249,6 @@ typedef struct {
     long  rx_idle_cnt;
 
     ulong tx_submit_cnt;
-    ulong tx_no_xdp_cnt;
     ulong tx_neigh_fail_cnt;
     ulong tx_full_fail_cnt;
     long  tx_busy_cnt;
@@ -572,10 +571,13 @@ net_tx_route( fd_net_ctx_t * ctx,
     return 1;
   }
 
-  if( FD_UNLIKELY( netdev->dev_type!=ARPHRD_ETHER ) ) return 0; // drop
+  if( FD_UNLIKELY( netdev->dev_type!=ARPHRD_ETHER ) ) {
+    ctx->net.metrics.tx_route_fail_cnt[ FD_METRICS_ENUM_ROUTE_FAIL_V_UNSUPPORTED_INTERFACE_IDX ]++;
+    return 0;
+  }
 
   if( FD_UNLIKELY( if_idx!=ctx->if_virt ) ) {
-    ctx->metrics.tx_no_xdp_cnt++;
+    ctx->net.metrics.tx_route_fail_cnt[ FD_METRICS_ENUM_ROUTE_FAIL_V_UNSUPPORTED_INTERFACE_IDX ]++;
     return 0;
   }
   ctx->tx_op.xsk_idx = XSK_IDX_MAIN;
@@ -672,17 +674,17 @@ before_frag( fd_net_ctx_t * ctx,
     xsk_idx = XSK_IDX_MAIN;
   }
 
-  if( FD_UNLIKELY( xsk_idx>=ctx->xsk_cnt ) ) {
-    /* Packet does not route to an XDP interface */
-    ctx->metrics.tx_no_xdp_cnt++;
-    return 1;
-  }
-
   if( xsk_idx==XSK_IDX_LO ) target_idx = 0UL; /* loopback always targets tile 0 */
 
   /* Skip if another net tile is responsible for this packet */
 
   if( kind_id!=target_idx ) return 1; /* ignore */
+
+  if( FD_UNLIKELY( xsk_idx>=ctx->xsk_cnt ) ) {
+    /* Packet does not route to an XDP interface */
+    ctx->net.metrics.tx_route_fail_cnt[ FD_METRICS_ENUM_ROUTE_FAIL_V_UNSUPPORTED_INTERFACE_IDX ]++;
+    return 1;
+  }
 
   /* Skip if TX is blocked */
 
