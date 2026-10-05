@@ -355,6 +355,29 @@ publish_shred_version( fd_backt_tile_t *   ctx,
 /* Log the run summary, drain telemetry and exit the process. */
 
 static void
+drain_events( fd_backt_tile_t * ctx ) {
+  if( FD_LIKELY( !ctx->event_metrics ) ) return;
+  long deadline = fd_log_wallclock() + (long)120e9;
+  for(;;) {
+    int drained = 1;
+    for( ulong i=0UL; i<ctx->event_in_cnt; i++ ) {
+      if( FD_UNLIKELY( fd_seq_lt( fd_fseq_query( ctx->event_in_cons[ i ] ), fd_mcache_seq_query( ctx->event_in_prod[ i ] ) ) ) ) { drained = 0; break; }
+    }
+    drained = drained && !ctx->event_metrics[ FD_METRICS_GAUGE_EVENT_QUEUE_UNSENT_OFF ];
+    if( FD_LIKELY( drained ) ) break;
+    if( FD_UNLIKELY( ctx->event_metrics[ FD_METRICS_GAUGE_EVENT_CONN_STATE_OFF ]!=FD_EVENT_CLIENT_STATE_CONNECTED ) ) {
+      FD_LOG_WARNING(( "exiting with %lu events unsent (event collector not connected)", ctx->event_metrics[ FD_METRICS_GAUGE_EVENT_QUEUE_UNSENT_OFF ] ));
+      break;
+    }
+    if( FD_UNLIKELY( fd_log_wallclock()>deadline ) ) {
+      FD_LOG_WARNING(( "exiting with %lu events unsent (drain timed out)", ctx->event_metrics[ FD_METRICS_GAUGE_EVENT_QUEUE_UNSENT_OFF ] ));
+      break;
+    }
+    FD_SPIN_PAUSE();
+  }
+}
+
+static void
 finish( fd_backt_tile_t * ctx,
         ulong             last_slot,
         long              completion_nanos ) {
@@ -379,26 +402,7 @@ finish( fd_backt_tile_t * ctx,
     fd_backtest_src_destroy( ctx->src );
     ctx->src = NULL;
   }
-  if( FD_UNLIKELY( ctx->event_metrics ) ) {
-    long deadline = fd_log_wallclock() + (long)120e9;
-    for(;;) {
-      int drained = 1;
-      for( ulong i=0UL; i<ctx->event_in_cnt; i++ ) {
-        if( FD_UNLIKELY( fd_seq_lt( fd_fseq_query( ctx->event_in_cons[ i ] ), fd_mcache_seq_query( ctx->event_in_prod[ i ] ) ) ) ) { drained = 0; break; }
-      }
-      drained = drained && !ctx->event_metrics[ FD_METRICS_GAUGE_EVENT_QUEUE_UNSENT_OFF ];
-      if( FD_LIKELY( drained ) ) break;
-      if( FD_UNLIKELY( ctx->event_metrics[ FD_METRICS_GAUGE_EVENT_CONN_STATE_OFF ]!=FD_EVENT_CLIENT_STATE_CONNECTED ) ) {
-        FD_LOG_WARNING(( "exiting with %lu events unsent (event collector not connected)", ctx->event_metrics[ FD_METRICS_GAUGE_EVENT_QUEUE_UNSENT_OFF ] ));
-        break;
-      }
-      if( FD_UNLIKELY( fd_log_wallclock()>deadline ) ) {
-        FD_LOG_WARNING(( "exiting with %lu events unsent (drain timed out)", ctx->event_metrics[ FD_METRICS_GAUGE_EVENT_QUEUE_UNSENT_OFF ] ));
-        break;
-      }
-      FD_SPIN_PAUSE();
-    }
-  }
+  drain_events( ctx );
   exit(0);
 }
 
@@ -546,8 +550,15 @@ returnable_frag( fd_backt_tile_t *   ctx,
           (double)(msg->last_transaction_finished_nanos-msg->first_transaction_scheduled_nanos)/1e6,
           (double)(msg->completion_time_nanos-msg->last_transaction_finished_nanos)/1e6 ));
       } else {
-        /* Do not change this log as it is used in offline replay */
         FD_BASE58_ENCODE_32_BYTES( slot_info.bank_hash.uc, bh_exp_b58 );
+        if( FD_UNLIKELY( ctx->event_metrics ) ) {
+          FD_LOG_WARNING(( "bank hash mismatch at slot %lu (expected %s, got %s), draining runtime events before exiting", msg->slot, bh_exp_b58, bh_got_b58 ));
+        }
+        /* Replay keeps executing the slots already queued ahead while this
+           drains (no new ones are fed), so rows for a few slots past the
+           mismatch are uploaded too. */
+        drain_events( ctx );
+        /* Do not change this log as it is used in offline replay */
         FD_LOG_ERR(( "Bank hash mismatch! slot=%lu expected=%s, got=%s", msg->slot, bh_exp_b58, bh_got_b58 ));
       }
       if( slot_info.rooted ) {
