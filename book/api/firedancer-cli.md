@@ -41,9 +41,10 @@ will be preserved as described in the file. If the file is invalid, the
 command will fail and the identity of the running validator will not
 be changed.
 
-If tower file production is enabled, votes are saved at `[paths.tower]`
-(by default `tower-1_9-<identity>.bin` in the base directory). The file
-is only read by `--vote-history-file`, never when Firedancer boots.
+If tower file production is enabled, votes are saved to
+`tower-1_9-<identity>.bin` in the `[paths.tower]` directory (by default
+the base directory). The file is only read by `--vote-history-file`,
+never when Firedancer boots.
 After `set-identity`, the file is renamed to the new identity
 when that identity first votes, so the old identity's last vote keeps
 its name until then. If a file with the new name already exists, for
