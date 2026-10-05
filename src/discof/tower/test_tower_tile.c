@@ -1345,7 +1345,6 @@ test_tower_file_write( fd_wksp_t * wksp ) {
   int dir_fd = open( dir, O_RDONLY|O_DIRECTORY );
   FD_TEST( -1!=dir_fd );
   ctx->tower_dir_fd = dir_fd;
-  fd_cstr_ncpy( ctx->tower_name_tmpl, "tower-1_9-{identity}.bin", PATH_MAX );
 
   /* identities U, A and B */
 

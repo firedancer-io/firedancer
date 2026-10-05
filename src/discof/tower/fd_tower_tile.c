@@ -1671,12 +1671,9 @@ tower_file_write( fd_tower_tile_t * ctx ) {
      not replaced. */
 
   FD_BASE58_ENCODE_32_BYTES( ctx->identity_key->uc, identity_key_b58 );
-  char         name[ 2 ][ PATH_MAX ];
-  char const * tmpl = ctx->tower_name_tmpl;
-  char const * at   = strstr( tmpl, "{identity}" );
-  if( FD_LIKELY( at ) ) FD_TEST( fd_cstr_printf_check( name[ 1 ], PATH_MAX, NULL, "%.*s%s%s", (int)(at-tmpl), tmpl, identity_key_b58, at+sizeof("{identity}")-1UL ) );
-  else                  fd_cstr_ncpy( name[ 1 ], tmpl, PATH_MAX );
-  FD_TEST( fd_cstr_printf_check( name[ 0 ], PATH_MAX, NULL, "%s.new", name[ 1 ] ) );
+  char name[ 2 ][ PATH_MAX ];
+  FD_TEST( fd_cstr_printf_check( name[ 1 ], PATH_MAX, NULL, "tower-1_9-%s.bin",     identity_key_b58 ) );
+  FD_TEST( fd_cstr_printf_check( name[ 0 ], PATH_MAX, NULL, "tower-1_9-%s.bin.new", identity_key_b58 ) );
   if( FD_UNLIKELY( strcmp( name[ 1 ], ctx->tower_name[ 1 ] ) ) ) {
     for( ulong i=0UL; i<2UL; i++ ) {
       if( FD_LIKELY( !syscall( SYS_renameat2, ctx->tower_dir_fd, ctx->tower_name[ i ], ctx->tower_dir_fd, name[ i ], RENAME_NOREPLACE ) ) ) continue;
@@ -1988,31 +1985,19 @@ privileged_init( fd_topo_t const *      topo,
   }
   ctx->auth_vtr_path_cnt = tile->tower.authorized_voter_paths_cnt;
 
-  /* The tower file, see tower_file_write. */
-
   ctx->tower_dir_fd  = -1;
   ctx->tower_fd[ 0 ] = -1;
   ctx->tower_fd[ 1 ] = -1;
   if( FD_LIKELY( tile->tower.tower_path[ 0 ] ) ) {
-    char path[ PATH_MAX ];
-    fd_cstr_ncpy( path, tile->tower.tower_path, PATH_MAX );
-    char * slash = strrchr( path, '/' ); /* absolute, {identity} only in the file name, see fd_config_parse.c */
-    FD_TEST( slash );
-    fd_cstr_ncpy( ctx->tower_name_tmpl, slash+1, PATH_MAX );
-    slash[ slash==path ] = '\0'; /* path is now the directory, "/" stays "/" */
-
     FD_BASE58_ENCODE_32_BYTES( ctx->identity_key->uc, identity_key_b58 );
-    char const * tmpl = ctx->tower_name_tmpl;
-    char const * at   = strstr( tmpl, "{identity}" );
-    if( FD_LIKELY( at ) ) FD_TEST( fd_cstr_printf_check( ctx->tower_name[ 1 ], PATH_MAX, NULL, "%.*s%s%s", (int)(at-tmpl), tmpl, identity_key_b58, at+sizeof("{identity}")-1UL ) );
-    else                  fd_cstr_ncpy( ctx->tower_name[ 1 ], tmpl, PATH_MAX );
-    FD_TEST( fd_cstr_printf_check( ctx->tower_name[ 0 ], PATH_MAX, NULL, "%s.new", ctx->tower_name[ 1 ] ) );
+    FD_TEST( fd_cstr_printf_check( ctx->tower_name[ 1 ], PATH_MAX, NULL, "tower-1_9-%s.bin",     identity_key_b58 ) );
+    FD_TEST( fd_cstr_printf_check( ctx->tower_name[ 0 ], PATH_MAX, NULL, "tower-1_9-%s.bin.new", identity_key_b58 ) );
 
-    ctx->tower_dir_fd = open( path, O_RDONLY|O_DIRECTORY );
-    if( FD_UNLIKELY( -1==ctx->tower_dir_fd ) ) FD_LOG_ERR(( "open(`%s`) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+    ctx->tower_dir_fd = open( tile->tower.tower_path, O_RDONLY|O_DIRECTORY );
+    if( FD_UNLIKELY( -1==ctx->tower_dir_fd ) ) FD_LOG_ERR(( "open(`%s`) failed (%i-%s)", tile->tower.tower_path, errno, fd_io_strerror( errno ) ));
     for( ulong i=0UL; i<2UL; i++ ) {
       ctx->tower_fd[ i ] = openat( ctx->tower_dir_fd, ctx->tower_name[ i ], O_WRONLY|O_CREAT, 0644 );
-      if( FD_UNLIKELY( -1==ctx->tower_fd[ i ] ) ) FD_LOG_ERR(( "open(`%s/%s`) failed (%i-%s)", path, ctx->tower_name[ i ], errno, fd_io_strerror( errno ) ));
+      if( FD_UNLIKELY( -1==ctx->tower_fd[ i ] ) ) FD_LOG_ERR(( "open(`%s/%s`) failed (%i-%s)", tile->tower.tower_path, ctx->tower_name[ i ], errno, fd_io_strerror( errno ) ));
     }
   }
 }

@@ -29,7 +29,7 @@ static char const cfg_str_5[] =
   "  max_file_size_mib = 33";
 static char const cfg_str_tower[] =
   "[paths]\n"
-  "  tower = \"/data/{name}/tower.bin\"\n"
+  "  tower = \"/data/{name}/tower\"\n"
   "[tiles.tower]\n"
   "  write_tower_file = false";
 
@@ -224,15 +224,13 @@ main( int     argc,
   pod = fd_pod_join( fd_pod_new( pod_mem, sizeof(pod_mem) ) );
   FD_TEST( fd_toml_parse( cfg_str_tower, sizeof(cfg_str_tower)-1, pod, scratch, sizeof(scratch), NULL ) == FD_TOML_SUCCESS );
   FD_TEST( fd_config_extract_pod( pod, config ) == config );
-  FD_TEST( !strcmp( config->paths.tower, "/data/{name}/tower.bin" ) );
+  FD_TEST( !strcmp( config->paths.tower, "/data/{name}/tower" ) );
   FD_TEST( !config->tiles.tower.write_tower_file );
 
-  FD_TEST(  tower_path_is_valid( ""                ) ); /* default */
-  FD_TEST(  tower_path_is_valid( "/data/tower.bin" ) );
-  FD_TEST( !tower_path_is_valid( "data/tower.bin"  ) ); /* relative */
-  FD_TEST( !tower_path_is_valid( "/data/"          ) ); /* no file name */
-  FD_TEST(  tower_path_is_valid( "/data/tower-{identity}.bin" ) );
-  FD_TEST( !tower_path_is_valid( "/data/{identity}/tower.bin" ) ); /* not in the file name */
+  FD_TEST(  tower_path_is_valid( ""            ) ); /* default */
+  FD_TEST(  tower_path_is_valid( "/data/tower" ) );
+  FD_TEST(  tower_path_is_valid( "/data/"      ) );
+  FD_TEST( !tower_path_is_valid( "data/tower"  ) ); /* relative */
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
