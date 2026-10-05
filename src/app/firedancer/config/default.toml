@@ -244,27 +244,34 @@ telemetry = true
     # Firedancer instance.
     guidb = ""
 
-    # Absolute directory path for the tower file used for safe identity
-    # switching.  If no path is provided, it defaults to the base
-    # directory above.
+    # Absolute directory path for the tower/vote history file used for
+    # safe identity switching. If no path is provided, it defaults to
+    # the base directory above. File(s) will only be created here if the
+    # respective write_vote_history_file option is set to true.
     #
-    # The validator saves its last vote to `tower-1_9-<identity>.bin`
-    # in this directory after each vote, which is the file name Agave
-    # uses.  It never reads the file at boot.  The file is only read
-    # when it is passed to `set-identity --vote-history-file`.
+    # The files will be written differently based on if the validator is
+    # using Tower or Alpenglow consensus. In the former case, the
+    # validator saves its last vote to `tower-1_9-<identity>.bin` in
+    # this directory after each vote, which is the file name Agave
+    # uses. In the latter case, with Alpenglow, the validator saves the
+    # votes since the root to `vote_history-<identity>.bin`, also
+    # matching what Agave does. A vote history larger than 32688 bytes
+    # empties the file until the history fits again. This file is only
+    # ever read by the validator during set-identity and never at boot.
     #
     # After `set-identity`, the validator renames the file to the new
     # identity key before it saves the first vote of that identity, so
     # the old identity's last vote keeps its name until then.  If a
     # file with the new name already exists, for example the tower file
     # passed to `set-identity`, it is not replaced but renamed with an
-    # `.old` suffix.
+    # `.old` suffix. This will only happen if a file with the validators
+    # name is placed into the directory.
     #
     # Two substitutions will be performed on this string.  If "{user}"
     # is present it will be replaced with the user running Firedancer,
     # as above, and "{name}" will be replaced with the name of the
     # Firedancer instance.
-    tower = ""
+    vote_history = ""
 
 # Firedancer logs to two places by default: stderr and a logfile.
 # stdout is not used for logging, and will only be used to print command
@@ -1816,9 +1823,17 @@ telemetry = true
     # The tower tile runs pre-Alpenglow consensus and decides what
     # blocks to vote for. The tower file is optional, but used for safer
     # identity switches that avoid consensus violations like double
-    # voting and vote lockout violations.
+    # voting and vote lockout violations. If Alpenglow is enabled, this
+    # option will be ignored.
     [tiles.tower]
-        write_tower_file = true
+        write_vote_history_file = true
+
+    # The votor tile replaces the tower tile when Alpenglow is enabled.
+    # Its vote history file is optional, but used for safer identity
+    # switches that avoid consensus violations like double voting. If
+    # Alpenglow is not yet enabled, this option will be ignored.
+    [tiles.votor]
+        write_vote_history_file = true
 
     # The txsend tile is responsible for sending transactions out to
     # the network over QUIC.  In the default configuration, this is just

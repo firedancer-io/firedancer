@@ -12,8 +12,8 @@ fd_config_check_configf( fd_config_t *  config,
   if( FD_UNLIKELY( config->paths.snapshots[ 0 ]!='\0' && config->paths.snapshots[ 0 ]!='/' ) ) {
     FD_LOG_ERR(( "[config->paths.snapshots] must be an absolute path and hence start with a '/'"));
   }
-  if( FD_UNLIKELY( config->paths.tower[ 0 ]!='\0' && config->paths.tower[ 0 ]!='/' ) ) {
-    FD_LOG_ERR(( "[config->paths.tower] must be an absolute path and hence start with a '/'"));
+  if( FD_UNLIKELY( config->paths.vote_history[ 0 ]!='\0' && config->paths.vote_history[ 0 ]!='/' ) ) {
+    FD_LOG_ERR(( "[config->paths.vote_history] must be an absolute path and hence start with a '/'"));
   }
 }
 
@@ -183,7 +183,7 @@ fd_config_extract_pod( uchar *       pod,
     CFG_POP    ( cstr,   paths.stake_delegations                          );
     CFG_POP    ( cstr,   paths.shredb                                 );
     CFG_POP    ( cstr,   paths.guidb                                  );
-    CFG_POP    ( cstr,   paths.tower                                      );
+    CFG_POP    ( cstr,   paths.vote_history                               );
   } else {
     CFG_POP1   ( cstr,   scratch_directory,           paths.base          );
     CFG_POP1   ( cstr,   ledger.path,                 frankendancer.paths.ledger );
@@ -305,7 +305,9 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( ushort, tiles.rserve.repair_serve_listen_port            );
   CFG_POP      ( ulong,  tiles.rserve.shred_storage_limit_gib             );
 
-  CFG_POP      ( bool,   tiles.tower.write_tower_file                     );
+  CFG_POP      ( bool,   tiles.tower.write_vote_history_file              );
+
+  CFG_POP      ( bool,   tiles.votor.write_vote_history_file              );
 
   CFG_POP      ( ulong,  capture.capture_start_slot                       );
   CFG_POP      ( cstr,   capture.solcap_capture                           );

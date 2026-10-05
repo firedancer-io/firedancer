@@ -27,11 +27,13 @@ static char const cfg_str_4[] =
 static char const cfg_str_5[] =
   "[development.genesis]\n"
   "  max_file_size_mib = 33";
-static char const cfg_str_tower[] =
+static char const cfg_str_vote_history[] =
   "[paths]\n"
-  "  tower = \"/data/{name}/tower\"\n"
+  "  vote_history = \"/data/{name}/vote_history\"\n"
   "[tiles.tower]\n"
-  "  write_tower_file = false";
+  "  write_vote_history_file = false\n"
+  "[tiles.votor]\n"
+  "  write_vote_history_file = true";
 
 extern uchar const fdctl_default_config[];
 extern ulong const fdctl_default_config_sz;
@@ -53,12 +55,12 @@ genesis_max_file_size_is_valid( config_t * config,
 }
 
 static int
-tower_path_is_valid( char const * path ) {
+vote_history_path_is_valid( char const * path ) {
   int pid = fork();
   FD_TEST( pid>=0 );
   if( FD_UNLIKELY( !pid ) ) {
     char toml[ 256 ];
-    FD_TEST( fd_cstr_printf_check( toml, sizeof(toml), NULL, "[paths]\n  tower = \"%s\"", path ) );
+    FD_TEST( fd_cstr_printf_check( toml, sizeof(toml), NULL, "[paths]\n  vote_history = \"%s\"", path ) );
     static uchar pod_mem[ 1UL<<16 ];
     static uchar scratch[ 4096 ];
     static config_t config[1];
@@ -216,21 +218,22 @@ main( int     argc,
   FD_TEST( fd_config_extract_pod( pod, config ) == config );
   FD_TEST( config->firedancer.development.genesis.max_file_size_mib == 33UL );
 
-  /* Parse the tower file options */
+  /* Parse the vote history file options */
 
   memset( config, 0, sizeof(config_t) );
   config->is_firedancer = 1;
-  config->tiles.tower.write_tower_file = 1;
+  config->tiles.tower.write_vote_history_file = 1;
   pod = fd_pod_join( fd_pod_new( pod_mem, sizeof(pod_mem) ) );
-  FD_TEST( fd_toml_parse( cfg_str_tower, sizeof(cfg_str_tower)-1, pod, scratch, sizeof(scratch), NULL ) == FD_TOML_SUCCESS );
+  FD_TEST( fd_toml_parse( cfg_str_vote_history, sizeof(cfg_str_vote_history)-1, pod, scratch, sizeof(scratch), NULL ) == FD_TOML_SUCCESS );
   FD_TEST( fd_config_extract_pod( pod, config ) == config );
-  FD_TEST( !strcmp( config->paths.tower, "/data/{name}/tower" ) );
-  FD_TEST( !config->tiles.tower.write_tower_file );
+  FD_TEST( !strcmp( config->paths.vote_history, "/data/{name}/vote_history" ) );
+  FD_TEST( !config->tiles.tower.write_vote_history_file );
+  FD_TEST(  config->tiles.votor.write_vote_history_file );
 
-  FD_TEST(  tower_path_is_valid( ""            ) ); /* default */
-  FD_TEST(  tower_path_is_valid( "/data/tower" ) );
-  FD_TEST(  tower_path_is_valid( "/data/"      ) );
-  FD_TEST( !tower_path_is_valid( "data/tower"  ) ); /* relative */
+  FD_TEST(  vote_history_path_is_valid( ""                   ) ); /* default */
+  FD_TEST(  vote_history_path_is_valid( "/data/vote_history" ) );
+  FD_TEST(  vote_history_path_is_valid( "/data/"             ) );
+  FD_TEST( !vote_history_path_is_valid( "data/vote_history"  ) ); /* relative */
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

@@ -286,6 +286,59 @@ test_tower_match( void ) {
   FD_TEST( !( fd_keyguard_payload_match( body, 106UL+36UL*32UL, FD_KEYGUARD_SIGN_TYPE_ED25519 ) & FD_KEYGUARD_PAYLOAD_PRUNE ) );
 }
 
+static void
+test_vote_history_authorize( void ) {
+  /* The smallest VoteHistory body: identity, nine empty collections and
+     root.  The largest the votor writes fills a 32688 byte file. */
+  ulong const min_sz = 32UL + 9UL*8UL + 8UL;
+  ulong const max_sz = 32688UL - (4UL+64UL+8UL);
+
+  static uchar body[ FD_KEYGUARD_SIGN_REQ_MTU ];
+  fd_keyguard_authority_t authority;
+  memset( &authority, 0xAA, sizeof(authority) );
+  memcpy( body, authority.identity_pubkey, 32UL );
+
+  FD_TEST(  fd_keyguard_payload_match( body, min_sz,     FD_KEYGUARD_SIGN_TYPE_ED25519 )==FD_KEYGUARD_PAYLOAD_VOTE_HISTORY );
+  FD_TEST( !fd_keyguard_payload_match( body, min_sz-1UL, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+  /* a voted slot only fits with 8 more bytes */
+  FD_STORE( ulong, body+32UL, 1UL );
+  FD_TEST( !fd_keyguard_payload_match( body, min_sz,     FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+  FD_TEST(  fd_keyguard_payload_match( body, min_sz+8UL, FD_KEYGUARD_SIGN_TYPE_ED25519 )==FD_KEYGUARD_PAYLOAD_VOTE_HISTORY );
+  FD_STORE( ulong, body+32UL, 0UL );
+  FD_TEST(  fd_keyguard_payload_authorize( &authority, body, min_sz, FD_KEYGUARD_ROLE_VOTOR,  FD_KEYGUARD_SIGN_TYPE_ED25519        ) );
+  FD_TEST(  fd_keyguard_payload_authorize( &authority, body, max_sz, FD_KEYGUARD_ROLE_VOTOR,  FD_KEYGUARD_SIGN_TYPE_ED25519        ) );
+  /* wrong sign type, wrong role, not our identity */
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, body, min_sz, FD_KEYGUARD_ROLE_VOTOR,  FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519 ) );
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, body, min_sz, FD_KEYGUARD_ROLE_TOWER,  FD_KEYGUARD_SIGN_TYPE_ED25519        ) );
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, body, min_sz, FD_KEYGUARD_ROLE_GOSSIP, FD_KEYGUARD_SIGN_TYPE_ED25519        ) );
+  body[ 31 ] ^= (uchar)1;
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, body, min_sz, FD_KEYGUARD_ROLE_VOTOR,  FD_KEYGUARD_SIGN_TYPE_ED25519        ) );
+  body[ 31 ] ^= (uchar)1;
+
+  /* A payload of another type is never a vote history, even with our
+     identity in front, here a tower body */
+  FD_STORE( ulong,  body+32UL,  8UL     ); /* threshold_depth */
+  FD_STORE( double, body+40UL,  2.0/3.0 ); /* threshold_size */
+  FD_STORE( ulong,  body+113UL, 1UL     ); /* votes_cnt */
+  FD_TEST(  fd_keyguard_payload_match( body, 1807UL, FD_KEYGUARD_SIGN_TYPE_ED25519 )==FD_KEYGUARD_PAYLOAD_TOWER );
+  FD_TEST( !fd_keyguard_payload_authorize( &authority, body, 1807UL, FD_KEYGUARD_ROLE_VOTOR, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+
+  /* An identity whose first bytes read as a legacy txn message header
+     (one signer, three accounts) makes a vote history body also match a
+     txn, or even be a whole txn message, like these 133 bytes: three
+     accounts, a blockhash and no instructions.  The votor role still
+     signs it, because the fee payer key of that txn starts with bytes 4
+     to 31 of our identity. */
+  uchar const txn_hdr[ 4 ] = { 1, 0, 0, 3 };
+  memcpy( authority.identity_pubkey, txn_hdr, 4UL );
+  memcpy( body, authority.identity_pubkey, 32UL );
+  memset( body+32UL, 0, 133UL-32UL );
+  FD_TEST(  fd_keyguard_payload_match( body, min_sz, FD_KEYGUARD_SIGN_TYPE_ED25519 )==(FD_KEYGUARD_PAYLOAD_TXN|FD_KEYGUARD_PAYLOAD_VOTE_HISTORY) );
+  FD_TEST(  fd_keyguard_payload_authorize( &authority, body, min_sz, FD_KEYGUARD_ROLE_VOTOR, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+  FD_TEST(  fd_keyguard_payload_match( body, 133UL,  FD_KEYGUARD_SIGN_TYPE_ED25519 )==(FD_KEYGUARD_PAYLOAD_TXN|FD_KEYGUARD_PAYLOAD_VOTE_HISTORY) );
+  FD_TEST(  fd_keyguard_payload_authorize( &authority, body, 133UL,  FD_KEYGUARD_ROLE_VOTOR, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -296,6 +349,7 @@ main( int     argc,
   test_bls_pubkey_authorize();
   test_tower_authorize();
   test_tower_match();
+  test_vote_history_authorize();
   FD_LOG_NOTICE(( "pass" ));
   return 0;
 }

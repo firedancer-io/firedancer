@@ -113,7 +113,7 @@ static char const * const jw_redacted_keys[] = {
   "paths.stake_delegations",
   "paths.shredb",
   "paths.guidb",
-  "paths.tower",
+  "paths.vote_history",
   "log.path",
   "gossip.host",
   "snapshots.sources.servers",
@@ -326,7 +326,7 @@ fd_config_to_json( fd_config_t const * config,
     jw_path( &w, "stake_delegations",       config->paths.stake_delegations );
     jw_path( &w, "shredb",                  config->paths.shredb );
     jw_path( &w, "guidb",                   config->paths.guidb );
-    jw_path( &w, "tower",                   config->paths.tower );
+    jw_path( &w, "vote_history",            config->paths.vote_history );
     jw_path_arr( &w, "authorized_voter_paths", f->paths.authorized_voter_paths_cnt );
   jw_obj_close( &w );
 
@@ -624,7 +624,10 @@ fd_config_to_json( fd_config_t const * config,
       jw_ulong( &w, "shred_storage_limit_gib",   config->tiles.rserve.shred_storage_limit_gib );
     jw_obj_close( &w );
     jw_obj_open( &w, "tower" );
-      jw_bool ( &w, "write_tower_file",          config->tiles.tower.write_tower_file );
+      jw_bool ( &w, "write_vote_history_file",   config->tiles.tower.write_vote_history_file );
+    jw_obj_close( &w );
+    jw_obj_open( &w, "votor" );
+      jw_bool ( &w, "write_vote_history_file",   config->tiles.votor.write_vote_history_file );
     jw_obj_close( &w );
     jw_obj_open( &w, "replay" );
       jw_ulong( &w, "max_transaction_lookahead_buffer_size", config->tiles.replay.max_transaction_lookahead_buffer_size );

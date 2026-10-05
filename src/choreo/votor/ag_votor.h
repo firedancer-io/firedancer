@@ -4,6 +4,7 @@
 #include "ag_votor_base.h"
 #include "../../ballet/bls/fd_bls.h"
 #include "ag_pool.h"
+#include "ag_vote_history_file.h"
 
 #define AG_VOTOR_REASON_BLOCK_REPLAYED  (0)
 #define AG_VOTOR_REASON_PARENT_READY    (1)
@@ -139,6 +140,12 @@ ag_votor_poll_vote( ag_votor_t * self,
 int
 ag_votor_poll_cert( ag_votor_t * self,
                     ag_cert_t *  cert );
+
+/* ag_votor_vote_history writes votor's history to out. */
+
+int
+ag_votor_vote_history( ag_votor_t const *       self,
+                       ag_vote_history_file_t * out );
 
 FD_PROTOTYPES_END
 

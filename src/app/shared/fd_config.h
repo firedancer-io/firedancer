@@ -311,7 +311,7 @@ struct fd_config {
     char stake_delegations[ PATH_MAX ];
     char shredb[ PATH_MAX ];
     char guidb[ PATH_MAX ];
-    char tower[ PATH_MAX ];
+    char vote_history[ PATH_MAX ];
   } paths;
 
   struct {
@@ -558,8 +558,12 @@ struct fd_config {
     } rserve;
 
     struct {
-      int write_tower_file;
+      int write_vote_history_file;
     } tower;
+
+    struct {
+      int write_vote_history_file;
+    } votor;
 
     struct {
       ulong max_transaction_lookahead_buffer_size;

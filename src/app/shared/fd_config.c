@@ -145,11 +145,11 @@ fd_config_fillf( fd_config_t * config ) {
     FD_TEST( fd_cstr_printf_check( config->paths.guidb, sizeof(config->paths.guidb), NULL, "%s/gui.db", config->paths.base ) );
   }
 
-  if( FD_UNLIKELY( strcmp( config->paths.tower, "" ) ) ) {
-    replace( config->paths.tower, "{user}", config->user );
-    replace( config->paths.tower, "{name}", config->name );
+  if( FD_UNLIKELY( strcmp( config->paths.vote_history, "" ) ) ) {
+    replace( config->paths.vote_history, "{user}", config->user );
+    replace( config->paths.vote_history, "{name}", config->name );
   } else {
-    fd_cstr_ncpy( config->paths.tower, config->paths.base, sizeof(config->paths.tower) );
+    fd_cstr_ncpy( config->paths.vote_history, config->paths.base, sizeof(config->paths.vote_history) );
   }
 
   for( ulong i=0UL; i<config->firedancer.paths.authorized_voter_paths_cnt; i++ ) {

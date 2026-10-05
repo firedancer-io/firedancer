@@ -1,5 +1,7 @@
 #include "ag_votor.c"
+#include "ag_vote_history_file.h"
 #include "test_ag_cert_builder.h"
+#include "../../ballet/ed25519/fd_ed25519.h"
 
 #define NV                 (2UL)
 #define TEST_SLOT_MAX      (64UL)
@@ -797,6 +799,87 @@ test_timeout_below_final( void ) {
   teardown_votor( votor );
 }
 
+/* ag_votor_vote_history gives votor's VoteHistory, which
+   ag_vote_history_file_ser encodes: the votes cast since root and the
+   sets Agave derives from them, the notarized blocks and the ready
+   parents. */
+
+static void
+test_vote_history_ser( void ) {
+  ag_votor_t *  votor  = setup_votor( 0L );
+  ag_block_id_t parent = genesis_block_id();
+
+  /* notar and final in slot 1 */
+
+  ag_vote_t       notar = send_block_and_expect_notar( votor, 1UL, &parent );
+  ag_pool_event_t event = { .kind = AG_POOL_EVENT_CERT_CREATED, .cert_created = cert_build_notar( &notar.notar, 1UL, g_epoch_info ) };
+  ag_votor_handle_pool_event( votor, &event, 0L );
+  FD_TEST( recv( votor ).kind==AG_VOTE_KIND_FINAL );
+
+  /* skips in slots 2 and 3, then both fallbacks in slot 2 */
+
+  handle_timeouts( votor, TEST_WINDOW_ELAPSED_NS );
+  for( ulong s=2UL; s<AG_SLOTS_PER_WINDOW; s++ ) FD_TEST( recv( votor ).kind==AG_VOTE_KIND_SKIP );
+  ag_block_id_t nf = random_block_id( 2UL );
+  event = (ag_pool_event_t){ .kind = AG_POOL_EVENT_SAFE_TO_NOTAR, .safe_to_notar = nf };
+  ag_votor_handle_pool_event( votor, &event, 0L );
+  FD_TEST( recv( votor ).kind==AG_VOTE_KIND_NOTAR_FALLBACK );
+  event = (ag_pool_event_t){ .kind = AG_POOL_EVENT_SAFE_TO_SKIP, .safe_to_skip = 2UL };
+  ag_votor_handle_pool_event( votor, &event, 0L );
+  FD_TEST( recv( votor ).kind==AG_VOTE_KIND_SKIP_FALLBACK );
+
+  /* slot 3 is a ready parent of window start 4 */
+
+  ag_block_id_t ready = random_block_id( 3UL );
+  parent_ready( votor, 4UL, &ready );
+  FD_TEST_NO_MSG( votor );
+
+  uchar       keypair[ 64 ];
+  fd_sha512_t sha[ 1 ];
+  FD_TEST( fd_sha512_join( fd_sha512_new( sha ) ) );
+  memset( keypair, 7, 32UL );
+  fd_ed25519_public_from_private( keypair+32UL, keypair, sha );
+
+  static uchar                  buf[ AG_VOTE_HISTORY_FILE_MAX ];
+  static ag_vote_history_file_t vh;
+  static ag_vote_history_file_t out;
+  FD_TEST( ag_votor_vote_history( votor, &vh )==AG_VOTE_HISTORY_FILE_SUCCESS );
+  ulong sz = ag_vote_history_file_ser( &vh, keypair+32UL, buf, sizeof(buf) );
+  FD_TEST( sz );
+  FD_TEST( !ag_vote_history_file_ser( &vh, keypair+32UL, buf, sz-1UL ) );
+  FD_TEST( ag_vote_history_file_ser( &vh, keypair+32UL, buf, sz )==sz );
+  fd_ed25519_sign( buf+AG_VOTE_HISTORY_FILE_SIG_OFF, buf+AG_VOTE_HISTORY_FILE_DATA_OFF, sz-AG_VOTE_HISTORY_FILE_DATA_OFF, keypair+32UL, keypair, sha );
+  FD_TEST( ag_vote_history_file_de( buf, sz, keypair+32UL, &out )==AG_VOTE_HISTORY_FILE_SUCCESS );
+
+  FD_TEST( out.root==0UL );
+  FD_TEST( out.voted_cnt==3UL && out.voted[ 0 ]==1UL && out.voted[ 1 ]==2UL && out.voted[ 2 ]==3UL );
+  FD_TEST( out.voted_notar_cnt==1UL && out.voted_notar[ 0 ].slot==1UL && !memcmp( out.voted_notar[ 0 ].hash, notar.notar.block_hash, 32UL ) );
+  FD_TEST( out.voted_notar_fallback_cnt==1UL && out.voted_notar_fallback[ 0 ].slot==2UL && !memcmp( out.voted_notar_fallback[ 0 ].hash, nf.hash, 32UL ) );
+  FD_TEST( out.voted_skip_fallback_cnt==1UL && out.voted_skip_fallback[ 0 ]==2UL );
+  FD_TEST( out.skipped_cnt==2UL && out.skipped[ 0 ]==2UL && out.skipped[ 1 ]==3UL );
+  FD_TEST( out.its_over_cnt==1UL && out.its_over[ 0 ]==1UL );
+  uint  const kind[ 6 ] = { AG_VOTE_HISTORY_KIND_NOTAR, AG_VOTE_HISTORY_KIND_FINAL, AG_VOTE_HISTORY_KIND_SKIP, AG_VOTE_HISTORY_KIND_NOTAR_FALLBACK, AG_VOTE_HISTORY_KIND_SKIP_FALLBACK, AG_VOTE_HISTORY_KIND_SKIP };
+  ulong const slot[ 6 ] = { 1UL, 1UL, 2UL, 2UL, 2UL, 3UL };
+  FD_TEST( out.votes_cast_cnt==6UL );
+  for( ulong i=0UL; i<6UL; i++ ) FD_TEST( out.votes_cast[ i ].kind==kind[ i ] && out.votes_cast[ i ].block.slot==slot[ i ] && !out.votes_cast[ i ].shred_version );
+  FD_TEST( !memcmp( out.votes_cast[ 3 ].block.hash, nf.hash, 32UL ) );
+  FD_TEST( out.notarized_blocks_cnt==2UL && out.notarized_blocks[ 0 ].slot==0UL && out.notarized_blocks[ 1 ].slot==1UL );
+  FD_TEST( out.parent_ready_cnt==1UL && out.parent_ready[ 0 ].slot==4UL && out.parent_ready[ 0 ].block.slot==3UL && !memcmp( out.parent_ready[ 0 ].block.hash, ready.hash, 32UL ) );
+
+  /* a final cert for slot 16 prunes everything below window start 8 */
+
+  ag_vote_t fv = ag_vote_construct_final( sec_sign_fn, &g_sk[1], test_bls_public_key, 16UL, (ushort)1, TEST_SHRED_VERSION );
+  event = (ag_pool_event_t){ .kind = AG_POOL_EVENT_CERT_CREATED, .cert_created = cert_build_final( &fv.final, 1UL, g_epoch_info ) };
+  ag_votor_handle_pool_event( votor, &event, 0L );
+  FD_TEST( ag_votor_vote_history( votor, &vh )==AG_VOTE_HISTORY_FILE_SUCCESS );
+  sz = ag_vote_history_file_ser( &vh, keypair+32UL, buf, sizeof(buf) );
+  fd_ed25519_sign( buf+AG_VOTE_HISTORY_FILE_SIG_OFF, buf+AG_VOTE_HISTORY_FILE_DATA_OFF, sz-AG_VOTE_HISTORY_FILE_DATA_OFF, keypair+32UL, keypair, sha );
+  FD_TEST( ag_vote_history_file_de( buf, sz, keypair+32UL, &out )==AG_VOTE_HISTORY_FILE_SUCCESS );
+  FD_TEST( out.root==8UL && !out.voted_cnt && !out.votes_cast_cnt && !out.notarized_blocks_cnt && !out.parent_ready_cnt );
+
+  teardown_votor( votor );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -823,6 +906,7 @@ main( int     argc,
   test_missing_bls_selector_still_skips_other_epoch();
   test_prunes_to_finalized_window();
   test_timeout_below_final();
+  test_vote_history_ser();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

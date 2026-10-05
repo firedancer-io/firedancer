@@ -274,7 +274,7 @@ fd_topo_initialize( config_t * config ) {
   int leader_enabled      = !!config->firedancer.layout.enable_block_production;
   int rserve_enabled      = config->tiles.rserve.enabled;
   int alpenglow_enabled   = config->firedancer.development.alpenglow;
-  int tower_file_enabled  = !alpenglow_enabled && config->tiles.tower.write_tower_file;
+  int tower_file_enabled  = !alpenglow_enabled && config->tiles.tower.write_vote_history_file;
   int efficient_mode      = !strcmp( config->firedancer.layout.mode, "efficient" );
   int gossip_vote_enabled = leader_enabled || ( rpc_enabled && !alpenglow_enabled );
 
@@ -561,7 +561,7 @@ fd_topo_initialize( config_t * config ) {
   }
 
   if( tower_file_enabled ) {
-    /**/               fd_topob_link( topo, "tower_sign",    "tower_sign",    128UL,                                    FD_KEYGUARD_SIGN_REQ_MTU,      1UL );
+    /**/               fd_topob_link( topo, "tower_sign",    "tower_sign",    128UL,                                    4096UL,                        1UL );
     /**/               fd_topob_link( topo, "sign_tower",    "sign_tower",    128UL,                                    sizeof(fd_ed25519_sig_t),      1UL );
   }
 
@@ -1194,7 +1194,7 @@ fd_topo_initialize( config_t * config ) {
   if( alpenglow_enabled ) {
     /**/               fd_topob_link( topo, "votor_out",     "votor_out",     1024UL,                                   sizeof(fd_votor_msg_t),                        FD_VOTOR_OUT_BURST );
     /**/               fd_topob_link( topo, "votor_net",     "net_votor",     32768UL,                                  FD_NET_MTU,                                    FD_VOTOR_NET_BURST ); /* as shred_net: fan-out publishes as it goes and rides depth, burst covers only the deferred aio flush */
-    /**/               fd_topob_link( topo, "votor_sign",    "votor_sign",    128UL,                                    130UL,                                         1UL ); /* TLS 1.3 CertificateVerify payload */
+    /**/               fd_topob_link( topo, "votor_sign",    "votor_sign",    128UL,                                    FD_KEYGUARD_SIGN_REQ_MTU,                      1UL ); /* TLS 1.3 CertificateVerify payload or vote history file body */
     /**/               fd_topob_link( topo, "sign_votor",    "sign_votor",    128UL,                                    FD_KEYGUARD_BLS_SIG_SZ,                        1UL ); /* ed25519 sig (TLS) or BLS sig (vote) */
     FOR(net_tile_cnt)  fd_topos_net_rx_link( topo, "net_votor", i, config->net.ingress_buffer_size );
 
@@ -1761,6 +1761,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->votor.ip_addr                 = config->net.ip_addr;
     tile->votor.max_live_slots          = config->firedancer.runtime.max_live_slots;
     fd_cstr_ncpy( tile->votor.identity_key_path, config->paths.identity_key, sizeof(tile->votor.identity_key_path) );
+    fd_cstr_ncpy( tile->votor.vote_history_path, config->tiles.votor.write_vote_history_file ? config->paths.vote_history : "", sizeof(tile->votor.vote_history_path) );
     tile->votor.authorized_voter_paths_cnt = config->firedancer.paths.authorized_voter_paths_cnt;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "tower" ) ) ) {
@@ -1776,7 +1777,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->tower.max_live_slots     = config->firedancer.runtime.max_live_slots;
     fd_cstr_ncpy( tile->tower.identity_key, config->paths.identity_key, sizeof(tile->tower.identity_key) );
     fd_cstr_ncpy( tile->tower.vote_account, config->paths.vote_account, sizeof(tile->tower.vote_account) );
-    fd_cstr_ncpy( tile->tower.tower_path, config->tiles.tower.write_tower_file ? config->paths.tower : "", sizeof(tile->tower.tower_path) );
+    fd_cstr_ncpy( tile->tower.tower_path, config->tiles.tower.write_vote_history_file ? config->paths.vote_history : "", sizeof(tile->tower.tower_path) );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "accdb" ) ) ) {
 

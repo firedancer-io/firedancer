@@ -2,11 +2,6 @@
 
 #include "../../ballet/ed25519/fd_ed25519.h"
 
-#define SAVED_KIND (0U) /* SavedVoteHistoryVersions::Current */
-
-#define SIG_OFF  (4UL)          /* u32 kind precedes the signature */
-#define DATA_OFF (4UL+64UL+8UL) /* kind, signature, data_sz */
-
 #define LOAD( T, dst ) do {                                                         \
     if( FD_UNLIKELY( sizeof(T)>buf_sz-off ) ) return AG_VOTE_HISTORY_FILE_ERR_SIZE; \
     (dst) = FD_LOAD( T, buf+off );                                                  \
@@ -51,16 +46,16 @@ ag_vote_history_file_de( uchar const *            buf,
   ulong off = 0UL;
 
   uint kind; LOAD( uint, kind );
-  if( FD_UNLIKELY( kind!=SAVED_KIND ) ) return AG_VOTE_HISTORY_FILE_ERR_VERSION;
+  if( FD_UNLIKELY( kind!=AG_VOTE_HISTORY_FILE_KIND ) ) return AG_VOTE_HISTORY_FILE_ERR_VERSION;
 
-  if( FD_UNLIKELY( buf_sz<DATA_OFF ) ) return AG_VOTE_HISTORY_FILE_ERR_SIZE;
-  uchar const * sig = buf+SIG_OFF;
-  off = SIG_OFF+64UL;
+  if( FD_UNLIKELY( buf_sz<AG_VOTE_HISTORY_FILE_DATA_OFF ) ) return AG_VOTE_HISTORY_FILE_ERR_SIZE;
+  uchar const * sig = buf+AG_VOTE_HISTORY_FILE_SIG_OFF;
+  off = AG_VOTE_HISTORY_FILE_SIG_OFF+64UL;
   ulong data_sz; LOAD( ulong, data_sz );
-  if( FD_UNLIKELY( data_sz!=buf_sz-DATA_OFF ) ) return AG_VOTE_HISTORY_FILE_ERR_SIZE;
+  if( FD_UNLIKELY( data_sz!=buf_sz-AG_VOTE_HISTORY_FILE_DATA_OFF ) ) return AG_VOTE_HISTORY_FILE_ERR_SIZE;
 
   fd_sha512_t sha[ 1 ];
-  if( FD_UNLIKELY( FD_ED25519_SUCCESS!=fd_ed25519_verify( buf+DATA_OFF, data_sz, sig, identity, sha ) ) ) return AG_VOTE_HISTORY_FILE_ERR_SIG;
+  if( FD_UNLIKELY( FD_ED25519_SUCCESS!=fd_ed25519_verify( buf+AG_VOTE_HISTORY_FILE_DATA_OFF, data_sz, sig, identity, sha ) ) ) return AG_VOTE_HISTORY_FILE_ERR_SIG;
 
   if( FD_UNLIKELY( 32UL>buf_sz-off ) ) return AG_VOTE_HISTORY_FILE_ERR_SIZE;
   if( FD_UNLIKELY( !fd_memeq( buf+off, identity, 32UL ) ) ) return AG_VOTE_HISTORY_FILE_ERR_IDENTITY;
@@ -80,7 +75,7 @@ ag_vote_history_file_de( uchar const *            buf,
 
   ulong notar_cnt; LOAD_LEN( notar_cnt, 40UL );
   for( ulong i=0UL; i<notar_cnt; i++ ) {
-    LOAD_BLOCK( PUSH( out->voted_notar, out->voted_notar_cnt, AG_VOTE_HISTORY_SLOT_MAX ) );
+    LOAD_BLOCK( PUSH( out->voted_notar, out->voted_notar_cnt, AG_VOTE_HISTORY_BLOCK_MAX ) );
   }
 
   ulong notar_fallback_cnt; LOAD_LEN( notar_fallback_cnt, 16UL );
@@ -191,16 +186,16 @@ ag_vote_history_file_scan( uchar const * buf,
   ulong off = 0UL;
 
   uint kind; LOAD( uint, kind );
-  if( FD_UNLIKELY( kind!=SAVED_KIND ) ) return AG_VOTE_HISTORY_FILE_ERR_VERSION;
+  if( FD_UNLIKELY( kind!=AG_VOTE_HISTORY_FILE_KIND ) ) return AG_VOTE_HISTORY_FILE_ERR_VERSION;
 
-  if( FD_UNLIKELY( buf_sz<DATA_OFF ) ) return AG_VOTE_HISTORY_FILE_ERR_SIZE;
-  uchar const * sig = buf+SIG_OFF;
-  off = SIG_OFF+64UL;
+  if( FD_UNLIKELY( buf_sz<AG_VOTE_HISTORY_FILE_DATA_OFF ) ) return AG_VOTE_HISTORY_FILE_ERR_SIZE;
+  uchar const * sig = buf+AG_VOTE_HISTORY_FILE_SIG_OFF;
+  off = AG_VOTE_HISTORY_FILE_SIG_OFF+64UL;
   ulong data_sz; LOAD( ulong, data_sz );
-  if( FD_UNLIKELY( data_sz!=buf_sz-DATA_OFF ) ) return AG_VOTE_HISTORY_FILE_ERR_SIZE;
+  if( FD_UNLIKELY( data_sz!=buf_sz-AG_VOTE_HISTORY_FILE_DATA_OFF ) ) return AG_VOTE_HISTORY_FILE_ERR_SIZE;
 
   fd_sha512_t sha[ 1 ];
-  if( FD_UNLIKELY( FD_ED25519_SUCCESS!=fd_ed25519_verify( buf+DATA_OFF, data_sz, sig, identity, sha ) ) ) return AG_VOTE_HISTORY_FILE_ERR_SIG;
+  if( FD_UNLIKELY( FD_ED25519_SUCCESS!=fd_ed25519_verify( buf+AG_VOTE_HISTORY_FILE_DATA_OFF, data_sz, sig, identity, sha ) ) ) return AG_VOTE_HISTORY_FILE_ERR_SIG;
 
   if( FD_UNLIKELY( 32UL>buf_sz-off ) ) return AG_VOTE_HISTORY_FILE_ERR_SIZE;
   if( FD_UNLIKELY( !fd_memeq( buf+off, identity, 32UL ) ) ) return AG_VOTE_HISTORY_FILE_ERR_IDENTITY;
@@ -281,3 +276,109 @@ ag_vote_history_file_scan( uchar const * buf,
 #undef LOAD_SLOT
 #undef LOAD_VOTE
 #undef LOAD_VOTES
+
+#define PUT( T, v ) do {                                    \
+    if( FD_UNLIKELY( sizeof(T)>buf_max-off ) ) return 0UL; \
+    FD_STORE( T, buf+off, (v) );                           \
+    off += sizeof(T);                                      \
+  } while(0)
+
+#define PUT_HASH( h ) do {                                  \
+    if( FD_UNLIKELY( 32UL>buf_max-off ) ) return 0UL;      \
+    fd_memcpy( buf+off, (h), 32UL );                       \
+    off += 32UL;                                           \
+  } while(0)
+
+/* SEQ_BEGIN reserves a u64 sequence length, which SEQ_END sets to the
+   number of entries counted in seq_cnt. */
+#define SEQ_BEGIN() do { seq_off = off; seq_cnt = 0UL; PUT( ulong, 0UL ); } while(0)
+#define SEQ_END()   FD_STORE( ulong, buf+seq_off, seq_cnt )
+
+#define PUT_SLOTS( arr, cnt ) do {                                    \
+    PUT( ulong, (cnt) );                                              \
+    for( ulong i_=0UL; i_<(cnt); i_++ ) PUT( ulong, (arr)[ i_ ] );    \
+  } while(0)
+
+#define PUT_BLOCK( b ) do { PUT( ulong, (b).slot ); PUT_HASH( (b).hash ); } while(0)
+
+#define PUT_BLOCKS( arr, cnt ) do {                                   \
+    PUT( ulong, (cnt) );                                              \
+    for( ulong i_=0UL; i_<(cnt); i_++ ) PUT_BLOCK( (arr)[ i_ ] );     \
+  } while(0)
+
+/* RUN_END returns where the run of entries of arr from i on with the
+   same KEY ends.  The maps of a VoteHistory are flattened into such
+   runs of (slot, value) entries. */
+#define RUN_END( arr, cnt, i, KEY ) ( __extension__({                 \
+    ulong j_ = (i);                                                   \
+    while( j_<(cnt) && (arr)[ j_ ].KEY==(arr)[ (i) ].KEY ) j_++;       \
+    j_;                                                               \
+  }))
+
+ulong
+ag_vote_history_file_ser( ag_vote_history_file_t const * vh,
+                          uchar const                    identity[ static 32 ],
+                          uchar *                        buf,
+                          ulong                          buf_max ) {
+  if( FD_UNLIKELY( buf_max<AG_VOTE_HISTORY_FILE_DATA_OFF ) ) return 0UL;
+  ulong off = AG_VOTE_HISTORY_FILE_DATA_OFF;
+  ulong seq_off;
+  ulong seq_cnt;
+
+  PUT_HASH( identity );
+
+  PUT_SLOTS( vh->voted, vh->voted_cnt );
+
+  PUT_BLOCKS( vh->voted_notar, vh->voted_notar_cnt );
+
+  SEQ_BEGIN(); /* voted_notar_fallback */
+  for( ulong i=0UL; i<vh->voted_notar_fallback_cnt; seq_cnt++ ) {
+    ulong end = RUN_END( vh->voted_notar_fallback, vh->voted_notar_fallback_cnt, i, slot );
+    PUT( ulong, vh->voted_notar_fallback[ i ].slot ); PUT( ulong, end-i );
+    for( ; i<end; i++ ) PUT_HASH( vh->voted_notar_fallback[ i ].hash );
+  }
+  SEQ_END();
+
+  PUT_SLOTS( vh->voted_skip_fallback, vh->voted_skip_fallback_cnt );
+  PUT_SLOTS( vh->skipped,             vh->skipped_cnt             );
+  PUT_SLOTS( vh->its_over,            vh->its_over_cnt            );
+
+  SEQ_BEGIN(); /* votes_cast */
+  for( ulong i=0UL; i<vh->votes_cast_cnt; seq_cnt++ ) {
+    ulong end = RUN_END( vh->votes_cast, vh->votes_cast_cnt, i, block.slot );
+    PUT( ulong, vh->votes_cast[ i ].block.slot ); PUT( ulong, end-i );
+    for( ; i<end; i++ ) {
+      ag_vote_history_vote_t const * vote = vh->votes_cast+i;
+      PUT( uchar, (uchar)vote->kind );
+      PUT( ulong, vote->block.slot );
+      if( vote->kind==AG_VOTE_HISTORY_KIND_NOTAR || vote->kind==AG_VOTE_HISTORY_KIND_NOTAR_FALLBACK || vote->kind==AG_VOTE_HISTORY_KIND_GENESIS ) PUT_HASH( vote->block.hash );
+      PUT( ushort, vote->shred_version );
+    }
+  }
+  SEQ_END();
+
+  PUT_BLOCKS( vh->notarized_blocks, vh->notarized_blocks_cnt );
+
+  SEQ_BEGIN(); /* parent_ready_slots */
+  for( ulong i=0UL; i<vh->parent_ready_cnt; seq_cnt++ ) {
+    ulong end = RUN_END( vh->parent_ready, vh->parent_ready_cnt, i, slot );
+    PUT( ulong, vh->parent_ready[ i ].slot ); PUT( ulong, end-i );
+    for( ; i<end; i++ ) PUT_BLOCK( vh->parent_ready[ i ].block );
+  }
+  SEQ_END();
+
+  PUT( ulong, vh->root );
+
+  FD_STORE( uint,  buf,                                   AG_VOTE_HISTORY_FILE_KIND        );
+  FD_STORE( ulong, buf+AG_VOTE_HISTORY_FILE_SIG_OFF+64UL, off-AG_VOTE_HISTORY_FILE_DATA_OFF );
+  return off;
+}
+
+#undef PUT
+#undef PUT_HASH
+#undef SEQ_BEGIN
+#undef SEQ_END
+#undef PUT_SLOTS
+#undef PUT_BLOCK
+#undef PUT_BLOCKS
+#undef RUN_END

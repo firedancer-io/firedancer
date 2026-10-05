@@ -412,23 +412,43 @@ fd_keyguard_payload_matches_tower( uchar const * data,
   return votes_cnt>=1UL && votes_cnt<=31UL;
 }
 
+/* VoteHistory: node_pubkey, voted, voted_notar, voted_notar_fallback */
+
+FD_FN_PURE static int
+fd_keyguard_payload_matches_vote_history( uchar const * data,
+                                          ulong         sz,
+                                          int           sign_type ) {
+  if( sign_type!=FD_KEYGUARD_SIGN_TYPE_ED25519 ) return 0;
+  if( sz<32UL+9UL*8UL+8UL                      ) return 0;
+  ulong left      = sz-(32UL+9UL*8UL+8UL);
+  ulong voted_cnt = FD_LOAD( ulong, data+32UL );
+  if( voted_cnt>left/8UL                       ) return 0;
+  left -= voted_cnt*8UL;
+  ulong notar_cnt = FD_LOAD( ulong, data+40UL+voted_cnt*8UL );
+  if( notar_cnt>left/40UL                      ) return 0;
+  left -= notar_cnt*40UL;
+  ulong notar_fallback_cnt = FD_LOAD( ulong, data+48UL+voted_cnt*8UL+notar_cnt*40UL );
+  return notar_fallback_cnt<=left/16UL;
+}
+
 FD_FN_PURE ulong
 fd_keyguard_payload_match( uchar const * data,
                            ulong         sz,
                            int           sign_type ) {
   ulong res = 0UL;
-  res |= fd_ulong_if( fd_keyguard_payload_matches_txn_msg   ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_TXN,        0 );
-  res |= fd_ulong_if( fd_keyguard_payload_matches_gossip    ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_GOSSIP,     0 );
-  res |= fd_ulong_if( fd_keyguard_payload_matches_repair    ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_REPAIR,     0 );
-  res |= fd_ulong_if( fd_keyguard_payload_matches_prune_data( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_PRUNE,      0 );
-  res |= fd_ulong_if( fd_keyguard_payload_matches_shred     ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_SHRED,      0 );
-  res |= fd_ulong_if( fd_keyguard_payload_matches_tls_cv    ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_TLS_CV,     0 );
-  res |= fd_ulong_if( fd_keyguard_payload_matches_ping_msg  ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_PING,       0 );
-  res |= fd_ulong_if( fd_keyguard_payload_matches_pong_msg  ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_PONG,       0 );
-  res |= fd_ulong_if( fd_keyguard_payload_matches_bundle    ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_BUNDLE,     0 );
-  res |= fd_ulong_if( fd_keyguard_payload_matches_event     ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_EVENT,      0 );
-  res |= fd_ulong_if( fd_keyguard_payload_matches_ag_vote   ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_AG_VOTE,    0 );
-  res |= fd_ulong_if( fd_keyguard_payload_matches_bls_pubkey( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_BLS_PUBKEY, 0 );
-  res |= fd_ulong_if( fd_keyguard_payload_matches_tower     ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_TOWER,      0 );
+  res |= fd_ulong_if( fd_keyguard_payload_matches_txn_msg     ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_TXN,          0 );
+  res |= fd_ulong_if( fd_keyguard_payload_matches_gossip      ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_GOSSIP,       0 );
+  res |= fd_ulong_if( fd_keyguard_payload_matches_repair      ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_REPAIR,       0 );
+  res |= fd_ulong_if( fd_keyguard_payload_matches_prune_data  ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_PRUNE,        0 );
+  res |= fd_ulong_if( fd_keyguard_payload_matches_shred       ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_SHRED,        0 );
+  res |= fd_ulong_if( fd_keyguard_payload_matches_tls_cv      ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_TLS_CV,       0 );
+  res |= fd_ulong_if( fd_keyguard_payload_matches_ping_msg    ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_PING,         0 );
+  res |= fd_ulong_if( fd_keyguard_payload_matches_pong_msg    ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_PONG,         0 );
+  res |= fd_ulong_if( fd_keyguard_payload_matches_bundle      ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_BUNDLE,       0 );
+  res |= fd_ulong_if( fd_keyguard_payload_matches_event       ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_EVENT,        0 );
+  res |= fd_ulong_if( fd_keyguard_payload_matches_ag_vote     ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_AG_VOTE,      0 );
+  res |= fd_ulong_if( fd_keyguard_payload_matches_bls_pubkey  ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_BLS_PUBKEY,   0 );
+  res |= fd_ulong_if( fd_keyguard_payload_matches_tower       ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_TOWER,        0 );
+  res |= fd_ulong_if( fd_keyguard_payload_matches_vote_history( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_VOTE_HISTORY, 0 );
   return res;
 }
