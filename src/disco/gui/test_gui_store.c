@@ -135,7 +135,7 @@ static void
 test_entity_open_wipe( void ) {
   char path[ 128 ]; mk_path( path, sizeof(path) );
 
-  fd_gui_store_t * db = db_open( path, 256UL<<20 );
+  fd_gui_store_t * db = db_open( path, 512UL<<20 );
   FD_TEST( fd_gui_store_cnt( db )==DB_CNT );
 
   ulong k = 7UL;
@@ -146,7 +146,7 @@ test_entity_open_wipe( void ) {
   db_close( db );
 
   /* reopen: the store is wiped on open (see fd_gui_store_new) */
-  db = db_open( path, 256UL<<20 );
+  db = db_open( path, 512UL<<20 );
   FD_TEST( fd_gui_store_kv_get( db, DB_ENT8, &k )==NULL );
   db_close( db );
 
@@ -157,7 +157,7 @@ test_entity_open_wipe( void ) {
 static void
 test_entity_upsert_get( void ) {
   char path[ 128 ]; mk_path( path, sizeof(path) );
-  fd_gui_store_t * db = db_open( path, 256UL<<20 );
+  fd_gui_store_t * db = db_open( path, 512UL<<20 );
 
   /* upsert several times; a later upsert of the same key modifies in
      place (last writer wins) */
@@ -183,7 +183,7 @@ test_entity_upsert_get( void ) {
 static void
 test_entity_get_any( void ) {
   char path[ 128 ]; mk_path( path, sizeof(path) );
-  fd_gui_store_t * db = db_open( path, 256UL<<20 );
+  fd_gui_store_t * db = db_open( path, 512UL<<20 );
 
   /* two-ulong keys (slot, bank_seq); insert (5,2),(5,7),(9,0) */
   FD_TEST( ent16_put( db, 5UL, 2UL, 1000UL )==FD_GUI_STORE_SUCCESS );
@@ -216,7 +216,7 @@ test_entity_get_any( void ) {
 static void
 test_entity_iter( void ) {
   char path[ 128 ]; mk_path( path, sizeof(path) );
-  fd_gui_store_t * db = db_open( path, 256UL<<20 );
+  fd_gui_store_t * db = db_open( path, 512UL<<20 );
 
   /* Three forks of slot 5 (out of bank_seq order on insert) plus a slot 9. */
   FD_TEST( ent16_put( db, 5UL, 7UL, 2000UL )==FD_GUI_STORE_SUCCESS );
@@ -262,7 +262,7 @@ test_entity_iter( void ) {
 static void
 test_entity_evict( void ) {
   char path[ 128 ]; mk_path( path, sizeof(path) );
-  fd_gui_store_t * db = db_open( path, 256UL<<20 );
+  fd_gui_store_t * db = db_open( path, 512UL<<20 );
 
   /* (slot, bank_seq) keys for slots 0..9, bank_seq 0 */
   for( ulong i=0UL; i<10UL; i++ ) {
@@ -354,7 +354,7 @@ test_ts_index_footprint( void ) {
 static void
 test_ts_append_scan( void ) {
   char path[ 128 ]; mk_path( path, sizeof(path) );
-  fd_gui_store_t * db = db_open( path, 256UL<<20 );
+  fd_gui_store_t * db = db_open( path, 512UL<<20 );
 
   /* append 3 records to window 1, 2 to window 2, 1 to window 5 */
   ulong seq = 0UL;
@@ -405,6 +405,10 @@ test_ts_append_scan( void ) {
   fd_gui_store_ts_scan_next( it );
   FD_TEST( fd_gui_store_ts_scan_done( it ) );
   fd_gui_store_ts_scan_end( it );
+  /* The index is the only source of truth: a window more than
+     FD_GUI_STORE_TS_IDX_DEPTH-1 older than the newest is clamped away,
+     even though its record is still in the ring, and a wide range is
+     clamped to the horizon instead of scanning the ring. */
   fd_gui_store_ts_scan_begin( db, it, DB_TS, low_window, low_window, NULL, NULL );
   FD_TEST( fd_gui_store_ts_scan_done( it ) );
   fd_gui_store_ts_scan_end( it );
@@ -423,6 +427,21 @@ test_ts_append_scan( void ) {
   FD_TEST( ((ts_val_t const *)it->rec)->seq==regressed.seq );
   fd_gui_store_ts_scan_end( it );
 
+  /* In-place appends are indexed by the given timestamp and hold the
+     caller's bytes. */
+  ulong emplace_window = high_window+1UL;
+  void * slot = NULL;
+  FD_TEST( fd_gui_store_ts_emplace( db, DB_TS, (long)emplace_window, &slot )==FD_GUI_STORE_SUCCESS );
+  FD_TEST( slot && ((ts_val_t *)slot)->ts==(long)emplace_window );
+  ((ts_val_t *)slot)->seq = seq;
+  fd_gui_store_ts_scan_begin( db, it, DB_TS, emplace_window, emplace_window, NULL, NULL );
+  FD_TEST( !fd_gui_store_ts_scan_done( it ) );
+  FD_TEST( it->rec==slot && ((ts_val_t const *)it->rec)->seq==seq );
+  fd_gui_store_ts_scan_next( it );
+  FD_TEST( fd_gui_store_ts_scan_done( it ) );
+  fd_gui_store_ts_scan_end( it );
+  FD_TEST( fd_gui_store_ts_emplace( db, DB_ENT8, 0L, &slot )==FD_GUI_STORE_ERR );
+
   ulong budget = ULONG_MAX;
   int drained = 0;
   FD_TEST( fd_gui_store_ts_evict( db, DB_TS, ULONG_MAX, &budget, &drained )==FD_GUI_STORE_SUCCESS );
@@ -436,7 +455,7 @@ test_ts_append_scan( void ) {
 static void
 test_ts_live_timestamp_bounds( void ) {
   char path[ 128 ]; mk_path( path, sizeof(path) );
-  fd_gui_store_t * db = db_open( path, 256UL<<20 );
+  fd_gui_store_t * db = db_open( path, 512UL<<20 );
 
   long first_ts;
   long last_ts;
@@ -484,7 +503,7 @@ test_ts_live_timestamp_bounds( void ) {
 static void
 test_ts_live_timestamp_bounds_wrap( void ) {
   char path[ 128 ]; mk_path( path, sizeof(path) );
-  ulong size = fd_gui_store_min_overhead_bytes() + FD_GUI_STORE_REGION_SZ;
+  ulong size = fd_gui_store_min_size( 1UL );
   fd_gui_store_desc_t const desc = {
     .name        = "ts",
     .kind        = FD_GUI_STORE_KIND_TS,
@@ -553,7 +572,7 @@ even_filter( void const * rec, void * ctx ) {
 static void
 test_ts_filter_and_evict( void ) {
   char path[ 128 ]; mk_path( path, sizeof(path) );
-  fd_gui_store_t * db = db_open( path, 256UL<<20 );
+  fd_gui_store_t * db = db_open( path, 512UL<<20 );
 
   /* values 0..9 across windows 0..9 (one each) */
   for( ulong i=0UL; i<10UL; i++ ) {
@@ -598,10 +617,10 @@ test_ts_filter_and_evict( void ) {
 static void
 test_map_full( void ) {
   char path[ 128 ]; mk_path( path, sizeof(path) );
-  /* A single-region store: 256-byte entity inserts eventually overflow the
-     one available region, and the upsert must surface the distinct
+  /* A base-only store: 256-byte entity inserts eventually overflow the
+     writer's three regions, and the upsert must surface the distinct
      FD_GUI_STORE_MAP_FULL code (Layer 1 does NOT evict). */
-  ulong const size = fd_gui_store_min_overhead_bytes();
+  ulong const size = fd_gui_store_min_size( DB_CNT );
   fd_gui_store_t * db = db_open( path, size );
 
   int saw_map_full = 0;
@@ -620,7 +639,7 @@ test_map_full( void ) {
 static void
 test_space_accounting( void ) {
   char path[ 128 ]; mk_path( path, sizeof(path) );
-  ulong size = 128UL<<20; /* 128 MiB (>= two regions) */
+  ulong size = fd_gui_store_min_size( DB_CNT );
   fd_gui_store_t * db = db_open( path, size );
 
   FD_TEST( fd_gui_store_size( db )==size );
@@ -652,7 +671,7 @@ test_space_accounting( void ) {
 static void
 test_region_grow_reclaim( void ) {
   char path[ 128 ]; mk_path( path, sizeof(path) );
-  ulong size = 256UL<<20; /* 256 MiB -> several regions */
+  ulong size = 512UL<<20;
   fd_gui_store_t * db = db_open( path, size );
 
   ulong open_used = fd_gui_store_used_bytes( db );
@@ -703,6 +722,220 @@ test_region_grow_reclaim( void ) {
   FD_LOG_NOTICE(( "test_region_grow_reclaim: ok" ));
 }
 
+static int
+prefix_eligible( void const * rec,
+                 void *       ctx ) {
+  return ((ent16_val_t const *)rec)->payload<*(ulong *)ctx;
+}
+
+static void
+test_kv_prefix_scan( void ) {
+  char path[ 128 ];
+  mk_path( path, sizeof(path) );
+  fd_gui_store_t * db = db_open( path, 512UL<<20 );
+  fd_gui_store_kv_scan_t it;
+  fd_gui_store_kv_scan_begin( db, &it, DB_ENT16 );
+  FD_TEST( !it.append_capacity && !fd_gui_store_kv_scan_next( &it ) );
+  ulong cap = FD_GUI_STORE_REGION_SZ / sizeof(ent16_val_t);
+  FD_TEST( ent16_put( db, 9UL, 1UL, 0UL )==FD_GUI_STORE_SUCCESS );
+  FD_TEST( ent16_put( db, 9UL, 2UL, 2UL )==FD_GUI_STORE_SUCCESS );
+  FD_TEST( ent16_put( db, 8UL, 1UL, 0UL )==FD_GUI_STORE_SUCCESS );
+  fd_gui_store_kv_scan_begin( db, &it, DB_ENT16 );
+  FD_TEST( it.end-it.cur==3UL && it.append_capacity==cap-3UL );
+  FD_TEST( ent16_put( db, 7UL, 1UL, 0UL )==FD_GUI_STORE_SUCCESS );
+  ulong eligible = 1UL;
+  FD_TEST( !fd_gui_store_kv_reclaim_prefix( db, DB_ENT16, 0UL, prefix_eligible, &eligible ) );
+  FD_TEST( fd_gui_store_kv_reclaim_prefix( db, DB_ENT16, 4UL, prefix_eligible, &eligible )==1UL );
+  FD_TEST( fd_gui_store_kv_scan_next( &it ) );
+  FD_TEST( ((ent16_val_t const *)it.rec)->slot==9UL && ((ent16_val_t const *)it.rec)->bank_seq==2UL );
+  FD_TEST( !fd_gui_store_kv_reclaim_prefix( db, DB_ENT16, 4UL, prefix_eligible, &eligible ) );
+  FD_TEST( fd_gui_store_kv_scan_next( &it ) && ((ent16_val_t const *)it.rec)->slot==8UL );
+  FD_TEST( !fd_gui_store_kv_scan_next( &it ) );
+  ulong key[ 2 ] = { 9UL, 1UL };
+  FD_TEST( !fd_gui_store_kv_get( db, DB_ENT16, key ) );
+  key[ 1 ] = 2UL;
+  FD_TEST( fd_gui_store_kv_get( db, DB_ENT16, key ) );
+  eligible = 3UL;
+  FD_TEST( fd_gui_store_kv_reclaim_prefix( db, DB_ENT16, 1UL, prefix_eligible, &eligible )==1UL );
+  FD_TEST( fd_gui_store_kv_reclaim_prefix( db, DB_ENT16, 4UL, prefix_eligible, &eligible )==2UL );
+  FD_TEST( !fd_gui_store_kv_reclaim_prefix( db, DB_ENT16, 4UL, prefix_eligible, &eligible ) );
+  FD_TEST( ent16_put( db, 9UL, 1UL, 1UL )==FD_GUI_STORE_SUCCESS );
+  fd_gui_store_kv_scan_begin( db, &it, DB_ENT16 );
+  FD_TEST( it.end-it.cur==1UL && it.append_capacity==cap-5UL );
+  FD_TEST( fd_gui_store_kv_scan_next( &it ) && ((ent16_val_t const *)it.rec)->payload==1UL );
+  FD_TEST( !fd_gui_store_kv_scan_next( &it ) );
+  db_close( db );
+  cleanup( path );
+  FD_LOG_NOTICE(( "test_kv_prefix_scan: FIFO prefix, hash collisions, snapshot end, live eviction, empty-ring reuse: ok" ));
+}
+
+/* Two records per region make physical boundaries observable without
+   millions of inserts.  Only the key/timestamp and payload are touched. */
+static int
+base_put( fd_gui_store_t * db,
+          ulong            ring,
+          ulong            key ) {
+  void * val;
+  int rc = ring==2UL ? fd_gui_store_ts_emplace( db, ring, (long)(key/2UL), &val )
+                    : fd_gui_store_kv_get_or_create( db, ring, &key, &val );
+  if( !rc ) ((ulong *)val)[ 1 ] = key+100UL*ring;
+  return rc;
+}
+
+static void
+base_check( fd_gui_store_t * db,
+            ulong            ring,
+            ulong            first,
+            ulong            end ) {
+  if( ring==2UL ) {
+    fd_gui_store_ts_iter_t it;
+    fd_gui_store_ts_scan_begin( db, &it, ring, 0UL, ULONG_MAX, NULL, NULL );
+    for( ulong i=first; i<end; i++ ) {
+      FD_TEST( !fd_gui_store_ts_scan_done( &it ) );
+      FD_TEST( ((ulong const *)it.rec)[ 1 ]==i+100UL*ring );
+      fd_gui_store_ts_scan_next( &it );
+    }
+    FD_TEST( fd_gui_store_ts_scan_done( &it ) );
+    fd_gui_store_ts_scan_end( &it );
+  } else {
+    for( ulong i=0UL; i<end; i++ ) {
+      ulong const * val = fd_gui_store_kv_get( db, ring, &i );
+      if( i<first ) FD_TEST( !val );
+      else FD_TEST( val && val[ 0 ]==i && val[ 1 ]==i+100UL*ring );
+    }
+  }
+}
+
+static int
+base_eligible( ulong        ring,
+               void const * rec,
+               void *       ctx ) {
+  (void)ring;
+  return ((ulong const *)rec)[ 1 ]!=*(ulong *)ctx;
+}
+
+static void
+test_protected_bases( ulong shared ) {
+  char path[ 128 ]; mk_path( path, sizeof(path) );
+  fd_gui_store_desc_t d[ 3 ] = { descs[ DB_ENT8 ], descs[ DB_ENT8 ], descs[ DB_TS ] };
+  for( ulong i=0UL; i<3UL; i++ ) { d[ i ].val_sz = FD_GUI_STORE_REGION_SZ/2UL; d[ i ].max_records = 32UL; }
+  ulong size = fd_gui_store_min_size( 3UL )+shared*FD_GUI_STORE_REGION_SZ;
+  ulong fp = fd_gui_store_footprint( size, 3UL, d );
+  FD_TEST( fp );
+  void * mem = aligned_alloc( fd_gui_store_align(), fp );
+  FD_TEST( mem );
+  cleanup( path );
+  FD_TEST( !fd_gui_store_footprint( fd_gui_store_min_size( 3UL )-1UL, 3UL, d ) );
+  FD_TEST( !fd_gui_store_new( mem, path, fd_gui_store_min_size( 3UL )-1UL, 3UL, TEST_SEED, d ) );
+  FD_TEST( access( path, F_OK )==-1 && errno==ENOENT );
+  fd_gui_store_t * db = fd_gui_store_join( fd_gui_store_new( mem, path, size, 3UL, TEST_SEED, d ) );
+  FD_TEST( db && fd_gui_store_shared_free_region_cnt( db )==shared );
+
+  /* An early writer fills shared space; both late KV and TS rings must
+     still receive all three reserved regions. */
+  ulong end = 6UL+2UL*shared;
+  for( ulong i=0UL; i<end; i++ ) FD_TEST( !base_put( db, 0UL, i ) );
+  FD_TEST( base_put( db, 0UL, end )==FD_GUI_STORE_MAP_FULL );
+  FD_TEST( fd_gui_store_free_region_cnt( db )==6UL );
+  for( ulong ring=1UL; ring<3UL; ring++ )
+    for( ulong i=0UL; i<6UL; i++ ) FD_TEST( !base_put( db, ring, i ) );
+  FD_TEST( !fd_gui_store_free_region_cnt( db ) );
+
+  /* Cross-ring pressure can remove only the excess prefix, including
+     when its budget ends partway through a region. */
+  for( ulong i=0UL; i<2UL*shared; i++ ) {
+    FD_TEST( fd_gui_store_reclaim( db, ULONG_MAX, 1UL, NULL, NULL )==1UL );
+    base_check( db, 0UL, i+1UL, end );
+    base_check( db, 1UL, 0UL, 6UL );
+    base_check( db, 2UL, 0UL, 6UL );
+  }
+  FD_TEST( !fd_gui_store_reclaim( db, ULONG_MAX, ULONG_MAX, NULL, NULL ) );
+
+  /* Give the excess back to ring 0, then pin its head.  Reclamation
+     makes no false progress and cannot delete protected peers. */
+  for( ulong i=0UL; i<2UL*shared; i++ ) FD_TEST( !base_put( db, 0UL, end+i ) );
+  end += 2UL*shared;
+  ulong pinned = 2UL*shared;
+  FD_TEST( !fd_gui_store_reclaim( db, ULONG_MAX, ULONG_MAX, base_eligible, &pinned ) );
+  FD_TEST( !fd_gui_store_reclaim( db, 0UL, ULONG_MAX, base_eligible, &pinned ) );
+
+  /* Rollover at a completely full store, repeated beyond the physical
+     region-id ring's wrap.  Reclaiming a base restores the entitlement:
+     a peer cannot steal that region before the owner reclaims it. */
+  for( ulong round=0UL; round<40UL; round++ ) {
+    FD_TEST( base_put( db, 0UL, end )==FD_GUI_STORE_MAP_FULL );
+    FD_TEST( fd_gui_store_reclaim( db, 0UL, 1UL, NULL, NULL )==1UL );
+    FD_TEST( !fd_gui_store_free_region_cnt( db ) );
+    FD_TEST( fd_gui_store_reclaim( db, 0UL, 1UL, NULL, NULL )==1UL );
+    FD_TEST( fd_gui_store_free_region_cnt( db )==1UL );
+    if( !shared ) FD_TEST( base_put( db, 1UL, 6UL )==FD_GUI_STORE_MAP_FULL );
+    FD_TEST( !base_put( db, 0UL, end++ ) );
+    FD_TEST( !base_put( db, 0UL, end++ ) );
+    base_check( db, 0UL, end-6UL-2UL*shared, end );
+    base_check( db, 1UL, 0UL, 6UL );
+    base_check( db, 2UL, 0UL, 6UL );
+  }
+  /* TS owner rollover and indexed reads across reused regions. */
+  for( ulong i=6UL; i<46UL; i+=2UL ) {
+    FD_TEST( base_put( db, 2UL, i )==FD_GUI_STORE_MAP_FULL );
+    FD_TEST( fd_gui_store_reclaim( db, 2UL, ULONG_MAX, NULL, NULL )==2UL );
+    FD_TEST( base_put( db, 1UL, 6UL )==FD_GUI_STORE_MAP_FULL );
+    FD_TEST( !base_put( db, 2UL, i ) && !base_put( db, 2UL, i+1UL ) );
+    base_check( db, 2UL, i-4UL, i+2UL );
+    fd_gui_store_ts_iter_t it;
+    fd_gui_store_ts_scan_begin( db, &it, 2UL, i/2UL, i/2UL, NULL, NULL );
+    FD_TEST( !fd_gui_store_ts_scan_done( &it ) && ((ulong const *)it.rec)[ 1 ]==i+200UL );
+    FD_TEST( fd_gui_store_ts_scan_next( &it ) && ((ulong const *)it.rec)[ 1 ]==i+201UL );
+    FD_TEST( !fd_gui_store_ts_scan_next( &it ) );
+    fd_gui_store_ts_scan_end( &it );
+  }
+  if( shared ) {
+    /* A pinned oldest donor must not prevent progress on another
+       eligible donor.  Allocation age orders otherwise eligible heads. */
+    FD_TEST( fd_gui_store_reclaim( db, ULONG_MAX, ULONG_MAX, NULL, NULL )==2UL );
+    FD_TEST( !base_put( db, 1UL, 6UL ) && !base_put( db, 1UL, 7UL ) );
+    pinned = end-8UL;
+    FD_TEST( fd_gui_store_reclaim( db, ULONG_MAX, ULONG_MAX, base_eligible, &pinned )==2UL );
+    base_check( db, 0UL, end-8UL, end );
+    base_check( db, 1UL, 2UL, 8UL );
+    FD_TEST( !fd_gui_store_reclaim( db, ULONG_MAX, ULONG_MAX, base_eligible, &pinned ) );
+    FD_TEST( fd_gui_store_reclaim( db, ULONG_MAX, ULONG_MAX, NULL, NULL )==2UL );
+    base_check( db, 0UL, end-6UL, end );
+    FD_TEST( !fd_gui_store_reclaim( db, ULONG_MAX, ULONG_MAX, NULL, NULL ) );
+  }
+  db_close( db );
+  cleanup( path );
+  FD_LOG_NOTICE(( "test_protected_bases: shared=%lu; ok", shared ));
+}
+
+static void
+test_private_index_budget( void ) {
+  char path[ 128 ]; mk_path( path, sizeof(path) );
+  fd_gui_store_desc_t d[ 2 ] = { descs[ DB_ENT8 ], descs[ DB_ENT8 ] };
+  d[ 0 ].max_records = 3UL;
+  d[ 1 ].max_records = 2UL;
+  ulong size = fd_gui_store_min_size( 2UL );
+  void * mem = aligned_alloc( fd_gui_store_align(), fd_gui_store_footprint( size, 2UL, d ) );
+  FD_TEST( mem );
+  fd_gui_store_t * db = fd_gui_store_join( fd_gui_store_new( mem, path, size, 2UL, TEST_SEED, d ) );
+  FD_TEST( db );
+  for( ulong i=0UL; i<3UL; i++ ) FD_TEST( !base_put( db, 0UL, i ) );
+  for( ulong i=3UL; i<10UL; i++ ) FD_TEST( base_put( db, 0UL, i )==FD_GUI_STORE_RING_FULL );
+  for( ulong i=0UL; i<2UL; i++ ) FD_TEST( !base_put( db, 1UL, i ) );
+  FD_TEST( base_put( db, 1UL, 2UL )==FD_GUI_STORE_RING_FULL );
+  FD_TEST( !base_put( db, 0UL, 2UL ) ); /* duplicate needs no index node */
+  FD_TEST( !fd_gui_store_reclaim( db, ULONG_MAX, ULONG_MAX, NULL, NULL ) );
+  for( ulong i=3UL; i<30UL; i++ ) {
+    FD_TEST( fd_gui_store_reclaim( db, 0UL, 1UL, NULL, NULL )==1UL );
+    FD_TEST( !base_put( db, 0UL, i ) );
+    base_check( db, 0UL, i-2UL, i+1UL );
+    base_check( db, 1UL, 0UL, 2UL );
+  }
+  db_close( db );
+  cleanup( path );
+  FD_LOG_NOTICE(( "test_private_index_budget: ok" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -713,6 +946,7 @@ main( int     argc,
   test_entity_get_any();
   test_entity_iter();
   test_entity_evict();
+  test_kv_prefix_scan();
   test_kv_index_footprint();
   test_ts_index_footprint();
   test_ts_append_scan();
@@ -722,6 +956,9 @@ main( int     argc,
   test_map_full();
   test_space_accounting();
   test_region_grow_reclaim();
+  test_protected_bases( 0UL );
+  test_protected_bases( 2UL );
+  test_private_index_budget();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

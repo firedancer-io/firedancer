@@ -70,8 +70,10 @@ FD_IMPORT_BINARY( firedancer_svg, "book/public/fire.svg" );
 #define FD_HTTP_SERVER_GUI_MAX_WS_SEND_FRAME_CNT 8192
 
 #define FD_GUI_TIMELINE_RAW_RESPONSE_MAX (32UL<<20)
-/* Agg revenue has three ulong-string arrays: at most 3*23=69 bytes per
-   bucket including commas, within the shared 512-byte budget. */
+FD_STATIC_ASSERT( FD_GUI_TIMELINE_QUERY_SHRED_MAX*56UL+4096UL<=FD_GUI_TIMELINE_RAW_RESPONSE_MAX, shred_response_bound );
+/* Agg txn has four numeric arrays, and agg revenue has three
+   ulong-string arrays: at most 4*21=84 or 3*23=69 bytes per bucket
+   including commas, within the shared 512-byte budget. */
 FD_STATIC_ASSERT( FD_GUI_TIMELINE_QUERY_MAX_BUCKETS*512UL+4096UL<=FD_GUI_TIMELINE_RAW_RESPONSE_MAX, agg_response_bound );
 FD_STATIC_ASSERT( 2UL*FD_GUI_TIMELINE_RAW_RESPONSE_MAX+(FD_GUI_TIMELINE_RAW_RESPONSE_MAX>>8)<FD_GUI_HTTP_MIN_SEND_BUFFER_SZ,
                   compressed_response_bound );
@@ -994,7 +996,7 @@ unprivileged_init( fd_topo_t const *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "snapct_gui"    ) ) ) ctx->in_kind[ i ] = IN_KIND_SNAPCT;
     else if( FD_LIKELY( !strcmp( link->name, "repair_net"    ) ) ) ctx->in_kind[ i ] = IN_KIND_REPAIR_NET;
     else if( FD_LIKELY( !strcmp( link->name, "tower_out"     ) ) ) ctx->in_kind[ i ] = IN_KIND_TOWER_OUT;
-    else if( FD_LIKELY( !strcmp( link->name, "replay_slot"   ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY_OUT;
+    else if( FD_LIKELY( !strcmp( link->name, "replay_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY_OUT;
     else if( FD_LIKELY( !strcmp( link->name, "replay_epoch"  ) ) ) ctx->in_kind[ i ] = IN_KIND_EPOCH;
     else if( FD_LIKELY( !strcmp( link->name, "genesi_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_GENESI_OUT;
     else if( FD_LIKELY( !strcmp( link->name, "snapin_gui"    ) ) ) ctx->in_kind[ i ] = IN_KIND_SNAPIN;

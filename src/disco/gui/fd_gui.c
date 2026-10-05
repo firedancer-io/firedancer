@@ -416,7 +416,6 @@ fd_gui_new( void *                   shmem,
 
   gui->epoch.current_epoch      = ULONG_MAX;
   gui->epoch.has_epoch_schedule = 0;
-  gui->epoch.stored_epoch_cnt   = 0UL;
 
   gui->shreds.leader_shred_cnt        = 0UL;
   gui->shreds.leader_shred_slot       = ULONG_MAX;
@@ -2208,36 +2207,12 @@ fd_gui_jtok_parse_ns( fd_jtok_t * j,
 }
 
 static int
-fd_gui_request_timeline_shreds( fd_gui_t *    gui,
-                                ulong         ws_conn_id,
-                                char const *  topic,
-                                ulong         request_id,
-                                char const *  params,
-                                ulong         params_sz ) {
-  long start_ns = 0L; int has_start = 0;
-  long end_ns   = 0L; int has_end   = 0;
-  fd_jtok_t j[1]; fd_jtok_init( j, params, params_sz );
-  fd_jtok_str_t key;
-  fd_jtok_obj_enter( j );
-  while( fd_jtok_obj_next( j, &key ) ) {
-    if(      fd_jtok_str_eq( &key, "start_ns" ) ) { if( FD_UNLIKELY( fd_gui_jtok_parse_ns( j, &start_ns ) ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST; has_start = 1; }
-    else if( fd_jtok_str_eq( &key, "end_ns"   ) ) { if( FD_UNLIKELY( fd_gui_jtok_parse_ns( j, &end_ns   ) ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST; has_end   = 1; }
-  }
-  if( FD_UNLIKELY( fd_jtok_fini( j ) || !has_start || !has_end ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
-  if( FD_UNLIKELY( end_ns<start_ns ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
-  if( FD_UNLIKELY( end_ns-start_ns>60L*1000L*1000L*1000L ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST; /* TODO: tune/remove */
-
-  fd_gui_printf_timeline_query_shreds( gui, topic, start_ns, end_ns, request_id );
-  FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
-  return 0;
-}
-
-static int
-fd_gui_request_timeline_agg_revenue( fd_gui_t *   gui,
-                                     ulong        ws_conn_id,
-                                     ulong        id,
-                                     char const * params,
-                                     ulong        params_sz ) {
+fd_gui_request_timeline( fd_gui_t *   gui,
+                         ulong        ws_conn_id,
+                         char const * key,
+                         ulong        id,
+                         char const * params,
+                         ulong        params_sz ) {
   long start_ns = 0L; int has_start = 0;
   long end_ns   = 0L; int has_end   = 0;
   char name[ 32UL ] = {0};
@@ -2258,15 +2233,21 @@ fd_gui_request_timeline_agg_revenue( fd_gui_t *   gui,
   if( FD_UNLIKELY( fd_jtok_fini( j ) || !has_start || !has_end || end_ns<=start_ns ) ) {
     return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
   }
-  ulong g = 0UL;
-  while( g<FD_GUI_TIMELINE_GRANULARITY_CNT && strcmp( name, fd_gui_timeline_granularities[ g ].name ) ) g++;
-  if( FD_UNLIKELY( g==FD_GUI_TIMELINE_GRANULARITY_CNT ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
-  ulong ns        = fd_gui_timeline_granularity_ns( g );
-  ulong first     = (ulong)start_ns / ns;
-  ulong reference = first*ns;
-  ulong count     = ((ulong)end_ns-1UL)/ns - first + 1UL;
-  if( FD_UNLIKELY( count>FD_GUI_TIMELINE_QUERY_MAX_BUCKETS || count*ns>=(ulong)LONG_MAX-reference ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
-  int err = fd_gui_printf_timeline_query_agg_revenue( gui, name, g, (long)reference, count, id );
+  int err;
+  if( !strcmp( key, "query_shreds" ) ) {
+    if( FD_LIKELY( !strcmp( name, "shred" ) ) ) err = fd_gui_printf_timeline_query_shreds( gui, start_ns, end_ns, id );
+    else return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+  } else {
+    ulong g = 0UL;
+    while( g<FD_GUI_TIMELINE_GRANULARITY_CNT && strcmp( name, fd_gui_timeline_granularities[ g ].name ) ) g++;
+    if( FD_UNLIKELY( g==FD_GUI_TIMELINE_GRANULARITY_CNT ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+    ulong ns        = fd_gui_timeline_granularity_ns( g );
+    ulong first     = (ulong)start_ns / ns;
+    ulong reference = first*ns;
+    ulong count     = ((ulong)end_ns-1UL)/ns - first + 1UL;
+    if( FD_UNLIKELY( count>FD_GUI_TIMELINE_QUERY_MAX_BUCKETS || count*ns>=(ulong)LONG_MAX-reference ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+    err = fd_gui_printf_timeline_query_agg( gui, key, name, g, (long)reference, count, id );
+  }
   if( FD_UNLIKELY( err ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
   FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
   return 0;
@@ -2309,12 +2290,15 @@ fd_gui_ws_message( fd_gui_t *    gui,
   } else if( FD_LIKELY( fd_jtok_str_eq( &topic, "slot" ) && fd_jtok_str_eq( &key, "query_rankings" ) ) ) {
     if( FD_UNLIKELY( !params ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
     return fd_gui_request_slot_rankings( gui, ws_conn_id, id, params, params_sz );
-  } else if( FD_LIKELY( fd_jtok_str_eq( &topic, "timeline" ) && fd_jtok_str_eq( &key, "query_shreds" ) ) ) {
+  } else if( FD_LIKELY( fd_jtok_str_eq( &topic, "timeline" ) &&
+      (fd_jtok_str_eq( &key, "query_shreds" ) ||
+       fd_jtok_str_eq( &key, "query_agg_compute" ) ||
+       fd_jtok_str_eq( &key, "query_agg_revenue" ) ||
+       fd_jtok_str_eq( &key, "query_agg_txn" )) ) ) {
     if( FD_UNLIKELY( !params ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
-    return fd_gui_request_timeline_shreds( gui, ws_conn_id, "timeline", id, params, params_sz );
-  } else if( FD_LIKELY( fd_jtok_str_eq( &topic, "timeline" ) && fd_jtok_str_eq( &key, "query_agg_revenue" ) ) ) {
-    if( FD_UNLIKELY( !params ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
-    return fd_gui_request_timeline_agg_revenue( gui, ws_conn_id, id, params, params_sz );
+    char name[ 32UL ];
+    if( FD_UNLIKELY( fd_jtok_str_decode( &key, name, sizeof(name) )<0L ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+    return fd_gui_request_timeline( gui, ws_conn_id, name, id, params, params_sz );
   } else if( FD_LIKELY( fd_jtok_str_eq( &topic, "summary" ) && fd_jtok_str_eq( &key, "ping" ) ) ) {
     fd_gui_printf_summary_ping( gui, id );
     FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );

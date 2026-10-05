@@ -77,55 +77,80 @@ batch_next( fd_gui_shred_event_iter_t * iter ) {
   iter->_batch_idx++;
 }
 
+static fd_gui_shred_event_iter_t *
+shred_iter_begin( fd_gui_t *                  gui,
+                  fd_gui_shred_event_iter_t * iter,
+                  int                         event_time,
+                  long                        after_ns,
+                  long                        before_ns ) {
+  fd_memset( iter, 0, sizeof(*iter) );
+  iter->_gui        = gui;
+  iter->_after_ns   = after_ns;
+  iter->_before_ns  = before_ns;
+  iter->_event_time = event_time;
+
+  /* Event-time queries widen the scan by +-1 second. The assumption is that
+     event-ordering approximately equals insert-ordering, and in rare
+     cases where there is more than a second of skew in the system we
+     can tolerate missing data.  */
+  if( FD_LIKELY( gui->db && gui->hist && after_ns<=before_ns ) ) {
+    long margin = event_time ? FD_GUI_HIST_RES_1S_NS : 0L;
+    long lo_ns = fd_long_max( 0L, fd_long_sat_sub( after_ns, margin ) );
+    long hi_ns = fd_long_min( LONG_MAX-1L, fd_long_sat_add( before_ns, margin ) );
+    iter->_hist_active = !fd_gui_hist_range_begin( gui, &iter->_hist_iter, FD_GUI_HIST_SHRED_EVENTS, lo_ns, hi_ns, NULL, NULL );
+    iter->_builder_pending = 1;
+  }
+  return iter;
+}
+
+fd_gui_shred_event_iter_t *
+fd_gui_shred_event_hist_iter_begin( fd_gui_t *                  gui,
+                                    fd_gui_shred_event_iter_t * iter,
+                                    long                        after_ns,
+                                    long                        before_ns ) {
+  return shred_iter_begin( gui, iter, 1, after_ns, before_ns );
+}
+
 fd_gui_shred_event_iter_t *
 fd_gui_shred_event_iter_begin( fd_gui_t *                  gui,
                                fd_gui_shred_event_iter_t * iter,
                                long                        after_ns,
                                long                        before_ns ) {
-  fd_memset( iter, 0, sizeof(*iter) );
-  iter->_gui          = gui;
-  iter->_after_ns     = fd_long_max( after_ns, 0L );
-  iter->_before_ns    = fd_long_min( before_ns, LONG_MAX-1L );
-  if( FD_UNLIKELY( !gui->db || !gui->hist || iter->_after_ns>iter->_before_ns ) ) {
-    iter->_phase = 2;
-    return iter;
-  }
-  fd_gui_hist_range_begin( gui, &iter->_hist_iter, FD_GUI_HIST_SHRED_EVENTS,
-                          iter->_after_ns, iter->_before_ns, NULL, NULL );
-  return iter;
+  return shred_iter_begin( gui, iter, 0, fd_long_max( after_ns, 0L ), fd_long_min( before_ns, LONG_MAX-1L ) );
 }
 
 int
 fd_gui_shred_event_iter_next( fd_gui_shred_event_iter_t * iter ) {
-  while( iter->_phase<2 ) {
+  while( iter->_batch || iter->_hist_active || iter->_builder_pending ) {
     if( iter->_batch && iter->_batch_idx<iter->_batch->event_cnt ) {
       batch_next( iter );
-      if( iter->event.insert_time_ns>=iter->_after_ns && iter->event.insert_time_ns<=iter->_before_ns ) return 1;
+      long ts = iter->_event_time ? iter->event.event_time_ns : iter->event.insert_time_ns;
+      if( ts>=iter->_after_ns && (iter->_event_time ? ts<iter->_before_ns : ts<=iter->_before_ns) ) return 1;
       continue;
     }
     iter->_batch = NULL;
     iter->_batch_idx = 0UL;
     iter->_data_off  = 0UL;
-    if( iter->_phase==1 ) {
-      iter->_phase = 2;
-      break;
-    }
-    if( fd_gui_hist_range_next( &iter->_hist_iter ) ) {
+    if( iter->_hist_active && fd_gui_hist_range_next( &iter->_hist_iter ) ) {
       iter->_batch = iter->_hist_iter.rec;
       continue;
     }
-    fd_gui_hist_range_end( &iter->_hist_iter );
-    fd_memset( &iter->_hist_iter, 0, sizeof(iter->_hist_iter) );
-    iter->_phase = 1;
-    iter->_batch = &iter->_gui->shreds.builder.batch;
+    if( iter->_hist_active ) fd_gui_hist_range_end( &iter->_hist_iter );
+    iter->_hist_active = 0;
+    if( iter->_builder_pending ) {
+      iter->_builder_pending = 0;
+      iter->_batch = &iter->_gui->shreds.builder.batch;
+    }
   }
   return 0;
 }
 
 void
 fd_gui_shred_event_iter_end( fd_gui_shred_event_iter_t * iter ) {
-  fd_gui_hist_range_end( &iter->_hist_iter );
-  iter->_phase = 2;
+  if( iter->_hist_active ) fd_gui_hist_range_end( &iter->_hist_iter );
+  iter->_hist_active = 0;
+  iter->_builder_pending = 0;
+  iter->_batch = NULL;
 }
 
 static void
@@ -172,6 +197,33 @@ fd_gui_shred_flush( fd_gui_t * gui,
   if( !batch->event_cnt || shred_window( batch->insert_time_ns )>=shred_window( now ) ) return 0;
   batch_flush( gui );
   return 1;
+}
+
+int
+fd_gui_event_bounds( fd_gui_t * gui,
+                     int        dbi,
+                     long *     lo,
+                     long *     hi ) {
+  long first;
+  long last;
+  int have = gui->db && fd_gui_store_ts_live_timestamp_bounds( gui->db, (ulong)dbi, &first, &last );
+  if( have ) {
+    /* Retained batches can outlive their timestamp index entries. */
+    ulong last_window = (ulong)fd_long_max( last, 0L ) / (ulong)FD_GUI_HIST_RES_1S_NS;
+    ulong horizon     = fd_ulong_sat_sub( last_window, FD_GUI_STORE_TS_IDX_DEPTH-1UL );
+    first = fd_long_max( first, (long)(horizon*(ulong)FD_GUI_HIST_RES_1S_NS) );
+  }
+  if( dbi==FD_GUI_HIST_SHRED_EVENTS && gui->shreds.builder.batch.event_cnt ) {
+    long active = gui->shreds.builder.batch.insert_time_ns;
+    first = have ? fd_long_min( first, active ) : active;
+    last  = have ? fd_long_max( last, active ) : active;
+    have  = 1;
+  }
+
+  if( have && dbi==FD_GUI_HIST_SHRED_EVENTS ) last = fd_long_sat_add( last, FD_GUI_HIST_RES_1S_NS-1L );
+  *lo = have ? fd_long_max( 0L, fd_long_sat_sub( first, FD_GUI_HIST_RES_1S_NS ) ) : LONG_MAX;
+  *hi = have ? fd_long_min( LONG_MAX-1L, fd_long_sat_add( last, FD_GUI_HIST_RES_1S_NS+1L ) ) : LONG_MIN;
+  return have;
 }
 
 int

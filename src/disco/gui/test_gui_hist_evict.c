@@ -1,16 +1,5 @@
-/* test_gui_hist_evict exercises the space-pressure epoch-cascade eviction
-   in fd_gui_hist: fd_gui_hist_evict_oldest (the synchronous drain of the
-   cascade fd_gui_hist_evict_step drives one batch at a time).  It builds
-   multiple epochs' worth of records -- the EPOCH records, the per-slot
-   (slot,bank_seq) entity rows, and the time-bucketed time-series rows --
-   then evicts the oldest epoch and asserts that exactly that epoch's rows
-   are gone while the newer epochs survive, including the SHRED_EVENTS
-   boundary case (a slot of the NEXT epoch whose event landed in a
-   wallclock second shared with the oldest epoch's tail).
-
-   The eviction path only touches gui->db / gui->hist, so the test allocates a
-   bare fd_gui_t (like test_gui_consensus) and wires up the two store layers
-   by hand -- no http server / topology / fd_gui_new. */
+/* Protected per-DB bases, shared pressure, owner rollover and history
+   queries.  Fixtures wire a bare GUI to the two store layers. */
 
 #include "../../util/fd_util.h"
 #include "fd_gui.h"
@@ -38,6 +27,8 @@
 #define C_END_SLOT   (C_START_SLOT+SLOT_CNT-1UL) /* 1029 */
 #define BANK_SEQ     (0UL)
 
+#define TEST_STORE_BYTES (3UL<<30)
+
 /* slot -> completion wallclock ns.  slot 1000 -> 10s, 1001 -> 11s, ... so the
    window (floored second) equals (slot-990). */
 static long
@@ -54,9 +45,7 @@ timeline_day_end_ns( ulong day ) {
   return (long)(day+1UL)*FD_GUI_TIMELINE_DAY_NS;
 }
 
-/* Put epoch A immediately before a UTC-day boundary and epochs B/C after it.
-   This lets the cascade test verify that timeline-day eviction retains the
-   day shared by the first surviving epoch while reclaiming older days. */
+/* Put epoch A immediately before a UTC-day boundary and epochs B/C after it. */
 static long
 epoch_slot_complete_ns( ulong slot ) {
   return sec_ns( 86390UL+(slot-A_START_SLOT) );
@@ -85,7 +74,6 @@ put_epoch( fd_gui_t * gui, ulong epoch, ulong start_slot, ulong slot_cnt ) {
   rec->slot_cnt   = slot_cnt;
   memset( rec->vote_count, 0xFF, sizeof(rec->vote_count) );
 
-  gui->epoch.stored_epoch_cnt++; /* mirror fd_gui_handle_epoch_info; the >= FD_GUI_HIST_MIN_EPOCHS guard reads this */
 }
 
 static void
@@ -114,23 +102,6 @@ put_leader_slot( fd_gui_t * gui, ulong slot, long start_time ) {
   rec->leader_start_time = start_time;
 }
 
-/* put_leader_slot_seq writes a leader-slot-meta row at (slot,bank_seq).
-   Used by the trigger test to pad the store with many distinct, committed
-   keys (so used-bytes grows immediately, no flush needed) that still belong
-   to an evictable epoch's slot.  (The trigger test batches these inline for
-   speed; this single-row form documents the shape.) */
-FD_FN_UNUSED static void
-put_leader_slot_seq( fd_gui_t * gui, ulong slot, ulong bank_seq ) {
-  fd_gui_hist_leader_slot_key_t key[ 1 ];
-  key->slot = slot; key->bank_seq = bank_seq;
-
-  fd_gui_leader_slot_t * rec = fd_gui_hist_kv_get_or_create( gui, FD_GUI_HIST_LEADER_SLOT, key );
-  FD_TEST( rec );
-  memset( rec, 0, sizeof(*rec) );
-  rec->slot     = slot;
-  rec->bank_seq = bank_seq;
-}
-
 /* SCHEDULER_COUNTS is window-only (no slot). */
 static void
 append_sched_counts( fd_gui_t * gui, long ts_ns ) {
@@ -146,8 +117,12 @@ append_shred( fd_gui_t * gui,
                long       insert_time_ns,
                long       ts_ns,
                ulong      slot ) {
-  fd_gui_shred_event_append( gui, slot, 0UL, FD_GUI_SLOT_SHRED_REPAIR_REQUEST, ts_ns, insert_time_ns );
-  fd_gui_shred_flush( gui, insert_time_ns+sec_ns( 1UL ) );
+  /* Storage fixtures include already-completed slots and arbitrary event
+     times.  Seed a literal batch directly, without producer admission. */
+  fd_gui_shred_event_t event = { insert_time_ns, ts_ns, (uint)slot, 0U, FD_GUI_SLOT_SHRED_REPAIR_REQUEST };
+  fd_gui_shred_batch_t batch = { .insert_time_ns=insert_time_ns, .event_cnt=1U, .data_sz=1U+sizeof(event) };
+  fd_memcpy( batch.data+1UL, &event, sizeof(event) );
+  FD_TEST( !fd_gui_hist_ts_append( gui, FD_GUI_HIST_SHRED_EVENTS, &batch ) );
 }
 
 static void
@@ -157,9 +132,12 @@ append_replay_txn( fd_gui_t * gui,
                    ulong      slot ) {
   fd_gui_store_replay_txn_t rec[ 1 ];
   memset( rec, 0, sizeof(*rec) );
-  rec->insert_time_ns     = now_ns;
-  rec->completion_time_ns = ts_ns;
-  rec->slot               = slot;
+  rec->insert_time_ns      = now_ns;
+  rec->completion_time_ns  = ts_ns;
+  rec->commit_end_ns       = ts_ns;
+  rec->slot                = slot;
+  rec->txn_start_shred_idx = UINT_MAX;
+  rec->txn_end_shred_idx   = UINT_MAX;
 
   FD_TEST( !fd_gui_hist_ts_append( gui, FD_GUI_HIST_REPLAY_TXN, rec ) );
 }
@@ -196,7 +174,7 @@ count_ts( fd_gui_t * gui, int dbi, ulong slot ) {
   ulong cnt = 0UL;
   if( dbi==FD_GUI_HIST_SHRED_EVENTS ) {
     fd_gui_shred_event_iter_t it[ 1 ];
-    fd_gui_shred_event_iter_begin( gui, it, 0L, LONG_MAX );
+    fd_gui_shred_event_iter_begin( gui, it, LONG_MIN, LONG_MAX );
     while( fd_gui_shred_event_iter_next( it ) ) cnt += slot==ULONG_MAX || it->event.slot==slot;
     fd_gui_shred_event_iter_end( it );
     return cnt;
@@ -224,7 +202,7 @@ timeline_day_present( fd_gui_t * gui,
 /* ---- the test --------------------------------------------------------- */
 
 static void
-test_evict_oldest_epoch( fd_gui_t * gui ) {
+test_base_history_protected( fd_gui_t * gui ) {
   /* --- populate three epochs ----------------------------------------- */
   put_epoch( gui, EPOCH_A, A_START_SLOT, SLOT_CNT );
   put_epoch( gui, EPOCH_B, B_START_SLOT, SLOT_CNT );
@@ -269,105 +247,67 @@ test_evict_oldest_epoch( fd_gui_t * gui ) {
   FD_TEST( count_ts( gui, FD_GUI_HIST_SHRED_EVENTS,     B_START_SLOT )==2UL ); /* slot 1010: its own + boundary */
   FD_TEST( count_ts( gui, FD_GUI_HIST_REPLAY_TXN,       ULONG_MAX )==30UL );
 
-  /* --- evict the oldest epoch (A); B and C stay resident (the current +
-     next epochs the floor protects) --------------------------------- */
-  FD_TEST( fd_gui_hist_evict_oldest( gui )==1 );
-
-  /* epoch A entirely gone; epochs B and C intact */
-  FD_TEST( !epoch_present( gui, EPOCH_A ) );
+  /* Exhaust shared capacity with a different writer, including repeated
+     reclamation.  None of the base records may be removed. */
+  ulong cap = FD_GUI_STORE_REGION_SZ / fd_ulong_align_up( sizeof(fd_gui_tile_stats_t), 8UL );
+  for( ulong i=0UL; i<16UL*cap; i++ ) {
+    FD_TEST( fd_gui_hist_ts_emplace( gui, FD_GUI_HIST_TILE_STATS, (long)i ) );
+    fd_gui_hist_evict_step( gui );
+  }
+  FD_TEST( epoch_present( gui, EPOCH_A ) );
   FD_TEST(  epoch_present( gui, EPOCH_B ) );
   FD_TEST(  epoch_present( gui, EPOCH_C ) );
   FD_TEST(  timeline_day_present( gui, 0UL ) );
   FD_TEST(  timeline_day_present( gui, 1UL ) );
 
   for( ulong s=A_START_SLOT; s<=A_END_SLOT; s++ ) {
-    FD_TEST( !slot_meta_present( gui, FD_GUI_HIST_SLOT, s ) );
-    FD_TEST( !slot_meta_present( gui, FD_GUI_HIST_LEADER_SLOT, s ) );
+    FD_TEST( slot_meta_present( gui, FD_GUI_HIST_SLOT, s ) );
+    FD_TEST( slot_meta_present( gui, FD_GUI_HIST_LEADER_SLOT, s ) );
   }
   for( ulong s=B_START_SLOT; s<=C_END_SLOT; s++ ) {
     FD_TEST( slot_meta_present( gui, FD_GUI_HIST_SLOT, s ) );
     FD_TEST( slot_meta_present( gui, FD_GUI_HIST_LEADER_SLOT, s ) );
   }
 
-  /* time-series: epoch A windows [86390,86399] gone, epochs B+C windows
-     [86400,86419] kept.  scheduler_counts had 10 in epoch A, 20 across B+C. */
-  FD_TEST( count_ts( gui, FD_GUI_HIST_SCHEDULER_COUNTS, ULONG_MAX )==20UL );
-  FD_TEST( count_ts( gui, FD_GUI_HIST_REPLAY_TXN,       ULONG_MAX )==20UL );
-
-  FD_TEST( count_ts( gui, FD_GUI_HIST_SHRED_EVENTS, ULONG_MAX )==21UL );
+  FD_TEST( count_ts( gui, FD_GUI_HIST_SCHEDULER_COUNTS, ULONG_MAX )==30UL );
+  FD_TEST( count_ts( gui, FD_GUI_HIST_REPLAY_TXN,       ULONG_MAX )==30UL );
+  FD_TEST( count_ts( gui, FD_GUI_HIST_SHRED_EVENTS, ULONG_MAX )==31UL );
   FD_TEST( count_ts( gui, FD_GUI_HIST_SHRED_EVENTS, B_START_SLOT )==2UL );
-  /* an evicted epoch-A slot has no shred rows left */
-  FD_TEST( count_ts( gui, FD_GUI_HIST_SHRED_EVENTS, A_START_SLOT )==0UL );
-
-  /* --- guard: only epochs B and C remain (== FD_GUI_HIST_MIN_EPOCHS-1) so
-     eviction refuses.  The current in-progress epoch and the next epoch must
-     always stay resident, so fd_gui_hist_evict_oldest is a no-op here. */
-  FD_TEST( fd_gui_hist_evict_oldest( gui )==0 );
-  FD_TEST( epoch_present( gui, EPOCH_B ) );
-  FD_TEST( epoch_present( gui, EPOCH_C ) );
-  FD_TEST( count_ts( gui, FD_GUI_HIST_SCHEDULER_COUNTS, ULONG_MAX )==20UL );
-  FD_TEST( count_ts( gui, FD_GUI_HIST_SHRED_EVENTS,     ULONG_MAX )==21UL );
-  FD_TEST( count_ts( gui, FD_GUI_HIST_REPLAY_TXN,       ULONG_MAX )==20UL );
-
-  FD_LOG_NOTICE(( "test_evict_oldest_epoch: ok" ));
+  FD_TEST( count_ts( gui, FD_GUI_HIST_SHRED_EVENTS, A_START_SLOT )==1UL );
+  FD_LOG_NOTICE(( "test_base_history_protected: ok" ));
 }
-
-/* test_evict_large_batch checks the resumable batching: an epoch with more
-   than FD_GUI_HIST_EVICT_BATCH (512) distinct time-series keys must still be
-   fully drained by fd_gui_hist_evict_oldest (which loops the bounded
-   per-batch fd_gui_hist_evict_one until the cascade completes). */
-
-#define BIG_EPOCH       (20UL)
-#define BIG_START_SLOT  (2000UL)
-#define BIG_SLOT_CNT    (1000UL) /* > 512, forces multiple delete batches */
-#define BIG_KEEP_EPOCH  (21UL)   /* a newer epoch so BIG is the oldest + survivors remain */
-#define BIG_KEEP_START  (3000UL)
-#define BIG_KEEP2_EPOCH (22UL)   /* second keeper so we stay above FD_GUI_HIST_MIN_EPOCHS */
-#define BIG_KEEP2_START (4000UL)
 
 static void
 test_evict_large_batch( fd_gui_t * gui ) {
-  put_epoch( gui, BIG_EPOCH, BIG_START_SLOT, BIG_SLOT_CNT );
-
-  /* one shred-event key per slot; distinct slots -> distinct keys.  Pack the
-     timestamps into a compact window range. */
-  ulong end_slot = BIG_START_SLOT + BIG_SLOT_CNT - 1UL;
-  for( ulong s=BIG_START_SLOT; s<=end_slot; s++ ) {
-    put_slot( gui, s, slot_complete_ns( 1000UL + (s-BIG_START_SLOT) ) );
-    append_shred( gui, slot_complete_ns( 1000UL + (s-BIG_START_SLOT) ), slot_complete_ns( 1000UL + (s-BIG_START_SLOT) ), s );
+  /* Fill one TS ring, bypassing history retry.  A background step must
+     stop at 512 records, even within a single timestamp window. */
+  ulong count = 0UL;
+  void * rec;
+  while( fd_gui_store_ts_emplace( gui->db, FD_GUI_HIST_SHRED_EVENTS, 1L, &rec )==FD_GUI_STORE_SUCCESS ) count++;
+  ulong cap = FD_GUI_STORE_REGION_SZ / fd_ulong_align_up( sizeof(fd_gui_shred_batch_t), 8UL );
+  FD_TEST( cap>512UL && count>3UL*cap );
+  FD_TEST( fd_gui_hist_evict_step( gui ) );
+  FD_TEST( fd_gui_store_metrics( gui->db )->evict_records[ FD_GUI_HIST_SHRED_EVENTS ]==512UL );
+  ulong steps = 1UL;
+  while( fd_gui_hist_evict_step( gui ) ) {
+    steps++;
+    FD_TEST( steps<cap );
   }
-  /* newer epochs (so BIG is the oldest, and the >= FD_GUI_HIST_MIN_EPOCHS guard
-     is satisfied); the immediately-following epoch's first slot replay meta
-     bounds BIG's time-series eviction window. */
-  put_epoch( gui, BIG_KEEP_EPOCH, BIG_KEEP_START, BIG_SLOT_CNT );
-  put_slot( gui, BIG_KEEP_START, slot_complete_ns( 1000UL + BIG_SLOT_CNT ) );
-  put_epoch( gui, BIG_KEEP2_EPOCH, BIG_KEEP2_START, BIG_SLOT_CNT );
-  put_slot( gui, BIG_KEEP2_START, slot_complete_ns( 1000UL + 2UL*BIG_SLOT_CNT ) );
-
-  FD_TEST( count_ts( gui, FD_GUI_HIST_SHRED_EVENTS, ULONG_MAX )==BIG_SLOT_CNT );
-  FD_TEST( epoch_present( gui, BIG_EPOCH ) );
-
-  /* single synchronous drain must clear all 1000 keys (crossing the 512
-     per-batch budget several times) */
-  FD_TEST( fd_gui_hist_evict_oldest( gui )==1 );
-  FD_TEST( !epoch_present( gui, BIG_EPOCH ) );
-  FD_TEST(  epoch_present( gui, BIG_KEEP_EPOCH ) );
-  FD_TEST(  epoch_present( gui, BIG_KEEP2_EPOCH ) );
-  FD_TEST( count_ts( gui, FD_GUI_HIST_SHRED_EVENTS, ULONG_MAX )==0UL );
-  for( ulong s=BIG_START_SLOT; s<=end_slot; s++ ) {
-    FD_TEST( !slot_meta_present( gui, FD_GUI_HIST_SLOT, s ) );
-  }
-
+  /* Background eviction keeps one spare shared region, so it stops
+     once two regions are free. */
+  FD_TEST( steps==2UL*((cap+511UL)/512UL) );
+  FD_TEST( fd_gui_store_metrics( gui->db )->evict_records[ FD_GUI_HIST_SHRED_EVENTS ]==2UL*cap );
+  FD_TEST( fd_gui_store_shared_free_region_cnt( gui->db )==2UL );
+  long first, last;
+  FD_TEST( fd_gui_store_ts_live_timestamp_bounds( gui->db, FD_GUI_HIST_SHRED_EVENTS, &first, &last ) );
+  FD_TEST( first==1L && last==1L );
   FD_LOG_NOTICE(( "test_evict_large_batch: ok" ));
 }
 
 /* test_current_epoch_protected is the direct regression for the blank-nav-bar
    bug: at startup the validator publishes epoch info for the current
    (in-progress) epoch and the next epoch, so exactly two epochs are resident.
-   Whole-epoch eviction must NEVER shed the current epoch in that state --
-   doing so strips the leader schedule for "now" and the GUI nav bar goes
-   blank.  The floor keeps at least FD_GUI_HIST_MIN_EPOCHS resident, so with
-   only current + next present eviction must refuse. */
+   Eviction must preserve their records under another writer's pressure. */
 
 #define CP_CUR_EPOCH  (60UL)
 #define CP_CUR_START  (10000UL)
@@ -383,79 +323,33 @@ test_current_epoch_protected( fd_gui_t * gui ) {
   put_slot( gui, CP_CUR_START,  slot_complete_ns( 1000UL ) );
   put_slot( gui, CP_NEXT_START, slot_complete_ns( 2000UL ) );
 
-  FD_TEST( gui->epoch.stored_epoch_cnt==2UL );
-
-  /* Two epochs resident (== FD_GUI_HIST_MIN_EPOCHS-1): eviction must refuse so
-     the current epoch's schedule stays available to the GUI. */
-  FD_TEST( fd_gui_hist_evict_oldest( gui )==0 );
+  ulong cap = FD_GUI_STORE_REGION_SZ / sizeof(fd_gui_shred_batch_t);
+  for( ulong i=0UL; i<16UL*cap; i++ ) {
+    FD_TEST( fd_gui_hist_ts_emplace( gui, FD_GUI_HIST_SHRED_EVENTS, (long)i ) );
+    fd_gui_hist_evict_step( gui );
+  }
   FD_TEST( epoch_present( gui, CP_CUR_EPOCH ) );
   FD_TEST( epoch_present( gui, CP_NEXT_EPOCH ) );
-  FD_TEST( gui->epoch.stored_epoch_cnt==2UL );
 
   FD_LOG_NOTICE(( "test_current_epoch_protected: ok" ));
 }
 
-/* test_evict_ts_oldest_fallback covers fd_gui_hist_evict_ts_oldest, the
-   last-resort reclaimer used when whole-epoch eviction is guard-blocked
-   (fewer than FD_GUI_HIST_MIN_EPOCHS resident) yet space is still needed.  It
-   must shed time-series data one oldest window at a time WITHOUT touching
-   epoch/slot metadata. */
-
-#define TS_EPOCH      (30UL)
-#define TS_START_SLOT (4000UL)
-#define TS_SLOT_CNT   (5UL)
-
 static void
-test_evict_ts_oldest_fallback( fd_gui_t * gui ) {
-  /* A single epoch (below FD_GUI_HIST_MIN_EPOCHS, so the whole-epoch guard
-     blocks eviction) with time-series data spread over 5 distinct windows
-     [50,54]. */
-  put_epoch( gui, TS_EPOCH, TS_START_SLOT, TS_SLOT_CNT );
-  put_slot( gui, TS_START_SLOT, slot_complete_ns( 990UL+50UL ) );
-  for( ulong sec=50UL; sec<=54UL; sec++ ) {
-    append_sched_counts( gui, sec_ns( sec ) );
-    append_shred( gui, sec_ns( sec ), sec_ns( sec ), TS_START_SLOT + (sec-50UL) );
-  }
-
-  FD_TEST(  epoch_present( gui, TS_EPOCH ) );
-  FD_TEST( count_ts( gui, FD_GUI_HIST_SCHEDULER_COUNTS, ULONG_MAX )==5UL );
-  FD_TEST( count_ts( gui, FD_GUI_HIST_SHRED_EVENTS,     ULONG_MAX )==5UL );
-
-  /* Whole-epoch eviction refuses (below FD_GUI_HIST_MIN_EPOCHS resident). */
-  FD_TEST( fd_gui_hist_evict_oldest( gui )==0 );
-  FD_TEST( gui->epoch.stored_epoch_cnt==1UL );
-
-  /* The TS fallback sheds the oldest live window (50) across all TS DBs in one
-     step: one scheduler-counts row and one shred row drop, the epoch and its
-     slot metadata are untouched. */
-  FD_TEST( fd_gui_hist_evict_ts_oldest( gui )==1 );
-  FD_TEST(  epoch_present( gui, TS_EPOCH ) );
-  FD_TEST(  slot_meta_present( gui, FD_GUI_HIST_SLOT, TS_START_SLOT ) );
-  FD_TEST( count_ts( gui, FD_GUI_HIST_SCHEDULER_COUNTS, ULONG_MAX )==4UL );
-  FD_TEST( count_ts( gui, FD_GUI_HIST_SHRED_EVENTS,     ULONG_MAX )==4UL );
-
-  /* Drive it to exhaustion: each call sheds the next-oldest window until the
-     TS DBs are empty, at which point it reports 0 (nothing left). */
-  for( int i=0; i<4; i++ ) FD_TEST( fd_gui_hist_evict_ts_oldest( gui )==1 );
-  FD_TEST( count_ts( gui, FD_GUI_HIST_SCHEDULER_COUNTS, ULONG_MAX )==0UL );
-  FD_TEST( count_ts( gui, FD_GUI_HIST_SHRED_EVENTS,     ULONG_MAX )==0UL );
-  FD_TEST( fd_gui_hist_evict_ts_oldest( gui )==0 ); /* genuinely nothing left */
-  /* Epoch metadata survived the entire TS drain. */
-  FD_TEST(  epoch_present( gui, TS_EPOCH ) );
-
-  FD_LOG_NOTICE(( "test_evict_ts_oldest_fallback: ok" ));
-}
-
-
-static void
-test_evict_timeline_ts_fallback( fd_gui_t * gui ) {
+test_timeline_rollover( fd_gui_t * gui ) {
+  fd_gui_timeline_day_t * rec = aligned_alloc( alignof(fd_gui_timeline_day_t), sizeof(fd_gui_timeline_day_t) );
+  FD_TEST( rec );
+  memset( rec, 0xFF, sizeof(*rec) );
   ulong day_cnt = 0UL;
-  while( fd_gui_store_free_region_cnt( gui->db ) ) {
-    put_timeline_day( gui, day_cnt++ );
+  ulong cap = FD_GUI_STORE_REGION_SZ / sizeof(fd_gui_timeline_day_t);
+  ulong capacity = (fd_gui_store_shared_free_region_cnt( gui->db )+FD_GUI_STORE_BASE_REGIONS)*cap;
+  FD_TEST( capacity<30UL ); /* day windows wrap the 30-day time index beyond this */
+  while( day_cnt<capacity ) {
+    rec->insert_time_ns = sec_ns( day_cnt+1UL );
+    rec->end_time_ns    = timeline_day_end_ns( day_cnt++ );
+    FD_TEST( !fd_gui_hist_ts_append( gui, FD_GUI_HIST_TIMELINE_DAY, rec ) );
   }
   FD_TEST( day_cnt>1UL );
-  FD_TEST( timeline_day_present( gui, 0UL ) );
-  FD_TEST( !fd_gui_hist_evict_oldest( gui ) );
+  FD_TEST( fd_gui_timeline_day_get( gui, 0UL ) );
   ulong evicted_before = fd_gui_store_metrics( gui->db )->evict_records[ FD_GUI_HIST_TIMELINE_DAY ];
   ulong reserves_before = fd_gui_hist_metrics( gui )->reserves[ FD_GUI_HIST_TIMELINE_DAY ];
   fd_gui_store_metrics_t store_before = *fd_gui_store_metrics( gui->db );
@@ -463,20 +357,25 @@ test_evict_timeline_ts_fallback( fd_gui_t * gui ) {
   fd_gui_timeline_day_t * regression = aligned_alloc( alignof(fd_gui_timeline_day_t), sizeof(fd_gui_timeline_day_t) );
   FD_TEST( regression );
   memset( regression, 0, sizeof(*regression) );
-  regression->insert_time_ns = timeline_day_end_ns( day_cnt-1UL )+sec_ns( 100UL )-1L;
+  regression->insert_time_ns = sec_ns( day_cnt+1UL );
+  regression->end_time_ns = timeline_day_end_ns( day_cnt-1UL )-1L;
   FD_TEST( fd_gui_hist_ts_append( gui, FD_GUI_HIST_TIMELINE_DAY, regression )==-1 );
-  FD_TEST( !fd_gui_store_free_region_cnt( gui->db ) );
+  FD_TEST( !fd_gui_store_shared_free_region_cnt( gui->db ) );
   FD_TEST( !memcmp( &store_before, fd_gui_store_metrics( gui->db ), sizeof(store_before) ) );
   FD_TEST( !memcmp( &hist_before, fd_gui_hist_metrics( gui ), sizeof(hist_before) ) );
   free( regression );
-  put_timeline_day( gui, day_cnt );
+  rec->insert_time_ns = 0L;
+  rec->end_time_ns    = timeline_day_end_ns( day_cnt );
+  FD_TEST( !fd_gui_hist_ts_append( gui, FD_GUI_HIST_TIMELINE_DAY, rec ) );
+  free( rec );
 
-  FD_TEST( fd_gui_store_metrics( gui->db )->evict_records[ FD_GUI_HIST_TIMELINE_DAY ]==evicted_before+1UL );
+  FD_TEST( fd_gui_store_metrics( gui->db )->evict_records[ FD_GUI_HIST_TIMELINE_DAY ]==evicted_before+cap );
   FD_TEST( fd_gui_hist_metrics( gui )->reserves[ FD_GUI_HIST_TIMELINE_DAY ]==reserves_before+1UL );
-  FD_TEST( !timeline_day_present( gui, 0UL ) );
-  for( ulong day=1UL; day<=day_cnt; day++ ) FD_TEST( timeline_day_present( gui, day ) );
+  FD_TEST( !fd_gui_timeline_day_get( gui, 0UL ) );
+  for( ulong day=0UL; day<cap; day++ ) FD_TEST( !fd_gui_timeline_day_get( gui, day ) );
+  for( ulong day=cap; day<=day_cnt; day++ ) FD_TEST( fd_gui_timeline_day_get( gui, day ) );
 
-  FD_LOG_NOTICE(( "test_evict_timeline_ts_fallback: ok" ));
+  FD_LOG_NOTICE(( "test_timeline_rollover: ok" ));
 }
 
 /* test_resident_meta_mutation_survives_evict checks the in-place mutation
@@ -496,20 +395,23 @@ test_evict_timeline_ts_fallback( fd_gui_t * gui ) {
 
 static void
 test_resident_meta_mutation_survives_evict( fd_gui_t * gui ) {
-  /* Three epochs durable (satisfies the >= FD_GUI_HIST_MIN_EPOCHS eviction
-     guard so the oldest can be evicted while two keepers remain). */
+  /* Fill the protected base.  Epoch records are large, so the ring's
+     record limit (not the shared pool) bounds it to the base regions. */
   put_epoch( gui, RM_OLD_EPOCH, RM_OLD_START, RM_SLOT_CNT );
   put_epoch( gui, RM_NEW_EPOCH, RM_NEW_START, RM_SLOT_CNT );
   put_epoch( gui, RM_NEW2_EPOCH, RM_NEW2_START, RM_SLOT_CNT );
-  /* the older epoch's time-series window is bounded by the next epoch's first
-     completed slot, so give each a replay meta. */
+  /* Slot history remains independent of epoch reclamation. */
   put_slot( gui, RM_OLD_START, slot_complete_ns( 1000UL ) );
   put_slot( gui, RM_NEW_START, slot_complete_ns( 2000UL ) );
   put_slot( gui, RM_NEW2_START, slot_complete_ns( 3000UL ) );
 
-  /* Resolve the newer (resident) epoch's record pointer and mutate the
+  /* Resolve the newest (resident) epoch's record pointer and mutate the
      per-epoch bookkeeping fields in place. */
-  fd_gui_hist_epoch_key_t key[ 1 ]; key->epoch = RM_NEW_EPOCH;
+  ulong cap = FD_GUI_STORE_REGION_SZ / fd_ulong_align_up( sizeof(fd_gui_epoch_t), 8UL );
+  ulong base_cnt = FD_GUI_STORE_BASE_REGIONS*cap;
+  FD_TEST( fd_gui_hist_db_descs( TEST_STORE_BYTES )[ FD_GUI_HIST_EPOCH ].max_records>=base_cnt );
+  for( ulong i=3UL; i<base_cnt; i++ ) put_epoch( gui, RM_OLD_EPOCH+i, RM_OLD_START+i*RM_SLOT_CNT, RM_SLOT_CNT );
+  fd_gui_hist_epoch_key_t key[ 1 ]; key->epoch = RM_OLD_EPOCH+base_cnt-1UL;
   fd_gui_epoch_t * rec = (fd_gui_epoch_t *)fd_gui_hist_kv_get( gui, FD_GUI_HIST_EPOCH, key );
   FD_TEST( rec );
   rec->my_total_slots          = 7UL;
@@ -524,16 +426,18 @@ test_resident_meta_mutation_survives_evict( fd_gui_t * gui ) {
   FD_TEST( rec2->my_total_slots==7UL );
   FD_TEST( rec2->my_skipped_slots==3UL );
 
-  /* Evict the older epoch; the newer epoch's record and its mutated fields
-     must be untouched, and its map pointer must remain valid. */
-  FD_TEST( fd_gui_hist_evict_oldest( gui )==1 );
+  /* Writing another region's worth of epochs recycles the ring's own
+     oldest region; the newer epoch's record and its mutated fields must
+     be untouched, and its map pointer must remain valid. */
+  ulong evicted_before = fd_gui_store_metrics( gui->db )->evict_records[ FD_GUI_HIST_EPOCH ];
+  for( ulong i=base_cnt; i<base_cnt+cap; i++ ) put_epoch( gui, RM_OLD_EPOCH+i, RM_OLD_START+i*RM_SLOT_CNT, RM_SLOT_CNT );
+  FD_TEST( fd_gui_store_metrics( gui->db )->evict_records[ FD_GUI_HIST_EPOCH ]==evicted_before+cap );
   FD_TEST( !epoch_present( gui, RM_OLD_EPOCH ) );
-  FD_TEST(  epoch_present( gui, RM_NEW_EPOCH ) );
-  FD_TEST(  epoch_present( gui, RM_NEW2_EPOCH ) );
+  FD_TEST( epoch_present( gui, RM_OLD_EPOCH+cap ) );
 
   fd_gui_epoch_t * rec3 = (fd_gui_epoch_t *)fd_gui_hist_kv_get( gui, FD_GUI_HIST_EPOCH, key );
   FD_TEST( rec3==rec );
-  FD_TEST( rec3->epoch==RM_NEW_EPOCH );
+  FD_TEST( rec3->epoch==key->epoch );
   FD_TEST( rec3->my_total_slots==7UL );
   FD_TEST( rec3->my_skipped_slots==3UL );
   FD_TEST( rec3->latency_exact[ 0 ]==2 );
@@ -543,8 +447,7 @@ test_resident_meta_mutation_survives_evict( fd_gui_t * gui ) {
   FD_LOG_NOTICE(( "test_resident_meta_mutation_survives_evict: ok" ));
 }
 
-/* test_epoch_region_reclaimed tests epoch eviction shrinking the
-   DB's committed footprint. */
+/* Epoch rollover keeps current/next throughout many base rotations. */
 
 #define RR_A_EPOCH (50UL)
 #define RR_A_START (7000UL)
@@ -556,79 +459,19 @@ test_epoch_region_reclaimed( fd_gui_t * gui ) {
       FD_GUI_STORE_REGION_SZ / fd_ulong_align_up( sizeof(fd_gui_epoch_t), 8UL );
   FD_TEST( epoch_region_capacity>0UL );
 
-  /* Keep three epochs durable so the oldest remains evictable while two
-     keepers survive. */
-  for( ulong ordinal=0UL; ordinal<3UL; ordinal++ ) {
+  /* Enough epochs to rotate through the base many times. */
+  ulong const epoch_cnt = 10UL*FD_GUI_STORE_BASE_REGIONS*epoch_region_capacity;
+  for( ulong ordinal=0UL; ordinal<epoch_cnt; ordinal++ ) {
     ulong epoch = RR_A_EPOCH + ordinal;
     ulong start = RR_A_START + ordinal*RR_SLOT_CNT;
     put_epoch( gui, epoch, start, RR_SLOT_CNT );
-    put_slot( gui, start, slot_complete_ns( 1000UL + ordinal ) );
+    FD_TEST( epoch_present( gui, epoch ) );
+    if( ordinal ) FD_TEST( epoch_present( gui, epoch-1UL ) );
+    if( ordinal>=3UL*epoch_region_capacity ) FD_TEST( !epoch_present( gui, epoch-3UL*epoch_region_capacity ) );
+    FD_TEST( !fd_gui_hist_evict_step( gui ) );
   }
-
-  /* Rotate until the oldest live record is the final slot in its region.
-     This is a no-op when each epoch record already occupies a whole region. */
-  for( ulong ordinal=3UL; ordinal<epoch_region_capacity+2UL; ordinal++ ) {
-    FD_TEST( fd_gui_hist_evict_oldest( gui )==1 );
-    ulong epoch = RR_A_EPOCH + ordinal;
-    ulong start = RR_A_START + ordinal*RR_SLOT_CNT;
-    put_epoch( gui, epoch, start, RR_SLOT_CNT );
-    put_slot( gui, start, slot_complete_ns( 1000UL + ordinal ) );
-  }
-
-  ulong oldest = RR_A_EPOCH + epoch_region_capacity - 1UL;
-  FD_TEST( epoch_present( gui, oldest      ) );
-  FD_TEST( epoch_present( gui, oldest+1UL ) );
-  FD_TEST( epoch_present( gui, oldest+2UL ) );
-
-  /* The next eviction advances the EPOCH watermark across a region boundary. */
-  ulong used_before = fd_gui_store_used_bytes( gui->db );
-  FD_TEST( used_before>0UL );
-
-  FD_TEST( fd_gui_hist_evict_oldest( gui )==1 );
-  FD_TEST( !epoch_present( gui, oldest      ) );
-  FD_TEST(  epoch_present( gui, oldest+1UL ) );
-  FD_TEST(  epoch_present( gui, oldest+2UL ) );
-
-  ulong used_after = fd_gui_store_used_bytes( gui->db );
-  FD_TEST( used_after<used_before );
-
-  FD_LOG_NOTICE(( "test_epoch_region_reclaimed: used %lu -> %lu bytes; ok",
-                  used_before, used_after ));
-}
-
-/* test_reserve_bounded: a write that finds no free region evicts only
-   until one region frees, leaving the oldest epoch resident; the lazy
-   evictor then finishes it.  Epoch A holds one region plus one row of
-   4 KiB shred batches; the rest of the store is filled with one-region
-   timeline records in epoch C's window, which the cascade keeps.
-   Emplace only writes the timestamp, so few pages are touched. */
-
-static void
-test_reserve_bounded( fd_gui_t * gui ) {
-  ulong cap = FD_GUI_STORE_REGION_SZ / fd_ulong_align_up( sizeof(fd_gui_shred_batch_t), 8UL );
-
-  for( ulong e=0UL; e<3UL; e++ ) {
-    put_epoch( gui, 70UL+e, 20000UL+e*5UL, 5UL );
-    put_slot( gui, 20000UL+e*5UL, sec_ns( 1UL + e*100000UL ) );
-  }
-
-  for( ulong i=0UL; i<cap+1UL; i++ ) FD_TEST( fd_gui_hist_ts_emplace( gui, FD_GUI_HIST_SHRED_EVENTS, sec_ns( 1UL + ( i>>10 ) ) ) );
-  ulong day = 0UL;
-  while( fd_gui_store_free_region_cnt( gui->db ) ) FD_TEST( fd_gui_hist_ts_emplace( gui, FD_GUI_HIST_TIMELINE_DAY, sec_ns( 200001UL + day++ ) ) );
-
-  fd_gui_store_metrics_t const * m = fd_gui_store_metrics( gui->db );
-  FD_TEST( fd_gui_hist_ts_emplace( gui, FD_GUI_HIST_TIMELINE_DAY, sec_ns( 200001UL + day ) ) );
-  FD_TEST( m->evict_records[ FD_GUI_HIST_SHRED_EVENTS ]==cap ); /* one region, not the epoch */
-  FD_TEST( epoch_present( gui, 70UL ) );
-  FD_TEST( fd_gui_hist_metrics( gui )->reserves[ FD_GUI_HIST_TIMELINE_DAY ]==1UL );
-
-  while( epoch_present( gui, 70UL ) ) FD_TEST( fd_gui_hist_evict_step( gui ) );
-  FD_TEST( m->evict_records[ FD_GUI_HIST_SHRED_EVENTS ]==cap+1UL );
-  FD_TEST( m->evict_records[ FD_GUI_HIST_TIMELINE_DAY ]==0UL );
-  FD_TEST( epoch_present( gui, 71UL ) && epoch_present( gui, 72UL ) );
-  FD_TEST( gui->epoch.stored_epoch_cnt==2UL );
-
-  FD_LOG_NOTICE(( "test_reserve_bounded: ok" ));
+  FD_TEST( fd_gui_store_metrics( gui->db )->region_reclaims[ FD_GUI_HIST_EPOCH ]>20UL );
+  FD_LOG_NOTICE(( "test_epoch_region_reclaimed: ok" ));
 }
 
 /* ---- store lifecycle (bare fd_gui_t + the two store layers) ----------- */
@@ -648,11 +491,12 @@ store_open( test_store_t * s, ulong map_bytes, int instance ) {
   s->gui = aligned_alloc( fd_gui_align(), fd_gui_footprint( 1UL, 1UL, 1UL ) );
   FD_TEST( s->gui );
   memset( s->gui, 0, fd_gui_footprint( 1UL, 1UL, 1UL ) );
+  s->gui->slot_txn_scratch.max = 1UL;
 
   s->db_mem = aligned_alloc( fd_gui_store_align(),
-                             fd_ulong_align_up( fd_gui_store_footprint( map_bytes, fd_gui_hist_db_cnt(), fd_gui_hist_db_descs( map_bytes ) ), fd_gui_store_align() ) );
+                             fd_ulong_align_up( fd_gui_store_footprint( map_bytes, fd_gui_hist_db_cnt(), fd_gui_hist_db_descs( TEST_STORE_BYTES ) ), fd_gui_store_align() ) );
   FD_TEST( s->db_mem );
-  s->gui->db = fd_gui_store_join( fd_gui_store_new( s->db_mem, s->path, map_bytes, fd_gui_hist_db_cnt(), 0x0123456789abcdefUL, fd_gui_hist_db_descs( map_bytes ) ) );
+  s->gui->db = fd_gui_store_join( fd_gui_store_new( s->db_mem, s->path, map_bytes, fd_gui_hist_db_cnt(), 0x0123456789abcdefUL, fd_gui_hist_db_descs( TEST_STORE_BYTES ) ) );
   FD_TEST( s->gui->db );
 
   s->hist_mem = aligned_alloc( fd_gui_hist_align(),
@@ -660,6 +504,7 @@ store_open( test_store_t * s, ulong map_bytes, int instance ) {
   FD_TEST( s->hist_mem );
   s->gui->hist = fd_gui_hist_join( fd_gui_hist_new( s->hist_mem, s->gui->db ) );
   FD_TEST( s->gui->hist );
+
 }
 
 static void
@@ -673,10 +518,10 @@ store_close( test_store_t * s ) {
 
 static void
 test_timeline_db( fd_gui_t * gui ) {
-  fd_gui_store_desc_t const * descs = fd_gui_hist_db_descs( 1UL<<30 );
-  FD_TEST( FD_GUI_HIST_TIMELINE_DAY==11 );
-  FD_TEST( FD_GUI_HIST_REPLAY_TXN==12 );
-  FD_TEST( FD_GUI_HIST_CNT==13 );
+  fd_gui_store_desc_t const * descs = fd_gui_hist_db_descs( TEST_STORE_BYTES );
+  FD_TEST( FD_GUI_HIST_TIMELINE_DAY==10 );
+  FD_TEST( FD_GUI_HIST_REPLAY_TXN==11 );
+  FD_TEST( FD_GUI_HIST_CNT==12 );
   FD_TEST( !strcmp( descs[ FD_GUI_HIST_TIMELINE_DAY     ].name, "timeline_day"     ) );
   FD_TEST( !strcmp( descs[ FD_GUI_HIST_REPLAY_TXN       ].name, "replay_txn"       ) );
   FD_TEST( descs[ FD_GUI_HIST_SHRED_EVENTS     ].val_sz==sizeof(fd_gui_shred_batch_t) );
@@ -847,7 +692,10 @@ test_txn_insert_bounds( fd_gui_t * gui ) {
   lslot->leader_end_time         = sec_ns( 12UL );
   lslot->microblocks_upper_bound = 2U;
   lslot->unbecame_leader         = 1U;
-  lslot->scheduler_stats->end_slot_reason = FD_PACK_END_SLOT_REASON_TIME;
+  fd_done_packing_t scheduler_stats;
+  fd_memcpy( &scheduler_stats, lslot->scheduler_stats, sizeof(scheduler_stats) );
+  scheduler_stats.end_slot_reason = FD_PACK_END_SLOT_REASON_TIME;
+  fd_memcpy( lslot->scheduler_stats, &scheduler_stats, sizeof(scheduler_stats) );
 
   fd_gui_leader_slot_t * other = fd_gui_slot_leader_get_or_create( gui, slot_num, bank_seq-1UL );
   FD_TEST( other );
@@ -1007,51 +855,31 @@ test_shred_encoding( fd_gui_t * gui ) {
     { base+1L, 1L,        700U, 1U,         FD_GUI_SLOT_SHRED_REPAIR_REQUEST },
     { base+2L, 4L,        700U, 255U,       FD_GUI_SLOT_SHRED_SHRED_RECEIVED_TURBINE },
     { base+3L, 2L,        700U, 0U,         FD_GUI_SLOT_SHRED_SHRED_RECEIVED_REPAIR },
-    { base+4L, LONG_MIN,  701U, 65000U,     FD_GUI_SLOT_SHRED_SHRED_PUBLISHED },
+    { base+4L, LONG_MAX-1L,701U, 65000U,    FD_GUI_SLOT_SHRED_SHRED_PUBLISHED },
     { base+5L, LONG_MAX,  701U, USHORT_MAX, FD_GUI_SLOT_SHRED_SHRED_SLOT_COMPLETE },
     { base+6L, 0L,        701U, 65000U,     FD_GUI_SLOT_SHRED_SHRED_REPLAY_EXEC_DONE },
     { base+7L, 0L,        701U, 0U,         FD_GUI_SLOT_SHRED_REPAIR_REQUEST },
     { base+8L, 0xFFFFFFL, 701U, 255U,       FD_GUI_SLOT_SHRED_REPAIR_REQUEST },
     { base+9L, 0x1FFFFFFL,701U, 511U,       FD_GUI_SLOT_SHRED_REPAIR_REQUEST },
     { base+10L,0xFFFFFFL, 701U, 256U,       FD_GUI_SLOT_SHRED_REPAIR_REQUEST },
-    { base+sec_ns(1UL), -100L, 702U, 10U,   FD_GUI_SLOT_SHRED_SHRED_RECEIVED_TURBINE }
+    { base+sec_ns( 1UL ), 100L, 702U, 10U,    FD_GUI_SLOT_SHRED_SHRED_RECEIVED_TURBINE }
   };
   ulong cnt = sizeof(events)/sizeof(events[0]);
-  /* Replay/root metadata must not suppress late arrivals. */
-  put_slot( gui, 701UL, 10L );
-  gui->summary.slot_rooted = 702UL;
   for( ulong i=0UL; i<cnt; i++ ) {
     fd_gui_shred_event_t const * e = events+i;
-    if( e->event==FD_GUI_SLOT_SHRED_REPAIR_REQUEST ) {
-      fd_gui_handle_repair_request( gui, e->slot, e->idx, e->event_time_ns, e->insert_time_ns );
-    } else {
-      fd_gui_shred_event_append( gui, e->slot, e->idx, e->event, e->event_time_ns, e->insert_time_ns );
-    }
-    assert_shreds( gui, events, i+1UL, base, e->insert_time_ns );
+    fd_gui_shred_event_append( gui, e->slot, e->idx, e->event, e->event_time_ns, e->insert_time_ns );
   }
   FD_TEST( fd_gui_store_metrics( gui->db )->ts_appends[ FD_GUI_HIST_SHRED_EVENTS ]==1UL );
   FD_TEST( gui->shreds.builder.batch.event_cnt==1U );
-  FD_TEST( fd_gui_shred_window_is_empty( gui, 0L, 10L ) ); /* insertion, not event time */
-  assert_shreds( gui, events, 2UL, base+1L, base+1L );
-  assert_shreds( gui, events+cnt-1UL, 1UL, base+sec_ns(1UL), base+sec_ns(1UL) );
-  FD_TEST( fd_gui_shred_window_is_empty( gui, base+11L, base+sec_ns(1UL)-1L ) );
+  FD_TEST( fd_gui_shred_window_is_empty( gui, 0L, 10L ) );
+  assert_shreds( gui, events, cnt, LONG_MIN, LONG_MAX );
 
-  /* Polls leave this second's partial block available to queries. */
-  fd_gui_shred_flush( gui, base+sec_ns(1UL)+1L );
+
+  fd_gui_shred_flush( gui, base+sec_ns( 1UL )+1L );
   FD_TEST( gui->shreds.builder.batch.event_cnt==1U );
-  fd_gui_shred_flush( gui, base+sec_ns(2UL) );
+  fd_gui_shred_flush( gui, base+sec_ns( 2UL ) );
   FD_TEST( !gui->shreds.builder.batch.event_cnt );
-  assert_shreds( gui, events, cnt, base, base+sec_ns(1UL) );
-
-  fd_gui_shred_event_t later[] = {
-    { base+sec_ns(3UL), 4L, 703U, 0U, FD_GUI_SLOT_SHRED_REPAIR_REQUEST },
-    { base+sec_ns(5UL), 2L, 703U, 0U, FD_GUI_SLOT_SHRED_REPAIR_REQUEST }
-  };
-  for( ulong i=0UL; i<2UL; i++ ) {
-    fd_gui_handle_repair_request( gui, later[i].slot, later[i].idx, later[i].event_time_ns, later[i].insert_time_ns );
-  }
-  fd_gui_shred_flush( gui, base+sec_ns(6UL) );
-  assert_shreds( gui, later, 2UL, base+sec_ns(3UL), base+sec_ns(6UL) );
+  assert_shreds( gui, events, cnt, LONG_MIN, LONG_MAX );
   FD_TEST( !gui->shreds.dropped_event_cnt );
   FD_LOG_NOTICE(( "test_shred_encoding: ok" ));
 }
@@ -1063,15 +891,16 @@ test_shred_storage( fd_gui_t * gui ) {
   fd_gui_shred_event_t * events = malloc( cnt*sizeof(fd_gui_shred_event_t) );
   FD_TEST( events );
   for( ulong i=0UL; i<cnt; i++ ) {
-    events[i] = (fd_gui_shred_event_t){ base+(long)(i/2UL), (long)i, (uint)(800UL+i/10000UL), (ushort)(i%10000UL), FD_GUI_SLOT_SHRED_SHRED_RECEIVED_TURBINE };
+    events[ i ] = (fd_gui_shred_event_t){ base+(long)(i/2UL), base+(long)i, (uint)(800UL+i/10000UL),
+                                         (ushort)(i%10000UL), FD_GUI_SLOT_SHRED_SHRED_RECEIVED_TURBINE };
     fd_gui_shred_event_t const * e = events+i;
     fd_gui_shred_event_append( gui, e->slot, e->idx, e->event, e->event_time_ns, e->insert_time_ns );
   }
   ulong sealed = fd_gui_store_metrics( gui->db )->ts_appends[ FD_GUI_HIST_SHRED_EVENTS ];
   FD_TEST( sealed>1UL && gui->shreds.builder.batch.event_cnt );
   assert_shreds( gui, events, cnt, base, base+(long)cnt );
-  assert_shreds( gui, events+400UL, 200UL, base+200L, base+299L );
-  fd_gui_shred_flush( gui, base+sec_ns(1UL) );
+  assert_shreds( gui, events+800UL, 400UL, base+400L, base+599L );
+  fd_gui_shred_flush( gui, base+sec_ns( 1UL ) );
   ulong bytes = fd_gui_store_metrics( gui->db )->ts_appends[ FD_GUI_HIST_SHRED_EVENTS ]*sizeof(fd_gui_shred_batch_t);
   FD_TEST( bytes<cnt*10UL ); /* nine-byte common encoding plus block overhead */
   FD_TEST( !gui->shreds.builder.batch.event_cnt );
@@ -1082,11 +911,11 @@ test_shred_storage( fd_gui_t * gui ) {
   sealed = fd_gui_store_metrics( gui->db )->ts_appends[ FD_GUI_HIST_SHRED_EVENTS ];
   fd_gui_shred_event_t sparse[ 8 ];
   for( ulong i=0UL; i<8UL; i++ ) {
-    sparse[i] = (fd_gui_shred_event_t){ base+sec_ns( 2UL+i ), (long)i, 808U, 0U, FD_GUI_SLOT_SHRED_REPAIR_REQUEST };
+    sparse[ i ] = (fd_gui_shred_event_t){ base+sec_ns( 2UL+i ), base+sec_ns( 2UL+i ), 808U, 0U, FD_GUI_SLOT_SHRED_REPAIR_REQUEST };
     fd_gui_shred_event_append( gui, sparse[i].slot, sparse[i].idx, sparse[i].event, sparse[i].event_time_ns, sparse[i].insert_time_ns );
   }
   FD_TEST( fd_gui_store_metrics( gui->db )->ts_appends[ FD_GUI_HIST_SHRED_EVENTS ]==sealed+7UL );
-  assert_shreds( gui, sparse, 8UL, sparse[0].insert_time_ns, sparse[7].insert_time_ns );
+  assert_shreds( gui, sparse, 8UL, sparse[ 0 ].event_time_ns, sparse[ 7 ].event_time_ns );
   fd_gui_shred_flush( gui, base+sec_ns( 10UL ) );
   FD_TEST( fd_gui_store_metrics( gui->db )->ts_appends[ FD_GUI_HIST_SHRED_EVENTS ]==sealed+8UL );
   FD_TEST( !gui->shreds.dropped_event_cnt );
@@ -1097,25 +926,25 @@ static void
 test_shred_flush_full( fd_gui_t * gui,
                        int        tail_oldest ) {
   long const base = sec_ns( 300UL );
-  fd_gui_shred_event_t event = { base, 1L, 900U, 0U, FD_GUI_SLOT_SHRED_REPAIR_REQUEST };
-  fd_gui_shred_event_append( gui, event.slot, event.idx, event.event, event.event_time_ns, base );
+  fd_gui_shred_event_t event = { base+sec_ns( 2UL ), base, 900U, 0U, FD_GUI_SLOT_SHRED_REPAIR_REQUEST };
+  fd_gui_shred_event_append( gui, event.slot, event.idx, event.event, event.event_time_ns, event.insert_time_ns );
   /* Fill another ring without invoking history's pressure eviction. */
-  fd_gui_scheduler_counts_t counts = { .sample_time_ns=base+(tail_oldest ? sec_ns(1UL) : -sec_ns(1UL)) };
+  fd_gui_scheduler_counts_t counts = { .sample_time_ns=base+(tail_oldest ? sec_ns( 1UL ) : -sec_ns( 1UL )) };
   while( fd_gui_store_ts_append( gui->db, FD_GUI_HIST_SCHEDULER_COUNTS, &counts )==FD_GUI_STORE_SUCCESS ) {}
-  FD_TEST( !fd_gui_store_free_region_cnt( gui->db ) );
+  FD_TEST( !fd_gui_store_shared_free_region_cnt( gui->db ) );
   if( tail_oldest==2 ) {
     /* Unrelated history writes only evict stored records. */
     append_sched_counts( gui, counts.sample_time_ns );
-    FD_TEST( gui->shreds.builder.batch.event_cnt==1U );
-    assert_shreds( gui, &event, 1UL, base, base );
+    FD_TEST( gui->shreds.builder.batch.event_cnt==1UL );
+    FD_TEST( !fd_gui_shred_window_is_empty( gui, event.insert_time_ns, event.insert_time_ns ) );
   }
-  fd_gui_shred_flush( gui, base+sec_ns(2UL) );
+  fd_gui_shred_flush( gui, base+sec_ns( 3UL ) );
   FD_TEST( !gui->shreds.builder.batch.event_cnt );
   FD_TEST( fd_gui_store_metrics( gui->db )->ts_appends[ FD_GUI_HIST_SHRED_EVENTS ]==1UL );
   FD_TEST( !gui->shreds.dropped_event_cnt );
-  assert_shreds( gui, &event, 1UL, base, base );
-  fd_gui_shred_flush( gui, base+sec_ns(3UL) );
-  assert_shreds( gui, &event, 1UL, base, base );
+  assert_shreds( gui, &event, 1UL, base, base+sec_ns( 2UL ) );
+  fd_gui_shred_flush( gui, base+sec_ns( 3UL ) );
+  assert_shreds( gui, &event, 1UL, base, base+sec_ns( 2UL ) );
   FD_LOG_NOTICE(( "test_shred_flush_full: tail_oldest=%i; ok", tail_oldest ));
 }
 
@@ -1123,37 +952,30 @@ static void
 test_shred_retention( fd_gui_t * gui ) {
   long const base = sec_ns( 400UL );
   /* An active-only second is outside store retention. */
-  fd_gui_shred_event_append( gui, 900UL, 0UL, FD_GUI_SLOT_SHRED_REPAIR_REQUEST, 1L, base );
+  fd_gui_shred_event_append( gui, 900UL, 0UL, FD_GUI_SLOT_SHRED_REPAIR_REQUEST, base, base );
   FD_TEST( !fd_gui_store_metrics( gui->db )->ts_appends[ FD_GUI_HIST_SHRED_EVENTS ] );
-  FD_TEST( fd_gui_hist_evict_ts_oldest( gui )==0 );
+  FD_TEST( !fd_gui_hist_evict_step( gui ) );
   FD_TEST( !fd_gui_shred_window_is_empty( gui, base, base ) );
-  FD_TEST( gui->shreds.builder.batch.event_cnt==1U );
-  fd_gui_shred_flush( gui, base+sec_ns(1UL) );
-  FD_TEST( fd_gui_hist_evict_ts_oldest( gui )==1 );
+  FD_TEST( gui->shreds.builder.batch.event_cnt==1UL );
+  fd_gui_shred_flush( gui, base+sec_ns( 1UL ) );
+  FD_TEST( !fd_gui_hist_evict_step( gui ) ); /* base survives background pressure */
+  FD_TEST( fd_gui_store_reclaim( gui->db, FD_GUI_HIST_SHRED_EVENTS, ULONG_MAX, NULL, NULL ) );
   FD_TEST( fd_gui_shred_window_is_empty( gui, base, base ) );
-  FD_TEST( fd_gui_hist_evict_ts_oldest( gui )==0 );
+  FD_TEST( !fd_gui_hist_evict_step( gui ) );
 
-  /* A capacity split gives one second both stored blocks and an active tail. */
-  for( ulong i=0UL; i<1000UL; i++ ) {
-    fd_gui_shred_event_append( gui, 901UL, i, FD_GUI_SLOT_SHRED_REPAIR_REQUEST, (long)i, base+sec_ns(2UL) );
-  }
-  FD_TEST( fd_gui_store_metrics( gui->db )->ts_appends[ FD_GUI_HIST_SHRED_EVENTS ] );
-  FD_TEST( gui->shreds.builder.batch.event_cnt );
-  FD_TEST( count_ts( gui, FD_GUI_HIST_SHRED_EVENTS, ULONG_MAX )==1000UL );
-  ulong tail_cnt = gui->shreds.builder.batch.event_cnt;
-  FD_TEST( fd_gui_hist_evict_ts_oldest( gui )==1 );
-  FD_TEST( gui->shreds.builder.batch.event_cnt==tail_cnt );
-  FD_TEST( count_ts( gui, FD_GUI_HIST_SHRED_EVENTS, ULONG_MAX )==tail_cnt );
-  FD_TEST( fd_gui_hist_evict_ts_oldest( gui )==0 );
-  fd_gui_shred_flush( gui, base+sec_ns(3UL) );
-  FD_TEST( count_ts( gui, FD_GUI_HIST_SHRED_EVENTS, ULONG_MAX )==tail_cnt );
-  FD_TEST( fd_gui_hist_evict_ts_oldest( gui )==1 );
+  for( ulong i=0UL; i<1000UL; i++ )
+    fd_gui_shred_event_append( gui, 901UL, i, FD_GUI_SLOT_SHRED_REPAIR_REQUEST, base+sec_ns( 2UL )+(long)i, base+sec_ns( 2UL )+(long)i );
+  fd_gui_shred_event_append( gui, 902UL, 0UL, FD_GUI_SLOT_SHRED_REPAIR_REQUEST, base+sec_ns( 3UL ), base+sec_ns( 3UL ) );
+  FD_TEST( count_ts( gui, FD_GUI_HIST_SHRED_EVENTS, ULONG_MAX )==1001UL );
+  FD_TEST( fd_gui_store_reclaim( gui->db, FD_GUI_HIST_SHRED_EVENTS, ULONG_MAX, NULL, NULL ) );
+  FD_TEST( gui->shreds.builder.batch.event_cnt==1UL );
+  FD_TEST( count_ts( gui, FD_GUI_HIST_SHRED_EVENTS, ULONG_MAX )==1UL );
+  FD_TEST( !fd_gui_hist_evict_step( gui ) );
+  fd_gui_shred_flush( gui, base+sec_ns( 4UL ) );
+  FD_TEST( count_ts( gui, FD_GUI_HIST_SHRED_EVENTS, ULONG_MAX )==1UL );
+  FD_TEST( fd_gui_store_reclaim( gui->db, FD_GUI_HIST_SHRED_EVENTS, ULONG_MAX, NULL, NULL ) );
   FD_TEST( fd_gui_shred_window_is_empty( gui, base, LONG_MAX ) );
-  FD_TEST( fd_gui_hist_evict_ts_oldest( gui )==0 );
-
-  fd_gui_shred_event_t next = { base+sec_ns(4UL), LONG_MIN, 902U, 0U, FD_GUI_SLOT_SHRED_REPAIR_REQUEST };
-  fd_gui_shred_event_append( gui, next.slot, next.idx, next.event, next.event_time_ns, next.insert_time_ns );
-  assert_shreds( gui, &next, 1UL, base, LONG_MAX );
+  FD_TEST( !fd_gui_hist_evict_step( gui ) );
   FD_LOG_NOTICE(( "test_shred_retention: ok" ));
 }
 
@@ -1163,36 +985,38 @@ test_shred_epoch_retention( fd_gui_t * gui,
   put_epoch( gui, EPOCH_A, A_START_SLOT, SLOT_CNT );
   put_epoch( gui, EPOCH_B, B_START_SLOT, SLOT_CNT );
   put_epoch( gui, EPOCH_C, C_START_SLOT, SLOT_CNT );
-  put_slot( gui, A_START_SLOT, sec_ns( 10UL ) );
-  put_slot( gui, B_START_SLOT, sec_ns( 20UL ) );
-  put_slot( gui, C_START_SLOT, sec_ns( 30UL ) );
   for( ulong i=0UL; i<cnt; i++ ) {
     fd_gui_shred_event_append( gui, A_START_SLOT, i, FD_GUI_SLOT_SHRED_REPAIR_REQUEST, (long)i, sec_ns( 19UL ) );
   }
+  put_slot( gui, A_START_SLOT, sec_ns( 10UL ) );
+  put_slot( gui, B_START_SLOT, sec_ns( 20UL ) );
+  put_slot( gui, C_START_SLOT, sec_ns( 30UL ) );
   FD_TEST( gui->shreds.builder.batch.event_cnt );
-  FD_TEST( count_ts( gui, FD_GUI_HIST_SHRED_EVENTS, ULONG_MAX )==cnt );
   ulong tail_cnt = gui->shreds.builder.batch.event_cnt;
-  FD_TEST( fd_gui_hist_evict_oldest( gui )==1 );
+  FD_TEST( count_ts( gui, FD_GUI_HIST_SHRED_EVENTS, ULONG_MAX )==cnt );
+  FD_TEST( !fd_gui_hist_evict_step( gui ) );
   FD_TEST( gui->shreds.builder.batch.event_cnt==tail_cnt );
-  FD_TEST( count_ts( gui, FD_GUI_HIST_SHRED_EVENTS, ULONG_MAX )==tail_cnt );
+  FD_TEST( count_ts( gui, FD_GUI_HIST_SHRED_EVENTS, ULONG_MAX )==cnt );
   fd_gui_shred_flush( gui, sec_ns( 20UL ) );
   FD_TEST( !gui->shreds.builder.batch.event_cnt );
-  FD_TEST( count_ts( gui, FD_GUI_HIST_SHRED_EVENTS, ULONG_MAX )==tail_cnt );
-  FD_TEST( fd_gui_hist_evict_ts_oldest( gui )==1 );
+  FD_TEST( count_ts( gui, FD_GUI_HIST_SHRED_EVENTS, ULONG_MAX )==cnt );
+  FD_TEST( fd_gui_store_reclaim( gui->db, FD_GUI_HIST_SHRED_EVENTS, ULONG_MAX, NULL, NULL ) );
   FD_TEST( count_ts( gui, FD_GUI_HIST_SHRED_EVENTS, ULONG_MAX )==0UL );
 
-  /* A surviving epoch's active second is outside the next cascade cutoff. */
+  /* Background pressure leaves active and stored base history intact. */
   put_epoch( gui, EPOCH_C+1UL, C_START_SLOT+SLOT_CNT, SLOT_CNT );
   put_slot( gui, C_START_SLOT+SLOT_CNT, sec_ns( 40UL ) );
-  fd_gui_shred_event_t next = { sec_ns( 30UL ), 1L, C_START_SLOT, 0U, FD_GUI_SLOT_SHRED_REPAIR_REQUEST };
+  fd_gui_shred_event_t next = { sec_ns( 30UL ), 1L, C_START_SLOT+1UL, 0U, FD_GUI_SLOT_SHRED_REPAIR_REQUEST };
   fd_gui_shred_event_append( gui, next.slot, next.idx, next.event, next.event_time_ns, next.insert_time_ns );
-  FD_TEST( fd_gui_hist_evict_oldest( gui )==1 );
-  assert_shreds( gui, &next, 1UL, 0L, LONG_MAX );
+  FD_TEST( !fd_gui_hist_evict_step( gui ) );
+  FD_TEST( !fd_gui_shred_window_is_empty( gui, 0L, LONG_MAX ) );
   FD_TEST( gui->shreds.builder.batch.event_cnt==1U );
+  fd_gui_shred_flush( gui, sec_ns( 31UL ) );
+  assert_shreds( gui, &next, 1UL, 0L, LONG_MAX );
   FD_LOG_NOTICE(( "test_shred_epoch_retention: %lu events; ok", cnt ));
 }
 
-/* ---- timeline.query_agg_revenue ------------------------------------- */
+/* ---- timeline queries ---------------------------------------------- */
 
 /* check_response compares the staged websocket response to expected
    exactly, and discards it. */
@@ -1212,7 +1036,67 @@ check_response( fd_gui_t *   gui,
 }
 
 static void
-test_timeline_revenue( fd_gui_t * gui ) {
+test_timeline_shreds( fd_gui_t * gui ) {
+  fd_http_server_params_t params = {
+    .max_connection_cnt    = 1UL,
+    .max_ws_connection_cnt = 1UL,
+    .max_request_len       = 1024UL,
+    .max_ws_recv_frame_len = 1024UL,
+    .max_ws_send_frame_cnt = 4UL,
+    .outgoing_buffer_sz    = FD_GUI_HTTP_MIN_SEND_BUFFER_SZ
+  };
+  void * http_mem = aligned_alloc( fd_http_server_align(), fd_http_server_footprint( params ) );
+  FD_TEST( http_mem );
+  gui->http = fd_http_server_join( fd_http_server_new( http_mem, params, (fd_http_server_callbacks_t){0}, NULL ) );
+  FD_TEST( gui->http );
+
+  /* Canonical lineage 100 -> 102 -> 110 -> 112 proves 101 was skipped,
+     even though no slot record exists for it. */
+  ulong const slots[] = { 100UL, 102UL, 110UL, 112UL };
+  for( ulong i=0UL; i<sizeof(slots)/sizeof(slots[ 0 ]); i++ ) {
+    put_slot( gui, slots[ i ], sec_ns( 100UL ) );
+    fd_gui_slot_t * slot = fd_gui_slot_get( gui, slots[ i ], BANK_SEQ );
+    slot->parent_slot     = i ? slots[ i-1UL ] : ULONG_MAX;
+    slot->parent_bank_seq = BANK_SEQ;
+    slot->skip            = FD_GUI_SKIP_STATUS_NOT_SKIPPED;
+  }
+  gui->summary.slot_tower          = 112UL;
+  gui->summary.slot_tower_bank_seq = BANK_SEQ;
+
+  /* Positive event-time skew within one second must fit the advertised
+     bounds, including insertion at the last nanosecond of a batch. */
+  long const now = sec_ns( 101UL )-1L;
+  long const event_ns = now+sec_ns( 1UL );
+  ulong const event_slots[] = { 101UL, 102UL, 113UL, 101UL };
+  for( ulong i=0UL; i<sizeof(event_slots)/sizeof(event_slots[ 0 ]); i++ )
+    fd_gui_shred_event_append( gui, event_slots[ i ], 0UL, FD_GUI_SLOT_SHRED_REPAIR_REQUEST, event_ns, now );
+
+  for( int flushed=0; flushed<2; flushed++ ) {
+    long lo, hi;
+    FD_TEST( fd_gui_event_bounds( gui, FD_GUI_HIST_SHRED_EVENTS, &lo, &hi ) );
+    FD_TEST( lo<=event_ns && event_ns<hi );
+    /* Advancing the root past 101 must preserve its skip marker; the
+       landed slot 102 and unresolved slot 113 must not be marked. */
+    ulong const roots[] = { 100UL, 110UL };
+    for( ulong i=0UL; i<sizeof(roots)/sizeof(roots[ 0 ]); i++ ) {
+      gui->summary.slot_rooted = roots[ i ];
+      FD_TEST( !fd_gui_printf_timeline_query_shreds( gui, lo, hi, 7UL ) );
+      check_response( gui, "{\"topic\":\"timeline\",\"key\":\"query_shreds\",\"id\":7,\"value\":{\"granularity\":\"shred\","
+                           "\"available_start_ns\":\"99000000000\",\"available_end_ns\":\"102000000000\","
+                           "\"reference_slot\":101,\"reference_ts\":\"101999999999\",\"slot_delta\":[0,1,12,0],\"idx\":[0,0,0,0],"
+                           "\"event\":[0,0,0,0],\"event_ts_delta\":[\"0\",\"0\",\"0\",\"0\"],\"skipped\":[0]}}" );
+    }
+    if( !flushed ) FD_TEST( fd_gui_shred_flush( gui, sec_ns( 101UL ) ) );
+  }
+
+  FD_TEST( fd_http_server_delete( fd_http_server_leave( gui->http ) )==http_mem );
+  free( http_mem );
+  gui->http = NULL;
+  FD_LOG_NOTICE(( "test_timeline_shreds: availability bounds and historical skips: ok" ));
+}
+
+static void
+test_timeline_agg( fd_gui_t * gui ) {
   fd_http_server_params_t params = {
     .max_connection_cnt    = 1UL,
     .max_ws_connection_cnt = 1UL,
@@ -1227,27 +1111,38 @@ test_timeline_revenue( fd_gui_t * gui ) {
   FD_TEST( gui->http );
 
   /* Empty history: every bucket is unknown and no bounds are available. */
-  FD_TEST( !fd_gui_printf_timeline_query_agg_revenue( gui, "250ms", 0UL, 0L, 2UL, 7UL ) );
+  FD_TEST( !fd_gui_printf_timeline_query_agg( gui, "query_agg_revenue", "250ms", 0UL, 0L, 2UL, 7UL ) );
   check_response( gui, "{\"topic\":\"timeline\",\"key\":\"query_agg_revenue\",\"id\":7,\"value\":{\"granularity\":\"250ms\",\"reference_ts_ns\":\"0\","
                        "\"available_start_ns\": null,\"available_end_ns\": null,\"txn_fees\":[null,null],\"prio_fees\":[null,null],\"tips\":[null,null]}}" );
+  FD_TEST( !fd_gui_printf_timeline_query_agg( gui, "query_agg_compute", "250ms", 0UL, 0L, 2UL, 7UL ) );
+  check_response( gui, "{\"topic\":\"timeline\",\"key\":\"query_agg_compute\",\"id\":7,\"value\":{\"granularity\":\"250ms\",\"reference_ts_ns\":\"0\","
+                       "\"available_start_ns\": null,\"available_end_ns\": null,\"compute_units\":[null,null],\"max_compute_units\": null}}" );
+  FD_TEST( !fd_gui_printf_timeline_query_agg( gui, "query_agg_txn", "250ms", 0UL, 0L, 2UL, 7UL ) );
+  check_response( gui, "{\"topic\":\"timeline\",\"key\":\"query_agg_txn\",\"id\":7,\"value\":{\"granularity\":\"250ms\",\"reference_ts_ns\":\"0\","
+                       "\"available_start_ns\": null,\"available_end_ns\": null,\"success_nonvote_transactions\":[null,null],\"failed_nonvote_transactions\":[null,null],"
+                       "\"success_vote_transactions\":[null,null],\"failed_vote_transactions\":[null,null]}}" );
 
   /* Malformed requests: missing or unknown granularity, empty range, too many buckets. */
   char const * invalid[] = {
     "{\"start_ns\":\"0\",\"end_ns\":\"2\"}",
-    "{\"start_ns\":\"0\",\"end_ns\":\"2\",\"granularity\":\"100ms\"}",
+    "{\"start_ns\":\"0\",\"end_ns\":\"2\",\"granularity\":\"bogus\"}",
     "{\"start_ns\":\"2\",\"end_ns\":\"2\",\"granularity\":\"250ms\"}",
     "{\"start_ns\":\"0\",\"end_ns\":\"2500000000001\",\"granularity\":\"250ms\"}"
   };
-  for( ulong i=0UL; i<sizeof(invalid)/sizeof(invalid[ 0 ]); i++ ) {
-    char request[ 512 ];
-    fd_cstr_printf_check( request, sizeof(request), NULL, "{\"id\":7,\"topic\":\"timeline\",\"key\":\"query_agg_revenue\",\"params\":%s}", invalid[ i ] );
-    FD_TEST( fd_gui_ws_message( gui, 0UL, (uchar const *)request, strlen(request) )==FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST );
-    FD_TEST( !fd_http_server_stage_len( gui->http ) );
+  char const * keys[] = { "query_agg_compute", "query_agg_revenue", "query_agg_txn" };
+  for( ulong k=0UL; k<sizeof(keys)/sizeof(keys[ 0 ]); k++ ) {
+    for( ulong i=0UL; i<sizeof(invalid)/sizeof(invalid[ 0 ]); i++ ) {
+      char request[ 512 ];
+      fd_cstr_printf_check( request, sizeof(request), NULL, "{\"id\":7,\"topic\":\"timeline\",\"key\":\"%s\",\"params\":%s}", keys[ k ], invalid[ i ] );
+      FD_TEST( fd_gui_ws_message( gui, 0UL, (uchar const *)request, strlen( request ) )==FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST );
+      FD_TEST( !fd_http_server_stage_len( gui->http ) );
+    }
+    char valid[ 512 ];
+    fd_cstr_printf_check( valid, sizeof(valid), NULL, "{\"id\":7,\"topic\":\"timeline\",\"key\":\"%s\","
+                          "\"params\":{\"start_ns\":\"0\",\"end_ns\":\"2500000000000\",\"granularity\":\"250ms\"}}", keys[ k ] );
+    FD_TEST( !fd_gui_ws_message( gui, 0UL, (uchar const *)valid, strlen( valid ) ) );
+    fd_http_server_stage_trunc( gui->http, 0UL );
   }
-  char const * valid = "{\"id\":7,\"topic\":\"timeline\",\"key\":\"query_agg_revenue\","
-                       "\"params\":{\"start_ns\":\"0\",\"end_ns\":\"2500000000000\",\"granularity\":\"250ms\"}}";
-  FD_TEST( !fd_gui_ws_message( gui, 0UL, (uchar const *)valid, strlen(valid) ) );
-  fd_http_server_stage_trunc( gui->http, 0UL );
 
   /* Replay producer: fees and tips are recorded at commit time. */
   long const now  = sec_ns( 10UL ) + 500000000L;
@@ -1324,154 +1219,171 @@ test_timeline_revenue( fd_gui_t * gui ) {
     ulong g   = gs[ i ];
     ulong ns  = fd_gui_timeline_granularity_ns( g );
     long  ref = (long)((ulong)now/ns*ns);
-    char expected[ 512 ];
+    char expected[ 768 ];
     fd_cstr_printf_check( expected, sizeof(expected), NULL,
                           "{\"topic\":\"timeline\",\"key\":\"query_agg_revenue\",\"id\":7,\"value\":{\"granularity\":\"%s\",\"reference_ts_ns\":\"%ld\","
                           "\"available_start_ns\":\"0\",\"available_end_ns\":\"86400000000000\","
                           "\"txn_fees\":[\"20000\",null],\"prio_fees\":[\"1011\",null],\"tips\":[\"13\",null]}}",
                           fd_gui_timeline_granularities[ g ].name, ref );
-    FD_TEST( !fd_gui_printf_timeline_query_agg_revenue( gui, fd_gui_timeline_granularities[ g ].name, g, ref, 2UL, 7UL ) );
+    FD_TEST( !fd_gui_printf_timeline_query_agg( gui, "query_agg_revenue", fd_gui_timeline_granularities[ g ].name, g, ref, 2UL, 7UL ) );
+    check_response( gui, expected );
+
+    /* The replay rows add no compute units and the leader row adds 42,
+       all against a 60M block limit.  Of the four landed rows, only the
+       first replay row succeeded. */
+    fd_cstr_printf_check( expected, sizeof(expected), NULL,
+                          "{\"topic\":\"timeline\",\"key\":\"query_agg_compute\",\"id\":7,\"value\":{\"granularity\":\"%s\",\"reference_ts_ns\":\"%ld\","
+                          "\"available_start_ns\":\"0\",\"available_end_ns\":\"86400000000000\","
+                          "\"compute_units\":[42,null],\"max_compute_units\":60000000}}",
+                          fd_gui_timeline_granularities[ g ].name, ref );
+    FD_TEST( !fd_gui_printf_timeline_query_agg( gui, "query_agg_compute", fd_gui_timeline_granularities[ g ].name, g, ref, 2UL, 7UL ) );
+    check_response( gui, expected );
+
+    fd_cstr_printf_check( expected, sizeof(expected), NULL,
+                          "{\"topic\":\"timeline\",\"key\":\"query_agg_txn\",\"id\":7,\"value\":{\"granularity\":\"%s\",\"reference_ts_ns\":\"%ld\","
+                          "\"available_start_ns\":\"0\",\"available_end_ns\":\"86400000000000\","
+                          "\"success_nonvote_transactions\":[1,null],\"failed_nonvote_transactions\":[3,null],"
+                          "\"success_vote_transactions\":[0,null],\"failed_vote_transactions\":[0,null]}}",
+                          fd_gui_timeline_granularities[ g ].name, ref );
+    FD_TEST( !fd_gui_printf_timeline_query_agg( gui, "query_agg_txn", fd_gui_timeline_granularities[ g ].name, g, ref, 2UL, 7UL ) );
     check_response( gui, expected );
   }
 
   FD_TEST( fd_http_server_delete( fd_http_server_leave( gui->http ) )==http_mem );
   free( http_mem );
   gui->http = NULL;
-  FD_LOG_NOTICE(( "test_timeline_revenue: requests, replay and leader producers, granularities: ok" ));
+  FD_LOG_NOTICE(( "test_timeline_agg: requests, replay and leader producers, granularities: ok" ));
 }
 
-/* ---- space-pressure trigger ------------------------------------------
-
-   The space-pressure *trigger* (high-water threshold via
-   fd_gui_hist_evict_step) is intentionally not covered here: it depends on
-   the backend partition sizing, which is a deliberate MVP placeholder slated
-   for rework.  The eviction *mechanics* it drives are exercised above via
-   fd_gui_hist_evict_oldest. */
 int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
+  /* Tests that fill most of a store peak at 0.7-1.2 GiB of disk each
+     (the rest stay under 300 MiB), so they only run with --run-all. */
+  int run_all = fd_env_strip_cmdline_contains( &argc, &argv, "--run-all" );
+
   if( argc>1 && !strcmp( argv[1], "--shreds" ) ) {
     test_store_t s[1];
-    store_open( s, 1UL<<30, 20 ); test_shred_encoding( s->gui ); store_close( s );
-    store_open( s, 1UL<<30, 21 ); test_shred_storage( s->gui ); store_close( s );
-    store_open( s, 1UL<<30, 22 ); test_shred_flush_full( s->gui, 0 ); store_close( s );
-    store_open( s, 1UL<<30, 23 ); test_shred_retention( s->gui ); store_close( s );
-    store_open( s, 1UL<<30, 24 ); test_shred_epoch_retention( s->gui, 1UL ); store_close( s );
-    store_open( s, 1UL<<30, 25 ); test_shred_epoch_retention( s->gui, 1000UL ); store_close( s );
-    store_open( s, 1UL<<30, 26 ); test_shred_flush_full( s->gui, 1 ); store_close( s );
-    store_open( s, 1UL<<30, 27 ); test_shred_flush_full( s->gui, 2 ); store_close( s );
+    store_open( s, TEST_STORE_BYTES, 20 ); test_shred_encoding( s->gui ); store_close( s );
+    store_open( s, TEST_STORE_BYTES, 21 ); test_shred_storage( s->gui ); store_close( s );
+    store_open( s, TEST_STORE_BYTES, 22 ); test_shred_flush_full( s->gui, 0 ); store_close( s );
+    store_open( s, TEST_STORE_BYTES, 23 ); test_shred_retention( s->gui ); store_close( s );
+    store_open( s, TEST_STORE_BYTES, 24 ); test_shred_epoch_retention( s->gui, 1UL ); store_close( s );
+    store_open( s, TEST_STORE_BYTES, 25 ); test_shred_epoch_retention( s->gui, 1000UL ); store_close( s );
+    store_open( s, TEST_STORE_BYTES, 26 ); test_shred_flush_full( s->gui, 1 ); store_close( s );
+    store_open( s, TEST_STORE_BYTES, 27 ); test_shred_flush_full( s->gui, 2 ); store_close( s );
     FD_LOG_NOTICE(( "pass" ));
     fd_halt();
     return 0;
   }
 
-  /* cascade mechanics: a generous (1 GiB) map so writes never hit map-full;
-     eviction is driven directly via fd_gui_hist_evict_oldest.  Each test gets
-     its own store so leftover epochs don't perturb the next (eviction now
-     keeps the last epoch, so stores do not empty between tests). */
-  test_store_t s0[ 1 ];
-  store_open( s0, 1UL<<30, 0 );
-  test_evict_oldest_epoch( s0->gui );
-  store_close( s0 );
+  /* Each test gets its own store. */
+  ulong min_bytes = fd_gui_store_min_size( FD_GUI_HIST_CNT );
 
-  test_store_t s1[ 1 ];
-  store_open( s1, 1UL<<30, 2 );
-  test_evict_large_batch( s1->gui );
-  store_close( s1 );
+  if( run_all ) {
+    test_store_t s0[ 1 ];
+    store_open( s0, TEST_STORE_BYTES, 0 );
+    test_base_history_protected( s0->gui );
+    store_close( s0 );
 
-  test_store_t sp[ 1 ];
-  store_open( sp, 1UL<<30, 6 );
-  test_current_epoch_protected( sp->gui );
-  store_close( sp );
+    test_store_t s1[ 1 ];
+    store_open( s1, TEST_STORE_BYTES, 2 );
+    test_evict_large_batch( s1->gui );
+    store_close( s1 );
 
-  test_store_t s2[ 1 ];
-  store_open( s2, 1UL<<30, 3 );
-  test_evict_ts_oldest_fallback( s2->gui );
-  store_close( s2 );
+    test_store_t sp[ 1 ];
+    store_open( sp, TEST_STORE_BYTES, 6 );
+    test_current_epoch_protected( sp->gui );
+    store_close( sp );
 
-  test_store_t st[ 1 ];
-  store_open( st, 1UL<<30, 9 );
-  test_evict_timeline_ts_fallback( st->gui );
-  store_close( st );
+    test_store_t st[ 1 ];
+    store_open( st, min_bytes + 16UL*FD_GUI_STORE_REGION_SZ, 9 );
+    test_timeline_rollover( st->gui );
+    store_close( st );
+  }
 
   test_store_t s3[ 1 ];
-  store_open( s3, 1UL<<30, 4 );
+  store_open( s3, TEST_STORE_BYTES, 4 );
   test_resident_meta_mutation_survives_evict( s3->gui );
   store_close( s3 );
 
   test_store_t s4[ 1 ];
-  store_open( s4, 1UL<<30, 5 );
+  store_open( s4, min_bytes, 5 );
   test_epoch_region_reclaimed( s4->gui );
   store_close( s4 );
 
   test_store_t s5[ 1 ];
-  store_open( s5, 1UL<<30, 7 );
+  store_open( s5, TEST_STORE_BYTES, 7 );
   test_waterfall_snapshots( s5->gui );
   store_close( s5 );
 
   test_store_t s6[ 1 ];
-  store_open( s6, 1UL<<30, 8 );
+  store_open( s6, TEST_STORE_BYTES, 8 );
   test_timeline_db( s6->gui );
   store_close( s6 );
 
-  test_store_t rb[ 1 ];
-  store_open( rb, 1UL<<30, 29 );
-  test_reserve_bounded( rb->gui );
-  store_close( rb );
-
   test_store_t sr[ 1 ];
-  store_open( sr, 1UL<<30, 13 );
+  store_open( sr, TEST_STORE_BYTES, 13 );
   test_range_live_timestamp_bounds( sr->gui );
   store_close( sr );
 
   test_store_t tx[ 1 ];
-  store_open( tx, 1UL<<30, 14 );
+  store_open( tx, TEST_STORE_BYTES, 14 );
   test_txn_insert_bounds( tx->gui );
   store_close( tx );
 
   test_store_t rv[ 1 ];
-  store_open( rv, 1UL<<30, 28 );
-  test_timeline_revenue( rv->gui );
+  store_open( rv, TEST_STORE_BYTES, 28 );
+  test_timeline_agg( rv->gui );
+  store_close( rv );
+
+  store_open( rv, TEST_STORE_BYTES, 29 );
+  test_timeline_shreds( rv->gui );
   store_close( rv );
 
   test_store_t s7[ 1 ];
-  store_open( s7, 1UL<<30, 10 );
+  store_open( s7, TEST_STORE_BYTES, 10 );
   test_shred_encoding( s7->gui );
   store_close( s7 );
 
   test_store_t s8[ 1 ];
-  store_open( s8, 1UL<<30, 11 );
+  store_open( s8, TEST_STORE_BYTES, 11 );
   test_shred_storage( s8->gui );
   store_close( s8 );
 
   test_store_t s9[ 1 ];
-  store_open( s9, 1UL<<30, 12 );
-  test_shred_flush_full( s9->gui, 0 );
-  store_close( s9 );
+  if( run_all ) {
+    store_open( s9, TEST_STORE_BYTES, 12 );
+    test_shred_flush_full( s9->gui, 0 );
+    store_close( s9 );
+  }
 
   test_store_t s10[ 1 ];
-  store_open( s10, 1UL<<30, 15 );
+  store_open( s10, TEST_STORE_BYTES, 15 );
   test_shred_retention( s10->gui );
   store_close( s10 );
 
-  store_open( s10, 1UL<<30, 16 );
+  store_open( s10, TEST_STORE_BYTES, 16 );
   test_shred_epoch_retention( s10->gui, 1UL );
   store_close( s10 );
 
-  store_open( s10, 1UL<<30, 17 );
+  store_open( s10, TEST_STORE_BYTES, 17 );
   test_shred_epoch_retention( s10->gui, 1000UL );
   store_close( s10 );
 
-  store_open( s10, 1UL<<30, 18 );
-  test_shred_flush_full( s10->gui, 1 );
-  store_close( s10 );
+  if( run_all ) {
+    store_open( s10, TEST_STORE_BYTES, 18 );
+    test_shred_flush_full( s10->gui, 1 );
+    store_close( s10 );
 
-  store_open( s10, 1UL<<30, 19 );
-  test_shred_flush_full( s10->gui, 2 );
-  store_close( s10 );
+    store_open( s10, TEST_STORE_BYTES, 19 );
+    test_shred_flush_full( s10->gui, 2 );
+    store_close( s10 );
+  }
 
+  if( !run_all ) FD_LOG_NOTICE(( "skipped 7 expensive tests; pass --run-all to run them" ));
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;

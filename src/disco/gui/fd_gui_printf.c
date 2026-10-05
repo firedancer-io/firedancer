@@ -3471,44 +3471,175 @@ fd_gui_printf_shred_rebroadcast( fd_gui_t * gui, long after, long before ) {
   jsonp_close_envelope( gui->http );
 }
 
-void
-fd_gui_printf_timeline_query_shreds( fd_gui_t *   gui,
-                                     char const * topic,
-                                     long         start_ns,
-                                     long         end_ns,
-                                     ulong        id ) {
-  jsonp_open_envelope( gui->http, topic, "query_shreds" );
-    jsonp_ulong( gui->http, "id", id );
-    jsonp_open_object( gui->http, "value" );
-      fd_gui_printf_shreds_window( gui, start_ns, end_ns );
-    jsonp_close_object( gui->http );
+static void
+fd_gui_timeline_limit( fd_gui_t *   gui,
+                       char const * key,
+                       ulong        id ) {
+  jsonp_open_envelope( gui->http, "timeline", key );
+  jsonp_ulong( gui->http, "id", id );
+  jsonp_open_object( gui->http, "error" );
+  jsonp_string( gui->http, "code", "result_limit_exceeded" );
+  jsonp_close_object( gui->http );
   jsonp_close_envelope( gui->http );
 }
 
+static int
+fd_gui_timeline_bounds( fd_gui_t * gui,
+                        int        dbi ) {
+  long lo;
+  long hi;
+  int have = fd_gui_event_bounds( gui, dbi, &lo, &hi );
+  if( have && hi>lo ) {
+    jsonp_long_as_str( gui->http, "available_start_ns", lo );
+    jsonp_long_as_str( gui->http, "available_end_ns", hi );
+  } else {
+    jsonp_null( gui->http, "available_start_ns" );
+    jsonp_null( gui->http, "available_end_ns" );
+  }
+  return have && hi>lo;
+}
+
+static int
+fd_gui_timeline_slot_skipped( fd_gui_t * gui,
+                              ulong      slot ) {
+  if( gui->summary.slot_rooted!=ULONG_MAX && slot<gui->summary.slot_rooted ) {
+    /* Root advancement persists skips in both consensus modes. */
+    fd_gui_epoch_t const * epoch = fd_gui_get_epoch_by_slot( gui, slot );
+    if( epoch && slot>=epoch->start_slot && slot-epoch->start_slot<epoch->slot_cnt &&
+        epoch->skipped[ slot-epoch->start_slot ] ) return 1;
+    return fd_gui_slot_get_canon_safe( gui, slot )->skip==FD_GUI_SKIP_STATUS_FINALIZED;
+  }
+
+  if( gui->summary.is_alpenglow ) return 0;
+
+  return fd_gui_slot_is_skipped( gui, gui->summary.slot_rooted, gui->summary.slot_tower, gui->summary.slot_tower_bank_seq, slot );
+}
+
+#define SORT_NAME fd_gui_timeline_event_sort
+#define SORT_KEY_T fd_gui_shred_event_t
+#define SORT_BEFORE(a,b) ((a).slot<(b).slot)
+#include "../../util/tmpl/fd_sort.c"
+
 int
-fd_gui_printf_timeline_query_agg_revenue( fd_gui_t *   gui,
-                                          char const * granularity,
-                                          ulong        g,
-                                          long         reference,
-                                          ulong        count,
-                                          ulong        id ) {
+fd_gui_printf_timeline_query_shreds( fd_gui_t * gui,
+                                     long       start,
+                                     long       end,
+                                     ulong      id ) {
+  if( FD_UNLIKELY( start<0L || end<=start || end==LONG_MAX ) ) return -1;
+  fd_gui_shred_event_t * events = gui->timeline_scratch.events;
+  fd_gui_shred_event_iter_t it;
+  fd_gui_shred_event_hist_iter_begin( gui, &it, start, end );
+  ulong n              = 0UL;
+  ulong reference_slot = ULONG_MAX;
+  long  reference_ts   = LONG_MAX;
+  int   limit          = 0;
+  /* Rare duplicate slot-complete markers are acceptable for monitoring;
+     return each recorded event in the requested window. */
+  while( fd_gui_shred_event_iter_next( &it ) ) {
+    if( FD_UNLIKELY( n==FD_GUI_TIMELINE_QUERY_SHRED_MAX ) ) {
+      limit = 1;
+      break;
+    }
+    events[ n++ ] = it.event;
+  }
+  fd_gui_shred_event_iter_end( &it );
+  if( FD_UNLIKELY( limit ) ) {
+    fd_gui_timeline_limit( gui, "query_shreds", id );
+    return 0;
+  }
+  for( ulong i=0UL; i<n; i++ ) {
+    reference_slot = fd_ulong_min( reference_slot, events[ i ].slot );
+    reference_ts   = fd_long_min( reference_ts, events[ i ].event_time_ns );
+  }
+  jsonp_open_envelope( gui->http, "timeline", "query_shreds" );
+  jsonp_ulong( gui->http, "id", id );
+  jsonp_open_object( gui->http, "value" );
+  jsonp_string( gui->http, "granularity", "shred" );
+  fd_gui_timeline_bounds( gui, FD_GUI_HIST_SHRED_EVENTS );
+  if( n ) {
+    jsonp_ulong( gui->http, "reference_slot", reference_slot );
+    jsonp_long_as_str( gui->http, "reference_ts", reference_ts );
+  } else {
+    jsonp_null( gui->http, "reference_slot" );
+    jsonp_null( gui->http, "reference_ts" );
+  }
+  jsonp_open_array( gui->http, "slot_delta" );
+  for( ulong i=0UL; i<n; i++ ) jsonp_ulong( gui->http, NULL, events[ i ].slot-reference_slot );
+  jsonp_close_array( gui->http );
+  jsonp_open_array( gui->http, "idx" );
+  for( ulong i=0UL; i<n; i++ ) {
+    if( events[ i ].idx==USHORT_MAX ) jsonp_null( gui->http, NULL );
+    else jsonp_ulong( gui->http, NULL, events[ i ].idx );
+  }
+  jsonp_close_array( gui->http );
+  jsonp_open_array( gui->http, "event" );
+  for( ulong i=0UL; i<n; i++ ) jsonp_ulong( gui->http, NULL, events[ i ].event );
+  jsonp_close_array( gui->http );
+  jsonp_open_array( gui->http, "event_ts_delta" );
+  for( ulong i=0UL; i<n; i++ ) jsonp_long_as_str( gui->http, NULL, events[ i ].event_time_ns-reference_ts );
+  jsonp_close_array( gui->http );
+  fd_gui_timeline_event_sort_inplace( events, n );
+  jsonp_open_array( gui->http, "skipped" );
+  ulong prev = ULONG_MAX;
+  for( ulong i=0UL; i<n; i++ ) {
+    ulong slot = events[ i ].slot;
+    if( slot==prev ) continue;
+    prev = slot;
+    if( fd_gui_timeline_slot_skipped( gui, slot ) ) jsonp_ulong( gui->http, NULL, slot-reference_slot );
+  }
+  jsonp_close_array( gui->http );
+  jsonp_close_object( gui->http );
+  jsonp_close_envelope( gui->http );
+  return 0;
+}
+
+/* fd_gui_timeline_day_bounds returns the span of live day records
+   (each stamped with the end of its day) that is still reachable
+   through the store timestamp index.  Returns 1 and sets *start / *end
+   if any are available, else 0. */
+
+static int
+fd_gui_timeline_day_bounds( fd_gui_t * gui,
+                            long *     start,
+                            long *     end ) {
+  long first, last;
+  if( FD_UNLIKELY( !gui->db || !gui->hist ||
+                   !fd_gui_store_ts_live_timestamp_bounds( gui->db, FD_GUI_HIST_TIMELINE_DAY, &first, &last ) ||
+                   first<FD_GUI_TIMELINE_DAY_NS ) ) return 0;
+
+  ulong last_window = (ulong)fd_long_max( last, 0L ) / (ulong)FD_GUI_HIST_RES_1S_NS;
+  ulong horizon     = last_window>=FD_GUI_STORE_TS_IDX_DEPTH ? last_window-(FD_GUI_STORE_TS_IDX_DEPTH-1UL) : 0UL;
+  ulong horizon_ns  = horizon*(ulong)FD_GUI_HIST_RES_1S_NS;
+  ulong horizon_end = ((horizon_ns+(ulong)FD_GUI_TIMELINE_DAY_NS-1UL)/(ulong)FD_GUI_TIMELINE_DAY_NS)*(ulong)FD_GUI_TIMELINE_DAY_NS;
+  long  oldest_end  = fd_long_max( first, (long)horizon_end );
+  if( oldest_end>last ) return 0;
+
+  *start = oldest_end-FD_GUI_TIMELINE_DAY_NS;
+  *end   = last;
+  return 1;
+}
+
+int
+fd_gui_printf_timeline_query_agg( fd_gui_t *   gui,
+                                  char const * key,
+                                  char const * granularity,
+                                  ulong        g,
+                                  long         reference,
+                                  ulong        count,
+                                  ulong        id ) {
   if( FD_UNLIKELY( reference<0L || !count || count>FD_GUI_TIMELINE_QUERY_MAX_BUCKETS || g>=FD_GUI_TIMELINE_GRANULARITY_CNT ) ) return -1;
   fd_gui_timeline_granularity_t const * desc = &fd_gui_timeline_granularities[ g ];
   ulong ns = fd_gui_timeline_granularity_ns( g );
 
-  ulong * txn_fees  = gui->timeline_revenue_scratch[ 0 ];
-  ulong * prio_fees = gui->timeline_revenue_scratch[ 1 ];
-  ulong * tips      = gui->timeline_revenue_scratch[ 2 ];
-  memset( txn_fees,  0xFF, count*sizeof(ulong) );
-  memset( prio_fees, 0xFF, count*sizeof(ulong) );
-  memset( tips,      0xFF, count*sizeof(ulong) );
+  fd_gui_timeline_query_bucket_t * b = gui->timeline_scratch.buckets;
+  for( ulong i=0UL; i<count; i++ ) memset( b[ i ].fields, 0xFF, sizeof(b[ i ].fields) );
 
   /* The buckets are visited in ascending time order, so the record for
      the previous bucket's day is reused until the query crosses into
      the next day. */
 
-  ulong stored = desc->stored_idx;
-  ulong step   = fd_gui_timeline_stored_granularity_ns[ stored ];
+  ulong stored      = desc->stored_idx;
+  ulong step        = fd_gui_timeline_stored_granularity_ns[ stored ];
   ulong cur_day_idx = ULONG_MAX;
   fd_gui_timeline_day_t const * cur_day = NULL;
   for( ulong i=0UL; i<count; i++ ) {
@@ -3521,58 +3652,54 @@ fd_gui_printf_timeline_query_agg_revenue( fd_gui_t *   gui,
       }
       if( FD_UNLIKELY( !cur_day ) ) continue;
       ulong idx = (ts%(ulong)FD_GUI_TIMELINE_DAY_NS) / step;
-      txn_fees [ i ] = fd_gui_timeline_combine( txn_fees [ i ], fd_gui_timeline_field_get( cur_day, (int)stored, FD_GUI_TIMELINE_FIELD_TXN_FEES,  idx ), FD_GUI_TIMELINE_FIELD_TXN_FEES  );
-      prio_fees[ i ] = fd_gui_timeline_combine( prio_fees[ i ], fd_gui_timeline_field_get( cur_day, (int)stored, FD_GUI_TIMELINE_FIELD_PRIO_FEES, idx ), FD_GUI_TIMELINE_FIELD_PRIO_FEES );
-      tips     [ i ] = fd_gui_timeline_combine( tips     [ i ], fd_gui_timeline_field_get( cur_day, (int)stored, FD_GUI_TIMELINE_FIELD_TIPS,       idx ), FD_GUI_TIMELINE_FIELD_TIPS       );
+      for( int f=0; f<FD_GUI_TIMELINE_FIELD_CNT; f++ ) {
+        b[ i ].fields[ f ] = fd_gui_timeline_combine( b[ i ].fields[ f ], fd_gui_timeline_field_get( cur_day, (int)stored, f, idx ), f );
+      }
     }
   }
 
-  long first, last;
-  int  avail = gui->db && gui->hist &&
-               fd_gui_store_ts_live_timestamp_bounds( gui->db, FD_GUI_HIST_TIMELINE_DAY, &first, &last ) &&
-               first>=FD_GUI_TIMELINE_DAY_NS;
-
-  long avail_start = 0L;
-  if( FD_LIKELY( avail ) ) {
-    ulong last_window  = (ulong)fd_long_max( last, 0L ) / (ulong)FD_GUI_HIST_RES_1S_NS;
-    ulong horizon      = last_window>=FD_GUI_STORE_TS_IDX_DEPTH ? last_window-(FD_GUI_STORE_TS_IDX_DEPTH-1UL) : 0UL;
-    ulong horizon_ns   = horizon*(ulong)FD_GUI_HIST_RES_1S_NS;
-    ulong horizon_end  = ((horizon_ns+(ulong)FD_GUI_TIMELINE_DAY_NS-1UL)/(ulong)FD_GUI_TIMELINE_DAY_NS)*(ulong)FD_GUI_TIMELINE_DAY_NS;
-    long  oldest_end   = fd_long_max( first, (long)horizon_end );
-    avail_start        = oldest_end-FD_GUI_TIMELINE_DAY_NS;
-    avail              = oldest_end<=last;
-  }
-
-  jsonp_open_envelope( gui->http, "timeline", "query_agg_revenue" );
+  jsonp_open_envelope( gui->http, "timeline", key );
   jsonp_ulong( gui->http, "id", id );
   jsonp_open_object( gui->http, "value" );
   jsonp_string( gui->http, "granularity", granularity );
   jsonp_long_as_str( gui->http, "reference_ts_ns", reference );
-  if( FD_LIKELY( avail ) ) {
+  long avail_start, avail_end;
+  if( FD_LIKELY( fd_gui_timeline_day_bounds( gui, &avail_start, &avail_end ) ) ) {
     jsonp_long_as_str( gui->http, "available_start_ns", avail_start );
-    jsonp_long_as_str( gui->http, "available_end_ns", last );
+    jsonp_long_as_str( gui->http, "available_end_ns", avail_end );
   } else {
     jsonp_null( gui->http, "available_start_ns" );
     jsonp_null( gui->http, "available_end_ns" );
   }
-  jsonp_open_array( gui->http, "txn_fees" );
-  for( ulong i=0UL; i<count; i++ ) {
-    if( FD_UNLIKELY( txn_fees[ i ]==ULONG_MAX ) ) jsonp_null( gui->http, NULL );
-    else                                          jsonp_ulong_as_str( gui->http, NULL, txn_fees[ i ] );
+#define AGG_ARRAY(name,field,string) do { \
+  jsonp_open_array( gui->http, name ); \
+  for( ulong i=0UL; i<count; i++ ) { \
+    ulong v = b[ i ].fields[ FD_GUI_TIMELINE_FIELD_##field ]; \
+    if( v==ULONG_MAX ) jsonp_null( gui->http, NULL ); \
+    else if( string ) jsonp_ulong_as_str( gui->http, NULL, v ); \
+    else jsonp_ulong( gui->http, NULL, v ); \
+  } \
+  jsonp_close_array( gui->http ); \
+} while(0)
+  if( !strcmp( key, "query_agg_compute" ) ) {
+    AGG_ARRAY( "compute_units", COMPUTE_UNITS, 0 );
+    ulong max = ULONG_MAX;
+    for( ulong i=0UL; i<count; i++ ) {
+      max = fd_gui_timeline_combine( max, b[ i ].fields[ FD_GUI_TIMELINE_FIELD_MAX_COMPUTE ], FD_GUI_TIMELINE_FIELD_MAX_COMPUTE );
+    }
+    if( max==ULONG_MAX ) jsonp_null( gui->http, "max_compute_units" );
+    else jsonp_ulong( gui->http, "max_compute_units", max );
+  } else if( !strcmp( key, "query_agg_revenue" ) ) {
+    AGG_ARRAY( "txn_fees", TXN_FEES, 1 );
+    AGG_ARRAY( "prio_fees", PRIO_FEES, 1 );
+    AGG_ARRAY( "tips", TIPS, 1 );
+  } else if( !strcmp( key, "query_agg_txn" ) ) {
+    AGG_ARRAY( "success_nonvote_transactions", NONVOTE_SUCCESS, 0 );
+    AGG_ARRAY( "failed_nonvote_transactions", NONVOTE_FAILED, 0 );
+    AGG_ARRAY( "success_vote_transactions", VOTE_SUCCESS, 0 );
+    AGG_ARRAY( "failed_vote_transactions", VOTE_FAILED, 0 );
   }
-  jsonp_close_array( gui->http );
-  jsonp_open_array( gui->http, "prio_fees" );
-  for( ulong i=0UL; i<count; i++ ) {
-    if( FD_UNLIKELY( prio_fees[ i ]==ULONG_MAX ) ) jsonp_null( gui->http, NULL );
-    else                                           jsonp_ulong_as_str( gui->http, NULL, prio_fees[ i ] );
-  }
-  jsonp_close_array( gui->http );
-  jsonp_open_array( gui->http, "tips" );
-  for( ulong i=0UL; i<count; i++ ) {
-    if( FD_UNLIKELY( tips[ i ]==ULONG_MAX ) ) jsonp_null( gui->http, NULL );
-    else                                      jsonp_ulong_as_str( gui->http, NULL, tips[ i ] );
-  }
-  jsonp_close_array( gui->http );
+#undef AGG_ARRAY
   jsonp_close_object( gui->http );
   jsonp_close_envelope( gui->http );
   return 0;

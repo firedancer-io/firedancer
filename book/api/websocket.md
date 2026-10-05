@@ -2830,26 +2830,89 @@ Value is a flat array of base58-encoded identity pubkeys that have gone
 offline (activity timeout expired) since the last message.
 
 ### timeline
-Historical event data recorded by the validator, queryable over a UNIX
-nanosecond timestamp window.
+Historical shred and aggregate data recorded by the validator,
+queryable over UNIX nanosecond timestamp windows.
+
+All methods require `start_ns` and `end_ns` as non-negative UNIX
+nanosecond timestamps, encoded as decimal strings without leading zeros
+(except `"0"`). Both must be less than `9223372036854775807`, and `end_ns`
+must be greater than `start_ns`.
+Windows are half-open: `[start_ns, end_ns)`.
+
+Every successful response includes `available_start_ns` and
+`available_end_ns`. These are method-specific half-open lookup bounds,
+`[available_start_ns, available_end_ns)`, reflecting the data available
+in the server's database. Both are `null` when the server is missing
+data needed for a non-empty response.
+
+Historical shred lookups use insertion-time indices with a one-second
+margin on either side, then filter by event time. An event inserted more
+than one second away from its event timestamp can be missed by a narrow
+query.
+
+The GUI's database is wiped on boot. When it reaches capacity, data is
+evicted approximately oldest-first.
+
+| query              | maximum result | outcome if exceeded |
+|--------------------|----------------|---------------------|
+| `query_shreds`     | 524,288 rows   | error message       |
+| Each `query_agg_*` | 10,000 buckets | connection closed   |
+
+The server returns the following error message when response limits are
+exceeded. Narrow the window and retry.
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_shreds",
+    "id": 33,
+    "error": {
+        "code": "result_limit_exceeded"
+    }
+}
+```
 
 #### `timeline.query_shreds`
-| frequency   | type          | example |
-|-------------|---------------|---------|
-| *Request*   | `SlotShreds`  | below   |
+| frequency | type             | example |
+|-----------|------------------|---------|
+| *Request* | `TimelineShreds` | below   |
 
-| param    | type     | description |
-|----------|----------|-------------|
-| start_ns | `string` | Inclusive lower bound of the GUI insertion-time window, as a UNIX timestamp in nanoseconds |
-| end_ns   | `string` | Inclusive upper bound of the GUI insertion-time window, as a UNIX timestamp in nanoseconds |
+| param       | type     | description |
+|-------------|----------|-------------|
+| start_ns    | `string` | Inclusive lower bound, using the timestamp rules above |
+| end_ns      | `string` | Exclusive upper bound |
+| granularity | `string` | Must be `shred`. Required |
 
-WebSocket clients may request historical shred metadata over a UNIX
-nanosecond timestamp window.  The requested window must not exceed 60
-seconds.  The response has the same shape as the live `slot.live_shreds`
-topic and includes retained events which were inserted into the server
-database during that window.  Events are available as they arrive,
-without waiting for replay completion. If no shred events fall in the
-window, the response arrays are empty.
+Returns one row per recorded shred event as it arrives, including events
+in the active, unflushed batch. Empty results have empty arrays and
+`null` reference fields.
+
+**`TimelineShreds`**
+| field              | type               | description |
+|--------------------|--------------------|-------------|
+| granularity        | `string`           | Echoes `shred` |
+| available_start_ns | `string\|null`     | Inclusive backing lookup start |
+| available_end_ns   | `string\|null`     | Exclusive backing lookup end |
+| reference_slot     | `number\|null`     | Smallest slot in the response |
+| reference_ts       | `string\|null`     | Smallest event timestamp in the response |
+| slot_delta         | `number[]`         | Per row, `slot - reference_slot` |
+| idx                | `(number\|null)[]` | Shred index. `null` for a slot-complete marker |
+| event              | `number[]`         | Event kind, using the enum below |
+| event_ts_delta     | `string[]`         | Per row, nanoseconds since `reference_ts` |
+| skipped            | `number[]`         | Sparse slot deltas among returned rows classified as skipped; absence is not proof of known non-skipped coverage |
+
+The per-row arrays correspond by index; `skipped` is a separate sparse
+list. Clients should not assume timestamps are ordered.
+
+| event | meaning |
+|-------|---------|
+| 0     | Repair request |
+| 1     | Shred received from turbine |
+| 2     | Shred received from repair |
+| 3     | Replay execution done |
+| 4     | Slot complete |
+| 5     | Deprecated |
+| 6     | Shred published by this validator |
 
 ::: details Example
 
@@ -2860,7 +2923,8 @@ window, the response arrays are empty.
     "id": 32,
     "params": {
         "start_ns": "1739657041588000000",
-        "end_ns": "1739657041589000000"
+        "end_ns": "1739657041589000000",
+        "granularity": "shred"
     }
 }
 ```
@@ -2871,33 +2935,36 @@ window, the response arrays are empty.
     "key": "query_shreds",
     "id": 32,
     "value": {
+        "granularity": "shred",
+        "available_start_ns": "1739657040000000000",
+        "available_end_ns": "1739657043000000000",
         "reference_slot": 289245044,
         "reference_ts": "1739657041588242791",
         "slot_delta": [0, 0],
-        "shred_idx": [1234, null],
-        "event": [0, 1],
-        "event_ts_delta": ["1000000", "2000000"]
+        "idx": [1234, null],
+        "event": [0, 4],
+        "event_ts_delta": ["0", "100000"],
+        "skipped": []
     }
 }
 ```
 
 :::
 
-#### `timeline.query_agg_revenue`
-| frequency | type                 | example |
-|-----------|----------------------|---------|
-| *Request* | `TimelineAggRevenue` | below   |
+#### `timeline.query_agg_*`
+| frequency | type          | example |
+|-----------|---------------|---------|
+| *Request* | `TimelineAgg` | below   |
+
+Three methods share the following parameters and common response fields:
+`timeline.query_agg_compute`, `timeline.query_agg_revenue`, and
+`timeline.query_agg_txn`.
 
 | param       | type     | description |
 |-------------|----------|-------------|
-| start_ns    | `string` | Inclusive lower bound, as a UNIX timestamp in nanoseconds |
-| end_ns      | `string` | Exclusive upper bound, as a UNIX timestamp in nanoseconds |
-| granularity | `string` | Required; one of the granularities below |
-
-`start_ns` and `end_ns` are non-negative UNIX nanosecond timestamps,
-encoded as decimal strings without leading zeros (except `"0"`). Both
-must be less than `9223372036854775807`, and `end_ns` must be greater
-than `start_ns`. Windows are half-open: `[start_ns, end_ns)`.
+| start_ns    | `string` | Inclusive lower bound, using the timestamp rules above |
+| end_ns      | `string` | Exclusive upper bound |
+| granularity | `string` | Required; one of the granularities below, supported by all three methods |
 
 | granularities |
 |---------------|
@@ -2908,33 +2975,39 @@ boundaries. At most 10,000 buckets may be requested, and the aligned
 exclusive end must also be less than `9223372036854775807`. The
 connection is closed if either limit is exceeded.
 
-Revenue aggregates include locally produced blocks. Transactions are
-bucketed by commit time into cached calendar-day aggregates, retained
-independently of detailed transaction history.
+Compute, revenue, and transaction aggregates include locally produced
+blocks. Transactions are bucketed by commit time into cached
+calendar-day aggregates, retained independently of detailed transaction
+history.
 
-The GUI's database is wiped on boot. When it reaches capacity, data is
-evicted approximately oldest-first.
-
-**`TimelineAggRevenue`**
-| field              | type               | description |
-|--------------------|--------------------|-------------|
-| granularity        | `string`           | Echoes the requested granularity |
-| reference_ts_ns    | `string`           | Start of the first aligned response bucket |
-| available_start_ns | `string\|null`     | Inclusive start of the retained calendar-day aggregates |
-| available_end_ns   | `string\|null`     | Exclusive end of the retained calendar-day aggregates |
-| txn_fees           | `(string\|null)[]` | Sum of base transaction fees per bucket, in lamports |
-| prio_fees          | `(string\|null)[]` | Sum of priority fees per bucket, in lamports |
-| tips               | `(string\|null)[]` | Sum of tips per bucket, in lamports |
-
-`available_start_ns` and `available_end_ns` are half-open lookup bounds,
-`[available_start_ns, available_end_ns)`, reflecting the data available
-in the server's database. Both are `null` when the server is missing
-data needed for a non-empty response.
+**Common `TimelineAgg` fields**
+| field              | type           | description |
+|--------------------|----------------|-------------|
+| granularity        | `string`       | Echoes the requested granularity |
+| reference_ts_ns    | `string`       | Start of the first aligned response bucket |
+| available_start_ns | `string\|null` | Inclusive start of the retained calendar-day aggregates |
+| available_end_ns   | `string\|null` | Exclusive end of the retained calendar-day aggregates |
 
 Each array has one entry per aligned bucket. Bucket `i` covers
 `[reference_ts_ns + i*duration, reference_ts_ns + (i+1)*duration)`.
 An entry is `null` when the field is unknown, distinct from a known
 zero. `null` values are ignored when computing rolled-up aggregates.
+
+##### `timeline.query_agg_compute`
+| field             | type               | description |
+|-------------------|--------------------|-------------|
+| compute_units     | `(number\|null)[]` | Sum of actual transaction compute costs per bucket |
+| max_compute_units | `number\|null`     | Scalar maximum known block compute-unit limit among contributing records across all response buckets; `null` if unavailable |
+
+`max_compute_units` is a block limit, not the largest requested
+transaction budget.
+
+##### `timeline.query_agg_revenue`
+| field     | type               | description |
+|-----------|--------------------|-------------|
+| txn_fees  | `(string\|null)[]` | Sum of base transaction fees per bucket, in lamports |
+| prio_fees | `(string\|null)[]` | Sum of priority fees per bucket, in lamports |
+| tips      | `(string\|null)[]` | Sum of tips per bucket, in lamports |
 
 ::: details Example
 
@@ -2964,6 +3037,52 @@ zero. `null` values are ignored when computing rolled-up aggregates.
         "txn_fees": ["6015000", "5935000", null, "6200000"],
         "prio_fees": ["120400", "98200", null, "131000"],
         "tips": ["2500000", "0", null, "1000000"]
+    }
+}
+```
+
+:::
+
+##### `timeline.query_agg_txn`
+| field                        | type               | description |
+|------------------------------|--------------------|-------------|
+| success_nonvote_transactions | `(number\|null)[]` | Successful transactions not classified as simple votes |
+| failed_nonvote_transactions  | `(number\|null)[]` | Failed transactions not classified as simple votes |
+| success_vote_transactions    | `(number\|null)[]` | Successful simple-vote transactions |
+| failed_vote_transactions     | `(number\|null)[]` | Failed simple-vote transactions |
+
+Success means runtime error code 0. Alpenglow consensus votes are not
+transactions and are not counted here.
+
+::: details Example
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_agg_txn",
+    "id": 50,
+    "params": {
+        "start_ns": "1739657040000000000",
+        "end_ns": "1739657100000000000",
+        "granularity": "15s"
+    }
+}
+```
+
+```json
+{
+    "topic": "timeline",
+    "key": "query_agg_txn",
+    "id": 50,
+    "value": {
+        "granularity": "15s",
+        "reference_ts_ns": "1739657040000000000",
+        "available_start_ns": "1739577600000000000",
+        "available_end_ns": "1739664000000000000",
+        "success_nonvote_transactions": [1203, 1187, null, 1240],
+        "failed_nonvote_transactions": [12, 9, null, 15],
+        "success_vote_transactions": [640, 655, null, 648],
+        "failed_vote_transactions": [0, 1, null, 0]
     }
 }
 ```

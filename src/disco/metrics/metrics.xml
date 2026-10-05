@@ -2194,11 +2194,11 @@ EXAMPLES
 
     <gauge name="DbUsedBytes"      enum="GuiDb" summary="Bytes occupied by records present in the store ring" />
     <gauge name="DbCapacityBytes"  enum="GuiDb" summary="Total bytes of the non-free regions the store ring currently owns" />
-    <gauge name="DbFreeBytes"      enum="GuiDb" summary="Total bytes of the free regions the store ring currently doesn't own (same for every database)" />
+    <gauge name="DbFreeBytes"      enum="GuiDb" summary="Total bytes of the free regions the store ring can claim" />
 
     <gauge name="DbRecordUsed"     enum="GuiDb" summary="Records present in the store ring" />
     <gauge name="DbRecordCapacity" enum="GuiDb" summary="Record capacity of the non-free regions the store ring currently owns" />
-    <gauge name="DbRecordFree"     enum="GuiDb" summary="Record capacity of the free regions the store ring currently doesn't own (differs per database because record sizes differ)" />
+    <gauge name="DbRecordFree"     enum="GuiDb" summary="Record capacity of the free regions the store ring can claim" />
 
     <counter name="DbKvQueried"        enum="GuiDb" summary="Key-value lookup calls (kv_get + kv_get_any + kv_iter_begin)" />
     <counter name="DbTsRecordAppended" enum="GuiDb" summary="Time-series records appended into the database" />
@@ -2229,14 +2229,13 @@ EXAMPLES
     <int value="2"  name="shred_events"     label="shred_events" />
     <int value="3"  name="txn_start"        label="txn_start" />
     <int value="4"  name="txn_end"          label="txn_end" />
-    <int value="5"  name="tower"            label="tower" />
-    <int value="6"  name="slot"             label="slot" />
-    <int value="7"  name="leader_slot"      label="leader_slot" />
-    <int value="8"  name="epoch"            label="epoch" />
-    <int value="9"  name="tile_stats"       label="tile_stats" />
-    <int value="10" name="txn_waterfall"    label="txn_waterfall" />
-    <int value="11" name="timeline_day"     label="timeline_day" />
-    <int value="12" name="replay_txn"       label="replay_txn" />
+    <int value="5"  name="slot"             label="slot" />
+    <int value="6"  name="leader_slot"      label="leader_slot" />
+    <int value="7"  name="epoch"            label="epoch" />
+    <int value="8"  name="tile_stats"       label="tile_stats" />
+    <int value="9"  name="txn_waterfall"    label="txn_waterfall" />
+    <int value="10" name="timeline_day"     label="timeline_day" />
+    <int value="11" name="replay_txn"       label="replay_txn" />
 </enum>
 
 <tile name="event">
