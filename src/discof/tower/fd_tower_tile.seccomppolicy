@@ -27,13 +27,6 @@ write: (or (eq (arg 0) 2)
 # arg 0 is the file descriptor to fsync.
 fsync: (eq (arg 0) logfile_fd)
 
-# tower: write the tower file to the staging file, then exchange the
-#        staging and live names so the live file is always complete
-#
-# arg 0 is the file descriptor to truncate.
-ftruncate: (or (eq (arg 0) tower_fd_0)
-               (eq (arg 0) tower_fd_1))
-
 # arg 0 and arg 2 are the directory of the two names, arg 4 is the
 # flags, RENAME_EXCHANGE (2) for a write, or RENAME_NOREPLACE (1) to
 # give the files the name of a new identity and to move a file that
@@ -54,6 +47,13 @@ renameat2: (and (eq (arg 0) dir_fd)
 pwritev2: (or (eq (arg 0) accounts_fd)
               (eq (arg 0) tower_fd_0)
               (eq (arg 0) tower_fd_1))
+
+# tower: the staging file might be longer than the new tower so the
+# staging file is truncated to the new tower's size.
+#
+# arg 0 is the file descriptor to truncate.
+ftruncate: (or (eq (arg 0) tower_fd_0)
+               (eq (arg 0) tower_fd_1))
 
 # accounts database: read from the accounts database
 #
