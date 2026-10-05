@@ -1297,21 +1297,6 @@ test_tower_file_seccomp( void ) {
 }
 
 static void
-test_tower_file_names( void ) {
-  char name[ 2 ][ PATH_MAX ];
-
-  tower_file_names( "tower-1_9-{identity}.bin", "A", name );
-  FD_TEST( !strcmp( name[ 0 ], "tower-1_9-A.bin.new" ) );
-  FD_TEST( !strcmp( name[ 1 ], "tower-1_9-A.bin"     ) );
-
-  tower_file_names( "tower.bin", "A", name );
-  FD_TEST( !strcmp( name[ 0 ], "tower.bin.new" ) );
-  FD_TEST( !strcmp( name[ 1 ], "tower.bin"     ) );
-
-  FD_LOG_NOTICE(( "pass: test_tower_file_names" ));
-}
-
-static void
 tower_file_make( int          dir_fd,
                  char const * name,
                  char const * text ) {
@@ -1370,7 +1355,8 @@ test_tower_file_write( fd_wksp_t * wksp ) {
   for( ulong i=0UL; i<3UL; i++ ) {
     memset( id[ i ].uc, (int)(0x11UL*(i+1UL)), 32UL );
     FD_BASE58_ENCODE_32_BYTES( id[ i ].uc, b58 );
-    tower_file_names( ctx->tower_name_tmpl, b58, name[ i ] );
+    FD_TEST( fd_cstr_printf_check( name[ i ][ 1 ], PATH_MAX, NULL, "tower-1_9-%s.bin", b58 ) );
+    FD_TEST( fd_cstr_printf_check( name[ i ][ 0 ], PATH_MAX, NULL, "%s.new", name[ i ][ 1 ] ) );
     FD_TEST( fd_cstr_printf_check( old[ i ][ 0 ], PATH_MAX, NULL, "%s.old",   name[ i ][ 1 ] ) );
     FD_TEST( fd_cstr_printf_check( old[ i ][ 1 ], PATH_MAX, NULL, "%s.old.1", name[ i ][ 1 ] ) );
   }
@@ -1484,8 +1470,6 @@ main( int     argc,
   test_parent_vote_txn_recent_blockhash();
   test_tower_file_keyguard();
   test_tower_file_seccomp();
-  test_tower_file_names();
-
   char const * _page_sz = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",  NULL, "gigantic"              );
   ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 4UL                     );
   ulong        numa_idx = fd_env_strip_cmdline_ulong( &argc, &argv, "--numa-idx", NULL, fd_shmem_numa_idx( 0UL ) );
