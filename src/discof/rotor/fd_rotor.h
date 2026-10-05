@@ -127,6 +127,7 @@ FD_STATIC_ASSERT( sizeof(fd_rotor_fec_t)==88UL, fd_rotor_fec );
 #define POOL_NAME  fd_fec_pool
 #define POOL_T     fd_rotor_fec_t
 #define POOL_IDX_T uint
+#define POOL_LAZY  1
 #include "../../util/tmpl/fd_pool.c"
 
 #define MAP_NAME  fd_fec_map

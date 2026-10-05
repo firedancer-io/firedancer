@@ -42,6 +42,7 @@ struct fd_votor_leader {
   ulong     slot;
   ulong     parent_slot;
   fd_hash_t parent_block_id;
+  long      parent_ready_ns;
 };
 typedef struct fd_votor_leader fd_votor_leader_t;
 

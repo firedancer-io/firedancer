@@ -468,7 +468,7 @@ struct fd_replay_tile {
 
   fd_votor_certed_t votor_final[ 1 ];                                                /* ALPENGLOW-ONLY: highest finalization, fast over slow at the same slot */
   fd_votor_leader_t votor_leader[ 1 ];                                               /* ALPENGLOW-ONLY: ParentReady trigger behind next_leader_slot     */
-  long              leader_window_start_ns;                                          /* ALPENGLOW-ONLY: when ParentReady started our leader window      */
+  long              leader_window_start_ns;                                          /* ALPENGLOW-ONLY: ParentReady time of the window we are leading   */
   fd_votor_reward_t votor_reward[ FD_NUM_SLOTS_FOR_REWARD+AG_SLOTS_PER_WINDOW+1UL ];
 
   ulong       next_leader_slot;
