@@ -1616,6 +1616,7 @@ try_become_leader_ag( fd_replay_tile_t *  ctx,
   if( FD_UNLIKELY( !fd_banks_can_start_bank( ctx->banks ) ) ) return 0;
   if( FD_UNLIKELY( ctx->halt_replay ) ) return 0;
   if( !ctx->supports_leader ) return 0;
+  if( FD_UNLIKELY( fd_accdb_cmd_pending( ctx->accdb ) ) ) return 0; /* leader bank attaches an accdb fork */
 
   /* Don't become leader if the slot is not scheduled for the identity.
      This can only happen in cases where the identity just switched. */
@@ -2165,6 +2166,7 @@ try_become_leader( fd_replay_tile_t *  ctx,
   if( FD_UNLIKELY( !fd_banks_can_start_bank( ctx->banks ) ) ) return 0;
   if( FD_UNLIKELY( ctx->halt_replay ) ) return 0;
   if( !ctx->supports_leader ) return 0;
+  if( FD_UNLIKELY( fd_accdb_cmd_pending( ctx->accdb ) ) ) return 0; /* leader bank attaches an accdb fork */
 
   FD_TEST( ctx->next_leader_slot>ctx->reset_slot );
   long now = fd_tickcount();
@@ -2918,6 +2920,10 @@ try_replay( fd_replay_tile_t *  ctx,
      footer certs verify under it. */
   if( FD_UNLIKELY( ctx->alpenglow && !ctx->shred_version ) ) return 0;
 
+  /* Starting a block attaches an accdb fork, which would spin on a
+     pending root.  Nothing of the block dispatches before its start. */
+  if( FD_UNLIKELY( fd_sched_block_start_pending( ctx->sched ) && fd_accdb_cmd_pending( ctx->accdb ) ) ) return 0;
+
   int charge_busy = 0;
   fd_sched_task_t task[ 1 ];
   if( FD_UNLIKELY( !fd_sched_task_next_ready( ctx->sched, task ) ) ) {
@@ -3617,6 +3623,10 @@ try_advance_published_root( fd_replay_tile_t *  ctx,
   /* Don't spin in advance_root on the previous root, replay instead and
      retry next iteration. */
   if( FD_UNLIKELY( fd_accdb_cmd_pending( ctx->accdb ) ) ) return 0;
+
+  /* Let a waiting block start take the idle accdb first, else it would
+     wait out the whole drain. */
+  if( FD_UNLIKELY( fd_sched_block_start_pending( ctx->sched ) ) ) return 0;
 
   /* If the new root is not available because the bank is/has been
      evicted, we can't advance the root.  Try again later. */
