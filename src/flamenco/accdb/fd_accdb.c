@@ -1591,6 +1591,11 @@ background_advance_root( fd_accdb_t *       accdb,
   }
 }
 
+int
+fd_accdb_cmd_pending( fd_accdb_t const * accdb ) {
+  return FD_VOLATILE_CONST( accdb->shmem->cmd_op )!=FD_ACCDB_CMD_IDLE;
+}
+
 void
 fd_accdb_advance_root( fd_accdb_t *       accdb,
                        fd_accdb_fork_id_t fork_id ) {
