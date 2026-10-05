@@ -52,6 +52,18 @@ match( void ) {
   int sign_type;
   ulong payload_mask = fd_keyguard_payload_match( data, sz, sign_type );
 
+  /* A vote history starts with our identity, so it can also match the
+     types that look only at the first bytes. */
+  if( payload_mask & FD_KEYGUARD_PAYLOAD_VOTE_HISTORY ) {
+    __CPROVER_assert( 0==( payload_mask &
+                          (~( FD_KEYGUARD_PAYLOAD_VOTE_HISTORY |
+                              FD_KEYGUARD_PAYLOAD_TXN          |
+                              FD_KEYGUARD_PAYLOAD_GOSSIP       |
+                              FD_KEYGUARD_PAYLOAD_REPAIR       |
+                              FD_KEYGUARD_PAYLOAD_PRUNE        ) ) ), "vote history conflict" );
+    payload_mask &= ~FD_KEYGUARD_PAYLOAD_VOTE_HISTORY;
+  }
+
   int matches = fd_ulong_popcnt( payload_mask );
 
   /* Matches the special casing done in fd_keyguard_payload_authorize() */

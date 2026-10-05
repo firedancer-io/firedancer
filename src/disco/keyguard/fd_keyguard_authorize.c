@@ -329,13 +329,13 @@ fd_keyguard_authorize_bls_pubkey( fd_keyguard_authority_t const * authority FD_P
 }
 
 static int
-fd_keyguard_authorize_tower( fd_keyguard_authority_t const * authority,
-                             uchar const *                   data,
-                             ulong                           sz,
-                             int                             sign_type ) {
+fd_keyguard_authorize_vote_history( fd_keyguard_authority_t const * authority,
+                                    uchar const *                   data,
+                                    ulong                           sz,
+                                    int                             sign_type ) {
   if( FD_UNLIKELY( sign_type!=FD_KEYGUARD_SIGN_TYPE_ED25519 ) ) return 0;
   if( FD_UNLIKELY( sz<32UL ) ) return 0;
-  return fd_memeq( data, authority->identity_pubkey, 32UL ); /* the tower file names our identity */
+  return fd_memeq( data, authority->identity_pubkey, 32UL ); /* the tower and vote history files start with our identity */
 }
 
 int
@@ -372,8 +372,14 @@ fd_keyguard_payload_authorize( fd_keyguard_authority_t const * authority,
     0==( payload_mask &
         (~( FD_KEYGUARD_PAYLOAD_SHRED |
             FD_KEYGUARD_PAYLOAD_PING  ) ) );
+  /* A vote history starts with our identity, which can look like the
+     start of a txn message. */
+  int is_vote_history_txn =
+    0==( payload_mask &
+        (~( FD_KEYGUARD_PAYLOAD_VOTE_HISTORY |
+            FD_KEYGUARD_PAYLOAD_TXN          ) ) );
 
-  if( FD_UNLIKELY( is_ambiguous && !is_gossip_repair && !is_shred_ping ) ) {
+  if( FD_UNLIKELY( is_ambiguous && !is_gossip_repair && !is_shred_ping && !is_vote_history_txn ) ) {
     FD_LOG_WARNING(( "ambiguous payload type (role=%#x mask=%#lx)", (uint)role, payload_mask ));
   }
 
@@ -470,7 +476,9 @@ fd_keyguard_payload_authorize( fd_keyguard_authority_t const * authority,
                     fd_keyguard_authorize_ag_vote( authority, data, sz, sign_type );
     int pubkey_ok = (!!( payload_mask & FD_KEYGUARD_PAYLOAD_BLS_PUBKEY )) &&
                     fd_keyguard_authorize_bls_pubkey( authority, data, sz, sign_type );
-    if( FD_UNLIKELY( !tls_ok && !vote_ok && !pubkey_ok ) ) {
+    int vh_ok     = (!!( payload_mask & FD_KEYGUARD_PAYLOAD_VOTE_HISTORY )) &&
+                    fd_keyguard_authorize_vote_history( authority, data, sz, sign_type );
+    if( FD_UNLIKELY( !tls_ok && !vote_ok && !pubkey_ok && !vh_ok ) ) {
       FD_LOG_WARNING(( "unauthorized payload type for votor (mask=%#lx)", payload_mask ));
       return 0;
     }
@@ -478,7 +486,7 @@ fd_keyguard_payload_authorize( fd_keyguard_authority_t const * authority,
   }
 
   case FD_KEYGUARD_ROLE_TOWER:
-    if( FD_UNLIKELY( !( payload_mask & FD_KEYGUARD_PAYLOAD_TOWER ) || !fd_keyguard_authorize_tower( authority, data, sz, sign_type ) ) ) {
+    if( FD_UNLIKELY( !( payload_mask & FD_KEYGUARD_PAYLOAD_TOWER ) || !fd_keyguard_authorize_vote_history( authority, data, sz, sign_type ) ) ) {
       FD_LOG_WARNING(( "unauthorized payload type for tower (mask=%#lx)", payload_mask ));
       return 0;
     }

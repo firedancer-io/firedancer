@@ -14,6 +14,12 @@ typedef struct vote_event vote_event_t;
 #define QUEUE_T    ag_cert_t
 #include "../../util/tmpl/fd_queue_dynamic.c"
 
+/* AG_VOTOR_SLOT_VOTE_MAX bounds the distinct votes votor casts in a
+   slot: a notar or skip, a final, the notar fallbacks and a skip
+   fallback. */
+
+#define AG_VOTOR_SLOT_VOTE_MAX (2UL+AG_EQVOC_BLOCK_HASH_MAX+1UL)
+
 struct slot_state_ele {
   ulong slot;
   ulong next;
@@ -27,6 +33,10 @@ struct slot_state_ele {
   int             pending_block;
   ag_block_info_t pending_block_info;
   int             retired;
+
+  uchar           vote_cnt; /* votes cast in this slot, for the vote history file */
+  uchar           vote_kind[ AG_VOTOR_SLOT_VOTE_MAX ];
+  ag_block_hash_t vote_hash[ AG_VOTOR_SLOT_VOTE_MAX ]; /* notar and notar fallback */
 
   long timeout;
 
@@ -127,6 +137,26 @@ state_mut( ag_votor_t * self,
   ele->timeout = LONG_MAX;
   slot_state_map_ele_insert( self->slot_states->map, ele, self->slot_states->pool );
   return ele;
+}
+
+static void
+push_vote( ag_votor_t * self,
+           ag_vote_t    vote,
+           uchar        reason ) {
+  FD_TEST( !vote_events_full( self->vote_events ) );
+  vote_events_push( self->vote_events, (vote_event_t){ .reason = reason, .vote = vote } );
+
+  slot_state_ele_t * state = state_mut( self, ag_vote_slot( &vote ) );
+  uchar const *      hash  = ag_block_hash_null;
+  if( vote.kind==AG_VOTE_KIND_NOTAR          ) hash = vote.notar.block_hash;
+  if( vote.kind==AG_VOTE_KIND_NOTAR_FALLBACK ) hash = vote.notar_fallback.block_hash;
+  for( ulong i=0UL; i<state->vote_cnt; i++ ) {
+    if( state->vote_kind[ i ]==vote.kind && !memcmp( state->vote_hash[ i ], hash, sizeof(ag_block_hash_t) ) ) return;
+  }
+  FD_TEST( state->vote_cnt<AG_VOTOR_SLOT_VOTE_MAX );
+  state->vote_kind[ state->vote_cnt ] = (uchar)vote.kind;
+  memcpy( state->vote_hash[ state->vote_cnt ], hash, sizeof(ag_block_hash_t) );
+  state->vote_cnt++;
 }
 
 /* A slot's deadline is now plus an offset fixed by its position in the
@@ -442,8 +472,7 @@ try_final( ag_votor_t *          self,
     state_mut( self, slot )->retired = 1;
     if( FD_UNLIKELY( !epoch->has_bls_key || slot<self->wait_to_vote_slot ) ) return;
     ag_vote_t vote = ag_vote_construct_final( self->bls_sign_fn, self->bls_sign_ctx, epoch->bls_key, slot, (ushort)epoch->rank, self->shred_version );
-    FD_TEST( !vote_events_full( self->vote_events ) );
-    vote_events_push( self->vote_events, (vote_event_t){ .reason = AG_VOTOR_REASON_BLOCK_NOTARIZED, .vote = vote } );
+    push_vote( self, vote, AG_VOTOR_REASON_BLOCK_NOTARIZED );
   }
 }
 
@@ -471,8 +500,7 @@ try_notar( ag_votor_t *            self,
 
   if( FD_LIKELY( epoch->has_bls_key && slot>=self->wait_to_vote_slot ) ) {
     ag_vote_t vote = ag_vote_construct_notar( self->bls_sign_fn, self->bls_sign_ctx, epoch->bls_key, slot, hash, (ushort)epoch->rank, self->shred_version );
-    FD_TEST( !vote_events_full( self->vote_events ) );
-    vote_events_push( self->vote_events, (vote_event_t){ .reason = reason, .vote = vote } );
+    push_vote( self, vote, reason );
   }
 
   slot_state_ele_t * state = state_mut( self, slot );
@@ -504,8 +532,7 @@ try_skip_window( ag_votor_t * self,
     if( FD_UNLIKELY( !epoch->has_bls_key || s<self->wait_to_vote_slot ) ) continue;
 
     ag_vote_t vote = ag_vote_construct_skip( self->bls_sign_fn, self->bls_sign_ctx, epoch->bls_key, s, (ushort)epoch->rank, self->shred_version );
-    FD_TEST( !vote_events_full( self->vote_events ) );
-    vote_events_push( self->vote_events, (vote_event_t){ .reason = reason, .vote = vote } );
+    push_vote( self, vote, reason );
   }
 }
 
@@ -690,8 +717,7 @@ ag_votor_handle_pool_event( ag_votor_t *            self,
     epoch_bls_key_t const * epoch = own_epoch( self, slot );
     if( FD_LIKELY( epoch->has_bls_key && slot>=self->wait_to_vote_slot ) ) {
       ag_vote_t vote = ag_vote_construct_notar_fallback( self->bls_sign_fn, self->bls_sign_ctx, epoch->bls_key, slot, hash, (ushort)epoch->rank, self->shred_version );
-      FD_TEST( !vote_events_full( self->vote_events ) );
-      vote_events_push( self->vote_events, (vote_event_t){ .reason = AG_VOTOR_REASON_SAFE_TO_NOTAR, .vote = vote } );
+      push_vote( self, vote, AG_VOTOR_REASON_SAFE_TO_NOTAR );
     }
     try_skip_window( self, slot, AG_VOTOR_REASON_SAFE_TO_NOTAR );
     state_mut( self, slot )->bad_window = 1;
@@ -703,8 +729,7 @@ ag_votor_handle_pool_event( ag_votor_t *            self,
     epoch_bls_key_t const * epoch = own_epoch( self, slot );
     if( FD_LIKELY( epoch->has_bls_key && slot>=self->wait_to_vote_slot ) ) {
       ag_vote_t vote = ag_vote_construct_skip_fallback( self->bls_sign_fn, self->bls_sign_ctx, epoch->bls_key, slot, (ushort)epoch->rank, self->shred_version );
-      FD_TEST( !vote_events_full( self->vote_events ) );
-      vote_events_push( self->vote_events, (vote_event_t){ .reason = AG_VOTOR_REASON_SAFE_TO_SKIP, .vote = vote } );
+      push_vote( self, vote, AG_VOTOR_REASON_SAFE_TO_SKIP );
     }
     try_skip_window( self, slot, AG_VOTOR_REASON_SAFE_TO_SKIP );
     state_mut( self, slot )->bad_window = 1;
@@ -795,4 +820,83 @@ ag_votor_poll_cert( ag_votor_t * self,
   if( FD_LIKELY( cert_events_empty( self->cert_events ) ) ) return 0;
   *cert = cert_events_pop( self->cert_events );
   return 1;
+}
+
+int
+ag_votor_vote_history( ag_votor_t const *       self,
+                       ag_vote_history_file_t * out ) {
+  static uchar const history_kind[] = {
+    [ AG_VOTE_KIND_NOTAR          ] = AG_VOTE_HISTORY_KIND_NOTAR,
+    [ AG_VOTE_KIND_FINAL          ] = AG_VOTE_HISTORY_KIND_FINAL,
+    [ AG_VOTE_KIND_SKIP           ] = AG_VOTE_HISTORY_KIND_SKIP,
+    [ AG_VOTE_KIND_NOTAR_FALLBACK ] = AG_VOTE_HISTORY_KIND_NOTAR_FALLBACK,
+    [ AG_VOTE_KIND_SKIP_FALLBACK  ] = AG_VOTE_HISTORY_KIND_SKIP_FALLBACK,
+  };
+  uint const voted   = (1U<<AG_VOTE_KIND_NOTAR) | (1U<<AG_VOTE_KIND_SKIP);
+  uint const skipped = (1U<<AG_VOTE_KIND_SKIP)  | (1U<<AG_VOTE_KIND_NOTAR_FALLBACK) | (1U<<AG_VOTE_KIND_SKIP_FALLBACK);
+
+  ulong root = self->root;
+  FD_TEST( root!=ULONG_MAX ); /* initialized */
+
+  slot_state_map_t const * map  = self->slot_states->map;
+  slot_state_ele_t const * pool = self->slot_states->pool;
+  ulong                    hi   = root;
+  for( slot_state_map_iter_t iter = slot_state_map_iter_init( map, pool );
+                                   !slot_state_map_iter_done( iter, map, pool );
+                             iter = slot_state_map_iter_next( iter, map, pool ) ) {
+    hi = fd_ulong_max( hi, slot_state_map_iter_ele_const( iter, map, pool )->slot );
+  }
+
+  out->root                     = root;
+  out->voted_cnt                = 0UL;
+  out->voted_skip_fallback_cnt  = 0UL;
+  out->skipped_cnt              = 0UL;
+  out->its_over_cnt             = 0UL;
+  out->voted_notar_cnt          = 0UL;
+  out->voted_notar_fallback_cnt = 0UL;
+  out->notarized_blocks_cnt     = 0UL;
+  out->parent_ready_cnt         = 0UL;
+  out->votes_cast_cnt           = 0UL;
+
+# define PUSH( arr, cnt, max, val ) do {                                    \
+    if( FD_UNLIKELY( (cnt)>=(max) ) ) return AG_VOTE_HISTORY_FILE_ERR_FULL; \
+    (arr)[ (cnt)++ ] = (val);                                               \
+  } while(0)
+
+  for( ulong slot=root; slot<=hi; slot++ ) {
+    slot_state_ele_t const * s = slot_state_map_ele_query_const( map, &slot, NULL, pool );
+    if( !s ) continue;
+
+    uint cast = 0U; /* bit AG_VOTE_KIND_* of each kind cast in slot */
+    for( ulong j=0UL; j<s->vote_cnt; j++ ) {
+      uint                   kind  = s->vote_kind[ j ];
+      ag_block_id_t          block = ag_block_id( slot, s->vote_hash[ j ] );           /* null hash but for notar and notar fallback */
+      ag_vote_history_vote_t vote  = { .kind = history_kind[ kind ], .block = block }; /* shred_version 0, as Agave */
+      PUSH( out->votes_cast, out->votes_cast_cnt, AG_VOTE_HISTORY_VOTE_MAX, vote );
+      if( kind==AG_VOTE_KIND_NOTAR          ) PUSH( out->voted_notar,          out->voted_notar_cnt,          AG_VOTE_HISTORY_BLOCK_MAX, block );
+      if( kind==AG_VOTE_KIND_NOTAR_FALLBACK ) PUSH( out->voted_notar_fallback, out->voted_notar_fallback_cnt, AG_VOTE_HISTORY_BLOCK_MAX, block );
+      cast |= 1U<<kind;
+    }
+    if( cast & voted                            ) PUSH( out->voted,               out->voted_cnt,               AG_VOTE_HISTORY_SLOT_MAX, slot );
+    if( cast & (1U<<AG_VOTE_KIND_SKIP_FALLBACK) ) PUSH( out->voted_skip_fallback, out->voted_skip_fallback_cnt, AG_VOTE_HISTORY_SLOT_MAX, slot );
+    if( cast & skipped                          ) PUSH( out->skipped,             out->skipped_cnt,             AG_VOTE_HISTORY_SLOT_MAX, slot );
+    if( cast & (1U<<AG_VOTE_KIND_FINAL)         ) PUSH( out->its_over,            out->its_over_cnt,            AG_VOTE_HISTORY_SLOT_MAX, slot );
+
+    if( s->block_notarized ) PUSH( out->notarized_blocks, out->notarized_blocks_cnt, AG_VOTE_HISTORY_BLOCK_MAX, ag_block_id( slot, s->block_notarized_hash ) );
+  }
+
+# undef PUSH
+
+  /* The ready parents of the window starts from root up to the one
+     after the highest slot votor keeps state for */
+
+  ag_block_id_t parents[ AG_VOTE_HISTORY_PARENT_READY_MAX ];
+  for( ulong slot=ag_first_slot_in_window( root ); slot<=hi+AG_SLOTS_PER_WINDOW; slot+=AG_SLOTS_PER_WINDOW ) {
+    if( slot<root ) continue;
+    ulong cnt = ag_parent_ready_tracker_parents_ready( self->parent_ready_tracker, slot, parents, AG_VOTE_HISTORY_PARENT_READY_MAX );
+    if( FD_UNLIKELY( cnt>AG_VOTE_HISTORY_PARENT_READY_MAX-out->parent_ready_cnt ) ) return AG_VOTE_HISTORY_FILE_ERR_FULL;
+    for( ulong j=0UL; j<cnt; j++ ) out->parent_ready[ out->parent_ready_cnt++ ] = (ag_vote_history_parent_ready_t){ .slot = slot, .block = parents[ j ] };
+  }
+
+  return AG_VOTE_HISTORY_FILE_SUCCESS;
 }

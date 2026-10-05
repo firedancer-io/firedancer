@@ -1,23 +1,22 @@
 #ifndef HEADER_fd_src_choreo_votor_ag_vote_history_file_h
 #define HEADER_fd_src_choreo_votor_ag_vote_history_file_h
 
-/* Reads Agave's Alpenglow vote history file, vote_history-<pubkey>.bin,
-   wincode (bincode layout) of SavedVoteHistoryVersions::Current, a 64
-   byte Ed25519 signature by the node identity over a bare VoteHistory
-   body (no VoteHistoryVersions tag).  Read only, the writer follows. */
+/* Reads and writes Agave's Alpenglow vote history file,
+   vote_history-<pubkey>.bin, wincode (bincode layout) of
+   SavedVoteHistoryVersions::Current which has the identity's Ed25519
+   signature with VoteHistory body. */
 
 #include "ag_votor_base.h"
 
-/* Capacities of the decoded history.  Agave prunes everything below
-   root, so these bound the unrooted window we can restore. */
-#define AG_VOTE_HISTORY_SLOT_MAX  (4096UL)
-#define AG_VOTE_HISTORY_BLOCK_MAX (4UL*AG_VOTE_HISTORY_SLOT_MAX)
-#define AG_VOTE_HISTORY_VOTE_MAX  (8UL*AG_VOTE_HISTORY_SLOT_MAX)
+#define AG_VOTE_HISTORY_FILE_KIND     (0U)           /* SavedVoteHistoryVersions::Current */
+#define AG_VOTE_HISTORY_FILE_SIG_OFF  (4UL)
+#define AG_VOTE_HISTORY_FILE_DATA_OFF (4UL+64UL+8UL) /* kind, signature, data_sz */
 
-/* AG_VOTE_HISTORY_FILE_MAX is the largest file we read, about 180
-   slots of history without finalization.  It fills the 32 KiB
-   set-identity adminctl payload. */
 #define AG_VOTE_HISTORY_FILE_MAX  (32688UL)
+
+#define AG_VOTE_HISTORY_SLOT_MAX  (AG_VOTE_HISTORY_FILE_MAX/8UL)
+#define AG_VOTE_HISTORY_BLOCK_MAX (AG_VOTE_HISTORY_FILE_MAX/32UL)
+#define AG_VOTE_HISTORY_VOTE_MAX  (AG_VOTE_HISTORY_FILE_MAX/11UL)
 
 /* Parent ready sets grow quadratically with fallback certificates, so
    they are bounded by the file instead: each (slot, parent) pair
@@ -69,7 +68,7 @@ struct ag_vote_history_file {
   ulong skipped            [ AG_VOTE_HISTORY_SLOT_MAX ]; ulong skipped_cnt;
   ulong its_over           [ AG_VOTE_HISTORY_SLOT_MAX ]; ulong its_over_cnt;
 
-  ag_block_id_t voted_notar         [ AG_VOTE_HISTORY_SLOT_MAX  ]; ulong voted_notar_cnt;
+  ag_block_id_t voted_notar         [ AG_VOTE_HISTORY_BLOCK_MAX ]; ulong voted_notar_cnt;
   ag_block_id_t voted_notar_fallback[ AG_VOTE_HISTORY_BLOCK_MAX ]; ulong voted_notar_fallback_cnt;
   ag_block_id_t notarized_blocks    [ AG_VOTE_HISTORY_BLOCK_MAX ]; ulong notarized_blocks_cnt;
 
@@ -103,6 +102,15 @@ ag_vote_history_file_scan( uchar const * buf,
                            ulong         buf_sz,
                            uchar const   identity[ static 32 ],
                            ulong *       wait_to_vote_slot );
+
+/* ag_vote_history_file_ser writes vh as the vote history file of
+   identity into buf, except the signature.  Returns the file size, or 0
+   if the file is larger than buf_max. */
+ulong
+ag_vote_history_file_ser( ag_vote_history_file_t const * vh,
+                          uchar const                    identity[ static 32 ],
+                          uchar *                        buf,
+                          ulong                          buf_max );
 
 FD_PROTOTYPES_END
 

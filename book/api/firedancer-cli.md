@@ -39,20 +39,24 @@ passed alongside a tower file produced by Agave or Firedancer (e.g.
 `tower-1_9-<pubkey>.bin`). The file will be restored and lockouts
 will be preserved as described in the file. If the file is invalid, the
 command will fail and the identity of the running validator will not
-be changed. When Alpenglow is enabled, pass an agave-produced vote
-history file (e.g. `vote_history-<pubkey>.bin`, at most 32,688 bytes)
-instead, and the validator will not vote until the leader window after
-the highest slot the previous validator voted in.
+be changed. When Alpenglow is enabled, pass a vote history file
+produced by Agave or Firedancer (e.g. `vote_history-<pubkey>.bin`, at
+most 32,688 bytes) instead, and the validator will not vote until the
+leader window after the highest slot the previous validator voted in.
 
-If tower file production is enabled, votes are saved to
-`tower-1_9-<identity>.bin` in the `[paths.tower]` directory (by default
-the base directory). The file is only read by `--vote-history-file`,
-never when Firedancer boots.
+If `[tiles.tower.write_vote_history_file]` is enabled, votes are saved
+to `tower-1_9-<identity>.bin` in the `[paths.vote_history]` directory
+(by default the base directory). With Alpenglow,
+`[tiles.votor.write_vote_history_file]` instead saves the votes cast
+since the root to `vote_history-<identity>.bin` in the same directory,
+and a vote history larger than 32,688 bytes empties the file until it
+fits again. The file is only read by `--vote-history-file`, never when
+Firedancer boots.
 After `set-identity`, the file is renamed to the new identity
 when that identity first votes, so the old identity's last vote keeps
 its name until then. If a file with the new name already exists, for
-example the tower file passed to `--vote-history-file`, it is not
-replaced but renamed with an `.old` suffix.
+example the file passed to `--vote-history-file`, it is not replaced
+but renamed with an `.old` suffix.
 
 | Arguments                    | Description |
 |------------------------------|-------------|

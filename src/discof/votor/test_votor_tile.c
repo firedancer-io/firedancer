@@ -160,7 +160,7 @@ paths_idx_of( fd_votor_tile_t const * ctx,
 
 static uchar bls_pubkey_request_mcache [ FD_MCACHE_FOOTPRINT( 128UL, 0UL ) ] __attribute__((aligned(FD_MCACHE_ALIGN)));
 static uchar bls_pubkey_response_mcache[ FD_MCACHE_FOOTPRINT( 128UL, 0UL ) ] __attribute__((aligned(FD_MCACHE_ALIGN)));
-static uchar bls_pubkey_request [ sizeof(ulong) ] __attribute__((aligned(FD_CHUNK_ALIGN)));
+static uchar bls_pubkey_request [ FD_KEYGUARD_SIGN_REQ_MTU ] __attribute__((aligned(FD_CHUNK_ALIGN)));
 static uchar bls_pubkey_response[ 17UL*FD_CHUNK_SZ ] __attribute__((aligned(FD_CHUNK_ALIGN)));
 
 /* Joins client to a signer that has prepublished bls_keys[0,cnt) as its
@@ -557,7 +557,8 @@ test_id_keyswitch( void ) {
   memcpy( bls_keys[1], epoch_info->validators[1].bls_key, sizeof(ag_bls_key_t) );
   init_keys( &ctx, auth_vtr_mem, bls_keys, 1UL ); /* the old identity's key */
   ctx.auth_vtr_path_cnt = 0UL;
-  bls_pubkey_client_init( ctx.keyguard_client, &bls_keys[1], 1UL ); /* the new identity's key, asked on resume */
+  bls_pubkey_client_init( ctx.keyguard_client, bls_keys, 2UL ); /* any bytes sign the old identity's vote history, then the new identity's key, asked on resume */
+  ctx.keyguard_client->response_mtu = FD_CHUNK_SZ;              /* the 64 byte signature */
   ctx.auth_vtr_keyswitch = fd_keyswitch_join( fd_keyswitch_new( av_keyswitch_mem, FD_KEYSWITCH_STATE_UNLOCKED ) );
   ctx.id_keyswitch       = fd_keyswitch_join( fd_keyswitch_new( id_keyswitch_mem, FD_KEYSWITCH_STATE_LOCKED   ) );
   FD_TEST( ctx.auth_vtr_keyswitch && ctx.id_keyswitch );
@@ -641,12 +642,27 @@ test_id_keyswitch( void ) {
   ulong net_sig = fd_disco_netmux_sig( 0U, (ushort)0, 0U, DST_PROTO_VOTOR, FD_NETMUX_SIG_MIN_HDR_SZ );
   FD_TEST( !before_frag( &ctx, 0UL, 0UL, net_sig ) );
 
-  /* A vote signed as the old identity is waiting to go out. */
+  /* The old identity's vote history file */
+
+  char dir[] = "/tmp/test_id_keyswitch_XXXXXX";
+  FD_TEST( mkdtemp( dir ) );
+  ctx.vote_history_dir_fd = open( dir, O_RDONLY|O_DIRECTORY );
+  FD_TEST( -1!=ctx.vote_history_dir_fd );
+  FD_BASE58_ENCODE_32_BYTES( old_id.uc, old_b58 );
+  FD_TEST( fd_cstr_printf_check( ctx.vote_history_name[ 1 ], PATH_MAX, NULL, "vote_history-%s.bin", old_b58 ) );
+  FD_TEST( fd_cstr_printf_check( ctx.vote_history_name[ 0 ], PATH_MAX, NULL, "%s.new", ctx.vote_history_name[ 1 ] ) );
+  for( ulong i=0UL; i<2UL; i++ ) {
+    ctx.vote_history_fd[ i ] = openat( ctx.vote_history_dir_fd, ctx.vote_history_name[ i ], O_WRONLY|O_CREAT, 0644 );
+    FD_TEST( -1!=ctx.vote_history_fd[ i ] );
+  }
+
+  /* A vote signed as the old identity is waiting to go out, and the
+     vote history does not know of it yet. */
 
   ag_block_info_t block = {0};
   memcpy( block.hash, b1.hash, sizeof(ag_block_hash_t) );
   ag_votor_process_replay( ctx.votor, 1UL, &block );
-  FD_TEST( ag_votor_metrics( ctx.votor ).vote_events_cnt==1UL );
+  FD_TEST( ag_votor_metrics( ctx.votor ).vote_events_cnt==1UL && !ctx.vote_history_pending );
 
   memcpy( ctx.id_keyswitch->bytes, new_id.uc, sizeof(fd_pubkey_t) );
   FD_STORE( ulong, ctx.id_keyswitch->bytes+32UL, sizeof(ulong) ); /* the vote history file's wait_to_vote_slot */
@@ -680,6 +696,7 @@ test_id_keyswitch( void ) {
   FD_TEST( ag_votor_poll_vote( ctx.votor, &vote, &reason ) );
   FD_TEST( ag_vote_slot( &vote )==1UL && ag_vote_rank( &vote )==0UL );
   FD_TEST( !ag_votor_metrics( ctx.votor ).vote_events_cnt );
+  ctx.vote_history_pending = ag_vote_slot( &vote ); /* as after_credit does for the vote it sends */
 
   /* The other voters skip slot 1, which the old identity notarized, so
      the pool queues a safe-to-skip decided with the old rank.  Votor
@@ -723,6 +740,21 @@ test_id_keyswitch( void ) {
   FD_TEST( rx_conn->state==FD_QUIC_CONN_STATE_ACTIVE );
   FD_TEST( hs_conn->state==FD_QUIC_CONN_STATE_CLOSE_PENDING && hc_conn->state==FD_QUIC_CONN_STATE_CLOSE_PENDING );
   FD_TEST( before_frag( &ctx, 0UL, 0UL, net_sig ) );
+
+  /* The vote sent after the halt was saved in the old identity's file
+     before the switch. */
+
+  FD_TEST( !ctx.vote_history_pending && ctx.metrics.vote_history_write==1UL && ctx.metrics.vote_history_slot==1UL );
+  uchar head[ AG_VOTE_HISTORY_FILE_DATA_OFF+32UL ];
+  int   head_fd = openat( ctx.vote_history_dir_fd, ctx.vote_history_name[ 1 ], O_RDONLY );
+  FD_TEST( -1!=head_fd && read( head_fd, head, sizeof(head) )==(long)sizeof(head) && !close( head_fd ) );
+  FD_TEST( strstr( ctx.vote_history_name[ 1 ], old_b58 ) && fd_memeq( head+AG_VOTE_HISTORY_FILE_DATA_OFF, old_id.uc, 32UL ) );
+  for( ulong i=0UL; i<2UL; i++ ) {
+    FD_TEST( !unlinkat( ctx.vote_history_dir_fd, ctx.vote_history_name[ i ], 0 ) );
+    FD_TEST( !close( ctx.vote_history_fd[ i ] ) );
+  }
+  FD_TEST( !close( ctx.vote_history_dir_fd ) && !rmdir( dir ) );
+  ctx.vote_history_dir_fd = -1;
 
   /* Epoch and gossip updates still arrive while halted, but must not
      dial before the sign tile has the new key. */
@@ -1390,6 +1422,164 @@ test_park( void ) {
   FD_LOG_NOTICE(( "pass: test_park" ));
 }
 
+static uchar vote_history_request [ FD_KEYGUARD_SIGN_REQ_MTU ] __attribute__((aligned(FD_CHUNK_ALIGN)));
+static uchar vote_history_response[ FD_CHUNK_SZ ]              __attribute__((aligned(FD_CHUNK_ALIGN)));
+
+/* Joins client to a signer that has prepublished cnt zero signatures as
+   its next responses. */
+
+static void
+sign_client_init( fd_keyguard_client_t * client,
+                  ulong                  cnt ) {
+  memset( client, 0, sizeof(fd_keyguard_client_t) );
+  client->request        = fd_mcache_join( fd_mcache_new( bls_pubkey_request_mcache,  128UL, 0UL, 0UL ) );
+  client->response       = fd_mcache_join( fd_mcache_new( bls_pubkey_response_mcache, 128UL, 0UL, 0UL ) );
+  FD_TEST( client->request && client->response );
+  client->request_depth  = 128UL;
+  client->response_depth = 128UL;
+  client->request_mem    = (fd_wksp_t *)vote_history_request;
+  client->response_mem   = (fd_wksp_t *)vote_history_response;
+  client->request_mtu    = sizeof(vote_history_request);
+  client->response_mtu   = 64UL;
+  for( ulong i=0UL; i<cnt; i++ ) fd_mcache_publish( client->response, 128UL, i, FD_KEYGUARD_SIGN_TYPE_ED25519, 0UL, 64UL, 0UL, 0UL, 0UL );
+}
+
+static void
+file_make( int          dir_fd,
+           char const * name,
+           char const * text ) {
+  int fd = openat( dir_fd, name, O_WRONLY|O_CREAT|O_TRUNC, 0644 );
+  FD_TEST( -1!=fd );
+  FD_TEST( (long)strlen( text )==write( fd, text, strlen( text ) ) );
+  FD_TEST( !close( fd ) );
+}
+
+/* file_is returns whether name holds text, or if text is NULL, a vote
+   history file for identity. */
+
+static int
+file_is( int                 dir_fd,
+         char const *        name,
+         char const *        text,
+         fd_pubkey_t const * identity ) {
+  uchar buf[ AG_VOTE_HISTORY_FILE_DATA_OFF+32UL ] = {0};
+  int   fd = openat( dir_fd, name, O_RDONLY );
+  if( -1==fd ) return 0;
+  long n = read( fd, buf, sizeof(buf) );
+  FD_TEST( !close( fd ) );
+  if( text ) return n==(long)strlen( text ) && !memcmp( buf, text, strlen( text ) );
+  return n==(long)sizeof(buf) && FD_LOAD( uint, buf )==AG_VOTE_HISTORY_FILE_KIND && fd_memeq( buf+AG_VOTE_HISTORY_FILE_DATA_OFF, identity->uc, 32UL );
+}
+
+/* vote_history_write writes the votes votor cast, renames the files to
+   a new identity on the first write after a switch, keeps a file that
+   already has the new name under .old, and empties the live file while
+   the history does not fit. */
+
+static void
+test_vote_history_write( void ) {
+  static fd_votor_tile_t ctx;
+  sign_client_init( ctx.keyguard_client, 8UL );
+
+  ag_bls_key_t bls_key[1];
+  fd_bls_sec_t sec[1];
+  fd_bls_pub_t pub[1];
+  build_bls_keys( bls_key, sec, pub, 1UL );
+  ctx.votor = ag_votor_join( ag_votor_new( votor_scratch, 64UL, 42UL ) );
+  ag_votor_init         ( ctx.votor, &(ag_block_id_t){ .slot = 0UL }, 0L, 400000000L, (ushort)1, capture_sign_bls, NULL );
+  ag_votor_advance_epoch( ctx.votor, 400000000L, 0UL, 0UL, bls_key[0] );
+
+  ag_block_info_t block = {0};
+  memset( block.hash, 1, sizeof(ag_block_hash_t) );
+  ag_votor_process_replay( ctx.votor, 1UL, &block );
+  ag_vote_t vote;
+  uchar     reason;
+  FD_TEST( ag_votor_poll_vote( ctx.votor, &vote, &reason ) && vote.kind==AG_VOTE_KIND_NOTAR );
+
+  char dir[] = "/tmp/test_vote_history_write_XXXXXX";
+  FD_TEST( mkdtemp( dir ) );
+  int dir_fd = open( dir, O_RDONLY|O_DIRECTORY );
+  FD_TEST( -1!=dir_fd );
+  ctx.vote_history_dir_fd = dir_fd;
+
+  /* identities U and A */
+
+  fd_pubkey_t id[ 2 ];
+  char        name[ 2 ][ 2 ][ PATH_MAX ];
+  char        old[ PATH_MAX ];
+  for( ulong i=0UL; i<2UL; i++ ) {
+    memset( id[ i ].uc, (int)(0x11UL*(i+1UL)), 32UL );
+    FD_BASE58_ENCODE_32_BYTES( id[ i ].uc, b58 );
+    FD_TEST( fd_cstr_printf_check( name[ i ][ 1 ], PATH_MAX, NULL, "vote_history-%s.bin", b58 ) );
+    FD_TEST( fd_cstr_printf_check( name[ i ][ 0 ], PATH_MAX, NULL, "%s.new", name[ i ][ 1 ] ) );
+  }
+  FD_TEST( fd_cstr_printf_check( old, PATH_MAX, NULL, "%s.old", name[ 1 ][ 1 ] ) );
+
+  ctx.id_key = id[ 0 ];
+  memcpy( ctx.vote_history_name, name[ 0 ], sizeof(name[ 0 ]) );
+  for( ulong i=0UL; i<2UL; i++ ) {
+    ctx.vote_history_fd[ i ] = openat( dir_fd, ctx.vote_history_name[ i ], O_WRONLY|O_CREAT, 0644 );
+    FD_TEST( -1!=ctx.vote_history_fd[ i ] );
+  }
+
+  /* the first write as U, whose first bytes look like a txn message
+     header */
+
+  ctx.vote_history_pending = 1UL;
+  vote_history_write( &ctx );
+  FD_TEST( file_is( dir_fd, name[ 0 ][ 1 ], NULL, &id[ 0 ] ) );
+  FD_TEST( !ctx.vote_history_pending && ctx.metrics.vote_history_write==1UL && ctx.metrics.vote_history_slot==1UL );
+
+  /* switching to A, whose name has the vote history file passed to
+     set-identity, keeps that file under an .old name */
+
+  file_make( dir_fd, name[ 1 ][ 1 ], "copy" );
+  ctx.id_key               = id[ 1 ];
+  ctx.vote_history_pending = 1UL;
+  vote_history_write( &ctx );
+  FD_TEST( file_is( dir_fd, name[ 1 ][ 1 ], NULL,   &id[ 1 ] ) );
+  FD_TEST( file_is( dir_fd, name[ 1 ][ 0 ], NULL,   &id[ 0 ] ) );
+  FD_TEST( file_is( dir_fd, old,            "copy", NULL     ) );
+  FD_TEST( -1==faccessat( dir_fd, name[ 0 ][ 0 ], F_OK, 0 ) && -1==faccessat( dir_fd, name[ 0 ][ 1 ], F_OK, 0 ) );
+
+  /* a skip or notar and 7 notar fallbacks in each slot do not fit, so
+     the live file is emptied, once */
+
+  for( ulong slot=1UL; slot<64UL; slot++ ) {
+    for( ulong i=0UL; i<AG_EQVOC_BLOCK_HASH_MAX; i++ ) {
+      ag_pool_event_t event = { .kind = AG_POOL_EVENT_SAFE_TO_NOTAR, .safe_to_notar = { .slot = slot } };
+      memset( event.safe_to_notar.hash, (int)( i+2UL ), sizeof(ag_block_hash_t) );
+      ag_votor_handle_pool_event( ctx.votor, &event, 0L );
+      while( ag_votor_poll_vote( ctx.votor, &vote, &reason ) );
+    }
+  }
+  for( ulong i=0UL; i<2UL; i++ ) {
+    ctx.vote_history_pending = 2UL;
+    vote_history_write( &ctx );
+    FD_TEST( file_is( dir_fd, name[ 1 ][ 1 ], "", NULL ) );
+    FD_TEST( ctx.vote_history_empty && ctx.metrics.vote_history_too_large==i+1UL && ctx.metrics.vote_history_write==2UL );
+    FD_TEST( ctx.metrics.vote_history_slot==ULONG_MAX && !ctx.metrics.vote_history_sz );
+  }
+
+  /* and written again once the history fits */
+
+  ctx.votor = ag_votor_join( ag_votor_new( votor_scratch, 64UL, 42UL ) );
+  ag_votor_init( ctx.votor, &(ag_block_id_t){ .slot = 0UL }, 0L, 400000000L, (ushort)1, capture_sign_bls, NULL );
+  ctx.vote_history_pending = 3UL;
+  vote_history_write( &ctx );
+  FD_TEST( file_is( dir_fd, name[ 1 ][ 1 ], NULL, &id[ 1 ] ) );
+  FD_TEST( !ctx.vote_history_empty && ctx.metrics.vote_history_write==3UL && ctx.metrics.vote_history_slot==3UL );
+
+  char const * files[] = { name[ 1 ][ 0 ], name[ 1 ][ 1 ], old };
+  for( ulong i=0UL; i<3UL; i++ ) FD_TEST( !unlinkat( dir_fd, files[ i ], 0 ) );
+  for( ulong i=0UL; i<2UL; i++ ) FD_TEST( !close( ctx.vote_history_fd[ i ] ) );
+  FD_TEST( !close( dir_fd ) );
+  FD_TEST( !rmdir( dir ) );
+  ag_votor_delete( ag_votor_leave( ctx.votor ) );
+
+  FD_LOG_NOTICE(( "pass: test_vote_history_write" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -1416,6 +1606,7 @@ main( int     argc,
   test_reconnect();
   test_conn_ahead();
   test_park();
+  test_vote_history_write();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
