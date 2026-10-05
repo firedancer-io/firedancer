@@ -41,7 +41,7 @@ ag_vote_de( ag_vote_t *   self,
   uint kind = (uint)vote.tag - AG_VOTE_SERDE_TAG_NOTAR;
 
   int has_block_id = kind==AG_VOTE_KIND_NOTAR || kind==AG_VOTE_KIND_NOTAR_FALLBACK;
-  FAIL( buf_sz!=AG_VOTE_SER_SZ( has_block_id ), SZ ); /* too few, or trailing bytes */
+  FAIL( buf_sz<AG_VOTE_SER_SZ( has_block_id ), SZ ); /* too few, trailing bytes are ignored */
 
   vote.slot          = FD_LOAD( ulong, buf+off );  off += sizeof(ulong);
   vote.block_id      = NULL;

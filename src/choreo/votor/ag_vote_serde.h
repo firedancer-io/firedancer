@@ -4,7 +4,7 @@
 #include "ag_vote.h"
 
 #define AG_VOTE_DE_SUCCESS   ( 0)
-#define AG_VOTE_DE_ERR_SZ    (-1) /* Io(ReadSizeLimit), TrailingBytes, PreallocationSizeLimit, LengthEncodingOverflow */
+#define AG_VOTE_DE_ERR_SZ    (-1) /* Io(ReadSizeLimit), PreallocationSizeLimit, LengthEncodingOverflow                */
 #define AG_VOTE_DE_ERR_INVAL (-2) /* InvalidTagEncoding, InvalidValue                                                 */
 
 #define AG_VOTE_SERDE_TAG_NOTAR          (1)  /* WireConsensusMessageKind::NotarVote          #[wincode(tag = 1)] */

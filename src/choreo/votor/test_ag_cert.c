@@ -569,7 +569,7 @@ check_cert_wire( char const *         name,
   FD_TEST( !memcmp( again, buf, sz ) );
 
   FD_TEST( ag_cert_de( &rt, &de_bit_cnt, buf, sz-1UL )==AG_CERT_DE_ERR_SZ ); /* too few  */
-  FD_TEST( ag_cert_de( &rt, &de_bit_cnt, buf, sz+1UL )==AG_CERT_DE_ERR_SZ ); /* trailing */
+  FD_TEST( ag_cert_de( &rt, &de_bit_cnt, buf, sz+1UL )==AG_CERT_DE_SUCCESS ); /* trailing */
 }
 
 static void

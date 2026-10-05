@@ -104,7 +104,7 @@ ag_cert_de( ag_cert_t *   self,
   FD_TEST( off==hdr_sz );
 
   ulong rem = buf_sz - hdr_sz;
-  FAIL( cert.bitmap_sz>rem || rem-cert.bitmap_sz!=sizeof(ushort), SZ ); /* too few, or trailing bytes */
+  FAIL( cert.bitmap_sz>rem || rem-cert.bitmap_sz<sizeof(ushort), SZ ); /* too few, trailing bytes are ignored */
 
   cert.shred_version = FD_LOAD( ushort, cert.bitmap+cert.bitmap_sz );
 
