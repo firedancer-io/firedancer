@@ -1492,9 +1492,9 @@ test_consensus_root_notification_handoff( fd_wksp_t * wksp ) {
   ctx->reasm = fd_reasm_join( fd_reasm_new( reasm_mem, 2UL, 0UL ) );
   FD_TEST( ctx->reasm );
 
-  void * store_mem = fd_wksp_alloc_laddr( wksp, fd_store_align(), fd_store_footprint( 2UL, 1UL, 0UL, 0UL, 0UL, 0 ), 1UL );
+  void * store_mem = fd_wksp_alloc_laddr( wksp, fd_store_align(), fd_store_footprint( 2UL, 1UL, 0UL, 0UL, 0UL, 0, 0UL ), 1UL );
   FD_TEST( store_mem );
-  ctx->store = fd_store_join( fd_store_new( store_mem, 2UL, 1UL, 0UL, 0UL, 0UL, FD_SHRED_BLK_MAX, 0UL, 0 ) );
+  ctx->store = fd_store_join( fd_store_new( store_mem, 2UL, 1UL, 0UL, 0UL, 0UL, FD_SHRED_BLK_MAX, 0UL, 0, 0UL ) );
   FD_TEST( ctx->store );
   FD_TEST( fd_store_map_ljoin( ctx->store, ctx->map_join ) );
   ctx->store_disk_fd = -1;
@@ -1646,6 +1646,12 @@ setup_rooting_ctx( fd_replay_tile_t * ctx,
   setup_stem( ctx, wksp );
   setup_votor_input( ctx, wksp );
   ctx->alpenglow = 1;
+
+  void * store_mem = fd_wksp_alloc_laddr( wksp, fd_store_align(), fd_store_footprint( 2UL, 1UL, 0UL, 0UL, 0UL, 0, 0UL ), 1UL );
+  FD_TEST( store_mem );
+  ctx->store = fd_store_join( fd_store_new( store_mem, 2UL, 1UL, 0UL, 0UL, 0UL, FD_SHRED_BLK_MAX, 0UL, 0, 0UL ) );
+  FD_TEST( ctx->store );
+  FD_TEST( fd_store_map_ljoin( ctx->store, ctx->map_join ) );
 
   ulong const bank_cnt = 8UL;
   void * banks_mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( bank_cnt, bank_cnt, 8UL, 8UL ), 1UL );

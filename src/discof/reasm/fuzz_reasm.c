@@ -142,7 +142,7 @@ LLVMFuzzerInitialize( int  *   argc,
   fuzz_reasm_mem = fd_wksp_alloc_laddr( fuzz_wksp, fd_reasm_align(), fd_reasm_footprint( FUZZ_FEC_MAX ), 1UL );
   FD_TEST( fuzz_reasm_mem );
   fuzz_store_mem = fd_wksp_alloc_laddr( fuzz_wksp, fd_store_align(),
-      fd_store_footprint( FUZZ_STORE_FEC_MAX, 1UL, 0UL, 1UL, 0UL, 0 ), 1UL );
+      fd_store_footprint( FUZZ_STORE_FEC_MAX, 1UL, 0UL, 1UL, 0UL, 0, 0UL ), 1UL );
   FD_TEST( fuzz_store_mem );
   atexit( fuzz_fini );
   return 0;
@@ -359,7 +359,7 @@ fuzz_insert( fuzz_cursor_t * cur,
   fd_reasm_fec_t * parent = fd_reasm_query( reasm, node->cmr );
 
   fd_store_fec_t * store_fec;
-  FD_TEST( !fd_store_insert( fuzz_store, fuzz_store_map, node->key, &store_fec ) && store_fec );
+  FD_TEST( !fd_store_insert( fuzz_store, fuzz_store_map, node->key, 0UL, 0UL, &store_fec ) && store_fec );
 
   fd_reasm_fec_t * evicted = NULL;
   fd_reasm_fec_t * inserted = fd_reasm_insert( reasm,
@@ -494,7 +494,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
   fd_reasm_t * reasm = fd_reasm_join( fd_reasm_new( fuzz_reasm_mem, FUZZ_FEC_MAX, fuzz_bounded( &cur, 1024UL ) ) );
   FD_TEST( reasm );
   fuzz_store = fd_store_join( fd_store_new( fuzz_store_mem, FUZZ_STORE_FEC_MAX, 1UL, 0UL, 1UL, 0UL, FD_SHRED_BLK_MAX,
-                                            fuzz_bounded( &cur, 1024UL ), 0 ) );
+                                            fuzz_bounded( &cur, 1024UL ), 0, 0UL ) );
   FD_TEST( fuzz_store );
   FD_TEST( fd_store_map_ljoin( fuzz_store, fuzz_store_map ) );
   FD_TEST( fd_reasm_init( reasm, root_key, 0UL ) );

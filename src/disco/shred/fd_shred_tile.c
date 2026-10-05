@@ -1081,7 +1081,7 @@ complete_fec_set( fd_shred_ctx_t *         ctx,
     fd_hash_t const * mr = fd_type_pun_const( merkle_root );
 
     fd_store_fec_t * fec;
-    int insert_err = fd_store_insert( ctx->store, ctx->map_join, mr, &fec );
+    int insert_err = fd_store_insert( ctx->store, ctx->map_join, mr, last->slot, ctx->round_robin_id, &fec );
     if( FD_UNLIKELY( insert_err==FD_MAP_ERR_KEY ) ) {
       replay_fwd = 0;
     } else {

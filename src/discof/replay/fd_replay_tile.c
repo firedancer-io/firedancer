@@ -1990,6 +1990,11 @@ publish_root_advanced( fd_replay_tile_t *  ctx,
   msg->bank_seq  = bank->bank_seq;
 
   publish_replay_out( ctx, stem, REPLAY_SIG_ROOT_ADVANCED, sizeof(fd_replay_root_advanced_t) );
+
+  /* Under Alpenglow there is no reasm to prune the store, so drop every
+     FEC set below the new root here. */
+
+  if( FD_UNLIKELY( ctx->alpenglow ) ) fd_store_publish( ctx->store, ctx->map_join, bank->f.slot );
 }
 
 /* Determine the default slot params to use for slots where no
@@ -2419,9 +2424,10 @@ process_poh_message( fd_replay_tile_t *                 ctx,
 static void
 store_xinsert( fd_store_t     * store,
                fd_store_map_t * map_join,
-               fd_hash_t const * merkle_root ) {
+               fd_hash_t const * merkle_root,
+               ulong             slot ) {
   fd_store_fec_t * fec;
-  FD_TEST( !fd_store_insert( store, map_join, merkle_root, &fec ) && fec );
+  FD_TEST( !fd_store_insert( store, map_join, merkle_root, slot, store->shred_tile_cnt, &fec ) && fec );
 }
 
 static void
@@ -2514,7 +2520,7 @@ boot_genesis( fd_replay_tile_t *        ctx,
   fd_reasm_fec_t * fec       = fd_reasm_init( ctx->reasm, &initial_block_id, 0 /* genesis slot */ );
   fec->bank_idx              = (uint)bank->idx;
   fec->bank_seq              = bank->bank_seq;
-  store_xinsert( ctx->store, ctx->map_join, &initial_block_id );
+  store_xinsert( ctx->store, ctx->map_join, &initial_block_id, 0UL );
 
   fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ 0 ];
   block_id_ele->latest_mr = initial_block_id;
@@ -2707,7 +2713,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
       fec->bank_idx        = (uint)bank->idx;
       fec->bank_seq        = bank->bank_seq;
     }
-    store_xinsert( ctx->store, ctx->map_join, &manifest_block_id );
+    store_xinsert( ctx->store, ctx->map_join, &manifest_block_id, snapshot_slot );
 
     long now = fd_log_wallclock();
     FD_LOG_INFO(( "replay ready at slot %lu (%.3f s after snapshot done, %.3f s since boot)",
