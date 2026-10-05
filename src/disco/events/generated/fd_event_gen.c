@@ -171,6 +171,8 @@ fd_event_accdb_partition_added_serialize( fd_circq_t *                          
   if( msg->new_partition_max ) ok &= !!fd_pb_push_uint64( encoder, 5U, (ulong)msg->new_partition_max );
   if( msg->partition_sz ) ok &= !!fd_pb_push_uint64( encoder, 6U, (ulong)msg->partition_sz );
   if( msg->disk_allocated_bytes ) ok &= !!fd_pb_push_uint64( encoder, 7U, (ulong)msg->disk_allocated_bytes );
+  if( msg->duration_fallocate_nanos ) ok &= !!fd_pb_push_uint64( encoder, 8U, (ulong)msg->duration_fallocate_nanos );
+  if( msg->preallocated ) ok &= !!fd_pb_push_bool  ( encoder, 9U, msg->preallocated );
   ok &= !!fd_pb_submsg_close( encoder );
   ok &= !!fd_pb_submsg_close( encoder );
   FD_TEST( ok );

@@ -966,6 +966,10 @@ message AccdbPartitionAdded {
   uint64 partition_sz = 6;
   // Total fallocated size of the accounts database file in bytes after this grow, equal to new_partition_max times partition_sz. Tracks the database's on-disk footprint over time.
   uint64 disk_allocated_bytes = 7;
+  // Wall time the fallocate call that grew the file by this partition took, in nanoseconds. Slow filesystems can take seconds.
+  uint64 duration_fallocate_nanos = 8;
+  // True if the accdb tile grew the file ahead of any write head so a later rotation does not wait on fallocate. layer is then 0 and prior_partition_idx is UINT64_MAX, and neither names a triggering write head.
+  bool preallocated = 9;
 }
 
 // Two different blocks (different block ids) were observed for the same slot. Emitted once when the validator first detects the equivocation, after both blocks are known.

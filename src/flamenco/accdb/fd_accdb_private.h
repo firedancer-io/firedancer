@@ -371,6 +371,7 @@ packed_partition_file_offset( accdb_offset_t const * offset,
 
 struct fd_accdb_shmem_private {
   int partition_lock  __attribute__((aligned(64)));
+  int grow_lock       __attribute__((aligned(64)));
 
   /* Set non-zero by the snapin tile while a snapshot is being loaded.
      Suppresses compaction enqueue so the compaction tile does not race
@@ -470,7 +471,8 @@ struct fd_accdb_shmem_private {
 
   ulong partition_cnt;
   ulong partition_sz;
-  ulong partition_max;
+  ulong partition_max;         /* acquired high water, for snapshot recovery */
+  ulong partition_fallocated;  /* partitions backed by the file, can run ahead */
 
   ulong chain_cnt;
   ulong max_live_slots;

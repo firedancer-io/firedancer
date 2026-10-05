@@ -83,19 +83,21 @@ typedef struct fd_event_accdb_compaction_completed fd_event_accdb_compaction_com
 
 /* The accounts database grew its backing file by one partition. The accounts DB is a single file divided into fixed-size partitions; when a write head runs off the end of the allocated file, a new partition is fallocated and the file grows. Emitted once per grow by the accdb tile. Partitions are large (e.g. 32 GiB) so grows are infrequent and each one is a meaningful step in the database's on-disk footprint. */
 struct fd_event_accdb_partition_added {
-  ulong partition_idx;        /* Index of the newly allocated partition. Equals old_partition_max, i.e. it is appended at the end of the previously allocated range. */
-  ulong prior_partition_idx;  /* Index of the partition the write head rotated off of to trigger this grow, i.e. the partition that just filled up. UINT64_MAX when there was no prior write head (the very first partition allocated on this layer). */
-  uchar layer;                /* Storage tier whose write head triggered the grow. Layer 0 is the hot tier fed by live execution writes; higher layers are colder compaction-destination tiers. A layer-0 grow means live ingest outran reclamation; a higher-layer grow means compaction is staging more cold data. */
-  ulong old_partition_max;    /* Number of allocated partitions before this grow. */
-  ulong new_partition_max;    /* Number of allocated partitions after this grow, always old_partition_max+1. */
-  ulong partition_sz;         /* Size of a single partition in bytes; the increment by which the backing file grows. */
-  ulong disk_allocated_bytes; /* Total fallocated size of the accounts database file in bytes after this grow, equal to new_partition_max times partition_sz. Tracks the database's on-disk footprint over time. */
+  ulong partition_idx;            /* Index of the newly allocated partition. Equals old_partition_max, i.e. it is appended at the end of the previously allocated range. */
+  ulong prior_partition_idx;      /* Index of the partition the write head rotated off of to trigger this grow, i.e. the partition that just filled up. UINT64_MAX when there was no prior write head (the very first partition allocated on this layer). */
+  uchar layer;                    /* Storage tier whose write head triggered the grow. Layer 0 is the hot tier fed by live execution writes; higher layers are colder compaction-destination tiers. A layer-0 grow means live ingest outran reclamation; a higher-layer grow means compaction is staging more cold data. */
+  ulong old_partition_max;        /* Number of allocated partitions before this grow. */
+  ulong new_partition_max;        /* Number of allocated partitions after this grow, always old_partition_max+1. */
+  ulong partition_sz;             /* Size of a single partition in bytes; the increment by which the backing file grows. */
+  ulong disk_allocated_bytes;     /* Total fallocated size of the accounts database file in bytes after this grow, equal to new_partition_max times partition_sz. Tracks the database's on-disk footprint over time. */
+  ulong duration_fallocate_nanos; /* Wall time the fallocate call that grew the file by this partition took, in nanoseconds. Slow filesystems can take seconds. */
+  int   preallocated;             /* True if the accdb tile grew the file ahead of any write head so a later rotation does not wait on fallocate. layer is then 0 and prior_partition_idx is UINT64_MAX, and neither names a triggering write head. */
 };
 typedef struct fd_event_accdb_partition_added fd_event_accdb_partition_added_t;
 
 /* Worst-case encoded size of a accdb_partition_added event (envelope + Event
    submsg + inner submsg + all fields, padded for encoder slack). */
-#define FD_EVENT_ACCDB_PARTITION_ADDED_BUF_MAX (212UL)
+#define FD_EVENT_ACCDB_PARTITION_ADDED_BUF_MAX (233UL)
 
 /* How the equivocation was detected. */
 #define FD_EVENT_BLOCK_EQUIVOCATED_DETECTION_DUPLICATE_REPLAY (1) /* A second, different block for the slot finished replaying locally. */
