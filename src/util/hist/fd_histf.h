@@ -142,13 +142,13 @@ fd_histf_sample( fd_histf_t * hist,
   /* !(x-2^63 < left_edge[i]) & (x-2^63 < left_edge[i+1])  <=>
      left_edge[i] <= x-2^63 < left_edge[i+1].  Vector compares yield
      0/-1 lanes. */
+  fd_histf_v4l_t const overflow_mask = { 0L, 0L, 0L, -1L };
   fd_histf_v4l_t select0 = ~( x < *(fd_histf_v4l_t   const *)(hist->left_edge      ) )
                           & ( x < *(fd_histf_v4l_u_t const *)(hist->left_edge+ 1UL ) );
   fd_histf_v4l_t select1 = ~( x < *(fd_histf_v4l_t   const *)(hist->left_edge+ 4UL ) )
                           & ( x < *(fd_histf_v4l_u_t const *)(hist->left_edge+ 5UL ) );
   fd_histf_v4l_t select2 = ~( x < *(fd_histf_v4l_t   const *)(hist->left_edge+ 8UL ) )
                           & ( x < *(fd_histf_v4l_u_t const *)(hist->left_edge+ 9UL ) );
-  fd_histf_v4l_t overflow_mask = { 0L, 0L, 0L, -1L };
   fd_histf_v4l_t select3 = ~( x < *(fd_histf_v4l_t   const *)(hist->left_edge+12UL ) )
                           & ( ( x < *(fd_histf_v4l_u_t const *)(hist->left_edge+13UL ) ) | overflow_mask );
   /* In exactly one of these, we have a -1 (aka ULONG_MAX).  We'll
@@ -158,8 +158,8 @@ fd_histf_sample( fd_histf_t * hist,
   *(fd_histf_v4l_t *)(hist->counts+ 8UL ) -= select2;
   *(fd_histf_v4l_t *)(hist->counts+12UL ) -= select3;
 #else
-  for( ulong i=0UL; i<FD_HISTF_BUCKET_CNT-1UL; i++ ) hist->counts[ i ] += (ulong)( (hist->left_edge[ i ] <= shifted_v) & (shifted_v < hist->left_edge[ i+1UL ]) );
-  hist->counts[ FD_HISTF_BUCKET_CNT-1UL ] += (ulong)( hist->left_edge[ FD_HISTF_BUCKET_CNT-1UL ] <= shifted_v );
+  for( ulong i=0UL; i<FD_HISTF_BUCKET_CNT; i++ ) hist->counts[ i ] += (ulong)( (hist->left_edge[ i ] <= shifted_v) & (shifted_v < hist->left_edge[ i+1UL ]) );
+  hist->counts[ FD_HISTF_BUCKET_CNT-1UL ] += (ulong)(shifted_v == LONG_MAX);
 #endif
 }
 
