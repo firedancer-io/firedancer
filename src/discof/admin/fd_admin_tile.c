@@ -206,7 +206,9 @@ unprivileged_init( fd_topo_t const *      topo,
 /* State 7: TXSEND_FLUSHED
      TxSend has processed all Tower messages through the halt sequence,
      switched its identity key, and stopped receiving Net fragments that
-     could invoke QUIC signing callbacks. */
+     could invoke QUIC signing callbacks.  TxSend also reported the
+     sequence after its final txsend_out vote, which carries the old
+     identity. */
 #define FD_SET_IDENTITY_STATE_TXSEND_FLUSHED           (7UL)
 
 /* State 8: SIGNERS_HALT_REQUESTED
@@ -226,7 +228,9 @@ unprivileged_init( fd_topo_t const *      topo,
            sign tile before halting any new signing requests.
        (b) Gossip.  The gossip tile sends out ContactInfo messages with
            our identity key, and also uses the identity key to sign
-           outgoing gossip messages.
+           outgoing gossip messages.  Gossip first pushes the TxSend
+           votes through the sequence TxSend reported, since the sign
+           tile only signs them under the old key.
        (c) Bundle.  The bundle tile uses the identity key to sign an
            authentication challenge from the bundle server.
        (d) Rserve.  The rserve tile uses the identity key to sign
@@ -400,6 +404,7 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
       break;
     }
     case FD_SET_IDENTITY_STATE_TXSEND_FLUSHED: {
+      ulong txsend_flushed_seq = find_identity_keyswitch( ctx, "txsend" )->result;
       for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
         fd_topo_tile_t const * tile = &topo->tiles[ i ];
         if( FD_LIKELY( tile->id_keyswitch_obj_id==ULONG_MAX ) ) continue;
@@ -411,7 +416,7 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
         }
 
         fd_keyswitch_t * tile_ks = fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id );
-        if( !strcmp( tile->name, "gossip" ) ) tile_ks->param = identity_outset;
+        if( !strcmp( tile->name, "gossip" ) ) tile_ks->param = txsend_flushed_seq;
         memcpy( tile_ks->bytes, keypair+32UL, 32UL );
         FD_COMPILER_MFENCE();
         tile_ks->state = FD_KEYSWITCH_STATE_SWITCH_PENDING;
@@ -535,6 +540,7 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
         }
 
         fd_keyswitch_t * tile_ks = fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id );
+        if( !strcmp( tile->name, "gossip" ) ) tile_ks->param = identity_outset;
         FD_COMPILER_MFENCE();
         tile_ks->state = FD_KEYSWITCH_STATE_UNHALT_PENDING;
         FD_COMPILER_MFENCE();
