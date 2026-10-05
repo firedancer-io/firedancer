@@ -107,17 +107,39 @@ ENCODE_FN {
     break;
   }
   case STATE_VOTE_ACCOUNTS: {
-    PUSH_VAL( ulong, 0UL ); /* zero vote_accounts */
-    PUSH_VAL( ulong, 0UL ); /* zero stake delegations */
-    PUSH_VAL( ulong, 0UL ); /* unused */
-    PUSH_VAL( ulong, bank->f.epoch );
-    enc->state = STATE_STAKE_HISTORY;
+    /* stakes.vote_accounts: HashMap<vote, (stake, account)> */
+    PUSH_VAL( ulong, enc->vote_account_cnt );
+    enc->vote_account_idx = 0UL;
+    enc->state = enc->vote_account_cnt ? STATE_VOTE_ACCOUNT_ENTRIES : STATE_STAKE_DELEGATIONS;
     break;
   }
-  case STATE_STAKE_DELEGATION: { FD_LOG_ERR(( "TODO")); }
-  case STATE_STAKE_EPOCH: { FD_LOG_ERR(( "TODO")); }
+  case STATE_VOTE_ACCOUNT_ENTRIES: {
+    ulong end = fd_ulong_min( enc->vote_account_idx+FD_SSMANIFEST_VOTE_ACCOUNTS_PER_CHUNK, enc->vote_account_cnt );
+    for( ; enc->vote_account_idx<end; enc->vote_account_idx++ ) {
+      PUSH_VOTE_ACCOUNT( &enc->vote_account[ enc->vote_account_idx ] );
+    }
+    if( enc->vote_account_idx>=enc->vote_account_cnt ) enc->state = STATE_STAKE_DELEGATIONS;
+    break;
+  }
+  case STATE_STAKE_DELEGATIONS: {
+    /* stakes.stake_delegations: HashMap<stake, delegation> */
+    PUSH_VAL( ulong, enc->stake_delegation_cnt );
+    enc->stake_delegation_idx = 0UL;
+    enc->state = enc->stake_delegation_cnt ? STATE_STAKE_DELEGATION_ENTRIES : STATE_STAKE_HISTORY;
+    break;
+  }
+  case STATE_STAKE_DELEGATION_ENTRIES: {
+    ulong n = fd_ulong_min( FD_SSMANIFEST_STAKE_DELEGATIONS_PER_CHUNK, enc->stake_delegation_cnt-enc->stake_delegation_idx );
+    PUSH_STAKE_DELEGATIONS( n );
+    enc->stake_delegation_idx += n;
+    if( enc->stake_delegation_idx>=enc->stake_delegation_cnt ) enc->state = STATE_STAKE_HISTORY;
+    break;
+  }
   case STATE_STAKE_HISTORY: {
-    PUSH_VAL( ulong, 0UL ); /* zero stake history entries */
+    PUSH_VAL( ulong, 0UL ); /* unused */
+    PUSH_VAL( ulong, bank->f.epoch );
+    PUSH_VAL( ulong, enc->stake_history.len );
+    PUSH_BYTES( enc->stake_history.entries, enc->stake_history.len*sizeof(fd_stake_history_entry_t) );
     enc->state = STATE_BANK_TRAILER;
     break;
   }
@@ -363,4 +385,7 @@ ENCODE_FN {
 #undef PREP
 #undef ENCODE_FN
 #undef PUSH_VAL
+#undef PUSH_BYTES
+#undef PUSH_VOTE_ACCOUNT
+#undef PUSH_STAKE_DELEGATIONS
 #undef RET_EXPR

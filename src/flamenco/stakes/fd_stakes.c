@@ -388,16 +388,6 @@ fd_delegation_is_inactive( fd_delegation_t const *    delegation,
   return !status.effective && !status.activating;
 }
 
-static fd_delegation_t
-fd_delegation_from_stake_delegation( fd_stake_delegation_t const * delegation ) {
-  return (fd_delegation_t) {
-    .voter_pubkey       = delegation->vote_account,
-    .stake              = delegation->stake,
-    .deactivation_epoch = delegation->deactivation_epoch==USHORT_MAX ? ULONG_MAX : delegation->deactivation_epoch,
-    .activation_epoch   = delegation->activation_epoch==USHORT_MAX ? ULONG_MAX : delegation->activation_epoch,
-  };
-}
-
 /**********************************************************************/
 /* Public API                                                         */
 /**********************************************************************/
