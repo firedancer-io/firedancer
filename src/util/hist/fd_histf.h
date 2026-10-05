@@ -150,7 +150,7 @@ fd_histf_sample( fd_histf_t * hist,
   fd_histf_v4l_t select2 = ~( x < *(fd_histf_v4l_t   const *)(hist->left_edge+ 8UL ) )
                           & ( x < *(fd_histf_v4l_u_t const *)(hist->left_edge+ 9UL ) );
   fd_histf_v4l_t select3 = ~( x < *(fd_histf_v4l_t   const *)(hist->left_edge+12UL ) )
-                          & ( ( x < *(fd_histf_v4l_u_t const *)(hist->left_edge+13UL ) ) | overflow_mask );
+                          & ((x < *(fd_histf_v4l_u_t const *)(hist->left_edge+13UL )) | overflow_mask );
   /* In exactly one of these, we have a -1 (aka ULONG_MAX).  We'll
      subtract that from the counts, effectively adding 1. */
   *(fd_histf_v4l_t *)(hist->counts      ) -= select0;
