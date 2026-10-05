@@ -1,4 +1,4 @@
-#include "fd_config_auto.c" /* fd_auto_net is static */
+#include "fd_auto_net.c" /* fd_auto_net_apply is static */
 
 /* Test the auto config resolution policy with hand built system
    info.  The scrape functions (uname, sysfs, bonding) are not
@@ -37,27 +37,27 @@ main( int     argc,
                            .has_mlx5_rdma_port=1, .has_uverbs=1 };
 
   reset_provider_auto( 1U );
-  fd_auto_net( config, &info1 );
+  fd_auto_net_apply( config, &info1 );
   FD_TEST( 0==strcmp( config->net.provider, "mlx5" ) );
 
   reset_provider_auto( 3U );
-  fd_auto_net( config, &info1 );
+  fd_auto_net_apply( config, &info1 );
   FD_TEST( 0==strcmp( config->net.provider, "xdp" ) );
 
   reset_provider_auto( 1U );
   fd_auto_info_t info_old_mlx5 = { .linux_major=5, .linux_minor=13, .driver="mlx5_core" };
-  fd_auto_net( config, &info_old_mlx5 );
+  fd_auto_net_apply( config, &info_old_mlx5 );
   FD_TEST( 0==strcmp( config->net.provider, "xdp" ) );
 
   reset_provider_auto( 1U );
   fd_auto_info_t info_i40e = { .linux_major=7, .linux_minor=0, .driver="i40e" };
-  fd_auto_net( config, &info_i40e );
+  fd_auto_net_apply( config, &info_i40e );
   FD_TEST( 0==strcmp( config->net.provider, "xdp" ) );
 
   reset_provider_auto( 1U );
   fd_auto_info_t info_no_rdma = info1;
   info_no_rdma.has_mlx5_rdma_port = 0;
-  fd_auto_net( config, &info_no_rdma );
+  fd_auto_net_apply( config, &info_no_rdma );
   FD_TEST( 0==strcmp( config->net.provider, "xdp" ) );
 
   /* Auto falls back to XDP when uverbs is unavailable and its module
@@ -66,30 +66,30 @@ main( int     argc,
   reset_provider_auto( 1U );
   fd_auto_info_t info_no_uverbs = info1;
   info_no_uverbs.has_uverbs = 0;
-  fd_auto_net( config, &info_no_uverbs );
+  fd_auto_net_apply( config, &info_no_uverbs );
   FD_TEST( 0==strcmp( config->net.provider, "xdp" ) );
 
   reset_provider_auto( 1U );
   fd_auto_info_t info_uverbs_module = info_no_uverbs;
   info_uverbs_module.has_uverbs_module = 1;
-  fd_auto_net( config, &info_uverbs_module );
+  fd_auto_net_apply( config, &info_uverbs_module );
   FD_TEST( 0==strcmp( config->net.provider, "mlx5" ) );
 
   /* Explicit providers bypass automatic provider requirements. */
 
   reset_auto( 1U );
-  fd_auto_net( config, &info1 );
+  fd_auto_net_apply( config, &info1 );
   FD_TEST( 0==strcmp( config->net.provider, "xdp" ) );
 
   reset_auto( 3U );
   strcpy( config->net.provider, "mlx5" );
-  fd_auto_net( config, &info_i40e );
+  fd_auto_net_apply( config, &info_i40e );
   FD_TEST( 0==strcmp( config->net.provider, "mlx5" ) );
 
   /* Supported NIC on a recent kernel */
 
   reset_auto( 1U );
-  fd_auto_net( config, &info1 );
+  fd_auto_net_apply( config, &info1 );
   FD_TEST( 0==strcmp( config->net.xdp.xdp_mode,  "drv"      ) );
   FD_TEST( 0==strcmp( config->net.xdp.poll_mode, "prefbusy" ) );
   FD_TEST( 0==strcmp( config->net.xdp.rss_queue_mode, "auto" ) );
@@ -101,7 +101,7 @@ main( int     argc,
 
   reset_auto( 1U );
   fd_auto_info_t info2 = { .linux_major=7, .linux_minor=0, .driver="ixgbe" };
-  fd_auto_net( config, &info2 );
+  fd_auto_net_apply( config, &info2 );
   FD_TEST( 0==strcmp( config->net.xdp.xdp_mode,  "skb"     ) );
   FD_TEST( 0==strcmp( config->net.xdp.poll_mode, "softirq" ) );
   FD_TEST( 0==strcmp( config->net.xdp.rss_queue_mode, "auto" ) );
@@ -115,14 +115,14 @@ main( int     argc,
   reset_auto( 1U );
   fd_auto_info_t info_gre_mlx5 = info1;
   info_gre_mlx5.is_using_gre = 1;
-  fd_auto_net( config, &info_gre_mlx5 );
+  fd_auto_net_apply( config, &info_gre_mlx5 );
   FD_TEST( config->net.xdp.listen_gre==1 );
   FD_TEST( 0==strcmp( config->net.xdp.rss_queue_mode, "auto" ) );
 
   reset_auto( 1U );
   fd_auto_info_t info_gre_ixgbe = info2;
   info_gre_ixgbe.is_using_gre = 1;
-  fd_auto_net( config, &info_gre_ixgbe );
+  fd_auto_net_apply( config, &info_gre_ixgbe );
   FD_TEST( config->net.xdp.listen_gre==1 );
   FD_TEST( 0==strcmp( config->net.xdp.rss_queue_mode, "simple" ) );
 
@@ -131,7 +131,7 @@ main( int     argc,
   reset_auto( 1U );
   config->net.xdp.listen_gre = 0;
   strcpy( config->net.xdp.rss_queue_mode, "dedicated" );
-  fd_auto_net( config, &info_gre_mlx5 );
+  fd_auto_net_apply( config, &info_gre_mlx5 );
   FD_TEST( config->net.xdp.listen_gre==0 );
   FD_TEST( 0==strcmp( config->net.xdp.rss_queue_mode, "dedicated" ) );
 
@@ -141,7 +141,7 @@ main( int     argc,
   fd_auto_info_t info3 = { .linux_major=1, .linux_minor=0, .driver="mlx5_core",
                            .is_virtual_if=1, .is_bonded_if=1, .is_lacp_if=1,
                            .bonded_if_slave_count=2U };
-  fd_auto_net( config, &info3 );
+  fd_auto_net_apply( config, &info3 );
   FD_TEST( 0==strcmp( config->net.xdp.xdp_mode,  "skb"     ) );
   FD_TEST( 0==strcmp( config->net.xdp.poll_mode, "softirq" ) );
   FD_TEST( 0==strcmp( config->net.xdp.rss_queue_mode, "auto" ) );
@@ -155,7 +155,7 @@ main( int     argc,
   fd_auto_info_t info4 = info3;
   info4.linux_major = 7;
   info4.linux_minor = 0;
-  fd_auto_net( config, &info4 );
+  fd_auto_net_apply( config, &info4 );
   FD_TEST( config->net.xdp.native_bond==1 );
   FD_TEST( 0==strcmp( config->net.xdp.xdp_mode, "drv" ) );
   FD_TEST( 0==strcmp( config->net.xdp.rss_queue_mode, "auto" ) );
@@ -168,7 +168,7 @@ main( int     argc,
   reset_auto( 4U );
   fd_auto_info_t info5 = info4;
   info5.is_lacp_if = 0;
-  fd_auto_net( config, &info5 );
+  fd_auto_net_apply( config, &info5 );
   FD_TEST( config->net.xdp.native_bond==0 );
   FD_TEST( 0==strcmp( config->net.xdp.xdp_mode, "skb" ) );
 
@@ -176,7 +176,7 @@ main( int     argc,
 
   reset_auto( 1U );
   strcpy( config->net.provider, "socket" );
-  fd_auto_net( config, &info1 );
+  fd_auto_net_apply( config, &info1 );
   FD_TEST( 0==strcmp( config->net.xdp.xdp_mode,  "skb"     ) );
   FD_TEST( 0==strcmp( config->net.xdp.poll_mode, "softirq" ) );
   FD_TEST( 0==strcmp( config->net.xdp.rss_queue_mode, "simple" ) );

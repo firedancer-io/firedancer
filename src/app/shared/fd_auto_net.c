@@ -1,4 +1,4 @@
-#include "fd_config_auto.h"
+#include "fd_auto_net.h"
 #include "../../disco/net/fd_linux_bond.h"
 #include "../../disco/net/fd_net_tile.h"
 #include "../../disco/net/mlx5/fd_mlx5.h"
@@ -454,12 +454,12 @@ fd_auto_scrape_info( fd_config_t const * config ) {
   return info;
 }
 
-/* fd_auto_net resolves any "auto" fields in the networking
+/* fd_auto_net_apply resolves any "auto" fields in the networking
 configuration. The resulting configuration is optimized for the system
 but won't always maximally optimize, this is to reduce risk of failures. */
 static void
-fd_auto_net( fd_config_t          * config,
-             fd_auto_info_t const * info ) {
+fd_auto_net_apply( fd_config_t          * config,
+                   fd_auto_info_t const * info ) {
   /* Providers are in order of priority with first being the highest */
   int const is_provider_auto = !strcmp( config->net.provider, "auto" );
   int is_provider_set = 0;
@@ -508,9 +508,9 @@ fd_auto_net( fd_config_t          * config,
 }
 
 void
-fd_config_auto( fd_config_t * config ) {
+fd_auto_net( fd_config_t * config ) {
   fd_auto_info_t info = fd_auto_scrape_info( config );
-  fd_auto_net( config, &info );
+  fd_auto_net_apply( config, &info );
 
   fd_cstr_printf( config->auto_config_log, sizeof(config->auto_config_log), NULL,
       "network auto configure system info: provider=%s xdp_mode=%s poll_mode=%s zero_copy=%d native_bond=%d listen_gre=%d rss_queue_mode=%s (driver=%s kernel=%lu.%lu gre=%d virtual_if=%d bonded_if=%d lacp_if=%d slaves=%u, net_tile_cnt=%u)",

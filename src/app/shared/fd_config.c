@@ -1,6 +1,6 @@
 #define _GNU_SOURCE
 #include "fd_config.h"
-#include "fd_config_auto.h"
+#include "fd_auto_net.h"
 #include "fd_config_private.h"
 
 #include "../platform/fd_net_util.h"
@@ -415,7 +415,7 @@ fd_config_fill( fd_config_t * config,
     fd_config_fillh( config );
   }
 
-  fd_config_auto( config );
+  fd_auto_net( config );
   if( FD_UNLIKELY( !strcmp( config->net.provider, "auto" ) ) ) {
     FD_LOG_ERR(( "failed to resolve automatic network provider" ));
   }
