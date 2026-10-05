@@ -27,11 +27,17 @@ write: (or (eq (arg 0) 2)
 # arg 0 is the file descriptor to fsync.
 fsync: (eq (arg 0) logfile_fd)
 
-# arg 0 and arg 2 are the directory of the two names, arg 4 is the
-# flags, RENAME_EXCHANGE (2) for a write, or RENAME_NOREPLACE (1) to
-# give the files the name of a new identity and to move a file that
-# already has that name to an .old name.  A rename that replaces a file
-# is not allowed.
+# tower: atomically replace the live tower file with the staging file
+#
+# The staging and live names are exchanged after every write, so the
+# live file is always complete.  After an identity switch, the files
+# are renamed to the new identity, and a file that already has that
+# name is moved to an .old name.  A rename that replaces a file is not
+# allowed.
+#
+# arg 0 and arg 2 are the directory file descriptors of the two names.
+# arg 4 is the flags, RENAME_EXCHANGE (2) for a write, or
+# RENAME_NOREPLACE (1) for a rename.
 renameat2: (and (eq (arg 0) dir_fd)
                 (eq (arg 2) dir_fd)
                 (or (eq (arg 4) 1)
