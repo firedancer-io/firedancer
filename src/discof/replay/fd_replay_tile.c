@@ -3576,6 +3576,10 @@ try_advance_published_root( fd_replay_tile_t *  ctx,
      one would stall the next wait_cmd until the snapshot completes. */
   if( FD_UNLIKELY( ctx->snapmk.active ) ) return 0;
 
+  /* Don't spin in advance_root on the previous root, replay instead and
+     retry next iteration. */
+  if( FD_UNLIKELY( fd_accdb_cmd_pending( ctx->accdb ) ) ) return 0;
+
   /* If the new root is not available because the bank is/has been
      evicted, we can't advance the root.  Try again later. */
 
@@ -3712,6 +3716,10 @@ try_prune_sched( fd_replay_tile_t * ctx ) {
 
 static int
 try_prune_bank( fd_replay_tile_t * ctx ) {
+  /* A cancellation purges accdb, which would spin on a pending root.
+     Check before popping the bank so the cancel info isn't lost. */
+  if( FD_UNLIKELY( fd_accdb_cmd_pending( ctx->accdb ) ) ) return 0;
+
   fd_banks_prune_cancel_info_t cancel_info[ 1 ];
 
   int pruned = fd_banks_prune_one_bank( ctx->banks, cancel_info );

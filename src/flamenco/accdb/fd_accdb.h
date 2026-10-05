@@ -240,6 +240,13 @@ void
 fd_accdb_advance_root( fd_accdb_t *       accdb,
                        fd_accdb_fork_id_t fork_id );
 
+/* fd_accdb_cmd_pending returns 1 if the accdb tile has not finished
+   the last submitted background command (e.g. advance_root), so the
+   next advance_root or purge would block, 0 otherwise. */
+
+int
+fd_accdb_cmd_pending( fd_accdb_t const * accdb );
+
 /* fd_accdb_purge removes the provided fork and all of its descendants
    from the accounts database.  This is an extremely rare operation,
    used to handle cases where a leader equivocated and produced two
