@@ -181,6 +181,9 @@ during_housekeeping( fd_gossip_tile_ctx_t * ctx ) {
   }
 
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
+    /* TxSend votes before seq param are signed by the old identity, so
+       push them while the sign tile still has the old key. */
+    if( FD_UNLIKELY( fd_seq_lt( ctx->txsend_in_seq, ctx->keyswitch->param ) ) ) return;
     ctx->is_halting_signing = 1;
     if( FD_LIKELY( !fd_gossip_sign_pend_cnt( ctx->gossip ) ) ) fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
   }
@@ -470,7 +473,7 @@ after_frag( fd_gossip_tile_ctx_t * ctx,
 static inline int
 returnable_frag( fd_gossip_tile_ctx_t * ctx,
                  ulong                  in_idx,
-                 ulong                  seq FD_PARAM_UNUSED,
+                 ulong                  seq,
                  ulong                  sig,
                  ulong                  chunk,
                  ulong                  sz,
@@ -486,6 +489,8 @@ returnable_frag( fd_gossip_tile_ctx_t * ctx,
 
   if( FD_UNLIKELY( sz!=0UL && (chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) ) )
     FD_LOG_ERR(( "chunk %lu %lu from in %d corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].kind, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
+
+  if( FD_UNLIKELY( ctx->in[ in_idx ].kind==IN_KIND_TXSEND ) ) ctx->txsend_in_seq = seq+1UL;
 
   switch( ctx->in[ in_idx ].kind ) {
     case IN_KIND_SHRED_VERSION: handle_shred_version( ctx, sig ); break;
