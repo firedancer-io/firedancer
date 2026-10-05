@@ -1304,6 +1304,18 @@ fd_forest_data_shred_insert( fd_forest_t * forest,
 
   uint fec_idx = fec_set_idx / 32UL;
 
+  /* We can automatically reject if the shred index is greater than the
+     complete index, as it clearly signifies some duplicity is
+     occurring.  What if this shred is part of the canonical chain
+     though?  When the duplicate confirmation arrives from tower, the
+     false complete_idx will be cleared, and shreds higher than the
+     false complete_idx will be accepted. */
+
+  if( FD_UNLIKELY( shred_idx > ele->complete_idx ) ) {
+    FD_LOG_WARNING(( "[%s] slot %lu shred index %u is greater than known complete_idx %u. rejecting shred", __func__, slot, shred_idx, ele->complete_idx ));
+    return NULL;
+  }
+
   /* If this is a slot_complete shred and we know the confirmed
      block_id, we can immediately verify or reject.  This check is
      independent of the complete_idx / lowest_verified_fec state, so it
@@ -1315,18 +1327,6 @@ fd_forest_data_shred_insert( fd_forest_t * forest,
     ele->lowest_verified_fec = fec_idx; /* last FEC verified */
     mroots[fec_idx].mr  = *mr;
     mroots[fec_idx].cmr = *cmr;
-  }
-
-  /* We can automatically reject if the shred index is greater than the
-     complete index, as it clearly signifies some duplicity is
-     occurring.  What if this shred is part of the canonical chain
-     though?  When the duplicate confirmation arrives from tower, the
-     false complete_idx will be cleared, and shreds higher than the
-     false complete_idx will be accepted. */
-
-  if( FD_UNLIKELY( shred_idx > ele->complete_idx ) ) {
-    FD_LOG_WARNING(( "[%s] slot %lu shred index %u is greater than known complete_idx %u. rejecting shred", __func__, slot, shred_idx, ele->complete_idx ));
-    return NULL;
   }
 
   /* Otherwise if this is any other shred and we know the verification
