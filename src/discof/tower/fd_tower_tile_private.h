@@ -136,10 +136,10 @@ struct fd_tower_tile {
   /* The tower file.  Each write goes to the staging file, then the two
      names are exchanged, so the live file is always a complete file. */
 
-  int  tower_dir_fd;
-  int  tower_fd  [ 2 ];       /* [0] staging (<name>.new), [1] live (<name>), -1 if not written */
-  char tower_name[ 2 ][ PATH_MAX ];
-  int  tower_file_dirty;      /* voted since the last write */
+  int   tower_dir_fd;
+  int   tower_fd  [ 2 ];      /* [0] staging (<name>.new), [1] live (<name>), -1 if not written */
+  char  tower_name[ 2 ][ PATH_MAX ];
+  ulong tower_file_pending;   /* newest vote slot not yet written, 0 if none (slot 0 is never voted on) */
 
   fd_eqvoc_t * eqvoc;
   fd_ghost_t * ghost;
@@ -218,6 +218,10 @@ struct fd_tower_tile {
 
     ulong fork[ FD_METRICS_ENUM_TOWER_FORK_DECISION_CNT ];
     ulong gate[ FD_METRICS_ENUM_TOWER_VOTE_GATE_CNT ];
+
+    ulong tower_file_write;
+    ulong tower_file_slot;
+    ulong tower_file_sz;
 
     ulong votes     [ FD_METRICS_ENUM_VOTE_TXN_RESULT_CNT         ];
     ulong vote_slots[ FD_METRICS_ENUM_VOTE_SLOT_RESULT_CNT        ];

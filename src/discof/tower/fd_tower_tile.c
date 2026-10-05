@@ -570,7 +570,7 @@ publish_slot_done( fd_tower_tile_t *            ctx,
     FD_TEST( txn->payload_sz && txn->payload_sz<=FD_TPU_MTU );
     fd_memcpy( msg->vote_txn, txn->payload, txn->payload_sz );
     FD_TEST( fd_txn_parse_simple_vote( TXN(txn), txn->payload, &ctx->compact_tower_sync_serde ) );
-    ctx->tower_file_dirty   = 1;
+    ctx->tower_file_pending = out->vote_slot;
     msg->vote_txn_sz        = txn->payload_sz;
     msg->authority_idx      = authority_idx;
     msg->vote_created_nanos = fd_log_wallclock();
@@ -1644,17 +1644,18 @@ init_choreo( void                 * scratch,
   memset( &ctx->compact_tower_sync_serde, 0, sizeof(ctx->compact_tower_sync_serde) );
   memset( ctx->vote_txn, 0, sizeof(ctx->vote_txn) );
   ctx->vote_history_pending = 0;
+  ctx->tower_file_pending   = 0UL;
 
-  ctx->halt_signing     = 0;
-  ctx->tower_file_dirty = 0;
-  ctx->hard_fork_fatal  = tile->tower.hard_fork_fatal;
-  ctx->wfs              = tile->tower.wait_for_supermajority;
-  ctx->shred_version    = 0;
-  ctx->init             = 0;
-  ctx->root_epoch       = ULONG_MAX;
+  ctx->halt_signing    = 0;
+  ctx->hard_fork_fatal = tile->tower.hard_fork_fatal;
+  ctx->wfs             = tile->tower.wait_for_supermajority;
+  ctx->shred_version   = 0;
+  ctx->init            = 0;
+  ctx->root_epoch      = ULONG_MAX;
 
   memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
-  ctx->metrics.last_vote_slot = ULONG_MAX;
+  ctx->metrics.last_vote_slot  = ULONG_MAX;
+  ctx->metrics.tower_file_slot = ULONG_MAX;
 
   return ctx;
 }
@@ -1713,12 +1714,16 @@ tower_file_write( fd_tower_tile_t * ctx ) {
   if( FD_UNLIKELY( syscall( SYS_renameat2, ctx->tower_dir_fd, ctx->tower_name[ 0 ], ctx->tower_dir_fd, ctx->tower_name[ 1 ], RENAME_EXCHANGE ) ) )
     FD_LOG_ERR(( "renameat2(%s, %s) failed (%i-%s)", ctx->tower_name[ 0 ], ctx->tower_name[ 1 ], errno, fd_io_strerror( errno ) ));
   int staging = ctx->tower_fd[ 0 ]; ctx->tower_fd[ 0 ] = ctx->tower_fd[ 1 ]; ctx->tower_fd[ 1 ] = staging;
-  ctx->tower_file_dirty = 0;
+
+  ctx->metrics.tower_file_write++;
+  ctx->metrics.tower_file_slot = ctx->tower_file_pending;
+  ctx->metrics.tower_file_sz   = sz;
+  ctx->tower_file_pending      = 0UL;
 }
 
 static void
 during_housekeeping( fd_tower_tile_t * ctx ) {
-  if( FD_UNLIKELY( ctx->tower_file_dirty && !ctx->halt_signing && ctx->tower_dir_fd!=-1 ) ) tower_file_write( ctx );
+  if( FD_UNLIKELY( ctx->tower_file_pending && !ctx->halt_signing && ctx->tower_dir_fd!=-1 ) ) tower_file_write( ctx );
 
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->auth_vtr_keyswitch )==FD_KEYSWITCH_STATE_UNHALT_PENDING ) ) {
     if( fd_keyswitch_param_query( ctx->auth_vtr_keyswitch )==FD_KEYSWITCH_PARAM_AV_CLEAR ) ctx->halt_signing = 0;
@@ -1794,6 +1799,10 @@ metrics_write( fd_tower_tile_t * ctx ) {
 
   FD_MCNT_ENUM_COPY( TOWER, FORK_DECISION, ctx->metrics.fork );
   FD_MCNT_ENUM_COPY( TOWER, VOTE_GATE,     ctx->metrics.gate );
+
+  FD_MCNT_SET  ( TOWER, TOWER_FILE_WRITE,      ctx->metrics.tower_file_write );
+  FD_MGAUGE_SET( TOWER, TOWER_FILE_SLOT,       ctx->metrics.tower_file_slot  );
+  FD_MGAUGE_SET( TOWER, TOWER_FILE_SIZE_BYTES, ctx->metrics.tower_file_sz    );
 
   FD_MCNT_ENUM_COPY( TOWER, VOTE_TXN,               ctx->metrics.votes      );
   FD_MCNT_ENUM_COPY( TOWER, VOTE_SLOT_COUNTED,      ctx->metrics.vote_slots );
