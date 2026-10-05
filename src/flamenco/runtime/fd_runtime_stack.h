@@ -36,6 +36,7 @@ struct fd_vote_rewards {
   ulong       vote_rewards;
   uint        next;
   ushort      commission;
+  uchar       has_commission_entry;
 };
 typedef struct fd_vote_rewards fd_vote_rewards_t;
 

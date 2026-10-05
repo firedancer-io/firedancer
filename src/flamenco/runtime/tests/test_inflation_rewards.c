@@ -11,6 +11,7 @@
 #include "../program/vote/fd_vote_state_versioned.h"
 #include "../sysvar/fd_sysvar_epoch_rewards.h"
 #include "../fd_system_ids.h"
+#include "../fd_runtime_stack_tmpl.h"
 #include "../fd_pubkey_utils.h"
 #include "../sysvar/fd_sysvar_rent.h"
 #include "../../../ballet/hex/fd_hex.h"
@@ -78,6 +79,28 @@ mock_validator_keys( ulong         hash_seed,
                      fd_pubkey_t * vote_out,
                      fd_pubkey_t * stake_out ) {
   mock_validator_keys_idx( hash_seed, 0UL, identity_out, vote_out, stake_out );
+}
+
+static fd_vote_rewards_t const *
+vote_reward_ele( fd_svm_mini_t *     mini,
+                 fd_pubkey_t const * vote_key ) {
+  return fd_vote_rewards_map_ele_query_const( mini->runtime_stack->stakes.vote_map, vote_key, NULL, mini->runtime_stack->stakes.vote_ele );
+}
+
+static ulong
+read_account_copy( fd_svm_mini_t *     mini,
+                   fd_accdb_fork_id_t  fork_id,
+                   fd_pubkey_t const * key,
+                   uchar *             data,
+                   ulong               data_max,
+                   ulong *             data_len ) {
+  fd_acc_t acc = fd_accdb_read_one( mini->runtime->accdb, fork_id, key->key );
+  FD_TEST( acc.data_len<=data_max );
+  memcpy( data, acc.data, acc.data_len );
+  *data_len = acc.data_len;
+  ulong lamports = acc.lamports;
+  fd_accdb_unread_one( mini->runtime->accdb, &acc );
+  return lamports;
 }
 
 static void
@@ -1437,6 +1460,54 @@ test_split_commission_reward( fd_svm_mini_t * mini ) {
 
   FD_LOG_NOTICE(( "test_split_commission_reward: PASSED (staker=%lu, voter=%lu)",
                    staker_reward, voter_reward ));
+}
+
+/* A 0%-commission validator with a successful redeem keeps a commission
+   entry, so the vote payout visits it, but its vote account is left
+   exactly as it was and the staker gets the whole reward. */
+static void
+test_zero_commission_vote_entry( fd_svm_mini_t * mini ) {
+  fd_svm_mini_params_t params[1];
+  fd_svm_mini_params_default( params );
+  params->slots_per_epoch    = TEST_SLOTS_PER_EPOCH;
+  params->root_slot          = TEST_ROOT_SLOT;
+  params->mock_validator_cnt = 1UL;
+  ulong root_idx = fd_svm_mini_reset( mini, params );
+
+  fd_bank_t * root_bank = fd_svm_mini_bank( mini, root_idx );
+  root_bank->f.inflation = (fd_inflation_t){
+    .initial         = 0.08,
+    .terminal        = 0.015,
+    .taper           = 0.15,
+    .foundation      = 0.05,
+    .foundation_term = 7.0,
+  };
+
+  fd_pubkey_t identity_key, vote_key, stake_key;
+  mock_validator_keys( params->hash_seed, &identity_key, &vote_key, &stake_key );
+  patch_vote_account( mini, root_idx, &vote_key, 0, 0UL, 2UL, 0UL );
+
+  fd_accdb_fork_id_t root_fk = fd_svm_mini_fork_id( mini, root_idx );
+  uchar vote_data_before[ FD_VOTE_STATE_V4_SZ ]; ulong vote_len_before;
+  ulong vote_lam_before  = read_account_copy( mini, root_fk, &vote_key, vote_data_before, sizeof(vote_data_before), &vote_len_before );
+  ulong stake_lam_before = read_lamports( mini, root_fk, &stake_key );
+
+  ulong distrib_idx = advance_to_distribution( mini, root_idx );
+  fd_accdb_fork_id_t distrib_fk = fd_svm_mini_fork_id( mini, distrib_idx );
+
+  uchar vote_data_after[ FD_VOTE_STATE_V4_SZ ]; ulong vote_len_after;
+  ulong vote_lam_after = read_account_copy( mini, distrib_fk, &vote_key, vote_data_after, sizeof(vote_data_after), &vote_len_after );
+  FD_TEST( vote_lam_after==vote_lam_before );
+  FD_TEST( vote_len_after==vote_len_before );
+  FD_TEST( !memcmp( vote_data_after, vote_data_before, vote_len_before ) );
+  FD_TEST( read_lamports( mini, distrib_fk, &stake_key ) > stake_lam_before );
+
+  fd_vote_rewards_t const * ele = vote_reward_ele( mini, &vote_key );
+  FD_TEST( ele );
+  FD_TEST( ele->vote_rewards==0UL );
+  FD_TEST( ele->has_commission_entry );
+
+  FD_LOG_NOTICE(( "test_zero_commission_vote_entry: PASSED" ));
 }
 
 static void
@@ -3142,7 +3213,55 @@ test_simd0232_zero_commission_vote_collector_burns( fd_svm_mini_t * mini ) {
   FD_TEST( read_lamports( mini, distrib_fk, &votes[0] )==vote0_before );
   FD_TEST( read_lamports( mini, distrib_fk, &votes[1] )==vote1_before );
 
+  /* Validator 1 still counts as a self-collecting vote account: it has
+     a commission entry with a zero reward of its own. */
+  fd_vote_rewards_t const * ele1 = vote_reward_ele( mini, &votes[1] );
+  FD_TEST( ele1 );
+  FD_TEST( ele1->vote_rewards==0UL );
+  FD_TEST( ele1->has_commission_entry );
+
   FD_LOG_NOTICE(( "test_simd0232_zero_commission_vote_collector_burns: PASSED" ));
+}
+
+/* A 0%-commission validator routing to a rent-exempt system collector
+   leaves the collector unchanged, and a missing collector is not
+   created. */
+static void
+test_simd0232_zero_commission_system_collector( fd_svm_mini_t * mini ) {
+  for( int exists=0; exists<2; exists++ ) {
+    fd_pubkey_t collector; memset( collector.uc, exists ? 0xC7 : 0xC8, 32UL );
+    fd_pubkey_t vote_key; ulong root_idx;
+    setup_simd0232_single( mini, &vote_key, &collector, &root_idx );
+
+    fd_svm_mini_params_t params[1];
+    fd_svm_mini_params_default( params );
+    fd_pubkey_t identity_key, vote_key2, stake_key;
+    mock_validator_keys( params->hash_seed, &identity_key, &vote_key2, &stake_key );
+    FD_TEST( fd_pubkey_eq( &vote_key, &vote_key2 ) );
+    patch_vote_account_v4( mini, &vote_key, &identity_key, &collector, &identity_key, 0, 0UL, 2UL, 0UL );
+
+    fd_bank_t * root_bank = fd_svm_mini_bank( mini, root_idx );
+    ulong min_bal = fd_rent_exempt_minimum_balance( &root_bank->f.rent, 0UL );
+    if( exists ) fd_svm_mini_add_lamports_rooted( mini, &collector, min_bal );
+
+    fd_accdb_fork_id_t root_fk = fd_svm_mini_fork_id( mini, root_idx );
+    ulong vote_lam_before  = read_lamports( mini, root_fk, &vote_key );
+    ulong stake_lam_before = read_lamports( mini, root_fk, &stake_key );
+
+    ulong distrib_idx = advance_to_distribution( mini, root_idx );
+    fd_accdb_fork_id_t distrib_fk = fd_svm_mini_fork_id( mini, distrib_idx );
+
+    FD_TEST( read_lamports( mini, distrib_fk, &collector )==( exists ? min_bal : 0UL ) );
+    FD_TEST( read_lamports( mini, distrib_fk, &vote_key )==vote_lam_before );
+    FD_TEST( read_lamports( mini, distrib_fk, &stake_key ) > stake_lam_before );
+
+    fd_vote_rewards_t const * ele = vote_reward_ele( mini, &vote_key );
+    FD_TEST( ele );
+    FD_TEST( ele->vote_rewards==0UL );
+    FD_TEST( ele->has_commission_entry );
+  }
+
+  FD_LOG_NOTICE(( "test_simd0232_zero_commission_system_collector: PASSED" ));
 }
 
 /* Rewards routed to the incinerator are deposited without a rent
@@ -3464,6 +3583,7 @@ main( int     argc,
   test_snapshot_refresh_prunes_inactive_stakes( mini );
   test_zero_inflation_credits_advance( mini );
   test_full_commission_voter_reward( mini );
+  test_zero_commission_vote_entry( mini );
   test_split_commission_reward( mini );
   test_commission_split_suppresses_reward( mini );
   test_credit_rewind_force_update( mini );
@@ -3499,6 +3619,7 @@ main( int     argc,
   test_simd0232_repeated_collector( mini );
   test_simd0232_vote_account_collector_burns_external( mini );
   test_simd0232_zero_commission_vote_collector_burns( mini );
+  test_simd0232_zero_commission_system_collector( mini );
   test_simd0232_incinerator_collector( mini );
   test_simd0232_burn_counts_in_sysvar( mini, simd0232_reward );
   test_simd0232_absent_collector( mini, simd0232_reward );

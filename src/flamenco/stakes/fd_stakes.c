@@ -751,6 +751,7 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
     fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[ vote_reward_cnt ];
     vote_ele->pubkey             = pubkey;
     vote_ele->vote_rewards       = 0UL;
+    vote_ele->has_commission_entry = 0;
     if( FD_FEATURE_ACTIVE_BANK( bank, delay_commission_updates ) ) {
       vote_ele->commission = exists_t_3 ? commission_t_3 : (exists_t_2 ? commission_t_2 : commission_t_1);
     } else {

@@ -1405,6 +1405,7 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
     }
 
     runtime_stack->stakes.vote_ele[ idx ].vote_rewards += calculated_stake_rewards->voter_rewards;
+    runtime_stack->stakes.vote_ele[ idx ].has_commission_entry = 1;
     runtime_stack->stakes.stake_rewards_cnt++;
   }
 }
@@ -1748,7 +1749,7 @@ calculate_rewards_and_distribute_vote_rewards( fd_bank_t *                    ba
       fd_vote_rewards_t * ele = &vote_ele_pool[idx];
 
       ulong rewards = ele->vote_rewards;
-      if( FD_UNLIKELY( !rewards ) ) continue;
+      if( FD_UNLIKELY( !rewards && !ele->has_commission_entry ) ) continue;
       distributed_rewards = fd_ulong_sat_add( distributed_rewards, rewards );
 
       fd_pubkey_t collector;
@@ -1777,7 +1778,7 @@ calculate_rewards_and_distribute_vote_rewards( fd_bank_t *                    ba
          https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L70-L124 */
       fd_vote_rewards_t * self_ele = fd_vote_rewards_map_ele_query( vote_ele_map, &collector_reward->pubkey, NULL, vote_ele_pool );
       int is_vote_account = 0;
-      if( self_ele && self_ele->vote_rewards ) {
+      if( self_ele && ( self_ele->vote_rewards || self_ele->has_commission_entry ) ) {
         fd_pubkey_t self_collector;
         fd_rewards_inflation_collector( bank, &self_ele->pubkey, &self_collector );
         is_vote_account = fd_pubkey_eq( &self_collector, &self_ele->pubkey );
@@ -1813,7 +1814,7 @@ calculate_rewards_and_distribute_vote_rewards( fd_bank_t *                    ba
       fd_vote_rewards_t * ele = &vote_ele_pool[idx];
 
       ulong rewards = ele->vote_rewards;
-      if( rewards==0UL ) {
+      if( rewards==0UL && !ele->has_commission_entry ) {
         continue;
       }
 
@@ -2255,6 +2256,7 @@ recalculate_partitioned_rewards( fd_bank_t *          bank,
       fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[i];
       vote_ele->pubkey       = *(fd_pubkey_t const *)epoch_credits->pubkey;
       vote_ele->vote_rewards = 0UL;
+      vote_ele->has_commission_entry = 0;
       vote_ele->commission   = epoch_credits->commission;
       fd_vote_rewards_map_idx_insert( vote_ele_map, i, runtime_stack->stakes.vote_ele );
     }
@@ -2300,6 +2302,7 @@ recalculate_partitioned_rewards( fd_bank_t *          bank,
       fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[i];
       vote_ele->pubkey       = *(fd_pubkey_t *)epoch_credits->pubkey;
       vote_ele->vote_rewards = 0UL;
+      vote_ele->has_commission_entry = 0;
       if( FD_FEATURE_ACTIVE_BANK( bank, delay_commission_updates ) ) {
         vote_ele->commission = exists_t_3 ? commission_t_3 : (exists_t_2 ? commission_t_2 : commission_t_1);
       } else {
