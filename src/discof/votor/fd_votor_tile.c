@@ -1786,9 +1786,13 @@ before_frag( fd_votor_tile_t * ctx,
     if( FD_UNLIKELY( !ctx->curr_epoch_info || ctx->halt_signing ) ) return 1; /* halted, no TLS handshake may sign */
     return fd_disco_netmux_sig_proto( sig )!=DST_PROTO_VOTOR;
   case IN_KIND_REPLAY:
+    if( FD_UNLIKELY( sig!=REPLAY_SIG_SLOT_COMPLETED && sig!=REPLAY_SIG_SLOT_DEAD ) ) {
+      ctx->replay_in_seq = seq+1UL;
+      return 1;
+    }
+    if( FD_UNLIKELY( !ctx->curr_epoch_info ) ) return -1;
     ctx->replay_in_seq = seq+1UL;
-    if( FD_UNLIKELY( !ctx->curr_epoch_info ) ) return 1;
-    return sig!=REPLAY_SIG_SLOT_COMPLETED && sig!=REPLAY_SIG_SLOT_DEAD;
+    return 0;
   default:
     FD_LOG_ERR(( "unexpected in_kind %d", ctx->in_kind[ in_idx ] ));
   }

@@ -500,6 +500,29 @@ test_quic( uchar *           mem,
   return quic;
 }
 
+/* Before epoch info, votor holds the replay completions it needs (the
+   snapshot root's SLOT_COMPLETED initializes the pool) so stem polls
+   them again, and still drops other replay sigs. */
+
+static void
+test_replay_before_epoch( void ) {
+  static fd_votor_tile_t ctx;
+  static ag_epoch_info_t epoch_info;
+  ctx.in_kind[ 0 ]    = IN_KIND_REPLAY;
+  ctx.curr_epoch_info = NULL;
+  ctx.replay_in_seq   = 0UL;
+
+  FD_TEST( before_frag( &ctx, 0UL, 5UL, REPLAY_SIG_SLOT_COMPLETED )==-1 );
+  FD_TEST( before_frag( &ctx, 0UL, 5UL, REPLAY_SIG_SLOT_DEAD      )==-1 );
+  FD_TEST( ctx.replay_in_seq==0UL );
+  FD_TEST( before_frag( &ctx, 0UL, 4UL, REPLAY_SIG_ROOT_ADVANCED  )==1  );
+  FD_TEST( ctx.replay_in_seq==5UL );
+
+  ctx.curr_epoch_info = &epoch_info;
+  FD_TEST( before_frag( &ctx, 0UL, 5UL, REPLAY_SIG_SLOT_COMPLETED )==0  );
+  FD_TEST( ctx.replay_in_seq==6UL );
+}
+
 /* During set-identity votor halts right after replay.  It keeps voting
    until it has consumed replay_slot through the seq replay switched at,
    then stops voting, lets the votes it already signed go out under the
@@ -1380,6 +1403,7 @@ main( int     argc,
   test_auth_vtr_keyswitch_refreshes_epochs();
   test_auth_vtr_keyswitch_clear();
   test_id_keyswitch();
+  test_replay_before_epoch();
   test_sign_bls_request();
   test_connect_peer();
   test_conn_final_backoff();
