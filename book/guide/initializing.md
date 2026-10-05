@@ -341,23 +341,19 @@ any CPU allowed by a global mask, which by default includes all CPUs.
 A burst of deferred kernel work can therefore preempt a Firedancer tile
 for milliseconds at a time.
 
-The `kworkers` stage removes tile CPUs from the unbound workqueue mask
-at `/sys/devices/virtual/workqueue/cpumask`, so deferred kernel work
-runs on the remaining housekeeping CPUs instead.
+The `kworkers` stage checks that tile CPUs are excluded from the unbound
+workqueue mask at `/sys/devices/virtual/workqueue/cpumask`, so deferred
+kernel work runs on the remaining housekeeping CPUs instead.
 
 Per-CPU (bound) kworkers are unaffected: they only run work generated
 on their own CPU, which the `irq-affinity` and `cpuset` stages
-minimize. Note that changing the mask only affects newly queued work,
-so the system converges after `init` rather than becoming instantly
-silent.
+minimize.
 
-<<< @/snippets/kworkers.ansi
-
-The `init` mode requires root privileges. The `fini` mode restores the
-mask to all host CPUs, which is the kernel default (if the operator
-had customized the mask before `init`, that customization is not
-restored). The stage is skipped on kernels that do not expose the
-workqueue mask.
+The `init` and `fini` modes require root privileges. The stage is skipped
+on kernels that do not expose the workqueue mask. The mask must already
+exclude the intended CPUs; new exclusions require a compatible
+`workqueue.unbound_cpus=` boot setting. See the note under `cpuset` below
+for why `fini` preserves the mask.
 
 ## cpuset
 The `cpuset` stage creates a cgroup v2 cpuset partition in "isolated"
@@ -400,9 +396,22 @@ cgroup v2 is unavailable. If the cgroup exists but covers the wrong
 CPUs (for example after changing `[layout.affinity]`), starting
 Firedancer fails with instructions to re-run `init`.
 
-The `init` mode requires root privileges. The `fini` mode downgrades
-the partition and removes the cgroup, returning the CPUs to the
-system.
+The `init` and `fini` modes require root privileges. The `fini` mode
+downgrades the partition and removes the cgroup, returning its CPUs to the
+scheduler.
+
+::: tip NOTE
+
+`configure fini cpuset` deliberately leaves kworker isolation in place.
+It preserves the effective unbound workqueue CPU mask before removing the
+partition, so background workers remain restricted to the same CPUs.
+Changing that mask can trigger a kernel bug that stalls ordered workqueues,
+including mlx5 driver commands, and can hang the host. This workaround
+avoids the bug fixed by Linux
+[`703ccb63ae9f`](https://git.kernel.org/linus/703ccb63ae9f7444d6ff876d024e17f628103c69).
+`configure fini kworkers` also preserves the restriction.
+
+:::
 
 ::: tip NOTE
 

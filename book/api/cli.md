@@ -121,10 +121,18 @@ diagnostics to `stderr`.
 
 ### `configure fini <stage>...`
 Remove any Firedancer specific operating system configuration still
-lingering. This only unmounts the `hugetlbfs` stages and returns the
+lingering. This unmounts the `hugetlbfs` stages and returns the
 reserved huge and gigantic pages to the kernel pool. It will not reduce
 sysctls that were earlier increased, or change the network channel count
 back as we no longer know what the original value was.
+
+::: tip NOTE
+
+Running `configure fini cpuset` removes the cpuset partition but leaves
+kworker isolation in place to avoid a kernel workqueue bug. See the
+[cpuset note](../guide/initializing.md#cpuset).
+
+:::
 
 ::: details Capabilities
 

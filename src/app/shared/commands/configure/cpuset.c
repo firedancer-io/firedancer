@@ -153,6 +153,10 @@ init( config_t const * config ) {
     FD_LOG_ERR(( "all host CPUs are assigned to Firedancer tiles; cannot isolate them all (the kernel needs at "
                  "least one housekeeping CPU)" ));
 
+  /* Do not migrate ordered workqueues when creating the partition. */
+  fd_cpu_isolation_check_wq_mask( part_cpus );
+  fd_cpu_isolation_preserve_wq_mask();
+
   char list[ FD_CPU_ISOLATION_LIST_MAX ];
   fd_cpu_isolation_format_list( list, sizeof(list), part_cpus );
 
@@ -188,6 +192,8 @@ fini( config_t const * config,
 
   char cgroup[ PATH_MAX ]; cgroup_path( cgroup, config, NULL );
   if( FD_UNLIKELY( access( cgroup, F_OK ) ) ) return 0;
+
+  fd_cpu_isolation_preserve_wq_mask();
 
   /* Downgrade to a regular member cgroup first so the CPUs return to
      the system scheduler domains even if rmdir fails (e.g. because

@@ -102,6 +102,25 @@ fd_cpu_isolation_format_mask( char *              buf,
                               ulong               buf_sz,
                               fd_cpuset_t const * cpuset );
 
+#define FD_CPU_ISOLATION_WQ_MASK_PATH "/sys/devices/virtual/workqueue/cpumask"
+
+/* Read the effective unbound workqueue mask.  IO/parse errors are fatal. */
+void
+fd_cpu_isolation_read_wq_mask( fd_cpuset_t cpuset[ static fd_cpuset_word_cnt ] );
+
+/* Refuse changes that would migrate unbound workqueues.  excluded may
+   be NULL for teardown.  Also requires cpumask_requested and
+   cpumask_isolated to preserve the mask across cpuset removal. */
+void
+fd_cpu_isolation_check_wq_mask( fd_cpuset_t const * excluded );
+
+/* Pin the requested mask to the current effective mask.  Linux skips
+   pool replacement for an equal mask but still updates the requested
+   mask.  Subsequent cpuset removal then cannot expand it.  Configure
+   and external mask/CPU isolation changes must not run concurrently. */
+void
+fd_cpu_isolation_preserve_wq_mask( void );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_app_shared_commands_configure_fd_cpu_isolation_h */

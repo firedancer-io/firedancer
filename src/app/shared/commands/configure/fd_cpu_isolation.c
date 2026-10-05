@@ -209,3 +209,85 @@ fd_cpu_isolation_read_list( char const * path,
     FD_LOG_ERR(( "failed to parse `%s` (\"%s\")", path, list ));
   return 1;
 }
+
+/* Keep the original sysfs representation for writes: formatting via
+   the host CPU count could drop possible CPUs that are offline. */
+static void
+read_wq_mask( char const * path,
+              char         mask[ static FD_CPU_ISOLATION_MASK_MAX ],
+              fd_cpuset_t  cpuset[ static fd_cpuset_word_cnt ] ) {
+  int fd = open( path, O_RDONLY );
+  if( FD_UNLIKELY( fd<0 ) ) FD_LOG_ERR(( "open(%s) failed (%i-%s); preserving workqueue affinity requires cpumask, cpumask_requested and cpumask_isolated", path, errno, fd_io_strerror( errno ) ));
+  long n = read( fd, mask, FD_CPU_ISOLATION_MASK_MAX-1UL );
+  if( FD_UNLIKELY( n<=0L || n>=(long)(FD_CPU_ISOLATION_MASK_MAX-1UL) ) )
+    FD_LOG_ERR(( "could not read complete workqueue mask from %s (%ld bytes)", path, n ));
+  if( FD_UNLIKELY( close( fd ) ) ) FD_LOG_ERR(( "close(%s) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+  mask[ n ] = '\0';
+  if( FD_UNLIKELY( !fd_cpu_isolation_parse_mask( cpuset, mask ) ) )
+    FD_LOG_ERR(( "invalid workqueue mask in %s", path ));
+}
+
+void
+fd_cpu_isolation_read_wq_mask( fd_cpuset_t cpuset[ static fd_cpuset_word_cnt ] ) {
+  char mask[ FD_CPU_ISOLATION_MASK_MAX ];
+  read_wq_mask( FD_CPU_ISOLATION_WQ_MASK_PATH, mask, cpuset );
+  if( FD_UNLIKELY( fd_cpuset_is_null( cpuset ) ) ) FD_LOG_ERR(( "effective workqueue mask is empty" ));
+}
+
+void
+fd_cpu_isolation_check_wq_mask( fd_cpuset_t const * excluded ) {
+  char mask[ FD_CPU_ISOLATION_MASK_MAX ];
+  FD_CPUSET_DECL( current );
+  read_wq_mask( FD_CPU_ISOLATION_WQ_MASK_PATH "_requested", mask, current );
+  fd_cpu_isolation_read_wq_mask( current );
+
+  /* A manual sysfs override or the kernel's empty-intersection fallback
+     can allow workers on an existing isolated partition.  Recomputing
+     exclusions would then change E even if our new partition avoids E. */
+  FD_CPUSET_DECL( isolated );
+  read_wq_mask( FD_CPU_ISOLATION_WQ_MASK_PATH "_isolated", mask, isolated );
+  fd_cpuset_intersect( isolated, isolated, current );
+  if( FD_UNLIKELY( !fd_cpuset_is_null( isolated ) ) )
+    FD_LOG_ERR(( "effective workqueue mask overlaps existing isolated CPUs; refusing to recompute cpuset exclusions. "
+                 "Reserve housekeeping CPUs with workqueue.unbound_cpus at boot and reboot first" ));
+  if( FD_LIKELY( excluded ) ) {
+    fd_cpuset_intersect( current, current, excluded );
+    if( FD_UNLIKELY( !fd_cpuset_is_null( current ) ) ) {
+      char list[ FD_CPU_ISOLATION_LIST_MAX ];
+      fd_cpu_isolation_format_list( list, sizeof(list), current );
+      FD_LOG_ERR(( "CPU isolation would move unbound kernel workqueues off CPUs %s. Refusing a live mask change: "
+                   "kernels missing Linux fix 703ccb63ae9f can stall ordered workqueues (including mlx5). "
+                   "Reserve housekeeping CPUs at boot with workqueue.unbound_cpus=<CPU list>, excluding all "
+                   "planned tile CPUs and isolated SMT siblings, then reboot. This workaround never changes "
+                   "the effective workqueue mask, even on fixed kernels.", list ));
+    }
+  }
+}
+
+void
+fd_cpu_isolation_preserve_wq_mask( void ) {
+  fd_cpu_isolation_check_wq_mask( NULL );
+  char requested[ FD_CPU_ISOLATION_MASK_MAX ];
+  char effective[ FD_CPU_ISOLATION_MASK_MAX ];
+  FD_CPUSET_DECL( cpus );
+  read_wq_mask( FD_CPU_ISOLATION_WQ_MASK_PATH "_requested", requested, cpus );
+  read_wq_mask( FD_CPU_ISOLATION_WQ_MASK_PATH, effective, cpus );
+  if( FD_UNLIKELY( fd_cpuset_is_null( cpus ) ) ) FD_LOG_ERR(( "effective workqueue mask is empty" ));
+  if( FD_LIKELY( !strcmp( requested, effective ) ) ) return;
+
+  /* workqueue_set_unbound_cpumask() skips workqueue_apply_unbound_cpumask()
+     when supplied == effective, yet updates wq_requested_unbound_cpumask.
+     This avoids the ordered-pwq handoff bug fixed by Linux 703ccb63ae9f. */
+  FD_LOG_NOTICE(( "preserving the effective kernel workqueue mask across cpuset teardown; workers will remain restricted after fini" ));
+  int fd = open( FD_CPU_ISOLATION_WQ_MASK_PATH, O_WRONLY );
+  if( FD_UNLIKELY( fd<0 ) ) FD_LOG_ERR(( "open(" FD_CPU_ISOLATION_WQ_MASK_PATH ") failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  ulong n = strlen( effective );
+  if( FD_UNLIKELY( write( fd, effective, n )!=(long)n ) )
+    FD_LOG_ERR(( "write(" FD_CPU_ISOLATION_WQ_MASK_PATH ") failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( close( fd ) ) ) FD_LOG_ERR(( "close(workqueue cpumask) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  read_wq_mask( FD_CPU_ISOLATION_WQ_MASK_PATH "_requested", requested, cpus );
+  if( FD_UNLIKELY( strcmp( requested, effective ) ) ) FD_LOG_ERR(( "kernel did not preserve the requested workqueue mask" ));
+  read_wq_mask( FD_CPU_ISOLATION_WQ_MASK_PATH, requested, cpus );
+  if( FD_UNLIKELY( strcmp( requested, effective ) ) ) FD_LOG_ERR(( "effective workqueue mask changed concurrently; stop external CPU isolation changes" ));
+}
