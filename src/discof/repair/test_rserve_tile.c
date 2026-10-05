@@ -334,10 +334,10 @@ test_shred_for_block_id( fd_repair_t * client,
   ping_cache_add( ctx );
   FD_TEST( fd_blockdb_insert( ctx->blockdb, blk_slot, &blk_id, blk_parent, &blk_parent_id, FEC_CNT, (uchar const *)blk_roots ) );
 
-  ulong  footprint = fd_store_footprint( 8UL, 31840UL, 1UL, 0UL, 0UL, 1 );
+  ulong  footprint = fd_store_footprint( 8UL, 31840UL, 1UL, 0UL, 0UL, 1, 0UL );
   void * store_mem = fd_wksp_alloc_laddr( wksp, fd_store_align(), footprint, 1UL );
   FD_TEST( store_mem );
-  ctx->store = fd_store_join( fd_store_new( store_mem, 8UL, 31840UL, 1UL, 0UL, 0UL, FD_SHRED_BLK_MAX, 42UL, 1 ) );
+  ctx->store = fd_store_join( fd_store_new( store_mem, 8UL, 31840UL, 1UL, 0UL, 0UL, FD_SHRED_BLK_MAX, 42UL, 1, 0UL ) );
   FD_TEST( ctx->store );
   ctx->store->disk_max_shreds = 16UL;
   ctx->disk_fd = fd_store_file_create( TEST_STORE_PATH, ctx->store->wire_off, ctx->store->disk_max_shreds );

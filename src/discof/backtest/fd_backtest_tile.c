@@ -244,7 +244,7 @@ after_credit( fd_backt_tile_t *   ctx,
   fd_hash_t mr = { .ul[0] = shred->slot, .ul[1] = ctx->out_fec_set_idx };
   if( FD_UNLIKELY( begins_fec_set ) ) {
     fd_store_fec_t * new_fec;
-    FD_TEST( !fd_store_insert( ctx->store, ctx->map_join, &mr, &new_fec ) && new_fec );
+    FD_TEST( !fd_store_insert( ctx->store, ctx->map_join, &mr, shred->slot, 0UL, &new_fec ) && new_fec );
     FD_TEST( fd_store_fec_data_acquire( ctx->store, ctx->store_disk_fd, new_fec ) );
   }
 
@@ -526,7 +526,7 @@ returnable_frag( fd_backt_tile_t *   ctx,
         return 0;
       }
 
-      for( ulong idx=0UL; idx<=msg->block_id.ul[ 1 ]; idx+=FD_FEC_SHRED_CNT ) {
+      for( ulong idx=0UL; !ctx->alpenglow && idx<=msg->block_id.ul[ 1 ]; idx+=FD_FEC_SHRED_CNT ) { /* replay publishes Alpenglow slots */
         fd_hash_t mr = { .ul[ 0 ] = msg->slot, .ul[ 1 ] = idx };
         fd_store_remove( ctx->store, ctx->map_join, &mr );
       }

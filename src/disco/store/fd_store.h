@@ -147,12 +147,14 @@ fd_shredb_max_slots( ulong gib ) {
 
 struct __attribute__((aligned(FD_STORE_ALIGN))) fd_store_fec {
   fd_hash_t key;
-  ulong     data_off;                       /* RAM cache offset when RAM_*, spill-file offset when DISK */
+  uint      data_idx;                       /* RAM cache slot when RAM_*, spill-file slot when DISK */
   uint      next;                           /* managed by fd_pool / fd_map_chain_para */
   uint      data_sz;                        /* sz of the FEC set payload, <= fec_data_max */
   uint      cache_prev;                     /* RAM_READY LRU links, UINT_MAX when unlinked */
   uint      cache_next;
-  uint      data_pin_cnt;                   /* active payload views */
+  uint      slot;                           /* slot_to_fecs key, raised to the last published root */
+  uint      slot_next;                      /* managed by slot_to_fecs */
+  ushort    data_pin_cnt;                   /* active payload views */
   uchar     data_state;                     /* FD_STORE_FEC_DATA_* */
   uchar     data_consume_pending;
   ushort    shred_sz[ FD_FEC_SHRED_CNT ];   /* payload size of each data shred */
@@ -175,6 +177,21 @@ FD_STATIC_ASSERT( sizeof(fd_store_fec_t)==FD_STORE_ALIGN, fd_store_fec_footprint
 #define MAP_IDX_T              uint
 #include "../../util/tmpl/fd_map_chain_para.c"
 
+/* slot_to_fecs exists only under Alpenglow, with one partition per
+   shred tile plus one for replay.  Each inserter appends only to its
+   own partition, so concurrent inserts under the shared fec_lock never
+   touch the same chain.  Only fd_store_publish removes, under the
+   exclusive fec_lock. */
+
+#define MAP_NAME     fd_store_slot_to_fecs
+#define MAP_ELE_T    fd_store_fec_t
+#define MAP_KEY_T    uint
+#define MAP_KEY      slot
+#define MAP_NEXT     slot_next
+#define MAP_IDX_T    uint
+#define MAP_MULTI    1
+#include "../../util/tmpl/fd_map_chain.c"
+
 struct fd_store {
   ulong magic;
   ulong fec_max;
@@ -183,6 +200,12 @@ struct fd_store {
   ulong map_gaddr;
   ulong pool_mem_gaddr;
   ulong pool_ele_gaddr;
+  int   alpenglow;                          /* slot_to_fecs exists only if set */
+  ulong shred_tile_cnt;                     /* partition shred_tile_cnt is replay's */
+  ulong slot_to_fecs_gaddr;                 /* 1+shred_tile_cnt maps, slot_to_fecs_sz apart */
+  ulong slot_to_fecs_sz;
+  ulong root;                               /* last published root */
+  atomic_ulong slot_lo;                     /* no FEC is linked below it, ULONG_MAX before the first insert */
 
   ulong payload_slot_sz;
   ulong payload_sz;                          /* logical spill region size: payload_slot_sz*fec_max */
@@ -299,10 +322,12 @@ fd_store_footprint( ulong fec_max,
                     ulong shred_storage_gib,
                     ulong shred_cache_bytes,
                     ulong fec_set_cnt,
-                    int   alpenglow ) {
+                    int   alpenglow,
+                    ulong shred_tile_cnt ) {
   if( FD_UNLIKELY( !fec_max || !fec_data_max || fec_max>UINT_MAX || fec_data_max>UINT_MAX ||
                    shred_storage_gib>FD_SHREDB_MAX_SIZE_GIB ) ) return 0UL;
   ulong chain_cnt = fd_store_map_chain_cnt_est( fec_max );
+  ulong slot_to_fecs_sz = fd_ulong_align_up( fd_store_slot_to_fecs_footprint( fd_store_slot_to_fecs_chain_cnt_est( fec_max ) ), fd_store_slot_to_fecs_align() );
   ulong payload_slot_sz = fd_store_payload_slot_sz( fec_data_max );
   if( FD_UNLIKELY( !payload_slot_sz ) ) return 0UL;
   ulong cache_slot_cnt = shred_cache_bytes
@@ -313,6 +338,7 @@ fd_store_footprint( ulong fec_max,
                    fd_store_layout_append( &l, fd_store_map_align(),     1UL,            fd_store_map_footprint( chain_cnt ) ) ||
                    fd_store_layout_append( &l, fd_store_pool_align(),    1UL,            fd_store_pool_footprint() ) ||
                    fd_store_layout_append( &l, alignof(fd_store_fec_t),  fec_max,         sizeof(fd_store_fec_t) ) ||
+                   fd_store_layout_append( &l, fd_store_slot_to_fecs_align(), alpenglow ? 1UL+shred_tile_cnt : 0UL, slot_to_fecs_sz ) ||
                    fd_store_layout_append( &l, FD_STORE_PAYLOAD_PAGE_SZ, cache_slot_cnt, payload_slot_sz ) ||
                    fd_store_layout_append( &l, alignof(ulong),           cache_slot_cnt, sizeof(ulong) ) ||
                    fd_store_layout_append( &l, alignof(uint),            fec_max,         sizeof(uint) ) ||
@@ -342,9 +368,9 @@ fd_store_footprint( ulong fec_max,
    bounds live FECs; fec_data_max bounds each payload.  The remaining size
    arguments configure the shred ring, RAM cache, and shred-tile arena.
    max_shreds_per_block bounds shred idxs in the shred ring, in
-   [1,FD_SHREDB_HINT_VALID].  The shred ring's root map exists only if
-   alpenglow, which must match the footprint.  Does not create the
-   backing file. */
+   [1,FD_SHREDB_HINT_VALID].  The shred ring's root map and the
+   1+shred_tile_cnt slot_to_fecs partitions exist only if alpenglow,
+   which must match the footprint.  Does not create the backing file. */
 
 void *
 fd_store_new( void       * shmem,
@@ -355,7 +381,8 @@ fd_store_new( void       * shmem,
               ulong        fec_set_cnt,
               ulong        max_shreds_per_block,
               ulong        seed,
-              int          alpenglow );
+              int          alpenglow,
+              ulong        shred_tile_cnt );
 
 fd_store_t * fd_store_join ( void * shstore );
 void *       fd_store_leave( fd_store_t const * store );
@@ -401,7 +428,7 @@ fd_store_map_ljoin( fd_store_t const * store,
 FD_FN_PURE static inline uchar *
 fd_store_fec_data( fd_store_t const *     store,
                    fd_store_fec_t const * fec ) {
-  return (uchar *)( (ulong)store - store->store_gaddr + store->cache_data_gaddr + fec->data_off );
+  return (uchar *)( (ulong)store - store->store_gaddr + store->cache_data_gaddr + (ulong)fec->data_idx*store->payload_slot_sz );
 }
 
 struct fd_store_fec_data_view {
@@ -470,14 +497,18 @@ void
 fd_store_fec_data_view_release( fd_store_t *               store,
                                 fd_store_fec_data_view_t * view );
 
-/* Atomically inserts merkle_root.  Returns FD_MAP_SUCCESS with the new
-   FEC, or FD_MAP_ERR_KEY with *fec==NULL if present.  Pool exhaustion is
-   a topology invariant violation. */
+/* Atomically inserts merkle_root, a FEC set of slot, into the caller's
+   slot_to_fecs partition part (shred tile part, or replay at
+   shred_tile_cnt) under Alpenglow.  Returns FD_MAP_SUCCESS with the new
+   FEC, or FD_MAP_ERR_KEY with *fec==NULL if present.  Pool exhaustion
+   is a topology invariant violation. */
 
 int
 fd_store_insert( fd_store_t *       store,
                  fd_store_map_t *   map,
                  fd_hash_t const *  merkle_root,
+                 ulong              slot,
+                 ulong              part,
                  fd_store_fec_t **  fec );
 
 /* Lockless lookup; returns NULL if absent.  The returned pointer is
@@ -490,12 +521,21 @@ fd_store_query( fd_store_map_t *  map,
 
 /* Removes merkle_root after active views and spill I/O finish.  Returns
    its payload and metadata before returning.  Returns 1 if found and 0
-   otherwise. */
+   otherwise.  Not allowed under Alpenglow, use fd_store_publish. */
 
 int
 fd_store_remove( fd_store_t *      store,
                  fd_store_map_t *  map,
                  fd_hash_t const * merkle_root );
+
+/* Removes every FEC of a slot below root, like fd_store_remove.  Walks
+   the slots from the lowest inserted one to root.  Returns how many it
+   removed. */
+
+ulong
+fd_store_publish( fd_store_t *     store,
+                  fd_store_map_t * map,
+                  ulong            root );
 
 
 FD_FN_PURE static inline int
