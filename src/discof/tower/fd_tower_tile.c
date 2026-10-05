@@ -1662,21 +1662,24 @@ init_choreo( void                 * scratch,
 /* tower_file_write saves our last vote the way Agave does, so an
    operator can move it to another validator with set-identity.  The
    file is signed by the identity, so it is only written while the sign
-   tile is known to hold the same identity key as we do. */
+   tile is known to hold the same identity key as we do.
+
+   The first write after a set-identity gives the files the name of
+   the new identity.  A file that already has that name, e.g. the
+   tower file passed to set-identity, is kept under a free .old name,
+   not replaced. */
 
 static void
 tower_file_write( fd_tower_tile_t * ctx ) {
-  /* The first write after a set-identity gives the files the name of
-     the new identity.  A file that already has that name, e.g. the
-     tower file passed to set-identity, is kept under a free .old name,
-     not replaced. */
-
   FD_BASE58_ENCODE_32_BYTES( ctx->identity_key->uc, identity_key_b58 );
   char name[ 2 ][ PATH_MAX ];
   FD_TEST( fd_cstr_printf_check( name[ 1 ], PATH_MAX, NULL, "tower-1_9-%s.bin",     identity_key_b58 ) );
   FD_TEST( fd_cstr_printf_check( name[ 0 ], PATH_MAX, NULL, "tower-1_9-%s.bin.new", identity_key_b58 ) );
+
+  /* Handle the case around an identity switch.  Swap the name of the
+     files and handle naming collisions. */
   if( FD_UNLIKELY( strcmp( name[ 1 ], ctx->tower_name[ 1 ] ) ) ) {
-    for( ulong i=0UL; i<2UL; i++ ) {
+    for( ulong i=0UL; i<2UL; i++ ) { /* [0] staging, [1] live */
       if( FD_LIKELY( !syscall( SYS_renameat2, ctx->tower_dir_fd, ctx->tower_name[ i ], ctx->tower_dir_fd, name[ i ], RENAME_NOREPLACE ) ) ) continue;
       if( FD_UNLIKELY( errno!=EEXIST ) ) FD_LOG_ERR(( "renameat2(%s, %s) failed (%i-%s)", ctx->tower_name[ i ], name[ i ], errno, fd_io_strerror( errno ) ));
 
@@ -1695,13 +1698,18 @@ tower_file_write( fd_tower_tile_t * ctx ) {
     memcpy( ctx->tower_name, name, sizeof(name) );
   }
 
+  /* Produce and sign the contents of a valid tower file. */
   uchar buf[ FD_TOWER_FILE_MAX ];
   ulong sz = fd_tower_file_ser( &ctx->compact_tower_sync_serde, ctx->identity_key, buf );
   fd_keyguard_client_sign( ctx->keyguard_client, buf+FD_TOWER_FILE_SIG_OFF, buf+FD_TOWER_FILE_DATA_OFF, sz-FD_TOWER_FILE_DATA_OFF, FD_KEYGUARD_SIGN_TYPE_ED25519 );
 
-  struct iovec iov = { .iov_base = buf, .iov_len = sz };
-  if( FD_UNLIKELY( pwritev2( ctx->tower_fd[ 0 ], &iov, 1, 0L, 0 )!=(long)sz ) ) FD_LOG_ERR(( "pwritev2(%s) failed (%i-%s)", ctx->tower_name[ 0 ], errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( ftruncate( ctx->tower_fd[ 0 ], (long)sz ) ) )                FD_LOG_ERR(( "ftruncate(%s) failed (%i-%s)", ctx->tower_name[ 0 ], errno, fd_io_strerror( errno ) ));
+  /* Write and truncate staging file */
+  if( FD_UNLIKELY( pwritev2( ctx->tower_fd[ 0 ], &(struct iovec){ .iov_base=buf, .iov_len=sz }, 1, 0L, 0 )!=(long)sz ) )
+    FD_LOG_ERR(( "pwritev2(%s) failed (%i-%s)", ctx->tower_name[ 0 ], errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( ftruncate( ctx->tower_fd[ 0 ], (long)sz ) ) ) FD_LOG_ERR(( "ftruncate(%s) failed (%i-%s)", ctx->tower_name[ 0 ], errno, fd_io_strerror( errno ) ));
+
+  /* The exchange makes the new tower live atomically.  Files cannot be
+     opened after boot, so old live file is now the staging file. */
   if( FD_UNLIKELY( syscall( SYS_renameat2, ctx->tower_dir_fd, ctx->tower_name[ 0 ], ctx->tower_dir_fd, ctx->tower_name[ 1 ], RENAME_EXCHANGE ) ) )
     FD_LOG_ERR(( "renameat2(%s, %s) failed (%i-%s)", ctx->tower_name[ 0 ], ctx->tower_name[ 1 ], errno, fd_io_strerror( errno ) ));
   int staging = ctx->tower_fd[ 0 ]; ctx->tower_fd[ 0 ] = ctx->tower_fd[ 1 ]; ctx->tower_fd[ 1 ] = staging;
