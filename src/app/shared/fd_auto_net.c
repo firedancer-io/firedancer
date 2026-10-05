@@ -241,8 +241,9 @@ is_xdp_zc_auto( fd_config_t * config ) {
 
 static int
 xdp_zc_check( fd_config_t    const * config,
-              fd_auto_info_t const * info   FD_PARAM_UNUSED ) {
+              fd_auto_info_t const * info ) {
   if( strcmp( config->net.xdp.xdp_mode, "drv") ) return 0;
+  if( 0==strcmp( info->driver, "i40e" ) && info->is_bonded_if ) return 0;
   return 1;
 }
 
