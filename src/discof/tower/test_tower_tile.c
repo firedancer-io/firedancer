@@ -1311,6 +1311,130 @@ test_tower_file_names( void ) {
   FD_LOG_NOTICE(( "pass: test_tower_file_names" ));
 }
 
+static void
+tower_file_make( int          dir_fd,
+                 char const * name,
+                 char const * text ) {
+  int fd = openat( dir_fd, name, O_WRONLY|O_CREAT|O_TRUNC, 0644 );
+  FD_TEST( -1!=fd );
+  FD_TEST( (long)strlen( text )==write( fd, text, strlen( text ) ) );
+  FD_TEST( !close( fd ) );
+}
+
+/* tower_file_is returns whether name holds text, or if text is NULL, a
+   tower file for identity. */
+
+static int
+tower_file_is( int                 dir_fd,
+               char const *        name,
+               char const *        text,
+               fd_pubkey_t const * identity ) {
+  uchar buf[ FD_TOWER_FILE_DATA_OFF+32UL ] = {0};
+  int   fd = openat( dir_fd, name, O_RDONLY );
+  if( -1==fd ) return 0;
+  long n = read( fd, buf, sizeof(buf) );
+  FD_TEST( !close( fd ) );
+  if( text ) return n==(long)strlen( text ) && !memcmp( buf, text, strlen( text ) );
+  return n==(long)sizeof(buf) && FD_LOAD( uint, buf )==1U && fd_memeq( buf+FD_TOWER_FILE_DATA_OFF, identity->uc, 32UL );
+}
+
+static void
+test_tower_file_write( fd_wksp_t * wksp ) {
+
+  /* A fake sign tile, a response is published before each request */
+
+  ulong            depth       = 4UL;
+  ulong            req_data_sz = fd_dcache_req_data_sz( FD_KEYGUARD_SIGN_REQ_MTU, depth, 1UL, 1 );
+  ulong            rsp_data_sz = fd_dcache_req_data_sz( 64UL,                     depth, 1UL, 1 );
+  fd_frag_meta_t * req_mcache  = fd_mcache_join( fd_mcache_new( fd_wksp_alloc_laddr( wksp, fd_mcache_align(), fd_mcache_footprint( depth, 0UL ), 1UL ), depth, 0UL, 0UL ) );
+  fd_frag_meta_t * rsp_mcache  = fd_mcache_join( fd_mcache_new( fd_wksp_alloc_laddr( wksp, fd_mcache_align(), fd_mcache_footprint( depth, 0UL ), 1UL ), depth, 0UL, 0UL ) );
+  uchar *          req_dcache  = fd_dcache_join( fd_dcache_new( fd_wksp_alloc_laddr( wksp, fd_dcache_align(), fd_dcache_footprint( req_data_sz, 0UL ), 1UL ), req_data_sz, 0UL ) );
+  uchar *          rsp_dcache  = fd_dcache_join( fd_dcache_new( fd_wksp_alloc_laddr( wksp, fd_dcache_align(), fd_dcache_footprint( rsp_data_sz, 0UL ), 1UL ), rsp_data_sz, 0UL ) );
+  static fd_tower_tile_t ctx[1];
+  FD_TEST( fd_keyguard_client_join( fd_keyguard_client_new( ctx->keyguard_client, req_mcache, req_dcache, rsp_mcache, rsp_dcache, FD_KEYGUARD_SIGN_REQ_MTU, 64UL, NULL, 0UL, ULONG_MAX ) ) );
+  ulong rsp_chunk0 = fd_dcache_compact_chunk0( wksp, rsp_dcache );
+  ulong rsp_seq    = 0UL;
+
+  char dir[] = "/tmp/test_tower_file_write_XXXXXX";
+  FD_TEST( mkdtemp( dir ) );
+  int dir_fd = open( dir, O_RDONLY|O_DIRECTORY );
+  FD_TEST( -1!=dir_fd );
+  ctx->tower_dir_fd = dir_fd;
+  fd_cstr_ncpy( ctx->tower_name_tmpl, "tower-1_9-{identity}.bin", PATH_MAX );
+
+  /* identities U, A and B */
+
+  fd_pubkey_t id[ 3 ];
+  char        name[ 3 ][ 2 ][ PATH_MAX ];
+  char        old [ 3 ][ 2 ][ PATH_MAX ];
+  for( ulong i=0UL; i<3UL; i++ ) {
+    memset( id[ i ].uc, (int)(0x11UL*(i+1UL)), 32UL );
+    FD_BASE58_ENCODE_32_BYTES( id[ i ].uc, b58 );
+    tower_file_names( ctx->tower_name_tmpl, b58, name[ i ] );
+    FD_TEST( fd_cstr_printf_check( old[ i ][ 0 ], PATH_MAX, NULL, "%s.old",   name[ i ][ 1 ] ) );
+    FD_TEST( fd_cstr_printf_check( old[ i ][ 1 ], PATH_MAX, NULL, "%s.old.1", name[ i ][ 1 ] ) );
+  }
+
+  ctx->identity_key[ 0 ] = id[ 0 ];
+  memcpy( ctx->tower_name, name[ 0 ], sizeof(name[ 0 ]) );
+  for( ulong i=0UL; i<2UL; i++ ) {
+    ctx->tower_fd[ i ] = openat( dir_fd, ctx->tower_name[ i ], O_WRONLY|O_CREAT, 0644 );
+    FD_TEST( -1!=ctx->tower_fd[ i ] );
+  }
+  memset( &ctx->compact_tower_sync_serde, 0, sizeof(ctx->compact_tower_sync_serde) );
+  ctx->compact_tower_sync_serde.root          = 100UL;
+  ctx->compact_tower_sync_serde.lockouts_cnt  = 1;
+  ctx->compact_tower_sync_serde.lockouts[ 0 ] = ( __typeof__(ctx->compact_tower_sync_serde.lockouts[0]) ){ .offset=1UL, .confirmation_count=1 };
+
+# define WRITE() do {                                                                         \
+    fd_mcache_publish( rsp_mcache, depth, rsp_seq++, 0UL, rsp_chunk0, 64UL, 0UL, 0UL, 0UL ); \
+    tower_file_write( ctx );                                                                  \
+  } while(0)
+
+  /* the first write as U */
+
+  WRITE();
+  FD_TEST( tower_file_is( dir_fd, name[ 0 ][ 1 ], NULL, &id[ 0 ] ) );
+
+  /* switching to A, whose name has the tower file passed to
+     set-identity, keeps that file under an .old name */
+
+  tower_file_make( dir_fd, name[ 1 ][ 1 ], "copy" );
+  ctx->identity_key[ 0 ] = id[ 1 ];
+  WRITE();
+  FD_TEST( tower_file_is( dir_fd, name[ 1 ][ 1 ], NULL,   &id[ 1 ] ) );
+  FD_TEST( tower_file_is( dir_fd, name[ 1 ][ 0 ], NULL,   &id[ 0 ] ) );
+  FD_TEST( tower_file_is( dir_fd, old [ 1 ][ 0 ], "copy", NULL     ) );
+  FD_TEST( -1==faccessat( dir_fd, name[ 0 ][ 0 ], F_OK, 0 ) );
+  FD_TEST( -1==faccessat( dir_fd, name[ 0 ][ 1 ], F_OK, 0 ) );
+
+  /* another write as A only exchanges the staging and live files */
+
+  WRITE();
+  FD_TEST( tower_file_is( dir_fd, name[ 1 ][ 1 ], NULL, &id[ 1 ] ) );
+  FD_TEST( tower_file_is( dir_fd, name[ 1 ][ 0 ], NULL, &id[ 1 ] ) );
+
+  /* switching to B, whose .old name is taken too, uses the next one */
+
+  tower_file_make( dir_fd, name[ 2 ][ 1 ], "copy"  );
+  tower_file_make( dir_fd, old [ 2 ][ 0 ], "older" );
+  ctx->identity_key[ 0 ] = id[ 2 ];
+  WRITE();
+  FD_TEST( tower_file_is( dir_fd, name[ 2 ][ 1 ], NULL,    &id[ 2 ] ) );
+  FD_TEST( tower_file_is( dir_fd, old [ 2 ][ 0 ], "older", NULL     ) );
+  FD_TEST( tower_file_is( dir_fd, old [ 2 ][ 1 ], "copy",  NULL     ) );
+
+# undef WRITE
+
+  char const * files[] = { name[ 2 ][ 0 ], name[ 2 ][ 1 ], old[ 2 ][ 0 ], old[ 2 ][ 1 ], old[ 1 ][ 0 ] };
+  for( ulong i=0UL; i<5UL; i++ ) FD_TEST( !unlinkat( dir_fd, files[ i ], 0 ) );
+  for( ulong i=0UL; i<2UL; i++ ) FD_TEST( !close( ctx->tower_fd[ i ] ) );
+  FD_TEST( !close( dir_fd ) );
+  FD_TEST( !rmdir( dir ) );
+
+  FD_LOG_NOTICE(( "pass: test_tower_file_write" ));
+}
+
 static int
 tower_file_authorized( fd_compact_tower_sync_serde_t const * sync,
                        fd_pubkey_t const *                   identity ) {
@@ -1377,6 +1501,7 @@ main( int     argc,
   fd_wksp_reset( wksp, 1UL ); test_eqvoc_erc_diff( wksp );
   fd_wksp_reset( wksp, 1UL ); test_eqvoc_cre_diff( wksp );
   fd_wksp_reset( wksp, 1UL ); test_vote_history_pending_replay( wksp );
+  fd_wksp_reset( wksp, 1UL ); test_tower_file_write( wksp );
 
   fd_halt();
 }
