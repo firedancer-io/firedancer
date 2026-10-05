@@ -1604,6 +1604,15 @@ try_become_leader_ag( fd_replay_tile_t *  ctx,
   fd_bank_t * reset_bank = fd_banks_bank_query( ctx->banks, fd_block_id_ele_get_idx( ctx->block_id_arr, block_id_ele ) );
   if( FD_UNLIKELY( !reset_bank || reset_bank->bank_seq!=block_id_ele->bank_seq || reset_bank->state!=FD_BANK_STATE_FROZEN ) ) return 0;
 
+  /* A finalization above the parent, or a root that excludes it, means
+     we should give up our leader slot. */
+  if( FD_UNLIKELY( ( ctx->votor_final->slot!=ULONG_MAX && ctx->votor_final->slot>parent_slot ) ||
+                   ( ctx->consensus_root_slot!=ULONG_MAX && ctx->consensus_root_slot>parent_slot ) ||
+                   ( ctx->consensus_root_slot==parent_slot && !fd_hash_eq( &ctx->consensus_root, parent_block_id ) ) ) ) {
+    ctx->next_leader_slot = ULONG_MAX;
+    return 0;
+  }
+
   if( FD_UNLIKELY( !fd_banks_can_start_bank( ctx->banks ) ) ) return 0;
   if( FD_UNLIKELY( ctx->halt_replay ) ) return 0;
   if( !ctx->supports_leader ) return 0;
@@ -1845,6 +1854,28 @@ try_fini_leader( fd_replay_tile_t *  ctx,
 
   if( FD_LIKELY( !ctx->is_leader ) ) return 0;
   if( !ctx->recv_poh ) return 0;
+
+  /* The consensus root only advances through FROZEN banks and the
+     leader bank is frozen only below, so a root at or past our slot
+     can never include the leader bank.
+
+     We can't include votor-only messages, because it's possible our
+     block was retransmitted but replay hasn't processed the FEC yet
+     (due to bespoke repair <=> replay concurrency).  */
+
+  if( FD_UNLIKELY( ctx->alpenglow &&
+                   !ctx->block_id_arr[ ctx->leader_bank->idx ].block_id_seen &&
+                   ctx->consensus_root_slot!=ULONG_MAX &&
+                   ctx->consensus_root_slot>=ctx->leader_bank->f.slot ) ) {
+    ulong bank_idx = ctx->leader_bank->idx;
+    ctx->leader_bank->refcnt--;
+    ctx->leader_bank = NULL;
+    ctx->recv_poh    = 0;
+    ctx->is_leader   = 0;
+    mark_bank_dead( ctx, stem, bank_idx, FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_NOT_DEAD, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_PRUNED, NULL );
+    return 1;
+  }
+
   if( !ctx->block_id_arr[ ctx->leader_bank->idx ].block_id_seen ) return 0;
   FD_TEST( ctx->block_id_arr[ ctx->leader_bank->idx ].slot==ctx->leader_bank->f.slot );
 
@@ -3047,9 +3078,14 @@ can_process_rotor_fec( fd_replay_tile_t      * ctx,
                        int *                   evict_banks_out ) {
   /* We can process a FEC set if a few conditions are met:
      - sched has capacity
-     - banks has capacity.  Evict if we don't (see below) */
+     - banks has capacity.  Evict if we don't (see below)
+     Our leader FECs bind to the existing leader bank and never enter
+     sched, so neither capacity gate applies to them.  One that is not
+     for the current leader slot has no bank to bind to. */
 
-  if( FD_UNLIKELY( fd_sched_can_ingest_cnt( ctx->sched )==0UL ) ) {
+  if( FD_UNLIKELY( fec->is_leader && ( !ctx->leader_bank || ctx->leader_bank->f.slot!=fec->slot ) ) ) return PROCESS_FEC_SKIP;
+
+  if( FD_UNLIKELY( !fec->is_leader && fd_sched_can_ingest_cnt( ctx->sched )==0UL ) ) {
     FD_TEST( !fd_sched_is_drained( ctx->sched ) );
     ctx->metrics.sched_full++;
     return PROCESS_FEC_WAIT;
@@ -4294,10 +4330,6 @@ process_rotor_fec( fd_replay_tile_t      * ctx,
     ctx->catch_up_max_fec_slot = fec->metrics.highest_fec_complete_slot;
     ctx->catch_up_tip_advance_cnt++;
   }
-
-  /* A leader FEC arriving after its slot was aborted (or after a later
-     leadership began) has no bank to bind to; drop it. */
-  if( FD_UNLIKELY( fec->is_leader && ( !ctx->leader_bank || ctx->leader_bank->f.slot!=fec->slot ) ) ) return;
 
   ulong parent_bank_idx = ULONG_MAX;
   if( FD_UNLIKELY( fec->fec_set_idx==0 ) ) {
