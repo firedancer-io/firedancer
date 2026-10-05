@@ -114,7 +114,7 @@ ENCODE_FN {
     break;
   }
   case STATE_VOTE_ACCOUNT_ENTRIES: {
-    ulong end = fd_ulong_min( enc->vote_account_idx+VOTE_ACCOUNTS_PER_CHUNK, enc->vote_account_cnt );
+    ulong end = fd_ulong_min( enc->vote_account_idx+FD_SSMANIFEST_VOTE_ACCOUNTS_PER_CHUNK, enc->vote_account_cnt );
     for( ; enc->vote_account_idx<end; enc->vote_account_idx++ ) {
       PUSH_VOTE_ACCOUNT( &enc->vote_account[ enc->vote_account_idx ] );
     }

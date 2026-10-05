@@ -18,20 +18,6 @@
 #define MAP_KEY_HASH(key)     ((uint)fd_hash( 0UL, (key).uc, sizeof(fd_pubkey_t) ))
 #include "../../util/tmpl/fd_map.c"
 
-/* Fixed size part of a stakes cache vote account entry: pubkey (32) +
-   stake (8) + lamports (8) + data_len (8) + owner (32) + executable (1)
-   + rent_epoch (8) = 97 bytes.  The account data sits between data_len
-   and owner. */
-
-#define VOTE_ACCOUNT_HDR_SZ (97UL)
-
-/* How many vote accounts one encoder call writes: as many as fit the
-   minimum buffer, less the FD_RUNTIME_ACC_SZ_MAX of room the last
-   account read needs, since account data is read straight into the
-   output buffer. */
-
-#define VOTE_ACCOUNTS_PER_CHUNK ((FD_SSMANIFEST_BUF_MIN-FD_RUNTIME_ACC_SZ_MAX)/(VOTE_ACCOUNT_HDR_SZ+FD_VOTE_STATE_V4_SZ))
-
 #define SORT_NAME        sort_epoch_vote_by_node
 #define SORT_KEY_T       fd_ssmanifest_epoch_vote_t
 #define SORT_BEFORE(a,b) (0>memcmp( (a).node.uc, (b).node.uc, sizeof(fd_pubkey_t) ))
@@ -114,7 +100,7 @@ find_epoch_credits( fd_bank_t *          bank,
 #define PREP          ulong sz = 0UL;
 #define PUSH_VAL(t,n)             do { sz += sizeof(t); (void)(n); } while(0)
 #define PUSH_BYTES(src,n)         do { sz += (n); (void)(src); } while(0)
-#define PUSH_VOTE_ACCOUNT(v)      do { sz += VOTE_ACCOUNT_HDR_SZ+(v)->data_len; } while(0)
+#define PUSH_VOTE_ACCOUNT(v)      do { sz += FD_SSMANIFEST_VOTE_ACCOUNT_HDR_SZ+(v)->data_len; } while(0)
 #define PUSH_STAKE_DELEGATIONS(n) do { sz += (n)*FD_SSMANIFEST_STAKE_DELEGATION_SZ; } while(0)
 #define RET_EXPR      sz
 #include "fd_ssmanifest_encoder.c"
@@ -335,8 +321,8 @@ write_stake_delegations( fd_ssmanifest_writer_t * enc,
   } while(0)
 #define PUSH_VOTE_ACCOUNT( v )                                            \
   do {                                                                    \
-    ulong max_sz = VOTE_ACCOUNT_HDR_SZ+FD_RUNTIME_ACC_SZ_MAX;             \
-    if( FD_UNLIKELY( p+max_sz > p1 ) ) fail( enc, buf_sz, __LINE__ );     \
+    ulong room = FD_SSMANIFEST_VOTE_ACCOUNT_HDR_SZ+FD_RUNTIME_ACC_SZ_MAX; \
+    if( FD_UNLIKELY( p+room > p1 ) ) fail( enc, buf_sz, __LINE__ );       \
     p = write_vote_account( enc, (v), p );                                \
   } while(0)
 #define PUSH_STAKE_DELEGATIONS( n )                                       \

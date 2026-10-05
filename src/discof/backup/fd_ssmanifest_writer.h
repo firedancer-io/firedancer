@@ -6,6 +6,7 @@
 
 #include "../../flamenco/accdb/fd_accdb.h"
 #include "../../flamenco/runtime/fd_bank.h"
+#include "../../flamenco/runtime/program/vote/fd_vote_codec.h"
 
 /* fd_ssmanifest_vote_account_t is a vote account of the stakes cache:
    one a stake delegation points at.  Keyed by pubkey in a fixed size
@@ -110,9 +111,18 @@ fd_ssmanifest_writer_init( fd_ssmanifest_writer_t * writer,
 
 #define FD_SSMANIFEST_BUF_MIN (32UL<<20)
 
-/* A stakes cache delegation entry: the stake account's pubkey, then
-   its delegation as laid out in the stake account.  One call writes
-   as many as fit the minimum buffer. */
+/* Each stakes cache vote account entry is pubkey (32) + stake (8) +
+   lamports (8) + data_len (8) + owner (32) + executable (1) +
+   rent_epoch (8) = 97 bytes plus the account data, at most
+   FD_VOTE_STATE_V4_SZ.  The data is read straight into the output
+   buffer, and a read needs FD_RUNTIME_ACC_SZ_MAX of room whatever the
+   account's size. */
+
+#define FD_SSMANIFEST_VOTE_ACCOUNT_HDR_SZ     (97UL)
+#define FD_SSMANIFEST_VOTE_ACCOUNTS_PER_CHUNK ((FD_SSMANIFEST_BUF_MIN-FD_RUNTIME_ACC_SZ_MAX)/(FD_SSMANIFEST_VOTE_ACCOUNT_HDR_SZ+FD_VOTE_STATE_V4_SZ))
+
+/* Each stakes cache delegation entry is the stake account's pubkey,
+   then its delegation as laid out in the stake account. */
 
 #define FD_SSMANIFEST_STAKE_DELEGATION_SZ         (sizeof(fd_pubkey_t)+sizeof(fd_delegation_t))
 #define FD_SSMANIFEST_STAKE_DELEGATIONS_PER_CHUNK (FD_SSMANIFEST_BUF_MIN/FD_SSMANIFEST_STAKE_DELEGATION_SZ)
