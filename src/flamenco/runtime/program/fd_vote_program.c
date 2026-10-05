@@ -7,8 +7,6 @@
 #include "../sysvar/fd_sysvar_cache.h"
 #include "../sysvar/fd_sysvar.h"
 #include "../fd_system_ids.h"
-#include "fd_system_program.h"
-#include "fd_native_cpi.h"
 #include "vote/fd_authorized_voters.h"
 #include "vote/fd_vote_utils.h"
 #include "vote/fd_vote_codec_tmpl.h"
@@ -996,74 +994,6 @@ update_commission_bps( fd_exec_instr_ctx_t *                    ctx,
   }
 
   return fd_vsv_set_vote_account_state( ctx, vote_account, vote_state_versioned );
-}
-
-/* Deposit delegator rewards into a vote account (SIMD-0123).
-   https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.5/programs/vote/src/vote_state/mod.rs#L945-L998 */
-static int
-deposit_delegator_rewards( fd_exec_instr_ctx_t *           ctx,
-                           fd_borrowed_account_t *         vote_account,
-                           ulong                           deposit,
-                           fd_pubkey_t const *             signers[static FD_INSTR_SIGNERS_MAX],
-                           ulong                           signers_cnt ) {
-  fd_vote_state_versioned_t * vote_state = &ctx->runtime->vote_program.deposit_delegator_rewards.vote_state;
-
-  fd_pubkey_t const * vote_address   = NULL;
-  fd_pubkey_t const * source_address = NULL;
-  int rc = fd_exec_instr_ctx_get_key_of_account_at_index( ctx, 0UL, &vote_address );
-  if( FD_UNLIKELY( rc ) ) return rc;
-  rc = fd_exec_instr_ctx_get_key_of_account_at_index( ctx, 1UL, &source_address );
-  if( FD_UNLIKELY( rc ) ) return rc;
-
-  /* Source account must sign the transfer.
-     https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.5/programs/vote/src/vote_state/mod.rs#L960-L961 */
-  rc = fd_vote_verify_authorized_signer( source_address, signers, signers_cnt );
-  if( FD_UNLIKELY( rc ) ) return rc;
-
-  /* SIMD-0123 states we must validate the vote account deserializes to a v4
-     *before* attempting CPI, then update the `pending_delegator_rewards`
-     field *last*.
-     https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.5/programs/vote/src/vote_state/mod.rs#L963-L982 */
-  rc = fd_vsv_deserialize( vote_account->acc, vote_state );
-  if( FD_UNLIKELY( rc ) ) return rc;
-
-  if( FD_UNLIKELY( vote_state->kind!=fd_vote_state_versioned_enum_v4 ) ) {
-    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
-  }
-
-  /* Only vote accounts in the current epoch's leader schedule stakes
-     (Agave's epoch_stakes[epoch], the t-2 set) accept deposits. */
-  ulong epoch_stake = 0UL;
-  fd_vote_stakes_query_t_2( fd_bank_vote_stakes( ctx->bank ), ctx->bank->vote_stakes_fork_id, vote_address, NULL, &epoch_stake, NULL, NULL, NULL, NULL );
-  if( FD_UNLIKELY( !epoch_stake ) ) return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
-
-  /* CPI to System: Transfer from sender to vote account.
-     The vote account borrow is released first so the transfer can take it.
-     https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.5/programs/vote/src/vote_state/mod.rs#L984-L988 */
-  fd_borrowed_account_drop( vote_account );
-
-  uchar instr_data[ FD_TXN_MTU ];
-  fd_system_program_instruction_t instr = {
-    .discriminant = FD_SYSTEM_PROGRAM_INSTR_TRANSFER,
-    .inner        = { .transfer = deposit },
-  };
-  ulong instr_data_sz;
-  rc = fd_system_program_instruction_encode( &instr, instr_data, FD_TXN_MTU, &instr_data_sz );
-  if( FD_UNLIKELY( rc ) ) FD_LOG_CRIT(( "failed to encode system transfer (%d)", rc ));
-
-  fd_vm_rust_account_meta_t acct_metas[ 2UL ];
-  fd_native_cpi_create_account_meta( source_address, 1U, 1U, &acct_metas[ 0UL ] );
-  fd_native_cpi_create_account_meta( vote_address,   0U, 1U, &acct_metas[ 1UL ] );
-  rc = fd_native_cpi_native_invoke( ctx, &fd_solana_system_program_id, instr_data, instr_data_sz,
-                                    acct_metas, 2UL, NULL, 0UL );
-  if( FD_UNLIKELY( rc ) ) return rc;
-
-  /* Update pending_delegator_rewards.
-     https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.5/programs/vote/src/vote_state/mod.rs#L990-L997 */
-  FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, 0UL, vote_account );
-  rc = fd_vsv_add_pending_delegator_rewards( vote_state, deposit );
-  if( FD_UNLIKELY( rc ) ) return rc;
-  return fd_vsv_set_vote_account_state( ctx, vote_account, vote_state );
 }
 
 /* Updates the vote account's commission collector (SIMD-0232).
@@ -2474,26 +2404,13 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
    * https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v5.0.0/vote-interface/src/instruction.rs#L223-L228
    *
    * Processor:
-   * https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.5/programs/vote/src/vote_processor.rs#L391-L408
+   * https://github.com/anza-xyz/agave/blob/b76028e061ed3bc794d1d802429b3315f02e5a51/programs/vote/src/vote_processor.rs#L391-L393
    *
    * Notes:
-   * - Requires SIMD-0291, SIMD-0232 and SIMD-0123
+   * - Disabled, always fails with InvalidInstructionData
    */
   case fd_vote_instruction_enum_deposit_delegator_rewards: {
-    if( FD_UNLIKELY( !commission_rate_in_basis_points
-                  || !custom_commission_collector
-                  || !block_revenue_sharing ) ) {
-      return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
-    }
-
-    /* https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.5/programs/vote/src/vote_processor.rs#L405 */
-    if( FD_UNLIKELY( ctx->instr->acct_cnt < 2 ) ) {
-      rc = FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
-      break;
-    }
-
-    rc = deposit_delegator_rewards( ctx, &me, instruction->deposit_delegator_rewards.deposit, signers, signers_cnt );
-
+    rc = FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
     break;
   }
 

@@ -46,6 +46,6 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-leader-credits --
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-alpenclock-lamports --alpenglow -m 2000000 -e 280
 # SIMD-0123 (block revenue sharing) and SIMD-0599 (remove inactive stakes) on an alpenglow-at-genesis localnet
 # (agave-cluster, testnet feature set); gates activate @ slot 256, boot @ snapshot-20. One ledger per gate and one with both.
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-block-revenue-sharing-agave-v4.4-6afe9919-pr15608 --alpenglow -m 2000000 -e 1100
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-block-revenue-sharing-agave-v4.4-57a35916-pr15795 --alpenglow -m 2000000 -e 1400
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-remove-inactive-stakes-agave-v4.4-6afe9919 --alpenglow -m 2000000 -e 1100
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-block-revenue-sharing-remove-inactive-stakes-agave-v4.4-6afe9919-pr15608 --alpenglow -m 2000000 -e 1100
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-block-revenue-sharing-remove-inactive-stakes-agave-v4.4-57a35916-pr15795 --alpenglow -m 2000000 -e 1400
