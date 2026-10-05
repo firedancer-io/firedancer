@@ -1813,9 +1813,10 @@ telemetry = true
         # FEC payload spills can consume additional space.
         shred_storage_limit_gib = 50
 
-    # The tower tile runs the consensus algorithm, and decides which
-    # blocks our validator votes for.  This tower file is compatible
-    # with Agave and Firedancer Validators.
+    # The tower tile runs pre-Alpenglow consensus and decides what
+    # blocks to vote for. The tower file is optional, but used for safer
+    # identity switches that avoid consensus violations like double
+    # voting and vote lockout violations.
     [tiles.tower]
         write_tower_file = true
 
