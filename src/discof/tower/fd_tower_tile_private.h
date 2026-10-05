@@ -127,10 +127,10 @@ struct fd_tower_tile {
 
   /* owned joins */
 
-  fd_wksp_t *      wksp; /* workspace */
-  fd_keyswitch_t * identity_keyswitch;
-  auth_vtr_t *     auth_vtr;
-  fd_keyswitch_t * auth_vtr_keyswitch; /* authorized voter keyswitch */
+  fd_wksp_t *          wksp; /* workspace */
+  fd_keyswitch_t *     identity_keyswitch;
+  auth_vtr_t *         auth_vtr;
+  fd_keyswitch_t *     auth_vtr_keyswitch; /* authorized voter keyswitch */
   fd_keyguard_client_t keyguard_client[1];
 
   /* The tower file.  Each write goes to the staging file, then the two
