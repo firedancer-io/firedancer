@@ -1194,7 +1194,6 @@ handle_gossip( fd_votor_tile_t *                  ctx,
 
   contact_info_t * ci   = contact_infos_query( ctx->contact_infos, id_key, NULL );
   peer_t *         peer = peers_query        ( ctx->peers,         id_key, NULL );
-  if( FD_LIKELY( !peer ) ) return;
 
   switch( sig ) {
   case FD_GOSSIP_UPDATE_TAG_CONTACT_INFO: {
@@ -1218,6 +1217,7 @@ handle_gossip( fd_votor_tile_t *                  ctx,
     if( FD_UNLIKELY( !ci ) ) ci = contact_infos_insert( ctx->contact_infos, id_key );
     ci->ip4  = ip4;
     ci->port = port;
+    if( FD_LIKELY( !peer ) ) return;
     if( FD_UNLIKELY( peer->tx_conn ) ) {
       fd_quic_conn_set_context( peer->tx_conn, NULL );
       fd_quic_conn_close( peer->tx_conn, 0U );

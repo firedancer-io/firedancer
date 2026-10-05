@@ -1077,6 +1077,31 @@ test_gossip_connects_new_address( void ) {
   test_ctx_delete( &ctx );
 }
 
+/* gossip only sends a contact info again when it changes, so one that
+   arrives before the peer is staked is kept, and the peer is connected
+   once it is. */
+
+static void
+test_gossip_before_stake( void ) {
+  static fd_votor_tile_t            ctx;
+  static fd_gossip_update_message_t msg;
+  test_ctx_new( &ctx, 4UL );
+  fd_pubkey_t id_key = {0}; id_key.uc[ 0 ] = 2;
+  memcpy( msg.origin, id_key.uc, sizeof(fd_pubkey_t) );
+  fd_gossip_socket_t * sock = &msg.contact_info->value->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_ALPENGLOW ];
+  sock->ip4  = FD_IP4_ADDR( 10, 0, 0, 1 );
+  sock->port = fd_ushort_bswap( 8000 );
+
+  handle_gossip( &ctx, FD_GOSSIP_UPDATE_TAG_CONTACT_INFO, &msg );
+  FD_TEST( contact_infos_query( ctx.contact_infos, id_key, NULL ) );
+
+  peer_t * other = test_peer( &ctx, 2, 0 );
+  connect_peers( &ctx, fd_clock_tile_now( ctx.clock ) );
+  FD_TEST( other->tx_conn );
+
+  test_ctx_delete( &ctx );
+}
+
 /* after_credit connects queued peers once due and leaves the rest,
    requeues one whose backoff grew, and drops entries for peers that
    can no longer be connected. */
@@ -1360,6 +1385,7 @@ main( int     argc,
   test_conn_final_backoff();
   test_connect_fail_keeps_backoff();
   test_gossip_connects_new_address();
+  test_gossip_before_stake();
   test_reconnect();
   test_conn_ahead();
   test_park();
