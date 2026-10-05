@@ -3179,7 +3179,7 @@ can_process_rotor_fec( fd_replay_tile_t      * ctx,
   }
 
   if( FD_UNLIKELY( !fd_banks_can_start_bank( ctx->banks ) ) ) {
-    int is_new_block = fec->fec_set_idx==0U;
+    int is_new_block = fec->fec_set_idx==0U && !fec->is_leader;
     if( FD_UNLIKELY( is_new_block ) ) {
       ctx->metrics.banks_full++;
       if( FD_UNLIKELY( fd_sched_is_drained( ctx->sched ) ) ) *evict_banks_out = 1;
