@@ -84,6 +84,8 @@ static ulong          mock_sched_abandon_cnt;
 static ulong          mock_sched_abandon_idx;
 static ulong          mock_sched_root_notify_cnt;
 static ulong          mock_sched_root_notify_idx;
+static ulong          mock_sched_cancel_idx;
+static ulong          mock_sched_add_done_idx;
 static ulong          mock_sched_capacity;
 static int            mock_sched_drained;
 static fd_sched_txn_info_t mock_sched_txn_info;
@@ -106,7 +108,7 @@ void  mock_sched_abandon_fn     ( fd_sched_t * s FD_PARAM_UNUSED, ulong i, int i
   mock_sched_abandon_cnt++;
   mock_sched_abandon_idx = i;
 }
-void  mock_sched_cancel_fn      ( fd_sched_t * s FD_PARAM_UNUSED, ulong i FD_PARAM_UNUSED ) {}
+void  mock_sched_cancel_fn      ( fd_sched_t * s FD_PARAM_UNUSED, ulong i ) { mock_sched_cancel_idx = i; }
 int   mock_sched_is_discarded_fn( fd_sched_t * s FD_PARAM_UNUSED, ulong i FD_PARAM_UNUSED ) { return 0; }
 ulong mock_sched_pruned_fn      ( fd_sched_t * s FD_PARAM_UNUSED ) { return ULONG_MAX; }
 void  mock_sched_metrics_fn     ( fd_sched_t * s FD_PARAM_UNUSED ) {}
@@ -252,10 +254,13 @@ mock_runtime_block_execute_prepare_fn( fd_banks_t *         banks FD_PARAM_UNUSE
 #define fd_progcache_attach_child            mock_progcache_attach_child_fn
 #define fd_accdb_attach_child                mock_accdb_attach_child_fn
 #define fd_accdb_cmd_pending(a)              ( (a) ? (fd_accdb_cmd_pending)(a) : 0 )
+#define fd_txncache_cancel_fork(tc,f)        ((void)(tc),(void)(f))
+#define fd_progcache_cancel_fork(c,f)        ((void)(c),(void)(f))
+#define fd_accdb_purge(a,f)                  ((void)(a),(void)(f))
 /* Bypass unrelated boot dependencies while exercising snapshot DONE to completion. */
 #define fd_sysvar_cache_restore(bank,accdb)  (mock_snapshot_boot ? 1 : (fd_sysvar_cache_restore)(bank,accdb))
 #define fd_sysvar_rent_read(accdb,fork,rent) (mock_snapshot_boot ? (rent) : (fd_sysvar_rent_read)(accdb,fork,rent))
-#define fd_sched_block_add_done(s,b,p,slot)   do { if( !mock_snapshot_boot ) (fd_sched_block_add_done)(s,b,p,slot); } while(0)
+#define fd_sched_block_add_done(s,b,p,slot)   do { if( !mock_snapshot_boot ) mock_sched_add_done_idx = (b); } while(0)
 #define fd_runtime_update_next_leaders(b,s)  do { if( !mock_snapshot_boot ) (fd_runtime_update_next_leaders)(b,s); } while(0)
 #define fd_runtime_update_leaders(b,s)       do { if( !mock_snapshot_boot ) (fd_runtime_update_leaders)(b,s); } while(0)
 #define fd_multi_epoch_leaders_epoch_msg_init(m,msg) do { if( !mock_snapshot_boot ) (fd_multi_epoch_leaders_epoch_msg_init)(m,msg); } while(0)
@@ -4732,6 +4737,305 @@ test_ag_set_identity_leader_slot( fd_wksp_t * wksp,
   FD_LOG_NOTICE(( "pass: test_ag_set_identity_leader_slot(same_identity=%d)", same_identity ));
 }
 
+/* Like deliver_rotor_fec_bid, for one of our own leader FECs. */
+
+static int
+deliver_leader_fec( fd_replay_tile_t * ctx,
+                    ulong              slot,
+                    uint               fec_set_idx,
+                    ulong              parent_slot,
+                    fd_hash_t const *  parent_block_id,
+                    fd_hash_t const *  block_id,
+                    fd_hash_t const *  mr,
+                    int                slot_complete ) {
+  ulong chunk = ctx->in[ TEST_REPAIR_IN_IDX ].chunk0;
+  fd_rotor_replay_fec_t * fec = fd_chunk_to_laddr( ctx->in[ TEST_REPAIR_IN_IDX ].mem, chunk );
+  memset( fec, 0, sizeof(*fec) );
+  fec->slot            = slot;
+  fec->fec_set_idx     = fec_set_idx;
+  fec->mr              = *mr;
+  fec->parent_slot     = parent_slot;
+  fec->parent_block_id = *parent_block_id;
+  fec->block_id        = *block_id;
+  fec->slot_complete   = slot_complete;
+  fec->is_leader       = 1;
+  ctx->execrp_idle_cnt = 2UL*ctx->in_cnt + 4UL;
+  return returnable_frag( ctx, TEST_REPAIR_IN_IDX, 0UL, ROTOR_SIG_FEC_REPLAY, chunk,
+                          sizeof(fd_rotor_replay_fec_t), 0UL, 0UL,
+                          fd_frag_meta_ts_comp( fd_tickcount() ), test_stem );
+}
+
+/* setup_ag_leader_ctx boots an Alpenglow ctx rooted at slot 0 with a
+   frozen slot 1 (id1) on top, and a ParentReady for leader slot 2 on
+   slot 1 that our identity is scheduled for. */
+
+static fd_bank_t *
+setup_ag_leader_ctx( fd_replay_tile_t * ctx,
+                     fd_wksp_t *        wksp,
+                     fd_hash_t const *  root_id,
+                     fd_hash_t const *  id1 ) {
+  setup_ctx( ctx, wksp );
+  setup_ag_block_id_map( ctx, wksp, root_id );
+  ctx->alpenglow = 1;
+
+  fd_bank_t * root = fd_banks_root( ctx->banks );
+  root->f.block_id         = *root_id;
+  ctx->consensus_root      = *root_id;
+  ctx->consensus_root_slot = 0UL;
+  ctx->notified_root       = *root_id;
+  ctx->notified_root_slot  = 0UL;
+  ctx->notified_root_bank  = root;
+  ctx->votor_final->slot   = ULONG_MAX;
+
+  fd_bank_t * b1 = add_block( ctx, root, 1UL, id1 );
+
+  fd_pubkey_t identity = { .ul = { 1UL } };
+  ctx->identity_pubkey[ 0 ]     = identity;
+  mock_leader_for_slot_override = 1;
+  mock_leader_schedule_loaded   = 1;
+  mock_slot_leader              = identity;
+
+  *ctx->votor_leader    = (fd_votor_leader_t){ .slot = 2UL, .parent_slot = 1UL, .parent_block_id = *id1 };
+  ctx->next_leader_slot = 2UL;
+  return b1;
+}
+
+/* process_poh_message's Alpenglow footer path reads accounts this ctx
+   does not have; the rest of the slot_ended handling is shared.  The
+   sched registration that path does is replayed by hand. */
+
+static void
+end_leader_slot( fd_replay_tile_t * ctx,
+                 ulong              slot ) {
+  fd_poh_leader_slot_ended_t slot_ended = { .completed = 1, .slot = slot };
+  ctx->alpenglow = 0;
+  process_poh_message( ctx, test_stem, &slot_ended );
+  ctx->alpenglow = 1;
+  FD_TEST( ctx->recv_poh );
+  fd_sched_block_add_done( ctx->sched, ctx->leader_bank->idx, ctx->leader_bank->parent_idx, slot );
+}
+
+/* Our block id never comes back (rotor dropped our own shreds) while
+   the cluster finalizes a sibling chain.  Once replay roots past the
+   leader slot, the leader slot is abandoned instead of wedging
+   is_leader, which in turn unblocks the root handoff, the bank prune
+   and a deferred identity switch.  A late own FEC is then skipped
+   without a redelivery request. */
+
+static void
+test_ag_leader_abandon_on_root_past_leader_slot( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  fd_hash_t root_id = { .ul = { 0xBEEFUL } };
+  fd_hash_t id1     = { .ul = { 201UL } };
+  fd_hash_t id3     = { .ul = { 203UL } };
+  fd_bank_t * b1 = setup_ag_leader_ctx( ctx, wksp, &root_id, &id1 );
+
+  static fd_keyswitch_t keyswitch[ 1 ];
+  ctx->keyswitch = fd_keyswitch_join( fd_keyswitch_new( keyswitch, FD_KEYSWITCH_STATE_UNLOCKED ) );
+  FD_TEST( ctx->keyswitch );
+  void * vote_tracker_mem = fd_wksp_alloc_laddr( wksp, fd_vote_tracker_align(), fd_vote_tracker_footprint(), 1UL );
+  FD_TEST( vote_tracker_mem );
+  ctx->vote_tracker = fd_vote_tracker_join( fd_vote_tracker_new( vote_tracker_mem, 42UL ) );
+  FD_TEST( ctx->vote_tracker );
+  ctx->replay_out_seq = fd_mcache_seq_laddr_const( test_stem_mcaches[ ctx->replay_out->idx ] );
+  ctx->slot_out_seq   = fd_mcache_seq_laddr_const( test_stem_mcaches[ ctx->slot_out->idx   ] );
+
+  FD_TEST( try_become_leader_ag( ctx, test_stem ) );
+  fd_bank_t * leader = ctx->leader_bank;
+  FD_TEST( ctx->is_leader && leader && leader->f.slot==2UL && leader->refcnt==1UL );
+  ulong leader_idx = leader->idx;
+  ulong out_idx    = ctx->replay_out->idx;
+
+  /* FEC 0 of our block comes back, the rest never does. */
+  fd_hash_t zero    = {0};
+  fd_hash_t mr2_0   = { .ul = { 2001UL } };
+  fd_hash_t mr2_32  = { .ul = { 2002UL } };
+  FD_TEST( !deliver_leader_fec( ctx, 2UL, 0U, 1UL, &id1, &zero, &mr2_0, 0 ) );
+  FD_TEST( fd_hash_eq( &ctx->block_id_arr[ leader_idx ].latest_mr, &mr2_0 ) );
+  FD_TEST( !ctx->block_id_arr[ leader_idx ].block_id_seen );
+
+  /* An identity switch arrives mid-slot and is deferred. */
+  fd_pubkey_t new_identity = { .ul = { 2UL } };
+  memcpy( keyswitch->bytes, new_identity.uc, sizeof(fd_pubkey_t) );
+  fd_keyswitch_state( keyswitch, FD_KEYSWITCH_STATE_SWITCH_PENDING );
+  during_housekeeping( ctx );
+  FD_TEST( keyswitch->state==FD_KEYSWITCH_STATE_SWITCH_PENDING );
+
+  /* Root below the leader slot: wait for the block id. */
+  end_leader_slot( ctx, 2UL );
+  FD_TEST( mock_sched_add_done_idx==leader_idx );
+  FD_TEST( !try_fini_leader( ctx, test_stem ) );
+  FD_TEST( ctx->is_leader && ctx->leader_bank==leader );
+
+  /* The cluster finalizes a sibling of our slot.  Replay roots it, but
+     the handoff stays gated on is_leader. */
+  fd_bank_t * b3 = add_block( ctx, b1, 3UL, &id3 );
+  try_advance_root_ag( ctx, ag_block_id( 3UL, id3.uc ) );
+  FD_TEST( ctx->consensus_root_slot==3UL );
+  FD_TEST( ctx->is_leader );
+  FD_TEST( !try_notify_consensus_root( ctx, test_stem ) );
+
+  /* Before slot_ended, pack and motor may still use the bank. */
+  ctx->recv_poh = 0;
+  FD_TEST( !try_fini_leader( ctx, test_stem ) );
+  FD_TEST( ctx->is_leader && ctx->leader_bank==leader );
+  ctx->recv_poh = 1;
+
+  /* Tower keeps waiting for the block id. */
+  ctx->alpenglow = 0;
+  FD_TEST( !try_fini_leader( ctx, test_stem ) );
+  FD_TEST( ctx->is_leader && ctx->leader_bank==leader );
+  ctx->alpenglow = 1;
+
+  ulong seq0 = test_stem_seqs[ out_idx ];
+  ulong used = fd_banks_pool_used_cnt( ctx->banks );
+  FD_TEST( try_fini_leader( ctx, test_stem ) );
+  FD_TEST( !ctx->is_leader && !ctx->recv_poh && !ctx->leader_bank );
+  FD_TEST( leader->state==FD_BANK_STATE_DEAD && leader->refcnt==0UL );
+  FD_TEST( ctx->next_leader_slot==ULONG_MAX );       /* no chaining to slot 3 */
+  FD_TEST( ctx->highwater_leader_slot==2UL );
+  FD_TEST( fd_banks_pool_used_cnt( ctx->banks )==used );
+  FD_TEST( test_stem_seqs[ out_idx ]==seq0 );       /* no SLOT_DEAD, no BECAME_LEADER */
+  FD_TEST( !try_fini_leader( ctx, test_stem ) );
+
+  /* The root hands off and the dead leader bank prunes. */
+  FD_TEST( try_notify_consensus_root( ctx, test_stem ) );
+  FD_TEST( replay_out_sig( ctx, seq0 )==REPLAY_SIG_ROOT_ADVANCED );
+  FD_TEST( ctx->notified_root_bank==b3 );
+  mock_sched_cancel_idx = ULONG_MAX;
+  FD_TEST( try_prune_bank( ctx ) );
+  FD_TEST( mock_sched_cancel_idx==leader_idx );
+  FD_TEST( !fd_banks_bank_query( ctx->banks, leader_idx ) );
+
+  /* A late own FEC finds the stale {2, 0} entry of the pruned bank.  It
+     is skipped: no drain, no MISSING_FEC. */
+  ulong seq1 = test_stem_seqs[ out_idx ];
+  FD_TEST( !deliver_leader_fec( ctx, 2UL, FD_FEC_SHRED_CNT, 1UL, &id1, &zero, &mr2_32, 0 ) );
+  FD_TEST( !ctx->drain_rotor_fecs );
+  FD_TEST( test_stem_seqs[ out_idx ]==seq1 );
+
+  /* The deferred identity switch now completes. */
+  during_housekeeping( ctx );
+  FD_TEST( keyswitch->state==FD_KEYSWITCH_STATE_COMPLETED );
+  FD_TEST( fd_pubkey_eq( ctx->identity_pubkey, &new_identity ) );
+
+  FD_LOG_NOTICE(( "pass: test_ag_leader_abandon_on_root_past_leader_slot" ));
+}
+
+/* Replay does not start a leader slot that is already settled: a final
+   cert above the parent, a root above the parent, or a root at the
+   parent's slot on a different block.  The same check stops the
+   in-window chain from try_fini_leader. */
+
+static void
+test_ag_become_leader_refuses_settled_slot( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  fd_hash_t root_id = { .ul = { 0xBEEFUL } };
+  fd_hash_t id1     = { .ul = { 201UL } };
+  fd_hash_t id2     = { .ul = { 202UL } };
+  fd_hash_t other1  = { .ul = { 301UL } };
+  fd_hash_t id3     = { .ul = { 203UL } };
+  setup_ag_leader_ctx( ctx, wksp, &root_id, &id1 );
+
+  ctx->votor_final->slot = 3UL;
+  FD_TEST( !try_become_leader_ag( ctx, test_stem ) );
+  FD_TEST( !ctx->is_leader && ctx->next_leader_slot==ULONG_MAX );
+  ctx->votor_final->slot = ULONG_MAX;
+
+  ctx->next_leader_slot    = 2UL;
+  ctx->consensus_root_slot = 3UL;
+  ctx->consensus_root      = id3;
+  FD_TEST( !try_become_leader_ag( ctx, test_stem ) );
+  FD_TEST( !ctx->is_leader && ctx->next_leader_slot==ULONG_MAX );
+
+  ctx->next_leader_slot    = 2UL;
+  ctx->consensus_root_slot = 1UL;
+  ctx->consensus_root      = other1;
+  FD_TEST( !try_become_leader_ag( ctx, test_stem ) );
+  FD_TEST( !ctx->is_leader && ctx->next_leader_slot==ULONG_MAX );
+
+  /* Rooted at the parent itself: lead. */
+  ctx->next_leader_slot = 2UL;
+  ctx->consensus_root   = id1;
+  FD_TEST( try_become_leader_ag( ctx, test_stem ) );
+  FD_TEST( ctx->is_leader && ctx->leader_bank->f.slot==2UL );
+  fd_bank_t * leader = ctx->leader_bank;
+
+  /* Finish slot 2 normally with a final cert for 3 already known: the
+     window would chain to 3 on 2, which is settled. */
+  fd_hash_t zero   = {0};
+  fd_hash_t mr2_0  = { .ul = { 2001UL } };
+  fd_hash_t mr2_32 = { .ul = { 2002UL } };
+  end_leader_slot( ctx, 2UL );
+  FD_TEST( !deliver_leader_fec( ctx, 2UL, 0U,               1UL, &id1, &zero, &mr2_0,  0 ) );
+  FD_TEST( !deliver_leader_fec( ctx, 2UL, FD_FEC_SHRED_CNT, 1UL, &id1, &id2,  &mr2_32, 1 ) );
+  FD_TEST( ctx->block_id_arr[ leader->idx ].block_id_seen );
+  ctx->votor_final->slot = 3UL;
+  ulong used = fd_banks_pool_used_cnt( ctx->banks );
+  mock_footer_finalize = 1;
+  FD_TEST( try_fini_leader( ctx, test_stem ) );
+  mock_footer_finalize = 0;
+  FD_TEST( leader->state==FD_BANK_STATE_FROZEN );
+  FD_TEST( ctx->votor_leader->slot==3UL && ctx->votor_leader->parent_slot==2UL );
+  FD_TEST( !ctx->is_leader && !ctx->leader_bank );
+  FD_TEST( ctx->next_leader_slot==ULONG_MAX );
+  FD_TEST( ctx->highwater_leader_slot==2UL );
+  FD_TEST( fd_banks_pool_used_cnt( ctx->banks )==used );
+
+  FD_LOG_NOTICE(( "pass: test_ag_become_leader_refuses_settled_slot" ));
+}
+
+/* Our leader FECs bind to the existing leader bank and never enter
+   sched, so a full sched or a full bank pool must not hold them back
+   the way it holds back other FECs. */
+
+static void
+test_ag_leader_fec_not_gated( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  fd_hash_t root_id = { .ul = { 0xBEEFUL } };
+  fd_hash_t id1     = { .ul = { 201UL } };
+  fd_hash_t id2     = { .ul = { 202UL } };
+  fd_bank_t * b1 = setup_ag_leader_ctx( ctx, wksp, &root_id, &id1 );
+  FD_TEST( try_become_leader_ag( ctx, test_stem ) );
+  fd_bank_t * leader = ctx->leader_bank;
+
+  fd_bank_t * tip = b1;
+  while( fd_banks_can_start_bank( ctx->banks ) ) {
+    tip = fd_banks_new_bank( ctx->banks, tip->idx, 0L, 0 );
+    FD_TEST( tip );
+  }
+  mock_sched_capacity = 0UL;
+  mock_sched_drained  = 0;
+
+  /* Another block's FEC 0 waits. */
+  fd_hash_t mr9 = { .ul = { 9001UL } };
+  FD_TEST( deliver_rotor_fec( ctx, 9UL, 0U, 1UL, &id1, &mr9, 0, 0 )==1 );
+  mock_sched_capacity = ULONG_MAX;
+  FD_TEST( deliver_rotor_fec( ctx, 9UL, 0U, 1UL, &id1, &mr9, 0, 0 )==1 );
+  mock_sched_capacity = 0UL;
+
+  /* Ours goes through, FEC 0 past the full bank pool and the rest past
+     the full sched, and the block id returns. */
+  fd_hash_t zero   = {0};
+  fd_hash_t mr2_0  = { .ul = { 2001UL } };
+  fd_hash_t mr2_32 = { .ul = { 2002UL } };
+  ulong seq0 = test_stem_seqs[ ctx->replay_out->idx ];
+  mock_sched_capacity = ULONG_MAX;
+  FD_TEST( !deliver_leader_fec( ctx, 2UL, 0U,               1UL, &id1, &zero, &mr2_0,  0 ) );
+  FD_TEST( fd_hash_eq( &ctx->block_id_arr[ leader->idx ].latest_mr, &mr2_0 ) );
+  mock_sched_capacity = 0UL;
+  FD_TEST( !deliver_leader_fec( ctx, 2UL, FD_FEC_SHRED_CNT, 1UL, &id1, &id2,  &mr2_32, 1 ) );
+  fd_block_id_ele_t * ele = &ctx->block_id_arr[ leader->idx ];
+  FD_TEST( ele->block_id_seen && fd_hash_eq( &ele->dmr, &id2 ) );
+  ag_block_id_t key2 = ag_block_id( 2UL, id2.uc );
+  FD_TEST( fd_ag_block_id_map_ele_query( ctx->ag_block_id_map, &key2, NULL, ctx->block_id_arr )==ele );
+  FD_TEST( !ctx->drain_rotor_fecs && test_stem_seqs[ ctx->replay_out->idx ]==seq0 );
+
+  mock_sched_capacity = ULONG_MAX;
+  mock_sched_drained  = 1;
+  FD_LOG_NOTICE(( "pass: test_ag_leader_fec_not_gated" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -4797,7 +5101,10 @@ main( int     argc,
   test_ag_set_identity_leader_slot( wksp, 0 );      fd_wksp_reset( wksp, 42U );
   test_dead_block_children_drop( wksp );
   test_stale_id_key_does_not_shadow_rebuild( wksp ); fd_wksp_reset( wksp, 42U );
-  test_identity_switch_quiesces_replay( wksp );
+  test_identity_switch_quiesces_replay( wksp );     fd_wksp_reset( wksp, 42U );
+  test_ag_leader_abandon_on_root_past_leader_slot( wksp ); fd_wksp_reset( wksp, 42U );
+  test_ag_become_leader_refuses_settled_slot( wksp ); fd_wksp_reset( wksp, 42U );
+  test_ag_leader_fec_not_gated( wksp );
 
   FD_TEST( mock_store_view_success_cnt==mock_store_view_release_cnt );
 
