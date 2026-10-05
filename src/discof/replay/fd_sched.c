@@ -961,6 +961,11 @@ fd_sched_is_drained( fd_sched_t * sched ) {
   return nothing_inflight && nothing_queued;
 }
 
+int
+fd_sched_block_start_pending( fd_sched_t * sched ) {
+  return sched->active_bank_idx!=ULONG_MAX && !block_pool_ele( sched, sched->active_bank_idx )->block_start_signaled;
+}
+
 FD_WARN_UNUSED int
 fd_sched_fec_ingest( fd_sched_t *     sched,
                      fd_sched_fec_t * fec ) {

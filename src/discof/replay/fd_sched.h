@@ -336,6 +336,11 @@ fd_sched_can_ingest_cnt( fd_sched_t * sched );
 int
 fd_sched_is_drained( fd_sched_t * sched );
 
+/* Returns 1 if the active block has not been started yet, i.e. the
+   next task next_ready returns for it is a BLOCK_START, 0 otherwise. */
+int
+fd_sched_block_start_pending( fd_sched_t * sched );
+
 /* Obtain a transaction eligible for execution.  This implies that all
    prior transactions with w-r or w-w conflicts have completed.
    Information regarding the scheduled transaction is written to the out
