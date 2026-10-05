@@ -117,7 +117,7 @@ check_wire( ag_vote_t const *    v,
   FD_TEST( !rt_h==!h );
   if( h ) FD_TEST( !memcmp( rt_h, h, sizeof(ag_block_hash_t) ) );
   FD_TEST( ag_vote_de( &rt, out, n-1UL )==AG_VOTE_DE_ERR_SZ ); /* too few  */
-  FD_TEST( ag_vote_de( &rt, out, n+1UL )==AG_VOTE_DE_ERR_SZ ); /* trailing */
+  FD_TEST( ag_vote_de( &rt, out, n+1UL )==AG_VOTE_DE_SUCCESS ); /* trailing */
 
   uchar        payload[ AG_VOTE_SIGNING_SER_MAX ];
   ulong        payload_sz = ag_vote_signing_ser( v->kind, ag_vote_slot( v ), h, TEST_SHRED_VERSION, payload );
