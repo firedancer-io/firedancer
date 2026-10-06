@@ -66,7 +66,7 @@ fd_pcap_iter_new( void * _file ) {
   }
 
   if( FD_UNLIKELY( !( (pcap->network==FD_PCAP_HDR_NETWORK_ETHERNET ) |
-                      (pcap->network!=FD_PCAP_HDR_NETWORK_LINUX_SLL) ) ) ) {
+                      (pcap->network==FD_PCAP_HDR_NETWORK_LINUX_SLL) ) ) ) {
     FD_LOG_WARNING(( "unsupported network type (neither an Ethernet nor a cooked socket pcap)" ));
     return NULL;
   }
