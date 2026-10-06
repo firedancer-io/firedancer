@@ -222,6 +222,7 @@ struct fd_quic_conn {
   float rtt_period_ns;         /* bound on time between RTT measurements */
   float peer_ack_delay_scale;  /* convert ACK delay units to nanoseconds */
   float peer_max_ack_delay_ns; /* peer max ack delay in nanoseconds */
+  uint  pto_count;             /* consecutive PTO expirations without an ACK */
 
   ulong token_len;
   uchar token[ FD_QUIC_RETRY_MAX_TOKEN_SZ ];
