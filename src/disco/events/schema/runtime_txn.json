@@ -141,7 +141,7 @@
         "cost_allocated_accounts_data_size": { "type": "UInt64",                                  "description": "Allocated accounts data size from the cost tracker" },
         "account_diffs": {
             "type": "Array",
-            "description": "Per-account diffs for writable accounts that were modified",
+            "description": "Per-account diffs for the accounts this transaction stores, matching Agave: every writable account a successful transaction touched, including ones it left unchanged (prior and current fields equal), or the fee payer and nonce account of a failed one. Accounts with zero lamports before and after are omitted: they do not affect state, and Agave's accounts-db does not store them",
             "max_len": 64,
             "element": {
                 "type": "Tuple",

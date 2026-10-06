@@ -274,7 +274,7 @@ struct fd_event_runtime_txn {
   uint                                 cost_programs_execution;           /* Cost-tracker programs-execution cost */
   uint                                 cost_loaded_accounts_data_size;    /* Cost-tracker loaded-accounts-data-size cost */
   ulong                                cost_allocated_accounts_data_size; /* Allocated accounts data size from the cost tracker */
-  fd_event_runtime_txn_account_diffs_t account_diffs[ 64UL ];             /* Per-account diffs for writable accounts that were modified */
+  fd_event_runtime_txn_account_diffs_t account_diffs[ 64UL ];             /* Per-account diffs for the accounts this transaction stores, matching Agave: every writable account a successful transaction touched, including ones it left unchanged (prior and current fields equal), or the fee payer and nonce account of a failed one. Accounts with zero lamports before and after are omitted: they do not affect state, and Agave's accounts-db does not store them */
   ulong                                account_diffs_cnt;                 /* Number of account_diffs entries (<= 64) */
   uchar                                writable_accounts[ 64UL ][ 32UL ]; /* Every account the transaction locked as writable */
   ulong                                writable_accounts_cnt;             /* Number of writable_accounts entries (<= 64) */
@@ -645,7 +645,7 @@ typedef struct fd_event_runtime_block fd_event_runtime_block_t;
 #define FD_EVENT_RUNTIME_REWARD_KIND_VOTE  (1) /* Vote commission credit in the first replayed bank that crosses the epoch boundary (not necessarily the epoch's nominal first slot when slots were skipped). Credited to the vote account itself, or, with custom_commission_collector active, to its inflation collector (possibly system-owned; one row per collector, rewards aggregated across the vote accounts routing to it) */
 #define FD_EVENT_RUNTIME_REWARD_KIND_STAKE (2) /* Stake-account credit during the partitioned-epoch-rewards window */
 
-/* One row per epoch-reward credit to an account. This is the account diff for reward credits, which are recorded here instead of in runtime_block. Stake rewards also rewrite the stake-delegations cache entry, recorded as the matching kind = reward row in runtime_stake_delegation. */
+/* One row per epoch-reward credit to an account, plus a zero-lamport vote row for each commission account Agave stores at the epoch boundary without a reward (a successful stake redeem with zero commission). This is the account diff for reward credits, which are recorded here instead of in runtime_block. Stake rewards also rewrite the stake-delegations cache entry, recorded as the matching kind = reward row in runtime_stake_delegation. */
 struct fd_event_runtime_reward {
   ulong bank_seq;             /* Monotonic sequence number identifying this block within the current run; the join key to runtime_block. Restarts at 1 each time a snapshot is loaded, so pair it with the stream's boot id. 0 means unavailable. */
   ulong slot;                 /* Slot in which the credit was applied */

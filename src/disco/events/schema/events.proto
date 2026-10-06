@@ -1082,7 +1082,7 @@ message RuntimeTxn {
   uint32 cost_loaded_accounts_data_size = 36;
   // Allocated accounts data size from the cost tracker
   uint64 cost_allocated_accounts_data_size = 37;
-  // Per-account diffs for writable accounts that were modified
+  // Per-account diffs for the accounts this transaction stores, matching Agave: every writable account a successful transaction touched, including ones it left unchanged (prior and current fields equal), or the fee payer and nonce account of a failed one. Accounts with zero lamports before and after are omitted: they do not affect state, and Agave's accounts-db does not store them
   repeated RuntimeTxnAccountDiffs account_diffs = 38;
   // Every account the transaction locked as writable
   repeated bytes writable_accounts = 39;
@@ -1570,7 +1570,7 @@ message RuntimeBlock {
   repeated bytes fec_merkle_roots = 37;
 }
 
-// One row per epoch-reward credit to an account. This is the account diff for reward credits, which are recorded here instead of in runtime_block. Stake rewards also rewrite the stake-delegations cache entry, recorded as the matching kind = reward row in runtime_stake_delegation.
+// One row per epoch-reward credit to an account, plus a zero-lamport vote row for each commission account Agave stores at the epoch boundary without a reward (a successful stake redeem with zero commission). This is the account diff for reward credits, which are recorded here instead of in runtime_block. Stake rewards also rewrite the stake-delegations cache entry, recorded as the matching kind = reward row in runtime_stake_delegation.
 message RuntimeReward {
   // Monotonic sequence number identifying this block within the current run; the join key to runtime_block. Restarts at 1 each time a snapshot is loaded, so pair it with the stream's boot id. 0 means unavailable.
   uint64 bank_seq = 1;
