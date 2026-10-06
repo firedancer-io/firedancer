@@ -596,9 +596,12 @@ publish_replay_out( fd_replay_tile_t *  ctx,
                     ulong               sz ) {
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
   if( FD_UNLIKELY( sig!=REPLAY_SIG_TXN_EXECUTED ) ) {
-    fd_memcpy( fd_chunk_to_laddr( ctx->slot_out->mem, ctx->slot_out->chunk ), fd_chunk_to_laddr_const( ctx->replay_out->mem, ctx->replay_out->chunk ), sz );
-    fd_stem_publish( stem, ctx->slot_out->idx, sig, ctx->slot_out->chunk, sz, 0UL, 0UL, tspub );
-    ctx->slot_out->chunk = fd_dcache_compact_next( ctx->slot_out->chunk, sz, ctx->slot_out->chunk0, ctx->slot_out->wmark );
+    fd_replay_out_link_t * out = sig==REPLAY_SIG_MISSING_FEC ? ctx->rotor_out : ctx->slot_out;
+    if( FD_LIKELY( out->idx!=ULONG_MAX ) ) { /* backtest has no rotor */
+      fd_memcpy( fd_chunk_to_laddr( out->mem, out->chunk ), fd_chunk_to_laddr_const( ctx->replay_out->mem, ctx->replay_out->chunk ), sz );
+      fd_stem_publish( stem, out->idx, sig, out->chunk, sz, 0UL, 0UL, tspub );
+      out->chunk = fd_dcache_compact_next( out->chunk, sz, out->chunk0, out->wmark );
+    }
   }
   fd_stem_publish( stem, ctx->replay_out->idx, sig, ctx->replay_out->chunk, sz, 0UL, 0UL, tspub );
   ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sz, ctx->replay_out->chunk0, ctx->replay_out->wmark );
@@ -5085,7 +5088,17 @@ returnable_frag( fd_replay_tile_t *  ctx,
       if( FD_UNLIKELY( sig==REPAIR_SIG_FEC || sig==REPAIR_SIG_FEC_LEADER || sig==REPAIR_SIG_FEC_INVALID ) ) {
         process_fec_complete( ctx, sig, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
       }
+      /* drain_rotor_fecs: a bank eviction broke the replayable chain of
+         FECs delivered from rotor (we lost a parent we needed to
+         replay off of) and a MISSING_FEC was sent.  Every FEC until
+         rotor's ROTOR_SIG_RECONSUME predates it and comes again after
+         it, so drop them all.  At most one MISSING_FEC is in flight. */
+      if( FD_UNLIKELY( sig==ROTOR_SIG_RECONSUME ) ) {
+        ctx->drain_rotor_fecs = 0;
+        break;
+      }
       if( FD_UNLIKELY( sig!=ROTOR_SIG_FEC_REPLAY ) ) break;
+      if( FD_UNLIKELY( ctx->drain_rotor_fecs ) ) return 0;
 
       /* process rotor incoming FECs. 1 to keep frag for retry, returning 0 consumes it. */
 
@@ -5094,23 +5107,6 @@ returnable_frag( fd_replay_tile_t *  ctx,
 
       int evict_banks = 0;
       int res = can_process_rotor_fec( ctx, fec, &evict_banks );
-
-      /* drain_rotor_fecs: a bank eviction broke the replayable chain of
-         FECs delivered from rotor (we lost a parent we needed to
-         replay off of).  While draining, ignore DROP/SKIP FECs until
-         one is replayable again (PROCESS_FEC_OK, i.e. its parent
-         context is present), then resume normal processing.  WAIT must
-         fall through to the retry/eviction logic below: WAIT's contract
-         is keep-and-retry, and the redelivered FEC that rebuilds the
-         evicted block can itself return WAIT+evict_banks (banks full) --
-         swallowing it would consume the frag, never queue the eviction,
-         and wedge recovery. */
-      if( FD_UNLIKELY( ctx->drain_rotor_fecs ) ) {
-        if( FD_LIKELY( res==PROCESS_FEC_OK ) ) {
-          ctx->drain_rotor_fecs = 0; /* chain re-established, resume */
-        }
-        else if( res!=PROCESS_FEC_WAIT ) return 0; /* swallow DROPs/SKIPs, do evict_banks if needed */
-      }
 
       switch( res ) {
         case PROCESS_FEC_OK: {
@@ -5621,6 +5617,7 @@ unprivileged_init( fd_topo_t const *      topo,
   *ctx->epoch_out  = out1( topo, tile, "replay_epoch" ); FD_TEST( ctx->epoch_out->idx!=ULONG_MAX );
   *ctx->replay_out = out1( topo, tile, "replay_out"   ); FD_TEST( ctx->replay_out->idx!=ULONG_MAX );
   *ctx->slot_out   = out1( topo, tile, "replay_slot"  ); FD_TEST( ctx->slot_out->idx!=ULONG_MAX );
+  *ctx->rotor_out  = out1( topo, tile, "replay_rotor" ); FD_TEST( ctx->rotor_out->idx==ULONG_MAX || ctx->alpenglow ); /* backtest has no rotor */
   *ctx->snapmk_out = out1( topo, tile, "replay_snapmk" ); FD_TEST( ctx->snapmk.supported == (ctx->snapmk_out->idx!=ULONG_MAX) );
 
   ctx->exec_cnt = 0UL;

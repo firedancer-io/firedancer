@@ -406,6 +406,7 @@ struct fd_topo_tile {
       char  adtl_dests_retransmit[ FD_TOPO_ADTL_DESTS_MAX ][ FD_HOSTPORT_BUF_MAX ];
       ulong adtl_dests_leader_cnt;
       char  adtl_dests_leader[ FD_TOPO_ADTL_DESTS_MAX ][ FD_HOSTPORT_BUF_MAX ];
+      int   alpenglow;
     } shred;
 
     struct {
@@ -597,7 +598,8 @@ struct fd_topo_tile {
       ushort  repair_client_listen_port;
       char    identity_key_path[ PATH_MAX ];
       ulong   slot_max;
-      ulong   max_shreds_per_block;
+      ulong   fec_max;
+      int     allow_private_address;
 
       ulong   repair_sign_depth;
       ulong   repair_sign_cnt;

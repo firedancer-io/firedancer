@@ -28,46 +28,21 @@
    is set to the correct value starting from fec 0. For these blocks,
    the verified bit is 1.
 
-   There is a race in the case no equivocation occurred, but we
-   suffered some network disconnection and are slow to complete the
-   block (but we get a votor event for the block_id).  Then we would be
-   simultaneously completing the same block through turbine and ag
-   block_id repair, and the turbine copy's slot-complete FEC would
-   re-key its replay bank from {slot, 0} to a {slot, block_id} that the
-   verified copy's bank already occupies.
-
-   To prevent that, the rotor ABANDONS the turbine version of a slot
-   the moment a votor-driven version of it is created while the turbine
-   block_id is still unknown (see fd_rotor.h): the abandoned version
-   keeps absorbing turbine shreds (they fill the FECs the verified
-   version shares) but never delivers another FEC and never finalizes a
-   block_id.
-
-   Consider this case:
-   Slot A (started receiving through turbine): received FEC 0, 1, and 5
-   shreds of FEC 2. FEC 0 and 1 are delivered to replay with {verified=0, block_id=null}
-
-   *blip*
-
-   Get a notar fallback for slot A'. No equivocation occurred, but we
-   can't tell, so we also start repairing A' using ag block id repair,
-   and the turbine version of the slot is abandoned.  Slot A' is
-   immediately able to complete FEC 0 and 1 (the shreds are local), and
-   they are re-delivered to replay with {verified=1, block_id=A'}.
-   Remaining shreds of FEC 2 -- whether they arrive through turbine or
-   ShredForBlockId repair -- fill the shared FEC, and FEC 2 is delivered
-   once, under A', with {verified=1, block_id=A'}.
-
-   The effect is that in time of network blips, replay ends up
-   allocating up to two banks for the same slot/block: the turbine bank
-   keyed {slot, 0} receives only a prefix of the block, never completes,
-   never gets re-keyed (so it can never collide with the verified bank
-   keyed {slot, block_id}), and is eventually evicted or pruned.
+   A slot's turbine version (the eager blk, keyed {slot, 0} by replay)
+   and its votor-driven versions (notar blks, keyed {slot, block_id})
+   coexist, each delivered as its FECs complete.  FEC sets with the
+   same merkle root are shared between versions.  When the turbine
+   version completes and its DMR matches a notar blk, the notar blk is
+   merged into it and freed (see dedup in fd_rotor.c).  So in time of
+   network blips replay may allocate two banks for the same block; the
+   notar one never completes and is eventually evicted or pruned.
 
    INPUTS: REPLAY
 
    Rotor tile consumes from replay tile the sigs
-   REPLAY_SIG_ROOT_ADVANCED and REPLAY_SIG_MISSING_FEC.
+   REPLAY_SIG_ROOT_ADVANCED, REPLAY_SIG_SLOT_DEAD and
+   REPLAY_SIG_MISSING_FEC.  REPLAY_SIG_SLOT_DEAD frees the dead blk; if
+   it was the turbine version, turbine does not rebuild it.
 
    Pruning:
 
@@ -80,8 +55,8 @@
    finalization arrives for slot N.
 
    Replay tile updates its consensus root, but can't advance to it yet,
-   because the bank for it has not been executed.  Rotor has no
-   eviction, and thus could root from the finalized message immediately.
+   because the bank for it has not been executed.  Rotor never evicts a
+   blk, and thus could root from the finalized message immediately.
    This is clearly a problem; replay needs the consensus root data
    re-delivered for execution, so rotor cannot immediately prune based
    on the finalized message.
@@ -134,6 +109,9 @@
 #define ROTOR_SIG_FEC_REPLAY  (3UL)
 /* alpenglow type - completed block metadata, on rotor_rserve */
 #define ROTOR_SIG_BLOCK       (4UL)
+/* alpenglow type - a REPLAY_SIG_MISSING_FEC was seen, the FECs after
+   this are reconsumed from the root, no payload */
+#define ROTOR_SIG_RECONSUME   (5UL)
 
 struct fd_rotor_fec_metrics {
   uint  stats_valid;        /* 1 if the counters below are populated */

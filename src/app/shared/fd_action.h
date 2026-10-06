@@ -206,10 +206,7 @@ union fdctl_args {
   } tower;
 
   struct {
-    int metrics;
     int once;
-    int rotor;
-    int schedulor;
   } rotor;
 
   struct {

@@ -1404,6 +1404,16 @@ EXAMPLES
     <int value="6" name="Pong" label="Pong" />
 </enum>
 
+<enum name="RotorRequestType">
+    <int value="0" name="WindowIndex" label="Window Index" />
+    <int value="1" name="HighestWindowIndex" label="Highest Window Index" />
+    <int value="2" name="Orphan" label="Orphan" />
+    <int value="3" name="ParentAndFecSetCount" label="Parent And Fec Set Count" />
+    <int value="4" name="FecSetRoot" label="Fec Set Root" />
+    <int value="5" name="WindowIndexForBlockId" label="Window Index For Block Id" />
+    <int value="6" name="Pong" label="Pong" />
+</enum>
+
 <enum name="RepairServerPacketType">
     <int value="0" name="Pong" label="Pong" />
     <int value="1" name="Window" label="Window" />
@@ -1446,33 +1456,40 @@ EXAMPLES
 
 <tile name="rotor">
     <counter name="PktTx" summary="Network packets sent, including requests, pings and pongs" />
-    <counter name="RequestTx" enum="RepairSentRequestType" summary="Repair requests sent, by type" />
-    <gauge name="SlotHighestRepaired" summary="Highest slot up to which we have fully repaired" />
-    <gauge name="SlotCurrent" summary="Our view of the current cluster slot, max slot received" />
+    <counter name="RequestTx" enum="RotorRequestType" summary="Repair requests sent, by serde tag" />
+    <gauge name="SlotHighestDelivered" summary="Highest slot delivered to replay in full" />
+    <gauge name="SlotHighestReceived" summary="Highest slot a shred was received for" />
     <gauge name="SlotTurbineFirst" summary="First turbine slot seen, the catchup target" />
-    <gauge name="BlockCheckQueued" summary="Blocks queued in the schedulor awaiting a repair check" />
-    <gauge name="RequestInflight" summary="Requests sent whose response has not been matched" />
+    <gauge name="BlkTreapCnt" summary="Blks in the eager, notar and final blk_treaps, waiting for discover" />
+    <gauge name="PendingCnt" summary="Pending request attempts awaiting a first response, a hedge is another attempt" />
     <counter name="FecDelivered" summary="FEC sets published to replay" />
     <counter name="ShredOld" summary="Shreds received that were at or below the root" />
     <counter name="ShredRx" summary="Data shreds received as repair responses" />
-    <counter name="ShredRxBlockId" summary="Repair response shreds credited to a ShredForBlockId request" />
-    <counter name="ShredRxPositional" summary="Repair response shreds credited to a positional Shred request" />
-    <counter name="ShredRxUnmatched" summary="Repair response shreds matching no outstanding request" />
+    <counter name="ShredRxForBlockId" summary="WindowIndexForBlockId requests whose first response shred matched" />
+    <counter name="ShredRxPositional" summary="WindowIndex or HighestWindowIndex requests whose first response shred matched" />
+    <counter name="ShredRxUnmatched" summary="Repair response shreds matching no pending request, including later answers to an already matched or expired request" />
     <counter name="MetaRx" summary="Alpenglow repair metadata responses received" />
     <counter name="MetaMalformed" summary="Metadata responses that failed to decode" />
     <counter name="MetaUnsolicited" summary="Metadata responses matching no outstanding request" />
-    <counter name="ParentFecCountOk" summary="getParentAndFecSetCount responses accepted" />
-    <counter name="ParentFecCountFailed" summary="getParentAndFecSetCount responses that failed verification" />
-    <counter name="FecRootOk" summary="getFecSetRoot responses accepted" />
-    <counter name="FecRootFailed" summary="getFecSetRoot responses that failed verification" />
+    <counter name="ParentAndFecSetCountOk" summary="ParentAndFecSetCount responses accepted" />
+    <counter name="ParentAndFecSetCountFailed" summary="ParentAndFecSetCount responses that failed verification" />
+    <counter name="FecSetRootOk" summary="FecSetRoot responses accepted" />
+    <counter name="FecSetRootFailed" summary="FecSetRoot responses that failed verification" />
     <counter name="ReplayRootAdvanced" summary="Root advanced messages received from replay" />
-    <counter name="ReplayMissingFec" summary="Missing FEC messages received from replay, each arming a from-root redelivery" />
+    <counter name="ReplayMissingFec" summary="Missing FEC messages received from replay, each a from-root reconsume" />
     <counter name="PingMalformed" summary="Malformed pings received" />
     <counter name="PingUnknownPeer" summary="Pings received from an unknown peer" />
     <counter name="PingSignatureFailed" summary="Pings whose signature we failed to verify" />
     <histogram name="ResponseLatencyNanos" min="10000000" max="1000000000">
       <summary>Time from sending a repair request to receiving its response, in nanoseconds</summary>
     </histogram>
+    <gauge name="TimeoutCnt" summary="Timeouts in the eager, notar and final timeout_prqs" />
+    <counter name="TimeoutCancelled" summary="Timeouts dropped because their blk is gone or their work is done" />
+    <counter name="TimeoutNoPeer" summary="Timeouts deferred because no peer could be picked" />
+    <counter name="RequestHedged" summary="Request sends after the first attempt of the same timeout, possibly to the same peer" />
+    <counter name="PingTx" summary="Requests sent to elicit a ping from a peer with a new address" />
+    <gauge name="EagerDelayNanos" summary="t_eager over all leaders, how long a missing FEC set waits for turbine before it is repaired" />
+    <gauge name="SignCnt" summary="Messages in the sign pool waiting for a signature from the sign tiles" />
 </tile>
 
 <enum name="RserveSentResponseTypes">
