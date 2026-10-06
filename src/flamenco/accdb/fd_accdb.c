@@ -52,6 +52,9 @@ struct __attribute__((aligned(FD_ACCDB_ALIGN))) fd_accdb_private {
 
   int acquire_state;
 
+  /* This join may read loader-written nodes while they are hidden. */
+  int show_hidden;
+
   fd_accdb_shmem_t * shmem;
 
   /* Doorbell for the parked accdb tile, NULL when nobody parks */
@@ -299,6 +302,7 @@ fd_accdb_new( void *              ljoin,
 
   accdb->fd = fd;
   accdb->acquire_state = FD_ACCDB_ACQUIRE_STATE_IDLE;
+  accdb->show_hidden   = 0;
   accdb->sleep         = sleep;
   accdb->sleep_tile_id = sleep_tile_id;
 
@@ -446,6 +450,7 @@ fd_accdb_reset( fd_accdb_t * accdb ) {
   shmem->cmd_fork_id = USHORT_MAX;
 
   shmem->snapshot_loading = 0;
+  shmem->snapshot_hidden  = 0;
 
   FD_COMPILER_MFENCE();
 
@@ -509,6 +514,18 @@ fd_accdb_snapshot_load_end( fd_accdb_t * accdb ) {
   }
 
   spin_lock_release( &accdb->shmem->partition_lock );
+}
+
+void
+fd_accdb_snapshot_hide( fd_accdb_t * accdb,
+                        int          hide ) {
+  FD_VOLATILE( accdb->shmem->snapshot_hidden ) = hide;
+}
+
+void
+fd_accdb_show_hidden( fd_accdb_t * accdb,
+                      int          show ) {
+  accdb->show_hidden = show;
 }
 
 static inline uint
@@ -715,6 +732,7 @@ fd_accdb_join_readonly( void *             ljoin,
 
   accdb->fd    = fd_ro;
   accdb->acquire_state = FD_ACCDB_ACQUIRE_STATE_IDLE;
+  accdb->show_hidden   = 0;
   accdb->shmem = shmem;
   FD_TEST( acc_pool_join( accdb->acc_pool_join, shmem->acc_pool, _acc_pool_ele, max_accounts ) );
   accdb->acc_pool = accdb->acc_pool_join->ele;
@@ -1622,6 +1640,8 @@ fd_accdb_advance_root( fd_accdb_t *       accdb,
                        fd_accdb_fork_id_t fork_id ) {
   FD_CHECK_CRIT( fd_accdb_snapshot_sync_state( &accdb->shmem->snapshot_sync )!=FD_ACCDB_SNAPSHOT_SYNC_RUNNING,
                  "fd_accdb_advance_root called during snapshot production" );
+  FD_CHECK_CRIT( !FD_VOLATILE_CONST( accdb->shmem->snapshot_hidden ),
+                 "root advance while loader nodes are hidden" );
   wait_cmd( accdb );
   submit_cmd( accdb, FD_ACCDB_CMD_ADVANCE_ROOT, fork_id.val );
 }
@@ -1678,6 +1698,8 @@ background_purge( fd_accdb_t *       accdb,
 void
 fd_accdb_purge( fd_accdb_t *       accdb,
                 fd_accdb_fork_id_t fork_id ) {
+  FD_CHECK_CRIT( !FD_VOLATILE_CONST( accdb->shmem->snapshot_hidden ),
+                 "purge while loader nodes are hidden" );
   FD_TEST( fork_id.val!=accdb->shmem->root_fork_id.val );
 
   wait_cmd( accdb );
@@ -2391,6 +2413,8 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
      needed before the chain walk and a release fence in
      fd_accdb_release before the head-pointer store.  Multiple
      concurrent releases serialize on the CAS of the chain head. */
+  int hide = FD_VOLATILE_CONST( accdb->shmem->snapshot_hidden ) && !accdb->show_hidden;
+
   for( ulong i=0UL; i<pubkeys_cnt; i++ ) {
     acc_map_idxs[ i ] = fd_hash32( pubkeys[ i ], accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL);
     uint acc = fd_accdb_chain_head( &accdb->acc_map[ acc_map_idxs[ i ] ] );
@@ -2403,6 +2427,7 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
       if( FD_UNLIKELY( (candidate_acc->key.generation>root_generation &&
                         fd_accdb_acc_fork_id(candidate_acc)!=fork_id.val &&
                         !descends_set_test( fork->descends, fd_accdb_acc_fork_id(candidate_acc) )) ) ||
+                        (hide && FD_ACCDB_SIZE_SNAPSHOT( FD_VOLATILE_CONST( candidate_acc->executable_size ) )) ||
                         memcmp( pubkeys[ i ], candidate_acc->key.pubkey, 32UL ) ) {
         acc = next_acc;
         continue;
@@ -3694,12 +3719,14 @@ fd_accdb_read_one_nocache( fd_accdb_t *       accdb,
   ulong hash = fd_hash32( pubkey, accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL);
   uint acc_idx = fd_accdb_chain_head( &accdb->acc_map[ hash ] );
   fd_accdb_accmeta_t const * accmeta = NULL;
+  int hide = FD_VOLATILE_CONST( accdb->shmem->snapshot_hidden ) && !accdb->show_hidden;
   while( acc_idx!=UINT_MAX ) {
     fd_accdb_accmeta_t const * candidate = &accdb->acc_pool[ acc_idx ];
     uint next_idx = FD_VOLATILE_CONST( candidate->map.next );
     if( FD_UNLIKELY( (candidate->key.generation>root_generation &&
                       fd_accdb_acc_fork_id(candidate)!=fork_id.val &&
                       !descends_set_test( fork->descends, fd_accdb_acc_fork_id(candidate) )) ) ||
+                     (hide && FD_ACCDB_SIZE_SNAPSHOT( FD_VOLATILE_CONST( candidate->executable_size ) )) ||
                      memcmp( pubkey, candidate->key.pubkey, 32UL ) ) {
       acc_idx = next_idx;
       continue;
@@ -3856,11 +3883,16 @@ fd_accdb_exists( fd_accdb_t *       accdb,
   fd_accdb_fork_t * fork = &accdb->fork_pool[ fork_id.val ];
   ulong hash = fd_hash32( pubkey, accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL);
   uint acc = fd_accdb_chain_head( &accdb->acc_map[ hash ] );
+  int hide = FD_VOLATILE_CONST( accdb->shmem->snapshot_hidden ) && !accdb->show_hidden;
   while( acc!=UINT_MAX ) {
     fd_accdb_accmeta_t const * candidate_acc = &accdb->acc_pool[ acc ];
     uint next_acc = FD_VOLATILE_CONST( candidate_acc->map.next );
 
-    if( FD_UNLIKELY( (candidate_acc->key.generation>root_generation && fd_accdb_acc_fork_id(candidate_acc)!=fork_id.val && !descends_set_test( fork->descends, fd_accdb_acc_fork_id(candidate_acc) )) ) || memcmp( pubkey, candidate_acc->key.pubkey, 32UL ) ) {
+    if( FD_UNLIKELY( (candidate_acc->key.generation>root_generation &&
+                      fd_accdb_acc_fork_id(candidate_acc)!=fork_id.val &&
+                      !descends_set_test( fork->descends, fd_accdb_acc_fork_id(candidate_acc) )) ) ||
+                     (hide && FD_ACCDB_SIZE_SNAPSHOT( FD_VOLATILE_CONST( candidate_acc->executable_size ) )) ||
+                     memcmp( pubkey, candidate_acc->key.pubkey, 32UL ) ) {
       acc = next_acc;
       continue;
     }
@@ -3892,11 +3924,16 @@ fd_accdb_probe_pd_this_fork( fd_accdb_t *       accdb,
   fd_accdb_fork_t * fork = &accdb->fork_pool[ fork_id.val ];
   ulong hash = fd_hash32( pubkey, accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL);
   uint acc = fd_accdb_chain_head( &accdb->acc_map[ hash ] );
+  int hide = FD_VOLATILE_CONST( accdb->shmem->snapshot_hidden ) && !accdb->show_hidden;
   while( acc!=UINT_MAX ) {
     fd_accdb_accmeta_t const * candidate_acc = &accdb->acc_pool[ acc ];
     uint next_acc = FD_VOLATILE_CONST( candidate_acc->map.next );
 
-    if( FD_UNLIKELY( (candidate_acc->key.generation>root_generation && fd_accdb_acc_fork_id(candidate_acc)!=fork_id.val && !descends_set_test( fork->descends, fd_accdb_acc_fork_id(candidate_acc) )) ) || memcmp( pubkey, candidate_acc->key.pubkey, 32UL ) ) {
+    if( FD_UNLIKELY( (candidate_acc->key.generation>root_generation &&
+                      fd_accdb_acc_fork_id(candidate_acc)!=fork_id.val &&
+                      !descends_set_test( fork->descends, fd_accdb_acc_fork_id(candidate_acc) )) ) ||
+                     (hide && FD_ACCDB_SIZE_SNAPSHOT( FD_VOLATILE_CONST( candidate_acc->executable_size ) )) ||
+                     memcmp( pubkey, candidate_acc->key.pubkey, 32UL ) ) {
       acc = next_acc;
       continue;
     }
@@ -3940,11 +3977,16 @@ fd_accdb_lamports( fd_accdb_t *       accdb,
   fd_accdb_fork_t * fork = &accdb->fork_pool[ fork_id.val ];
   ulong hash = fd_hash32( pubkey, accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL);
   uint acc = fd_accdb_chain_head( &accdb->acc_map[ hash ] );
+  int hide = FD_VOLATILE_CONST( accdb->shmem->snapshot_hidden ) && !accdb->show_hidden;
   while( acc!=UINT_MAX ) {
     fd_accdb_accmeta_t const * candidate_acc = &accdb->acc_pool[ acc ];
     uint next_acc = FD_VOLATILE_CONST( candidate_acc->map.next );
 
-    if( FD_UNLIKELY( (candidate_acc->key.generation>root_generation && fd_accdb_acc_fork_id(candidate_acc)!=fork_id.val && !descends_set_test( fork->descends, fd_accdb_acc_fork_id(candidate_acc) )) ) || memcmp( pubkey, candidate_acc->key.pubkey, 32UL ) ) {
+    if( FD_UNLIKELY( (candidate_acc->key.generation>root_generation &&
+                      fd_accdb_acc_fork_id(candidate_acc)!=fork_id.val &&
+                      !descends_set_test( fork->descends, fd_accdb_acc_fork_id(candidate_acc) )) ) ||
+                     (hide && FD_ACCDB_SIZE_SNAPSHOT( FD_VOLATILE_CONST( candidate_acc->executable_size ) )) ||
+                     memcmp( pubkey, candidate_acc->key.pubkey, 32UL ) ) {
       acc = next_acc;
       continue;
     }

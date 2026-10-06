@@ -137,6 +137,23 @@ fd_accdb_snapshot_load_begin( fd_accdb_t * accdb );
 void
 fd_accdb_snapshot_load_end( fd_accdb_t * accdb );
 
+/* fd_accdb_snapshot_hide makes every read behave as if nodes written
+   by the snapshot loader were absent (hide=1) or visible again
+   (hide=0).  Used by the instant-boot path, where live execution runs
+   while the loader is still writing.  Only the loader's lead tile
+   calls it, and only while no snapshot is being produced.
+
+   fd_accdb_show_hidden lets one join keep reading loader-written nodes
+   while they are hidden, so the loader can verify what it wrote. */
+
+void
+fd_accdb_snapshot_hide( fd_accdb_t * accdb,
+                        int          hide );
+
+void
+fd_accdb_show_hidden( fd_accdb_t * accdb,
+                      int          show );
+
 /* fd_accdb_snapshot_recover_delta appends into the accdb delta set the
    accounts modified at fork_id.
 
@@ -234,7 +251,9 @@ fd_accdb_attach_child( fd_accdb_t *       accdb,
    accounts from that fork and its ancestors, bypassing descends_set
    entirely.  This is what makes fork pool slot recycling safe: by the
    time a slot is freed and reusable, no reader will ever consult
-   descends_set for the old fork_id. */
+   descends_set for the old fork_id.
+
+   Must not be called while fd_accdb_snapshot_hide is in effect. */
 
 void
 fd_accdb_advance_root( fd_accdb_t *       accdb,
@@ -260,7 +279,9 @@ fd_accdb_cmd_pending( fd_accdb_t const * accdb );
    IMPORTANT: The caller must guarantee that all outstanding
    acquire/release pairs on the purged fork and every descendant
    have completed before calling purge.  The same fork pool slot
-   recycling hazard described for advance_root applies here. */
+   recycling hazard described for advance_root applies here.
+
+   Must not be called while fd_accdb_snapshot_hide is in effect. */
 
 void
 fd_accdb_purge( fd_accdb_t *       accdb,

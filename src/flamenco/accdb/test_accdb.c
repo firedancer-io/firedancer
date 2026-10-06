@@ -2092,6 +2092,60 @@ test_snapshot_behind_two_live( void ) {
   test_teardown( accdb, fd );
 }
 
+/* While hidden, loader-written nodes read as absent on every path,
+   except on a join that asked to see them.  Live writes made while
+   hidden stay visible.  Unhiding reveals the loaded nodes behind the
+   live ones. */
+
+static void
+test_snapshot_hidden( void ) {
+  int fd;
+  ulong psz = 11UL<<20UL;
+  fd_accdb_t * accdb = test_setup_ex( &fd, 1024UL, 64UL, 1024UL, 64UL, psz,
+                                      TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED, 2UL );
+  fd_accdb_t * seer = test_join_writer( fd );
+  test_store_ctx_t store = { .fd=fd, .cnt=0UL };
+
+  fd_accdb_fork_id_t root  = fd_accdb_attach_child( accdb, SENTINEL );
+  fd_accdb_fork_id_t child = fd_accdb_attach_child( accdb, root );
+  fd_accdb_snapshot_load_begin( accdb );
+  fd_accdb_snapshot_hide( accdb, 1 );
+  fd_accdb_show_hidden( seer, 1 );
+
+  uchar key[ 32UL ] = { 7, 0x99, 0 };
+  uchar key2[ 32UL ] = { 8, 0x99, 0 };
+  uchar owner[ 32UL ] = { 9, 0 };
+
+  uchar const * pks[ 2 ] = { key, key2 };
+  ulong slots[ 2 ] = { 10UL, 10UL };
+  ulong lamports[ 2 ] = { 100UL, 7UL };
+  ulong data_lens[ 2 ] = { 0UL, 0UL };
+  int   execs[ 2 ] = { 0, 0 };
+  test_batch_result_t r = test_write_batch( accdb, SENTINEL, 2UL, pks, slots, lamports, data_lens, execs, &store );
+  FD_TEST( !r.err && r.loaded==2UL );
+
+  ulong got = 0UL;
+  FD_TEST( !accdb_read( accdb, root,  key, &got, NULL, NULL, NULL ) );
+  FD_TEST( !accdb_read( accdb, child, key, &got, NULL, NULL, NULL ) );
+  FD_TEST( !fd_accdb_exists  ( accdb, child, key ) );
+  FD_TEST( !fd_accdb_lamports( accdb, child, key ) );
+  FD_TEST(  accdb_read( seer, root, key, &got, NULL, NULL, NULL ) ); FD_TEST( got==100UL );
+  FD_TEST(  fd_accdb_lamports( seer, child, key2 )==7UL );
+
+  accdb_write( accdb, child, key, 500UL, NULL, 0UL, owner );
+  FD_TEST(  accdb_read( accdb, child, key, &got, NULL, NULL, NULL ) ); FD_TEST( got==500UL );
+  FD_TEST( !accdb_read( accdb, root,  key, &got, NULL, NULL, NULL ) );
+
+  fd_accdb_snapshot_hide( accdb, 0 );
+  FD_TEST(  accdb_read( accdb, child, key,  &got, NULL, NULL, NULL ) ); FD_TEST( got==500UL );
+  FD_TEST(  accdb_read( accdb, root,  key,  &got, NULL, NULL, NULL ) ); FD_TEST( got==100UL );
+  FD_TEST(  fd_accdb_lamports( accdb, child, key2 )==7UL );
+
+  fd_accdb_snapshot_load_end( accdb );
+  free( seer );
+  test_teardown( accdb, fd );
+}
+
 /* Incremental extension of the chain-lock contract. */
 
 #define PAR_INCR_KEYS     (PAR_KEYS+16UL) /* 16 brand-new keys in the incr phase */
@@ -2617,6 +2671,9 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "test_snapshot_behind_two_live ..." ));
   test_snapshot_behind_two_live();
+
+  FD_LOG_NOTICE(( "test_snapshot_hidden ..." ));
+  test_snapshot_hidden();
 
   FD_LOG_NOTICE(( "test_snapshot_equal_slot_rejected ..." ));
   test_snapshot_equal_slot_rejected();

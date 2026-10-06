@@ -402,6 +402,9 @@ struct fd_accdb_shmem_private {
      fragmentation threshold during the load. */
   int snapshot_loading;
 
+  /* Reads skip loader-written nodes while set (fd_accdb_snapshot_hide). */
+  int snapshot_hidden;
+
   /* Set at construction (fd_accdb_shmem_new) when this validator
      supports bundles.  A bundle coalesces up to
      FD_ACCDB_MAX_TXN_PER_ACQUIRE transactions into one acquire, so when
