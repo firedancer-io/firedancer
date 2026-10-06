@@ -466,14 +466,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   /* The snapshot and the instant boot stream pipelines each have their
      own frame ticket, so take the one this tile was given. */
-  fd_topo_obj_t const * ticket_obj = NULL;
-  for( ulong i=0UL; i<tile->uses_obj_cnt; i++ ) {
-    fd_topo_obj_t const * obj = &topo->objs[ tile->uses_obj_id[ i ] ];
-    if( FD_UNLIKELY( !strcmp( obj->name, "fseq" ) && !strcmp( obj->label, "frame_ticket" ) ) ) {
-      ticket_obj = obj;
-      break;
-    }
-  }
+  fd_topo_obj_t const * ticket_obj = fd_topo_find_tile_obj_named( topo, tile, "fseq", "frame_ticket" );
   FD_TEST( ticket_obj );
   ctx->next_frame_ticket = fd_fseq_join( fd_topo_obj_laddr( topo, ticket_obj->id ) );
   FD_TEST( ctx->next_frame_ticket );
@@ -489,11 +482,10 @@ unprivileged_init( fd_topo_t const *      topo,
   if( FD_UNLIKELY( tile->out_cnt!=1UL ) ) FD_LOG_ERR(( "tile `%s` has %lu outs, expected 1", tile->name, tile->out_cnt ));
 
   /* The instant boot decompressor feeds the stream parser instead. */
-  int stream  = 0==strcmp( tile->name, "strdc" );
-  ctx->stream = !!stream;
+  ctx->stream = 0==strcmp( tile->name, "strdc" );
 
   fd_topo_link_t const * snapin_link = &topo->links[ tile->out_link_id[ 0UL ] ];
-  FD_TEST( 0==strcmp( snapin_link->name, stream ? "strdc_in" : "snapdc_in" ) );
+  FD_TEST( 0==strcmp( snapin_link->name, ctx->stream ? "strdc_in" : "snapdc_in" ) );
   ctx->out.mem    = topo->workspaces[ topo->objs[ snapin_link->dcache_obj_id ].wksp_id ].wksp;
   ctx->out.chunk0 = fd_dcache_compact_chunk0( ctx->out.mem, snapin_link->dcache );
   ctx->out.wmark  = fd_dcache_compact_wmark ( ctx->out.mem, snapin_link->dcache, snapin_link->mtu );
