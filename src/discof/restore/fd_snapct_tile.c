@@ -161,6 +161,13 @@ struct fd_snapct_tile {
   int           start_sent;
   fd_sspeer_t   peer;
 
+  /* Instant boot downloads the snapshot pair at the slot the boot
+     stream downloader joined, from the validator serving it. */
+  ulong *       instant_boot_pick;
+  ulong         instant_boot_slot;
+  fd_ip4_port_t instant_boot_addr;
+  char          instant_boot_hostname[ FD_FQDN_BUF_MAX ];
+
   struct {
     int dir_fd;
     int full_snapshot_fd;
@@ -233,9 +240,12 @@ gossip_enabled( fd_topo_tile_t const * tile ) {
   return tile->snapct.sources.gossip.allow_any || tile->snapct.sources.gossip.allow_list_cnt>0UL;
 }
 
+/* Instant boot always downloads, from the validator serving the boot
+   stream rather than from a peer or a configured server. */
+
 static int
 download_enabled( fd_topo_tile_t const * tile ) {
-  return gossip_enabled( tile ) || tile->snapct.sources.servers_cnt>0UL;
+  return tile->snapct.instant_boot || gossip_enabled( tile ) || tile->snapct.sources.servers_cnt>0UL;
 }
 
 #define ADNS_REQS_MAX (FD_TOPO_SNAPSHOTS_SERVERS_MAX+FD_TOPO_GOSSIP_ENTRYPOINTS_MAX)
@@ -609,6 +619,15 @@ init_load( fd_snapct_tile_t *  ctx,
 
   out->is_redirect = !file; /* always use redirect for HTTP downloads */
 
+  /* Instant boot asks for a redirect keyed on the stream slot, so
+     there is nothing advertised ahead of it to check the manifest
+     against.  The name the redirect resolves to carries both, and
+     reaches the loader in META before any of the snapshot does. */
+  if( FD_UNLIKELY( ctx->config.instant_boot ) ) {
+    out->slot = 0UL;
+    fd_memset( out->snapshot_hash, 0, FD_HASH_FOOTPRINT );
+  }
+
   if( file ) out->file_sz = full ? ctx->local_in.full_snapshot_size : ctx->local_in.incremental_snapshot_size;
   else       out->file_sz = 0UL;
 
@@ -700,6 +719,10 @@ log_completion( fd_snapct_tile_t * ctx,
    full (the ssping ban still provides temporary protection). */
 static void
 blacklist_peer( fd_snapct_tile_t * ctx ) {
+  /* The instant boot server is the only source there is, and it has no
+     peer identity, so it is retried rather than banned. */
+  if( FD_UNLIKELY( ctx->config.instant_boot ) ) return;
+
   fd_ssping_invalidate( ctx->ssping, ctx->peer.addr, fd_clock_tile_now( ctx->clock ) );
   fd_sspeer_selector_remove_by_addr( ctx->selector, ctx->peer.addr );
   fd_sspeer_selector_process_cluster_slot( ctx->selector );
@@ -860,7 +883,9 @@ after_credit( fd_snapct_tile_t *  ctx,
     if( !file ) {
       fd_ssctrl_start_t * out = fd_chunk_to_laddr( ctx->out_ld.mem, ctx->out_ld.chunk );
       out->addr = ctx->peer.addr;
-      if( full ) {
+      if( FD_UNLIKELY( ctx->config.instant_boot ) ) {
+        FD_TEST( fd_cstr_printf_check( out->path, PATH_MAX, &out->path_len, "/boot/%lu/%s", ctx->instant_boot_slot, full ? "full" : "incremental" ) );
+      } else if( full ) {
         FD_TEST( fd_cstr_printf_check( out->path, PATH_MAX, &out->path_len, "/snapshot.tar.bz2" ) );
       } else {
         FD_TEST( fd_cstr_printf_check( out->path, PATH_MAX, &out->path_len, "/incremental-snapshot.tar.bz2" ) );
@@ -876,7 +901,18 @@ after_credit( fd_snapct_tile_t *  ctx,
           break;
         }
       }
-      log_download( ctx, full, ctx->peer.addr, full ? ctx->predicted_incremental.full_slot : ctx->predicted_incremental.slot );
+
+      /* The instant boot server is neither a gossip peer nor a
+         configured snapshot source, so it has no identity to log and
+         no entry in the resolved list. */
+      if( FD_UNLIKELY( ctx->config.instant_boot ) ) {
+        fd_cstr_ncpy( out->hostname, ctx->instant_boot_hostname, sizeof(out->hostname) );
+        FD_LOG_NOTICE(( "downloading the %s snapshot for stream slot %lu from the instant boot server %s%s%s",
+                        full ? "full" : "incremental", ctx->instant_boot_slot,
+                        fd_log_style_bold(), ctx->config.instant_boot_server, fd_log_style_normal() ));
+      } else {
+        log_download( ctx, full, ctx->peer.addr, full ? ctx->predicted_incremental.full_slot : ctx->predicted_incremental.slot );
+      }
     }
     ulong sz = file ? 0UL : sizeof(fd_ssctrl_start_t);
     fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_START, ctx->out_ld.chunk, sz, 0UL, 0UL, 0UL );
@@ -891,6 +927,22 @@ after_credit( fd_snapct_tile_t *  ctx,
 
     /* ============================================================== */
     case FD_SNAPCT_STATE_INIT: {
+      /* Instant boot has one source and one snapshot pair to take from
+         it, so there is nothing to pick: wait for the boot stream
+         downloader to publish the slot it joined. */
+      if( FD_UNLIKELY( ctx->config.instant_boot ) ) {
+        ulong pick = fd_fseq_query( ctx->instant_boot_pick );
+        if( FD_LIKELY( pick==ULONG_MAX ) ) break;
+        ctx->instant_boot_slot               = pick;
+        ctx->predicted_incremental.full_slot = pick;
+        ctx->predicted_incremental.slot      = pick;
+        send_expected_slot( ctx, stem, pick );
+        ctx->peer.addr = ctx->instant_boot_addr;
+        ctx->state     = FD_SNAPCT_STATE_READING_FULL_HTTP;
+        init_load( ctx, stem, 1, 0 );
+        break;
+      }
+
       if( FD_UNLIKELY( !ctx->download_enabled ) ) {
         ulong local_slot = ctx->config.incremental_snapshots ? ctx->local_in.incremental_snapshot_slot : ctx->local_in.full_snapshot_slot;
         send_expected_slot( ctx, stem, local_slot );
@@ -1256,6 +1308,15 @@ after_credit( fd_snapct_tile_t *  ctx,
       rename_full_snapshot( ctx );
 
       log_completion( ctx, 1/*full*/ );
+
+      /* Instant boot takes the incremental from the same server, at
+         the slot the boot stream started from. */
+      if( FD_UNLIKELY( ctx->config.instant_boot ) ) {
+        ctx->state = FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP;
+        init_load( ctx, stem, 0, 0 );
+        break;
+      }
+
       if( FD_LIKELY( !ctx->config.incremental_snapshots ) ) {
         ctx->state = FD_SNAPCT_STATE_SHUTDOWN;
         fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_SHUTDOWN, 0UL, 0UL, 0UL, 0UL, 0UL );
@@ -1299,6 +1360,14 @@ after_credit( fd_snapct_tile_t *  ctx,
       ctx->metrics.incremental.bytes_written = 0UL;
       ctx->metrics.incremental.bytes_total   = 0UL;
 
+      /* Instant boot has one server and one snapshot pair to take from
+         it, so a retry asks the same server again. */
+      if( FD_UNLIKELY( ctx->config.instant_boot ) ) {
+        ctx->state = FD_SNAPCT_STATE_READING_FULL_HTTP;
+        init_load( ctx, stem, 1, 0 );
+        break;
+      }
+
       if( !ctx->download_enabled ) {
         /* if we are unable to download new snapshots and unable to load
            our local snapshot, we must shutdown the validator. */
@@ -1326,6 +1395,14 @@ after_credit( fd_snapct_tile_t *  ctx,
       ctx->metrics.incremental.bytes_read    = 0UL;
       ctx->metrics.incremental.bytes_written = 0UL;
       ctx->metrics.incremental.bytes_total   = 0UL;
+
+      /* Instant boot has one server and one snapshot pair to take from
+         it, so a retry asks the same server again. */
+      if( FD_UNLIKELY( ctx->config.instant_boot ) ) {
+        ctx->state = FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP;
+        init_load( ctx, stem, 0, 0 );
+        break;
+      }
 
       if( !ctx->download_enabled ) {
         /* if we are unable to download new snapshots and unable to load
@@ -2243,6 +2320,29 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->flush_ack      = 0;
   ctx->flush_ack_cnt  = 0;
   ctx->peer.addr.l    = 0UL;
+
+  ctx->instant_boot_pick          = NULL;
+  ctx->instant_boot_slot          = ULONG_MAX;
+  ctx->instant_boot_addr.l        = 0UL;
+  ctx->instant_boot_hostname[ 0 ] = '\0';
+  if( FD_UNLIKELY( ctx->config.instant_boot ) ) {
+    FD_TEST( tile->snapct.instant_boot_pick_obj_id!=ULONG_MAX );
+    ctx->instant_boot_pick = fd_fseq_join( fd_topo_obj_laddr( topo, tile->snapct.instant_boot_pick_obj_id ) );
+    FD_TEST( ctx->instant_boot_pick );
+
+    /* Only a plain IPv4 literal is accepted, as in the boot stream
+       downloader: neither tile has a DNS client of its own. */
+    ushort port;
+    int    is_https;
+    fd_dns_peer_parse( ctx->config.instant_boot_server, "snapshots.instant_boot.server", ctx->instant_boot_hostname, &port, &is_https );
+    if( FD_UNLIKELY( is_https ) ) {
+      FD_LOG_ERR(( "[snapshots.instant_boot] server \"%s\" must be plain http", ctx->config.instant_boot_server ));
+    }
+    if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( ctx->instant_boot_hostname, &ctx->instant_boot_addr.addr ) ) ) {
+      FD_LOG_ERR(( "[snapshots.instant_boot] server \"%s\" must give an IPv4 address", ctx->config.instant_boot_server ));
+    }
+    ctx->instant_boot_addr.port = port;
+  }
 
   fd_memset( ctx->http_full_snapshot_name, 0, PATH_MAX );
   fd_memset( ctx->http_incr_snapshot_name, 0, PATH_MAX );

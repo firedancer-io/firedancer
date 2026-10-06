@@ -7,6 +7,7 @@
 
 #include <netinet/in.h>
 #include <sys/epoll.h>
+#include <sys/wait.h>
 
 static ulong publish_cnt;
 static ulong publish_sig;
@@ -234,10 +235,12 @@ test_stream( void ) {
   static fd_sshttp_t http[1];
   static ulong waker_fseq[ FD_FSEQ_FOOTPRINT/sizeof(ulong) ] __attribute__((aligned(FD_FSEQ_ALIGN)));
   static ulong done_fseq[ FD_FSEQ_FOOTPRINT/sizeof(ulong) ] __attribute__((aligned(FD_FSEQ_ALIGN)));
+  static ulong pick_fseq[ FD_FSEQ_FOOTPRINT/sizeof(ulong) ] __attribute__((aligned(FD_FSEQ_ALIGN)));
   fd_snapld_tile_t ctx[1] = {0};
   ctx->sshttp          = fd_sshttp_join( fd_sshttp_new( http, test_epoll_fd ) );
   ctx->waker_fseq      = fd_fseq_join( fd_fseq_new( waker_fseq, 0UL ) );
   ctx->done_fseq       = fd_fseq_join( fd_fseq_new( done_fseq, 0UL ) );
+  ctx->pick_fseq       = fd_fseq_join( fd_fseq_new( pick_fseq, ULONG_MAX ) );
   fd_clock_tile_init( ctx->clock );
   ctx->out_dc.mem      = (fd_wksp_t *)output;
   ctx->out_dc.mtu      = FD_SNAPSHOT_DATA_MTU;
@@ -249,6 +252,8 @@ test_stream( void ) {
   ctx->load_full       = 1;
   ctx->stream          = 1;
   ctx->stream_retry_at = 0L; /* the index request is due right away */
+  ctx->stream_slot     = ULONG_MAX;
+  ctx->stream_index_deadline = LONG_MAX;
   ctx->window_deadline = LONG_MAX;
 
   fd_ip4_port_t addr;
@@ -273,8 +278,36 @@ test_stream( void ) {
   FD_TEST( fd_cstr_printf_check( index_resp, sizeof(index_resp), &index_resp_len,
                                  "HTTP/1.1 200 OK\r\nContent-Length: %lu\r\n\r\n%s", index_len, index ) );
 
+  /* A serving validator with no stream open answers 404, which is
+     "not yet", not a reason to die. */
+  char const * absent_resp = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n";
+  char req0[ 1024 ] = {0};
+  stream_exchange( ctx, listen_fd, req0, sizeof(req0), absent_resp, strlen( absent_resp ), 8UL );
+  FD_TEST( strstr( req0, "GET /boot/index HTTP/1.1" ) );
+  FD_TEST( !ctx->stream_index_done && ctx->stream_slot==ULONG_MAX );
+  FD_TEST( fd_fseq_query( ctx->pick_fseq )==ULONG_MAX );
+  FD_TEST( ctx->stream_retry_at!=LONG_MAX && ctx->stream_index_deadline!=LONG_MAX );
+
+  /* An index whose only stream closes too soon to be worth joining is
+     the same answer. */
+  char  stale[ 128 ];
+  ulong stale_len;
+  FD_TEST( fd_cstr_printf_check( stale, sizeof(stale), &stale_len, "888 %s %ld\n", hash_b58, now_unix+60L ) );
+  char  stale_resp[ 256 ];
+  ulong stale_resp_len;
+  FD_TEST( fd_cstr_printf_check( stale_resp, sizeof(stale_resp), &stale_resp_len,
+                                 "HTTP/1.1 200 OK\r\nContent-Length: %lu\r\n\r\n%s", stale_len, stale ) );
+  ctx->stream_retry_at = 0L; /* skip the two second wait */
+  char req1[ 1024 ] = {0};
+  stream_exchange( ctx, listen_fd, req1, sizeof(req1), stale_resp, stale_resp_len, 8UL );
+  FD_TEST( strstr( req1, "GET /boot/index HTTP/1.1" ) );
+  FD_TEST( !ctx->stream_index_done && !ctx->stream_index_len );
+  FD_TEST( fd_fseq_query( ctx->pick_fseq )==ULONG_MAX );
+  FD_TEST( ctx->stream_retry_at!=LONG_MAX );
+
   publish_cnt = init_cnt = init_full_cnt = meta_cnt = data_sz_total = 0UL;
   expect_init_slot = 777UL;
+  ctx->stream_retry_at = 0L; /* skip the two second wait */
 
   char req[ 1024 ] = {0};
   stream_exchange( ctx, listen_fd, req, sizeof(req), index_resp, index_resp_len, 64UL );
@@ -283,6 +316,7 @@ test_stream( void ) {
   FD_TEST( init_full_cnt==1UL && publish_cnt==1UL && !data_sz_total );
   FD_TEST( !memcmp( init_hash, hash, FD_HASH_FOOTPRINT ) );
   FD_TEST( ctx->stream_slot==777UL );
+  FD_TEST( fd_fseq_query( ctx->pick_fseq )==777UL );
   FD_TEST( init_cnt==2UL && !init_range );
 
   /* The archive request streams META once and then the body. */
@@ -357,6 +391,23 @@ test_stream( void ) {
   stream_exchange( ctx, listen_fd, req7, sizeof(req7), broken_resp, strlen( broken_resp ), 8UL );
   FD_TEST( init_cnt==7UL );
   FD_TEST( should_shutdown( ctx ) );
+
+  /* A server that never offers a stream is fatal once the wait is
+     over. */
+  fd_fseq_update( ctx->done_fseq, 0UL );
+  pid_t pid = fork();
+  FD_TEST( pid>=0 );
+  if( !pid ) {
+    fd_log_level_logfile_set( 6 );
+    fd_log_level_stderr_set( 6 );
+    ctx->stream_index_deadline = fd_clock_tile_now( ctx->clock )-1L;
+    stream_index_retry( ctx );
+    _exit( 0 );
+  }
+  int status = 0;
+  FD_TEST( waitpid( pid, &status, 0 )==pid );
+  FD_TEST( WIFEXITED( status ) );
+  FD_TEST( WEXITSTATUS( status )==1 );
 
   FD_TEST( !close( listen_fd ) );
 }

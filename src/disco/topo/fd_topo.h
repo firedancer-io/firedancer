@@ -720,15 +720,22 @@ struct fd_topo_tile {
       uint max_incremental_snapshots_to_keep;
       uint max_retry_abort;
       long wait_for_peers_timeout_nanos;
+
+      /* Instant boot downloads exactly the snapshot pair the boot
+         stream started from, from the validator serving the stream. */
+      int   instant_boot;
+      char  instant_boot_server[ FD_URL_MAX ];
+      ulong instant_boot_pick_obj_id;
     } snapct;
 
     struct {
-      char snapshots_path[ PATH_MAX ];
-      int  incremental_snapshots;
-      uint min_download_speed_mibs;
+      char  snapshots_path[ PATH_MAX ];
+      int   incremental_snapshots;
+      uint  min_download_speed_mibs;
       int   stream; /* download an instant boot stream, not a snapshot */
       char  stream_server[ FD_URL_MAX ];
       ulong instant_boot_done_obj_id;
+      ulong instant_boot_pick_obj_id;
     } snapld;
 
     struct {
@@ -742,6 +749,7 @@ struct fd_topo_tile {
       int   instant_boot; /* instant boot is enabled */
       ulong instant_boot_slot_obj_id;
       ulong instant_boot_done_obj_id;
+      ulong instant_boot_pick_obj_id;
     } snapin;
 
     struct {

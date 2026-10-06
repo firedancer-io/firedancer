@@ -41,6 +41,12 @@
    this long without delivering a single byte. */
 #define FD_SNAPLD_STREAM_IDLE_NANOS (60L*1000L*1000L*1000L) /* 60 seconds */
 
+/* How long to wait before asking for the boot index again when the
+   serving validator has no stream to offer yet, and how long it is
+   given to offer one before instant boot gives up. */
+#define FD_SNAPLD_STREAM_INDEX_RETRY_NANOS (  2L*1000L*1000L*1000L) /*   2 seconds */
+#define FD_SNAPLD_STREAM_INDEX_WAIT_NANOS  (300L*1000L*1000L*1000L) /* 300 seconds */
+
 /* The snapld tile is responsible for loading data from the local file
    or from an HTTP/TCP connection and sending it to the snapdc tile
    for later decompression. */
@@ -86,10 +92,12 @@ typedef struct fd_snapld_tile {
   long          stream_retry_at;      /* wallclock of the next request */
   long          stream_idle_deadline; /* when a failed request turns fatal */
   ulong         stream_index_len;
+  long          stream_index_deadline; /* when a server with no stream turns fatal */
   char          stream_index[ 4096UL ];
   fd_ip4_port_t stream_addr;
   char          stream_hostname[ FD_FQDN_BUF_MAX ];
   ulong *       done_fseq;
+  ulong *       pick_fseq;             /* the slot of the stream this tile joined */
 
   ulong   waker_client_idx;
   ulong * waker_fseq;
@@ -244,19 +252,24 @@ unprivileged_init( fd_topo_t const *      topo,
 
   /* The stream downloader has no control tile to start it, so it
      starts itself and runs until the background load is done. */
-  ctx->stream               = tile->snapld.stream;
-  ctx->stream_index_done    = 0;
-  ctx->stream_done_seen     = 0;
-  ctx->stream_slot          = ULONG_MAX;
-  ctx->stream_received      = 0UL;
-  ctx->stream_retry_at      = LONG_MAX;
-  ctx->stream_idle_deadline = LONG_MAX;
-  ctx->stream_index_len     = 0UL;
-  ctx->done_fseq            = NULL;
+  ctx->stream                = tile->snapld.stream;
+  ctx->stream_index_done     = 0;
+  ctx->stream_done_seen      = 0;
+  ctx->stream_slot           = ULONG_MAX;
+  ctx->stream_received       = 0UL;
+  ctx->stream_retry_at       = LONG_MAX;
+  ctx->stream_idle_deadline  = LONG_MAX;
+  ctx->stream_index_len      = 0UL;
+  ctx->stream_index_deadline = LONG_MAX;
+  ctx->done_fseq             = NULL;
+  ctx->pick_fseq             = NULL;
   if( FD_UNLIKELY( ctx->stream ) ) {
     FD_TEST( tile->snapld.instant_boot_done_obj_id!=ULONG_MAX );
     ctx->done_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->snapld.instant_boot_done_obj_id ) );
     FD_TEST( ctx->done_fseq );
+    FD_TEST( tile->snapld.instant_boot_pick_obj_id!=ULONG_MAX );
+    ctx->pick_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->snapld.instant_boot_pick_obj_id ) );
+    FD_TEST( ctx->pick_fseq );
     ctx->state           = FD_SNAPSHOT_STATE_PROCESSING;
     ctx->pipeline_ready  = 1;
     ctx->load_full       = 1;
@@ -375,6 +388,28 @@ stream_retry( fd_snapld_tile_t * ctx,
   ctx->stream_retry_at = now+FD_SNAPLD_STREAM_RETRY_NANOS;
 }
 
+/* stream_index_retry handles a boot index that offers no stream.  A
+   validator that has not opened one answers 404, one that just closed
+   its last answers an index with no line worth joining, and one that
+   is not up yet answers nothing at all.  All three are normal while
+   the serving validator starts up, so the tile asks again in a moment
+   and only gives up once the server has had long enough.  The wait
+   starts at the first answer that offers nothing. */
+
+static void
+stream_index_retry( fd_snapld_tile_t * ctx ) {
+  long now = fd_clock_tile_now( ctx->clock );
+  if( FD_UNLIKELY( ctx->stream_index_deadline==LONG_MAX ) ) {
+    ctx->stream_index_deadline = now+FD_SNAPLD_STREAM_INDEX_WAIT_NANOS;
+  } else if( FD_UNLIKELY( now>ctx->stream_index_deadline ) ) {
+    stream_fatal( ctx, "no boot stream offered for 300 s" );
+    return;
+  }
+  fd_sshttp_cancel( ctx->sshttp );
+  ctx->stream_index_len = 0UL;
+  ctx->stream_retry_at  = now+FD_SNAPLD_STREAM_INDEX_RETRY_NANOS;
+}
+
 static void
 transition_malformed( fd_snapld_tile_t *  ctx,
                       fd_stem_context_t * stem ) {
@@ -482,7 +517,8 @@ stream_parse_line( char *  line,
 
 /* stream_select picks the newest stream in the boot index that will
    stay open long enough to be worth joining.  The index lists the
-   newest stream first.  Returns 0 on success. */
+   newest stream first.  Returns 0 on success, and -1 when the index
+   offers nothing, which the caller treats as "not yet". */
 
 static int
 stream_select( fd_snapld_tile_t * ctx,
@@ -506,7 +542,6 @@ stream_select( fd_snapld_tile_t * ctx,
     line = next;
   }
 
-  stream_fatal( ctx, "no instant boot stream stays open long enough" );
   return -1;
 }
 
@@ -544,7 +579,14 @@ stream_index_advance( fd_snapld_tile_t *  ctx,
       break;
     case FD_SSHTTP_ADVANCE_DONE: {
       uchar hash[ FD_HASH_FOOTPRINT ];
-      if( FD_UNLIKELY( stream_select( ctx, hash ) ) ) break;
+      if( FD_UNLIKELY( stream_select( ctx, hash ) ) ) {
+        stream_index_retry( ctx );
+        break;
+      }
+
+      /* The snapshot control tile waits on this before it downloads
+         the snapshot pair at the same slot. */
+      fd_fseq_update( ctx->pick_fseq, ctx->stream_slot );
       FD_LOG_INFO(( "joining the instant boot stream for slot %lu at %s", ctx->stream_slot, ctx->config.stream_server ));
 
       fd_ssctrl_init_t * init = fd_chunk_to_laddr( ctx->out_dc.mem, ctx->out_dc.chunk );
@@ -562,7 +604,7 @@ stream_index_advance( fd_snapld_tile_t *  ctx,
       break;
     }
     default:
-      stream_fatal( ctx, "could not read the instant boot index" );
+      stream_index_retry( ctx );
   }
 }
 

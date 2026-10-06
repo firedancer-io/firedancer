@@ -35,6 +35,8 @@ test_stem_publish( fd_stem_context_t * stem FD_PARAM_UNUSED,
 #undef fd_stem_publish
 #include <stdlib.h>
 #include <sys/epoll.h>
+#include <sys/mman.h>
+#include <sys/resource.h>
 
 /* after_credit reads the tile clock and the waker readiness word */
 static ulong test_waker_fseq[ FD_FSEQ_FOOTPRINT/sizeof(ulong) ] __attribute__((aligned(FD_FSEQ_ALIGN)));
@@ -794,6 +796,105 @@ test_start_after_init_acks( void ) {
   free( scratch );
 }
 
+/* Instant boot downloads exactly the snapshot pair at the slot the
+   boot stream downloader joined, from the validator serving it. */
+
+static void
+test_instant_boot_download( void ) {
+  void *             scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
+  fd_snapct_tile_t * ctx     = scratch;
+  static uchar output   [ 16384UL ]                   __attribute__((aligned(FD_CHUNK_ALIGN)));
+  static ulong pick_fseq[ FD_FSEQ_FOOTPRINT/sizeof(ulong) ] __attribute__((aligned(FD_FSEQ_ALIGN)));
+  void * sel = aligned_alloc( fd_sspeer_selector_align(), fd_sspeer_selector_footprint( TOTAL_PEERS_MAX ) ); FD_TEST( sel );
+
+  /* The snapshot pool descriptors sit far above the usual soft file
+     limit, which the validator raises for the tile. */
+  struct rlimit lim;
+  FD_TEST( !getrlimit( RLIMIT_NOFILE, &lim ) );
+  if( lim.rlim_cur<(rlim_t)FD_SNAP_FD( 2U ) ) {
+    lim.rlim_cur = lim.rlim_max;
+    FD_TEST( !setrlimit( RLIMIT_NOFILE, &lim ) );
+  }
+  FD_TEST( lim.rlim_cur>=(rlim_t)FD_SNAP_FD( 2U ) );
+
+  fd_memset( ctx, 0, sizeof(*ctx) );
+  test_ctx_wake_init( ctx );
+  ctx->selector          = fd_sspeer_selector_join( fd_sspeer_selector_new( sel, TOTAL_PEERS_MAX, TEST_SELECTOR_SEED ) );
+  ctx->instant_boot_pick = fd_fseq_join( fd_fseq_new( pick_fseq, ULONG_MAX ) );
+  FD_TEST( ctx->selector && ctx->instant_boot_pick );
+
+  ctx->config.instant_boot = 1;
+  fd_cstr_ncpy( ctx->config.instant_boot_server, "127.0.0.1:8899", sizeof(ctx->config.instant_boot_server) );
+  fd_cstr_ncpy( ctx->instant_boot_hostname, "127.0.0.1", sizeof(ctx->instant_boot_hostname) );
+  ctx->instant_boot_addr = test_addr( 0x7f000001U, 8899 );
+  ctx->instant_boot_slot = ULONG_MAX;
+  ctx->state             = FD_SNAPCT_STATE_INIT;
+  ctx->flush_ack_cnt     = 2;
+  ctx->out_ld.mem        = (fd_wksp_t *)output;
+  ctx->out_ld.wmark      = 128UL;
+
+  /* The download recycles a snapshot pool slot.  These already carry
+     the partial name, so no directory entry is renamed. */
+  int full_fd = memfd_create( "snapct_full", 0 );
+  int incr_fd = memfd_create( "snapct_incr", 0 );
+  FD_TEST( full_fd>=0 && incr_fd>=0 );
+  FD_TEST( dup2( full_fd, FD_SNAP_FD( 0U ) )==FD_SNAP_FD( 0U ) );
+  FD_TEST( dup2( incr_fd, FD_SNAP_FD( 1U ) )==FD_SNAP_FD( 1U ) );
+  ctx->local_out.dir_fd                  = full_fd;
+  ctx->local_out.full_snapshot_fd        = FD_SNAP_FD( 0U );
+  ctx->local_out.incremental_snapshot_fd = FD_SNAP_FD( 1U );
+  fd_snap_pool_partial_name( ctx->local_out.full_snapshot_name,        0U );
+  fd_snap_pool_partial_name( ctx->local_out.incremental_snapshot_name, 1U );
+
+  test_output      = output;
+  test_publish_cnt = 0UL;
+
+  /* Nothing is asked for until the stream downloader stores its
+     pick. */
+  int busy = 0;
+  for( int i=0; i<4; i++ ) after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( !test_publish_cnt && ctx->state==FD_SNAPCT_STATE_INIT );
+
+  /* The pick starts the full download, with nothing advertised ahead
+     of the redirect for the loader to check the manifest against. */
+  fd_fseq_update( ctx->instant_boot_pick, 777UL );
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( ctx->state==FD_SNAPCT_STATE_READING_FULL_HTTP && ctx->instant_boot_slot==777UL );
+  FD_TEST( test_publish_sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL && test_publish_sz==sizeof(fd_ssctrl_init_t) );
+  fd_ssctrl_init_t const * init = fd_chunk_to_laddr_const( output, test_publish_chunk );
+  uchar zero[ FD_HASH_FOOTPRINT ] = {0};
+  FD_TEST( init->is_redirect && !init->file && !init->slot );
+  FD_TEST( !memcmp( init->snapshot_hash, zero, FD_HASH_FOOTPRINT ) );
+
+  /* START names the full snapshot of the stream slot on the instant
+     boot server. */
+  snapld_frag  ( ctx, FD_SNAPSHOT_MSG_CTRL_INIT_FULL, 0UL, 0UL, NULL );
+  ctrl_ack_frag( ctx, FD_SNAPSHOT_MSG_CTRL_INIT_FULL );
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( ctx->start_sent && test_publish_sig==FD_SNAPSHOT_MSG_CTRL_START );
+  FD_TEST( test_start.addr.l==ctx->instant_boot_addr.l && !test_start.is_https );
+  FD_TEST( !strcmp( test_start.hostname, "127.0.0.1" ) );
+  FD_TEST( !strcmp( test_start.path, "/boot/777/full" ) );
+  FD_TEST( test_start.path_len==strlen( test_start.path ) );
+
+  /* The incremental comes from the same server, at the stream slot. */
+  ctx->state = FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP;
+  init_load( ctx, NULL, 0, 0 );
+  snapld_frag  ( ctx, FD_SNAPSHOT_MSG_CTRL_INIT_INCR, 0UL, 0UL, NULL );
+  ctrl_ack_frag( ctx, FD_SNAPSHOT_MSG_CTRL_INIT_INCR );
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( ctx->start_sent && test_publish_sig==FD_SNAPSHOT_MSG_CTRL_START );
+  FD_TEST( test_start.addr.l==ctx->instant_boot_addr.l );
+  FD_TEST( !strcmp( test_start.path, "/boot/777/incremental" ) );
+
+  FD_TEST( !close( FD_SNAP_FD( 0U ) ) );
+  FD_TEST( !close( FD_SNAP_FD( 1U ) ) );
+  FD_TEST( !close( full_fd ) );
+  FD_TEST( !close( incr_fd ) );
+  free( sel );
+  free( scratch );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -812,6 +913,7 @@ main( int     argc,
   test_contact_info_slot_reuse_after_unallowed_peer_expires();
   test_load_complete_signal();
   test_start_after_init_acks();
+  test_instant_boot_download();
 
   /* Shared ssping: can only be created once (opens real sockets). */
   ulong ssping_max = 16UL;

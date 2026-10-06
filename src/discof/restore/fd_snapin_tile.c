@@ -168,10 +168,12 @@ struct fd_snapin_lead {
   fd_txncache_t * txncache;
   fd_bank_t *  bank;
 
-  /* Instant boot: did the one time setup run, and the counter replay
-     watches for the end of the background load. */
+  /* Instant boot: did the one time setup run, the counter replay
+     watches for the end of the background load, and the counter the
+     stream downloader stored the slot it joined in. */
   int     setup_done;
   ulong * done_fseq;
+  ulong * pick_fseq;
 
   fd_ssmanifest_parser_t * manifest_parser;
   fd_slot_delta_parser_t * slot_delta_parser;
@@ -1303,16 +1305,18 @@ process_manifest( fd_snapin_tile_t *  ctx,
       return;
     }
 
-    /* The boot stream carries every account the validator touched
-       since its own manifest slot, with the value it had at that slot.
-       An older incremental would reinstate values the stream has
-       already moved past. */
+    /* Replay stops consulting the boot stream once the load is done,
+       so the snapshot has to hold the values as they were at the slot
+       the stream started from.  The snapshot control tile asked for
+       the incremental at that slot; this checks it got it. */
     if( FD_UNLIKELY( ctx->instant_boot ) ) {
-      ulong stream_slot = FD_VOLATILE_CONST( ctx->shmem->stream_slot );
-      if( FD_UNLIKELY( !stream_slot ) ) {
-        FD_LOG_ERR(( "instant boot: incremental snapshot arrived before the boot stream manifest" ));
+      ulong pick = fd_fseq_query( ctx->lead.pick_fseq );
+      if( FD_UNLIKELY( manifest->slot!=pick ) ) {
+        FD_LOG_ERR(( "instant boot: incremental snapshot is not at the stream slot (manifest slot %lu, stream slot %lu)",
+                     manifest->slot, pick ));
       }
-      if( FD_UNLIKELY( manifest->slot<stream_slot ) ) {
+      ulong stream_slot = FD_VOLATILE_CONST( ctx->shmem->stream_slot );
+      if( FD_UNLIKELY( stream_slot && manifest->slot<stream_slot ) ) {
         FD_LOG_ERR(( "instant boot: incremental snapshot slot %lu is older than the boot stream slot %lu", manifest->slot, stream_slot ));
       }
     }
@@ -2694,6 +2698,8 @@ unprivileged_init( fd_topo_t const *      topo,
   if( FD_UNLIKELY( ctx->instant_boot ) ) {
     ctx->lead.done_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->snapin.instant_boot_done_obj_id ) );
     FD_TEST( ctx->lead.done_fseq );
+    ctx->lead.pick_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->snapin.instant_boot_pick_obj_id ) );
+    FD_TEST( ctx->lead.pick_fseq );
   }
 
   /* The counter replay waits on before it executes a slot.  Readers
