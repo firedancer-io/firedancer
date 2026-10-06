@@ -232,8 +232,8 @@ struct strmk_block {
   ulong              bank_idx;
   ulong              bank_seq;
   ulong              parent_bank_idx;
-  ulong              parent_bank_seq;
   ulong              hold_token;
+  ulong              parent_bank_seq;
   fd_accdb_fork_id_t parent_fork;
   uint               key_cnt;
   int                overflow; /* more than the set holds? */
@@ -315,16 +315,16 @@ scratch_align( void ) {
                        fd_ulong_max( fd_accdb_align(), 4096UL ) );
 }
 
-/* A stream below this carries too little to be worth opening. */
-
-#define STRMK_KEY_MIN (1024UL)
-
 /* strmk_file_cnt is one file per stream plus the index. */
 
 FD_FN_PURE static inline uint
 strmk_file_cnt( fd_strmk_t const * ctx ) {
   return ctx->stream_max+1U;
 }
+
+/* A stream below this carries too little to be worth opening. */
+
+#define STRMK_KEY_MIN (1024UL)
 
 /* strmk_key_max gives the number of sent set entries per stream, which
    is the configured key count rounded up to a power of two. */
@@ -475,9 +475,9 @@ strmk_status_cache( fd_strmk_t *     ctx,
 }
 
 /* strmk_encode_account appends one account to the raw buffer in the
-   snapshot appendvec layout and returns the bytes it took.  slot is the slot the
-   stream started at, which is where the value was read.  A lamports of
-   zero records that the account did not exist. */
+   snapshot appendvec layout and returns the bytes it took.  slot is
+   the slot the stream started at, which is where the value was read.
+   A lamports of zero records that the account did not exist. */
 
 static ulong
 strmk_encode_account( uchar *             buf,
@@ -925,7 +925,7 @@ strmk_block_retain( fd_strmk_t *    ctx,
 static void
 strmk_blocks_drop( fd_strmk_t * ctx ) {
   for( ulong i=0UL; i<STRMK_BLOCK_MAX; i++ ) ctx->block[ i ].state = STRMK_BLOCK_FREE;
-  for( ulong i=0UL; i<ctx->bank_max;      i++ ) ctx->bank_block[ i ] = UINT_MAX;
+  for( ulong i=0UL; i<ctx->bank_max;   i++ ) ctx->bank_block[ i ] = UINT_MAX;
   ctx->retain_head   = 0UL;
   ctx->retain_tail   = 0UL;
   ctx->last_end_slot = 0UL;
@@ -1225,8 +1225,8 @@ strmk_block_flush( fd_strmk_t *          ctx,
 /* strmk_block_discard throws away what the streams in take staged for
    a block and closes them, because the fork the block was read at
    turned out to be gone.  The streams that did not take the block are
-   not affected: the block was never theirs.  The caller says which of
-   the two cases it is in. */
+   not affected: the block was never theirs.  Each caller logs its own
+   reason first. */
 
 static void
 strmk_block_discard( fd_strmk_t *        ctx,
