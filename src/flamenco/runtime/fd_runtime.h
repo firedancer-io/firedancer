@@ -389,6 +389,17 @@ fd_runtime_fee_split( ulong   execution_fees,
                       ulong * burn,
                       ulong * reward );
 
+/* fd_runtime_fee_collector writes the account that fee settlement
+   credits with a block's fee reward: the slot leader, or the SIMD-0232
+   block revenue collector the leader chose while the
+   custom_commission_collector feature is active.  No transaction in
+   the block names this account, so anything that mirrors the accounts
+   a block touches has to ask for it. */
+
+void
+fd_runtime_fee_collector( fd_bank_t const * bank,
+                          fd_pubkey_t *     collector );
+
 /* fd_runtime_prepare_and_execute_txn is responsible for executing a
    fd_txn_in_t against a fd_runtime_t and a fd_bank_t.  The results of
    the transaction execution are set in the fd_txn_out_t.  The caller

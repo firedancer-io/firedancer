@@ -213,6 +213,34 @@ fd_runtime_fee_split( ulong   execution_fees,
   *reward = fd_ulong_sat_add( priority_fees, execution_fees-*burn );
 }
 
+void
+fd_runtime_fee_collector( fd_bank_t const * bank,
+                          fd_pubkey_t *     collector ) {
+  fd_epoch_leaders_t const * leaders = fd_bank_epoch_leaders_query( bank, bank->f.epoch );
+  fd_pubkey_t const *        leader  = fd_epoch_leaders_get( leaders, bank->f.slot );
+  if( FD_UNLIKELY( !leader ) ) FD_LOG_CRIT(( "fd_epoch_leaders_get(%lu) returned NULL", bank->f.slot ));
+  *collector = *leader;
+
+  /* Per SIMD-0232, the fee reward goes to the leader's block revenue
+     collector from the vote account state the leader schedule was
+     derived from (captured entering the previous epoch, tag
+     epoch-1); default is the leader identity.
+     https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime/src/bank/fee_distribution.rs#L121-L148 */
+  if( FD_LIKELY( !FD_FEATURE_ACTIVE_BANK( bank, custom_commission_collector ) ) ) return;
+
+  fd_pubkey_t const * leader_vote = fd_epoch_leaders_get_vote( leaders, bank->f.slot );
+  if( FD_UNLIKELY( !leader_vote ) ) FD_LOG_CRIT(( "fd_epoch_leaders_get_vote(%lu) returned NULL", bank->f.slot ));
+
+  fd_pubkey_t override_collector;
+  int flags = fd_collector_overrides_query( fd_bank_collector_overrides( bank ),
+                                            bank->collector_overrides_fork_id,
+                                            fd_ulong_sat_sub( bank->f.epoch, 1UL ),
+                                            leader_vote,
+                                            NULL,
+                                            &override_collector );
+  if( FD_UNLIKELY( flags & FD_COLLECTOR_OVERRIDE_BLOCK ) ) *collector = override_collector;
+}
+
 static void
 fd_runtime_settle_fees( fd_bank_t *        bank,
                         fd_accdb_t *       accdb,
@@ -236,31 +264,14 @@ fd_runtime_settle_fees( fd_bank_t *        bank,
   bank->f.priority_fees   = 0;
 
   if( FD_LIKELY( fee_reward ) ) {
-    fd_epoch_leaders_t const * leaders = fd_bank_epoch_leaders_query( bank, bank->f.epoch );
-    fd_pubkey_t const *        leader  = fd_epoch_leaders_get( leaders, bank->f.slot );
-    if( FD_UNLIKELY( !leader ) ) FD_LOG_CRIT(( "fd_epoch_leaders_get(%lu) returned NULL", bank->f.slot ));
-
-    /* Per SIMD-0232, the fee reward goes to the leader's block revenue
-       collector from the vote account state the leader schedule was
-       derived from (captured entering the previous epoch, tag
-       epoch-1); default is the leader identity.
-       https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime/src/bank/fee_distribution.rs#L121-L148 */
     int custom_commission_collector = FD_FEATURE_ACTIVE_BANK( bank, custom_commission_collector );
 
-    fd_pubkey_t const * collector_id = leader;
-    fd_pubkey_t const * leader_vote  = NULL;
-    fd_pubkey_t         override_collector;
-    if( custom_commission_collector ) {
-      leader_vote = fd_epoch_leaders_get_vote( leaders, bank->f.slot );
-      if( FD_UNLIKELY( !leader_vote ) ) FD_LOG_CRIT(( "fd_epoch_leaders_get_vote(%lu) returned NULL", bank->f.slot ));
-      int flags = fd_collector_overrides_query( fd_bank_collector_overrides( bank ),
-                                                bank->collector_overrides_fork_id,
-                                                fd_ulong_sat_sub( bank->f.epoch, 1UL ),
-                                                leader_vote,
-                                                NULL,
-                                                &override_collector );
-      if( FD_UNLIKELY( flags & FD_COLLECTOR_OVERRIDE_BLOCK ) ) collector_id = &override_collector;
-    }
+    fd_pubkey_t collector[ 1 ];
+    fd_runtime_fee_collector( bank, collector );
+    fd_pubkey_t const * collector_id = collector;
+    fd_pubkey_t const * leader_vote  = custom_commission_collector
+                                     ? fd_epoch_leaders_get_vote( fd_bank_epoch_leaders_query( bank, bank->f.epoch ), bank->f.slot )
+                                     : NULL;
 
     /* Pay out reward portion of collected fees (increasing capitalization) */
     fd_accdb_svm_update_t update[1];
