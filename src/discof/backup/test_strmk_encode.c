@@ -31,11 +31,13 @@ mock_accdb_read_one_nocache( fd_accdb_t *       accdb,
 #define TEST_BANK_MAX (64UL)
 
 static fd_bank_t * mock_bank[ TEST_BANK_MAX ];
+static ulong       mock_bank_queries;
 
 static fd_bank_t *
 mock_banks_bank_query( fd_banks_t * banks,
                        ulong        bank_idx ) {
   (void)banks;
+  mock_bank_queries++;
   if( FD_UNLIKELY( bank_idx>=TEST_BANK_MAX ) ) return NULL;
   return mock_bank[ bank_idx ];
 }
@@ -131,6 +133,48 @@ typedef struct test_acc test_acc_t;
 static fd_strmk_t       ctx[1];
 static strmk_stream_t * stream;  /* the one stream of the test tile */
 static void *           zst_mem; /* its static compressor */
+
+/* A stem the tile can publish its two out links through, so the paths
+   that give a bank back or withdraw a file can be driven. */
+
+#define TEST_STEM_DEPTH (128UL)
+
+static fd_stem_context_t test_stem[1];
+static fd_frag_meta_t *  test_mcache[ 2 ];
+static ulong             test_seq[ 2 ];
+static ulong             test_depth[ 2 ];
+static int               test_reliable[ 2 ];
+static ulong             test_cr_avail[ 2 ];
+static ulong             test_min_cr_avail;
+
+static void
+test_stem_create( void ) {
+  for( ulong i=0UL; i<2UL; i++ ) {
+    void * mem = aligned_alloc( fd_mcache_align(), fd_mcache_footprint( TEST_STEM_DEPTH, 0UL ) );
+    FD_TEST( mem );
+    test_mcache  [ i ] = fd_mcache_join( fd_mcache_new( mem, TEST_STEM_DEPTH, 0UL, 0UL ) );
+    FD_TEST( test_mcache[ i ] );
+    test_seq     [ i ] = 0UL;
+    test_depth   [ i ] = TEST_STEM_DEPTH;
+    test_reliable[ i ] = 0;
+    test_cr_avail[ i ] = TEST_STEM_DEPTH;
+  }
+  test_min_cr_avail = TEST_STEM_DEPTH;
+  *test_stem = (fd_stem_context_t) {
+    .mcaches             = test_mcache,
+    .seqs                = test_seq,
+    .depths              = test_depth,
+    .out_reliable        = test_reliable,
+    .cr_avail            = test_cr_avail,
+    .min_cr_avail        = &test_min_cr_avail,
+    .cr_decrement_amount = 1UL
+  };
+}
+
+static void
+test_stem_destroy( void ) {
+  for( ulong i=0UL; i<2UL; i++ ) free( fd_mcache_delete( fd_mcache_leave( test_mcache[ i ] ) ) );
+}
 
 /* env_create hands the archive writer a file to write into and the
    buffers it compresses through. */
@@ -508,6 +552,10 @@ backlog_env( ulong key_max ) {
   ctx->retain_head = 0UL;
   ctx->retain_tail = 0UL;
   mock_bank_clear();
+  test_stem_create();
+  ctx->replay_out_idx = 0UL;
+  ctx->out.out_idx    = 1UL;
+  ctx->out.mem        = NULL;
 
   backlog_sent = aligned_alloc( alignof(strmk_sent_t), key_max*sizeof(strmk_sent_t) );
   FD_TEST( backlog_sent );
@@ -533,6 +581,7 @@ backlog_env( ulong key_max ) {
 
 static void
 backlog_env_destroy( void ) {
+  test_stem_destroy();
   mock_bank_clear();
   free( ctx->acc_data );
   free( backlog_sent );
@@ -545,12 +594,10 @@ backlog_env_destroy( void ) {
 static strmk_block_t *
 backlog_retain( ulong slot,
                 ulong bank_idx,
-                ulong parent_bank_idx,
-                ulong parent_slot ) {
+                ulong parent_bank_idx ) {
   strmk_block_t * block = strmk_block_alloc( ctx );
   FD_TEST( block );
   block->slot            = slot;
-  block->parent_slot     = parent_slot;
   block->bank_idx        = bank_idx;
   block->bank_seq        = bank_idx;
   block->parent_bank_idx = parent_bank_idx;
@@ -611,11 +658,11 @@ FD_UNIT_TEST( backlog_order ) {
   backlog_env( BACKLOG_KEY_MAX );
 
   /* slots 101, 102 and 103 ran after 100 and chain back to its bank */
-  backlog_retain( 101UL, 11UL, 10UL, TEST_SLOT_X );
-  backlog_retain( 102UL, 12UL, 11UL, 101UL      );
-  backlog_retain( 103UL, 13UL, 12UL, 102UL      );
+  backlog_retain( 101UL, 11UL, 10UL );
+  backlog_retain( 102UL, 12UL, 11UL );
+  backlog_retain( 103UL, 13UL, 12UL );
   /* and one that ran before the stream's slot, which it does not want */
-  backlog_retain(  99UL,  9UL,  8UL,  98UL      );
+  backlog_retain( 99UL, 9UL, 8UL );
 
   FD_TEST( strmk_backlog_link( ctx, TEST_SLOT_X, 10UL, 10UL ) );
 
@@ -630,7 +677,6 @@ FD_UNIT_TEST( backlog_order ) {
   strmk_block_t * live = strmk_block_alloc( ctx );
   FD_TEST( live );
   live->slot            = 104UL;
-  live->parent_slot     = 103UL;
   live->bank_idx        = 14UL;
   live->bank_seq        = 14UL;
   live->parent_bank_idx = 13UL;
@@ -670,27 +716,27 @@ FD_UNIT_TEST( backlog_refused ) {
   backlog_env( BACKLOG_KEY_MAX );
 
   /* the block that ran right after slot 100 is no longer kept */
-  backlog_retain( 102UL, 12UL, 11UL, 101UL );
-  backlog_retain( 103UL, 13UL, 12UL, 102UL );
+  backlog_retain( 102UL, 12UL, 11UL );
+  backlog_retain( 103UL, 13UL, 12UL );
   FD_TEST( !strmk_backlog_link( ctx, TEST_SLOT_X, 10UL, 10UL ) );
 
   /* a block in the middle of the chain is missing */
   strmk_blocks_drop( ctx );
-  backlog_retain( 101UL, 11UL, 10UL, TEST_SLOT_X );
-  backlog_retain( 103UL, 13UL, 12UL, 102UL       );
+  backlog_retain( 101UL, 11UL, 10UL );
+  backlog_retain( 103UL, 13UL, 12UL );
   FD_TEST( !strmk_backlog_link( ctx, TEST_SLOT_X, 10UL, 10UL ) );
 
   /* nothing ran after the stream's slot yet, which is not a gap */
   strmk_blocks_drop( ctx );
-  backlog_retain( 99UL, 9UL, 8UL, 98UL );
+  backlog_retain( 99UL, 9UL, 8UL );
   FD_TEST( strmk_backlog_link( ctx, TEST_SLOT_X, 10UL, 10UL ) );
 
   /* a chain that left the chain below the stream's slot is dropped,
      not refused, as long as the stream's own child is kept */
   strmk_blocks_drop( ctx );
-  backlog_retain(  98UL,  8UL,  7UL, 97UL );
-  backlog_retain( 101UL, 11UL, 10UL, TEST_SLOT_X );
-  strmk_block_t * aside = backlog_retain( 102UL, 12UL, 8UL, 98UL );
+  backlog_retain( 98UL, 8UL, 7UL );
+  backlog_retain( 101UL, 11UL, 10UL );
+  strmk_block_t * aside = backlog_retain( 102UL, 12UL, 8UL );
   FD_TEST( strmk_backlog_link( ctx, TEST_SLOT_X, 10UL, 10UL ) );
   FD_TEST( !aside->linked );
 
@@ -703,7 +749,7 @@ FD_UNIT_TEST( backlog_refused ) {
 
   /* a refused stream writes nothing */
   strmk_blocks_drop( ctx );
-  backlog_retain( 103UL, 13UL, 12UL, 102UL );
+  backlog_retain( 103UL, 13UL, 12UL );
   ulong file_sz = stream->file_sz;
   FD_TEST( !strmk_backlog_link( ctx, TEST_SLOT_X, 10UL, 10UL ) );
   FD_TEST( stream->file_sz==file_sz );
@@ -732,7 +778,6 @@ FD_UNIT_TEST( lookup_table ) {
   strmk_block_t * block = strmk_block_alloc( ctx );
   FD_TEST( block );
   block->slot            = TEST_SLOT;
-  block->parent_slot     = TEST_SLOT_X;
   block->parent_bank_idx = 10UL;
   block->parent_bank_seq = 10UL;
   block->parent_fork     = (fd_accdb_fork_id_t){ (ushort)TEST_SLOT };
@@ -1035,8 +1080,8 @@ FD_UNIT_TEST( backlog_failure_keeps_streams ) {
   opening->bank_seq  = 10UL;
 
   /* two kept blocks, the second of which chains off a bank that died */
-  backlog_retain( 101UL, 11UL, 10UL, TEST_SLOT_X );
-  backlog_retain( 102UL, 12UL, 11UL, 101UL      );
+  backlog_retain( 101UL, 11UL, 10UL );
+  backlog_retain( 102UL, 12UL, 11UL );
   FD_TEST( strmk_backlog_link( ctx, TEST_SLOT_X, 10UL, 10UL ) );
   mock_bank[ 11 ]->state = FD_BANK_STATE_DEAD;
 
@@ -1049,6 +1094,143 @@ FD_UNIT_TEST( backlog_failure_keeps_streams ) {
   free( opening->sent );
   free( zst );
   ctx->stream_max = 1U;
+  backlog_env_destroy();
+}
+
+/* A stream start from before a reset names a bank replay has already
+   taken back.  The tile hands the hold back and carries on. */
+
+FD_UNIT_TEST( stale_stream_start ) {
+  backlog_env( BACKLOG_KEY_MAX );
+  stream->open = 0;
+  stream->closed = 0L;
+
+  ulong seq = test_seq[ 0 ];
+  fd_strmk_stream_start_t msg = { .slot = 200UL, .bank_idx = 55UL, .hold_token = 0xabcdUL };
+  strmk_stream_start( ctx, test_stem, &msg, fd_log_wallclock() );
+  /* the hold went back and no stream opened */
+  FD_TEST( test_seq[ 0 ]==seq+1UL );
+  FD_TEST( !stream->open );
+
+  /* the same again for a bank that was handed out for another slot */
+  mock_bank_add( 55UL );
+  mock_bank[ 55 ]->f.slot = 199UL;
+  seq = test_seq[ 0 ];
+  strmk_stream_start( ctx, test_stem, &msg, fd_log_wallclock() );
+  FD_TEST( test_seq[ 0 ]==seq+1UL );
+  FD_TEST( !stream->open );
+
+  backlog_env_destroy();
+}
+
+/* A block start whose parent is gone is recorded all the same: the
+   fork it reads at comes with the block end, and the check that it is
+   still live happens there. */
+
+FD_UNIT_TEST( stale_block_start ) {
+  backlog_env( BACKLOG_KEY_MAX );
+
+  fd_strmk_block_start_t msg = {
+    .slot = 201UL, .bank_idx = 21UL, .bank_seq = 21UL,
+    .parent_bank_idx = 44UL, .hold_token = 0x1234UL
+  };
+  strmk_block_start( ctx, test_stem, &msg );
+  strmk_block_t * block = strmk_block_query( ctx, 21UL, 21UL );
+  FD_TEST( block );
+  FD_TEST( block->hold_token==0x1234UL );
+  /* bank 44 was never made, so the fork it names is not live */
+  FD_TEST( !strmk_fork_live( ctx, block ) );
+  FD_TEST( stream->open );
+
+  backlog_env_destroy();
+}
+
+/* A fork that goes away part way through a block's reads is noticed
+   before the whole block has been read. */
+
+FD_UNIT_TEST( fork_lost_mid_block ) {
+  backlog_env( BACKLOG_KEY_MAX );
+
+  strmk_block_t * block = strmk_block_alloc( ctx );
+  FD_TEST( block );
+  block->slot            = 101UL;
+  block->bank_idx        = 11UL;
+  block->bank_seq        = 11UL;
+  block->parent_bank_idx = 10UL;
+  block->parent_bank_seq = 10UL;
+  block->parent_fork     = (fd_accdb_fork_id_t){ 101 };
+  for( ulong i=0UL; i<4UL*STRMK_FORK_CHECK_KEYS; i++ ) {
+    fd_pubkey_t key = {{ 0 }};
+    FD_STORE( ulong, key.uc, fd_ulong_hash( i ) );
+    FD_TEST( strmk_block_key_add( block, &key, 0 ) );
+  }
+
+  /* the bank dies before the reads start */
+  mock_bank[ 10 ]->state = FD_BANK_STATE_DEAD;
+  FD_TEST( !strmk_block_read( ctx, 1U, block ) );
+  /* the reads stopped well before the whole block was read */
+  FD_TEST( stream->sent_cnt<=STRMK_FORK_CHECK_KEYS );
+
+  /* a stream that did not take the block is left alone */
+  strmk_block_discard( ctx, test_stem, 0U, block );
+  FD_TEST( stream->open );
+  /* and the ones that did are broken */
+  strmk_block_discard( ctx, test_stem, 1U, block );
+  FD_TEST( !stream->open );
+
+  backlog_env_destroy();
+}
+
+/* A closed stream's file is not handed to a new stream until a peer
+   that is still downloading it has had time to notice. */
+
+FD_UNIT_TEST( closed_slot_not_reused ) {
+  backlog_env( BACKLOG_KEY_MAX );
+
+  long now = fd_log_wallclock();
+  stream->open   = 0;
+  stream->closed = now;
+
+  /* The only slot there closed a moment ago, so the start never gets
+     as far as looking its bank up: it gives the hold back instead. */
+  ulong seq     = test_seq[ 0 ];
+  ulong queries = mock_bank_queries;
+  fd_strmk_stream_start_t msg = { .slot = 200UL, .bank_idx = 55UL, .hold_token = 0xabcdUL };
+  strmk_stream_start( ctx, test_stem, &msg, now );
+  FD_TEST( test_seq[ 0 ]==seq+1UL ); /* the hold went back */
+  FD_TEST( mock_bank_queries==queries );
+  FD_TEST( !stream->open );
+
+  /* once the wait is over the slot is free, and the start goes on to
+     look the bank up */
+  seq     = test_seq[ 0 ];
+  queries = mock_bank_queries;
+  strmk_stream_start( ctx, test_stem, &msg, now+STRMK_REUSE_NS );
+  FD_TEST( test_seq[ 0 ]==seq+1UL );
+  FD_TEST( mock_bank_queries>queries );
+  FD_TEST( !stream->open ); /* bank 55 does not exist, a stale start */
+
+  backlog_env_destroy();
+}
+
+/* A key message that names more keys than the link can carry is a
+   broken feed, not something to read past the end of. */
+
+FD_UNIT_TEST( key_count_guard ) {
+  backlog_env( BACKLOG_KEY_MAX );
+
+  strmk_block_t * block = strmk_block_alloc( ctx );
+  FD_TEST( block );
+  block->slot     = 101UL;
+  block->bank_idx = 11UL;
+  block->bank_seq = 11UL;
+
+  fd_strmk_txn_keys_t msg = { .slot = 101UL, .bank_idx = 11UL, .key_cnt = (ushort)( FD_STRMK_TXN_KEY_MAX+1UL ) };
+  strmk_txn_keys( ctx, test_stem, &msg );
+  /* the feed was reset, so the block is gone and so is the stream */
+  FD_TEST( !strmk_block_query( ctx, 11UL, 11UL ) );
+  FD_TEST( !stream->open );
+
   backlog_env_destroy();
 }
 
