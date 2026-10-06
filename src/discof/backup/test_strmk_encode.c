@@ -489,7 +489,7 @@ static strmk_sent_t * backlog_sent;
 static void *         backlog_keys;
 
 static void
-backlog_env( void ) {
+backlog_env( ulong key_max ) {
   env_create();
   write_fixed();
 
@@ -504,18 +504,26 @@ backlog_env( void ) {
   ctx->retain_tail = 0UL;
   mock_bank_clear();
 
-  backlog_sent = aligned_alloc( alignof(strmk_sent_t), BACKLOG_KEY_MAX*sizeof(strmk_sent_t) );
+  backlog_sent = aligned_alloc( alignof(strmk_sent_t), key_max*sizeof(strmk_sent_t) );
   FD_TEST( backlog_sent );
-  memset( backlog_sent, 0, BACKLOG_KEY_MAX*sizeof(strmk_sent_t) );
+  memset( backlog_sent, 0, key_max*sizeof(strmk_sent_t) );
 
-  ctx->key_max    = BACKLOG_KEY_MAX;
-  ctx->key_cap    = ( BACKLOG_KEY_MAX*STRMK_SENT_LOAD_NUM )/STRMK_SENT_LOAD_DEN;
+  ctx->key_max    = key_max;
+  ctx->key_cap    = ( key_max*STRMK_SENT_LOAD_NUM )/STRMK_SENT_LOAD_DEN;
   ctx->acc_data   = malloc( FD_RUNTIME_ACC_SZ_MAX );
   FD_TEST( ctx->acc_data );
 
-  stream->open       = 1;
-  stream->first_slot = ULONG_MAX;
-  stream->sent       = backlog_sent;
+  /* One open stream that starts at TEST_SLOT_X, whose bank is 10.  It
+     was never published, so closing it tells the file server
+     nothing. */
+  stream->open      = 1;
+  stream->published = 0;
+  stream->slot_x    = TEST_SLOT_X;
+  stream->bank_idx  = 10UL;
+  stream->bank_seq  = 10UL;
+  stream->sent      = backlog_sent;
+  memset( stream->carried, 0xff, sizeof(stream->carried) );
+  mock_bank_add( 10UL );
 }
 
 static void
@@ -595,7 +603,7 @@ appendvec_slots( ulong * out_slot,
    written into it before the blocks it then carries live. */
 
 FD_UNIT_TEST( backlog_order ) {
-  backlog_env();
+  backlog_env( BACKLOG_KEY_MAX );
 
   /* slots 101, 102 and 103 ran after 100 and chain back to its bank */
   backlog_retain( 101UL, 11UL, 10UL, TEST_SLOT_X );
@@ -608,10 +616,10 @@ FD_UNIT_TEST( backlog_order ) {
 
   /* the bundle of the stream's own slot comes first */
   fd_pubkey_t bundle = {{ 3 }};
-  strmk_write_account( ctx, stream, (fd_accdb_fork_id_t){ (ushort)TEST_SLOT_X }, &bundle, TEST_SLOT_X );
+  strmk_write_account( ctx, 1U, (fd_accdb_fork_id_t){ (ushort)TEST_SLOT_X }, &bundle, TEST_SLOT_X );
   strmk_appendvec_flush( ctx, stream, TEST_SLOT_X, 0UL );
 
-  strmk_backlog_write( ctx, NULL, stream );
+  FD_TEST( strmk_backlog_write( ctx, NULL, 0U ) );
 
   /* then one block the stream carries live */
   strmk_block_t * live = strmk_block_alloc( ctx );
@@ -624,8 +632,9 @@ FD_UNIT_TEST( backlog_order ) {
   fd_pubkey_t key = {{ 0 }};
   FD_STORE( ulong, key.uc, 104UL );
   FD_TEST( strmk_block_key_add( live, &key ) );
-  strmk_block_read ( ctx, stream, live );
-  strmk_block_flush( ctx, NULL, stream, live );
+  FD_TEST( strmk_block_takers( ctx, live )==1U );
+  strmk_block_read ( ctx, 1U, live );
+  strmk_block_flush( ctx, NULL, 1U, 0, live );
 
   ulong slot[ 16 ];
   ulong cnt = appendvec_slots( slot, 16UL );
@@ -639,9 +648,10 @@ FD_UNIT_TEST( backlog_order ) {
   /* the key every block touches was carried once, by the first of them */
   fd_pubkey_t shared = {{ 7 }};
   FD_TEST( strmk_sent_query( stream->sent, BACKLOG_KEY_MAX, &shared )->slot==101UL );
-  /* the first block the stream carried is the oldest it had to catch
-     up on, so the live blocks that follow are not checked for a gap */
-  FD_TEST( stream->first_slot==101UL );
+  /* the stream remembers the blocks it carried, which is how the next
+     one is recognised as chaining off it */
+  FD_TEST( strmk_carried_test( stream, 13UL ) );
+  FD_TEST( !strmk_carried_test( stream, 99UL ) );
 
   backlog_env_destroy();
 }
@@ -650,7 +660,7 @@ FD_UNIT_TEST( backlog_order ) {
    everything that ran after its slot. */
 
 FD_UNIT_TEST( backlog_refused ) {
-  backlog_env();
+  backlog_env( BACKLOG_KEY_MAX );
 
   /* the block that ran right after slot 100 is no longer kept */
   backlog_retain( 102UL, 12UL, 11UL, 101UL );
@@ -668,6 +678,22 @@ FD_UNIT_TEST( backlog_refused ) {
   backlog_retain( 99UL, 9UL, 8UL, 98UL );
   FD_TEST( strmk_backlog_link( ctx, TEST_SLOT_X, 10UL ) );
 
+  /* a chain that left the chain below the stream's slot is dropped,
+     not refused, as long as the stream's own child is kept */
+  strmk_blocks_drop( ctx );
+  backlog_retain(  98UL,  8UL,  7UL, 97UL );
+  backlog_retain( 101UL, 11UL, 10UL, TEST_SLOT_X );
+  strmk_block_t * aside = backlog_retain( 102UL, 12UL, 8UL, 98UL );
+  FD_TEST( strmk_backlog_link( ctx, TEST_SLOT_X, 10UL ) );
+  FD_TEST( !aside->linked );
+
+  /* nothing is kept but blocks have run past the stream's slot, which
+     is what a reset leaves behind */
+  strmk_blocks_drop( ctx );
+  ctx->last_end_slot = 105UL;
+  FD_TEST( !strmk_backlog_link( ctx, TEST_SLOT_X, 10UL ) );
+  ctx->last_end_slot = 0UL;
+
   /* a refused stream writes nothing */
   strmk_blocks_drop( ctx );
   backlog_retain( 103UL, 13UL, 12UL, 102UL );
@@ -682,7 +708,7 @@ FD_UNIT_TEST( backlog_refused ) {
    and the stream carries the table and every address it names. */
 
 FD_UNIT_TEST( lookup_table ) {
-  backlog_env();
+  backlog_env( BACKLOG_KEY_MAX );
 
   /* a table of three addresses behind its 56 byte header */
   fd_pubkey_t table = {{ 0x41 }};
@@ -705,8 +731,8 @@ FD_UNIT_TEST( lookup_table ) {
   mock_bank_add( 10UL );
   FD_TEST( strmk_block_key_add( block, &table ) );
 
-  strmk_block_read ( ctx, stream, block );
-  strmk_block_flush( ctx, NULL, stream, block );
+  strmk_block_read ( ctx, 1U, block );
+  strmk_block_flush( ctx, NULL, 1U, 0, block );
   mock_shaped = 0;
 
   /* the table and all three of its addresses are in the appendvec */
@@ -748,7 +774,7 @@ FD_UNIT_TEST( lookup_table ) {
 #define OPEN_BUNDLE_SZ   (3762UL) /* a vote account */
 
 FD_UNIT_TEST( open_cost ) {
-  backlog_env();
+  backlog_env( 16384UL );
 
   /* A manifest is mostly account addresses, which do not compress,
      with a counter or a stake amount between every few of them. */
@@ -785,20 +811,128 @@ FD_UNIT_TEST( open_cost ) {
     mock_shaped_len = OPEN_BUNDLE_SZ;
     mock_shaped     = 1;
     memcpy( mock_shaped_data, fill+i, OPEN_BUNDLE_SZ );
-    strmk_write_account( ctx, stream, (fd_accdb_fork_id_t){ 1 }, &key, TEST_SLOT_X );
+    strmk_write_account( ctx, 1U, (fd_accdb_fork_id_t){ 1 }, &key, TEST_SLOT_X );
   }
   mock_shaped = 0;
   strmk_appendvec_flush( ctx, stream, TEST_SLOT_X, 0UL );
   long t3 = fd_log_wallclock();
 
-  FD_LOG_NOTICE(( "stream open: manifest %lu MiB in %ld ms, status cache %lu MiB in %ld ms, "
-                  "bundle %lu accounts (%lu MiB) in %ld ms, %lu MiB written",
-                  OPEN_MANIFEST_SZ>>20, ( t1-t0 )/(1000L*1000L),
-                  OPEN_STATUS_SZ  >>20, ( t2-t1 )/(1000L*1000L),
-                  OPEN_BUNDLE_CNT, ( OPEN_BUNDLE_CNT*OPEN_BUNDLE_SZ )>>20, ( t3-t2 )/(1000L*1000L),
-                  stream->file_sz>>20 ));
+  /* every account of the bundle landed in the stream */
+  FD_TEST( !stream->sent_full );
+  FD_TEST( stream->sent_cnt==OPEN_BUNDLE_CNT );
+
+  ulong bundle_sz = OPEN_BUNDLE_CNT*( OPEN_BUNDLE_SZ+sizeof(snap_acc_hdr_t) );
+  FD_LOG_NOTICE(( "stream open: manifest %lu MiB in %ld ms (%lu MiB/s), status cache %lu MiB in %ld ms (%lu MiB/s), "
+                  "bundle %lu accounts %lu MiB in %ld ms (%lu MiB/s), %lu MiB in, %lu MiB written",
+                  OPEN_MANIFEST_SZ>>20, ( t1-t0 )/(1000L*1000L), ( OPEN_MANIFEST_SZ>>20 )*1000UL/(ulong)fd_long_max( ( t1-t0 )/(1000L*1000L), 1L ),
+                  OPEN_STATUS_SZ  >>20, ( t2-t1 )/(1000L*1000L), ( OPEN_STATUS_SZ  >>20 )*1000UL/(ulong)fd_long_max( ( t2-t1 )/(1000L*1000L), 1L ),
+                  OPEN_BUNDLE_CNT, bundle_sz>>20, ( t3-t2 )/(1000L*1000L), ( bundle_sz>>20 )*1000UL/(ulong)fd_long_max( ( t3-t2 )/(1000L*1000L), 1L ),
+                  ( OPEN_MANIFEST_SZ+OPEN_STATUS_SZ+bundle_sz )>>20, stream->file_sz>>20 ));
 
   FD_TEST( !munmap( fill, STRMK_RAW_BUF_SZ ) );
+  backlog_env_destroy();
+}
+
+/* A block whose parent no stream carried is not any stream's block,
+   and is skipped rather than breaking anything. */
+
+FD_UNIT_TEST( ancestry_skip ) {
+  backlog_env( BACKLOG_KEY_MAX );
+
+  /* a child of the stream's slot is the stream's */
+  strmk_block_t * child = strmk_block_alloc( ctx );
+  FD_TEST( child );
+  child->slot            = 101UL;
+  child->bank_idx        = 11UL;
+  child->bank_seq        = 11UL;
+  child->parent_bank_idx = 10UL;
+  child->parent_bank_seq = ULONG_MAX;
+  child->parent_fork     = (fd_accdb_fork_id_t){ 101 };
+  FD_TEST( strmk_block_takers( ctx, child )==1U );
+  strmk_block_read ( ctx, 1U, child );
+  strmk_block_flush( ctx, NULL, 1U, 0, child );
+
+  /* a grandchild through it is too */
+  strmk_block_t * grand = strmk_block_alloc( ctx );
+  FD_TEST( grand );
+  grand->slot            = 102UL;
+  grand->bank_idx        = 12UL;
+  grand->bank_seq        = 12UL;
+  grand->parent_bank_idx = 11UL;
+  grand->parent_bank_seq = ULONG_MAX;
+  grand->parent_fork     = (fd_accdb_fork_id_t){ 102 };
+  FD_TEST( strmk_block_takers( ctx, grand )==1U );
+
+  /* one that chains off a bank the stream never carried is not */
+  strmk_block_t * other = strmk_block_alloc( ctx );
+  FD_TEST( other );
+  other->slot            = 103UL;
+  other->bank_idx        = 13UL;
+  other->bank_seq        = 13UL;
+  other->parent_bank_idx = 42UL;
+  other->parent_bank_seq = ULONG_MAX;
+  other->parent_fork     = (fd_accdb_fork_id_t){ 103 };
+  FD_TEST( !strmk_block_takers( ctx, other ) );
+  FD_TEST( stream->open );
+
+  backlog_env_destroy();
+}
+
+/* A stream whose sent set has no room left for an account it just
+   carried is broken, because it would skip that account next time. */
+
+FD_UNIT_TEST( sent_set_full_breaks ) {
+  backlog_env( 16UL );
+
+  strmk_block_t * block = strmk_block_alloc( ctx );
+  FD_TEST( block );
+  block->slot            = 101UL;
+  block->bank_idx        = 11UL;
+  block->bank_seq        = 11UL;
+  block->parent_bank_idx = 10UL;
+  block->parent_bank_seq = ULONG_MAX;
+  block->parent_fork     = (fd_accdb_fork_id_t){ 101 };
+  for( ulong i=0UL; i<24UL; i++ ) {
+    fd_pubkey_t key = {{ 0 }};
+    FD_STORE( ulong, key.uc, fd_ulong_hash( i ) );
+    FD_TEST( strmk_block_key_add( block, &key ) );
+  }
+
+  strmk_block_read( ctx, 1U, block );
+  FD_TEST( stream->sent_full );
+  strmk_block_flush( ctx, NULL, 1U, 1, block );
+  FD_TEST( !stream->open );
+
+  backlog_env_destroy();
+}
+
+/* A lookup table a stream already carries is expanded again, so the
+   addresses it gained since are carried too. */
+
+FD_UNIT_TEST( lookup_table_grows ) {
+  backlog_env( BACKLOG_KEY_MAX );
+
+  fd_pubkey_t table   = {{ 0x41 }};
+  fd_pubkey_t addr[ 3 ] = { {{ 0x51 }}, {{ 0x52 }}, {{ 0x53 }} };
+  mock_shaped_key   = table;
+  mock_shaped_owner = fd_solana_address_lookup_table_program_id;
+  mock_shaped_len   = FD_LOOKUP_TABLE_META_SIZE + 2UL*sizeof(fd_pubkey_t);
+  memset( mock_shaped_data, 0, sizeof(mock_shaped_data) );
+  memcpy( mock_shaped_data+FD_LOOKUP_TABLE_META_SIZE, addr, 2UL*sizeof(fd_pubkey_t) );
+  mock_shaped = 1;
+
+  strmk_write_account( ctx, 1U, (fd_accdb_fork_id_t){ 1 }, &table, 101UL );
+  FD_TEST(  strmk_sent_test( stream, BACKLOG_KEY_MAX, &addr[ 0 ] ) );
+  FD_TEST(  strmk_sent_test( stream, BACKLOG_KEY_MAX, &addr[ 1 ] ) );
+  FD_TEST( !strmk_sent_test( stream, BACKLOG_KEY_MAX, &addr[ 2 ] ) );
+
+  /* the table gains a third address after the stream opened */
+  mock_shaped_len = FD_LOOKUP_TABLE_META_SIZE + 3UL*sizeof(fd_pubkey_t);
+  memcpy( mock_shaped_data+FD_LOOKUP_TABLE_META_SIZE, addr, 3UL*sizeof(fd_pubkey_t) );
+  strmk_write_account( ctx, 1U, (fd_accdb_fork_id_t){ 1 }, &table, 102UL );
+  FD_TEST( strmk_sent_test( stream, BACKLOG_KEY_MAX, &addr[ 2 ] ) );
+  mock_shaped = 0;
+
   backlog_env_destroy();
 }
 
