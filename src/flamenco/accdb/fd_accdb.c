@@ -1150,6 +1150,36 @@ chain_head( uint const * head ) {
   }
 }
 
+/* acc_hide returns 1 if reads on this join must skip the nodes the
+   snapshot loader wrote (fd_accdb_snapshot_hide).  Read once per
+   lookup, not once per node walked. */
+
+static inline int
+acc_hide( fd_accdb_t const * accdb ) {
+  return FD_VOLATILE_CONST( accdb->shmem->snapshot_hidden ) && !accdb->show_hidden;
+}
+
+/* acc_visible returns 1 if this chain node is the account the caller
+   asked for.  A node is visible when it was written by fork_id or by
+   a fork that fork_id descends from, its pubkey matches, and the
+   snapshot loader did not write it while loader nodes are hidden.
+   The hide test comes last so it runs once per lookup, not once per
+   node walked. */
+
+static inline int
+acc_visible( fd_accdb_accmeta_t const * acc,
+             uchar const *              pubkey,
+             uint                       root_generation,
+             fd_accdb_fork_t const *    fork,
+             ushort                     fork_id,
+             int                        hide ) {
+  return !( ( acc->key.generation>root_generation &&
+              fd_accdb_acc_fork_id( acc )!=fork_id &&
+              !descends_set_test( fork->descends, fd_accdb_acc_fork_id( acc ) ) ) ||
+            memcmp( pubkey, acc->key.pubkey, 32UL ) ||
+            ( hide && FD_ACCDB_SIZE_SNAPSHOT( FD_VOLATILE_CONST( acc->executable_size ) ) ) );
+}
+
 /* Splice acc_idx out of the interior of a chain.  prev is the node that
    preceded it when the caller walked the chain, and next is the node
    that follows acc_idx.
@@ -2453,8 +2483,7 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
   fd_accdb_accmeta_t * accmetas[ FD_ACCDB_MAX_ACQUIRE_CNT ];
   ulong acc_map_idxs[ FD_ACCDB_MAX_ACQUIRE_CNT ];
 
-  /* Skip nodes the snapshot loader wrote while they are hidden. */
-  int hide = FD_VOLATILE_CONST( accdb->shmem->snapshot_hidden ) && !accdb->show_hidden;
+  int hide = acc_hide( accdb );
 
   /* Walk the hash chain for each pubkey and take the first visible
      match.  Correctness relies on newer entries always being prepended
@@ -2482,11 +2511,7 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
 
       fd_racesan_hook( "accdb_acquire:post_next" );
 
-      if( FD_UNLIKELY( (candidate_acc->key.generation>root_generation &&
-                        fd_accdb_acc_fork_id(candidate_acc)!=fork_id.val &&
-                        !descends_set_test( fork->descends, fd_accdb_acc_fork_id(candidate_acc) )) ) ||
-                        (hide && FD_ACCDB_SIZE_SNAPSHOT( FD_VOLATILE_CONST( candidate_acc->executable_size ) )) ||
-                        memcmp( pubkeys[ i ], candidate_acc->key.pubkey, 32UL ) ) {
+      if( FD_UNLIKELY( !acc_visible( candidate_acc, pubkeys[ i ], root_generation, fork, fork_id.val, hide ) ) ) {
         acc = next_acc;
         continue;
       }
@@ -3777,15 +3802,11 @@ fd_accdb_read_one_nocache( fd_accdb_t *       accdb,
   ulong hash = fd_hash32( pubkey, accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL);
   uint acc_idx = chain_head( &accdb->acc_map[ hash ] );
   fd_accdb_accmeta_t const * accmeta = NULL;
-  int hide = FD_VOLATILE_CONST( accdb->shmem->snapshot_hidden ) && !accdb->show_hidden;
+  int hide = acc_hide( accdb );
   while( acc_idx!=UINT_MAX ) {
     fd_accdb_accmeta_t const * candidate = &accdb->acc_pool[ acc_idx ];
     uint next_idx = FD_VOLATILE_CONST( candidate->map.next );
-    if( FD_UNLIKELY( (candidate->key.generation>root_generation &&
-                      fd_accdb_acc_fork_id(candidate)!=fork_id.val &&
-                      !descends_set_test( fork->descends, fd_accdb_acc_fork_id(candidate) )) ) ||
-                     (hide && FD_ACCDB_SIZE_SNAPSHOT( FD_VOLATILE_CONST( candidate->executable_size ) )) ||
-                     memcmp( pubkey, candidate->key.pubkey, 32UL ) ) {
+    if( FD_UNLIKELY( !acc_visible( candidate, pubkey, root_generation, fork, fork_id.val, hide ) ) ) {
       acc_idx = next_idx;
       continue;
     }
@@ -3941,16 +3962,12 @@ fd_accdb_exists( fd_accdb_t *       accdb,
   fd_accdb_fork_t * fork = &accdb->fork_pool[ fork_id.val ];
   ulong hash = fd_hash32( pubkey, accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL);
   uint acc = chain_head( &accdb->acc_map[ hash ] );
-  int hide = FD_VOLATILE_CONST( accdb->shmem->snapshot_hidden ) && !accdb->show_hidden;
+  int hide = acc_hide( accdb );
   while( acc!=UINT_MAX ) {
     fd_accdb_accmeta_t const * candidate_acc = &accdb->acc_pool[ acc ];
     uint next_acc = FD_VOLATILE_CONST( candidate_acc->map.next );
 
-    if( FD_UNLIKELY( (candidate_acc->key.generation>root_generation &&
-                      fd_accdb_acc_fork_id(candidate_acc)!=fork_id.val &&
-                      !descends_set_test( fork->descends, fd_accdb_acc_fork_id(candidate_acc) )) ) ||
-                     (hide && FD_ACCDB_SIZE_SNAPSHOT( FD_VOLATILE_CONST( candidate_acc->executable_size ) )) ||
-                     memcmp( pubkey, candidate_acc->key.pubkey, 32UL ) ) {
+    if( FD_UNLIKELY( !acc_visible( candidate_acc, pubkey, root_generation, fork, fork_id.val, hide ) ) ) {
       acc = next_acc;
       continue;
     }
@@ -3982,16 +3999,12 @@ fd_accdb_probe_pd_this_fork( fd_accdb_t *       accdb,
   fd_accdb_fork_t * fork = &accdb->fork_pool[ fork_id.val ];
   ulong hash = fd_hash32( pubkey, accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL);
   uint acc = chain_head( &accdb->acc_map[ hash ] );
-  int hide = FD_VOLATILE_CONST( accdb->shmem->snapshot_hidden ) && !accdb->show_hidden;
+  int hide = acc_hide( accdb );
   while( acc!=UINT_MAX ) {
     fd_accdb_accmeta_t const * candidate_acc = &accdb->acc_pool[ acc ];
     uint next_acc = FD_VOLATILE_CONST( candidate_acc->map.next );
 
-    if( FD_UNLIKELY( (candidate_acc->key.generation>root_generation &&
-                      fd_accdb_acc_fork_id(candidate_acc)!=fork_id.val &&
-                      !descends_set_test( fork->descends, fd_accdb_acc_fork_id(candidate_acc) )) ) ||
-                     (hide && FD_ACCDB_SIZE_SNAPSHOT( FD_VOLATILE_CONST( candidate_acc->executable_size ) )) ||
-                     memcmp( pubkey, candidate_acc->key.pubkey, 32UL ) ) {
+    if( FD_UNLIKELY( !acc_visible( candidate_acc, pubkey, root_generation, fork, fork_id.val, hide ) ) ) {
       acc = next_acc;
       continue;
     }
@@ -4035,16 +4048,12 @@ fd_accdb_lamports( fd_accdb_t *       accdb,
   fd_accdb_fork_t * fork = &accdb->fork_pool[ fork_id.val ];
   ulong hash = fd_hash32( pubkey, accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL);
   uint acc = chain_head( &accdb->acc_map[ hash ] );
-  int hide = FD_VOLATILE_CONST( accdb->shmem->snapshot_hidden ) && !accdb->show_hidden;
+  int hide = acc_hide( accdb );
   while( acc!=UINT_MAX ) {
     fd_accdb_accmeta_t const * candidate_acc = &accdb->acc_pool[ acc ];
     uint next_acc = FD_VOLATILE_CONST( candidate_acc->map.next );
 
-    if( FD_UNLIKELY( (candidate_acc->key.generation>root_generation &&
-                      fd_accdb_acc_fork_id(candidate_acc)!=fork_id.val &&
-                      !descends_set_test( fork->descends, fd_accdb_acc_fork_id(candidate_acc) )) ) ||
-                     (hide && FD_ACCDB_SIZE_SNAPSHOT( FD_VOLATILE_CONST( candidate_acc->executable_size ) )) ||
-                     memcmp( pubkey, candidate_acc->key.pubkey, 32UL ) ) {
+    if( FD_UNLIKELY( !acc_visible( candidate_acc, pubkey, root_generation, fork, fork_id.val, hide ) ) ) {
       acc = next_acc;
       continue;
     }
