@@ -257,10 +257,14 @@ struct fd_snapin_shmem {
   ulong stream_stopped;
 
   /* Per-tile attempt values.  Lamport totals are 128-bit <*_hi,*>:
-     they count every account version, which can pass 2^64. */
+     they count every account version, which can pass 2^64.  reserved
+     says this tile has taken layer-0 space for the attempt, which the
+     counts below do not cover: a batch can reject the snapshot after
+     the space was taken and written to. */
   struct __attribute__((aligned(128))) {
     ulong loaded;
     ulong duplicates;
+    ulong reserved;
     ulong input_lamports;
     ulong duplicate_lamports;
     ulong input_lamports_hi;
@@ -787,27 +791,32 @@ clear_control_barrier( fd_snapin_tile_t * ctx ) {
   fd_memset( ctx->control_seen, 0, sizeof(ctx->control_seen) );
 }
 
-/* attempt_wrote_accounts returns nonzero if any tile has written an
-   account of the current attempt into the accounts database.  The
-   lead zeroes these counters at INIT. */
+/* attempt_wrote_anything returns nonzero if any tile has taken space
+   in the accounts database for the current attempt, written an account
+   there, or both.  The lead zeroes these counters at INIT. */
 
 static inline int
-attempt_wrote_accounts( fd_snapin_tile_t const * ctx ) {
+attempt_wrote_anything( fd_snapin_tile_t const * ctx ) {
   FD_COMPILER_MFENCE();
   for( ulong i=0UL; i<FD_TOPO_MAX_TILE_IN_LINKS; i++ ) {
-    if( FD_UNLIKELY( ctx->shmem->values[ i ].loaded || ctx->shmem->values[ i ].duplicates ) ) return 1;
+    if( FD_UNLIKELY( ctx->shmem->values[ i ].reserved   ||
+                     ctx->shmem->values[ i ].loaded     ||
+                     ctx->shmem->values[ i ].duplicates ) ) return 1;
   }
   return 0;
 }
 
-/* Instant boot cannot retry once the attempt has put hidden nodes in
-   the accounts database, so a failure after the first account is
-   written is fatal.  A failure before that leaves nothing behind and
-   retries like any other load. */
+/* Instant boot cannot retry once the attempt has touched the accounts
+   database, so a failure from the first flush onwards is fatal.  The
+   first flush is already the point of no return: it takes layer-0
+   space and writes records into it before the batch is accounted, and
+   a batch that rejects the snapshot can have linked hidden index nodes
+   for the accounts ahead of the one it rejected.  A failure before any
+   flush leaves nothing behind and retries like any other load. */
 
 static inline int
 load_failure_is_fatal( fd_snapin_tile_t const * ctx ) {
-  return ctx->instant_boot && attempt_wrote_accounts( ctx );
+  return ctx->instant_boot && attempt_wrote_anything( ctx );
 }
 
 static void
@@ -1464,6 +1473,13 @@ writer_flush( fd_snapin_tile_t * ctx ) {
   fd_memset( ctx->writer.buf+used, 0, padded-used );
   fd_accdb_disk_meta_t * dummy_record = (fd_accdb_disk_meta_t *)( ctx->writer.buf+used );
   dummy_record->size = (uint)( padded-used-sizeof(fd_accdb_disk_meta_t) );
+
+  /* Taking space is the point of no return for an instant boot
+     attempt: the records written there, and any index nodes a failing
+     batch links before it returns, cannot be taken back while replay
+     is writing the same file.  Say so before taking it. */
+  FD_VOLATILE( ctx->shmem->values[ ctx->tile_idx ].reserved ) = 1UL;
+  FD_COMPILER_MFENCE();
 
   /* The offset is aligned because partition sizes are multiples of
      FD_SNAPIN_DIRECT_ALIGN (whole GiB), the snapin tiles are the only
@@ -2356,18 +2372,12 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         FD_COMPILER_MFENCE();
 
         /* Only a completed INIT has valid state to roll back.  An
-           instant boot attempt that got this far counted no account,
-           and its forks are the ones setup created, so there is
-           nothing to forget.  A first flush that failed inside its
-           batch can still have reserved space, written records into
-           it, and linked index nodes for the accounts ahead of the
-           one the batch rejected.  Those records are not in the
-           index, so compaction reclaims them once the load ends, and
-           the write head cannot be rewound here because replay is
-           writing the same file.  Leftover nodes only happen when a
-           snapshot repeats a pubkey at a slot, and the retry reads
-           the same bytes and stops in the same place, so no load ever
-           completes over them. */
+           instant boot attempt that got this far has not flushed, so
+           it has taken no space in the accounts database and written
+           nothing there, and its forks are the ones setup created: it
+           has nothing to roll back and nothing to forget.  An attempt
+           that did flush never reaches this, because the failure was
+           fatal. */
         if( FD_LIKELY( ctx->lead.init_completed && !ctx->instant_boot ) ) {
           ctx->lead.rollback.pending = 1;
           ctx->lead.rollback.full    = ctx->full;

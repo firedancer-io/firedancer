@@ -244,6 +244,10 @@ static test_sysvar_t test_sysvars[ FD_SYSVAR_CACHE_ENTRY_CNT ];
 /* Outcome mock_accdb_snapshot_write_batch reports for every account. */
 static uchar test_write_result = FD_ACCDB_SNAPSHOT_WRITE_LOADED;
 
+/* Make mock_accdb_snapshot_write_batch reject the snapshot, the way
+   the real one does on a repeated pubkey, counting nothing. */
+static int test_write_batch_fail;
+
 /* The mocks above hide these prototypes; tests reach the real ones. */
 ushort fd_stake_delegations_new_fork( fd_stake_delegations_t * stake_delegations, ushort parent_fork_idx );
 void   fd_stake_delegations_advance_root( ulong epoch, fd_stake_history_t const * stake_history, ulong * warmup_cooldown_rate_epoch, int use_fixed_point_stake_math, int skip_stake_math, fd_stake_delegations_t * stake_delegations, ushort fork_idx, fd_stake_delegations_delta_stats_t * stake_delegations_delta_stats );
@@ -392,6 +396,7 @@ mock_accdb_snapshot_write_batch( fd_accdb_t *                         accdb,
   *accounts_loaded       = cnt;
   *out_replaced_lamports = 0UL;
   *out_ignored_lamports  = 0UL;
+  if( FD_UNLIKELY( test_write_batch_fail ) ) return -1;
   fd_memset( results, test_write_result, cnt );
   return 0;
 }
@@ -630,6 +635,7 @@ test_counters_reset( void ) {
   test_stake_evict_cnt          = 0UL;
   test_stake_evict_fork         = USHORT_MAX;
   test_write_result             = FD_ACCDB_SNAPSHOT_WRITE_LOADED;
+  test_write_batch_fail         = 0;
   test_accdb_read_one_cnt       = 0UL;
   for( ulong i=0UL; i<FD_SYSVAR_CACHE_ENTRY_CNT; i++ ) test_sysvars[ i ].lamports = 0UL;
   test_appendvec_parse_cnt      = 0UL;
@@ -3158,6 +3164,44 @@ test_writer_flush( void ) {
   FD_TEST( ctx->shmem->values[ ctx->tile_idx ].input_lamports==7UL );
 }
 
+/* An instant boot attempt that has taken layer-0 space cannot be
+   retried, even if it counted no account: a batch that rejected the
+   snapshot has already written records there and may have linked
+   index nodes the loader hides.  So the failure turns fatal at the
+   first flush of the attempt, not at the first counted account. */
+
+static void
+test_instant_boot_reserve_is_fatal( void ) {
+  uchar pubkey[ 32UL ] = {1};
+  uchar owner [ 32UL ] = {2};
+  uchar data  [ 3UL ] = {3, 4, 5};
+
+  fd_snapin_tile_t * ctx = test_ctx;
+  sync_ctx_init( ctx, 1UL, FD_SNAPSHOT_STATE_IDLE );
+  test_counters_reset();
+  test_io_reset();
+  ctx->instant_boot = 1;
+
+  /* Nothing taken yet, so a failure here still retries. */
+  FD_TEST( !load_failure_is_fatal( ctx ) );
+
+  test_write_batch_fail = 1;
+  FD_TEST( !test_writer_append( ctx, pubkey, owner, data, 42UL, 7UL, sizeof(data), 1 ) );
+  FD_TEST( writer_flush( ctx ) );
+  test_write_batch_fail = 0;
+
+  FD_TEST( !ctx->shmem->values[ ctx->tile_idx ].loaded );
+  FD_TEST( !ctx->shmem->values[ ctx->tile_idx ].duplicates );
+  FD_TEST( ctx->shmem->values[ ctx->tile_idx ].reserved );
+  FD_TEST( load_failure_is_fatal( ctx ) );
+
+  /* The next INIT starts a new attempt and clears it with the rest of
+     the attempt's shared counters. */
+  send_control( ctx, 0UL, FD_SNAPSHOT_MSG_CTRL_INIT_FULL );
+  FD_TEST( !ctx->shmem->values[ ctx->tile_idx ].reserved );
+  FD_TEST( !load_failure_is_fatal( ctx ) );
+}
+
 static void
 test_writer_full_buffer_flush( void ) {
   fd_snapin_tile_t * ctx = test_ctx;
@@ -3261,6 +3305,7 @@ main( int     argc,
   test_writer_short_write_and_eintr();
   test_writer_disk_error_fatal();
   test_writer_flush();
+  test_instant_boot_reserve_is_fatal();
   test_writer_full_buffer_flush();
   test_max_account_staging();
   test_scratch_layout_fits();

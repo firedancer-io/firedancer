@@ -407,11 +407,12 @@ test_instant_boot_skips_bank_state( void ) {
   dispatch_snapshot( env, tar, tar_sz );
   stage_stake_account( &env->worker[ 0 ], stake_pubkey );
 
-  /* Staged but not flushed: nothing is in the accounts database yet,
-     so a failure here would still be retryable. */
-  FD_TEST( !attempt_wrote_accounts( &env->worker[ 0 ] ) );
+  /* Staged but not flushed: the attempt has taken no space in the
+     accounts database and written nothing there, so a failure here
+     would still be retryable. */
+  FD_TEST( !attempt_wrote_anything( &env->worker[ 0 ] ) );
   for( ulong i=0UL; i<env->worker_cnt; i++ ) FD_TEST( !writer_flush( &env->worker[ i ] ) );
-  FD_TEST( attempt_wrote_accounts( &env->worker[ 0 ] ) );
+  FD_TEST( attempt_wrote_anything( &env->worker[ 0 ] ) );
 
   /* The boot stream carries no stake accounts, so the snoop ran on
      every batch and the root holds the fixture's stake account. */
