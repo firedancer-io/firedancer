@@ -2335,6 +2335,10 @@ finish_stake_state( fd_replay_tile_t * ctx ) {
       &bank->f.warmup_cooldown_rate_epoch,
       FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
       FD_FEATURE_ACTIVE_BANK( bank, remove_inactive_stakes ) );
+  /* These land on bank 0 only.  Under instant boot the banks replay
+     cloned while the background load ran keep the totals they were
+     born with, and nothing but telemetry reads them before the next
+     epoch boundary recomputes them from the delegations. */
   fd_stake_history_entry_t totals = fd_stake_delegations_totals( root_delegations );
   bank->f.total_effective_stake    = totals.effective;
   bank->f.total_activating_stake   = totals.activating;
