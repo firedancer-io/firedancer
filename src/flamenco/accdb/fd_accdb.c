@@ -527,9 +527,11 @@ fd_accdb_snapshot_hide( fd_accdb_t * accdb,
        once it is set no new command can start; waiting afterwards also
        catches a command that passed the check just before the store and
        is still running on T2.  Both must be done before the loader can
-       link nodes behind live ones. */
+       link nodes behind live ones.  The fence keeps the flag store
+       ahead of the command slot load that follows, so a submitter
+       that has not seen the flag yet is one this wait still catches. */
     FD_VOLATILE( accdb->shmem->snapshot_hidden ) = 1;
-    FD_COMPILER_MFENCE();
+    FD_HW_MFENCE();
     wait_cmd( accdb );
   } else {
     FD_VOLATILE( accdb->shmem->snapshot_hidden ) = 0;
@@ -4303,14 +4305,14 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
     ulong entry_sz = sizeof(fd_accdb_disk_meta_t)+data_lens[ i ];
     int   skip     = 0;
 
-    uint chain_head;
+    uint saved_head;
     for(;;) {
-      chain_head = FD_VOLATILE_CONST( accdb->acc_map[ hashes[ i ] ] );
-      if( FD_UNLIKELY( chain_head==FD_ACCDB_CHAIN_LOCKED ) ) {
+      saved_head = FD_VOLATILE_CONST( accdb->acc_map[ hashes[ i ] ] );
+      if( FD_UNLIKELY( saved_head==FD_ACCDB_CHAIN_LOCKED ) ) {
         FD_SPIN_PAUSE();
         continue;
       }
-      if( FD_LIKELY( FD_ATOMIC_CAS( &accdb->acc_map[ hashes[ i ] ], chain_head, FD_ACCDB_CHAIN_LOCKED )==chain_head ) ) {
+      if( FD_LIKELY( FD_ATOMIC_CAS( &accdb->acc_map[ hashes[ i ] ], saved_head, FD_ACCDB_CHAIN_LOCKED )==saved_head ) ) {
         break;
       }
       FD_SPIN_PAUSE();
@@ -4322,7 +4324,7 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
     fd_accdb_accmeta_t * cross_existing = NULL; /* cross-fork dup (incremental only) */
     /* last node for this pubkey that the loader did not write */
     fd_accdb_accmeta_t * behind         = NULL;
-    uint next_acc = chain_head;
+    uint next_acc = saved_head;
     while( next_acc!=UINT_MAX ) {
       fd_accdb_accmeta_t * candidate = &accdb->acc_pool[ next_acc ];
 
@@ -4346,7 +4348,7 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
         } else if( FD_UNLIKELY( (ulong)candidate->cache_idx==slots[ i ] ) ) {
           FD_LOG_WARNING(( "corrupt snapshot: duplicate account at slot %lu", slots[ i ] ));
           FD_COMPILER_MFENCE();
-          FD_VOLATILE( accdb->acc_map[ hashes[ i ] ] ) = chain_head;
+          FD_VOLATILE( accdb->acc_map[ hashes[ i ] ] ) = saved_head;
           result = -1;
           goto fini;
         } else if( FD_UNLIKELY( incremental ) && candidate->key.generation!=fork_gen ) {
@@ -4362,7 +4364,7 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
     if( FD_UNLIKELY( skip ) ) {
       results[ i ] = FD_ACCDB_SNAPSHOT_WRITE_IGNORED;
       FD_COMPILER_MFENCE();
-      FD_VOLATILE( accdb->acc_map[ hashes[ i ] ] ) = chain_head;
+      FD_VOLATILE( accdb->acc_map[ hashes[ i ] ] ) = saved_head;
       fd_accdb_shmem_bytes_freed( accdb->shmem, file_offsets[ i ], entry_sz );
       ignored_lamports  += lamports[ i ];
       ignored++;
@@ -4370,7 +4372,7 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
     }
 
     fd_accdb_accmeta_t * accmeta;
-    uint new_head = chain_head;
+    uint new_head = saved_head;
 
     fd_accdb_accmeta_t const * prev = existing ? existing : cross_existing;
     if( !prev || !prev->lamports ) results[ i ] = FD_ACCDB_SNAPSHOT_WRITE_LOADED;
@@ -4423,7 +4425,7 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
           FD_SPIN_PAUSE();
         }
       } else {
-        accmeta->map.next = chain_head;
+        accmeta->map.next = saved_head;
         new_head          = acc_idx;
       }
 
