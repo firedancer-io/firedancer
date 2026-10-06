@@ -4,9 +4,9 @@
 FD_IMPORT_BINARY( file_0, "src/disco/gui/dist/LICENSE_DEPENDENCIES" );
 FD_IMPORT_BINARY( file_0_zstd, "src/disco/gui/dist_cmp/LICENSE_DEPENDENCIES.zst" );
 FD_IMPORT_BINARY( file_0_gzip, "src/disco/gui/dist_cmp/LICENSE_DEPENDENCIES.gz" );
-FD_IMPORT_BINARY( file_1, "src/disco/gui/dist/assets/Chart-DA61kvjz.js" );
-FD_IMPORT_BINARY( file_1_zstd, "src/disco/gui/dist_cmp/assets/Chart-DA61kvjz.js.zst" );
-FD_IMPORT_BINARY( file_1_gzip, "src/disco/gui/dist_cmp/assets/Chart-DA61kvjz.js.gz" );
+FD_IMPORT_BINARY( file_1, "src/disco/gui/dist/assets/Chart-C6SNtRVQ.js" );
+FD_IMPORT_BINARY( file_1_zstd, "src/disco/gui/dist_cmp/assets/Chart-C6SNtRVQ.js.zst" );
+FD_IMPORT_BINARY( file_1_gzip, "src/disco/gui/dist_cmp/assets/Chart-C6SNtRVQ.js.gz" );
 FD_IMPORT_BINARY( file_2, "src/disco/gui/dist/assets/NotoFlagsOnly.woff2" );
 FD_IMPORT_BINARY( file_2_zstd, "src/disco/gui/dist_cmp/assets/NotoFlagsOnly.woff2.zst" );
 FD_IMPORT_BINARY( file_2_gzip, "src/disco/gui/dist_cmp/assets/NotoFlagsOnly.woff2.gz" );
@@ -28,45 +28,48 @@ FD_IMPORT_BINARY( file_7_gzip, "src/disco/gui/dist_cmp/assets/firedancer_logo-Cr
 FD_IMPORT_BINARY( file_8, "src/disco/gui/dist/assets/frankendancer-0Top5G94.svg" );
 FD_IMPORT_BINARY( file_8_zstd, "src/disco/gui/dist_cmp/assets/frankendancer-0Top5G94.svg.zst" );
 FD_IMPORT_BINARY( file_8_gzip, "src/disco/gui/dist_cmp/assets/frankendancer-0Top5G94.svg.gz" );
-FD_IMPORT_BINARY( file_9, "src/disco/gui/dist/assets/frankendancer_circle_logo-D5z79vwQ.svg" );
-FD_IMPORT_BINARY( file_9_zstd, "src/disco/gui/dist_cmp/assets/frankendancer_circle_logo-D5z79vwQ.svg.zst" );
-FD_IMPORT_BINARY( file_9_gzip, "src/disco/gui/dist_cmp/assets/frankendancer_circle_logo-D5z79vwQ.svg.gz" );
-FD_IMPORT_BINARY( file_10, "src/disco/gui/dist/assets/frankendancer_harmonic_circle_logo-RW9Ak0Ky.svg" );
-FD_IMPORT_BINARY( file_10_zstd, "src/disco/gui/dist_cmp/assets/frankendancer_harmonic_circle_logo-RW9Ak0Ky.svg.zst" );
-FD_IMPORT_BINARY( file_10_gzip, "src/disco/gui/dist_cmp/assets/frankendancer_harmonic_circle_logo-RW9Ak0Ky.svg.gz" );
-FD_IMPORT_BINARY( file_11, "src/disco/gui/dist/assets/frankendancer_logo-CHyfJ772.svg" );
-FD_IMPORT_BINARY( file_11_zstd, "src/disco/gui/dist_cmp/assets/frankendancer_logo-CHyfJ772.svg.zst" );
-FD_IMPORT_BINARY( file_11_gzip, "src/disco/gui/dist_cmp/assets/frankendancer_logo-CHyfJ772.svg.gz" );
-FD_IMPORT_BINARY( file_12, "src/disco/gui/dist/assets/index-Csl44Zj6.js" );
-FD_IMPORT_BINARY( file_12_zstd, "src/disco/gui/dist_cmp/assets/index-Csl44Zj6.js.zst" );
-FD_IMPORT_BINARY( file_12_gzip, "src/disco/gui/dist_cmp/assets/index-Csl44Zj6.js.gz" );
-FD_IMPORT_BINARY( file_13, "src/disco/gui/dist/assets/index-DUZVCM52.css" );
-FD_IMPORT_BINARY( file_13_zstd, "src/disco/gui/dist_cmp/assets/index-DUZVCM52.css.zst" );
-FD_IMPORT_BINARY( file_13_gzip, "src/disco/gui/dist_cmp/assets/index-DUZVCM52.css.gz" );
-FD_IMPORT_BINARY( file_14, "src/disco/gui/dist/assets/inter-tight-latin-400-normal-BLrFJfvD.woff" );
-FD_IMPORT_BINARY( file_14_zstd, "src/disco/gui/dist_cmp/assets/inter-tight-latin-400-normal-BLrFJfvD.woff.zst" );
-FD_IMPORT_BINARY( file_14_gzip, "src/disco/gui/dist_cmp/assets/inter-tight-latin-400-normal-BLrFJfvD.woff.gz" );
-FD_IMPORT_BINARY( file_15, "src/disco/gui/dist/assets/inter-tight-latin-400-normal-iW8qmuJY.woff2" );
-FD_IMPORT_BINARY( file_15_zstd, "src/disco/gui/dist_cmp/assets/inter-tight-latin-400-normal-iW8qmuJY.woff2.zst" );
-FD_IMPORT_BINARY( file_15_gzip, "src/disco/gui/dist_cmp/assets/inter-tight-latin-400-normal-iW8qmuJY.woff2.gz" );
-FD_IMPORT_BINARY( file_16, "src/disco/gui/dist/assets/privateYou-DnAsYVZD.svg" );
-FD_IMPORT_BINARY( file_16_zstd, "src/disco/gui/dist_cmp/assets/privateYou-DnAsYVZD.svg.zst" );
-FD_IMPORT_BINARY( file_16_gzip, "src/disco/gui/dist_cmp/assets/privateYou-DnAsYVZD.svg.gz" );
-FD_IMPORT_BINARY( file_17, "src/disco/gui/dist/assets/roboto-mono-latin-400-normal-DBZPkcnn.woff" );
-FD_IMPORT_BINARY( file_17_zstd, "src/disco/gui/dist_cmp/assets/roboto-mono-latin-400-normal-DBZPkcnn.woff.zst" );
-FD_IMPORT_BINARY( file_17_gzip, "src/disco/gui/dist_cmp/assets/roboto-mono-latin-400-normal-DBZPkcnn.woff.gz" );
-FD_IMPORT_BINARY( file_18, "src/disco/gui/dist/assets/roboto-mono-latin-400-normal-GekRknry.woff2" );
-FD_IMPORT_BINARY( file_18_zstd, "src/disco/gui/dist_cmp/assets/roboto-mono-latin-400-normal-GekRknry.woff2.zst" );
-FD_IMPORT_BINARY( file_18_gzip, "src/disco/gui/dist_cmp/assets/roboto-mono-latin-400-normal-GekRknry.woff2.gz" );
-FD_IMPORT_BINARY( file_19, "src/disco/gui/dist/assets/wsWorker-CrFyKQMK.js" );
-FD_IMPORT_BINARY( file_19_zstd, "src/disco/gui/dist_cmp/assets/wsWorker-CrFyKQMK.js.zst" );
-FD_IMPORT_BINARY( file_19_gzip, "src/disco/gui/dist_cmp/assets/wsWorker-CrFyKQMK.js.gz" );
-FD_IMPORT_BINARY( file_20, "src/disco/gui/dist/index.html" );
-FD_IMPORT_BINARY( file_20_zstd, "src/disco/gui/dist_cmp/index.html.zst" );
-FD_IMPORT_BINARY( file_20_gzip, "src/disco/gui/dist_cmp/index.html.gz" );
-FD_IMPORT_BINARY( file_21, "src/disco/gui/dist/version" );
-FD_IMPORT_BINARY( file_21_zstd, "src/disco/gui/dist_cmp/version.zst" );
-FD_IMPORT_BINARY( file_21_gzip, "src/disco/gui/dist_cmp/version.gz" );
+FD_IMPORT_BINARY( file_9, "src/disco/gui/dist/assets/frankendancer_bam_circle_logo-CWbBJvMN.svg" );
+FD_IMPORT_BINARY( file_9_zstd, "src/disco/gui/dist_cmp/assets/frankendancer_bam_circle_logo-CWbBJvMN.svg.zst" );
+FD_IMPORT_BINARY( file_9_gzip, "src/disco/gui/dist_cmp/assets/frankendancer_bam_circle_logo-CWbBJvMN.svg.gz" );
+FD_IMPORT_BINARY( file_10, "src/disco/gui/dist/assets/frankendancer_circle_logo-D5z79vwQ.svg" );
+FD_IMPORT_BINARY( file_10_zstd, "src/disco/gui/dist_cmp/assets/frankendancer_circle_logo-D5z79vwQ.svg.zst" );
+FD_IMPORT_BINARY( file_10_gzip, "src/disco/gui/dist_cmp/assets/frankendancer_circle_logo-D5z79vwQ.svg.gz" );
+FD_IMPORT_BINARY( file_11, "src/disco/gui/dist/assets/frankendancer_harmonic_circle_logo-RW9Ak0Ky.svg" );
+FD_IMPORT_BINARY( file_11_zstd, "src/disco/gui/dist_cmp/assets/frankendancer_harmonic_circle_logo-RW9Ak0Ky.svg.zst" );
+FD_IMPORT_BINARY( file_11_gzip, "src/disco/gui/dist_cmp/assets/frankendancer_harmonic_circle_logo-RW9Ak0Ky.svg.gz" );
+FD_IMPORT_BINARY( file_12, "src/disco/gui/dist/assets/frankendancer_logo-CHyfJ772.svg" );
+FD_IMPORT_BINARY( file_12_zstd, "src/disco/gui/dist_cmp/assets/frankendancer_logo-CHyfJ772.svg.zst" );
+FD_IMPORT_BINARY( file_12_gzip, "src/disco/gui/dist_cmp/assets/frankendancer_logo-CHyfJ772.svg.gz" );
+FD_IMPORT_BINARY( file_13, "src/disco/gui/dist/assets/index-BFpo3liS.css" );
+FD_IMPORT_BINARY( file_13_zstd, "src/disco/gui/dist_cmp/assets/index-BFpo3liS.css.zst" );
+FD_IMPORT_BINARY( file_13_gzip, "src/disco/gui/dist_cmp/assets/index-BFpo3liS.css.gz" );
+FD_IMPORT_BINARY( file_14, "src/disco/gui/dist/assets/index-Dax8155Y.js" );
+FD_IMPORT_BINARY( file_14_zstd, "src/disco/gui/dist_cmp/assets/index-Dax8155Y.js.zst" );
+FD_IMPORT_BINARY( file_14_gzip, "src/disco/gui/dist_cmp/assets/index-Dax8155Y.js.gz" );
+FD_IMPORT_BINARY( file_15, "src/disco/gui/dist/assets/inter-tight-latin-400-normal-BLrFJfvD.woff" );
+FD_IMPORT_BINARY( file_15_zstd, "src/disco/gui/dist_cmp/assets/inter-tight-latin-400-normal-BLrFJfvD.woff.zst" );
+FD_IMPORT_BINARY( file_15_gzip, "src/disco/gui/dist_cmp/assets/inter-tight-latin-400-normal-BLrFJfvD.woff.gz" );
+FD_IMPORT_BINARY( file_16, "src/disco/gui/dist/assets/inter-tight-latin-400-normal-iW8qmuJY.woff2" );
+FD_IMPORT_BINARY( file_16_zstd, "src/disco/gui/dist_cmp/assets/inter-tight-latin-400-normal-iW8qmuJY.woff2.zst" );
+FD_IMPORT_BINARY( file_16_gzip, "src/disco/gui/dist_cmp/assets/inter-tight-latin-400-normal-iW8qmuJY.woff2.gz" );
+FD_IMPORT_BINARY( file_17, "src/disco/gui/dist/assets/privateYou-DnAsYVZD.svg" );
+FD_IMPORT_BINARY( file_17_zstd, "src/disco/gui/dist_cmp/assets/privateYou-DnAsYVZD.svg.zst" );
+FD_IMPORT_BINARY( file_17_gzip, "src/disco/gui/dist_cmp/assets/privateYou-DnAsYVZD.svg.gz" );
+FD_IMPORT_BINARY( file_18, "src/disco/gui/dist/assets/roboto-mono-latin-400-normal-DBZPkcnn.woff" );
+FD_IMPORT_BINARY( file_18_zstd, "src/disco/gui/dist_cmp/assets/roboto-mono-latin-400-normal-DBZPkcnn.woff.zst" );
+FD_IMPORT_BINARY( file_18_gzip, "src/disco/gui/dist_cmp/assets/roboto-mono-latin-400-normal-DBZPkcnn.woff.gz" );
+FD_IMPORT_BINARY( file_19, "src/disco/gui/dist/assets/roboto-mono-latin-400-normal-GekRknry.woff2" );
+FD_IMPORT_BINARY( file_19_zstd, "src/disco/gui/dist_cmp/assets/roboto-mono-latin-400-normal-GekRknry.woff2.zst" );
+FD_IMPORT_BINARY( file_19_gzip, "src/disco/gui/dist_cmp/assets/roboto-mono-latin-400-normal-GekRknry.woff2.gz" );
+FD_IMPORT_BINARY( file_20, "src/disco/gui/dist/assets/wsWorker-DQjwRrpy.js" );
+FD_IMPORT_BINARY( file_20_zstd, "src/disco/gui/dist_cmp/assets/wsWorker-DQjwRrpy.js.zst" );
+FD_IMPORT_BINARY( file_20_gzip, "src/disco/gui/dist_cmp/assets/wsWorker-DQjwRrpy.js.gz" );
+FD_IMPORT_BINARY( file_21, "src/disco/gui/dist/index.html" );
+FD_IMPORT_BINARY( file_21_zstd, "src/disco/gui/dist_cmp/index.html.zst" );
+FD_IMPORT_BINARY( file_21_gzip, "src/disco/gui/dist_cmp/index.html.gz" );
+FD_IMPORT_BINARY( file_22, "src/disco/gui/dist/version" );
+FD_IMPORT_BINARY( file_22_zstd, "src/disco/gui/dist_cmp/version.zst" );
+FD_IMPORT_BINARY( file_22_gzip, "src/disco/gui/dist_cmp/version.gz" );
 
 fd_http_static_file_t STATIC_FILES[] = {
 	{
@@ -79,7 +82,7 @@ fd_http_static_file_t STATIC_FILES[] = {
 		.gzip_data_len = &file_0_gzip_sz,
 	},
 	{
-		.name = "/assets/Chart-DA61kvjz.js",
+		.name = "/assets/Chart-C6SNtRVQ.js",
 		.data = file_1,
 		.data_len = &file_1_sz,
 		.zstd_data = file_1_zstd,
@@ -151,7 +154,7 @@ fd_http_static_file_t STATIC_FILES[] = {
 		.gzip_data_len = &file_8_gzip_sz,
 	},
 	{
-		.name = "/assets/frankendancer_circle_logo-D5z79vwQ.svg",
+		.name = "/assets/frankendancer_bam_circle_logo-CWbBJvMN.svg",
 		.data = file_9,
 		.data_len = &file_9_sz,
 		.zstd_data = file_9_zstd,
@@ -160,7 +163,7 @@ fd_http_static_file_t STATIC_FILES[] = {
 		.gzip_data_len = &file_9_gzip_sz,
 	},
 	{
-		.name = "/assets/frankendancer_harmonic_circle_logo-RW9Ak0Ky.svg",
+		.name = "/assets/frankendancer_circle_logo-D5z79vwQ.svg",
 		.data = file_10,
 		.data_len = &file_10_sz,
 		.zstd_data = file_10_zstd,
@@ -169,7 +172,7 @@ fd_http_static_file_t STATIC_FILES[] = {
 		.gzip_data_len = &file_10_gzip_sz,
 	},
 	{
-		.name = "/assets/frankendancer_logo-CHyfJ772.svg",
+		.name = "/assets/frankendancer_harmonic_circle_logo-RW9Ak0Ky.svg",
 		.data = file_11,
 		.data_len = &file_11_sz,
 		.zstd_data = file_11_zstd,
@@ -178,7 +181,7 @@ fd_http_static_file_t STATIC_FILES[] = {
 		.gzip_data_len = &file_11_gzip_sz,
 	},
 	{
-		.name = "/assets/index-Csl44Zj6.js",
+		.name = "/assets/frankendancer_logo-CHyfJ772.svg",
 		.data = file_12,
 		.data_len = &file_12_sz,
 		.zstd_data = file_12_zstd,
@@ -187,7 +190,7 @@ fd_http_static_file_t STATIC_FILES[] = {
 		.gzip_data_len = &file_12_gzip_sz,
 	},
 	{
-		.name = "/assets/index-DUZVCM52.css",
+		.name = "/assets/index-BFpo3liS.css",
 		.data = file_13,
 		.data_len = &file_13_sz,
 		.zstd_data = file_13_zstd,
@@ -196,7 +199,7 @@ fd_http_static_file_t STATIC_FILES[] = {
 		.gzip_data_len = &file_13_gzip_sz,
 	},
 	{
-		.name = "/assets/inter-tight-latin-400-normal-BLrFJfvD.woff",
+		.name = "/assets/index-Dax8155Y.js",
 		.data = file_14,
 		.data_len = &file_14_sz,
 		.zstd_data = file_14_zstd,
@@ -205,7 +208,7 @@ fd_http_static_file_t STATIC_FILES[] = {
 		.gzip_data_len = &file_14_gzip_sz,
 	},
 	{
-		.name = "/assets/inter-tight-latin-400-normal-iW8qmuJY.woff2",
+		.name = "/assets/inter-tight-latin-400-normal-BLrFJfvD.woff",
 		.data = file_15,
 		.data_len = &file_15_sz,
 		.zstd_data = file_15_zstd,
@@ -214,7 +217,7 @@ fd_http_static_file_t STATIC_FILES[] = {
 		.gzip_data_len = &file_15_gzip_sz,
 	},
 	{
-		.name = "/assets/privateYou-DnAsYVZD.svg",
+		.name = "/assets/inter-tight-latin-400-normal-iW8qmuJY.woff2",
 		.data = file_16,
 		.data_len = &file_16_sz,
 		.zstd_data = file_16_zstd,
@@ -223,7 +226,7 @@ fd_http_static_file_t STATIC_FILES[] = {
 		.gzip_data_len = &file_16_gzip_sz,
 	},
 	{
-		.name = "/assets/roboto-mono-latin-400-normal-DBZPkcnn.woff",
+		.name = "/assets/privateYou-DnAsYVZD.svg",
 		.data = file_17,
 		.data_len = &file_17_sz,
 		.zstd_data = file_17_zstd,
@@ -232,7 +235,7 @@ fd_http_static_file_t STATIC_FILES[] = {
 		.gzip_data_len = &file_17_gzip_sz,
 	},
 	{
-		.name = "/assets/roboto-mono-latin-400-normal-GekRknry.woff2",
+		.name = "/assets/roboto-mono-latin-400-normal-DBZPkcnn.woff",
 		.data = file_18,
 		.data_len = &file_18_sz,
 		.zstd_data = file_18_zstd,
@@ -241,7 +244,7 @@ fd_http_static_file_t STATIC_FILES[] = {
 		.gzip_data_len = &file_18_gzip_sz,
 	},
 	{
-		.name = "/assets/wsWorker-CrFyKQMK.js",
+		.name = "/assets/roboto-mono-latin-400-normal-GekRknry.woff2",
 		.data = file_19,
 		.data_len = &file_19_sz,
 		.zstd_data = file_19_zstd,
@@ -250,7 +253,7 @@ fd_http_static_file_t STATIC_FILES[] = {
 		.gzip_data_len = &file_19_gzip_sz,
 	},
 	{
-		.name = "/index.html",
+		.name = "/assets/wsWorker-DQjwRrpy.js",
 		.data = file_20,
 		.data_len = &file_20_sz,
 		.zstd_data = file_20_zstd,
@@ -259,13 +262,22 @@ fd_http_static_file_t STATIC_FILES[] = {
 		.gzip_data_len = &file_20_gzip_sz,
 	},
 	{
-		.name = "/version",
+		.name = "/index.html",
 		.data = file_21,
 		.data_len = &file_21_sz,
 		.zstd_data = file_21_zstd,
 		.zstd_data_len = &file_21_zstd_sz,
 		.gzip_data = file_21_gzip,
 		.gzip_data_len = &file_21_gzip_sz,
+	},
+	{
+		.name = "/version",
+		.data = file_22,
+		.data_len = &file_22_sz,
+		.zstd_data = file_22_zstd,
+		.zstd_data_len = &file_22_zstd_sz,
+		.gzip_data = file_22_gzip,
+		.gzip_data_len = &file_22_gzip_sz,
 	},
 	{0}
 };
