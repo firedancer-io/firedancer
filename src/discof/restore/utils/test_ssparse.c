@@ -923,6 +923,7 @@ FD_UNIT_TEST( test_appendvec_done ) {
 
   for( int parse=0; parse<2; parse++ ) {
     fd_ssparse_init( p );
+    fd_ssparse_appendvec_done_enable( p, 1 );
 
     int   ev[ 16 ];
     ulong ev_slot[ 16 ];
@@ -961,6 +962,26 @@ FD_UNIT_TEST( test_appendvec_done ) {
     FD_TEST( ev[3]==FD_SSPARSE_ADVANCE_APPENDVEC_DONE && ev_slot[3]==456UL && ev_id[3]==9UL );
     FD_TEST( hdr_cnt==(parse ? 3UL : 0UL) );
   }
+
+  /* A parser that was not told to report the end of an appendvec goes
+     straight on to the next tar header instead. */
+  fd_ssparse_init( p );
+  uchar const * data    = tar_buf;
+  ulong         data_sz = off;
+  ulong         av_cnt  = 0UL;
+  int           done    = 0;
+  while( data_sz>0UL ) {
+    fd_ssparse_advance_result_t result[1];
+    int res = fd_ssparse_advance( p, data, data_sz, result );
+    FD_TEST( res!=FD_SSPARSE_ADVANCE_ERROR );
+    FD_TEST( res!=FD_SSPARSE_ADVANCE_APPENDVEC_DONE );
+    if( res==FD_SSPARSE_ADVANCE_DONE ) { done = 1; break; }
+    if( res==FD_SSPARSE_ADVANCE_APPENDVEC ) av_cnt++;
+    data    += result->bytes_consumed;
+    data_sz -= result->bytes_consumed;
+  }
+  FD_TEST( done );
+  FD_TEST( av_cnt==2UL );
 }
 
 FD_UNIT_TEST( test_open_ended_stream ) {
@@ -984,6 +1005,7 @@ FD_UNIT_TEST( test_open_ended_stream ) {
   ulong off = append_tar_entry( tar_buf, sizeof(tar_buf), head, "accounts/7.0", acc, acc_vec_sz );
 
   fd_ssparse_init( p );
+  fd_ssparse_appendvec_done_enable( p, 1 );
 
   /* The stream stops on a tar header boundary: the status cache entry
      ends at head, which is a multiple of 512. */

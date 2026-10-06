@@ -329,14 +329,16 @@ advance_next_tar( fd_ssparse_t *               ssparse,
   return FD_SSPARSE_ADVANCE_AGAIN;
 }
 
-/* The appendvec the parser is in has just been consumed to its last
-   byte.  Hand the caller one end of appendvec result on the way back
-   to reading tar headers. */
+/* advance_appendvec_done reports that the appendvec the parser was in
+   has been consumed to its last byte, and goes back to reading tar
+   headers.  Only a caller that asked to be told gets a result; the
+   rest simply carry on. */
 
 static int
 advance_appendvec_done( fd_ssparse_t *                ssparse,
                         fd_ssparse_advance_result_t * result ) {
   ssparse->state = FD_SSPARSE_STATE_SCROLL_TAR_HEADER;
+  if( FD_LIKELY( !ssparse->appendvec_done_enabled ) ) return FD_SSPARSE_ADVANCE_AGAIN;
   result->appendvec.slot    = ssparse->slot;
   result->appendvec.id      = ssparse->acc_vec_id;
   result->appendvec.data_sz = ssparse->acc_vec_bytes;
@@ -600,6 +602,12 @@ void
 fd_ssparse_batch_enable( fd_ssparse_t * ssparse,
                          int            enabled ) {
   ssparse->batch_enabled = !!enabled;
+}
+
+void
+fd_ssparse_appendvec_done_enable( fd_ssparse_t * ssparse,
+                                  int            enabled ) {
+  ssparse->appendvec_done_enabled = !!enabled;
 }
 
 void

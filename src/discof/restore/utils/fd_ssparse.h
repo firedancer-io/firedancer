@@ -12,14 +12,15 @@
 #define FD_SSPARSE_ADVANCE_ACCOUNT_DATA   ( 5)
 #define FD_SSPARSE_ADVANCE_ACCOUNT_BATCH  ( 6)
 #define FD_SSPARSE_ADVANCE_APPENDVEC      ( 7)
-#define FD_SSPARSE_ADVANCE_DONE           ( 8)
-#define FD_SSPARSE_ADVANCE_APPENDVEC_DONE ( 9)
+#define FD_SSPARSE_ADVANCE_APPENDVEC_DONE ( 8)
+#define FD_SSPARSE_ADVANCE_DONE           ( 9)
 
 /* fd_ssparse_t is a solana snapshot parser.  It is designed to parse a
    snapshot in streaming fashion, chunk by chunk. */
 struct fd_ssparse {
   int state;
   uint batch_enabled : 1;
+  uint appendvec_done_enabled : 1;
 
   struct {
     int seen_zero_tar_frame;
@@ -100,7 +101,7 @@ struct fd_ssparse_advance_result {
        byte of the appendvec has been consumed. */
     struct {
       ulong slot;
-      ulong id;      /* the number after the dot in accounts/<slot>.<id> */
+      ulong id;      /* the number after the dot in the name */
       ulong data_sz; /* tar entry size in bytes */
     } appendvec;
   };
@@ -133,6 +134,15 @@ fd_ssparse_advance( fd_ssparse_t *                ssparse,
 void
 fd_ssparse_batch_enable( fd_ssparse_t * ssparse,
                          int            enabled );
+
+/* fd_ssparse_appendvec_done_enable toggles whether the parser reports
+   the end of each appendvec.  If enabled, ssparse will deliver
+   FD_SSPARSE_ADVANCE_APPENDVEC_DONE once the last byte of an appendvec
+   has been consumed; if not, it carries straight on to the next tar
+   header, which is all a plain snapshot load needs. */
+void
+fd_ssparse_appendvec_done_enable( fd_ssparse_t * ssparse,
+                                  int            enabled );
 
 /* Parse the current appendvec after fd_ssparse_advance returns
    FD_SSPARSE_ADVANCE_APPENDVEC. */
