@@ -73,7 +73,7 @@ fd_event_runtime_txn_emit( fd_txn_in_t  const * txn_in,
   ev.cost_loaded_accounts_data_size    = c->loaded_accounts_data_size_cost;
   ev.cost_allocated_accounts_data_size = c->allocated_accounts_data_size;
 
-  /* account_diffs: walk per-txn writable accounts, compare prior vs current */
+  /* account_diffs: the accounts this transaction stores */
   ulong diff_cnt = 0UL;
   for( ulong i=0UL; i<txn_out->accounts.cnt; i++ ) {
     if( diff_cnt>=64UL ) break;
@@ -81,15 +81,9 @@ fd_event_runtime_txn_emit( fd_txn_in_t  const * txn_in,
     if( FD_UNLIKELY( !acc ) ) continue;
     if( !txn_out->accounts.is_writable[ i ] ) continue;
 
-    int changed = ( acc->prior_lamports   != acc->lamports   ) ||
-                  ( acc->prior_executable != acc->executable ) ||
-                  ( acc->prior_data_len   != acc->data_len   ) ||
-                  ( memcmp( acc->prior_owner, acc->owner, 32UL )!=0 );
-    if( !changed && acc->prior_data && acc->data &&
-        memcmp( acc->prior_data, acc->data, acc->data_len )!=0 ) {
-      changed = 1;
-    }
-    if( !changed ) continue;
+    if( !acc->commit ) continue;
+    if( !txn_out->err.txn_err && !txn_out->accounts.touched[ i ] ) continue;
+    if( !acc->lamports && !acc->prior_lamports ) continue;
 
     fd_event_runtime_txn_account_diffs_t * d = &ev.account_diffs[ diff_cnt++ ];
     fd_memcpy( d->pubkey,     txn_out->accounts.keys[ i ].uc, 32UL );
