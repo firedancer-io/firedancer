@@ -413,9 +413,13 @@ test_snapshot_behind_live( void ) {
   FD_TEST( r.loaded==1UL && r.replaced==0UL && r.ignored==0UL );
   FD_TEST( r.results[ 0 ]==FD_ACCDB_SNAPSHOT_WRITE_LOADED );
 
+  /* Loaded nodes are read here with chain-walk-only lookups: a
+     cached read would store a cache index into the node's cache_idx,
+     which the loader still uses as the slot until the load ends.  In
+     the product the hide flag keeps readers off loaded nodes. */
   ulong got = 0UL;
   FD_TEST( accdb_read( accdb, child, key, &got, NULL, NULL, NULL ) ); FD_TEST( got==500UL );
-  FD_TEST( accdb_read( accdb, root,  key, &got, NULL, NULL, NULL ) ); FD_TEST( got==100UL );
+  FD_TEST( fd_accdb_lamports( accdb, root, key )==100UL );
 
   /* An older snapshot copy of the same key is still dropped, and a
      same-slot copy is still a corrupt snapshot, judged only against
@@ -433,7 +437,7 @@ test_snapshot_behind_live( void ) {
   r = test_write_batch( accdb, SENTINEL, 1UL, pks, slots, lamports, data_lens, execs, &store );
   FD_TEST( !r.err && r.replaced==1UL && r.replaced_lamports==100UL );
   FD_TEST( accdb_read( accdb, child, key, &got, NULL, NULL, NULL ) ); FD_TEST( got==500UL );
-  FD_TEST( accdb_read( accdb, root,  key, &got, NULL, NULL, NULL ) ); FD_TEST( got==200UL );
+  FD_TEST( fd_accdb_lamports( accdb, root, key )==200UL );
 
   /* Exactly two nodes exist for the key. */
   fd_accdb_flush_metrics( accdb );
@@ -441,6 +445,9 @@ test_snapshot_behind_live( void ) {
   FD_TEST( shmetrics->accounts_total==2UL );
 
   fd_accdb_snapshot_load_end( accdb );
+
+  /* After the load a cached read of the loaded node is fine. */
+  FD_TEST( accdb_read( accdb, root, key, &got, NULL, NULL, NULL ) ); FD_TEST( got==200UL );
 
   /* Rooting the child unlinks the loaded copy behind it. */
   fd_accdb_advance_root( accdb, child );
@@ -483,7 +490,7 @@ test_snapshot_behind_two_live( void ) {
   ulong got = 0UL;
   FD_TEST( accdb_read( accdb, g,    key, &got, NULL, NULL, NULL ) ); FD_TEST( got==600UL );
   FD_TEST( accdb_read( accdb, f,    key, &got, NULL, NULL, NULL ) ); FD_TEST( got==500UL );
-  FD_TEST( accdb_read( accdb, root, key, &got, NULL, NULL, NULL ) ); FD_TEST( got==100UL );
+  FD_TEST( fd_accdb_lamports( accdb, root, key )==100UL );
 
   fd_accdb_snapshot_load_end( accdb );
   test_teardown( accdb, fd );
