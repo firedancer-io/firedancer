@@ -811,7 +811,13 @@ rocksdb_src_slot_info( struct rocksdb_src * src,
   return out;
 }
 
-static void
+/* Where each slot's bank hash came from, for the end-of-run summary. */
+
+#define BANK_HASH_SRC_NONE    (0)
+#define BANK_HASH_SRC_ROCKSDB (1)
+#define BANK_HASH_SRC_FOOTER  (2)
+
+static int
 maybe_write_bank_hash( struct pcap_writer * pcap,
                        struct rocksdb_src * src,
                        uint64_t             slot,
@@ -819,11 +825,16 @@ maybe_write_bank_hash( struct pcap_writer * pcap,
                        uint8_t const *      footer_bank_hash ) {
   struct slot_info info;
   rocksdb_src_slot_info( src, &info, slot );
+  int bank_hash_src = BANK_HASH_SRC_NONE;
   /* Tower ledgers contain the bank hash in the rocksdb column */
-  if     ( info.bank_hash_set  ) write_bank_hash( pcap, slot, shred_cnt, info.bank_hash );
-  /* Alpenglow ledgers have the bank hash in the block footers */
-  else if( footer_bank_hash    ) write_bank_hash( pcap, slot, shred_cnt, footer_bank_hash );
+  if     ( info.bank_hash_set  ) { write_bank_hash( pcap, slot, shred_cnt, info.bank_hash  ); bank_hash_src = BANK_HASH_SRC_ROCKSDB; }
+  /* Alpenglow ledgers have the bank hash in the block footers (Agave
+     does not write the bank_hashes column once Alpenglow is enabled) */
+  else if( footer_bank_hash    ) { write_bank_hash( pcap, slot, shred_cnt, footer_bank_hash ); bank_hash_src = BANK_HASH_SRC_FOOTER;  }
+  /* The backtest stops at a slot without a bank hash, so say so now */
+  else fprintf( stderr, "warning: slot %" PRIu64 " has no bank hash (no bank_hashes entry and no Alpenglow block footer); a backtest will stop at this slot\n", slot );
   if( info.rooted ) write_rooted_slot( pcap, slot );
+  return bank_hash_src;
 }
 
 /* In Alpenglow, the bank hashes are stored in the block footers. We
@@ -997,6 +1008,7 @@ main( int     argc,
   pcapng_write_idb( &writer, PCAPNG_LINKTYPE_USER0, SHREDCAP_IFNAME, NULL );
 
   uint64_t slot_cnt = 0UL;
+  uint64_t bank_hash_cnt[3] = {0UL}; /* by BANK_HASH_SRC_* */
   uint64_t cur_slot = UINT64_MAX;
   uint64_t buf_cnt  = 0UL;
   uint8_t raw[SHRED_MAX_SZ];
@@ -1019,7 +1031,7 @@ main( int     argc,
     uint64_t slot = shred->slot;
     if( slot!=cur_slot ) {
       if( cur_slot!=UINT64_MAX && cur_slot>=start_slot && cur_slot<=end_slot && buf_cnt>0UL ) {
-        maybe_write_bank_hash( &writer, src, cur_slot, buf_cnt, fs->footer_bank_hash );
+        bank_hash_cnt[ maybe_write_bank_hash( &writer, src, cur_slot, buf_cnt, fs->footer_bank_hash ) ]++;
         slot_cnt++;
       }
       cur_slot = slot;
@@ -1036,12 +1048,14 @@ main( int     argc,
   }
 
   if( cur_slot!=UINT64_MAX && cur_slot>=start_slot && cur_slot<=end_slot && buf_cnt>0UL ) {
-    maybe_write_bank_hash( &writer, src, cur_slot, buf_cnt, fs->footer_bank_hash );
+    bank_hash_cnt[ maybe_write_bank_hash( &writer, src, cur_slot, buf_cnt, fs->footer_bank_hash ) ]++;
     slot_cnt++;
   }
 
   pcap_writer_finish( &writer );
   fprintf( stderr, "%s: wrote %" PRIu64 " slots, %" PRIu64 " bytes%s\n", out_path, slot_cnt, writer.bytes, zstd ? " (zstd compressed)" : "" );
+  fprintf( stderr, "bank hashes: %" PRIu64 " from bank_hashes, %" PRIu64 " from Alpenglow block footers, %" PRIu64 " slots without one\n",
+           bank_hash_cnt[ BANK_HASH_SRC_ROCKSDB ], bank_hash_cnt[ BANK_HASH_SRC_FOOTER ], bank_hash_cnt[ BANK_HASH_SRC_NONE ] );
 
   rocksdb_src_destroy( src );
   if( writer.zstd ) ZSTD_freeCStream( writer.zstd );
