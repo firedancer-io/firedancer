@@ -1290,7 +1290,7 @@ encode_txn_mblk( uchar *             encoded,
    parses, which is what the boot streams are built out of. */
 
 static void
-run_key_sink_case( void ) {
+run_key_list_case( void ) {
   ulong footprint = fd_sched_footprint( FD_SCHED_MIN_DEPTH, 8UL, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT );
   void * mem = aligned_alloc( fd_sched_align(), footprint );
   FD_TEST( mem );
@@ -1315,10 +1315,10 @@ run_key_sink_case( void ) {
   uchar encoded[ 4096 ];
   ulong encoded_sz = encode_txn_mblk( encoded, legacy_payload, legacy_sz, 1UL, mblk_hash );
 
-  fd_acct_addr_t sink_key[ 8 ];
-  fd_acct_addr_t sink_table[ 4 ];
-  fd_sched_keys_t keys[ 1 ] = {{ .keys   = {{ .max = sizeof(sink_key  )/sizeof(sink_key  [0]), .key = sink_key   }},
-                                 .tables = {{ .max = sizeof(sink_table)/sizeof(sink_table[0]), .key = sink_table }} }};
+  fd_acct_addr_t list_key[ 8 ];
+  fd_acct_addr_t list_table[ 4 ];
+  fd_sched_keys_t keys[ 1 ] = {{ .keys   = {{ .max = sizeof(list_key  )/sizeof(list_key  [0]), .key = list_key   }},
+                                 .tables = {{ .max = sizeof(list_table)/sizeof(list_table[0]), .key = list_table }} }};
 
   fd_store_fec_t store_fec[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
   fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
@@ -1343,8 +1343,8 @@ run_key_sink_case( void ) {
   fd_memset( program->uc, 0x22, sizeof(fd_pubkey_t) );
   FD_TEST( !keys->full );
   FD_TEST( keys->keys->cnt==2UL && !keys->tables->cnt );
-  FD_TEST( !memcmp( sink_key+0, payer->uc,   32UL ) );
-  FD_TEST( !memcmp( sink_key+1, program->uc, 32UL ) );
+  FD_TEST( !memcmp( list_key+0, payer->uc,   32UL ) );
+  FD_TEST( !memcmp( list_key+1, program->uc, 32UL ) );
 
   /* A transaction with a lookup table names its two static accounts,
      and the table goes to the caller separately whatever the
@@ -1373,15 +1373,15 @@ run_key_sink_case( void ) {
 
   FD_TEST( !keys->full );
   FD_TEST( keys->keys->cnt==4UL && keys->tables->cnt==1UL );
-  FD_TEST( !memcmp( sink_key+0, alt_payer->uc,   32UL ) );
-  FD_TEST( !memcmp( sink_key+1, alt_program->uc, 32UL ) );
-  FD_TEST( !memcmp( sink_key+2, alt_payer->uc,   32UL ) );
-  FD_TEST( !memcmp( sink_key+3, alt_program->uc, 32UL ) );
-  FD_TEST( !memcmp( sink_table+0, alt_table->uc, 32UL ) );
+  FD_TEST( !memcmp( list_key+0, alt_payer->uc,   32UL ) );
+  FD_TEST( !memcmp( list_key+1, alt_program->uc, 32UL ) );
+  FD_TEST( !memcmp( list_key+2, alt_payer->uc,   32UL ) );
+  FD_TEST( !memcmp( list_key+3, alt_program->uc, 32UL ) );
+  FD_TEST( !memcmp( list_table+0, alt_table->uc, 32UL ) );
   /* The table is not an ordinary key: the caller has to read it. */
-  for( ulong i=0UL; i<keys->keys->cnt; i++ ) FD_TEST( memcmp( sink_key+i, alt_table->uc, 32UL ) );
+  for( ulong i=0UL; i<keys->keys->cnt; i++ ) FD_TEST( memcmp( list_key+i, alt_table->uc, 32UL ) );
 
-  /* A sink too small to hold a transaction's accounts keeps what it
+  /* A list too small to hold a transaction's accounts keeps what it
      has and says so. */
 
   keys->keys->cnt   = 0UL;
@@ -1395,7 +1395,7 @@ run_key_sink_case( void ) {
   FD_TEST( keys->keys->cnt<=1UL );
 
   free( mem );
-  FD_LOG_NOTICE(( "pass: run_key_sink_case" ));
+  FD_LOG_NOTICE(( "pass: run_key_list_case" ));
 }
 
 /* An accounts database small enough to hold a handful of accounts on
@@ -1452,13 +1452,13 @@ test_accdb_write( fd_accdb_t *       accdb,
   fd_accdb_unwrite_one( accdb, &acc );
 }
 
-/* A transaction whose lookup table does resolve hands the sink the
-   accounts the table expanded to, in place of the table's own
-   address.  That is the production path, and it needs a real accounts
-   database to resolve against. */
+/* A transaction whose lookup table does resolve still hands the caller
+   the table's own address and none of the accounts it expanded to.
+   That is the production path, and it needs a real accounts database
+   to resolve against. */
 
 static void
-run_key_sink_resolved_case( void ) {
+run_key_list_resolved_case( void ) {
   fd_accdb_fork_id_t fork_id;
   fd_accdb_t *       accdb = test_accdb_create( &fork_id );
 
@@ -1506,10 +1506,10 @@ run_key_sink_resolved_case( void ) {
   uchar encoded[ 4096 ];
   ulong encoded_sz = encode_txn_mblk( encoded, alt_payload, alt_sz, 1UL, mblk_hash );
 
-  fd_acct_addr_t sink_key[ 8 ];
-  fd_acct_addr_t sink_table[ 4 ];
-  fd_sched_keys_t keys[ 1 ] = {{ .keys   = {{ .max = sizeof(sink_key  )/sizeof(sink_key  [0]), .key = sink_key   }},
-                                 .tables = {{ .max = sizeof(sink_table)/sizeof(sink_table[0]), .key = sink_table }} }};
+  fd_acct_addr_t list_key[ 8 ];
+  fd_acct_addr_t list_table[ 4 ];
+  fd_sched_keys_t keys[ 1 ] = {{ .keys   = {{ .max = sizeof(list_key  )/sizeof(list_key  [0]), .key = list_key   }},
+                                 .tables = {{ .max = sizeof(list_table)/sizeof(list_table[0]), .key = list_table }} }};
 
   fd_store_fec_t store_fec[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
   fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
@@ -1537,14 +1537,14 @@ run_key_sink_resolved_case( void ) {
      scheduler reached appear nowhere. */
   FD_TEST( !keys->full );
   FD_TEST( keys->keys->cnt==2UL && keys->tables->cnt==1UL );
-  FD_TEST( !memcmp( sink_key+0, alt_payer->uc,   32UL ) );
-  FD_TEST( !memcmp( sink_key+1, alt_program->uc, 32UL ) );
-  FD_TEST( !memcmp( sink_table+0, alt_table->uc, 32UL ) );
-  FD_TEST( sink_key[ 0 ].b[ 0 ]!=0xa0 && sink_key[ 1 ].b[ 0 ]!=0xa0 );
-  FD_TEST( sink_key[ 0 ].b[ 0 ]!=0xa1 && sink_key[ 1 ].b[ 0 ]!=0xa1 );
+  FD_TEST( !memcmp( list_key+0, alt_payer->uc,   32UL ) );
+  FD_TEST( !memcmp( list_key+1, alt_program->uc, 32UL ) );
+  FD_TEST( !memcmp( list_table+0, alt_table->uc, 32UL ) );
+  FD_TEST( list_key[ 0 ].b[ 0 ]!=0xa0 && list_key[ 1 ].b[ 0 ]!=0xa0 );
+  FD_TEST( list_key[ 0 ].b[ 0 ]!=0xa1 && list_key[ 1 ].b[ 0 ]!=0xa1 );
 
   free( mem );
-  FD_LOG_NOTICE(( "pass: run_key_sink_resolved_case" ));
+  FD_LOG_NOTICE(( "pass: run_key_list_resolved_case" ));
 }
 
 /* A block the scheduler never replays, which is any block this
@@ -1609,10 +1609,10 @@ run_keys_scan_case( void ) {
   ulong split = sizeof(ulong)+sizeof(tick)+sizeof(entry)+legacy_sz+10UL;
   FD_TEST( split<encoded_sz );
 
-  fd_acct_addr_t sink_key[ 8 ];
-  fd_acct_addr_t sink_table[ 4 ];
-  fd_sched_keys_t keys[ 1 ] = {{ .keys   = {{ .max = sizeof(sink_key  )/sizeof(sink_key  [0]), .key = sink_key   }},
-                                 .tables = {{ .max = sizeof(sink_table)/sizeof(sink_table[0]), .key = sink_table }} }};
+  fd_acct_addr_t list_key[ 8 ];
+  fd_acct_addr_t list_table[ 4 ];
+  fd_sched_keys_t keys[ 1 ] = {{ .keys   = {{ .max = sizeof(list_key  )/sizeof(list_key  [0]), .key = list_key   }},
+                                 .tables = {{ .max = sizeof(list_table)/sizeof(list_table[0]), .key = list_table }} }};
 
   fd_store_fec_t store_fec[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
   fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
@@ -1633,8 +1633,8 @@ run_keys_scan_case( void ) {
   /* Only the first transaction is whole so far. */
   FD_TEST( !keys->full );
   FD_TEST( keys->keys->cnt==2UL && !keys->tables->cnt );
-  FD_TEST( !memcmp( sink_key+0, payer->uc,   32UL ) );
-  FD_TEST( !memcmp( sink_key+1, program->uc, 32UL ) );
+  FD_TEST( !memcmp( list_key+0, payer->uc,   32UL ) );
+  FD_TEST( !memcmp( list_key+1, program->uc, 32UL ) );
 
   store_fec->data_sz       = (uint)(encoded_sz-split);
   fec->data                = encoded+split;
@@ -1647,16 +1647,16 @@ run_keys_scan_case( void ) {
      goes to the caller to read and expand. */
   FD_TEST( !keys->full );
   FD_TEST( keys->keys->cnt==4UL && keys->tables->cnt==1UL );
-  FD_TEST( !memcmp( sink_key+2, alt_payer->uc,   32UL ) );
-  FD_TEST( !memcmp( sink_key+3, alt_program->uc, 32UL ) );
-  FD_TEST( !memcmp( sink_table+0, alt_table->uc, 32UL ) );
-  for( ulong i=0UL; i<keys->keys->cnt; i++ ) FD_TEST( memcmp( sink_key+i, alt_table->uc, 32UL ) );
+  FD_TEST( !memcmp( list_key+2, alt_payer->uc,   32UL ) );
+  FD_TEST( !memcmp( list_key+3, alt_program->uc, 32UL ) );
+  FD_TEST( !memcmp( list_table+0, alt_table->uc, 32UL ) );
+  for( ulong i=0UL; i<keys->keys->cnt; i++ ) FD_TEST( memcmp( list_key+i, alt_table->uc, 32UL ) );
   FD_TEST( !walk->txns_rem && !walk->mblks_rem );
 
   /* The next block starts the walk over, whatever the one before it
      left behind. */
   walk->txns_rem           = 7UL;
-  walk->buf_sz             = 64U;
+  walk->fec_buf_sz         = 64U;
   keys->keys->cnt          = 0UL;
   keys->tables->cnt        = 0UL;
   store_fec->data_sz       = (uint)split;
@@ -1668,7 +1668,7 @@ run_keys_scan_case( void ) {
 
   FD_TEST( !keys->full );
   FD_TEST( keys->keys->cnt==2UL );
-  FD_TEST( !memcmp( sink_key+0, payer->uc,   32UL ) );
+  FD_TEST( !memcmp( list_key+0, payer->uc,   32UL ) );
 
   free( walk );
   free( mem );
@@ -1962,8 +1962,8 @@ main( int     argc,
   run_late_ancestor_discard_case();
   run_runtime_limit_case();
   run_zero_hashcnt_mblk_case();
-  run_key_sink_case();
-  run_key_sink_resolved_case();
+  run_key_list_case();
+  run_key_list_resolved_case();
   run_keys_scan_case();
 
   FD_LOG_NOTICE(( "pass" ));

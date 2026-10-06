@@ -3,6 +3,7 @@
 
 #include "fd_rdisp.h"
 #include "../../flamenco/alpenglow/fd_block_marker.h"
+#include "../../flamenco/alpenglow/fd_block_marker_serde.h" /* for FD_BLOCK_MARKER_SER_MAX */
 #include "../../disco/fd_txn_p.h"
 #include "../../disco/store/fd_store.h" /* for fd_store_fec_t */
 #include "../../flamenco/accdb/fd_accdb.h"
@@ -70,19 +71,29 @@ struct fd_sched_alut_ctx {
 };
 typedef struct fd_sched_alut_ctx fd_sched_alut_ctx_t;
 
+/* The parser buffers the residual data the previous FEC set left
+   behind, which only becomes parseable once the next FEC set is
+   ingested, plus the incoming FEC set itself.  The largest minimally
+   parseable unit of data is a transaction, so that much data may
+   straddle FEC set boundaries.  Other minimally parseable units of
+   data include the microblock header and the microblock count within
+   a batch. */
+
+#define FD_SCHED_MAX_PAYLOAD_PER_FEC (63985UL)
+#define FD_SCHED_MAX_RESIDUAL_SZ     (FD_TXN_MTU>FD_BLOCK_MARKER_SER_MAX ? FD_TXN_MTU : FD_BLOCK_MARKER_SER_MAX)
+#define FD_SCHED_MAX_FEC_BUF_SZ      (FD_SCHED_MAX_PAYLOAD_PER_FEC+FD_SCHED_MAX_RESIDUAL_SZ)
+
 /* A single ingest call parses at most one FEC set plus the residual
    the call before it carried over.  Both the static keys and the
    lookup table addresses a transaction names are serialized in full,
-   so one call records at most one of either per 32 bytes it parses.
-   FD_SCHED_INGEST_BYTE_MAX is cross-checked against the FEC buffer in
-   fd_sched.c. */
+   so one call records at most one of either per 32 bytes it parses. */
 
-#define FD_SCHED_INGEST_BYTE_MAX (63985UL+FD_TXN_MTU)
+#define FD_SCHED_INGEST_BYTE_MAX (FD_SCHED_MAX_PAYLOAD_PER_FEC+FD_SCHED_MAX_RESIDUAL_SZ)
 #define FD_SCHED_INGEST_ADDR_MAX (FD_SCHED_INGEST_BYTE_MAX/sizeof(fd_acct_addr_t))
 
-/* fd_sched_keys_list is one of the two lists a key sink collects.  The
-   caller points key at its own storage of max entries and reads cnt
-   entries back. */
+/* fd_sched_keys_list is one of the two lists fd_sched_keys collects.
+   The caller points key at its own storage of max entries and reads
+   cnt entries back. */
 
 struct fd_sched_keys_list {
   ulong            max; /* in:  entries in key */
@@ -113,23 +124,23 @@ typedef struct fd_sched_keys_list fd_sched_keys_list_t;
 struct fd_sched_keys {
   int                  full;      /* out: 1 if an entry did not fit */
   fd_sched_keys_list_t keys[1];   /* the accounts the block names */
-  fd_sched_keys_list_t tables[1]; /* the lookup tables the caller must expand */
+  fd_sched_keys_list_t tables[1]; /* tables the caller must expand */
 };
 typedef struct fd_sched_keys fd_sched_keys_t;
 
-/* fd_sched_keys_walk is the parse cursor fd_sched_keys_scan carries
-   across the FEC sets of one block.  The caller only has to keep it
-   alive and hand back the same one for the whole block; the scan
-   resets it on the block's first FEC set. */
+/* fd_sched_keys_walk is how far fd_sched_keys_scan has got through
+   one block, carried across its FEC sets.  The caller only has to
+   keep it alive and hand back the same one for the whole block; the
+   scan resets it on the block's first FEC set. */
 
 struct fd_sched_keys_walk {
-  ulong mblks_rem;  /* microblocks left in the batch being walked */
-  ulong txns_rem;   /* transactions left in the microblock being walked */
-  uint  buf_sz;     /* bytes buffered */
-  uint  soff;       /* bytes of buf already walked */
-  int   sob;        /* 1 if the next bytes start a batch */
+  ulong mblks_rem;    /* microblocks left in the batch */
+  ulong txns_rem;     /* transactions left in the microblock */
+  uint  fec_buf_sz;   /* bytes buffered */
+  uint  fec_buf_soff; /* bytes of fec_buf already walked */
+  int   fec_sob;      /* 1 if the next bytes start a batch */
   uchar txn[ FD_TXN_MAX_SZ ] __attribute__((aligned(alignof(fd_txn_t))));
-  uchar buf[ FD_SCHED_INGEST_BYTE_MAX ];
+  uchar fec_buf[ FD_SCHED_INGEST_BYTE_MAX ];
 };
 typedef struct fd_sched_keys_walk fd_sched_keys_walk_t;
 
@@ -152,8 +163,10 @@ struct fd_sched_fec {
   long             completed_ns;        /* Network arrival (wallclock ns) of the shred that completed this FEC set; 0 if unavailable. */
 
   fd_sched_alut_ctx_t alut_ctx[ 1 ];
-  fd_sched_keys_t *   keys;          /* Sink for the account keys the parser resolves out of this FEC set.  NULL if
-                                        the caller does not mirror blocks to a boot stream. */
+  /* Where the account keys the parser resolves out of this FEC set
+     go.  NULL if the caller does not mirror blocks to a boot
+     stream. */
+  fd_sched_keys_t *   keys;
 };
 typedef struct fd_sched_fec fd_sched_fec_t;
 

@@ -25,21 +25,11 @@
    size transactions. */
 FD_STATIC_ASSERT( FD_MAX_TXN_PER_SLOT_SHRED==((FD_SHRED_DATA_PAYLOAD_MAX_PER_SLOT-65UL*sizeof(fd_microblock_hdr_t))/FD_TXN_MIN_SERIALIZED_SZ), max_txn_per_slot_shred );
 
-/* We size the buffer to be able to hold residual data from the previous
-   FEC set that only becomes parseable after the next FEC set is
-   ingested, as well as the incoming FEC set.  The largest minimally
-   parseable unit of data is a transaction.  So that much data may
-   straddle FEC set boundaries.  Other minimally parseable units of data
-   include the microblock header and the microblock count within a
-   batch. */
-#define FD_SCHED_MAX_PAYLOAD_PER_FEC       (63985UL)
+/* The buffer sizes live in fd_sched.h, next to the ingest bound the
+   caller's key lists are sized from. */
 FD_STATIC_ASSERT( FD_SCHED_MAX_PAYLOAD_PER_FEC>=FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ, bump sched fec size bound ); /* FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ is the bound we want, but older ledgers have larger FEC sets. */
-#define FD_SCHED_MAX_RESIDUAL_SZ           (FD_TXN_MTU>FD_BLOCK_MARKER_SER_MAX ? FD_TXN_MTU : FD_BLOCK_MARKER_SER_MAX)
-#define FD_SCHED_MAX_FEC_BUF_SZ            (FD_SCHED_MAX_PAYLOAD_PER_FEC+FD_SCHED_MAX_RESIDUAL_SZ)
 FD_STATIC_ASSERT( FD_SCHED_MAX_RESIDUAL_SZ>=sizeof(fd_microblock_hdr_t), resize buffer for residual data );
 FD_STATIC_ASSERT( FD_SCHED_MAX_RESIDUAL_SZ>=sizeof(ulong),               resize buffer for residual data );
-
-FD_STATIC_ASSERT( FD_SCHED_MAX_FEC_BUF_SZ<=FD_SCHED_INGEST_BYTE_MAX, resize the key sink bound );
 
 #define FD_SCHED_MAX_TXN_PER_FEC           ((FD_SCHED_MAX_PAYLOAD_PER_FEC-1UL)/FD_TXN_MIN_SERIALIZED_SZ+1UL) /* 478 */
 #define FD_SCHED_MAX_MBLK_PER_FEC          ((FD_SCHED_MAX_PAYLOAD_PER_FEC-1UL)/sizeof(fd_microblock_hdr_t)+1UL) /* 1334 */
@@ -366,7 +356,7 @@ FD_WARN_UNUSED static int
 fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_fec_t * fec );
 
 FD_WARN_UNUSED static int
-fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_fec_t * fec );
+fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_t * alut_ctx, fd_sched_keys_t * keys );
 
 static void
 dispatch_sigverify( fd_sched_t * sched, fd_sched_block_t * block, ulong bank_idx, int exec_tile_idx, fd_sched_task_t * out );
@@ -2406,9 +2396,13 @@ fd_sched_block_verify_ticks( fd_sched_t * sched,
    trailing bytes can span arbitrarily many FEC sets. */
 FD_WARN_UNUSED static int
 fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_fec_t * fec ) {
+  /* The caller's key lists, if it wants any, do not change over the
+     FEC set, so they are read once here rather than per transaction. */
+  fd_sched_keys_t * keys = fec->keys;
+
   while( 1 ) {
     while( block->txns_rem>0UL ) {
-      int err = fd_sched_parse_txn( sched, block, fec );
+      int err = fd_sched_parse_txn( sched, block, fec->alut_ctx, keys );
       if( FD_UNLIKELY( -1==err ) ) return FD_SCHED_DEAD_REASON_NONE;
       else if( FD_UNLIKELY( err ) ) return err;
     }
@@ -2657,9 +2651,9 @@ block_poison_insert( fd_sched_t * sched, fd_sched_block_t * block, fd_acct_addr_
   return 0;
 }
 
-/* Expands the transaction's address lookup tables into sched->aluts.
-   Returns 1 if they could not be expanded, which makes the transaction
-   serializing. */
+/* resolve_aluts expands the transaction's address lookup tables into
+   sched->aluts.  Returns 1 if they could not be expanded, which makes
+   the transaction serializing. */
 
 static int
 resolve_aluts( fd_sched_t *          sched,
@@ -2694,44 +2688,45 @@ resolve_aluts( fd_sched_t *          sched,
   return !!fd_runtime_load_txn_address_lookup_tables( txn, payload, alut_ctx->accdb, alut_ctx->fork_id, alut_ctx->els, slot_hashes_view, sched->aluts );
 }
 
-/* Appends cnt account keys to one of the caller's lists.  A list that
-   has run out of room keeps what it has and says so, so the caller can
-   tell that its copy of the block is incomplete. */
+/* keys_append appends cnt account keys to one of the caller's lists.
+   A list that has run out of room keeps what it has and says so, so
+   the caller can tell that its copy of the block is incomplete. */
 
 static inline void
-keys_append( fd_sched_keys_t *      sink,
+keys_append( fd_sched_keys_t *      keys,
              fd_sched_keys_list_t * list,
              fd_acct_addr_t const * addr,
              ulong                  cnt ) {
   if( FD_UNLIKELY( list->cnt+cnt>list->max ) ) {
-    sink->full = 1;
+    keys->full = 1;
     return;
   }
   fd_memcpy( list->key+list->cnt, addr, cnt*sizeof(fd_acct_addr_t) );
   list->cnt += cnt;
 }
 
-/* Collects what one transaction names into the caller's sink: its
-   static keys, and every lookup table it names.  The scheduler's own
-   expansion of a table is left out on purpose.  Whoever replays the
-   block expands the tables at the block's parent fork, which is the
-   expansion that counts, while the scheduler expands them at the
-   published root only to decide what may run in parallel. */
+/* keys_collect collects what one transaction names into the caller's
+   key lists: its static keys, and every lookup table it names.  The
+   scheduler's own expansion of a table is left out on purpose.
+   Whoever replays the block expands the tables at the block's parent
+   fork, which is the expansion that counts, while the scheduler
+   expands them at the published root only to decide what may run in
+   parallel. */
 
 static void
-keys_collect( fd_sched_keys_t * sink,
+keys_collect( fd_sched_keys_t * keys,
               fd_txn_t const *  txn,
               uchar const *     payload ) {
-  keys_append( sink, sink->keys, fd_txn_get_acct_addrs( txn, payload ), fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM ) );
+  keys_append( keys, keys->keys, fd_txn_get_acct_addrs( txn, payload ), fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM ) );
 
-  fd_sched_keys_list_t *         tables = sink->tables;
+  fd_sched_keys_list_t *         tables = keys->tables;
   fd_txn_acct_addr_lut_t const * luts   = fd_txn_get_address_tables_const( txn );
   for( ulong i=0UL; i<txn->addr_table_lookup_cnt; i++ ) {
     fd_acct_addr_t const * addr = (fd_acct_addr_t const *)fd_type_pun_const( payload+luts[ i ].addr_off );
     /* Transactions in a block routinely name the same table one after
        another, and dropping those costs one compare. */
     if( FD_UNLIKELY( tables->cnt && !memcmp( tables->key+tables->cnt-1UL, addr, sizeof(fd_acct_addr_t) ) ) ) continue;
-    keys_append( sink, tables, addr, 1UL );
+    keys_append( keys, tables, addr, 1UL );
   }
 }
 
@@ -2796,9 +2791,8 @@ block_poison_add( fd_sched_t *           sched,
 }
 
 FD_WARN_UNUSED static int
-fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_fec_t * fec ) {
-  fd_sched_alut_ctx_t * alut_ctx = fec->alut_ctx;
-  fd_txn_t *            txn      = fd_type_pun( block->txn );
+fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_t * alut_ctx, fd_sched_keys_t * keys ) {
+  fd_txn_t * txn = fd_type_pun( block->txn );
 
   uchar * payload   = block->fec_buf+block->fec_buf_soff;
   ulong   remaining = block->fec_buf_sz-block->fec_buf_soff;
@@ -2882,7 +2876,7 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_fec_t
   block_poison_add( sched, block, txn, imms, poison_alts, poison_alt_cnt );
 
   /* Hand the caller what this transaction names. */
-  if( FD_UNLIKELY( fec->keys ) ) keys_collect( fec->keys, txn, payload );
+  if( FD_UNLIKELY( keys ) ) keys_collect( keys, txn, payload );
 
   ulong bank_idx = (ulong)(block-sched->block_pool);
   ulong txn_idx  = fd_rdisp_add_txn( sched->rdisp, bank_idx, txn, payload, alts, serializing );
@@ -2977,63 +2971,64 @@ fd_sched_keys_scan( fd_sched_t *           sched,
   FD_TEST( fec->keys );
 
   if( FD_UNLIKELY( fec->is_first_in_block ) ) {
-    walk->mblks_rem = 0UL;
-    walk->txns_rem  = 0UL;
-    walk->buf_sz    = 0U;
-    walk->soff      = 0U;
-    walk->sob       = 1;
+    walk->mblks_rem    = 0UL;
+    walk->txns_rem     = 0UL;
+    walk->fec_buf_sz   = 0U;
+    walk->fec_buf_soff = 0U;
+    walk->fec_sob      = 1;
   }
 
   /* Move the bytes the previous FEC set left behind to the front and
      append this one, the way the replay parser does: a transaction or
      a header may straddle a FEC set boundary. */
-  if( FD_LIKELY( walk->buf_sz>walk->soff ) ) memmove( walk->buf, walk->buf+walk->soff, walk->buf_sz-walk->soff );
-  walk->buf_sz -= walk->soff;
-  walk->soff    = 0U;
-  if( FD_UNLIKELY( (ulong)walk->buf_sz+(ulong)fec->fec->data_sz>sizeof(walk->buf) ) ) {
+  if( FD_LIKELY( walk->fec_buf_sz>walk->fec_buf_soff ) ) memmove( walk->fec_buf, walk->fec_buf+walk->fec_buf_soff, walk->fec_buf_sz-walk->fec_buf_soff );
+  walk->fec_buf_sz  -= walk->fec_buf_soff;
+  walk->fec_buf_soff = 0U;
+  if( FD_UNLIKELY( (ulong)walk->fec_buf_sz+(ulong)fec->fec->data_sz>sizeof(walk->fec_buf) ) ) {
     /* A block we produced fits by construction, so this is a bug or a
-       memory error rather than a bad block.  Report it as a sink that
+       memory error rather than a bad block.  Report it as a list that
        ran out of room, which costs the caller its streams. */
-    walk->buf_sz    = 0U;
-    walk->mblks_rem = 0UL;
-    walk->txns_rem  = 0UL;
-    fec->keys->full = 1;
+    walk->fec_buf_sz = 0U;
+    walk->mblks_rem  = 0UL;
+    walk->txns_rem   = 0UL;
+    fec->keys->full  = 1;
     return;
   }
-  fd_memcpy( walk->buf+walk->buf_sz, fec->data, fec->fec->data_sz );
-  walk->buf_sz += (uint)fec->fec->data_sz;
+  fd_memcpy( walk->fec_buf+walk->fec_buf_sz, fec->data, fec->fec->data_sz );
+  walk->fec_buf_sz += (uint)fec->fec->data_sz;
 
   while( 1 ) {
     if( FD_LIKELY( walk->txns_rem ) ) {
-      uchar const * payload = walk->buf+walk->soff;
+      uchar const * payload = walk->fec_buf+walk->fec_buf_soff;
       fd_txn_t *    txn     = fd_type_pun( walk->txn );
       ulong         pay_sz  = 0UL;
-      ulong         txn_sz  = fd_txn_parse_core( payload, walk->buf_sz-walk->soff, txn, NULL, &pay_sz );
-      if( FD_UNLIKELY( !pay_sz || !txn_sz ) ) break; /* straddles the next FEC set, or unparseable */
+      ulong         txn_sz  = fd_txn_parse_core( payload, walk->fec_buf_sz-walk->fec_buf_soff, txn, NULL, &pay_sz );
+      /* straddles the next FEC set, or unparseable */
+      if( FD_UNLIKELY( !pay_sz || !txn_sz ) ) break;
 
       keys_collect( fec->keys, txn, payload );
 
-      walk->soff += (uint)pay_sz;
+      walk->fec_buf_soff += (uint)pay_sz;
       walk->txns_rem--;
       continue;
     }
 
     if( FD_UNLIKELY( walk->mblks_rem ) ) {
-      if( FD_UNLIKELY( walk->buf_sz-walk->soff<sizeof(fd_microblock_hdr_t) ) ) break;
-      fd_microblock_hdr_t const * hdr = (fd_microblock_hdr_t const *)fd_type_pun_const( walk->buf+walk->soff );
-      walk->soff     += (uint)sizeof(fd_microblock_hdr_t);
+      if( FD_UNLIKELY( walk->fec_buf_sz-walk->fec_buf_soff<sizeof(fd_microblock_hdr_t) ) ) break;
+      fd_microblock_hdr_t const * hdr = (fd_microblock_hdr_t const *)fd_type_pun_const( walk->fec_buf+walk->fec_buf_soff );
+      walk->fec_buf_soff += (uint)sizeof(fd_microblock_hdr_t);
       walk->mblks_rem--;
-      walk->txns_rem  = hdr->txn_cnt;
+      walk->txns_rem      = hdr->txn_cnt;
       continue;
     }
 
-    if( FD_UNLIKELY( walk->sob ) ) {
-      if( FD_UNLIKELY( walk->buf_sz-walk->soff<sizeof(ulong) ) ) break;
+    if( FD_UNLIKELY( walk->fec_sob ) ) {
+      if( FD_UNLIKELY( walk->fec_buf_sz-walk->fec_buf_soff<sizeof(ulong) ) ) break;
       /* A batch that declares no microblocks is an Alpenglow block
          marker, which names no accounts: the batch is dropped below. */
-      walk->mblks_rem = FD_LOAD( ulong, walk->buf+walk->soff );
-      walk->soff     += (uint)sizeof(ulong);
-      walk->sob       = 0;
+      walk->mblks_rem     = FD_LOAD( ulong, walk->fec_buf+walk->fec_buf_soff );
+      walk->fec_buf_soff += (uint)sizeof(ulong);
+      walk->fec_sob       = 0;
       continue;
     }
 
@@ -3043,11 +3038,11 @@ fd_sched_keys_scan( fd_sched_t *           sched,
   /* Everything the batch declared has been walked, so what is left is
      trailing bytes.  They can span many FEC sets, so drop them rather
      than let them fill the buffer. */
-  if( FD_UNLIKELY( !walk->sob && !walk->txns_rem && !walk->mblks_rem ) ) {
-    walk->soff   = 0U;
-    walk->buf_sz = 0U;
+  if( FD_UNLIKELY( !walk->fec_sob && !walk->txns_rem && !walk->mblks_rem ) ) {
+    walk->fec_buf_soff = 0U;
+    walk->fec_buf_sz   = 0U;
   }
-  if( FD_UNLIKELY( fec->is_last_in_batch ) ) walk->sob = 1;
+  if( FD_UNLIKELY( fec->is_last_in_batch ) ) walk->fec_sob = 1;
 }
 
 static void
@@ -3548,7 +3543,7 @@ subtree_mark_and_maybe_prune_rdisp( fd_sched_t * sched, fd_sched_block_t * block
        here.  Otherwise it would count as in flight forever and the
        block, which is on its way down, would never be abandoned.  The
        holder sees the scheduler has moved on and drops it. */
-    if( FD_UNLIKELY( block->block_start_signaled && !block->block_start_done ) ) {
+    if( FD_UNLIKELY( !block->block_start_done ) ) {
       block->block_start_signaled = 0;
     }
 
