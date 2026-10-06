@@ -575,7 +575,8 @@ FD_UNIT_TEST( appendvec_overflow ) {
 }
 
 /* backlog_env gives the tile a block pool and one open stream at
-   TEST_START_SLOT, with the fixed part of an archive already written. */
+   TEST_START_SLOT, with the fixed part of an archive already
+   written. */
 
 #define BACKLOG_KEY_MAX (1024UL)
 
@@ -608,15 +609,15 @@ backlog_env( ulong key_max ) {
   ctx->acc_data   = malloc( FD_RUNTIME_ACC_SZ_MAX );
   FD_TEST( ctx->acc_data );
 
-  /* One open stream that starts at TEST_START_SLOT, whose bank is 10.  It
-     was never published, so closing it tells the file server
+  /* One open stream that starts at TEST_START_SLOT, whose bank is 10.
+     It was never published, so closing it tells the file server
      nothing. */
-  stream->open      = 1;
-  stream->published = 0;
-  stream->start_slot    = TEST_START_SLOT;
-  stream->bank_idx  = 10UL;
-  stream->bank_seq  = 10UL;
-  stream->sent      = backlog_sent;
+  stream->open       = 1;
+  stream->published  = 0;
+  stream->start_slot = TEST_START_SLOT;
+  stream->bank_idx   = 10UL;
+  stream->bank_seq   = 10UL;
+  stream->sent       = backlog_sent;
   memset( stream->carried, 0xff, sizeof(stream->carried) );
   mock_bank_add( 10UL );
 }
