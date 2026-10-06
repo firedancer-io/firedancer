@@ -58,9 +58,12 @@ write_wq_cpumask( fd_cpuset_t const * cpuset ) {
 
   int fd = open( WQ_CPUMASK_PATH, O_WRONLY );
   if( FD_UNLIKELY( fd<0 ) ) FD_LOG_ERR(( "open(" WQ_CPUMASK_PATH ") failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  FD_CPUSET_DECL( before );
+  int have_before = fd_cpu_isolation_read_wq_mask( before );
   if( FD_UNLIKELY( write( fd, mask, mask_len )!=(long)mask_len ) )
     FD_LOG_ERR(( "write(" WQ_CPUMASK_PATH ") failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( close( fd ) ) ) FD_LOG_ERR(( "close(" WQ_CPUMASK_PATH ") failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( have_before ) fd_cpu_isolation_warn_wq_change( WQ_CPUMASK_PATH, before );
 }
 
 static int

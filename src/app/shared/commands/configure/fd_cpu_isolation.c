@@ -6,6 +6,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <string.h>
+#include <sys/utsname.h>
 #include <unistd.h>
 
 fd_cpuset_t *
@@ -208,4 +209,34 @@ fd_cpu_isolation_read_list( char const * path,
   if( FD_UNLIKELY( !fd_cpu_isolation_parse_list( cpuset, list ) ) )
     FD_LOG_ERR(( "failed to parse `%s` (\"%s\")", path, list ));
   return 1;
+}
+
+int
+fd_cpu_isolation_read_wq_mask( fd_cpuset_t cpuset[ static fd_cpuset_word_cnt ] ) {
+  int fd = open( "/sys/devices/virtual/workqueue/cpumask", O_RDONLY );
+  if( FD_UNLIKELY( fd<0 ) ) return 0;
+
+  char mask[ FD_CPU_ISOLATION_MASK_MAX+64UL ];
+  long len = read( fd, mask, sizeof(mask)-1UL );
+  int err = close( fd );
+  if( FD_UNLIKELY( len<=0L || err ) ) return 0;
+  mask[ len ] = '\0';
+  return fd_cpu_isolation_parse_mask( cpuset, mask );
+}
+
+void
+fd_cpu_isolation_warn_wq_change( char const *        path,
+                                 fd_cpuset_t const * before ) {
+  FD_CPUSET_DECL( after );
+  if( FD_UNLIKELY( !fd_cpu_isolation_read_wq_mask( after ) ) ) return;
+  if( FD_LIKELY( fd_cpuset_eq( before, after ) ) ) return;
+
+  char old_mask[ FD_CPU_ISOLATION_MASK_MAX ];
+  char new_mask[ FD_CPU_ISOLATION_MASK_MAX ];
+  fd_cpu_isolation_format_mask( old_mask, sizeof(old_mask), before );
+  fd_cpu_isolation_format_mask( new_mask, sizeof(new_mask), after  );
+  struct utsname uts;
+  char const * release = uname( &uts ) ? "unknown" : uts.release;
+
+  FD_LOG_NOTICE(( "kernel workqueue cpumask changed while writing `%s`: %s -> %s (kernel %s). ", path, old_mask, new_mask, release ));
 }
