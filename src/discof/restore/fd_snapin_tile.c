@@ -1499,10 +1499,10 @@ writer_flush( fd_snapin_tile_t * ctx ) {
 
     /* Update the snooped stake delegations.  Anything that is not a
        delegation and replaced a funded version tombstones it, so a tile
-       still holding the older version cannot leave it behind.  Instant
-       boot takes the stake delegations from the boot stream. */
-    ulong snoop_cnt = fd_ulong_if( ctx->instant_boot, 0UL, cnt );
-    for( ulong i=0UL; i<snoop_cnt; i++ ) {
+       still holding the older version cannot leave it behind.  The boot
+       stream carries no stake accounts, so instant boot builds the root
+       set out of the snapshot like any other load. */
+    for( ulong i=0UL; i<cnt; i++ ) {
       if( FD_UNLIKELY( results[ i ]==FD_ACCDB_SNAPSHOT_WRITE_IGNORED ) ) continue;
 
       ulong               lamports = batch->lamports[ batch_off+i ];
@@ -2073,9 +2073,11 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         ctx->lead.recovery.capitalization            = 0UL;
         fd_memset( &ctx->lead.account_counts, 0, sizeof(ctx->lead.account_counts) );
 
-        /* Instant boot already created the forks and began the load,
-           and takes the stake delegations from the boot stream.  The
-           stream tile owns none of this. */
+        /* Instant boot created the forks and began the load at setup,
+           and the stream tile owns none of this.  The root stake
+           delegations are not reset either: replay is running and may
+           already hold forks of them, the root set is empty at process
+           start, and a retry only happens when nothing was written. */
         if( FD_LIKELY( !ctx->instant_boot && !ctx->stream ) ) {
           fd_stake_delegations_reset( ctx->stake_delegations );
           fd_accdb_reset( ctx->accdb );
@@ -2089,11 +2091,12 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
            fd_accdb_purge(child) reverts just the incremental changes.
            On success, fd_accdb_advance_root(child) promotes them.  The
            stake delegations get a fork likewise.  Instant boot created
-           the incremental fork at setup. */
+           the incremental fork at setup, but still snoops stakes, so it
+           needs the stake fork. */
         if( FD_LIKELY( !ctx->instant_boot ) ) {
           ctx->lead.accdb_incr_fork_id = fd_accdb_attach_child( ctx->accdb, ctx->lead.accdb_root_fork_id );
-          stake_fork                   = fd_stake_delegations_new_fork( ctx->stake_delegations, USHORT_MAX );
         }
+        stake_fork = fd_stake_delegations_new_fork( ctx->stake_delegations, USHORT_MAX );
       }
 
       /* Save the slot advertised by the snapshot peer and verify it
@@ -2243,13 +2246,11 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         fd_accdb_advance_root( ctx->accdb, ctx->lead.accdb_incr_fork_id );
         ctx->lead.accdb_root_fork_id = ctx->lead.accdb_incr_fork_id;
         ctx->lead.accdb_incr_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
-        /* Instant boot takes the stake delegations from the boot
-           stream, so there is no fork of them to apply. */
-        if( FD_LIKELY( !ctx->instant_boot ) ) {
-          ushort stake_fork = FD_VOLATILE_CONST( ctx->shmem->stake_fork );
-          fd_stake_delegations_advance_root( 0UL, NULL, NULL, 0, 1, ctx->stake_delegations, stake_fork, NULL );
-          fd_stake_delegations_evict_fork( ctx->stake_delegations, stake_fork );
-        }
+        /* Rooting the loader's stake fork leaves replay's forks of the
+           store alone: they are siblings of this one, not children. */
+        ushort stake_fork = FD_VOLATILE_CONST( ctx->shmem->stake_fork );
+        fd_stake_delegations_advance_root( 0UL, NULL, NULL, 0, 1, ctx->stake_delegations, stake_fork, NULL );
+        fd_stake_delegations_evict_fork( ctx->stake_delegations, stake_fork );
       }
 
       fd_accdb_snapshot_load_end( ctx->accdb );

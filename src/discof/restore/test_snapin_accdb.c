@@ -413,9 +413,9 @@ test_instant_boot_skips_bank_state( void ) {
   for( ulong i=0UL; i<env->worker_cnt; i++ ) FD_TEST( !writer_flush( &env->worker[ i ] ) );
   FD_TEST( attempt_wrote_accounts( &env->worker[ 0 ] ) );
 
-  /* The stake delegations come from the boot stream, so the snoop did
-     not run. */
-  FD_TEST( !stake_delegation_cnt( env->worker[ 0 ].stake_delegations ) );
+  /* The boot stream carries no stake accounts, so the snoop ran on
+     every batch and the root holds the fixture's stake account. */
+  FD_TEST( stake_delegation_cnt( env->worker[ 0 ].stake_delegations )==1UL );
 
   /* A plain join cannot see the loaded accounts until the lead
      unhides them. */
