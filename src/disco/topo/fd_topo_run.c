@@ -75,6 +75,7 @@ fd_topo_run_tile( fd_topo_t *          topo,
 
   /* preload shared memory before sandboxing, so it is already mapped */
   fd_topo_join_tile_workspaces( topo, tile, core_dump_level );
+  fd_topo_mlock_code();
 
   if( FD_UNLIKELY( tile_run->privileged_init ) )
     tile_run->privileged_init( topo, tile );
@@ -345,6 +346,10 @@ fd_topo_run_single_process( fd_topo_t *       topo,
                             uint              gid,
                             fd_topo_run_tile_t (* tile_run )( fd_topo_tile_t const * tile ) ) {
   join_isolation_cgroup( topo->app_name );
+
+  /* Lock code once before spawning tile threads, so they don't all
+     queue on mmap_lock behind a cold-cache populate. */
+  fd_topo_mlock_code();
 
   if( FD_LIKELY( agave!=1 ) ) {
     ulong waker_client_cnt = 0UL;

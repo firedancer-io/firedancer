@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include "fd_topo.h"
 
 #include "../metrics/fd_metrics.h"
@@ -7,6 +8,7 @@
 
 #include <stdio.h>
 #include <errno.h>
+#include <link.h>
 #include <unistd.h>
 #include <sys/stat.h>
 
@@ -286,7 +288,47 @@ fd_topo_mlock_max_tile( fd_topo_t const * topo ) {
     highest_tile_mem = fd_ulong_max( highest_tile_mem, fd_topo_mlock_max_tile1( topo, tile ) );
   }
 
-  return highest_tile_mem;
+  return highest_tile_mem + fd_topo_code_footprint( 0 ) + fd_topo_code_footprint( 1 );
+}
+
+static int
+fd_topo_code_cb( struct dl_phdr_info * info,
+                 size_t                info_sz,
+                 void *                ctx ) {
+  (void)info_sz;
+
+  for( ulong i=0UL; i<info->dlpi_phnum; i++ ) {
+    ElfW(Phdr) const * ph = &info->dlpi_phdr[ i ];
+    if( ph->p_type!=PT_LOAD ) continue;
+
+    ulong sz = (ph->p_flags & PF_W) ? ph->p_filesz : ph->p_memsz;
+    ulong lo = fd_ulong_align_dn( info->dlpi_addr+ph->p_vaddr,    FD_SHMEM_NORMAL_PAGE_SZ );
+    ulong hi = fd_ulong_align_up( info->dlpi_addr+ph->p_vaddr+sz, FD_SHMEM_NORMAL_PAGE_SZ );
+    if( FD_UNLIKELY( hi<=lo ) ) continue;
+
+    if( FD_UNLIKELY( ctx ) ) {
+      ((ulong *)ctx)[ !!(ph->p_flags & PF_W) ] += hi-lo;
+    } else {
+      if( FD_UNLIKELY( -1==fd_numa_mlock( (void *)lo, hi-lo ) ) ) {
+        FD_LOG_WARNING(( "mlock(\"%s\",%lu KiB) failed (%i-%s); code may page fault under memory pressure",
+                         info->dlpi_name[0] ? info->dlpi_name : "main", (hi-lo)>>10, errno, fd_io_strerror( errno ) ));
+      }
+    }
+  }
+
+  return 0;
+}
+
+ulong
+fd_topo_code_footprint( int writable ) {
+  ulong sz[ 2 ] = { 0UL, 0UL };
+  dl_iterate_phdr( fd_topo_code_cb, sz );
+  return sz[ !!writable ];
+}
+
+void
+fd_topo_mlock_code( void ) {
+  dl_iterate_phdr( fd_topo_code_cb, NULL );
 }
 
 FD_FN_PURE ulong
@@ -335,7 +377,8 @@ fd_topo_normal_page_cnt( fd_topo_t const * topo ) {
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     result += fd_topo_tile_extra_normal_pages( &topo->tiles[ i ] );
   }
-  return result;
+  ulong code_sz = fd_topo_code_footprint( 0 ) + topo->tile_cnt*fd_topo_code_footprint( 1 );
+  return result + code_sz/FD_SHMEM_NORMAL_PAGE_SZ;
 }
 
 FD_FN_PURE ulong

@@ -1356,11 +1356,12 @@ fd_topo_run_tile( fd_topo_t *          topo,
    respectively, RLIMIT_MLOCK needs to be 9 MiB to allow all three
    process mlock() calls to succeed.
 
-   Tiles lock memory in three ways.  Any workspace they are using, they
+   Tiles lock memory in four ways.  Any workspace they are using, they
    lock the entire workspace.  Then each tile uses huge pages for the
    stack which are also locked, and finally some tiles use private
-   locked mmaps outside the workspace for storing key material.  The
-   results here include all of this memory together.
+   locked mmaps outside the workspace for storing key material.  Every
+   tile also locks the executable code.  The results here include all of
+   this memory together.
 
    The result is not necessarily the amount of memory used by the tile
    process, although it will be quite close.  Tiles could potentially
@@ -1370,6 +1371,21 @@ fd_topo_run_tile( fd_topo_t *          topo,
    actual amount of memory used will not be less than this value. */
 FD_FN_PURE ulong
 fd_topo_mlock_max_tile( fd_topo_t const * topo );
+
+/* fd_topo_mlock_code locks the code, rodata and initialized data of
+   every loaded ELF object into DRAM, so tiles cannot stall on major
+   faults when the page cache is evicted under memory pressure. */
+
+void
+fd_topo_mlock_code( void );
+
+/* fd_topo_code_footprint returns the bytes that would be locked by
+   fd_topo_mlock_code, either the read-only segments (writable==0),
+   which are page cache shared by all tiles, or the writable segments
+   (writable==1), which are private to each tile process. */
+
+ulong
+fd_topo_code_footprint( int writable );
 
 /* Same as fd_topo_mlock_max_tile, but for loading the entire topology
    into one process, rather than a separate process per tile.  This is
@@ -1400,7 +1416,8 @@ fd_topo_huge_page_cnt( fd_topo_t const * topo,
                        int               include_anonymous );
 
 /* Returns the number of normal (4 KiB) pages needed by the topology
-   for extra allocations like private key storage and XSK rings. */
+   for extra allocations like private key storage and XSK rings, plus
+   the locked code (read-only segments once, writable ones per tile). */
 
 FD_FN_PURE ulong
 fd_topo_normal_page_cnt( fd_topo_t const * topo );
