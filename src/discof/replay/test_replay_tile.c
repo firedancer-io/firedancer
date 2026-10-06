@@ -24,6 +24,7 @@
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "../../flamenco/rewards/fd_stake_rewards.h"
 #include "fd_sched.h"
+#include "../restore/utils/fd_ssload.h" /* IWYU pragma: keep */
 
 #define TEST_BANKS_MAX 16UL
 #define TEST_OUT_CNT   5UL
@@ -273,6 +274,10 @@ mock_runtime_block_execute_prepare_fn( fd_banks_t *         banks FD_PARAM_UNUSE
 #define fd_progcache_attach_child            mock_progcache_attach_child_fn
 #define fd_accdb_attach_child                mock_accdb_attach_child_fn
 #define fd_accdb_cmd_pending(a)              ( (a) ? (fd_accdb_cmd_pending)(a) : 0 )
+/* Manifest recovery needs a real manifest; the tests that drive a
+   manifest message only care about what replay does with it. */
+static int mock_ssload_recover;
+#define fd_ssload_recover(m,b,r,s)           (mock_ssload_recover ? 0 : (fd_ssload_recover)(m,b,r,s))
 /* Bypass unrelated boot dependencies while exercising snapshot DONE to completion. */
 #define fd_sysvar_cache_restore(bank,accdb)  (mock_snapshot_boot ? 1 : (fd_sysvar_cache_restore)(bank,accdb))
 #define fd_sysvar_rent_read(accdb,fork,rent) (mock_snapshot_boot ? (rent) : (fd_sysvar_rent_read)(accdb,fork,rent))
@@ -4779,6 +4784,44 @@ test_instant_boot_held_start_abandoned( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_instant_boot_held_start_abandoned" ));
 }
 
+/* Instant boot boots replay from the boot stream's manifest, which
+   sits far ahead of the full snapshot this validator holds on disk,
+   so that manifest must not become the base slot of the incrementals
+   this validator produces.  Every other boot does take the base from
+   the full snapshot it loaded. */
+
+static void
+test_instant_boot_no_incremental_base( fd_wksp_t * wksp,
+                                       int         instant_boot ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  setup_ctx( ctx, wksp );
+
+  ulong  data_sz = fd_dcache_req_data_sz( sizeof(fd_snapshot_manifest_t), 4UL, 1UL, 1 );
+  void * dcache  = fd_dcache_join( fd_dcache_new( fd_wksp_alloc_laddr( wksp,
+                     fd_dcache_align(), fd_dcache_footprint( data_sz, 0UL ), 1UL ), data_sz, 0UL ) );
+  FD_TEST( dcache );
+
+  ulong in_idx = 0UL;
+  ctx->in[ in_idx ].mem    = fd_wksp_containing( dcache );
+  ctx->in[ in_idx ].chunk0 = fd_dcache_compact_chunk0( ctx->in[ in_idx ].mem, dcache );
+  ctx->in[ in_idx ].wmark  = fd_dcache_compact_wmark( ctx->in[ in_idx ].mem, dcache, sizeof(fd_snapshot_manifest_t) );
+  ctx->instant_boot        = instant_boot;
+  ctx->snapmk.base_slot    = ULONG_MAX;
+
+  ulong chunk = ctx->in[ in_idx ].chunk0;
+  fd_snapshot_manifest_t * manifest = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
+  fd_memset( manifest, 0, sizeof(fd_snapshot_manifest_t) );
+  manifest->slot = 1234UL;
+
+  mock_ssload_recover = 1;
+  on_snapshot_message( ctx, test_stem, in_idx, chunk, fd_ssmsg_sig( FD_SSMSG_MANIFEST_FULL ) );
+  mock_ssload_recover = 0;
+
+  FD_TEST( ctx->snapmk.base_slot==(instant_boot ? ULONG_MAX : 1234UL) );
+
+  FD_LOG_NOTICE(( "pass: test_instant_boot_no_incremental_base (instant_boot=%d)", instant_boot ));
+}
+
 static void
 test_instant_boot_blocks_leadership( fd_wksp_t * wksp ) {
   static fd_replay_tile_t ctx[ 1 ];
@@ -5158,6 +5201,8 @@ main( int     argc,
   test_instant_boot_marker_gate( wksp );              fd_wksp_reset( wksp, 42U );
   test_instant_boot_held_start_abandoned( wksp );     fd_wksp_reset( wksp, 42U );
   test_instant_boot_blocks_leadership( wksp );        fd_wksp_reset( wksp, 42U );
+  test_instant_boot_no_incremental_base( wksp, 0 );   fd_wksp_reset( wksp, 42U );
+  test_instant_boot_no_incremental_base( wksp, 1 );   fd_wksp_reset( wksp, 42U );
   test_strmk_hold_ring( wksp );                       fd_wksp_reset( wksp, 42U );
   test_strmk_txn_keys( wksp );                        fd_wksp_reset( wksp, 42U );
 

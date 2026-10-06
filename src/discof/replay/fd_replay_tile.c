@@ -3066,7 +3066,12 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
       ctx->expected_genesis_timestamp     = manifest->creation_time_seconds;
       ctx->has_manifest_block_id          = manifest->has_block_id;
       if( manifest->has_block_id ) memcpy( ctx->manifest_block_id.uc, manifest->block_id, 32UL );
-      if( FD_UNLIKELY( msg==FD_SSMSG_MANIFEST_FULL ) ) {
+      /* Instant boot boots from the boot stream's manifest, which is
+         far ahead of the full snapshot this validator holds on disk,
+         so it is no base for an incremental.  Incremental production
+         waits while the base is ULONG_MAX, and the first full
+         snapshot this validator takes sets it. */
+      if( FD_UNLIKELY( msg==FD_SSMSG_MANIFEST_FULL && !ctx->instant_boot ) ) {
         ctx->snapmk.base_slot = manifest->slot;
       }
       break;
