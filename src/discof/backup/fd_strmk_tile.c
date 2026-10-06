@@ -91,6 +91,14 @@
 #define STRMK_BLOCK_SLOT_MAX (16384UL)
 #define STRMK_BLOCK_KEY_MAX  ((STRMK_BLOCK_SLOT_MAX*3UL)/4UL)
 
+/* How a block named an account: as an ordinary transaction key, or as
+   an address lookup table replay could not expand and the tile has to
+   expand itself. */
+
+#define STRMK_KEY_FREE  (0)
+#define STRMK_KEY_PLAIN (1)
+#define STRMK_KEY_TABLE (2)
+
 /* STRMK_ALUT_ADDR_MAX bounds the addresses of an address lookup table
    the tile follows.  A transaction names them with a byte index, so
    the runtime can never reach past the first 256 of them. */
@@ -98,9 +106,13 @@
 #define STRMK_ALUT_ADDR_MAX (256UL)
 
 /* STRMK_CARRIED_MAX bounds the blocks a stream remembers carrying, so
-   that it can tell whether a block chains off something it has.  A
-   bank index is reused, so this never holds more entries than replay
-   has banks. */
+   that it can tell whether a block chains off something it has.  One
+   entry is one block, named by its bank index and sequence number
+   together.  A stream is served for
+   [snapshots.instant_boot.serve.stream_lifetime_seconds], 240 seconds
+   by default, which is six hundred slots, so this has room for the
+   blocks of a lifetime several times over even with forks.  A stream
+   that fills it is broken, loudly. */
 
 #define STRMK_CARRIED_MAX (4096UL)
 
@@ -117,7 +129,10 @@
 /* STRMK_SENT_TABLE marks a sent set entry whose account was an address
    lookup table when the stream carried it.  The tile reads such a key
    again every time a block names it, because the table can have gained
-   addresses since, and a stream has to carry those too. */
+   addresses since, and a stream has to carry those too.  This is the
+   fallback for a table replay did expand, which arrives as an ordinary
+   key: a table replay could not expand arrives named as one and is
+   read whether or not it is marked. */
 
 #define STRMK_SENT_TABLE (1UL<<63)
 
@@ -170,7 +185,8 @@ struct strmk_stream {
 
 typedef struct strmk_stream strmk_stream_t;
 
-/* The account set of one block. */
+/* The account set of one block.  used holds a STRMK_KEY_* for every
+   slot. */
 
 struct strmk_keyset {
   uchar       used[ STRMK_BLOCK_SLOT_MAX ];
@@ -883,26 +899,33 @@ strmk_blocks_drop( fd_strmk_t * ctx ) {
 }
 
 /* strmk_block_key_add adds one account to a block's set, which drops
-   the repeats the keys arrive with.  Marks the block overflowed, and
-   returns 0, once the set is as full as it gets. */
+   the repeats the keys arrive with.  table says the block named it as
+   a lookup table replay could not expand, which upgrades a key that
+   arrived as an ordinary one.  Marks the block overflowed, and returns
+   0, once the set is as full as it gets. */
 
 static int
 strmk_block_key_add( strmk_block_t *     block,
-                     fd_pubkey_t const * key ) {
+                     fd_pubkey_t const * key,
+                     int                 table ) {
   if( FD_UNLIKELY( block->overflow ) ) return 0;
   strmk_keyset_t * keys = block->keys;
+  uchar kind = (uchar)( table ? STRMK_KEY_TABLE : STRMK_KEY_PLAIN );
   ulong mask = STRMK_BLOCK_SLOT_MAX-1UL;
   ulong idx  = fd_ulong_load_8( key->uc ) & mask;
   for(;;) {
-    if( FD_LIKELY( !keys->used[ idx ] ) ) break;
-    if( FD_UNLIKELY( fd_memeq( keys->key[ idx ].uc, key->uc, sizeof(fd_pubkey_t) ) ) ) return 1;
+    if( FD_LIKELY( keys->used[ idx ]==STRMK_KEY_FREE ) ) break;
+    if( FD_UNLIKELY( fd_memeq( keys->key[ idx ].uc, key->uc, sizeof(fd_pubkey_t) ) ) ) {
+      keys->used[ idx ] = fd_uchar_max( keys->used[ idx ], kind );
+      return 1;
+    }
     idx = (idx+1UL) & mask;
   }
   if( FD_UNLIKELY( block->key_cnt>=STRMK_BLOCK_KEY_MAX ) ) {
     block->overflow = 1;
     return 0;
   }
-  keys->used[ idx ] = 1;
+  keys->used[ idx ] = kind;
   keys->key [ idx ] = *key;
   block->key_cnt++;
   return 1;
@@ -1035,17 +1058,21 @@ strmk_write_key( fd_strmk_t *        ctx,
    Nothing is followed past that, which is as far as a transaction can
    reach.
 
-   An account the streams carried as a lookup table is read again even
-   though they have it, because its addresses can have been added
-   since, and a stream has to carry those as well. */
+   table says a block named this account as a lookup table replay
+   could not expand, in which case its addresses have to come from
+   here whether or not the streams carry the table already: the table
+   may not even have existed at their slot.  The mark the streams keep
+   on the tables they carried is the fallback for a table that arrived
+   as an ordinary key, which is how replay sends one it did expand. */
 
 static void
 strmk_write_account( fd_strmk_t *        ctx,
                      uint                take,
                      fd_accdb_fork_id_t  fork,
                      fd_pubkey_t const * key,
-                     ulong               slot ) {
-  int   force = strmk_key_table( ctx, take, key );
+                     ulong               slot,
+                     int                 table ) {
+  int   force = table || strmk_key_table( ctx, take, key );
   ulong cnt   = strmk_write_key( ctx, take, fork, key, slot, force, ctx->follow[ 0 ] );
   for( ulong i=0UL; i<cnt; i++ ) {
     fd_pubkey_t next = ctx->follow[ 0 ][ i ];
@@ -1091,8 +1118,9 @@ strmk_block_read( fd_strmk_t *          ctx,
                   strmk_block_t const * block ) {
   strmk_keyset_t const * keys = block->keys;
   for( ulong i=0UL; i<STRMK_BLOCK_SLOT_MAX; i++ ) {
-    if( FD_LIKELY( !keys->used[ i ] ) ) continue;
-    strmk_write_account( ctx, take, block->parent_fork, &keys->key[ i ], block->slot );
+    if( FD_LIKELY( keys->used[ i ]==STRMK_KEY_FREE ) ) continue;
+    strmk_write_account( ctx, take, block->parent_fork, &keys->key[ i ], block->slot,
+                         keys->used[ i ]==STRMK_KEY_TABLE );
   }
 }
 
@@ -1168,6 +1196,23 @@ strmk_fork_live( fd_strmk_t *          ctx,
   ulong state = FD_VOLATILE_CONST( parent->state );
   if( FD_UNLIKELY( state==FD_BANK_STATE_DEAD || state==FD_BANK_STATE_PRUNABLE ) ) return 0;
   return 1;
+}
+
+/* strmk_stream_discard throws away what one stream staged and closes
+   it, because a fork it had to read turned out to be gone.  Only that
+   stream is affected: it is the one still being opened, and the
+   streams already being served have the block. */
+
+static void
+strmk_stream_discard( fd_strmk_t *          ctx,
+                      fd_stem_context_t *   stem,
+                      uint                  idx,
+                      strmk_block_t const * block ) {
+  FD_LOG_WARNING(( "the fork slot %lu was read at is gone, not starting the boot stream at slot %lu",
+                   block->slot, ctx->stream[ idx ].slot_x ));
+  ctx->stream[ idx ].raw_sz = 0UL;
+  ctx->stream[ idx ].vec_id = 0UL;
+  if( FD_UNLIKELY( strmk_stream_close( ctx, stem, idx, 1 ) ) ) strmk_index_write( ctx );
 }
 
 /* strmk_block_discard throws away what a block staged, because the
@@ -1250,14 +1295,14 @@ strmk_backlog_write( fd_strmk_t *        ctx,
     strmk_block_t const * block = &ctx->block[ ctx->retain[ r%STRMK_BLOCK_RETAIN_MAX ] ];
     if( FD_LIKELY( !block->linked ) ) continue;
     if( FD_UNLIKELY( !strmk_fork_live( ctx, block ) ) ) {
-      strmk_block_discard( ctx, stem, block );
+      strmk_stream_discard( ctx, stem, idx, block );
       return 0;
     }
     strmk_block_read( ctx, take, block );
     /* The fork could have been reclaimed while the accounts were being
        read, which makes what they staged worthless. */
     if( FD_UNLIKELY( !strmk_fork_live( ctx, block ) ) ) {
-      strmk_block_discard( ctx, stem, block );
+      strmk_stream_discard( ctx, stem, idx, block );
       return 0;
     }
     strmk_block_flush( ctx, stem, take, 0, block );
@@ -1289,7 +1334,7 @@ strmk_bundle( fd_strmk_t *       ctx,
   uint             take   = 1U<<idx;
 
   for( ulong i=0UL; i<FD_SYSVAR_CACHE_ENTRY_CNT; i++ ) {
-    strmk_write_account( ctx, take, fork, &fd_sysvar_key_tbl[ i ], stream->slot_x );
+    strmk_write_account( ctx, take, fork, &fd_sysvar_key_tbl[ i ], stream->slot_x, 0 );
   }
 
   /* The alpenglow native accounts, which the runtime reads outside any
@@ -1298,13 +1343,13 @@ strmk_bundle( fd_strmk_t *       ctx,
   for( ulong i=0UL; i<3UL; i++ ) {
     fd_pubkey_t pda;
     fd_alpenglow_pda( pda_seed[ i ], &pda );
-    strmk_write_account( ctx, take, fork, &pda, stream->slot_x );
+    strmk_write_account( ctx, take, fork, &pda, stream->slot_x, 0 );
   }
 
   for( fd_feature_id_t const * id = fd_feature_iter_init();
        !fd_feature_iter_done( id );
        id = fd_feature_iter_next( id ) ) {
-    strmk_write_account( ctx, take, fork, &id->id, stream->slot_x );
+    strmk_write_account( ctx, take, fork, &id->id, stream->slot_x, 0 );
   }
 
   /* The manifest names a vote account for every entry of every epoch
@@ -1322,8 +1367,8 @@ strmk_bundle( fd_strmk_t *       ctx,
       fd_pubkey_t node;
       fd_vote_stakes_iter_ele( vote_stakes, fork_id, kind, iter, &vote, &node, NULL,
                                NULL, NULL, NULL, NULL, NULL, NULL, NULL );
-      strmk_write_account( ctx, take, fork, &vote, stream->slot_x );
-      strmk_write_account( ctx, take, fork, &node, stream->slot_x );
+      strmk_write_account( ctx, take, fork, &vote, stream->slot_x, 0 );
+      strmk_write_account( ctx, take, fork, &node, stream->slot_x, 0 );
     }
   }
 
@@ -1490,7 +1535,18 @@ strmk_txn_keys( fd_strmk_t *                ctx,
                 fd_strmk_txn_keys_t const * msg ) {
   strmk_block_t * block = strmk_block_bank( ctx, msg->bank_idx );
   if( FD_UNLIKELY( !block ) ) return;
-  for( ulong i=0UL; i<(ulong)msg->key_cnt; i++ ) strmk_block_key_add( block, &msg->keys[ i ] );
+  for( ulong i=0UL; i<(ulong)msg->key_cnt; i++ ) strmk_block_key_add( block, &msg->keys[ i ], 0 );
+}
+
+/* strmk_txn_tables takes the lookup tables replay could not expand,
+   which the tile expands itself when it writes the block. */
+
+static void
+strmk_txn_tables( fd_strmk_t *                ctx,
+                  fd_strmk_txn_keys_t const * msg ) {
+  strmk_block_t * block = strmk_block_bank( ctx, msg->bank_idx );
+  if( FD_UNLIKELY( !block ) ) return;
+  for( ulong i=0UL; i<(ulong)msg->key_cnt; i++ ) strmk_block_key_add( block, &msg->keys[ i ], 1 );
 }
 
 static void
@@ -1511,7 +1567,7 @@ strmk_block_end( fd_strmk_t *                 ctx,
 
   /* The fee collector is credited at block end without a transaction
      naming it. */
-  strmk_block_key_add( block, &msg->collector );
+  strmk_block_key_add( block, &msg->collector, 0 );
   if( FD_UNLIKELY( block->overflow ) ) {
     FD_LOG_WARNING(( "slot %lu touched more than %lu accounts, resetting the boot streams", msg->slot, STRMK_BLOCK_KEY_MAX ));
     strmk_bank_release( ctx, stem, block->hold_token );
@@ -1629,6 +1685,9 @@ after_frag( fd_strmk_t *        ctx,
     break;
   case FD_STRMK_SIG_TXN_KEYS:
     strmk_txn_keys( ctx, (fd_strmk_txn_keys_t const *)ctx->frag );
+    break;
+  case FD_STRMK_SIG_TXN_TABLES:
+    strmk_txn_tables( ctx, (fd_strmk_txn_keys_t const *)ctx->frag );
     break;
   case FD_STRMK_SIG_BLOCK_END:
     strmk_block_end( ctx, stem, (fd_strmk_block_end_t const *)ctx->frag, 0 );

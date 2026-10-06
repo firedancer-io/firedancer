@@ -74,6 +74,7 @@ static fd_pubkey_t mock_shaped_key;
 static fd_pubkey_t mock_shaped_owner;
 static uchar       mock_shaped_data[ 4096 ];
 static ulong       mock_shaped_len;
+static ushort      mock_shaped_fork; /* the fork it was created at */
 static int         mock_shaped;
 
 static int
@@ -87,6 +88,10 @@ mock_accdb_read_one_nocache( fd_accdb_t *       accdb,
                              ulong *            out_data_len ) {
   (void)accdb;
   if( FD_UNLIKELY( mock_shaped && !memcmp( pubkey, mock_shaped_key.uc, sizeof(fd_pubkey_t) ) ) ) {
+    if( FD_UNLIKELY( fork_id.val<mock_shaped_fork ) ) {
+      *out_lamports = 0UL;
+      return FD_ACCDB_READ_ONE_NOCACHE_MISS;
+    }
     *out_lamports   = 1000UL + (ulong)fork_id.val;
     *out_executable = 0;
     memcpy( out_owner, mock_shaped_owner.uc, sizeof(fd_pubkey_t) );
@@ -555,10 +560,10 @@ backlog_retain( ulong slot,
 
   fd_pubkey_t key = {{ 0 }};
   FD_STORE( ulong, key.uc, slot );
-  FD_TEST( strmk_block_key_add( block, &key ) );
+  FD_TEST( strmk_block_key_add( block, &key, 0 ) );
   /* a key every block touches, so the sent set has to dedup it */
   fd_pubkey_t shared = {{ 7 }};
-  FD_TEST( strmk_block_key_add( block, &shared ) );
+  FD_TEST( strmk_block_key_add( block, &shared, 0 ) );
 
   strmk_block_retain( ctx, block );
   return block;
@@ -616,7 +621,7 @@ FD_UNIT_TEST( backlog_order ) {
 
   /* the bundle of the stream's own slot comes first */
   fd_pubkey_t bundle = {{ 3 }};
-  strmk_write_account( ctx, 1U, (fd_accdb_fork_id_t){ (ushort)TEST_SLOT_X }, &bundle, TEST_SLOT_X );
+  strmk_write_account( ctx, 1U, (fd_accdb_fork_id_t){ (ushort)TEST_SLOT_X }, &bundle, TEST_SLOT_X, 0 );
   strmk_appendvec_flush( ctx, stream, TEST_SLOT_X, 0UL );
 
   FD_TEST( strmk_backlog_write( ctx, NULL, 0U ) );
@@ -633,7 +638,7 @@ FD_UNIT_TEST( backlog_order ) {
   live->parent_fork     = (fd_accdb_fork_id_t){ 104 };
   fd_pubkey_t key = {{ 0 }};
   FD_STORE( ulong, key.uc, 104UL );
-  FD_TEST( strmk_block_key_add( live, &key ) );
+  FD_TEST( strmk_block_key_add( live, &key, 0 ) );
   FD_TEST( strmk_block_takers( ctx, live )==1U );
   strmk_block_read ( ctx, 1U, live );
   strmk_block_flush( ctx, NULL, 1U, 0, live );
@@ -718,6 +723,7 @@ FD_UNIT_TEST( lookup_table ) {
   mock_shaped_key   = table;
   mock_shaped_owner = fd_solana_address_lookup_table_program_id;
   mock_shaped_len   = FD_LOOKUP_TABLE_META_SIZE + sizeof(addr);
+  mock_shaped_fork  = 0;
   FD_TEST( mock_shaped_len<=sizeof(mock_shaped_data) );
   memset( mock_shaped_data, 0, mock_shaped_len );
   memcpy( mock_shaped_data+FD_LOOKUP_TABLE_META_SIZE, addr, sizeof(addr) );
@@ -731,7 +737,7 @@ FD_UNIT_TEST( lookup_table ) {
   block->parent_bank_seq = 10UL;
   block->parent_fork     = (fd_accdb_fork_id_t){ (ushort)TEST_SLOT };
   mock_bank_add( 10UL );
-  FD_TEST( strmk_block_key_add( block, &table ) );
+  FD_TEST( strmk_block_key_add( block, &table, 0 ) );
 
   strmk_block_read ( ctx, 1U, block );
   strmk_block_flush( ctx, NULL, 1U, 0, block );
@@ -806,6 +812,7 @@ FD_UNIT_TEST( open_cost ) {
   mock_shaped_key   = (fd_pubkey_t){{ 0x61 }};
   mock_shaped_owner = fd_solana_system_program_id;
   mock_shaped_len   = 0UL;
+  mock_shaped_fork  = 0;
   for( ulong i=0UL; i<OPEN_BUNDLE_CNT; i++ ) {
     fd_pubkey_t key = {{ 0 }};
     FD_STORE( ulong, key.uc, fd_ulong_hash( i ) );
@@ -813,7 +820,7 @@ FD_UNIT_TEST( open_cost ) {
     mock_shaped_len = OPEN_BUNDLE_SZ;
     mock_shaped     = 1;
     memcpy( mock_shaped_data, fill+i, OPEN_BUNDLE_SZ );
-    strmk_write_account( ctx, 1U, (fd_accdb_fork_id_t){ 1 }, &key, TEST_SLOT_X );
+    strmk_write_account( ctx, 1U, (fd_accdb_fork_id_t){ 1 }, &key, TEST_SLOT_X, 0 );
   }
   mock_shaped = 0;
   strmk_appendvec_flush( ctx, stream, TEST_SLOT_X, 0UL );
@@ -897,7 +904,7 @@ FD_UNIT_TEST( sent_set_full_breaks ) {
   for( ulong i=0UL; i<24UL; i++ ) {
     fd_pubkey_t key = {{ 0 }};
     FD_STORE( ulong, key.uc, fd_ulong_hash( i ) );
-    FD_TEST( strmk_block_key_add( block, &key ) );
+    FD_TEST( strmk_block_key_add( block, &key, 0 ) );
   }
 
   strmk_block_read( ctx, 1U, block );
@@ -919,11 +926,12 @@ FD_UNIT_TEST( lookup_table_grows ) {
   mock_shaped_key   = table;
   mock_shaped_owner = fd_solana_address_lookup_table_program_id;
   mock_shaped_len   = FD_LOOKUP_TABLE_META_SIZE + 2UL*sizeof(fd_pubkey_t);
+  mock_shaped_fork  = 0;
   memset( mock_shaped_data, 0, sizeof(mock_shaped_data) );
   memcpy( mock_shaped_data+FD_LOOKUP_TABLE_META_SIZE, addr, 2UL*sizeof(fd_pubkey_t) );
   mock_shaped = 1;
 
-  strmk_write_account( ctx, 1U, (fd_accdb_fork_id_t){ 1 }, &table, 101UL );
+  strmk_write_account( ctx, 1U, (fd_accdb_fork_id_t){ 1 }, &table, 101UL, 0 );
   FD_TEST(  strmk_sent_test( stream, BACKLOG_KEY_MAX, &addr[ 0 ] ) );
   FD_TEST(  strmk_sent_test( stream, BACKLOG_KEY_MAX, &addr[ 1 ] ) );
   FD_TEST( !strmk_sent_test( stream, BACKLOG_KEY_MAX, &addr[ 2 ] ) );
@@ -936,10 +944,111 @@ FD_UNIT_TEST( lookup_table_grows ) {
   /* the table gains a third address after the stream opened */
   mock_shaped_len = FD_LOOKUP_TABLE_META_SIZE + 3UL*sizeof(fd_pubkey_t);
   memcpy( mock_shaped_data+FD_LOOKUP_TABLE_META_SIZE, addr, 3UL*sizeof(fd_pubkey_t) );
-  strmk_write_account( ctx, 1U, (fd_accdb_fork_id_t){ 1 }, &table, 102UL );
+  strmk_write_account( ctx, 1U, (fd_accdb_fork_id_t){ 1 }, &table, 102UL, 0 );
   FD_TEST( strmk_sent_test( stream, BACKLOG_KEY_MAX, &addr[ 2 ] ) );
   mock_shaped = 0;
 
+  backlog_env_destroy();
+}
+
+/* A lookup table that did not exist when the stream started is carried
+   as a record saying so, and the blocks that use it later still get
+   its addresses: replay names it as a table it could not expand, and
+   the tile reads it at the fork of the block that named it. */
+
+FD_UNIT_TEST( table_created_after_open ) {
+  backlog_env( BACKLOG_KEY_MAX );
+
+  fd_pubkey_t table   = {{ 0x41 }};
+  fd_pubkey_t addr[ 2 ] = { {{ 0x51 }}, {{ 0x52 }} };
+  mock_shaped_key   = table;
+  mock_shaped_owner = fd_solana_address_lookup_table_program_id;
+  mock_shaped_len   = FD_LOOKUP_TABLE_META_SIZE + sizeof(addr);
+  mock_shaped_fork  = 102; /* the table is created at fork 102 */
+  memset( mock_shaped_data, 0, sizeof(mock_shaped_data) );
+  memcpy( mock_shaped_data+FD_LOOKUP_TABLE_META_SIZE, addr, sizeof(addr) );
+  mock_shaped = 1;
+
+  /* a block whose parent fork is older than the table names it */
+  strmk_block_t * before = strmk_block_alloc( ctx );
+  FD_TEST( before );
+  before->slot            = 101UL;
+  before->bank_idx        = 11UL;
+  before->bank_seq        = 11UL;
+  before->parent_bank_idx = 10UL;
+  before->parent_bank_seq = 10UL;
+  before->parent_fork     = (fd_accdb_fork_id_t){ 101 };
+  FD_TEST( strmk_block_key_add( before, &table, 1 ) );
+  strmk_block_read( ctx, 1U, before );
+
+  /* the stream carries the table as a record saying it was not there,
+     so nothing marks it and nothing was expanded */
+  FD_TEST(  strmk_sent_test ( stream, BACKLOG_KEY_MAX, &table     ) );
+  FD_TEST( !strmk_sent_table( stream, BACKLOG_KEY_MAX, &table     ) );
+  FD_TEST( !strmk_sent_test ( stream, BACKLOG_KEY_MAX, &addr[ 0 ] ) );
+
+  /* a later block names it again, and by then it exists */
+  strmk_block_t * after = strmk_block_alloc( ctx );
+  FD_TEST( after );
+  after->slot            = 103UL;
+  after->bank_idx        = 13UL;
+  after->bank_seq        = 13UL;
+  after->parent_bank_idx = 11UL;
+  after->parent_bank_seq = 11UL;
+  after->parent_fork     = (fd_accdb_fork_id_t){ 103 };
+  FD_TEST( strmk_block_key_add( after, &table, 1 ) );
+  strmk_block_read( ctx, 1U, after );
+
+  FD_TEST( strmk_sent_test( stream, BACKLOG_KEY_MAX, &addr[ 0 ] ) );
+  FD_TEST( strmk_sent_test( stream, BACKLOG_KEY_MAX, &addr[ 1 ] ) );
+  mock_shaped = 0;
+
+  backlog_env_destroy();
+}
+
+/* A fork that is gone while a stream is being opened stops that
+   stream and leaves the ones already being served alone. */
+
+FD_UNIT_TEST( backlog_failure_keeps_streams ) {
+  backlog_env( BACKLOG_KEY_MAX );
+
+  /* a second stream, the one being opened */
+  strmk_stream_t * opening = &ctx->stream[ 1 ];
+  ctx->stream_max = 2U;
+  opening->raw = mmap( NULL, STRMK_RAW_BUF_SZ, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0 );
+  FD_TEST( opening->raw!=MAP_FAILED );
+  ulong zst_sz = ZSTD_estimateCStreamSize( FD_BACKUP_ZSTD_LEVEL );
+  void * zst = aligned_alloc( 64UL, fd_ulong_align_up( zst_sz, 64UL ) );
+  FD_TEST( zst );
+  opening->zst = ZSTD_initStaticCStream( zst, zst_sz );
+  FD_TEST( opening->zst );
+  opening->sent = aligned_alloc( alignof(strmk_sent_t), BACKLOG_KEY_MAX*sizeof(strmk_sent_t) );
+  FD_TEST( opening->sent );
+  memset( opening->sent, 0, BACKLOG_KEY_MAX*sizeof(strmk_sent_t) );
+  memset( opening->carried, 0xff, sizeof(opening->carried) );
+  opening->fd        = memfd_create( "boot-stream-2", 0U );
+  FD_TEST( opening->fd>=0 );
+  opening->open      = 1;
+  opening->published = 0;
+  opening->slot_x    = TEST_SLOT_X;
+  opening->bank_idx  = 10UL;
+  opening->bank_seq  = 10UL;
+
+  /* two kept blocks, the second of which chains off a bank that died */
+  backlog_retain( 101UL, 11UL, 10UL, TEST_SLOT_X );
+  backlog_retain( 102UL, 12UL, 11UL, 101UL      );
+  FD_TEST( strmk_backlog_link( ctx, TEST_SLOT_X, 10UL, 10UL ) );
+  mock_bank[ 11 ]->state = FD_BANK_STATE_DEAD;
+
+  FD_TEST( !strmk_backlog_write( ctx, NULL, 1U ) );
+  FD_TEST( !opening->open );
+  FD_TEST(  stream->open );
+
+  FD_TEST( !close( opening->fd ) );
+  FD_TEST( !munmap( opening->raw, STRMK_RAW_BUF_SZ ) );
+  free( opening->sent );
+  free( zst );
+  ctx->stream_max = 1U;
   backlog_env_destroy();
 }
 
