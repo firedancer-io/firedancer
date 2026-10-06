@@ -98,7 +98,9 @@ ag_votor_set_rank( ag_votor_t * self,
    it voted notar or skip in, since the new identity may have voted in
    that window on another machine.  It also signs none below
    wait_to_vote_slot, which the new identity's vote history file gives
-   (0 if none).  Like Agave's --wait-to-vote-slot. */
+   (0 if none).  Like Agave's --wait-to-vote-slot.  The votes cast so
+   far leave the vote history, so the new identity's file has only its
+   own. */
 
 void
 ag_votor_wait_to_vote( ag_votor_t * self,

@@ -762,11 +762,13 @@ test_id_keyswitch( void ) {
   connect_peers( &ctx, fd_clock_tile_now( ctx.clock ) );
   FD_TEST( !peer->tx_conn );
 
-  /* The admin tile switches the sign tile's keys, then resumes votor. */
+  /* The admin tile switches the sign tile's keys, then resumes votor,
+     which drops the old identity's votes from the vote history. */
 
   fd_keyswitch_state( ctx.id_keyswitch, FD_KEYSWITCH_STATE_UNHALT_PENDING );
   during_housekeeping( &ctx );
   FD_TEST( ctx.id_keyswitch->state==FD_KEYSWITCH_STATE_COMPLETED );
+  FD_TEST( !ag_votor_vote_history( ctx.votor, ctx.vote_history ) && !ctx.vote_history->votes_cast_cnt );
   FD_TEST( !before_frag( &ctx, 0UL, 0UL, net_sig ) );
   FD_TEST( paths_idx_of( &ctx, bls_keys[1] )==ULONG_MAX && paths_idx_of( &ctx, bls_keys[0] )==(ulong)LONG_MAX );
   FD_TEST( ag_pool_slot_state( ctx.pool, 1UL )->own_rank==1UL );
@@ -794,6 +796,33 @@ test_id_keyswitch( void ) {
   FD_TEST( ag_vote_slot( &vote )==4UL && ag_vote_rank( &vote )==1UL );
   FD_TEST( !memcmp( last_bls_signer, bls_keys[1], sizeof(ag_bls_key_t) ) );
   FD_TEST( !ag_votor_metrics( ctx.votor ).vote_events_cnt );
+
+  /* A switch whose vote history file floor is past the next window
+     leads from the floor. */
+
+  FD_STORE( ulong, ctx.id_keyswitch->bytes+40UL, 16UL );
+  fd_keyswitch_state( ctx.id_keyswitch, FD_KEYSWITCH_STATE_SWITCH_PENDING );
+  during_housekeeping( &ctx );
+  FD_TEST( ctx.id_keyswitch->state==FD_KEYSWITCH_STATE_COMPLETED && ctx.next_leader_slot==16UL );
+
+  /* A floor in an epoch whose leader schedule is not known yet leaves
+     no leader slot, and the epoch update that brings the schedule
+     leads from the floor. */
+
+  FD_STORE( ulong, ctx.id_keyswitch->bytes+40UL, 72UL ); /* epoch 1 starts at slot 64, not yet tracked */
+  fd_keyswitch_state( ctx.id_keyswitch, FD_KEYSWITCH_STATE_SWITCH_PENDING );
+  during_housekeeping( &ctx );
+  FD_TEST( ctx.id_keyswitch->state==FD_KEYSWITCH_STATE_COMPLETED && ctx.wait_to_vote_slot==72UL && ctx.next_leader_slot==ULONG_MAX );
+
+  static uchar epoch_msg_mem[ FD_EPOCH_INFO_MSG_HEADER_SZ+sizeof(fd_vote_stake_weight_t) ] __attribute__((aligned(8)));
+  fd_epoch_info_msg_t * epoch_msg = fd_type_pun( epoch_msg_mem );
+  *epoch_msg = (fd_epoch_info_msg_t){ .epoch = 1UL, .staked_vote_cnt = 1UL, .start_slot = 64UL, .slot_cnt = 64UL, .ns_per_slot = 400000000UL };
+  fd_vote_stake_weight_t * epoch_weight = fd_epoch_info_msg_stake_weights( epoch_msg );
+  *epoch_weight = (fd_vote_stake_weight_t){ .vote_key = new_id, .id_key = new_id, .stake = 10UL }; /* the new identity still leads every slot */
+  memcpy( epoch_weight->bls_key, epoch_info->validators[1].bls_key, sizeof(ag_bls_key_t) );
+  handle_epoch( &ctx, epoch_msg );
+  FD_TEST( ctx.next_epoch_slot==64UL && fd_multi_epoch_leaders_get_next_slot( ctx.mleaders, 64UL, &new_id )==64UL );
+  FD_TEST( ctx.next_leader_slot==72UL );
 
   ag_pool_delete( ag_pool_leave( ctx.pool ) );
   ag_votor_delete( ag_votor_leave( ctx.votor ) );
@@ -1561,11 +1590,16 @@ test_vote_history_write( void ) {
     FD_TEST( ctx.metrics.vote_history_slot==ULONG_MAX && !ctx.metrics.vote_history_sz );
   }
 
-  /* and written again once the history fits */
+  /* and written again once the history fits.  After skips through slot
+     3, a late fallback for slot 2 leaves the gauge at slot 3. */
 
   ctx.votor = ag_votor_join( ag_votor_new( votor_scratch, 64UL, 42UL ) );
   ag_votor_init( ctx.votor, &(ag_block_id_t){ .slot = 0UL }, 0L, 400000000L, (ushort)1, capture_sign_bls, NULL );
-  ctx.vote_history_pending = 3UL;
+  ag_votor_advance_epoch( ctx.votor, 400000000L, 0UL, 0UL, bls_key[0] );
+  ag_votor_handle_skip_timeout( ctx.votor, 3UL );
+  ag_pool_event_t late = { .kind = AG_POOL_EVENT_SAFE_TO_NOTAR, .safe_to_notar = { .slot = 2UL } };
+  ag_votor_handle_pool_event( ctx.votor, &late, 0L );
+  ctx.vote_history_pending = 2UL;
   vote_history_write( &ctx );
   FD_TEST( file_is( dir_fd, name[ 1 ][ 1 ], NULL, &id[ 1 ] ) );
   FD_TEST( !ctx.vote_history_empty && ctx.metrics.vote_history_write==3UL && ctx.metrics.vote_history_slot==3UL );

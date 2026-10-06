@@ -118,7 +118,7 @@ enum {
 
 #define FD_METRICS_GAUGE_VOTOR_VOTE_HISTORY_FILE_SLOT_NAME "votor_vote_history_file_slot"
 #define FD_METRICS_GAUGE_VOTOR_VOTE_HISTORY_FILE_SLOT_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_VOTOR_VOTE_HISTORY_FILE_SLOT_DESC "Newest vote slot in the last written vote history file, ULONG_MAX if not written yet or emptied"
+#define FD_METRICS_GAUGE_VOTOR_VOTE_HISTORY_FILE_SLOT_DESC "Newest vote slot in the last written vote history file, ULONG_MAX if not written yet, emptied, or without votes"
 #define FD_METRICS_GAUGE_VOTOR_VOTE_HISTORY_FILE_SLOT_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_GAUGE_VOTOR_VOTE_HISTORY_FILE_SIZE_BYTES_NAME "votor_vote_history_file_size_bytes"

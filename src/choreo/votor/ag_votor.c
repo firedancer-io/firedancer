@@ -662,12 +662,13 @@ ag_votor_wait_to_vote( ag_votor_t * self,
                        ulong        wait_to_vote_slot ) {
   self->wait_to_vote_slot = fd_ulong_max( self->wait_to_vote_slot, wait_to_vote_slot );
   slot_state_map_t const * map  = self->slot_states->map;
-  slot_state_ele_t const * pool = self->slot_states->pool;
+  slot_state_ele_t *       pool = self->slot_states->pool;
   for( slot_state_map_iter_t iter = slot_state_map_iter_init( map, pool );
                                    !slot_state_map_iter_done( iter, map, pool );
                              iter = slot_state_map_iter_next( iter, map, pool ) ) {
-    slot_state_ele_t const * state = slot_state_map_iter_ele_const( iter, map, pool );
+    slot_state_ele_t * state = slot_state_map_iter_ele( iter, map, pool );
     if( state->voted ) self->wait_to_vote_slot = fd_ulong_max( self->wait_to_vote_slot, ag_first_slot_in_window( state->slot )+AG_SLOTS_PER_WINDOW );
+    state->vote_cnt = 0;
   }
 }
 
@@ -835,7 +836,7 @@ ag_votor_vote_history( ag_votor_t const *       self,
   uint const voted   = (1U<<AG_VOTE_KIND_NOTAR) | (1U<<AG_VOTE_KIND_SKIP);
   uint const skipped = (1U<<AG_VOTE_KIND_SKIP)  | (1U<<AG_VOTE_KIND_NOTAR_FALLBACK) | (1U<<AG_VOTE_KIND_SKIP_FALLBACK);
 
-  ulong root = self->root;
+  ulong root = self->highest_final_cert_slot;
   FD_TEST( root!=ULONG_MAX ); /* initialized */
 
   slot_state_map_t const * map  = self->slot_states->map;

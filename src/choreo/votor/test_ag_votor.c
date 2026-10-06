@@ -866,7 +866,8 @@ test_vote_history_ser( void ) {
   FD_TEST( out.notarized_blocks_cnt==2UL && out.notarized_blocks[ 0 ].slot==0UL && out.notarized_blocks[ 1 ].slot==1UL );
   FD_TEST( out.parent_ready_cnt==1UL && out.parent_ready[ 0 ].slot==4UL && out.parent_ready[ 0 ].block.slot==3UL && !memcmp( out.parent_ready[ 0 ].block.hash, ready.hash, 32UL ) );
 
-  /* a final cert for slot 16 prunes everything below window start 8 */
+  /* a final cert for slot 16 makes it the root, and prunes everything
+     below window start 8 */
 
   ag_vote_t fv = ag_vote_construct_final( sec_sign_fn, &g_sk[1], test_bls_public_key, 16UL, (ushort)1, TEST_SHRED_VERSION );
   event = (ag_pool_event_t){ .kind = AG_POOL_EVENT_CERT_CREATED, .cert_created = cert_build_final( &fv.final, 1UL, g_epoch_info ) };
@@ -875,7 +876,7 @@ test_vote_history_ser( void ) {
   sz = ag_vote_history_file_ser( &vh, keypair+32UL, buf, sizeof(buf) );
   fd_ed25519_sign( buf+AG_VOTE_HISTORY_FILE_SIG_OFF, buf+AG_VOTE_HISTORY_FILE_DATA_OFF, sz-AG_VOTE_HISTORY_FILE_DATA_OFF, keypair+32UL, keypair, sha );
   FD_TEST( ag_vote_history_file_de( buf, sz, keypair+32UL, &out )==AG_VOTE_HISTORY_FILE_SUCCESS );
-  FD_TEST( out.root==8UL && !out.voted_cnt && !out.votes_cast_cnt && !out.notarized_blocks_cnt && !out.parent_ready_cnt );
+  FD_TEST( out.root==16UL && !out.voted_cnt && !out.votes_cast_cnt && !out.notarized_blocks_cnt && !out.parent_ready_cnt );
 
   teardown_votor( votor );
 }
