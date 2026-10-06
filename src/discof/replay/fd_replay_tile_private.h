@@ -460,6 +460,7 @@ struct fd_replay_tile {
   struct {
     int   pending;
     ulong bank_idx;
+    ulong bank_seq;
     ulong parent_bank_idx;
     ulong slot;
   } held_block_start;

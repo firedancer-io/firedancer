@@ -2928,7 +2928,7 @@ block_needs_stake_state( fd_replay_tile_t * ctx,
                          ulong              parent_bank_idx,
                          ulong              slot ) {
   fd_bank_t * parent = fd_banks_bank_query( ctx->banks, parent_bank_idx );
-  if( FD_UNLIKELY( !parent ) ) return 1;
+  FD_TEST( parent );
   if( FD_UNLIKELY( fd_slot_to_epoch( &parent->f.epoch_schedule, slot, NULL )>parent->f.epoch ) ) return 1;
   if( FD_UNLIKELY( parent->stake_rewards_fork_id!=USHORT_MAX ) ) return 1;
   /* The same read fd_rewards_recalculate_partitioned_rewards does to
@@ -2954,6 +2954,27 @@ block_start_blocked( fd_replay_tile_t * ctx,
   return block_needs_stake_state( ctx, parent_bank_idx, slot );
 }
 
+/* held_block_start_live returns 1 if the parked block start can still
+   be completed, and otherwise drops it.  The scheduler completes a
+   block start against whatever block it is handing out tasks for, so
+   if the block was abandoned or its bank evicted during the hold, the
+   completion would land on an unrelated block.  The scheduler has
+   already cleaned such a block up and will hand out the next start. */
+
+static int
+held_block_start_live( fd_replay_tile_t * ctx ) {
+  fd_bank_t * bank = fd_banks_bank_query( ctx->banks, ctx->held_block_start.bank_idx );
+  if( FD_LIKELY( fd_sched_active_bank_idx( ctx->sched )==ctx->held_block_start.bank_idx &&
+                 bank &&
+                 bank->bank_seq==ctx->held_block_start.bank_seq &&
+                 bank->state==FD_BANK_STATE_INIT ) ) {
+    return 1;
+  }
+  FD_LOG_INFO(( "instant boot: held block start for slot %lu was abandoned", ctx->held_block_start.slot ));
+  ctx->held_block_start.pending = 0;
+  return 0;
+}
+
 static int
 try_replay( fd_replay_tile_t *  ctx,
             fd_stem_context_t * stem ) {
@@ -2965,13 +2986,17 @@ try_replay( fd_replay_tile_t *  ctx,
   if( FD_UNLIKELY( ctx->alpenglow && !ctx->shred_version ) ) return 0;
 
   /* The scheduler hands out a block start only once, so a start the
-     gate held back is serviced from here once the gate opens. */
+     gate held back is serviced from here once the gate opens.  A start
+     that went stale is dropped and the normal path below picks up
+     whatever the scheduler hands out next. */
   if( FD_UNLIKELY( ctx->held_block_start.pending ) ) {
-    if( FD_UNLIKELY( block_start_blocked( ctx, ctx->held_block_start.parent_bank_idx, ctx->held_block_start.slot ) ) ) return 0;
-    replay_block_start( ctx, ctx->held_block_start.bank_idx, ctx->held_block_start.parent_bank_idx, ctx->held_block_start.slot );
-    fd_sched_task_done( ctx->sched, FD_SCHED_TT_BLOCK_START, ULONG_MAX, ULONG_MAX, NULL );
-    ctx->held_block_start.pending = 0;
-    return 1;
+    if( FD_LIKELY( held_block_start_live( ctx ) ) ) {
+      if( FD_UNLIKELY( block_start_blocked( ctx, ctx->held_block_start.parent_bank_idx, ctx->held_block_start.slot ) ) ) return 0;
+      replay_block_start( ctx, ctx->held_block_start.bank_idx, ctx->held_block_start.parent_bank_idx, ctx->held_block_start.slot );
+      fd_sched_task_done( ctx->sched, FD_SCHED_TT_BLOCK_START, ULONG_MAX, ULONG_MAX, NULL );
+      ctx->held_block_start.pending = 0;
+      return 1;
+    }
   }
 
   int charge_busy = 0;
@@ -2987,10 +3012,15 @@ try_replay( fd_replay_tile_t *  ctx,
       /* Park the start rather than complete it, so the scheduler keeps
          the block in flight while instant boot waits. */
       if( FD_UNLIKELY( block_start_blocked( ctx, task->block_start->parent_bank_idx, task->block_start->slot ) ) ) {
+        fd_bank_t * start_bank = fd_banks_bank_query( ctx->banks, task->block_start->bank_idx );
+        FD_TEST( start_bank );
         ctx->held_block_start.pending         = 1;
         ctx->held_block_start.bank_idx        = task->block_start->bank_idx;
+        ctx->held_block_start.bank_seq        = start_bank->bank_seq;
         ctx->held_block_start.parent_bank_idx = task->block_start->parent_bank_idx;
         ctx->held_block_start.slot            = task->block_start->slot;
+        /* Drop a start that is already unusable instead of parking it. */
+        held_block_start_live( ctx );
         break;
       }
       replay_block_start( ctx, task->block_start->bank_idx, task->block_start->parent_bank_idx, task->block_start->slot );
@@ -4008,7 +4038,9 @@ after_credit( fd_replay_tile_t *  ctx,
               int *               charge_busy ) {
   /* The background snapshot load finished, so the deferred startup
      work can run and every instant boot gate can open.  The counter
-     seeds ULONG_MAX, so only a 1 means done. */
+     seeds ULONG_MAX, so only a 1 means done.  The loader clears the
+     hide flag before it stores the 1, so by the time replay reads it
+     the deferred purges are legal. */
   if( FD_UNLIKELY( ctx->instant_boot && !ctx->load_done && ctx->is_booted &&
                    FD_VOLATILE_CONST( *ctx->instant_boot_done )==1UL ) ) {
     finish_stake_state( ctx );

@@ -1736,6 +1736,12 @@ fd_sched_block_is_discarded( fd_sched_t * sched, ulong bank_idx ) {
   return (int)block->discarded;
 }
 
+ulong
+fd_sched_active_bank_idx( fd_sched_t const * sched ) {
+  FD_TEST( sched->canary==FD_SCHED_MAGIC );
+  return sched->active_bank_idx;
+}
+
 void
 fd_sched_cancel( fd_sched_t * sched, ulong bank_idx ) {
   FD_TEST( sched->canary==FD_SCHED_MAGIC );

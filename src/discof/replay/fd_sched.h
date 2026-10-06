@@ -451,6 +451,12 @@ fd_sched_get_dead_reason( fd_sched_t * sched, ulong bank_idx );
 int
 fd_sched_block_is_discarded( fd_sched_t * sched, ulong bank_idx );
 
+/* fd_sched_active_bank_idx returns the bank index of the block whose
+   tasks the scheduler is currently handing out, or ULONG_MAX when
+   there is no such block. */
+ulong
+fd_sched_active_bank_idx( fd_sched_t const * sched );
+
 /* Prune the given block including descendants of it. */
 void
 fd_sched_cancel( fd_sched_t * sched, ulong bank_idx );

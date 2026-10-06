@@ -94,6 +94,13 @@ static ulong          mock_sched_task_done_type;
 static ulong          mock_sched_task_done_txn_idx;
 static ulong          mock_sched_task_done_exec_idx;
 static long           mock_sched_task_done_tick;
+static ulong          mock_sched_poh_params_cnt;
+static ulong          mock_sched_active_bank_idx = ULONG_MAX;
+/* One block start handed out on the next next_ready call. */
+static int            mock_sched_block_start_pending;
+static ulong          mock_sched_block_start_bank_idx;
+static ulong          mock_sched_block_start_parent_idx;
+static ulong          mock_sched_block_start_slot;
 
 int mock_sched_fec_ingest_fn( fd_sched_t * s, fd_sched_fec_t * f ) {
   (void)s; (void)f;
@@ -110,8 +117,21 @@ void  mock_sched_cancel_fn      ( fd_sched_t * s FD_PARAM_UNUSED, ulong i FD_PAR
 int   mock_sched_is_discarded_fn( fd_sched_t * s FD_PARAM_UNUSED, ulong i FD_PARAM_UNUSED ) { return 0; }
 ulong mock_sched_pruned_fn      ( fd_sched_t * s FD_PARAM_UNUSED ) { return ULONG_MAX; }
 void  mock_sched_metrics_fn     ( fd_sched_t * s FD_PARAM_UNUSED ) {}
-void  mock_sched_poh_fn         ( fd_sched_t * s FD_PARAM_UNUSED, ulong a FD_PARAM_UNUSED, ulong b FD_PARAM_UNUSED, ulong c FD_PARAM_UNUSED, ulong d FD_PARAM_UNUSED, fd_hash_t const * e FD_PARAM_UNUSED ) {}
-ulong mock_sched_task_next_fn   ( fd_sched_t * s FD_PARAM_UNUSED, fd_sched_task_t * t FD_PARAM_UNUSED ) { return 0UL; }
+/* fd_sched_set_poh_params is called once per replay_block_start and
+   from nowhere else, so this counts block starts. */
+void  mock_sched_poh_fn         ( fd_sched_t * s FD_PARAM_UNUSED, ulong a FD_PARAM_UNUSED, ulong b FD_PARAM_UNUSED, ulong c FD_PARAM_UNUSED, ulong d FD_PARAM_UNUSED, fd_hash_t const * e FD_PARAM_UNUSED ) {
+  mock_sched_poh_params_cnt++;
+}
+ulong mock_sched_active_bank_idx_fn( fd_sched_t const * s FD_PARAM_UNUSED ) { return mock_sched_active_bank_idx; }
+ulong mock_sched_task_next_fn   ( fd_sched_t * s FD_PARAM_UNUSED, fd_sched_task_t * t ) {
+  if( FD_LIKELY( !mock_sched_block_start_pending ) ) return 0UL;
+  mock_sched_block_start_pending  = 0;
+  t->task_type                    = FD_SCHED_TT_BLOCK_START;
+  t->block_start->bank_idx        = mock_sched_block_start_bank_idx;
+  t->block_start->parent_bank_idx = mock_sched_block_start_parent_idx;
+  t->block_start->slot            = mock_sched_block_start_slot;
+  return 1UL;
+}
 void  mock_sched_root_notify_fn ( fd_sched_t * s FD_PARAM_UNUSED, ulong i ) {
   mock_sched_root_notify_cnt++;
   mock_sched_root_notify_idx = i;
@@ -155,6 +175,7 @@ mock_sched_get_txn_info_fn( fd_sched_t * s FD_PARAM_UNUSED,
 #define fd_sched_metrics_write     mock_sched_metrics_fn
 #define fd_sched_set_poh_params    mock_sched_poh_fn
 #define fd_sched_task_next_ready   mock_sched_task_next_fn
+#define fd_sched_active_bank_idx   mock_sched_active_bank_idx_fn
 #define fd_sched_root_notify       mock_sched_root_notify_fn
 #define fd_sched_task_done         mock_sched_task_done_fn
 #define fd_sched_get_txn           mock_sched_get_txn_fn
@@ -492,6 +513,9 @@ setup_ctx_with_fork_width( fd_replay_tile_t * ctx,
   mock_epoch_boundary_overflow = 0;
   mock_leader_for_slot_override = 0;
   mock_leader_schedule_loaded   = 0;
+  mock_sched_poh_params_cnt      = 0UL;
+  mock_sched_active_bank_idx     = ULONG_MAX;
+  mock_sched_block_start_pending = 0;
 
   setup_node_info( ctx );
   setup_stem( ctx, wksp );
@@ -4676,6 +4700,112 @@ test_identity_switch_quiesces_replay( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_identity_switch_quiesces_replay" ));
 }
 
+/* ---- Instant boot ---- */
+
+static ulong instant_boot_slot_fseq;
+static ulong instant_boot_done_fseq;
+
+static fd_bank_t *
+setup_instant_boot( fd_replay_tile_t * ctx, fd_wksp_t * wksp ) {
+  setup_ctx( ctx, wksp );
+  instant_boot_slot_fseq = ULONG_MAX;
+  instant_boot_done_fseq = ULONG_MAX;
+  ctx->instant_boot      = 1;
+  ctx->load_done         = 0;
+  ctx->instant_boot_slot = &instant_boot_slot_fseq;
+  ctx->instant_boot_done = &instant_boot_done_fseq;
+
+  fd_bank_t * root = fd_banks_root( ctx->banks );
+  fd_bank_t * bank = fd_banks_new_bank( ctx->banks, root->idx, 0L, 0 );
+  FD_TEST( bank && bank->state==FD_BANK_STATE_INIT );
+
+  mock_sched_active_bank_idx        = bank->idx;
+  mock_sched_block_start_pending    = 1;
+  mock_sched_block_start_bank_idx   = bank->idx;
+  mock_sched_block_start_parent_idx = root->idx;
+  mock_sched_block_start_slot       = 1UL;
+  mock_sched_task_done_cnt          = 0UL;
+  return bank;
+}
+
+static void
+test_instant_boot_marker_gate( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  setup_instant_boot( ctx, wksp );
+
+  /* The stream has not reached the slot, so the start is parked. */
+  FD_TEST( try_replay( ctx, test_stem )==1 );
+  FD_TEST( ctx->held_block_start.pending );
+  FD_TEST( ctx->held_block_start.slot==1UL );
+  FD_TEST( mock_sched_task_done_cnt==0UL );
+  FD_TEST( mock_sched_poh_params_cnt==0UL );
+
+  /* Still parked while the marker sits behind the slot. */
+  instant_boot_slot_fseq = 0UL;
+  FD_TEST( try_replay( ctx, test_stem )==0 );
+  FD_TEST( ctx->held_block_start.pending );
+  FD_TEST( mock_sched_task_done_cnt==0UL );
+
+  /* The marker reaches the slot, so the start runs exactly once. */
+  instant_boot_slot_fseq = 1UL;
+  FD_TEST( try_replay( ctx, test_stem )==1 );
+  FD_TEST( !ctx->held_block_start.pending );
+  FD_TEST( mock_sched_poh_params_cnt==1UL );
+  FD_TEST( mock_sched_task_done_cnt==1UL );
+  FD_TEST( mock_sched_task_done_type==FD_SCHED_TT_BLOCK_START );
+
+  FD_LOG_NOTICE(( "pass: test_instant_boot_marker_gate" ));
+}
+
+static void
+test_instant_boot_held_start_abandoned( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  fd_bank_t * bank = setup_instant_boot( ctx, wksp );
+
+  FD_TEST( try_replay( ctx, test_stem )==1 );
+  FD_TEST( ctx->held_block_start.pending );
+  FD_TEST( ctx->held_block_start.bank_seq==bank->bank_seq );
+
+  /* The scheduler moved on, so the hold is dropped rather than
+     completed against whatever block is active now. */
+  instant_boot_slot_fseq     = 1UL;
+  mock_sched_active_bank_idx = fd_banks_root( ctx->banks )->idx;
+  FD_TEST( try_replay( ctx, test_stem )==0 );
+  FD_TEST( !ctx->held_block_start.pending );
+  FD_TEST( mock_sched_task_done_cnt==0UL );
+  FD_TEST( mock_sched_poh_params_cnt==0UL );
+
+  FD_LOG_NOTICE(( "pass: test_instant_boot_held_start_abandoned" ));
+}
+
+static void
+test_instant_boot_blocks_leadership( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  setup_ctx( ctx, wksp );
+
+  fd_hash_t mr_root = { .ul = { 100UL } };
+  init_root_fec( ctx, &mr_root );
+
+  instant_boot_done_fseq = ULONG_MAX;
+  ctx->instant_boot      = 1;
+  ctx->load_done         = 0;
+  ctx->instant_boot_done = &instant_boot_done_fseq;
+
+  mock_next_leader_slot      = 1UL;
+  ctx->reset_cmr             = mr_root;
+  ctx->next_leader_slot      = 1UL;
+  ctx->next_leader_tickcount = 0L;
+  FD_TEST( try_become_leader( ctx, test_stem )==0 );
+  FD_TEST( try_become_leader_ag( ctx, test_stem )==0 );
+  FD_TEST( !ctx->is_leader );
+
+  /* The very same setup leads once the load is done. */
+  ctx->load_done = 1;
+  drive_become_leader( ctx, &mr_root, 1UL );
+
+  FD_LOG_NOTICE(( "pass: test_instant_boot_blocks_leadership" ));
+}
+
 /* Votor switches identity after replay does, so a ParentReady it
    published for the old identity can survive the switch.  Once
    unhalted, replay leads that slot only if the new identity is still
@@ -4798,6 +4928,9 @@ main( int     argc,
   test_dead_block_children_drop( wksp );
   test_stale_id_key_does_not_shadow_rebuild( wksp ); fd_wksp_reset( wksp, 42U );
   test_identity_switch_quiesces_replay( wksp );
+  test_instant_boot_marker_gate( wksp );              fd_wksp_reset( wksp, 42U );
+  test_instant_boot_held_start_abandoned( wksp );     fd_wksp_reset( wksp, 42U );
+  test_instant_boot_blocks_leadership( wksp );        fd_wksp_reset( wksp, 42U );
 
   FD_TEST( mock_store_view_success_cnt==mock_store_view_release_cnt );
 
