@@ -2306,7 +2306,7 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x85\xef\x0f\xe4\x19\x36\x51\xb2\xce\x05\xd0\x3e\x6a\xc1\x16\x80\x53\x9b\x0a\x2e\xf6\xba\xa0\xe8\x3a\x98\x02\x13\x0b\xdf\x14\x73"},
                                  /* A1pengvuM6JEcyNuTnMqepBKhwHE3N6PmUrdATGawhJS */
     .name                      = "alpenglow",
-    .implemented               = 0,
+    .implemented               = 1,
     .cleaned_up                = 0 },
 
   { .index                     = offsetof(fd_features_t, relax_fee_payer_constraint)>>3,
