@@ -98,15 +98,22 @@ typedef struct fd_reception_stats fd_reception_stats_t;
    the deadline check never has to look past it.
 
      start  A block's reference from the moment the block got a bank.
-            Only a long backstop applies: replay itself may take that
+            Only the backstop applies: replay itself may take that
             long to finish a block it is catching up on, and the
             stream tile cannot read the block before then anyway.
      read   The same reference from the moment the block's end went
             out.  That is when the stream tile reads the block's
             accounts, and it is expected to be quick about it.
      base   The reference on the bank a stream chains off, which the
-            stream tile returns only once it has written a manifest
-            and a status cache.
+            stream tile returns only once it has written the stream's
+            manifest, status cache and bundle.
+
+   Opening a stream is synchronous in the stream tile and takes
+   seconds, and it cannot read any block while it does that, so the
+   read clock is paused for as long as any base reference is
+   outstanding and only the backstop applies to the read ring.  The
+   read clocks restart when the last base reference comes back, so the
+   paused time is not counted against the tile.
 
    A hold is identified on the wire by a token carrying its bank index
    and the generation of the last reset, so a release that was already
@@ -115,10 +122,9 @@ typedef struct fd_reception_stats fd_reception_stats_t;
    same bank within a generation share a token and are
    interchangeable. */
 
-#define FD_REPLAY_STRMK_HOLD_MAX (64UL)
-#define FD_REPLAY_STRMK_READ_NS  (4L*1000L*1000L*1000L)
-#define FD_REPLAY_STRMK_START_NS (60L*1000L*1000L*1000L)
-#define FD_REPLAY_STRMK_BASE_NS  (60L*1000L*1000L*1000L)
+#define FD_REPLAY_STRMK_HOLD_MAX    (64UL)
+#define FD_REPLAY_STRMK_READ_NS     (4L*1000L*1000L*1000L)
+#define FD_REPLAY_STRMK_BACKSTOP_NS (60L*1000L*1000L*1000L)
 
 #define FD_REPLAY_STRMK_TOKEN( gen, bank_idx ) ( (((gen)&0xffffffffUL)<<32) | (bank_idx) )
 #define FD_REPLAY_STRMK_TOKEN_GEN( token )     ( (token)>>32 )

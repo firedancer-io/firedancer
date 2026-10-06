@@ -741,14 +741,30 @@ strmk_hold_read( fd_replay_tile_t *  ctx,
   }
 }
 
+/* strmk_read_resume restarts the read clocks.  They are paused while
+   the stream tile is opening a stream, which it does synchronously, so
+   the blocks that queued up behind it get their full read deadline
+   from the moment it is finished. */
+
+static void
+strmk_read_resume( fd_replay_tile_t *  ctx,
+                   fd_stem_context_t * stem ) {
+  fd_replay_strmk_ring_t * read = ctx->strmk_read_hold;
+  for( ulong i=read->head; i!=read->tail; i++ ) {
+    fd_replay_strmk_hold_t * hold = &read->hold[ i%FD_REPLAY_STRMK_HOLD_MAX ];
+    if( FD_LIKELY( hold->token!=ULONG_MAX ) ) hold->tick = stem->now;
+  }
+}
+
 /* strmk_hold_release drops the oldest hold carrying token, which the
    stream tile just returned.  Returns 0 if the tile owes no such hold,
    which is the case for a token minted before a reset and for one
    returned twice. */
 
 static int
-strmk_hold_release( fd_replay_tile_t * ctx,
-                    ulong              token ) {
+strmk_hold_release( fd_replay_tile_t *  ctx,
+                    fd_stem_context_t * stem,
+                    ulong               token ) {
   if( FD_UNLIKELY( FD_REPLAY_STRMK_TOKEN_GEN( token )!=ctx->strmk_generation ) ) return 0;
   fd_replay_strmk_ring_t * ring[ 3 ] = { ctx->strmk_read_hold, ctx->strmk_start_hold, ctx->strmk_base_hold };
   for( ulong r=0UL; r<3UL; r++ ) {
@@ -757,6 +773,10 @@ strmk_hold_release( fd_replay_tile_t * ctx,
       if( FD_LIKELY( hold->token==token ) ) {
         hold->token = ULONG_MAX;
         strmk_hold_trim( ring[ r ] );
+        /* The tile has finished opening a stream, so the blocks it
+           kept waiting start their read deadline now. */
+        if( FD_UNLIKELY( ring[ r ]==ctx->strmk_base_hold &&
+                         ctx->strmk_base_hold->head==ctx->strmk_base_hold->tail ) ) strmk_read_resume( ctx, stem );
         return 1;
       }
     }
@@ -772,11 +792,17 @@ static void
 strmk_hold_expire( fd_replay_tile_t *  ctx,
                    fd_stem_context_t * stem,
                    int *               charge_busy ) {
+  /* The stream tile cannot read a block while it is opening a stream,
+     so for as long as it owes a stream's base bank the read ring falls
+     back to the backstop every hold has. */
+  int opening = ctx->strmk_base_hold->head!=ctx->strmk_base_hold->tail;
+
   fd_replay_strmk_ring_t * ring[ 3 ] = { ctx->strmk_read_hold, ctx->strmk_start_hold, ctx->strmk_base_hold };
   for( ulong r=0UL; r<3UL; r++ ) {
     if( FD_LIKELY( ring[ r ]->head==ring[ r ]->tail ) ) continue;
-    long age = stem->now - ring[ r ]->hold[ ring[ r ]->head%FD_REPLAY_STRMK_HOLD_MAX ].tick;
-    if( FD_LIKELY( (double)age<(double)ring[ r ]->deadline*ctx->tick_per_ns ) ) continue;
+    long deadline = fd_long_if( opening && ring[ r ]==ctx->strmk_read_hold, FD_REPLAY_STRMK_BACKSTOP_NS, ring[ r ]->deadline );
+    long age      = stem->now - ring[ r ]->hold[ ring[ r ]->head%FD_REPLAY_STRMK_HOLD_MAX ].tick;
+    if( FD_LIKELY( (double)age<(double)deadline*ctx->tick_per_ns ) ) continue;
     strmk_reset( ctx, stem, "the stream tile owed a bank reference for too long" );
     *charge_busy = 1;
     return;
@@ -1534,6 +1560,7 @@ publish_slot_completed( fd_replay_tile_t *        ctx,
     msg->slot                 = slot;
     msg->bank_idx             = bank->idx;
     msg->bank_seq             = bank->bank_seq;
+    msg->parent_bank_seq      = slot_info->parent_bank_seq;
     msg->txn_cnt              = bank->f.txn_count;
     msg->parent_accdb_fork_id = bank->parent_accdb_fork_id;
     fd_runtime_fee_collector( bank, &msg->collector );
@@ -3238,10 +3265,14 @@ mark_bank_dead( fd_replay_tile_t *        ctx,
 
     /* Tell the stream tile to drop a block that will never complete. */
     if( FD_UNLIKELY( ctx->instant_boot_serve ) ) {
+      /* fd_banks_bank_query does not bound check, so the sentinel
+         parent index of a root has to be filtered out here. */
+      fd_bank_t * parent = bank && bank->parent_idx!=ULONG_MAX ? fd_banks_bank_query( ctx->banks, bank->parent_idx ) : NULL;
       fd_strmk_block_end_t * msg = fd_chunk_to_laddr( ctx->strmk_out->mem, ctx->strmk_out->chunk );
       *msg = (fd_strmk_block_end_t){ .slot                 = ele->slot,
                                      .bank_idx             = dead_idxs[ i ],
                                      .bank_seq             = ele->bank_seq,
+                                     .parent_bank_seq      = parent ? parent->bank_seq : ULONG_MAX,
                                      .parent_accdb_fork_id = { .val = USHORT_MAX } };
       strmk_publish( ctx, stem, FD_STRMK_SIG_BLOCK_DEAD, sizeof(fd_strmk_block_end_t) );
       /* The tile drops the block from here, so the same deadline
@@ -5694,7 +5725,7 @@ returnable_frag( fd_replay_tile_t *  ctx,
       ulong bank_idx = sig;
       if( FD_UNLIKELY( sig==ULONG_MAX ) ) break;
       if( FD_UNLIKELY( in_idx==ctx->strmk_in_idx ) ) {
-        if( FD_UNLIKELY( !strmk_hold_release( ctx, sig ) ) ) break;
+        if( FD_UNLIKELY( !strmk_hold_release( ctx, stem, sig ) ) ) break;
         bank_idx = FD_REPLAY_STRMK_TOKEN_BANK( sig );
       }
       fd_bank_t * bank = fd_banks_bank_query( ctx->banks, bank_idx );
@@ -6010,13 +6041,13 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->strmk_walk         = strmk_walk_mem;
 
   ctx->strmk_generation           = 0UL;
-  ctx->strmk_start_hold->deadline = FD_REPLAY_STRMK_START_NS;
+  ctx->strmk_start_hold->deadline = FD_REPLAY_STRMK_BACKSTOP_NS;
   ctx->strmk_start_hold->head     = 0UL;
   ctx->strmk_start_hold->tail     = 0UL;
   ctx->strmk_read_hold->deadline  = FD_REPLAY_STRMK_READ_NS;
   ctx->strmk_read_hold->head      = 0UL;
   ctx->strmk_read_hold->tail      = 0UL;
-  ctx->strmk_base_hold->deadline  = FD_REPLAY_STRMK_BASE_NS;
+  ctx->strmk_base_hold->deadline  = FD_REPLAY_STRMK_BACKSTOP_NS;
   ctx->strmk_base_hold->head      = 0UL;
   ctx->strmk_base_hold->tail      = 0UL;
 

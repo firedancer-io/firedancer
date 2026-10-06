@@ -149,8 +149,15 @@
    accounts once it has the block's end, so from that moment it has 4
    seconds to return the reference.  Until then only a 60 second
    backstop applies, measured from the block start, because replay
-   itself may take that long to finish a block it is catching up
-   on. */
+   itself may take that long to finish a block it is catching up on.
+
+   The 4 second clock is paused for as long as the tile owes the
+   reference a stream start gave it, because opening a stream writes a
+   manifest, a status cache and a bundle, and the tile cannot read a
+   block until that is done.  The clocks restart when that reference
+   comes back, so the time spent opening a stream is not charged to
+   the blocks that queued up behind it.  The 60 second backstop
+   applies throughout. */
 
 #define FD_STRMK_SIG_BLOCK_START  (1UL)
 #define FD_STRMK_SIG_TXN_KEYS     (2UL)
@@ -216,6 +223,13 @@ typedef struct fd_strmk_txn_keys fd_strmk_txn_keys_t;
    hold the block start took keeps the fork alive until the tile
    returns it.
 
+   parent_bank_seq is the parent bank's bank_seq, so the stream tile
+   can tell the bank it is about to read from a different bank that has
+   since taken the same index.  The hold pins the parent, so the value
+   is the same whether it is read when the child is created or at
+   completion.  It is ULONG_MAX when the parent is gone, which only
+   happens for a block that died.
+
    txn_cnt is the number of transactions the block committed, which is
    not the number the stream carries keys for: keys are collected as
    transactions are parsed, before any of them is executed.  collector
@@ -226,6 +240,7 @@ struct fd_strmk_block_end {
   ulong              slot;
   ulong              bank_idx;
   ulong              bank_seq;
+  ulong              parent_bank_seq;
   ulong              txn_cnt;
   fd_accdb_fork_id_t parent_accdb_fork_id;
   fd_pubkey_t        collector;
