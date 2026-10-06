@@ -1620,7 +1620,6 @@ publish_slot_completed( fd_replay_tile_t *        ctx,
     msg->bank_idx             = bank->idx;
     msg->bank_seq             = bank->bank_seq;
     msg->parent_bank_seq      = parent_bank ? parent_bank->bank_seq : ULONG_MAX;
-    msg->txn_cnt              = bank->f.txn_count;
     msg->parent_accdb_fork_id = bank->parent_accdb_fork_id;
     /* A block whose leader is unknown paid no fee reward, so it wrote
        no collector and there is none to carry. */

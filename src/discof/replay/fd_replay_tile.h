@@ -172,11 +172,11 @@
 
 #define FD_STRMK_SIG_BLOCK_START  (1UL)
 #define FD_STRMK_SIG_TXN_KEYS     (2UL)
-#define FD_STRMK_SIG_BLOCK_END    (3UL)
-#define FD_STRMK_SIG_BLOCK_DEAD   (4UL)
-#define FD_STRMK_SIG_STREAM_START (5UL)
-#define FD_STRMK_SIG_RESET        (6UL)
-#define FD_STRMK_SIG_TXN_TABLES   (7UL)
+#define FD_STRMK_SIG_TXN_TABLES   (3UL)
+#define FD_STRMK_SIG_BLOCK_END    (4UL)
+#define FD_STRMK_SIG_BLOCK_DEAD   (5UL)
+#define FD_STRMK_SIG_STREAM_START (6UL)
+#define FD_STRMK_SIG_RESET        (7UL)
 
 /* MTU of replay_strmk, see fd_topo_initialize. */
 
@@ -263,18 +263,14 @@ typedef struct fd_strmk_txn_keys fd_strmk_txn_keys_t;
    parent and the value can describe whatever bank now holds that
    index.  It is ULONG_MAX when the parent is gone.
 
-   txn_cnt is the number of transactions the block committed, which is
-   not the number the stream carries keys for: keys are collected as
-   transactions are parsed, before any of them is executed.  collector
-   is the account fee settlement credits with the block's fee reward,
-   which no transaction in the block names. */
+   collector is the account fee settlement credits with the block's fee
+   reward, which no transaction in the block names. */
 
 struct fd_strmk_block_end {
   ulong              slot;
   ulong              bank_idx;
   ulong              bank_seq;
   ulong              parent_bank_seq;
-  ulong              txn_cnt;
   fd_accdb_fork_id_t parent_accdb_fork_id;
   fd_pubkey_t        collector;
 };
