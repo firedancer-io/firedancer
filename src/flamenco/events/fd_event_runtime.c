@@ -642,20 +642,31 @@ fd_event_runtime_block_emit( fd_bank_t const *             bank,
   fd_event_runtime_slot_diffs_t const * diffs = fd_event_runtime_slot_diffs_at( bank->idx );
   if( FD_UNLIKELY( !diffs ) ) return;
 
-  ulong bh_cnt = 0UL;
-  fd_blockhash_info_t const * bhq = bank->f.block_hash_queue.d.deque;
+  /* The two lists cut off differently once hash_index values skip (see
+     fd_blockhashes.h).  recent_blockhashes is the set a child block may
+     reference, so it stops at age 150, measured in hash_index like
+     fd_blockhashes_check_age.  The sysvar is the newest 150 entries
+     (agave takes the 150 highest hash_index entries), which may reach
+     past age 150 when indices skip. */
+  ulong bh_cnt     = 0UL;
+  ulong sysvar_cnt = 0UL;
+  fd_blockhashes_t const *    queue = &bank->f.block_hash_queue;
+  fd_blockhash_info_t const * bhq   = queue->d.deque;
   for( fd_blockhash_deq_iter_t iter = fd_blockhash_deq_iter_init_rev( bhq );
-       !fd_blockhash_deq_iter_done_rev( bhq, iter ) && bh_cnt<FD_SYSVAR_RECENT_HASHES_CAP+1UL;
+       !fd_blockhash_deq_iter_done_rev( bhq, iter );
        iter = fd_blockhash_deq_iter_prev( bhq, iter ) ) {
     fd_blockhash_info_t const * info = fd_blockhash_deq_iter_ele_const( bhq, iter );
-    if( FD_LIKELY( bh_cnt<FD_SYSVAR_RECENT_HASHES_CAP ) ) {
-      fd_memcpy( ev.recent_blockhashes_sysvar[ bh_cnt ].blockhash, info->hash.uc, 32UL );
-      ev.recent_blockhashes_sysvar[ bh_cnt ].lamports_per_signature = info->lamports_per_signature;
+    int in_window = fd_blockhashes_age( queue, info )<=FD_SYSVAR_RECENT_HASHES_CAP;
+    if( FD_UNLIKELY( !in_window && sysvar_cnt>=FD_SYSVAR_RECENT_HASHES_CAP ) ) break;
+    if( FD_LIKELY( sysvar_cnt<FD_SYSVAR_RECENT_HASHES_CAP ) ) {
+      fd_memcpy( ev.recent_blockhashes_sysvar[ sysvar_cnt ].blockhash, info->hash.uc, 32UL );
+      ev.recent_blockhashes_sysvar[ sysvar_cnt ].lamports_per_signature = info->lamports_per_signature;
+      sysvar_cnt++;
     }
-    fd_memcpy( ev.recent_blockhashes[ bh_cnt++ ], info->hash.uc, 32UL );
+    if( FD_LIKELY( in_window ) ) fd_memcpy( ev.recent_blockhashes[ bh_cnt++ ], info->hash.uc, 32UL );
   }
   ev.recent_blockhashes_cnt        = bh_cnt;
-  ev.recent_blockhashes_sysvar_cnt = fd_ulong_min( bh_cnt, FD_SYSVAR_RECENT_HASHES_CAP );
+  ev.recent_blockhashes_sysvar_cnt = sysvar_cnt;
 
   ev.last_restart_slot_sysvar = fd_sysvar_last_restart_slot_derive( bank );
 

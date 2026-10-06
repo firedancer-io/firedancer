@@ -647,6 +647,172 @@ serialize_all( fd_wksp_t *            wksp,
   return buf;
 }
 
+/* hash_index values in the blockhash queue can skip (see
+   fd_blockhashes.h), when agave-ledger-tool re-registers a blockhash.
+   Serialize a bank whose queue skips indices, parse the manifest back,
+   and check that the manifest carries exactly the queue's entries, each
+   at its own absolute hash_index, with the newest one as the last hash
+   index, which is what preserves every entry's age.  (Reloading a queue
+   with skipped indices is covered by test_ssload.)
+
+   Queue: hash_index base+0 .. base+5 with base+2 and base+3 skipped, so
+   the entries are at ages 5, 4, 1 and 0.  A nonzero base checks that
+   indices are written as stored, not rebased. */
+
+static void
+test_manifest_roundtrip_blockhash_holes( fd_svm_mini_t * mini,
+                                         fd_bank_t *     bank ) {
+  FD_LOG_NOTICE(( "test_manifest_roundtrip_blockhash_holes" ));
+  fd_wksp_t * wksp = mini->wksp;
+
+  ulong const span = 6UL;
+  ulong const base = 2417612UL;
+# define IS_HOLE(i) ( (i)==2UL || (i)==3UL )
+
+  fd_blockhashes_t * bhq = fd_blockhashes_init( &bank->f.block_hash_queue, 99UL );
+  FD_TEST( bhq );
+  for( ulong i=0UL; i<span; i++ ) {
+    if( IS_HOLE( i ) ) continue;
+    fd_blockhash_info_t * info = fd_blockhash_deq_push_tail_nocopy( bhq->d.deque );
+    fd_memset( info, 0, sizeof(fd_blockhash_info_t) );
+    fd_memset( info->hash.uc, (int)(0x30+i), 32UL );
+    info->lamports_per_signature = 7000UL+i;
+    info->hash_index             = base+i;
+    fd_blockhash_map_ele_insert( bhq->map, info, bhq->d.deque );
+  }
+
+  fd_ssmanifest_writer_t * writer   = test_alloc( wksp, alignof(fd_ssmanifest_writer_t), sizeof(fd_ssmanifest_writer_t) );
+  uchar *                  acc_data = test_alloc( wksp, 1UL, FD_RUNTIME_ACC_SZ_MAX );
+  fd_pubkey_t leader = {0};
+  fd_ssmanifest_writer_init( writer, bank, &leader, mini->runtime->accdb, bank->accdb_fork_id, acc_data );
+  ulong manifest_sz = writer->serialized_sz;
+  FD_TEST( manifest_sz>0UL );
+
+  uchar * buf       = test_alloc( wksp, alignof(uchar), manifest_sz );
+  uchar * chunk_buf = test_alloc( wksp, alignof(uchar), FD_SSMANIFEST_BUF_MIN );
+  ulong   written   = 0UL;
+  for(;;) {
+    ulong sz = fd_snap_manifest_serialize( writer, chunk_buf, FD_SSMANIFEST_BUF_MIN );
+    if( !sz ) break;
+    FD_TEST( written+sz<=manifest_sz );
+    memcpy( buf+written, chunk_buf, sz );
+    written += sz;
+  }
+  FD_TEST( written==manifest_sz );
+
+  fd_snapshot_manifest_t * manifest = test_alloc( wksp, alignof(fd_snapshot_manifest_t), sizeof(fd_snapshot_manifest_t) );
+  memset( manifest, 0, sizeof(fd_snapshot_manifest_t) );
+  void * parser_mem = test_alloc( wksp, fd_ssmanifest_parser_align(), fd_ssmanifest_parser_footprint() );
+  fd_ssmanifest_parser_t * parser = fd_ssmanifest_parser_join( fd_ssmanifest_parser_new( parser_mem ) );
+  FD_TEST( parser );
+  fd_ssmanifest_parser_init( parser, manifest );
+  int result = fd_ssmanifest_parser_consume( parser, buf, written );
+  FD_TEST( result==FD_SSMANIFEST_PARSER_ADVANCE_DONE || result==FD_SSMANIFEST_PARSER_ADVANCE_AGAIN );
+  FD_TEST( fd_ssmanifest_parser_fini( parser )==FD_SSMANIFEST_PARSER_ADVANCE_DONE );
+
+  /* Holes are not entries: four live entries, each at its relative
+     hash_index, so the gaps at 2 and 3 are preserved on the wire. */
+  FD_TEST( manifest->blockhashes_len==4UL );
+  ulong seen = 0UL;
+  for( ulong j=0UL; j<manifest->blockhashes_len; j++ ) {
+    fd_snapshot_manifest_blockhash_t const * e = &manifest->blockhashes[ j ];
+    FD_TEST( e->hash_index>=base );
+    ulong i = e->hash_index-base;
+    FD_TEST( i<span && !IS_HOLE( i ) );
+    FD_TEST( !( seen & (1UL<<i) ) );
+    seen |= 1UL<<i;
+    uchar expect[ 32UL ]; fd_memset( expect, (int)(0x30+i), 32UL );
+    FD_TEST( !memcmp( e->hash, expect, 32UL ) );
+    FD_TEST( e->lamports_per_signature==7000UL+i );
+  }
+  FD_TEST( seen==( (1UL<<0) | (1UL<<1) | (1UL<<4) | (1UL<<5) ) );
+
+# undef IS_HOLE
+  fd_wksp_free_laddr( parser_mem );
+}
+
+/* With skipped hash indices, Agave's lazy purge (it only purges once
+   the queue holds max_age entries) can leave an entry older than
+   max_age, and that entry can still be one of the newest 150 that the
+   RecentBlockhashes sysvar is built from.  The snapshot must keep it:
+   the encoder writes the newest FD_BLOCKHASHES_MAX entries by count,
+   not by age.
+
+   Queue: 10 entries, the oldest at base+0 and the rest at base+400 ..
+   base+408, so the oldest is at age 408, past max_age=300. */
+
+static void
+test_manifest_roundtrip_blockhash_old_entry( fd_svm_mini_t * mini,
+                                             fd_bank_t *     bank ) {
+  FD_LOG_NOTICE(( "test_manifest_roundtrip_blockhash_old_entry" ));
+  fd_wksp_t * wksp = mini->wksp;
+
+  ulong const base = 1000000UL;
+  ulong idxs[ 10 ];
+  idxs[ 0 ] = base;
+  for( ulong i=1UL; i<10UL; i++ ) idxs[ i ] = base+399UL+i;
+
+  fd_blockhashes_t * bhq = fd_blockhashes_init( &bank->f.block_hash_queue, 77UL );
+  FD_TEST( bhq );
+  for( ulong i=0UL; i<10UL; i++ ) {
+    fd_blockhash_info_t * info = fd_blockhash_deq_push_tail_nocopy( bhq->d.deque );
+    fd_memset( info, 0, sizeof(fd_blockhash_info_t) );
+    fd_memset( info->hash.uc, (int)(0x50+i), 32UL );
+    info->lamports_per_signature = 9000UL+i;
+    info->hash_index             = idxs[ i ];
+    fd_blockhash_map_ele_insert( bhq->map, info, bhq->d.deque );
+  }
+  FD_TEST( fd_blockhashes_age( bhq, fd_blockhash_deq_peek_head_const( bhq->d.deque ) )==408UL );
+
+  fd_ssmanifest_writer_t * writer   = test_alloc( wksp, alignof(fd_ssmanifest_writer_t), sizeof(fd_ssmanifest_writer_t) );
+  uchar *                  acc_data = test_alloc( wksp, 1UL, FD_RUNTIME_ACC_SZ_MAX );
+  fd_pubkey_t leader = {0};
+  fd_ssmanifest_writer_init( writer, bank, &leader, mini->runtime->accdb, bank->accdb_fork_id, acc_data );
+  ulong manifest_sz = writer->serialized_sz;
+  FD_TEST( manifest_sz>0UL );
+
+  uchar * buf       = test_alloc( wksp, alignof(uchar), manifest_sz );
+  uchar * chunk_buf = test_alloc( wksp, alignof(uchar), FD_SSMANIFEST_BUF_MIN );
+  ulong   written   = 0UL;
+  for(;;) {
+    ulong sz = fd_snap_manifest_serialize( writer, chunk_buf, FD_SSMANIFEST_BUF_MIN );
+    if( !sz ) break;
+    FD_TEST( written+sz<=manifest_sz );
+    memcpy( buf+written, chunk_buf, sz );
+    written += sz;
+  }
+  FD_TEST( written==manifest_sz );
+
+  fd_snapshot_manifest_t * manifest = test_alloc( wksp, alignof(fd_snapshot_manifest_t), sizeof(fd_snapshot_manifest_t) );
+  memset( manifest, 0, sizeof(fd_snapshot_manifest_t) );
+  void * parser_mem = test_alloc( wksp, fd_ssmanifest_parser_align(), fd_ssmanifest_parser_footprint() );
+  fd_ssmanifest_parser_t * parser = fd_ssmanifest_parser_join( fd_ssmanifest_parser_new( parser_mem ) );
+  FD_TEST( parser );
+  fd_ssmanifest_parser_init( parser, manifest );
+  int result = fd_ssmanifest_parser_consume( parser, buf, written );
+  FD_TEST( result==FD_SSMANIFEST_PARSER_ADVANCE_DONE || result==FD_SSMANIFEST_PARSER_ADVANCE_AGAIN );
+  FD_TEST( fd_ssmanifest_parser_fini( parser )==FD_SSMANIFEST_PARSER_ADVANCE_DONE );
+
+  /* All ten entries survive, including the one at age 408, each at its
+     absolute hash_index. */
+  FD_TEST( manifest->blockhashes_len==10UL );
+  ulong seen = 0UL;
+  for( ulong j=0UL; j<manifest->blockhashes_len; j++ ) {
+    fd_snapshot_manifest_blockhash_t const * e = &manifest->blockhashes[ j ];
+    ulong i = ULONG_MAX;
+    for( ulong k=0UL; k<10UL; k++ ) if( e->hash_index==idxs[ k ] ) i = k;
+    FD_TEST( i!=ULONG_MAX );
+    FD_TEST( !( seen & (1UL<<i) ) );
+    seen |= 1UL<<i;
+    uchar expect[ 32UL ]; fd_memset( expect, (int)(0x50+i), 32UL );
+    FD_TEST( !memcmp( e->hash, expect, 32UL ) );
+    FD_TEST( e->lamports_per_signature==9000UL+i );
+  }
+  FD_TEST( seen==0x3FFUL );
+
+  fd_wksp_free_laddr( parser_mem );
+}
+
 /* The writer is too large for the stack. */
 static fd_txncache_writer_t *
 new_writer( fd_wksp_t * wksp ) {
@@ -1795,6 +1961,10 @@ main( int     argc,
   FD_TEST( bank );
 
   test_manifest_roundtrip( mini, bank );
+  test_allocs_reclaim( wksp );
+  test_manifest_roundtrip_blockhash_holes( mini, bank );
+  test_allocs_reclaim( wksp );
+  test_manifest_roundtrip_blockhash_old_entry( mini, bank );
   test_allocs_reclaim( wksp );
   test_txncache_writer_arena_sz();
   test_txncache_roundtrip_empty( wksp );

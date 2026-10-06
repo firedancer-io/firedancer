@@ -83,35 +83,22 @@ fd_ssload_manifest_validate( fd_snapshot_manifest_t const * manifest,
     return -1;
   }
 
-  ulong seq_min = ULONG_MAX;
-  for( ulong i=0UL; i<age_cnt; i++ ) {
-    seq_min = fd_ulong_min( seq_min, ages[ i ].hash_index );
-  }
-  ulong seq_max;
-  if( FD_UNLIKELY( __builtin_uaddl_overflow( seq_min, age_cnt, &seq_max ) ) ) {
-    FD_LOG_WARNING(( "corrupt snapshot: blockhash queue sequence number wraparound (seq_min=%lu age_cnt=%lu)", seq_min, age_cnt ));
-    return -1;
-  }
+  /* hash_index values may skip (see fd_blockhashes.h), so the only
+     structural requirements are that no two entries share a hash_index
+     and that the newest index leaves room for the runtime to register
+     the next one. */
 
-  /* Check for gaps and duplicates using a bitset (max 301 entries). */
-
-  ulong seen[ (FD_BLOCKHASHES_MAX+63UL)/64UL ];
-  fd_memset( seen, 0, sizeof(seen) );
   for( ulong i=0UL; i<age_cnt; i++ ) {
-    ulong idx;
-    if( FD_UNLIKELY( __builtin_usubl_overflow( ages[ i ].hash_index, seq_min, &idx ) || idx>=age_cnt ) ) {
-      FD_LOG_WARNING(( "corrupt snapshot: gap in blockhash queue (seq=[%lu,%lu) hash_index=%lu)",
-                       seq_min, seq_max, ages[ i ].hash_index ));
+    if( FD_UNLIKELY( ages[ i ].hash_index==ULONG_MAX ) ) {
+      FD_LOG_WARNING(( "corrupt snapshot: blockhash queue sequence number wraparound (hash_index=%lu)", ages[ i ].hash_index ));
       return -1;
     }
-    ulong word = idx/64UL;
-    ulong bit  = idx%64UL;
-    if( FD_UNLIKELY( seen[ word ] & (1UL<<bit) ) ) {
-      FD_LOG_WARNING(( "corrupt snapshot: duplicate blockhash queue hash_index=%lu (relative_idx=%lu seq_min=%lu)",
-                       ages[ i ].hash_index, idx, seq_min ));
-      return -1;
+    for( ulong j=0UL; j<i; j++ ) {
+      if( FD_UNLIKELY( ages[ i ].hash_index==ages[ j ].hash_index ) ) {
+        FD_LOG_WARNING(( "corrupt snapshot: duplicate blockhash queue hash_index=%lu", ages[ i ].hash_index ));
+        return -1;
+      }
     }
-    seen[ word ] |= (1UL<<bit);
   }
 
   /* Array bounds checks, reject manifests whose counts exceed the
@@ -274,6 +261,11 @@ fd_ssload_manifest_validate( fd_snapshot_manifest_t const * manifest,
   return 0;
 }
 
+#define SORT_NAME        fd_blockhash_sort
+#define SORT_KEY_T       fd_blockhash_info_t
+#define SORT_BEFORE(a,b) ((a).hash_index<(b).hash_index)
+#include "../../../util/tmpl/fd_sort.c"
+
 static int
 blockhashes_recover( fd_blockhashes_t *                       blockhashes,
                      fd_snapshot_manifest_blockhash_t const * ages,
@@ -282,36 +274,37 @@ blockhashes_recover( fd_blockhashes_t *                       blockhashes,
 
   /* The caller must guarantee that fd_ssload_manifest_validate has
      already been invoked, verifying that age_cnt is in the range
-     (0, FD_BLOCKHASHES_MAX], that there are no gaps or duplicates in
-     the sequence numbers, and that seq_min+age_cnt does not overflow. */
+     (0, FD_BLOCKHASHES_MAX] and that hash_index values are distinct. */
 
   if( FD_UNLIKELY( !fd_blockhashes_init( blockhashes, seed ) ) ) {
     FD_LOG_WARNING(( "failed to initialize blockhash queue" ));
     return -1;
   }
 
-  ulong seq_min = ULONG_MAX;
-  for( ulong i=0UL; i<age_cnt; i++ ) {
-    seq_min = fd_ulong_min( seq_min, ages[ i ].hash_index );
-  }
+  /* The manifest lists entries in arbitrary order (Agave serializes a
+     HashMap). sort the deque by hash_index, then index them in the map.
 
-  /* Reset */
+     The deque was just initialized, so it starts at slot 0 and the at
+     most FD_BLOCKHASHES_MAX entries are contiguous at the front of its
+     array without wrapping, which is what makes sorting it in place
+     valid. */
 
-  for( ulong i=0UL; i<age_cnt; i++ ) {
-    fd_blockhash_info_t * ele = fd_blockhash_deq_push_tail_nocopy( blockhashes->d.deque );
-    fd_memset( ele, 0, sizeof(fd_blockhash_info_t) );
-  }
-
-  /* Load hashes */
+  FD_TEST( fd_blockhash_deq_empty( blockhashes->d.deque ) );
+  FD_TEST( !( blockhashes->d.start % fd_blockhash_deq_max( blockhashes->d.deque ) ) ); /* head at array slot 0 */
+  FD_TEST( age_cnt<=fd_blockhash_deq_max( blockhashes->d.deque ) );
 
   for( ulong i=0UL; i<age_cnt; i++ ) {
     fd_snapshot_manifest_blockhash_t const * elem = &ages[ i ];
-    ulong idx = elem->hash_index - seq_min;
-    fd_blockhash_info_t * info = &blockhashes->d.deque[ idx ];
-    info->exists = 1;
+    fd_blockhash_info_t * info = fd_blockhash_deq_push_tail_nocopy( blockhashes->d.deque );
+    fd_memset( info, 0, sizeof(fd_blockhash_info_t) );
     fd_memcpy( info->hash.uc, elem->hash, 32UL );
     info->lamports_per_signature = elem->lamports_per_signature;
-    fd_blockhash_map_idx_insert( blockhashes->map, idx, blockhashes->d.deque );
+    info->hash_index             = elem->hash_index;
+  }
+  fd_blockhash_sort_inplace( blockhashes->d.deque, age_cnt );
+
+  for( ulong i=0UL; i<age_cnt; i++ ) {
+    fd_blockhash_map_idx_insert( blockhashes->map, i, blockhashes->d.deque );
   }
 
   return 0;

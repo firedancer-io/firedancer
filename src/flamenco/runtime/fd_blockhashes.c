@@ -8,7 +8,7 @@ fd_blockhashes_init( fd_blockhashes_t * mem,
     return NULL;
   }
   FD_TEST( fd_blockhash_deq_join( fd_blockhash_deq_new( &mem->d ) ) );
-  memset( mem->d.deque, 0x5a, sizeof(fd_blockhash_info_t) * FD_BLOCKHASHES_MAX );
+  memset( mem->d.deque, 0x5a, sizeof(fd_blockhash_info_t) * FD_BLOCKHASHES_DEQ_MAX );
   FD_TEST( fd_blockhash_map_join( fd_blockhash_map_new( mem, FD_BLOCKHASH_MAP_CHAIN_MAX, seed ) ) );
   return mem;
 }
@@ -17,7 +17,6 @@ static void
 fd_blockhashes_pop_old( fd_blockhashes_t * blockhashes ) {
   if( FD_UNLIKELY( fd_blockhash_deq_empty( blockhashes->d.deque ) ) ) return;
   fd_blockhash_info_t * info = fd_blockhash_deq_pop_head_nocopy( blockhashes->d.deque );
-  info->exists = 0;
   fd_blockhash_map_ele_remove( blockhashes->map, &info->hash, NULL, blockhashes->d.deque );
 }
 
@@ -25,7 +24,6 @@ void
 fd_blockhashes_pop_new( fd_blockhashes_t * blockhashes ) {
   if( FD_UNLIKELY( fd_blockhash_deq_empty( blockhashes->d.deque ) ) ) return;
   fd_blockhash_info_t * info = fd_blockhash_deq_pop_tail_nocopy( blockhashes->d.deque );
-  info->exists = 0;
   fd_blockhash_map_ele_remove( blockhashes->map, &info->hash, NULL, blockhashes->d.deque );
 }
 
@@ -40,8 +38,13 @@ fd_blockhashes_push_new( fd_blockhashes_t * blockhashes,
     FD_LOG_CRIT(( "Attempted to register duplicate blockhash %s", bh_cstr ));
   }
 
+  ulong hash_index = 0UL;
+  if( FD_LIKELY( !fd_blockhash_deq_empty( blockhashes->d.deque ) ) ) {
+    hash_index = fd_blockhash_deq_peek_tail_const( blockhashes->d.deque )->hash_index + 1UL;
+  }
+
   fd_blockhash_info_t * info = fd_blockhash_deq_push_tail_nocopy( blockhashes->d.deque );
-  *info = (fd_blockhash_info_t) { .hash = *hash, .exists = 1 };
+  *info = (fd_blockhash_info_t) { .hash = *hash, .hash_index = hash_index };
 
   fd_blockhash_map_ele_insert( blockhashes->map, info, blockhashes->d.deque );
 
@@ -59,8 +62,15 @@ fd_blockhashes_push_old( fd_blockhashes_t * blockhashes,
     FD_LOG_CRIT(( "Attempted to register duplicate blockhash %s", bh_cstr ));
   }
 
+  ulong hash_index = 0UL;
+  if( FD_LIKELY( !fd_blockhash_deq_empty( blockhashes->d.deque ) ) ) {
+    ulong head_index = fd_blockhash_deq_peek_head_const( blockhashes->d.deque )->hash_index;
+    if( FD_UNLIKELY( !head_index ) ) return NULL;
+    hash_index = head_index - 1UL;
+  }
+
   fd_blockhash_info_t * info = fd_blockhash_deq_push_head_nocopy( blockhashes->d.deque );
-  *info = (fd_blockhash_info_t) { .hash = *hash, .exists = 1 };
+  *info = (fd_blockhash_info_t) { .hash = *hash, .hash_index = hash_index };
 
   fd_blockhash_map_ele_insert( blockhashes->map, info, blockhashes->d.deque );
 
@@ -74,9 +84,5 @@ fd_blockhashes_check_age( fd_blockhashes_t const * blockhashes,
                           ulong                    max_age ) {
   ulong const idx = fd_blockhash_map_idx_query_const( blockhashes->map, blockhash, ULONG_MAX, blockhashes->d.deque );
   if( FD_UNLIKELY( idx==ULONG_MAX ) ) return 0;
-  /* Derive distance from tail (end) */
-  ulong const max = fd_blockhash_deq_max( blockhashes->d.deque );
-  ulong const end = (blockhashes->d.end - 1) & (max-1);
-  ulong const age = end + fd_ulong_if( idx<=end, 0UL, max ) - idx;
-  return age<=max_age;
+  return fd_blockhashes_age( blockhashes, &blockhashes->d.deque[ idx ] )<=max_age;
 }

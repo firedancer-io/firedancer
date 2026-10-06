@@ -77,6 +77,23 @@ typedef struct fd_blockhash_entry fd_blockhash_entry_t;
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
 #include "../../util/tmpl/fd_map_chain.c"
 
+/* One link of the txncache chain rebuilt by populate_txncache, from one
+   entry of the snapshot's blockhash queue. */
+
+struct fd_snapin_bank {
+  ulong                 hash_index;
+  uchar                 blockhash[ 32UL ];
+  fd_txncache_fork_id_t fork_id;
+  ulong                 txnhash_offset;
+};
+
+typedef struct fd_snapin_bank fd_snapin_bank_t;
+
+#define SORT_NAME        fd_snapin_bank_sort_newest_first
+#define SORT_KEY_T       fd_snapin_bank_t
+#define SORT_BEFORE(a,b) ((a).hash_index>(b).hash_index)
+#include "../../util/tmpl/fd_sort.c"
+
 /* For a transaction to be valid to be inserted into the txncache, it
    must reference a blockhash that is in the set of recent blockhashes.
    This means that only transactions executed in the latest 151 rooted
@@ -946,13 +963,21 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
      Constructing the chain of blockhashes is easy.  It is just the
      BLOCKHASH_QUEUE array in the manifest.  This array is unfortunately
      not sorted and appears in random order, but it has a hash_index
-     field which is a gapless index, starting at some arbitrary offset,
-     so we can back out the 151 blockhashes we need from this, by first
-     finding the max hash_index as _max and then collecting hash entries
-     via,
+     field, starting at some arbitrary offset, so we can back out the
+     blockhashes we need from this, by first finding the max hash_index
+     as _max and then collecting hash entries via,
 
        _root_150 -> _root_149 -> ... -> _root_2 -> _root_1 -> _root
        _max-150  -> _max-149  -> ... -> _max-2  -> _max-1  -> _max
+
+     Usually the index is gapless and this is exactly 151 links.  An
+     index can be missing, though: a hole (see fd_blockhashes.h), left
+     when the same blockhash was registered again and Agave's queue kept
+     only the newer index.  A hole has no blockhash of its own, so it is
+     not a link.  The chain is the live entries in descending hash_index
+     order, and the recent window is still bounded by index distance, so
+     it is the live entries within _max-150 ... _max, which may be fewer
+     than 151 links.
 
      Now the remaining problem is inserting transactions into this
      chain.  Remember each transaction needs to be inserted with:
@@ -966,7 +991,8 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
     from slot to position in our banks chain.  It turns out we have to
     go to yet another structure in the manifest to retrieve this, the
     ancestors array.  This is just an array of slot values,  so we need
-    to sort it, and line it up against our banks chain like so,
+    to sort it, and line it up against our banks chain like so (shown
+    for the usual gapless case),
 
        _root_150  -> _root_149  -> ... -> _root_2  -> _root_1  -> _root
        _max-150   -> _max-149   -> ... -> _max-2   -> _max-1   -> _max
@@ -974,10 +1000,13 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
 
     That is what populate does, with one shortcut.  Every rooted slot
     with a block has a slot delta, and every rooted block registered
-    exactly one blockhash.  Both sequences end at the snapshot slot, so
-    ranking the retained slot deltas newest first gives the chain index
-    of the fork each delta's transactions executed in, without
-    consulting the ancestors array.
+    exactly one blockhash, consuming one hash_index.  Both sequences end
+    at the snapshot slot, so the slot delta of rank r (newest first)
+    executed in the block that registered hash_index _max-r, without
+    consulting the ancestors array.  That index is turned into a chain
+    position through the queue: a live index is its own link, and a
+    hole (see fd_blockhashes.h) maps to the nearest newer live link,
+    since the block that registered it shares that link's blockhash.
 
     From there we are done.
 
@@ -1000,50 +1029,55 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
     return 1;
   }
 
-  ulong seq_min = ULONG_MAX;
-  for( ulong i=0UL; i<blockhashes_len; i++ ) seq_min = fd_ulong_min( seq_min, blockhashes[ i ].hash_index );
+  /* hash_index values may skip (see fd_blockhashes.h).  A skipped index
+     has no blockhash of its own, so it is not a link: the chain is the
+     entries in descending hash_index order, so copy them out and sort.
+     The manifest buffer is shared with other tiles, so it is not
+     reordered in place.  The newest index is seq_max, and the recent
+     window is still bounded by index distance, so it is the entries
+     within seq_max-150 ... seq_max. */
 
-  ulong seq_max;
-  if( FD_UNLIKELY( __builtin_uaddl_overflow( seq_min, blockhashes_len, &seq_max ) ) ) {
-    FD_LOG_WARNING(( "corrupt snapshot: blockhash queue sequence number wraparound (seq_min=%lu age_cnt=%lu)", seq_min, blockhashes_len ));
-    return 1;
-  }
-
-  /* First let's construct the chain array as described above.  But
-     index 0 will be the root, index 1 the root's parent, etc. */
-
-  struct {
-    int exists;
-    uchar blockhash[ 32UL ];
-    fd_txncache_fork_id_t fork_id;
-    ulong txnhash_offset;
-  } banks[ FD_BLOCKHASHES_MAX ] = {0};
-
+  fd_snapin_bank_t banks[ FD_BLOCKHASHES_MAX ];
   for( ulong i=0UL; i<blockhashes_len; i++ ) {
-    fd_snapshot_manifest_blockhash_t const * elem = &blockhashes[ i ];
-    ulong idx;
-    if( FD_UNLIKELY( __builtin_usubl_overflow( elem->hash_index, seq_min, &idx ) ) ) {
-      FD_LOG_WARNING(( "corrupt snapshot: gap in blockhash queue (seq=[%lu,%lu) idx=%lu)", seq_min, seq_max, blockhashes[ i ].hash_index ));
-      return 1;
-    }
-
-    if( FD_UNLIKELY( idx>=blockhashes_len ) ) {
-      FD_LOG_WARNING(( "corrupt snapshot: blockhash queue index out of range (seq_min=%lu age_cnt=%lu idx=%lu)", seq_min, blockhashes_len, idx ));
-      return 1;
-    }
-
-    if( FD_UNLIKELY( banks[ blockhashes_len-1UL-idx ].exists ) ) {
-      FD_LOG_WARNING(( "corrupt snapshot: duplicate blockhash hash_index %lu", elem->hash_index ));
-      return 1;
-    }
-
-    banks[ blockhashes_len-1UL-idx ].fork_id.val = USHORT_MAX;
-    banks[ blockhashes_len-1UL-idx ].txnhash_offset = ULONG_MAX;
-    memcpy( banks[ blockhashes_len-1UL-idx ].blockhash, elem->hash, 32UL );
-    banks[ blockhashes_len-1UL-idx ].exists = 1;
+    banks[ i ].hash_index     = blockhashes[ i ].hash_index;
+    banks[ i ].fork_id.val    = USHORT_MAX;
+    banks[ i ].txnhash_offset = ULONG_MAX;
+    memcpy( banks[ i ].blockhash, blockhashes[ i ].hash, 32UL );
   }
+  fd_snapin_bank_sort_newest_first_inplace( banks, blockhashes_len );
 
-  ulong chain_len = fd_ulong_min( blockhashes_len, 151UL );
+  ulong chain_cnt  = blockhashes_len;
+  ulong seq_max    = banks[ 0UL ].hash_index;
+  ulong recent_cnt = 0UL;
+  for( ulong i=0UL; i<chain_cnt; i++ ) {
+    if( FD_UNLIKELY( i && banks[ i ].hash_index==banks[ i-1UL ].hash_index ) ) {
+      FD_LOG_WARNING(( "corrupt snapshot: duplicate blockhash queue hash_index %lu", banks[ i ].hash_index ));
+      return 1;
+    }
+    if( FD_LIKELY( seq_max-banks[ i ].hash_index<151UL ) ) recent_cnt++;
+  }
+  FD_TEST( chain_cnt==blockhashes_len );
+  FD_TEST( recent_cnt<=151UL );
+
+  ulong chain_len = recent_cnt;
+
+  /* Chain position of the block that registered each hash_index, by
+     slot delta rank r (hash_index seq_max-r): the newest link whose
+     hash_index is at most seq_max-r.  For a present index that is its
+     own link; for a skipped one it is the nearest newer link, since the
+     block that registered it shares that link's blockhash.  Ranks past
+     the oldest entry cannot reference a recent blockhash; they map past
+     the chain so that the age check below rejects them if they try. */
+
+  ulong seq_span = seq_max - banks[ chain_cnt-1UL ].hash_index; /* oldest entry is the last link */
+  ulong exec_pos_by_rank[ FD_TXNCACHE_MAX_SLOT_DELTAS ];
+  ulong link = 0UL;
+  for( ulong r=0UL; r<FD_TXNCACHE_MAX_SLOT_DELTAS; r++ ) {
+    if( FD_UNLIKELY( r>seq_span ) ) { exec_pos_by_rank[ r ] = chain_cnt; continue; }
+    ulong target = seq_max-r; /* in [oldest,seq_max], so the walk stops before chain_cnt */
+    while( banks[ link ].hash_index>target ) link++;
+    exec_pos_by_rank[ r ] = fd_ulong_if( banks[ link ].hash_index==target, link, link-1UL ); /* link>0 when skipped: seq_max is link 0 */
+  }
 
   /* Now we need a hashset of just the 151 most recent blockhashes,
      anything else is a nonce transaction which we do not insert, or an
@@ -1069,6 +1103,11 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
   /* blockhash_groups aliases txncache memory, so filtering must finish
      before the first txncache insert. */
   if( FD_UNLIKELY( txncache_staging_filter_groups( ctx, blockhash_map, blockhash_pool, snapshot_slot ) ) ) return 1;
+  for( ulong i=0UL; i<ctx->lead.recent_groups_len; i++ ) {
+    recent_blockhash_group_t * group = &ctx->lead.recent_groups[ i ];
+    FD_TEST( group->execution_bank_i<FD_TXNCACHE_MAX_SLOT_DELTAS );
+    group->execution_bank_i = exec_pos_by_rank[ group->execution_bank_i ];
+  }
 
   /* Now load the blockhash offsets for these blockhashes ... */
   if( FD_UNLIKELY( !ctx->lead.blockhash_groups_cnt ) ) {

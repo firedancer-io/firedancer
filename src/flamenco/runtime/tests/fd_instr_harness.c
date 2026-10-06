@@ -58,7 +58,9 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   /* Blockhash queue init */
   ulong blockhash_seed; FD_TEST( fd_rng_secure( &blockhash_seed, sizeof(ulong) ) );
   fd_blockhashes_t * blockhashes = fd_blockhashes_init( &runner->bank->f.block_hash_queue, blockhash_seed );
-  fd_memset( fd_blockhash_deq_push_tail_nocopy( blockhashes->d.deque ), 0, sizeof(fd_hash_t) );
+  fd_blockhash_info_t * placeholder = fd_blockhash_deq_push_tail_nocopy( blockhashes->d.deque );
+  fd_memset( placeholder, 0, sizeof(fd_hash_t) );
+  placeholder->hash_index = 0UL;
 
   /* Set up instruction context */
   fd_instr_info_t * info = fd_instr_info_new( &runtime->instr.trace[ 0UL ] );
