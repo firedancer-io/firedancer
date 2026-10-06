@@ -4204,6 +4204,8 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
   for( ulong i=0UL; i<cnt; i++ ) {
     ulong entry_sz = sizeof(fd_accdb_disk_meta_t)+data_lens[ i ];
     int   skip     = 0;
+    /* a node for this pubkey exists that the loader did not write */
+    int   live     = 0;
 
     uint chain_head;
     for(;;) {
@@ -4229,6 +4231,10 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
       }
 
       if( FD_UNLIKELY( !memcmp( pubkeys[ i ], candidate->key.pubkey, 32UL ) ) ) {
+        if( FD_UNLIKELY( !FD_ACCDB_SIZE_SNAPSHOT( candidate->executable_size ) ) ) {
+          live = 1;
+          break;
+        }
         if( FD_LIKELY( (ulong)candidate->cache_idx>slots[ i ] ) ) {
           skip = 1;
         } else if( FD_UNLIKELY( (ulong)candidate->cache_idx==slots[ i ] ) ) {
@@ -4254,6 +4260,17 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
       fd_accdb_shmem_bytes_freed( accdb->shmem, file_offsets[ i ], entry_sz );
       ignored_lamports  += lamports[ i ];
       ignored++;
+      continue;
+    }
+
+    if( FD_UNLIKELY( live ) ) {
+      /* A live version already holds this key's value at the boot
+         slot, so the snapshot copy is never needed. */
+      results[ i ] = FD_ACCDB_SNAPSHOT_WRITE_LIVE;
+      FD_COMPILER_MFENCE();
+      FD_VOLATILE( accdb->acc_map[ hashes[ i ] ] ) = chain_head;
+      fd_accdb_shmem_bytes_freed( accdb->shmem, file_offsets[ i ], entry_sz );
+      loaded++;
       continue;
     }
 
@@ -4306,7 +4323,8 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
 
     accmeta->cache_idx       = (uint)slots[ i ];
     accmeta->lamports        = lamports[ i ];
-    accmeta->executable_size = FD_ACCDB_SIZE_PACK( (uint)data_lens[ i ], executables[ i ] );
+    accmeta->executable_size = FD_ACCDB_SIZE_PACK( (uint)data_lens[ i ], executables[ i ] )
+                             | FD_ACCDB_SIZE_SNAPSHOT_BIT;
     ulong file_off           = file_offsets[ i ];
     accmeta->offset_fork     = incremental ? fd_accdb_acc_pack_offset_fork( file_off, fork_id.val ) : file_off;
 

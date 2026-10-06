@@ -221,18 +221,19 @@ fd_accdb_chain_head( uint const * head ) {
 #define FD_ACCDB_OFF_INVAL FD_ACCDB_OFF_MASK                    /* sentinel: offset bits all-ones */
 
 /* The `size` field in fd_accdb_disk_meta_t (named executable_size in
-   fd_accdb_accmeta_t) packs five things into 32 bits:
+   fd_accdb_accmeta_t) packs six things into 32 bits:
 
      bit  31     executable flag                       (FD_ACCDB_SIZE_EXEC_BIT)
      bit  30     cache_valid flag, in-memory only      (FD_ACCDB_SIZE_CACHE_VALID_BIT)
      bit  29     cache_claim flag, in-memory only      (FD_ACCDB_SIZE_CACHE_CLAIM_BIT)
      bit  28     pd_write flag,    in-memory only      (FD_ACCDB_SIZE_PD_WRITE_BIT)
-     bits 27..0  data length in bytes                  (FD_ACCDB_SIZE_MASK)
+     bit  27     snapshot flag,    in-memory only      (FD_ACCDB_SIZE_SNAPSHOT_BIT)
+     bits 26..0  data length in bytes                  (FD_ACCDB_SIZE_MASK)
 
-   The data length is therefore 28 bits, max 256 MiB, still well above
+   The data length is therefore 27 bits, max 128 MiB, still well above
    FD_RUNTIME_ACC_SZ_MAX of 10 MiB (enforced by the static assert below).
 
-   The three upper flag bits exist only in the in-memory index, never on
+   The four upper flag bits exist only in the in-memory index, never on
    disk:
      - cache_valid (bit 30): when set, cache_idx holds a valid
        (class, idx) pair; when clear, cache_idx must not be dereferenced
@@ -248,6 +249,10 @@ fd_accdb_chain_head( uint const * head ) {
        dead by construction because the generation no longer matches any
        live fork.  Carried explicitly by the two commit sites in
        fd_accdb_release and nowhere else.
+     - snapshot (bit 27): set on every node written by the snapshot
+       loader.  Normal commits rebuild the word and so clear it.  The
+       loader compares slots only against nodes that carry it, and
+       reads can be told to skip them (fd_accdb_snapshot_hide).
 
    The on-disk representation (written via SIZE_PACK / SIZE_DATA) carries
    no in-memory flag: persisted bytes are unchanged, and compaction's
@@ -258,15 +263,17 @@ fd_accdb_chain_head( uint const * head ) {
 #define FD_ACCDB_SIZE_CACHE_VALID_BIT (1U<<30)
 #define FD_ACCDB_SIZE_CACHE_CLAIM_BIT (1U<<29)
 #define FD_ACCDB_SIZE_PD_WRITE_BIT    (1U<<28)
-#define FD_ACCDB_SIZE_MASK            ((1U<<28)-1U)
+#define FD_ACCDB_SIZE_SNAPSHOT_BIT    (1U<<27)
+#define FD_ACCDB_SIZE_MASK            ((1U<<27)-1U)
 #define FD_ACCDB_SIZE_PACK(sz,exec)   ((uint)(sz) | ((exec) ? FD_ACCDB_SIZE_EXEC_BIT : 0U))
 #define FD_ACCDB_SIZE_DATA(packed)    ((packed) & FD_ACCDB_SIZE_MASK)
 #define FD_ACCDB_SIZE_EXEC(packed)    (!!((packed) & FD_ACCDB_SIZE_EXEC_BIT))
 #define FD_ACCDB_SIZE_CACHE_VALID(p)  (!!((p) & FD_ACCDB_SIZE_CACHE_VALID_BIT))
 #define FD_ACCDB_SIZE_CACHE_CLAIM(p)  (!!((p) & FD_ACCDB_SIZE_CACHE_CLAIM_BIT))
 #define FD_ACCDB_SIZE_PD_WRITE(p)     (!!((p) & FD_ACCDB_SIZE_PD_WRITE_BIT))
+#define FD_ACCDB_SIZE_SNAPSHOT(p)     (!!((p) & FD_ACCDB_SIZE_SNAPSHOT_BIT))
 
-FD_STATIC_ASSERT( (10UL<<20) < (1UL<<28), pd_write_bit_collides_with_len );
+FD_STATIC_ASSERT( (10UL<<20) < (1UL<<27), snapshot_bit_collides_with_len );
 
 static inline ulong
 fd_accdb_acc_offset( fd_accdb_accmeta_t const * acc ) {

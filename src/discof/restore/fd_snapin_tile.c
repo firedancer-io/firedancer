@@ -1355,7 +1355,10 @@ writer_flush( fd_snapin_tile_t * ctx ) {
        delegation and replaced a funded version tombstones it, so a tile
        still holding the older version cannot leave it behind. */
     for( ulong i=0UL; i<cnt; i++ ) {
-      if( FD_UNLIKELY( results[ i ]==FD_ACCDB_SNAPSHOT_WRITE_IGNORED ) ) continue;
+      /* A live version already holds the key's value, so there is
+         nothing snooped and nothing replaced, same as IGNORED. */
+      if( FD_UNLIKELY( results[ i ]==FD_ACCDB_SNAPSHOT_WRITE_IGNORED ||
+                        results[ i ]==FD_ACCDB_SNAPSHOT_WRITE_LIVE ) ) continue;
 
       ulong               lamports = batch->lamports[ batch_off+i ];
       fd_pubkey_t const * pubkey   = (fd_pubkey_t const *)pubkeys[ i ];
