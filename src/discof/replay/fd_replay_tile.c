@@ -659,20 +659,23 @@ strmk_ring_full( fd_replay_strmk_ring_t * ring ) {
 }
 
 /* strmk_ring_drop releases every hold a ring still has and empties
-   it. */
+   it, returning how many it released. */
 
-static void
+static ulong
 strmk_ring_drop( fd_replay_tile_t *       ctx,
                  fd_replay_strmk_ring_t * ring ) {
+  ulong cnt = 0UL;
   for( ulong i=ring->head; i!=ring->tail; i++ ) {
     fd_replay_strmk_hold_t * hold = &ring->hold[ i%FD_REPLAY_STRMK_HOLD_MAX ];
     if( FD_UNLIKELY( hold->token==ULONG_MAX ) ) continue;
     fd_bank_t * bank = fd_banks_bank_query( ctx->banks, FD_REPLAY_STRMK_TOKEN_BANK( hold->token ) );
     if( FD_LIKELY( bank ) ) bank->refcnt--;
     hold->token = ULONG_MAX;
+    cnt++;
   }
   ring->head = 0UL;
   ring->tail = 0UL;
+  return cnt;
 }
 
 /* strmk_reset takes back every reference the stream tile was given and
@@ -688,10 +691,19 @@ static void
 strmk_reset( fd_replay_tile_t *  ctx,
              fd_stem_context_t * stem,
              char const *        reason ) {
-  FD_LOG_WARNING(( "resetting the boot streams: %s", reason ));
-  strmk_ring_drop( ctx, ctx->strmk_start_hold );
-  strmk_ring_drop( ctx, ctx->strmk_read_hold );
-  strmk_ring_drop( ctx, ctx->strmk_base_hold );
+  /* Resetting is routine while blocks are being gated, and an epoch
+     boundary gates hundreds of them, so only a reset that actually
+     cost the stream tile something is worth an operator's
+     attention. */
+  int   opening = ctx->strmk_base_hold->head!=ctx->strmk_base_hold->tail;
+  ulong dropped = strmk_ring_drop( ctx, ctx->strmk_start_hold ) +
+                  strmk_ring_drop( ctx, ctx->strmk_read_hold  ) +
+                  strmk_ring_drop( ctx, ctx->strmk_base_hold  );
+  if( FD_UNLIKELY( dropped || opening ) ) FD_LOG_WARNING(( "resetting the boot streams: %s", reason ));
+  else                                    FD_LOG_INFO   (( "resetting the boot streams: %s", reason ));
+
+  /* Nothing in flight is tracked by the tile any more. */
+  if( FD_LIKELY( ctx->strmk_fed ) ) memset( ctx->strmk_fed, 0, ctx->max_live_slots );
   strmk_publish( ctx, stem, FD_STRMK_SIG_RESET, 0UL );
 }
 
@@ -835,14 +847,17 @@ strmk_block_start( fd_replay_tile_t *     ctx,
      the feed entirely.  Every block while the condition holds resets
      again, which costs nothing because the tile has nothing open. */
   ctx->strmk_fed[ sched_fec->bank_idx ] = 0;
-  if( FD_UNLIKELY( epoch_rewards_pending( ctx, sched_fec->parent_bank_idx, sched_fec->slot ) ) ) {
-    strmk_reset( ctx, stem, "a block crosses an epoch boundary or an epoch rewards payout" );
-    return;
-  }
-
   fd_bank_t * bank   = fd_banks_bank_query( ctx->banks, sched_fec->bank_idx );
   fd_bank_t * parent = fd_banks_bank_query( ctx->banks, sched_fec->parent_bank_idx );
   FD_TEST( bank && parent );
+
+  if( FD_UNLIKELY( epoch_rewards_pending( ctx, sched_fec->parent_bank_idx, sched_fec->slot ) ) ) {
+    int boundary = fd_slot_to_epoch( &parent->f.epoch_schedule, sched_fec->slot, NULL )>parent->f.epoch;
+    strmk_reset( ctx, stem, boundary ? "a block is across an epoch boundary"
+                                     : "a block is inside an epoch rewards payout" );
+    return;
+  }
+
   ulong token = strmk_hold_add( ctx, stem, ctx->strmk_start_hold, parent );
 
   fd_strmk_block_start_t * msg = fd_chunk_to_laddr( ctx->strmk_out->mem, ctx->strmk_out->chunk );
@@ -3346,8 +3361,8 @@ mark_bank_dead( fd_replay_tile_t *        ctx,
 
 static int
 epoch_rewards_pending( fd_replay_tile_t * ctx,
-                         ulong              parent_bank_idx,
-                         ulong              slot ) {
+                       ulong              parent_bank_idx,
+                       ulong              slot ) {
   fd_bank_t * parent = fd_banks_bank_query( ctx->banks, parent_bank_idx );
   FD_TEST( parent );
   if( FD_UNLIKELY( fd_slot_to_epoch( &parent->f.epoch_schedule, slot, NULL )>parent->f.epoch ) ) return 1;

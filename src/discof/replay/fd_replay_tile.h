@@ -145,10 +145,11 @@
    chain of blocks and cannot skip one, and an epoch boundary credits
    stake accounts that no transaction names, so the accounts of the
    block on the far side of it cannot be carried.  A peer booting near
-   a boundary therefore sees its stream break and has to start over.  A reset cancels every
-   reference the stream tile was given before it; returning one of
-   those tokens afterwards is harmless, replay no longer recognises
-   it.
+   a boundary therefore sees its stream break and has to start over.
+
+   A reset cancels every reference the stream tile was given before
+   it; returning one of those tokens afterwards is harmless, replay no
+   longer recognises it.
 
    A reference has two deadlines.  The stream tile reads a block's
    accounts once it has the block's end, so from that moment it has 4
