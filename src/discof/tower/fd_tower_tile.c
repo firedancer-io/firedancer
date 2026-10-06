@@ -759,7 +759,10 @@ query_towers( fd_tower_tile_t *            ctx,
       ulong root;
       fd_tower_vote_remove_all( ctx->scratch_tower );
       fd_tower_from_vote_acc( ctx->scratch_tower, &root, ctx->our_vote_acct, ctx->our_vote_acct_sz );
-      fd_tower_reconcile( ctx->tower, ctx->scratch_tower, root );
+      /* After a switch with a vote history, our tower holds only its
+         replayed votes, so like Agave we compare against its last vote. */
+      ulong onchain_last = fd_tower_vote_empty( ctx->scratch_tower ) ? ULONG_MAX : fd_tower_vote_peek_tail_const( ctx->scratch_tower )->slot;
+      if( FD_LIKELY( !ctx->vote_history_last || onchain_last>ctx->vote_history_last ) ) fd_tower_reconcile( ctx->tower, ctx->scratch_tower, root );
     } else {
       FD_LOG_NOTICE(( "wait_for_supermajority: skipping tower reconcile on init slot %lu", slot_completed->slot ));
     }
@@ -1099,13 +1102,13 @@ vote_history_ahead( fd_tower_t *            tower,
 }
 
 static ulong
-vote_history_floor( fd_tower_t const *             tower,
+vote_history_floor( ulong                          root,
                     fd_tower_file_t const *        file,
                     fd_slot_history_view_t const * slot_history ) {
   ulong floor = 0UL;
   for( ulong i=0UL; i<file->votes_cnt; i++ ) {
     fd_tower_vote_t const * vote = &file->votes[ i ];
-    if( vote->slot<=tower->root && fd_sysvar_slot_history_find_slot( slot_history, vote->slot )==FD_SLOT_HISTORY_SLOT_NOT_FOUND ) {
+    if( vote->slot<=root && fd_sysvar_slot_history_find_slot( slot_history, vote->slot )==FD_SLOT_HISTORY_SLOT_NOT_FOUND ) {
       floor = fd_ulong_max( floor, vote->slot+(1UL<<vote->conf)+1UL );
     }
   }
@@ -1142,7 +1145,7 @@ adopt_vote_history( fd_tower_tile_t * ctx ) {
     fd_tower_vote_push_tail( ctx->scratch_tower, *vote );
   }
   if( FD_LIKELY( !fd_tower_vote_empty( ctx->scratch_tower ) && !fd_tower_vote_empty( tower->votes ) &&
-                 fd_tower_vote_peek_tail_const( tower->votes )->slot<=fd_tower_vote_peek_tail_const( ctx->scratch_tower )->slot ) ) clear_votes( tower );
+                 fd_tower_vote_peek_tail_const( tower->votes )->slot<=last ) ) clear_votes( tower );
   fd_tower_blk_t const * root_blk = fd_tower_blocks_query( tower, file->root );
   int root_replayed = file->root<=tower->root || ( root_blk && fd_ghost_query( ctx->ghost, &root_blk->replayed_block_id ) );
   fd_tower_reconcile( tower, ctx->scratch_tower, root_replayed ? file->root : tower->root );
@@ -1172,7 +1175,7 @@ check_vote_history( fd_tower_tile_t *                  ctx,
   ulong                  sz;
   uchar const *          data = fd_sysvar_cache_data_query( &bank->f.sysvar_cache, &fd_sysvar_slot_history_id, &sz );
   fd_slot_history_view_t slot_history[1];
-  if( FD_LIKELY( data && fd_sysvar_slot_history_view( slot_history, data, sz ) ) ) floor = vote_history_floor( tower, file, slot_history );
+  if( FD_LIKELY( data && fd_sysvar_slot_history_view( slot_history, data, sz ) ) ) floor = vote_history_floor( fd_ghost_root( ctx->ghost )->slot, file, slot_history );
 
   /* If the tower file is ahead of what we have replayed, we need to
      wait to catch up (or for lockout to expire) to make sure we aren't
@@ -1194,9 +1197,9 @@ check_vote_history( fd_tower_tile_t *                  ctx,
 
    In every case we still don't vote until any of its votes on
    abandoned forks stop locking us out. */
-  if     ( FD_UNLIKELY( last<=tower->root ) ) FD_LOG_NOTICE(( "set-identity: vote history is behind root %lu (last vote %lu)", tower->root, last ));
-  else if( FD_UNLIKELY( wait              ) ) FD_LOG_WARNING(( "set-identity: vote history blocks were never replayed, dropping the votes on them" ));
-  else                                        FD_LOG_NOTICE(( "set-identity: restored vote history, last vote %lu, root %lu", last, tower->root ));
+  if     ( FD_UNLIKELY( last<=tower->root ) ) { FD_LOG_NOTICE(( "set-identity: vote history is behind root %lu (last vote %lu)", tower->root, last )); ctx->vote_history_last = 0UL; }
+  else if( FD_UNLIKELY( wait              ) )   FD_LOG_WARNING(( "set-identity: vote history blocks were never replayed, dropping the votes on them" ));
+  else                                          FD_LOG_NOTICE(( "set-identity: restored vote history, last vote %lu, root %lu", last, tower->root ));
   ctx->vote_history_pending = 0;
   tower->wait_to_vote_slot  = fd_ulong_max( wait, floor );
 }
@@ -1644,6 +1647,7 @@ init_choreo( void                 * scratch,
   memset( &ctx->compact_tower_sync_serde, 0, sizeof(ctx->compact_tower_sync_serde) );
   memset( ctx->vote_txn, 0, sizeof(ctx->vote_txn) );
   ctx->vote_history_pending = 0;
+  ctx->vote_history_last    = 0UL;
   ctx->tower_file_pending   = 0UL;
 
   ctx->halt_signing    = 0;
@@ -1780,6 +1784,7 @@ during_housekeeping( fd_tower_tile_t * ctx ) {
       ctx->tower->wait_to_vote_slot = 0UL;
       ctx->vote_history_pending     = !!FD_LOAD( ulong, ctx->identity_keyswitch->bytes+32UL );
       if( ctx->vote_history_pending ) memcpy( &ctx->vote_history, ctx->identity_keyswitch->bytes+40UL, sizeof(fd_tower_file_t) );
+      ctx->vote_history_last        = ctx->vote_history_pending ? ctx->vote_history.votes[ ctx->vote_history.votes_cnt-1UL ].slot : 0UL;
     }
     FD_BASE58_ENCODE_32_BYTES( ctx->identity_key->uc, pubkey_str );
     FD_LOG_INFO(( "my identity key: %s (key switched)", pubkey_str ));

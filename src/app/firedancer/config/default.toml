@@ -247,7 +247,8 @@ telemetry = true
     # Absolute directory path for the tower/vote history file used for
     # safe identity switching. If no path is provided, it defaults to
     # the base directory above. File(s) will only be created here if the
-    # respective write_vote_history_file option is set to true.
+    # respective write_vote_history_file option is set to true.  The
+    # directory must exist, be writable by the Firedancer user.
     #
     # The files will be written differently based on if the validator is
     # using Tower or Alpenglow consensus. In the former case, the
@@ -258,14 +259,14 @@ telemetry = true
     # matching what Agave does. A vote history larger than 32688 bytes
     # empties the file until the history fits again. This file is only
     # ever read by the validator during set-identity and never at boot.
+    # Do not move or replace the files while the validator runs.
     #
-    # After `set-identity`, the validator renames the file to the new
-    # identity key before it saves the first vote of that identity, so
-    # the old identity's last vote keeps its name until then.  If a
-    # file with the new name already exists, for example the tower file
-    # passed to `set-identity`, it is not replaced but renamed with an
-    # `.old` suffix. This will only happen if a file with the validators
-    # name is placed into the directory.
+    # After `set-identity` changes the identity, the validator renames
+    # the files to the new identity key before it saves the first vote
+    # of that identity, so the old identity's last vote keeps its name
+    # until then.  If a file with the new identity's name was placed in
+    # the directory, it is not replaced but renamed with an `.old`
+    # suffix.
     #
     # Two substitutions will be performed on this string.  If "{user}"
     # is present it will be replaced with the user running Firedancer,

@@ -51,12 +51,15 @@ to `tower-1_9-<identity>.bin` in the `[paths.vote_history]` directory
 since the root to `vote_history-<identity>.bin` in the same directory,
 and a vote history larger than 32,688 bytes empties the file until it
 fits again. The file is only read by `--vote-history-file`, never when
-Firedancer boots.
-After `set-identity`, the file is renamed to the new identity
-when that identity first votes, so the old identity's last vote keeps
-its name until then. If a file with the new name already exists, for
-example the file passed to `--vote-history-file`, it is not replaced
-but renamed with an `.old` suffix.
+Firedancer boots. The path for the vote history file should be to a
+directory which exists and is writable by the Firedancer user.
+The validator keeps writing the files of its current identity that it
+opened at boot, so do not overwrite, move, or replace them while it
+runs. The file passed to `--vote-history-file` can be anywhere else.
+When `set-identity` changes the identity, the file is renamed to the
+new identity when that identity first votes, so the old identity's last
+vote keeps its name until then. If a file with the new name already
+exists, it is not replaced but renamed with an `.old` suffix.
 
 | Arguments                    | Description |
 |------------------------------|-------------|

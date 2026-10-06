@@ -433,6 +433,14 @@ test_identity_switch_adopts_vote_history( void ) {
   FD_TEST( fd_tower_vote_cnt( ctx->tower->votes )==1UL && fd_tower_vote_peek_tail_const( ctx->tower->votes )->slot==102UL );
   FD_TEST( !ctx->vote_history_pending && ctx->tower->wait_to_vote_slot==109UL );
 
+  /* Like Agave, our tower is compared against the history's last vote,
+     even if its block is not replayed yet, so a history whose replayed
+     votes are older than ours still replaces our tower. */
+
+  fd_tower_file_t ahead = { .votes = {{ 104UL, 3UL }, { 110UL, 1UL }}, .votes_cnt = 2UL, .root = 102UL, .bank_hash = { .ul = { 1110UL } } };
+  ctx = adopt_setup(); ctx->vote_history = ahead; adopt_vote_history( ctx );
+  FD_TEST( ctx->tower->root==102UL && fd_tower_vote_cnt( ctx->tower->votes )==1UL && fd_tower_vote_peek_tail_const( ctx->tower->votes )->slot==104UL );
+
   /* Switching to another identity drops a pending history. */
 
   ctx = adopt_setup(); adopt_switch( ctx, 0x22UL, &bad ); check_vote_history( ctx, &(fd_replay_slot_completed_t){ .slot = 105UL } );
@@ -458,10 +466,15 @@ test_vote_history_floor( void ) {
      rooted and 105 is above our root, so neither counts. */
 
   fd_tower_file_t file = { .votes = {{ 90UL, 5UL }, { 95UL, 4UL }, { 105UL, 1UL }}, .votes_cnt = 3UL, .root = 80UL };
-  FD_TEST( vote_history_floor( ctx->tower, &file, &slot_history )==95UL+16UL+1UL );
+  FD_TEST( vote_history_floor( ctx->tower->root, &file, &slot_history )==95UL+16UL+1UL );
+
+  /* Votes above the root we judge against don't count, even if the
+     history lacks them. */
+
+  FD_TEST( vote_history_floor( 94UL, &file, &slot_history )==0UL );
 
   file.votes[ 1 ].slot = 100UL;
-  FD_TEST( vote_history_floor( ctx->tower, &file, &slot_history )==0UL );
+  FD_TEST( vote_history_floor( ctx->tower->root, &file, &slot_history )==0UL );
 
   FD_LOG_NOTICE(( "pass: test_vote_history_floor" ));
 }

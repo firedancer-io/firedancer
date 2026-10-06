@@ -168,6 +168,7 @@ struct fd_tower_tile {
   uchar                         vote_txn[FD_TPU_PARSED_MTU];
   fd_tower_file_t               vote_history;
   int                           vote_history_pending; /* vote history not yet adopted or dropped */
+  ulong                         vote_history_last;    /* last vote of the vote history from the last switch, 0 if none or behind our root */
 
   uchar __attribute__((aligned(FD_MULTI_EPOCH_LEADERS_ALIGN))) mleaders_mem[ FD_MULTI_EPOCH_LEADERS_FOOTPRINT ];
   uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
