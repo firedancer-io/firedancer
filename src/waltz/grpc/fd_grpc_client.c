@@ -39,6 +39,7 @@ fd_grpc_h2_stream_reset( fd_grpc_h2_stream_t * stream ) {
   stream->msg_sz              = 0UL;
   stream->has_header_deadline = 0;
   stream->has_rx_end_deadline = 0;
+  stream->rst_pending         = 0;
   stream->tx_wnd_debt         = 0L;
 }
 
@@ -255,17 +256,23 @@ fd_grpc_client_send_stream_quota( fd_h2_rbuf_t *        rbuf_tx,
 }
 
 /* fd_grpc_client_send_timeout is called when a stream timeout triggers.
-   Writes a RST_STREAM frame unless the stream is already closed, calls
-   back to the user, and frees the stream object. */
+   Writes a RST_STREAM frame unless the stream is closed or frame_tx is
+   full, then calls back to the user.  The caller frees the stream. */
 
 static void
 fd_grpc_client_send_timeout( fd_h2_rbuf_t *        rbuf_tx,
                              fd_grpc_client_t *    client,
                              fd_grpc_h2_stream_t * stream,
                              int                   deadline_kind ) {
-  fd_h2_stream_error( &stream->s, client->conn, rbuf_tx, FD_H2_ERR_CANCEL );
+  if( fd_h2_rbuf_free_sz( rbuf_tx )>=sizeof(fd_h2_rst_stream_t) ) fd_h2_stream_error( &stream->s, client->conn, rbuf_tx, FD_H2_ERR_CANCEL );
+  stream->rst_pending         = 1;
+  stream->has_header_deadline = 0;
+  stream->has_rx_end_deadline = 0;
+  if( stream==client->request_stream ) {
+    client->request_stream = NULL;
+    *client->request_tx_op = (fd_h2_tx_op_t){0};
+  }
   client->callbacks->rx_timeout( client->ctx, stream->request_ctx, deadline_kind );
-  fd_grpc_client_stream_release( client, stream );
 }
 
 long
@@ -273,6 +280,8 @@ fd_grpc_client_next_deadline( fd_grpc_client_t const * client ) {
   long deadline = LONG_MAX;
   for( ulong i=0UL; i<(client->stream_cnt); i++ ) {
     fd_grpc_h2_stream_t const * stream = client->streams[ i ];
+    if( stream->rst_pending && fd_h2_rbuf_free_sz( client->frame_tx )>=sizeof(fd_h2_rst_stream_t) &&
+        !( client->conn->flags & (FD_H2_CONN_FLAGS_DEAD|FD_H2_CONN_FLAGS_SEND_GOAWAY) ) ) return 0L; /* deferred RST_STREAM can go out now */
     if( stream->has_header_deadline ) deadline = fd_long_min( deadline, stream->header_deadline_nanos );
     if( stream->has_rx_end_deadline ) deadline = fd_long_min( deadline, stream->rx_end_deadline_nanos );
   }
@@ -312,24 +321,27 @@ fd_grpc_client_service_streams( fd_grpc_client_t * client,
   uint  const wnd_max    = conn->self_settings.initial_window_size;
   uint  const wnd_thres  = wnd_max / 2;
   for( ulong i=0UL; i<(client->stream_cnt); i++ ) {
-    if( FD_UNLIKELY( fd_h2_rbuf_free_sz( rbuf_tx )<meta_frame_max ) ) break;
     fd_grpc_h2_stream_t * stream = client->streams[ i ];
 
     if( FD_UNLIKELY( ( stream->has_header_deadline ) &
                      ( stream->header_deadline_nanos - ts_nanos <= 0L ) ) ) {
       fd_grpc_client_send_timeout( rbuf_tx, client, stream, FD_GRPC_DEADLINE_HEADER );
-      i--; /* stream removed */
-      continue;
     }
 
     if( FD_UNLIKELY( ( stream->has_rx_end_deadline ) &
                      ( stream->rx_end_deadline_nanos - ts_nanos <= 0L ) ) ) {
       fd_grpc_client_send_timeout( rbuf_tx, client, stream, FD_GRPC_DEADLINE_RX_END );
+    }
+
+    if( FD_UNLIKELY( stream->rst_pending ) ) {
+      if( fd_h2_rbuf_free_sz( rbuf_tx )<meta_frame_max && stream->s.state!=FD_H2_STREAM_STATE_CLOSED ) continue;
+      fd_h2_stream_error( &stream->s, conn, rbuf_tx, FD_H2_ERR_CANCEL );
+      fd_grpc_client_stream_release( client, stream );
       i--; /* stream removed */
       continue;
     }
 
-    if( FD_UNLIKELY( stream->s.rx_wnd < wnd_thres && stream->s.state!=FD_H2_STREAM_STATE_CLOSED ) ) {
+    if( FD_UNLIKELY( stream->s.rx_wnd < wnd_thres && stream->s.state!=FD_H2_STREAM_STATE_CLOSED && fd_h2_rbuf_free_sz( rbuf_tx )>=meta_frame_max ) ) {
       uint const bump = wnd_max - stream->s.rx_wnd;
       fd_grpc_client_send_stream_quota( rbuf_tx, stream, bump );
     }
@@ -887,10 +899,11 @@ fd_grpc_h2_cb_headers(
   if( FD_UNLIKELY( h2_status!=FD_H2_SUCCESS ) ) {
     /* Failed to parse HTTP/2 headers */
     fd_h2_stream_error( h2_stream, conn, client->frame_tx, FD_H2_ERR_PROTOCOL );
-    client->callbacks->rx_end( client->ctx, stream->request_ctx, &stream->hdrs ); /* invalidates stream->hdrs */
+    if( FD_LIKELY( !stream->rst_pending ) ) client->callbacks->rx_end( client->ctx, stream->request_ctx, &stream->hdrs ); /* invalidates stream->hdrs */
     fd_grpc_client_stream_release( client, stream );
     return;
   }
+  if( FD_UNLIKELY( stream->rst_pending ) ) return; /* timed out */
 
   if( !( flags & FD_H2_FLAG_END_HEADERS ) ) return;
   /* END_STREAM may have arrived earlier in the block.  Reset before
@@ -926,6 +939,7 @@ fd_grpc_h2_cb_data(
 ) {
   fd_grpc_client_t *    client = conn->ctx;
   fd_grpc_h2_stream_t * stream = fd_grpc_h2_stream_upcast( h2_stream );
+  if( FD_UNLIKELY( stream->rst_pending ) ) return; /* timed out */
   if( FD_UNLIKELY( ( stream->hdrs.h2_status!=200 ) |
                    ( !stream->hdrs.is_grpc_proto ) ) ) {
     goto check_end_stream;
@@ -1010,7 +1024,7 @@ fd_grpc_h2_rst_stream( fd_h2_conn_t *   conn,
                      fd_log_style_dim(), error_code, fd_h2_strerror( error_code ), fd_log_style_normal() ));
   }
   fd_grpc_h2_stream_t * stream = fd_grpc_h2_stream_upcast( h2_stream );
-  client->callbacks->rx_end( client->ctx, stream->request_ctx, &stream->hdrs ); /* invalidates stream->hdrs */
+  if( FD_LIKELY( !stream->rst_pending ) ) client->callbacks->rx_end( client->ctx, stream->request_ctx, &stream->hdrs ); /* invalidates stream->hdrs */
   fd_grpc_client_stream_release( client, stream );
 }
 

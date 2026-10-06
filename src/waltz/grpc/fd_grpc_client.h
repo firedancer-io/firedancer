@@ -176,8 +176,9 @@ void *
 fd_grpc_client_delete( fd_grpc_client_t * client );
 
 /* fd_grpc_client_next_deadline returns the earliest stream deadline
-   (header or rx-end) across all inflight requests, or LONG_MAX if no
-   stream has a deadline armed. */
+   (header or rx-end) across all inflight requests, 0 if a timed-out
+   stream's RST_STREAM can be sent now, or LONG_MAX if no stream has a
+   deadline armed. */
 
 FD_FN_PURE long
 fd_grpc_client_next_deadline( fd_grpc_client_t const * client );

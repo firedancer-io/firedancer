@@ -94,6 +94,7 @@ static int g_rx_timeout_fill_tx;
 
 static struct {
   int    deadline_kind;
+  ulong  cnt;
 } g_timeout_details;
 
 static void
@@ -103,6 +104,7 @@ cb_rx_timeout( void * app_ctx,
   (void)app_ctx;
   g_cb_request_ctx = request_ctx;
   g_timeout_details.deadline_kind = deadline_kind;
+  g_timeout_details.cnt++;
   while( g_rx_timeout_fill_tx && fd_h2_rbuf_free_sz( client->frame_tx ) ) fd_h2_rbuf_push( client->frame_tx, "", 1UL );
 }
 
@@ -811,6 +813,50 @@ FD_UNIT_TEST( tls_rx_continues_while_send_blocked ) {
   FD_TEST( !close( sock[0] ) );
   FD_TEST( !close( sock[1] ) );
   fd_grpc_client_reset( client );
+}
+
+/* Deadlines fire on time even if frame_tx has no room for RST_STREAM.
+   Expired requests get no further callbacks or DATA, and RST_STREAM
+   waits for room.  wnd: unrelated stream wanting a WINDOW_UPDATE,
+   peer: reset by peer, bad: invalid headers, live: uploading */
+
+FD_UNIT_TEST( request_deadlines_under_tx_backpressure ) {
+  fd_grpc_client_reset( client );
+  test_grpc_client_mock_conn( client );
+  fd_grpc_h2_stream_t * wnd  = fd_grpc_client_stream_acquire( client, 0UL );
+  fd_grpc_h2_stream_t * peer = fd_grpc_client_stream_acquire( client, 0UL );
+  fd_grpc_h2_stream_t * bad  = fd_grpc_client_stream_acquire( client, 0UL );
+  fd_grpc_h2_stream_t * live = fd_grpc_client_stream_acquire( client, 0UL );
+  wnd->s.rx_wnd = live->s.rx_wnd = 64U;
+  fd_h2_tx_op_init( client->request_tx_op, client->frame_scratch, 1UL, 0U );
+  fd_grpc_client_deadline_set( peer, FD_GRPC_DEADLINE_RX_END, 1234L );
+  fd_grpc_client_deadline_set( bad,  FD_GRPC_DEADLINE_HEADER, 1234L );
+  fd_grpc_client_deadline_set( live, FD_GRPC_DEADLINE_HEADER, 1234L );
+  fd_h2_rbuf_push( client->frame_tx, client->frame_scratch, client->frame_tx_buf_max-sizeof(fd_h2_rst_stream_t)+1UL );
+
+  g_rx_end_cnt = g_timeout_details.cnt = 0UL;
+  fd_grpc_client_service_streams( client, 1234L );
+  FD_TEST( g_timeout_details.cnt==3UL && client->stream_cnt==4UL && client->conn->stream_active_cnt[1]==4U );
+  FD_TEST( !client->request_tx_op->chunk_sz && fd_grpc_client_next_deadline( client )==LONG_MAX );
+
+  /* Due once frame_tx has room (unless the conn is closing) */
+  fd_h2_rbuf_skip( client->frame_tx, fd_h2_rbuf_used_sz( client->frame_tx ) );
+  FD_TEST( !fd_grpc_client_next_deadline( client ) );
+  client->conn->flags = FD_H2_CONN_FLAGS_SEND_GOAWAY;
+  FD_TEST( fd_grpc_client_next_deadline( client )==LONG_MAX );
+  client->conn->flags = 0;
+  test_rx_frame( FD_H2_FRAME_TYPE_HEADERS,    FD_H2_FLAG_END_HEADERS|FD_H2_FLAG_END_STREAM, live->s.stream_id, (uchar const *)"\x88", 1UL );
+  test_rx_frame( FD_H2_FRAME_TYPE_DATA,       FD_H2_FLAG_END_STREAM,                        peer->s.stream_id, (uchar const *)"", 0UL );
+  test_rx_frame( FD_H2_FRAME_TYPE_RST_STREAM, 0U,                                           peer->s.stream_id, (uchar const *)"\0\0\0\0", 4UL );
+  test_rx_frame( FD_H2_FRAME_TYPE_HEADERS,    FD_H2_FLAG_END_HEADERS,                       bad->s.stream_id,  (uchar const *)"corrupt", 7UL );
+  FD_TEST( !g_rx_end_cnt && client->stream_cnt==2UL && fd_h2_rbuf_used_sz( client->frame_tx )==sizeof(fd_h2_rst_stream_t) );
+
+  fd_grpc_client_service_streams( client, 1235L );
+  fd_h2_rst_stream_t tx[3]; /* bad: RST_STREAM(PROTOCOL_ERROR), wnd: WINDOW_UPDATE, live: RST_STREAM(CANCEL) */
+  FD_TEST( g_timeout_details.cnt==3UL && fd_grpc_client_next_deadline( client )==LONG_MAX && fd_h2_rbuf_used_sz( client->frame_tx )==sizeof(tx) );
+  fd_h2_rbuf_pop_copy( client->frame_tx, tx, sizeof(tx) );
+  FD_TEST( tx[2].error_code==fd_uint_bswap( FD_H2_ERR_CANCEL ) );
+  FD_TEST( !fd_grpc_client_stream_acquire( client, 0UL )->rst_pending ); /* pool reuse */
 }
 
 int
