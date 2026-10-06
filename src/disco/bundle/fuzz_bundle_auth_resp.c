@@ -51,7 +51,7 @@ int LLVMFuzzerTestOneInput( const uchar *data, ulong size ) {
       }
       break;
     case 2:
-      rc = fd_bundle_auther_handle_tokens_resp( pAuther, payload, payload_sz );
+      rc = fd_bundle_auther_handle_tokens_resp( pAuther, payload, payload_sz, 0L );
       if( rc ) {
         FD_TEST( pAuther->state==FD_BUNDLE_AUTH_STATE_DONE_WAIT );
       } else {
@@ -65,7 +65,7 @@ int LLVMFuzzerTestOneInput( const uchar *data, ulong size ) {
       break;
   }
 
-  FD_TEST( pAuther->state<=FD_BUNDLE_AUTH_STATE_DONE_WAIT );
+  FD_TEST( pAuther->state<=FD_BUNDLE_AUTH_STATE_WAIT_REFRESH );
   FD_TEST( pAuther->needs_poll<=1 );
   FD_TEST( pAuther->access_token_sz<=sizeof(pAuther->access_token) );
 

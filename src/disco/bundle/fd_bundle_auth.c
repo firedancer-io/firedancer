@@ -15,7 +15,9 @@ fd_bundle_auther_t *
 fd_bundle_auther_init( fd_bundle_auther_t * auther ) {
   *auther = (fd_bundle_auther_t) {
     .state      = FD_BUNDLE_AUTH_STATE_REQ_CHALLENGE,
-    .needs_poll = 1
+    .needs_poll = 1,
+    .refresh_at = LONG_MAX,
+    .reauth_at  = LONG_MAX
   };
   return auther;
 }
@@ -30,6 +32,11 @@ fd_bundle_auther_handle_request_fail( fd_bundle_auther_t * auther ) {
     break;
   case FD_BUNDLE_AUTH_STATE_WAIT_TOKENS:
     FD_LOG_DEBUG(( "Request for auth tokens failed" ));
+    auther->state = FD_BUNDLE_AUTH_STATE_REQ_CHALLENGE;
+    auther->needs_poll = 1;
+    break;
+  case FD_BUNDLE_AUTH_STATE_WAIT_REFRESH:
+    FD_LOG_DEBUG(( "Request to refresh access token failed, re-authenticating" ));
     auther->state = FD_BUNDLE_AUTH_STATE_REQ_CHALLENGE;
     auther->needs_poll = 1;
     break;
@@ -143,11 +150,23 @@ fd_bundle_auther_req_tokens( fd_bundle_auther_t *   auther,
   FD_LOG_DEBUG(( "Requesting bundle auth tokens" ));
 }
 
+static long
+fd_bundle_auther_half_life( auth_Token const * token,
+                            long               now ) {
+  if( FD_UNLIKELY( !token->has_expires_at_utc ) ) return LONG_MAX;
+  long sec = token->expires_at_utc.seconds;
+  if( FD_UNLIKELY( sec<=0L || sec>=LONG_MAX/(long)1e9-1L ) ) return LONG_MAX;
+  long expires_at = sec*(long)1e9 + (long)token->expires_at_utc.nanos;
+  if( FD_UNLIKELY( expires_at<=now ) ) return LONG_MAX;
+  return now + (expires_at-now)/2L;
+}
+
 int
 fd_bundle_auther_handle_tokens_resp(
     fd_bundle_auther_t * auther,
     void const *         data,
-    ulong                data_sz
+    ulong                data_sz,
+    long                 now
 ) {
   pb_istream_t istream = pb_istream_from_buffer( data, data_sz );
   auth_GenerateAuthTokensResponse resp = auth_GenerateAuthTokensResponse_init_default;
@@ -164,11 +183,94 @@ fd_bundle_auther_handle_tokens_resp(
     FD_LOG_WARNING(( "auth.GenerateAuthTokensResponse: oversz access_token: %u bytes", resp.access_token.value.size ));
     goto fail;
   }
+  if( FD_UNLIKELY( !resp.has_refresh_token || resp.refresh_token.value.size==0 ) ) {
+    FD_LOG_WARNING(( "auth.GenerateAuthTokensResponse: missing refresh_token" ));
+    goto fail;
+  }
+  if( FD_UNLIKELY( resp.refresh_token.value.size > sizeof(auther->refresh_token) ) ) {
+    FD_LOG_WARNING(( "auth.GenerateAuthTokensResponse: oversz refresh_token: %u bytes", resp.refresh_token.value.size ));
+    goto fail;
+  }
 
   fd_memcpy( auther->access_token, resp.access_token.value.bytes, resp.access_token.value.size );
   auther->access_token_sz = (ushort)resp.access_token.value.size;
+  auther->refresh_at      = fd_bundle_auther_half_life( &resp.access_token, now );
+
+  fd_memcpy( auther->refresh_token, resp.refresh_token.value.bytes, resp.refresh_token.value.size );
+  auther->refresh_token_sz = (ushort)resp.refresh_token.value.size;
+  auther->reauth_at        = fd_bundle_auther_half_life( &resp.refresh_token, now );
+
   auther->state = FD_BUNDLE_AUTH_STATE_DONE_WAIT;
   FD_LOG_DEBUG(( "Got auth tokens" ));
+  return 1;
+
+fail:
+  auther->state = FD_BUNDLE_AUTH_STATE_REQ_CHALLENGE;
+  auther->needs_poll = 1;
+  return 0;
+}
+
+static void
+fd_bundle_auther_req_refresh( fd_bundle_auther_t * auther,
+                              fd_grpc_client_t *   client ) {
+  if( FD_UNLIKELY( fd_grpc_client_request_is_blocked( client ) ) ) return;
+
+  auth_RefreshAccessTokenRequest req = {0};
+  memcpy( req.refresh_token.bytes, auther->refresh_token, auther->refresh_token_sz );
+  req.refresh_token.size = auther->refresh_token_sz;
+
+  static char const path[] = "/auth.AuthService/RefreshAccessToken";
+  fd_grpc_h2_stream_t * request = fd_grpc_client_request_start(
+      client,
+      path, sizeof(path)-1,
+      FD_BUNDLE_CLIENT_REQ_Auth_RefreshAccessToken,
+      &auth_RefreshAccessTokenRequest_msg, &req,
+      NULL, 0,
+      0 /* is_streaming */
+  );
+  if( FD_UNLIKELY( !request ) ) return;
+
+  auther->state      = FD_BUNDLE_AUTH_STATE_WAIT_REFRESH;
+  auther->needs_poll = 0;
+  fd_grpc_client_deadline_set(
+      request,
+      FD_GRPC_DEADLINE_RX_END,
+      fd_log_wallclock()+FD_BUNDLE_AUTH_REQUEST_TIMEOUT );
+
+  FD_LOG_DEBUG(( "Requesting bundle access token refresh" ));
+}
+
+int
+fd_bundle_auther_handle_refresh_resp(
+    fd_bundle_auther_t * auther,
+    void const *         data,
+    ulong                data_sz,
+    long                 now
+) {
+  /* Auth restarted while the refresh was in flight */
+  if( FD_UNLIKELY( auther->state!=FD_BUNDLE_AUTH_STATE_WAIT_REFRESH ) ) return 1;
+
+  pb_istream_t istream = pb_istream_from_buffer( data, data_sz );
+  auth_RefreshAccessTokenResponse resp = auth_RefreshAccessTokenResponse_init_default;
+  int decode_ok = pb_decode( &istream, &auth_RefreshAccessTokenResponse_msg, &resp );
+  if( FD_UNLIKELY( !decode_ok ) ) {
+    FD_LOG_WARNING(( "Protobuf decode of (auth.RefreshAccessTokenResponse) failed" ));
+    goto fail;
+  }
+  if( FD_UNLIKELY( !resp.has_access_token || resp.access_token.value.size==0 ) ) {
+    FD_LOG_WARNING(( "auth.RefreshAccessTokenResponse: missing access_token" ));
+    goto fail;
+  }
+  if( FD_UNLIKELY( resp.access_token.value.size > sizeof(auther->access_token) ) ) {
+    FD_LOG_WARNING(( "auth.RefreshAccessTokenResponse: oversz access_token: %u bytes", resp.access_token.value.size ));
+    goto fail;
+  }
+
+  fd_memcpy( auther->access_token, resp.access_token.value.bytes, resp.access_token.value.size );
+  auther->access_token_sz = (ushort)resp.access_token.value.size;
+  auther->refresh_at      = fd_bundle_auther_half_life( &resp.access_token, now );
+  auther->state = FD_BUNDLE_AUTH_STATE_DONE_WAIT;
+  FD_LOG_DEBUG(( "Refreshed access token" ));
   return 1;
 
 fail:
@@ -188,6 +290,9 @@ fd_bundle_auther_poll( fd_bundle_auther_t *   auther,
   case FD_BUNDLE_AUTH_STATE_REQ_TOKENS:
     fd_bundle_auther_req_tokens( auther, client, keyguard );
     break;
+  case FD_BUNDLE_AUTH_STATE_REQ_REFRESH:
+    fd_bundle_auther_req_refresh( auther, client );
+    break;
   default:
     break;
   }
@@ -196,5 +301,11 @@ fd_bundle_auther_poll( fd_bundle_auther_t *   auther,
 void
 fd_bundle_auther_reset( fd_bundle_auther_t * auther ) {
   auther->state      = FD_BUNDLE_AUTH_STATE_REQ_CHALLENGE;
+  auther->needs_poll = 1;
+}
+
+void
+fd_bundle_auther_refresh( fd_bundle_auther_t * auther ) {
+  auther->state      = FD_BUNDLE_AUTH_STATE_REQ_REFRESH;
   auther->needs_poll = 1;
 }
