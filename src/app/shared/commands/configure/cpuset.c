@@ -75,6 +75,8 @@ write_cstr( char const * path,
             char const * val ) {
   int fd = open( path, O_WRONLY );
   if( FD_UNLIKELY( fd<0 ) ) return 0;
+  FD_CPUSET_DECL( before );
+  int have_before = fd_cpu_isolation_read_wq_mask( before );
   ulong val_len = strlen( val );
   int err = 0;
   if( FD_UNLIKELY( write( fd, val, val_len )!=(long)val_len ) ) err = errno;
@@ -83,6 +85,7 @@ write_cstr( char const * path,
     errno = err; /* preserve write() errno across close() */
     return 0;
   }
+  if( have_before ) fd_cpu_isolation_warn_wq_change( path, before );
   return 1;
 }
 

@@ -102,6 +102,17 @@ fd_cpu_isolation_format_mask( char *              buf,
                               ulong               buf_sz,
                               fd_cpuset_t const * cpuset );
 
+/* Best-effort workqueue mask diagnostics.  read_wq_mask returns 0 if
+   unavailable; warn_wq_change compares a successful snapshot with the
+   current mask after a write to path. */
+
+int
+fd_cpu_isolation_read_wq_mask( fd_cpuset_t cpuset[ static fd_cpuset_word_cnt ] );
+
+void
+fd_cpu_isolation_warn_wq_change( char const *        path,
+                                 fd_cpuset_t const * before );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_app_shared_commands_configure_fd_cpu_isolation_h */
