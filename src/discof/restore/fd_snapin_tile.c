@@ -2270,14 +2270,20 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->stake_delegations = fd_banks_stake_delegations_root_query( banks );
   FD_TEST( ctx->stake_delegations );
 
-  ctx->ct_out = out1( topo, tile, "snapin_ct", ctx->tile_idx );
-  if( FD_UNLIKELY( ctx->ct_out.idx==ULONG_MAX ) ) FD_LOG_ERR(( "tile `" NAME ":%lu` missing required out link `snapin_ct`", ctx->tile_idx ));
+  /* The instant boot parser is a second instance of this tile that
+     reads the stream pipeline's links instead. */
+  char const * ct_link_name         = tile->snapin.stream ? "strin_ct" : "snapin_ct";
+  char const * in_link_name         = tile->snapin.stream ? "strdc_in" : "snapdc_in";
+  ulong        manifest_out_kind_id = tile->snapin.stream ? 1UL        : 0UL;
+
+  ctx->ct_out = out1( topo, tile, ct_link_name, ctx->tile_idx );
+  if( FD_UNLIKELY( ctx->ct_out.idx==ULONG_MAX ) ) FD_LOG_ERR(( "tile `%s:%lu` missing required out link `%s`", tile->name, ctx->tile_idx, ct_link_name ));
 
   ctx->gui_out = out1( topo, tile, "snapin_gui", ctx->tile_idx );
 
   for( ulong i=0UL; i<ctx->lane_cnt; i++ ) {
     fd_topo_link_t const * in_link = &topo->links[ tile->in_link_id[ i ] ];
-    FD_TEST( 0==strcmp( in_link->name, "snapdc_in" ) );
+    FD_TEST( 0==strcmp( in_link->name, in_link_name ) );
     FD_TEST( in_link->kind_id==i );
     fd_topo_wksp_t const * in_wksp = &topo->workspaces[ topo->objs[ in_link->dcache_obj_id ].wksp_id ];
     ctx->in[ i ].wksp   = in_wksp->wksp;
@@ -2320,8 +2326,8 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->lead.slot_delta_parser = fd_slot_delta_parser_join( fd_slot_delta_parser_new( _sd_parser ) );
   FD_TEST( ctx->lead.slot_delta_parser );
 
-  ctx->lead.manifest_out = out1( topo, tile, "snapin_manif", 0UL );
-  if( FD_UNLIKELY( ctx->lead.manifest_out.idx==ULONG_MAX ) ) FD_LOG_ERR(( "tile `" NAME "` missing required out link `snapin_manif`" ));
+  ctx->lead.manifest_out = out1( topo, tile, "snapin_manif", manifest_out_kind_id );
+  if( FD_UNLIKELY( ctx->lead.manifest_out.idx==ULONG_MAX ) ) FD_LOG_ERR(( "tile `%s` missing required out link `snapin_manif`", tile->name ));
 
   fd_ssmanifest_parser_init( ctx->lead.manifest_parser, fd_chunk_to_laddr( ctx->lead.manifest_out.mem, ctx->lead.manifest_out.chunk ) );
   fd_slot_delta_parser_init( ctx->lead.slot_delta_parser );
@@ -2395,6 +2401,20 @@ fd_topo_obj_callbacks_t fd_obj_cb_snapin_shmem = {
 
 fd_topo_run_tile_t fd_tile_snapin = {
   .name                     = NAME,
+  .populate_allowed_fds     = populate_allowed_fds,
+  .populate_allowed_seccomp = populate_allowed_seccomp,
+  .scratch_align            = scratch_align,
+  .scratch_footprint        = scratch_footprint,
+  .privileged_init          = privileged_init,
+  .unprivileged_init        = unprivileged_init,
+  .max_event_sz             = max_event_sz,
+  .run                      = stem_run,
+};
+
+/* The instant boot stream parser runs the same code as snapin. */
+
+fd_topo_run_tile_t fd_tile_strin = {
+  .name                     = "strin",
   .populate_allowed_fds     = populate_allowed_fds,
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .scratch_align            = scratch_align,

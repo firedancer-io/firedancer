@@ -221,14 +221,20 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->window_deadline     = LONG_MAX;
   ctx->min_bytes_in_window = ((ulong)ctx->config.min_download_speed_mibs * (FD_SNAPLD_DOWNLOAD_WINDOW_NS / (ulong)1e9))<<20UL;
 
-  FD_TEST( tile->in_cnt==1UL );
-  fd_topo_link_t const * in_link = &topo->links[ tile->in_link_id[ 0 ] ];
-  FD_TEST( 0==strcmp( in_link->name, "snapct_ld" ) );
-  ctx->in_rd.base = fd_topo_obj_wksp_base( topo, in_link->dcache_obj_id );
+  /* The instant boot downloader is not driven by the control tile, so
+     it has no in link. */
+  if( FD_LIKELY( !tile->snapld.stream ) ) {
+    FD_TEST( tile->in_cnt==1UL );
+    fd_topo_link_t const * in_link = &topo->links[ tile->in_link_id[ 0 ] ];
+    FD_TEST( 0==strcmp( in_link->name, "snapct_ld" ) );
+    ctx->in_rd.base = fd_topo_obj_wksp_base( topo, in_link->dcache_obj_id );
+  } else {
+    FD_TEST( tile->in_cnt==0UL );
+  }
 
   FD_TEST( tile->out_cnt==1UL );
   fd_topo_link_t const * out_link = &topo->links[ tile->out_link_id[ 0 ] ];
-  FD_TEST( 0==strcmp( out_link->name, "snapld_dc" ) );
+  FD_TEST( 0==strcmp( out_link->name, tile->snapld.stream ? "strld_dc" : "snapld_dc" ) );
   ctx->out_dc.mem    = fd_topo_obj_wksp_base( topo, out_link->dcache_obj_id );
   ctx->out_dc.chunk0 = fd_dcache_compact_chunk0( ctx->out_dc.mem, out_link->dcache );
   ctx->out_dc.wmark  = fd_dcache_compact_wmark ( ctx->out_dc.mem, out_link->dcache, out_link->mtu );
@@ -627,6 +633,22 @@ returnable_frag( fd_snapld_tile_t *  ctx,
 
 fd_topo_run_tile_t fd_tile_snapld = {
   .name                     = NAME,
+  .populate_allowed_seccomp = populate_allowed_seccomp,
+  .populate_allowed_fds     = populate_allowed_fds,
+  .scratch_align            = scratch_align,
+  .scratch_footprint        = scratch_footprint,
+  .privileged_init          = privileged_init,
+  .unprivileged_init        = unprivileged_init,
+  .run                      = stem_run,
+  .keep_host_networking     = 1,
+  .allow_connect            = 1,
+  .rlimit_file_cnt          = 5UL, /* stderr, log, http, full/incr local files */
+};
+
+/* The instant boot stream downloader runs the same code as snapld. */
+
+fd_topo_run_tile_t fd_tile_strld = {
+  .name                     = "strld",
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,

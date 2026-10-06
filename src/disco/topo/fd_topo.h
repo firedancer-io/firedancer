@@ -539,6 +539,10 @@ struct fd_topo_tile {
       } bundle;
 
       int alpenglow;
+
+      int   instant_boot; /* instant boot is enabled */
+      ulong instant_boot_slot_obj_id;
+      ulong instant_boot_done_obj_id;
     } replay;
 
     struct {
@@ -720,6 +724,8 @@ struct fd_topo_tile {
       char snapshots_path[ PATH_MAX ];
       int  incremental_snapshots;
       uint min_download_speed_mibs;
+      int  stream; /* download an instant boot stream, not a snapshot */
+      char stream_server[ FD_URL_MAX ];
     } snapld;
 
     struct {
@@ -729,6 +735,10 @@ struct fd_topo_tile {
       ulong banks_obj_id;
       ulong shmem_obj_id; /* shared parallel snapin state */
       ulong max_txn_per_slot;
+      int   stream;       /* parse an instant boot stream, not a snapshot */
+      int   instant_boot; /* instant boot is enabled */
+      ulong instant_boot_slot_obj_id;
+      ulong instant_boot_done_obj_id;
     } snapin;
 
     struct {

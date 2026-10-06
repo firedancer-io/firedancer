@@ -117,6 +117,7 @@ static char const * const jw_redacted_keys[] = {
   "gossip.host",
   "snapshots.sources.servers",
   "snapshots.server.http_listen_address",
+  "snapshots.instant_boot.server",
   "hugetlbfs.mount_path",
   "net.bind_address",
   "tiles.quic.ssl_key_log_file",
@@ -409,6 +410,10 @@ fd_config_to_json( fd_config_t const * config,
       jw_ulong( &w, "idle_timeout_millis",  f->snapshots.server.idle_timeout_millis );
       jw_ulong( &w, "send_timeout_millis",  f->snapshots.server.send_timeout_millis );
       jw_ulong( &w, "send_buffer_size_kib", f->snapshots.server.send_buffer_size_kib );
+    jw_obj_close( &w );
+    jw_obj_open( &w, "instant_boot" );
+      jw_bool( &w, "enabled", f->snapshots.instant_boot.enabled );
+      jw_url ( &w, "server",  f->snapshots.instant_boot.server );
     jw_obj_close( &w );
   jw_obj_close( &w );
 

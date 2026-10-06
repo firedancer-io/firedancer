@@ -475,8 +475,11 @@ unprivileged_init( fd_topo_t const *      topo,
   if( FD_UNLIKELY( tile->in_cnt !=1UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu ins, expected 1",  tile->in_cnt  ));
   if( FD_UNLIKELY( tile->out_cnt!=1UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu outs, expected 1", tile->out_cnt ));
 
+  /* The instant boot decompressor feeds the stream parser instead. */
+  int stream = 0==strcmp( tile->name, "strdc" );
+
   fd_topo_link_t const * snapin_link = &topo->links[ tile->out_link_id[ 0UL ] ];
-  FD_TEST( 0==strcmp( snapin_link->name, "snapdc_in" ) );
+  FD_TEST( 0==strcmp( snapin_link->name, stream ? "strdc_in" : "snapdc_in" ) );
   ctx->out.mem    = topo->workspaces[ topo->objs[ snapin_link->dcache_obj_id ].wksp_id ].wksp;
   ctx->out.chunk0 = fd_dcache_compact_chunk0( ctx->out.mem, snapin_link->dcache );
   ctx->out.wmark  = fd_dcache_compact_wmark ( ctx->out.mem, snapin_link->dcache, snapin_link->mtu );
@@ -513,6 +516,18 @@ unprivileged_init( fd_topo_t const *      topo,
 
 fd_topo_run_tile_t fd_tile_snapdc = {
   .name                     = NAME,
+  .populate_allowed_fds     = populate_allowed_fds,
+  .populate_allowed_seccomp = populate_allowed_seccomp,
+  .scratch_align            = scratch_align,
+  .scratch_footprint        = scratch_footprint,
+  .unprivileged_init        = unprivileged_init,
+  .run                      = stem_run,
+};
+
+/* The instant boot stream decompressor runs the same code as snapdc. */
+
+fd_topo_run_tile_t fd_tile_strdc = {
+  .name                     = "strdc",
   .populate_allowed_fds     = populate_allowed_fds,
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .scratch_align            = scratch_align,

@@ -134,6 +134,9 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( ulong,  snapshots.server.send_timeout_millis                );
   CFG_POP      ( ulong,  snapshots.server.send_buffer_size_kib               );
 
+  CFG_POP      ( bool,   snapshots.instant_boot.enabled                      );
+  CFG_POP      ( cstr,   snapshots.instant_boot.server                       );
+
   CFG_POP      ( bool,   development.hard_fork_fatal                         );
   CFG_POP      ( bool,   development.fixed_fec_sets                          );
   CFG_POP      ( bool,   development.alpenglow                               );

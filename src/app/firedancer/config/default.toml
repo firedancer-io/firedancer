@@ -594,6 +594,18 @@ telemetry = true
         # in more memory use.  Must be a power of two.
         send_buffer_size_kib = 64
 
+    # Instant boot takes the state needed to start executing from a
+    # running Firedancer validator that serves a boot stream, while the
+    # snapshot above still loads in the background.  Both validators
+    # must be Firedancer.  Off by default; when off nothing here is
+    # used and no extra tiles run.
+    [snapshots.instant_boot]
+        enabled = false
+
+        # Address of the serving validator's stream server, as
+        # host:port or http://host:port.  Required when enabled.
+        server = ""
+
 [consensus]
     # The shred version is a small hash of the genesis block and any
     # subsequent hard forks.  The validator client uses it to filter
