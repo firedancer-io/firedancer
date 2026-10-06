@@ -34,10 +34,13 @@ that minute plus the catch-up a normal boot does afterwards.
 
 ## Running validator (stream tile, sibling of the snapshot maker)
 
-1. On its own cadence (about once a minute) it starts a stream.  At
-   that moment X is its published root.  It holds bank X by reference
-   for the seconds the manifest writer and the status-cache writer
-   need, then releases it.
+1. Every time replay starts an incremental snapshot it also starts a
+   stream at the same slot X (its published root, pinned for the
+   snapshot anyway).  The stream tile holds bank X by reference for
+   the seconds the manifest writer and the status-cache writer need,
+   then releases it.  The stream appears in the index only once the
+   incremental snapshot file for X exists, so a client always finds
+   the matching pair.
 2. Replay publishes each block's account key list (static keys plus
    lookup-table expansion) as it schedules the block, and holds a
    reference on that block's bank until the stream tile releases it.
@@ -90,16 +93,29 @@ Restore pipeline:
   order, marks loading begun, sets the hide flag, and publishes the
   three fork ids.  Bank 0's accounts fork is the boot fork.
 - Under the instant-boot flag the lead skips building the status cache,
-  publishing the manifest, restoring features and all stake-delegation
-  work from the snapshot; those come from the stream and from load end.
+  publishing the manifest and restoring features; those come from the
+  stream.  The stake set still comes from the snapshot: every loader
+  keeps snooping stake accounts into the root stake delegations while
+  it writes, and the lead applies the incremental's stake fork at load
+  end as it does today.  The stream carries no stake accounts.
 - A load failure after bytes were written kills the process.
-- The incremental snapshot loaded in the background must be at a slot
-  at or after X.  Anything changed between X and that slot was used by
-  a block replay executes itself, so its own version shadows the
-  snapshot copy; anything untouched has the same value at both slots.
+- The incremental snapshot loaded in the background is the one at
+  exactly X.  The running validator starts a stream every time it
+  starts an incremental snapshot, so each stream has a matching
+  incremental, and lists the stream only once that incremental file
+  exists.  On the booting side the stream downloader picks the stream
+  and publishes X through a shared counter; the snapshot control tile
+  waits for it, ignores local snapshot files and peers, and downloads
+  the pair through the server's `/boot/<X>/full` and
+  `/boot/<X>/incremental` redirects.  The lead checks the incremental
+  manifest's slot against X and dies on a mismatch.  With both sources
+  at X every account has one value, so nothing depends on which source
+  a read lands on.
 - At load end, once every writer has stopped: clear the hide flag
   (the accounts database refuses root advance while hidden), promote
-  the incremental, signal replay.
+  the incremental, ask the stream receiver to stop and wait until it
+  has acknowledged, root the boot fork (bank 0's fork, so replay's
+  first root advance finds its parent rooted), then signal replay.
 
 Receiver tile:
 
@@ -109,7 +125,8 @@ Receiver tile:
   existing parsers.  Publishes the manifest and DONE on the manifest
   link exactly as the loader does today.  Writes each account into the
   boot fork once if absent.  Reports the last complete slot marker to
-  replay.  Any failure after start: log and exit; the operator restarts
+  replay.  Stops writing and acknowledges when the lead asks at load
+  end.  Any failure after start: log and exit; the operator restarts
   with instant boot off.
 
 Replay:
@@ -125,8 +142,9 @@ Replay:
 
 ## Config
 
-Server: enable, listen address, stream start interval, stream lifetime,
-max open streams, disk path.  Client: enable, server address.  Both off
+Server: enable, stream lifetime, max open streams, max keys per
+stream; streams start with incremental snapshots, so snapshot
+production with incrementals must be on.  Client: enable, server address.  Both off
 by default.  With both off neither tile exists.
 
 ## Limits and exits
