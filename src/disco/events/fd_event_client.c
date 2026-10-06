@@ -350,6 +350,7 @@ disconnect( fd_event_client_t * client,
   }
 
   client->event_stream = NULL;
+  client->defer_disconnect = INT_MAX;
   client->auth_deadline = LONG_MAX;
   client->auth_send_pending = 0;
   client->stall_since = 0L;
@@ -936,7 +937,6 @@ poll1( fd_event_client_t * client,
 
   if( FD_UNLIKELY( client->defer_disconnect!=INT_MAX ) ) {
     int reason = client->defer_disconnect;
-    client->defer_disconnect = INT_MAX;
     if( reason==DISCONNECT_REASON_AUTH_FAILED ) client->metrics.auth_fail_cnt++;
     if( reason==DISCONNECT_REASON_INVALID_PROTOBUF ) client->metrics.invalid_msg_cnt++;
     disconnect( client, now, reason, 0, 1 );

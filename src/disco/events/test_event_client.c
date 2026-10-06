@@ -487,6 +487,62 @@ FD_UNIT_TEST( stream_deadline_clock ) {
   fd_rng_delete( fd_rng_leave( rng ) );
 }
 
+/* A callback can defer a disconnect before flushing its response fails.
+   The transport failure must consume that reason before the next redial. */
+FD_UNIT_TEST( disconnect_transport_failure ) {
+  static uchar circq_mem[ 4096UL+512UL ] __attribute__((aligned(FD_CIRCQ_ALIGN)));
+  fd_circq_t * circq = fd_circq_join( fd_circq_new( circq_mem, 512UL ) );
+  FD_TEST( circq );
+  fd_rng_t rng_mem[1];
+  fd_rng_t * rng = fd_rng_join( fd_rng_new( rng_mem, 0U, 1UL ) );
+  fd_event_client_t * client = test_connected_client( circq, rng, 4096UL );
+
+  int sv[2];
+  FD_TEST( 0==socketpair( AF_UNIX, SOCK_STREAM|SOCK_NONBLOCK, 0, sv ) );
+  client->sockfd = sv[0];
+  struct {
+    fd_h2_ping_t   ping;
+    fd_h2_goaway_t goaway;
+  } const h2 = {
+    .ping   = { .hdr = { .typlen = fd_h2_frame_typlen( FD_H2_FRAME_TYPE_PING,   8UL ) }, .payload = 1UL },
+    .goaway = { .hdr = { .typlen = fd_h2_frame_typlen( FD_H2_FRAME_TYPE_GOAWAY, 8UL ) } }
+  };
+  FD_TEST( (long)sizeof(h2)==send( sv[1], &h2, sizeof(h2), MSG_NOSIGNAL ) );
+  /* GOAWAY queues the deferred reason; the PING ACK then fails with EPIPE. */
+  FD_TEST( 0==shutdown( sv[1], SHUT_RD ) );
+  long now = fd_log_wallclock();
+  int charge_busy = 0;
+  fd_event_client_poll( client, now, &charge_busy );
+  FD_TEST( client->state==FD_EVENT_CLIENT_STATE_DISCONNECTED && client->sockfd==-1 );
+  FD_TEST( client->metrics.transport_fail_cnt==1UL && client->consecutive_failure_count==1UL );
+  FD_TEST( !charge_busy );
+
+  /* Without an immediate repoll, the tile parks until the reconnect timer.
+     A stale reason must not disconnect the replacement opened by that poll. */
+  int listener = socket( AF_INET, SOCK_STREAM|SOCK_NONBLOCK, 0 );
+  FD_TEST( listener>=0 );
+  struct sockaddr_in addr = { .sin_family=AF_INET, .sin_addr.s_addr=htonl( INADDR_LOOPBACK ) };
+  FD_TEST( 0==bind( listener, fd_type_pun_const( &addr ), sizeof(addr) ) );
+  FD_TEST( 0==listen( listener, 1 ) );
+  socklen_t addr_sz = sizeof(addr);
+  FD_TEST( 0==getsockname( listener, fd_type_pun( &addr ), &addr_sz ) );
+  fd_cstr_ncpy( client->server_fqdn, "127.0.0.1", sizeof(client->server_fqdn) );
+  client->server_fqdn_len = strlen( client->server_fqdn );
+  client->server_tcp_port = ntohs( addr.sin_port );
+  long retry = fd_event_client_next_deadline( client, now );
+  FD_TEST( retry>now );
+  charge_busy = 0;
+  fd_event_client_poll( client, retry, &charge_busy );
+  FD_TEST( client->state==FD_EVENT_CLIENT_STATE_CONNECTING && client->sockfd>=0 );
+  FD_TEST( client->defer_disconnect==INT_MAX );
+  FD_TEST( client->metrics.connect_attempt_cnt==1UL && client->metrics.transport_fail_cnt==1UL );
+  FD_TEST( client->consecutive_failure_count==1UL );
+
+  close( listener ); close( client->sockfd ); close( sv[1] );
+  free( client );
+  fd_rng_delete( fd_rng_leave( rng ) );
+}
+
 int
 main( int     argc,
       char ** argv ) {
