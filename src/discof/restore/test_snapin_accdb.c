@@ -379,6 +379,18 @@ test_instant_boot_skips_bank_state( void ) {
 
   uchar tar[ 16384UL ];
   ulong tar_sz = build_snapshot( tar, sizeof(tar), accounts );
+  uchar stake_pubkey[ 32UL ] = { 0xD1U };
+
+  /* With the flag off the same fixture records the delegation, so the
+     skip below cannot pass by the snoop being broken. */
+  test_env_t ctrl[ 1 ];
+  test_env_init( ctrl, 9UL );
+  dispatch_snapshot( ctrl, tar, tar_sz );
+  stage_stake_account( &ctrl->worker[ 0 ], stake_pubkey );
+  for( ulong i=0UL; i<ctrl->worker_cnt; i++ ) FD_TEST( !writer_flush( &ctrl->worker[ i ] ) );
+  FD_TEST( stake_delegation_cnt( ctrl->worker[ 0 ].stake_delegations )==1UL );
+  fd_accdb_snapshot_load_end( ctrl->worker[ 0 ].accdb );
+  test_env_free( ctrl );
 
   test_env_t env[ 1 ];
   test_env_init( env, 9UL );
@@ -392,9 +404,13 @@ test_instant_boot_skips_bank_state( void ) {
   fd_accdb_show_hidden  ( env->worker[ 0 ].accdb, 1 );
 
   dispatch_snapshot( env, tar, tar_sz );
-  uchar stake_pubkey[ 32UL ] = { 0xD1U };
   stage_stake_account( &env->worker[ 0 ], stake_pubkey );
+
+  /* Staged but not flushed: nothing is in the accounts database yet,
+     so a failure here would still be retryable. */
+  FD_TEST( !attempt_wrote_accounts( &env->worker[ 0 ] ) );
   for( ulong i=0UL; i<env->worker_cnt; i++ ) FD_TEST( !writer_flush( &env->worker[ i ] ) );
+  FD_TEST( attempt_wrote_accounts( &env->worker[ 0 ] ) );
 
   /* The stake delegations come from the boot stream, so the snoop did
      not run. */

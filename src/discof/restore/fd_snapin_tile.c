@@ -769,12 +769,33 @@ clear_control_barrier( fd_snapin_tile_t * ctx ) {
   fd_memset( ctx->control_seen, 0, sizeof(ctx->control_seen) );
 }
 
+/* attempt_wrote_accounts returns nonzero if any tile has written an
+   account of the current attempt into the accounts database.  The
+   lead zeroes these counters at INIT. */
+
+static inline int
+attempt_wrote_accounts( fd_snapin_tile_t const * ctx ) {
+  FD_COMPILER_MFENCE();
+  for( ulong i=0UL; i<FD_TOPO_MAX_TILE_IN_LINKS; i++ ) {
+    if( FD_UNLIKELY( ctx->shmem->values[ i ].loaded || ctx->shmem->values[ i ].duplicates ) ) return 1;
+  }
+  return 0;
+}
+
+/* Instant boot cannot retry once the attempt has put hidden nodes in
+   the accounts database, so a failure after the first account is
+   written is fatal.  A failure before that leaves nothing behind and
+   retries like any other load. */
+
+static inline int
+load_failure_is_fatal( fd_snapin_tile_t const * ctx ) {
+  return ctx->instant_boot && attempt_wrote_accounts( ctx );
+}
+
 static void
 transition_malformed( fd_snapin_tile_t *  ctx,
                       fd_stem_context_t * stem ) {
-  /* Instant boot cannot retry: the forks and the hidden nodes of the
-     failed attempt are already in the accounts database. */
-  if( FD_UNLIKELY( ctx->instant_boot ) ) FD_LOG_ERR(( "instant boot: snapshot load failed, restart with instant boot disabled" ));
+  if( FD_UNLIKELY( load_failure_is_fatal( ctx ) ) ) FD_LOG_ERR(( "instant boot: snapshot load failed, restart with instant boot disabled" ));
   if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_ERROR ) ) return;
   ctx->state = FD_SNAPSHOT_STATE_ERROR;
   fd_stem_publish( stem, ctx->ct_out.idx, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
@@ -1892,9 +1913,9 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         fd_txncache_reset( ctx->lead.txncache );
         txncache_staging_reset( ctx );
         ctx->lead.blockhash_groups = txncache_staging_scratch( ctx );
-        fd_slot_delta_parser_init( ctx->lead.slot_delta_parser );
       }
       fd_ssmanifest_parser_init( ctx->lead.manifest_parser, fd_chunk_to_laddr( ctx->lead.manifest_out.mem, ctx->lead.manifest_out.chunk ) );
+      if( FD_LIKELY( !ctx->instant_boot ) ) fd_slot_delta_parser_init( ctx->lead.slot_delta_parser );
       fd_memset( &ctx->lead.flags,    0, sizeof(ctx->lead.flags)    );
 
       ushort stake_fork = USHORT_MAX;
@@ -2051,7 +2072,10 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
          accounts over to the running validator.  This has to happen
          before the root advance below, which refuses to run while
          loader nodes are hidden. */
-      if( FD_UNLIKELY( ctx->instant_boot ) ) fd_accdb_snapshot_hide( ctx->accdb, 0 );
+      if( FD_UNLIKELY( ctx->instant_boot ) ) {
+        fd_accdb_snapshot_hide( ctx->accdb, 0 );
+        fd_accdb_show_hidden( ctx->accdb, 0 );
+      }
 
       if( !ctx->full ) {
         fd_accdb_snapshot_recover_delta( ctx->accdb, ctx->lead.accdb_incr_fork_id );
@@ -2097,9 +2121,9 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
 
     case FD_SNAPSHOT_MSG_CTRL_FAIL: {
       /* The failure may have been detected upstream, in which case
-         transition_malformed never ran.  Instant boot still cannot
-         retry, so the first tile to see this ends the process. */
-      if( FD_UNLIKELY( ctx->instant_boot ) ) FD_LOG_ERR(( "instant boot: snapshot load failed, restart with instant boot disabled" ));
+         transition_malformed never ran.  Every tile checks, so the
+         one that wrote sees its own count and ends the process. */
+      if( FD_UNLIKELY( load_failure_is_fatal( ctx ) ) ) FD_LOG_ERR(( "instant boot: snapshot load failed, restart with instant boot disabled" ));
       FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
       fd_accdb_flush_metrics( ctx->accdb );
 
@@ -2114,8 +2138,11 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         FD_VOLATILE( ctx->shmem->fork_id ) = ULONG_MAX;
         FD_COMPILER_MFENCE();
 
-        /* Only a completed INIT has valid state to roll back. */
-        if( FD_LIKELY( ctx->lead.init_completed ) ) {
+        /* Only a completed INIT has valid state to roll back.  An
+           instant boot attempt that got this far wrote nothing, and
+           its forks are the ones setup created, so there is nothing
+           to roll back and nothing to forget. */
+        if( FD_LIKELY( ctx->lead.init_completed && !ctx->instant_boot ) ) {
           ctx->lead.rollback.pending = 1;
           ctx->lead.rollback.full    = ctx->full;
           ctx->lead.rollback.fork    = ctx->lead.accdb_incr_fork_id;
@@ -2177,7 +2204,7 @@ static void
 before_credit( fd_snapin_tile_t *  ctx,
                fd_stem_context_t * stem FD_PARAM_UNUSED,
                int *               charge_busy ) {
-  if( FD_LIKELY( !ctx->instant_boot || ctx->lead.setup_done || !is_lead( ctx ) ) ) return;
+  if( FD_LIKELY( !is_lead( ctx ) || !ctx->instant_boot || ctx->lead.setup_done ) ) return;
   instant_boot_setup( ctx );
   *charge_busy = 1;
 }
