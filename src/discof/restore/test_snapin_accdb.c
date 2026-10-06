@@ -437,6 +437,110 @@ test_instant_boot_skips_bank_state( void ) {
   test_env_free( env );
 }
 
+/* The stream parser tile writes the boot stream into the boot fork
+   through the normal path, so the running validator reads what it
+   writes while the snapshot load stays hidden. */
+
+#define TEST_STREAM_SLOT (900UL)
+
+static void
+test_stream_writes_boot_fork( void ) {
+  test_env_t env[ 1 ];
+  test_env_init( env, 9UL );
+
+  /* What the lead's setup leaves behind: the fork an incremental
+     writes, the fork the stream writes, and everything the loader
+     writes hidden from the running validator. */
+  fd_accdb_fork_id_t incr = fd_accdb_attach_child( env->worker[ 0 ].accdb, env->root );
+  fd_accdb_fork_id_t boot = fd_accdb_attach_child( env->worker[ 0 ].accdb, incr );
+  fd_accdb_snapshot_hide( env->worker[ 0 ].accdb, 1 );
+  env->snapin_shmem->incr_fork_id = (ulong)incr.val;
+  env->snapin_shmem->boot_fork_id = (ulong)boot.val;
+  env->snapin_shmem->stream_slot  = TEST_STREAM_SLOT;
+  env->snapin_shmem->setup_done   = 1UL;
+
+  uchar   fseq_mem[ FD_FSEQ_FOOTPRINT ] __attribute__((aligned(FD_FSEQ_ALIGN)));
+  ulong * slot_fseq = fd_fseq_join( fd_fseq_new( fseq_mem, ULONG_MAX ) );
+  FD_TEST( slot_fseq );
+  fd_fseq_update( slot_fseq, 0UL );
+
+  fd_snapin_tile_t * ctx = &env->worker[ 0 ];
+  ctx->stream    = 1;
+  ctx->boot_fork = boot;
+  ctx->slot_fseq = slot_fseq;
+
+  /* The stream carries each account as it was at the stream's manifest
+     slot, so the first value of a key is the one to keep. */
+  uchar pubkey[ 32UL ] = { 0xE1U };
+  uchar dead  [ 32UL ] = { 0xE2U };
+  uchar owner [ 32UL ] = { 0x33U };
+  uchar data  [  4UL ] = { 1U, 2U, 3U, 4U };
+  uchar other [  4UL ] = { 9U, 9U, 9U, 9U };
+  FD_TEST( !writer_append_account( ctx, pubkey, owner, data, TEST_STREAM_SLOT+1UL, 500UL, sizeof(data), 1 ) );
+  FD_TEST( !writer_flush( ctx ) );
+
+  /* A repeat of the key, once in a later batch and once in the same
+     one, and an account that did not exist at the stream's slot. */
+  FD_TEST( !writer_append_account( ctx, pubkey, owner, other, TEST_STREAM_SLOT+2UL, 700UL, sizeof(other), 0 ) );
+  FD_TEST( !writer_append_account( ctx, pubkey, owner, other, TEST_STREAM_SLOT+2UL, 800UL, sizeof(other), 0 ) );
+  FD_TEST( !writer_append_account( ctx, dead,   owner, data,  TEST_STREAM_SLOT+2UL,   0UL, 0UL,           0 ) );
+
+  /* An overflow file leaves the slot incomplete, so the marker stays
+     where it was. */
+  fd_ssparse_advance_result_t result[ 1 ];
+  fd_memset( result, 0, sizeof(result) );
+  result->appendvec.slot = TEST_STREAM_SLOT+2UL;
+  result->appendvec.id   = 1UL;
+  FD_TEST( !stream_appendvec_done( ctx, NULL, result ) );
+  FD_TEST( !fd_fseq_query( slot_fseq ) );
+
+  result->appendvec.id = 0UL;
+  FD_TEST( !stream_appendvec_done( ctx, NULL, result ) );
+  FD_TEST( fd_fseq_query( slot_fseq )==TEST_STREAM_SLOT+2UL );
+
+  /* One version of the key on the boot fork, holding the first value,
+     and nothing on the fork the snapshot loads into. */
+  int   pd_write;
+  ulong probe_len;
+  ulong probe_lamports;
+  FD_TEST( ctx->metrics.accounts_loaded==2UL );
+  FD_TEST( ctx->metrics.accounts_ignored==2UL );
+  FD_TEST( fd_accdb_probe_pd_this_fork( ctx->accdb, boot, pubkey, &pd_write, &probe_len, &probe_lamports ) );
+  FD_TEST( probe_lamports==500UL );
+  FD_TEST( probe_len==sizeof(data) );
+  FD_TEST( !fd_accdb_probe_pd_this_fork( ctx->accdb, incr, pubkey, &pd_write, &probe_len, &probe_lamports ) );
+  FD_TEST( !fd_accdb_lamports( ctx->accdb, incr, pubkey ) );
+
+  uchar const * pubkeys [ 1 ] = { pubkey };
+  int           writable[ 1 ] = { 0 };
+  fd_acc_t      acc     [ 1 ];
+  fd_memset( acc, 0, sizeof(acc) );
+  fd_accdb_acquire( ctx->accdb, boot, 1UL, pubkeys, writable, acc );
+  FD_TEST( acc->lamports==500UL );
+  FD_TEST( acc->executable==1 );
+  FD_TEST( acc->data_len==sizeof(data) );
+  FD_TEST( fd_memeq( acc->owner, owner, 32UL ) );
+  FD_TEST( fd_memeq( acc->data,  data,  sizeof(data) ) );
+  fd_accdb_release( ctx->accdb, 1UL, acc );
+
+  /* The closed account is a version on the boot fork that reads as an
+     account that does not exist. */
+  fd_accdb_fork_id_t child = fd_accdb_attach_child( ctx->accdb, boot );
+  FD_TEST( fd_accdb_probe_pd_this_fork( ctx->accdb, boot, dead, &pd_write, &probe_len, &probe_lamports ) );
+  FD_TEST( !probe_lamports );
+  FD_TEST( !fd_accdb_lamports( ctx->accdb, child, dead ) );
+  FD_TEST( !fd_accdb_exists  ( ctx->accdb, child, dead ) );
+  FD_TEST( fd_accdb_lamports ( ctx->accdb, child, pubkey )==500UL );
+
+  /* The stream writes no hidden nodes, so a plain join reads them
+     while the snapshot load is still hidden. */
+  FD_TEST( fd_accdb_lamports( env->worker[ 1 ].accdb, boot, pubkey )==500UL );
+
+  fd_accdb_snapshot_hide( env->worker[ 0 ].accdb, 0 );
+  fd_accdb_snapshot_load_end( env->worker[ 0 ].accdb );
+  test_env_free( env );
+}
+
 /* Capitalization across a full and an incremental snapshot whose
    per-version lamport totals pass 2^64 (an incremental stores each vote
    account once per slot) while capitalization stays small. */
@@ -553,6 +657,7 @@ main( int     argc,
   test_capitalization_versions_past_2_64();
   test_capitalization_crafted_mismatch();
   test_instant_boot_skips_bank_state();
+  test_stream_writes_boot_fork();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

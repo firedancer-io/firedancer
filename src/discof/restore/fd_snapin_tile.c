@@ -276,6 +276,15 @@ struct fd_snapin_tile {
      stream, taking the bank state from that stream instead. */
   int instant_boot;
 
+  /* Parse a boot stream into the boot fork instead of loading a
+     snapshot.  boot_fork is the fork the lead's setup created for the
+     stream, and slot_fseq is the last slot the stream has finished
+     writing into it. */
+  int                stream;
+  fd_accdb_fork_id_t boot_fork;
+  ulong *            slot_fseq;
+  int                done_published; /* DONE is published once */
+
   fd_snapin_lead_t lead;
 
   ulong tile_idx;           /* tile kind ID */
@@ -366,6 +375,10 @@ format_count( char * out, ulong out_sz, ulong n ) {
 
 static inline int
 should_shutdown( fd_snapin_tile_t * ctx ) {
+  /* The boot stream is only needed until the background snapshot load
+     has caught up with it. */
+  if( FD_UNLIKELY( ctx->stream ) ) return fd_fseq_query( ctx->lead.done_fseq )==1UL;
+
   if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_SHUTDOWN && is_lead( ctx ) ) ) {
     long  elapsed_ns   = fd_log_wallclock() - ctx->lead.boot_timestamp;
     char  loaded_buf[ 32 ];
@@ -795,6 +808,9 @@ load_failure_is_fatal( fd_snapin_tile_t const * ctx ) {
 static void
 transition_malformed( fd_snapin_tile_t *  ctx,
                       fd_stem_context_t * stem ) {
+  /* Nothing retries the boot stream, and replay may already be running
+     off what it delivered. */
+  if( FD_UNLIKELY( ctx->stream ) ) FD_LOG_ERR(( "instant boot: boot stream is malformed, restart with instant boot disabled" ));
   if( FD_UNLIKELY( load_failure_is_fatal( ctx ) ) ) FD_LOG_ERR(( "instant boot: snapshot load failed, restart with instant boot disabled" ));
   if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_ERROR ) ) return;
   ctx->state = FD_SNAPSHOT_STATE_ERROR;
@@ -1303,13 +1319,20 @@ process_manifest( fd_snapin_tile_t *  ctx,
      one is validated but never published. */
   if( FD_UNLIKELY( ctx->instant_boot ) ) return;
 
-  manifest->accdb_fork_id    = fd_ushort_if( ctx->full, ctx->lead.accdb_root_fork_id.val, ctx->lead.accdb_incr_fork_id.val );
+  /* The boot stream's accounts go into the fork the lead's setup
+     created for it. */
+  if( FD_UNLIKELY( ctx->stream ) ) manifest->accdb_fork_id = ctx->boot_fork.val;
+  else                             manifest->accdb_fork_id = fd_ushort_if( ctx->full, ctx->lead.accdb_root_fork_id.val, ctx->lead.accdb_incr_fork_id.val );
   manifest->txncache_fork_id = ctx->lead.txncache_root_fork_id.val;
 
   ulong sig = ctx->full ? fd_ssmsg_sig( FD_SSMSG_MANIFEST_FULL ) :
                           fd_ssmsg_sig( FD_SSMSG_MANIFEST_INCREMENTAL );
   fd_stem_publish( stem, ctx->lead.manifest_out.idx, sig, ctx->lead.manifest_out.chunk, sizeof(fd_snapshot_manifest_t), 0UL, 0UL, 0UL );
   ctx->lead.manifest_out.chunk = fd_dcache_compact_next( ctx->lead.manifest_out.chunk, sizeof(fd_snapshot_manifest_t), ctx->lead.manifest_out.chunk0, ctx->lead.manifest_out.wmark );
+
+  /* The loader rejects an incremental snapshot older than this, and
+     the end of this slot's appendvec is what lets replay boot. */
+  if( FD_UNLIKELY( ctx->stream ) ) FD_VOLATILE( ctx->shmem->stream_slot ) = ctx->lead.bank_slot;
 }
 
 static void
@@ -1358,9 +1381,64 @@ writer_pwrite( fd_snapin_tile_t * ctx,
   }
 }
 
+/* writer_flush_stream writes the staged accounts of the boot stream
+   into the boot fork through the normal accounts database path, so the
+   running validator can read them.  The stream carries each account as
+   it was at the stream's manifest slot, so the first version of a key
+   is the one to keep and later ones are dropped.  An account that did
+   not exist then arrives with zero lamports and is written as such,
+   which reads back as an account that does not exist.
+
+   TODO: this opens one acquire bracket per account.  fd_accdb_acquire
+   takes many keys at a time, which is worth doing once duplicate keys
+   within a batch are folded out. */
+
+static int
+writer_flush_stream( fd_snapin_tile_t * ctx ) {
+  fd_snapin_account_batch_t * batch   = &ctx->writer.batch;
+  ulong                       buf_off = 0UL;
+
+  for( ulong i=0UL; i<batch->cnt; i++ ) {
+    uchar const * pubkey   = ctx->writer.buf+buf_off;
+    uchar const * owner    = pubkey+offsetof(fd_accdb_disk_meta_t, owner);
+    uchar const * data     = pubkey+sizeof(fd_accdb_disk_meta_t);
+    ulong         data_len = (ulong)batch->data_lens[ i ];
+    buf_off += sizeof(fd_accdb_disk_meta_t)+data_len;
+
+    /* A version written on the boot fork is the value this stream
+       started from and must not be overwritten. */
+    int   pd_write;
+    ulong this_fork_data_len;
+    ulong this_fork_lamports;
+    if( FD_UNLIKELY( fd_accdb_probe_pd_this_fork( ctx->accdb, ctx->boot_fork, pubkey, &pd_write, &this_fork_data_len, &this_fork_lamports ) ) ) {
+      ctx->metrics.accounts_ignored++;
+      continue;
+    }
+
+    FD_TEST( data_len<=FD_RUNTIME_ACC_SZ_MAX );
+    int      writable[ 1 ] = { 1 };
+    fd_acc_t acc     [ 1 ];
+    fd_accdb_acquire( ctx->accdb, ctx->boot_fork, 1UL, &pubkey, writable, acc );
+    acc->lamports   = batch->lamports   [ i ];
+    acc->executable = batch->executables[ i ];
+    acc->data_len   = data_len;
+    fd_memcpy( acc->owner, owner, 32UL );
+    if( FD_LIKELY( data_len ) ) fd_memcpy( acc->data, data, data_len );
+    acc->commit = 1;
+    fd_accdb_release( ctx->accdb, 1UL, acc );
+    ctx->metrics.accounts_loaded++;
+  }
+
+  FD_TEST( buf_off==ctx->writer.buf_used );
+  ctx->writer.buf_used  = 0UL;
+  ctx->writer.batch.cnt = 0UL;
+  return 0;
+}
+
 static int
 writer_flush( fd_snapin_tile_t * ctx ) {
   if( FD_UNLIKELY( !ctx->writer.buf_used ) ) return 0;
+  if( FD_UNLIKELY( ctx->stream ) ) return writer_flush_stream( ctx );
 
   /* Pad the range to FD_SNAPIN_DIRECT_ALIGN for O_DIRECT.  The padding
      is a dead record so compaction reclaims it after snapshot loading
@@ -1520,6 +1598,32 @@ writer_append_staged_account( fd_snapin_tile_t * ctx ) {
   return 0;
 }
 
+/* stream_appendvec_done finishes one appendvec of the boot stream.
+   The overflow files <s>.1, <s>.2, ... come before the final <s>.0, so
+   only <s>.0 completes slot s.  The first appendvec holds the state
+   the stream starts from, and its completion is what lets replay boot;
+   every later slot moves the marker replay waits on.  Returns 1 when
+   it published, so the caller ends this call and the next publish gets
+   its own flow control credit. */
+
+static int
+stream_appendvec_done( fd_snapin_tile_t *                  ctx,
+                       fd_stem_context_t *                 stem,
+                       fd_ssparse_advance_result_t const * result ) {
+  if( FD_UNLIKELY( writer_flush( ctx ) ) ) FD_LOG_ERR(( "instant boot: writing the boot stream into the accounts database failed" ));
+  if( FD_UNLIKELY( result->appendvec.id ) ) return 0;
+
+  if( FD_UNLIKELY( result->appendvec.slot==FD_VOLATILE_CONST( ctx->shmem->stream_slot ) ) ) {
+    if( FD_UNLIKELY( ctx->done_published ) ) return 0;
+    fd_stem_publish( stem, ctx->lead.manifest_out.idx, fd_ssmsg_sig( FD_SSMSG_DONE ), 0UL, 0UL, 0UL, 0UL, 0UL );
+    ctx->done_published = 1;
+    return 1;
+  }
+
+  fd_fseq_update( ctx->slot_fseq, result->appendvec.slot );
+  return 0;
+}
+
 static int
 process_account_batch( fd_snapin_tile_t *            ctx,
                        fd_ssparse_advance_result_t * result ) {
@@ -1620,6 +1724,13 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
       case FD_SSPARSE_ADVANCE_AGAIN:
         break;
       case FD_SSPARSE_ADVANCE_APPENDVEC: {
+        /* The stream tile is the only parser of its stream, so it
+           takes every appendvec without claiming a ticket. */
+        if( FD_UNLIKELY( ctx->stream ) ) {
+          fd_ssparse_appendvec_parse( ctx->ssparse );
+          break;
+        }
+
         /* Parse only this tile's claimed appendvecs. */
         ulong appendvec_idx = ctx->appendvec_seq++;
         if( FD_UNLIKELY( appendvec_idx==ctx->claimed_appendvec ) ) {
@@ -1759,6 +1870,7 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
       /* Only the stream parser has anything to do at the end of an
          appendvec. */
       case FD_SSPARSE_ADVANCE_APPENDVEC_DONE:
+        if( FD_UNLIKELY( ctx->stream ) ) early_exit = stream_appendvec_done( ctx, stem, result );
         break;
       default:
         FD_LOG_ERR(( "unexpected fd_ssparse_advance result %d", res ));
@@ -1852,6 +1964,25 @@ fold_account_counts( fd_snapin_tile_t * ctx ) {
   }
 }
 
+/* stream_wait_setup blocks until the lead has created the fork the
+   stream writes into and published it.  The lead runs its setup at its
+   first callback, so this waits milliseconds. */
+
+static void
+stream_wait_setup( fd_snapin_tile_t * ctx ) {
+  long next_log = fd_log_wallclock()+(long)1e9;
+  while( FD_UNLIKELY( !FD_VOLATILE_CONST( ctx->shmem->setup_done ) ) ) {
+    FD_SPIN_PAUSE();
+    long now = fd_log_wallclock();
+    if( FD_UNLIKELY( now>=next_log ) ) {
+      FD_LOG_NOTICE(( "instant boot: waiting for the snapshot loader to create the boot fork" ));
+      next_log = now+(long)1e9;
+    }
+  }
+  FD_COMPILER_MFENCE();
+  ctx->boot_fork = (fd_accdb_fork_id_t){ .val = (ushort)FD_VOLATILE_CONST( ctx->shmem->boot_fork_id ) };
+}
+
 static void
 handle_control_frag( fd_snapin_tile_t *  ctx,
                      fd_stem_context_t * stem,
@@ -1873,6 +2004,10 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
     case FD_SNAPSHOT_MSG_CTRL_INIT_FULL:
     case FD_SNAPSHOT_MSG_CTRL_INIT_INCR: {
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
+
+      /* The lead creates the fork the stream writes into. */
+      if( FD_UNLIKELY( ctx->stream ) ) stream_wait_setup( ctx );
+
       ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
       ctx->full = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
 
@@ -1925,8 +2060,9 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         fd_memset( &ctx->lead.account_counts, 0, sizeof(ctx->lead.account_counts) );
 
         /* Instant boot already created the forks and began the load,
-           and takes the stake delegations from the boot stream. */
-        if( FD_LIKELY( !ctx->instant_boot ) ) {
+           and takes the stake delegations from the boot stream.  The
+           stream tile owns none of this. */
+        if( FD_LIKELY( !ctx->instant_boot && !ctx->stream ) ) {
           fd_stake_delegations_reset( ctx->stake_delegations );
           fd_accdb_reset( ctx->accdb );
           fd_accdb_fork_id_t null_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
@@ -1956,6 +2092,10 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       fd_memcpy( ctx->lead.advertised_hash, msg->snapshot_hash, FD_HASH_FOOTPRINT );
       ctx->lead.init_completed = 1;
 
+      /* What follows belongs to the snapshot load, which the stream
+         tile neither drives nor takes part in. */
+      if( FD_UNLIKELY( ctx->stream ) ) break;
+
       /* Reset shared state before publishing the fork. */
       fd_memset( &ctx->shmem->values, 0, sizeof(ctx->shmem->values) );
       FD_VOLATILE( ctx->shmem->next_appendvec_ticket ) = 0UL;
@@ -1971,6 +2111,11 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
     case FD_SNAPSHOT_MSG_META: {
       forward_msg = 0; /* snapct already receives META directly from snapld */
       if( FD_LIKELY( !is_lead( ctx ) ) ) break;
+
+      /* The boot stream is not a redirect.  Its slot and hash came
+         from the boot index with INIT, and META carries no hash for
+         it. */
+      if( FD_UNLIKELY( ctx->stream ) ) break;
 
       /* For redirect-based HTTP downloads, the META message carries
          the resolved slot and hash from the actual snapshot filename
@@ -2257,7 +2402,9 @@ handle_lane_data_frag( fd_snapin_tile_t *  ctx,
                        ulong               chunk,
                        ulong               sz,
                        ulong               ctl ) {
-  if( FD_UNLIKELY( ctx->incr_fork==ULONG_MAX ) ) {
+  /* The stream tile takes no fork and no appendvec ticket from the
+     snapshot load. */
+  if( FD_UNLIKELY( ctx->incr_fork==ULONG_MAX && !ctx->stream ) ) {
     start_processing_attempt( ctx );
   }
 
@@ -2410,7 +2557,9 @@ unprivileged_init( fd_topo_t const *      topo,
   /* The stream tile shares this code but parses the boot stream, not
      the snapshot, so it does none of the loader side of instant
      boot. */
+  ctx->stream       = tile->snapin.stream;
   ctx->instant_boot = tile->snapin.instant_boot && !tile->snapin.stream;
+  ctx->boot_fork    = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
 
   clear_control_barrier( ctx );
   fd_memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
@@ -2465,9 +2614,18 @@ unprivileged_init( fd_topo_t const *      topo,
 
   /* The counter replay and the stream pipeline watch for the end of
      the background load. */
-  if( FD_UNLIKELY( ctx->instant_boot ) ) {
+  if( FD_UNLIKELY( ctx->instant_boot || ctx->stream ) ) {
     ctx->lead.done_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->snapin.instant_boot_done_obj_id ) );
     FD_TEST( ctx->lead.done_fseq );
+  }
+
+  /* The counter replay waits on before it executes a slot.  Readers
+     treat the seeded value as not ready, so zero it here, before any
+     slot has been written. */
+  if( FD_UNLIKELY( ctx->stream ) ) {
+    ctx->slot_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->snapin.instant_boot_slot_obj_id ) );
+    FD_TEST( ctx->slot_fseq );
+    fd_fseq_update( ctx->slot_fseq, 0UL );
   }
 
   void * _txncache           = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),               fd_txncache_footprint( tile->snapin.max_live_slots ) );
