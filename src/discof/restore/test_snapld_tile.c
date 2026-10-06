@@ -379,27 +379,30 @@ test_stream( void ) {
   FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING && ctx->stream_retry_at!=LONG_MAX );
   FD_TEST( meta_cnt==1UL && data_sz_total==2500UL );
 
-  /* The tile shuts down on the first request that finishes after the
-     background snapshot load is done. */
+  /* The tile leaves as soon as the background snapshot load is done,
+     without asking for more of the stream, and tells the decompressor
+     downstream to stop as well: nothing else in the stream pipeline
+     ends it. */
   fd_fseq_update( ctx->done_fseq, 1UL );
-  fd_log_sleep( FD_SNAPLD_STREAM_RETRY_NANOS+(long)1e6 );
-  char req6[ 1024 ] = {0};
-  stream_exchange( ctx, listen_fd, req6, sizeof(req6), empty_resp, strlen( empty_resp ), 4UL );
-  FD_TEST( init_cnt==6UL && init_range==2500UL );
+  publish_cnt = 0UL;
+  int busy = 0;
+  after_credit( ctx, test_stem, NULL, &busy );
+  FD_TEST( init_cnt==5UL );
+  FD_TEST( publish_cnt==1UL && publish_sig==FD_SNAPSHOT_MSG_CTRL_SHUTDOWN );
   FD_TEST( should_shutdown( ctx ) );
 
-  /* It shuts down just as cleanly when the request that finishes
-     after the load is done failed. */
+  /* A request already in flight when the load finished fails without
+     killing the process: the tile just stops asking. */
   ctx->state           = FD_SNAPSHOT_STATE_PROCESSING;
   ctx->stream_retry_at = 0L;
-  char req7[ 1024 ] = {0};
-  stream_exchange( ctx, listen_fd, req7, sizeof(req7), broken_resp, strlen( broken_resp ), 8UL );
-  FD_TEST( init_cnt==7UL );
-  FD_TEST( should_shutdown( ctx ) );
+  stream_retry( ctx, "in flight when the load finished" );
+  FD_TEST( ctx->stream_retry_at==LONG_MAX );
+  FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING );
 
   /* A server that never offers a stream is fatal once the wait is
      over. */
   fd_fseq_update( ctx->done_fseq, 0UL );
+  ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
   pid_t pid = fork();
   FD_TEST( pid>=0 );
   if( !pid ) {

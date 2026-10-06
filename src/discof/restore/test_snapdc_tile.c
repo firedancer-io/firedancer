@@ -812,6 +812,25 @@ test_incremental_metrics( void ) {
   test_env_delete( env );
 }
 
+/* The boot stream never ends, so the stream downloader asks for
+   shutdown from the middle of the archive.  The snapshot pipeline only
+   ever asks from idle. */
+
+static void
+test_stream_shutdown( void ) {
+  test_env_t * env = test_env_new( 0UL, 1UL );
+  env->ctx->stream = 1;
+  begin_load( env, 1, 1 );
+  FD_TEST( env->ctx->state==FD_SNAPSHOT_STATE_PROCESSING );
+  capture_reset( env );
+
+  send_control( env, FD_SNAPSHOT_MSG_CTRL_SHUTDOWN );
+  FD_TEST( should_shutdown( env->ctx ) );
+  FD_TEST( test_pub_cnt==1UL );
+  FD_TEST( test_pub[ 0 ].sig==FD_SNAPSHOT_MSG_CTRL_SHUTDOWN );
+  test_env_delete( env );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -830,6 +849,7 @@ main( int     argc,
   test_shared_claims();
   test_control_publication_counts();
   test_incremental_metrics();
+  test_stream_shutdown();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

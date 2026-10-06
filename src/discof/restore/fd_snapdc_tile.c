@@ -27,6 +27,7 @@ struct fd_snapdc_tile {
   uint full    : 1;
   uint is_zstd : 1;
   uint dirty   : 1;  /* in the middle of a frame? */
+  uint stream  : 1;  /* decompressing an instant boot stream? */
   int state;
 
   ulong   tile_idx;
@@ -208,7 +209,10 @@ handle_control_frag( fd_snapdc_tile_t *  ctx,
     }
 
     case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN: {
-      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
+      /* A boot stream has no end, so the stream downloader asks for
+         shutdown from the middle of the archive rather than from
+         idle. */
+      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE || ctx->stream );
       ctx->state = FD_SNAPSHOT_STATE_SHUTDOWN;
       break;
     }
@@ -485,7 +489,8 @@ unprivileged_init( fd_topo_t const *      topo,
   if( FD_UNLIKELY( tile->out_cnt!=1UL ) ) FD_LOG_ERR(( "tile `%s` has %lu outs, expected 1", tile->name, tile->out_cnt ));
 
   /* The instant boot decompressor feeds the stream parser instead. */
-  int stream = 0==strcmp( tile->name, "strdc" );
+  int stream  = 0==strcmp( tile->name, "strdc" );
+  ctx->stream = !!stream;
 
   fd_topo_link_t const * snapin_link = &topo->links[ tile->out_link_id[ 0UL ] ];
   FD_TEST( 0==strcmp( snapin_link->name, stream ? "strdc_in" : "snapdc_in" ) );

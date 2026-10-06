@@ -357,14 +357,15 @@ stream_tail( fd_snapld_tile_t * ctx ) {
 }
 
 /* stream_fatal gives up on the stream.  If the background snapshot
-   load has already finished there is nothing left to stream, so the
-   tile shuts down cleanly instead of dying. */
+   load has already finished there is nothing left to stream, so this
+   is a clean end: stop asking for more and let after_credit, which
+   reads the same counter, publish the shutdown and leave. */
 
 static void
 stream_fatal( fd_snapld_tile_t * ctx,
               char const *       reason ) {
   if( FD_UNLIKELY( fd_fseq_query( ctx->done_fseq )==1UL ) ) {
-    ctx->state = FD_SNAPSHOT_STATE_SHUTDOWN;
+    ctx->stream_retry_at = LONG_MAX;
     return;
   }
   FD_LOG_ERR(( "%s (server %s)", reason, ctx->config.stream_server ));
@@ -625,6 +626,18 @@ after_credit( fd_snapld_tile_t *  ctx,
     return;
   }
 
+  /* The background snapshot load is done, so the stream has nothing
+     left to give.  The decompressor downstream ends on this message
+     alone, and the parser past it has already stopped, so publish it
+     before leaving. */
+  if( FD_UNLIKELY( ctx->stream && fd_fseq_query( ctx->done_fseq )==1UL ) ) {
+    FD_LOG_INFO(( "background snapshot load is done, leaving the instant boot stream" ));
+    fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_SHUTDOWN, 0UL, 0UL, 0UL, 0UL, 0UL );
+    ctx->state = FD_SNAPSHOT_STATE_SHUTDOWN;
+    *charge_busy = 1;
+    return;
+  }
+
   /* A request for the stream is due: the index on the first call, and
      the rest of the archive after each one finishes. */
   if( FD_UNLIKELY( ctx->stream && ctx->stream_retry_at!=LONG_MAX ) ) {
@@ -812,12 +825,7 @@ after_credit( fd_snapld_tile_t *  ctx,
         if( FD_UNLIKELY( ctx->stream ) ) {
           ctx->stream_done_seen = 1;
           ctx->window_deadline  = LONG_MAX;
-          if( FD_UNLIKELY( fd_fseq_query( ctx->done_fseq )==1UL ) ) {
-            FD_LOG_INFO(( "background snapshot load is done, leaving the instant boot stream" ));
-            ctx->state = FD_SNAPSHOT_STATE_SHUTDOWN;
-            break;
-          }
-          ctx->stream_retry_at = fd_clock_tile_now( ctx->clock )+FD_SNAPLD_STREAM_RETRY_NANOS;
+          ctx->stream_retry_at  = fd_clock_tile_now( ctx->clock )+FD_SNAPLD_STREAM_RETRY_NANOS;
           break;
         }
         if( FD_UNLIKELY( !ctx->sent_meta ) ) {
