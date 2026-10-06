@@ -2129,8 +2129,34 @@ test_snapshot_hidden( void ) {
   FD_TEST( !accdb_read( accdb, child, key, &got, NULL, NULL, NULL ) );
   FD_TEST( !fd_accdb_exists  ( accdb, child, key ) );
   FD_TEST( !fd_accdb_lamports( accdb, child, key ) );
-  FD_TEST(  accdb_read( seer, root, key, &got, NULL, NULL, NULL ) ); FD_TEST( got==100UL );
-  FD_TEST(  fd_accdb_lamports( seer, child, key2 )==7UL );
+
+  /* Cover the remaining two walks on the plain join: a no-cache
+     read misses, and probe reports no lamports for a fork the
+     loaded node was never committed on. */
+  uchar        nocache_owner[ 32UL ];
+  int          nocache_executable;
+  ulong        nocache_lamports;
+  ulong        nocache_data_len;
+  static uchar nocache_data[ 10UL<<20 ];
+  FD_TEST( fd_accdb_read_one_nocache( accdb, child, key, &nocache_lamports, &nocache_executable,
+                                      nocache_owner, nocache_data, &nocache_data_len )
+           ==FD_ACCDB_READ_ONE_NOCACHE_MISS );
+
+  int   pd             = 1;
+  ulong probe_len      = 0xbeefUL;
+  ulong probe_lamports = 0UL;
+  FD_TEST( !fd_accdb_probe_pd_this_fork( accdb, child, key, &pd, &probe_len, &probe_lamports ) );
+  FD_TEST( probe_lamports==0UL );
+
+  /* seer must read with the no-cache path: fd_accdb_acquire would
+     select this hidden-but-visible node and cold_load_acc would
+     overwrite its cache_idx, which the loader still owns until
+     the load ends. */
+  FD_TEST( fd_accdb_read_one_nocache( seer, root, key, &nocache_lamports, &nocache_executable,
+                                      nocache_owner, nocache_data, &nocache_data_len )
+           !=FD_ACCDB_READ_ONE_NOCACHE_MISS );
+  FD_TEST( nocache_lamports==100UL );
+  FD_TEST( fd_accdb_lamports( seer, child, key2 )==7UL );
 
   accdb_write( accdb, child, key, 500UL, NULL, 0UL, owner );
   FD_TEST(  accdb_read( accdb, child, key, &got, NULL, NULL, NULL ) ); FD_TEST( got==500UL );

@@ -141,10 +141,18 @@ fd_accdb_snapshot_load_end( fd_accdb_t * accdb );
    by the snapshot loader were absent (hide=1) or visible again
    (hide=0).  Used by the instant-boot path, where live execution runs
    while the loader is still writing.  Only the loader's lead tile
-   calls it, and only while no snapshot is being produced.
+   calls it, and only while no snapshot is being produced.  Unhiding
+   must come after the last fd_accdb_snapshot_write_batch, since the
+   bit stays set on loaded nodes.
 
    fd_accdb_show_hidden lets one join keep reading loader-written nodes
-   while they are hidden, so the loader can verify what it wrote. */
+   while they are hidden, so the loader can verify what it wrote.  The
+   override is only safe on the non-caching paths
+   (fd_accdb_read_one_nocache, fd_accdb_exists, fd_accdb_lamports,
+   fd_accdb_probe_pd_this_fork); fd_accdb_acquire, fd_accdb_read_one,
+   and fd_accdb_write_one must not be used on such a join while a load
+   runs, because a cache load or a commit rewrites cache_idx and
+   executable_size, which the loader owns until the load ends. */
 
 void
 fd_accdb_snapshot_hide( fd_accdb_t * accdb,

@@ -402,7 +402,8 @@ struct fd_accdb_shmem_private {
      fragmentation threshold during the load. */
   int snapshot_loading;
 
-  /* Reads skip loader-written nodes while set (fd_accdb_snapshot_hide). */
+  /* Reads skip loader-written nodes while set
+     (fd_accdb_snapshot_hide). */
   int snapshot_hidden;
 
   /* Set at construction (fd_accdb_shmem_new) when this validator

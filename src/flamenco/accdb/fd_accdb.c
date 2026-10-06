@@ -519,6 +519,10 @@ fd_accdb_snapshot_load_end( fd_accdb_t * accdb ) {
 void
 fd_accdb_snapshot_hide( fd_accdb_t * accdb,
                         int          hide ) {
+  /* A purge or root advance already in flight on the background
+     tile must finish before loader nodes are hidden, because the
+     loader may then link nodes behind live ones. */
+  if( hide ) wait_cmd( accdb );
   FD_VOLATILE( accdb->shmem->snapshot_hidden ) = hide;
 }
 
@@ -2396,6 +2400,9 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
   fd_accdb_accmeta_t * accmetas[ FD_ACCDB_MAX_ACQUIRE_CNT ];
   ulong acc_map_idxs[ FD_ACCDB_MAX_ACQUIRE_CNT ];
 
+  /* Skip nodes the snapshot loader wrote while they are hidden. */
+  int hide = FD_VOLATILE_CONST( accdb->shmem->snapshot_hidden ) && !accdb->show_hidden;
+
   /* Walk the hash chain for each pubkey and take the first visible
      match.  Correctness relies on newer entries always being prepended
      to the chain head, which is guaranteed because replay processes
@@ -2413,8 +2420,6 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
      needed before the chain walk and a release fence in
      fd_accdb_release before the head-pointer store.  Multiple
      concurrent releases serialize on the CAS of the chain head. */
-  int hide = FD_VOLATILE_CONST( accdb->shmem->snapshot_hidden ) && !accdb->show_hidden;
-
   for( ulong i=0UL; i<pubkeys_cnt; i++ ) {
     acc_map_idxs[ i ] = fd_hash32( pubkeys[ i ], accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL);
     uint acc = fd_accdb_chain_head( &accdb->acc_map[ acc_map_idxs[ i ] ] );
