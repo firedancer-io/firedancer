@@ -39,7 +39,7 @@ These are the keys instant boot adds, under `[snapshots.instant_boot]`:
 | `[snapshots.instant_boot] enabled` | Booting | `false` | Turns on instant boot. |
 | `[snapshots.instant_boot] server` | Booting | `""` | Serving validator's address, `host:port` or `http://host:port`. Has to be a plain IPv4 address in practice (see Known Limits). |
 | `[snapshots.instant_boot.serve] enabled` | Serving | `false` | Turns on boot streams. Needs `[snapshots.server] enabled = true`. |
-| `[snapshots.instant_boot.serve] stream_lifetime_seconds` | Serving | `240` | How long a stream is served before it's closed and recycled. Must be more than the client's fixed 180 second join floor; the margin above it is how long a client has to find the stream. |
+| `[snapshots.instant_boot.serve] stream_lifetime_seconds` | Serving | `240` | How long a stream is served before it's closed and recycled. Must be more than the 180 seconds of life a client insists on having left before it joins; the margin above it is how long a client has to find the stream. |
 | `[snapshots.instant_boot.serve] max_open_streams` | Serving | `3` | How many streams are served at once (1 to 8). |
 | `[snapshots.instant_boot.serve] max_keys_per_stream` | Serving | `4000000` | How many accounts one stream can carry. The tile rounds this up to a power of two, `4,194,304` at the default, and keeps 40 bytes per entry, which is 160 MiB of the 225 MiB a stream costs. A stream closes once it has carried three quarters of those entries, `3,145,728` at the default. |
 
@@ -59,11 +59,11 @@ opened. With the defaults that is **985 MiB**:
 | Account sets of the blocks the tile keeps | 103,809,024 | 99.0 | fixed (192 blocks of 528 KiB) |
 | Account read buffer | 10,485,760 | 10.0 | fixed |
 | Compression buffer | 4,194,304 | 4.0 | fixed |
-| Accounts and status cache joins, writer state | 70,068,224 | 66.8 | `[runtime] max_live_slots`, `[limits] max_txn_per_slot` |
+| Accounts and status cache joins, writer and block state | 70,076,416 | 66.8 | `[runtime] max_live_slots`, `[limits] max_txn_per_slot` |
 | Open streams, 3 x 236,251,136 | 708,753,408 | 675.9 | `max_open_streams`, and `max_keys_per_stream` within it |
 | `replay_strmk` data ring | 134,225,920 | 128.0 | fixed (32,770 x 4,096 byte frags) |
 | `replay_strmk` descriptor ring | 1,048,576 | 1.0 | fixed |
-| **Total** | **1,032,585,216** | **984.8** | |
+| **Total** | **1,032,593,408** | **984.8** | |
 
 The first four rows and the stream rows are the stream tile's own
 workspace; `replay_strmk` is a workspace of its own, which the replay
