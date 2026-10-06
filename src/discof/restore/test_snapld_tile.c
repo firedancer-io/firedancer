@@ -262,6 +262,7 @@ test_stream( void ) {
   int listen_fd = stream_listen( &addr );
   FD_TEST( fd_cstr_printf_check( ctx->config.stream_server, sizeof(ctx->config.stream_server), NULL,
                                  FD_IP4_ADDR_FMT ":%hu", FD_IP4_ADDR_FMT_ARGS( addr.addr ), fd_ushort_bswap( addr.port ) ) );
+  fd_ssboot_server_parse( ctx->config.stream_server, ctx->stream_hostname, &ctx->stream_addr );
 
   uchar hash[ FD_HASH_FOOTPRINT ];
   for( ulong i=0UL; i<FD_HASH_FOOTPRINT; i++ ) hash[ i ] = (uchar)(i+1UL);
@@ -332,10 +333,11 @@ test_stream( void ) {
   stream_exchange( ctx, listen_fd, req2, sizeof(req2), arch_resp, arch_hdr_len+2000UL, 64UL );
   FD_TEST( strstr( req2, "GET /boot/777.tar.zst HTTP/1.1" ) );
   FD_TEST( !strstr( req2, "Range:" ) );
-  FD_TEST( meta_cnt==1UL && meta_total_sz==2000UL && meta_slot==777UL );
-  /* The parser checks the stream manifest against the slot and hash of
-     the index line this tile picked. */
-  FD_TEST( !memcmp( meta_hash, hash, FD_HASH_FOOTPRINT ) );
+  /* INIT carried the slot and hash of the index line this tile picked,
+     so META has nothing to resolve. */
+  FD_TEST( meta_cnt==1UL && meta_total_sz==2000UL && meta_slot==ULONG_MAX );
+  uchar zero_hash[ FD_HASH_FOOTPRINT ] = {0};
+  FD_TEST( !memcmp( meta_hash, zero_hash, FD_HASH_FOOTPRINT ) );
   FD_TEST( data_sz_total==2000UL );
   FD_TEST( ctx->stream_received==2000UL );
   FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING && init_cnt==2UL );
