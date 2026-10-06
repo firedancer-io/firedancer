@@ -1128,6 +1128,168 @@ test_gossip_before_stake( void ) {
   test_ctx_delete( &ctx );
 }
 
+/* test_cert signs a cert of kind (notar, fast final or final) over
+   slot by every voter in epoch_info, ranked as build_stakes( 3, 10 ). */
+
+static ag_cert_t
+test_cert( ag_epoch_info_t const * epoch_info,
+           uint                    kind,
+           ulong                   slot,
+           uchar                   hash ) {
+  ag_cert_t cert = {0};
+  cert.kind = kind;
+  fd_bls_agg_t * agg = fd_ptr_if( kind==AG_CERT_KIND_FINAL, &cert.final.agg, fd_ptr_if( kind==AG_CERT_KIND_NOTAR, &cert.notar.agg, &cert.fast_final.agg ) );
+  for( ulong rank=0UL; rank<3UL; rank++ ) {
+    fd_bls_sec_t sec; voter_sec( &sec, 2UL-rank );
+    ag_block_hash_t block_hash; memset( block_hash, hash, sizeof(ag_block_hash_t) );
+    ag_vote_t vote = kind==AG_CERT_KIND_FINAL ?
+                     ag_vote_construct_final( sec_sign_bls, &sec, epoch_info->validators[ rank ].bls_key, slot,             (ushort)rank, (ushort)1 ) :
+                     ag_vote_construct_notar( sec_sign_bls, &sec, epoch_info->validators[ rank ].bls_key, slot, block_hash, (ushort)rank, (ushort)1 );
+    fd_bls_set_insert( agg->set, rank );
+    blst_p2_add_or_double( &agg->sig, &agg->sig, ag_vote_sig( &vote ) );
+  }
+  switch( kind ) {
+  case AG_CERT_KIND_FINAL:      cert.final.slot      = slot; cert.final.stake      = 33UL; cert.final.shred_version      = (ushort)1;                                                       break;
+  case AG_CERT_KIND_FAST_FINAL: cert.fast_final.slot = slot; cert.fast_final.stake = 33UL; cert.fast_final.shred_version = (ushort)1; memset( cert.fast_final.block_hash, hash, 32UL ); break;
+  case AG_CERT_KIND_NOTAR:      cert.notar.slot      = slot; cert.notar.stake      = 33UL; cert.notar.shred_version      = (ushort)1; memset( cert.notar.block_hash,      hash, 32UL ); break;
+  default:                      FD_LOG_CRIT(( "unreachable" ));
+  }
+  return cert;
+}
+
+/* Booting far behind, every live final cert is past the pool window.
+   The first final or fast final cert that verifies, in the window or
+   past it, is kept and sent once to rotor as its catchup slot, a REPAIR
+   with a null block id. */
+
+static uchar verify_eagerly_mcache[ FD_MCACHE_FOOTPRINT( 128UL, 0UL ) ] __attribute__((aligned(FD_MCACHE_ALIGN)));
+static uchar verify_eagerly_dcache[ 16UL*sizeof(fd_votor_msg_t) ] __attribute__((aligned(FD_CHUNK_ALIGN)));
+
+static ulong
+catchup_cnt( fd_frag_meta_t const * mcache,
+             ulong                  seq ) {
+  ulong cnt = 0UL;
+  for( ulong i=0UL; i<seq; i++ ) {
+    fd_votor_repair_t const * repair = &((fd_votor_msg_t const *)fd_chunk_to_laddr_const( verify_eagerly_dcache, mcache[ i ].chunk ))->repair;
+    cnt += (ulong)( mcache[ i ].sig==FD_VOTOR_SIG_REPAIR && !memcmp( repair->block_id.uc, ag_block_hash_null, 32UL ) );
+  }
+  return cnt;
+}
+
+static void
+test_verify_eagerly( void ) {
+  static fd_votor_tile_t ctx;
+  static fd_quic_conn_t  conn;
+  static uchar           buf[ AG_CERT_SER_MAX ];
+
+  fd_vote_stake_weight_t stakes[ TEST_VOTER_MAX ];
+  build_stakes( stakes, 3UL, 10UL );
+  ag_epoch_info_t * epoch_info = rank_voters( &epoch_info_mem, stakes, 3UL );
+
+  test_ctx_new( &ctx, 1UL );
+  ag_pool_advance_epoch( ctx.pool, epoch_info, 0UL, 0UL );
+  ctx.quic_server     = ctx.quic_client; /* after_credit services both */
+  ctx.prev_epoch_info = NULL;
+  ctx.prev_epoch_slot = ULONG_MAX;
+  ctx.curr_epoch_info = epoch_info;
+  ctx.curr_epoch_slot = 0UL;
+  ctx.next_epoch_info = NULL;
+  ctx.next_epoch_slot = ULONG_MAX;
+  ctx.epoch_len       = 1000UL;
+  ctx.shred_version   = (ushort)1;
+  ctx.init            = 1;
+  ctx.first_final_slot = ULONG_MAX;
+  ctx.first_final_sent = 0;
+  ctx.next_leader_slot  = ULONG_MAX;
+  for( ulong i=0UL; i<REWARD_VOTE_MAX; i++ ) ctx.reward_votes[ i ].slot = ULONG_MAX;
+  FD_TEST( ag_votor_footprint( 64UL )<=sizeof(votor_scratch) );
+  ctx.votor = ag_votor_join( ag_votor_new( votor_scratch, 64UL, 42UL ) );
+  ag_votor_init( ctx.votor, &(ag_block_id_t){ .slot = 0UL }, fd_clock_tile_now( ctx.clock ), 400000000L, (ushort)1, capture_sign_bls, NULL );
+
+  ctx.votor_out_mem    = verify_eagerly_dcache;
+  ctx.votor_out_chunk0 = 0UL;
+  ctx.votor_out_wmark  = fd_dcache_compact_wmark( verify_eagerly_dcache, verify_eagerly_dcache, sizeof(fd_votor_msg_t) );
+  ctx.votor_out_chunk  = 0UL;
+  fd_frag_meta_t * mcache = fd_mcache_join( fd_mcache_new( verify_eagerly_mcache, 128UL, 0UL, 0UL ) );
+  FD_TEST( mcache );
+  fd_frag_meta_t *  mcaches[2]      = { mcache, NULL };
+  ulong             seqs[2]         = { 0UL, 0UL };
+  ulong             depths[2]       = { 128UL, 0UL };
+  ulong             cr_avail[2]     = { FD_VOTOR_OUT_BURST, 0UL };
+  ulong             min_cr_avail    = FD_VOTOR_OUT_BURST;
+  int               out_reliable[2] = { 1, 0 };
+  fd_stem_context_t stem            = { .mcaches = mcaches, .seqs = seqs, .depths = depths, .cr_avail = cr_avail, .min_cr_avail = &min_cr_avail, .cr_decrement_amount = 1UL, .out_reliable = out_reliable };
+
+  fd_pubkey_t id = {0}; id.uc[ 0 ] = 1;
+  fd_quic_conn_set_context( &conn, &id );
+  int busy;
+
+  /* Notar certs, in the window or past it, are not final. */
+
+  ag_cert_t cert = test_cert( epoch_info, AG_CERT_KIND_NOTAR, 1UL, 1 );
+  quic_server_datagram_rx( &conn, buf, ag_cert_ser( &cert, buf ), &ctx );
+  FD_TEST( ag_pool_slot_state( ctx.pool, 1UL )->certs.notar.slot==1UL );
+  cert = test_cert( epoch_info, AG_CERT_KIND_NOTAR, 100UL, 3 );
+  quic_server_datagram_rx( &conn, buf, ag_cert_ser( &cert, buf ), &ctx );
+  FD_TEST( ctx.first_final_slot==ULONG_MAX );
+
+  /* A final cert past the window that fails to verify is not kept. */
+
+  cert = test_cert( epoch_info, AG_CERT_KIND_FAST_FINAL, 100UL, 5 );
+  cert.fast_final.slot = 101UL;
+  quic_server_datagram_rx( &conn, buf, ag_cert_ser( &cert, buf ), &ctx );
+  FD_TEST( ctx.first_final_slot==ULONG_MAX );
+  for( ulong i=0UL; i<8UL; i++ ) after_credit( &ctx, &stem, NULL, &busy );
+  FD_TEST( !catchup_cnt( mcache, seqs[ 0 ] ) );
+
+  /* The first final cert past the window that verifies is kept and sent
+     once as a REPAIR with a null block id. */
+
+  cert = test_cert( epoch_info, AG_CERT_KIND_FAST_FINAL, 100UL, 5 );
+  quic_server_datagram_rx( &conn, buf, ag_cert_ser( &cert, buf ), &ctx );
+  FD_TEST( ctx.first_final_slot==100UL && !ctx.first_final_sent );
+  ulong seq = seqs[ 0 ];
+  for( ulong i=0UL; i<8UL; i++ ) after_credit( &ctx, &stem, NULL, &busy );
+  FD_TEST( ctx.first_final_sent && catchup_cnt( mcache, seqs[ 0 ] )==1UL );
+  for( ulong i=seq; i<seqs[ 0 ]; i++ ) {
+    fd_votor_repair_t const * repair = &((fd_votor_msg_t const *)fd_chunk_to_laddr_const( verify_eagerly_dcache, mcache[ i ].chunk ))->repair;
+    if( FD_LIKELY( mcache[ i ].sig==FD_VOTOR_SIG_REPAIR && !memcmp( repair->block_id.uc, ag_block_hash_null, 32UL ) ) ) FD_TEST( repair->slot==100UL );
+  }
+
+  /* Later final certs, in the window or past it, change nothing. */
+
+  cert = test_cert( epoch_info, AG_CERT_KIND_FINAL, 2UL, 0 );
+  quic_server_datagram_rx( &conn, buf, ag_cert_ser( &cert, buf ), &ctx );
+  FD_TEST( ag_pool_slot_state( ctx.pool, 2UL )->certs.finalize.slot==2UL );
+  cert = test_cert( epoch_info, AG_CERT_KIND_FINAL, 200UL, 0 );
+  quic_server_datagram_rx( &conn, buf, ag_cert_ser( &cert, buf ), &ctx );
+  FD_TEST( ctx.first_final_slot==100UL );
+  for( ulong i=0UL; i<8UL; i++ ) after_credit( &ctx, &stem, NULL, &busy );
+  FD_TEST( catchup_cnt( mcache, seqs[ 0 ] )==1UL );
+
+  /* A cert past the next epoch has no epoch info to verify against and
+     is dropped before the pool. */
+
+  ctx.next_epoch_slot = 1000UL;
+  ctx.next_epoch_info = epoch_info;
+  ctx.epoch_len       = 1000UL;
+  ulong too_new = ctx.metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_SLOT_TOO_NEW_IDX ];
+  cert = test_cert( epoch_info, AG_CERT_KIND_FINAL, 2000UL, 0 );
+  quic_server_datagram_rx( &conn, buf, ag_cert_ser( &cert, buf ), &ctx );
+  FD_TEST( ctx.metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_SLOT_TOO_NEW_IDX ]==too_new+1UL );
+
+  /* A cert before the oldest epoch with info is dropped before the pool. */
+
+  ctx.curr_epoch_slot = 500UL;
+  ulong too_old = ctx.metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_SLOT_TOO_OLD_IDX ];
+  cert = test_cert( epoch_info, AG_CERT_KIND_FINAL, 3UL, 0 );
+  quic_server_datagram_rx( &conn, buf, ag_cert_ser( &cert, buf ), &ctx );
+  FD_TEST( ctx.metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_SLOT_TOO_OLD_IDX ]==too_old+1UL );
+
+  ag_votor_delete( ag_votor_leave( ctx.votor ) );
+  test_ctx_delete( &ctx );
+}
+
 /* after_credit connects queued peers once due and leaves the rest,
    requeues one whose backoff grew, and drops entries for peers that
    can no longer be connected. */
@@ -1293,6 +1455,7 @@ test_park( void ) {
   for( ulong i=0UL; i<REWARD_VOTE_MAX; i++ ) ctx->reward_votes[ i ].slot = ULONG_MAX;
   ctx->next_leader_slot = ULONG_MAX;
   ctx->ns_per_slot      = 400000000L;
+  ctx->first_final_slot = ULONG_MAX;
   int charge_busy;
 
   /* Not yet init: no QUIC conns and nothing else counts. */
@@ -1416,6 +1579,7 @@ main( int     argc,
   test_reconnect();
   test_conn_ahead();
   test_park();
+  test_verify_eagerly();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

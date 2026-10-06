@@ -961,7 +961,7 @@ test_out_of_bounds_votes( void ) {
   for( ulong s=0UL; s<slot-AG_REWARD_SLOT_DELTA; s++ ) {
     for( ulong v=0UL; v<11UL; v++ ) {
       ag_vote_t vote = ag_vote_construct_final( sec_sign_fn, &g_sk[v], test_bls_public_key, s, (ushort)v, TEST_SHRED_VERSION );
-      FD_TEST( ag_pool_add_vote( pool, &vote, bad, &quorum_reached )==AG_POOL_ERR_SLOT_OUT_OF_BOUNDS );
+      FD_TEST( ag_pool_add_vote( pool, &vote, bad, &quorum_reached )==AG_POOL_ERR_SLOT_TOO_OLD );
     }
   }
 
@@ -973,7 +973,7 @@ test_out_of_bounds_votes( void ) {
   ulong future = 5UL*TEST_SLOT_MAX;
   for( ulong v=0UL; v<11UL; v++ ) {
     ag_vote_t vote = ag_vote_construct_final( sec_sign_fn, &g_sk[v], test_bls_public_key, future, (ushort)v, TEST_SHRED_VERSION );
-    FD_TEST( ag_pool_add_vote( pool, &vote, bad, &quorum_reached )==AG_POOL_ERR_SLOT_OUT_OF_BOUNDS );
+    FD_TEST( ag_pool_add_vote( pool, &vote, bad, &quorum_reached )==AG_POOL_ERR_SLOT_TOO_NEW );
   }
 
   teardown_pool( pool );
@@ -1000,14 +1000,14 @@ test_out_of_bounds_certs( void ) {
     ag_vote_skip_t sv[ NV ];
     for( ulong v=0UL; v<NV; v++ ) sv[v] = ag_vote_construct_skip( sec_sign_fn, &g_sk[v], test_bls_public_key, s, (ushort)v, TEST_SHRED_VERSION ).skip;
     ag_cert_t c = cert_build_skip( sv, NV, NULL, 0UL, g_epoch_info );
-    FD_TEST( ag_pool_add_cert( pool, &c, bad )==AG_POOL_ERR_SLOT_OUT_OF_BOUNDS );
+    FD_TEST( ag_pool_add_cert( pool, &c, bad )==AG_POOL_ERR_SLOT_TOO_OLD );
   }
 
   ulong future = 3UL*TEST_SLOT_MAX;
   ag_vote_skip_t sv[ NV ];
   for( ulong v=0UL; v<NV; v++ ) sv[v] = ag_vote_construct_skip( sec_sign_fn, &g_sk[v], test_bls_public_key, future, (ushort)v, TEST_SHRED_VERSION ).skip;
   ag_cert_t c = cert_build_skip( sv, NV, NULL, 0UL, g_epoch_info );
-  FD_TEST( ag_pool_add_cert( pool, &c, bad )==AG_POOL_ERR_SLOT_OUT_OF_BOUNDS );
+  FD_TEST( ag_pool_add_cert( pool, &c, bad )==AG_POOL_ERR_SLOT_TOO_NEW );
 
   teardown_pool( pool );
 }
@@ -1757,7 +1757,7 @@ test_add_block_below_watermark( void ) {
 
   ag_block_id_t stale  = random_block_id( slot-2UL );
   ag_block_id_t parent = random_block_id( slot-3UL );
-  FD_TEST( ag_pool_add_block( pool, &stale, &parent, bad )==AG_POOL_ERR_SLOT_OUT_OF_BOUNDS );
+  FD_TEST( ag_pool_add_block( pool, &stale, &parent, bad )==AG_POOL_ERR_SLOT_TOO_OLD );
   drain_events( pool );
 
   FD_TEST( contains_slot( pool, slot-2UL ) ); /* retained, untouched */
@@ -1766,7 +1766,7 @@ test_add_block_below_watermark( void ) {
 
   /* and the same window bound as votes and certs on the far side */
   ag_block_id_t far = random_block_id( slot+pool->slot_max );
-  FD_TEST( ag_pool_add_block( pool, &far, &stale, bad )==AG_POOL_ERR_SLOT_OUT_OF_BOUNDS );
+  FD_TEST( ag_pool_add_block( pool, &far, &stale, bad )==AG_POOL_ERR_SLOT_TOO_NEW );
   FD_TEST( !contains_slot( pool, slot+pool->slot_max ) );
   FD_TEST( slot_state_pool_free( pool->slot_states->pool )==free_cnt );
 

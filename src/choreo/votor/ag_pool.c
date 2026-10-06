@@ -297,12 +297,13 @@ ag_pool_fini( ag_pool_t * self ) {
 FD_FN_CONST char const *
 ag_pool_strerror( int err ) {
   switch( err ) {
-  case AG_POOL_SUCCESS:                return "success";
-  case AG_POOL_ERR_SLOT_OUT_OF_BOUNDS: return "slot is either too old or too far in the future";
-  case AG_POOL_ERR_DUPLICATE:          return "duplicate vote or cert";
-  case AG_POOL_ERR_SLASHABLE:          return "vote constitutes a slashable offence";
-  case AG_POOL_ERR_CERT_VERIFY:        return "cert failed the signature or threshold check";
-  default:                             return "unknown";
+  case AG_POOL_SUCCESS:          return "success";
+  case AG_POOL_ERR_SLOT_TOO_OLD: return "slot is too old";
+  case AG_POOL_ERR_DUPLICATE:    return "duplicate vote or cert";
+  case AG_POOL_ERR_SLASHABLE:    return "vote constitutes a slashable offence";
+  case AG_POOL_ERR_CERT_VERIFY:  return "cert failed the signature or threshold check";
+  case AG_POOL_ERR_SLOT_TOO_NEW: return "slot is too far in the future";
+  default:                       return "unknown";
   }
 }
 
@@ -493,11 +494,13 @@ add_cert( ag_pool_t *       self,
   ulong slot = ag_cert_slot( cert );
   fd_bls_set_null( bad );
 
-  ulong slot_far_in_future = ag_finality_tracker_first_unpruned_slot( self->finality_tracker ) + self->slot_max - AG_REWARD_SLOT_DELTA;
-  if( FD_UNLIKELY( slot<ag_finality_tracker_first_unpruned_slot( self->finality_tracker ) || slot>=slot_far_in_future ) ) return AG_POOL_ERR_SLOT_OUT_OF_BOUNDS;
+  ulong first_unpruned_slot = ag_finality_tracker_first_unpruned_slot( self->finality_tracker );
+  ulong slot_far_in_future  = first_unpruned_slot + self->slot_max - AG_REWARD_SLOT_DELTA;
+  if( FD_UNLIKELY( slot<=first_unpruned_slot ) ) return AG_POOL_ERR_SLOT_TOO_OLD;
+  if( FD_UNLIKELY( slot>=slot_far_in_future  ) ) return AG_POOL_ERR_SLOT_TOO_NEW;
 
   ag_epoch_info_t const * epoch_info = fd_ptr_if( slot>=self->next_epoch_slot, self->next_epoch_info, fd_ptr_if( slot>=self->curr_epoch_slot, self->curr_epoch_info, self->prev_epoch_info ) );
-  if( FD_UNLIKELY( !epoch_info ) ) return AG_POOL_ERR_SLOT_OUT_OF_BOUNDS;
+  if( FD_UNLIKELY( !epoch_info ) ) return fd_int_if( slot<self->curr_epoch_slot, AG_POOL_ERR_SLOT_TOO_OLD, AG_POOL_ERR_SLOT_TOO_NEW );
 
   ag_slot_state_t * state = slot_state( self, slot );
   int duplicate = 0;
@@ -552,11 +555,10 @@ ag_pool_add_vote( ag_pool_t *       self,
   ulong first_unpruned_slot = ag_finality_tracker_first_unpruned_slot( self->finality_tracker );
   ulong retained_slot       = fd_ulong_sat_sub( first_unpruned_slot, AG_REWARD_SLOT_DELTA );
   ulong slot_far_in_future  = first_unpruned_slot + self->slot_max - AG_REWARD_SLOT_DELTA;
-  if( FD_UNLIKELY( slot<retained_slot || slot>=slot_far_in_future ) ) {
-    return AG_POOL_ERR_SLOT_OUT_OF_BOUNDS;
-  }
+  if( FD_UNLIKELY( slot<retained_slot       ) ) return AG_POOL_ERR_SLOT_TOO_OLD;
+  if( FD_UNLIKELY( slot>=slot_far_in_future ) ) return AG_POOL_ERR_SLOT_TOO_NEW;
   if( FD_UNLIKELY( !fd_ptr_if( slot>=self->next_epoch_slot, self->next_epoch_info, fd_ptr_if( slot>=self->curr_epoch_slot, self->curr_epoch_info, self->prev_epoch_info ) ) ) ) {
-    return AG_POOL_ERR_SLOT_OUT_OF_BOUNDS;
+    return fd_int_if( slot<self->curr_epoch_slot, AG_POOL_ERR_SLOT_TOO_OLD, AG_POOL_ERR_SLOT_TOO_NEW );
   }
 
   ulong             voter       = ag_vote_rank( vote );
@@ -600,8 +602,9 @@ ag_pool_add_block( ag_pool_t *           self,
   uchar const * parent_hash = parent_id->hash;
 
   ulong slot_far_in_future = ag_finality_tracker_first_unpruned_slot( self->finality_tracker ) + self->slot_max - AG_REWARD_SLOT_DELTA;
-  if( FD_UNLIKELY( slot<ag_finality_tracker_first_unpruned_slot( self->finality_tracker ) || slot>=slot_far_in_future ) ) return AG_POOL_ERR_SLOT_OUT_OF_BOUNDS;
-  if( FD_UNLIKELY( !fd_ptr_if( slot>=self->next_epoch_slot, self->next_epoch_info, fd_ptr_if( slot>=self->curr_epoch_slot, self->curr_epoch_info, self->prev_epoch_info ) ) ) ) return AG_POOL_ERR_SLOT_OUT_OF_BOUNDS;
+  if( FD_UNLIKELY( slot<ag_finality_tracker_first_unpruned_slot( self->finality_tracker ) ) ) return AG_POOL_ERR_SLOT_TOO_OLD;
+  if( FD_UNLIKELY( slot>=slot_far_in_future                                          ) ) return AG_POOL_ERR_SLOT_TOO_NEW;
+  if( FD_UNLIKELY( !fd_ptr_if( slot>=self->next_epoch_slot, self->next_epoch_info, fd_ptr_if( slot>=self->curr_epoch_slot, self->curr_epoch_info, self->prev_epoch_info ) ) ) ) return fd_int_if( slot<self->curr_epoch_slot, AG_POOL_ERR_SLOT_TOO_OLD, AG_POOL_ERR_SLOT_TOO_NEW );
 
   ag_finalization_event_t finalization_event = finalization_event_default( self );
   ag_finality_tracker_add_parent( self->finality_tracker, block_id, parent_id, &finalization_event );
