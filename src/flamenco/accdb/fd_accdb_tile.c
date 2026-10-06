@@ -127,6 +127,22 @@ privileged_init( fd_topo_t const *      topo,
   FD_TEST( fd_rng_secure( &ctx->seed, 8U ) );
 }
 
+/* Map one consumer tile's epoch fseq read-only and add it to the list
+   fd_accdb_new is given.  An unconfigured consumer passes ULONG_MAX
+   and contributes nothing. */
+
+static void
+epoch_slot_add( fd_topo_t const * topo,
+                ulong             obj_id,
+                ulong const **    slots,
+                ulong *           cnt ) {
+  if( FD_UNLIKELY( obj_id==ULONG_MAX ) ) return;
+  ulong * fseq = fd_fseq_join( fd_topo_obj_laddr( topo, obj_id ) );
+  FD_TEST( fseq );
+  FD_TEST( *cnt<FD_ACCDB_TILE_MAX_EXTERNAL_EPOCHS );
+  slots[ (*cnt)++ ] = fseq;
+}
+
 static void
 unprivileged_init( fd_topo_t const *      topo,
                    fd_topo_tile_t const * tile ) {
@@ -146,37 +162,14 @@ unprivileged_init( fd_topo_t const *      topo,
      deferred-free reclamation will wait on it. */
   static ulong const * external_epoch_slots[ FD_ACCDB_TILE_MAX_EXTERNAL_EPOCHS ];
   ulong external_epoch_cnt = 0UL;
-  if( FD_LIKELY( tile->accdb.rpc_epoch_obj_id!=ULONG_MAX ) ) {
-    ulong * fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->accdb.rpc_epoch_obj_id ) );
-    FD_TEST( fseq );
-    FD_TEST( external_epoch_cnt<FD_ACCDB_TILE_MAX_EXTERNAL_EPOCHS );
-    external_epoch_slots[ external_epoch_cnt++ ] = fseq;
-  }
+  epoch_slot_add( topo, tile->accdb.rpc_epoch_obj_id, external_epoch_slots, &external_epoch_cnt );
   for( ulong i=0UL; i<tile->accdb.resolv_epoch_obj_cnt; i++ ) {
-    ulong * fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->accdb.resolv_epoch_obj_ids[ i ] ) );
-    FD_TEST( fseq );
-    FD_TEST( external_epoch_cnt<FD_ACCDB_TILE_MAX_EXTERNAL_EPOCHS );
-    external_epoch_slots[ external_epoch_cnt++ ] = fseq;
+    epoch_slot_add( topo, tile->accdb.resolv_epoch_obj_ids[ i ], external_epoch_slots, &external_epoch_cnt );
   }
-  if( FD_UNLIKELY( tile->accdb.snapmk_epoch_obj_id!=ULONG_MAX ) ) {
-    ulong * fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->accdb.snapmk_epoch_obj_id ) );
-    FD_TEST( fseq );
-    FD_TEST( external_epoch_cnt<FD_ACCDB_TILE_MAX_EXTERNAL_EPOCHS );
-    external_epoch_slots[ external_epoch_cnt++ ] = fseq;
-  }
-  if( FD_UNLIKELY( tile->accdb.strmk_epoch_obj_id!=ULONG_MAX ) ) {
-    ulong * fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->accdb.strmk_epoch_obj_id ) );
-    FD_TEST( fseq );
-    FD_TEST( external_epoch_cnt<FD_ACCDB_TILE_MAX_EXTERNAL_EPOCHS );
-    external_epoch_slots[ external_epoch_cnt++ ] = fseq;
-  }
+  epoch_slot_add( topo, tile->accdb.snapmk_epoch_obj_id, external_epoch_slots, &external_epoch_cnt );
+  epoch_slot_add( topo, tile->accdb.strmk_epoch_obj_id, external_epoch_slots, &external_epoch_cnt );
   for( ulong i=0UL; i<tile->accdb.snapzp_epoch_obj_cnt; i++ ) {
-    ulong obj_id = tile->accdb.snapzp_epoch_obj_ids[ i ];
-    if( FD_UNLIKELY( obj_id==ULONG_MAX ) ) continue;
-    ulong * fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->accdb.snapzp_epoch_obj_ids[ i ] ) );
-    FD_TEST( fseq );
-    FD_TEST( external_epoch_cnt<FD_ACCDB_TILE_MAX_EXTERNAL_EPOCHS );
-    external_epoch_slots[ external_epoch_cnt++ ] = fseq;
+    epoch_slot_add( topo, tile->accdb.snapzp_epoch_obj_ids[ i ], external_epoch_slots, &external_epoch_cnt );
   }
 
   ctx->accdb = fd_accdb_join( fd_accdb_new( _accdb, accdb_shmem, FD_ACCDB_FD_RW, external_epoch_cnt, external_epoch_slots, NULL, 0UL, 1 ) );
