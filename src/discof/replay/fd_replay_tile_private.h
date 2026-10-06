@@ -6,6 +6,7 @@
 #include "../../disco/store/fd_store.h"
 #include "../../disco/bundle/fd_bundle_crank.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
+#include "../admin/fd_identity_transition.h"
 #include "../../disco/node_info/fd_node_info.h"
 #include "../../disco/wait_info/fd_wait_info.h"
 #include "../../discof/poh/fd_poh.h"
@@ -540,6 +541,7 @@ struct fd_replay_tile {
   ulong ag_stamp_since;      /* first slot stamped into an empty table */
 
   fd_keyswitch_t * keyswitch;
+  fd_identity_transition_t * identity_status;
   int              halt_replay;
 
   ulong  resolv_tile_cnt;

@@ -4,12 +4,15 @@
 #include "../../disco/keyguard/fd_keyload.h"
 
 #include "fd_adminctl.h"
+#include "fd_identity_transition.h"
 #include <linux/futex.h>
 #include "generated/fd_admin_tile_seccomp.h"
 
 struct fd_admin_tile_ctx {
   fd_topo_t const * topo;
   fd_adminctl_t *   adminctl;
+  fd_identity_transition_t * identity_status;
+  fd_identity_record_t identity_record;
   uchar             identity_pubkey[ 32UL ];
   int               alpenglow;
   char const *      voter_name;         /* tile that produces votes: tower, or votor under Alpenglow */
@@ -82,6 +85,7 @@ privileged_init( fd_topo_t const *      topo,
   void *                scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   fd_admin_tile_ctx_t * ctx     = (fd_admin_tile_ctx_t *)scratch;
   fd_memset( ctx, 0, sizeof(fd_admin_tile_ctx_t) );
+  FD_TEST( fd_rng_secure( ctx->identity_record.instance, sizeof(ctx->identity_record.instance) ) );
 
   if( FD_UNLIKELY( !strcmp( tile->admin.identity_key_path, "" ) ) )
     FD_LOG_ERR(( "identity_key_path not set" ));
@@ -94,9 +98,15 @@ unprivileged_init( fd_topo_t const *      topo,
                    fd_topo_tile_t const * tile ) {
   void *                scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   fd_admin_tile_ctx_t * ctx     = (fd_admin_tile_ctx_t *)scratch;
+  fd_topo_obj_t const * identity_status_obj = fd_topo_find_tile_obj( topo, tile, "id_status" );
+  ctx->identity_status = identity_status_obj ? fd_topo_obj_laddr( topo, identity_status_obj->id ) : NULL;
+
   ctx->replay_out_idx       = ULONG_MAX;
   ctx->snap_create_slot_idx = ULONG_MAX;
   ctx->topo = topo;
+  memcpy( ctx->identity_record.from, ctx->identity_pubkey, 32UL );
+  memcpy( ctx->identity_record.to,   ctx->identity_pubkey, 32UL );
+  if( ctx->identity_status ) fd_identity_snapshot_write( &ctx->identity_status->status, &ctx->identity_record );
 
   fd_topo_obj_t const * adminctl_obj = fd_topo_find_tile_obj( topo, tile, "adminctl" );
   FD_TEST( adminctl_obj );
@@ -719,6 +729,8 @@ set_identity( fd_admin_tile_ctx_t * ctx,
     }
   }
 
+  if( ctx->identity_status ) fd_identity_begin( ctx->identity_status, &ctx->identity_record, ctx->identity_pubkey, req->keypair+32UL );
+
   ulong state           = FD_SET_IDENTITY_STATE_UNLOCKED;
   ulong identity_outset = (ulong)fd_log_wallclock();
   for(;;) {
@@ -729,6 +741,7 @@ set_identity( fd_admin_tile_ctx_t * ctx,
 
   report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_SUCCESS );
   fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_SUCCESS );
+  if( ctx->identity_status ) fd_identity_finish( ctx->identity_status, &ctx->identity_record, ctx->alpenglow );
 }
 
 static void

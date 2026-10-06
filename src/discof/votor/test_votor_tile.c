@@ -505,6 +505,63 @@ test_quic( uchar *           mem,
    them again, and still drops other replay sigs. */
 
 static void
+test_identity_vote_submissions( void ) {
+  static fd_votor_tile_t ctx;
+  static fd_aio_t aio_mem;
+  memset( ctx.id_key.uc, 1, 32UL );
+  fd_aio_t * aio = fd_aio_join( fd_aio_new( &aio_mem, NULL, drop_aio_send ) );
+  FD_TEST( aio );
+  ctx.quic_client = test_quic( quic_client_scratch, sizeof(quic_client_scratch), FD_QUIC_ROLE_CLIENT, &ctx, aio );
+  fd_quic_get_state( ctx.quic_client )->now = fd_log_wallclock();
+  ulong peer_cid = 7UL;
+  fd_quic_conn_id_t cid = fd_quic_conn_id_new( &peer_cid, 8UL );
+  fd_quic_conn_t * conn = fd_quic_conn_create( ctx.quic_client, 1UL, &cid, FD_IP4_ADDR(127,0,0,2), 9001, FD_IP4_ADDR(127,0,0,1), 9000, 0 );
+  FD_TEST( conn );
+  conn->state = FD_QUIC_CONN_STATE_ACTIVE;
+  conn->keys_avail = 1U<<fd_quic_enc_level_appdata_id;
+  conn->tx_max_datagram_sz = 1232U;
+  conn->tx_max_datagram_frame_sz = 1200UL;
+
+  fd_wksp_t * wksp = fd_wksp_new_anonymous( FD_SHMEM_NORMAL_PAGE_SZ, 1024UL, 0UL, "votor-test", 0UL );
+  FD_TEST( wksp );
+  void * data = fd_wksp_alloc_laddr( wksp, 128UL, 65536UL, 1UL );
+  FD_TEST( data );
+  ctx.net_out_mem = wksp;
+  ctx.net_out_chunk = ctx.net_out_chunk0 = fd_dcache_compact_chunk0( wksp, data );
+  ctx.net_out_wmark = ctx.net_out_chunk0+512UL;
+  ctx.hdr->ip4->verihl = FD_IP4_VERIHL(4,5);
+  void * mcache_mem = fd_wksp_alloc_laddr( wksp, fd_mcache_align(), fd_mcache_footprint( 128UL, 0UL ), 1UL );
+  FD_TEST( mcache_mem );
+  fd_frag_meta_t * mcaches[2] = { NULL, fd_mcache_join( fd_mcache_new( mcache_mem, 128UL, 0UL, 0UL ) ) };
+  ulong seqs[2] = {0};
+  ulong depths[2] = {0UL,128UL};
+  int reliable[2] = {0};
+  fd_stem_context_t stem = { .mcaches = mcaches, .seqs = seqs, .depths = depths, .out_reliable = reliable };
+  uchar vote[8] = {0};
+  /* A peer that cannot accept a datagram creates no observation. */
+  conn->tx_max_datagram_frame_sz = 0UL;
+  FD_TEST( quic_client_vote_tx( &ctx, &stem, conn, vote, sizeof(vote), 100UL, 1 )==ULONG_MAX );
+  FD_TEST( !ctx.identity_submissions.has_slot && !seqs[OUT_IDX_NET] );
+  conn->tx_max_datagram_frame_sz = 1200UL;
+  FD_TEST( quic_client_vote_tx( &ctx, &stem, conn, vote, sizeof(vote), 100UL, 1 )!=ULONG_MAX );
+  FD_TEST( ctx.identity_submissions.has_slot && ctx.identity_submissions.slot==100UL && seqs[OUT_IDX_NET]==1UL );
+  /* Retries and standstill sends count, but cannot lower the maximum. */
+  FD_TEST( quic_client_vote_tx( &ctx, &stem, conn, vote, sizeof(vote), 99UL, 1 )!=ULONG_MAX );
+  FD_TEST( ctx.identity_submissions.slot==100UL );
+  /* Certificates retain the original send helper and do not count. */
+  FD_TEST( quic_client_datagram_tx( &ctx, &stem, conn, vote, sizeof(vote) )!=ULONG_MAX );
+  FD_TEST( ctx.identity_submissions.slot==100UL );
+  /* An accepted relay of another identity's vote does not count. */
+  FD_TEST( quic_client_vote_tx( &ctx, &stem, conn, vote, sizeof(vote), 500UL, 0 )!=ULONG_MAX );
+  FD_TEST( ctx.identity_submissions.slot==100UL );
+  /* The reward retry uses the same successful-send boundary. */
+  FD_TEST( quic_client_vote_tx( &ctx, &stem, conn, vote, sizeof(vote), 101UL, 1 )!=ULONG_MAX );
+  FD_TEST( ctx.identity_submissions.slot==101UL && seqs[OUT_IDX_NET]==5UL );
+  fd_quic_delete( fd_quic_leave( ctx.quic_client ) );
+  fd_wksp_delete_anonymous( wksp );
+}
+
+static void
 test_replay_before_epoch( void ) {
   static fd_votor_tile_t ctx;
   static ag_epoch_info_t epoch_info;
@@ -648,6 +705,12 @@ test_id_keyswitch( void ) {
   ag_votor_process_replay( ctx.votor, 1UL, &block );
   FD_TEST( ag_votor_metrics( ctx.votor ).vote_events_cnt==1UL );
 
+  static fd_identity_transition_t observation_shared;
+  memset( &observation_shared, 0, sizeof(observation_shared) );
+  ctx.identity_status = &observation_shared;
+  fd_identity_record_t observation_record = { .instance = {1UL,2UL} };
+  fd_identity_begin( &observation_shared, &observation_record, old_id.uc, new_id.uc );
+  fd_identity_submitted( &ctx.identity_submissions, 1UL );
   memcpy( ctx.id_keyswitch->bytes, new_id.uc, sizeof(fd_pubkey_t) );
   FD_STORE( ulong, ctx.id_keyswitch->bytes+32UL, sizeof(ulong) ); /* the vote history file's wait_to_vote_slot */
   FD_STORE( ulong, ctx.id_keyswitch->bytes+40UL, 4UL );
@@ -714,6 +777,11 @@ test_id_keyswitch( void ) {
 
   during_housekeeping( &ctx );
   FD_TEST( ctx.id_keyswitch->state==FD_KEYSWITCH_STATE_COMPLETED );
+  fd_identity_record_t frozen_observation;
+  FD_TEST( fd_identity_snapshot_read( &observation_shared.frozen[FD_IDENTITY_FREEZE_VOTER], &frozen_observation ) );
+  FD_TEST( fd_identity_matches( &observation_record, &frozen_observation ) );
+  FD_TEST( frozen_observation.has_last_submitted_slot && frozen_observation.last_submitted_slot==1UL );
+  FD_TEST( !ctx.identity_submissions.has_slot );
   FD_TEST( fd_pubkey_eq( &ctx.id_key, &new_id ) );
   FD_TEST( ctx.wait_to_vote_slot==4UL );
   FD_TEST( ctx.next_leader_slot==8UL );
@@ -1362,6 +1430,7 @@ test_park( void ) {
     if( !charge_busy ) break;
     busy_cnt++;
   }
+  FD_TEST( !ctx->identity_submissions.has_slot ); /* generated, no outbound peer */
   FD_TEST( busy_cnt==3UL ); /* the pop sends the first vote in the same pass */
   FD_TEST( !ag_votor_poll_vote( ctx->votor, &ctx->scratch.vote, &reason ) );
   long next = ag_votor_next_skip_timeout( ctx->votor );
@@ -1405,6 +1474,7 @@ main( int     argc,
   test_auth_vtr_keyswitch_rejected();
   test_auth_vtr_keyswitch_refreshes_epochs();
   test_auth_vtr_keyswitch_clear();
+  test_identity_vote_submissions();
   test_id_keyswitch();
   test_replay_before_epoch();
   test_sign_bls_request();

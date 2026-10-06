@@ -9,6 +9,7 @@
 #include "../../discof/backup/fd_backup_shmem.h"
 
 #include "../../discof/admin/fd_adminctl.h"
+#include "../../discof/admin/fd_identity_transition.h"
 
 #define VAL(name) (__extension__({                                                             \
   ulong __x = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.%s", obj->id, name );      \
@@ -254,3 +255,28 @@ fd_topo_obj_callbacks_t fd_obj_cb_backup = {
 };
 
 #undef VAL
+
+static ulong
+identity_status_align( fd_topo_t const *     topo FD_FN_UNUSED,
+                       fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
+  return alignof(fd_identity_transition_t);
+}
+
+static ulong
+identity_status_footprint( fd_topo_t const *     topo FD_FN_UNUSED,
+                           fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
+  return sizeof(fd_identity_transition_t);
+}
+
+static void
+identity_status_new( fd_topo_t const *     topo,
+                     fd_topo_obj_t const * obj ) {
+  memset( fd_topo_obj_laddr( topo, obj->id ), 0, sizeof(fd_identity_transition_t) );
+}
+
+fd_topo_obj_callbacks_t fd_obj_cb_identity_status = {
+  .name      = "id_status",
+  .footprint = identity_status_footprint,
+  .align     = identity_status_align,
+  .new       = identity_status_new,
+};

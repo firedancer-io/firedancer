@@ -1487,6 +1487,20 @@ prepare_leader_bank( fd_replay_tile_t * ctx,
   return ctx->leader_bank;
 }
 
+/* Use rooted bank evidence.  Until migration and its initial epoch
+   are behind the root, support for a full Alpenglow context is unknown. */
+static ulong
+identity_consensus( fd_bank_t const * bank,
+                    int               alpenglow ) {
+  if( !bank || !bank->f.epoch_schedule.slots_per_epoch ) return FD_IDENTITY_CONSENSUS_UNKNOWN;
+  if( !alpenglow && !FD_FEATURE_ACTIVE_BANK( bank, alpenglow ) ) return FD_IDENTITY_CONSENSUS_TOWER;
+  if( alpenglow && FD_FEATURE_ACTIVE_BANK( bank, alpenglow ) &&
+      bank->f.alpenglow_migration_slot!=ULONG_MAX &&
+      bank->f.epoch>fd_slot_to_epoch( &bank->f.epoch_schedule, bank->f.alpenglow_migration_slot, NULL ) )
+    return FD_IDENTITY_CONSENSUS_ALPENGLOW;
+  return FD_IDENTITY_CONSENSUS_UNKNOWN;
+}
+
 static inline void
 maybe_switch_identity( fd_replay_tile_t * ctx ) {
 
@@ -1495,6 +1509,11 @@ maybe_switch_identity( fd_replay_tile_t * ctx ) {
   /* Switch identity */
 
   FD_LOG_DEBUG(( "keyswitch: switching identity" ));
+
+  ulong consensus = identity_consensus( ctx->notified_root_bank, ctx->alpenglow );
+  fd_identity_freeze( ctx->identity_status, FD_IDENTITY_FREEZE_REPLAY,
+                      ctx->identity_pubkey->uc, ctx->keyswitch->bytes,
+                      consensus, ctx->has_vote_account ? ctx->vote_account->uc : NULL, NULL, ULONG_MAX );
 
   memcpy( ctx->identity_pubkey, ctx->keyswitch->bytes, 32UL );
   ctx->identity_dirty = 1;
@@ -5584,6 +5603,9 @@ unprivileged_init( fd_topo_t const *      topo,
   }
 
   ctx->resolv_tile_cnt = fd_topo_tile_name_cnt( topo, "resolv" );
+
+  fd_topo_obj_t const * identity_status_obj = fd_topo_find_tile_obj( topo, tile, "id_status" );
+  ctx->identity_status = identity_status_obj ? fd_topo_obj_laddr( topo, identity_status_obj->id ) : NULL;
 
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
   FD_TEST( ctx->keyswitch );

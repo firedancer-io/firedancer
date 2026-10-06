@@ -693,6 +693,8 @@ query_towers( fd_tower_tile_t *            ctx,
   fd_bank_t * bank = fd_banks_bank_query( ctx->banks, slot_completed->bank_idx );
   if( FD_UNLIKELY( !bank ) ) FD_LOG_CRIT(( "invariant violation: bank %lu is missing", slot_completed->bank_idx ));
 
+  ctx->identity_consensus = !FD_FEATURE_ACTIVE_BANK( bank, alpenglow )
+                         ? FD_IDENTITY_CONSENSUS_TOWER : FD_IDENTITY_CONSENSUS_UNKNOWN;
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
   ulong              fork_id     = bank->vote_stakes_fork_id;
   uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
@@ -1773,6 +1775,9 @@ during_housekeeping( fd_tower_tile_t * ctx ) {
     ctx->halt_signing = 1;
     if( FD_UNLIKELY( !publishes_empty( ctx->publishes ) ) ) return;
 
+    fd_identity_freeze( ctx->identity_status, FD_IDENTITY_FREEZE_VOTER,
+                        ctx->identity_key->uc, ctx->identity_keyswitch->bytes,
+                        ctx->identity_consensus, ctx->vote_account->uc, NULL, ctx->tower->root );
     int identity_changed = !!memcmp( ctx->identity_key, ctx->identity_keyswitch->bytes, 32UL );
     memcpy( ctx->identity_key, ctx->identity_keyswitch->bytes, 32UL );
     if( identity_changed ) {
@@ -2034,6 +2039,10 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_tower_tile_t * ctx     = init_choreo( scratch, topo, tile );
 
   ctx->wksp               = topo->workspaces[ topo->objs[ tile->tile_obj_id ].wksp_id ].wksp;
+  fd_topo_obj_t const * identity_status_obj = fd_topo_find_tile_obj( topo, tile, "id_status" );
+  ctx->identity_status = identity_status_obj ? fd_topo_obj_laddr( topo, identity_status_obj->id ) : NULL;
+
+  ctx->identity_consensus = FD_IDENTITY_CONSENSUS_UNKNOWN;
   ctx->identity_keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
   ctx->auth_vtr_keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->av_keyswitch_obj_id ) );
 

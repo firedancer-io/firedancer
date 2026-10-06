@@ -100,6 +100,9 @@ during_housekeeping( fd_txsend_tile_t * ctx ) {
     /* Halt net frags to avoid potential quic callback in after_frag */
     ctx->halt_net_frags = 1;
 
+    fd_identity_freeze( ctx->identity_status, FD_IDENTITY_FREEZE_TXSEND,
+                        ctx->identity_key->uc, ctx->keyswitch->bytes,
+                        FD_IDENTITY_CONSENSUS_TOWER, NULL, &ctx->identity_submissions, ULONG_MAX );
     fd_quic_set_identity_public_key( ctx->quic, ctx->keyswitch->bytes );
 
     memcpy( ctx->identity_key, ctx->keyswitch->bytes, 32UL );
@@ -635,6 +638,7 @@ handle_vote_msg( fd_txsend_tile_t *           ctx,
   fd_stem_publish( stem, ctx->txsend_out->idx, 1UL, ctx->txsend_out->chunk, msg_sz, 0UL, 0UL, tspub_comp );
   ctx->txsend_out->chunk = fd_dcache_compact_next( ctx->txsend_out->chunk, msg_sz, ctx->txsend_out->chunk0, ctx->txsend_out->wmark );
   ctx->txsend_out_seq    = stem->seqs[ ctx->txsend_out->idx ];
+  fd_identity_submitted( &ctx->identity_submissions, slot_done->vote_slot );
 }
 
 
@@ -855,6 +859,10 @@ unprivileged_init( fd_topo_t const *      topo,
     FD_LOG_ERR(( "failed to construct keyguard" ));
   }
 
+  fd_topo_obj_t const * identity_status_obj = fd_topo_find_tile_obj( topo, tile, "id_status" );
+  ctx->identity_status = identity_status_obj ? fd_topo_obj_laddr( topo, identity_status_obj->id ) : NULL;
+
+  memset( &ctx->identity_submissions, 0, sizeof(ctx->identity_submissions) );
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
   FD_TEST( ctx->keyswitch );
 

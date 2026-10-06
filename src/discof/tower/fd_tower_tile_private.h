@@ -1,6 +1,8 @@
 #ifndef HEADER_fd_src_discof_tower_fd_tower_tile_private_h
 #define HEADER_fd_src_discof_tower_fd_tower_tile_private_h
 
+#include "../admin/fd_identity_transition.h"
+
 /* Internal types of the tower tile.  Included by the tile and by
    firedancer-dev's tower command, which reads the tile's ctx out of
    shared memory. */
@@ -129,6 +131,8 @@ struct fd_tower_tile {
 
   fd_wksp_t *          wksp; /* workspace */
   fd_keyswitch_t *     identity_keyswitch;
+  fd_identity_transition_t * identity_status;
+  ulong identity_consensus;
   auth_vtr_t *         auth_vtr;
   fd_keyswitch_t *     auth_vtr_keyswitch; /* authorized voter keyswitch */
   fd_keyguard_client_t keyguard_client[1];
