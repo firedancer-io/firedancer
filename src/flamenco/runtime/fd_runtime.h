@@ -396,14 +396,18 @@ fd_runtime_fee_split( ulong   execution_fees,
    the block names this account, so anything that mirrors the accounts
    a block touches has to ask for it.
 
+   opt_leader_vote, if not NULL, receives the vote account the leader
+   schedule was derived from, which is what the override was looked up
+   under, or NULL while the feature is inactive.
+
    Returns 0 and writes nothing when the leader of the block's slot is
    unknown.  Fee settlement treats that as impossible, since it is
-   about to pay the leader; a caller that only wants to know which
-   account would be paid has nothing to pay and nothing to mirror. */
+   about to pay the leader. */
 
 int
-fd_runtime_fee_collector( fd_bank_t const * bank,
-                          fd_pubkey_t *     collector );
+fd_runtime_fee_collector( fd_bank_t const *     bank,
+                          fd_pubkey_t *         collector,
+                          fd_pubkey_t const * * opt_leader_vote );
 
 /* fd_runtime_prepare_and_execute_txn is responsible for executing a
    fd_txn_in_t against a fd_runtime_t and a fd_bank_t.  The results of

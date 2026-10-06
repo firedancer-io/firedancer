@@ -5384,7 +5384,7 @@ test_strmk_epoch_boundary( fd_wksp_t * wksp ) {
      collector, and asking for one says so instead of aborting. */
   fd_pubkey_t collector[ 1 ];
   memset( collector, 0xcd, sizeof(fd_pubkey_t) );
-  FD_TEST( !fd_runtime_fee_collector( child, collector ) );
+  FD_TEST( !fd_runtime_fee_collector( child, collector, NULL ) );
   for( ulong i=0UL; i<sizeof(fd_pubkey_t); i++ ) FD_TEST( collector->uc[ i ]==0xcd );
 
   FD_LOG_NOTICE(( "pass: test_strmk_epoch_boundary" ));

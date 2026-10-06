@@ -1624,7 +1624,7 @@ publish_slot_completed( fd_replay_tile_t *        ctx,
     msg->parent_accdb_fork_id = bank->parent_accdb_fork_id;
     /* A block whose leader is unknown paid no fee reward, so it wrote
        no collector and there is none to carry. */
-    if( FD_UNLIKELY( !fd_runtime_fee_collector( bank, &msg->collector ) ) ) msg->collector = (fd_pubkey_t){0};
+    if( FD_UNLIKELY( !fd_runtime_fee_collector( bank, &msg->collector, NULL ) ) ) msg->collector = (fd_pubkey_t){0};
     strmk_publish( ctx, stem, FD_STRMK_SIG_BLOCK_END, sizeof(fd_strmk_block_end_t) );
     ctx->strmk_fed[ bank->idx ] = 0;
     /* The stream tile reads the block's accounts from here. */

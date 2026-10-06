@@ -214,12 +214,14 @@ fd_runtime_fee_split( ulong   execution_fees,
 }
 
 int
-fd_runtime_fee_collector( fd_bank_t const * bank,
-                          fd_pubkey_t *     collector ) {
+fd_runtime_fee_collector( fd_bank_t const *     bank,
+                          fd_pubkey_t *         collector,
+                          fd_pubkey_t const * * opt_leader_vote ) {
   fd_epoch_leaders_t const * leaders = fd_bank_epoch_leaders_query( bank, bank->f.epoch );
   fd_pubkey_t const *        leader  = fd_epoch_leaders_get( leaders, bank->f.slot );
   if( FD_UNLIKELY( !leader ) ) return 0;
   *collector = *leader;
+  if( opt_leader_vote ) *opt_leader_vote = NULL;
 
   /* Per SIMD-0232, the fee reward goes to the leader's block revenue
      collector from the vote account state the leader schedule was
@@ -230,6 +232,7 @@ fd_runtime_fee_collector( fd_bank_t const * bank,
 
   fd_pubkey_t const * leader_vote = fd_epoch_leaders_get_vote( leaders, bank->f.slot );
   if( FD_UNLIKELY( !leader_vote ) ) FD_LOG_CRIT(( "fd_epoch_leaders_get_vote(%lu) returned NULL", bank->f.slot ));
+  if( opt_leader_vote ) *opt_leader_vote = leader_vote;
 
   fd_pubkey_t override_collector;
   int flags = fd_collector_overrides_query( fd_bank_collector_overrides( bank ),
@@ -267,14 +270,12 @@ fd_runtime_settle_fees( fd_bank_t *        bank,
   if( FD_LIKELY( fee_reward ) ) {
     int custom_commission_collector = FD_FEATURE_ACTIVE_BANK( bank, custom_commission_collector );
 
-    fd_pubkey_t collector[ 1 ];
-    if( FD_UNLIKELY( !fd_runtime_fee_collector( bank, collector ) ) ) {
-      FD_LOG_CRIT(( "fd_epoch_leaders_get(%lu) returned NULL", bank->f.slot ));
+    fd_pubkey_t         collector[ 1 ];
+    fd_pubkey_t const * leader_vote;
+    if( FD_UNLIKELY( !fd_runtime_fee_collector( bank, collector, &leader_vote ) ) ) {
+      FD_LOG_CRIT(( "the leader of slot %lu is unknown", bank->f.slot ));
     }
     fd_pubkey_t const * collector_id = collector;
-    fd_pubkey_t const * leader_vote  = custom_commission_collector
-                                     ? fd_epoch_leaders_get_vote( fd_bank_epoch_leaders_query( bank, bank->f.epoch ), bank->f.slot )
-                                     : NULL;
 
     /* Pay out reward portion of collected fees (increasing capitalization) */
     fd_accdb_svm_update_t update[1];
