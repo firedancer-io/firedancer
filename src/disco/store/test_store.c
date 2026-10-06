@@ -953,10 +953,10 @@ test_disk_slot_hint( fd_wksp_t * wksp ) {
 
 void
 test_disk_probe( fd_wksp_t * wksp ) {
-  ulong footprint = fd_store_footprint( 8UL, 31840UL, 1UL, 0UL, 0UL );
+  ulong footprint = fd_store_footprint( 8UL, 31840UL, 1UL, 0UL, 0UL, 1, 0UL );
   void * mem = fd_wksp_alloc_laddr( wksp, fd_store_align(), footprint, 1UL );
   fd_store_t * store = fd_store_join( fd_store_new( mem, 8UL, 31840UL, 1UL, 0UL, 0UL, FD_SHRED_BLK_MAX,
-                                                    42UL ) );
+                                                    42UL, 1, 0UL ) );
   FD_TEST( store );
   store->disk_max_shreds = 4UL;
 
