@@ -2068,6 +2068,10 @@ uint fd_accdb_debug_clock_evict_line( fd_accdb_t * accdb, ulong size_class, ulon
    fd_accdb.c, so a test cannot compute this itself. */
 void * fd_accdb_debug_line_addr( fd_accdb_t * accdb, ulong size_class, ulong line_idx );
 
+/* Address of a released accmeta's acc_pool free-list link, which
+   aliases accmeta->cache_idx. */
+uint * fd_accdb_debug_acc_pool_next( fd_accdb_t * accdb, uint acc_idx );
+
 static void
 write_acc( fd_accdb_t *       accdb,
            fd_accdb_fork_id_t fork_id,
@@ -2202,6 +2206,71 @@ test_tombstone_orphan_ebr_poison( void ) {
   free( accdb_d );
   test_teardown( accdb, fd );
 }
+
+/* test_tombstone_orphan_evict_pool_next: acc_unlink's pinned-reader
+   branch leaves the tombstone's cache line naming its accmeta after the
+   accmeta was released to acc_pool.  Evicting that line must not treat
+   the freed accmeta's cache_idx (aliased with pool.next) as live, or a
+   free-list link that happens to equal the line's packed index gets
+   clobbered to CIDX_INVAL. */
+
+static void
+test_tombstone_orphan_evict_pool_next( void ) {
+  int fd;
+  fd_accdb_t * accdb   = test_setup( &fd, 256UL, 16UL, 1024UL, 1024UL, 1UL<<30UL );
+  fd_accdb_t * accdb_d = test_join_extra();
+
+  uchar pubkey_P[ 32 ] = { 'P', 0 };
+  uchar owner   [ 32 ] = { 0xAA, 0 };
+
+  fd_accdb_fork_id_t root0 = fd_accdb_attach_child( accdb, SENTINEL );
+  fd_accdb_fork_id_t F     = fd_accdb_attach_child( accdb, root0 );
+  fd_accdb_fork_id_t D     = fd_accdb_attach_child( accdb, F );
+
+  /* P open on root0, closed on F.  D pins the tombstone's line. */
+  write_acc( accdb, root0, pubkey_P, 100UL, owner, NULL, 0UL );
+  write_acc( accdb, F,     pubkey_P,   0UL, owner, NULL, 0UL );
+
+  ulong cls, idx;
+  FD_TEST( fd_accdb_debug_find_line( accdb, pubkey_P, &cls, &idx ) );
+  fd_accdb_cache_line_t * line = fd_accdb_debug_line_addr( accdb, cls, idx );
+  uint acc_idx = FD_VOLATILE_CONST( line->acc_idx );
+  FD_TEST( acc_idx!=UINT_MAX );
+
+  uchar const * pks[1] = { pubkey_P };
+  int wr[1] = { 1 };
+  fd_acc_t acc_D[1];
+  memset( acc_D, 0, sizeof(acc_D) );
+  fd_accdb_acquire( accdb_d, D, 1UL, pks, wr, acc_D );
+  FD_TEST( acc_D[0].lamports==0UL );
+
+  /* Rooting F unlinks the tombstone under D's pin, orphaning the line.
+     Rooting D drains the deferred frees, releasing the tombstone's
+     accmeta to acc_pool while the line still names it. */
+  fd_accdb_advance_root( accdb, F );
+  drain_background_n( accdb, 4UL );
+  fd_accdb_advance_root( accdb, D );
+  drain_background_n( accdb, 4UL );
+  FD_TEST( FD_VOLATILE_CONST( line->acc_idx )==acc_idx );
+  FD_TEST( FD_VOLATILE_CONST( line->persisted )==1 );
+
+  fd_accdb_release( accdb_d, 1UL, acc_D );
+
+  /* Force the free-list link to collide with the line's packed index. */
+  uint * pool_next = fd_accdb_debug_acc_pool_next( accdb, acc_idx );
+  uint   cidx      = FD_ACCDB_ACC_CIDX_PACK( (uint)cls, (uint)idx );
+  uint   saved     = FD_VOLATILE_CONST( *pool_next );
+  FD_VOLATILE( *pool_next ) = cidx;
+
+  FD_TEST( fd_accdb_debug_clock_evict_line( accdb, cls, idx )==UINT_MAX );
+  FD_TEST( FD_VOLATILE_CONST( *pool_next )==cidx );
+
+  FD_VOLATILE( *pool_next ) = saved;
+
+  free( accdb_d );
+  test_teardown( accdb, fd );
+}
+
 
 /* ------------------------------------------------------------------ */
 /* SENTINEL case: acc_unlink observes a line already claimed for eviction */
@@ -2849,6 +2918,252 @@ test_overwrite_discard_stray_pin_xclass( void ) {
   test_teardown( accdb, fd );
 }
 
+/* test_orphan_evict_vs_real_evict: an orphaned line and P's real line
+   both name P.  Evicting the real line while the orphan's evictor holds
+   P's CLAIM must wait for it, so P is not left VALID on a recycled
+   line, which would hang cold_load_acc. */
+static void
+test_orphan_evict_vs_real_evict( void ) {
+  int fd;
+  fd_accdb_t * accdb   = test_setup( &fd, 256UL, 16UL, 1024UL, 1024UL, 1UL<<30UL );
+  fd_accdb_t * accdb_r = test_join_extra();
+
+  uchar key_P  [ 32 ] = { 'P', 0 };
+  uchar key_X  [ 32 ] = { 'X', 0 };
+  uchar owner_P[ 32 ] = { 0xAA, 0 };
+
+  fd_accdb_fork_id_t root0 = fd_accdb_attach_child( accdb, SENTINEL );
+
+  /* Orphan via test_overwrite_discard_stray_pin_xclass's schedule. */
+  seq_write_data( accdb, root0, key_X, 500UL, owner_P, 64UL, 0x77 );
+  ulong cls, idx;
+  FD_TEST( fd_accdb_debug_find_line( accdb, key_X, &cls, &idx ) );
+  FD_TEST( cls==0UL );
+
+  fd_racesan_async_t * ar = fiber_acquire_expect( &g_fiber[0], accdb_r, root0, key_X, 500UL );
+  FD_TEST( fd_racesan_async_step_until( ar, "accdb_acquire:pre_try_pin", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+  FD_TEST( fd_accdb_debug_clock_evict_line( accdb, 0UL, idx )!=UINT_MAX );
+  seq_write_data( accdb, root0, key_P, 100UL, owner_P, 100UL, 0xA1 );
+  FD_TEST( fd_racesan_async_step_until( ar, "accdb_try_pin:post_cas", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+  seq_write_data( accdb, root0, key_P, 777UL, owner_P, 600UL, 0xB2 );
+  async_finish( ar );
+  fiber_done( &g_fiber[0] );
+
+  ulong cls2, idx2;
+  FD_TEST( fd_accdb_debug_find_line( accdb, key_P, &cls2, &idx2 ) );
+  FD_TEST( cls2==2UL );
+  fd_accdb_cache_line_t * orphan = fd_accdb_debug_line_addr( accdb, 0UL, idx );
+  fd_accdb_cache_line_t * real   = fd_accdb_debug_line_addr( accdb, cls2, idx2 );
+  FD_TEST( orphan->acc_idx!=UINT_MAX && orphan->acc_idx==real->acc_idx );
+
+  /* E1 evicts the orphan and suspends holding P's CLAIM. */
+  static evict_fiber_t e1[1];
+  static evict_fiber_t e2[1];
+  e1->accdb = accdb; e1->size_class = 0UL;  e1->line_idx = idx;
+  e2->accdb = accdb; e2->size_class = cls2; e2->line_idx = idx2;
+  void * e1_stack = fd_racesan_stack_create( EVICT_FIBER_STACK_SZ );
+  void * e2_stack = fd_racesan_stack_create( EVICT_FIBER_STACK_SZ );
+  fd_racesan_async_new( e1->async, e1_stack, EVICT_FIBER_STACK_SZ, evict_fiber_exec, e1 );
+  fd_racesan_async_new( e2->async, e2_stack, EVICT_FIBER_STACK_SZ, evict_fiber_exec, e2 );
+  FD_TEST( fd_racesan_async_step_until( e1->async, "accdb_evict_clear:post_claim", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+
+  /* E2 evicts the real line and waits on E1's CLAIM instead of bailing. */
+  FD_TEST( fd_racesan_async_step_until( e2->async, "accdb_evict_clear:claim_held", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+
+  async_finish( e1->async );
+  async_finish( e2->async );
+  fd_racesan_async_delete( e1->async );
+  fd_racesan_async_delete( e2->async );
+  fd_racesan_stack_destroy( e1_stack, EVICT_FIBER_STACK_SZ );
+  fd_racesan_stack_destroy( e2_stack, EVICT_FIBER_STACK_SZ );
+
+  /* Hangs if P was left VALID on a recycled line. */
+  ar = fiber_acquire_expect( &g_fiber[0], accdb_r, root0, key_P, 777UL );
+  async_finish( ar );
+  fiber_done( &g_fiber[0] );
+
+  free( accdb_r );
+  test_teardown( accdb, fd );
+}
+
+/* test_late_coldload_valid_leak: a writable reader captures a tombstone
+   accmeta in the chain walk, acc_unlink runs with the tombstone's line
+   already evicted (nothing to reclaim), then the reader cold-loads the
+   unlinked accmeta and publishes a line and VALID.  Releasing the slot
+   to acc_pool must clear VALID, so evicting that line never treats
+   pool.next as a live cache_idx. */
+struct late_coldload_fiber {
+  fd_racesan_async_t async[1];
+  fd_accdb_t *       accdb;
+  fd_accdb_fork_id_t fork_id;
+  uchar              pubkey[ 32 ];
+};
+typedef struct late_coldload_fiber late_coldload_fiber_t;
+
+static void
+late_coldload_fiber_exec( void * _ctx ) {
+  late_coldload_fiber_t * f = _ctx;
+  uchar const * pks[1] = { f->pubkey };
+  int wr[1] = { 1 };
+  fd_acc_t acc[1];
+  memset( acc, 0, sizeof(acc) );
+  fd_accdb_acquire( f->accdb, f->fork_id, 1UL, pks, wr, acc );
+  FD_TEST( acc[0].lamports==0UL );
+  fd_accdb_release( f->accdb, 1UL, acc );
+}
+
+static void
+test_late_coldload_valid_leak( void ) {
+  int fd;
+  fd_accdb_t * accdb   = test_setup( &fd, 256UL, 16UL, 1024UL, 1024UL, 1UL<<30UL );
+  fd_accdb_t * accdb_d = test_join_extra();
+
+  uchar pubkey_P[ 32 ] = { 'P', 0 };
+  uchar owner   [ 32 ] = { 0xAA, 0 };
+
+  fd_accdb_fork_id_t root0 = fd_accdb_attach_child( accdb, SENTINEL );
+  fd_accdb_fork_id_t F     = fd_accdb_attach_child( accdb, root0 );
+  fd_accdb_fork_id_t D     = fd_accdb_attach_child( accdb, F );
+
+  write_acc( accdb, root0, pubkey_P, 100UL, owner, NULL, 0UL );
+  write_acc( accdb, F,     pubkey_P,   0UL, owner, NULL, 0UL );
+
+  ulong cls, idx;
+  FD_TEST( fd_accdb_debug_find_line( accdb, pubkey_P, &cls, &idx ) );
+  fd_accdb_cache_line_t * line = fd_accdb_debug_line_addr( accdb, cls, idx );
+  uint acc_idx = FD_VOLATILE_CONST( line->acc_idx );
+  FD_TEST( acc_idx!=UINT_MAX );
+  uint * pool_next = fd_accdb_debug_acc_pool_next( accdb, acc_idx );
+  uint * es        = pool_next+1; /* executable_size follows the cache_idx/pool.next union */
+
+  /* Evict the tombstone's line: P's accmeta has VALID clear. */
+  FD_TEST( fd_accdb_debug_clock_evict_line( accdb, cls, idx )!=UINT_MAX );
+  FD_TEST( !FD_ACCDB_SIZE_CACHE_VALID( FD_VOLATILE_CONST( *es ) ) );
+
+  /* Reader on D captures the tombstone accmeta and suspends before
+     cold-loading it. */
+  static late_coldload_fiber_t lf[1];
+  lf->accdb = accdb_d; lf->fork_id = D; memcpy( lf->pubkey, pubkey_P, 32UL );
+  void * st = fd_racesan_stack_create( EVICT_FIBER_STACK_SZ );
+  fd_racesan_async_new( lf->async, st, EVICT_FIBER_STACK_SZ, late_coldload_fiber_exec, lf );
+  FD_TEST( fd_racesan_async_step_until( lf->async, "accdb_acquire:post_next", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+
+  /* Rooting F unlinks the tombstone with nothing cached to reclaim. */
+  fd_accdb_advance_root( accdb, F );
+  drain_background_n( accdb, 4UL );
+
+  /* The reader resumes and publishes a fresh line and VALID on the
+     unlinked accmeta. */
+  async_finish( lf->async );
+  fd_racesan_async_delete( lf->async );
+  fd_racesan_stack_destroy( st, EVICT_FIBER_STACK_SZ );
+  uint cidx_after = FD_VOLATILE_CONST( *pool_next );
+  FD_TEST( FD_ACCDB_SIZE_CACHE_VALID( FD_VOLATILE_CONST( *es ) ) );
+  FD_TEST( cidx_after!=FD_ACCDB_ACC_CIDX_INVAL );
+  ulong cls_c = FD_ACCDB_ACC_CIDX_CLASS( cidx_after );
+  ulong idx_c = FD_ACCDB_ACC_CIDX_IDX( cidx_after );
+  fd_accdb_cache_line_t * line_c = fd_accdb_debug_line_addr( accdb, cls_c, idx_c );
+  FD_TEST( FD_VOLATILE_CONST( line_c->acc_idx )==acc_idx );
+
+  /* Rooting D drains the deferred frees: the slot goes back to acc_pool
+     with VALID clear, while the line still names it. */
+  fd_accdb_advance_root( accdb, D );
+  drain_background_n( accdb, 4UL );
+  FD_TEST( !FD_ACCDB_SIZE_CACHE_VALID( FD_VOLATILE_CONST( *es ) ) );
+  FD_TEST( FD_VOLATILE_CONST( line_c->acc_idx )==acc_idx );
+
+  /* Force the free-list link to collide with the line's packed index;
+     evicting the line must leave it alone. */
+  uint cidx  = FD_ACCDB_ACC_CIDX_PACK( (uint)cls_c, (uint)idx_c );
+  uint saved = FD_VOLATILE_CONST( *pool_next );
+  FD_VOLATILE( *pool_next ) = cidx;
+  FD_TEST( fd_accdb_debug_clock_evict_line( accdb, cls_c, idx_c )==UINT_MAX );
+  FD_TEST( FD_VOLATILE_CONST( *pool_next )==cidx );
+  FD_VOLATILE( *pool_next ) = saved;
+
+  free( accdb_d );
+  test_teardown( accdb, fd );
+}
+
+/* test_evict_vs_drain_pool_next: a late cold-load leaves line L naming
+   deferred accmeta T with VALID set.  An evictor of L clears VALID and
+   stalls before storing cache_idx=INVAL while the deferred-free drain
+   releases T.  The drain must wait for the evictor's CLAIM, so the
+   INVAL store lands before pool.next is written, not over it. */
+static void
+test_evict_vs_drain_pool_next( void ) {
+  int fd;
+  fd_accdb_t * accdb   = test_setup( &fd, 256UL, 16UL, 1024UL, 1024UL, 1UL<<30UL );
+  fd_accdb_t * accdb_d = test_join_extra();
+
+  uchar pubkey_P[ 32 ] = { 'P', 0 };
+  uchar pubkey_Q[ 32 ] = { 'Q', 0 };
+  uchar owner   [ 32 ] = { 0xAA, 0 };
+
+  fd_accdb_fork_id_t root0 = fd_accdb_attach_child( accdb, SENTINEL );
+  fd_accdb_fork_id_t F     = fd_accdb_attach_child( accdb, root0 );
+  fd_accdb_fork_id_t D     = fd_accdb_attach_child( accdb, F );
+
+  /* Q closed on F before P so P's tombstone is not the tail of the
+     deferred batch and drain's own loop writes its pool.next. */
+  write_acc( accdb, root0, pubkey_Q, 100UL, owner, NULL, 0UL );
+  write_acc( accdb, F,     pubkey_Q,   0UL, owner, NULL, 0UL );
+  write_acc( accdb, root0, pubkey_P, 100UL, owner, NULL, 0UL );
+  write_acc( accdb, F,     pubkey_P,   0UL, owner, NULL, 0UL );
+
+  ulong cls, idx;
+  FD_TEST( fd_accdb_debug_find_line( accdb, pubkey_P, &cls, &idx ) );
+  fd_accdb_cache_line_t * line = fd_accdb_debug_line_addr( accdb, cls, idx );
+  uint acc_idx = FD_VOLATILE_CONST( line->acc_idx );
+  uint * pool_next = fd_accdb_debug_acc_pool_next( accdb, acc_idx );
+  uint * es        = pool_next+1;
+
+  FD_TEST( fd_accdb_debug_clock_evict_line( accdb, cls, idx )!=UINT_MAX );
+  FD_TEST( !FD_ACCDB_SIZE_CACHE_VALID( FD_VOLATILE_CONST( *es ) ) );
+
+  static late_coldload_fiber_t lf[1];
+  lf->accdb = accdb_d; lf->fork_id = D; memcpy( lf->pubkey, pubkey_P, 32UL );
+  void * st = fd_racesan_stack_create( EVICT_FIBER_STACK_SZ );
+  fd_racesan_async_new( lf->async, st, EVICT_FIBER_STACK_SZ, late_coldload_fiber_exec, lf );
+  FD_TEST( fd_racesan_async_step_until( lf->async, "accdb_acquire:post_next", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+
+  fd_accdb_advance_root( accdb, F );
+  drain_background_n( accdb, 4UL );
+
+  async_finish( lf->async );
+  fd_racesan_async_delete( lf->async );
+  fd_racesan_stack_destroy( st, EVICT_FIBER_STACK_SZ );
+  FD_TEST( FD_ACCDB_SIZE_CACHE_VALID( FD_VOLATILE_CONST( *es ) ) );
+  uint cidx_c = FD_VOLATILE_CONST( *pool_next );
+  ulong cls_c = FD_ACCDB_ACC_CIDX_CLASS( cidx_c );
+  ulong idx_c = FD_ACCDB_ACC_CIDX_IDX( cidx_c );
+
+  /* E evicts L, stalls after clearing VALID, before the INVAL store. */
+  static evict_fiber_t e[1];
+  e->accdb = accdb; e->size_class = cls_c; e->line_idx = idx_c;
+  void * e_stack = fd_racesan_stack_create( EVICT_FIBER_STACK_SZ );
+  fd_racesan_async_new( e->async, e_stack, EVICT_FIBER_STACK_SZ, evict_fiber_exec, e );
+  FD_TEST( fd_racesan_async_step_until( e->async, "accdb_evict_clear:pre_inval", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+
+  /* The drain runs in the background fiber and waits on E's CLAIM. */
+  fd_accdb_advance_root( accdb, D );
+  fd_racesan_async_t * bg = fiber_background( &g_fiber[0], accdb );
+  FD_TEST( fd_racesan_async_step_until( bg, "accdb_drain:claim_wait", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+
+  async_finish( e->async );
+  fd_racesan_async_delete( e->async );
+  fd_racesan_stack_destroy( e_stack, EVICT_FIBER_STACK_SZ );
+  async_finish( bg );
+  fiber_done( &g_fiber[0] );
+  drain_background_n( accdb, 4UL );
+
+  FD_TEST( FD_VOLATILE_CONST( *pool_next )!=FD_ACCDB_ACC_CIDX_INVAL );
+  FD_TEST( !FD_ACCDB_SIZE_CACHE_VALID( FD_VOLATILE_CONST( *es ) ) );
+
+  free( accdb_d );
+  test_teardown( accdb, fd );
+}
+
 /* test_overwrite_discard_vs_evictor proves the discard claim leaves no
    window for a concurrent evictor to steal the line.  Release converts
    its own pin into the claim (CAS refcnt 1->EVICT_SENTINEL); refcnt
@@ -3437,6 +3752,9 @@ main( int     argc,
     TEST( test_coldload_vs_overwrite ),
     TEST( test_commit_owner_vs_reader ),
     TEST( test_tombstone_orphan_ebr_poison ),
+    TEST( test_tombstone_orphan_evict_pool_next ),
+    TEST( test_late_coldload_valid_leak ),
+    TEST( test_evict_vs_drain_pool_next ),
     TEST( test_tombstone_recreate_vs_evict ),
     TEST( test_sentinel_unlink_no_poison ),
     TEST( test_step14_orphan_no_hang ),
@@ -3444,6 +3762,7 @@ main( int     argc,
     TEST( test_stray_pin_vs_release_cleanup ),
     TEST( test_overwrite_discard_stray_pin_cls7 ),
     TEST( test_overwrite_discard_stray_pin_xclass ),
+    TEST( test_orphan_evict_vs_real_evict ),
     TEST( test_overwrite_discard_vs_evictor ),
     TEST( test_clock_claim_vs_freed ),
     TEST( test_preevict_release_store_order ),

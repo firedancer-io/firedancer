@@ -888,12 +888,20 @@ evict_clear_acc_cache_ref( fd_accdb_accmeta_t * accmeta,
                            ulong                line_idx ) {
   uint expected_cidx = FD_ACCDB_ACC_CIDX_PACK( (uint)size_class, (uint)line_idx );
 
-  /* CAS-acquire CLAIM.  If a cold-loader already holds CLAIM, they
-     own the publish path; bail without touching accmeta fields (their
-     republish is repointing accmeta->cache_idx away from our line). */
+  /* CAS-acquire CLAIM.  A holder with VALID clear is a cold-loader
+     publishing a different line, or a clearer that already severed the
+     binding: bail.  A holder with VALID set is another evictor,
+     acc_unlink or the deferred-free drain, none of which block while
+     holding CLAIM: wait, so whoever evicts the current line clears the
+     binding. */
   for(;;) {
     uint cur = FD_VOLATILE_CONST( accmeta->executable_size );
-    if( FD_UNLIKELY( cur & FD_ACCDB_SIZE_CACHE_CLAIM_BIT ) ) return;
+    if( FD_UNLIKELY( cur & FD_ACCDB_SIZE_CACHE_CLAIM_BIT ) ) {
+      if( !FD_ACCDB_SIZE_CACHE_VALID( cur ) ) return;
+      fd_racesan_hook( "accdb_evict_clear:claim_held" );
+      FD_SPIN_PAUSE();
+      continue;
+    }
     uint nxt = cur | FD_ACCDB_SIZE_CACHE_CLAIM_BIT;
     if( FD_LIKELY( FD_ATOMIC_CAS( &accmeta->executable_size, cur, nxt )==cur ) ) break;
     fd_racesan_hook( "accdb_evict_clear:claim_wait" );
@@ -905,8 +913,11 @@ evict_clear_acc_cache_ref( fd_accdb_accmeta_t * accmeta,
   /* CLAIM held.  If accmeta->cache_idx still points at our line, clear
      VALID and INVAL the cache_idx.  Otherwise the accmeta was already
      re-published into a different line; leave it alone. */
-  if( FD_LIKELY( FD_VOLATILE_CONST( accmeta->cache_idx )==expected_cidx ) ) {
+  uint es = FD_VOLATILE_CONST( accmeta->executable_size );
+  if( FD_LIKELY( FD_ACCDB_SIZE_CACHE_VALID( es ) &&
+                 FD_VOLATILE_CONST( accmeta->cache_idx )==expected_cidx ) ) {
     FD_ATOMIC_FETCH_AND_AND( &accmeta->executable_size, ~FD_ACCDB_SIZE_CACHE_VALID_BIT );
+    fd_racesan_hook( "accdb_evict_clear:pre_inval" );
     FD_VOLATILE( accmeta->cache_idx ) = FD_ACCDB_ACC_CIDX_INVAL;
   }
 
@@ -1070,6 +1081,23 @@ drain_deferred_frees( fd_accdb_t * accdb ) {
       fd_accdb_shmem_bytes_freed( accdb->shmem, off, entry_sz );
       FD_ATOMIC_FETCH_AND_SUB( &accdb->shmem->shmetrics->disk_used_bytes, entry_sz );
     }
+    /* A reader that captured this accmeta before the unlink may have
+       cold-loaded it since (tombstones skip the offset wait), publishing
+       a line and VALID, and an evictor of that line may be clearing the
+       binding right now under CLAIM.  Take CLAIM so that evictor has
+       finished its cache_idx store before pool.next overwrites it, then
+       leave the slot with VALID clear. */
+    for(;;) {
+      uint cur = FD_VOLATILE_CONST( accmeta->executable_size );
+      if( FD_UNLIKELY( cur & FD_ACCDB_SIZE_CACHE_CLAIM_BIT ) ) {
+        fd_racesan_hook( "accdb_drain:claim_wait" );
+        FD_SPIN_PAUSE();
+        continue;
+      }
+      if( FD_LIKELY( FD_ATOMIC_CAS( &accmeta->executable_size, cur, cur | FD_ACCDB_SIZE_CACHE_CLAIM_BIT )==cur ) ) break;
+      FD_SPIN_PAUSE();
+    }
+    FD_ATOMIC_FETCH_AND_AND( &accmeta->executable_size, ~(FD_ACCDB_SIZE_CACHE_VALID_BIT|FD_ACCDB_SIZE_CACHE_CLAIM_BIT) );
   }
 
   for( ulong i=0UL; i+1UL<n; i++ ) {
@@ -4545,6 +4573,13 @@ fd_accdb_debug_line_addr( fd_accdb_t * accdb,
                           ulong        size_class,
                           ulong        line_idx ) {
   return cache_line( accdb, size_class, line_idx );
+}
+
+uint *
+fd_accdb_debug_acc_pool_next( fd_accdb_t * accdb,
+                              uint         acc_idx ) {
+  FD_TEST( (ulong)acc_idx<acc_pool_ele_max( accdb->acc_pool_join ) );
+  return &accdb->acc_pool[ acc_idx ].pool.next;
 }
 
 /* Deterministically evict a single specified cache line via the
