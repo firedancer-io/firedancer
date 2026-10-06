@@ -146,13 +146,16 @@ fd_accdb_snapshot_load_end( fd_accdb_t * accdb );
    bit stays set on loaded nodes.
 
    fd_accdb_show_hidden lets one join keep reading loader-written nodes
-   while they are hidden, so the loader can verify what it wrote.  The
-   override is only safe on the non-caching paths
-   (fd_accdb_read_one_nocache, fd_accdb_exists, fd_accdb_lamports,
-   fd_accdb_probe_pd_this_fork); fd_accdb_acquire, fd_accdb_read_one,
-   and fd_accdb_write_one must not be used on such a join while a load
-   runs, because a cache load or a commit rewrites cache_idx and
-   executable_size, which the loader owns until the load ends. */
+   while they are hidden.  A join with the override may only read a
+   loader-written node when no fd_accdb_snapshot_write_batch can be
+   writing that key: the batch mutates a matching node in place, so a
+   concurrent reader can see a half-updated record.  The intended
+   caller is the loader's lead tile verifying what it wrote, after
+   every writer has stopped.  The caching paths (fd_accdb_acquire,
+   fd_accdb_read_one, fd_accdb_write_one) must not be used on such a
+   join while a load runs, because a cache load or a commit rewrites
+   cache_idx and executable_size, which the loader owns until the load
+   ends. */
 
 void
 fd_accdb_snapshot_hide( fd_accdb_t * accdb,

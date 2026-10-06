@@ -519,11 +519,21 @@ fd_accdb_snapshot_load_end( fd_accdb_t * accdb ) {
 void
 fd_accdb_snapshot_hide( fd_accdb_t * accdb,
                         int          hide ) {
-  /* A purge or root advance already in flight on the background
-     tile must finish before loader nodes are hidden, because the
-     loader may then link nodes behind live ones. */
-  if( hide ) wait_cmd( accdb );
-  FD_VOLATILE( accdb->shmem->snapshot_hidden ) = hide;
+  if( hide ) {
+    FD_CHECK_CRIT( FD_VOLATILE_CONST( accdb->shmem->snapshot_loading ),
+                   "hide requested outside a snapshot load" );
+    /* Set the flag first, then drain.  fd_accdb_purge and
+       fd_accdb_advance_root check the flag on T1 before submitting, so
+       once it is set no new command can start; waiting afterwards also
+       catches a command that passed the check just before the store and
+       is still running on T2.  Both must be done before the loader can
+       link nodes behind live ones. */
+    FD_VOLATILE( accdb->shmem->snapshot_hidden ) = 1;
+    FD_COMPILER_MFENCE();
+    wait_cmd( accdb );
+  } else {
+    FD_VOLATILE( accdb->shmem->snapshot_hidden ) = 0;
+  }
 }
 
 void
@@ -1119,7 +1129,7 @@ deferred_acc_append( fd_accdb_t * accdb,
    chain locked (see fd_accdb_snapshot_write_batch). */
 
 static inline uint
-fd_accdb_chain_head( uint const * head ) {
+chain_head( uint const * head ) {
   for(;;) {
     uint acc = FD_VOLATILE_CONST( *head );
     if( FD_LIKELY( acc!=FD_ACCDB_CHAIN_LOCKED ) ) return acc;
@@ -1128,10 +1138,19 @@ fd_accdb_chain_head( uint const * head ) {
   }
 }
 
-/* Splice acc_idx out of the interior of a chain.  prev is the node
-   that preceded it when the caller walked the chain.  The snapshot
-   loader may since have inserted a node between the two (task 2), so
-   if the CAS fails re-walk from the head for the current predecessor.
+/* Splice acc_idx out of the interior of a chain.  prev is the node that
+   preceded it when the caller walked the chain, and next is the node
+   that follows acc_idx.
+
+   The only writer that can slip a node in between prev and acc_idx is
+   the snapshot loader, which links a loaded node behind a live one.
+   That only happens while loader nodes are hidden, and removal is
+   refused for exactly that window: fd_accdb_purge and
+   fd_accdb_advance_root both abort when snapshot_hidden is set.  So
+   prev really is acc_idx's predecessor here and the first CAS
+   succeeds.  The retry loop is hardening in case that pairing is ever
+   broken, not a race this code has to win.
+
    Only this thread removes nodes, so acc_idx is still on the chain. */
 
 static inline void
@@ -1140,11 +1159,20 @@ chain_unlink_interior( fd_accdb_t * accdb,
                        uint         prev,
                        uint         acc_idx,
                        uint         next ) {
+#if FD_TMPL_USE_HANDHOLDING
+  FD_TEST( FD_VOLATILE_CONST( accdb->acc_pool[ acc_idx ].map.next )==next );
+#endif
   for(;;) {
     if( FD_LIKELY( FD_ATOMIC_CAS( &accdb->acc_pool[ prev ].map.next, acc_idx, next )==acc_idx ) ) return;
-    prev = fd_accdb_chain_head( &accdb->acc_map[ map_idx ] );
-    while( FD_VOLATILE_CONST( accdb->acc_pool[ prev ].map.next )!=acc_idx ) {
-      prev = FD_VOLATILE_CONST( accdb->acc_pool[ prev ].map.next );
+    prev = chain_head( &accdb->acc_map[ map_idx ] );
+    for(;;) {
+      /* Bound the re-walk: running off the end means acc_idx left the
+         chain under us, which cannot happen (sole remover).  Fail here
+         rather than index acc_pool[ UINT_MAX ]. */
+      FD_TEST( prev!=UINT_MAX );
+      uint cur = FD_VOLATILE_CONST( accdb->acc_pool[ prev ].map.next );
+      if( FD_LIKELY( cur==acc_idx ) ) break;
+      prev = cur;
     }
   }
 }
@@ -1211,7 +1239,7 @@ acc_unlink( fd_accdb_t * accdb,
     /* Head removal — CAS may fail if a concurrent insert prepended a
        new node.  On failure the target is now interior. */
     for(;;) {
-      uint old_head = fd_accdb_chain_head( &accdb->acc_map[ map_idx ] );
+      uint old_head = chain_head( &accdb->acc_map[ map_idx ] );
       if( FD_LIKELY( old_head==acc_idx ) ) {
         if( FD_LIKELY( FD_ATOMIC_CAS( &accdb->acc_map[ map_idx ], acc_idx, accmeta->map.next )==acc_idx ) ) break;
         FD_SPIN_PAUSE();
@@ -1401,7 +1429,7 @@ chain_prewalk( fd_accdb_t *      accdb,
     if( from_head[ i ] ) __builtin_prefetch( &accdb->acc_map[ map_idxs[ i ] ], 1, 3 );
   }
   for( ulong i=0UL; i<cnt; i++ ) {
-    if( from_head[ i ] ) cur[ i ] = fd_accdb_chain_head( &accdb->acc_map[ map_idxs[ i ] ] );
+    if( from_head[ i ] ) cur[ i ] = chain_head( &accdb->acc_map[ map_idxs[ i ] ] );
     else                 cur[ i ] = FD_VOLATILE_CONST( accdb->acc_pool[ acc_idx[ i ] ].map.next );
   }
 
@@ -1446,7 +1474,7 @@ purge_inner( fd_accdb_t *              accdb,
         uint acc_map_idx = map_idxs[ w ];
 
         uint prev = UINT_MAX;
-        uint cur = fd_accdb_chain_head( &accdb->acc_map[ acc_map_idx ] );
+        uint cur = chain_head( &accdb->acc_map[ acc_map_idx ] );
         while( cur!=acc_idx ) {
           prev = cur;
           cur = FD_VOLATILE_CONST( accdb->acc_pool[ cur ].map.next );
@@ -1540,7 +1568,7 @@ background_advance_root( fd_accdb_t *       accdb,
         FD_TEST( new_acc->key.generation==fork->shmem->generation && fd_accdb_acc_fork_id( new_acc )==fork_id.val );
         if( FD_LIKELY( new_acc->lamports ) ) {
 #if FD_TMPL_USE_HANDHOLDING
-          uint chk = fd_accdb_chain_head( &accdb->acc_map[ acc_map_idx ] );
+          uint chk = chain_head( &accdb->acc_map[ acc_map_idx ] );
           while( chk!=UINT_MAX && chk!=txne->acc_pool_idx ) {
             fd_accdb_accmeta_t const * ahead = &accdb->acc_pool[ chk ];
             FD_TEST( !( (ahead->key.generation<=parent_fork->shmem->generation || descends_set_test( fork->descends, fd_accdb_acc_fork_id(ahead) ) ) && !memcmp( new_acc->key.pubkey, ahead->key.pubkey, 32UL ) ) );
@@ -1552,7 +1580,7 @@ background_advance_root( fd_accdb_t *       accdb,
           prev = txne->acc_pool_idx;
           acc  = FD_VOLATILE_CONST( new_acc->map.next );
         } else {
-          acc = fd_accdb_chain_head( &accdb->acc_map[ acc_map_idx ] );
+          acc = chain_head( &accdb->acc_map[ acc_map_idx ] );
           FD_TEST( acc!=UINT_MAX );
         }
         while( acc!=UINT_MAX ) {
@@ -2125,7 +2153,7 @@ background_compact( fd_accdb_t * accdb,
 
     fd_accdb_accmeta_t * accmeta = NULL;
     ulong source_packed = 0UL;
-    uint acc_idx = fd_accdb_chain_head( &accdb->acc_map[ fd_hash32( meta->pubkey, accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL) ] );
+    uint acc_idx = chain_head( &accdb->acc_map[ fd_hash32( meta->pubkey, accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL) ] );
     while( acc_idx!=UINT_MAX ) {
       fd_accdb_accmeta_t * candidate = &accdb->acc_pool[ acc_idx ];
       uint next_idx = FD_VOLATILE_CONST( candidate->map.next );
@@ -2435,7 +2463,7 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
      concurrent releases serialize on the CAS of the chain head. */
   for( ulong i=0UL; i<pubkeys_cnt; i++ ) {
     acc_map_idxs[ i ] = fd_hash32( pubkeys[ i ], accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL);
-    uint acc = fd_accdb_chain_head( &accdb->acc_map[ acc_map_idxs[ i ] ] );
+    uint acc = chain_head( &accdb->acc_map[ acc_map_idxs[ i ] ] );
     while( acc!=UINT_MAX ) {
       fd_accdb_accmeta_t const * candidate_acc = &accdb->acc_pool[ acc ];
       uint next_acc = FD_VOLATILE_CONST( candidate_acc->map.next );
@@ -3584,7 +3612,7 @@ release_inner( fd_accdb_t * accdb,
          CAS.  Multiple concurrent releases may also race on the head
          pointer — the CAS retry handles this. */
       for(;;) {
-        uint old_head = fd_accdb_chain_head( &accdb->acc_map[ accs[ i ]._acc_map_idx ] );
+        uint old_head = chain_head( &accdb->acc_map[ accs[ i ]._acc_map_idx ] );
         accmeta->map.next = old_head;
         FD_COMPILER_MFENCE();
         fd_racesan_hook( "accdb_release:pre_chain_cas" );
@@ -3735,7 +3763,7 @@ fd_accdb_read_one_nocache( fd_accdb_t *       accdb,
   uint root_generation = accdb->fork_pool[ accdb->shmem->root_fork_id.val ].shmem->generation;
   fd_accdb_fork_t * fork = &accdb->fork_pool[ fork_id.val ];
   ulong hash = fd_hash32( pubkey, accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL);
-  uint acc_idx = fd_accdb_chain_head( &accdb->acc_map[ hash ] );
+  uint acc_idx = chain_head( &accdb->acc_map[ hash ] );
   fd_accdb_accmeta_t const * accmeta = NULL;
   int hide = FD_VOLATILE_CONST( accdb->shmem->snapshot_hidden ) && !accdb->show_hidden;
   while( acc_idx!=UINT_MAX ) {
@@ -3900,7 +3928,7 @@ fd_accdb_exists( fd_accdb_t *       accdb,
   uint root_generation = accdb->fork_pool[ accdb->shmem->root_fork_id.val ].shmem->generation;
   fd_accdb_fork_t * fork = &accdb->fork_pool[ fork_id.val ];
   ulong hash = fd_hash32( pubkey, accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL);
-  uint acc = fd_accdb_chain_head( &accdb->acc_map[ hash ] );
+  uint acc = chain_head( &accdb->acc_map[ hash ] );
   int hide = FD_VOLATILE_CONST( accdb->shmem->snapshot_hidden ) && !accdb->show_hidden;
   while( acc!=UINT_MAX ) {
     fd_accdb_accmeta_t const * candidate_acc = &accdb->acc_pool[ acc ];
@@ -3941,7 +3969,7 @@ fd_accdb_probe_pd_this_fork( fd_accdb_t *       accdb,
   uint root_generation = accdb->fork_pool[ accdb->shmem->root_fork_id.val ].shmem->generation;
   fd_accdb_fork_t * fork = &accdb->fork_pool[ fork_id.val ];
   ulong hash = fd_hash32( pubkey, accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL);
-  uint acc = fd_accdb_chain_head( &accdb->acc_map[ hash ] );
+  uint acc = chain_head( &accdb->acc_map[ hash ] );
   int hide = FD_VOLATILE_CONST( accdb->shmem->snapshot_hidden ) && !accdb->show_hidden;
   while( acc!=UINT_MAX ) {
     fd_accdb_accmeta_t const * candidate_acc = &accdb->acc_pool[ acc ];
@@ -3994,7 +4022,7 @@ fd_accdb_lamports( fd_accdb_t *       accdb,
   uint root_generation = accdb->fork_pool[ accdb->shmem->root_fork_id.val ].shmem->generation;
   fd_accdb_fork_t * fork = &accdb->fork_pool[ fork_id.val ];
   ulong hash = fd_hash32( pubkey, accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL);
-  uint acc = fd_accdb_chain_head( &accdb->acc_map[ hash ] );
+  uint acc = chain_head( &accdb->acc_map[ hash ] );
   int hide = FD_VOLATILE_CONST( accdb->shmem->snapshot_hidden ) && !accdb->show_hidden;
   while( acc!=UINT_MAX ) {
     fd_accdb_accmeta_t const * candidate_acc = &accdb->acc_pool[ acc ];
@@ -4298,6 +4326,11 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
           next_acc = candidate->map.next;
           continue;
         }
+#if FD_TMPL_USE_HANDHOLDING
+        /* cache_idx holds the snapshot slot only while the node is
+           uncached; a cached loader node would make it a cache index. */
+        FD_TEST( !FD_ACCDB_SIZE_CACHE_VALID( candidate->executable_size ) );
+#endif
         if( FD_LIKELY( (ulong)candidate->cache_idx>slots[ i ] ) ) {
           skip = 1;
         } else if( FD_UNLIKELY( (ulong)candidate->cache_idx==slots[ i ] ) ) {
@@ -4366,10 +4399,12 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
       FD_COMPILER_MFENCE();
 
       if( FD_UNLIKELY( behind ) ) {
-        /* Readers must meet the live version first, so link the
-           loaded node right behind the last live one.  Nothing
-           removes nodes while a load runs (see fd_accdb_purge and
-           fd_accdb_advance_root), so behind stays on the chain. */
+        /* Readers must meet the live version first, so link the loaded
+           node right behind the last live one.  A live version can only
+           exist here in instant boot, and there loader nodes stay
+           hidden for the whole load while fd_accdb_purge and
+           fd_accdb_advance_root refuse to run, so behind is still on
+           the chain. */
         for(;;) {
           uint after = FD_VOLATILE_CONST( behind->map.next );
           accmeta->map.next = after;

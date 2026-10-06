@@ -2130,9 +2130,8 @@ test_snapshot_hidden( void ) {
   FD_TEST( !fd_accdb_exists  ( accdb, child, key ) );
   FD_TEST( !fd_accdb_lamports( accdb, child, key ) );
 
-  /* Cover the remaining two walks on the plain join: a no-cache
-     read misses, and probe reports no lamports for a fork the
-     loaded node was never committed on. */
+  /* Cover the remaining two walks on the plain join: a no-cache read
+     misses, and the probe misses too. */
   uchar        nocache_owner[ 32UL ];
   int          nocache_executable;
   ulong        nocache_lamports;
@@ -2142,11 +2141,18 @@ test_snapshot_hidden( void ) {
                                       nocache_owner, nocache_data, &nocache_data_len )
            ==FD_ACCDB_READ_ONE_NOCACHE_MISS );
 
+  /* Probe at root, the fork the loaded node was written on.  Probing a
+     child would miss for a second reason (generation mismatch), so the
+     assertion would not discriminate the hide clause.  On a miss the
+     probe leaves *out_data_len and *out_lamports alone, so they read
+     back as the zeros seeded here; *out_pd_write is cleared. */
   int   pd             = 1;
-  ulong probe_len      = 0xbeefUL;
+  ulong probe_len      = 0UL;
   ulong probe_lamports = 0UL;
-  FD_TEST( !fd_accdb_probe_pd_this_fork( accdb, child, key, &pd, &probe_len, &probe_lamports ) );
+  FD_TEST( !fd_accdb_probe_pd_this_fork( accdb, root, key, &pd, &probe_len, &probe_lamports ) );
   FD_TEST( probe_lamports==0UL );
+  FD_TEST( probe_len==0UL );
+  FD_TEST( !pd );
 
   /* seer must read with the no-cache path: fd_accdb_acquire would
      select this hidden-but-visible node and cold_load_acc would
@@ -2166,6 +2172,16 @@ test_snapshot_hidden( void ) {
   FD_TEST(  accdb_read( accdb, child, key,  &got, NULL, NULL, NULL ) ); FD_TEST( got==500UL );
   FD_TEST(  accdb_read( accdb, root,  key,  &got, NULL, NULL, NULL ) ); FD_TEST( got==100UL );
   FD_TEST(  fd_accdb_lamports( accdb, child, key2 )==7UL );
+
+  /* The same probe now finds the loaded node.  Seed the outputs with
+     poison first: unlike the miss above, a hit writes all three. */
+  pd             = 1;
+  probe_len      = 0xbeefUL;
+  probe_lamports = 0xbeefUL;
+  FD_TEST(  fd_accdb_probe_pd_this_fork( accdb, root, key, &pd, &probe_len, &probe_lamports ) );
+  FD_TEST( probe_lamports==100UL );
+  FD_TEST( probe_len==0UL ); /* loaded node carries no data */
+  FD_TEST( !pd );
 
   fd_accdb_snapshot_load_end( accdb );
   free( seer );
@@ -2690,6 +2706,8 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "test_snapshot_chain_locked_writers ..." ));
   test_snapshot_chain_locked_writers();
+
+  FD_LOG_NOTICE(( "test_snapshot_writers_vs_live ..." ));
   test_snapshot_writers_vs_live();
 
   FD_LOG_NOTICE(( "test_snapshot_behind_live ..." ));

@@ -202,9 +202,8 @@ FD_STATIC_ASSERT( sizeof (fd_accdb_accmeta_t)==64, layout );
 
 /* The snapshot loader locks a hash chain by storing this value into
    the chain's head slot (see fd_accdb_snapshot_write_batch).  Every
-   other load of a chain head goes through fd_accdb_chain_head (in
-   fd_accdb.c) so it waits for the lock to clear instead of following
-   it. */
+   other load of a chain head goes through chain_head (in fd_accdb.c)
+   so it waits for the lock to clear instead of following it. */
 
 #define FD_ACCDB_CHAIN_LOCKED (UINT_MAX-1U)
 

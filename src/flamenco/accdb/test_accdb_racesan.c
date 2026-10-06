@@ -1099,10 +1099,15 @@ test_acquire_vs_release( void ) {
 }
 
 /* A live commit prepends a new version of key on fork b while the
-   snapshot loader writes the same key.  Whichever lands first, the
-   commit must never be lost and the loaded node must sit behind it:
-   fork b reads the committed value and the root reads the loaded
-   value. */
+   snapshot loader writes the same key, in the configuration the product
+   actually runs: loader nodes are hidden for the whole load.  Hiding is
+   what makes the race safe — the live acquire cannot select the
+   loader's node, so a cache load never overwrites the slot number the
+   loader parks in cache_idx.  Whichever side lands first, the commit
+   must never be lost and the loaded node must end up behind the
+   committed one: fork b reads the committed value and the root reads
+   the loaded value.  Both reads go through ctl, which asked to see
+   hidden nodes. */
 
 static void
 test_release_vs_snapshot_write( void ) {
@@ -1111,12 +1116,17 @@ test_release_vs_snapshot_write( void ) {
   fd_accdb_t * jw  = join_new();
   fd_accdb_t * jl  = join_new();
 
-  uchar key[ 32UL ]; mk_key( 43UL, key );
-
   fd_accdb_fork_id_t root = fd_accdb_attach_child( ctl, SENTINEL );
   fd_accdb_snapshot_load_begin( ctl );
+  fd_accdb_show_hidden( ctl, 1 );
+  fd_accdb_snapshot_hide( ctl, 1 );
 
   for( ulong i=0UL; i<ITER_DEFAULT; i++ ) {
+    /* A fresh key is only fresh once, and the loader's insert-behind
+       path needs a key it has not written yet.  Cycle through 64 keys
+       so that path sees 64 interleavings instead of one. */
+    uchar key[ 32UL ]; mk_key( 43UL + (i & 63UL), key );
+
     fd_accdb_fork_id_t b = fd_accdb_attach_child( ctl, root );
 
     fd_racesan_weave_t w[1];
@@ -1132,11 +1142,16 @@ test_release_vs_snapshot_write( void ) {
     FD_TEST( fd_accdb_lamports( ctl, b,    key )==400UL+i );
     FD_TEST( fd_accdb_lamports( ctl, root, key )==100UL+i );
 
-    /* The weave is over, so nothing inserts while b is removed. */
+    /* The weave is over, so nothing inserts while b is removed.  Purge
+       refuses to run while loader nodes are hidden, so unhide across
+       it. */
+    fd_accdb_snapshot_hide( ctl, 0 );
     fd_accdb_purge( ctl, b );
     drain_background( ctl );
+    fd_accdb_snapshot_hide( ctl, 1 );
   }
 
+  fd_accdb_snapshot_hide( ctl, 0 );
   fd_accdb_snapshot_load_end( ctl );
   join_delete( ctl );
   join_delete( jw );
