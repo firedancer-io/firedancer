@@ -1127,10 +1127,11 @@ test_instant_boot_slot_checks( void ) {
   instant_boot_check_slots( ctx, 777UL );
 
   /* An incremental at any other slot ends the process, and so does a
-     stream whose archive started somewhere else. */
-  ulong const manifest_slot[ 2 ] = { 778UL, 777UL };
-  ulong const stream_slot  [ 2 ] = {   0UL, 778UL };
-  for( ulong i=0UL; i<2UL; i++ ) {
+     stream whose archive started somewhere else, ahead of the pick or
+     behind it. */
+  ulong const manifest_slot[ 3 ] = { 778UL, 777UL, 777UL };
+  ulong const stream_slot  [ 3 ] = {   0UL, 778UL, 776UL };
+  for( ulong i=0UL; i<3UL; i++ ) {
     pid_t pid = fork();
     FD_TEST( pid>=0 );
     if( !pid ) {
