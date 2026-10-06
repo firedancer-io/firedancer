@@ -92,8 +92,9 @@ Restore pipeline:
   at or after X.  Anything changed between X and that slot was used by
   a block replay executes itself, so its own version shadows the
   snapshot copy; anything untouched has the same value at both slots.
-- At load end: promote the incremental, clear the hide flag, signal
-  replay.
+- At load end, once every writer has stopped: clear the hide flag
+  (the accounts database refuses root advance while hidden), promote
+  the incremental, signal replay.
 
 Receiver tile:
 
