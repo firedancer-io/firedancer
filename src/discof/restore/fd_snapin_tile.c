@@ -1735,6 +1735,10 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
       case FD_SSPARSE_ADVANCE_DONE:
         ctx->state = FD_SNAPSHOT_STATE_FINISHING;
         break;
+      /* Only the stream parser has anything to do at the end of an
+         appendvec. */
+      case FD_SSPARSE_ADVANCE_APPENDVEC_DONE:
+        break;
       default:
         FD_LOG_ERR(( "unexpected fd_ssparse_advance result %d", res ));
         break;
