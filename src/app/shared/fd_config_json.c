@@ -416,7 +416,6 @@ fd_config_to_json( fd_config_t const * config,
       jw_url ( &w, "server",  f->snapshots.instant_boot.server );
       jw_obj_open( &w, "serve" );
         jw_bool ( &w, "enabled",                 f->snapshots.instant_boot.serve.enabled );
-        jw_ulong( &w, "stream_interval_slots",   f->snapshots.instant_boot.serve.stream_interval_slots );
         jw_ulong( &w, "stream_lifetime_seconds", f->snapshots.instant_boot.serve.stream_lifetime_seconds );
         jw_ulong( &w, "max_open_streams",        f->snapshots.instant_boot.serve.max_open_streams );
         jw_ulong( &w, "max_keys_per_stream",     f->snapshots.instant_boot.serve.max_keys_per_stream );

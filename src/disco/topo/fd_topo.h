@@ -677,6 +677,7 @@ struct fd_topo_tile {
       ulong resolv_epoch_obj_ids[ 16 ];
       ulong resolv_epoch_obj_cnt;
       ulong snapmk_epoch_obj_id;
+      ulong strmk_epoch_obj_id;
       ulong snapzp_epoch_obj_ids[ 64 ];
       ulong snapzp_epoch_obj_cnt;
     } accdb;
@@ -847,10 +848,12 @@ struct fd_topo_tile {
       ulong banks_obj_id;
       ulong txncache_obj_id;
       ulong max_live_slots;
-      ulong stream_interval_slots;
+      ulong max_txn_per_slot;
       ulong stream_lifetime_seconds;
       ulong max_open_streams;
       ulong max_keys_per_stream;
+      uint  target_uid;
+      uint  target_gid;
       char  snapshots_path[ PATH_MAX ];
     } strmk;
   };

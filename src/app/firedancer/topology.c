@@ -297,6 +297,9 @@ fd_topo_initialize( config_t * config ) {
   if( FD_UNLIKELY( serve_enabled ) ) {
     FD_CHECK_ERR( config->firedancer.snapshots.server.enabled,
                   "the snapshot server serves the boot streams, so [snapshots.server] must be enabled too" );
+    FD_CHECK_ERR( snapmk_enabled && config->firedancer.snapshots.incremental_snapshots,
+                  "a boot stream chains off an incremental snapshot, so incremental snapshot production "
+                  "must be enabled too" );
     FD_CHECK_ERR( config->firedancer.snapshots.instant_boot.serve.max_open_streams &&
                   config->firedancer.snapshots.instant_boot.serve.max_open_streams<=FD_STRMK_STREAM_MAX,
                   "[snapshots.instant_boot.serve.max_open_streams] is out of range" );
@@ -1069,6 +1072,12 @@ fd_topo_initialize( config_t * config ) {
   if( serve_enabled ) {
     /**/                 fd_topob_tile_out( topo, "replay", 0UL,              "replay_strmk",  0UL                                       );
     /**/                 fd_topob_tile_in ( topo, "strmk",  0UL, "metric_in", "replay_strmk",  0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+    /* The stream tile learns from snapmk_out when the incremental
+       snapshot a stream chains off exists, and only then serves the
+       stream.  It reads the link unreliably because it blocks for
+       seconds at a time writing a stream, and must never hold the
+       snapshot producer up. */
+    /**/                 fd_topob_tile_in ( topo, "strmk",  0UL, "metric_in", "snapmk_out",    0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
     /**/                 fd_topob_tile_out( topo, "strmk",  0UL,              "strmk_replay",  0UL                                       );
     /**/                 fd_topob_tile_in ( topo, "replay", 0UL, "metric_in", "strmk_replay",  0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     /**/                 fd_topob_tile_out( topo, "strmk",  0UL,              "strmk_out",     0UL                                       );
@@ -1177,7 +1186,7 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapmk", 0UL ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   }
   if( serve_enabled ) {
-    fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "strmk", 0UL ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+    fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "strmk", 0UL ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
   }
   if( FD_LIKELY( snapshots_enabled ) ) {
     FOR(snapin_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapin", i ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
@@ -1944,6 +1953,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     }
 
     tile->accdb.snapmk_epoch_obj_id = fd_pod_query_ulong( config->topo.props, "accdb_epoch.snapmk", ULONG_MAX );
+    tile->accdb.strmk_epoch_obj_id  = fd_pod_query_ulong( config->topo.props, "accdb_epoch.strmk",  ULONG_MAX );
 
     tile->accdb.snapzp_epoch_obj_cnt = config->firedancer.layout.enable_snapshot_production
                                        ? config->firedancer.layout.snapzp_tile_count : 0UL;
@@ -2235,7 +2245,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
     tile->snapsv.instant_boot_serve = serve_enabled;
     tile->snapsv.boot_stream_max    = config->firedancer.snapshots.instant_boot.serve.max_open_streams;
-    fd_cstr_ncpy( tile->snapsv.snapshots_path, config->paths.snapshots, PATH_MAX );
+    fd_cstr_ncpy( tile->snapsv.snapshots_path, config->paths.snapshots, sizeof(tile->snapsv.snapshots_path) );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "strmk" ) ) ) {
 
@@ -2244,11 +2254,13 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->strmk.banks_obj_id            = fd_pod_query_ulong( config->topo.props, "banks",             ULONG_MAX ); FD_TEST( tile->strmk.banks_obj_id!=ULONG_MAX );
     tile->strmk.txncache_obj_id         = fd_pod_query_ulong( config->topo.props, "txncache",          ULONG_MAX ); FD_TEST( tile->strmk.txncache_obj_id!=ULONG_MAX );
     tile->strmk.max_live_slots          = config->firedancer.runtime.max_live_slots;
-    tile->strmk.stream_interval_slots   = config->firedancer.snapshots.instant_boot.serve.stream_interval_slots;
+    tile->strmk.max_txn_per_slot        = config->limits.max_txn_per_slot;
     tile->strmk.stream_lifetime_seconds = config->firedancer.snapshots.instant_boot.serve.stream_lifetime_seconds;
     tile->strmk.max_open_streams        = config->firedancer.snapshots.instant_boot.serve.max_open_streams;
     tile->strmk.max_keys_per_stream     = config->firedancer.snapshots.instant_boot.serve.max_keys_per_stream;
-    fd_cstr_ncpy( tile->strmk.snapshots_path, config->paths.snapshots, PATH_MAX );
+    tile->strmk.target_uid              = config->uid;
+    tile->strmk.target_gid              = config->gid;
+    fd_cstr_ncpy( tile->strmk.snapshots_path, config->paths.snapshots, sizeof(tile->strmk.snapshots_path) );
 
   } else {
     FD_LOG_ERR(( "unknown tile name `%s`", tile->name ));

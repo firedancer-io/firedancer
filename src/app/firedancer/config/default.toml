@@ -613,9 +613,6 @@ telemetry = true
         [snapshots.instant_boot.serve]
             enabled = false
 
-            # How many slots apart two streams start.
-            stream_interval_slots = 300
-
             # How long a stream is served before it is closed and its
             # file recycled.
             stream_lifetime_seconds = 240
@@ -624,8 +621,11 @@ telemetry = true
             max_open_streams = 3
 
             # How many accounts one stream can carry.  The stream tile
-            # keeps 40 bytes per account for each open stream, so the
-            # default costs 160 MB of memory per stream.
+            # rounds this up to a power of two and keeps 40 bytes per
+            # entry for each open stream, so the default costs 160 MiB
+            # per stream, and 225 MiB with the stream's write buffer and
+            # compressor.  A stream closes once it has carried three
+            # quarters of the entries.
             max_keys_per_stream = 4000000
 
 [consensus]

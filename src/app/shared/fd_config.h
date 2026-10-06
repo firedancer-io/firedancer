@@ -179,7 +179,6 @@ struct fd_configf {
 
       struct {
         int   enabled;
-        ulong stream_interval_slots;
         ulong stream_lifetime_seconds;
         ulong max_open_streams;
         ulong max_keys_per_stream;
