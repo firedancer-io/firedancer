@@ -1405,6 +1405,8 @@ message Boot {
   uint64 process_start_time = 74;
   // A numeric identifier summarizing the exact set of protocol features this build understands, used to detect when nodes disagree on consensus rules.
   uint32 feature_set_id = 75;
+  // For each logical processor, the last-level cache domain it shares (one per AMD CCD or CCX, usually one per socket on Intel), numbered from 0 in first-seen order; tiles that exchange data cheaply sit in the same domain. 65535 for an offline processor. Empty when the kernel does not expose level-3 cache topology.
+  repeated uint32 l3_cpu_to_domain = 76;
 }
 
 // The result of a snapshot production attempt.

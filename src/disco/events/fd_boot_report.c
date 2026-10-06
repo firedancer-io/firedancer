@@ -399,6 +399,44 @@ collect_cpu( fd_boot_report_t * r ) {
   }
 }
 
+/* Last-level cache domain per logical cpu: the level-3 cache's id under
+   cpuN/cache/indexM, keyed with the package (ids repeat per socket) and
+   renumbered from 0 in first-seen order. Offline cpus read USHORT_MAX;
+   the map is left empty if any online cpu lacks its package or level-3
+   entry, so a partial map never reads as topology. */
+
+static void
+collect_l3( fd_boot_report_t * r ) {
+  long key[ 1024 ];
+  ulong key_cnt = 0UL;
+  for( ulong cpu=0UL; cpu<r->numa_cpu_to_node_cnt; cpu++ ) {
+    char path[ 128 ];
+    ulong online = 1UL; /* cpu0 has no online file: it cannot go offline */
+    FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/devices/system/cpu/cpu%lu/online", cpu ) );
+    if( cpu && FD_UNLIKELY( read_ulong( path, &online ) ) ) online = 1UL;
+    if( !online ) { r->l3_cpu_to_domain[ cpu ] = USHORT_MAX; r->l3_cpu_to_domain_cnt = cpu+1UL; continue; }
+    ulong pkg = 0UL;
+    FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/devices/system/cpu/cpu%lu/topology/physical_package_id", cpu ) );
+    if( FD_UNLIKELY( read_ulong( path, &pkg ) ) ) { r->l3_cpu_to_domain_cnt = 0UL; return; }
+    long id = -1L;
+    for( ulong index=0UL; index<8UL; index++ ) {
+      ulong level, cid;
+      FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/devices/system/cpu/cpu%lu/cache/index%lu/level", cpu, index ) );
+      if( read_ulong( path, &level ) ) break;
+      if( level!=3UL ) continue;
+      FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/devices/system/cpu/cpu%lu/cache/index%lu/id", cpu, index ) );
+      if( !read_ulong( path, &cid ) ) id = (long)((pkg<<32) | cid);
+      break;
+    }
+    if( FD_UNLIKELY( id<0L ) ) { r->l3_cpu_to_domain_cnt = 0UL; return; }
+    ulong d = 0UL;
+    while( d<key_cnt && key[ d ]!=id ) d++;
+    if( d==key_cnt ) key[ key_cnt++ ] = id;
+    r->l3_cpu_to_domain[ cpu ] = (ushort)d;
+    r->l3_cpu_to_domain_cnt = cpu+1UL;
+  }
+}
+
 static void
 collect_mem( fd_boot_report_t * r ) {
   char meminfo[ 8192 ];
@@ -1240,6 +1278,7 @@ fd_boot_report_collect( fd_boot_report_t *     r,
   collect_os( r );
   collect_cpu( r );
   collect_mem( r );
+  collect_l3( r ); /* after collect_mem: sized by the numa cpu map */
   collect_dimms( r );
   collect_net( r, tile->event.net_interface );
   collect_platform( r, tile->event.net_interface );
@@ -1523,6 +1562,7 @@ fd_boot_report_publish( fd_boot_report_t *  r,
   if( r->memory_normal_pages )     ok &= !!fd_pb_push_uint64( encoder, 73U, r->memory_normal_pages );
   if( r->process_start_time_nanos ) ok &= !!fd_pb_push_uint64( encoder, 74U, r->process_start_time_nanos );
   if( r->feature_set_id )           ok &= !!fd_pb_push_uint32( encoder, 75U, r->feature_set_id );
+  for( ulong i=0UL; i<r->l3_cpu_to_domain_cnt; i++ ) ok &= !!fd_pb_push_uint32( encoder, 76U, r->l3_cpu_to_domain[ i ] );
 
   ok &= !!fd_pb_submsg_close( encoder );
   ok &= !!fd_pb_submsg_close( encoder );

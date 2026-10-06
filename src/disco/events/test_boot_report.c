@@ -135,12 +135,22 @@ main( int     argc,
   FD_TEST( report->filesystems_cnt>=1UL );
   FD_TEST( report->accounts_fs_idx==report->snapshots_fs_idx );
   FD_TEST( report->shredb_fs_idx==255 );
+  /* l3 map is all or nothing, covers the numa map, and numbers domains densely from 0 */
+  FD_TEST( !report->l3_cpu_to_domain_cnt || report->l3_cpu_to_domain_cnt<=report->numa_cpu_to_node_cnt );
+  for( ulong i=0UL, top=0UL; i<report->l3_cpu_to_domain_cnt; i++ ) {
+    if( report->l3_cpu_to_domain[ i ]==USHORT_MAX ) continue; /* offline */
+    FD_TEST( report->l3_cpu_to_domain[ i ]<=top );
+    if( report->l3_cpu_to_domain[ i ]==top ) top++;
+  }
 
   FD_LOG_NOTICE(( "kernel_release %s",  report->kernel_release ));
   FD_LOG_NOTICE(( "distro %s %s",       report->distro_id, report->distro_version_id ));
   FD_LOG_NOTICE(( "mitigations %lu",    report->mitigations_cnt ));
   FD_LOG_NOTICE(( "cpu %s (%u cores %u threads %u sockets)", report->cpu_model_name,
                   report->cpu_physical_core_count, report->cpu_logical_count, report->cpu_socket_count ));
+  ulong l3_domains = 0UL;
+  for( ulong i=0UL; i<report->l3_cpu_to_domain_cnt; i++ ) if( report->l3_cpu_to_domain[ i ]!=USHORT_MAX ) l3_domains = fd_ulong_max( l3_domains, report->l3_cpu_to_domain[ i ]+1UL );
+  FD_LOG_NOTICE(( "l3 domains %lu over %lu cpus", l3_domains, report->l3_cpu_to_domain_cnt ));
   FD_TEST( report->accounts_fs_idx!=255 );
   FD_LOG_NOTICE(( "root fs device_idx %u", report->filesystems[ report->accounts_fs_idx ].device_idx ));
   FD_LOG_NOTICE(( "dimms %lu nics %lu blocks %lu nvme %lu md %lu fs %lu",
@@ -239,6 +249,7 @@ main( int     argc,
   maxed->build_features_cnt   = 16UL;
   maxed->numa_cpu_to_node_cnt = 1024UL;
   maxed->isolated_cpus_cnt    = 1024UL;
+  maxed->l3_cpu_to_domain_cnt = 1024UL;
   maxed->dmi_dimms_cnt        = 64UL;
   maxed->nic_devices_cnt      = 16UL;
   maxed->nic_bond_slaves_cnt  = 16UL;
