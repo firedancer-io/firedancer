@@ -296,6 +296,25 @@ fd_event_runtime_block_emit( fd_bank_t const *             bank,
                              fd_hash_t const *             fec_mrs,
                              ulong                         fec_mr_cnt );
 
+/* Build a runtime_vote_write event for a vote account rewritten by
+   applying a block's Alpenglow footer certificates and publish it on
+   the calling tile's event link.  No-op when the tile has no event
+   link. */
+
+void
+fd_event_runtime_vote_write_emit( fd_bank_t const * bank,
+                                  uchar const *     vote_account,
+                                  uchar const *     owner,
+                                  ulong             lamports,
+                                  ulong             data_sz,
+                                  int               kind,
+                                  ulong             cert_slot,
+                                  ulong             credits_added,
+                                  ulong             credits_after,
+                                  ulong             vote_slot,
+                                  long              vote_timestamp,
+                                  ulong             root_slot );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_events_fd_event_runtime_h */

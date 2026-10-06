@@ -336,6 +336,40 @@ fd_event_runtime_vote_account_emit( fd_bank_t const *          bank,
 }
 
 void
+fd_event_runtime_vote_write_emit( fd_bank_t const * bank,
+                                  uchar const *     vote_account,
+                                  uchar const *     owner,
+                                  ulong             lamports,
+                                  ulong             data_sz,
+                                  int               kind,
+                                  ulong             cert_slot,
+                                  ulong             credits_added,
+                                  ulong             credits_after,
+                                  ulong             vote_slot,
+                                  long              vote_timestamp,
+                                  ulong             root_slot ) {
+  if( FD_LIKELY( !fd_event_tl ) ) return;
+
+  fd_event_runtime_vote_write_t ev = {
+    .bank_seq       = bank->bank_seq,
+    .slot           = bank->f.slot,
+    .epoch          = bank->f.epoch,
+    .kind           = kind,
+    .cert_slot      = cert_slot,
+    .credits_added  = credits_added,
+    .credits_after  = credits_after,
+    .vote_slot      = vote_slot,
+    .vote_timestamp = vote_timestamp,
+    .root_slot      = root_slot,
+    .lamports       = lamports,
+    .data_sz        = data_sz,
+  };
+  fd_memcpy( ev.vote_account, vote_account, 32UL );
+  fd_memcpy( ev.owner,        owner,        32UL );
+  fd_event_report_runtime_vote_write( &ev );
+}
+
+void
 fd_event_runtime_epoch_emit( fd_bank_t const * bank ) {
   if( FD_LIKELY( !fd_event_tl ) ) return;
 

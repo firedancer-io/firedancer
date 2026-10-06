@@ -6,6 +6,7 @@
 #include "../runtime/program/vote/fd_vote_state_versioned.h"
 #include "../runtime/program/vote/fd_vote_codec_tmpl.h"
 #include "../runtime/sysvar/fd_sysvar_epoch_schedule.h"
+#include "../events/fd_event_runtime.h"
 
 FD_STATIC_ASSERT( MAX_EPOCH_CREDITS_HISTORY==64UL, epoch_credits_bound );
 
@@ -305,8 +306,26 @@ struct vote_update {
   ulong credits;      /* 0 = none */
   ulong migration_epoch;
   ulong current_epoch;
+  int   event_kind;   /* FD_EVENT_RUNTIME_VOTE_WRITE_KIND_*, for the runtime_vote_write event */
+  ulong cert_slot;    /* slot the certificate causing this write is for */
 };
 typedef struct vote_update vote_update_t;
+
+/* epoch_credits_at returns the credits of the epoch-credits entry for
+   epoch, 0 if there is none. */
+
+static ulong
+epoch_credits_at( fd_vote_state_versioned_t * vs,
+                  ulong                       epoch ) {
+  fd_vote_epoch_credits_t * ec = fd_vsv_get_epoch_credits_mutable( vs );
+  for( deq_fd_vote_epoch_credits_t_iter_t iter = deq_fd_vote_epoch_credits_t_iter_init( ec );
+       !deq_fd_vote_epoch_credits_t_iter_done( ec, iter );
+       iter = deq_fd_vote_epoch_credits_t_iter_next( ec, iter ) ) {
+    fd_vote_epoch_credits_t const * e = deq_fd_vote_epoch_credits_t_iter_ele( ec, iter );
+    if( e->epoch==epoch ) return e->credits;
+  }
+  return 0UL;
+}
 
 static int
 vote_account_read( fd_bank_t *                 bank,
@@ -314,6 +333,7 @@ vote_account_read( fd_bank_t *                 bank,
                    fd_pubkey_t const *         pk,
                    fd_vote_state_versioned_t * vs,
                    ulong *                     out_data_len,
+                   ulong *                     out_lamports,
                    fd_pubkey_t *               out_owner ) {
   fd_acc_t acc = fd_accdb_read_one( accdb, bank->accdb_fork_id, pk->uc );
   if( FD_UNLIKELY( !acc.lamports || !fd_vsv_is_correct_size_owner_and_init( acc.owner, acc.data, acc.data_len ) ) ) {
@@ -325,6 +345,7 @@ vote_account_read( fd_bank_t *                 bank,
     return 0;
   }
   *out_data_len = acc.data_len;
+  *out_lamports = acc.lamports;
   fd_memcpy( out_owner->uc, acc.owner, sizeof(fd_pubkey_t) );
   fd_accdb_unread_one( accdb, &acc );
   return 1;
@@ -337,6 +358,7 @@ vote_account_write( fd_bank_t *                 bank,
                     fd_pubkey_t const *         pk,
                     fd_pubkey_t const *         owner,
                     ulong                       data_len,
+                    ulong                       lamports,
                     fd_vote_state_versioned_t * vs,
                     vote_update_t const *       upd ) {
   static FD_TL uchar buf[ 8192UL ];
@@ -356,6 +378,15 @@ vote_account_write( fd_bank_t *                 bank,
     return;
   }
   fd_accdb_svm_write( bank, accdb, capture_ctx, pk, owner, buf, data_len, 0UL, 0, 1 );
+
+  if( FD_UNLIKELY( fd_bank_report_runtime_diffs( bank ) ) ) {
+    fd_event_runtime_vote_write_emit( bank, pk->uc, owner->uc, lamports, data_len,
+                                      upd->event_kind, upd->cert_slot,
+                                      upd->credits, epoch_credits_at( vs, upd->current_epoch ),
+                                      upd->update_votes ? upd->vote_slot : 0UL,
+                                      upd->update_votes ? upd->vote_ts_ns/1000000000L : 0L,
+                                      upd->update_root  ? upd->root_slot : 0UL );
+  }
 }
 
 static void
@@ -366,9 +397,10 @@ vote_account_modify( fd_bank_t *           bank,
                      vote_update_t const * upd ) {
   static FD_TL fd_vote_state_versioned_t vs[1];
   ulong       data_len;
+  ulong       lamports;
   fd_pubkey_t owner;
-  if( FD_UNLIKELY( !vote_account_read( bank, accdb, pk, vs, &data_len, &owner ) ) ) return;
-  vote_account_write( bank, accdb, capture_ctx, pk, &owner, data_len, vs, upd );
+  if( FD_UNLIKELY( !vote_account_read( bank, accdb, pk, vs, &data_len, &lamports, &owner ) ) ) return;
+  vote_account_write( bank, accdb, capture_ctx, pk, &owner, data_len, lamports, vs, upd );
 }
 
 void
@@ -421,6 +453,7 @@ fd_alpenglow_rewards_apply( fd_bank_t *               bank,
   ulong current_epoch     = fd_slot_to_epoch( &bank->f.epoch_schedule, bank_slot, NULL );
   ulong migration_epoch   = ULONG_MAX;
   ulong leader_credits    = 0UL;
+  ulong leader_cert_slot  = 0UL;
 
   /* credits for the attested voters of the reward slot */
 
@@ -513,21 +546,25 @@ fd_alpenglow_rewards_apply( fd_bank_t *               bank,
         .credits         = validator_reward,
         .migration_epoch = migration_epoch,
         .current_epoch   = current_epoch,
+        .event_kind      = FD_EVENT_RUNTIME_VOTE_WRITE_KIND_REWARD_CERT,
+        .cert_slot       = reward_slot,
       };
       static FD_TL fd_vote_state_versioned_t vs[1];
       ulong       data_len;
+      ulong       lamports;
       fd_pubkey_t owner;
 
       /* Skip this node if the vote account cannot be deserialized
          https://github.com/anza-xyz/agave/blob/v4.3.0-beta.3/runtime/src/block_component_processor/vote_reward.rs#L378-L380 */
-      if( FD_UNLIKELY( !vote_account_read( bank, accdb, &vote_key, vs, &data_len, &owner ) ) ) continue;
+      if( FD_UNLIKELY( !vote_account_read( bank, accdb, &vote_key, vs, &data_len, &lamports, &owner ) ) ) continue;
 
       /* Only accumulate the leader credits if the vote account could
          be successfully read.
 
          https://github.com/anza-xyz/agave/blob/v4.3.0-beta.3/runtime/src/block_component_processor/vote_reward.rs#L249 */
       leader_credits = fd_ulong_sat_add( leader_credits, reward-validator_reward );
-      vote_account_write( bank, accdb, capture_ctx, &vote_key, &owner, data_len, vs, &upd );
+      leader_cert_slot = reward_slot;
+      vote_account_write( bank, accdb, capture_ctx, &vote_key, &owner, data_len, lamports, vs, &upd );
     }
     if( FD_UNLIKELY( !have_ranked_vote ) ) {
       FD_LOG_WARNING(( "slot %lu: no ranked validators for reward slot %lu", bank_slot, reward_slot ));
@@ -574,6 +611,9 @@ fd_alpenglow_rewards_apply( fd_bank_t *               bank,
       vote_update_t upd = {
         .update_root  = 1, .root_slot = final_slot,
         .update_votes = 1, .vote_slot = final_slot, .vote_ts_ns = ts_ns,
+        .current_epoch = current_epoch, /* for the event's credits_after */
+        .event_kind   = FD_EVENT_RUNTIME_VOTE_WRITE_KIND_FINAL_CERT,
+        .cert_slot    = final_slot,
       };
       vote_account_modify( bank, accdb, capture_ctx, &vote_key, &upd );
     }
@@ -594,6 +634,8 @@ fd_alpenglow_rewards_apply( fd_bank_t *               bank,
         .credits         = leader_credits,
         .migration_epoch = migration_epoch,
         .current_epoch   = current_epoch,
+        .event_kind      = FD_EVENT_RUNTIME_VOTE_WRITE_KIND_LEADER_REWARD,
+        .cert_slot       = leader_cert_slot,
       };
       vote_account_modify( bank, accdb, capture_ctx, leader_vote_pubkey, &upd );
     }

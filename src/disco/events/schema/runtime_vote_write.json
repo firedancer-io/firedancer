@@ -1,0 +1,82 @@
+{
+    "name": "runtime_vote_write",
+    "id": 22,
+    "description": "One row per vote account rewritten by applying a block's Alpenglow footer certificates, the per-block vote-state mutations that replace vote transactions under Alpenglow: reward-cert signers are granted credits and have their latest vote set, finalization-cert signers have their root and latest vote set, and the block leader is granted the leader half of the reward credits. These writes do not change lamports and are excluded from runtime_block.other_diffs by volume. Only emitted when the alpenglow feature is active.",
+    "fields": {
+        "bank_seq": {
+            "type": "UInt64",
+            "compression": "Delta, ZSTD",
+            "description": "Monotonic sequence number identifying this block within the current run; the join key to runtime_block. Restarts at 1 each time a snapshot is loaded, so pair it with the stream's boot id. 0 means unavailable."
+        },
+        "slot": {
+            "type": "UInt64",
+            "compression": "Delta, ZSTD",
+            "description": "Block whose footer was applied"
+        },
+        "epoch": {
+            "type": "UInt64",
+            "description": "Epoch the slot belongs to"
+        },
+        "vote_account": {
+            "type": "Pubkey",
+            "description": "Vote account rewritten"
+        },
+        "kind": {
+            "type": "LowCardinality(String)",
+            "description": "Which footer certificate caused the write",
+            "variants": {
+                "reward_cert": {
+                    "description": "Signer of the block's skip/notarization reward certificates: credits_added validator credits granted and the latest vote set to cert_slot"
+                },
+                "final_cert": {
+                    "description": "Signer of the block's fast-finalization certificate, or of its finalization or notarization certificate: root and latest vote set to cert_slot"
+                },
+                "leader_reward": {
+                    "description": "The block leader's vote account: credits_added is the leader half of all reward-cert rewards in this block"
+                }
+            }
+        },
+        "cert_slot": {
+            "type": "UInt64",
+            "compression": "T64, ZSTD",
+            "description": "Slot the certificate is for: the rewarded slot for reward_cert and leader_reward, the finalized slot for final_cert"
+        },
+        "credits_added": {
+            "type": "UInt64",
+            "compression": "T64, ZSTD",
+            "description": "Vote credits added to the account's current-epoch entry by this write (0 for final_cert)"
+        },
+        "credits_after": {
+            "type": "UInt64",
+            "compression": "T64, ZSTD",
+            "description": "The account's current-epoch credits after this write (0 if the epoch has no entry); the value the next epoch boundary pays rewards on"
+        },
+        "vote_slot": {
+            "type": "UInt64",
+            "compression": "T64, ZSTD",
+            "description": "Slot recorded as the account's latest landed vote (0 if the write did not touch votes)"
+        },
+        "vote_timestamp": {
+            "type": "Int64",
+            "compression": "T64, ZSTD",
+            "description": "Unix timestamp recorded with the vote, seconds (0 if the write did not touch votes)"
+        },
+        "root_slot": {
+            "type": "UInt64",
+            "compression": "T64, ZSTD",
+            "description": "Root slot set by the write (0 if the write did not touch the root)"
+        },
+        "owner": {
+            "type": "Pubkey",
+            "description": "Owner program of the vote account"
+        },
+        "lamports": {
+            "type": "UInt64",
+            "description": "Lamports of the account, unchanged by the write; carried so the row describes the stored account"
+        },
+        "data_sz": {
+            "type": "UInt64",
+            "description": "Data size of the account, unchanged by the write"
+        }
+    }
+}

@@ -506,6 +506,14 @@ enum BlockReceivedFecSetsFinalShredSource {
   BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_LEADER = 3;  // Produced as our own leader shred.
 }
 
+// Which footer certificate caused the write
+enum RuntimeVoteWriteKind {
+  RUNTIME_VOTE_WRITE_KIND_UNSPECIFIED = 0;
+  RUNTIME_VOTE_WRITE_KIND_REWARD_CERT = 1;  // Signer of the block's skip/notarization reward certificates: credits_added validator credits granted and the latest vote set to cert_slot
+  RUNTIME_VOTE_WRITE_KIND_FINAL_CERT = 2;  // Signer of the block's fast-finalization certificate, or of its finalization or notarization certificate: root and latest vote set to cert_slot
+  RUNTIME_VOTE_WRITE_KIND_LEADER_REWARD = 3;  // The block leader's vote account: credits_added is the leader half of all reward-cert rewards in this block
+}
+
 // Slot that was voted on
 message SignedVoteTower {
   // Slot being voted on / locked out for
@@ -1562,7 +1570,7 @@ message RuntimeBlock {
   uint64 total_epoch_stake = 33;
   // Final per-account diff of every sysvar account written this block; repeated writes to the same sysvar (e.g. the stake history update then its rent-exemption top-up at an epoch boundary) are coalesced into one entry keeping the first pre-state and last post-state. Ordinary slots carry ~4 entries (Clock, SlotHashes, RecentBlockhashes, SlotHistory; LastRestartSlot only when it changes), boundary/PER slots 5-6. Overflow past the 16-account bound drops the entry with a validator log warning
   repeated RuntimeBlockSysvarDiffs sysvar_diffs = 34;
-  // Final per-account diff of non-txn account updates that are not sysvar writes or epoch reward credits (both vote and stake epoch-reward credits are excluded here; see the runtime_reward table). Includes: the block fee credit at settlement (pubkey is the resolved fee collector: the leader identity unless custom_commission_collector routes it to the leader vote account's block-revenue collector; a zero-delta entry means collector validation failed and the reward burned), feature accounts at activation, core-BPF migration writes, and builtin program provisioning. Repeated writes to one account coalesce as in sysvar_diffs. Deliberately excluded as unbounded per-account floods: the per-account VAT-burn debits (see runtime_epoch.vat_burn_per_vote_account) and the per-block alpenglow cert-signer vote state rewrites. Steady state is one entry per block; 32 is an operational bound, not protocol-derived; overflow drops the entry with a validator log warning
+  // Final per-account diff of non-txn account updates that are not sysvar writes or epoch reward credits (both vote and stake epoch-reward credits are excluded here; see the runtime_reward table). Includes: the block fee credit at settlement (pubkey is the resolved fee collector: the leader identity unless custom_commission_collector routes it to the leader vote account's block-revenue collector; a zero-delta entry means collector validation failed and the reward burned), feature accounts at activation, core-BPF migration writes, and builtin program provisioning. Repeated writes to one account coalesce as in sysvar_diffs. Deliberately excluded as unbounded per-account floods: the per-account VAT-burn debits (see runtime_epoch.vat_burn_per_vote_account) and the per-block alpenglow cert-signer vote state rewrites (see runtime_vote_write). Steady state is one entry per block; 32 is an operational bound, not protocol-derived; overflow drops the entry with a validator log warning
   repeated RuntimeBlockOtherDiffs other_diffs = 35;
   // Total number of FEC sets observed while assembling this block (not capped by fec_merkle_roots)
   uint64 fec_count = 36;
@@ -1686,7 +1694,7 @@ message RuntimeEpoch {
   repeated bytes feature_activations = 15;
   // Decoded EpochRewards sysvar as initialized at this boundary
   RuntimeEpochEpochRewardsSysvar epoch_rewards_sysvar = 16;
-  // Lamports burned from every admitted vote account at this boundary (SIMD-0357 VAT; alpenglow only, 0 otherwise). The burned set is exactly this boundary's runtime_vote_account rows, so the aggregate burned is this value times that row count. The debits are not emitted as account diffs, and the incinerator credit is not observable in runtime_block.other_diffs either: the incinerator is drained to zero later in the same block by fd_runtime_freeze, so its coalesced diff is 0 -> 0
+  // Lamports burned from every admitted vote account at this boundary (SIMD-0357 VAT; alpenglow only, 0 otherwise). The burned set is exactly this boundary's runtime_vote_account rows, so the aggregate burned is this value times that row count. The debits are not emitted as account diffs, and the incinerator credit is not observable in runtime_block.other_diffs either: the incinerator is drained to zero later in the same block by fd_runtime_freeze, so its coalesced diff is 0 -> 0 The per-account debits are not emitted as rows: every admitted vote account, i.e. every runtime_vote_account row of this boundary, is debited exactly this amount, so a consumer derives them from those two tables.
   uint64 vat_burn_per_vote_account = 17;
 }
 
@@ -1872,6 +1880,38 @@ message BlockReceived {
   repeated BlockReceivedFecSets fec_sets = 33;
 }
 
+// One row per vote account rewritten by applying a block's Alpenglow footer certificates, the per-block vote-state mutations that replace vote transactions under Alpenglow: reward-cert signers are granted credits and have their latest vote set, finalization-cert signers have their root and latest vote set, and the block leader is granted the leader half of the reward credits. These writes do not change lamports and are excluded from runtime_block.other_diffs by volume. Only emitted when the alpenglow feature is active.
+message RuntimeVoteWrite {
+  // Monotonic sequence number identifying this block within the current run; the join key to runtime_block. Restarts at 1 each time a snapshot is loaded, so pair it with the stream's boot id. 0 means unavailable.
+  uint64 bank_seq = 1;
+  // Block whose footer was applied
+  uint64 slot = 2;
+  // Epoch the slot belongs to
+  uint64 epoch = 3;
+  // Vote account rewritten
+  bytes vote_account = 4;
+  // Which footer certificate caused the write
+  RuntimeVoteWriteKind kind = 5;
+  // Slot the certificate is for: the rewarded slot for reward_cert and leader_reward, the finalized slot for final_cert
+  uint64 cert_slot = 6;
+  // Vote credits added to the account's current-epoch entry by this write (0 for final_cert)
+  uint64 credits_added = 7;
+  // The account's current-epoch credits after this write (0 if the epoch has no entry); the value the next epoch boundary pays rewards on
+  uint64 credits_after = 8;
+  // Slot recorded as the account's latest landed vote (0 if the write did not touch votes)
+  uint64 vote_slot = 9;
+  // Unix timestamp recorded with the vote, seconds (0 if the write did not touch votes)
+  sint64 vote_timestamp = 10;
+  // Root slot set by the write (0 if the write did not touch the root)
+  uint64 root_slot = 11;
+  // Owner program of the vote account
+  bytes owner = 12;
+  // Lamports of the account, unchanged by the write; carried so the row describes the stored account
+  uint64 lamports = 13;
+  // Data size of the account, unchanged by the write
+  uint64 data_sz = 14;
+}
+
 // Combined event type
 message Event {
   oneof event {
@@ -1896,5 +1936,6 @@ message Event {
     AlpenglowVote alpenglow_vote = 19;
     AlpenglowCert alpenglow_cert = 20;
     BlockReceived block_received = 21;
+    RuntimeVoteWrite runtime_vote_write = 22;
   }
 }

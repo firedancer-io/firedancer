@@ -629,7 +629,7 @@ struct fd_event_runtime_block {
   ulong                                              total_epoch_stake;                   /* Total stake delegated to active vote accounts this epoch */
   fd_event_runtime_block_sysvar_diffs_t              sysvar_diffs[ 16UL ];                /* Final per-account diff of every sysvar account written this block; repeated writes to the same sysvar (e.g. the stake history update then its rent-exemption top-up at an epoch boundary) are coalesced into one entry keeping the first pre-state and last post-state. Ordinary slots carry ~4 entries (Clock, SlotHashes, RecentBlockhashes, SlotHistory; LastRestartSlot only when it changes), boundary/PER slots 5-6. Overflow past the 16-account bound drops the entry with a validator log warning */
   ulong                                              sysvar_diffs_cnt;                    /* Number of sysvar_diffs entries (<= 16) */
-  fd_event_runtime_block_other_diffs_t               other_diffs[ 32UL ];                 /* Final per-account diff of non-txn account updates that are not sysvar writes or epoch reward credits (both vote and stake epoch-reward credits are excluded here; see the runtime_reward table). Includes: the block fee credit at settlement (pubkey is the resolved fee collector: the leader identity unless custom_commission_collector routes it to the leader vote account's block-revenue collector; a zero-delta entry means collector validation failed and the reward burned), feature accounts at activation, core-BPF migration writes, and builtin program provisioning. Repeated writes to one account coalesce as in sysvar_diffs. Deliberately excluded as unbounded per-account floods: the per-account VAT-burn debits (see runtime_epoch.vat_burn_per_vote_account) and the per-block alpenglow cert-signer vote state rewrites. Steady state is one entry per block; 32 is an operational bound, not protocol-derived; overflow drops the entry with a validator log warning */
+  fd_event_runtime_block_other_diffs_t               other_diffs[ 32UL ];                 /* Final per-account diff of non-txn account updates that are not sysvar writes or epoch reward credits (both vote and stake epoch-reward credits are excluded here; see the runtime_reward table). Includes: the block fee credit at settlement (pubkey is the resolved fee collector: the leader identity unless custom_commission_collector routes it to the leader vote account's block-revenue collector; a zero-delta entry means collector validation failed and the reward burned), feature accounts at activation, core-BPF migration writes, and builtin program provisioning. Repeated writes to one account coalesce as in sysvar_diffs. Deliberately excluded as unbounded per-account floods: the per-account VAT-burn debits (see runtime_epoch.vat_burn_per_vote_account) and the per-block alpenglow cert-signer vote state rewrites (see runtime_vote_write). Steady state is one entry per block; 32 is an operational bound, not protocol-derived; overflow drops the entry with a validator log warning */
   ulong                                              other_diffs_cnt;                     /* Number of other_diffs entries (<= 32) */
   ulong                                              fec_count;                           /* Total number of FEC sets observed while assembling this block (not capped by fec_merkle_roots) */
   uchar                                              fec_merkle_roots[ 1024UL ][ 32UL ];  /* Merkle roots of the FEC sets observed while assembling this block, in order. Truncated to the first 1024 roots — exact for fixed-size FECs (a block has at most 1024), a prefix for legacy variable-size FECs when fec_count exceeds 1024. Under Tower the last entry equals block_id; under Alpenglow block_id is the separate DMR and is not present in this list */
@@ -761,7 +761,7 @@ struct fd_event_runtime_epoch {
   uchar                                          feature_activations[ 16UL ][ 32UL ]; /* Feature ids newly activated at this boundary. The 16-entry bound is operational, not protocol-derived (no boundary on a real cluster has come close); overflow drops the entry with a validator log warning */
   ulong                                          feature_activations_cnt;             /* Number of feature_activations entries (<= 16) */
   fd_event_runtime_epoch_epoch_rewards_sysvar_t  epoch_rewards_sysvar;                /* Decoded EpochRewards sysvar as initialized at this boundary */
-  ulong                                          vat_burn_per_vote_account;           /* Lamports burned from every admitted vote account at this boundary (SIMD-0357 VAT; alpenglow only, 0 otherwise). The burned set is exactly this boundary's runtime_vote_account rows, so the aggregate burned is this value times that row count. The debits are not emitted as account diffs, and the incinerator credit is not observable in runtime_block.other_diffs either: the incinerator is drained to zero later in the same block by fd_runtime_freeze, so its coalesced diff is 0 -> 0 */
+  ulong                                          vat_burn_per_vote_account;           /* Lamports burned from every admitted vote account at this boundary (SIMD-0357 VAT; alpenglow only, 0 otherwise). The burned set is exactly this boundary's runtime_vote_account rows, so the aggregate burned is this value times that row count. The debits are not emitted as account diffs, and the incinerator credit is not observable in runtime_block.other_diffs either: the incinerator is drained to zero later in the same block by fd_runtime_freeze, so its coalesced diff is 0 -> 0 The per-account debits are not emitted as rows: every admitted vote account, i.e. every runtime_vote_account row of this boundary, is debited exactly this amount, so a consumer derives them from those two tables. */
 };
 typedef struct fd_event_runtime_epoch fd_event_runtime_epoch_t;
 
@@ -1034,11 +1034,39 @@ fd_event_block_received_footprint( fd_event_block_received_t const * msg ) {
    submsg + inner submsg + all fields, padded for encoder slack). */
 #define FD_EVENT_BLOCK_RECEIVED_BUF_MAX (145925UL)
 
+/* Which footer certificate caused the write */
+#define FD_EVENT_RUNTIME_VOTE_WRITE_KIND_REWARD_CERT   (1) /* Signer of the block's skip/notarization reward certificates: credits_added validator credits granted and the latest vote set to cert_slot */
+#define FD_EVENT_RUNTIME_VOTE_WRITE_KIND_FINAL_CERT    (2) /* Signer of the block's fast-finalization certificate, or of its finalization or notarization certificate: root and latest vote set to cert_slot */
+#define FD_EVENT_RUNTIME_VOTE_WRITE_KIND_LEADER_REWARD (3) /* The block leader's vote account: credits_added is the leader half of all reward-cert rewards in this block */
+
+/* One row per vote account rewritten by applying a block's Alpenglow footer certificates, the per-block vote-state mutations that replace vote transactions under Alpenglow: reward-cert signers are granted credits and have their latest vote set, finalization-cert signers have their root and latest vote set, and the block leader is granted the leader half of the reward credits. These writes do not change lamports and are excluded from runtime_block.other_diffs by volume. Only emitted when the alpenglow feature is active. */
+struct fd_event_runtime_vote_write {
+  ulong bank_seq;             /* Monotonic sequence number identifying this block within the current run; the join key to runtime_block. Restarts at 1 each time a snapshot is loaded, so pair it with the stream's boot id. 0 means unavailable. */
+  ulong slot;                 /* Block whose footer was applied */
+  ulong epoch;                /* Epoch the slot belongs to */
+  uchar vote_account[ 32UL ]; /* Vote account rewritten */
+  int   kind;                 /* Which footer certificate caused the write */
+  ulong cert_slot;            /* Slot the certificate is for: the rewarded slot for reward_cert and leader_reward, the finalized slot for final_cert */
+  ulong credits_added;        /* Vote credits added to the account's current-epoch entry by this write (0 for final_cert) */
+  ulong credits_after;        /* The account's current-epoch credits after this write (0 if the epoch has no entry); the value the next epoch boundary pays rewards on */
+  ulong vote_slot;            /* Slot recorded as the account's latest landed vote (0 if the write did not touch votes) */
+  long  vote_timestamp;       /* Unix timestamp recorded with the vote, seconds (0 if the write did not touch votes) */
+  ulong root_slot;            /* Root slot set by the write (0 if the write did not touch the root) */
+  uchar owner[ 32UL ];        /* Owner program of the vote account */
+  ulong lamports;             /* Lamports of the account, unchanged by the write; carried so the row describes the stored account */
+  ulong data_sz;              /* Data size of the account, unchanged by the write */
+};
+typedef struct fd_event_runtime_vote_write fd_event_runtime_vote_write_t;
+
+/* Worst-case encoded size of a runtime_vote_write event (envelope + Event
+   submsg + inner submsg + all fields, padded for encoder slack). */
+#define FD_EVENT_RUNTIME_VOTE_WRITE_BUF_MAX (371UL)
+
 /* Largest generated event struct; a consumer can stage any incoming
    event in a buffer of this size, aligned to
    FD_EVENT_GEN_STRUCT_ALIGN. */
-#define FD_EVENT_GEN_STRUCT_MAX   (sizeof (union { fd_event_signed_vote_t signed_vote_; fd_event_slot_confirmed_t slot_confirmed_; fd_event_accdb_compaction_completed_t accdb_compaction_completed_; fd_event_accdb_partition_added_t accdb_partition_added_; fd_event_block_equivocated_t block_equivocated_; fd_event_runtime_txn_t runtime_txn_; fd_event_block_completed_t block_completed_; fd_event_snapshot_created_t snapshot_created_; fd_event_admin_command_t admin_command_; fd_event_runtime_block_t runtime_block_; fd_event_runtime_reward_t runtime_reward_; fd_event_runtime_stake_delegation_t runtime_stake_delegation_; fd_event_runtime_rooted_t runtime_rooted_; fd_event_runtime_epoch_t runtime_epoch_; fd_event_runtime_vote_account_t runtime_vote_account_; fd_event_alpenglow_vote_t alpenglow_vote_; fd_event_alpenglow_cert_t alpenglow_cert_; fd_event_block_received_t block_received_; }))
-#define FD_EVENT_GEN_STRUCT_ALIGN (alignof(union { fd_event_signed_vote_t signed_vote_; fd_event_slot_confirmed_t slot_confirmed_; fd_event_accdb_compaction_completed_t accdb_compaction_completed_; fd_event_accdb_partition_added_t accdb_partition_added_; fd_event_block_equivocated_t block_equivocated_; fd_event_runtime_txn_t runtime_txn_; fd_event_block_completed_t block_completed_; fd_event_snapshot_created_t snapshot_created_; fd_event_admin_command_t admin_command_; fd_event_runtime_block_t runtime_block_; fd_event_runtime_reward_t runtime_reward_; fd_event_runtime_stake_delegation_t runtime_stake_delegation_; fd_event_runtime_rooted_t runtime_rooted_; fd_event_runtime_epoch_t runtime_epoch_; fd_event_runtime_vote_account_t runtime_vote_account_; fd_event_alpenglow_vote_t alpenglow_vote_; fd_event_alpenglow_cert_t alpenglow_cert_; fd_event_block_received_t block_received_; }))
+#define FD_EVENT_GEN_STRUCT_MAX   (sizeof (union { fd_event_signed_vote_t signed_vote_; fd_event_slot_confirmed_t slot_confirmed_; fd_event_accdb_compaction_completed_t accdb_compaction_completed_; fd_event_accdb_partition_added_t accdb_partition_added_; fd_event_block_equivocated_t block_equivocated_; fd_event_runtime_txn_t runtime_txn_; fd_event_block_completed_t block_completed_; fd_event_snapshot_created_t snapshot_created_; fd_event_admin_command_t admin_command_; fd_event_runtime_block_t runtime_block_; fd_event_runtime_reward_t runtime_reward_; fd_event_runtime_stake_delegation_t runtime_stake_delegation_; fd_event_runtime_rooted_t runtime_rooted_; fd_event_runtime_epoch_t runtime_epoch_; fd_event_runtime_vote_account_t runtime_vote_account_; fd_event_alpenglow_vote_t alpenglow_vote_; fd_event_alpenglow_cert_t alpenglow_cert_; fd_event_block_received_t block_received_; fd_event_runtime_vote_write_t runtime_vote_write_; }))
+#define FD_EVENT_GEN_STRUCT_ALIGN (alignof(union { fd_event_signed_vote_t signed_vote_; fd_event_slot_confirmed_t slot_confirmed_; fd_event_accdb_compaction_completed_t accdb_compaction_completed_; fd_event_accdb_partition_added_t accdb_partition_added_; fd_event_block_equivocated_t block_equivocated_; fd_event_runtime_txn_t runtime_txn_; fd_event_block_completed_t block_completed_; fd_event_snapshot_created_t snapshot_created_; fd_event_admin_command_t admin_command_; fd_event_runtime_block_t runtime_block_; fd_event_runtime_reward_t runtime_reward_; fd_event_runtime_stake_delegation_t runtime_stake_delegation_; fd_event_runtime_rooted_t runtime_rooted_; fd_event_runtime_epoch_t runtime_epoch_; fd_event_runtime_vote_account_t runtime_vote_account_; fd_event_alpenglow_vote_t alpenglow_vote_; fd_event_alpenglow_cert_t alpenglow_cert_; fd_event_block_received_t block_received_; fd_event_runtime_vote_write_t runtime_vote_write_; }))
 
 FD_PROTOTYPES_BEGIN
 
@@ -1222,6 +1250,16 @@ fd_event_block_received_serialize( fd_circq_t *                      circq,
                                    ulong                             link_seq,
                                    fd_event_block_received_t const * msg );
 
+/* Serialize a runtime_vote_write event into the circq, reserving an event id
+   from the client and writing the standard event envelope.  Mirrors
+   the hand-written fd_pb_* path. */
+void
+fd_event_runtime_vote_write_serialize( fd_circq_t *                          circq,
+                                       fd_event_client_t *                   client,
+                                       long                                  timestamp_nanos,
+                                       ulong                                 link_seq,
+                                       fd_event_runtime_vote_write_t const * msg );
+
 /* Serialize an event of the given type id (the schema id carried in the
    report frag's sig) from a fully-formed fd_event_<name>_t at ev. */
 void
@@ -1385,6 +1423,13 @@ fd_event_report_block_received( fd_event_block_received_t const * msg ) {
     { (void const *)msg->fec_sets, msg->fec_sets_cnt*sizeof(msg->fec_sets[0]) },
   };
   fd_event_report_gather_( 21UL, iov, sizeof(iov)/sizeof(iov[0]) );
+}
+
+/* Report a runtime_vote_write event (RuntimeVoteWrite, id 22) to the event tile via
+   the thread-local reporter (no-op when the tile has no event link). */
+static inline void
+fd_event_report_runtime_vote_write( fd_event_runtime_vote_write_t const * msg ) {
+  fd_event_report_( 22UL, msg, sizeof(fd_event_runtime_vote_write_t) );
 }
 
 FD_PROTOTYPES_END

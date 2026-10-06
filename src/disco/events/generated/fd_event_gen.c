@@ -1148,6 +1148,53 @@ fd_event_block_received_serialize( fd_circq_t *                      circq,
 }
 
 void
+fd_event_runtime_vote_write_serialize( fd_circq_t *                          circq,
+                                       fd_event_client_t *                   client,
+                                       long                                  timestamp_nanos,
+                                       ulong                                 link_seq,
+                                       fd_event_runtime_vote_write_t const * msg ) {
+  uchar * buffer = fd_circq_push_back( circq, 1UL, FD_EVENT_RUNTIME_VOTE_WRITE_BUF_MAX );
+  FD_TEST( buffer );
+
+  ulong event_id = fd_event_client_id_reserve( client );
+
+  fd_pb_encoder_t encoder[1];
+  fd_pb_encoder_init( encoder, buffer, FD_EVENT_RUNTIME_VOTE_WRITE_BUF_MAX );
+
+  /* Pushes fail (returning NULL) rather than overflow; accumulate so
+     a FD_EVENT_RUNTIME_VOTE_WRITE_BUF_MAX that under-models the encoder aborts loudly instead
+     of silently truncating fields off published rows. */
+  int ok = 1;
+
+  FD_TEST( circq->cursor_push_seq );
+  ok &= !!fd_pb_push_uint64( encoder, 1U, circq->cursor_push_seq-1UL );
+  ok &= !!fd_pb_push_uint64( encoder, 2U, event_id );
+  ok &= !!fd_pb_push_uint64( encoder, 3U, link_seq );
+  ok &= !!fd_pb_push_uint64( encoder, 4U, (ulong)timestamp_nanos );
+
+  ok &= !!fd_pb_submsg_open( encoder, 5U ); /* Event */
+  ok &= !!fd_pb_submsg_open( encoder, 22U ); /* RuntimeVoteWrite */
+  if( msg->bank_seq ) ok &= !!fd_pb_push_uint64( encoder, 1U, (ulong)msg->bank_seq );
+  if( msg->slot ) ok &= !!fd_pb_push_uint64( encoder, 2U, (ulong)msg->slot );
+  if( msg->epoch ) ok &= !!fd_pb_push_uint64( encoder, 3U, (ulong)msg->epoch );
+  ok &= !!fd_pb_push_bytes ( encoder, 4U, msg->vote_account, 32UL );
+  if( msg->kind ) ok &= !!fd_pb_push_int32 ( encoder, 5U, msg->kind );
+  if( msg->cert_slot ) ok &= !!fd_pb_push_uint64( encoder, 6U, (ulong)msg->cert_slot );
+  if( msg->credits_added ) ok &= !!fd_pb_push_uint64( encoder, 7U, (ulong)msg->credits_added );
+  if( msg->credits_after ) ok &= !!fd_pb_push_uint64( encoder, 8U, (ulong)msg->credits_after );
+  if( msg->vote_slot ) ok &= !!fd_pb_push_uint64( encoder, 9U, (ulong)msg->vote_slot );
+  if( msg->vote_timestamp ) ok &= !!fd_pb_push_sint64( encoder, 10U, msg->vote_timestamp );
+  if( msg->root_slot ) ok &= !!fd_pb_push_uint64( encoder, 11U, (ulong)msg->root_slot );
+  ok &= !!fd_pb_push_bytes ( encoder, 12U, msg->owner, 32UL );
+  if( msg->lamports ) ok &= !!fd_pb_push_uint64( encoder, 13U, (ulong)msg->lamports );
+  if( msg->data_sz ) ok &= !!fd_pb_push_uint64( encoder, 14U, (ulong)msg->data_sz );
+  ok &= !!fd_pb_submsg_close( encoder );
+  ok &= !!fd_pb_submsg_close( encoder );
+  FD_TEST( ok );
+  fd_circq_resize_back( circq, fd_pb_encoder_out_sz( encoder ) );
+}
+
+void
 fd_event_serialize_by_type( ulong               type,
                             fd_circq_t *        circq,
                             fd_event_client_t * client,
@@ -1244,6 +1291,10 @@ fd_event_serialize_by_type( ulong               type,
     fd_event_block_received_serialize( circq, client, timestamp_nanos, link_seq, msg );
     break;
   }
+  case 22UL:
+    FD_TEST( ev_sz==sizeof(fd_event_runtime_vote_write_t) );
+    fd_event_runtime_vote_write_serialize( circq, client, timestamp_nanos, link_seq, (fd_event_runtime_vote_write_t const *)ev );
+    break;
   default: FD_LOG_ERR(( "unexpected event type %lu", type ));
   }
 }
