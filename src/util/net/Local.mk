@@ -13,6 +13,8 @@ $(call run-unit-test,test_igmp)
 $(call make-unit-test,test_udp,test_udp,fd_util)
 $(call run-unit-test,test_udp)
 $(call make-unit-test,test_pcap,test_pcap,fd_util_extra fd_util)
+$(call make-unit-test,test_pcap_iter,test_pcap_iter,fd_util_extra fd_util)
+$(call run-unit-test,test_pcap_iter)
 ifdef FD_HAS_HOSTED
 $(call make-unit-test,test_pcapng,test_pcapng,fd_util_extra fd_util)
 $(call run-unit-test,test_pcapng)
