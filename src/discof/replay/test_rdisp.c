@@ -23,6 +23,13 @@ static inline int tag_eq( FD_RDISP_BLOCK_TAG_T t1, ulong t2 ) { return t1==t2; }
 
 static ulong signer_idx = 0UL;
 
+static fd_acct_addr_t const *
+test_acct( char c ) {
+  static fd_acct_addr_t acct[1];
+  memset( acct, c, sizeof(acct) );
+  return acct;
+}
+
 static ulong
 add_txn( fd_rdisp_t *         rdisp,
          fd_rng_t   *         rng,
@@ -559,7 +566,7 @@ main( int     argc,
   FD_LOG_NOTICE(( "Using --random-iterations %lu", rand_iters ));
 
   FD_LOG_NOTICE(( "%lu", fd_rdisp_footprint( 65536UL, 2048UL ) ));
-  FD_TEST( fd_rdisp_footprint( 65536UL, 2048UL )==1120088832UL );
+  FD_TEST( fd_rdisp_footprint( 65536UL, 2048UL )==1119192064UL );
 
   test_mainnet( block_file, exec_tiles, 20UL, 0UL, 1 );
 
@@ -1020,6 +1027,107 @@ main( int     argc,
   last = fd_rdisp_get_next_ready( disp, tag( 0UL ) ); FD_TEST( last==t0[0] );              fd_rdisp_complete_txn( disp, last, 1 );
   fd_rdisp_abandon_block( disp, tag( 0UL ) );
   fd_rdisp_verify( disp, verify_scratch );
+
+
+  /* Test the extra methods */
+  for( ulong j=0UL; j<2UL; j++ ) {
+    *w0 = 0UL; *w1 = 0UL;
+    FD_TEST(  0==fd_rdisp_add_block( disp, tag( 0UL ), j ? 1 : FD_RDISP_UNSTAGED ) );
+    FD_TEST(  0==fd_rdisp_add_block( disp, tag( 1UL ), j ? 2 : FD_RDISP_UNSTAGED ) );
+
+    FD_TEST( 0UL!=(t0[0]=add_txn3(   disp, rng, tag( 0UL ), 'F', "ABCD", "JKL", 0, w0 )) );  FD_TEST( *w0==0x2FUL );
+    FD_TEST( 1==fd_rdisp_add_writable( disp, tag( 0UL ), test_acct( 'E' ) ) ); *w0 |= 0x10UL;
+    FD_TEST( 0==fd_rdisp_add_writable( disp, tag( 0UL ), test_acct( 'F' ) ) );
+
+    FD_TEST( 1==fd_rdisp_add_writable( disp, tag( 1UL ), test_acct( 'E' ) ) );
+    FD_TEST( 1==fd_rdisp_add_writable( disp, tag( 1UL ), test_acct( 'F' ) ) );
+    *w1 |= 0x30UL;
+    FD_TEST( 0UL!=(t1[0]=add_txn3(   disp, rng, tag( 1UL ), 'F', "ABCD", "JKL", 0, w1 )) );  FD_TEST( *w1==0x3FUL );
+
+    last = fd_rdisp_get_next_ready( disp, tag( 0UL ) ); FD_TEST( last==t0[0] );               fd_rdisp_complete_txn( disp, last, 1 );
+    last = fd_rdisp_get_next_ready( disp, tag( 1UL ) ); FD_TEST( last==t1[0] );               fd_rdisp_complete_txn( disp, last, 1 );
+    drain_all_ptxn( disp, tag( 0UL ), w0 ); FD_TEST( *w0==0UL );
+    drain_all_ptxn( disp, tag( 1UL ), w1 ); FD_TEST( *w1==0UL );
+
+    FD_TEST(  0==fd_rdisp_remove_block( disp, tag( 0UL ) ) );
+    FD_TEST(  0==fd_rdisp_remove_block( disp, tag( 1UL ) ) );
+  }
+
+  FD_TEST(  0==fd_rdisp_add_block( disp, tag( 0UL ), 1                 ) );
+  FD_TEST(  0==fd_rdisp_add_block( disp, tag( 1UL ), 2                 ) );
+  FD_TEST(  0==fd_rdisp_add_block( disp, tag( 2UL ), FD_RDISP_UNSTAGED ) );
+
+  FD_TEST( 0UL!=(t0[0]=add_txn3(   disp, rng, tag( 0UL ), 'F', "AB", "JKL", 0, w0 )) );  FD_TEST( *w0==0x23UL );
+  FD_TEST( 0UL!=(t1[0]=add_txn3(   disp, rng, tag( 1UL ), 'F', "AB", "JKL", 0, w1 )) );  FD_TEST( *w1==0x23UL );
+  FD_TEST( 0UL!=(t2[0]=add_txn3(   disp, rng, tag( 2UL ), 'F', "AB", "JKL", 0, w2 )) );  FD_TEST( *w2==0x23UL );
+
+  ulong px[8];
+  for( ulong i=0UL; i<3UL; i++ ) px[i] = fd_rdisp_add_pseudo_txn( disp, tag( 0UL ) );
+  *w0=0UL;
+  fd_rdisp_add_all_pseudo_txn( disp, tag( 1UL ) ); *w1=0UL;
+  fd_rdisp_add_all_pseudo_txn( disp, tag( 2UL ) ); *w2=0UL;
+
+  FD_TEST(  0==fd_rdisp_add_block( disp, tag( 10UL ), 1                ) );
+  FD_TEST(  0==fd_rdisp_add_block( disp, tag( 11UL ), 2                ) );
+
+  FD_TEST( 0UL!=(t0[1]=add_txn3(   disp, rng, tag( 10UL ), 'F', "CD", "JKL", 0, w0 )) );  FD_TEST( *w0==0x2CUL );
+  FD_TEST( 0UL!=(t1[1]=add_txn3(   disp, rng, tag( 11UL ), 'F', "AC", "BDL", 0, w1 )) );  FD_TEST( *w1==0x25UL );
+
+  px[3] = fd_rdisp_add_extra_pseudo_txn( disp, tag( 0UL ), test_acct( 'F' ) ); /* Has writer in 10 */
+  px[4] = fd_rdisp_add_extra_pseudo_txn( disp, tag( 0UL ), test_acct( 'A' ) ); /* Writer in 0, No writer in 10 */
+  px[5] = fd_rdisp_add_extra_pseudo_txn( disp, tag( 0UL ), test_acct( 'J' ) ); /* Readers in both */
+  px[6] = fd_rdisp_add_extra_pseudo_txn( disp, tag( 0UL ), test_acct( 'C' ) ); /* Writer in 10 */
+  px[7] = fd_rdisp_add_extra_pseudo_txn( disp, tag( 0UL ), test_acct( 'E' ) ); /* Not present */
+
+  fd_rdisp_verify( disp, verify_scratch );
+
+  *w0 = 0x237; /* ABCEFJ */
+  ulong cleared = 0UL;
+  ulong double_cleared = 0UL;
+
+  while( !!(last=fd_rdisp_get_next_ready( disp, tag( 0UL ) )) ) {
+    if( last & FD_RDISP_LTHASH_PSEUDO_TXN ) {
+      fd_acct_addr_t acct[1];
+      fd_rdisp_pseudo_txn_to_addr( disp, last, acct );
+      ulong bit = 1UL<<(acct->b[0]-'A');
+      FD_TEST( bit & *w0 );
+      FD_TEST( !(bit & double_cleared) );
+      if( bit & cleared ) double_cleared |= bit;
+      cleared |= bit;
+    } else {
+      FD_TEST( last==t0[0] );
+    }
+
+    fd_rdisp_complete_txn( disp, last, 1 );
+  }
+  (void)px;
+  FD_TEST( cleared==*w0 );
+  FD_TEST( !(double_cleared&(~0x21UL)) ); /* A and F */
+
+  fd_rdisp_verify( disp, verify_scratch );
+  FD_TEST(  0==fd_rdisp_remove_block( disp, tag( 0UL ) ) );
+
+  last = fd_rdisp_get_next_ready( disp, tag( 10UL ) ); FD_TEST( last==t0[1] );               fd_rdisp_complete_txn( disp, last, 1 );
+  *w0 = 0x2CUL;
+  drain_all_ptxn( disp, tag( 10UL ), w0 ); FD_TEST( *w0==0UL );
+  FD_TEST(  0==fd_rdisp_remove_block( disp, tag( 10UL ) ) );
+
+
+  last = fd_rdisp_get_next_ready( disp, tag(  1UL ) ); FD_TEST( last==t1[0] );               fd_rdisp_complete_txn( disp, last, 1 );
+  *w1=0x23UL;
+  drain_all_ptxn( disp, tag( 1UL ), w1 ); FD_TEST( *w1==0UL ); /* add_pseudo_txn returns 0 immediately if block is not insert_ready */
+  FD_TEST(  0==fd_rdisp_remove_block( disp, tag( 1UL ) ) );
+
+  last = fd_rdisp_get_next_ready( disp, tag( 11UL ) ); FD_TEST( last==t1[1] );               fd_rdisp_complete_txn( disp, last, 1 );
+  *w1=0x25UL;
+  drain_all_ptxn( disp, tag( 11UL ), w1 ); FD_TEST( *w1==0UL );
+  FD_TEST(  0==fd_rdisp_remove_block( disp, tag( 11UL ) ) );
+
+
+  last = fd_rdisp_get_next_ready( disp, tag( 2UL ) ); FD_TEST( last==t2[0] );               fd_rdisp_complete_txn( disp, last, 1 );
+  *w2=0x23;
+  drain_all_ptxn( disp, tag( 2UL ), w2 ); FD_TEST( *w2==0UL );
+  FD_TEST(  0==fd_rdisp_remove_block( disp, tag( 2UL ) ) );
 
 
   fd_rdisp_delete( fd_rdisp_leave( disp ) );

@@ -570,6 +570,7 @@ struct fd_rdisp_blockinfo {
   uint  staged:1;
   uint  staging_lane:2; /* ignored if staged==0 */
   uint  last_insert_was_serializing:1;
+  uint  inserted_extra_ptxn:1;
 
   uint inserted_cnt;
   uint dispatched_cnt;
@@ -686,7 +687,11 @@ typedef struct fd_rdisp fd_rdisp_t;
        fd_ptr_if( __idx<fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM ), accts, alt_adj )+__idx; \
        }))
 
-#define MAX_WRITERS_PER_BLOCK 245376UL /* floor(75M/(128*300+720))*128 */
+/* 62,500,000 CUs gets 3137 transactions with 64 writers and one with 34
+   writers for a total of 200,802.  Then we add 8k for inflation
+   rewards, 10 for sysvars, 4000 for vote accounts, and a bit of
+   padding. */
+#define MAX_WRITERS_PER_BLOCK 217354UL
 
 ulong fd_rdisp_align( void ) { return 128UL; }
 
@@ -915,6 +920,7 @@ fd_rdisp_add_block( fd_rdisp_t          * disp,
   block->staged       = staging_lane!=FD_RDISP_UNSTAGED;
   block->staging_lane = (uint)(staging_lane & 0x3UL);
   block->last_insert_was_serializing = 0U;
+  block->inserted_extra_ptxn         = 0U;
 
   block->inserted_cnt     = 0U;
   block->dispatched_cnt   = 0U;
@@ -2000,14 +2006,152 @@ fd_rdisp_add_pseudo_txn( fd_rdisp_t          *  disp,
   return ptxn_idx;
 }
 
+int
+fd_rdisp_add_writable( fd_rdisp_t           * disp,
+                       FD_RDISP_BLOCK_TAG_T   insert_block,
+                       fd_acct_addr_t const * addr ) {
+  fd_rdisp_blockinfo_t * block   = block_map_ele_query( disp->blockmap, &insert_block, NULL, disp->block_pool );
+  if( FD_UNLIKELY( !block || !block->insert_ready ) ) return -1;
+
+  if( FD_LIKELY( block->staged ) ) {
+    ulong idx  = lookup_pubkey( disp, addr );
+    ulong lane = block->staging_lane;
+    if( FD_LIKELY( fd_rdisp_mq_test( disp->mq, idx, block->staging_lane ) ) ) return 0;
+
+    acct_info_t * ai = disp->acct_pool+idx;
+    uint states = ai->states;
+    states = fd_uint_if( ACCT_INFO_STATE_IS( states, lane, NO_WRITERS ), ACCT_INFO_STATE_SET( states, lane, NEEDS_PTXN ), states );
+    ai->states = (uchar)states;
+    fd_rdisp_mq_insert( disp->mq, idx, lane, 0.0f );
+    return 1;
+  } else {
+    ustlt_key_t query[1] = {{
+      .block_idx = (uint)(block-disp->block_pool),
+      .acct      = *addr
+    }};
+    int new = (ustlt_map_idx_query( disp->ustlt_map, query, ULONG_MAX, disp->ustlt_pool )==ULONG_MAX);
+    if( FD_LIKELY( !new ) ) return 0;
+
+    ulong ustlt_idx = ustlt_dlist_idx_pop_head( disp->ustlt_free, disp->ustlt_pool );
+    disp->ustlt_pool[ ustlt_idx ].key = *query;
+    ustlt_map_idx_insert( disp->ustlt_map, ustlt_idx, disp->ustlt_pool );
+    ustlt_dlist_idx_push_tail( block->ustlt_needed, ustlt_idx, disp->ustlt_pool );
+    return 1;
+  }
+}
+
+ulong
+fd_rdisp_add_extra_pseudo_txn( fd_rdisp_t           * disp,
+                               FD_RDISP_BLOCK_TAG_T   schedule_block,
+                               fd_acct_addr_t const * addr ) {
+  fd_rdisp_blockinfo_t * block   = block_map_ele_query( disp->blockmap, &schedule_block, NULL, disp->block_pool );
+  if( FD_UNLIKELY( !block || !block->schedule_ready ) ) return 0UL;
+
+  uint ptxn_idx;
+
+  if( FD_LIKELY( block->staged ) ) {
+    ulong idx  = lookup_pubkey( disp, addr );
+    uint  lane = block->staging_lane;
+
+    acct_info_t * ai = disp->acct_pool+idx;
+    edge_t last = ai->last_reference[lane];
+    int insert_inline = 0;
+    if( FD_UNLIKELY( block->insert_ready ) ) {
+      insert_inline = 1;
+    } else if( FD_UNLIKELY( EDGE_IS_PTXN(last) ) ) {
+      /* If this is for the right block, we got lucky */
+      fd_rdisp_ptxn_t const * ptxn = disp->ptxn_pool + EDGE_SPECIAL_IDX(last);
+      if( FD_UNLIKELY( (ptxn->edge_cnt_etc>>16)==(0xFFFF&block->linear_block_number) ) ) return last;
+    } else if( FD_UNLIKELY( last==0U ) ) {
+      insert_inline=1;
+    } else {
+      fd_rdisp_txn_t const * txn = FOLLOW_EDGE_TXN( disp, last );
+      insert_inline = (txn->edge_cnt_etc>>16)==(0xFFFF&block->linear_block_number);
+    }
+
+    /* If we haven't inserted an extra ptxn yet, and we're inserting
+       inline, treat this as a normal non-seralizing transaction.  ... */
+    if( FD_UNLIKELY( insert_inline && block->last_insert_was_serializing && !block->inserted_extra_ptxn ) ) {
+      block->last_serializing = block->inserted_cnt;
+      block->last_insert_was_serializing = 0U;
+    } else if( FD_UNLIKELY( !insert_inline && !block->inserted_extra_ptxn ) ) {
+      /* Otherwise, if this is the first non-inline one, bump
+         last_serializing once and don't touch it again.  The block
+         can't be insert-ready, so we won't insert any other
+         transactions that aren't from this function. */
+      block->last_serializing = block->inserted_cnt;
+      block->last_insert_was_serializing = 0U;
+      block->inserted_extra_ptxn = 1;
+    }
+
+    fd_rdisp_ptxn_t * ptxn = ptxn_pool_ele_acquire( disp->ptxn_pool );
+    ptxn_idx = EDGE_MAKE_SPECIAL(PTXN, (uint)(ptxn - disp->ptxn_pool));
+    if( FD_LIKELY( insert_inline ) ) {
+      /* What follows below is essentially the same as the normal
+         add_pseudo_txn case */
+      ptxn->in_degree = 0U;
+      ptxn->score = (ai->ema_refs<FD_RDISP_MAX_SCORE ? ai->ema_refs : FD_RDISP_MAX_SCORE) + (float)block->last_serializing;
+      ptxn->edge_cnt_etc = ((block->linear_block_number<<16) | (lane<<14)) - 1U;
+      add_edges( disp, (fd_rdisp_txn_t *)fd_type_pun( ptxn ), &(ai->key), 1UL, lane, 0, 0, NULL, 0UL );
+      FD_COMPILER_MFENCE();
+      ptxn->edge_cnt_etc += 1U<<7;
+      ptxn->last = EDGE_MAKE_SPECIAL(LAST, (uint)idx);
+
+      uint states = ai->states;
+      states = fd_uint_if( ACCT_INFO_STATE_IS( states, lane, NEEDS_PTXN ), ACCT_INFO_STATE_SET( states, lane, NO_WRITERS ), states );
+      ai->states = (uchar)states;
+
+      if( FD_LIKELY( ptxn->in_degree==0U ) ) {
+        pending_prq_ele_t temp[1] = {{ .score = ptxn->score, .linear_block_number = block->linear_block_number, .txn_idx = ptxn_idx }};
+        pending_prq_insert( disp->lanes[ block->staging_lane ].pending, temp );
+      }
+    } else {
+      /* Otherwise there's already a transaction for a later block in
+         the DAG for this account, we insert a hacky 0-edge pseudo-txn
+         and make use of the serializing functionality to make sure it
+         executes after all the transactions.  Since this block is not
+         insert-ready, we don't need to worry about preventing later
+         transactions from happening before this one. */
+
+      ptxn->in_degree = 0U;
+      ptxn->edge_cnt_etc = ((block->linear_block_number<<16) | (lane<<14)); /* r_cnt==0, w_cnt is ignored */
+      ptxn->score = (ai->ema_refs<FD_RDISP_MAX_SCORE ? ai->ema_refs : FD_RDISP_MAX_SCORE) + (float)block->last_serializing;
+      ptxn->last = EDGE_MAKE_SPECIAL(LAST, (uint)idx);
+      /* We know that there's a transaction that must execute after this
+         one in the DAG, so the account info can't get freed until after
+         this transaction has completed.  That means we don't need to
+         touch ai->states. */
+      pending_prq_ele_t temp[1] = {{ .score = ptxn->score, .linear_block_number = block->linear_block_number, .txn_idx = ptxn_idx }};
+      pending_prq_insert( disp->lanes[ block->staging_lane ].pending, temp );
+    }
+  } else {
+    ulong ustlt_idx = ustlt_dlist_idx_pop_head( disp->ustlt_free, disp->ustlt_pool );
+    disp->ustlt_pool[ ustlt_idx ].key.block_idx = (uint)(block-disp->block_pool);
+    disp->ustlt_pool[ ustlt_idx ].key.acct      = *addr;
+
+    fd_rdisp_ptxn_t * ptxn = ptxn_pool_ele_acquire( disp->ptxn_pool );
+    ptxn_idx = EDGE_MAKE_SPECIAL(PTXN, (uint)(ptxn - disp->ptxn_pool));
+
+    ptxn->in_degree = IN_DEGREE_UNSTAGED;
+    ptxn->score = 0.0f;
+    ptxn->edge_cnt_etc = 0U;
+    ptxn->last = (uint)ustlt_idx;
+
+    disp->ustlt_pool[ ustlt_idx ].ptxn_idx = (uint)(ptxn - disp->ptxn_pool);
+    ustlt_dlist_idx_push_tail( block->ustlt_created, ustlt_idx, disp->ustlt_pool );
+  }
+  block->inserted_cnt++;
+  return ptxn_idx;
+}
+
 void
 fd_rdisp_verify( fd_rdisp_t const * disp,
                  uint             * scratch ) {
   ulong acct_depth  = disp->depth*FD_RDISP_MAX_ACCT_PER_TXN;
   ulong block_depth = disp->block_depth;
-  FD_TEST( 0==acct_map_verify ( disp->acct_map,  acct_depth+1UL,  disp->acct_pool ) );
+  FD_TEST( 0==acct_map_verify ( disp->acct_map,  acct_depth +1UL, disp->acct_pool  ) );
   FD_TEST( 0==block_map_verify( disp->blockmap,  block_depth+1UL, disp->block_pool ) );
-  FD_TEST( 0==ustlt_map_verify( disp->ustlt_map, acct_depth+1UL,  disp->ustlt_pool ) );
+  FD_TEST( 0==ustlt_map_verify( disp->ustlt_map, acct_depth +1UL, disp->ustlt_pool ) );
 
   /* Every element of the free list that is in the map is CACHED under
      its own key, every element in the map is either ACTIVE with a
