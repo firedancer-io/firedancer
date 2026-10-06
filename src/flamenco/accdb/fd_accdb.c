@@ -1115,6 +1115,19 @@ deferred_acc_append( fd_accdb_t * accdb,
   accdb->deferred_acc_buf[ shmem->deferred_acc_buf_cnt++ ] = acc_idx;
 }
 
+/* Load a chain head, waiting while the snapshot loader holds the
+   chain locked (see fd_accdb_snapshot_write_batch). */
+
+static inline uint
+fd_accdb_chain_head( uint const * head ) {
+  for(;;) {
+    uint acc = FD_VOLATILE_CONST( *head );
+    if( FD_LIKELY( acc!=FD_ACCDB_CHAIN_LOCKED ) ) return acc;
+    fd_racesan_hook( "accdb_chain_head:locked" );
+    FD_SPIN_PAUSE();
+  }
+}
+
 /* Splice acc_idx out of the interior of a chain.  prev is the node
    that preceded it when the caller walked the chain.  The snapshot
    loader may since have inserted a node between the two (task 2), so
@@ -4264,6 +4277,8 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
       }
       FD_SPIN_PAUSE();
     }
+
+    fd_racesan_hook( "accdb_snapshot_write:locked" );
 
     fd_accdb_accmeta_t * existing       = NULL;
     fd_accdb_accmeta_t * cross_existing = NULL; /* cross-fork dup (incremental only) */

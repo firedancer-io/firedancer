@@ -254,6 +254,12 @@ struct fiber {
     } release_write;
 
     struct {
+      uchar              pubkey[ 32UL ];
+      ulong              slot;
+      ulong              lamports;
+    } snapshot_write;
+
+    struct {
       fd_accdb_fork_id_t fork_id;
       uchar              pubkey[ 32UL ];
       /* The writer always commits a self-consistent pair: owner byte 0
@@ -408,6 +414,61 @@ fiber_release_write( fiber_t *          fiber,
   fiber->release_write.lamports = lamports;
   memcpy( fiber->release_write.pubkey, pubkey, 32UL );
   fd_racesan_async_new( fiber->async, fiber->stack, FIBER_STACK_MAX, fiber_release_write_exec, fiber );
+  return fiber->async;
+}
+
+/* snapshot-write fiber: one full-mode snapshot write of pubkey at slot
+   with lamports and zero data, following the mechanics of
+   test_write_batch in test_accdb.c (reserve the disk range, pwrite the
+   header, then call fd_accdb_snapshot_write_batch, and assert it
+   reports success).  This fiber takes the accdb_snapshot_write:locked
+   hook while it holds the pubkey's chain lock (see
+   fd_accdb_snapshot_write_batch in fd_accdb.c). */
+
+static void
+fiber_snapshot_write_exec( void * _ctx ) {
+  fiber_t * f = _ctx;
+  uchar const * pks        [1] = { f->snapshot_write.pubkey  };
+  ulong         slots      [1] = { f->snapshot_write.slot    };
+  ulong         lamports   [1] = { f->snapshot_write.lamports };
+  ulong         data_lens  [1] = { 0UL };
+  int           executables[1] = { 0 };
+  ulong         file_offsets[1];
+
+  ulong file_off = fd_accdb_snapshot_reserve_write( f->accdb, sizeof(fd_accdb_disk_meta_t) );
+  file_offsets[0] = file_off;
+
+  fd_accdb_disk_meta_t meta;
+  memcpy( meta.pubkey, f->snapshot_write.pubkey, 32UL );
+  meta.size       = 0U;
+  meta.generation = 0U;
+  memset( meta.owner, 0, 32UL );
+  FD_TEST( pwrite( g_fd, meta.b, sizeof(meta), (long)file_off )==(long)sizeof(meta) );
+
+  ulong ignored;
+  ulong replaced;
+  ulong loaded;
+  ulong replaced_lamports;
+  ulong ignored_lamports;
+  uchar results[1];
+  int err = fd_accdb_snapshot_write_batch( f->accdb, SENTINEL, 1UL, pks, slots, lamports,
+                                           data_lens, executables, file_offsets,
+                                           &ignored, &replaced, &loaded,
+                                           &replaced_lamports, &ignored_lamports, results );
+  FD_TEST( !err );
+}
+
+static fd_racesan_async_t *
+fiber_snapshot_write( fiber_t *     fiber,
+                      fd_accdb_t *  accdb,
+                      uchar const * pubkey,
+                      ulong         slot,
+                      ulong         lamports ) {
+  fiber->accdb                    = accdb;
+  fiber->snapshot_write.slot      = slot;
+  fiber->snapshot_write.lamports = lamports;
+  memcpy( fiber->snapshot_write.pubkey, pubkey, 32UL );
+  fd_racesan_async_new( fiber->async, fiber->stack, FIBER_STACK_MAX, fiber_snapshot_write_exec, fiber );
   return fiber->async;
 }
 
@@ -1034,6 +1095,52 @@ test_acquire_vs_release( void ) {
   join_delete( ctl );
   join_delete( jr );
   join_delete( jw );
+  test_shmem_delete();
+}
+
+/* A live commit prepends a new version of key on fork b while the
+   snapshot loader writes the same key.  Whichever lands first, the
+   commit must never be lost and the loaded node must sit behind it:
+   fork b reads the committed value and the root reads the loaded
+   value. */
+
+static void
+test_release_vs_snapshot_write( void ) {
+  test_shmem_new();
+  fd_accdb_t * ctl = join_new();
+  fd_accdb_t * jw  = join_new();
+  fd_accdb_t * jl  = join_new();
+
+  uchar key[ 32UL ]; mk_key( 43UL, key );
+
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( ctl, SENTINEL );
+  fd_accdb_snapshot_load_begin( ctl );
+
+  for( ulong i=0UL; i<ITER_DEFAULT; i++ ) {
+    fd_accdb_fork_id_t b = fd_accdb_attach_child( ctl, root );
+
+    fd_racesan_weave_t w[1];
+    fd_racesan_weave_new( w );
+    fd_racesan_weave_add( w, fiber_release_write ( &g_fiber[0], jw, b, key, 400UL+i ) );
+    fd_racesan_weave_add( w, fiber_snapshot_write( &g_fiber[1], jl, key, 10UL+i, 100UL+i ) );
+    fd_racesan_weave_exec_rand( w, fd_ulong_hash( i ^ g_seed_base ), STEP_MAX );
+    FD_TEST( !w->rem_cnt );
+    fd_racesan_weave_delete( w );
+    fiber_done( &g_fiber[0] );
+    fiber_done( &g_fiber[1] );
+
+    FD_TEST( fd_accdb_lamports( ctl, b,    key )==400UL+i );
+    FD_TEST( fd_accdb_lamports( ctl, root, key )==100UL+i );
+
+    /* The weave is over, so nothing inserts while b is removed. */
+    fd_accdb_purge( ctl, b );
+    drain_background( ctl );
+  }
+
+  fd_accdb_snapshot_load_end( ctl );
+  join_delete( ctl );
+  join_delete( jw );
+  join_delete( jl );
   test_shmem_delete();
 }
 
@@ -3360,6 +3467,7 @@ main( int     argc,
     TEST( test_acquire_vs_advance_sibling ),
     TEST( test_acquire_interior_unlink ),
     TEST( test_acquire_vs_release ),
+    TEST( test_release_vs_snapshot_write ),
     TEST( test_acquire_vs_purge ),
     TEST( test_cold_load_same ),
     TEST( test_cold_load_evict ),
