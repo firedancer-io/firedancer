@@ -1006,6 +1006,57 @@ new_sched( fd_rng_t * rng, void ** mem_out, ulong block_cnt_max ) {
   return sched;
 }
 
+/* A block start that was handed out but not completed keeps its block
+   active.  An empty partial block has nothing to dispatch, so unless
+   the open start counts as in flight the next FEC ingest finds the
+   active block deactivatable and aborts. */
+
+static void
+run_held_block_start_case( void ) {
+  fd_rng_t rng[1]; fd_rng_join( fd_rng_new( rng, 0U, 0UL ) );
+  void * mem;
+  fd_sched_t * sched = new_sched( rng, &mem, 8UL );
+
+  fd_sched_block_add_done( sched, 1UL, ULONG_MAX, TEST_ROOT_SLOT );
+  FD_TEST( add_live_block( sched, 2UL, 1UL, TEST_ROOT_SLOT+1UL, TEST_ROOT_SLOT ) );
+
+  fd_hash_t start_poh[ 1 ];
+  hash_from_seed( start_poh, 0x5d3b1c90a7e46f22UL );
+  fd_sched_set_poh_params( sched, 2UL, TEST_ROOT_TICK_HEIGHT+1UL, TEST_ROOT_TICK_HEIGHT+2UL, 1UL, start_poh );
+
+  fd_sched_task_t task[ 1 ];
+  FD_TEST( 1UL==fd_sched_task_next_ready( sched, task ) );
+  FD_TEST( task->task_type==FD_SCHED_TT_BLOCK_START );
+  FD_TEST( task->block_start->bank_idx==2UL );
+  FD_TEST( fd_sched_active_bank_idx( sched )==2UL );
+
+  /* Hold the start open across another empty FEC for the same block. */
+  fd_store_fec_t store_fec[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
+  fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
+  fd_sched_fec_t fec[ 1 ] = {{
+    .bank_idx          = 2UL,
+    .parent_bank_idx   = 1UL,
+    .slot              = TEST_ROOT_SLOT+1UL,
+    .parent_slot       = TEST_ROOT_SLOT,
+    .fec               = store_fec,
+    .shred_cnt         = 1U,
+    .is_last_in_batch  = 0U,
+    .is_last_in_block  = 0U,
+    .is_first_in_block = 0U
+  }};
+  FD_TEST( fd_sched_fec_ingest( sched, fec ) );
+  FD_TEST( fd_sched_active_bank_idx( sched )==2UL );
+  FD_TEST( !fd_sched_is_drained( sched ) );
+
+  /* Completing the start lets the scheduler move on as it always did:
+     the empty partial block has nothing left to dispatch. */
+  FD_TEST( 0==fd_sched_task_done( sched, FD_SCHED_TT_BLOCK_START, ULONG_MAX, ULONG_MAX, NULL ) );
+  FD_TEST( fd_sched_active_bank_idx( sched )==ULONG_MAX );
+
+  fd_sched_delete( fd_sched_leave( sched ) );
+  free( mem );
+}
+
 /* A block given up on without fault keeps a clean dead reason and
    raises the discarded flag, and blocks that later arrive under it
    inherit that flavor rather than looking ruled-invalid.  A block ruled
@@ -1442,6 +1493,7 @@ main( int     argc,
   run_many_entries_cases();
   run_poh_spread_cases();
   run_interleaved_fec_residual_case();
+  run_held_block_start_case();
   run_abandon_flavor_case();
   run_root_notify_flavor_case();
   run_late_ancestor_discard_case();

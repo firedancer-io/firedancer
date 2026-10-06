@@ -484,9 +484,18 @@ block_is_dispatchable( fd_sched_block_t * block ) {
          block_will_signal_end( block );
 }
 
+/* A start or an end that was handed out but not completed counts as in
+   flight, so nothing deactivates, demotes or abandons the block out
+   from under whoever is holding it.  Callers normally complete a start
+   in the same breath as taking it, so no other code sees that window;
+   the replay tile holds one open while instant boot waits, and an
+   empty partial block has nothing else to keep it active. */
+
 static inline int
 block_is_in_flight( fd_sched_block_t * block ) {
-  return block->txn_exec_in_flight_cnt || block->txn_sigverify_in_flight_cnt || block->poh_hashing_in_flight_cnt || (block->block_end_signaled && !block->block_end_done);
+  return block->txn_exec_in_flight_cnt || block->txn_sigverify_in_flight_cnt || block->poh_hashing_in_flight_cnt ||
+         (block->block_start_signaled && !block->block_start_done) ||
+         (block->block_end_signaled && !block->block_end_done);
 }
 
 static inline int
@@ -3397,6 +3406,14 @@ subtree_mark_and_maybe_prune_rdisp( fd_sched_t * sched, fd_sched_block_t * block
       sched->last_active_bank_idx = sched->active_bank_idx;
       sched->active_bank_idx = ULONG_MAX;
       sched->metrics->deactivate_abandoned_cnt++;
+    }
+
+    /* A start that was handed out but never completed is taken back
+       here.  Otherwise it would count as in flight forever and the
+       block, which is on its way down, would never be abandoned.  The
+       holder sees the scheduler has moved on and drops it. */
+    if( FD_UNLIKELY( block->block_start_signaled && !block->block_start_done ) ) {
+      block->block_start_signaled = 0;
     }
 
     /* We inform the dispatcher of an abandon only when there are no

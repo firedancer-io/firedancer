@@ -3019,8 +3019,6 @@ try_replay( fd_replay_tile_t *  ctx,
         ctx->held_block_start.bank_seq        = start_bank->bank_seq;
         ctx->held_block_start.parent_bank_idx = task->block_start->parent_bank_idx;
         ctx->held_block_start.slot            = task->block_start->slot;
-        /* Drop a start that is already unusable instead of parking it. */
-        held_block_start_live( ctx );
         break;
       }
       replay_block_start( ctx, task->block_start->bank_idx, task->block_start->parent_bank_idx, task->block_start->slot );
