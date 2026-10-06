@@ -1344,6 +1344,13 @@ fd_topo_initialize( config_t * config ) {
     fd_topo_obj_t * dc_ticket_obj = fd_topob_obj_named( topo, "fseq", "snapdc", "frame_ticket" );
     FOR(snapdc_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapdc", i ) ], dc_ticket_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
+    /* The stream decompressor has its own frame ticket, so it does not
+       share a frame counter with the snapshot pipeline. */
+    if( instant_boot ) {
+      fd_topo_obj_t * str_ticket_obj = fd_topob_obj_named( topo, "fseq", "strdc", "frame_ticket" );
+      fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "strdc", 0UL ) ], str_ticket_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+    }
+
     FOR(snapin_tile_cnt) {
       fd_topo_tile_t * snapin_tile = &topo->tiles[ fd_topo_find_tile( topo, "snapin", i ) ];
       fd_topob_tile_uses( topo, snapin_tile, accdb_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
@@ -1495,7 +1502,10 @@ parse_listen_addr( char const *    cstr,
 void
 fd_topo_configure_tile( fd_topo_tile_t * tile,
                         fd_config_t *    config ) {
-  int instant_boot = !!config->gossip.entrypoints_cnt && config->firedancer.snapshots.instant_boot.enabled;
+  /* Instant boot is on for this topology only if the stream tiles and
+     their shared counters were created, so a development topology that
+     skips them never sets the flag. */
+  int instant_boot = fd_pod_query_ulong( config->topo.props, "instant_boot_done", ULONG_MAX )!=ULONG_MAX;
 
   if( FD_UNLIKELY( !strcmp( tile->name, "metric" ) ) ) {
 

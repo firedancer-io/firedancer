@@ -2316,9 +2316,15 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->lead.blockhash_groups = NULL;
   txncache_staging_reset( ctx );
 
-  ctx->lead.bank = fd_banks_init_bank( banks );
-  FD_TEST( ctx->lead.bank );
-  FD_TEST( ctx->lead.bank->idx==0UL );
+  /* The lead snapin tile creates bank 0; the stream tile only parses
+     and writes. */
+  if( FD_LIKELY( !tile->snapin.stream ) ) {
+    ctx->lead.bank = fd_banks_init_bank( banks );
+    FD_TEST( ctx->lead.bank );
+    FD_TEST( ctx->lead.bank->idx==0UL );
+  } else {
+    ctx->lead.bank = NULL;
+  }
 
   ctx->lead.manifest_parser = fd_ssmanifest_parser_join( fd_ssmanifest_parser_new( _manifest_parser ) );
   FD_TEST( ctx->lead.manifest_parser );

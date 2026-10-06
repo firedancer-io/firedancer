@@ -460,7 +460,16 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->state    = FD_SNAPSHOT_STATE_IDLE;
   ctx->tile_idx = tile->kind_id;
 
-  fd_topo_obj_t const * ticket_obj = fd_topo_find_obj( topo, "fseq", "frame_ticket", ULONG_MAX );
+  /* The snapshot and the instant boot stream pipelines each have their
+     own frame ticket, so take the one this tile was given. */
+  fd_topo_obj_t const * ticket_obj = NULL;
+  for( ulong i=0UL; i<tile->uses_obj_cnt; i++ ) {
+    fd_topo_obj_t const * obj = &topo->objs[ tile->uses_obj_id[ i ] ];
+    if( FD_UNLIKELY( !strcmp( obj->name, "fseq" ) && !strcmp( obj->label, "frame_ticket" ) ) ) {
+      ticket_obj = obj;
+      break;
+    }
+  }
   FD_TEST( ticket_obj );
   ctx->next_frame_ticket = fd_fseq_join( fd_topo_obj_laddr( topo, ticket_obj->id ) );
   FD_TEST( ctx->next_frame_ticket );
@@ -472,8 +481,8 @@ unprivileged_init( fd_topo_t const *      topo,
   reset_stream( ctx );
   fd_memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
 
-  if( FD_UNLIKELY( tile->in_cnt !=1UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu ins, expected 1",  tile->in_cnt  ));
-  if( FD_UNLIKELY( tile->out_cnt!=1UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu outs, expected 1", tile->out_cnt ));
+  if( FD_UNLIKELY( tile->in_cnt !=1UL ) ) FD_LOG_ERR(( "tile `%s` has %lu ins, expected 1",  tile->name, tile->in_cnt  ));
+  if( FD_UNLIKELY( tile->out_cnt!=1UL ) ) FD_LOG_ERR(( "tile `%s` has %lu outs, expected 1", tile->name, tile->out_cnt ));
 
   /* The instant boot decompressor feeds the stream parser instead. */
   int stream = 0==strcmp( tile->name, "strdc" );
