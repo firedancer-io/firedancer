@@ -139,9 +139,10 @@ struct snapsv_conn {
   struct {
     ulong req_seq;  /* seq no of this HTTP request */
     uint  len;
-    uint  head:1;        /* HEAD request? */
-    uint  get_snap:1;    /* GET request for a snapshot? (streaming) */
-    uint  incremental:1; /* incremental snap requested? */
+    uint  head:1;         /* HEAD request? */
+    uint  get_snap:1;     /* GET request for a snapshot? (streaming) */
+    uint  incremental:1;  /* incremental snap requested? */
+    uint  redirect_key:1; /* redirect to snap.key, not to the newest snap? */
   } req;
 
   struct {
@@ -1524,7 +1525,8 @@ serve_redirect( fd_snapsv_t * ctx,
   snapsv_conn_t * conn = &ctx->conn0[ conn_idx ];
   FD_CHECK_ERR( conn->state==CONN_STATE_RES_REDIRECT, "state confusion" );
 
-  snap_entry_t * snap = newest_snap( ctx, conn->req.incremental );
+  snap_entry_t * snap = conn->req.redirect_key ? snap_map_update( ctx->snap_map, &conn->snap.key )
+                                              : newest_snap( ctx, conn->req.incremental );
   if( FD_UNLIKELY( !snap ) ) {
     conn->state      = CONN_STATE_RES_WRITE_ERR;
     conn->res.status = 404U;
@@ -1636,6 +1638,23 @@ boot_file_sz( fd_snapsv_t const * ctx,
   return (ulong)st.st_size;
 }
 
+/* parse_slot parses a decimal slot number that takes the whole of
+   path[ path_len ].  Returns ULONG_MAX if it does not. */
+
+static ulong
+parse_slot( char const * path,
+            ulong        path_len ) {
+  if( FD_UNLIKELY( !path_len || path_len>20UL ) ) return ULONG_MAX;
+  ulong slot = 0UL;
+  for( ulong i=0UL; i<path_len; i++ ) {
+    if( FD_UNLIKELY( path[ i ]<'0' || path[ i ]>'9' ) ) return ULONG_MAX;
+    uint digit = (uint)( path[ i ]-'0' );
+    if( FD_UNLIKELY( slot>(ULONG_MAX-digit)/10UL ) ) return ULONG_MAX;
+    slot = slot*10UL + digit;
+  }
+  return slot;
+}
+
 /* match_boot_path parses an instant boot request path, which is either
    "boot/index" or "boot/<slot>.tar.zst".  Returns the boot file index,
    which is boot_max for the index file, or ULONG_MAX if there is no
@@ -1652,17 +1671,56 @@ match_boot_path( fd_snapsv_t const * ctx,
   if( path_len==5UL && !memcmp( path, "index", 5UL ) ) return ctx->boot_max;
 
   if( FD_UNLIKELY( path_len<=8UL || memcmp( path+path_len-8UL, ".tar.zst", 8UL ) ) ) return ULONG_MAX;
-  ulong slot = 0UL;
-  for( ulong i=0UL; i<path_len-8UL; i++ ) {
-    if( FD_UNLIKELY( path[ i ]<'0' || path[ i ]>'9' ) ) return ULONG_MAX;
-    uint digit = (uint)( path[ i ]-'0' );
-    if( FD_UNLIKELY( slot>(ULONG_MAX-digit)/10UL ) ) return ULONG_MAX;
-    slot = slot*10UL + digit;
-  }
+  ulong slot = parse_slot( path, path_len-8UL );
+  if( FD_UNLIKELY( slot==ULONG_MAX ) ) return ULONG_MAX;
   for( ulong i=0UL; i<ctx->boot_max; i++ ) {
     if( ctx->boot_slot[ i ]==slot ) return i;
   }
   return ULONG_MAX;
+}
+
+/* match_boot_snap_path parses "boot/<slot>/full" and
+   "boot/<slot>/incremental", which a booting peer asks for to learn
+   the file names of the snapshot pair a boot stream chains off.
+   Writes the key of the snapshot it asks for and returns 1, or returns
+   0 if the path is not one of these. */
+
+static int
+match_boot_snap_path( fd_snapsv_t *  ctx,
+                      char const *   path,
+                      ulong          path_len,
+                      snap_key_t *   out_key,
+                      int *          out_incremental ) {
+  if( FD_LIKELY( path_len<5UL || memcmp( path, "boot/", 5UL ) ) ) return 0;
+  path     += 5UL;
+  path_len -= 5UL;
+
+  char const * sep = memchr( path, '/', path_len );
+  if( FD_UNLIKELY( !sep ) ) return 0;
+  ulong name_len = path_len - (ulong)( sep+1UL-path );
+  if( FD_LIKELY( name_len==4UL && !memcmp( sep+1UL, "full", 4UL ) ) ) {
+    *out_incremental = 0;
+  } else if( FD_LIKELY( name_len==11UL && !memcmp( sep+1UL, "incremental", 11UL ) ) ) {
+    *out_incremental = 1;
+  } else {
+    return 0;
+  }
+
+  /* The pair is named by the incremental at the stream's slot: the
+     full snapshot it asks for is that incremental's base. */
+  ulong slot = parse_slot( path, (ulong)( sep-path ) );
+  if( FD_UNLIKELY( slot==ULONG_MAX ) ) return 0;
+  snap_entry_t * entry0  = snap_map_ele0( ctx->snap_map );
+  ulong          ele_max = snap_map_ele_max( ctx->snap_map );
+  for( ulong i=0UL; i<ele_max; i++ ) {
+    snap_entry_t * e = &entry0[ i ];
+    if( snap_map_ele_is_free( e ) ) continue;
+    if( e->key.base_slot==ULONG_MAX || e->key.slot!=slot ) continue;
+    *out_key = *out_incremental ? e->key : (snap_key_t){ e->key.base_slot, ULONG_MAX };
+    return 1;
+  }
+  *out_key = (snap_key_t){ ULONG_MAX, ULONG_MAX };
+  return 1;
 }
 
 /* parse_range_header parses a 'Range: bytes=start-end' header.
@@ -1875,12 +1933,14 @@ handle_peek( fd_snapsv_t *       ctx,
     return;
   }
 
-  conn->snap.range    = 0U;
-  conn->snap.boot     = 0U;
-  conn->snap.key      = (snap_key_t){ ULONG_MAX, ULONG_MAX };
-  conn->snap.slot     = NULL;
-  conn->snap.req_off0 = 0UL;
-  conn->snap.req_off1 = 0UL;
+  conn->snap.range       = 0U;
+  conn->snap.boot        = 0U;
+  conn->req.redirect_key = 0U;
+  conn->snap.key         = (snap_key_t){ ULONG_MAX, ULONG_MAX };
+  conn->snap.slot        = NULL;
+  conn->snap.req_off0    = 0UL;
+  conn->snap.req_off1    = 0UL;
+  conn->snap.req_sent    = 0UL;
 
   /* strip leading slashes */
   if( FD_UNLIKELY( path_len<10    ) ) goto not_found;
@@ -1908,12 +1968,28 @@ handle_peek( fd_snapsv_t *       ctx,
     }
   }
 
+  /* asking for the snapshot pair a boot stream chains off? */
+  if( FD_UNLIKELY( ctx->boot_max ) ) {
+    int incremental;
+    if( FD_UNLIKELY( match_boot_snap_path( ctx, path, path_len, &query, &incremental ) ) ) {
+      if( FD_UNLIKELY( query.slot==ULONG_MAX ) ) goto not_found;
+      conn->state            = CONN_STATE_RES_REDIRECT;
+      conn->snap.key         = query;
+      conn->req.incremental  = !!incremental;
+      conn->req.redirect_key = 1;
+      return;
+    }
+  }
+
   /* found a boot stream or the boot index?  Their size is read on
      every request, because a stream grows while it is served. */
   if( FD_UNLIKELY( ctx->boot_max ) ) {
     ulong boot_idx = match_boot_path( ctx, path, path_len );
     if( FD_UNLIKELY( boot_idx!=ULONG_MAX ) ) {
       ulong file_sz = boot_file_sz( ctx, boot_idx );
+      /* An empty index means no stream is being served.  The booting
+         side treats an empty body as an error, so say so plainly. */
+      if( FD_UNLIKELY( boot_idx==ctx->boot_max && !file_sz ) ) goto not_found;
       conn->state         = CONN_STATE_RES_WRITE_HDR;
       conn->snap.boot     = 1U;
       conn->snap.boot_idx = (uint)boot_idx;

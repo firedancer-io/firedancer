@@ -7,54 +7,1187 @@
    stream's start slot through a read-only accounts join, and the
    snapsv tile serves the files over HTTP.
 
+   A stream opens with the fixed part of a Solana snapshot: the version
+   file, the manifest and the status cache of its start slot, followed
+   by one appendvec holding the accounts a booting peer needs before it
+   has seen any block.  After that every block the validator replays
+   adds one appendvec named after the block's slot, holding the
+   accounts that block is the first to touch since the stream started,
+   read at the block's parent fork, which is where they still have
+   their value as of the start slot.
+
    This tile owns a fixed pool of files in a directory below the
-   snapshots directory: one file per open stream, the index, and the
-   scratch file that the index is renamed from.  The files are opened
-   before the sandbox starts, because the sandbox bans opening
-   files. */
+   snapshots directory: one file per open stream plus the index.  The
+   files are opened before the sandbox starts, because the sandbox bans
+   opening files. */
 
 #define _GNU_SOURCE
+#define ZSTD_STATIC_LINKING_ONLY
+#include <zstd.h>
+#include <errno.h>
 #include <linux/futex.h>
 #include <string.h>
+#include <sys/syscall.h>
 
 #include "fd_strmk_tile.h"
 #include "fd_snapmk_tile.h"
+#include "fd_ssmanifest_writer.h"
+#include "fd_txncache_writer.h"
+#include "../replay/fd_replay_tile.h"
 #include "../../disco/stem/fd_stem.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../flamenco/accdb/fd_accdb.h"
+#include "../../flamenco/alpenglow/fd_alpenglow.h"
+#include "../../flamenco/features/fd_features.h"
 #include "../../flamenco/runtime/fd_bank.h"
+#include "../../flamenco/runtime/fd_system_ids.h"
 #include "../../flamenco/runtime/fd_txncache.h"
+#include "../../flamenco/runtime/program/fd_bpf_loader_program.h"
+#include "../../flamenco/runtime/sysvar/fd_sysvar_cache_private.h"
 #include "../../tango/fseq/fd_fseq.h"
 
 #include "generated/fd_strmk_tile_seccomp.h"
 
+/* One tar entry is staged uncompressed, then compressed into one
+   Zstandard frame and written out, so the stage bounds how large an
+   appendvec can be.  A block whose accounts do not fit is split into
+   overflow files. */
+
+#define STRMK_RAW_BUF_SZ  (64UL<<20)
+#define STRMK_COMP_BUF_SZ ( 4UL<<20)
+
+/* STRMK_BLOCK_MAX bounds the blocks in flight, which replay bounds the
+   same way with the ring of bank references it hands out. */
+
+#define STRMK_BLOCK_MAX (64UL)
+
+/* The blocks in flight share a pool of key chunks.  A block links the
+   chunks it filled and gives all of them back when it ends.  A block
+   that finds the pool empty is incomplete, which breaks every stream,
+   so the pool holds many more keys than a block resolves. */
+
+#define STRMK_CHUNK_KEY_MAX (4096UL)
+#define STRMK_CHUNK_MAX     ( 256UL)
+
+/* A sent set is only probed while it is at most this full, past which
+   its stream closes.  Open addressing degrades badly near capacity. */
+
+#define STRMK_SENT_LOAD_NUM (3UL)
+#define STRMK_SENT_LOAD_DEN (4UL)
+
+/* Streams are checked for expiry about once a second. */
+
+#define STRMK_EXPIRE_CHECK_NS (1000L*1000L*1000L)
+
+/* One entry of a stream's sent set.  key is an account the stream has
+   already carried and slot is the appendvec it went into.  A zero slot
+   means the entry is free; a stream never starts at slot zero. */
+
+struct strmk_sent {
+  fd_pubkey_t key;
+  ulong       slot;
+};
+
+typedef struct strmk_sent strmk_sent_t;
+
+/* One boot stream: a growing archive file plus the accounts it has
+   already carried. */
+
+struct strmk_stream {
+  int            open;
+  int            listed;     /* named in the index? */
+  ulong          slot_x;     /* the slot the stream starts at */
+  ulong          first_slot; /* first block carried, ULONG_MAX if none yet */
+  uchar          hash[ 32 ];
+  long           started;  /* unix nanoseconds */
+  long           expires;  /* unix nanoseconds */
+  int            fd;
+  ZSTD_CStream * zst;
+  strmk_sent_t * sent;
+  ulong          sent_cnt;
+  ulong          file_sz;
+  ulong          raw_sz;   /* bytes staged for the appendvec in flight */
+  ulong          vec_id;   /* overflow files of the appendvec in flight */
+  uchar *        raw;
+};
+
+typedef struct strmk_stream strmk_stream_t;
+
+/* One chunk of a block's account keys. */
+
+struct strmk_chunk {
+  uint        next; /* UINT_MAX at the end of a list */
+  uint        cnt;
+  fd_pubkey_t key[ STRMK_CHUNK_KEY_MAX ];
+};
+
+typedef struct strmk_chunk strmk_chunk_t;
+
+/* One block replay is feeding this tile.  Replay reuses a bank index
+   once a block is gone, so a block is named by the index and the
+   sequence number together.  bank_idx is ULONG_MAX when the entry is
+   free. */
+
+struct strmk_block {
+  ulong slot;
+  ulong parent_slot;
+  ulong bank_idx;
+  ulong bank_seq;
+  ulong parent_bank_idx;
+  uint  chunk_head;
+  uint  chunk_tail;
+  int   overflow; /* ran out of key chunks? */
+};
+
+typedef struct strmk_block strmk_block_t;
+
 struct fd_strmk {
-  /* the boot file directory, kept open for the index rename */
-  int  dir_fd;
-  uint stream_max;
+  /* the boot file directory, kept open so the files can be inspected */
+  int   dir_fd;
+  int   index_fd;
+  uint  stream_max;
+  ulong key_max;    /* sent set entries per stream, a power of two */
+  ulong key_cap;    /* keys a stream carries before it closes */
+  long  lifetime;   /* nanoseconds a stream is served for */
+  long  expire_check; /* tick count of the next expiry sweep */
+  long  tick_per_ns;
+
+  strmk_stream_t stream[ FD_STRMK_STREAM_MAX ];
+  strmk_block_t  block [ STRMK_BLOCK_MAX ];
+
+  strmk_chunk_t * chunk;
+  uint            chunk_free; /* head of the free list */
+
+  /* in links, and the frag the stem callbacks hand to each other */
+  fd_wksp_t * in_mem   [ 2 ];
+  ulong       in_chunk0[ 2 ];
+  ulong       in_wmark [ 2 ];
+  ulong       in_mtu   [ 2 ];
+  ulong       snapmk_in_idx;
+  ulong       replay_seq_next;
+  uchar       frag[ FD_STRMK_MTU ] __attribute__((aligned(16)));
+
+  /* one account read, shared by every stream of a block */
+  uchar * acc_data;
+  uchar * comp;
 
   fd_banks_t *    banks;
   fd_txncache_t * txncache;
   fd_accdb_t *    accdb;
+
+  fd_ssmanifest_writer_t manifest_writer[1];
+  fd_txncache_writer_t   txncache_writer[1];
+  void *                 txncache_arena;
+  ulong                  txncache_arena_sz;
+
+  struct {
+    ulong   out_idx;
+    void *  mem;
+    ulong   chunk;
+    ulong   chunk0;
+    ulong   wmark;
+    ulong * seq_prod;
+  } out;
+
+  ulong replay_out_idx;
 };
 
 typedef struct fd_strmk fd_strmk_t;
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
-  return fd_ulong_max( fd_ulong_max( alignof(fd_strmk_t), fd_txncache_align() ), fd_accdb_align() );
+  return fd_ulong_max( fd_ulong_max( alignof(fd_strmk_t), fd_txncache_align() ),
+                       fd_ulong_max( fd_accdb_align(), 4096UL ) );
+}
+
+/* strmk_key_max gives the number of sent set entries per stream, which
+   is the configured key count rounded up to a power of two. */
+
+FD_FN_PURE static inline ulong
+strmk_key_max( fd_topo_tile_t const * tile ) {
+  return fd_ulong_pow2_up( fd_ulong_max( tile->strmk.max_keys_per_stream, 1024UL ) );
 }
 
 FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong max_live_slots = tile->strmk.max_live_slots;
+  ulong stream_max     = tile->strmk.max_open_streams;
+  ulong key_max        = strmk_key_max( tile );
+  ulong zst_sz         = ZSTD_estimateCStreamSize( FD_BACKUP_ZSTD_LEVEL );
 
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_strmk_t),  sizeof(fd_strmk_t)                      );
-  l = FD_LAYOUT_APPEND( l, fd_txncache_align(),  fd_txncache_footprint( max_live_slots )  );
-  l = FD_LAYOUT_APPEND( l, fd_accdb_align(),     fd_accdb_footprint( max_live_slots, 0 )  );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_strmk_t),               sizeof(fd_strmk_t)                                      );
+  l = FD_LAYOUT_APPEND( l, fd_txncache_align(),               fd_txncache_footprint( max_live_slots )                 );
+  l = FD_LAYOUT_APPEND( l, fd_accdb_align(),                  fd_accdb_footprint( max_live_slots, 0 )                 );
+  l = FD_LAYOUT_APPEND( l, fd_txncache_writer_arena_align(),  fd_txncache_writer_arena_sz( tile->strmk.max_txn_per_slot ) );
+  l = FD_LAYOUT_APPEND( l, 16UL,                              FD_RUNTIME_ACC_SZ_MAX                                   );
+  l = FD_LAYOUT_APPEND( l, 16UL,                              STRMK_COMP_BUF_SZ                                       );
+  l = FD_LAYOUT_APPEND( l, alignof(strmk_chunk_t),            STRMK_CHUNK_MAX*sizeof(strmk_chunk_t)                   );
+  l = FD_LAYOUT_APPEND( l, 4096UL,                            stream_max*STRMK_RAW_BUF_SZ                             );
+  l = FD_LAYOUT_APPEND( l, alignof(strmk_sent_t),             stream_max*key_max*sizeof(strmk_sent_t)                 );
+  l = FD_LAYOUT_APPEND( l, 64UL,                              stream_max*zst_sz                                       );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
+
+/**********************************************************************/
+/* Archive writing                                                    */
+/**********************************************************************/
+
+/* zip_push compresses sz bytes into the stream file.  Every tar entry
+   is one Zstandard frame, so the last call for an entry ends it. */
+
+static void
+zip_push( fd_strmk_t *      ctx,
+          strmk_stream_t *  stream,
+          void const *      data,
+          ulong             sz,
+          ZSTD_EndDirective directive ) {
+  if( FD_UNLIKELY( !sz && directive!=ZSTD_e_end ) ) return;
+  ZSTD_inBuffer  in  = { .src = data,      .size = sz,                .pos = 0UL };
+  ZSTD_outBuffer out = { .dst = ctx->comp, .size = STRMK_COMP_BUF_SZ, .pos = 0UL };
+  for(;;) {
+    out.pos = 0UL;
+    ulong ret = ZSTD_compressStream2( stream->zst, &out, &in, directive );
+    if( FD_UNLIKELY( ZSTD_isError( ret ) ) ) {
+      FD_LOG_ERR(( "ZSTD_compressStream2 failed: %s", ZSTD_getErrorName( ret ) ));
+    }
+    ulong wrote;
+    int   err = fd_io_write( stream->fd, ctx->comp, out.pos, out.pos, &wrote );
+    if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_io_write failed (%i-%s)", err, fd_io_strerror( err ) ));
+    stream->file_sz += wrote;
+    if( FD_LIKELY( directive==ZSTD_e_end ) ) {
+      if( FD_LIKELY( !ret ) ) break;
+    } else if( FD_LIKELY( in.pos==in.size ) ) {
+      break;
+    }
+  }
+}
+
+/* zip_pad ends an entry whose content was pushed in pieces, padding it
+   out to a tar block. */
+
+static void
+zip_pad( fd_strmk_t *     ctx,
+         strmk_stream_t * stream,
+         ulong            content_sz ) {
+  static uchar const zero[ sizeof(fd_tar_meta_t) ] = {0};
+  zip_push( ctx, stream, zero, fd_ulong_align_up( content_sz, sizeof(fd_tar_meta_t) )-content_sz, ZSTD_e_end );
+}
+
+/* strmk_tar_hdr builds the tar header of an entry of content_sz
+   bytes. */
+
+static fd_tar_meta_t *
+strmk_tar_hdr( fd_tar_meta_t * meta,
+               char const *    name,
+               ulong           content_sz ) {
+  fd_backup_tar_file_hdr( meta, content_sz );
+  if( FD_UNLIKELY( !fd_tar_meta_set_size( meta, content_sz ) ) ) {
+    FD_LOG_ERR(( "boot stream entry %s (%lu bytes) is too large for a tar size field", name, content_sz ));
+  }
+  fd_cstr_ncpy( meta->name, name, sizeof(meta->name) );
+  fd_tar_meta_set_chksum( meta );
+  return meta;
+}
+
+/* zip_tar_hdr fills in the tar header at the head of the stage. */
+
+static void
+zip_tar_hdr( strmk_stream_t * stream,
+             char const *     name,
+             ulong            content_sz ) {
+  strmk_tar_hdr( (fd_tar_meta_t *)stream->raw, name, content_sz );
+}
+
+/* zip_entry compresses a tar entry the stage holds whole, which is its
+   tar header followed by content_sz bytes of content. */
+
+static void
+zip_entry( fd_strmk_t *     ctx,
+           strmk_stream_t * stream,
+           ulong            content_sz ) {
+  ulong entry_sz = sizeof(fd_tar_meta_t) + fd_ulong_align_up( content_sz, sizeof(fd_tar_meta_t) );
+  FD_CHECK_CRIT( entry_sz<=STRMK_RAW_BUF_SZ, "boot stream tar entry does not fit the stage" );
+  fd_memset( stream->raw + sizeof(fd_tar_meta_t) + content_sz, 0,
+             entry_sz - sizeof(fd_tar_meta_t) - content_sz );
+  zip_push( ctx, stream, stream->raw, entry_sz, ZSTD_e_end );
+}
+
+/* strmk_prologue writes the version file and the two directory
+   entries, which carry no content of their own. */
+
+static void
+strmk_prologue( fd_strmk_t *     ctx,
+                strmk_stream_t * stream ) {
+  uchar * p = stream->raw;
+
+  fd_tar_meta_t meta;
+  memcpy( p, strmk_tar_hdr( &meta, "version", 5UL ), sizeof(fd_tar_meta_t) );
+  p += sizeof(fd_tar_meta_t);
+  memcpy( p, "1.2.0", 5UL );
+  memset( p+5UL, 0, sizeof(fd_tar_meta_t)-5UL );
+  p += sizeof(fd_tar_meta_t);
+
+  fd_backup_tar_dir_hdr( &meta );
+  fd_cstr_ncpy( meta.name, "snapshots/", sizeof(meta.name) );
+  fd_tar_meta_set_chksum( &meta );
+  memcpy( p, &meta, sizeof(fd_tar_meta_t) );
+  p += sizeof(fd_tar_meta_t);
+
+  fd_backup_tar_dir_hdr( &meta );
+  FD_TEST( fd_cstr_printf_check( meta.name, sizeof(meta.name), NULL, "snapshots/%lu/", stream->slot_x ) );
+  fd_tar_meta_set_chksum( &meta );
+  memcpy( p, &meta, sizeof(fd_tar_meta_t) );
+  p += sizeof(fd_tar_meta_t);
+
+  zip_push( ctx, stream, stream->raw, (ulong)( p-stream->raw ), ZSTD_e_end );
+}
+
+/* strmk_manifest writes the snapshot manifest of the stream's start
+   slot, which an initialized writer has already measured.  A mainnet
+   manifest is far larger than the stage, so it is compressed into the
+   entry's frame a stage at a time. */
+
+static void
+strmk_manifest( fd_strmk_t *     ctx,
+                strmk_stream_t * stream ) {
+  ulong manifest_sz = ctx->manifest_writer->serialized_sz;
+  char  name[ FD_TAR_NAME_SZ ];
+  FD_TEST( fd_cstr_printf_check( name, sizeof(name), NULL, "snapshots/%lu/%lu", stream->slot_x, stream->slot_x ) );
+
+  fd_tar_meta_t meta;
+  zip_push( ctx, stream, strmk_tar_hdr( &meta, name, manifest_sz ), sizeof(fd_tar_meta_t), ZSTD_e_continue );
+
+  ulong wrote = 0UL;
+  for(;;) {
+    ulong chunk_sz = fd_snap_manifest_serialize( ctx->manifest_writer, stream->raw, STRMK_RAW_BUF_SZ );
+    if( FD_UNLIKELY( !chunk_sz ) ) break;
+    zip_push( ctx, stream, stream->raw, chunk_sz, ZSTD_e_continue );
+    wrote += chunk_sz;
+  }
+  FD_CHECK_CRIT( wrote==manifest_sz, "boot stream manifest does not match the size the writer measured" );
+  zip_pad( ctx, stream, manifest_sz );
+}
+
+/* strmk_status_cache writes the status cache of the stream's start
+   slot. */
+
+static void
+strmk_status_cache( fd_strmk_t *     ctx,
+                    strmk_stream_t * stream ) {
+  ulong status_sz = fd_txncache_writer_serialized_sz( ctx->txncache_writer );
+
+  fd_tar_meta_t meta;
+  zip_push( ctx, stream, strmk_tar_hdr( &meta, "snapshots/status_cache", status_sz ), sizeof(fd_tar_meta_t), ZSTD_e_continue );
+
+  ulong wrote = 0UL;
+  for(;;) {
+    ulong chunk_sz = fd_txncache_writer_serialize( ctx->txncache_writer, stream->raw, STRMK_RAW_BUF_SZ );
+    if( FD_UNLIKELY( !chunk_sz ) ) break;
+    zip_push( ctx, stream, stream->raw, chunk_sz, ZSTD_e_continue );
+    wrote += chunk_sz;
+  }
+  FD_CHECK_CRIT( wrote==status_sz, "boot stream status cache does not match the size the writer measured" );
+  zip_pad( ctx, stream, status_sz );
+}
+
+/* strmk_encode_account appends one account to a stage in the snapshot
+   appendvec layout and returns the bytes it took.  slot is the slot the
+   stream started at, which is where the value was read.  A lamports of
+   zero records that the account did not exist. */
+
+static ulong
+strmk_encode_account( uchar *             buf,
+                      ulong               slot,
+                      fd_pubkey_t const * key,
+                      ulong               lamports,
+                      int                 executable,
+                      uchar const *       owner,
+                      uchar const *       data,
+                      ulong               data_len ) {
+  snap_acc_hdr_t * hdr = (snap_acc_hdr_t *)buf;
+  memset( hdr, 0, sizeof(snap_acc_hdr_t) );
+  hdr->slot       = slot;
+  hdr->data_len   = data_len;
+  hdr->pubkey     = *key;
+  hdr->lamports   = lamports;
+  hdr->rent_epoch = ULONG_MAX;
+  memcpy( hdr->owner.uc, owner, sizeof(fd_pubkey_t) );
+  hdr->executable = (uchar)!!executable;
+
+  ulong pad = fd_ulong_align_up( data_len, 8UL ) - data_len;
+  if( FD_LIKELY( data_len ) ) memcpy( buf+sizeof(snap_acc_hdr_t), data, data_len );
+  if( FD_UNLIKELY( pad )    ) memset( buf+sizeof(snap_acc_hdr_t)+data_len, 0, pad );
+  return sizeof(snap_acc_hdr_t) + data_len + pad;
+}
+
+/* strmk_appendvec_flush writes the appendvec a stream has staged for
+   slot.  id is the number after the dot in the file name; a booting
+   peer treats the end of file zero as the end of the slot, so the
+   overflow files of a slot are written first and file zero last. */
+
+static void
+strmk_appendvec_flush( fd_strmk_t *     ctx,
+                       strmk_stream_t * stream,
+                       ulong            slot,
+                       ulong            id ) {
+  char name[ FD_TAR_NAME_SZ ];
+  FD_TEST( fd_cstr_printf_check( name, sizeof(name), NULL, "accounts/%lu.%lu", slot, id ) );
+  zip_tar_hdr( stream, name, stream->raw_sz );
+  zip_entry( ctx, stream, stream->raw_sz );
+  stream->raw_sz = 0UL;
+}
+
+/**********************************************************************/
+/* Sent sets                                                          */
+/**********************************************************************/
+
+/* strmk_sent_query returns the entry key belongs in, which either
+   holds key or is the free entry it would be inserted at. */
+
+static strmk_sent_t *
+strmk_sent_query( strmk_sent_t *      sent,
+                  ulong               slot_cnt,
+                  fd_pubkey_t const * key ) {
+  ulong mask = slot_cnt-1UL;
+  ulong idx  = fd_ulong_load_8( key->uc ) & mask;
+  for( ulong i=0UL; i<slot_cnt; i++ ) {
+    strmk_sent_t * ele = &sent[ idx ];
+    if( FD_LIKELY( !ele->slot ) ) return ele;
+    if( FD_UNLIKELY( fd_memeq( ele->key.uc, key->uc, sizeof(fd_pubkey_t) ) ) ) return ele;
+    idx = (idx+1UL) & mask;
+  }
+  FD_LOG_CRIT(( "boot stream sent set is full" ));
+}
+
+/* strmk_sent_test returns 1 if the stream has already carried key. */
+
+static int
+strmk_sent_test( strmk_stream_t const * stream,
+                 ulong                  slot_cnt,
+                 fd_pubkey_t const *    key ) {
+  return !!strmk_sent_query( stream->sent, slot_cnt, key )->slot;
+}
+
+/* strmk_sent_insert records that the stream carried key in the
+   appendvec of slot. */
+
+static void
+strmk_sent_insert( strmk_stream_t *    stream,
+                   ulong               slot_cnt,
+                   fd_pubkey_t const * key,
+                   ulong               slot ) {
+  strmk_sent_t * ele = strmk_sent_query( stream->sent, slot_cnt, key );
+  if( FD_UNLIKELY( ele->slot ) ) return;
+  ele->key  = *key;
+  ele->slot = slot;
+  stream->sent_cnt++;
+}
+
+/**********************************************************************/
+/* Stream pool                                                        */
+/**********************************************************************/
+
+/* strmk_msg_publish publishes one message on strmk_out and wakes the
+   file server, which sleeps in io_uring and does not poll. */
+
+static void
+strmk_msg_publish( fd_strmk_t *        ctx,
+                   fd_stem_context_t * stem,
+                   ulong               msg_type,
+                   ulong               sz ) {
+  ulong chunk = ctx->out.chunk;
+  ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+  fd_stem_publish( stem, ctx->out.out_idx, msg_type, chunk, sz, 0UL, 0UL, tspub );
+  ctx->out.chunk = fd_dcache_compact_next( chunk, sz, ctx->out.chunk0, ctx->out.wmark );
+  fd_mcache_seq_update( ctx->out.seq_prod, stem->seqs[ ctx->out.out_idx ] );
+  if( FD_UNLIKELY( -1==syscall( SYS_futex, (uint *)ctx->out.seq_prod, FUTEX_WAKE, INT_MAX, NULL, NULL, 0 ) ) ) {
+    FD_LOG_ERR(( "FUTEX_WAKE failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+}
+
+/* strmk_bank_release gives a bank reference back to replay. */
+
+static void
+strmk_bank_release( fd_strmk_t *        ctx,
+                    fd_stem_context_t * stem,
+                    ulong               bank_idx ) {
+  fd_stem_publish( stem, ctx->replay_out_idx, bank_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
+}
+
+/* strmk_index_write rewrites the index, which names one listed stream
+   per line.  The file is rewritten in place because the file server
+   holds it open and would not see a replacement; a reader that catches
+   the file empty retries. */
+
+static void
+strmk_index_write( fd_strmk_t * ctx ) {
+  char  line[ 128 ];
+  uchar index[ FD_STRMK_STREAM_MAX*sizeof(line) ];
+  ulong index_sz = 0UL;
+
+  for( uint i=0U; i<ctx->stream_max; i++ ) {
+    strmk_stream_t const * stream = &ctx->stream[ i ];
+    if( FD_LIKELY( !stream->open || !stream->listed ) ) continue;
+    char hash_b58[ FD_BASE58_ENCODED_32_SZ ];
+    fd_base58_encode_32( stream->hash, NULL, hash_b58 );
+    ulong line_sz;
+    fd_cstr_printf( line, sizeof(line), &line_sz, "%lu %s %ld\n",
+                    stream->slot_x, hash_b58, stream->expires/(1000L*1000L*1000L) );
+    memcpy( index+index_sz, line, line_sz );
+    index_sz += line_sz;
+  }
+
+  if( FD_UNLIKELY( -1==ftruncate( ctx->index_fd, 0L ) ) ) {
+    FD_LOG_ERR(( "ftruncate(boot index) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+  if( FD_UNLIKELY( -1==lseek( ctx->index_fd, 0L, SEEK_SET ) ) ) {
+    FD_LOG_ERR(( "lseek(boot index) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+  if( FD_UNLIKELY( !index_sz ) ) return;
+  ulong wrote;
+  int   err = fd_io_write( ctx->index_fd, index, index_sz, index_sz, &wrote );
+  if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_io_write failed (%i-%s)", err, fd_io_strerror( err ) ));
+}
+
+/* strmk_stream_close ends a stream.  A stream that was fully written
+   ends with the two zero blocks of an end of archive marker, which
+   tells a peer that is still downloading that there is no more; a
+   broken one is truncated away instead. */
+
+static void
+strmk_stream_close( fd_strmk_t *        ctx,
+                    fd_stem_context_t * stem,
+                    uint                idx,
+                    int                 broken ) {
+  strmk_stream_t * stream = &ctx->stream[ idx ];
+  if( FD_LIKELY( !stream->open ) ) return;
+
+  FD_LOG_INFO(( "closing the boot stream at slot %lu after %ld seconds (%lu bytes, %lu accounts)%s",
+                stream->slot_x, ( fd_log_wallclock()-stream->started )/(1000L*1000L*1000L),
+                stream->file_sz, stream->sent_cnt, broken ? ", broken" : "" ));
+
+  if( FD_LIKELY( !broken ) ) {
+    memset( stream->raw, 0, 2UL*sizeof(fd_tar_meta_t) );
+    zip_push( ctx, stream, stream->raw, 2UL*sizeof(fd_tar_meta_t), ZSTD_e_end );
+  }
+
+  int listed = stream->listed;
+  stream->open       = 0;
+  stream->listed     = 0;
+  stream->first_slot = ULONG_MAX;
+  stream->sent_cnt   = 0UL;
+  stream->raw_sz     = 0UL;
+  memset( stream->sent, 0, ctx->key_max*sizeof(strmk_sent_t) );
+
+  fd_snapmk_msg_t * msg = fd_chunk_to_laddr( ctx->out.mem, ctx->out.chunk );
+  msg->deleted = (fd_snapmk_msg_deleted_t) {
+    .slot      = stream->slot_x,
+    .base_slot = ULONG_MAX,
+    .pool_idx  = idx,
+    .reserved1 = 1U /* a boot stream */
+  };
+  fd_strmk_stream_name( msg->deleted.name, idx );
+  strmk_msg_publish( ctx, stem, FD_SNAPMK_MSG_DELETED, sizeof(fd_snapmk_msg_deleted_t) );
+  if( FD_UNLIKELY( listed ) ) strmk_index_write( ctx );
+
+  if( FD_UNLIKELY( broken ) ) {
+    if( FD_UNLIKELY( -1==ftruncate( stream->fd, 0L ) ) ) {
+      FD_LOG_ERR(( "ftruncate(boot stream) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+    stream->file_sz = 0UL;
+  }
+}
+
+/* strmk_streams_break closes every stream because a block that a
+   stream needs can no longer be written. */
+
+static void
+strmk_streams_break( fd_strmk_t *        ctx,
+                     fd_stem_context_t * stem ) {
+  for( uint i=0U; i<ctx->stream_max; i++ ) strmk_stream_close( ctx, stem, i, 1 );
+}
+
+/* strmk_streams_expire closes the streams whose lifetime ran out. */
+
+static void
+strmk_streams_expire( fd_strmk_t *        ctx,
+                      fd_stem_context_t * stem,
+                      long                now ) {
+  for( uint i=0U; i<ctx->stream_max; i++ ) {
+    if( FD_LIKELY( !ctx->stream[ i ].open ) ) continue;
+    if( FD_LIKELY( now<ctx->stream[ i ].expires ) ) continue;
+    strmk_stream_close( ctx, stem, i, 0 );
+  }
+}
+
+/* strmk_stream_publish tells the file server how large a stream is. */
+
+static void
+strmk_stream_publish( fd_strmk_t *        ctx,
+                      fd_stem_context_t * stem,
+                      uint                idx ) {
+  strmk_stream_t const * stream = &ctx->stream[ idx ];
+  fd_snapmk_msg_t * msg = fd_chunk_to_laddr( ctx->out.mem, ctx->out.chunk );
+  msg->created = (fd_snapmk_msg_created_t) {
+    .slot      = stream->slot_x,
+    .base_slot = ULONG_MAX,
+    .sz        = stream->file_sz,
+    .pool_idx  = idx,
+    .reserved  = 1U /* a boot stream */
+  };
+  fd_strmk_stream_name( msg->created.name, idx );
+  strmk_msg_publish( ctx, stem, FD_SNAPMK_MSG_CREATED, sizeof(fd_snapmk_msg_created_t) );
+}
+
+/**********************************************************************/
+/* Block keys                                                         */
+/**********************************************************************/
+
+/* strmk_block_query returns the block replay is feeding at bank_idx in
+   its bank_seq incarnation, or NULL if the tile is not tracking it. */
+
+static strmk_block_t *
+strmk_block_query( fd_strmk_t * ctx,
+                   ulong        bank_idx,
+                   ulong        bank_seq ) {
+  for( ulong i=0UL; i<STRMK_BLOCK_MAX; i++ ) {
+    if( FD_UNLIKELY( ctx->block[ i ].bank_idx==bank_idx &&
+                     ctx->block[ i ].bank_seq==bank_seq ) ) return &ctx->block[ i ];
+  }
+  return NULL;
+}
+
+/* strmk_block_bank returns the one block in flight at bank_idx.  Keys
+   name only the bank index, which is enough because replay ends a
+   block before it hands the index out again. */
+
+static strmk_block_t *
+strmk_block_bank( fd_strmk_t * ctx,
+                  ulong        bank_idx ) {
+  for( ulong i=0UL; i<STRMK_BLOCK_MAX; i++ ) {
+    if( FD_UNLIKELY( ctx->block[ i ].bank_idx==bank_idx ) ) return &ctx->block[ i ];
+  }
+  return NULL;
+}
+
+/* strmk_block_alloc takes a free block entry, or NULL if all of them
+   are in use. */
+
+static strmk_block_t *
+strmk_block_alloc( fd_strmk_t * ctx ) {
+  for( ulong i=0UL; i<STRMK_BLOCK_MAX; i++ ) {
+    if( FD_LIKELY( ctx->block[ i ].bank_idx==ULONG_MAX ) ) return &ctx->block[ i ];
+  }
+  return NULL;
+}
+
+/* strmk_block_free gives a block's key chunks back and frees its
+   entry. */
+
+static void
+strmk_block_free( fd_strmk_t *    ctx,
+                  strmk_block_t * block ) {
+  if( FD_LIKELY( block->chunk_head!=UINT_MAX ) ) {
+    ctx->chunk[ block->chunk_tail ].next = ctx->chunk_free;
+    ctx->chunk_free                      = block->chunk_head;
+  }
+  block->bank_idx   = ULONG_MAX;
+  block->chunk_head = UINT_MAX;
+  block->chunk_tail = UINT_MAX;
+  block->overflow   = 0;
+}
+
+/* strmk_block_key_add appends one key to a block, taking another chunk
+   when the last one is full. */
+
+static void
+strmk_block_key_add( fd_strmk_t *        ctx,
+                     strmk_block_t *     block,
+                     fd_pubkey_t const * key ) {
+  if( FD_UNLIKELY( block->overflow ) ) return;
+  strmk_chunk_t * chunk = block->chunk_tail==UINT_MAX ? NULL : &ctx->chunk[ block->chunk_tail ];
+  if( FD_UNLIKELY( !chunk || chunk->cnt>=STRMK_CHUNK_KEY_MAX ) ) {
+    if( FD_UNLIKELY( ctx->chunk_free==UINT_MAX ) ) {
+      block->overflow = 1;
+      return;
+    }
+    uint idx        = ctx->chunk_free;
+    ctx->chunk_free = ctx->chunk[ idx ].next;
+    ctx->chunk[ idx ].next = UINT_MAX;
+    ctx->chunk[ idx ].cnt  = 0U;
+    if( FD_LIKELY( chunk ) ) chunk->next = idx;
+    else                     block->chunk_head = idx;
+    block->chunk_tail = idx;
+    chunk = &ctx->chunk[ idx ];
+  }
+  chunk->key[ chunk->cnt++ ] = *key;
+}
+
+/* strmk_key_wanted returns 1 if a stream still needs key, over the one
+   stream only names or every open stream.  A key every stream has
+   carried is dropped on arrival, which is what most keys of a block
+   are once the streams have warmed up. */
+
+static int
+strmk_key_wanted( fd_strmk_t const *     ctx,
+                  strmk_stream_t const * only,
+                  fd_pubkey_t const *    key ) {
+  if( FD_UNLIKELY( only ) ) return !strmk_sent_test( only, ctx->key_max, key );
+  for( uint i=0U; i<ctx->stream_max; i++ ) {
+    if( FD_LIKELY( !ctx->stream[ i ].open ) ) continue;
+    if( FD_UNLIKELY( !strmk_sent_test( &ctx->stream[ i ], ctx->key_max, key ) ) ) return 1;
+  }
+  return 0;
+}
+
+/**********************************************************************/
+/* Account writing                                                    */
+/**********************************************************************/
+
+/* strmk_write_key reads one account at fork and adds it to the stream
+   only names, or to every open stream that has not carried it yet.
+   slot names the appendvec the streams are building.  Returns the
+   program data address of an upgradeable program, which the caller has
+   to write as well, or NULL.  Flushes an overflow file for a stream
+   whose stage filled up. */
+
+static fd_pubkey_t const *
+strmk_write_key( fd_strmk_t *        ctx,
+                 strmk_stream_t *    only,
+                 fd_accdb_fork_id_t  fork,
+                 fd_pubkey_t const * key,
+                 ulong               slot,
+                 fd_pubkey_t *       program_data ) {
+  if( FD_LIKELY( !strmk_key_wanted( ctx, only, key ) ) ) return NULL;
+
+  ulong lamports   = 0UL;
+  ulong data_len   = 0UL;
+  int   executable = 0;
+  uchar owner[ 32 ];
+  int   source = fd_accdb_read_one_nocache( ctx->accdb, fork, key->uc,
+                                            &lamports, &executable, owner,
+                                            ctx->acc_data, &data_len );
+  if( FD_UNLIKELY( source==FD_ACCDB_READ_ONE_NOCACHE_MISS ) ) {
+    /* An account that does not exist is carried as a zero lamport
+       record, so that a peer does not go looking for it. */
+    lamports   = 0UL;
+    data_len   = 0UL;
+    executable = 0;
+    memcpy( owner, fd_solana_system_program_id.uc, sizeof(fd_pubkey_t) );
+  }
+  FD_CHECK_CRIT( data_len<=FD_RUNTIME_ACC_SZ_MAX, "accdb returned an oversized account" );
+
+  ulong rec_sz = sizeof(snap_acc_hdr_t) + fd_ulong_align_up( data_len, 8UL );
+  for( uint i=0U; i<ctx->stream_max; i++ ) {
+    strmk_stream_t * stream = &ctx->stream[ i ];
+    if( FD_LIKELY( !stream->open ) ) continue;
+    if( FD_UNLIKELY( only && stream!=only ) ) continue;
+    if( FD_UNLIKELY( strmk_sent_test( stream, ctx->key_max, key ) ) ) continue;
+    if( FD_UNLIKELY( sizeof(fd_tar_meta_t)+stream->raw_sz+rec_sz>STRMK_RAW_BUF_SZ ) ) {
+      strmk_appendvec_flush( ctx, stream, slot, ++stream->vec_id );
+    }
+    stream->raw_sz += strmk_encode_account( stream->raw + sizeof(fd_tar_meta_t) + stream->raw_sz,
+                                            stream->slot_x, key, lamports, executable, owner,
+                                            ctx->acc_data, data_len );
+    strmk_sent_insert( stream, ctx->key_max, key, slot );
+  }
+
+  /* An upgradeable program is useless without its program data
+     account, which no transaction names. */
+  if( FD_UNLIKELY( lamports &&
+                   fd_memeq( owner, fd_solana_bpf_loader_upgradeable_program_id.uc, sizeof(fd_pubkey_t) ) ) ) {
+    fd_bpf_state_t state[1];
+    if( FD_LIKELY( !fd_bpf_state_decode( state, ctx->acc_data, data_len ) &&
+                   state->discriminant==FD_BPF_STATE_PROGRAM ) ) {
+      *program_data = state->inner.program.programdata_address;
+      return program_data;
+    }
+  }
+  return NULL;
+}
+
+/**********************************************************************/
+/* Stream lifecycle                                                   */
+/**********************************************************************/
+
+/* strmk_bundle writes the first appendvec of a stream, which holds the
+   accounts a booting peer reads before it has executed a block: every
+   sysvar, the alpenglow clock that a block footer reads, every feature
+   gate, and every vote account the manifest's epoch stakes name. */
+
+static void
+strmk_bundle( fd_strmk_t *       ctx,
+              strmk_stream_t *   stream,
+              fd_accdb_fork_id_t fork ) {
+  fd_pubkey_t program_data;
+
+  for( ulong i=0UL; i<FD_SYSVAR_CACHE_ENTRY_CNT; i++ ) {
+    strmk_write_key( ctx, stream, fork, &fd_sysvar_key_tbl[ i ], stream->slot_x, &program_data );
+  }
+
+  fd_pubkey_t alpenclock;
+  fd_alpenglow_pda( "alpenclock", &alpenclock );
+  strmk_write_key( ctx, stream, fork, &alpenclock, stream->slot_x, &program_data );
+
+  for( fd_feature_id_t const * id = fd_feature_iter_init();
+       !fd_feature_iter_done( id );
+       id = fd_feature_iter_next( id ) ) {
+    strmk_write_key( ctx, stream, fork, &id->id, stream->slot_x, &program_data );
+  }
+
+  for( ulong e=0UL; e<(ulong)ctx->manifest_writer->epoch_cnt; e++ ) {
+    fd_ssmanifest_epoch_map_t const * map = &ctx->manifest_writer->epoch_map[ e ];
+    for( ulong i=0UL; i<map->vote_cnt; i++ ) {
+      strmk_write_key( ctx, stream, fork, &map->vote[ i ].vote, stream->slot_x, &program_data );
+    }
+  }
+
+  strmk_appendvec_flush( ctx, stream, stream->slot_x, 0UL );
+  stream->vec_id = 0UL;
+}
+
+/* strmk_stream_start opens a stream at the slot of an incremental
+   snapshot replay just asked for, writing everything a peer needs
+   before the first block.  Returns once the bank is no longer
+   needed. */
+
+static void
+strmk_stream_start( fd_strmk_t *                    ctx,
+                    fd_stem_context_t *             stem,
+                    fd_strmk_stream_start_t const * msg,
+                    long                            now ) {
+  strmk_streams_expire( ctx, stem, now );
+
+  uint idx = UINT_MAX;
+  for( uint i=0U; i<ctx->stream_max; i++ ) {
+    if( FD_LIKELY( !ctx->stream[ i ].open ) ) { idx = i; break; }
+  }
+  if( FD_UNLIKELY( idx==UINT_MAX ) ) {
+    FD_LOG_INFO(( "not starting a boot stream at slot %lu, all %u stream files are in use", msg->slot, ctx->stream_max ));
+    strmk_bank_release( ctx, stem, msg->bank_idx );
+    return;
+  }
+
+  fd_bank_t * bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );
+  FD_TEST( bank );
+  FD_TEST( msg->slot );
+
+  fd_pubkey_t const * leader = fd_epoch_leaders_get( fd_bank_epoch_leaders_query( bank, bank->f.epoch ), bank->f.slot );
+  if( FD_UNLIKELY( !leader ) ) {
+    FD_LOG_WARNING(( "not starting a boot stream at slot %lu, its leader is unknown", msg->slot ));
+    strmk_bank_release( ctx, stem, msg->bank_idx );
+    return;
+  }
+
+  fd_accdb_fork_id_t fork = bank->accdb_fork_id;
+  FD_TEST( fork.val!=USHORT_MAX );
+
+  ulong         slot_history_sz = 0UL;
+  uchar const * slot_history    =
+      fd_sysvar_cache_data_query( &bank->f.sysvar_cache, fd_sysvar_slot_history_id.uc, &slot_history_sz );
+  if( FD_UNLIKELY( !fd_txncache_writer_init( ctx->txncache_writer, ctx->txncache, bank->txncache_fork_id,
+                                             bank->f.slot, slot_history, slot_history_sz,
+                                             ctx->txncache_arena, ctx->txncache_arena_sz ) ) ) {
+    FD_LOG_WARNING(( "not starting a boot stream at slot %lu, the status cache moved under it", msg->slot ));
+    strmk_bank_release( ctx, stem, msg->bank_idx );
+    return;
+  }
+
+  strmk_stream_t * stream = &ctx->stream[ idx ];
+  stream->open       = 1;
+  stream->listed     = 0;
+  stream->slot_x     = msg->slot;
+  stream->first_slot = ULONG_MAX;
+  stream->started  = now;
+  stream->expires  = now + ctx->lifetime;
+  stream->file_sz  = 0UL;
+  stream->raw_sz   = 0UL;
+  stream->vec_id   = 0UL;
+  stream->sent_cnt = 0UL;
+  fd_blake3_hash( bank->f.lthash.bytes, FD_LTHASH_LEN_BYTES, stream->hash );
+
+  if( FD_UNLIKELY( -1==ftruncate( stream->fd, 0L ) ) ) {
+    FD_LOG_ERR(( "ftruncate(boot stream) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+  if( FD_UNLIKELY( -1==lseek( stream->fd, 0L, SEEK_SET ) ) ) {
+    FD_LOG_ERR(( "lseek(boot stream) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+  ulong zst_err = ZSTD_CCtx_reset( stream->zst, ZSTD_reset_session_only );
+  if( FD_UNLIKELY( ZSTD_isError( zst_err ) ) ) {
+    FD_LOG_ERR(( "ZSTD_CCtx_reset failed: %s", ZSTD_getErrorName( zst_err ) ));
+  }
+
+  fd_ssmanifest_writer_init( ctx->manifest_writer, bank, leader, ctx->accdb, fork, ctx->acc_data );
+
+  long t0 = fd_log_wallclock();
+  strmk_prologue    ( ctx, stream );
+  strmk_manifest    ( ctx, stream );
+  strmk_status_cache( ctx, stream );
+  strmk_bundle      ( ctx, stream, fork );
+  strmk_bank_release( ctx, stem, msg->bank_idx );
+
+  FD_LOG_NOTICE(( "boot stream at slot %lu opened in %ld millis (%lu bytes, %lu accounts)",
+                  stream->slot_x, ( fd_log_wallclock()-t0 )/(1000L*1000L), stream->file_sz, stream->sent_cnt ));
+  strmk_stream_publish( ctx, stem, idx );
+}
+
+/* strmk_block_write writes one block's accounts into every open
+   stream, reading each of them once at the block's parent fork. */
+
+static void
+strmk_block_write( fd_strmk_t *        ctx,
+                   fd_stem_context_t * stem,
+                   strmk_block_t *     block,
+                   fd_accdb_fork_id_t  fork ) {
+  /* An account is read at the block's parent fork, where it still has
+     the value it had at the stream's start slot, because no block
+     since has touched it.  The stream only knows that if it carried
+     every block from its start slot on, so the first block it carries
+     has to be a child of that slot. */
+  for( uint i=0U; i<ctx->stream_max; i++ ) {
+    strmk_stream_t * stream = &ctx->stream[ i ];
+    if( FD_LIKELY( !stream->open || stream->first_slot!=ULONG_MAX ) ) continue;
+    if( FD_UNLIKELY( block->parent_slot!=stream->slot_x ) ) {
+      FD_LOG_WARNING(( "the boot stream at slot %lu starts at slot %lu, whose parent is %lu, so it is "
+                       "missing the blocks in between",
+                       stream->slot_x, block->slot, block->parent_slot ));
+    }
+    stream->first_slot = block->slot;
+  }
+
+  ulong wrote = 0UL;
+  for( uint ci=block->chunk_head; ci!=UINT_MAX; ci=ctx->chunk[ ci ].next ) {
+    strmk_chunk_t const * chunk = &ctx->chunk[ ci ];
+    for( uint i=0U; i<chunk->cnt; i++ ) {
+      fd_pubkey_t program_data;
+      fd_pubkey_t nested;
+      fd_pubkey_t const * pd = strmk_write_key( ctx, NULL, fork, &chunk->key[ i ], block->slot, &program_data );
+      wrote++;
+      if( FD_UNLIKELY( pd ) ) strmk_write_key( ctx, NULL, fork, pd, block->slot, &nested );
+    }
+  }
+
+  /* The accounts are read, so replay can root past the parent now; the
+     rest of this is compression and file writes. */
+  strmk_bank_release( ctx, stem, block->parent_bank_idx );
+
+  for( uint i=0U; i<ctx->stream_max; i++ ) {
+    strmk_stream_t * stream = &ctx->stream[ i ];
+    if( FD_LIKELY( !stream->open ) ) continue;
+
+    /* A block that touched nothing new still gets a file of its own,
+       because a peer treats the end of it as the end of the slot and a
+       tar entry cannot be empty.  The Instructions sysvar fills it: it
+       is built per transaction and never stored, so recording that it
+       does not exist is true at every slot and changes nothing. */
+    if( FD_UNLIKELY( !stream->raw_sz ) ) {
+      stream->raw_sz = strmk_encode_account( stream->raw + sizeof(fd_tar_meta_t), stream->slot_x,
+                                             &fd_sysvar_instructions_id, 0UL, 0,
+                                             fd_solana_system_program_id.uc, NULL, 0UL );
+    }
+
+    strmk_appendvec_flush( ctx, stream, block->slot, 0UL );
+    stream->vec_id = 0UL;
+    if( FD_UNLIKELY( stream->sent_cnt>=ctx->key_cap ) ) {
+      FD_LOG_WARNING(( "the boot stream at slot %lu carried %lu accounts, which is all "
+                       "[snapshots.instant_boot.serve.max_keys_per_stream] allows for",
+                       stream->slot_x, stream->sent_cnt ));
+      strmk_stream_close( ctx, stem, i, 0 );
+      continue;
+    }
+    strmk_stream_publish( ctx, stem, i );
+  }
+  FD_LOG_DEBUG(( "boot streams wrote %lu accounts of slot %lu", wrote, block->slot ));
+}
+
+/**********************************************************************/
+/* Message handling                                                   */
+/**********************************************************************/
+
+/* strmk_reset forgets every block and closes every stream.  release
+   says whether the banks of those blocks go back to replay: after a
+   reset replay sends, it has already taken them back and returning one
+   would drop a reference it handed out since. */
+
+static void
+strmk_reset( fd_strmk_t *        ctx,
+             fd_stem_context_t * stem,
+             int                 release ) {
+  for( ulong i=0UL; i<STRMK_BLOCK_MAX; i++ ) {
+    if( FD_LIKELY( ctx->block[ i ].bank_idx==ULONG_MAX ) ) continue;
+    if( FD_UNLIKELY( release ) ) strmk_bank_release( ctx, stem, ctx->block[ i ].parent_bank_idx );
+    strmk_block_free( ctx, &ctx->block[ i ] );
+  }
+  strmk_streams_break( ctx, stem );
+}
+
+static void
+strmk_block_start( fd_strmk_t *                   ctx,
+                   fd_stem_context_t *            stem,
+                   fd_strmk_block_start_t const * msg ) {
+  if( FD_UNLIKELY( strmk_block_bank( ctx, msg->bank_idx ) ) ) {
+    FD_LOG_WARNING(( "bank %lu started slot %lu while it still held a block, resetting the boot streams",
+                     msg->bank_idx, msg->slot ));
+    strmk_reset( ctx, stem, 1 );
+  }
+  strmk_block_t * block = strmk_block_alloc( ctx );
+  if( FD_UNLIKELY( !block ) ) {
+    FD_LOG_WARNING(( "more than %lu blocks in flight at slot %lu, resetting the boot streams", STRMK_BLOCK_MAX, msg->slot ));
+    strmk_reset( ctx, stem, 1 );
+    return;
+  }
+  fd_bank_t * parent = fd_banks_bank_query( ctx->banks, msg->parent_bank_idx );
+  FD_TEST( parent );
+  block->slot            = msg->slot;
+  block->parent_slot     = parent->f.slot;
+  block->bank_idx        = msg->bank_idx;
+  block->bank_seq        = msg->bank_seq;
+  block->parent_bank_idx = msg->parent_bank_idx;
+  block->chunk_head      = UINT_MAX;
+  block->chunk_tail      = UINT_MAX;
+  block->overflow        = 0;
+}
+
+static void
+strmk_txn_keys( fd_strmk_t *                ctx,
+                fd_strmk_txn_keys_t const * msg ) {
+  strmk_block_t * block = strmk_block_bank( ctx, msg->bank_idx );
+  if( FD_UNLIKELY( !block ) ) return;
+  for( ulong i=0UL; i<(ulong)msg->key_cnt; i++ ) {
+    if( FD_LIKELY( !strmk_key_wanted( ctx, NULL, &msg->keys[ i ] ) ) ) continue;
+    strmk_block_key_add( ctx, block, &msg->keys[ i ] );
+  }
+}
+
+static void
+strmk_block_end( fd_strmk_t *                 ctx,
+                 fd_stem_context_t *          stem,
+                 fd_strmk_block_end_t const * msg,
+                 int                          dead ) {
+  strmk_block_t * block = strmk_block_query( ctx, msg->bank_idx, msg->bank_seq );
+  if( FD_UNLIKELY( !block ) ) return;
+
+  if( FD_UNLIKELY( dead ) ) {
+    strmk_bank_release( ctx, stem, block->parent_bank_idx );
+    strmk_block_free( ctx, block );
+    return;
+  }
+
+  if( FD_UNLIKELY( block->overflow ) ) {
+    FD_LOG_WARNING(( "the accounts of slot %lu did not fit the key pool, resetting the boot streams", msg->slot ));
+    strmk_bank_release( ctx, stem, block->parent_bank_idx );
+    strmk_block_free( ctx, block );
+    strmk_streams_break( ctx, stem );
+    return;
+  }
+
+  /* The fee collector is credited at block end without a transaction
+     naming it. */
+  strmk_block_key_add( ctx, block, &msg->collector );
+  strmk_block_write( ctx, stem, block, msg->parent_accdb_fork_id );
+  strmk_block_free( ctx, block );
+}
+
+/* strmk_snapmk lists a stream once the incremental snapshot it chains
+   off exists, which is what makes it usable to a peer. */
+
+static void
+strmk_snapmk( fd_strmk_t *                    ctx,
+              fd_snapmk_msg_created_t const * msg ) {
+  if( FD_LIKELY( msg->base_slot==ULONG_MAX ) ) return; /* a full snapshot */
+  int listed = 0;
+  for( uint i=0U; i<ctx->stream_max; i++ ) {
+    strmk_stream_t * stream = &ctx->stream[ i ];
+    if( FD_LIKELY( !stream->open || stream->listed || stream->slot_x!=msg->slot ) ) continue;
+    stream->listed = 1;
+    listed         = 1;
+    FD_LOG_NOTICE(( "serving the boot stream at slot %lu", stream->slot_x ));
+  }
+  if( FD_UNLIKELY( listed ) ) strmk_index_write( ctx );
+}
+
+static void
+during_frag( fd_strmk_t * ctx,
+             ulong        in_idx,
+             ulong        seq,
+             ulong        sig,
+             ulong        chunk,
+             ulong        sz,
+             ulong        ctl ) {
+  (void)seq; (void)sig; (void)ctl;
+  FD_CHECK_CRIT( chunk>=ctx->in_chunk0[ in_idx ] &&
+                 chunk<=ctx->in_wmark [ in_idx ] &&
+                 sz   <=ctx->in_mtu   [ in_idx ], "input frag is out-of-bounds" );
+  if( FD_LIKELY( sz ) ) fd_memcpy( ctx->frag, fd_chunk_to_laddr_const( ctx->in_mem[ in_idx ], chunk ), sz );
+}
+
+static void
+after_frag( fd_strmk_t *        ctx,
+            ulong               in_idx,
+            ulong               seq,
+            ulong               sig,
+            ulong               sz,
+            ulong               tsorig,
+            ulong               tspub,
+            fd_stem_context_t * stem ) {
+  (void)sz; (void)tsorig; (void)tspub;
+
+  if( FD_UNLIKELY( in_idx==ctx->snapmk_in_idx ) ) {
+    if( FD_LIKELY( sig==FD_SNAPMK_MSG_CREATED ) ) {
+      strmk_snapmk( ctx, &( (fd_snapmk_msg_t const *)ctx->frag )->created );
+    }
+    return;
+  }
+
+  /* The link is unreliable, so a tile that fell behind has missed
+     blocks and has to start over.  The gap may have swallowed a reset,
+     so the banks of the blocks it drops are not returned. */
+  if( FD_UNLIKELY( ctx->replay_seq_next!=ULONG_MAX && seq!=ctx->replay_seq_next ) ) {
+    FD_LOG_WARNING(( "the boot stream feed skipped %ld frags, resetting the boot streams",
+                     fd_seq_diff( seq, ctx->replay_seq_next ) ));
+    strmk_reset( ctx, stem, 0 );
+  }
+  ctx->replay_seq_next = fd_seq_inc( seq, 1UL );
+
+  switch( sig ) {
+  case FD_STRMK_SIG_BLOCK_START:
+    strmk_block_start( ctx, stem, (fd_strmk_block_start_t const *)ctx->frag );
+    break;
+  case FD_STRMK_SIG_TXN_KEYS:
+    strmk_txn_keys( ctx, (fd_strmk_txn_keys_t const *)ctx->frag );
+    break;
+  case FD_STRMK_SIG_BLOCK_END:
+    strmk_block_end( ctx, stem, (fd_strmk_block_end_t const *)ctx->frag, 0 );
+    break;
+  case FD_STRMK_SIG_BLOCK_DEAD:
+    strmk_block_end( ctx, stem, (fd_strmk_block_end_t const *)ctx->frag, 1 );
+    break;
+  case FD_STRMK_SIG_STREAM_START:
+    strmk_stream_start( ctx, stem, (fd_strmk_stream_start_t const *)ctx->frag, fd_log_wallclock() );
+    break;
+  case FD_STRMK_SIG_RESET:
+    strmk_reset( ctx, stem, 0 );
+    break;
+  default:
+    FD_LOG_CRIT(( "unexpected boot stream message %lu", sig ));
+  }
+}
+
+static void
+after_credit( fd_strmk_t *        ctx,
+              fd_stem_context_t * stem,
+              int *               opt_poll_in,
+              int *               charge_busy ) {
+  (void)opt_poll_in; (void)charge_busy;
+  if( FD_LIKELY( stem->now<ctx->expire_check ) ) return;
+  ctx->expire_check = stem->now + (long)( (double)STRMK_EXPIRE_CHECK_NS*(double)ctx->tick_per_ns );
+  strmk_streams_expire( ctx, stem, fd_log_wallclock() );
+}
+
+/**********************************************************************/
+/* Tile setup                                                         */
+/**********************************************************************/
 
 static void
 privileged_init( fd_topo_t const *      topo,
@@ -70,20 +1203,31 @@ privileged_init( fd_topo_t const *      topo,
 
   char dir_path[ PATH_MAX ];
   FD_TEST( fd_cstr_printf_check( dir_path, PATH_MAX, NULL, "%s/%s", tile->strmk.snapshots_path, FD_STRMK_DIR ) );
-  ctx->dir_fd = fd_strmk_dir_open( dir_path );
+  ctx->dir_fd   = fd_strmk_dir_open( dir_path );
+  ctx->index_fd = FD_STRMK_FD( ctx->stream_max );
 
   char name[ FD_SNAP_NAME_MAX ];
   for( uint i=0U; i<ctx->stream_max; i++ ) {
     fd_strmk_file_open( ctx->dir_fd, dir_path, fd_strmk_stream_name( name, i ), O_RDWR, FD_STRMK_FD( i ) );
   }
-  fd_strmk_file_open( ctx->dir_fd, dir_path, FD_STRMK_INDEX,     O_RDWR, FD_STRMK_FD( ctx->stream_max    ) );
-  fd_strmk_file_open( ctx->dir_fd, dir_path, FD_STRMK_INDEX_TMP, O_RDWR, FD_STRMK_FD( ctx->stream_max+1U ) );
+  fd_strmk_file_open( ctx->dir_fd, dir_path, FD_STRMK_INDEX, O_RDWR, ctx->index_fd );
 
   /* Nothing from a previous run is served: a stream cannot be resumed,
      and the index would name streams that are gone. */
-  for( uint i=0U; i<ctx->stream_max+2U; i++ ) {
+  for( uint i=0U; i<ctx->stream_max+1U; i++ ) {
     if( FD_UNLIKELY( -1==ftruncate( FD_STRMK_FD( i ), 0L ) ) ) {
       FD_LOG_ERR(( "ftruncate() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+  }
+
+  /* The tile writes the files after it drops to the configured user,
+     so they belong to that user, like the snapshot pool does. */
+  if( FD_UNLIKELY( -1==fchown( ctx->dir_fd, tile->strmk.target_uid, tile->strmk.target_gid ) ) ) {
+    FD_LOG_ERR(( "fchown(%s) failed (%i-%s)", dir_path, errno, fd_io_strerror( errno ) ));
+  }
+  for( uint i=0U; i<ctx->stream_max+1U; i++ ) {
+    if( FD_UNLIKELY( -1==fchown( FD_STRMK_FD( i ), tile->strmk.target_uid, tile->strmk.target_gid ) ) ) {
+      FD_LOG_ERR(( "fchown(%s) failed (%i-%s)", dir_path, errno, fd_io_strerror( errno ) ));
     }
   }
 }
@@ -94,15 +1238,15 @@ populate_allowed_fds( fd_topo_t const *      topo,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
   fd_strmk_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-  if( FD_UNLIKELY( out_fds_cnt<6UL+(ulong)ctx->stream_max ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<5UL+(ulong)ctx->stream_max ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   out_fds[ out_cnt++ ] = ctx->dir_fd;
   out_fds[ out_cnt++ ] = FD_ACCDB_FD_RO;
-  for( uint i=0U; i<ctx->stream_max+2U; i++ )
-    out_fds[ out_cnt++ ] = FD_STRMK_FD( i ); /* streams, index, index scratch */
+  for( uint i=0U; i<ctx->stream_max+1U; i++ )
+    out_fds[ out_cnt++ ] = FD_STRMK_FD( i ); /* streams and index */
   return out_cnt;
 }
 
@@ -115,8 +1259,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   populate_sock_filter_policy_fd_strmk_tile(
       out_cnt, out,
       (uint)fd_log_private_logfile_fd(),
-      (uint)ctx->dir_fd,
-      (uint)FD_STRMK_FD( 0 ), (uint)FD_STRMK_FD( ctx->stream_max+1U ),
+      (uint)FD_STRMK_FD( 0 ), (uint)FD_STRMK_FD( ctx->stream_max ),
       (uint)FD_ACCDB_FD_RO );
   return sock_filter_policy_fd_strmk_tile_instr_cnt;
 }
@@ -126,13 +1269,58 @@ unprivileged_init( fd_topo_t const *      topo,
                    fd_topo_tile_t const * tile ) {
   void * scratch        = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   ulong  max_live_slots = tile->strmk.max_live_slots;
+  ulong  stream_max     = tile->strmk.max_open_streams;
+  ulong  key_max        = strmk_key_max( tile );
+  ulong  zst_sz         = ZSTD_estimateCStreamSize( FD_BACKUP_ZSTD_LEVEL );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_strmk_t * ctx       = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_strmk_t),  sizeof(fd_strmk_t) );
-  void *       _txncache = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),  fd_txncache_footprint( max_live_slots ) );
-  void *       _accdb    = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),     fd_accdb_footprint( max_live_slots, 0 ) );
+  fd_strmk_t * ctx       = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_strmk_t),              sizeof(fd_strmk_t) );
+  void *       _txncache = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),              fd_txncache_footprint( max_live_slots ) );
+  void *       _accdb    = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),                 fd_accdb_footprint( max_live_slots, 0 ) );
+  void *       _arena    = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_writer_arena_align(), fd_txncache_writer_arena_sz( tile->strmk.max_txn_per_slot ) );
+  void *       _acc_data = FD_SCRATCH_ALLOC_APPEND( l, 16UL,                             FD_RUNTIME_ACC_SZ_MAX );
+  void *       _comp     = FD_SCRATCH_ALLOC_APPEND( l, 16UL,                             STRMK_COMP_BUF_SZ );
+  void *       _chunk    = FD_SCRATCH_ALLOC_APPEND( l, alignof(strmk_chunk_t),           STRMK_CHUNK_MAX*sizeof(strmk_chunk_t) );
+  void *       _raw      = FD_SCRATCH_ALLOC_APPEND( l, 4096UL,                           stream_max*STRMK_RAW_BUF_SZ );
+  void *       _sent     = FD_SCRATCH_ALLOC_APPEND( l, alignof(strmk_sent_t),            stream_max*key_max*sizeof(strmk_sent_t) );
+  void *       _zst      = FD_SCRATCH_ALLOC_APPEND( l, 64UL,                             stream_max*zst_sz );
   ulong end = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   FD_CHECK_CRIT( end==(ulong)scratch + scratch_footprint( tile ), "bug when calculating tile memory layout" );
+
+  ctx->key_max           = key_max;
+  ctx->key_cap           = ( key_max*STRMK_SENT_LOAD_NUM )/STRMK_SENT_LOAD_DEN;
+  ctx->lifetime          = (long)tile->strmk.stream_lifetime_seconds*1000L*1000L*1000L;
+  ctx->tick_per_ns       = (long)fd_tempo_tick_per_ns( NULL );
+  ctx->replay_seq_next   = ULONG_MAX; /* the first frag starts no gap */
+  ctx->acc_data          = _acc_data;
+  ctx->comp              = _comp;
+  ctx->chunk             = _chunk;
+  ctx->txncache_arena    = _arena;
+  ctx->txncache_arena_sz = fd_txncache_writer_arena_sz( tile->strmk.max_txn_per_slot );
+
+  for( ulong i=0UL; i<STRMK_CHUNK_MAX; i++ ) ctx->chunk[ i ].next = (uint)( i+1UL );
+  ctx->chunk[ STRMK_CHUNK_MAX-1UL ].next = UINT_MAX;
+  ctx->chunk_free = 0U;
+
+  for( ulong i=0UL; i<STRMK_BLOCK_MAX; i++ ) {
+    ctx->block[ i ].bank_idx   = ULONG_MAX;
+    ctx->block[ i ].chunk_head = UINT_MAX;
+    ctx->block[ i ].chunk_tail = UINT_MAX;
+  }
+
+  for( uint i=0U; i<ctx->stream_max; i++ ) {
+    strmk_stream_t * stream = &ctx->stream[ i ];
+    stream->fd   = FD_STRMK_FD( i );
+    stream->raw  = (uchar *)_raw  + (ulong)i*STRMK_RAW_BUF_SZ;
+    stream->sent = (strmk_sent_t *)_sent + (ulong)i*key_max;
+    stream->zst  = ZSTD_initStaticCStream( (uchar *)_zst + (ulong)i*zst_sz, zst_sz );
+    FD_TEST( stream->zst );
+    ulong zst_err = ZSTD_CCtx_setParameter( stream->zst, ZSTD_c_compressionLevel, FD_BACKUP_ZSTD_LEVEL );
+    if( FD_UNLIKELY( ZSTD_isError( zst_err ) ) ) {
+      FD_LOG_ERR(( "ZSTD_CCtx_setParameter failed: %s", ZSTD_getErrorName( zst_err ) ));
+    }
+    memset( stream->sent, 0, key_max*sizeof(strmk_sent_t) );
+  }
 
   ctx->banks = fd_banks_join( fd_topo_obj_laddr( topo, tile->strmk.banks_obj_id ) );
   FD_TEST( ctx->banks );
@@ -153,37 +1341,54 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->accdb = fd_accdb_join_readonly( _accdb, accdb_shmem, epoch_fseq, FD_ACCDB_FD_RO );
   FD_TEST( ctx->accdb );
 
+  FD_CHECK_ERR( tile->in_cnt==2UL, "the stream tile needs the replay_strmk and snapmk_out links" );
+  ctx->snapmk_in_idx = ULONG_MAX;
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
-    if( FD_UNLIKELY( strcmp( link->name, "replay_strmk" ) ) ) {
+    if( FD_UNLIKELY( strcmp( link->name, "replay_strmk" ) && strcmp( link->name, "snapmk_out" ) ) ) {
       FD_LOG_ERR(( "unexpected input link \"%s\"", link->name ));
     }
+    FD_TEST( link->dcache );
+    ctx->in_mem   [ i ] = fd_wksp_containing( link->dcache );
+    FD_TEST( ctx->in_mem[ i ] );
+    ctx->in_chunk0[ i ] = fd_dcache_compact_chunk0( ctx->in_mem[ i ], link->dcache );
+    ctx->in_wmark [ i ] = fd_dcache_compact_wmark ( ctx->in_mem[ i ], link->dcache, link->mtu );
+    ctx->in_mtu   [ i ] = link->mtu;
+    FD_CHECK_ERR( link->mtu<=sizeof(ctx->frag), "input link MTU too large" );
+    if( FD_UNLIKELY( !strcmp( link->name, "snapmk_out" ) ) ) ctx->snapmk_in_idx = i;
   }
+  FD_CHECK_ERR( ctx->snapmk_in_idx!=ULONG_MAX, "missing snapmk_out link" );
 
   /* The tile asks replay for banks on strmk_replay and tells the file
      server about stream files on strmk_out. */
-  FD_CHECK_ERR( fd_topo_find_tile_out_link( topo, tile, "strmk_replay", 0UL )!=ULONG_MAX, "missing strmk_replay link" );
+  ctx->replay_out_idx = fd_topo_find_tile_out_link( topo, tile, "strmk_replay", 0UL );
+  FD_CHECK_ERR( ctx->replay_out_idx!=ULONG_MAX, "missing strmk_replay link" );
   ulong out_idx = fd_topo_find_tile_out_link( topo, tile, "strmk_out", 0UL );
   FD_CHECK_ERR( out_idx!=ULONG_MAX, "missing strmk_out link" );
-  FD_CHECK_ERR( topo->links[ tile->out_link_id[ out_idx ] ].mtu>=sizeof(fd_snapmk_msg_t), "strmk_out link MTU too small" );
+  fd_topo_link_t const * out_link = &topo->links[ tile->out_link_id[ out_idx ] ];
+  FD_CHECK_ERR( out_link->mtu>=sizeof(fd_snapmk_msg_t), "strmk_out link MTU too small" );
+  ctx->out.out_idx  = out_idx;
+  ctx->out.mem      = fd_wksp_containing( out_link->dcache );
+  ctx->out.chunk0   = fd_dcache_compact_chunk0( ctx->out.mem, out_link->dcache );
+  ctx->out.wmark    = fd_dcache_compact_wmark ( ctx->out.mem, out_link->dcache, out_link->mtu );
+  ctx->out.chunk    = ctx->out.chunk0;
+  ctx->out.seq_prod = fd_mcache_seq_laddr( out_link->mcache );
 }
 
-static void
-after_credit( fd_strmk_t *        ctx,
-              fd_stem_context_t * stem,
-              int *               opt_poll_in,
-              int *               charge_busy ) {
-  (void)ctx; (void)stem; (void)opt_poll_in; (void)charge_busy;
-}
+/* One STREAM_START can expire every stream, open one and give a bank
+   back. */
 
-#define STEM_BURST 1UL
+#define STEM_BURST (FD_STRMK_STREAM_MAX+2UL)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_strmk_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_strmk_t)
 #define STEM_CALLBACK_AFTER_CREDIT  after_credit
+#define STEM_CALLBACK_DURING_FRAG   during_frag
+#define STEM_CALLBACK_AFTER_FRAG    after_frag
 
 #include "../../disco/stem/fd_stem.c"
 
+#ifndef FD_TILE_TEST
 fd_topo_run_tile_t fd_tile_strmk = {
   .name                     = "strmk",
   .populate_allowed_fds     = populate_allowed_fds,
@@ -192,6 +1397,6 @@ fd_topo_run_tile_t fd_tile_strmk = {
   .scratch_footprint        = scratch_footprint,
   .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
-  .run                      = stem_run,
-  .allow_renameat           = 1
+  .run                      = stem_run
 };
+#endif

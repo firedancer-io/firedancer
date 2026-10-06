@@ -15,9 +15,8 @@
 
    Firedancer's sandbox bans opening files, so the stream tile and the
    file server both open the boot files before they enter the sandbox,
-   at the same descriptor numbers.  Stream i is FD_STRMK_FD( i ), the
-   index follows the streams, and the scratch file that the index is
-   renamed from follows the index. */
+   at the same descriptor numbers.  Stream i is FD_STRMK_FD( i ) and
+   the index follows the streams. */
 
 #define FD_STRMK_FD_BASE (210000)
 #define FD_STRMK_FD( i ) (FD_STRMK_FD_BASE+(int)(i))
@@ -30,9 +29,8 @@
 /* The boot files live in their own directory below the snapshots
    directory. */
 
-#define FD_STRMK_DIR       "boot"
-#define FD_STRMK_INDEX     "boot-index"
-#define FD_STRMK_INDEX_TMP "boot-index.tmp"
+#define FD_STRMK_DIR   "boot"
+#define FD_STRMK_INDEX "boot-index"
 
 FD_PROTOTYPES_BEGIN
 

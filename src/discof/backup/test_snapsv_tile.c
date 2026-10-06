@@ -1257,17 +1257,30 @@ boot_env( ulong slot ) {
   return env;
 }
 
-/* With no stream open the index is an empty file. */
+/* The index is empty until a stream is listed, and a booting peer
+   reads an empty body as an error, so an empty index is a 404. */
 
 FD_UNIT_TEST( boot_index_empty ) {
   snapsv_env_t * env = snapsv_env_create();
   expect_res_env( env,
       "GET /boot/index HTTP/1.1\r\n"
       "\r\n",
+      RES_404_KEEPALIVE );
+  snapsv_env_destroy( env );
+}
+
+/* An index with a stream in it is served as a plain file. */
+
+FD_UNIT_TEST( boot_index_listed ) {
+  snapsv_env_t * env = snapsv_env_create();
+  FD_TEST( !ftruncate( env->ctx->boot_fd[ BOOT_MAX ], 48L ) );
+  expect_res_env( env,
+      "GET /boot/index HTTP/1.1\r\n"
+      "\r\n",
       "HTTP/1.1 200 OK\r\n"
       "Content-Type: application/x-tar\r\n"
       "Accept-Ranges: bytes\r\n"
-      "Content-Length: 0\r\n"
+      "Content-Length: 48\r\n"
       "\r\n" );
   snapsv_env_destroy( env );
 }
@@ -1326,6 +1339,17 @@ FD_UNIT_TEST( boot_stream_body ) {
       "Range: bytes=100-199\r\n"
       "\r\n" );
 
+  char expected_hdr[ 256 ];
+  fd_cstr_printf( expected_hdr, sizeof(expected_hdr), NULL,
+      "HTTP/1.1 206 Partial Content\r\n"
+      "Content-Type: application/zstd\r\n"
+      "Accept-Ranges: bytes\r\n"
+      "Content-Range: bytes 100-199/%lu\r\n"
+      "Content-Length: 100\r\n"
+      "\r\n", BOOT_FILE_SZ );
+  FD_TEST( res_len>strlen( expected_hdr ) );
+  FD_TEST( !memcmp( res, expected_hdr, strlen( expected_hdr ) ) );
+
   ulong        body_len;
   char const * body = res_body( res, res_len, &body_len );
   FD_TEST( body_len==100UL );
@@ -1355,6 +1379,65 @@ FD_UNIT_TEST( boot_stream_closed ) {
       "GET /boot/100.tar.zst HTTP/1.1\r\n"
       "\r\n",
       RES_404_KEEPALIVE );
+  snapsv_env_destroy( env );
+}
+
+/* A booting peer asks the server which snapshot pair a stream chains
+   off, and is redirected to the two file names. */
+
+FD_UNIT_TEST( boot_snap_redirect ) {
+  snapsv_env_t * env = snapsv_env_create();
+  uchar full_hash[ 32 ]; memset( full_hash, 0xc3, sizeof(full_hash) );
+  uchar incr_hash[ 32 ]; memset( incr_hash, 0xd4, sizeof(incr_hash) );
+  snapsv_env_add_snap( env, 100UL, ULONG_MAX, 4096UL, full_hash, 1 );
+  snapsv_env_add_snap( env, 200UL, 100UL,     4096UL, incr_hash, 1 );
+
+  char name[ FD_SNAP_NAME_MAX ];
+  snap_name( name, 200UL, 100UL, incr_hash, 1 );
+  expect_redirect( env, "GET /boot/200/incremental HTTP/1.1\r\n\r\n", name );
+  snap_name( name, 100UL, ULONG_MAX, full_hash, 1 );
+  expect_redirect( env, "GET /boot/200/full HTTP/1.1\r\n\r\n", name );
+  snapsv_env_destroy( env );
+}
+
+/* No incremental snapshot at that slot, so neither half of the pair
+   can be named. */
+
+FD_UNIT_TEST( boot_snap_redirect_unknown ) {
+  snapsv_env_t * env = snapsv_env_create();
+  uchar hash[ 32 ]; memset( hash, 0xc3, sizeof(hash) );
+  snapsv_env_add_snap( env, 100UL, ULONG_MAX, 4096UL, hash, 1 );
+
+  expect_res_env( env, "GET /boot/200/incremental HTTP/1.1\r\n\r\n", RES_404_KEEPALIVE );
+  expect_res_env( env, "GET /boot/200/full HTTP/1.1\r\n\r\n",        RES_404_KEEPALIVE );
+  snapsv_env_destroy( env );
+}
+
+/* The incremental is known but the full snapshot it chains off is
+   gone, so only the full half is a 404. */
+
+FD_UNIT_TEST( boot_snap_redirect_no_base ) {
+  snapsv_env_t * env = snapsv_env_create();
+  uchar hash[ 32 ]; memset( hash, 0xd4, sizeof(hash) );
+  snapsv_env_add_snap( env, 200UL, 100UL, 4096UL, hash, 1 );
+
+  char name[ FD_SNAP_NAME_MAX ];
+  snap_name( name, 200UL, 100UL, hash, 1 );
+  expect_redirect( env, "GET /boot/200/incremental HTTP/1.1\r\n\r\n", name );
+  expect_res_env( env, "GET /boot/200/full HTTP/1.1\r\n\r\n", RES_404_KEEPALIVE );
+  snapsv_env_destroy( env );
+}
+
+/* Anything else below the boot prefix is not a route. */
+
+FD_UNIT_TEST( boot_snap_redirect_malformed ) {
+  snapsv_env_t * env = snapsv_env_create();
+  uchar hash[ 32 ]; memset( hash, 0xd4, sizeof(hash) );
+  snapsv_env_add_snap( env, 200UL, 100UL, 4096UL, hash, 1 );
+
+  expect_res_env( env, "GET /boot/200/latest HTTP/1.1\r\n\r\n",  RES_404_KEEPALIVE );
+  expect_res_env( env, "GET /boot/2x0/full HTTP/1.1\r\n\r\n",    RES_404_KEEPALIVE );
+  expect_res_env( env, "GET /boot//full HTTP/1.1\r\n\r\n",       RES_404_KEEPALIVE );
   snapsv_env_destroy( env );
 }
 
