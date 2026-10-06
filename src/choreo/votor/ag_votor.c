@@ -750,7 +750,7 @@ ag_votor_process_replay( ag_votor_t *            self,
 void
 ag_votor_handle_skip_timeout( ag_votor_t * self,
                               ulong        slot ) {
-  if( FD_UNLIKELY( slot<=self->highest_final_cert_slot || is_retired( self, slot ) ) ) return;
+  if( FD_UNLIKELY( slot<first_unpruned_slot( self ) || is_retired( self, slot ) ) ) return;
 
   if( FD_UNLIKELY( !has_voted( self, slot ) ) ) try_skip_window( self, slot, AG_VOTOR_REASON_TIMEOUT );
 }

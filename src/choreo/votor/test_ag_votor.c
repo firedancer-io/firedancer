@@ -741,6 +741,39 @@ test_window_start_at_first_unpruned( void ) {
   }
 }
 
+/* A timeout at or below the highest final cert slot but still in its
+   reward window casts skip votes for the unvoted slots of its window. */
+
+static void
+test_timeout_below_final( void ) {
+  create_validators();
+  ag_votor_t * votor = ag_votor_join( ag_votor_new( scratch, TEST_SLOT_MAX, 42UL ) );
+  FD_TEST( votor );
+  ag_block_id_t root = random_block_id( 10UL );
+  ag_votor_init         ( votor, &root, 0L, TEST_NS_PER_SLOT, TEST_SHRED_VERSION, sec_sign_fn, &g_sk[0] );
+  ag_votor_advance_epoch( votor, TEST_NS_PER_SLOT, 0UL, 0UL, g_bls_selector[0] );
+  g_epoch_info = &epoch_info_mem;
+  epoch_info_build( g_epoch_info, g_info, NV );
+
+  ulong           w     = ag_first_slot_in_window( root.slot ) + AG_SLOTS_PER_WINDOW;
+  ag_vote_t       fv    = ag_vote_construct_final( sec_sign_fn, &g_sk[1], test_bls_public_key, w+4UL, (ushort)1, TEST_SHRED_VERSION );
+  ag_pool_event_t final = { .kind = AG_POOL_EVENT_CERT_CREATED, .cert_created = cert_build_final( &fv.final, 1UL, g_epoch_info ) };
+  ag_votor_handle_pool_event( votor, &final, 0L );
+  for( ulong slot=0UL; slot<first_unpruned_slot( votor ); slot++ ) FD_TEST( !contains_slot( votor, slot ) );
+
+  ag_votor_handle_skip_timeout( votor, w+3UL );
+  for( ulong slot=w; slot<w+AG_SLOTS_PER_WINDOW; slot++ ) {
+    ag_vote_t msg = recv( votor );
+    FD_TEST( msg.kind==AG_VOTE_KIND_SKIP && ag_vote_slot( &msg )==slot );
+  }
+  FD_TEST_NO_MSG( votor );
+
+  ag_votor_handle_skip_timeout( votor, w+2UL );
+  FD_TEST_NO_MSG( votor );
+
+  teardown_votor( votor );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -765,6 +798,7 @@ main( int     argc,
   test_boot_mid_window_notar_child();
   test_missing_bls_selector_still_skips_other_epoch();
   test_prunes_to_finalized_window();
+  test_timeout_below_final();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
