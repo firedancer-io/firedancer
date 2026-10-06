@@ -1,5 +1,6 @@
 #include "fd_ssmanifest_writer.h"
 #include "../../flamenco/runtime/fd_system_ids.h"
+#include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../flamenco/runtime/program/vote/fd_vote_state_versioned.h"
 #include "../../ballet/bls/fd_bls.h"
 

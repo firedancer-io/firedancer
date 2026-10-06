@@ -10,6 +10,7 @@
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "../../flamenco/runtime/fd_txncache_shmem.h"
 #include "../../flamenco/runtime/fd_txncache_private.h"
+#include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_slot_history.h"
 #if FD_HAS_RACESAN
 #include "../../util/racesan/fd_racesan.h"
@@ -62,11 +63,13 @@ seed_epoch_credits( fd_bank_t * bank ) {
   ulong len = *fd_bank_epoch_credits_len( bank );
   FD_TEST( len==VALIDATOR_CNT );
   FD_TEST( EPOCH_CREDITS_CNT<=FD_EPOCH_CREDITS_MAX );
+  bank->f.alpenglow_migration_slot = fd_epoch_slot0( &bank->f.epoch_schedule, EPOCH_CREDITS_CNT );
   for( ulong i=0UL; i<len; i++ ) {
-    fd_epoch_credits_t * ec = &fd_bank_epoch_credits( bank )[ i ];
-    ec->cnt          = EPOCH_CREDITS_CNT;
-    ec->commission   = (ushort)( 4321U + i );
-    ec->base_credits = 10000UL + 1000UL*i;
+    fd_epoch_credits_t * ec     = &fd_bank_epoch_credits( bank )[ i ];
+    ec->cnt                     = EPOCH_CREDITS_CNT;
+    ec->commission              = (ushort)( 4321U + i );
+    ec->base_credits            = 10000UL + 1000UL*i;
+    ec->has_ag_migration_marker = i==1UL;
     for( ulong j=0UL; j<EPOCH_CREDITS_CNT; j++ ) {
       ec->epoch[ j ]              = (ushort)( j+1UL );
       ec->prev_credits_delta[ j ] = (uint)( 100UL*j + 7UL*i );
@@ -86,11 +89,19 @@ check_epoch_credits( fd_bank_t *                                bank,
   }
   FD_TEST( ec );
   FD_TEST( ec->cnt==EPOCH_CREDITS_CNT );
-  FD_TEST( vs->epoch_credits_history_len==ec->cnt );
-  for( ulong j=0UL; j<ec->cnt; j++ ) {
-    FD_TEST( vs->epoch_credits[j].epoch       ==(ulong)ec->epoch[j] );
-    FD_TEST( vs->epoch_credits[j].credits     ==ec->base_credits+(ulong)ec->credits_delta[j] );
-    FD_TEST( vs->epoch_credits[j].prev_credits==ec->base_credits+(ulong)ec->prev_credits_delta[j] );
+  ulong ag_marker_idx = ec->has_ag_migration_marker ? EPOCH_CREDITS_CNT-1UL : ULONG_MAX;
+  FD_TEST( vs->epoch_credits_history_len==ec->cnt+(ulong)ec->has_ag_migration_marker );
+  for( ulong k=0UL, j=0UL; k<vs->epoch_credits_history_len; k++ ) {
+    if( k==ag_marker_idx ) {
+      FD_TEST( vs->epoch_credits[k].epoch       ==ULONG_MAX );
+      FD_TEST( vs->epoch_credits[k].credits     ==ULONG_MAX );
+      FD_TEST( vs->epoch_credits[k].prev_credits==ULONG_MAX );
+      continue;
+    }
+    FD_TEST( vs->epoch_credits[k].epoch       ==(ulong)ec->epoch[j] );
+    FD_TEST( vs->epoch_credits[k].credits     ==ec->base_credits+(ulong)ec->credits_delta[j] );
+    FD_TEST( vs->epoch_credits[k].prev_credits==ec->base_credits+(ulong)ec->prev_credits_delta[j] );
+    j++;
   }
 }
 

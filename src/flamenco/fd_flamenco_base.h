@@ -146,6 +146,7 @@ struct fd_epoch_credits {
   ulong  credits_delta     [ FD_EPOCH_CREDITS_MAX ];
   ulong  prev_credits_delta[ FD_EPOCH_CREDITS_MAX ];
   ushort commission;
+  /* cnt does not include the Alpenglow marker entry */
   uchar  cnt;
   uchar  fast_path_ok; /* True if the entries satisfy the boundary fast path prerequisites:
                           (1) initial[n]<=final[n], (2) initial[n]==final[n-1], and (3)
@@ -153,11 +154,73 @@ struct fd_epoch_credits {
                           by vote programs.  Points calculation takes the fast paths only
                           when true and the slow reference implementation otherwise.  So
                           synthetic fuzzer inputs fall back gracefully. */
+  /* has_ag_migration_marker is 1 if the Alpenglow migration marker
+     is present in the vote account's epoch credits, and 0 otherwise.
+     This is only needed to correctly pay out rewards earnt during the
+     Alpenglow migration epoch.
+
+     The Alpenglow migration changes what epoch credit entries
+     represent. Entries from before the migration are Tower credits,
+     and entries from after are Alpenglow credits.
+
+     During the migration epoch, vote accounts can earn both Tower
+     credits before the migration slot and Alpenglow credits after.
+     This means there can be two entries for the migration epoch, and
+     if there is only one entry we don't know if it represents Tower
+     credits or Alpenglow credits. The marker is used to disambiguate:
+     entries from epochs before the marker are Tower credits, and
+     entries at/after the marker are Alpenglow credits.
+
+     It is also true that:
+     - At most one entry per epoch is written in non-migration epochs.
+     - At most one entry per epoch is written for Tower credits during
+       the migration epoch.
+     - At most one entry per epoch is written for Alpenglow credits
+       during the migration epoch.
+     - The marker is only written during the migration epoch, whilst
+       crediting any Alpenglow credits earnt. If the vote account did
+       not earn any Alpenglow credits during the migration epoch,
+       there will never be a marker in its epoch credits.
+
+     Therefore, we know that:
+     - If the marker is not present and there is only 1 entry for the
+       migration epoch, that entry must represent Tower credits
+     - If the marker is present and there is only 1 entry for the
+       migration epoch, that entry must represent Alpenglow credits
+     - If the marker is present and there are 2 entries for the
+       migration epoch, the first represents Tower credits and the
+       second represents Alpenglow credits
+
+    https://github.com/anza-xyz/agave/blob/v4.3.0/runtime/src/block_component_processor/vote_reward.rs#L532-L596 */
+  uchar  has_ag_migration_marker;
 };
 typedef struct fd_epoch_credits fd_epoch_credits_t;
 
 FD_STATIC_ASSERT( (ulong)UCHAR_MAX>=FD_EPOCH_CREDITS_MAX, cnt_width );
 FD_STATIC_ASSERT( sizeof(fd_epoch_credits_t)==1200UL, fd_epoch_credits );
+
+/* fd_epoch_credits_ag_marker_idx returns the index of the Alpenglow
+   migration marker in the on-chain epoch credits state, given the
+   epoch_credits and the migration epoch. This is so that our
+   serialized epoch credits are Agave-compatible. */
+
+static inline ulong
+fd_epoch_credits_ag_marker_idx( fd_epoch_credits_t const * epoch_credits,
+                                ulong                      ag_migration_epoch ) {
+  if( FD_LIKELY( !epoch_credits->has_ag_migration_marker ) ) return ULONG_MAX;
+
+  /* Find the last entry for the migration epoch - the marker goes
+     immediately before this entry. */
+  for( ulong i=epoch_credits->cnt; i; i-- ) {
+    if( FD_UNLIKELY ((ulong)epoch_credits->epoch[ i-1UL ]==ag_migration_epoch )) {
+      return i-1UL;
+    }
+  }
+
+  /* If there is no entry for the migration epoch, the marker is the
+     last entry. */
+  return epoch_credits->cnt;
+}
 
 static inline uchar
 fd_epoch_credits_fast_path_ok( fd_epoch_credits_t const * epoch_credits ) {

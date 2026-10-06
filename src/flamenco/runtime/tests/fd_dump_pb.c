@@ -8,6 +8,7 @@
 #include "../fd_bank.h"
 #include "../fd_runtime.h"
 #include "../fd_alut.h"
+#include "../sysvar/fd_sysvar_epoch_schedule.h"
 #include "../program/fd_precompiles.h"
 #include "../../../third_party/nanopb/pb_encode.h"
 #include "../fd_runtime_stack_tmpl.h"
@@ -744,19 +745,30 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
      reward calculation).  Needed for the harness to correctly
      recalculate partitioned epoch rewards. */
   fd_vote_rewards_map_t * vote_ele_map = runtime_stack->stakes.vote_map;
+  ulong ag_migration_slot  = fd_alpenglow_migration_slot( parent_bank, accdb );
+  ulong ag_migration_epoch = fd_slot_to_epoch( &parent_bank->f.epoch_schedule, ag_migration_slot, NULL );
   for( pb_size_t i=0U; i<va_t1_cnt; i++ ) {
     fd_pubkey_t va_pubkey = FD_LOAD( fd_pubkey_t, va_t1[i].address );
     uint idx = (uint)fd_vote_rewards_map_idx_query( vote_ele_map, &va_pubkey, UINT_MAX, runtime_stack->stakes.vote_ele );
     if( idx==UINT_MAX ) continue;
     fd_epoch_credits_t const * ec = &fd_bank_epoch_credits( parent_bank )[idx];
-    ulong cnt  = ec->cnt;
-    ulong base = ec->base_credits;
+    ulong base               = ec->base_credits;
+    int   has_ag_marker      = ec->has_ag_migration_marker;
+    ulong ag_marker_idx      = fd_epoch_credits_ag_marker_idx( ec, ag_migration_epoch );
+    ulong cnt                = (ulong)ec->cnt + (ulong)has_ag_marker;
     va_t1[i].epoch_credits_count = (pb_size_t)cnt;
     va_t1[i].epoch_credits = fd_spad_alloc( spad, alignof(fd_exec_test_epoch_credit_t), cnt * sizeof(fd_exec_test_epoch_credit_t) );
-    for( ulong j=0; j<cnt; j++ ) {
-      va_t1[i].epoch_credits[j].epoch        = ec->epoch[j];
-      va_t1[i].epoch_credits[j].credits      = base + ec->credits_delta[j];
-      va_t1[i].epoch_credits[j].prev_credits = base + ec->prev_credits_delta[j];
+    for( ulong k=0UL, j=0UL; k<cnt; k++ ) {
+      if( FD_UNLIKELY( k==ag_marker_idx ) ) {
+        va_t1[i].epoch_credits[k].epoch        = ULONG_MAX;
+        va_t1[i].epoch_credits[k].credits      = ULONG_MAX;
+        va_t1[i].epoch_credits[k].prev_credits = ULONG_MAX;
+        continue;
+      }
+      va_t1[i].epoch_credits[k].epoch        = ec->epoch[j];
+      va_t1[i].epoch_credits[k].credits      = base + ec->credits_delta[j];
+      va_t1[i].epoch_credits[k].prev_credits = base + ec->prev_credits_delta[j];
+      j++;
     }
   }
 
