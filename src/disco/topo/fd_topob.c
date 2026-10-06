@@ -510,6 +510,7 @@ static char const * FLOATING[] = {
   "snapmk", /* FIREDANCER ONLY */
   "snapzp", /* FIREDANCER ONLY */
   "snaprd", /* FIREDANCER ONLY */
+  "strmk",  /* FIREDANCER ONLY */
   NULL
 };
 

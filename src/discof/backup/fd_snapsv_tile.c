@@ -19,6 +19,7 @@
 #define _GNU_SOURCE
 #include "fd_snapsv_tile.h"
 #include "fd_snapmk_tile.h"
+#include "fd_strmk_tile.h"
 #include "../../disco/fd_clock_tile.h"
 #include "../../disco/stem/fd_stem.h"
 #include "../../disco/topo/fd_topo.h"
@@ -28,6 +29,8 @@
 #include <fcntl.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
+#include <sys/syscall.h>
 #include <sys/types.h>
 #include <linux/futex.h>
 #include "../../util/io_uring/fd_io_uring.h"
@@ -86,7 +89,7 @@ snap_key_hash( snap_key_t const * key,
 
 /* Tile state */
 
-#define IN_LINK_MAX 1 /* cannot trivially grow */
+#define IN_LINK_MAX 2 /* snapmk_out and strmk_out */
 
 /* 8 ought to be enough ... The SQE/CQE count per conn is limited due
    to fixed depth pipelining. */
@@ -158,6 +161,8 @@ struct snapsv_conn {
     ulong req_cur;  /* next file offset to read */
     ulong req_sent; /* payload bytes handed to the socket */
     uint  range:1;  /* range request? */
+    uint  boot:1;   /* boot stream file instead of a snapshot? */
+    uint  boot_idx; /* which boot file (boot_max is the index file) */
   } snap;
 
   fd_kernel_timespec_t idle_timeout;
@@ -217,7 +222,16 @@ struct fd_snapsv {
   /* snapshot files */
   int dir_fd;
 
+  /* Boot stream files, served for instant boot.  boot_slot[ i ] is the
+     slot that stream i currently holds, or ULONG_MAX if that stream is
+     closed, and boot_fd[ i ] reads it.  The index file follows the
+     streams.  boot_max is zero unless boot streams are served. */
+  ulong boot_max;
+  ulong boot_slot[ FD_STRMK_STREAM_MAX ];
+  int   boot_fd  [ FD_STRMK_STREAM_MAX+1UL ];
+
   /* tango input links */
+  ulong in_cnt;
   uchar in_kind[ IN_LINK_MAX ];
   struct {
     void * mem;
@@ -278,9 +292,26 @@ scratch_align( void ) {
   return FD_SHMEM_NORMAL_PAGE_SZ;
 }
 
+/* snapsv_boot_max gives the number of boot stream files, which is zero
+   unless boot streams are served. */
+
+FD_FN_PURE static ulong
+snapsv_boot_max( fd_topo_tile_t const * tile ) {
+  return tile->snapsv.instant_boot_serve ? tile->snapsv.boot_stream_max : 0UL;
+}
+
+/* snapsv_boot_cnt gives the number of boot files, which is one per
+   stream plus the index. */
+
+FD_FN_PURE static ulong
+snapsv_boot_cnt( fd_topo_tile_t const * tile ) {
+  ulong boot_max = snapsv_boot_max( tile );
+  return boot_max ? boot_max+1UL : 0UL;
+}
+
 FD_FN_PURE static ulong
 snapsv_fd_max( fd_topo_tile_t const * tile ) {
-  return FIXED_FD_CNT + tile->snapsv.snap_max + tile->snapsv.conn_max;
+  return FIXED_FD_CNT + tile->snapsv.snap_max + snapsv_boot_cnt( tile ) + tile->snapsv.conn_max;
 }
 
 FD_FN_PURE static ulong
@@ -404,6 +435,25 @@ privileged_init( fd_topo_t const *      topo,
   FD_CHECK_ERR( tile->snapsv.conn_max, "snapsv conn_max is zero" );
   FD_CHECK_ERR( tile->snapsv.snap_max, "snapsv snap_max is zero" );
   ctx->snap_max = tile->snapsv.snap_max;
+  ctx->boot_max = snapsv_boot_max( tile );
+  FD_CHECK_ERR( ctx->boot_max<=FD_STRMK_STREAM_MAX, "too many boot streams" );
+
+  /* The boot files are opened read-only at the descriptors the stream
+     tile writes them through.  The stream tile may not have started
+     yet, so missing files are created here. */
+
+  if( FD_UNLIKELY( ctx->boot_max ) ) {
+    char dir_path[ PATH_MAX ];
+    FD_TEST( fd_cstr_printf_check( dir_path, PATH_MAX, NULL, "%s/%s", tile->snapsv.snapshots_path, FD_STRMK_DIR ) );
+    int dir_fd = fd_strmk_dir_open( dir_path );
+    char name[ FD_SNAP_NAME_MAX ];
+    for( ulong i=0UL; i<snapsv_boot_cnt( tile ); i++ ) {
+      char const * file = i<ctx->boot_max ? fd_strmk_stream_name( name, (uint)i ) : FD_STRMK_INDEX;
+      fd_strmk_file_open( dir_fd, dir_path, file, O_RDONLY, FD_STRMK_FD( i ) );
+      ctx->boot_fd[ i ] = FD_STRMK_FD( i );
+    }
+    if( FD_UNLIKELY( -1==close( dir_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
 
   /* TCP listen socket */
 
@@ -437,6 +487,9 @@ privileged_init( fd_topo_t const *      topo,
   uint fixed_fd = FIXED_FD_CNT;
   for( ulong i=0UL; i<tile->snapsv.snap_max; i++ ) {
     fd_table[ fixed_fd++ ] = FD_SNAP_RO_FD( i );
+  }
+  for( ulong i=0UL; i<snapsv_boot_cnt( tile ); i++ ) {
+    fd_table[ fixed_fd++ ] = FD_STRMK_FD( i );
   }
   ctx->conn0_fd_idx = fixed_fd;
   if( FD_UNLIKELY( fd_io_uring_register_files( ctx->ring->ioring_fd, fd_table, fd_max )<0 ) ) {
@@ -509,13 +562,22 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( snap_map_join( ctx->snap_map, slots, map_ele_max, map_ele_max, map_seed ) );
   ctx->snap_max = tile->snapsv.snap_max;
 
+  /* boot stream table setup */
+
+  ctx->boot_max = snapsv_boot_max( tile );
+  for( ulong i=0UL; i<ctx->boot_max; i++ ) ctx->boot_slot[ i ] = ULONG_MAX;
+
   /* link setup */
 
   FD_CHECK_ERR( tile->in_cnt<=IN_LINK_MAX, "too many input links" );
-  FD_CHECK_ERR( tile->in_cnt==1, "snapsv is hardcoded to only support one input link" );
+  FD_CHECK_ERR( tile->in_cnt, "snapsv needs an input link" );
+  ctx->in_cnt = tile->in_cnt;
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
-    FD_CHECK_ERR( !strcmp( link->name, "snapmk_out" ), "unexpected input link" );
+    /* Boot stream files are announced with the same messages as
+       snapshot files, on a link of their own. */
+    FD_CHECK_ERR( !strcmp( link->name, "snapmk_out" ) ||
+                  !strcmp( link->name, "strmk_out" ), "unexpected input link" );
     FD_CHECK_ERR( tile->in_link_poll[ i ], "expecting polled input link" );
     ctx->in_kind[ i ]   = IN_KIND_SNAPMK;
     ctx->in[ i ].mem    = fd_wksp_containing( link->dcache );
@@ -697,6 +759,8 @@ event_snap( fd_snapsv_t *       ctx,
             int                 som,
             int                 eom ) {
   if( FD_UNLIKELY( ctx->out.out_idx < 0L ) ) return;
+  /* a boot stream request is not a snapshot download */
+  if( FD_UNLIKELY( ctx->conn0[ conn_idx ].snap.boot ) ) return;
   event_prepare( ctx, conn_idx );
   event_publish( ctx, stem, now, som, eom );
 }
@@ -894,7 +958,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
   fd_snapsv_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-  if( FD_UNLIKELY( out_fds_cnt<4+ctx->snap_max ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<4+ctx->snap_max+snapsv_boot_cnt( tile ) ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
@@ -903,6 +967,8 @@ populate_allowed_fds( fd_topo_t const *      topo,
   out_fds[ out_cnt++ ] = ctx->listen_fd;
   for( ulong i=0UL; i<ctx->snap_max; i++ )
     out_fds[ out_cnt++ ] = FD_SNAP_RO_FD( i ); /* snapshot pool */
+  for( ulong i=0UL; i<snapsv_boot_cnt( tile ); i++ )
+    out_fds[ out_cnt++ ] = FD_STRMK_FD( i ); /* boot streams and index */
   return out_cnt;
 }
 
@@ -913,12 +979,17 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           struct sock_filter *   out ) {
   fd_snapsv_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_CHECK_ERR( ctx->snap_max, "snapsv snap_max is zero" );
+  /* The boot range is empty unless boot streams are served. */
+  uint boot_min_fd = (uint)FD_STRMK_FD( 0 );
+  uint boot_max_fd = ctx->boot_max ? (uint)FD_STRMK_FD( ctx->boot_max ) : boot_min_fd-1U;
   populate_sock_filter_policy_fd_snapsv_tile(
       out_cnt, out,
       (uint)fd_log_private_logfile_fd(),
       (uint)ctx->ring->ioring_fd,
       (uint)FD_SNAP_RO_FD( 0 ),
-      (uint)FD_SNAP_RO_FD( ctx->snap_max-1UL ) );
+      (uint)FD_SNAP_RO_FD( ctx->snap_max-1UL ),
+      boot_min_fd,
+      boot_max_fd );
   return sock_filter_policy_fd_snapsv_tile_instr_cnt;
 }
 
@@ -927,8 +998,9 @@ rlimit_file_cnt( fd_topo_t const *      topo,
                  fd_topo_tile_t const * tile ) {
   (void)topo;
   /* stderr, logfile, boot control pipe, io_uring, listen socket, one
-     spare for accept, the snapshot pool, and active connections */
-  return 6UL + tile->snapsv.snap_max + tile->snapsv.conn_max;
+     spare for accept, the snapshot pool, the boot files, and active
+     connections */
+  return 6UL + tile->snapsv.snap_max + snapsv_boot_cnt( tile ) + tile->snapsv.conn_max;
 }
 
 /* handle_accept handles the completion of an accept op. */
@@ -999,6 +1071,26 @@ conn_snap_entry( snapsv_conn_t * conn ) {
 
 static int
 snap_lock( snap_entry_t * entry );
+
+/* conn_file_fd_idx returns the io_uring file index of the file that a
+   request is streaming, or ULONG_MAX if that file is gone: the
+   snapshot was recycled, or the boot stream was closed. */
+
+static ulong
+conn_file_fd_idx( fd_snapsv_t const * ctx,
+                  snapsv_conn_t *     conn ) {
+  if( FD_UNLIKELY( conn->snap.boot ) ) {
+    ulong boot_idx = conn->snap.boot_idx;
+    /* the index file is never recycled */
+    if( boot_idx<ctx->boot_max && ctx->boot_slot[ boot_idx ]!=conn->snap.key.slot ) return ULONG_MAX;
+    return FIXED_FD_CNT + ctx->snap_max + boot_idx;
+  }
+  snap_entry_t const * snap = conn_snap_entry( conn );
+  if( FD_UNLIKELY( !snap ) ) return ULONG_MAX;
+  ulong pool_idx = (ulong)( snap->fd - FD_SNAP_RO_FD( 0 ) );
+  FD_CHECK_CRIT( pool_idx<ctx->snap_max, "snapshot has invalid file descriptor" );
+  return FIXED_FD_CNT + pool_idx;
+}
 
 /* shovel dispatches snapshot streaming I/O work.
    This forms a 2-job deep pipeline that attempts to concurrently do
@@ -1071,8 +1163,8 @@ shovel( fd_snapsv_t *       ctx,
   if( conn->rdbuf_idx==UINT_MAX &&
       !conn->disk_inflight      &&
       conn->snap.req_cur < conn->snap.req_off1 ) {
-    snap_entry_t const * snap = conn_snap_entry( conn );
-    if( FD_UNLIKELY( !snap ) ) {
+    ulong fd_idx = conn_file_fd_idx( ctx, conn );
+    if( FD_UNLIKELY( fd_idx==ULONG_MAX ) ) {
       conn->res.close_kind = FD_SNAPSV_CLOSE_ABORT;
       conn->closing        = 1U;
       shovel( ctx, stem, conn_idx, now );
@@ -1081,15 +1173,13 @@ shovel( fd_snapsv_t *       ctx,
 
     iobuf_alloc( ctx, &conn->rdbuf_idx );
     ulong read_sz = fd_ulong_min( ctx->iobuf_sz, conn->snap.req_off1-conn->snap.req_cur );
-    ulong pool_idx = (ulong)( snap->fd - FD_SNAP_RO_FD( 0 ) );
-    FD_CHECK_CRIT( pool_idx<ctx->snap_max, "snapshot has invalid file descriptor" );
 
     fd_io_uring_sqe_t * sqe = fd_io_uring_get_sqe( ctx->ring->sq );
     FD_CHECK_ERR( sqe, "io_uring submission queue full" );
     *sqe = (fd_io_uring_sqe_t) {
       .opcode    = FD_IORING_OP_READ_FIXED,
       .flags     = FD_IOSQE_FIXED_FILE,
-      .fd        = (int)( FIXED_FD_CNT + pool_idx ),
+      .fd        = (int)fd_idx,
       .off       = conn->snap.req_cur,
       .addr      = (ulong)( ctx->iobuf0 + (ulong)conn->rdbuf_idx*ctx->iobuf_sz ),
       .len       = (uint)read_sz,
@@ -1126,8 +1216,8 @@ shovel_comp_disk( fd_snapsv_t *       ctx,
                  "unexpected shovel disk completion" );
   conn->disk_inflight = 0U;
 
-  /* snapshot file recycled between submission and completion? */
-  if( FD_UNLIKELY( !conn_snap_entry( conn ) ) ) {
+  /* file recycled between submission and completion? */
+  if( FD_UNLIKELY( ULONG_MAX==conn_file_fd_idx( ctx, conn ) ) ) {
     conn->res.close_kind = FD_SNAPSV_CLOSE_ABORT;
     conn->closing        = 1U;
     shovel( ctx, stem, conn_idx, now );
@@ -1265,7 +1355,7 @@ serve_http_err( fd_snapsv_t * ctx,
   conn->res.len  = (uint)build_err_hdr(
       (char *)iobuf,
       conn->res.status,
-      snap ? snap->sz : ULONG_MAX,
+      conn->snap.boot ? conn->snap.file_sz : ( snap ? snap->sz : ULONG_MAX ),
       conn->sick );
   prep_write_hdr( ctx, conn_idx );
 }
@@ -1321,6 +1411,23 @@ serve_snap_res_hdr( fd_snapsv_t *       ctx,
                     long                now ) {
   snapsv_conn_t * conn = &ctx->conn0[ conn_idx ];
   FD_CHECK_ERR( conn->state==CONN_STATE_RES_WRITE_HDR, "state confusion" );
+
+  if( FD_UNLIKELY( conn->snap.boot ) ) {
+    FD_CHECK_ERR( conn->iobuf_idx==UINT_MAX, "conn has stale iobuf" );
+    iobuf_alloc( ctx, &conn->iobuf_idx );
+    uchar * iobuf = conn_iobuf( ctx, conn );
+    conn->res.sent   = 0;
+    conn->res.len    = (uint)build_snap_res_hdr(
+        (char *)iobuf,
+        conn->snap.range,
+        conn->snap.boot_idx<ctx->boot_max, /* the index is not compressed */
+        conn->snap.req_off0, conn->snap.req_off1,
+        conn->snap.file_sz,
+        conn->sick );
+    conn->res.hdr_ts = now;
+    prep_write_hdr( ctx, conn_idx );
+    return;
+  }
 
   snap_entry_t * snap = conn_snap_entry( conn );
   if( FD_UNLIKELY( !snap ) ) {
@@ -1476,7 +1583,7 @@ handle_write_hdr_comp( fd_snapsv_t *       ctx,
     conn_req_done( ctx, stem, conn_idx, now );
     return;
   case CONN_STATE_RES_WRITE_HDR:
-    if( conn->req.head || !conn->snap.slot ) {
+    if( conn->req.head || ( !conn->snap.slot && !conn->snap.boot ) ) {
       conn_req_done( ctx, stem, conn_idx, now );
       return;
     }
@@ -1514,6 +1621,48 @@ match_snapshot_path( char const * path,
     .base_slot = incremental_slot!=ULONG_MAX ? full_slot : ULONG_MAX
   };
   return out;
+}
+
+/* boot_file_sz returns the current size of a boot file.  A stream file
+   grows while it is served, so its size cannot be cached. */
+
+static ulong
+boot_file_sz( fd_snapsv_t const * ctx,
+              ulong               boot_idx ) {
+  struct stat st;
+  if( FD_UNLIKELY( 0!=syscall( SYS_fstat, ctx->boot_fd[ boot_idx ], &st ) ) ) {
+    FD_LOG_ERR(( "fstat(boot file %lu) failed (%i-%s)", boot_idx, errno, fd_io_strerror( errno ) ));
+  }
+  return (ulong)st.st_size;
+}
+
+/* match_boot_path parses an instant boot request path, which is either
+   "boot/index" or "boot/<slot>.tar.zst".  Returns the boot file index,
+   which is boot_max for the index file, or ULONG_MAX if there is no
+   such file. */
+
+static ulong
+match_boot_path( fd_snapsv_t const * ctx,
+                 char const *        path,
+                 ulong               path_len ) {
+  if( FD_LIKELY( path_len<5UL || memcmp( path, "boot/", 5UL ) ) ) return ULONG_MAX;
+  path     += 5UL;
+  path_len -= 5UL;
+
+  if( path_len==5UL && !memcmp( path, "index", 5UL ) ) return ctx->boot_max;
+
+  if( FD_UNLIKELY( path_len<=8UL || memcmp( path+path_len-8UL, ".tar.zst", 8UL ) ) ) return ULONG_MAX;
+  ulong slot = 0UL;
+  for( ulong i=0UL; i<path_len-8UL; i++ ) {
+    if( FD_UNLIKELY( path[ i ]<'0' || path[ i ]>'9' ) ) return ULONG_MAX;
+    uint digit = (uint)( path[ i ]-'0' );
+    if( FD_UNLIKELY( slot>(ULONG_MAX-digit)/10UL ) ) return ULONG_MAX;
+    slot = slot*10UL + digit;
+  }
+  for( ulong i=0UL; i<ctx->boot_max; i++ ) {
+    if( ctx->boot_slot[ i ]==slot ) return i;
+  }
+  return ULONG_MAX;
 }
 
 /* parse_range_header parses a 'Range: bytes=start-end' header.
@@ -1727,6 +1876,7 @@ handle_peek( fd_snapsv_t *       ctx,
   }
 
   conn->snap.range    = 0U;
+  conn->snap.boot     = 0U;
   conn->snap.key      = (snap_key_t){ ULONG_MAX, ULONG_MAX };
   conn->snap.slot     = NULL;
   conn->snap.req_off0 = 0UL;
@@ -1754,6 +1904,35 @@ handle_peek( fd_snapsv_t *       ctx,
         !memcmp( path, "incremental-snapshot.tar.zst", 28UL ) ) {
       conn->state           = CONN_STATE_RES_REDIRECT;
       conn->req.incremental = 1;
+      return;
+    }
+  }
+
+  /* found a boot stream or the boot index?  Their size is read on
+     every request, because a stream grows while it is served. */
+  if( FD_UNLIKELY( ctx->boot_max ) ) {
+    ulong boot_idx = match_boot_path( ctx, path, path_len );
+    if( FD_UNLIKELY( boot_idx!=ULONG_MAX ) ) {
+      ulong file_sz = boot_file_sz( ctx, boot_idx );
+      conn->state         = CONN_STATE_RES_WRITE_HDR;
+      conn->snap.boot     = 1U;
+      conn->snap.boot_idx = (uint)boot_idx;
+      conn->snap.key.slot = boot_idx<ctx->boot_max ? ctx->boot_slot[ boot_idx ] : ULONG_MAX;
+      conn->snap.file_sz  = file_sz;
+      conn->snap.req_off0 = 0UL;
+      conn->snap.req_off1 = file_sz;
+      conn->snap.req_cur  = 0UL;
+
+      if( range && !conn->req.head ) {
+        int range_err = parse_range_header( range, range_len, file_sz, &conn->snap.req_off0, &conn->snap.req_off1 );
+        if( FD_UNLIKELY( range_err ) ) {
+          conn->state      = CONN_STATE_RES_WRITE_ERR;
+          conn->res.status = (uint)( range_err==-2 ? 416 : 400 );
+        } else {
+          conn->snap.req_cur = conn->snap.req_off0;
+          conn->snap.range   = 1U;
+        }
+      }
       return;
     }
   }
@@ -1972,9 +2151,12 @@ after_credit_pre( fd_snapsv_t *       ctx,
     }
   }
 
-  /* Prepare for sleep */
-  int waiting = !!futex_prep( ctx, 0UL );
-  stem_in_update( &stem->in[ 0 ] );
+  /* Prepare for sleep.  Only sleep if no input link has a frag ready. */
+  int waiting = 1;
+  for( ulong i=0UL; i<ctx->in_cnt; i++ ) {
+    waiting &= !!futex_prep( ctx, i );
+    stem_in_update( &stem->in[ i ] );
+  }
   return waiting;
 }
 
@@ -2136,7 +2318,22 @@ snap_close( fd_snapsv_t * ctx,
   }
 }
 
-/* msg_snapmk is called for every snapmk_out frag. */
+/* boot_slot_set records which slot a boot stream file holds, or
+   ULONG_MAX once the stream tile closes that stream.  The stream tile
+   writes every stream at a fixed file descriptor and repeats the
+   message as the file grows, so nothing else about the file is kept. */
+
+static void
+boot_slot_set( fd_snapsv_t * ctx,
+               ulong         pool_idx,
+               ulong         slot ) {
+  FD_CHECK_ERR( ctx->boot_max, "boot stream file, but boot streams are not served" );
+  FD_CHECK_CRIT( pool_idx<ctx->boot_max, "invalid boot stream index" );
+  ctx->boot_slot[ pool_idx ] = slot;
+}
+
+/* msg_snapmk is called for every snapmk_out and strmk_out frag.  A
+   boot stream file is marked by the reserved field. */
 
 static void
 msg_snapmk( fd_snapsv_t *           ctx,
@@ -2151,11 +2348,19 @@ msg_snapmk( fd_snapsv_t *           ctx,
   }
   case FD_SNAPMK_MSG_CREATED: {
     FD_CHECK_CRIT( msg_sz==sizeof(fd_snapmk_msg_created_t), "ABI mismatch" );
+    if( FD_UNLIKELY( msg->created.reserved ) ) {
+      boot_slot_set( ctx, msg->created.pool_idx, msg->created.slot );
+      break;
+    }
     snap_open( ctx, msg->created.slot, msg->created.base_slot, msg->created.pool_idx, msg->created.sz, msg->created.name );
     break;
   }
   case FD_SNAPMK_MSG_DELETED: {
     FD_CHECK_CRIT( msg_sz==sizeof(fd_snapmk_msg_deleted_t), "ABI mismatch" );
+    if( FD_UNLIKELY( msg->deleted.reserved1 ) ) {
+      boot_slot_set( ctx, msg->deleted.pool_idx, ULONG_MAX );
+      break;
+    }
     snap_close( ctx, msg->deleted.slot, msg->deleted.base_slot );
     break;
   }

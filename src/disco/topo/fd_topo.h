@@ -543,6 +543,8 @@ struct fd_topo_tile {
       int   instant_boot; /* instant boot is enabled */
       ulong instant_boot_slot_obj_id;
       ulong instant_boot_done_obj_id;
+
+      int   instant_boot_serve; /* boot streams are served to peers */
     } replay;
 
     struct {
@@ -825,7 +827,24 @@ struct fd_topo_tile {
       ulong         send_buffer_size_kib;
       fd_ip6_addr_t listen_addr;
       ushort        listen_port;
+
+      int           instant_boot_serve; /* boot streams are served to peers */
+      ulong         boot_stream_max;    /* number of boot stream files */
+      char          snapshots_path[ PATH_MAX ];
     } snapsv;
+
+    struct {
+      ulong accdb_obj_id;
+      ulong accdb_epoch_obj_id;
+      ulong banks_obj_id;
+      ulong txncache_obj_id;
+      ulong max_live_slots;
+      ulong stream_interval_slots;
+      ulong stream_lifetime_seconds;
+      ulong max_open_streams;
+      ulong max_keys_per_stream;
+      char  snapshots_path[ PATH_MAX ];
+    } strmk;
   };
 };
 

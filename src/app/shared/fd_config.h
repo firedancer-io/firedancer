@@ -176,6 +176,14 @@ struct fd_configf {
     struct {
       int  enabled;
       char server[ FD_URL_MAX ];
+
+      struct {
+        int   enabled;
+        ulong stream_interval_slots;
+        ulong stream_lifetime_seconds;
+        ulong max_open_streams;
+        ulong max_keys_per_stream;
+      } serve;
     } instant_boot;
   } snapshots;
 

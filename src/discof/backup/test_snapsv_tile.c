@@ -11,11 +11,14 @@
 #define CONN_MAX  32
 #define SQ_DEPTH 128
 #define CQ_DEPTH 128
+#define BOOT_MAX   2
 
 #define SNAP_FILE_SZ (65536UL)
 #define SNAP_RES_MAX (SNAP_FILE_SZ+4096UL)
+#define BOOT_FILE_SZ (8192UL)
 
 static uchar snap_file[ SNAP_FILE_SZ ];
+static uchar boot_file[ BOOT_FILE_SZ ];
 
 struct fake_client {
   uchar req[ 2048 ];
@@ -106,10 +109,16 @@ fake_client_handle_sqe( fake_client_t *     fake,
   }
   case FD_IORING_OP_READ_FIXED: {
     FD_TEST( sqe->flags & FD_IOSQE_FIXED_FILE );
-    FD_TEST( sqe->fd==(int)FIXED_FD_CNT ); /* pool_idx 0 */
-    ulong off = fd_ulong_min( sqe->off, SNAP_FILE_SZ );
-    ulong len = fd_ulong_min( sqe->len, SNAP_FILE_SZ-off );
-    memcpy( (void *)sqe->addr, snap_file+off, len );
+    uchar const * file    = snap_file;
+    ulong         file_sz = SNAP_FILE_SZ;
+    if( sqe->fd!=(int)FIXED_FD_CNT ) { /* not snapshot pool_idx 0 */
+      FD_TEST( sqe->fd==(int)( FIXED_FD_CNT+SNAP_MAX ) ); /* boot stream 0 */
+      file    = boot_file;
+      file_sz = BOOT_FILE_SZ;
+    }
+    ulong off = fd_ulong_min( sqe->off, file_sz );
+    ulong len = fd_ulong_min( sqe->len, file_sz-off );
+    memcpy( (void *)sqe->addr, file+off, len );
     fake_client_post_cqe( cq, sqe->user_data, (int)len, 0U );
     break;
   }
@@ -305,13 +314,15 @@ snapsv_env_create( void ) {
   tile->snapsv.send_buffer_size_kib = 4UL;
   tile->snapsv.idle_timeout_millis  = 1000UL;
   tile->snapsv.send_timeout_millis  = 1000UL;
+  tile->snapsv.instant_boot_serve   = 1;
+  tile->snapsv.boot_stream_max      = BOOT_MAX;
 
   fd_snapsv_t * ctx = fd_wksp_alloc_laddr( wksp, scratch_align(), scratch_footprint( tile ), 1UL );
   FD_TEST( ctx );
   topo->objs[ tile->tile_obj_id ].offset = fd_wksp_gaddr_fast( wksp, ctx );
   memset( ctx, 0, sizeof(*ctx) );
   ctx->conn_max              = CONN_MAX;
-  ctx->conn0_fd_idx          = FIXED_FD_CNT+SNAP_MAX;
+  ctx->conn0_fd_idx          = FIXED_FD_CNT+SNAP_MAX+BOOT_MAX+1U;
   ctx->accept_addr.ss_family = AF_INET;
   ctx->ring->ioring_fd     = -1;
   ctx->ring->sq->depth     = (uint)snapsv_sq_depth( tile );
@@ -327,6 +338,16 @@ snapsv_env_create( void ) {
   ctx->ring->cq->cqes      = calloc( ctx->ring->cq->depth, sizeof(fd_io_uring_cqe_t) ); FD_TEST( ctx->ring->cq->cqes );
 
   unprivileged_init( topo, tile );
+
+  /* The tile reads the size of a boot file with fstat on every
+     request, so the test gives it real files.  The index is empty and
+     the streams hold the boot file contents. */
+  for( ulong i=0UL; i<=BOOT_MAX; i++ ) {
+    int fd = memfd_create( "boot", 0U );
+    FD_TEST( fd>=0 );
+    FD_TEST( !ftruncate( fd, i<BOOT_MAX ? (long)BOOT_FILE_SZ : 0L ) );
+    ctx->boot_fd[ i ] = fd;
+  }
 
   snapsv_env_t * env = aligned_alloc(
       alignof(snapsv_env_t), fd_ulong_align_up( sizeof(snapsv_env_t), alignof(snapsv_env_t) ) );
@@ -392,6 +413,7 @@ snapsv_env_del_snap( snapsv_env_t * env,
 static void
 snapsv_env_destroy( snapsv_env_t * env ) {
   fd_snapsv_t * ctx = env->ctx;
+  for( ulong i=0UL; i<=BOOT_MAX; i++ ) FD_TEST( !close( ctx->boot_fd[ i ] ) );
   free( ctx->ring->cq->cqes  );
   free( ctx->ring->cq->khead );
   free( ctx->ring->sq->sqes  );
@@ -1215,6 +1237,127 @@ expect_range_err( char const * value,
   FD_TEST( parse_range_header( value, strlen( value ), object_sz, &range0, &range1 )==expect_err );
 }
 
+/* boot_env publishes a boot stream file the way the strmk tile does. */
+
+static snapsv_env_t *
+boot_env( ulong slot ) {
+  snapsv_env_t *    env   = snapsv_env_create();
+  fd_snapsv_t *     ctx   = env->ctx;
+  ulong             chunk = ctx->in[ 0 ].chunk0;
+  fd_snapmk_msg_t * msg   = fd_chunk_to_laddr( ctx->in[ 0 ].mem, chunk );
+  msg->created = (fd_snapmk_msg_created_t) {
+    .slot      = slot,
+    .base_slot = ULONG_MAX,
+    .sz        = BOOT_FILE_SZ,
+    .pool_idx  = 0U,
+    .reserved  = 1U /* a boot stream */
+  };
+  returnable_frag( ctx, 0UL, 0UL, FD_SNAPMK_MSG_CREATED, chunk,
+                   sizeof(fd_snapmk_msg_created_t), 0UL, 0UL, 0UL, NULL );
+  return env;
+}
+
+/* With no stream open the index is an empty file. */
+
+FD_UNIT_TEST( boot_index_empty ) {
+  snapsv_env_t * env = snapsv_env_create();
+  expect_res_env( env,
+      "GET /boot/index HTTP/1.1\r\n"
+      "\r\n",
+      "HTTP/1.1 200 OK\r\n"
+      "Content-Type: application/x-tar\r\n"
+      "Accept-Ranges: bytes\r\n"
+      "Content-Length: 0\r\n"
+      "\r\n" );
+  snapsv_env_destroy( env );
+}
+
+FD_UNIT_TEST( boot_stream_unknown ) {
+  snapsv_env_t * env = snapsv_env_create();
+  expect_res_env( env,
+      "GET /boot/100.tar.zst HTTP/1.1\r\n"
+      "\r\n",
+      RES_404_KEEPALIVE );
+  snapsv_env_destroy( env );
+}
+
+FD_UNIT_TEST( boot_stream_res ) {
+  snapsv_env_t * env = boot_env( 100UL );
+  char expected[ 256 ];
+  fd_cstr_printf( expected, sizeof(expected), NULL,
+      "HTTP/1.1 200 OK\r\n"
+      "Content-Type: application/zstd\r\n"
+      "Accept-Ranges: bytes\r\n"
+      "Content-Length: %lu\r\n"
+      "\r\n", BOOT_FILE_SZ );
+  expect_res_env( env,
+      "GET /boot/100.tar.zst HTTP/1.1\r\n"
+      "\r\n",
+      expected );
+  snapsv_env_destroy( env );
+}
+
+/* A stream grows while it is served, so a range that starts at the end
+   of the file is not satisfiable yet. */
+
+FD_UNIT_TEST( boot_stream_range_past_end ) {
+  snapsv_env_t * env = boot_env( 100UL );
+  char req[ 256 ];
+  fd_cstr_printf( req, sizeof(req), NULL,
+      "GET /boot/100.tar.zst HTTP/1.1\r\n"
+      "Range: bytes=%lu-\r\n"
+      "\r\n", BOOT_FILE_SZ );
+  char expected[ 256 ];
+  fd_cstr_printf( expected, sizeof(expected), NULL,
+      "HTTP/1.1 416 Range Not Satisfiable\r\n"
+      "Content-Range: bytes */%lu\r\n"
+      "Content-Length: 0\r\n"
+      "\r\n", BOOT_FILE_SZ );
+  expect_res_env( env, req, expected );
+  snapsv_env_destroy( env );
+}
+
+FD_UNIT_TEST( boot_stream_body ) {
+  snapsv_env_t * env = boot_env( 100UL );
+  static char res[ SNAP_RES_MAX ];
+  ulong res_len = sizeof(res);
+  curl_session( env, res, &res_len,
+      "GET /boot/100.tar.zst HTTP/1.1\r\n"
+      "Range: bytes=100-199\r\n"
+      "\r\n" );
+
+  ulong        body_len;
+  char const * body = res_body( res, res_len, &body_len );
+  FD_TEST( body_len==100UL );
+  FD_TEST( !memcmp( body, boot_file+100, 100UL ) );
+
+  FD_TEST( !env->ctx->conn_cnt );
+  FD_TEST( env->ctx->iobuf_free_cnt==2U*CONN_MAX );
+  snapsv_env_destroy( env );
+}
+
+/* A closed stream is no longer served. */
+
+FD_UNIT_TEST( boot_stream_closed ) {
+  snapsv_env_t *    env   = boot_env( 100UL );
+  fd_snapsv_t *     ctx   = env->ctx;
+  ulong             chunk = ctx->in[ 0 ].chunk0;
+  fd_snapmk_msg_t * msg   = fd_chunk_to_laddr( ctx->in[ 0 ].mem, chunk );
+  msg->deleted = (fd_snapmk_msg_deleted_t) {
+    .slot      = 100UL,
+    .base_slot = ULONG_MAX,
+    .pool_idx  = 0U,
+    .reserved1 = 1U /* a boot stream */
+  };
+  returnable_frag( ctx, 0UL, 0UL, FD_SNAPMK_MSG_DELETED, chunk,
+                   sizeof(fd_snapmk_msg_deleted_t), 0UL, 0UL, 0UL, NULL );
+  expect_res_env( env,
+      "GET /boot/100.tar.zst HTTP/1.1\r\n"
+      "\r\n",
+      RES_404_KEEPALIVE );
+  snapsv_env_destroy( env );
+}
+
 FD_UNIT_TEST( range_basic ) {
   expect_range( "bytes=0-99",    1000UL, 0UL,   100UL  );
   expect_range( "bytes=10-19",   1000UL, 10UL,  20UL   );
@@ -1284,6 +1427,9 @@ main( int     argc,
 
   for( ulong i=0UL; i<SNAP_FILE_SZ; i+=sizeof(ulong) ) {
     FD_STORE( ulong, snap_file+i, fd_ulong_hash( i ) );
+  }
+  for( ulong i=0UL; i<BOOT_FILE_SZ; i+=sizeof(ulong) ) {
+    FD_STORE( ulong, boot_file+i, fd_ulong_hash( ~i ) );
   }
 
   (void)rlimit_file_cnt;

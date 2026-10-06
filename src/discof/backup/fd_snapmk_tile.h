@@ -79,7 +79,7 @@ struct fd_snapmk_msg_created {
   ulong base_slot; /* ULONG_MAX if full snapshot */
   ulong sz;        /* snapshot file size */
   uint  pool_idx;  /* FD_SNAP_FD( pool_idx ) -> snap file descriptor */
-  uint  reserved;
+  uint  reserved;  /* 1 if a boot stream, at FD_STRMK_FD( pool_idx ) */
   char  name[ FD_SNAP_NAME_MAX ];
 };
 
@@ -92,7 +92,7 @@ struct fd_snapmk_msg_deleted {
   ulong slot;
   ulong base_slot; /* ULONG_MAX if full snapshot */
   uint  pool_idx; /* FD_SNAP_FD( pool_idx ) -> snap file descriptor */
-  uint  reserved1;
+  uint  reserved1; /* 1 if a boot stream, at FD_STRMK_FD( pool_idx ) */
   char  name[ FD_SNAP_NAME_MAX ];
 };
 

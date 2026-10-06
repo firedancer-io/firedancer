@@ -137,6 +137,12 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( bool,   snapshots.instant_boot.enabled                      );
   CFG_POP      ( cstr,   snapshots.instant_boot.server                       );
 
+  CFG_POP      ( bool,   snapshots.instant_boot.serve.enabled                );
+  CFG_POP      ( ulong,  snapshots.instant_boot.serve.stream_interval_slots  );
+  CFG_POP      ( ulong,  snapshots.instant_boot.serve.stream_lifetime_seconds);
+  CFG_POP      ( ulong,  snapshots.instant_boot.serve.max_open_streams       );
+  CFG_POP      ( ulong,  snapshots.instant_boot.serve.max_keys_per_stream    );
+
   CFG_POP      ( bool,   development.hard_fork_fatal                         );
   CFG_POP      ( bool,   development.fixed_fec_sets                          );
   CFG_POP      ( bool,   development.alpenglow                               );

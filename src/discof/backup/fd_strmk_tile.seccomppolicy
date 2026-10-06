@@ -1,0 +1,86 @@
+# logfile_fd: It can be disabled by configuration, but typically tiles
+#             will open a log file on boot and write all messages there.
+#
+# dir_fd: The file descriptor of the boot stream directory, used to
+#         rename the index file.
+#
+# pool_min_fd/pool_max_fd: The boot file descriptor range
+#         [pool_min_fd,pool_max_fd].  Before the tile enters the
+#         sandbox it opens one descriptor per stream, plus the index
+#         and the scratch file the index is renamed from, at the well
+#         known FD_STRMK_FD numbers.  The tile writes the streams
+#         through these and never opens or unlinks files itself.
+#
+# accdb_ro_fd: The read-only accounts database file descriptor, used to
+#         read the accounts that a block touches.
+uint logfile_fd, uint dir_fd, uint pool_min_fd, uint pool_max_fd, uint accdb_ro_fd
+
+# logging: all log messages are written to a file and/or pipe
+#
+# 'WARNING' and above are written to the STDERR pipe, while all
+# messages are always written to the log file.
+#
+# boot stream: compressed stream bytes are written sequentially to the
+# file of the stream being produced, and the index is rewritten
+# whenever a stream opens or closes.
+#
+# arg 0 is the file descriptor to write to.  The boot process ensures
+# that descriptor 2 is always STDERR.
+write: (or (eq (arg 0) 2)
+           (eq (arg 0) logfile_fd)
+           (and (>= (arg 0) pool_min_fd)
+                (<= (arg 0) pool_max_fd)))
+
+# logging: 'WARNING' and above fsync the logfile to disk immediately
+#
+# arg 0 is the file descriptor to fsync.
+fsync: (eq (arg 0) logfile_fd)
+
+# boot stream: the tile tracks its write position in the stream file.
+#
+# arg 0 is the file descriptor to seek on.
+lseek: (and (>= (arg 0) pool_min_fd)
+            (<= (arg 0) pool_max_fd))
+
+# boot stream: report how large a stream grew.
+fstat: (and (>= (arg 0) pool_min_fd)
+            (<= (arg 0) pool_max_fd))
+
+# boot stream: closing a stream truncates its file to zero (the sandbox
+# forbids unlinking), and so does starting a new stream in case a
+# failed attempt left bytes behind.
+#
+# arg 0 is the file descriptor to truncate.
+ftruncate: (and (>= (arg 0) pool_min_fd)
+                (<= (arg 0) pool_max_fd))
+
+# boot stream: a new index is written to the scratch file and then
+# renamed over the index, so that a reader never sees a partial index.
+#
+# arg 0 and arg 2 are the file descriptors of the directory the file is
+# renamed from and to, which are the same directory.
+renameat2: (and (eq (arg 0) dir_fd)
+                (eq (arg 2) dir_fd)
+                (eq (arg 4) 0))
+
+# boot stream: account reads on accdb cache miss
+preadv2: (eq (arg 0) accdb_ro_fd)
+
+# power saving: sleep when there is no work to do
+#
+# In the efficient scheduler mode, an idle tile parks on its sleep word
+# with futex_wait until a producer has work for it or its next deadline
+# passes.
+#
+# arg 1 is the futex op, always FUTEX_WAIT_BITSET so the timeout is an
+# absolute deadline.  arg 2 is the expected value of the word, always 0
+# (parked).
+futex: (and (eq (arg 1) FUTEX_WAIT_BITSET)
+            (eq (arg 2) 0))
+
+# power saving: resume an interrupted sleep
+#
+# A signal delivered to a parked tile interrupts its futex_wait, and the
+# kernel resumes the wait with the remaining timeout via restart_syscall
+# when the tile next runs.
+restart_syscall
