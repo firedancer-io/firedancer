@@ -2386,7 +2386,7 @@
 | <span class="metrics-name">votor_&#8203;rank</span> | gauge | Rank of this validator in the current epoch (0 is the highest rank), -1 if unranked (unstaked) |
 | <span class="metrics-name">votor_&#8203;peers_&#8203;connected</span> | gauge | Number of peers with an active outbound connection |
 | <span class="metrics-name">votor_&#8203;vote_&#8203;history_&#8203;file_&#8203;write</span> | counter | Number of times the vote history file was written |
-| <span class="metrics-name">votor_&#8203;vote_&#8203;history_&#8203;file_&#8203;slot</span> | gauge | Newest vote slot in the last written vote history file, ULONG_MAX if not written yet or emptied |
+| <span class="metrics-name">votor_&#8203;vote_&#8203;history_&#8203;file_&#8203;slot</span> | gauge | Newest vote slot in the last written vote history file, ULONG_MAX if not written yet, emptied, or without votes |
 | <span class="metrics-name">votor_&#8203;vote_&#8203;history_&#8203;file_&#8203;size_&#8203;bytes</span> | gauge | Size of the last written vote history file, 0 if emptied |
 | <span class="metrics-name">votor_&#8203;vote_&#8203;history_&#8203;file_&#8203;too_&#8203;large</span> | counter | Number of times the vote history was too large to write, which empties the file until it fits |
 

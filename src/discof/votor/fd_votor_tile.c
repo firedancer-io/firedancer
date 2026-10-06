@@ -1204,7 +1204,7 @@ handle_epoch( fd_votor_tile_t *           ctx,
 
   fd_multi_epoch_leaders_epoch_msg_init( ctx->mleaders, msg );
   fd_multi_epoch_leaders_epoch_msg_fini( ctx->mleaders );
-  if( FD_UNLIKELY( ctx->next_leader_slot==ULONG_MAX ) ) ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, msg->start_slot, &ctx->id_key );
+  if( FD_UNLIKELY( ctx->next_leader_slot==ULONG_MAX ) ) ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, fd_ulong_max( msg->start_slot, ctx->wait_to_vote_slot ), &ctx->id_key );
 
   ctx->init = ag_pool_finalized_slot( ctx->pool )!=ULONG_MAX && !!ctx->shred_version;
 }
@@ -1426,7 +1426,7 @@ vote_history_write( fd_votor_tile_t * ctx ) {
 
   ctx->vote_history_empty           = !sz;
   ctx->metrics.vote_history_write  += (ulong)!!sz;
-  ctx->metrics.vote_history_slot    = sz ? ctx->vote_history_pending : ULONG_MAX;
+  ctx->metrics.vote_history_slot    = sz && ctx->vote_history->votes_cast_cnt ? ctx->vote_history->votes_cast[ ctx->vote_history->votes_cast_cnt-1UL ].block.slot : ULONG_MAX;
   ctx->metrics.vote_history_sz      = sz;
   ctx->vote_history_pending         = 0UL;
 }
@@ -1548,9 +1548,11 @@ during_housekeeping( fd_votor_tile_t * ctx ) {
         fd_quic_conn_close( conn, 0U );
       }
       for( ulong i=0UL; i<REWARD_VOTE_MAX; i++ ) ctx->reward_votes[ i ].slot = ULONG_MAX;
-      /* Skip the window in progress, it may already have a leader. */
+      /* Skip the window in progress, it may already have a leader, and
+         those below the vote history file's floor, which the identity
+         may have led on another machine. */
       ulong next_window = ag_first_slot_in_window( ctx->highest_parent_ready_slot )+AG_SLOTS_PER_WINDOW;
-      ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, fd_ulong_max( ctx->curr_epoch_slot, next_window ), &ctx->id_key );
+      ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, fd_ulong_max( fd_ulong_max( ctx->curr_epoch_slot, next_window ), ctx->wait_to_vote_slot ), &ctx->id_key );
       fd_keyswitch_state( ctx->id_keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
     }
   }

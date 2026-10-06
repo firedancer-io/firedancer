@@ -2182,7 +2182,7 @@ EXAMPLES
     <!-- Vote history file -->
 
     <counter name="VoteHistoryFileWrite" summary="Number of times the vote history file was written" />
-    <gauge name="VoteHistoryFileSlot" summary="Newest vote slot in the last written vote history file, ULONG_MAX if not written yet or emptied" />
+    <gauge name="VoteHistoryFileSlot" summary="Newest vote slot in the last written vote history file, ULONG_MAX if not written yet, emptied, or without votes" />
     <gauge name="VoteHistoryFileSizeBytes" summary="Size of the last written vote history file, 0 if emptied" />
     <counter name="VoteHistoryFileTooLarge" summary="Number of times the vote history was too large to write, which empties the file until it fits" />
 </tile>
