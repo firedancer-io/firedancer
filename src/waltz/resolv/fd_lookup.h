@@ -30,6 +30,7 @@ struct fd_resolvconf {
   struct address ns[MAXNS];
   uint nns, attempts, ndots;
   uint timeout;
+  char search[ 256 ];
 };
 
 typedef struct fd_resolvconf fd_resolvconf_t;

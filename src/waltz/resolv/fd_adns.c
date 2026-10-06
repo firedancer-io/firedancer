@@ -1,9 +1,11 @@
 #include "fd_adns.h"
 #include "fd_netdb.h"
 #include "fd_lookup.h"
+#include "../../util/cstr/fd_cstr.h"
 #include "../../util/log/fd_log.h"
 #include "../../util/io/fd_io.h"
 
+#include <ctype.h>
 #include <errno.h>
 #include <unistd.h>
 #include <sys/epoll.h>
@@ -34,6 +36,9 @@ FD_TL ushort fd_adns_ns_port = 53;
 
 struct fd_adns_req {
   int              state;
+  char             name[ FD_FQDN_BUF_MAX ];
+  ulong            search_off;      /* next search domain in adns->search */
+  int              bare_sent;       /* name has been queried without a suffix */
   uchar            query[ FD_DNS_QUERY_MTU ];
   int              qlen;
   int              no_edns;         /* server answered FORMERR/NOTIMP to EDNS0 */
@@ -51,6 +56,8 @@ struct fd_adns_private {
   ulong ns_cnt;
   long  retry_nanos;
   uint  attempts;
+  uint  ndots;
+  char  search[ sizeof(((fd_resolvconf_t *)0)->search) ];
 
   ulong           max;
   ulong           active_cnt;  /* PENDING+DONE */
@@ -121,6 +128,11 @@ fd_adns_new( void * shmem,
   adns->attempts    = fd_uint_max( attempts, 1U );
   adns->retry_nanos = ((long)timeout*1000L*1000L*1000L)/(long)adns->attempts;
 
+  fd_resolvconf_t conf;
+  if( FD_UNLIKELY( fd_get_resolv_conf( &conf )<0 ) ) conf.search[ 0 ] = 0;
+  adns->ndots = conf.ndots;
+  fd_memcpy( adns->search, conf.search, sizeof(adns->search) );
+
   adns->fd = socket( AF_INET, SOCK_DGRAM|SOCK_CLOEXEC|SOCK_NONBLOCK, 0 );
   if( FD_UNLIKELY( -1==adns->fd ) ) FD_LOG_ERR(( "socket() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   struct epoll_event ev = { .events = EPOLLIN, .data.fd = adns->fd };
@@ -177,6 +189,53 @@ fd_adns_delete( void * shadns ) {
   return shadns;
 }
 
+/* next_query builds the query for the next candidate name of req
+   into req->query: name with each search domain appended in turn, then
+   name alone (as musl).  Returns 0 on success, or FD_EAI_NONAME if no
+   candidates remain. */
+
+static int
+next_query( fd_adns_t *     adns,
+            fd_adns_req_t * req ) {
+  ulong l = strlen( req->name );
+  while( req->search_off<sizeof(adns->search) ) {
+    char const * p = adns->search+req->search_off;
+    for( ; fd_isspace( *p ); p++ );
+    char const * z;
+    for( z=p; *z && !fd_isspace( *z ); z++ );
+    if( z==p ) { req->search_off = sizeof(adns->search); break; }
+    req->search_off = (ulong)( z-adns->search );
+    if( (ulong)(z-p) >= FD_FQDN_BUF_MAX-l-1UL ) continue;
+    char fqdn[ FD_FQDN_BUF_MAX ];
+    fd_memcpy( fqdn, req->name, l );
+    fqdn[ l ] = '.';
+    fd_memcpy( fqdn+l+1UL, p, (ulong)(z-p) );
+    fqdn[ l+1UL+(ulong)(z-p) ] = 0;
+    req->qlen = fd_dns_ip4_query( fqdn, req->query );
+    if( FD_LIKELY( req->qlen>0 ) ) return 0;
+  }
+
+  if( req->bare_sent ) return FD_EAI_NONAME;
+  req->bare_sent = 1;
+  req->qlen = fd_dns_ip4_query( req->name, req->query );
+  return req->qlen>0 ? 0 : FD_EAI_NONAME;
+}
+
+/* Answers are matched by query id; make ids distinct. */
+
+static void
+query_id_unique( fd_adns_t *     adns,
+                 fd_adns_req_t * req ) {
+  for( ulong i=0UL; i<adns->max; i++ ) {
+    fd_adns_req_t const * other = &adns->reqs[ i ];
+    if( FD_UNLIKELY( other==req || other->state!=REQ_STATE_PENDING ) ) continue;
+    if( FD_UNLIKELY( other->query[ 0 ]==req->query[ 0 ] && other->query[ 1 ]==req->query[ 1 ] ) ) {
+      req->query[ 1 ]++;
+      i = (ulong)-1L; /* restart scan */
+    }
+  }
+}
+
 int
 fd_adns_resolve( fd_adns_t *  adns,
                  char const * name,
@@ -204,22 +263,23 @@ fd_adns_resolve( fd_adns_t *  adns,
     return 0;
   }
 
-  req->qlen = fd_dns_ip4_query( name, req->query );
-  if( FD_UNLIKELY( req->qlen<0 ) ) {
+  /* fd_dns_ip4_local checked the length.  Suppress search when
+     >=ndots or name ends in a dot (explicit request for global
+     scope). */
+  ulong l    = strlen( name );
+  ulong dots = 0UL;
+  for( ulong i=0UL; i<l; i++ ) dots += (ulong)( name[ i ]=='.' );
+  fd_memcpy( req->name, name, l+1UL );
+  req->search_off = ( dots>=adns->ndots || name[ l-1UL ]=='.' ) ? sizeof(adns->search) : 0UL;
+  req->bare_sent  = 0;
+
+  if( FD_UNLIKELY( next_query( adns, req ) ) ) {
     req->result.err = FD_EAI_NONAME;
     req->state      = REQ_STATE_DONE;
     adns->active_cnt++;
     return 0;
   }
-
-  /* Answers are matched by query id; make ids distinct. */
-  for( ulong i=0UL; i<adns->max; i++ ) {
-    if( FD_UNLIKELY( adns->reqs[ i ].state!=REQ_STATE_PENDING ) ) continue;
-    if( FD_UNLIKELY( adns->reqs[ i ].query[ 0 ]==req->query[ 0 ] && adns->reqs[ i ].query[ 1 ]==req->query[ 1 ] ) ) {
-      req->query[ 1 ]++;
-      i = (ulong)-1L; /* restart scan */
-    }
-  }
+  query_id_unique( adns, req );
 
   req->deadline_nanos = 0L; /* due immediately */
   req->sends_left     = adns->attempts;
@@ -346,6 +406,13 @@ drain_answers( fd_adns_t * adns ) {
 
     int cnt = fd_dns_ip4_answer( answer, (ulong)rlen, req->result.addrs, FD_ADNS_ADDR_MAX );
     if( FD_UNLIKELY( cnt==FD_EAI_AGAIN && !truncated ) ) continue; /* SERVFAIL: leave pending for retry */
+    /* NXDOMAIN: move on to the next search candidate */
+    if( FD_UNLIKELY( cnt==FD_EAI_NONAME && !next_query( adns, req ) ) ) {
+      query_id_unique( adns, req );
+      req->sends_left     = adns->attempts;
+      req->deadline_nanos = 0L; /* due immediately */
+      continue;
+    }
     /* Truncated and nothing parseable: with EDNS0 advertising 1232B
        this means a pathological answer; the leading records we need
        (up to FD_ADNS_ADDR_MAX) essentially always fit, so this is a
