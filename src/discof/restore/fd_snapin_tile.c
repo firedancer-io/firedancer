@@ -2356,9 +2356,18 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         FD_COMPILER_MFENCE();
 
         /* Only a completed INIT has valid state to roll back.  An
-           instant boot attempt that got this far wrote nothing, and
-           its forks are the ones setup created, so there is nothing
-           to roll back and nothing to forget. */
+           instant boot attempt that got this far counted no account,
+           and its forks are the ones setup created, so there is
+           nothing to forget.  A first flush that failed inside its
+           batch can still have reserved space, written records into
+           it, and linked index nodes for the accounts ahead of the
+           one the batch rejected.  Those records are not in the
+           index, so compaction reclaims them once the load ends, and
+           the write head cannot be rewound here because replay is
+           writing the same file.  Leftover nodes only happen when a
+           snapshot repeats a pubkey at a slot, and the retry reads
+           the same bytes and stops in the same place, so no load ever
+           completes over them. */
         if( FD_LIKELY( ctx->lead.init_completed && !ctx->instant_boot ) ) {
           ctx->lead.rollback.pending = 1;
           ctx->lead.rollback.full    = ctx->full;
