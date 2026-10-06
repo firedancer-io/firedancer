@@ -610,6 +610,13 @@ telemetry = true
         # writes boot streams and an index next to the snapshots, which
         # the snapshot server then serves.  Needs
         # [snapshots.server] enabled = true.
+        #
+        # A stream starts at a slot this validator has just rooted,
+        # which is behind the blocks it has executed, so the tile keeps
+        # the accounts of the last 128 blocks and writes the ones that
+        # ran after that slot into the stream as it opens.  That costs
+        # 66 MiB, and 99 MiB with the blocks still in flight, whatever
+        # the settings below are.
         [snapshots.instant_boot.serve]
             enabled = false
 

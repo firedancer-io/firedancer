@@ -16,6 +16,14 @@
    read at the block's parent fork, which is where they still have
    their value as of the start slot.
 
+   A stream starts at the slot of an incremental snapshot, which is the
+   slot replay just rooted, and replay is always rooting behind the
+   blocks it has executed.  So the tile keeps the accounts of the last
+   blocks it saw and writes the ones that ran after the start slot into
+   the stream before it hands the bank back; otherwise the stream would
+   be missing them, and the accounts of the blocks that follow would be
+   read at a fork where they no longer hold their start slot value.
+
    This tile owns a fixed pool of files in a directory below the
    snapshots directory: one file per open stream plus the index.  The
    files are opened before the sandbox starts, because the sandbox bans
@@ -56,18 +64,30 @@
 #define STRMK_RAW_BUF_SZ  (64UL<<20)
 #define STRMK_COMP_BUF_SZ ( 4UL<<20)
 
-/* STRMK_BLOCK_MAX bounds the blocks in flight, which replay bounds the
-   same way with the ring of bank references it hands out. */
+/* STRMK_BLOCK_LIVE_MAX bounds the blocks in flight, which replay
+   bounds the same way with the ring of bank references it hands out.
+   STRMK_BLOCK_RETAIN_MAX is how many completed blocks the tile keeps
+   so that a stream opening later can cover them. */
 
-#define STRMK_BLOCK_MAX (64UL)
+#define STRMK_BLOCK_LIVE_MAX   ( 64UL)
+#define STRMK_BLOCK_RETAIN_MAX (128UL)
+#define STRMK_BLOCK_MAX        (STRMK_BLOCK_LIVE_MAX+STRMK_BLOCK_RETAIN_MAX)
 
-/* The blocks in flight share a pool of key chunks.  A block links the
-   chunks it filled and gives all of them back when it ends.  A block
-   that finds the pool empty is incomplete, which breaks every stream,
-   so the pool holds many more keys than a block resolves. */
+/* A block entry is free, in flight, or kept for a stream that opens
+   later. */
 
-#define STRMK_CHUNK_KEY_MAX (4096UL)
-#define STRMK_CHUNK_MAX     ( 256UL)
+#define STRMK_BLOCK_FREE (0)
+#define STRMK_BLOCK_LIVE (1)
+#define STRMK_BLOCK_DONE (2)
+
+/* The accounts of one block, as a set, because the keys arrive with
+   heavy repeats and the whole set has to be kept until every stream
+   that could want it has opened.  A mainnet block touches a few
+   thousand distinct accounts; one that touches more than the set holds
+   breaks the streams, loudly. */
+
+#define STRMK_BLOCK_SLOT_MAX (16384UL)
+#define STRMK_BLOCK_KEY_MAX  ((STRMK_BLOCK_SLOT_MAX*3UL)/4UL)
 
 /* A sent set is only probed while it is at most this full, past which
    its stream closes.  Open addressing degrades badly near capacity. */
@@ -113,30 +133,32 @@ struct strmk_stream {
 
 typedef struct strmk_stream strmk_stream_t;
 
-/* One chunk of a block's account keys. */
+/* The account set of one block. */
 
-struct strmk_chunk {
-  uint        next; /* UINT_MAX at the end of a list */
-  uint        cnt;
-  fd_pubkey_t key[ STRMK_CHUNK_KEY_MAX ];
+struct strmk_keyset {
+  uchar       used[ STRMK_BLOCK_SLOT_MAX ];
+  fd_pubkey_t key [ STRMK_BLOCK_SLOT_MAX ];
 };
 
-typedef struct strmk_chunk strmk_chunk_t;
+typedef struct strmk_keyset strmk_keyset_t;
 
-/* One block replay is feeding this tile.  Replay reuses a bank index
-   once a block is gone, so a block is named by the index and the
-   sequence number together.  bank_idx is ULONG_MAX when the entry is
-   free. */
+/* One block replay fed this tile.  Replay reuses a bank index once a
+   block is gone, so a block is named by the index and the sequence
+   number together. */
 
 struct strmk_block {
-  ulong slot;
-  ulong parent_slot;
-  ulong bank_idx;
-  ulong bank_seq;
-  ulong parent_bank_idx;
-  uint  chunk_head;
-  uint  chunk_tail;
-  int   overflow; /* ran out of key chunks? */
+  int                state;
+  ulong              slot;
+  ulong              parent_slot;
+  ulong              bank_idx;
+  ulong              bank_seq;
+  ulong              parent_bank_idx;
+  ulong              hold_token;  /* returned to replay once the block is written */
+  fd_accdb_fork_id_t parent_fork; /* only named once the block ended */
+  uint               key_cnt;
+  int                overflow;    /* more accounts than the set holds? */
+  int                linked;      /* chains back to the stream being opened? */
+  strmk_keyset_t *   keys;
 };
 
 typedef struct strmk_block strmk_block_t;
@@ -155,8 +177,10 @@ struct fd_strmk {
   strmk_stream_t stream[ FD_STRMK_STREAM_MAX ];
   strmk_block_t  block [ STRMK_BLOCK_MAX ];
 
-  strmk_chunk_t * chunk;
-  uint            chunk_free; /* head of the free list */
+  /* completed blocks in the order they ended, oldest first */
+  uint  retain[ STRMK_BLOCK_RETAIN_MAX ];
+  ulong retain_head;
+  ulong retain_tail;
 
   /* in links, and the frag the stem callbacks hand to each other */
   fd_wksp_t * in_mem   [ 2 ];
@@ -222,7 +246,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_txncache_writer_arena_align(),  fd_txncache_writer_arena_sz( tile->strmk.max_txn_per_slot ) );
   l = FD_LAYOUT_APPEND( l, 16UL,                              FD_RUNTIME_ACC_SZ_MAX                                   );
   l = FD_LAYOUT_APPEND( l, 16UL,                              STRMK_COMP_BUF_SZ                                       );
-  l = FD_LAYOUT_APPEND( l, alignof(strmk_chunk_t),            STRMK_CHUNK_MAX*sizeof(strmk_chunk_t)                   );
+  l = FD_LAYOUT_APPEND( l, alignof(strmk_keyset_t),           STRMK_BLOCK_MAX*sizeof(strmk_keyset_t)                  );
   l = FD_LAYOUT_APPEND( l, 4096UL,                            stream_max*STRMK_RAW_BUF_SZ                             );
   l = FD_LAYOUT_APPEND( l, alignof(strmk_sent_t),             stream_max*key_max*sizeof(strmk_sent_t)                 );
   l = FD_LAYOUT_APPEND( l, 64UL,                              stream_max*zst_sz                                       );
@@ -506,13 +530,14 @@ strmk_msg_publish( fd_strmk_t *        ctx,
   }
 }
 
-/* strmk_bank_release gives a bank reference back to replay. */
+/* strmk_bank_release gives a bank reference back to replay by handing
+   its token back.  Replay ignores a token it minted before a reset. */
 
 static void
 strmk_bank_release( fd_strmk_t *        ctx,
                     fd_stem_context_t * stem,
-                    ulong               bank_idx ) {
-  fd_stem_publish( stem, ctx->replay_out_idx, bank_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
+                    ulong               hold_token ) {
+  fd_stem_publish( stem, ctx->replay_out_idx, hold_token, 0UL, 0UL, 0UL, 0UL, 0UL );
 }
 
 /* strmk_index_write rewrites the index, which names one listed stream
@@ -652,7 +677,8 @@ strmk_block_query( fd_strmk_t * ctx,
                    ulong        bank_idx,
                    ulong        bank_seq ) {
   for( ulong i=0UL; i<STRMK_BLOCK_MAX; i++ ) {
-    if( FD_UNLIKELY( ctx->block[ i ].bank_idx==bank_idx &&
+    if( FD_UNLIKELY( ctx->block[ i ].state==STRMK_BLOCK_LIVE &&
+                     ctx->block[ i ].bank_idx==bank_idx &&
                      ctx->block[ i ].bank_seq==bank_seq ) ) return &ctx->block[ i ];
   }
   return NULL;
@@ -666,62 +692,85 @@ static strmk_block_t *
 strmk_block_bank( fd_strmk_t * ctx,
                   ulong        bank_idx ) {
   for( ulong i=0UL; i<STRMK_BLOCK_MAX; i++ ) {
-    if( FD_UNLIKELY( ctx->block[ i ].bank_idx==bank_idx ) ) return &ctx->block[ i ];
+    if( FD_UNLIKELY( ctx->block[ i ].state==STRMK_BLOCK_LIVE &&
+                     ctx->block[ i ].bank_idx==bank_idx ) ) return &ctx->block[ i ];
   }
   return NULL;
 }
 
-/* strmk_block_alloc takes a free block entry, or NULL if all of them
-   are in use. */
+/* strmk_block_alloc takes a free block entry and clears its account
+   set, or returns NULL if every entry is in use. */
 
 static strmk_block_t *
 strmk_block_alloc( fd_strmk_t * ctx ) {
   for( ulong i=0UL; i<STRMK_BLOCK_MAX; i++ ) {
-    if( FD_LIKELY( ctx->block[ i ].bank_idx==ULONG_MAX ) ) return &ctx->block[ i ];
+    strmk_block_t * block = &ctx->block[ i ];
+    if( FD_UNLIKELY( block->state!=STRMK_BLOCK_FREE ) ) continue;
+    memset( block->keys->used, 0, sizeof(block->keys->used) );
+    block->state    = STRMK_BLOCK_LIVE;
+    block->key_cnt  = 0U;
+    block->overflow = 0;
+    block->linked   = 0;
+    return block;
   }
   return NULL;
 }
 
-/* strmk_block_free gives a block's key chunks back and frees its
-   entry. */
+/* strmk_block_release frees a block entry. */
 
 static void
-strmk_block_free( fd_strmk_t *    ctx,
-                  strmk_block_t * block ) {
-  if( FD_LIKELY( block->chunk_head!=UINT_MAX ) ) {
-    ctx->chunk[ block->chunk_tail ].next = ctx->chunk_free;
-    ctx->chunk_free                      = block->chunk_head;
-  }
-  block->bank_idx   = ULONG_MAX;
-  block->chunk_head = UINT_MAX;
-  block->chunk_tail = UINT_MAX;
-  block->overflow   = 0;
+strmk_block_release( strmk_block_t * block ) {
+  block->state = STRMK_BLOCK_FREE;
 }
 
-/* strmk_block_key_add appends one key to a block, taking another chunk
-   when the last one is full. */
+/* strmk_block_retain keeps a completed block for a stream that opens
+   later, dropping the oldest one it kept to make room. */
 
 static void
-strmk_block_key_add( fd_strmk_t *        ctx,
-                     strmk_block_t *     block,
-                     fd_pubkey_t const * key ) {
-  if( FD_UNLIKELY( block->overflow ) ) return;
-  strmk_chunk_t * chunk = block->chunk_tail==UINT_MAX ? NULL : &ctx->chunk[ block->chunk_tail ];
-  if( FD_UNLIKELY( !chunk || chunk->cnt>=STRMK_CHUNK_KEY_MAX ) ) {
-    if( FD_UNLIKELY( ctx->chunk_free==UINT_MAX ) ) {
-      block->overflow = 1;
-      return;
-    }
-    uint idx        = ctx->chunk_free;
-    ctx->chunk_free = ctx->chunk[ idx ].next;
-    ctx->chunk[ idx ].next = UINT_MAX;
-    ctx->chunk[ idx ].cnt  = 0U;
-    if( FD_LIKELY( chunk ) ) chunk->next = idx;
-    else                     block->chunk_head = idx;
-    block->chunk_tail = idx;
-    chunk = &ctx->chunk[ idx ];
+strmk_block_retain( fd_strmk_t *    ctx,
+                    strmk_block_t * block ) {
+  if( FD_UNLIKELY( ctx->retain_tail-ctx->retain_head>=STRMK_BLOCK_RETAIN_MAX ) ) {
+    strmk_block_release( &ctx->block[ ctx->retain[ ctx->retain_head%STRMK_BLOCK_RETAIN_MAX ] ] );
+    ctx->retain_head++;
   }
-  chunk->key[ chunk->cnt++ ] = *key;
+  block->state = STRMK_BLOCK_DONE;
+  ctx->retain[ ctx->retain_tail%STRMK_BLOCK_RETAIN_MAX ] = (uint)( block-ctx->block );
+  ctx->retain_tail++;
+}
+
+/* strmk_blocks_drop frees every block entry, kept or in flight. */
+
+static void
+strmk_blocks_drop( fd_strmk_t * ctx ) {
+  for( ulong i=0UL; i<STRMK_BLOCK_MAX; i++ ) strmk_block_release( &ctx->block[ i ] );
+  ctx->retain_head = 0UL;
+  ctx->retain_tail = 0UL;
+}
+
+/* strmk_block_key_add adds one account to a block's set, which drops
+   the repeats the keys arrive with.  Marks the block overflowed, and
+   returns 0, once the set is as full as it gets. */
+
+static int
+strmk_block_key_add( strmk_block_t *     block,
+                     fd_pubkey_t const * key ) {
+  if( FD_UNLIKELY( block->overflow ) ) return 0;
+  strmk_keyset_t * keys = block->keys;
+  ulong mask = STRMK_BLOCK_SLOT_MAX-1UL;
+  ulong idx  = fd_ulong_load_8( key->uc ) & mask;
+  for(;;) {
+    if( FD_LIKELY( !keys->used[ idx ] ) ) break;
+    if( FD_UNLIKELY( fd_memeq( keys->key[ idx ].uc, key->uc, sizeof(fd_pubkey_t) ) ) ) return 1;
+    idx = (idx+1UL) & mask;
+  }
+  if( FD_UNLIKELY( block->key_cnt>=STRMK_BLOCK_KEY_MAX ) ) {
+    block->overflow = 1;
+    return 0;
+  }
+  keys->used[ idx ] = 1;
+  keys->key [ idx ] = *key;
+  block->key_cnt++;
+  return 1;
 }
 
 /* strmk_key_wanted returns 1 if a stream still needs key, over the one
@@ -808,6 +857,133 @@ strmk_write_key( fd_strmk_t *        ctx,
 }
 
 /**********************************************************************/
+/* Block writing                                                      */
+/**********************************************************************/
+
+/* strmk_block_read reads the accounts of one block and stages them
+   for the stream only names, or for every open stream.  Each account
+   is read once, at the block's parent fork. */
+
+static void
+strmk_block_read( fd_strmk_t *          ctx,
+                  strmk_stream_t *      only,
+                  strmk_block_t const * block ) {
+  strmk_keyset_t const * keys = block->keys;
+  for( ulong i=0UL; i<STRMK_BLOCK_SLOT_MAX; i++ ) {
+    if( FD_LIKELY( !keys->used[ i ] ) ) continue;
+    fd_pubkey_t program_data;
+    fd_pubkey_t nested;
+    fd_pubkey_t const * pd = strmk_write_key( ctx, only, block->parent_fork, &keys->key[ i ], block->slot, &program_data );
+    if( FD_UNLIKELY( pd ) ) strmk_write_key( ctx, only, block->parent_fork, pd, block->slot, &nested );
+  }
+}
+
+/* strmk_block_flush writes out the appendvec each stream staged for a
+   block.  A stream that is still being opened is not told how large it
+   grew, because it is not being served yet. */
+
+static void
+strmk_block_flush( fd_strmk_t *          ctx,
+                   fd_stem_context_t *   stem,
+                   strmk_stream_t *      only,
+                   strmk_block_t const * block ) {
+  for( uint i=0U; i<ctx->stream_max; i++ ) {
+    strmk_stream_t * stream = &ctx->stream[ i ];
+    if( FD_LIKELY( !stream->open ) ) continue;
+    if( FD_UNLIKELY( only && stream!=only ) ) continue;
+
+    /* A block that touched nothing new still gets a file of its own,
+       because a peer treats the end of it as the end of the slot and a
+       tar entry cannot be empty.  The Instructions sysvar fills it: it
+       is built per transaction and never stored, so recording that it
+       does not exist is true at every slot and changes nothing. */
+    if( FD_UNLIKELY( !stream->raw_sz ) ) {
+      stream->raw_sz = strmk_encode_account( stream->raw + sizeof(fd_tar_meta_t), stream->slot_x,
+                                             &fd_sysvar_instructions_id, 0UL, 0,
+                                             fd_solana_system_program_id.uc, NULL, 0UL );
+    }
+
+    strmk_appendvec_flush( ctx, stream, block->slot, 0UL );
+    stream->vec_id = 0UL;
+    if( FD_UNLIKELY( stream->first_slot==ULONG_MAX ) ) stream->first_slot = block->slot;
+    if( FD_UNLIKELY( only ) ) continue;
+
+    if( FD_UNLIKELY( stream->sent_cnt>=ctx->key_cap ) ) {
+      FD_LOG_WARNING(( "the boot stream at slot %lu carried %lu accounts, which is all "
+                       "[snapshots.instant_boot.serve.max_keys_per_stream] allows for",
+                       stream->slot_x, stream->sent_cnt ));
+      strmk_stream_close( ctx, stem, i, 0 );
+      continue;
+    }
+    strmk_stream_publish( ctx, stem, i );
+  }
+}
+
+/* strmk_backlog_link marks the kept blocks that ran after the bank a
+   stream is opening at, by chaining their parents back to it.  Returns
+   0 if the kept blocks do not cover everything that ran after that
+   bank, in which case a stream opening there would be missing blocks
+   and must not be served. */
+
+static int
+strmk_backlog_link( fd_strmk_t * ctx,
+                    ulong        slot_x,
+                    ulong        bank_idx ) {
+  int have_block = 0; /* a block ran after the stream's slot */
+  int have_child = 0; /* one of them is a child of it */
+
+  for( ulong r=ctx->retain_head; r!=ctx->retain_tail; r++ ) {
+    strmk_block_t * block = &ctx->block[ ctx->retain[ r%STRMK_BLOCK_RETAIN_MAX ] ];
+    block->linked = 0;
+    if( FD_LIKELY( block->slot<=slot_x ) ) continue;
+    have_block = 1;
+
+    if( FD_UNLIKELY( block->parent_bank_idx==bank_idx ) ) {
+      block->linked = 1;
+      have_child    = 1;
+      continue;
+    }
+    for( ulong p=ctx->retain_head; p!=r; p++ ) {
+      strmk_block_t const * parent = &ctx->block[ ctx->retain[ p%STRMK_BLOCK_RETAIN_MAX ] ];
+      if( FD_UNLIKELY( parent->linked && parent->bank_idx==block->parent_bank_idx ) ) block->linked = 1;
+    }
+    if( FD_UNLIKELY( !block->linked ) ) {
+      FD_LOG_WARNING(( "not starting a boot stream at slot %lu: slot %lu ran after it but does not "
+                       "chain back to it", slot_x, block->slot ));
+      return 0;
+    }
+  }
+
+  if( FD_UNLIKELY( have_block && !have_child ) ) {
+    FD_LOG_WARNING(( "not starting a boot stream at slot %lu: the blocks that ran right after it "
+                     "are no longer kept", slot_x ));
+    return 0;
+  }
+  return 1;
+}
+
+/* strmk_backlog_write writes the appendvecs of the kept blocks that
+   ran after the stream's slot, in the order they ran, so that they
+   come before the blocks the stream carries live. */
+
+static void
+strmk_backlog_write( fd_strmk_t *        ctx,
+                     fd_stem_context_t * stem,
+                     strmk_stream_t *    stream ) {
+  ulong cnt = 0UL;
+  for( ulong r=ctx->retain_head; r!=ctx->retain_tail; r++ ) {
+    strmk_block_t const * block = &ctx->block[ ctx->retain[ r%STRMK_BLOCK_RETAIN_MAX ] ];
+    if( FD_LIKELY( !block->linked ) ) continue;
+    strmk_block_read ( ctx, stream, block );
+    strmk_block_flush( ctx, stem, stream, block );
+    cnt++;
+  }
+  if( FD_UNLIKELY( cnt ) ) {
+    FD_LOG_INFO(( "the boot stream at slot %lu starts with the %lu blocks that already ran", stream->slot_x, cnt ));
+  }
+}
+
+/**********************************************************************/
 /* Stream lifecycle                                                   */
 /**********************************************************************/
 
@@ -865,7 +1041,7 @@ strmk_stream_start( fd_strmk_t *                    ctx,
   }
   if( FD_UNLIKELY( idx==UINT_MAX ) ) {
     FD_LOG_INFO(( "not starting a boot stream at slot %lu, all %u stream files are in use", msg->slot, ctx->stream_max ));
-    strmk_bank_release( ctx, stem, msg->bank_idx );
+    strmk_bank_release( ctx, stem, msg->hold_token );
     return;
   }
 
@@ -876,12 +1052,20 @@ strmk_stream_start( fd_strmk_t *                    ctx,
   fd_pubkey_t const * leader = fd_epoch_leaders_get( fd_bank_epoch_leaders_query( bank, bank->f.epoch ), bank->f.slot );
   if( FD_UNLIKELY( !leader ) ) {
     FD_LOG_WARNING(( "not starting a boot stream at slot %lu, its leader is unknown", msg->slot ));
-    strmk_bank_release( ctx, stem, msg->bank_idx );
+    strmk_bank_release( ctx, stem, msg->hold_token );
     return;
   }
 
   fd_accdb_fork_id_t fork = bank->accdb_fork_id;
   FD_TEST( fork.val!=USHORT_MAX );
+
+  /* Nothing is written until the blocks that already ran after this
+     slot are known to be covered, so a refused stream leaves no
+     file. */
+  if( FD_UNLIKELY( !strmk_backlog_link( ctx, msg->slot, msg->bank_idx ) ) ) {
+    strmk_bank_release( ctx, stem, msg->hold_token );
+    return;
+  }
 
   ulong         slot_history_sz = 0UL;
   uchar const * slot_history    =
@@ -890,7 +1074,7 @@ strmk_stream_start( fd_strmk_t *                    ctx,
                                              bank->f.slot, slot_history, slot_history_sz,
                                              ctx->txncache_arena, ctx->txncache_arena_sz ) ) ) {
     FD_LOG_WARNING(( "not starting a boot stream at slot %lu, the status cache moved under it", msg->slot ));
-    strmk_bank_release( ctx, stem, msg->bank_idx );
+    strmk_bank_release( ctx, stem, msg->hold_token );
     return;
   }
 
@@ -921,104 +1105,41 @@ strmk_stream_start( fd_strmk_t *                    ctx,
   fd_ssmanifest_writer_init( ctx->manifest_writer, bank, leader, ctx->accdb, fork, ctx->acc_data );
 
   long t0 = fd_log_wallclock();
-  strmk_prologue    ( ctx, stream );
-  strmk_manifest    ( ctx, stream );
-  strmk_status_cache( ctx, stream );
-  strmk_bundle      ( ctx, stream, fork );
-  strmk_bank_release( ctx, stem, msg->bank_idx );
+  strmk_prologue     ( ctx, stream );
+  strmk_manifest     ( ctx, stream );
+  strmk_status_cache ( ctx, stream );
+  strmk_bundle       ( ctx, stream, fork );
+  strmk_backlog_write( ctx, stem, stream );
+  strmk_bank_release ( ctx, stem, msg->hold_token );
+
+  if( FD_UNLIKELY( stream->sent_cnt>=ctx->key_cap ) ) {
+    FD_LOG_WARNING(( "the boot stream at slot %lu needed %lu accounts to open, which is all "
+                     "[snapshots.instant_boot.serve.max_keys_per_stream] allows for",
+                     stream->slot_x, stream->sent_cnt ));
+    strmk_stream_close( ctx, stem, idx, 1 );
+    return;
+  }
 
   FD_LOG_NOTICE(( "boot stream at slot %lu opened in %ld millis (%lu bytes, %lu accounts)",
                   stream->slot_x, ( fd_log_wallclock()-t0 )/(1000L*1000L), stream->file_sz, stream->sent_cnt ));
   strmk_stream_publish( ctx, stem, idx );
 }
 
-/* strmk_block_write writes one block's accounts into every open
-   stream, reading each of them once at the block's parent fork. */
-
-static void
-strmk_block_write( fd_strmk_t *        ctx,
-                   fd_stem_context_t * stem,
-                   strmk_block_t *     block,
-                   fd_accdb_fork_id_t  fork ) {
-  /* An account is read at the block's parent fork, where it still has
-     the value it had at the stream's start slot, because no block
-     since has touched it.  The stream only knows that if it carried
-     every block from its start slot on, so the first block it carries
-     has to be a child of that slot. */
-  for( uint i=0U; i<ctx->stream_max; i++ ) {
-    strmk_stream_t * stream = &ctx->stream[ i ];
-    if( FD_LIKELY( !stream->open || stream->first_slot!=ULONG_MAX ) ) continue;
-    if( FD_UNLIKELY( block->parent_slot!=stream->slot_x ) ) {
-      FD_LOG_WARNING(( "the boot stream at slot %lu starts at slot %lu, whose parent is %lu, so it is "
-                       "missing the blocks in between",
-                       stream->slot_x, block->slot, block->parent_slot ));
-    }
-    stream->first_slot = block->slot;
-  }
-
-  ulong wrote = 0UL;
-  for( uint ci=block->chunk_head; ci!=UINT_MAX; ci=ctx->chunk[ ci ].next ) {
-    strmk_chunk_t const * chunk = &ctx->chunk[ ci ];
-    for( uint i=0U; i<chunk->cnt; i++ ) {
-      fd_pubkey_t program_data;
-      fd_pubkey_t nested;
-      fd_pubkey_t const * pd = strmk_write_key( ctx, NULL, fork, &chunk->key[ i ], block->slot, &program_data );
-      wrote++;
-      if( FD_UNLIKELY( pd ) ) strmk_write_key( ctx, NULL, fork, pd, block->slot, &nested );
-    }
-  }
-
-  /* The accounts are read, so replay can root past the parent now; the
-     rest of this is compression and file writes. */
-  strmk_bank_release( ctx, stem, block->parent_bank_idx );
-
-  for( uint i=0U; i<ctx->stream_max; i++ ) {
-    strmk_stream_t * stream = &ctx->stream[ i ];
-    if( FD_LIKELY( !stream->open ) ) continue;
-
-    /* A block that touched nothing new still gets a file of its own,
-       because a peer treats the end of it as the end of the slot and a
-       tar entry cannot be empty.  The Instructions sysvar fills it: it
-       is built per transaction and never stored, so recording that it
-       does not exist is true at every slot and changes nothing. */
-    if( FD_UNLIKELY( !stream->raw_sz ) ) {
-      stream->raw_sz = strmk_encode_account( stream->raw + sizeof(fd_tar_meta_t), stream->slot_x,
-                                             &fd_sysvar_instructions_id, 0UL, 0,
-                                             fd_solana_system_program_id.uc, NULL, 0UL );
-    }
-
-    strmk_appendvec_flush( ctx, stream, block->slot, 0UL );
-    stream->vec_id = 0UL;
-    if( FD_UNLIKELY( stream->sent_cnt>=ctx->key_cap ) ) {
-      FD_LOG_WARNING(( "the boot stream at slot %lu carried %lu accounts, which is all "
-                       "[snapshots.instant_boot.serve.max_keys_per_stream] allows for",
-                       stream->slot_x, stream->sent_cnt ));
-      strmk_stream_close( ctx, stem, i, 0 );
-      continue;
-    }
-    strmk_stream_publish( ctx, stem, i );
-  }
-  FD_LOG_DEBUG(( "boot streams wrote %lu accounts of slot %lu", wrote, block->slot ));
-}
-
 /**********************************************************************/
 /* Message handling                                                   */
 /**********************************************************************/
 
-/* strmk_reset forgets every block and closes every stream.  release
-   says whether the banks of those blocks go back to replay: after a
-   reset replay sends, it has already taken them back and returning one
-   would drop a reference it handed out since. */
+/* strmk_reset forgets every block and closes every stream.  The banks
+   of the blocks it drops are not returned: a reset replay sends has
+   already taken them back, and returning one would drop a reference it
+   handed out since.  The holds of a reset the tile decides on time out
+   at replay instead, which is also what keeps this bounded to one
+   message per stream. */
 
 static void
 strmk_reset( fd_strmk_t *        ctx,
-             fd_stem_context_t * stem,
-             int                 release ) {
-  for( ulong i=0UL; i<STRMK_BLOCK_MAX; i++ ) {
-    if( FD_LIKELY( ctx->block[ i ].bank_idx==ULONG_MAX ) ) continue;
-    if( FD_UNLIKELY( release ) ) strmk_bank_release( ctx, stem, ctx->block[ i ].parent_bank_idx );
-    strmk_block_free( ctx, &ctx->block[ i ] );
-  }
+             fd_stem_context_t * stem ) {
+  strmk_blocks_drop( ctx );
   strmk_streams_break( ctx, stem );
 }
 
@@ -1029,12 +1150,12 @@ strmk_block_start( fd_strmk_t *                   ctx,
   if( FD_UNLIKELY( strmk_block_bank( ctx, msg->bank_idx ) ) ) {
     FD_LOG_WARNING(( "bank %lu started slot %lu while it still held a block, resetting the boot streams",
                      msg->bank_idx, msg->slot ));
-    strmk_reset( ctx, stem, 1 );
+    strmk_reset( ctx, stem );
   }
   strmk_block_t * block = strmk_block_alloc( ctx );
   if( FD_UNLIKELY( !block ) ) {
-    FD_LOG_WARNING(( "more than %lu blocks in flight at slot %lu, resetting the boot streams", STRMK_BLOCK_MAX, msg->slot ));
-    strmk_reset( ctx, stem, 1 );
+    FD_LOG_WARNING(( "more than %lu blocks in flight at slot %lu, resetting the boot streams", STRMK_BLOCK_LIVE_MAX, msg->slot ));
+    strmk_reset( ctx, stem );
     return;
   }
   fd_bank_t * parent = fd_banks_bank_query( ctx->banks, msg->parent_bank_idx );
@@ -1044,9 +1165,7 @@ strmk_block_start( fd_strmk_t *                   ctx,
   block->bank_idx        = msg->bank_idx;
   block->bank_seq        = msg->bank_seq;
   block->parent_bank_idx = msg->parent_bank_idx;
-  block->chunk_head      = UINT_MAX;
-  block->chunk_tail      = UINT_MAX;
-  block->overflow        = 0;
+  block->hold_token      = msg->hold_token;
 }
 
 static void
@@ -1054,10 +1173,7 @@ strmk_txn_keys( fd_strmk_t *                ctx,
                 fd_strmk_txn_keys_t const * msg ) {
   strmk_block_t * block = strmk_block_bank( ctx, msg->bank_idx );
   if( FD_UNLIKELY( !block ) ) return;
-  for( ulong i=0UL; i<(ulong)msg->key_cnt; i++ ) {
-    if( FD_LIKELY( !strmk_key_wanted( ctx, NULL, &msg->keys[ i ] ) ) ) continue;
-    strmk_block_key_add( ctx, block, &msg->keys[ i ] );
-  }
+  for( ulong i=0UL; i<(ulong)msg->key_cnt; i++ ) strmk_block_key_add( block, &msg->keys[ i ] );
 }
 
 static void
@@ -1069,24 +1185,47 @@ strmk_block_end( fd_strmk_t *                 ctx,
   if( FD_UNLIKELY( !block ) ) return;
 
   if( FD_UNLIKELY( dead ) ) {
-    strmk_bank_release( ctx, stem, block->parent_bank_idx );
-    strmk_block_free( ctx, block );
+    strmk_bank_release( ctx, stem, block->hold_token );
+    strmk_block_release( block );
     return;
   }
 
   if( FD_UNLIKELY( block->overflow ) ) {
-    FD_LOG_WARNING(( "the accounts of slot %lu did not fit the key pool, resetting the boot streams", msg->slot ));
-    strmk_bank_release( ctx, stem, block->parent_bank_idx );
-    strmk_block_free( ctx, block );
+    FD_LOG_WARNING(( "slot %lu touched more than %lu accounts, resetting the boot streams", msg->slot, STRMK_BLOCK_KEY_MAX ));
+    strmk_bank_release( ctx, stem, block->hold_token );
+    strmk_block_release( block );
     strmk_streams_break( ctx, stem );
     return;
   }
 
+  /* The kept blocks are written when a stream opens, so a stream has
+     carried every block from its slot on, and the first one it carries
+     live is a child of that slot.  Anything else means the stream is
+     missing a block and must not be served. */
+  for( uint i=0U; i<ctx->stream_max; i++ ) {
+    strmk_stream_t * stream = &ctx->stream[ i ];
+    if( FD_LIKELY( !stream->open || stream->first_slot!=ULONG_MAX ) ) continue;
+    if( FD_UNLIKELY( block->parent_slot!=stream->slot_x ) ) {
+      FD_LOG_WARNING(( "the boot stream at slot %lu is missing the blocks between it and slot %lu, closing it",
+                       stream->slot_x, block->slot ));
+      strmk_stream_close( ctx, stem, i, 1 );
+    }
+  }
+
   /* The fee collector is credited at block end without a transaction
      naming it. */
-  strmk_block_key_add( ctx, block, &msg->collector );
-  strmk_block_write( ctx, stem, block, msg->parent_accdb_fork_id );
-  strmk_block_free( ctx, block );
+  strmk_block_key_add( block, &msg->collector );
+  block->parent_fork = msg->parent_accdb_fork_id;
+
+  strmk_block_read( ctx, NULL, block );
+  /* The accounts are read, so replay can root past the parent now; the
+     rest of this is compression and file writes. */
+  strmk_bank_release( ctx, stem, block->hold_token );
+  strmk_block_flush( ctx, stem, NULL, block );
+
+  /* The block is kept so that a stream opening at a slot below it can
+     still cover it. */
+  strmk_block_retain( ctx, block );
 }
 
 /* strmk_snapmk lists a stream once the incremental snapshot it chains
@@ -1141,12 +1280,11 @@ after_frag( fd_strmk_t *        ctx,
   }
 
   /* The link is unreliable, so a tile that fell behind has missed
-     blocks and has to start over.  The gap may have swallowed a reset,
-     so the banks of the blocks it drops are not returned. */
+     blocks and has to start over. */
   if( FD_UNLIKELY( ctx->replay_seq_next!=ULONG_MAX && seq!=ctx->replay_seq_next ) ) {
     FD_LOG_WARNING(( "the boot stream feed skipped %ld frags, resetting the boot streams",
                      fd_seq_diff( seq, ctx->replay_seq_next ) ));
-    strmk_reset( ctx, stem, 0 );
+    strmk_reset( ctx, stem );
   }
   ctx->replay_seq_next = fd_seq_inc( seq, 1UL );
 
@@ -1167,7 +1305,7 @@ after_frag( fd_strmk_t *        ctx,
     strmk_stream_start( ctx, stem, (fd_strmk_stream_start_t const *)ctx->frag, fd_log_wallclock() );
     break;
   case FD_STRMK_SIG_RESET:
-    strmk_reset( ctx, stem, 0 );
+    strmk_reset( ctx, stem );
     break;
   default:
     FD_LOG_CRIT(( "unexpected boot stream message %lu", sig ));
@@ -1280,7 +1418,7 @@ unprivileged_init( fd_topo_t const *      topo,
   void *       _arena    = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_writer_arena_align(), fd_txncache_writer_arena_sz( tile->strmk.max_txn_per_slot ) );
   void *       _acc_data = FD_SCRATCH_ALLOC_APPEND( l, 16UL,                             FD_RUNTIME_ACC_SZ_MAX );
   void *       _comp     = FD_SCRATCH_ALLOC_APPEND( l, 16UL,                             STRMK_COMP_BUF_SZ );
-  void *       _chunk    = FD_SCRATCH_ALLOC_APPEND( l, alignof(strmk_chunk_t),           STRMK_CHUNK_MAX*sizeof(strmk_chunk_t) );
+  void *       _keys     = FD_SCRATCH_ALLOC_APPEND( l, alignof(strmk_keyset_t),          STRMK_BLOCK_MAX*sizeof(strmk_keyset_t) );
   void *       _raw      = FD_SCRATCH_ALLOC_APPEND( l, 4096UL,                           stream_max*STRMK_RAW_BUF_SZ );
   void *       _sent     = FD_SCRATCH_ALLOC_APPEND( l, alignof(strmk_sent_t),            stream_max*key_max*sizeof(strmk_sent_t) );
   void *       _zst      = FD_SCRATCH_ALLOC_APPEND( l, 64UL,                             stream_max*zst_sz );
@@ -1294,19 +1432,15 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->replay_seq_next   = ULONG_MAX; /* the first frag starts no gap */
   ctx->acc_data          = _acc_data;
   ctx->comp              = _comp;
-  ctx->chunk             = _chunk;
   ctx->txncache_arena    = _arena;
   ctx->txncache_arena_sz = fd_txncache_writer_arena_sz( tile->strmk.max_txn_per_slot );
 
-  for( ulong i=0UL; i<STRMK_CHUNK_MAX; i++ ) ctx->chunk[ i ].next = (uint)( i+1UL );
-  ctx->chunk[ STRMK_CHUNK_MAX-1UL ].next = UINT_MAX;
-  ctx->chunk_free = 0U;
-
   for( ulong i=0UL; i<STRMK_BLOCK_MAX; i++ ) {
-    ctx->block[ i ].bank_idx   = ULONG_MAX;
-    ctx->block[ i ].chunk_head = UINT_MAX;
-    ctx->block[ i ].chunk_tail = UINT_MAX;
+    ctx->block[ i ].state = STRMK_BLOCK_FREE;
+    ctx->block[ i ].keys  = (strmk_keyset_t *)_keys + i;
   }
+  ctx->retain_head = 0UL;
+  ctx->retain_tail = 0UL;
 
   for( uint i=0U; i<ctx->stream_max; i++ ) {
     strmk_stream_t * stream = &ctx->stream[ i ];
