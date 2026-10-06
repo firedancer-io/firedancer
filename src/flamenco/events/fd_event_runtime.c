@@ -12,6 +12,7 @@ FD_STATIC_ASSERT( sizeof(fd_event_runtime_vote_account_t    )<=FD_EVENT_RUNTIME_
 FD_STATIC_ASSERT( sizeof(fd_event_runtime_epoch_t           )<=FD_EVENT_RUNTIME_DIFF_MTU, diff_mtu );
 FD_STATIC_ASSERT( sizeof(fd_event_runtime_rooted_t          )<=FD_EVENT_RUNTIME_DIFF_MTU, diff_mtu );
 FD_STATIC_ASSERT( sizeof(fd_event_runtime_reward_t          )<=FD_EVENT_RUNTIME_DIFF_MTU, diff_mtu );
+FD_STATIC_ASSERT( sizeof(fd_event_runtime_vote_write_t      )<=FD_EVENT_RUNTIME_DIFF_MTU, diff_mtu );
 
 #define REPORT_DIFF( call ) do {                                      \
     fd_event_reporter_t * _tl = fd_event_tl;                          \
@@ -347,6 +348,40 @@ fd_event_runtime_vote_account_emit( fd_bank_t const *          bank,
   ev.epoch_credits_cnt     = epoch_credits->cnt;
 
   REPORT_DIFF( fd_event_report_runtime_vote_account( &ev ) );
+}
+
+void
+fd_event_runtime_vote_write_emit( fd_bank_t const * bank,
+                                  uchar const *     vote_account,
+                                  uchar const *     owner,
+                                  ulong             lamports,
+                                  ulong             data_sz,
+                                  int               kind,
+                                  ulong             cert_slot,
+                                  ulong             credits_added,
+                                  ulong             credits_after,
+                                  ulong             vote_slot,
+                                  long              vote_timestamp,
+                                  ulong             root_slot ) {
+  if( FD_LIKELY( !fd_event_tl ) ) return;
+
+  fd_event_runtime_vote_write_t ev = {
+    .bank_seq       = bank->bank_seq,
+    .slot           = bank->f.slot,
+    .epoch          = bank->f.epoch,
+    .kind           = kind,
+    .cert_slot      = cert_slot,
+    .credits_added  = credits_added,
+    .credits_after  = credits_after,
+    .vote_slot      = vote_slot,
+    .vote_timestamp = vote_timestamp,
+    .root_slot      = root_slot,
+    .lamports       = lamports,
+    .data_sz        = data_sz,
+  };
+  fd_memcpy( ev.vote_account, vote_account, 32UL );
+  fd_memcpy( ev.owner,        owner,        32UL );
+  REPORT_DIFF( fd_event_report_runtime_vote_write( &ev ) );
 }
 
 void
