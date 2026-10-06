@@ -40,6 +40,7 @@ blk_insert( fd_rotor_t *      rotor,
   blk->parent        = blk_pool_idx_null( rotor->blk_pool );
   blk->child         = blk_pool_idx_null( rotor->blk_pool );
   blk->sibling       = blk_pool_idx_null( rotor->blk_pool );
+  blk->connected     = 0;
   blk->cmpl_fec_cnt  = 0U;
   blk->rcvd_fec_cnt  = 0U;
   blk->buff_fec_cnt  = 0U;
@@ -48,13 +49,13 @@ blk_insert( fd_rotor_t *      rotor,
   blk->parent_slot   = ULONG_MAX;
   blk->parent_blk_mr = hash_null;
   blk->in_blk_treap  = 0;
-  blk->eager         = (uchar)( !memcmp( dmr, &hash_null, sizeof(fd_mr32_t) ) && !meta->invalidated && meta->final==blk_pool_idx_null( rotor->blk_pool ) && !meta->leader );
+  blk->eager         = (!memcmp( dmr, &hash_null, sizeof(fd_mr32_t)) && !meta->invalidated && meta->final==blk_pool_idx_null( rotor->blk_pool ) && !meta->leader );
   blk->meta_req      = 0;
   blk->highest_req   = 0;
   blk->orphan_req    = 0;
   blk->telemetry.cancelled_reason = 0;
   blk->telemetry.reported         = 0;
-  blk->last_fec_ts   = 0L;
+  blk->rcvd_fec_ts   = 0L;
   for( ulong k=0UL; k<FD_FEC_BLK_MAX; k++ ) blk->fecs[ k ] = fec_pool_idx_null( rotor->fec_pool );
   blk_map_ele_insert( rotor->blk_map, blk, rotor->blk_pool );
   if     ( !memcmp( dmr, &hash_null, sizeof(fd_mr32_t) )    ) meta->eager = blk_pool_idx( rotor->blk_pool, blk );
@@ -89,53 +90,6 @@ compute_dmr( fd_rotor_t *     rotor,
   fd_bmtree_commit_append( tree, parent_info, 1UL );
 
   memcpy( blk->dmr.uc, fd_bmtree_commit_fini( tree ), sizeof(fd_mr32_t) );
-}
-
-static void
-unlink( fd_rotor_t *     rotor,
-        fd_rotor_blk_t * blk ) {
-  fd_rotor_blk_t * pool = rotor->blk_pool;
-  ulong            null = blk_pool_idx_null( pool );
-  ulong            idx  = blk_pool_idx( pool, blk );
-  if( FD_LIKELY( blk->parent!=null ) ) {
-    ulong * link = &blk_pool_ele( pool, blk->parent )->child;
-    while( *link!=idx ) link = &blk_pool_ele( pool, *link )->sibling;
-    *link = blk->sibling;
-  }
-  ulong next;
-  for( ulong c=blk->child; c!=null; c=next ) {
-    next                             = blk_pool_ele( pool, c )->sibling;
-    blk_pool_ele( pool, c )->parent  = null;
-    blk_pool_ele( pool, c )->sibling = null;
-  }
-}
-
-static void
-prune( fd_rotor_t *     rotor,
-       fd_rotor_blk_t * blk ) {
-  fd_rotor_blk_t * pool = rotor->blk_pool;
-  if( FD_UNLIKELY( !blk->telemetry.reported && rotor->telemetry.report ) ) rotor->telemetry.report( rotor->telemetry.ctx, blk );
-  for( ulong k=0UL; k<FD_FEC_BLK_MAX; k++ ) {
-    if( FD_LIKELY( blk->fecs[ k ]==fec_pool_idx_null( rotor->fec_pool ) ) ) continue;
-    int held = 0;
-    for( fd_rotor_blk_t const * other = blk_map_ele_query_const( rotor->blk_map, &blk->slot, NULL, pool );
-                                other && !held;
-                                other = blk_map_ele_next_const( other, NULL, pool ) ) {
-      held = other!=blk && other->fecs[ k ]==blk->fecs[ k ];
-    }
-    if( FD_UNLIKELY( held ) ) continue;
-    fd_rotor_fec_t * fec = fec_pool_ele( rotor->fec_pool, blk->fecs[ k ] );
-    fec_map_ele_remove_fast( rotor->fec_map, fec, rotor->fec_pool );
-    fec_pool_ele_release   ( rotor->fec_pool, fec );
-  }
-  unlink( rotor, blk );
-  blk_treap_remove( rotor, blk );
-  fd_rotor_slot_meta_t * meta = fd_rotor_slot_meta( rotor, blk->slot );
-  if( FD_UNLIKELY( meta->eager==blk_pool_idx( pool, blk ) ) ) meta->eager = blk_pool_idx_null( pool );
-  if( FD_UNLIKELY( meta->notar==blk_pool_idx( pool, blk ) ) ) meta->notar = blk_pool_idx_null( pool );
-  if( FD_UNLIKELY( meta->final==blk_pool_idx( pool, blk ) ) ) meta->final = blk_pool_idx_null( pool );
-  blk_map_ele_remove_fast( rotor->blk_map, blk, pool );
-  blk_pool_ele_release   ( pool, blk );
 }
 
 /* consume pushes buffered FECs onto the reasm queue. */
@@ -194,6 +148,124 @@ promote( fd_rotor_t *     rotor,
   if( FD_LIKELY( in_blk_treap ) ) blk_treap_insert( rotor, blk );
 }
 
+/* connect_ancestors links a notar or final blk to its ancestors via
+   parent dmr until a connected one, marking each blk it walks stale (-1)
+   and returning the highest ancestor walked for connect_descendants. */
+
+static fd_rotor_blk_t *
+connect_ancestors( fd_rotor_t *     rotor,
+                   fd_rotor_blk_t * blk ) {
+  fd_rotor_blk_t * pool = rotor->blk_pool;
+  ulong            null = blk_pool_idx_null( pool );
+  for(;;) {
+    blk->connected = -1; /* on the path connect_descendants walks */
+    if( FD_UNLIKELY( blk->parent_slot==ULONG_MAX || blk->parent_slot<rotor->root ) ) break;
+    fd_rotor_slot_meta_t * meta   = fd_rotor_slot_meta( rotor, blk->slot );
+    fd_rotor_slot_meta_t * pmeta  = fd_rotor_slot_meta( rotor, blk->parent_slot );
+    int                    final  = meta->final==blk_pool_idx( pool, blk );
+    fd_rotor_blk_t *       linked = blk_pool_ele( pool, blk->parent );
+    fd_rotor_blk_t *       parent = blk_map_ele_query( rotor->blk_map, &blk->parent_slot, NULL, pool );
+    while( FD_LIKELY( parent && ( memcmp( &parent->dmr, &blk->parent_blk_mr, sizeof(fd_mr32_t) ) || ( blk->parent_slot!=rotor->root && !memcmp( &parent->dmr, &hash_null, sizeof(fd_mr32_t) ) ) ) ) ) {
+      parent = (fd_rotor_blk_t *)blk_map_ele_next_const( parent, NULL, pool );
+    }
+    if( FD_UNLIKELY( !parent && blk->parent_slot==rotor->root ) ) break; /* names a root other than ours */
+    int held = !!parent;
+    if( FD_UNLIKELY( !parent ) ) parent = fd_rotor_blk_notarized( rotor, blk->parent_slot, &blk->parent_blk_mr );
+    if( FD_UNLIKELY( !parent ) ) break; /* the parent slot is settled otherwise */
+    if( FD_UNLIKELY( !held ) ) blk_treap_insert( rotor, blk ); /* its tile asks ORPHAN for eager ancestry, which may merge with the named parents */
+    if( FD_UNLIKELY( linked!=parent ) ) {
+      if( FD_UNLIKELY( linked ) ) { /* an unfinished eager blk turbine guessed */
+        ulong * link = &linked->child;
+        while( *link!=blk_pool_idx( pool, blk ) ) link = &blk_pool_ele( pool, *link )->sibling;
+        *link = blk->sibling;
+      }
+      blk->parent   = blk_pool_idx( pool, parent );
+      blk->sibling  = parent->child;
+      parent->child = blk_pool_idx( pool, blk );
+    }
+    if( FD_UNLIKELY( final && pmeta->final==null ) ) promote( rotor, parent, &pmeta->final );
+    consume( rotor, blk );
+    if( FD_UNLIKELY( blk->cmpl_fec_cnt && blk->cons_fec_cnt==blk->cmpl_fec_cnt ) ) cascade( rotor, blk );
+    if( FD_LIKELY( parent->connected==1 ) ) break;
+    blk = parent;
+  }
+  return blk;
+}
+
+/* connect_descendants sets blk's connected bit from its parent and
+   copies it down its subtree, skipping children that already match. */
+
+static void
+connect_descendants( fd_rotor_t *     rotor,
+                     fd_rotor_blk_t * blk ) {
+  fd_rotor_blk_t *       pool      = rotor->blk_pool;
+  ulong                  null      = blk_pool_idx_null( pool );
+  fd_rotor_blk_t const * parent    = blk_pool_ele_const( pool, blk->parent );
+  int                    connected = ( ( blk->slot==rotor->root && fd_rotor_slot_meta( rotor, blk->slot )->final==blk_pool_idx( pool, blk ) ) || ( parent && parent->connected==1 ) );
+  if( FD_LIKELY( blk->connected==connected ) ) return;
+  blk->connected = connected ? 1 : 0;
+  ulong tidx = blk_pool_idx( pool, blk );
+  ulong idx  = blk->child;
+  while( FD_LIKELY( idx!=null ) ) {
+    fd_rotor_blk_t * c = blk_pool_ele( pool, idx );
+    if( FD_LIKELY( c->connected!=connected ) ) {
+      c->connected = connected ? 1 : 0;
+      if( FD_LIKELY( c->child!=null ) ) { idx = c->child; continue; }
+    }
+    while( FD_LIKELY( idx!=tidx && blk_pool_ele( pool, idx )->sibling==null ) ) idx = blk_pool_ele( pool, idx )->parent;
+    if( FD_UNLIKELY( idx==tidx ) ) break;
+    idx = blk_pool_ele( pool, idx )->sibling;
+  }
+}
+
+static void
+unlink( fd_rotor_t *     rotor,
+        fd_rotor_blk_t * blk ) {
+  fd_rotor_blk_t * pool = rotor->blk_pool;
+  ulong            null = blk_pool_idx_null( pool );
+  ulong            idx  = blk_pool_idx( pool, blk );
+  if( FD_LIKELY( blk->parent!=null ) ) {
+    ulong * link = &blk_pool_ele( pool, blk->parent )->child;
+    while( *link!=idx ) link = &blk_pool_ele( pool, *link )->sibling;
+    *link = blk->sibling;
+  }
+  ulong next;
+  for( ulong c=blk->child; c!=null; c=next ) {
+    next                             = blk_pool_ele( pool, c )->sibling;
+    blk_pool_ele( pool, c )->parent  = null;
+    blk_pool_ele( pool, c )->sibling = null;
+    connect_descendants( rotor, blk_pool_ele( pool, c ) );
+  }
+}
+
+static void
+prune( fd_rotor_t *     rotor,
+       fd_rotor_blk_t * blk ) {
+  fd_rotor_blk_t * pool = rotor->blk_pool;
+  if( FD_UNLIKELY( !blk->telemetry.reported && rotor->telemetry.report ) ) rotor->telemetry.report( rotor->telemetry.ctx, blk );
+  for( ulong k=0UL; k<FD_FEC_BLK_MAX; k++ ) {
+    if( FD_LIKELY( blk->fecs[ k ]==fec_pool_idx_null( rotor->fec_pool ) ) ) continue;
+    int held = 0;
+    for( fd_rotor_blk_t const * other = blk_map_ele_query_const( rotor->blk_map, &blk->slot, NULL, pool );
+                                other && !held;
+                                other = blk_map_ele_next_const( other, NULL, pool ) ) {
+      held = other!=blk && other->fecs[ k ]==blk->fecs[ k ];
+    }
+    if( FD_UNLIKELY( held ) ) continue;
+    fd_rotor_fec_t * fec = fec_pool_ele( rotor->fec_pool, blk->fecs[ k ] );
+    fec_map_ele_remove_fast( rotor->fec_map, fec, rotor->fec_pool );
+    fec_pool_ele_release   ( rotor->fec_pool, fec );
+  }
+  unlink( rotor, blk );
+  blk_treap_remove( rotor, blk );
+  fd_rotor_slot_meta_t * meta = fd_rotor_slot_meta( rotor, blk->slot );
+  if( FD_UNLIKELY( meta->eager==blk_pool_idx( pool, blk ) ) ) meta->eager = blk_pool_idx_null( pool );
+  if( FD_UNLIKELY( meta->notar==blk_pool_idx( pool, blk ) ) ) meta->notar = blk_pool_idx_null( pool );
+  if( FD_UNLIKELY( meta->final==blk_pool_idx( pool, blk ) ) ) meta->final = blk_pool_idx_null( pool );
+  blk_map_ele_remove_fast( rotor->blk_map, blk, pool );
+  blk_pool_ele_release   ( pool, blk );
+}
+
 /* dedup checks for a duplicate of eager among the notar blks.  Only the
    eager blk can be duplicated, since notar blk DMRs are known a priori.
 
@@ -227,6 +299,7 @@ dedup( fd_rotor_t *     rotor,
     blk_pool_ele( pool, c )->parent  = idx;
     blk_pool_ele( pool, c )->sibling = eager->child;
     eager->child                     = c;
+    connect_descendants( rotor, blk_pool_ele( pool, c ) );
   }
   notar->child = null;
   if( FD_UNLIKELY(    notar->parent!=null
@@ -240,12 +313,15 @@ dedup( fd_rotor_t *     rotor,
     eager->parent                              = notar->parent;
     eager->sibling                             = blk_pool_ele( pool, notar->parent )->child;
     blk_pool_ele( pool, notar->parent )->child = idx;
+    connect_descendants( rotor, eager );
   }
   blk_treap_remove( rotor, notar );
   if( FD_UNLIKELY( meta->final==blk_pool_idx( pool, notar ) ) ) { meta->final = null; promote( rotor, eager, &meta->final ); }
   if( FD_UNLIKELY( meta->notar==blk_pool_idx( pool, notar ) ) ) { meta->notar = null; promote( rotor, eager, &meta->notar ); }
   notar->telemetry.reported = 1; /* the same block lives on as eager */
   prune( rotor, notar );
+  fd_rotor_blk_t * root = connect_ancestors( rotor, eager );
+  connect_descendants( rotor, root );
 }
 
 FD_FN_CONST ulong
@@ -356,7 +432,8 @@ fd_rotor_init( fd_rotor_t *         rotor,
   blk_treap_remove( rotor, blk ); /* the root is never repaired */
   fd_rotor_slot_meta( rotor, root )->final = blk_pool_idx( rotor->blk_pool, blk );
   fd_rotor_slot_meta( rotor, root )->eager = blk_pool_idx_null( rotor->blk_pool ); /* the genesis root has a null dmr, but is not turbine's */
-  blk->eager = 0;
+  blk->eager     = 0;
+  blk->connected = 1;
   rotor->root         = root;
   rotor->catchup_slot = root;
 }
@@ -427,12 +504,15 @@ fd_rotor_blk_finalized( fd_rotor_t *      rotor,
         blk_pool_ele( pool, c )->parent  = null;
         blk_pool_ele( pool, c )->sibling = null;
       }
+      connect_descendants( rotor, blk_pool_ele( pool, c ) );
     }
     blk->child = null;
     if( FD_UNLIKELY( meta->eager==blk_pool_idx( pool, blk ) && !memcmp( &blk->dmr, &hash_null, sizeof(fd_mr32_t) ) ) ) continue; /* turbine may still complete as the finalized blk, see dedup */
     blk->telemetry.cancelled_reason = FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_NOTARIZED_VERSION;
     prune( rotor, blk );
   }
+  fd_rotor_blk_t * root = connect_ancestors( rotor, fin );
+  connect_descendants( rotor, root );
   if( FD_UNLIKELY( fin->cmpl_fec_cnt && fin->cons_fec_cnt==fin->cmpl_fec_cnt ) ) cascade( rotor, fin );
   return fin;
 }
@@ -449,6 +529,8 @@ fd_rotor_blk_notarized( fd_rotor_t *      rotor,
                         dup = (fd_rotor_blk_t *)blk_map_ele_next_const( dup, NULL, rotor->blk_pool ) ) {
     if( FD_UNLIKELY( memcmp( &dup->dmr, blk_mr, sizeof(fd_mr32_t) ) ) ) continue;
     if( FD_LIKELY( meta->notar==blk_pool_idx_null( rotor->blk_pool ) ) ) promote( rotor, dup, &meta->notar ); /* already have it, now named */
+    fd_rotor_blk_t * root = connect_ancestors( rotor, dup );
+    connect_descendants( rotor, root );
     return NULL;
   }
   return blk_insert( rotor, slot, blk_mr );
@@ -485,9 +567,14 @@ fd_rotor_blk_parented( fd_rotor_t *      rotor,
     blk->parent   = blk_pool_idx( rotor->blk_pool, parent );
     blk->sibling  = parent->child;
     parent->child = blk_pool_idx( rotor->blk_pool, blk );
+    connect_descendants( rotor, blk );
     if( FD_UNLIKELY( fd_rotor_slot_meta( rotor, slot )->final==blk_pool_idx( rotor->blk_pool, blk ) ) ) promote( rotor, parent, &fd_rotor_slot_meta( rotor, parent_slot )->final ); /* finalized ancestry */
     consume( rotor, blk );
     if( FD_UNLIKELY( blk->cmpl_fec_cnt && blk->cons_fec_cnt==blk->cmpl_fec_cnt ) ) cascade( rotor, blk );
+    if( FD_LIKELY( !created ) ) { /* a held parent may itself be orphaned */
+      fd_rotor_blk_t * root = connect_ancestors( rotor, parent );
+      connect_descendants( rotor, root );
+    }
   }
   return created;
 }
@@ -543,6 +630,7 @@ fd_rotor_fec_complete( fd_rotor_t *       rotor,
       if( FD_LIKELY( !memcmp( &blk_pool_ele( pool, c )->parent_blk_mr, &eager->dmr, sizeof(fd_mr32_t) ) ) ) { blk_pool_ele( pool, c )->sibling = keep; keep = c; continue; }
       blk_pool_ele( pool, c )->parent  = null;
       blk_pool_ele( pool, c )->sibling = null;
+      connect_descendants( rotor, blk_pool_ele( pool, c ) );
     }
     eager->child = keep;
 
@@ -646,7 +734,9 @@ void
 fd_rotor_root_advanced( fd_rotor_t *      rotor,
                         ulong             slot,
                         fd_mr32_t const * blk_mr ) {
-  for( ulong s=rotor->root; s<=slot; s++ ) {
+  ulong root  = rotor->root;
+  rotor->root = slot; /* connect_descendants sees the new root while freed ancestors drop their children */
+  for( ulong s=root; s<=slot; s++ ) {
     fd_rotor_blk_t * next;
     for( fd_rotor_blk_t * blk = blk_map_ele_query( rotor->blk_map, &s, NULL, rotor->blk_pool );
                           blk;
@@ -666,6 +756,7 @@ fd_rotor_root_advanced( fd_rotor_t *      rotor,
         blk_treap_remove( rotor, blk ); /* the root is never repaired */
         fd_rotor_slot_meta( rotor, slot )->final = blk_pool_idx( rotor->blk_pool, blk );
         blk->eager = 0;
+        connect_descendants( rotor, blk );
         continue;
       }
       unlink( rotor, blk );
@@ -674,7 +765,6 @@ fd_rotor_root_advanced( fd_rotor_t *      rotor,
       blk_pool_ele_release   ( rotor->blk_pool, blk );
     }
   }
-  rotor->root = slot;
 }
 
 void
@@ -740,11 +830,12 @@ fd_rotor_shred_insert( fd_rotor_t *       rotor,
       blk->parent   = blk_pool_idx( pool, parent );
       blk->sibling  = parent->child;
       parent->child = blk_pool_idx( pool, blk );
+      connect_descendants( rotor, blk );
     }
   }
   if( FD_UNLIKELY( slot_complete ) ) blk->cmpl_fec_cnt = fec_idx+1U;
   if( FD_UNLIKELY( slot_complete || fec_idx+1U>blk->rcvd_fec_cnt ) ) { /* its repair limit moved */
-    blk->last_fec_ts = fd_long_if( fec_idx+1U>blk->rcvd_fec_cnt, ts, blk->last_fec_ts );
+    blk->rcvd_fec_ts = fd_long_if( fec_idx+1U>blk->rcvd_fec_cnt, ts, blk->rcvd_fec_ts );
     blk_treap_insert( rotor, blk );
   }
 
