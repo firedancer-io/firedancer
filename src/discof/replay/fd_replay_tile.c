@@ -845,17 +845,19 @@ static void
 strmk_block_start( fd_replay_tile_t *     ctx,
                    fd_stem_context_t *    stem,
                    fd_sched_fec_t const * sched_fec ) {
+  if( FD_LIKELY( !ctx->instant_boot_serve ) ) return;
+
+  ctx->strmk_fed[ sched_fec->bank_idx ] = 0;
+  fd_bank_t * bank   = fd_banks_bank_query( ctx->banks, sched_fec->bank_idx );
+  fd_bank_t * parent = fd_banks_bank_query( ctx->banks, sched_fec->parent_bank_idx );
+  FD_TEST( bank && parent );
+
   /* A stream never crosses an epoch boundary or an epoch rewards
      payout: those credit stake accounts that no transaction in the
      block names, so the block's accounts cannot be carried.  The
      stream tile is told to start over and the block is left out of
      the feed entirely.  Every block while the condition holds resets
      again, which costs nothing because the tile has nothing open. */
-  ctx->strmk_fed[ sched_fec->bank_idx ] = 0;
-  fd_bank_t * bank   = fd_banks_bank_query( ctx->banks, sched_fec->bank_idx );
-  fd_bank_t * parent = fd_banks_bank_query( ctx->banks, sched_fec->parent_bank_idx );
-  FD_TEST( bank && parent );
-
   if( FD_UNLIKELY( epoch_rewards_pending( ctx, sched_fec->parent_bank_idx, sched_fec->slot ) ) ) {
     int boundary = fd_slot_to_epoch( &parent->f.epoch_schedule, sched_fec->slot, NULL )>parent->f.epoch;
     strmk_reset( ctx, stem, boundary ? "a block is across an epoch boundary"
@@ -932,6 +934,7 @@ static void
 strmk_txn_keys( fd_replay_tile_t *     ctx,
                 fd_stem_context_t *    stem,
                 fd_sched_fec_t const * sched_fec ) {
+  if( FD_LIKELY( !ctx->instant_boot_serve ) ) return;
   if( FD_UNLIKELY( !ctx->strmk_fed[ sched_fec->bank_idx ] ) ) return;
   if( FD_UNLIKELY( ctx->strmk_keys->full ) ) {
     strmk_reset( ctx, stem, "a block named more accounts than the key sink holds" );
@@ -3925,12 +3928,12 @@ insert_fec_set( fd_replay_tile_t *  ctx,
   if( sched_fec->is_first_in_block ) {
     bank->refcnt++;
     FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for sched", bank->idx, sched_fec->slot, bank->refcnt ));
-    if( FD_UNLIKELY( ctx->instant_boot_serve ) ) strmk_block_start( ctx, stem, sched_fec );
+    strmk_block_start( ctx, stem, sched_fec );
   }
 
   int ingested = fd_sched_fec_ingest( ctx->sched, sched_fec );
   fd_store_fec_data_view_release( ctx->store, data_view );
-  if( FD_UNLIKELY( ctx->instant_boot_serve ) ) strmk_txn_keys( ctx, stem, sched_fec );
+  strmk_txn_keys( ctx, stem, sched_fec );
 
   if( FD_UNLIKELY( !ingested ) ) {
     int dr = sched_block_dead_reason_to_event( ctx, sched_fec->bank_idx );
@@ -5088,12 +5091,12 @@ process_rotor_fec( fd_replay_tile_t      * ctx,
   if( sched_fec->is_first_in_block ) {
     bank->refcnt++;
     FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for sched", bank->idx, sched_fec->slot, bank->refcnt ));
-    if( FD_UNLIKELY( ctx->instant_boot_serve ) ) strmk_block_start( ctx, stem, sched_fec );
+    strmk_block_start( ctx, stem, sched_fec );
   }
 
   int ingested = fd_sched_fec_ingest( ctx->sched, sched_fec );
   fd_store_fec_data_view_release( ctx->store, data_view );
-  if( FD_UNLIKELY( ctx->instant_boot_serve ) ) strmk_txn_keys( ctx, stem, sched_fec );
+  strmk_txn_keys( ctx, stem, sched_fec );
 
   if( FD_UNLIKELY( !ingested ) ) {
     int dr = sched_block_dead_reason_to_event( ctx, sched_fec->bank_idx );
