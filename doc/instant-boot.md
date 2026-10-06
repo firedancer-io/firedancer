@@ -54,19 +54,25 @@ enabled = true`, and `[snapshots.instant_boot.serve] enabled = true`.
 All of it is taken at startup, whether or not a stream is ever
 opened. With the defaults that is **985 MiB**:
 
-| Part | Size | Scales with |
-|---|---|---|
-| Account sets of the blocks the tile keeps | 99 MiB | fixed (192 blocks of 528 KiB) |
-| Account read buffer | 10 MiB | fixed |
-| Compression buffer | 4 MiB | fixed |
-| Accounts and status cache joins, writer state | 67 MiB | `[runtime] max_live_slots`, `[limits] max_txn_per_slot` |
-| Per open stream | 225 MiB each | `max_open_streams`, and `max_keys_per_stream` within it |
-| `replay_strmk` link, in the replay workspace | 128 MiB | fixed (32,768 x 4,096 byte frags) |
+| Part | Bytes | MiB | Scales with |
+|---|---|---|---|
+| Account sets of the blocks the tile keeps | 103,809,024 | 99.0 | fixed (192 blocks of 528 KiB) |
+| Account read buffer | 10,485,760 | 10.0 | fixed |
+| Compression buffer | 4,194,304 | 4.0 | fixed |
+| Accounts and status cache joins, writer state | 70,068,224 | 66.8 | `[runtime] max_live_slots`, `[limits] max_txn_per_slot` |
+| Open streams, 3 x 236,251,136 | 708,753,408 | 675.9 | `max_open_streams`, and `max_keys_per_stream` within it |
+| `replay_strmk` data ring | 134,225,920 | 128.0 | fixed (32,770 x 4,096 byte frags) |
+| `replay_strmk` descriptor ring | 1,048,576 | 1.0 | fixed |
+| **Total** | **1,032,585,216** | **984.8** | |
 
-A stream's 225 MiB is a 64 MiB write buffer, the 160 MiB sent-account
-table, a 1.2 MiB compressor and a 64 KiB record of the blocks it has
-carried. Only that part moves when you change the settings: three
-streams is 676 MiB of it, one stream is 225 MiB.
+The first four rows and the stream rows are the stream tile's own
+workspace; `replay_strmk` is a workspace of its own, which the replay
+tile writes and the stream tile reads.
+
+A stream's 225.3 MiB is a 64 MiB write buffer, the 160 MiB
+sent-account table, a 1.24 MiB compressor and a 64 KiB record of the
+blocks it has carried. Only that part moves when you change the
+settings: three streams is 675.9 MiB of it, one stream is 225.3 MiB.
 
 ## Enable the Booting Side
 
@@ -142,6 +148,16 @@ can read today.
   of a boundary therefore sees its stream break, the same as any other
   reset, and has to restart against the next incremental snapshot once
   the boundary is past.
+
+  The reset is also why the serving node logs a refusal for the first
+  incremental snapshots after a boundary: `not starting a boot stream
+  at slot %lu: slot %lu already ran and the blocks that follow it are
+  not kept`. The reset threw away the blocks the tile keeps, so it
+  cannot cover the gap between the snapshot's slot and the blocks
+  running now. Once enough blocks have run for the retention to reach
+  back that far again, the next incremental snapshot starts a stream
+  normally. The same line shows up after any other reset, for the same
+  reason.
 - A listed stream stays open for `stream_lifetime_seconds` (240
   seconds by default). The booting validator only joins a stream with
   at least 180 seconds of life left (fixed, not configurable), so it

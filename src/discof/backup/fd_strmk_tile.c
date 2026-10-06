@@ -136,8 +136,10 @@
 /* STRMK_REUSE_NS is how long a closed stream's file sits idle before a
    new stream is given it.  The file server learns a stream is gone
    from a message, and a peer in the middle of a download reads the
-   file until it does, so the bytes under it must not change at
-   once. */
+   file until it does, so the bytes under it must not change at once.
+   A stream that broke is truncated the moment it closes on purpose:
+   its archive is unusable, and a peer reading it has to fail rather
+   than carry on. */
 
 #define STRMK_REUSE_NS (10L*1000L*1000L*1000L)
 
@@ -1616,8 +1618,12 @@ strmk_block_end( fd_strmk_t *                 ctx,
   ctx->last_end_slot = fd_ulong_max( ctx->last_end_slot, msg->slot );
 
   /* The fee collector is credited at block end without a transaction
-     naming it. */
-  strmk_block_key_add( block, &msg->collector, 0 );
+     naming it.  Replay leaves it zero when it knows no leader for the
+     block, and the all-zero address is the system program, which no
+     stream needs carried as a fee collector. */
+  if( FD_LIKELY( !fd_pubkey_check_zero( &msg->collector ) ) ) {
+    strmk_block_key_add( block, &msg->collector, 0 );
+  }
   if( FD_UNLIKELY( block->overflow ) ) {
     FD_LOG_WARNING(( "slot %lu touched more than %lu accounts, resetting the boot streams", msg->slot, STRMK_BLOCK_KEY_MAX ));
     strmk_bank_release( ctx, stem, block->hold_token );

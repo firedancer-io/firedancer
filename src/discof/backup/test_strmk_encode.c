@@ -1120,6 +1120,15 @@ FD_UNIT_TEST( stale_stream_start ) {
   FD_TEST( test_seq[ 0 ]==seq+1UL );
   FD_TEST( !stream->open );
 
+  /* and for a start that names no slot at all, which the sent set
+     cannot tell from an empty entry */
+  mock_bank[ 55 ]->f.slot = 0UL;
+  msg.slot = 0UL;
+  seq = test_seq[ 0 ];
+  strmk_stream_start( ctx, test_stem, &msg, fd_log_wallclock() );
+  FD_TEST( test_seq[ 0 ]==seq+1UL );
+  FD_TEST( !stream->open );
+
   backlog_env_destroy();
 }
 

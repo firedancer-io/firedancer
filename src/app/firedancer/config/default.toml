@@ -617,10 +617,10 @@ telemetry = true
         # 985 MiB: 180 MiB the stream tile always needs (99 MiB of
         # block account sets, a 10 MiB account read buffer, a 4 MiB
         # compression buffer and the accounts and status cache joins),
-        # 225 MiB for each of max_open_streams, and 128 MiB for the
-        # link replay feeds it over, which lives in the replay
-        # workspace.  Only the per stream part scales with the settings
-        # here.
+        # 225 MiB for each of max_open_streams, and 129 MiB for the
+        # replay_strmk link replay feeds it over, which is a workspace
+        # of its own.  Only the per stream part scales with the
+        # settings here.
         [snapshots.instant_boot.serve]
             enabled = false
 
