@@ -405,6 +405,12 @@
         "memory_huge_pages":           { "type": "UInt64",        "description": "Huge pages the topology reserves in the hugetlbfs across all memory locality domains. Tile stack pages are reserved on every domain, since stack placement is only decided when a tile starts, so they are counted once per domain." },
         "memory_normal_pages":         { "type": "UInt64",        "description": "Normal pages the topology requires." },
         "process_start_time":          { "type": "DateTime64(9)", "description": "Wall-clock time at which the validator process itself was started." },
-        "feature_set_id":              { "type": "UInt32",        "description": "A numeric identifier summarizing the exact set of protocol features this build understands, used to detect when nodes disagree on consensus rules." }
+        "feature_set_id":              { "type": "UInt32",        "description": "A numeric identifier summarizing the exact set of protocol features this build understands, used to detect when nodes disagree on consensus rules." },
+        "l3_cpu_to_domain": {
+            "type": "Array",
+            "description": "For each logical processor, the last-level cache domain it shares (one per AMD CCD or CCX, usually one per socket on Intel), numbered from 0 in first-seen order; tiles that exchange data cheaply sit in the same domain. 65535 for an offline processor. Empty when the kernel does not expose level-3 cache topology.",
+            "max_len": 1024,
+            "element": { "type": "UInt16", "description": "Last-level cache domain of one logical processor, 65535 if offline." }
+        }
     }
 }

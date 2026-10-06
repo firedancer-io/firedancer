@@ -162,6 +162,8 @@ struct fd_boot_report {
   ulong  numa_cpu_to_node_cnt;
   ushort isolated_cpus[ 1024 ];
   ulong  isolated_cpus_cnt;
+  ushort l3_cpu_to_domain[ 1024 ];
+  ulong  l3_cpu_to_domain_cnt;
 
   fd_boot_report_dimm_t dmi_dimms[ 64 ];
   ulong                 dmi_dimms_cnt;
