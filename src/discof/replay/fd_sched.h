@@ -71,17 +71,14 @@ struct fd_sched_alut_ctx {
 typedef struct fd_sched_alut_ctx fd_sched_alut_ctx_t;
 
 /* A single ingest call parses at most one FEC set plus the residual
-   the call before it carried over.  A transaction costs at least
-   FD_TXN_MIN_SERIALIZED_SZ bytes of that and resolves at most
-   FD_TXN_ACCT_ADDR_MAX account keys, and every lookup table costs the
-   32 bytes of its own address.  So these bound what one call records
-   into a key sink.  FD_SCHED_INGEST_BYTE_MAX is cross-checked against
-   the FEC buffer in fd_sched.c. */
+   the call before it carried over.  Both the static keys and the
+   lookup table addresses a transaction names are serialized in full,
+   so one call records at most one of either per 32 bytes it parses.
+   FD_SCHED_INGEST_BYTE_MAX is cross-checked against the FEC buffer in
+   fd_sched.c. */
 
-#define FD_SCHED_INGEST_BYTE_MAX  (63985UL+FD_TXN_MTU)
-#define FD_SCHED_INGEST_TXN_MAX   (FD_SCHED_INGEST_BYTE_MAX/FD_TXN_MIN_SERIALIZED_SZ+1UL)
-#define FD_SCHED_INGEST_TABLE_MAX (FD_SCHED_INGEST_BYTE_MAX/sizeof(fd_acct_addr_t))
-#define FD_SCHED_INGEST_KEY_MAX   (FD_SCHED_INGEST_TXN_MAX*FD_TXN_ACCT_ADDR_MAX+FD_SCHED_INGEST_TABLE_MAX)
+#define FD_SCHED_INGEST_BYTE_MAX (63985UL+FD_TXN_MTU)
+#define FD_SCHED_INGEST_ADDR_MAX (FD_SCHED_INGEST_BYTE_MAX/sizeof(fd_acct_addr_t))
 
 /* fd_sched_keys_list is one of the two lists a key sink collects.  The
    caller points key at its own storage of max entries and reads cnt
@@ -101,12 +98,13 @@ typedef struct fd_sched_keys_list fd_sched_keys_list_t;
    returns; everything in them belongs to the block the FEC set was
    for.
 
-   keys are the accounts the block names.  A lookup table the scheduler
-   expanded contributes both what it expanded to and its own address,
-   because whoever replays the block has to expand it again and needs
-   to read the table to do so.  tables are the lookup tables the
-   scheduler could not expand, which the caller has to read and expand
-   itself; their addresses are not in keys.
+   keys are the static account keys of the block's transactions.
+   tables are every lookup table they name, whether or not the
+   scheduler managed to expand it: whoever replays the block expands
+   the tables itself, at the block's own parent fork, so the
+   scheduler's expansion is of no use to it and is left out.  A table
+   repeated right after itself is recorded once; the caller folds the
+   rest.
 
    The scheduler drops entries and sets full once either list runs out
    of room, which tells the caller its copy of the block is
@@ -399,9 +397,10 @@ fd_sched_fec_can_ingest( fd_sched_t * sched, fd_sched_fec_t * fec );
    one.  The caller drives the scan with the same FEC sets it would
    have ingested, in order, and the keys land in fec->keys exactly as
    they would during an ingest.  The block is not added to the
-   scheduler, nothing is dispatched, and nothing is validated: a block
-   this validator produced is well formed by construction, so bytes
-   that do not parse simply end the scan.  fec->keys must be set. */
+   scheduler, nothing is dispatched, no account is read, and nothing is
+   validated: a block this validator produced is well formed by
+   construction, so bytes that do not parse simply end the scan.
+   fec->keys must be set. */
 
 void
 fd_sched_keys_scan( fd_sched_t *           sched,

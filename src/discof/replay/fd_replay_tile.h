@@ -193,23 +193,30 @@ struct fd_strmk_block_start {
 };
 typedef struct fd_strmk_block_start fd_strmk_block_start_t;
 
-/* Account keys of a block's transactions, in parse order: the static
-   keys of a transaction, then the keys its lookup tables expanded to,
-   then the addresses of those tables.  The table accounts are in here
-   because a peer booting off the stream replays the block itself and
-   has to expand the tables again, which means reading them.
+/* The static account keys of a block's transactions, in parse order.
+   The lookup tables those transactions name arrive separately, in
+   FD_STRMK_SIG_TXN_TABLES, which carries this same struct and follows
+   the block's keys for that FEC set: every table a transaction names
+   is in there, and the stream tile reads each one and expands it at
+   the fork the block end names, carrying both the table itself and
+   whatever it expands to.
 
-   A transaction whose tables replay could not expand contributes only
-   its static keys here; the addresses of those tables arrive in
-   FD_STRMK_SIG_TXN_TABLES instead, which carries this same struct and
-   follows the block's keys for that FEC set.  Its keys are lookup
-   tables the stream tile has to read and expand at the fork the block
-   end names, and whose addresses it has to carry in the stream along
-   with whatever they expand to.
+   The split is there because the expansion that counts is the one at
+   the block's parent fork, which is what the exec tiles and a peer
+   booting off the stream compute.  Replay expands tables at the
+   published root instead, only to decide what may run in parallel, so
+   its expansion is not sent at all.
+
+   The known limit of expanding at the parent fork is a table that is
+   extended and then used within the same block: the entries the
+   extension added are not visible at the parent fork, so a
+   transaction later in the block that uses them names accounts the
+   stream does not carry.
 
    A message carries the keys of as many transactions as fit, so the
    stream tile accumulates keys per block and does not learn
-   transaction boundaries. */
+   transaction boundaries.  A table repeated right after itself is sent
+   once; the stream tile folds the rest. */
 
 #define FD_STRMK_TXN_KEY_MAX (127UL)
 

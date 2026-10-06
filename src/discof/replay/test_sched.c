@@ -1346,9 +1346,10 @@ run_key_sink_case( void ) {
   FD_TEST( !memcmp( sink_key+0, payer->uc,   32UL ) );
   FD_TEST( !memcmp( sink_key+1, program->uc, 32UL ) );
 
-  /* A transaction whose lookup tables did not resolve names its two
-     static accounts, and the tables it left unexpanded go to the
-     caller separately. */
+  /* A transaction with a lookup table names its two static accounts,
+     and the table goes to the caller separately whatever the
+     scheduler made of it.  Two such transactions in a row name the
+     table once between them. */
 
   fd_pubkey_t alt_payer[ 1 ];
   fd_pubkey_t alt_program[ 1 ];
@@ -1357,10 +1358,11 @@ run_key_sink_case( void ) {
   fd_memset( alt_program->uc, 0x66, sizeof(fd_pubkey_t) );
   fd_memset( alt_table->uc,   0x77, sizeof(fd_pubkey_t) );
 
-  uchar alt_payload[ FD_TXN_MTU ];
+  uchar alt_payload[ 2*FD_TXN_MTU ];
   ulong alt_sz = build_alt_test_txn( alt_payload, alt_payer, alt_program, alt_table );
+  fd_memcpy( alt_payload+alt_sz, alt_payload, alt_sz );
 
-  encoded_sz               = encode_txn_mblk( encoded, alt_payload, alt_sz, 1UL, mblk_hash );
+  encoded_sz               = encode_txn_mblk( encoded, alt_payload, alt_sz, 2UL, mblk_hash );
   store_fec->data_sz       = (uint)encoded_sz;
   store_fec->shred_sz[ 0 ] = (ushort)encoded_sz;
   keys->keys->cnt          = 0UL;
@@ -1370,9 +1372,11 @@ run_key_sink_case( void ) {
   FD_TEST( fd_sched_fec_ingest( sched, fec ) );
 
   FD_TEST( !keys->full );
-  FD_TEST( keys->keys->cnt==2UL && keys->tables->cnt==1UL );
+  FD_TEST( keys->keys->cnt==4UL && keys->tables->cnt==1UL );
   FD_TEST( !memcmp( sink_key+0, alt_payer->uc,   32UL ) );
   FD_TEST( !memcmp( sink_key+1, alt_program->uc, 32UL ) );
+  FD_TEST( !memcmp( sink_key+2, alt_payer->uc,   32UL ) );
+  FD_TEST( !memcmp( sink_key+3, alt_program->uc, 32UL ) );
   FD_TEST( !memcmp( sink_table+0, alt_table->uc, 32UL ) );
   /* The table is not an ordinary key: the caller has to read it. */
   for( ulong i=0UL; i<keys->keys->cnt; i++ ) FD_TEST( memcmp( sink_key+i, alt_table->uc, 32UL ) );
@@ -1527,15 +1531,17 @@ run_key_sink_resolved_case( void ) {
   fec->alut_ctx->els     = TEST_ROOT_SLOT;
   FD_TEST( fd_sched_fec_ingest( sched, fec ) );
 
-  /* Two static keys, then the two entries the table expanded to,
-     writable first, and then the table's own address: whoever replays
-     the block expands the table again and has to read it. */
+  /* The scheduler expanded the table, and none of that is sent: the
+     two static keys go out, the table goes out for the caller to
+     expand at the block's own parent fork, and the entries the
+     scheduler reached appear nowhere. */
   FD_TEST( !keys->full );
-  FD_TEST( keys->keys->cnt==5UL && !keys->tables->cnt );
+  FD_TEST( keys->keys->cnt==2UL && keys->tables->cnt==1UL );
   FD_TEST( !memcmp( sink_key+0, alt_payer->uc,   32UL ) );
   FD_TEST( !memcmp( sink_key+1, alt_program->uc, 32UL ) );
-  FD_TEST( sink_key[ 2 ].b[ 0 ]==0xa0 && sink_key[ 3 ].b[ 0 ]==0xa1 );
-  FD_TEST( !memcmp( sink_key+4, alt_table->uc, 32UL ) );
+  FD_TEST( !memcmp( sink_table+0, alt_table->uc, 32UL ) );
+  FD_TEST( sink_key[ 0 ].b[ 0 ]!=0xa0 && sink_key[ 1 ].b[ 0 ]!=0xa0 );
+  FD_TEST( sink_key[ 0 ].b[ 0 ]!=0xa1 && sink_key[ 1 ].b[ 0 ]!=0xa1 );
 
   free( mem );
   FD_LOG_NOTICE(( "pass: run_key_sink_resolved_case" ));
@@ -1638,7 +1644,7 @@ run_keys_scan_case( void ) {
   fd_sched_keys_scan( sched, walk, fec );
 
   /* The straddling transaction came out whole, and its lookup table
-     could not be expanded, so the table goes to the caller to read. */
+     goes to the caller to read and expand. */
   FD_TEST( !keys->full );
   FD_TEST( keys->keys->cnt==4UL && keys->tables->cnt==1UL );
   FD_TEST( !memcmp( sink_key+2, alt_payer->uc,   32UL ) );

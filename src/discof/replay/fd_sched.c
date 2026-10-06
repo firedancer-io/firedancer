@@ -2711,25 +2711,27 @@ keys_append( fd_sched_keys_t *      sink,
   list->cnt += cnt;
 }
 
-/* Collects the accounts one transaction names into the caller's sink.
-   Whoever replays the block expands its lookup tables itself, so it
-   needs the table accounts as well as what they expand to: a table
-   this scheduler expanded goes into the keys alongside its
-   expansions, and one it could not goes into the tables for the
-   caller to read and expand. */
+/* Collects what one transaction names into the caller's sink: its
+   static keys, and every lookup table it names.  The scheduler's own
+   expansion of a table is left out on purpose.  Whoever replays the
+   block expands the tables at the block's parent fork, which is the
+   expansion that counts, while the scheduler expands them at the
+   published root only to decide what may run in parallel. */
 
 static void
-keys_collect( fd_sched_keys_t *      sink,
-              fd_txn_t const *       txn,
-              uchar const *          payload,
-              fd_acct_addr_t const * alts ) {
+keys_collect( fd_sched_keys_t * sink,
+              fd_txn_t const *  txn,
+              uchar const *     payload ) {
   keys_append( sink, sink->keys, fd_txn_get_acct_addrs( txn, payload ), fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM ) );
-  if( FD_LIKELY( alts ) ) keys_append( sink, sink->keys, alts, fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_ALT ) );
 
-  fd_sched_keys_list_t *         list = alts ? sink->keys : sink->tables;
-  fd_txn_acct_addr_lut_t const * luts = fd_txn_get_address_tables_const( txn );
+  fd_sched_keys_list_t *         tables = sink->tables;
+  fd_txn_acct_addr_lut_t const * luts   = fd_txn_get_address_tables_const( txn );
   for( ulong i=0UL; i<txn->addr_table_lookup_cnt; i++ ) {
-    keys_append( sink, list, (fd_acct_addr_t const *)fd_type_pun_const( payload+luts[ i ].addr_off ), 1UL );
+    fd_acct_addr_t const * addr = (fd_acct_addr_t const *)fd_type_pun_const( payload+luts[ i ].addr_off );
+    /* Transactions in a block routinely name the same table one after
+       another, and dropping those costs one compare. */
+    if( FD_UNLIKELY( tables->cnt && !memcmp( tables->key+tables->cnt-1UL, addr, sizeof(fd_acct_addr_t) ) ) ) continue;
+    keys_append( sink, tables, addr, 1UL );
   }
 }
 
@@ -2879,9 +2881,8 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_fec_t
   }
   block_poison_add( sched, block, txn, imms, poison_alts, poison_alt_cnt );
 
-  /* Hand the caller the accounts this transaction names, which is the
-     only place they are all resolved at once. */
-  if( FD_UNLIKELY( fec->keys ) ) keys_collect( fec->keys, txn, payload, alts );
+  /* Hand the caller what this transaction names. */
+  if( FD_UNLIKELY( fec->keys ) ) keys_collect( fec->keys, txn, payload );
 
   ulong bank_idx = (ulong)(block-sched->block_pool);
   ulong txn_idx  = fd_rdisp_add_txn( sched->rdisp, bank_idx, txn, payload, alts, serializing );
@@ -3010,14 +3011,7 @@ fd_sched_keys_scan( fd_sched_t *           sched,
       ulong         txn_sz  = fd_txn_parse_core( payload, walk->buf_sz-walk->soff, txn, NULL, &pay_sz );
       if( FD_UNLIKELY( !pay_sz || !txn_sz ) ) break; /* straddles the next FEC set, or unparseable */
 
-      /* The lookup table counters stay out of this: they measure how
-         well replay resolves the blocks it executes, and this block is
-         not one of them. */
-      fd_acct_addr_t const * alts = NULL;
-      if( FD_UNLIKELY( fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_ALT ) ) ) {
-        if( FD_LIKELY( !resolve_aluts( sched, fec->alut_ctx, txn, payload ) ) ) alts = sched->aluts;
-      }
-      keys_collect( fec->keys, txn, payload, alts );
+      keys_collect( fec->keys, txn, payload );
 
       walk->soff += (uint)pay_sz;
       walk->txns_rem--;

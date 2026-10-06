@@ -185,8 +185,8 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
      on their way to the stream tile, and the parse cursor for the
      block we are producing. */
   if( FD_UNLIKELY( tile->replay.instant_boot_serve ) ) {
-    l = FD_LAYOUT_APPEND( l, alignof(fd_acct_addr_t),           FD_SCHED_INGEST_KEY_MAX*sizeof(fd_acct_addr_t) );
-    l = FD_LAYOUT_APPEND( l, alignof(fd_acct_addr_t),           FD_SCHED_INGEST_TABLE_MAX*sizeof(fd_acct_addr_t) );
+    l = FD_LAYOUT_APPEND( l, alignof(fd_acct_addr_t),           FD_SCHED_INGEST_ADDR_MAX*sizeof(fd_acct_addr_t) );
+    l = FD_LAYOUT_APPEND( l, alignof(fd_acct_addr_t),           FD_SCHED_INGEST_ADDR_MAX*sizeof(fd_acct_addr_t) );
     l = FD_LAYOUT_APPEND( l, alignof(fd_sched_keys_walk_t),     sizeof(fd_sched_keys_walk_t) );
   }
 
@@ -895,16 +895,13 @@ strmk_txn_keys( fd_replay_tile_t *     ctx,
    produced itself.  Such a block is executed as it is built and never
    enters the scheduler, but a boot stream is a chain of blocks and
    cannot skip one, so the shredded bytes are walked for account keys
-   only: no validation, no dispatch, no execution.  Lookup tables
-   resolve against the same fork a replayed block's would. */
+   only: no validation, no dispatch, no execution, and no account
+   read, since the keys are the ones the bytes name outright. */
 
 static void
 strmk_leader_fec( fd_replay_tile_t *  ctx,
                   fd_stem_context_t * stem,
                   fd_sched_fec_t *    sched_fec ) {
-  sched_fec->alut_ctx->fork_id = fd_banks_bank_query( ctx->banks, ctx->published_root_bank_idx )->accdb_fork_id;
-  sched_fec->alut_ctx->accdb   = ctx->accdb;
-  sched_fec->alut_ctx->els     = ctx->published_root_slot;
   strmk_keys_arm( ctx, sched_fec );
 
   if( FD_UNLIKELY( sched_fec->is_first_in_block ) ) strmk_block_start( ctx, stem, sched_fec );
@@ -5890,9 +5887,9 @@ unprivileged_init( fd_topo_t const *      topo,
   void * deferred_purge_mem = tile->replay.instant_boot ?
                               FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_fork_id_t),   tile->replay.max_live_slots*sizeof(fd_accdb_fork_id_t) ) : NULL;
   void * strmk_keys_mem     = tile->replay.instant_boot_serve ?
-                              FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_acct_addr_t),       FD_SCHED_INGEST_KEY_MAX*sizeof(fd_acct_addr_t) ) : NULL;
+                              FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_acct_addr_t),       FD_SCHED_INGEST_ADDR_MAX*sizeof(fd_acct_addr_t) ) : NULL;
   void * strmk_table_mem    = tile->replay.instant_boot_serve ?
-                              FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_acct_addr_t),       FD_SCHED_INGEST_TABLE_MAX*sizeof(fd_acct_addr_t) ) : NULL;
+                              FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_acct_addr_t),       FD_SCHED_INGEST_ADDR_MAX*sizeof(fd_acct_addr_t) ) : NULL;
   void * strmk_walk_mem     = tile->replay.instant_boot_serve ?
                               FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sched_keys_walk_t), sizeof(fd_sched_keys_walk_t) ) : NULL;
   void * block_dump_ctx     = NULL;
@@ -6053,10 +6050,10 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->instant_boot_serve      = tile->replay.instant_boot_serve;
   ctx->strmk_in_idx            = ULONG_MAX;
   ctx->strmk_keys->full        = 0;
-  ctx->strmk_keys->keys->max   = FD_SCHED_INGEST_KEY_MAX;
+  ctx->strmk_keys->keys->max   = FD_SCHED_INGEST_ADDR_MAX;
   ctx->strmk_keys->keys->cnt   = 0UL;
   ctx->strmk_keys->keys->key   = strmk_keys_mem;
-  ctx->strmk_keys->tables->max = FD_SCHED_INGEST_TABLE_MAX;
+  ctx->strmk_keys->tables->max = FD_SCHED_INGEST_ADDR_MAX;
   ctx->strmk_keys->tables->cnt = 0UL;
   ctx->strmk_keys->tables->key = strmk_table_mem;
   ctx->strmk_walk              = strmk_walk_mem;
