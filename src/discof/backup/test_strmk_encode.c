@@ -7,6 +7,7 @@
 #pragma GCC diagnostic ignored "-Wunused-function"
 
 #include "../../flamenco/accdb/fd_accdb.h"
+#include "../../flamenco/runtime/fd_bank.h"
 
 /* The tile reads accounts through the accounts database, which this
    test stands in for: every account exists, its data is its own
@@ -23,9 +24,57 @@ mock_accdb_read_one_nocache( fd_accdb_t *       accdb,
                              uchar *            out_data,
                              ulong *            out_data_len );
 
+/* The tile looks a block's parent bank up to check that the fork it
+   names is still live; the test keeps a flat table of banks by
+   index. */
+
+#define TEST_BANK_MAX (64UL)
+
+static fd_bank_t * mock_bank[ TEST_BANK_MAX ];
+
+static fd_bank_t *
+mock_banks_bank_query( fd_banks_t * banks,
+                       ulong        bank_idx ) {
+  (void)banks;
+  if( FD_UNLIKELY( bank_idx>=TEST_BANK_MAX ) ) return NULL;
+  return mock_bank[ bank_idx ];
+}
+
 #define fd_accdb_read_one_nocache mock_accdb_read_one_nocache
+#define fd_banks_bank_query       mock_banks_bank_query
 #include "fd_strmk_tile.c"
+#undef fd_banks_bank_query
 #undef fd_accdb_read_one_nocache
+
+/* mock_bank_add makes a bank at bank_idx that is alive and frozen. */
+
+static void
+mock_bank_add( ulong bank_idx ) {
+  FD_TEST( bank_idx<TEST_BANK_MAX );
+  if( FD_UNLIKELY( mock_bank[ bank_idx ] ) ) return;
+  mock_bank[ bank_idx ] = aligned_alloc( 128UL, fd_ulong_align_up( sizeof(fd_bank_t), 128UL ) );
+  FD_TEST( mock_bank[ bank_idx ] );
+  memset( mock_bank[ bank_idx ], 0, sizeof(fd_bank_t) );
+  mock_bank[ bank_idx ]->idx      = bank_idx;
+  mock_bank[ bank_idx ]->bank_seq = bank_idx;
+  mock_bank[ bank_idx ]->state    = FD_BANK_STATE_FROZEN;
+}
+
+static void
+mock_bank_clear( void ) {
+  for( ulong i=0UL; i<TEST_BANK_MAX; i++ ) {
+    free( mock_bank[ i ] );
+    mock_bank[ i ] = NULL;
+  }
+}
+
+/* One account a test shapes, to drive the owners the tile follows. */
+
+static fd_pubkey_t mock_shaped_key;
+static fd_pubkey_t mock_shaped_owner;
+static uchar       mock_shaped_data[ 4096 ];
+static ulong       mock_shaped_len;
+static int         mock_shaped;
 
 static int
 mock_accdb_read_one_nocache( fd_accdb_t *       accdb,
@@ -37,6 +86,14 @@ mock_accdb_read_one_nocache( fd_accdb_t *       accdb,
                              uchar *            out_data,
                              ulong *            out_data_len ) {
   (void)accdb;
+  if( FD_UNLIKELY( mock_shaped && !memcmp( pubkey, mock_shaped_key.uc, sizeof(fd_pubkey_t) ) ) ) {
+    *out_lamports   = 1000UL + (ulong)fork_id.val;
+    *out_executable = 0;
+    memcpy( out_owner, mock_shaped_owner.uc, sizeof(fd_pubkey_t) );
+    memcpy( out_data,  mock_shaped_data,     mock_shaped_len     );
+    *out_data_len = mock_shaped_len;
+    return FD_ACCDB_READ_ONE_NOCACHE_CACHE;
+  }
   *out_lamports   = 1000UL + (ulong)fork_id.val;
   *out_executable = 0;
   memcpy( out_owner, fd_solana_system_program_id.uc, sizeof(fd_pubkey_t) );
@@ -67,7 +124,8 @@ struct test_acc {
 typedef struct test_acc test_acc_t;
 
 static fd_strmk_t       ctx[1];
-static strmk_stream_t * stream; /* the one stream of the test tile */
+static strmk_stream_t * stream;  /* the one stream of the test tile */
+static void *           zst_mem; /* its static compressor */
 
 /* env_create hands the archive writer a file to write into and the
    buffers it compresses through. */
@@ -85,7 +143,7 @@ env_create( void ) {
   FD_TEST( stream->raw!=MAP_FAILED );
 
   ulong zst_sz = ZSTD_estimateCStreamSize( FD_BACKUP_ZSTD_LEVEL );
-  void * zst_mem = aligned_alloc( 64UL, fd_ulong_align_up( zst_sz, 64UL ) );
+  zst_mem = aligned_alloc( 64UL, fd_ulong_align_up( zst_sz, 64UL ) );
   FD_TEST( zst_mem );
   stream->zst = ZSTD_initStaticCStream( zst_mem, zst_sz );
   FD_TEST( stream->zst );
@@ -99,8 +157,9 @@ env_create( void ) {
 static void
 env_destroy( void ) {
   FD_TEST( !close( stream->fd ) );
-  free( ZSTD_freeCStream( stream->zst )==0UL ? NULL : NULL );
   FD_TEST( !munmap( stream->raw, STRMK_RAW_BUF_SZ ) );
+  free( zst_mem   );
+  free( ctx->comp );
 }
 
 /* write_entry writes one tar entry of content_sz bytes the caller has
@@ -113,23 +172,30 @@ write_entry( char const * name,
   zip_entry( ctx, stream, content_sz );
 }
 
-/* write_fixed writes the entries a peer needs before any appendvec.
-   Their content does not matter here, only that the parser accepts the
-   archive up to the accounts. */
+/* write_fixed writes the entries a peer needs before any appendvec:
+   the tile's own version and directory headers, then a manifest and a
+   status cache whose content does not matter here, only that the
+   parser accepts the archive up to the accounts. */
+
+#define TEST_MANIFEST_SZ (777UL)
+#define TEST_STATUS_SZ   (333UL)
 
 static void
 write_fixed( void ) {
-  memcpy( stream->raw + sizeof(fd_tar_meta_t), "1.2.0", 5UL );
-  write_entry( "version", 5UL );
+  strmk_prologue( ctx, stream );
 
   char name[ FD_TAR_NAME_SZ ];
   FD_TEST( fd_cstr_printf_check( name, sizeof(name), NULL, "snapshots/%lu/%lu", TEST_SLOT_X, TEST_SLOT_X ) );
-  memset( stream->raw + sizeof(fd_tar_meta_t), 0xa5, 777UL );
-  write_entry( name, 777UL );
+  memset( stream->raw + sizeof(fd_tar_meta_t), 0xa5, TEST_MANIFEST_SZ );
+  write_entry( name, TEST_MANIFEST_SZ );
 
-  memset( stream->raw + sizeof(fd_tar_meta_t), 0x5a, 333UL );
-  write_entry( "snapshots/status_cache", 333UL );
+  memset( stream->raw + sizeof(fd_tar_meta_t), 0x5a, TEST_STATUS_SZ );
+  write_entry( "snapshots/status_cache", TEST_STATUS_SZ );
 }
+
+/* TEST_RAW_MAX bounds the uncompressed archive a test produces. */
+
+#define TEST_RAW_MAX (512UL<<20)
 
 /* read_back decompresses the whole archive file.  Each tar entry is
    its own Zstandard frame, so this also proves the frames concatenate
@@ -145,13 +211,12 @@ read_back( ulong * out_sz ) {
   FD_TEST( !fd_io_read( stream->fd, comp, comp_max, comp_max, &rd ) );
   FD_TEST( rd==comp_max );
 
-  ulong   raw_max = 64UL<<20;
-  uchar * raw     = malloc( raw_max );
-  FD_TEST( raw );
+  uchar * raw = mmap( NULL, TEST_RAW_MAX, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0 );
+  FD_TEST( raw!=MAP_FAILED );
   ZSTD_DStream * dst = ZSTD_createDStream();
   FD_TEST( dst );
   ZSTD_inBuffer  in  = { .src = comp, .size = comp_max, .pos = 0UL };
-  ZSTD_outBuffer out = { .dst = raw,  .size = raw_max,  .pos = 0UL };
+  ZSTD_outBuffer out = { .dst = raw,  .size = TEST_RAW_MAX, .pos = 0UL };
   while( in.pos<in.size ) {
     ulong ret = ZSTD_decompressStream( dst, &out, &in );
     FD_TEST( !ZSTD_isError( ret ) );
@@ -231,7 +296,7 @@ expect_accounts( ulong              slot,
 
   FD_TEST( vec_done );
   FD_TEST( acc_idx==acc_cnt );
-  free( raw );
+  FD_TEST( !munmap( raw, TEST_RAW_MAX ) );
 }
 
 /* A stream carries accounts of every shape: one that does not exist,
@@ -296,6 +361,125 @@ FD_UNIT_TEST( appendvec_filler ) {
   env_destroy();
 }
 
+/* An archive the tile wrote parses as a whole: the version file it
+   writes, the manifest and status cache it streams in, the appendvecs,
+   and the end of archive marker a clean close leaves. */
+
+FD_UNIT_TEST( archive_roundtrip ) {
+  env_create();
+  write_fixed();
+
+  test_acc_t acc[ 1 ] = {
+    { .key = {{ 5 }}, .lamports = 7UL, .executable = 0, .owner = {{ 6 }}, .data_len = 0UL, .data = NULL }
+  };
+  stream->raw_sz = strmk_encode_account( stream->raw + sizeof(fd_tar_meta_t), TEST_SLOT_X,
+                                         &acc[ 0 ].key, acc[ 0 ].lamports, acc[ 0 ].executable,
+                                         acc[ 0 ].owner.uc, NULL, 0UL );
+  strmk_appendvec_flush( ctx, stream, TEST_SLOT, 0UL );
+
+  /* the two zero blocks a clean close ends the archive with */
+  memset( stream->raw, 0, 2UL*sizeof(fd_tar_meta_t) );
+  zip_push( ctx, stream, stream->raw, 2UL*sizeof(fd_tar_meta_t), ZSTD_e_end );
+
+  ulong   raw_sz;
+  uchar * raw = read_back( &raw_sz );
+
+  fd_ssparse_t ssparse[1];
+  FD_TEST( fd_ssparse_init( ssparse ) );
+  fd_ssparse_batch_enable( ssparse, 0 );
+
+  ulong off          = 0UL;
+  ulong manifest_sz  = 0UL;
+  ulong status_sz    = 0UL;
+  int   done         = 0;
+  for(;;) {
+    fd_ssparse_advance_result_t res[1];
+    int adv = fd_ssparse_advance( ssparse, raw+off, raw_sz-off, res );
+    FD_TEST( adv!=FD_SSPARSE_ADVANCE_ERROR );
+    off += res->bytes_consumed;
+    if( FD_UNLIKELY( adv==FD_SSPARSE_ADVANCE_DONE ) ) { done = 1; break; }
+    if( FD_UNLIKELY( adv==FD_SSPARSE_ADVANCE_AGAIN && off>=raw_sz ) ) break;
+    switch( adv ) {
+    case FD_SSPARSE_ADVANCE_MANIFEST:
+    case FD_SSPARSE_ADVANCE_MANIFEST_DONE:
+      manifest_sz += res->manifest.data_sz;
+      break;
+    case FD_SSPARSE_ADVANCE_STATUS_CACHE:
+      status_sz += res->status_cache.data_sz;
+      break;
+    case FD_SSPARSE_ADVANCE_APPENDVEC:
+      FD_TEST( res->appendvec.slot==TEST_SLOT );
+      fd_ssparse_appendvec_parse( ssparse );
+      break;
+    default:
+      break;
+    }
+  }
+
+  /* the parser read the version file, both headers and the marker */
+  FD_TEST( done );
+  FD_TEST( manifest_sz==TEST_MANIFEST_SZ );
+  FD_TEST( status_sz  ==TEST_STATUS_SZ   );
+  FD_TEST( !munmap( raw, TEST_RAW_MAX ) );
+  env_destroy();
+}
+
+/* An appendvec that does not fit the stage spills into overflow files,
+   which come before the file a peer treats as the end of the slot. */
+
+FD_UNIT_TEST( appendvec_overflow ) {
+  env_create();
+  write_fixed();
+
+  /* enough 10 MiB accounts that the 64 MiB stage has to spill twice */
+  static uchar big[ FD_RUNTIME_ACC_SZ_MAX ];
+  memset( big, 0x33, sizeof(big) );
+  ulong rec_sz = sizeof(snap_acc_hdr_t) + sizeof(big);
+  ulong cnt    = 2UL*( STRMK_RAW_BUF_SZ/rec_sz ) + 1UL;
+  for( ulong i=0UL; i<cnt; i++ ) {
+    fd_pubkey_t key = {{ 0 }};
+    FD_STORE( ulong, key.uc, i );
+    if( FD_UNLIKELY( sizeof(fd_tar_meta_t)+stream->raw_sz+rec_sz>STRMK_RAW_BUF_SZ ) ) {
+      strmk_appendvec_flush( ctx, stream, TEST_SLOT, ++stream->vec_id );
+    }
+    stream->raw_sz += strmk_encode_account( stream->raw + sizeof(fd_tar_meta_t) + stream->raw_sz,
+                                            TEST_SLOT_X, &key, 1UL, 0, big, big, sizeof(big) );
+  }
+  FD_TEST( stream->vec_id>=2UL );
+  strmk_appendvec_flush( ctx, stream, TEST_SLOT, 0UL );
+
+  ulong   raw_sz;
+  uchar * raw = read_back( &raw_sz );
+  fd_ssparse_t ssparse[1];
+  FD_TEST( fd_ssparse_init( ssparse ) );
+  fd_ssparse_batch_enable( ssparse, 0 );
+
+  ulong off = 0UL;
+  ulong id[ 8 ];
+  ulong id_cnt = 0UL;
+  for(;;) {
+    fd_ssparse_advance_result_t res[1];
+    int adv = fd_ssparse_advance( ssparse, raw+off, raw_sz-off, res );
+    FD_TEST( adv!=FD_SSPARSE_ADVANCE_ERROR );
+    off += res->bytes_consumed;
+    if( FD_UNLIKELY( adv==FD_SSPARSE_ADVANCE_AGAIN && off>=raw_sz ) ) break;
+    if( FD_LIKELY( adv==FD_SSPARSE_ADVANCE_APPENDVEC ) ) {
+      FD_TEST( res->appendvec.slot==TEST_SLOT );
+      FD_TEST( id_cnt<8UL );
+      id[ id_cnt++ ] = res->appendvec.id;
+      fd_ssparse_appendvec_parse( ssparse );
+    }
+  }
+
+  /* the overflow files are numbered from one and the last file is zero */
+  FD_TEST( id_cnt==stream->vec_id+1UL );
+  for( ulong i=0UL; i+1UL<id_cnt; i++ ) FD_TEST( id[ i ]==i+1UL );
+  FD_TEST( id[ id_cnt-1UL ]==0UL );
+
+  FD_TEST( !munmap( raw, TEST_RAW_MAX ) );
+  env_destroy();
+}
+
 /* backlog_env gives the tile a block pool and one open stream at
    TEST_SLOT_X, with the fixed part of an archive already written. */
 
@@ -318,6 +502,7 @@ backlog_env( void ) {
   }
   ctx->retain_head = 0UL;
   ctx->retain_tail = 0UL;
+  mock_bank_clear();
 
   backlog_sent = aligned_alloc( alignof(strmk_sent_t), BACKLOG_KEY_MAX*sizeof(strmk_sent_t) );
   FD_TEST( backlog_sent );
@@ -335,6 +520,7 @@ backlog_env( void ) {
 
 static void
 backlog_env_destroy( void ) {
+  mock_bank_clear();
   free( ctx->acc_data );
   free( backlog_sent );
   FD_TEST( !munmap( backlog_keys, STRMK_BLOCK_MAX*sizeof(strmk_keyset_t) ) );
@@ -354,8 +540,10 @@ backlog_retain( ulong slot,
   block->parent_slot     = parent_slot;
   block->bank_idx        = bank_idx;
   block->bank_seq        = slot;
-  block->parent_bank_idx = parent_bank_idx;
-  block->parent_fork     = (fd_accdb_fork_id_t){ (ushort)slot };
+  block->parent_bank_idx  = parent_bank_idx;
+  block->parent_bank_seq  = ULONG_MAX;
+  block->parent_fork      = (fd_accdb_fork_id_t){ (ushort)slot };
+  mock_bank_add( parent_bank_idx );
 
   fd_pubkey_t key = {{ 0 }};
   FD_STORE( ulong, key.uc, slot );
@@ -399,7 +587,7 @@ appendvec_slots( ulong * out_slot,
       FD_TEST( res->account_header.lamports==1000UL+out_slot[ cnt-1UL ] );
     }
   }
-  free( raw );
+  FD_TEST( !munmap( raw, TEST_RAW_MAX ) );
   return cnt;
 }
 
@@ -420,9 +608,7 @@ FD_UNIT_TEST( backlog_order ) {
 
   /* the bundle of the stream's own slot comes first */
   fd_pubkey_t bundle = {{ 3 }};
-  fd_pubkey_t ignore;
-  strmk_write_key( ctx, stream, (fd_accdb_fork_id_t){ (ushort)TEST_SLOT_X },
-                   &bundle, TEST_SLOT_X, &ignore );
+  strmk_write_account( ctx, stream, (fd_accdb_fork_id_t){ (ushort)TEST_SLOT_X }, &bundle, TEST_SLOT_X );
   strmk_appendvec_flush( ctx, stream, TEST_SLOT_X, 0UL );
 
   strmk_backlog_write( ctx, NULL, stream );
@@ -430,9 +616,11 @@ FD_UNIT_TEST( backlog_order ) {
   /* then one block the stream carries live */
   strmk_block_t * live = strmk_block_alloc( ctx );
   FD_TEST( live );
-  live->slot        = 104UL;
-  live->parent_slot = 103UL;
-  live->parent_fork = (fd_accdb_fork_id_t){ 104 };
+  live->slot            = 104UL;
+  live->parent_slot     = 103UL;
+  live->parent_bank_idx = 13UL;
+  live->parent_bank_seq = ULONG_MAX;
+  live->parent_fork     = (fd_accdb_fork_id_t){ 104 };
   fd_pubkey_t key = {{ 0 }};
   FD_STORE( ulong, key.uc, 104UL );
   FD_TEST( strmk_block_key_add( live, &key ) );
@@ -490,6 +678,130 @@ FD_UNIT_TEST( backlog_refused ) {
   backlog_env_destroy();
 }
 
+/* Replay hands over the address of a lookup table it could not expand,
+   and the stream carries the table and every address it names. */
+
+FD_UNIT_TEST( lookup_table ) {
+  backlog_env();
+
+  /* a table of three addresses behind its 56 byte header */
+  fd_pubkey_t table = {{ 0x41 }};
+  fd_pubkey_t addr[ 3 ] = { {{ 0x51 }}, {{ 0x52 }}, {{ 0x53 }} };
+  mock_shaped_key   = table;
+  mock_shaped_owner = fd_solana_address_lookup_table_program_id;
+  mock_shaped_len   = FD_LOOKUP_TABLE_META_SIZE + sizeof(addr);
+  FD_TEST( mock_shaped_len<=sizeof(mock_shaped_data) );
+  memset( mock_shaped_data, 0, mock_shaped_len );
+  memcpy( mock_shaped_data+FD_LOOKUP_TABLE_META_SIZE, addr, sizeof(addr) );
+  mock_shaped = 1;
+
+  strmk_block_t * block = strmk_block_alloc( ctx );
+  FD_TEST( block );
+  block->slot            = TEST_SLOT;
+  block->parent_slot     = TEST_SLOT_X;
+  block->parent_bank_idx = 10UL;
+  block->parent_bank_seq = ULONG_MAX;
+  block->parent_fork     = (fd_accdb_fork_id_t){ (ushort)TEST_SLOT };
+  mock_bank_add( 10UL );
+  FD_TEST( strmk_block_key_add( block, &table ) );
+
+  strmk_block_read ( ctx, stream, block );
+  strmk_block_flush( ctx, NULL, stream, block );
+  mock_shaped = 0;
+
+  /* the table and all three of its addresses are in the appendvec */
+  ulong   raw_sz;
+  uchar * raw = read_back( &raw_sz );
+  fd_ssparse_t ssparse[1];
+  FD_TEST( fd_ssparse_init( ssparse ) );
+  fd_ssparse_batch_enable( ssparse, 0 );
+
+  ulong off  = 0UL;
+  int   seen = 0;
+  for(;;) {
+    fd_ssparse_advance_result_t res[1];
+    int adv = fd_ssparse_advance( ssparse, raw+off, raw_sz-off, res );
+    FD_TEST( adv!=FD_SSPARSE_ADVANCE_ERROR );
+    off += res->bytes_consumed;
+    if( FD_UNLIKELY( adv==FD_SSPARSE_ADVANCE_AGAIN && off>=raw_sz ) ) break;
+    if( FD_LIKELY( adv==FD_SSPARSE_ADVANCE_APPENDVEC ) ) fd_ssparse_appendvec_parse( ssparse );
+    if( FD_UNLIKELY( adv!=FD_SSPARSE_ADVANCE_ACCOUNT_HEADER ) ) continue;
+    if( !memcmp( res->account_header.pubkey, table.uc, sizeof(fd_pubkey_t) ) ) seen |= 1;
+    for( ulong i=0UL; i<3UL; i++ ) {
+      if( !memcmp( res->account_header.pubkey, addr[ i ].uc, sizeof(fd_pubkey_t) ) ) seen |= 2<<i;
+    }
+  }
+  FD_TEST( seen==0xf );
+
+  FD_TEST( !munmap( raw, TEST_RAW_MAX ) );
+  backlog_env_destroy();
+}
+
+/* open_cost reports what the fixed part of a stream costs to write.
+   The sizes stand in for a mainnet stream: a manifest that is mostly
+   account addresses, a status cache of 300 slot deltas, and a bundle
+   of the vote accounts, feature gates and sysvars a peer needs. */
+
+#define OPEN_MANIFEST_SZ (256UL<<20)
+#define OPEN_STATUS_SZ   ( 32UL<<20)
+#define OPEN_BUNDLE_CNT  (6500UL)
+#define OPEN_BUNDLE_SZ   (3762UL) /* a vote account */
+
+FD_UNIT_TEST( open_cost ) {
+  backlog_env();
+
+  /* A manifest is mostly account addresses, which do not compress,
+     with a counter or a stake amount between every few of them. */
+  uchar * fill = mmap( NULL, STRMK_RAW_BUF_SZ, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0 );
+  FD_TEST( fill!=MAP_FAILED );
+  for( ulong i=0UL; i<STRMK_RAW_BUF_SZ; i+=sizeof(ulong) ) {
+    ulong word = ( ( i/sizeof(ulong) )%10UL<8UL ) ? fd_ulong_hash( i ) : ( i&0xffffUL );
+    FD_STORE( ulong, fill+i, word );
+  }
+
+  fd_tar_meta_t meta;
+  long t0 = fd_log_wallclock();
+  zip_push( ctx, stream, strmk_tar_hdr( &meta, "snapshots/1/1", OPEN_MANIFEST_SZ ), sizeof(fd_tar_meta_t), ZSTD_e_continue );
+  for( ulong off=0UL; off<OPEN_MANIFEST_SZ; off+=STRMK_RAW_BUF_SZ ) {
+    zip_push( ctx, stream, fill, fd_ulong_min( STRMK_RAW_BUF_SZ, OPEN_MANIFEST_SZ-off ), ZSTD_e_continue );
+  }
+  zip_pad( ctx, stream, OPEN_MANIFEST_SZ );
+  long t1 = fd_log_wallclock();
+
+  zip_push( ctx, stream, strmk_tar_hdr( &meta, "snapshots/status_cache", OPEN_STATUS_SZ ), sizeof(fd_tar_meta_t), ZSTD_e_continue );
+  for( ulong off=0UL; off<OPEN_STATUS_SZ; off+=STRMK_RAW_BUF_SZ ) {
+    zip_push( ctx, stream, fill, fd_ulong_min( STRMK_RAW_BUF_SZ, OPEN_STATUS_SZ-off ), ZSTD_e_continue );
+  }
+  zip_pad( ctx, stream, OPEN_STATUS_SZ );
+  long t2 = fd_log_wallclock();
+
+  mock_shaped_key   = (fd_pubkey_t){{ 0x61 }};
+  mock_shaped_owner = fd_solana_system_program_id;
+  mock_shaped_len   = 0UL;
+  for( ulong i=0UL; i<OPEN_BUNDLE_CNT; i++ ) {
+    fd_pubkey_t key = {{ 0 }};
+    FD_STORE( ulong, key.uc, fd_ulong_hash( i ) );
+    mock_shaped_key = key;
+    mock_shaped_len = OPEN_BUNDLE_SZ;
+    mock_shaped     = 1;
+    memcpy( mock_shaped_data, fill+i, OPEN_BUNDLE_SZ );
+    strmk_write_account( ctx, stream, (fd_accdb_fork_id_t){ 1 }, &key, TEST_SLOT_X );
+  }
+  mock_shaped = 0;
+  strmk_appendvec_flush( ctx, stream, TEST_SLOT_X, 0UL );
+  long t3 = fd_log_wallclock();
+
+  FD_LOG_NOTICE(( "stream open: manifest %lu MiB in %ld ms, status cache %lu MiB in %ld ms, "
+                  "bundle %lu accounts (%lu MiB) in %ld ms, %lu MiB written",
+                  OPEN_MANIFEST_SZ>>20, ( t1-t0 )/(1000L*1000L),
+                  OPEN_STATUS_SZ  >>20, ( t2-t1 )/(1000L*1000L),
+                  OPEN_BUNDLE_CNT, ( OPEN_BUNDLE_CNT*OPEN_BUNDLE_SZ )>>20, ( t3-t2 )/(1000L*1000L),
+                  stream->file_sz>>20 ));
+
+  FD_TEST( !munmap( fill, STRMK_RAW_BUF_SZ ) );
+  backlog_env_destroy();
+}
+
 /* The sent set holds every key a stream carried, up to the share of
    its entries the tile allows. */
 
@@ -509,9 +821,9 @@ FD_UNIT_TEST( sent_set ) {
     FD_STORE( ulong, key.uc+16UL, fd_ulong_hash( i+2UL  ) );
     FD_STORE( ulong, key.uc+24UL, fd_ulong_hash( i+3UL  ) );
     FD_TEST( !strmk_sent_test( s, SENT_MAX, &key ) );
-    strmk_sent_insert( s, SENT_MAX, &key, TEST_SLOT+i );
+    FD_TEST( strmk_sent_insert( s, SENT_MAX, &key, TEST_SLOT+i ) );
     /* inserting a key the stream already carried changes nothing */
-    strmk_sent_insert( s, SENT_MAX, &key, TEST_SLOT+i+1UL );
+    FD_TEST( strmk_sent_insert( s, SENT_MAX, &key, TEST_SLOT+i+1UL ) );
     FD_TEST( strmk_sent_test( s, SENT_MAX, &key ) );
   }
   FD_TEST( s->sent_cnt==cap );
@@ -525,6 +837,28 @@ FD_UNIT_TEST( sent_set ) {
     FD_STORE( ulong, key.uc+24UL, fd_ulong_hash( i+3UL  ) );
     FD_TEST( strmk_sent_test( s, SENT_MAX, &key ) );
     FD_TEST( strmk_sent_query( sent, SENT_MAX, &key )->slot==TEST_SLOT+i );
+  }
+
+  /* a set with no free entry left refuses the account that would not
+     fit, which is what breaks the stream */
+  for( ulong i=cap; i<SENT_MAX; i++ ) {
+    fd_pubkey_t key = {{ 0 }};
+    FD_STORE( ulong, key.uc, fd_ulong_hash( i ) );
+    FD_TEST( strmk_sent_insert( s, SENT_MAX, &key, TEST_SLOT+i ) );
+  }
+  FD_TEST( s->sent_cnt==SENT_MAX );
+  fd_pubkey_t over = {{ 0 }};
+  FD_STORE( ulong, over.uc, fd_ulong_hash( SENT_MAX ) );
+  FD_TEST( !strmk_sent_insert( s, SENT_MAX, &over, TEST_SLOT ) );
+  memset( sent, 0, sizeof(sent) );
+  s->sent_cnt = 0UL;
+  for( ulong i=0UL; i<cap; i++ ) {
+    fd_pubkey_t key = {{ 0 }};
+    FD_STORE( ulong, key.uc,      fd_ulong_hash( i      ) );
+    FD_STORE( ulong, key.uc+8UL,  fd_ulong_hash( i+1UL  ) );
+    FD_STORE( ulong, key.uc+16UL, fd_ulong_hash( i+2UL  ) );
+    FD_STORE( ulong, key.uc+24UL, fd_ulong_hash( i+3UL  ) );
+    FD_TEST( strmk_sent_insert( s, SENT_MAX, &key, TEST_SLOT+i ) );
   }
 
   /* a key the stream never carried is not in the set */
