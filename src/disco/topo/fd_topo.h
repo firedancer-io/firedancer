@@ -837,8 +837,7 @@ struct fd_topo_tile {
       fd_ip6_addr_t listen_addr;
       ushort        listen_port;
 
-      int           instant_boot_serve; /* boot streams are served to peers */
-      ulong         boot_stream_max;    /* number of boot stream files */
+      ulong         boot_stream_max; /* boot stream files */
       char          snapshots_path[ PATH_MAX ];
     } snapsv;
 

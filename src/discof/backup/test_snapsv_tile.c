@@ -328,7 +328,6 @@ snapsv_env_create( void ) {
   tile->snapsv.send_buffer_size_kib = 4UL;
   tile->snapsv.idle_timeout_millis  = 1000UL;
   tile->snapsv.send_timeout_millis  = 1000UL;
-  tile->snapsv.instant_boot_serve   = 1;
   tile->snapsv.boot_stream_max      = BOOT_MAX;
 
   fd_snapsv_t * ctx = fd_wksp_alloc_laddr( wksp, scratch_align(), scratch_footprint( tile ), 1UL );
@@ -1252,22 +1251,24 @@ expect_range_err( char const * value,
   FD_TEST( parse_range_header( value, strlen( value ), object_sz, &range0, &range1 )==expect_err );
 }
 
-/* boot_env publishes a boot stream file the way the strmk tile does. */
+/* boot_env publishes a boot stream file the way the strmk tile does,
+   on the strmk_out link, which is the second one. */
+
+#define BOOT_IN_IDX (1UL)
 
 static snapsv_env_t *
 boot_env( ulong slot ) {
   snapsv_env_t *    env   = snapsv_env_create();
   fd_snapsv_t *     ctx   = env->ctx;
-  ulong             chunk = ctx->in[ 0 ].chunk0;
-  fd_snapmk_msg_t * msg   = fd_chunk_to_laddr( ctx->in[ 0 ].mem, chunk );
+  ulong             chunk = ctx->in[ BOOT_IN_IDX ].chunk0;
+  fd_snapmk_msg_t * msg   = fd_chunk_to_laddr( ctx->in[ BOOT_IN_IDX ].mem, chunk );
   msg->created = (fd_snapmk_msg_created_t) {
     .slot      = slot,
     .base_slot = ULONG_MAX,
     .sz        = BOOT_FILE_SZ,
-    .pool_idx  = 0U,
-    .reserved  = 1U /* a boot stream */
+    .pool_idx  = 0U
   };
-  returnable_frag( ctx, 0UL, 0UL, FD_SNAPMK_MSG_CREATED, chunk,
+  returnable_frag( ctx, BOOT_IN_IDX, 0UL, FD_SNAPMK_MSG_CREATED, chunk,
                    sizeof(fd_snapmk_msg_created_t), 0UL, 0UL, 0UL, NULL );
   return env;
 }
@@ -1380,15 +1381,14 @@ FD_UNIT_TEST( boot_stream_body ) {
 FD_UNIT_TEST( boot_stream_closed ) {
   snapsv_env_t *    env   = boot_env( 100UL );
   fd_snapsv_t *     ctx   = env->ctx;
-  ulong             chunk = ctx->in[ 0 ].chunk0;
-  fd_snapmk_msg_t * msg   = fd_chunk_to_laddr( ctx->in[ 0 ].mem, chunk );
+  ulong             chunk = ctx->in[ BOOT_IN_IDX ].chunk0;
+  fd_snapmk_msg_t * msg   = fd_chunk_to_laddr( ctx->in[ BOOT_IN_IDX ].mem, chunk );
   msg->deleted = (fd_snapmk_msg_deleted_t) {
     .slot      = 100UL,
     .base_slot = ULONG_MAX,
-    .pool_idx  = 0U,
-    .reserved1 = 1U /* a boot stream */
+    .pool_idx  = 0U
   };
-  returnable_frag( ctx, 0UL, 0UL, FD_SNAPMK_MSG_DELETED, chunk,
+  returnable_frag( ctx, BOOT_IN_IDX, 0UL, FD_SNAPMK_MSG_DELETED, chunk,
                    sizeof(fd_snapmk_msg_deleted_t), 0UL, 0UL, 0UL, NULL );
   expect_res_env( env,
       "GET /boot/100.tar.zst HTTP/1.1\r\n"

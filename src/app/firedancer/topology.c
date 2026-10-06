@@ -2230,8 +2230,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
                   "[snapshots.server.http_listen_port] must be in [1,65535]" );
     tile->snapsv.listen_port = (ushort)listen_port;
 
-    tile->snapsv.instant_boot_serve = serve_enabled;
-    tile->snapsv.boot_stream_max    = config->firedancer.snapshots.instant_boot.serve.max_open_streams;
+    tile->snapsv.boot_stream_max = serve_enabled ? config->firedancer.snapshots.instant_boot.serve.max_open_streams : 0UL;
     fd_cstr_ncpy( tile->snapsv.snapshots_path, config->paths.snapshots, sizeof(tile->snapsv.snapshots_path) );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "strmk" ) ) ) {

@@ -771,8 +771,7 @@ strmk_stream_close( fd_strmk_t *        ctx,
     msg->deleted = (fd_snapmk_msg_deleted_t) {
       .slot      = stream->start_slot,
       .base_slot = ULONG_MAX,
-      .pool_idx  = idx,
-      .reserved1 = 1U /* a boot stream */
+      .pool_idx  = idx
     };
     fd_strmk_stream_name( msg->deleted.name, idx );
     strmk_msg_publish( ctx, stem, FD_SNAPMK_MSG_DELETED, sizeof(fd_snapmk_msg_deleted_t) );
@@ -842,8 +841,7 @@ strmk_stream_publish( fd_strmk_t *        ctx,
     .slot      = stream->start_slot,
     .base_slot = ULONG_MAX,
     .sz        = stream->file_sz,
-    .pool_idx  = idx,
-    .reserved  = 1U /* a boot stream */
+    .pool_idx  = idx
   };
   fd_strmk_stream_name( msg->created.name, idx );
   strmk_msg_publish( ctx, stem, FD_SNAPMK_MSG_CREATED, sizeof(fd_snapmk_msg_created_t) );
