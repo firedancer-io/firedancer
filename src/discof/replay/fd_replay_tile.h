@@ -166,6 +166,7 @@
 #define FD_STRMK_SIG_BLOCK_DEAD   (4UL)
 #define FD_STRMK_SIG_STREAM_START (5UL)
 #define FD_STRMK_SIG_RESET        (6UL)
+#define FD_STRMK_SIG_TXN_TABLES   (7UL)
 
 /* MTU of replay_strmk, see fd_topo_initialize. */
 
@@ -194,10 +195,21 @@ typedef struct fd_strmk_block_start fd_strmk_block_start_t;
 
 /* Account keys of a block's transactions, in parse order: the static
    keys of a transaction, then the keys its lookup tables expanded to,
-   or the addresses of the tables themselves when they did not resolve
-   and the stream tile has to expand them.  A message carries the keys
-   of as many transactions as fit, so the stream tile accumulates keys
-   per block and does not learn transaction boundaries. */
+   then the addresses of those tables.  The table accounts are in here
+   because a peer booting off the stream replays the block itself and
+   has to expand the tables again, which means reading them.
+
+   A transaction whose tables replay could not expand contributes only
+   its static keys here; the addresses of those tables arrive in
+   FD_STRMK_SIG_TXN_TABLES instead, which carries this same struct and
+   follows the block's keys for that FEC set.  Its keys are lookup
+   tables the stream tile has to read and expand at the fork the block
+   end names, and whose addresses it has to carry in the stream along
+   with whatever they expand to.
+
+   A message carries the keys of as many transactions as fit, so the
+   stream tile accumulates keys per block and does not learn
+   transaction boundaries. */
 
 #define FD_STRMK_TXN_KEY_MAX (127UL)
 

@@ -181,10 +181,12 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   if( FD_UNLIKELY( tile->replay.instant_boot ) ) {
     l = FD_LAYOUT_APPEND( l, alignof(fd_accdb_fork_id_t),       tile->replay.max_live_slots*sizeof(fd_accdb_fork_id_t) );
   }
-  /* Accounts of one FEC set, on their way to the stream tile, and the
-     parse cursor for the block we are producing. */
+  /* Accounts of one FEC set and the lookup tables it left unexpanded,
+     on their way to the stream tile, and the parse cursor for the
+     block we are producing. */
   if( FD_UNLIKELY( tile->replay.instant_boot_serve ) ) {
     l = FD_LAYOUT_APPEND( l, alignof(fd_acct_addr_t),           FD_SCHED_INGEST_KEY_MAX*sizeof(fd_acct_addr_t) );
+    l = FD_LAYOUT_APPEND( l, alignof(fd_acct_addr_t),           FD_SCHED_INGEST_TABLE_MAX*sizeof(fd_acct_addr_t) );
     l = FD_LAYOUT_APPEND( l, alignof(fd_sched_keys_walk_t),     sizeof(fd_sched_keys_walk_t) );
   }
 
@@ -845,15 +847,36 @@ strmk_keys_arm( fd_replay_tile_t * ctx,
                 fd_sched_fec_t *   sched_fec ) {
   sched_fec->keys = NULL;
   if( FD_LIKELY( !ctx->instant_boot_serve ) ) return;
-  ctx->strmk_keys->cnt  = 0UL;
-  ctx->strmk_keys->full = 0;
-  sched_fec->keys       = ctx->strmk_keys;
+  ctx->strmk_keys->full        = 0;
+  ctx->strmk_keys->keys->cnt   = 0UL;
+  ctx->strmk_keys->tables->cnt = 0UL;
+  sched_fec->keys              = ctx->strmk_keys;
+}
+
+/* strmk_keys_publish forwards one of the key sink's lists, filling
+   each message to the link MTU. */
+
+static void
+strmk_keys_publish( fd_replay_tile_t *           ctx,
+                    fd_stem_context_t *          stem,
+                    fd_sched_fec_t const *       sched_fec,
+                    fd_sched_keys_list_t const * list,
+                    ulong                        sig ) {
+  for( ulong off=0UL; off<list->cnt; off+=FD_STRMK_TXN_KEY_MAX ) {
+    ulong                 cnt = fd_ulong_min( list->cnt-off, FD_STRMK_TXN_KEY_MAX );
+    fd_strmk_txn_keys_t * msg = fd_chunk_to_laddr( ctx->strmk_out->mem, ctx->strmk_out->chunk );
+    msg->slot     = sched_fec->slot;
+    msg->bank_idx = sched_fec->bank_idx;
+    msg->key_cnt  = (ushort)cnt;
+    fd_memcpy( msg->keys, list->key+off, cnt*sizeof(fd_pubkey_t) );
+    strmk_publish( ctx, stem, sig, offsetof(fd_strmk_txn_keys_t, keys)+cnt*sizeof(fd_pubkey_t) );
+  }
 }
 
 /* strmk_txn_keys forwards the accounts the scheduler resolved out of
-   one FEC set, filling each message to the link MTU.  Keys that did
-   not fit in the sink are gone, so the stream tile is told to start
-   over instead. */
+   one FEC set, and then the lookup tables it could not expand, which
+   the stream tile has to expand itself.  Keys that did not fit in the
+   sink are gone, so the stream tile is told to start over instead. */
 
 static void
 strmk_txn_keys( fd_replay_tile_t *     ctx,
@@ -864,15 +887,8 @@ strmk_txn_keys( fd_replay_tile_t *     ctx,
     return;
   }
 
-  for( ulong off=0UL; off<ctx->strmk_keys->cnt; off+=FD_STRMK_TXN_KEY_MAX ) {
-    ulong                 cnt = fd_ulong_min( ctx->strmk_keys->cnt-off, FD_STRMK_TXN_KEY_MAX );
-    fd_strmk_txn_keys_t * msg = fd_chunk_to_laddr( ctx->strmk_out->mem, ctx->strmk_out->chunk );
-    msg->slot     = sched_fec->slot;
-    msg->bank_idx = sched_fec->bank_idx;
-    msg->key_cnt  = (ushort)cnt;
-    fd_memcpy( msg->keys, ctx->strmk_keys->key+off, cnt*sizeof(fd_pubkey_t) );
-    strmk_publish( ctx, stem, FD_STRMK_SIG_TXN_KEYS, offsetof(fd_strmk_txn_keys_t, keys)+cnt*sizeof(fd_pubkey_t) );
-  }
+  strmk_keys_publish( ctx, stem, sched_fec, ctx->strmk_keys->keys,   FD_STRMK_SIG_TXN_KEYS   );
+  strmk_keys_publish( ctx, stem, sched_fec, ctx->strmk_keys->tables, FD_STRMK_SIG_TXN_TABLES );
 }
 
 /* strmk_leader_fec mirrors one FEC set of a block this validator
@@ -5875,6 +5891,8 @@ unprivileged_init( fd_topo_t const *      topo,
                               FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_fork_id_t),   tile->replay.max_live_slots*sizeof(fd_accdb_fork_id_t) ) : NULL;
   void * strmk_keys_mem     = tile->replay.instant_boot_serve ?
                               FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_acct_addr_t),       FD_SCHED_INGEST_KEY_MAX*sizeof(fd_acct_addr_t) ) : NULL;
+  void * strmk_table_mem    = tile->replay.instant_boot_serve ?
+                              FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_acct_addr_t),       FD_SCHED_INGEST_TABLE_MAX*sizeof(fd_acct_addr_t) ) : NULL;
   void * strmk_walk_mem     = tile->replay.instant_boot_serve ?
                               FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sched_keys_walk_t), sizeof(fd_sched_keys_walk_t) ) : NULL;
   void * block_dump_ctx     = NULL;
@@ -6032,13 +6050,16 @@ unprivileged_init( fd_topo_t const *      topo,
     FD_TEST( ctx->instant_boot_done );
   }
 
-  ctx->instant_boot_serve = tile->replay.instant_boot_serve;
-  ctx->strmk_in_idx       = ULONG_MAX;
-  ctx->strmk_keys->max    = FD_SCHED_INGEST_KEY_MAX;
-  ctx->strmk_keys->cnt    = 0UL;
-  ctx->strmk_keys->full   = 0;
-  ctx->strmk_keys->key    = strmk_keys_mem;
-  ctx->strmk_walk         = strmk_walk_mem;
+  ctx->instant_boot_serve      = tile->replay.instant_boot_serve;
+  ctx->strmk_in_idx            = ULONG_MAX;
+  ctx->strmk_keys->full        = 0;
+  ctx->strmk_keys->keys->max   = FD_SCHED_INGEST_KEY_MAX;
+  ctx->strmk_keys->keys->cnt   = 0UL;
+  ctx->strmk_keys->keys->key   = strmk_keys_mem;
+  ctx->strmk_keys->tables->max = FD_SCHED_INGEST_TABLE_MAX;
+  ctx->strmk_keys->tables->cnt = 0UL;
+  ctx->strmk_keys->tables->key = strmk_table_mem;
+  ctx->strmk_walk              = strmk_walk_mem;
 
   ctx->strmk_hold_seq             = 0UL;
   ctx->strmk_start_hold->deadline = FD_REPLAY_STRMK_BACKSTOP_NS;

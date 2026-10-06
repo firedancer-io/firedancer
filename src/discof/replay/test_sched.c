@@ -1316,7 +1316,9 @@ run_key_sink_case( void ) {
   ulong encoded_sz = encode_txn_mblk( encoded, legacy_payload, legacy_sz, 1UL, mblk_hash );
 
   fd_acct_addr_t sink_key[ 8 ];
-  fd_sched_keys_t keys[ 1 ] = {{ .max = sizeof(sink_key)/sizeof(sink_key[0]), .key = sink_key }};
+  fd_acct_addr_t sink_table[ 4 ];
+  fd_sched_keys_t keys[ 1 ] = {{ .keys   = {{ .max = sizeof(sink_key  )/sizeof(sink_key  [0]), .key = sink_key   }},
+                                 .tables = {{ .max = sizeof(sink_table)/sizeof(sink_table[0]), .key = sink_table }} }};
 
   fd_store_fec_t store_fec[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
   fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
@@ -1340,13 +1342,13 @@ run_key_sink_case( void ) {
   fd_memset( payer->uc,   0x11, sizeof(fd_pubkey_t) );
   fd_memset( program->uc, 0x22, sizeof(fd_pubkey_t) );
   FD_TEST( !keys->full );
-  FD_TEST( keys->cnt==2UL );
+  FD_TEST( keys->keys->cnt==2UL && !keys->tables->cnt );
   FD_TEST( !memcmp( sink_key+0, payer->uc,   32UL ) );
   FD_TEST( !memcmp( sink_key+1, program->uc, 32UL ) );
 
   /* A transaction whose lookup tables did not resolve names its two
-     static accounts and the table itself, which the caller has to
-     expand. */
+     static accounts, and the tables it left unexpanded go to the
+     caller separately. */
 
   fd_pubkey_t alt_payer[ 1 ];
   fd_pubkey_t alt_program[ 1 ];
@@ -1361,28 +1363,32 @@ run_key_sink_case( void ) {
   encoded_sz               = encode_txn_mblk( encoded, alt_payload, alt_sz, 1UL, mblk_hash );
   store_fec->data_sz       = (uint)encoded_sz;
   store_fec->shred_sz[ 0 ] = (ushort)encoded_sz;
-  keys->cnt                = 0UL;
+  keys->keys->cnt          = 0UL;
+  keys->tables->cnt        = 0UL;
   fec->bank_idx            = 3UL;
   fec->slot                = TEST_ROOT_SLOT+2UL;
   FD_TEST( fd_sched_fec_ingest( sched, fec ) );
 
   FD_TEST( !keys->full );
-  FD_TEST( keys->cnt==3UL );
+  FD_TEST( keys->keys->cnt==2UL && keys->tables->cnt==1UL );
   FD_TEST( !memcmp( sink_key+0, alt_payer->uc,   32UL ) );
   FD_TEST( !memcmp( sink_key+1, alt_program->uc, 32UL ) );
-  FD_TEST( !memcmp( sink_key+2, alt_table->uc,   32UL ) );
+  FD_TEST( !memcmp( sink_table+0, alt_table->uc, 32UL ) );
+  /* The table is not an ordinary key: the caller has to read it. */
+  for( ulong i=0UL; i<keys->keys->cnt; i++ ) FD_TEST( memcmp( sink_key+i, alt_table->uc, 32UL ) );
 
   /* A sink too small to hold a transaction's accounts keeps what it
      has and says so. */
 
-  keys->cnt     = 0UL;
-  keys->max     = 1UL;
-  fec->bank_idx = 4UL;
-  fec->slot     = TEST_ROOT_SLOT+3UL;
+  keys->keys->cnt   = 0UL;
+  keys->tables->cnt = 0UL;
+  keys->keys->max   = 1UL;
+  fec->bank_idx     = 4UL;
+  fec->slot         = TEST_ROOT_SLOT+3UL;
   FD_TEST( fd_sched_fec_ingest( sched, fec ) );
 
   FD_TEST( keys->full );
-  FD_TEST( keys->cnt<=1UL );
+  FD_TEST( keys->keys->cnt<=1UL );
 
   free( mem );
   FD_LOG_NOTICE(( "pass: run_key_sink_case" ));
@@ -1497,7 +1503,9 @@ run_key_sink_resolved_case( void ) {
   ulong encoded_sz = encode_txn_mblk( encoded, alt_payload, alt_sz, 1UL, mblk_hash );
 
   fd_acct_addr_t sink_key[ 8 ];
-  fd_sched_keys_t keys[ 1 ] = {{ .max = sizeof(sink_key)/sizeof(sink_key[0]), .key = sink_key }};
+  fd_acct_addr_t sink_table[ 4 ];
+  fd_sched_keys_t keys[ 1 ] = {{ .keys   = {{ .max = sizeof(sink_key  )/sizeof(sink_key  [0]), .key = sink_key   }},
+                                 .tables = {{ .max = sizeof(sink_table)/sizeof(sink_table[0]), .key = sink_table }} }};
 
   fd_store_fec_t store_fec[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
   fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
@@ -1519,15 +1527,15 @@ run_key_sink_resolved_case( void ) {
   fec->alut_ctx->els     = TEST_ROOT_SLOT;
   FD_TEST( fd_sched_fec_ingest( sched, fec ) );
 
-  /* Two static keys, then the two entries the table expanded to:
-     writable first, the order the scheduler resolves them in. */
+  /* Two static keys, then the two entries the table expanded to,
+     writable first, and then the table's own address: whoever replays
+     the block expands the table again and has to read it. */
   FD_TEST( !keys->full );
-  FD_TEST( keys->cnt==4UL );
+  FD_TEST( keys->keys->cnt==5UL && !keys->tables->cnt );
   FD_TEST( !memcmp( sink_key+0, alt_payer->uc,   32UL ) );
   FD_TEST( !memcmp( sink_key+1, alt_program->uc, 32UL ) );
   FD_TEST( sink_key[ 2 ].b[ 0 ]==0xa0 && sink_key[ 3 ].b[ 0 ]==0xa1 );
-  /* The table's own address does not stand in for what it expanded. */
-  for( ulong i=0UL; i<keys->cnt; i++ ) FD_TEST( memcmp( sink_key+i, alt_table->uc, 32UL ) );
+  FD_TEST( !memcmp( sink_key+4, alt_table->uc, 32UL ) );
 
   free( mem );
   FD_LOG_NOTICE(( "pass: run_key_sink_resolved_case" ));
@@ -1596,7 +1604,9 @@ run_keys_scan_case( void ) {
   FD_TEST( split<encoded_sz );
 
   fd_acct_addr_t sink_key[ 8 ];
-  fd_sched_keys_t keys[ 1 ] = {{ .max = sizeof(sink_key)/sizeof(sink_key[0]), .key = sink_key }};
+  fd_acct_addr_t sink_table[ 4 ];
+  fd_sched_keys_t keys[ 1 ] = {{ .keys   = {{ .max = sizeof(sink_key  )/sizeof(sink_key  [0]), .key = sink_key   }},
+                                 .tables = {{ .max = sizeof(sink_table)/sizeof(sink_table[0]), .key = sink_table }} }};
 
   fd_store_fec_t store_fec[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
   fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
@@ -1616,7 +1626,7 @@ run_keys_scan_case( void ) {
 
   /* Only the first transaction is whole so far. */
   FD_TEST( !keys->full );
-  FD_TEST( keys->cnt==2UL );
+  FD_TEST( keys->keys->cnt==2UL && !keys->tables->cnt );
   FD_TEST( !memcmp( sink_key+0, payer->uc,   32UL ) );
   FD_TEST( !memcmp( sink_key+1, program->uc, 32UL ) );
 
@@ -1628,19 +1638,21 @@ run_keys_scan_case( void ) {
   fd_sched_keys_scan( sched, walk, fec );
 
   /* The straddling transaction came out whole, and its lookup table
-     could not be expanded, so the table's own address stands in. */
+     could not be expanded, so the table goes to the caller to read. */
   FD_TEST( !keys->full );
-  FD_TEST( keys->cnt==5UL );
+  FD_TEST( keys->keys->cnt==4UL && keys->tables->cnt==1UL );
   FD_TEST( !memcmp( sink_key+2, alt_payer->uc,   32UL ) );
   FD_TEST( !memcmp( sink_key+3, alt_program->uc, 32UL ) );
-  FD_TEST( !memcmp( sink_key+4, alt_table->uc,   32UL ) );
+  FD_TEST( !memcmp( sink_table+0, alt_table->uc, 32UL ) );
+  for( ulong i=0UL; i<keys->keys->cnt; i++ ) FD_TEST( memcmp( sink_key+i, alt_table->uc, 32UL ) );
   FD_TEST( !walk->txns_rem && !walk->mblks_rem );
 
   /* The next block starts the walk over, whatever the one before it
      left behind. */
   walk->txns_rem           = 7UL;
   walk->buf_sz             = 64U;
-  keys->cnt                = 0UL;
+  keys->keys->cnt          = 0UL;
+  keys->tables->cnt        = 0UL;
   store_fec->data_sz       = (uint)split;
   fec->data                = encoded;
   fec->is_first_in_block   = 1U;
@@ -1649,7 +1661,7 @@ run_keys_scan_case( void ) {
   fd_sched_keys_scan( sched, walk, fec );
 
   FD_TEST( !keys->full );
-  FD_TEST( keys->cnt==2UL );
+  FD_TEST( keys->keys->cnt==2UL );
   FD_TEST( !memcmp( sink_key+0, payer->uc,   32UL ) );
 
   free( walk );

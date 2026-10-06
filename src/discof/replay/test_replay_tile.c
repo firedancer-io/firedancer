@@ -5223,27 +5223,41 @@ test_strmk_txn_keys( fd_wksp_t * wksp ) {
   ctx->instant_boot_serve = 1;
 
   static fd_acct_addr_t key[ 200 ];
-  for( ulong i=0UL; i<200UL; i++ ) memset( key[ i ].b, (int)i, sizeof(fd_acct_addr_t) );
-  ctx->strmk_keys->max = 200UL;
-  ctx->strmk_keys->cnt = 200UL;
-  ctx->strmk_keys->key = key;
+  static fd_acct_addr_t table[ 3 ];
+  for( ulong i=0UL; i<200UL; i++ ) memset( key  [ i ].b, (int)i,      sizeof(fd_acct_addr_t) );
+  for( ulong i=0UL; i<3UL;   i++ ) memset( table[ i ].b, (int)(0xe0UL+i), sizeof(fd_acct_addr_t) );
+  ctx->strmk_keys->keys->max   = 200UL;
+  ctx->strmk_keys->keys->cnt   = 200UL;
+  ctx->strmk_keys->keys->key   = key;
+  ctx->strmk_keys->tables->max = 3UL;
+  ctx->strmk_keys->tables->cnt = 3UL;
+  ctx->strmk_keys->tables->key = table;
 
   fd_sched_fec_t fec[ 1 ] = {{ .bank_idx = 3UL, .slot = 7UL }};
   ulong strmk = ctx->strmk_out->idx;
   ulong seq0  = test_stem_seqs[ strmk ];
   strmk_txn_keys( ctx, test_stem, fec );
-  FD_TEST( test_stem_seqs[ strmk ]==seq0+2UL );
+
+  /* The keys fill two messages, and the lookup tables the stream tile
+     has to expand follow them in one of their own. */
+  FD_TEST( test_stem_seqs[ strmk ]==seq0+3UL );
 
   ulong seen = 0UL;
-  for( ulong i=0UL; i<2UL; i++ ) {
+  for( ulong i=0UL; i<3UL; i++ ) {
     fd_frag_meta_t const *      meta = test_stem_mcaches[ strmk ] + fd_mcache_line_idx( seq0+i, test_stem_depths[ strmk ] );
     fd_strmk_txn_keys_t const * msg  = fd_chunk_to_laddr_const( ctx->strmk_out->mem, meta->chunk );
-    FD_TEST( meta->sig==FD_STRMK_SIG_TXN_KEYS );
     FD_TEST( msg->slot==7UL && msg->bank_idx==3UL );
-    FD_TEST( msg->key_cnt==( i ? 200UL-FD_STRMK_TXN_KEY_MAX : FD_STRMK_TXN_KEY_MAX ) );
     FD_TEST( meta->sz==offsetof(fd_strmk_txn_keys_t, keys)+(ulong)msg->key_cnt*sizeof(fd_pubkey_t) );
-    for( ulong j=0UL; j<msg->key_cnt; j++ ) FD_TEST( !memcmp( msg->keys[ j ].uc, key[ seen+j ].b, sizeof(fd_acct_addr_t) ) );
-    seen += msg->key_cnt;
+    if( i<2UL ) {
+      FD_TEST( meta->sig==FD_STRMK_SIG_TXN_KEYS );
+      FD_TEST( msg->key_cnt==( i ? 200UL-FD_STRMK_TXN_KEY_MAX : FD_STRMK_TXN_KEY_MAX ) );
+      for( ulong j=0UL; j<msg->key_cnt; j++ ) FD_TEST( !memcmp( msg->keys[ j ].uc, key[ seen+j ].b, sizeof(fd_acct_addr_t) ) );
+      seen += msg->key_cnt;
+    } else {
+      FD_TEST( meta->sig==FD_STRMK_SIG_TXN_TABLES );
+      FD_TEST( msg->key_cnt==3UL );
+      for( ulong j=0UL; j<msg->key_cnt; j++ ) FD_TEST( !memcmp( msg->keys[ j ].uc, table[ j ].b, sizeof(fd_acct_addr_t) ) );
+    }
   }
   FD_TEST( seen==200UL );
 

@@ -73,30 +73,49 @@ typedef struct fd_sched_alut_ctx fd_sched_alut_ctx_t;
 /* A single ingest call parses at most one FEC set plus the residual
    the call before it carried over.  A transaction costs at least
    FD_TXN_MIN_SERIALIZED_SZ bytes of that and resolves at most
-   FD_TXN_ACCT_ADDR_MAX account keys, and a lookup table that did not
-   resolve contributes its own address instead, which costs 32 bytes.
-   So these bound what one call records into a key sink.
-   FD_SCHED_INGEST_BYTE_MAX is cross-checked against the FEC buffer in
-   fd_sched.c. */
+   FD_TXN_ACCT_ADDR_MAX account keys, and every lookup table costs the
+   32 bytes of its own address.  So these bound what one call records
+   into a key sink.  FD_SCHED_INGEST_BYTE_MAX is cross-checked against
+   the FEC buffer in fd_sched.c. */
 
-#define FD_SCHED_INGEST_BYTE_MAX (63985UL+FD_TXN_MTU)
-#define FD_SCHED_INGEST_TXN_MAX  (FD_SCHED_INGEST_BYTE_MAX/FD_TXN_MIN_SERIALIZED_SZ+1UL)
-#define FD_SCHED_INGEST_KEY_MAX  (FD_SCHED_INGEST_TXN_MAX*FD_TXN_ACCT_ADDR_MAX+FD_SCHED_INGEST_BYTE_MAX/sizeof(fd_acct_addr_t))
+#define FD_SCHED_INGEST_BYTE_MAX  (63985UL+FD_TXN_MTU)
+#define FD_SCHED_INGEST_TXN_MAX   (FD_SCHED_INGEST_BYTE_MAX/FD_TXN_MIN_SERIALIZED_SZ+1UL)
+#define FD_SCHED_INGEST_TABLE_MAX (FD_SCHED_INGEST_BYTE_MAX/sizeof(fd_acct_addr_t))
+#define FD_SCHED_INGEST_KEY_MAX   (FD_SCHED_INGEST_TXN_MAX*FD_TXN_ACCT_ADDR_MAX+FD_SCHED_INGEST_TABLE_MAX)
 
-/* fd_sched_keys collects the account keys the scheduler resolves as it
+/* fd_sched_keys_list is one of the two lists a key sink collects.  The
+   caller points key at its own storage of max entries and reads cnt
+   entries back. */
+
+struct fd_sched_keys_list {
+  ulong            max; /* in:  entries in key */
+  ulong            cnt; /* out: entries written */
+  fd_acct_addr_t * key; /* [max] */
+};
+typedef struct fd_sched_keys_list fd_sched_keys_list_t;
+
+/* fd_sched_keys collects the accounts the scheduler resolves as it
    parses transactions, for a caller that mirrors the accounts a block
-   touches to a boot stream.  The caller points key at its own storage
-   of max entries, clears cnt and full before each ingest call, and
-   reads the keys back once the call returns; all of them belong to the
-   block the FEC set was for.  The scheduler drops keys and sets full
-   once the storage runs out, which tells the caller its copy of the
-   block is incomplete. */
+   touches to a boot stream.  The caller clears both counts and full
+   before each ingest call and reads the lists back once the call
+   returns; everything in them belongs to the block the FEC set was
+   for.
+
+   keys are the accounts the block names.  A lookup table the scheduler
+   expanded contributes both what it expanded to and its own address,
+   because whoever replays the block has to expand it again and needs
+   to read the table to do so.  tables are the lookup tables the
+   scheduler could not expand, which the caller has to read and expand
+   itself; their addresses are not in keys.
+
+   The scheduler drops entries and sets full once either list runs out
+   of room, which tells the caller its copy of the block is
+   incomplete. */
 
 struct fd_sched_keys {
-  ulong            max;  /* in:  entries in key */
-  ulong            cnt;  /* out: entries written */
-  int              full; /* out: 1 if a key did not fit */
-  fd_acct_addr_t * key;  /* [max] */
+  int                  full;      /* out: 1 if an entry did not fit */
+  fd_sched_keys_list_t keys[1];   /* the accounts the block names */
+  fd_sched_keys_list_t tables[1]; /* the lookup tables the caller must expand */
 };
 typedef struct fd_sched_keys fd_sched_keys_t;
 

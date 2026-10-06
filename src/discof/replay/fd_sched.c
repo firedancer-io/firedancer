@@ -2694,40 +2694,42 @@ resolve_aluts( fd_sched_t *          sched,
   return !!fd_runtime_load_txn_address_lookup_tables( txn, payload, alut_ctx->accdb, alut_ctx->fork_id, alut_ctx->els, slot_hashes_view, sched->aluts );
 }
 
-/* Appends cnt account keys to the caller's sink.  A sink that has run
-   out of room keeps the keys it has and says so, so the caller can
+/* Appends cnt account keys to one of the caller's lists.  A list that
+   has run out of room keeps what it has and says so, so the caller can
    tell that its copy of the block is incomplete. */
 
 static inline void
-keys_append( fd_sched_keys_t *      keys,
+keys_append( fd_sched_keys_t *      sink,
+             fd_sched_keys_list_t * list,
              fd_acct_addr_t const * addr,
              ulong                  cnt ) {
-  if( FD_UNLIKELY( keys->cnt+cnt>keys->max ) ) {
-    keys->full = 1;
+  if( FD_UNLIKELY( list->cnt+cnt>list->max ) ) {
+    sink->full = 1;
     return;
   }
-  fd_memcpy( keys->key+keys->cnt, addr, cnt*sizeof(fd_acct_addr_t) );
-  keys->cnt += cnt;
+  fd_memcpy( list->key+list->cnt, addr, cnt*sizeof(fd_acct_addr_t) );
+  list->cnt += cnt;
 }
 
-/* Collects the accounts one transaction names into the caller's sink:
-   its static keys, then the keys its lookup tables expanded to, or the
-   addresses of the tables themselves when they did not expand and the
-   caller has to expand them. */
+/* Collects the accounts one transaction names into the caller's sink.
+   Whoever replays the block expands its lookup tables itself, so it
+   needs the table accounts as well as what they expand to: a table
+   this scheduler expanded goes into the keys alongside its
+   expansions, and one it could not goes into the tables for the
+   caller to read and expand. */
 
 static void
-keys_collect( fd_sched_keys_t *      keys,
+keys_collect( fd_sched_keys_t *      sink,
               fd_txn_t const *       txn,
               uchar const *          payload,
               fd_acct_addr_t const * alts ) {
-  keys_append( keys, fd_txn_get_acct_addrs( txn, payload ), fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM ) );
-  if( FD_LIKELY( alts ) ) {
-    keys_append( keys, alts, fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_ALT ) );
-    return;
-  }
+  keys_append( sink, sink->keys, fd_txn_get_acct_addrs( txn, payload ), fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM ) );
+  if( FD_LIKELY( alts ) ) keys_append( sink, sink->keys, alts, fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_ALT ) );
+
+  fd_sched_keys_list_t *         list = alts ? sink->keys : sink->tables;
   fd_txn_acct_addr_lut_t const * luts = fd_txn_get_address_tables_const( txn );
   for( ulong i=0UL; i<txn->addr_table_lookup_cnt; i++ ) {
-    keys_append( keys, (fd_acct_addr_t const *)fd_type_pun_const( payload+luts[ i ].addr_off ), 1UL );
+    keys_append( sink, list, (fd_acct_addr_t const *)fd_type_pun_const( payload+luts[ i ].addr_off ), 1UL );
   }
 }
 
