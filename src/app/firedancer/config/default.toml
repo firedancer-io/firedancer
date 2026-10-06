@@ -994,10 +994,10 @@ telemetry = true
     # validator is not dropping incoming QUIC transactions from clients.
     #
     # On modern hardware, each verify tile can handle around 20-40K
-    # transactions per second.  Six tiles seems to be enough to handle
+    # transactions per second.  Three tiles seems to be enough to handle
     # current `mainnet` traffic, unless the validator is under a
     # denial of service or spam attack.
-    verify_tile_count = 6
+    verify_tile_count = 3
 
     # How many gossip verify tiles to run.  Gossip verify tiles perform
     # signature verification on incoming gossip table entries, before
@@ -1009,9 +1009,9 @@ telemetry = true
     # clients, and the gossvf tiles are consistently idle.
     #
     # Like verify tiles, each gossvf tile can handle around 20-40K
-    # transactions per second.  Two gossvf tiles should be enough to
+    # transactions per second.  One gossvf tile should be enough to
     # handle current `mainnet` traffic.
-    gossvf_tile_count = 2
+    gossvf_tile_count = 1
 
     # How many execle tiles to run.  Should be set to 2 for `perf` and
     # `balanced` scheduling modes.  Execle tiles execute transactions,
