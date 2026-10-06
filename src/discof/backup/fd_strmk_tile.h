@@ -40,7 +40,8 @@
 
 FD_PROTOTYPES_BEGIN
 
-/* Formats the file name of the stream at pool index idx. */
+/* fd_strmk_stream_name formats the file name of the stream at pool
+   index idx. */
 
 FD_FN_UNUSED static char *
 fd_strmk_stream_name( char name[ static FD_SNAP_NAME_MAX ],
@@ -49,8 +50,8 @@ fd_strmk_stream_name( char name[ static FD_SNAP_NAME_MAX ],
   return name;
 }
 
-/* Returns a descriptor for the directory that holds the boot files,
-   creating the directory if it is missing. */
+/* fd_strmk_dir_open returns a descriptor for the directory that holds
+   the boot files, creating the directory if it is missing. */
 
 FD_FN_UNUSED static int
 fd_strmk_dir_open( char const * path ) {
@@ -64,9 +65,10 @@ fd_strmk_dir_open( char const * path ) {
   return dir_fd;
 }
 
-/* Opens a boot file at its well known descriptor, creating the file if
-   it is missing.  flags is O_RDWR for the stream tile and O_RDONLY for
-   the file server, which may start before the stream tile. */
+/* fd_strmk_file_open opens a boot file at its well known descriptor,
+   creating the file if it is missing.  flags is O_RDWR for the stream
+   tile and O_RDONLY for the file server, which may start before the
+   stream tile. */
 
 FD_FN_UNUSED static void
 fd_strmk_file_open( int          dir_fd,

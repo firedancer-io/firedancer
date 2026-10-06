@@ -1,8 +1,8 @@
 # logfile_fd: It can be disabled by configuration, but typically tiles
 #             will open a log file on boot and write all messages there.
 #
-# pool_min_fd/pool_max_fd: The boot file descriptor range
-#         [pool_min_fd,pool_max_fd].  Before the tile enters the
+# boot_min_fd/boot_max_fd: The boot file descriptor range
+#         [boot_min_fd,boot_max_fd].  Before the tile enters the
 #         sandbox it opens one descriptor per stream, plus the index,
 #         at the well known FD_STRMK_FD numbers.  The tile writes the
 #         streams through these and never opens or unlinks files
@@ -10,7 +10,7 @@
 #
 # accdb_ro_fd: The read-only accounts database file descriptor, used to
 #         read the accounts that a block touches.
-uint logfile_fd, uint pool_min_fd, uint pool_max_fd, uint accdb_ro_fd
+uint logfile_fd, uint boot_min_fd, uint boot_max_fd, uint accdb_ro_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -25,27 +25,28 @@ uint logfile_fd, uint pool_min_fd, uint pool_max_fd, uint accdb_ro_fd
 # that descriptor 2 is always STDERR.
 write: (or (eq (arg 0) 2)
            (eq (arg 0) logfile_fd)
-           (and (>= (arg 0) pool_min_fd)
-                (<= (arg 0) pool_max_fd)))
+           (and (>= (arg 0) boot_min_fd)
+                (<= (arg 0) boot_max_fd)))
 
 # logging: 'WARNING' and above fsync the logfile to disk immediately
 #
 # arg 0 is the file descriptor to fsync.
 fsync: (eq (arg 0) logfile_fd)
 
-# boot stream: a file is rewound after it is truncated.
+# boot stream: the write position goes back to the start after a file
+# is truncated.
 #
 # arg 0 is the file descriptor to seek on.
-lseek: (and (>= (arg 0) pool_min_fd)
-            (<= (arg 0) pool_max_fd))
+lseek: (and (>= (arg 0) boot_min_fd)
+            (<= (arg 0) boot_max_fd))
 
 # boot stream: closing a stream truncates its file to zero (the sandbox
 # forbids unlinking), and so does starting a new stream in case a
 # failed attempt left bytes behind.
 #
 # arg 0 is the file descriptor to truncate.
-ftruncate: (and (>= (arg 0) pool_min_fd)
-                (<= (arg 0) pool_max_fd))
+ftruncate: (and (>= (arg 0) boot_min_fd)
+                (<= (arg 0) boot_max_fd))
 
 # boot stream: account reads on accdb cache miss
 preadv2: (eq (arg 0) accdb_ro_fd)

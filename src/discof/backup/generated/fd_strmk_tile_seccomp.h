@@ -35,7 +35,7 @@
 
 static const uint sock_filter_policy_fd_strmk_tile_instr_cnt = 50;
 
-static void populate_sock_filter_policy_fd_strmk_tile( ulong out_cnt, struct sock_filter out[ static 50 ], uint logfile_fd, uint pool_min_fd, uint pool_max_fd, uint accdb_ro_fd ) {
+static void populate_sock_filter_policy_fd_strmk_tile( ulong out_cnt, struct sock_filter out[ static 50 ], uint logfile_fd, uint boot_min_fd, uint boot_max_fd, uint accdb_ro_fd ) {
   FD_TEST( out_cnt >= 50 );
   struct sock_filter filter[50] = {
     /* validate architecture */
@@ -74,11 +74,11 @@ static void populate_sock_filter_policy_fd_strmk_tile( ulong out_cnt, struct soc
 //  or_2:
     /* arg 0 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
-    BPF_JUMP( BPF_JMP | BPF_JGE | BPF_K, ((uint)(pool_min_fd)), /* and_3 */ 0, /* write_KILL */ 2 ),
+    BPF_JUMP( BPF_JMP | BPF_JGE | BPF_K, ((uint)(boot_min_fd)), /* and_3 */ 0, /* write_KILL */ 2 ),
 //  and_3:
     /* arg 0 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
-    BPF_JUMP( BPF_JMP | BPF_JGT | BPF_K, ((uint)(pool_max_fd)), /* write_KILL */ 0, /* write_ALLOW */ 1 ),
+    BPF_JUMP( BPF_JMP | BPF_JGT | BPF_K, ((uint)(boot_max_fd)), /* write_KILL */ 0, /* write_ALLOW */ 1 ),
 //  write_KILL:
     BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS ),
 //  write_ALLOW:
@@ -94,11 +94,11 @@ static void populate_sock_filter_policy_fd_strmk_tile( ulong out_cnt, struct soc
 //  check_lseek:
     /* arg 0 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
-    BPF_JUMP( BPF_JMP | BPF_JGE | BPF_K, ((uint)(pool_min_fd)), /* and_4 */ 0, /* lseek_KILL */ 2 ),
+    BPF_JUMP( BPF_JMP | BPF_JGE | BPF_K, ((uint)(boot_min_fd)), /* and_4 */ 0, /* lseek_KILL */ 2 ),
 //  and_4:
     /* arg 0 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
-    BPF_JUMP( BPF_JMP | BPF_JGT | BPF_K, ((uint)(pool_max_fd)), /* lseek_KILL */ 0, /* lseek_ALLOW */ 1 ),
+    BPF_JUMP( BPF_JMP | BPF_JGT | BPF_K, ((uint)(boot_max_fd)), /* lseek_KILL */ 0, /* lseek_ALLOW */ 1 ),
 //  lseek_KILL:
     BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS ),
 //  lseek_ALLOW:
@@ -106,11 +106,11 @@ static void populate_sock_filter_policy_fd_strmk_tile( ulong out_cnt, struct soc
 //  check_ftruncate:
     /* arg 0 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
-    BPF_JUMP( BPF_JMP | BPF_JGE | BPF_K, ((uint)(pool_min_fd)), /* and_5 */ 0, /* ftruncate_KILL */ 2 ),
+    BPF_JUMP( BPF_JMP | BPF_JGE | BPF_K, ((uint)(boot_min_fd)), /* and_5 */ 0, /* ftruncate_KILL */ 2 ),
 //  and_5:
     /* arg 0 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
-    BPF_JUMP( BPF_JMP | BPF_JGT | BPF_K, ((uint)(pool_max_fd)), /* ftruncate_KILL */ 0, /* ftruncate_ALLOW */ 1 ),
+    BPF_JUMP( BPF_JMP | BPF_JGT | BPF_K, ((uint)(boot_max_fd)), /* ftruncate_KILL */ 0, /* ftruncate_ALLOW */ 1 ),
 //  ftruncate_KILL:
     BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS ),
 //  ftruncate_ALLOW:

@@ -143,7 +143,7 @@ mock_accdb_read_one_nocache( fd_accdb_t *       accdb,
 #include "../../util/tmpl/fd_unit_test.c"
 #include <sys/mman.h>
 
-#define TEST_SLOT_X (100UL)
+#define TEST_START_SLOT (100UL)
 #define TEST_SLOT   (103UL)
 
 /* One account the test writes into an appendvec. */
@@ -238,7 +238,7 @@ env_create( void ) {
 
   stream->fd     = memfd_create( "boot-stream", 0U );
   FD_TEST( stream->fd>=0 );
-  stream->slot_x = TEST_SLOT_X;
+  stream->start_slot = TEST_START_SLOT;
 }
 
 static void
@@ -272,7 +272,7 @@ write_fixed( void ) {
   strmk_open_entries( ctx, stream );
 
   char name[ FD_TAR_NAME_SZ ];
-  FD_TEST( fd_cstr_printf_check( name, sizeof(name), NULL, "snapshots/%lu/%lu", TEST_SLOT_X, TEST_SLOT_X ) );
+  FD_TEST( fd_cstr_printf_check( name, sizeof(name), NULL, "snapshots/%lu/%lu", TEST_START_SLOT, TEST_START_SLOT ) );
   memset( stream->raw + sizeof(fd_tar_meta_t), 0xa5, TEST_MANIFEST_SZ );
   write_entry( name, TEST_MANIFEST_SZ );
 
@@ -413,7 +413,7 @@ FD_UNIT_TEST( appendvec_roundtrip ) {
 
   for( ulong i=0UL; i<4UL; i++ ) {
     stream->raw_sz += strmk_encode_account( stream->raw + sizeof(fd_tar_meta_t) + stream->raw_sz,
-                                            TEST_SLOT_X, &acc[ i ].key, acc[ i ].lamports,
+                                            TEST_START_SLOT, &acc[ i ].key, acc[ i ].lamports,
                                             acc[ i ].executable, acc[ i ].owner.uc,
                                             acc[ i ].data, acc[ i ].data_len );
   }
@@ -441,7 +441,7 @@ FD_UNIT_TEST( appendvec_filler ) {
   acc[ 0 ].key   = fd_sysvar_instructions_id;
   acc[ 0 ].owner = fd_solana_system_program_id;
 
-  stream->raw_sz = strmk_encode_account( stream->raw + sizeof(fd_tar_meta_t), TEST_SLOT_X,
+  stream->raw_sz = strmk_encode_account( stream->raw + sizeof(fd_tar_meta_t), TEST_START_SLOT,
                                          &fd_sysvar_instructions_id, 0UL, 0,
                                          fd_solana_system_program_id.uc, NULL, 0UL );
   strmk_appendvec_flush( ctx, stream, TEST_SLOT, 0UL );
@@ -461,7 +461,7 @@ FD_UNIT_TEST( archive_roundtrip ) {
   test_acc_t acc[ 1 ] = {
     { .key = {{ 5 }}, .lamports = 7UL, .executable = 0, .owner = {{ 6 }}, .data_len = 0UL, .data = NULL }
   };
-  stream->raw_sz = strmk_encode_account( stream->raw + sizeof(fd_tar_meta_t), TEST_SLOT_X,
+  stream->raw_sz = strmk_encode_account( stream->raw + sizeof(fd_tar_meta_t), TEST_START_SLOT,
                                          &acc[ 0 ].key, acc[ 0 ].lamports, acc[ 0 ].executable,
                                          acc[ 0 ].owner.uc, NULL, 0UL );
   strmk_appendvec_flush( ctx, stream, TEST_SLOT, 0UL );
@@ -515,8 +515,9 @@ FD_UNIT_TEST( archive_roundtrip ) {
   env_destroy();
 }
 
-/* An appendvec that does not fit the stage spills into overflow files,
-   which come before the file a peer treats as the end of the slot. */
+/* An appendvec that does not fit the raw buffer spills into overflow
+   files, which come before the file a peer treats as the end of the
+   slot. */
 
 FD_UNIT_TEST( appendvec_overflow ) {
   env_create();
@@ -534,7 +535,7 @@ FD_UNIT_TEST( appendvec_overflow ) {
       strmk_appendvec_flush( ctx, stream, TEST_SLOT, ++stream->vec_id );
     }
     stream->raw_sz += strmk_encode_account( stream->raw + sizeof(fd_tar_meta_t) + stream->raw_sz,
-                                            TEST_SLOT_X, &key, 1UL, 0, big, big, sizeof(big) );
+                                            TEST_START_SLOT, &key, 1UL, 0, big, big, sizeof(big) );
   }
   FD_TEST( stream->vec_id>=2UL );
   strmk_appendvec_flush( ctx, stream, TEST_SLOT, 0UL );
@@ -574,7 +575,7 @@ FD_UNIT_TEST( appendvec_overflow ) {
 }
 
 /* backlog_env gives the tile a block pool and one open stream at
-   TEST_SLOT_X, with the fixed part of an archive already written. */
+   TEST_START_SLOT, with the fixed part of an archive already written. */
 
 #define BACKLOG_KEY_MAX (1024UL)
 
@@ -607,12 +608,12 @@ backlog_env( ulong key_max ) {
   ctx->acc_data   = malloc( FD_RUNTIME_ACC_SZ_MAX );
   FD_TEST( ctx->acc_data );
 
-  /* One open stream that starts at TEST_SLOT_X, whose bank is 10.  It
+  /* One open stream that starts at TEST_START_SLOT, whose bank is 10.  It
      was never published, so closing it tells the file server
      nothing. */
   stream->open      = 1;
   stream->published = 0;
-  stream->slot_x    = TEST_SLOT_X;
+  stream->start_slot    = TEST_START_SLOT;
   stream->bank_idx  = 10UL;
   stream->bank_seq  = 10UL;
   stream->sent      = backlog_sent;
@@ -707,12 +708,12 @@ FD_UNIT_TEST( backlog_order ) {
   /* and one that ran before the stream's slot, which it does not want */
   backlog_retain( 99UL, 9UL, 8UL );
 
-  FD_TEST( strmk_backlog_link( ctx, TEST_SLOT_X, 10UL, 10UL ) );
+  FD_TEST( strmk_backlog_link( ctx, TEST_START_SLOT, 10UL, 10UL ) );
 
   /* the bundle of the stream's own slot comes first */
   fd_pubkey_t bundle = {{ 3 }};
-  strmk_write_account( ctx, 1U, (fd_accdb_fork_id_t){ (ushort)TEST_SLOT_X }, &bundle, TEST_SLOT_X, 0 );
-  strmk_appendvec_flush( ctx, stream, TEST_SLOT_X, 0UL );
+  strmk_write_account( ctx, 1U, (fd_accdb_fork_id_t){ (ushort)TEST_START_SLOT }, &bundle, TEST_START_SLOT, 0 );
+  strmk_appendvec_flush( ctx, stream, TEST_START_SLOT, 0UL );
 
   FD_TEST( strmk_backlog_write( ctx, NULL, 0U ) );
 
@@ -735,7 +736,7 @@ FD_UNIT_TEST( backlog_order ) {
   ulong slot[ 16 ];
   ulong cnt = appendvec_slots( slot, 16UL );
   FD_TEST( cnt==5UL );
-  FD_TEST( slot[ 0 ]==TEST_SLOT_X );
+  FD_TEST( slot[ 0 ]==TEST_START_SLOT );
   FD_TEST( slot[ 1 ]==101UL );
   FD_TEST( slot[ 2 ]==102UL );
   FD_TEST( slot[ 3 ]==103UL );
@@ -761,18 +762,18 @@ FD_UNIT_TEST( backlog_refused ) {
   /* the block that ran right after slot 100 is no longer kept */
   backlog_retain( 102UL, 12UL, 11UL );
   backlog_retain( 103UL, 13UL, 12UL );
-  FD_TEST( !strmk_backlog_link( ctx, TEST_SLOT_X, 10UL, 10UL ) );
+  FD_TEST( !strmk_backlog_link( ctx, TEST_START_SLOT, 10UL, 10UL ) );
 
   /* a block in the middle of the chain is missing */
   strmk_blocks_drop( ctx );
   backlog_retain( 101UL, 11UL, 10UL );
   backlog_retain( 103UL, 13UL, 12UL );
-  FD_TEST( !strmk_backlog_link( ctx, TEST_SLOT_X, 10UL, 10UL ) );
+  FD_TEST( !strmk_backlog_link( ctx, TEST_START_SLOT, 10UL, 10UL ) );
 
   /* nothing ran after the stream's slot yet, which is not a gap */
   strmk_blocks_drop( ctx );
   backlog_retain( 99UL, 9UL, 8UL );
-  FD_TEST( strmk_backlog_link( ctx, TEST_SLOT_X, 10UL, 10UL ) );
+  FD_TEST( strmk_backlog_link( ctx, TEST_START_SLOT, 10UL, 10UL ) );
 
   /* a chain that left the chain below the stream's slot is dropped,
      not refused, as long as the stream's own child is kept */
@@ -780,21 +781,21 @@ FD_UNIT_TEST( backlog_refused ) {
   backlog_retain( 98UL, 8UL, 7UL );
   backlog_retain( 101UL, 11UL, 10UL );
   strmk_block_t * aside = backlog_retain( 102UL, 12UL, 8UL );
-  FD_TEST( strmk_backlog_link( ctx, TEST_SLOT_X, 10UL, 10UL ) );
+  FD_TEST( strmk_backlog_link( ctx, TEST_START_SLOT, 10UL, 10UL ) );
   FD_TEST( !aside->linked );
 
   /* nothing is kept but blocks have run past the stream's slot, which
      is what a reset leaves behind */
   strmk_blocks_drop( ctx );
   ctx->last_end_slot = 105UL;
-  FD_TEST( !strmk_backlog_link( ctx, TEST_SLOT_X, 10UL, 10UL ) );
+  FD_TEST( !strmk_backlog_link( ctx, TEST_START_SLOT, 10UL, 10UL ) );
   ctx->last_end_slot = 0UL;
 
   /* a refused stream writes nothing */
   strmk_blocks_drop( ctx );
   backlog_retain( 103UL, 13UL, 12UL );
   ulong file_sz = stream->file_sz;
-  FD_TEST( !strmk_backlog_link( ctx, TEST_SLOT_X, 10UL, 10UL ) );
+  FD_TEST( !strmk_backlog_link( ctx, TEST_START_SLOT, 10UL, 10UL ) );
   FD_TEST( stream->file_sz==file_sz );
 
   backlog_env_destroy();
@@ -912,10 +913,10 @@ FD_UNIT_TEST( open_cost ) {
     mock_shaped_len = OPEN_BUNDLE_SZ;
     mock_shaped     = 1;
     memcpy( mock_shaped_data, fill+i, OPEN_BUNDLE_SZ );
-    strmk_write_account( ctx, 1U, (fd_accdb_fork_id_t){ 1 }, &key, TEST_SLOT_X, 0 );
+    strmk_write_account( ctx, 1U, (fd_accdb_fork_id_t){ 1 }, &key, TEST_START_SLOT, 0 );
   }
   mock_shaped = 0;
-  strmk_appendvec_flush( ctx, stream, TEST_SLOT_X, 0UL );
+  strmk_appendvec_flush( ctx, stream, TEST_START_SLOT, 0UL );
   long t3 = fd_log_wallclock();
 
   /* every account of the bundle landed in the stream */
@@ -1122,14 +1123,14 @@ FD_UNIT_TEST( backlog_failure_keeps_streams ) {
   FD_TEST( opening->fd>=0 );
   opening->open      = 1;
   opening->published = 0;
-  opening->slot_x    = TEST_SLOT_X;
+  opening->start_slot    = TEST_START_SLOT;
   opening->bank_idx  = 10UL;
   opening->bank_seq  = 10UL;
 
   /* two kept blocks, the second of which chains off a bank that died */
   backlog_retain( 101UL, 11UL, 10UL );
   backlog_retain( 102UL, 12UL, 11UL );
-  FD_TEST( strmk_backlog_link( ctx, TEST_SLOT_X, 10UL, 10UL ) );
+  FD_TEST( strmk_backlog_link( ctx, TEST_START_SLOT, 10UL, 10UL ) );
   mock_bank[ 11 ]->state = FD_BANK_STATE_DEAD;
 
   FD_TEST( !strmk_backlog_write( ctx, NULL, 1U ) );

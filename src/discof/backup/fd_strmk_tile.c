@@ -57,10 +57,10 @@
 
 #include "generated/fd_strmk_tile_seccomp.h"
 
-/* One tar entry is staged uncompressed, then compressed into one
-   Zstandard frame and written out, so the stage bounds how large an
-   appendvec can be.  A block whose accounts do not fit is split into
-   overflow files. */
+/* One tar entry is staged uncompressed in the raw buffer, then
+   compressed into one Zstandard frame and written out, so the buffer
+   bounds how large an appendvec can be.  A block whose accounts do not
+   fit is split into overflow files. */
 
 #define STRMK_RAW_BUF_SZ  (64UL<<20)
 #define STRMK_COMP_BUF_SZ ( 4UL<<20)
@@ -81,6 +81,13 @@
 #define STRMK_BLOCK_LIVE (1)
 #define STRMK_BLOCK_DONE (2)
 
+/* An open addressed set is only probed while it is at most this full,
+   past which it is grown or, for a stream, closed.  Open addressing
+   degrades badly near capacity. */
+
+#define STRMK_SENT_LOAD_NUM (3UL)
+#define STRMK_SENT_LOAD_DEN (4UL)
+
 /* The accounts of one block, as a set, because the keys arrive with
    heavy repeats and the whole set has to be kept until every stream
    that could want it has opened.  A mainnet block touches a few
@@ -88,7 +95,7 @@
    breaks the streams, loudly. */
 
 #define STRMK_BLOCK_SLOT_MAX (16384UL)
-#define STRMK_BLOCK_KEY_MAX  ((STRMK_BLOCK_SLOT_MAX*3UL)/4UL)
+#define STRMK_BLOCK_KEY_MAX  ((STRMK_BLOCK_SLOT_MAX*STRMK_SENT_LOAD_NUM)/STRMK_SENT_LOAD_DEN)
 
 /* How a block named an account: as an ordinary transaction key, or as
    an address lookup table replay could not expand and the tile has to
@@ -115,11 +122,9 @@
 
 #define STRMK_CARRIED_MAX (4096UL)
 
-/* A sent set is only probed while it is at most this full, past which
-   its stream closes.  Open addressing degrades badly near capacity. */
+/* One index line is a slot, a base58 hash and a unix second. */
 
-#define STRMK_SENT_LOAD_NUM (3UL)
-#define STRMK_SENT_LOAD_DEN (4UL)
+#define STRMK_INDEX_LINE_MAX (128UL)
 
 /* Streams are checked for expiry about once a second. */
 
@@ -178,24 +183,26 @@ typedef struct strmk_carried strmk_carried_t;
    already carried. */
 
 struct strmk_stream {
-  int            open;
-  int            listed;    /* named in the index? */
-  int            published; /* the file server has been told about it? */
-  ulong          slot_x;    /* the slot the stream starts at */
-  ulong          bank_idx;  /* the bank of that slot */
-  ulong          bank_seq;
-  uchar          hash[ 32 ];
-  long           started;  /* unix nanoseconds */
-  long           expires;  /* unix nanoseconds, restarted when listed */
-  long           closed;   /* unix nanoseconds, when the file came free */
-  int            fd;
-  ZSTD_CStream * zst;
-  strmk_sent_t * sent;
-  ulong          sent_cnt;
-  int            sent_full; /* an account did not fit the sent set */
-  ulong          file_sz;
-  ulong           raw_sz;  /* bytes staged for the appendvec in flight */
-  ulong           vec_id;  /* overflow files of the appendvec in flight */
+  int             open;
+  int             listed;     /* named in the index? */
+  int             published;  /* told to the file server? */
+  ulong           start_slot; /* the slot the stream starts at */
+  ulong           bank_idx;   /* the bank of that slot */
+  ulong           bank_seq;
+  uchar           hash[ 32 ];
+  /* unix nanoseconds: when the stream opened, when it expires, which
+     restarts when it is listed, and when its file came free */
+  long            started;
+  long            expires;
+  long            closed;
+  int             fd;
+  ZSTD_CStream *  zst;
+  strmk_sent_t *  sent;
+  ulong           sent_cnt;
+  int             sent_full;  /* an account did not fit the sent set */
+  ulong           file_sz;
+  ulong           raw_sz;     /* bytes staged for the appendvec */
+  ulong           vec_id;     /* overflow files of the appendvec */
   uchar *         raw;
   strmk_carried_t carried[ STRMK_CARRIED_MAX ];
 };
@@ -214,7 +221,10 @@ typedef struct strmk_keyset strmk_keyset_t;
 
 /* One block replay fed this tile.  Replay reuses a bank index once a
    block is gone, so a block is named by the index and the sequence
-   number together. */
+   number together.  The hold token goes back to replay once the block
+   is written.  The parent's sequence number and the fork the block is
+   read at are only named at the block end, and are ULONG_MAX and unset
+   until then. */
 
 struct strmk_block {
   int                state;
@@ -222,12 +232,12 @@ struct strmk_block {
   ulong              bank_idx;
   ulong              bank_seq;
   ulong              parent_bank_idx;
-  ulong              hold_token;      /* returned to replay once the block is written */
-  ulong              parent_bank_seq; /* ULONG_MAX while replay does not name it */
-  fd_accdb_fork_id_t parent_fork;     /* only named once the block ended */
+  ulong              parent_bank_seq;
+  ulong              hold_token;
+  fd_accdb_fork_id_t parent_fork;
   uint               key_cnt;
-  int                overflow;    /* more accounts than the set holds? */
-  int                linked;      /* chains back to the stream being opened? */
+  int                overflow; /* more than the set holds? */
+  int                linked;   /* chains back to the stream? */
   strmk_keyset_t *   keys;
 };
 
@@ -305,12 +315,23 @@ scratch_align( void ) {
                        fd_ulong_max( fd_accdb_align(), 4096UL ) );
 }
 
+/* A stream below this carries too little to be worth opening. */
+
+#define STRMK_KEY_MIN (1024UL)
+
+/* strmk_file_cnt is one file per stream plus the index. */
+
+FD_FN_PURE static inline uint
+strmk_file_cnt( fd_strmk_t const * ctx ) {
+  return ctx->stream_max+1U;
+}
+
 /* strmk_key_max gives the number of sent set entries per stream, which
    is the configured key count rounded up to a power of two. */
 
 FD_FN_PURE static inline ulong
 strmk_key_max( fd_topo_tile_t const * tile ) {
-  return fd_ulong_pow2_up( fd_ulong_max( tile->strmk.max_keys_per_stream, 1024UL ) );
+  return fd_ulong_pow2_up( fd_ulong_max( tile->strmk.max_keys_per_stream, STRMK_KEY_MIN ) );
 }
 
 FD_FN_PURE static inline ulong
@@ -321,17 +342,17 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong zst_sz         = ZSTD_estimateCStreamSize( FD_BACKUP_ZSTD_LEVEL );
 
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_strmk_t),               sizeof(fd_strmk_t)                                      );
-  l = FD_LAYOUT_APPEND( l, fd_txncache_align(),               fd_txncache_footprint( max_live_slots )                 );
-  l = FD_LAYOUT_APPEND( l, fd_accdb_align(),                  fd_accdb_footprint( max_live_slots, 0 )                 );
-  l = FD_LAYOUT_APPEND( l, fd_txncache_writer_arena_align(),  fd_txncache_writer_arena_sz( tile->strmk.max_txn_per_slot ) );
-  l = FD_LAYOUT_APPEND( l, 16UL,                              FD_RUNTIME_ACC_SZ_MAX                                   );
-  l = FD_LAYOUT_APPEND( l, 16UL,                              STRMK_COMP_BUF_SZ                                       );
-  l = FD_LAYOUT_APPEND( l, alignof(strmk_keyset_t),           STRMK_BLOCK_MAX*sizeof(strmk_keyset_t)                  );
-  l = FD_LAYOUT_APPEND( l, alignof(uint),                     max_live_slots*sizeof(uint)                             );
-  l = FD_LAYOUT_APPEND( l, 4096UL,                            stream_max*STRMK_RAW_BUF_SZ                             );
-  l = FD_LAYOUT_APPEND( l, alignof(strmk_sent_t),             stream_max*key_max*sizeof(strmk_sent_t)                 );
-  l = FD_LAYOUT_APPEND( l, 64UL,                              stream_max*zst_sz                                       );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_strmk_t),              sizeof(fd_strmk_t)                                          );
+  l = FD_LAYOUT_APPEND( l, fd_txncache_align(),              fd_txncache_footprint( max_live_slots )                     );
+  l = FD_LAYOUT_APPEND( l, fd_accdb_align(),                 fd_accdb_footprint( max_live_slots, 0 )                     );
+  l = FD_LAYOUT_APPEND( l, fd_txncache_writer_arena_align(), fd_txncache_writer_arena_sz( tile->strmk.max_txn_per_slot ) );
+  l = FD_LAYOUT_APPEND( l, 16UL,                             FD_RUNTIME_ACC_SZ_MAX                                       );
+  l = FD_LAYOUT_APPEND( l, 16UL,                             STRMK_COMP_BUF_SZ                                           );
+  l = FD_LAYOUT_APPEND( l, alignof(strmk_keyset_t),          STRMK_BLOCK_MAX*sizeof(strmk_keyset_t)                      );
+  l = FD_LAYOUT_APPEND( l, alignof(uint),                    max_live_slots*sizeof(uint)                                 );
+  l = FD_LAYOUT_APPEND( l, 4096UL,                           stream_max*STRMK_RAW_BUF_SZ                                 );
+  l = FD_LAYOUT_APPEND( l, alignof(strmk_sent_t),            stream_max*key_max*sizeof(strmk_sent_t)                     );
+  l = FD_LAYOUT_APPEND( l, 64UL,                             stream_max*zst_sz                                           );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -400,21 +421,21 @@ zip_entry( fd_strmk_t *     ctx,
 static void
 strmk_open_entries( fd_strmk_t *     ctx,
                     strmk_stream_t * stream ) {
-  ulong sz = fd_backup_tar_open_entries( stream->raw, stream->slot_x );
+  ulong sz = fd_backup_tar_open_entries( stream->raw, stream->start_slot );
   zip_push( ctx, stream, stream->raw, sz, ZSTD_e_end );
 }
 
 /* strmk_manifest writes the snapshot manifest of the stream's start
    slot, which an initialized writer has already measured.  A mainnet
-   manifest is far larger than the stage, so it is compressed into the
-   entry's frame a stage at a time. */
+   manifest is far larger than the raw buffer, so it is compressed into
+   the entry's frame a bufferful at a time. */
 
 static void
 strmk_manifest( fd_strmk_t *     ctx,
                 strmk_stream_t * stream ) {
   ulong manifest_sz = ctx->manifest_writer->serialized_sz;
   char  name[ FD_TAR_NAME_SZ ];
-  fd_backup_manifest_name( name, stream->slot_x );
+  fd_backup_manifest_name( name, stream->start_slot );
 
   fd_tar_meta_t meta;
   zip_push( ctx, stream, fd_backup_tar_named_hdr( &meta, name, manifest_sz ), sizeof(fd_tar_meta_t), ZSTD_e_continue );
@@ -453,8 +474,8 @@ strmk_status_cache( fd_strmk_t *     ctx,
   zip_pad( ctx, stream, status_sz );
 }
 
-/* strmk_encode_account appends one account to a stage in the snapshot
-   appendvec layout and returns the bytes it took.  slot is the slot the
+/* strmk_encode_account appends one account to the raw buffer in the
+   snapshot appendvec layout and returns the bytes it took.  slot is the slot the
    stream started at, which is where the value was read.  A lamports of
    zero records that the account did not exist. */
 
@@ -675,8 +696,8 @@ strmk_bank_release( fd_strmk_t *        ctx,
 
 static void
 strmk_index_write( fd_strmk_t * ctx ) {
-  char  line[ 128 ];
-  uchar index[ FD_STRMK_STREAM_MAX*sizeof(line) ];
+  char  line [ STRMK_INDEX_LINE_MAX ];
+  uchar index[ FD_STRMK_STREAM_MAX*STRMK_INDEX_LINE_MAX ];
   ulong index_sz = 0UL;
 
   uint  order[ FD_STRMK_STREAM_MAX ];
@@ -684,7 +705,7 @@ strmk_index_write( fd_strmk_t * ctx ) {
   for( uint i=0U; i<ctx->stream_max; i++ ) {
     if( FD_LIKELY( !ctx->stream[ i ].open || !ctx->stream[ i ].listed ) ) continue;
     ulong at = cnt++;
-    for( ; at && ctx->stream[ order[ at-1UL ] ].slot_x<ctx->stream[ i ].slot_x; at-- ) {
+    for( ; at && ctx->stream[ order[ at-1UL ] ].start_slot<ctx->stream[ i ].start_slot; at-- ) {
       order[ at ] = order[ at-1UL ];
     }
     order[ at ] = i;
@@ -696,7 +717,7 @@ strmk_index_write( fd_strmk_t * ctx ) {
     fd_base58_encode_32( stream->hash, NULL, hash_b58 );
     ulong line_sz;
     fd_cstr_printf( line, sizeof(line), &line_sz, "%lu %s %ld\n",
-                    stream->slot_x, hash_b58, stream->expires/(1000L*1000L*1000L) );
+                    stream->start_slot, hash_b58, stream->expires/(1000L*1000L*1000L) );
     memcpy( index+index_sz, line, line_sz );
     index_sz += line_sz;
   }
@@ -727,7 +748,7 @@ strmk_stream_close( fd_strmk_t *        ctx,
   if( FD_LIKELY( !stream->open ) ) return 0;
 
   FD_LOG_INFO(( "closing the boot stream at slot %lu after %ld seconds (%lu bytes, %lu accounts)%s",
-                stream->slot_x, ( fd_log_wallclock()-stream->started )/(1000L*1000L*1000L),
+                stream->start_slot, ( fd_log_wallclock()-stream->started )/(1000L*1000L*1000L),
                 stream->file_sz, stream->sent_cnt, broken ? ", broken" : "" ));
 
   if( FD_LIKELY( !broken ) ) {
@@ -748,7 +769,7 @@ strmk_stream_close( fd_strmk_t *        ctx,
   if( FD_LIKELY( stream->published ) ) {
     fd_snapmk_msg_t * msg = fd_chunk_to_laddr( ctx->out.mem, ctx->out.chunk );
     msg->deleted = (fd_snapmk_msg_deleted_t) {
-      .slot      = stream->slot_x,
+      .slot      = stream->start_slot,
       .base_slot = ULONG_MAX,
       .pool_idx  = idx,
       .reserved1 = 1U /* a boot stream */
@@ -818,7 +839,7 @@ strmk_stream_publish( fd_strmk_t *        ctx,
   strmk_stream_t * stream = &ctx->stream[ idx ];
   fd_snapmk_msg_t * msg = fd_chunk_to_laddr( ctx->out.mem, ctx->out.chunk );
   msg->created = (fd_snapmk_msg_created_t) {
-    .slot      = stream->slot_x,
+    .slot      = stream->start_slot,
     .base_slot = ULONG_MAX,
     .sz        = stream->file_sz,
     .pool_idx  = idx,
@@ -1006,7 +1027,7 @@ strmk_write_key( fd_strmk_t *          ctx,
       strmk_appendvec_flush( ctx, stream, slot, ++stream->vec_id );
     }
     stream->raw_sz += strmk_encode_account( stream->raw + sizeof(fd_tar_meta_t) + stream->raw_sz,
-                                            stream->slot_x, key, lamports, executable, owner,
+                                            stream->start_slot, key, lamports, executable, owner,
                                             ctx->acc_data, data_len );
     if( FD_UNLIKELY( !strmk_sent_insert( stream, ele, key, slot, is_table ) ) ) stream->sent_full = 1;
   }
@@ -1169,7 +1190,7 @@ strmk_block_flush( fd_strmk_t *          ctx,
        is built per transaction and never stored, so recording that it
        does not exist is true at every slot and changes nothing. */
     if( FD_UNLIKELY( !stream->raw_sz ) ) {
-      stream->raw_sz = strmk_encode_account( stream->raw + sizeof(fd_tar_meta_t), stream->slot_x,
+      stream->raw_sz = strmk_encode_account( stream->raw + sizeof(fd_tar_meta_t), stream->start_slot,
                                              &fd_sysvar_instructions_id, 0UL, 0,
                                              fd_solana_system_program_id.uc, NULL, 0UL );
     }
@@ -1178,7 +1199,7 @@ strmk_block_flush( fd_strmk_t *          ctx,
     stream->vec_id = 0UL;
     if( FD_UNLIKELY( !strmk_carried_insert( stream, block->bank_idx, block->bank_seq ) ) ) {
       FD_LOG_WARNING(( "the boot stream at slot %lu cannot remember slot %lu, breaking it",
-                       stream->slot_x, block->slot ));
+                       stream->start_slot, block->slot ));
       listed |= strmk_stream_close( ctx, stem, i, 1 );
       continue;
     }
@@ -1186,7 +1207,7 @@ strmk_block_flush( fd_strmk_t *          ctx,
       /* An account the stream carried is not in its set, so it would
          skip that account the next time a block touches it. */
       FD_LOG_WARNING(( "the boot stream at slot %lu ran out of sent set entries inside slot %lu, breaking it",
-                       stream->slot_x, block->slot ));
+                       stream->start_slot, block->slot ));
       listed |= strmk_stream_close( ctx, stem, i, 1 );
       continue;
     }
@@ -1194,7 +1215,7 @@ strmk_block_flush( fd_strmk_t *          ctx,
     if( FD_UNLIKELY( stream->sent_cnt>=ctx->key_cap ) ) {
       FD_LOG_WARNING(( "the boot stream at slot %lu carried %lu accounts, which is all "
                        "[snapshots.instant_boot.serve.max_keys_per_stream] allows for",
-                       stream->slot_x, stream->sent_cnt ));
+                       stream->start_slot, stream->sent_cnt ));
       listed |= strmk_stream_close( ctx, stem, i, 0 );
       continue;
     }
@@ -1231,15 +1252,16 @@ strmk_block_discard( fd_strmk_t *        ctx,
 
 static int
 strmk_backlog_link( fd_strmk_t * ctx,
-                    ulong        slot_x,
+                    ulong        start_slot,
                     ulong        bank_idx,
                     ulong        bank_seq ) {
-  int have_child = 0; /* a kept block is a child of the stream's slot */
+  /* 1 once a kept block is a child of the stream's slot */
+  int have_child = 0;
 
   for( ulong r=ctx->retain_head; r!=ctx->retain_tail; r++ ) {
     strmk_block_t * block = &ctx->block[ ctx->retain[ r%STRMK_BLOCK_RETAIN_MAX ] ];
     block->linked = 0;
-    if( FD_LIKELY( block->slot<=slot_x ) ) continue;
+    if( FD_LIKELY( block->slot<=start_slot ) ) continue;
 
     if( FD_UNLIKELY( block->parent_bank_idx==bank_idx && block->parent_bank_seq==bank_seq ) ) {
       block->linked = 1;
@@ -1257,14 +1279,14 @@ strmk_backlog_link( fd_strmk_t * ctx,
     }
     if( FD_UNLIKELY( !kept ) ) {
       FD_LOG_WARNING(( "not starting a boot stream at slot %lu: slot %lu ran after it and the block "
-                       "it chains off is no longer kept", slot_x, block->slot ));
+                       "it chains off is no longer kept", start_slot, block->slot ));
       return 0;
     }
   }
 
-  if( FD_UNLIKELY( ctx->last_end_slot>slot_x && !have_child ) ) {
+  if( FD_UNLIKELY( ctx->last_end_slot>start_slot && !have_child ) ) {
     FD_LOG_WARNING(( "not starting a boot stream at slot %lu: slot %lu already ran and the blocks "
-                     "that follow it are not kept", slot_x, ctx->last_end_slot ));
+                     "that follow it are not kept", start_slot, ctx->last_end_slot ));
     return 0;
   }
   return 1;
@@ -1287,7 +1309,7 @@ strmk_backlog_write( fd_strmk_t *        ctx,
     if( FD_LIKELY( !block->linked ) ) continue;
     if( FD_UNLIKELY( !strmk_fork_live( ctx, block ) || !strmk_block_read( ctx, take, block ) ) ) {
       FD_LOG_WARNING(( "the fork slot %lu was read at is gone, not starting the boot stream at slot %lu",
-                       block->slot, stream->slot_x ));
+                       block->slot, stream->start_slot ));
       strmk_block_discard( ctx, stem, take );
       return 0;
     }
@@ -1296,7 +1318,7 @@ strmk_backlog_write( fd_strmk_t *        ctx,
     cnt++;
   }
   if( FD_UNLIKELY( cnt ) ) {
-    FD_LOG_INFO(( "the boot stream at slot %lu starts with the %lu blocks that already ran", stream->slot_x, cnt ));
+    FD_LOG_INFO(( "the boot stream at slot %lu starts with the %lu blocks that already ran", stream->start_slot, cnt ));
   }
   return 1;
 }
@@ -1320,22 +1342,22 @@ strmk_bundle( fd_strmk_t *       ctx,
   uint             take   = 1U<<idx;
 
   for( ulong i=0UL; i<FD_SYSVAR_CACHE_ENTRY_CNT; i++ ) {
-    strmk_write_account( ctx, take, fork, &fd_sysvar_key_tbl[ i ], stream->slot_x, 0 );
+    strmk_write_account( ctx, take, fork, &fd_sysvar_key_tbl[ i ], stream->start_slot, 0 );
   }
 
   /* The alpenglow native accounts, which the runtime reads outside any
      transaction and so no block names. */
-  static char const * const pda_seed[ 3 ] = { "alpenclock", "carlgration", "vote_reward_account" };
-  for( ulong i=0UL; i<3UL; i++ ) {
+  static char const * const pda_seed[] = { "alpenclock", "carlgration", "vote_reward_account" };
+  for( ulong i=0UL; i<sizeof(pda_seed)/sizeof(pda_seed[ 0 ]); i++ ) {
     fd_pubkey_t pda;
     fd_alpenglow_pda( pda_seed[ i ], &pda );
-    strmk_write_account( ctx, take, fork, &pda, stream->slot_x, 0 );
+    strmk_write_account( ctx, take, fork, &pda, stream->start_slot, 0 );
   }
 
   for( fd_feature_id_t const * id = fd_feature_iter_init();
        !fd_feature_iter_done( id );
        id = fd_feature_iter_next( id ) ) {
-    strmk_write_account( ctx, take, fork, &id->id, stream->slot_x, 0 );
+    strmk_write_account( ctx, take, fork, &id->id, stream->start_slot, 0 );
   }
 
   /* The manifest names a vote account for every entry of every epoch
@@ -1353,12 +1375,12 @@ strmk_bundle( fd_strmk_t *       ctx,
       fd_pubkey_t node;
       fd_vote_stakes_iter_ele( vote_stakes, fork_id, kind, iter, &vote, &node, NULL,
                                NULL, NULL, NULL, NULL, NULL, NULL, NULL );
-      strmk_write_account( ctx, take, fork, &vote, stream->slot_x, 0 );
-      strmk_write_account( ctx, take, fork, &node, stream->slot_x, 0 );
+      strmk_write_account( ctx, take, fork, &vote, stream->start_slot, 0 );
+      strmk_write_account( ctx, take, fork, &node, stream->start_slot, 0 );
     }
   }
 
-  strmk_appendvec_flush( ctx, stream, stream->slot_x, 0UL );
+  strmk_appendvec_flush( ctx, stream, stream->start_slot, 0UL );
   stream->vec_id = 0UL;
 }
 
@@ -1434,21 +1456,21 @@ strmk_stream_start( fd_strmk_t *                    ctx,
   stream->open       = 1;
   stream->listed     = 0;
   stream->published  = 0;
-  stream->slot_x     = msg->slot;
+  stream->start_slot = msg->slot;
   stream->bank_idx   = msg->bank_idx;
   stream->bank_seq   = bank->bank_seq;
+  stream->started    = now;
+  /* The lifetime a peer can join within really starts when the stream
+     is listed; until then this is the longest it can wait for that. */
+  stream->expires    = now + ctx->lifetime;
+  stream->file_sz    = 0UL;
+  stream->raw_sz     = 0UL;
+  stream->vec_id     = 0UL;
+  stream->sent_cnt   = 0UL;
   memset( stream->carried, 0xff, sizeof(stream->carried) );
-  /* The set is cleared here rather than at close, so that a file that
-     is never handed out again costs nothing. */
+  /* The sent set is cleared here rather than at close, so that a file
+     that is never handed out again costs nothing. */
   memset( stream->sent, 0, ctx->key_max*sizeof(strmk_sent_t) );
-  stream->started  = now;
-  /* A backstop until the stream is listed, which is when the lifetime
-     a peer can join within really starts. */
-  stream->expires  = now + ctx->lifetime;
-  stream->file_sz  = 0UL;
-  stream->raw_sz   = 0UL;
-  stream->vec_id   = 0UL;
-  stream->sent_cnt = 0UL;
   fd_blake3_hash( bank->f.lthash.bytes, FD_LTHASH_LEN_BYTES, stream->hash );
 
   if( FD_UNLIKELY( -1==ftruncate( stream->fd, 0L ) ) ) {
@@ -1476,13 +1498,13 @@ strmk_stream_start( fd_strmk_t *                    ctx,
   if( FD_UNLIKELY( stream->sent_full || stream->sent_cnt>=ctx->key_cap ) ) {
     FD_LOG_WARNING(( "the boot stream at slot %lu needed %lu accounts to open, which is all "
                      "[snapshots.instant_boot.serve.max_keys_per_stream] allows for",
-                     stream->slot_x, stream->sent_cnt ));
+                     stream->start_slot, stream->sent_cnt ));
     (void)strmk_stream_close( ctx, stem, idx, 1 );
     return;
   }
 
   FD_LOG_NOTICE(( "boot stream at slot %lu opened in %ld millis (%lu bytes, %lu accounts)",
-                  stream->slot_x, ( fd_log_wallclock()-t0 )/(1000L*1000L), stream->file_sz, stream->sent_cnt ));
+                  stream->start_slot, ( fd_log_wallclock()-t0 )/(1000L*1000L), stream->file_sz, stream->sent_cnt ));
   strmk_stream_publish( ctx, stem, idx );
 }
 
@@ -1627,17 +1649,18 @@ strmk_block_end( fd_strmk_t *                 ctx,
 static void
 strmk_snapmk( fd_strmk_t *                    ctx,
               fd_snapmk_msg_created_t const * msg ) {
-  if( FD_LIKELY( msg->base_slot==ULONG_MAX ) ) return; /* a full snapshot */
+  /* a full snapshot starts no stream */
+  if( FD_LIKELY( msg->base_slot==ULONG_MAX ) ) return;
   int listed = 0;
   for( uint i=0U; i<ctx->stream_max; i++ ) {
     strmk_stream_t * stream = &ctx->stream[ i ];
-    if( FD_LIKELY( !stream->open || stream->listed || stream->slot_x!=msg->slot ) ) continue;
+    if( FD_LIKELY( !stream->open || stream->listed || stream->start_slot!=msg->slot ) ) continue;
     /* A peer can only join a stream once it is in the index, so the
        lifetime it is served for starts here, not when it opened. */
     stream->listed  = 1;
     stream->expires = fd_log_wallclock() + ctx->lifetime;
     listed          = 1;
-    FD_LOG_NOTICE(( "serving the boot stream at slot %lu", stream->slot_x ));
+    FD_LOG_NOTICE(( "serving the boot stream at slot %lu", stream->start_slot ));
   }
   if( FD_UNLIKELY( listed ) ) strmk_index_write( ctx );
 }
@@ -1752,7 +1775,7 @@ privileged_init( fd_topo_t const *      topo,
 
   /* Nothing from a previous run is served: a stream cannot be resumed,
      and the index would name streams that are gone. */
-  for( uint i=0U; i<ctx->stream_max+1U; i++ ) {
+  for( uint i=0U; i<strmk_file_cnt( ctx ); i++ ) {
     if( FD_UNLIKELY( -1==ftruncate( FD_STRMK_FD( i ), 0L ) ) ) {
       FD_LOG_ERR(( "ftruncate() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     }
@@ -1763,7 +1786,7 @@ privileged_init( fd_topo_t const *      topo,
   if( FD_UNLIKELY( -1==fchown( ctx->dir_fd, tile->strmk.target_uid, tile->strmk.target_gid ) ) ) {
     FD_LOG_ERR(( "fchown(%s) failed (%i-%s)", dir_path, errno, fd_io_strerror( errno ) ));
   }
-  for( uint i=0U; i<ctx->stream_max+1U; i++ ) {
+  for( uint i=0U; i<strmk_file_cnt( ctx ); i++ ) {
     if( FD_UNLIKELY( -1==fchown( FD_STRMK_FD( i ), tile->strmk.target_uid, tile->strmk.target_gid ) ) ) {
       FD_LOG_ERR(( "fchown(%s) failed (%i-%s)", dir_path, errno, fd_io_strerror( errno ) ));
     }
@@ -1783,8 +1806,8 @@ populate_allowed_fds( fd_topo_t const *      topo,
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   out_fds[ out_cnt++ ] = ctx->dir_fd;
   out_fds[ out_cnt++ ] = FD_ACCDB_FD_RO;
-  for( uint i=0U; i<ctx->stream_max+1U; i++ )
-    out_fds[ out_cnt++ ] = FD_STRMK_FD( i ); /* streams and index */
+  /* the streams and the index */
+  for( uint i=0U; i<strmk_file_cnt( ctx ); i++ ) out_fds[ out_cnt++ ] = FD_STRMK_FD( i );
   return out_cnt;
 }
 
@@ -1830,7 +1853,8 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->key_cap           = ( key_max*STRMK_SENT_LOAD_NUM )/STRMK_SENT_LOAD_DEN;
   ctx->lifetime          = (long)tile->strmk.stream_lifetime_seconds*1000L*1000L*1000L;
   ctx->tick_per_ns       = fd_tempo_tick_per_ns( NULL );
-  ctx->replay_seq_next   = ULONG_MAX; /* the first frag starts no gap */
+  /* the first frag starts no gap */
+  ctx->replay_seq_next   = ULONG_MAX;
   ctx->acc_data          = _acc_data;
   ctx->comp              = _comp;
   ctx->txncache_arena    = _arena;
