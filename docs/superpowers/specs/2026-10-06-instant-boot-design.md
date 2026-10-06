@@ -66,11 +66,13 @@ Accounts database rules (always on, cheap):
 - While the hide flag is set, every read skips flagged entries unless
   the reading join asked to see them (the loader's own verification
   reads).  The flag is set only in instant-boot mode.
-- The loader compares slots only against flagged entries.  When an
-  unflagged (live) entry for the same pubkey exists, the loader does
-  not write at all: the key already holds its value at X in the boot
-  fork, so the snapshot copy is never needed.  The loader therefore
-  never modifies interior chain links.
+- The loader compares slots only against flagged entries, and links a
+  new entry behind the last unflagged entry for the same pubkey, so a
+  reader always meets the stream's or execution's version first.
+  While the hide flag is set nothing removes chain nodes: the accounts
+  database refuses purge and root advance, and replay defers fork
+  purges until the load is done.  So the loader's interior insert
+  never races a remover.
 - A key is written into the boot fork at most once, and before any
   execution fork writes it.  Both hold because the receiver writes
   "only if absent" in arrival order and replay executes slot s only

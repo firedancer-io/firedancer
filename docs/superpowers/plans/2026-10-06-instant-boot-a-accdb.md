@@ -363,31 +363,33 @@ git commit -m "accdb: racesan weave for commit vs snapshot write"
 
 ---
 
-### Task 3: tag loader entries and skip keys that already have a live version
+### Task 3: tag loader entries and keep live versions ahead
 
 **Files:**
-- Modify: `src/flamenco/accdb/fd_accdb_private.h` (size-word layout block, lines around 203-253)
+- Modify: `src/flamenco/accdb/fd_accdb_private.h` (size-word layout block)
 - Modify: `src/flamenco/accdb/fd_accdb.c` (`fd_accdb_snapshot_write_batch`)
-- Modify: `src/flamenco/accdb/fd_accdb.h` (doc comment and result codes of `fd_accdb_snapshot_write_batch`)
+- Modify: `src/flamenco/accdb/fd_accdb.h` (doc comment of `fd_accdb_snapshot_write_batch`)
 - Test: `src/flamenco/accdb/test_accdb.c`
 
 **Interfaces:**
-- Produces: `FD_ACCDB_SIZE_SNAPSHOT_BIT` (bit 27) and `FD_ACCDB_SIZE_SNAPSHOT(packed)` in `fd_accdb_private.h`, used by task 4; result code `FD_ACCDB_SNAPSHOT_WRITE_LIVE (4)` in `fd_accdb.h`.
+- Produces: `FD_ACCDB_SIZE_SNAPSHOT_BIT` (bit 27) and `FD_ACCDB_SIZE_SNAPSHOT(packed)` in `fd_accdb_private.h`, used by task 4.
+- Contract (enforced in task 4): while loader nodes are hidden, nothing removes chain nodes (no purge, no root advance), so the loader's interior insert never races a remover.
 
-Background. The loader compares `cache_idx` (holding the appendvec slot during a load) against the incoming slot for every same-pubkey node. That is wrong once live versions of a key can exist during a load: a live node's `cache_idx` is a cache index. Fix: mark loader nodes with bit 27 of the size word and compare only against marked nodes. When an unmarked (live) node for the same pubkey exists, the key already holds its value at the boot slot in the boot fork, so the loader does not write at all: it frees the reserved bytes and reports the account as live. The loader therefore never modifies interior chain links (ruling recorded in the ledger after Task 1's review). Normal commits rebuild the size word, so they clear the bit for free.
+Background. The loader compares `cache_idx` (holding the appendvec slot during a load) against the incoming slot for every same-pubkey node, and prepends new nodes at the head. Both are wrong once live versions of a key exist during a load: a live node's `cache_idx` is a cache index, and a loader node ahead of a live node would be found first by readers. Fix: mark loader nodes with bit 27 of the size word, compare only against marked nodes, and link a new loader node right behind the last unmarked node for the same pubkey. Normal commits rebuild the size word, so they clear the bit for free.
 
 - [ ] **Step 1: Write the failing tests**
 
-Add to `src/flamenco/accdb/test_accdb.c` after `test_snapshot_writers_vs_live`:
+Add to `src/flamenco/accdb/test_accdb.c` after `test_snapshot_writers_vs_live` (replacing any `test_snapshot_skips_live` / `test_snapshot_bit_dup_check` from an earlier attempt):
 
 ```c
 /* A live version of a key exists on a child fork before the loader
    writes the same key.  The loader must ignore the live node when it
-   compares slots, must not touch it, and must not write its own copy:
-   the child keeps reading the live value and the root reads nothing. */
+   compares slots, must not touch it, and must place its own node
+   behind it so the child keeps reading the live value while the root
+   reads the loaded one. */
 
 static void
-test_snapshot_skips_live( void ) {
+test_snapshot_behind_live( void ) {
   int fd;
   ulong psz = 11UL<<20UL;
   fd_accdb_t * accdb = test_setup( &fd, 1024UL, 64UL, 1024UL, 64UL, psz );
@@ -400,8 +402,6 @@ test_snapshot_skips_live( void ) {
   uchar key[ 32UL ] = { 5, 0x99, 0 };
   uchar owner[ 32UL ] = { 9, 0 };
   accdb_write( accdb, child, key, 500UL, NULL, 0UL, owner );
-  fd_accdb_shmem_metrics_t const * shmetrics = fd_accdb_shmetrics( accdb );
-  ulong total_before = shmetrics->accounts_total;
 
   uchar const * pks[ 1 ]  = { key };
   ulong slots[ 1 ]        = { 10UL };
@@ -411,49 +411,15 @@ test_snapshot_skips_live( void ) {
   test_batch_result_t r = test_write_batch( accdb, SENTINEL, 1UL, pks, slots, lamports, data_lens, execs, &store );
   FD_TEST( !r.err );
   FD_TEST( r.loaded==1UL && r.replaced==0UL && r.ignored==0UL );
-  FD_TEST( r.results[ 0 ]==FD_ACCDB_SNAPSHOT_WRITE_LIVE );
-  FD_TEST( shmetrics->accounts_total==total_before );
+  FD_TEST( r.results[ 0 ]==FD_ACCDB_SNAPSHOT_WRITE_LOADED );
 
   ulong got = 0UL;
-  FD_TEST(  accdb_read( accdb, child, key, &got, NULL, NULL, NULL ) ); FD_TEST( got==500UL );
-  FD_TEST( !accdb_read( accdb, root,  key, &got, NULL, NULL, NULL ) );
+  FD_TEST( accdb_read( accdb, child, key, &got, NULL, NULL, NULL ) ); FD_TEST( got==500UL );
+  FD_TEST( accdb_read( accdb, root,  key, &got, NULL, NULL, NULL ) ); FD_TEST( got==100UL );
 
-  /* A second snapshot copy at any slot is skipped the same way, and
-     is not a duplicate: nothing was written to compare against. */
-  slots[ 0 ] = 10UL; lamports[ 0 ] = 1UL;
-  r = test_write_batch( accdb, SENTINEL, 1UL, pks, slots, lamports, data_lens, execs, &store );
-  FD_TEST( !r.err && r.results[ 0 ]==FD_ACCDB_SNAPSHOT_WRITE_LIVE && r.loaded==1UL );
-
-  fd_accdb_snapshot_load_end( accdb );
-  test_teardown( accdb, fd );
-}
-
-/* The loader still judges duplicates among its own nodes when a live
-   node shares the chain but not the pubkey. */
-
-static void
-test_snapshot_bit_dup_check( void ) {
-  int fd;
-  ulong psz = 11UL<<20UL;
-  fd_accdb_t * accdb = test_setup( &fd, 1024UL, 64UL, 1024UL, 64UL, psz );
-  test_store_ctx_t store = { .fd=fd, .cnt=0UL };
-
-  fd_accdb_fork_id_t root  = fd_accdb_attach_child( accdb, SENTINEL );
-  fd_accdb_fork_id_t child = fd_accdb_attach_child( accdb, root );
-  fd_accdb_snapshot_load_begin( accdb );
-
-  uchar key[ 32UL ]  = { 6, 0x99, 0 };
-  uchar other[ 32UL ] = { 6, 0x98, 0 };
-  uchar owner[ 32UL ] = { 9, 0 };
-  accdb_write( accdb, child, other, 700UL, NULL, 0UL, owner );
-
-  uchar const * pks[ 1 ] = { key };
-  ulong slots[ 1 ] = { 10UL };
-  ulong lamports[ 1 ] = { 100UL };
-  ulong data_lens[ 1 ] = { 0UL };
-  int   execs[ 1 ] = { 0 };
-  test_batch_result_t r = test_write_batch( accdb, SENTINEL, 1UL, pks, slots, lamports, data_lens, execs, &store );
-  FD_TEST( !r.err && r.loaded==1UL && r.results[ 0 ]==FD_ACCDB_SNAPSHOT_WRITE_LOADED );
+  /* An older snapshot copy of the same key is still dropped, and a
+     same-slot copy is still a corrupt snapshot, judged only against
+     the loaded node. */
   slots[ 0 ] = 5UL; lamports[ 0 ] = 1UL;
   r = test_write_batch( accdb, SENTINEL, 1UL, pks, slots, lamports, data_lens, execs, &store );
   FD_TEST( !r.err && r.ignored==1UL && r.ignored_lamports==1UL );
@@ -461,21 +427,75 @@ test_snapshot_bit_dup_check( void ) {
   r = test_write_batch( accdb, SENTINEL, 1UL, pks, slots, lamports, data_lens, execs, &store );
   FD_TEST( r.err==-1 );
 
+  /* A newer snapshot copy replaces the loaded node in place and the
+     live node still wins on the child. */
+  slots[ 0 ] = 20UL; lamports[ 0 ] = 200UL;
+  r = test_write_batch( accdb, SENTINEL, 1UL, pks, slots, lamports, data_lens, execs, &store );
+  FD_TEST( !r.err && r.replaced==1UL && r.replaced_lamports==100UL );
+  FD_TEST( accdb_read( accdb, child, key, &got, NULL, NULL, NULL ) ); FD_TEST( got==500UL );
+  FD_TEST( accdb_read( accdb, root,  key, &got, NULL, NULL, NULL ) ); FD_TEST( got==200UL );
+
+  /* Exactly two nodes exist for the key. */
+  fd_accdb_flush_metrics( accdb );
+  fd_accdb_shmem_metrics_t const * shmetrics = fd_accdb_shmetrics( accdb );
+  FD_TEST( shmetrics->accounts_total==2UL );
+
+  fd_accdb_snapshot_load_end( accdb );
+
+  /* Rooting the child unlinks the loaded copy behind it. */
+  fd_accdb_advance_root( accdb, child );
+  drain_background( accdb );
+  FD_TEST( accdb_read( accdb, child, key, &got, NULL, NULL, NULL ) ); FD_TEST( got==500UL );
+  FD_TEST( shmetrics->accounts_total==1UL );
+
+  test_teardown( accdb, fd );
+}
+
+/* Two live versions on a fork and its child, then the loader.  Each
+   fork keeps reading its own version and the root reads the loaded
+   one. */
+
+static void
+test_snapshot_behind_two_live( void ) {
+  int fd;
+  ulong psz = 11UL<<20UL;
+  fd_accdb_t * accdb = test_setup( &fd, 1024UL, 64UL, 1024UL, 64UL, psz );
+  test_store_ctx_t store = { .fd=fd, .cnt=0UL };
+
+  fd_accdb_fork_id_t root  = fd_accdb_attach_child( accdb, SENTINEL );
+  fd_accdb_fork_id_t f     = fd_accdb_attach_child( accdb, root );
+  fd_accdb_fork_id_t g     = fd_accdb_attach_child( accdb, f );
+  fd_accdb_snapshot_load_begin( accdb );
+
+  uchar key[ 32UL ] = { 6, 0x99, 0 };
+  uchar owner[ 32UL ] = { 9, 0 };
+  accdb_write( accdb, f, key, 500UL, NULL, 0UL, owner );
+  accdb_write( accdb, g, key, 600UL, NULL, 0UL, owner );
+
+  uchar const * pks[ 1 ] = { key };
+  ulong slots[ 1 ] = { 10UL };
+  ulong lamports[ 1 ] = { 100UL };
+  ulong data_lens[ 1 ] = { 0UL };
+  int   execs[ 1 ] = { 0 };
+  test_batch_result_t r = test_write_batch( accdb, SENTINEL, 1UL, pks, slots, lamports, data_lens, execs, &store );
+  FD_TEST( !r.err && r.loaded==1UL );
+
   ulong got = 0UL;
-  FD_TEST( accdb_read( accdb, root,  key,   &got, NULL, NULL, NULL ) ); FD_TEST( got==100UL );
-  FD_TEST( accdb_read( accdb, child, other, &got, NULL, NULL, NULL ) ); FD_TEST( got==700UL );
+  FD_TEST( accdb_read( accdb, g,    key, &got, NULL, NULL, NULL ) ); FD_TEST( got==600UL );
+  FD_TEST( accdb_read( accdb, f,    key, &got, NULL, NULL, NULL ) ); FD_TEST( got==500UL );
+  FD_TEST( accdb_read( accdb, root, key, &got, NULL, NULL, NULL ) ); FD_TEST( got==100UL );
 
   fd_accdb_snapshot_load_end( accdb );
   test_teardown( accdb, fd );
 }
 ```
 
-Register both in `main` right after `test_snapshot_writers_vs_live();`, each preceded by an `FD_LOG_NOTICE(( "..." ))` line like the neighbours.
+Register both in `main` right after `test_snapshot_writers_vs_live();`, each with an `FD_LOG_NOTICE` line like the neighbours.
 
 - [ ] **Step 2: Build and run to see them fail**
 
 Run: `make -j test_accdb && build/native/gcc/11.5.0/unit-test/test_accdb --page-sz normal 2>&1 | tail -2`
-Expected: compile error on `FD_ACCDB_SNAPSHOT_WRITE_LIVE`; after a temporary define, the first test fails because today the loader compares the live node's `cache_idx` as a slot and either ignores or overwrites it.
+Expected: FAIL. Today the loader compares the live node's `cache_idx` as a slot, so the first batch is either ignored or overwrites the live node; the first `FD_TEST( got==500UL )` or the result checks fail.
 
 - [ ] **Step 3: Add the bit**
 
@@ -484,55 +504,76 @@ In `src/flamenco/accdb/fd_accdb_private.h`, in the size-word layout block:
 - Change the comment line `bits 27..0  data length in bytes                  (FD_ACCDB_SIZE_MASK)` to two lines:
   `bit  27     snapshot flag,    in-memory only      (FD_ACCDB_SIZE_SNAPSHOT_BIT)` and
   `bits 26..0  data length in bytes                  (FD_ACCDB_SIZE_MASK)`.
-- Change `The data length is therefore 28 bits, max 256 MiB` to `The data length is therefore 27 bits, max 128 MiB`.
-- Add to the list of in-memory flags: `- snapshot (bit 27): set on every node written by the snapshot loader.  Normal commits rebuild the word and so clear it.  The loader compares slots only against nodes that carry it, and reads can be told to skip them (fd_accdb_snapshot_hide).`
+- Change `The data length is therefore 28 bits, max 256 MiB` to `The data length is therefore 27 bits, max 128 MiB`, and fix the counts of packed fields and in-memory flags in that comment.
+- Add to the list of in-memory flags: `- snapshot (bit 27): set on every node written by the snapshot loader.  Normal commits rebuild the word and so clear it.  The loader compares slots only against nodes that carry it, and reads can be told to skip them while a load runs.`
 - Add `#define FD_ACCDB_SIZE_SNAPSHOT_BIT    (1U<<27)` after the `PD_WRITE_BIT` define, change `FD_ACCDB_SIZE_MASK` to `((1U<<27)-1U)`, add `#define FD_ACCDB_SIZE_SNAPSHOT(p)     (!!((p) & FD_ACCDB_SIZE_SNAPSHOT_BIT))` after the `PD_WRITE(p)` macro, and change the static assert to `FD_STATIC_ASSERT( (10UL<<20) < (1UL<<27), snapshot_bit_collides_with_len );`.
 
-Then run `grep -n 'executable_size' src/flamenco/accdb/fd_accdb.c` and check every write to that field. The two commit sites in `release_inner` rebuild the word from `FD_ACCDB_SIZE_PACK` and must stay as they are (clearing the bit is intended). Every other read-modify-write (cache valid/claim bits, pd-write handling, compaction) must preserve bits it does not own; if one builds the word from scratch, change it to preserve bit 27. List what you found in your report.
+Then audit every write to `executable_size` in `fd_accdb.c`: the two commit sites in `release_inner` rebuild the word (intended); every other read-modify-write must preserve bits it does not own. List what you found in the report.
 
 - [ ] **Step 4: Change the loader**
 
 In `fd_accdb_snapshot_write_batch`:
 
-1. Declare `int live = 0;` next to `skip`, with the comment `/* a node for this pubkey exists that the loader did not write */`.
+1. Declare `fd_accdb_accmeta_t * behind = NULL;` next to `existing` and `cross_existing`, with the comment `/* last node for this pubkey that the loader did not write */`.
 2. In the walk, inside the `if( FD_UNLIKELY( !memcmp( pubkeys[ i ], candidate->key.pubkey, 32UL ) ) ) {` block, make the first statement:
 
 ```c
         if( FD_UNLIKELY( !FD_ACCDB_SIZE_SNAPSHOT( candidate->executable_size ) ) ) {
-          live = 1;
-          break;
+          behind   = candidate;
+          next_acc = candidate->map.next;
+          continue;
         }
 ```
 
-3. Right after the existing `if( FD_UNLIKELY( skip ) ) { ... continue; }` block, add:
+3. Move the four field assignments (`accmeta->cache_idx`, `accmeta->lamports`, `accmeta->executable_size`, `accmeta->offset_fork`) so they happen before the node is linked into the chain, and set the bit:
 
 ```c
-    if( FD_UNLIKELY( live ) ) {
-      /* A live version already holds this key's value at the boot
-         slot, so the snapshot copy is never needed. */
-      results[ i ] = FD_ACCDB_SNAPSHOT_WRITE_LIVE;
-      FD_COMPILER_MFENCE();
-      FD_VOLATILE( accdb->acc_map[ hashes[ i ] ] ) = chain_head;
-      fd_accdb_shmem_bytes_freed( accdb->shmem, file_offsets[ i ], entry_sz );
-      loaded++;
-      continue;
-    }
+    accmeta->cache_idx       = (uint)slots[ i ];
+    accmeta->lamports        = lamports[ i ];
+    accmeta->executable_size = FD_ACCDB_SIZE_PACK( (uint)data_lens[ i ], executables[ i ] )
+                             | FD_ACCDB_SIZE_SNAPSHOT_BIT;
+    ulong file_off           = file_offsets[ i ];
+    accmeta->offset_fork     = incremental ? fd_accdb_acc_pack_offset_fork( file_off, fork_id.val ) : file_off;
+    FD_COMPILER_MFENCE();
 ```
 
-4. Set the bit on both write paths: `accmeta->executable_size = FD_ACCDB_SIZE_PACK( (uint)data_lens[ i ], executables[ i ] ) | FD_ACCDB_SIZE_SNAPSHOT_BIT;`.
-5. In `fd_accdb.h`: add `#define FD_ACCDB_SNAPSHOT_WRITE_LIVE (4) /* a live version exists, nothing written, counted as loaded */` after `REPLACED_CROSS`, and replace the sentence `Snapshot loading excludes non-snapshot accdb operations while these locks are held.` in the doc comment with: `Other readers and writers may run concurrently: every chain head load waits for the lock, loader-written nodes carry FD_ACCDB_SIZE_SNAPSHOT_BIT, slots are compared only against such nodes, and a pubkey that already has a live version is not written (FD_ACCDB_SNAPSHOT_WRITE_LIVE).`
-6. In `src/discof/restore/fd_snapin_tile.c`, where `results[ i ]` is inspected after the batch write (the stake snoop loop and anything else that switches on the result code), treat `FD_ACCDB_SNAPSHOT_WRITE_LIVE` like `IGNORED` (skip). Grep for `FD_ACCDB_SNAPSHOT_WRITE_` in `src/discof` to find every consumer, including tests.
+   For the `existing` (in-place) path this is just a reorder. For a new node the assignments come after `fd_memcpy( accmeta->key.pubkey, ... )` and `accmeta->key.generation = ...` and before the linking below.
+
+4. Replace the linking of a new node (`accmeta->map.next = chain_head; new_head = acc_idx;`) with:
+
+```c
+      if( FD_UNLIKELY( behind ) ) {
+        /* Readers must meet the live version first, so link the
+           loaded node right behind the last live one.  Nothing
+           removes nodes while a load runs (see fd_accdb_purge and
+           fd_accdb_advance_root), so behind stays on the chain. */
+        for(;;) {
+          uint after = FD_VOLATILE_CONST( behind->map.next );
+          accmeta->map.next = after;
+          FD_COMPILER_MFENCE();
+          if( FD_LIKELY( FD_ATOMIC_CAS( &behind->map.next, after, acc_idx )==after ) ) break;
+          FD_SPIN_PAUSE();
+        }
+      } else {
+        accmeta->map.next = chain_head;
+        new_head          = acc_idx;
+      }
+```
+
+   The txn record push for incremental mode stays where it is. The final `FD_VOLATILE( accdb->acc_map[ hashes[ i ] ] ) = new_head;` store remains and doubles as the unlock (with `new_head==chain_head` when the node went behind a live one).
+
+5. In `fd_accdb.h`, in the doc comment of `fd_accdb_snapshot_write_batch`, replace the sentence `Snapshot loading excludes non-snapshot accdb operations while these locks are held.` with: `Live reads and commits may run concurrently with a load: every chain head load waits for the lock, loader-written nodes carry FD_ACCDB_SIZE_SNAPSHOT_BIT, slots are compared only against such nodes, and a new node is linked behind any live version of the same pubkey.  Node removal (purge, root advance) must not run while loader nodes are hidden.`  Remove `FD_ACCDB_SNAPSHOT_WRITE_LIVE` and its consumer branch in `fd_snapin_tile.c` if an earlier attempt added them.
 
 - [ ] **Step 5: Build and run**
 
-Run: `make -j test_accdb test_snapin_accdb && for i in 1 2 3; do build/native/gcc/11.5.0/unit-test/test_accdb --page-sz normal 2>&1 | tail -1; done && build/native/gcc/11.5.0/unit-test/test_snapin_accdb --page-sz normal 2>&1 | tail -1 && make -j BUILDDIR=gcc-racesan EXTRAS=racesan test_accdb_racesan && build/gcc-racesan/unit-test/test_accdb_racesan --page-sz normal 2>&1 | tail -1`
-Expected: all pass.
+Run: `make -j test_accdb test_snapin_accdb && for i in 1 2 3; do build/native/gcc/11.5.0/unit-test/test_accdb --page-sz normal 2>&1 | tail -1; done && build/native/gcc/11.5.0/unit-test/test_snapin_accdb --page-sz normal 2>&1 | tail -1 && make -j BUILDDIR=gcc-racesan EXTRAS=racesan test_accdb_racesan && build/gcc-racesan/unit-test/test_accdb_racesan 2>&1 | tail -1`
+Expected: all pass (racesan with no arguments).
 
 - [ ] **Step 6: Commit**
 
 ```bash
 git add src/flamenco/accdb/fd_accdb_private.h src/flamenco/accdb/fd_accdb.c src/flamenco/accdb/fd_accdb.h src/flamenco/accdb/test_accdb.c src/discof/restore/fd_snapin_tile.c
-git commit -m "accdb: tag loader nodes, skip keys with live versions"
+git commit -m "accdb: tag loader nodes and keep live versions ahead"
 ```
 
 ---
@@ -661,7 +702,9 @@ fd_accdb_show_hidden( fd_accdb_t * accdb,
 }
 ```
 
-In `fd_accdb_reset`, next to `shmem->snapshot_loading = 0;`, add `shmem->snapshot_hidden = 0;`. In `fd_accdb_new` (where the local join fields are zeroed; search for `acquire_state` being initialized), make sure `show_hidden` starts at 0 (if the struct is memset, nothing to add).
+In `fd_accdb_reset`, next to `shmem->snapshot_loading = 0;`, add `shmem->snapshot_hidden = 0;`.
+
+Guard node removal while hidden: in `fd_accdb_advance_root`, next to the existing `FD_CHECK_CRIT` that refuses to run during snapshot production, add `FD_CHECK_CRIT( !FD_VOLATILE_CONST( accdb->shmem->snapshot_hidden ), "root advance while loader nodes are hidden" );` and add the same check at the top of `fd_accdb_purge` (message "purge while loader nodes are hidden"). The loader links nodes behind live ones while hidden, and that is only safe when nothing removes nodes. Add a unit assertion-free note to the doc comments of both functions in `fd_accdb.h`: "Must not be called while fd_accdb_snapshot_hide is in effect." In `fd_accdb_new` (where the local join fields are zeroed; search for `acquire_state` being initialized), make sure `show_hidden` starts at 0 (if the struct is memset, nothing to add).
 
 - [ ] **Step 4: Apply the rule in the five walks**
 
