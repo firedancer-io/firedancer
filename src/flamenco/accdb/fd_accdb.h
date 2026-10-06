@@ -241,6 +241,17 @@ fd_accdb_fork_id_t
 fd_accdb_attach_child( fd_accdb_t *       accdb,
                        fd_accdb_fork_id_t parent_fork_id );
 
+/* fd_accdb_fork_parent returns the id of the fork that fork_id was
+   attached under, or the sentinel (val==USHORT_MAX) if fork_id is the
+   root.  Reading it is only meaningful while fork_id is live: a purge
+   or a root advance can recycle either slot.  The caller is the one
+   that knows a fork and needs the one above it, for example replay
+   rooting the fork of the snapshot its boot fork was created under. */
+
+fd_accdb_fork_id_t
+fd_accdb_fork_parent( fd_accdb_t const * accdb,
+                      fd_accdb_fork_id_t fork_id );
+
 /* fd_accdb_advance_root advances the root of the accounts database to
    the given fork_id.  fork_id must be a direct child of the current
    root (i.e. fork->parent_id equals the current root_fork_id).
@@ -639,6 +650,13 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
          This is the only function T2 should call.
 
      T3 (executor tiles, 1..N): call acquire and release.
+
+   Only one thread may use the command slot at a time, so only one
+   thread may be T1.  The snapshot loader's lead tile takes that role
+   while it creates and roots the forks it loads into, which on a
+   normal boot is before replay runs.  Under instant boot, where
+   replay runs during the load, the loader creates its forks before
+   replay boots and leaves every root advance to replay.
 
    acquire and release may be called concurrently from T1 and any number
    of T3 threads.

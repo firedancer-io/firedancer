@@ -2365,6 +2365,42 @@ finish_stake_state( fd_replay_tile_t * ctx ) {
   fd_rewards_recalculate_partitioned_rewards( bank, ctx->accdb, ctx->runtime_stack, ctx->capture_ctx );
 }
 
+/* instant_boot_load_done takes the forks the background snapshot load
+   built.  By now the loader has unhidden what it wrote, recovered the
+   incremental delta, stopped the boot stream's writer and ended the
+   load, so nothing is left on those forks but the rooting.  Both root
+   advances run here because the accounts database command slot takes
+   one submitter at a time and replay is the live submitter.
+
+   Bank 0's fork is the boot fork and the incremental snapshot's fork
+   is its parent, so the root has to pass through the parent first.
+   Replay's own first root advance then finds its fork's parent
+   rooted.  The forks replay abandoned while the load ran are
+   descendants of the boot fork, so rooting it leaves them in place
+   and they are purged right after. */
+
+static void
+instant_boot_load_done( fd_replay_tile_t * ctx ) {
+  fd_bank_t * bank = fd_banks_bank_query( ctx->banks, FD_REPLAY_BOOT_BANK_SEQ );
+  if( FD_UNLIKELY( !bank ) ) {
+    FD_LOG_CRIT(( "invariant violation: replay bank is NULL at bank index %lu", FD_REPLAY_BOOT_BANK_SEQ ));
+  }
+
+  fd_accdb_fork_id_t boot_fork = bank->accdb_fork_id;
+  fd_accdb_fork_id_t incr_fork = fd_accdb_fork_parent( ctx->accdb, boot_fork );
+  fd_accdb_advance_root( ctx->accdb, incr_fork );
+  fd_accdb_advance_root( ctx->accdb, boot_fork );
+
+  for( ulong i=0UL; i<ctx->deferred_purge_cnt; i++ ) {
+    fd_accdb_purge( ctx->accdb, ctx->deferred_purge[ i ] );
+  }
+  ctx->deferred_purge_cnt = 0UL;
+
+  finish_stake_state( ctx );
+  ctx->load_done = 1;
+  FD_LOG_NOTICE(( "instant boot: snapshot load finished, stake state complete" ));
+}
+
 /* stakes_ready is 0 only under instant boot, where the stake state is
    not available yet and finish_stake_state runs later instead. */
 
@@ -4364,16 +4400,10 @@ after_credit( fd_replay_tile_t *  ctx,
      work can run and every instant boot gate can open.  The counter
      seeds ULONG_MAX, so only a 1 means done.  The loader clears the
      hide flag before it stores the 1, so by the time replay reads it
-     the deferred purges are legal. */
+     the root advances and the deferred purges are legal. */
   if( FD_UNLIKELY( ctx->instant_boot && !ctx->load_done && ctx->is_booted &&
                    FD_VOLATILE_CONST( *ctx->instant_boot_done )==1UL ) ) {
-    finish_stake_state( ctx );
-    for( ulong i=0UL; i<ctx->deferred_purge_cnt; i++ ) {
-      fd_accdb_purge( ctx->accdb, ctx->deferred_purge[ i ] );
-    }
-    ctx->deferred_purge_cnt = 0UL;
-    ctx->load_done          = 1;
-    FD_LOG_NOTICE(( "instant boot: snapshot load finished, stake state complete" ));
+    instant_boot_load_done( ctx );
   }
 
   /* Take back the banks the stream tile has held for too long, before

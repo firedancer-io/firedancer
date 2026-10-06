@@ -2279,7 +2279,11 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         fd_accdb_snapshot_recover_delta( ctx->accdb, ctx->lead.accdb_incr_fork_id );
         /* ensure that snapin tile sees all delta changes before rooting */
         __atomic_thread_fence( __ATOMIC_SEQ_CST );
-        fd_accdb_advance_root( ctx->accdb, ctx->lead.accdb_incr_fork_id );
+        /* The accounts database command slot takes one submitter at a
+           time.  Under instant boot replay is live and submitting its
+           own commands, so it roots both of the loader's forks once it
+           sees the done counter below. */
+        if( FD_LIKELY( !ctx->instant_boot ) ) fd_accdb_advance_root( ctx->accdb, ctx->lead.accdb_incr_fork_id );
         ctx->lead.accdb_root_fork_id = ctx->lead.accdb_incr_fork_id;
         ctx->lead.accdb_incr_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
         /* Rooting the loader's stake fork leaves replay's forks of the
@@ -2289,14 +2293,15 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         fd_stake_delegations_evict_fork( ctx->stake_delegations, stake_fork );
       }
 
-      /* Bank 0's accounts fork is the boot fork, so replay's first root
-         advance after this one roots a child of the boot fork, and the
-         accounts database needs that child's parent to be the root.
-         Root the boot fork here, once its writer has stopped.  The
-         advance waits for the one above it to finish on its own. */
+      /* Replay roots the boot fork after this, and that needs every
+         writer on it to have stopped, so ask the parser to stop and
+         wait for its answer before the done counter goes up.  The
+         incremental fork the root passes through on the way is the one
+         the branch above handled, so instant boot needs an incremental
+         snapshot in the first place. */
       if( FD_UNLIKELY( ctx->instant_boot ) ) {
+        FD_TEST( !ctx->full );
         stream_stop_and_wait( ctx );
-        fd_accdb_advance_root( ctx->accdb, ctx->boot_fork );
       }
 
       fd_accdb_snapshot_load_end( ctx->accdb );

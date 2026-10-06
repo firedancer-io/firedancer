@@ -235,6 +235,45 @@ mock_accdb_attach_child_fn( fd_accdb_t *       accdb FD_PARAM_UNUSED,
   return (fd_accdb_fork_id_t){ .val=++mock_accdb_fork_id_next };
 }
 
+/* The accounts database command slot takes one submitter at a time, so
+   the order replay roots and purges in is worth pinning.  Each call
+   appends whether it was a root advance and which fork it named. */
+
+#define TEST_ACCDB_OP_MAX 8UL
+static int    mock_accdb_op_root[ TEST_ACCDB_OP_MAX ];
+static ushort mock_accdb_op_fork[ TEST_ACCDB_OP_MAX ];
+static ulong  mock_accdb_op_cnt;
+static ushort mock_accdb_parent_child = USHORT_MAX;
+static ushort mock_accdb_parent_val   = USHORT_MAX;
+
+static void
+mock_accdb_op_push( int                root,
+                    fd_accdb_fork_id_t fork_id ) {
+  FD_TEST( mock_accdb_op_cnt<TEST_ACCDB_OP_MAX );
+  mock_accdb_op_root[ mock_accdb_op_cnt ] = root;
+  mock_accdb_op_fork[ mock_accdb_op_cnt ] = fork_id.val;
+  mock_accdb_op_cnt++;
+}
+
+void
+mock_accdb_advance_root_fn( fd_accdb_t *       accdb FD_PARAM_UNUSED,
+                            fd_accdb_fork_id_t fork_id ) {
+  mock_accdb_op_push( 1, fork_id );
+}
+
+void
+mock_accdb_purge_fn( fd_accdb_t *       accdb FD_PARAM_UNUSED,
+                     fd_accdb_fork_id_t fork_id ) {
+  mock_accdb_op_push( 0, fork_id );
+}
+
+fd_accdb_fork_id_t
+mock_accdb_fork_parent_fn( fd_accdb_t const * accdb FD_PARAM_UNUSED,
+                           fd_accdb_fork_id_t fork_id ) {
+  FD_TEST( fork_id.val==mock_accdb_parent_child );
+  return (fd_accdb_fork_id_t){ .val=mock_accdb_parent_val };
+}
+
 void
 mock_runtime_block_execute_prepare_fn( fd_banks_t *         banks FD_PARAM_UNUSED,
                                        fd_bank_t *          bank,
@@ -273,6 +312,9 @@ mock_runtime_block_execute_prepare_fn( fd_banks_t *         banks FD_PARAM_UNUSE
 #define fd_txncache_attach_child             mock_txncache_attach_child_fn
 #define fd_progcache_attach_child            mock_progcache_attach_child_fn
 #define fd_accdb_attach_child                mock_accdb_attach_child_fn
+#define fd_accdb_advance_root                mock_accdb_advance_root_fn
+#define fd_accdb_purge                       mock_accdb_purge_fn
+#define fd_accdb_fork_parent                 mock_accdb_fork_parent_fn
 #define fd_accdb_cmd_pending(a)              ( (a) ? (fd_accdb_cmd_pending)(a) : 0 )
 /* Manifest recovery needs a real manifest; the tests that drive a
    manifest message only care about what replay does with it. */
@@ -4784,6 +4826,45 @@ test_instant_boot_held_start_abandoned( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_instant_boot_held_start_abandoned" ));
 }
 
+/* At load done replay takes over the forks the loader built: it roots
+   the incremental fork, then the boot fork under it, then purges the
+   forks it abandoned while the load ran, and only then finishes the
+   stake state.  Rooting in that order is what lets replay's own first
+   root advance find its fork's parent rooted. */
+
+static void
+test_instant_boot_load_done( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  setup_instant_boot( ctx, wksp );
+
+  fd_bank_t * boot = fd_banks_bank_query( ctx->banks, 0UL );
+  FD_TEST( boot );
+  boot->accdb_fork_id     = (fd_accdb_fork_id_t){ .val=9U };
+  mock_accdb_parent_child = 9U;
+  mock_accdb_parent_val   = 7U;
+
+  static fd_accdb_fork_id_t deferred[ 2 ];
+  deferred[ 0 ]           = (fd_accdb_fork_id_t){ .val=21U };
+  deferred[ 1 ]           = (fd_accdb_fork_id_t){ .val=22U };
+  ctx->deferred_purge     = deferred;
+  ctx->deferred_purge_cnt = 2UL;
+
+  mock_accdb_op_cnt  = 0UL;
+  mock_snapshot_boot = 1;
+  instant_boot_load_done( ctx );
+  mock_snapshot_boot = 0;
+
+  FD_TEST( ctx->load_done );
+  FD_TEST( !ctx->deferred_purge_cnt );
+  FD_TEST( mock_accdb_op_cnt==4UL );
+  FD_TEST(  mock_accdb_op_root[ 0 ] && mock_accdb_op_fork[ 0 ]==7U  );
+  FD_TEST(  mock_accdb_op_root[ 1 ] && mock_accdb_op_fork[ 1 ]==9U  );
+  FD_TEST( !mock_accdb_op_root[ 2 ] && mock_accdb_op_fork[ 2 ]==21U );
+  FD_TEST( !mock_accdb_op_root[ 3 ] && mock_accdb_op_fork[ 3 ]==22U );
+
+  FD_LOG_NOTICE(( "pass: test_instant_boot_load_done" ));
+}
+
 /* Instant boot boots replay from the boot stream's manifest, which
    sits far ahead of the full snapshot this validator holds on disk,
    so that manifest must not become the base slot of the incrementals
@@ -5203,6 +5284,7 @@ main( int     argc,
   test_instant_boot_blocks_leadership( wksp );        fd_wksp_reset( wksp, 42U );
   test_instant_boot_no_incremental_base( wksp, 0 );   fd_wksp_reset( wksp, 42U );
   test_instant_boot_no_incremental_base( wksp, 1 );   fd_wksp_reset( wksp, 42U );
+  test_instant_boot_load_done( wksp );                fd_wksp_reset( wksp, 42U );
   test_strmk_hold_ring( wksp );                       fd_wksp_reset( wksp, 42U );
   test_strmk_txn_keys( wksp );                        fd_wksp_reset( wksp, 42U );
 

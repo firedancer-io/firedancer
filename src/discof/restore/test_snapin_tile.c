@@ -84,6 +84,9 @@ static ulong test_parser_call_cnt;
 static ulong test_accdb_advance_root_cnt;
 static ulong test_accdb_load_begin_cnt;
 static ulong test_accdb_load_end_cnt;
+static ulong test_accdb_hide_cnt;
+static int   test_accdb_hidden;
+static int   test_accdb_show_hidden;
 static ulong test_accdb_flush_metrics_cnt;
 static ulong test_accdb_recover_delta_cnt;
 static ulong test_accdb_save_whead_cnt;
@@ -162,6 +165,8 @@ test_stem_publish( fd_stem_context_t * stem,
 #define fd_accdb_advance_root                        mock_accdb_advance_root
 #define fd_accdb_snapshot_load_begin                 mock_accdb_snapshot_load_begin
 #define fd_accdb_snapshot_load_end                   mock_accdb_snapshot_load_end
+#define fd_accdb_snapshot_hide                       mock_accdb_snapshot_hide
+#define fd_accdb_show_hidden                         mock_accdb_show_hidden
 #define fd_accdb_flush_metrics                       mock_accdb_flush_metrics
 #define fd_accdb_snapshot_recover_delta              mock_accdb_snapshot_recover_delta
 #define fd_accdb_snapshot_save_whead                 mock_accdb_snapshot_save_whead
@@ -212,6 +217,8 @@ test_padded_sz( ulong used ) {
 #undef fd_accdb_snapshot_save_whead
 #undef fd_accdb_snapshot_recover_delta
 #undef fd_accdb_flush_metrics
+#undef fd_accdb_show_hidden
+#undef fd_accdb_snapshot_hide
 #undef fd_accdb_snapshot_load_end
 #undef fd_accdb_snapshot_load_begin
 #undef fd_accdb_advance_root
@@ -265,6 +272,8 @@ record_txncache_attach_child( fd_txncache_t *       txncache,
 
 void mock_accdb_reset                            ( fd_accdb_t * accdb ) { (void)accdb; test_file_off=0UL; test_accdb_reset_cnt++; }
 void mock_accdb_snapshot_load_end                ( fd_accdb_t * accdb ) { (void)accdb; test_accdb_load_end_cnt++;      }
+void mock_accdb_snapshot_hide( fd_accdb_t * accdb, int hide ) { (void)accdb; test_accdb_hide_cnt++;         test_accdb_hidden      = hide; }
+void mock_accdb_show_hidden  ( fd_accdb_t * accdb, int show ) { (void)accdb; test_accdb_show_hidden = show; }
 void mock_accdb_flush_metrics                    ( fd_accdb_t * accdb ) { (void)accdb; test_accdb_flush_metrics_cnt++; }
 
 fd_accdb_fork_id_t
@@ -606,6 +615,9 @@ test_counters_reset( void ) {
   test_accdb_advance_root_cnt   = 0UL;
   test_accdb_load_begin_cnt     = 0UL;
   test_accdb_load_end_cnt       = 0UL;
+  test_accdb_hide_cnt           = 0UL;
+  test_accdb_hidden             = 0;
+  test_accdb_show_hidden        = 0;
   test_accdb_flush_metrics_cnt  = 0UL;
   test_accdb_recover_delta_cnt  = 0UL;
   test_accdb_save_whead_cnt     = 0UL;
@@ -1038,6 +1050,58 @@ test_instant_boot_incr_stake_fork( void ) {
   FD_TEST( !test_accdb_attach_cnt );
   FD_TEST( ctx->lead.accdb_incr_fork_id.val==7U );
   FD_TEST( ctx->shmem->fork_id==7UL );
+}
+
+/* At load end the lead hands the database over instead of rooting it:
+   it unhides what it wrote, recovers the incremental delta, publishes
+   the stake fork, asks the boot stream parser to stop, ends the load
+   and sets the done counter.  Both root advances belong to replay,
+   which owns the accounts database command slot while it runs. */
+
+static void
+test_instant_boot_load_end( void ) {
+  static ulong done_mem[ FD_FSEQ_FOOTPRINT/sizeof(ulong) ] __attribute__((aligned(FD_FSEQ_ALIGN)));
+  ulong const bank_slot = 440123518UL;
+
+  test_cluster_t *   cl  = test_cluster_new( 1UL, 1UL );
+  fd_snapin_tile_t * ctx = &cl->ctx[ 0 ];
+  test_counters_reset();
+
+  ctx->state                   = FD_SNAPSHOT_STATE_FINISHING;
+  ctx->full                    = 0;
+  ctx->instant_boot            = 1;
+  ctx->lead.accdb_incr_fork_id = (fd_accdb_fork_id_t){ .val = 7U };
+  ctx->boot_fork               = (fd_accdb_fork_id_t){ .val = 9U };
+  ctx->lead.done_fseq          = fd_fseq_join( fd_fseq_new( done_mem, 0UL ) );
+  FD_TEST( ctx->lead.done_fseq );
+  cl->shmem->stake_fork        = 3U;
+  /* The parser answers the stop request as soon as it is asked; this
+     harness has no second thread, so the answer is staged here.  The
+     lead spins until it sees it, so a load end that reached the
+     handshake is the only one that gets any further. */
+  cl->shmem->stream_stopped    = 1UL;
+
+  test_stamp_sysvars( cl, bank_slot );
+  ctx->lead.manifest_capitalization = 0UL;
+
+  cluster_barrier( cl, FD_SNAPSHOT_MSG_CTRL_DONE );
+
+  FD_TEST( test_accdb_hide_cnt==1UL && !test_accdb_hidden && !test_accdb_show_hidden );
+  FD_TEST( test_accdb_recover_delta_cnt==1UL );
+  FD_TEST( test_stake_publish_cnt==1UL && test_stake_publish_fork==3U );
+  FD_TEST( test_stake_evict_cnt==1UL   && test_stake_evict_fork==3U   );
+  FD_TEST( cl->shmem->stream_stop==1UL );
+  FD_TEST( test_accdb_load_end_cnt==1UL );
+  FD_TEST( fd_fseq_query( ctx->lead.done_fseq )==1UL );
+
+  /* Replay roots the incremental and the boot fork, and takes the
+     features from the boot stream. */
+  FD_TEST( !test_accdb_advance_root_cnt );
+  FD_TEST( !test_feature_restore_cnt );
+  FD_TEST( !ctx->lead.init_completed );
+  FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
+
+  test_cluster_delete( cl );
 }
 
 /* Under instant boot the incremental snapshot and the boot stream both
@@ -3211,6 +3275,7 @@ main( int     argc,
   test_control_barriers();
   test_all_control_barriers_and_final_payload();
   test_instant_boot_incr_stake_fork();
+  test_instant_boot_load_end();
   test_instant_boot_slot_checks();
   test_fast_lane_control_pipeline();
   test_pending_control_allows_lagging_data();

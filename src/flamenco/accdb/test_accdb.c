@@ -410,6 +410,25 @@ test_fork_basic( void ) {
   test_teardown( accdb, fd );
 }
 
+/* The parent of a fork is readable so a caller that only knows a leaf
+   can walk up to the fork above it. */
+
+void
+test_fork_parent( void ) {
+  int fd;
+  fd_accdb_t * accdb = test_setup( &fd, 1024UL, 64UL, 8192UL, 8192UL, 1UL<<30UL );
+
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( accdb, SENTINEL );
+  fd_accdb_fork_id_t f1   = fd_accdb_attach_child( accdb, root );
+  fd_accdb_fork_id_t f2   = fd_accdb_attach_child( accdb, f1 );
+
+  FD_TEST( fd_accdb_fork_parent( accdb, f2   ).val==f1.val );
+  FD_TEST( fd_accdb_fork_parent( accdb, f1   ).val==root.val );
+  FD_TEST( fd_accdb_fork_parent( accdb, root ).val==USHORT_MAX );
+
+  test_teardown( accdb, fd );
+}
+
 void
 test_root_forks( void ) {
   int fd;
@@ -2634,6 +2653,9 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "test_fork_basic ..." ));
   test_fork_basic();
+
+  FD_LOG_NOTICE(( "test_fork_parent ..." ));
+  test_fork_parent();
 
   FD_LOG_NOTICE(( "test_root_forks ..." ));
   test_root_forks();
