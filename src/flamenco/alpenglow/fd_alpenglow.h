@@ -70,8 +70,14 @@ fd_alpenglow_rewards_apply( fd_bank_t *               bank,
                             fd_capture_ctx_t *        capture_ctx,
                             fd_block_footer_t const * footer );
 
-/* https://github.com/anza-xyz/agave/blob/v4.3.0/runtime/src/block_component_processor.rs#L492-L558
-   https://github.com/anza-xyz/agave/blob/v4.3.0/runtime/src/bank.rs#L3450-L3465 */
+
+/* fd_alpenglow_genesis_cert_apply processes the genesis certificate
+   marker of the first Alpenglow block (the child of the Alpenglow
+   genesis block).  It performs validity checks on the bank and the
+   genesis certificate and then writes the genesis certificate PDA.
+
+   It is equivalent to Agave's process_unvalidated_genesis_cert_block_marker:
+   https://github.com/anza-xyz/agave/blob/v4.3.0/runtime/src/block_component_processor.rs#L492-L558 */
 
 int
 fd_alpenglow_genesis_cert_apply( fd_bank_t *                      bank,

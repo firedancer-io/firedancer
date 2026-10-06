@@ -619,6 +619,20 @@ timing_slot_release( fd_replay_tile_t * ctx,
 }
 
 static int
+replay_genesis_cert( fd_replay_tile_t * ctx,
+                     ulong              bank_idx,
+                     ulong              parent_bank_idx ) {
+  fd_bank_t *                      bank = fd_banks_bank_query( ctx->banks, bank_idx );
+  fd_genesis_cert_marker_t const * cert = fd_sched_get_genesis_cert( ctx->sched, bank_idx );
+  if( FD_UNLIKELY( !cert ) ) {
+    /* https://github.com/anza-xyz/agave/blob/v4.3.0/runtime/src/block_component_processor.rs#L321-L365 */
+    return bank->f.alpenglow_migration_slot==ULONG_MAX && bank->f.parent_slot!=0UL ? -1 : 0;
+  }
+  fd_hash_t const * parent_block_id = &ctx->block_id_arr[ parent_bank_idx ].dmr;
+  return fd_alpenglow_genesis_cert_apply( bank, ctx->accdb, ctx->capture_ctx, cert, parent_block_id, ctx->shred_version );
+}
+
+static void
 replay_block_start( fd_replay_tile_t * ctx,
                     ulong              bank_idx,
                     ulong              parent_bank_idx,
@@ -667,20 +681,6 @@ replay_block_start( fd_replay_tile_t * ctx,
   int is_epoch_boundary = 0;
   fd_runtime_block_execute_prepare( ctx->banks, bank, ctx->accdb, ctx->runtime_stack, ctx->capture_ctx, &is_epoch_boundary );
 
-  int dead_reason = FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_NOT_DEAD;
-  if( FD_UNLIKELY( ctx->alpenglow ) ) {
-    fd_genesis_cert_marker_t const * cert = fd_sched_get_genesis_cert( ctx->sched, bank_idx );
-    if( FD_UNLIKELY( !cert && bank->f.alpenglow_migration_slot==ULONG_MAX && bank->f.parent_slot!=0UL ) ) {
-      /* https://github.com/anza-xyz/agave/blob/v4.3.0/runtime/src/block_component_processor.rs#L321-L365 */
-      dead_reason = FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_BAD_BLOCK_MARKER;
-    } else if( cert ) {
-      fd_hash_t const * parent_block_id = &ctx->block_id_arr[ parent_bank_idx ].dmr;
-      if( FD_UNLIKELY( fd_alpenglow_genesis_cert_apply( bank, ctx->accdb, ctx->capture_ctx, cert, parent_block_id, ctx->shred_version ) ) ) {
-        dead_reason = FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_BAD_BLOCK_MARKER;
-      }
-    }
-  }
-
   ulong max_tick_height;
   if( FD_UNLIKELY( FD_RUNTIME_EXECUTE_SUCCESS!=fd_runtime_compute_max_tick_height( parent_bank->f.ticks_per_slot, slot, &max_tick_height ) ) ) {
     FD_LOG_CRIT(( "couldn't compute tick height/max tick height slot %lu ticks_per_slot %lu", slot, parent_bank->f.ticks_per_slot ));
@@ -697,7 +697,6 @@ replay_block_start( fd_replay_tile_t * ctx,
   fd_sched_set_poh_params( ctx->sched, bank->idx, bank->f.tick_height, bank->f.max_tick_height, bank->f.slot_params.hashes_per_tick, &parent_bank->f.poh );
 
   FD_LOG_DEBUG(( "replay_block_start: bank_idx=%lu slot=%lu parent_bank_idx=%lu", bank_idx, slot, parent_bank_idx ));
-  return dead_reason;
 }
 
 static void
@@ -2955,11 +2954,12 @@ try_replay( fd_replay_tile_t *  ctx,
 
   switch( task->task_type ) {
     case FD_SCHED_TT_BLOCK_START: {
-      ulong bank_idx    = task->block_start->bank_idx;
-      int   dead_reason = replay_block_start( ctx, bank_idx, task->block_start->parent_bank_idx, task->block_start->slot );
+      ulong bank_idx        = task->block_start->bank_idx;
+      ulong parent_bank_idx = task->block_start->parent_bank_idx;
+      replay_block_start( ctx, bank_idx, parent_bank_idx, task->block_start->slot );
       fd_sched_task_done( ctx->sched, FD_SCHED_TT_BLOCK_START, ULONG_MAX, ULONG_MAX, NULL );
-      if( FD_UNLIKELY( dead_reason!=FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_NOT_DEAD ) ) {
-        mark_bank_dead( ctx, stem, bank_idx, dead_reason, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED, NULL );
+      if( FD_UNLIKELY( ctx->alpenglow && replay_genesis_cert( ctx, bank_idx, parent_bank_idx ) ) ) {
+        mark_bank_dead( ctx, stem, bank_idx, FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_BAD_BLOCK_MARKER, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED, NULL );
         fd_sched_block_abandon( ctx->sched, bank_idx, FD_SCHED_ABANDON_INVALID );
       }
       break;

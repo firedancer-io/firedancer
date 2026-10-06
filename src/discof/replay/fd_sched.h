@@ -541,6 +541,11 @@ fd_sched_get_shred_cnt( fd_sched_t * sched, ulong bank_idx );
 fd_block_footer_t const *
 fd_sched_get_footer( fd_sched_t * sched, ulong bank_idx );
 
+/* fd_sched_get_genesis_cert returns the block's genesis certificate
+   marker, or NULL if the block does not contain one.  Note that only
+   the first Alpenglow block (the child of the Alpenglow genesis block)
+   will contain a genesis certificate.  The marker stays valid until
+   the block is pruned. */
 fd_genesis_cert_marker_t const *
 fd_sched_get_genesis_cert( fd_sched_t * sched, ulong bank_idx );
 
