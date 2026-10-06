@@ -549,6 +549,7 @@ struct fd_replay_tile {
   ulong                    strmk_in_idx; /* in link the stream tile returns banks on, ULONG_MAX if none */
   fd_sched_keys_t          strmk_keys[1];
   fd_sched_keys_walk_t *   strmk_walk;   /* parse cursor for the block we are producing, which sched never sees */
+  uchar *                  strmk_fed;    /* [max_live_slots] 1 if the block's start went out and the tile is tracking it */
 
   /* Buffer to store vote towers that need to be published to the Tower
      tile. */

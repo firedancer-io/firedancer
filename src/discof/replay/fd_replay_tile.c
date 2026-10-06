@@ -188,6 +188,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
     l = FD_LAYOUT_APPEND( l, alignof(fd_acct_addr_t),           FD_SCHED_INGEST_ADDR_MAX*sizeof(fd_acct_addr_t) );
     l = FD_LAYOUT_APPEND( l, alignof(fd_acct_addr_t),           FD_SCHED_INGEST_ADDR_MAX*sizeof(fd_acct_addr_t) );
     l = FD_LAYOUT_APPEND( l, alignof(fd_sched_keys_walk_t),     sizeof(fd_sched_keys_walk_t) );
+    l = FD_LAYOUT_APPEND( l, 1UL,                               tile->replay.max_live_slots );
   }
 
   if( FD_UNLIKELY( tile->replay.dump_block_to_pb ) ) {
@@ -621,6 +622,11 @@ publish_replay_out( fd_replay_tile_t *  ctx,
 /* Boot stream serving                                                */
 /**********************************************************************/
 
+static int
+epoch_rewards_pending( fd_replay_tile_t * ctx,
+                       ulong              parent_bank_idx,
+                       ulong              slot );
+
 /* strmk_publish sends one boot stream message, which the caller has
    already written at the head of the link.  The stream tile is an
    unreliable consumer, so this never waits and never spends flow
@@ -822,6 +828,18 @@ static void
 strmk_block_start( fd_replay_tile_t *     ctx,
                    fd_stem_context_t *    stem,
                    fd_sched_fec_t const * sched_fec ) {
+  /* A stream never crosses an epoch boundary or an epoch rewards
+     payout: those credit stake accounts that no transaction in the
+     block names, so the block's accounts cannot be carried.  The
+     stream tile is told to start over and the block is left out of
+     the feed entirely.  Every block while the condition holds resets
+     again, which costs nothing because the tile has nothing open. */
+  ctx->strmk_fed[ sched_fec->bank_idx ] = 0;
+  if( FD_UNLIKELY( epoch_rewards_pending( ctx, sched_fec->parent_bank_idx, sched_fec->slot ) ) ) {
+    strmk_reset( ctx, stem, "a block crosses an epoch boundary or an epoch rewards payout" );
+    return;
+  }
+
   fd_bank_t * bank   = fd_banks_bank_query( ctx->banks, sched_fec->bank_idx );
   fd_bank_t * parent = fd_banks_bank_query( ctx->banks, sched_fec->parent_bank_idx );
   FD_TEST( bank && parent );
@@ -836,6 +854,18 @@ strmk_block_start( fd_replay_tile_t *     ctx,
     .hold_token      = token
   };
   strmk_publish( ctx, stem, FD_STRMK_SIG_BLOCK_START, sizeof(fd_strmk_block_start_t) );
+  ctx->strmk_fed[ sched_fec->bank_idx ] = 1;
+}
+
+/* strmk_stream_start_ok returns 1 if a new stream may chain off bank.
+   A stream never crosses an epoch boundary or an epoch rewards
+   payout, so the block right after the snapshot's has to be clear of
+   both; otherwise the stream would break on its first block. */
+
+static int
+strmk_stream_start_ok( fd_replay_tile_t * ctx,
+                       fd_bank_t *        bank ) {
+  return ctx->instant_boot_serve && !epoch_rewards_pending( ctx, bank->idx, bank->f.slot+1UL );
 }
 
 /* strmk_keys_arm points the scheduler at replay's key sink for one
@@ -882,6 +912,7 @@ static void
 strmk_txn_keys( fd_replay_tile_t *     ctx,
                 fd_stem_context_t *    stem,
                 fd_sched_fec_t const * sched_fec ) {
+  if( FD_UNLIKELY( !ctx->strmk_fed[ sched_fec->bank_idx ] ) ) return;
   if( FD_UNLIKELY( ctx->strmk_keys->full ) ) {
     strmk_reset( ctx, stem, "a block named more accounts than the key sink holds" );
     return;
@@ -1565,7 +1596,7 @@ publish_slot_completed( fd_replay_tile_t *        ctx,
   /* Close the block out on the boot streams, naming the fee collector
      that no transaction in the block names.  The initial boot block is
      not streamed: it was never replayed, so it has no block start. */
-  if( FD_UNLIKELY( ctx->instant_boot_serve && !is_initial ) ) {
+  if( FD_UNLIKELY( ctx->instant_boot_serve && !is_initial && ctx->strmk_fed[ bank->idx ] ) ) {
     /* The fork was created when the block started executing, so a
        block that completed always has one. */
     FD_TEST( bank->parent_accdb_fork_id.val!=USHORT_MAX );
@@ -1573,11 +1604,14 @@ publish_slot_completed( fd_replay_tile_t *        ctx,
     msg->slot                 = slot;
     msg->bank_idx             = bank->idx;
     msg->bank_seq             = bank->bank_seq;
-    msg->parent_bank_seq      = slot_info->parent_bank_seq;
+    msg->parent_bank_seq      = parent_bank ? parent_bank->bank_seq : ULONG_MAX;
     msg->txn_cnt              = bank->f.txn_count;
     msg->parent_accdb_fork_id = bank->parent_accdb_fork_id;
-    fd_runtime_fee_collector( bank, &msg->collector );
+    /* A block whose leader is unknown paid no fee reward, so it wrote
+       no collector and there is none to carry. */
+    if( FD_UNLIKELY( !fd_runtime_fee_collector( bank, &msg->collector ) ) ) msg->collector = (fd_pubkey_t){0};
     strmk_publish( ctx, stem, FD_STRMK_SIG_BLOCK_END, sizeof(fd_strmk_block_end_t) );
+    ctx->strmk_fed[ bank->idx ] = 0;
     /* The stream tile reads the block's accounts from here. */
     if( FD_LIKELY( parent_bank ) ) strmk_hold_read( ctx, stem, parent_bank->idx );
   }
@@ -3277,7 +3311,7 @@ mark_bank_dead( fd_replay_tile_t *        ctx,
     timing_slot_release( ctx, dead_idxs[ i ] );
 
     /* Tell the stream tile to drop a block that will never complete. */
-    if( FD_UNLIKELY( ctx->instant_boot_serve ) ) {
+    if( FD_UNLIKELY( ctx->instant_boot_serve && ctx->strmk_fed[ dead_idxs[ i ] ] ) ) {
       /* fd_banks_bank_query does not bound check, so the sentinel
          parent index of a root has to be filtered out here. */
       fd_bank_t * parent = bank && bank->parent_idx!=ULONG_MAX ? fd_banks_bank_query( ctx->banks, bank->parent_idx ) : NULL;
@@ -3288,6 +3322,7 @@ mark_bank_dead( fd_replay_tile_t *        ctx,
                                      .parent_bank_seq      = parent ? parent->bank_seq : ULONG_MAX,
                                      .parent_accdb_fork_id = { .val = USHORT_MAX } };
       strmk_publish( ctx, stem, FD_STRMK_SIG_BLOCK_DEAD, sizeof(fd_strmk_block_end_t) );
+      ctx->strmk_fed[ dead_idxs[ i ] ] = 0;
       /* The tile drops the block from here, so the same deadline
          applies as for one it writes. */
       if( FD_LIKELY( bank ) ) strmk_hold_read( ctx, stem, bank->parent_idx );
@@ -3301,13 +3336,16 @@ mark_bank_dead( fd_replay_tile_t *        ctx,
   }
 }
 
-/* block_needs_stake_state returns 1 if replaying slot off the bank at
-   parent_bank_idx would read stake state that instant boot has not
-   rebuilt yet: an epoch boundary crosses it, or an epoch rewards
-   payout is in progress. */
+/* epoch_rewards_pending returns 1 if replaying slot off the bank at
+   parent_bank_idx crosses an epoch boundary or lands in an epoch
+   rewards payout.  Either one credits stake accounts that no
+   transaction in the block names, which matters twice over: a
+   validator booting off a stream has not rebuilt the stake state yet,
+   and a boot stream cannot carry the accounts of such a block at
+   all. */
 
 static int
-block_needs_stake_state( fd_replay_tile_t * ctx,
+epoch_rewards_pending( fd_replay_tile_t * ctx,
                          ulong              parent_bank_idx,
                          ulong              slot ) {
   fd_bank_t * parent = fd_banks_bank_query( ctx->banks, parent_bank_idx );
@@ -3334,7 +3372,7 @@ block_start_blocked( fd_replay_tile_t * ctx,
   ulong marker = FD_VOLATILE_CONST( *ctx->instant_boot_slot );
   marker = fd_ulong_if( marker==ULONG_MAX, 0UL, marker );
   if( FD_UNLIKELY( slot>marker ) ) return 1;
-  return block_needs_stake_state( ctx, parent_bank_idx, slot );
+  return epoch_rewards_pending( ctx, parent_bank_idx, slot );
 }
 
 /* held_block_start_live returns 1 if the parked block start can still
@@ -5342,7 +5380,7 @@ snapmk_start( fd_replay_tile_t *  ctx,
   /* An incremental snapshot is the base a boot stream chains off, so
      ask the stream tile to start one and hold its bank.  A full
      snapshot starts no stream. */
-  if( FD_UNLIKELY( ctx->instant_boot_serve && incremental ) ) {
+  if( FD_UNLIKELY( incremental && strmk_stream_start_ok( ctx, bank ) ) ) {
     ulong token = strmk_hold_add( ctx, stem, ctx->strmk_base_hold, bank );
     fd_strmk_stream_start_t * start = fd_chunk_to_laddr( ctx->strmk_out->mem, ctx->strmk_out->chunk );
     *start = (fd_strmk_stream_start_t){ .slot = bank->f.slot, .bank_idx = bank->idx, .hold_token = token };
@@ -5892,6 +5930,8 @@ unprivileged_init( fd_topo_t const *      topo,
                               FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_acct_addr_t),       FD_SCHED_INGEST_ADDR_MAX*sizeof(fd_acct_addr_t) ) : NULL;
   void * strmk_walk_mem     = tile->replay.instant_boot_serve ?
                               FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sched_keys_walk_t), sizeof(fd_sched_keys_walk_t) ) : NULL;
+  void * strmk_fed_mem      = tile->replay.instant_boot_serve ?
+                              FD_SCRATCH_ALLOC_APPEND( l, 1UL,                           tile->replay.max_live_slots ) : NULL;
   void * block_dump_ctx     = NULL;
   if( FD_UNLIKELY( tile->replay.dump_block_to_pb ) ) {
     block_dump_ctx = FD_SCRATCH_ALLOC_APPEND( l, fd_block_dump_context_align(), fd_block_dump_context_footprint() );
@@ -6057,6 +6097,8 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->strmk_keys->tables->cnt = 0UL;
   ctx->strmk_keys->tables->key = strmk_table_mem;
   ctx->strmk_walk              = strmk_walk_mem;
+  ctx->strmk_fed               = strmk_fed_mem;
+  if( FD_UNLIKELY( ctx->strmk_fed ) ) memset( ctx->strmk_fed, 0, tile->replay.max_live_slots );
 
   ctx->strmk_hold_seq             = 0UL;
   ctx->strmk_start_hold->deadline = FD_REPLAY_STRMK_BACKSTOP_NS;

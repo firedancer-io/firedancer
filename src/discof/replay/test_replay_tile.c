@@ -431,6 +431,7 @@ setup_stem( fd_replay_tile_t * ctx, fd_wksp_t * wksp ) {
 }
 
 static ulong test_timing_of_bank[ TEST_BANKS_MAX ];
+static uchar test_strmk_fed[ TEST_BANKS_MAX ];
 
 static void
 setup_timing( fd_replay_tile_t * ctx,
@@ -444,6 +445,8 @@ setup_timing( fd_replay_tile_t * ctx,
   ctx->timing_rec = fd_wksp_alloc_laddr( wksp, alignof(fd_replay_txn_timing_t), FD_REPLAY_TXN_TIMING_SLOTS*ctx->max_txn_per_slot*sizeof(fd_replay_txn_timing_t), 1UL );
   FD_TEST( ctx->timing_rec );
   ctx->timing_slot_of_bank = test_timing_of_bank;
+  ctx->strmk_fed           = test_strmk_fed;
+  memset( ctx->strmk_fed, 0, sizeof(test_strmk_fed) );
   for( ulong i=0UL; i<TEST_BANKS_MAX; i++ ) ctx->timing_slot_of_bank[ i ] = fd_timing_slot_pool_idx_null( ctx->timing_slot_pool );
   ctx->backfill_path = fd_wksp_alloc_laddr( wksp, alignof(fd_reasm_fec_t *), (ctx->max_shreds_per_block/FD_FEC_SHRED_CNT)*sizeof(fd_reasm_fec_t *), 1UL );
   FD_TEST( ctx->backfill_path );
@@ -5163,12 +5166,14 @@ test_strmk_hold_ring( fd_wksp_t * wksp ) {
   strmk_hold_expire( ctx, test_stem, &charge_busy );
   FD_TEST( charge_busy && !child->refcnt );
 
-  /* The backstop still applies while a stream is being opened. */
+  /* The backstop still applies while a stream is being opened.  The
+     base hold is taken after the clock has run on, so only the read
+     entry is overdue and it is the read ring that fires. */
   charge_busy = 0;
-  strmk_hold_add( ctx, test_stem, ctx->strmk_base_hold,  bank  );
   strmk_hold_add( ctx, test_stem, ctx->strmk_start_hold, child );
   strmk_hold_read( ctx, test_stem, child->idx );
   test_stem->now += back_due+1L;
+  strmk_hold_add( ctx, test_stem, ctx->strmk_base_hold, bank );
   strmk_hold_expire( ctx, test_stem, &charge_busy );
   FD_TEST( charge_busy && bank->refcnt==refcnt0 && !child->refcnt );
 
@@ -5234,6 +5239,7 @@ test_strmk_txn_keys( fd_wksp_t * wksp ) {
   ctx->strmk_keys->tables->key = table;
 
   fd_sched_fec_t fec[ 1 ] = {{ .bank_idx = 3UL, .slot = 7UL }};
+  ctx->strmk_fed[ 3 ] = 1;
   ulong strmk = ctx->strmk_out->idx;
   ulong seq0  = test_stem_seqs[ strmk ];
   strmk_txn_keys( ctx, test_stem, fec );
@@ -5286,6 +5292,7 @@ test_strmk_txn_keys( fd_wksp_t * wksp ) {
   FD_TEST( dead );
   ctx->block_id_arr[ dead->idx ].slot     = 9UL;
   ctx->block_id_arr[ dead->idx ].bank_seq = dead->bank_seq;
+  ctx->strmk_fed[ dead->idx ]             = 1;
   seq0 = test_stem_seqs[ strmk ];
   mark_bank_dead( ctx, test_stem, dead->idx, FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_NOT_DEAD,
                   FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_PRUNED, NULL );
@@ -5299,6 +5306,88 @@ test_strmk_txn_keys( fd_wksp_t * wksp ) {
   FD_TEST( fd_hash_check_zero( fd_type_pun_const( &end->collector ) ) );
 
   FD_LOG_NOTICE(( "pass: test_strmk_txn_keys" ));
+}
+
+/* A stream never crosses an epoch boundary or an epoch rewards
+   payout: both credit stake accounts that no transaction in the block
+   names, so the block's accounts cannot be carried. */
+
+static void
+test_strmk_epoch_boundary( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  setup_ctx( ctx, wksp );
+  ctx->instant_boot_serve         = 1;
+  ctx->strmk_start_hold->deadline = FD_REPLAY_STRMK_BACKSTOP_NS;
+
+  fd_bank_t * root = fd_banks_bank_query( ctx->banks, ctx->published_root_bank_idx );
+  FD_TEST( root );
+  fd_bank_t * child = fd_banks_new_bank( ctx->banks, root->idx, 0L, 0 );
+  FD_TEST( child );
+  ulong refcnt0 = root->refcnt;
+  ulong strmk   = ctx->strmk_out->idx;
+
+  /* The epoch schedule setup_ctx builds puts slot 128 in the next
+     epoch, so a block there is on the far side of a boundary. */
+  FD_TEST( fd_slot_to_epoch( &root->f.epoch_schedule, 128UL, NULL )>root->f.epoch );
+  fd_sched_fec_t fec[ 1 ] = {{ .bank_idx = child->idx, .parent_bank_idx = root->idx, .slot = 128UL }};
+
+  ulong seq0 = test_stem_seqs[ strmk ];
+  strmk_block_start( ctx, test_stem, fec );
+  FD_TEST( test_stem_seqs[ strmk ]==seq0+1UL );
+  fd_frag_meta_t const * meta = test_stem_mcaches[ strmk ] + fd_mcache_line_idx( seq0, test_stem_depths[ strmk ] );
+  FD_TEST( meta->sig==FD_STRMK_SIG_RESET );
+  FD_TEST( !ctx->strmk_fed[ child->idx ] );
+  FD_TEST( root->refcnt==refcnt0 );
+  FD_TEST( ctx->strmk_start_hold->head==ctx->strmk_start_hold->tail );
+
+  /* A parent in the middle of paying epoch rewards is the same story,
+     whatever slot the block is in. */
+  root->stake_rewards_fork_id = 0;
+  fec->slot                   = 1UL;
+  seq0                        = test_stem_seqs[ strmk ];
+  strmk_block_start( ctx, test_stem, fec );
+  FD_TEST( test_stem_seqs[ strmk ]==seq0+1UL );
+  meta = test_stem_mcaches[ strmk ] + fd_mcache_line_idx( seq0, test_stem_depths[ strmk ] );
+  FD_TEST( meta->sig==FD_STRMK_SIG_RESET );
+  FD_TEST( !ctx->strmk_fed[ child->idx ] );
+  FD_TEST( root->refcnt==refcnt0 );
+
+  /* A block the stream can carry gets its start and its hold. */
+  root->stake_rewards_fork_id = USHORT_MAX;
+  seq0                        = test_stem_seqs[ strmk ];
+  strmk_block_start( ctx, test_stem, fec );
+  FD_TEST( test_stem_seqs[ strmk ]==seq0+1UL );
+  meta = test_stem_mcaches[ strmk ] + fd_mcache_line_idx( seq0, test_stem_depths[ strmk ] );
+  FD_TEST( meta->sig==FD_STRMK_SIG_BLOCK_START );
+  FD_TEST( ctx->strmk_fed[ child->idx ] );
+  FD_TEST( root->refcnt==refcnt0+1UL );
+
+  /* And nothing is published for a block that was left out of the
+     feed, however far it gets. */
+  ctx->strmk_fed[ child->idx ] = 0;
+  seq0                         = test_stem_seqs[ strmk ];
+  ctx->strmk_keys->keys->cnt   = 0UL;
+  ctx->strmk_keys->tables->cnt = 0UL;
+  strmk_txn_keys( ctx, test_stem, fec );
+  FD_TEST( test_stem_seqs[ strmk ]==seq0 );
+
+  /* The same predicate keeps a stream from opening at all while a
+     payout is running at the root. */
+  FD_TEST( strmk_stream_start_ok( ctx, root ) );
+  root->stake_rewards_fork_id = 0;
+  FD_TEST( !strmk_stream_start_ok( ctx, root ) );
+  root->stake_rewards_fork_id = USHORT_MAX;
+  root->f.slot                = 127UL;
+  FD_TEST( !strmk_stream_start_ok( ctx, root ) );
+
+  /* A block whose leader is unknown has no fee reward and so no
+     collector, and asking for one says so instead of aborting. */
+  fd_pubkey_t collector[ 1 ];
+  memset( collector, 0xcd, sizeof(fd_pubkey_t) );
+  FD_TEST( !fd_runtime_fee_collector( child, collector ) );
+  for( ulong i=0UL; i<sizeof(fd_pubkey_t); i++ ) FD_TEST( collector->uc[ i ]==0xcd );
+
+  FD_LOG_NOTICE(( "pass: test_strmk_epoch_boundary" ));
 }
 
 int
@@ -5375,6 +5464,7 @@ main( int     argc,
   test_instant_boot_load_done( wksp );                fd_wksp_reset( wksp, 42U );
   test_strmk_hold_ring( wksp );                       fd_wksp_reset( wksp, 42U );
   test_strmk_txn_keys( wksp );                        fd_wksp_reset( wksp, 42U );
+  test_strmk_epoch_boundary( wksp );                  fd_wksp_reset( wksp, 42U );
 
   FD_TEST( mock_store_view_success_cnt==mock_store_view_release_cnt );
 
