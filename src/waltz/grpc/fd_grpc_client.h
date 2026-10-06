@@ -97,8 +97,8 @@ struct fd_grpc_client_callbacks {
   void
   (* conn_established)( void * app_ctx );
 
-  /* conn_dead is called when the HTTP/2 connection ends.  To recover
-     from this condition, call fd_grpc_client_reset(). */
+  /* conn_dead is called when the HTTP/2 connection ends.  To recover,
+     call fd_grpc_client_reset() after the invoking call returns. */
 
   void
   (* conn_dead)( void * app_ctx,
@@ -212,7 +212,8 @@ fd_grpc_client_tx_starved( fd_grpc_client_t const * client );
 
 /* fd_grpc_client_reset cancels all inflight requests and abandons the
    HTTP/2 client connection.  Config params are kept intact (e.g. host,
-   port, version). */
+   port, version).  Defer reset requested by a client callback until
+   the call that invoked the callback returns. */
 
 void
 fd_grpc_client_reset( fd_grpc_client_t * client );
