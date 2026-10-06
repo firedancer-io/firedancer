@@ -54,6 +54,6 @@
                 "parent_blockhash":                   { "type": "Hash",    "description": "Parent blockhash seeding the partition hasher" }
             }
         },
-        "vat_burn_per_vote_account": { "type": "UInt64",                               "description": "Lamports burned from every admitted vote account at this boundary (SIMD-0357 VAT; alpenglow only, 0 otherwise). The burned set is exactly this boundary's runtime_vote_account rows, so the aggregate burned is this value times that row count. The debits are not emitted as account diffs, and the incinerator credit is not observable in runtime_block.other_diffs either: the incinerator is drained to zero later in the same block by fd_runtime_freeze, so its coalesced diff is 0 -> 0" }
+        "vat_burn_per_vote_account": { "type": "UInt64",                               "description": "Lamports burned from every admitted vote account at this boundary (SIMD-0357 VAT; alpenglow only, 0 otherwise). The burned set is exactly this boundary's runtime_vote_account rows, so the aggregate burned is this value times that row count. The debits are not emitted as account diffs, and the incinerator credit is not observable in runtime_block.other_diffs either: the incinerator is drained to zero later in the same block by fd_runtime_freeze, so its coalesced diff is 0 -> 0 The per-account debits are not emitted as rows: every admitted vote account, i.e. every runtime_vote_account row of this boundary, is debited exactly this amount, so a consumer derives them from those two tables." }
     }
 }
