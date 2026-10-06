@@ -252,7 +252,7 @@ fd_accdb_chain_head( uint const * head ) {
      - snapshot (bit 27): set on every node written by the snapshot
        loader.  Normal commits rebuild the word and so clear it.  The
        loader compares slots only against nodes that carry it, and
-       reads can be told to skip them (fd_accdb_snapshot_hide).
+       reads can be told to skip them while a load runs.
 
    The on-disk representation (written via SIZE_PACK / SIZE_DATA) carries
    no in-memory flag: persisted bytes are unchanged, and compaction's

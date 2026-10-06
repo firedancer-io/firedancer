@@ -1980,11 +1980,12 @@ test_snapshot_writers_vs_live( void ) {
 
 /* A live version of a key exists on a child fork before the loader
    writes the same key.  The loader must ignore the live node when it
-   compares slots, must not touch it, and must not write its own copy:
-   the child keeps reading the live value and the root reads nothing. */
+   compares slots, must not touch it, and must place its own node
+   behind it so the child keeps reading the live value while the root
+   reads the loaded one. */
 
 static void
-test_snapshot_skips_live( void ) {
+test_snapshot_behind_live( void ) {
   int fd;
   ulong psz = 11UL<<20UL;
   fd_accdb_t * accdb = test_setup( &fd, 1024UL, 64UL, 1024UL, 64UL, psz );
@@ -1997,8 +1998,6 @@ test_snapshot_skips_live( void ) {
   uchar key[ 32UL ] = { 5, 0x99, 0 };
   uchar owner[ 32UL ] = { 9, 0 };
   accdb_write( accdb, child, key, 500UL, NULL, 0UL, owner );
-  fd_accdb_shmem_metrics_t const * shmetrics = fd_accdb_shmetrics( accdb );
-  ulong total_before = shmetrics->accounts_total;
 
   uchar const * pks[ 1 ]  = { key };
   ulong slots[ 1 ]        = { 10UL };
@@ -2008,49 +2007,19 @@ test_snapshot_skips_live( void ) {
   test_batch_result_t r = test_write_batch( accdb, SENTINEL, 1UL, pks, slots, lamports, data_lens, execs, &store );
   FD_TEST( !r.err );
   FD_TEST( r.loaded==1UL && r.replaced==0UL && r.ignored==0UL );
-  FD_TEST( r.results[ 0 ]==FD_ACCDB_SNAPSHOT_WRITE_LIVE );
-  FD_TEST( shmetrics->accounts_total==total_before );
+  FD_TEST( r.results[ 0 ]==FD_ACCDB_SNAPSHOT_WRITE_LOADED );
 
+  /* Loaded nodes are read here with chain-walk-only lookups: a
+     cached read would store a cache index into the node's cache_idx,
+     which the loader still uses as the slot until the load ends.  In
+     the product the hide flag keeps readers off loaded nodes. */
   ulong got = 0UL;
-  FD_TEST(  accdb_read( accdb, child, key, &got, NULL, NULL, NULL ) ); FD_TEST( got==500UL );
-  FD_TEST( !accdb_read( accdb, root,  key, &got, NULL, NULL, NULL ) );
+  FD_TEST( accdb_read( accdb, child, key, &got, NULL, NULL, NULL ) ); FD_TEST( got==500UL );
+  FD_TEST( fd_accdb_lamports( accdb, root, key )==100UL );
 
-  /* A second snapshot copy at any slot is skipped the same way, and
-     is not a duplicate: nothing was written to compare against. */
-  slots[ 0 ] = 10UL; lamports[ 0 ] = 1UL;
-  r = test_write_batch( accdb, SENTINEL, 1UL, pks, slots, lamports, data_lens, execs, &store );
-  FD_TEST( !r.err && r.results[ 0 ]==FD_ACCDB_SNAPSHOT_WRITE_LIVE && r.loaded==1UL );
-
-  fd_accdb_snapshot_load_end( accdb );
-  test_teardown( accdb, fd );
-}
-
-/* The loader still judges duplicates among its own nodes when a live
-   node shares the chain but not the pubkey. */
-
-static void
-test_snapshot_bit_dup_check( void ) {
-  int fd;
-  ulong psz = 11UL<<20UL;
-  fd_accdb_t * accdb = test_setup( &fd, 1024UL, 64UL, 1024UL, 64UL, psz );
-  test_store_ctx_t store = { .fd=fd, .cnt=0UL };
-
-  fd_accdb_fork_id_t root  = fd_accdb_attach_child( accdb, SENTINEL );
-  fd_accdb_fork_id_t child = fd_accdb_attach_child( accdb, root );
-  fd_accdb_snapshot_load_begin( accdb );
-
-  uchar key[ 32UL ]  = { 6, 0x99, 0 };
-  uchar other[ 32UL ] = { 6, 0x98, 0 };
-  uchar owner[ 32UL ] = { 9, 0 };
-  accdb_write( accdb, child, other, 700UL, NULL, 0UL, owner );
-
-  uchar const * pks[ 1 ] = { key };
-  ulong slots[ 1 ] = { 10UL };
-  ulong lamports[ 1 ] = { 100UL };
-  ulong data_lens[ 1 ] = { 0UL };
-  int   execs[ 1 ] = { 0 };
-  test_batch_result_t r = test_write_batch( accdb, SENTINEL, 1UL, pks, slots, lamports, data_lens, execs, &store );
-  FD_TEST( !r.err && r.loaded==1UL && r.results[ 0 ]==FD_ACCDB_SNAPSHOT_WRITE_LOADED );
+  /* An older snapshot copy of the same key is still dropped, and a
+     same-slot copy is still a corrupt snapshot, judged only against
+     the loaded node. */
   slots[ 0 ] = 5UL; lamports[ 0 ] = 1UL;
   r = test_write_batch( accdb, SENTINEL, 1UL, pks, slots, lamports, data_lens, execs, &store );
   FD_TEST( !r.err && r.ignored==1UL && r.ignored_lamports==1UL );
@@ -2058,9 +2027,66 @@ test_snapshot_bit_dup_check( void ) {
   r = test_write_batch( accdb, SENTINEL, 1UL, pks, slots, lamports, data_lens, execs, &store );
   FD_TEST( r.err==-1 );
 
+  /* A newer snapshot copy replaces the loaded node in place and the
+     live node still wins on the child. */
+  slots[ 0 ] = 20UL; lamports[ 0 ] = 200UL;
+  r = test_write_batch( accdb, SENTINEL, 1UL, pks, slots, lamports, data_lens, execs, &store );
+  FD_TEST( !r.err && r.replaced==1UL && r.replaced_lamports==100UL );
+  FD_TEST( accdb_read( accdb, child, key, &got, NULL, NULL, NULL ) ); FD_TEST( got==500UL );
+  FD_TEST( fd_accdb_lamports( accdb, root, key )==200UL );
+
+  /* Exactly two nodes exist for the key. */
+  fd_accdb_flush_metrics( accdb );
+  fd_accdb_shmem_metrics_t const * shmetrics = fd_accdb_shmetrics( accdb );
+  FD_TEST( shmetrics->accounts_total==2UL );
+
+  fd_accdb_snapshot_load_end( accdb );
+
+  /* After the load a cached read of the loaded node is fine. */
+  FD_TEST( accdb_read( accdb, root, key, &got, NULL, NULL, NULL ) ); FD_TEST( got==200UL );
+
+  /* Rooting the child unlinks the loaded copy behind it. */
+  fd_accdb_advance_root( accdb, child );
+  drain_background( accdb );
+  FD_TEST( accdb_read( accdb, child, key, &got, NULL, NULL, NULL ) ); FD_TEST( got==500UL );
+  FD_TEST( shmetrics->accounts_total==1UL );
+
+  test_teardown( accdb, fd );
+}
+
+/* Two live versions on a fork and its child, then the loader.  Each
+   fork keeps reading its own version and the root reads the loaded
+   one. */
+
+static void
+test_snapshot_behind_two_live( void ) {
+  int fd;
+  ulong psz = 11UL<<20UL;
+  fd_accdb_t * accdb = test_setup( &fd, 1024UL, 64UL, 1024UL, 64UL, psz );
+  test_store_ctx_t store = { .fd=fd, .cnt=0UL };
+
+  fd_accdb_fork_id_t root  = fd_accdb_attach_child( accdb, SENTINEL );
+  fd_accdb_fork_id_t f     = fd_accdb_attach_child( accdb, root );
+  fd_accdb_fork_id_t g     = fd_accdb_attach_child( accdb, f );
+  fd_accdb_snapshot_load_begin( accdb );
+
+  uchar key[ 32UL ] = { 6, 0x99, 0 };
+  uchar owner[ 32UL ] = { 9, 0 };
+  accdb_write( accdb, f, key, 500UL, NULL, 0UL, owner );
+  accdb_write( accdb, g, key, 600UL, NULL, 0UL, owner );
+
+  uchar const * pks[ 1 ] = { key };
+  ulong slots[ 1 ] = { 10UL };
+  ulong lamports[ 1 ] = { 100UL };
+  ulong data_lens[ 1 ] = { 0UL };
+  int   execs[ 1 ] = { 0 };
+  test_batch_result_t r = test_write_batch( accdb, SENTINEL, 1UL, pks, slots, lamports, data_lens, execs, &store );
+  FD_TEST( !r.err && r.loaded==1UL );
+
   ulong got = 0UL;
-  FD_TEST( accdb_read( accdb, root,  key,   &got, NULL, NULL, NULL ) ); FD_TEST( got==100UL );
-  FD_TEST( accdb_read( accdb, child, other, &got, NULL, NULL, NULL ) ); FD_TEST( got==700UL );
+  FD_TEST( accdb_read( accdb, g,    key, &got, NULL, NULL, NULL ) ); FD_TEST( got==600UL );
+  FD_TEST( accdb_read( accdb, f,    key, &got, NULL, NULL, NULL ) ); FD_TEST( got==500UL );
+  FD_TEST( fd_accdb_lamports( accdb, root, key )==100UL );
 
   fd_accdb_snapshot_load_end( accdb );
   test_teardown( accdb, fd );
@@ -2586,11 +2612,11 @@ main( int     argc,
   test_snapshot_chain_locked_writers();
   test_snapshot_writers_vs_live();
 
-  FD_LOG_NOTICE(( "test_snapshot_skips_live ..." ));
-  test_snapshot_skips_live();
+  FD_LOG_NOTICE(( "test_snapshot_behind_live ..." ));
+  test_snapshot_behind_live();
 
-  FD_LOG_NOTICE(( "test_snapshot_bit_dup_check ..." ));
-  test_snapshot_bit_dup_check();
+  FD_LOG_NOTICE(( "test_snapshot_behind_two_live ..." ));
+  test_snapshot_behind_two_live();
 
   FD_LOG_NOTICE(( "test_snapshot_equal_slot_rejected ..." ));
   test_snapshot_equal_slot_rejected();

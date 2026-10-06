@@ -529,11 +529,13 @@ fd_accdb_snapshot_reserve_write( fd_accdb_t * accdb,
 /* fd_accdb_snapshot_write_batch processes up to 8 accounts at once,
    using software prefetching to overlap hash chain memory latency with
    useful work.  It is thread safe across distinct joins and locks each
-   pubkey's hash chain across lookup and commit.  Other readers and
-   writers may run concurrently: every chain head load waits for the
-   lock, loader-written nodes carry FD_ACCDB_SIZE_SNAPSHOT_BIT, slots
-   are compared only against such nodes, and a pubkey that already has
-   a live version is not written (FD_ACCDB_SNAPSHOT_WRITE_LIVE).
+   pubkey's hash chain across lookup and commit.  Live reads and
+   commits may run concurrently with a load: every chain head load
+   waits for the lock, loader-written nodes carry
+   FD_ACCDB_SIZE_SNAPSHOT_BIT, slots are compared only against such
+   nodes, and a new node is linked behind any live version of the same
+   pubkey.  Node removal (purge, root advance) must not run while
+   loader nodes are hidden.
    Each pubkey[i] points to a 32-byte public key.
    *out_replaced_lamports is set to the sum of the lamports of all
    accounts replaced by this batch (i.e. the previous lamports value
@@ -572,7 +574,6 @@ fd_accdb_snapshot_reserve_write( fd_accdb_t * accdb,
 #define FD_ACCDB_SNAPSHOT_WRITE_LOADED         (1) /* no prior funded version */
 #define FD_ACCDB_SNAPSHOT_WRITE_REPLACED       (2) /* superseded a funded version from this load */
 #define FD_ACCDB_SNAPSHOT_WRITE_REPLACED_CROSS (3) /* superseded a funded version from an earlier snapshot */
-#define FD_ACCDB_SNAPSHOT_WRITE_LIVE           (4) /* a live version exists, nothing written, counted as loaded */
 
 int
 fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,

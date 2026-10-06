@@ -4204,8 +4204,6 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
   for( ulong i=0UL; i<cnt; i++ ) {
     ulong entry_sz = sizeof(fd_accdb_disk_meta_t)+data_lens[ i ];
     int   skip     = 0;
-    /* a node for this pubkey exists that the loader did not write */
-    int   live     = 0;
 
     uint chain_head;
     for(;;) {
@@ -4222,6 +4220,8 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
 
     fd_accdb_accmeta_t * existing       = NULL;
     fd_accdb_accmeta_t * cross_existing = NULL; /* cross-fork dup (incremental only) */
+    /* last node for this pubkey that the loader did not write */
+    fd_accdb_accmeta_t * behind         = NULL;
     uint next_acc = chain_head;
     while( next_acc!=UINT_MAX ) {
       fd_accdb_accmeta_t * candidate = &accdb->acc_pool[ next_acc ];
@@ -4232,8 +4232,9 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
 
       if( FD_UNLIKELY( !memcmp( pubkeys[ i ], candidate->key.pubkey, 32UL ) ) ) {
         if( FD_UNLIKELY( !FD_ACCDB_SIZE_SNAPSHOT( candidate->executable_size ) ) ) {
-          live = 1;
-          break;
+          behind   = candidate;
+          next_acc = candidate->map.next;
+          continue;
         }
         if( FD_LIKELY( (ulong)candidate->cache_idx>slots[ i ] ) ) {
           skip = 1;
@@ -4263,17 +4264,6 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
       continue;
     }
 
-    if( FD_UNLIKELY( live ) ) {
-      /* A live version already holds this key's value at the boot
-         slot, so the snapshot copy is never needed. */
-      results[ i ] = FD_ACCDB_SNAPSHOT_WRITE_LIVE;
-      FD_COMPILER_MFENCE();
-      FD_VOLATILE( accdb->acc_map[ hashes[ i ] ] ) = chain_head;
-      fd_accdb_shmem_bytes_freed( accdb->shmem, file_offsets[ i ], entry_sz );
-      loaded++;
-      continue;
-    }
-
     fd_accdb_accmeta_t * accmeta;
     uint new_head = chain_head;
 
@@ -4289,6 +4279,14 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
       used_bytes_removed += old_sz;
       replaced_lamports += accmeta->lamports;
       replaced++;
+
+      accmeta->cache_idx       = (uint)slots[ i ];
+      accmeta->lamports        = lamports[ i ];
+      accmeta->executable_size = FD_ACCDB_SIZE_PACK( (uint)data_lens[ i ], executables[ i ] )
+                               | FD_ACCDB_SIZE_SNAPSHOT_BIT;
+      ulong file_off           = file_offsets[ i ];
+      accmeta->offset_fork     = incremental ? fd_accdb_acc_pack_offset_fork( file_off, fork_id.val ) : file_off;
+      FD_COMPILER_MFENCE();
     } else {
       accmeta = acquired[ acquired_used++ ];
 
@@ -4296,8 +4294,31 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
 
       fd_memcpy( accmeta->key.pubkey, pubkeys[ i ], 32UL );
       accmeta->key.generation = incremental ? fork_gen : gen;
-      accmeta->map.next = chain_head;
-      new_head = acc_idx;
+
+      accmeta->cache_idx       = (uint)slots[ i ];
+      accmeta->lamports        = lamports[ i ];
+      accmeta->executable_size = FD_ACCDB_SIZE_PACK( (uint)data_lens[ i ], executables[ i ] )
+                               | FD_ACCDB_SIZE_SNAPSHOT_BIT;
+      ulong file_off           = file_offsets[ i ];
+      accmeta->offset_fork     = incremental ? fd_accdb_acc_pack_offset_fork( file_off, fork_id.val ) : file_off;
+      FD_COMPILER_MFENCE();
+
+      if( FD_UNLIKELY( behind ) ) {
+        /* Readers must meet the live version first, so link the
+           loaded node right behind the last live one.  Nothing
+           removes nodes while a load runs (see fd_accdb_purge and
+           fd_accdb_advance_root), so behind stays on the chain. */
+        for(;;) {
+          uint after = FD_VOLATILE_CONST( behind->map.next );
+          accmeta->map.next = after;
+          FD_COMPILER_MFENCE();
+          if( FD_LIKELY( FD_ATOMIC_CAS( &behind->map.next, after, acc_idx )==after ) ) break;
+          FD_SPIN_PAUSE();
+        }
+      } else {
+        accmeta->map.next = chain_head;
+        new_head          = acc_idx;
+      }
 
       if( FD_UNLIKELY( incremental ) ) {
         fd_accdb_txn_t * txn = txn_pool_acquire( accdb->txn_pool );
@@ -4320,13 +4341,6 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
         loaded++;
       }
     }
-
-    accmeta->cache_idx       = (uint)slots[ i ];
-    accmeta->lamports        = lamports[ i ];
-    accmeta->executable_size = FD_ACCDB_SIZE_PACK( (uint)data_lens[ i ], executables[ i ] )
-                             | FD_ACCDB_SIZE_SNAPSHOT_BIT;
-    ulong file_off           = file_offsets[ i ];
-    accmeta->offset_fork     = incremental ? fd_accdb_acc_pack_offset_fork( file_off, fork_id.val ) : file_off;
 
     FD_COMPILER_MFENCE();
     FD_VOLATILE( accdb->acc_map[ hashes[ i ] ] ) = new_head;
