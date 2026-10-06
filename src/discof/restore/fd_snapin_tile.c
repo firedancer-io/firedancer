@@ -245,11 +245,14 @@ struct fd_snapin_shmem {
 
   /* Instant boot: the lead publishes the forks it created, then
      setup_done.  stream_slot is the boot stream's manifest slot,
-     published by the stream tile. */
+     published by the stream tile.  stream_stop asks that tile to stop
+     writing the boot fork, and stream_stopped answers it. */
   ulong setup_done;
   ulong boot_fork_id;
   ulong incr_fork_id;
   ulong stream_slot;
+  ulong stream_stop;
+  ulong stream_stopped;
 
   /* Per-tile attempt values.  Lamport totals are 128-bit <*_hi,*>:
      they count every account version, which can pass 2^64. */
@@ -278,8 +281,8 @@ struct fd_snapin_tile {
 
   /* Parse a boot stream into the boot fork instead of loading a
      snapshot.  boot_fork is the fork the lead's setup created for the
-     stream, and slot_fseq is the last slot the stream has finished
-     writing into it. */
+     stream, kept by the lead as well so it can root it, and slot_fseq
+     is the last slot the stream has finished writing into it. */
   int                stream;
   fd_accdb_fork_id_t boot_fork;
   ulong *            slot_fseq;
@@ -376,8 +379,8 @@ format_count( char * out, ulong out_sz, ulong n ) {
 static inline int
 should_shutdown( fd_snapin_tile_t * ctx ) {
   /* The boot stream is only needed until the background snapshot load
-     has caught up with it. */
-  if( FD_UNLIKELY( ctx->stream ) ) return fd_fseq_query( ctx->lead.done_fseq )==1UL;
+     is ready to root the boot fork, which the lead asks for. */
+  if( FD_UNLIKELY( ctx->stream ) ) return !!FD_VOLATILE_CONST( ctx->shmem->stream_stopped );
 
   if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_SHUTDOWN && is_lead( ctx ) ) ) {
     long  elapsed_ns   = fd_log_wallclock() - ctx->lead.boot_timestamp;
@@ -1997,6 +2000,30 @@ stream_wait_setup( fd_snapin_tile_t * ctx ) {
   ctx->boot_fork = (fd_accdb_fork_id_t){ .val = (ushort)FD_VOLATILE_CONST( ctx->shmem->boot_fork_id ) };
 }
 
+/* stream_stop_and_wait asks the boot stream parser to stop writing the
+   boot fork and waits for it to answer.  Rooting the boot fork needs
+   every writer on it to have stopped, and the parser checks the request
+   before it takes credits, so it answers even when it is idle or never
+   wrote anything at all.  The lead has nothing else to do until then,
+   and logs once a second so a parser that never answers is visible. */
+
+static void
+stream_stop_and_wait( fd_snapin_tile_t * ctx ) {
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( ctx->shmem->stream_stop ) = 1UL;
+  FD_COMPILER_MFENCE();
+  long next_log = fd_log_wallclock()+(long)1e9;
+  while( FD_UNLIKELY( !FD_VOLATILE_CONST( ctx->shmem->stream_stopped ) ) ) {
+    FD_SPIN_PAUSE();
+    long now = fd_log_wallclock();
+    if( FD_UNLIKELY( now>=next_log ) ) {
+      FD_LOG_NOTICE(( "instant boot: waiting for the boot stream parser to stop writing" ));
+      next_log = now+(long)1e9;
+    }
+  }
+  FD_COMPILER_MFENCE();
+}
+
 static void
 handle_control_frag( fd_snapin_tile_t *  ctx,
                      fd_stem_context_t * stem,
@@ -2253,6 +2280,16 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         fd_stake_delegations_evict_fork( ctx->stake_delegations, stake_fork );
       }
 
+      /* Bank 0's accounts fork is the boot fork, so replay's first root
+         advance after this one roots a child of the boot fork, and the
+         accounts database needs that child's parent to be the root.
+         Root the boot fork here, once its writer has stopped.  The
+         advance waits for the one above it to finish on its own. */
+      if( FD_UNLIKELY( ctx->instant_boot ) ) {
+        stream_stop_and_wait( ctx );
+        fd_accdb_advance_root( ctx->accdb, ctx->boot_fork );
+      }
+
       fd_accdb_snapshot_load_end( ctx->accdb );
 
       /* Instant boot takes the features from the boot stream, and
@@ -2356,6 +2393,7 @@ instant_boot_setup( fd_snapin_tile_t * ctx ) {
   ctx->lead.accdb_root_fork_id = fd_accdb_attach_child( ctx->accdb, null_fork_id );
   ctx->lead.accdb_incr_fork_id = fd_accdb_attach_child( ctx->accdb, ctx->lead.accdb_root_fork_id );
   fd_accdb_fork_id_t boot_fork = fd_accdb_attach_child( ctx->accdb, ctx->lead.accdb_incr_fork_id );
+  ctx->boot_fork = boot_fork;
   fd_accdb_snapshot_load_begin( ctx->accdb );
   fd_accdb_snapshot_hide( ctx->accdb, 1 );
   fd_accdb_show_hidden( ctx->accdb, 1 );
@@ -2370,6 +2408,19 @@ static void
 before_credit( fd_snapin_tile_t *  ctx,
                fd_stem_context_t * stem FD_PARAM_UNUSED,
                int *               charge_busy ) {
+  /* The snapshot load is about to root the boot fork, so finish nothing
+     more, leave whatever is still buffered, and answer so the lead can
+     go ahead.  This runs before credits are taken, so a parser with
+     nothing to do still answers. */
+  if( FD_UNLIKELY( ctx->stream && FD_VOLATILE_CONST( ctx->shmem->stream_stop ) ) ) {
+    if( FD_LIKELY( !FD_VOLATILE_CONST( ctx->shmem->stream_stopped ) ) ) {
+      FD_COMPILER_MFENCE();
+      FD_VOLATILE( ctx->shmem->stream_stopped ) = 1UL;
+      *charge_busy = 1;
+    }
+    return;
+  }
+
   if( FD_LIKELY( !is_lead( ctx ) || !ctx->instant_boot || ctx->lead.setup_done ) ) return;
   instant_boot_setup( ctx );
   *charge_busy = 1;
@@ -2389,6 +2440,11 @@ before_frag( fd_snapin_tile_t * ctx,
              ulong              in_idx,
              ulong              seq    FD_PARAM_UNUSED,
              ulong              sig ) {
+  /* Stopped at the lead's request, so hold every frag.  Nothing more
+     is written, and the shutdown check at the top of the next loop
+     ends the run. */
+  if( FD_UNLIKELY( ctx->stream && FD_VOLATILE_CONST( ctx->shmem->stream_stopped ) ) ) return -1;
+
   /* If we're currently in ERROR state we should only process FAIL
      control frags */
   if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_ERROR ) ) {
@@ -2633,9 +2689,9 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->lead.txncache_max_groups_per_slot = tile->snapin.max_txn_per_slot;
   ctx->lead.txncache_max_entries_per_slot = 2UL*tile->snapin.max_txn_per_slot;
 
-  /* The counter replay and the stream pipeline watch for the end of
-     the background load. */
-  if( FD_UNLIKELY( ctx->instant_boot || ctx->stream ) ) {
+  /* The counter replay watches for the end of the background load.
+     The stream tile does not: it stops when the lead asks it to. */
+  if( FD_UNLIKELY( ctx->instant_boot ) ) {
     ctx->lead.done_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->snapin.instant_boot_done_obj_id ) );
     FD_TEST( ctx->lead.done_fseq );
   }

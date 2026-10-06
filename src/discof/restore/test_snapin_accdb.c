@@ -583,6 +583,54 @@ test_stream_writes_boot_fork( void ) {
   test_env_free( env );
 }
 
+/* The lead stops the stream parser before it roots the boot fork, so
+   nothing is writing that fork when it is rooted. */
+
+static void
+test_stream_stops_on_request( void ) {
+  test_env_t env[ 1 ];
+  test_env_init( env, 9UL );
+
+  fd_accdb_fork_id_t incr = fd_accdb_attach_child( env->worker[ 0 ].accdb, env->root );
+  fd_accdb_fork_id_t boot = fd_accdb_attach_child( env->worker[ 0 ].accdb, incr );
+  env->snapin_shmem->incr_fork_id = (ulong)incr.val;
+  env->snapin_shmem->boot_fork_id = (ulong)boot.val;
+  env->snapin_shmem->setup_done   = 1UL;
+
+  fd_snapin_tile_t * ctx = &env->worker[ 0 ];
+  ctx->stream    = 1;
+  ctx->boot_fork = boot;
+  FD_TEST( !should_shutdown( ctx ) );
+
+  /* Staged when the stop arrives, so it is never written. */
+  uchar pubkey[ 32UL ] = { 0xF1U };
+  uchar owner [ 32UL ] = { 0x44U };
+  uchar data  [  4UL ] = { 7U, 7U, 7U, 7U };
+  FD_TEST( !writer_append_account( ctx, pubkey, owner, data, 1000UL, 600UL, sizeof(data), 0 ) );
+
+  FD_VOLATILE( ctx->shmem->stream_stop ) = 1UL;
+  int charge_busy = 0;
+  before_credit( ctx, NULL, &charge_busy );
+  FD_TEST( charge_busy );
+  FD_TEST( FD_VOLATILE_CONST( ctx->shmem->stream_stopped )==1UL );
+  FD_TEST( should_shutdown( ctx ) );
+
+  /* Every frag is held, so the buffered account never reaches the
+     boot fork. */
+  FD_TEST( before_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_DATA )<0 );
+  FD_TEST( !ctx->metrics.accounts_loaded );
+  FD_TEST( !fd_accdb_exists( ctx->accdb, boot, pubkey ) );
+
+  /* The answer is given once. */
+  charge_busy = 0;
+  before_credit( ctx, NULL, &charge_busy );
+  FD_TEST( !charge_busy );
+  FD_TEST( should_shutdown( ctx ) );
+
+  fd_accdb_snapshot_load_end( ctx->accdb );
+  test_env_free( env );
+}
+
 /* Capitalization across a full and an incremental snapshot whose
    per-version lamport totals pass 2^64 (an incremental stores each vote
    account once per slot) while capitalization stays small. */
@@ -700,6 +748,7 @@ main( int     argc,
   test_capitalization_crafted_mismatch();
   test_instant_boot_skips_bank_state();
   test_stream_writes_boot_fork();
+  test_stream_stops_on_request();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
