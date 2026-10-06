@@ -1,10 +1,17 @@
+#define _GNU_SOURCE /* memfd_create */
+
 #include <stdlib.h>
 #include <string.h>
+#include <sys/mman.h>
+#include <unistd.h>
 
 #include "../../util/fd_util.h"
 #include "fd_execrp.h"
 #include "fd_sched.h"
 #include "../../ballet/sha256/fd_sha256.h"
+#include "../../flamenco/accdb/fd_accdb.h"
+#include "../../flamenco/runtime/fd_alut.h"
+#include "../../flamenco/runtime/fd_system_ids.h"
 #include "../../flamenco/txn/fd_txn_generate.h"
 #include "../../flamenco/alpenglow/fd_block_marker_serde.h"
 #include "../../flamenco/runtime/fd_runtime_const.h"
@@ -1381,6 +1388,151 @@ run_key_sink_case( void ) {
   FD_LOG_NOTICE(( "pass: run_key_sink_case" ));
 }
 
+/* An accounts database small enough to hold a handful of accounts on
+   one fork, the shape test_sysvar_cache.c uses.  It is backed by a
+   memfd and needs no workspace. */
+
+#define TEST_ACCDB_MAX_ACCOUNTS   (1024UL)
+#define TEST_ACCDB_MAX_LIVE_SLOTS (16UL)
+#define TEST_ACCDB_WRITES         (1024UL)
+#define TEST_ACCDB_PARTITIONS     (8UL)
+#define TEST_ACCDB_PARTITION_SZ   (1UL<<28)
+#define TEST_ACCDB_CACHE_SZ       (256UL<<20)
+#define TEST_ACCDB_CACHE_RESERVED (16UL)
+
+static fd_accdb_t *
+test_accdb_create( fd_accdb_fork_id_t * out_fork_id ) {
+  int accdb_fd = memfd_create( "test_sched_accdb", 0 );
+  FD_TEST( accdb_fd>=0 );
+
+  ulong shmem_fp = fd_accdb_shmem_footprint( TEST_ACCDB_MAX_ACCOUNTS, TEST_ACCDB_MAX_LIVE_SLOTS, TEST_ACCDB_WRITES,
+                                             TEST_ACCDB_PARTITIONS, TEST_ACCDB_CACHE_SZ, TEST_ACCDB_CACHE_RESERVED, 1UL, 0UL );
+  FD_TEST( shmem_fp );
+  void * shmem_mem = aligned_alloc( fd_accdb_shmem_align(), shmem_fp );
+  FD_TEST( shmem_mem );
+  fd_accdb_shmem_t * shmem = fd_accdb_shmem_join(
+      fd_accdb_shmem_new( shmem_mem, TEST_ACCDB_MAX_ACCOUNTS, TEST_ACCDB_MAX_LIVE_SLOTS, TEST_ACCDB_WRITES,
+                          TEST_ACCDB_PARTITIONS, TEST_ACCDB_PARTITION_SZ, TEST_ACCDB_CACHE_SZ,
+                          TEST_ACCDB_CACHE_RESERVED, 0, 42UL, 1UL, 0UL ) );
+  FD_TEST( shmem );
+
+  void * join_mem = aligned_alloc( fd_accdb_align(), fd_accdb_footprint( TEST_ACCDB_MAX_LIVE_SLOTS, 0 ) );
+  FD_TEST( join_mem );
+  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( join_mem, shmem, accdb_fd, 0UL, NULL, NULL, 0UL, 0 ) );
+  FD_TEST( accdb );
+
+  *out_fork_id = fd_accdb_attach_child( accdb, (fd_accdb_fork_id_t){ .val = USHORT_MAX } );
+  return accdb;
+}
+
+static void
+test_accdb_write( fd_accdb_t *       accdb,
+                  fd_accdb_fork_id_t fork_id,
+                  void const *       pubkey,
+                  void const *       owner,
+                  void const *       data,
+                  ulong              data_len ) {
+  fd_acc_t acc = fd_accdb_write_one( accdb, fork_id, (uchar const *)pubkey );
+  if( FD_LIKELY( data_len ) ) fd_memcpy( acc.data, data, data_len );
+  acc.data_len = (uint)data_len;
+  acc.lamports = 1000000UL;
+  if( FD_LIKELY( owner ) ) fd_memcpy( acc.owner, owner, 32UL );
+  else                     memset   ( acc.owner, 0,     32UL );
+  acc.commit = 1;
+  fd_accdb_unwrite_one( accdb, &acc );
+}
+
+/* A transaction whose lookup table does resolve hands the sink the
+   accounts the table expanded to, in place of the table's own
+   address.  That is the production path, and it needs a real accounts
+   database to resolve against. */
+
+static void
+run_key_sink_resolved_case( void ) {
+  fd_accdb_fork_id_t fork_id;
+  fd_accdb_t *       accdb = test_accdb_create( &fork_id );
+
+  /* An empty slot hashes sysvar is enough: the table below never
+     deactivates, so its status does not depend on the hashes. */
+  uchar slot_hashes[ 8 ] = {0};
+  test_accdb_write( accdb, fork_id, fd_sysvar_slot_hashes_id.uc, NULL, slot_hashes, sizeof(slot_hashes) );
+
+  fd_pubkey_t alt_payer[ 1 ];
+  fd_pubkey_t alt_program[ 1 ];
+  fd_pubkey_t alt_table[ 1 ];
+  fd_memset( alt_payer->uc,   0x55, sizeof(fd_pubkey_t) );
+  fd_memset( alt_program->uc, 0x66, sizeof(fd_pubkey_t) );
+  fd_memset( alt_table->uc,   0x77, sizeof(fd_pubkey_t) );
+
+  /* A table of four addresses.  build_alt_test_txn selects entry 0 as
+     writable and entry 1 as readonly. */
+  uchar table[ FD_LOOKUP_TABLE_META_SIZE+4UL*32UL ];
+  fd_alut_meta_t meta = {
+    .discriminant                   = FD_ALUT_STATE_DISC_LOOKUP_TABLE,
+    .deactivation_slot              = ULONG_MAX,
+    .last_extended_slot             = 0UL,
+    .last_extended_slot_start_index = 0,
+    .has_authority                  = 0
+  };
+  FD_TEST( !fd_alut_state_encode( &meta, table, FD_LOOKUP_TABLE_META_SIZE ) );
+  for( ulong i=0UL; i<4UL; i++ ) memset( table+FD_LOOKUP_TABLE_META_SIZE+i*32UL, (int)(0xa0UL+i), 32UL );
+  test_accdb_write( accdb, fork_id, alt_table->uc, &fd_solana_address_lookup_table_program_id, table, sizeof(table) );
+
+  ulong footprint = fd_sched_footprint( FD_SCHED_MIN_DEPTH, 4UL, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT );
+  void * mem = aligned_alloc( fd_sched_align(), footprint );
+  FD_TEST( mem );
+
+  fd_rng_t rng[ 1 ]; fd_rng_join( fd_rng_new( rng, 0U, 0UL ) );
+  fd_sched_t * sched = fd_sched_join( fd_sched_new( mem, rng, FD_SCHED_MIN_DEPTH, 4UL, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT, TEST_EXEC_CNT, 0 ) );
+  FD_TEST( sched );
+  fd_sched_set_bypass_poh_verify( sched, 1 );
+  fd_sched_block_add_done( sched, 1UL, ULONG_MAX, TEST_ROOT_SLOT );
+
+  uchar alt_payload[ FD_TXN_MTU ];
+  ulong alt_sz = build_alt_test_txn( alt_payload, alt_payer, alt_program, alt_table );
+
+  fd_hash_t mblk_hash[ 1 ];
+  hash_from_seed( mblk_hash, 0x7c4e90a2d85b1f63UL );
+  uchar encoded[ 4096 ];
+  ulong encoded_sz = encode_txn_mblk( encoded, alt_payload, alt_sz, 1UL, mblk_hash );
+
+  fd_acct_addr_t sink_key[ 8 ];
+  fd_sched_keys_t keys[ 1 ] = {{ .max = sizeof(sink_key)/sizeof(sink_key[0]), .key = sink_key }};
+
+  fd_store_fec_t store_fec[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
+  fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
+  store_fec->data_sz       = (uint)encoded_sz;
+  store_fec->shred_sz[ 0 ] = (ushort)encoded_sz;
+  fd_sched_fec_t fec[ 1 ] = {{
+    .bank_idx          = 2UL,
+    .parent_bank_idx   = 1UL,
+    .slot              = TEST_ROOT_SLOT+1UL,
+    .parent_slot       = TEST_ROOT_SLOT,
+    .fec               = store_fec,
+    .data              = encoded,
+    .shred_cnt         = 1U,
+    .is_first_in_block = 1U,
+    .keys              = keys,
+  }};
+  fec->alut_ctx->accdb   = accdb;
+  fec->alut_ctx->fork_id = fork_id;
+  fec->alut_ctx->els     = TEST_ROOT_SLOT;
+  FD_TEST( fd_sched_fec_ingest( sched, fec ) );
+
+  /* Two static keys, then the two entries the table expanded to:
+     writable first, the order the scheduler resolves them in. */
+  FD_TEST( !keys->full );
+  FD_TEST( keys->cnt==4UL );
+  FD_TEST( !memcmp( sink_key+0, alt_payer->uc,   32UL ) );
+  FD_TEST( !memcmp( sink_key+1, alt_program->uc, 32UL ) );
+  FD_TEST( sink_key[ 2 ].b[ 0 ]==0xa0 && sink_key[ 3 ].b[ 0 ]==0xa1 );
+  /* The table's own address does not stand in for what it expanded. */
+  for( ulong i=0UL; i<keys->cnt; i++ ) FD_TEST( memcmp( sink_key+i, alt_table->uc, 32UL ) );
+
+  free( mem );
+  FD_LOG_NOTICE(( "pass: run_key_sink_resolved_case" ));
+}
+
 /* A block the scheduler never replays, which is any block this
    validator produced itself, still gives up its accounts.  The walk
    has to carry a batch header, a tick, and a transaction that
@@ -1793,6 +1945,7 @@ main( int     argc,
   run_runtime_limit_case();
   run_zero_hashcnt_mblk_case();
   run_key_sink_case();
+  run_key_sink_resolved_case();
   run_keys_scan_case();
 
   FD_LOG_NOTICE(( "pass" ));

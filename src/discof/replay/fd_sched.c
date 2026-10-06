@@ -3008,6 +3008,9 @@ fd_sched_keys_scan( fd_sched_t *           sched,
       ulong         txn_sz  = fd_txn_parse_core( payload, walk->buf_sz-walk->soff, txn, NULL, &pay_sz );
       if( FD_UNLIKELY( !pay_sz || !txn_sz ) ) break; /* straddles the next FEC set, or unparseable */
 
+      /* The lookup table counters stay out of this: they measure how
+         well replay resolves the blocks it executes, and this block is
+         not one of them. */
       fd_acct_addr_t const * alts = NULL;
       if( FD_UNLIKELY( fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_ALT ) ) ) {
         if( FD_LIKELY( !resolve_aluts( sched, fec->alut_ctx, txn, payload ) ) ) alts = sched->aluts;

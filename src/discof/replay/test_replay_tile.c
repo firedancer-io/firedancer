@@ -4864,41 +4864,50 @@ test_ag_set_identity_leader_slot( fd_wksp_t * wksp,
 }
 
 /* Replay hands the stream tile a reference on a bank for every block
-   it streams, and takes the reference back if the tile owes it for too
-   long. */
+   it streams, and takes every reference back if the tile owes one for
+   too long. */
 
 static void
 test_strmk_hold_ring( fd_wksp_t * wksp ) {
   static fd_replay_tile_t ctx[ 1 ];
   setup_ctx( ctx, wksp );
-  ctx->instant_boot_serve = 1;
+  ctx->instant_boot_serve         = 1;
+  ctx->strmk_block_hold->deadline = FD_REPLAY_STRMK_BLOCK_NS;
+  ctx->strmk_base_hold->deadline  = FD_REPLAY_STRMK_BASE_NS;
 
   fd_bank_t * bank = fd_banks_bank_query( ctx->banks, ctx->published_root_bank_idx );
   FD_TEST( bank );
-  ulong refcnt0  = bank->refcnt;
-  ulong strmk    = ctx->strmk_out->idx;
-  ulong seq0     = test_stem_seqs[ strmk ];
-  long  hold_max = (long)((double)FD_REPLAY_STRMK_HOLD_NS*ctx->tick_per_ns);
+  ulong refcnt0   = bank->refcnt;
+  ulong strmk     = ctx->strmk_out->idx;
+  ulong seq0      = test_stem_seqs[ strmk ];
+  long  block_due = (long)((double)FD_REPLAY_STRMK_BLOCK_NS*ctx->tick_per_ns);
+  long  base_due  = (long)((double)FD_REPLAY_STRMK_BASE_NS *ctx->tick_per_ns);
+  int   charge_busy = 0;
 
   /* A hold the stream tile returns releases the reference.  The
      reference itself is dropped by the link handler. */
-  strmk_hold_add( ctx, test_stem, bank );
+  strmk_hold_add( ctx, test_stem, ctx->strmk_block_hold, bank );
   FD_TEST( bank->refcnt==refcnt0+1UL );
   FD_TEST( strmk_hold_release( ctx, bank->idx ) );
-  FD_TEST( ctx->strmk_hold_head==ctx->strmk_hold_tail );
+  FD_TEST( ctx->strmk_block_hold->head==ctx->strmk_block_hold->tail );
   FD_TEST( test_stem_seqs[ strmk ]==seq0 );
   bank->refcnt--;
 
-  /* A hold the stream tile keeps for too long is taken back, and the
-     tile is told to start over. */
-  strmk_hold_add( ctx, test_stem, bank );
-  test_stem->now += hold_max;
-  strmk_hold_expire( ctx, test_stem );
-  FD_TEST( bank->refcnt==refcnt0+1UL );
+  /* One hold held past its deadline takes every outstanding hold back,
+     from both rings, and publishes exactly one reset. */
+  strmk_hold_add( ctx, test_stem, ctx->strmk_block_hold, bank );
+  strmk_hold_add( ctx, test_stem, ctx->strmk_block_hold, bank );
+  strmk_hold_add( ctx, test_stem, ctx->strmk_base_hold,  bank );
+  FD_TEST( bank->refcnt==refcnt0+3UL );
+  test_stem->now += block_due;
+  strmk_hold_expire( ctx, test_stem, &charge_busy );
+  FD_TEST( !charge_busy && bank->refcnt==refcnt0+3UL );
   test_stem->now += 1L;
-  strmk_hold_expire( ctx, test_stem );
+  strmk_hold_expire( ctx, test_stem, &charge_busy );
+  FD_TEST( charge_busy );
   FD_TEST( bank->refcnt==refcnt0 );
-  FD_TEST( ctx->strmk_hold_head==ctx->strmk_hold_tail );
+  FD_TEST( ctx->strmk_block_hold->head==ctx->strmk_block_hold->tail );
+  FD_TEST( ctx->strmk_base_hold->head ==ctx->strmk_base_hold->tail  );
   FD_TEST( test_stem_seqs[ strmk ]==seq0+1UL );
   fd_frag_meta_t const * meta = test_stem_mcaches[ strmk ] + fd_mcache_line_idx( seq0, test_stem_depths[ strmk ] );
   FD_TEST( meta->sig==FD_STRMK_SIG_RESET );
@@ -4907,13 +4916,54 @@ test_strmk_hold_ring( fd_wksp_t * wksp ) {
   FD_TEST( !strmk_hold_release( ctx, bank->idx ) );
   FD_TEST( bank->refcnt==refcnt0 );
 
-  /* A full ring makes room by reclaiming its oldest hold. */
-  for( ulong i=0UL; i<FD_REPLAY_STRMK_HOLD_MAX; i++ ) strmk_hold_add( ctx, test_stem, bank );
+  /* The bank a stream chains off is held far longer than a block: the
+     block deadline does not reclaim it. */
+  strmk_hold_add( ctx, test_stem, ctx->strmk_base_hold, bank );
+  test_stem->now += block_due+1L;
+  charge_busy = 0;
+  strmk_hold_expire( ctx, test_stem, &charge_busy );
+  FD_TEST( !charge_busy && bank->refcnt==refcnt0+1UL );
+  test_stem->now += base_due;
+  strmk_hold_expire( ctx, test_stem, &charge_busy );
+  FD_TEST( charge_busy && bank->refcnt==refcnt0 );
+
+  /* A ring with no room left means the stream tile is not keeping up,
+     so everything goes back and the new hold starts a fresh ring. */
+  for( ulong i=0UL; i<FD_REPLAY_STRMK_HOLD_MAX; i++ ) strmk_hold_add( ctx, test_stem, ctx->strmk_block_hold, bank );
   FD_TEST( bank->refcnt==refcnt0+FD_REPLAY_STRMK_HOLD_MAX );
-  strmk_hold_add( ctx, test_stem, bank );
-  FD_TEST( bank->refcnt==refcnt0+FD_REPLAY_STRMK_HOLD_MAX );
-  FD_TEST( ctx->strmk_hold_tail-ctx->strmk_hold_head==FD_REPLAY_STRMK_HOLD_MAX );
-  FD_TEST( test_stem_seqs[ strmk ]==seq0+2UL );
+  strmk_hold_add( ctx, test_stem, ctx->strmk_block_hold, bank );
+  FD_TEST( bank->refcnt==refcnt0+1UL );
+  FD_TEST( ctx->strmk_block_hold->tail-ctx->strmk_block_hold->head==1UL );
+
+  FD_TEST( strmk_hold_release( ctx, bank->idx ) );
+  bank->refcnt--;
+  FD_TEST( bank->refcnt==refcnt0 );
+
+  /* The link handler releases a returned hold once and ignores a
+     second return of it.  A malformed bank index must be dropped
+     before it reaches the rings, where a released entry carries the
+     same sentinel: matching one would release a bank that does not
+     exist.  Hold a second bank so a released entry sits inside the
+     ring rather than at its old end. */
+  fd_bank_t * other = fd_banks_new_bank( ctx->banks, bank->idx, 0L, 0 );
+  FD_TEST( other );
+  strmk_hold_add( ctx, test_stem, ctx->strmk_block_hold, bank  );
+  strmk_hold_add( ctx, test_stem, ctx->strmk_block_hold, other );
+  strmk_hold_add( ctx, test_stem, ctx->strmk_block_hold, bank  );
+
+  ctx->in_kind[ TEST_REPAIR_IN_IDX ] = IN_KIND_RPC;
+  ctx->strmk_in_idx                  = TEST_REPAIR_IN_IDX;
+  FD_TEST( !returnable_frag( ctx, TEST_REPAIR_IN_IDX, 0UL, other->idx, 0UL, 0UL, 0UL, 0UL, 0UL, test_stem ) );
+  FD_TEST( !other->refcnt );
+  FD_TEST( ctx->strmk_block_hold->hold[ (ctx->strmk_block_hold->head+1UL)%FD_REPLAY_STRMK_HOLD_MAX ].bank_idx==ULONG_MAX );
+  FD_TEST( !returnable_frag( ctx, TEST_REPAIR_IN_IDX, 0UL, ULONG_MAX, 0UL, 0UL, 0UL, 0UL, 0UL, test_stem ) );
+  FD_TEST( bank->refcnt==refcnt0+2UL );
+  FD_TEST( !returnable_frag( ctx, TEST_REPAIR_IN_IDX, 0UL, bank->idx, 0UL, 0UL, 0UL, 0UL, 0UL, test_stem ) );
+  FD_TEST( bank->refcnt==refcnt0+1UL );
+  FD_TEST( !returnable_frag( ctx, TEST_REPAIR_IN_IDX, 0UL, bank->idx, 0UL, 0UL, 0UL, 0UL, 0UL, test_stem ) );
+  FD_TEST( bank->refcnt==refcnt0 );
+  FD_TEST( !returnable_frag( ctx, TEST_REPAIR_IN_IDX, 0UL, bank->idx, 0UL, 0UL, 0UL, 0UL, 0UL, test_stem ) );
+  FD_TEST( bank->refcnt==refcnt0 );
 
   FD_LOG_NOTICE(( "pass: test_strmk_hold_ring" ));
 }
@@ -4952,12 +5002,22 @@ test_strmk_txn_keys( fd_wksp_t * wksp ) {
   }
   FD_TEST( seen==200UL );
 
+  /* A sink that overflowed resets, which also takes back every hold
+     the stream tile owes. */
+  fd_bank_t * bank = fd_banks_bank_query( ctx->banks, ctx->published_root_bank_idx );
+  FD_TEST( bank );
+  ulong refcnt0 = bank->refcnt;
+  ctx->strmk_block_hold->deadline = FD_REPLAY_STRMK_BLOCK_NS;
+  strmk_hold_add( ctx, test_stem, ctx->strmk_block_hold, bank );
+
   ctx->strmk_keys->full = 1;
   seq0 = test_stem_seqs[ strmk ];
   strmk_txn_keys( ctx, test_stem, fec );
   FD_TEST( test_stem_seqs[ strmk ]==seq0+1UL );
   fd_frag_meta_t const * meta = test_stem_mcaches[ strmk ] + fd_mcache_line_idx( seq0, test_stem_depths[ strmk ] );
   FD_TEST( meta->sig==FD_STRMK_SIG_RESET );
+  FD_TEST( bank->refcnt==refcnt0 );
+  FD_TEST( ctx->strmk_block_hold->head==ctx->strmk_block_hold->tail );
 
   FD_LOG_NOTICE(( "pass: test_strmk_txn_keys" ));
 }

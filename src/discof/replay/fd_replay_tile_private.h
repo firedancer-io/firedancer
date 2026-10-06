@@ -89,10 +89,18 @@ typedef struct fd_reception_stats fd_reception_stats_t;
 #define FD_REPLAY_TXN_TIMING_SLOTS (16UL)
 
 /* Bank references the stream tile owes back, and how long it may owe
-   one before replay reclaims it and tells the tile to start over. */
+   one before replay takes every reference back and tells the tile to
+   start over.  A block's reference comes back as soon as the tile has
+   read the block's accounts, so it gets a short deadline.  The
+   reference on the bank a stream chains off comes back only once the
+   tile has written a manifest and a status cache, which is why the two
+   classes are held in separate rings: within a ring every entry has
+   the same deadline, so the oldest entry is always the one due
+   first. */
 
 #define FD_REPLAY_STRMK_HOLD_MAX (64UL)
-#define FD_REPLAY_STRMK_HOLD_NS  (4L*1000L*1000L*1000L)
+#define FD_REPLAY_STRMK_BLOCK_NS (4L*1000L*1000L*1000L)
+#define FD_REPLAY_STRMK_BASE_NS  (60L*1000L*1000L*1000L)
 
 struct fd_replay_strmk_hold {
   ulong bank_idx; /* ULONG_MAX once the hold is released */
@@ -100,6 +108,15 @@ struct fd_replay_strmk_hold {
 };
 
 typedef struct fd_replay_strmk_hold fd_replay_strmk_hold_t;
+
+struct fd_replay_strmk_ring {
+  long                   deadline; /* ticks a hold in this ring may be outstanding */
+  ulong                  head;     /* oldest hold, == tail if none */
+  ulong                  tail;     /* next hold to record */
+  fd_replay_strmk_hold_t hold[ FD_REPLAY_STRMK_HOLD_MAX ];
+};
+
+typedef struct fd_replay_strmk_ring fd_replay_strmk_ring_t;
 
 struct fd_replay_txn_timing {
   long received_ns;
@@ -496,9 +513,6 @@ struct fd_replay_tile {
   ulong                    strmk_in_idx; /* in link the stream tile returns banks on, ULONG_MAX if none */
   fd_sched_keys_t          strmk_keys[1];
   fd_sched_keys_walk_t *   strmk_walk;   /* parse cursor for the block we are producing, which sched never sees */
-  fd_replay_strmk_hold_t   strmk_hold[ FD_REPLAY_STRMK_HOLD_MAX ];
-  ulong                    strmk_hold_head; /* oldest hold, == tail if none */
-  ulong                    strmk_hold_tail; /* next hold to record */
 
   /* Buffer to store vote towers that need to be published to the Tower
      tile. */
@@ -672,6 +686,11 @@ struct fd_replay_tile {
 
     ulong voted_slot; /* monotone, ULONG_MAX if none */
   } metrics;
+
+  /* Cold: only touched when a boot stream hold is taken, returned or
+     reclaimed. */
+  fd_replay_strmk_ring_t strmk_block_hold[1]; /* parent banks the blocks are read at */
+  fd_replay_strmk_ring_t strmk_base_hold[1];  /* snapshot banks the streams chain off */
 
   uchar __attribute__((aligned(FD_MULTI_EPOCH_LEADERS_ALIGN))) mleaders_mem[ FD_MULTI_EPOCH_LEADERS_FOOTPRINT ];
 

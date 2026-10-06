@@ -125,16 +125,18 @@
    snapshot has finished loading.  The sig of each frag selects the
    message below.  The link is unreliable and replay never waits on it,
    so a stream tile that falls behind sees a sequence gap and starts
-   over.  Replay sends FD_STRMK_SIG_RESET itself when it reclaims a
-   bank the stream tile held for too long, when the accounts of a block
-   did not fit in its sink, and when the shredded bytes of a block it
-   produced itself are no longer in the store: a stream is a chain of
-   blocks and cannot skip one.
+   over.
 
    The stream tile returns a bank it was given a reference on by
-   sending the bank index as the sig on strmk_replay.  It must not
-   return a reference it was given before a reset: replay has already
-   reclaimed those. */
+   sending the bank index as the sig on strmk_replay.
+
+   Replay sends FD_STRMK_SIG_RESET when it has taken every outstanding
+   reference back, which it does when the stream tile owes one for too
+   long, when the accounts of a block did not fit in its sink, and when
+   the shredded bytes of a block it produced itself are no longer in
+   the store: a stream is a chain of blocks and cannot skip one.  A
+   reset therefore cancels every reference the stream tile was given
+   before it, and the tile must not return any of them. */
 
 #define FD_STRMK_SIG_BLOCK_START  (1UL)
 #define FD_STRMK_SIG_TXN_KEYS     (2UL)
@@ -148,18 +150,22 @@
 #define FD_STRMK_MTU (4096UL)
 
 /* Replay publishes a block start as soon as the block has a bank, and
-   holds a reference on the parent bank, which is the fork the stream
-   tile reads the block's accounts from.  It always precedes the
-   block's keys, so the stream tile knows the fork before it sees a
-   key.  Blocks this validator produced itself are streamed too, even
-   though they never reach the scheduler: replay walks their shredded
-   bytes for keys. */
+   holds a reference on the parent bank for the stream tile.  It always
+   precedes the block's keys, so the stream tile can file them under a
+   block it has already heard of.  Blocks this validator produced
+   itself are streamed too, even though they never reach the scheduler:
+   replay walks their shredded bytes for keys.
+
+   bank_idx is recycled across blocks, so state has to be keyed on the
+   pair with bank_seq, which is unique for the life of the validator.
+   The fork the block's accounts are read at is not known yet and
+   arrives with the block end. */
 
 struct fd_strmk_block_start {
-  ulong              slot;
-  ulong              bank_idx;
-  ulong              parent_bank_idx;
-  fd_accdb_fork_id_t parent_accdb_fork_id;
+  ulong slot;
+  ulong bank_idx;
+  ulong bank_seq;
+  ulong parent_bank_idx;
 };
 typedef struct fd_strmk_block_start fd_strmk_block_start_t;
 
@@ -181,23 +187,41 @@ struct fd_strmk_txn_keys {
 typedef struct fd_strmk_txn_keys fd_strmk_txn_keys_t;
 
 /* Replay publishes a block end once a block completes, and the same
-   message with sig FD_STRMK_SIG_BLOCK_DEAD and a zero collector for a
-   block that died, so the stream tile can drop its partial state.
-   collector is the account fee settlement credits with the block's fee
-   reward, which no transaction in the block names. */
+   message with sig FD_STRMK_SIG_BLOCK_DEAD, a zero collector and a
+   zero fork for a block that died, so the stream tile can drop its
+   partial state.
+
+   parent_accdb_fork_id is the fork the block's accounts are read at,
+   and it is only valid here: the fork is created when the block starts
+   executing, which is after its block start went out, and the fork the
+   parent bank held before that may since have been purged.  So the
+   stream tile reads a block's accounts at the fork its block end
+   names, never earlier, and never at all for a block that died.  The
+   hold the block start took keeps the fork alive until the tile
+   returns it.
+
+   txn_cnt is the number of transactions the block committed, which is
+   not the number the stream carries keys for: keys are collected as
+   transactions are parsed, before any of them is executed.  collector
+   is the account fee settlement credits with the block's fee reward,
+   which no transaction in the block names. */
 
 struct fd_strmk_block_end {
-  ulong       slot;
-  ulong       bank_idx;
-  ulong       txn_cnt;
-  fd_pubkey_t collector;
+  ulong              slot;
+  ulong              bank_idx;
+  ulong              bank_seq;
+  ulong              txn_cnt;
+  fd_accdb_fork_id_t parent_accdb_fork_id;
+  fd_pubkey_t        collector;
 };
 typedef struct fd_strmk_block_end fd_strmk_block_end_t;
 
 /* Replay publishes a stream start right after it asks the snapshot
    maker for the incremental snapshot a new stream chains off, holding
    a reference on that snapshot's bank for the stream tile.  A full
-   snapshot starts no stream. */
+   snapshot starts no stream.  This hold has a much longer deadline
+   than a block's, because the stream tile writes a manifest and a
+   status cache before it is done with the bank. */
 
 struct fd_strmk_stream_start {
   ulong slot;
