@@ -22,6 +22,11 @@ that minute plus the catch-up a normal boot does afterwards.
   with the manifest and status cache for X and then grows: for every
   block the running validator executes after X, the accounts that block
   uses for the first time since X, each with the value it had at X.
+  "Uses" means every account a transaction names, plus the account
+  the block credits with its fee reward at block end (the leader
+  identity or its SIMD-0232 collector), which no transaction names.
+  The alpenglow clock account, read by every block footer, travels in
+  the bundle with the sysvars.
 - Boot fork: a fork in the booting validator's accounts database,
   created under the incremental fork before anything starts.  It holds
   the accounts received from the stream.  Every fork replay creates
