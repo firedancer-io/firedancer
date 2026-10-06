@@ -183,6 +183,74 @@ fd_backup_tar_dir_hdr( fd_tar_meta_t * tar_meta ) {
   return tar_meta;
 }
 
+/* fd_backup_tar_named_hdr builds the tar header of a file entry named
+   name holding sz bytes. */
+
+FD_FN_UNUSED static fd_tar_meta_t *
+fd_backup_tar_named_hdr( fd_tar_meta_t * tar_meta,
+                         char const *    name,
+                         ulong           sz ) {
+  fd_backup_tar_file_hdr( tar_meta, sz );
+  if( FD_UNLIKELY( !fd_tar_meta_set_size( tar_meta, sz ) ) ) {
+    FD_LOG_ERR(( "archive entry %s (%lu bytes) is too large for a tar size field", name, sz ));
+  }
+  fd_cstr_ncpy( tar_meta->name, name, sizeof(tar_meta->name) );
+  fd_tar_meta_set_chksum( tar_meta );
+  return tar_meta;
+}
+
+/* fd_backup_manifest_name formats the name of the manifest entry of a
+   snapshot at slot. */
+
+FD_FN_UNUSED static char *
+fd_backup_manifest_name( char  name[ static FD_TAR_NAME_SZ ],
+                         ulong slot ) {
+  FD_TEST( fd_cstr_printf_check( name, FD_TAR_NAME_SZ, NULL, "snapshots/%lu/%lu", slot, slot ) );
+  return name;
+}
+
+/* The status cache entry is named the same way in every archive. */
+
+#define FD_BACKUP_STATUS_CACHE_NAME "snapshots/status_cache"
+
+/* fd_backup_tar_open_entries writes the entries every snapshot archive
+   opens with: the version file, the snapshots directory and the
+   directory of the slot.  out takes FD_BACKUP_TAR_OPEN_SZ bytes, and
+   the function returns how many it wrote. */
+
+#define FD_BACKUP_TAR_OPEN_SZ (4UL*FD_TAR_BLOCK_SZ)
+
+FD_FN_UNUSED static ulong
+fd_backup_tar_open_entries( uchar * out,
+                            ulong   slot ) {
+  uchar *       p = out;
+  fd_tar_meta_t meta;
+
+  memcpy( p, fd_backup_tar_named_hdr( &meta, "version", 5UL ), sizeof(fd_tar_meta_t) );
+  p += sizeof(fd_tar_meta_t);
+  memcpy( p, "1.2.0", 5UL );
+  memset( p+5UL, 0, sizeof(fd_tar_meta_t)-5UL );
+  p += sizeof(fd_tar_meta_t);
+
+  fd_backup_tar_dir_hdr( &meta );
+  fd_cstr_ncpy( meta.name, "snapshots/", sizeof(meta.name) );
+  fd_tar_meta_set_chksum( &meta );
+  memcpy( p, &meta, sizeof(fd_tar_meta_t) );
+  p += sizeof(fd_tar_meta_t);
+
+  fd_backup_tar_dir_hdr( &meta );
+  FD_TEST( fd_cstr_printf_check( meta.name, sizeof(meta.name), NULL, "snapshots/%lu/", slot ) );
+  fd_tar_meta_set_chksum( &meta );
+  memcpy( p, &meta, sizeof(fd_tar_meta_t) );
+  p += sizeof(fd_tar_meta_t);
+
+  return (ulong)( p-out );
+}
+
+/* An archive ends with two zero tar blocks. */
+
+#define FD_BACKUP_TAR_END_SZ (2UL*FD_TAR_BLOCK_SZ)
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_discof_backup_fd_backup_h */

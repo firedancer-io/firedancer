@@ -48,6 +48,35 @@ mock_banks_bank_query( fd_banks_t * banks,
 #undef fd_banks_bank_query
 #undef fd_accdb_read_one_nocache
 
+/* The tile resolves a sent set entry once per key and reads what it
+   needs off it.  These ask the same two questions of one key, and
+   insert through a freshly resolved entry. */
+
+static int
+sent_test( strmk_stream_t const * stream,
+           ulong                  slot_cnt,
+           fd_pubkey_t const *    key ) {
+  strmk_sent_t const * ele = strmk_sent_query( stream->sent, slot_cnt, key );
+  return ele && !!ele->slot;
+}
+
+static int
+sent_table( strmk_stream_t const * stream,
+            ulong                  slot_cnt,
+            fd_pubkey_t const *    key ) {
+  strmk_sent_t const * ele = strmk_sent_query( stream->sent, slot_cnt, key );
+  return ele && !!( ele->slot & STRMK_SENT_TABLE );
+}
+
+static int
+sent_insert( strmk_stream_t *    stream,
+             ulong               slot_cnt,
+             fd_pubkey_t const * key,
+             ulong               slot,
+             int                 table ) {
+  return strmk_sent_insert( stream, strmk_sent_query( stream->sent, slot_cnt, key ), key, slot, table );
+}
+
 /* mock_bank_add makes a bank at bank_idx that is alive and frozen. */
 
 static void
@@ -217,7 +246,7 @@ env_destroy( void ) {
 static void
 write_entry( char const * name,
              ulong        content_sz ) {
-  zip_tar_hdr( stream, name, content_sz );
+  fd_backup_tar_named_hdr( (fd_tar_meta_t *)stream->raw, name, content_sz );
   zip_entry( ctx, stream, content_sz );
 }
 
@@ -231,7 +260,7 @@ write_entry( char const * name,
 
 static void
 write_fixed( void ) {
-  strmk_prologue( ctx, stream );
+  strmk_open_entries( ctx, stream );
 
   char name[ FD_TAR_NAME_SZ ];
   FD_TEST( fd_cstr_printf_check( name, sizeof(name), NULL, "snapshots/%lu/%lu", TEST_SLOT_X, TEST_SLOT_X ) );
@@ -289,6 +318,8 @@ expect_accounts( ulong              slot,
   fd_ssparse_t ssparse[1];
   FD_TEST( fd_ssparse_init( ssparse ) );
   fd_ssparse_batch_enable( ssparse, 0 );
+  /* the stream parser is told where each appendvec ends */
+  fd_ssparse_appendvec_done_enable( ssparse, 1 );
 
   ulong off      = 0UL;
   ulong acc_idx  = 0UL;
@@ -436,6 +467,8 @@ FD_UNIT_TEST( archive_roundtrip ) {
   fd_ssparse_t ssparse[1];
   FD_TEST( fd_ssparse_init( ssparse ) );
   fd_ssparse_batch_enable( ssparse, 0 );
+  /* the stream parser is told where each appendvec ends */
+  fd_ssparse_appendvec_done_enable( ssparse, 1 );
 
   ulong off          = 0UL;
   ulong manifest_sz  = 0UL;
@@ -502,6 +535,8 @@ FD_UNIT_TEST( appendvec_overflow ) {
   fd_ssparse_t ssparse[1];
   FD_TEST( fd_ssparse_init( ssparse ) );
   fd_ssparse_batch_enable( ssparse, 0 );
+  /* the stream parser is told where each appendvec ends */
+  fd_ssparse_appendvec_done_enable( ssparse, 1 );
 
   ulong off = 0UL;
   ulong id[ 8 ];
@@ -628,6 +663,8 @@ appendvec_slots( ulong * out_slot,
   fd_ssparse_t ssparse[1];
   FD_TEST( fd_ssparse_init( ssparse ) );
   fd_ssparse_batch_enable( ssparse, 0 );
+  /* the stream parser is told where each appendvec ends */
+  fd_ssparse_appendvec_done_enable( ssparse, 1 );
 
   ulong off = 0UL;
   ulong cnt = 0UL;
@@ -794,6 +831,8 @@ FD_UNIT_TEST( lookup_table ) {
   fd_ssparse_t ssparse[1];
   FD_TEST( fd_ssparse_init( ssparse ) );
   fd_ssparse_batch_enable( ssparse, 0 );
+  /* the stream parser is told where each appendvec ends */
+  fd_ssparse_appendvec_done_enable( ssparse, 1 );
 
   ulong off  = 0UL;
   int   seen = 0;
@@ -840,14 +879,16 @@ FD_UNIT_TEST( open_cost ) {
 
   fd_tar_meta_t meta;
   long t0 = fd_log_wallclock();
-  zip_push( ctx, stream, strmk_tar_hdr( &meta, "snapshots/1/1", OPEN_MANIFEST_SZ ), sizeof(fd_tar_meta_t), ZSTD_e_continue );
+  zip_push( ctx, stream, fd_backup_tar_named_hdr( &meta, "snapshots/1/1", OPEN_MANIFEST_SZ ),
+            sizeof(fd_tar_meta_t), ZSTD_e_continue );
   for( ulong off=0UL; off<OPEN_MANIFEST_SZ; off+=STRMK_RAW_BUF_SZ ) {
     zip_push( ctx, stream, fill, fd_ulong_min( STRMK_RAW_BUF_SZ, OPEN_MANIFEST_SZ-off ), ZSTD_e_continue );
   }
   zip_pad( ctx, stream, OPEN_MANIFEST_SZ );
   long t1 = fd_log_wallclock();
 
-  zip_push( ctx, stream, strmk_tar_hdr( &meta, "snapshots/status_cache", OPEN_STATUS_SZ ), sizeof(fd_tar_meta_t), ZSTD_e_continue );
+  zip_push( ctx, stream, fd_backup_tar_named_hdr( &meta, FD_BACKUP_STATUS_CACHE_NAME, OPEN_STATUS_SZ ),
+            sizeof(fd_tar_meta_t), ZSTD_e_continue );
   for( ulong off=0UL; off<OPEN_STATUS_SZ; off+=STRMK_RAW_BUF_SZ ) {
     zip_push( ctx, stream, fill, fd_ulong_min( STRMK_RAW_BUF_SZ, OPEN_STATUS_SZ-off ), ZSTD_e_continue );
   }
@@ -977,20 +1018,20 @@ FD_UNIT_TEST( lookup_table_grows ) {
   mock_shaped = 1;
 
   strmk_write_account( ctx, 1U, (fd_accdb_fork_id_t){ 1 }, &table, 101UL, 0 );
-  FD_TEST(  strmk_sent_test( stream, BACKLOG_KEY_MAX, &addr[ 0 ] ) );
-  FD_TEST(  strmk_sent_test( stream, BACKLOG_KEY_MAX, &addr[ 1 ] ) );
-  FD_TEST( !strmk_sent_test( stream, BACKLOG_KEY_MAX, &addr[ 2 ] ) );
+  FD_TEST(  sent_test( stream, BACKLOG_KEY_MAX, &addr[ 0 ] ) );
+  FD_TEST(  sent_test( stream, BACKLOG_KEY_MAX, &addr[ 1 ] ) );
+  FD_TEST( !sent_test( stream, BACKLOG_KEY_MAX, &addr[ 2 ] ) );
 
   /* the stream knows the key it carried was a table, which is what
      makes it read it again; a plain account is not marked */
-  FD_TEST(  strmk_sent_table( stream, BACKLOG_KEY_MAX, &table      ) );
-  FD_TEST( !strmk_sent_table( stream, BACKLOG_KEY_MAX, &addr[ 0 ]  ) );
+  FD_TEST(  sent_table( stream, BACKLOG_KEY_MAX, &table      ) );
+  FD_TEST( !sent_table( stream, BACKLOG_KEY_MAX, &addr[ 0 ]  ) );
 
   /* the table gains a third address after the stream opened */
   mock_shaped_len = FD_LOOKUP_TABLE_META_SIZE + 3UL*sizeof(fd_pubkey_t);
   memcpy( mock_shaped_data+FD_LOOKUP_TABLE_META_SIZE, addr, 3UL*sizeof(fd_pubkey_t) );
   strmk_write_account( ctx, 1U, (fd_accdb_fork_id_t){ 1 }, &table, 102UL, 0 );
-  FD_TEST( strmk_sent_test( stream, BACKLOG_KEY_MAX, &addr[ 2 ] ) );
+  FD_TEST( sent_test( stream, BACKLOG_KEY_MAX, &addr[ 2 ] ) );
   mock_shaped = 0;
 
   backlog_env_destroy();
@@ -1028,9 +1069,9 @@ FD_UNIT_TEST( table_created_after_open ) {
 
   /* the stream carries the table as a record saying it was not there,
      so nothing marks it and nothing was expanded */
-  FD_TEST(  strmk_sent_test ( stream, BACKLOG_KEY_MAX, &table     ) );
-  FD_TEST( !strmk_sent_table( stream, BACKLOG_KEY_MAX, &table     ) );
-  FD_TEST( !strmk_sent_test ( stream, BACKLOG_KEY_MAX, &addr[ 0 ] ) );
+  FD_TEST(  sent_test ( stream, BACKLOG_KEY_MAX, &table     ) );
+  FD_TEST( !sent_table( stream, BACKLOG_KEY_MAX, &table     ) );
+  FD_TEST( !sent_test ( stream, BACKLOG_KEY_MAX, &addr[ 0 ] ) );
 
   /* a later block names it again, and by then it exists */
   strmk_block_t * after = strmk_block_alloc( ctx );
@@ -1044,8 +1085,8 @@ FD_UNIT_TEST( table_created_after_open ) {
   FD_TEST( strmk_block_key_add( after, &table, 1 ) );
   strmk_block_read( ctx, 1U, after );
 
-  FD_TEST( strmk_sent_test( stream, BACKLOG_KEY_MAX, &addr[ 0 ] ) );
-  FD_TEST( strmk_sent_test( stream, BACKLOG_KEY_MAX, &addr[ 1 ] ) );
+  FD_TEST( sent_test( stream, BACKLOG_KEY_MAX, &addr[ 0 ] ) );
+  FD_TEST( sent_test( stream, BACKLOG_KEY_MAX, &addr[ 1 ] ) );
   mock_shaped = 0;
 
   backlog_env_destroy();
@@ -1261,11 +1302,11 @@ FD_UNIT_TEST( sent_set ) {
     FD_STORE( ulong, key.uc+8UL,  fd_ulong_hash( i+1UL  ) );
     FD_STORE( ulong, key.uc+16UL, fd_ulong_hash( i+2UL  ) );
     FD_STORE( ulong, key.uc+24UL, fd_ulong_hash( i+3UL  ) );
-    FD_TEST( !strmk_sent_test( s, SENT_MAX, &key ) );
-    FD_TEST( strmk_sent_insert( s, SENT_MAX, &key, TEST_SLOT+i, 0 ) );
+    FD_TEST( !sent_test( s, SENT_MAX, &key ) );
+    FD_TEST( sent_insert( s, SENT_MAX, &key, TEST_SLOT+i, 0 ) );
     /* inserting a key the stream already carried changes nothing */
-    FD_TEST( strmk_sent_insert( s, SENT_MAX, &key, TEST_SLOT+i+1UL, 0 ) );
-    FD_TEST( strmk_sent_test( s, SENT_MAX, &key ) );
+    FD_TEST( sent_insert( s, SENT_MAX, &key, TEST_SLOT+i+1UL, 0 ) );
+    FD_TEST( sent_test( s, SENT_MAX, &key ) );
   }
   FD_TEST( s->sent_cnt==cap );
 
@@ -1276,7 +1317,7 @@ FD_UNIT_TEST( sent_set ) {
     FD_STORE( ulong, key.uc+8UL,  fd_ulong_hash( i+1UL  ) );
     FD_STORE( ulong, key.uc+16UL, fd_ulong_hash( i+2UL  ) );
     FD_STORE( ulong, key.uc+24UL, fd_ulong_hash( i+3UL  ) );
-    FD_TEST( strmk_sent_test( s, SENT_MAX, &key ) );
+    FD_TEST( sent_test( s, SENT_MAX, &key ) );
     FD_TEST( ( strmk_sent_query( sent, SENT_MAX, &key )->slot & ~STRMK_SENT_TABLE )==TEST_SLOT+i );
   }
 
@@ -1285,12 +1326,12 @@ FD_UNIT_TEST( sent_set ) {
   for( ulong i=cap; i<SENT_MAX; i++ ) {
     fd_pubkey_t key = {{ 0 }};
     FD_STORE( ulong, key.uc, fd_ulong_hash( i ) );
-    FD_TEST( strmk_sent_insert( s, SENT_MAX, &key, TEST_SLOT+i, 0 ) );
+    FD_TEST( sent_insert( s, SENT_MAX, &key, TEST_SLOT+i, 0 ) );
   }
   FD_TEST( s->sent_cnt==SENT_MAX );
   fd_pubkey_t over = {{ 0 }};
   FD_STORE( ulong, over.uc, fd_ulong_hash( SENT_MAX ) );
-  FD_TEST( !strmk_sent_insert( s, SENT_MAX, &over, TEST_SLOT, 0 ) );
+  FD_TEST( !sent_insert( s, SENT_MAX, &over, TEST_SLOT, 0 ) );
   memset( sent, 0, sizeof(sent) );
   s->sent_cnt = 0UL;
   for( ulong i=0UL; i<cap; i++ ) {
@@ -1299,7 +1340,7 @@ FD_UNIT_TEST( sent_set ) {
     FD_STORE( ulong, key.uc+8UL,  fd_ulong_hash( i+1UL  ) );
     FD_STORE( ulong, key.uc+16UL, fd_ulong_hash( i+2UL  ) );
     FD_STORE( ulong, key.uc+24UL, fd_ulong_hash( i+3UL  ) );
-    FD_TEST( strmk_sent_insert( s, SENT_MAX, &key, TEST_SLOT+i, 0 ) );
+    FD_TEST( sent_insert( s, SENT_MAX, &key, TEST_SLOT+i, 0 ) );
   }
 
   /* a key the stream never carried is not in the set */
@@ -1309,7 +1350,7 @@ FD_UNIT_TEST( sent_set ) {
     FD_STORE( ulong, key.uc+8UL,  fd_ulong_hash( i+1UL  ) );
     FD_STORE( ulong, key.uc+16UL, fd_ulong_hash( i+2UL  ) );
     FD_STORE( ulong, key.uc+24UL, fd_ulong_hash( i+3UL  ) );
-    FD_TEST( !strmk_sent_test( s, SENT_MAX, &key ) );
+    FD_TEST( !sent_test( s, SENT_MAX, &key ) );
   }
 #undef SENT_MAX
 }

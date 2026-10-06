@@ -374,73 +374,28 @@ zip_pad( fd_strmk_t *     ctx,
   zip_push( ctx, stream, zero, fd_ulong_align_up( content_sz, sizeof(fd_tar_meta_t) )-content_sz, ZSTD_e_end );
 }
 
-/* strmk_tar_hdr builds the tar header of an entry of content_sz
-   bytes. */
-
-static fd_tar_meta_t *
-strmk_tar_hdr( fd_tar_meta_t * meta,
-               char const *    name,
-               ulong           content_sz ) {
-  fd_backup_tar_file_hdr( meta, content_sz );
-  if( FD_UNLIKELY( !fd_tar_meta_set_size( meta, content_sz ) ) ) {
-    FD_LOG_ERR(( "boot stream entry %s (%lu bytes) is too large for a tar size field", name, content_sz ));
-  }
-  fd_cstr_ncpy( meta->name, name, sizeof(meta->name) );
-  fd_tar_meta_set_chksum( meta );
-  return meta;
-}
-
-/* zip_tar_hdr fills in the tar header at the head of the stage. */
-
-static void
-zip_tar_hdr( strmk_stream_t * stream,
-             char const *     name,
-             ulong            content_sz ) {
-  strmk_tar_hdr( (fd_tar_meta_t *)stream->raw, name, content_sz );
-}
-
-/* zip_entry compresses a tar entry the stage holds whole, which is its
-   tar header followed by content_sz bytes of content. */
+/* zip_entry compresses a tar entry the raw buffer holds whole, which is
+   its tar header followed by content_sz bytes of content. */
 
 static void
 zip_entry( fd_strmk_t *     ctx,
            strmk_stream_t * stream,
            ulong            content_sz ) {
   ulong entry_sz = sizeof(fd_tar_meta_t) + fd_ulong_align_up( content_sz, sizeof(fd_tar_meta_t) );
-  FD_CHECK_CRIT( entry_sz<=STRMK_RAW_BUF_SZ, "boot stream tar entry does not fit the stage" );
+  FD_CHECK_CRIT( entry_sz<=STRMK_RAW_BUF_SZ, "boot stream tar entry does not fit the raw buffer" );
   fd_memset( stream->raw + sizeof(fd_tar_meta_t) + content_sz, 0,
              entry_sz - sizeof(fd_tar_meta_t) - content_sz );
   zip_push( ctx, stream, stream->raw, entry_sz, ZSTD_e_end );
 }
 
-/* strmk_prologue writes the version file and the two directory
+/* strmk_open_entries writes the version file and the two directory
    entries, which carry no content of their own. */
 
 static void
-strmk_prologue( fd_strmk_t *     ctx,
-                strmk_stream_t * stream ) {
-  uchar * p = stream->raw;
-
-  fd_tar_meta_t meta;
-  memcpy( p, strmk_tar_hdr( &meta, "version", 5UL ), sizeof(fd_tar_meta_t) );
-  p += sizeof(fd_tar_meta_t);
-  memcpy( p, "1.2.0", 5UL );
-  memset( p+5UL, 0, sizeof(fd_tar_meta_t)-5UL );
-  p += sizeof(fd_tar_meta_t);
-
-  fd_backup_tar_dir_hdr( &meta );
-  fd_cstr_ncpy( meta.name, "snapshots/", sizeof(meta.name) );
-  fd_tar_meta_set_chksum( &meta );
-  memcpy( p, &meta, sizeof(fd_tar_meta_t) );
-  p += sizeof(fd_tar_meta_t);
-
-  fd_backup_tar_dir_hdr( &meta );
-  FD_TEST( fd_cstr_printf_check( meta.name, sizeof(meta.name), NULL, "snapshots/%lu/", stream->slot_x ) );
-  fd_tar_meta_set_chksum( &meta );
-  memcpy( p, &meta, sizeof(fd_tar_meta_t) );
-  p += sizeof(fd_tar_meta_t);
-
-  zip_push( ctx, stream, stream->raw, (ulong)( p-stream->raw ), ZSTD_e_end );
+strmk_open_entries( fd_strmk_t *     ctx,
+                    strmk_stream_t * stream ) {
+  ulong sz = fd_backup_tar_open_entries( stream->raw, stream->slot_x );
+  zip_push( ctx, stream, stream->raw, sz, ZSTD_e_end );
 }
 
 /* strmk_manifest writes the snapshot manifest of the stream's start
@@ -453,10 +408,10 @@ strmk_manifest( fd_strmk_t *     ctx,
                 strmk_stream_t * stream ) {
   ulong manifest_sz = ctx->manifest_writer->serialized_sz;
   char  name[ FD_TAR_NAME_SZ ];
-  FD_TEST( fd_cstr_printf_check( name, sizeof(name), NULL, "snapshots/%lu/%lu", stream->slot_x, stream->slot_x ) );
+  fd_backup_manifest_name( name, stream->slot_x );
 
   fd_tar_meta_t meta;
-  zip_push( ctx, stream, strmk_tar_hdr( &meta, name, manifest_sz ), sizeof(fd_tar_meta_t), ZSTD_e_continue );
+  zip_push( ctx, stream, fd_backup_tar_named_hdr( &meta, name, manifest_sz ), sizeof(fd_tar_meta_t), ZSTD_e_continue );
 
   ulong wrote = 0UL;
   for(;;) {
@@ -478,7 +433,8 @@ strmk_status_cache( fd_strmk_t *     ctx,
   ulong status_sz = fd_txncache_writer_serialized_sz( ctx->txncache_writer );
 
   fd_tar_meta_t meta;
-  zip_push( ctx, stream, strmk_tar_hdr( &meta, "snapshots/status_cache", status_sz ), sizeof(fd_tar_meta_t), ZSTD_e_continue );
+  zip_push( ctx, stream, fd_backup_tar_named_hdr( &meta, FD_BACKUP_STATUS_CACHE_NAME, status_sz ),
+            sizeof(fd_tar_meta_t), ZSTD_e_continue );
 
   ulong wrote = 0UL;
   for(;;) {
@@ -533,7 +489,7 @@ strmk_appendvec_flush( fd_strmk_t *     ctx,
                        ulong            id ) {
   char name[ FD_TAR_NAME_SZ ];
   FD_TEST( fd_cstr_printf_check( name, sizeof(name), NULL, "accounts/%lu.%lu", slot, id ) );
-  zip_tar_hdr( stream, name, stream->raw_sz );
+  fd_backup_tar_named_hdr( (fd_tar_meta_t *)stream->raw, name, stream->raw_sz );
   zip_entry( ctx, stream, stream->raw_sz );
   stream->raw_sz = 0UL;
 }
@@ -561,41 +517,56 @@ strmk_sent_query( strmk_sent_t *      sent,
   return NULL;
 }
 
-/* strmk_sent_test returns 1 if the stream has already carried key. */
+/* One key resolved against the sent set of every stream in a take
+   mask.  ele holds the entry the key belongs in for each of them and
+   is NULL for a stream that is not taking, or whose set is full.
+   wanted says one of them has not carried the key, and table says one
+   of them carried it as an address lookup table. */
 
-static int
-strmk_sent_test( strmk_stream_t const * stream,
-                 ulong                  slot_cnt,
-                 fd_pubkey_t const *    key ) {
-  strmk_sent_t const * ele = strmk_sent_query( stream->sent, slot_cnt, key );
-  /* A set with no free entry left did not hold the key either: the
-     probe walked all of it without finding a match. */
-  return ele && !!ele->slot;
+struct strmk_probe {
+  strmk_sent_t * ele[ FD_STRMK_STREAM_MAX ];
+  int            wanted;
+  int            table;
+};
+
+typedef struct strmk_probe strmk_probe_t;
+
+/* strmk_sent_probe probes the sent set of each stream in take once, so
+   that the rest of a key's handling reads the entry instead of probing
+   again. */
+
+static void
+strmk_sent_probe( fd_strmk_t *        ctx,
+                  uint                take,
+                  fd_pubkey_t const * key,
+                  strmk_probe_t *     probe ) {
+  probe->wanted = 0;
+  probe->table  = 0;
+  for( uint i=0U; i<ctx->stream_max; i++ ) {
+    if( FD_LIKELY( !( take & (1U<<i) ) ) ) {
+      probe->ele[ i ] = NULL;
+      continue;
+    }
+    strmk_sent_t * ele = strmk_sent_query( ctx->stream[ i ].sent, ctx->key_max, key );
+    probe->ele[ i ] = ele;
+    /* A set with no free entry left did not hold the key either: the
+       probe walked all of it without finding a match. */
+    probe->wanted |= !ele || !ele->slot;
+    probe->table  |= !!ele && !!( ele->slot & STRMK_SENT_TABLE );
+  }
 }
 
-/* strmk_sent_table returns 1 if the stream carried key as an address
-   lookup table. */
-
-static int
-strmk_sent_table( strmk_stream_t const * stream,
-                  ulong                  slot_cnt,
-                  fd_pubkey_t const *    key ) {
-  strmk_sent_t const * ele = strmk_sent_query( stream->sent, slot_cnt, key );
-  return ele && !!( ele->slot & STRMK_SENT_TABLE );
-}
-
-/* strmk_sent_insert records that the stream carried key in the
-   appendvec of slot, and whether the account was an address lookup
-   table.  Returns 0 if the set had no room, which leaves the stream
-   unusable: it would skip the account next time. */
+/* strmk_sent_insert records through a probed entry that the stream
+   carried key in the appendvec of slot, and whether the account was an
+   address lookup table.  Returns 0 if the set had no room, which
+   leaves the stream unusable: it would skip the account next time. */
 
 static int
 strmk_sent_insert( strmk_stream_t *    stream,
-                   ulong               slot_cnt,
+                   strmk_sent_t *      ele,
                    fd_pubkey_t const * key,
                    ulong               slot,
                    int                 table ) {
-  strmk_sent_t * ele = strmk_sent_query( stream->sent, slot_cnt, key );
   if( FD_UNLIKELY( !ele  ) ) return 0;
   if( FD_UNLIKELY( ele->slot ) ) return 1;
   ele->key  = *key;
@@ -745,8 +716,8 @@ strmk_stream_close( fd_strmk_t *        ctx,
                 stream->file_sz, stream->sent_cnt, broken ? ", broken" : "" ));
 
   if( FD_LIKELY( !broken ) ) {
-    memset( stream->raw, 0, 2UL*sizeof(fd_tar_meta_t) );
-    zip_push( ctx, stream, stream->raw, 2UL*sizeof(fd_tar_meta_t), ZSTD_e_end );
+    memset( stream->raw, 0, FD_BACKUP_TAR_END_SZ );
+    zip_push( ctx, stream, stream->raw, FD_BACKUP_TAR_END_SZ, ZSTD_e_end );
   }
 
   int listed = stream->listed;
@@ -949,42 +920,13 @@ strmk_block_key_add( strmk_block_t *     block,
   return 1;
 }
 
-/* strmk_key_wanted returns 1 if one of the streams in take still needs
-   key.  Most keys of a block are ones every stream already carried. */
-
-static int
-strmk_key_wanted( fd_strmk_t const *  ctx,
-                  uint                take,
-                  fd_pubkey_t const * key ) {
-  for( uint i=0U; i<ctx->stream_max; i++ ) {
-    if( FD_LIKELY( !( take & (1U<<i) ) ) ) continue;
-    if( FD_UNLIKELY( !strmk_sent_test( &ctx->stream[ i ], ctx->key_max, key ) ) ) return 1;
-  }
-  return 0;
-}
-
-/* strmk_key_table returns 1 if one of the streams in take carried key
-   as an address lookup table, which is the only reason to read an
-   account every one of them already has. */
-
-static int
-strmk_key_table( fd_strmk_t const *  ctx,
-                 uint                take,
-                 fd_pubkey_t const * key ) {
-  for( uint i=0U; i<ctx->stream_max; i++ ) {
-    if( FD_LIKELY( !( take & (1U<<i) ) ) ) continue;
-    if( FD_UNLIKELY( strmk_sent_table( &ctx->stream[ i ], ctx->key_max, key ) ) ) return 1;
-  }
-  return 0;
-}
-
 /**********************************************************************/
 /* Account writing                                                    */
 /**********************************************************************/
 
 /* strmk_write_key reads one account at fork and adds it to the streams
-   in take that have not carried it yet.  slot names the appendvec they
-   are building.
+   in take that have not carried it yet, which probe says.  slot names
+   the appendvec they are building.
 
    force reads the account even when every one of them has it already,
    which is how a lookup table that gained addresses since the stream
@@ -996,17 +938,18 @@ strmk_key_table( fd_strmk_t const *  ctx,
    names: the program data account of an upgradeable program, or the
    addresses of an address lookup table that replay could not expand.
    Returns how many it wrote.  Flushes an overflow file for a stream
-   whose stage filled up. */
+   whose raw buffer filled up. */
 
 static ulong
-strmk_write_key( fd_strmk_t *        ctx,
-                 uint                take,
-                 fd_accdb_fork_id_t  fork,
-                 fd_pubkey_t const * key,
-                 ulong               slot,
-                 int                 force,
-                 fd_pubkey_t *       out_follow ) {
-  int wanted = strmk_key_wanted( ctx, take, key );
+strmk_write_key( fd_strmk_t *          ctx,
+                 uint                  take,
+                 strmk_probe_t const * probe,
+                 int                   force,
+                 fd_accdb_fork_id_t    fork,
+                 fd_pubkey_t const *   key,
+                 ulong                 slot,
+                 fd_pubkey_t *         out_follow ) {
+  int wanted = probe->wanted;
   if( FD_LIKELY( !wanted && !force ) ) return 0UL;
 
   ulong lamports   = 0UL;
@@ -1031,15 +974,16 @@ strmk_write_key( fd_strmk_t *        ctx,
   ulong rec_sz = sizeof(snap_acc_hdr_t) + fd_ulong_align_up( data_len, 8UL );
   for( uint i=0U; wanted && i<ctx->stream_max; i++ ) {
     strmk_stream_t * stream = &ctx->stream[ i ];
+    strmk_sent_t *   ele    = probe->ele[ i ];
     if( FD_LIKELY( !( take & (1U<<i) ) ) ) continue;
-    if( FD_UNLIKELY( strmk_sent_test( stream, ctx->key_max, key ) ) ) continue;
+    if( FD_UNLIKELY( ele && ele->slot ) ) continue;
     if( FD_UNLIKELY( sizeof(fd_tar_meta_t)+stream->raw_sz+rec_sz>STRMK_RAW_BUF_SZ ) ) {
       strmk_appendvec_flush( ctx, stream, slot, ++stream->vec_id );
     }
     stream->raw_sz += strmk_encode_account( stream->raw + sizeof(fd_tar_meta_t) + stream->raw_sz,
                                             stream->slot_x, key, lamports, executable, owner,
                                             ctx->acc_data, data_len );
-    if( FD_UNLIKELY( !strmk_sent_insert( stream, ctx->key_max, key, slot, is_table ) ) ) stream->sent_full = 1;
+    if( FD_UNLIKELY( !strmk_sent_insert( stream, ele, key, slot, is_table ) ) ) stream->sent_full = 1;
   }
 
   if( FD_LIKELY( !out_follow || !lamports ) ) return 0UL;
@@ -1090,14 +1034,17 @@ strmk_write_account( fd_strmk_t *        ctx,
                      fd_pubkey_t const * key,
                      ulong               slot,
                      int                 table ) {
-  int   force = table || strmk_key_table( ctx, take, key );
-  ulong cnt   = strmk_write_key( ctx, take, fork, key, slot, force, ctx->follow[ 0 ] );
+  strmk_probe_t probe[1];
+  strmk_sent_probe( ctx, take, key, probe );
+  ulong cnt = strmk_write_key( ctx, take, probe, table||probe->table, fork, key, slot, ctx->follow[ 0 ] );
   for( ulong i=0UL; i<cnt; i++ ) {
     fd_pubkey_t next = ctx->follow[ 0 ][ i ];
-    ulong deep = strmk_write_key( ctx, take, fork, &next, slot, 0, ctx->follow[ 1 ] );
+    strmk_sent_probe( ctx, take, &next, probe );
+    ulong deep = strmk_write_key( ctx, take, probe, 0, fork, &next, slot, ctx->follow[ 1 ] );
     for( ulong j=0UL; j<deep; j++ ) {
       fd_pubkey_t leaf = ctx->follow[ 1 ][ j ];
-      strmk_write_key( ctx, take, fork, &leaf, slot, 0, NULL );
+      strmk_sent_probe( ctx, take, &leaf, probe );
+      strmk_write_key( ctx, take, probe, 0, fork, &leaf, slot, NULL );
     }
   }
 }
@@ -1500,7 +1447,7 @@ strmk_stream_start( fd_strmk_t *                    ctx,
   fd_ssmanifest_writer_init( ctx->manifest_writer, bank, leader, ctx->accdb, fork, ctx->acc_data );
 
   long t0 = fd_log_wallclock();
-  strmk_prologue     ( ctx, stream );
+  strmk_open_entries ( ctx, stream );
   strmk_manifest     ( ctx, stream );
   strmk_status_cache ( ctx, stream );
   strmk_bundle       ( ctx, idx, bank, fork );

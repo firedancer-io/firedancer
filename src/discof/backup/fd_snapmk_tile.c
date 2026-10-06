@@ -662,21 +662,6 @@ zip_align( fd_snapmk_t * ctx ) {
   atomic_store_explicit( ctx->file_off_p, aoff, memory_order_release );
 }
 
-/* snapmk_status_cache_tar_hdr builds the TAR header of the status cache
-   file for a payload of sz bytes. */
-
-static fd_tar_meta_t *
-snapmk_status_cache_tar_hdr( fd_tar_meta_t * meta,
-                             ulong           sz ) {
-  fd_backup_tar_file_hdr( meta, sz );
-  if( FD_UNLIKELY( !fd_tar_meta_set_size( meta, sz ) ) ) {
-    FD_LOG_ERR(( "status cache (%lu bytes) too large for a TAR size field", sz ));
-  }
-  fd_cstr_ncpy( meta->name, "snapshots/status_cache", sizeof(meta->name) );
-  fd_tar_meta_set_chksum( meta );
-  return meta;
-}
-
 /* snapmk_status_cache_prepare starts status cache serialization and
    writes its TAR header.  The writer counts the status cache up front,
    so its size is known before the first byte is streamed. */
@@ -695,7 +680,7 @@ snapmk_status_cache_prepare( fd_snapmk_t * ctx ) {
 
   zip_reset( ctx );
   fd_tar_meta_t meta;
-  snapmk_status_cache_tar_hdr( &meta, ctx->status_cache_expected_sz );
+  fd_backup_tar_named_hdr( &meta, FD_BACKUP_STATUS_CACHE_NAME, ctx->status_cache_expected_sz );
   zip_append( ctx, &meta, sizeof(fd_tar_meta_t) );
 }
 
@@ -737,9 +722,9 @@ snapmk_status_cache( fd_snapmk_t * ctx ) {
 static void
 snapmk_eof_marker( fd_snapmk_t * ctx ) {
   FD_CHECK_ERR( ctx->raw_buf.size==0UL, "Zstandard stream unclean" );
-  ctx->raw_buf.pos  =    0UL;
-  ctx->raw_buf.size = 1024UL;
-  fd_memset( ctx->raw, 0, 1024UL );
+  ctx->raw_buf.pos  = 0UL;
+  ctx->raw_buf.size = FD_BACKUP_TAR_END_SZ;
+  fd_memset( ctx->raw, 0, FD_BACKUP_TAR_END_SZ );
   zip_flush( ctx, ZSTD_e_end );
 }
 
@@ -1091,36 +1076,12 @@ snapmk_tar_headers( fd_snapmk_t * ctx ) {
   ulong slot = ctx->bank->f.slot;
 
   ctx->raw_buf.pos = ctx->raw_buf.size = 0UL;
-  uchar * p = ctx->raw;
+  uchar * p = ctx->raw + fd_backup_tar_open_entries( ctx->raw, slot );
+
+  char          name[ FD_TAR_NAME_SZ ];
   fd_tar_meta_t meta;
-
-  fd_backup_tar_file_hdr( &meta, 5UL );
-  fd_cstr_ncpy( meta.name, "version", sizeof(meta.name) );
-  fd_tar_meta_set_chksum( &meta );
-  memcpy( p, &meta, sizeof(fd_tar_meta_t) );
-  p += sizeof(fd_tar_meta_t);
-
-  memcpy( p,   "1.2.0",       5UL );
-  memset( p+5, 0,       512UL-5UL );
-  p += 512UL;
-
-  fd_backup_tar_dir_hdr( &meta );
-  fd_cstr_ncpy( meta.name, "snapshots/", sizeof(meta.name) );
-  fd_tar_meta_set_chksum( &meta );
-  memcpy( p, &meta, sizeof(fd_tar_meta_t) );
-  p += sizeof(fd_tar_meta_t);
-
-  fd_backup_tar_dir_hdr( &meta );
-  fd_cstr_printf_check( meta.name, sizeof(meta.name), NULL, "snapshots/%lu/", slot );
-  fd_tar_meta_set_chksum( &meta );
-  memcpy( p, &meta, sizeof(fd_tar_meta_t) );
-  p += sizeof(fd_tar_meta_t);
-
   ctx->manifest_sz = ctx->manifest_writer->serialized_sz;
-  fd_backup_tar_file_hdr( &meta, ctx->manifest_sz );
-  fd_cstr_printf_check( meta.name, sizeof(meta.name), NULL, "snapshots/%lu/%lu", slot, slot );
-  fd_tar_meta_set_chksum( &meta );
-  memcpy( p, &meta, sizeof(fd_tar_meta_t) );
+  memcpy( p, fd_backup_tar_named_hdr( &meta, fd_backup_manifest_name( name, slot ), ctx->manifest_sz ), sizeof(fd_tar_meta_t) );
   p += sizeof(fd_tar_meta_t);
   ctx->raw_buf.size = (ulong)( p - ctx->raw );
   ctx->manifest_pad = fd_ulong_align_up( ctx->manifest_sz, 512UL ) - ctx->manifest_sz;
