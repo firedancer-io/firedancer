@@ -138,14 +138,15 @@
 
    Replay sends FD_STRMK_SIG_RESET when it has taken every outstanding
    reference back, which it does when the stream tile owes one for too
-   long, when it owes more than replay can record, when the accounts of
-   a block did not fit in its sink, when the shredded bytes of a block
-   replay produced itself are no longer in the store, and when a block
-   crosses an epoch boundary or an epoch rewards payout: a stream is a
-   chain of blocks and cannot skip one, and an epoch boundary credits
-   stake accounts that no transaction names, so the accounts of the
-   block on the far side of it cannot be carried.  A peer booting near
-   a boundary therefore sees its stream break and has to start over.
+   long, when it owes more than replay can record, when the accounts
+   of a block did not fit in replay's key lists, when the shredded
+   bytes of a block replay produced itself are no longer in the store,
+   and when a block crosses an epoch boundary or an epoch rewards
+   payout: a stream is a chain of blocks and cannot skip one, and an
+   epoch boundary credits stake accounts that no transaction names, so
+   the accounts of the block on the far side of it cannot be carried.
+   A peer booting near a boundary therefore sees its stream break and
+   has to start over.
 
    A reset cancels every reference the stream tile was given before
    it; returning one of those tokens afterwards is harmless, replay no
@@ -154,7 +155,7 @@
    A reference has two deadlines.  The stream tile reads a block's
    accounts once it has the block's end, so from that moment it has 4
    seconds to return the reference.  Until then only a 60 second
-   backstop applies, because replay itself may take that long to
+   deadline applies, because replay itself may take that long to
    finish a block it is catching up on.
 
    The 4 second clock is paused for as long as the tile owes the
@@ -164,10 +165,10 @@
    comes back, so the time spent opening a stream is not charged to
    the blocks that queued up behind it.
 
-   The backstop applies throughout, but it is restamped whenever a
-   reference changes clock: once at the block end and again whenever
-   the read clocks resume.  So the longest a reference can be
-   outstanding is about two backstops from the block start, plus one
+   The 60 second deadline applies throughout, but it is restamped
+   whenever a reference changes clock: once at the block end and again
+   whenever the read clocks resume.  So the longest a reference can be
+   outstanding is about two of them from the block start, plus one
    more for every stream opened while it waits. */
 
 #define FD_STRMK_SIG_BLOCK_START  (1UL)
@@ -199,7 +200,7 @@ struct fd_strmk_block_start {
   ulong bank_idx;
   ulong bank_seq;
   ulong parent_bank_idx;
-  ulong hold_token;      /* return on strmk_replay once the block is written */
+  ulong hold_token; /* returned on strmk_replay */
 };
 typedef struct fd_strmk_block_start fd_strmk_block_start_t;
 
@@ -281,15 +282,15 @@ typedef struct fd_strmk_block_end fd_strmk_block_end_t;
    a reference on that snapshot's bank for the stream tile.  A full
    snapshot starts no stream, and neither does an incremental one
    taken while an epoch rewards payout is running at the root: a
-   stream cannot cross one.  This hold runs against the same backstop
-   a block's does, with no 4 second clock, because the stream tile
-   writes the stream's manifest, status cache and bundle before it is
-   done with the bank. */
+   stream cannot cross one.  This hold runs against the same 60 second
+   deadline a block's does, with no 4 second clock, because the stream
+   tile writes the stream's manifest, status cache and bundle before
+   it is done with the bank. */
 
 struct fd_strmk_stream_start {
   ulong slot;
   ulong bank_idx;
-  ulong hold_token;      /* return on strmk_replay once the stream is written */
+  ulong hold_token; /* returned on strmk_replay */
 };
 typedef struct fd_strmk_stream_start fd_strmk_stream_start_t;
 

@@ -5193,8 +5193,8 @@ test_strmk_hold_ring( fd_wksp_t * wksp ) {
 
   /* The link handler releases a returned hold once and ignores a
      second return of it.  A malformed token must be dropped before it
-     reaches the rings, where a released entry carries the same
-     sentinel: matching one would release a bank that does not exist.
+     reaches the rings, where a released entry carries that same
+     ULONG_MAX: matching one would release a bank that does not exist.
      Hold a second bank so a released entry sits inside the ring
      rather than at its old end. */
   fd_bank_t * other = fd_banks_new_bank( ctx->banks, bank->idx, 0L, 0 );
@@ -5221,7 +5221,8 @@ test_strmk_hold_ring( fd_wksp_t * wksp ) {
 }
 
 /* The accounts of a FEC set go out in as few messages as the link MTU
-   allows, and a sink that overflowed resets the streams instead. */
+   allows, and a key list that overflowed resets the streams
+   instead. */
 
 static void
 test_strmk_txn_keys( fd_wksp_t * wksp ) {
@@ -5269,8 +5270,8 @@ test_strmk_txn_keys( fd_wksp_t * wksp ) {
   }
   FD_TEST( seen==200UL );
 
-  /* A sink that overflowed resets, which also takes back every hold
-     the stream tile owes. */
+  /* A key list that overflowed resets, which also takes back every
+     hold the stream tile owes. */
   fd_bank_t * bank = fd_banks_bank_query( ctx->banks, ctx->published_root_bank_idx );
   FD_TEST( bank );
   fd_replay_strmk_ring_t * start_ring = &ctx->strmk_hold[ FD_REPLAY_STRMK_RING_START ];

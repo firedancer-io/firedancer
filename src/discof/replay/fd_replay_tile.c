@@ -905,8 +905,8 @@ strmk_keys_reset( fd_replay_tile_t * ctx,
   sched_fec->keys              = ctx->strmk_keys;
 }
 
-/* strmk_keys_publish forwards one of the key sink's lists, filling
-   each message to the link MTU. */
+/* strmk_keys_publish forwards one of the key lists, filling each
+   message to the link MTU. */
 
 static void
 strmk_keys_publish( fd_replay_tile_t *           ctx,
@@ -927,8 +927,8 @@ strmk_keys_publish( fd_replay_tile_t *           ctx,
 
 /* strmk_txn_keys forwards the accounts the scheduler resolved out of
    one FEC set, and then the lookup tables it could not expand, which
-   the stream tile has to expand itself.  Keys that did not fit in the
-   sink are gone, so the stream tile is told to start over instead. */
+   the stream tile has to expand itself.  Keys that did not fit are
+   gone, so the stream tile is told to start over instead. */
 
 static void
 strmk_txn_keys( fd_replay_tile_t *     ctx,
@@ -937,7 +937,7 @@ strmk_txn_keys( fd_replay_tile_t *     ctx,
   if( FD_LIKELY( !ctx->instant_boot_serve ) ) return;
   if( FD_UNLIKELY( !ctx->strmk_fed[ sched_fec->bank_idx ] ) ) return;
   if( FD_UNLIKELY( ctx->strmk_keys->full ) ) {
-    strmk_reset( ctx, stem, "a block named more accounts than the key sink holds" );
+    strmk_reset( ctx, stem, "a block named more accounts than the key lists hold" );
     return;
   }
 
@@ -2525,7 +2525,8 @@ instant_boot_load_done( fd_replay_tile_t * ctx ) {
   FD_LOG_NOTICE(( "instant boot: snapshot load finished, stake state complete" ));
 }
 
-/* stakes_ready is 0 only under instant boot, where the stake state is
+/* init_after_snapshot finishes booting the runtime off bank 0.
+   stakes_ready is 0 only under instant boot, where the stake state is
    not available yet and finish_stake_state runs later instead. */
 
 static void
@@ -3358,15 +3359,17 @@ mark_bank_dead( fd_replay_tile_t *        ctx,
 
     /* Tell the stream tile to drop a block that will never complete. */
     if( FD_UNLIKELY( ctx->instant_boot_serve && ctx->strmk_fed[ dead_idxs[ i ] ] ) ) {
-      /* fd_banks_bank_query does not bound check, so the sentinel
-         parent index of a root has to be filtered out here. */
+      /* fd_banks_bank_query does not bound check, so a root's parent
+         index of ULONG_MAX has to be filtered out here. */
       fd_bank_t * parent = bank && bank->parent_idx!=ULONG_MAX ? fd_banks_bank_query( ctx->banks, bank->parent_idx ) : NULL;
       fd_strmk_block_end_t * msg = fd_chunk_to_laddr( ctx->strmk_out->mem, ctx->strmk_out->chunk );
-      *msg = (fd_strmk_block_end_t){ .slot                 = ele->slot,
-                                     .bank_idx             = dead_idxs[ i ],
-                                     .bank_seq             = ele->bank_seq,
-                                     .parent_bank_seq      = parent ? parent->bank_seq : ULONG_MAX,
-                                     .parent_accdb_fork_id = { .val = USHORT_MAX } };
+      *msg = (fd_strmk_block_end_t) {
+        .slot                 = ele->slot,
+        .bank_idx             = dead_idxs[ i ],
+        .bank_seq             = ele->bank_seq,
+        .parent_bank_seq      = parent ? parent->bank_seq : ULONG_MAX,
+        .parent_accdb_fork_id = { .val = USHORT_MAX }
+      };
       strmk_publish( ctx, stem, FD_STRMK_SIG_BLOCK_DEAD, sizeof(fd_strmk_block_end_t) );
       ctx->strmk_fed[ dead_idxs[ i ] ] = 0;
       /* The tile drops the block from here, so the same deadline
@@ -3408,28 +3411,28 @@ epoch_rewards_pending( fd_replay_tile_t * ctx,
 /* block_start_blocked returns 1 while instant boot must not start
    replaying slot: the boot stream has not written it into the boot
    fork yet, or the block needs the deferred stake state.  The slot
-   counter seeds ULONG_MAX, which means no slot at all. */
+   counter starts at ULONG_MAX, meaning no slot yet. */
 
 static int
 block_start_blocked( fd_replay_tile_t * ctx,
                      ulong              parent_bank_idx,
                      ulong              slot ) {
   if( FD_LIKELY( !ctx->instant_boot || ctx->load_done ) ) return 0;
-  ulong marker = FD_VOLATILE_CONST( *ctx->instant_boot_slot );
-  marker = fd_ulong_if( marker==ULONG_MAX, 0UL, marker );
-  if( FD_UNLIKELY( slot>marker ) ) return 1;
+  ulong stream_slot = FD_VOLATILE_CONST( *ctx->instant_boot_slot );
+  stream_slot = fd_ulong_if( stream_slot==ULONG_MAX, 0UL, stream_slot );
+  if( FD_UNLIKELY( slot>stream_slot ) ) return 1;
   return epoch_rewards_pending( ctx, parent_bank_idx, slot );
 }
 
-/* held_block_start_live returns 1 if the parked block start can still
-   be completed, and otherwise drops it.  The scheduler completes a
-   block start against whatever block it is handing out tasks for, so
-   if the block was abandoned or its bank evicted during the hold, the
+/* held_block_start_take returns 1 if the block start kept back can
+   still be completed, and otherwise drops it.  The scheduler completes
+   a block start against whatever block it is handing out tasks for, so
+   if the block was abandoned or its bank evicted while it waited, the
    completion would land on an unrelated block.  The scheduler has
    already cleaned such a block up and will hand out the next start. */
 
 static int
-held_block_start_live( fd_replay_tile_t * ctx ) {
+held_block_start_take( fd_replay_tile_t * ctx ) {
   fd_bank_t * bank = fd_banks_bank_query( ctx->banks, ctx->held_block_start.bank_idx );
   if( FD_LIKELY( fd_sched_active_bank_idx( ctx->sched )==ctx->held_block_start.bank_idx &&
                  bank &&
@@ -3452,18 +3455,16 @@ try_replay( fd_replay_tile_t *  ctx,
      footer certs verify under it. */
   if( FD_UNLIKELY( ctx->alpenglow && !ctx->shred_version ) ) return 0;
 
-  /* The scheduler hands out a block start only once, so a start the
-     gate held back is serviced from here once the gate opens.  A start
-     that went stale is dropped and the normal path below picks up
-     whatever the scheduler hands out next. */
-  if( FD_UNLIKELY( ctx->held_block_start.pending ) ) {
-    if( FD_LIKELY( held_block_start_live( ctx ) ) ) {
-      if( FD_UNLIKELY( block_start_blocked( ctx, ctx->held_block_start.parent_bank_idx, ctx->held_block_start.slot ) ) ) return 0;
-      replay_block_start( ctx, ctx->held_block_start.bank_idx, ctx->held_block_start.parent_bank_idx, ctx->held_block_start.slot );
-      fd_sched_task_done( ctx->sched, FD_SCHED_TT_BLOCK_START, ULONG_MAX, ULONG_MAX, NULL );
-      ctx->held_block_start.pending = 0;
-      return 1;
-    }
+  /* The scheduler hands out a block start only once, so a start that
+     instant boot kept back is run from here once the block can run.  A
+     start that went stale is dropped and the normal path below picks
+     up whatever the scheduler hands out next. */
+  if( FD_UNLIKELY( ctx->held_block_start.pending ) && held_block_start_take( ctx ) ) {
+    if( FD_UNLIKELY( block_start_blocked( ctx, ctx->held_block_start.parent_bank_idx, ctx->held_block_start.slot ) ) ) return 0;
+    replay_block_start( ctx, ctx->held_block_start.bank_idx, ctx->held_block_start.parent_bank_idx, ctx->held_block_start.slot );
+    fd_sched_task_done( ctx->sched, FD_SCHED_TT_BLOCK_START, ULONG_MAX, ULONG_MAX, NULL );
+    ctx->held_block_start.pending = 0;
+    return 1;
   }
 
   int charge_busy = 0;
@@ -4520,17 +4521,19 @@ after_credit( fd_replay_tile_t *  ctx,
               int *               opt_poll_in,
               int *               charge_busy ) {
   /* The background snapshot load finished, so the deferred startup
-     work can run and every instant boot gate can open.  The counter
-     seeds ULONG_MAX, so only a 1 means done.  The loader clears the
-     hide flag before it stores the 1, so by the time replay reads it
-     the root advances and the deferred purges are legal. */
+     work can run and nothing instant boot was keeping back has to wait
+     any longer.  The counter starts at ULONG_MAX, so only a 1 means
+     done.  The loader clears the hide flag before it stores the 1, so
+     by the time replay reads it the root advances and the deferred
+     purges are legal. */
   if( FD_UNLIKELY( ctx->instant_boot && !ctx->load_done && ctx->is_booted &&
                    FD_VOLATILE_CONST( *ctx->instant_boot_done )==1UL ) ) {
     instant_boot_load_done( ctx );
   }
 
-  /* Take back the banks the stream tile has held for too long, before
-     anything else: a held bank keeps the storage root from advancing. */
+  /* Take back the banks the stream tile has held for too long,
+     before anything else: a held bank keeps the storage root from
+     advancing. */
   if( FD_UNLIKELY( ctx->instant_boot_serve ) ) strmk_hold_expire( ctx, stem, charge_busy );
 
   if( FD_UNLIKELY( ctx->halt_replay && !ctx->is_leader ) ) return;
@@ -5964,6 +5967,8 @@ unprivileged_init( fd_topo_t const *      topo,
                               FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sched_keys_walk_t), sizeof(fd_sched_keys_walk_t) ) : NULL;
   void * strmk_fed_mem      = tile->replay.instant_boot_serve ?
                               FD_SCRATCH_ALLOC_APPEND( l, 1UL,                           tile->replay.max_live_slots ) : NULL;
+  void * strmk_hold_mem     = tile->replay.instant_boot_serve ?
+                              FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_replay_strmk_ring_t), FD_REPLAY_STRMK_RING_CNT*sizeof(fd_replay_strmk_ring_t) ) : NULL;
   void * block_dump_ctx     = NULL;
   if( FD_UNLIKELY( tile->replay.dump_block_to_pb ) ) {
     block_dump_ctx = FD_SCRATCH_ALLOC_APPEND( l, fd_block_dump_context_align(), fd_block_dump_context_footprint() );
@@ -5976,8 +5981,6 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( ctx->runtime_stack );
 
   ctx->wksp = topo->workspaces[ topo->objs[ tile->tile_obj_id ].wksp_id ].wksp;
-  void * strmk_hold_mem     = tile->replay.instant_boot_serve ?
-                              FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_replay_strmk_ring_t), FD_REPLAY_STRMK_RING_CNT*sizeof(fd_replay_strmk_ring_t) ) : NULL;
 
   ulong store_obj_id = fd_pod_query_ulong( topo->props, "store", ULONG_MAX );
   FD_TEST( store_obj_id!=ULONG_MAX );
@@ -6288,11 +6291,11 @@ unprivileged_init( fd_topo_t const *      topo,
     }
   }
 
-  *ctx->epoch_out  = out1( topo, tile, "replay_epoch" ); FD_TEST( ctx->epoch_out->idx!=ULONG_MAX );
-  *ctx->replay_out = out1( topo, tile, "replay_out"   ); FD_TEST( ctx->replay_out->idx!=ULONG_MAX );
-  *ctx->slot_out   = out1( topo, tile, "replay_slot"  ); FD_TEST( ctx->slot_out->idx!=ULONG_MAX );
-  *ctx->snapmk_out = out1( topo, tile, "replay_snapmk" ); FD_TEST( ctx->snapmk.supported == (ctx->snapmk_out->idx!=ULONG_MAX) );
-  *ctx->strmk_out  = out1( topo, tile, "replay_strmk" ); FD_TEST( ctx->instant_boot_serve == (ctx->strmk_out->idx!=ULONG_MAX) );
+  *ctx->epoch_out  = out1( topo, tile, "replay_epoch"  ); FD_TEST( ctx->epoch_out->idx!=ULONG_MAX );
+  *ctx->replay_out = out1( topo, tile, "replay_out"    ); FD_TEST( ctx->replay_out->idx!=ULONG_MAX );
+  *ctx->slot_out   = out1( topo, tile, "replay_slot"   ); FD_TEST( ctx->slot_out->idx!=ULONG_MAX );
+  *ctx->snapmk_out = out1( topo, tile, "replay_snapmk" ); FD_TEST( ctx->snapmk.supported   ==(ctx->snapmk_out->idx!=ULONG_MAX) );
+  *ctx->strmk_out  = out1( topo, tile, "replay_strmk"  ); FD_TEST( ctx->instant_boot_serve==(ctx->strmk_out->idx!=ULONG_MAX) );
 
   ctx->exec_cnt = 0UL;
   for( ulong i=0UL; i<FD_SCHED_MAX_EXEC_TILE_CNT; i++ ) ctx->exec_out[ i ].idx = ULONG_MAX;
