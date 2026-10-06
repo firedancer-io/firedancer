@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "fd_snapct_tile.h"
+#include "utils/fd_ssboot.h"
 #include "utils/fd_sspeer.h"
 #include "utils/fd_ssping.h"
 #include "utils/fd_ssctrl.h"
@@ -721,7 +722,10 @@ static void
 blacklist_peer( fd_snapct_tile_t * ctx ) {
   /* The instant boot server is the only source there is, and it has no
      peer identity, so it is retried rather than banned. */
-  if( FD_UNLIKELY( ctx->config.instant_boot ) ) return;
+  if( FD_UNLIKELY( ctx->config.instant_boot ) ) {
+    FD_LOG_WARNING(( "retrying the instant boot server" ));
+    return;
+  }
 
   fd_ssping_invalidate( ctx->ssping, ctx->peer.addr, fd_clock_tile_now( ctx->clock ) );
   fd_sspeer_selector_remove_by_addr( ctx->selector, ctx->peer.addr );
@@ -741,16 +745,6 @@ blacklist_peer( fd_snapct_tile_t * ctx ) {
   } else {
     FD_LOG_WARNING(( "blacklist pool full, peer banned via ssping only" ));
   }
-}
-
-/* download_failure_action names what follows a failed download, which
-   is a retry against the same server under instant boot and a ban
-   everywhere else. */
-
-static char const *
-download_failure_action( fd_snapct_tile_t const * ctx ) {
-  if( FD_UNLIKELY( ctx->config.instant_boot ) ) return "retrying the same server";
-  return "blacklisting peer due to download failure";
 }
 
 #define DNS_RETRY_NANOS       (15L*1000L*1000L*1000L)
@@ -1179,11 +1173,9 @@ after_credit( fd_snapct_tile_t *  ctx,
         fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_FAIL, 0UL, 0UL, 0UL, 0UL, 0UL );
         ctx->flush_ack = 0;
         ctx->state = FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_RESET;
-        FD_LOG_WARNING(( "failed to load incremental snapshot at slot %lu from http://" FD_IP4_ADDR_FMT ":%hu/%s. "
-                         "%s.",
+        FD_LOG_WARNING(( "failed to load incremental snapshot at slot %lu from http://" FD_IP4_ADDR_FMT ":%hu/%s",
                          ctx->predicted_incremental.slot,
-                         FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_incr_snapshot_name,
-                         download_failure_action( ctx ) ));
+                         FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_incr_snapshot_name ));
         blacklist_peer( ctx );
         break;
       }
@@ -1202,11 +1194,9 @@ after_credit( fd_snapct_tile_t *  ctx,
         fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_FAIL, 0UL, 0UL, 0UL, 0UL, 0UL );
         ctx->flush_ack = 0;
         ctx->state = FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_RESET;
-        FD_LOG_WARNING(( "failed to load incremental snapshot at slot %lu from http://" FD_IP4_ADDR_FMT ":%hu/%s. "
-                         "%s.",
+        FD_LOG_WARNING(( "failed to load incremental snapshot at slot %lu from http://" FD_IP4_ADDR_FMT ":%hu/%s",
                          ctx->predicted_incremental.slot,
-                         FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_incr_snapshot_name,
-                         download_failure_action( ctx ) ));
+                         FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_incr_snapshot_name ));
         blacklist_peer( ctx );
         break;
       }
@@ -1286,11 +1276,9 @@ after_credit( fd_snapct_tile_t *  ctx,
         fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_FAIL, 0UL, 0UL, 0UL, 0UL, 0UL );
         ctx->flush_ack = 0;
         ctx->state = FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_RESET;
-        FD_LOG_WARNING(( "failed to load full snapshot at slot %lu from http://" FD_IP4_ADDR_FMT ":%hu/%s. "
-                         "%s.",
+        FD_LOG_WARNING(( "failed to load full snapshot at slot %lu from http://" FD_IP4_ADDR_FMT ":%hu/%s",
                          ctx->predicted_incremental.full_slot,
-                         FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_full_snapshot_name,
-                         download_failure_action( ctx ) ));
+                         FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_full_snapshot_name ));
         blacklist_peer( ctx );
         break;
       }
@@ -1309,11 +1297,9 @@ after_credit( fd_snapct_tile_t *  ctx,
         fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_FAIL, 0UL, 0UL, 0UL, 0UL, 0UL );
         ctx->flush_ack = 0;
         ctx->state = FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_RESET;
-        FD_LOG_WARNING(( "failed to load full snapshot at slot %lu from http://" FD_IP4_ADDR_FMT ":%hu/%s. "
-                         "%s.",
+        FD_LOG_WARNING(( "failed to load full snapshot at slot %lu from http://" FD_IP4_ADDR_FMT ":%hu/%s",
                          ctx->predicted_incremental.full_slot,
-                         FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_full_snapshot_name,
-                         download_failure_action( ctx ) ));
+                         FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_full_snapshot_name ));
         blacklist_peer( ctx );
         break;
       }
@@ -1477,11 +1463,9 @@ after_credit( fd_snapct_tile_t *  ctx,
         fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_FAIL, 0UL, 0UL, 0UL, 0UL, 0UL );
         ctx->flush_ack = 0;
         ctx->state = FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_RESET;
-        FD_LOG_WARNING(( "failed to load full snapshot at slot %lu from http://" FD_IP4_ADDR_FMT ":%hu/%s. "
-                         "%s.",
+        FD_LOG_WARNING(( "failed to load full snapshot at slot %lu from http://" FD_IP4_ADDR_FMT ":%hu/%s",
                          ctx->predicted_incremental.full_slot,
-                         FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_full_snapshot_name,
-                         download_failure_action( ctx ) ));
+                         FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_full_snapshot_name ));
         blacklist_peer( ctx );
         break;
       }
@@ -1501,11 +1485,9 @@ after_credit( fd_snapct_tile_t *  ctx,
         fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_FAIL, 0UL, 0UL, 0UL, 0UL, 0UL );
         ctx->flush_ack = 0;
         ctx->state = FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_RESET;
-        FD_LOG_WARNING(( "failed to load incremental snapshot at slot %lu from http://" FD_IP4_ADDR_FMT ":%hu/%s. "
-                         "%s.",
+        FD_LOG_WARNING(( "failed to load incremental snapshot at slot %lu from http://" FD_IP4_ADDR_FMT ":%hu/%s",
                          ctx->predicted_incremental.slot,
-                         FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_incr_snapshot_name,
-                         download_failure_action( ctx ) ));
+                         FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_incr_snapshot_name ));
         blacklist_peer( ctx );
         break;
       }
@@ -2347,18 +2329,7 @@ unprivileged_init( fd_topo_t const *      topo,
     ctx->instant_boot_pick = fd_fseq_join( fd_topo_obj_laddr( topo, tile->snapct.instant_boot_pick_obj_id ) );
     FD_TEST( ctx->instant_boot_pick );
 
-    /* Only a plain IPv4 literal is accepted, as in the boot stream
-       downloader: neither tile has a DNS client of its own. */
-    ushort port;
-    int    is_https;
-    fd_dns_peer_parse( ctx->config.instant_boot_server, "snapshots.instant_boot.server", ctx->instant_boot_hostname, &port, &is_https );
-    if( FD_UNLIKELY( is_https ) ) {
-      FD_LOG_ERR(( "[snapshots.instant_boot] server \"%s\" must be plain http", ctx->config.instant_boot_server ));
-    }
-    if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( ctx->instant_boot_hostname, &ctx->instant_boot_addr.addr ) ) ) {
-      FD_LOG_ERR(( "[snapshots.instant_boot] server \"%s\" must give an IPv4 address", ctx->config.instant_boot_server ));
-    }
-    ctx->instant_boot_addr.port = port;
+    fd_ssboot_server_parse( ctx->config.instant_boot_server, ctx->instant_boot_hostname, &ctx->instant_boot_addr );
   }
 
   fd_memset( ctx->http_full_snapshot_name, 0, PATH_MAX );
