@@ -1613,6 +1613,13 @@ stream_appendvec_done( fd_snapin_tile_t *                  ctx,
   if( FD_UNLIKELY( writer_flush( ctx ) ) ) FD_LOG_ERR(( "instant boot: writing the boot stream into the accounts database failed" ));
   if( FD_UNLIKELY( result->appendvec.id ) ) return 0;
 
+  /* The slot the stream starts from is only known once its manifest
+     and status cache are parsed.  Without it this cannot tell the
+     first appendvec from a later one. */
+  if( FD_UNLIKELY( !ctx->lead.flags.manifest_processed ) ) {
+    FD_LOG_ERR(( "instant boot: boot stream lists accounts before the manifest and status cache" ));
+  }
+
   if( FD_UNLIKELY( result->appendvec.slot==FD_VOLATILE_CONST( ctx->shmem->stream_slot ) ) ) {
     if( FD_UNLIKELY( ctx->done_published ) ) return 0;
     fd_stem_publish( stem, ctx->lead.manifest_out.idx, fd_ssmsg_sig( FD_SSMSG_DONE ), 0UL, 0UL, 0UL, 0UL, 0UL );
@@ -1620,7 +1627,10 @@ stream_appendvec_done( fd_snapin_tile_t *                  ctx,
     return 1;
   }
 
-  fd_fseq_update( ctx->slot_fseq, result->appendvec.slot );
+  /* Replay reads this as "every slot up to here is in the boot fork",
+     so a stream that lists its slots out of order must not take it
+     back. */
+  fd_fseq_update( ctx->slot_fseq, fd_ulong_max( fd_fseq_query( ctx->slot_fseq ), result->appendvec.slot ) );
   return 0;
 }
 
@@ -1881,6 +1891,10 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
       process_manifest( ctx, stem );
       if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_ERROR ) ) break;
       ctx->lead.flags.manifest_processed = 1;
+      /* The stream publishes its manifest and the end of an appendvec
+         on the same link, and the burst allows one message per call,
+         so end the call here. */
+      if( FD_UNLIKELY( ctx->stream ) ) early_exit = 1;
     }
 
     ctx->in[ in_idx ].pos += result->bytes_consumed;
@@ -2259,6 +2273,10 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
     }
 
     case FD_SNAPSHOT_MSG_CTRL_ERROR: {
+      /* Nothing retries the boot stream, and no tile follows its error
+         with the FAIL that would clear this state, so the stream tile
+         would wait for a message that never comes. */
+      if( FD_UNLIKELY( ctx->stream ) ) FD_LOG_ERR(( "instant boot: boot stream failed upstream, restart with instant boot disabled" ));
       FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
       ctx->state = FD_SNAPSHOT_STATE_ERROR;
       break;
@@ -2280,7 +2298,9 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       /* Defer rollback until the next INIT, which is triggered after
          all workers have sent their FAIL acks. */
       if( FD_UNLIKELY( is_lead( ctx ) ) ) {
-        FD_VOLATILE( ctx->shmem->fork_id ) = ULONG_MAX;
+        /* The stream tile shares this state with the snapshot loader
+           and never touches the fork the loader is writing. */
+        if( FD_LIKELY( !ctx->stream ) ) FD_VOLATILE( ctx->shmem->fork_id ) = ULONG_MAX;
         FD_COMPILER_MFENCE();
 
         /* Only a completed INIT has valid state to roll back.  An
@@ -2681,7 +2701,9 @@ unprivileged_init( fd_topo_t const *      topo,
 
 /* There are 3 output links that affect the calculation of STEM_BURST:
     1. snapin_ct    - worst case: 1 message (ack or unsolicited ERROR)
-    2. snapin_manif - worst case: 1 message (tile 0 only)
+    2. snapin_manif - worst case: 1 message (tile 0 only).  The stream
+       parser publishes a manifest and a DONE on this link, and ends
+       the call after each, so it stays within one too.
     3. snapin_gui   - worst case: 1 message (config program account)
    The STEM_BURST is the max value across these 3 links (not the sum).
    Note that snapin_txn is excluded from this calculation, since it is

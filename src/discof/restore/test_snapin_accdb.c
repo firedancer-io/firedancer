@@ -4,6 +4,7 @@
 
 #include <stdlib.h>
 #include <sys/mman.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #include "fd_snapin_tile.c"
@@ -469,6 +470,11 @@ test_stream_writes_boot_fork( void ) {
   ctx->boot_fork = boot;
   ctx->slot_fseq = slot_fseq;
 
+  /* The stream lists its manifest and status cache before its
+     accounts, so the slot it starts from is known by the time an
+     appendvec ends. */
+  ctx->lead.flags.manifest_processed = 1;
+
   /* The stream carries each account as it was at the stream's manifest
      slot, so the first value of a key is the one to keep. */
   uchar pubkey[ 32UL ] = { 0xE1U };
@@ -479,8 +485,8 @@ test_stream_writes_boot_fork( void ) {
   FD_TEST( !writer_append_account( ctx, pubkey, owner, data, TEST_STREAM_SLOT+1UL, 500UL, sizeof(data), 1 ) );
   FD_TEST( !writer_flush( ctx ) );
 
-  /* A repeat of the key, once in a later batch and once in the same
-     one, and an account that did not exist at the stream's slot. */
+  /* Two more copies of a key an earlier flush already wrote, and an
+     account that did not exist at the stream's slot. */
   FD_TEST( !writer_append_account( ctx, pubkey, owner, other, TEST_STREAM_SLOT+2UL, 700UL, sizeof(other), 0 ) );
   FD_TEST( !writer_append_account( ctx, pubkey, owner, other, TEST_STREAM_SLOT+2UL, 800UL, sizeof(other), 0 ) );
   FD_TEST( !writer_append_account( ctx, dead,   owner, data,  TEST_STREAM_SLOT+2UL,   0UL, 0UL,           0 ) );
@@ -497,6 +503,30 @@ test_stream_writes_boot_fork( void ) {
   result->appendvec.id = 0UL;
   FD_TEST( !stream_appendvec_done( ctx, NULL, result ) );
   FD_TEST( fd_fseq_query( slot_fseq )==TEST_STREAM_SLOT+2UL );
+
+  /* A slot out of order does not take the marker back. */
+  result->appendvec.slot = TEST_STREAM_SLOT+1UL;
+  FD_TEST( !stream_appendvec_done( ctx, NULL, result ) );
+  FD_TEST( fd_fseq_query( slot_fseq )==TEST_STREAM_SLOT+2UL );
+
+  /* A stream that lists its accounts before its manifest and status
+     cache: the slot it starts from is still unknown, so the appendvec
+     that lets replay boot would be published as a finished slot and
+     DONE would never follow.  That ends the process. */
+  pid_t pid = fork();
+  FD_TEST( pid>=0 );
+  if( !pid ) {
+    fd_log_level_logfile_set( 6 );
+    fd_log_level_stderr_set( 6 );
+    ctx->lead.flags.manifest_processed = 0;
+    FD_VOLATILE( ctx->shmem->stream_slot ) = 0UL;
+    stream_appendvec_done( ctx, NULL, result );
+    _exit( 0 );
+  }
+  int status = 0;
+  FD_TEST( waitpid( pid, &status, 0 )==pid );
+  FD_TEST( WIFEXITED( status ) );
+  FD_TEST( WEXITSTATUS( status )==1 );
 
   /* One version of the key on the boot fork, holding the first value,
      and nothing on the fork the snapshot loads into. */
@@ -522,6 +552,18 @@ test_stream_writes_boot_fork( void ) {
   FD_TEST( fd_memeq( acc->owner, owner, 32UL ) );
   FD_TEST( fd_memeq( acc->data,  data,  sizeof(data) ) );
   fd_accdb_release( ctx->accdb, 1UL, acc );
+
+  /* A key that appears twice inside one flush with no earlier version:
+     the first copy is written and the second is dropped. */
+  uchar twice  [ 32UL ] = { 0xE3U };
+  ulong loaded          = ctx->metrics.accounts_loaded;
+  ulong ignored         = ctx->metrics.accounts_ignored;
+  FD_TEST( !writer_append_account( ctx, twice, owner, data,  TEST_STREAM_SLOT+3UL, 300UL, sizeof(data),  0 ) );
+  FD_TEST( !writer_append_account( ctx, twice, owner, other, TEST_STREAM_SLOT+3UL, 400UL, sizeof(other), 0 ) );
+  FD_TEST( !writer_flush( ctx ) );
+  FD_TEST( ctx->metrics.accounts_loaded ==loaded +1UL );
+  FD_TEST( ctx->metrics.accounts_ignored==ignored+1UL );
+  FD_TEST( fd_accdb_lamports( ctx->accdb, boot, twice )==300UL );
 
   /* The closed account is a version on the boot fork that reads as an
      account that does not exist. */
