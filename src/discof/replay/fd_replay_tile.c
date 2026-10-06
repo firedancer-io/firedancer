@@ -183,13 +183,15 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
     l = FD_LAYOUT_APPEND( l, alignof(fd_accdb_fork_id_t),       tile->replay.max_live_slots*sizeof(fd_accdb_fork_id_t) );
   }
   /* Accounts of one FEC set and the lookup tables it left unexpanded,
-     on their way to the stream tile, and the parse cursor for the
-     block we are producing. */
+     on their way to the stream tile, where the block we are producing
+     has been parsed to, and the references the stream tile owes
+     back. */
   if( FD_UNLIKELY( tile->replay.instant_boot_serve ) ) {
     l = FD_LAYOUT_APPEND( l, alignof(fd_acct_addr_t),           FD_SCHED_INGEST_ADDR_MAX*sizeof(fd_acct_addr_t) );
     l = FD_LAYOUT_APPEND( l, alignof(fd_acct_addr_t),           FD_SCHED_INGEST_ADDR_MAX*sizeof(fd_acct_addr_t) );
     l = FD_LAYOUT_APPEND( l, alignof(fd_sched_keys_walk_t),     sizeof(fd_sched_keys_walk_t) );
     l = FD_LAYOUT_APPEND( l, 1UL,                               tile->replay.max_live_slots );
+    l = FD_LAYOUT_APPEND( l, alignof(fd_replay_strmk_ring_t),   FD_REPLAY_STRMK_RING_CNT*sizeof(fd_replay_strmk_ring_t) );
   }
 
   if( FD_UNLIKELY( tile->replay.dump_block_to_pb ) ) {
@@ -696,10 +698,10 @@ strmk_reset( fd_replay_tile_t *  ctx,
      boundary gates hundreds of them, so only a reset that actually
      cost the stream tile something is worth an operator's
      attention. */
-  int   opening = ctx->strmk_base_hold->head!=ctx->strmk_base_hold->tail;
-  ulong dropped = strmk_ring_drop( ctx, ctx->strmk_start_hold ) +
-                  strmk_ring_drop( ctx, ctx->strmk_read_hold  ) +
-                  strmk_ring_drop( ctx, ctx->strmk_base_hold  );
+  fd_replay_strmk_ring_t * base    = &ctx->strmk_hold[ FD_REPLAY_STRMK_RING_BASE ];
+  int                      opening = base->head!=base->tail;
+  ulong                    dropped = 0UL;
+  for( ulong r=0UL; r<FD_REPLAY_STRMK_RING_CNT; r++ ) dropped += strmk_ring_drop( ctx, &ctx->strmk_hold[ r ] );
   if( FD_UNLIKELY( dropped || opening ) ) FD_LOG_WARNING(( "resetting the boot streams: %s", reason ));
   else                                    FD_LOG_INFO   (( "resetting the boot streams: %s", reason ));
 
@@ -709,15 +711,16 @@ strmk_reset( fd_replay_tile_t *  ctx,
 }
 
 /* strmk_hold_add takes a reference on a bank for the stream tile and
-   records in ring that the tile owes it back, returning the token the
-   tile returns it with.  A full ring means the tile is not keeping up,
-   so everything is taken back first. */
+   records in ring_idx that the tile owes it back, returning the token
+   the tile returns it with.  A full ring means the tile is not keeping
+   up, so everything is taken back first. */
 
 static ulong
-strmk_hold_add( fd_replay_tile_t *       ctx,
-                fd_stem_context_t *      stem,
-                fd_replay_strmk_ring_t * ring,
-                fd_bank_t *              bank ) {
+strmk_hold_add( fd_replay_tile_t *  ctx,
+                fd_stem_context_t * stem,
+                ulong               ring_idx,
+                fd_bank_t *         bank ) {
+  fd_replay_strmk_ring_t * ring = &ctx->strmk_hold[ ring_idx ];
   if( FD_UNLIKELY( strmk_ring_full( ring ) ) ) {
     strmk_reset( ctx, stem, "the stream tile owes more bank references than replay can record" );
   }
@@ -740,22 +743,23 @@ static void
 strmk_hold_read( fd_replay_tile_t *  ctx,
                  fd_stem_context_t * stem,
                  ulong               bank_idx ) {
-  fd_replay_strmk_ring_t * start = ctx->strmk_start_hold;
+  fd_replay_strmk_ring_t * start = &ctx->strmk_hold[ FD_REPLAY_STRMK_RING_START ];
+  fd_replay_strmk_ring_t * read  = &ctx->strmk_hold[ FD_REPLAY_STRMK_RING_READ  ];
   for( ulong i=start->head; i!=start->tail; i++ ) {
     fd_replay_strmk_hold_t * hold = &start->hold[ i%FD_REPLAY_STRMK_HOLD_MAX ];
     if( FD_LIKELY( hold->token==ULONG_MAX || FD_REPLAY_STRMK_TOKEN_BANK( hold->token )!=bank_idx ) ) continue;
 
     /* Reset before moving anything, so the reference the move is
        carrying is still in a ring for the reset to release. */
-    if( FD_UNLIKELY( strmk_ring_full( ctx->strmk_read_hold ) ) ) {
+    if( FD_UNLIKELY( strmk_ring_full( read ) ) ) {
       strmk_reset( ctx, stem, "the stream tile owes more bank references than replay can record" );
       return;
     }
 
-    fd_replay_strmk_hold_t * read = &ctx->strmk_read_hold->hold[ ctx->strmk_read_hold->tail%FD_REPLAY_STRMK_HOLD_MAX ];
-    read->token = hold->token;
-    read->tick  = stem->now;
-    ctx->strmk_read_hold->tail++;
+    fd_replay_strmk_hold_t * moved = &read->hold[ read->tail%FD_REPLAY_STRMK_HOLD_MAX ];
+    moved->token = hold->token;
+    moved->tick  = stem->now;
+    read->tail++;
     hold->token = ULONG_MAX;
     strmk_hold_trim( start );
     return;
@@ -770,7 +774,7 @@ strmk_hold_read( fd_replay_tile_t *  ctx,
 static void
 strmk_read_resume( fd_replay_tile_t *  ctx,
                    fd_stem_context_t * stem ) {
-  fd_replay_strmk_ring_t * read = ctx->strmk_read_hold;
+  fd_replay_strmk_ring_t * read = &ctx->strmk_hold[ FD_REPLAY_STRMK_RING_READ ];
   for( ulong i=read->head; i!=read->tail; i++ ) {
     fd_replay_strmk_hold_t * hold = &read->hold[ i%FD_REPLAY_STRMK_HOLD_MAX ];
     if( FD_LIKELY( hold->token!=ULONG_MAX ) ) hold->tick = stem->now;
@@ -787,17 +791,16 @@ static int
 strmk_hold_release( fd_replay_tile_t *  ctx,
                     fd_stem_context_t * stem,
                     ulong               token ) {
-  fd_replay_strmk_ring_t * ring[ 3 ] = { ctx->strmk_read_hold, ctx->strmk_start_hold, ctx->strmk_base_hold };
-  for( ulong r=0UL; r<3UL; r++ ) {
-    for( ulong i=ring[ r ]->head; i!=ring[ r ]->tail; i++ ) {
-      fd_replay_strmk_hold_t * hold = &ring[ r ]->hold[ i%FD_REPLAY_STRMK_HOLD_MAX ];
+  for( ulong r=0UL; r<FD_REPLAY_STRMK_RING_CNT; r++ ) {
+    fd_replay_strmk_ring_t * ring = &ctx->strmk_hold[ r ];
+    for( ulong i=ring->head; i!=ring->tail; i++ ) {
+      fd_replay_strmk_hold_t * hold = &ring->hold[ i%FD_REPLAY_STRMK_HOLD_MAX ];
       if( FD_LIKELY( hold->token==token ) ) {
         hold->token = ULONG_MAX;
-        strmk_hold_trim( ring[ r ] );
+        strmk_hold_trim( ring );
         /* The tile has finished opening a stream, so the blocks it
            kept waiting start their read deadline now. */
-        if( FD_UNLIKELY( ring[ r ]==ctx->strmk_base_hold &&
-                         ctx->strmk_base_hold->head==ctx->strmk_base_hold->tail ) ) strmk_read_resume( ctx, stem );
+        if( FD_UNLIKELY( r==FD_REPLAY_STRMK_RING_BASE && ring->head==ring->tail ) ) strmk_read_resume( ctx, stem );
         return 1;
       }
     }
@@ -815,14 +818,15 @@ strmk_hold_expire( fd_replay_tile_t *  ctx,
                    int *               charge_busy ) {
   /* The stream tile cannot read a block while it is opening a stream,
      so for as long as it owes a stream's base bank the read ring falls
-     back to the backstop every hold has. */
-  int opening = ctx->strmk_base_hold->head!=ctx->strmk_base_hold->tail;
+     back to the long deadline every hold has. */
+  fd_replay_strmk_ring_t * base    = &ctx->strmk_hold[ FD_REPLAY_STRMK_RING_BASE ];
+  int                      opening = base->head!=base->tail;
 
-  fd_replay_strmk_ring_t * ring[ 3 ] = { ctx->strmk_read_hold, ctx->strmk_start_hold, ctx->strmk_base_hold };
-  for( ulong r=0UL; r<3UL; r++ ) {
-    if( FD_LIKELY( ring[ r ]->head==ring[ r ]->tail ) ) continue;
-    long deadline = fd_long_if( opening && ring[ r ]==ctx->strmk_read_hold, FD_REPLAY_STRMK_BACKSTOP_NS, ring[ r ]->deadline );
-    long age      = stem->now - ring[ r ]->hold[ ring[ r ]->head%FD_REPLAY_STRMK_HOLD_MAX ].tick;
+  for( ulong r=0UL; r<FD_REPLAY_STRMK_RING_CNT; r++ ) {
+    fd_replay_strmk_ring_t * ring = &ctx->strmk_hold[ r ];
+    if( FD_LIKELY( ring->head==ring->tail ) ) continue;
+    long deadline = fd_long_if( r==FD_REPLAY_STRMK_RING_READ && !opening, FD_REPLAY_STRMK_READ_NS, FD_REPLAY_STRMK_SLOW_NS );
+    long age      = stem->now - ring->hold[ ring->head%FD_REPLAY_STRMK_HOLD_MAX ].tick;
     if( FD_LIKELY( (double)age<(double)deadline*ctx->tick_per_ns ) ) continue;
     strmk_reset( ctx, stem, "the stream tile owed a bank reference for too long" );
     *charge_busy = 1;
@@ -859,7 +863,7 @@ strmk_block_start( fd_replay_tile_t *     ctx,
     return;
   }
 
-  ulong token = strmk_hold_add( ctx, stem, ctx->strmk_start_hold, parent );
+  ulong token = strmk_hold_add( ctx, stem, FD_REPLAY_STRMK_RING_START, parent );
 
   fd_strmk_block_start_t * msg = fd_chunk_to_laddr( ctx->strmk_out->mem, ctx->strmk_out->chunk );
   *msg = (fd_strmk_block_start_t) {
@@ -5396,7 +5400,7 @@ snapmk_start( fd_replay_tile_t *  ctx,
      ask the stream tile to start one and hold its bank.  A full
      snapshot starts no stream. */
   if( FD_UNLIKELY( incremental && strmk_stream_start_ok( ctx, bank ) ) ) {
-    ulong token = strmk_hold_add( ctx, stem, ctx->strmk_base_hold, bank );
+    ulong token = strmk_hold_add( ctx, stem, FD_REPLAY_STRMK_RING_BASE, bank );
     fd_strmk_stream_start_t * start = fd_chunk_to_laddr( ctx->strmk_out->mem, ctx->strmk_out->chunk );
     *start = (fd_strmk_stream_start_t){ .slot = bank->f.slot, .bank_idx = bank->idx, .hold_token = token };
     strmk_publish( ctx, stem, FD_STRMK_SIG_STREAM_START, sizeof(fd_strmk_stream_start_t) );
@@ -5963,6 +5967,8 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( ctx->runtime_stack );
 
   ctx->wksp = topo->workspaces[ topo->objs[ tile->tile_obj_id ].wksp_id ].wksp;
+  void * strmk_hold_mem     = tile->replay.instant_boot_serve ?
+                              FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_replay_strmk_ring_t), FD_REPLAY_STRMK_RING_CNT*sizeof(fd_replay_strmk_ring_t) ) : NULL;
 
   ulong store_obj_id = fd_pod_query_ulong( topo->props, "store", ULONG_MAX );
   FD_TEST( store_obj_id!=ULONG_MAX );
@@ -6118,16 +6124,14 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->strmk_fed               = strmk_fed_mem;
   if( FD_UNLIKELY( ctx->strmk_fed ) ) memset( ctx->strmk_fed, 0, tile->replay.max_live_slots );
 
-  ctx->strmk_hold_seq             = 0UL;
-  ctx->strmk_start_hold->deadline = FD_REPLAY_STRMK_BACKSTOP_NS;
-  ctx->strmk_start_hold->head     = 0UL;
-  ctx->strmk_start_hold->tail     = 0UL;
-  ctx->strmk_read_hold->deadline  = FD_REPLAY_STRMK_READ_NS;
-  ctx->strmk_read_hold->head      = 0UL;
-  ctx->strmk_read_hold->tail      = 0UL;
-  ctx->strmk_base_hold->deadline  = FD_REPLAY_STRMK_BACKSTOP_NS;
-  ctx->strmk_base_hold->head      = 0UL;
-  ctx->strmk_base_hold->tail      = 0UL;
+  ctx->strmk_hold_seq          = 0UL;
+  ctx->strmk_hold              = strmk_hold_mem;
+  if( FD_UNLIKELY( ctx->strmk_hold ) ) {
+    for( ulong r=0UL; r<FD_REPLAY_STRMK_RING_CNT; r++ ) {
+      ctx->strmk_hold[ r ].head = 0UL;
+      ctx->strmk_hold[ r ].tail = 0UL;
+    }
+  }
 
   ctx->tick_per_ns = fd_tempo_tick_per_ns( NULL );
 

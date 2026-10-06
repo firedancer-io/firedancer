@@ -430,8 +430,9 @@ setup_stem( fd_replay_tile_t * ctx, fd_wksp_t * wksp ) {
   };
 }
 
-static ulong test_timing_of_bank[ TEST_BANKS_MAX ];
-static uchar test_strmk_fed[ TEST_BANKS_MAX ];
+static ulong                  test_timing_of_bank[ TEST_BANKS_MAX ];
+static uchar                  test_strmk_fed[ TEST_BANKS_MAX ];
+static fd_replay_strmk_ring_t test_strmk_hold[ FD_REPLAY_STRMK_RING_CNT ];
 
 static void
 setup_timing( fd_replay_tile_t * ctx,
@@ -447,6 +448,8 @@ setup_timing( fd_replay_tile_t * ctx,
   ctx->timing_slot_of_bank = test_timing_of_bank;
   ctx->strmk_fed           = test_strmk_fed;
   memset( ctx->strmk_fed, 0, sizeof(test_strmk_fed) );
+  ctx->strmk_hold          = test_strmk_hold;
+  memset( ctx->strmk_hold, 0, sizeof(test_strmk_hold) );
   for( ulong i=0UL; i<TEST_BANKS_MAX; i++ ) ctx->timing_slot_of_bank[ i ] = fd_timing_slot_pool_idx_null( ctx->timing_slot_pool );
   ctx->backfill_path = fd_wksp_alloc_laddr( wksp, alignof(fd_reasm_fec_t *), (ctx->max_shreds_per_block/FD_FEC_SHRED_CNT)*sizeof(fd_reasm_fec_t *), 1UL );
   FD_TEST( ctx->backfill_path );
@@ -4998,40 +5001,40 @@ static void
 test_strmk_hold_ring( fd_wksp_t * wksp ) {
   static fd_replay_tile_t ctx[ 1 ];
   setup_ctx( ctx, wksp );
-  ctx->instant_boot_serve         = 1;
-  ctx->strmk_start_hold->deadline = FD_REPLAY_STRMK_BACKSTOP_NS;
-  ctx->strmk_read_hold->deadline  = FD_REPLAY_STRMK_READ_NS;
-  ctx->strmk_base_hold->deadline  = FD_REPLAY_STRMK_BACKSTOP_NS;
+  ctx->instant_boot_serve = 1;
 
   fd_bank_t * bank = fd_banks_bank_query( ctx->banks, ctx->published_root_bank_idx );
   FD_TEST( bank );
-  ulong refcnt0   = bank->refcnt;
-  ulong strmk     = ctx->strmk_out->idx;
-  ulong seq0      = test_stem_seqs[ strmk ];
-  long  read_due  = (long)((double)FD_REPLAY_STRMK_READ_NS    *ctx->tick_per_ns);
-  long  back_due  = (long)((double)FD_REPLAY_STRMK_BACKSTOP_NS*ctx->tick_per_ns);
-  int   charge_busy = 0;
+  fd_replay_strmk_ring_t * read_ring   = &ctx->strmk_hold[ FD_REPLAY_STRMK_RING_READ  ];
+  fd_replay_strmk_ring_t * start_ring  = &ctx->strmk_hold[ FD_REPLAY_STRMK_RING_START ];
+  fd_replay_strmk_ring_t * base_ring   = &ctx->strmk_hold[ FD_REPLAY_STRMK_RING_BASE  ];
+  ulong                    refcnt0     = bank->refcnt;
+  ulong                    strmk       = ctx->strmk_out->idx;
+  ulong                    seq0        = test_stem_seqs[ strmk ];
+  long                     read_due    = (long)((double)FD_REPLAY_STRMK_READ_NS*ctx->tick_per_ns);
+  long                     back_due    = (long)((double)FD_REPLAY_STRMK_SLOW_NS*ctx->tick_per_ns);
+  int                      charge_busy = 0;
 
   /* A hold the stream tile returns releases the reference.  The
      reference itself is dropped by the link handler. */
-  ulong token = strmk_hold_add( ctx, test_stem, ctx->strmk_start_hold, bank );
+  ulong token = strmk_hold_add( ctx, test_stem, FD_REPLAY_STRMK_RING_START, bank );
   FD_TEST( FD_REPLAY_STRMK_TOKEN_BANK( token )==bank->idx );
   FD_TEST( bank->refcnt==refcnt0+1UL );
   FD_TEST( strmk_hold_release( ctx, test_stem, token ) );
-  FD_TEST( ctx->strmk_start_hold->head==ctx->strmk_start_hold->tail );
+  FD_TEST( start_ring->head==start_ring->tail );
   FD_TEST( test_stem_seqs[ strmk ]==seq0 );
   bank->refcnt--;
 
   /* A block's reference only runs against the read deadline once the
-     block's end has gone out.  Before that the long backstop applies,
-     because replay may still be catching up to the block. */
-  token = strmk_hold_add( ctx, test_stem, ctx->strmk_start_hold, bank );
+     block's end has gone out.  Before that only the long deadline
+     applies, because replay may still be catching up to the block. */
+  token = strmk_hold_add( ctx, test_stem, FD_REPLAY_STRMK_RING_START, bank );
   test_stem->now += read_due+1L;
   strmk_hold_expire( ctx, test_stem, &charge_busy );
   FD_TEST( !charge_busy && bank->refcnt==refcnt0+1UL );
   strmk_hold_read( ctx, test_stem, bank->idx );
-  FD_TEST( ctx->strmk_start_hold->head==ctx->strmk_start_hold->tail );
-  FD_TEST( ctx->strmk_read_hold->tail-ctx->strmk_read_hold->head==1UL );
+  FD_TEST( start_ring->head==start_ring->tail );
+  FD_TEST( read_ring->tail-read_ring->head==1UL );
   FD_TEST( bank->refcnt==refcnt0+1UL );
   test_stem->now += read_due;
   strmk_hold_expire( ctx, test_stem, &charge_busy );
@@ -5043,9 +5046,9 @@ test_strmk_hold_ring( fd_wksp_t * wksp ) {
   fd_frag_meta_t const * meta = test_stem_mcaches[ strmk ] + fd_mcache_line_idx( seq0, test_stem_depths[ strmk ] );
   FD_TEST( meta->sig==FD_STRMK_SIG_RESET );
 
-  /* A block that never completes is still backstopped. */
+  /* A block that never completes still runs out of time. */
   charge_busy = 0;
-  strmk_hold_add( ctx, test_stem, ctx->strmk_start_hold, bank );
+  strmk_hold_add( ctx, test_stem, FD_REPLAY_STRMK_RING_START, bank );
   test_stem->now += back_due;
   strmk_hold_expire( ctx, test_stem, &charge_busy );
   FD_TEST( !charge_busy && bank->refcnt==refcnt0+1UL );
@@ -5055,20 +5058,20 @@ test_strmk_hold_ring( fd_wksp_t * wksp ) {
 
   /* One hold held past its deadline takes every outstanding hold back,
      from every ring, and publishes exactly one reset.  A stream is
-     being opened here, so it is the backstop that runs out. */
+     being opened here, so it is the long deadline that runs out. */
   charge_busy = 0;
   seq0 = test_stem_seqs[ strmk ];
-  strmk_hold_add( ctx, test_stem, ctx->strmk_start_hold, bank );
-  strmk_hold_add( ctx, test_stem, ctx->strmk_base_hold,  bank );
-  strmk_hold_add( ctx, test_stem, ctx->strmk_start_hold, bank );
+  strmk_hold_add( ctx, test_stem, FD_REPLAY_STRMK_RING_START, bank );
+  strmk_hold_add( ctx, test_stem, FD_REPLAY_STRMK_RING_BASE,  bank );
+  strmk_hold_add( ctx, test_stem, FD_REPLAY_STRMK_RING_START, bank );
   strmk_hold_read( ctx, test_stem, bank->idx );
   FD_TEST( bank->refcnt==refcnt0+3UL );
   test_stem->now += back_due+1L;
   strmk_hold_expire( ctx, test_stem, &charge_busy );
   FD_TEST( charge_busy && bank->refcnt==refcnt0 );
-  FD_TEST( ctx->strmk_start_hold->head==ctx->strmk_start_hold->tail );
-  FD_TEST( ctx->strmk_read_hold->head ==ctx->strmk_read_hold->tail  );
-  FD_TEST( ctx->strmk_base_hold->head ==ctx->strmk_base_hold->tail  );
+  FD_TEST( start_ring->head==start_ring->tail );
+  FD_TEST( read_ring->head ==read_ring->tail  );
+  FD_TEST( base_ring->head ==base_ring->tail  );
   FD_TEST( test_stem_seqs[ strmk ]==seq0+1UL );
 
   /* The bank a stream chains off is also the parent of the first block
@@ -5076,28 +5079,28 @@ test_strmk_hold_ring( fd_wksp_t * wksp ) {
      with different deadlines.  Each token names its own hold, so
      releasing one leaves the other alone. */
   charge_busy = 0;
-  ulong base_one  = strmk_hold_add( ctx, test_stem, ctx->strmk_base_hold,  bank );
-  ulong block_one = strmk_hold_add( ctx, test_stem, ctx->strmk_start_hold, bank );
+  ulong base_one  = strmk_hold_add( ctx, test_stem, FD_REPLAY_STRMK_RING_BASE,  bank );
+  ulong block_one = strmk_hold_add( ctx, test_stem, FD_REPLAY_STRMK_RING_START, bank );
   FD_TEST( base_one!=block_one );
   FD_TEST( FD_REPLAY_STRMK_TOKEN_BANK( base_one )==FD_REPLAY_STRMK_TOKEN_BANK( block_one ) );
   strmk_hold_read( ctx, test_stem, bank->idx );
   FD_TEST( bank->refcnt==refcnt0+2UL );
-  FD_TEST( ctx->strmk_base_hold->tail-ctx->strmk_base_hold->head==1UL );
-  FD_TEST( ctx->strmk_read_hold->tail-ctx->strmk_read_hold->head==1UL );
+  FD_TEST( base_ring->tail-base_ring->head==1UL );
+  FD_TEST( read_ring->tail-read_ring->head==1UL );
 
   /* The stream finishes first, which is the order that matters: its
      release has to take the base entry and leave the block's, or the
      fork the tile is still reading comes unpinned. */
   FD_TEST( strmk_hold_release( ctx, test_stem, base_one ) );
   bank->refcnt--;
-  FD_TEST( ctx->strmk_base_hold->head==ctx->strmk_base_hold->tail );
-  FD_TEST( ctx->strmk_read_hold->tail-ctx->strmk_read_hold->head==1UL );
+  FD_TEST( base_ring->head==base_ring->tail );
+  FD_TEST( read_ring->tail-read_ring->head==1UL );
   FD_TEST( bank->refcnt==refcnt0+1UL );
 
   /* And the block's release takes the read entry. */
   FD_TEST( strmk_hold_release( ctx, test_stem, block_one ) );
   bank->refcnt--;
-  FD_TEST( ctx->strmk_read_hold->head==ctx->strmk_read_hold->tail );
+  FD_TEST( read_ring->head==read_ring->tail );
   FD_TEST( bank->refcnt==refcnt0 );
   FD_TEST( !strmk_hold_release( ctx, test_stem, base_one  ) );
   FD_TEST( !strmk_hold_release( ctx, test_stem, block_one ) );
@@ -5108,17 +5111,17 @@ test_strmk_hold_ring( fd_wksp_t * wksp ) {
      handed out since, so matching by bank alone would cancel that one
      and unpin a fork the tile is still reading. */
   charge_busy = 0;
-  ulong stale = strmk_hold_add( ctx, test_stem, ctx->strmk_start_hold, bank );
+  ulong stale = strmk_hold_add( ctx, test_stem, FD_REPLAY_STRMK_RING_START, bank );
   strmk_hold_read( ctx, test_stem, bank->idx );
   test_stem->now += read_due+1L;
   strmk_hold_expire( ctx, test_stem, &charge_busy );
   FD_TEST( charge_busy && bank->refcnt==refcnt0 );
 
-  token = strmk_hold_add( ctx, test_stem, ctx->strmk_start_hold, bank );
+  token = strmk_hold_add( ctx, test_stem, FD_REPLAY_STRMK_RING_START, bank );
   FD_TEST( stale!=token );
   FD_TEST( FD_REPLAY_STRMK_TOKEN_BANK( stale )==FD_REPLAY_STRMK_TOKEN_BANK( token ) );
   FD_TEST( !strmk_hold_release( ctx, test_stem, stale ) );
-  FD_TEST( ctx->strmk_start_hold->tail-ctx->strmk_start_hold->head==1UL );
+  FD_TEST( start_ring->tail-start_ring->head==1UL );
   FD_TEST( bank->refcnt==refcnt0+1UL );
   FD_TEST( strmk_hold_release( ctx, test_stem, token ) );
   bank->refcnt--;
@@ -5127,7 +5130,7 @@ test_strmk_hold_ring( fd_wksp_t * wksp ) {
   /* The bank a stream chains off is held far longer than a block that
      the tile is reading. */
   charge_busy = 0;
-  strmk_hold_add( ctx, test_stem, ctx->strmk_base_hold, bank );
+  strmk_hold_add( ctx, test_stem, FD_REPLAY_STRMK_RING_BASE, bank );
   test_stem->now += read_due+1L;
   strmk_hold_expire( ctx, test_stem, &charge_busy );
   FD_TEST( !charge_busy && bank->refcnt==refcnt0+1UL );
@@ -5137,15 +5140,15 @@ test_strmk_hold_ring( fd_wksp_t * wksp ) {
 
   /* Opening a stream is synchronous in the stream tile, so while it
      owes a stream's base bank the read clock does not run.  Only the
-     backstop does, and the read clocks restart from the moment the
-     base reference comes back. */
+     long deadline does, and the read clocks restart from the moment
+     the base reference comes back. */
   charge_busy = 0;
   fd_bank_t * child = fd_banks_new_bank( ctx->banks, bank->idx, 0L, 0 );
   FD_TEST( child );
-  ulong base_token = strmk_hold_add( ctx, test_stem, ctx->strmk_base_hold,  bank  );
-  /**/               strmk_hold_add( ctx, test_stem, ctx->strmk_start_hold, child );
+  ulong base_token = strmk_hold_add( ctx, test_stem, FD_REPLAY_STRMK_RING_BASE,  bank  );
+  /**/               strmk_hold_add( ctx, test_stem, FD_REPLAY_STRMK_RING_START, child );
   strmk_hold_read( ctx, test_stem, child->idx );
-  FD_TEST( ctx->strmk_read_hold->tail-ctx->strmk_read_hold->head==1UL );
+  FD_TEST( read_ring->tail-read_ring->head==1UL );
   FD_TEST( bank->refcnt==refcnt0+1UL && child->refcnt==1UL );
 
   test_stem->now += read_due*4L;
@@ -5154,7 +5157,7 @@ test_strmk_hold_ring( fd_wksp_t * wksp ) {
 
   FD_TEST( strmk_hold_release( ctx, test_stem, base_token ) );
   bank->refcnt--;
-  FD_TEST( ctx->strmk_base_hold->head==ctx->strmk_base_hold->tail );
+  FD_TEST( base_ring->head==base_ring->tail );
   FD_TEST( bank->refcnt==refcnt0 );
 
   /* The read clock starts over now, so the time the tile spent
@@ -5166,24 +5169,24 @@ test_strmk_hold_ring( fd_wksp_t * wksp ) {
   strmk_hold_expire( ctx, test_stem, &charge_busy );
   FD_TEST( charge_busy && !child->refcnt );
 
-  /* The backstop still applies while a stream is being opened.  The
-     base hold is taken after the clock has run on, so only the read
-     entry is overdue and it is the read ring that fires. */
+  /* The long deadline still applies while a stream is being opened.
+     The base hold is taken after the clock has run on, so only the
+     read entry is overdue and it is the read ring that fires. */
   charge_busy = 0;
-  strmk_hold_add( ctx, test_stem, ctx->strmk_start_hold, child );
+  strmk_hold_add( ctx, test_stem, FD_REPLAY_STRMK_RING_START, child );
   strmk_hold_read( ctx, test_stem, child->idx );
   test_stem->now += back_due+1L;
-  strmk_hold_add( ctx, test_stem, ctx->strmk_base_hold, bank );
+  strmk_hold_add( ctx, test_stem, FD_REPLAY_STRMK_RING_BASE, bank );
   strmk_hold_expire( ctx, test_stem, &charge_busy );
   FD_TEST( charge_busy && bank->refcnt==refcnt0 && !child->refcnt );
 
   /* A ring with no room left means the stream tile is not keeping up,
      so everything goes back and the new hold starts a fresh ring. */
-  for( ulong i=0UL; i<FD_REPLAY_STRMK_HOLD_MAX; i++ ) strmk_hold_add( ctx, test_stem, ctx->strmk_start_hold, bank );
+  for( ulong i=0UL; i<FD_REPLAY_STRMK_HOLD_MAX; i++ ) strmk_hold_add( ctx, test_stem, FD_REPLAY_STRMK_RING_START, bank );
   FD_TEST( bank->refcnt==refcnt0+FD_REPLAY_STRMK_HOLD_MAX );
-  token = strmk_hold_add( ctx, test_stem, ctx->strmk_start_hold, bank );
+  token = strmk_hold_add( ctx, test_stem, FD_REPLAY_STRMK_RING_START, bank );
   FD_TEST( bank->refcnt==refcnt0+1UL );
-  FD_TEST( ctx->strmk_start_hold->tail-ctx->strmk_start_hold->head==1UL );
+  FD_TEST( start_ring->tail-start_ring->head==1UL );
   FD_TEST( strmk_hold_release( ctx, test_stem, token ) );
   bank->refcnt--;
   FD_TEST( bank->refcnt==refcnt0 );
@@ -5196,15 +5199,15 @@ test_strmk_hold_ring( fd_wksp_t * wksp ) {
      rather than at its old end. */
   fd_bank_t * other = fd_banks_new_bank( ctx->banks, bank->idx, 0L, 0 );
   FD_TEST( other );
-  ulong first_token  = strmk_hold_add( ctx, test_stem, ctx->strmk_start_hold, bank  );
-  ulong other_token  = strmk_hold_add( ctx, test_stem, ctx->strmk_start_hold, other );
-  ulong second_token = strmk_hold_add( ctx, test_stem, ctx->strmk_start_hold, bank  );
+  ulong first_token  = strmk_hold_add( ctx, test_stem, FD_REPLAY_STRMK_RING_START, bank  );
+  ulong other_token  = strmk_hold_add( ctx, test_stem, FD_REPLAY_STRMK_RING_START, other );
+  ulong second_token = strmk_hold_add( ctx, test_stem, FD_REPLAY_STRMK_RING_START, bank  );
   FD_TEST( first_token!=second_token );
 
   ctx->in_kind[ TEST_REPAIR_IN_IDX ] = IN_KIND_STRMK;
   FD_TEST( !returnable_frag( ctx, TEST_REPAIR_IN_IDX, 0UL, other_token, 0UL, 0UL, 0UL, 0UL, 0UL, test_stem ) );
   FD_TEST( !other->refcnt );
-  FD_TEST( ctx->strmk_start_hold->hold[ (ctx->strmk_start_hold->head+1UL)%FD_REPLAY_STRMK_HOLD_MAX ].token==ULONG_MAX );
+  FD_TEST( start_ring->hold[ (start_ring->head+1UL)%FD_REPLAY_STRMK_HOLD_MAX ].token==ULONG_MAX );
   FD_TEST( !returnable_frag( ctx, TEST_REPAIR_IN_IDX, 0UL, ULONG_MAX, 0UL, 0UL, 0UL, 0UL, 0UL, test_stem ) );
   FD_TEST( bank->refcnt==refcnt0+2UL );
   FD_TEST( !returnable_frag( ctx, TEST_REPAIR_IN_IDX, 0UL, first_token, 0UL, 0UL, 0UL, 0UL, 0UL, test_stem ) );
@@ -5270,9 +5273,9 @@ test_strmk_txn_keys( fd_wksp_t * wksp ) {
      the stream tile owes. */
   fd_bank_t * bank = fd_banks_bank_query( ctx->banks, ctx->published_root_bank_idx );
   FD_TEST( bank );
-  ulong refcnt0 = bank->refcnt;
-  ctx->strmk_start_hold->deadline = FD_REPLAY_STRMK_BACKSTOP_NS;
-  strmk_hold_add( ctx, test_stem, ctx->strmk_start_hold, bank );
+  fd_replay_strmk_ring_t * start_ring = &ctx->strmk_hold[ FD_REPLAY_STRMK_RING_START ];
+  ulong                    refcnt0    = bank->refcnt;
+  strmk_hold_add( ctx, test_stem, FD_REPLAY_STRMK_RING_START, bank );
 
   ctx->strmk_keys->full = 1;
   seq0 = test_stem_seqs[ strmk ];
@@ -5281,7 +5284,7 @@ test_strmk_txn_keys( fd_wksp_t * wksp ) {
   fd_frag_meta_t const * meta = test_stem_mcaches[ strmk ] + fd_mcache_line_idx( seq0, test_stem_depths[ strmk ] );
   FD_TEST( meta->sig==FD_STRMK_SIG_RESET );
   FD_TEST( bank->refcnt==refcnt0 );
-  FD_TEST( ctx->strmk_start_hold->head==ctx->strmk_start_hold->tail );
+  FD_TEST( start_ring->head==start_ring->tail );
 
 
   /* A block that died names no fork to read it at, and says so with
@@ -5315,15 +5318,15 @@ static void
 test_strmk_epoch_boundary( fd_wksp_t * wksp ) {
   static fd_replay_tile_t ctx[ 1 ];
   setup_ctx( ctx, wksp );
-  ctx->instant_boot_serve         = 1;
-  ctx->strmk_start_hold->deadline = FD_REPLAY_STRMK_BACKSTOP_NS;
+  ctx->instant_boot_serve = 1;
 
   fd_bank_t * root = fd_banks_bank_query( ctx->banks, ctx->published_root_bank_idx );
   FD_TEST( root );
   fd_bank_t * child = fd_banks_new_bank( ctx->banks, root->idx, 0L, 0 );
   FD_TEST( child );
-  ulong refcnt0 = root->refcnt;
-  ulong strmk   = ctx->strmk_out->idx;
+  fd_replay_strmk_ring_t * start_ring = &ctx->strmk_hold[ FD_REPLAY_STRMK_RING_START ];
+  ulong                    refcnt0    = root->refcnt;
+  ulong                    strmk      = ctx->strmk_out->idx;
 
   /* The epoch schedule setup_ctx builds puts slot 128 in the next
      epoch, so a block there is on the far side of a boundary. */
@@ -5337,7 +5340,7 @@ test_strmk_epoch_boundary( fd_wksp_t * wksp ) {
   FD_TEST( meta->sig==FD_STRMK_SIG_RESET );
   FD_TEST( !ctx->strmk_fed[ child->idx ] );
   FD_TEST( root->refcnt==refcnt0 );
-  FD_TEST( ctx->strmk_start_hold->head==ctx->strmk_start_hold->tail );
+  FD_TEST( start_ring->head==start_ring->tail );
 
   /* A parent in the middle of paying epoch rewards is the same story,
      whatever slot the block is in. */

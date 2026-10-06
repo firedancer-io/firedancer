@@ -98,8 +98,8 @@ typedef struct fd_reception_stats fd_reception_stats_t;
    the deadline check never has to look past it.
 
      start  A block's reference from the moment the block got a bank.
-            Only the backstop applies: replay itself may take that
-            long to finish a block it is catching up on, and the
+            Only the long deadline applies: replay itself may take
+            that long to finish a block it is catching up on, and the
             stream tile cannot read the block before then anyway.
      read   The same reference from the moment the block's end went
             out.  That is when the stream tile reads the block's
@@ -111,9 +111,9 @@ typedef struct fd_reception_stats fd_reception_stats_t;
    Opening a stream is synchronous in the stream tile and takes
    seconds, and it cannot read any block while it does that, so the
    read clock is paused for as long as any base reference is
-   outstanding and only the backstop applies to the read ring.  The
-   read clocks restart when the last base reference comes back, so the
-   paused time is not counted against the tile.
+   outstanding and only the long deadline applies to the read ring.
+   The read clocks restart when the last base reference comes back, so
+   the paused time is not counted against the tile.
 
    Every hold handed out gets its own token, carrying a serial number
    and the hold's bank index.  A release names one hold and nothing
@@ -125,12 +125,19 @@ typedef struct fd_reception_stats fd_reception_stats_t;
    after four billion holds, by which time every hold that carried the
    same one is long expired. */
 
-#define FD_REPLAY_STRMK_HOLD_MAX    (64UL)
-#define FD_REPLAY_STRMK_READ_NS     (4L*1000L*1000L*1000L)
-#define FD_REPLAY_STRMK_BACKSTOP_NS (60L*1000L*1000L*1000L)
+#define FD_REPLAY_STRMK_HOLD_MAX (64UL)
+#define FD_REPLAY_STRMK_READ_NS  (4L*1000L*1000L*1000L)
+#define FD_REPLAY_STRMK_SLOW_NS  (60L*1000L*1000L*1000L)
 
-#define FD_REPLAY_STRMK_TOKEN( seq, bank_idx ) ( (((seq)&0xffffffffUL)<<32) | (bank_idx) )
-#define FD_REPLAY_STRMK_TOKEN_BANK( token )    ( (token)&0xffffffffUL )
+#define FD_REPLAY_STRMK_RING_READ  (0UL)
+#define FD_REPLAY_STRMK_RING_START (1UL)
+#define FD_REPLAY_STRMK_RING_BASE  (2UL)
+#define FD_REPLAY_STRMK_RING_CNT   (3UL)
+
+#define FD_REPLAY_STRMK_TOKEN_BANK_MASK (0xffffffffUL)
+
+#define FD_REPLAY_STRMK_TOKEN( seq, bank_idx ) ( (((seq)&FD_REPLAY_STRMK_TOKEN_BANK_MASK)<<32) | (bank_idx) )
+#define FD_REPLAY_STRMK_TOKEN_BANK( token )    ( (token)&FD_REPLAY_STRMK_TOKEN_BANK_MASK )
 
 /* A bank index fits in the low half of a token, and no token can
    collide with the value that marks a ring entry released. */
@@ -145,9 +152,8 @@ struct fd_replay_strmk_hold {
 typedef struct fd_replay_strmk_hold fd_replay_strmk_hold_t;
 
 struct fd_replay_strmk_ring {
-  long                   deadline; /* ticks a hold in this ring may be outstanding */
-  ulong                  head;     /* oldest hold, == tail if none */
-  ulong                  tail;     /* next hold to record */
+  ulong                  head; /* oldest hold, == tail if none */
+  ulong                  tail; /* next hold to record */
   fd_replay_strmk_hold_t hold[ FD_REPLAY_STRMK_HOLD_MAX ];
 };
 
@@ -508,50 +514,6 @@ struct fd_replay_tile {
      or from genesis. */
   int is_booted;
 
-  /* Instant boot executes live blocks off a boot stream while the real
-     snapshot loads in the background.  instant_boot_slot is the last
-     slot the stream has written into the boot fork and
-     instant_boot_done turns 1 when the background load is finished.
-     Both counters seed ULONG_MAX, which means not ready yet.
-     load_done latches the end of that window. */
-  int           instant_boot;
-  int           load_done;
-  ulong const * instant_boot_slot;
-  ulong const * instant_boot_done;
-
-  /* A block start that the instant boot gate is holding back.  The
-     scheduler signals a block start only once, so it is parked here
-     until the gate opens. */
-  struct {
-    int   pending;
-    ulong bank_idx;
-    ulong bank_seq;
-    ulong parent_bank_idx;
-    ulong slot;
-  } held_block_start;
-
-  /* Fork cancellations that piled up while the accounts database was
-     refusing purges during the background load.  At most one entry per
-     live slot can be outstanding, since an unpurged fork still holds
-     its slot in the accounts database. */
-  fd_accdb_fork_id_t * deferred_purge; /* [max_live_slots] */
-  ulong                deferred_purge_cnt;
-
-  /* Boot streams served to peers.  Replay mirrors every block it
-     replays to the stream tile over replay_strmk: the block start with
-     a reference on the parent bank, the account keys the scheduler
-     resolved out of each FEC set, and the block end, which names the
-     fork the stream tile reads the block's accounts at.  The hold
-     rings below record the references the tile owes back, so a stream
-     tile that stalls cannot pin a bank forever. */
-  int                      instant_boot_serve;
-  ulong                    strmk_hold_seq; /* bumped per hold handed out, high half of its token */
-  ulong                    strmk_in_idx; /* in link the stream tile returns banks on, ULONG_MAX if none */
-  fd_sched_keys_t          strmk_keys[1];
-  fd_sched_keys_walk_t *   strmk_walk;   /* parse cursor for the block we are producing, which sched never sees */
-  uchar *                  strmk_fed;    /* [max_live_slots] 1 while the stream tile is tracking the block: from its
-                                            start going out until its end, its death, or a reset */
-
   /* Buffer to store vote towers that need to be published to the Tower
      tile. */
 
@@ -725,11 +687,56 @@ struct fd_replay_tile {
     ulong voted_slot; /* monotone, ULONG_MAX if none */
   } metrics;
 
-  /* Cold: only touched when a boot stream hold is taken, returned or
-     reclaimed. */
-  fd_replay_strmk_ring_t strmk_start_hold[1]; /* parent banks of blocks still replaying */
-  fd_replay_strmk_ring_t strmk_read_hold[1];  /* parent banks of blocks the tile is reading */
-  fd_replay_strmk_ring_t strmk_base_hold[1];  /* snapshot banks the streams chain off */
+  /* Cold: instant boot and the boot streams, none of it touched unless
+     one of the two flags below is on.
+
+     Instant boot executes live blocks off a boot stream while the real
+     snapshot loads in the background.  instant_boot_slot is the last
+     slot the stream has written into the boot fork and
+     instant_boot_done turns 1 when the background load is finished.
+     Both counters start at ULONG_MAX, which means not ready yet.
+     load_done is set once the background load has finished. */
+  int           instant_boot;
+  int           load_done;
+  ulong const * instant_boot_slot;
+  ulong const * instant_boot_done;
+
+  /* A block start instant boot is holding back.  The scheduler hands a
+     block start out only once, so it is kept here until the block can
+     run. */
+  struct {
+    int   pending;
+    ulong bank_idx;
+    ulong bank_seq;
+    ulong parent_bank_idx;
+    ulong slot;
+  } held_block_start;
+
+  /* Fork cancellations that piled up while the accounts database was
+     refusing purges during the background load.  At most one entry per
+     live slot can be outstanding, since an unpurged fork still holds
+     its slot in the accounts database. */
+  fd_accdb_fork_id_t * deferred_purge; /* [max_live_slots] */
+  ulong                deferred_purge_cnt;
+
+  /* Boot streams served to peers.  Replay mirrors every block it
+     replays to the stream tile over replay_strmk: the block start with
+     a reference on the parent bank, the account keys the scheduler
+     resolved out of each FEC set, and the block end, which names the
+     fork the stream tile reads the block's accounts at.  The hold
+     rings record the references the tile owes back, so a stream tile
+     that stalls cannot pin a bank forever. */
+  int                      instant_boot_serve;
+  /* bumped per hold, the high half of its token */
+  ulong                    strmk_hold_seq;
+  fd_sched_keys_t          strmk_keys[1];
+  /* how far the block we produce has been parsed */
+  fd_sched_keys_walk_t *   strmk_walk;
+  /* [max_live_slots] 1 while the stream tile is tracking the block:
+     from its start going out until its end, its death or a reset */
+  uchar *                  strmk_fed;
+  /* [FD_REPLAY_STRMK_RING_CNT], indexed by FD_REPLAY_STRMK_RING_* */
+  fd_replay_strmk_ring_t * strmk_hold;
 
   uchar __attribute__((aligned(FD_MULTI_EPOCH_LEADERS_ALIGN))) mleaders_mem[ FD_MULTI_EPOCH_LEADERS_FOOTPRINT ];
 
