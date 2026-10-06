@@ -268,7 +268,7 @@ Order note: this task depends on Task 3. Before Task 3 the loader can overwrite 
 - Starting point: `.superpowers/sdd/2026-10-06-instant-boot-a-accdb/task-2.patch` holds a first draft of the hook and the test from an earlier attempt; apply it with `git apply` and then make the changes below.
 
 **Interfaces:**
-- Consumes: `FD_ACCDB_CHAIN_LOCKED`, `FD_ACCDB_SNAPSHOT_WRITE_LIVE` (Task 3).
+- Consumes: `FD_ACCDB_CHAIN_LOCKED`, the insert-behind rule from Task 3.
 - Produces: racesan hook names `accdb_chain_head:locked` and `accdb_snapshot_write:locked`.
 
 Background. Racesan weaves two fibers deterministically; a fiber yields only at `fd_racesan_hook` calls. `fd_accdb_chain_head` spins while a chain head holds the lock value, so the fiber holding the lock can never run unless the spin loop has a hook. Move the function from `fd_accdb_private.h` into `fd_accdb.c` (it has no other user) and give the loop a hook:
@@ -292,16 +292,16 @@ Keep `FD_ACCDB_CHAIN_LOCKED` in the private header. In `fd_accdb_snapshot_write_
 
 - [ ] **Step 1: Write the snapshot-write fiber and the test**
 
-In `test_accdb_racesan.c`, next to `fiber_release_write`, add `fiber_snapshot_write( fiber, join, key, slot, lamports )` performing one full-mode snapshot write of `key` with zero data, following `test_write_batch` in `test_accdb.c` (reserve with `fd_accdb_snapshot_reserve_write`, `pwrite` a `fd_accdb_disk_meta_t` header to the join's fd, then `fd_accdb_snapshot_write_batch` with `SENTINEL`, cnt 1). Store the batch's `results[0]` in a global `g_snapshot_write_result` so the test can read it. The racesan joins need a file descriptor for the pwrite; use the one `join_new()` passes to `fd_accdb_new`, adding a `memfd_create` in `test_shmem_new` if there is none (mirror `test_setup_ex` in `test_accdb.c`).
+In `test_accdb_racesan.c`, next to `fiber_release_write`, add `fiber_snapshot_write( fiber, join, key, slot, lamports )` performing one full-mode snapshot write of `key` with zero data, following `test_write_batch` in `test_accdb.c` (reserve with `fd_accdb_snapshot_reserve_write`, `pwrite` a `fd_accdb_disk_meta_t` header to the join's fd, then `fd_accdb_snapshot_write_batch` with `SENTINEL`, cnt 1, and `FD_TEST` that it returns 0). The racesan joins need a file descriptor for the pwrite; use the one `join_new()` passes to `fd_accdb_new`, adding a `memfd_create` in `test_shmem_new` if there is none (mirror `test_setup_ex` in `test_accdb.c`).
 
 Then add the test:
 
 ```c
 /* A live commit prepends a new version of key on fork b while the
    snapshot loader writes the same key.  Whichever lands first, the
-   commit must never be lost: fork b reads the committed value.  If
-   the loader ran second it saw the live node and skipped, so the root
-   reads nothing; if it ran first, the root reads the loaded value. */
+   commit must never be lost and the loaded node must sit behind it:
+   fork b reads the committed value and the root reads the loaded
+   value. */
 
 static void
 test_release_vs_snapshot_write( void ) {
@@ -328,11 +328,10 @@ test_release_vs_snapshot_write( void ) {
     fiber_done( &g_fiber[0] );
     fiber_done( &g_fiber[1] );
 
-    FD_TEST( fd_accdb_lamports( ctl, b, key )==400UL+i );
-    ulong root_lamports = fd_accdb_lamports( ctl, root, key );
-    if( g_snapshot_write_result==FD_ACCDB_SNAPSHOT_WRITE_LIVE ) FD_TEST( root_lamports==0UL );
-    else                                                       FD_TEST( root_lamports==100UL+i );
+    FD_TEST( fd_accdb_lamports( ctl, b,    key )==400UL+i );
+    FD_TEST( fd_accdb_lamports( ctl, root, key )==100UL+i );
 
+    /* The weave is over, so nothing inserts while b is removed. */
     fd_accdb_purge( ctl, b );
     drain_background( ctl );
   }
@@ -345,7 +344,7 @@ test_release_vs_snapshot_write( void ) {
 }
 ```
 
-Register it in the `cases[]` table after `TEST( test_acquire_vs_release ),`. Note the loader writes a node at the root generation each iteration it runs first; `fd_accdb_purge( b )` only removes b's version, so later iterations compare against a loader node that already exists (the slot rises each iteration, so the loader replaces it in place rather than reporting a duplicate).
+Register it in the `cases[]` table after `TEST( test_acquire_vs_release ),`. Notes: the loader's node stays at the root generation across iterations and `fd_accdb_purge( b )` only removes b's version, so from the second iteration on the loader finds its own node (the slot rises each iteration, so it replaces in place rather than reporting a duplicate) and, when the commit landed first, links or keeps that node behind b's. Use `fd_accdb_lamports` for the reads: a cached read of the loaded node during the load would overwrite the slot the loader keeps in `cache_idx`.
 
 - [ ] **Step 2: Build and run**
 
