@@ -2092,6 +2092,10 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
     }
 
     case FD_SNAPSHOT_MSG_CTRL_FAIL: {
+      /* The failure may have been detected upstream, in which case
+         transition_malformed never ran.  Instant boot still cannot
+         retry, so the first tile to see this ends the process. */
+      if( FD_UNLIKELY( ctx->instant_boot ) ) FD_LOG_ERR(( "instant boot: snapshot load failed, restart with instant boot disabled" ));
       FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
       fd_accdb_flush_metrics( ctx->accdb );
 
