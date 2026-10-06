@@ -4333,8 +4333,8 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
 
     fd_accdb_accmeta_t * existing       = NULL;
     fd_accdb_accmeta_t * cross_existing = NULL; /* cross-fork dup (incremental only) */
-    /* last node for this pubkey that the loader did not write */
-    fd_accdb_accmeta_t * behind         = NULL;
+    /* last live version of this pubkey, if any */
+    fd_accdb_accmeta_t * live           = NULL;
     uint next_acc = saved_head;
     while( next_acc!=UINT_MAX ) {
       fd_accdb_accmeta_t * candidate = &accdb->acc_pool[ next_acc ];
@@ -4345,13 +4345,14 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
 
       if( FD_UNLIKELY( !memcmp( pubkeys[ i ], candidate->key.pubkey, 32UL ) ) ) {
         if( FD_UNLIKELY( !FD_ACCDB_SIZE_SNAPSHOT( candidate->executable_size ) ) ) {
-          behind   = candidate;
+          live     = candidate;
           next_acc = candidate->map.next;
           continue;
         }
 #if FD_TMPL_USE_HANDHOLDING
         /* cache_idx holds the snapshot slot only while the node is
-           uncached; a cached loader node would make it a cache index. */
+           uncached; a cached loader node would make it a cache
+           index. */
         FD_TEST( !FD_ACCDB_SIZE_CACHE_VALID( candidate->executable_size ) );
 #endif
         if( FD_LIKELY( (ulong)candidate->cache_idx>slots[ i ] ) ) {
@@ -4418,18 +4419,18 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
     if( FD_LIKELY( !existing ) ) {
       uint acc_idx = (uint)acc_pool_idx( accdb->acc_pool_join, accmeta );
 
-      if( FD_UNLIKELY( behind ) ) {
+      if( FD_UNLIKELY( live ) ) {
         /* Readers must meet the live version first, so link the loaded
            node right behind the last live one.  A live version can only
            exist here in instant boot, and there loader nodes stay
            hidden for the whole load while fd_accdb_purge and
-           fd_accdb_advance_root refuse to run, so behind is still on
-           the chain. */
+           fd_accdb_advance_root refuse to run, so live is still on the
+           chain. */
         for(;;) {
-          uint after = FD_VOLATILE_CONST( behind->map.next );
+          uint after = FD_VOLATILE_CONST( live->map.next );
           accmeta->map.next = after;
           FD_COMPILER_MFENCE();
-          if( FD_LIKELY( FD_ATOMIC_CAS( &behind->map.next, after, acc_idx )==after ) ) break;
+          if( FD_LIKELY( FD_ATOMIC_CAS( &live->map.next, after, acc_idx )==after ) ) break;
           FD_SPIN_PAUSE();
         }
       } else {

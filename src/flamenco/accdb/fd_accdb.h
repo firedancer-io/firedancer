@@ -242,11 +242,11 @@ fd_accdb_attach_child( fd_accdb_t *       accdb,
                        fd_accdb_fork_id_t parent_fork_id );
 
 /* fd_accdb_fork_parent returns the id of the fork that fork_id was
-   attached under, or the sentinel (val==USHORT_MAX) if fork_id is the
-   root.  Reading it is only meaningful while fork_id is live: a purge
-   or a root advance can recycle either slot.  The caller is the one
-   that knows a fork and needs the one above it, for example replay
-   rooting the fork of the snapshot its boot fork was created under. */
+   attached under, or USHORT_MAX if fork_id is the root.  Reading it is
+   only meaningful while fork_id is live: a purge or a root advance can
+   recycle either slot.  The caller is the one that knows a fork and
+   needs the one above it, for example replay rooting the fork of the
+   snapshot its boot fork was created under. */
 
 fd_accdb_fork_id_t
 fd_accdb_fork_parent( fd_accdb_t const * accdb,
