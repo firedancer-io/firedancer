@@ -181,6 +181,10 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   if( FD_UNLIKELY( tile->replay.instant_boot ) ) {
     l = FD_LAYOUT_APPEND( l, alignof(fd_accdb_fork_id_t),       tile->replay.max_live_slots*sizeof(fd_accdb_fork_id_t) );
   }
+  /* Accounts of one FEC set, on their way to the stream tile. */
+  if( FD_UNLIKELY( tile->replay.instant_boot_serve ) ) {
+    l = FD_LAYOUT_APPEND( l, alignof(fd_acct_addr_t),           FD_SCHED_INGEST_KEY_MAX*sizeof(fd_acct_addr_t) );
+  }
 
   if( FD_UNLIKELY( tile->replay.dump_block_to_pb ) ) {
     l = FD_LAYOUT_APPEND( l, fd_block_dump_context_align(), fd_block_dump_context_footprint() );
@@ -607,6 +611,163 @@ publish_replay_out( fd_replay_tile_t *  ctx,
   }
   fd_stem_publish( stem, ctx->replay_out->idx, sig, ctx->replay_out->chunk, sz, 0UL, 0UL, tspub );
   ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sz, ctx->replay_out->chunk0, ctx->replay_out->wmark );
+}
+
+/**********************************************************************/
+/* Boot stream serving                                                */
+/**********************************************************************/
+
+/* strmk_publish sends one boot stream message, which the caller has
+   already written at the head of the link.  The stream tile is an
+   unreliable consumer, so this never waits and never spends flow
+   control credits. */
+
+static void
+strmk_publish( fd_replay_tile_t *  ctx,
+               fd_stem_context_t * stem,
+               ulong               sig,
+               ulong               sz ) {
+  ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+  fd_stem_publish( stem, ctx->strmk_out->idx, sig, ctx->strmk_out->chunk, sz, 0UL, 0UL, tspub );
+  ctx->strmk_out->chunk = fd_dcache_compact_next( ctx->strmk_out->chunk, sz, ctx->strmk_out->chunk0, ctx->strmk_out->wmark );
+}
+
+/* strmk_hold_trim drops the released holds off the old end of the
+   ring, which is where the timeout looks. */
+
+static void
+strmk_hold_trim( fd_replay_tile_t * ctx ) {
+  while( ctx->strmk_hold_head!=ctx->strmk_hold_tail &&
+         ctx->strmk_hold[ ctx->strmk_hold_head%FD_REPLAY_STRMK_HOLD_MAX ].bank_idx==ULONG_MAX ) ctx->strmk_hold_head++;
+}
+
+/* strmk_hold_reclaim takes back the oldest hold and tells the stream
+   tile to start over: the stream it was building is missing a block it
+   can no longer read, and after a reset the tile owes nothing. */
+
+static void
+strmk_hold_reclaim( fd_replay_tile_t *  ctx,
+                    fd_stem_context_t * stem ) {
+  fd_replay_strmk_hold_t * hold = &ctx->strmk_hold[ ctx->strmk_hold_head%FD_REPLAY_STRMK_HOLD_MAX ];
+  fd_bank_t *              bank = fd_banks_bank_query( ctx->banks, hold->bank_idx );
+  if( FD_LIKELY( bank ) ) bank->refcnt--;
+  FD_LOG_WARNING(( "taking bank (idx=%lu) back from the stream tile, resetting the boot streams", hold->bank_idx ));
+  hold->bank_idx = ULONG_MAX;
+  ctx->strmk_hold_head++;
+  strmk_hold_trim( ctx );
+  strmk_publish( ctx, stem, FD_STRMK_SIG_RESET, 0UL );
+}
+
+/* strmk_hold_add takes a reference on a bank for the stream tile and
+   records that the tile owes it back.  A full ring reclaims its oldest
+   hold to make room. */
+
+static void
+strmk_hold_add( fd_replay_tile_t *  ctx,
+                fd_stem_context_t * stem,
+                fd_bank_t *         bank ) {
+  if( FD_UNLIKELY( ctx->strmk_hold_tail-ctx->strmk_hold_head>=FD_REPLAY_STRMK_HOLD_MAX ) ) strmk_hold_reclaim( ctx, stem );
+  bank->refcnt++;
+  fd_replay_strmk_hold_t * hold = &ctx->strmk_hold[ ctx->strmk_hold_tail%FD_REPLAY_STRMK_HOLD_MAX ];
+  hold->bank_idx = bank->idx;
+  hold->tick     = stem->now;
+  ctx->strmk_hold_tail++;
+}
+
+/* strmk_hold_release drops the oldest hold on bank_idx, which the
+   stream tile just returned.  Returns 0 if the tile owes no hold on
+   that bank, which means replay already reclaimed it and the reference
+   is gone. */
+
+static int
+strmk_hold_release( fd_replay_tile_t * ctx,
+                    ulong              bank_idx ) {
+  for( ulong i=ctx->strmk_hold_head; i!=ctx->strmk_hold_tail; i++ ) {
+    fd_replay_strmk_hold_t * hold = &ctx->strmk_hold[ i%FD_REPLAY_STRMK_HOLD_MAX ];
+    if( FD_LIKELY( hold->bank_idx==bank_idx ) ) {
+      hold->bank_idx = ULONG_MAX;
+      strmk_hold_trim( ctx );
+      return 1;
+    }
+  }
+  return 0;
+}
+
+/* strmk_hold_expire reclaims the oldest hold once the stream tile has
+   owed it for FD_REPLAY_STRMK_HOLD_NS.  Holds are recorded in order,
+   so only the oldest can be due. */
+
+static void
+strmk_hold_expire( fd_replay_tile_t *  ctx,
+                   fd_stem_context_t * stem ) {
+  if( FD_LIKELY( ctx->strmk_hold_head==ctx->strmk_hold_tail ) ) return;
+  long age = stem->now - ctx->strmk_hold[ ctx->strmk_hold_head%FD_REPLAY_STRMK_HOLD_MAX ].tick;
+  if( FD_LIKELY( (double)age<(double)FD_REPLAY_STRMK_HOLD_NS*ctx->tick_per_ns ) ) return;
+  strmk_hold_reclaim( ctx, stem );
+}
+
+/* strmk_block_start tells the stream tile about a block replay just
+   provisioned a bank for, and holds the parent bank for it, which is
+   the fork the block's accounts are read at.  Published before the
+   block's first FEC set is parsed, so the stream tile always knows the
+   fork before it sees a key. */
+
+static void
+strmk_block_start( fd_replay_tile_t *     ctx,
+                   fd_stem_context_t *    stem,
+                   fd_sched_fec_t const * sched_fec ) {
+  fd_bank_t * parent = fd_banks_bank_query( ctx->banks, sched_fec->parent_bank_idx );
+  FD_TEST( parent );
+  strmk_hold_add( ctx, stem, parent );
+
+  fd_strmk_block_start_t * msg = fd_chunk_to_laddr( ctx->strmk_out->mem, ctx->strmk_out->chunk );
+  *msg = (fd_strmk_block_start_t) {
+    .slot                 = sched_fec->slot,
+    .bank_idx             = sched_fec->bank_idx,
+    .parent_bank_idx      = sched_fec->parent_bank_idx,
+    .parent_accdb_fork_id = parent->accdb_fork_id
+  };
+  strmk_publish( ctx, stem, FD_STRMK_SIG_BLOCK_START, sizeof(fd_strmk_block_start_t) );
+}
+
+/* strmk_keys_arm points the scheduler at replay's key sink for one
+   ingest call, so the accounts it resolves can be mirrored once the
+   call returns. */
+
+static void
+strmk_keys_arm( fd_replay_tile_t * ctx,
+                fd_sched_fec_t *   sched_fec ) {
+  sched_fec->keys = NULL;
+  if( FD_LIKELY( !ctx->instant_boot_serve ) ) return;
+  ctx->strmk_keys->cnt  = 0UL;
+  ctx->strmk_keys->full = 0;
+  sched_fec->keys       = ctx->strmk_keys;
+}
+
+/* strmk_txn_keys forwards the accounts the scheduler resolved out of
+   one FEC set, filling each message to the link MTU.  Keys that did
+   not fit in the sink are gone, so the stream tile is told to start
+   over instead. */
+
+static void
+strmk_txn_keys( fd_replay_tile_t *     ctx,
+                fd_stem_context_t *    stem,
+                fd_sched_fec_t const * sched_fec ) {
+  if( FD_UNLIKELY( ctx->strmk_keys->full ) ) {
+    FD_LOG_WARNING(( "boot stream key sink overflowed on slot %lu, resetting the boot streams", sched_fec->slot ));
+    strmk_publish( ctx, stem, FD_STRMK_SIG_RESET, 0UL );
+    return;
+  }
+
+  for( ulong off=0UL; off<ctx->strmk_keys->cnt; off+=FD_STRMK_TXN_KEY_MAX ) {
+    ulong                 cnt = fd_ulong_min( ctx->strmk_keys->cnt-off, FD_STRMK_TXN_KEY_MAX );
+    fd_strmk_txn_keys_t * msg = fd_chunk_to_laddr( ctx->strmk_out->mem, ctx->strmk_out->chunk );
+    msg->slot     = sched_fec->slot;
+    msg->bank_idx = sched_fec->bank_idx;
+    msg->key_cnt  = (ushort)cnt;
+    fd_memcpy( msg->keys, ctx->strmk_keys->key+off, cnt*sizeof(fd_pubkey_t) );
+    strmk_publish( ctx, stem, FD_STRMK_SIG_TXN_KEYS, offsetof(fd_strmk_txn_keys_t, keys)+cnt*sizeof(fd_pubkey_t) );
+  }
 }
 
 /**********************************************************************/
@@ -1261,6 +1422,25 @@ publish_slot_completed( fd_replay_tile_t *        ctx,
                  bank->block_completed_nanos - bank->last_transaction_finished_nanos ));
 
   publish_replay_out( ctx, stem, REPLAY_SIG_SLOT_COMPLETED, sizeof(fd_replay_slot_completed_t) );
+
+  /* Close the block out on the boot streams, naming the fee collector
+     that no transaction in the block names.  The initial boot block is
+     not streamed: it was never replayed, so it has no block start. */
+  if( FD_UNLIKELY( ctx->instant_boot_serve && !is_initial ) ) {
+    if( FD_UNLIKELY( is_leader ) ) {
+      /* Replay produced this block itself, so it never passed through
+         the scheduler and its accounts were never collected.  A boot
+         stream cannot skip a block, so every stream starts over. */
+      strmk_publish( ctx, stem, FD_STRMK_SIG_RESET, 0UL );
+    } else {
+      fd_strmk_block_end_t * msg = fd_chunk_to_laddr( ctx->strmk_out->mem, ctx->strmk_out->chunk );
+      msg->slot     = slot;
+      msg->bank_idx = bank->idx;
+      msg->txn_cnt  = bank->f.txn_count;
+      fd_runtime_fee_collector( bank, &msg->collector );
+      strmk_publish( ctx, stem, FD_STRMK_SIG_BLOCK_END, sizeof(fd_strmk_block_end_t) );
+    }
+  }
 
   /* Skip the telemetry event for the initial boot block (snapshot /
      genesis): it was not replayed. */
@@ -2910,6 +3090,14 @@ mark_bank_dead( fd_replay_tile_t *        ctx,
       fec->dead_reported = 1;
     }
     timing_slot_release( ctx, dead_idxs[ i ] );
+
+    /* Tell the stream tile to drop a block that will never complete. */
+    if( FD_UNLIKELY( ctx->instant_boot_serve ) ) {
+      fd_strmk_block_end_t * msg = fd_chunk_to_laddr( ctx->strmk_out->mem, ctx->strmk_out->chunk );
+      *msg = (fd_strmk_block_end_t){ .slot = ele->slot, .bank_idx = dead_idxs[ i ] };
+      strmk_publish( ctx, stem, FD_STRMK_SIG_BLOCK_DEAD, sizeof(fd_strmk_block_end_t) );
+    }
+
     int dr = abandoned                 ? FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_NOT_DEAD
            : dead_idxs[ i ]==bank_idx  ? dead_reason
            :                             FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_PARENT_DEAD;
@@ -3455,15 +3643,18 @@ insert_fec_set( fd_replay_tile_t *  ctx,
   sched_fec->alut_ctx->fork_id = fd_banks_bank_query( ctx->banks, ctx->published_root_bank_idx )->accdb_fork_id;
   sched_fec->alut_ctx->accdb   = ctx->accdb;
   sched_fec->alut_ctx->els     = ctx->published_root_slot;
+  strmk_keys_arm( ctx, sched_fec );
 
   fd_bank_t * bank = fd_banks_bank_query( ctx->banks, sched_fec->bank_idx );
   if( sched_fec->is_first_in_block ) {
     bank->refcnt++;
     FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for sched", bank->idx, sched_fec->slot, bank->refcnt ));
+    if( FD_UNLIKELY( ctx->instant_boot_serve ) ) strmk_block_start( ctx, stem, sched_fec );
   }
 
   int ingested = fd_sched_fec_ingest( ctx->sched, sched_fec );
   fd_store_fec_data_view_release( ctx->store, data_view );
+  if( FD_UNLIKELY( ctx->instant_boot_serve ) ) strmk_txn_keys( ctx, stem, sched_fec );
 
   if( FD_UNLIKELY( !ingested ) ) {
     int dr = sched_block_dead_reason_to_event( ctx, sched_fec->bank_idx );
@@ -4050,6 +4241,10 @@ after_credit( fd_replay_tile_t *  ctx,
     FD_LOG_NOTICE(( "instant boot: snapshot load finished, stake state complete" ));
   }
 
+  /* Take back a bank the stream tile has held for too long, before
+     anything else: a held bank keeps the storage root from advancing. */
+  if( FD_UNLIKELY( ctx->instant_boot_serve ) ) strmk_hold_expire( ctx, stem );
+
   if( FD_UNLIKELY( ctx->halt_replay && !ctx->is_leader ) ) return;
   if( FD_UNLIKELY( !ctx->is_booted || !ctx->wfs_complete ) ) return;
 
@@ -4601,14 +4796,17 @@ process_rotor_fec( fd_replay_tile_t      * ctx,
   sched_fec->alut_ctx->accdb   = ctx->accdb;
   sched_fec->alut_ctx->els     = ctx->published_root_slot;
   sched_fec->completed_ns      = fec->metrics.fec_completed_ts_nanos;
+  strmk_keys_arm( ctx, sched_fec );
 
   if( sched_fec->is_first_in_block ) {
     bank->refcnt++;
     FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for sched", bank->idx, sched_fec->slot, bank->refcnt ));
+    if( FD_UNLIKELY( ctx->instant_boot_serve ) ) strmk_block_start( ctx, stem, sched_fec );
   }
 
   int ingested = fd_sched_fec_ingest( ctx->sched, sched_fec );
   fd_store_fec_data_view_release( ctx->store, data_view );
+  if( FD_UNLIKELY( ctx->instant_boot_serve ) ) strmk_txn_keys( ctx, stem, sched_fec );
 
   if( FD_UNLIKELY( !ingested ) ) {
     int dr = sched_block_dead_reason_to_event( ctx, sched_fec->bank_idx );
@@ -4909,6 +5107,16 @@ snapmk_start( fd_replay_tile_t *  ctx,
   long ret = syscall( SYS_futex, snap_sync, FUTEX_WAKE, 1 );
   if( FD_UNLIKELY( ret<0 ) ) {
     FD_LOG_ERR(( "FUTEX_WAKE(snap_sync,seq=%u) failed (%i-%s)", (uint)seq, errno, fd_io_strerror( errno ) ));
+  }
+
+  /* An incremental snapshot is the base a boot stream chains off, so
+     ask the stream tile to start one and hold its bank.  A full
+     snapshot starts no stream. */
+  if( FD_UNLIKELY( ctx->instant_boot_serve && incremental ) ) {
+    strmk_hold_add( ctx, stem, bank );
+    fd_strmk_stream_start_t * start = fd_chunk_to_laddr( ctx->strmk_out->mem, ctx->strmk_out->chunk );
+    *start = (fd_strmk_stream_start_t){ .slot = bank->f.slot, .bank_idx = bank->idx };
+    strmk_publish( ctx, stem, FD_STRMK_SIG_STREAM_START, sizeof(fd_strmk_stream_start_t) );
   }
 
   /* update internal state */
@@ -5292,6 +5500,10 @@ returnable_frag( fd_replay_tile_t *  ctx,
       break;
     }
     case IN_KIND_RPC: {
+      /* The stream tile returns the holds this ring recorded.  One the
+         ring already reclaimed carries no reference any more, and its
+         bank may be gone. */
+      if( FD_UNLIKELY( in_idx==ctx->strmk_in_idx && !strmk_hold_release( ctx, sig ) ) ) break;
       fd_bank_t * bank = fd_banks_bank_query( ctx->banks, sig );
       FD_TEST( bank );
       bank->refcnt--;
@@ -5437,6 +5649,8 @@ unprivileged_init( fd_topo_t const *      topo,
   void * backfill_path_mem  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_reasm_fec_t *),    (tile->replay.max_shreds_per_block/FD_FEC_SHRED_CNT)*sizeof(fd_reasm_fec_t *) );
   void * deferred_purge_mem = tile->replay.instant_boot ?
                               FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_fork_id_t),   tile->replay.max_live_slots*sizeof(fd_accdb_fork_id_t) ) : NULL;
+  void * strmk_keys_mem     = tile->replay.instant_boot_serve ?
+                              FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_acct_addr_t),       FD_SCHED_INGEST_KEY_MAX*sizeof(fd_acct_addr_t) ) : NULL;
   void * block_dump_ctx     = NULL;
   if( FD_UNLIKELY( tile->replay.dump_block_to_pb ) ) {
     block_dump_ctx = FD_SCRATCH_ALLOC_APPEND( l, fd_block_dump_context_align(), fd_block_dump_context_footprint() );
@@ -5592,6 +5806,15 @@ unprivileged_init( fd_topo_t const *      topo,
     FD_TEST( ctx->instant_boot_done );
   }
 
+  ctx->instant_boot_serve = tile->replay.instant_boot_serve;
+  ctx->strmk_in_idx       = ULONG_MAX;
+  ctx->strmk_keys->max    = FD_SCHED_INGEST_KEY_MAX;
+  ctx->strmk_keys->cnt    = 0UL;
+  ctx->strmk_keys->full   = 0;
+  ctx->strmk_keys->key    = strmk_keys_mem;
+  ctx->strmk_hold_head    = 0UL;
+  ctx->strmk_hold_tail    = 0UL;
+
   ctx->tick_per_ns = fd_tempo_tick_per_ns( NULL );
 
   fd_clock_tile_init( ctx->clock );
@@ -5736,12 +5959,17 @@ unprivileged_init( fd_topo_t const *      topo,
     if( ctx->in_kind[ i ]==IN_KIND_ADMIN ) {
       FD_TEST( ( ctx->admin_out_idx = fd_topo_find_tile_out_link( topo, tile, "replay_admin", 0UL ) )!=ULONG_MAX );
     }
+
+    /* The stream tile and the rpc tile both return banks by index, but
+       only the stream tile's returns pair with a recorded hold. */
+    if( FD_UNLIKELY( !strcmp( link->name, "strmk_replay" ) ) ) ctx->strmk_in_idx = i;
   }
 
   *ctx->epoch_out  = out1( topo, tile, "replay_epoch" ); FD_TEST( ctx->epoch_out->idx!=ULONG_MAX );
   *ctx->replay_out = out1( topo, tile, "replay_out"   ); FD_TEST( ctx->replay_out->idx!=ULONG_MAX );
   *ctx->slot_out   = out1( topo, tile, "replay_slot"  ); FD_TEST( ctx->slot_out->idx!=ULONG_MAX );
   *ctx->snapmk_out = out1( topo, tile, "replay_snapmk" ); FD_TEST( ctx->snapmk.supported == (ctx->snapmk_out->idx!=ULONG_MAX) );
+  *ctx->strmk_out  = out1( topo, tile, "replay_strmk" ); FD_TEST( ctx->instant_boot_serve == (ctx->strmk_out->idx!=ULONG_MAX) );
 
   ctx->exec_cnt = 0UL;
   for( ulong i=0UL; i<FD_SCHED_MAX_EXEC_TILE_CNT; i++ ) ctx->exec_out[ i ].idx = ULONG_MAX;
@@ -5876,7 +6104,9 @@ during_housekeeping( fd_replay_tile_t * ctx ) {
 
 /* counting carefully, after_credit can generate at most 8 frags and
    returnable_frag boot_genesis can generate at most 7 frags, so 15 is a
-   conservative bound. */
+   conservative bound.  The boot stream messages do not count: the
+   stream tile is an unreliable consumer, so publishing to it spends no
+   flow control credits. */
 #define STEM_BURST (15UL)
 
 /* fd_tempo_lazy_default( 16384 ) where 16384 is the minimum out-link

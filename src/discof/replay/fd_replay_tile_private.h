@@ -88,6 +88,19 @@ typedef struct fd_reception_stats fd_reception_stats_t;
 
 #define FD_REPLAY_TXN_TIMING_SLOTS (16UL)
 
+/* Bank references the stream tile owes back, and how long it may owe
+   one before replay reclaims it and tells the tile to start over. */
+
+#define FD_REPLAY_STRMK_HOLD_MAX (64UL)
+#define FD_REPLAY_STRMK_HOLD_NS  (4L*1000L*1000L*1000L)
+
+struct fd_replay_strmk_hold {
+  ulong bank_idx; /* ULONG_MAX once the hold is released */
+  long  tick;     /* tickcount the hold was taken at */
+};
+
+typedef struct fd_replay_strmk_hold fd_replay_strmk_hold_t;
+
 struct fd_replay_txn_timing {
   long received_ns;
 
@@ -472,6 +485,20 @@ struct fd_replay_tile {
   fd_accdb_fork_id_t * deferred_purge; /* [max_live_slots] */
   ulong                deferred_purge_cnt;
 
+  /* Boot streams served to peers.  Replay mirrors every block it
+     replays to the stream tile over replay_strmk: the block start with
+     a reference on the parent bank, which is the fork the stream tile
+     reads the block's accounts at, the account keys the scheduler
+     resolved out of each FEC set, and the block end.  strmk_hold
+     records the references the stream tile owes back, oldest first, so
+     a stream tile that stalls cannot pin a bank forever. */
+  int                      instant_boot_serve;
+  ulong                    strmk_in_idx; /* in link the stream tile returns banks on, ULONG_MAX if none */
+  fd_sched_keys_t          strmk_keys[1];
+  fd_replay_strmk_hold_t   strmk_hold[ FD_REPLAY_STRMK_HOLD_MAX ];
+  ulong                    strmk_hold_head; /* oldest hold, == tail if none */
+  ulong                    strmk_hold_tail; /* next hold to record */
+
   /* Buffer to store vote towers that need to be published to the Tower
      tile. */
 
@@ -584,6 +611,7 @@ struct fd_replay_tile {
   fd_replay_out_link_t slot_out[1];
   ulong const *        slot_out_seq;
   fd_replay_out_link_t snapmk_out[1];
+  fd_replay_out_link_t strmk_out[1];
   ulong admin_out_idx;
 
   fd_replay_out_link_t epoch_out[1];

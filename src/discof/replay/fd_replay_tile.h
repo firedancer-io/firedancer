@@ -116,6 +116,98 @@
 #define REPLAY_SIG_LEADER_FOOTER  (12)
 #define REPLAY_SIG_MISSING_FEC    (13)
 
+/* Boot stream messages
+   ====================
+
+   With [snapshots.instant_boot.serve] on, replay mirrors the blocks it
+   replays to the stream tile over replay_strmk, which turns them into
+   boot streams that a peer can start executing from before its
+   snapshot has finished loading.  The sig of each frag selects the
+   message below.  The link is unreliable and replay never waits on it,
+   so a stream tile that falls behind sees a sequence gap and starts
+   over.  Replay sends FD_STRMK_SIG_RESET itself when it reclaims a
+   bank the stream tile held for too long, when the accounts of a block
+   did not fit in its sink, and when it completes a block it led: a
+   stream cannot skip a block, and a block replay produced never passed
+   through the scheduler, so its accounts were never collected.
+
+   The stream tile returns a bank it was given a reference on by
+   sending the bank index as the sig on strmk_replay.  It must not
+   return a reference it was given before a reset: replay has already
+   reclaimed those. */
+
+#define FD_STRMK_SIG_BLOCK_START  (1UL)
+#define FD_STRMK_SIG_TXN_KEYS     (2UL)
+#define FD_STRMK_SIG_BLOCK_END    (3UL)
+#define FD_STRMK_SIG_BLOCK_DEAD   (4UL)
+#define FD_STRMK_SIG_STREAM_START (5UL)
+#define FD_STRMK_SIG_RESET        (6UL)
+
+/* MTU of replay_strmk, see fd_topo_initialize. */
+
+#define FD_STRMK_MTU (4096UL)
+
+/* Replay publishes a block start as soon as the block has a bank, and
+   holds a reference on the parent bank, which is the fork the stream
+   tile reads the block's accounts from.  It always precedes the
+   block's keys, so the stream tile knows the fork before it sees a
+   key. */
+
+struct fd_strmk_block_start {
+  ulong              slot;
+  ulong              bank_idx;
+  ulong              parent_bank_idx;
+  fd_accdb_fork_id_t parent_accdb_fork_id;
+};
+typedef struct fd_strmk_block_start fd_strmk_block_start_t;
+
+/* Account keys of a block's transactions, in parse order: the static
+   keys of a transaction, then the keys its lookup tables expanded to,
+   or the addresses of the tables themselves when they did not resolve
+   and the stream tile has to expand them.  A message carries the keys
+   of as many transactions as fit, so the stream tile accumulates keys
+   per block and does not learn transaction boundaries. */
+
+#define FD_STRMK_TXN_KEY_MAX (127UL)
+
+struct fd_strmk_txn_keys {
+  ulong       slot;
+  ulong       bank_idx;
+  ushort      key_cnt;
+  fd_pubkey_t keys[ FD_STRMK_TXN_KEY_MAX ];
+};
+typedef struct fd_strmk_txn_keys fd_strmk_txn_keys_t;
+
+/* Replay publishes a block end once a block completes, and the same
+   message with sig FD_STRMK_SIG_BLOCK_DEAD and a zero collector for a
+   block that died, so the stream tile can drop its partial state.
+   collector is the account fee settlement credits with the block's fee
+   reward, which no transaction in the block names. */
+
+struct fd_strmk_block_end {
+  ulong       slot;
+  ulong       bank_idx;
+  ulong       txn_cnt;
+  fd_pubkey_t collector;
+};
+typedef struct fd_strmk_block_end fd_strmk_block_end_t;
+
+/* Replay publishes a stream start right after it asks the snapshot
+   maker for the incremental snapshot a new stream chains off, holding
+   a reference on that snapshot's bank for the stream tile.  A full
+   snapshot starts no stream. */
+
+struct fd_strmk_stream_start {
+  ulong slot;
+  ulong bank_idx;
+};
+typedef struct fd_strmk_stream_start fd_strmk_stream_start_t;
+
+FD_STATIC_ASSERT( sizeof(fd_strmk_block_start_t )<=FD_STRMK_MTU, strmk_mtu );
+FD_STATIC_ASSERT( sizeof(fd_strmk_txn_keys_t    )<=FD_STRMK_MTU, strmk_mtu );
+FD_STATIC_ASSERT( sizeof(fd_strmk_block_end_t   )<=FD_STRMK_MTU, strmk_mtu );
+FD_STATIC_ASSERT( sizeof(fd_strmk_stream_start_t)<=FD_STRMK_MTU, strmk_mtu );
+
 /* replay_out mcache seq[i] slots */
 #define REPLAY_SYNC_SEQ  (0UL) /* mcache->seq[0]: recently published seq no */
 #define REPLAY_SYNC_SNAP (1UL) /* mcache->seq[1]: last published snap msg (acq-rel) */

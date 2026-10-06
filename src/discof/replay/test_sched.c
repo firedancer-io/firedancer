@@ -1212,6 +1212,175 @@ run_late_ancestor_discard_case( void ) {
    microblock is the only queued work, and it lands in mixin waiting on
    transactions the FEC stream hasn't delivered yet, so the block is
    exhausted the moment the task retires. */
+/* Serializes a v0 transaction that names two static accounts and one
+   address lookup table, which selects one writable and one readonly
+   account out of that table. */
+
+static ulong
+build_alt_test_txn( uchar *             payload,
+                    fd_pubkey_t const * payer,
+                    fd_pubkey_t const * program,
+                    fd_pubkey_t const * table ) {
+  ulong off = 0UL;
+
+  payload[ off++ ] = 1;                                /* one signature */
+  fd_memset( payload+off, 0x33, 64UL ); off += 64UL;   /* the signature */
+
+  payload[ off++ ] = 0x80;                             /* v0 message */
+  payload[ off++ ] = 1;                                /* required signatures */
+  payload[ off++ ] = 0;                                /* readonly signed */
+  payload[ off++ ] = 1;                                /* readonly unsigned */
+
+  payload[ off++ ] = 2;                                /* two static accounts */
+  fd_memcpy( payload+off, payer->uc,   32UL ); off += 32UL;
+  fd_memcpy( payload+off, program->uc, 32UL ); off += 32UL;
+
+  fd_memset( payload+off, 0x44, 32UL ); off += 32UL;   /* recent blockhash */
+
+  payload[ off++ ] = 1;                                /* one instruction */
+  payload[ off++ ] = 1;                                /* program is static account 1 */
+  payload[ off++ ] = 1;                                /* one instruction account */
+  payload[ off++ ] = 0;                                /* static account 0 */
+  payload[ off++ ] = 1;                                /* one data byte */
+  payload[ off++ ] = 0x5a;
+
+  payload[ off++ ] = 1;                                /* one lookup table */
+  fd_memcpy( payload+off, table->uc, 32UL ); off += 32UL;
+  payload[ off++ ] = 1;                                /* one writable index */
+  payload[ off++ ] = 0;
+  payload[ off++ ] = 1;                                /* one readonly index */
+  payload[ off++ ] = 1;
+
+  return off;
+}
+
+/* Wraps cnt transactions in one microblock of a batch that declares
+   more microblocks than it carries, so the block stays incomplete. */
+
+static ulong
+encode_txn_mblk( uchar *             encoded,
+                 uchar const *       txn,
+                 ulong               txn_sz,
+                 ulong               txn_cnt,
+                 fd_hash_t const *   mblk_hash ) {
+  ulong off = 0UL;
+  FD_STORE( ulong, encoded, 3UL );
+  off += sizeof(ulong);
+
+  fd_microblock_hdr_t hdr = { .hash_cnt = 1UL, .txn_cnt = txn_cnt };
+  fd_memcpy( hdr.hash, mblk_hash->hash, sizeof(fd_hash_t) );
+  fd_memcpy( encoded+off, &hdr, sizeof(hdr) );
+  off += sizeof(hdr);
+
+  for( ulong i=0UL; i<txn_cnt; i++ ) {
+    fd_memcpy( encoded+off, txn+i*txn_sz, txn_sz );
+    off += txn_sz;
+  }
+  return off;
+}
+
+/* The scheduler hands the caller the accounts of every transaction it
+   parses, which is what the boot streams are built out of. */
+
+static void
+run_key_sink_case( void ) {
+  ulong footprint = fd_sched_footprint( FD_SCHED_MIN_DEPTH, 8UL, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT );
+  void * mem = aligned_alloc( fd_sched_align(), footprint );
+  FD_TEST( mem );
+
+  fd_rng_t rng[ 1 ]; fd_rng_join( fd_rng_new( rng, 0U, 0UL ) );
+  fd_sched_t * sched = fd_sched_join( fd_sched_new( mem, rng, FD_SCHED_MIN_DEPTH, 8UL, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT, TEST_EXEC_CNT, 0 ) );
+  FD_TEST( sched );
+  fd_sched_set_bypass_poh_verify( sched, 1 );
+  /* No accounts database to resolve lookup tables against, so the
+     lookup table transaction below comes out serializing. */
+  fd_sched_set_bypass_alut_resolution( sched, 1 );
+  fd_sched_block_add_done( sched, 1UL, ULONG_MAX, TEST_ROOT_SLOT );
+
+  fd_hash_t mblk_hash[ 1 ];
+  hash_from_seed( mblk_hash, 0x51b3d7e4a6098f2cUL );
+
+  /* A legacy transaction names its two static accounts. */
+
+  uchar legacy_payload[ FD_TXN_MTU ];
+  ulong legacy_sz = build_shred_test_txn( legacy_payload );
+
+  uchar encoded[ 4096 ];
+  ulong encoded_sz = encode_txn_mblk( encoded, legacy_payload, legacy_sz, 1UL, mblk_hash );
+
+  fd_acct_addr_t sink_key[ 8 ];
+  fd_sched_keys_t keys[ 1 ] = {{ .max = sizeof(sink_key)/sizeof(sink_key[0]), .key = sink_key }};
+
+  fd_store_fec_t store_fec[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
+  fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
+  store_fec->data_sz       = (uint)encoded_sz;
+  store_fec->shred_sz[ 0 ] = (ushort)encoded_sz;
+  fd_sched_fec_t fec[ 1 ] = {{
+    .bank_idx          = 2UL,
+    .parent_bank_idx   = 1UL,
+    .slot              = TEST_ROOT_SLOT+1UL,
+    .parent_slot       = TEST_ROOT_SLOT,
+    .fec               = store_fec,
+    .data              = encoded,
+    .shred_cnt         = 1U,
+    .is_first_in_block = 1U,
+    .keys              = keys,
+  }};
+  FD_TEST( fd_sched_fec_ingest( sched, fec ) );
+
+  fd_pubkey_t payer[ 1 ];
+  fd_pubkey_t program[ 1 ];
+  fd_memset( payer->uc,   0x11, sizeof(fd_pubkey_t) );
+  fd_memset( program->uc, 0x22, sizeof(fd_pubkey_t) );
+  FD_TEST( !keys->full );
+  FD_TEST( keys->cnt==2UL );
+  FD_TEST( !memcmp( sink_key+0, payer->uc,   32UL ) );
+  FD_TEST( !memcmp( sink_key+1, program->uc, 32UL ) );
+
+  /* A transaction whose lookup tables did not resolve names its two
+     static accounts and the table itself, which the caller has to
+     expand. */
+
+  fd_pubkey_t alt_payer[ 1 ];
+  fd_pubkey_t alt_program[ 1 ];
+  fd_pubkey_t alt_table[ 1 ];
+  fd_memset( alt_payer->uc,   0x55, sizeof(fd_pubkey_t) );
+  fd_memset( alt_program->uc, 0x66, sizeof(fd_pubkey_t) );
+  fd_memset( alt_table->uc,   0x77, sizeof(fd_pubkey_t) );
+
+  uchar alt_payload[ FD_TXN_MTU ];
+  ulong alt_sz = build_alt_test_txn( alt_payload, alt_payer, alt_program, alt_table );
+
+  encoded_sz               = encode_txn_mblk( encoded, alt_payload, alt_sz, 1UL, mblk_hash );
+  store_fec->data_sz       = (uint)encoded_sz;
+  store_fec->shred_sz[ 0 ] = (ushort)encoded_sz;
+  keys->cnt                = 0UL;
+  fec->bank_idx            = 3UL;
+  fec->slot                = TEST_ROOT_SLOT+2UL;
+  FD_TEST( fd_sched_fec_ingest( sched, fec ) );
+
+  FD_TEST( !keys->full );
+  FD_TEST( keys->cnt==3UL );
+  FD_TEST( !memcmp( sink_key+0, alt_payer->uc,   32UL ) );
+  FD_TEST( !memcmp( sink_key+1, alt_program->uc, 32UL ) );
+  FD_TEST( !memcmp( sink_key+2, alt_table->uc,   32UL ) );
+
+  /* A sink too small to hold a transaction's accounts keeps what it
+     has and says so. */
+
+  keys->cnt     = 0UL;
+  keys->max     = 1UL;
+  fec->bank_idx = 4UL;
+  fec->slot     = TEST_ROOT_SLOT+3UL;
+  FD_TEST( fd_sched_fec_ingest( sched, fec ) );
+
+  FD_TEST( keys->full );
+  FD_TEST( keys->cnt<=1UL );
+
+  free( mem );
+  FD_LOG_NOTICE(( "pass: run_key_sink_case" ));
+}
+
 static void
 run_zero_hashcnt_mblk_case( void ) {
   ulong footprint = fd_sched_footprint( FD_SCHED_MIN_DEPTH, 4UL, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT );
@@ -1499,6 +1668,7 @@ main( int     argc,
   run_late_ancestor_discard_case();
   run_runtime_limit_case();
   run_zero_hashcnt_mblk_case();
+  run_key_sink_case();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

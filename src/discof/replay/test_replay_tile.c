@@ -26,7 +26,7 @@
 #include "fd_sched.h"
 
 #define TEST_BANKS_MAX 16UL
-#define TEST_OUT_CNT   4UL
+#define TEST_OUT_CNT   5UL
 #define TEST_REPAIR_IN_IDX 0UL
 #define TEST_EXECRP_IN_IDX 1UL
 
@@ -367,7 +367,8 @@ setup_stem( fd_replay_tile_t * ctx, fd_wksp_t * wksp ) {
     if( i==0UL )      *ctx->replay_out = out;
     else if( i==1UL ) { ctx->exec_out[ 0 ] = out; ctx->exec_cnt = 1UL; }
     else if( i==2UL ) *ctx->epoch_out  = out;
-    else              *ctx->slot_out   = out;
+    else if( i==3UL ) *ctx->slot_out   = out;
+    else              *ctx->strmk_out  = out;
   }
 
   *test_stem_min_cr_avail = ULONG_MAX;
@@ -4862,6 +4863,105 @@ test_ag_set_identity_leader_slot( fd_wksp_t * wksp,
   FD_LOG_NOTICE(( "pass: test_ag_set_identity_leader_slot(same_identity=%d)", same_identity ));
 }
 
+/* Replay hands the stream tile a reference on a bank for every block
+   it streams, and takes the reference back if the tile owes it for too
+   long. */
+
+static void
+test_strmk_hold_ring( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  setup_ctx( ctx, wksp );
+  ctx->instant_boot_serve = 1;
+
+  fd_bank_t * bank = fd_banks_bank_query( ctx->banks, ctx->published_root_bank_idx );
+  FD_TEST( bank );
+  ulong refcnt0  = bank->refcnt;
+  ulong strmk    = ctx->strmk_out->idx;
+  ulong seq0     = test_stem_seqs[ strmk ];
+  long  hold_max = (long)((double)FD_REPLAY_STRMK_HOLD_NS*ctx->tick_per_ns);
+
+  /* A hold the stream tile returns releases the reference.  The
+     reference itself is dropped by the link handler. */
+  strmk_hold_add( ctx, test_stem, bank );
+  FD_TEST( bank->refcnt==refcnt0+1UL );
+  FD_TEST( strmk_hold_release( ctx, bank->idx ) );
+  FD_TEST( ctx->strmk_hold_head==ctx->strmk_hold_tail );
+  FD_TEST( test_stem_seqs[ strmk ]==seq0 );
+  bank->refcnt--;
+
+  /* A hold the stream tile keeps for too long is taken back, and the
+     tile is told to start over. */
+  strmk_hold_add( ctx, test_stem, bank );
+  test_stem->now += hold_max;
+  strmk_hold_expire( ctx, test_stem );
+  FD_TEST( bank->refcnt==refcnt0+1UL );
+  test_stem->now += 1L;
+  strmk_hold_expire( ctx, test_stem );
+  FD_TEST( bank->refcnt==refcnt0 );
+  FD_TEST( ctx->strmk_hold_head==ctx->strmk_hold_tail );
+  FD_TEST( test_stem_seqs[ strmk ]==seq0+1UL );
+  fd_frag_meta_t const * meta = test_stem_mcaches[ strmk ] + fd_mcache_line_idx( seq0, test_stem_depths[ strmk ] );
+  FD_TEST( meta->sig==FD_STRMK_SIG_RESET );
+
+  /* A late return of a reclaimed hold releases nothing. */
+  FD_TEST( !strmk_hold_release( ctx, bank->idx ) );
+  FD_TEST( bank->refcnt==refcnt0 );
+
+  /* A full ring makes room by reclaiming its oldest hold. */
+  for( ulong i=0UL; i<FD_REPLAY_STRMK_HOLD_MAX; i++ ) strmk_hold_add( ctx, test_stem, bank );
+  FD_TEST( bank->refcnt==refcnt0+FD_REPLAY_STRMK_HOLD_MAX );
+  strmk_hold_add( ctx, test_stem, bank );
+  FD_TEST( bank->refcnt==refcnt0+FD_REPLAY_STRMK_HOLD_MAX );
+  FD_TEST( ctx->strmk_hold_tail-ctx->strmk_hold_head==FD_REPLAY_STRMK_HOLD_MAX );
+  FD_TEST( test_stem_seqs[ strmk ]==seq0+2UL );
+
+  FD_LOG_NOTICE(( "pass: test_strmk_hold_ring" ));
+}
+
+/* The accounts of a FEC set go out in as few messages as the link MTU
+   allows, and a sink that overflowed resets the streams instead. */
+
+static void
+test_strmk_txn_keys( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  setup_ctx( ctx, wksp );
+  ctx->instant_boot_serve = 1;
+
+  static fd_acct_addr_t key[ 200 ];
+  for( ulong i=0UL; i<200UL; i++ ) memset( key[ i ].b, (int)i, sizeof(fd_acct_addr_t) );
+  ctx->strmk_keys->max = 200UL;
+  ctx->strmk_keys->cnt = 200UL;
+  ctx->strmk_keys->key = key;
+
+  fd_sched_fec_t fec[ 1 ] = {{ .bank_idx = 3UL, .slot = 7UL }};
+  ulong strmk = ctx->strmk_out->idx;
+  ulong seq0  = test_stem_seqs[ strmk ];
+  strmk_txn_keys( ctx, test_stem, fec );
+  FD_TEST( test_stem_seqs[ strmk ]==seq0+2UL );
+
+  ulong seen = 0UL;
+  for( ulong i=0UL; i<2UL; i++ ) {
+    fd_frag_meta_t const *      meta = test_stem_mcaches[ strmk ] + fd_mcache_line_idx( seq0+i, test_stem_depths[ strmk ] );
+    fd_strmk_txn_keys_t const * msg  = fd_chunk_to_laddr_const( ctx->strmk_out->mem, meta->chunk );
+    FD_TEST( meta->sig==FD_STRMK_SIG_TXN_KEYS );
+    FD_TEST( msg->slot==7UL && msg->bank_idx==3UL );
+    FD_TEST( msg->key_cnt==( i ? 200UL-FD_STRMK_TXN_KEY_MAX : FD_STRMK_TXN_KEY_MAX ) );
+    FD_TEST( meta->sz==offsetof(fd_strmk_txn_keys_t, keys)+(ulong)msg->key_cnt*sizeof(fd_pubkey_t) );
+    for( ulong j=0UL; j<msg->key_cnt; j++ ) FD_TEST( !memcmp( msg->keys[ j ].uc, key[ seen+j ].b, sizeof(fd_acct_addr_t) ) );
+    seen += msg->key_cnt;
+  }
+  FD_TEST( seen==200UL );
+
+  ctx->strmk_keys->full = 1;
+  seq0 = test_stem_seqs[ strmk ];
+  strmk_txn_keys( ctx, test_stem, fec );
+  FD_TEST( test_stem_seqs[ strmk ]==seq0+1UL );
+  fd_frag_meta_t const * meta = test_stem_mcaches[ strmk ] + fd_mcache_line_idx( seq0, test_stem_depths[ strmk ] );
+  FD_TEST( meta->sig==FD_STRMK_SIG_RESET );
+
+  FD_LOG_NOTICE(( "pass: test_strmk_txn_keys" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -4931,6 +5031,8 @@ main( int     argc,
   test_instant_boot_marker_gate( wksp );              fd_wksp_reset( wksp, 42U );
   test_instant_boot_held_start_abandoned( wksp );     fd_wksp_reset( wksp, 42U );
   test_instant_boot_blocks_leadership( wksp );        fd_wksp_reset( wksp, 42U );
+  test_strmk_hold_ring( wksp );                       fd_wksp_reset( wksp, 42U );
+  test_strmk_txn_keys( wksp );                        fd_wksp_reset( wksp, 42U );
 
   FD_TEST( mock_store_view_success_cnt==mock_store_view_release_cnt );
 

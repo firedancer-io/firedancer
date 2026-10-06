@@ -70,6 +70,36 @@ struct fd_sched_alut_ctx {
 };
 typedef struct fd_sched_alut_ctx fd_sched_alut_ctx_t;
 
+/* A single ingest call parses at most one FEC set plus the residual
+   the call before it carried over.  A transaction costs at least
+   FD_TXN_MIN_SERIALIZED_SZ bytes of that and resolves at most
+   FD_TXN_ACCT_ADDR_MAX account keys, and a lookup table that did not
+   resolve contributes its own address instead, which costs 32 bytes.
+   So these bound what one call records into a key sink.
+   FD_SCHED_INGEST_BYTE_MAX is cross-checked against the FEC buffer in
+   fd_sched.c. */
+
+#define FD_SCHED_INGEST_BYTE_MAX (63985UL+FD_TXN_MTU)
+#define FD_SCHED_INGEST_TXN_MAX  (FD_SCHED_INGEST_BYTE_MAX/FD_TXN_MIN_SERIALIZED_SZ+1UL)
+#define FD_SCHED_INGEST_KEY_MAX  (FD_SCHED_INGEST_TXN_MAX*FD_TXN_ACCT_ADDR_MAX+FD_SCHED_INGEST_BYTE_MAX/sizeof(fd_acct_addr_t))
+
+/* fd_sched_keys collects the account keys the scheduler resolves as it
+   parses transactions, for a caller that mirrors the accounts a block
+   touches to a boot stream.  The caller points key at its own storage
+   of max entries, clears cnt and full before each ingest call, and
+   reads the keys back once the call returns; all of them belong to the
+   block the FEC set was for.  The scheduler drops keys and sets full
+   once the storage runs out, which tells the caller its copy of the
+   block is incomplete. */
+
+struct fd_sched_keys {
+  ulong            max;  /* in:  entries in key */
+  ulong            cnt;  /* out: entries written */
+  int              full; /* out: 1 if a key did not fit */
+  fd_acct_addr_t * key;  /* [max] */
+};
+typedef struct fd_sched_keys fd_sched_keys_t;
+
 struct fd_sched_fec {
   ulong            bank_idx;            /* Index of the block.  Assumed to be in [0, block_cnt_max).  Caller
                                            is responsible for ensuring that bank idx is in bounds and unique
@@ -89,6 +119,8 @@ struct fd_sched_fec {
   long             completed_ns;        /* Network arrival (wallclock ns) of the shred that completed this FEC set; 0 if unavailable. */
 
   fd_sched_alut_ctx_t alut_ctx[ 1 ];
+  fd_sched_keys_t *   keys;          /* Sink for the account keys the parser resolves out of this FEC set.  NULL if
+                                        the caller does not mirror blocks to a boot stream. */
 };
 typedef struct fd_sched_fec fd_sched_fec_t;
 

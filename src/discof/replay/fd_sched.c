@@ -39,6 +39,8 @@ FD_STATIC_ASSERT( FD_SCHED_MAX_PAYLOAD_PER_FEC>=FD_SHREDDER_CHAINED_FEC_SET_PAYL
 FD_STATIC_ASSERT( FD_SCHED_MAX_RESIDUAL_SZ>=sizeof(fd_microblock_hdr_t), resize buffer for residual data );
 FD_STATIC_ASSERT( FD_SCHED_MAX_RESIDUAL_SZ>=sizeof(ulong),               resize buffer for residual data );
 
+FD_STATIC_ASSERT( FD_SCHED_MAX_FEC_BUF_SZ<=FD_SCHED_INGEST_BYTE_MAX, resize the key sink bound );
+
 #define FD_SCHED_MAX_TXN_PER_FEC           ((FD_SCHED_MAX_PAYLOAD_PER_FEC-1UL)/FD_TXN_MIN_SERIALIZED_SZ+1UL) /* 478 */
 #define FD_SCHED_MAX_MBLK_PER_FEC          ((FD_SCHED_MAX_PAYLOAD_PER_FEC-1UL)/sizeof(fd_microblock_hdr_t)+1UL) /* 1334 */
 
@@ -361,10 +363,10 @@ add_block( fd_sched_t * sched,
            ulong        parent_bank_idx );
 
 FD_WARN_UNUSED static int
-fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_t * alut_ctx );
+fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_fec_t * fec );
 
 FD_WARN_UNUSED static int
-fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_t * alut_ctx );
+fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_fec_t * fec );
 
 static void
 dispatch_sigverify( fd_sched_t * sched, fd_sched_block_t * block, ulong bank_idx, int exec_tile_idx, fd_sched_task_t * out );
@@ -1210,7 +1212,7 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
 
   block->fec_completed_ns = fec->completed_ns;
 
-  int err = fd_sched_parse( sched, block, fec->alut_ctx );
+  int err = fd_sched_parse( sched, block, fec );
 
   if( FD_UNLIKELY( err!=FD_SCHED_DEAD_REASON_NONE ) ) {
     handle_bad_block( sched, block, err );
@@ -2403,10 +2405,10 @@ fd_sched_block_verify_ticks( fd_sched_t * sched,
    Trailing bytes within a batch are dropped immediately.  These
    trailing bytes can span arbitrarily many FEC sets. */
 FD_WARN_UNUSED static int
-fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_t * alut_ctx ) {
+fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_fec_t * fec ) {
   while( 1 ) {
     while( block->txns_rem>0UL ) {
-      int err = fd_sched_parse_txn( sched, block, alut_ctx );
+      int err = fd_sched_parse_txn( sched, block, fec );
       if( FD_UNLIKELY( -1==err ) ) return FD_SCHED_DEAD_REASON_NONE;
       else if( FD_UNLIKELY( err ) ) return err;
     }
@@ -2655,6 +2657,22 @@ block_poison_insert( fd_sched_t * sched, fd_sched_block_t * block, fd_acct_addr_
   return 0;
 }
 
+/* Appends cnt account keys to the caller's sink.  A sink that has run
+   out of room keeps the keys it has and says so, so the caller can
+   tell that its copy of the block is incomplete. */
+
+static inline void
+keys_append( fd_sched_keys_t *      keys,
+             fd_acct_addr_t const * addr,
+             ulong                  cnt ) {
+  if( FD_UNLIKELY( keys->cnt+cnt>keys->max ) ) {
+    keys->full = 1;
+    return;
+  }
+  fd_memcpy( keys->key+keys->cnt, addr, cnt*sizeof(fd_acct_addr_t) );
+  keys->cnt += cnt;
+}
+
 /* Adds relevant accounts to the poison set.  This function is
    conservative and stateless.  Account data is not necessarily
    available at insertion time, so we cannot tell which writable account
@@ -2716,8 +2734,9 @@ block_poison_add( fd_sched_t *           sched,
 }
 
 FD_WARN_UNUSED static int
-fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_t * alut_ctx ) {
-  fd_txn_t * txn = fd_type_pun( block->txn );
+fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_fec_t * fec ) {
+  fd_sched_alut_ctx_t * alut_ctx = fec->alut_ctx;
+  fd_txn_t *            txn      = fd_type_pun( block->txn );
 
   uchar * payload   = block->fec_buf+block->fec_buf_soff;
   ulong   remaining = block->fec_buf_sz-block->fec_buf_soff;
@@ -2828,6 +2847,22 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
     sched->metrics->txn_poison_serializing_cnt += block->poison_serialize ? 1U : 0U;
   }
   block_poison_add( sched, block, txn, imms, poison_alts, poison_alt_cnt );
+
+  /* Hand the caller the accounts this transaction names, which is the
+     only place they are all resolved at once.  A transaction whose
+     lookup tables did not resolve contributes the addresses of the
+     tables instead, for the caller to expand itself. */
+  if( FD_UNLIKELY( fec->keys ) ) {
+    keys_append( fec->keys, imms, imm_cnt );
+    if( FD_LIKELY( alts ) ) {
+      keys_append( fec->keys, alts, alt_cnt );
+    } else {
+      fd_txn_acct_addr_lut_t const * luts = fd_txn_get_address_tables_const( txn );
+      for( ulong i=0UL; i<txn->addr_table_lookup_cnt; i++ ) {
+        keys_append( fec->keys, (fd_acct_addr_t const *)fd_type_pun_const( payload+luts[ i ].addr_off ), 1UL );
+      }
+    }
+  }
 
   ulong bank_idx = (ulong)(block-sched->block_pool);
   ulong txn_idx  = fd_rdisp_add_txn( sched->rdisp, bank_idx, txn, payload, alts, serializing );
