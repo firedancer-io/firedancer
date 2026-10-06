@@ -1433,6 +1433,7 @@ fd_topo_initialize( config_t * config ) {
       FD_TEST( fd_pod_insertf_ulong( topo->props, slot_obj->id, "instant_boot_slot" ) );
       FD_TEST( fd_pod_insertf_ulong( topo->props, done_obj->id, "instant_boot_done" ) );
       FD_TEST( fd_pod_insertf_ulong( topo->props, pick_obj->id, "instant_boot_pick" ) );
+      FD_TEST( fd_pod_insert_int( topo->props, "instant_boot", 1 ) );
       fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "strin",  0UL ) ], slot_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
       fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ], slot_obj, FD_SHMEM_JOIN_MODE_READ_ONLY  );
       fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapin", 0UL ) ], done_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
@@ -1535,11 +1536,11 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_tile_uses( topo, strmk_tile, fseq_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
     fd_topob_tile_uses( topo, accdb_tile, fseq_obj, FD_SHMEM_JOIN_MODE_READ_ONLY  );
     FD_TEST( fd_pod_insert_ulong( topo->props, "accdb_epoch.strmk", fseq_obj->id ) );
+    /* The replay tile and the file server only take part in serving
+       boot streams if the stream tile was created. */
+    FD_TEST( fd_pod_insert_int( topo->props, "instant_boot_serve", 1 ) );
   }
 
-  /* The replay tile and the file server only take part in serving boot
-     streams if the stream tile was created. */
-  if( serve_enabled ) FD_TEST( fd_pod_insert_int( topo->props, "instant_boot_serve", 1 ) );
 
   fd_pod_insert_int( topo->props, "sandbox", config->development.sandbox ? 1 : 0 );
 
@@ -1585,8 +1586,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
   /* Instant boot is on for this topology only if the stream tiles and
      their shared counters were created, so a development topology that
      skips them never sets the flag. */
-  int instant_boot  = fd_pod_query_ulong( config->topo.props, "instant_boot_done",  ULONG_MAX )!=ULONG_MAX;
-  int serve_enabled = fd_pod_query_int  ( config->topo.props, "instant_boot_serve", 0 );
+  int instant_boot  = fd_pod_query_int( config->topo.props, "instant_boot",       0 );
+  int serve_enabled = fd_pod_query_int( config->topo.props, "instant_boot_serve", 0 );
 
   if( FD_UNLIKELY( !strcmp( tile->name, "metric" ) ) ) {
 
@@ -1878,8 +1879,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
       fd_memset( &tile->replay.bundle, '\0', sizeof(tile->replay.bundle) );
     }
 
-    tile->replay.instant_boot = instant_boot;
-    tile->replay.instant_boot_serve = serve_enabled;
+    tile->replay.instant_boot             = instant_boot;
+    tile->replay.instant_boot_serve       = serve_enabled;
     tile->replay.instant_boot_slot_obj_id = fd_pod_query_ulong( config->topo.props, "instant_boot_slot", ULONG_MAX );
     tile->replay.instant_boot_done_obj_id = fd_pod_query_ulong( config->topo.props, "instant_boot_done", ULONG_MAX );
 
