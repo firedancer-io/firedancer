@@ -17,7 +17,7 @@ struct fd_ssmanifest_vote_account {
   fd_pubkey_t pubkey;
   uint        hash;
   uint        data_len;
-  ulong       stake; /* effective stake at the bank's epoch */
+  ulong       stake;
 };
 
 typedef struct fd_ssmanifest_vote_account fd_ssmanifest_vote_account_t;
