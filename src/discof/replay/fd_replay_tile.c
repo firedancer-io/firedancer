@@ -890,13 +890,13 @@ strmk_stream_start_ok( fd_replay_tile_t * ctx,
   return ctx->instant_boot_serve && !epoch_rewards_pending( ctx, bank->idx, bank->f.slot+1UL );
 }
 
-/* strmk_keys_arm points the scheduler at replay's key sink for one
+/* strmk_keys_reset points the scheduler at replay's key lists for one
    ingest call, so the accounts it resolves can be mirrored once the
    call returns. */
 
 static void
-strmk_keys_arm( fd_replay_tile_t * ctx,
-                fd_sched_fec_t *   sched_fec ) {
+strmk_keys_reset( fd_replay_tile_t * ctx,
+                  fd_sched_fec_t *   sched_fec ) {
   sched_fec->keys = NULL;
   if( FD_LIKELY( !ctx->instant_boot_serve ) ) return;
   ctx->strmk_keys->full        = 0;
@@ -950,13 +950,37 @@ strmk_txn_keys( fd_replay_tile_t *     ctx,
    enters the scheduler, but a boot stream is a chain of blocks and
    cannot skip one, so the shredded bytes are walked for account keys
    only: no validation, no dispatch, no execution, and no account
-   read, since the keys are the ones the bytes name outright. */
+   read, since the keys are the ones the bytes name outright.  The two
+   callers describe the FEC set differently, so the scheduler's view of
+   it is assembled here. */
 
 static void
 strmk_leader_fec( fd_replay_tile_t *  ctx,
                   fd_stem_context_t * stem,
-                  fd_sched_fec_t *    sched_fec ) {
-  strmk_keys_arm( ctx, sched_fec );
+                  ulong               bank_idx,
+                  ulong               parent_bank_idx,
+                  ulong               slot,
+                  ulong               parent_slot,
+                  fd_store_fec_t *    fec,
+                  uchar *             data,
+                  uint                shred_cnt,
+                  uint                fec_set_idx,
+                  int                 last_in_batch,
+                  int                 last_in_block ) {
+  fd_sched_fec_t sched_fec[ 1 ] = {{
+    .bank_idx          = bank_idx,
+    .parent_bank_idx   = parent_bank_idx,
+    .slot              = slot,
+    .parent_slot       = parent_slot,
+    .fec               = fec,
+    .data              = data,
+    .shred_cnt         = shred_cnt,
+    .is_last_in_batch  = !!last_in_batch,
+    .is_last_in_block  = !!last_in_block,
+    .is_first_in_block = fec_set_idx==0U
+  }};
+
+  strmk_keys_reset( ctx, sched_fec );
 
   if( FD_UNLIKELY( sched_fec->is_first_in_block ) ) strmk_block_start( ctx, stem, sched_fec );
   fd_sched_keys_scan( ctx->sched, ctx->strmk_walk, sched_fec );
@@ -3875,19 +3899,10 @@ insert_fec_set( fd_replay_tile_t *  ctx,
       if( FD_UNLIKELY( !store_fec || fd_store_fec_data_view( ctx->store, ctx->store_disk_fd, store_fec, leader_view ) ) ) {
         strmk_reset( ctx, stem, "the store no longer holds the shredded bytes of a block we produced" );
       } else {
-        fd_sched_fec_t leader_fec[ 1 ] = {{
-          .bank_idx          = reasm_fec->bank_idx,
-          .parent_bank_idx   = reasm_fec->parent_bank_idx,
-          .slot              = reasm_fec->slot,
-          .parent_slot       = reasm_fec->slot - reasm_fec->parent_off,
-          .fec               = store_fec,
-          .data              = leader_view->data,
-          .shred_cnt         = reasm_fec->data_cnt,
-          .is_last_in_batch  = !!reasm_fec->data_complete,
-          .is_last_in_block  = !!reasm_fec->slot_complete,
-          .is_first_in_block = reasm_fec->fec_set_idx==0U
-        }};
-        strmk_leader_fec( ctx, stem, leader_fec );
+        strmk_leader_fec( ctx, stem, reasm_fec->bank_idx, reasm_fec->parent_bank_idx,
+                          reasm_fec->slot, reasm_fec->slot - reasm_fec->parent_off,
+                          store_fec, leader_view->data, reasm_fec->data_cnt,
+                          reasm_fec->fec_set_idx, reasm_fec->data_complete, reasm_fec->slot_complete );
         fd_store_fec_data_view_release( ctx->store, leader_view );
       }
     }
@@ -3922,7 +3937,7 @@ insert_fec_set( fd_replay_tile_t *  ctx,
   sched_fec->alut_ctx->fork_id = fd_banks_bank_query( ctx->banks, ctx->published_root_bank_idx )->accdb_fork_id;
   sched_fec->alut_ctx->accdb   = ctx->accdb;
   sched_fec->alut_ctx->els     = ctx->published_root_slot;
-  strmk_keys_arm( ctx, sched_fec );
+  strmk_keys_reset( ctx, sched_fec );
 
   fd_bank_t * bank = fd_banks_bank_query( ctx->banks, sched_fec->bank_idx );
   if( sched_fec->is_first_in_block ) {
@@ -5050,19 +5065,10 @@ process_rotor_fec( fd_replay_tile_t      * ctx,
      for keys while the payload view is still open. */
   if( FD_UNLIKELY( fec->is_leader ) ) {
     if( FD_UNLIKELY( ctx->instant_boot_serve ) ) {
-      fd_sched_fec_t leader_fec[ 1 ] = {{
-        .bank_idx          = bank->idx,
-        .parent_bank_idx   = bank->parent_idx,
-        .slot              = fec->slot,
-        .parent_slot       = fec->parent_slot,
-        .fec               = store_fec,
-        .data              = data_view->data,
-        .shred_cnt         = FD_FEC_SHRED_CNT,
-        .is_last_in_batch  = !!fec->data_complete,
-        .is_last_in_block  = !!fec->slot_complete,
-        .is_first_in_block = fec->fec_set_idx==0U
-      }};
-      strmk_leader_fec( ctx, stem, leader_fec );
+      strmk_leader_fec( ctx, stem, bank->idx, bank->parent_idx,
+                        fec->slot, fec->parent_slot,
+                        store_fec, data_view->data, FD_FEC_SHRED_CNT,
+                        fec->fec_set_idx, fec->data_complete, fec->slot_complete );
     }
     fd_store_fec_data_view_release( ctx->store, data_view );
     return;
@@ -5086,7 +5092,7 @@ process_rotor_fec( fd_replay_tile_t      * ctx,
   sched_fec->alut_ctx->accdb   = ctx->accdb;
   sched_fec->alut_ctx->els     = ctx->published_root_slot;
   sched_fec->completed_ns      = fec->metrics.fec_completed_ts_nanos;
-  strmk_keys_arm( ctx, sched_fec );
+  strmk_keys_reset( ctx, sched_fec );
 
   if( sched_fec->is_first_in_block ) {
     bank->refcnt++;
