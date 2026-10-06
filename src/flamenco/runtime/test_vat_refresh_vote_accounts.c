@@ -83,6 +83,11 @@ static int  bls_mask_override = 0;   /* 0 -> use default rule */
 static uint bls_mask_bits     = 0u;
 
 static int    voter_has_bls( ulong i ) { return bls_mask_override ? !!( bls_mask_bits & (1u<<i) ) : ( i<NUM_VAT_ELIGIBLE ); }
+
+/* SIMD-0123 fields the fixture builder writes into voter 0's account;
+   the defaults unless a test sets them. */
+static ushort voter0_block_revenue_bps = FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS;
+static ulong  voter0_pending_rewards   = 0UL;
 static long   voter_vote_ts( ulong i ) { return ( i==NUM_VOTERS-1UL ) ? VOTE_TS_FUTURE : VOTE_TS_PAST; }
 static ushort voter_commission( ulong i ) { return (ushort)(100U*(i+1U)); }
 
@@ -163,6 +168,10 @@ put_vote_account_v4( test_env_t *        env,
   vs->inflation_rewards_collector      = *vote_account;
   vs->block_revenue_collector          = *node_pubkey;
   vs->inflation_rewards_commission_bps = commission_bps;
+  if( fd_pubkey_eq( vote_account, &(fd_pubkey_t){ .ul[0] = 0x100UL } ) ) { /* voter 0 */
+    vs->block_revenue_commission_bps = voter0_block_revenue_bps;
+    vs->pending_delegator_rewards    = voter0_pending_rewards;
+  }
   vs->has_bls_pubkey_compressed        = (uchar)( !!has_bls );
   if( has_bls ) fd_memset( vs->bls_pubkey_compressed, 0xBB, FD_BLS_PUBKEY_COMPRESSED_SZ );
   vs->last_timestamp = (fd_vote_block_timestamp_t){ .slot = last_vote_slot, .timestamp = last_vote_ts };
@@ -540,7 +549,11 @@ test_vat_path_unconditional( fd_wksp_t * wksp ) {
 
   /* The runtime only supports post-VAT banks. */
   ulong const epoch = TEST_VAT_EPOCH-1UL;
+  voter0_block_revenue_bps = 2500U;
+  voter0_pending_rewards   = 777UL;
   advance_into_epoch( env, epoch );
+  voter0_block_revenue_bps = FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS;
+  voter0_pending_rewards   = 0UL;
   FD_TEST( vote_stakes_t1_cnt( env->bank )==NUM_VAT_ELIGIBLE );
   for( ulong i=0UL; i<NUM_VOTERS; i++ ) {
     fd_pubkey_t v = vote_key( i );
@@ -548,6 +561,19 @@ test_vat_path_unconditional( fd_wksp_t * wksp ) {
     int found = fd_vote_stakes_query_t_1( fd_bank_vote_stakes( env->bank ), env->bank->vote_stakes_fork_id, &v, NULL, &stake, NULL );
     FD_TEST( found==voter_has_bls( i ) );
     if( found ) FD_TEST( stake==stake_for_epoch( i, epoch ) );
+    if( found ) {
+      /* The boundary refresh carries the SIMD-0123 fields of the
+         account image into the t-1 entry. */
+      ushort block_bps; ulong pending;
+      FD_TEST( fd_vote_stakes_query_block_revenue_t_1( fd_bank_vote_stakes( env->bank ), env->bank->vote_stakes_fork_id, &v, &block_bps, &pending ) );
+      fd_acc_t ro = fd_accdb_read_one( env->accdb, env->bank->accdb_fork_id, v.uc );
+      ushort acc_bps; ulong acc_pending;
+      FD_TEST( !fd_vote_account_block_revenue_commission_bps( ro.data, ro.data_len, &acc_bps ) );
+      FD_TEST( !fd_vote_account_pending_delegator_rewards( ro.data, ro.data_len, &acc_pending ) );
+      fd_accdb_unread_one( env->accdb, &ro );
+      FD_TEST( block_bps==acc_bps && pending==acc_pending );
+      if( i==0UL ) FD_TEST( block_bps==2500U && pending==777UL );
+    }
   }
   FD_TEST( env->bank->f.total_epoch_stake==expected_total_epoch_stake( epoch ) );
   FD_TEST( clock_delta( env )==CLOCK_DELTA_NO_WHALE );

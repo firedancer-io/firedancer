@@ -161,6 +161,9 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l double_disinflation_rate -m
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l double_disinflation_rate_snapshot -m 2000000 -e 840
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l relax_fee_payer_constraint -m 2000000 -e 400
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l snapshot-hard-fork -m 2000000 -e 162
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-block-revenue-sharing-agave-v4.4-57a35916-pr15795 --alpenglow -m 2000000 -e 1400
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-remove-inactive-stakes-agave-v4.4-6afe9919 --alpenglow -m 2000000 -e 1100
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-block-revenue-sharing-remove-inactive-stakes-agave-v4.4-57a35916-pr15795 --alpenglow -m 2000000 -e 1400
 
 # Alpenglow
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-legacy-vote-ixs --alpenglow -m 2000000 -e 126

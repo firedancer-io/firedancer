@@ -53,3 +53,6 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-migration-vote-re
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-migration-validators --alpenglow -m 2000000 -e 2112 --zst
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-migration-validators-boundary-snap --alpenglow -m 2000000 -e 1600 --zst
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-migration-validators-mid-payout --alpenglow -m 2000000 -e 1600 --zst
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-block-revenue-sharing-agave-v4.4-57a35916-pr15795 --alpenglow -m 2000000 -e 1400
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-remove-inactive-stakes-agave-v4.4-6afe9919 --alpenglow -m 2000000 -e 1100
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l alpenglow-block-revenue-sharing-remove-inactive-stakes-agave-v4.4-57a35916-pr15795 --alpenglow -m 2000000 -e 1400

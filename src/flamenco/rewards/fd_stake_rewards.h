@@ -144,14 +144,17 @@ fd_stake_rewards_window_hi( fd_stake_rewards_t const * stake_rewards,
 /* fd_stake_rewards_insert inserts a new stake reward for a given fork.
    It hashes the reward into the appropriate partition.  The reward is
    only stored if its partition falls inside the fork's window, but it
-   always counts towards fd_stake_rewards_total_rewards. */
+   always counts towards fd_stake_rewards_total_rewards and
+   fd_stake_rewards_total_block_rewards.  lamports is the inflation
+   reward, block_reward the SIMD-0123 block revenue share. */
 
 void
 fd_stake_rewards_insert( fd_stake_rewards_t * stake_rewards,
                          ushort               fork_idx,
                          fd_pubkey_t const *  pubkey,
                          ulong                lamports,
-                         ulong                credits_observed );
+                         ulong                credits_observed,
+                         ulong                block_reward );
 
 /* fd_stake_rewards_fini makes the construction buffer resident without
    moving its entries.  An empty window releases its buffer.  The oldest
@@ -166,6 +169,8 @@ fd_stake_rewards_fini( fd_stake_rewards_t * stake_rewards,
    not interleave any other iteration or modification of the stake
    rewards structure while iterating.
 
+   Note: block_reward_out may be NULL.
+
    Example use:
    for( fd_stake_rewards_iter_init( stake_rewards, fork_idx,
                                     partition_idx );
@@ -174,8 +179,10 @@ fd_stake_rewards_fini( fd_stake_rewards_t * stake_rewards,
      fd_pubkey_t pubkey;
      ulong       lamports;
      ulong       credits_observed;
+     ulong       block_reward_out;
      fd_stake_rewards_iter_ele( stake_rewards, fork_idx, &pubkey,
-                                &lamports, &credits_observed );
+                                &lamports, &credits_observed,
+                                &block_reward_out );
    }
 */
 
@@ -196,13 +203,18 @@ fd_stake_rewards_iter_ele( fd_stake_rewards_t * stake_rewards,
                            ushort               fork_idx,
                            fd_pubkey_t *        pubkey_out,
                            ulong *              lamports_out,
-                           ulong *              credits_observed_out );
+                           ulong *              credits_observed_out,
+                           ulong *              block_reward_out );
 
 /* Simple accessors for stake rewards information. */
 
 ulong
 fd_stake_rewards_total_rewards( fd_stake_rewards_t const * stake_rewards,
                                 ushort                     fork_idx );
+
+ulong
+fd_stake_rewards_total_block_rewards( fd_stake_rewards_t const * stake_rewards,
+                                      ushort                     fork_idx );
 
 uint
 fd_stake_rewards_num_partitions( fd_stake_rewards_t const * stake_rewards,

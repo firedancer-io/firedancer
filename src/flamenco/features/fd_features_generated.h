@@ -313,7 +313,7 @@ union fd_features {
     /* 0x1e7f253e967667d3 */ ulong relax_fee_payer_constraint;
     /* 0x77d57539c0a4f4d4 */ ulong alpenglow_fast_leader_handover;
     /* 0x76648e7186624c0d */ ulong enforce_correct_proof_size;
-    /* 0xd97500e64edd695e */ ulong block_revenue_sharing;
+    /* 0x5b36f5cc4a5925b0 */ ulong block_revenue_sharing;
     /* 0x351933dc20486107 */ ulong vote_account_initialize_v2;
     /* 0x7b717607817b2451 */ ulong raise_cpi_nesting_limit_to_8;
     /* 0x0aa7b29de47f96cb */ ulong loader_v3_set_program_data_to_elf_length;

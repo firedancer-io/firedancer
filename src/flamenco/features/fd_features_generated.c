@@ -2331,10 +2331,10 @@ fd_feature_id_t const ids[] = {
     .cleaned_up                = 0 },
 
   { .index                     = offsetof(fd_features_t, block_revenue_sharing)>>3,
-    .id                        = {"\x5e\x69\xdd\x4e\xe6\x00\x75\xd9\x3d\x00\xfd\x8c\x25\x07\x58\xb9\x9e\x86\x99\x94\x70\xf5\x9c\x14\x38\x32\x60\x2a\x82\xc8\x6d\x26"},
-                                 /* 7MYx95UBiJufqnumyN7HfskJ9vKdcGMmhreVguqrE97K */
+    .id                        = {"\xb0\x25\x59\x4a\xcc\xf5\x36\x5b\xca\x55\xd9\x75\x81\x03\xd7\xbd\xcd\x88\xc3\x0f\x26\x7c\xc0\xe3\x9e\xa3\x42\x6e\x31\x46\xb4\x98"},
+                                 /* Crbnc267wkJvFhYakqwWWX57sx5bkrftJLekzy6yWKLT */
     .name                      = "block_revenue_sharing",
-    .implemented               = 0,
+    .implemented               = 1,
     .cleaned_up                = 0 },
 
   { .index                     = offsetof(fd_features_t, vote_account_initialize_v2)>>3,
@@ -2671,7 +2671,7 @@ typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
 #define MAP_PERFECT_294 0x1e7f253e967667d3UL, .val = &ids[294]
 #define MAP_PERFECT_295 0x77d57539c0a4f4d4UL, .val = &ids[295]
 #define MAP_PERFECT_296 0x76648e7186624c0dUL, .val = &ids[296]
-#define MAP_PERFECT_297 0xd97500e64edd695eUL, .val = &ids[297]
+#define MAP_PERFECT_297 0x5b36f5cc4a5925b0UL, .val = &ids[297]
 #define MAP_PERFECT_298 0x351933dc20486107UL, .val = &ids[298]
 #define MAP_PERFECT_299 0x7b717607817b2451UL, .val = &ids[299]
 #define MAP_PERFECT_300 0x0aa7b29de47f96cbUL, .val = &ids[300]
