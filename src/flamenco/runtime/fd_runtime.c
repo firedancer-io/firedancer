@@ -213,12 +213,12 @@ fd_runtime_fee_split( ulong   execution_fees,
   *reward = fd_ulong_sat_add( priority_fees, execution_fees-*burn );
 }
 
-void
+int
 fd_runtime_fee_collector( fd_bank_t const * bank,
                           fd_pubkey_t *     collector ) {
   fd_epoch_leaders_t const * leaders = fd_bank_epoch_leaders_query( bank, bank->f.epoch );
   fd_pubkey_t const *        leader  = fd_epoch_leaders_get( leaders, bank->f.slot );
-  if( FD_UNLIKELY( !leader ) ) FD_LOG_CRIT(( "fd_epoch_leaders_get(%lu) returned NULL", bank->f.slot ));
+  if( FD_UNLIKELY( !leader ) ) return 0;
   *collector = *leader;
 
   /* Per SIMD-0232, the fee reward goes to the leader's block revenue
@@ -226,7 +226,7 @@ fd_runtime_fee_collector( fd_bank_t const * bank,
      derived from (captured entering the previous epoch, tag
      epoch-1); default is the leader identity.
      https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime/src/bank/fee_distribution.rs#L121-L148 */
-  if( FD_LIKELY( !FD_FEATURE_ACTIVE_BANK( bank, custom_commission_collector ) ) ) return;
+  if( FD_LIKELY( !FD_FEATURE_ACTIVE_BANK( bank, custom_commission_collector ) ) ) return 1;
 
   fd_pubkey_t const * leader_vote = fd_epoch_leaders_get_vote( leaders, bank->f.slot );
   if( FD_UNLIKELY( !leader_vote ) ) FD_LOG_CRIT(( "fd_epoch_leaders_get_vote(%lu) returned NULL", bank->f.slot ));
@@ -239,6 +239,7 @@ fd_runtime_fee_collector( fd_bank_t const * bank,
                                             NULL,
                                             &override_collector );
   if( FD_UNLIKELY( flags & FD_COLLECTOR_OVERRIDE_BLOCK ) ) *collector = override_collector;
+  return 1;
 }
 
 static void
@@ -267,7 +268,9 @@ fd_runtime_settle_fees( fd_bank_t *        bank,
     int custom_commission_collector = FD_FEATURE_ACTIVE_BANK( bank, custom_commission_collector );
 
     fd_pubkey_t collector[ 1 ];
-    fd_runtime_fee_collector( bank, collector );
+    if( FD_UNLIKELY( !fd_runtime_fee_collector( bank, collector ) ) ) {
+      FD_LOG_CRIT(( "fd_epoch_leaders_get(%lu) returned NULL", bank->f.slot ));
+    }
     fd_pubkey_t const * collector_id = collector;
     fd_pubkey_t const * leader_vote  = custom_commission_collector
                                      ? fd_epoch_leaders_get_vote( fd_bank_epoch_leaders_query( bank, bank->f.epoch ), bank->f.slot )

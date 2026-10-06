@@ -394,9 +394,14 @@ fd_runtime_fee_split( ulong   execution_fees,
    block revenue collector the leader chose while the
    custom_commission_collector feature is active.  No transaction in
    the block names this account, so anything that mirrors the accounts
-   a block touches has to ask for it. */
+   a block touches has to ask for it.
 
-void
+   Returns 0 and writes nothing when the leader of the block's slot is
+   unknown.  Fee settlement treats that as impossible, since it is
+   about to pay the leader; a caller that only wants to know which
+   account would be paid has nothing to pay and nothing to mirror. */
+
+int
 fd_runtime_fee_collector( fd_bank_t const * bank,
                           fd_pubkey_t *     collector );
 
