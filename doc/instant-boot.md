@@ -22,7 +22,8 @@ and off by default.
   supported yet) and `[snapshots] incremental_snapshot_interval_blocks`
   nonzero (`200` by default). It also needs `[snapshots.server]
   enabled = true`, the snapshot file server. A stream starts every
-  time this validator makes a new incremental snapshot.
+  time this validator makes a new incremental snapshot, except across
+  an epoch boundary (see Known Limits).
 - The booting validator needs `[snapshots] incremental_snapshots =
   true` (the default) and the serving validator's address. Under
   instant boot, it ignores any local snapshot files and any other
@@ -38,20 +39,34 @@ These are the keys instant boot adds, under `[snapshots.instant_boot]`:
 | `[snapshots.instant_boot] enabled` | Booting | `false` | Turns on instant boot. |
 | `[snapshots.instant_boot] server` | Booting | `""` | Serving validator's address, `host:port` or `http://host:port`. Has to be a plain IPv4 address in practice (see Known Limits). |
 | `[snapshots.instant_boot.serve] enabled` | Serving | `false` | Turns on boot streams. Needs `[snapshots.server] enabled = true`. |
-| `[snapshots.instant_boot.serve] stream_lifetime_seconds` | Serving | `240` | How long a stream is served before it's closed and recycled. |
+| `[snapshots.instant_boot.serve] stream_lifetime_seconds` | Serving | `240` | How long a stream is served before it's closed and recycled. Must be more than the client's fixed 180 second join floor; the margin above it is how long a client has to find the stream. |
 | `[snapshots.instant_boot.serve] max_open_streams` | Serving | `3` | How many streams are served at once (1 to 8). |
-| `[snapshots.instant_boot.serve] max_keys_per_stream` | Serving | `4000000` | How many accounts one stream can carry. At this default, costs 160 MiB per stream (225 MiB counting its write buffer and compressor). A stream closes once it has carried three quarters of this. |
+| `[snapshots.instant_boot.serve] max_keys_per_stream` | Serving | `4000000` | How many accounts one stream can carry. The tile rounds this up to a power of two, `4,194,304` at the default, and keeps 40 bytes per entry, which is 160 MiB of the 225 MiB a stream costs. A stream closes once it has carried three quarters of those entries, `3,145,728` at the default. |
 
 ## Enable the Serving Side
 
-Set `[layout] enable_snapshot_production = true`, `[snapshots.server]
+Set `[layout] enable_snapshot_production = true` with a nonzero
+`[snapshots] incremental_snapshot_interval_blocks`, `[snapshots.server]
 enabled = true`, and `[snapshots.instant_boot.serve] enabled = true`.
 
-This costs 66 MiB by itself (99 MiB with blocks still in flight),
-before any stream opens. Each open stream then costs another 160 MiB
-(225 MiB counting its write buffer and compressor) at the default
-`max_keys_per_stream`. With the defaults (3 streams), that is up to
-about 770 MiB total.
+### Memory
+
+All of it is taken at startup, whether or not a stream is ever
+opened. With the defaults that is **985 MiB**:
+
+| Part | Size | Scales with |
+|---|---|---|
+| Account sets of the blocks the tile keeps | 99 MiB | fixed (192 blocks of 528 KiB) |
+| Account read buffer | 10 MiB | fixed |
+| Compression buffer | 4 MiB | fixed |
+| Accounts and status cache joins, writer state | 67 MiB | `[runtime] max_live_slots`, `[limits] max_txn_per_slot` |
+| Per open stream | 225 MiB each | `max_open_streams`, and `max_keys_per_stream` within it |
+| `replay_strmk` link, in the replay workspace | 128 MiB | fixed (32,768 x 4,096 byte frags) |
+
+A stream's 225 MiB is a 64 MiB write buffer, the 160 MiB sent-account
+table, a 1.2 MiB compressor and a 64 KiB record of the blocks it has
+carried. Only that part moves when you change the settings: three
+streams is 676 MiB of it, one stream is 225 MiB.
 
 ## Enable the Booting Side
 
@@ -117,12 +132,30 @@ can read today.
   epoch, or a rewards payout is running at that slot, replay pauses
   there until the background load finishes. There is no separate log
   line for this, just a pause.
+- **A stream never spans an epoch boundary.** An epoch boundary and an
+  epoch rewards payout credit stake accounts that no transaction names,
+  so the serving validator cannot carry those accounts in a stream. It
+  resets the feed at the boundary, closing every open stream:
+  `resetting the boot streams: a block crosses an epoch boundary or an
+  epoch rewards payout`. It also starts no new stream while the
+  condition holds. A validator that joined a stream within a lifetime
+  of a boundary therefore sees its stream break, the same as any other
+  reset, and has to restart against the next incremental snapshot once
+  the boundary is past.
 - A listed stream stays open for `stream_lifetime_seconds` (240
   seconds by default). The booting validator only joins a stream with
   at least 180 seconds of life left (fixed, not configurable), so it
   has to pick one up within about a minute of it being listed. If no
   usable stream turns up within 5 minutes, it gives up fatally:
-  `no boot stream offered for 300 s`.
+  `no boot stream offered for 300 s`. The `expires` field in the index
+  is the serving validator's own wall clock, so clock skew between the
+  two machines shifts that join window by the same amount.
+- With the defaults, three streams of 240 seconds each started one
+  incremental snapshot apart, there are stretches with no joinable
+  stream: a stream is only joinable for its first 60 seconds, so if
+  incremental snapshots are further apart than that, a booting
+  validator may have to wait for the next one. It keeps retrying for
+  the full 300 seconds before giving up.
 - There is no way to fetch one missing account on demand. Everything
   the booting validator gets before the background load finishes has
   to come from a block the serving validator actually executed.
@@ -135,11 +168,13 @@ can read today.
   stream slot %lu)`. This is a safety check and should not happen on
   its own.
 - A reset on the serving side closes every open stream at once, for
-  example if the serving validator falls behind (`resetting the boot
-  streams: %s`, `the fork slot %lu was read at is gone, resetting the
-  boot streams`). A booting client that had already joined the stream
-  sees this as a stream failure, same as above. One still looking for
-  a stream to join just waits for the next one.
+  example if the serving validator falls behind: `resetting the boot
+  streams: the stream tile owed a bank reference for too long`. A fork
+  going away under a block's reads closes only the streams that needed
+  that block: `the fork slot %lu was read at is gone, breaking the boot
+  streams that needed it`. A booting client that had already joined a
+  closed stream sees it as a stream failure, same as above. One still
+  looking for a stream to join just waits for the next one.
 - If a validator's blocks touch more accounts than
   `max_keys_per_stream` allows, the server closes the stream early or
   breaks it outright: `the boot stream at slot %lu carried %lu

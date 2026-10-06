@@ -609,30 +609,38 @@ telemetry = true
         # The serving side of instant boot.  Runs one extra tile that
         # writes boot streams and an index next to the snapshots, which
         # the snapshot server then serves.  Needs
-        # [snapshots.server] enabled = true.
+        # [snapshots.server] enabled = true and incremental snapshot
+        # production.
         #
-        # A stream starts at a slot this validator has just rooted,
-        # which is behind the blocks it has executed, so the tile keeps
-        # the accounts of the last 128 blocks and writes the ones that
-        # ran after that slot into the stream as it opens.  That costs
-        # 66 MiB, and 99 MiB with the blocks still in flight, whatever
-        # the settings below are.
+        # All of its memory is taken at startup, whether or not a
+        # stream is ever opened.  With the settings below that is
+        # 985 MiB: 180 MiB the stream tile always needs (99 MiB of
+        # block account sets, a 10 MiB account read buffer, a 4 MiB
+        # compression buffer and the accounts and status cache joins),
+        # 225 MiB for each of max_open_streams, and 128 MiB for the
+        # link replay feeds it over, which lives in the replay
+        # workspace.  Only the per stream part scales with the settings
+        # here.
         [snapshots.instant_boot.serve]
             enabled = false
 
             # How long a stream is served before it is closed and its
-            # file recycled.
+            # file recycled.  A booting peer only joins a stream with
+            # 180 seconds of life left, so this has to be more than
+            # that, and the margin above it is how long a peer has to
+            # find the stream.
             stream_lifetime_seconds = 240
 
-            # How many streams are served at the same time.
+            # How many streams are served at the same time.  Each one
+            # costs 225 MiB at the default max_keys_per_stream.
             max_open_streams = 3
 
             # How many accounts one stream can carry.  The stream tile
-            # rounds this up to a power of two and keeps 40 bytes per
-            # entry for each open stream, so the default costs 160 MiB
-            # per stream, and 225 MiB with the stream's write buffer and
-            # compressor.  A stream closes once it has carried three
-            # quarters of the entries.
+            # rounds this up to a power of two, 4,194,304 at the
+            # default, and keeps 40 bytes per entry for each open
+            # stream, which is the 160 MiB of the 225 MiB a stream
+            # costs.  A stream closes once it has carried three
+            # quarters of those entries, 3,145,728 at the default.
             max_keys_per_stream = 4000000
 
 [consensus]
