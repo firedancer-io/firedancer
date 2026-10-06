@@ -589,6 +589,43 @@ void
 fd_rdisp_add_all_pseudo_txn( fd_rdisp_t          *  disp,
                              FD_RDISP_BLOCK_TAG_T   insert_block );
 
+
+/* fd_rdisp_add_writable and add_extra_pseudo_txn informs rdisp that the
+   account address pointed to by addr should be considered having been
+   written at this point in insertion order for the sake of LtHash
+   tracking.  The primary use case for these two functions is tracking
+   LtHash tasks for serializing transactions, but it is also useful for
+   accounts that are written by non-transaction processes (e.g. rewards
+   distribution).  add_extra_pseudo_txn takes the additional step of
+   creating a pseudo transaction for this account address unless it is
+   sure that an appropriate one already exists.
+
+   disp must be a valid local join.  insert_block must be insert-ready.
+   schedule_block must be schedule-ready.  If the block is both
+   insert-ready and schedule-ready, prefer add_writable. addr is a
+   pointer to the account address of interest.
+
+   add_writable returns -1 on error (block not found or not
+   insert-ready), 1 if this is the first write to the specified account
+   since the most recent call to fd_rdisp_add_pseudo_txn that added a
+   pseudo-transaction for this account address, and 0 otherwise.  This
+   is essentially the value of the bit in new_writable.
+
+   On the other hand, add_extra_pseudo_txn returns the
+   pseudo-transaction index that was created.  WARNING:
+   add_extra_pseudo_txn can result in two addition pseudo-transaction
+   without an intervening write.  This function shouldn't really exist
+   because normally it's not possible to add to a block unless it is
+   insert-ready, so it is a bit of a hack. */
+int
+fd_rdisp_add_writable( fd_rdisp_t           * disp,
+                       FD_RDISP_BLOCK_TAG_T   insert_block,
+                       fd_acct_addr_t const * addr );
+ulong
+fd_rdisp_add_extra_pseudo_txn( fd_rdisp_t           * disp,
+                               FD_RDISP_BLOCK_TAG_T   schedule_block,
+                               fd_acct_addr_t const * addr );
+
 typedef struct {
   FD_RDISP_BLOCK_TAG_T  schedule_ready_block;
   FD_RDISP_BLOCK_TAG_T  insert_ready_block;
