@@ -7,8 +7,10 @@
 #include <stdio.h> /* TODO: use fd_io instead of stdio here */
 #include <errno.h>
 
-#define FD_PCAP_HDR_NETWORK_ETHERNET  (1U)
-#define FD_PCAP_HDR_NETWORK_LINUX_SLL (113U)
+#define FD_PCAP_HDR_NETWORK_ETHERNET      (1U)
+#define FD_PCAP_HDR_NETWORK_LINUX_SLL     (113U)
+#define FD_PCAP_HDR_NETWORK_LINKTYPE_MASK (0x0000ffffU)
+#define FD_PCAP_HDR_NETWORK_RESERVED_MASK (0x0bff0000U)
 
 struct fd_pcap_hdr {
   uint   magic_number;
@@ -65,13 +67,19 @@ fd_pcap_iter_new( void * _file ) {
     return NULL;
   }
 
-  if( FD_UNLIKELY( !( (pcap->network==FD_PCAP_HDR_NETWORK_ETHERNET ) |
-                      (pcap->network==FD_PCAP_HDR_NETWORK_LINUX_SLL) ) ) ) {
+  if( FD_UNLIKELY( pcap->network & FD_PCAP_HDR_NETWORK_RESERVED_MASK ) ) {
+    FD_LOG_WARNING(( "invalid network type (nonzero reserved bits)" ));
+    return NULL;
+  }
+
+  uint link_type = pcap->network & FD_PCAP_HDR_NETWORK_LINKTYPE_MASK;
+  if( FD_UNLIKELY( !( (link_type==FD_PCAP_HDR_NETWORK_ETHERNET ) |
+                      (link_type==FD_PCAP_HDR_NETWORK_LINUX_SLL) ) ) ) {
     FD_LOG_WARNING(( "unsupported network type (neither an Ethernet nor a cooked socket pcap)" ));
     return NULL;
   }
 
-  ulong cooked = (ulong)( pcap->network==FD_PCAP_HDR_NETWORK_LINUX_SLL );
+  ulong cooked = (ulong)( link_type==FD_PCAP_HDR_NETWORK_LINUX_SLL );
 
   return (fd_pcap_iter_t *)((ulong)file | cooked);
 }
