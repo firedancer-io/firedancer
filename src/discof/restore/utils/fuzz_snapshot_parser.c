@@ -313,9 +313,6 @@ LLVMFuzzerTestOneInput( uchar const * const data,
   uchar const * data_ptr = data + offset_to_input;
   ulong         data_sz  = size - offset_to_input;
   for (;;) {
-    /* The parser idles instead of failing when it runs out of data at
-       a tar header boundary, so stop once the input is spent. */
-    if( FD_UNLIKELY( !data_sz ) ) break;
     int res = fd_ssparse_advance( ssparse, data_ptr, data_sz, result );
     if( res==FD_SSPARSE_ADVANCE_DONE || res==FD_SSPARSE_ADVANCE_ERROR ) break;
     if( res==FD_SSPARSE_ADVANCE_APPENDVEC ) fd_ssparse_appendvec_parse( ssparse );

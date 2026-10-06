@@ -76,10 +76,10 @@ advance_tar( fd_ssparse_t *                ssparse,
              ulong                         data_sz,
              fd_ssparse_advance_result_t * result ) {
   ulong consume = fd_ulong_min( data_sz, 512UL - ssparse->tar.header_bytes_consumed );
-  /* An instant boot stream has no end of archive marker until it
-     closes, so running out of data between entries is not an error:
-     sit here until more of the stream arrives. */
-  if( FD_UNLIKELY( !consume ) ) return FD_SSPARSE_ADVANCE_AGAIN;
+  if( FD_UNLIKELY( !consume ) ) {
+    FD_LOG_WARNING(( "unexpected end of data in tar header, data_sz=%lu, header_bytes_consumed=%lu", data_sz, ssparse->tar.header_bytes_consumed ));
+    return FD_SSPARSE_ADVANCE_ERROR;
+  }
 
   fd_memcpy( ssparse->tar.header+ssparse->tar.header_bytes_consumed, data, consume );
   ssparse->bytes_consumed            += consume;
@@ -316,9 +316,10 @@ advance_next_tar( fd_ssparse_t *               ssparse,
   ulong bytes_remaining    = fd_ulong_align_up( ssparse->bytes_consumed, 512UL ) - ssparse->bytes_consumed;
   ulong pad_sz             = bytes_remaining;
         pad_sz             = fd_ulong_min( pad_sz, data_sz );
-  /* A stream can be flushed at any byte offset, so running out of
-     data in the padding is not an error either. */
-  if( FD_UNLIKELY( !pad_sz && bytes_remaining ) ) return FD_SSPARSE_ADVANCE_AGAIN;
+  if( FD_UNLIKELY( !pad_sz && bytes_remaining ) ) {
+    FD_LOG_WARNING(( "unexpected end of data while parsing tar header padding, data_sz=%lu, bytes_consumed=%lu, bytes_remaining=%lu", data_sz, ssparse->bytes_consumed, bytes_remaining ));
+    return FD_SSPARSE_ADVANCE_ERROR;
+  }
 
   ssparse->bytes_consumed += pad_sz;
   result->bytes_consumed   = pad_sz;
