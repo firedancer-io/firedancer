@@ -129,21 +129,22 @@
 
    Every message that hands out a reference on a bank carries a
    hold_token, and the stream tile returns the reference by sending
-   that token back verbatim as the sig on strmk_replay.  The token
-   holds the bank index in its low 32 bits and the reset generation in
-   its high 32 bits, so a token minted before a reset is recognised and
-   ignored rather than released a second time or matched against a
-   reference handed out after the reset.  The tile does not have to
-   interpret the token, only hand it back.
+   that token back verbatim as the sig on strmk_replay.  A token names
+   one reference and no other, even when two references are on the same
+   bank, which is the normal case: the bank a stream chains off is also
+   the parent of the first block after it.  Returning a token twice,
+   or returning one replay has already taken back, does nothing.  The
+   tile does not have to interpret the token, only hand it back.
 
    Replay sends FD_STRMK_SIG_RESET when it has taken every outstanding
    reference back, which it does when the stream tile owes one for too
    long, when it owes more than replay can record, when the accounts of
    a block did not fit in its sink, and when the shredded bytes of a
    block replay produced itself are no longer in the store: a stream is
-   a chain of blocks and cannot skip one.  A reset therefore cancels
-   every reference the stream tile was given before it, and the tile
-   must not return any of them.
+   a chain of blocks and cannot skip one.  A reset cancels every
+   reference the stream tile was given before it; returning one of
+   those tokens afterwards is harmless, replay no longer recognises
+   it.
 
    A reference has two deadlines.  The stream tile reads a block's
    accounts once it has the block's end, so from that moment it has 4

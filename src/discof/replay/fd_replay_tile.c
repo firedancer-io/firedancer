@@ -670,10 +670,11 @@ strmk_ring_drop( fd_replay_tile_t *       ctx,
 /* strmk_reset takes back every reference the stream tile was given and
    tells it to start over.  Reclaiming one reference already costs the
    tile the stream that needed it, and it cannot tell which of the
-   others belong to that stream, so a reset cancels all of them.  The
-   generation bump is what makes a release that was already in flight
-   recognisable afterwards.  A caller whose only work was the reset has
-   to charge the stem busy itself. */
+   others belong to that stream, so a reset cancels all of them.
+   Emptying the rings is what makes a release that was already in
+   flight harmless afterwards: its token is in no ring any more.  A
+   caller whose only work was the reset has to charge the stem busy
+   itself. */
 
 static void
 strmk_reset( fd_replay_tile_t *  ctx,
@@ -683,7 +684,6 @@ strmk_reset( fd_replay_tile_t *  ctx,
   strmk_ring_drop( ctx, ctx->strmk_start_hold );
   strmk_ring_drop( ctx, ctx->strmk_read_hold );
   strmk_ring_drop( ctx, ctx->strmk_base_hold );
-  ctx->strmk_generation++;
   strmk_publish( ctx, stem, FD_STRMK_SIG_RESET, 0UL );
 }
 
@@ -701,7 +701,7 @@ strmk_hold_add( fd_replay_tile_t *       ctx,
     strmk_reset( ctx, stem, "the stream tile owes more bank references than replay can record" );
   }
   bank->refcnt++;
-  ulong token = FD_REPLAY_STRMK_TOKEN( ctx->strmk_generation, bank->idx );
+  ulong token = FD_REPLAY_STRMK_TOKEN( ctx->strmk_hold_seq++, bank->idx );
   fd_replay_strmk_hold_t * hold = &ring->hold[ ring->tail%FD_REPLAY_STRMK_HOLD_MAX ];
   hold->token = token;
   hold->tick  = stem->now;
@@ -756,16 +756,16 @@ strmk_read_resume( fd_replay_tile_t *  ctx,
   }
 }
 
-/* strmk_hold_release drops the oldest hold carrying token, which the
-   stream tile just returned.  Returns 0 if the tile owes no such hold,
-   which is the case for a token minted before a reset and for one
-   returned twice. */
+/* strmk_hold_release drops the hold carrying token, which the stream
+   tile just returned.  A token names exactly one hold, so the ring it
+   is in decides nothing here.  Returns 0 if no ring has it, which is
+   the case for a token a reset took back and for one returned
+   twice. */
 
 static int
 strmk_hold_release( fd_replay_tile_t *  ctx,
                     fd_stem_context_t * stem,
                     ulong               token ) {
-  if( FD_UNLIKELY( FD_REPLAY_STRMK_TOKEN_GEN( token )!=ctx->strmk_generation ) ) return 0;
   fd_replay_strmk_ring_t * ring[ 3 ] = { ctx->strmk_read_hold, ctx->strmk_start_hold, ctx->strmk_base_hold };
   for( ulong r=0UL; r<3UL; r++ ) {
     for( ulong i=ring[ r ]->head; i!=ring[ r ]->tail; i++ ) {
@@ -5718,10 +5718,10 @@ returnable_frag( fd_replay_tile_t *  ctx,
     }
     case IN_KIND_RPC: {
       /* The rpc tile returns a bank by index.  The stream tile returns
-         one by the token it was given, which carries the index and the
-         generation of the last reset: a token from before a reset
-         releases nothing, because the reset already did.  A sentinel
-         is a malformed message rather than a bank. */
+         one by the token it was given, which names a single hold and
+         carries that hold's bank index: a token replay no longer has
+         releases nothing, because a reset already did.  A sentinel is
+         a malformed message rather than a bank. */
       ulong bank_idx = sig;
       if( FD_UNLIKELY( sig==ULONG_MAX ) ) break;
       if( FD_UNLIKELY( in_idx==ctx->strmk_in_idx ) ) {
@@ -6040,7 +6040,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->strmk_keys->key    = strmk_keys_mem;
   ctx->strmk_walk         = strmk_walk_mem;
 
-  ctx->strmk_generation           = 0UL;
+  ctx->strmk_hold_seq             = 0UL;
   ctx->strmk_start_hold->deadline = FD_REPLAY_STRMK_BACKSTOP_NS;
   ctx->strmk_start_hold->head     = 0UL;
   ctx->strmk_start_hold->tail     = 0UL;

@@ -5068,10 +5068,42 @@ test_strmk_hold_ring( fd_wksp_t * wksp ) {
   FD_TEST( ctx->strmk_base_hold->head ==ctx->strmk_base_hold->tail  );
   FD_TEST( test_stem_seqs[ strmk ]==seq0+1UL );
 
-  /* A release that was already in flight when a reset fired carries a
-     token from the generation before it.  It names the same bank as
-     the reference handed out since, so matching by bank alone would
-     cancel that one and unpin a fork the tile is still reading. */
+  /* The bank a stream chains off is also the parent of the first block
+     after it, so the two holds sit on the same bank in different rings
+     with different deadlines.  Each token names its own hold, so
+     releasing one leaves the other alone. */
+  charge_busy = 0;
+  ulong base_one  = strmk_hold_add( ctx, test_stem, ctx->strmk_base_hold,  bank );
+  ulong block_one = strmk_hold_add( ctx, test_stem, ctx->strmk_start_hold, bank );
+  FD_TEST( base_one!=block_one );
+  FD_TEST( FD_REPLAY_STRMK_TOKEN_BANK( base_one )==FD_REPLAY_STRMK_TOKEN_BANK( block_one ) );
+  strmk_hold_read( ctx, test_stem, bank->idx );
+  FD_TEST( bank->refcnt==refcnt0+2UL );
+  FD_TEST( ctx->strmk_base_hold->tail-ctx->strmk_base_hold->head==1UL );
+  FD_TEST( ctx->strmk_read_hold->tail-ctx->strmk_read_hold->head==1UL );
+
+  /* The stream finishes first, which is the order that matters: its
+     release has to take the base entry and leave the block's, or the
+     fork the tile is still reading comes unpinned. */
+  FD_TEST( strmk_hold_release( ctx, test_stem, base_one ) );
+  bank->refcnt--;
+  FD_TEST( ctx->strmk_base_hold->head==ctx->strmk_base_hold->tail );
+  FD_TEST( ctx->strmk_read_hold->tail-ctx->strmk_read_hold->head==1UL );
+  FD_TEST( bank->refcnt==refcnt0+1UL );
+
+  /* And the block's release takes the read entry. */
+  FD_TEST( strmk_hold_release( ctx, test_stem, block_one ) );
+  bank->refcnt--;
+  FD_TEST( ctx->strmk_read_hold->head==ctx->strmk_read_hold->tail );
+  FD_TEST( bank->refcnt==refcnt0 );
+  FD_TEST( !strmk_hold_release( ctx, test_stem, base_one  ) );
+  FD_TEST( !strmk_hold_release( ctx, test_stem, block_one ) );
+  FD_TEST( bank->refcnt==refcnt0 );
+
+  /* A release that was already in flight when a reset fired names a
+     hold that is gone.  It carries the same bank as the reference
+     handed out since, so matching by bank alone would cancel that one
+     and unpin a fork the tile is still reading. */
   charge_busy = 0;
   ulong stale = strmk_hold_add( ctx, test_stem, ctx->strmk_start_hold, bank );
   strmk_hold_read( ctx, test_stem, bank->idx );
@@ -5103,9 +5135,7 @@ test_strmk_hold_ring( fd_wksp_t * wksp ) {
   /* Opening a stream is synchronous in the stream tile, so while it
      owes a stream's base bank the read clock does not run.  Only the
      backstop does, and the read clocks restart from the moment the
-     base reference comes back.  The block's parent has to be a
-     different bank from the stream's base, or the two holds would
-     share a token. */
+     base reference comes back. */
   charge_busy = 0;
   fd_bank_t * child = fd_banks_new_bank( ctx->banks, bank->idx, 0L, 0 );
   FD_TEST( child );
@@ -5161,9 +5191,10 @@ test_strmk_hold_ring( fd_wksp_t * wksp ) {
      rather than at its old end. */
   fd_bank_t * other = fd_banks_new_bank( ctx->banks, bank->idx, 0L, 0 );
   FD_TEST( other );
-  ulong bank_token  = strmk_hold_add( ctx, test_stem, ctx->strmk_start_hold, bank  );
-  ulong other_token = strmk_hold_add( ctx, test_stem, ctx->strmk_start_hold, other );
-  /**/                strmk_hold_add( ctx, test_stem, ctx->strmk_start_hold, bank  );
+  ulong first_token  = strmk_hold_add( ctx, test_stem, ctx->strmk_start_hold, bank  );
+  ulong other_token  = strmk_hold_add( ctx, test_stem, ctx->strmk_start_hold, other );
+  ulong second_token = strmk_hold_add( ctx, test_stem, ctx->strmk_start_hold, bank  );
+  FD_TEST( first_token!=second_token );
 
   ctx->in_kind[ TEST_REPAIR_IN_IDX ] = IN_KIND_RPC;
   ctx->strmk_in_idx                  = TEST_REPAIR_IN_IDX;
@@ -5172,11 +5203,11 @@ test_strmk_hold_ring( fd_wksp_t * wksp ) {
   FD_TEST( ctx->strmk_start_hold->hold[ (ctx->strmk_start_hold->head+1UL)%FD_REPLAY_STRMK_HOLD_MAX ].token==ULONG_MAX );
   FD_TEST( !returnable_frag( ctx, TEST_REPAIR_IN_IDX, 0UL, ULONG_MAX, 0UL, 0UL, 0UL, 0UL, 0UL, test_stem ) );
   FD_TEST( bank->refcnt==refcnt0+2UL );
-  FD_TEST( !returnable_frag( ctx, TEST_REPAIR_IN_IDX, 0UL, bank_token, 0UL, 0UL, 0UL, 0UL, 0UL, test_stem ) );
+  FD_TEST( !returnable_frag( ctx, TEST_REPAIR_IN_IDX, 0UL, first_token, 0UL, 0UL, 0UL, 0UL, 0UL, test_stem ) );
   FD_TEST( bank->refcnt==refcnt0+1UL );
-  FD_TEST( !returnable_frag( ctx, TEST_REPAIR_IN_IDX, 0UL, bank_token, 0UL, 0UL, 0UL, 0UL, 0UL, test_stem ) );
-  FD_TEST( bank->refcnt==refcnt0 );
-  FD_TEST( !returnable_frag( ctx, TEST_REPAIR_IN_IDX, 0UL, bank_token, 0UL, 0UL, 0UL, 0UL, 0UL, test_stem ) );
+  FD_TEST( !returnable_frag( ctx, TEST_REPAIR_IN_IDX, 0UL, first_token, 0UL, 0UL, 0UL, 0UL, 0UL, test_stem ) );
+  FD_TEST( bank->refcnt==refcnt0+1UL );
+  FD_TEST( !returnable_frag( ctx, TEST_REPAIR_IN_IDX, 0UL, second_token, 0UL, 0UL, 0UL, 0UL, 0UL, test_stem ) );
   FD_TEST( bank->refcnt==refcnt0 );
 
   FD_LOG_NOTICE(( "pass: test_strmk_hold_ring" ));

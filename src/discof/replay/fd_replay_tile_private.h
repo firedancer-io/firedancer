@@ -115,19 +115,21 @@ typedef struct fd_reception_stats fd_reception_stats_t;
    read clocks restart when the last base reference comes back, so the
    paused time is not counted against the tile.
 
-   A hold is identified on the wire by a token carrying its bank index
-   and the generation of the last reset, so a release that was already
-   in flight when a reset fired is recognised and dropped instead of
-   cancelling a reference handed out after the reset.  Holds on the
-   same bank within a generation share a token and are
-   interchangeable. */
+   Every hold handed out gets its own token, carrying a serial number
+   and the hold's bank index.  A release names one hold and nothing
+   else, which matters because the bank a stream chains off is also the
+   parent of the first block after it: those two holds are on the same
+   bank, in different rings, with different deadlines.  A token replay
+   finds in no ring is one a reset already took back, so a release that
+   was in flight when a reset fired cancels nothing.  The serial wraps
+   after four billion holds, by which time every hold that carried the
+   same one is long expired. */
 
 #define FD_REPLAY_STRMK_HOLD_MAX    (64UL)
 #define FD_REPLAY_STRMK_READ_NS     (4L*1000L*1000L*1000L)
 #define FD_REPLAY_STRMK_BACKSTOP_NS (60L*1000L*1000L*1000L)
 
-#define FD_REPLAY_STRMK_TOKEN( gen, bank_idx ) ( (((gen)&0xffffffffUL)<<32) | (bank_idx) )
-#define FD_REPLAY_STRMK_TOKEN_GEN( token )     ( (token)>>32 )
+#define FD_REPLAY_STRMK_TOKEN( seq, bank_idx ) ( (((seq)&0xffffffffUL)<<32) | (bank_idx) )
 #define FD_REPLAY_STRMK_TOKEN_BANK( token )    ( (token)&0xffffffffUL )
 
 /* A bank index fits in the low half of a token, and no token can
@@ -543,7 +545,7 @@ struct fd_replay_tile {
      rings below record the references the tile owes back, so a stream
      tile that stalls cannot pin a bank forever. */
   int                      instant_boot_serve;
-  ulong                    strmk_generation; /* bumped on every reset, high half of a hold token */
+  ulong                    strmk_hold_seq; /* bumped per hold handed out, high half of its token */
   ulong                    strmk_in_idx; /* in link the stream tile returns banks on, ULONG_MAX if none */
   fd_sched_keys_t          strmk_keys[1];
   fd_sched_keys_walk_t *   strmk_walk;   /* parse cursor for the block we are producing, which sched never sees */
