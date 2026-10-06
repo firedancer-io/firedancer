@@ -515,6 +515,45 @@ FD_UNIT_TEST( bundle_client_status ) {
   test_bundle_env_destroy( env );
 }
 
+/* Verify that a peer that accepts TCP but never completes the
+   handshake is disconnected once the handshake deadline passes */
+
+FD_UNIT_TEST( bundle_client_handshake_timeout ) {
+  test_bundle_env_t env[1];
+  test_bundle_env_create( env, wksp );
+  test_bundle_env_mock_conn_empty( env );
+  fd_bundle_tile_t * state = env->state;
+  FD_TEST( !fd_grpc_client_is_connected( state->grpc_client ) );
+
+  long const ts_hs_deadline = g_clock + (long)10e9;
+  state->hs_deadline = ts_hs_deadline;
+  FD_TEST( fd_bundle_client_next_deadline( state, g_clock )<=ts_hs_deadline );
+
+  ulong const fail_cnt = state->metrics.transport_fail_cnt;
+  int charge_busy = 0;
+  g_clock = ts_hs_deadline-1L;
+  fd_bundle_client_step( state, &charge_busy );
+  FD_TEST( state->tcp_sock>=0 );
+  FD_TEST( state->metrics.transport_fail_cnt==fail_cnt );
+
+  g_clock = ts_hs_deadline;
+  fd_bundle_client_step( state, &charge_busy );
+  FD_TEST( state->tcp_sock==-1 );
+  FD_TEST( state->metrics.transport_fail_cnt==fail_cnt+1UL );
+
+  /* Once connected, the handshake deadline no longer applies */
+  test_bundle_env_destroy( env );
+  test_bundle_env_create( env, wksp );
+  test_bundle_env_mock_conn( env );
+  state = env->state;
+  state->hs_deadline = g_clock;
+  fd_bundle_client_step( state, &charge_busy );
+  FD_TEST( state->tcp_sock>=0 );
+  FD_TEST( fd_bundle_client_status( state )==2 );
+
+  test_bundle_env_destroy( env );
+}
+
 /* Verify that reset clears everything */
 
 FD_UNIT_TEST( bundle_client_reset ) {
