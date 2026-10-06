@@ -139,9 +139,13 @@
    Replay sends FD_STRMK_SIG_RESET when it has taken every outstanding
    reference back, which it does when the stream tile owes one for too
    long, when it owes more than replay can record, when the accounts of
-   a block did not fit in its sink, and when the shredded bytes of a
-   block replay produced itself are no longer in the store: a stream is
-   a chain of blocks and cannot skip one.  A reset cancels every
+   a block did not fit in its sink, when the shredded bytes of a block
+   replay produced itself are no longer in the store, and when a block
+   crosses an epoch boundary or an epoch rewards payout: a stream is a
+   chain of blocks and cannot skip one, and an epoch boundary credits
+   stake accounts that no transaction names, so the accounts of the
+   block on the far side of it cannot be carried.  A peer booting near
+   a boundary therefore sees its stream break and has to start over.  A reset cancels every
    reference the stream tile was given before it; returning one of
    those tokens afterwards is harmless, replay no longer recognises
    it.
@@ -149,16 +153,21 @@
    A reference has two deadlines.  The stream tile reads a block's
    accounts once it has the block's end, so from that moment it has 4
    seconds to return the reference.  Until then only a 60 second
-   backstop applies, measured from the block start, because replay
-   itself may take that long to finish a block it is catching up on.
+   backstop applies, because replay itself may take that long to
+   finish a block it is catching up on.
 
    The 4 second clock is paused for as long as the tile owes the
    reference a stream start gave it, because opening a stream writes a
    manifest, a status cache and a bundle, and the tile cannot read a
    block until that is done.  The clocks restart when that reference
    comes back, so the time spent opening a stream is not charged to
-   the blocks that queued up behind it.  The 60 second backstop
-   applies throughout. */
+   the blocks that queued up behind it.
+
+   The backstop applies throughout, but it is restamped whenever a
+   reference changes clock: once at the block end and again whenever
+   the read clocks resume.  So the longest a reference can be
+   outstanding is about two backstops from the block start, plus one
+   more for every stream opened while it waits. */
 
 #define FD_STRMK_SIG_BLOCK_START  (1UL)
 #define FD_STRMK_SIG_TXN_KEYS     (2UL)
@@ -207,11 +216,12 @@ typedef struct fd_strmk_block_start fd_strmk_block_start_t;
    published root instead, only to decide what may run in parallel, so
    its expansion is not sent at all.
 
-   The known limit of expanding at the parent fork is a table that is
-   extended and then used within the same block: the entries the
-   extension added are not visible at the parent fork, so a
-   transaction later in the block that uses them names accounts the
-   stream does not carry.
+   Expanding at the parent fork loses nothing, including for a table
+   extended within the block itself: fd_alut_active_addresses_len
+   counts the addresses appended in a slot as inactive until the slot
+   after it, so the entries an extension adds cannot be used by the
+   block that added them, and the table state at the parent fork is
+   exactly what the block is able to resolve.
 
    A message carries the keys of as many transactions as fit, so the
    stream tile accumulates keys per block and does not learn
@@ -247,8 +257,10 @@ typedef struct fd_strmk_txn_keys fd_strmk_txn_keys_t;
    can tell the bank it is about to read from a different bank that has
    since taken the same index.  The hold pins the parent, so the value
    is the same whether it is read when the child is created or at
-   completion.  It is ULONG_MAX when the parent is gone, which only
-   happens for a block that died.
+   completion.  On FD_STRMK_SIG_BLOCK_DEAD it is advisory only: a
+   reset may have taken the hold back, in which case nothing pins the
+   parent and the value can describe whatever bank now holds that
+   index.  It is ULONG_MAX when the parent is gone.
 
    txn_cnt is the number of transactions the block committed, which is
    not the number the stream carries keys for: keys are collected as
@@ -270,9 +282,12 @@ typedef struct fd_strmk_block_end fd_strmk_block_end_t;
 /* Replay publishes a stream start right after it asks the snapshot
    maker for the incremental snapshot a new stream chains off, holding
    a reference on that snapshot's bank for the stream tile.  A full
-   snapshot starts no stream.  This hold has a much longer deadline
-   than a block's, because the stream tile writes a manifest and a
-   status cache before it is done with the bank. */
+   snapshot starts no stream, and neither does an incremental one
+   taken while an epoch rewards payout is running at the root: a
+   stream cannot cross one.  This hold runs against the same backstop
+   a block's does, with no 4 second clock, because the stream tile
+   writes the stream's manifest, status cache and bundle before it is
+   done with the bank. */
 
 struct fd_strmk_stream_start {
   ulong slot;

@@ -399,7 +399,10 @@ fd_sched_fec_can_ingest( fd_sched_t * sched, fd_sched_fec_t * fec );
    they would during an ingest.  The block is not added to the
    scheduler, nothing is dispatched, no account is read, and nothing is
    validated: a block this validator produced is well formed by
-   construction, so bytes that do not parse simply end the scan.
+   construction.  Bytes that do not parse are kept, on the assumption
+   that the rest of the transaction is in the next FEC set, so a block
+   that really is malformed fills the walk buffer and then reports
+   full, which costs the caller every stream it has open.
    fec->keys must be set. */
 
 void
