@@ -52,9 +52,6 @@ struct __attribute__((aligned(FD_ACCDB_ALIGN))) fd_accdb_private {
 
   int acquire_state;
 
-  /* This join may read loader-written nodes while they are hidden. */
-  int show_hidden;
-
   fd_accdb_shmem_t * shmem;
 
   /* Doorbell for the parked accdb tile, NULL when nobody parks */
@@ -138,6 +135,11 @@ struct __attribute__((aligned(FD_ACCDB_ALIGN))) fd_accdb_private {
     ulong disk_used_removed;
     ulong accounts_total_added;
   } write_stats __attribute__((aligned(64)));
+
+  /* This join may read loader-written nodes while they are hidden.
+     Read once per call, so it sits after the pointers the per-account
+     loops walk. */
+  int show_hidden;
 };
 
 static inline fd_accdb_cache_line_t *

@@ -393,10 +393,6 @@ struct fd_accdb_shmem_private {
      fragmentation threshold during the load. */
   int snapshot_loading;
 
-  /* Reads skip loader-written nodes while set
-     (fd_accdb_snapshot_hide). */
-  int snapshot_hidden;
-
   /* Set at construction (fd_accdb_shmem_new) when this validator
      supports bundles.  A bundle coalesces up to
      FD_ACCDB_MAX_TXN_PER_ACQUIRE transactions into one acquire, so when
@@ -424,6 +420,12 @@ struct fd_accdb_shmem_private {
   fd_accdb_fork_id_t root_fork_id;
 
   ulong seed;
+
+  /* Reads skip loader-written nodes while set
+     (fd_accdb_snapshot_hide).  Kept here, beside the fields every
+     read already loads, so a read does not also pull in the cache
+     line that holds partition_lock. */
+  int snapshot_hidden;
 
   /* generation is a monotonically increasing counter assigned to each
      fork on creation.  When a fork is rooted, its pool slot (fork_id)
