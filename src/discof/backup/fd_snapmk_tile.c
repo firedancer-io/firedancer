@@ -1959,10 +1959,11 @@ snaprd_frag( fd_snapmk_t *       ctx,
       fd_backup_disk_msg_t * frag = zp_alloc( ctx, out_idx, sizeof(fd_backup_disk_msg_t), &out_chunk );
       memcpy( frag->pubkey.uc, parse->meta.pubkey, sizeof(fd_pubkey_t) );
       memcpy( frag->owner.uc,  parse->meta.owner,  sizeof(fd_pubkey_t) );
-      frag->size    = parse->meta.size;
-      frag->acc_idx = parse->acc_idx;
-      frag->snap_sz = parse->acc_snap_sz;
-      frag->data_sz = (uint)meta->tspub;
+      frag->size     = parse->meta.size;
+      frag->data_len = parse->meta.data_len;
+      frag->acc_idx  = parse->acc_idx;
+      frag->snap_sz  = parse->acc_snap_sz;
+      frag->data_sz  = (uint)meta->tspub;
       out_sz = sizeof(fd_backup_disk_msg_t);
     }
 

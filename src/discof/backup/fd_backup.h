@@ -91,6 +91,7 @@ struct fd_backup_disk_msg {
   fd_pubkey_t pubkey;
   fd_pubkey_t owner;
   uint        size;
+  uint        data_len;
   uint        acc_idx;
   uint        snap_sz;
   uint        data_sz;
