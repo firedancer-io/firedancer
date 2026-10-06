@@ -29,6 +29,7 @@ struct fd_grpc_h2_stream {
   long tx_wnd_debt;            /* send-window deficit from an initial-window shrink below consumed credit; repaid from WINDOW_UPDATEs before new credit counts */
   uint has_header_deadline : 1;
   uint has_rx_end_deadline : 1;
+  uint rst_pending         : 1; /* timed out, RST_STREAM waits for frame_tx space */
 };
 
 /* Declare a pool of stream objects.
