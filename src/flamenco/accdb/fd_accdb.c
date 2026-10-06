@@ -4397,29 +4397,26 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
       used_bytes_removed += old_sz;
       replaced_lamports += accmeta->lamports;
       replaced++;
-
-      accmeta->cache_idx       = (uint)slots[ i ];
-      accmeta->lamports        = lamports[ i ];
-      accmeta->executable_size = FD_ACCDB_SIZE_PACK( (uint)data_lens[ i ], executables[ i ] )
-                               | FD_ACCDB_SIZE_SNAPSHOT_BIT;
-      ulong file_off           = file_offsets[ i ];
-      accmeta->offset_fork     = incremental ? fd_accdb_acc_pack_offset_fork( file_off, fork_id.val ) : file_off;
-      FD_COMPILER_MFENCE();
     } else {
       accmeta = acquired[ acquired_used++ ];
 
-      uint acc_idx = (uint)acc_pool_idx( accdb->acc_pool_join, accmeta );
-
       fd_memcpy( accmeta->key.pubkey, pubkeys[ i ], 32UL );
       accmeta->key.generation = incremental ? fork_gen : gen;
+    }
 
-      accmeta->cache_idx       = (uint)slots[ i ];
-      accmeta->lamports        = lamports[ i ];
-      accmeta->executable_size = FD_ACCDB_SIZE_PACK( (uint)data_lens[ i ], executables[ i ] )
-                               | FD_ACCDB_SIZE_SNAPSHOT_BIT;
-      ulong file_off           = file_offsets[ i ];
-      accmeta->offset_fork     = incremental ? fd_accdb_acc_pack_offset_fork( file_off, fork_id.val ) : file_off;
-      FD_COMPILER_MFENCE();
+    /* Fill the record now so a node that the step below links into a
+       chain is complete before any reader can reach it. */
+
+    accmeta->cache_idx       = (uint)slots[ i ];
+    accmeta->lamports        = lamports[ i ];
+    accmeta->executable_size = FD_ACCDB_SIZE_PACK( (uint)data_lens[ i ], executables[ i ] )
+                             | FD_ACCDB_SIZE_SNAPSHOT_BIT;
+    ulong file_off           = file_offsets[ i ];
+    accmeta->offset_fork     = incremental ? fd_accdb_acc_pack_offset_fork( file_off, fork_id.val ) : file_off;
+    FD_COMPILER_MFENCE();
+
+    if( FD_LIKELY( !existing ) ) {
+      uint acc_idx = (uint)acc_pool_idx( accdb->acc_pool_join, accmeta );
 
       if( FD_UNLIKELY( behind ) ) {
         /* Readers must meet the live version first, so link the loaded
