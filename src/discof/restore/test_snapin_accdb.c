@@ -313,9 +313,8 @@ test_env_fini( test_env_t *          env,
 }
 
 static void
-test_snapin_accdb( ulong worker_cnt ) {
-  test_account_t accounts[ TEST_ACCOUNT_CNT ];
-  fd_memset( accounts, 0, sizeof(accounts) );
+fill_accounts( test_account_t * accounts ) {
+  fd_memset( accounts, 0, TEST_ACCOUNT_CNT*sizeof(test_account_t) );
   for( ulong i=0UL; i<TEST_ACCOUNT_CNT; i++ ) {
     accounts[ i ].pubkey[ 0 ] = (uchar)(i+1UL);
     accounts[ i ].pubkey[ 31 ] = 0xC3U;
@@ -329,6 +328,12 @@ test_snapin_accdb( ulong worker_cnt ) {
   for( ulong i=0UL; i<accounts[ FD_SSPARSE_ACC_BATCH_MAX ].data_len; i++ ) {
     accounts[ FD_SSPARSE_ACC_BATCH_MAX ].data[ i ] = (uchar)(0x40UL+i);
   }
+}
+
+static void
+test_snapin_accdb( ulong worker_cnt ) {
+  test_account_t accounts[ TEST_ACCOUNT_CNT ];
+  fill_accounts( accounts );
 
   uchar tar[ 16384UL ];
   ulong tar_sz = build_snapshot( tar, sizeof(tar), accounts );
@@ -337,6 +342,83 @@ test_snapin_accdb( ulong worker_cnt ) {
   test_env_init( env, worker_cnt );
   dispatch_snapshot( env, tar, tar_sz );
   test_env_fini( env, accounts );
+}
+
+/* Under instant boot the lead loads into hidden nodes while the
+   validator runs from the boot stream, and the bank state the boot
+   stream provides is not taken from the snapshot. */
+
+static ulong
+stake_delegation_cnt( fd_stake_delegations_t const * stake_delegations ) {
+  ulong cnt = 0UL;
+  fd_stake_delegations_iter_t iter_[ 1 ];
+  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
+       !fd_stake_delegations_iter_done( iter );
+       fd_stake_delegations_iter_next( iter ) ) {
+    cnt++;
+  }
+  return cnt;
+}
+
+/* A funded, delegated stake account, the kind writer_flush snoops. */
+
+static void
+stage_stake_account( fd_snapin_tile_t * ctx,
+                     uchar const *      pubkey ) {
+  uchar data[ FD_STAKE_STATE_SZ ] = {0};
+  FD_STORE( uint, data, FD_STAKE_STATE_STAKE );
+  FD_TEST( fd_stake_state_view( data, sizeof(data) ) );
+  FD_TEST( !writer_append_account( ctx, pubkey, fd_solana_stake_program_id.uc, data,
+                                   100UL, 1000UL, sizeof(data), 0 ) );
+}
+
+static void
+test_instant_boot_skips_bank_state( void ) {
+  test_account_t accounts[ TEST_ACCOUNT_CNT ];
+  fill_accounts( accounts );
+
+  uchar tar[ 16384UL ];
+  ulong tar_sz = build_snapshot( tar, sizeof(tar), accounts );
+
+  test_env_t env[ 1 ];
+  test_env_init( env, 9UL );
+  for( ulong i=0UL; i<env->worker_cnt; i++ ) env->worker[ i ].instant_boot = 1;
+
+  /* What the lead's setup leaves behind: the load is hidden from
+     every join but its own.  The rest of the setup needs the accdb
+     tile to service fd_accdb_reset, which this harness does not
+     run. */
+  fd_accdb_snapshot_hide( env->worker[ 0 ].accdb, 1 );
+  fd_accdb_show_hidden  ( env->worker[ 0 ].accdb, 1 );
+
+  dispatch_snapshot( env, tar, tar_sz );
+  uchar stake_pubkey[ 32UL ] = { 0xD1U };
+  stage_stake_account( &env->worker[ 0 ], stake_pubkey );
+  for( ulong i=0UL; i<env->worker_cnt; i++ ) FD_TEST( !writer_flush( &env->worker[ i ] ) );
+
+  /* The stake delegations come from the boot stream, so the snoop did
+     not run. */
+  FD_TEST( !stake_delegation_cnt( env->worker[ 0 ].stake_delegations ) );
+
+  /* A plain join cannot see the loaded accounts until the lead
+     unhides them. */
+  fd_accdb_t * plain = env->worker[ 1 ].accdb;
+  FD_TEST( !fd_accdb_exists  ( plain, env->root, accounts[ 0 ].pubkey ) );
+  FD_TEST( !fd_accdb_lamports( plain, env->root, accounts[ 0 ].pubkey ) );
+  FD_TEST( !fd_accdb_lamports( plain, env->root, stake_pubkey ) );
+
+  /* The lead still reads back what it wrote, which is how it verifies
+     sysvars and capitalization. */
+  FD_TEST( fd_accdb_lamports( env->worker[ 0 ].accdb, env->root, accounts[ 0 ].pubkey )==accounts[ 0 ].lamports );
+
+  fd_accdb_snapshot_hide( env->worker[ 0 ].accdb, 0 );
+  for( ulong i=0UL; i<TEST_ACCOUNT_CNT; i++ ) {
+    FD_TEST( fd_accdb_lamports( plain, env->root, accounts[ i ].pubkey )==accounts[ i ].lamports );
+  }
+  FD_TEST( fd_accdb_lamports( plain, env->root, stake_pubkey )==1000UL );
+
+  fd_accdb_snapshot_load_end( env->worker[ 0 ].accdb );
+  test_env_free( env );
 }
 
 /* Capitalization across a full and an incremental snapshot whose
@@ -454,6 +536,7 @@ main( int     argc,
   test_snapin_accdb( 9UL );
   test_capitalization_versions_past_2_64();
   test_capitalization_crafted_mismatch();
+  test_instant_boot_skips_bank_state();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

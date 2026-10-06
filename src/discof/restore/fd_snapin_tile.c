@@ -26,6 +26,7 @@
 #include "../../disco/stem/fd_stem.h"
 #include "../../flamenco/accdb/fd_accdb.h"
 #include "../../disco/events/generated/fd_event_gen.h"
+#include "../../tango/fseq/fd_fseq.h"
 
 #include <linux/futex.h>
 #include "generated/fd_snapin_tile_seccomp.h"
@@ -167,6 +168,11 @@ struct fd_snapin_lead {
   fd_txncache_t * txncache;
   fd_bank_t *  bank;
 
+  /* Instant boot: did the one time setup run, and the counter replay
+     watches for the end of the background load. */
+  int     setup_done;
+  ulong * done_fseq;
+
   fd_ssmanifest_parser_t * manifest_parser;
   fd_slot_delta_parser_t * slot_delta_parser;
 
@@ -237,6 +243,14 @@ struct fd_snapin_shmem {
   /* Stake delegations fork for incremental writes, USHORT_MAX for full. */
   ushort stake_fork;
 
+  /* Instant boot: the lead publishes the forks it created, then
+     setup_done.  stream_slot is the boot stream's manifest slot,
+     published by the stream tile. */
+  ulong setup_done;
+  ulong boot_fork_id;
+  ulong incr_fork_id;
+  ulong stream_slot;
+
   /* Per-tile attempt values.  Lamport totals are 128-bit <*_hi,*>:
      they count every account version, which can pass 2^64. */
   struct __attribute__((aligned(128))) {
@@ -257,6 +271,10 @@ typedef struct fd_snapin_shmem fd_snapin_shmem_t;
 struct fd_snapin_tile {
   int  state;
   uint full : 1;  /* loading a full snapshot? */
+
+  /* Load into hidden nodes while the validator runs from a boot
+     stream, taking the bank state from that stream instead. */
+  int instant_boot;
 
   fd_snapin_lead_t lead;
 
@@ -443,6 +461,11 @@ verify_slot_deltas_with_slot_history( fd_snapin_tile_t * ctx,
     FD_LOG_WARNING(( "SlotHistory sysvar has invalid bitvec block count: %lu != expected: %lu", view->blocks_len, FD_SLOT_HISTORY_MAX_ENTRIES/64UL ));
     return -1;
   }
+
+  /* Instant boot takes the status cache from the boot stream and never
+     parses this snapshot's slot deltas, so there is nothing to
+     cross-check them against. */
+  if( FD_UNLIKELY( ctx->instant_boot ) ) return 0;
 
   /* All slots in slot deltas should be present in the slot history */
   fd_slot_delta_slot_set_t slot_set = fd_slot_delta_parser_slot_set( ctx->lead.slot_delta_parser );
@@ -749,6 +772,9 @@ clear_control_barrier( fd_snapin_tile_t * ctx ) {
 static void
 transition_malformed( fd_snapin_tile_t *  ctx,
                       fd_stem_context_t * stem ) {
+  /* Instant boot cannot retry: the forks and the hidden nodes of the
+     failed attempt are already in the accounts database. */
+  if( FD_UNLIKELY( ctx->instant_boot ) ) FD_LOG_ERR(( "instant boot: snapshot load failed, restart with instant boot disabled" ));
   if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_ERROR ) ) return;
   ctx->state = FD_SNAPSHOT_STATE_ERROR;
   fd_stem_publish( stem, ctx->ct_out.idx, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
@@ -1218,10 +1244,13 @@ process_manifest( fd_snapin_tile_t *  ctx,
     return;
   }
 
-  if( FD_UNLIKELY( populate_txncache( ctx, manifest->blockhashes, manifest->blockhashes_len, manifest->slot ) ) ) {
-    FD_LOG_WARNING(( "populating txncache failed" ));
-    transition_malformed( ctx, stem );
-    return;
+  /* Instant boot takes the status cache from the boot stream. */
+  if( FD_LIKELY( !ctx->instant_boot ) ) {
+    if( FD_UNLIKELY( populate_txncache( ctx, manifest->blockhashes, manifest->blockhashes_len, manifest->slot ) ) ) {
+      FD_LOG_WARNING(( "populating txncache failed" ));
+      transition_malformed( ctx, stem );
+      return;
+    }
   }
 
   if( ctx->full ) {
@@ -1233,7 +1262,25 @@ process_manifest( fd_snapin_tile_t *  ctx,
       transition_malformed( ctx, stem );
       return;
     }
+
+    /* The boot stream carries every account the validator touched
+       since its own manifest slot, with the value it had at that slot.
+       An older incremental would reinstate values the stream has
+       already moved past. */
+    if( FD_UNLIKELY( ctx->instant_boot ) ) {
+      ulong stream_slot = FD_VOLATILE_CONST( ctx->shmem->stream_slot );
+      if( FD_UNLIKELY( !stream_slot ) ) {
+        FD_LOG_ERR(( "instant boot: incremental snapshot arrived before the boot stream manifest" ));
+      }
+      if( FD_UNLIKELY( manifest->slot<stream_slot ) ) {
+        FD_LOG_ERR(( "instant boot: incremental snapshot slot %lu is older than the boot stream slot %lu", manifest->slot, stream_slot ));
+      }
+    }
   }
+
+  /* Instant boot boots replay from the boot stream's manifest, so this
+     one is validated but never published. */
+  if( FD_UNLIKELY( ctx->instant_boot ) ) return;
 
   manifest->accdb_fork_id    = fd_ushort_if( ctx->full, ctx->lead.accdb_root_fork_id.val, ctx->lead.accdb_incr_fork_id.val );
   manifest->txncache_fork_id = ctx->lead.txncache_root_fork_id.val;
@@ -1353,8 +1400,10 @@ writer_flush( fd_snapin_tile_t * ctx ) {
 
     /* Update the snooped stake delegations.  Anything that is not a
        delegation and replaced a funded version tombstones it, so a tile
-       still holding the older version cannot leave it behind. */
-    for( ulong i=0UL; i<cnt; i++ ) {
+       still holding the older version cannot leave it behind.  Instant
+       boot takes the stake delegations from the boot stream. */
+    ulong snoop_cnt = fd_ulong_if( ctx->instant_boot, 0UL, cnt );
+    for( ulong i=0UL; i<snoop_cnt; i++ ) {
       if( FD_UNLIKELY( results[ i ]==FD_ACCDB_SNAPSHOT_WRITE_IGNORED ) ) continue;
 
       ulong               lamports = batch->lamports[ batch_off+i ];
@@ -1589,6 +1638,13 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
       case FD_SSPARSE_ADVANCE_STATUS_CACHE: {
         /* Tile 0 only. */
         if( FD_LIKELY( !is_lead( ctx ) ) ) break;
+
+        /* Instant boot takes the status cache from the boot stream, so
+           discard these bytes and just note when they run out. */
+        if( FD_UNLIKELY( ctx->instant_boot ) ) {
+          if( FD_UNLIKELY( result->status_cache.done ) ) ctx->lead.flags.status_cache_done = 1;
+          break;
+        }
 
         fd_slot_delta_parser_advance_result_t sd_result[1];
         ulong bytes_remaining = result->status_cache.data_sz;
@@ -1826,11 +1882,15 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
 
       ctx->lead.manifest_capitalization = 0UL;
 
-      fd_txncache_reset( ctx->lead.txncache );
-      txncache_staging_reset( ctx );
-      ctx->lead.blockhash_groups = txncache_staging_scratch( ctx );
+      /* Instant boot takes the status cache from the boot stream, and
+         the stream tile owns the txncache. */
+      if( FD_LIKELY( !ctx->instant_boot ) ) {
+        fd_txncache_reset( ctx->lead.txncache );
+        txncache_staging_reset( ctx );
+        ctx->lead.blockhash_groups = txncache_staging_scratch( ctx );
+        fd_slot_delta_parser_init( ctx->lead.slot_delta_parser );
+      }
       fd_ssmanifest_parser_init( ctx->lead.manifest_parser, fd_chunk_to_laddr( ctx->lead.manifest_out.mem, ctx->lead.manifest_out.chunk ) );
-      fd_slot_delta_parser_init( ctx->lead.slot_delta_parser );
       fd_memset( &ctx->lead.flags,    0, sizeof(ctx->lead.flags)    );
 
       ushort stake_fork = USHORT_MAX;
@@ -1839,19 +1899,26 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         ctx->lead.recovery.capitalization            = 0UL;
         fd_memset( &ctx->lead.account_counts, 0, sizeof(ctx->lead.account_counts) );
 
-        fd_stake_delegations_reset( ctx->stake_delegations );
-        fd_accdb_reset( ctx->accdb );
-        fd_accdb_fork_id_t null_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
-        ctx->lead.accdb_root_fork_id = fd_accdb_attach_child( ctx->accdb, null_fork_id );
+        /* Instant boot already created the forks and began the load,
+           and takes the stake delegations from the boot stream. */
+        if( FD_LIKELY( !ctx->instant_boot ) ) {
+          fd_stake_delegations_reset( ctx->stake_delegations );
+          fd_accdb_reset( ctx->accdb );
+          fd_accdb_fork_id_t null_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
+          ctx->lead.accdb_root_fork_id = fd_accdb_attach_child( ctx->accdb, null_fork_id );
 
-        fd_accdb_snapshot_load_begin( ctx->accdb );
+          fd_accdb_snapshot_load_begin( ctx->accdb );
+        }
       } else {
         /* Create a child fork for incremental writes.  On failure,
            fd_accdb_purge(child) reverts just the incremental changes.
            On success, fd_accdb_advance_root(child) promotes them.  The
-           stake delegations get a fork likewise. */
-        ctx->lead.accdb_incr_fork_id = fd_accdb_attach_child( ctx->accdb, ctx->lead.accdb_root_fork_id );
-        stake_fork                   = fd_stake_delegations_new_fork( ctx->stake_delegations, USHORT_MAX );
+           stake delegations get a fork likewise.  Instant boot created
+           the incremental fork at setup. */
+        if( FD_LIKELY( !ctx->instant_boot ) ) {
+          ctx->lead.accdb_incr_fork_id = fd_accdb_attach_child( ctx->accdb, ctx->lead.accdb_root_fork_id );
+          stake_fork                   = fd_stake_delegations_new_fork( ctx->stake_delegations, USHORT_MAX );
+        }
       }
 
       /* Save the slot advertised by the snapshot peer and verify it
@@ -1975,6 +2042,13 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       }
 
       fold_account_counts( ctx );
+
+      /* Everything is written and verified, so hand the loaded
+         accounts over to the running validator.  This has to happen
+         before the root advance below, which refuses to run while
+         loader nodes are hidden. */
+      if( FD_UNLIKELY( ctx->instant_boot ) ) fd_accdb_snapshot_hide( ctx->accdb, 0 );
+
       if( !ctx->full ) {
         fd_accdb_snapshot_recover_delta( ctx->accdb, ctx->lead.accdb_incr_fork_id );
         /* ensure that snapin tile sees all delta changes before rooting */
@@ -1982,12 +2056,25 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         fd_accdb_advance_root( ctx->accdb, ctx->lead.accdb_incr_fork_id );
         ctx->lead.accdb_root_fork_id = ctx->lead.accdb_incr_fork_id;
         ctx->lead.accdb_incr_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
-        ushort stake_fork = FD_VOLATILE_CONST( ctx->shmem->stake_fork );
-        fd_stake_delegations_advance_root( 0UL, NULL, NULL, 0, 1, ctx->stake_delegations, stake_fork, NULL );
-        fd_stake_delegations_evict_fork( ctx->stake_delegations, stake_fork );
+        /* Instant boot takes the stake delegations from the boot
+           stream, so there is no fork of them to apply. */
+        if( FD_LIKELY( !ctx->instant_boot ) ) {
+          ushort stake_fork = FD_VOLATILE_CONST( ctx->shmem->stake_fork );
+          fd_stake_delegations_advance_root( 0UL, NULL, NULL, 0, 1, ctx->stake_delegations, stake_fork, NULL );
+          fd_stake_delegations_evict_fork( ctx->stake_delegations, stake_fork );
+        }
       }
 
       fd_accdb_snapshot_load_end( ctx->accdb );
+
+      /* Instant boot takes the features from the boot stream, and
+         tells replay the background load is done with a counter
+         instead of a message. */
+      if( FD_UNLIKELY( ctx->instant_boot ) ) {
+        fd_fseq_update( ctx->lead.done_fseq, 1UL );
+        ctx->lead.init_completed = 0;
+        break;
+      }
 
       /* TODO: Pass in tile_idx and tile_cnt when parallelizing snapin */
       fd_features_restore_chunk( &ctx->lead.bank->f.features, ctx->accdb, ctx->lead.accdb_root_fork_id, ctx->lead.bank_slot, &ctx->lead.epoch_schedule, 0UL, 1UL );
@@ -2052,6 +2139,39 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
   if( FD_LIKELY( forward_msg ) ) {
     fd_stem_publish( stem, ctx->ct_out.idx, sig, 0UL, 0UL, 0UL, 0UL, 0UL );
   }
+}
+
+/* instant_boot_setup runs once on the lead before any snapshot data
+   arrives.  It creates the fork the snapshot loads into, the fork the
+   boot stream writes into, hides everything the loader writes from the
+   running validator, and keeps this join able to read it back for
+   verification. */
+
+static void
+instant_boot_setup( fd_snapin_tile_t * ctx ) {
+  fd_fseq_update( ctx->lead.done_fseq, 0UL );
+  fd_accdb_reset( ctx->accdb );
+  fd_accdb_fork_id_t null_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
+  ctx->lead.accdb_root_fork_id = fd_accdb_attach_child( ctx->accdb, null_fork_id );
+  ctx->lead.accdb_incr_fork_id = fd_accdb_attach_child( ctx->accdb, ctx->lead.accdb_root_fork_id );
+  fd_accdb_fork_id_t boot_fork = fd_accdb_attach_child( ctx->accdb, ctx->lead.accdb_incr_fork_id );
+  fd_accdb_snapshot_load_begin( ctx->accdb );
+  fd_accdb_snapshot_hide( ctx->accdb, 1 );
+  fd_accdb_show_hidden( ctx->accdb, 1 );
+  FD_VOLATILE( ctx->shmem->boot_fork_id ) = boot_fork.val;
+  FD_VOLATILE( ctx->shmem->incr_fork_id ) = ctx->lead.accdb_incr_fork_id.val;
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( ctx->shmem->setup_done ) = 1UL;
+  ctx->lead.setup_done = 1;
+}
+
+static void
+before_credit( fd_snapin_tile_t *  ctx,
+               fd_stem_context_t * stem FD_PARAM_UNUSED,
+               int *               charge_busy ) {
+  if( FD_LIKELY( !ctx->instant_boot || ctx->lead.setup_done || !is_lead( ctx ) ) ) return;
+  instant_boot_setup( ctx );
+  *charge_busy = 1;
 }
 
 static inline int
@@ -2251,6 +2371,12 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->full     = 1;
   ctx->state    = FD_SNAPSHOT_STATE_IDLE;
   ctx->lane_cnt = tile->in_cnt;
+
+  /* The stream tile shares this code but parses the boot stream, not
+     the snapshot, so it does none of the loader side of instant
+     boot. */
+  ctx->instant_boot = tile->snapin.instant_boot && !tile->snapin.stream;
+
   clear_control_barrier( ctx );
   fd_memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
 
@@ -2298,8 +2424,16 @@ unprivileged_init( fd_topo_t const *      topo,
 
   /* Tile 0 state. */
   ctx->lead.init_completed = 0;
+  ctx->lead.setup_done     = 0;
   ctx->lead.txncache_max_groups_per_slot = tile->snapin.max_txn_per_slot;
   ctx->lead.txncache_max_entries_per_slot = 2UL*tile->snapin.max_txn_per_slot;
+
+  /* The counter replay and the stream pipeline watch for the end of
+     the background load. */
+  if( FD_UNLIKELY( ctx->instant_boot ) ) {
+    ctx->lead.done_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->snapin.instant_boot_done_obj_id ) );
+    FD_TEST( ctx->lead.done_fseq );
+  }
 
   void * _txncache           = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),               fd_txncache_footprint( tile->snapin.max_live_slots ) );
   void * _manifest_parser    = FD_SCRATCH_ALLOC_APPEND( l, fd_ssmanifest_parser_align(),      fd_ssmanifest_parser_footprint()                             );
@@ -2368,6 +2502,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
 #define STEM_CALLBACK_SHOULD_SHUTDOWN should_shutdown
 #define STEM_CALLBACK_METRICS_WRITE   metrics_write
+#define STEM_CALLBACK_BEFORE_CREDIT   before_credit
 #define STEM_CALLBACK_BEFORE_FRAG     before_frag
 #define STEM_CALLBACK_RETURNABLE_FRAG returnable_frag
 
