@@ -160,7 +160,7 @@ ENCODE_FN {
   }
   case STATE_EPOCH_STAKES: {
     ulong epoch_key = epoch_stakes_key      ( bank, enc->epoch_idx );
-    int   iter_kind = epoch_stakes_iter_kind( bank, enc->epoch_idx );
+    int   iter_kind = fd_ssmanifest_epoch_iter_kind( bank, enc->epoch_idx );
     fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
     ulong              fork_id     = bank->vote_stakes_fork_id;
 
@@ -181,7 +181,7 @@ ENCODE_FN {
     break;
   }
   case STATE_EPOCH_STAKES_STAKES: {
-    int iter_kind = epoch_stakes_iter_kind( bank, enc->epoch_idx );
+    int iter_kind = fd_ssmanifest_epoch_iter_kind( bank, enc->epoch_idx );
 
     fd_pubkey_t pubkey       = {0};
     ulong       stake        = 0UL;
@@ -297,7 +297,7 @@ ENCODE_FN {
   }
   case STATE_EPOCH_STAKE_HISTORY: { __builtin_unreachable(); }
   case STATE_EPOCH_TOTAL_STAKE: {
-    int iter_kind = epoch_stakes_iter_kind( bank, enc->epoch_idx );
+    int iter_kind = fd_ssmanifest_epoch_iter_kind( bank, enc->epoch_idx );
     ulong total_stake = (iter_kind==FD_VOTE_STAKES_ITER_T_1) ? bank->f.total_epoch_stake : enc->total_stake;
     PUSH_VAL( ulong, total_stake );
     enc->state = STATE_NODE_VOTE_ACCOUNTS;

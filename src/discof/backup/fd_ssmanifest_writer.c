@@ -42,21 +42,15 @@ epoch_stakes_key( fd_bank_t const * bank,
   return ( epoch>3UL ? epoch-3UL : 0UL ) + epoch_idx;
 }
 
-static inline int
-epoch_stakes_iter_kind( fd_bank_t const * bank,
-                        ulong             epoch_idx ) {
+FD_FN_PURE int
+fd_ssmanifest_epoch_iter_kind( fd_bank_t const * bank,
+                               ulong             epoch_idx ) {
   return (int)( bank->f.epoch + 2UL - epoch_stakes_key( bank, epoch_idx ) );
 }
 
 FD_FN_PURE ulong
 fd_ssmanifest_epoch_cnt( fd_bank_t const * bank ) {
   return fd_ulong_min( bank->f.epoch, 3UL ) + 2UL;
-}
-
-FD_FN_PURE int
-fd_ssmanifest_epoch_iter_kind( fd_bank_t const * bank,
-                               ulong             epoch_idx ) {
-  return epoch_stakes_iter_kind( bank, epoch_idx );
 }
 
 static fd_epoch_credits_t const *
@@ -100,7 +94,7 @@ fd_ssmanifest_writer_init( fd_ssmanifest_writer_t * enc,
   for( ulong epoch_idx=0UL; epoch_idx<epoch_cnt; epoch_idx++ ) {
     fd_ssmanifest_epoch_map_t * map = &enc->epoch_map[ epoch_idx ];
     ulong epoch_key = epoch_stakes_key( bank, epoch_idx );
-    int   iter_kind = epoch_stakes_iter_kind( bank, epoch_idx );
+    int   iter_kind = fd_ssmanifest_epoch_iter_kind( bank, epoch_idx );
 
     /* Agave only reads the maps of the previous, current and next
        epoch.  Older sets keep empty maps. */
