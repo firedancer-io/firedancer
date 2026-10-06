@@ -176,6 +176,11 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, alignof(fd_replay_txn_timing_t),     FD_REPLAY_TXN_TIMING_SLOTS*tile->replay.max_txn_per_slot*sizeof(fd_replay_txn_timing_t) );
   l = FD_LAYOUT_APPEND( l, alignof(ulong),                      tile->replay.max_live_slots*sizeof(ulong) );
   l = FD_LAYOUT_APPEND( l, alignof(fd_reasm_fec_t *),           (tile->replay.max_shreds_per_block/FD_FEC_SHRED_CNT)*sizeof(fd_reasm_fec_t *) );
+  /* Fork cancellations deferred while instant boot hides the loader
+     nodes from the accounts database. */
+  if( FD_UNLIKELY( tile->replay.instant_boot ) ) {
+    l = FD_LAYOUT_APPEND( l, alignof(fd_accdb_fork_id_t),       tile->replay.max_live_slots*sizeof(fd_accdb_fork_id_t) );
+  }
 
   if( FD_UNLIKELY( tile->replay.dump_block_to_pb ) ) {
     l = FD_LAYOUT_APPEND( l, fd_block_dump_context_align(), fd_block_dump_context_footprint() );
@@ -1586,6 +1591,9 @@ static inline int
 try_become_leader_ag( fd_replay_tile_t *  ctx,
                       fd_stem_context_t * stem ) {
 
+  /* Instant boot cannot lead until the real snapshot has loaded. */
+  if( FD_UNLIKELY( ctx->instant_boot && !ctx->load_done ) ) return 0;
+
   /* Mirrors check from try_become_leader. */
 
   if( FD_LIKELY( ctx->next_leader_slot==ULONG_MAX ||
@@ -2015,49 +2023,22 @@ refresh_vote_account_staked( fd_replay_tile_t * ctx,
   ctx->vote_account_inadmissible = !!status.effective;
 }
 
+/* finish_stake_state completes the parts of booting that need every
+   account to be present: the root stake delegations, the bank's stake
+   totals, our own vote account's stake, and any epoch rewards payout
+   that was already running.  Instant boot runs this once the
+   background snapshot load is done, every other boot runs it inline
+   from init_after_snapshot. */
+
 static void
-init_after_snapshot( fd_replay_tile_t *  ctx,
-                     fd_stem_context_t * stem ) {
-  /* snapin built the root stake delegations while writing the accounts
-     db index.  Refresh finalizes them in memory. */
+finish_stake_state( fd_replay_tile_t * ctx ) {
   fd_bank_t * bank = fd_banks_bank_query( ctx->banks, FD_REPLAY_BOOT_BANK_SEQ );
   if( FD_UNLIKELY( !bank ) ) {
     FD_LOG_CRIT(( "invariant violation: replay bank is NULL at bank index %lu", FD_REPLAY_BOOT_BANK_SEQ ));
   }
 
-  char const * one_offs[ 16UL ];
-  for( ulong i=0UL; i<ctx->enable_features_cnt; i++ ) one_offs[ i ] = ctx->enable_features[ i ];
-  fd_features_enable_one_offs( &bank->f.features, one_offs, (uint)ctx->enable_features_cnt, 0UL );
-
-  /* Set slot params based on the feature gates in the snapshot,
-     and assert that these are consistent with the values from the
-     manifest. These assertions match Agave:
-     https://github.com/anza-xyz/agave/blob/v4.2/runtime/src/bank.rs#L4839-L4869 */
-  fd_slot_params_t manifest_params = bank->f.slot_params;
-  bank->f.slot_params_default      = restore_default_slot_params( bank );
-  bank->f.slot_params              = fd_slot_params_at_slot( bank, bank->f.slot );
-  FD_TEST( bank->f.slot_params.ns_per_slot    == manifest_params.ns_per_slot  );
-  FD_TEST( bank->f.slot_params.slots_per_year == manifest_params.slots_per_year );
-  if( FD_LIKELY( manifest_params.hashes_per_tick && !FD_FEATURE_ACTIVE_BANK( bank, alpenglow ) ) ) {
-    FD_TEST( bank->f.slot_params.hashes_per_tick==manifest_params.hashes_per_tick );
-  }
-
-  fd_runtime_update_next_leaders( bank, ctx->runtime_stack );
-  fd_runtime_update_leaders( bank, ctx->runtime_stack );
-
-  /* Typically, when we cross an epoch boundary during normal
-     operation, we publish the stake weights for the new epoch.  But
-     since we are starting from a snapshot, we need to publish two
-     epochs worth of stake weights: the previous epoch (which is
-     needed for voting on the current epoch), and the current epoch
-     (which is needed for voting on the next epoch). */
-  publish_epoch_info( ctx, stem, bank, 0 );
-  publish_epoch_info( ctx, stem, bank, 1 );
-
-  fd_progcache_reset( ctx->progcache );
-  bank->progcache_fork_id = fd_progcache_fork_id_initial();
-
-  bank->f.warmup_cooldown_rate_epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, bank->f.features.reduce_stake_warmup_cooldown, NULL );
+  /* snapin built the root stake delegations while writing the accounts
+     db index.  Refresh finalizes them in memory. */
   fd_stake_delegations_t * root_delegations = fd_banks_stake_delegations_root_query( ctx->banks );
   fd_stake_history_t stake_history_[1];
   fd_stake_history_t const * stake_history = fd_sysvar_cache_stake_history_view( &bank->f.sysvar_cache, stake_history_ );
@@ -2096,14 +2077,65 @@ init_after_snapshot( fd_replay_tile_t *  ctx,
     }
   }
 
-  fd_vote_stakes_refresh( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id, ctx->accdb, bank->accdb_fork_id );
-
   refresh_vote_account_staked( ctx, bank );
 
   /* After both snapshots have been loaded in, we can determine if we should
      start distributing rewards. */
 
   fd_rewards_recalculate_partitioned_rewards( bank, ctx->accdb, ctx->runtime_stack, ctx->capture_ctx );
+}
+
+/* stakes_ready is 0 only under instant boot, where the stake state is
+   not available yet and finish_stake_state runs later instead. */
+
+static void
+init_after_snapshot( fd_replay_tile_t *  ctx,
+                     fd_stem_context_t * stem,
+                     int                 stakes_ready ) {
+  fd_bank_t * bank = fd_banks_bank_query( ctx->banks, FD_REPLAY_BOOT_BANK_SEQ );
+  if( FD_UNLIKELY( !bank ) ) {
+    FD_LOG_CRIT(( "invariant violation: replay bank is NULL at bank index %lu", FD_REPLAY_BOOT_BANK_SEQ ));
+  }
+
+  char const * one_offs[ 16UL ];
+  for( ulong i=0UL; i<ctx->enable_features_cnt; i++ ) one_offs[ i ] = ctx->enable_features[ i ];
+  fd_features_enable_one_offs( &bank->f.features, one_offs, (uint)ctx->enable_features_cnt, 0UL );
+
+  /* Set slot params based on the feature gates in the snapshot,
+     and assert that these are consistent with the values from the
+     manifest. These assertions match Agave:
+     https://github.com/anza-xyz/agave/blob/v4.2/runtime/src/bank.rs#L4839-L4869 */
+  fd_slot_params_t manifest_params = bank->f.slot_params;
+  bank->f.slot_params_default      = restore_default_slot_params( bank );
+  bank->f.slot_params              = fd_slot_params_at_slot( bank, bank->f.slot );
+  FD_TEST( bank->f.slot_params.ns_per_slot    == manifest_params.ns_per_slot  );
+  FD_TEST( bank->f.slot_params.slots_per_year == manifest_params.slots_per_year );
+  if( FD_LIKELY( manifest_params.hashes_per_tick && !FD_FEATURE_ACTIVE_BANK( bank, alpenglow ) ) ) {
+    FD_TEST( bank->f.slot_params.hashes_per_tick==manifest_params.hashes_per_tick );
+  }
+
+  fd_runtime_update_next_leaders( bank, ctx->runtime_stack );
+  fd_runtime_update_leaders( bank, ctx->runtime_stack );
+
+  /* Typically, when we cross an epoch boundary during normal
+     operation, we publish the stake weights for the new epoch.  But
+     since we are starting from a snapshot, we need to publish two
+     epochs worth of stake weights: the previous epoch (which is
+     needed for voting on the current epoch), and the current epoch
+     (which is needed for voting on the next epoch). */
+  publish_epoch_info( ctx, stem, bank, 0 );
+  publish_epoch_info( ctx, stem, bank, 1 );
+
+  fd_progcache_reset( ctx->progcache );
+  bank->progcache_fork_id = fd_progcache_fork_id_initial();
+
+  bank->f.warmup_cooldown_rate_epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, bank->f.features.reduce_stake_warmup_cooldown, NULL );
+
+  fd_vote_stakes_refresh( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id, ctx->accdb, bank->accdb_fork_id );
+
+  if( FD_LIKELY( stakes_ready ) ) {
+    finish_stake_state( ctx );
+  }
 
   /* Signals fd_startup_gate */
   FD_MGAUGE_SET( REPLAY, RUNTIME_STATUS, 1UL );
@@ -2112,6 +2144,9 @@ init_after_snapshot( fd_replay_tile_t *  ctx,
 static inline int
 try_become_leader( fd_replay_tile_t *  ctx,
                    fd_stem_context_t * stem ) {
+
+  /* Instant boot cannot lead until the real snapshot has loaded. */
+  if( FD_UNLIKELY( ctx->instant_boot && !ctx->load_done ) ) return 0;
 
   if( FD_LIKELY( ctx->next_leader_slot==ULONG_MAX ||
                  ctx->is_leader ||
@@ -2432,7 +2467,7 @@ boot_genesis( fd_replay_tile_t *        ctx,
 
   /* We call this after fd_runtime_read_genesis, which sets up the
      slot_bank needed in blockstore_init. */
-  init_after_snapshot( ctx, stem );
+  init_after_snapshot( ctx, stem, 1 );
 
   ctx->published_root_slot = 0UL;
   fd_sched_block_add_done( ctx->sched, bank->idx, ULONG_MAX, 0UL );
@@ -2607,6 +2642,12 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     /* Agave zeroes manifest rent_params; reload from sysvar account */
     FD_TEST( fd_sysvar_rent_read( ctx->accdb, bank->accdb_fork_id, &bank->f.rent ) );
 
+    /* The boot stream carries the feature accounts but no snapshot
+       loader ran over them, so restore the features here instead. */
+    if( FD_UNLIKELY( ctx->instant_boot ) ) {
+      fd_features_restore_chunk( &bank->f.features, ctx->accdb, bank->accdb_fork_id, bank->f.slot, &bank->f.epoch_schedule, 0UL, 1UL );
+    }
+
     ctx->consensus_root          = manifest_block_id;
     ctx->consensus_root_slot     = snapshot_slot;
     ctx->finalized_block_id_lo   = ag_block_id( snapshot_slot, manifest_block_id.uc );
@@ -2652,7 +2693,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
 
     /* We call this after fd_runtime_read_genesis, which sets up the
        slot_bank needed in blockstore_init. */
-    init_after_snapshot( ctx, stem );
+    init_after_snapshot( ctx, stem, !ctx->instant_boot );
 
     if( FD_LIKELY( !ctx->alpenglow ) ) {
       ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, snapshot_slot+1UL, ctx->identity_pubkey );
@@ -2877,6 +2918,42 @@ mark_bank_dead( fd_replay_tile_t *        ctx,
   }
 }
 
+/* block_needs_stake_state returns 1 if replaying slot off the bank at
+   parent_bank_idx would read stake state that instant boot has not
+   rebuilt yet: an epoch boundary crosses it, or an epoch rewards
+   payout is in progress. */
+
+static int
+block_needs_stake_state( fd_replay_tile_t * ctx,
+                         ulong              parent_bank_idx,
+                         ulong              slot ) {
+  fd_bank_t * parent = fd_banks_bank_query( ctx->banks, parent_bank_idx );
+  if( FD_UNLIKELY( !parent ) ) return 1;
+  if( FD_UNLIKELY( fd_slot_to_epoch( &parent->f.epoch_schedule, slot, NULL )>parent->f.epoch ) ) return 1;
+  if( FD_UNLIKELY( parent->stake_rewards_fork_id!=USHORT_MAX ) ) return 1;
+  /* The same read fd_rewards_recalculate_partitioned_rewards does to
+     decide whether a payout is running. */
+  fd_sysvar_epoch_rewards_t epoch_rewards[1];
+  if( FD_UNLIKELY( fd_sysvar_cache_epoch_rewards_read( &parent->f.sysvar_cache, epoch_rewards ) && epoch_rewards->active ) ) return 1;
+  return 0;
+}
+
+/* block_start_blocked returns 1 while instant boot must not start
+   replaying slot: the boot stream has not written it into the boot
+   fork yet, or the block needs the deferred stake state.  The slot
+   counter seeds ULONG_MAX, which means no slot at all. */
+
+static int
+block_start_blocked( fd_replay_tile_t * ctx,
+                     ulong              parent_bank_idx,
+                     ulong              slot ) {
+  if( FD_LIKELY( !ctx->instant_boot || ctx->load_done ) ) return 0;
+  ulong marker = FD_VOLATILE_CONST( *ctx->instant_boot_slot );
+  marker = fd_ulong_if( marker==ULONG_MAX, 0UL, marker );
+  if( FD_UNLIKELY( slot>marker ) ) return 1;
+  return block_needs_stake_state( ctx, parent_bank_idx, slot );
+}
+
 static int
 try_replay( fd_replay_tile_t *  ctx,
             fd_stem_context_t * stem ) {
@@ -2886,6 +2963,16 @@ try_replay( fd_replay_tile_t *  ctx,
   /* Hold off executing until the computed shred version is known, so
      footer certs verify under it. */
   if( FD_UNLIKELY( ctx->alpenglow && !ctx->shred_version ) ) return 0;
+
+  /* The scheduler hands out a block start only once, so a start the
+     gate held back is serviced from here once the gate opens. */
+  if( FD_UNLIKELY( ctx->held_block_start.pending ) ) {
+    if( FD_UNLIKELY( block_start_blocked( ctx, ctx->held_block_start.parent_bank_idx, ctx->held_block_start.slot ) ) ) return 0;
+    replay_block_start( ctx, ctx->held_block_start.bank_idx, ctx->held_block_start.parent_bank_idx, ctx->held_block_start.slot );
+    fd_sched_task_done( ctx->sched, FD_SCHED_TT_BLOCK_START, ULONG_MAX, ULONG_MAX, NULL );
+    ctx->held_block_start.pending = 0;
+    return 1;
+  }
 
   int charge_busy = 0;
   fd_sched_task_t task[ 1 ];
@@ -2897,6 +2984,15 @@ try_replay( fd_replay_tile_t *  ctx,
 
   switch( task->task_type ) {
     case FD_SCHED_TT_BLOCK_START: {
+      /* Park the start rather than complete it, so the scheduler keeps
+         the block in flight while instant boot waits. */
+      if( FD_UNLIKELY( block_start_blocked( ctx, task->block_start->parent_bank_idx, task->block_start->slot ) ) ) {
+        ctx->held_block_start.pending         = 1;
+        ctx->held_block_start.bank_idx        = task->block_start->bank_idx;
+        ctx->held_block_start.parent_bank_idx = task->block_start->parent_bank_idx;
+        ctx->held_block_start.slot            = task->block_start->slot;
+        break;
+      }
       replay_block_start( ctx, task->block_start->bank_idx, task->block_start->parent_bank_idx, task->block_start->slot );
       fd_sched_task_done( ctx->sched, FD_SCHED_TT_BLOCK_START, ULONG_MAX, ULONG_MAX, NULL );
       break;
@@ -3572,6 +3668,10 @@ static int
 try_advance_published_root( fd_replay_tile_t *  ctx,
                             fd_stem_context_t * stem ) {
 
+  /* The accounts database refuses a root advance while the background
+     load hides its nodes, which is the whole instant boot window. */
+  if( FD_UNLIKELY( ctx->instant_boot && !ctx->load_done ) ) return 0;
+
   if( FD_LIKELY( ctx->published_root_slot==ctx->consensus_root_slot ) ) return 0;
 
   /* accdb pauses advance_root while producing a snapshot, so submitting
@@ -3729,7 +3829,14 @@ try_prune_bank( fd_replay_tile_t * ctx ) {
     case 2: { /* pruning bank + cancellation is needed */
       fd_txncache_cancel_fork( ctx->txncache,  cancel_info->txncache_fork_id );
       fd_progcache_cancel_fork( ctx->progcache, cancel_info->progcache_fork_id );
-      fd_accdb_purge( ctx->accdb, cancel_info->accdb_fork_id );
+      /* The accounts database refuses a purge while the background
+         load hides its nodes, so the fork waits for the load to end. */
+      if( FD_UNLIKELY( ctx->instant_boot && !ctx->load_done ) ) {
+        FD_TEST( ctx->deferred_purge_cnt<ctx->max_live_slots );
+        ctx->deferred_purge[ ctx->deferred_purge_cnt++ ] = cancel_info->accdb_fork_id;
+      } else {
+        fd_accdb_purge( ctx->accdb, cancel_info->accdb_fork_id );
+      }
       __attribute__((fallthrough));
     }
     case 1: { /* pruning bank + no cancellation is needed */
@@ -3899,6 +4006,20 @@ after_credit( fd_replay_tile_t *  ctx,
               fd_stem_context_t * stem,
               int *               opt_poll_in,
               int *               charge_busy ) {
+  /* The background snapshot load finished, so the deferred startup
+     work can run and every instant boot gate can open.  The counter
+     seeds ULONG_MAX, so only a 1 means done. */
+  if( FD_UNLIKELY( ctx->instant_boot && !ctx->load_done && ctx->is_booted &&
+                   FD_VOLATILE_CONST( *ctx->instant_boot_done )==1UL ) ) {
+    finish_stake_state( ctx );
+    for( ulong i=0UL; i<ctx->deferred_purge_cnt; i++ ) {
+      fd_accdb_purge( ctx->accdb, ctx->deferred_purge[ i ] );
+    }
+    ctx->deferred_purge_cnt = 0UL;
+    ctx->load_done          = 1;
+    FD_LOG_NOTICE(( "instant boot: snapshot load finished, stake state complete" ));
+  }
+
   if( FD_UNLIKELY( ctx->halt_replay && !ctx->is_leader ) ) return;
   if( FD_UNLIKELY( !ctx->is_booted || !ctx->wfs_complete ) ) return;
 
@@ -5284,6 +5405,8 @@ unprivileged_init( fd_topo_t const *      topo,
   void * timing_rec_mem     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_replay_txn_timing_t), FD_REPLAY_TXN_TIMING_SLOTS*tile->replay.max_txn_per_slot*sizeof(fd_replay_txn_timing_t) );
   void * timing_of_bank_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),               tile->replay.max_live_slots*sizeof(ulong) );
   void * backfill_path_mem  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_reasm_fec_t *),    (tile->replay.max_shreds_per_block/FD_FEC_SHRED_CNT)*sizeof(fd_reasm_fec_t *) );
+  void * deferred_purge_mem = tile->replay.instant_boot ?
+                              FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_fork_id_t),   tile->replay.max_live_slots*sizeof(fd_accdb_fork_id_t) ) : NULL;
   void * block_dump_ctx     = NULL;
   if( FD_UNLIKELY( tile->replay.dump_block_to_pb ) ) {
     block_dump_ctx = FD_SCRATCH_ALLOC_APPEND( l, fd_block_dump_context_align(), fd_block_dump_context_footprint() );
@@ -5424,6 +5547,20 @@ unprivileged_init( fd_topo_t const *      topo,
   }
 
   ctx->is_booted = 0;
+
+  ctx->instant_boot             = tile->replay.instant_boot;
+  ctx->load_done                = 0;
+  ctx->instant_boot_slot        = NULL;
+  ctx->instant_boot_done        = NULL;
+  ctx->held_block_start.pending = 0;
+  ctx->deferred_purge           = deferred_purge_mem;
+  ctx->deferred_purge_cnt       = 0UL;
+  if( FD_UNLIKELY( ctx->instant_boot ) ) {
+    ctx->instant_boot_slot = fd_fseq_join( fd_topo_obj_laddr( topo, tile->replay.instant_boot_slot_obj_id ) );
+    FD_TEST( ctx->instant_boot_slot );
+    ctx->instant_boot_done = fd_fseq_join( fd_topo_obj_laddr( topo, tile->replay.instant_boot_done_obj_id ) );
+    FD_TEST( ctx->instant_boot_done );
+  }
 
   ctx->tick_per_ns = fd_tempo_tick_per_ns( NULL );
 

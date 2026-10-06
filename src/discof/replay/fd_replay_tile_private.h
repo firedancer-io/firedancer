@@ -443,6 +443,34 @@ struct fd_replay_tile {
      or from genesis. */
   int is_booted;
 
+  /* Instant boot executes live blocks off a boot stream while the real
+     snapshot loads in the background.  instant_boot_slot is the last
+     slot the stream has written into the boot fork and
+     instant_boot_done turns 1 when the background load is finished.
+     Both counters seed ULONG_MAX, which means not ready yet.
+     load_done latches the end of that window. */
+  int           instant_boot;
+  int           load_done;
+  ulong const * instant_boot_slot;
+  ulong const * instant_boot_done;
+
+  /* A block start that the instant boot gate is holding back.  The
+     scheduler signals a block start only once, so it is parked here
+     until the gate opens. */
+  struct {
+    int   pending;
+    ulong bank_idx;
+    ulong parent_bank_idx;
+    ulong slot;
+  } held_block_start;
+
+  /* Fork cancellations that piled up while the accounts database was
+     refusing purges during the background load.  At most one entry per
+     live slot can be outstanding, since an unpurged fork still holds
+     its slot in the accounts database. */
+  fd_accdb_fork_id_t * deferred_purge; /* [max_live_slots] */
+  ulong                deferred_purge_cnt;
+
   /* Buffer to store vote towers that need to be published to the Tower
      tile. */
 
