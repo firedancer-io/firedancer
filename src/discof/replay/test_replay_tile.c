@@ -5201,8 +5201,7 @@ test_strmk_hold_ring( fd_wksp_t * wksp ) {
   ulong second_token = strmk_hold_add( ctx, test_stem, ctx->strmk_start_hold, bank  );
   FD_TEST( first_token!=second_token );
 
-  ctx->in_kind[ TEST_REPAIR_IN_IDX ] = IN_KIND_RPC;
-  ctx->strmk_in_idx                  = TEST_REPAIR_IN_IDX;
+  ctx->in_kind[ TEST_REPAIR_IN_IDX ] = IN_KIND_STRMK;
   FD_TEST( !returnable_frag( ctx, TEST_REPAIR_IN_IDX, 0UL, other_token, 0UL, 0UL, 0UL, 0UL, 0UL, test_stem ) );
   FD_TEST( !other->refcnt );
   FD_TEST( ctx->strmk_start_hold->hold[ (ctx->strmk_start_hold->head+1UL)%FD_REPLAY_STRMK_HOLD_MAX ].token==ULONG_MAX );

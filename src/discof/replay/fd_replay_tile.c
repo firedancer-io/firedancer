@@ -115,6 +115,7 @@
 #define IN_KIND_SNAPMK     (11)
 #define IN_KIND_ADMIN      (12)
 #define IN_KIND_VOTOR      (13)
+#define IN_KIND_STRMK      (14)
 
 #define DEBUG_LOGGING 0
 
@@ -5782,21 +5783,25 @@ returnable_frag( fd_replay_tile_t *  ctx,
       break;
     }
     case IN_KIND_RPC: {
-      /* The rpc tile returns a bank by index.  The stream tile returns
-         one by the token it was given, which names a single hold and
-         carries that hold's bank index: a token replay no longer has
-         releases nothing, because a reset already did.  A sentinel is
-         a malformed message rather than a bank. */
-      ulong bank_idx = sig;
-      if( FD_UNLIKELY( sig==ULONG_MAX ) ) break;
-      if( FD_UNLIKELY( in_idx==ctx->strmk_in_idx ) ) {
-        if( FD_UNLIKELY( !strmk_hold_release( ctx, stem, sig ) ) ) break;
-        bank_idx = FD_REPLAY_STRMK_TOKEN_BANK( sig );
-      }
-      fd_bank_t * bank = fd_banks_bank_query( ctx->banks, bank_idx );
+      fd_bank_t * bank = fd_banks_bank_query( ctx->banks, sig );
       FD_TEST( bank );
       bank->refcnt--;
-      FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt decremented to %lu for %s", bank->idx, bank->f.slot, bank->refcnt, in_idx==ctx->strmk_in_idx ? "strmk" : "rpc" ));
+      FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt decremented to %lu for rpc", bank->idx, bank->f.slot, bank->refcnt ));
+      break;
+    }
+    case IN_KIND_STRMK: {
+      /* The stream tile returns a bank by the token it was given,
+         which names a single hold and carries that hold's bank index.
+         A token replay no longer has releases nothing, because a reset
+         already did.  A sig of ULONG_MAX names no bank, so it is a
+         malformed message: a released ring entry carries that same
+         value, and matching one would release a bank that is gone. */
+      if( FD_UNLIKELY( sig==ULONG_MAX ) ) break;
+      if( FD_UNLIKELY( !strmk_hold_release( ctx, stem, sig ) ) ) break;
+      fd_bank_t * bank = fd_banks_bank_query( ctx->banks, FD_REPLAY_STRMK_TOKEN_BANK( sig ) );
+      FD_TEST( bank );
+      bank->refcnt--;
+      FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt decremented to %lu for strmk", bank->idx, bank->f.slot, bank->refcnt ));
       break;
     }
     case IN_KIND_SNAPMK:
@@ -6102,7 +6107,6 @@ unprivileged_init( fd_topo_t const *      topo,
   }
 
   ctx->instant_boot_serve      = tile->replay.instant_boot_serve;
-  ctx->strmk_in_idx            = ULONG_MAX;
   ctx->strmk_keys->full        = 0;
   ctx->strmk_keys->keys->max   = FD_SCHED_INGEST_ADDR_MAX;
   ctx->strmk_keys->keys->cnt   = 0UL;
@@ -6258,7 +6262,7 @@ unprivileged_init( fd_topo_t const *      topo,
     else if( !strcmp( link->name, "repair_out"    ) ) ctx->in_kind[ i ] = IN_KIND_REPAIR;
     else if( !strcmp( link->name, "txsend_out"    ) ) ctx->in_kind[ i ] = IN_KIND_TXSEND;
     else if( !strcmp( link->name, "rpc_replay"    ) ) ctx->in_kind[ i ] = IN_KIND_RPC;
-    else if( !strcmp( link->name, "strmk_replay"  ) ) ctx->in_kind[ i ] = IN_KIND_RPC;
+    else if( !strcmp( link->name, "strmk_replay"  ) ) ctx->in_kind[ i ] = IN_KIND_STRMK;
     else if( !strcmp( link->name, "gossip_misc"   ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_OUT;
     else if( !strcmp( link->name, "snapmk_out"    ) ) ctx->in_kind[ i ] = IN_KIND_SNAPMK;
     else if( !strcmp( link->name, "admin_replay"  ) ) ctx->in_kind[ i ] = IN_KIND_ADMIN;
@@ -6269,10 +6273,6 @@ unprivileged_init( fd_topo_t const *      topo,
     if( ctx->in_kind[ i ]==IN_KIND_ADMIN ) {
       FD_TEST( ( ctx->admin_out_idx = fd_topo_find_tile_out_link( topo, tile, "replay_admin", 0UL ) )!=ULONG_MAX );
     }
-
-    /* The stream tile and the rpc tile both return banks by index, but
-       only the stream tile's returns pair with a recorded hold. */
-    if( FD_UNLIKELY( !strcmp( link->name, "strmk_replay" ) ) ) ctx->strmk_in_idx = i;
   }
 
   *ctx->epoch_out  = out1( topo, tile, "replay_epoch" ); FD_TEST( ctx->epoch_out->idx!=ULONG_MAX );
