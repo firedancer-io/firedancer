@@ -10,22 +10,27 @@ ENCODE_FN {
 
   switch( enc->state ) {
   case STATE_BLOCKHASH_QUEUE: {
-    fd_blockhashes_t const *    bhq = &bank->f.block_hash_queue;
-    fd_blockhash_info_t const * deq = bhq->d.deque;
-    ulong total    = fd_blockhash_deq_cnt( deq );
-    ulong to_write = fd_ulong_min( total, FD_BLOCKHASHES_MAX );
-    ulong to_skip  = total - to_write;
-    PUSH_VAL( ulong, to_write-1UL ); /* last hash index */
-    fd_hash_t const * last_hash = fd_blockhashes_peek_last_hash( bhq );
-    PUSH_VAL( uchar, !!last_hash );
-    if( last_hash ) PUSH_VAL( fd_hash_t, *last_hash );
+    fd_blockhashes_t const *    bhq   = &bank->f.block_hash_queue;
+    fd_blockhash_info_t const * deq   = bhq->d.deque;
+    ulong                       total = fd_blockhash_deq_cnt( deq );
 
-    PUSH_VAL( ulong, to_write );
-    for( ulong i=0UL; i<to_write; i++ ) {
-      fd_blockhash_info_t const * ele = fd_blockhash_deq_peek_index_const( deq, to_skip+i );
+    /* Write the newest FD_BLOCKHASHES_MAX entries by count, each at its
+       own absolute hash_index. with skipped indices it can keep an
+       entry older than max_age. */
+    ulong cnt     = fd_ulong_min( total, FD_BLOCKHASHES_MAX );
+    ulong to_skip = total - cnt;
+
+    fd_blockhash_info_t const * last = fd_blockhashes_peek_last( bhq );
+    PUSH_VAL( ulong, last ? last->hash_index : 0UL ); /* last hash index */
+    PUSH_VAL( uchar, !!last );
+    if( last ) PUSH_VAL( fd_hash_t, last->hash );
+
+    PUSH_VAL( ulong, cnt );
+    for( ulong i=to_skip; i<total; i++ ) {
+      fd_blockhash_info_t const * ele = fd_blockhash_deq_peek_index_const( deq, i );
       PUSH_VAL( fd_hash_t, ele->hash );
       PUSH_VAL( ulong,     ele->lamports_per_signature );
-      PUSH_VAL( ulong,     i );
+      PUSH_VAL( ulong,     ele->hash_index );
       PUSH_VAL( ulong,     0UL ); /* timestamp, ignored */
     }
     PUSH_VAL( ulong, FD_BLOCKHASHES_MAX-1UL ); /* max_age */

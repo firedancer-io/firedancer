@@ -120,6 +120,78 @@ test_sysvar_recent_hashes_update( fd_wksp_t * wksp ) {
   test_sysvar_cache_env_destroy( env );
 }
 
+/* hash_index values can skip (see fd_blockhashes.h), when
+   agave-ledger-tool re-registers a blockhash.  Agave builds the sysvar
+   from the 150 queue entries with the highest hash_index, newest first
+   (recent_blockhashes_account::update_account), so skipped indices do
+   not count towards the 150: with indices skipped among the newest, the
+   sysvar reaches past age 150.
+
+   Build that queue the way snapshot load does: entries in ascending
+   hash_index order, each carrying its own index.  The queue covers
+   indices 0..199 with 197 and 198 (ages 1 and 2) and 99 (age 100)
+   skipped. */
+
+static void
+test_sysvar_recent_hashes_holes( fd_wksp_t * wksp ) {
+  test_sysvar_cache_env_t env[1];
+  FD_TEST( test_sysvar_cache_env_create( env, wksp ) );
+
+  fd_rent_t const rent = {
+    .lamports_per_uint8_year = 3480UL,
+    .exemption_threshold     = 2.0,
+    .burn_percent            = 100
+  };
+  env->bank->f.rent = rent;
+
+  ulong const span = 200UL;
+# define IS_HOLE(i) ( (i)==99UL || (i)==197UL || (i)==198UL )
+
+  fd_blockhashes_t * blockhashes = fd_blockhashes_init( &env->bank->f.block_hash_queue, 0UL );
+  FD_TEST( blockhashes );
+  for( ulong i=0UL; i<span; i++ ) {
+    if( IS_HOLE( i ) ) continue;
+    fd_blockhash_info_t * info = fd_blockhash_deq_push_tail_nocopy( blockhashes->d.deque );
+    fd_memset( info, 0, sizeof(fd_blockhash_info_t) );
+    info->hash.ul[0]             = 0x7EC5UL;
+    info->hash.ul[3]             = i;
+    info->lamports_per_signature = 2000UL+i;
+    info->hash_index             = i;
+    fd_blockhash_map_ele_insert( blockhashes->map, info, blockhashes->d.deque );
+  }
+
+  fd_sysvar_recent_hashes_init( env->bank, env->accdb, NULL );
+  fd_sysvar_cache_restore( env->bank, env->accdb );
+
+  ulong sz = 0UL;
+  uchar const * data = fd_sysvar_cache_data_query( env->sysvar_cache, &fd_sysvar_recent_block_hashes_id, &sz );
+  FD_TEST( data && sz==FD_SYSVAR_RECENT_HASHES_BINCODE_SZ );
+  FD_TEST( FD_LOAD( ulong, data )==150UL ); /* count of entries, not of indices */
+
+  /* Expected: hash_index 199, 196, 195, ..., 100, 98, ..., stopping at
+     150 entries.  The three skipped indices push the oldest entry down
+     to index 47, i.e. age 152. */
+  ulong idx = span;
+  for( ulong i=0UL; i<150UL; i++ ) {
+    do idx--; while( IS_HOLE( idx ) );
+    uchar const *   entry = data+8UL + i*40UL;
+    fd_hash_t const hash  = FD_LOAD( fd_hash_t, entry    );
+    ulong     const lps   = FD_LOAD( ulong,     entry+32 );
+    FD_TEST( hash.ul[0]==0x7EC5UL );
+    FD_TEST( hash.ul[3]==idx       );
+    FD_TEST( lps       ==2000UL+idx );
+  }
+  FD_TEST( idx==47UL );
+
+  /* The next entry, index 46, is in the queue but not encoded. */
+  fd_hash_t past = { .ul = { 0x7EC5UL, 0UL, 0UL, 46UL } };
+  FD_TEST( fd_blockhashes_check_age( blockhashes, &past, ULONG_MAX )==1 );
+  FD_TEST( fd_mem_iszero8( data+8UL+150UL*40UL, FD_SYSVAR_RECENT_HASHES_BINCODE_SZ-8UL-150UL*40UL ) );
+
+# undef IS_HOLE
+  test_sysvar_cache_env_destroy( env );
+}
+
 static void
 test_sysvar_recent_hashes_validate( void ) {
   FD_TEST( !fd_sysvar_recent_hashes_validate( NULL, 0 ) );
@@ -134,5 +206,6 @@ static void
 test_sysvar_recent_hashes( fd_wksp_t * wksp ) {
   test_sysvar_recent_hashes_init( wksp );
   test_sysvar_recent_hashes_update( wksp );
+  test_sysvar_recent_hashes_holes( wksp );
   test_sysvar_recent_hashes_validate();
 }

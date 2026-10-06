@@ -395,25 +395,33 @@ dump_blockhash_queue( fd_bank_t *                             bank,
                       fd_spad_t *                             spad,
                       fd_exec_test_blockhash_queue_entry_t ** entries_out,
                       pb_size_t *                             count_out ) {
-  fd_blockhashes_t const * bhq      = &bank->f.block_hash_queue;
-  ulong                    bhq_size = fd_ulong_min( FD_BLOCKHASHES_MAX, fd_blockhash_deq_cnt( bhq->d.deque ) );
+  fd_blockhashes_t const * bhq   = &bank->f.block_hash_queue;
+  ulong                    total = fd_blockhash_deq_cnt( bhq->d.deque );
+
+  /* Dump the entries with age at most FD_BLOCKHASHES_MAX-1, oldest
+     first.  The deque is in ascending hash_index order, so they are a
+     suffix.  Note the protobuf has no hash_index, so a restored queue
+     gets consecutive indices: skipped indices (see fd_blockhashes.h) do
+     not survive the round trip. */
+
+  ulong to_skip = 0UL;
+  while( to_skip<total &&
+         fd_blockhashes_age( bhq, fd_blockhash_deq_peek_index_const( bhq->d.deque, to_skip ) )>FD_BLOCKHASHES_MAX-1UL ) to_skip++;
+  ulong live = total - to_skip;
 
   fd_exec_test_blockhash_queue_entry_t * entries = fd_spad_alloc( spad,
       alignof(fd_exec_test_blockhash_queue_entry_t),
-      bhq_size * sizeof(fd_exec_test_blockhash_queue_entry_t) );
+      live * sizeof(fd_exec_test_blockhash_queue_entry_t) );
 
-  ulong cnt = 0UL;
-  for( fd_blockhash_deq_iter_t iter=fd_blockhash_deq_iter_init_rev( bhq->d.deque );
-       !fd_blockhash_deq_iter_done_rev( bhq->d.deque, iter ) && cnt<bhq_size;
-       iter=fd_blockhash_deq_iter_prev( bhq->d.deque, iter ), cnt++ ) {
-    fd_blockhash_info_t const * ele   = fd_blockhash_deq_iter_ele_const( bhq->d.deque, iter );
-    fd_exec_test_blockhash_queue_entry_t * entry = &entries[bhq_size-cnt-1UL];
+  for( ulong i=0UL; i<live; i++ ) {
+    fd_blockhash_info_t const *            ele   = fd_blockhash_deq_peek_index_const( bhq->d.deque, to_skip+i );
+    fd_exec_test_blockhash_queue_entry_t * entry = &entries[ i ];
     fd_memcpy( entry->blockhash, ele->hash.uc, sizeof(fd_hash_t) );
     entry->lamports_per_signature = ele->lamports_per_signature;
   }
 
   *entries_out = entries;
-  *count_out   = (pb_size_t)bhq_size;
+  *count_out   = (pb_size_t)live;
 }
 
 static void

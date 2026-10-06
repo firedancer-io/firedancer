@@ -2317,6 +2317,55 @@ test_populate_txncache_rejects_invalid_blockhash_age( fd_wksp_t * wksp ) {
   FD_TEST( populate_txncache( ctx, blockhashes, 3UL, 1002UL )==0 );
 }
 
+/* agave-ledger-tool create-snapshot synthesizes child banks whose
+   ticks repeat the parent's blockhash, so several rooted slots share
+   one blockhash and the queue has holes where the older registrations
+   were.  Slots 1001, 1002 and 1003 all registered test_blockhash_1001:
+   hash_index 1 and 2 are holes and the hash survives at index 3.  A
+   transaction in slot 1001 referencing slot 1000's blockhash is still
+   strictly newer than it, and executed in the link that blockhash
+   survives as. */
+static void
+test_populate_txncache_slot_attribution_with_holes( fd_wksp_t * wksp ) {
+  fd_snapin_tile_t * ctx = test_ctx;
+  test_populate_txncache_ctx_init( ctx, wksp );
+
+  fd_snapshot_manifest_blockhash_t blockhashes[ FD_BLOCKHASHES_MAX ] = {0};
+  blockhashes[ 0UL ].hash_index = 0UL;
+  fd_memcpy( blockhashes[ 0UL ].hash, test_blockhash_1000, 32UL );
+  blockhashes[ 1UL ].hash_index = 3UL;
+  fd_memcpy( blockhashes[ 1UL ].hash, test_blockhash_1001, 32UL );
+  uchar txn_1001_bh_1000[ 32UL ];
+  test_txnhash_init( txn_1001_bh_1000, 0x40 );
+
+  FD_TEST( txncache_staging_slot_begin( ctx, 1000UL )==0UL );
+  FD_TEST( txncache_staging_slot_begin( ctx, 1001UL )==1UL );
+  FD_TEST( !txncache_staging_group_begin( ctx, test_blockhash_1000, 5UL ) );
+  FD_TEST( !txncache_staging_entry_add( ctx, 1001UL, txn_1001_bh_1000+5UL ) );
+  FD_TEST( txncache_staging_slot_begin( ctx, 1002UL )==2UL );
+  FD_TEST( txncache_staging_slot_begin( ctx, 1003UL )==3UL );
+
+  FD_TEST( populate_txncache( ctx, blockhashes, 2UL, 1003UL )==0 );
+  FD_TEST( ctx->lead.recent_groups_len==1UL );
+  FD_TEST( ctx->lead.recent_groups[ 0 ].blockhash_bank_i==1UL );
+  FD_TEST( ctx->lead.recent_groups[ 0 ].execution_bank_i==0UL );
+
+  fd_txncache_fork_id_t child_of_root = fd_txncache_attach_child( ctx->lead.txncache, ctx->lead.txncache_root_fork_id );
+  FD_TEST( fd_txncache_query( ctx->lead.txncache, child_of_root, test_blockhash_1000, txn_1001_bh_1000 ) );
+
+  /* A transaction in slot 1000 referencing slot 1000's own blockhash is
+     still rejected: holes must not relax the age check. */
+  fd_txncache_reset( ctx->lead.txncache );
+  txncache_staging_reset( ctx );
+  FD_TEST( txncache_staging_slot_begin( ctx, 1000UL )==0UL );
+  FD_TEST( !txncache_staging_group_begin( ctx, test_blockhash_1000, 5UL ) );
+  FD_TEST( !txncache_staging_entry_add( ctx, 1000UL, txn_1001_bh_1000+5UL ) );
+  FD_TEST( txncache_staging_slot_begin( ctx, 1001UL )==1UL );
+  FD_TEST( txncache_staging_slot_begin( ctx, 1002UL )==2UL );
+  FD_TEST( txncache_staging_slot_begin( ctx, 1003UL )==3UL );
+  FD_TEST( populate_txncache( ctx, blockhashes, 2UL, 1003UL )==1 );
+}
+
 static void
 test_populate_txncache_requires_snapshot_slot_delta( fd_wksp_t * wksp ) {
   fd_snapin_tile_t * ctx = test_ctx;
@@ -2347,6 +2396,120 @@ test_parse_status_cache( fd_snapin_tile_t * ctx,
   FD_TEST( !handle_data_frag( ctx, 0UL, 0UL, status_cache_sz, (fd_stem_context_t *)1UL ) );
   FD_TEST( test_parser_call_cnt==1UL );
   FD_TEST( ctx->lead.flags.status_cache_done );
+}
+
+static void
+test_txncache_staging_populate_with_index_gap( fd_wksp_t * wksp ) {
+  fd_snapin_tile_t * ctx = test_ctx;
+  test_populate_txncache_ctx_init( ctx, wksp );
+
+  /* Same as test_txncache_staging_populate_inserts_recent_only, but the
+     blockhash queue has a gap in its hash_index sequence. */
+  static uchar const root_parent_blockhash[ 32UL ] = { 0xA1 };
+  static uchar const snapshot_blockhash[ 32UL ]    = { 0xA2 };
+  static uchar const nonce[ 32UL ]                 = { 0xC3 };
+  uchar txnhash_recent[ 32UL ];
+  uchar txnhash_nonce [ 32UL ];
+  for( ulong i=0UL; i<32UL; i++ ) {
+    txnhash_recent[ i ] = (uchar)(i+1UL);
+    txnhash_nonce [ i ] = (uchar)(0x80UL+i);
+  }
+
+  uchar status_cache[ 169UL ] __attribute__((aligned(FD_CHUNK_ALIGN)));
+  uchar const * status_blockhashes[ 2UL ] = { nonce,         root_parent_blockhash };
+  uchar const * status_txnhashes [ 2UL ] = { txnhash_nonce, txnhash_recent        };
+  ulong const   status_offsets   [ 2UL ] = { 7UL,           5UL                   };
+  uchar * p = status_cache;
+  FD_STORE( ulong, p, 1UL );    p += sizeof(ulong);
+  FD_STORE( ulong, p, 1000UL ); p += sizeof(ulong);
+  *p++ = 1U;
+  FD_STORE( ulong, p, 2UL );    p += sizeof(ulong);
+  for( ulong i=0UL; i<2UL; i++ ) {
+    fd_memcpy( p, status_blockhashes[ i ], 32UL ); p += 32UL;
+    FD_STORE( ulong, p, status_offsets[ i ] );     p += sizeof(ulong);
+    FD_STORE( ulong, p, 1UL );                     p += sizeof(ulong);
+    fd_memcpy( p, status_txnhashes[ i ]+status_offsets[ i ], 20UL ); p += 20UL;
+    FD_STORE( uint, p, 0U ); p += sizeof(uint);
+  }
+  FD_TEST( p==status_cache+sizeof(status_cache) );
+
+  test_parse_status_cache( ctx, status_cache, sizeof(status_cache) );
+  FD_TEST( ctx->lead.txncache_slots_len==1UL );
+  FD_TEST( ctx->lead.txncache_slots[ 0UL ].group_cnt==2UL );
+  FD_TEST( ctx->lead.txncache_slots[ 0UL ].entry_cnt==2UL );
+
+  /* hash_index 11 and 12 are absent, as happens when a blockhash is
+     registered again and Agave's HashMap drops the older index.  The
+     surviving entries must still chain, newest first, so the root's
+     parent at index 10 is the parent of the root at index 13.  Listed
+     newest first to also cover unsorted input. */
+  fd_snapshot_manifest_blockhash_t blockhashes[ FD_BLOCKHASHES_MAX ] = {{ .hash_index = 13UL }, { .hash_index = 10UL }};
+  fd_memcpy( blockhashes[ 0UL ].hash, snapshot_blockhash,    32UL );
+  fd_memcpy( blockhashes[ 1UL ].hash, root_parent_blockhash, 32UL );
+  FD_TEST( populate_txncache( ctx, blockhashes, 2UL, 1000UL )==0 );
+  FD_TEST( ctx->lead.recent_groups_len==1UL );
+  FD_TEST( ctx->lead.recent_groups[ 0 ].blockhash_bank_i==1UL );
+
+  fd_txncache_fork_id_t child = fd_txncache_attach_child( ctx->lead.txncache, ctx->lead.txncache_root_fork_id );
+  FD_TEST(  fd_txncache_query( ctx->lead.txncache, child, root_parent_blockhash, txnhash_recent ) );
+  FD_TEST( !fd_txncache_query( ctx->lead.txncache, child, root_parent_blockhash, txnhash_nonce  ) );
+}
+
+static void
+test_txncache_staging_populate_expired_by_index( fd_wksp_t * wksp ) {
+  fd_snapin_tile_t * ctx = test_ctx;
+  test_populate_txncache_ctx_init( ctx, wksp );
+
+  /* Same setup as the gap test, but the gap pushes the referenced
+     blockhash past MAX_PROCESSING_AGE by hash_index. */
+  static uchar const old_blockhash[ 32UL ]      = { 0xA1 };
+  static uchar const snapshot_blockhash[ 32UL ] = { 0xA2 };
+  static uchar const nonce[ 32UL ]              = { 0xC3 };
+  uchar txnhash_recent[ 32UL ];
+  uchar txnhash_nonce [ 32UL ];
+  for( ulong i=0UL; i<32UL; i++ ) {
+    txnhash_recent[ i ] = (uchar)(i+1UL);
+    txnhash_nonce [ i ] = (uchar)(0x80UL+i);
+  }
+
+  uchar status_cache[ 169UL ] __attribute__((aligned(FD_CHUNK_ALIGN)));
+  uchar const * status_blockhashes[ 2UL ] = { nonce,         old_blockhash  };
+  uchar const * status_txnhashes [ 2UL ] = { txnhash_nonce, txnhash_recent };
+  ulong const   status_offsets   [ 2UL ] = { 7UL,           5UL            };
+  uchar * p = status_cache;
+  FD_STORE( ulong, p, 1UL );    p += sizeof(ulong);
+  FD_STORE( ulong, p, 1000UL ); p += sizeof(ulong);
+  *p++ = 1U;
+  FD_STORE( ulong, p, 2UL );    p += sizeof(ulong);
+  for( ulong i=0UL; i<2UL; i++ ) {
+    fd_memcpy( p, status_blockhashes[ i ], 32UL ); p += 32UL;
+    FD_STORE( ulong, p, status_offsets[ i ] );     p += sizeof(ulong);
+    FD_STORE( ulong, p, 1UL );                     p += sizeof(ulong);
+    fd_memcpy( p, status_txnhashes[ i ]+status_offsets[ i ], 20UL ); p += 20UL;
+    FD_STORE( uint, p, 0U ); p += sizeof(uint);
+  }
+  FD_TEST( p==status_cache+sizeof(status_cache) );
+
+  test_parse_status_cache( ctx, status_cache, sizeof(status_cache) );
+  FD_TEST( ctx->lead.txncache_slots_len==1UL );
+  FD_TEST( ctx->lead.txncache_slots[ 0UL ].group_cnt==2UL );
+  FD_TEST( ctx->lead.txncache_slots[ 0UL ].entry_cnt==2UL );
+
+  /* old_blockhash is the only other live entry, but it sits 151
+     indices behind the root, so by hash_index age it is expired.  It
+     must not be pulled into the recent set just because the entries
+     between are holes. */
+  fd_snapshot_manifest_blockhash_t blockhashes[ FD_BLOCKHASHES_MAX ] = {{ .hash_index = 1000UL }, { .hash_index = 849UL }};
+  fd_memcpy( blockhashes[ 0UL ].hash, snapshot_blockhash, 32UL );
+  fd_memcpy( blockhashes[ 1UL ].hash, old_blockhash,      32UL );
+  FD_TEST( populate_txncache( ctx, blockhashes, 2UL, 1000UL )==0 );
+  FD_TEST( ctx->lead.recent_groups_len==0UL );
+
+  /* old_blockhash is not on the chain at all, so it cannot be queried
+     (the runtime's age check rejects it first).  The root's own
+     blockhash is on the chain and must hold nothing. */
+  fd_txncache_fork_id_t child = fd_txncache_attach_child( ctx->lead.txncache, ctx->lead.txncache_root_fork_id );
+  FD_TEST( !fd_txncache_query( ctx->lead.txncache, child, snapshot_blockhash, txnhash_recent ) );
 }
 
 static void
@@ -3163,6 +3326,9 @@ main( int     argc,
   fd_wksp_reset( wksp, 1UL ); test_txncache_staging_rejects_conflicting_group_offsets( wksp );
   fd_wksp_reset( wksp, 1UL ); test_txncache_staging_ignores_evicted_group_offsets( wksp );
   fd_wksp_reset( wksp, 1UL ); test_txncache_staging_populate_inserts_recent_only( wksp );
+  fd_wksp_reset( wksp, 1UL ); test_txncache_staging_populate_with_index_gap( wksp );
+  fd_wksp_reset( wksp, 1UL ); test_populate_txncache_slot_attribution_with_holes( wksp );
+  fd_wksp_reset( wksp, 1UL ); test_txncache_staging_populate_expired_by_index( wksp );
   fd_wksp_reset( wksp, 1UL ); test_populate_txncache_slot_attribution( wksp );
   fd_wksp_reset( wksp, 1UL ); test_populate_txncache_rejects_invalid_blockhash_age( wksp );
   fd_wksp_reset( wksp, 1UL ); test_populate_txncache_requires_snapshot_slot_delta( wksp );
