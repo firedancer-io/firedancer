@@ -208,11 +208,20 @@ test_stem_destroy( void ) {
 /* env_create hands the archive writer a file to write into and the
    buffers it compresses through. */
 
+/* The index of the blocks in flight, one entry per bank the test
+   hands out. */
+
+static uint test_bank_block[ TEST_BANK_MAX ];
+
 static void
 env_create( void ) {
   memset( ctx, 0, sizeof(fd_strmk_t) );
   ctx->stream_max = 1U;
   stream          = &ctx->stream[ 0 ];
+
+  memset( test_bank_block, 0xff, sizeof(test_bank_block) );
+  ctx->bank_block = test_bank_block;
+  ctx->bank_max   = TEST_BANK_MAX;
 
   ctx->comp = aligned_alloc( 16UL, STRMK_COMP_BUF_SZ );
   FD_TEST( ctx->comp );
@@ -580,10 +589,7 @@ backlog_env( ulong key_max ) {
   backlog_keys = mmap( NULL, STRMK_BLOCK_MAX*sizeof(strmk_keyset_t), PROT_READ|PROT_WRITE,
                        MAP_PRIVATE|MAP_ANONYMOUS, -1, 0 );
   FD_TEST( backlog_keys!=MAP_FAILED );
-  for( ulong i=0UL; i<STRMK_BLOCK_MAX; i++ ) {
-    ctx->block[ i ].state = STRMK_BLOCK_FREE;
-    ctx->block[ i ].keys  = (strmk_keyset_t *)backlog_keys + i;
-  }
+  for( ulong i=0UL; i<STRMK_BLOCK_MAX; i++ ) ctx->block[ i ].keys = (strmk_keyset_t *)backlog_keys + i;
   ctx->retain_head = 0UL;
   ctx->retain_tail = 0UL;
   mock_bank_clear();
@@ -1185,8 +1191,8 @@ FD_UNIT_TEST( stale_block_start ) {
     .parent_bank_idx = 44UL, .hold_token = 0x1234UL
   };
   strmk_block_start( ctx, test_stem, &msg );
-  strmk_block_t * block = strmk_block_query( ctx, 21UL, 21UL );
-  FD_TEST( block );
+  strmk_block_t * block = strmk_block_bank( ctx, 21UL );
+  FD_TEST( block && block->bank_seq==21UL );
   FD_TEST( block->hold_token==0x1234UL );
   /* bank 44 was never made, so the fork it names is not live */
   FD_TEST( !strmk_fork_live( ctx, block ) );
@@ -1222,10 +1228,10 @@ FD_UNIT_TEST( fork_lost_mid_block ) {
   FD_TEST( stream->sent_cnt<=STRMK_FORK_CHECK_KEYS );
 
   /* a stream that did not take the block is left alone */
-  strmk_block_discard( ctx, test_stem, 0U, block );
+  strmk_block_discard( ctx, test_stem, 0U );
   FD_TEST( stream->open );
   /* and the ones that did are broken */
-  strmk_block_discard( ctx, test_stem, 1U, block );
+  strmk_block_discard( ctx, test_stem, 1U );
   FD_TEST( !stream->open );
 
   backlog_env_destroy();
@@ -1276,9 +1282,9 @@ FD_UNIT_TEST( key_count_guard ) {
   block->bank_seq = 11UL;
 
   fd_strmk_txn_keys_t msg = { .slot = 101UL, .bank_idx = 11UL, .key_cnt = (ushort)( FD_STRMK_TXN_KEY_MAX+1UL ) };
-  strmk_txn_keys( ctx, test_stem, &msg );
+  strmk_txn_keys( ctx, test_stem, &msg, 0 );
   /* the feed was reset, so the block is gone and so is the stream */
-  FD_TEST( !strmk_block_query( ctx, 11UL, 11UL ) );
+  FD_TEST( !strmk_block_bank( ctx, 11UL ) );
   FD_TEST( !stream->open );
 
   backlog_env_destroy();

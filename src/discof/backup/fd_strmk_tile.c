@@ -33,11 +33,10 @@
 #define ZSTD_STATIC_LINKING_ONLY
 #include <zstd.h>
 #include <errno.h>
-#include <linux/futex.h>
 #include <string.h>
-#include <sys/syscall.h>
 
 #include "fd_strmk_tile.h"
+#include "fd_backup_wake.h"
 #include "fd_snapmk_tile.h"
 #include "fd_ssmanifest_writer.h"
 #include "fd_txncache_writer.h"
@@ -248,6 +247,11 @@ struct fd_strmk {
   strmk_stream_t stream[ FD_STRMK_STREAM_MAX ];
   strmk_block_t  block [ STRMK_BLOCK_MAX ];
 
+  /* the block in flight at each bank index, UINT_MAX where there is
+     none, and the number of bank indices replay hands out */
+  uint * bank_block;
+  ulong  bank_max;
+
   /* completed blocks in the order they ended, oldest first, and the
      newest slot that ended since the last reset */
   uint  retain[ STRMK_BLOCK_RETAIN_MAX ];
@@ -287,6 +291,7 @@ struct fd_strmk {
     ulong   chunk0;
     ulong   wmark;
     ulong * seq_prod;
+    int     published; /* a message is waiting for the file server */
   } out;
 
   ulong replay_out_idx;
@@ -323,6 +328,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, 16UL,                              FD_RUNTIME_ACC_SZ_MAX                                   );
   l = FD_LAYOUT_APPEND( l, 16UL,                              STRMK_COMP_BUF_SZ                                       );
   l = FD_LAYOUT_APPEND( l, alignof(strmk_keyset_t),           STRMK_BLOCK_MAX*sizeof(strmk_keyset_t)                  );
+  l = FD_LAYOUT_APPEND( l, alignof(uint),                     max_live_slots*sizeof(uint)                             );
   l = FD_LAYOUT_APPEND( l, 4096UL,                            stream_max*STRMK_RAW_BUF_SZ                             );
   l = FD_LAYOUT_APPEND( l, alignof(strmk_sent_t),             stream_max*key_max*sizeof(strmk_sent_t)                 );
   l = FD_LAYOUT_APPEND( l, 64UL,                              stream_max*zst_sz                                       );
@@ -624,8 +630,9 @@ strmk_carried_insert( strmk_stream_t * stream,
 /* Stream pool                                                        */
 /**********************************************************************/
 
-/* strmk_msg_publish publishes one message on strmk_out and wakes the
-   file server, which sleeps in io_uring and does not poll. */
+/* strmk_msg_publish publishes one message on strmk_out.  A pass can
+   publish one per stream, so the file server is woken once at the end
+   of it rather than per message. */
 
 static void
 strmk_msg_publish( fd_strmk_t *        ctx,
@@ -635,11 +642,19 @@ strmk_msg_publish( fd_strmk_t *        ctx,
   ulong chunk = ctx->out.chunk;
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
   fd_stem_publish( stem, ctx->out.out_idx, msg_type, chunk, sz, 0UL, 0UL, tspub );
-  ctx->out.chunk = fd_dcache_compact_next( chunk, sz, ctx->out.chunk0, ctx->out.wmark );
-  fd_mcache_seq_update( ctx->out.seq_prod, stem->seqs[ ctx->out.out_idx ] );
-  if( FD_UNLIKELY( -1==syscall( SYS_futex, (uint *)ctx->out.seq_prod, FUTEX_WAKE, INT_MAX, NULL, NULL, 0 ) ) ) {
-    FD_LOG_ERR(( "FUTEX_WAKE failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  }
+  ctx->out.chunk     = fd_dcache_compact_next( chunk, sz, ctx->out.chunk0, ctx->out.wmark );
+  ctx->out.published = 1;
+}
+
+/* strmk_msg_flush hands the file server everything the pass
+   published. */
+
+static void
+strmk_msg_flush( fd_strmk_t *        ctx,
+                 fd_stem_context_t * stem ) {
+  if( FD_LIKELY( !ctx->out.published ) ) return;
+  ctx->out.published = 0;
+  fd_backup_out_wake( ctx->out.seq_prod, stem->seqs[ ctx->out.out_idx ] );
 }
 
 /* strmk_bank_release gives a bank reference back to replay by handing
@@ -727,7 +742,6 @@ strmk_stream_close( fd_strmk_t *        ctx,
   stream->sent_cnt  = 0UL;
   stream->sent_full = 0;
   stream->raw_sz    = 0UL;
-  memset( stream->sent, 0, ctx->key_max*sizeof(strmk_sent_t) );
 
   /* A stream the file server was never told about has nothing to
      withdraw. */
@@ -753,16 +767,29 @@ strmk_stream_close( fd_strmk_t *        ctx,
   return listed;
 }
 
+/* strmk_close_mask closes the streams in mask and rewrites the index
+   once, if one of them was named in it. */
+
+static void
+strmk_close_mask( fd_strmk_t *        ctx,
+                  fd_stem_context_t * stem,
+                  uint                mask,
+                  int                 broken ) {
+  int listed = 0;
+  for( uint i=0U; i<ctx->stream_max; i++ ) {
+    if( FD_LIKELY( !( mask & (1U<<i) ) ) ) continue;
+    listed |= strmk_stream_close( ctx, stem, i, broken );
+  }
+  if( FD_UNLIKELY( listed ) ) strmk_index_write( ctx );
+}
+
 /* strmk_streams_break closes every stream because a block that a
-   stream needs can no longer be written, and rewrites the index once
-   for all of them. */
+   stream needs can no longer be written. */
 
 static void
 strmk_streams_break( fd_strmk_t *        ctx,
                      fd_stem_context_t * stem ) {
-  int listed = 0;
-  for( uint i=0U; i<ctx->stream_max; i++ ) listed |= strmk_stream_close( ctx, stem, i, 1 );
-  if( FD_UNLIKELY( listed ) ) strmk_index_write( ctx );
+  strmk_close_mask( ctx, stem, (1U<<ctx->stream_max)-1U, 1 );
 }
 
 /* strmk_streams_expire closes the streams whose lifetime ran out.
@@ -772,16 +799,14 @@ static int
 strmk_streams_expire( fd_strmk_t *        ctx,
                       fd_stem_context_t * stem,
                       long                now ) {
-  int closed = 0;
-  int listed = 0;
+  uint mask = 0U;
   for( uint i=0U; i<ctx->stream_max; i++ ) {
     if( FD_LIKELY( !ctx->stream[ i ].open ) ) continue;
     if( FD_LIKELY( now<ctx->stream[ i ].expires ) ) continue;
-    listed |= strmk_stream_close( ctx, stem, i, 0 );
-    closed  = 1;
+    mask |= 1U<<i;
   }
-  if( FD_UNLIKELY( listed ) ) strmk_index_write( ctx );
-  return closed;
+  strmk_close_mask( ctx, stem, mask, 0 );
+  return !!mask;
 }
 
 /* strmk_stream_publish tells the file server how large a stream is. */
@@ -808,21 +833,6 @@ strmk_stream_publish( fd_strmk_t *        ctx,
 /* Block keys                                                         */
 /**********************************************************************/
 
-/* strmk_block_query returns the block replay is feeding at bank_idx in
-   its bank_seq incarnation, or NULL if the tile is not tracking it. */
-
-static strmk_block_t *
-strmk_block_query( fd_strmk_t * ctx,
-                   ulong        bank_idx,
-                   ulong        bank_seq ) {
-  for( ulong i=0UL; i<STRMK_BLOCK_MAX; i++ ) {
-    if( FD_UNLIKELY( ctx->block[ i ].state==STRMK_BLOCK_LIVE &&
-                     ctx->block[ i ].bank_idx==bank_idx &&
-                     ctx->block[ i ].bank_seq==bank_seq ) ) return &ctx->block[ i ];
-  }
-  return NULL;
-}
-
 /* strmk_block_bank returns the one block in flight at bank_idx.  Keys
    name only the bank index, which is enough because replay ends a
    block before it hands the index out again. */
@@ -830,11 +840,22 @@ strmk_block_query( fd_strmk_t * ctx,
 static strmk_block_t *
 strmk_block_bank( fd_strmk_t * ctx,
                   ulong        bank_idx ) {
-  for( ulong i=0UL; i<STRMK_BLOCK_MAX; i++ ) {
-    if( FD_UNLIKELY( ctx->block[ i ].state==STRMK_BLOCK_LIVE &&
-                     ctx->block[ i ].bank_idx==bank_idx ) ) return &ctx->block[ i ];
-  }
-  return NULL;
+  if( FD_UNLIKELY( bank_idx>=ctx->bank_max ) ) return NULL;
+  uint idx = ctx->bank_block[ bank_idx ];
+  if( FD_UNLIKELY( idx==UINT_MAX ) ) return NULL;
+  return &ctx->block[ idx ];
+}
+
+/* strmk_block_unlive takes a block out of the index of blocks in
+   flight, unless a newer block at the same bank has replaced it
+   there. */
+
+static void
+strmk_block_unlive( fd_strmk_t *          ctx,
+                    strmk_block_t const * block ) {
+  if( FD_UNLIKELY( block->bank_idx>=ctx->bank_max ) ) return;
+  uint idx = (uint)( block-ctx->block );
+  if( FD_LIKELY( ctx->bank_block[ block->bank_idx ]==idx ) ) ctx->bank_block[ block->bank_idx ] = UINT_MAX;
 }
 
 /* strmk_block_alloc takes a free block entry and clears its account
@@ -858,8 +879,10 @@ strmk_block_alloc( fd_strmk_t * ctx ) {
 /* strmk_block_release frees a block entry. */
 
 static void
-strmk_block_release( strmk_block_t * block ) {
+strmk_block_release( fd_strmk_t *    ctx,
+                     strmk_block_t * block ) {
   block->state = STRMK_BLOCK_FREE;
+  strmk_block_unlive( ctx, block );
 }
 
 /* strmk_block_retain keeps a completed block for a stream that opens
@@ -869,10 +892,11 @@ static void
 strmk_block_retain( fd_strmk_t *    ctx,
                     strmk_block_t * block ) {
   if( FD_UNLIKELY( ctx->retain_tail-ctx->retain_head>=STRMK_BLOCK_RETAIN_MAX ) ) {
-    strmk_block_release( &ctx->block[ ctx->retain[ ctx->retain_head%STRMK_BLOCK_RETAIN_MAX ] ] );
+    strmk_block_release( ctx, &ctx->block[ ctx->retain[ ctx->retain_head%STRMK_BLOCK_RETAIN_MAX ] ] );
     ctx->retain_head++;
   }
   block->state = STRMK_BLOCK_DONE;
+  strmk_block_unlive( ctx, block );
   ctx->retain[ ctx->retain_tail%STRMK_BLOCK_RETAIN_MAX ] = (uint)( block-ctx->block );
   ctx->retain_tail++;
 }
@@ -881,7 +905,8 @@ strmk_block_retain( fd_strmk_t *    ctx,
 
 static void
 strmk_blocks_drop( fd_strmk_t * ctx ) {
-  for( ulong i=0UL; i<STRMK_BLOCK_MAX; i++ ) strmk_block_release( &ctx->block[ i ] );
+  for( ulong i=0UL; i<STRMK_BLOCK_MAX; i++ ) ctx->block[ i ].state = STRMK_BLOCK_FREE;
+  for( ulong i=0UL; i<ctx->bank_max;      i++ ) ctx->bank_block[ i ] = UINT_MAX;
   ctx->retain_head   = 0UL;
   ctx->retain_tail   = 0UL;
   ctx->last_end_slot = 0UL;
@@ -1102,14 +1127,22 @@ strmk_block_read( fd_strmk_t *          ctx,
                   strmk_block_t const * block ) {
   strmk_keyset_t const * keys  = block->keys;
   ulong                  since = 0UL;
-  for( ulong i=0UL; i<STRMK_BLOCK_SLOT_MAX; i++ ) {
-    if( FD_LIKELY( keys->used[ i ]==STRMK_KEY_FREE ) ) continue;
-    if( FD_UNLIKELY( ++since>=STRMK_FORK_CHECK_KEYS ) ) {
-      since = 0UL;
-      if( FD_UNLIKELY( !strmk_fork_live( ctx, block ) ) ) return 0;
+  /* Most slots of the set are free, so they are skipped eight at a
+     time.  The bytes of a word come out lowest first, which is the
+     order the slots are in. */
+  for( ulong w=0UL; w<STRMK_BLOCK_SLOT_MAX; w+=8UL ) {
+    ulong used = fd_ulong_load_8( keys->used+w );
+    while( FD_UNLIKELY( used ) ) {
+      ulong byte = (ulong)fd_ulong_find_lsb( used )>>3;
+      ulong i    = w+byte;
+      used &= ~( 0xffUL<<( byte<<3 ) );
+      if( FD_UNLIKELY( ++since>=STRMK_FORK_CHECK_KEYS ) ) {
+        since = 0UL;
+        if( FD_UNLIKELY( !strmk_fork_live( ctx, block ) ) ) return 0;
+      }
+      strmk_write_account( ctx, take, block->parent_fork, &keys->key[ i ], block->slot,
+                           keys->used[ i ]==STRMK_KEY_TABLE );
     }
-    strmk_write_account( ctx, take, block->parent_fork, &keys->key[ i ], block->slot,
-                         keys->used[ i ]==STRMK_KEY_TABLE );
   }
   return strmk_fork_live( ctx, block );
 }
@@ -1170,42 +1203,22 @@ strmk_block_flush( fd_strmk_t *          ctx,
   if( FD_UNLIKELY( listed ) ) strmk_index_write( ctx );
 }
 
-/* strmk_stream_discard throws away what one stream staged and closes
-   it, because a fork it had to read turned out to be gone.  Only that
-   stream is affected: it is the one still being opened, and the
-   streams already being served have the block. */
+/* strmk_block_discard throws away what the streams in take staged for
+   a block and closes them, because the fork the block was read at
+   turned out to be gone.  The streams that did not take the block are
+   not affected: the block was never theirs.  The caller says which of
+   the two cases it is in. */
 
 static void
-strmk_stream_discard( fd_strmk_t *          ctx,
-                      fd_stem_context_t *   stem,
-                      uint                  idx,
-                      strmk_block_t const * block ) {
-  FD_LOG_WARNING(( "the fork slot %lu was read at is gone, not starting the boot stream at slot %lu",
-                   block->slot, ctx->stream[ idx ].slot_x ));
-  ctx->stream[ idx ].raw_sz = 0UL;
-  ctx->stream[ idx ].vec_id = 0UL;
-  if( FD_UNLIKELY( strmk_stream_close( ctx, stem, idx, 1 ) ) ) strmk_index_write( ctx );
-}
-
-/* strmk_block_discard throws away what a block staged and breaks the
-   streams that needed it, because the fork it was read at turned out
-   to be gone.  The streams that did not take the block are not
-   affected: the block was never theirs. */
-
-static void
-strmk_block_discard( fd_strmk_t *          ctx,
-                     fd_stem_context_t *   stem,
-                     uint                  take,
-                     strmk_block_t const * block ) {
-  FD_LOG_WARNING(( "the fork slot %lu was read at is gone, breaking the boot streams that needed it", block->slot ));
-  int listed = 0;
+strmk_block_discard( fd_strmk_t *        ctx,
+                     fd_stem_context_t * stem,
+                     uint                take ) {
   for( uint i=0U; i<ctx->stream_max; i++ ) {
     if( FD_LIKELY( !( take & (1U<<i) ) ) ) continue;
     ctx->stream[ i ].raw_sz = 0UL;
     ctx->stream[ i ].vec_id = 0UL;
-    listed |= strmk_stream_close( ctx, stem, i, 1 );
   }
-  if( FD_UNLIKELY( listed ) ) strmk_index_write( ctx );
+  strmk_close_mask( ctx, stem, take, 1 );
 }
 
 /* strmk_backlog_link marks the kept blocks that chain back to the bank
@@ -1273,7 +1286,9 @@ strmk_backlog_write( fd_strmk_t *        ctx,
     strmk_block_t const * block = &ctx->block[ ctx->retain[ r%STRMK_BLOCK_RETAIN_MAX ] ];
     if( FD_LIKELY( !block->linked ) ) continue;
     if( FD_UNLIKELY( !strmk_fork_live( ctx, block ) || !strmk_block_read( ctx, take, block ) ) ) {
-      strmk_stream_discard( ctx, stem, idx, block );
+      FD_LOG_WARNING(( "the fork slot %lu was read at is gone, not starting the boot stream at slot %lu",
+                       block->slot, stream->slot_x ));
+      strmk_block_discard( ctx, stem, take );
       return 0;
     }
     strmk_block_flush( ctx, stem, take, 0, block );
@@ -1423,6 +1438,9 @@ strmk_stream_start( fd_strmk_t *                    ctx,
   stream->bank_idx   = msg->bank_idx;
   stream->bank_seq   = bank->bank_seq;
   memset( stream->carried, 0xff, sizeof(stream->carried) );
+  /* The set is cleared here rather than at close, so that a file that
+     is never handed out again costs nothing. */
+  memset( stream->sent, 0, ctx->key_max*sizeof(strmk_sent_t) );
   stream->started  = now;
   /* A backstop until the stream is listed, which is when the lifetime
      a peer can join within really starts. */
@@ -1490,6 +1508,7 @@ static void
 strmk_block_start( fd_strmk_t *                   ctx,
                    fd_stem_context_t *            stem,
                    fd_strmk_block_start_t const * msg ) {
+  FD_CHECK_CRIT( msg->bank_idx<ctx->bank_max, "replay named a bank outside its pool" );
   if( FD_UNLIKELY( strmk_block_bank( ctx, msg->bank_idx ) ) ) {
     FD_LOG_WARNING(( "bank %lu started slot %lu while it still held a block, resetting the boot streams",
                      msg->bank_idx, msg->slot ));
@@ -1509,6 +1528,7 @@ strmk_block_start( fd_strmk_t *                   ctx,
   block->bank_seq        = msg->bank_seq;
   block->parent_bank_idx = msg->parent_bank_idx;
   block->hold_token      = msg->hold_token;
+  ctx->bank_block[ msg->bank_idx ] = (uint)( block-ctx->block );
 }
 
 /* strmk_keys_ok rejects a key message that names more keys than the
@@ -1525,27 +1545,19 @@ strmk_keys_ok( fd_strmk_t *                ctx,
   return 0;
 }
 
+/* strmk_txn_keys takes the accounts a block named.  table says they
+   are lookup tables replay could not expand, which the tile expands
+   itself when it writes the block. */
+
 static void
 strmk_txn_keys( fd_strmk_t *                ctx,
                 fd_stem_context_t *         stem,
-                fd_strmk_txn_keys_t const * msg ) {
+                fd_strmk_txn_keys_t const * msg,
+                int                         table ) {
   if( FD_UNLIKELY( !strmk_keys_ok( ctx, stem, msg ) ) ) return;
   strmk_block_t * block = strmk_block_bank( ctx, msg->bank_idx );
   if( FD_UNLIKELY( !block ) ) return;
-  for( ulong i=0UL; i<(ulong)msg->key_cnt; i++ ) strmk_block_key_add( block, &msg->keys[ i ], 0 );
-}
-
-/* strmk_txn_tables takes the lookup tables replay could not expand,
-   which the tile expands itself when it writes the block. */
-
-static void
-strmk_txn_tables( fd_strmk_t *                ctx,
-                  fd_stem_context_t *         stem,
-                  fd_strmk_txn_keys_t const * msg ) {
-  if( FD_UNLIKELY( !strmk_keys_ok( ctx, stem, msg ) ) ) return;
-  strmk_block_t * block = strmk_block_bank( ctx, msg->bank_idx );
-  if( FD_UNLIKELY( !block ) ) return;
-  for( ulong i=0UL; i<(ulong)msg->key_cnt; i++ ) strmk_block_key_add( block, &msg->keys[ i ], 1 );
+  for( ulong i=0UL; i<(ulong)msg->key_cnt; i++ ) strmk_block_key_add( block, &msg->keys[ i ], table );
 }
 
 static void
@@ -1553,12 +1565,12 @@ strmk_block_end( fd_strmk_t *                 ctx,
                  fd_stem_context_t *          stem,
                  fd_strmk_block_end_t const * msg,
                  int                          dead ) {
-  strmk_block_t * block = strmk_block_query( ctx, msg->bank_idx, msg->bank_seq );
-  if( FD_UNLIKELY( !block ) ) return;
+  strmk_block_t * block = strmk_block_bank( ctx, msg->bank_idx );
+  if( FD_UNLIKELY( !block || block->bank_seq!=msg->bank_seq ) ) return;
 
   if( FD_UNLIKELY( dead ) ) {
     strmk_bank_release( ctx, stem, block->hold_token );
-    strmk_block_release( block );
+    strmk_block_release( ctx, block );
     return;
   }
 
@@ -1574,7 +1586,7 @@ strmk_block_end( fd_strmk_t *                 ctx,
   if( FD_UNLIKELY( block->overflow ) ) {
     FD_LOG_WARNING(( "slot %lu touched more than %lu accounts, resetting the boot streams", msg->slot, STRMK_BLOCK_KEY_MAX ));
     strmk_bank_release( ctx, stem, block->hold_token );
-    strmk_block_release( block );
+    strmk_block_release( ctx, block );
     strmk_streams_break( ctx, stem );
     return;
   }
@@ -1592,9 +1604,10 @@ strmk_block_end( fd_strmk_t *                 ctx,
   }
 
   if( FD_UNLIKELY( !strmk_fork_live( ctx, block ) || !strmk_block_read( ctx, take, block ) ) ) {
+    FD_LOG_WARNING(( "the fork slot %lu was read at is gone, breaking the boot streams that needed it", block->slot ));
     strmk_bank_release( ctx, stem, block->hold_token );
-    strmk_block_discard( ctx, stem, take, block );
-    strmk_block_release( block );
+    strmk_block_discard( ctx, stem, take );
+    strmk_block_release( ctx, block );
     return;
   }
 
@@ -1676,10 +1689,10 @@ after_frag( fd_strmk_t *        ctx,
     strmk_block_start( ctx, stem, (fd_strmk_block_start_t const *)ctx->frag );
     break;
   case FD_STRMK_SIG_TXN_KEYS:
-    strmk_txn_keys( ctx, stem, (fd_strmk_txn_keys_t const *)ctx->frag );
+    strmk_txn_keys( ctx, stem, (fd_strmk_txn_keys_t const *)ctx->frag, 0 );
     break;
   case FD_STRMK_SIG_TXN_TABLES:
-    strmk_txn_tables( ctx, stem, (fd_strmk_txn_keys_t const *)ctx->frag );
+    strmk_txn_keys( ctx, stem, (fd_strmk_txn_keys_t const *)ctx->frag, 1 );
     break;
   case FD_STRMK_SIG_BLOCK_END:
     strmk_block_end( ctx, stem, (fd_strmk_block_end_t const *)ctx->frag, 0 );
@@ -1696,6 +1709,8 @@ after_frag( fd_strmk_t *        ctx,
   default:
     FD_LOG_CRIT(( "unexpected boot stream message %lu", sig ));
   }
+
+  strmk_msg_flush( ctx, stem );
 }
 
 static void
@@ -1707,6 +1722,7 @@ after_credit( fd_strmk_t *        ctx,
   if( FD_LIKELY( stem->now<ctx->expire_check ) ) return;
   ctx->expire_check = stem->now + (long)( (double)STRMK_EXPIRE_CHECK_NS*ctx->tick_per_ns );
   *charge_busy = strmk_streams_expire( ctx, stem, fd_log_wallclock() );
+  strmk_msg_flush( ctx, stem );
 }
 
 /**********************************************************************/
@@ -1720,9 +1736,7 @@ privileged_init( fd_topo_t const *      topo,
   fd_strmk_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_strmk_t), sizeof(fd_strmk_t) );
   memset( ctx, 0, sizeof(fd_strmk_t) );
 
-  FD_CHECK_ERR( tile->strmk.max_open_streams &&
-                tile->strmk.max_open_streams<=FD_STRMK_STREAM_MAX,
-                "[snapshots.instant_boot.serve.max_open_streams] is out of range" );
+  FD_TEST( tile->strmk.max_open_streams && tile->strmk.max_open_streams<=FD_STRMK_STREAM_MAX );
   ctx->stream_max = (uint)tile->strmk.max_open_streams;
 
   char dir_path[ PATH_MAX ];
@@ -1805,6 +1819,7 @@ unprivileged_init( fd_topo_t const *      topo,
   void *       _acc_data = FD_SCRATCH_ALLOC_APPEND( l, 16UL,                             FD_RUNTIME_ACC_SZ_MAX );
   void *       _comp     = FD_SCRATCH_ALLOC_APPEND( l, 16UL,                             STRMK_COMP_BUF_SZ );
   void *       _keys     = FD_SCRATCH_ALLOC_APPEND( l, alignof(strmk_keyset_t),          STRMK_BLOCK_MAX*sizeof(strmk_keyset_t) );
+  void *       _banks    = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                    max_live_slots*sizeof(uint) );
   void *       _raw      = FD_SCRATCH_ALLOC_APPEND( l, 4096UL,                           stream_max*STRMK_RAW_BUF_SZ );
   void *       _sent     = FD_SCRATCH_ALLOC_APPEND( l, alignof(strmk_sent_t),            stream_max*key_max*sizeof(strmk_sent_t) );
   void *       _zst      = FD_SCRATCH_ALLOC_APPEND( l, 64UL,                             stream_max*zst_sz );
@@ -1821,12 +1836,10 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->txncache_arena    = _arena;
   ctx->txncache_arena_sz = fd_txncache_writer_arena_sz( tile->strmk.max_txn_per_slot );
 
-  for( ulong i=0UL; i<STRMK_BLOCK_MAX; i++ ) {
-    ctx->block[ i ].state = STRMK_BLOCK_FREE;
-    ctx->block[ i ].keys  = (strmk_keyset_t *)_keys + i;
-  }
-  ctx->retain_head = 0UL;
-  ctx->retain_tail = 0UL;
+  for( ulong i=0UL; i<STRMK_BLOCK_MAX; i++ ) ctx->block[ i ].keys = (strmk_keyset_t *)_keys + i;
+  ctx->bank_block = _banks;
+  ctx->bank_max   = max_live_slots;
+  memset( ctx->bank_block, 0xff, max_live_slots*sizeof(uint) );
 
   for( uint i=0U; i<ctx->stream_max; i++ ) {
     strmk_stream_t * stream = &ctx->stream[ i ];

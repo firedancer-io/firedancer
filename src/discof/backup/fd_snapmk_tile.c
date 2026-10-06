@@ -55,6 +55,7 @@
 
 #include "fd_snapmk_tile.h"
 #include "fd_backup.h"
+#include "fd_backup_wake.h"
 #include "fd_snap_pool.h"
 #include "fd_backup_cache.h"
 #include "fd_backup_disk.h"
@@ -1217,20 +1218,9 @@ snapmk_msg_alloc( fd_snapmk_t * ctx ) {
   return fd_chunk_to_laddr( ctx->out.mem, ctx->out.chunk );
 }
 
-/* wake all reliable consumers by unconditionally waking them (snapsv
-   tiles).  This is inefficient (does a FUTEX_WAKE syscall), but
-   acceptable given the very low frag production rate.  */
-
-static void
-snapmk_out_wake( fd_snapmk_t *       ctx,
-                 fd_stem_context_t * stem ) {
-  fd_mcache_seq_update( ctx->out.seq_prod, stem->seqs[ ctx->out.out_idx ] );
-  if( FD_UNLIKELY( -1==syscall( SYS_futex, (uint *)ctx->out.seq_prod, FUTEX_WAKE, INT_MAX, NULL, NULL, 0 ) ) ) {
-    FD_LOG_ERR(( "FUTEX_WAKE failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  }
-}
-
-/* snapmk_msg_publish publishes a msg and frag on snapmk_out. */
+/* snapmk_msg_publish publishes a msg and frag on snapmk_out.  Every
+   message wakes the file server, which is a syscall per message and
+   acceptable given the very low frag production rate. */
 
 static void
 snapmk_msg_publish( fd_snapmk_t *       ctx,
@@ -1250,7 +1240,7 @@ snapmk_msg_publish( fd_snapmk_t *       ctx,
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
   fd_stem_publish( stem, ctx->out.out_idx, msg_type, chunk, sz, 0UL, 0UL, tspub );
   ctx->out.chunk = fd_dcache_compact_next( chunk, sz, ctx->out.chunk0, ctx->out.wmark );
-  snapmk_out_wake( ctx, stem );
+  fd_backup_out_wake( ctx->out.seq_prod, stem->seqs[ ctx->out.out_idx ] );
 }
 
 static int
