@@ -127,9 +127,9 @@
    so a stream tile that falls behind sees a sequence gap and starts
    over.  Replay sends FD_STRMK_SIG_RESET itself when it reclaims a
    bank the stream tile held for too long, when the accounts of a block
-   did not fit in its sink, and when it completes a block it led: a
-   stream cannot skip a block, and a block replay produced never passed
-   through the scheduler, so its accounts were never collected.
+   did not fit in its sink, and when the shredded bytes of a block it
+   produced itself are no longer in the store: a stream is a chain of
+   blocks and cannot skip one.
 
    The stream tile returns a bank it was given a reference on by
    sending the bank index as the sig on strmk_replay.  It must not
@@ -151,7 +151,9 @@
    holds a reference on the parent bank, which is the fork the stream
    tile reads the block's accounts from.  It always precedes the
    block's keys, so the stream tile knows the fork before it sees a
-   key. */
+   key.  Blocks this validator produced itself are streamed too, even
+   though they never reach the scheduler: replay walks their shredded
+   bytes for keys. */
 
 struct fd_strmk_block_start {
   ulong              slot;

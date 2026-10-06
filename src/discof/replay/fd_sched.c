@@ -2657,6 +2657,43 @@ block_poison_insert( fd_sched_t * sched, fd_sched_block_t * block, fd_acct_addr_
   return 0;
 }
 
+/* Expands the transaction's address lookup tables into sched->aluts.
+   Returns 1 if they could not be expanded, which makes the transaction
+   serializing. */
+
+static int
+resolve_aluts( fd_sched_t *          sched,
+               fd_sched_alut_ctx_t * alut_ctx,
+               fd_txn_t *            txn,
+               uchar const *         payload ) {
+  /* test/fuzz: no accdb to query, so treat ALUT txns as serializing. */
+  if( FD_UNLIKELY( sched->bypass_alut_resolution ) ) return 1;
+
+  /* Copy the slot hashes sysvar out and release the read BEFORE
+     resolving the ALTs.  fd_runtime_load_txn_address_lookup_tables
+     issues its own fd_accdb_read_one per lookup table, and the accdb
+     acquire state is a single non-nestable flag — holding this read
+     open across that call would trip the IDLE assertion in
+     fd_accdb_acquire.  The slot_hashes view aliases the record data,
+     so it must view the copy, not the released record. */
+  static uchar slot_hashes_buf[ FD_SYSVAR_SLOT_HASHES_BINCODE_SZ ];
+  ulong        slot_hashes_sz = 0UL;
+  int          have_slot_hashes = 0;
+  fd_acc_t ro = fd_accdb_read_one( alut_ctx->accdb, alut_ctx->fork_id, fd_sysvar_slot_hashes_id.uc );
+  if( FD_LIKELY( ro.lamports && ro.data_len<=sizeof(slot_hashes_buf) ) ) {
+    fd_memcpy( slot_hashes_buf, ro.data, ro.data_len );
+    slot_hashes_sz   = ro.data_len;
+    have_slot_hashes = 1;
+  }
+  fd_accdb_unread_one( alut_ctx->accdb, &ro );
+
+  fd_slot_hashes_t slot_hashes_view[1];
+  if( FD_UNLIKELY( !have_slot_hashes ||
+                   !fd_sysvar_slot_hashes_view( slot_hashes_view, slot_hashes_buf, slot_hashes_sz ) ) ) return 1;
+
+  return !!fd_runtime_load_txn_address_lookup_tables( txn, payload, alut_ctx->accdb, alut_ctx->fork_id, alut_ctx->els, slot_hashes_view, sched->aluts );
+}
+
 /* Appends cnt account keys to the caller's sink.  A sink that has run
    out of room keeps the keys it has and says so, so the caller can
    tell that its copy of the block is incomplete. */
@@ -2671,6 +2708,27 @@ keys_append( fd_sched_keys_t *      keys,
   }
   fd_memcpy( keys->key+keys->cnt, addr, cnt*sizeof(fd_acct_addr_t) );
   keys->cnt += cnt;
+}
+
+/* Collects the accounts one transaction names into the caller's sink:
+   its static keys, then the keys its lookup tables expanded to, or the
+   addresses of the tables themselves when they did not expand and the
+   caller has to expand them. */
+
+static void
+keys_collect( fd_sched_keys_t *      keys,
+              fd_txn_t const *       txn,
+              uchar const *          payload,
+              fd_acct_addr_t const * alts ) {
+  keys_append( keys, fd_txn_get_acct_addrs( txn, payload ), fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM ) );
+  if( FD_LIKELY( alts ) ) {
+    keys_append( keys, alts, fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_ALT ) );
+    return;
+  }
+  fd_txn_acct_addr_lut_t const * luts = fd_txn_get_address_tables_const( txn );
+  for( ulong i=0UL; i<txn->addr_table_lookup_cnt; i++ ) {
+    keys_append( keys, (fd_acct_addr_t const *)fd_type_pun_const( payload+luts[ i ].addr_off ), 1UL );
+  }
 }
 
 /* Adds relevant accounts to the poison set.  This function is
@@ -2783,37 +2841,8 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_fec_t
   /* Try to expand ALUTs. */
   int serializing = 0;
   if( alt_cnt>0UL ) {
-    if( FD_UNLIKELY( sched->bypass_alut_resolution ) ) {
-      /* test/fuzz: no accdb to query, so treat ALUT txns as serializing. */
-      serializing = 1;
-    } else {
-      /* Copy the slot hashes sysvar out and release the read BEFORE
-         resolving the ALTs.  fd_runtime_load_txn_address_lookup_tables
-         issues its own fd_accdb_read_one per lookup table, and the accdb
-         acquire state is a single non-nestable flag — holding this read
-         open across that call would trip the IDLE assertion in
-         fd_accdb_acquire.  The slot_hashes view aliases the record data,
-         so it must view the copy, not the released record. */
-      static uchar slot_hashes_buf[ FD_SYSVAR_SLOT_HASHES_BINCODE_SZ ];
-      ulong        slot_hashes_sz = 0UL;
-      int          have_slot_hashes = 0;
-      fd_acc_t ro = fd_accdb_read_one( alut_ctx->accdb, alut_ctx->fork_id, fd_sysvar_slot_hashes_id.uc );
-      if( FD_LIKELY( ro.lamports && ro.data_len<=sizeof(slot_hashes_buf) ) ) {
-        fd_memcpy( slot_hashes_buf, ro.data, ro.data_len );
-        slot_hashes_sz   = ro.data_len;
-        have_slot_hashes = 1;
-      }
-      fd_accdb_unread_one( alut_ctx->accdb, &ro );
-
-      fd_slot_hashes_t slot_hashes_view[1];
-      if( FD_LIKELY( have_slot_hashes &&
-                     fd_sysvar_slot_hashes_view( slot_hashes_view, slot_hashes_buf, slot_hashes_sz ) ) ) {
-        serializing = !!fd_runtime_load_txn_address_lookup_tables( txn, payload, alut_ctx->accdb, alut_ctx->fork_id, alut_ctx->els, slot_hashes_view, sched->aluts );
-        sched->metrics->alut_success_cnt += (uint)!serializing;
-      } else {
-        serializing = 1;
-      }
-    }
+    serializing = resolve_aluts( sched, alut_ctx, txn, payload );
+    sched->metrics->alut_success_cnt += (uint)!serializing;
   }
 
   /* Capture alt_cnt before it's clamped below.  Poisoning needs to
@@ -2849,20 +2878,8 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_fec_t
   block_poison_add( sched, block, txn, imms, poison_alts, poison_alt_cnt );
 
   /* Hand the caller the accounts this transaction names, which is the
-     only place they are all resolved at once.  A transaction whose
-     lookup tables did not resolve contributes the addresses of the
-     tables instead, for the caller to expand itself. */
-  if( FD_UNLIKELY( fec->keys ) ) {
-    keys_append( fec->keys, imms, imm_cnt );
-    if( FD_LIKELY( alts ) ) {
-      keys_append( fec->keys, alts, alt_cnt );
-    } else {
-      fd_txn_acct_addr_lut_t const * luts = fd_txn_get_address_tables_const( txn );
-      for( ulong i=0UL; i<txn->addr_table_lookup_cnt; i++ ) {
-        keys_append( fec->keys, (fd_acct_addr_t const *)fd_type_pun_const( payload+luts[ i ].addr_off ), 1UL );
-      }
-    }
-  }
+     only place they are all resolved at once. */
+  if( FD_UNLIKELY( fec->keys ) ) keys_collect( fec->keys, txn, payload, alts );
 
   ulong bank_idx = (ulong)(block-sched->block_pool);
   ulong txn_idx  = fd_rdisp_add_txn( sched->rdisp, bank_idx, txn, payload, alts, serializing );
@@ -2948,6 +2965,91 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_fec_t
 
 #undef CHECK
 #undef CHECK_LEFT
+
+void
+fd_sched_keys_scan( fd_sched_t *           sched,
+                    fd_sched_keys_walk_t * walk,
+                    fd_sched_fec_t *       fec ) {
+  FD_TEST( sched->canary==FD_SCHED_MAGIC );
+  FD_TEST( fec->keys );
+
+  if( FD_UNLIKELY( fec->is_first_in_block ) ) {
+    walk->mblks_rem = 0UL;
+    walk->txns_rem  = 0UL;
+    walk->buf_sz    = 0U;
+    walk->soff      = 0U;
+    walk->sob       = 1;
+  }
+
+  /* Move the bytes the previous FEC set left behind to the front and
+     append this one, the way the replay parser does: a transaction or
+     a header may straddle a FEC set boundary. */
+  if( FD_LIKELY( walk->buf_sz>walk->soff ) ) memmove( walk->buf, walk->buf+walk->soff, walk->buf_sz-walk->soff );
+  walk->buf_sz -= walk->soff;
+  walk->soff    = 0U;
+  if( FD_UNLIKELY( (ulong)walk->buf_sz+(ulong)fec->fec->data_sz>sizeof(walk->buf) ) ) {
+    /* A block we produced fits by construction, so this is a bug or a
+       memory error rather than a bad block.  Report it as a sink that
+       ran out of room, which costs the caller its streams. */
+    walk->buf_sz    = 0U;
+    walk->mblks_rem = 0UL;
+    walk->txns_rem  = 0UL;
+    fec->keys->full = 1;
+    return;
+  }
+  fd_memcpy( walk->buf+walk->buf_sz, fec->data, fec->fec->data_sz );
+  walk->buf_sz += (uint)fec->fec->data_sz;
+
+  while( 1 ) {
+    if( FD_LIKELY( walk->txns_rem ) ) {
+      uchar const * payload = walk->buf+walk->soff;
+      fd_txn_t *    txn     = fd_type_pun( walk->txn );
+      ulong         pay_sz  = 0UL;
+      ulong         txn_sz  = fd_txn_parse_core( payload, walk->buf_sz-walk->soff, txn, NULL, &pay_sz );
+      if( FD_UNLIKELY( !pay_sz || !txn_sz ) ) break; /* straddles the next FEC set, or unparseable */
+
+      fd_acct_addr_t const * alts = NULL;
+      if( FD_UNLIKELY( fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_ALT ) ) ) {
+        if( FD_LIKELY( !resolve_aluts( sched, fec->alut_ctx, txn, payload ) ) ) alts = sched->aluts;
+      }
+      keys_collect( fec->keys, txn, payload, alts );
+
+      walk->soff += (uint)pay_sz;
+      walk->txns_rem--;
+      continue;
+    }
+
+    if( FD_UNLIKELY( walk->mblks_rem ) ) {
+      if( FD_UNLIKELY( walk->buf_sz-walk->soff<sizeof(fd_microblock_hdr_t) ) ) break;
+      fd_microblock_hdr_t const * hdr = (fd_microblock_hdr_t const *)fd_type_pun_const( walk->buf+walk->soff );
+      walk->soff     += (uint)sizeof(fd_microblock_hdr_t);
+      walk->mblks_rem--;
+      walk->txns_rem  = hdr->txn_cnt;
+      continue;
+    }
+
+    if( FD_UNLIKELY( walk->sob ) ) {
+      if( FD_UNLIKELY( walk->buf_sz-walk->soff<sizeof(ulong) ) ) break;
+      /* A batch that declares no microblocks is an Alpenglow block
+         marker, which names no accounts: the batch is dropped below. */
+      walk->mblks_rem = FD_LOAD( ulong, walk->buf+walk->soff );
+      walk->soff     += (uint)sizeof(ulong);
+      walk->sob       = 0;
+      continue;
+    }
+
+    break;
+  }
+
+  /* Everything the batch declared has been walked, so what is left is
+     trailing bytes.  They can span many FEC sets, so drop them rather
+     than let them fill the buffer. */
+  if( FD_UNLIKELY( !walk->sob && !walk->txns_rem && !walk->mblks_rem ) ) {
+    walk->soff   = 0U;
+    walk->buf_sz = 0U;
+  }
+  if( FD_UNLIKELY( fec->is_last_in_batch ) ) walk->sob = 1;
+}
 
 static void
 dispatch_sigverify( fd_sched_t * sched, fd_sched_block_t * block, ulong bank_idx, int exec_tile_idx, fd_sched_task_t * out ) {

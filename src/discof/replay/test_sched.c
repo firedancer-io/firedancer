@@ -1381,6 +1381,130 @@ run_key_sink_case( void ) {
   FD_LOG_NOTICE(( "pass: run_key_sink_case" ));
 }
 
+/* A block the scheduler never replays, which is any block this
+   validator produced itself, still gives up its accounts.  The walk
+   has to carry a batch header, a tick, and a transaction that
+   straddles a FEC set boundary. */
+
+static void
+run_keys_scan_case( void ) {
+  ulong footprint = fd_sched_footprint( FD_SCHED_MIN_DEPTH, 4UL, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT );
+  void * mem = aligned_alloc( fd_sched_align(), footprint );
+  FD_TEST( mem );
+
+  fd_rng_t rng[ 1 ]; fd_rng_join( fd_rng_new( rng, 0U, 0UL ) );
+  fd_sched_t * sched = fd_sched_join( fd_sched_new( mem, rng, FD_SCHED_MIN_DEPTH, 4UL, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT, TEST_EXEC_CNT, 0 ) );
+  FD_TEST( sched );
+  /* No accounts database, so the lookup table transaction below hands
+     back the address of the table it could not expand. */
+  fd_sched_set_bypass_alut_resolution( sched, 1 );
+
+  fd_sched_keys_walk_t * walk = aligned_alloc( alignof(fd_sched_keys_walk_t), sizeof(fd_sched_keys_walk_t) );
+  FD_TEST( walk );
+
+  fd_pubkey_t payer[ 1 ];
+  fd_pubkey_t program[ 1 ];
+  fd_pubkey_t alt_payer[ 1 ];
+  fd_pubkey_t alt_program[ 1 ];
+  fd_pubkey_t alt_table[ 1 ];
+  fd_memset( payer->uc,       0x11, sizeof(fd_pubkey_t) );
+  fd_memset( program->uc,     0x22, sizeof(fd_pubkey_t) );
+  fd_memset( alt_payer->uc,   0x55, sizeof(fd_pubkey_t) );
+  fd_memset( alt_program->uc, 0x66, sizeof(fd_pubkey_t) );
+  fd_memset( alt_table->uc,   0x77, sizeof(fd_pubkey_t) );
+
+  uchar legacy_payload[ FD_TXN_MTU ];
+  uchar alt_payload[ FD_TXN_MTU ];
+  ulong legacy_sz = build_shred_test_txn( legacy_payload );
+  ulong alt_sz    = build_alt_test_txn( alt_payload, alt_payer, alt_program, alt_table );
+
+  fd_hash_t mblk_hash[ 1 ];
+  hash_from_seed( mblk_hash, 0x2f8a5d1c7b36e490UL );
+
+  /* One batch of two microblocks: a tick, then both transactions. */
+  uchar encoded[ 8192 ];
+  ulong encoded_sz = 0UL;
+  FD_STORE( ulong, encoded, 2UL );
+  encoded_sz += sizeof(ulong);
+  fd_microblock_hdr_t tick = { .hash_cnt = 64UL, .txn_cnt = 0UL };
+  fd_memcpy( tick.hash, mblk_hash->hash, sizeof(fd_hash_t) );
+  fd_memcpy( encoded+encoded_sz, &tick, sizeof(tick) );
+  encoded_sz += sizeof(tick);
+  fd_microblock_hdr_t entry = { .hash_cnt = 1UL, .txn_cnt = 2UL };
+  fd_memcpy( entry.hash, mblk_hash->hash, sizeof(fd_hash_t) );
+  fd_memcpy( encoded+encoded_sz, &entry, sizeof(entry) );
+  encoded_sz += sizeof(entry);
+  fd_memcpy( encoded+encoded_sz, legacy_payload, legacy_sz );
+  encoded_sz += legacy_sz;
+  fd_memcpy( encoded+encoded_sz, alt_payload, alt_sz );
+  encoded_sz += alt_sz;
+
+  /* Cut the batch in the middle of the second transaction. */
+  ulong split = sizeof(ulong)+sizeof(tick)+sizeof(entry)+legacy_sz+10UL;
+  FD_TEST( split<encoded_sz );
+
+  fd_acct_addr_t sink_key[ 8 ];
+  fd_sched_keys_t keys[ 1 ] = {{ .max = sizeof(sink_key)/sizeof(sink_key[0]), .key = sink_key }};
+
+  fd_store_fec_t store_fec[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
+  fd_memset( store_fec, 0, sizeof(fd_store_fec_t) );
+  store_fec->data_sz = (uint)split;
+  fd_sched_fec_t fec[ 1 ] = {{
+    .bank_idx          = 2UL,
+    .parent_bank_idx   = 1UL,
+    .slot              = TEST_ROOT_SLOT+1UL,
+    .parent_slot       = TEST_ROOT_SLOT,
+    .fec               = store_fec,
+    .data              = encoded,
+    .shred_cnt         = 1U,
+    .is_first_in_block = 1U,
+    .keys              = keys,
+  }};
+  fd_sched_keys_scan( sched, walk, fec );
+
+  /* Only the first transaction is whole so far. */
+  FD_TEST( !keys->full );
+  FD_TEST( keys->cnt==2UL );
+  FD_TEST( !memcmp( sink_key+0, payer->uc,   32UL ) );
+  FD_TEST( !memcmp( sink_key+1, program->uc, 32UL ) );
+
+  store_fec->data_sz       = (uint)(encoded_sz-split);
+  fec->data                = encoded+split;
+  fec->is_first_in_block   = 0U;
+  fec->is_last_in_batch    = 1U;
+  fec->is_last_in_block    = 1U;
+  fd_sched_keys_scan( sched, walk, fec );
+
+  /* The straddling transaction came out whole, and its lookup table
+     could not be expanded, so the table's own address stands in. */
+  FD_TEST( !keys->full );
+  FD_TEST( keys->cnt==5UL );
+  FD_TEST( !memcmp( sink_key+2, alt_payer->uc,   32UL ) );
+  FD_TEST( !memcmp( sink_key+3, alt_program->uc, 32UL ) );
+  FD_TEST( !memcmp( sink_key+4, alt_table->uc,   32UL ) );
+  FD_TEST( !walk->txns_rem && !walk->mblks_rem );
+
+  /* The next block starts the walk over, whatever the one before it
+     left behind. */
+  walk->txns_rem           = 7UL;
+  walk->buf_sz             = 64U;
+  keys->cnt                = 0UL;
+  store_fec->data_sz       = (uint)split;
+  fec->data                = encoded;
+  fec->is_first_in_block   = 1U;
+  fec->is_last_in_batch    = 0U;
+  fec->is_last_in_block    = 0U;
+  fd_sched_keys_scan( sched, walk, fec );
+
+  FD_TEST( !keys->full );
+  FD_TEST( keys->cnt==2UL );
+  FD_TEST( !memcmp( sink_key+0, payer->uc,   32UL ) );
+
+  free( walk );
+  free( mem );
+  FD_LOG_NOTICE(( "pass: run_keys_scan_case" ));
+}
+
 static void
 run_zero_hashcnt_mblk_case( void ) {
   ulong footprint = fd_sched_footprint( FD_SCHED_MIN_DEPTH, 4UL, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT );
@@ -1669,6 +1793,7 @@ main( int     argc,
   run_runtime_limit_case();
   run_zero_hashcnt_mblk_case();
   run_key_sink_case();
+  run_keys_scan_case();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

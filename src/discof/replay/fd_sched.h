@@ -100,6 +100,22 @@ struct fd_sched_keys {
 };
 typedef struct fd_sched_keys fd_sched_keys_t;
 
+/* fd_sched_keys_walk is the parse cursor fd_sched_keys_scan carries
+   across the FEC sets of one block.  The caller only has to keep it
+   alive and hand back the same one for the whole block; the scan
+   resets it on the block's first FEC set. */
+
+struct fd_sched_keys_walk {
+  ulong mblks_rem;  /* microblocks left in the batch being walked */
+  ulong txns_rem;   /* transactions left in the microblock being walked */
+  uint  buf_sz;     /* bytes buffered */
+  uint  soff;       /* bytes of buf already walked */
+  int   sob;        /* 1 if the next bytes start a batch */
+  uchar txn[ FD_TXN_MAX_SZ ] __attribute__((aligned(alignof(fd_txn_t))));
+  uchar buf[ FD_SCHED_INGEST_BYTE_MAX ];
+};
+typedef struct fd_sched_keys_walk fd_sched_keys_walk_t;
+
 struct fd_sched_fec {
   ulong            bank_idx;            /* Index of the block.  Assumed to be in [0, block_cnt_max).  Caller
                                            is responsible for ensuring that bank idx is in bounds and unique
@@ -356,6 +372,22 @@ fd_sched_fec_ingest( fd_sched_t * sched, fd_sched_fec_t * fec );
    and conservative check. */
 int
 fd_sched_fec_can_ingest( fd_sched_t * sched, fd_sched_fec_t * fec );
+
+/* fd_sched_keys_scan collects the accounts of a block the scheduler
+   never replays, which is any block this validator produced itself:
+   those are executed as they are built, so they never reach the
+   scheduler, but a boot stream is a chain of blocks and cannot skip
+   one.  The caller drives the scan with the same FEC sets it would
+   have ingested, in order, and the keys land in fec->keys exactly as
+   they would during an ingest.  The block is not added to the
+   scheduler, nothing is dispatched, and nothing is validated: a block
+   this validator produced is well formed by construction, so bytes
+   that do not parse simply end the scan.  fec->keys must be set. */
+
+void
+fd_sched_keys_scan( fd_sched_t *           sched,
+                    fd_sched_keys_walk_t * walk,
+                    fd_sched_fec_t *       fec );
 
 /* Returns the number of worst-case FEC sets sched can ingest. This is a
    cheap and conservative check. */

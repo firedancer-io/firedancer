@@ -181,9 +181,11 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   if( FD_UNLIKELY( tile->replay.instant_boot ) ) {
     l = FD_LAYOUT_APPEND( l, alignof(fd_accdb_fork_id_t),       tile->replay.max_live_slots*sizeof(fd_accdb_fork_id_t) );
   }
-  /* Accounts of one FEC set, on their way to the stream tile. */
+  /* Accounts of one FEC set, on their way to the stream tile, and the
+     parse cursor for the block we are producing. */
   if( FD_UNLIKELY( tile->replay.instant_boot_serve ) ) {
     l = FD_LAYOUT_APPEND( l, alignof(fd_acct_addr_t),           FD_SCHED_INGEST_KEY_MAX*sizeof(fd_acct_addr_t) );
+    l = FD_LAYOUT_APPEND( l, alignof(fd_sched_keys_walk_t),     sizeof(fd_sched_keys_walk_t) );
   }
 
   if( FD_UNLIKELY( tile->replay.dump_block_to_pb ) ) {
@@ -768,6 +770,27 @@ strmk_txn_keys( fd_replay_tile_t *     ctx,
     fd_memcpy( msg->keys, ctx->strmk_keys->key+off, cnt*sizeof(fd_pubkey_t) );
     strmk_publish( ctx, stem, FD_STRMK_SIG_TXN_KEYS, offsetof(fd_strmk_txn_keys_t, keys)+cnt*sizeof(fd_pubkey_t) );
   }
+}
+
+/* strmk_leader_fec mirrors one FEC set of a block this validator
+   produced itself.  Such a block is executed as it is built and never
+   enters the scheduler, but a boot stream is a chain of blocks and
+   cannot skip one, so the shredded bytes are walked for account keys
+   only: no validation, no dispatch, no execution.  Lookup tables
+   resolve against the same fork a replayed block's would. */
+
+static void
+strmk_leader_fec( fd_replay_tile_t *  ctx,
+                  fd_stem_context_t * stem,
+                  fd_sched_fec_t *    sched_fec ) {
+  sched_fec->alut_ctx->fork_id = fd_banks_bank_query( ctx->banks, ctx->published_root_bank_idx )->accdb_fork_id;
+  sched_fec->alut_ctx->accdb   = ctx->accdb;
+  sched_fec->alut_ctx->els     = ctx->published_root_slot;
+  strmk_keys_arm( ctx, sched_fec );
+
+  if( FD_UNLIKELY( sched_fec->is_first_in_block ) ) strmk_block_start( ctx, stem, sched_fec );
+  fd_sched_keys_scan( ctx->sched, ctx->strmk_walk, sched_fec );
+  strmk_txn_keys( ctx, stem, sched_fec );
 }
 
 /**********************************************************************/
@@ -1427,19 +1450,12 @@ publish_slot_completed( fd_replay_tile_t *        ctx,
      that no transaction in the block names.  The initial boot block is
      not streamed: it was never replayed, so it has no block start. */
   if( FD_UNLIKELY( ctx->instant_boot_serve && !is_initial ) ) {
-    if( FD_UNLIKELY( is_leader ) ) {
-      /* Replay produced this block itself, so it never passed through
-         the scheduler and its accounts were never collected.  A boot
-         stream cannot skip a block, so every stream starts over. */
-      strmk_publish( ctx, stem, FD_STRMK_SIG_RESET, 0UL );
-    } else {
-      fd_strmk_block_end_t * msg = fd_chunk_to_laddr( ctx->strmk_out->mem, ctx->strmk_out->chunk );
-      msg->slot     = slot;
-      msg->bank_idx = bank->idx;
-      msg->txn_cnt  = bank->f.txn_count;
-      fd_runtime_fee_collector( bank, &msg->collector );
-      strmk_publish( ctx, stem, FD_STRMK_SIG_BLOCK_END, sizeof(fd_strmk_block_end_t) );
-    }
+    fd_strmk_block_end_t * msg = fd_chunk_to_laddr( ctx->strmk_out->mem, ctx->strmk_out->chunk );
+    msg->slot     = slot;
+    msg->bank_idx = bank->idx;
+    msg->txn_cnt  = bank->f.txn_count;
+    fd_runtime_fee_collector( bank, &msg->collector );
+    strmk_publish( ctx, stem, FD_STRMK_SIG_BLOCK_END, sizeof(fd_strmk_block_end_t) );
   }
 
   /* Skip the telemetry event for the initial boot block (snapshot /
@@ -3610,8 +3626,33 @@ insert_fec_set( fd_replay_tile_t *  ctx,
     FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, block_id_ele, ctx->block_id_arr ) );
   }
 
-  /* For leader FECs, don't insert the FEC into the scheduler. */
+  /* For leader FECs, don't insert the FEC into the scheduler.  Their
+     accounts still have to reach the stream tile, and the store holds
+     the only copy of the bytes: without them a stream cannot cover
+     this block, so every stream starts over. */
   if( FD_UNLIKELY( reasm_fec->is_leader ) ) {
+    if( FD_UNLIKELY( ctx->instant_boot_serve ) ) {
+      fd_store_fec_data_view_t leader_view[ 1 ];
+      if( FD_UNLIKELY( !store_fec || fd_store_fec_data_view( ctx->store, ctx->store_disk_fd, store_fec, leader_view ) ) ) {
+        FD_LOG_WARNING(( "the shredded bytes of our own slot %lu are gone, resetting the boot streams", reasm_fec->slot ));
+        strmk_publish( ctx, stem, FD_STRMK_SIG_RESET, 0UL );
+      } else {
+        fd_sched_fec_t leader_fec[ 1 ] = {{
+          .bank_idx          = reasm_fec->bank_idx,
+          .parent_bank_idx   = reasm_fec->parent_bank_idx,
+          .slot              = reasm_fec->slot,
+          .parent_slot       = reasm_fec->slot - reasm_fec->parent_off,
+          .fec               = store_fec,
+          .data              = leader_view->data,
+          .shred_cnt         = reasm_fec->data_cnt,
+          .is_last_in_batch  = !!reasm_fec->data_complete,
+          .is_last_in_block  = !!reasm_fec->slot_complete,
+          .is_first_in_block = reasm_fec->fec_set_idx==0U
+        }};
+        strmk_leader_fec( ctx, stem, leader_fec );
+        fd_store_fec_data_view_release( ctx->store, leader_view );
+      }
+    }
     return 0;
   }
 
@@ -4772,8 +4813,25 @@ process_rotor_fec( fd_replay_tile_t      * ctx,
     FD_TEST( fd_ag_block_id_map_ele_insert( ctx->ag_block_id_map, block_id_ele, ctx->block_id_arr ) );
   }
 
-  /* For leader FECs, don't insert the FEC into the scheduler. */
+  /* For leader FECs, don't insert the FEC into the scheduler.  Their
+     accounts still have to reach the stream tile, so walk the bytes
+     for keys while the payload view is still open. */
   if( FD_UNLIKELY( fec->is_leader ) ) {
+    if( FD_UNLIKELY( ctx->instant_boot_serve ) ) {
+      fd_sched_fec_t leader_fec[ 1 ] = {{
+        .bank_idx          = bank->idx,
+        .parent_bank_idx   = bank->parent_idx,
+        .slot              = fec->slot,
+        .parent_slot       = fec->parent_slot,
+        .fec               = store_fec,
+        .data              = data_view->data,
+        .shred_cnt         = FD_FEC_SHRED_CNT,
+        .is_last_in_batch  = !!fec->data_complete,
+        .is_last_in_block  = !!fec->slot_complete,
+        .is_first_in_block = fec->fec_set_idx==0U
+      }};
+      strmk_leader_fec( ctx, stem, leader_fec );
+    }
     fd_store_fec_data_view_release( ctx->store, data_view );
     return;
   }
@@ -5651,6 +5709,8 @@ unprivileged_init( fd_topo_t const *      topo,
                               FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_fork_id_t),   tile->replay.max_live_slots*sizeof(fd_accdb_fork_id_t) ) : NULL;
   void * strmk_keys_mem     = tile->replay.instant_boot_serve ?
                               FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_acct_addr_t),       FD_SCHED_INGEST_KEY_MAX*sizeof(fd_acct_addr_t) ) : NULL;
+  void * strmk_walk_mem     = tile->replay.instant_boot_serve ?
+                              FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sched_keys_walk_t), sizeof(fd_sched_keys_walk_t) ) : NULL;
   void * block_dump_ctx     = NULL;
   if( FD_UNLIKELY( tile->replay.dump_block_to_pb ) ) {
     block_dump_ctx = FD_SCRATCH_ALLOC_APPEND( l, fd_block_dump_context_align(), fd_block_dump_context_footprint() );
@@ -5812,6 +5872,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->strmk_keys->cnt    = 0UL;
   ctx->strmk_keys->full   = 0;
   ctx->strmk_keys->key    = strmk_keys_mem;
+  ctx->strmk_walk         = strmk_walk_mem;
   ctx->strmk_hold_head    = 0UL;
   ctx->strmk_hold_tail    = 0UL;
 

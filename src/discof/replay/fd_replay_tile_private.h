@@ -495,6 +495,7 @@ struct fd_replay_tile {
   int                      instant_boot_serve;
   ulong                    strmk_in_idx; /* in link the stream tile returns banks on, ULONG_MAX if none */
   fd_sched_keys_t          strmk_keys[1];
+  fd_sched_keys_walk_t *   strmk_walk;   /* parse cursor for the block we are producing, which sched never sees */
   fd_replay_strmk_hold_t   strmk_hold[ FD_REPLAY_STRMK_HOLD_MAX ];
   ulong                    strmk_hold_head; /* oldest hold, == tail if none */
   ulong                    strmk_hold_tail; /* next hold to record */
