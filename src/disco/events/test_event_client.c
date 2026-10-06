@@ -340,6 +340,7 @@ FD_UNIT_TEST( tx_pacing ) {
   }
   FD_TEST( wire2>0UL && wire2<=((ulong)FD_EVENT_CLIENT_TX_BURST/msg_sz+1UL)*frame_sz );
 
+  free( client );
   fd_rng_delete( fd_rng_leave( rng ) );
 }
 
@@ -385,6 +386,7 @@ FD_UNIT_TEST( tx_pacing_large_msg ) {
   FD_TEST( client->metrics.events_sent==2UL );
   FD_TEST( test_drain( grpc )==16UL+sizeof(fd_grpc_hdr_t)+sizeof(fd_h2_frame_hdr_t) );
 
+  free( client );
   fd_rng_delete( fd_rng_leave( rng ) );
 }
 
@@ -456,6 +458,7 @@ FD_UNIT_TEST( credit_stall ) {
   FD_TEST( client->sockfd==-1 );
 
   close( sv[1] );
+  free( client );
   fd_rng_delete( fd_rng_leave( rng ) );
 }
 
@@ -480,6 +483,7 @@ FD_UNIT_TEST( stream_deadline_clock ) {
   FD_TEST( !client->event_stream && client->defer_disconnect==DISCONNECT_REASON_TRANSPORT_FAILED );
 
   close( sv[0] ); close( sv[1] );
+  free( client );
   fd_rng_delete( fd_rng_leave( rng ) );
 }
 
