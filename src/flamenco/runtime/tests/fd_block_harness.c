@@ -350,11 +350,15 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
        base_credits comes from the first real entry (subtracting a
        ULONG_MAX base would underflow every delta) and cnt counts only
        real entries.  Mirrors fd_ssload.c / get_vote_credits(). */
-    ulong cnt        = 0UL;
-    ec->base_credits = 0UL;
+    ulong cnt                   = 0UL;
+    ec->base_credits            = 0UL;
+    ec->has_ag_migration_marker = 0;
     for( ulong j=0UL; j<prev_vote_accs->epoch_credits_count; j++ ) {
       fd_exec_test_epoch_credit_t const * epc = &prev_vote_accs->epoch_credits[j];
-      if( FD_UNLIKELY( fd_solfuzz_epoch_credit_is_alpenglow_marker( epc ) ) ) continue;
+      if( FD_UNLIKELY( fd_solfuzz_epoch_credit_is_alpenglow_marker( epc ) ) ) {
+        ec->has_ag_migration_marker = 1;
+        continue;
+      }
       if( FD_UNLIKELY( !cnt ) ) ec->base_credits = epc->prev_credits;
       ec->epoch[ cnt ]              = (ushort)epc->epoch;
       ec->credits_delta[ cnt ]      = epc->credits      - ec->base_credits;

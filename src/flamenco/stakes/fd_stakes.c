@@ -506,12 +506,16 @@ get_vote_credits( uchar const *        account_data,
   FD_TEST( cnt<=FD_EPOCH_CREDITS_MAX );
   epoch_credits->commission = commission;
 
-  ulong n    = 0UL;
-  ulong base = 0UL;
+  ulong n             = 0UL;
+  ulong base          = 0UL;
+  uchar has_ag_marker = 0;
   for( ulong i=0UL; i<cnt; i++ ) {
     fd_vote_epoch_credits_t const * ele = &vote_epoch_credits[ i ];
 
-    if( fd_vote_epoch_credits_is_alpenglow_marker( ele ) ) continue;
+    if( fd_vote_epoch_credits_is_alpenglow_marker( ele ) ) {
+      has_ag_marker = 1;
+      continue;
+    }
     if( !n ) base = ele->prev_credits;
 
     FD_TEST( ele->epoch<=USHORT_MAX );           /* Epoch should fit. */
@@ -525,9 +529,10 @@ get_vote_credits( uchar const *        account_data,
     n++;
   }
 
-  epoch_credits->cnt          = (uchar)n;
-  epoch_credits->base_credits = base;
-  epoch_credits->fast_path_ok = fd_epoch_credits_fast_path_ok( epoch_credits );
+  epoch_credits->cnt                     = (uchar)n;
+  epoch_credits->base_credits            = base;
+  epoch_credits->has_ag_migration_marker = has_ag_marker;
+  epoch_credits->fast_path_ok            = fd_epoch_credits_fast_path_ok( epoch_credits );
 }
 
 int

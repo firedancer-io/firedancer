@@ -183,12 +183,13 @@ ENCODE_FN {
   case STATE_EPOCH_STAKES_STAKES: {
     int iter_kind = epoch_stakes_iter_kind( bank, enc->epoch_idx );
 
-    fd_pubkey_t pubkey       = {0};
-    ulong       stake        = 0UL;
-    fd_pubkey_t node_account = {0};
-    ushort      commission   = 0;
-    ulong       ec_cnt       = 0UL;
+    fd_pubkey_t pubkey            = {0};
+    ulong       stake             = 0UL;
+    fd_pubkey_t node_account      = {0};
+    ushort      commission        = 0;
+    ulong       ec_cnt            = 0UL;
     fd_epoch_credits_t const * ec = NULL;
+    ulong ag_marker_idx           = ULONG_MAX;
     uchar bls_key[ FD_BLS_PUB_COMPRESSED_SZ ] = {0};
 
     fd_collector_overrides_t * overrides = fd_bank_collector_overrides( bank );
@@ -211,6 +212,13 @@ ENCODE_FN {
       ec = find_epoch_credits( enc->bank, &pubkey );
       FD_TEST( ec );
       ec_cnt = ec->cnt;
+      if( FD_UNLIKELY( ec->has_ag_migration_marker ) ) {
+        ulong ag_migration_slot  = bank->f.alpenglow_migration_slot;
+        FD_TEST( ag_migration_slot!=ULONG_MAX );
+        ulong ag_migration_epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, ag_migration_slot, NULL );
+        ag_marker_idx            = fd_epoch_credits_ag_marker_idx( ec, ag_migration_epoch );
+        ec_cnt++;
+      }
       co_epoch = bank->f.epoch;
     } else if( iter_kind==FD_VOTE_STAKES_ITER_T_2 ) {
       co_epoch = fd_ulong_sat_sub( bank->f.epoch, 1UL );
@@ -266,10 +274,17 @@ ENCODE_FN {
 
     /* Epoch credits */
     PUSH_VAL( ulong, ec_cnt );
-    for( ulong j=0UL; j<ec_cnt; j++ ) {
+    for( ulong k=0UL, j=0UL; k<ec_cnt; k++ ) {
+      if( FD_UNLIKELY( k==ag_marker_idx ) ) {
+        PUSH_VAL( ulong, ULONG_MAX );
+        PUSH_VAL( ulong, ULONG_MAX );
+        PUSH_VAL( ulong, ULONG_MAX );
+        continue;
+      }
       PUSH_VAL( ulong, (ulong)ec->epoch[j] );
       PUSH_VAL( ulong, ec->base_credits + (ulong)ec->credits_delta[j] );
       PUSH_VAL( ulong, ec->base_credits + (ulong)ec->prev_credits_delta[j] );
+      j++;
     }
 
     PUSH_VAL( ulong, 0UL ); /* last_timestamp_slot */
