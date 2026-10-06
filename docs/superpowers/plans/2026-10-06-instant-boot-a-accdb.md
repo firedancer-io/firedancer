@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - Worktree: `/data/mjain/repos/scratch/worker-20261005-200945/firedancer`, branch `instant-boot`. Never touch `/data/mjain/repos/firedancer`.
-- Build: `make -j test_accdb test_accdb_cache bench_accdb_hotread test_snapin_accdb` (objdir `build/native/gcc/11.5.0`). Racesan: `make -j BUILDDIR=gcc-racesan EXTRAS=racesan test_accdb_racesan` (objdir `build/gcc-racesan`). Run tests with `--page-sz normal`.
+- Build: `make -j test_accdb test_accdb_cache bench_accdb_hotread test_snapin_accdb` (objdir `build/native/gcc/11.5.0`); run those with `--page-sz normal`. Racesan: `make -j BUILDDIR=gcc-racesan EXTRAS=racesan test_accdb_racesan` (objdir `build/gcc-racesan`); run that binary with NO arguments (any leftover argument is taken as a test-name filter, so `--page-sz normal` silently runs nothing), or with explicit test names. The racesan harness is cooperative: a spin loop only lets another fiber run at an `fd_racesan_hook` call, so any new spin loop that a weave can reach needs a hook inside it.
 - Baseline (before any change): all four tests pass; `bench_accdb_hotread` reports 80 ns/op (12.48M ops/s). After task 4 it must stay within noise (under 85 ns/op over two runs).
 - Style: smallest diff, one statement per line, braces on multi-line bodies, comments in plain English above the thing they describe, 72 columns, two spaces after a period. No coined names in comments ("the loader's lock", not "sentinel protocol"). No new helpers when an existing function does the job.
 - Commits: one per task, message one line, at most 10 words, no trailers, no body. `git add` only the files listed in the task.
@@ -258,37 +258,50 @@ git commit -m "accdb: honor the snapshot chain lock everywhere"
 
 ---
 
-### Task 2: racesan weave, release prepend against a snapshot write
+### Task 2: racesan weave, release prepend against a snapshot write (run AFTER Task 3)
+
+Order note: this task depends on Task 3. Before Task 3 the loader can overwrite a live node in place when it mistakes the node for one of its own, which makes this weave fail for the wrong reason. Execute Task 3, then this task.
 
 **Files:**
-- Modify: `src/flamenco/accdb/fd_accdb.c` (one hook line inside `fd_accdb_snapshot_write_batch`)
+- Modify: `src/flamenco/accdb/fd_accdb_private.h` (remove `fd_accdb_chain_head`) and `src/flamenco/accdb/fd_accdb.c` (define it there with a racesan hook; add one hook in `fd_accdb_snapshot_write_batch`)
 - Test: `src/flamenco/accdb/test_accdb_racesan.c`
+- Starting point: `.superpowers/sdd/2026-10-06-instant-boot-a-accdb/task-2.patch` holds a first draft of the hook and the test from an earlier attempt; apply it with `git apply` and then make the changes below.
 
 **Interfaces:**
-- Consumes: `FD_ACCDB_CHAIN_LOCKED` from task 1.
-- Produces: racesan hook name `accdb_snapshot_write:locked`.
+- Consumes: `FD_ACCDB_CHAIN_LOCKED`, `FD_ACCDB_SNAPSHOT_WRITE_LIVE` (Task 3).
+- Produces: racesan hook names `accdb_chain_head:locked` and `accdb_snapshot_write:locked`.
 
-Background. Racesan weaves two fibers at hook points deterministically. The existing test `test_acquire_vs_release` (search for it) shows the pattern: `test_shmem_new()`, `join_new()`, `mk_key`, `seq_write`, `fiber_acquire`, `fiber_release_write`, `fd_racesan_weave_*`, `fiber_done`, `drain_background`. Read that test and the fiber helpers above it before writing this one. The oracle here is a value check, not a crash: with the fix from task 1 the released version must remain reachable.
-
-- [ ] **Step 1: Add the hook**
-
-In `fd_accdb_snapshot_write_batch`, immediately after the lock loop (the `for(;;)` that ends with `break;` once the CAS to `FD_ACCDB_CHAIN_LOCKED` succeeds) and before `fd_accdb_accmeta_t * existing = NULL;`, add:
+Background. Racesan weaves two fibers deterministically; a fiber yields only at `fd_racesan_hook` calls. `fd_accdb_chain_head` spins while a chain head holds the lock value, so the fiber holding the lock can never run unless the spin loop has a hook. Move the function from `fd_accdb_private.h` into `fd_accdb.c` (it has no other user) and give the loop a hook:
 
 ```c
-    fd_racesan_hook( "accdb_snapshot_write:locked" );
+/* Load a chain head, waiting while the snapshot loader holds the
+   chain locked (see fd_accdb_snapshot_write_batch). */
+
+static inline uint
+fd_accdb_chain_head( uint const * head ) {
+  for(;;) {
+    uint acc = FD_VOLATILE_CONST( *head );
+    if( FD_LIKELY( acc!=FD_ACCDB_CHAIN_LOCKED ) ) return acc;
+    fd_racesan_hook( "accdb_chain_head:locked" );
+    FD_SPIN_PAUSE();
+  }
+}
 ```
 
-- [ ] **Step 2: Write the snapshot-write fiber and the test**
+Keep `FD_ACCDB_CHAIN_LOCKED` in the private header. In `fd_accdb_snapshot_write_batch`, immediately after the lock loop succeeds and before the chain walk, add `fd_racesan_hook( "accdb_snapshot_write:locked" );`.
 
-In `src/flamenco/accdb/test_accdb_racesan.c`, next to `fiber_release_write` (search for its definition), add a fiber that performs one full-mode snapshot write of `key` at `slot` with `lamports` and zero data, following the mechanics of `test_write_batch` in `test_accdb.c` (reserve with `fd_accdb_snapshot_reserve_write`, `pwrite` a `fd_accdb_disk_meta_t` header to the join's fd, then `fd_accdb_snapshot_write_batch` with `fork_id` = `SENTINEL`, `cnt` 1, `slots[0]=slot`, `data_lens[0]=0`, `executables[0]=0`). The racesan joins need a file descriptor for the pwrite; use the same fd `join_new()` passes to `fd_accdb_new` (read `join_new` to find it). Name the fiber `fiber_snapshot_write` and give it the same shape as `fiber_release_write` (a `g_fiber[]` slot, a start function, `fiber_done`).
+- [ ] **Step 1: Write the snapshot-write fiber and the test**
+
+In `test_accdb_racesan.c`, next to `fiber_release_write`, add `fiber_snapshot_write( fiber, join, key, slot, lamports )` performing one full-mode snapshot write of `key` with zero data, following `test_write_batch` in `test_accdb.c` (reserve with `fd_accdb_snapshot_reserve_write`, `pwrite` a `fd_accdb_disk_meta_t` header to the join's fd, then `fd_accdb_snapshot_write_batch` with `SENTINEL`, cnt 1). Store the batch's `results[0]` in a global `g_snapshot_write_result` so the test can read it. The racesan joins need a file descriptor for the pwrite; use the one `join_new()` passes to `fd_accdb_new`, adding a `memfd_create` in `test_shmem_new` if there is none (mirror `test_setup_ex` in `test_accdb.c`).
 
 Then add the test:
 
 ```c
 /* A live commit prepends a new version of key on fork b while the
-   snapshot loader holds the chain lock for the same key.  The commit
-   must not steal the lock: afterwards fork b must still read the
-   committed value, and the root must read the loaded value. */
+   snapshot loader writes the same key.  Whichever lands first, the
+   commit must never be lost: fork b reads the committed value.  If
+   the loader ran second it saw the live node and skipped, so the root
+   reads nothing; if it ran first, the root reads the loaded value. */
 
 static void
 test_release_vs_snapshot_write( void ) {
@@ -315,8 +328,10 @@ test_release_vs_snapshot_write( void ) {
     fiber_done( &g_fiber[0] );
     fiber_done( &g_fiber[1] );
 
-    FD_TEST( fd_accdb_lamports( ctl, b,    key )==400UL+i );
-    FD_TEST( fd_accdb_lamports( ctl, root, key )==100UL+i );
+    FD_TEST( fd_accdb_lamports( ctl, b, key )==400UL+i );
+    ulong root_lamports = fd_accdb_lamports( ctl, root, key );
+    if( g_snapshot_write_result==FD_ACCDB_SNAPSHOT_WRITE_LIVE ) FD_TEST( root_lamports==0UL );
+    else                                                       FD_TEST( root_lamports==100UL+i );
 
     fd_accdb_purge( ctl, b );
     drain_background( ctl );
@@ -330,19 +345,19 @@ test_release_vs_snapshot_write( void ) {
 }
 ```
 
-Register it in the `cases[]` table after `TEST( test_acquire_vs_release ),` as `TEST( test_release_vs_snapshot_write ),`.
+Register it in the `cases[]` table after `TEST( test_acquire_vs_release ),`. Note the loader writes a node at the root generation each iteration it runs first; `fd_accdb_purge( b )` only removes b's version, so later iterations compare against a loader node that already exists (the slot rises each iteration, so the loader replaces it in place rather than reporting a duplicate).
 
-If the racesan shmem has no backing fd for pwrite, extend `test_shmem_new` the way `test_setup_ex` in `test_accdb.c` does with `memfd_create`, and keep that change minimal.
+- [ ] **Step 2: Build and run**
 
-- [ ] **Step 3: Build and run the racesan test**
+Run: `make -j BUILDDIR=gcc-racesan EXTRAS=racesan test_accdb_racesan && build/gcc-racesan/unit-test/test_accdb_racesan 2>&1 | tail -3` (no arguments) and `make -j test_accdb && build/native/gcc/11.5.0/unit-test/test_accdb --page-sz normal 2>&1 | tail -1`.
+Expected: the racesan run's final line reports pass, with `Running test_release_vs_snapshot_write` in the log; the normal test passes.
 
-Run: `make -j BUILDDIR=gcc-racesan EXTRAS=racesan test_accdb_racesan && build/gcc-racesan/unit-test/test_accdb_racesan --page-sz normal 2>&1 | tail -3`
-Expected: the final line reports success (the same wording the baseline run printed, see `../racesan-baseline.log`). To see the test catch the old bug, temporarily revert the `release_inner` change from task 1 (`git stash` is not allowed; edit the one line back to `FD_VOLATILE_CONST`), rebuild, observe the `FD_TEST( fd_accdb_lamports( ctl, b, key )==400UL+i )` failure, then restore the line. Record both outcomes.
+To see the weave catch the Task 1 bug, temporarily change the `release_inner` prepend loop's head load back to a raw `FD_VOLATILE_CONST` load (one line), rebuild, run only this test by name, observe the `FD_TEST( fd_accdb_lamports( ctl, b, key )==400UL+i )` failure, then restore the line and confirm `git diff` shows only the intended changes. Record both outcomes.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 3: Commit**
 
 ```bash
-git add src/flamenco/accdb/fd_accdb.c src/flamenco/accdb/test_accdb_racesan.c
+git add src/flamenco/accdb/fd_accdb_private.h src/flamenco/accdb/fd_accdb.c src/flamenco/accdb/test_accdb_racesan.c
 git commit -m "accdb: racesan weave for commit vs snapshot write"
 ```
 
