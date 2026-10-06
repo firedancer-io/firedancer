@@ -127,16 +127,30 @@
    so a stream tile that falls behind sees a sequence gap and starts
    over.
 
-   The stream tile returns a bank it was given a reference on by
-   sending the bank index as the sig on strmk_replay.
+   Every message that hands out a reference on a bank carries a
+   hold_token, and the stream tile returns the reference by sending
+   that token back verbatim as the sig on strmk_replay.  The token
+   holds the bank index in its low 32 bits and the reset generation in
+   its high 32 bits, so a token minted before a reset is recognised and
+   ignored rather than released a second time or matched against a
+   reference handed out after the reset.  The tile does not have to
+   interpret the token, only hand it back.
 
    Replay sends FD_STRMK_SIG_RESET when it has taken every outstanding
    reference back, which it does when the stream tile owes one for too
-   long, when the accounts of a block did not fit in its sink, and when
-   the shredded bytes of a block it produced itself are no longer in
-   the store: a stream is a chain of blocks and cannot skip one.  A
-   reset therefore cancels every reference the stream tile was given
-   before it, and the tile must not return any of them. */
+   long, when it owes more than replay can record, when the accounts of
+   a block did not fit in its sink, and when the shredded bytes of a
+   block replay produced itself are no longer in the store: a stream is
+   a chain of blocks and cannot skip one.  A reset therefore cancels
+   every reference the stream tile was given before it, and the tile
+   must not return any of them.
+
+   A reference has two deadlines.  The stream tile reads a block's
+   accounts once it has the block's end, so from that moment it has 4
+   seconds to return the reference.  Until then only a 60 second
+   backstop applies, measured from the block start, because replay
+   itself may take that long to finish a block it is catching up
+   on. */
 
 #define FD_STRMK_SIG_BLOCK_START  (1UL)
 #define FD_STRMK_SIG_TXN_KEYS     (2UL)
@@ -166,6 +180,7 @@ struct fd_strmk_block_start {
   ulong bank_idx;
   ulong bank_seq;
   ulong parent_bank_idx;
+  ulong hold_token;      /* return on strmk_replay once the block is written */
 };
 typedef struct fd_strmk_block_start fd_strmk_block_start_t;
 
@@ -187,9 +202,10 @@ struct fd_strmk_txn_keys {
 typedef struct fd_strmk_txn_keys fd_strmk_txn_keys_t;
 
 /* Replay publishes a block end once a block completes, and the same
-   message with sig FD_STRMK_SIG_BLOCK_DEAD, a zero collector and a
-   zero fork for a block that died, so the stream tile can drop its
-   partial state.
+   message with sig FD_STRMK_SIG_BLOCK_DEAD, a zero collector and an
+   unset fork (val USHORT_MAX, what the accounts database uses for no
+   fork) for a block that died, so the stream tile can drop its partial
+   state.
 
    parent_accdb_fork_id is the fork the block's accounts are read at,
    and it is only valid here: the fork is created when the block starts
@@ -226,6 +242,7 @@ typedef struct fd_strmk_block_end fd_strmk_block_end_t;
 struct fd_strmk_stream_start {
   ulong slot;
   ulong bank_idx;
+  ulong hold_token;      /* return on strmk_replay once the stream is written */
 };
 typedef struct fd_strmk_stream_start fd_strmk_stream_start_t;
 

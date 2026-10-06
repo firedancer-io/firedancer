@@ -90,21 +90,48 @@ typedef struct fd_reception_stats fd_reception_stats_t;
 
 /* Bank references the stream tile owes back, and how long it may owe
    one before replay takes every reference back and tells the tile to
-   start over.  A block's reference comes back as soon as the tile has
-   read the block's accounts, so it gets a short deadline.  The
-   reference on the bank a stream chains off comes back only once the
-   tile has written a manifest and a status cache, which is why the two
-   classes are held in separate rings: within a ring every entry has
-   the same deadline, so the oldest entry is always the one due
-   first. */
+   start over.
+
+   A reference lives in one of three rings, and the ring it is in
+   decides its deadline.  Every entry of a ring is stamped by the same
+   clock, so the oldest entry of a ring is always the one due first and
+   the deadline check never has to look past it.
+
+     start  A block's reference from the moment the block got a bank.
+            Only a long backstop applies: replay itself may take that
+            long to finish a block it is catching up on, and the
+            stream tile cannot read the block before then anyway.
+     read   The same reference from the moment the block's end went
+            out.  That is when the stream tile reads the block's
+            accounts, and it is expected to be quick about it.
+     base   The reference on the bank a stream chains off, which the
+            stream tile returns only once it has written a manifest
+            and a status cache.
+
+   A hold is identified on the wire by a token carrying its bank index
+   and the generation of the last reset, so a release that was already
+   in flight when a reset fired is recognised and dropped instead of
+   cancelling a reference handed out after the reset.  Holds on the
+   same bank within a generation share a token and are
+   interchangeable. */
 
 #define FD_REPLAY_STRMK_HOLD_MAX (64UL)
-#define FD_REPLAY_STRMK_BLOCK_NS (4L*1000L*1000L*1000L)
+#define FD_REPLAY_STRMK_READ_NS  (4L*1000L*1000L*1000L)
+#define FD_REPLAY_STRMK_START_NS (60L*1000L*1000L*1000L)
 #define FD_REPLAY_STRMK_BASE_NS  (60L*1000L*1000L*1000L)
 
+#define FD_REPLAY_STRMK_TOKEN( gen, bank_idx ) ( (((gen)&0xffffffffUL)<<32) | (bank_idx) )
+#define FD_REPLAY_STRMK_TOKEN_GEN( token )     ( (token)>>32 )
+#define FD_REPLAY_STRMK_TOKEN_BANK( token )    ( (token)&0xffffffffUL )
+
+/* A bank index fits in the low half of a token, and no token can
+   collide with the value that marks a ring entry released. */
+
+FD_STATIC_ASSERT( FD_BANKS_MAX_BANKS<UINT_MAX, strmk_hold_token );
+
 struct fd_replay_strmk_hold {
-  ulong bank_idx; /* ULONG_MAX once the hold is released */
-  long  tick;     /* tickcount the hold was taken at */
+  ulong token; /* ULONG_MAX once the hold is released */
+  long  tick;  /* tickcount the ring's clock started for this hold */
 };
 
 typedef struct fd_replay_strmk_hold fd_replay_strmk_hold_t;
@@ -504,12 +531,13 @@ struct fd_replay_tile {
 
   /* Boot streams served to peers.  Replay mirrors every block it
      replays to the stream tile over replay_strmk: the block start with
-     a reference on the parent bank, which is the fork the stream tile
-     reads the block's accounts at, the account keys the scheduler
-     resolved out of each FEC set, and the block end.  strmk_hold
-     records the references the stream tile owes back, oldest first, so
-     a stream tile that stalls cannot pin a bank forever. */
+     a reference on the parent bank, the account keys the scheduler
+     resolved out of each FEC set, and the block end, which names the
+     fork the stream tile reads the block's accounts at.  The hold
+     rings below record the references the tile owes back, so a stream
+     tile that stalls cannot pin a bank forever. */
   int                      instant_boot_serve;
+  ulong                    strmk_generation; /* bumped on every reset, high half of a hold token */
   ulong                    strmk_in_idx; /* in link the stream tile returns banks on, ULONG_MAX if none */
   fd_sched_keys_t          strmk_keys[1];
   fd_sched_keys_walk_t *   strmk_walk;   /* parse cursor for the block we are producing, which sched never sees */
@@ -689,7 +717,8 @@ struct fd_replay_tile {
 
   /* Cold: only touched when a boot stream hold is taken, returned or
      reclaimed. */
-  fd_replay_strmk_ring_t strmk_block_hold[1]; /* parent banks the blocks are read at */
+  fd_replay_strmk_ring_t strmk_start_hold[1]; /* parent banks of blocks still replaying */
+  fd_replay_strmk_ring_t strmk_read_hold[1];  /* parent banks of blocks the tile is reading */
   fd_replay_strmk_ring_t strmk_base_hold[1];  /* snapshot banks the streams chain off */
 
   uchar __attribute__((aligned(FD_MULTI_EPOCH_LEADERS_ALIGN))) mleaders_mem[ FD_MULTI_EPOCH_LEADERS_FOOTPRINT ];
