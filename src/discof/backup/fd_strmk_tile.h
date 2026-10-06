@@ -26,6 +26,12 @@
 
 #define FD_STRMK_STREAM_MAX (8UL)
 
+/* FD_STRMK_JOIN_FLOOR_SECONDS is how much of a stream's lifetime a
+   booting peer insists on having left before it joins, so a stream
+   served for less than that is of no use to anyone. */
+
+#define FD_STRMK_JOIN_FLOOR_SECONDS (180UL)
+
 /* The boot files live in their own directory below the snapshots
    directory. */
 

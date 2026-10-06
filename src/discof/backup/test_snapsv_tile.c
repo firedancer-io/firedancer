@@ -178,8 +178,8 @@ struct snapsv_env {
   ulong         wksp_sz;
 
   fd_stem_context_t stem[1];
-  fd_stem_tile_in_t stem_in[1];
-  ulong             stem_fseq;
+  fd_stem_tile_in_t stem_in[2];
+  ulong             stem_fseq[2];
   fd_frag_meta_t *  out_mcache[1];
   ulong             out_seq[1];
   ulong             out_depth[1];
@@ -294,6 +294,19 @@ snapsv_env_create( void ) {
   link->dcache          = fd_dcache_join( fd_dcache_new( dcache_mem, dcache_data_sz, 0UL ) ); FD_TEST( link->dcache );
   dcache_obj->offset    = fd_wksp_gaddr_fast( wksp, dcache_mem );
 
+  /* The stream tile announces boot stream files on a link of its own,
+     which the tile expects whenever it serves them. */
+  fd_topo_link_t * strmk_link = fd_topob_link( topo, "strmk_out", "snapsv", 128UL, sizeof(fd_snapmk_msg_t), 1UL );
+  fd_topo_obj_t * strmk_mcache_obj = &topo->objs[ strmk_link->mcache_obj_id ];
+  void * strmk_mcache_mem  = fd_wksp_alloc_laddr( wksp, fd_mcache_align(), fd_mcache_footprint( 128UL, 0UL ), 1UL );
+  strmk_link->mcache       = fd_mcache_join( fd_mcache_new( strmk_mcache_mem, 128UL, 0UL, 0UL ) ); FD_TEST( strmk_link->mcache );
+  strmk_mcache_obj->offset = fd_wksp_gaddr_fast( wksp, strmk_mcache_mem );
+
+  fd_topo_obj_t * strmk_dcache_obj = &topo->objs[ strmk_link->dcache_obj_id ];
+  void * strmk_dcache_mem  = fd_wksp_alloc_laddr( wksp, fd_dcache_align(), fd_dcache_footprint( dcache_data_sz, 0UL ), 1UL );
+  strmk_link->dcache       = fd_dcache_join( fd_dcache_new( strmk_dcache_mem, dcache_data_sz, 0UL ) ); FD_TEST( strmk_link->dcache );
+  strmk_dcache_obj->offset = fd_wksp_gaddr_fast( wksp, strmk_dcache_mem );
+
   fd_topo_link_t * out_link = fd_topob_link( topo, "snapsv_out", "snapsv", OUT_DEPTH, sizeof(fd_snapsv_msg_t), 1UL );
   fd_topo_obj_t * out_mcache_obj = &topo->objs[ out_link->mcache_obj_id ];
   void * out_mcache_mem  = fd_wksp_alloc_laddr( wksp, fd_mcache_align(), fd_mcache_footprint( OUT_DEPTH, 0UL ), 1UL );
@@ -308,6 +321,7 @@ snapsv_env_create( void ) {
 
   fd_topo_tile_t * tile = fd_topob_tile( topo, "snapsv", "snapsv", "snapsv", 0UL, 0, 0, 0, 0 );
   fd_topob_tile_in( topo, "snapsv", 0UL, "snapsv", "snapmk_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+  fd_topob_tile_in( topo, "snapsv", 0UL, "snapsv", "strmk_out",  0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   fd_topob_tile_out( topo, "snapsv", 0UL, "snapsv_out", 0UL );
   tile->snapsv.snap_max             = SNAP_MAX;
   tile->snapsv.conn_max             = CONN_MAX;
@@ -359,7 +373,8 @@ snapsv_env_create( void ) {
     .wksp_sz  = wksp_sz
   };
 
-  env->stem_in[0]    = (fd_stem_tile_in_t){ .fseq = &env->stem_fseq };
+  env->stem_in[0]    = (fd_stem_tile_in_t){ .fseq = &env->stem_fseq[ 0 ] };
+  env->stem_in[1]    = (fd_stem_tile_in_t){ .fseq = &env->stem_fseq[ 1 ] };
   env->out_mcache[0] = out_link->mcache;
   env->out_depth[0]  = OUT_DEPTH;
   env->stem[0]       = (fd_stem_context_t) {

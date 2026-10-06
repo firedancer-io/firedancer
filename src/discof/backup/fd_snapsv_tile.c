@@ -570,8 +570,10 @@ unprivileged_init( fd_topo_t const *      topo,
 
   /* link setup */
 
-  FD_CHECK_ERR( tile->in_cnt<=IN_LINK_MAX, "too many input links" );
-  FD_CHECK_ERR( tile->in_cnt, "snapsv needs an input link" );
+  /* The snapshot producer is always there, because the file server
+     needs it, and the stream tile joins it when boot streams are
+     served. */
+  FD_CHECK_ERR( tile->in_cnt==( ctx->boot_max ? 2UL : 1UL ), "unexpected input link count" );
   ctx->in_cnt = tile->in_cnt;
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];

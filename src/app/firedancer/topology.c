@@ -297,12 +297,18 @@ fd_topo_initialize( config_t * config ) {
   if( FD_UNLIKELY( serve_enabled ) ) {
     FD_CHECK_ERR( config->firedancer.snapshots.server.enabled,
                   "the snapshot server serves the boot streams, so [snapshots.server] must be enabled too" );
-    FD_CHECK_ERR( snapmk_enabled && config->firedancer.snapshots.incremental_snapshots,
-                  "a boot stream chains off an incremental snapshot, so incremental snapshot production "
-                  "must be enabled too" );
+    FD_CHECK_ERR( snapmk_enabled && config->firedancer.snapshots.incremental_snapshot_interval_blocks,
+                  "a boot stream starts at the slot of an incremental snapshot this validator makes, so "
+                  "[layout.enable_snapshot_production] and a nonzero "
+                  "[snapshots.incremental_snapshot_interval_blocks] are both needed" );
     FD_CHECK_ERR( config->firedancer.snapshots.instant_boot.serve.max_open_streams &&
                   config->firedancer.snapshots.instant_boot.serve.max_open_streams<=FD_STRMK_STREAM_MAX,
                   "[snapshots.instant_boot.serve.max_open_streams] is out of range" );
+    /* A booting peer only joins a stream with FD_STRMK_JOIN_FLOOR_SECONDS
+       of life left, so a shorter lifetime offers it nothing. */
+    FD_CHECK_ERR( config->firedancer.snapshots.instant_boot.serve.stream_lifetime_seconds>FD_STRMK_JOIN_FLOOR_SECONDS,
+                  "a booting peer only joins a stream with 180 seconds of life left, so "
+                  "[snapshots.instant_boot.serve.stream_lifetime_seconds] must be more than that" );
   }
 
   fd_topo_t * topo = fd_topob_new( &config->topo, config->name );
