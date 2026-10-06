@@ -112,10 +112,14 @@ Restore pipeline:
   at X every account has one value, so nothing depends on which source
   a read lands on.
 - At load end, once every writer has stopped: clear the hide flag
-  (the accounts database refuses root advance while hidden), promote
-  the incremental, ask the stream receiver to stop and wait until it
-  has acknowledged, root the boot fork (bank 0's fork, so replay's
-  first root advance finds its parent rooted), then signal replay.
+  (the accounts database refuses root advance while hidden), recover
+  the incremental's delta, apply its stake fork, ask the stream
+  receiver to stop and wait until it has acknowledged, then signal
+  replay.  Replay, on that signal, roots the incremental fork and then
+  the boot fork (bank 0's fork), drains its deferred purges and
+  finishes the stake state.  Replay is the only tile that submits root
+  advances and purges to the accounts database, as its contract says;
+  the lead only hides, unhides and recovers.
 
 Receiver tile:
 
