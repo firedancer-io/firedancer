@@ -547,10 +547,10 @@ backlog_retain( ulong slot,
   block->slot            = slot;
   block->parent_slot     = parent_slot;
   block->bank_idx        = bank_idx;
-  block->bank_seq        = slot;
-  block->parent_bank_idx  = parent_bank_idx;
-  block->parent_bank_seq  = ULONG_MAX;
-  block->parent_fork      = (fd_accdb_fork_id_t){ (ushort)slot };
+  block->bank_seq        = bank_idx;
+  block->parent_bank_idx = parent_bank_idx;
+  block->parent_bank_seq = parent_bank_idx;
+  block->parent_fork     = (fd_accdb_fork_id_t){ (ushort)slot };
   mock_bank_add( parent_bank_idx );
 
   fd_pubkey_t key = {{ 0 }};
@@ -612,7 +612,7 @@ FD_UNIT_TEST( backlog_order ) {
   /* and one that ran before the stream's slot, which it does not want */
   backlog_retain(  99UL,  9UL,  8UL,  98UL      );
 
-  FD_TEST( strmk_backlog_link( ctx, TEST_SLOT_X, 10UL ) );
+  FD_TEST( strmk_backlog_link( ctx, TEST_SLOT_X, 10UL, 10UL ) );
 
   /* the bundle of the stream's own slot comes first */
   fd_pubkey_t bundle = {{ 3 }};
@@ -626,8 +626,10 @@ FD_UNIT_TEST( backlog_order ) {
   FD_TEST( live );
   live->slot            = 104UL;
   live->parent_slot     = 103UL;
+  live->bank_idx        = 14UL;
+  live->bank_seq        = 14UL;
   live->parent_bank_idx = 13UL;
-  live->parent_bank_seq = ULONG_MAX;
+  live->parent_bank_seq = 13UL;
   live->parent_fork     = (fd_accdb_fork_id_t){ 104 };
   fd_pubkey_t key = {{ 0 }};
   FD_STORE( ulong, key.uc, 104UL );
@@ -650,8 +652,8 @@ FD_UNIT_TEST( backlog_order ) {
   FD_TEST( strmk_sent_query( stream->sent, BACKLOG_KEY_MAX, &shared )->slot==101UL );
   /* the stream remembers the blocks it carried, which is how the next
      one is recognised as chaining off it */
-  FD_TEST( strmk_carried_test( stream, 13UL ) );
-  FD_TEST( !strmk_carried_test( stream, 99UL ) );
+  FD_TEST( strmk_carried_test( stream, 13UL, 13UL ) );
+  FD_TEST( !strmk_carried_test( stream, 13UL, 99UL ) );
 
   backlog_env_destroy();
 }
@@ -665,18 +667,18 @@ FD_UNIT_TEST( backlog_refused ) {
   /* the block that ran right after slot 100 is no longer kept */
   backlog_retain( 102UL, 12UL, 11UL, 101UL );
   backlog_retain( 103UL, 13UL, 12UL, 102UL );
-  FD_TEST( !strmk_backlog_link( ctx, TEST_SLOT_X, 10UL ) );
+  FD_TEST( !strmk_backlog_link( ctx, TEST_SLOT_X, 10UL, 10UL ) );
 
   /* a block in the middle of the chain is missing */
   strmk_blocks_drop( ctx );
   backlog_retain( 101UL, 11UL, 10UL, TEST_SLOT_X );
   backlog_retain( 103UL, 13UL, 12UL, 102UL       );
-  FD_TEST( !strmk_backlog_link( ctx, TEST_SLOT_X, 10UL ) );
+  FD_TEST( !strmk_backlog_link( ctx, TEST_SLOT_X, 10UL, 10UL ) );
 
   /* nothing ran after the stream's slot yet, which is not a gap */
   strmk_blocks_drop( ctx );
   backlog_retain( 99UL, 9UL, 8UL, 98UL );
-  FD_TEST( strmk_backlog_link( ctx, TEST_SLOT_X, 10UL ) );
+  FD_TEST( strmk_backlog_link( ctx, TEST_SLOT_X, 10UL, 10UL ) );
 
   /* a chain that left the chain below the stream's slot is dropped,
      not refused, as long as the stream's own child is kept */
@@ -684,21 +686,21 @@ FD_UNIT_TEST( backlog_refused ) {
   backlog_retain(  98UL,  8UL,  7UL, 97UL );
   backlog_retain( 101UL, 11UL, 10UL, TEST_SLOT_X );
   strmk_block_t * aside = backlog_retain( 102UL, 12UL, 8UL, 98UL );
-  FD_TEST( strmk_backlog_link( ctx, TEST_SLOT_X, 10UL ) );
+  FD_TEST( strmk_backlog_link( ctx, TEST_SLOT_X, 10UL, 10UL ) );
   FD_TEST( !aside->linked );
 
   /* nothing is kept but blocks have run past the stream's slot, which
      is what a reset leaves behind */
   strmk_blocks_drop( ctx );
   ctx->last_end_slot = 105UL;
-  FD_TEST( !strmk_backlog_link( ctx, TEST_SLOT_X, 10UL ) );
+  FD_TEST( !strmk_backlog_link( ctx, TEST_SLOT_X, 10UL, 10UL ) );
   ctx->last_end_slot = 0UL;
 
   /* a refused stream writes nothing */
   strmk_blocks_drop( ctx );
   backlog_retain( 103UL, 13UL, 12UL, 102UL );
   ulong file_sz = stream->file_sz;
-  FD_TEST( !strmk_backlog_link( ctx, TEST_SLOT_X, 10UL ) );
+  FD_TEST( !strmk_backlog_link( ctx, TEST_SLOT_X, 10UL, 10UL ) );
   FD_TEST( stream->file_sz==file_sz );
 
   backlog_env_destroy();
@@ -726,7 +728,7 @@ FD_UNIT_TEST( lookup_table ) {
   block->slot            = TEST_SLOT;
   block->parent_slot     = TEST_SLOT_X;
   block->parent_bank_idx = 10UL;
-  block->parent_bank_seq = ULONG_MAX;
+  block->parent_bank_seq = 10UL;
   block->parent_fork     = (fd_accdb_fork_id_t){ (ushort)TEST_SLOT };
   mock_bank_add( 10UL );
   FD_TEST( strmk_block_key_add( block, &table ) );
@@ -846,7 +848,7 @@ FD_UNIT_TEST( ancestry_skip ) {
   child->bank_idx        = 11UL;
   child->bank_seq        = 11UL;
   child->parent_bank_idx = 10UL;
-  child->parent_bank_seq = ULONG_MAX;
+  child->parent_bank_seq = 10UL;
   child->parent_fork     = (fd_accdb_fork_id_t){ 101 };
   FD_TEST( strmk_block_takers( ctx, child )==1U );
   strmk_block_read ( ctx, 1U, child );
@@ -859,7 +861,7 @@ FD_UNIT_TEST( ancestry_skip ) {
   grand->bank_idx        = 12UL;
   grand->bank_seq        = 12UL;
   grand->parent_bank_idx = 11UL;
-  grand->parent_bank_seq = ULONG_MAX;
+  grand->parent_bank_seq = 11UL;
   grand->parent_fork     = (fd_accdb_fork_id_t){ 102 };
   FD_TEST( strmk_block_takers( ctx, grand )==1U );
 
@@ -870,7 +872,7 @@ FD_UNIT_TEST( ancestry_skip ) {
   other->bank_idx        = 13UL;
   other->bank_seq        = 13UL;
   other->parent_bank_idx = 42UL;
-  other->parent_bank_seq = ULONG_MAX;
+  other->parent_bank_seq = 42UL;
   other->parent_fork     = (fd_accdb_fork_id_t){ 103 };
   FD_TEST( !strmk_block_takers( ctx, other ) );
   FD_TEST( stream->open );
@@ -890,7 +892,7 @@ FD_UNIT_TEST( sent_set_full_breaks ) {
   block->bank_idx        = 11UL;
   block->bank_seq        = 11UL;
   block->parent_bank_idx = 10UL;
-  block->parent_bank_seq = ULONG_MAX;
+  block->parent_bank_seq = 10UL;
   block->parent_fork     = (fd_accdb_fork_id_t){ 101 };
   for( ulong i=0UL; i<24UL; i++ ) {
     fd_pubkey_t key = {{ 0 }};
@@ -926,6 +928,11 @@ FD_UNIT_TEST( lookup_table_grows ) {
   FD_TEST(  strmk_sent_test( stream, BACKLOG_KEY_MAX, &addr[ 1 ] ) );
   FD_TEST( !strmk_sent_test( stream, BACKLOG_KEY_MAX, &addr[ 2 ] ) );
 
+  /* the stream knows the key it carried was a table, which is what
+     makes it read it again; a plain account is not marked */
+  FD_TEST(  strmk_sent_table( stream, BACKLOG_KEY_MAX, &table      ) );
+  FD_TEST( !strmk_sent_table( stream, BACKLOG_KEY_MAX, &addr[ 0 ]  ) );
+
   /* the table gains a third address after the stream opened */
   mock_shaped_len = FD_LOOKUP_TABLE_META_SIZE + 3UL*sizeof(fd_pubkey_t);
   memcpy( mock_shaped_data+FD_LOOKUP_TABLE_META_SIZE, addr, 3UL*sizeof(fd_pubkey_t) );
@@ -955,9 +962,9 @@ FD_UNIT_TEST( sent_set ) {
     FD_STORE( ulong, key.uc+16UL, fd_ulong_hash( i+2UL  ) );
     FD_STORE( ulong, key.uc+24UL, fd_ulong_hash( i+3UL  ) );
     FD_TEST( !strmk_sent_test( s, SENT_MAX, &key ) );
-    FD_TEST( strmk_sent_insert( s, SENT_MAX, &key, TEST_SLOT+i ) );
+    FD_TEST( strmk_sent_insert( s, SENT_MAX, &key, TEST_SLOT+i, 0 ) );
     /* inserting a key the stream already carried changes nothing */
-    FD_TEST( strmk_sent_insert( s, SENT_MAX, &key, TEST_SLOT+i+1UL ) );
+    FD_TEST( strmk_sent_insert( s, SENT_MAX, &key, TEST_SLOT+i+1UL, 0 ) );
     FD_TEST( strmk_sent_test( s, SENT_MAX, &key ) );
   }
   FD_TEST( s->sent_cnt==cap );
@@ -970,7 +977,7 @@ FD_UNIT_TEST( sent_set ) {
     FD_STORE( ulong, key.uc+16UL, fd_ulong_hash( i+2UL  ) );
     FD_STORE( ulong, key.uc+24UL, fd_ulong_hash( i+3UL  ) );
     FD_TEST( strmk_sent_test( s, SENT_MAX, &key ) );
-    FD_TEST( strmk_sent_query( sent, SENT_MAX, &key )->slot==TEST_SLOT+i );
+    FD_TEST( ( strmk_sent_query( sent, SENT_MAX, &key )->slot & ~STRMK_SENT_TABLE )==TEST_SLOT+i );
   }
 
   /* a set with no free entry left refuses the account that would not
@@ -978,12 +985,12 @@ FD_UNIT_TEST( sent_set ) {
   for( ulong i=cap; i<SENT_MAX; i++ ) {
     fd_pubkey_t key = {{ 0 }};
     FD_STORE( ulong, key.uc, fd_ulong_hash( i ) );
-    FD_TEST( strmk_sent_insert( s, SENT_MAX, &key, TEST_SLOT+i ) );
+    FD_TEST( strmk_sent_insert( s, SENT_MAX, &key, TEST_SLOT+i, 0 ) );
   }
   FD_TEST( s->sent_cnt==SENT_MAX );
   fd_pubkey_t over = {{ 0 }};
   FD_STORE( ulong, over.uc, fd_ulong_hash( SENT_MAX ) );
-  FD_TEST( !strmk_sent_insert( s, SENT_MAX, &over, TEST_SLOT ) );
+  FD_TEST( !strmk_sent_insert( s, SENT_MAX, &over, TEST_SLOT, 0 ) );
   memset( sent, 0, sizeof(sent) );
   s->sent_cnt = 0UL;
   for( ulong i=0UL; i<cap; i++ ) {
@@ -992,7 +999,7 @@ FD_UNIT_TEST( sent_set ) {
     FD_STORE( ulong, key.uc+8UL,  fd_ulong_hash( i+1UL  ) );
     FD_STORE( ulong, key.uc+16UL, fd_ulong_hash( i+2UL  ) );
     FD_STORE( ulong, key.uc+24UL, fd_ulong_hash( i+3UL  ) );
-    FD_TEST( strmk_sent_insert( s, SENT_MAX, &key, TEST_SLOT+i ) );
+    FD_TEST( strmk_sent_insert( s, SENT_MAX, &key, TEST_SLOT+i, 0 ) );
   }
 
   /* a key the stream never carried is not in the set */
