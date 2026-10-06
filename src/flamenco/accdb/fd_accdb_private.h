@@ -200,6 +200,22 @@ typedef struct fd_accdb_accmeta fd_accdb_accmeta_t;
 FD_STATIC_ASSERT( alignof(fd_accdb_accmeta_t)==64, layout );
 FD_STATIC_ASSERT( sizeof (fd_accdb_accmeta_t)==64, layout );
 
+/* The snapshot loader locks a hash chain by storing this value into
+   the chain's head slot (see fd_accdb_snapshot_write_batch).  Every
+   other load of a chain head goes through fd_accdb_chain_head so it
+   waits for the lock to clear instead of following it. */
+
+#define FD_ACCDB_CHAIN_LOCKED (UINT_MAX-1U)
+
+static inline uint
+fd_accdb_chain_head( uint const * head ) {
+  for(;;) {
+    uint acc = FD_VOLATILE_CONST( *head );
+    if( FD_LIKELY( acc!=FD_ACCDB_CHAIN_LOCKED ) ) return acc;
+    FD_SPIN_PAUSE();
+  }
+}
+
 #define FD_ACCDB_OFF_BITS  48UL
 #define FD_ACCDB_OFF_MASK  ((1UL<<FD_ACCDB_OFF_BITS)-1UL)       /* 0x0000_FFFF_FFFF_FFFF */
 #define FD_ACCDB_OFF_INVAL FD_ACCDB_OFF_MASK                    /* sentinel: offset bits all-ones */

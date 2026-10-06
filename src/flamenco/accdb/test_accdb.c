@@ -1807,6 +1807,177 @@ test_snapshot_chain_locked_writers( void ) {
   test_teardown( accdb, fd );
 }
 
+/* Snapshot loader threads write one key set while a live writer
+   repeatedly overwrites a second key set on a child fork.  A third
+   key set is written once, before any thread starts, and only ever
+   read after that: accdb does not support a reader racing an
+   in-place overwrite of the same key on the same fork (production
+   never does this, since transactions hold account locks).  All keys
+   land in a small chain table so chains are shared with the ones the
+   loader locks, which is what this test exercises.  Nothing may
+   crash, and after the threads join the repeatedly-written key must
+   hold its last value, the read-only key its one value, and the
+   loaded key its highest-slot value. */
+
+#define LIVE_KEYS   (256UL)
+#define LIVE_ROUNDS (64UL)
+
+typedef struct {
+  fd_accdb_t *        accdb;
+  fd_accdb_fork_id_t  fork;
+  uchar            (* pks)[ 32UL ];
+  ulong               key_cnt;
+  pthread_barrier_t * start;
+  int volatile *      stop;
+  ulong               rounds;
+  int                 chain_walk_only;
+} live_ctx_t;
+
+static void *
+live_writer_main( void * _ctx ) {
+  live_ctx_t * ctx = _ctx;
+  int barrier_result = pthread_barrier_wait( ctx->start );
+  FD_TEST( !barrier_result || barrier_result==PTHREAD_BARRIER_SERIAL_THREAD );
+  uchar owner[ 32UL ] = { 9, 0 };
+  uchar data[ 64UL ];
+  for( ulong r=0UL; r<ctx->rounds; r++ ) {
+    for( ulong k=0UL; k<LIVE_KEYS; k++ ) {
+      memset( data, (int)(r&0xFFUL), sizeof(data) );
+      accdb_write( ctx->accdb, ctx->fork, ctx->pks[ k ], 5000000UL+r, data, (k%64UL), owner );
+    }
+  }
+  return NULL;
+}
+
+static void *
+live_reader_main( void * _ctx ) {
+  live_ctx_t * ctx = _ctx;
+  int barrier_result = pthread_barrier_wait( ctx->start );
+  FD_TEST( !barrier_result || barrier_result==PTHREAD_BARRIER_SERIAL_THREAD );
+  ulong iter = 0UL;
+  while( !FD_VOLATILE_CONST( *ctx->stop ) ) {
+    ulong k = iter%ctx->key_cnt;
+    /* accdb_read pulls the account through the cache, which races
+       the snapshot loader's in-place replace of an existing key the
+       same way it races a live writer's in-place overwrite: neither
+       is supported.  fd_accdb_exists/fd_accdb_lamports only walk the
+       chain under the loader's lock, so they are safe here and are
+       the actual point of this test. */
+    if( !ctx->chain_walk_only ) {
+      ulong lamports = 0UL;
+      accdb_read( ctx->accdb, ctx->fork, ctx->pks[ k ], &lamports, NULL, NULL, NULL );
+    }
+    (void)fd_accdb_exists  ( ctx->accdb, ctx->fork, ctx->pks[ k ] );
+    (void)fd_accdb_lamports( ctx->accdb, ctx->fork, ctx->pks[ k ] );
+    iter++;
+  }
+  return NULL;
+}
+
+static void
+test_snapshot_writers_vs_live( void ) {
+  int fd;
+  ulong psz = 11UL<<20UL;
+  ulong max_accounts = 2048UL;
+  fd_accdb_t * accdb = test_setup_ex( &fd, max_accounts, 64UL, 1024UL, 64UL, psz,
+                                      TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED,
+                                      PAR_THREADS+4UL );
+
+  fd_accdb_fork_id_t root  = fd_accdb_attach_child( accdb, SENTINEL );
+  fd_accdb_fork_id_t child = fd_accdb_attach_child( accdb, root );
+  fd_accdb_snapshot_load_begin( accdb );
+
+  static uchar load_pks[ PAR_KEYS  ][ 32UL ];
+  static uchar live_pks[ LIVE_KEYS ][ 32UL ];
+  static uchar read_pks[ LIVE_KEYS ][ 32UL ];
+  for( ulong k=0UL; k<PAR_KEYS; k++ ) {
+    fd_memset( load_pks[ k ], 0, 32UL );
+    load_pks[ k ][ 0 ] = (uchar)( k+1UL );
+    load_pks[ k ][ 1 ] = 0x77;
+  }
+  for( ulong k=0UL; k<LIVE_KEYS; k++ ) {
+    fd_memset( live_pks[ k ], 0, 32UL );
+    live_pks[ k ][ 0 ] = (uchar)( k&0xFFUL );
+    live_pks[ k ][ 1 ] = 0x88;
+    live_pks[ k ][ 2 ] = (uchar)( k>>8 );
+  }
+  for( ulong k=0UL; k<LIVE_KEYS; k++ ) {
+    fd_memset( read_pks[ k ], 0, 32UL );
+    read_pks[ k ][ 0 ] = (uchar)( k&0xFFUL );
+    read_pks[ k ][ 1 ] = 0x99;
+    read_pks[ k ][ 2 ] = (uchar)( k>>8 );
+  }
+
+  /* read_pks is written once, before any thread starts, then only
+     ever read: accdb does not support a reader racing an in-place
+     overwrite of the same key on the same fork. */
+  {
+    uchar owner[ 32UL ] = { 9, 0 };
+    uchar data[ 64UL ];
+    memset( data, 0, sizeof(data) );
+    for( ulong k=0UL; k<LIVE_KEYS; k++ ) {
+      accdb_write( accdb, child, read_pks[ k ], 7000000UL+k, data, (k%64UL), owner );
+    }
+  }
+
+  fd_accdb_t * loader_joins[ PAR_THREADS ];
+  par_writer_ctx_t loader_ctxs[ PAR_THREADS ];
+  for( ulong t=0UL; t<PAR_THREADS; t++ ) loader_joins[ t ] = test_join_writer( fd );
+  memset( loader_ctxs, 0, sizeof(loader_ctxs) );
+  for( ulong t=0UL; t<PAR_THREADS; t++ ) {
+    loader_ctxs[ t ].accdb      = loader_joins[ t ];
+    loader_ctxs[ t ].store.fd   = fd;
+    loader_ctxs[ t ].thread_idx = t;
+    loader_ctxs[ t ].fork       = SENTINEL;
+    loader_ctxs[ t ].pks        = load_pks;
+  }
+
+  fd_accdb_t * live_join   = test_join_writer( fd );
+  fd_accdb_t * reader_join = test_join_writer( fd );
+  fd_accdb_t * reader2_join = test_join_writer( fd );
+  int volatile stop = 0;
+  pthread_barrier_t start;
+  FD_TEST( !pthread_barrier_init( &start, NULL, (uint)(PAR_THREADS+3UL) ) );
+  live_ctx_t live   = { .accdb=live_join,    .fork=child, .pks=live_pks, .start=&start, .stop=&stop, .rounds=LIVE_ROUNDS };
+  live_ctx_t rd1    = { .accdb=reader_join,  .fork=child, .pks=read_pks, .key_cnt=LIVE_KEYS, .start=&start, .stop=&stop, .rounds=0UL };
+  live_ctx_t rd2    = { .accdb=reader2_join, .fork=root,  .pks=load_pks, .key_cnt=PAR_KEYS,  .start=&start, .stop=&stop, .rounds=0UL, .chain_walk_only=1 };
+  for( ulong t=0UL; t<PAR_THREADS; t++ ) loader_ctxs[ t ].start = &start;
+
+  pthread_t threads[ PAR_THREADS+3UL ];
+  for( ulong t=0UL; t<PAR_THREADS; t++ ) FD_TEST( !pthread_create( &threads[ t ], NULL, par_writer_main, &loader_ctxs[ t ] ) );
+  FD_TEST( !pthread_create( &threads[ PAR_THREADS     ], NULL, live_writer_main, &live ) );
+  FD_TEST( !pthread_create( &threads[ PAR_THREADS+1UL ], NULL, live_reader_main, &rd1  ) );
+  FD_TEST( !pthread_create( &threads[ PAR_THREADS+2UL ], NULL, live_reader_main, &rd2  ) );
+  for( ulong t=0UL; t<PAR_THREADS+1UL; t++ ) FD_TEST( !pthread_join( threads[ t ], NULL ) );
+  stop = 1;
+  FD_TEST( !pthread_join( threads[ PAR_THREADS+1UL ], NULL ) );
+  FD_TEST( !pthread_join( threads[ PAR_THREADS+2UL ], NULL ) );
+  FD_TEST( !pthread_barrier_destroy( &start ) );
+
+  for( ulong k=0UL; k<LIVE_KEYS; k++ ) {
+    ulong lamports = 0UL;
+    FD_TEST( accdb_read( accdb, child, live_pks[ k ], &lamports, NULL, NULL, NULL ) );
+    FD_TEST( lamports==5000000UL+LIVE_ROUNDS-1UL );
+  }
+  for( ulong k=0UL; k<LIVE_KEYS; k++ ) {
+    ulong lamports = 0UL;
+    FD_TEST( accdb_read( accdb, child, read_pks[ k ], &lamports, NULL, NULL, NULL ) );
+    FD_TEST( lamports==7000000UL+k );
+  }
+  for( ulong k=0UL; k<PAR_KEYS; k++ ) {
+    ulong lamports = 0UL;
+    FD_TEST( accdb_read( accdb, root, load_pks[ k ], &lamports, NULL, NULL, NULL ) );
+    FD_TEST( lamports==PAR_LAMPORTS( PAR_THREADS-1UL, k ) );
+  }
+
+  fd_accdb_snapshot_load_end( accdb );
+  for( ulong t=0UL; t<PAR_THREADS; t++ ) free( loader_joins[ t ] );
+  free( live_join );
+  free( reader_join );
+  free( reader2_join );
+  test_teardown( accdb, fd );
+}
+
 /* Incremental extension of the chain-lock contract. */
 
 #define PAR_INCR_KEYS     (PAR_KEYS+16UL) /* 16 brand-new keys in the incr phase */
@@ -2325,6 +2496,7 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "test_snapshot_chain_locked_writers ..." ));
   test_snapshot_chain_locked_writers();
+  test_snapshot_writers_vs_live();
 
   FD_LOG_NOTICE(( "test_snapshot_equal_slot_rejected ..." ));
   test_snapshot_equal_slot_rejected();
