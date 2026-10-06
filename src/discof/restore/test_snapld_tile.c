@@ -3,6 +3,7 @@
 #include "utils/fd_sshttp_private.h"
 #include "utils/fd_ssctrl.h"
 #include "../../util/io/fd_io.h"
+#include "../../ballet/base58/fd_base58.h"
 
 #include <netinet/in.h>
 #include <sys/epoll.h>
@@ -10,6 +11,14 @@
 static ulong publish_cnt;
 static ulong publish_sig;
 static ulong init_cnt;
+static ulong init_range;
+static ulong expect_init_slot = 123UL;
+static ulong init_full_cnt;
+static ulong meta_cnt;
+static ulong meta_total_sz;
+static ulong meta_slot;
+static ulong data_sz_total;
+static uchar init_hash[ FD_HASH_FOOTPRINT ];
 static uchar output[ 4UL*FD_SNAPSHOT_DATA_MTU ] __attribute__((aligned(FD_CHUNK_ALIGN)));
 
 static fd_stem_context_t test_stem[1]; /* no sleep object: the tile nanosleeps when idle */
@@ -28,7 +37,17 @@ test_stem_publish( fd_stem_context_t * stem FD_PARAM_UNUSED,
   if( sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL || sig==FD_SNAPSHOT_MSG_CTRL_INIT_INCR ) {
     FD_TEST( sz==sizeof(fd_ssctrl_init_t) );
     fd_ssctrl_init_t const * init = fd_chunk_to_laddr_const( output, chunk );
-    FD_TEST( init->slot==123UL );
+    FD_TEST( init->slot==expect_init_slot );
+    fd_memcpy( init_hash, init->snapshot_hash, FD_HASH_FOOTPRINT );
+    init_full_cnt++;
+  } else if( sig==FD_SNAPSHOT_MSG_META ) {
+    FD_TEST( sz==sizeof(fd_ssctrl_meta_t) );
+    fd_ssctrl_meta_t const * meta = fd_chunk_to_laddr_const( output, chunk );
+    meta_total_sz = meta->total_sz;
+    meta_slot     = meta->resolved_slot;
+    meta_cnt++;
+  } else if( sig==FD_SNAPSHOT_MSG_DATA ) {
+    data_sz_total += sz;
   }
   return 0UL;
 }
@@ -41,9 +60,11 @@ test_sshttp_init( fd_sshttp_t * http,
                   char const *  path,
                   ulong         path_len,
                   ulong         hops,
-                  long          now ) {
+                  long          now,
+                  ulong         range_start ) {
   init_cnt++;
-  return fd_sshttp_init( http, addr, hostname, is_https, path, path_len, hops, now );
+  init_range = range_start;
+  return fd_sshttp_init( http, addr, hostname, is_https, path, path_len, hops, now, range_start );
 }
 
 #define fd_stem_publish test_stem_publish
@@ -144,6 +165,164 @@ test_start( int file,
   if( file      ) FD_TEST( !close( ctx->local_full_fd ) );
 }
 
+/* stream_listen opens a loopback server for the stream downloader to
+   talk to and returns its listening socket. */
+
+static int
+stream_listen( fd_ip4_port_t * addr ) {
+  int listen_fd = socket( AF_INET, SOCK_STREAM|SOCK_NONBLOCK, 0 );
+  FD_TEST( listen_fd>=0 );
+  struct sockaddr_in sa = {
+    .sin_family = AF_INET,
+    .sin_addr   = { .s_addr = htonl( INADDR_LOOPBACK ) }
+  };
+  FD_TEST( !bind( listen_fd, fd_type_pun( &sa ), sizeof(sa) ) );
+  socklen_t sa_sz = sizeof(sa);
+  FD_TEST( !getsockname( listen_fd, fd_type_pun( &sa ), &sa_sz ) );
+  FD_TEST( !listen( listen_fd, 4 ) );
+  addr->addr = sa.sin_addr.s_addr;
+  addr->port = sa.sin_port;
+  return listen_fd;
+}
+
+/* stream_exchange drives the tile until it has opened a connection and
+   sent a request, answers it with resp, and then drives the tile
+   another drive times so it can consume the answer.  The request text
+   is left in req. */
+
+static void
+stream_exchange( fd_snapld_tile_t * ctx,
+                 int                listen_fd,
+                 char *             req,
+                 ulong              req_max,
+                 char const *       resp,
+                 ulong              resp_len,
+                 ulong              drive ) {
+  int   busy    = 0;
+  int   conn    = -1;
+  ulong req_len = 0UL;
+  ulong sent    = 0UL;
+  ulong i;
+  for( i=0UL; i<1000000UL; i++ ) {
+    after_credit( ctx, test_stem, NULL, &busy );
+    if( conn<0 ) {
+      conn = accept4( listen_fd, NULL, NULL, SOCK_NONBLOCK );
+      continue;
+    }
+    if( !strstr( req, "\r\n\r\n" ) ) {
+      long n = recv( conn, req+req_len, req_max-1UL-req_len, 0 );
+      if( n>0L ) {
+        req_len += (ulong)n;
+        req[ req_len ] = '\0';
+      }
+      continue;
+    }
+    if( sent<resp_len ) {
+      long n = send( conn, resp+sent, resp_len-sent, MSG_NOSIGNAL );
+      if( n>0L ) sent += (ulong)n;
+      continue;
+    }
+    break;
+  }
+  if( FD_UNLIKELY( i==1000000UL ) ) FD_LOG_ERR(( "stream tile never completed the exchange" ));
+  for( i=0UL; i<drive; i++ ) after_credit( ctx, test_stem, NULL, &busy );
+  FD_TEST( !close( conn ) );
+}
+
+static void
+test_stream( void ) {
+  static fd_sshttp_t http[1];
+  static ulong waker_fseq[ FD_FSEQ_FOOTPRINT/sizeof(ulong) ] __attribute__((aligned(FD_FSEQ_ALIGN)));
+  static ulong done_fseq[ FD_FSEQ_FOOTPRINT/sizeof(ulong) ] __attribute__((aligned(FD_FSEQ_ALIGN)));
+  fd_snapld_tile_t ctx[1] = {0};
+  ctx->sshttp          = fd_sshttp_join( fd_sshttp_new( http, test_epoll_fd ) );
+  ctx->waker_fseq      = fd_fseq_join( fd_fseq_new( waker_fseq, 0UL ) );
+  ctx->done_fseq       = fd_fseq_join( fd_fseq_new( done_fseq, 0UL ) );
+  fd_clock_tile_init( ctx->clock );
+  ctx->out_dc.mem      = (fd_wksp_t *)output;
+  ctx->out_dc.mtu      = FD_SNAPSHOT_DATA_MTU;
+  ctx->out_dc.wmark    = 2UL*FD_SNAPSHOT_DATA_MTU/FD_CHUNK_SZ;
+  ctx->local_full_fd   = -1;
+  ctx->local_incr_fd   = -1;
+  ctx->state           = FD_SNAPSHOT_STATE_PROCESSING;
+  ctx->pipeline_ready  = 1;
+  ctx->load_full       = 1;
+  ctx->stream          = 1;
+  ctx->stream_retry_at = 0L; /* the index request is due right away */
+  ctx->window_deadline = LONG_MAX;
+
+  fd_ip4_port_t addr;
+  int listen_fd = stream_listen( &addr );
+  FD_TEST( fd_cstr_printf_check( ctx->config.stream_server, sizeof(ctx->config.stream_server), NULL,
+                                 FD_IP4_ADDR_FMT ":%hu", FD_IP4_ADDR_FMT_ARGS( addr.addr ), fd_ushort_bswap( addr.port ) ) );
+
+  uchar hash[ FD_HASH_FOOTPRINT ];
+  for( ulong i=0UL; i<FD_HASH_FOOTPRINT; i++ ) hash[ i ] = (uchar)(i+1UL);
+  char hash_b58[ FD_BASE58_ENCODED_32_SZ ];
+  fd_base58_encode_32( hash, NULL, hash_b58 );
+
+  /* The newest stream in the index expires too soon to be worth
+     joining, so the tile takes the one below it. */
+  long  now_unix = fd_clock_tile_now( ctx->clock )/(long)1e9;
+  char  index[ 256 ];
+  ulong index_len;
+  FD_TEST( fd_cstr_printf_check( index, sizeof(index), &index_len, "888 %s %ld\n777 %s %ld\n",
+                                 hash_b58, now_unix+60L, hash_b58, now_unix+600L ) );
+  char  index_resp[ 512 ];
+  ulong index_resp_len;
+  FD_TEST( fd_cstr_printf_check( index_resp, sizeof(index_resp), &index_resp_len,
+                                 "HTTP/1.1 200 OK\r\nContent-Length: %lu\r\n\r\n%s", index_len, index ) );
+
+  publish_cnt = init_cnt = init_full_cnt = meta_cnt = data_sz_total = 0UL;
+  expect_init_slot = 777UL;
+
+  char req[ 1024 ] = {0};
+  stream_exchange( ctx, listen_fd, req, sizeof(req), index_resp, index_resp_len, 64UL );
+  FD_TEST( strstr( req, "GET /boot/index HTTP/1.1" ) );
+  FD_TEST( !strstr( req, "Range:" ) );
+  FD_TEST( init_full_cnt==1UL && publish_cnt==1UL && !data_sz_total );
+  FD_TEST( !memcmp( init_hash, hash, FD_HASH_FOOTPRINT ) );
+  FD_TEST( ctx->stream_slot==777UL );
+  FD_TEST( init_cnt==2UL && !init_range );
+
+  /* The archive request streams META once and then the body. */
+  char  arch_resp[ 4096 ];
+  ulong arch_hdr_len;
+  FD_TEST( fd_cstr_printf_check( arch_resp, sizeof(arch_resp), &arch_hdr_len,
+                                 "HTTP/1.1 200 OK\r\nContent-Length: 2000\r\n\r\n" ) );
+  fd_memset( arch_resp+arch_hdr_len, 0x5a, 2000UL );
+
+  char req2[ 1024 ] = {0};
+  stream_exchange( ctx, listen_fd, req2, sizeof(req2), arch_resp, arch_hdr_len+2000UL, 64UL );
+  FD_TEST( strstr( req2, "GET /boot/777.tar.zst HTTP/1.1" ) );
+  FD_TEST( !strstr( req2, "Range:" ) );
+  FD_TEST( meta_cnt==1UL && meta_total_sz==2000UL && meta_slot==777UL );
+  FD_TEST( data_sz_total==2000UL );
+  FD_TEST( ctx->stream_received==2000UL );
+  FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING && init_cnt==2UL );
+
+  /* The tail is requested again with a range once the delay passes. */
+  char const * empty_resp = "HTTP/1.1 416 Range Not Satisfiable\r\nContent-Length: 0\r\n\r\n";
+  fd_log_sleep( FD_SNAPLD_STREAM_RETRY_NANOS+(long)1e6 );
+  char req3[ 1024 ] = {0};
+  stream_exchange( ctx, listen_fd, req3, sizeof(req3), empty_resp, strlen( empty_resp ), 64UL );
+  FD_TEST( strstr( req3, "GET /boot/777.tar.zst HTTP/1.1" ) );
+  FD_TEST( strstr( req3, "Range: bytes=2000-\r\n" ) );
+  FD_TEST( init_cnt==3UL && init_range==2000UL );
+  FD_TEST( meta_cnt==1UL && data_sz_total==2000UL );
+
+  /* The tile shuts down on the first request that finishes after the
+     background snapshot load is done. */
+  fd_fseq_update( ctx->done_fseq, 1UL );
+  fd_log_sleep( FD_SNAPLD_STREAM_RETRY_NANOS+(long)1e6 );
+  char req4[ 1024 ] = {0};
+  stream_exchange( ctx, listen_fd, req4, sizeof(req4), empty_resp, strlen( empty_resp ), 4UL );
+  FD_TEST( init_cnt==4UL && init_range==2000UL );
+  FD_TEST( should_shutdown( ctx ) );
+
+  FD_TEST( !close( listen_fd ) );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -153,6 +332,7 @@ main( int     argc,
   test_start( 0, 0 );
   test_start( 0, 1 );
   test_start( 1, 0 );
+  test_stream();
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;

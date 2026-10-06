@@ -48,7 +48,9 @@ fd_sshttp_resolved_hash( fd_sshttp_t const * http );
    URL path of length path_len.  hops is the maximum number of HTTP
    redirects to follow, pass ULONG_MAX to preserve the current hops
    value (e.g. when following a redirect internally).  now is the
-   current timestamp.  Returns 0 on success and -1 on failure. */
+   current timestamp.  A nonzero range_start asks the server to resume
+   the body at that offset, which it must answer with a 206.  Returns
+   0 on success and -1 on failure. */
 
 int
 fd_sshttp_init( fd_sshttp_t * http,
@@ -58,7 +60,8 @@ fd_sshttp_init( fd_sshttp_t * http,
                 char const *  path,
                 ulong         path_len,
                 ulong         hops,
-                long          now );
+                long          now,
+                ulong         range_start );
 
 void
 fd_sshttp_cancel( fd_sshttp_t * http );

@@ -724,8 +724,9 @@ struct fd_topo_tile {
       char snapshots_path[ PATH_MAX ];
       int  incremental_snapshots;
       uint min_download_speed_mibs;
-      int  stream; /* download an instant boot stream, not a snapshot */
-      char stream_server[ FD_URL_MAX ];
+      int   stream; /* download an instant boot stream, not a snapshot */
+      char  stream_server[ FD_URL_MAX ];
+      ulong instant_boot_done_obj_id;
     } snapld;
 
     struct {

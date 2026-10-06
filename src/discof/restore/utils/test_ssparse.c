@@ -896,6 +896,105 @@ FD_UNIT_TEST( test_appendvec_parse_batch_garbage ) {
   FD_TEST( batch_accs==n );
 }
 
+FD_UNIT_TEST( test_appendvec_done ) {
+  /* Every accounts/ entry ends with exactly one APPENDVEC_DONE
+     carrying the same slot and id as the APPENDVEC that opened it,
+     whether the entry was parsed or skipped. */
+  fd_ssparse_t p[1];
+  uchar acc[512];
+  ulong dl1 = 5UL, dl2 = 3UL;
+  ulong a1  = fd_ulong_align_up( 136UL+dl1, 8UL );
+  ulong av0 = a1 + 136UL + dl2; /* ends flush with the last account */
+  ulong av1 = 136UL + 16UL;     /* ends with a partial header */
+
+  fd_memset( acc, 0, sizeof(acc) );
+  build_account_header( acc, dl1, 0 );
+  fd_memset( acc+136, 0xAA, dl1 );
+  build_account_header( acc+a1, dl2, 1 );
+  fd_memset( acc+a1+136, 0xBB, dl2 );
+
+  ulong off = 0UL;
+  off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "version",                (uchar const *)"1.2.0", 5UL );
+  off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "snapshots/100",          (uchar const *)"\xAB",  1UL );
+  off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "accounts/123.7",         acc, av0 );
+  off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "accounts/456.9",         acc, av1 );
+  off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "snapshots/status_cache", (uchar const *)"\xCD",  1UL );
+  off = append_eof( tar_buf, sizeof(tar_buf), off );
+
+  for( int parse=0; parse<2; parse++ ) {
+    fd_ssparse_init( p );
+
+    int   ev[ 16 ];
+    ulong ev_slot[ 16 ];
+    ulong ev_id[ 16 ];
+    ulong ev_cnt   = 0UL;
+    ulong hdr_cnt  = 0UL;
+    uchar const * data    = tar_buf;
+    ulong         data_sz = off;
+    int           done    = 0;
+    ulong zero_progress   = 0UL;
+    while( data_sz>0UL ) {
+      fd_ssparse_advance_result_t result[1];
+      int res = fd_ssparse_advance( p, data, data_sz, result );
+      FD_TEST( res!=FD_SSPARSE_ADVANCE_ERROR );
+      if( res==FD_SSPARSE_ADVANCE_DONE ) { done = 1; break; }
+      if( res==FD_SSPARSE_ADVANCE_APPENDVEC || res==FD_SSPARSE_ADVANCE_APPENDVEC_DONE ) {
+        FD_TEST( ev_cnt<16UL );
+        ev[ ev_cnt ]      = res;
+        ev_slot[ ev_cnt ] = result->appendvec.slot;
+        ev_id[ ev_cnt ]   = result->appendvec.id;
+        ev_cnt++;
+        if( res==FD_SSPARSE_ADVANCE_APPENDVEC && parse ) fd_ssparse_appendvec_parse( p );
+      }
+      if( res==FD_SSPARSE_ADVANCE_ACCOUNT_HEADER ) hdr_cnt++;
+      FD_TEST( result->bytes_consumed<=data_sz );
+      if( FD_UNLIKELY( result->bytes_consumed==0UL ) ) FD_TEST( ++zero_progress<1024UL );
+      else zero_progress = 0UL;
+      data    += result->bytes_consumed;
+      data_sz -= result->bytes_consumed;
+    }
+    FD_TEST( done );
+    FD_TEST( ev_cnt==4UL );
+    FD_TEST( ev[0]==FD_SSPARSE_ADVANCE_APPENDVEC      && ev_slot[0]==123UL && ev_id[0]==7UL );
+    FD_TEST( ev[1]==FD_SSPARSE_ADVANCE_APPENDVEC_DONE && ev_slot[1]==123UL && ev_id[1]==7UL );
+    FD_TEST( ev[2]==FD_SSPARSE_ADVANCE_APPENDVEC      && ev_slot[2]==456UL && ev_id[2]==9UL );
+    FD_TEST( ev[3]==FD_SSPARSE_ADVANCE_APPENDVEC_DONE && ev_slot[3]==456UL && ev_id[3]==9UL );
+    FD_TEST( hdr_cnt==(parse ? 3UL : 0UL) );
+  }
+}
+
+FD_UNIT_TEST( test_open_ended_stream ) {
+  /* An instant boot stream carries no end of archive marker until it
+     closes, so the parser must idle at a tar header boundary with no
+     data instead of failing, and pick the stream back up when more
+     data arrives. */
+  fd_ssparse_t p[1];
+  uchar acc[256];
+  ulong data_len   = 8UL;
+  ulong acc_vec_sz = 136UL+data_len;
+
+  fd_memset( acc, 0, sizeof(acc) );
+  build_account_header( acc, data_len, 0 );
+  fd_memset( acc+136, 0xEE, data_len );
+
+  ulong head = 0UL;
+  head = append_tar_entry( tar_buf, sizeof(tar_buf), head, "version",                (uchar const *)"1.2.0", 5UL );
+  head = append_tar_entry( tar_buf, sizeof(tar_buf), head, "snapshots/100",          (uchar const *)"\xAB",  1UL );
+  head = append_tar_entry( tar_buf, sizeof(tar_buf), head, "snapshots/status_cache", (uchar const *)"\xCD",  1UL );
+  ulong off = append_tar_entry( tar_buf, sizeof(tar_buf), head, "accounts/7.0", acc, acc_vec_sz );
+
+  fd_ssparse_init( p );
+  FD_TEST( feed_all( p, tar_buf, head )==FD_SSPARSE_ADVANCE_STATUS_CACHE );
+
+  fd_ssparse_advance_result_t result[1];
+  for( ulong i=0UL; i<4UL; i++ ) {
+    FD_TEST( fd_ssparse_advance( p, tar_buf+head, 0UL, result )==FD_SSPARSE_ADVANCE_AGAIN );
+    FD_TEST( !result->bytes_consumed );
+  }
+
+  FD_TEST( feed_all( p, tar_buf+head, off-head )==FD_SSPARSE_ADVANCE_APPENDVEC_DONE );
+}
+
 int
 main( int     argc,
       char ** argv ) {

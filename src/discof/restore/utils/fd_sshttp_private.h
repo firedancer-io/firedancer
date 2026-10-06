@@ -60,6 +60,7 @@ struct fd_sshttp_private {
 
   ulong content_len;
   ulong content_read;
+  ulong range_start; /* offset the Range header asked to resume from */
 
   ulong magic;
 };

@@ -76,10 +76,10 @@ advance_tar( fd_ssparse_t *                ssparse,
              ulong                         data_sz,
              fd_ssparse_advance_result_t * result ) {
   ulong consume = fd_ulong_min( data_sz, 512UL - ssparse->tar.header_bytes_consumed );
-  if( FD_UNLIKELY( !consume ) ) {
-    FD_LOG_WARNING(( "unexpected end of data in tar header, data_sz=%lu, header_bytes_consumed=%lu", data_sz, ssparse->tar.header_bytes_consumed ));
-    return FD_SSPARSE_ADVANCE_ERROR;
-  }
+  /* An instant boot stream has no end of archive marker until it
+     closes, so running out of data between entries is not an error:
+     sit here until more of the stream arrives. */
+  if( FD_UNLIKELY( !consume ) ) return FD_SSPARSE_ADVANCE_AGAIN;
 
   fd_memcpy( ssparse->tar.header+ssparse->tar.header_bytes_consumed, data, consume );
   ssparse->bytes_consumed            += consume;
@@ -161,7 +161,8 @@ advance_tar( fd_ssparse_t *                ssparse,
       FD_LOG_WARNING(( "invalid account append vec name %." FD_EXPAND_THEN_STRINGIFY(FD_TAR_NAME_SZ) "s", hdr->name ));
       return FD_SSPARSE_ADVANCE_ERROR;
     }
-    ssparse->slot = slot;
+    ssparse->slot          = slot;
+    ssparse->acc_vec_id    = id;
     ssparse->acc_vec_bytes = ssparse->tar.file_bytes;
   } else if( FD_LIKELY( !strncmp( hdr->name, "snapshots/status_cache", 22UL ) ) ) desired_state = FD_SSPARSE_STATE_STATUS_CACHE;
   else if( FD_LIKELY( !strncmp( hdr->name, "snapshots/", 10UL ) ) ) {
@@ -201,6 +202,7 @@ advance_tar( fd_ssparse_t *                ssparse,
       ssparse->account.header_bytes_consumed = 0UL;
       ssparse->state = FD_SSPARSE_STATE_SCROLL_ACCOUNT_GARBAGE;
       result->appendvec.slot    = ssparse->slot;
+      result->appendvec.id      = ssparse->acc_vec_id;
       result->appendvec.data_sz = ssparse->tar.file_bytes;
       return FD_SSPARSE_ADVANCE_APPENDVEC;
     case FD_SSPARSE_STATE_STATUS_CACHE:
@@ -325,6 +327,20 @@ advance_next_tar( fd_ssparse_t *               ssparse,
 
   if( FD_LIKELY( !bytes_remaining ) ) ssparse->state = FD_SSPARSE_STATE_TAR_HEADER;
   return FD_SSPARSE_ADVANCE_AGAIN;
+}
+
+/* The appendvec the parser is in has just been consumed to its last
+   byte.  Hand the caller one end of appendvec result on the way back
+   to reading tar headers. */
+
+static int
+advance_appendvec_done( fd_ssparse_t *                ssparse,
+                        fd_ssparse_advance_result_t * result ) {
+  ssparse->state = FD_SSPARSE_STATE_SCROLL_TAR_HEADER;
+  result->appendvec.slot    = ssparse->slot;
+  result->appendvec.id      = ssparse->acc_vec_id;
+  result->appendvec.data_sz = ssparse->acc_vec_bytes;
+  return FD_SSPARSE_ADVANCE_APPENDVEC_DONE;
 }
 
 static int
@@ -510,10 +526,10 @@ advance_account_padding( fd_ssparse_t *                ssparse,
   ulong pad_sz = fd_ulong_align_up( ssparse->tar.file_bytes_consumed, 8UL ) - ssparse->tar.file_bytes_consumed;
         pad_sz = fd_ulong_min( pad_sz, ssparse->acc_vec_bytes - ssparse->tar.file_bytes_consumed );
   if( FD_UNLIKELY( !pad_sz ) ) {
-    if( FD_LIKELY( ssparse->tar.file_bytes_consumed==ssparse->acc_vec_bytes ) ) ssparse->state = FD_SSPARSE_STATE_SCROLL_TAR_HEADER;
-    else                                                                        ssparse->state = FD_SSPARSE_STATE_ACCOUNT_HEADER;
-
     ssparse->account.header_bytes_consumed = 0UL;
+    if( FD_LIKELY( ssparse->tar.file_bytes_consumed==ssparse->acc_vec_bytes ) ) return advance_appendvec_done( ssparse, result );
+
+    ssparse->state = FD_SSPARSE_STATE_ACCOUNT_HEADER;
     return FD_SSPARSE_ADVANCE_AGAIN;
   }
 
@@ -542,10 +558,7 @@ advance_account_garbage( fd_ssparse_t *                ssparse,
                          fd_ssparse_advance_result_t * result ) {
   (void)data;
   ulong rem = ssparse->tar.file_bytes-ssparse->tar.file_bytes_consumed;
-  if( FD_UNLIKELY( !rem ) ) {
-    ssparse->state = FD_SSPARSE_STATE_SCROLL_TAR_HEADER;
-    return FD_SSPARSE_ADVANCE_AGAIN;
-  }
+  if( FD_UNLIKELY( !rem ) ) return advance_appendvec_done( ssparse, result );
 
   if( FD_UNLIKELY( !data_sz ) ) {
     FD_LOG_WARNING(( "unexpected end of data while parsing append vec garbage, data_sz=%lu, remaining_bytes=%lu", data_sz, rem ));
@@ -559,8 +572,7 @@ advance_account_garbage( fd_ssparse_t *                ssparse,
 
   if( FD_LIKELY( ssparse->tar.file_bytes_consumed<ssparse->tar.file_bytes ) ) return FD_SSPARSE_ADVANCE_AGAIN;
 
-  ssparse->state = FD_SSPARSE_STATE_SCROLL_TAR_HEADER;
-  return FD_SSPARSE_ADVANCE_AGAIN;
+  return advance_appendvec_done( ssparse, result );
 }
 
 int
