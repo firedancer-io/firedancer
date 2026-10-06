@@ -316,10 +316,9 @@ advance_next_tar( fd_ssparse_t *               ssparse,
   ulong bytes_remaining    = fd_ulong_align_up( ssparse->bytes_consumed, 512UL ) - ssparse->bytes_consumed;
   ulong pad_sz             = bytes_remaining;
         pad_sz             = fd_ulong_min( pad_sz, data_sz );
-  if( FD_UNLIKELY( !pad_sz && bytes_remaining ) ) {
-    FD_LOG_WARNING(( "unexpected end of data while parsing tar header padding, data_sz=%lu, bytes_consumed=%lu, bytes_remaining=%lu", data_sz, ssparse->bytes_consumed, bytes_remaining ));
-    return FD_SSPARSE_ADVANCE_ERROR;
-  }
+  /* A stream can be flushed at any byte offset, so running out of
+     data in the padding is not an error either. */
+  if( FD_UNLIKELY( !pad_sz && bytes_remaining ) ) return FD_SSPARSE_ADVANCE_AGAIN;
 
   ssparse->bytes_consumed += pad_sz;
   result->bytes_consumed   = pad_sz;

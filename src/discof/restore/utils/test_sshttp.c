@@ -241,6 +241,47 @@ test_partial_unranged( void ) {
   fd_sshttp_cancel( http );
 }
 
+/* A 206 that resumes somewhere other than where the request asked is
+   not usable. */
+
+static void
+test_range_mismatch( void ) {
+  fd_sshttp_t * http = fd_sshttp_join( fd_sshttp_new( test_http, test_epoll_fd ) );
+  FD_TEST( http );
+
+  int server = connect_pair( http );
+  http->range_start = 10UL;
+  char const * resp = "HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 0-14/15\r\nContent-Length: 5\r\n\r\nhello";
+  FD_TEST( (long)strlen( resp )==send( server, resp, strlen( resp ), 0 ) );
+
+  uchar body[ 16 ];
+  ulong body_len, last_len;
+  FD_TEST( FD_SSHTTP_ADVANCE_ERROR==run_request( http, body, sizeof(body), &body_len, &last_len ) );
+
+  FD_TEST( 0==close( server ) );
+  fd_sshttp_cancel( http );
+}
+
+/* A 206 with no Content-Range at all is equally unusable. */
+
+static void
+test_range_missing( void ) {
+  fd_sshttp_t * http = fd_sshttp_join( fd_sshttp_new( test_http, test_epoll_fd ) );
+  FD_TEST( http );
+
+  int server = connect_pair( http );
+  http->range_start = 10UL;
+  char const * resp = "HTTP/1.1 206 Partial Content\r\nContent-Length: 5\r\n\r\nhello";
+  FD_TEST( (long)strlen( resp )==send( server, resp, strlen( resp ), 0 ) );
+
+  uchar body[ 16 ];
+  ulong body_len, last_len;
+  FD_TEST( FD_SSHTTP_ADVANCE_ERROR==run_request( http, body, sizeof(body), &body_len, &last_len ) );
+
+  FD_TEST( 0==close( server ) );
+  fd_sshttp_cancel( http );
+}
+
 /* 416 means the tail the caller asked for does not exist yet, so the
    request finishes with no bytes and the caller can ask again. */
 
@@ -310,6 +351,8 @@ main( int     argc,
   test_range_partial();
   test_range_ignored();
   test_partial_unranged();
+  test_range_mismatch();
+  test_range_missing();
   test_range_not_satisfiable();
   test_range_request();
 

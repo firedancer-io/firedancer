@@ -301,26 +301,97 @@ test_stream( void ) {
   FD_TEST( ctx->stream_received==2000UL );
   FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING && init_cnt==2UL );
 
-  /* The tail is requested again with a range once the delay passes. */
-  char const * empty_resp = "HTTP/1.1 416 Range Not Satisfiable\r\nContent-Length: 0\r\n\r\n";
+  /* The tail is requested again with a range once the delay passes,
+     and the body it answers with continues where the last one
+     stopped. */
+  char  tail_resp[ 1024 ];
+  ulong tail_hdr_len;
+  FD_TEST( fd_cstr_printf_check( tail_resp, sizeof(tail_resp), &tail_hdr_len,
+                                 "HTTP/1.1 206 Partial Content\r\n"
+                                 "Content-Range: bytes 2000-2499/2500\r\n"
+                                 "Content-Length: 500\r\n\r\n" ) );
+  fd_memset( tail_resp+tail_hdr_len, 0xa5, 500UL );
+
   fd_log_sleep( FD_SNAPLD_STREAM_RETRY_NANOS+(long)1e6 );
   char req3[ 1024 ] = {0};
-  stream_exchange( ctx, listen_fd, req3, sizeof(req3), empty_resp, strlen( empty_resp ), 64UL );
+  stream_exchange( ctx, listen_fd, req3, sizeof(req3), tail_resp, tail_hdr_len+500UL, 64UL );
   FD_TEST( strstr( req3, "GET /boot/777.tar.zst HTTP/1.1" ) );
   FD_TEST( strstr( req3, "Range: bytes=2000-\r\n" ) );
   FD_TEST( init_cnt==3UL && init_range==2000UL );
-  FD_TEST( meta_cnt==1UL && data_sz_total==2000UL );
+  FD_TEST( meta_cnt==1UL && data_sz_total==2500UL );
+  FD_TEST( ctx->stream_received==2500UL );
+
+  /* Nothing new to read yet leaves the tile where it was. */
+  char const * empty_resp = "HTTP/1.1 416 Range Not Satisfiable\r\nContent-Length: 0\r\n\r\n";
+  fd_log_sleep( FD_SNAPLD_STREAM_RETRY_NANOS+(long)1e6 );
+  char req4[ 1024 ] = {0};
+  stream_exchange( ctx, listen_fd, req4, sizeof(req4), empty_resp, strlen( empty_resp ), 64UL );
+  FD_TEST( strstr( req4, "Range: bytes=2500-\r\n" ) );
+  FD_TEST( init_cnt==4UL && init_range==2500UL );
+  FD_TEST( meta_cnt==1UL && data_sz_total==2500UL );
+  FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING );
+
+  /* A broken answer during the tail is retried, not fatal. */
+  char const * broken_resp = "HTTP/1.1 500 Oops\r\nContent-Length: 3\r\n\r\nbad";
+  fd_log_sleep( FD_SNAPLD_STREAM_RETRY_NANOS+(long)1e6 );
+  char req5[ 1024 ] = {0};
+  stream_exchange( ctx, listen_fd, req5, sizeof(req5), broken_resp, strlen( broken_resp ), 64UL );
+  FD_TEST( init_cnt==5UL && init_range==2500UL );
+  FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING && ctx->stream_retry_at!=LONG_MAX );
+  FD_TEST( meta_cnt==1UL && data_sz_total==2500UL );
 
   /* The tile shuts down on the first request that finishes after the
      background snapshot load is done. */
   fd_fseq_update( ctx->done_fseq, 1UL );
   fd_log_sleep( FD_SNAPLD_STREAM_RETRY_NANOS+(long)1e6 );
-  char req4[ 1024 ] = {0};
-  stream_exchange( ctx, listen_fd, req4, sizeof(req4), empty_resp, strlen( empty_resp ), 4UL );
-  FD_TEST( init_cnt==4UL && init_range==2000UL );
+  char req6[ 1024 ] = {0};
+  stream_exchange( ctx, listen_fd, req6, sizeof(req6), empty_resp, strlen( empty_resp ), 4UL );
+  FD_TEST( init_cnt==6UL && init_range==2500UL );
+  FD_TEST( should_shutdown( ctx ) );
+
+  /* It shuts down just as cleanly when the request that finishes
+     after the load is done failed. */
+  ctx->state           = FD_SNAPSHOT_STATE_PROCESSING;
+  ctx->stream_retry_at = 0L;
+  char req7[ 1024 ] = {0};
+  stream_exchange( ctx, listen_fd, req7, sizeof(req7), broken_resp, strlen( broken_resp ), 8UL );
+  FD_TEST( init_cnt==7UL );
   FD_TEST( should_shutdown( ctx ) );
 
   FD_TEST( !close( listen_fd ) );
+}
+
+/* A malformed boot index line is rejected rather than used. */
+
+static void
+test_stream_bad_index( void ) {
+  uchar hash[ FD_HASH_FOOTPRINT ];
+  ulong slot;
+  long  expires;
+  char  line[ 64 ];
+
+  /* The hash is not base58. */
+  fd_cstr_ncpy( line, "777 0OIl0OIl0OIl0OIl0OIl0OIl0OIl0OIl0OIl0OIl 99", sizeof(line) );
+  FD_TEST( -1==stream_parse_line( line, &slot, hash, &expires ) );
+
+  /* The hash is too short for 32 bytes. */
+  fd_cstr_ncpy( line, "777 abc 99", sizeof(line) );
+  FD_TEST( -1==stream_parse_line( line, &slot, hash, &expires ) );
+
+  /* No slot. */
+  fd_cstr_ncpy( line, "x 11111111111111111111111111111111 99", sizeof(line) );
+  FD_TEST( -1==stream_parse_line( line, &slot, hash, &expires ) );
+
+  /* No expiry. */
+  fd_cstr_ncpy( line, "777 11111111111111111111111111111111", sizeof(line) );
+  FD_TEST( -1==stream_parse_line( line, &slot, hash, &expires ) );
+
+  /* A whole line still parses. */
+  fd_cstr_ncpy( line, "777 11111111111111111111111111111111 99", sizeof(line) );
+  FD_TEST( !stream_parse_line( line, &slot, hash, &expires ) );
+  FD_TEST( slot==777UL && expires==99L );
+  uchar zero[ FD_HASH_FOOTPRINT ] = {0};
+  FD_TEST( !memcmp( hash, zero, FD_HASH_FOOTPRINT ) );
 }
 
 int
@@ -333,6 +404,7 @@ main( int     argc,
   test_start( 0, 1 );
   test_start( 1, 0 );
   test_stream();
+  test_stream_bad_index();
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;

@@ -984,6 +984,10 @@ FD_UNIT_TEST( test_open_ended_stream ) {
   ulong off = append_tar_entry( tar_buf, sizeof(tar_buf), head, "accounts/7.0", acc, acc_vec_sz );
 
   fd_ssparse_init( p );
+
+  /* The stream stops on a tar header boundary: the status cache entry
+     ends at head, which is a multiple of 512. */
+  FD_TEST( !(head%512UL) );
   FD_TEST( feed_all( p, tar_buf, head )==FD_SSPARSE_ADVANCE_STATUS_CACHE );
 
   fd_ssparse_advance_result_t result[1];
@@ -992,7 +996,19 @@ FD_UNIT_TEST( test_open_ended_stream ) {
     FD_TEST( !result->bytes_consumed );
   }
 
-  FD_TEST( feed_all( p, tar_buf+head, off-head )==FD_SSPARSE_ADVANCE_APPENDVEC_DONE );
+  /* The stream stops again partway through the appendvec entry's tail
+     padding, which is not a boundary at all. */
+  ulong stop = head+512UL+acc_vec_sz+4UL;
+  FD_TEST( stop<off );
+  FD_TEST( feed_all( p, tar_buf+head, stop-head )==FD_SSPARSE_ADVANCE_APPENDVEC_DONE );
+  for( ulong i=0UL; i<4UL; i++ ) {
+    FD_TEST( fd_ssparse_advance( p, tar_buf+stop, 0UL, result )==FD_SSPARSE_ADVANCE_AGAIN );
+    FD_TEST( !result->bytes_consumed );
+  }
+
+  /* The rest of the padding and a second appendvec still parse. */
+  ulong tail = append_tar_entry( tar_buf, sizeof(tar_buf), off, "accounts/8.0", acc, acc_vec_sz );
+  FD_TEST( feed_all( p, tar_buf+stop, tail-stop )==FD_SSPARSE_ADVANCE_APPENDVEC_DONE );
 }
 
 int

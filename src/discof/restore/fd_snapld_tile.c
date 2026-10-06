@@ -37,6 +37,10 @@
    long, or there is no point joining it. */
 #define FD_SNAPLD_STREAM_MIN_LIFE_SECONDS (180L)
 
+/* A failing request for the tail is retried until the stream has gone
+   this long without delivering a single byte. */
+#define FD_SNAPLD_STREAM_IDLE_NANOS (60L*1000L*1000L*1000L) /* 60 seconds */
+
 /* The snapld tile is responsible for loading data from the local file
    or from an HTTP/TCP connection and sending it to the snapdc tile
    for later decompression. */
@@ -78,8 +82,9 @@ typedef struct fd_snapld_tile {
   int           stream_index_done; /* the boot index has been read */
   int           stream_done_seen;  /* a request for the archive has finished */
   ulong         stream_slot;
-  ulong         stream_received;   /* archive bytes received so far */
-  long          stream_retry_at;   /* wallclock of the next request */
+  ulong         stream_received;      /* archive bytes received so far */
+  long          stream_retry_at;      /* wallclock of the next request */
+  long          stream_idle_deadline; /* when a failed request turns fatal */
   ulong         stream_index_len;
   char          stream_index[ 4096UL ];
   fd_ip4_port_t stream_addr;
@@ -239,14 +244,15 @@ unprivileged_init( fd_topo_t const *      topo,
 
   /* The stream downloader has no control tile to start it, so it
      starts itself and runs until the background load is done. */
-  ctx->stream            = tile->snapld.stream;
-  ctx->stream_index_done = 0;
-  ctx->stream_done_seen  = 0;
-  ctx->stream_slot       = ULONG_MAX;
-  ctx->stream_received   = 0UL;
-  ctx->stream_retry_at   = LONG_MAX;
-  ctx->stream_index_len  = 0UL;
-  ctx->done_fseq         = NULL;
+  ctx->stream               = tile->snapld.stream;
+  ctx->stream_index_done    = 0;
+  ctx->stream_done_seen     = 0;
+  ctx->stream_slot          = ULONG_MAX;
+  ctx->stream_received      = 0UL;
+  ctx->stream_retry_at      = LONG_MAX;
+  ctx->stream_idle_deadline = LONG_MAX;
+  ctx->stream_index_len     = 0UL;
+  ctx->done_fseq            = NULL;
   if( FD_UNLIKELY( ctx->stream ) ) {
     FD_TEST( tile->snapld.instant_boot_done_obj_id!=ULONG_MAX );
     ctx->done_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->snapld.instant_boot_done_obj_id ) );
@@ -326,24 +332,60 @@ metrics_write( fd_snapld_tile_t * ctx ) {
   FD_MGAUGE_SET( SNAPLD, STATE,            (ulong)(ctx->state) );
 }
 
-static void
-transition_malformed( fd_snapld_tile_t *  ctx,
-                      fd_stem_context_t * stem ) {
-  /* The stream downloader has nobody to recover it, so a failure is
-     the end of instant boot for this validator. */
-  if( FD_UNLIKELY( ctx->stream ) ) FD_LOG_ERR(( "instant boot stream download failed" ));
-  if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_ERROR ) ) return;
-  ctx->state = FD_SNAPSHOT_STATE_ERROR;
-  fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
-}
-
 /* stream_tail tells whether the tile is reading the growing tail of a
    stream.  The tail is idle most of the time, so download speed stops
-   saying anything useful there. */
+   saying anything useful there, and a failed request there is worth
+   retrying. */
 
 static int
 stream_tail( fd_snapld_tile_t * ctx ) {
   return ctx->stream && ctx->stream_done_seen;
+}
+
+/* stream_fatal gives up on the stream.  If the background snapshot
+   load has already finished there is nothing left to stream, so the
+   tile shuts down cleanly instead of dying. */
+
+static void
+stream_fatal( fd_snapld_tile_t * ctx,
+              char const *       reason ) {
+  if( FD_UNLIKELY( fd_fseq_query( ctx->done_fseq )==1UL ) ) {
+    ctx->state = FD_SNAPSHOT_STATE_SHUTDOWN;
+    return;
+  }
+  FD_LOG_ERR(( "%s (server %s)", reason, ctx->config.stream_server ));
+}
+
+/* stream_retry handles a failed request for the stream.  A request
+   for the growing tail can simply be made again in a moment.  The
+   background load finishing, a failure anywhere else, or a tail that
+   has stopped delivering bytes altogether all end the stream. */
+
+static void
+stream_retry( fd_snapld_tile_t * ctx,
+              char const *       reason ) {
+  long now = fd_clock_tile_now( ctx->clock );
+  if( FD_UNLIKELY( fd_fseq_query( ctx->done_fseq )==1UL ||
+                   !stream_tail( ctx ) ||
+                   now>ctx->stream_idle_deadline ) ) {
+    stream_fatal( ctx, reason );
+    return;
+  }
+  fd_sshttp_cancel( ctx->sshttp );
+  ctx->stream_retry_at = now+FD_SNAPLD_STREAM_RETRY_NANOS;
+}
+
+static void
+transition_malformed( fd_snapld_tile_t *  ctx,
+                      fd_stem_context_t * stem ) {
+  /* The stream downloader has no control tile to recover it. */
+  if( FD_UNLIKELY( ctx->stream ) ) {
+    stream_retry( ctx, "instant boot stream download failed" );
+    return;
+  }
+  if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_ERROR ) ) return;
+  ctx->state = FD_SNAPSHOT_STATE_ERROR;
+  fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
 }
 
 static int
@@ -388,7 +430,7 @@ stream_request( fd_snapld_tile_t * ctx,
   FD_TEST( fd_cstr_printf_check( path, sizeof(path), &path_len, "/boot/%lu.tar.zst", ctx->stream_slot ) );
   if( FD_UNLIKELY( fd_sshttp_init( ctx->sshttp, ctx->stream_addr, ctx->stream_hostname, 0, path, path_len,
                                    4UL, fd_clock_tile_now( ctx->clock ), range_start ) ) ) {
-    FD_LOG_ERR(( "could not ask %s for the instant boot stream", ctx->config.stream_server ));
+    stream_retry( ctx, "could not request the instant boot archive" );
   }
 }
 
@@ -411,7 +453,7 @@ stream_connect( fd_snapld_tile_t * ctx ) {
 
   if( FD_UNLIKELY( fd_sshttp_init( ctx->sshttp, ctx->stream_addr, ctx->stream_hostname, 0, "/boot/index", 11UL,
                                    4UL, fd_clock_tile_now( ctx->clock ), 0UL ) ) ) {
-    FD_LOG_ERR(( "could not ask %s for the instant boot index", ctx->config.stream_server ));
+    stream_fatal( ctx, "could not request the instant boot index" );
   }
 }
 
@@ -440,9 +482,9 @@ stream_parse_line( char *  line,
 
 /* stream_select picks the newest stream in the boot index that will
    stay open long enough to be worth joining.  The index lists the
-   newest stream first. */
+   newest stream first.  Returns 0 on success. */
 
-static void
+static int
 stream_select( fd_snapld_tile_t * ctx,
                uchar              hash[ static FD_HASH_FOOTPRINT ] ) {
   ctx->stream_index[ ctx->stream_index_len ] = '\0';
@@ -459,12 +501,13 @@ stream_select( fd_snapld_tile_t * ctx,
     if( FD_LIKELY( !stream_parse_line( line, &slot, hash, &expires ) &&
                    expires-now>FD_SNAPLD_STREAM_MIN_LIFE_SECONDS ) ) {
       ctx->stream_slot = slot;
-      return;
+      return 0;
     }
     line = next;
   }
 
-  FD_LOG_ERR(( "no instant boot stream at %s stays open long enough", ctx->config.stream_server ));
+  stream_fatal( ctx, "no instant boot stream stays open long enough" );
+  return -1;
 }
 
 /* stream_index_advance reads the boot index, then announces the
@@ -474,12 +517,18 @@ static void
 stream_index_advance( fd_snapld_tile_t *  ctx,
                       fd_stem_context_t * stem,
                       int *               charge_busy ) {
-  if( FD_UNLIKELY( ctx->stream_index_len>=sizeof(ctx->stream_index)-1UL ) ) {
-    FD_LOG_ERR(( "instant boot index from %s is too large", ctx->config.stream_server ));
+  /* An index that fills the buffer exactly is fine; only a response
+     with more body than that is too large.  A full buffer still needs
+     a byte of slack to hand to the reader, which returns the end of
+     the response without touching it. */
+  ulong room = sizeof(ctx->stream_index)-1UL-ctx->stream_index_len;
+  if( FD_UNLIKELY( !room && fd_sshttp_content_len( ctx->sshttp )!=ctx->stream_index_len ) ) {
+    stream_fatal( ctx, "instant boot index is too large" );
+    return;
   }
 
   int   downloading = 0;
-  ulong data_len    = sizeof(ctx->stream_index)-1UL-ctx->stream_index_len;
+  ulong data_len    = fd_ulong_max( room, 1UL );
   long  now         = fd_clock_tile_now( ctx->clock );
   int   fired       = fd_fseq_query( ctx->waker_fseq )==1UL;
   if( FD_LIKELY( fired ) ) fd_fseq_update( ctx->waker_fseq, 0UL );
@@ -495,7 +544,7 @@ stream_index_advance( fd_snapld_tile_t *  ctx,
       break;
     case FD_SSHTTP_ADVANCE_DONE: {
       uchar hash[ FD_HASH_FOOTPRINT ];
-      stream_select( ctx, hash );
+      if( FD_UNLIKELY( stream_select( ctx, hash ) ) ) break;
       FD_LOG_INFO(( "joining the instant boot stream for slot %lu at %s", ctx->stream_slot, ctx->config.stream_server ));
 
       fd_ssctrl_init_t * init = fd_chunk_to_laddr( ctx->out_dc.mem, ctx->out_dc.chunk );
@@ -506,13 +555,14 @@ stream_index_advance( fd_snapld_tile_t *  ctx,
       fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_INIT_FULL, ctx->out_dc.chunk, sizeof(fd_ssctrl_init_t), 0UL, 0UL, 0UL );
       ctx->out_dc.chunk = fd_dcache_compact_next( ctx->out_dc.chunk, sizeof(fd_ssctrl_init_t), ctx->out_dc.chunk0, ctx->out_dc.wmark );
 
-      ctx->stream_index_done = 1;
+      ctx->stream_index_done    = 1;
+      ctx->stream_idle_deadline = now+FD_SNAPLD_STREAM_IDLE_NANOS;
       stream_request( ctx, 0UL );
       *charge_busy = 1;
       break;
     }
     default:
-      FD_LOG_ERR(( "could not read the instant boot index from %s", ctx->config.stream_server ));
+      stream_fatal( ctx, "could not read the instant boot index" );
   }
 }
 
@@ -533,7 +583,16 @@ after_credit( fd_snapld_tile_t *  ctx,
   /* A request for the stream is due: the index on the first call, and
      the rest of the archive after each one finishes. */
   if( FD_UNLIKELY( ctx->stream && ctx->stream_retry_at!=LONG_MAX ) ) {
-    if( FD_LIKELY( fd_clock_tile_now( ctx->clock )<ctx->stream_retry_at ) ) return;
+    if( FD_LIKELY( fd_clock_tile_now( ctx->clock )<ctx->stream_retry_at ) ) {
+      /* Nothing to do until the next request falls due.  Clear a
+         pending wake so the tile can park. */
+      if( FD_LIKELY( !stem->sleep ) ) fd_log_sleep( (long)1e6 );
+      if( FD_UNLIKELY( fd_fseq_query( ctx->waker_fseq )==1UL ) ) {
+        fd_fseq_update( ctx->waker_fseq, 0UL );
+        fd_waker_client_rearm( ctx->waker_client_idx );
+      }
+      return;
+    }
     ctx->stream_retry_at = LONG_MAX;
     if( FD_UNLIKELY( !ctx->stream_index_done ) ) stream_connect( ctx );
     else                                         stream_request( ctx, ctx->stream_received );
@@ -659,6 +718,8 @@ after_credit( fd_snapld_tile_t *  ctx,
                           resolved_name, resolved_slot, ctx->load_full ? "full" : "incremental" ));
           }
 
+          /* For a stream total_sz is only the archive length at the
+             first request, and nothing but a metric reads it. */
           ctx->sent_meta = 1;
           fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_META, ctx->out_dc.chunk, sizeof(fd_ssctrl_meta_t), 0UL, 0UL, 0UL );
           ctx->out_dc.chunk = next_chunk;
@@ -667,7 +728,10 @@ after_credit( fd_snapld_tile_t *  ctx,
           fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_DATA, ctx->out_dc.chunk, data_len, 0UL, 0UL, 0UL );
           ctx->out_dc.chunk = fd_dcache_compact_next( ctx->out_dc.chunk, data_len, ctx->out_dc.chunk0, ctx->out_dc.wmark );
           ctx->bytes_in_batch += data_len;
-          if( FD_UNLIKELY( ctx->stream ) ) ctx->stream_received += data_len;
+          if( FD_UNLIKELY( ctx->stream ) ) {
+            ctx->stream_received     += data_len;
+            ctx->stream_idle_deadline = now+FD_SNAPLD_STREAM_IDLE_NANOS;
+          }
 
           /* measure download speed every 100 MiB */
           if( ctx->bytes_in_batch>=100<<20UL && !stream_tail( ctx ) ) {

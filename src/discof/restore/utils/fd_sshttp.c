@@ -650,8 +650,7 @@ read_response( fd_sshttp_t * http,
      request with no bytes so the caller can ask again later. */
   if( FD_UNLIKELY( status==416 && http->range_start ) ) {
     fd_sshttp_cancel( http );
-    http->state = FD_SSHTTP_STATE_INIT;
-    *data_len   = 0UL;
+    *data_len = 0UL;
     return FD_SSHTTP_ADVANCE_DONE;
   }
 
@@ -662,6 +661,25 @@ read_response( fd_sshttp_t * http,
                      FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
     fd_sshttp_cancel( http );
     return FD_SSHTTP_ADVANCE_ERROR;
+  }
+
+  if( FD_UNLIKELY( http->range_start ) ) {
+    char  expected[ 48 ];
+    ulong expected_len;
+    FD_TEST( fd_cstr_printf_check( expected, sizeof(expected), &expected_len, "bytes %lu-", http->range_start ) );
+    int resumes = 0;
+    for( ulong i=0UL; i<header_cnt; i++ ) {
+      if( FD_LIKELY( headers[i].name_len!=13UL ) ) continue;
+      if( FD_LIKELY( strncasecmp( headers[i].name, "content-range", 13UL ) ) ) continue;
+      resumes = (ulong)headers[i].value_len>=expected_len && !strncmp( headers[i].value, expected, expected_len );
+      break;
+    }
+    if( FD_UNLIKELY( !resumes ) ) {
+      FD_LOG_WARNING(( "response from " FD_IP4_ADDR_FMT ":%hu does not resume at byte %lu",
+                       FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ), http->range_start ));
+      fd_sshttp_cancel( http );
+      return FD_SSHTTP_ADVANCE_ERROR;
+    }
   }
 
   http->content_read = 0UL;
