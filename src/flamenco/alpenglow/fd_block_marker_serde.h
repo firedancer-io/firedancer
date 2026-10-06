@@ -6,7 +6,6 @@
 #define FD_BLOCK_MARKER_DE_SUCCESS         ( 0)
 #define FD_BLOCK_MARKER_DE_ERR_SZ          (-1) /* Io(ReadSizeLimit), PreallocationSizeLimit, Custom("LengthPrefixed: inner serialized size does not match length prefix") */
 #define FD_BLOCK_MARKER_DE_ERR_INVAL       (-2) /* InvalidTagEncoding, InvalidValue                                                                                         */
-#define FD_BLOCK_MARKER_DE_ERR_UNSUPPORTED (-3) /* no wincode error: BlockMarkerV1::GenesisCertificate decodes in agave but fd_block_marker_t cannot carry it              */
 
 /* BlockMarkerV1: https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/entry/src/block_component.rs#L380-L386 */
 
@@ -87,6 +86,8 @@ FD_STATIC_ASSERT( FD_BLOCK_MARKER_KIND_GENESIS_CERT ==FD_BLOCK_MARKER_SERDE_TAG_
                                   FD_BLOCK_NOTAR_REWARD_CERT_SER_MAX /* notar_reward_cert     */ )
 
 #define FD_BLOCK_MARKER_SER_MAX ( FD_BLOCK_FOOTER_SER_MAX ) /* the footer is the widest marker */
+
+FD_STATIC_ASSERT( FD_BLOCK_MARKER_PREAMBLE_SZ+FD_GENESIS_CERT_SER_MAX<=FD_BLOCK_MARKER_SER_MAX, fd_block_marker_serde );
 
 FD_STATIC_ASSERT( FD_BLOCK_MARKER_PREAMBLE_SZ          ==  13UL, fd_block_marker_serde );
 FD_STATIC_ASSERT( FD_BLOCK_HEADER_SER_SZ               ==  41UL, fd_block_marker_serde );

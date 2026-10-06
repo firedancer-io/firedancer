@@ -70,6 +70,17 @@ fd_alpenglow_rewards_apply( fd_bank_t *               bank,
                             fd_capture_ctx_t *        capture_ctx,
                             fd_block_footer_t const * footer );
 
+/* https://github.com/anza-xyz/agave/blob/v4.3.0/runtime/src/block_component_processor.rs#L492-L558
+   https://github.com/anza-xyz/agave/blob/v4.3.0/runtime/src/bank.rs#L3450-L3465 */
+
+int
+fd_alpenglow_genesis_cert_apply( fd_bank_t *                      bank,
+                                 fd_accdb_t *                     accdb,
+                                 fd_capture_ctx_t *               capture_ctx,
+                                 fd_genesis_cert_marker_t const * cert,
+                                 fd_hash_t const *                parent_block_id,
+                                 ushort                           shred_version );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_alpenglow_fd_alpenglow_h */

@@ -58,12 +58,31 @@ struct fd_block_footer {
 };
 typedef struct fd_block_footer fd_block_footer_t;
 
+/* https://github.com/anza-xyz/agave/blob/v4.3.0/entry/src/block_component.rs#L262-L276 */
+
+#define FD_GENESIS_CERT_BITMAP_MAX (512UL)
+#define FD_GENESIS_CERT_SER_HDR_SZ ( sizeof(ulong)+sizeof(fd_hash_t)+FD_BLS_SIG_SZ+sizeof(ulong) )
+#define FD_GENESIS_CERT_SER_MAX    ( FD_GENESIS_CERT_SER_HDR_SZ+FD_GENESIS_CERT_BITMAP_MAX )
+
+struct fd_genesis_cert_marker {
+  ulong        slot;
+  fd_hash_t    block_id;
+  uchar        sig[ FD_BLS_SIG_SZ ];
+  ulong        bitmap_sz;
+  ushort       nbits;
+  fd_bls_set_t signer_set[ fd_bls_set_word_cnt ];
+  ulong        payload_sz;
+  uchar        payload[ FD_GENESIS_CERT_SER_MAX ];
+};
+typedef struct fd_genesis_cert_marker fd_genesis_cert_marker_t;
+
 struct fd_block_marker {
   uint kind; /* FD_BLOCK_MARKER_KIND_* */
   union {
-    fd_block_header_t  header;
-    fd_block_footer_t  footer;
-    fd_update_parent_t update_parent;
+    fd_block_header_t        header;
+    fd_block_footer_t        footer;
+    fd_update_parent_t       update_parent;
+    fd_genesis_cert_marker_t genesis_cert;
   };
 };
 typedef struct fd_block_marker fd_block_marker_t;

@@ -575,6 +575,34 @@ footer_de( fd_block_footer_t * footer,
   return FD_BLOCK_MARKER_DE_SUCCESS;
 }
 
+/* https://github.com/anza-xyz/agave/blob/v4.3.0/entry/src/block_component.rs#L262-L276 */
+
+static int
+genesis_cert_de( fd_genesis_cert_marker_t * cert,
+                 uchar const *              buf,
+                 ulong                      buf_sz,
+                 ulong *                    sz ) {
+  FAIL( buf_sz<FD_GENESIS_CERT_SER_HDR_SZ, SZ );
+
+  ulong off = 0UL;
+  cert->slot = FD_LOAD( ulong, buf+off );                  off += sizeof(ulong);
+  memcpy( cert->block_id.uc, buf+off, sizeof(fd_hash_t) ); off += sizeof(fd_hash_t);
+  memcpy( cert->sig, buf+off, FD_BLS_SIG_SZ );             off += FD_BLS_SIG_SZ;
+  cert->bitmap_sz = FD_LOAD( ulong, buf+off );             off += sizeof(ulong);
+  FAIL( cert->bitmap_sz>FD_GENESIS_CERT_BITMAP_MAX, INVAL );
+  FAIL( cert->bitmap_sz>buf_sz-off, SZ );
+
+  int err = bitmap_de( &cert->nbits, cert->signer_set, buf+off, cert->bitmap_sz );
+  if( FD_UNLIKELY( err ) ) return err;
+  off += cert->bitmap_sz;
+
+  cert->payload_sz = off;
+  memcpy( cert->payload, buf, off );
+
+  *sz = off;
+  return FD_BLOCK_MARKER_DE_SUCCESS;
+}
+
 int
 fd_block_marker_de( fd_block_marker_t * self,
                     uchar const *       buf,
@@ -600,7 +628,7 @@ fd_block_marker_de( fd_block_marker_t * self,
   case FD_BLOCK_MARKER_KIND_FOOTER:        err = footer_de       ( &self->footer,        marker.payload, marker.length, &payload_sz ); break;
   case FD_BLOCK_MARKER_KIND_HEADER:        err = header_de       ( &self->header,        marker.payload, marker.length, &payload_sz ); break;
   case FD_BLOCK_MARKER_KIND_UPDATE_PARENT: err = update_parent_de( &self->update_parent, marker.payload, marker.length, &payload_sz ); break;
-  case FD_BLOCK_MARKER_KIND_GENESIS_CERT:  return FD_BLOCK_MARKER_DE_ERR_UNSUPPORTED;
+  case FD_BLOCK_MARKER_KIND_GENESIS_CERT:  err = genesis_cert_de ( &self->genesis_cert,  marker.payload, marker.length, &payload_sz ); break;
   default:                                 return FD_BLOCK_MARKER_DE_ERR_INVAL;
   }
   if( FD_UNLIKELY( err ) ) return err;

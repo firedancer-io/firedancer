@@ -17,10 +17,10 @@ static void
 test_sched_footprint( void ) {
   /* Retain the savings from compact shred lengths and 4992-byte
      transactions under the default scheduler sizing. */
-  FD_TEST( fd_sched_footprint( 65536UL, 2048UL, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT )==1117355264UL );
+  FD_TEST( fd_sched_footprint( 65536UL, 2048UL, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT )==1119976704UL );
   /* Only the shred length array scales with the shred limit. */
-  FD_TEST( fd_sched_footprint( 65536UL, 2048UL, 4UL*FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT )==1117355264UL+2048UL*3UL*FD_SHRED_BLK_MAX*sizeof(ushort) );
-  FD_TEST( fd_sched_footprint( 65536UL, 2048UL, FD_SHRED_BLK_MAX, 5UL*FD_MAX_TXN_PER_SLOT )==1117355264UL );
+  FD_TEST( fd_sched_footprint( 65536UL, 2048UL, 4UL*FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT )==1119976704UL+2048UL*3UL*FD_SHRED_BLK_MAX*sizeof(ushort) );
+  FD_TEST( fd_sched_footprint( 65536UL, 2048UL, FD_SHRED_BLK_MAX, 5UL*FD_MAX_TXN_PER_SLOT )==1119976704UL );
   FD_TEST( !fd_sched_footprint( 65536UL, 2048UL, 0UL, FD_MAX_TXN_PER_SLOT ) );
   FD_TEST( !fd_sched_footprint( 65536UL, 2048UL, FD_SHRED_BLK_MAX, 0UL ) );
 }
@@ -364,6 +364,7 @@ run_bad_tick_case( fd_hash_t const * start_poh,
 #define AG_COMP_TICK          (3) /* alpentick: one hash */
 #define AG_COMP_TICK_0HASH    (4) /* tick declaring zero hashes: invalid under Alpenglow */
 #define AG_COMP_TICK_2HASH    (5) /* tick declaring two hashes: invalid under Alpenglow */
+#define AG_COMP_GENESIS_CERT  (6)
 
 /* AG_SPLIT( comp, cut ) is comp delivered as two FEC sets of the same
    batch, the first holding the leading cut bytes. */
@@ -396,6 +397,21 @@ encode_ag_component( uchar *     out,
     out[ off ] = (uchar)1;                                             off += sizeof(uchar);
     FD_STORE( ulong,  out+off, TEST_ROOT_SLOT );                       off += sizeof(ulong);
     fd_memset( out+off, 0, sizeof(fd_hash_t) );                        off += sizeof(fd_hash_t);
+    return off;
+  }
+  case AG_COMP_GENESIS_CERT: {
+    static uchar const bitmap[ 4 ] = { 0x00, 0x01, 0x00, 0x01 };
+    ulong payload_sz = sizeof(ulong)+sizeof(fd_hash_t)+FD_BLS_SIG_SZ+sizeof(ulong)+sizeof(bitmap);
+    ulong off        = 0UL;
+    FD_STORE( ulong,  out+off, 0UL );                                  off += sizeof(ulong);
+    FD_STORE( ushort, out+off, (ushort)1 );                            off += sizeof(ushort);
+    out[ off ] = (uchar)FD_BLOCK_MARKER_KIND_GENESIS_CERT;             off += sizeof(uchar);
+    FD_STORE( ushort, out+off, (ushort)payload_sz );                   off += sizeof(ushort);
+    FD_STORE( ulong,  out+off, TEST_ROOT_SLOT );                       off += sizeof(ulong);
+    fd_memset( out+off, 0, sizeof(fd_hash_t) );                        off += sizeof(fd_hash_t);
+    fd_memset( out+off, 0x22, FD_BLS_SIG_SZ );                         off += FD_BLS_SIG_SZ;
+    FD_STORE( ulong,  out+off, sizeof(bitmap) );                       off += sizeof(ulong);
+    fd_memcpy( out+off, bitmap, sizeof(bitmap) );                      off += sizeof(bitmap);
     return off;
   }
   case AG_COMP_TICK:
@@ -566,6 +582,24 @@ run_ag_structure_cases( void ) {
      that ingest is what fails. */
   { int c[] = { AG_COMP_HEADER, AG_COMP_TICK };
     run_ag_structure_case( start_poh, c, 2UL, 0, FD_SCHED_DEAD_REASON_MISSING_BLOCK_FOOTER ); }
+
+  { int c[] = { AG_COMP_HEADER, AG_COMP_GENESIS_CERT, AG_COMP_FOOTER, AG_COMP_TICK };
+    run_ag_structure_case( start_poh, c, 4UL, 1, FD_SCHED_DEAD_REASON_NONE ); }
+  { uchar buf[ FD_BLOCK_MARKER_SER_MAX ] __attribute__((aligned(64)));
+    ulong cert_sz = encode_ag_component( buf, AG_COMP_GENESIS_CERT, NULL );
+    for( ulong cut=1UL; cut<cert_sz; cut++ ) {
+      int c[] = { AG_COMP_HEADER, AG_SPLIT( AG_COMP_GENESIS_CERT, cut ), AG_COMP_FOOTER, AG_COMP_TICK };
+      run_ag_structure_case( start_poh, c, 4UL, 1, FD_SCHED_DEAD_REASON_NONE );
+    } }
+
+  { int c[] = { AG_COMP_GENESIS_CERT, AG_COMP_HEADER, AG_COMP_FOOTER, AG_COMP_TICK };
+    run_ag_structure_case( start_poh, c, 4UL, 0, FD_SCHED_DEAD_REASON_MISSING_PARENT_MARKER ); }
+  { int c[] = { AG_COMP_HEADER, AG_COMP_TICK, AG_COMP_GENESIS_CERT, AG_COMP_FOOTER, AG_COMP_TICK };
+    run_ag_structure_case( start_poh, c, 5UL, 0, FD_SCHED_DEAD_REASON_GENESIS_CERT_OUT_OF_ORDER ); }
+  { int c[] = { AG_COMP_HEADER, AG_COMP_FOOTER, AG_COMP_GENESIS_CERT, AG_COMP_TICK };
+    run_ag_structure_case( start_poh, c, 4UL, 0, FD_SCHED_DEAD_REASON_GENESIS_CERT_OUT_OF_ORDER ); }
+  { int c[] = { AG_COMP_HEADER, AG_COMP_GENESIS_CERT, AG_COMP_GENESIS_CERT, AG_COMP_FOOTER, AG_COMP_TICK };
+    run_ag_structure_case( start_poh, c, 5UL, 0, FD_SCHED_DEAD_REASON_GENESIS_CERT_OUT_OF_ORDER ); }
 
   /* UpdateParent before the header or after the footer.  A valid
      position aborts (unhandled reparent) and cannot be tested here. */

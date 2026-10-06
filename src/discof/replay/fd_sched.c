@@ -213,7 +213,8 @@ struct fd_sched_block {
      parse time.  footer_seen is set if the block carries a footer
      marker and it is seen by sched; footer is only meaningful in that
      case. */
-  fd_block_footer_t footer;
+  fd_block_footer_t        footer;
+  fd_genesis_cert_marker_t genesis_cert;
 
   /* Alpenglow block structure, mirroring agave's BlockComponentStage
      as a set of "seen" flags.  Only maintained when sched->is_alpenglow.
@@ -235,7 +236,7 @@ typedef struct fd_sched_block fd_sched_block_t;
 
 FD_STATIC_ASSERT( sizeof(fd_sched_mblk_t)==120UL, fd_sched_mblk );
 FD_STATIC_ASSERT( sizeof(fd_sched_txn_info_t)==192UL, fd_sched_txn_info );
-FD_STATIC_ASSERT( sizeof(fd_sched_block_t)==75840UL, fd_sched_block );
+FD_STATIC_ASSERT( sizeof(fd_sched_block_t)==77120UL, fd_sched_block );
 FD_STATIC_ASSERT( sizeof(fd_hash_t)==sizeof(((fd_microblock_hdr_t *)0)->hash), unexpected poh hash size );
 
 
@@ -1310,6 +1311,9 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
   block->block_pool_max_popcnt = fd_ulong_max( block->block_pool_max_popcnt, sched->block_pool_popcnt );
 
   if( FD_UNLIKELY( !block->block_start_signaled ) ) {
+    /* https://github.com/anza-xyz/agave/blob/v4.3.0/runtime/src/block_component_processor.rs#L150-L175 */
+    if( FD_UNLIKELY( sched->is_alpenglow &&
+                     !block->genesis_cert_seen && !block->mblk_cnt && !block->footer_seen && !block->fec_eos ) ) return 0UL;
     out->task_type = FD_SCHED_TT_BLOCK_START;
     out->block_start->bank_idx        = bank_idx;
     out->block_start->parent_bank_idx = block->parent_idx;
@@ -2001,6 +2005,14 @@ fd_sched_get_footer( fd_sched_t * sched, ulong bank_idx ) {
   return block->footer_seen ? &block->footer : NULL;
 }
 
+fd_genesis_cert_marker_t const *
+fd_sched_get_genesis_cert( fd_sched_t * sched, ulong bank_idx ) {
+  FD_TEST( sched->canary==FD_SCHED_MAGIC );
+  FD_TEST( bank_idx<sched->block_cnt_max );
+  fd_sched_block_t * block = block_pool_ele( sched, bank_idx );
+  return block->genesis_cert_seen ? &block->genesis_cert : NULL;
+}
+
 void
 fd_sched_metrics_write( fd_sched_t * sched ) {
   FD_MGAUGE_SET( REPLAY, SCHED_ACTIVE_BANK_INDEX, sched->active_bank_idx );
@@ -2223,6 +2235,7 @@ ag_on_marker( fd_sched_t *              sched,
       FD_LOG_INFO(( "bad block: GENESIS_CERT_OUT_OF_ORDER, slot %lu, parent slot %lu", block->slot, block->parent_slot ));
       return FD_SCHED_DEAD_REASON_GENESIS_CERT_OUT_OF_ORDER;
     }
+    block->genesis_cert      = marker->genesis_cert;
     block->genesis_cert_seen = 1;
     return FD_SCHED_DEAD_REASON_NONE;
 

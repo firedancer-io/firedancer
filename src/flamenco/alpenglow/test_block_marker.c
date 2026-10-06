@@ -388,6 +388,68 @@ test_final_cert_bitmap_bound( void ) {
   FD_TEST( fd_block_marker_de( marker, g_buf, g_sz )==FD_BLOCK_MARKER_DE_ERR_SZ );
 }
 
+#define GENESIS_CERT_FIXED_SZ (8UL+32UL+FD_BLS_SIG_SZ+8UL)
+
+static void
+emit_genesis_cert( ulong         slot,
+                   uchar         block_id_fill,
+                   uchar         sig_fill,
+                   uchar const * bitmap,
+                   ulong         bitmap_sz,
+                   ulong         declared_bitmap_sz,
+                   long          length_adjust ) {
+  emit_reset();
+  emit_preamble( FD_BLOCK_MARKER_SERDE_TAG_GENESIS_CERT, (ushort)((long)(GENESIS_CERT_FIXED_SZ+bitmap_sz)+length_adjust) );
+  emit_u64( slot );
+  emit_rep( block_id_fill, 32UL );
+  emit_rep( sig_fill, FD_BLS_SIG_SZ );
+  emit_u64( declared_bitmap_sz );
+  emit( bitmap, bitmap_sz );
+}
+
+static void
+test_genesis_cert( void ) {
+  fd_block_marker_t marker[1];
+  uchar             bitmap[ 4 ] = { 0x00, 0x03, 0x00, 0x07 };
+  ulong             bitmap_sz   = sizeof(bitmap);
+
+  emit_genesis_cert( 639UL, 0x11, 0x22, bitmap, bitmap_sz, bitmap_sz, 0L );
+  FD_TEST( fd_block_marker_de( marker, g_buf, g_sz )==FD_BLOCK_MARKER_DE_SUCCESS );
+  FD_TEST( marker->kind==FD_BLOCK_MARKER_KIND_GENESIS_CERT );
+  fd_genesis_cert_marker_t const * cert    = &marker->genesis_cert;
+  fd_hash_t                        want_id = hash_of( 0x11 );
+  FD_TEST( cert->slot==639UL );
+  FD_TEST( !memcmp( cert->block_id.uc, want_id.uc, sizeof(fd_hash_t) ) );
+  for( ulong i=0UL; i<FD_BLS_SIG_SZ; i++ ) FD_TEST( cert->sig[ i ]==0x22 );
+  FD_TEST( cert->bitmap_sz==bitmap_sz );
+  FD_TEST( cert->nbits==3U );
+  FD_TEST( set_is_range( cert->signer_set, 0UL, 3UL ) );
+  FD_TEST( cert->payload_sz==GENESIS_CERT_FIXED_SZ+bitmap_sz );
+  FD_TEST( !memcmp( cert->payload, g_buf+FD_BLOCK_MARKER_PREAMBLE_SZ, cert->payload_sz ) );
+
+  emit_genesis_cert( 1UL, 0x00, 0x00, bitmap, 0UL, 0UL, 0L );
+  FD_TEST( fd_block_marker_de( marker, g_buf, g_sz )==FD_BLOCK_MARKER_DE_ERR_SZ );
+
+  static uchar big[ FD_GENESIS_CERT_BITMAP_MAX+1UL ];
+  emit_genesis_cert( 1UL, 0x00, 0x00, big, sizeof(big), sizeof(big), 0L );
+  FD_TEST( fd_block_marker_de( marker, g_buf, g_sz )==FD_BLOCK_MARKER_DE_ERR_INVAL );
+
+  emit_genesis_cert( 1UL, 0x00, 0x00, bitmap, bitmap_sz, bitmap_sz+1UL, 0L );
+  FD_TEST( fd_block_marker_de( marker, g_buf, g_sz )==FD_BLOCK_MARKER_DE_ERR_SZ );
+
+  emit_reset();
+  emit_preamble( FD_BLOCK_MARKER_SERDE_TAG_GENESIS_CERT, (ushort)(GENESIS_CERT_FIXED_SZ-1UL) );
+  emit_rep( 0, GENESIS_CERT_FIXED_SZ-1UL );
+  FD_TEST( fd_block_marker_de( marker, g_buf, g_sz )==FD_BLOCK_MARKER_DE_ERR_SZ );
+
+  emit_genesis_cert( 1UL, 0x00, 0x00, bitmap, bitmap_sz, bitmap_sz, 1L ); emit_u8( 0 );
+  FD_TEST( fd_block_marker_de( marker, g_buf, g_sz )==FD_BLOCK_MARKER_DE_ERR_SZ );
+
+  uchar bad_bitmap[ 3 ] = { 0xff, 0x00, 0x00 };
+  emit_genesis_cert( 1UL, 0x00, 0x00, bad_bitmap, 3UL, 3UL, 0L );
+  FD_TEST( fd_block_marker_de( marker, g_buf, g_sz )==FD_BLOCK_MARKER_DE_ERR_INVAL );
+}
+
 static void
 test_errors( void ) {
   fd_block_marker_t marker[1];
@@ -401,11 +463,6 @@ test_errors( void ) {
   emit_reset();
   emit_u64( 0UL ); emit_u16( 2 ); emit_u8( FD_BLOCK_MARKER_SERDE_TAG_HEADER ); emit_u16( 41 ); emit_rep( 0, 41UL );
   FD_TEST( fd_block_marker_de( marker, g_buf, g_sz )==FD_BLOCK_MARKER_DE_ERR_INVAL );
-
-  /* genesis certificate tag is recognized but unsupported */
-  emit_reset();
-  emit_preamble( FD_BLOCK_MARKER_SERDE_TAG_GENESIS_CERT, (ushort)1 ); emit_u8( 0 );
-  FD_TEST( fd_block_marker_de( marker, g_buf, g_sz )==FD_BLOCK_MARKER_DE_ERR_UNSUPPORTED );
 
   /* unknown tag */
   emit_reset();
@@ -807,6 +864,7 @@ main( int     argc,
   test_footer_with_certs( 1 );
   test_reward_cert_bitmap_errors();
   test_final_cert_bitmap_bound();
+  test_genesis_cert();
   test_errors();
   test_ser();
   test_ser_certs();

@@ -6,6 +6,7 @@
 #include "../runtime/program/vote/fd_vote_state_versioned.h"
 #include "../runtime/program/vote/fd_vote_codec_tmpl.h"
 #include "../runtime/sysvar/fd_sysvar_epoch_schedule.h"
+#include "../runtime/sysvar/fd_sysvar_rent.h"
 
 FD_STATIC_ASSERT( MAX_EPOCH_CREDITS_HISTORY==64UL, epoch_credits_bound );
 
@@ -22,9 +23,10 @@ vote_stakes_iter_kind_for_epoch( ulong fork_id,
 /* TBD: this is a copy of the votor's ag_vote_signing_ser so the runtime
    does not link fd_choreo; keep the two in sync. */
 
-#define VOTE_TAG_NOTAR (1U) /* WireConsensusMessageKind::NotarVote    */
-#define VOTE_TAG_FINAL (2U) /* WireConsensusMessageKind::FinalizeVote */
-#define VOTE_TAG_SKIP  (3U) /* WireConsensusMessageKind::SkipVote     */
+#define VOTE_TAG_NOTAR   (1U) /* WireConsensusMessageKind::NotarVote    */
+#define VOTE_TAG_FINAL   (2U) /* WireConsensusMessageKind::FinalizeVote */
+#define VOTE_TAG_SKIP    (3U) /* WireConsensusMessageKind::SkipVote     */
+#define VOTE_TAG_GENESIS (6U) /* WireConsensusMessageKind::GenesisVote   */
 
 #define VOTE_SIGNING_SER_MAX ( sizeof(uchar) + sizeof(ulong) + sizeof(fd_hash_t) + sizeof(ushort) )
 
@@ -599,5 +601,85 @@ fd_alpenglow_rewards_apply( fd_bank_t *               bank,
     }
   }
 
+  return 0;
+}
+
+int
+fd_alpenglow_genesis_cert_apply( fd_bank_t *                      bank,
+                                 fd_accdb_t *                     accdb,
+                                 fd_capture_ctx_t *               capture_ctx,
+                                 fd_genesis_cert_marker_t const * cert,
+                                 fd_hash_t const *                parent_block_id,
+                                 ushort                           shred_version ) {
+  ulong bank_slot   = bank->f.slot;
+  ulong parent_slot = bank->f.parent_slot;
+
+  /* https://github.com/anza-xyz/agave/blob/v4.3.0/runtime/src/block_component_processor.rs#L492-L558 */
+
+  if( FD_UNLIKELY( parent_slot==0UL ) ) {
+    FD_LOG_WARNING(( "slot %lu: genesis certificate in a cluster that started in alpenglow", bank_slot ));
+    return -1;
+  }
+  if( FD_UNLIKELY( cert->slot!=parent_slot || memcmp( cert->block_id.uc, parent_block_id->uc, sizeof(fd_hash_t) ) ) ) {
+    FD_LOG_WARNING(( "slot %lu: genesis certificate for slot %lu is not for the parent %lu", bank_slot, cert->slot, parent_slot ));
+    return -1;
+  }
+  if( FD_UNLIKELY( bank->f.alpenglow_migration_slot!=ULONG_MAX ) ) {
+    FD_LOG_WARNING(( "slot %lu: genesis certificate already populated for slot %lu", bank_slot, bank->f.alpenglow_migration_slot ));
+    return -1;
+  }
+
+  /* https://github.com/anza-xyz/agave/blob/v4.3.0/runtime/src/block_component_processor.rs#L560-L580 */
+
+  static FD_TL validator_set_t set[1];
+  if( FD_UNLIKELY( !validator_set_for_slot( set, bank, cert->slot ) ) ) return -1;
+
+  ulong last_rank = fd_bls_set_last( cert->signer_set ); /* ULONG_MAX when empty */
+  if( FD_UNLIKELY( cert->nbits>set->validator_cnt || last_rank>=set->validator_cnt ) ) {
+    FD_LOG_WARNING(( "slot %lu: genesis certificate names %u ranks (highest signer %lu) but its epoch has %lu validators",
+                     bank_slot, cert->nbits, last_rank, set->validator_cnt ));
+    return -1;
+  }
+
+  fd_bls_pub_t pub[1]; memset( pub, 0, sizeof(fd_bls_pub_t) );
+  ulong        stake = 0UL;
+  for( ulong rank=0UL; rank<=last_rank; rank++ ) {
+    if( !fd_bls_set_test( cert->signer_set, rank ) ) continue;
+    blst_p1_add_or_double_affine( pub, pub, set->bls_keys+rank );
+    stake += set->stakes[ rank ];
+  }
+  if( FD_UNLIKELY( (uint128)stake*100UL<(uint128)set->total_stake*82UL ) ) {
+    FD_LOG_WARNING(( "slot %lu: genesis certificate has %lu of %lu stake, below 82%%", bank_slot, stake, set->total_stake ));
+    return -1;
+  }
+
+  fd_bls_sig_t sig[1];
+  if( FD_UNLIKELY( fd_bls_sig_de( sig, cert->sig ) ) ) {
+    FD_LOG_WARNING(( "slot %lu: genesis certificate has a malformed signature", bank_slot ));
+    return -1;
+  }
+
+  uchar payload[ VOTE_SIGNING_SER_MAX ];
+  ulong payload_sz = vote_signing_ser( VOTE_TAG_GENESIS, cert->slot, cert->block_id.uc, shred_version, payload );
+  if( FD_UNLIKELY( !fd_bls_agg_verify( payload, payload_sz, pub, sig ) ) ) {
+    FD_LOG_WARNING(( "slot %lu: genesis certificate failed signature verification", bank_slot ));
+    return -1;
+  }
+
+  /* https://github.com/anza-xyz/agave/blob/v4.3.0/runtime/src/bank.rs#L3450-L3465 */
+
+  fd_pubkey_t addr;
+  fd_alpenglow_pda( "carlgration", &addr );
+
+  fd_accdb_svm_update_t update[1];
+  fd_acc_t acc = fd_accdb_svm_open_rw( bank, accdb, update, &addr, 1 );
+  acc.lamports   = fd_rent_exempt_minimum_balance( &FD_RENT_DEFAULT_PARAMS, cert->payload_sz );
+  acc.executable = 0;
+  acc.data_len   = cert->payload_sz;
+  memcpy( acc.owner, fd_solana_system_program_id.uc, sizeof(fd_pubkey_t) );
+  memcpy( acc.data,  cert->payload,                  cert->payload_sz   );
+  fd_accdb_svm_close_rw( bank, accdb, capture_ctx, &acc, update );
+
+  bank->f.alpenglow_migration_slot = cert->slot;
   return 0;
 }
