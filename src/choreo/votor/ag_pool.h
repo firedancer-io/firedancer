@@ -7,11 +7,12 @@
 #include "ag_parent_ready_tracker.h" /* ag_parent_ready_t */
 #include "ag_vote.h"
 
-#define AG_POOL_SUCCESS                ( 0)
-#define AG_POOL_ERR_SLOT_OUT_OF_BOUNDS (-1)
-#define AG_POOL_ERR_DUPLICATE          (-2)
-#define AG_POOL_ERR_SLASHABLE          (-3)
-#define AG_POOL_ERR_CERT_VERIFY        (-4)
+#define AG_POOL_SUCCESS          ( 0)
+#define AG_POOL_ERR_SLOT_TOO_OLD (-1)
+#define AG_POOL_ERR_DUPLICATE    (-2)
+#define AG_POOL_ERR_SLASHABLE    (-3)
+#define AG_POOL_ERR_CERT_VERIFY  (-4)
+#define AG_POOL_ERR_SLOT_TOO_NEW (-5)
 
 #define AG_POOL_QUORUM_REACHED_FINAL          (AG_CERT_KIND_FINAL)
 #define AG_POOL_QUORUM_REACHED_FAST_FINAL     (AG_CERT_KIND_FAST_FINAL)

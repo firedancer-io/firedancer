@@ -242,7 +242,7 @@ fd_rotor_blk_parented( fd_rotor_t *      rotor,
                        uint              fec_set_cnt );
 
 /* votor_out     FD_VOTOR_SIG_CERTED
-   votor_out     FD_VOTOR_SIG_REPAIR
+   votor_out     FD_VOTOR_SIG_REPAIR (null block id)
 
    before the cert is handled.  seeds an empty eager blk for every slot
    up to the cert as if turbine showed its first shred, assumes no

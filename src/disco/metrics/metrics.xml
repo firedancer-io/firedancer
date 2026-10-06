@@ -2141,13 +2141,14 @@ EXAMPLES
     <int value="3" name="UnknownSigner" label="Sending connection had no authenticated identity" />
     <int value="4" name="NotAPeer" label="Sender was not in the peer set" />
     <int value="5" name="Banned" label="Sender is banned for a failed signature verification" />
-    <int value="6" name="BadSlot" label="Vote slot was either too old or too far in the future" />
+    <int value="6" name="SlotTooOld" label="Vote slot was too old" />
     <int value="7" name="BadBlockHash" label="Vote block hash was null" />
     <int value="8" name="BadSig" label="Vote signature was the identity point" />
     <int value="9" name="BadRank" label="Sender was not a ranked validator in the vote slot's epoch" />
     <int value="10" name="BadShredVersion" label="Vote was for a different shred version" />
     <int value="11" name="Duplicate" label="Voter had already cast this vote" />
     <int value="12" name="Slashable" label="Vote constitutes a slashable offence" />
+    <int value="13" name="SlotTooNew" label="Vote slot was too far in the future" />
 </enum>
 
 <enum name="CertRxResult">
@@ -2158,10 +2159,11 @@ EXAMPLES
     <int value="4" name="UnknownSigner" label="Sending connection had no authenticated identity" />
     <int value="5" name="NotAPeer" label="Sender was not in the peer set" />
     <int value="6" name="NotRanked" label="Sender was not a ranked validator in the cert slot's epoch" />
-    <int value="7" name="SlotOutOfBounds" label="Cert slot was either too old or too far in the future" />
+    <int value="7" name="SlotTooOld" label="Cert slot was too old" />
     <int value="8" name="Duplicate" label="Cert was already in the pool" />
     <int value="9" name="FailedVerify" label="Cert failed the stake threshold or the aggregate signature check" />
     <int value="10" name="Banned" label="Sender is banned for a failed signature verification" />
+    <int value="11" name="SlotTooNew" label="Cert slot was too far in the future" />
 </enum>
 
 <tile name="votor">

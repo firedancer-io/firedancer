@@ -562,7 +562,13 @@ handle_votor( fd_rotor_tile_t * ctx,
   }
   case FD_VOTOR_SIG_REPAIR: {
     ulong slot = msg->repair.slot;
-    if( FD_UNLIKELY( slot<=ctx->rotor->root || slot>=ctx->rotor->root+ctx->rotor->slot_max ) ) return; /* outside the window */
+    if( FD_UNLIKELY( slot<=ctx->rotor->root ) ) return; /* outside the window */
+    if( FD_UNLIKELY( !ctx->cert_slot0 && !memcmp( &msg->repair.block_id, &hash_null, sizeof(fd_hash_t) ) ) ) { /* votor's first final cert slot, the catchup slot, maybe far past the window */
+      ctx->cert_slot0 = slot;
+      fd_rotor_slot_catchup( ctx->rotor, fd_ulong_min( slot, ctx->rotor->root+ctx->rotor->slot_max ) );
+      break;
+    }
+    if( FD_UNLIKELY( slot>=ctx->rotor->root+ctx->rotor->slot_max ) ) return; /* outside the window */
     fd_rotor_blk_notarized( ctx->rotor, slot, &msg->repair.block_id );
     break;
   }
