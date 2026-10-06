@@ -48,6 +48,17 @@ epoch_stakes_iter_kind( fd_bank_t const * bank,
   return (int)( bank->f.epoch + 2UL - epoch_stakes_key( bank, epoch_idx ) );
 }
 
+FD_FN_PURE ulong
+fd_ssmanifest_epoch_cnt( fd_bank_t const * bank ) {
+  return fd_ulong_min( bank->f.epoch, 3UL ) + 2UL;
+}
+
+FD_FN_PURE int
+fd_ssmanifest_epoch_iter_kind( fd_bank_t const * bank,
+                               ulong             epoch_idx ) {
+  return epoch_stakes_iter_kind( bank, epoch_idx );
+}
+
 static fd_epoch_credits_t const *
 find_epoch_credits( fd_bank_t *          bank,
                     fd_pubkey_t const * pubkey ) {
@@ -85,7 +96,7 @@ fd_ssmanifest_writer_init( fd_ssmanifest_writer_t * enc,
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
   ulong              fork_id     = bank->vote_stakes_fork_id;
-  ulong              epoch_cnt   = fd_ulong_min( bank->f.epoch, 3UL ) + 2UL;
+  ulong              epoch_cnt   = fd_ssmanifest_epoch_cnt( bank );
   for( ulong epoch_idx=0UL; epoch_idx<epoch_cnt; epoch_idx++ ) {
     fd_ssmanifest_epoch_map_t * map = &enc->epoch_map[ epoch_idx ];
     ulong epoch_key = epoch_stakes_key( bank, epoch_idx );

@@ -47,6 +47,21 @@ typedef struct fd_ssmanifest_writer fd_ssmanifest_writer_t;
 
 FD_PROTOTYPES_BEGIN
 
+/* fd_ssmanifest_epoch_cnt gives the number of epoch stakes entries the
+   manifest of bank holds, and fd_ssmanifest_epoch_iter_kind the vote
+   stakes iterator kind of the entry at epoch_idx, which is in
+   [0,fd_ssmanifest_epoch_cnt).  The boot stream tile walks these to
+   find every vote account the manifest names, which is more than the
+   writer's epoch maps hold: those drop the accounts that have no
+   authorized voter for their epoch. */
+
+FD_FN_PURE ulong
+fd_ssmanifest_epoch_cnt( fd_bank_t const * bank );
+
+FD_FN_PURE int
+fd_ssmanifest_epoch_iter_kind( fd_bank_t const * bank,
+                               ulong             epoch_idx );
+
 /* fd_ssmanifest_writer_init creates a new snapshot manifest writer.
    leader is the slot leader of bank.  Reads the vote account of every
    epoch stakes entry from accdb at accdb_fork_id to fill the epoch
