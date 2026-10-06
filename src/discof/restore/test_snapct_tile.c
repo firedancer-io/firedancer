@@ -808,14 +808,22 @@ test_instant_boot_download( void ) {
   void * sel = aligned_alloc( fd_sspeer_selector_align(), fd_sspeer_selector_footprint( TOTAL_PEERS_MAX ) ); FD_TEST( sel );
 
   /* The snapshot pool descriptors sit far above the usual soft file
-     limit, which the validator raises for the tile. */
+     limit, which the validator raises for the tile.  A host that
+     cannot raise it that far cannot run the tile either, so skip
+     rather than fail. */
   struct rlimit lim;
   FD_TEST( !getrlimit( RLIMIT_NOFILE, &lim ) );
+  if( lim.rlim_max<(rlim_t)FD_SNAP_FD( 2U ) ) {
+    FD_LOG_WARNING(( "open file limit %lu is below %d, skipping the instant boot download test",
+                     (ulong)lim.rlim_max, FD_SNAP_FD( 2U ) ));
+    free( sel );
+    free( scratch );
+    return;
+  }
   if( lim.rlim_cur<(rlim_t)FD_SNAP_FD( 2U ) ) {
     lim.rlim_cur = lim.rlim_max;
     FD_TEST( !setrlimit( RLIMIT_NOFILE, &lim ) );
   }
-  FD_TEST( lim.rlim_cur>=(rlim_t)FD_SNAP_FD( 2U ) );
 
   fd_memset( ctx, 0, sizeof(*ctx) );
   test_ctx_wake_init( ctx );
@@ -845,6 +853,13 @@ test_instant_boot_download( void ) {
   ctx->local_out.incremental_snapshot_fd = FD_SNAP_FD( 1U );
   fd_snap_pool_partial_name( ctx->local_out.full_snapshot_name,        0U );
   fd_snap_pool_partial_name( ctx->local_out.incremental_snapshot_name, 1U );
+
+  /* A configured snapshot server at the same address must not make the
+     instant boot download ask for https. */
+  ctx->resolved_servers_cnt          = 1UL;
+  ctx->resolved_servers[ 0 ].addr     = ctx->instant_boot_addr;
+  ctx->resolved_servers[ 0 ].is_https = 1;
+  fd_cstr_ncpy( ctx->resolved_servers[ 0 ].hostname, "snapshots.example", FD_FQDN_BUF_MAX );
 
   test_output      = output;
   test_publish_cnt = 0UL;

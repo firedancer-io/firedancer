@@ -96,6 +96,7 @@ typedef struct fd_snapld_tile {
   char          stream_index[ 4096UL ];
   fd_ip4_port_t stream_addr;
   char          stream_hostname[ FD_FQDN_BUF_MAX ];
+  uchar         stream_hash[ FD_HASH_FOOTPRINT ]; /* blake3 of the lthash, from the index line */
   ulong *       done_fseq;
   ulong *       pick_fseq;             /* the slot of the stream this tile joined */
 
@@ -585,8 +586,10 @@ stream_index_advance( fd_snapld_tile_t *  ctx,
       }
 
       /* The snapshot control tile waits on this before it downloads
-         the snapshot pair at the same slot. */
+         the snapshot pair at the same slot, and the parser checks the
+         stream's manifest against the hash on the same index line. */
       fd_fseq_update( ctx->pick_fseq, ctx->stream_slot );
+      fd_memcpy( ctx->stream_hash, hash, FD_HASH_FOOTPRINT );
       FD_LOG_INFO(( "joining the instant boot stream for slot %lu at %s", ctx->stream_slot, ctx->config.stream_server ));
 
       fd_ssctrl_init_t * init = fd_chunk_to_laddr( ctx->out_dc.mem, ctx->out_dc.chunk );
@@ -716,10 +719,12 @@ after_credit( fd_snapld_tile_t *  ctx,
           }
 
           /* Populate resolved redirect fields in META.  The stream
-             downloader resolved its slot from the boot index. */
+             downloader resolved its slot and hash from the line of the
+             boot index it picked. */
           meta->resolved_slot    = ctx->stream ? ctx->stream_slot : ULONG_MAX;
           meta->resolved_name[0] = '\0';
-          fd_memset( meta->resolved_hash, 0, FD_HASH_FOOTPRINT );
+          if( FD_UNLIKELY( ctx->stream ) ) fd_memcpy( meta->resolved_hash, ctx->stream_hash, FD_HASH_FOOTPRINT );
+          else                             fd_memset( meta->resolved_hash, 0, FD_HASH_FOOTPRINT );
 
           if( ctx->is_redirect ) {
             char const * resolved_name = fd_sshttp_snapshot_name( ctx->sshttp );

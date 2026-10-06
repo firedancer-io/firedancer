@@ -1202,6 +1202,28 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
   return 0;
 }
 
+/* instant_boot_check_slots makes sure the incremental snapshot and the
+   boot stream are both at the slot the stream downloader picked.
+   Replay stops consulting the stream once the load is done, so the
+   snapshot has to hold the values as they were at that slot, and the
+   stream replay ran from has to have started there.  A stream that has
+   not published its manifest yet has nothing to check. */
+
+static void
+instant_boot_check_slots( fd_snapin_tile_t const * ctx,
+                          ulong                    manifest_slot ) {
+  ulong pick = fd_fseq_query( ctx->lead.pick_fseq );
+  if( FD_UNLIKELY( manifest_slot!=pick ) ) {
+    FD_LOG_ERR(( "instant boot: incremental snapshot is not at the stream slot (manifest slot %lu, stream slot %lu)",
+                 manifest_slot, pick ));
+  }
+
+  ulong stream_slot = FD_VOLATILE_CONST( ctx->shmem->stream_slot );
+  if( FD_UNLIKELY( stream_slot && stream_slot!=pick ) ) {
+    FD_LOG_ERR(( "instant boot: boot stream manifest slot %lu is not the stream slot %lu", stream_slot, pick ));
+  }
+}
+
 static void
 process_manifest( fd_snapin_tile_t *  ctx,
                   fd_stem_context_t * stem ) {
@@ -1305,21 +1327,7 @@ process_manifest( fd_snapin_tile_t *  ctx,
       return;
     }
 
-    /* Replay stops consulting the boot stream once the load is done,
-       so the snapshot has to hold the values as they were at the slot
-       the stream started from.  The snapshot control tile asked for
-       the incremental at that slot; this checks it got it. */
-    if( FD_UNLIKELY( ctx->instant_boot ) ) {
-      ulong pick = fd_fseq_query( ctx->lead.pick_fseq );
-      if( FD_UNLIKELY( manifest->slot!=pick ) ) {
-        FD_LOG_ERR(( "instant boot: incremental snapshot is not at the stream slot (manifest slot %lu, stream slot %lu)",
-                     manifest->slot, pick ));
-      }
-      ulong stream_slot = FD_VOLATILE_CONST( ctx->shmem->stream_slot );
-      if( FD_UNLIKELY( stream_slot && manifest->slot<stream_slot ) ) {
-        FD_LOG_ERR(( "instant boot: incremental snapshot slot %lu is older than the boot stream slot %lu", manifest->slot, stream_slot ));
-      }
-    }
+    if( FD_UNLIKELY( ctx->instant_boot ) ) instant_boot_check_slots( ctx, manifest->slot );
   }
 
   /* Instant boot boots replay from the boot stream's manifest, so this
@@ -2160,15 +2168,12 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       forward_msg = 0; /* snapct already receives META directly from snapld */
       if( FD_LIKELY( !is_lead( ctx ) ) ) break;
 
-      /* The boot stream is not a redirect.  Its slot and hash came
-         from the boot index with INIT, and META carries no hash for
-         it. */
-      if( FD_UNLIKELY( ctx->stream ) ) break;
-
       /* For redirect-based HTTP downloads, the META message carries
          the resolved slot and hash from the actual snapshot filename
-         the server redirected to.  Update the advertised values so
-         that process_manifest can verify the manifest against them. */
+         the server redirected to.  The boot stream downloader fills
+         the same two fields from the line of the boot index it picked.
+         Update the advertised values so that process_manifest can
+         verify the manifest against them. */
       FD_TEST( sz==sizeof(fd_ssctrl_meta_t) );
       fd_ssctrl_meta_t const * meta = fd_chunk_to_laddr_const( ctx->in[ in_idx ].wksp, chunk );
       if( meta->resolved_slot!=ULONG_MAX ) {

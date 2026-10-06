@@ -18,6 +18,7 @@ static ulong init_full_cnt;
 static ulong meta_cnt;
 static ulong meta_total_sz;
 static ulong meta_slot;
+static uchar meta_hash[ FD_HASH_FOOTPRINT ];
 static ulong data_sz_total;
 static uchar init_hash[ FD_HASH_FOOTPRINT ];
 static uchar output[ 4UL*FD_SNAPSHOT_DATA_MTU ] __attribute__((aligned(FD_CHUNK_ALIGN)));
@@ -46,6 +47,7 @@ test_stem_publish( fd_stem_context_t * stem FD_PARAM_UNUSED,
     fd_ssctrl_meta_t const * meta = fd_chunk_to_laddr_const( output, chunk );
     meta_total_sz = meta->total_sz;
     meta_slot     = meta->resolved_slot;
+    fd_memcpy( meta_hash, meta->resolved_hash, FD_HASH_FOOTPRINT );
     meta_cnt++;
   } else if( sig==FD_SNAPSHOT_MSG_DATA ) {
     data_sz_total += sz;
@@ -331,6 +333,9 @@ test_stream( void ) {
   FD_TEST( strstr( req2, "GET /boot/777.tar.zst HTTP/1.1" ) );
   FD_TEST( !strstr( req2, "Range:" ) );
   FD_TEST( meta_cnt==1UL && meta_total_sz==2000UL && meta_slot==777UL );
+  /* The parser checks the stream manifest against the slot and hash of
+     the index line this tile picked. */
+  FD_TEST( !memcmp( meta_hash, hash, FD_HASH_FOOTPRINT ) );
   FD_TEST( data_sz_total==2000UL );
   FD_TEST( ctx->stream_received==2000UL );
   FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING && init_cnt==2UL );

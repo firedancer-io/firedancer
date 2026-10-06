@@ -743,6 +743,16 @@ blacklist_peer( fd_snapct_tile_t * ctx ) {
   }
 }
 
+/* download_failure_action names what follows a failed download, which
+   is a retry against the same server under instant boot and a ban
+   everywhere else. */
+
+static char const *
+download_failure_action( fd_snapct_tile_t const * ctx ) {
+  if( FD_UNLIKELY( ctx->config.instant_boot ) ) return "retrying the same server";
+  return "blacklisting peer due to download failure";
+}
+
 #define DNS_RETRY_NANOS       (15L*1000L*1000L*1000L)
 #define DNS_REQ_ID_ENTRYPOINT (0x100UL) /* req_id: server idx, or this bit + entrypoint idx */
 
@@ -903,10 +913,11 @@ after_credit( fd_snapct_tile_t *  ctx,
       }
 
       /* The instant boot server is neither a gossip peer nor a
-         configured snapshot source, so it has no identity to log and
-         no entry in the resolved list. */
+         configured snapshot source, so it has no identity to log, no
+         entry in the resolved list, and plain http only. */
       if( FD_UNLIKELY( ctx->config.instant_boot ) ) {
         fd_cstr_ncpy( out->hostname, ctx->instant_boot_hostname, sizeof(out->hostname) );
+        out->is_https = 0;
         FD_LOG_NOTICE(( "downloading the %s snapshot for stream slot %lu from the instant boot server %s%s%s",
                         full ? "full" : "incremental", ctx->instant_boot_slot,
                         fd_log_style_bold(), ctx->config.instant_boot_server, fd_log_style_normal() ));
@@ -1169,9 +1180,10 @@ after_credit( fd_snapct_tile_t *  ctx,
         ctx->flush_ack = 0;
         ctx->state = FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_RESET;
         FD_LOG_WARNING(( "failed to load incremental snapshot at slot %lu from http://" FD_IP4_ADDR_FMT ":%hu/%s. "
-                         "blacklisting peer due to download failure.",
+                         "%s.",
                          ctx->predicted_incremental.slot,
-                         FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_incr_snapshot_name ));
+                         FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_incr_snapshot_name,
+                         download_failure_action( ctx ) ));
         blacklist_peer( ctx );
         break;
       }
@@ -1191,9 +1203,10 @@ after_credit( fd_snapct_tile_t *  ctx,
         ctx->flush_ack = 0;
         ctx->state = FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_RESET;
         FD_LOG_WARNING(( "failed to load incremental snapshot at slot %lu from http://" FD_IP4_ADDR_FMT ":%hu/%s. "
-                         "blacklisting peer due to download failure.",
+                         "%s.",
                          ctx->predicted_incremental.slot,
-                         FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_incr_snapshot_name ));
+                         FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_incr_snapshot_name,
+                         download_failure_action( ctx ) ));
         blacklist_peer( ctx );
         break;
       }
@@ -1274,9 +1287,10 @@ after_credit( fd_snapct_tile_t *  ctx,
         ctx->flush_ack = 0;
         ctx->state = FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_RESET;
         FD_LOG_WARNING(( "failed to load full snapshot at slot %lu from http://" FD_IP4_ADDR_FMT ":%hu/%s. "
-                         "blacklisting peer due to download failure.",
+                         "%s.",
                          ctx->predicted_incremental.full_slot,
-                         FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_full_snapshot_name ));
+                         FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_full_snapshot_name,
+                         download_failure_action( ctx ) ));
         blacklist_peer( ctx );
         break;
       }
@@ -1296,9 +1310,10 @@ after_credit( fd_snapct_tile_t *  ctx,
         ctx->flush_ack = 0;
         ctx->state = FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_RESET;
         FD_LOG_WARNING(( "failed to load full snapshot at slot %lu from http://" FD_IP4_ADDR_FMT ":%hu/%s. "
-                         "blacklisting peer due to download failure.",
+                         "%s.",
                          ctx->predicted_incremental.full_slot,
-                         FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_full_snapshot_name ));
+                         FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_full_snapshot_name,
+                         download_failure_action( ctx ) ));
         blacklist_peer( ctx );
         break;
       }
@@ -1463,9 +1478,10 @@ after_credit( fd_snapct_tile_t *  ctx,
         ctx->flush_ack = 0;
         ctx->state = FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_RESET;
         FD_LOG_WARNING(( "failed to load full snapshot at slot %lu from http://" FD_IP4_ADDR_FMT ":%hu/%s. "
-                         "blacklisting peer due to download failure",
+                         "%s.",
                          ctx->predicted_incremental.full_slot,
-                         FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_full_snapshot_name ));
+                         FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_full_snapshot_name,
+                         download_failure_action( ctx ) ));
         blacklist_peer( ctx );
         break;
       }
@@ -1486,9 +1502,10 @@ after_credit( fd_snapct_tile_t *  ctx,
         ctx->flush_ack = 0;
         ctx->state = FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_RESET;
         FD_LOG_WARNING(( "failed to load incremental snapshot at slot %lu from http://" FD_IP4_ADDR_FMT ":%hu/%s. "
-                         "blacklisting peer due to download failure",
+                         "%s.",
                          ctx->predicted_incremental.slot,
-                         FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_incr_snapshot_name ));
+                         FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_incr_snapshot_name,
+                         download_failure_action( ctx ) ));
         blacklist_peer( ctx );
         break;
       }

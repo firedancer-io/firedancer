@@ -1001,6 +1001,86 @@ test_all_control_barriers_and_final_payload( void ) {
   fd_memset( expected_hash, 0x33, sizeof(expected_hash) );
   FD_TEST( !memcmp( ctx->lead.advertised_hash, expected_hash, sizeof(expected_hash) ) );
   FD_TEST( !test_pub_cnt );
+
+  /* The boot stream downloader fills the same two fields from the line
+     of the boot index it picked, so the stream parser checks its
+     manifest against them like any other load. */
+  sync_ctx_init( ctx, 1UL, FD_SNAPSHOT_STATE_PROCESSING );
+  ctx->stream           = 1;
+  meta[0].resolved_slot = 44UL;
+  fd_memset( meta[0].resolved_hash, 0x44, FD_HASH_FOOTPRINT );
+  fd_memcpy( meta_mem[0], &meta[0], sizeof(fd_ssctrl_meta_t) );
+  ctx->in[0].wksp = (fd_wksp_t *)meta_mem[0];
+  FD_TEST( !returnable_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_META, 0UL, sizeof(fd_ssctrl_meta_t),
+                             0UL, 0UL, 0UL, (fd_stem_context_t *)1UL ) );
+  FD_TEST( ctx->lead.advertised_slot==44UL );
+  FD_TEST( !memcmp( ctx->lead.advertised_hash, meta[0].resolved_hash, FD_HASH_FOOTPRINT ) );
+  FD_TEST( !test_pub_cnt );
+}
+
+/* Instant boot created the incremental fork at setup, but still snoops
+   stake accounts, so INIT_INCR has to give it a stake fork. */
+
+static void
+test_instant_boot_incr_stake_fork( void ) {
+  fd_snapin_tile_t * ctx = test_ctx;
+  sync_ctx_init( ctx, 1UL, FD_SNAPSHOT_STATE_IDLE );
+  ctx->instant_boot            = 1;
+  ctx->lead.accdb_incr_fork_id = (fd_accdb_fork_id_t){ .val = 7U };
+  test_counters_reset();
+
+  send_control( ctx, 0UL, FD_SNAPSHOT_MSG_CTRL_INIT_INCR );
+
+  FD_TEST( test_stake_new_fork_cnt==1UL );
+  FD_TEST( ctx->shmem->stake_fork==3U );
+
+  /* The fork the setup created is the one the incremental writes. */
+  FD_TEST( !test_accdb_attach_cnt );
+  FD_TEST( ctx->lead.accdb_incr_fork_id.val==7U );
+  FD_TEST( ctx->shmem->fork_id==7UL );
+}
+
+/* Under instant boot the incremental snapshot and the boot stream both
+   have to be at the slot the stream downloader picked. */
+
+static void
+test_instant_boot_slot_checks( void ) {
+  static ulong pick_mem[ FD_FSEQ_FOOTPRINT/sizeof(ulong) ] __attribute__((aligned(FD_FSEQ_ALIGN)));
+  fd_snapin_tile_t * ctx = test_ctx;
+  sync_ctx_init( ctx, 1UL, FD_SNAPSHOT_STATE_PROCESSING );
+  ctx->instant_boot   = 1;
+  ctx->lead.pick_fseq = fd_fseq_join( fd_fseq_new( pick_mem, ULONG_MAX ) );
+  FD_TEST( ctx->lead.pick_fseq );
+  fd_fseq_update( ctx->lead.pick_fseq, 777UL );
+
+  /* The pair at the picked slot, with a stream that started there. */
+  ctx->shmem->stream_slot = 777UL;
+  instant_boot_check_slots( ctx, 777UL );
+
+  /* A stream that has not published its manifest yet is not a
+     mismatch. */
+  ctx->shmem->stream_slot = 0UL;
+  instant_boot_check_slots( ctx, 777UL );
+
+  /* An incremental at any other slot ends the process, and so does a
+     stream whose archive started somewhere else. */
+  ulong const manifest_slot[ 2 ] = { 778UL, 777UL };
+  ulong const stream_slot  [ 2 ] = {   0UL, 778UL };
+  for( ulong i=0UL; i<2UL; i++ ) {
+    pid_t pid = fork();
+    FD_TEST( pid>=0 );
+    if( !pid ) {
+      fd_log_level_logfile_set( 6 );
+      fd_log_level_stderr_set( 6 );
+      ctx->shmem->stream_slot = stream_slot[ i ];
+      instant_boot_check_slots( ctx, manifest_slot[ i ] );
+      _exit( 0 );
+    }
+    int status = 0;
+    FD_TEST( waitpid( pid, &status, 0 )==pid );
+    FD_TEST( WIFEXITED( status ) );
+    FD_TEST( WEXITSTATUS( status )==1 );
+  }
 }
 
 static void
@@ -3130,6 +3210,8 @@ main( int     argc,
 
   test_control_barriers();
   test_all_control_barriers_and_final_payload();
+  test_instant_boot_incr_stake_fork();
+  test_instant_boot_slot_checks();
   test_fast_lane_control_pipeline();
   test_pending_control_allows_lagging_data();
   test_pending_control_keeps_frame_order();
