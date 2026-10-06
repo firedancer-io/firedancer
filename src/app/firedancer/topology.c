@@ -1541,7 +1541,6 @@ fd_topo_initialize( config_t * config ) {
     FD_TEST( fd_pod_insert_int( topo->props, "instant_boot_serve", 1 ) );
   }
 
-
   fd_pod_insert_int( topo->props, "sandbox", config->development.sandbox ? 1 : 0 );
 
   fd_topob_waker( topo );
@@ -1758,7 +1757,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->snapld.incremental_snapshots   = config->firedancer.snapshots.incremental_snapshots;
     tile->snapld.min_download_speed_mibs = config->firedancer.snapshots.min_download_speed_mibs;
     tile->snapld.stream                  = stream;
-    if( FD_UNLIKELY( stream ) ) {
+    if( stream ) {
       tile->snapld.instant_boot_done_obj_id = fd_pod_query_ulong( config->topo.props, "instant_boot_done", ULONG_MAX );
       tile->snapld.instant_boot_pick_obj_id = fd_pod_query_ulong( config->topo.props, "instant_boot_pick", ULONG_MAX );
       fd_cstr_ncpy( tile->snapld.stream_server,
