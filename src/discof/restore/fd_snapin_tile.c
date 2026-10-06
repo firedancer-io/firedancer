@@ -47,6 +47,13 @@
 #define FD_SNAPIN_DIRECT_ALIGN      (4096UL)
 #define FD_SNAPIN_WRITE_BUF_MAX     (FD_SNAPIN_WRITE_BUF_SZ-sizeof(fd_accdb_disk_meta_t))
 
+/* How often a tile that is blocked waiting on another says so. */
+#define FD_SNAPIN_WAIT_LOG_NANOS    (1000L*1000L*1000L)
+
+/* How many spins pass between clock reads while waiting.  The clock is
+   only read to decide whether to log. */
+#define FD_SNAPIN_WAIT_SPIN_MASK    (4095UL)
+
 FD_STATIC_ASSERT( FD_SNAPIN_WRITE_BUF_SZ%FD_SNAPIN_DIRECT_ALIGN==0UL, write_buf_align );
 FD_STATIC_ASSERT( FD_SNAPSHOT_DATA_MTU<FD_SNAPIN_WRITE_BUF_MAX, write_buf );
 FD_STATIC_ASSERT( sizeof(fd_accdb_disk_meta_t)+FD_RUNTIME_ACC_SZ_MAX<=FD_SNAPIN_WRITE_BUF_MAX, max_account );
@@ -168,10 +175,9 @@ struct fd_snapin_lead {
   fd_txncache_t * txncache;
   fd_bank_t *  bank;
 
-  /* Instant boot: did the one time setup run, the counter replay
-     watches for the end of the background load, and the counter the
-     stream downloader stored the slot it joined in. */
-  int     setup_done;
+  /* Instant boot: the counter replay watches for the end of the
+     background load, and the counter the stream downloader stored the
+     slot it joined in. */
   ulong * done_fseq;
   ulong * pick_fseq;
 
@@ -251,20 +257,19 @@ struct fd_snapin_shmem {
      writing the boot fork, and stream_stopped answers it. */
   ulong setup_done;
   ulong boot_fork_id;
-  ulong incr_fork_id;
   ulong stream_slot;
   ulong stream_stop;
   ulong stream_stopped;
 
   /* Per-tile attempt values.  Lamport totals are 128-bit <*_hi,*>:
-     they count every account version, which can pass 2^64.  reserved
-     says this tile has taken layer-0 space for the attempt, which the
-     counts below do not cover: a batch can reject the snapshot after
-     the space was taken and written to. */
+     they count every account version, which can pass 2^64.
+     space_taken says this tile has taken layer-0 space for the
+     attempt, which the counts below do not cover: a batch can reject
+     the snapshot after the space was taken and written to. */
   struct __attribute__((aligned(128))) {
     ulong loaded;
     ulong duplicates;
-    ulong reserved;
+    ulong space_taken;
     ulong input_lamports;
     ulong duplicate_lamports;
     ulong input_lamports_hi;
@@ -292,7 +297,7 @@ struct fd_snapin_tile {
   int                stream;
   fd_accdb_fork_id_t boot_fork;
   ulong *            slot_fseq;
-  int                done_published; /* DONE is published once */
+  int                done_published;
 
   fd_snapin_lead_t lead;
 
@@ -799,9 +804,9 @@ static inline int
 attempt_wrote_anything( fd_snapin_tile_t const * ctx ) {
   FD_COMPILER_MFENCE();
   for( ulong i=0UL; i<FD_TOPO_MAX_TILE_IN_LINKS; i++ ) {
-    if( FD_UNLIKELY( ctx->shmem->values[ i ].reserved   ||
-                     ctx->shmem->values[ i ].loaded     ||
-                     ctx->shmem->values[ i ].duplicates ) ) return 1;
+    if( FD_UNLIKELY( ctx->shmem->values[ i ].space_taken ||
+                     ctx->shmem->values[ i ].loaded      ||
+                     ctx->shmem->values[ i ].duplicates  ) ) return 1;
   }
   return 0;
 }
@@ -1413,9 +1418,9 @@ writer_pwrite( fd_snapin_tile_t * ctx,
    not exist then arrives with zero lamports and is written as such,
    which reads back as an account that does not exist.
 
-   TODO: this opens one acquire bracket per account.  fd_accdb_acquire
-   takes many keys at a time, which is worth doing once duplicate keys
-   within a batch are folded out. */
+   TODO: this acquires one account at a time.  fd_accdb_acquire takes
+   many keys at a time, which is worth doing once duplicate keys within
+   a batch are folded out. */
 
 static int
 writer_flush_stream( fd_snapin_tile_t * ctx ) {
@@ -1478,7 +1483,7 @@ writer_flush( fd_snapin_tile_t * ctx ) {
      attempt: the records written there, and any index nodes a failing
      batch links before it returns, cannot be taken back while replay
      is writing the same file.  Say so before taking it. */
-  FD_VOLATILE( ctx->shmem->values[ ctx->tile_idx ].reserved ) = 1UL;
+  FD_VOLATILE( ctx->shmem->values[ ctx->tile_idx ].space_taken ) = 1UL;
   FD_COMPILER_MFENCE();
 
   /* The offset is aligned because partition sizes are multiples of
@@ -1651,7 +1656,7 @@ stream_appendvec_done( fd_snapin_tile_t *                  ctx,
     FD_LOG_ERR(( "instant boot: boot stream lists accounts before the manifest and status cache" ));
   }
 
-  if( FD_UNLIKELY( result->appendvec.slot==FD_VOLATILE_CONST( ctx->shmem->stream_slot ) ) ) {
+  if( FD_UNLIKELY( result->appendvec.slot==ctx->lead.bank_slot ) ) {
     if( FD_UNLIKELY( ctx->done_published ) ) return 0;
     fd_stem_publish( stem, ctx->lead.manifest_out.idx, fd_ssmsg_sig( FD_SSMSG_DONE ), 0UL, 0UL, 0UL, 0UL, 0UL );
     ctx->done_published = 1;
@@ -1957,6 +1962,9 @@ reset_attempt_state( fd_snapin_tile_t * ctx ) {
 
   fd_ssparse_init( ctx->ssparse );
   fd_ssparse_batch_enable( ctx->ssparse, 1 );
+
+  /* Only the boot stream parser acts on the end of an appendvec. */
+  fd_ssparse_appendvec_done_enable( ctx->ssparse, ctx->stream );
 }
 
 static void
@@ -2009,22 +2017,35 @@ fold_account_counts( fd_snapin_tile_t * ctx ) {
   }
 }
 
+/* stream_wait spins until word is set, saying what it is waiting for
+   once a second so a tile that never answers is visible.  The clock is
+   only read every FD_SNAPIN_WAIT_SPIN_MASK+1 spins, which is often
+   enough for a one second message. */
+
+static void
+stream_wait( ulong const * word,
+             char const *  waiting_for ) {
+  long  next_log = fd_log_wallclock()+FD_SNAPIN_WAIT_LOG_NANOS;
+  ulong spin     = 0UL;
+  while( FD_UNLIKELY( !FD_VOLATILE_CONST( *word ) ) ) {
+    FD_SPIN_PAUSE();
+    if( FD_LIKELY( ++spin & FD_SNAPIN_WAIT_SPIN_MASK ) ) continue;
+    long now = fd_log_wallclock();
+    if( FD_UNLIKELY( now>=next_log ) ) {
+      FD_LOG_NOTICE(( "instant boot: waiting for %s", waiting_for ));
+      next_log = now+FD_SNAPIN_WAIT_LOG_NANOS;
+    }
+  }
+  FD_COMPILER_MFENCE();
+}
+
 /* stream_wait_setup blocks until the lead has created the fork the
    stream writes into and published it.  The lead runs its setup at its
    first callback, so this waits milliseconds. */
 
 static void
 stream_wait_setup( fd_snapin_tile_t * ctx ) {
-  long next_log = fd_log_wallclock()+(long)1e9;
-  while( FD_UNLIKELY( !FD_VOLATILE_CONST( ctx->shmem->setup_done ) ) ) {
-    FD_SPIN_PAUSE();
-    long now = fd_log_wallclock();
-    if( FD_UNLIKELY( now>=next_log ) ) {
-      FD_LOG_NOTICE(( "instant boot: waiting for the snapshot loader to create the boot fork" ));
-      next_log = now+(long)1e9;
-    }
-  }
-  FD_COMPILER_MFENCE();
+  stream_wait( &ctx->shmem->setup_done, "the snapshot loader to create the boot fork" );
   ctx->boot_fork = (fd_accdb_fork_id_t){ .val = (ushort)FD_VOLATILE_CONST( ctx->shmem->boot_fork_id ) };
 }
 
@@ -2032,24 +2053,15 @@ stream_wait_setup( fd_snapin_tile_t * ctx ) {
    boot fork and waits for it to answer.  Rooting the boot fork needs
    every writer on it to have stopped, and the parser checks the request
    before it takes credits, so it answers even when it is idle or never
-   wrote anything at all.  The lead has nothing else to do until then,
-   and logs once a second so a parser that never answers is visible. */
+   wrote anything at all.  The lead has nothing else to do until
+   then. */
 
 static void
 stream_stop_and_wait( fd_snapin_tile_t * ctx ) {
   FD_COMPILER_MFENCE();
   FD_VOLATILE( ctx->shmem->stream_stop ) = 1UL;
   FD_COMPILER_MFENCE();
-  long next_log = fd_log_wallclock()+(long)1e9;
-  while( FD_UNLIKELY( !FD_VOLATILE_CONST( ctx->shmem->stream_stopped ) ) ) {
-    FD_SPIN_PAUSE();
-    long now = fd_log_wallclock();
-    if( FD_UNLIKELY( now>=next_log ) ) {
-      FD_LOG_NOTICE(( "instant boot: waiting for the boot stream parser to stop writing" ));
-      next_log = now+(long)1e9;
-    }
-  }
-  FD_COMPILER_MFENCE();
+  stream_wait( &ctx->shmem->stream_stopped, "the boot stream parser to stop writing" );
 }
 
 static void
@@ -2186,10 +2198,8 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
 
       /* For redirect-based HTTP downloads, the META message carries
          the resolved slot and hash from the actual snapshot filename
-         the server redirected to.  The boot stream downloader fills
-         the same two fields from the line of the boot index it picked.
-         Update the advertised values so that process_manifest can
-         verify the manifest against them. */
+         the server redirected to.  Update the advertised values so
+         that process_manifest can verify the manifest against them. */
       FD_TEST( sz==sizeof(fd_ssctrl_meta_t) );
       fd_ssctrl_meta_t const * meta = fd_chunk_to_laddr_const( ctx->in[ in_idx ].wksp, chunk );
       if( meta->resolved_slot!=ULONG_MAX ) {
@@ -2431,10 +2441,8 @@ instant_boot_setup( fd_snapin_tile_t * ctx ) {
   fd_accdb_snapshot_hide( ctx->accdb, 1 );
   fd_accdb_show_hidden( ctx->accdb, 1 );
   FD_VOLATILE( ctx->shmem->boot_fork_id ) = boot_fork.val;
-  FD_VOLATILE( ctx->shmem->incr_fork_id ) = ctx->lead.accdb_incr_fork_id.val;
   FD_COMPILER_MFENCE();
   FD_VOLATILE( ctx->shmem->setup_done ) = 1UL;
-  ctx->lead.setup_done = 1;
 }
 
 static void
@@ -2446,15 +2454,14 @@ before_credit( fd_snapin_tile_t *  ctx,
      go ahead.  This runs before credits are taken, so a parser with
      nothing to do still answers. */
   if( FD_UNLIKELY( ctx->stream && FD_VOLATILE_CONST( ctx->shmem->stream_stop ) ) ) {
-    if( FD_LIKELY( !FD_VOLATILE_CONST( ctx->shmem->stream_stopped ) ) ) {
-      FD_COMPILER_MFENCE();
-      FD_VOLATILE( ctx->shmem->stream_stopped ) = 1UL;
-      *charge_busy = 1;
-    }
+    if( FD_LIKELY( FD_VOLATILE_CONST( ctx->shmem->stream_stopped ) ) ) return;
+    FD_COMPILER_MFENCE();
+    FD_VOLATILE( ctx->shmem->stream_stopped ) = 1UL;
+    *charge_busy = 1;
     return;
   }
 
-  if( FD_LIKELY( !is_lead( ctx ) || !ctx->instant_boot || ctx->lead.setup_done ) ) return;
+  if( FD_LIKELY( !is_lead( ctx ) || !ctx->instant_boot || FD_VOLATILE_CONST( ctx->shmem->setup_done ) ) ) return;
   instant_boot_setup( ctx );
   *charge_busy = 1;
 }
@@ -2658,17 +2665,16 @@ unprivileged_init( fd_topo_t const *      topo,
   void * _accdb          = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),          fd_accdb_footprint( tile->snapin.max_live_slots, 0 ) );
 
   ctx->tile_idx = tile->kind_id;
-  if( FD_UNLIKELY( ctx->tile_idx>=FD_TOPO_MAX_TILE_IN_LINKS ) ) FD_LOG_ERR(( "tile `" NAME "` has unsupported kind id %lu", tile->kind_id ));
+  if( FD_UNLIKELY( ctx->tile_idx>=FD_TOPO_MAX_TILE_IN_LINKS ) ) FD_LOG_ERR(( "tile `%s` has unsupported kind id %lu", tile->name, tile->kind_id ));
 
   ctx->full     = 1;
   ctx->state    = FD_SNAPSHOT_STATE_IDLE;
   ctx->lane_cnt = tile->in_cnt;
 
   /* The stream tile shares this code but parses the boot stream, not
-     the snapshot, so it does none of the loader side of instant
-     boot. */
+     the snapshot, so the topology leaves instant_boot off for it. */
   ctx->stream       = tile->snapin.stream;
-  ctx->instant_boot = tile->snapin.instant_boot && !tile->snapin.stream;
+  ctx->instant_boot = tile->snapin.instant_boot;
   ctx->boot_fork    = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
 
   clear_control_barrier( ctx );
@@ -2718,7 +2724,6 @@ unprivileged_init( fd_topo_t const *      topo,
 
   /* Tile 0 state. */
   ctx->lead.init_completed = 0;
-  ctx->lead.setup_done     = 0;
   ctx->lead.txncache_max_groups_per_slot = tile->snapin.max_txn_per_slot;
   ctx->lead.txncache_max_entries_per_slot = 2UL*tile->snapin.max_txn_per_slot;
 
@@ -2732,7 +2737,7 @@ unprivileged_init( fd_topo_t const *      topo,
   }
 
   /* The counter replay waits on before it executes a slot.  Readers
-     treat the seeded value as not ready, so zero it here, before any
+     treat the starting value as not ready, so zero it here, before any
      slot has been written. */
   if( FD_UNLIKELY( ctx->stream ) ) {
     ctx->slot_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->snapin.instant_boot_slot_obj_id ) );

@@ -456,9 +456,7 @@ test_stream_writes_boot_fork( void ) {
   fd_accdb_fork_id_t incr = fd_accdb_attach_child( env->worker[ 0 ].accdb, env->root );
   fd_accdb_fork_id_t boot = fd_accdb_attach_child( env->worker[ 0 ].accdb, incr );
   fd_accdb_snapshot_hide( env->worker[ 0 ].accdb, 1 );
-  env->snapin_shmem->incr_fork_id = (ulong)incr.val;
   env->snapin_shmem->boot_fork_id = (ulong)boot.val;
-  env->snapin_shmem->stream_slot  = TEST_STREAM_SLOT;
   env->snapin_shmem->setup_done   = 1UL;
 
   uchar   fseq_mem[ FD_FSEQ_FOOTPRINT ] __attribute__((aligned(FD_FSEQ_ALIGN)));
@@ -475,6 +473,7 @@ test_stream_writes_boot_fork( void ) {
      accounts, so the slot it starts from is known by the time an
      appendvec ends. */
   ctx->lead.flags.manifest_processed = 1;
+  ctx->lead.bank_slot                = TEST_STREAM_SLOT;
 
   /* The stream carries each account as it was at the stream's manifest
      slot, so the first value of a key is the one to keep. */
@@ -520,7 +519,6 @@ test_stream_writes_boot_fork( void ) {
     fd_log_level_logfile_set( 6 );
     fd_log_level_stderr_set( 6 );
     ctx->lead.flags.manifest_processed = 0;
-    FD_VOLATILE( ctx->shmem->stream_slot ) = 0UL;
     stream_appendvec_done( ctx, NULL, result );
     _exit( 0 );
   }
@@ -594,7 +592,6 @@ test_stream_stops_on_request( void ) {
 
   fd_accdb_fork_id_t incr = fd_accdb_attach_child( env->worker[ 0 ].accdb, env->root );
   fd_accdb_fork_id_t boot = fd_accdb_attach_child( env->worker[ 0 ].accdb, incr );
-  env->snapin_shmem->incr_fork_id = (ulong)incr.val;
   env->snapin_shmem->boot_fork_id = (ulong)boot.val;
   env->snapin_shmem->setup_done   = 1UL;
 

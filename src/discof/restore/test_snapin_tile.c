@@ -3192,13 +3192,13 @@ test_instant_boot_reserve_is_fatal( void ) {
 
   FD_TEST( !ctx->shmem->values[ ctx->tile_idx ].loaded );
   FD_TEST( !ctx->shmem->values[ ctx->tile_idx ].duplicates );
-  FD_TEST( ctx->shmem->values[ ctx->tile_idx ].reserved );
+  FD_TEST( ctx->shmem->values[ ctx->tile_idx ].space_taken );
   FD_TEST( load_failure_is_fatal( ctx ) );
 
   /* The next INIT starts a new attempt and clears it with the rest of
      the attempt's shared counters. */
   send_control( ctx, 0UL, FD_SNAPSHOT_MSG_CTRL_INIT_FULL );
-  FD_TEST( !ctx->shmem->values[ ctx->tile_idx ].reserved );
+  FD_TEST( !ctx->shmem->values[ ctx->tile_idx ].space_taken );
   FD_TEST( !load_failure_is_fatal( ctx ) );
 }
 
