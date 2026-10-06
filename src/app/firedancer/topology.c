@@ -304,9 +304,7 @@ fd_topo_initialize( config_t * config ) {
     FD_CHECK_ERR( config->firedancer.snapshots.instant_boot.serve.max_open_streams &&
                   config->firedancer.snapshots.instant_boot.serve.max_open_streams<=FD_STRMK_STREAM_MAX,
                   "[snapshots.instant_boot.serve.max_open_streams] is out of range" );
-    /* A booting peer only joins a stream with FD_STRMK_JOIN_FLOOR_SECONDS
-       of life left, so a shorter lifetime offers it nothing. */
-    FD_CHECK_ERR( config->firedancer.snapshots.instant_boot.serve.stream_lifetime_seconds>FD_STRMK_JOIN_FLOOR_SECONDS,
+    FD_CHECK_ERR( config->firedancer.snapshots.instant_boot.serve.stream_lifetime_seconds>FD_STRMK_JOIN_MIN_SECONDS,
                   "a booting peer only joins a stream with 180 seconds of life left, so "
                   "[snapshots.instant_boot.serve.stream_lifetime_seconds] must be more than that" );
   }
@@ -1751,57 +1749,40 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     fd_cstr_ncpy( tile->snapct.instant_boot_server,
                   config->firedancer.snapshots.instant_boot.server,
                   sizeof(tile->snapct.instant_boot_server) );
-  } else if( FD_UNLIKELY( !strcmp( tile->name, "snapld" ) ) ) {
+  } else if( FD_UNLIKELY( !strcmp( tile->name, "snapld" ) || !strcmp( tile->name, "strld" ) ) ) {
+
+    int stream = !strcmp( tile->name, "strld" );
 
     fd_memcpy( tile->snapld.snapshots_path, config->paths.snapshots, PATH_MAX );
-    tile->snapld.incremental_snapshots             = config->firedancer.snapshots.incremental_snapshots;
-    tile->snapld.min_download_speed_mibs           = config->firedancer.snapshots.min_download_speed_mibs;
-    tile->snapld.instant_boot_done_obj_id          = ULONG_MAX;
-    tile->snapld.instant_boot_pick_obj_id          = ULONG_MAX;
+    tile->snapld.incremental_snapshots   = config->firedancer.snapshots.incremental_snapshots;
+    tile->snapld.min_download_speed_mibs = config->firedancer.snapshots.min_download_speed_mibs;
+    tile->snapld.stream                  = stream;
+    if( FD_UNLIKELY( stream ) ) {
+      tile->snapld.instant_boot_done_obj_id = fd_pod_query_ulong( config->topo.props, "instant_boot_done", ULONG_MAX );
+      tile->snapld.instant_boot_pick_obj_id = fd_pod_query_ulong( config->topo.props, "instant_boot_pick", ULONG_MAX );
+      fd_cstr_ncpy( tile->snapld.stream_server,
+                    config->firedancer.snapshots.instant_boot.server,
+                    sizeof(tile->snapld.stream_server) );
+    }
 
-  } else if( FD_UNLIKELY( !strcmp( tile->name, "strld" ) ) ) {
+  } else if( FD_UNLIKELY( !strcmp( tile->name, "snapdc" ) || !strcmp( tile->name, "strdc" ) ) ) {
 
-    fd_memcpy( tile->snapld.snapshots_path, config->paths.snapshots, PATH_MAX );
-    tile->snapld.incremental_snapshots             = config->firedancer.snapshots.incremental_snapshots;
-    tile->snapld.min_download_speed_mibs           = config->firedancer.snapshots.min_download_speed_mibs;
-    tile->snapld.stream                            = 1;
-    tile->snapld.instant_boot_done_obj_id          = fd_pod_query_ulong( config->topo.props, "instant_boot_done", ULONG_MAX );
-    tile->snapld.instant_boot_pick_obj_id          = fd_pod_query_ulong( config->topo.props, "instant_boot_pick", ULONG_MAX );
-    fd_cstr_ncpy( tile->snapld.stream_server,
-                  config->firedancer.snapshots.instant_boot.server,
-                  sizeof(tile->snapld.stream_server) );
+  } else if( FD_UNLIKELY( !strcmp( tile->name, "snapin" ) || !strcmp( tile->name, "strin" ) ) ) {
 
-  } else if( FD_UNLIKELY( !strcmp( tile->name, "snapdc" ) ) ) {
+    int stream = !strcmp( tile->name, "strin" );
 
-  } else if( FD_UNLIKELY( !strcmp( tile->name, "strdc" ) ) ) {
-
-  } else if( FD_UNLIKELY( !strcmp( tile->name, "snapin" ) ) ) {
-
-    tile->snapin.max_live_slots  = config->firedancer.runtime.max_live_slots;
-    tile->snapin.max_txn_per_slot = config->limits.max_txn_per_slot;
-    tile->snapin.accdb_obj_id = fd_pod_query_ulong( config->topo.props, "accdb", ULONG_MAX );
-    tile->snapin.txncache_obj_id = fd_pod_query_ulong( config->topo.props, "txncache", ULONG_MAX );
-    tile->snapin.banks_obj_id = fd_pod_query_ulong( config->topo.props, "banks", ULONG_MAX );
-    tile->snapin.shmem_obj_id = fd_pod_query_ulong( config->topo.props, "snapin_shmem", ULONG_MAX );
-    tile->snapin.stream = 0;
-    tile->snapin.instant_boot = instant_boot;
+    tile->snapin.max_live_slots           = config->firedancer.runtime.max_live_slots;
+    tile->snapin.max_txn_per_slot         = config->limits.max_txn_per_slot;
+    tile->snapin.accdb_obj_id             = fd_pod_query_ulong( config->topo.props, "accdb",             ULONG_MAX );
+    tile->snapin.txncache_obj_id          = fd_pod_query_ulong( config->topo.props, "txncache",          ULONG_MAX );
+    tile->snapin.banks_obj_id             = fd_pod_query_ulong( config->topo.props, "banks",             ULONG_MAX );
+    tile->snapin.shmem_obj_id             = fd_pod_query_ulong( config->topo.props, "snapin_shmem",      ULONG_MAX );
+    tile->snapin.stream                   = stream;
+    /* Only the lead parser loads the snapshot behind the boot stream. */
+    tile->snapin.instant_boot             = stream ? 0 : instant_boot;
     tile->snapin.instant_boot_slot_obj_id = fd_pod_query_ulong( config->topo.props, "instant_boot_slot", ULONG_MAX );
     tile->snapin.instant_boot_done_obj_id = fd_pod_query_ulong( config->topo.props, "instant_boot_done", ULONG_MAX );
-    tile->snapin.instant_boot_pick_obj_id = fd_pod_query_ulong( config->topo.props, "instant_boot_pick", ULONG_MAX );
-
-  } else if( FD_UNLIKELY( !strcmp( tile->name, "strin" ) ) ) {
-
-    tile->snapin.max_live_slots  = config->firedancer.runtime.max_live_slots;
-    tile->snapin.max_txn_per_slot = config->limits.max_txn_per_slot;
-    tile->snapin.accdb_obj_id = fd_pod_query_ulong( config->topo.props, "accdb", ULONG_MAX );
-    tile->snapin.txncache_obj_id = fd_pod_query_ulong( config->topo.props, "txncache", ULONG_MAX );
-    tile->snapin.banks_obj_id = fd_pod_query_ulong( config->topo.props, "banks", ULONG_MAX );
-    tile->snapin.shmem_obj_id = fd_pod_query_ulong( config->topo.props, "snapin_shmem", ULONG_MAX );
-    tile->snapin.stream = 1;
-    tile->snapin.instant_boot = 1;
-    tile->snapin.instant_boot_slot_obj_id = fd_pod_query_ulong( config->topo.props, "instant_boot_slot", ULONG_MAX );
-    tile->snapin.instant_boot_done_obj_id = fd_pod_query_ulong( config->topo.props, "instant_boot_done", ULONG_MAX );
-    tile->snapin.instant_boot_pick_obj_id = ULONG_MAX;
+    tile->snapin.instant_boot_pick_obj_id = stream ? ULONG_MAX : fd_pod_query_ulong( config->topo.props, "instant_boot_pick", ULONG_MAX );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "repair" ) ) ) {
     tile->repair.max_pending_shred_sets    = config->tiles.shred.max_pending_shred_sets;

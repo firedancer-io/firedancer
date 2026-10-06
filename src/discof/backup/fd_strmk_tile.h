@@ -26,14 +26,11 @@
 
 #define FD_STRMK_STREAM_MAX (8UL)
 
-/* FD_STRMK_JOIN_FLOOR_SECONDS is how much of a stream's lifetime a
+/* FD_STRMK_JOIN_MIN_SECONDS is how much of a stream's lifetime a
    booting peer insists on having left before it joins, so a stream
-   served for less than that is of no use to anyone.  It must stay
-   equal to FD_SNAPLD_STREAM_MIN_LIFE_SECONDS in
-   src/discof/restore/fd_snapld_tile.c, which is the peer's side of the
-   same number. */
+   served for less than that is of no use to anyone. */
 
-#define FD_STRMK_JOIN_FLOOR_SECONDS (180UL)
+#define FD_STRMK_JOIN_MIN_SECONDS (180UL)
 
 /* The boot files live in their own directory below the snapshots
    directory. */

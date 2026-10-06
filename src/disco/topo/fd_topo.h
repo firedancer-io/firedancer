@@ -1185,15 +1185,25 @@ fd_topo_find_obj( fd_topo_t const * topo,
 }
 
 FD_FN_PURE FD_FN_UNUSED static fd_topo_obj_t const *
-fd_topo_find_tile_obj( fd_topo_t const *      topo,
-                       fd_topo_tile_t const * tile,
-                       char const *           obj_type ) {
+fd_topo_find_tile_obj_named( fd_topo_t const *      topo,
+                             fd_topo_tile_t const * tile,
+                             char const *           obj_type,
+                             char const *           label ) {
   for( ulong i=0UL; i<(tile->uses_obj_cnt); i++ ) {
     fd_topo_obj_t const * obj = &topo->objs[ tile->uses_obj_id[ i ] ];
     if( strncmp( obj->name, obj_type, sizeof(obj->name) ) ) continue;
+    if( label &&
+        strncmp( obj->label, label, sizeof(obj->label) ) ) continue;
     return obj;
   }
   return NULL;
+}
+
+FD_FN_PURE FD_FN_UNUSED static fd_topo_obj_t const *
+fd_topo_find_tile_obj( fd_topo_t const *      topo,
+                       fd_topo_tile_t const * tile,
+                       char const *           obj_type ) {
+  return fd_topo_find_tile_obj_named( topo, tile, obj_type, NULL );
 }
 
 /* Join (map into the process) all shared memory (huge/gigantic pages)
