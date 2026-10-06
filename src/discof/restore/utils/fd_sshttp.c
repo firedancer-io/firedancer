@@ -277,7 +277,7 @@ http_format_request( fd_sshttp_t * http,
                      char const *  path,
                      ulong         path_len,
                      ulong         range_start ) {
-  char range[ 48 ];
+  char range[ FD_SSHTTP_RANGE_MAX ];
   range[ 0 ] = '\0';
   if( FD_UNLIKELY( range_start ) ) {
     FD_TEST( fd_cstr_printf_check( range, sizeof(range), NULL, "Range: bytes=%lu-\r\n", range_start ) );
@@ -664,7 +664,7 @@ read_response( fd_sshttp_t * http,
   }
 
   if( FD_UNLIKELY( http->range_start ) ) {
-    char  expected[ 48 ];
+    char  expected[ FD_SSHTTP_RANGE_MAX ];
     ulong expected_len;
     FD_TEST( fd_cstr_printf_check( expected, sizeof(expected), &expected_len, "bytes %lu-", http->range_start ) );
     int resumes = 0;

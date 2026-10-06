@@ -21,6 +21,11 @@
 
 #define FD_SSHTTP_DEADLINE_NANOS (1L*1000L*1000L*1000L) /* 1 second  */
 
+/* How much room a byte range takes as text: "Range: bytes=" plus 20
+   digits of offset, "-" and the line ending. */
+
+#define FD_SSHTTP_RANGE_MAX (48UL)
+
 struct fd_sshttp_private {
   int   state;
   long  deadline;
