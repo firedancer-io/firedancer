@@ -54,6 +54,16 @@ fd_bank_lthash_end_locking_modify( fd_bank_t * bank ) {
   fd_rwlock_unwrite( &bank->lthash_lock );
 }
 
+void
+fd_bank_lthash_record( fd_bank_t * bank,
+                       uchar const pubkey[ static 32 ] ) {
+  fd_bank_lthash_rec_t * rec = bank->lthash_rec;
+  FD_TEST_CRIT( rec );
+  FD_TEST_CRIT( rec->cnt<rec->max );
+  memcpy( rec->keys[ rec->cnt ].uc, pubkey, 32UL );
+  rec->cnt++;
+}
+
 ulong
 fd_banks_align( void ) {
   return FD_BANKS_ALIGN;
@@ -626,6 +636,9 @@ fd_banks_init_bank( fd_banks_t * banks ) {
   bank->cert_task_cnt = 0UL;
   bank->is_leader     = 0;
 
+  bank->lthash_mode = FD_BANK_LTHASH_MODE_INBAND;
+  bank->lthash_rec  = NULL;
+
   banks->root_idx = bank->idx;
   banks->curr_fork_width = 1UL;
   banks->prunable_idx    = null_idx;
@@ -971,6 +984,8 @@ fd_banks_new_bank( fd_banks_t * banks,
   child_bank->refcnt      = 0UL;
   child_bank->cert_task_cnt = 0UL;
   child_bank->is_leader   = is_leader;
+  child_bank->lthash_mode = FD_BANK_LTHASH_MODE_INBAND;
+  child_bank->lthash_rec  = NULL;
   fd_event_runtime_slot_diffs_reset( child_bank->idx );
   child_bank->f.block_id  = (fd_hash_t){0};
 
@@ -1258,6 +1273,8 @@ fd_banks_clear_bank( fd_banks_t * banks,
   fd_memset( &bank->f, 0, sizeof(bank->f) );
   bank->f.alpenglow_migration_slot = ULONG_MAX;
   fd_event_runtime_slot_diffs_reset( bank->idx );
+  bank->lthash_mode = FD_BANK_LTHASH_MODE_INBAND;
+  bank->lthash_rec  = NULL;
 
   fd_vote_stakes_t * vote_stakes = fd_banks_get_vote_stakes( banks );
   fd_banks_vote_stakes_evict_bank_fork( banks, bank );

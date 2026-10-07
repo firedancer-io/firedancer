@@ -132,6 +132,7 @@ typedef struct {
 typedef struct {
   void *               mem;
   fd_sched_t *         sched;
+  int                  lthash_oob; /* Whether the scheduler computes block LtHash deltas out of band. */
   /* Number of fuzz-generated blocks in block[].  Bank 0 is the
      synthetic snapshot root, so block[i] corresponds to bank i+1. */
   ulong                block_cnt;
@@ -145,6 +146,7 @@ typedef struct {
   ulong txn_idx;
   ulong exec_idx;
   ulong local_txn_idx;
+  ulong     lthash_cnt; /* Accounts in an LTHASH_SUB or LTHASH_ADD batch. */
   ulong     poh_cnt;
   ulong     hashcnt;
   ulong     mblk_idx      [ FD_SCHED_POH_PARA ];
@@ -662,6 +664,10 @@ find_txn( block_t const * block,
 }
 
 static int
+lineage_dead( case_t const * tc,
+              ulong          bank_idx );
+
+static int
 block_can_ingest( case_t const * tc,
                   block_t const * block ) {
   if( FD_UNLIKELY( block->ingested_seg_cnt>=block->seg_cnt ) ) return 0;
@@ -718,7 +724,25 @@ ingest_next_segment( case_t * tc,
   fd_sched_fec_t fec[ 1 ];
   prepare_fec( block, store_fec, fec );
   FD_TEST( fd_sched_fec_can_ingest( tc->sched, fec ) );
-  FD_TEST( fd_sched_fec_ingest( tc->sched, fec ) );
+  if( FD_UNLIKELY( !fd_sched_fec_ingest( tc->sched, fec ) ) ) {
+    /* The scheduler refused the FEC set and the replay tile would mark
+       the bank dead.  A first FEC set that waited for a staging lane
+       while its lineage died is added dead, and never enters the
+       dispatcher.  A later FEC set that completes the transactions of a
+       microblock whose tampered PoH result already landed has its
+       mixin, and so the mismatch, found at ingest. */
+    int dead_reason = fd_sched_get_dead_reason( tc->sched, block->bank_idx );
+    if( fec->is_first_in_block ) {
+      FD_TEST( lineage_dead( tc, block->parent_idx ) );
+      FD_TEST( dead_reason==FD_SCHED_DEAD_REASON_DEAD_ANCESTOR );
+    } else {
+      FD_TEST( block->failure_mode==TEST_FAIL_POH && block->failure_injected );
+      FD_TEST( dead_reason==FD_SCHED_DEAD_REASON_ENTRY_HASH_MISMATCH_INGEST );
+    }
+    block->dead_seen        = 1;
+    block->ingested_seg_cnt = block->seg_cnt;
+    return;
+  }
   block->ingested_seg_cnt++;
   if( FD_UNLIKELY( !block->poh_params_set ) ) {
     fd_sched_set_poh_params( tc->sched, block->bank_idx, block->tick_height, block->max_tick_height, block->hashes_per_tick, block->start_poh );
@@ -726,9 +750,9 @@ ingest_next_segment( case_t * tc,
   }
 }
 
-#define TEST_SCHED_MEM_SZ    ( 27UL*1024UL*1024UL )
-#define TEST_SCHED_MEM_ALIGN 128UL
-static uchar g_sched_mem[ TEST_SCHED_MEM_SZ ] __attribute__((aligned(TEST_SCHED_MEM_ALIGN)));
+/* The scheduler memory, sized for the larger of the two LtHash modes in
+   LLVMFuzzerInitialize. */
+static void * g_sched_mem;
 
 /* build_case turns one fuzz input into a complete scheduler test case.
 
@@ -759,14 +783,16 @@ build_case( case_t * tc, uchar const * data, ulong data_sz ) {
   hash_from_seed( tc->root_hash, 0x51a0f95dUL );
 
   /* Production uses a much deeper scheduler.  The fuzzer keeps this
-     small so each case is cheaper to build and run. */
+     small so each case is cheaper to build and run.  The first byte
+     picks whether block LtHash deltas are computed out of band. */
   ulong depth         = TEST_SCHED_DEPTH;
   ulong block_cnt_max = TEST_SCHED_BLOCK_CNT_MAX;
-  tc->mem = g_sched_mem;
+  tc->mem        = g_sched_mem;
+  tc->lthash_oob = read_uchar( &r )&1;
 
   fd_rng_t rng[1];
   fd_rng_join( fd_rng_new( rng, 0U, 0UL ) );
-  tc->sched = fd_sched_join( fd_sched_new( tc->mem, rng, depth, block_cnt_max, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT, TEST_EXEC_CNT, 0 ) );
+  tc->sched = fd_sched_join( fd_sched_new( tc->mem, rng, depth, block_cnt_max, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT, TEST_EXEC_CNT, 0, tc->lthash_oob ) );
 
   /* Seed the scheduler with bank 0 as a completed snapshot root.  The
      notify/advance pair is a no-op for the current root, but using the
@@ -955,6 +981,15 @@ complete_task( case_t *     tc,
       } else {
         FD_TEST( rc==0 );
       }
+      break;
+    }
+    case FD_SCHED_TT_LTHASH_SUB:
+    case FD_SCHED_TT_LTHASH_ADD: {
+      /* The value only has to be deterministic and non-zero.  No model
+         checks the delta, the scheduler's own accounting does. */
+      fd_lthash_value_t value[ 1 ];
+      for( ulong i=0UL; i<FD_LTHASH_LEN_ELEMS; i++ ) value->words[ i ] = (ushort)fd_ulong_hash( (task->exec_idx<<32) ^ (task->lthash_cnt<<8) ^ i );
+      FD_TEST( 0==fd_sched_task_done( tc->sched, task->task_type, ULONG_MAX, task->exec_idx, value ) );
       break;
     }
     default: FD_LOG_ERR(( "unexpected async task type %lu", task->task_type ));
@@ -1218,6 +1253,7 @@ run_sched_rdisp_case( uchar const * data, ulong data_sz ) {
         FD_TEST( block->sig_done_mask  == block_txn_mask( block ) );
         FD_TEST( !memcmp( fd_sched_get_poh( tc->sched, bank_idx ), block->end_poh, sizeof(fd_hash_t) ) );
         FD_TEST( fd_sched_get_shred_cnt( tc->sched, bank_idx ) == (uint)block->seg_cnt );
+        FD_TEST( !!fd_sched_lthash_delta( tc->sched, bank_idx )==tc->lthash_oob ); /* read before completion, as the replay tile does */
         FD_TEST( 0==fd_sched_task_done( tc->sched, FD_SCHED_TT_BLOCK_END, ULONG_MAX, ULONG_MAX, NULL ) );
         block->end_seen = 1;
         rdisp_mirror_drain_block( mirror, block );
@@ -1302,6 +1338,24 @@ run_sched_rdisp_case( uchar const * data, ulong data_sz ) {
         FD_TEST( task->poh_hash->hashcnt && task->poh_hash->hashcnt<=min_todo );
         break;
       }
+      case FD_SCHED_TT_LTHASH_SUB:
+      case FD_SCHED_TT_LTHASH_ADD: {
+        FD_TEST( tc->lthash_oob );
+        bank_idx = task->lthash->bank_idx;
+        FD_TEST( bank_idx>0UL && bank_idx<=tc->block_cnt );
+        block_t * block = tc->block + (bank_idx-1UL);
+        FD_TEST( block->start_seen );
+        FD_TEST( !block->end_seen );
+        FD_TEST( task->lthash->cnt && task->lthash->cnt<=FD_SCHED_LTHASH_BATCH_MAX );
+        FD_TEST( task->lthash->exec_idx<TEST_EXEC_CNT );
+        inflight[ inflight_cnt++ ] = (inflight_t) {
+          .task_type  = task->task_type,
+          .bank_idx   = bank_idx,
+          .exec_idx   = task->lthash->exec_idx,
+          .lthash_cnt = task->lthash->cnt,
+        };
+        break;
+      }
       default: FD_LOG_ERR(( "unexpected task_type %lu", task->task_type ));
     }
   }
@@ -1365,8 +1419,11 @@ LLVMFuzzerInitialize( int  *   argc,
   fd_log_level_core_set( 3 );
   atexit( fd_halt );
 
-  FD_TEST( fd_sched_footprint( TEST_SCHED_DEPTH, TEST_SCHED_BLOCK_CNT_MAX, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT )<=sizeof(g_sched_mem) );
-  FD_TEST( fd_sched_align()==TEST_SCHED_MEM_ALIGN );
+  ulong footprint = fd_ulong_max( fd_sched_footprint( TEST_SCHED_DEPTH, TEST_SCHED_BLOCK_CNT_MAX, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT, 0 ),
+                                  fd_sched_footprint( TEST_SCHED_DEPTH, TEST_SCHED_BLOCK_CNT_MAX, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT, 1 ) );
+  FD_TEST( footprint );
+  g_sched_mem = aligned_alloc( fd_sched_align(), footprint );
+  FD_TEST( g_sched_mem );
 
   return 0;
 }

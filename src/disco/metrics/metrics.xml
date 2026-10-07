@@ -847,7 +847,7 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="TxnProcessedByVersion" enum="TxnVersion" summary="Transactions processed, by transaction version" />
     <counter name="InstructionExecuted" summary="Top-level instructions executed" />
     <counter name="CpiExecuted" summary="Cross-program invocations executed" />
-    <counter name="AccountLthashSkipped" summary="Committed writable accounts left byte-identical by their transaction, so their lthash update was skipped" />
+    <counter name="AccountLthashSkipped" summary="Committed writable accounts left byte-identical by their transaction, so their lthash update was skipped; counted only when lthash is computed in band, zero with development.lthash_out_of_band on" />
     <counter name="CuConsumed" summary="Compute units consumed by executed transactions" />
 
     <counter name="TxnRegimeDurationNanos" enum="TxnRegime" source="ticks" summary="Time per transaction, by phase; a phase counts only once the next phase starts, so dropped, fees-only and no-op transactions lose their trailing phases" />
@@ -1022,10 +1022,11 @@ deliberate exception with lint-allow="<rule id>")
 </enum>
 
 <enum name="SchedDeactivateReason">
-    <int value="0" name="NoChild" label="A block fully replayed and there was no child block available yet" />
+    <int value="0" name="NoChild" label="A block fully replayed and the block activated next, if any, was not its child" />
     <int value="1" name="NoWork" label="A partially replayed block ran out of work to dispatch" />
     <int value="2" name="Abandoned" label="A block was abandoned, other than by minority fork pruning" />
     <int value="3" name="MinorityFork" label="A block was pruned for being on a minority fork (not also counted as Abandoned)" />
+    <int value="4" name="SpecYield" label="A block that could only speculate on out-of-band lthash additions gave way to another lane head's real work" />
 </enum>
 
 <enum name="SchedBlockStagingState">
@@ -1037,6 +1038,32 @@ deliberate exception with lint-allow="<rule id>")
 <enum name="SchedLutResolveResult">
     <int value="0" name="Success" label="Address lookup tables expanded successfully" />
     <int value="1" name="Failed" label="Address lookup table expansion failed" />
+</enum>
+
+<enum name="SchedLthashWriteType">
+    <int value="0" name="Parsed" label="Declared writable accounts of parsed transactions, as handed to the dispatcher" />
+    <int value="1" name="StartReg" label="Accounts registered by start-of-block processing" />
+    <int value="2" name="LateReg" label="Writable lookup table accounts registered at transaction completion" />
+    <int value="3" name="DemoteReg" label="Accounts re-registered when their block was demoted" />
+</enum>
+
+<enum name="SchedLthashWriteResult">
+    <int value="0" name="FirstWrite" label="First write to the account since its last addition pseudo transaction, which makes the block owe it an addition" />
+    <int value="1" name="Coalesced" label="Write to an account the block already owed an addition for" />
+</enum>
+
+<enum name="SchedLthashWorkType">
+    <int value="0" name="AddOwed" label="Additions owed by abandoned blocks, never created" />
+    <int value="1" name="AddPending" label="Pseudo transactions of abandoned blocks, never surfaced" />
+    <int value="2" name="AddApplied" label="Additions in the delta of an abandoned or demoted block, net of undone" />
+    <int value="3" name="SubQueued" label="Subtractions of abandoned blocks, never dispatched" />
+    <int value="4" name="SubApplied" label="Subtractions in the delta of an abandoned or demoted block" />
+    <int value="5" name="AddHeld" label="Additions of abandoned blocks that were batched behind a transaction and never reached a tile" />
+</enum>
+
+<enum name="SchedLthashTaskType">
+    <int value="0" name="Sub" label="Subtraction tasks, each a batch of accounts hashed on the parent fork" />
+    <int value="1" name="Add" label="Addition tasks, each a batch of accounts hashed on the block's fork" />
 </enum>
 
 <tile name="replay">
@@ -1092,9 +1119,10 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="SchedBlockPromoted" summary="Blocks the replay scheduler promoted from unstaged to a staging lane" />
     <counter name="SchedBlockDemoted" summary="Blocks the replay scheduler demoted from a staging lane to unstaged" />
     <counter name="SchedBlockDeactivated" enum="SchedDeactivateReason" summary="Times the replay scheduler stopped dispatching a block, by reason" />
-    <counter name="SchedLaneSwitched" summary="Times the replay scheduler switched the lane it is dispatching from" />
-    <counter name="SchedLanePromoted" summary="Times the replay scheduler promoted one or more blocks onto a staging lane" />
-    <counter name="SchedLaneDemoted" summary="Times the replay scheduler demoted one or more blocks from a staging lane" />
+    <counter name="SchedLaneSwitched" summary="Times the replay scheduler activated a block on a different fork than the previously active block" />
+    <counter name="SchedLanePromoted" summary="Times the replay scheduler promoted a block onto a staging lane" />
+    <counter name="SchedLaneDemoted" summary="Times the replay scheduler demoted a block from a staging lane" />
+    <counter name="SchedLaneWaited" summary="Ingest capacity queries the replay scheduler refused because a block's first FEC set needed a staging lane and none was free or could be given up" />
     <counter name="SchedForkObserved" summary="Forks the replay scheduler has observed" />
     <counter name="SchedTxnLutResolveAttempted" enum="SchedLutResolveResult" summary="Transactions with address lookup tables the replay scheduler tried to resolve, by result" />
     <counter name="SchedTxnParsedAbandoned" summary="Transactions that were parsed but ended up being in abandoned blocks" />
@@ -1115,6 +1143,27 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="SchedTrailingSkippedBytes" summary="Trailing bytes of a block the replay scheduler ingested but did not parse" />
     <counter name="SchedDroppedBytes" summary="Bytes the replay scheduler refused to ingest because the block was abandoned" />
     <counter name="SchedFecIngested" summary="FEC sets the replay scheduler has been given" />
+    <counter name="SchedLthashWriteObserved" enum="SchedLthashWriteResult" summary="Writes the replay scheduler saw for out-of-band lthash, zero unless it is on, by result" />
+    <counter name="SchedLthashWriteObservedByType" enum="SchedLthashWriteType" summary="Writes the replay scheduler saw for out-of-band lthash, the same as SchedLthashWriteObserved, by type" />
+    <counter name="SchedLthashAddCreated" summary="Out-of-band lthash addition pseudo transactions the dispatcher handed back" />
+    <counter name="SchedLthashAddSurfaced" summary="Addition pseudo transactions the dispatcher handed out as ready" />
+    <counter name="SchedLthashAddStaleSurfaced" summary="Addition pseudo transactions surfaced after a later write made them stale, completed without hashing" />
+    <counter name="SchedLthashAddDispatched" summary="Additions handed to an exec tile" />
+    <counter name="SchedLthashAddStaleDropped" summary="Addition results dropped because a later write made them stale while on the tile" />
+    <counter name="SchedLthashAddApplied" summary="Addition results added to a block's delta" />
+    <counter name="SchedLthashAddUndone" summary="Applied additions subtracted back out after a later write" lint-allow="action kind" />
+    <counter name="SchedLthashSpecCreated" summary="Speculative additions created" />
+    <counter name="SchedLthashSpecApplied" summary="Speculative additions applied; a subset of SchedLthashAddApplied" />
+    <counter name="SchedLthashSpecInvalidated" summary="Speculative additions invalidated before they applied" />
+    <counter name="SchedLthashSubOwed" summary="Lane map entries inserted, each owing one out-of-band lthash subtraction" />
+    <counter name="SchedLthashSubDispatched" summary="Subtractions handed to an exec tile" />
+    <counter name="SchedLthashSubApplied" summary="Subtraction results subtracted from a block's delta" />
+    <counter name="SchedLthashAccountFrozen" summary="Accounts whose out-of-band lthash subtraction and addition are in the delta of a block whose end task completed" />
+    <counter name="SchedLthashWorkDropped" enum="SchedLthashWorkType" summary="Out-of-band lthash work thrown away when a block was abandoned or demoted, by type" />
+    <counter name="SchedLthashPoolFullDeactivated" summary="Deactivations of a block that still owed additions because the speculation pool had no free entry; a subset of the no-work reason of SchedBlockDeactivated" />
+    <counter name="SchedLthashTaskDispatched" enum="SchedLthashTaskType" summary="Out-of-band lthash tasks handed to exec tiles, each a batch of the accounts SchedLthashSubDispatched and SchedLthashAddDispatched count, by type" />
+    <counter name="SchedLthashBatchHeld" summary="Out-of-band lthash addition batches held for the next dispatch because a transaction, or a speculative addition dispatched alone, surfaced behind them" lint-allow="action kind" />
+    <counter name="SchedLthashBatchIdleWaited" summary="Times a dispatch poll left an out-of-band lthash addition batch held because too few exec tiles were idle for a hash batch" />
 
     <counter name="BankFrozen" summary="Banks frozen, including our own leader blocks" />
     <gauge name="ChainTxnHeight" ambiguous-kind="true" summary="Transactions from genesis through the last replayed block, 0 if none; drops on a fork switch" />
@@ -1797,7 +1846,7 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="PohHashComputed" summary="PoH SHA-256 iterations computed" />
     <counter name="InstructionExecuted" summary="Top-level instructions executed" />
     <counter name="CpiExecuted" summary="Cross-program invocations executed" />
-    <counter name="AccountLthashSkipped" summary="Committed writable accounts left byte-identical by their transaction, so their lthash update was skipped" />
+    <counter name="AccountLthashSkipped" summary="Committed writable accounts left byte-identical by their transaction, so their lthash update was skipped; counted only when lthash is computed in band, zero with development.lthash_out_of_band on" />
 
     <counter name="TxnRegimeDurationNanos" enum="TxnRegime" source="ticks" summary="Time per transaction, by phase; a phase counts only once the next phase starts, so dropped, fees-only and no-op transactions lose their trailing phases" />
     <counter name="VmRegimeDurationNanos" enum="VmRegime" source="ticks" summary="Time in top-level BPF invocations, by phase, with CPI setup and commit split out; nested programs, including native CPIs, count as Interpreter; subset of TxnRegime Execute" />

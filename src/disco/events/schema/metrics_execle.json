@@ -124,7 +124,7 @@
         },
         "instruction_executed":          { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Top-level instructions executed" },
         "cpi_executed":                  { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Cross-program invocations executed" },
-        "account_lthash_skipped":        { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Committed writable accounts left byte-identical by their transaction, so their lthash update was skipped" },
+        "account_lthash_skipped":        { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Committed writable accounts left byte-identical by their transaction, so their lthash update was skipped; counted only when lthash is computed in band, zero with development.lthash_out_of_band on" },
         "cu_consumed":                   { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Compute units consumed by executed transactions" },
         "txn_regime_duration_nanos": {
             "type": "Tuple",

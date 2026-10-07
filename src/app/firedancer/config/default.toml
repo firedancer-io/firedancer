@@ -1738,6 +1738,14 @@ telemetry = true
         # to increase this number further.
         max_transaction_lookahead_buffer_size = 65536
 
+        # Experimental.  Replay computes the accounts LtHash out of
+        # band.  This improves replay speed at the cost of some memory.
+        # When enabled, LtHash no longer happens on the critical path of
+        # transaction execution.  Instead, the replay scheduler
+        # dispatches LtHash calculations onto otherwise idle execrp
+        # tiles.
+        lthash_out_of_band = false
+
     # The execle tile is what executes transactions when we are leader
     # and updates the accounting state as a result of any operations
     # performed by the transactions.
