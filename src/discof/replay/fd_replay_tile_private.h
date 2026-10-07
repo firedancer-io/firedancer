@@ -11,6 +11,7 @@
 #include "../../discof/poh/fd_poh.h"
 #include "../../disco/repair/fd_repair_tile.h"
 #include "../../discof/replay/fd_sched.h"
+#include "../../discof/replay/fd_execrp.h"
 #include "../../discof/votor/fd_votor_tile.h"
 #include "../../flamenco/capture/fd_capture_ctx.h"
 #include "../../flamenco/genesis/fd_genesis_parse.h"
@@ -223,6 +224,9 @@ struct fd_replay_tile {
   fd_sched_t * sched;
   ulong        in_cnt;
   ulong        execrp_idle_cnt;
+
+  fd_bank_lthash_rec_t lthash_rec[ 1 ];
+  fd_execrp_result_t * execrp_result; /* One entry per exec tile. */
 
   ulong                vote_tracker_seed;
   fd_vote_tracker_t *  vote_tracker;
@@ -620,6 +624,7 @@ struct fd_replay_tile {
     ulong reasm_latest_fec_idx;
 
     ulong sched_full;
+    ulong lane_wait;
     ulong leader_bid_wait;
     ulong banks_full;
     ulong parent_unavailable;

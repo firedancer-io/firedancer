@@ -82,6 +82,12 @@ fd_hashes_account_lthash_xn( ulong                 n,
    - Releases the lock
    - If capture_ctx is provided, writes the account state to the capture
 
+   The hashing and the bank lthash update happen only when the bank is
+   in FD_BANK_LTHASH_MODE_INBAND.  Otherwise lthash_prev is not read and
+   lthash_post is not written.  In OOB_RECORD mode the pubkey is
+   appended to the bank's LtHash record list.  The capture step is the
+   same in every mode.
+
    On capture write failure, the function will FD_LOG_ERR and terminate.
    The function assumes all non-optional pointers are valid.
 

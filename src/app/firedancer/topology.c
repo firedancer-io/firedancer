@@ -116,6 +116,18 @@ setup_topo_footer_cache( fd_topo_t *  topo,
 }
 
 fd_topo_obj_t *
+setup_topo_execrp_result( fd_topo_t *  topo,
+                          char const * wksp_name,
+                          ulong        execrp_tile_cnt ) {
+  fd_topo_obj_t * obj = fd_topob_obj( topo, "execrp_result", wksp_name );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, execrp_tile_cnt, "obj.%lu.execrp_tile_cnt", obj->id ) );
+  fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ], obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
+  for( ulong i=0UL; i<execrp_tile_cnt; i++ ) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i ) ], obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, obj->id, "execrp_result" ) );
+  return obj;
+}
+
+fd_topo_obj_t *
 setup_topo_fec_sets( fd_topo_t *  topo,
                      char const * wksp_name,
                      ulong        sz ) {
@@ -985,6 +997,7 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(execrp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i   ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   setup_topo_footer_cache( topo, "banks" );
+  setup_topo_execrp_result( topo, "execrp_replay", execrp_tile_cnt );
   FOR(execle_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execle", i   ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(resolv_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "resolv", i   ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_ONLY  );
   if( snapmk_enabled ) {

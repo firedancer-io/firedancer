@@ -1187,7 +1187,8 @@ adjust_delegation_for_rent( fd_delegation_t * delegation,
 
 /* Distributes a single partitioned reward to a single stake account.  acc was
    acquired by the caller as part of a batch and is released with it, so the
-   early returns below leave commit at 0, which fd_accdb_release skips. */
+   early returns below leave commit at 0, which fd_accdb_release skips.
+   The adders and sums are used only when lthash_mode is INBAND. */
 
 static int
 distribute_epoch_reward_to_stake_acc( fd_bank_t *         bank,
@@ -1197,6 +1198,7 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *         bank,
                                       ulong               new_credits_observed,
                                       ulong               partition_idx,
                                       fd_acc_t *          acc,
+                                      uchar               lthash_mode,
                                       fd_lthash_adder_t * adder_pre,
                                       fd_lthash_value_t * sum_pre,
                                       fd_lthash_adder_t * adder_post,
@@ -1213,7 +1215,9 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *         bank,
   fd_pubkey_t const * stake_pubkey   = fd_type_pun_const(acc->pubkey);
   fd_stake_state_t    stake_state[1] = { *stake_state_orig };
 
-  fd_lthash_adder_push_solana_account( adder_pre, sum_pre, stake_pubkey->uc, acc->data, acc->data_len, acc->lamports, (uchar)!!acc->executable, acc->owner );
+  if( lthash_mode==FD_BANK_LTHASH_MODE_INBAND ) {
+    fd_lthash_adder_push_solana_account( adder_pre, sum_pre, stake_pubkey->uc, acc->data, acc->data_len, acc->lamports, (uchar)!!acc->executable, acc->owner );
+  }
 
   /* https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.5/runtime/src/bank/partitioned_epoch_rewards/distribution.rs#L263-L268 */
   ulong lamports_pre = acc->lamports;
@@ -1271,7 +1275,11 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *         bank,
   }
 
   FD_STORE( fd_stake_state_t, acc->data, *stake_state );
-  fd_lthash_adder_push_solana_account( adder_post, sum_post, stake_pubkey->uc, acc->data, acc->data_len, acc->lamports, (uchar)!!acc->executable, acc->owner );
+  if( lthash_mode==FD_BANK_LTHASH_MODE_INBAND ) {
+    fd_lthash_adder_push_solana_account( adder_post, sum_post, stake_pubkey->uc, acc->data, acc->data_len, acc->lamports, (uchar)!!acc->executable, acc->owner );
+  } else if( lthash_mode==FD_BANK_LTHASH_MODE_OOB_RECORD ) {
+    fd_bank_lthash_record( bank, acc->pubkey );
+  }
   fd_hashes_capture_account( stake_pubkey->uc, acc->owner, acc->lamports, acc->executable, acc->data, acc->data_len, bank, capture_ctx );
   if( FD_UNLIKELY( fd_bank_report_runtime_diffs( bank ) ) ) {
     fd_event_runtime_reward_emit( bank, FD_EVENT_RUNTIME_REWARD_KIND_STAKE, acc->pubkey, acc->owner,
@@ -1301,12 +1309,17 @@ distribute_epoch_rewards_in_partition( fd_stake_rewards_t *      stake_rewards,
   ulong block_reward_distributed = 0UL;
   ulong block_reward_burned      = 0UL;
 
+  /* The mode does not change during distribution. */
+  uchar lthash_mode = bank->lthash_mode;
+
   fd_lthash_adder_t adder_pre[1], adder_post[1];
-  fd_lthash_adder_new( adder_pre  );
-  fd_lthash_adder_new( adder_post );
   fd_lthash_value_t sum_pre[1], sum_post[1];
-  fd_lthash_zero( sum_pre  );
-  fd_lthash_zero( sum_post );
+  if( lthash_mode==FD_BANK_LTHASH_MODE_INBAND ) {
+    fd_lthash_adder_new( adder_pre  );
+    fd_lthash_adder_new( adder_post );
+    fd_lthash_zero( sum_pre  );
+    fd_lthash_zero( sum_post );
+  }
 
   /* Acquire and process stake accounts in batches of 32 */
 
@@ -1349,6 +1362,7 @@ distribute_epoch_rewards_in_partition( fd_stake_rewards_t *      stake_rewards,
                                                             credits_observed[ i ],
                                                             partition_idx,
                                                             &accs[ i ],
+                                                            lthash_mode,
                                                             adder_pre, sum_pre,
                                                             adder_post, sum_post ) ) ) {
         lamports_distributed     += reward_lamports[ i ];
@@ -1362,13 +1376,15 @@ distribute_epoch_rewards_in_partition( fd_stake_rewards_t *      stake_rewards,
     fd_accdb_release( accdb, batch_cnt, accs );
   }
 
-  fd_lthash_adder_flush( adder_pre,  sum_pre  );
-  fd_lthash_adder_flush( adder_post, sum_post );
+  if( lthash_mode==FD_BANK_LTHASH_MODE_INBAND ) {
+    fd_lthash_adder_flush( adder_pre,  sum_pre  );
+    fd_lthash_adder_flush( adder_post, sum_post );
 
-  fd_lthash_value_t * bank_lthash = fd_bank_lthash_locking_modify( bank );
-  fd_lthash_sub( bank_lthash, sum_pre  );
-  fd_lthash_add( bank_lthash, sum_post );
-  fd_bank_lthash_end_locking_modify( bank );
+    fd_lthash_value_t * bank_lthash = fd_bank_lthash_locking_modify( bank );
+    fd_lthash_sub( bank_lthash, sum_pre  );
+    fd_lthash_add( bank_lthash, sum_post );
+    fd_bank_lthash_end_locking_modify( bank );
+  }
 
   /* Update the epoch rewards sysvar with the amount distributed and burnt */
   fd_sysvar_epoch_rewards_distribute( bank, accdb, capture_ctx,

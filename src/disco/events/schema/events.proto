@@ -179,6 +179,7 @@ enum BlockCompletedDeadReason {
   BLOCK_COMPLETED_DEAD_REASON_MISSING_BLOCK_FOOTER = 35;  // An Alpenglow block ended without a block footer.
   BLOCK_COMPLETED_DEAD_REASON_SPURIOUS_UPDATE_PARENT = 36;  // An Alpenglow block carried an UpdateParent marker where none is valid: before the header or after the footer.
   BLOCK_COMPLETED_DEAD_REASON_BAD_BLOCK_MARKER = 37;  // An Alpenglow block marker (header, footer, genesis certificate or update parent) failed to parse or had an unknown kind.
+  BLOCK_COMPLETED_DEAD_REASON_TOO_MANY_WRITABLE_ACCOUNTS = 38;  // The block's transactions declare more writable accounts than a valid block can afford.
 }
 
 // Why this validator gave up on the block before it completed; not_abandoned otherwise. Independent of dead.
@@ -3808,6 +3809,56 @@ message MetricsAccdbRegimeDurationNanos {
   uint64 backpressure_sleeping = 10;
 }
 
+// Out-of-band lthash tasks handed to exec tiles, each a batch of the accounts SchedLthashSubDispatched and SchedLthashAddDispatched count, by type
+message MetricsReplaySchedLthashTaskDispatched {
+  // Subtraction tasks, each a batch of accounts hashed on the parent fork
+  uint64 sub = 1;
+  // Addition tasks, each a batch of accounts hashed on the block's fork
+  uint64 add = 2;
+}
+
+// Out-of-band lthash work thrown away when a block was abandoned or demoted, or picked in-band hashing, by type
+message MetricsReplaySchedLthashWorkDropped {
+  // Additions owed by abandoned blocks, never created
+  uint64 add_owed = 1;
+  // Pseudo transactions of abandoned blocks, never surfaced
+  uint64 add_pending = 2;
+  // Additions in the delta of an abandoned or demoted block, net of undone
+  uint64 add_applied = 3;
+  // Subtractions of abandoned blocks, never dispatched
+  uint64 sub_queued = 4;
+  // Subtractions in the delta of an abandoned or demoted block
+  uint64 sub_applied = 5;
+  // Additions of abandoned blocks that were batched behind a transaction and never reached a tile
+  uint64 add_held = 6;
+  // Additions owed by blocks that picked in-band hashing, never created
+  uint64 inband_add_owed = 7;
+  // Subtractions of blocks that picked in-band hashing, never dispatched
+  uint64 inband_sub_queued = 8;
+}
+
+// Writes the replay scheduler saw for out-of-band lthash, the same as SchedLthashWriteObserved, by type
+message MetricsReplaySchedLthashWriteObservedByType {
+  // Declared writable accounts of parsed transactions, as handed to the dispatcher
+  uint64 parsed = 1;
+  // Accounts registered by start-of-block processing
+  uint64 start_reg = 2;
+  // Writable lookup table accounts registered at transaction completion
+  uint64 late_reg = 3;
+  // Accounts re-registered when their block was demoted
+  uint64 demote_reg = 4;
+  // Accounts re-registered when a speculative addition was given up
+  uint64 spec_given_up = 5;
+}
+
+// Writes the replay scheduler saw for out-of-band lthash, by result
+message MetricsReplaySchedLthashWriteObserved {
+  // First write to the account since its last addition pseudo transaction, which makes the block owe it an addition
+  uint64 first_write = 1;
+  // Write to an account the block already owed an addition for
+  uint64 coalesced = 2;
+}
+
 // Accounts not found in the account database cache and read from disk, by cache size class
 message MetricsReplayAccdbAccountCacheMissed {
   // 0-128 B
@@ -3970,6 +4021,8 @@ message MetricsReplayFecPollSkipped {
   uint64 leader_freeze_wait = 3;
   // The bank pool was full
   uint64 bank_full = 4;
+  // A block's first FEC set waited for a staging lane
+  uint64 lane_wait = 5;
 }
 
 // Transactions with address lookup tables the replay scheduler tried to resolve, by result
@@ -3982,7 +4035,7 @@ message MetricsReplaySchedTxnLutResolveAttempted {
 
 // Times the replay scheduler stopped dispatching a block, by reason
 message MetricsReplaySchedBlockDeactivated {
-  // A block fully replayed and there was no child block available yet
+  // A block fully replayed and the block activated next, if any, was not its child
   uint64 no_child = 1;
   // A partially replayed block ran out of work to dispatch
   uint64 no_work = 2;
@@ -3990,6 +4043,8 @@ message MetricsReplaySchedBlockDeactivated {
   uint64 abandoned = 3;
   // A block was pruned for being on a minority fork (not also counted as Abandoned)
   uint64 minority_fork = 4;
+  // A block that could only speculate on out-of-band lthash additions gave way to another lane head's real work
+  uint64 spec_yield = 5;
 }
 
 // Blocks added to the replay scheduler, by staging state
@@ -10176,11 +10231,11 @@ message MetricsReplay {
   uint64 sched_block_demoted = 69;
   // Times the replay scheduler stopped dispatching a block, by reason
   MetricsReplaySchedBlockDeactivated sched_block_deactivated = 70;
-  // Times the replay scheduler switched the lane it is dispatching from
+  // Times the replay scheduler activated a block on a different fork than the previously active block
   uint64 sched_lane_switched = 71;
-  // Times the replay scheduler promoted one or more blocks onto a staging lane
+  // Times the replay scheduler promoted a block onto a staging lane
   uint64 sched_lane_promoted = 72;
-  // Times the replay scheduler demoted one or more blocks from a staging lane
+  // Times the replay scheduler demoted a block from a staging lane
   uint64 sched_lane_demoted = 73;
   // Forks the replay scheduler has observed
   uint64 sched_fork_observed = 74;
@@ -10296,6 +10351,54 @@ message MetricsReplay {
   uint64 txncache_lock_read_wait_duration_nanos = 129;
   // Time all tiles spent waiting to take the transaction cache exclusive lock
   uint64 txncache_lock_write_wait_duration_nanos = 130;
+  // Transactions the replay scheduler moved into a staging lane when it promoted their block
+  uint64 sched_txn_promoted = 131;
+  // Blocks the replay scheduler picked in-band hashing for, because as many out-of-band blocks as the dispatcher can park demoted were already live
+  uint64 sched_block_inband_picked = 132;
+  // Ingest capacity queries the replay scheduler refused because a block's first FEC set needed a staging lane and none was free or could be given up
+  uint64 sched_lane_waited = 133;
+  // Writes the replay scheduler saw for out-of-band lthash, by result
+  MetricsReplaySchedLthashWriteObserved sched_lthash_write_observed = 134;
+  // Writes the replay scheduler saw for out-of-band lthash, the same as SchedLthashWriteObserved, by type
+  MetricsReplaySchedLthashWriteObservedByType sched_lthash_write_observed_by_type = 135;
+  // Out-of-band lthash addition pseudo transactions the dispatcher handed back
+  uint64 sched_lthash_add_created = 136;
+  // Addition pseudo transactions the dispatcher handed out as ready
+  uint64 sched_lthash_add_surfaced = 137;
+  // Addition pseudo transactions surfaced after a later write made them stale, completed without hashing
+  uint64 sched_lthash_add_stale_surfaced = 138;
+  // Additions handed to an exec tile
+  uint64 sched_lthash_add_dispatched = 139;
+  // Addition results dropped because a later write made them stale while on the tile
+  uint64 sched_lthash_add_stale_dropped = 140;
+  // Addition results added to a block's delta
+  uint64 sched_lthash_add_applied = 141;
+  // Applied additions subtracted back out after a later write
+  uint64 sched_lthash_add_undone = 142;
+  // Speculative additions created
+  uint64 sched_lthash_spec_created = 143;
+  // Speculative additions applied; a subset of SchedLthashAddApplied
+  uint64 sched_lthash_spec_applied = 144;
+  // Speculative additions invalidated before they applied
+  uint64 sched_lthash_spec_invalidated = 145;
+  // Lane map entries inserted, each owing one out-of-band lthash subtraction
+  uint64 sched_lthash_sub_owed = 146;
+  // Subtractions handed to an exec tile
+  uint64 sched_lthash_sub_dispatched = 147;
+  // Subtraction results subtracted from a block's delta
+  uint64 sched_lthash_sub_applied = 148;
+  // Accounts whose out-of-band lthash subtraction and addition are in the delta of a block whose end task completed
+  uint64 sched_lthash_account_frozen = 149;
+  // Out-of-band lthash work thrown away when a block was abandoned or demoted, or picked in-band hashing, by type
+  MetricsReplaySchedLthashWorkDropped sched_lthash_work_dropped = 150;
+  // Deactivations of a block that still owed additions because the speculation pool had no free entry; a subset of the no-work reason of SchedBlockDeactivated
+  uint64 sched_lthash_pool_full_deactivated = 151;
+  // Out-of-band lthash tasks handed to exec tiles, each a batch of the accounts SchedLthashSubDispatched and SchedLthashAddDispatched count, by type
+  MetricsReplaySchedLthashTaskDispatched sched_lthash_task_dispatched = 152;
+  // Out-of-band lthash addition batches held for the next dispatch because a transaction, or a speculative addition dispatched alone, surfaced behind them
+  uint64 sched_lthash_batch_held = 153;
+  // Times a dispatch poll left an out-of-band lthash addition batch held because too few exec tiles were idle for a hash batch
+  uint64 sched_lthash_batch_idle_waited = 154;
 }
 
 // Metrics of one rotor tile instance, one row per sweep
@@ -11690,7 +11793,7 @@ message MetricsExecrp {
   uint64 instruction_executed = 30;
   // Cross-program invocations executed
   uint64 cpi_executed = 31;
-  // Committed writable accounts left byte-identical by their transaction, so their lthash update was skipped
+  // Committed writable accounts left byte-identical by their transaction, so their lthash update was skipped; always zero, since replay hashes transaction writes out of band
   uint64 account_lthash_skipped = 32;
   // Time per transaction, by phase; a phase counts only once the next phase starts, so dropped, fees-only and no-op transactions lose their trailing phases
   MetricsExecrpTxnRegimeDurationNanos txn_regime_duration_nanos = 33;
