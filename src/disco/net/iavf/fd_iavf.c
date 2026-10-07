@@ -1186,10 +1186,13 @@ fd_iavf_virtchnl_get_resources( fd_iavf_vfio_t *    vfio,
   fd_memcpy( &resources, response, sizeof(resources) );
   ulong vsi_capacity = (sizeof(response)-sizeof(resources))/sizeof(fd_iavf_virtchnl_vsi_resource_t);
   ulong expected_sz  = sizeof(resources) + (ulong)resources.num_vsis*sizeof(fd_iavf_virtchnl_vsi_resource_t);
+  /* Linux i40e includes one extra VSI entry in the reply length. */
+  ulong legacy_sz = expected_sz + sizeof(fd_iavf_virtchnl_vsi_resource_t);
   if( FD_UNLIKELY( !resources.num_vsis || (ulong)resources.num_vsis>vsi_capacity ||
-                   response_sz!=expected_sz || !resources.num_queue_pairs ||
+                   (response_sz!=expected_sz && response_sz!=legacy_sz) ||
+                   !resources.num_queue_pairs ||
                    !(resources.capability_flags & FD_IAVF_VIRTCHNL_CAP_L2) ) ) {
-    FD_LOG_WARNING(( "invalid VF resource reply (%i-%s)", EPROTO, fd_io_strerror( EPROTO ) ));
+    FD_LOG_WARNING(( "invalid VF resource reply, %lu bytes (%i-%s)", response_sz, EPROTO, fd_io_strerror( EPROTO ) ));
     errno = EPROTO;
     return -1;
   }
