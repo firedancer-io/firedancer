@@ -19,6 +19,17 @@ configure_cmd_args( int *    pargc,
   (*pargv)++;
 
   for( int i=0; i<*pargc; i++ ) {
+    if( strcmp( (*pargv)[i], "iavf-firmware" ) ) continue;
+    args->configure.iavf_firmware = 1;
+    if( *pargc!=1 || strcmp( (*pargv)[0], "iavf-firmware" ) ) {
+      FD_LOG_ERR(( "iavf-firmware must be invoked alone, not with all or another stage" ));
+    }
+    (*pargc)--;
+    (*pargv)++;
+    return;
+  }
+
+  for( int i=0; i<*pargc; i++ ) {
     if( FD_UNLIKELY( !strcmp( (*pargv)[ i ], "all" ) ) ) {
       (*pargc) -= i + 1;
       (*pargv) += i + 1;
@@ -50,6 +61,10 @@ void
 configure_cmd_perm( args_t *         args,
                     fd_cap_chk_t *   chk,
                     config_t const * config ) {
+  if( args->configure.iavf_firmware ) {
+    fd_cap_chk_root( chk, "iavf-firmware", "access local iDRAC IPMI and stage NIC firmware settings" );
+    return;
+  }
   for( configure_stage_t ** stage = args->configure.stages; *stage; stage++ ) {
     switch( args->configure.command ) {
       case CONFIGURE_CMD_INIT: {
@@ -158,6 +173,10 @@ configure_stage( configure_stage_t * stage,
 void
 configure_cmd_fn( args_t *   args,
                   config_t * config ) {
+  if( args->configure.iavf_firmware ) {
+    iavf_firmware_cmd( args, config );
+    return;
+  }
   int error = 0;
 
   if( FD_LIKELY( (configure_cmd_t)args->configure.command != CONFIGURE_CMD_FINI ) ) {
@@ -247,8 +266,12 @@ configure_args_help( fd_action_help_t * help ) {
   fd_action_help_arg( help, "check <stage>...", NULL, "Report whether the named configuration stages are already applied, without changing\n"
                                                       "anything (exits non-zero if any stage is not configured)" );
   fd_action_help_arg( help, "fini <stage>...",  NULL, "Undo the named configuration stages, reverting their host setup" );
-  fd_action_help_arg( help, "all",              NULL, "Use in place of <stage>... to apply the command to every known stage\n"
+  fd_action_help_arg( help, "all",              NULL, "Use in place of <stage>... to apply the command to the normal host configuration stages\n"
                                                       "(e.g. `configure init all`)" );
+  fd_action_help_arg( help, "iavf-firmware", NULL, "Explicit Dell SR-IOV firmware prototype, excluded from all and startup.\n"
+                     "init creates temporary iDRAC access and schedules the NIC change without rebooting.\n"
+                     "check reads Linux SR-IOV support. fini removes only temporary iDRAC access.\n"
+                     "Discovers local iDRAC and the NIC selected by net.interface. No extra arguments." );
 
   /* List the stages this binary actually supports (these differ per
      binary), padding stage names to a common width so the descriptions
@@ -294,7 +317,7 @@ action_t fd_action_configure = {
   .permission_err = "insufficient permissions to execute command `%s`. It is recommended "
                     "to configure Firedancer as the root user. Firedancer configuration requires "
                     "root because it does privileged operating system actions like mounting huge page filesystems. "
-                    "Configuration is a local action that does not access the network, and the process "
+                    "The explicit iavf-firmware stage also contacts iDRAC over SSH. The process "
                     "exits immediately once configuration completes. The user that Firedancer runs "
                     "as is specified in your configuration file, and although configuration runs as root "
                     "it will permission the relevant resources for the user in your configuration file, "

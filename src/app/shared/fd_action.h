@@ -38,6 +38,7 @@ union fdctl_args {
   struct {
     int                      command;
     struct configure_stage * stages[ CONFIGURE_STAGE_COUNT ];
+    int                      iavf_firmware;
   } configure;
 
   struct {
