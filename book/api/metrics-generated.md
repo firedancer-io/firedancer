@@ -2332,10 +2332,12 @@
 | <span class="metrics-name">rotor_&#8203;ping_&#8203;unknown_&#8203;peer</span> | counter | Pings received from an unknown peer |
 | <span class="metrics-name">rotor_&#8203;ping_&#8203;signature_&#8203;failed</span> | counter | Pings whose signature we failed to verify |
 | <span class="metrics-name">rotor_&#8203;response_&#8203;latency_&#8203;nanos</span> | histogram | Time from sending a repair request to receiving its response, in nanoseconds |
+| <span class="metrics-name">rotor_&#8203;retry_&#8203;delay_&#8203;nanos</span> | histogram | Delay scheduled before a request's next attempt, its peer's hedge time with the per-attempt backoff, in nanoseconds |
 | <span class="metrics-name">rotor_&#8203;timeout_&#8203;cnt</span> | gauge | Timeouts in the eager, notar and final timeout_prqs |
 | <span class="metrics-name">rotor_&#8203;timeout_&#8203;cancelled</span> | counter | Timeouts dropped because their blk is gone or their work is done |
 | <span class="metrics-name">rotor_&#8203;timeout_&#8203;no_&#8203;peer</span> | counter | Timeouts deferred because no peer could be picked |
 | <span class="metrics-name">rotor_&#8203;request_&#8203;hedged</span> | counter | Request sends after the first attempt of the same timeout, possibly to the same peer |
+| <span class="metrics-name">rotor_&#8203;request_&#8203;expired</span> | counter | Pending requests that got no response within PENDING_TTL, each bans its peer for PENDING_TTL |
 | <span class="metrics-name">rotor_&#8203;ping_&#8203;tx</span> | counter | Requests sent to elicit a ping from a peer with a new address |
 | <span class="metrics-name">rotor_&#8203;eager_&#8203;delay_&#8203;nanos</span> | gauge | t_eager over all leaders, how long a missing FEC set waits for turbine before it is repaired |
 | <span class="metrics-name">rotor_&#8203;sign_&#8203;cnt</span> | gauge | Messages in the sign pool waiting for a signature from the sign tiles |
