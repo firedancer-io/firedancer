@@ -619,7 +619,7 @@ handle_gossip( fd_rotor_tile_t *                  ctx,
     fd_gossip_socket_t const * socket = &msg->contact_info->value->sockets[FD_GOSSIP_CONTACT_INFO_SOCKET_SERVE_REPAIR];
     uint                       ip4    = fd_uint_if( !socket->is_ipv6, socket->ip4, 0U );
     ushort                     port   = fd_ushort_bswap( socket->port );
-    if( FD_UNLIKELY( !ip4 || !port || fd_ip4_addr_is_mcast( ip4 ) || ( !ctx->allow_private_address && !fd_ip4_addr_is_public( ip4 ) ) ) ) {
+    if( FD_UNLIKELY( fd_pubkey_eq( &id_key, &ctx->identity_key ) || !ip4 || !port || fd_ip4_addr_is_mcast( ip4 ) || ( !ctx->allow_private_address && !fd_ip4_addr_is_public( ip4 ) ) ) ) {
       fd_rotor_strat_contact_info_removed( ctx->strat, &id_key );
       return;
     }
