@@ -748,6 +748,32 @@ test_wire_not_g2( void ) {
   free( em );
 }
 
+static void
+test_wire_compressed( void ) {
+  ulong n = 11UL;
+  create_signers( n );
+  void * em; ag_epoch_info_t * e = make_epoch( n, &em );
+  ag_block_hash_t h; memset( h, 0x42, sizeof(ag_block_hash_t) );
+
+  ag_vote_notar_t nv[ 11 ];
+  ag_cert_t       c, rt;
+  uchar           buf[ AG_CERT_SER_MAX ];
+  ulong           bit_cnt;
+
+  mk_notar( nv, 7UL, h, 0UL, 9UL );
+  c = cert_build_notar( nv, 9UL, e );
+  ulong   sz  = ag_cert_ser( &c, buf );
+  uchar * sig = buf+CERT_HDR_SZ( 1 )-8UL-FD_BLS_SIG_SZ;
+  FD_TEST( ag_cert_de( &rt, &bit_cnt, buf, sz )==AG_CERT_DE_SUCCESS );
+  blst_p2_compress( sig, &rt.notar.agg.sig );
+  fd_memset( sig+FD_BLS_SIG_COMPRESSED_SZ, 0xEE, FD_BLS_SIG_SZ-FD_BLS_SIG_COMPRESSED_SZ );
+  FD_TEST( sig[0]&0x80U );
+  FD_TEST( ag_cert_de( &rt, &bit_cnt, buf, sz )==AG_CERT_DE_SUCCESS );
+  FD_TEST( cert_verify( &rt, e ) );
+
+  free( em );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -761,6 +787,7 @@ main( int     argc,
   test_wire_golden();
   test_wire_verify();
   test_wire_not_g2();
+  test_wire_compressed();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
