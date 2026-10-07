@@ -16,11 +16,13 @@
      - PARTIAL_DEPTH:  out_shred pointer-lifetime guarantee
      - COMPLETE_DEPTH: out_fec_set pointer-lifetime guarantee
      - DONE_DEPTH:     memory of completed (slot, fec_set_idx)
-                       pairs used for duplicate detection */
+                       pairs used for duplicate detection
+     - SLOT_MAX:       max slots tracked by the resolver */
 static ulong const RESOLVER_DEPTH          = 32UL;
 static ulong const RESOLVER_PARTIAL_DEPTH  = 8UL;
 static ulong const RESOLVER_COMPLETE_DEPTH = 8UL;
 static ulong const RESOLVER_DONE_DEPTH     = 256UL;
+static ulong const RESOLVER_SLOT_MAX       = 4096UL;
 
 /* Reasm + scheduler sizing.  Only loosely tied to the resolver depths
    above: large enough to cover any reasonable fuzz input while keeping
@@ -193,6 +195,7 @@ fd_solfuzz_pb_shred_run( fd_solfuzz_runner_t * runner,
       RESOLVER_PARTIAL_DEPTH,
       RESOLVER_COMPLETE_DEPTH,
       RESOLVER_DONE_DEPTH,
+      RESOLVER_SLOT_MAX,
       resolver_sets,
       0UL ) );
   FD_TEST( resolver );

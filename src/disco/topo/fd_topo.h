@@ -397,6 +397,7 @@ struct fd_topo_tile {
     struct {
       ulong             fec_exposure;
       ulong             fec_resolver_depth;
+      ulong             slot_max;
       char              identity_key_path[ PATH_MAX ];
       ushort            shred_listen_port;
       ulong             max_shreds_per_block;

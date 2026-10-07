@@ -1629,7 +1629,9 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->resolver = NONNULL( fd_fec_resolver_join ( fd_fec_resolver_new ( _resolver,
                                                                         tile->shred.fec_resolver_depth, 1UL,
                                                                         fec_exposure+1UL,
-                                                                        128UL * tile->shred.fec_resolver_depth, resolver_sets,
+                                                                        128UL * tile->shred.fec_resolver_depth,
+                                                                        tile->shred.alpenglow ? tile->shred.slot_max : 0UL,
+                                                                        resolver_sets,
                                                                         ctx->resolver_seed ) ) );
 
   if( FD_LIKELY( !!expected_shred_version ) ) {

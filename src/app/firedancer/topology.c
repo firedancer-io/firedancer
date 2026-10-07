@@ -1244,12 +1244,36 @@ fd_topo_initialize( config_t * config ) {
                                                   config->tiles.shred.max_pending_shred_sets );
   ulong store_fec_set_cnt = shred_tile_cnt*fec_set_cnt;
 
-   /* store_fec_max is the maximum number of FEC sets Store retains.
+  /* store_fec_max is the maximum number of FEC sets Store retains.
 
-      This value is derived by first multiplying max_live_slots by the
-      maximum number of FEC sets per slot.  Fixed 32-data-shred sets
-      need 1024; legacy variable sets can contain one data shred and
-      need up to 32768.
+      With Alpenglow, Store is sized to rotor's window of N = slot_max
+      slots, each of which can hold up to fec_sets_per_slot FEC sets
+      per version of its block.  The number of versions in the window
+      is bounded as follows.
+
+      Assume 20% of stake is malicious, every malicious leader
+      equivocates AG_EQVOC_BLOCK_HASH_MAX (7) versions of each of its
+      slots, and honest leaders produce one.  The expected number of
+      versions is then (0.8 + 0.2*7)*N = 2.2*N.  In general, bounding
+      P(V > budget) to z standard deviations needs a budget of
+      ~N*(2.2 + 4.8*z/sqrt(N)).
+
+      We size for 2.5*N, which leaves 0.3*N of headroom, ie.
+      ~0.0625*sqrt(N) standard deviations.  The probability that a
+      window holds more than 2.5*N versions is:
+
+        N =  2048  ~2.5e-3
+        N =  4096  ~4.2e-5
+        N = 30000  ~3e-26
+
+      This is for a uniformly random window.  The leader schedule is
+      known an epoch in advance, so an adversary can target the densest
+      window in the epoch, which is somewhat worse.
+
+      Without Alpenglow, this value is derived by first multiplying
+      max_live_slots by the maximum number of FEC sets per slot.  Fixed
+      32-data-shred sets need 1024; legacy variable sets can contain one
+      data shred and need up to 32768.
 
       However, the downstream structure reasm also has the same bound.
       Replay relies on the guarantee that if a FEC set is present in
@@ -1277,7 +1301,9 @@ fd_topo_initialize( config_t * config ) {
   fd_topo_link_t * repair_out_link = &topo->links[ fd_topo_find_link( topo, "repair_out", 0UL ) ];
   ulong fec_sets_per_slot = fd_ulong_if( config->firedancer.development.fixed_fec_sets,
                                          config->limits.max_shreds_per_block/FD_FEC_SHRED_CNT, config->limits.max_shreds_per_block );
-  ulong store_fec_max = config->firedancer.runtime.max_live_slots * fec_sets_per_slot + (shred_depth * shred_tile_cnt) + repair_out_link->depth + 1;
+  ulong store_fec_max = alpenglow_enabled
+                         ? ( 5UL * config->tiles.rotor.slot_max * fec_sets_per_slot + 1UL ) / 2UL /* ceil( 2.5 * slot_max * fec_sets_per_slot ) */
+                         : config->firedancer.runtime.max_live_slots * fec_sets_per_slot + (shred_depth * shred_tile_cnt) + repair_out_link->depth + 1;
 
   /* 32 shreds * 995 payload bytes = 31840 bytes with fixed_fec_sets = true
      67 shreds * 955 payload bytes = 63985 bytes with fixed_fec_sets = false */
@@ -1892,6 +1918,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
     tile->shred.fec_exposure                  = FD_SHRED_FIREDANCER_FEC_EXPOSURE;
     tile->shred.fec_resolver_depth            = config->tiles.shred.max_pending_shred_sets;
+    tile->shred.slot_max                      = config->tiles.rotor.slot_max;
     tile->shred.expected_shred_version        = config->consensus.expected_shred_version;
     tile->shred.shred_listen_port             = config->tiles.shred.shred_listen_port;
     tile->shred.max_shreds_per_block          = config->limits.max_shreds_per_block;

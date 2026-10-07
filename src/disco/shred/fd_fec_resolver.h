@@ -119,12 +119,14 @@ FD_FN_CONST ulong fd_fec_resolver_align    ( void );
    shmem must have the required alignment and footprint.  depth,
    partial_depth, complete_depth, and done_depth are as defined above
    and must be positive.  The sum of depth, partial_depth, and
-   complete_depth must be less than UINT_MAX.  sets is a pointer to the
-   first of depth+partial_depth+complete_depth FEC sets that this
-   resolver will take ownership of.  The FEC resolver retains a write
-   interest in these FEC sets and the shreds they point to until the
-   resolver is deleted.  These FEC sets and the memory for the shreds
-   they point to are the only values that will be returned in the
+   complete_depth must be less than UINT_MAX.  slot_max is the maximum
+   number of slots above the root slot that the resolver tracks; if
+   slot_max is 0, the resolver does not limit the slot range.  sets is a
+   pointer to the first of depth+partial_depth+complete_depth FEC sets
+   that this resolver will take ownership of.  The FEC resolver retains
+   a write interest in these FEC sets and the shreds they point to until
+   the resolver is deleted.  These FEC sets and the memory for the
+   shreds they point to are the only values that will be returned in the
    out_shred and out_fec_set output parameters of add_shred. seed is an
    arbitrary ulong used to seed various data structures.  It should be
    set to a validator independent value.
@@ -143,6 +145,7 @@ fd_fec_resolver_new( void                    * shmem,
                      ulong                     partial_depth,
                      ulong                     complete_depth,
                      ulong                     done_depth,
+                     ulong                     slot_max,
                      fd_fec_set_t            * sets,
                      ulong                     seed );
 
