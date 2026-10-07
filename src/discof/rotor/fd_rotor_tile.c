@@ -282,9 +282,9 @@ push_timeout( fd_rotor_tile_t * ctx,
     return;
   }
   if( FD_LIKELY( req->tag==FD_ROTOR_SERDE_TAG_WINDOW_INDEX ) ) blk->wait_fec_cnt = fd_uint_min( blk->wait_fec_cnt, req->fec_idx );
-  blk->meta_req    = (uchar)( blk->meta_req    && req->tag!=FD_ROTOR_SERDE_TAG_PARENT_AND_FEC_SET_COUNT );
-  blk->highest_req = (uchar)( blk->highest_req && req->tag!=FD_ROTOR_SERDE_TAG_HIGHEST_WINDOW_INDEX      );
-  blk->orphan_req  = (uchar)( blk->orphan_req  && req->tag!=FD_ROTOR_SERDE_TAG_ORPHAN                    );
+  blk->meta_req    = ( blk->meta_req    && req->tag!=FD_ROTOR_SERDE_TAG_PARENT_AND_FEC_SET_COUNT );
+  blk->highest_req = ( blk->highest_req && req->tag!=FD_ROTOR_SERDE_TAG_HIGHEST_WINDOW_INDEX      );
+  blk->orphan_req  = ( blk->orphan_req  && req->tag!=FD_ROTOR_SERDE_TAG_ORPHAN                    );
   if( FD_UNLIKELY( blk->in_blk_treap ) ) return;
   fd_rotor_treap_ele_insert( meta->final==idx ? ctx->rotor->final_treap : meta->notar==idx ? ctx->rotor->notar_treap : ctx->rotor->eager_treap, blk, ctx->rotor->blk_pool );
   blk->in_blk_treap = 1;
@@ -313,12 +313,11 @@ poll_timeout( fd_rotor_tile_t * ctx,
       if( FD_UNLIKELY( req.tag==FD_ROTOR_SERDE_TAG_WINDOW_INDEX             && fec && fec->complete                                             ) ) { ctx->metrics->req_cancelled++; continue; }
       if( FD_UNLIKELY( req.tag==FD_ROTOR_SERDE_TAG_WINDOW_INDEX             && !blk->eager && req.fec_idx>=blk->cmpl_fec_cnt                     ) ) { ctx->metrics->req_cancelled++; continue; } /* of a freed blk whose pool idx was reused */
       if( FD_UNLIKELY( req.tag==FD_ROTOR_SERDE_TAG_HIGHEST_WINDOW_INDEX     && blk->cmpl_fec_cnt                                                ) ) { ctx->metrics->req_cancelled++; continue; }
-      int orphaned = req.tag==FD_ROTOR_SERDE_TAG_ORPHAN && blk->parent==blk_pool_idx_null( ctx->rotor->blk_pool );
-      for( fd_rotor_blk_t const * p = blk_map_ele_query_const( ctx->rotor->blk_map, &blk->parent_slot, NULL, ctx->rotor->blk_pool ); orphaned && p; p = blk_map_ele_next_const( p, NULL, ctx->rotor->blk_pool ) ) orphaned = !p->rcvd_fec_cnt;
-      if( FD_UNLIKELY( req.tag==FD_ROTOR_SERDE_TAG_ORPHAN                   && !orphaned                                                        ) ) { blk->orphan_req = 0; ctx->metrics->req_cancelled++; continue; } /* its parent showed up */
+      fd_rotor_blk_t const * parent = blk_pool_ele_const( ctx->rotor->blk_pool, blk->parent );
+      if( FD_UNLIKELY( req.tag==FD_ROTOR_SERDE_TAG_ORPHAN && ( blk->connected==1 || blk->parent_slot<=ctx->rotor->root || ( parent && parent->parent_slot!=ULONG_MAX ) ) ) ) { blk->orphan_req = 0; ctx->metrics->req_cancelled++; continue; } /* its ancestry showed up, died with the root, or a lower blk asks */
       long t_eager = fd_rotor_strat_eager_ns( ctx->strat, fd_multi_epoch_leaders_get_leader_for_slot( ctx->mleaders, blk->slot ) );
-      if( FD_UNLIKELY( req.tag==FD_ROTOR_SERDE_TAG_HIGHEST_WINDOW_INDEX     && blk->last_fec_ts+t_eager>now                                     ) ) { /* turbine is not quiet yet */
-        req.timeout = blk->last_fec_ts+t_eager;
+      if( FD_UNLIKELY( req.tag==FD_ROTOR_SERDE_TAG_HIGHEST_WINDOW_INDEX     && blk->rcvd_fec_ts+t_eager>now                                     ) ) { /* turbine is not quiet yet */
+        req.timeout = blk->rcvd_fec_ts+t_eager;
         push_timeout( ctx, blk, &req );
         continue;
       }
@@ -353,19 +352,20 @@ discover( fd_rotor_tile_t * ctx,
     return;
   }
 
-  int orphaned = eager && !blk->orphan_req && blk->parent==blk_pool_idx_null( ctx->rotor->blk_pool ) && blk->parent_slot!=ULONG_MAX && blk->parent_slot>ctx->rotor->root;
-  for( fd_rotor_blk_t const * p = blk_map_ele_query_const( ctx->rotor->blk_map, &blk->parent_slot, NULL, ctx->rotor->blk_pool ); orphaned && p; p = blk_map_ele_next_const( p, NULL, ctx->rotor->blk_pool ) ) orphaned = !p->rcvd_fec_cnt;
+  fd_rotor_blk_t const * parent      = blk_pool_ele_const( ctx->rotor->blk_pool, blk->parent );
+  int                    orphan_root = !parent || parent->parent_slot==ULONG_MAX; /* the root of its disconnected subtree, the blks under it wait on it */
+  int                    orphaned    = blk->connected!=1 && orphan_root && !blk->orphan_req && blk->parent_slot!=ULONG_MAX && blk->parent_slot>ctx->rotor->root && memcmp( &blk->parent_blk_mr, &hash_null, sizeof(fd_mr32_t) ) && !( eager && meta->invalidated );
   if( FD_UNLIKELY( orphaned ) ) {
     blk->orphan_req = 1;
     req.tag         = FD_ROTOR_SERDE_TAG_ORPHAN; /* its ancestry is unknown, learn up to 11 of it in one reply */
-    req.timeout     = now;
+    req.timeout     = fd_long_if( eager, blk->rcvd_fec_ts+t_eager, now ); /* an eager blk's parent may still be on turbine */
     push_timeout( ctx, blk, &req );
   }
 
   if( FD_UNLIKELY( eager && !blk->cmpl_fec_cnt && !blk->highest_req ) ) {
     blk->highest_req = 1;
     req.tag          = FD_ROTOR_SERDE_TAG_HIGHEST_WINDOW_INDEX;
-    req.timeout      = blk->last_fec_ts+t_eager;
+    req.timeout      = blk->rcvd_fec_ts+t_eager;
     push_timeout( ctx, blk, &req );
   }
 
@@ -377,7 +377,7 @@ discover( fd_rotor_tile_t * ctx,
     if( FD_LIKELY( fec && fec->complete ) ) continue;
     req.tag     = FD_ROTOR_SERDE_TAG_WINDOW_INDEX;
     req.fec_idx = fec_idx;
-    req.timeout = fd_long_if( eager, ( fec ? fec->first_ts : blk->last_fec_ts )+t_eager, now ); /* a partial set waits from its first shred, a missing one from the last set turbine showed */
+    req.timeout = fd_long_if( eager, ( fec ? fec->first_ts : blk->rcvd_fec_ts )+t_eager, now ); /* a partial set waits from its first shred, a missing one from the last set turbine showed */
     push_timeout( ctx, blk, &req );
   }
   blk->wait_fec_cnt = fec_idx;

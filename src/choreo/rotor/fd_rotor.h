@@ -13,8 +13,6 @@ typedef struct fd_mr20 fd_mr20_t;
 
 typedef fd_hash_t fd_mr32_t;
 
-typedef struct fd_rotor_blk fd_rotor_blk_t;
-
 struct fd_rotor_fec {
   fd_mr20_t key;
   fd_mr32_t mr32;
@@ -53,9 +51,9 @@ struct fd_rotor_blk {
 
   /* blks form a left-child, right-sibling tree at root. */
 
-  ulong parent;  /* blk_pool idx of the parent blk, null if not linked */
-  ulong child;   /* blk_pool idx of the first child */
-  ulong sibling; /* blk_pool idx of the next child of the same parent */
+  ulong parent;    /* blk_pool idx of the parent blk, null if not linked */
+  ulong child;     /* blk_pool idx of the first child */
+  ulong sibling;   /* blk_pool idx of the next child of the same parent */
 
   uint cmpl_fec_cnt; /* FEC set count of the slot, 0 if not yet known */
   uint rcvd_fec_cnt; /* one past the highest FEC set received, there can be gaps below */
@@ -68,13 +66,16 @@ struct fd_rotor_blk {
 
   /* repair, the treap is the blk's role in its slot_meta */
 
-  uchar in_blk_treap; /* in its role's treap */
-  uchar eager;        /* the slot's eager blk, and may be repaired by position */
-  uchar meta_req;     /* tile: a META req was made */
-  uchar highest_req;  /* tile: a HIGHEST req was made */
-  uchar orphan_req;   /* tile: an ORPHAN req was made */
-  long  last_fec_ts;  /* when rcvd_fec_cnt last grew */
+  uchar in_blk_treap : 1; /* in its role's treap */
+  uchar eager        : 1; /* the slot's eager blk, and may be repaired by position */
+  uchar meta_req     : 1; /* tile: a META req was made */
+  uchar highest_req  : 1; /* tile: a HIGHEST req was made */
+  uchar orphan_req   : 1; /* tile: an ORPHAN req was made */
+  schar connected    : 2; /* 1 if the root or parent is connected, 0 if not, -1 if stale: relinked by connect_ancestors until connect_descendants */
 
+  ulong fecs[FD_FEC_BLK_MAX]; /* fec_pool idx of each FEC set, null if none */
+
+  long rcvd_fec_ts; /* when rcvd_fec_cnt last grew */
   struct {
     ulong parent;
     ulong left;
@@ -82,13 +83,12 @@ struct fd_rotor_blk {
     ulong prio;  /* seeded once at pool creation */
   } treap;
 
-  ulong fecs[FD_FEC_BLK_MAX]; /* fec_pool idx of each FEC set, null if none */
-
   struct {
     uchar cancelled_reason; /* FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_*, 0 if never cancelled */
     uchar reported;         /* given to the report callback, at completion or when freed */
   } telemetry;
 };
+typedef struct fd_rotor_blk fd_rotor_blk_t;
 
 /* blk_map is keyed by slot and holds every blk of a slot. */
 
