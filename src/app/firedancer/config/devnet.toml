@@ -6,5 +6,4 @@
     ]
 [consensus]
     expected_genesis_hash = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG"
-[development]
     alpenglow = true

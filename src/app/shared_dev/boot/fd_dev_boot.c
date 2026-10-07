@@ -168,7 +168,7 @@ fd_dev_main( int                        argc,
 
   if( FD_LIKELY( load_topo ) ) {
     if( FD_UNLIKELY( max_live_slots && config.is_firedancer ) ) config.firedancer.runtime.max_live_slots = max_live_slots;
-    if( FD_UNLIKELY( alpenglow      && config.is_firedancer ) ) config.firedancer.development.alpenglow = 1;
+    if( FD_UNLIKELY( alpenglow      && config.is_firedancer ) ) config.firedancer.consensus.alpenglow = 1;
     if( FD_UNLIKELY( efficient      && config.is_firedancer ) ) fd_cstr_ncpy( config.firedancer.layout.mode, "efficient", sizeof(config.firedancer.layout.mode) );
     if( FD_LIKELY( action->topo ) ) action->topo( &config );
     else                            topo_init( &config );

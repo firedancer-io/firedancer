@@ -121,6 +121,7 @@ fd_global_options_help( fd_action_help_t * help ) {
   fd_action_help_arg( help, "--devnet",       NULL,     "Use Solana devnet defaults" );
   fd_action_help_arg( help, "--mainnet-jito", NULL,     "Use Solana mainnet defaults with the Jito relayer/bundles" );
   fd_action_help_arg( help, "--testnet-jito", NULL,     "Use Solana testnet defaults with the Jito relayer/bundles" );
+  fd_action_help_arg( help, "--alpenglow",    NULL,     "Run Alpenglow consensus in lieu of Tower consensus" );
   fd_action_help_arg( help, "--version",      NULL,     "Show the current software version" );
   fd_action_help_arg( help, "--help/-h",      NULL,     "Print this help message" );
 }
@@ -263,6 +264,8 @@ fd_main( int                        argc,
   char ** argv = _argv;
   argc--; argv++;
 
+  int alpenglow = fd_env_strip_cmdline_contains( &argc, &argv, "--alpenglow" );
+
   /* Short circuit evaluating help and version commands so that we don't
      need to load and evaluate the entire config file to run them.
      This is useful for some operators in CI environments where, for
@@ -318,6 +321,7 @@ fd_main( int                        argc,
   int is_local_cluster = action ? action->is_local_cluster : 0;
   int load_topo = fd_main_init( &argc, &argv, &config, opt_user_config_path, is_firedancer, is_local_cluster, NULL, configs, 0 /* dev */ );
   if( FD_LIKELY( load_topo && action ) ) fd_cstr_ncpy( config.action, action->name, sizeof( config.action ) );
+  if( FD_UNLIKELY( load_topo && alpenglow && config.is_firedancer ) ) config.firedancer.consensus.alpenglow = 1;
   if( FD_LIKELY( load_topo ) ) topo_init( &config );
 
   if( FD_UNLIKELY( !action ) ) {

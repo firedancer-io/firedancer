@@ -676,6 +676,13 @@ telemetry = true
     # are selected during a hard fork event.
     wait_for_supermajority_with_bank_hash = ""
 
+    # Whether to run Alpenglow consensus.  Firedancer runs exactly one
+    # consensus algorithm, so when this is enabled any Tower-related
+    # components will be replaced with Alpenglow.
+    #
+    # You can also enable Alpenglow with the `--alpenglow` argument.
+    alpenglow = false
+
 # The primary state a validator is required to maintain is the accounts
 # database, a current listing of all "public key" identifiers on the
 # chain, and their associated balance (lamports), owner, and data.
@@ -2041,14 +2048,6 @@ telemetry = true
     # variable-length FEC sets.  This should be left as its default
     # value of true unless attempting to replay old ledgers.
     fixed_fec_sets = true
-
-    # Whether to run Alpenglow consensus.  Firedancer runs exactly one
-    # consensus algorithm, so when this is enabled any Tower-related
-    # components will be replaced with Alpenglow.
-    #
-    # You can also enable Alpenglow with the `--alpenglow` argument to
-    # `firedancer-dev`.
-    alpenglow = false
 
     [development.votor]
         # The votor tile makes outgoing QUIC connections from this port

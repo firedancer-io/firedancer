@@ -233,9 +233,10 @@ ${SNAPDC_TILE_COUNT:+    snapdc_tile_count = $SNAPDC_TILE_COUNT}
     snapshots = "$DUMP/$LEDGER"
     accounts = "$DUMP/accounts.db"
     genesis = "$DUMP/$LEDGER/genesis.bin"
+[consensus]
+    alpenglow = $ALPENGLOW
 [development]
     fixed_fec_sets = false
-    alpenglow = $ALPENGLOW
     [development.genesis]
         validate_genesis_hash = false
 ${GENESIS_MAX_FILE_SIZE_MIB:+        max_file_size_mib = $GENESIS_MAX_FILE_SIZE_MIB}

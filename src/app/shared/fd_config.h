@@ -133,6 +133,7 @@ struct fd_configf {
 
   struct {
     char wait_for_supermajority_with_bank_hash[ FD_BASE58_ENCODED_32_SZ ];
+    int  alpenglow;
   } consensus;
 
   struct {
@@ -177,7 +178,6 @@ struct fd_configf {
   struct {
     int hard_fork_fatal;
     int fixed_fec_sets;
-    int alpenglow;
 
     struct {
       ushort quic_client_listen_port;

@@ -111,6 +111,7 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( ulong,  runtime.program_cache_size_mib                      );
 
   CFG_POP      ( cstr,   consensus.wait_for_supermajority_with_bank_hash     );
+  CFG_POP      ( bool,   consensus.alpenglow                                 );
 
   CFG_POP      ( uint,   snapshots.sources.max_local_full_effective_age      );
   CFG_POP      ( uint,   snapshots.sources.max_local_incremental_age         );
@@ -139,7 +140,6 @@ fd_config_extract_podf( uchar *        pod,
 
   CFG_POP      ( bool,   development.hard_fork_fatal                         );
   CFG_POP      ( bool,   development.fixed_fec_sets                          );
-  CFG_POP      ( bool,   development.alpenglow                               );
 
   CFG_POP      ( ushort, development.votor.quic_client_listen_port           );
   CFG_POP      ( ushort, development.votor.quic_server_listen_port           );

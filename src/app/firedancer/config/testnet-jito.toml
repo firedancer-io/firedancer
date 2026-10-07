@@ -5,6 +5,7 @@
     ]
 [consensus]
     expected_genesis_hash = "4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY"
+    alpenglow = true
 [accounts]
     max_accounts = 200_000_000
 [snapshots]
@@ -17,5 +18,3 @@
     tip_payment_program_addr = "GJHtFqM9agxPmkeKjHny6qiRKrXZALvvFGiKf11QE7hy"
     tip_distribution_authority = "7T4inmPmtNBX3MhLwJ9hFsSMnGJYYkKioVABSNTWVRuS"
     commission_bps = 1000
-[development]
-    alpenglow = true

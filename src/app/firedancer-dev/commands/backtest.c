@@ -287,7 +287,7 @@ backtest_topo( config_t * config ) {
      roots it.  Replay keys blocks by the synthetic ids the backtest tile
      feeds it, so the finalization certs in the ledger's footers can not
      root anything here. */
-  if( FD_UNLIKELY( config->firedancer.development.alpenglow ) ) {
+  if( FD_UNLIKELY( config->firedancer.consensus.alpenglow ) ) {
     fd_topob_wksp( topo, "votor_out" );
     fd_topob_link( topo, "votor_out", "votor_out", 1024UL, sizeof(fd_votor_msg_t), 1UL );
     fd_topob_tile_in( topo, "replay", 0UL, "metric_in", "votor_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
@@ -400,7 +400,7 @@ backtest_topo( config_t * config ) {
                                          config->limits.max_shreds_per_block/FD_FEC_SHRED_CNT, config->limits.max_shreds_per_block );
   ulong store_fec_max = config->firedancer.runtime.max_live_slots * fec_sets_per_slot + repair_out_link->depth + 1UL;
   ulong store_fec_data_max = fd_ulong_if( config->firedancer.development.fixed_fec_sets, 31840UL, 63985UL );
-  fd_topo_obj_t * store_obj = setup_topo_store( topo, "store", store_fec_max, store_fec_data_max, 0UL, config->tiles.shred.shred_cache_size_mib, 0UL, config->limits.max_shreds_per_block, config->paths.shredb, config->firedancer.development.alpenglow, 1UL );
+  fd_topo_obj_t * store_obj = setup_topo_store( topo, "store", store_fec_max, store_fec_data_max, 0UL, config->tiles.shred.shred_cache_size_mib, 0UL, config->limits.max_shreds_per_block, config->paths.shredb, config->firedancer.consensus.alpenglow, 1UL );
   fd_topob_tile_uses( topo, backt_tile, store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, replay_tile, store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, store_obj->id, "store" ) );
