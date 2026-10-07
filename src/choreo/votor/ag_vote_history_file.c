@@ -71,6 +71,9 @@ ag_vote_history_file_de( uchar const *            buf,
   out->parent_ready_cnt         = 0UL;
   out->votes_cast_cnt           = 0UL;
 
+  /* Map keys are checked against root too, even with no entries. */
+  ulong min_key = ULONG_MAX;
+
   LOAD_SLOTS( out->voted, out->voted_cnt );
 
   ulong notar_cnt; LOAD_LEN( notar_cnt, 40UL );
@@ -82,6 +85,7 @@ ag_vote_history_file_de( uchar const *            buf,
   for( ulong i=0UL; i<notar_fallback_cnt; i++ ) {
     ulong slot;     LOAD( ulong, slot );
     ulong hash_cnt; LOAD_LEN( hash_cnt, 32UL );
+    min_key = fd_ulong_min( min_key, slot );
     for( ulong j=0UL; j<hash_cnt; j++ ) {
       ag_block_id_t * block = PUSH( out->voted_notar_fallback, out->voted_notar_fallback_cnt, AG_VOTE_HISTORY_BLOCK_MAX );
       block->slot = slot;
@@ -97,6 +101,7 @@ ag_vote_history_file_de( uchar const *            buf,
   for( ulong i=0UL; i<votes_slot_cnt; i++ ) {
     ulong slot;     LOAD( ulong, slot );
     ulong vote_cnt; LOAD_LEN( vote_cnt, 11UL );
+    min_key = fd_ulong_min( min_key, slot );
     for( ulong j=0UL; j<vote_cnt; j++ ) {
       ag_vote_history_vote_t * vote = PUSH( out->votes_cast, out->votes_cast_cnt, AG_VOTE_HISTORY_VOTE_MAX );
       uchar tag; LOAD( uchar, tag );
@@ -130,6 +135,7 @@ ag_vote_history_file_de( uchar const *            buf,
   for( ulong i=0UL; i<parent_ready_slot_cnt; i++ ) {
     ulong slot;      LOAD( ulong, slot );
     ulong block_cnt; LOAD_LEN( block_cnt, 40UL );
+    min_key = fd_ulong_min( min_key, slot );
     for( ulong j=0UL; j<block_cnt; j++ ) {
       ag_vote_history_parent_ready_t * pr = PUSH( out->parent_ready, out->parent_ready_cnt, AG_VOTE_HISTORY_PARENT_READY_MAX );
       pr->slot = slot;
@@ -141,15 +147,13 @@ ag_vote_history_file_de( uchar const *            buf,
   if( FD_UNLIKELY( off!=buf_sz ) ) return AG_VOTE_HISTORY_FILE_ERR_SIZE;
 
   ulong root = out->root;
+  if( FD_UNLIKELY( min_key<root ) ) return AG_VOTE_HISTORY_FILE_ERR_HISTORY;
   for( ulong i=0UL; i<out->voted_cnt;                i++ ) if( FD_UNLIKELY( out->voted[ i ]                     <root ) ) return AG_VOTE_HISTORY_FILE_ERR_HISTORY;
   for( ulong i=0UL; i<out->voted_skip_fallback_cnt;  i++ ) if( FD_UNLIKELY( out->voted_skip_fallback[ i ]       <root ) ) return AG_VOTE_HISTORY_FILE_ERR_HISTORY;
   for( ulong i=0UL; i<out->skipped_cnt;              i++ ) if( FD_UNLIKELY( out->skipped[ i ]                   <root ) ) return AG_VOTE_HISTORY_FILE_ERR_HISTORY;
   for( ulong i=0UL; i<out->its_over_cnt;             i++ ) if( FD_UNLIKELY( out->its_over[ i ]                  <root ) ) return AG_VOTE_HISTORY_FILE_ERR_HISTORY;
   for( ulong i=0UL; i<out->voted_notar_cnt;          i++ ) if( FD_UNLIKELY( out->voted_notar[ i ].slot          <root ) ) return AG_VOTE_HISTORY_FILE_ERR_HISTORY;
-  for( ulong i=0UL; i<out->voted_notar_fallback_cnt; i++ ) if( FD_UNLIKELY( out->voted_notar_fallback[ i ].slot <root ) ) return AG_VOTE_HISTORY_FILE_ERR_HISTORY;
-  for( ulong i=0UL; i<out->votes_cast_cnt;           i++ ) if( FD_UNLIKELY( out->votes_cast[ i ].block.slot     <root ) ) return AG_VOTE_HISTORY_FILE_ERR_HISTORY;
   for( ulong i=0UL; i<out->notarized_blocks_cnt;     i++ ) if( FD_UNLIKELY( out->notarized_blocks[ i ].slot     <root ) ) return AG_VOTE_HISTORY_FILE_ERR_HISTORY;
-  for( ulong i=0UL; i<out->parent_ready_cnt;         i++ ) if( FD_UNLIKELY( out->parent_ready[ i ].slot         <root ) ) return AG_VOTE_HISTORY_FILE_ERR_HISTORY;
 
   return AG_VOTE_HISTORY_FILE_SUCCESS;
 }
