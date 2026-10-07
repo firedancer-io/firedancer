@@ -110,21 +110,17 @@ ag_pool_set_rank( ag_pool_t * self,
                   ulong       epoch_slot,
                   ulong       epoch_rank );
 
-/* Definition 13. Pool::add_cert */
+/* Definition 13. Pool::add_cert
+
+   verified is non-zero for a cert whose signature and stake were already
+   verified, e.g. by replay.  The bounds, duplicate and safety checks
+   still run. */
 
 int
 ag_pool_add_cert( ag_pool_t *       self,
                   ag_cert_t const * cert,
+                  int               verified,
                   fd_bls_set_t *    bad );
-
-/* ag_pool_add_verified_cert is ag_pool_add_cert for a cert whose
-   signature and stake were already verified, e.g. by replay.  The
-   bounds, duplicate and safety checks still run. */
-
-int
-ag_pool_add_verified_cert( ag_pool_t *       self,
-                           ag_cert_t const * cert,
-                           fd_bls_set_t *    bad );
 
 /* Definition 12. Pool::add_vote */
 
