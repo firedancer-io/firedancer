@@ -528,7 +528,7 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_link( topo, "replay_epoch",  "replay_epoch",  16UL,                                     FD_EPOCH_OUT_MTU,              1UL ); /* min pow2 >= replay's STEM_BURST (14); ideally 2, needs per-link burst */
   /**/                 fd_topob_link( topo, "replay_out",    "replay_out",    65536UL,                                  sizeof(fd_replay_message_t),   1UL )->permit_no_consumers = 1;
   /**/                 fd_topob_link( topo, "replay_slot",   "replay_slot",   4096UL,                                   sizeof(fd_replay_message_t),   1UL );
-  if( alpenglow_enabled ) fd_topob_link( topo, "replay_rotor",  "replay_slot",   16UL,                                     sizeof(fd_replay_message_t),   1UL ); /* REPLAY_SIG_MISSING_FEC, at most one in flight until rotor's ROTOR_SIG_RECONSUME; min pow2 >= replay's STEM_BURST (15) */
+  if( alpenglow_enabled ) fd_topob_link( topo, "replay_rotor",  "replay_slot",   16UL,                                     sizeof(fd_replay_message_t),   1UL ); /* REPLAY_SIG_MISSING_FEC; min pow2 >= replay's STEM_BURST (15) */
   FOR(execrp_tile_cnt) fd_topob_link( topo, "replay_execrp", "replay_execrp", 256UL,                                    sizeof(fd_execrp_task_msg_t),  1UL );
   /**/                 fd_topob_link( topo, "admin_replay",  "admin_replay",  32UL,                                     0UL,                           1UL );
   /**/                 fd_topob_link( topo, "replay_admin",  "admin_replay",  32UL,                                     0UL,                           1UL );

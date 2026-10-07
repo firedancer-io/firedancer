@@ -109,9 +109,6 @@
 #define ROTOR_SIG_FEC_REPLAY  (3UL)
 /* alpenglow type - completed block metadata, on rotor_rserve */
 #define ROTOR_SIG_BLOCK       (4UL)
-/* alpenglow type - a REPLAY_SIG_MISSING_FEC was seen, the FECs after
-   this are reconsumed from the root, no payload */
-#define ROTOR_SIG_RECONSUME   (5UL)
 
 struct fd_rotor_fec_metrics {
   uint  stats_valid;        /* 1 if the counters below are populated */
