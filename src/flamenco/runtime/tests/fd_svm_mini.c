@@ -69,6 +69,13 @@ fd_svm_test_boot( int *    pargc,
     FD_TEST( !close( spill_fd ) );
   }
 
+  int epoch_credits_fd = memfd_create( "svm_mini_epoch_credits_spill", 0 );
+  FD_TEST( epoch_credits_fd>=0 );
+  if( epoch_credits_fd!=FD_EPOCH_CREDITS_FD ) {
+    FD_TEST( dup2( epoch_credits_fd, FD_EPOCH_CREDITS_FD )==FD_EPOCH_CREDITS_FD );
+    FD_TEST( !close( epoch_credits_fd ) );
+  }
+
   char const * page_sz_cstr = fd_env_strip_cmdline_cstr ( pargc, pargv, "--page-sz",  NULL, NULL            );
   ulong        page_cnt     = fd_env_strip_cmdline_ulong( pargc, pargv, "--page-cnt", NULL, 0UL             );
   char const * wksp_name    = fd_env_strip_cmdline_cstr ( pargc, pargv, "--wksp",     NULL, NULL            );
@@ -309,6 +316,9 @@ fd_svm_mini_init_mock_validators( fd_svm_mini_t *              mini,
   fd_accdb_t *       accdb   = mini->runtime->accdb;
   fd_accdb_fork_id_t root_fk = fd_banks_root( mini->banks )->accdb_fork_id;
 
+  fd_epoch_credits_view_t epoch_credits_view[1];
+  FD_TEST( fd_epoch_credits_view_init( epoch_credits_view, fd_bank_epoch_credits( bank ), bank->epoch_credits_fork_id ) );
+
   for( ulong i=0UL; i<N; i++ ) {
 
     /* Generate deterministic pubkeys */
@@ -399,7 +409,7 @@ fd_svm_mini_init_mock_validators( fd_svm_mini_t *              mini,
     fd_vote_stakes_snap_insert_t_2( vote_stakes, fork_id, &vote_key, &identity_key, uniform_stake, 1234U, no_bls );
     fd_vote_stakes_update_state( vote_stakes, fork_id, &vote_key, 0UL, 0L, 1 );
 
-    fd_epoch_credits_t * epoch_credits = &fd_bank_epoch_credits( bank )[ i ];
+    fd_epoch_credits_t * epoch_credits = &epoch_credits_view->credits[ i ];
     fd_memcpy( epoch_credits->pubkey, &vote_key, sizeof(fd_pubkey_t) );
     epoch_credits->cnt                     = 0UL;
     epoch_credits->base_credits            = 0UL;
@@ -420,7 +430,8 @@ fd_svm_mini_init_mock_validators( fd_svm_mini_t *              mini,
       .stake    = uniform_stake,
     };
   }
-  *fd_bank_epoch_credits_len( bank ) = N;
+  epoch_credits_view->len = N;
+  fd_epoch_credits_view_fini( epoch_credits_view );
 
   /* Create leader schedule */
 
@@ -642,7 +653,10 @@ fd_svm_mini_reset( fd_svm_mini_t *        mini,
     FD_TEST( fd_sysvar_cache_restore( bank, accdb ) );
   }
 
-  *fd_bank_epoch_credits_len( bank ) = 0UL;
+  fd_epoch_credits_view_t epoch_credits_view[1];
+  FD_TEST( fd_epoch_credits_view_init( epoch_credits_view, fd_bank_epoch_credits( bank ), bank->epoch_credits_fork_id ) );
+  epoch_credits_view->len = 0UL;
+  fd_epoch_credits_view_fini( epoch_credits_view );
 
   if( params->mock_validator_cnt ) {
     fd_svm_mini_init_mock_validators( mini, bank, params );

@@ -559,7 +559,7 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
                           fd_stake_history_t const *     history,
                           ulong                          rewarded_epoch,
                           ulong *                        new_rate_activation_epoch ) {
-  fd_bank_epoch_credits_new_fork( bank );
+  bank->epoch_credits_fork_id = fd_epoch_credits_store_new_fork( fd_bank_epoch_credits( bank ), bank->epoch_credits_fork_id );
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
   ulong              fork_id     = bank->vote_stakes_fork_id;
@@ -738,6 +738,9 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
   fd_vote_rewards_map_reset( vote_reward_map );
   ulong vote_reward_cnt = 0UL;
 
+  fd_epoch_credits_view_t epoch_credits_view[1];
+  FD_TEST( fd_epoch_credits_view_init( epoch_credits_view, fd_bank_epoch_credits( bank ), bank->epoch_credits_fork_id ) );
+
   /* Populate the vote rewards map with the final set of filtered vote
      accounts for the t-1 epoch. */
   bank->f.total_epoch_stake = 0UL;
@@ -773,7 +776,7 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
     if( FD_UNLIKELY( vote_reward_cnt>=FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS ) ) {
       FD_LOG_ERR(( "invariant violation: vote_reward_cnt >= epoch credits max" ));
     }
-    fd_epoch_credits_t * epoch_credits = &fd_bank_epoch_credits( bank )[ vote_reward_cnt ];
+    fd_epoch_credits_t * epoch_credits = &epoch_credits_view->credits[ vote_reward_cnt ];
     fd_memcpy( epoch_credits->pubkey, &pubkey, sizeof(fd_pubkey_t) );
     get_vote_credits( acc.data, acc.data_len, vote_ele->commission, epoch_credits );
     fd_accdb_unread_one( accdb, &acc );
@@ -788,7 +791,8 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
     vote_reward_cnt++;
     bank->f.total_epoch_stake += stake;
   }
-  *fd_bank_epoch_credits_len( bank ) = vote_reward_cnt;
+  epoch_credits_view->len = vote_reward_cnt;
+  fd_epoch_credits_view_fini( epoch_credits_view );
   if( FD_UNLIKELY( fd_bank_report_runtime_diffs( bank ) ) ) fd_event_runtime_epoch_votes( staked_accounts, top_votes_eligible );
 }
 

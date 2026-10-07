@@ -282,7 +282,9 @@ struct fd_replay_drop_bank_ref {
 typedef struct fd_replay_drop_bank_ref fd_replay_drop_bank_ref_t;
 
 /* The replay tile broadcasts fd_replay_snap_start_t
-   (REPLAY_SIG_SNAP_START) just before starting snapshot creation. */
+   (REPLAY_SIG_SNAP_START) just before starting snapshot creation.
+   Replay keeps the bank's epoch credits pinned in memory until the
+   snapshot is done. */
 
 struct fd_replay_snap_start {
   ulong       bank_idx;

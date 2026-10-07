@@ -181,6 +181,7 @@ fd_config_extract_pod( uchar *       pod,
     CFG_POP    ( cstr,   paths.genesis                                    );
     CFG_POP    ( cstr,   paths.accounts                                   );
     CFG_POP    ( cstr,   paths.stake_delegations                          );
+    CFG_POP    ( cstr,   paths.epoch_credits                              );
     CFG_POP    ( cstr,   paths.shredb                                 );
     CFG_POP    ( cstr,   paths.guidb                                  );
     CFG_POP    ( cstr,   paths.vote_history                               );
