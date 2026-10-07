@@ -523,7 +523,8 @@ struct fd_config {
     } metric;
 
     struct {
-      char url[ FD_URL_MAX ];
+      char  url[ FD_URL_MAX ];
+      ulong upload_rate_bps;
     } event;
 
     struct {
