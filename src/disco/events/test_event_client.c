@@ -100,7 +100,7 @@ FD_UNIT_TEST( conn_tls_lifecycle ) {
   static fd_x509_ca_store_t ca_store[1]; /* empty: the pinned mock cert bypasses chain verification */
   fd_event_client_t * client = fd_event_client_join( fd_event_client_new(
       client_mem, NULL, rng, circq, g_epoll_fd, 1<<20, "https://localhost:1", identity_pubkey, "0.0.0",
-      "0000000000000000000000000000000000000000", "test", 1UL, 2UL, 3UL, 4096UL, 1, ca_store ) );
+      "0000000000000000000000000000000000000000", "test", 1UL, 2UL, 3UL, 4096UL, 1, ca_store, 0UL ) );
   FD_TEST( client );
 
   static fd_tlsrec_conn_t server_conn[1];
@@ -207,7 +207,8 @@ FD_UNIT_TEST( stream_heartbeat ) {
       3UL,
       4096UL,
       0,
-      NULL ) );
+      NULL,
+      0UL ) );
   FD_TEST( client );
 
   fd_grpc_client_t * grpc = client->grpc_client;
@@ -264,7 +265,7 @@ test_connected_client( fd_circq_t * circq,
   uchar identity_pubkey[32] = {0};
   fd_event_client_t * client = fd_event_client_join( fd_event_client_new(
       client_mem, NULL, rng, circq, g_epoll_fd, 1<<20, "http://localhost:1", identity_pubkey, "0.0.0",
-      "0000000000000000000000000000000000000000", "test", 1UL, 2UL, 3UL, buf_max, 0, NULL ) );
+      "0000000000000000000000000000000000000000", "test", 1UL, 2UL, 3UL, buf_max, 0, NULL, 0UL ) );
   FD_TEST( client );
   fd_grpc_client_t * grpc = client->grpc_client;
   client->state       = FD_EVENT_CLIENT_STATE_CONNECTED;
@@ -360,7 +361,7 @@ FD_UNIT_TEST( tx_pacing ) {
   FD_TEST( dl>now && dl<=now+(long)1e9 );
 
   /* Polls shorter than one token's worth of time keep accruing. */
-  long const ns_per_byte = (long)1e9/FD_EVENT_CLIENT_TX_RATE_BPS;
+  long const ns_per_byte = (long)1e9/FD_EVENT_CLIENT_TX_RATE_BPS_DEFAULT;
   long tokens0 = client->tx_tokens, tokens_ns0 = client->tx_tokens_ns;
   for( long i=1L; i<ns_per_byte; i++ ) {
     test_poll_tx( client, now+i );
@@ -411,7 +412,7 @@ FD_UNIT_TEST( tx_pacing_large_msg ) {
   test_poll_tx( client, now );
   FD_TEST( client->metrics.events_sent==1UL && !test_drain( grpc ) );
   client->last_response_ns = now;
-  long const ns_per_byte = (long)1e9/FD_EVENT_CLIENT_TX_RATE_BPS;
+  long const ns_per_byte = (long)1e9/FD_EVENT_CLIENT_TX_RATE_BPS_DEFAULT;
   long dl = fd_event_client_next_deadline( client, now );
   FD_TEST( dl==now+(1L-client->tx_tokens)*ns_per_byte );
 
@@ -466,7 +467,7 @@ FD_UNIT_TEST( credit_stall ) {
 
   /* The bucket keeps refilling while parked, so an expired pacing
      deadline does not pin the tile awake. */
-  long const ns_per_byte = (long)1e9/FD_EVENT_CLIENT_TX_RATE_BPS;
+  long const ns_per_byte = (long)1e9/FD_EVENT_CLIENT_TX_RATE_BPS_DEFAULT;
   test_push( circq, rng, 16UL, 1 );
   client->tx_tokens = -1000L; client->tx_tokens_ns = now;
   long t0 = now+2000L*ns_per_byte;
