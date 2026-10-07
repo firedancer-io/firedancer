@@ -279,6 +279,7 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( ushort, tiles.metric.prometheus_listen_port              );
 
   CFG_POP      ( cstr,   tiles.event.url                                  );
+  CFG_POP      ( ulong,  tiles.event.upload_rate_bps                      );
 
   CFG_POP      ( bool,   tiles.gui.enabled                                );
   CFG_POP      ( cstr,   tiles.gui.gui_listen_address                     );

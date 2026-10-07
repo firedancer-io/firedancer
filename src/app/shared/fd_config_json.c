@@ -11,7 +11,7 @@
    or knowingly skipped) before the constant is bumped.  String keys of
    the user's own file are separately forced through the classification
    lists below. */
-FD_STATIC_ASSERT( sizeof(fd_config_t)==26557688UL, update_fd_config_to_json_for_the_layout_change );
+FD_STATIC_ASSERT( sizeof(fd_config_t)==26557704UL, update_fd_config_to_json_for_the_layout_change );
 
 #define REDACTED "[redacted]"
 
@@ -591,7 +591,8 @@ fd_config_to_json( fd_config_t const * config,
       jw_ulong( &w, "prometheus_listen_port",    config->tiles.metric.prometheus_listen_port );
     jw_obj_close( &w );
     jw_obj_open( &w, "event" );
-      jw_url( &w, "url", config->tiles.event.url );
+      jw_url  ( &w, "url",             config->tiles.event.url );
+      jw_ulong( &w, "upload_rate_bps", config->tiles.event.upload_rate_bps );
     jw_obj_close( &w );
     jw_obj_open( &w, "gui" );
       jw_bool ( &w, "enabled",                   config->tiles.gui.enabled );

@@ -56,7 +56,10 @@ fd_event_client_new( void *                     shmem,
                      ulong                      machine_id,
                      ulong                      buf_max,
                      int                        use_tls,
-                     fd_x509_ca_store_t const * ca_store );
+                     fd_x509_ca_store_t const * ca_store,
+                     ulong                      tx_rate_bps );
+
+#define FD_EVENT_CLIENT_TX_RATE_BPS_DEFAULT (2UL*1000UL*1000UL)
 
 fd_event_client_t *
 fd_event_client_join( void * shec );

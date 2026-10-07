@@ -531,7 +531,8 @@ unprivileged_init( fd_topo_t const *      topo,
                                                            ctx->machine_id,
                                                            GRPC_BUF_MAX,
                                                            ctx->use_tls,
-                                                           ctx->ca_store ) );
+                                                           ctx->ca_store,
+                                                           tile->event.tx_rate_bps ) );
   FD_TEST( ctx->client );
   ctx->next_poll_deadline = 0L;
 

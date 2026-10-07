@@ -1478,6 +1478,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
     fd_cstr_ncpy( tile->event.identity_key_path, config->paths.identity_key, sizeof(tile->event.identity_key_path) );
     fd_cstr_ncpy( tile->event.url, config->tiles.event.url, sizeof(tile->event.url) );
+    tile->event.tx_rate_bps = config->tiles.event.upload_rate_bps;
     fd_cstr_ncpy( tile->event.action, config->action, sizeof(tile->event.action) );
     FD_TEST( fd_cstr_printf_check( tile->event.accounts_path,  sizeof(tile->event.accounts_path),  NULL, "%s", config->paths.accounts  ) );
     FD_TEST( fd_cstr_printf_check( tile->event.snapshots_path, sizeof(tile->event.snapshots_path), NULL, "%s", config->paths.snapshots ) );

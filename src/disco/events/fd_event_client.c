@@ -38,9 +38,9 @@
 #define FD_EVENT_CLIENT_HEARTBEAT_NANOS (15L*(long)1e9)
 #define FD_EVENT_CLIENT_RESPONSE_TIMEOUT_NANOS (60L*(long)1e9)
 
-#define FD_EVENT_CLIENT_TX_RATE_BPS (2L*1000L*1000L)
 #define FD_EVENT_CLIENT_TX_BURST (256L<<10)
 #define FD_EVENT_CLIENT_CREDIT_STALL_NANOS (20L*(long)1e9)
+#define FD_EVENT_CLIENT_TX_DRAIN_MAX (1024UL)
 
 #define FD_EVENT_CLIENT_TOKEN_SZ (217UL)
 
@@ -78,6 +78,7 @@ struct fd_event_client {
 
   long  tx_tokens;
   long  tx_tokens_ns;
+  long  tx_rate_bps;
   long  stall_since;
   ulong stall_rem;
   ulong stall_events_sent;
@@ -191,7 +192,8 @@ fd_event_client_new( void *                     shmem,
                      ulong                      machine_id,
                      ulong                      buf_max,
                      int                        use_tls,
-                     fd_x509_ca_store_t const * ca_store ) {
+                     fd_x509_ca_store_t const * ca_store,
+                     ulong                      tx_rate_bps ) {
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL shmem" ));
     return NULL;
@@ -256,6 +258,7 @@ fd_event_client_new( void *                     shmem,
   client->now                  = 0L;
   client->last_stream_send_ns  = 0L;
   client->last_response_ns     = 0L;
+  client->tx_rate_bps          = (long)( tx_rate_bps ? tx_rate_bps : FD_EVENT_CLIENT_TX_RATE_BPS_DEFAULT );
   client->tx_tokens            = FD_EVENT_CLIENT_TX_BURST;
   client->tx_tokens_ns         = 0L;
   client->stall_since          = 0L;
@@ -763,7 +766,7 @@ fd_event_client_grpc_ping_ack( void * app_ctx ) {
 static long
 pace_refill( fd_event_client_t * client,
              long                now ) {
-  long ns_per_byte = (long)1e9/FD_EVENT_CLIENT_TX_RATE_BPS;
+  long ns_per_byte = (long)1e9/client->tx_rate_bps;
   long dt          = fd_long_max( now-client->tx_tokens_ns, 0L );
   long grant       = fd_long_min( dt/ns_per_byte, FD_EVENT_CLIENT_TX_BURST-client->tx_tokens );
   client->tx_tokens   += grant;
@@ -874,7 +877,7 @@ fd_event_client_next_deadline( fd_event_client_t const * client,
     deadline = fd_long_min( deadline, fd_long_min( client->last_response_ns   +FD_EVENT_CLIENT_RESPONSE_TIMEOUT_NANOS,
                                                    client->last_stream_send_ns+FD_EVENT_CLIENT_HEARTBEAT_NANOS ) );
     if( FD_UNLIKELY( client->tx_tokens<=0L && fd_circq_unsent_cnt( client->circq ) ) ) {
-      deadline = fd_long_min( deadline, client->tx_tokens_ns + (1L-client->tx_tokens)*(long)1e9/FD_EVENT_CLIENT_TX_RATE_BPS );
+      deadline = fd_long_min( deadline, client->tx_tokens_ns + (1L-client->tx_tokens)*(long)1e9/client->tx_rate_bps );
     }
     if( FD_UNLIKELY( client->stall_since ) ) deadline = fd_long_min( deadline, client->stall_since+FD_EVENT_CLIENT_CREDIT_STALL_NANOS );
   }
@@ -959,6 +962,19 @@ poll1( fd_event_client_t * client,
   }
 }
 
+static int
+tx_flush( fd_event_client_t * client,
+          long                now ) {
+  if( FD_LIKELY( client->state==FD_EVENT_CLIENT_STATE_DISCONNECTED || !fd_grpc_client_tx_pending( client->grpc_client ) ) ) return 0;
+  int flush_err = client->use_tls ? fd_grpc_client_tls_flush     ( client->grpc_client, client->sockfd )
+                                  : fd_grpc_client_tx_flush_socket( client->grpc_client, client->sockfd );
+  if( FD_UNLIKELY( -1==flush_err ) ) {
+    disconnect( client, now, DISCONNECT_REASON_TRANSPORT_FAILED, errno, 1 );
+    return -1;
+  }
+  return 0;
+}
+
 void
 fd_event_client_poll( fd_event_client_t * client,
                       long                now,
@@ -966,17 +982,18 @@ fd_event_client_poll( fd_event_client_t * client,
   client->now = now;
   poll1( client, now, charge_busy );
 
-  /* poll1 flushes before tx() enqueues: flush once more so bytes queued
-     this poll go out now instead of arming EPOLLOUT on a writable
-     socket (a spurious waker roundtrip per message). */
-  if( FD_UNLIKELY( client->state!=FD_EVENT_CLIENT_STATE_DISCONNECTED && fd_grpc_client_tx_pending( client->grpc_client ) ) ) {
-    int flush_err = client->use_tls ? fd_grpc_client_tls_flush     ( client->grpc_client, client->sockfd )
-                                    : fd_grpc_client_tx_flush_socket( client->grpc_client, client->sockfd );
-    if( FD_UNLIKELY( -1==flush_err ) ) {
-      disconnect( client, now, DISCONNECT_REASON_TRANSPORT_FAILED, errno, 1 );
-      return;
+  for( ulong i=0UL; i<FD_EVENT_CLIENT_TX_DRAIN_MAX; i++ ) {
+    if( FD_UNLIKELY( client->state!=FD_EVENT_CLIENT_STATE_CONNECTED ) ) break;
+    if( FD_UNLIKELY( fd_grpc_client_stream_send_is_blocked( client->grpc_client ) ) ) {
+      if( FD_UNLIKELY( tx_flush( client, now ) ) ) return;
+      if( FD_UNLIKELY( fd_grpc_client_stream_send_is_blocked( client->grpc_client ) ) ) break;
     }
+    if( FD_LIKELY( !fd_circq_unsent_cnt( client->circq ) ) ) break;
+    if( FD_UNLIKELY( client->tx_tokens<=0L ) ) break;
+    tx( client, now, charge_busy );
   }
+
+  if( FD_UNLIKELY( tx_flush( client, now ) ) ) return;
 
   /* Arm EPOLLOUT only on write demand: unsent HTTP/2 bytes, or a TLS
      handshake blocked on write (which is also what an in-progress

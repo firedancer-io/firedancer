@@ -1860,6 +1860,14 @@ telemetry = true
         # `telemetry` to false to disable event reporting.
         url = "https://events-in.firedancer.io"
 
+        # Maximum rate, in bytes per second, at which events are
+        # uploaded.  Events produced faster than this queue in the
+        # event tile, and the oldest are dropped if the queue fills.
+        # The default suits the public collection server; a private
+        # collector receiving [development.event.report_runtime_diffs]
+        # needs a much higher rate.
+        upload_rate_bps = 2000000
+
     # The gui tile receives data from the validator and serves an HTTP
     # endpoint to clients to view it.
     [tiles.gui]
