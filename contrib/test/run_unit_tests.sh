@@ -18,6 +18,7 @@ VERBOSE=0
 # Keep this list in sync with the sources;
 # contrib/test/gen_unit_test_pages.sh regenerates it.
 declare -A TEST_GIGANTIC_PAGES=(
+  [test_sched]=4
   [test_ssmanifest_parser]=2
   [test_snapin_tile]=2
   [test_replay_tile]=2

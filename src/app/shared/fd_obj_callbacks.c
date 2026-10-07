@@ -13,6 +13,7 @@
 #include "../../disco/sleep/fd_sleep.h"
 #include "../../disco/wait_info/fd_wait_info.h"
 #include "../../discof/poh/fd_poh.h"
+#include "../../discof/replay/fd_execrp.h"
 
 #define VAL(name) (__extension__({                                                             \
   ulong __x = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.%s", obj->id, name );      \
@@ -273,6 +274,24 @@ fd_topo_obj_callbacks_t fd_obj_cb_wait_info = {
   .footprint = wait_info_footprint,
   .align     = wait_info_align,
   .new       = wait_info_new,
+};
+
+static ulong
+execrp_result_footprint( fd_topo_t const *     topo,
+                         fd_topo_obj_t const * obj ) {
+  return VAL("execrp_tile_cnt")*sizeof(fd_execrp_result_t);
+}
+
+static ulong
+execrp_result_align( fd_topo_t const *     topo FD_FN_UNUSED,
+                     fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
+  return alignof(fd_execrp_result_t);
+}
+
+fd_topo_obj_callbacks_t fd_obj_cb_execrp_result = {
+  .name      = "execrp_result",
+  .footprint = execrp_result_footprint,
+  .align     = execrp_result_align,
 };
 
 fd_topo_run_tile_t

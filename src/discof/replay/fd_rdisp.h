@@ -181,6 +181,11 @@
 #define FD_RDISP_UNSTAGED         ULONG_MAX
 #define FD_RDISP_MAX_ACCT_PER_TXN FD_TXN_ACCT_ADDR_MAX
 
+/* 62,500,000 CUs gets 3137 transactions with 64 writers and one with 34
+   writers for a total of 200,802.  Then we add 8k for inflation
+   rewards, 10 for sysvars, 4000 for vote accounts, and a bit of
+   padding. */
+#define FD_RDISP_MAX_WRITERS_PER_BLOCK 217354UL
 
 #define FD_RDISP_LTHASH_PSEUDO_TXN 0x80000000UL
 
@@ -188,8 +193,50 @@
    transaction internally.  Lower scores are better.  It should be close
    to 1 to maximize the scoring function's dynamic range, but small
    enough that when added to relevant sized integers, it is distinct
-   from the next integer. */
+   from the next integer.  That stops being true at 2^17, where
+   I+0.996f rounds to I+1 in float.  Pseudo-transactions can push a
+   block's integer parts (last_serializing, inserted_cnt) that high, so
+   fd_rdisp_score clamps the sum. */
 #define FD_RDISP_MAX_SCORE 0.996f
+
+/* FD_RDISP_PTXN_SCORE_MIN is the smallest fractional score of a staged
+   LtHash pseudo-transaction.  It is above FD_RDISP_MAX_SCORE, so within
+   a serializing class every READY transaction is handed out before any
+   READY pseudo-transaction.  The fraction is this constant plus 0.002
+   times the account's EMA, so it stays below 0.999, and among
+   pseudo-transactions a colder account still comes first.
+   fd_rdisp_score keeps the sum below integer_part+1 for every integer
+   part below 2^24.  From 2^14 the largest transaction fraction and this
+   constant round to the same float, and from 2^15 the EMA sliver is
+   lost and the clamp sets in.  A block of a few thousand transactions
+   and additions stays well below 2^14. */
+#define FD_RDISP_PTXN_SCORE_MIN 0.997f
+
+/* fd_rdisp_score returns frac+integer_part as a float that is
+   >=integer_part and strictly <integer_part+1.  The integer part of a
+   score is how many completions the node waits for, so a sum that
+   rounded up to integer_part+1 would wait for one completion too many,
+   possibly one that never comes.  For a fraction of at most
+   FD_RDISP_MAX_SCORE the plain sum is below integer_part+1 until 2^17
+   and is returned bit for bit.  A sum that rounds up, which the larger
+   pseudo-transaction fractions do from 2^15, is replaced by the largest
+   float below integer_part+1.  Requires 0<=frac<1 and
+   integer_part<2^24. */
+FD_FN_CONST static inline float
+fd_rdisp_score( float frac,
+                uint  integer_part ) {
+  float s    = frac + (float)integer_part;
+  float next = (float)(integer_part+1U);
+  if( FD_UNLIKELY( s>=next ) ) {
+    /* next>=1.0f is a positive normal, so the float just below it is
+       one bit pattern down. */
+    union { float f; uint u; } t;
+    t.f = next;
+    t.u--;
+    s = t.f;
+  }
+  return s;
+}
 
 struct fd_rdisp;
 typedef struct fd_rdisp fd_rdisp_t;
@@ -214,9 +261,15 @@ FD_PROTOTYPES_BEGIN
    tracked at a time.  Depth must be at least 2 and cannot exceed
    FD_RDISP_MAX_DEPTH.  block_depth is the maximum number of blocks that
    this dispatcher can track.  block_depth must be at least 4 and cannot
-   exceed FD_RDISP_MAX_BLOCK_DEPTH. */
+   exceed FD_RDISP_MAX_BLOCK_DEPTH.  The account pool holds the
+   FD_RDISP_MAX_ACCT_PER_TXN accounts each of the depth transactions can
+   reference, plus acct_extra entries for the accounts a staging lane
+   keeps in its writable set past the life of their transactions.  See
+   fd_rdisp_add_pseudo_txn.  Pass 0 for acct_extra when the writable
+   sets are not used.  Returns 0 if the account pool would exceed the
+   index space of an account edge. */
 ulong fd_rdisp_align    ( void        );
-ulong fd_rdisp_footprint( ulong depth, ulong block_depth );
+ulong fd_rdisp_footprint( ulong depth, ulong block_depth, ulong acct_extra );
 
 
 /* fd_rdisp_new formats a region of memory that satisfies the required
@@ -233,6 +286,7 @@ void *
 fd_rdisp_new( void * mem,
               ulong  depth,
               ulong  block_depth,
+              ulong  acct_extra,
               ulong  seed );
 
 fd_rdisp_t *
@@ -344,9 +398,9 @@ fd_rdisp_abandon_block( fd_rdisp_t          * disp,
    must be schedule-ready and empty, that is, not containing any
    transactions in the PENDING, READY, or DISPATCHED states.
 
-   For both functions, any LtHash pseudo-transactions that have been
-   added to block are discarded, but information about which accounts
-   need addition tasks are carried over.  */
+   For both functions, every LtHash pseudo-transaction created for the
+   block must have completed, and information about which accounts need
+   addition tasks is carried over.  */
 
 int
 fd_rdisp_promote_block( fd_rdisp_t *          disp,
@@ -355,6 +409,16 @@ fd_rdisp_promote_block( fd_rdisp_t *          disp,
 int
 fd_rdisp_demote_block( fd_rdisp_t *          disp,
                        FD_RDISP_BLOCK_TAG_T  block );
+
+/* fd_rdisp_clear_writable_set forgets every account in the writable set
+   of the block's lane.  No addition pseudo-transaction will be created
+   for them and demotion registers none of them as unstaged writable
+   accounts.  Transactions added afterwards with a NULL new_writable
+   keep the set empty.  Returns 0 on success and -1 if the block is not
+   found, not staged, or not schedule-ready. */
+int
+fd_rdisp_clear_writable_set( fd_rdisp_t *          disp,
+                             FD_RDISP_BLOCK_TAG_T  block );
 
 
 /* fd_rdisp_rekey_block renames the block with tag old_tag so that it
@@ -639,12 +703,18 @@ ulong
 fd_rdisp_staging_lane_info( fd_rdisp_t           const * disp,
                             fd_rdisp_staging_lane_info_t out_sched[ static 4 ] );
 
+/* fd_rdisp_lane_writable_cnt returns the number of accounts in the
+   writable set of staging_lane, which must be in [0,4). */
+ulong
+fd_rdisp_lane_writable_cnt( fd_rdisp_t * disp, ulong staging_lane );
+
 /* fd_rdisp_verify does some light verification and internal consistency
    checks of some internal data structures.  Aborts with an error
    message if anything fails verification.  disp is a pointer to a valid
    local join, and scratch is a pointer to a region of scratch memory
-   with at least depth*(FD_RDISP_MAX_ACCT_PER_TXN+1)+2 elements that
-   will be clobbered (its contents at the time of the function call are
+   with at least depth+depth*FD_RDISP_MAX_ACCT_PER_TXN+acct_extra+2
+   elements, one per transaction and pseudo-transaction slot, that will
+   be clobbered (its contents at the time of the function call are
    ignored). */
 void
 fd_rdisp_verify( fd_rdisp_t const * disp,

@@ -12,8 +12,8 @@
 #include "fd_sched.h"
 #include "../../ballet/bmtree/fd_bmtree.h"
 #include "../../ballet/sha256/fd_sha256.h"
-#include "../../flamenco/txn/fd_txn_generate.h"
 #include "../../flamenco/alpenglow/fd_block_marker_serde.h"
+#include "../../flamenco/txn/fd_txn_generate.h"
 
 /* Keep the generated cases small.  These limits are intentionally much
    smaller than production so the fuzzer stays cheap to run and easy to
@@ -21,6 +21,16 @@
 #define TEST_MAX_BLOCKS         12UL
 #define TEST_MAX_TXNS_PER_BLOCK 8UL
 #define TEST_MAX_ACCTS_PER_TXN  8UL
+/* Writable lookup table accounts of a version 0 transaction, which the
+   scheduler learns of at completion, and start-of-block writes, which
+   it learns of during BLOCK_START.  Both draw from the pool of shared
+   data accounts [1,8], and start-of-block writes also from sysvar-like
+   accounts, so the model's distinct accounts per block are bounded. */
+#define TEST_MAX_ALTS_PER_TXN   2UL
+#define TEST_MAX_START_WRITES   4UL
+#define TEST_MAX_ACCTS_PER_BLOCK 16UL
+#define TEST_SYSVAR_ID_BASE     0x100U
+#define TEST_SYSVAR_CNT         4UL
 #define TEST_MAX_MBLKS_PER_BLK  8UL
 #define TEST_MAX_BLOCK_BYTES    8192UL
 #define TEST_MAX_SEGMENTS       12UL /* header, up to 8 entry, up to 2 footer, tick */
@@ -72,10 +82,15 @@ typedef struct {
 typedef struct {
   uchar  payload[ FD_TXN_MTU ];
   ushort payload_sz;
-  uchar  acct_cnt;
+  uchar  acct_cnt;                            /* Static accounts. */
   uchar  sig_cnt;
   ushort acct_id[ TEST_MAX_ACCTS_PER_TXN ];
   uchar  acct_writable[ TEST_MAX_ACCTS_PER_TXN ];
+  uchar  is_alt;                              /* Version 0 with one lookup table.  Resolution is bypassed, so the
+                                                 scheduler inserts it serializing and learns its writable lookup
+                                                 table accounts only when it completes. */
+  uchar  alt_cnt;                             /* Writable lookup table accounts, distinct from the static ones. */
+  ushort alt_id[ TEST_MAX_ALTS_PER_TXN ];
 } txn_t;
 
 typedef struct {
@@ -104,19 +119,19 @@ typedef struct {
   ulong                mblk_cnt;
   fd_hash_t            mblk_start_hash[ TEST_MAX_MBLKS_PER_BLK ];
   fd_hash_t            mblk_hashed_hash[ TEST_MAX_MBLKS_PER_BLK ];
-  ulong                poh_assigned_mask; /* local mblks seen in a PoH task */
-  ulong                mblk_pool_idx    [ TEST_MAX_MBLKS_PER_BLK ];
+  ulong                mblk_pool_idx    [ TEST_MAX_MBLKS_PER_BLK ]; /* The scheduler's index of the microblock once a PoH task named it, else ULONG_MAX. */
   ulong                mblk_curr_hashcnt[ TEST_MAX_MBLKS_PER_BLK ];
   fd_hash_t            mblk_curr_hash   [ TEST_MAX_MBLKS_PER_BLK ];
 
   uchar encoded[ TEST_MAX_BLOCK_BYTES ];
   ulong encoded_sz;
-  ulong entry_off; /* entry batch: mblk_cnt-1 txn microblocks */
-  ulong tick_off;  /* alpentick batch */
+  ulong entry_off;  /* Offsets of the entry batch, the footer batch and the alpentick batch in encoded. */
+  ulong footer_off;
+  ulong tick_off;
   uint  txn_end_off[ TEST_MAX_TXNS_PER_BLOCK ];
   uchar txn_mblk_idx[ TEST_MAX_TXNS_PER_BLOCK ];
   uint  seg_end[ TEST_MAX_SEGMENTS ];
-  uchar seg_eob[ TEST_MAX_SEGMENTS ];
+  uchar seg_eob[ TEST_MAX_SEGMENTS ]; /* Whether the segment ends a batch. */
   ulong seg_cnt;
   ulong ingested_seg_cnt;
   int   poh_params_set;
@@ -127,9 +142,30 @@ typedef struct {
   ulong exec_done_mask;
   ulong sig_done_mask;
   int   start_seen;
+  int   inband;     /* BLOCK_START said the block hashes in band. */
   int   end_seen;
   int   dead_seen;
   int   ref_released_seen;
+
+  /* The LtHash model.  An account's version is the number of writes to
+     it the scheduler has been told of: start-of-block writes at
+     BLOCK_START, a transaction's static writable accounts and the
+     lookup table accounts it hands back at its completion.  The exec
+     tile's value for a subtraction is the hash of version 0 and for an
+     addition the hash of the account's version when the task is handed
+     out, so the block's delta is right only if every addition the
+     scheduler applied was hashed after the account's last write. */
+  ushort acct_id       [ TEST_MAX_ACCTS_PER_BLOCK ];
+  ulong  acct_write_cnt[ TEST_MAX_ACCTS_PER_BLOCK ];
+  ulong  acct_cnt;
+  /* The writer bound, see
+     FD_SCHED_DEAD_REASON_TOO_MANY_WRITABLE_ACCOUNTS.  Write locks the
+     scheduler has charged the block for: the static writable accounts
+     of the transactions it parsed, by the mirror's rule of which
+     segment completes a transaction, and the lookup table accounts
+     registered at completion. */
+  ulong  parsed_txn_cnt;
+  ulong  writable_declared;
 } block_t;
 
 typedef struct {
@@ -139,6 +175,7 @@ typedef struct {
      synthetic snapshot root, so block[i] corresponds to bank i+1. */
   ulong                block_cnt;
   fd_hash_t            root_hash[ 1 ];
+  ulong                writers_max; /* The bound on a block's declared writable accounts, lowered in some cases. */
   block_t block[ TEST_MAX_BLOCKS ];
 } case_t;
 
@@ -153,6 +190,7 @@ typedef struct {
   ulong     mblk_idx      [ FD_SCHED_POH_PARA ];
   ulong     local_mblk_idx[ FD_SCHED_POH_PARA ];
   fd_hash_t hash          [ FD_SCHED_POH_PARA ];
+  fd_lthash_value_t lthash_value[ 1 ]; /* The exec tile's result for an LTHASH_SUB or LTHASH_ADD batch, computed when the task is handed out. */
 } inflight_t;
 
 typedef struct {
@@ -200,6 +238,93 @@ has_ushort( ushort const * vals,
   return 0;
 }
 
+/* The id pubkey_from_id built the address from. */
+static ushort
+id_from_acct( fd_acct_addr_t const * acct ) {
+  return FD_LOAD( ushort, acct->b );
+}
+
+/* fake_hash is the value the exec tile returns for one account of an
+   LtHash task.  It hashes the account, the task kind and the account's
+   version, so that an addition hashed one write too early leaves a
+   trace in the delta unless the scheduler undoes it. */
+static void
+fake_hash( fd_lthash_value_t *    out,
+           fd_acct_addr_t const * acct,
+           int                    is_add,
+           ulong                  version ) {
+  ulong seed = FD_LOAD( ulong, acct->b ) ^ fd_ulong_if( is_add, 0x5a5a5a5a5a5a5a5aUL, 0UL ) ^ (version*0x9e3779b97f4a7c15UL);
+  for( ulong i=0UL; i<FD_LTHASH_LEN_BYTES/sizeof(ulong); i++ ) {
+    seed = fd_ulong_hash( seed ^ i );
+    FD_STORE( ulong, out->bytes+i*sizeof(ulong), seed );
+  }
+}
+
+/* The model's write count of account id in block, 0 if the block has
+   not written it. */
+static ulong
+block_acct_write_cnt( block_t const * block,
+                      ushort          id ) {
+  for( ulong i=0UL; i<block->acct_cnt; i++ ) if( block->acct_id[ i ]==id ) return block->acct_write_cnt[ i ];
+  return 0UL;
+}
+
+/* Records a write to account id in block. */
+static void
+block_write( block_t * block,
+             ushort    id ) {
+  for( ulong i=0UL; i<block->acct_cnt; i++ ) {
+    if( block->acct_id[ i ]==id ) { block->acct_write_cnt[ i ]++; return; }
+  }
+  FD_TEST( block->acct_cnt<TEST_MAX_ACCTS_PER_BLOCK );
+  block->acct_id       [ block->acct_cnt ] = id;
+  block->acct_write_cnt[ block->acct_cnt ] = 1UL;
+  block->acct_cnt++;
+}
+
+/* The delta a block must end with.  For every account it wrote, that
+   is the hash of its final version minus the hash of its version in
+   the parent. */
+static void
+block_expected_delta( block_t const *     block,
+                      fd_lthash_value_t * out ) {
+  fd_lthash_zero( out );
+  for( ulong i=0UL; i<block->acct_cnt; i++ ) {
+    fd_pubkey_t acct[ 1 ];
+    pubkey_from_id( acct, block->acct_id[ i ] );
+    fd_lthash_value_t h[ 1 ];
+    fake_hash( h, fd_type_pun_const( acct ), 1, block->acct_write_cnt[ i ] ); fd_lthash_add( out, h );
+    fake_hash( h, fd_type_pun_const( acct ), 0, 0UL );                        fd_lthash_sub( out, h );
+  }
+}
+
+/* The exec tile's value for an LtHash task handed out now. */
+static void
+lthash_task_value( block_t const *         block,
+                   fd_sched_task_t const * task,
+                   fd_lthash_value_t *     out ) {
+  int is_add = task->task_type==FD_SCHED_TT_LTHASH_ADD;
+  fd_lthash_zero( out );
+  for( ulong i=0UL; i<task->lthash->cnt; i++ ) {
+    fd_acct_addr_t const * acct    = task->lthash->accts+i;
+    ulong                  version = block_acct_write_cnt( block, id_from_acct( acct ) );
+    /* An addition is sequenced after the account's last write so far. */
+    FD_TEST( !is_add || version );
+    fd_lthash_value_t h[ 1 ];
+    fake_hash( h, acct, is_add, fd_ulong_if( is_add, version, 0UL ) );
+    fd_lthash_add( out, h );
+  }
+}
+
+/* The static writable accounts a transaction declares, a write lock
+   each. */
+static ulong
+txn_writable_cnt( txn_t const * txn ) {
+  ulong cnt = 0UL;
+  for( ulong i=0UL; i<txn->acct_cnt; i++ ) cnt += (ulong)txn->acct_writable[ i ];
+  return cnt;
+}
+
 /* repeat_hash is fd_sha256_hash( fd_sha256_hash(  ... start ) )
    repeated cnt times. */
 static void
@@ -212,10 +337,13 @@ repeat_hash( fd_hash_t *       out,
   fd_memcpy( out->hash, cur, 32UL );
 }
 
-/* txn_conflicts returns 1 if the two txns conflict, zero otherwise */
+/* txn_conflicts returns 1 if the two txns conflict, zero otherwise.  A
+   lookup table transaction is serializing and conflicts with every
+   other transaction of its block. */
 static int
 txn_conflicts( txn_t const * a,
                txn_t const * b ) {
+  if( FD_UNLIKELY( a->is_alt | b->is_alt ) ) return 1;
   for( ulong i=0UL; i<a->acct_cnt; i++ ) {
     for( ulong j=0UL; j<b->acct_cnt; j++ ) {
       if( FD_UNLIKELY( a->acct_id[ i ]!=b->acct_id[ j ] ) ) continue;
@@ -250,17 +378,15 @@ merkle_root( fd_hash_t * out,
 
    This is a harness self-check, not part of the scheduler model.  And
    is only called under FD_DEBUG.  It confirms that build_block()
-   serialized exactly block->mblk_cnt microblocks, that each header
-   still matches the cached mblk[] metadata, and that the byte cursor
-   implied by those headers lands exactly on block->encoded_sz after
-   consuming every transaction.
+   serialized the header marker, exactly block->mblk_cnt-1 transaction
+   microblocks, the footer marker and the alpentick at the cached
+   offsets, that each microblock header still matches the cached mblk[]
+   metadata, and that the byte cursor implied by those headers lands
+   exactly on block->encoded_sz after consuming every transaction.
 
-   For transaction microblocks, the function mirrors the production PoH
-   convention used by the builder: hash_cnt includes one final count for
-   the Merkle-root mixin, so the pure hash chain is replayed for
-   hash_cnt-1 steps before combining with the Merkle root of the
-   corresponding transaction slice.  Tick-only microblocks skip the
-   mixin and just advance PoH for hash_cnt steps.  In both cases the
+   Every entry advances exactly one hash.  For a transaction
+   microblock that hash is the mixin of the Merkle root of its
+   transactions, and for the alpentick a plain hash.  In both cases the
    recomputed header hash must match the serialized header.
 
    Walking the block this way also checks that the cached start_poh and
@@ -269,19 +395,19 @@ merkle_root( fd_hash_t * out,
    scheduler checks would no longer be meaningful. */
 FD_FN_UNUSED static void
 verify_block_encoding( block_t const * block ) {
-  FD_TEST( block->tick_off+sizeof(ulong)+sizeof(fd_microblock_hdr_t)==block->encoded_sz );
-  FD_TEST( FD_LOAD( ulong, block->encoded+block->entry_off )==block->mblk_cnt-1UL );
-  FD_TEST( FD_LOAD( ulong, block->encoded+block->tick_off  )==1UL );
+  fd_block_marker_t marker[ 1 ];
+  FD_TEST( !fd_block_marker_de( marker, block->encoded, block->entry_off ) && marker->kind==FD_BLOCK_MARKER_KIND_HEADER );
+  FD_TEST( !fd_block_marker_de( marker, block->encoded+block->footer_off, block->tick_off-block->footer_off ) && marker->kind==FD_BLOCK_MARKER_KIND_FOOTER );
 
-  ulong cursor = block->entry_off+sizeof(ulong);
+  ulong cursor = block->entry_off;
+  FD_TEST( FD_LOAD( ulong, block->encoded+cursor )==block->mblk_cnt-1UL );
+  cursor += sizeof(ulong);
   ulong txn_off = 0UL;
   fd_hash_t prev_hash[ 1 ];
   fd_memcpy( prev_hash, block->start_poh, sizeof(fd_hash_t) );
 
-  for( ulong i=0UL; i<block->mblk_cnt; i++ ) {
-    if( i==block->mblk_cnt-1UL ) cursor = block->tick_off+sizeof(ulong);
-    FD_TEST( cursor + sizeof(fd_microblock_hdr_t) <= block->encoded_sz );
-    FD_TEST( ((fd_microblock_hdr_t const *)fd_type_pun_const( block->encoded + cursor ))->hash_cnt==1UL );
+  for( ulong i=0UL; i<block->mblk_cnt-1UL; i++ ) {
+    FD_TEST( cursor + sizeof(fd_microblock_hdr_t) <= block->footer_off );
     fd_microblock_hdr_t const * hdr = fd_type_pun_const( block->encoded + cursor );
     cursor += sizeof(fd_microblock_hdr_t);
 
@@ -289,50 +415,46 @@ verify_block_encoding( block_t const * block ) {
       FD_LOG_ERR(( "builder txn_cnt mismatch on mblk %lu: hdr %lu expected %u cursor %lu encoded_sz %lu",
                    i, hdr->txn_cnt, block->mblk[ i ].txn_cnt, cursor-sizeof(fd_microblock_hdr_t), block->encoded_sz ));
     }
-    if( FD_UNLIKELY( hdr->hash_cnt != block->mblk[ i ].wire_hash_cnt ) ) {
-      FD_LOG_ERR(( "builder hash_cnt mismatch on mblk %lu: hdr %lu expected %lu cursor %lu encoded_sz %lu txn_off %lu txn_cnt %lu",
-                   i, hdr->hash_cnt, block->mblk[ i ].wire_hash_cnt, cursor-sizeof(fd_microblock_hdr_t), block->encoded_sz, txn_off, (ulong)hdr->txn_cnt ));
+    FD_TEST( hdr->txn_cnt && hdr->hash_cnt==1UL && block->mblk[ i ].wire_hash_cnt==1UL );
+
+    fd_hash_t merkle[ 1 ];
+    merkle_root( merkle, block->txn + txn_off, hdr->txn_cnt );
+
+    uchar mixin[ 64 ];
+    fd_memcpy( mixin,      prev_hash->hash, 32UL );
+    fd_memcpy( mixin+32UL, merkle->hash,    32UL );
+    fd_hash_t end_hash[ 1 ];
+    fd_sha256_hash( mixin, sizeof(mixin), end_hash->hash );
+
+    if( FD_UNLIKELY( memcmp( hdr->hash, end_hash->hash, sizeof(fd_hash_t) ) ) ) {
+      FD_BASE58_ENCODE_32_BYTES( hdr->hash, hdr_str );
+      FD_BASE58_ENCODE_32_BYTES( end_hash->hash, expect_str );
+      FD_LOG_ERR(( "builder hash mismatch on mblk %lu: hdr %s expected %s txn_off %lu txn_cnt %lu",
+                   i, hdr_str, expect_str, txn_off, (ulong)hdr->txn_cnt ));
     }
 
-    if( FD_LIKELY( hdr->txn_cnt ) ) {
-      fd_hash_t after_hashes[ 1 ];
-      repeat_hash( after_hashes, prev_hash, hdr->hash_cnt-1UL );
-
-      fd_hash_t merkle[ 1 ];
-      merkle_root( merkle, block->txn + txn_off, hdr->txn_cnt );
-
-      uchar mixin[ 64 ];
-      fd_memcpy( mixin,      after_hashes->hash, 32UL );
-      fd_memcpy( mixin+32UL, merkle->hash,       32UL );
-      fd_hash_t end_hash[ 1 ];
-      fd_sha256_hash( mixin, sizeof(mixin), end_hash->hash );
-
-      if( FD_UNLIKELY( memcmp( hdr->hash, end_hash->hash, sizeof(fd_hash_t) ) ) ) {
-        FD_BASE58_ENCODE_32_BYTES( hdr->hash, hdr_str );
-        FD_BASE58_ENCODE_32_BYTES( end_hash->hash, expect_str );
-        FD_LOG_ERR(( "builder hash mismatch on mblk %lu: hdr %s expected %s hash_cnt %lu txn_off %lu txn_cnt %lu",
-                     i, hdr_str, expect_str, hdr->hash_cnt, txn_off, (ulong)hdr->txn_cnt ));
-      }
-
-      for( ulong j=0UL; j<hdr->txn_cnt; j++ ) cursor += block->txn[ txn_off + j ].payload_sz;
-      txn_off += hdr->txn_cnt;
-      fd_memcpy( prev_hash, end_hash, sizeof(fd_hash_t) );
-    } else {
-      fd_hash_t tick_end[ 1 ];
-      repeat_hash( tick_end, prev_hash, hdr->hash_cnt );
-      if( FD_UNLIKELY( memcmp( hdr->hash, tick_end->hash, sizeof(fd_hash_t) ) ) ) {
-        FD_BASE58_ENCODE_32_BYTES( hdr->hash, hdr_str );
-        FD_BASE58_ENCODE_32_BYTES( tick_end->hash, expect_str );
-        FD_LOG_ERR(( "builder tick hash mismatch on mblk %lu: hdr %s expected %s hash_cnt %lu",
-                     i, hdr_str, expect_str, hdr->hash_cnt ));
-      }
-      fd_memcpy( prev_hash, tick_end, sizeof(fd_hash_t) );
-    }
+    for( ulong j=0UL; j<hdr->txn_cnt; j++ ) cursor += block->txn[ txn_off + j ].payload_sz;
+    txn_off += hdr->txn_cnt;
+    fd_memcpy( prev_hash, end_hash, sizeof(fd_hash_t) );
   }
-
   FD_TEST( txn_off == block->txn_cnt );
+  FD_TEST( cursor == block->footer_off );
+
+  cursor = block->tick_off;
+  FD_TEST( FD_LOAD( ulong, block->encoded+cursor )==1UL );
+  cursor += sizeof(ulong);
+  fd_microblock_hdr_t const * tick = fd_type_pun_const( block->encoded + cursor );
+  cursor += sizeof(fd_microblock_hdr_t);
+  FD_TEST( !tick->txn_cnt && tick->hash_cnt==1UL );
+  fd_hash_t tick_end[ 1 ];
+  repeat_hash( tick_end, prev_hash, 1UL );
+  if( FD_UNLIKELY( memcmp( tick->hash, tick_end->hash, sizeof(fd_hash_t) ) ) ) {
+    FD_BASE58_ENCODE_32_BYTES( tick->hash, hdr_str );
+    FD_BASE58_ENCODE_32_BYTES( tick_end->hash, expect_str );
+    FD_LOG_ERR(( "builder tick hash mismatch: hdr %s expected %s", hdr_str, expect_str ));
+  }
   FD_TEST( cursor == block->encoded_sz );
-  FD_TEST( !memcmp( prev_hash, block->end_poh, sizeof(fd_hash_t) ) );
+  FD_TEST( !memcmp( tick_end, block->end_poh, sizeof(fd_hash_t) ) );
 }
 
 static ulong
@@ -359,6 +481,14 @@ block_txn_mask( block_t const * block ) {
    so each transaction uses distinct data-account ids internally while
    unrelated transactions still collide often.
 
+   One transaction in four is version 0 with one lookup table naming
+   one or two writable accounts and up to one read-only account.  The
+   scheduler cannot resolve the table, so it inserts the transaction
+   serializing and the harness hands the writable accounts back at
+   completion, as the exec tile would.  They are drawn from the shared
+   pool extended to [1,8], distinct from the transaction's static
+   accounts.
+
    That distribution is deliberately conflict-heavy.  Every transaction
    contributes at least one writable shared-pool account, so two random
    transactions already conflict with probability at least 1/6 from the
@@ -372,11 +502,13 @@ block_txn_mask( block_t const * block ) {
    program while avoiding accidental overlap with the data-account id
    space used to model conflicts.
 
-   After fd_txn_base_generate() lays out the message, the function
+   After fd_txn_base_generate() lays out a legacy message, the function
    stamps deterministic signature bytes and appends one instruction that
    references every non-program account.  The instruction data records
    the generation choices so downstream debugging can recover the
-   intended shape from the wire image alone.
+   intended shape from the wire image alone.  A version 0 message is
+   laid out by hand with the same accounts, instruction and signature,
+   and the lookup table after the instruction.
 
    Finally, the builder reparses the finished payload and asserts that
    the parsed length matches payload_sz.  This keeps the harness focused
@@ -432,23 +564,21 @@ build_txn( reader_t * r, ulong block_idx, ulong txn_idx, txn_t * out ) {
   out->acct_id[ acct_cnt-1UL ]       = program_id;
   out->acct_writable[ acct_cnt-1UL ] = 0U;
 
-  fd_txn_accounts_t accounts = {
-    .signature_cnt         = 1U,
-    .readonly_signed_cnt   = 0U,
-    .readonly_unsigned_cnt = (uchar)(readonly_extra + 1UL),
-    .acct_cnt              = (ushort)acct_cnt,
-    .signers_w             = signer_w,
-    .signers_r             = NULL,
-    .non_signers_w         = non_signer_w,
-    .non_signers_r         = non_signer_r,
-  };
-
-  fd_memset( out->payload, 0, sizeof(out->payload) );
-  uchar meta[ FD_TXN_MAX_SZ ] __attribute__((aligned(alignof(fd_txn_t))));
-  fd_memset( meta, 0, sizeof(meta) );
-  fd_txn_base_generate( meta, out->payload, 1UL, &accounts, NULL );
-
-  for( ulong i=0UL; i<FD_TXN_SIGNATURE_SZ; i++ ) out->payload[ 1UL + i ] = (uchar)((block_idx<<4) ^ txn_idx ^ i);
+  out->is_alt  = read_range( r, 4UL )==0UL;
+  out->alt_cnt = 0U;
+  ulong alt_readonly_cnt = 0UL;
+  if( out->is_alt ) {
+    out->alt_cnt     = (uchar)(1UL + read_range( r, TEST_MAX_ALTS_PER_TXN ));
+    alt_readonly_cnt = read_range( r, 2UL );
+    for( ulong i=0UL; i<out->alt_cnt; i++ ) {
+      ushort id;
+      do {
+        id = (ushort)(1U + read_range( r, 8UL ));
+      } while( has_ushort( used, used_cnt, id ) );
+      used[ used_cnt++ ] = id;
+      out->alt_id[ i ] = id;
+    }
+  }
 
   uchar instr_accounts[ TEST_MAX_ACCTS_PER_TXN ];
   ulong instr_accounts_sz = acct_cnt-1UL; /* omit program */
@@ -462,7 +592,53 @@ build_txn( reader_t * r, ulong block_idx, ulong txn_idx, txn_t * out ) {
     (uchar)readonly_extra,
     read_uchar( r )
   };
-  out->payload_sz = (ushort)fd_txn_add_instr( meta, out->payload, (uchar)(acct_cnt-1UL), instr_accounts, instr_accounts_sz, instr_data, sizeof(instr_data) );
+
+  fd_memset( out->payload, 0, sizeof(out->payload) );
+  if( !out->is_alt ) {
+    fd_txn_accounts_t accounts = {
+      .signature_cnt         = 1U,
+      .readonly_signed_cnt   = 0U,
+      .readonly_unsigned_cnt = (uchar)(readonly_extra + 1UL),
+      .acct_cnt              = (ushort)acct_cnt,
+      .signers_w             = signer_w,
+      .signers_r             = NULL,
+      .non_signers_w         = non_signer_w,
+      .non_signers_r         = non_signer_r,
+    };
+    uchar meta[ FD_TXN_MAX_SZ ] __attribute__((aligned(alignof(fd_txn_t))));
+    fd_memset( meta, 0, sizeof(meta) );
+    fd_txn_base_generate( meta, out->payload, 1UL, &accounts, NULL );
+    out->payload_sz = (ushort)fd_txn_add_instr( meta, out->payload, (uchar)(acct_cnt-1UL), instr_accounts, instr_accounts_sz, instr_data, sizeof(instr_data) );
+  } else {
+    uchar * p = out->payload;
+    ulong   i = 0UL;
+    p[ i++ ] = 1;                                                         /* signature count */
+    i += FD_TXN_SIGNATURE_SZ;                                             /* signature, stamped below */
+    p[ i++ ] = 0x80;                                                      /* version 0 */
+    p[ i++ ] = 1;                                                         /* required signatures */
+    p[ i++ ] = 0;                                                         /* read-only signed */
+    p[ i++ ] = (uchar)(readonly_extra + 1UL);                             /* read-only unsigned */
+    p[ i++ ] = (uchar)acct_cnt;                                           /* static accounts */
+    fd_memcpy( p+i, signer_w, sizeof(fd_pubkey_t) );                      i += sizeof(fd_pubkey_t);
+    fd_memcpy( p+i, non_signer_w, writable_extra*sizeof(fd_pubkey_t) );   i += writable_extra*sizeof(fd_pubkey_t);
+    fd_memcpy( p+i, non_signer_r, (readonly_extra+1UL)*sizeof(fd_pubkey_t) ); i += (readonly_extra+1UL)*sizeof(fd_pubkey_t);
+    fd_memset( p+i, 0x33, FD_TXN_BLOCKHASH_SZ );                          i += FD_TXN_BLOCKHASH_SZ; /* recent blockhash */
+    p[ i++ ] = 1;                                                         /* instruction count */
+    p[ i++ ] = (uchar)(acct_cnt-1UL);                                     /*   program index */
+    p[ i++ ] = (uchar)instr_accounts_sz;                                  /*   account count */
+    fd_memcpy( p+i, instr_accounts, instr_accounts_sz );                  i += instr_accounts_sz;
+    p[ i++ ] = (uchar)sizeof(instr_data);                                 /*   data length */
+    fd_memcpy( p+i, instr_data, sizeof(instr_data) );                     i += sizeof(instr_data);
+    p[ i++ ] = 1;                                                         /* lookup table count */
+    fd_memset( p+i, 0x44, sizeof(fd_pubkey_t) );                          i += sizeof(fd_pubkey_t); /*   table address */
+    p[ i++ ] = out->alt_cnt;                                              /*   writable indices */
+    for( ulong j=0UL; j<out->alt_cnt; j++ ) p[ i++ ] = (uchar)j;
+    p[ i++ ] = (uchar)alt_readonly_cnt;                                   /*   read-only indices */
+    for( ulong j=0UL; j<alt_readonly_cnt; j++ ) p[ i++ ] = (uchar)(out->alt_cnt+j);
+    out->payload_sz = (ushort)i;
+  }
+
+  for( ulong i=0UL; i<FD_TXN_SIGNATURE_SZ; i++ ) out->payload[ 1UL + i ] = (uchar)((block_idx<<4) ^ txn_idx ^ i);
 
   uchar parsed[ FD_TXN_MAX_SZ ] __attribute__((aligned(alignof(fd_txn_t))));
   ulong parsed_pay_sz = 0UL;
@@ -476,22 +652,24 @@ build_txn( reader_t * r, ulong block_idx, ulong txn_idx, txn_t * out ) {
    stream and caches every intermediate artifact that later harness
    checks need.
 
-   The generated wire image is an Alpenglow block of four batches
+   The generated wire image is an Alpenglow block, four batches:
 
-     [ header ][ ulong cnt | txn microblock... ][ footer ][ ulong 1 | alpentick ]
+     [ header marker ][ ulong mblk_cnt ][ txn microblock... ][ footer marker ][ alpentick ]
 
    where each transaction microblock covers a contiguous slice of
-   block->txn[].  Every entry declares exactly one hash, so a
-   transaction microblock's one hash is the PoH record/mixin and its
-   pure hash portion is empty.  The harness keeps both the start hash
-   and the hash after the pure-hash portion so it can mirror the
-   scheduler's split between PoH work and transaction dispatch.  The
-   alpentick advances the block by exactly one tick of one hash.
+   block->txn[].  Every entry advances exactly one hash, which for a
+   transaction microblock is the mixin of its Merkle root, so no PoH
+   hashing is left for the exec tiles beyond the alpentick's one hash,
+   and every block advances exactly one tick.  The harness keeps both
+   the start hash and the hash after the pure-hash portion of each
+   microblock so it can mirror the scheduler's split between PoH work
+   and transaction dispatch.
 
    After encoding the block, the builder partitions the byte stream into
-   fuzz-controlled segments for incremental FEC ingestion.  The header
-   is its own segment, the entry batch is split at arbitrary offsets,
-   the footer may be split once, and the alpentick is its own segment.
+   segments for incremental FEC ingestion, one batch per FEC set as the
+   scheduler assumes.  The header marker and the alpentick are a segment
+   each, the footer marker is one segment or two, and the entry batch
+   is cut into fuzz-controlled segments at arbitrary offsets.
 
    The function also precomputes the transaction conflict predecessor
    masks and selects a failure_mode used later by the harness to inject
@@ -506,6 +684,7 @@ build_block( reader_t *        r,
              ulong             parent_slot,
              block_t *         block ) {
   fd_memset( block, 0, sizeof(block_t) );
+  for( ulong i=0UL; i<TEST_MAX_MBLKS_PER_BLK; i++ ) block->mblk_pool_idx[ i ] = ULONG_MAX;
   block->bank_idx        = bank_idx;
   block->parent_idx      = parent_idx;
   block->slot            = slot;
@@ -525,23 +704,28 @@ build_block( reader_t *        r,
   }
 
   uchar * p = block->encoded;
-  ulong   cursor = 0UL;
+  ulong txns_remaining = block->txn_cnt;
+  ulong cursor         = 0UL;
+  ulong txn_off        = 0UL;
+  fd_hash_t prev_hash[ 1 ];
+  fd_memcpy( prev_hash, parent_hash, sizeof(fd_hash_t) );
 
+  /* The header marker batch. */
+  uchar marker_buf[ FD_BLOCK_MARKER_SER_MAX ] __attribute__((aligned(64)));
   fd_block_marker_t marker[ 1 ];
   fd_memset( marker, 0, sizeof(fd_block_marker_t) );
   marker->kind               = FD_BLOCK_MARKER_KIND_HEADER;
   marker->header.parent_slot = parent_slot;
-  FD_TEST( cursor+FD_BLOCK_MARKER_SER_MAX<=sizeof(block->encoded) );
-  cursor += fd_block_marker_ser( marker, p+cursor );
-  ulong header_end = cursor;
+  ulong marker_sz = fd_block_marker_ser( marker, marker_buf );
+  FD_TEST( marker_sz && cursor + marker_sz <= sizeof(block->encoded) );
+  fd_memcpy( p + cursor, marker_buf, marker_sz );
+  cursor += marker_sz;
 
+  /* The entry batch, whose microblock count is stored once the
+     transactions are grouped. */
   block->entry_off = cursor;
+  ulong mblk_cnt_off = cursor;
   cursor += sizeof(ulong);
-
-  ulong txns_remaining = block->txn_cnt;
-  ulong txn_off        = 0UL;
-  fd_hash_t prev_hash[ 1 ];
-  fd_memcpy( prev_hash, parent_hash, sizeof(fd_hash_t) );
 
   block->mblk_cnt = 0UL;
   while( txns_remaining ) {
@@ -550,12 +734,14 @@ build_block( reader_t *        r,
     ulong min_group_txn_cnt = ( txns_remaining + tx_mblk_slots_rem - 1UL ) / tx_mblk_slots_rem;
     ulong group_txn_cnt = min_group_txn_cnt + read_range( r, txns_remaining - min_group_txn_cnt + 1UL );
 
-    fd_memcpy( block->mblk_start_hash  + block->mblk_cnt, prev_hash, sizeof(fd_hash_t) );
-    fd_memcpy( block->mblk_hashed_hash + block->mblk_cnt, prev_hash, sizeof(fd_hash_t) );
+    fd_memcpy( block->mblk_start_hash + block->mblk_cnt, prev_hash, sizeof(fd_hash_t) );
     block->mblk[ block->mblk_cnt ].start_txn      = (uint)txn_off;
     block->mblk[ block->mblk_cnt ].txn_cnt        = (uint)group_txn_cnt;
     block->mblk[ block->mblk_cnt ].wire_hash_cnt  = 1UL;
     block->mblk_cnt++;
+
+    /* No pure hashes, since the entry's one hash is the mixin. */
+    fd_memcpy( block->mblk_hashed_hash + block->mblk_cnt-1UL, prev_hash, sizeof(fd_hash_t) );
 
     fd_hash_t merkle[ 1 ];
     merkle_root( merkle, block->txn + txn_off, group_txn_cnt );
@@ -587,15 +773,19 @@ build_block( reader_t *        r,
     txn_off        += group_txn_cnt;
     txns_remaining -= group_txn_cnt;
   }
-  FD_STORE( ulong, p+block->entry_off, block->mblk_cnt );
-  ulong entry_end = cursor;
+  FD_STORE( ulong, p + mblk_cnt_off, block->mblk_cnt );
 
+  /* The footer marker batch. */
+  block->footer_off = cursor;
   fd_memset( marker, 0, sizeof(fd_block_marker_t) );
   marker->kind = FD_BLOCK_MARKER_KIND_FOOTER;
-  FD_TEST( cursor+FD_BLOCK_MARKER_SER_MAX<=sizeof(block->encoded) );
-  cursor += fd_block_marker_ser( marker, p+cursor );
-  ulong footer_end = cursor;
+  marker_sz = fd_block_marker_ser( marker, marker_buf );
+  FD_TEST( marker_sz && cursor + marker_sz <= sizeof(block->encoded) );
+  fd_memcpy( p + cursor, marker_buf, marker_sz );
+  cursor += marker_sz;
 
+  /* The alpentick, a batch of one tick advancing one hash. */
+  block->tick_off = cursor;
   FD_TEST( block->mblk_cnt<TEST_MAX_MBLKS_PER_BLK );
   fd_memcpy( block->mblk_start_hash + block->mblk_cnt, prev_hash, sizeof(fd_hash_t) );
   block->mblk[ block->mblk_cnt ].start_txn     = (uint)block->txn_cnt;
@@ -614,43 +804,38 @@ build_block( reader_t *        r,
   };
   fd_memcpy( tick_hdr.hash, tick_end->hash, sizeof(fd_hash_t) );
 
-  block->tick_off = cursor;
   FD_TEST( cursor + sizeof(ulong) + sizeof(fd_microblock_hdr_t) <= sizeof(block->encoded) );
-  FD_STORE( ulong, p+cursor, 1UL );
+  FD_STORE( ulong, p + cursor, 1UL );
   cursor += sizeof(ulong);
   fd_memcpy( p + cursor, &tick_hdr, sizeof(fd_microblock_hdr_t) );
   cursor += sizeof(fd_microblock_hdr_t);
   block->encoded_sz = cursor;
 
-  /* Segments: header | entry batch in [1,8] pieces | footer in [1,2]
-     pieces | alpentick. */
-  ulong seg = 0UL;
-  block->seg_end[ seg ] = (uint)header_end; block->seg_eob[ seg ] = 1; seg++;
-
-  ulong entry_sz  = entry_end - block->entry_off;
-  ulong entry_cnt = 1UL + read_range( r, fd_ulong_min( 8UL, entry_sz ) );
-  ulong off       = block->entry_off;
-  ulong rem       = entry_sz;
-  for( ulong i=0UL; i<entry_cnt; i++ ) {
-    ulong min_rem = entry_cnt-i-1UL;
-    ulong len     = fd_ulong_if( i+1UL==entry_cnt, rem, 1UL + read_range( r, rem-min_rem ) );
+  /* The FEC sets: the header batch, the entry batch cut into one to
+     TEST_MAX_SEGMENTS-4 segments, the footer batch in one or two
+     segments and the alpentick. */
+  ulong entry_sz      = block->footer_off - block->entry_off;
+  ulong entry_seg_cnt = 1UL + read_range( r, fd_ulong_min( TEST_MAX_SEGMENTS-4UL, entry_sz ) );
+  ulong seg_cnt       = 0UL;
+  block->seg_end[ seg_cnt ] = (uint)block->entry_off; block->seg_eob[ seg_cnt++ ] = 1U;
+  ulong off = block->entry_off;
+  ulong rem = entry_sz;
+  for( ulong i=0UL; i<entry_seg_cnt; i++ ) {
+    ulong min_rem = entry_seg_cnt-i-1UL;
+    ulong len     = fd_ulong_if( i+1UL==entry_seg_cnt, rem, 1UL + read_range( r, rem-min_rem ) );
     off += len;
     rem -= len;
-    block->seg_end[ seg ] = (uint)off;
-    block->seg_eob[ seg ] = (uchar)(i+1UL==entry_cnt);
-    seg++;
+    block->seg_end[ seg_cnt ] = (uint)off; block->seg_eob[ seg_cnt++ ] = (uchar)(i+1UL==entry_seg_cnt);
   }
-
-  ulong footer_sz = footer_end - entry_end;
+  FD_TEST( off==block->footer_off );
+  ulong footer_sz = block->tick_off - block->footer_off;
   if( read_uchar( r )&1U ) {
-    block->seg_end[ seg ] = (uint)(entry_end + 1UL + read_range( r, footer_sz-1UL ));
-    block->seg_eob[ seg ] = 0;
-    seg++;
+    block->seg_end[ seg_cnt ] = (uint)(block->footer_off + 1UL + read_range( r, footer_sz-1UL )); block->seg_eob[ seg_cnt++ ] = 0U;
   }
-  block->seg_end[ seg ] = (uint)footer_end;        block->seg_eob[ seg ] = 1; seg++;
-  block->seg_end[ seg ] = (uint)block->encoded_sz; block->seg_eob[ seg ] = 1; seg++;
-  FD_TEST( seg<=TEST_MAX_SEGMENTS );
-  block->seg_cnt = seg;
+  block->seg_end[ seg_cnt ] = (uint)block->tick_off;   block->seg_eob[ seg_cnt++ ] = 1U;
+  block->seg_end[ seg_cnt ] = (uint)block->encoded_sz; block->seg_eob[ seg_cnt++ ] = 1U;
+  block->seg_cnt = seg_cnt;
+  FD_TEST( seg_cnt<=TEST_MAX_SEGMENTS );
 
   switch( read_range( r, 6UL ) ) {
     case 0UL: block->failure_mode = TEST_FAIL_EXEC; break;
@@ -686,6 +871,10 @@ find_txn( block_t const * block,
 }
 
 static int
+lineage_dead( case_t const * tc,
+              ulong          bank_idx );
+
+static int
 block_can_ingest( case_t const * tc,
                   block_t const * block ) {
   if( FD_UNLIKELY( block->ingested_seg_cnt>=block->seg_cnt ) ) return 0;
@@ -717,9 +906,9 @@ prepare_fec( block_t const *  block,
     .fec                = store_fec,
     .data               = (uchar *)block->encoded + seg_start,
     .shred_cnt          = 1U,
-    .is_last_in_batch   = (uint)!!block->seg_eob[ seg ],
-    .is_last_in_block   = (uint)(seg+1UL==block->seg_cnt),
-    .is_first_in_block  = (uint)(seg==0UL),
+    .is_last_in_batch   = !!block->seg_eob[ seg ],
+    .is_last_in_block   = seg+1UL==block->seg_cnt,
+    .is_first_in_block  = seg==0UL,
   };
 }
 
@@ -741,8 +930,46 @@ ingest_next_segment( case_t * tc,
   fd_store_fec_t store_fec[ 1 ];
   fd_sched_fec_t fec[ 1 ];
   prepare_fec( block, store_fec, fec );
+
+  /* The transactions this segment completes are parsed in order and
+     charged to the block's writer bound, and the first over the bound
+     rules the block invalid.  A dying block's segments are ignored. */
+  int   dying             = lineage_dead( tc, block->bank_idx );
+  ulong parsed_txn_cnt    = block->parsed_txn_cnt;
+  ulong writable_declared = block->writable_declared;
+  int   over              = 0;
+  while( parsed_txn_cnt<block->txn_cnt && block->txn_end_off[ parsed_txn_cnt ]<=block->seg_end[ block->ingested_seg_cnt ] ) {
+    writable_declared += txn_writable_cnt( block->txn+parsed_txn_cnt );
+    parsed_txn_cnt++;
+    if( FD_UNLIKELY( writable_declared>tc->writers_max ) ) { over = 1; break; }
+  }
+
   FD_TEST( fd_sched_fec_can_ingest( tc->sched, fec ) );
-  FD_TEST( fd_sched_fec_ingest( tc->sched, fec ) );
+  if( FD_UNLIKELY( !fd_sched_fec_ingest( tc->sched, fec ) ) ) {
+    /* The scheduler refused the FEC set and the replay tile would mark
+       the bank dead.  A first FEC set that waited for a staging lane
+       while its lineage died is added dead, and never enters the
+       dispatcher.  A later FEC set that completes the transactions of a
+       microblock whose tampered PoH result already landed has its
+       mixin, and so the mismatch, found at ingest, unless a transaction
+       over the writer bound comes first. */
+    int dead_reason = fd_sched_get_dead_reason( tc->sched, block->bank_idx );
+    if( fec->is_first_in_block ) {
+      FD_TEST( lineage_dead( tc, block->parent_idx ) );
+      FD_TEST( dead_reason==FD_SCHED_DEAD_REASON_DEAD_ANCESTOR );
+    } else if( dead_reason==FD_SCHED_DEAD_REASON_TOO_MANY_WRITABLE_ACCOUNTS ) {
+      FD_TEST( over && !dying );
+    } else {
+      FD_TEST( block->failure_mode==TEST_FAIL_POH && block->failure_injected );
+      FD_TEST( dead_reason==FD_SCHED_DEAD_REASON_ENTRY_HASH_MISMATCH_INGEST );
+    }
+    block->dead_seen        = 1;
+    block->ingested_seg_cnt = block->seg_cnt;
+    return;
+  }
+  FD_TEST( !over || dying );
+  block->parsed_txn_cnt    = parsed_txn_cnt;
+  block->writable_declared = writable_declared;
   block->ingested_seg_cnt++;
   if( FD_UNLIKELY( !block->poh_params_set ) ) {
     fd_sched_set_poh_params( tc->sched, block->bank_idx, block->tick_height, block->max_tick_height, block->start_poh );
@@ -750,9 +977,8 @@ ingest_next_segment( case_t * tc,
   }
 }
 
-#define TEST_SCHED_MEM_SZ    ( 27UL*1024UL*1024UL )
-#define TEST_SCHED_MEM_ALIGN 128UL
-static uchar g_sched_mem[ TEST_SCHED_MEM_SZ ] __attribute__((aligned(TEST_SCHED_MEM_ALIGN)));
+/* The scheduler memory, allocated once in LLVMFuzzerInitialize. */
+static void * g_sched_mem;
 
 /* build_case turns one fuzz input into a complete scheduler test case.
 
@@ -786,11 +1012,26 @@ build_case( case_t * tc, uchar const * data, ulong data_sz ) {
      small so each case is cheaper to build and run. */
   ulong depth         = TEST_SCHED_DEPTH;
   ulong block_cnt_max = TEST_SCHED_BLOCK_CNT_MAX;
-  tc->mem = g_sched_mem;
+  tc->mem        = g_sched_mem;
 
   fd_rng_t rng[1];
   fd_rng_join( fd_rng_new( rng, 0U, 0UL ) );
   tc->sched = fd_sched_join( fd_sched_new( tc->mem, rng, depth, block_cnt_max, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT, TEST_EXEC_CNT ) );
+  /* There is no accounts database to resolve lookup tables against. */
+  fd_sched_set_bypass_alut_resolution( tc->sched, 1 );
+
+  /* One case in four lowers the writer bound to within reach of its
+     few transactions, so that blocks get ruled invalid for it at parse
+     and at a lookup table transaction's completion. */
+  tc->writers_max = FD_SCHED_LTHASH_TXN_WRITERS_MAX;
+  if( FD_UNLIKELY( read_range( &r, 4UL )==0UL ) ) {
+    tc->writers_max = 1UL + read_range( &r, 24UL );
+    fd_sched_set_lthash_txn_writers_max( tc->sched, tc->writers_max );
+  }
+
+  /* One case in four leaves room for one or two out-of-band blocks, so
+     that blocks on further forks hash in band. */
+  if( FD_UNLIKELY( read_range( &r, 4UL )==0UL ) ) fd_sched_set_lthash_oob_block_max( tc->sched, 1UL+read_range( &r, 2UL ) );
 
   /* Seed the scheduler with bank 0 as a completed snapshot root.  The
      notify/advance pair is a no-op for the current root, but using the
@@ -922,7 +1163,26 @@ complete_task( case_t *     tc,
         block->dead_seen        = 1;
         fd_sched_block_abandon( tc->sched, task->bank_idx, FD_SCHED_ABANDON_INVALID );
       }
-      FD_TEST( 0==fd_sched_task_done( tc->sched, FD_SCHED_TT_TXN_EXEC, task->txn_idx, task->exec_idx, NULL ) );
+      /* A lookup table transaction hands back its writable lookup table
+         accounts, which the scheduler registers as written, or refuses
+         if they put the block over the writer bound.  A dying block
+         gets no verdict. */
+      txn_t const *       txn   = block->txn + task->local_txn_idx;
+      int                 dying = lineage_dead( tc, task->bank_idx );
+      fd_acct_addr_t      alt_addr[ TEST_MAX_ALTS_PER_TXN ];
+      fd_sched_txn_alts_t alts[ 1 ] = {{ .cnt = txn->alt_cnt, .addrs = alt_addr }};
+      for( ulong i=0UL; i<txn->alt_cnt; i++ ) pubkey_from_id( fd_type_pun( alt_addr+i ), txn->alt_id[ i ] );
+      int over = txn->is_alt && block->writable_declared+txn->alt_cnt>tc->writers_max;
+      int rc   = fd_sched_task_done( tc->sched, FD_SCHED_TT_TXN_EXEC, task->txn_idx, task->exec_idx, txn->is_alt ? alts : NULL );
+      if( FD_UNLIKELY( over && !dying ) ) {
+        FD_TEST( rc==FD_SCHED_DEAD_REASON_TOO_MANY_WRITABLE_ACCOUNTS );
+        block->dead_seen = 1;
+      } else {
+        FD_TEST( rc==0 );
+        if( txn->is_alt && !dying ) block->writable_declared += txn->alt_cnt;
+      }
+      for( ulong i=0UL; i<txn->acct_cnt; i++ ) if( txn->acct_writable[ i ] ) block_write( block, txn->acct_id[ i ] );
+      for( ulong i=0UL; i<txn->alt_cnt;  i++ ) block_write( block, txn->alt_id[ i ] );
       info = fd_sched_get_txn_info( tc->sched, task->txn_idx );
       FD_TEST( info && (info->flags & FD_SCHED_TXN_EXEC_DONE) );
       block->exec_done_mask |= 1UL << task->local_txn_idx;
@@ -981,6 +1241,10 @@ complete_task( case_t *     tc,
       }
       break;
     }
+    case FD_SCHED_TT_LTHASH_SUB:
+    case FD_SCHED_TT_LTHASH_ADD:
+      FD_TEST( 0==fd_sched_task_done( tc->sched, task->task_type, ULONG_MAX, task->exec_idx, task->lthash_value ) );
+      break;
     default: FD_LOG_ERR(( "unexpected async task type %lu", task->task_type ));
   }
 }
@@ -1015,12 +1279,12 @@ rdisp_mirror_ensure_block( mirror_t * mirror,
   ulong slot = block->bank_idx-1UL;
   if( FD_UNLIKELY( !mirror->mem[ slot ] ) ) {
     if( FD_UNLIKELY( !g_rdisp_mem[ slot ] ) ) {
-      ulong footprint = fd_rdisp_footprint( TEST_RDISP_DEPTH, TEST_RDISP_BLOCK_DEPTH );
+      ulong footprint = fd_rdisp_footprint( TEST_RDISP_DEPTH, TEST_RDISP_BLOCK_DEPTH, 0UL );
       g_rdisp_mem[ slot ] = aligned_alloc( fd_rdisp_align(), footprint );
       FD_TEST( g_rdisp_mem[ slot ] );
     }
     mirror->mem[ slot ]  = g_rdisp_mem[ slot ];
-    mirror->disp[ slot ] = fd_rdisp_join( fd_rdisp_new( g_rdisp_mem[ slot ], TEST_RDISP_DEPTH, TEST_RDISP_BLOCK_DEPTH, 0x51a0f95dUL + block->bank_idx ) );
+    mirror->disp[ slot ] = fd_rdisp_join( fd_rdisp_new( g_rdisp_mem[ slot ], TEST_RDISP_DEPTH, TEST_RDISP_BLOCK_DEPTH, 0UL, 0x51a0f95dUL + block->bank_idx ) );
     FD_TEST( mirror->disp[ slot ] );
   }
 
@@ -1101,7 +1365,7 @@ rdisp_mirror_ingest_block( mirror_t * mirror,
                                       fd_type_pun_const( meta ),
                                       block->txn[ local_txn_idx ].payload,
                                       NULL,
-                                      0,
+                                      block->txn[ local_txn_idx ].is_alt,
                                       NULL );
     FD_TEST( txn_idx!=0UL );
     mirror->txn_idx[ slot ][ local_txn_idx ] = txn_idx;
@@ -1179,9 +1443,11 @@ run_sched_rdisp_case( uchar const * data, ulong data_sz ) {
      the same protocol the production replay tile uses: blocks become
      visible via fd_sched_fec_ingest() and fd_sched_set_poh_params(),
      replay polls fd_sched_task_next_ready(), BLOCK_START/BLOCK_END and
-     MARK_DEAD are handled locally, and TXN_EXEC/TXN_SIGVERIFY/POH_HASH
-     are completed later with fd_sched_task_done() after worker
-     responses arrive. */
+     MARK_DEAD are handled locally, and TXN_EXEC/TXN_SIGVERIFY/POH_HASH/
+     LTHASH_SUB/LTHASH_ADD are completed later with fd_sched_task_done()
+     after worker responses arrive.  Start-of-block writes are reported
+     during BLOCK_START, and the block's LtHash delta is checked against
+     the model at BLOCK_END. */
   for( ulong steps=0UL; steps<100000UL; steps++ ) {
     drain_refs( tc );
     rdisp_mirror_try_retire_dead_blocks( tc, mirror );
@@ -1229,6 +1495,20 @@ run_sched_rdisp_case( uchar const * data, ulong data_sz ) {
         FD_TEST( !block->start_seen );
         if( FD_LIKELY( block->parent_idx!=0UL ) ) FD_TEST( tc->block[ block->parent_idx-1UL ].end_seen );
         block->start_seen = 1;
+        block->inband     = task->block_start->lthash_inband;
+        /* Start-of-block processing writes a few accounts, shared data
+           accounts and sysvar-like ones, duplicates included, and
+           reports them before BLOCK_START completes.  An in-band block
+           reports nothing. */
+        fd_acct_addr_t start_addr[ TEST_MAX_START_WRITES ];
+        ulong start_cnt = read_range( &r, TEST_MAX_START_WRITES+1UL );
+        for( ulong i=0UL; i<start_cnt; i++ ) {
+          ulong  pick = read_range( &r, 6UL+TEST_SYSVAR_CNT );
+          ushort id   = pick<6UL ? (ushort)(1UL+pick) : (ushort)(TEST_SYSVAR_ID_BASE+pick-6UL);
+          pubkey_from_id( fd_type_pun( start_addr+i ), id );
+          block_write( block, id );
+        }
+        if( start_cnt && !block->inband ) fd_sched_block_start_writes( tc->sched, bank_idx, start_addr, start_cnt );
         FD_TEST( 0==fd_sched_task_done( tc->sched, FD_SCHED_TT_BLOCK_START, ULONG_MAX, ULONG_MAX, NULL ) );
         break;
       }
@@ -1242,6 +1522,14 @@ run_sched_rdisp_case( uchar const * data, ulong data_sz ) {
         FD_TEST( block->sig_done_mask  == block_txn_mask( block ) );
         FD_TEST( !memcmp( fd_sched_get_poh( tc->sched, bank_idx ), block->end_poh, sizeof(fd_hash_t) ) );
         FD_TEST( fd_sched_get_shred_cnt( tc->sched, bank_idx ) == (uint)block->seg_cnt );
+        /* The delta is read before completion, as the replay tile does,
+           and holds exactly one subtraction and one addition at the
+           final version per account the block wrote.  An in-band block
+           has an empty delta. */
+        fd_lthash_value_t expected[ 1 ];
+        block_expected_delta( block, expected );
+        if( block->inband ) FD_TEST( fd_lthash_is_zero( fd_sched_lthash_delta( tc->sched, bank_idx ) ) );
+        else                FD_TEST( fd_lthash_eq( fd_sched_lthash_delta( tc->sched, bank_idx ), expected ) );
         FD_TEST( 0==fd_sched_task_done( tc->sched, FD_SCHED_TT_BLOCK_END, ULONG_MAX, ULONG_MAX, NULL ) );
         block->end_seen = 1;
         rdisp_mirror_drain_block( mirror, block );
@@ -1275,6 +1563,7 @@ run_sched_rdisp_case( uchar const * data, ulong data_sz ) {
           FD_TEST( (block->exec_done_mask & block->pred_mask[ local ]) == block->pred_mask[ local ] );
         if( FD_LIKELY( task->task_type==FD_SCHED_TT_TXN_EXEC ) ) {
           FD_TEST( !(info->flags & FD_SCHED_TXN_EXEC_DONE) );
+          FD_TEST( !!(info->flags & FD_SCHED_TXN_ALT_UNRESOLVED)==block->txn[ local ].is_alt );
         } else {
           FD_TEST( !(info->flags & FD_SCHED_TXN_SIGVERIFY_DONE) );
           FD_TEST( info->sigverify_exec_tile_idx==exec_idx );
@@ -1307,19 +1596,19 @@ run_sched_rdisp_case( uchar const * data, ulong data_sz ) {
         for( ulong i=0UL; i<task->poh_hash->cnt; i++ ) {
           ulong pool_idx       = task->poh_hash->mblk_idx[ i ];
           ulong local_mblk_idx = ULONG_MAX;
+          /* Microblocks are hashed independently, each from its
+             predecessor's claimed end hash, so their tasks come in any
+             order.  A microblock with hashing left is known by the
+             scheduler's index, a new one by the hash it starts from,
+             which is distinct per microblock. */
           for( ulong l=0UL; l<block->mblk_cnt; l++ ) {
-            if( !fd_ulong_extract_bit( block->poh_assigned_mask, (int)l ) ) continue;
             if( block->mblk_pool_idx[ l ]==pool_idx && block->mblk_curr_hashcnt[ l ]<mblk_task_hashcnt( block, l ) ) { local_mblk_idx = l; break; }
           }
           if( local_mblk_idx==ULONG_MAX ) {
-            /* Microblocks with no pure hashes can dispatch out of order,
-               so match a new one by its start hash. */
             for( ulong l=0UL; l<block->mblk_cnt; l++ ) {
-              if( fd_ulong_extract_bit( block->poh_assigned_mask, (int)l ) ) continue;
-              if( !memcmp( task->poh_hash->hash+i, block->mblk_start_hash+l, sizeof(fd_hash_t) ) ) { local_mblk_idx = l; break; }
+              if( block->mblk_pool_idx[ l ]==ULONG_MAX && !memcmp( task->poh_hash->hash+i, block->mblk_start_hash + l, sizeof(fd_hash_t) ) ) { local_mblk_idx = l; break; }
             }
-            FD_TEST( local_mblk_idx<block->mblk_cnt );
-            block->poh_assigned_mask = fd_ulong_set_bit( block->poh_assigned_mask, (int)local_mblk_idx );
+            FD_TEST( local_mblk_idx!=ULONG_MAX );
             block->mblk_pool_idx    [ local_mblk_idx ] = pool_idx;
             block->mblk_curr_hashcnt[ local_mblk_idx ] = 0UL;
             fd_memcpy( block->mblk_curr_hash + local_mblk_idx, block->mblk_start_hash + local_mblk_idx, sizeof(fd_hash_t) );
@@ -1331,6 +1620,25 @@ run_sched_rdisp_case( uchar const * data, ulong data_sz ) {
           fd_memcpy( entry->hash+i, task->poh_hash->hash+i, sizeof(fd_hash_t) );
         }
         FD_TEST( task->poh_hash->hashcnt==min_todo ); /* one hash per tick, none per txn microblock */
+        break;
+      }
+      case FD_SCHED_TT_LTHASH_SUB:
+      case FD_SCHED_TT_LTHASH_ADD: {
+        bank_idx = task->lthash->bank_idx;
+        FD_TEST( bank_idx>0UL && bank_idx<=tc->block_cnt );
+        block_t * block = tc->block + (bank_idx-1UL);
+        FD_TEST( block->start_seen );
+        FD_TEST( !block->inband );
+        FD_TEST( !block->end_seen );
+        FD_TEST( task->lthash->cnt && task->lthash->cnt<=FD_SCHED_LTHASH_BATCH_MAX );
+        FD_TEST( task->lthash->exec_idx<TEST_EXEC_CNT );
+        inflight_t * entry = inflight + inflight_cnt++;
+        *entry = (inflight_t) {
+          .task_type = task->task_type,
+          .bank_idx  = bank_idx,
+          .exec_idx  = task->lthash->exec_idx,
+        };
+        lthash_task_value( block, task, entry->lthash_value );
         break;
       }
       default: FD_LOG_ERR(( "unexpected task_type %lu", task->task_type ));
@@ -1396,8 +1704,10 @@ LLVMFuzzerInitialize( int  *   argc,
   fd_log_level_core_set( 3 );
   atexit( fd_halt );
 
-  FD_TEST( fd_sched_footprint( TEST_SCHED_DEPTH, TEST_SCHED_BLOCK_CNT_MAX, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT )<=sizeof(g_sched_mem) );
-  FD_TEST( fd_sched_align()==TEST_SCHED_MEM_ALIGN );
+  ulong footprint = fd_sched_footprint( TEST_SCHED_DEPTH, TEST_SCHED_BLOCK_CNT_MAX, FD_SHRED_BLK_MAX, FD_MAX_TXN_PER_SLOT );
+  FD_TEST( footprint );
+  g_sched_mem = aligned_alloc( fd_sched_align(), footprint );
+  FD_TEST( g_sched_mem );
 
   return 0;
 }
