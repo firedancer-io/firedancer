@@ -937,11 +937,15 @@ FD_UNIT_TEST( bundle_client_refresh_token ) {
   FD_TEST( state->auther.state==FD_BUNDLE_AUTH_STATE_DONE_WAIT );
 
   /* Refresh halfway to expiry */
+  FD_TEST( fd_bundle_client_next_deadline( state, t0 )==t0+(long)1800e9 );
   g_clock = t0+(long)1800e9;
   fd_bundle_client_step( state, &charge_busy );
   FD_TEST( state->auther.state==FD_BUNDLE_AUTH_STATE_REQ_REFRESH );
   fd_bundle_client_step( state, &charge_busy );
   FD_TEST( state->auther.state==FD_BUNDLE_AUTH_STATE_WAIT_REFRESH );
+
+  /* The passed refresh_at must not keep the tile awake */
+  FD_TEST( fd_bundle_client_next_deadline( state, g_clock )>g_clock );
 
   /* Get newly created stream */
   FD_TEST( grpc_client->stream_cnt==3 );
@@ -1013,6 +1017,7 @@ FD_UNIT_TEST( bundle_client_reauth ) {
   FD_TEST( state->auther.state==FD_BUNDLE_AUTH_STATE_DONE_WAIT );
 
   /* Re-authenticate halfway to the refresh token's expiry */
+  FD_TEST( fd_bundle_client_next_deadline( state, t0 )==t0+(long)900e9 );
   g_clock = t0+(long)900e9-1L;
   fd_bundle_client_step( state, &charge_busy );
   FD_TEST( state->auther.state==FD_BUNDLE_AUTH_STATE_DONE_WAIT );

@@ -29,7 +29,7 @@ int LLVMFuzzerTestOneInput( const uchar *data, ulong size ) {
     return 0;
   }
 
-  uchar const op = data[ 0 ] & 0x3U;
+  uchar const op = data[ 0 ] % 5U;
   uchar const *payload = data+1;
   ulong payload_sz = size-1UL;
 
@@ -63,11 +63,21 @@ int LLVMFuzzerTestOneInput( const uchar *data, ulong size ) {
       fd_bundle_auther_reset( pAuther );
       FD_TEST( pAuther->state==FD_BUNDLE_AUTH_STATE_REQ_CHALLENGE );
       break;
+    case 4:
+      pAuther->state = FD_BUNDLE_AUTH_STATE_WAIT_REFRESH;
+      rc = fd_bundle_auther_handle_refresh_resp( pAuther, payload, payload_sz, 0L );
+      if( rc ) {
+        FD_TEST( pAuther->state==FD_BUNDLE_AUTH_STATE_DONE_WAIT );
+      } else {
+        FD_TEST( pAuther->state==FD_BUNDLE_AUTH_STATE_REQ_CHALLENGE );
+      }
+      break;
   }
 
   FD_TEST( pAuther->state<=FD_BUNDLE_AUTH_STATE_WAIT_REFRESH );
   FD_TEST( pAuther->needs_poll<=1 );
   FD_TEST( pAuther->access_token_sz<=sizeof(pAuther->access_token) );
+  FD_TEST( pAuther->refresh_token_sz<=sizeof(pAuther->refresh_token) );
 
   (void) rc; /* suppress unused-var warning when assertions are off */
 

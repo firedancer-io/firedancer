@@ -300,6 +300,8 @@ fd_bundle_client_next_deadline( fd_bundle_tile_t const * ctx,
                                                                : ctx->keepalive->ts_next_tx );
   if( FD_LIKELY( ctx->builder_info_avail & !ctx->builder_info_wait ) )
     deadline = fd_long_min( deadline, ctx->builder_info_valid_until );
+  if( FD_LIKELY( ctx->auther.state==FD_BUNDLE_AUTH_STATE_DONE_WAIT ) )
+    deadline = fd_long_min( deadline, fd_long_min( ctx->auther.refresh_at, ctx->auther.reauth_at ) );
   if( FD_UNLIKELY( ctx->backoff_until>now ) )
     deadline = fd_long_min( deadline, ctx->backoff_until );
   return deadline;
