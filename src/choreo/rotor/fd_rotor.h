@@ -43,13 +43,14 @@ struct fd_rotor_fec {
   int       complete;
   int       data_complete;
   long      first_ts;      /* when its first shred arrived, 0 if none yet */
+  long      cmpl_ts;       /* when it first completed, 0 if not yet */
   int       is_leader;
   int       notarized;
   ulong     next;
   ulong     prev;
 };
 typedef struct fd_rotor_fec fd_rotor_fec_t;
-FD_STATIC_ASSERT( sizeof(fd_rotor_fec_t)==112UL, fd_rotor_fec );
+FD_STATIC_ASSERT( sizeof(fd_rotor_fec_t)==120UL, fd_rotor_fec );
 
 #define POOL_NAME fd_rotor_fec_pool
 #define POOL_T    fd_rotor_fec_t
@@ -107,6 +108,30 @@ struct fd_rotor_blk {
   struct {
     uchar cancelled_reason; /* FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_*, 0 if never cancelled */
     uchar reported;         /* given to the report callback, at completion or when freed */
+    long  cancelled_ts;     /* when cancelled_reason was first set, 0 if never cancelled */
+    uint  last_cmpl_fec_idx;    /* fec_set_idx of the FEC set that most recently completed, UINT_MAX if none */
+    long  last_shred_ts;        /* when the blk became contiguous through a FEC set completion, 0 if it has not */
+    uint  turbine_shred_cnt;    /* turbine data and coding shreds of its FEC sets, as counted by the shred tile */
+    uint  repair_shred_cnt;     /* repair shreds of its FEC sets, as counted by the shred tile */
+    uint  recovered_shred_cnt;  /* shreds of its FEC sets recovered from coding shreds */
+
+    /* tile: sent requests, by FD_ROTOR_SERDE_TAG_*, a FEC set req counts once per shred asked for */
+
+    uint  req_window_cnt;
+    uint  req_highest_cnt;
+    uint  req_orphan_cnt;
+    uint  req_shred_bid_cnt;
+    uint  req_parent_cnt;
+    uint  req_fec_root_cnt;
+    long  first_req_ts;         /* tile: when the first req of any kind was sent, 0 if none */
+
+    /* tile: verified responses to its pending requests */
+
+    uint  shred_res_cnt;        /* repair shreds matched to a pending window or ShredForBlockId req */
+    uint  parent_res_cnt;       /* ParentAndFecCount responses */
+    uint  fec_root_res_cnt;     /* FecRoot responses */
+    long  last_shred_res_ts;    /* when the last matched repair shred arrived, 0 if none */
+    long  first_meta_res_ts;    /* when the first ParentAndFecCount or FecRoot response arrived, 0 if none */
   } telemetry;
 };
 typedef struct fd_rotor_blk fd_rotor_blk_t;
@@ -237,7 +262,8 @@ fd_rotor_blk_dead( fd_rotor_t *      rotor,
 fd_rotor_blk_t *
 fd_rotor_blk_finalized( fd_rotor_t *      rotor,
                         ulong             slot,
-                        fd_mr32_t const * blk_mr );
+                        fd_mr32_t const * blk_mr,
+                        long              ts );
 
 /* votor_out     FD_VOTOR_SIG_CERTED NOTAR
    votor_out     FD_VOTOR_SIG_REPAIR
@@ -280,13 +306,18 @@ fd_rotor_slot_catchup( fd_rotor_t * rotor,
 
    the shred tile already inserted the FEC set into the store.  computes
    the eager blk's dmr once it has every FEC set, our leader FECs go to
-   the head of the reasm deque. */
+   the head of the reasm deque.  {turbine,repair,recovered}_cnt
+   are the FEC set's shred counts from the shred tile, added to the
+   telemetry of each blk holding the FEC set on its first completion. */
 
 fd_rotor_fec_t *
 fd_rotor_fec_complete( fd_rotor_t *       rotor,
                        fd_shred_t const * last_shred,
                        fd_mr32_t const *  fec_mr,
                        int                is_leader,
+                       uint               turbine_cnt,
+                       uint               repair_cnt,
+                       uint               recovered_cnt,
                        long               ts );
 
 /* shred_out     SHRED_SIG_FEC_EVICTED
@@ -310,7 +341,8 @@ fd_rotor_fec_notarized( fd_rotor_t *      rotor,
                         ulong             slot,
                         fd_mr32_t const * blk_mr,
                         uint              fec_set_idx,
-                        fd_mr20_t const * fec_mr );
+                        fd_mr20_t const * fec_mr,
+                        long              ts );
 
 /* replay_slot   REPLAY_SIG_ROOT_ADVANCED
 
@@ -338,12 +370,13 @@ fd_rotor_shred_insert( fd_rotor_t *       rotor,
    also called internally on a bad block header or conflicting
    parents.  the eager blk is never repaired again, the slot is only
    reachable by blk id.  reason is the eager blk's block_received
-   cancelled_reason. */
+   cancelled_reason, ts its cancelled_time. */
 
 void
 fd_rotor_slot_invalidated( fd_rotor_t * rotor,
                            ulong        slot,
-                           int          reason );
+                           int          reason,
+                           long         ts );
 
 /* slot must be the root or in the window after it, slots congruent mod
    slot_max share an entry, which is reset for slot first. */

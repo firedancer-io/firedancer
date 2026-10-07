@@ -41,7 +41,7 @@ test_order( void ) {
   FD_TEST( fd_rotor_strat_pick( strat, 0L, 0 )==fd_rotor_strat_query( strat, &u ) );
   fd_rotor_strat_request_done( strat, &u, 10L*1000000L );
 
-  /* One timeout leaves it in its bucket, repeated ones demote it. */
+  /* One slow reply leaves it in its bucket, repeated ones demote it. */
 
   fd_rotor_strat_request_done( strat, &u, 1000L*1000000L );
   FD_TEST( fd_rotor_strat_query( strat, &u )->bucket==FD_ROTOR_STRAT_BUCKET_25MS );
@@ -64,6 +64,13 @@ test_order( void ) {
   FD_TEST( fd_rotor_strat_query( strat, &a )->srtt==srtt );
   FD_TEST( !fd_rotor_strat_pick( strat, 50L, 1 ) );
   FD_TEST(  fd_rotor_strat_pick( strat, 100L, 1 ) );
+
+  /* A shorter ban, eg. an expiry after a verify failure, keeps the
+     longer one. */
+
+  fd_rotor_strat_request_failed( strat, &a, 200L );
+  fd_rotor_strat_request_failed( strat, &a, 150L );
+  FD_TEST( fd_rotor_strat_query( strat, &a )->ban_ts==200L );
 
   FD_TEST( fd_rotor_strat_hedge_ns( fd_rotor_strat_query( strat, &a ) )==srtt+4L*fd_rotor_strat_query( strat, &a )->rttvar );
 }

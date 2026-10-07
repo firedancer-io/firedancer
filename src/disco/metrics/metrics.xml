@@ -1487,6 +1487,7 @@ EXAMPLES
     <counter name="TimeoutCancelled" summary="Timeouts dropped because their blk is gone or their work is done" />
     <counter name="TimeoutNoPeer" summary="Timeouts deferred because no peer could be picked" />
     <counter name="RequestHedged" summary="Request sends after the first attempt of the same timeout, possibly to the same peer" />
+    <counter name="RequestExpired" summary="Pending requests that got no response within PENDING_TTL, each bans its peer for PENDING_TTL" />
     <counter name="PingTx" summary="Requests sent to elicit a ping from a peer with a new address" />
     <gauge name="EagerDelayNanos" summary="t_eager over all leaders, how long a missing FEC set waits for turbine before it is repaired" />
     <gauge name="SignCnt" summary="Messages in the sign pool waiting for a signature from the sign tiles" />

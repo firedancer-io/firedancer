@@ -140,9 +140,7 @@ fd_rotor_strat_pick( fd_rotor_strat_t * strat,
                      int                staked );
 
 /* fd_rotor_strat_request_done ends a request picked from id_key with a
-   reply that verified.  rtt is its round trip, or the timeout if it
-   timed out, so a peer that does not answer drifts into slower
-   buckets. */
+   reply that verified.  rtt is its round trip. */
 
 void
 fd_rotor_strat_request_done( fd_rotor_strat_t *  strat,
@@ -150,7 +148,8 @@ fd_rotor_strat_request_done( fd_rotor_strat_t *  strat,
                              long                rtt );
 
 /* fd_rotor_strat_request_failed ends a request picked from id_key with
-   a reply that failed to verify, and skips the peer until ban_ts. */
+   a reply that failed to verify, or no reply at all, and skips the peer
+   until ban_ts.  It takes no rtt sample. */
 
 void
 fd_rotor_strat_request_failed( fd_rotor_strat_t *  strat,
