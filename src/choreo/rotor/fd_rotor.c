@@ -332,7 +332,7 @@ fd_rotor_align( void ) {
 FD_FN_CONST ulong
 fd_rotor_footprint( ulong slot_max,
                     ulong fec_max ) {
-  ulong blk_max = slot_max*( 4UL+AG_EQVOC_BLOCK_HASH_MAX )/5UL; /* 80% of leaders make one blk a slot, 20% every hash */
+  ulong blk_max = fd_rotor_blk_max( slot_max );
   return FD_LAYOUT_FINI(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
@@ -372,7 +372,7 @@ fd_rotor_new( void * shmem,
   fd_memset( shmem, 0, footprint );
   fd_rotor_t * rotor;
 
-  ulong blk_max = slot_max*( 4UL+AG_EQVOC_BLOCK_HASH_MAX )/5UL; /* 80% of leaders make one blk a slot, 20% every hash */
+  ulong blk_max = fd_rotor_blk_max( slot_max );
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   rotor              = FD_SCRATCH_ALLOC_APPEND( l, fd_rotor_align(),              sizeof(fd_rotor_t)                                            );

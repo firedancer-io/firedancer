@@ -17,6 +17,7 @@
 #include "../../disco/store/fd_store.h"
 #include "../../discof/repair/fd_repair_tile.h"
 #include "../../discof/rotor/fd_rotor_tile.h"
+#include "../../choreo/rotor/fd_rotor.h"
 #include "../../disco/net/fd_net_tile.h"
 #include "../../discof/backup/fd_backup.h"
 #include "../../discof/restore/fd_snapct_tile.h"
@@ -1258,9 +1259,10 @@ fd_topo_initialize( config_t * config ) {
       P(V > budget) to z standard deviations needs a budget of
       ~N*(2.2 + 4.8*z/sqrt(N)).
 
-      We size for 2.5*N, which leaves 0.3*N of headroom, ie.
-      ~0.0625*sqrt(N) standard deviations.  The probability that a
-      window holds more than 2.5*N versions is:
+      We size for 2.5*N (FD_ROTOR_BLK_VERSION_NUM/DEN, the same factor
+      rotor sizes its blk pool with, see fd_rotor_blk_max), which leaves
+      0.3*N of headroom, ie. ~0.0625*sqrt(N) standard deviations.  The
+      probability that a window holds more than 2.5*N versions is:
 
         N =  2048  ~2.5e-3
         N =  4096  ~4.2e-5
@@ -1302,7 +1304,7 @@ fd_topo_initialize( config_t * config ) {
   ulong fec_sets_per_slot = fd_ulong_if( config->firedancer.development.fixed_fec_sets,
                                          config->limits.max_shreds_per_block/FD_FEC_SHRED_CNT, config->limits.max_shreds_per_block );
   ulong store_fec_max = alpenglow_enabled
-                         ? ( 5UL * config->tiles.rotor.slot_max * fec_sets_per_slot + 1UL ) / 2UL /* ceil( 2.5 * slot_max * fec_sets_per_slot ) */
+                         ? fd_rotor_blk_max( config->tiles.rotor.slot_max ) * fec_sets_per_slot /* every FEC set of every blk rotor holds */
                          : config->firedancer.runtime.max_live_slots * fec_sets_per_slot + (shred_depth * shred_tile_cnt) + repair_out_link->depth + 1;
 
   /* 32 shreds * 995 payload bytes = 31840 bytes with fixed_fec_sets = true

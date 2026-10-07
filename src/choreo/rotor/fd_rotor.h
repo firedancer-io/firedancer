@@ -13,6 +13,27 @@ typedef struct fd_mr20 fd_mr20_t;
 
 typedef fd_hash_t fd_mr32_t;
 
+/* FD_ROTOR_BLK_VERSION_{NUM,DEN} is the number of blk versions rotor
+   holds per slot of its window, as the fraction NUM/DEN (2.5).  With
+   20% of stake malicious and equivocating AG_EQVOC_BLOCK_HASH_MAX
+   versions of each of its slots, the expected count is 2.2 per slot,
+   2.5 leaves headroom for the variance of the leader schedule (see
+   store_fec_max in src/app/firedancer/topology.c, which sizes Store
+   with the same factor). */
+
+#define FD_ROTOR_BLK_VERSION_NUM (5UL)
+#define FD_ROTOR_BLK_VERSION_DEN (2UL)
+
+/* fd_rotor_blk_max returns the number of blks a rotor with a window of
+   slot_max slots holds, ie. ceil( slot_max*NUM/DEN ). */
+
+FD_FN_CONST static inline ulong
+fd_rotor_blk_max( ulong slot_max ) {
+  return ( slot_max*FD_ROTOR_BLK_VERSION_NUM + FD_ROTOR_BLK_VERSION_DEN-1UL ) / FD_ROTOR_BLK_VERSION_DEN;
+}
+
+typedef struct fd_rotor_blk fd_rotor_blk_t;
+
 struct fd_rotor_fec {
   fd_mr20_t key;
   fd_mr32_t mr32;
