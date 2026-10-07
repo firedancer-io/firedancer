@@ -280,7 +280,7 @@ main( int     argc,
 
   /* Test handholding */
   FD_LOG_NOTICE(( "Testing handholding" ));
-#if FD_HAS_HOSTED && FD_TMPL_USE_HANDHOLDING
+#if FD_HAS_HOSTED && FD_DCHECK_STYLE==1
   #define FD_EXPECT_LOG_CRIT( ACTION ) do {                         \
     pid_t pid = fork();                                            \
     FD_TEST( pid >= 0 );                                           \
@@ -308,7 +308,7 @@ main( int     argc,
   FD_EXPECT_LOG_CRIT( __extension__({ iter = map_iter_next( iter, map, pool );
                                      FD_LOG_NOTICE(( "%lu", iter.chain_rem )); }) );
 #else
-  FD_LOG_WARNING(( "skip: testing handholding, requires hosted" ));
+  FD_LOG_WARNING(( "skip: testing handholding, requires hosted and FD_DCHECK_STYLE==1" ));
 #endif
 
   /* Test fast removal cases */

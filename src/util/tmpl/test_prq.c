@@ -305,7 +305,7 @@ main( int     argc,
     if( FD_UNLIKELY( test_implicit_heap( heap, keep_cnt-1UL-i, max ) ) ) return 1;
   }
 
-#if FD_HAS_HOSTED && FD_TMPL_USE_HANDHOLDING
+#if FD_HAS_HOSTED && FD_DCHECK_STYLE==1
   #define FD_EXPECT_LOG_CRIT( CALL ) do {                          \
     FD_LOG_DEBUG(( "Testing that "#CALL" triggers FD_LOG_CRIT" )); \
     pid_t pid = fork();                                            \
@@ -334,7 +334,7 @@ main( int     argc,
   }
   FD_EXPECT_LOG_CRIT( eventq_insert( heap, &heap[0] ) );
 #else
-  FD_LOG_WARNING(( "skip: testing handholding, requires hosted" ));
+  FD_LOG_WARNING(( "skip: testing handholding, requires hosted and FD_DCHECK_STYLE==1" ));
 #endif
 
   FD_TEST( implq_leave ( heap     )==sheventq );
@@ -346,4 +346,3 @@ main( int     argc,
   fd_halt();
   return 0;
 }
-
