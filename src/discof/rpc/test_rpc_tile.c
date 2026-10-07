@@ -610,7 +610,36 @@ main( int     argc,
   FD_TEST( ctx->http->oring_sz );
   ctx->http->epoll_fd = epoll_create1( 0 );
   FD_TEST( -1!=ctx->http->epoll_fd );
+  static fd_identity_transition_t identity_status;
+  fd_topo_obj_t * identity_obj = fd_topob_obj( topo, "id_status", "wksp" );
+  void * identity_mem = fd_wksp_alloc_laddr( wksp, alignof(fd_identity_transition_t), sizeof(fd_identity_transition_t), 1UL );
+  FD_TEST( identity_mem );
+  memset( identity_mem, 0, sizeof(fd_identity_transition_t) );
+  identity_obj->offset = fd_wksp_gaddr_fast( wksp, identity_mem );
+  fd_topob_tile_uses( topo, tile, identity_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
   unprivileged_init( topo, tile );
+  ctx->identity_status = &identity_status;
+  fd_identity_record_t observation = { .instance = {1UL,2UL} };
+  fd_identity_snapshot_write( &identity_status.status, &observation );
+  expect_rpc_response( ctx,
+    "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"identityTransitionStatus\"}",
+    "{\"jsonrpc\":\"2.0\",\"result\":{\"version\":1,\"processInstanceId\":\"00000000000000010000000000000002\",\"sequence\":0,\"state\":\"idle\",\"consensus\":\"unknown\",\"currentIdentity\":\"11111111111111111111111111111111\",\"fromIdentity\":\"11111111111111111111111111111111\",\"toIdentity\":\"11111111111111111111111111111111\",\"voteAccount\":\"\",\"fromIdentityLastSubmittedVoteSlot\":null,\"towerRootSlot\":null,\"error\":null},\"id\":1}" );
+  observation.state = FD_IDENTITY_STATE_COMPLETE;
+  observation.consensus = FD_IDENTITY_CONSENSUS_ALPENGLOW;
+  observation.sequence = 1UL;
+  observation.has_last_submitted_slot = 1UL;
+  fd_identity_snapshot_write( &identity_status.status, &observation );
+  expect_rpc_response( ctx,
+    "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"identityTransitionStatus\",\"params\":[]}",
+    "{\"jsonrpc\":\"2.0\",\"result\":{\"version\":1,\"processInstanceId\":\"00000000000000010000000000000002\",\"sequence\":1,\"state\":\"complete\",\"consensus\":\"alpenglow\",\"currentIdentity\":\"11111111111111111111111111111111\",\"fromIdentity\":\"11111111111111111111111111111111\",\"toIdentity\":\"11111111111111111111111111111111\",\"voteAccount\":\"\",\"fromIdentityLastSubmittedVoteSlot\":0,\"towerRootSlot\":null,\"error\":null},\"id\":1}" );
+  expect_rpc_response( ctx,
+    "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"identityTransitionStatus\",\"params\":[1]}",
+    "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid parameters: No parameters were expected\",\"data\":\"\"},\"id\":1}" );
+  __atomic_store_n( &identity_status.status.generation, 1UL, __ATOMIC_SEQ_CST );
+  expect_rpc_response( ctx,
+    "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"identityTransitionStatus\",\"params\":null}",
+    "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32603,\"message\":\"Identity transition observation unavailable\"},\"id\":1}" );
+  __atomic_store_n( &identity_status.status.generation, 2UL, __ATOMIC_SEQ_CST );
 
   test_genesis_static_body( ctx );
   test_snapshot_redirect( ctx );

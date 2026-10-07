@@ -198,6 +198,13 @@ test_identity_switch_waits_for_replay( void ) {
   FD_TEST( fd_pubkey_eq( ctx->identity_key, &old_identity ) );
   FD_TEST( identity_keyswitch->result==ULONG_MAX );
 
+  static fd_identity_transition_t shared;
+  ctx->identity_status = &shared;
+  ctx->identity_consensus = FD_IDENTITY_CONSENSUS_TOWER;
+  ctx->tower->root = 50UL;
+  fd_identity_record_t record = { .instance = {1UL,2UL} };
+  fd_identity_begin( &shared, &record, old_identity.uc, new_identity.uc );
+  FD_TEST( !shared.frozen[FD_IDENTITY_FREEZE_VOTER].generation );
   ctx->in_kind[ 0 ] = IN_KIND_REPLAY;
   FD_TEST( before_frag( ctx, 0UL, 0UL, REPLAY_SIG_RESET ) );
   FD_TEST( ctx->replay_in_seq==1UL );
@@ -207,6 +214,10 @@ test_identity_switch_waits_for_replay( void ) {
   FD_TEST( ctx->halt_signing );
   FD_TEST( fd_pubkey_eq( ctx->identity_key, &new_identity ) );
 
+  fd_identity_record_t frozen;
+  FD_TEST( fd_identity_snapshot_read( &shared.frozen[FD_IDENTITY_FREEZE_VOTER], &frozen ) );
+  FD_TEST( fd_identity_matches( &record, &frozen ) );
+  FD_TEST( frozen.has_tower_root && frozen.tower_root==50UL );
   FD_LOG_NOTICE(( "pass: test_identity_switch_waits_for_replay" ));
 }
 

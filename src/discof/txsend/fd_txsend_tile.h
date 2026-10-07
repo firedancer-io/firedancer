@@ -12,6 +12,7 @@
 #include "../../disco/keyguard/fd_keyswitch.h"
 #include "../../util/net/fd_net_headers.h"
 #include "../fd_startup.h"
+#include "../admin/fd_identity_transition.h"
 
 struct fd_txsend_in {
   fd_wksp_t * mem;
@@ -141,6 +142,8 @@ struct fd_txsend_tile {
   fd_txsend_out_t net_out[1];
 
   fd_keyswitch_t * keyswitch;
+  fd_identity_transition_t * identity_status;
+  fd_identity_counter_t identity_submissions;
   fd_keyswitch_t * av_keyswitch;
   ulong tower_in_expect_seq;
   ulong txsend_out_seq;

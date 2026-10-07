@@ -5053,10 +5053,32 @@ test_ag_leader_fec_not_gated( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_ag_leader_fec_not_gated" ));
 }
 
+static void
+test_identity_consensus( void ) {
+  static fd_bank_t bank;
+  memset( &bank, 0, sizeof(bank) );
+  fd_epoch_schedule_derive( &bank.f.epoch_schedule, 32UL, 32UL, 0 );
+  bank.f.features.alpenglow = ULONG_MAX;
+  bank.f.alpenglow_migration_slot = ULONG_MAX;
+  FD_TEST( identity_consensus( NULL, 0 )==FD_IDENTITY_CONSENSUS_UNKNOWN );
+  FD_TEST( identity_consensus( &bank, 0 )==FD_IDENTITY_CONSENSUS_TOWER );
+  FD_TEST( identity_consensus( &bank, 1 )==FD_IDENTITY_CONSENSUS_UNKNOWN );
+  bank.f.features.alpenglow = 0UL;
+  FD_TEST( identity_consensus( &bank, 0 )==FD_IDENTITY_CONSENSUS_UNKNOWN );
+  FD_TEST( identity_consensus( &bank, 1 )==FD_IDENTITY_CONSENSUS_UNKNOWN );
+  fd_epoch_schedule_derive( &bank.f.epoch_schedule, 32UL, 32UL, 0 );
+  bank.f.alpenglow_migration_slot = 33UL;
+  bank.f.epoch = 1UL;
+  FD_TEST( identity_consensus( &bank, 1 )==FD_IDENTITY_CONSENSUS_UNKNOWN );
+  bank.f.epoch = 2UL;
+  FD_TEST( identity_consensus( &bank, 1 )==FD_IDENTITY_CONSENSUS_ALPENGLOW );
+}
+
 int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
+  test_identity_consensus();
 
   char const * _page_sz = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",  NULL, "gigantic"               );
   ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 2UL                      );

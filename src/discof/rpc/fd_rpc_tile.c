@@ -1,4 +1,5 @@
 #include "../replay/fd_replay_tile.h"
+#include "../admin/fd_identity_transition.h"
 #include "../tower/fd_tower_tile.h"
 #include "../genesis/fd_genesi_tile.h"
 #include "../votor/fd_votor_tile.h"
@@ -493,6 +494,7 @@ struct fd_rpc_tile {
   ulong * waker_fseq;
 
   fd_keyswitch_t * keyswitch;
+  fd_identity_transition_t const * identity_status;
   uchar identity_pubkey[ 32UL ];
 
   int in_kind[ 64UL ];
@@ -2168,6 +2170,40 @@ getHealth( fd_rpc_tile_t *         ctx,
   }
 }
 
+static fd_http_server_response_t
+identityTransitionStatus( fd_rpc_tile_t *         ctx,
+                          char const *            id_cstr,
+                          fd_rpc_params_t const * params ) {
+  fd_http_server_response_t response;
+  if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id_cstr, params, 0UL, 0UL, &response ) ) ) return response;
+
+  fd_identity_record_t record;
+  if( FD_UNLIKELY( !ctx->identity_status || !fd_identity_snapshot_read( &ctx->identity_status->status, &record ) ||
+                  !(record.instance[0] | record.instance[1]) ) )
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32603,\"message\":\"Identity transition observation unavailable\"},\"id\":%s}\n", id_cstr );
+
+  FD_BASE58_ENCODE_32_BYTES( ctx->identity_pubkey, current );
+  FD_BASE58_ENCODE_32_BYTES( (uchar const *)record.from, from );
+  FD_BASE58_ENCODE_32_BYTES( (uchar const *)record.to, to );
+  FD_BASE58_ENCODE_32_BYTES( (uchar const *)record.vote_account, vote_account );
+  char instance[33];
+  char submission[21];
+  char root[21];
+  fd_cstr_printf( instance, sizeof(instance), NULL, "%016lx%016lx", record.instance[0], record.instance[1] );
+  fd_cstr_printf( submission, sizeof(submission), NULL, "%lu", record.last_submitted_slot );
+  fd_cstr_printf( root, sizeof(root), NULL, "%lu", record.tower_root );
+  char const * states[] = { "idle", "transitioning", "complete", "failed" };
+  char const * consensus[] = { "unknown", "tower", "alpenglow" };
+  char const * errors[] = { "null", "\"Observation unavailable for this transition\"",
+                           "\"Same identity has no distinct outgoing context\"", "\"Observation sequence exhausted\"" };
+  if( FD_UNLIKELY( record.state>=4UL || record.consensus>=3UL || record.error>=4UL ) )
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32603,\"message\":\"Invalid identity transition observation\"},\"id\":%s}\n", id_cstr );
+  return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":{\"version\":1,\"processInstanceId\":\"%s\",\"sequence\":%lu,\"state\":\"%s\",\"consensus\":\"%s\",\"currentIdentity\":\"%s\",\"fromIdentity\":\"%s\",\"toIdentity\":\"%s\",\"voteAccount\":\"%s\",\"fromIdentityLastSubmittedVoteSlot\":%s,\"towerRootSlot\":%s,\"error\":%s},\"id\":%s}\n",
+                      instance, record.sequence, states[record.state], consensus[record.consensus], current, from, to,
+                      record.has_vote_account ? vote_account : "", record.has_last_submitted_slot ? submission : "null",
+                      record.has_tower_root ? root : "null", errors[record.error], id_cstr );
+}
+
 UNIMPLEMENTED(getHighestSnapshotSlot)
 
 static fd_http_server_response_t
@@ -3018,6 +3054,7 @@ rpc_json_request( fd_rpc_tile_t * ctx,
   else if( FD_LIKELY( !strcmp( method, "sendTransaction"                   ) ) ) response = sendTransaction( ctx, id_cstr, params );
   else if( FD_LIKELY( !strcmp( method, "simulateTransaction"               ) ) ) response = simulateTransaction( ctx, id_cstr, params );
   else if( FD_LIKELY( !strcmp( method, "getAgGenesisCert"                  ) ) ) response = getAgGenesisCert( ctx, id_cstr, params );
+  else if( FD_UNLIKELY( !strcmp( method, "identityTransitionStatus"          ) ) ) response = identityTransitionStatus( ctx, id_cstr, params );
   else {
     FD_MCNT_INC( RPC, REQUEST_SERVED_UNKNOWN, 1UL );
     response = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32601,\"message\":\"Method not found\"},\"id\":%s}\n", id_cstr );
@@ -3190,6 +3227,9 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->ws_subscribers_vote_cnt = 0UL;
   ctx->ws_subscribers_slot = _ws_sub_slot;
   ctx->ws_subscribers_slot_cnt = 0UL;
+
+  fd_topo_obj_t const * identity_status_obj = fd_topo_find_tile_obj( topo, tile, "id_status" );
+  ctx->identity_status = identity_status_obj ? fd_topo_obj_laddr( topo, identity_status_obj->id ) : NULL;
 
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
   FD_TEST( ctx->keyswitch );

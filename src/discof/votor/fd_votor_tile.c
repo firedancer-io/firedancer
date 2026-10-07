@@ -1,4 +1,5 @@
 #include "fd_votor_tile.h"
+#include "../admin/fd_identity_transition.h"
 #include <linux/futex.h>
 #include "generated/fd_votor_tile_seccomp.h"
 
@@ -146,6 +147,7 @@ struct reward_vote {
   ulong            slot; /* ULONG_MAX if free */
   long             retry_ts;
   ulong            tx_cnt;
+  int              identity_vote; /* observation: vote belongs to our current identity */
   fd_quic_conn_t * conn; /* conn the pkt_nums were sent on */
   ulong            pkt_num[ QUIC_K_PACKET_THRESHOLD+1UL ]; /* QUIC considers packets at kPacketThreshold (3), so we overwrite the oldest packet number after 3 */
   ag_vote_t        vote;
@@ -211,6 +213,8 @@ struct fd_votor_tile {
 
   fd_pubkey_t          id_key;
   fd_keyswitch_t *     id_keyswitch;
+  fd_identity_transition_t * identity_status;
+  fd_identity_counter_t identity_submissions;
   int                  halt_signing;      /* switching identity, see during_housekeeping */
   ulong                replay_in_seq;     /* seq after the last replay_slot frag consumed */
   ulong                wait_to_vote_slot; /* from the new identity's vote history file, 0 if none */
@@ -739,6 +743,19 @@ quic_client_datagram_tx( fd_votor_tile_t *   ctx,
   ulong sz_l2  = sizeof(fd_ip4_udp_hdrs_t) + pkt_sz;
   fd_stem_publish( stem, OUT_IDX_NET, sig, ctx->net_out_chunk, sz_l2, fd_frag_meta_ctl( 0UL, 1, 1, 0 ), 0L, 0L );
   ctx->net_out_chunk = fd_dcache_compact_next( ctx->net_out_chunk, FD_NET_MTU, ctx->net_out_chunk0, ctx->net_out_wmark );
+  return pkt_num;
+}
+
+static inline ulong
+quic_client_vote_tx( fd_votor_tile_t *   ctx,
+                     fd_stem_context_t * stem,
+                     fd_quic_conn_t *    conn,
+                     uchar const *       buf,
+                     ulong               buf_sz,
+                     ulong               slot,
+                     int                 identity_vote ) {
+  ulong pkt_num = quic_client_datagram_tx( ctx, stem, conn, buf, buf_sz );
+  if( pkt_num!=ULONG_MAX && identity_vote ) fd_identity_submitted( &ctx->identity_submissions, slot );
   return pkt_num;
 }
 
@@ -1415,6 +1432,10 @@ during_housekeeping( fd_votor_tile_t * ctx ) {
     /* If votes and pool events drained close quic conns and update
        leader tracking. */
     if( FD_LIKELY( !ag_votor_metrics( ctx->votor ).vote_events_cnt && !ag_pool_metrics( ctx->pool ).pool_events_cnt ) ) {
+      fd_identity_freeze( ctx->identity_status, FD_IDENTITY_FREEZE_VOTER,
+                          ctx->id_key.uc, ctx->id_keyswitch->bytes,
+                          ctx->init ? FD_IDENTITY_CONSENSUS_ALPENGLOW : FD_IDENTITY_CONSENSUS_UNKNOWN,
+                          NULL, &ctx->identity_submissions, ULONG_MAX );
       memcpy( ctx->id_key.uc, ctx->id_keyswitch->bytes, sizeof(fd_pubkey_t) );
       ctx->wait_to_vote_slot = FD_LOAD( ulong, ctx->id_keyswitch->bytes+32UL ) ? FD_LOAD( ulong, ctx->id_keyswitch->bytes+40UL ) : 0UL;
       fd_quic_set_identity_public_key( ctx->quic_client, ctx->id_key.uc );
@@ -1648,6 +1669,7 @@ after_credit( fd_votor_tile_t *   ctx,
     ag_epoch_info_t const * epoch_info = fd_ptr_if( vote_slot>=ctx->next_epoch_slot, ctx->next_epoch_info, fd_ptr_if( vote_slot>=ctx->curr_epoch_slot, ctx->curr_epoch_info, ctx->prev_epoch_info ) );
     ulong                   rank       = ag_vote_rank( &ctx->scratch.vote );
     if( FD_LIKELY( epoch_info && rank<epoch_info->validator_cnt ) ) {
+      int identity_vote = !memcmp( epoch_info->validators[rank].id_key, ctx->id_key.uc, 32UL );
       long  aggregation_start_time = fd_clock_tile_now( ctx->clock );
       uchar quorum_reached;
       int   err = ag_pool_add_vote( ctx->pool, &ctx->scratch.vote, ctx->scratch.bad, &quorum_reached );
@@ -1672,6 +1694,7 @@ after_credit( fd_votor_tile_t *   ctx,
         rv->tx_cnt   = 0UL;
         rv->conn     = NULL;
         rv->vote     = ctx->scratch.vote;
+        rv->identity_vote = identity_vote;
       }
 
       for( ulong slot=0UL; slot<peers_slot_cnt(); slot++ ) {
@@ -1680,7 +1703,7 @@ after_credit( fd_votor_tile_t *   ctx,
                        || !peer->tx_conn
                        || peer->tx_conn->state!=FD_QUIC_CONN_STATE_ACTIVE
                        || peer==reward_leader ) ) continue;
-        quic_client_datagram_tx( ctx, stem, peer->tx_conn, ctx->scratch.ser, ser_sz );
+        quic_client_vote_tx( ctx, stem, peer->tx_conn, ctx->scratch.ser, ser_sz, vote_slot, identity_vote );
       }
 
       int result;
@@ -1729,7 +1752,7 @@ after_credit( fd_votor_tile_t *   ctx,
     if( FD_UNLIKELY( !peer ) ) continue;
     long  broadcast_start_time = fd_clock_tile_now( ctx->clock );
     ulong ser_sz               = ag_vote_ser( &rv->vote, ctx->scratch.ser );
-    ulong pkt_num              = quic_client_datagram_tx( ctx, stem, peer->tx_conn, ctx->scratch.ser, ser_sz );
+    ulong pkt_num              = quic_client_vote_tx( ctx, stem, peer->tx_conn, ctx->scratch.ser, ser_sz, rv->slot, rv->identity_vote );
     if( FD_UNLIKELY( pkt_num==ULONG_MAX ) ) {
       rv->retry_ts = now+REWARD_VOTE_RTT_MIN_NS;
       continue;
@@ -2050,6 +2073,10 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->auth_vtr_keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->av_keyswitch_obj_id ) );
   FD_TEST( ctx->auth_vtr_keyswitch );
+  fd_topo_obj_t const * identity_status_obj = fd_topo_find_tile_obj( topo, tile, "id_status" );
+  ctx->identity_status = identity_status_obj ? fd_topo_obj_laddr( topo, identity_status_obj->id ) : NULL;
+
+  memset( &ctx->identity_submissions, 0, sizeof(ctx->identity_submissions) );
   ctx->id_keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
   FD_TEST( ctx->id_keyswitch );
   ctx->halt_signing      = 0;

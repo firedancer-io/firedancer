@@ -299,6 +299,7 @@ fd_topo_initialize( config_t * config ) {
   /*             topo, name */
   fd_topob_wksp( topo, "metric" );
   fd_topob_wksp( topo, "diag"   );
+  fd_topob_wksp( topo, "id_status" );
   fd_topob_wksp( topo, "genesi" );
   fd_topob_wksp( topo, "ipecho" );
   fd_topob_wksp( topo, "gossvf" );
@@ -1060,6 +1061,18 @@ fd_topo_initialize( config_t * config ) {
       }
       topo->blocklist_cores_cpu_idx[ i ] = blocklist_cores[ i ];
     }
+  }
+
+  fd_topo_obj_t * identity_status = fd_topob_obj( topo, "id_status", "id_status" );
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    fd_topo_tile_t * tile = &topo->tiles[i];
+    int writer = !strcmp( tile->name, "admin"  ) ||
+                 !strcmp( tile->name, "replay" ) ||
+                 !strcmp( tile->name, "tower"  ) ||
+                 !strcmp( tile->name, "votor"  ) ||
+                 !strcmp( tile->name, "txsend" );
+    if( writer || !strcmp( tile->name, "rpc" ) )
+      fd_topob_tile_uses( topo, tile, identity_status, writer ? FD_SHMEM_JOIN_MODE_READ_WRITE : FD_SHMEM_JOIN_MODE_READ_ONLY );
   }
 
   fd_topo_obj_t * admin_ctl = fd_topob_obj_named( topo, "adminctl", "adminctl", "admin" );

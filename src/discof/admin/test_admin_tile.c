@@ -257,8 +257,15 @@ test_set_identity_invalid_vote_history( int alpenglow ) {
   void * data;
   ulong  data_sz;
   FD_TEST( fd_adminctl_poll( ctx.adminctl, &poll_idx, &data, &data_sz )==FD_ADMINCTL_CMD_SET_IDENTITY );
+  static fd_identity_transition_t shared;
+  ctx.identity_status = &shared;
+  ctx.identity_record.instance[0] = 1UL;
+  fd_identity_snapshot_write( &shared.status, &ctx.identity_record );
   set_identity( &ctx, poll_idx, data, data_sz );
   FD_TEST( fd_adminctl_wait( ctx.adminctl, slot_idx )==FD_SET_IDENTITY_RESULT_INVALID_VOTE_HISTORY );
+  fd_identity_record_t observation;
+  FD_TEST( fd_identity_snapshot_read( &shared.status, &observation ) );
+  FD_TEST( observation.sequence==0UL && observation.state==FD_IDENTITY_STATE_IDLE );
 }
 
 int
