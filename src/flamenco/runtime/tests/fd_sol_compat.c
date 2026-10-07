@@ -3,6 +3,7 @@
 #include "fd_sol_compat.h"
 #include "../../capture/fd_solcap_writer.h"
 #include "fd_gossip_harness.h"
+#include "fd_votor_harness.h"
 
 #include "generated/block.pb.h"
 #include "generated/instr.pb.h"
@@ -352,6 +353,18 @@ sol_compat_shred_parse_v1( uchar *       out,
   fd_spad_pop( runner->spad );
 
   pb_release( &fd_exec_test_shred_parse_context_t_msg, input );
+  fd_solfuzz_runner_leak_check( runner );
+  return ok;
+}
+
+int
+sol_compat_votor_vote_deserialize_v1( uchar *       out,
+                                      ulong *       out_sz,
+                                      uchar const * in,
+                                      ulong         in_sz ) {
+  fd_spad_push( runner->spad );
+  int ok = fd_solfuzz_votor_vote_deserialize( runner, out, out_sz, in, in_sz );
+  fd_spad_pop( runner->spad );
   fd_solfuzz_runner_leak_check( runner );
   return ok;
 }
