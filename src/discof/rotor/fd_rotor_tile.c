@@ -809,7 +809,8 @@ handle_sign( fd_rotor_tile_t *   ctx,
   memcpy( packet+sizeof(fd_ip4_udp_hdrs_t), pending->buf, pending->sz );
 
   ulong sz = pending->sz+sizeof(fd_ip4_udp_hdrs_t);
-  fd_stem_publish( stem, ctx->net_out_idx, fd_disco_netmux_sig( pending->daddr, pending->dport, pending->daddr, DST_PROTO_OUTGOING, sizeof(fd_ip4_udp_hdrs_t) ), ctx->net_out_chunk, sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ulong ts = fd_frag_meta_ts_comp( fd_tickcount() );
+  fd_stem_publish( stem, ctx->net_out_idx, fd_disco_netmux_sig( pending->daddr, pending->dport, pending->daddr, DST_PROTO_OUTGOING, sizeof(fd_ip4_udp_hdrs_t) ), ctx->net_out_chunk, sz, 0UL, ts, ts );
   ctx->net_out_chunk = fd_dcache_compact_next( ctx->net_out_chunk, sz, ctx->net_out_chunk0, ctx->net_out_wmark );
   sign_pool_ele_release( ctx->sign_pool, pending );
   ctx->metrics->pkt_tx++;
