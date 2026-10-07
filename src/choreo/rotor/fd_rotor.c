@@ -285,9 +285,6 @@ cancel( fd_rotor_blk_t * blk,
   blk->telemetry.cancelled_reason = (uchar)reason;
 }
 
-static inline long
-first_ts( long a, long b ) { return fd_long_if( !a || ( b && b<a ), b, a ); }
-
 /* dedup checks for a duplicate of eager among the notar blks.  Only the
    eager blk can be duplicated, since notar blk DMRs are known a priori.
 
@@ -352,8 +349,9 @@ dedup( fd_rotor_t *     rotor,
   eager->telemetry.shred_res_cnt     += notar->telemetry.shred_res_cnt;
   eager->telemetry.parent_res_cnt    += notar->telemetry.parent_res_cnt;
   eager->telemetry.fec_root_res_cnt  += notar->telemetry.fec_root_res_cnt;
-  eager->telemetry.first_req_ts       = first_ts( eager->telemetry.first_req_ts,      notar->telemetry.first_req_ts      );
-  eager->telemetry.first_meta_res_ts  = first_ts( eager->telemetry.first_meta_res_ts, notar->telemetry.first_meta_res_ts );
+  /* first timestamps */
+  eager->telemetry.first_req_ts       = fd_long_if( !eager->telemetry.first_req_ts      || ( notar->telemetry.first_req_ts      && notar->telemetry.first_req_ts     <eager->telemetry.first_req_ts      ), notar->telemetry.first_req_ts,      eager->telemetry.first_req_ts      );
+  eager->telemetry.first_meta_res_ts  = fd_long_if( !eager->telemetry.first_meta_res_ts || ( notar->telemetry.first_meta_res_ts && notar->telemetry.first_meta_res_ts<eager->telemetry.first_meta_res_ts ), notar->telemetry.first_meta_res_ts, eager->telemetry.first_meta_res_ts );
   eager->telemetry.last_shred_res_ts  = fd_long_max( eager->telemetry.last_shred_res_ts, notar->telemetry.last_shred_res_ts );
   prune( rotor, notar );
   fd_rotor_blk_t * root = connect_ancestors( rotor, eager );
@@ -588,7 +586,7 @@ fd_rotor_blk_parented( fd_rotor_t *      rotor,
   while( FD_LIKELY( blk && memcmp( &blk->dmr, blk_mr, sizeof(fd_mr32_t) ) ) ) blk = (fd_rotor_blk_t *)fd_rotor_blk_map_ele_next_const( blk, NULL, rotor->blk_pool );
   if( FD_UNLIKELY( !blk                         ) ) return NULL; /* blk was pruned while the response was in flight */
   blk->telemetry.parent_res_cnt++;
-  blk->telemetry.first_meta_res_ts = first_ts( blk->telemetry.first_meta_res_ts, ts );
+  blk->telemetry.first_meta_res_ts = fd_long_if( !blk->telemetry.first_meta_res_ts, ts, blk->telemetry.first_meta_res_ts );
 
   if( FD_UNLIKELY( blk->parent_slot!=ULONG_MAX ) ) return NULL; /* duplicate response, eg. a retried request */
   if( FD_UNLIKELY( parent_slot>=slot           ) ) return NULL; /* a blk's parent precedes it */
@@ -737,7 +735,7 @@ fd_rotor_fec_notarized( fd_rotor_t *      rotor,
   while( blk && memcmp( &blk->dmr, blk_mr, sizeof(fd_mr32_t) ) ) blk = (fd_rotor_blk_t *)fd_rotor_blk_map_ele_next_const( blk, NULL, rotor->blk_pool );
   if( FD_UNLIKELY( !blk ) ) return NULL; /* blk was pruned while the response was in flight */
   blk->telemetry.fec_root_res_cnt++;
-  blk->telemetry.first_meta_res_ts = first_ts( blk->telemetry.first_meta_res_ts, ts );
+  blk->telemetry.first_meta_res_ts = fd_long_if( !blk->telemetry.first_meta_res_ts, ts, blk->telemetry.first_meta_res_ts );
 
   if( FD_UNLIKELY( blk->fecs[ fec_idx ]!=fd_rotor_fec_pool_idx_null( rotor->fec_pool ) ) ) return NULL; /* duplicate response, eg. a retried request */
 
