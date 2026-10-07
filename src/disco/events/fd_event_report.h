@@ -12,8 +12,9 @@
    one fd_event_report_<name>( msg ) macro per event schema (see
    generated/fd_event_gen.h) which forwards to fd_event_report_().
 
-   The link is written directly via fd_mcache_publish (outside fd_stem); it
-   is unreliable, so events are dropped if the event tile falls behind.
+   The link is written directly via fd_mcache_publish (outside fd_stem).
+   When the link is nearly full, publishing waits up to 100ms for the
+   event tile to catch up, then overruns it.
    When a tile has no event link (telemetry off / max_event_sz==0),
    fd_event_tl is NULL and reporting is a no-op. */
 
@@ -21,12 +22,14 @@
 #include "../sleep/fd_sleep.h"
 #include "../../tango/mcache/fd_mcache.h"
 #include "../../tango/dcache/fd_dcache.h"
+#include "../../tango/fseq/fd_fseq.h"
 
 struct fd_event_reporter {
   fd_frag_meta_t * mcache;  /* mcache of the event link (joined) */
   ulong            depth;   /* mcache depth */
   ulong            seq;     /* next sequence number to publish */
   ulong *          seq_store; /* mcache header seq */
+  ulong const *    cons_fseq; /* event tile consumer fseq for the link, or NULL */
 
   fd_wksp_t *      mem;     /* workspace containing the dcache (chunk base) */
   ulong            chunk;   /* current write chunk */
@@ -86,6 +89,28 @@ fd_event_report_ring_( fd_event_reporter_t * r ) {
 }
 
 static inline void
+fd_event_report_backpressure_( fd_event_reporter_t * r ) {
+  if( FD_LIKELY( r->cons_fseq ) ) {
+    ulong margin    = fd_ulong_min( 32UL, r->depth/2UL );
+    long  threshold = (long)(r->depth-margin);
+    if( FD_UNLIKELY( fd_seq_diff( r->seq, fd_fseq_query( r->cons_fseq ) )>=threshold ) ) {
+      long deadline = fd_log_wallclock() + (long)100e6;
+      while( fd_seq_diff( r->seq, fd_fseq_query( r->cons_fseq ) )>=threshold ) {
+        if( FD_UNLIKELY( fd_log_wallclock()>deadline ) ) {
+          static FD_TL long warned;
+          if( FD_UNLIKELY( deadline-warned>(long)1e9 ) ) {
+            warned = deadline;
+            FD_LOG_WARNING(( "event tile stalled for over 100ms, overrunning the event link (events will be lost)" ));
+          }
+          break;
+        }
+        FD_SPIN_PAUSE();
+      }
+    }
+  }
+}
+
+static inline void
 fd_event_report_( ulong        type,
                   void const * event,
                   ulong        sz ) {
@@ -94,6 +119,8 @@ fd_event_report_( ulong        type,
 
   FD_TEST( type<=0xFFUL );
   FD_TEST( sz<=r->mtu );
+
+  fd_event_report_backpressure_( r );
 
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
 
@@ -118,6 +145,8 @@ fd_event_report_gather_( ulong                         type,
     FD_TEST( iov[ i ].sz<=r->mtu-sz );
     sz += iov[ i ].sz;
   }
+
+  fd_event_report_backpressure_( r );
 
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
 
