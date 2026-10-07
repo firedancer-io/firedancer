@@ -199,7 +199,7 @@ enum {
 
 #define FD_METRICS_COUNTER_EXECLE_ACCOUNT_LTHASH_SKIPPED_NAME "execle_account_lthash_skipped"
 #define FD_METRICS_COUNTER_EXECLE_ACCOUNT_LTHASH_SKIPPED_TYPE (FD_METRICS_TYPE_COUNTER)
-#define FD_METRICS_COUNTER_EXECLE_ACCOUNT_LTHASH_SKIPPED_DESC "Committed writable accounts left byte-identical by their transaction, so their lthash update was skipped"
+#define FD_METRICS_COUNTER_EXECLE_ACCOUNT_LTHASH_SKIPPED_DESC "Committed writable accounts left byte-identical by their transaction, so their in-band lthash update was skipped"
 #define FD_METRICS_COUNTER_EXECLE_ACCOUNT_LTHASH_SKIPPED_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_COUNTER_EXECLE_BANK_SWITCHED_NAME "execle_bank_switched"

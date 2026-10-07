@@ -169,7 +169,7 @@ enum {
 
 #define FD_METRICS_GAUGE_EXECRP_IS_PROCESSING_NAME "execrp_is_processing"
 #define FD_METRICS_GAUGE_EXECRP_IS_PROCESSING_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_EXECRP_IS_PROCESSING_DESC "Whether the tile is currently processing a task (executing, sigverifying, or PoH hashing)"
+#define FD_METRICS_GAUGE_EXECRP_IS_PROCESSING_DESC "Whether the tile is processing a replay task"
 #define FD_METRICS_GAUGE_EXECRP_IS_PROCESSING_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_COUNTER_EXECRP_TXN_PROCESSED_NAME "execrp_txn_processed"
@@ -206,7 +206,7 @@ enum {
 
 #define FD_METRICS_COUNTER_EXECRP_ACCOUNT_LTHASH_SKIPPED_NAME "execrp_account_lthash_skipped"
 #define FD_METRICS_COUNTER_EXECRP_ACCOUNT_LTHASH_SKIPPED_TYPE (FD_METRICS_TYPE_COUNTER)
-#define FD_METRICS_COUNTER_EXECRP_ACCOUNT_LTHASH_SKIPPED_DESC "Committed writable accounts left byte-identical by their transaction, so their lthash update was skipped"
+#define FD_METRICS_COUNTER_EXECRP_ACCOUNT_LTHASH_SKIPPED_DESC "Committed writable accounts left byte-identical by their transaction, so their in-band lthash update was skipped"
 #define FD_METRICS_COUNTER_EXECRP_ACCOUNT_LTHASH_SKIPPED_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_COUNTER_EXECRP_BANK_SWITCHED_NAME "execrp_bank_switched"

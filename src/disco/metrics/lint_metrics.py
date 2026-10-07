@@ -35,7 +35,7 @@ GAUGE_LAST   = { 'Count', 'Open', 'Idle', 'Pending', 'InFlight', 'Online', 'Avai
 
 # Rule 2: a counter's last word (before the unit) is an Action
 ACTION_IRREGULAR = { 'Rx', 'Tx', 'Hit', 'Miss', 'Read', 'Written', 'Done', 'Taken', 'Chosen',
-                     'Frozen', 'Torn', 'Overrun', 'Sent', 'Lost', 'Seen', 'Built', 'Run' }
+                     'Frozen', 'Torn', 'Overrun', 'Sent', 'Lost', 'Seen', 'Built', 'Run', 'Held', 'Undone' }
 ACTION_PHRASAL   = ( 'LookedUp', 'TimedOut' )
 BARE_EVENT       = { 'Backpressure', 'Irq', 'Softirq', 'Shootdown', 'Switch', 'Fault' }   # external events with no object (ContextSwitch, PageFault)
 GAUGE_BANNED_END = { 'Rx', 'Tx', 'Hit', 'Miss', 'Dropped', 'Rejected', 'Failed', 'Attempted', 'Processed' }
