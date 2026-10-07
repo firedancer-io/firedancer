@@ -286,10 +286,7 @@ cancel( fd_rotor_blk_t * blk,
 }
 
 static inline long
-first_ts( long a,
-          long b ) {
-  return fd_long_if( !a || ( b && b<a ), b, a );
-}
+first_ts( long a, long b ) { return fd_long_if( !a || ( b && b<a ), b, a ); }
 
 /* dedup checks for a duplicate of eager among the notar blks.  Only the
    eager blk can be duplicated, since notar blk DMRs are known a priori.

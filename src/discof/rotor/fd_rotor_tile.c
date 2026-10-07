@@ -208,6 +208,7 @@ struct fd_rotor_tile {
     };
     fd_net_rx_bounds_t net_rx; /* IN_KIND_NET */
   } in[ 32 ];
+  ulong chunk; /* reliable ins, after_frag */
 
   ulong       net_out_idx;
   fd_wksp_t * net_out_mem;
@@ -289,17 +290,6 @@ push_timeout( fd_rotor_tile_t * ctx,
   if( FD_UNLIKELY( blk->in_blk_treap ) ) return;
   fd_rotor_treap_ele_insert( meta->final==idx ? ctx->rotor->final_treap : meta->notar==idx ? ctx->rotor->notar_treap : ctx->rotor->eager_treap, blk, ctx->rotor->blk_pool );
   blk->in_blk_treap = 1;
-}
-
-/* pending_blk returns the blk a pending request was sent for, NULL if
-   it was freed while the request was in flight. */
-
-static fd_rotor_blk_t *
-pending_blk( fd_rotor_tile_t * ctx,
-             pending_t const * pending ) {
-  if( FD_UNLIKELY( pending->slot<=ctx->rotor->root || pending->blk>=fd_rotor_blk_pool_max( ctx->rotor->blk_pool ) ) ) return NULL;
-  fd_rotor_blk_t * blk = fd_rotor_blk_pool_ele( ctx->rotor->blk_pool, pending->blk );
-  return fd_ptr_if( blk->slot==pending->slot && !memcmp( &blk->dmr, &pending->dmr, sizeof(fd_mr32_t) ), blk, NULL );
 }
 
 /* poll_timeout polls for one or more requests that have timed out. */
@@ -531,7 +521,8 @@ handle_shred( fd_rotor_tile_t * ctx,
       fd_histf_sample( ctx->metrics->response_latency, (ulong)( now-pending->ts ) );
       ctx->metrics->shred_rx_block_id   += (ulong)( pending->tag==FD_ROTOR_SERDE_TAG_WINDOW_INDEX_FOR_BLOCK_ID );
       ctx->metrics->shred_rx_positional += (ulong)( pending->tag!=FD_ROTOR_SERDE_TAG_WINDOW_INDEX_FOR_BLOCK_ID );
-      fd_rotor_blk_t * blk = pending_blk( ctx, pending );
+      fd_rotor_blk_t * blk = fd_rotor_blk_map_ele_query( ctx->rotor->blk_map, &pending->slot, NULL, ctx->rotor->blk_pool );
+      while( blk && memcmp( &blk->dmr, &pending->dmr, sizeof(fd_mr32_t) ) ) blk = (fd_rotor_blk_t *)fd_rotor_blk_map_ele_next_const( blk, NULL, ctx->rotor->blk_pool ); /* not by pending->blk, it may be freed or reused, and a notar blk lives on as eager after dedup */
       if( FD_LIKELY( blk && ( pending->tag==FD_ROTOR_SERDE_TAG_WINDOW_INDEX || pending->tag==FD_ROTOR_SERDE_TAG_WINDOW_INDEX_FOR_BLOCK_ID ) ) ) {
         blk->telemetry.shred_res_cnt++;
         blk->telemetry.last_shred_res_ts = rx_ts;
@@ -1179,25 +1170,53 @@ before_frag( fd_rotor_tile_t * ctx,
   }
 }
 
-static int
-returnable_frag( fd_rotor_tile_t *   ctx,
-                 ulong               in_idx,
-                 ulong               seq    FD_PARAM_UNUSED,
-                 ulong               sig,
-                 ulong               chunk,
-                 ulong               sz,
-                 ulong               ctl    FD_PARAM_UNUSED,
-                 ulong               tsorig,
-                 ulong               tspub  FD_PARAM_UNUSED,
-                 fd_stem_context_t * stem   FD_PARAM_UNUSED ) {
-  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_NET || ctx->in_kind[ in_idx ]==IN_KIND_SIGN ) ) return 0;
-  if( FD_UNLIKELY( sz!=0UL && ( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) ) ) { /* a snapshot DONE has no payload */
-    FD_LOG_ERR(( "chunk %lu sz %lu from in_kind %d out of bounds, chunk0 %lu wmark %lu",
-                 chunk, sz, ctx->in_kind[ in_idx ], ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
+static void
+during_frag( fd_rotor_tile_t * ctx,
+             ulong             in_idx,
+             ulong             seq FD_PARAM_UNUSED,
+             ulong             sig FD_PARAM_UNUSED,
+             ulong             chunk,
+             ulong             sz,
+             ulong             ctl ) {
+  switch( ctx->in_kind[ in_idx ] ) {
+  case IN_KIND_NET:
+    memcpy( ctx->net_buf, fd_net_rx_translate_frag( &ctx->in[ in_idx ].net_rx, chunk, ctl, sz ), sz );
+    break;
+  case IN_KIND_SIGN:
+    if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) ) {
+      FD_LOG_ERR(( "chunk %lu sz %lu from in_kind %d out of bounds, chunk0 %lu wmark %lu",
+                   chunk, sz, ctx->in_kind[ in_idx ], ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
+    }
+    memcpy( ctx->sign_buf, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ), FD_ED25519_SIG_SZ );
+    break;
+  default: /* reliable, read in place by after_frag */
+    if( FD_UNLIKELY( sz!=0UL && ( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) ) ) { /* a snapshot DONE has no payload */
+      FD_LOG_ERR(( "chunk %lu sz %lu from in_kind %d out of bounds, chunk0 %lu wmark %lu",
+                   chunk, sz, ctx->in_kind[ in_idx ], ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
+    }
+    ctx->chunk = chunk;
+    break;
   }
-  uchar const * src = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+}
+
+static void
+after_frag( fd_rotor_tile_t *   ctx,
+            ulong               in_idx,
+            ulong               seq    FD_PARAM_UNUSED,
+            ulong               sig,
+            ulong               sz,
+            ulong               tsorig,
+            ulong               tspub  FD_PARAM_UNUSED,
+            fd_stem_context_t * stem ) {
+  uchar const * src = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, ctx->chunk );
 
   switch( ctx->in_kind[ in_idx ] ) {
+  case IN_KIND_NET:
+    handle_net( ctx, stem, sz );
+    break;
+  case IN_KIND_SIGN:
+    handle_sign( ctx, stem, in_idx, sig );
+    break;
   case IN_KIND_GENESIS: {
     fd_genesis_meta_t const * meta = (fd_genesis_meta_t const *)fd_type_pun_const( src );
     if( FD_UNLIKELY( !meta->bootstrap ) ) break; /* booting from a snapshot */
@@ -1232,47 +1251,6 @@ returnable_frag( fd_rotor_tile_t *   ctx,
     break;
   default:
     FD_LOG_ERR(( "unexpected in_kind %d", ctx->in_kind[ in_idx ] ));
-  }
-  return 0;
-}
-
-static void
-during_frag( fd_rotor_tile_t * ctx,
-             ulong             in_idx,
-             ulong             seq FD_PARAM_UNUSED,
-             ulong             sig FD_PARAM_UNUSED,
-             ulong             chunk,
-             ulong             sz,
-             ulong             ctl ) {
-  switch( ctx->in_kind[ in_idx ] ) {
-  case IN_KIND_NET:
-    memcpy( ctx->net_buf, fd_net_rx_translate_frag( &ctx->in[ in_idx ].net_rx, chunk, ctl, sz ), sz );
-    break;
-  case IN_KIND_SIGN:
-    if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) ) {
-      FD_LOG_ERR(( "chunk %lu sz %lu from in_kind %d out of bounds, chunk0 %lu wmark %lu",
-                   chunk, sz, ctx->in_kind[ in_idx ], ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
-    }
-    memcpy( ctx->sign_buf, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ), FD_ED25519_SIG_SZ );
-    break;
-  default: /* reliable, handled in returnable_frag */
-    break;
-  }
-}
-
-static void
-after_frag( fd_rotor_tile_t *   ctx,
-            ulong               in_idx,
-            ulong               seq    FD_PARAM_UNUSED,
-            ulong               sig,
-            ulong               sz,
-            ulong               tsorig FD_PARAM_UNUSED,
-            ulong               tspub  FD_PARAM_UNUSED,
-            fd_stem_context_t * stem ) {
-  switch( ctx->in_kind[ in_idx ] ) {
-  case IN_KIND_NET:  handle_net ( ctx, stem, sz          ); break;
-  case IN_KIND_SIGN: handle_sign( ctx, stem, in_idx, sig ); break;
-  default:           break; /* handled in returnable_frag */
   }
 }
 
@@ -1483,7 +1461,6 @@ populate_allowed_fds( fd_topo_t const *      topo FD_PARAM_UNUSED,
 #define STEM_CALLBACK_NEXT_DEADLINE       next_deadline
 #define STEM_CALLBACK_AFTER_CREDIT        after_credit
 #define STEM_CALLBACK_BEFORE_FRAG         before_frag
-#define STEM_CALLBACK_RETURNABLE_FRAG     returnable_frag
 #define STEM_CALLBACK_DURING_FRAG         during_frag
 #define STEM_CALLBACK_AFTER_FRAG          after_frag
 
