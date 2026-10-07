@@ -908,7 +908,7 @@ def generate_c_test_header(schemas: List[Schema]) -> str:
 def check_breaking_changes(schema_dir: Path) -> None:
     buf_path: Optional[str] = shutil.which("buf")
     if not buf_path:
-        raise SystemExit("ERROR: buf not found. Install it with: curl -sSL 'https://github.com/bufbuild/buf/releases/download/v1.47.2/buf-Linux-x86_64' -o ~/.local/bin/buf && chmod +x ~/.local/bin/buf")
+        raise SystemExit("ERROR: buf not found. Install it with: curl -sSL 'https://github.com/bufbuild/buf/releases/download/v1.73.0/buf-Linux-x86_64' -o ~/.local/bin/buf && chmod +x ~/.local/bin/buf")
 
     repo_root: Path = schema_dir.parent.parent.parent.parent
     rel_path = schema_dir.relative_to(repo_root)
