@@ -361,9 +361,9 @@ handle_finalization( ag_pool_t *                     self,
 }
 
 static void
-add_valid_cert( ag_pool_t *       self,
-                ag_cert_t const * cert,
-                fd_bls_set_t *    bad ) {
+add_verified_cert( ag_pool_t *       self,
+                   ag_cert_t const * cert,
+                   fd_bls_set_t *    bad ) {
   ulong slot = ag_cert_slot( cert );
 
   ag_slot_state_add_cert( slot_state( self, slot ), cert );
@@ -485,11 +485,11 @@ ag_pool_set_rank( ag_pool_t * self,
   }
 }
 
-static int
-add_cert( ag_pool_t *       self,
-          ag_cert_t const * cert,
-          fd_bls_set_t *    bad,
-          int               verified ) {
+int
+ag_pool_add_cert( ag_pool_t *       self,
+                  ag_cert_t const * cert,
+                  int               verified,
+                  fd_bls_set_t *    bad ) {
   ulong slot = ag_cert_slot( cert );
   fd_bls_set_null( bad );
 
@@ -522,22 +522,8 @@ add_cert( ag_pool_t *       self,
   default:                          FD_LOG_CRIT(( "unreachable" ));
   }
 
-  add_valid_cert( self, cert, bad );
+  add_verified_cert( self, cert, bad );
   return AG_POOL_SUCCESS;
-}
-
-int
-ag_pool_add_cert( ag_pool_t *       self,
-                  ag_cert_t const * cert,
-                  fd_bls_set_t *    bad ) {
-  return add_cert( self, cert, bad, 0 );
-}
-
-int
-ag_pool_add_verified_cert( ag_pool_t *       self,
-                           ag_cert_t const * cert,
-                           fd_bls_set_t *    bad ) {
-  return add_cert( self, cert, bad, 1 );
 }
 
 int
@@ -568,13 +554,17 @@ ag_pool_add_vote( ag_pool_t *       self,
   } else if( FD_UNLIKELY( ag_slot_state_should_ignore_vote( slot_state_, vote ) ) ) {
     return AG_POOL_ERR_DUPLICATE;
   }
+  if( FD_UNLIKELY( !blst_p2_in_g2( ag_vote_sig( vote ) ) ) ) {
+    fd_bls_set_insert( bad, voter );
+    return AG_POOL_SUCCESS;
+  }
 
   ag_cert_t        cert_events  [ AG_SLOT_STATE_OUT_CERT_MAX   ]; ulong cert_event_cnt;
   ag_pool_event_t  pool_events  [ AG_SLOT_STATE_OUT_EVENT_MAX  ]; ulong pool_event_cnt;
   ag_block_id_t    repair_events[ AG_SLOT_STATE_OUT_REPAIR_MAX ]; ulong repair_event_cnt;
   ag_slot_state_add_vote( slot_state_, vote, voter_stake, cert_events, &cert_event_cnt, pool_events, &pool_event_cnt, repair_events, &repair_event_cnt, bad );
 
-  for( ulong i=0UL; i<cert_event_cnt;   i++ ) { add_valid_cert( self, &cert_events[i], bad ); *quorum_reached = fd_uchar_set_bit( *quorum_reached, (int)cert_events[i].kind ); }
+  for( ulong i=0UL; i<cert_event_cnt;   i++ ) { add_verified_cert( self, &cert_events[i], bad ); *quorum_reached = fd_uchar_set_bit( *quorum_reached, (int)cert_events[i].kind ); }
   for( ulong i=0UL; i<pool_event_cnt;   i++ ) { pool_events_push  ( self->pool_events,   pool_events  [i] ); *quorum_reached = fd_uchar_set_bit( *quorum_reached, fd_int_if( pool_events[i].kind==AG_POOL_EVENT_SAFE_TO_NOTAR, AG_POOL_QUORUM_REACHED_SAFE_TO_NOTAR, AG_POOL_QUORUM_REACHED_SAFE_TO_SKIP ) ); }
   for( ulong i=0UL; i<repair_event_cnt; i++ ) { repair_events_push( self->repair_events, repair_events[i] ); }
   return AG_POOL_SUCCESS;
