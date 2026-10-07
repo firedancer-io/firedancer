@@ -8,6 +8,8 @@
 #include "../../disco/topo/fd_topob.h"
 #include "../../flamenco/accdb/fd_accdb.h"
 #include "../../flamenco/runtime/tests/fd_svm_mini.h"
+#include "../../flamenco/runtime/fd_alut.h"
+#include "../../flamenco/runtime/fd_hashes.h"
 #include "../../flamenco/runtime/fd_system_ids.h"
 #include "../../flamenco/runtime/fd_system_ids_pp.h"
 #include "../../flamenco/runtime/program/fd_system_program.h"
@@ -102,7 +104,7 @@ test_env_create( void ) {
   topo->objs[ topo_tile->tile_obj_id ].offset = fd_wksp_gaddr_fast( env->mini->wksp, tile_mem );
 
   fd_topo_link_t * replay_execrp = fd_topob_link( topo, "replay_execrp", "execrp", 4UL, sizeof(fd_execrp_task_msg_t),      1UL );
-  fd_topo_link_t * execrp_replay = fd_topob_link( topo, "execrp_replay", "execrp", 4UL, sizeof(fd_execrp_task_done_msg_t), 1UL );
+  fd_topo_link_t * execrp_replay = fd_topob_link( topo, "execrp_replay", "execrp", 4UL, FD_EXECRP_TASK_DONE_MTU_OOB,       1UL );
   test_topo_link_init( env, topo, replay_execrp );
   test_topo_link_init( env, topo, execrp_replay );
   fd_topob_tile_in ( topo, "execrp", 0UL, "execrp", "replay_execrp", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
@@ -217,6 +219,66 @@ test_build_empty_txn( fd_txn_p_t * out,
   out->pack_cu.requested_exec_plus_acct_data_cus = 300000U;
 }
 
+/* test_txn_serialize_two_alts serializes a v0 transaction with no
+   instructions that loads entry 0 of alts[0] and entry 1 of alts[1]
+   writable, and the other entry of each read-only. */
+
+static ulong
+test_txn_serialize_two_alts( uchar *             txn_raw_begin,
+                             fd_signature_t *    signature,
+                             fd_pubkey_t const * fee_payer,
+                             fd_hash_t const *   recent_blockhash,
+                             fd_pubkey_t const * alts ) {
+  uchar * txn_raw_cur = txn_raw_begin;
+
+  uchar const signature_cnt = 1U;
+  TEST_CHECKED_ADD_TO_TXN_DATA( txn_raw_begin, &txn_raw_cur, &signature_cnt, sizeof(uchar) );
+  TEST_CHECKED_ADD_TO_TXN_DATA( txn_raw_begin, &txn_raw_cur, signature, FD_TXN_SIGNATURE_SZ );
+
+  /* v0 prefix, one writable signer, no read-only static accounts */
+  uchar const header[ 4 ] = { 0x80, 1, 0, 0 };
+  TEST_CHECKED_ADD_TO_TXN_DATA( txn_raw_begin, &txn_raw_cur, header, sizeof(header) );
+
+  TEST_CHECKED_ADD_CU16_TO_TXN_DATA( txn_raw_begin, &txn_raw_cur, 1 );
+  TEST_CHECKED_ADD_TO_TXN_DATA( txn_raw_begin, &txn_raw_cur, fee_payer, sizeof(fd_pubkey_t) );
+  TEST_CHECKED_ADD_TO_TXN_DATA( txn_raw_begin, &txn_raw_cur, recent_blockhash, sizeof(fd_hash_t) );
+
+  TEST_CHECKED_ADD_CU16_TO_TXN_DATA( txn_raw_begin, &txn_raw_cur, 0 ); /* instructions */
+
+  TEST_CHECKED_ADD_CU16_TO_TXN_DATA( txn_raw_begin, &txn_raw_cur, 2 ); /* address table lookups */
+  for( ulong i=0UL; i<2UL; i++ ) {
+    uchar const writable_idx = (uchar)i;
+    uchar const readonly_idx = (uchar)(1UL-i);
+    TEST_CHECKED_ADD_TO_TXN_DATA( txn_raw_begin, &txn_raw_cur, &alts[ i ], sizeof(fd_pubkey_t) );
+    TEST_CHECKED_ADD_CU16_TO_TXN_DATA( txn_raw_begin, &txn_raw_cur, 1 );
+    TEST_CHECKED_ADD_TO_TXN_DATA( txn_raw_begin, &txn_raw_cur, &writable_idx, sizeof(uchar) );
+    TEST_CHECKED_ADD_CU16_TO_TXN_DATA( txn_raw_begin, &txn_raw_cur, 1 );
+    TEST_CHECKED_ADD_TO_TXN_DATA( txn_raw_begin, &txn_raw_cur, &readonly_idx, sizeof(uchar) );
+  }
+
+  return (ulong)( txn_raw_cur - txn_raw_begin );
+}
+
+static void
+test_build_two_alt_txn( fd_txn_p_t *        out,
+                        fd_bank_t *         bank,
+                        fd_pubkey_t         fee_payer,
+                        fd_pubkey_t const * alts,
+                        ulong               signature_seed ) {
+  fd_signature_t signature = {0};
+  signature.ul[0] = signature_seed;
+
+  fd_memset( out, 0, sizeof(fd_txn_p_t) );
+  fd_hash_t const * recent_blockhash = fd_blockhashes_peek_last_hash( &bank->f.block_hash_queue );
+  FD_TEST( recent_blockhash );
+  ulong sz = test_txn_serialize_two_alts( out->payload, &signature, &fee_payer, recent_blockhash, alts );
+  FD_TEST( sz!=ULONG_MAX );
+  FD_TEST( fd_txn_parse( out->payload, sz, TXN( out ), NULL ) );
+  out->payload_sz = (ushort)sz;
+  out->pack_cu.non_execution_cus                 = 1000U;
+  out->pack_cu.requested_exec_plus_acct_data_cus = 300000U;
+}
+
 static void
 test_build_system_transfer_txn( fd_txn_p_t * out,
                                 fd_bank_t *   bank,
@@ -272,6 +334,54 @@ test_build_missing_program_txn( fd_txn_p_t * out,
   fd_txn_builder_delete( builder );
 }
 
+/* test_build_alt_transfer_txn builds a v0 transaction with two system
+   transfers of lamports out of from, one to alt_addrs[0] and one to
+   alt_addrs[1], and passes alt_addrs[2] read-only to the first.  All
+   three are referenced through the lookup table at alt, so they are the
+   transaction's two writable and one read-only lookup-table addresses. */
+
+static void
+test_build_alt_transfer_txn( fd_txn_p_t *        out,
+                             fd_bank_t *         bank,
+                             fd_pubkey_t         from,
+                             fd_pubkey_t         alt,
+                             fd_pubkey_t const * alt_addrs,
+                             ulong               lamports ) {
+  fd_system_program_instruction_t instr = {
+    .discriminant   = FD_SYSTEM_PROGRAM_INSTR_TRANSFER,
+    .inner.transfer = lamports
+  };
+  uchar instr_data[ 16 ];
+  ulong instr_data_sz = 0UL;
+  FD_TEST( !fd_system_program_instruction_encode( &instr, instr_data, sizeof(instr_data), &instr_data_sz ) );
+
+  fd_hash_t const * recent_blockhash = fd_blockhashes_peek_last_hash( &bank->f.block_hash_queue );
+  FD_TEST( recent_blockhash );
+
+  fd_txn_builder_t builder[1];
+  FD_TEST( fd_txn_builder_new( builder, 6UL ) );
+  FD_TEST( fd_txn_builder_fee_payer_set( builder, &from ) );
+  fd_txn_builder_blockhash_set( builder, recent_blockhash );
+  FD_TEST( fd_txn_builder_instr_open( builder, &fd_solana_system_program_id, instr_data, instr_data_sz ) );
+  FD_TEST( fd_txn_builder_instr_account_push( builder, &from,           FD_TXN_ACCT_CAT_WRITABLE | FD_TXN_ACCT_CAT_SIGNER ) );
+  FD_TEST( fd_txn_builder_instr_account_push( builder, &alt_addrs[ 0 ], FD_TXN_ACCT_CAT_WRITABLE ) );
+  FD_TEST( fd_txn_builder_instr_account_push( builder, &alt_addrs[ 2 ], FD_TXN_ACCT_CAT_NONE ) );
+  fd_txn_builder_instr_close( builder );
+  FD_TEST( fd_txn_builder_instr_open( builder, &fd_solana_system_program_id, instr_data, instr_data_sz ) );
+  FD_TEST( fd_txn_builder_instr_account_push( builder, &from,           FD_TXN_ACCT_CAT_WRITABLE | FD_TXN_ACCT_CAT_SIGNER ) );
+  FD_TEST( fd_txn_builder_instr_account_push( builder, &alt_addrs[ 1 ], FD_TXN_ACCT_CAT_WRITABLE ) );
+  fd_txn_builder_instr_close( builder );
+  FD_TEST( fd_txn_builder_alut_open( builder, &alt ) );
+  for( uint j=0U; j<3U; j++ ) fd_txn_builder_alut_address_push( builder, &alt_addrs[ j ], j );
+  fd_txn_builder_alut_close( builder );
+
+  fd_memset( out, 0, sizeof(fd_txn_p_t) );
+  FD_TEST( fd_txn_build_p( builder, out ) );
+  out->pack_cu.non_execution_cus                 = 1000U;
+  out->pack_cu.requested_exec_plus_acct_data_cus = 300000U;
+  fd_txn_builder_delete( builder );
+}
+
 static void
 test_fund_account( test_env_t *        env,
                    fd_pubkey_t const * pubkey,
@@ -285,6 +395,51 @@ test_read_lamports( test_env_t *        env,
                     fd_pubkey_t const * pubkey ) {
   fd_accdb_fork_id_t fork_id = fd_svm_mini_fork_id( env->mini, env->bank_idx );
   return fd_accdb_lamports( env->mini->runtime->accdb, fork_id, pubkey->uc );
+}
+
+/* test_put_account writes a version of an account on fork_id through
+   mini's accdb join. */
+
+static void
+test_put_account( test_env_t *        env,
+                  fd_accdb_fork_id_t  fork_id,
+                  fd_pubkey_t const * pubkey,
+                  fd_pubkey_t const * owner,
+                  ulong               lamports,
+                  int                 executable,
+                  uchar const *       data,
+                  ulong               data_len ) {
+  fd_accdb_t * accdb = env->mini->runtime->accdb;
+  fd_acc_t acc = fd_accdb_write_one( accdb, fork_id, pubkey->uc );
+  acc.lamports   = lamports;
+  acc.executable = executable;
+  acc.data_len   = data_len;
+  memcpy( acc.owner, owner->uc, sizeof(fd_pubkey_t) );
+  if( data_len ) memcpy( acc.data, data, data_len );
+  acc.commit = 1;
+  fd_accdb_unwrite_one( accdb, &acc );
+}
+
+/* test_put_alt writes an active address lookup table holding addr_cnt
+   addresses on the test bank's parent fork, which is where the exec
+   tile resolves lookup tables. */
+
+static void
+test_put_alt( test_env_t *        env,
+              fd_pubkey_t const * alt,
+              fd_pubkey_t const * addrs,
+              ulong               addr_cnt ) {
+  uchar data[ FD_LOOKUP_TABLE_META_SIZE + 4UL*sizeof(fd_pubkey_t) ];
+  FD_TEST( addr_cnt<=4UL );
+  fd_alut_meta_t const meta = {
+    .discriminant       = FD_ALUT_STATE_DISC_LOOKUP_TABLE,
+    .deactivation_slot  = ULONG_MAX,
+    .last_extended_slot = 0UL, /* before the bank's slot, so every address is active */
+  };
+  FD_TEST( !fd_alut_state_encode( &meta, data, FD_LOOKUP_TABLE_META_SIZE ) );
+  memcpy( data+FD_LOOKUP_TABLE_META_SIZE, addrs, addr_cnt*sizeof(fd_pubkey_t) );
+  fd_bank_t * bank = fd_svm_mini_bank( env->mini, env->bank_idx );
+  test_put_account( env, bank->parent_accdb_fork_id, alt, &fd_solana_address_lookup_table_program_id, 1000000000UL, 0, data, FD_LOOKUP_TABLE_META_SIZE+addr_cnt*sizeof(fd_pubkey_t) );
 }
 
 static fd_stem_context_t *
@@ -328,32 +483,50 @@ test_out_meta( ulong seq ) {
   return execrp_replay->mcache + fd_mcache_line_idx( seq, execrp_replay->depth );
 }
 
-static fd_execrp_task_done_msg_t const *
-test_out_msg( test_env_t *           env,
-              fd_frag_meta_t const * meta ) {
-  return fd_chunk_to_laddr( env->execrp->execrp_replay_out->mem, meta->chunk );
+/* test_assert_out_frag checks the metadata of the frag the tile
+   published at seq, including its size, and returns its payload. */
+
+static void const *
+test_assert_out_frag( test_env_t * env,
+                      ulong        seq,
+                      ulong        task_type,
+                      ulong        sz ) {
+  fd_frag_meta_t const * meta = test_out_meta( seq );
+  FD_TEST( fd_frag_meta_seq_query( meta )==seq );
+  FD_TEST( meta->sig==((task_type<<32) | env->execrp->tile_idx) );
+  FD_TEST( meta->sz==sz );
+  FD_TEST( meta->chunk>=env->execrp->execrp_replay_out->chunk0 );
+  FD_TEST( meta->chunk<=env->execrp->execrp_replay_out->wmark );
+  return fd_chunk_to_laddr_const( env->execrp->execrp_replay_out->mem, meta->chunk );
 }
 
 static fd_execrp_task_done_msg_t const *
 test_assert_out_msg( test_env_t * env,
                      ulong        seq,
                      ulong        task_type ) {
-  fd_frag_meta_t const * meta = test_out_meta( seq );
-  FD_TEST( fd_frag_meta_seq_query( meta )==seq );
-  FD_TEST( meta->sig==((task_type<<32) | env->execrp->tile_idx) );
-  FD_TEST( meta->sz==sizeof(fd_execrp_task_done_msg_t) );
-  FD_TEST( meta->chunk>=env->execrp->execrp_replay_out->chunk0 );
-  FD_TEST( meta->chunk<=env->execrp->execrp_replay_out->wmark );
-
-  fd_execrp_task_done_msg_t const * out_msg = test_out_msg( env, meta );
+  fd_execrp_task_done_msg_t const * out_msg = test_assert_out_frag( env, seq, task_type, sizeof(fd_execrp_task_done_msg_t) );
   FD_TEST( out_msg->bank_idx==env->bank_idx );
   return out_msg;
 }
 
+/* test_poison_out fills the chunk the tile publishes its next done
+   message into, so a field the tile does not write cannot pass as a
+   stale zero. */
+
+static void
+test_poison_out( test_env_t * env ) {
+  fd_memset( fd_chunk_to_laddr( env->execrp->execrp_replay_out->mem, env->execrp->execrp_replay_out->chunk ), 0xA5, FD_EXECRP_TASK_DONE_MTU_OOB );
+}
+
+/* test_execrp_run_alts executes txn and checks that the done frag
+   carries exactly alt_writable_cnt trailing lookup table accounts. */
+
 static fd_execrp_task_done_msg_t const *
-test_execrp_run( test_env_t * env,
-                 fd_txn_p_t * txn,
-                 ulong        txn_idx ) {
+test_execrp_run_alts( test_env_t * env,
+                      fd_txn_p_t * txn,
+                      ulong        txn_idx,
+                      int          want_alts,
+                      ulong        alt_writable_cnt ) {
   fd_bank_t * bank = fd_svm_mini_bank( env->mini, env->bank_idx );
   FD_TEST( bank );
 
@@ -363,7 +536,9 @@ test_execrp_run( test_env_t * env,
   in_msg->bank_idx        = env->bank_idx;
   in_msg->txn_idx         = txn_idx;
   in_msg->capture_txn_idx = txn_idx;
+  in_msg->want_alts       = want_alts;
   fd_memcpy( in_msg->txn, txn, sizeof(fd_txn_p_t) );
+  test_poison_out( env );
 
   fd_stem_context_t stem[1];
   ulong const sig = (FD_EXECRP_TT_TXN_EXEC<<32) | env->execrp->tile_idx;
@@ -371,9 +546,50 @@ test_execrp_run( test_env_t * env,
                              sizeof(fd_execrp_txn_exec_msg_t), 0UL, 0UL,
                              fd_frag_meta_ts_comp( fd_tickcount() ), test_stem( env->execrp, stem ) ) );
 
-  fd_execrp_task_done_msg_t const * out_msg = test_assert_out_msg( env, 0UL, FD_EXECRP_TT_TXN_EXEC );
+  fd_execrp_task_done_msg_t const * out_msg = test_assert_out_frag( env, 0UL, FD_EXECRP_TT_TXN_EXEC, fd_execrp_txn_exec_done_sz( alt_writable_cnt ) );
+  FD_TEST( out_msg->bank_idx==env->bank_idx );
   FD_TEST( out_msg->txn_exec->txn_idx==txn_idx );
   FD_TEST( out_msg->txn_exec->slot==bank->f.slot );
+  FD_TEST( out_msg->txn_exec->alt_writable_cnt==alt_writable_cnt );
+  return out_msg;
+}
+
+/* test_execrp_run executes txn without asking for lookup table
+   accounts, so the done frag is exactly a fd_execrp_task_done_msg_t. */
+
+static fd_execrp_task_done_msg_t const *
+test_execrp_run( test_env_t * env,
+                 fd_txn_p_t * txn,
+                 ulong        txn_idx ) {
+  return test_execrp_run_alts( env, txn, txn_idx, 0, 0UL );
+}
+
+/* test_lthash_run sends an LtHash task of task_type for acct on the
+   test bank and checks that the done message echoes the request. */
+
+static fd_execrp_lthash_done_msg_t const *
+test_lthash_run( test_env_t *        env,
+                 ulong               task_type,
+                 ulong               ptxn_idx,
+                 fd_pubkey_t const * acct ) {
+  ulong in_chunk = env->execrp->replay_in->chunk0;
+  fd_execrp_lthash_msg_t * in_msg = fd_chunk_to_laddr( env->execrp->replay_in->mem, in_chunk );
+  fd_memset( in_msg, 0, sizeof(fd_execrp_lthash_msg_t) );
+  in_msg->bank_idx = env->bank_idx;
+  in_msg->ptxn_idx = ptxn_idx;
+  memcpy( in_msg->acct.b, acct->uc, sizeof(fd_acct_addr_t) );
+  test_poison_out( env );
+
+  fd_stem_context_t stem[1];
+  ulong const sig = (task_type<<32) | env->execrp->tile_idx;
+  FD_TEST( !returnable_frag( env->execrp, env->execrp->replay_in->idx, 0UL, sig, in_chunk,
+                             sizeof(fd_execrp_lthash_msg_t), 0UL, 0UL, 0UL,
+                             test_stem( env->execrp, stem ) ) );
+
+  fd_execrp_lthash_done_msg_t const * out_msg = test_assert_out_frag( env, 0UL, task_type, sizeof(fd_execrp_lthash_done_msg_t) );
+  FD_TEST( out_msg->bank_idx==env->bank_idx );
+  FD_TEST( out_msg->ptxn_idx==ptxn_idx );
+  FD_TEST( !memcmp( out_msg->acct.b, acct->uc, sizeof(fd_acct_addr_t) ) );
   return out_msg;
 }
 
@@ -470,6 +686,74 @@ FD_UNIT_TEST( execrp_poh_hash ) {
     FD_TEST( !memcmp( out_msg->poh_hash->hash+j, expected+j, sizeof(fd_hash_t) ) );
   }
   FD_TEST( env->execrp->metrics.poh_hash_cnt==in_msg->hashcnt*in_msg->cnt );
+
+  test_env_destroy( env );
+}
+
+/* The out-of-band MTU must be a compile-time constant (topology sizes
+   links with it) that fits both of the larger done frags. */
+
+FD_STATIC_ASSERT( FD_EXECRP_TASK_DONE_MTU_OOB>=sizeof(fd_execrp_lthash_done_msg_t), oob_mtu_lthash );
+
+FD_UNIT_TEST( execrp_done_mtu ) {
+  FD_TEST( FD_EXECRP_TASK_DONE_MTU_INBAND==sizeof(fd_execrp_task_done_msg_t) );
+  FD_TEST( FD_EXECRP_TASK_DONE_MTU_OOB==fd_ulong_max( sizeof(fd_execrp_lthash_done_msg_t), fd_execrp_txn_exec_done_sz( FD_TXN_ACCT_ADDR_MAX-1UL ) ) );
+}
+
+FD_UNIT_TEST( execrp_lthash ) {
+  test_env_t * env  = test_env_create();
+  fd_bank_t *  bank = fd_svm_mini_bank( env->mini, env->bank_idx );
+  FD_TEST( bank );
+  FD_TEST( bank->parent_accdb_fork_id.val!=bank->accdb_fork_id.val );
+
+  fd_pubkey_t modified = { .ul = { 0xA1A1UL } };
+  fd_pubkey_t closed   = { .ul = { 0xB2B2UL } };
+  fd_pubkey_t missing  = { .ul = { 0xC3C3UL } };
+  fd_pubkey_t owner0   = { .ul = { 0xD4D4UL } };
+  fd_pubkey_t owner1   = { .ul = { 0xE5E5UL } };
+  uchar const data0[ 3 ] = { 1, 2, 3 };
+  uchar const data1[ 5 ] = { 9, 8, 7, 6, 5 };
+
+  /* Parent versions go in first: accdb chains are newest first, so a
+     parent version written after the child's would shadow it. */
+  test_put_account( env, bank->parent_accdb_fork_id, &modified, &owner0, 1000UL, 0, data0, sizeof(data0) );
+  test_put_account( env, bank->parent_accdb_fork_id, &closed,   &owner0, 2000UL, 0, data0, sizeof(data0) );
+  test_put_account( env, bank->accdb_fork_id,        &modified, &owner1, 3000UL, 1, data1, sizeof(data1) );
+  test_put_account( env, bank->accdb_fork_id,        &closed,   &owner0,    0UL, 0, NULL,  0UL           );
+
+  fd_lthash_value_t parent_modified[1];
+  fd_lthash_value_t child_modified [1];
+  fd_lthash_value_t parent_closed  [1];
+  fd_hashes_account_lthash_simple( modified.uc, owner0.uc, 1000UL, 0, data0, sizeof(data0), parent_modified );
+  fd_hashes_account_lthash_simple( modified.uc, owner1.uc, 3000UL, 1, data1, sizeof(data1), child_modified  );
+  fd_hashes_account_lthash_simple( closed.uc,   owner0.uc, 2000UL, 0, data0, sizeof(data0), parent_closed   );
+  FD_TEST( !fd_lthash_eq( parent_modified, child_modified ) );
+
+  fd_lthash_value_t lthash_before[1];
+  *lthash_before   = bank->f.lthash;
+  ulong cap_before = bank->f.capitalization;
+
+  fd_execrp_lthash_done_msg_t const * out_msg;
+  out_msg = test_lthash_run( env, FD_EXECRP_TT_LTHASH_SUB,  0UL, &modified );
+  FD_TEST( fd_lthash_eq( &out_msg->value, parent_modified ) );
+  out_msg = test_lthash_run( env, FD_EXECRP_TT_LTHASH_ADD, 77UL, &modified );
+  FD_TEST( fd_lthash_eq( &out_msg->value, child_modified ) );
+
+  /* closed has zero lamports on the child fork, which hashes like an
+     absent account. */
+  out_msg = test_lthash_run( env, FD_EXECRP_TT_LTHASH_SUB,  0UL, &closed );
+  FD_TEST( fd_lthash_eq( &out_msg->value, parent_closed ) );
+  out_msg = test_lthash_run( env, FD_EXECRP_TT_LTHASH_ADD, 78UL, &closed );
+  FD_TEST( fd_lthash_is_zero( &out_msg->value ) );
+
+  out_msg = test_lthash_run( env, FD_EXECRP_TT_LTHASH_SUB,  0UL, &missing );
+  FD_TEST( fd_lthash_is_zero( &out_msg->value ) );
+  out_msg = test_lthash_run( env, FD_EXECRP_TT_LTHASH_ADD, 79UL, &missing );
+  FD_TEST( fd_lthash_is_zero( &out_msg->value ) );
+
+  /* The exec tile only hashes; folding the values in is replay's job. */
+  FD_TEST( fd_lthash_eq( &bank->f.lthash, lthash_before ) );
+  FD_TEST( bank->f.capitalization==cap_before );
 
   test_env_destroy( env );
 }
@@ -680,6 +964,91 @@ FD_UNIT_TEST( execrp_cost_rejection_telemetry ) {
   FD_TEST( out_msg->txn_exec->tick_commit_start!=LONG_MAX );
   FD_TEST( out_msg->txn_exec->tick_commit_end>=out_msg->txn_exec->tick_commit_start );
   FD_TEST( env->execrp->metrics.txn_version[ FD_METRICS_ENUM_TXN_VERSION_V_V0_IDX ]==1UL );
+
+  test_env_destroy( env );
+}
+
+FD_UNIT_TEST( execrp_want_alts ) {
+  test_env_t * env  = test_env_create();
+  fd_bank_t *  bank = fd_svm_mini_bank( env->mini, env->bank_idx );
+
+  fd_pubkey_t fee_payer   = { .ul = { 0xF1F1UL } };
+  fd_pubkey_t alt         = { .ul = { 0xF2F2UL } };
+  fd_pubkey_t missing_alt = { .ul = { 0xF3F3UL } };
+  fd_pubkey_t alt_addrs[ 3 ] = { { .ul = { 0xF4F4UL } }, { .ul = { 0xF5F5UL } }, { .ul = { 0xF6F6UL } } };
+  test_fund_account( env, &fee_payer,      1000000000UL );
+  test_fund_account( env, &alt_addrs[ 0 ], 1000000000UL );
+  test_fund_account( env, &alt_addrs[ 1 ], 1000000000UL );
+
+  test_put_alt( env, &alt, alt_addrs, 3UL );
+
+  fd_txn_p_t txn[1];
+  test_build_alt_transfer_txn( txn, bank, fee_payer, alt, alt_addrs, 1UL );
+  FD_TEST( TXN( txn )->transaction_version==FD_TXN_V0 );
+  FD_TEST( TXN( txn )->addr_table_adtl_writable_cnt==2 );
+  FD_TEST( TXN( txn )->addr_table_adtl_cnt==3 );
+  fd_txn_acct_addr_lut_t const * lut = fd_txn_get_address_tables_const( TXN( txn ) );
+  uchar wr_idx[ 2 ];
+  memcpy( wr_idx, txn->payload+lut->writable_off, sizeof(wr_idx) );
+
+  /* Expansion succeeded and replay asked: the writable lookup-table
+     addresses come back in transaction order. */
+  fd_execrp_task_done_msg_t const * out_msg = test_execrp_run_alts( env, txn, 30UL, 1, 2UL );
+  FD_TEST( out_msg->txn_exec->is_committable );
+  FD_TEST( out_msg->txn_exec->txn_err==FD_RUNTIME_EXECUTE_SUCCESS );
+  fd_pubkey_t const * alt_writable = fd_execrp_txn_exec_done_alt_writable( out_msg );
+  for( ulong j=0UL; j<2UL; j++ ) {
+    FD_TEST( wr_idx[ j ]<2 );
+    FD_TEST( fd_pubkey_eq( &alt_writable[ j ], &alt_addrs[ wr_idx[ j ] ] ) );
+  }
+
+  /* Replay did not ask: no trailing accounts. */
+  test_build_alt_transfer_txn( txn, bank, fee_payer, alt, alt_addrs, 2UL );
+  out_msg = test_execrp_run_alts( env, txn, 31UL, 0, 0UL );
+  FD_TEST( out_msg->txn_exec->is_committable );
+
+  /* Expansion failed: the lookup table does not exist. */
+  test_build_alt_transfer_txn( txn, bank, fee_payer, missing_alt, alt_addrs, 3UL );
+  out_msg = test_execrp_run_alts( env, txn, 32UL, 1, 0UL );
+  FD_TEST( !out_msg->txn_exec->is_committable );
+  FD_TEST( out_msg->txn_exec->txn_err==FD_RUNTIME_TXN_ERR_ADDRESS_LOOKUP_TABLE_NOT_FOUND );
+
+  /* A legacy transaction has no lookup tables. */
+  test_build_system_transfer_txn( txn, bank, fee_payer, alt_addrs[ 0 ], 4UL );
+  FD_TEST( TXN( txn )->transaction_version==FD_TXN_VLEGACY );
+  out_msg = test_execrp_run_alts( env, txn, 33UL, 1, 0UL );
+  FD_TEST( out_msg->txn_exec->is_committable );
+
+  test_env_destroy( env );
+}
+
+FD_UNIT_TEST( execrp_want_alts_two_tables ) {
+  test_env_t * env  = test_env_create();
+  fd_bank_t *  bank = fd_svm_mini_bank( env->mini, env->bank_idx );
+
+  fd_pubkey_t fee_payer = { .ul = { 0xE1E1UL } };
+  fd_pubkey_t alts[ 2 ] = { { .ul = { 0xE2E2UL } }, { .ul = { 0xE3E3UL } } };
+  fd_pubkey_t addrs[ 2 ][ 2 ] = { { { .ul = { 0xE4E4UL } }, { .ul = { 0xE5E5UL } } },
+                                  { { .ul = { 0xE6E6UL } }, { .ul = { 0xE7E7UL } } } };
+  test_fund_account( env, &fee_payer, 1000000000UL );
+  test_put_alt( env, &alts[ 0 ], addrs[ 0 ], 2UL );
+  test_put_alt( env, &alts[ 1 ], addrs[ 1 ], 2UL );
+
+  fd_txn_p_t txn[1];
+  test_build_two_alt_txn( txn, bank, fee_payer, alts, 41UL );
+  FD_TEST( TXN( txn )->addr_table_lookup_cnt==2 );
+  FD_TEST( TXN( txn )->addr_table_adtl_writable_cnt==2 );
+  FD_TEST( TXN( txn )->addr_table_adtl_cnt==4 );
+
+  /* The expanded keys are addrs[0][0], addrs[1][1] (writable), then
+     addrs[0][1], addrs[1][0] (read-only).  Only the writable ones from
+     both tables come back, in table order. */
+  fd_execrp_task_done_msg_t const * out_msg = test_execrp_run_alts( env, txn, 40UL, 1, 2UL );
+  FD_TEST( out_msg->txn_exec->is_committable );
+  FD_TEST( out_msg->txn_exec->txn_err==FD_RUNTIME_EXECUTE_SUCCESS );
+  fd_pubkey_t const * alt_writable = fd_execrp_txn_exec_done_alt_writable( out_msg );
+  FD_TEST( fd_pubkey_eq( &alt_writable[ 0 ], &addrs[ 0 ][ 0 ] ) );
+  FD_TEST( fd_pubkey_eq( &alt_writable[ 1 ], &addrs[ 1 ][ 1 ] ) );
 
   test_env_destroy( env );
 }

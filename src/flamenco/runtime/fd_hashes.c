@@ -117,10 +117,14 @@ fd_hashes_update_simple( fd_lthash_value_t *       lthash_post, /* out */
                          ulong                     data_len,
                          fd_bank_t               * bank,
                          fd_capture_ctx_t        * capture_ctx ) {
-  /* Compute the new hash of the account */
-  fd_hashes_account_lthash_simple( pubkey, owner, lamports, executable, data, data_len, lthash_post );
+  if( bank->lthash_mode==FD_BANK_LTHASH_MODE_INBAND ) {
+    /* Compute the new hash of the account */
+    fd_hashes_account_lthash_simple( pubkey, owner, lamports, executable, data, data_len, lthash_post );
+    update_bank_lthash( bank, lthash_prev, lthash_post );
+  } else if( bank->lthash_mode==FD_BANK_LTHASH_MODE_OOB_RECORD ) {
+    fd_bank_lthash_record( bank, pubkey );
+  }
 
-  update_bank_lthash( bank, lthash_prev, lthash_post );
   fd_hashes_capture_account( pubkey, owner, lamports, executable, data, data_len, bank, capture_ctx );
 }
 
@@ -138,18 +142,23 @@ fd_hashes_update_pair( uchar const        pubkey[ static FD_HASH_FOOTPRINT ],
                        ulong              data_len,
                        fd_bank_t *        bank,
                        fd_capture_ctx_t * capture_ctx ) {
-  fd_lthash_value_t   lthash_prev[1];
-  fd_lthash_value_t   lthash_post[1];
-  uchar const *       pk [2] = { pubkey,          pubkey     };
-  uchar const *       ow [2] = { prev_owner,      owner      };
-  ulong               la [2] = { prev_lamports,   lamports   };
-  int                 ex [2] = { prev_executable, executable };
-  uchar const *       da [2] = { prev_data,       data       };
-  ulong               dl [2] = { prev_data_len,   data_len   };
-  fd_lthash_value_t * out[2] = { lthash_prev,     lthash_post };
-  fd_hashes_account_lthash_xn( 2UL, pk, ow, la, ex, da, dl, out );
+  if( bank->lthash_mode==FD_BANK_LTHASH_MODE_INBAND ) {
+    /* Hash the account before and after the write in one batch */
+    fd_lthash_value_t   lthash_prev[1];
+    fd_lthash_value_t   lthash_post[1];
+    uchar const *       pk [2] = { pubkey,          pubkey     };
+    uchar const *       ow [2] = { prev_owner,      owner      };
+    ulong               la [2] = { prev_lamports,   lamports   };
+    int                 ex [2] = { prev_executable, executable };
+    uchar const *       da [2] = { prev_data,       data       };
+    ulong               dl [2] = { prev_data_len,   data_len   };
+    fd_lthash_value_t * out[2] = { lthash_prev,     lthash_post };
+    fd_hashes_account_lthash_xn( 2UL, pk, ow, la, ex, da, dl, out );
+    update_bank_lthash( bank, lthash_prev, lthash_post );
+  } else if( bank->lthash_mode==FD_BANK_LTHASH_MODE_OOB_RECORD ) {
+    fd_bank_lthash_record( bank, pubkey );
+  }
 
-  update_bank_lthash( bank, lthash_prev, lthash_post );
   fd_hashes_capture_account( pubkey, owner, lamports, executable, data, data_len, bank, capture_ctx );
 }
 

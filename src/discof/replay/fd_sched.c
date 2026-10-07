@@ -2,6 +2,7 @@
 #include <stdarg.h> /* for va_list */
 
 #include "fd_sched.h"
+#include "fd_sched_lthash.h"
 #include "../../flamenco/alpenglow/fd_block_marker_serde.h"
 #include "fd_execrp.h" /* for poh hash value */
 #include "../../ballet/sha256/fd_sha256.h"
@@ -18,8 +19,6 @@
 #define FD_SCHED_MAX_STAGING_LANES         (1UL<<FD_SCHED_MAX_STAGING_LANES_LOG)
 #define FD_SCHED_MAX_PRINT_BUF_SZ          (2UL<<20)
 #define FD_SCHED_POISON_MAX_ACCT_PER_SLOT  (64UL)
-
-#define FD_SCHED_MAX_POH_HASHES_PER_TASK       (4096UL) /* This seems to be the sweet spot. */
 
 /* 64 ticks per slot, and a single gigantic microblock containing min
    size transactions. */
@@ -45,6 +44,27 @@ FD_STATIC_ASSERT( FD_SCHED_MAX_RESIDUAL_SZ>=sizeof(ulong),               resize 
 FD_STATIC_ASSERT( FD_SCHED_MIN_DEPTH>=FD_SCHED_MAX_TXN_PER_FEC, limits );
 FD_STATIC_ASSERT( FD_SCHED_MAX_DEPTH<=FD_RDISP_MAX_DEPTH,       limits );
 FD_STATIC_ASSERT( FD_SCHED_MAX_DEPTH<=UINT_MAX,                 txn_idx_width );
+
+#define FD_SCHED_MAX_POH_HASHES_PER_TASK   (4096UL) /* This seems to be the sweet spot. */
+
+/* Out-of-band LtHash.
+
+   The dispatcher sizes its account pool from the depth, and every
+   account waiting for an addition pseudo transaction pins an entry in
+   it, up to FD_RDISP_MAX_WRITERS_PER_BLOCK per lane, on top of what
+   live transactions reference.  So the depth is inflated by enough
+   number of transactions to account for pseudo transactions and that
+   many entries are held back from FEC ingest.
+
+   The speculation pool holds the values of speculative additions so a
+   later intra-block rewrite can undo the addition.  Speculation stops
+   when this pool gets full.  There is a threshold for free speculation
+   entries per exec tile before a deactivated block is activated to
+   engage in speculation.   This is meant to reduce churn. */
+#define FD_SCHED_LTHASH_RESERVE  ((FD_SCHED_MAX_STAGING_LANES*FD_RDISP_MAX_WRITERS_PER_BLOCK+FD_RDISP_MAX_ACCT_PER_TXN-1UL)/FD_RDISP_MAX_ACCT_PER_TXN)
+#define FD_SCHED_LTHASH_SPEC_MAX (8192UL)
+#define FD_SCHED_LTHASH_SPEC_THRESHOLD_PER_TILE (2UL)
+FD_STATIC_ASSERT( FD_SCHED_LTHASH_LANE_CNT==FD_SCHED_MAX_STAGING_LANES, lanes );
 
 #define FD_SCHED_MAGIC (0xace8a79c181f89b6UL) /* echo -n "fd_sched_v0" | sha512sum | head -c 16 */
 
@@ -109,6 +129,59 @@ struct fd_sched_block {
   uint                txn_idx_tail;           /* Most recently parsed rdisp pool index. */
   uint                txn_sigverify_next_idx; /* Next rdisp pool index to dispatch for sigverify, or 0 if caught up. */
   uint                parse_mblk_idx;         /* mblk pool index currently receiving parsed transactions. */
+
+  /* Out-of-band LtHash.
+
+     When the block has claim on the lane map, each entry in the map
+     corresponds to one subtraction for the block.
+
+       entries_cnt==sub_queued_cnt+sub_in_flight_cnt+sub_applied_cnt
+
+     Additions the block owes but has no pseudo transaction for yet are
+
+       add_owed_cnt
+
+     While we don't track first writes on a per-block basis, which each
+     puts an addition on the owed side, they balance out with other
+     counters as follows.  Note that we also don't track per-block extra
+     pseudo transactions created past the end of a block.
+
+       first_write_cnt==add_owed_cnt+add_created_cnt-add_extra_cnt
+
+     Unsurfaced additions that rdisp has been instructed to create but
+     hasn't handed back to us via next_ready() are
+
+       add_created_cnt-add_surfaced_cnt
+
+     In-flight additions are
+
+       add_surfaced_cnt-add_done_cnt
+
+     Additions completed without a hash, or whose hash was dropped,
+     because their account was written again within the same block are
+
+       add_stale_cnt==add_done_cnt-add_applied_cnt
+
+     The net number of additions absorbed by the block's delta is
+
+       add_applied_cnt-add_undone_cnt
+
+     At BLOCK_END every entry has been subtracted and added exactly once.
+
+       sub_applied_cnt==add_applied_cnt-add_undone_cnt==entries_cnt */
+  uint                sub_q_head;        /* UINT_MAX if empty.  Linked through entry->q_next. */
+  uint                sub_q_tail;
+  uint                sub_queued_cnt;
+  uint                sub_in_flight_cnt;
+  uint                sub_applied_cnt;
+  uint                add_owed_cnt;      /* First writes whose addition pseudo transaction is not created yet. */
+  uint                add_created_cnt;   /* Addition pseudo transactions that we've instructed rdisp to create and queue up, for owed additions or extras. */
+  uint                add_surfaced_cnt;  /* Returned by fd_rdisp_get_next_ready.  Will be either dispatched or completed on the spot. */
+  uint                add_done_cnt;      /* fd_rdisp_complete_txn issued for pseudo transactions, with or without a dispatched hashing. */
+  uint                add_applied_cnt;   /* Addition results rolled into the block's delta. */
+  uint                add_undone_cnt;    /* Applied additions rolled back due to a subsequent account rewrite. */
+  uint                ptxn_list_head;    /* Pseudo transactions surfaced when the block was not its lane's head.  UINT_MAX if empty.  Linked through sched->ptxn_next. */
+  uint                ptxn_list_tail;
 
   /* PoH verify. */
   fd_hash_t    poh_hash[ 1 ]; /* running end_hash of last parsed mblk */
@@ -201,6 +274,11 @@ struct fd_sched_block {
   uint                block_end_done:1;                   /* Set if the end-of-block processing has been completed. */
   uint                staged:1;                           /* Set if the block is in a dispatcher staging lane; a staged block is
                                                              tracked by the dispatcher. */
+  uint                lthash_oob:1;                       /* Copy of sched->lthash_oob. */
+  uint                lthash_drained:1;                   /* Set if fec_eos AND something equivalent to
+                                                             fd_rdisp_add_all_pseudo_txn() has been done since fec_eos.  That is
+                                                             to say, every writable account has an addition pseudo transaction
+                                                             that will capture its final value. */
   ulong               staging_lane;                       /* Ignored if staged==0. */
   ulong               luf_depth;                          /* Depth of longest unstaged fork starting from this node; only
                                                              stageable unstaged descendants are counted. */
@@ -235,7 +313,7 @@ typedef struct fd_sched_block fd_sched_block_t;
 
 FD_STATIC_ASSERT( sizeof(fd_sched_mblk_t)==120UL, fd_sched_mblk );
 FD_STATIC_ASSERT( sizeof(fd_sched_txn_info_t)==192UL, fd_sched_txn_info );
-FD_STATIC_ASSERT( sizeof(fd_sched_block_t)==75840UL, fd_sched_block );
+FD_STATIC_ASSERT( sizeof(fd_sched_block_t)==75904UL, fd_sched_block );
 FD_STATIC_ASSERT( sizeof(fd_hash_t)==sizeof(((fd_microblock_hdr_t *)0)->hash), unexpected poh hash size );
 
 
@@ -283,8 +361,89 @@ struct fd_sched_metrics {
   ulong bytes_ingested_unparsed_cnt;
   ulong bytes_dropped_cnt;
   ulong fec_cnt;
+
+  /* Out-of-band LtHash.  sum(x) sums per-block counter x over the
+     blocks in the scheduler.  The lthash_discarded_* counters are for
+     what abandon and demotion throw away.  We expect the following
+     invariants.
+
+     Writes observed, by source, and what the dispatcher made of each:
+       lthash_parsed_writable_cnt+lthash_start_reg_cnt+lthash_late_reg_cnt+lthash_demote_reg_cnt==lthash_first_write_cnt+lthash_coalesced_cnt+lthash_extra_reg_cnt
+
+     Sometimes rdisp reports a write as the account's first write since
+     its last addition pseudo transaction.  It makes the block owe the
+     account one addition, which a drain or a speculation will get going
+     later.  Writes in between coalesce into that owed addition, which
+     is the add-add coalescing rdisp provides.  An extra pseudo
+     transaction is directly inserted into rdisp:
+       lthash_first_write_cnt==lthash_add_created_cnt-lthash_add_extra_cnt+sum(add_owed_cnt)+lthash_discarded_add_owed_cnt
+       lthash_extra_reg_cnt>=lthash_add_extra_cnt, the difference is last ref dedup done by rdisp
+
+     Additions:
+       lthash_add_created_cnt==lthash_add_surfaced_cnt+sum(add_created_cnt-add_surfaced_cnt)+lthash_discarded_add_pending_cnt
+       lthash_add_surfaced_cnt==lthash_add_surfaced_stale_cnt+lthash_add_dispatched_cnt
+       lthash_add_dispatched_cnt==lthash_add_dispatched_stale_cnt+lthash_add_applied_cnt+(in-flight additions)
+       lthash_add_applied_cnt-lthash_add_undone_cnt==lthash_frozen_cnt+sum(add_applied_cnt-add_undone_cnt)+lthash_discarded_add_applied_cnt
+
+     Subtractions:
+       lthash_entry_cnt==lthash_sub_dispatched_cnt+sum(sub_queued_cnt)+lthash_discarded_sub_queued_cnt
+       lthash_sub_dispatched_cnt==lthash_sub_applied_cnt+(in-flight subtractions)
+       lthash_sub_applied_cnt==lthash_frozen_cnt+sum(sub_applied_cnt)+lthash_discarded_sub_applied_cnt
+
+     Speculation: lthash_spec_cnt of the additions were guesses.  Once
+     the blocks finish, lthash_spec_applied_cnt-lthash_add_undone_cnt of
+     them survive, and lthash_spec_stale_cnt were invalidated before
+     their hash applied.  The rest of the stale counts are drain
+     additions invalidated by a registration that came after the drain.
+     Draining is a parse time operation, and the registrations that
+     invalidate it could come from either start-of-block processing or
+     ALT expansions.  The owed, pending and queued lthash_discarded_*
+     counters come only from abandon, since a demotable block has
+     nothing queued or unsurfaced and keeps its owed additions.  The two
+     lthash_discarded_*_applied delta counters can come from either
+     abandon or demotion. */
+  ulong lthash_parsed_writable_cnt;       /* Declared writable accounts of parsed transactions.  ALT accounts of a transaction whose tables could not be expanded are not counted here, and instead count as late registrations. */
+  uint  lthash_start_reg_cnt;             /* Accounts registered by start-of-block processing. */
+  uint  lthash_late_reg_cnt;              /* Declared writable lookup table accounts registered at transaction completion. */
+  uint  lthash_demote_reg_cnt;            /* Accounts put back into rdisp when their block was demoted.  A later promotion will drain these back out of rdisp.  Not really new writes. */
+  ulong lthash_first_write_cnt;           /* Writes rdisp reported as the account's first since its last addition pseudo transaction. */
+  ulong lthash_coalesced_cnt;             /* Writes to an account the block already owed an addition for. */
+  ulong lthash_extra_reg_cnt;             /* Write registrations that we had to force insert into rdisp, due to a child being staged behind the block.  Some of these may end up getting deduped by rdisp. */
+  ulong lthash_entry_cnt;                 /* Lane head account map entries inserted, each owing one subtraction. */
+  ulong lthash_sub_dispatched_cnt;        /* Subtractions dispatched to a tile. */
+  ulong lthash_sub_applied_cnt;           /* Subtractions rolled into a block's delta. */
+  ulong lthash_add_created_cnt;           /* Addition pseudo transactions rdisp handed us. */
+  ulong lthash_spec_cnt;                  /* Of those, speculatively created while the block was still receiving FEC sets. */
+  ulong lthash_add_extra_cnt;             /* Of those, created through fd_rdisp_add_extra_pseudo_txn() for a late extra registration. */
+  ulong lthash_add_surfaced_cnt;          /* Pseudo transactions returned by fd_rdisp_get_next_ready(). */
+  ulong lthash_add_surfaced_stale_cnt;    /* Of those, no longer the account's addition of record due to a rewrite.  We will complete these pseudo transactions without hashing. */
+  ulong lthash_add_dispatched_cnt;        /* Additions dispatched to a tile. */
+  ulong lthash_add_dispatched_stale_cnt;  /* Of those, rewritten while in flight.  We will drop the hashing result. */
+  ulong lthash_add_applied_cnt;           /* Addition results rolled into a block's delta. */
+  ulong lthash_add_undone_cnt;            /* Applied additions rolled back because the account was rewritten. */
+  ulong lthash_spec_applied_cnt;          /* Of lthash_add_applied_cnt, speculative. */
+  ulong lthash_spec_stale_cnt;            /* Speculations rewritten while PENDING or DISPATCHED, invalidated before they applied.  Applied speculations are not included here. */
+  uint  lthash_pool_full_cnt;             /* Deactivations of a block that still owed additions, because the speculation pool had no free entry.  Such blocks have a chance to be activated if sufficient entries per exec tile are free again. */
+  uint  lthash_spec_yield_cnt;            /* Deactivations of a block that could only speculate, because it's yielding to another lane head that has must-do work. */
+  ulong lthash_frozen_cnt;                /* Number of accounts that were rolled into the final LtHash value of a successfully replayed block.  This does not include the handful of end-of-block account writes that are done in-band.  The scheduler only tracks out-of-band LtHash.  FIXME: counted when BLOCK_END completes, which is before replay_block_finalize gives its verdict, so a block whose bank is marked dead there (bad footer, footer bank hash mismatch) is counted as well. */
+  uint  lthash_discarded_add_owed_cnt;    /* Additions owed by abandoned blocks.  Never created. */
+  uint  lthash_discarded_add_pending_cnt; /* Pseudo transactions of abandoned blocks.  Never surfaced. */
+  uint  lthash_discarded_add_applied_cnt; /* Additions in the delta of an abandoned or demoted block, net of undone. */
+  uint  lthash_discarded_sub_queued_cnt;  /* Subtractions of abandoned blocks.  Never dispatched. */
+  uint  lthash_discarded_sub_applied_cnt; /* Subtractions in the delta of an abandoned or demoted block. */
 };
 typedef struct fd_sched_metrics fd_sched_metrics_t;
+
+/* What a tile is hashing, captured at dispatch because a
+   pseudo transaction is unreadable once it is completed. */
+struct fd_sched_lthash_inflight {
+  uchar          kind;      /* FD_SCHED_TT_LTHASH_SUB or FD_SCHED_TT_LTHASH_ADD */
+  ulong          bank_idx;
+  uint           ptxn_idx;  /* ticket at dispatch, incl. FD_RDISP_LTHASH_PSEUDO_TXN; 0 for a subtraction */
+  uint           entry_idx; /* entry in the lane map */
+  uint           lane;
+};
+typedef struct fd_sched_lthash_inflight fd_sched_lthash_inflight_t;
 
 #define DEQUE_NAME ref_q
 #define DEQUE_T    ulong
@@ -302,8 +461,10 @@ struct fd_sched {
   fd_sched_metrics_t    metrics[ 1 ];
   int                   is_alpenglow; /* set if alpenglow is enabled. */
   ulong                 canary; /* == FD_SCHED_MAGIC */
-  ulong                 depth;         /* Immutable. */
+  ulong                 depth;         /* Immutable.  Pool depth, inflated by lthash_reserve. */
   ulong                 block_cnt_max; /* Immutable. */
+  int                   lthash_oob;     /* Immutable.  Set if account LtHashes are computed out of band. */
+  ulong                 lthash_reserve; /* Immutable.  Pool entries held back from ingest for pseudo transactions, 0 unless lthash_oob. */
   ulong                 exec_cnt;      /* Immutable. */
   ulong                 poh_simd_min;  /* Immutable. */
   ulong                 poh_simd_max;  /* Immutable. */
@@ -317,6 +478,7 @@ struct fd_sched {
   ulong                 txn_exec_ready_bitset[ 1 ];
   ulong                 sigverify_ready_bitset[ 1 ];
   ulong                 poh_ready_bitset[ 1 ];
+  ulong                 lthash_ready_bitset[ 1 ];
   ulong                 active_bank_idx; /* Index of the actively replayed block, or ULONG_MAX if no block is
                                             actively replayed; has to have a transaction to dispatch; staged
                                             blocks that have no transactions to dispatch are not eligible for
@@ -334,6 +496,10 @@ struct fd_sched {
   uint                  mblk_pool_free_head;
   ulong                 tile_to_bank_idx[ FD_SCHED_MAX_EXEC_TILE_CNT ]; /* Index of the bank that the exec tile is executing against. */
   fd_sched_poh_hash_t   poh_inflight[ FD_SCHED_MAX_EXEC_TILE_CNT ]; /* PoH dispatch metadata, indexed by exec tile. */
+  fd_sched_lthash_inflight_t lthash_inflight[ FD_SCHED_MAX_EXEC_TILE_CNT ]; /* LtHash dispatch metadata, indexed by exec tile. */
+  fd_sched_lthash_t *   lthash;       /* Per-lane account maps and the hash pool; NULL unless lthash_oob. */
+  fd_lthash_value_t *   lthash_delta; /* Per-block delta, block_cnt_max entries indexed by bank_idx; NULL unless lthash_oob. */
+  uint *                ptxn_next;    /* Pseudo transaction list links indexed by pool index (high bit cleared); NULL unless lthash_oob. */
   txn_bitset_t          exec_done_set[ txn_bitset_word_cnt ];      /* Indexed by txn_idx. */
   txn_bitset_t          sigverify_done_set[ txn_bitset_word_cnt ]; /* Indexed by txn_idx. */
   txn_bitset_t          poh_mixin_done_set[ txn_bitset_word_cnt ]; /* Indexed by txn_idx. */
@@ -456,12 +622,19 @@ block_is_void( fd_sched_block_t * block ) {
   return block->fec_eos && block->txn_parsed_cnt==0;
 }
 
+/* Assumes that every serializing transaction has completed, so every
+   late registration has happened. */
+static inline int
+block_lthash_settled( fd_sched_block_t * block ) {
+  return !block->lthash_oob || ( block->lthash_drained && !block->sub_queued_cnt && !block->sub_in_flight_cnt && block->add_created_cnt==block->add_done_cnt );
+}
+
 static inline int
 block_should_signal_end( fd_sched_block_t * block ) {
   /* Under the current policy of eager synchronous PoH mixin, hashing
      done plus fec_eos imply that all mixins have been done. */
   if( FD_UNLIKELY( !( !block->fec_eos || ((block->mblk_cnt==block->poh_hashing_done_cnt&&block->mblk_cnt==block->poh_hash_cmp_done_cnt)||block->mblk_cnt!=block->poh_hashing_done_cnt) ) ) ) FD_LOG_CRIT(( "invariant violation: slot %lu fec_eos %d mblk_cnt %u poh_hashing_done_cnt %u poh_hash_cmp_done_cnt %u", block->slot, block->fec_eos, block->mblk_cnt, block->poh_hashing_done_cnt, block->poh_hash_cmp_done_cnt ));
-  return block->fec_eos && block->txn_parsed_cnt==block->txn_done_cnt && block->mblk_cnt==block->poh_hashing_done_cnt && block->block_start_done && !block->block_end_signaled;
+  return block->fec_eos && block->txn_parsed_cnt==block->txn_done_cnt && block->mblk_cnt==block->poh_hashing_done_cnt && block->block_start_done && !block->block_end_signaled && block_lthash_settled( block );
 }
 
 static inline int
@@ -480,13 +653,23 @@ block_is_dispatchable( fd_sched_block_t * block ) {
   return exec_queued_cnt>0UL ||
          sigverify_queued_cnt>0UL ||
          poh_queued_cnt>0UL ||
+         block->sub_queued_cnt>0U ||
+         block->add_created_cnt>block->add_surfaced_cnt ||
          !block->block_start_signaled ||
          block_will_signal_end( block );
 }
 
+/* Tasks of the block on exec tiles. */
+static inline ulong
+block_in_flight_cnt( fd_sched_block_t * block ) {
+  return (ulong)block->txn_exec_in_flight_cnt + (ulong)block->txn_sigverify_in_flight_cnt + (ulong)block->poh_hashing_in_flight_cnt
+       + (ulong)block->sub_in_flight_cnt + (ulong)(block->add_surfaced_cnt-block->add_done_cnt);
+}
+
 static inline int
 block_is_in_flight( fd_sched_block_t * block ) {
-  return block->txn_exec_in_flight_cnt || block->txn_sigverify_in_flight_cnt || block->poh_hashing_in_flight_cnt || (block->block_end_signaled && !block->block_end_done);
+  return block->txn_exec_in_flight_cnt || block->txn_sigverify_in_flight_cnt || block->poh_hashing_in_flight_cnt || (block->block_end_signaled && !block->block_end_done)
+      || block->sub_in_flight_cnt || block->add_surfaced_cnt>block->add_done_cnt;
 }
 
 static inline int
@@ -530,23 +713,68 @@ block_is_activatable( fd_sched_block_t * block ) {
   return block_is_stageable( block ) && block_is_dispatchable( block ) && block->staged;
 }
 
+static inline ulong
+block_to_idx( fd_sched_t * sched, fd_sched_block_t * block ) { return (ulong)(block-sched->block_pool); }
+
 static inline int
-block_should_deactivate( fd_sched_block_t * block ) {
+block_is_lane_head( fd_sched_t * sched, fd_sched_block_t * block ) {
+  return block->staged && sched->staged_head_bank_idx[ block->staging_lane ]==block_to_idx( sched, block );
+}
+
+static inline int
+block_is_lane_tail( fd_sched_t * sched, fd_sched_block_t * block ) {
+  if( !block->staged ) return 0;
+  fd_rdisp_staging_lane_info_t lane_info[ FD_SCHED_MAX_STAGING_LANES ];
+  ulong occupied = fd_rdisp_staging_lane_info( sched->rdisp, lane_info );
+  return fd_ulong_extract_bit( occupied, (int)block->staging_lane ) && lane_info[ block->staging_lane ].insert_ready_block==block_to_idx( sched, block );
+}
+
+/* Under out-of-band LtHash, a block with absolutely nothing to dispatch
+   may still speculate on additions when it is the only block of its
+   lane, it is still receiving FEC sets, it owes additions, and the
+   speculation pool has at least spec_free_min free entries.  Only the
+   active block speculates.  An already speculating block keeps going
+   until the last free entry.  In contrast, deactivated blocks are
+   activated for speculation only if a higher free entry threshold is
+   reached, so a trickle of freed entries does not bounce blocks in and
+   out of the active state. */
+static inline int
+block_may_speculate( fd_sched_t * sched, fd_sched_block_t * block, ulong spec_free_min ) {
+  if( FD_LIKELY( !block->lthash_oob ) ) return 0;
+  if( block->fec_eos || !block->add_owed_cnt ) return 0;
+  if( fd_sched_lthash_spec_free_cnt( sched->lthash )<spec_free_min ) return 0;
+  return block_is_lane_head( sched, block ) && block_is_lane_tail( sched, block );
+}
+
+/* Is there a lane head, other than the block, that we could activate to
+   perform must-do work? */
+static inline int
+other_lane_has_real_work( fd_sched_t * sched, fd_sched_block_t * block ) {
+  ulong staged_bitset = fd_ulong_clear_bit( sched->staged_bitset, (int)block->staging_lane );
+  while( staged_bitset ) {
+    int lane_idx  = fd_ulong_find_lsb( staged_bitset );
+    staged_bitset = fd_ulong_pop_lsb( staged_bitset );
+    fd_sched_block_t * head = block_pool_ele( sched, sched->staged_head_bank_idx[ lane_idx ] );
+    if( block_is_done( block_pool_ele( sched, head->parent_idx ) ) && block_is_activatable( head ) ) return 1;
+  }
+  return 0;
+}
+
+static inline int
+block_should_deactivate( fd_sched_t * sched, fd_sched_block_t * block ) {
   /* We allow a grace period, during which a block has nothing to
      dispatch, but has something in-flight.  The block is allowed to
      stay activated and ingest FEC sets during this time.  The block
      will be deactivated if there's still nothing to dispatch by the
-     time all in-flight tasks are completed. */
-  return !block_is_activatable( block ) && !block_is_in_flight( block );
+     time all in-flight tasks are completed, unless it can spend the
+     idle time speculating on LtHash additions. */
+  return !block_is_activatable( block ) && !block_is_in_flight( block ) && !block_may_speculate( sched, block, 1UL );
 }
 
 static inline int
 block_is_prunable( fd_sched_block_t * block ) {
   return !block->in_rdisp && !block_is_in_flight( block );
 }
-
-static inline ulong
-block_to_idx( fd_sched_t * sched, fd_sched_block_t * block ) { return (ulong)(block-sched->block_pool); }
 
 __attribute__((format(printf,2,3)))
 static void
@@ -617,8 +845,8 @@ print_block_metrics( fd_sched_t * sched, fd_sched_block_t * block ) {
 
 FD_FN_UNUSED static void
 print_block_debug( fd_sched_t * sched, fd_sched_block_t * block ) {
-  fd_sched_printf( sched, "block idx %lu, block slot %lu, parent_slot %lu, staged %d (lane %lu), dying %d, in_rdisp %d, fec_eos %d, rooted %d, block_start_signaled %d, block_end_signaled %d, block_start_done %d, block_end_done %d, txn_parsed_cnt %u, txn_exec_in_flight_cnt %u, txn_exec_done_cnt %u, txn_sigverify_in_flight_cnt %u, txn_sigverify_done_cnt %u, poh_hashing_in_flight_cnt %u, poh_mblk_in_flight_cnt %u, poh_hashing_done_cnt %u, poh_hash_cmp_done_cnt %u, txn_done_cnt %u, shred_cnt %u, mblk_cnt %u, mblk_freed_cnt %u, mblk_tick_cnt %u, mblk_unhashed_cnt %u, hashcnt %lu, txn_pool_max_popcnt %lu/%lu, mblk_pool_max_popcnt %lu/%lu, block_pool_max_popcnt %lu/%lu, tick_hashcnt_wmk %lu, curr_tick_hashcnt %lu, hashes_per_tick %lu, mblks_rem %lu, txns_rem %lu, fec_buf_sz %u, fec_buf_boff %u, fec_buf_soff %u, fec_eob %d, fec_sob %d\n",
-                   block_to_idx( sched, block ), block->slot, block->parent_slot, block->staged, block->staging_lane, block->dying, block->in_rdisp, block->fec_eos, block->rooted, block->block_start_signaled, block->block_end_signaled, block->block_start_done, block->block_end_done, block->txn_parsed_cnt, block->txn_exec_in_flight_cnt, block->txn_exec_done_cnt, block->txn_sigverify_in_flight_cnt, block->txn_sigverify_done_cnt, block->poh_hashing_in_flight_cnt, block->poh_mblk_in_flight_cnt, block->poh_hashing_done_cnt, block->poh_hash_cmp_done_cnt, block->txn_done_cnt, block->shred_cnt, block->mblk_cnt, block->mblk_freed_cnt, block->mblk_tick_cnt, block->mblk_unhashed_cnt, block->hashcnt, block->txn_pool_max_popcnt, sched->depth, block->mblk_pool_max_popcnt, sched->depth, block->block_pool_max_popcnt, sched->block_cnt_max, block->tick_hashcnt_wmk, block->curr_tick_hashcnt, block->hashes_per_tick, block->mblks_rem, block->txns_rem, block->fec_buf_sz, block->fec_buf_boff, block->fec_buf_soff, block->fec_eob, block->fec_sob );
+  fd_sched_printf( sched, "block idx %lu, block slot %lu, parent_slot %lu, staged %d (lane %lu), dying %d, in_rdisp %d, fec_eos %d, rooted %d, block_start_signaled %d, block_end_signaled %d, block_start_done %d, block_end_done %d, txn_parsed_cnt %u, txn_exec_in_flight_cnt %u, txn_exec_done_cnt %u, txn_sigverify_in_flight_cnt %u, txn_sigverify_done_cnt %u, poh_hashing_in_flight_cnt %u, poh_mblk_in_flight_cnt %u, poh_hashing_done_cnt %u, poh_hash_cmp_done_cnt %u, txn_done_cnt %u, shred_cnt %u, mblk_cnt %u, mblk_freed_cnt %u, mblk_tick_cnt %u, mblk_unhashed_cnt %u, hashcnt %lu, txn_pool_max_popcnt %lu/%lu, mblk_pool_max_popcnt %lu/%lu, block_pool_max_popcnt %lu/%lu, tick_hashcnt_wmk %lu, curr_tick_hashcnt %lu, hashes_per_tick %lu, mblks_rem %lu, txns_rem %lu, fec_buf_sz %u, fec_buf_boff %u, fec_buf_soff %u, fec_eob %d, fec_sob %d, lthash_drained %d, add_owed_cnt %u, sub_queued_cnt %u, sub_in_flight_cnt %u, sub_applied_cnt %u, add_created_cnt %u, add_surfaced_cnt %u, add_done_cnt %u, add_applied_cnt %u, add_undone_cnt %u\n",
+                   block_to_idx( sched, block ), block->slot, block->parent_slot, block->staged, block->staging_lane, block->dying, block->in_rdisp, block->fec_eos, block->rooted, block->block_start_signaled, block->block_end_signaled, block->block_start_done, block->block_end_done, block->txn_parsed_cnt, block->txn_exec_in_flight_cnt, block->txn_exec_done_cnt, block->txn_sigverify_in_flight_cnt, block->txn_sigverify_done_cnt, block->poh_hashing_in_flight_cnt, block->poh_mblk_in_flight_cnt, block->poh_hashing_done_cnt, block->poh_hash_cmp_done_cnt, block->txn_done_cnt, block->shred_cnt, block->mblk_cnt, block->mblk_freed_cnt, block->mblk_tick_cnt, block->mblk_unhashed_cnt, block->hashcnt, block->txn_pool_max_popcnt, sched->depth, block->mblk_pool_max_popcnt, sched->depth, block->block_pool_max_popcnt, sched->block_cnt_max, block->tick_hashcnt_wmk, block->curr_tick_hashcnt, block->hashes_per_tick, block->mblks_rem, block->txns_rem, block->fec_buf_sz, block->fec_buf_boff, block->fec_buf_soff, block->fec_eob, block->fec_sob, block->lthash_drained, block->add_owed_cnt, block->sub_queued_cnt, block->sub_in_flight_cnt, block->sub_applied_cnt, block->add_created_cnt, block->add_surfaced_cnt, block->add_done_cnt, block->add_applied_cnt, block->add_undone_cnt );
 }
 
 FD_FN_UNUSED static void
@@ -630,14 +858,14 @@ print_block_and_parent( fd_sched_t * sched, fd_sched_block_t * block ) {
 
 FD_FN_UNUSED static void
 print_metrics( fd_sched_t * sched ) {
-    fd_sched_printf( sched, "metrics: block_added_cnt %u, block_added_staged_cnt %u, block_added_unstaged_cnt %u, block_added_dead_ood_cnt %u, block_removed_cnt %u, block_abandoned_cnt %u, block_bad_cnt %u, block_promoted_cnt %u, block_demoted_cnt %u, deactivate_no_child_cnt %u, deactivate_no_txn_cnt %u, deactivate_pruned_cnt %u, deactivate_abandoned_cnt %u, lane_switch_cnt %u, lane_promoted_cnt %u, lane_demoted_cnt %u, fork_observed_cnt %u, alut_success_cnt %u, alut_serializing_cnt %u, poison_latch_overflow_cnt %u, poison_latch_alt_cnt %u, poison_cnt_wmk %u, txn_poison_serializing_cnt %u, txn_poisoned_cnt %u, txn_abandoned_parsed_cnt %u, txn_abandoned_exec_done_cnt %u, txn_abandoned_done_cnt %u, txn_max_in_flight_cnt %u, txn_weighted_in_flight_cnt %lu, txn_weighted_in_flight_tickcount %lu, txn_none_in_flight_tickcount %lu, txn_parsed_cnt %lu, txn_exec_done_cnt %lu, txn_sigverify_done_cnt %lu, txn_mixin_done_cnt %lu, txn_done_cnt %lu, mblk_parsed_cnt %lu, mblk_poh_hashed_cnt %lu, mblk_poh_done_cnt %lu, bytes_ingested_cnt %lu, bytes_ingested_unparsed_cnt %lu, bytes_dropped_cnt %lu, fec_cnt %lu\n",
-                     sched->metrics->block_added_cnt, sched->metrics->block_added_staged_cnt, sched->metrics->block_added_unstaged_cnt, sched->metrics->block_added_dead_ood_cnt, sched->metrics->block_removed_cnt, sched->metrics->block_abandoned_cnt, sched->metrics->block_bad_cnt, sched->metrics->block_promoted_cnt, sched->metrics->block_demoted_cnt, sched->metrics->deactivate_no_child_cnt, sched->metrics->deactivate_no_txn_cnt, sched->metrics->deactivate_pruned_cnt, sched->metrics->deactivate_abandoned_cnt, sched->metrics->lane_switch_cnt, sched->metrics->lane_promoted_cnt, sched->metrics->lane_demoted_cnt, sched->metrics->fork_observed_cnt, sched->metrics->alut_success_cnt, sched->metrics->alut_serializing_cnt, sched->metrics->poison_latch_overflow_cnt, sched->metrics->poison_latch_alt_cnt, sched->metrics->poison_cnt_wmk, sched->metrics->txn_poison_serializing_cnt, sched->metrics->txn_poisoned_cnt, sched->metrics->txn_abandoned_parsed_cnt, sched->metrics->txn_abandoned_exec_done_cnt, sched->metrics->txn_abandoned_done_cnt, sched->metrics->txn_max_in_flight_cnt, sched->metrics->txn_weighted_in_flight_cnt, sched->metrics->txn_weighted_in_flight_tickcount, sched->metrics->txn_none_in_flight_tickcount, sched->metrics->txn_parsed_cnt, sched->metrics->txn_exec_done_cnt, sched->metrics->txn_sigverify_done_cnt, sched->metrics->txn_mixin_done_cnt, sched->metrics->txn_done_cnt, sched->metrics->mblk_parsed_cnt, sched->metrics->mblk_poh_hashed_cnt, sched->metrics->mblk_poh_done_cnt, sched->metrics->bytes_ingested_cnt, sched->metrics->bytes_ingested_unparsed_cnt, sched->metrics->bytes_dropped_cnt, sched->metrics->fec_cnt );
+    fd_sched_printf( sched, "metrics: block_added_cnt %u, block_added_staged_cnt %u, block_added_unstaged_cnt %u, block_added_dead_ood_cnt %u, block_removed_cnt %u, block_abandoned_cnt %u, block_bad_cnt %u, block_promoted_cnt %u, block_demoted_cnt %u, deactivate_no_child_cnt %u, deactivate_no_txn_cnt %u, deactivate_pruned_cnt %u, deactivate_abandoned_cnt %u, lane_switch_cnt %u, lane_promoted_cnt %u, lane_demoted_cnt %u, fork_observed_cnt %u, alut_success_cnt %u, alut_serializing_cnt %u, poison_latch_overflow_cnt %u, poison_latch_alt_cnt %u, poison_cnt_wmk %u, txn_poison_serializing_cnt %u, txn_poisoned_cnt %u, txn_abandoned_parsed_cnt %u, txn_abandoned_exec_done_cnt %u, txn_abandoned_done_cnt %u, txn_max_in_flight_cnt %u, txn_weighted_in_flight_cnt %lu, txn_weighted_in_flight_tickcount %lu, txn_none_in_flight_tickcount %lu, txn_parsed_cnt %lu, txn_exec_done_cnt %lu, txn_sigverify_done_cnt %lu, txn_mixin_done_cnt %lu, txn_done_cnt %lu, mblk_parsed_cnt %lu, mblk_poh_hashed_cnt %lu, mblk_poh_done_cnt %lu, bytes_ingested_cnt %lu, bytes_ingested_unparsed_cnt %lu, bytes_dropped_cnt %lu, fec_cnt %lu, lthash_parsed_writable_cnt %lu, lthash_start_reg_cnt %u, lthash_late_reg_cnt %u, lthash_demote_reg_cnt %u, lthash_first_write_cnt %lu, lthash_coalesced_cnt %lu, lthash_extra_reg_cnt %lu, lthash_add_created_cnt %lu, lthash_spec_cnt %lu, lthash_add_extra_cnt %lu, lthash_entry_cnt %lu, lthash_sub_dispatched_cnt %lu, lthash_sub_applied_cnt %lu, lthash_add_surfaced_cnt %lu, lthash_add_surfaced_stale_cnt %lu, lthash_add_dispatched_cnt %lu, lthash_add_dispatched_stale_cnt %lu, lthash_add_applied_cnt %lu, lthash_add_undone_cnt %lu, lthash_spec_applied_cnt %lu, lthash_spec_stale_cnt %lu, lthash_pool_full_cnt %u, lthash_spec_yield_cnt %u, lthash_frozen_cnt %lu, lthash_discarded_add_owed_cnt %u, lthash_discarded_add_pending_cnt %u, lthash_discarded_sub_queued_cnt %u, lthash_discarded_sub_applied_cnt %u, lthash_discarded_add_applied_cnt %u\n",
+                     sched->metrics->block_added_cnt, sched->metrics->block_added_staged_cnt, sched->metrics->block_added_unstaged_cnt, sched->metrics->block_added_dead_ood_cnt, sched->metrics->block_removed_cnt, sched->metrics->block_abandoned_cnt, sched->metrics->block_bad_cnt, sched->metrics->block_promoted_cnt, sched->metrics->block_demoted_cnt, sched->metrics->deactivate_no_child_cnt, sched->metrics->deactivate_no_txn_cnt, sched->metrics->deactivate_pruned_cnt, sched->metrics->deactivate_abandoned_cnt, sched->metrics->lane_switch_cnt, sched->metrics->lane_promoted_cnt, sched->metrics->lane_demoted_cnt, sched->metrics->fork_observed_cnt, sched->metrics->alut_success_cnt, sched->metrics->alut_serializing_cnt, sched->metrics->poison_latch_overflow_cnt, sched->metrics->poison_latch_alt_cnt, sched->metrics->poison_cnt_wmk, sched->metrics->txn_poison_serializing_cnt, sched->metrics->txn_poisoned_cnt, sched->metrics->txn_abandoned_parsed_cnt, sched->metrics->txn_abandoned_exec_done_cnt, sched->metrics->txn_abandoned_done_cnt, sched->metrics->txn_max_in_flight_cnt, sched->metrics->txn_weighted_in_flight_cnt, sched->metrics->txn_weighted_in_flight_tickcount, sched->metrics->txn_none_in_flight_tickcount, sched->metrics->txn_parsed_cnt, sched->metrics->txn_exec_done_cnt, sched->metrics->txn_sigverify_done_cnt, sched->metrics->txn_mixin_done_cnt, sched->metrics->txn_done_cnt, sched->metrics->mblk_parsed_cnt, sched->metrics->mblk_poh_hashed_cnt, sched->metrics->mblk_poh_done_cnt, sched->metrics->bytes_ingested_cnt, sched->metrics->bytes_ingested_unparsed_cnt, sched->metrics->bytes_dropped_cnt, sched->metrics->fec_cnt, sched->metrics->lthash_parsed_writable_cnt, sched->metrics->lthash_start_reg_cnt, sched->metrics->lthash_late_reg_cnt, sched->metrics->lthash_demote_reg_cnt, sched->metrics->lthash_first_write_cnt, sched->metrics->lthash_coalesced_cnt, sched->metrics->lthash_extra_reg_cnt, sched->metrics->lthash_add_created_cnt, sched->metrics->lthash_spec_cnt, sched->metrics->lthash_add_extra_cnt, sched->metrics->lthash_entry_cnt, sched->metrics->lthash_sub_dispatched_cnt, sched->metrics->lthash_sub_applied_cnt, sched->metrics->lthash_add_surfaced_cnt, sched->metrics->lthash_add_surfaced_stale_cnt, sched->metrics->lthash_add_dispatched_cnt, sched->metrics->lthash_add_dispatched_stale_cnt, sched->metrics->lthash_add_applied_cnt, sched->metrics->lthash_add_undone_cnt, sched->metrics->lthash_spec_applied_cnt, sched->metrics->lthash_spec_stale_cnt, sched->metrics->lthash_pool_full_cnt, sched->metrics->lthash_spec_yield_cnt, sched->metrics->lthash_frozen_cnt, sched->metrics->lthash_discarded_add_owed_cnt, sched->metrics->lthash_discarded_add_pending_cnt, sched->metrics->lthash_discarded_sub_queued_cnt, sched->metrics->lthash_discarded_sub_applied_cnt, sched->metrics->lthash_discarded_add_applied_cnt );
 }
 
 FD_FN_UNUSED static void
 print_sched( fd_sched_t * sched ) {
-  fd_sched_printf( sched, "sched canary 0x%lx, exec_cnt %lu, root_idx %lu, txn_exec_ready_bitset[ 0 ] 0x%lx, sigverify_ready_bitset[ 0 ] 0x%lx, poh_ready_bitset[ 0 ] 0x%lx, active_idx %lu, staged_bitset %lu, staged_head_idx[0] %lu, staged_head_idx[1] %lu, staged_head_idx[2] %lu, staged_head_idx[3] %lu, staged_popcnt_wmk %lu, txn_pool_free_cnt %lu/%lu, block_pool_popcnt %lu/%lu\n",
-                   sched->canary, sched->exec_cnt, sched->root_idx, sched->txn_exec_ready_bitset[ 0 ], sched->sigverify_ready_bitset[ 0 ], sched->poh_ready_bitset[ 0 ], sched->active_bank_idx, sched->staged_bitset, sched->staged_head_bank_idx[ 0 ], sched->staged_head_bank_idx[ 1 ], sched->staged_head_bank_idx[ 2 ], sched->staged_head_bank_idx[ 3 ], sched->staged_popcnt_wmk, sched->txn_pool_free_cnt, sched->depth, sched->block_pool_popcnt, sched->block_cnt_max );
+  fd_sched_printf( sched, "sched canary 0x%lx, exec_cnt %lu, root_idx %lu, txn_exec_ready_bitset[ 0 ] 0x%lx, sigverify_ready_bitset[ 0 ] 0x%lx, poh_ready_bitset[ 0 ] 0x%lx, lthash_ready_bitset[ 0 ] 0x%lx, active_idx %lu, staged_bitset %lu, staged_head_idx[0] %lu, staged_head_idx[1] %lu, staged_head_idx[2] %lu, staged_head_idx[3] %lu, staged_popcnt_wmk %lu, txn_pool_free_cnt %lu/%lu, block_pool_popcnt %lu/%lu\n",
+                   sched->canary, sched->exec_cnt, sched->root_idx, sched->txn_exec_ready_bitset[ 0 ], sched->sigverify_ready_bitset[ 0 ], sched->poh_ready_bitset[ 0 ], sched->lthash_ready_bitset[ 0 ], sched->active_bank_idx, sched->staged_bitset, sched->staged_head_bank_idx[ 0 ], sched->staged_head_bank_idx[ 1 ], sched->staged_head_bank_idx[ 2 ], sched->staged_head_bank_idx[ 3 ], sched->staged_popcnt_wmk, sched->txn_pool_free_cnt, sched->depth, sched->block_pool_popcnt, sched->block_cnt_max );
   fd_sched_block_t * active_block = block_pool_ele( sched, sched->active_bank_idx );
   if( active_block ) print_block_debug( sched, active_block );
   for( int l=0; l<(int)FD_SCHED_MAX_STAGING_LANES; l++ ) {
@@ -653,6 +881,62 @@ print_all( fd_sched_t * sched, fd_sched_block_t * block ) {
   print_metrics( sched );
   print_sched( sched );
   print_block_and_parent( sched, block );
+}
+
+/* Each tile runs at most one task at a time, so no tile may be busy
+   in two bitsets. */
+static inline void
+exec_ready_bitsets_check( fd_sched_t * sched ) {
+  ulong mask = fd_ulong_mask_lsb( (int)sched->exec_cnt );
+  ulong a    = (~sched->txn_exec_ready_bitset [ 0 ])&mask;
+  ulong b    = (~sched->sigverify_ready_bitset[ 0 ])&mask;
+  ulong c    = (~sched->poh_ready_bitset      [ 0 ])&mask;
+  ulong d    = (~sched->lthash_ready_bitset   [ 0 ])&mask;
+  if( FD_UNLIKELY( (a&(b|c|d)) | (b&(c|d)) | (c&d) ) ) {
+    FD_LOG_CRIT(( "invariant violation: txn_exec_ready_bitset 0x%lx sigverify_ready_bitset 0x%lx poh_ready_bitset 0x%lx lthash_ready_bitset 0x%lx", sched->txn_exec_ready_bitset[ 0 ], sched->sigverify_ready_bitset[ 0 ], sched->poh_ready_bitset[ 0 ], sched->lthash_ready_bitset[ 0 ] ));
+  }
+}
+
+/* Every busy tile should be accounted for by an in-flight task of a
+   staged lane head, which could be an actively dispatching block, or a
+   dying block waiting for in-flight tasks to drain. */
+static void
+exec_busy_check( fd_sched_t * sched, fd_sched_block_t * block ) {
+  exec_ready_bitsets_check( sched );
+  ulong total_exec_busy_cnt = sched->exec_cnt-(ulong)fd_ulong_popcnt( sched->txn_exec_ready_bitset[ 0 ]&sched->sigverify_ready_bitset[ 0 ]&sched->poh_ready_bitset[ 0 ]&sched->lthash_ready_bitset[ 0 ] );
+  if( FD_UNLIKELY( block_in_flight_cnt( block )!=total_exec_busy_cnt ) ) {
+    /* Ideally we'd simply assert that the two sides of the equation are
+       equal.  But abandoned blocks throw a wrench into this.  We allow
+       abandoned blocks to have in-flight transactions that are
+       naturally drained while we try to dispatch from another block.
+       In such cases, the total number of in-flight transactions should
+       include the abandoned blocks too.  The contract is that blocks
+       with in-flight transactions cannot be abandoned or demoted from
+       rdisp.  So a dying block has to be the head of one of the staging
+       lanes. */
+    // FIXME This contract no longer true if we implement immediate
+    // demotion of abandoned blocks.
+    ulong total_in_flight = 0UL;
+    for( int l=0; l<(int)FD_SCHED_MAX_STAGING_LANES; l++ ) {
+      if( fd_ulong_extract_bit( sched->staged_bitset, l ) ) {
+        fd_sched_block_t * staged_block = block_pool_ele( sched, sched->staged_head_bank_idx[ l ] );
+        if( FD_UNLIKELY( block_is_in_flight( staged_block )&&!(staged_block==block||staged_block->dying) ) ) {
+          sched->print_buf_sz = 0UL;
+          print_all( sched, staged_block );
+          FD_LOG_NOTICE(( "%s", sched->print_buf ));
+          FD_LOG_CRIT(( "invariant violation: in-flight block is neither active nor dying" ));
+        }
+        total_in_flight += block_in_flight_cnt( staged_block );
+      }
+    }
+    if( FD_UNLIKELY( total_in_flight!=total_exec_busy_cnt ) ) {
+      sched->print_buf_sz = 0UL;
+      print_all( sched, block );
+      FD_LOG_NOTICE(( "%s", sched->print_buf ));
+      FD_LOG_CRIT(( "invariant violation: total_in_flight %lu != total_exec_busy_cnt %lu", total_in_flight, total_exec_busy_cnt ));
+    }
+    FD_LOG_DEBUG(( "exec_busy_cnt %lu checks out", total_exec_busy_cnt ));
+  }
 }
 
 static inline void
@@ -713,6 +997,470 @@ shred_split( fd_sched_t *       sched,
 }
 
 
+/* Out-of-band LtHash helpers. */
+
+/* A new entry for acct in the block's lane map.  The account owes its
+   one subtraction, so the entry goes on the block's sub queue. */
+static fd_sched_lthash_entry_t *
+lthash_entry_new( fd_sched_t *           sched,
+                  fd_sched_block_t *     block,
+                  fd_acct_addr_t const * acct ) {
+  ulong                     lane = block->staging_lane;
+  fd_sched_lthash_entry_t * e    = fd_sched_lthash_insert( sched->lthash, lane, acct );
+  uint                      idx  = (uint)fd_sched_lthash_entry_idx( sched->lthash, lane, e );
+  sched->metrics->lthash_entry_cnt++;
+  if( FD_LIKELY( block->sub_q_tail==UINT_MAX ) ) block->sub_q_head = idx;
+  else fd_sched_lthash_entry( sched->lthash, lane, block->sub_q_tail )->q_next = idx;
+  block->sub_q_tail = idx;
+  block->sub_queued_cnt++;
+  return e;
+}
+
+/* A write to the entry's account arrived after its addition was
+   created.  Undo the addition if it was applied.  Also zero the
+   reference to the pseudo transaction of record, so the stale pseudo
+   transaction is completed on the spot when it surfaces, or is ignored
+   when its in-flight hashing finishes. */
+static void
+lthash_entry_rewrite( fd_sched_t *              sched,
+                      fd_sched_block_t *        block,
+                      fd_sched_lthash_entry_t * e ) {
+  int undone = e->add_state==FD_SCHED_LTHASH_ADD_DONE;
+  sched->metrics->lthash_add_undone_cnt += (ulong)undone;
+  sched->metrics->lthash_spec_stale_cnt += (ulong)(!undone && e->spec_idx!=UINT_MAX);
+  block->add_undone_cnt                 += (uint)undone;
+  fd_sched_lthash_entry_rewrite( sched->lthash, e, sched->lthash_delta+block_to_idx( sched, block ) );
+}
+
+static void
+lthash_entry_new_write_observed( fd_sched_t *           sched,
+                                 fd_sched_block_t *     block,
+                                 fd_acct_addr_t const * acct ) {
+  fd_sched_lthash_entry_t * e = fd_sched_lthash_query( sched->lthash, block->staging_lane, acct );
+  if( FD_LIKELY( !e ) ) lthash_entry_new( sched, block, acct );
+  else                  lthash_entry_rewrite( sched, block, e );
+}
+
+/* The pseudo transaction's corresponding account gets stamped with
+   ptxn_idx as its latest addition, after undoing any addition it had.
+   A speculative addition reserves a speculation entry so the addition
+   can be undone later if needed.  Caller is responsible for ensuring a
+   speculation entry is free. */
+static void
+lthash_add_created_head( fd_sched_t *       sched,
+                         fd_sched_block_t * block,
+                         ulong              ptxn_idx,
+                         int                speculative ) {
+  fd_acct_addr_t acct[ 1 ];
+  fd_rdisp_pseudo_txn_to_addr( sched->rdisp, ptxn_idx, acct );
+  fd_sched_lthash_entry_t * e = fd_sched_lthash_query( sched->lthash, block->staging_lane, acct );
+  if( FD_LIKELY( !e ) ) e = lthash_entry_new( sched, block, acct );
+  else                  lthash_entry_rewrite( sched, block, e );
+  e->add_state = (uchar)FD_SCHED_LTHASH_ADD_PENDING;
+  e->ptxn_idx  = (uint)ptxn_idx;
+  if( FD_LIKELY( speculative ) ) {
+    e->spec_idx = fd_sched_lthash_spec_acquire( sched->lthash );
+    FD_TEST( e->spec_idx!=UINT_MAX );
+  }
+}
+
+/* The dispatcher created addition pseudo transaction ptxn_idx for the
+   block.  A lane head records it in its map entry.  A lane tail has no
+   claim on the map yet, so it keeps the index until it becomes the
+   head. */
+static void
+lthash_add_created( fd_sched_t *       sched,
+                    fd_sched_block_t * block,
+                    ulong              ptxn_idx,
+                    int                speculative ) {
+  FD_TEST( ptxn_idx & FD_RDISP_LTHASH_PSEUDO_TXN );
+  block->add_created_cnt++;
+  sched->metrics->lthash_add_created_cnt++;
+  if( FD_LIKELY( block_is_lane_head( sched, block ) ) ) {
+    lthash_add_created_head( sched, block, ptxn_idx, speculative );
+    return;
+  }
+  FD_TEST( !speculative ); /* Only the head speculates. */
+  uint idx = (uint)(ptxn_idx & ~FD_RDISP_LTHASH_PSEUDO_TXN);
+  FD_TEST( idx<=FD_RDISP_MAX_ACCT_PER_TXN*sched->depth );
+  sched->ptxn_next[ idx ] = UINT_MAX;
+  if( FD_LIKELY( block->ptxn_list_tail==UINT_MAX ) ) block->ptxn_list_head = idx;
+  if( FD_LIKELY( block->ptxn_list_tail!=UINT_MAX ) ) sched->ptxn_next[ block->ptxn_list_tail ] = idx;
+  block->ptxn_list_tail = idx;
+}
+
+/* The block just became its lane's staged head.  Claim the lane map for
+   it and give every pseudo transaction it drained as a tail an entry.
+   The subtractions will be eligible for scheduling as soon as the block
+   is active. */
+static void
+lthash_become_lane_head( fd_sched_t *       sched,
+                         fd_sched_block_t * block ) {
+  if( FD_LIKELY( !sched->lthash_oob ) ) return;
+  FD_TEST( block_is_lane_head( sched, block ) );
+  fd_sched_lthash_lane_claim( sched->lthash, block->staging_lane, block_to_idx( sched, block ) );
+  uint idx = block->ptxn_list_head;
+  while( idx!=UINT_MAX ) {
+    uint next = sched->ptxn_next[ idx ];
+    /* The pseudo transaction's account address is still readable here,
+       since the block has not been the lane head this whole time, and
+       only a lane head surfaces pseudo transactions.  So no pseudo
+       transaction of this block has been surfaced, much less completed,
+       and account addresses stay alive until the pseudo transaction
+       completes. */
+    lthash_add_created_head( sched, block, (ulong)idx|FD_RDISP_LTHASH_PSEUDO_TXN, 0 );
+    idx = next;
+  }
+  block->ptxn_list_head = UINT_MAX;
+  block->ptxn_list_tail = UINT_MAX;
+}
+
+/* The block must be insert ready.  This is a no-op for an unstaged
+   block, which drains when promoted. */
+static void
+lthash_maybe_drain( fd_sched_t *       sched,
+                    fd_sched_block_t * block ) {
+  if( FD_LIKELY( !sched->lthash_oob ) ) return;
+  if( !block->staged || !block->fec_eos || block->lthash_drained ) return;
+  ulong bank_idx = block_to_idx( sched, block );
+  /* fd_rdisp_add_pseudo_txn() returns 0 for a block that is not insert
+     ready, which would cause us to erroneously mark that the block has
+     been drained.  So we require insert ready. */
+  if( FD_UNLIKELY( !block_is_lane_tail( sched, block ) ) ) {
+    FD_LOG_CRIT(( "invariant violation: draining block %lu:%lu which is not insert-ready on lane %lu", block->slot, bank_idx, block->staging_lane ));
+  }
+  for(;;) {
+    ulong ptxn_idx = fd_rdisp_add_pseudo_txn( sched->rdisp, bank_idx );
+    if( FD_UNLIKELY( !ptxn_idx ) ) break;
+    block->add_owed_cnt--;
+    lthash_add_created( sched, block, ptxn_idx, 0 );
+  }
+  block->lthash_drained = 1;
+}
+
+/* For registering account writes that rdisp did not see through a
+   transaction at parse time.  Typically, that would come from
+   start-of-block processing or an ALT expansion failure. */
+static void
+lthash_register( fd_sched_t *           sched,
+                 fd_sched_block_t *     block,
+                 fd_acct_addr_t const * addr ) {
+  FD_TEST( block_is_lane_head( sched, block ) );
+  ulong bank_idx = block_to_idx( sched, block );
+  int rv = fd_rdisp_add_writable( sched->rdisp, bank_idx, addr );
+  if( FD_LIKELY( rv==1 ) ) {
+    sched->metrics->lthash_first_write_cnt++;
+    block->add_owed_cnt++;
+    lthash_entry_new_write_observed( sched, block, addr );
+    if( block->lthash_drained ) {
+      /* Re-drain.  We might not get another chance to create a pseudo
+         transaction for it, if this were for example a late ALT
+         expansion for an already fec_eos block. */
+      block->lthash_drained = 0;
+      lthash_maybe_drain( sched, block );
+    }
+    return;
+  }
+  if( FD_LIKELY( rv==0 ) ) {
+    /* We got lucky.  This account is already tracked by rdisp, which
+       essentially deduped the addition for us.  We can later instruct
+       rdisp to create a pseudo transaction for the account, and it'll
+       capture the final value of the account. */
+    sched->metrics->lthash_coalesced_cnt++;
+    return;
+  }
+
+  FD_TEST( rv==-1 );
+  sched->metrics->lthash_extra_reg_cnt++;
+
+  /* If we got here, it means the block is not insert ready.  We will
+     have to force insert the pseudo transaction directly into rdisp.
+     There's some deduping if the account's last reference in the lane
+     is already a pseudo transaction of ours, in which case the same
+     pseudo transaction index will be handed to us. */
+  ulong ptxn_idx = fd_rdisp_add_extra_pseudo_txn( sched->rdisp, bank_idx, addr );
+  if( FD_UNLIKELY( !ptxn_idx ) ) FD_LOG_CRIT(( "fd_rdisp_add_extra_pseudo_txn failed for block %lu:%lu", block->slot, bank_idx ));
+  fd_sched_lthash_entry_t * e = fd_sched_lthash_query( sched->lthash, block->staging_lane, addr );
+  if( e && e->ptxn_idx==(uint)ptxn_idx ) return;
+
+  /* At this point, this pseudo transaction is either genuinely new and
+     unique, or it's a duplicate of an existing pseudo transaction that
+     is unfortunately not the last reference to the account.  Either
+     way, this one captures the final value of the account and should be
+     the pseudo transaction of record. */
+  sched->metrics->lthash_add_extra_cnt++;
+  lthash_add_created( sched, block, ptxn_idx, 0 );
+}
+
+static void
+lthash_block_init( fd_sched_block_t * block ) {
+  block->add_owed_cnt      = 0U;
+  block->sub_q_head        = UINT_MAX;
+  block->sub_q_tail        = UINT_MAX;
+  block->sub_queued_cnt    = 0U;
+  block->sub_in_flight_cnt = 0U;
+  block->sub_applied_cnt   = 0U;
+  block->add_created_cnt   = 0U;
+  block->add_surfaced_cnt  = 0U;
+  block->add_done_cnt      = 0U;
+  block->add_applied_cnt   = 0U;
+  block->add_undone_cnt    = 0U;
+  block->ptxn_list_head    = UINT_MAX;
+  block->ptxn_list_tail    = UINT_MAX;
+  block->lthash_drained    = 0;
+}
+
+/* Forgets the block's LtHash progress when it leaves the pipeline:
+   finished, abandoned, or demoted.  A demoted block re-derives
+   everything if promoted. */
+static void
+lthash_block_reset( fd_sched_t *       sched,
+                    fd_sched_block_t * block ) {
+  if( FD_UNLIKELY( !sched->lthash_oob ) ) return;
+  lthash_block_init( block );
+  ulong bank_idx = block_to_idx( sched, block );
+  if( block->staged && fd_sched_lthash_lane_bank( sched->lthash, block->staging_lane )==bank_idx ) {
+    fd_sched_lthash_lane_reset( sched->lthash, block->staging_lane );
+  }
+  fd_lthash_zero( sched->lthash_delta+bank_idx );
+}
+
+static void
+lthash_metrics_check( fd_sched_t * sched ) {
+  if( FD_LIKELY( !sched->lthash_oob ) ) return;
+  fd_sched_metrics_t const * m = sched->metrics;
+  ulong add_owed_cnt = 0UL, add_pending_cnt = 0UL, add_delta_cnt = 0UL, sub_queued_cnt = 0UL, sub_in_flight_cnt = 0UL, sub_delta_cnt = 0UL;
+  for( ulong i=0UL; i<sched->block_cnt_max; i++ ) {
+    fd_sched_block_t const * block = sched->block_pool+i;
+    if( !block->in_sched ) continue;
+    add_owed_cnt      += block->add_owed_cnt;
+    add_pending_cnt   += block->add_created_cnt-block->add_surfaced_cnt;
+    add_delta_cnt     += block->add_applied_cnt-block->add_undone_cnt;
+    sub_queued_cnt    += block->sub_queued_cnt;
+    sub_in_flight_cnt += block->sub_in_flight_cnt;
+    sub_delta_cnt     += block->sub_applied_cnt;
+  }
+  ulong add_on_tile_cnt = 0UL, sub_on_tile_cnt = 0UL;
+  for( ulong busy = (~sched->lthash_ready_bitset[ 0 ])&fd_ulong_mask_lsb( (int)sched->exec_cnt ); busy; busy = fd_ulong_pop_lsb( busy ) ) {
+    if( sched->lthash_inflight[ fd_ulong_find_lsb( busy ) ].kind==FD_SCHED_TT_LTHASH_ADD ) add_on_tile_cnt++;
+    else                                                                                   sub_on_tile_cnt++;
+  }
+  FD_TEST( sub_in_flight_cnt==sub_on_tile_cnt );
+  FD_TEST( m->lthash_parsed_writable_cnt+m->lthash_start_reg_cnt+m->lthash_late_reg_cnt+m->lthash_demote_reg_cnt==m->lthash_first_write_cnt+m->lthash_coalesced_cnt+m->lthash_extra_reg_cnt );
+  FD_TEST( m->lthash_first_write_cnt==m->lthash_add_created_cnt-m->lthash_add_extra_cnt+add_owed_cnt+m->lthash_discarded_add_owed_cnt );
+  FD_TEST( m->lthash_extra_reg_cnt>=m->lthash_add_extra_cnt );
+  FD_TEST( m->lthash_add_created_cnt==m->lthash_add_surfaced_cnt+add_pending_cnt+m->lthash_discarded_add_pending_cnt );
+  FD_TEST( m->lthash_add_surfaced_cnt==m->lthash_add_surfaced_stale_cnt+m->lthash_add_dispatched_cnt );
+  FD_TEST( m->lthash_add_dispatched_cnt==m->lthash_add_dispatched_stale_cnt+m->lthash_add_applied_cnt+add_on_tile_cnt );
+  FD_TEST( m->lthash_add_applied_cnt-m->lthash_add_undone_cnt==m->lthash_frozen_cnt+add_delta_cnt+m->lthash_discarded_add_applied_cnt );
+  FD_TEST( m->lthash_entry_cnt==m->lthash_sub_dispatched_cnt+sub_queued_cnt+m->lthash_discarded_sub_queued_cnt );
+  FD_TEST( m->lthash_sub_dispatched_cnt==m->lthash_sub_applied_cnt+sub_on_tile_cnt );
+  FD_TEST( m->lthash_sub_applied_cnt==m->lthash_frozen_cnt+sub_delta_cnt+m->lthash_discarded_sub_applied_cnt );
+}
+
+/* Rolls the block's LtHash progress back before it leaves its lane.
+   Each account goes back into rdisp.  When we later promote the block,
+   and re-derived with exactly one subtraction and one addition.
+   Rehashing a demoted block's progress is the price of keeping the lane
+   map per lane. */
+static void
+lthash_demote( fd_sched_t *       sched,
+               fd_sched_block_t * block ) {
+  if( FD_LIKELY( !sched->lthash_oob ) ) return;
+  ulong bank_idx = block_to_idx( sched, block );
+  ulong lane     = block->staging_lane;
+  FD_TEST( !block->sub_queued_cnt && !block->sub_in_flight_cnt && block->add_created_cnt==block->add_done_cnt );
+  FD_TEST( block->ptxn_list_head==UINT_MAX );
+
+  /* Owed additions are respected by rdisp demotion.  In addition, we
+     need to stick the writable accounts that we are tracking back into
+     rdisp. */
+  uint add_owed_cnt = block->add_owed_cnt;
+  if( fd_sched_lthash_lane_bank( sched->lthash, lane )==bank_idx ) {
+    for( fd_sched_lthash_iter_t it = fd_sched_lthash_iter_init( sched->lthash, lane );
+         !fd_sched_lthash_iter_done( sched->lthash, lane, it );
+         it = fd_sched_lthash_iter_next( sched->lthash, lane, it ) ) {
+      fd_sched_lthash_entry_t * e = fd_sched_lthash_iter_ele( sched->lthash, lane, it );
+      /* A demotable block has nothing queued or in flight, so every
+         entry should be SUB_DONE with no pending or dispatched
+         addition. */
+      FD_TEST( e->sub_state==FD_SCHED_LTHASH_SUB_DONE && (e->add_state==FD_SCHED_LTHASH_ADD_NONE || e->add_state==FD_SCHED_LTHASH_ADD_DONE) );
+      int r = fd_rdisp_add_writable( sched->rdisp, bank_idx, &e->acct );
+       /* A demotable block is alone in its lane, so it should be insert ready. */
+      if( FD_UNLIKELY( r<0 ) ) FD_LOG_CRIT(( "fd_rdisp_add_writable failed for demoted block %lu:%lu", block->slot, bank_idx ));
+      /* r==0 means rdisp already knows about the account, aka the
+         account is already owed an addition.  We don't count that as a
+         coalesce so lthash_coalesced_cnt nicely excludes demotion and
+         only counts coalescing under normal operation. */
+      sched->metrics->lthash_demote_reg_cnt  += (uint)(r==1);
+      sched->metrics->lthash_first_write_cnt += (ulong)(r==1);
+      add_owed_cnt                           += (uint)(r==1);
+    }
+  }
+  /* Of the five discarded counters only the two delta counters below
+     apply here.  The check above ensures nothing queued and nothing
+     unsurfaced.  The owed additions are not lost, since rdisp will
+     carry them through demotion, and they stay in the live counter. */
+  sched->metrics->lthash_discarded_sub_applied_cnt += block->sub_applied_cnt;
+  sched->metrics->lthash_discarded_add_applied_cnt += block->add_applied_cnt-block->add_undone_cnt;
+  lthash_block_reset( sched, block );
+  block->add_owed_cnt = add_owed_cnt;
+}
+
+static void
+lthash_dispatch( fd_sched_t *              sched,
+                 fd_sched_block_t *        block,
+                 ulong                     bank_idx,
+                 ulong                     kind,
+                 ulong                     ptxn_idx,
+                 fd_sched_lthash_entry_t * e,
+                 int                       exec_tile_idx,
+                 fd_sched_task_t *         out ) {
+  ulong lane = block->staging_lane;
+
+  out->task_type        = kind;
+  out->lthash->bank_idx = bank_idx;
+  out->lthash->exec_idx = (ulong)exec_tile_idx;
+  out->lthash->ptxn_idx = ptxn_idx;
+  out->lthash->acct     = e->acct;
+
+  fd_sched_lthash_inflight_t * inflight = sched->lthash_inflight+exec_tile_idx;
+  inflight->kind      = (uchar)kind;
+  inflight->bank_idx  = bank_idx;
+  inflight->ptxn_idx  = (uint)ptxn_idx;
+  inflight->entry_idx = (uint)fd_sched_lthash_entry_idx( sched->lthash, lane, e );
+  inflight->lane      = (uint)lane;
+
+  sched->lthash_ready_bitset[ 0 ] = fd_ulong_clear_bit( sched->lthash_ready_bitset[ 0 ], exec_tile_idx );
+  sched->tile_to_bank_idx[ exec_tile_idx ] = bank_idx;
+  sched->metrics->lthash_add_dispatched_cnt += kind==FD_SCHED_TT_LTHASH_ADD ? 1UL : 0UL;
+  sched->metrics->lthash_sub_dispatched_cnt += kind==FD_SCHED_TT_LTHASH_SUB ? 1UL : 0UL;
+  exec_busy_check( sched, block );
+}
+
+/* A pseudo transaction surfaced from fd_rdisp_get_next_ready() for the
+   active block.  If it is still the account's pseudo transaction of
+   record, dispatch it to exec_tile_idx and return 1.  Otherwise the
+   account has a later rewrite, so complete the pseudo transaction
+   without hashing and return 0. */
+static int
+lthash_surface( fd_sched_t *       sched,
+                fd_sched_block_t * block,
+                ulong              bank_idx,
+                ulong              ptxn_idx,
+                int                exec_tile_idx,
+                fd_sched_task_t *  out ) {
+  block->add_surfaced_cnt++;
+  sched->metrics->lthash_add_surfaced_cnt++;
+  fd_acct_addr_t acct[ 1 ];
+  fd_rdisp_pseudo_txn_to_addr( sched->rdisp, ptxn_idx, acct );
+  fd_sched_lthash_entry_t * e = fd_sched_lthash_query( sched->lthash, block->staging_lane, acct );
+  if( FD_UNLIKELY( !e ) ) {
+    /* Every pseudo transaction of a head block must have an entry. */
+    sched->print_buf_sz = 0UL;
+    print_all( sched, block );
+    FD_LOG_NOTICE(( "%s", sched->print_buf ));
+    FD_LOG_CRIT(( "invariant violation: pseudo transaction 0x%lx of block %lu:%lu has no entry", ptxn_idx, block->slot, bank_idx ));
+  }
+  FD_TEST( e->bank_idx==(uint)bank_idx );
+  if( FD_UNLIKELY( e->ptxn_idx!=(uint)ptxn_idx ) ) {
+    block->add_done_cnt++;
+    sched->metrics->lthash_add_surfaced_stale_cnt++;
+    fd_rdisp_complete_txn( sched->rdisp, ptxn_idx, 1 );
+    return 0;
+  }
+  FD_TEST( e->add_state==FD_SCHED_LTHASH_ADD_PENDING );
+  e->add_state = (uchar)FD_SCHED_LTHASH_ADD_DISPATCHED;
+  lthash_dispatch( sched, block, bank_idx, FD_SCHED_TT_LTHASH_ADD, ptxn_idx, e, exec_tile_idx, out );
+  return 1;
+}
+
+/* Returns 1 if a task was written to out, 0 otherwise. */
+static int
+lthash_dispatch_sub( fd_sched_t *       sched,
+                     fd_sched_block_t * block,
+                     ulong              bank_idx,
+                     ulong              ready_bitset,
+                     int                threshold,
+                     fd_sched_task_t *  out ) {
+  if( FD_UNLIKELY( !block->sub_queued_cnt ) ) return 0;
+  if( FD_UNLIKELY( fd_ulong_popcnt( ready_bitset )<=threshold ) ) return 0;
+
+  int   exec_tile_idx = fd_ulong_find_lsb( ready_bitset );
+  ulong lane          = block->staging_lane;
+  uint  entry_idx     = block->sub_q_head;
+  FD_TEST( entry_idx!=UINT_MAX );
+  fd_sched_lthash_entry_t * e = fd_sched_lthash_entry( sched->lthash, lane, entry_idx );
+  FD_TEST( e->sub_state==FD_SCHED_LTHASH_SUB_QUEUED && e->bank_idx==(uint)bank_idx );
+
+  block->sub_q_head = e->q_next;
+  if( FD_UNLIKELY( block->sub_q_head==UINT_MAX ) ) block->sub_q_tail = UINT_MAX;
+  e->q_next    = UINT_MAX;
+  e->sub_state = (uchar)FD_SCHED_LTHASH_SUB_DISPATCHED;
+  block->sub_queued_cnt--;
+  block->sub_in_flight_cnt++;
+  lthash_dispatch( sched, block, bank_idx, FD_SCHED_TT_LTHASH_SUB, 0UL, e, exec_tile_idx, out );
+  return 1;
+}
+
+/* The block is assumed to be active and has absolutely no other type of
+   task queued.  The block is also assumed to satisfy
+   block_may_speculate().  A speculation that lands behind an in-flight
+   writer pauses speculation until that writer completes.
+
+   Returns 1 with a task in out, or 0 when a pseudo transaction was
+   created but waits on an in-flight writer, so the caller returns
+   without a task, or -1 when speculation does not apply and the caller
+   proceeds. */
+static inline int
+lthash_speculate( fd_sched_t *       sched,
+                  fd_sched_block_t * block,
+                  ulong              bank_idx,
+                  ulong              ready_bitset,
+                  fd_sched_task_t *  out ) {
+  /* Thanks to block_may_speculate(), we can assume that the block
+     doesn't have fec_eos set, is insert ready at head of lane, owes an
+     addition, and has a free speculation entry. */
+
+  /* There is a pending speculation.  With fec_eos clear there has been
+     no drain, and an insert ready block never uses add_extra.  So we
+     know every unsurfaced pseudo transaction here is a speculation. */
+  uint spec_pending = block->add_created_cnt-block->add_surfaced_cnt;
+  if( spec_pending ) {
+    /* In fact, there should only be one pseudo transaction pending,
+       because we speculate one addition at a time. */
+    FD_TEST( spec_pending==1U );
+    return -1;
+  }
+
+  /* As usual, we try to leave one tile idle.  Again, fec_eos is clear
+     here. */
+  if( fd_ulong_popcnt( ready_bitset )<=fd_int_if( block->txn_exec_in_flight_cnt>0U || sched->exec_cnt==1UL, 0, 1 ) ) return -1;
+
+  ulong ptxn_idx = fd_rdisp_add_pseudo_txn( sched->rdisp, bank_idx );
+  if( FD_UNLIKELY( !ptxn_idx ) ) FD_LOG_CRIT(( "invariant violation: block %lu:%lu owes %u additions but fd_rdisp_add_pseudo_txn returned none", block->slot, bank_idx, block->add_owed_cnt ));
+  sched->metrics->lthash_spec_cnt++;
+  block->add_owed_cnt--;
+  lthash_add_created( sched, block, ptxn_idx, 1 );
+
+  /* We expect to get either the only pseudo transaction, the one we
+     just instructed rdisp to create, or nothing because it is blocked
+     by an in-flight write.  There should otherwise be no task queued,
+     especially no other pseudo transaction queued. */
+  ulong idx = fd_rdisp_get_next_ready( sched->rdisp, bank_idx );
+  if( FD_LIKELY( idx==ptxn_idx ) ) {
+    int dispatched = lthash_surface( sched, block, bank_idx, idx, fd_ulong_find_lsb( ready_bitset ), out );
+    FD_TEST( dispatched );
+    return 1;
+  }
+  if( FD_UNLIKELY( idx ) ) FD_LOG_CRIT(( "invariant violation: fd_rdisp_get_next_ready returned 0x%lx instead of pseudo transaction 0x%lx of block %lu:%lu", idx, ptxn_idx, block->slot, bank_idx ));
+
+  /* Pseudo transaction pending behind an in-flight writer.  It'll be
+     eligible for surfacing once that writer completes. */
+  return 0;
+}
+
+
 /* Public functions. */
 
 ulong
@@ -722,26 +1470,64 @@ fd_sched_align( void ) {
          fd_ulong_max( alignof(fd_sched_block_t), 64UL ))); /* Minimally cache line aligned. */
 }
 
+/* The depth every pool is sized at, which is the configured depth plus
+   the pseudo transaction reserve under out-of-band LtHash.  Returns 0
+   if the result exceeds what the dispatcher and the txn bitsets
+   allow. */
+static inline ulong
+sched_depth_internal( ulong depth,
+                      int   lthash_oob ) {
+  ulong depth_internal = depth + fd_ulong_if( !!lthash_oob, FD_SCHED_LTHASH_RESERVE, 0UL );
+  return fd_ulong_if( depth_internal>FD_SCHED_MAX_DEPTH, 0UL, depth_internal );
+}
+
+/* Sizes of the out-of-band LtHash regions, all zero when the feature
+   is off so the footprint is unchanged. */
+static inline ulong
+sched_lthash_footprint( int lthash_oob ) {
+  return fd_ulong_if( !!lthash_oob, fd_sched_lthash_footprint( FD_RDISP_MAX_WRITERS_PER_BLOCK, FD_SCHED_LTHASH_SPEC_MAX ), 0UL );
+}
+
+static inline ulong
+sched_lthash_delta_sz( ulong block_cnt_max,
+                       int   lthash_oob ) {
+  return fd_ulong_if( !!lthash_oob, block_cnt_max*sizeof(fd_lthash_value_t), 0UL );
+}
+
+static inline ulong
+sched_ptxn_next_sz( ulong depth_internal,
+                    int   lthash_oob ) {
+  /* One link per pseudo transaction the dispatcher can hold, indexed by
+     pool index. */
+  return fd_ulong_if( !!lthash_oob, (FD_RDISP_MAX_ACCT_PER_TXN*depth_internal+1UL)*sizeof(uint), 0UL );
+}
+
 ulong
 fd_sched_footprint( ulong depth,
                     ulong block_cnt_max,
                     ulong max_shreds_per_block,
-                    ulong max_txn_per_slot ) {
+                    ulong max_txn_per_slot,
+                    int   lthash_oob ) {
   if( FD_UNLIKELY( depth<FD_SCHED_MIN_DEPTH || depth>FD_SCHED_MAX_DEPTH ) ) return 0UL; /* bad depth */
+  ulong depth_i = sched_depth_internal( depth, lthash_oob );
+  if( FD_UNLIKELY( !depth_i ) ) return 0UL; /* reserve pushes depth past the dispatcher's limit */
   if( FD_UNLIKELY( !block_cnt_max ) ) return 0UL; /* bad block_cnt_max */
-  if( FD_UNLIKELY( depth>UINT_MAX-1UL ) ) return 0UL; /* mblk_pool use uint as pointers */
+  if( FD_UNLIKELY( depth_i>UINT_MAX-1UL ) ) return 0UL; /* mblk_pool use uint as pointers */
   if( FD_UNLIKELY( !max_shreds_per_block || max_shreds_per_block>UINT_MAX ) ) return 0UL; /* shred_cnt is uint */
   if( FD_UNLIKELY( !max_txn_per_slot     || max_txn_per_slot    >UINT_MAX ) ) return 0UL; /* txn_parsed_cnt is uint */
 
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, fd_sched_align(),             sizeof(fd_sched_t)                                 );
-  l = FD_LAYOUT_APPEND( l, fd_rdisp_align(),             fd_rdisp_footprint( depth, block_cnt_max )         ); /* dispatcher */
+  l = FD_LAYOUT_APPEND( l, fd_rdisp_align(),             fd_rdisp_footprint( depth_i, block_cnt_max )       ); /* dispatcher */
   l = FD_LAYOUT_APPEND( l, alignof(fd_sched_block_t),    block_cnt_max*sizeof(fd_sched_block_t)             ); /* block pool */
   l = FD_LAYOUT_APPEND( l, alignof(ushort),              block_cnt_max*max_shreds_per_block*sizeof(ushort)  ); /* shred_sz */
   l = FD_LAYOUT_APPEND( l, ref_q_align(),                ref_q_footprint( block_cnt_max )                   );
-  l = FD_LAYOUT_APPEND( l, alignof(fd_txn_p_t),          depth*sizeof(fd_txn_p_t)                   ); /* txn_pool */
-  l = FD_LAYOUT_APPEND( l, alignof(fd_sched_txn_info_t), depth*sizeof(fd_sched_txn_info_t)          ); /* txn_info_pool */
-  l = FD_LAYOUT_APPEND( l, alignof(fd_sched_mblk_t),     depth*sizeof(fd_sched_mblk_t)              ); /* mblk_pool */
+  l = FD_LAYOUT_APPEND( l, alignof(fd_txn_p_t),          depth_i*sizeof(fd_txn_p_t)                         ); /* txn_pool */
+  l = FD_LAYOUT_APPEND( l, alignof(fd_sched_txn_info_t), depth_i*sizeof(fd_sched_txn_info_t)                ); /* txn_info_pool */
+  l = FD_LAYOUT_APPEND( l, alignof(fd_sched_mblk_t),     depth_i*sizeof(fd_sched_mblk_t)                    ); /* mblk_pool */
+  l = FD_LAYOUT_APPEND( l, fd_sched_lthash_align(),      sched_lthash_footprint( lthash_oob )               ); /* lthash */
+  l = FD_LAYOUT_APPEND( l, alignof(fd_lthash_value_t),   sched_lthash_delta_sz( block_cnt_max, lthash_oob ) ); /* lthash_delta */
+  l = FD_LAYOUT_APPEND( l, alignof(uint),                sched_ptxn_next_sz( depth_i, lthash_oob )          ); /* ptxn_next */
   return FD_LAYOUT_FINI( l, fd_sched_align() );
 }
 
@@ -753,7 +1539,8 @@ fd_sched_new( void *     mem,
               ulong      max_shreds_per_block,
               ulong      max_txn_per_slot,
               ulong      exec_cnt,
-              int        is_alpenglow ) {
+              int        is_alpenglow,
+              int        lthash_oob ) {
 
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
@@ -775,12 +1562,18 @@ fd_sched_new( void *     mem,
     return NULL;
   }
 
+  ulong depth_i = sched_depth_internal( depth, lthash_oob );
+  if( FD_UNLIKELY( !depth_i ) ) {
+    FD_LOG_WARNING(( "bad depth (%lu) with lthash reserve (%lu)", depth, FD_SCHED_LTHASH_RESERVE ));
+    return NULL;
+  }
+
   if( FD_UNLIKELY( !block_cnt_max ) ) {
     FD_LOG_WARNING(( "bad block_cnt_max (%lu)", block_cnt_max ));
     return NULL;
   }
 
-  if( FD_UNLIKELY( depth>UINT_MAX-1UL ) ) {
+  if( FD_UNLIKELY( depth_i>UINT_MAX-1UL ) ) {
     FD_LOG_WARNING(( "bad depth (%lu)", depth ));
     return NULL;
   }
@@ -801,25 +1594,34 @@ fd_sched_new( void *     mem,
   }
 
   FD_SCRATCH_ALLOC_INIT( l, mem );
-  fd_sched_t *          sched          = FD_SCRATCH_ALLOC_APPEND( l, fd_sched_align(),             sizeof(fd_sched_t)                                );
-  void *                _rdisp         = FD_SCRATCH_ALLOC_APPEND( l, fd_rdisp_align(),             fd_rdisp_footprint( depth, block_cnt_max )        );
-  void *                _bpool         = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sched_block_t),    block_cnt_max*sizeof(fd_sched_block_t)            );
-  /*                                   */ FD_SCRATCH_ALLOC_APPEND( l, alignof(ushort),              block_cnt_max*max_shreds_per_block*sizeof(ushort) );
-  void *                _ref_q         = FD_SCRATCH_ALLOC_APPEND( l, ref_q_align(),                ref_q_footprint( block_cnt_max )                  );
-  fd_txn_p_t *          _txn_pool      = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_txn_p_t),          depth*sizeof(fd_txn_p_t)                          );
-  fd_sched_txn_info_t * _txn_info_pool = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sched_txn_info_t), depth*sizeof(fd_sched_txn_info_t)                 );
-  fd_sched_mblk_t *     _mblk_pool     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sched_mblk_t),     depth*sizeof(fd_sched_mblk_t)                     );
+  fd_sched_t *          sched          = FD_SCRATCH_ALLOC_APPEND( l, fd_sched_align(),             sizeof(fd_sched_t)                                 );
+  void *                _rdisp         = FD_SCRATCH_ALLOC_APPEND( l, fd_rdisp_align(),             fd_rdisp_footprint( depth_i, block_cnt_max )       );
+  void *                _bpool         = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sched_block_t),    block_cnt_max*sizeof(fd_sched_block_t)             );
+  /* */                                  FD_SCRATCH_ALLOC_APPEND( l, alignof(ushort),              block_cnt_max*max_shreds_per_block*sizeof(ushort)  );
+  void *                _ref_q         = FD_SCRATCH_ALLOC_APPEND( l, ref_q_align(),                ref_q_footprint( block_cnt_max )                   );
+  fd_txn_p_t *          _txn_pool      = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_txn_p_t),          depth_i*sizeof(fd_txn_p_t)                         );
+  fd_sched_txn_info_t * _txn_info_pool = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sched_txn_info_t), depth_i*sizeof(fd_sched_txn_info_t)                );
+  fd_sched_mblk_t *     _mblk_pool     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sched_mblk_t),     depth_i*sizeof(fd_sched_mblk_t)                    );
+  void *                _lthash        = FD_SCRATCH_ALLOC_APPEND( l, fd_sched_lthash_align(),      sched_lthash_footprint( lthash_oob )               );
+  void *                _lthash_delta  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_lthash_value_t),   sched_lthash_delta_sz( block_cnt_max, lthash_oob ) );
+  /* */                                  FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                sched_ptxn_next_sz( depth_i, lthash_oob )          );
   FD_SCRATCH_ALLOC_FINI( l, fd_sched_align() );
 
   sched->txn_pool      = _txn_pool;
   sched->txn_info_pool = _txn_info_pool;
   sched->mblk_pool     = _mblk_pool;
 
-  fd_rdisp_new( _rdisp, depth, block_cnt_max, fd_rng_ulong( rng ) );
+  fd_rdisp_new( _rdisp, depth_i, block_cnt_max, fd_rng_ulong( rng ) );
+
+  if( FD_UNLIKELY( lthash_oob ) ) {
+    FD_TEST( fd_sched_lthash_new( _lthash, FD_RDISP_MAX_WRITERS_PER_BLOCK, FD_SCHED_LTHASH_SPEC_MAX, fd_rng_ulong( rng ) ) );
+    fd_memset( _lthash_delta, 0, sched_lthash_delta_sz( block_cnt_max, lthash_oob ) );
+  }
 
   fd_sched_block_t * bpool = (fd_sched_block_t *)_bpool;
   for( ulong i=0; i<block_cnt_max; i++ ) {
     bpool[ i ].in_sched = 0;
+    lthash_block_init( bpool+i );
     mblk_slist_new( bpool[ i ].mblks_unhashed );
     mblk_slist_new( bpool[ i ].mblks_hashing_in_progress );
     mblk_slist_new( bpool[ i ].mblks_mixin_in_progress );
@@ -834,7 +1636,9 @@ fd_sched_new( void *     mem,
 
   sched->is_alpenglow           = is_alpenglow;
   sched->canary                 = FD_SCHED_MAGIC;
-  sched->depth                  = depth;
+  sched->depth                  = depth_i;
+  sched->lthash_oob             = !!lthash_oob;
+  sched->lthash_reserve         = depth_i-depth;
   sched->block_cnt_max          = block_cnt_max;
   sched->max_shreds_per_block   = max_shreds_per_block;
   sched->max_txn_per_slot       = max_txn_per_slot;
@@ -848,18 +1652,20 @@ fd_sched_new( void *     mem,
   sched->active_bank_idx        = ULONG_MAX;
   sched->last_active_bank_idx   = ULONG_MAX;
   sched->staged_bitset          = 0UL;
+  for( ulong l=0UL; l<FD_SCHED_MAX_STAGING_LANES; l++ ) sched->staged_head_bank_idx[ l ] = ULONG_MAX;
   sched->staged_popcnt_wmk      = 0UL;
 
   sched->txn_exec_ready_bitset[ 0 ]  = fd_ulong_mask_lsb( (int)exec_cnt );
   sched->sigverify_ready_bitset[ 0 ] = fd_ulong_mask_lsb( (int)exec_cnt );
   sched->poh_ready_bitset[ 0 ]       = fd_ulong_mask_lsb( (int)exec_cnt );
+  sched->lthash_ready_bitset[ 0 ]    = fd_ulong_mask_lsb( (int)exec_cnt );
 
-  sched->txn_pool_free_cnt = depth-1UL; /* -1 because index 0 is unusable as a sentinel reserved by the dispatcher */
+  sched->txn_pool_free_cnt = depth_i-1UL; /* -1 because index 0 is unusable as a sentinel reserved by the dispatcher */
 
-  for( ulong i=0UL; i<depth-1UL; i++ ) sched->mblk_pool[ i ].next = (uint)(i+1UL);
-  sched->mblk_pool[ depth-1UL ].next = UINT_MAX;
+  for( ulong i=0UL; i<depth_i-1UL; i++ ) sched->mblk_pool[ i ].next = (uint)(i+1UL);
+  sched->mblk_pool[ depth_i-1UL ].next = UINT_MAX;
   sched->mblk_pool_free_head = 0U;
-  sched->mblk_pool_free_cnt  = depth;
+  sched->mblk_pool_free_cnt  = depth_i;
 
   txn_bitset_new( sched->exec_done_set );
   txn_bitset_new( sched->sigverify_done_set );
@@ -882,25 +1688,39 @@ fd_sched_join( void * mem ) {
 
   fd_sched_t * sched         = (fd_sched_t *)mem;
   FD_TEST( sched->canary==FD_SCHED_MAGIC );
-  ulong        depth                = sched->depth;
+  ulong        depth                = sched->depth; /* inflated */
   ulong        block_cnt_max        = sched->block_cnt_max;
   ulong        max_shreds_per_block = sched->max_shreds_per_block;
+  int          lthash_oob           = sched->lthash_oob;
 
   FD_SCRATCH_ALLOC_INIT( l, mem );
-  /*                        */ FD_SCRATCH_ALLOC_APPEND( l, fd_sched_align(),             sizeof(fd_sched_t)                                );
-  void *           _rdisp    = FD_SCRATCH_ALLOC_APPEND( l, fd_rdisp_align(),             fd_rdisp_footprint( depth, block_cnt_max )        );
-  void *           _bpool    = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sched_block_t),    block_cnt_max*sizeof(fd_sched_block_t)            );
-  void *           _shred_sz = FD_SCRATCH_ALLOC_APPEND( l, alignof(ushort),              block_cnt_max*max_shreds_per_block*sizeof(ushort) );
-  void *           _ref_q    = FD_SCRATCH_ALLOC_APPEND( l, ref_q_align(),                ref_q_footprint( block_cnt_max )                  );
-  /*                        */ FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_txn_p_t),          depth*sizeof(fd_txn_p_t)                          );
-  /*                        */ FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sched_txn_info_t), depth*sizeof(fd_sched_txn_info_t)                 );
-  /*                        */ FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sched_mblk_t),     depth*sizeof(fd_sched_mblk_t)                     );
+  /*                        */ FD_SCRATCH_ALLOC_APPEND( l, fd_sched_align(),             sizeof(fd_sched_t)                                 );
+  void *           _rdisp    = FD_SCRATCH_ALLOC_APPEND( l, fd_rdisp_align(),             fd_rdisp_footprint( depth, block_cnt_max )         );
+  void *           _bpool    = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sched_block_t),    block_cnt_max*sizeof(fd_sched_block_t)             );
+  void *           _shred_sz = FD_SCRATCH_ALLOC_APPEND( l, alignof(ushort),              block_cnt_max*max_shreds_per_block*sizeof(ushort)  );
+  void *           _ref_q    = FD_SCRATCH_ALLOC_APPEND( l, ref_q_align(),                ref_q_footprint( block_cnt_max )                   );
+  /*                        */ FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_txn_p_t),          depth*sizeof(fd_txn_p_t)                           );
+  /*                        */ FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sched_txn_info_t), depth*sizeof(fd_sched_txn_info_t)                  );
+  /*                        */ FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sched_mblk_t),     depth*sizeof(fd_sched_mblk_t)                      );
+  void *           _lthash   = FD_SCRATCH_ALLOC_APPEND( l, fd_sched_lthash_align(),      sched_lthash_footprint( lthash_oob )               );
+  void *           _delta    = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_lthash_value_t),   sched_lthash_delta_sz( block_cnt_max, lthash_oob ) );
+  void *           _ptxn     = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                sched_ptxn_next_sz( depth, lthash_oob )            );
   FD_SCRATCH_ALLOC_FINI( l, fd_sched_align() );
 
   sched->rdisp      = fd_rdisp_join( _rdisp );
   sched->ref_q      = ref_q_join( _ref_q );
   sched->block_pool = _bpool;
   sched->shred_sz   = _shred_sz;
+  if( FD_UNLIKELY( lthash_oob ) ) {
+    sched->lthash       = fd_sched_lthash_join( _lthash );
+    sched->lthash_delta = (fd_lthash_value_t *)_delta;
+    sched->ptxn_next    = (uint *)_ptxn;
+    FD_TEST( sched->lthash );
+  } else {
+    sched->lthash       = NULL;
+    sched->lthash_delta = NULL;
+    sched->ptxn_next    = NULL;
+  }
 
   for( ulong i=0; i<block_cnt_max; i++ ) {
     mblk_slist_join( sched->block_pool[ i ].mblks_unhashed );
@@ -941,8 +1761,11 @@ fd_sched_fec_can_ingest( fd_sched_t * sched, fd_sched_fec_t * fec ) {
   fec_buf_sz += fec->fec->data_sz;
   /* Assuming every transaction is min size, do we have enough free
      entries in the txn pool?  For a more precise txn count, we would
-     have to do some parsing. */
-  return sched->txn_pool_free_cnt>=fec_buf_sz/FD_TXN_MIN_SERIALIZED_SZ && sched->mblk_pool_free_cnt>=fec_buf_sz/sizeof(fd_microblock_hdr_t);
+     have to do some parsing.
+
+     The LtHash reserve is never given to transactions. */
+  ulong txn_pool_avail_cnt = fd_ulong_if( sched->txn_pool_free_cnt>sched->lthash_reserve, sched->txn_pool_free_cnt-sched->lthash_reserve, 0UL );
+  return txn_pool_avail_cnt>=fec_buf_sz/FD_TXN_MIN_SERIALIZED_SZ && sched->mblk_pool_free_cnt>=fec_buf_sz/sizeof(fd_microblock_hdr_t);
 }
 
 ulong
@@ -951,12 +1774,13 @@ fd_sched_can_ingest_cnt( fd_sched_t * sched ) {
   /* Worst case, we need one byte from the incoming data to extract a
      transaction out of the residual data, and the rest of the incoming
      data contributes toward min sized transactions. */
-  return fd_ulong_min( sched->txn_pool_free_cnt/FD_SCHED_MAX_TXN_PER_FEC, sched->mblk_pool_free_cnt/FD_SCHED_MAX_MBLK_PER_FEC );
+  ulong txn_pool_avail_cnt = fd_ulong_if( sched->txn_pool_free_cnt>sched->lthash_reserve, sched->txn_pool_free_cnt-sched->lthash_reserve, 0UL );
+  return fd_ulong_min( txn_pool_avail_cnt/FD_SCHED_MAX_TXN_PER_FEC, sched->mblk_pool_free_cnt/FD_SCHED_MAX_MBLK_PER_FEC );
 }
 
 int
 fd_sched_is_drained( fd_sched_t * sched ) {
-  int nothing_inflight = sched->exec_cnt==(ulong)fd_ulong_popcnt( sched->txn_exec_ready_bitset[ 0 ]&sched->sigverify_ready_bitset[ 0 ]&sched->poh_ready_bitset[ 0 ] );
+  int nothing_inflight = sched->exec_cnt==(ulong)fd_ulong_popcnt( sched->txn_exec_ready_bitset[ 0 ]&sched->sigverify_ready_bitset[ 0 ]&sched->poh_ready_bitset[ 0 ]&sched->lthash_ready_bitset[ 0 ] );
   int nothing_queued = sched->active_bank_idx==ULONG_MAX;
   return nothing_inflight && nothing_queued;
 }
@@ -1018,16 +1842,8 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
       /* Parent is staged.  So see if we can continue down the same
          staging lane. */
       ulong staging_lane = parent_block->staging_lane;
-      ulong child_idx    = parent_block->child_idx;
-      while( child_idx!=ULONG_MAX ) {
-        fd_sched_block_t * child = block_pool_ele( sched, child_idx );
-        if( child->staged && child->staging_lane==staging_lane ) {
-          /* Found a child on the same lane.  So we're done. */
-          staging_lane = FD_RDISP_UNSTAGED;
-          break;
-        }
-        child_idx = child->sibling_idx;
-      }
+      /* A child already staged on the same lane. */
+      if( !block_is_lane_tail( sched, parent_block ) ) staging_lane = FD_RDISP_UNSTAGED;
       /* No child is staged on the same lane as the parent.  So stage
          this block.  This is the common case. */
       if( FD_LIKELY( staging_lane!=FD_RDISP_UNSTAGED ) ) {
@@ -1075,6 +1891,7 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
         block->staged       = 1;
         block->staging_lane = (ulong)lane_idx;
         fd_rdisp_add_block( sched->rdisp, fec->bank_idx, block->staging_lane );
+        lthash_become_lane_head( sched, block );
         sched->metrics->block_added_cnt++;
         sched->metrics->block_added_staged_cnt++;
         FD_LOG_DEBUG(( "block %lu:%lu entered lane %lu: add", block->slot, fec->bank_idx, block->staging_lane ));
@@ -1265,6 +2082,10 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
     FD_TEST( mixin_res==1||mixin_res==2 );
   }
 
+  /* Every account the block intends to write to has now been observed,
+     so give each a pseudo transaction for its LtHash addition. */
+  if( FD_UNLIKELY( fec->is_last_in_block ) ) lthash_maybe_drain( sched, block );
+
   /* Check if we need to set the active block. */
   check_or_set_active_block( sched );
 
@@ -1277,7 +2098,7 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
   FD_TEST( ref_q_empty( sched->ref_q ) );
 
   ulong exec_ready_bitset0 = sched->txn_exec_ready_bitset[ 0 ];
-  ulong exec_fully_ready_bitset = sched->sigverify_ready_bitset[ 0 ] & sched->poh_ready_bitset[ 0 ] & exec_ready_bitset0;
+  ulong exec_fully_ready_bitset = sched->sigverify_ready_bitset[ 0 ] & sched->poh_ready_bitset[ 0 ] & sched->lthash_ready_bitset[ 0 ] & exec_ready_bitset0;
   if( FD_UNLIKELY( !exec_fully_ready_bitset ) ) {
     /* Early exit if no exec tiles available. */
     return 0UL;
@@ -1298,7 +2119,7 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
 
   ulong bank_idx = sched->active_bank_idx;
   fd_sched_block_t * block = block_pool_ele( sched, bank_idx );
-  if( FD_UNLIKELY( block_should_deactivate( block ) ) ) {
+  if( FD_UNLIKELY( block_should_deactivate( sched, block ) ) ) {
     sched->print_buf_sz = 0UL;
     print_all( sched, block );
     FD_LOG_NOTICE(( "%s", sched->print_buf ));
@@ -1322,7 +2143,9 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
 
   ulong exec_tile_idx0 = fd_ulong_if( !!exec_fully_ready_bitset, (ulong)fd_ulong_find_lsb( exec_fully_ready_bitset ), ULONG_MAX );
   ulong exec_queued_cnt = block->txn_parsed_cnt-block->txn_exec_in_flight_cnt-block->txn_exec_done_cnt;
-  if( FD_LIKELY( exec_queued_cnt>0UL && fd_ulong_popcnt( exec_fully_ready_bitset ) ) ) { /* Optimize for no fork switching. */
+  int   add_unsurfaced = block->add_created_cnt>block->add_surfaced_cnt; /* Addition pseudo transactions are queued in rdisp along with real transactions. */
+  ulong txn_idx = 0UL;
+  if( FD_LIKELY( (exec_queued_cnt>0UL || add_unsurfaced) && fd_ulong_popcnt( exec_fully_ready_bitset ) ) ) { /* Optimize for no fork switching. */
     /* Transaction execution has the highest priority.  Current mainnet
        block times are very much dominated by critical path transaction
        execution.  To achieve the fastest block replay speed, we can't
@@ -1334,15 +2157,24 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
        critical path transaction completes, we have at least one exec
        tile, e.g. the one that just completed said transaction, readily
        available to continue executing down the critical path. */
-    out->txn_exec->txn_idx = fd_rdisp_get_next_ready( sched->rdisp, bank_idx );
-    if( FD_UNLIKELY( out->txn_exec->txn_idx==0UL ) ) {
+    txn_idx = fd_rdisp_get_next_ready( sched->rdisp, bank_idx );
+    while( FD_UNLIKELY( txn_idx & FD_RDISP_LTHASH_PSEUDO_TXN ) ) {
+      /* A stale addition will be completed on the spot and we will poll
+         next_ready again. */
+      if( FD_LIKELY( lthash_surface( sched, block, bank_idx, txn_idx, (int)exec_tile_idx0, out ) ) ) {
+        sched->next_ready_last_tick     = fd_tickcount();
+        sched->next_ready_last_bank_idx = bank_idx;
+        return 1UL;
+      }
+      txn_idx = fd_rdisp_get_next_ready( sched->rdisp, bank_idx );
+    }
+    if( FD_UNLIKELY( txn_idx==0UL && exec_queued_cnt>0UL ) ) {
       /* There are transactions queued but none ready for execution.
          This implies that there must be in-flight transactions on whose
-         completion the queued transactions depend. So we return and
-         wait for those in-flight transactions to retire.  This is a
-         policy decision to execute as much as we can down the current
-         fork. */
-      if( FD_UNLIKELY( !block->txn_exec_in_flight_cnt ) ) {
+         completion the queued transactions depend.  Additionally, a
+         queued transaction may also be waiting on a dispatched
+         speculative addition pseudo transaction. */
+      if( FD_UNLIKELY( !block->txn_exec_in_flight_cnt && block->add_surfaced_cnt==block->add_done_cnt ) ) {
         sched->print_buf_sz = 0UL;
         print_all( sched, block );
         FD_LOG_NOTICE(( "%s", sched->print_buf ));
@@ -1374,9 +2206,20 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
         sched->next_ready_last_bank_idx = bank_idx;
         return 1UL;
       }
+
+      /* Next up are LtHash subtractions.  Same dispatching policy as
+         sigverify. */
+      if( FD_UNLIKELY( lthash_dispatch_sub( sched, block, bank_idx, exec_fully_ready_bitset, fd_int_if( block->txn_exec_in_flight_cnt>0U, 0, 1 ), out ) ) ) {
+        sched->next_ready_last_tick     = fd_tickcount();
+        sched->next_ready_last_bank_idx = bank_idx;
+        return 1UL;
+      }
       return 0UL;
     }
+  }
+  if( FD_LIKELY( txn_idx ) ) {
     out->task_type = FD_SCHED_TT_TXN_EXEC;
+    out->txn_exec->txn_idx  = txn_idx;
     out->txn_exec->bank_idx = bank_idx;
     out->txn_exec->slot     = block->slot;
     out->txn_exec->exec_idx = exec_tile_idx0;
@@ -1399,49 +2242,14 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
     block->txn_exec_in_flight_cnt++;
     sched->metrics->txn_max_in_flight_cnt = fd_uint_max( sched->metrics->txn_max_in_flight_cnt, block->txn_exec_in_flight_cnt );
 
-    if( FD_UNLIKELY( (~sched->txn_exec_ready_bitset[ 0 ])&(~sched->sigverify_ready_bitset[ 0 ])&(~sched->poh_ready_bitset[ 0 ])&fd_ulong_mask_lsb( (int)sched->exec_cnt ) ) ) FD_LOG_CRIT(( "invariant violation: txn_exec_ready_bitset 0x%lx sigverify_ready_bitset 0x%lx poh_ready_bitset 0x%lx", sched->txn_exec_ready_bitset[ 0 ], sched->sigverify_ready_bitset[ 0 ], sched->poh_ready_bitset[ 0 ] ));
-    ulong total_exec_busy_cnt = sched->exec_cnt-(ulong)fd_ulong_popcnt( sched->txn_exec_ready_bitset[ 0 ]&sched->sigverify_ready_bitset[ 0 ]&sched->poh_ready_bitset[ 0 ] );
-    if( FD_UNLIKELY( block->txn_exec_in_flight_cnt+block->txn_sigverify_in_flight_cnt+block->poh_hashing_in_flight_cnt!=total_exec_busy_cnt ) ) {
-      /* Ideally we'd simply assert that the two sides of the equation
-         are equal.  But abandoned blocks throw a wrench into this.  We
-         allow abandoned blocks to have in-flight transactions that are
-         naturally drained while we try to dispatch from another block.
-         In such cases, the total number of in-flight transactions
-         should include the abandoned blocks too.  The contract is that
-         blocks with in-flight transactions cannot be abandoned or
-         demoted from rdisp.  So a dying block has to be the head of one
-         of the staging lanes. */
-      // FIXME This contract no longer true if we implement immediate
-      // demotion of abandoned blocks.
-      ulong total_in_flight = 0UL;
-      for( int l=0; l<(int)FD_SCHED_MAX_STAGING_LANES; l++ ) {
-        if( fd_ulong_extract_bit( sched->staged_bitset, l ) ) {
-          fd_sched_block_t * staged_block = block_pool_ele( sched, sched->staged_head_bank_idx[ l ] );
-          if( FD_UNLIKELY( block_is_in_flight( staged_block )&&!(staged_block==block||staged_block->dying) ) ) {
-            sched->print_buf_sz = 0UL;
-            print_all( sched, staged_block );
-            FD_LOG_NOTICE(( "%s", sched->print_buf ));
-            FD_LOG_CRIT(( "invariant violation: in-flight block is neither active nor dying" ));
-          }
-          total_in_flight += staged_block->txn_exec_in_flight_cnt;
-          total_in_flight += staged_block->txn_sigverify_in_flight_cnt;
-          total_in_flight += staged_block->poh_hashing_in_flight_cnt;
-        }
-      }
-      if( FD_UNLIKELY( total_in_flight!=total_exec_busy_cnt ) ) {
-        sched->print_buf_sz = 0UL;
-        print_all( sched, block );
-        FD_LOG_NOTICE(( "%s", sched->print_buf ));
-        FD_LOG_CRIT(( "invariant violation: total_in_flight %lu != total_exec_busy_cnt %lu", total_in_flight, total_exec_busy_cnt ));
-      }
-      FD_LOG_DEBUG(( "exec_busy_cnt %lu checks out", total_exec_busy_cnt ));
-    }
+    exec_busy_check( sched, block );
     sched->next_ready_last_tick     = now;
     sched->next_ready_last_bank_idx = bank_idx;
     return 1UL;
   }
 
-  /* At this point txn_queued_cnt==0 */
+  /* At this point txn_queued_cnt==0.  Any unsurfaced addition waits on
+     an in-flight writer. */
 
   /* Next up are PoH tasks.  Same dispatching policy as sigverify. */
   ulong poh_ready_bitset = exec_fully_ready_bitset;
@@ -1466,6 +2274,39 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
     sched->next_ready_last_tick     = sched->txn_info_pool[ out->txn_sigverify->txn_idx ].tick_sigverify_disp = fd_tickcount();
     sched->next_ready_last_bank_idx = bank_idx;
     return 1UL;
+  }
+
+  /* Next up are LtHash subtractions.  Same dispatching policy as
+     sigverify. */
+  if( FD_UNLIKELY( lthash_dispatch_sub( sched, block, bank_idx, exec_fully_ready_bitset, fd_int_if( block->fec_eos||block->txn_exec_in_flight_cnt>0U||sched->exec_cnt==1UL, 0, 1 ), out ) ) ) {
+    sched->next_ready_last_tick     = fd_tickcount();
+    sched->next_ready_last_bank_idx = bank_idx;
+    return 1UL;
+  }
+
+  /* Absolutely nothing else left to dispatch.  If the block is alone in
+     its lane and is still receiving FEC sets, we will spend the idle
+     tiles on speculative additions.  Speculation is the lowest priority
+     work there is, though.  So if nothing of the block is in flight and
+     another lane head is ready with must-do work, yield. */
+  int may_speculate = block_may_speculate( sched, block, 1UL );
+  if( FD_LIKELY( may_speculate ) ) {
+    if( FD_UNLIKELY( !block_is_in_flight( block ) && other_lane_has_real_work( sched, block ) ) ) {
+      FD_LOG_DEBUG(( "reset active_bank_idx %lu: speculation yields", sched->active_bank_idx ));
+      sched->last_active_bank_idx = sched->active_bank_idx;
+      sched->active_bank_idx = ULONG_MAX;
+      sched->metrics->lthash_spec_yield_cnt++;
+      try_activate_block( sched );
+      return 0UL;
+    }
+    int spec = lthash_speculate( sched, block, bank_idx, exec_fully_ready_bitset, out );
+    if( FD_UNLIKELY( spec>=0 ) ) {
+      if( spec ) {
+        sched->next_ready_last_tick     = fd_tickcount();
+        sched->next_ready_last_bank_idx = bank_idx;
+      }
+      return (ulong)spec;
+    }
   }
 
   if( FD_UNLIKELY( block_should_signal_end( block ) ) ) {
@@ -1549,6 +2390,19 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
       bank_idx = sched->tile_to_bank_idx[ exec_idx ];
       break;
     }
+    case FD_SCHED_TT_LTHASH_SUB:
+    case FD_SCHED_TT_LTHASH_ADD: {
+      /* Like any other tile task, an LtHash task keeps its block in the
+         scheduler and the dispatcher until it lands.  block_is_in_flight
+         counts it, which gates abandon, demotion and pruning, and
+         BLOCK_END waits on it, so the block checks below hold for a
+         result of either kind. */
+      FD_TEST( sched->lthash_oob );
+      FD_TEST( exec_idx<sched->exec_cnt );
+      FD_TEST( data );
+      bank_idx = sched->tile_to_bank_idx[ exec_idx ];
+      break;
+    }
     default: FD_LOG_CRIT(( "unsupported task_type %lu", task_type ));
   }
   fd_sched_block_t * block = block_pool_ele( sched, bank_idx );
@@ -1608,6 +2462,11 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
       sched->metrics->txn_exec_done_cnt++;
       txn_bitset_insert( sched->exec_done_set, txn_idx );
       sched->txn_info_pool[ txn_idx ].flags |= FD_SCHED_TXN_EXEC_DONE;
+      if( FD_UNLIKELY( (sched->txn_info_pool[ txn_idx ].flags&FD_SCHED_TXN_ALT_UNRESOLVED) && data ) ) {
+        fd_sched_txn_alts_t const * alts = fd_type_pun_const( data );
+        for( ulong i=0UL; i<alts->cnt; i++ ) lthash_register( sched, block, alts->addrs+i );
+        sched->metrics->lthash_late_reg_cnt += (uint)alts->cnt;
+      }
       if( txn_bitset_test( sched->sigverify_done_set, txn_idx ) && txn_bitset_test( sched->poh_mixin_done_set, txn_idx ) ) {
         /* Release the txn_idx if all tasks on it are done.  This is
            guaranteed to only happen once per transaction because
@@ -1673,6 +2532,51 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
         handle_bad_block( sched, block, dead_reason );
         return dead_reason;
       }
+      break;
+    }
+    case FD_SCHED_TT_LTHASH_SUB: {
+      /* A subtraction is never invalidated.  The parent is frozen, so
+         the value does not depend on when it ran. */
+      fd_sched_lthash_inflight_t const * rec = sched->lthash_inflight+exec_tile_idx;
+      FD_TEST( rec->kind==FD_SCHED_TT_LTHASH_SUB && rec->bank_idx==bank_idx );
+      fd_sched_lthash_entry_t * e = fd_sched_lthash_entry( sched->lthash, rec->lane, rec->entry_idx );
+      FD_TEST( e->sub_state==FD_SCHED_LTHASH_SUB_DISPATCHED && e->bank_idx==(uint)bank_idx );
+      fd_lthash_sub( sched->lthash_delta+bank_idx, fd_type_pun_const( data ) );
+      e->sub_state = (uchar)FD_SCHED_LTHASH_SUB_DONE;
+      block->sub_in_flight_cnt--;
+      block->sub_applied_cnt++;
+      sched->metrics->lthash_sub_applied_cnt++;
+      FD_TEST( !fd_ulong_extract_bit( sched->lthash_ready_bitset[ 0 ], exec_tile_idx ) );
+      sched->lthash_ready_bitset[ 0 ] = fd_ulong_set_bit( sched->lthash_ready_bitset[ 0 ], exec_tile_idx );
+      break;
+    }
+    case FD_SCHED_TT_LTHASH_ADD: {
+      fd_sched_lthash_inflight_t const * rec = sched->lthash_inflight+exec_tile_idx;
+      FD_TEST( rec->kind==FD_SCHED_TT_LTHASH_ADD && rec->bank_idx==bank_idx && rec->ptxn_idx==(uint)txn_idx );
+      /* Entries live until the lane is reset, which needs nothing in
+         flight, so the record's entry is still this account's. */
+      fd_sched_lthash_entry_t * e = fd_sched_lthash_entry( sched->lthash, rec->lane, rec->entry_idx );
+      FD_TEST( e->bank_idx==(uint)bank_idx );
+      if( FD_UNLIKELY( rec->ptxn_idx!=e->ptxn_idx ) ) {
+        /* The account was written while the hash was on the tile, so
+           the value is not final.  The slot, if any, was freed by the
+           rewrite. */
+        sched->metrics->lthash_add_dispatched_stale_cnt++;
+      } else {
+        FD_TEST( e->add_state==FD_SCHED_LTHASH_ADD_DISPATCHED );
+        fd_lthash_add( sched->lthash_delta+bank_idx, fd_type_pun_const( data ) );
+        if( e->spec_idx!=UINT_MAX ) fd_memcpy( fd_sched_lthash_spec_entry( sched->lthash, e->spec_idx ), data, sizeof(fd_lthash_value_t) );
+        e->add_state = (uchar)FD_SCHED_LTHASH_ADD_DONE;
+        e->ptxn_idx  = 0U;
+        block->add_applied_cnt++;
+        sched->metrics->lthash_add_applied_cnt++;
+        sched->metrics->lthash_spec_applied_cnt += (ulong)(e->spec_idx!=UINT_MAX);
+      }
+      /* The ticket is clear before the dispatcher may reuse the index. */
+      block->add_done_cnt++;
+      fd_rdisp_complete_txn( sched->rdisp, rec->ptxn_idx, 1 );
+      FD_TEST( !fd_ulong_extract_bit( sched->lthash_ready_bitset[ 0 ], exec_tile_idx ) );
+      sched->lthash_ready_bitset[ 0 ] = fd_ulong_set_bit( sched->lthash_ready_bitset[ 0 ], exec_tile_idx );
       break;
     }
   }
@@ -2001,6 +2905,33 @@ fd_sched_get_footer( fd_sched_t * sched, ulong bank_idx ) {
   return block->footer_seen ? &block->footer : NULL;
 }
 
+fd_lthash_value_t const *
+fd_sched_lthash_delta( fd_sched_t * sched, ulong bank_idx ) {
+  FD_TEST( sched->canary==FD_SCHED_MAGIC );
+  FD_TEST( bank_idx<sched->block_cnt_max );
+  if( FD_LIKELY( !sched->lthash_oob ) ) return NULL;
+  fd_sched_block_t * block = block_pool_ele( sched, bank_idx );
+  /* The delta accumulates from the block's first LtHash task on and is
+     final once BLOCK_END is signaled.  Completing BLOCK_END zeroes it. */
+  FD_TEST( block->in_sched && !block->block_end_done );
+  return sched->lthash_delta+bank_idx;
+}
+
+void
+fd_sched_block_start_writes( fd_sched_t * sched, ulong bank_idx, fd_acct_addr_t const * addrs, ulong cnt ) {
+  FD_TEST( sched->canary==FD_SCHED_MAGIC );
+  FD_TEST( bank_idx<sched->block_cnt_max );
+  if( FD_LIKELY( !sched->lthash_oob ) ) return;
+  fd_sched_block_t * block = block_pool_ele( sched, bank_idx );
+  FD_TEST( block->in_sched && block->staged && block->in_rdisp );
+  /* We expect this to run during BLOCK_START processing, before any
+     real transaction of the block is dispatched. */
+  FD_TEST( block->block_start_signaled && !block->block_start_done );
+  FD_TEST( !block->txn_exec_in_flight_cnt && !block->txn_exec_done_cnt );
+  for( ulong i=0UL; i<cnt; i++ ) lthash_register( sched, block, addrs+i );
+  sched->metrics->lthash_start_reg_cnt += (uint)cnt;
+}
+
 void
 fd_sched_metrics_write( fd_sched_t * sched ) {
   FD_MGAUGE_SET( REPLAY, SCHED_ACTIVE_BANK_INDEX, sched->active_bank_idx );
@@ -2020,51 +2951,96 @@ fd_sched_metrics_write( fd_sched_t * sched ) {
   FD_MGAUGE_SET( REPLAY, SCHED_BLOCK_POOL_OCCUPIED, sched->block_pool_popcnt );
   FD_MGAUGE_SET( REPLAY, SCHED_BLOCK_POOL_SIZE, sched->block_cnt_max );
 
+  fd_sched_metrics_t const * m = sched->metrics;
+
   ulong sched_block_added[ FD_METRICS_ENUM_SCHED_BLOCK_STAGING_CNT ];
-  sched_block_added[ FD_METRICS_ENUM_SCHED_BLOCK_STAGING_V_STAGED_IDX   ] = sched->metrics->block_added_staged_cnt;
-  sched_block_added[ FD_METRICS_ENUM_SCHED_BLOCK_STAGING_V_UNSTAGED_IDX ] = sched->metrics->block_added_unstaged_cnt;
+  sched_block_added[ FD_METRICS_ENUM_SCHED_BLOCK_STAGING_V_STAGED_IDX   ] = m->block_added_staged_cnt;
+  sched_block_added[ FD_METRICS_ENUM_SCHED_BLOCK_STAGING_V_UNSTAGED_IDX ] = m->block_added_unstaged_cnt;
   FD_MCNT_ENUM_COPY( REPLAY, SCHED_BLOCK_ADDED, sched_block_added );
-  FD_MCNT_SET( REPLAY, SCHED_BLOCK_REPLAYED, sched->metrics->block_removed_cnt );
-  FD_MCNT_SET( REPLAY, SCHED_BLOCK_ABANDONED, sched->metrics->block_abandoned_cnt );
-  FD_MCNT_SET( REPLAY, SCHED_BLOCK_REJECTED, sched->metrics->block_bad_cnt );
-  FD_MCNT_SET( REPLAY, SCHED_BLOCK_PROMOTED, sched->metrics->block_promoted_cnt );
-  FD_MCNT_SET( REPLAY, SCHED_BLOCK_DEMOTED, sched->metrics->block_demoted_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_BLOCK_REPLAYED, m->block_removed_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_BLOCK_ABANDONED, m->block_abandoned_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_BLOCK_REJECTED, m->block_bad_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_BLOCK_PROMOTED, m->block_promoted_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_BLOCK_DEMOTED, m->block_demoted_cnt );
   ulong sched_deactivate[ FD_METRICS_ENUM_SCHED_DEACTIVATE_REASON_CNT ];
-  sched_deactivate[ FD_METRICS_ENUM_SCHED_DEACTIVATE_REASON_V_NO_CHILD_IDX  ] = sched->metrics->deactivate_no_child_cnt;
-  sched_deactivate[ FD_METRICS_ENUM_SCHED_DEACTIVATE_REASON_V_NO_WORK_IDX   ] = sched->metrics->deactivate_no_txn_cnt;
-  sched_deactivate[ FD_METRICS_ENUM_SCHED_DEACTIVATE_REASON_V_ABANDONED_IDX ] = sched->metrics->deactivate_abandoned_cnt;
-  sched_deactivate[ FD_METRICS_ENUM_SCHED_DEACTIVATE_REASON_V_MINORITY_IDX  ] = sched->metrics->deactivate_pruned_cnt;
+  sched_deactivate[ FD_METRICS_ENUM_SCHED_DEACTIVATE_REASON_V_NO_CHILD_IDX  ] = m->deactivate_no_child_cnt;
+  sched_deactivate[ FD_METRICS_ENUM_SCHED_DEACTIVATE_REASON_V_NO_WORK_IDX   ] = m->deactivate_no_txn_cnt;
+  sched_deactivate[ FD_METRICS_ENUM_SCHED_DEACTIVATE_REASON_V_ABANDONED_IDX ] = m->deactivate_abandoned_cnt;
+  sched_deactivate[ FD_METRICS_ENUM_SCHED_DEACTIVATE_REASON_V_MINORITY_IDX  ] = m->deactivate_pruned_cnt;
   FD_MCNT_ENUM_COPY( REPLAY, SCHED_DEACTIVATE, sched_deactivate );
-  FD_MCNT_SET( REPLAY, SCHED_LANE_SWITCHED, sched->metrics->lane_switch_cnt );
-  FD_MCNT_SET( REPLAY, SCHED_LANE_PROMOTED, sched->metrics->lane_promoted_cnt );
-  FD_MCNT_SET( REPLAY, SCHED_LANE_DEMOTED, sched->metrics->lane_demoted_cnt );
-  FD_MCNT_SET( REPLAY, SCHED_FORK_OBSERVED, sched->metrics->fork_observed_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_LANE_SWITCHED, m->lane_switch_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_LANE_PROMOTED, m->lane_promoted_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_LANE_DEMOTED, m->lane_demoted_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_FORK_OBSERVED, m->fork_observed_cnt );
   ulong sched_alut[ FD_METRICS_ENUM_SCHED_ALUT_RESULT_CNT ];
-  sched_alut[ FD_METRICS_ENUM_SCHED_ALUT_RESULT_V_SUCCESS_IDX ] = sched->metrics->alut_success_cnt;
-  sched_alut[ FD_METRICS_ENUM_SCHED_ALUT_RESULT_V_FAILED_IDX  ] = sched->metrics->alut_serializing_cnt;
+  sched_alut[ FD_METRICS_ENUM_SCHED_ALUT_RESULT_V_SUCCESS_IDX ] = m->alut_success_cnt;
+  sched_alut[ FD_METRICS_ENUM_SCHED_ALUT_RESULT_V_FAILED_IDX  ] = m->alut_serializing_cnt;
   FD_MCNT_ENUM_COPY( REPLAY, SCHED_ALUT, sched_alut );
-  FD_MCNT_SET( REPLAY, SCHED_TXN_PARSED_ABANDONED, sched->metrics->txn_abandoned_parsed_cnt );
-  FD_MCNT_SET( REPLAY, SCHED_TXN_EXECUTED_ABANDONED, sched->metrics->txn_abandoned_exec_done_cnt );
-  FD_MCNT_SET( REPLAY, SCHED_TXN_DONE_ABANDONED, sched->metrics->txn_abandoned_done_cnt );
-  FD_MCNT_SET( REPLAY, SCHED_WEIGHTED_IN_FLIGHT, sched->metrics->txn_weighted_in_flight_cnt );
-  FD_MCNT_SET( REPLAY, SCHED_WEIGHTED_IN_FLIGHT_DURATION_NANOS, sched->metrics->txn_weighted_in_flight_tickcount );
-  FD_MCNT_SET( REPLAY, SCHED_NONE_IN_FLIGHT_DURATION_NANOS, sched->metrics->txn_none_in_flight_tickcount );
-  FD_MCNT_SET( REPLAY, SCHED_TXN_PARSED, sched->metrics->txn_parsed_cnt );
-  FD_MCNT_SET( REPLAY, SCHED_TXN_EXECUTED, sched->metrics->txn_exec_done_cnt );
-  FD_MCNT_SET( REPLAY, SCHED_TXN_SIGNATURE_VERIFIED, sched->metrics->txn_sigverify_done_cnt );
-  FD_MCNT_SET( REPLAY, SCHED_TXN_POH_MIXED, sched->metrics->txn_mixin_done_cnt );
-  FD_MCNT_SET( REPLAY, SCHED_TXN_DONE, sched->metrics->txn_done_cnt );
-  FD_MCNT_SET( REPLAY, SCHED_MICROBLOCK_PARSED, sched->metrics->mblk_parsed_cnt );
-  FD_MCNT_SET( REPLAY, SCHED_MICROBLOCK_HASHED, sched->metrics->mblk_poh_hashed_cnt );
-  FD_MCNT_SET( REPLAY, SCHED_MICROBLOCK_DONE, sched->metrics->mblk_poh_done_cnt );
-  FD_MCNT_SET( REPLAY, SCHED_BYTES_INGESTED, sched->metrics->bytes_ingested_cnt );
-  FD_MCNT_SET( REPLAY, SCHED_BYTES_INGESTED_PADDING, sched->metrics->bytes_ingested_unparsed_cnt );
-  FD_MCNT_SET( REPLAY, SCHED_BYTES_DROPPED, sched->metrics->bytes_dropped_cnt );
-  FD_MCNT_SET( REPLAY, SCHED_FEC_INGESTED, sched->metrics->fec_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_TXN_PARSED_ABANDONED, m->txn_abandoned_parsed_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_TXN_EXECUTED_ABANDONED, m->txn_abandoned_exec_done_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_TXN_DONE_ABANDONED, m->txn_abandoned_done_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_WEIGHTED_IN_FLIGHT, m->txn_weighted_in_flight_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_WEIGHTED_IN_FLIGHT_DURATION_NANOS, m->txn_weighted_in_flight_tickcount );
+  FD_MCNT_SET( REPLAY, SCHED_NONE_IN_FLIGHT_DURATION_NANOS, m->txn_none_in_flight_tickcount );
+  FD_MCNT_SET( REPLAY, SCHED_TXN_PARSED, m->txn_parsed_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_TXN_EXECUTED, m->txn_exec_done_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_TXN_SIGNATURE_VERIFIED, m->txn_sigverify_done_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_TXN_POH_MIXED, m->txn_mixin_done_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_TXN_DONE, m->txn_done_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_MICROBLOCK_PARSED, m->mblk_parsed_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_MICROBLOCK_HASHED, m->mblk_poh_hashed_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_MICROBLOCK_DONE, m->mblk_poh_done_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_BYTES_INGESTED, m->bytes_ingested_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_BYTES_INGESTED_PADDING, m->bytes_ingested_unparsed_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_BYTES_DROPPED, m->bytes_dropped_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_FEC_INGESTED, m->fec_cnt );
+
+  ulong lthash_write[ FD_METRICS_ENUM_SCHED_LTHASH_WRITE_SOURCE_CNT ];
+  lthash_write[ FD_METRICS_ENUM_SCHED_LTHASH_WRITE_SOURCE_V_PARSED_IDX     ] = m->lthash_parsed_writable_cnt;
+  lthash_write[ FD_METRICS_ENUM_SCHED_LTHASH_WRITE_SOURCE_V_START_REG_IDX  ] = m->lthash_start_reg_cnt;
+  lthash_write[ FD_METRICS_ENUM_SCHED_LTHASH_WRITE_SOURCE_V_LATE_REG_IDX   ] = m->lthash_late_reg_cnt;
+  lthash_write[ FD_METRICS_ENUM_SCHED_LTHASH_WRITE_SOURCE_V_DEMOTE_REG_IDX ] = m->lthash_demote_reg_cnt;
+  FD_MCNT_ENUM_COPY( REPLAY, SCHED_LTHASH_WRITE, lthash_write );
+  ulong lthash_handled[ FD_METRICS_ENUM_SCHED_LTHASH_WRITE_OUTCOME_CNT ];
+  lthash_handled[ FD_METRICS_ENUM_SCHED_LTHASH_WRITE_OUTCOME_V_FIRST_WRITE_IDX ] = m->lthash_first_write_cnt;
+  lthash_handled[ FD_METRICS_ENUM_SCHED_LTHASH_WRITE_OUTCOME_V_COALESCED_IDX   ] = m->lthash_coalesced_cnt;
+  lthash_handled[ FD_METRICS_ENUM_SCHED_LTHASH_WRITE_OUTCOME_V_EXTRA_REG_IDX   ] = m->lthash_extra_reg_cnt;
+  FD_MCNT_ENUM_COPY( REPLAY, SCHED_LTHASH_WRITE_HANDLED, lthash_handled );
+  ulong lthash_add[ FD_METRICS_ENUM_SCHED_LTHASH_ADD_STAGE_CNT ];
+  lthash_add[ FD_METRICS_ENUM_SCHED_LTHASH_ADD_STAGE_V_CREATED_IDX          ] = m->lthash_add_created_cnt;
+  lthash_add[ FD_METRICS_ENUM_SCHED_LTHASH_ADD_STAGE_V_EXTRA_IDX            ] = m->lthash_add_extra_cnt;
+  lthash_add[ FD_METRICS_ENUM_SCHED_LTHASH_ADD_STAGE_V_SURFACED_IDX         ] = m->lthash_add_surfaced_cnt;
+  lthash_add[ FD_METRICS_ENUM_SCHED_LTHASH_ADD_STAGE_V_SURFACED_STALE_IDX   ] = m->lthash_add_surfaced_stale_cnt;
+  lthash_add[ FD_METRICS_ENUM_SCHED_LTHASH_ADD_STAGE_V_DISPATCHED_IDX       ] = m->lthash_add_dispatched_cnt;
+  lthash_add[ FD_METRICS_ENUM_SCHED_LTHASH_ADD_STAGE_V_DISPATCHED_STALE_IDX ] = m->lthash_add_dispatched_stale_cnt;
+  lthash_add[ FD_METRICS_ENUM_SCHED_LTHASH_ADD_STAGE_V_APPLIED_IDX          ] = m->lthash_add_applied_cnt;
+  lthash_add[ FD_METRICS_ENUM_SCHED_LTHASH_ADD_STAGE_V_UNDONE_IDX           ] = m->lthash_add_undone_cnt;
+  FD_MCNT_ENUM_COPY( REPLAY, SCHED_LTHASH_ADD, lthash_add );
+  ulong lthash_spec[ FD_METRICS_ENUM_SCHED_LTHASH_SPEC_OUTCOME_CNT ];
+  lthash_spec[ FD_METRICS_ENUM_SCHED_LTHASH_SPEC_OUTCOME_V_CREATED_IDX ] = m->lthash_spec_cnt;
+  lthash_spec[ FD_METRICS_ENUM_SCHED_LTHASH_SPEC_OUTCOME_V_APPLIED_IDX ] = m->lthash_spec_applied_cnt;
+  lthash_spec[ FD_METRICS_ENUM_SCHED_LTHASH_SPEC_OUTCOME_V_STALE_IDX   ] = m->lthash_spec_stale_cnt;
+  FD_MCNT_ENUM_COPY( REPLAY, SCHED_LTHASH_SPEC, lthash_spec );
+  ulong lthash_sub[ FD_METRICS_ENUM_SCHED_LTHASH_SUB_STAGE_CNT ];
+  lthash_sub[ FD_METRICS_ENUM_SCHED_LTHASH_SUB_STAGE_V_OWED_IDX       ] = m->lthash_entry_cnt;
+  lthash_sub[ FD_METRICS_ENUM_SCHED_LTHASH_SUB_STAGE_V_DISPATCHED_IDX ] = m->lthash_sub_dispatched_cnt;
+  lthash_sub[ FD_METRICS_ENUM_SCHED_LTHASH_SUB_STAGE_V_APPLIED_IDX    ] = m->lthash_sub_applied_cnt;
+  FD_MCNT_ENUM_COPY( REPLAY, SCHED_LTHASH_SUB, lthash_sub );
+  FD_MCNT_SET( REPLAY, SCHED_LTHASH_FROZEN, m->lthash_frozen_cnt );
+  ulong lthash_discarded[ FD_METRICS_ENUM_SCHED_LTHASH_DISCARDED_KIND_CNT ];
+  lthash_discarded[ FD_METRICS_ENUM_SCHED_LTHASH_DISCARDED_KIND_V_ADD_OWED_IDX    ] = m->lthash_discarded_add_owed_cnt;
+  lthash_discarded[ FD_METRICS_ENUM_SCHED_LTHASH_DISCARDED_KIND_V_ADD_PENDING_IDX ] = m->lthash_discarded_add_pending_cnt;
+  lthash_discarded[ FD_METRICS_ENUM_SCHED_LTHASH_DISCARDED_KIND_V_ADD_APPLIED_IDX ] = m->lthash_discarded_add_applied_cnt;
+  lthash_discarded[ FD_METRICS_ENUM_SCHED_LTHASH_DISCARDED_KIND_V_SUB_QUEUED_IDX  ] = m->lthash_discarded_sub_queued_cnt;
+  lthash_discarded[ FD_METRICS_ENUM_SCHED_LTHASH_DISCARDED_KIND_V_SUB_APPLIED_IDX ] = m->lthash_discarded_sub_applied_cnt;
+  FD_MCNT_ENUM_COPY( REPLAY, SCHED_LTHASH_DISCARDED, lthash_discarded );
+  FD_MCNT_SET( REPLAY, SCHED_LTHASH_POOL_FULL,  m->lthash_pool_full_cnt  );
+  FD_MCNT_SET( REPLAY, SCHED_LTHASH_SPEC_YIELD, m->lthash_spec_yield_cnt );
 }
 
 char *
 fd_sched_get_state_cstr( fd_sched_t * sched ) {
+  lthash_metrics_check( sched );
   sched->print_buf_sz = 0UL;
   print_metrics( sched );
   print_sched( sched );
@@ -2152,6 +3128,11 @@ add_block( fd_sched_t * sched,
   block->block_start_done     = 0;
   block->block_end_done       = 0;
   block->staged               = 0;
+  block->lthash_oob           = (uint)!!sched->lthash_oob;
+  if( FD_UNLIKELY( sched->lthash_oob ) ) {
+    FD_TEST( !block->add_owed_cnt && !block->add_created_cnt && !block->sub_queued_cnt && !block->sub_in_flight_cnt && !block->sub_applied_cnt && !block->lthash_drained );
+    // FD_TEST( fd_lthash_is_zero( sched->lthash_delta+bank_idx ) );
+  }
 
   block->luf_depth = 0UL;
 
@@ -2820,8 +3801,25 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
   block_poison_add( sched, block, txn, imms, poison_alts, poison_alt_cnt );
 
   ulong bank_idx = (ulong)(block-sched->block_pool);
-  ulong txn_idx  = fd_rdisp_add_txn( sched->rdisp, bank_idx, txn, payload, alts, serializing, NULL );
+  fd_rdisp_neww_t neww[ fd_rdisp_neww_word_cnt ];
+  ulong txn_idx  = fd_rdisp_add_txn( sched->rdisp, bank_idx, txn, payload, alts, serializing, sched->lthash_oob ? neww : NULL );
   FD_TEST( txn_idx && txn_idx<sched->depth );
+  if( FD_LIKELY( sched->lthash_oob ) ) {
+    ulong writable_cnt    = fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_WRITABLE )
+                          - fd_ulong_if( !alts, fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_WRITABLE_ALT ), 0UL );
+    ulong first_write_cnt = fd_rdisp_neww_cnt( neww );
+    sched->metrics->lthash_parsed_writable_cnt += writable_cnt;
+    sched->metrics->lthash_first_write_cnt     += first_write_cnt;
+    sched->metrics->lthash_coalesced_cnt       += writable_cnt-first_write_cnt;
+    block->add_owed_cnt                        += (uint)first_write_cnt;
+    if( FD_LIKELY( block_is_lane_head( sched, block ) ) ) {
+      for( ulong iter = fd_rdisp_neww_iter_init( neww ); !fd_rdisp_neww_iter_done( iter ); iter=fd_rdisp_neww_iter_next( neww, iter ) ) {
+        fd_acct_addr_t const * acct = get_acct( txn, imms, alts, (ushort)iter );
+        FD_TEST( acct );
+        lthash_entry_new_write_observed( sched, block, acct );
+      }
+    }
+  }
 
   /* This transaction either needs to be consumed by sigverify or PoH.
      If either of the two are caught up, mark it for consumption.
@@ -2862,7 +3860,7 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
   txn_bitset_remove( sched->exec_done_set, txn_idx );
   txn_bitset_remove( sched->sigverify_done_set, txn_idx );
   txn_bitset_remove( sched->poh_mixin_done_set, txn_idx );
-  sched->txn_info_pool[ txn_idx ].flags = 0UL;
+  sched->txn_info_pool[ txn_idx ].flags = fd_ulong_if( sched->lthash_oob && poison_alt_cnt && !alts, FD_SCHED_TXN_ALT_UNRESOLVED, 0UL );
   sched->txn_info_pool[ txn_idx ].received_ns = block->fec_completed_ns;
   sched->txn_info_pool[ txn_idx ].txn_err = 0;
   sched->txn_info_pool[ txn_idx ].is_simple_vote = 0;
@@ -2918,7 +3916,7 @@ dispatch_sigverify( fd_sched_t * sched, fd_sched_block_t * block, ulong bank_idx
   sched->tile_to_bank_idx[ exec_tile_idx ] = bank_idx;
   block->txn_sigverify_in_flight_cnt++;
   block->txn_sigverify_next_idx = sched->txn_info_pool[ txn_idx ].next_idx;
-  if( FD_UNLIKELY( (~sched->txn_exec_ready_bitset[ 0 ])&(~sched->sigverify_ready_bitset[ 0 ])&(~sched->poh_ready_bitset[ 0 ])&fd_ulong_mask_lsb( (int)sched->exec_cnt ) ) ) FD_LOG_CRIT(( "invariant violation: txn_exec_ready_bitset 0x%lx sigverify_ready_bitset 0x%lx poh_ready_bitset 0x%lx", sched->txn_exec_ready_bitset[ 0 ], sched->sigverify_ready_bitset[ 0 ], sched->poh_ready_bitset[ 0 ] ));
+  exec_ready_bitsets_check( sched );
 }
 
 /* Retires a microblock whose PoH hashing has completed, and eagerly
@@ -3025,7 +4023,7 @@ dispatch_poh( fd_sched_t * sched, fd_sched_block_t * block, ulong bank_idx, int 
   sched->poh_ready_bitset[ 0 ] = fd_ulong_clear_bit( sched->poh_ready_bitset[ 0 ], exec_tile_idx );
   sched->tile_to_bank_idx[ exec_tile_idx ] = bank_idx;
   block->poh_hashing_in_flight_cnt++;
-  if( FD_UNLIKELY( (~sched->txn_exec_ready_bitset[ 0 ])&(~sched->sigverify_ready_bitset[ 0 ])&(~sched->poh_ready_bitset[ 0 ])&fd_ulong_mask_lsb( (int)sched->exec_cnt ) ) ) FD_LOG_CRIT(( "invariant violation: txn_exec_ready_bitset 0x%lx sigverify_ready_bitset 0x%lx poh_ready_bitset 0x%lx", sched->txn_exec_ready_bitset[ 0 ], sched->sigverify_ready_bitset[ 0 ], sched->poh_ready_bitset[ 0 ] ));
+  exec_ready_bitsets_check( sched );
 }
 
 /* Does up to one transaction mixin.  Returns 1 if one mixin was done, 2
@@ -3210,6 +4208,25 @@ try_activate_block( fd_sched_t * sched ) {
     }
   }
 
+  /* ... No lane head with a done parent has real work.  Wake one that can speculate on
+     the additions it owes, if the speculation pool has room enough to
+     make the switch worthwhile. */
+  staged_bitset = sched->staged_bitset;
+  while( staged_bitset ) {
+    int lane_idx  = fd_ulong_find_lsb( staged_bitset );
+    staged_bitset = fd_ulong_pop_lsb( staged_bitset );
+
+    ulong              head_idx     = sched->staged_head_bank_idx[ lane_idx ];
+    fd_sched_block_t * head_block   = block_pool_ele( sched, head_idx );
+    fd_sched_block_t * parent_block = block_pool_ele( sched, head_block->parent_idx );
+    if( block_is_done( parent_block ) && block_is_stageable( head_block ) && block_may_speculate( sched, head_block, FD_SCHED_LTHASH_SPEC_THRESHOLD_PER_TILE*sched->exec_cnt ) ) {
+      FD_LOG_DEBUG(( "activating block %lu:%lu: speculation on lane %d", head_block->slot, head_idx, lane_idx ));
+      sched->metrics->lane_switch_cnt += (uint)( head_idx!=sched->last_active_bank_idx && sched->last_active_bank_idx!=head_block->parent_idx );
+      sched->active_bank_idx = head_idx;
+      return;
+    }
+  }
+
   /* ... No, promote unstaged blocks. */
   ulong root_idx = sched->root_idx;
   if( FD_UNLIKELY( root_idx==ULONG_MAX ) ) {
@@ -3318,7 +4335,7 @@ check_or_set_active_block( fd_sched_t * sched ) {
     try_activate_block( sched );
   } else {
     fd_sched_block_t * active_block = block_pool_ele( sched, sched->active_bank_idx );
-    if( FD_UNLIKELY( block_should_deactivate( active_block ) ) ) {
+    if( FD_UNLIKELY( block_should_deactivate( sched, active_block ) ) ) {
       sched->print_buf_sz = 0UL;
       print_all( sched, active_block );
       FD_LOG_NOTICE(( "%s", sched->print_buf ));
@@ -3414,6 +4431,12 @@ subtree_mark_and_maybe_prune_rdisp( fd_sched_t * sched, fd_sched_block_t * block
 
     if( abandon ) {
       block->in_rdisp = 0;
+      sched->metrics->lthash_discarded_add_owed_cnt    += block->add_owed_cnt;
+      sched->metrics->lthash_discarded_add_pending_cnt += block->add_created_cnt-block->add_surfaced_cnt;
+      sched->metrics->lthash_discarded_sub_queued_cnt  += block->sub_queued_cnt;
+      sched->metrics->lthash_discarded_sub_applied_cnt += block->sub_applied_cnt;
+      sched->metrics->lthash_discarded_add_applied_cnt += block->add_applied_cnt-block->add_undone_cnt;
+      lthash_block_reset( sched, block );
       fd_rdisp_abandon_block( sched->rdisp, (ulong)(block-sched->block_pool) );
       block->txn_idx_tail = 0U;
       sched->txn_pool_free_cnt += block->txn_parsed_cnt-block->txn_done_cnt; /* in_flight_cnt==0 */
@@ -3548,8 +4571,8 @@ subtree_prune( fd_sched_t * sched, ulong bank_idx, ulong except_idx ) {
        we're pruning implies that the bank thinks there's nothing more
        in-flight. */
     if( FD_UNLIKELY( block_is_in_flight( head ) ) ) {
-      FD_LOG_CRIT(( "invariant violation: block has tasks in flight (%u exec %u sigverify %u poh), slot %lu, parent slot %lu",
-                    head->txn_exec_in_flight_cnt, head->txn_sigverify_in_flight_cnt, head->poh_hashing_in_flight_cnt, head->slot, head->parent_slot ));
+      FD_LOG_CRIT(( "invariant violation: block has tasks in flight (%u exec %u sigverify %u poh %u lthash sub, %u/%u lthash add surfaced/done), slot %lu, parent slot %lu",
+                    head->txn_exec_in_flight_cnt, head->txn_sigverify_in_flight_cnt, head->poh_hashing_in_flight_cnt, head->sub_in_flight_cnt, head->add_surfaced_cnt, head->add_done_cnt, head->slot, head->parent_slot ));
     }
     if( FD_UNLIKELY( head->in_rdisp ) ) {
       /* We should have removed it from the dispatcher when we were
@@ -3592,6 +4615,14 @@ maybe_switch_block( fd_sched_t * sched, ulong bank_idx ) {
 
   fd_sched_block_t * block = block_pool_ele( sched, bank_idx );
   if( FD_UNLIKELY( block_is_done( block ) ) ) {
+    /* In a successfully replayed block, there should be exactly one
+       subtraction and one addition per writable account, after
+       adjusting for failed speculations.  This is the culmination of
+       all the out-of-band LtHash activity in the block, and a cheap way
+       for us to check count invariants. */
+    FD_TEST( block->sub_applied_cnt==block->add_applied_cnt-block->add_undone_cnt );
+    sched->metrics->lthash_frozen_cnt += block->sub_applied_cnt;
+    lthash_block_reset( sched, block );
     fd_rdisp_remove_block( sched->rdisp, bank_idx );
     FD_LOG_DEBUG(( "block %lu:%lu exited lane %lu: remove", block->slot, bank_idx, block->staging_lane ));
     block->in_rdisp = 0;
@@ -3629,6 +4660,7 @@ maybe_switch_block( fd_sched_t * sched, ulong bank_idx ) {
             FD_LOG_CRIT(( "invariant violation: staged_bitset 0x%lx bit %lu is not set, slot %lu, parent slot %lu, child slot %lu, parent slot %lu",
                           sched->staged_bitset, block->staging_lane, block->slot, block->parent_slot, child->slot, child->parent_slot ));
           }
+          lthash_become_lane_head( sched, child );
           return;
         } else {
           /* ... but the child block is considered dead, likely because
@@ -3646,11 +4678,15 @@ maybe_switch_block( fd_sched_t * sched, ulong bank_idx ) {
     sched->staged_head_bank_idx[ block->staging_lane ] = ULONG_MAX;
     sched->metrics->deactivate_no_child_cnt++;
     try_activate_block( sched );
-  } else if( block_should_deactivate( block ) ) {
+  } else if( block_should_deactivate( sched, block ) ) {
     /* We exhausted the active block, but it's not fully done yet.  We
        are just not getting FEC sets for it fast enough.  This could
        happen when the network path is congested, or when the leader
        simply went down.  Reset the active block. */
+    /* With additions still owed, only an empty speculation pool kept
+       the block from speculating: a block with fec_eos set has drained,
+       and so has a lane head with a child staged behind it. */
+    sched->metrics->lthash_pool_full_cnt += (uint)(block->add_owed_cnt>0U);
     sched->last_active_bank_idx = sched->active_bank_idx;
     sched->active_bank_idx = ULONG_MAX;
     sched->metrics->deactivate_no_txn_cnt++;
@@ -3720,6 +4756,9 @@ stage_longest_unstaged_fork_helper( fd_sched_t * sched, ulong bank_idx, int lane
     block->staged = 1;
     block->staging_lane = (ulong)lane_idx;
     fd_rdisp_promote_block( sched->rdisp, bank_idx, block->staging_lane );
+    /* If the block hit fec_eoc while it was unstaged, it never executed
+       a drain.  This will be our chance to drain it. */
+    lthash_maybe_drain( sched, block );
     sched->metrics->block_promoted_cnt++;
     FD_LOG_DEBUG(( "block %lu:%lu entered lane %lu: promote", block->slot, bank_idx, block->staging_lane ));
   }
@@ -3760,6 +4799,7 @@ stage_longest_unstaged_fork( fd_sched_t * sched, ulong bank_idx, int lane_idx ) 
        are unstaged blocks implies we already maxed out lanes at one
        point. */
     sched->staged_head_bank_idx[ lane_idx ] = head_bank_idx;
+    lthash_become_lane_head( sched, block_pool_ele( sched, head_bank_idx ) );
   }
   return head_bank_idx;
 }
@@ -3809,6 +4849,7 @@ demote_lane( fd_sched_t * sched, int lane_idx ) {
     FD_TEST( block->staged );
     FD_TEST( block->staging_lane==(ulong)lane_idx );
 
+    lthash_demote( sched, block );
     int ret = fd_rdisp_demote_block( sched->rdisp, bank_idx );
     if( FD_UNLIKELY( ret!=0 ) ) {
       FD_LOG_CRIT(( "fd_rdisp_demote_block failed for block %lu:%lu, lane %d", block->slot, bank_idx, lane_idx ));

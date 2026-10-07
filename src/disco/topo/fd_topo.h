@@ -532,6 +532,7 @@ struct fd_topo_tile {
       char  dump_proto_dir[ PATH_MAX ];
       int   dump_block_to_pb;
       int   report_runtime_diffs;
+      int   lthash_out_of_band;
 
       struct {
         int   enabled;

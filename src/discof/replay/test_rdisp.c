@@ -188,6 +188,7 @@ add_txn3( fd_rdisp_t *         rdisp,
   fd_rdisp_neww_t neww[ fd_rdisp_neww_word_cnt ]; /* Also a bitset, but based on position in the transaction */
 
   ulong ret = fd_rdisp_add_txn( rdisp, tag, txn, payload, _alt, serializing, writers_bitset ? neww : NULL );
+  if( !writers_bitset ) return ret; /* neww is only populated when tracking */
 
   acct = (fd_acct_addr_t *)fd_type_pun( payload );
   ulong new_writers = 0UL;
@@ -239,6 +240,74 @@ pop_option( ulong * indices,
     if( indices[i]==idx ) { indices[i] |= POPPED; return idx; }
   }
   return 0UL;
+}
+
+/* test_extra_fallback_gate covers the fallback of
+   fd_rdisp_add_extra_pseudo_txn, taken when the account's last
+   reference is in a later block.  The edge-free pseudo-transaction it
+   creates must not run before any node already inserted in its block,
+   here U, a later writer of A.  S stands in for a serializing
+   transaction that wrote A through an unresolved ALT.  U is added after
+   the drain without LtHash tracking, so nothing in block 0 waits on it
+   and every other node of block 0 can complete while U is held.
+   later_cnt extras for accounts with no reference in the lane follow on
+   the inline path, and their completions must not count toward the
+   fallback's gate. */
+static void
+test_extra_fallback_gate( fd_rdisp_t * disp,
+                          fd_rng_t   * rng,
+                          ulong        later_cnt ) {
+  ulong w[1] = { 0UL };
+  FD_TEST( 0==fd_rdisp_add_block( disp, tag( 0UL ), 1UL ) );
+  ulong t0    = add_txn3( disp, rng, tag( 0UL ), 'F', "A", "", 0, w    ); FD_TEST( t0    ); /* T0 */
+  ulong s     = add_txn3( disp, rng, tag( 0UL ), 'G', "B", "", 1, w    ); FD_TEST( s     ); /* S, serializing */
+  fd_rdisp_add_all_pseudo_txn( disp, tag( 0UL ) );                                          /* drain before the child joins */
+  ulong u     = add_txn3( disp, rng, tag( 0UL ), 'H', "A", "", 0, NULL ); FD_TEST( u     ); /* U */
+  FD_TEST( 0==fd_rdisp_add_block( disp, tag( 1UL ), 1UL ) );                               /* block 0 is no longer insert-ready */
+  ulong child = add_txn3( disp, rng, tag( 1UL ), 'F', "A", "", 0, NULL ); FD_TEST( child ); /* A's last reference is now in block 1 */
+
+  fd_acct_addr_t acct[1]; memset( acct->b, 'A', 32UL );
+  FD_TEST(  -1==fd_rdisp_add_writable       ( disp, tag( 0UL ), acct ) );
+  FD_TEST( 0UL==fd_rdisp_add_extra_pseudo_txn( disp, tag( 1UL ), acct ) ); /* not schedule-ready */
+  FD_TEST( t0==fd_rdisp_get_next_ready( disp, tag( 0UL ) ) ); fd_rdisp_complete_txn( disp, t0, 1 );
+  FD_TEST( s ==fd_rdisp_get_next_ready( disp, tag( 0UL ) ) ); fd_rdisp_complete_txn( disp, s,  1 );
+  ulong extra = fd_rdisp_add_extra_pseudo_txn( disp, tag( 0UL ), acct );
+  FD_TEST( extra & FD_RDISP_LTHASH_PSEUDO_TXN );
+  for( ulong i=0UL; i<later_cnt; i++ ) {
+    memset( acct->b, (int)('X'+i), 32UL );
+    FD_TEST( fd_rdisp_add_extra_pseudo_txn( disp, tag( 0UL ), acct ) & FD_RDISP_LTHASH_PSEUDO_TXN );
+  }
+  fd_rdisp_verify( disp, verify_scratch );
+
+  /* Hold U in flight and complete everything else that becomes ready.
+     The extra must stay gated throughout. */
+  int   u_dispatched = 0;
+  ulong last;
+  while( (last=fd_rdisp_get_next_ready( disp, tag( 0UL ) )) ) {
+    FD_TEST( last!=extra );
+    if( last==u ) { u_dispatched = 1; continue; }
+    FD_TEST( last & FD_RDISP_LTHASH_PSEUDO_TXN );
+    fd_rdisp_complete_txn( disp, last, 1 );
+  }
+  FD_TEST( u_dispatched );
+  fd_rdisp_complete_txn( disp, u, 1 );
+
+  /* Completing U releases the extra. */
+  int saw_extra = 0;
+  while( (last=fd_rdisp_get_next_ready( disp, tag( 0UL ) )) ) {
+    FD_TEST( last & FD_RDISP_LTHASH_PSEUDO_TXN );
+    saw_extra |= (last==extra);
+    fd_rdisp_complete_txn( disp, last, 1 );
+  }
+  FD_TEST( saw_extra );
+  FD_TEST( 0==fd_rdisp_remove_block( disp, tag( 0UL ) ) );
+
+  /* Block 1 is now schedule-ready.  Its transaction was added without
+     LtHash tracking, so there is nothing to drain. */
+  FD_TEST( child==fd_rdisp_get_next_ready( disp, tag( 1UL ) ) ); fd_rdisp_complete_txn( disp, child, 1 );
+  *w = 0UL;
+  FD_TEST( 0UL==drain_all_ptxn( disp, tag( 1UL ), w ) );
+  FD_TEST( 0==fd_rdisp_remove_block( disp, tag( 1UL ) ) );
 }
 
 typedef struct {
@@ -1133,6 +1202,26 @@ main( int     argc,
   drain_all_ptxn( disp, tag( 2UL ), w2 ); FD_TEST( *w2==0UL );
   FD_TEST(  0==fd_rdisp_remove_block( disp, tag( 2UL ) ) );
 
+  test_extra_fallback_gate( disp, rng, 0UL );
+  test_extra_fallback_gate( disp, rng, 3UL );
+
+  /* add_writable on an insert-ready block reports whether this is the
+     first write since the account's last pseudo-transaction. */
+  fd_acct_addr_t acct_a[1]; memset( acct_a->b, 'A', 32UL );
+  FD_TEST( -1==fd_rdisp_add_writable( disp, tag( 7UL ), acct_a ) ); /* unknown block */
+  FD_TEST(  0==fd_rdisp_add_block( disp, tag( 0UL ), 1UL ) );
+  FD_TEST(  1==fd_rdisp_add_writable( disp, tag( 0UL ), acct_a ) );
+  FD_TEST(  0==fd_rdisp_add_writable( disp, tag( 0UL ), acct_a ) );
+  ptxn = fd_rdisp_add_pseudo_txn( disp, tag( 0UL ) );  FD_TEST( ptxn );
+  fd_rdisp_pseudo_txn_to_addr( disp, ptxn, paddr );    FD_TEST( paddr->b[0]=='A' );
+  FD_TEST( 0UL==fd_rdisp_add_pseudo_txn( disp, tag( 0UL ) ) );
+  FD_TEST(  1==fd_rdisp_add_writable( disp, tag( 0UL ), acct_a ) );
+  last = fd_rdisp_get_next_ready( disp, tag( 0UL ) ); FD_TEST( last==ptxn ); fd_rdisp_complete_txn( disp, last, 1 );
+  *w = 0x1UL; /* A */
+  FD_TEST( 0UL==drain_all_ptxn( disp, tag( 0UL ), w ) );
+  FD_TEST(  0==fd_rdisp_remove_block( disp, tag( 0UL ) ) );
+  fd_rdisp_verify( disp, verify_scratch );
+
 
   fd_rdisp_delete( fd_rdisp_leave( disp ) );
 
@@ -1161,8 +1250,28 @@ main( int     argc,
 
   random_test( rng, rand_iters );
 
-  /* test the MAX_SCORE constant */
-  for( ulong i=0UL; i<FD_MAX_TXN_PER_SLOT; i++ ) FD_TEST( FD_RDISP_MAX_SCORE+(float)i < (float)(i+1UL) );
+  /* test fd_rdisp_score over every integer part a block can reach.
+     Pseudo-transactions count toward a block's inserted_cnt, so integer
+     parts reach past the transaction limit.  Below 2^17 the score is
+     the plain sum, bit for bit, which keeps the scores of a block
+     without pseudo-transactions identical to what they were before the
+     helper existed. */
+  ulong max_i = FD_MAX_TXN_PER_SLOT+2UL*FD_RDISP_MAX_WRITERS_PER_BLOCK;
+  for( ulong i=0UL; i<max_i; i++ ) {
+    float s = fd_rdisp_score( FD_RDISP_MAX_SCORE, (uint)i );
+    FD_TEST( (float)i<=s && s<(float)(i+1UL) );
+    if( i<(1UL<<17) ) FD_TEST( fd_float_eq( s, FD_RDISP_MAX_SCORE+(float)i ) );
+  }
+  /* A mid fraction at the largest integer part is representable, so
+     there is nothing to clamp. */
+  FD_TEST( fd_float_eq( fd_rdisp_score( 0.5f, (uint)(max_i-1UL) ), 0.5f+(float)(max_i-1UL) ) );
+  /* Just below and at 2^19 the plain sum rounds up to the next integer
+     and the clamp returns the float just below it: the spacing is 2^-5
+     below 2^19 and 2^-4 from it. */
+  FD_TEST( fd_float_eq( FD_RDISP_MAX_SCORE+(float)((1UL<<19)-1UL), (float)(1UL<<19)       ) );
+  FD_TEST( fd_float_eq( FD_RDISP_MAX_SCORE+(float)(1UL<<19),       (float)((1UL<<19)+1UL) ) );
+  FD_TEST( fd_float_eq( fd_rdisp_score( FD_RDISP_MAX_SCORE, (uint)((1UL<<19)-1UL) ), 524287.96875f ) );
+  FD_TEST( fd_float_eq( fd_rdisp_score( FD_RDISP_MAX_SCORE, (uint)(1UL<<19)       ), 524288.9375f  ) );
 
   fd_rng_delete( fd_rng_leave( rng ) );
 

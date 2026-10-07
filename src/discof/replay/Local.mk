@@ -4,6 +4,9 @@ $(call make-unit-test,test_rdisp,test_rdisp,fd_discof fd_ballet fd_tango fd_util
 $(call run-unit-test,test_rdisp)
 $(call make-unit-test,test_rdisp_mq,test_rdisp_mq, fd_util)
 $(call run-unit-test,test_rdisp_mq)
+$(call add-objs,fd_sched_lthash,fd_discof)
+$(call make-unit-test,test_sched_lthash,test_sched_lthash,fd_discof fd_ballet fd_tango fd_util)
+$(call run-unit-test,test_sched_lthash)
 $(call add-objs,fd_sched,fd_discof)
 ifdef FD_HAS_HOSTED
 $(call make-unit-test,test_sched,test_sched,fd_discof fd_choreo fd_disco fd_flamenco fd_ballet fd_tango fd_util)

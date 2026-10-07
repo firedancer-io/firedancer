@@ -1063,7 +1063,7 @@ EXAMPLES
     <counter name="TxnVersion" enum="TxnVersion" summary="Number of transactions executed, broken down by transaction version" />
     <counter name="InstructionExecuted" summary="Number of top-level instructions executed" />
     <counter name="CpiExecuted" summary="Number of cross-program invocations executed" />
-    <counter name="LthashUnchanged" summary="Number of committed writable accounts left byte-identical by their transaction, whose lthash update was skipped" />
+    <counter name="LthashUnchanged" summary="Number of committed writable accounts left byte-identical by their transaction, whose lthash update was skipped. Counted only in in-band LtHash mode; stays zero when development.lthash_out_of_band is on" />
     <counter name="CuExecuted" summary="Estimated compute units executed since tile start" />
 
     <counter name="TxnRegimeDurationNanos" converter="nanoseconds" enum="TxnRegime" summary="Mutually exclusive and exhaustive duration spent in transaction execution regimes, in nanoseconds" />
@@ -1276,6 +1276,50 @@ EXAMPLES
     <int value="1" name="Failed" label="Address lookup table expansion failed" />
 </enum>
 
+<enum name="SchedLthashWriteSource">
+    <int value="0" name="Parsed" label="Declared writable accounts of parsed transactions, as handed to the dispatcher" />
+    <int value="1" name="StartReg" label="Accounts registered by start-of-block processing" />
+    <int value="2" name="LateReg" label="Writable lookup table accounts registered at transaction completion" />
+    <int value="3" name="DemoteReg" label="Accounts re-registered when their block was demoted" />
+</enum>
+
+<enum name="SchedLthashWriteOutcome">
+    <int value="0" name="FirstWrite" label="First write to the account since its last addition pseudo transaction, which makes the block owe it an addition" />
+    <int value="1" name="Coalesced" label="Write to an account the block already owed an addition for" />
+    <int value="2" name="ExtraReg" label="Registration the dispatcher could not take as a write because a child was staged behind the block" />
+</enum>
+
+<enum name="SchedLthashAddStage">
+    <int value="0" name="Created" label="Addition pseudo transactions the dispatcher handed back" />
+    <int value="1" name="Extra" label="Of those, created through add_extra_pseudo_txn" />
+    <int value="2" name="Surfaced" label="Returned by get_next_ready" />
+    <int value="3" name="SurfacedStale" label="Surfaced after a later write made them stale, completed without hashing" />
+    <int value="4" name="Dispatched" label="Handed to an exec tile" />
+    <int value="5" name="DispatchedStale" label="Made stale while on the tile, result dropped" />
+    <int value="6" name="Applied" label="Results added to a block's delta" />
+    <int value="7" name="Undone" label="Applied additions subtracted back out after a later write" />
+</enum>
+
+<enum name="SchedLthashSpecOutcome">
+    <int value="0" name="Created" label="Speculative additions created" />
+    <int value="1" name="Applied" label="Speculative additions applied" />
+    <int value="2" name="Stale" label="Speculative additions invalidated before they applied" />
+</enum>
+
+<enum name="SchedLthashSubStage">
+    <int value="0" name="Owed" label="Lane map entries inserted, each owing one subtraction" />
+    <int value="1" name="Dispatched" label="Subtractions handed to an exec tile" />
+    <int value="2" name="Applied" label="Subtraction results subtracted from a block's delta" />
+</enum>
+
+<enum name="SchedLthashDiscardedKind">
+    <int value="0" name="AddOwed" label="Additions owed by abandoned blocks, never created" />
+    <int value="1" name="AddPending" label="Pseudo transactions of abandoned blocks, never surfaced" />
+    <int value="2" name="AddApplied" label="Additions in the delta of an abandoned or demoted block, net of undone" />
+    <int value="3" name="SubQueued" label="Subtractions of abandoned blocks, never dispatched" />
+    <int value="4" name="SubApplied" label="Subtractions in the delta of an abandoned or demoted block" />
+</enum>
+
 <tile name="replay">
     <gauge name="IdentityBalanceLamports" summary="Identity account balance at the optimistically confirmed slot" />
     <gauge name="ActiveStakeLamports" summary="Our active stake at the optimistically confirmed slot" />
@@ -1353,6 +1397,15 @@ EXAMPLES
     <counter name="SchedBytesIngestedPadding" summary="Bytes the replay scheduler ingested but did not parse for being padding" />
     <counter name="SchedBytesDropped" summary="Bytes the replay scheduler refused to ingest because the block is considered abandoned" />
     <counter name="SchedFecIngested" summary="FEC sets the replay scheduler has been given" />
+    <counter name="SchedLthashWrite" enum="SchedLthashWriteSource" summary="Writes the replay scheduler observed for out-of-band LtHash, by source. Zero unless out-of-band LtHash is on" />
+    <counter name="SchedLthashWriteHandled" enum="SchedLthashWriteOutcome" summary="What the dispatcher made of each write observed for out-of-band LtHash. Sums to SchedLthashWrite" />
+    <counter name="SchedLthashAdd" enum="SchedLthashAddStage" summary="Out-of-band LtHash addition pseudo transactions, by stage" />
+    <counter name="SchedLthashSpec" enum="SchedLthashSpecOutcome" summary="Speculative out-of-band LtHash additions, by outcome" />
+    <counter name="SchedLthashSub" enum="SchedLthashSubStage" summary="Out-of-band LtHash subtractions, by stage" />
+    <counter name="SchedLthashFrozen" summary="Accounts whose out-of-band LtHash subtraction and addition are in the delta of a block that completed BLOCK_END" />
+    <counter name="SchedLthashDiscarded" enum="SchedLthashDiscardedKind" summary="Out-of-band LtHash work thrown away when a block was abandoned or demoted, by kind" />
+    <counter name="SchedLthashPoolFull" summary="Times a block that still owed additions was deactivated because the speculation pool had no free entry" />
+    <counter name="SchedLthashSpecYield" summary="Times a block that could only speculate was deactivated to run another lane head's real work" />
 
     <counter name="SlotReplayed" summary="Slots replayed successfully or leader slots packed and shredded successfully" />
     <counter name="TxnProcessed" summary="Transactions processed overall on the current fork" />
@@ -1946,7 +1999,7 @@ EXAMPLES
     <counter name="PohHashed" summary="PoH SHA-256 calls executed" />
     <counter name="InstructionExecuted" summary="Number of top-level instructions executed" />
     <counter name="CpiExecuted" summary="Number of cross-program invocations executed" />
-    <counter name="LthashUnchanged" summary="Number of committed writable accounts left byte-identical by their transaction, whose lthash update was skipped" />
+    <counter name="LthashUnchanged" summary="Number of committed writable accounts left byte-identical by their transaction, whose lthash update was skipped. Counted only in in-band LtHash mode; stays zero when development.lthash_out_of_band is on" />
 
     <counter name="TxnRegimeDurationNanos" converter="nanoseconds" enum="TxnRegime" summary="Mutually exclusive and exhaustive duration spent in transaction execution regimes, in nanoseconds" />
     <counter name="VmRegimeDurationNanos" converter="nanoseconds" enum="VmRegime" summary="Mutually exclusive and exhaustive duration spent in virtual machine execution regimes, in nanoseconds" />
