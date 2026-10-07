@@ -62,6 +62,13 @@ main( int     argc,
                                  "%s/stakedelegations.db",
                                  config->paths.base ) );
   FD_TEST( !strcmp( config->paths.stake_delegations, expected_stake_delegations ) );
+  char expected_epoch_credits[ PATH_MAX ];
+  FD_TEST( fd_cstr_printf_check( expected_epoch_credits,
+                                 sizeof(expected_epoch_credits),
+                                 NULL,
+                                 "%s/epochcredits.db",
+                                 config->paths.base ) );
+  FD_TEST( !strcmp( config->paths.epoch_credits, expected_epoch_credits ) );
 
   strcpy( config->tiles.bundle.url, "https://user:hunter2@mainnet.example.com:443/v1/txns?api-key=SECRET#frag" );
   strcpy( config->tiles.event.url,  "https://events.example.com/submit" );

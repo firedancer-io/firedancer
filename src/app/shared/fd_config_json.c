@@ -11,7 +11,7 @@
    or knowingly skipped) before the constant is bumped.  String keys of
    the user's own file are separately forced through the classification
    lists below. */
-FD_STATIC_ASSERT( sizeof(fd_config_t)==26557680UL, update_fd_config_to_json_for_the_layout_change );
+FD_STATIC_ASSERT( sizeof(fd_config_t)==26561776UL, update_fd_config_to_json_for_the_layout_change );
 
 #define REDACTED "[redacted]"
 
@@ -111,6 +111,7 @@ static char const * const jw_redacted_keys[] = {
   "paths.genesis",
   "paths.accounts",
   "paths.stake_delegations",
+  "paths.epoch_credits",
   "paths.shredb",
   "paths.guidb",
   "paths.vote_history",
@@ -324,6 +325,7 @@ fd_config_to_json( fd_config_t const * config,
     jw_path( &w, "genesis",                 config->paths.genesis );
     jw_path( &w, "accounts",                config->paths.accounts );
     jw_path( &w, "stake_delegations",       config->paths.stake_delegations );
+    jw_path( &w, "epoch_credits",           config->paths.epoch_credits );
     jw_path( &w, "shredb",                  config->paths.shredb );
     jw_path( &w, "guidb",                   config->paths.guidb );
     jw_path( &w, "vote_history",            config->paths.vote_history );

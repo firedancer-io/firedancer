@@ -309,6 +309,7 @@ struct fd_config {
     char genesis[ PATH_MAX ];
     char accounts[ PATH_MAX ];
     char stake_delegations[ PATH_MAX ];
+    char epoch_credits[ PATH_MAX ];
     char shredb[ PATH_MAX ];
     char guidb[ PATH_MAX ];
     char vote_history[ PATH_MAX ];
