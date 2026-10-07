@@ -53,8 +53,8 @@ blk_insert( fd_rotor_t *      rotor,
   blk->meta_req      = 0;
   blk->highest_req   = 0;
   blk->orphan_req    = 0;
-  blk->telemetry.cancelled_reason = 0;
-  blk->telemetry.reported         = 0;
+  memset( &blk->telemetry, 0, sizeof(blk->telemetry) );
+  blk->telemetry.last_cmpl_fec_idx = UINT_MAX;
   blk->rcvd_fec_ts   = 0L;
   for( ulong k=0UL; k<FD_FEC_BLK_MAX; k++ ) blk->fecs[ k ] = fd_rotor_fec_pool_idx_null( rotor->fec_pool );
   fd_rotor_blk_map_ele_insert( rotor->blk_map, blk, rotor->blk_pool );
@@ -274,6 +274,23 @@ prune( fd_rotor_t *     rotor,
   fd_rotor_blk_pool_ele_release   ( pool, blk );
 }
 
+/* cancel records why and when blk stopped being attempted: the latest
+   reason, at the time of the first cancellation. */
+
+static inline void
+cancel( fd_rotor_blk_t * blk,
+        int              reason,
+        long             ts ) {
+  blk->telemetry.cancelled_ts     = fd_long_if( !blk->telemetry.cancelled_reason, ts, blk->telemetry.cancelled_ts );
+  blk->telemetry.cancelled_reason = (uchar)reason;
+}
+
+static inline long
+first_ts( long a,
+          long b ) {
+  return fd_long_if( !a || ( b && b<a ), b, a );
+}
+
 /* dedup checks for a duplicate of eager among the notar blks.  Only the
    eager blk can be duplicated, since notar blk DMRs are known a priori.
 
@@ -288,7 +305,8 @@ prune( fd_rotor_t *     rotor,
 
 static void
 dedup( fd_rotor_t *     rotor,
-       fd_rotor_blk_t * eager ) {
+       fd_rotor_blk_t * eager,
+       long             ts ) {
   fd_rotor_blk_t * pool = rotor->blk_pool;
   ulong            null = fd_rotor_blk_pool_idx_null( pool );
   ulong            idx  = fd_rotor_blk_pool_idx( pool, eager );
@@ -298,7 +316,7 @@ dedup( fd_rotor_t *     rotor,
     notar = (fd_rotor_blk_t *)fd_rotor_blk_map_ele_next_const( notar, NULL, pool );
   }
   fd_rotor_slot_meta_t * meta = fd_rotor_slot_meta( rotor, eager->slot );
-  if( FD_UNLIKELY( !notar && meta->final!=null ) ) { eager->telemetry.cancelled_reason = FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_NOTARIZED_VERSION; prune( rotor, eager ); return; } /* turbine built a blk the cluster did not finalize */
+  if( FD_UNLIKELY( !notar && meta->final!=null ) ) { cancel( eager, FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_NOTARIZED_VERSION, ts ); prune( rotor, eager ); return; } /* turbine built a blk the cluster did not finalize */
   if( FD_LIKELY( !notar ) ) return;
 
   ulong next;
@@ -326,7 +344,20 @@ dedup( fd_rotor_t *     rotor,
   blk_treap_remove( rotor, notar );
   if( FD_UNLIKELY( meta->final==fd_rotor_blk_pool_idx( pool, notar ) ) ) { meta->final = null; promote( rotor, eager, &meta->final ); }
   if( FD_UNLIKELY( meta->notar==fd_rotor_blk_pool_idx( pool, notar ) ) ) { meta->notar = null; promote( rotor, eager, &meta->notar ); }
-  notar->telemetry.reported = 1; /* the same block lives on as eager */
+  notar->telemetry.reported = 1; /* the same block lives on as eager, we won't report two different lines for this */
+
+  eager->telemetry.req_window_cnt    += notar->telemetry.req_window_cnt;
+  eager->telemetry.req_highest_cnt   += notar->telemetry.req_highest_cnt;
+  eager->telemetry.req_orphan_cnt    += notar->telemetry.req_orphan_cnt;
+  eager->telemetry.req_shred_bid_cnt += notar->telemetry.req_shred_bid_cnt;
+  eager->telemetry.req_parent_cnt    += notar->telemetry.req_parent_cnt;
+  eager->telemetry.req_fec_root_cnt  += notar->telemetry.req_fec_root_cnt;
+  eager->telemetry.shred_res_cnt     += notar->telemetry.shred_res_cnt;
+  eager->telemetry.parent_res_cnt    += notar->telemetry.parent_res_cnt;
+  eager->telemetry.fec_root_res_cnt  += notar->telemetry.fec_root_res_cnt;
+  eager->telemetry.first_req_ts       = first_ts( eager->telemetry.first_req_ts,      notar->telemetry.first_req_ts      );
+  eager->telemetry.first_meta_res_ts  = first_ts( eager->telemetry.first_meta_res_ts, notar->telemetry.first_meta_res_ts );
+  eager->telemetry.last_shred_res_ts  = fd_long_max( eager->telemetry.last_shred_res_ts, notar->telemetry.last_shred_res_ts );
   prune( rotor, notar );
   fd_rotor_blk_t * root = connect_ancestors( rotor, eager );
   connect_descendants( rotor, root );
@@ -480,7 +511,8 @@ fd_rotor_blk_dead( fd_rotor_t *      rotor,
 fd_rotor_blk_t *
 fd_rotor_blk_finalized( fd_rotor_t *      rotor,
                         ulong             slot,
-                        fd_mr32_t const * blk_mr ) {
+                        fd_mr32_t const * blk_mr,
+                        long              ts ) {
   fd_rotor_slot_meta_t * meta = fd_rotor_slot_meta( rotor, slot );
 
   fd_rotor_blk_t * fin = fd_rotor_blk_map_ele_query( rotor->blk_map, &slot, NULL, rotor->blk_pool );
@@ -519,7 +551,7 @@ fd_rotor_blk_finalized( fd_rotor_t *      rotor,
     }
     blk->child = null;
     if( FD_UNLIKELY( meta->eager==fd_rotor_blk_pool_idx( pool, blk ) && !memcmp( &blk->dmr, &hash_null, sizeof(fd_mr32_t) ) ) ) continue; /* turbine may still complete as the finalized blk, see dedup */
-    blk->telemetry.cancelled_reason = FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_NOTARIZED_VERSION;
+    cancel( blk, FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_NOTARIZED_VERSION, ts );
     prune( rotor, blk );
   }
   fd_rotor_blk_t * root = connect_ancestors( rotor, fin );
@@ -553,12 +585,16 @@ fd_rotor_blk_parented( fd_rotor_t *      rotor,
                        fd_mr32_t const * blk_mr,
                        ulong             parent_slot,
                        fd_mr32_t const * parent_blk_mr,
-                       uint              fec_set_cnt ) {
+                       uint              fec_set_cnt,
+                       long              ts ) {
   fd_rotor_blk_t * blk = fd_rotor_blk_map_ele_query( rotor->blk_map, &slot, NULL, rotor->blk_pool );
   while( FD_LIKELY( blk && memcmp( &blk->dmr, blk_mr, sizeof(fd_mr32_t) ) ) ) blk = (fd_rotor_blk_t *)fd_rotor_blk_map_ele_next_const( blk, NULL, rotor->blk_pool );
   if( FD_UNLIKELY( !blk                         ) ) return NULL; /* blk was pruned while the response was in flight */
+  blk->telemetry.parent_res_cnt++;
+  blk->telemetry.first_meta_res_ts = first_ts( blk->telemetry.first_meta_res_ts, ts );
+
   if( FD_UNLIKELY( blk->parent_slot!=ULONG_MAX ) ) return NULL; /* duplicate response, eg. a retried request */
-  if( FD_UNLIKELY( parent_slot>=slot            ) ) return NULL; /* a blk's parent precedes it */
+  if( FD_UNLIKELY( parent_slot>=slot           ) ) return NULL; /* a blk's parent precedes it */
 
   blk->parent_slot   = parent_slot;
   blk->parent_blk_mr = *parent_blk_mr;
@@ -567,9 +603,8 @@ fd_rotor_blk_parented( fd_rotor_t *      rotor,
 
   ulong            eager  = fd_rotor_slot_meta( rotor, parent_slot )->eager;
   fd_rotor_blk_t * parent = fd_rotor_blk_map_ele_query( rotor->blk_map, &parent_slot, NULL, rotor->blk_pool );
-  while(    parent
-         && (    memcmp( &parent->dmr, parent_blk_mr, sizeof(fd_mr32_t) )
-              || ( fd_rotor_blk_pool_idx( rotor->blk_pool, parent )==eager && !memcmp( &parent->dmr, &hash_null, sizeof(fd_mr32_t) ) ) ) ) {
+  while( parent && ( memcmp( &parent->dmr, parent_blk_mr, sizeof(fd_mr32_t) )
+                || ( fd_rotor_blk_pool_idx( rotor->blk_pool, parent )==eager && !memcmp( &parent->dmr, &hash_null, sizeof(fd_mr32_t) ) ) ) ) {
     parent = (fd_rotor_blk_t *)fd_rotor_blk_map_ele_next_const( parent, NULL, rotor->blk_pool );
   }
   fd_rotor_blk_t * created = NULL;
@@ -606,14 +641,20 @@ fd_rotor_fec_complete( fd_rotor_t *       rotor,
                        fd_shred_t const * last_shred,
                        fd_mr32_t const *  fec_mr,
                        int                is_leader,
+                       uint               turbine_cnt,
+                       uint               repair_cnt,
+                       uint               recovered_cnt,
                        long               ts ) {
-  fd_rotor_shred_insert( rotor, last_shred, fec_mr, ts );
+  fd_rotor_shred_insert( rotor, last_shred, fec_mr, 0, ts ); /* the last shred's header, its source was given when it arrived */
 
   fd_mr20_t key;
   memcpy( key.uc, fec_mr->uc, sizeof(fd_mr20_t) );
   fd_rotor_fec_t * fec = fd_rotor_fec_map_ele_query( rotor->fec_map, &key, NULL, rotor->fec_pool );
   if( FD_UNLIKELY( !fec ) ) return NULL; /* fd_rotor_shred_insert dropped it as conflicting with the eager blk */
 
+  int first_complete = !fec->complete;
+  fec->cmpl_ts       = fd_long_if( first_complete, ts, fec->cmpl_ts );
+  fec->final_src     = fd_int_if( first_complete && is_leader, FD_EVENT_BLOCK_RECEIVED_FEC_SETS_FINAL_SHRED_SOURCE_LEADER, fec->final_src );
   fec->mr32          = *fec_mr;
   fec->rcvd          = UINT_MAX;
   fec->complete      = 1;
@@ -645,7 +686,7 @@ fd_rotor_fec_complete( fd_rotor_t *       rotor,
     }
     eager->child = keep;
 
-    dedup( rotor, eager );
+    dedup( rotor, eager, ts );
     if( FD_UNLIKELY( fd_rotor_fec_map_ele_query( rotor->fec_map, &key, NULL, rotor->fec_pool )!=fec ) ) return NULL; /* dedup pruned eager and with it the FEC set */
   }
 
@@ -659,6 +700,13 @@ fd_rotor_fec_complete( fd_rotor_t *       rotor,
            && fd_rotor_fec_pool_ele( rotor->fec_pool, blk->fecs[ blk->buff_fec_cnt ] )->complete ) {
       blk->buff_fec_cnt++;
     }
+    if( FD_LIKELY( first_complete ) ) {
+      blk->telemetry.turbine_shred_cnt   += turbine_cnt;
+      blk->telemetry.repair_shred_cnt    += repair_cnt;
+      blk->telemetry.recovered_shred_cnt += recovered_cnt;
+      blk->telemetry.last_cmpl_fec_idx    = fec->fec_idx*FD_FEC_SHRED_CNT;
+    }
+    blk->telemetry.last_shred_ts = fd_long_if( blk->cmpl_fec_cnt && blk->buff_fec_cnt==blk->cmpl_fec_cnt && !blk->telemetry.last_shred_ts, ts, blk->telemetry.last_shred_ts );
     if( FD_UNLIKELY( blk->cmpl_fec_cnt && blk->buff_fec_cnt==blk->cmpl_fec_cnt && !blk->telemetry.reported && rotor->telemetry.report ) ) { blk->telemetry.reported = 1; rotor->telemetry.report( rotor->telemetry.ctx, blk ); }
     consume( rotor, blk );
     if( FD_UNLIKELY( blk->cmpl_fec_cnt && blk->cons_fec_cnt==blk->cmpl_fec_cnt ) ) cascade( rotor, blk );
@@ -683,19 +731,23 @@ fd_rotor_fec_notarized( fd_rotor_t *      rotor,
                         ulong             slot,
                         fd_mr32_t const * blk_mr,
                         uint              fec_set_idx,
-                        fd_mr20_t const * fec_mr ) {
+                        fd_mr20_t const * fec_mr,
+                        long              ts ) {
 
   uint fec_idx = fec_set_idx / FD_FEC_SHRED_CNT;
 
   fd_rotor_blk_t * blk = fd_rotor_blk_map_ele_query( rotor->blk_map, &slot, NULL, rotor->blk_pool );
   while( blk && memcmp( &blk->dmr, blk_mr, sizeof(fd_mr32_t) ) ) blk = (fd_rotor_blk_t *)fd_rotor_blk_map_ele_next_const( blk, NULL, rotor->blk_pool );
   if( FD_UNLIKELY( !blk ) ) return NULL; /* blk was pruned while the response was in flight */
+  blk->telemetry.fec_root_res_cnt++;
+  blk->telemetry.first_meta_res_ts = first_ts( blk->telemetry.first_meta_res_ts, ts );
+
   if( FD_UNLIKELY( blk->fecs[ fec_idx ]!=fd_rotor_fec_pool_idx_null( rotor->fec_pool ) ) ) return NULL; /* duplicate response, eg. a retried request */
 
   fd_rotor_slot_meta_t * meta  = fd_rotor_slot_meta( rotor, slot );
   fd_rotor_blk_t *       eager = fd_rotor_blk_pool_ele( rotor->blk_pool, meta->eager );
   int                    eqvoc = eager && eager->fecs[ fec_idx ]!=fd_rotor_fec_pool_idx_null( rotor->fec_pool ) && memcmp( &fd_rotor_fec_pool_ele( rotor->fec_pool, eager->fecs[ fec_idx ] )->key, fec_mr, sizeof(fd_mr20_t) );
-  if( FD_UNLIKELY( eqvoc ) ) fd_rotor_slot_invalidated( rotor, slot, FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_MERKLE_ROOT_MISMATCH );
+  if( FD_UNLIKELY( eqvoc ) ) fd_rotor_slot_invalidated( rotor, slot, FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_MERKLE_ROOT_MISMATCH, ts );
 
   fd_rotor_fec_t * fec = fd_rotor_fec_map_ele_query( rotor->fec_map, fec_mr, NULL, rotor->fec_pool );
   if( FD_UNLIKELY( fec && ( fec->slot!=slot || fec->fec_idx!=fec_idx ) ) ) return NULL; /* a FEC set root commits to its slot and index, so this leaf names no FEC set a shred can fill */
@@ -709,7 +761,9 @@ fd_rotor_fec_notarized( fd_rotor_t *      rotor,
     fec->rcvd          = 0U;
     fec->complete      = 0;
     fec->data_complete = 0;
+    fec->final_src     = 0;
     fec->first_ts      = 0L;
+    fec->cmpl_ts       = 0L;
     fec->is_leader     = 0;
     fd_rotor_fec_map_ele_insert( rotor->fec_map, fec, rotor->fec_pool );
   }
@@ -772,6 +826,7 @@ void
 fd_rotor_shred_insert( fd_rotor_t *       rotor,
                        fd_shred_t const * shred,
                        fd_mr32_t const *  fec_mr,
+                       int                src,
                        long               ts ) {
 
   fd_mr20_t key;
@@ -786,6 +841,7 @@ fd_rotor_shred_insert( fd_rotor_t *       rotor,
   if( FD_UNLIKELY( fec && ( fec->slot!=shred->slot || fec->fec_idx!=fec_idx ) ) ) return; /* a 20-byte root collision */
   if( FD_UNLIKELY( fec && fec->notarized ) ) fec->rcvd = fd_uint_set_bit( fec->rcvd, (int)( shred->idx - fec_idx * FD_FEC_SHRED_CNT ) );
   if( FD_UNLIKELY( fec && !fec->first_ts ) ) fec->first_ts = ts;
+  if( FD_LIKELY( fec && src && !fec->complete ) ) fec->final_src = src; /* frozen once complete */
 
   /* Second, handle an Eager shred (from Turbine or Eager Repair). */
 
@@ -808,10 +864,9 @@ fd_rotor_shred_insert( fd_rotor_t *       rotor,
   int eqvoc             = blk->fecs[ fec_idx ]!=fd_rotor_fec_pool_idx_null( rotor->fec_pool ) && blk->fecs[ fec_idx ]!=fd_rotor_fec_pool_idx( rotor->fec_pool, fec ); /* the leader signed two FEC sets at this index, eg. two shred 0s */
   int parent_conflict   = bad_header || blk->parent_slot!=parent_slot;
   int complete_conflict = ( blk->cmpl_fec_cnt && fec_idx>=blk->cmpl_fec_cnt ) || ( slot_complete && fec_idx+1U<blk->rcvd_fec_cnt );
-  if( FD_UNLIKELY( eqvoc || parent_conflict || complete_conflict ) ) {
-    fd_rotor_slot_invalidated( rotor, shred->slot, fd_int_if( eqvoc, FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_MERKLE_ROOT_MISMATCH, fd_int_if( bad_header, FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_INVALID_BLOCK_HEADER, fd_int_if( parent_conflict, FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_PARENT_OFF_MISMATCH, FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_SLOT_COMPLETE_MISMATCH ) ) ) );
-    return;
-  }
+  if( FD_UNLIKELY( eqvoc ) )             { fd_rotor_slot_invalidated( rotor, shred->slot, FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_MERKLE_ROOT_MISMATCH, ts ); return; }
+  if( FD_UNLIKELY( parent_conflict ) )   { fd_rotor_slot_invalidated( rotor, shred->slot, bad_header ? FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_INVALID_BLOCK_HEADER : FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_PARENT_OFF_MISMATCH, ts ); return; }
+  if( FD_UNLIKELY( complete_conflict ) ) { fd_rotor_slot_invalidated( rotor, shred->slot, FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_SLOT_COMPLETE_MISMATCH, ts ); return; }
 
   if( FD_UNLIKELY( parent_blk_mr ) ) blk->parent_blk_mr = *parent_blk_mr;
   if( FD_UNLIKELY( parent_blk_mr && blk->parent==null ) ) {
@@ -850,7 +905,9 @@ fd_rotor_shred_insert( fd_rotor_t *       rotor,
     fec->rcvd          = 0U;
     fec->complete      = 0;
     fec->data_complete = 0;
+    fec->final_src     = src;
     fec->first_ts      = ts;
+    fec->cmpl_ts       = 0L;
     fec->is_leader     = 0;
     fec->notarized     = 0;
     fd_rotor_fec_map_ele_insert( rotor->fec_map, fec, rotor->fec_pool );
@@ -863,12 +920,13 @@ fd_rotor_shred_insert( fd_rotor_t *       rotor,
 void
 fd_rotor_slot_invalidated( fd_rotor_t * rotor,
                            ulong        slot,
-                           int          reason ) {
+                           int          reason,
+                           long         ts ) {
   fd_rotor_slot_meta_t * meta  = fd_rotor_slot_meta( rotor, slot );
   fd_rotor_blk_t *       eager = fd_rotor_blk_pool_ele( rotor->blk_pool, meta->eager );
   meta->invalidated = 1;
   if( FD_LIKELY( eager ) ) eager->eager = 0;
-  if( FD_LIKELY( eager ) ) eager->telemetry.cancelled_reason = (uchar)reason;
+  if( FD_LIKELY( eager ) ) cancel( eager, reason, ts );
   if( FD_LIKELY( eager && meta->final!=meta->eager && meta->notar!=meta->eager ) ) blk_treap_remove( rotor, eager ); /* still the eager blk, never repaired */
 }
 
