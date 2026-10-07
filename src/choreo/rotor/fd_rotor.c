@@ -274,17 +274,6 @@ prune( fd_rotor_t *     rotor,
   fd_rotor_blk_pool_ele_release   ( pool, blk );
 }
 
-/* cancel records why and when blk stopped being attempted: the latest
-   reason, at the time of the first cancellation. */
-
-static inline void
-cancel( fd_rotor_blk_t * blk,
-        int              reason,
-        long             ts ) {
-  blk->telemetry.cancelled_ts     = fd_long_if( !blk->telemetry.cancelled_reason, ts, blk->telemetry.cancelled_ts );
-  blk->telemetry.cancelled_reason = (uchar)reason;
-}
-
 /* dedup checks for a duplicate of eager among the notar blks.  Only the
    eager blk can be duplicated, since notar blk DMRs are known a priori.
 
@@ -310,7 +299,12 @@ dedup( fd_rotor_t *     rotor,
     notar = (fd_rotor_blk_t *)fd_rotor_blk_map_ele_next_const( notar, NULL, pool );
   }
   fd_rotor_slot_meta_t * meta = fd_rotor_slot_meta( rotor, eager->slot );
-  if( FD_UNLIKELY( !notar && meta->final!=null ) ) { cancel( eager, FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_NOTARIZED_VERSION, ts ); prune( rotor, eager ); return; } /* turbine built a blk the cluster did not finalize */
+  if( FD_UNLIKELY( !notar && meta->final!=null ) ) {
+    eager->telemetry.cancelled_ts     = fd_long_if( !eager->telemetry.cancelled_reason, ts, eager->telemetry.cancelled_ts );
+    eager->telemetry.cancelled_reason = (uchar)FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_NOTARIZED_VERSION;
+    prune( rotor, eager );
+    return;
+  } /* turbine built a blk the cluster did not finalize */
   if( FD_LIKELY( !notar ) ) return;
 
   ulong next;
@@ -546,7 +540,8 @@ fd_rotor_blk_finalized( fd_rotor_t *      rotor,
     }
     blk->child = null;
     if( FD_UNLIKELY( meta->eager==fd_rotor_blk_pool_idx( pool, blk ) && !memcmp( &blk->dmr, &hash_null, sizeof(fd_mr32_t) ) ) ) continue; /* turbine may still complete as the finalized blk, see dedup */
-    cancel( blk, FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_NOTARIZED_VERSION, ts );
+    blk->telemetry.cancelled_ts     = fd_long_if( !blk->telemetry.cancelled_reason, ts, blk->telemetry.cancelled_ts );
+    blk->telemetry.cancelled_reason = FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_NOTARIZED_VERSION;
     prune( rotor, blk );
   }
   fd_rotor_blk_t * root = connect_ancestors( rotor, fin );
@@ -920,8 +915,11 @@ fd_rotor_slot_invalidated( fd_rotor_t * rotor,
   fd_rotor_slot_meta_t * meta  = fd_rotor_slot_meta( rotor, slot );
   fd_rotor_blk_t *       eager = fd_rotor_blk_pool_ele( rotor->blk_pool, meta->eager );
   meta->invalidated = 1;
-  if( FD_LIKELY( eager ) ) eager->eager = 0;
-  if( FD_LIKELY( eager ) ) cancel( eager, reason, ts );
+  if( FD_LIKELY( eager ) ) {
+    eager->telemetry.cancelled_ts     = fd_long_if( !eager->telemetry.cancelled_reason, ts, eager->telemetry.cancelled_ts );
+    eager->telemetry.cancelled_reason = (uchar)reason;
+    eager->eager = 0;
+  }
   if( FD_LIKELY( eager && meta->final!=meta->eager && meta->notar!=meta->eager ) ) blk_treap_remove( rotor, eager ); /* still the eager blk, never repaired */
 }
 
