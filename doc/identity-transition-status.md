@@ -165,15 +165,17 @@ make -j8 firedancer firedancer-dev test_identity_transition test_admin_tile \
   test_txsend_tile test_votor_tile test_tower_tile test_replay_tile test_rpc_tile \
   bench_identity_transition
 
-build/native/gcc/13.3.0/unit-test/test_identity_transition
-build/native/gcc/13.3.0/unit-test/test_admin_tile
-build/native/gcc/13.3.0/unit-test/test_txsend_tile
-build/native/gcc/13.3.0/unit-test/test_votor_tile
-build/native/gcc/13.3.0/unit-test/test_tower_tile --page-sz normal --page-cnt 1048576
-build/native/gcc/13.3.0/unit-test/test_replay_tile --page-sz normal --page-cnt 524288
-build/native/gcc/13.3.0/unit-test/test_rpc_tile
-build/native/gcc/13.3.0/unit-test/bench_identity_transition
+identity_objdir=$(make --silent objdir)
+"${identity_objdir}/unit-test/test_identity_transition"
+"${identity_objdir}/unit-test/test_admin_tile"
+"${identity_objdir}/unit-test/test_txsend_tile"
+"${identity_objdir}/unit-test/test_votor_tile"
+"${identity_objdir}/unit-test/test_tower_tile" --page-sz normal --page-cnt 1048576
+"${identity_objdir}/unit-test/test_replay_tile" --page-sz normal --page-cnt 524288
+"${identity_objdir}/unit-test/test_rpc_tile"
+"${identity_objdir}/unit-test/bench_identity_transition"
 ```
 
-The build directory depends on compiler and machine selection. The ordinary
-page arguments above let the larger fixture tests run without huge pages.
+Use the same `MACHINE`, `EXTRAS`, and other build settings for the build and
+`make --silent objdir`. The ordinary page arguments above let the larger
+fixture tests run without huge pages.
