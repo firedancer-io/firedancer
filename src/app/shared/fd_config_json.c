@@ -343,6 +343,7 @@ fd_config_to_json( fd_config_t const * config,
     jw_str  ( &w, "expected_genesis_hash",         config->consensus.expected_genesis_hash );
     jw_bool ( &w, "wait_for_vote_to_start_leader", config->consensus.wait_for_vote_to_start_leader );
     jw_str  ( &w, "wait_for_supermajority_with_bank_hash", f->consensus.wait_for_supermajority_with_bank_hash );
+    jw_bool ( &w, "alpenglow",                     f->consensus.alpenglow );
   jw_obj_close( &w );
 
   jw_obj_open( &w, "gossip" );
@@ -457,7 +458,6 @@ fd_config_to_json( fd_config_t const * config,
     jw_str ( &w, "core_dump", config->development.core_dump );
     jw_bool( &w, "hard_fork_fatal", f->development.hard_fork_fatal );
     jw_bool( &w, "fixed_fec_sets",  f->development.fixed_fec_sets );
-    jw_bool( &w, "alpenglow",       f->development.alpenglow );
     jw_obj_open( &w, "votor" );
       jw_ulong( &w, "quic_client_listen_port", f->development.votor.quic_client_listen_port );
       jw_ulong( &w, "quic_server_listen_port", f->development.votor.quic_server_listen_port );

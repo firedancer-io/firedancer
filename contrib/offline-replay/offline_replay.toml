@@ -37,8 +37,9 @@ name = "{name}"
             allow_list = []
 [gossip]
     entrypoints = [ "0.0.0.0:1" ]
-[development]
+[consensus]
     alpenglow = {alpenglow}
+[development]
     [development.ledger_input]
         format = "pcap"
         path = "{ledger}/shreds.pcapng.zst"

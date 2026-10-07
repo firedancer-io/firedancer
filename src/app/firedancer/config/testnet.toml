@@ -5,6 +5,7 @@
     ]
 [consensus]
     expected_genesis_hash = "4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY"
+    alpenglow = true
 [accounts]
     max_accounts = 200_000_000
 [snapshots]
@@ -14,5 +15,3 @@
         allow_any = true
 [layout]
     shred_tile_count = 4
-[development]
-    alpenglow = true

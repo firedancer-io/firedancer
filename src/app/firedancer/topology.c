@@ -274,7 +274,7 @@ fd_topo_initialize( config_t * config ) {
   int telemetry_enabled   = config->telemetry && strcmp( config->tiles.event.url, "" );
   int leader_enabled      = !!config->firedancer.layout.enable_block_production;
   int rserve_enabled      = config->tiles.rserve.enabled;
-  int alpenglow_enabled   = config->firedancer.development.alpenglow;
+  int alpenglow_enabled   = config->firedancer.consensus.alpenglow;
   int tower_file_enabled  = !alpenglow_enabled && config->tiles.tower.write_vote_history_file;
   int efficient_mode      = !strcmp( config->firedancer.layout.mode, "efficient" );
   int gossip_vote_enabled = leader_enabled || ( rpc_enabled && !alpenglow_enabled );
@@ -1527,7 +1527,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->net.gossip_listen_port               = config->gossip.port;
     tile->net.repair_client_listen_port        = config->tiles.repair.repair_client_listen_port;
     tile->net.repair_serve_listen_port         = fd_ushort_if( config->tiles.rserve.enabled, config->tiles.rserve.repair_serve_listen_port, 0 );
-    tile->net.txsend_src_port                  = fd_ushort_if( !config->firedancer.development.alpenglow, config->tiles.txsend.txsend_src_port, 0 );
+    tile->net.txsend_src_port                  = fd_ushort_if( !config->firedancer.consensus.alpenglow, config->tiles.txsend.txsend_src_port, 0 );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "netlnk" ) ) ) {
 
@@ -1611,7 +1611,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->gossip.ports.tpu_quic         = config->tiles.quic.quic_transaction_listen_port;
     tile->gossip.ports.repair           = config->tiles.repair.repair_client_listen_port;
     tile->gossip.ports.rserve           = fd_ushort_if( config->tiles.rserve.enabled, config->tiles.rserve.repair_serve_listen_port, 0 );
-    tile->gossip.ports.votor            = fd_ushort_if( config->firedancer.development.alpenglow, config->firedancer.development.votor.quic_server_listen_port, (ushort)0 );
+    tile->gossip.ports.votor            = fd_ushort_if( config->firedancer.consensus.alpenglow, config->firedancer.development.votor.quic_server_listen_port, (ushort)0 );
 
     tile->gossip.entrypoints_cnt        = config->gossip.entrypoints_cnt;
     for( ulong i=0UL; i<tile->gossip.entrypoints_cnt; i++ ) {
@@ -1702,7 +1702,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->rserve.repair_serve_listen_port = config->tiles.rserve.repair_serve_listen_port;
     tile->rserve.max_shreds_per_block = config->limits.max_shreds_per_block;
     tile->rserve.ping_cache_entries = 1UL<<16; /* TODO: Configure this from some global metric? */
-    tile->rserve.blockdb_max = config->firedancer.development.alpenglow ? 1UL<<15 : 0UL; /* ~20.6 KiB each. TODO: make configurable */
+    tile->rserve.blockdb_max = config->firedancer.consensus.alpenglow ? 1UL<<15 : 0UL; /* ~20.6 KiB each. TODO: make configurable */
     fd_cstr_ncpy( tile->rserve.identity_key_path, config->paths.identity_key, sizeof(tile->rserve.identity_key_path) );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "replay" ) )) {
@@ -1725,7 +1725,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
     tile->replay.expected_shred_version = config->consensus.expected_shred_version;
     tile->replay.wait_for_vote_to_start_leader = config->consensus.wait_for_vote_to_start_leader;
-    tile->replay.alpenglow = config->firedancer.development.alpenglow;
+    tile->replay.alpenglow = config->firedancer.consensus.alpenglow;
 
     tile->replay.sched_depth = config->tiles.replay.max_transaction_lookahead_buffer_size;
     if( FD_LIKELY( !strcmp( config->firedancer.consensus.wait_for_supermajority_with_bank_hash, "" ) ) ) {
@@ -1925,7 +1925,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->shred.expected_shred_version        = config->consensus.expected_shred_version;
     tile->shred.shred_listen_port             = config->tiles.shred.shred_listen_port;
     tile->shred.max_shreds_per_block          = config->limits.max_shreds_per_block;
-    tile->shred.alpenglow                     = config->firedancer.development.alpenglow;
+    tile->shred.alpenglow                     = config->firedancer.consensus.alpenglow;
     tile->shred.bench_max_shreds_per_block    = config->development.bench.max_shreds_per_block;
     tile->shred.adtl_dests_retransmit_cnt     = config->tiles.shred.additional_shred_destinations_retransmit_cnt;
     tile->shred.adtl_dests_leader_cnt         = config->tiles.shred.additional_shred_destinations_leader_cnt;
@@ -1972,7 +1972,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->gui.listen_port = config->tiles.gui.gui_listen_port;
     tile->gui.max_txn_per_slot = config->limits.max_txn_per_slot;
     tile->gui.is_voting = strcmp( config->paths.vote_account, "" );
-    tile->gui.is_alpenglow = config->firedancer.development.alpenglow;
+    tile->gui.is_alpenglow = config->firedancer.consensus.alpenglow;
     fd_cstr_ncpy( tile->gui.cluster, config->cluster, sizeof(tile->gui.cluster) );
     fd_cstr_ncpy( tile->gui.identity_key_path, config->paths.identity_key, sizeof(tile->gui.identity_key_path) );
     fd_cstr_ncpy( tile->gui.vote_key_path, config->paths.vote_account, sizeof(tile->gui.vote_key_path) );
@@ -1996,7 +1996,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     parse_listen_addr( config->tiles.rpc.rpc_listen_address, "tiles.rpc.rpc_listen_address", &tile->rpc.listen_addr );
     tile->rpc.listen_port = config->tiles.rpc.rpc_listen_port;
     tile->rpc.delay_startup = config->tiles.rpc.delay_startup;
-    tile->rpc.alpenglow     = config->firedancer.development.alpenglow;
+    tile->rpc.alpenglow     = config->firedancer.consensus.alpenglow;
     tile->rpc.max_http_connections      = config->tiles.rpc.max_http_connections;
     tile->rpc.max_websocket_connections = config->tiles.rpc.max_websocket_connections;
     tile->rpc.send_buffer_size_mb       = config->tiles.rpc.send_buffer_size_mb;
@@ -2024,7 +2024,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "backt" ) ) ) {
 
-    tile->backtest.alpenglow     = config->firedancer.development.alpenglow;
+    tile->backtest.alpenglow     = config->firedancer.consensus.alpenglow;
     tile->backtest.root_distance = config->firedancer.development.backtest.root_distance;
     fd_cstr_ncpy( tile->backtest.ledger_format, config->firedancer.development.ledger_input.format, sizeof(tile->backtest.ledger_format) );
     fd_cstr_ncpy( tile->backtest.ledger_path, config->firedancer.development.ledger_input.path, PATH_MAX );
