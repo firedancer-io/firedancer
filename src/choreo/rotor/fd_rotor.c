@@ -285,31 +285,10 @@ cancel( fd_rotor_blk_t * blk,
   blk->telemetry.cancelled_reason = (uchar)reason;
 }
 
-/* telemetry_merge folds the request telemetry of src, a blk of the same
-   block about to be pruned, into dst.  Shred counts are not merged: dst
-   holds every FEC set of the block, so its counts are already whole. */
-
 static inline long
 first_ts( long a,
           long b ) {
   return fd_long_if( !a || ( b && b<a ), b, a );
-}
-
-static void
-telemetry_merge( fd_rotor_blk_t *       dst,
-                 fd_rotor_blk_t const * src ) {
-  dst->telemetry.req_window_cnt      += src->telemetry.req_window_cnt;
-  dst->telemetry.req_highest_cnt     += src->telemetry.req_highest_cnt;
-  dst->telemetry.req_orphan_cnt      += src->telemetry.req_orphan_cnt;
-  dst->telemetry.req_shred_bid_cnt   += src->telemetry.req_shred_bid_cnt;
-  dst->telemetry.req_parent_cnt      += src->telemetry.req_parent_cnt;
-  dst->telemetry.req_fec_root_cnt    += src->telemetry.req_fec_root_cnt;
-  dst->telemetry.shred_res_cnt       += src->telemetry.shred_res_cnt;
-  dst->telemetry.parent_res_cnt      += src->telemetry.parent_res_cnt;
-  dst->telemetry.fec_root_res_cnt    += src->telemetry.fec_root_res_cnt;
-  dst->telemetry.first_req_ts         = first_ts( dst->telemetry.first_req_ts,      src->telemetry.first_req_ts      );
-  dst->telemetry.first_meta_res_ts    = first_ts( dst->telemetry.first_meta_res_ts, src->telemetry.first_meta_res_ts );
-  dst->telemetry.last_shred_res_ts    = fd_long_max( dst->telemetry.last_shred_res_ts, src->telemetry.last_shred_res_ts );
 }
 
 /* dedup checks for a duplicate of eager among the notar blks.  Only the
@@ -365,8 +344,20 @@ dedup( fd_rotor_t *     rotor,
   blk_treap_remove( rotor, notar );
   if( FD_UNLIKELY( meta->final==fd_rotor_blk_pool_idx( pool, notar ) ) ) { meta->final = null; promote( rotor, eager, &meta->final ); }
   if( FD_UNLIKELY( meta->notar==fd_rotor_blk_pool_idx( pool, notar ) ) ) { meta->notar = null; promote( rotor, eager, &meta->notar ); }
-  notar->telemetry.reported = 1; /* the same block lives on as eager */
-  telemetry_merge( eager, notar );
+  notar->telemetry.reported = 1; /* the same block lives on as eager, we won't report two different lines for this */
+
+  eager->telemetry.req_window_cnt    += notar->telemetry.req_window_cnt;
+  eager->telemetry.req_highest_cnt   += notar->telemetry.req_highest_cnt;
+  eager->telemetry.req_orphan_cnt    += notar->telemetry.req_orphan_cnt;
+  eager->telemetry.req_shred_bid_cnt += notar->telemetry.req_shred_bid_cnt;
+  eager->telemetry.req_parent_cnt    += notar->telemetry.req_parent_cnt;
+  eager->telemetry.req_fec_root_cnt  += notar->telemetry.req_fec_root_cnt;
+  eager->telemetry.shred_res_cnt     += notar->telemetry.shred_res_cnt;
+  eager->telemetry.parent_res_cnt    += notar->telemetry.parent_res_cnt;
+  eager->telemetry.fec_root_res_cnt  += notar->telemetry.fec_root_res_cnt;
+  eager->telemetry.first_req_ts       = first_ts( eager->telemetry.first_req_ts,      notar->telemetry.first_req_ts      );
+  eager->telemetry.first_meta_res_ts  = first_ts( eager->telemetry.first_meta_res_ts, notar->telemetry.first_meta_res_ts );
+  eager->telemetry.last_shred_res_ts  = fd_long_max( eager->telemetry.last_shred_res_ts, notar->telemetry.last_shred_res_ts );
   prune( rotor, notar );
   fd_rotor_blk_t * root = connect_ancestors( rotor, eager );
   connect_descendants( rotor, root );
