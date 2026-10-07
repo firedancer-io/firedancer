@@ -291,7 +291,7 @@
   {"name":"custom_commission_collector","implemented":1,"pubkey":"3HcSrCTGXTUnrTueHi4DAwNuMxZSsm5xui2Ax3mgxHqf"},
   {"name":"enable_tx_v1","implemented":1,"pubkey":"txv1aq4pp281K9um3tnPgkfX8UqtFT6wcVW3hNezGLL"},
   {"name":"double_disinflation_rate","implemented":1,"pubkey":"55oikhjJ2LUi1xdgJ17ueRyHFURZEw32asT3iAKfh7gg"},
-  {"name":"remove_inactive_stakes","implemented":0,"pubkey":"RMsTKfD6hZnBhhNvgGBeKNrqCNkeoP3DYYxNtcuWtRg"},
+  {"name":"remove_inactive_stakes","implemented":1,"pubkey":"RMsTKfD6hZnBhhNvgGBeKNrqCNkeoP3DYYxNtcuWtRg"},
   {"name":"alpenglow","implemented":1,"pubkey":"A1pengvuM6JEcyNuTnMqepBKhwHE3N6PmUrdATGawhJS","old":"A1PeNGc3D8SQmKwdYf4qj1XG7XgWVSuFQaiJSCQj775h","comment":"the tower to alpenglow migration itself is not supported"},
   {"name":"relax_fee_payer_constraint","implemented":1,"pubkey":"FEEXbxUuKobtrt1qNK5pjtzbPQhsppBTrNNG74xu4mai"},
   {"name":"alpenglow_fast_leader_handover","implemented":0,"pubkey":"FLHoAWBDjNh6zwmJ5i1NKK4KyD8otAiv7XxvmnFnVnKH"},

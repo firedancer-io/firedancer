@@ -2299,7 +2299,7 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x06\x3d\x89\x7e\x2e\x0a\x03\x3d\xa2\x0f\x08\x2a\xc1\xcc\xeb\xdc\xac\xb3\xec\x80\xd5\x4a\x8b\x5c\x1d\x67\xe6\x99\x99\x29\x0a\xab"},
                                  /* RMsTKfD6hZnBhhNvgGBeKNrqCNkeoP3DYYxNtcuWtRg */
     .name                      = "remove_inactive_stakes",
-    .implemented               = 0,
+    .implemented               = 1,
     .cleaned_up                = 0 },
 
   { .index                     = offsetof(fd_features_t, alpenglow)>>3,
