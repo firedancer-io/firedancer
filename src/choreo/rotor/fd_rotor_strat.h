@@ -4,8 +4,8 @@
 /* fd_rotor_strat picks the repair peer for each request.  It does no
    I/O: the rotor tile feeds it contact infos, epoch stakes and request
    outcomes.  Peers sit in slots by stake rank, unstaked last, and in
-   latency buckets by the lower bound srtt-rttvar.  A pick takes the
-   fastest bucket's cheaper of the next two peers by srtt*(inflight+1),
+   latency buckets by srtt+rttvar/4.  A pick takes the fastest
+   bucket's cheaper of the next two peers by srtt*(inflight+1),
    every FD_ROTOR_STRAT_EXPLORE-th pick tries an unmeasured peer first,
    and a request is hedged after srtt+4*rttvar (RFC 6298).  It also
    estimates each leader's turbine time, which decides how long a
