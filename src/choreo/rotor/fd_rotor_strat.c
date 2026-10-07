@@ -233,7 +233,7 @@ fd_rotor_strat_request_failed( fd_rotor_strat_t *  strat,
   if( FD_UNLIKELY( !peer ) ) return; /* forgotten while the request was in flight */
 
   peer->inflight -= !!peer->inflight;
-  peer->ban_ts    = ban_ts;
+  peer->ban_ts    = fd_long_max( peer->ban_ts, ban_ts ); /* an expiry does not shorten a verify failure's ban */
   place( strat, (ulong)( peer-strat->cur.peers ) );
 }
 
