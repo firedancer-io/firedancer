@@ -848,7 +848,7 @@ typedef struct fd_topo_tile fd_topo_tile_t;
 
 typedef struct {
   ulong id;
-  char  name[ 13UL ];  /* object type */
+  char  name[ 14UL ];  /* object type */
   ulong wksp_id;
 
   /* Optional label for object */

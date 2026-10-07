@@ -410,6 +410,7 @@ backtest_topo( config_t * config ) {
   fd_topob_tile_uses( topo, replay_tile, banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(execrp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   if( config->firedancer.consensus.alpenglow ) setup_topo_footer_cache( topo, "banks" );
+  setup_topo_execrp_result( topo, "execrp_replay", execrp_tile_cnt );
   if( FD_LIKELY( !disable_snap_loader ) ) {
     FOR(snapin_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapin", i ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   }

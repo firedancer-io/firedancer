@@ -198,7 +198,7 @@ enum {
 
 #define FD_METRICS_COUNTER_EXECRP_ACCOUNT_LTHASH_SKIPPED_NAME "execrp_account_lthash_skipped"
 #define FD_METRICS_COUNTER_EXECRP_ACCOUNT_LTHASH_SKIPPED_TYPE (FD_METRICS_TYPE_COUNTER)
-#define FD_METRICS_COUNTER_EXECRP_ACCOUNT_LTHASH_SKIPPED_DESC "Committed writable accounts left byte-identical by their transaction, so their lthash update was skipped"
+#define FD_METRICS_COUNTER_EXECRP_ACCOUNT_LTHASH_SKIPPED_DESC "Committed writable accounts left byte-identical by their transaction, so their lthash update was skipped; always zero, since replay hashes transaction writes out of band"
 #define FD_METRICS_COUNTER_EXECRP_ACCOUNT_LTHASH_SKIPPED_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_COUNTER_EXECRP_TXN_REGIME_DURATION_NANOS_NAME "execrp_txn_regime_duration_nanos"

@@ -68,7 +68,8 @@
                 "invalid_alpentick_position":  { "description": "An Alpenglow block ended without the alpentick directly after its footer." },
                 "missing_block_footer":        { "description": "An Alpenglow block ended without a block footer." },
                 "spurious_update_parent":      { "description": "An Alpenglow block carried an UpdateParent marker where none is valid: before the header or after the footer." },
-                "bad_block_marker":            { "description": "An Alpenglow block marker (header, footer, genesis certificate or update parent) failed to parse or had an unknown kind." }
+                "bad_block_marker":            { "description": "An Alpenglow block marker (header, footer, genesis certificate or update parent) failed to parse or had an unknown kind." },
+                "too_many_writable_accounts":  { "description": "The block's transactions declare more writable accounts than a valid block can afford." }
             }
         },
         "dead_time":                                 { "type": "DateTime64(9)",                                     "description": "When the block was ruled invalid; 0 if not dead." },

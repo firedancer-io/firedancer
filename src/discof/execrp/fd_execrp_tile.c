@@ -10,6 +10,8 @@
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_executor.h"
 #include "../../flamenco/runtime/fd_cost_tracker.h"
+#include "../../flamenco/runtime/fd_hashes.h"
+#include "../../ballet/blake3/fd_blake3.h" /* for FD_BLAKE3_XN_MAX */
 #include "../../flamenco/runtime/tests/fd_dump_pb.h"
 #include "../../flamenco/progcache/fd_progcache_user.h"
 #include "../../flamenco/log_collector/fd_log_collector_base.h"
@@ -68,6 +70,9 @@ struct fd_execrp_tile {
   ulong txn_idx;
   ulong slot;
   ulong dispatch_time_comp;
+  int   want_alts;
+
+  fd_execrp_result_t * result;
 
   fd_log_collector_t log_collector;
 
@@ -233,6 +238,24 @@ publish_txn_finalized_msg( fd_execrp_tile_t *  ctx,
     *msg->txn_exec->vote.vote_acct    = (fd_pubkey_t){ 0 };
   }
 
+  /* Leave the writable ALT accounts in this tile's result buffer if
+     replay asked for them.  txn_out.accounts.cnt only exceeds
+     acct_addr_cnt once the ALTs expanded successfully, and the expanded
+     keys list the writable accounts before the read-only ones. */
+  ulong alt_writable_cnt = 0UL;
+  fd_txn_t const * txn = TXN( ctx->txn_in.txn );
+  if( FD_UNLIKELY( ctx->want_alts && txn->transaction_version==FD_TXN_V0 ) ) {
+    ulong acct_addr_cnt     = txn->acct_addr_cnt;
+    ulong adtl_writable_cnt = txn->addr_table_adtl_writable_cnt;
+    if( FD_LIKELY( ctx->txn_out.accounts.cnt>=acct_addr_cnt+adtl_writable_cnt ) ) {
+      FD_TEST( adtl_writable_cnt<=FD_TXN_ACCT_ADDR_MAX-1UL );
+      fd_memcpy( ctx->result->alt_writable, &ctx->txn_out.accounts.keys[ acct_addr_cnt ], adtl_writable_cnt*sizeof(fd_pubkey_t) );
+      alt_writable_cnt = adtl_writable_cnt;
+    }
+  }
+  msg->txn_exec->alt_writable_cnt = (uchar)alt_writable_cnt;
+  ctx->want_alts = 0;
+
   if( FD_UNLIKELY( !msg->txn_exec->is_committable ) ) {
     uchar * signature = (uchar *)ctx->txn_in.txn->payload + TXN( ctx->txn_in.txn )->signature_off;
     FD_BASE58_ENCODE_64_BYTES( signature, signature_b58 );
@@ -281,6 +304,7 @@ returnable_frag( fd_execrp_tile_t *  ctx,
         ctx->bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );
         FD_TEST( ctx->bank );
         ctx->txn_in.txn = msg->txn;
+        ctx->want_alts  = msg->want_alts;
         memcpy( ctx->txn_in.fec_merkle_root, msg->fec_merkle_root, 32UL );
         ctx->txn_in.index_in_slot = msg->index_in_slot;
 
@@ -358,6 +382,51 @@ returnable_frag( fd_execrp_tile_t *  ctx,
         ctx->execrp_replay_out->chunk = fd_dcache_compact_next( ctx->execrp_replay_out->chunk, sizeof(*out_msg), ctx->execrp_replay_out->chunk0, ctx->execrp_replay_out->wmark );
         break;
       }
+      case FD_EXECRP_TT_LTHASH_SUB:
+      case FD_EXECRP_TT_LTHASH_ADD: {
+        /* Hash and sum.  Replay will fold the sum into the bank. */
+        ulong kind = sig>>32;
+        fd_execrp_lthash_msg_t * msg = fd_chunk_to_laddr( ctx->replay_in->mem, chunk );
+        FD_CHECK_CRIT( msg->cnt && msg->cnt<=FD_EXECRP_LTHASH_BATCH_MAX, "invalid lthash batch" );
+        fd_bank_t * bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );
+        FD_TEST( bank );
+        fd_accdb_fork_id_t fork_id = kind==FD_EXECRP_TT_LTHASH_SUB ? bank->parent_accdb_fork_id : bank->accdb_fork_id;
+        FD_TEST( fork_id.val!=USHORT_MAX );
+        fd_execrp_task_done_msg_t * out_msg = fd_chunk_to_laddr( ctx->execrp_replay_out->mem, ctx->execrp_replay_out->chunk );
+        out_msg->bank_idx    = msg->bank_idx;
+        out_msg->lthash->cnt = msg->cnt;
+        fd_lthash_value_t * sum = &ctx->result->lthash;
+        fd_lthash_zero( sum );
+        for( ulong i=0UL; i<msg->cnt; i+=FD_BLAKE3_XN_MAX ) {
+          ulong               acc_cnt = fd_ulong_min( msg->cnt-i, FD_BLAKE3_XN_MAX );
+          fd_acc_t            acc       [ FD_BLAKE3_XN_MAX ];
+          uchar const *       pubkey    [ FD_BLAKE3_XN_MAX ];
+          int                 writable  [ FD_BLAKE3_XN_MAX ] = { 0 };
+          uchar const *       owner     [ FD_BLAKE3_XN_MAX ];
+          ulong               lamports  [ FD_BLAKE3_XN_MAX ];
+          int                 executable[ FD_BLAKE3_XN_MAX ];
+          uchar const *       data      [ FD_BLAKE3_XN_MAX ];
+          ulong               data_len  [ FD_BLAKE3_XN_MAX ];
+          fd_lthash_value_t   hash      [ FD_BLAKE3_XN_MAX ];
+          fd_lthash_value_t * hash_out  [ FD_BLAKE3_XN_MAX ];
+          for( ulong j=0UL; j<acc_cnt; j++ ) pubkey[ j ] = msg->acct[ i+j ].b;
+          fd_accdb_acquire( ctx->accdb, fork_id, acc_cnt, pubkey, writable, acc );
+          for( ulong j=0UL; j<acc_cnt; j++ ) {
+            owner     [ j ] = acc[ j ].owner;
+            lamports  [ j ] = acc[ j ].lamports;
+            executable[ j ] = acc[ j ].executable;
+            data      [ j ] = acc[ j ].data;
+            data_len  [ j ] = acc[ j ].data_len;
+            hash_out  [ j ] = hash+j;
+          }
+          fd_hashes_account_lthash_xn( acc_cnt, pubkey, owner, lamports, executable, data, data_len, hash_out );
+          fd_accdb_release( ctx->accdb, acc_cnt, acc );
+          for( ulong j=0UL; j<acc_cnt; j++ ) fd_lthash_add( sum, hash+j );
+        }
+        fd_stem_publish( stem, ctx->execrp_replay_out->idx, (kind<<32)|ctx->tile_idx, ctx->execrp_replay_out->chunk, sizeof(*out_msg), 0UL, 0UL, 0UL );
+        ctx->execrp_replay_out->chunk = fd_dcache_compact_next( ctx->execrp_replay_out->chunk, sizeof(*out_msg), ctx->execrp_replay_out->chunk0, ctx->execrp_replay_out->wmark );
+        break;
+      }
       default: FD_LOG_CRIT(( "unexpected signature %lu", sig ));
     }
   } else FD_LOG_CRIT(( "invalid in_idx %lu", in_idx ));
@@ -423,6 +492,10 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->banks = fd_banks_join( fd_topo_obj_laddr( topo, banks_obj_id ) );
   FD_TEST( ctx->banks );
+
+  ulong result_obj_id = fd_pod_query_ulong( topo->props, "execrp_result", ULONG_MAX );
+  FD_TEST( result_obj_id!=ULONG_MAX );
+  ctx->result = (fd_execrp_result_t *)fd_topo_obj_laddr( topo, result_obj_id )+tile->kind_id;
 
   FD_TEST( fd_progcache_join( ctx->progcache, fd_topo_obj_laddr( topo, tile->execrp.progcache_obj_id ), pc_scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
 

@@ -35,6 +35,7 @@ declare -A TEST_GIGANTIC_PAGES=(
   [test_vm_interp]=5
   [test_bpf_loader_program]=5
   [test_tower_tile]=4
+  [test_sched]=4
   [test_log_collector]=4
   [test_ssmanifest_parser]=2
   [test_replay_tile]=2
