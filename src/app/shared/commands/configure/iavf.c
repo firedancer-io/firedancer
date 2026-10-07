@@ -209,7 +209,16 @@ iavf_numvfs_get( char const * pf_if,
                  uint *       numvfs ) {
   char path[ PATH_MAX ];
   iavf_path( path, IAVF_SYSFS_ROOT "/class/net/%s/device/sriov_numvfs", pf_if, 0U );
-  return fd_file_util_read_uint( path, numvfs );
+  if( FD_UNLIKELY( fd_file_util_read_uint( path, numvfs ) ) ) {
+    int err = errno;
+    FD_LOG_WARNING(( "reading %s failed (%i-%s)", path, err, fd_io_strerror( err ) ));
+    if( err==ENOENT ) {
+      FD_LOG_WARNING(( "PF %s does not expose SR-IOV configuration, check NIC firmware and BIOS SR-IOV settings", pf_if ));
+    }
+    errno = err;
+    return -1;
+  }
+  return 0;
 }
 
 static int
@@ -859,10 +868,19 @@ iavf_init_preflight( char const *        pf_if,
   if( iavf_pf_pci( pf_if, owned->pf_pci ) ) return -1;
   char driver[ FD_IAVF_DRIVER_NAME_MAX ];
   if( iavf_pci_driver( owned->pf_pci, driver ) ) return -1;
-  if( strcmp( driver, "ice" ) && strcmp( driver, "i40e" ) ) { errno = EPROTONOSUPPORT; return -1; }
+  if( strcmp( driver, "ice" ) && strcmp( driver, "i40e" ) ) {
+    FD_LOG_WARNING(( "PF %s uses unsupported driver %s, IAVF requires ice or i40e", pf_if, driver ));
+    errno = EPROTONOSUPPORT;
+    return -1;
+  }
   uint numvfs;
   if( iavf_numvfs_get( pf_if, &numvfs ) ) return -1;
-  if( numvfs ) { errno = EBUSY; return -1; }
+  if( numvfs ) {
+    FD_LOG_WARNING(( "PF %s already has %u VFs. IAVF setup requires zero existing VFs because it creates VF 0 "
+                     "and removes all VFs on this PF during cleanup", pf_if, numvfs ));
+    errno = EBUSY;
+    return -1;
+  }
   char owned_path[ PATH_MAX ];
   iavf_owned_path( pf_if, owned_path );
   struct stat st;
