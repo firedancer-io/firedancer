@@ -667,7 +667,7 @@ FD_UNIT_TEST( execrp_cost_rejection_telemetry ) {
   test_fund_account( env, &fee_payer, 1000000UL );
   test_fund_account( env, &data_acct, 1UL );
 
-  fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_modify( bank );
+  fd_cost_tracker_t * cost_tracker = fd_cost_tracker_store_peek( fd_bank_cost_tracker( bank ), bank->cost_tracker_fork_id );
   cost_tracker->block_cost_limit = 0UL;
 
   fd_txn_p_t txn[1];

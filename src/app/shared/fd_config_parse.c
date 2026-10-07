@@ -182,8 +182,9 @@ fd_config_extract_pod( uchar *       pod,
     CFG_POP    ( cstr,   paths.accounts                                   );
     CFG_POP    ( cstr,   paths.stake_delegations                          );
     CFG_POP    ( cstr,   paths.epoch_credits                              );
-    CFG_POP    ( cstr,   paths.shredb                                 );
-    CFG_POP    ( cstr,   paths.guidb                                  );
+    CFG_POP    ( cstr,   paths.cost_tracker                               );
+    CFG_POP    ( cstr,   paths.shredb                                     );
+    CFG_POP    ( cstr,   paths.guidb                                      );
     CFG_POP    ( cstr,   paths.vote_history                               );
   } else {
     CFG_POP1   ( cstr,   scratch_directory,           paths.base          );

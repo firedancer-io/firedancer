@@ -2,6 +2,7 @@
 #include "run.h"
 #include "../../../../flamenco/accdb/fd_accdb.h"
 #include "../../../../flamenco/stakes/fd_epoch_credits.h"
+#include "../../../../flamenco/runtime/fd_cost_tracker_store.h"
 #include "../../../../flamenco/stakes/fd_stake_delegations.h"
 #include "../../../../disco/store/fd_store.h"
 
@@ -404,6 +405,7 @@ main_pid_namespace( void * _args ) {
 
   initialize_accdb_fd( config );
   initialize_epoch_credits_fd( config );
+  initialize_cost_tracker_fd( config );
   initialize_stake_delegations_fd( config );
   initialize_store_fds( config );
   ulong store_obj_id = fd_pod_query_ulong( config->topo.props, "store", ULONG_MAX );
@@ -513,6 +515,9 @@ main_pid_namespace( void * _args ) {
         if( FD_UNLIKELY( -1==fcntl( FD_EPOCH_CREDITS_FD, F_SETFD, !strcmp( tile->name, "replay" ) ? 0 : FD_CLOEXEC ) ) )
           FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
+        if( FD_UNLIKELY( -1==fcntl( FD_COST_TRACKER_FD, F_SETFD, !strcmp( tile->name, "replay" ) ? 0 : FD_CLOEXEC ) ) )
+          FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
         int tile_uses_stake_spill = !strcmp( tile->name, "replay" ) || !strcmp( tile->name, "execle" ) ||
                                     !strcmp( tile->name, "execrp" ) || !strcmp( tile->name, "snapin" );
         if( FD_UNLIKELY( -1==fcntl( FD_STAKE_DELEGATIONS_FD, F_SETFD, tile_uses_stake_spill ? 0 : FD_CLOEXEC ) ) )
@@ -593,6 +598,7 @@ main_pid_namespace( void * _args ) {
       if( FD_UNLIKELY( -1==close( FD_STORE_FD_RO ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     }
     if( FD_UNLIKELY( -1==close( FD_EPOCH_CREDITS_FD ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==close( FD_COST_TRACKER_FD ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( FD_STAKE_DELEGATIONS_FD ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     for( ulong j=0UL; j<snap_max; j++ ) {
       if( FD_UNLIKELY( -1==close( FD_SNAP_FD( j ) ) ) )     FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -1137,6 +1143,21 @@ initialize_epoch_credits_fd( config_t const * config ) {
 
   if( FD_LIKELY( spill_fd!=FD_EPOCH_CREDITS_FD ) ) {
     if( FD_UNLIKELY( -1==dup2( spill_fd, FD_EPOCH_CREDITS_FD ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==close( spill_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+}
+
+void
+initialize_cost_tracker_fd( config_t const * config ) {
+  if( FD_UNLIKELY( !config->is_firedancer ) ) return;
+
+  char const * spill_path = config->paths.cost_tracker;
+  int spill_fd = open( spill_path, O_RDWR|O_CREAT|O_TRUNC|O_NOATIME, S_IRUSR|S_IWUSR );
+  if( FD_UNLIKELY( -1==spill_fd ) ) FD_LOG_ERR(( "failed to open %s (%i-%s)", spill_path, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==unlink( spill_path ) ) ) FD_LOG_ERR(( "unlink(%s) failed (%i-%s)", spill_path, errno, fd_io_strerror( errno ) ));
+
+  if( FD_LIKELY( spill_fd!=FD_COST_TRACKER_FD ) ) {
+    if( FD_UNLIKELY( -1==dup2( spill_fd, FD_COST_TRACKER_FD ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( spill_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 }

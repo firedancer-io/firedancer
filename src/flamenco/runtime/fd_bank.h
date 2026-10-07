@@ -9,7 +9,7 @@
 #include "../stakes/fd_epoch_credits.h"
 #include "../fd_rwlock.h"
 #include "fd_blockhashes.h"
-#include "fd_cost_tracker.h"
+#include "fd_cost_tracker_store.h"
 #include "fd_slot_params.h"
 #include "sysvar/fd_sysvar_cache.h"
 #include "../../ballet/lthash/fd_lthash.h"
@@ -206,12 +206,6 @@ FD_PROTOTYPES_BEGIN
   patterns vary and are documented below.
 */
 
-struct fd_bank_cost_tracker {
-  ulong next;
-  uchar data[FD_COST_TRACKER_FOOTPRINT] __attribute__((aligned(FD_COST_TRACKER_ALIGN)));
-};
-typedef struct fd_bank_cost_tracker fd_bank_cost_tracker_t;
-
 /* The banks follow a state machine that generally transitions forward:
    All banks start off as INACTIVE.  Once a bank is provisioned (when
    the first FEC is received from the reassembler), it is in the state
@@ -274,7 +268,7 @@ struct fd_bank {
   ushort                 stake_rewards_fork_id;
   ushort                 stake_delegations_fork_id;
   ushort                 epoch_credits_fork_id;
-  ulong                  cost_tracker_pool_idx;
+  ushort                 cost_tracker_fork_id;
 
   ulong banks_data_offset; /* offset from this fd_bank_t back to fd_banks_t */
 
@@ -386,9 +380,9 @@ struct fd_banks {
 
   ulong curr_fork_width;
 
-  ulong pool_offset;        /* offset of pool from banks */
+  ulong pool_offset; /* offset of pool from banks */
 
-  ulong cost_tracker_pool_offset; /* offset of cost tracker pool from banks */
+  ulong cost_tracker_offset; /* offset of cost tracker pool from banks */
 
   ulong collector_overrides_offset;
 
@@ -451,11 +445,8 @@ fd_bank_epoch_leaders_modify( fd_bank_t * bank,
 fd_vote_stakes_t *
 fd_bank_vote_stakes( fd_bank_t const * bank );
 
-fd_cost_tracker_t *
-fd_bank_cost_tracker_modify( fd_bank_t * bank );
-
-fd_cost_tracker_t const *
-fd_bank_cost_tracker_query( fd_bank_t * bank );
+fd_cost_tracker_store_t *
+fd_bank_cost_tracker( fd_bank_t const * bank );
 
 fd_lthash_value_t const *
 fd_bank_lthash_locking_query( fd_bank_t * bank );

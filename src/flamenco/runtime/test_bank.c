@@ -1361,6 +1361,13 @@ main( int argc, char ** argv ) {
     FD_TEST( !close( epoch_credits_fd ) );
   }
 
+  int cost_tracker_fd = memfd_create( "bank_cost_tracker_spill", 0 );
+  FD_TEST( cost_tracker_fd>=0 );
+  if( cost_tracker_fd!=FD_COST_TRACKER_FD ) {
+    FD_TEST( dup2( cost_tracker_fd, FD_COST_TRACKER_FD )==FD_COST_TRACKER_FD );
+    FD_TEST( !close( cost_tracker_fd ) );
+  }
+
   fd_pubkey_t key_0 = { .ul[0] = 1 };
   fd_pubkey_t key_1 = { .ul[0] = 2 };
   fd_pubkey_t key_2 = { .ul[0] = 3 };

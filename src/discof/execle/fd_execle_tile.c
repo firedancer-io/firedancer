@@ -426,7 +426,7 @@ handle_microblock( fd_execle_tile_t *  ctx,
       /* If the transaction failed to fit into the block, we need to
          updated the transaction flag with the error code. */
       txn->flags = (txn->flags & 0x00FFFFFFU) | ((uint)(-txn_out->err.txn_err)<<24);
-      fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_modify( bank );
+      fd_cost_tracker_t * cost_tracker = fd_cost_tracker_store_peek( fd_bank_cost_tracker( bank ), bank->cost_tracker_fork_id );
       uchar * signature = (uchar *)txn_in->txn->payload + TXN( txn_in->txn )->signature_off;
       int err = fd_cost_tracker_try_add_cost( cost_tracker, txn_out );
       FD_LOG_HEXDUMP_WARNING(( "txn", txn->payload, txn->payload_sz ));
@@ -450,7 +450,7 @@ handle_microblock( fd_execle_tile_t *  ctx,
     if( FD_UNLIKELY( actual_execution_cus + actual_acct_data_cus > requested_exec_plus_acct_data_cus ) ) {
       uchar * _signature = (uchar *)txn->payload + TXN( txn )->signature_off;
       FD_BASE58_ENCODE_64_BYTES( _signature, _signature_b58 );
-      fd_cost_tracker_t const * _ct = fd_bank_cost_tracker_query( bank );
+      fd_cost_tracker_t const * _ct = fd_cost_tracker_store_peek( fd_bank_cost_tracker( bank ), bank->cost_tracker_fork_id );
       FD_LOG_HEXDUMP_WARNING(( "txn", txn->payload, txn->payload_sz ));
       FD_LOG_ERR(( "transaction %s actual CUs (%u+%u) exceeded requested (%u) despite pack guaranteeing it would fit "
                    "[is_simple_vote=%i, is_fees_only=%i, block_cost=%lu, block_cost_limit=%lu, account_cost_limit=%lu]",
@@ -581,7 +581,7 @@ handle_bundle( fd_execle_tile_t *  ctx,
 
       if( FD_UNLIKELY( !txn_out->err.is_committable ) ) {
         txns[ i ].flags = (txns[ i ].flags & 0x00FFFFFFU) | ((uint)(-txn_out->err.txn_err)<<24);
-        fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_modify( bank );
+        fd_cost_tracker_t * cost_tracker = fd_cost_tracker_store_peek( fd_bank_cost_tracker( bank ), bank->cost_tracker_fork_id );
         int err = fd_cost_tracker_try_add_cost( cost_tracker, txn_out );
         FD_LOG_HEXDUMP_WARNING(( "txn", txns[ i ].payload, txns[ i ].payload_sz ));
         FD_BASE58_ENCODE_64_BYTES( signature, signature_b58 );
@@ -600,7 +600,7 @@ handle_bundle( fd_execle_tile_t *  ctx,
 
       if( FD_UNLIKELY( actual_execution_cus + actual_acct_data_cus > requested_exec_plus_acct_data_cus ) ) {
         FD_BASE58_ENCODE_64_BYTES( signature, signature_b58 );
-        fd_cost_tracker_t const * _ct = fd_bank_cost_tracker_query( bank );
+        fd_cost_tracker_t const * _ct = fd_cost_tracker_store_peek( fd_bank_cost_tracker( bank ), bank->cost_tracker_fork_id );
         FD_LOG_HEXDUMP_WARNING(( "txn", txns[ i ].payload, txns[ i ].payload_sz ));
         FD_LOG_ERR(( "transaction %s actual CUs (%u+%u) exceeded requested (%u) despite pack guaranteeing it would "
                      "fit [block_cost=%lu, block_cost_limit=%lu, account_cost_limit=%lu]",

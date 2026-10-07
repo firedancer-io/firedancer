@@ -697,7 +697,7 @@ fd_solfuzz_pb_block_run( fd_solfuzz_runner_t * runner,
     fd_memcpy( effects->bank_hash, bank_hash.hash, sizeof(fd_hash_t) );
 
     /* Capture cost tracker */
-    fd_cost_tracker_t const * cost_tracker = fd_bank_cost_tracker_query( runner->bank );
+    fd_cost_tracker_t const * cost_tracker = fd_cost_tracker_store_peek( fd_bank_cost_tracker( runner->bank ), runner->bank->cost_tracker_fork_id );
     effects->has_cost_tracker = 1;
     effects->cost_tracker = (fd_exec_test_cost_tracker_t) {
       .block_cost = cost_tracker ? cost_tracker->block_cost : 0UL,

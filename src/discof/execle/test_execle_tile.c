@@ -1252,7 +1252,7 @@ FD_UNIT_TEST( execle_simple_fee_payer_fail_relaxed ) {
   FD_TEST( test_read_lamports( env, &data_acct )==data_acct_start );
   FD_TEST( !bank->f.txn_count       );
   FD_TEST( !bank->f.signature_count );
-  FD_TEST( fd_bank_cost_tracker_query( bank )->block_cost==0UL );
+  FD_TEST( fd_cost_tracker_store_peek( fd_bank_cost_tracker( bank ), bank->cost_tracker_fork_id )->block_cost==0UL );
   FD_TEST( out_txn->execle_cu.actual_consumed_cus==0U );
   FD_TEST( out_txn->execle_cu.rebated_cus==
            txn->pack_cu.non_execution_cus + txn->pack_cu.requested_exec_plus_acct_data_cus );

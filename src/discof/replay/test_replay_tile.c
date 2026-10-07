@@ -647,8 +647,13 @@ test_txn_completion_publish( fd_wksp_t * wksp ) {
 
   fd_bank_t * bank = fd_banks_root( ctx->banks );
   FD_TEST( bank );
-  FD_TEST( bank->cost_tracker_pool_idx==ULONG_MAX );
+  FD_TEST( bank->cost_tracker_fork_id==USHORT_MAX );
   bank->refcnt = 1UL;
+
+  /* Dispatch pins the bank's cost tracker until the task is done. */
+  fd_cost_tracker_store_t * cost_tracker_store = fd_bank_cost_tracker( bank );
+  bank->cost_tracker_fork_id = fd_cost_tracker_store_new_fork( cost_tracker_store, USHORT_MAX );
+  fd_cost_tracker_store_pin( cost_tracker_store, bank->cost_tracker_fork_id )->block_cost_limit = 48000000UL;
 
   mock_sched_txn_idx = 37UL;
   fd_memset( &mock_sched_txn, 0x5a, sizeof(mock_sched_txn) );
@@ -751,10 +756,13 @@ test_txn_completion_publish( fd_wksp_t * wksp ) {
   FD_TEST( out->exec_tile_idx==mock_sched_txn_info.exec_tile_idx );
   FD_TEST( out->sigverify_exec_tile_idx==mock_sched_txn_info.sigverify_exec_tile_idx );
   FD_TEST( out->compute_units_consumed==msg->txn_exec->compute_units_consumed );
-  FD_TEST( out->max_compute_units==ULONG_MAX );
+  FD_TEST( out->max_compute_units==48000000UL );
   FD_TEST( out->transaction_fee==msg->txn_exec->transaction_fee );
   FD_TEST( out->priority_fee==msg->txn_exec->priority_fee );
   FD_TEST( out->tips==msg->txn_exec->tips );
+
+  fd_cost_tracker_store_release( cost_tracker_store, bank->cost_tracker_fork_id );
+  bank->cost_tracker_fork_id = USHORT_MAX;
 
   FD_LOG_NOTICE(( "pass: test_txn_completion_publish" ));
 }
