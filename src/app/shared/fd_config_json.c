@@ -12,7 +12,7 @@
    or knowingly skipped) before the constant is bumped.  String keys of
    the user's own file are separately forced through the classification
    lists below. */
-FD_STATIC_ASSERT( sizeof(fd_config_t)==26563824UL, update_fd_config_to_json_for_the_layout_change );
+FD_STATIC_ASSERT( sizeof(fd_config_t)==26563832UL, update_fd_config_to_json_for_the_layout_change );
 
 #define REDACTED "[redacted]"
 
@@ -632,6 +632,7 @@ fd_config_to_json( fd_config_t const * config,
     jw_obj_open( &w, "replay" );
       jw_ulong( &w, "max_transaction_lookahead_buffer_size", config->tiles.replay.max_transaction_lookahead_buffer_size );
       jw_str_arr( &w, "enable_features", config->tiles.replay.enable_features[ 0 ], sizeof(config->tiles.replay.enable_features[ 0 ]), config->tiles.replay.enable_features_cnt );
+      jw_bool( &w, "lthash_out_of_band", config->tiles.replay.lthash_out_of_band );
     jw_obj_close( &w );
   jw_obj_close( &w );
 

@@ -211,6 +211,9 @@ struct fd_replay_tile {
   ulong        in_cnt;
   ulong        execrp_idle_cnt;
 
+  int                  lthash_oob;
+  fd_bank_lthash_rec_t lthash_rec[ 1 ];
+
   ulong                vote_tracker_seed;
   fd_vote_tracker_t *  vote_tracker;
 

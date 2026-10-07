@@ -7,13 +7,7 @@
 #include "../../disco/store/fd_store.h" /* for fd_store_fec_t */
 #include "../../flamenco/accdb/fd_accdb.h"
 #include "../../disco/fd_clock_tile.h"
-
-/* Max microblocks (including ticks) that fit in a block's shreds;
-   scaled with max_shreds_per_block at runtime. */
-#define FD_SCHED_MAX_MBLK_PER_SLOT (FD_SHRED_DATA_PAYLOAD_MAX_PER_SLOT/sizeof(fd_microblock_hdr_t))
-
-/* Most exec tiles a scheduler can dispatch to. */
-#define FD_SCHED_MAX_EXEC_TILE_CNT (64UL)
+#include "../../ballet/lthash/fd_lthash.h" /* for fd_lthash_value_t */
 
 /* fd_sched wraps all the smarts and mechanical chores around scheduling
    transactions for replay execution.  It is built on top of the
@@ -57,11 +51,23 @@
    more ingest, more ready, more done ...
    ... */
 
+struct fd_sched;
+typedef struct fd_sched fd_sched_t;
+
 #define FD_SCHED_MIN_DEPTH 478
 #define FD_SCHED_MAX_DEPTH FD_RDISP_MAX_DEPTH
 
-struct fd_sched;
-typedef struct fd_sched fd_sched_t;
+/* Max microblocks (including ticks) that fit in a block's shreds;
+   scaled with max_shreds_per_block at runtime. */
+#define FD_SCHED_MAX_MBLK_PER_SLOT (FD_SHRED_DATA_PAYLOAD_MAX_PER_SLOT/sizeof(fd_microblock_hdr_t))
+
+/* Most exec tiles a scheduler can dispatch to. */
+#define FD_SCHED_MAX_EXEC_TILE_CNT (64UL)
+
+/* Out-of-band LtHash batch size, at most FD_EXECRP_LTHASH_BATCH_MAX.
+   This seems to be a sweet spot in scheduling overhead vs task
+   granularity. */
+#define FD_SCHED_LTHASH_BATCH_MAX (32UL)
 
 struct fd_sched_alut_ctx {
   fd_accdb_t *       accdb;
@@ -98,6 +104,7 @@ typedef struct fd_sched_fec fd_sched_fec_t;
 #define FD_SCHED_TXN_IS_COMMITTABLE (0x0004UL)
 #define FD_SCHED_TXN_IS_FEES_ONLY   (0x0008UL)
 #define FD_SCHED_TXN_IS_NOOP        (0x0010UL)
+#define FD_SCHED_TXN_ALT_UNRESOLVED (0x0020UL)
 #define FD_SCHED_TXN_REPLAY_DONE    (FD_SCHED_TXN_EXEC_DONE|FD_SCHED_TXN_SIGVERIFY_DONE)
 
 struct fd_sched_txn_info {
@@ -143,10 +150,11 @@ typedef struct fd_sched_txn_info fd_sched_txn_info_t;
 #define FD_SCHED_TT_BLOCK_END     (2UL) /* (q) End-of-block processing. */
 #define FD_SCHED_TT_TXN_EXEC      (3UL) /* (e) Transaction execution. */
 #define FD_SCHED_TT_TXN_SIGVERIFY (4UL) /* (e) Transaction sigverify. */
-#define FD_SCHED_TT_LTHASH        (5UL) /* (e) Account lthash. */
+#define FD_SCHED_TT_LTHASH_SUB    (5UL) /* (e) Hash an account from the parent fork and subtract. */
 #define FD_SCHED_TT_POH_HASH      (6UL) /* (e) PoH hashing. */
 #define FD_SCHED_TT_MARK_DEAD     (7UL) /* (i) Mark the block dead. */
 #define FD_SCHED_TT_CERT_VERIFY   (8UL) /* (e) Footer cert verify. */
+#define FD_SCHED_TT_LTHASH_ADD    (9UL) /* (e) Hash an account from this fork and add. */
 
 struct fd_sched_block_start {
   ulong bank_idx;        /* Same as in fd_sched_fec_t. */
@@ -191,6 +199,22 @@ struct fd_sched_mark_dead {
 };
 typedef struct fd_sched_mark_dead fd_sched_mark_dead_t;
 
+struct fd_sched_lthash_task {
+  ulong                  bank_idx;
+  ulong                  exec_idx;
+  ulong                  cnt;   /* In [1,FD_SCHED_LTHASH_BATCH_MAX] */
+  fd_acct_addr_t const * accts; /* Points into sched memory that stays as it is until the task completes. */
+};
+typedef struct fd_sched_lthash_task fd_sched_lthash_task_t;
+
+/* The writable lookup table accounts of a completed TXN_EXEC task that
+   was flagged FD_SCHED_TXN_ALT_UNRESOLVED. */
+struct fd_sched_txn_alts {
+  ulong                  cnt;
+  fd_acct_addr_t const * addrs;
+};
+typedef struct fd_sched_txn_alts fd_sched_txn_alts_t;
+
 struct fd_sched_task {
   ulong task_type; /* Set to one of the task types defined above. */
   union {
@@ -200,6 +224,7 @@ struct fd_sched_task {
     fd_sched_txn_sigverify_t txn_sigverify[ 1 ];
     fd_sched_poh_hash_t      poh_hash[ 1 ];
     fd_sched_mark_dead_t     mark_dead[ 1 ];
+    fd_sched_lthash_task_t   lthash[ 1 ];
   };
 };
 typedef struct fd_sched_task fd_sched_task_t;
@@ -282,10 +307,11 @@ ulong
 fd_sched_align( void );
 
 ulong
-fd_sched_footprint( ulong depth,                /* in [FD_SCHED_MIN_DEPTH,FD_SCHED_MAX_DEPTH] */
+fd_sched_footprint( ulong depth,                /* in [FD_SCHED_MIN_DEPTH,FD_SCHED_MAX_DEPTH], plus the reserve when lthash_oob */
                     ulong block_cnt_max,        /* >= 1 */
                     ulong max_shreds_per_block, /* in [1,UINT_MAX] */
-                    ulong max_txn_per_slot );   /* in [1,UINT_MAX] */
+                    ulong max_txn_per_slot,     /* in [1,UINT_MAX] */
+                    int   lthash_oob );
 
 /* fd_sched_new creates a sched object backed by the given memory region
    (conforming to align() and footprint()).  Returns NULL if any
@@ -299,7 +325,8 @@ fd_sched_new( void *     mem,
               ulong      max_shreds_per_block,
               ulong      max_txn_per_slot,
               ulong      exec_cnt,
-              int        is_alpenglow );
+              int        is_alpenglow,
+              int        lthash_oob );
 
 fd_sched_t *
 fd_sched_join( void * mem );
@@ -322,7 +349,8 @@ fd_sched_fec_ingest( fd_sched_t * sched, fd_sched_fec_t * fec );
 
 /* Check if there is enough space in the scheduler to ingest the data in
    the FEC set.  Returns 1 if there is, 0 otherwise.  This is a cheap
-   and conservative check. */
+   and conservative check.  Under out-of-band LtHash it also returns 0
+   when fd_sched_fec_waits_on_drain() would. */
 int
 fd_sched_fec_can_ingest( fd_sched_t * sched, fd_sched_fec_t * fec );
 
@@ -330,6 +358,17 @@ fd_sched_fec_can_ingest( fd_sched_t * sched, fd_sched_fec_t * fec );
    cheap and conservative check. */
 ulong
 fd_sched_can_ingest_cnt( fd_sched_t * sched );
+
+/* Under out-of-band LtHash, a block's first FEC set has to wait while
+   the parent it would be staged behind is still draining its writable
+   account set a chunk at a time, since the dispatcher requires that set
+   to be empty before a block is added behind it.  Returns 1 if the FEC
+   set has to wait, 0 otherwise, and always 0 when is_first_in_block is
+   0.  A FEC set of an existing block, or of a block that goes to
+   another lane or that is unstaged, never waits.  A wait with no block
+   active pops a chunk of the drain, since nothing else would. */
+int
+fd_sched_fec_waits_on_drain( fd_sched_t * sched, ulong parent_bank_idx, int is_first_in_block );
 
 /* Returns 1 if sched is drained, 0 otherwise.  A drained scheduler will
    not return more work.  Otherwise, next_ready will return more work,
@@ -391,7 +430,28 @@ fd_sched_cert_dispatch( fd_sched_t * sched,
    lower priority than transaction execution, but higher priority than
    sigverify.  This is because sigverify tasks are generally bite-sized,
    whereas PoH hashing can be longer, so we would like to get started on
-   hashing sooner rather than later. */
+   hashing sooner rather than later.
+
+   With out-of-band LtHash, this function may also return LtHash
+   subtraction and addition tasks.  These are generally lower priority
+   than anything else.  Subtractions are done exactly once per declared
+   writable account, and can be done at any point during the block,
+   since it depends only on the account value in the parent block.  We
+   will queue up a subtraction as soon as we've observed a declared
+   write to the account, and dispatch it when there are idle exec tiles.
+   Additions need to be done exactly once on the final value of the
+   account within the block.  If we've observed the full block, then we
+   know for sure which transaction is the last writer to the account,
+   and we can sequence additions right after the last writer to the
+   account.  We will try to schedule these post-last-write additions
+   shortly after their last writer completes, but again, these are lower
+   priority than transaction execution.  The scheduler may also decide
+   to speculatively perform additions before the full block has been
+   observed, if there are idle cycles in exec tiles.  Such speculations
+   must be undone if we subsequently get a transaction that writes to
+   the account.  Speculation is the lowest priority work.  Either kind
+   of LtHash task carries up to FD_SCHED_LTHASH_BATCH_MAX accounts,
+   whose hashes the exec tile sums.  Speculations do not get batched. */
 ulong
 fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out );
 
@@ -416,6 +476,17 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out );
    get_txn(). */
 int
 fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong exec_idx, void * data );
+
+/* Returns the block's LtHash delta accumulated so far. */
+fd_lthash_value_t const *
+fd_sched_lthash_delta( fd_sched_t * sched, ulong bank_idx );
+
+/* Inform the scheduler which accounts start-of-block processing wrote
+   (e.g. sysvars, rewards), so their LtHash can be done out of band.
+   Call between the block's BLOCK_START task being handed out and its
+   completion.  A no-op when out-of-band LtHash is disabled. */
+void
+fd_sched_block_start_writes( fd_sched_t * sched, ulong bank_idx, fd_acct_addr_t const * addrs, ulong cnt );
 
 /* Abandon a block.  This means that we are no longer interested in
    executing the block.  This also implies that any block which chains

@@ -267,6 +267,7 @@ fd_config_extract_pod( uchar *       pod,
 
   CFG_POP      ( ulong,  tiles.replay.max_transaction_lookahead_buffer_size );
   CFG_POP_ARRAY( cstr,   tiles.replay.enable_features                       );
+  CFG_POP      ( bool,   tiles.replay.lthash_out_of_band                    );
 
   CFG_POP      ( bool,   tiles.pohh.lagged_consecutive_leader_start       );
 

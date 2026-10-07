@@ -182,7 +182,10 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
     l = FD_LAYOUT_APPEND( l, fd_reasm_align(),                    fd_reasm_footprint( tile->replay.fec_max ) );
   }
   l = FD_LAYOUT_APPEND( l, alignof(fd_reception_stats_t),       sizeof(fd_reception_stats_t)*tile->replay.max_live_slots );
-  l = FD_LAYOUT_APPEND( l, fd_sched_align(),                    fd_sched_footprint( tile->replay.sched_depth, tile->replay.max_live_slots, tile->replay.max_shreds_per_block, tile->replay.max_txn_per_slot ) );
+  l = FD_LAYOUT_APPEND( l, fd_sched_align(),                    fd_sched_footprint( tile->replay.sched_depth, tile->replay.max_live_slots, tile->replay.max_shreds_per_block, tile->replay.max_txn_per_slot, tile->replay.lthash_out_of_band ) );
+  if( tile->replay.lthash_out_of_band ) {
+    l = FD_LAYOUT_APPEND( l, alignof(fd_pubkey_t),                FD_RDISP_MAX_WRITERS_PER_BLOCK*sizeof(fd_pubkey_t) );
+  }
   l = FD_LAYOUT_APPEND( l, fd_vote_tracker_align(),             fd_vote_tracker_footprint() );
   l = FD_LAYOUT_APPEND( l, fd_capture_ctx_align(),              fd_capture_ctx_footprint() );
   l = FD_LAYOUT_APPEND( l, alignof(fd_dump_proto_ctx_t),        sizeof(fd_dump_proto_ctx_t) );
@@ -691,11 +694,24 @@ replay_block_start( fd_replay_tile_t * ctx,
     FD_LOG_CRIT(( "firedancer replay does not support replaying more than one epoch ahead of the current root" ));
   }
 
+  if( ctx->lthash_oob ) {
+    FD_TEST( bank->lthash_mode==FD_BANK_LTHASH_MODE_INBAND );
+    ctx->lthash_rec->cnt = 0UL;
+    bank->lthash_rec     = ctx->lthash_rec;
+    bank->lthash_mode    = FD_BANK_LTHASH_MODE_OOB_RECORD;
+  }
+
   /* Update required runtime state and handle potential boundary. */
 
   int is_epoch_boundary = 0;
   fd_runtime_block_execute_prepare( ctx->banks, bank, ctx->accdb, ctx->runtime_stack, ctx->capture_ctx, &is_epoch_boundary );
   FD_CHECK_CRIT( !is_epoch_boundary || FD_FEATURE_ACTIVE_BANK( bank, alpenglow )==!!ctx->alpenglow, "alpenglow feature activation does not match [consensus.alpenglow]" );
+
+  if( ctx->lthash_oob ) {
+    fd_sched_block_start_writes( ctx->sched, bank_idx, fd_type_pun_const( ctx->lthash_rec->keys ), ctx->lthash_rec->cnt );
+    bank->lthash_rec  = NULL;
+    bank->lthash_mode = FD_BANK_LTHASH_MODE_OOB_SKIP;
+  }
 
   ulong max_tick_height;
   if( FD_UNLIKELY( FD_RUNTIME_EXECUTE_SUCCESS!=fd_runtime_compute_max_tick_height( parent_bank->f.ticks_per_slot, slot, &max_tick_height ) ) ) {
@@ -1910,6 +1926,19 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
   fd_block_footer_t const * footer = NULL;
   if( FD_UNLIKELY( ctx->alpenglow ) ) footer = fd_sched_get_footer( ctx->sched, bank->idx );
 
+  if( ctx->lthash_oob ) {
+    /* Revert to in-band hashing for the end-of-block writers (sysvars,
+       fee settlement, incinerator, footer).  Hashing and subtracting
+       the current fork version of the account is the right thing since
+       the current fork versions have been folded into the delta by the
+       sched accumulator. */
+    FD_TEST( bank->lthash_mode==FD_BANK_LTHASH_MODE_OOB_SKIP );
+    fd_lthash_value_t * lthash = fd_bank_lthash_locking_modify( bank );
+    fd_lthash_add( lthash, fd_sched_lthash_delta( ctx->sched, bank->idx ) );
+    fd_bank_lthash_end_locking_modify( bank );
+    bank->lthash_mode = FD_BANK_LTHASH_MODE_INBAND;
+  }
+
   /* Footer certs go to idle exec tiles as cert verify tasks, the rest
      verify here, then finalize applies the footer while the tasks run.
      The bank completes on its last cert task done. */
@@ -3013,7 +3042,9 @@ dispatch_task( fd_replay_tile_t *  ctx,
       exec_msg->bank_idx = task->txn_exec->bank_idx;
       exec_msg->txn_idx  = task->txn_exec->txn_idx;
       memcpy( exec_msg->fec_merkle_root, ctx->block_id_arr[ task->txn_exec->bank_idx ].latest_mr.uc, 32UL );
-      exec_msg->index_in_slot = fd_sched_get_txn_info( ctx->sched, task->txn_exec->txn_idx )->index_in_slot;
+      fd_sched_txn_info_t const * txn_info = fd_sched_get_txn_info( ctx->sched, task->txn_exec->txn_idx );
+      exec_msg->index_in_slot = txn_info->index_in_slot;
+      exec_msg->want_alts     = ctx->lthash_oob && !!(txn_info->flags & FD_SCHED_TXN_ALT_UNRESOLVED);
       if( FD_UNLIKELY( ctx->capture_ctx ) ) {
         exec_msg->capture_txn_idx = ctx->capture_ctx->current_txn_idx++;
       }
@@ -3055,6 +3086,25 @@ dispatch_task( fd_replay_tile_t *  ctx,
       exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(*exec_msg), exec_out->chunk0, exec_out->wmark );
       break;
     };
+    case FD_SCHED_TT_LTHASH_SUB:
+    case FD_SCHED_TT_LTHASH_ADD: {
+      fd_bank_t * bank = fd_banks_bank_query( ctx->banks, task->lthash->bank_idx );
+      FD_TEST( bank );
+      bank->refcnt++;
+
+      FD_TEST( task->lthash->exec_idx<ctx->exec_cnt );
+      FD_TEST( task->lthash->cnt && task->lthash->cnt<=FD_SCHED_LTHASH_BATCH_MAX );
+      fd_replay_out_link_t * exec_out = &ctx->exec_out[ task->lthash->exec_idx ];
+      fd_execrp_lthash_msg_t * exec_msg = fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
+      exec_msg->bank_idx = task->lthash->bank_idx;
+      exec_msg->cnt      = task->lthash->cnt;
+      fd_memcpy( exec_msg->acct, task->lthash->accts, task->lthash->cnt*sizeof(fd_acct_addr_t) );
+      ulong kind = task->task_type==FD_SCHED_TT_LTHASH_SUB ? FD_EXECRP_TT_LTHASH_SUB : FD_EXECRP_TT_LTHASH_ADD;
+      ulong sz   = fd_execrp_lthash_msg_sz( task->lthash->cnt );
+      fd_stem_publish( stem, exec_out->idx, (kind<<32) | task->lthash->exec_idx, exec_out->chunk, sz, 0UL, 0UL, 0UL );
+      exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sz, exec_out->chunk0, exec_out->wmark );
+      break;
+    }
     default: {
       FD_LOG_CRIT(( "unexpected task type %lu", task->task_type ));
     }
@@ -3140,8 +3190,10 @@ try_replay( fd_replay_tile_t *  ctx,
     }
     case FD_SCHED_TT_TXN_EXEC:
     case FD_SCHED_TT_TXN_SIGVERIFY:
-    case FD_SCHED_TT_POH_HASH: {
-      /* Common case: we have a transaction we need to execute. */
+    case FD_SCHED_TT_POH_HASH:
+    case FD_SCHED_TT_LTHASH_SUB:
+    case FD_SCHED_TT_LTHASH_ADD: {
+      /* Common case: a task for an exec tile. */
       dispatch_task( ctx, stem, task );
       break;
     }
@@ -3191,6 +3243,11 @@ can_process_fec( fd_replay_tile_t * ctx,
   fd_bank_t * parent_fec_bank = parent->bank_idx==UINT_MAX ? NULL : fd_banks_bank_query( ctx->banks, parent->bank_idx );
   if( FD_UNLIKELY( parent_fec_bank && parent_fec_bank->bank_seq==parent->bank_seq && parent_fec_bank->state==FD_BANK_STATE_PRUNABLE ) ) {
     FD_LOG_DEBUG(( "waiting to process FEC set (slot=%lu, fec_set_idx=%u) because parent bank is being pruned", fec->slot, fec->fec_set_idx ));
+    return 0;
+  }
+
+  if( FD_UNLIKELY( fec->fec_set_idx==0U && parent->bank_idx!=UINT_MAX && fd_sched_fec_waits_on_drain( ctx->sched, parent->bank_idx, 1 ) ) ) {
+    ctx->metrics.sched_full++;
     return 0;
   }
 
@@ -3368,6 +3425,11 @@ can_process_rotor_fec( fd_replay_tile_t      * ctx,
   fd_bank_t * parent_fec_bank = parent_bank_idx==UINT_MAX ? NULL : fd_banks_bank_query( ctx->banks, parent_bank_idx );
   if( FD_UNLIKELY( parent_fec_bank && parent_fec_bank->bank_seq==parent->bank_seq && parent_fec_bank->state==FD_BANK_STATE_PRUNABLE ) ) {
     FD_LOG_DEBUG(( "waiting to process FEC set (slot=%lu, fec_set_idx=%u) because parent bank is being pruned", fec->slot, fec->fec_set_idx ));
+    return PROCESS_FEC_WAIT;
+  }
+
+  if( FD_UNLIKELY( fec->fec_set_idx==0U && parent_bank_idx!=UINT_MAX && fd_sched_fec_waits_on_drain( ctx->sched, parent_bank_idx, 1 ) ) ) {
+    ctx->metrics.sched_full++;
     return PROCESS_FEC_WAIT;
   }
 
@@ -4311,7 +4373,8 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
         mark_bank_dead( ctx, stem, bank->idx, dead_reason, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED, NULL );
         fd_sched_block_abandon( ctx->sched, bank->idx, FD_SCHED_ABANDON_INVALID );
       }
-      int res = fd_sched_task_done( ctx->sched, FD_SCHED_TT_TXN_EXEC, txn_idx, exec_tile_idx, NULL );
+      fd_sched_txn_alts_t alts[ 1 ] = { { .cnt = msg->txn_exec->alt_writable_cnt, .addrs = fd_type_pun_const( fd_execrp_txn_exec_done_alt_writable( msg ) ) } };
+      int res = fd_sched_task_done( ctx->sched, FD_SCHED_TT_TXN_EXEC, txn_idx, exec_tile_idx, alts->cnt ? alts : NULL );
       FD_TEST( res==0 );
       fd_sched_txn_info_t * txn_info = fd_sched_get_txn_info( ctx->sched, txn_idx );
       txn_info->flags |= FD_SCHED_TXN_EXEC_DONE;
@@ -4389,6 +4452,15 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
         }
       }
       FD_TEST( !fd_sched_task_done( ctx->sched, FD_SCHED_TT_CERT_VERIFY, ULONG_MAX, exec_tile_idx, NULL ) );
+      break;
+    }
+    case FD_EXECRP_TT_LTHASH_SUB:
+    case FD_EXECRP_TT_LTHASH_ADD: {
+      FD_TEST( ctx->lthash_oob );
+      fd_execrp_lthash_done_msg_t * m = fd_type_pun( msg );
+      ulong task_type = (sig>>32)==FD_EXECRP_TT_LTHASH_SUB ? FD_SCHED_TT_LTHASH_SUB : FD_SCHED_TT_LTHASH_ADD;
+      int res = fd_sched_task_done( ctx->sched, task_type, ULONG_MAX, exec_tile_idx, &m->value );
+      FD_TEST( res==0 );
       break;
     }
     default: FD_LOG_CRIT(( "unexpected sig 0x%lx", sig ));
@@ -5555,7 +5627,8 @@ unprivileged_init( fd_topo_t const *      topo,
     reasm_mem               = FD_SCRATCH_ALLOC_APPEND( l, fd_reasm_align(),            fd_reasm_footprint( tile->replay.fec_max ) );
   }
   void * recp_stats_mem     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_reception_stats_t), sizeof(fd_reception_stats_t)*tile->replay.max_live_slots );
-  void * sched_mem          = FD_SCRATCH_ALLOC_APPEND( l, fd_sched_align(),            fd_sched_footprint( tile->replay.sched_depth, tile->replay.max_live_slots, tile->replay.max_shreds_per_block, tile->replay.max_txn_per_slot ) );
+  void * sched_mem          = FD_SCRATCH_ALLOC_APPEND( l, fd_sched_align(),            fd_sched_footprint( tile->replay.sched_depth, tile->replay.max_live_slots, tile->replay.max_shreds_per_block, tile->replay.max_txn_per_slot, tile->replay.lthash_out_of_band ) );
+  void * lthash_rec_keys    = tile->replay.lthash_out_of_band ? FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_pubkey_t), FD_RDISP_MAX_WRITERS_PER_BLOCK*sizeof(fd_pubkey_t) ) : NULL;
   void * vote_tracker_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_tracker_align(),     fd_vote_tracker_footprint() );
   void * _capture_ctx       = FD_SCRATCH_ALLOC_APPEND( l, fd_capture_ctx_align(),      fd_capture_ctx_footprint() );
   void * dump_proto_ctx_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_dump_proto_ctx_t), sizeof(fd_dump_proto_ctx_t) );
@@ -5735,9 +5808,14 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->leader_stats.slot = ULONG_MAX;
   ctx->alpenglow         = tile->replay.alpenglow;
-  ctx->sched = fd_sched_join( fd_sched_new( sched_mem, ctx->rng, tile->replay.sched_depth, tile->replay.max_live_slots, ctx->max_shreds_per_block, ctx->max_txn_per_slot, fd_topo_tile_name_cnt( topo, "execrp" ), ctx->alpenglow ) );
+  ctx->sched = fd_sched_join( fd_sched_new( sched_mem, ctx->rng, tile->replay.sched_depth, tile->replay.max_live_slots, ctx->max_shreds_per_block, ctx->max_txn_per_slot, fd_topo_tile_name_cnt( topo, "execrp" ), ctx->alpenglow, tile->replay.lthash_out_of_band ) );
   FD_TEST( ctx->sched );
   FD_TEST( ctx->alpenglow || ctx->reasm );
+
+  ctx->lthash_oob       = tile->replay.lthash_out_of_band;
+  ctx->lthash_rec->cnt  = 0UL;
+  ctx->lthash_rec->max  = fd_ulong_if( ctx->lthash_oob, FD_RDISP_MAX_WRITERS_PER_BLOCK, 0UL );
+  ctx->lthash_rec->keys = lthash_rec_keys; /* NULL if lthash_oob off. */
 
   ctx->in_cnt          = tile->in_cnt;
   ctx->execrp_idle_cnt = 0UL;

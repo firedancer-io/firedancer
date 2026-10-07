@@ -562,6 +562,7 @@ struct fd_config {
       ulong max_transaction_lookahead_buffer_size;
       ulong enable_features_cnt;
       char  enable_features[ 16 ][ FD_BASE58_ENCODED_32_SZ ];
+      int   lthash_out_of_band;
     } replay;
 
   } tiles;

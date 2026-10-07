@@ -160,7 +160,8 @@
                 "no_child":      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "A block fully replayed and there was no child block available yet" },
                 "no_work":       { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "A partially replayed block ran out of work to dispatch" },
                 "abandoned":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "A block was abandoned, other than by minority fork pruning" },
-                "minority_fork": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "A block was pruned for being on a minority fork (not also counted as Abandoned)" }
+                "minority_fork": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "A block was pruned for being on a minority fork (not also counted as Abandoned)" },
+                "spec_yield":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "A block that could only speculate on out-of-band lthash additions gave way to another lane head's real work", "field_number": 360906844 }
             }
         },
         "sched_lane_switched":                { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Times the replay scheduler switched the lane it is dispatching from" },
@@ -327,6 +328,68 @@
         "is_runtime_loaded":                  { "type": "Bool",                                                           "description": "Whether the runtime has loaded a bank and can replay" },
         "fec_rooted_past_skipped":            { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Rotor FEC sets of a slot at or below the published root, or of a block whose parent is below it, skipped rather than dropped: no redelivery can replay them" },
         "leader_window_already_produced":     { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Leader windows given up because the cluster already produced one of their slots, eg. our own past slots replayed after a restart (Alpenglow)" },
-        "leader_window_superseded":           { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Leader windows given up after votor sent them because certificates already let a later window start (Alpenglow)" }
+        "leader_window_superseded":           { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Leader windows given up after votor sent them because certificates already let a later window start (Alpenglow)" },
+        "sched_lthash_write_observed": {
+            "type": "Tuple",
+            "description": "Writes the replay scheduler saw for out-of-band lthash, by source; zero unless out-of-band lthash is on",
+            "field_number": 392036315,
+            "fields": {
+                "parsed":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Declared writable accounts of parsed transactions, as handed to the dispatcher" },
+                "start_reg":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Accounts registered by start-of-block processing" },
+                "late_reg":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Writable lookup table accounts registered at transaction completion" },
+                "demote_reg": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Accounts re-registered when their block was demoted" }
+            }
+        },
+        "sched_lthash_write_handled": {
+            "type": "Tuple",
+            "description": "What the dispatcher made of each write seen for out-of-band lthash, by result; sums to SchedLthashWriteObserved",
+            "field_number": 372048184,
+            "fields": {
+                "first_write": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "First write to the account since its last addition pseudo transaction, which makes the block owe it an addition" },
+                "coalesced":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Write to an account the block already owed an addition for" },
+                "extra_reg":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Registration the dispatcher could not take as a write because a child was staged behind the block" }
+            }
+        },
+        "sched_lthash_add_created":           { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Out-of-band lthash addition pseudo transactions the dispatcher handed back", "field_number": 486256646 },
+        "sched_lthash_add_extra_created":     { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Addition pseudo transactions created through add_extra_pseudo_txn; a subset of SchedLthashAddCreated", "field_number": 420596717 },
+        "sched_lthash_add_surfaced":          { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Addition pseudo transactions returned by get_next_ready", "field_number": 385735920 },
+        "sched_lthash_add_stale_surfaced":    { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Addition pseudo transactions surfaced after a later write made them stale, completed without hashing", "field_number": 290740239 },
+        "sched_lthash_add_dispatched":        { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Additions handed to an exec tile", "field_number": 463874233 },
+        "sched_lthash_add_stale_dropped":     { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Addition results dropped because a later write made them stale while on the tile", "field_number": 430517150 },
+        "sched_lthash_add_applied":           { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Addition results added to a block's delta", "field_number": 396819985 },
+        "sched_lthash_add_undone":            { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Applied additions subtracted back out after a later write", "field_number": 276330113 },
+        "sched_lthash_spec_created":          { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Speculative additions created", "field_number": 366720167 },
+        "sched_lthash_spec_applied":          { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Speculative additions applied; a subset of SchedLthashAddApplied", "field_number": 352371462 },
+        "sched_lthash_spec_invalidated":      { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Speculative additions invalidated before they applied", "field_number": 322326131 },
+        "sched_lthash_sub_owed":              { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Lane map entries inserted, each owing one out-of-band lthash subtraction", "field_number": 303858391 },
+        "sched_lthash_sub_dispatched":        { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Subtractions handed to an exec tile", "field_number": 434632567 },
+        "sched_lthash_sub_applied":           { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Subtraction results subtracted from a block's delta", "field_number": 319748287 },
+        "sched_lthash_frozen":                { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Accounts whose out-of-band lthash subtraction and addition are in the delta of a block that completed BLOCK_END", "field_number": 497028677 },
+        "sched_lthash_work_dropped": {
+            "type": "Tuple",
+            "description": "Out-of-band lthash work thrown away when a block was abandoned or demoted, by type",
+            "field_number": 321724400,
+            "fields": {
+                "add_owed":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Additions owed by abandoned blocks, never created" },
+                "add_pending": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Pseudo transactions of abandoned blocks, never surfaced" },
+                "add_applied": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Additions in the delta of an abandoned or demoted block, net of undone" },
+                "sub_queued":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Subtractions of abandoned blocks, never dispatched" },
+                "sub_applied": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Subtractions in the delta of an abandoned or demoted block" },
+                "add_held":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Additions of abandoned blocks that were batched behind a transaction and never reached a tile" }
+            }
+        },
+        "sched_lthash_pool_full_deactivated": { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Deactivations of a block that still owed additions because the speculation pool had no free entry; a subset of the no-work reason of SchedBlockDeactivated", "field_number": 345939646 },
+        "sched_lthash_task_dispatched": {
+            "type": "Tuple",
+            "description": "Out-of-band lthash tasks handed to exec tiles, by type; a task carries a batch of accounts, which SchedLthashSubDispatched and SchedLthashAddDispatched count",
+            "field_number": 501785138,
+            "fields": {
+                "sub": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Subtraction tasks, each a batch of accounts hashed on the parent fork" },
+                "add": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Addition tasks, each a batch of accounts hashed on the block's fork" }
+            }
+        },
+        "sched_lthash_batch_held":            { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Out-of-band lthash addition batches held for the next dispatch because a transaction, or a speculative addition dispatched alone, surfaced behind them", "field_number": 270977137 },
+        "sched_lthash_batch_idle_waited":     { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Dispatch polls that left an out-of-band lthash addition batch held because too few exec tiles were idle for a hash batch", "field_number": 325520237 },
+        "sched_lthash_drain_waited":          { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Ingest capacity queries refused because a block was still popping its lane set a chunk at a time, so no block could be added behind it yet", "field_number": 447212261 }
     }
 }
