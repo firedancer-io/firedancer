@@ -1,4 +1,5 @@
 #include <stdalign.h>
+#include <stdlib.h>
 
 #include "fd_rdisp.h"
 #if FD_HAS_HOSTED
@@ -10,7 +11,7 @@
 #endif
 
 #define TEST_FOOTPRINT (1792UL*1024UL*1024UL)
-uchar footprint[ TEST_FOOTPRINT ] __attribute__((aligned(128)));
+uchar * footprint;
 /* verify used with depth==100 and depth==300 */
 uint  verify_scratch[ 300UL*(FD_RDISP_MAX_ACCT_PER_TXN+1UL)+2UL ];
 
@@ -557,6 +558,9 @@ int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
+
+  footprint = aligned_alloc( fd_rdisp_align(), TEST_FOOTPRINT );
+  FD_TEST( footprint );
 
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
@@ -1161,6 +1165,8 @@ main( int     argc,
   for( ulong i=0UL; i<FD_MAX_TXN_PER_SLOT; i++ ) FD_TEST( FD_RDISP_MAX_SCORE+(float)i < (float)(i+1UL) );
 
   fd_rng_delete( fd_rng_leave( rng ) );
+
+  free( footprint );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
