@@ -65,16 +65,20 @@ fd_hashes_update_simple( fd_lthash_value_t *       lthash_post, /* out */
                          ulong                     data_len,
                          fd_bank_t               * bank,
                          fd_capture_ctx_t        * capture_ctx ) {
-  /* Compute the new hash of the account */
-  fd_hashes_account_lthash_simple( pubkey, owner, lamports, executable, data, data_len, lthash_post );
+  if( FD_LIKELY( bank->lthash_mode==FD_BANK_LTHASH_MODE_INBAND ) ) {
+    /* Compute the new hash of the account */
+    fd_hashes_account_lthash_simple( pubkey, owner, lamports, executable, data, data_len, lthash_post );
 
-  fd_lthash_value_t delta[1];
-  fd_memcpy( delta, lthash_post, sizeof(fd_lthash_value_t) );
-  fd_lthash_sub( delta, lthash_prev );
+    fd_lthash_value_t delta[1];
+    fd_memcpy( delta, lthash_post, sizeof(fd_lthash_value_t) );
+    fd_lthash_sub( delta, lthash_prev );
 
-  fd_lthash_value_t * bank_lthash = fd_bank_lthash_locking_modify( bank );
-  fd_lthash_add( bank_lthash, delta );
-  fd_bank_lthash_end_locking_modify( bank );
+    fd_lthash_value_t * bank_lthash = fd_bank_lthash_locking_modify( bank );
+    fd_lthash_add( bank_lthash, delta );
+    fd_bank_lthash_end_locking_modify( bank );
+  } else if( bank->lthash_mode==FD_BANK_LTHASH_MODE_OOB_RECORD ) {
+    fd_bank_lthash_record( bank, pubkey );
+  }
 
   fd_hashes_capture_account( pubkey, owner, lamports, executable, data, data_len, bank, capture_ctx );
 }

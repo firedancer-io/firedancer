@@ -1203,6 +1203,15 @@ fd_runtime_lthash_account( fd_runtime_t *      runtime,
     memset( acc->owner, 0, sizeof(acc->owner) );
   }
 
+  /* Outside INBAND mode the account is not hashed here.  The in-band
+     path below captures an account iff prior_lamports or lamports is
+     non-zero, and so does this.  This runs on exec tiles, so it never
+     touches lthash_rec. */
+  if( FD_UNLIKELY( bank->lthash_mode!=FD_BANK_LTHASH_MODE_INBAND ) ) {
+    if( FD_LIKELY( acc->prior_lamports || acc->lamports ) ) fd_hashes_capture_account( pubkey->uc, acc->owner, acc->lamports, acc->executable, acc->data, acc->data_len, bank, capture_ctx );
+    return;
+  }
+
   if( FD_UNLIKELY( acc->prior_data &&
                    acc->lamports==acc->prior_lamports &&
                    acc->data_len==acc->prior_data_len &&

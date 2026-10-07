@@ -1063,7 +1063,7 @@ EXAMPLES
     <counter name="TxnVersion" enum="TxnVersion" summary="Number of transactions executed, broken down by transaction version" />
     <counter name="InstructionExecuted" summary="Number of top-level instructions executed" />
     <counter name="CpiExecuted" summary="Number of cross-program invocations executed" />
-    <counter name="LthashUnchanged" summary="Number of committed writable accounts left byte-identical by their transaction, whose lthash update was skipped" />
+    <counter name="LthashUnchanged" summary="Number of committed writable accounts left byte-identical by their transaction, whose lthash update was skipped. Counted only in in-band LtHash mode; stays zero when development.lthash_out_of_band is on" />
     <counter name="CuExecuted" summary="Estimated compute units executed since tile start" />
 
     <counter name="TxnRegimeDurationNanos" converter="nanoseconds" enum="TxnRegime" summary="Mutually exclusive and exhaustive duration spent in transaction execution regimes, in nanoseconds" />
@@ -1942,7 +1942,7 @@ EXAMPLES
     <counter name="PohHashed" summary="PoH SHA-256 calls executed" />
     <counter name="InstructionExecuted" summary="Number of top-level instructions executed" />
     <counter name="CpiExecuted" summary="Number of cross-program invocations executed" />
-    <counter name="LthashUnchanged" summary="Number of committed writable accounts left byte-identical by their transaction, whose lthash update was skipped" />
+    <counter name="LthashUnchanged" summary="Number of committed writable accounts left byte-identical by their transaction, whose lthash update was skipped. Counted only in in-band LtHash mode; stays zero when development.lthash_out_of_band is on" />
 
     <counter name="TxnRegimeDurationNanos" converter="nanoseconds" enum="TxnRegime" summary="Mutually exclusive and exhaustive duration spent in transaction execution regimes, in nanoseconds" />
     <counter name="VmRegimeDurationNanos" converter="nanoseconds" enum="VmRegime" summary="Mutually exclusive and exhaustive duration spent in virtual machine execution regimes, in nanoseconds" />

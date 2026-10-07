@@ -41,12 +41,14 @@ fd_accdb_svm_open_rw( fd_bank_t *             bank,
   update->skip_event_diff = 0;
   fd_memcpy( update->owner_before, acc.owner, 32UL );
 
-  fd_lthash_value_t hash[1];
-  fd_hashes_account_lthash_simple( acc.pubkey, acc.owner, acc.lamports, acc.executable, acc.data, acc.data_len, hash );
+  if( FD_LIKELY( bank->lthash_mode==FD_BANK_LTHASH_MODE_INBAND ) ) {
+    fd_lthash_value_t hash[1];
+    fd_hashes_account_lthash_simple( acc.pubkey, acc.owner, acc.lamports, acc.executable, acc.data, acc.data_len, hash );
 
-  fd_lthash_value_t * bank_lthash = fd_bank_lthash_locking_modify( bank );
-  fd_lthash_sub( bank_lthash, hash );
-  fd_bank_lthash_end_locking_modify( bank );
+    fd_lthash_value_t * bank_lthash = fd_bank_lthash_locking_modify( bank );
+    fd_lthash_sub( bank_lthash, hash );
+    fd_bank_lthash_end_locking_modify( bank );
+  }
 
   return acc;
 }
@@ -65,12 +67,16 @@ fd_accdb_svm_close_rw( fd_bank_t *             bank,
     FD_TEST( !__builtin_usubl_overflow( bank->f.capitalization, delta, &bank->f.capitalization ) );
   }
 
-  fd_lthash_value_t hash[1];
-  fd_hashes_account_lthash_simple( acc->pubkey, acc->owner, acc->lamports, acc->executable, acc->data, acc->data_len, hash );
+  if( FD_LIKELY( bank->lthash_mode==FD_BANK_LTHASH_MODE_INBAND ) ) {
+    fd_lthash_value_t hash[1];
+    fd_hashes_account_lthash_simple( acc->pubkey, acc->owner, acc->lamports, acc->executable, acc->data, acc->data_len, hash );
 
-  fd_lthash_value_t * bank_lthash = fd_bank_lthash_locking_modify( bank );
-  fd_lthash_add( bank_lthash, hash );
-  fd_bank_lthash_end_locking_modify( bank );
+    fd_lthash_value_t * bank_lthash = fd_bank_lthash_locking_modify( bank );
+    fd_lthash_add( bank_lthash, hash );
+    fd_bank_lthash_end_locking_modify( bank );
+  } else if( bank->lthash_mode==FD_BANK_LTHASH_MODE_OOB_RECORD ) {
+    fd_bank_lthash_record( bank, acc->pubkey );
+  }
 
   log_account_change( bank, acc, capture_ctx );
   if( FD_UNLIKELY( fd_bank_report_runtime_diffs( bank ) && !update->skip_event_diff ) ) fd_event_runtime_block_account( bank, acc->pubkey, update->owner_before, acc->owner, update->lamports_before, acc->lamports, update->data_len_before, acc->data_len, acc->executable );
@@ -89,8 +95,10 @@ fd_accdb_svm_credit( fd_bank_t *         bank,
 
   fd_acc_t acc = fd_accdb_write_one( accdb, bank->accdb_fork_id, pubkey->uc );
 
-  fd_lthash_value_t hash[1];
-  fd_hashes_account_lthash_simple( acc.pubkey, acc.owner, acc.lamports, acc.executable, acc.data, acc.data_len, hash );
+  fd_lthash_value_t hash[1]; /* read by fd_hashes_update_simple only in INBAND mode */
+  if( FD_LIKELY( bank->lthash_mode==FD_BANK_LTHASH_MODE_INBAND ) ) {
+    fd_hashes_account_lthash_simple( acc.pubkey, acc.owner, acc.lamports, acc.executable, acc.data, acc.data_len, hash );
+  }
   ulong lamports_pre = acc.lamports;
   FD_TEST( !__builtin_uaddl_overflow( acc.lamports, lamports_add, &acc.lamports ) );
   FD_TEST( !__builtin_uaddl_overflow( bank->f.capitalization, lamports_add, &bank->f.capitalization ) );
@@ -121,8 +129,10 @@ fd_accdb_svm_write( fd_bank_t *         bank,
   ulong data_len_pre = acc.data_len;
   uchar owner_pre[ 32 ]; fd_memcpy( owner_pre, acc.owner, 32UL );
 
-  fd_lthash_value_t hash[1];
-  fd_hashes_account_lthash_simple( acc.pubkey, acc.owner, acc.lamports, acc.executable, acc.data, acc.data_len, hash );
+  fd_lthash_value_t hash[1]; /* read by fd_hashes_update_simple only in INBAND mode */
+  if( FD_LIKELY( bank->lthash_mode==FD_BANK_LTHASH_MODE_INBAND ) ) {
+    fd_hashes_account_lthash_simple( acc.pubkey, acc.owner, acc.lamports, acc.executable, acc.data, acc.data_len, hash );
+  }
 
   if( FD_UNLIKELY( acc.lamports<lamports_min ) ) {
     ulong delta = lamports_min - acc.lamports;
@@ -156,8 +166,10 @@ fd_accdb_svm_remove( fd_bank_t *         bank,
 
   ulong burned = acc.lamports;
 
-  fd_lthash_value_t hash[1];
-  fd_hashes_account_lthash_simple( acc.pubkey, acc.owner, acc.lamports, acc.executable, acc.data, acc.data_len, hash );
+  fd_lthash_value_t hash[1]; /* read by fd_hashes_update_simple only in INBAND mode */
+  if( FD_LIKELY( bank->lthash_mode==FD_BANK_LTHASH_MODE_INBAND ) ) {
+    fd_hashes_account_lthash_simple( acc.pubkey, acc.owner, acc.lamports, acc.executable, acc.data, acc.data_len, hash );
+  }
 
   bank->f.capitalization -= burned;
   acc.lamports = 0UL;

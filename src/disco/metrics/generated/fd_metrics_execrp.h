@@ -202,7 +202,7 @@ enum {
 
 #define FD_METRICS_COUNTER_EXECRP_LTHASH_UNCHANGED_NAME "execrp_lthash_unchanged"
 #define FD_METRICS_COUNTER_EXECRP_LTHASH_UNCHANGED_TYPE (FD_METRICS_TYPE_COUNTER)
-#define FD_METRICS_COUNTER_EXECRP_LTHASH_UNCHANGED_DESC "Number of committed writable accounts left byte-identical by their transaction, whose lthash update was skipped"
+#define FD_METRICS_COUNTER_EXECRP_LTHASH_UNCHANGED_DESC "Number of committed writable accounts left byte-identical by their transaction, whose lthash update was skipped. Counted only in in-band LtHash mode; stays zero when development.lthash_out_of_band is on"
 #define FD_METRICS_COUNTER_EXECRP_LTHASH_UNCHANGED_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_COUNTER_EXECRP_TXN_REGIME_DURATION_NANOS_NAME "execrp_txn_regime_duration_nanos"

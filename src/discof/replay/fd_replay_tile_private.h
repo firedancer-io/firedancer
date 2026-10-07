@@ -208,6 +208,14 @@ struct fd_replay_tile {
   ulong        in_cnt;
   ulong        execrp_idle_cnt;
 
+  /* Out-of-band LtHash (tile->replay.lthash_out_of_band).  In that
+     mode lthash_rec collects the pubkeys start-of-block processing
+     writes, for registration with the scheduler.  Its key array holds
+     FD_RDISP_MAX_WRITERS_PER_BLOCK entries and is carved from the tile
+     scratch only when the flag is on. */
+  int                  lthash_oob;
+  fd_bank_lthash_rec_t lthash_rec;
+
   ulong                vote_tracker_seed;
   fd_vote_tracker_t *  vote_tracker;
 

@@ -181,6 +181,15 @@
 #define FD_RDISP_UNSTAGED         ULONG_MAX
 #define FD_RDISP_MAX_ACCT_PER_TXN FD_TXN_ACCT_ADDR_MAX
 
+/* FD_RDISP_MAX_WRITERS_PER_BLOCK is the capacity of a staging lane's
+   set of accounts waiting for an LtHash pseudo-transaction.  A block
+   must be drained before another joins its lane, so the set never
+   holds more than one block's writers, and 62,500,000 CUs gets 3137
+   transactions with 64 writers and one with 34 writers for a total of
+   200,802.  Then we add 8k for inflation rewards, 10 for sysvars, 4000
+   for vote accounts, and a bit of padding.  It's exported so the
+   caller can size its own per-lane tracking from it. */
+#define FD_RDISP_MAX_WRITERS_PER_BLOCK 217354UL
 
 #define FD_RDISP_LTHASH_PSEUDO_TXN 0x80000000UL
 
@@ -188,8 +197,37 @@
    transaction internally.  Lower scores are better.  It should be close
    to 1 to maximize the scoring function's dynamic range, but small
    enough that when added to relevant sized integers, it is distinct
-   from the next integer. */
+   from the next integer.  That stops being true at 2^17, where
+   I+0.996f rounds to I+1 in float, and pseudo-transactions can push a
+   block's integer parts (last_serializing, inserted_cnt) that high, so
+   fd_rdisp_score clamps the sum. */
 #define FD_RDISP_MAX_SCORE 0.996f
+
+/* fd_rdisp_score returns frac+integer_part as a float that is
+   >=integer_part and strictly <integer_part+1.  The integer part of a
+   score is how many completions the node waits for, so a sum that
+   rounded up to integer_part+1 would wait for one completion too many,
+   possibly one that never comes.  Below 2^17 the plain sum is already
+   below integer_part+1 and is returned bit for bit, so those scores
+   are exactly what they were before this function existed.  From 2^17
+   on, a sum that rounds up is replaced by the largest float below
+   integer_part+1.  Requires 0<=frac<=FD_RDISP_MAX_SCORE and
+   integer_part<2^24. */
+FD_FN_CONST static inline float
+fd_rdisp_score( float frac,
+                uint  integer_part ) {
+  float s    = frac + (float)integer_part;
+  float next = (float)(integer_part+1U);
+  if( FD_UNLIKELY( s>=next ) ) {
+    /* next>=1.0f is a positive normal, so the float just below it is
+       one bit pattern down. */
+    union { float f; uint u; } t;
+    t.f = next;
+    t.u--;
+    s = t.f;
+  }
+  return s;
+}
 
 struct fd_rdisp;
 typedef struct fd_rdisp fd_rdisp_t;
@@ -344,9 +382,9 @@ fd_rdisp_abandon_block( fd_rdisp_t          * disp,
    must be schedule-ready and empty, that is, not containing any
    transactions in the PENDING, READY, or DISPATCHED states.
 
-   For both functions, any LtHash pseudo-transactions that have been
-   added to block are discarded, but information about which accounts
-   need addition tasks are carried over.  */
+   For both functions, every LtHash pseudo-transaction created for the
+   block must have completed, and information about which accounts need
+   addition tasks is carried over.  */
 
 int
 fd_rdisp_promote_block( fd_rdisp_t *          disp,

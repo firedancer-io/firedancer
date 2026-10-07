@@ -11,7 +11,7 @@
    or knowingly skipped) before the constant is bumped.  String keys of
    the user's own file are separately forced through the classification
    lists below. */
-FD_STATIC_ASSERT( sizeof(fd_config_t)==26557680UL, update_fd_config_to_json_for_the_layout_change );
+FD_STATIC_ASSERT( sizeof(fd_config_t)==26557688UL, update_fd_config_to_json_for_the_layout_change );
 
 #define REDACTED "[redacted]"
 
@@ -458,6 +458,7 @@ fd_config_to_json( fd_config_t const * config,
     jw_str ( &w, "core_dump", config->development.core_dump );
     jw_bool( &w, "hard_fork_fatal", f->development.hard_fork_fatal );
     jw_bool( &w, "fixed_fec_sets",  f->development.fixed_fec_sets );
+    jw_bool( &w, "lthash_out_of_band", config->development.lthash_out_of_band );
     jw_obj_open( &w, "votor" );
       jw_ulong( &w, "quic_client_listen_port", f->development.votor.quic_client_listen_port );
       jw_ulong( &w, "quic_server_listen_port", f->development.votor.quic_server_listen_port );

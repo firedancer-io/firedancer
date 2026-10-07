@@ -96,6 +96,9 @@ static ulong          mock_sched_task_done_type;
 static ulong          mock_sched_task_done_txn_idx;
 static ulong          mock_sched_task_done_exec_idx;
 static long           mock_sched_task_done_tick;
+static void *         mock_sched_task_done_data;
+static ulong          mock_sched_task_done_alts_cnt;   /* copied out of a TXN_EXEC fd_sched_txn_alts_t data, a local of the caller */
+static fd_acct_addr_t const * mock_sched_task_done_alts_addrs;
 
 int mock_sched_fec_ingest_fn( fd_sched_t * s, fd_sched_fec_t * f ) {
   (void)s; (void)f;
@@ -124,11 +127,19 @@ mock_sched_task_done_fn( fd_sched_t * s FD_PARAM_UNUSED,
                          ulong        task_type,
                          ulong        txn_idx,
                          ulong        exec_idx,
-                         void *       data FD_PARAM_UNUSED ) {
+                         void *       data ) {
   mock_sched_task_done_cnt++;
   mock_sched_task_done_type     = task_type;
   mock_sched_task_done_txn_idx  = txn_idx;
   mock_sched_task_done_exec_idx = exec_idx;
+  mock_sched_task_done_data     = data;
+  mock_sched_task_done_alts_cnt   = 0UL;
+  mock_sched_task_done_alts_addrs = NULL;
+  if( task_type==FD_SCHED_TT_TXN_EXEC && data ) {
+    fd_sched_txn_alts_t const * alts = data;
+    mock_sched_task_done_alts_cnt   = alts->cnt;
+    mock_sched_task_done_alts_addrs = alts->addrs;
+  }
   if( task_type==FD_SCHED_TT_TXN_EXEC ) mock_sched_txn_info.tick_exec_done = mock_sched_task_done_tick;
   return 0;
 }
@@ -631,7 +642,7 @@ test_txn_completion_publish( fd_wksp_t * wksp ) {
   setup_ctx( ctx, wksp );
 
   ulong const depth = 128UL;
-  ulong const mtu   = sizeof(fd_execrp_task_done_msg_t);
+  ulong const mtu   = FD_EXECRP_TASK_DONE_MTU_OOB;
   ulong dcache_data_sz = fd_dcache_req_data_sz( mtu, depth, 1UL, 1 );
   void * dcache_mem = fd_wksp_alloc_laddr( wksp, fd_dcache_align(), fd_dcache_footprint( dcache_data_sz, 0UL ), 1UL );
   FD_TEST( dcache_mem );
@@ -757,6 +768,172 @@ test_txn_completion_publish( fd_wksp_t * wksp ) {
   FD_TEST( out->tips==msg->txn_exec->tips );
 
   FD_LOG_NOTICE(( "pass: test_txn_completion_publish" ));
+}
+
+/* Out-of-band LtHash routing.  dispatch_task publishes LTHASH_SUB and
+   LTHASH_ADD requests and sets want_alts only when the flag is on and
+   the transaction's lookup tables did not resolve at parse.
+   process_exec_task_done routes the standalone LtHash done frag, and
+   the lookup table accounts trailing a TXN_EXEC frag, to
+   fd_sched_task_done, and every kind balances the bank refcnt. */
+
+static void
+test_lthash_oob_routing( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  setup_ctx( ctx, wksp );
+
+  ulong const depth = 128UL;
+  ulong const mtu   = FD_EXECRP_TASK_DONE_MTU_OOB;
+  ulong dcache_data_sz = fd_dcache_req_data_sz( mtu, depth, 1UL, 1 );
+  void * dcache_mem = fd_wksp_alloc_laddr( wksp, fd_dcache_align(), fd_dcache_footprint( dcache_data_sz, 0UL ), 1UL );
+  FD_TEST( dcache_mem );
+  void * dcache = fd_dcache_join( fd_dcache_new( dcache_mem, dcache_data_sz, 0UL ) );
+  FD_TEST( dcache );
+
+  ctx->in_cnt = fd_ulong_max( ctx->in_cnt, TEST_EXECRP_IN_IDX+1UL );
+  ctx->in_kind[ TEST_EXECRP_IN_IDX ] = IN_KIND_EXECRP;
+  ctx->in[ TEST_EXECRP_IN_IDX ].mem    = wksp;
+  ctx->in[ TEST_EXECRP_IN_IDX ].chunk0 = fd_dcache_compact_chunk0( wksp, dcache );
+  ctx->in[ TEST_EXECRP_IN_IDX ].wmark  = fd_dcache_compact_wmark ( wksp, dcache, mtu );
+  ctx->in[ TEST_EXECRP_IN_IDX ].mtu    = mtu;
+
+  fd_bank_t * bank = fd_banks_root( ctx->banks );
+  FD_TEST( bank );
+  FD_TEST( bank->cost_tracker_pool_idx==ULONG_MAX );
+  bank->refcnt = 0UL;
+
+  fd_acct_addr_t acct[ 1 ];
+  memset( acct, 0xa5, sizeof(acct) );
+  ulong const ptxn_idx = 0x80000007UL;
+  ulong exec_out_idx   = ctx->exec_out[ 0 ].idx;
+
+  /* Dispatch: a request per LtHash kind, each holding a bank ref. */
+
+  ctx->lthash_oob = 1;
+  fd_sched_task_t task[ 1 ];
+  memset( task, 0, sizeof(task) );
+  task->task_type        = FD_SCHED_TT_LTHASH_SUB;
+  task->lthash->bank_idx = bank->idx;
+  task->lthash->exec_idx = 0UL;
+  task->lthash->ptxn_idx = 0UL;
+  task->lthash->acct     = acct[ 0 ];
+  ulong chunk = ctx->exec_out[ 0 ].chunk;
+  dispatch_task( ctx, test_stem, task );
+  FD_TEST( bank->refcnt==1UL );
+  fd_frag_meta_t const * meta = test_stem_mcaches[ exec_out_idx ] + fd_mcache_line_idx( 0UL, test_stem_depths[ exec_out_idx ] );
+  FD_TEST( meta->seq==0UL );
+  FD_TEST( meta->sig==((FD_EXECRP_TT_LTHASH_SUB<<32)|0UL) );
+  FD_TEST( meta->sz==sizeof(fd_execrp_lthash_msg_t) );
+  FD_TEST( meta->chunk==chunk );
+  fd_execrp_lthash_msg_t const * req = fd_chunk_to_laddr_const( wksp, meta->chunk );
+  FD_TEST( req->bank_idx==bank->idx );
+  FD_TEST( req->ptxn_idx==0UL );
+  FD_TEST( !memcmp( &req->acct, acct, sizeof(fd_acct_addr_t) ) );
+
+  task->task_type        = FD_SCHED_TT_LTHASH_ADD;
+  task->lthash->ptxn_idx = ptxn_idx;
+  chunk = ctx->exec_out[ 0 ].chunk;
+  dispatch_task( ctx, test_stem, task );
+  FD_TEST( bank->refcnt==2UL );
+  meta = test_stem_mcaches[ exec_out_idx ] + fd_mcache_line_idx( 1UL, test_stem_depths[ exec_out_idx ] );
+  FD_TEST( meta->seq==1UL );
+  FD_TEST( meta->sig==((FD_EXECRP_TT_LTHASH_ADD<<32)|0UL) );
+  FD_TEST( meta->sz==sizeof(fd_execrp_lthash_msg_t) );
+  FD_TEST( meta->chunk==chunk );
+  req = fd_chunk_to_laddr_const( wksp, meta->chunk );
+  FD_TEST( req->bank_idx==bank->idx );
+  FD_TEST( req->ptxn_idx==ptxn_idx );
+  FD_TEST( !memcmp( &req->acct, acct, sizeof(fd_acct_addr_t) ) );
+
+  /* Dispatch: want_alts is set iff the flag is on and the transaction
+     is ALT_UNRESOLVED. */
+
+  mock_sched_txn_idx = 37UL;
+  memset( &mock_sched_txn, 0, sizeof(mock_sched_txn) );
+  mock_sched_txn.payload_sz = 64UL;
+  memset( &mock_sched_txn_info, 0, sizeof(mock_sched_txn_info) );
+  memset( task, 0, sizeof(task) );
+  task->task_type          = FD_SCHED_TT_TXN_EXEC;
+  task->txn_exec->bank_idx = bank->idx;
+  task->txn_exec->slot     = 1UL;
+  task->txn_exec->txn_idx  = mock_sched_txn_idx;
+  task->txn_exec->exec_idx = 0UL;
+  for( ulong i=0UL; i<3UL; i++ ) {
+    ctx->lthash_oob           = i!=2UL;
+    mock_sched_txn_info.flags = i!=1UL ? FD_SCHED_TXN_ALT_UNRESOLVED : 0UL;
+    chunk = ctx->exec_out[ 0 ].chunk;
+    dispatch_task( ctx, test_stem, task );
+    fd_execrp_txn_exec_msg_t const * exec_req = fd_chunk_to_laddr_const( wksp, chunk );
+    FD_TEST( exec_req->txn_idx==mock_sched_txn_idx );
+    FD_TEST( exec_req->want_alts==(i==0UL) );
+  }
+  FD_TEST( bank->refcnt==5UL );
+
+  /* Done: an LtHash result routes by kind with the frag's ptxn_idx and
+     value, dropping the ref the dispatch took. */
+
+  ctx->lthash_oob = 1;
+  ulong in_chunk = ctx->in[ TEST_EXECRP_IN_IDX ].chunk0;
+  fd_execrp_lthash_done_msg_t * done = fd_chunk_to_laddr( wksp, in_chunk );
+  memset( done, 0, sizeof(*done) );
+  done->bank_idx        = bank->idx;
+  done->ptxn_idx        = ptxn_idx;
+  done->acct            = acct[ 0 ];
+  done->value.words[ 0 ] = 0x1234;
+
+  mock_sched_task_done_cnt = 0UL;
+  ulong sig = (FD_EXECRP_TT_LTHASH_ADD<<32) | 0UL;
+  FD_TEST( !returnable_frag( ctx, TEST_EXECRP_IN_IDX, 0UL, sig, in_chunk, sizeof(*done), 0UL, 0UL, 0UL, test_stem ) );
+  FD_TEST( bank->refcnt==4UL );
+  FD_TEST( mock_sched_task_done_cnt==1UL );
+  FD_TEST( mock_sched_task_done_type==FD_SCHED_TT_LTHASH_ADD );
+  FD_TEST( mock_sched_task_done_txn_idx==ptxn_idx );
+  FD_TEST( mock_sched_task_done_exec_idx==0UL );
+  FD_TEST( mock_sched_task_done_data==&done->value );
+
+  done->ptxn_idx = 0UL;
+  sig = (FD_EXECRP_TT_LTHASH_SUB<<32) | 0UL;
+  FD_TEST( !returnable_frag( ctx, TEST_EXECRP_IN_IDX, 1UL, sig, in_chunk, sizeof(*done), 0UL, 0UL, 0UL, test_stem ) );
+  FD_TEST( bank->refcnt==3UL );
+  FD_TEST( mock_sched_task_done_cnt==2UL );
+  FD_TEST( mock_sched_task_done_type==FD_SCHED_TT_LTHASH_SUB );
+  FD_TEST( mock_sched_task_done_txn_idx==0UL );
+  FD_TEST( mock_sched_task_done_exec_idx==0UL );
+  FD_TEST( mock_sched_task_done_data==&done->value );
+
+  /* Done: the lookup table accounts trailing a TXN_EXEC frag reach the
+     scheduler as an fd_sched_txn_alts_t; a frag without them passes
+     NULL as before. */
+
+  mock_sched_txn_info.flags = FD_SCHED_TXN_ALT_UNRESOLVED;
+  fd_execrp_task_done_msg_t * msg = fd_chunk_to_laddr( wksp, in_chunk );
+  memset( msg, 0, fd_execrp_txn_exec_done_sz( 2UL ) );
+  msg->bank_idx                   = bank->idx;
+  msg->txn_exec->txn_idx          = mock_sched_txn_idx;
+  msg->txn_exec->is_committable   = 1;
+  msg->txn_exec->alt_writable_cnt = 2;
+  fd_pubkey_t * keys = (fd_pubkey_t *)(msg+1);
+  memset( keys[ 0 ].uc, 0x11, sizeof(fd_pubkey_t) );
+  memset( keys[ 1 ].uc, 0x22, sizeof(fd_pubkey_t) );
+
+  sig = (FD_EXECRP_TT_TXN_EXEC<<32) | 0UL;
+  FD_TEST( !returnable_frag( ctx, TEST_EXECRP_IN_IDX, 2UL, sig, in_chunk, fd_execrp_txn_exec_done_sz( 2UL ), 0UL, 0UL, 0UL, test_stem ) );
+  FD_TEST( bank->refcnt==2UL );
+  FD_TEST( mock_sched_task_done_cnt==3UL );
+  FD_TEST( mock_sched_task_done_type==FD_SCHED_TT_TXN_EXEC );
+  FD_TEST( mock_sched_task_done_txn_idx==mock_sched_txn_idx );
+  FD_TEST( mock_sched_task_done_alts_cnt==2UL );
+  FD_TEST( mock_sched_task_done_alts_addrs==fd_type_pun_const( keys ) );
+  FD_TEST( !memcmp( mock_sched_task_done_alts_addrs+1, keys+1, sizeof(fd_pubkey_t) ) );
+
+  msg->txn_exec->alt_writable_cnt = 0;
+  FD_TEST( !returnable_frag( ctx, TEST_EXECRP_IN_IDX, 3UL, sig, in_chunk, fd_execrp_txn_exec_done_sz( 0UL ), 0UL, 0UL, 0UL, test_stem ) );
+  FD_TEST( bank->refcnt==1UL );
+  FD_TEST( mock_sched_task_done_cnt==4UL );
+  FD_TEST( mock_sched_task_done_type==FD_SCHED_TT_TXN_EXEC );
+  FD_TEST( mock_sched_task_done_data==NULL );
+
+  FD_LOG_NOTICE(( "pass: test_lthash_oob_routing" ));
 }
 
 static void
@@ -5056,6 +5233,7 @@ main( int     argc,
   FD_TEST( wksp );
 
   test_txn_completion_publish( wksp );              fd_wksp_reset( wksp, 42U );
+  test_lthash_oob_routing( wksp );                  fd_wksp_reset( wksp, 42U );
   test_leader_fec_payload_retained( wksp );          fd_wksp_reset( wksp, 42U );
   test_reception_metrics_sidecar( wksp );           fd_wksp_reset( wksp, 42U );
   test_reward_cert_signer_count();

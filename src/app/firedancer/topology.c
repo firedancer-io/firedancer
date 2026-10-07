@@ -573,7 +573,7 @@ fd_topo_initialize( config_t * config ) {
     /**/               fd_topob_link( topo, "txsend_out",    "txsend_out",    128UL,                                    FD_TPU_RAW_MTU,                1UL );
   }
 
-  FOR(execrp_tile_cnt) fd_topob_link( topo, "execrp_replay", "execrp_replay", 16384UL,                                  sizeof(fd_execrp_task_done_msg_t), 1UL );
+  FOR(execrp_tile_cnt) fd_topob_link( topo, "execrp_replay", "execrp_replay", 16384UL,                                  config->development.lthash_out_of_band ? FD_EXECRP_TASK_DONE_MTU_OOB : FD_EXECRP_TASK_DONE_MTU_INBAND, 1UL );
   if( FD_LIKELY( config->tiles.gui.enabled ) ) {
     fd_topob_link( topo, "diag_gui", "diag_gui", 4UL, sizeof(fd_diag_system_resources_t), 1UL );
     /**/                 fd_topob_link( topo, "gossip_gui",  "gossip_gui",    256UL,                                    FD_GUI_GOSSIP_BW_MTU,          1UL );
@@ -1751,6 +1751,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     fd_cstr_ncpy( tile->replay.dump_proto_dir, config->capture.dump_proto_dir, sizeof(tile->replay.dump_proto_dir) );
     tile->replay.dump_block_to_pb = config->capture.dump_block_to_pb;
     tile->replay.report_runtime_diffs = config->development.event.report_runtime_diffs;
+    tile->replay.lthash_out_of_band   = config->development.lthash_out_of_band;
 
     if( FD_UNLIKELY( config->tiles.bundle.enabled ) ) {
 #define PARSE_BUNDLE_PUBKEY( _tile, f ) \

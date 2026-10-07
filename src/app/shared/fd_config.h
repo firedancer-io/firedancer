@@ -373,6 +373,7 @@ struct fd_config {
     int no_clone;
     int no_agave;
     int bootstrap;
+    int lthash_out_of_band;
 
     char core_dump[ 16 ];
     int core_dump_level;

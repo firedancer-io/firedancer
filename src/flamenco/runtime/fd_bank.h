@@ -250,6 +250,28 @@ typedef struct fd_bank_cost_tracker fd_bank_cost_tracker_t;
 #define FD_BANK_STATE_DEAD       (4UL)
 #define FD_BANK_STATE_PRUNABLE   (5UL)
 
+/* fd_bank_t lthash_mode selects what an account write does to the bank
+   LtHash.  In the OOB modes the bank LtHash is left alone and whoever
+   set the mode accounts for the written accounts.  Every other effect
+   of a write is the same in every mode. */
+
+#define FD_BANK_LTHASH_MODE_INBAND     (0) /* hash every write into f.lthash, as before */
+#define FD_BANK_LTHASH_MODE_OOB_RECORD (1) /* block start: do not hash, append the pubkey to lthash_rec */
+#define FD_BANK_LTHASH_MODE_OOB_SKIP   (2) /* transaction execution: do not hash */
+
+/* fd_bank_lthash_rec_t is the list of pubkeys written in OOB_RECORD
+   mode by fd_accdb_svm and the partitioned stake rewards, one entry per
+   write, in write order and not deduplicated.  Transaction commits run
+   on exec tiles and never append.  keys has room for max entries, cnt
+   of which are used. */
+
+struct fd_bank_lthash_rec {
+  ulong         cnt;
+  ulong         max;
+  fd_pubkey_t * keys;
+};
+typedef struct fd_bank_lthash_rec fd_bank_lthash_rec_t;
+
 
 struct fd_bank {
 
@@ -288,9 +310,15 @@ struct fd_bank {
   long last_transaction_finished_nanos;
   long block_completed_nanos;
 
-  /* This field should only be accessed by the replay and executor
-     tiles.  Taken per transaction, so on its own line. */
-  fd_rwlock_t lthash_lock __attribute__((aligned(64UL)));
+  /* These fields should only be accessed by the replay and executor
+     tiles.  The lock is taken per transaction, so it sits on its own
+     line with only the mode fields, which change only while no exec
+     tile is working on the bank.  lthash_rec points into replay tile
+     private memory and is valid only in OOB_RECORD mode, which only the
+     replay tile sets, so no other tile dereferences it. */
+  fd_rwlock_t            lthash_lock __attribute__((aligned(64UL)));
+  uchar                  lthash_mode; /* FD_BANK_LTHASH_MODE_*, INBAND by default */
+  fd_bank_lthash_rec_t * lthash_rec;
 
   struct {
     fd_lthash_value_t      lthash;
@@ -437,6 +465,13 @@ fd_bank_report_runtime_diffs( fd_bank_t const * bank ) {
   fd_banks_t const * banks_data = fd_type_pun_const( (uchar const *)bank - bank->banks_data_offset );
   return banks_data->report_runtime_diffs;
 }
+
+/* fd_bank_lthash_record appends pubkey to bank->lthash_rec.  The bank
+   must be in OOB_RECORD mode.  FD_LOG_CRIT if the list is full. */
+
+void
+fd_bank_lthash_record( fd_bank_t * bank,
+                       uchar const pubkey[ static 32 ] );
 
 /* Bank accessors and mutators.  Different accessors are emitted for
    different types depending on if the field has a lock or not. */

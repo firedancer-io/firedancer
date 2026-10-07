@@ -10,6 +10,7 @@
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_executor.h"
 #include "../../flamenco/runtime/fd_cost_tracker.h"
+#include "../../flamenco/runtime/fd_hashes.h"
 #include "../../flamenco/runtime/tests/fd_dump_pb.h"
 #include "../../flamenco/progcache/fd_progcache_user.h"
 #include "../../flamenco/log_collector/fd_log_collector_base.h"
@@ -35,6 +36,7 @@ typedef struct link_ctx {
   ulong       chunk;
   ulong       chunk0;
   ulong       wmark;
+  ulong       mtu;
 } link_ctx_t;
 
 struct fd_execrp_tile {
@@ -68,6 +70,7 @@ struct fd_execrp_tile {
   ulong txn_idx;
   ulong slot;
   ulong dispatch_time_comp;
+  int   want_alts;
 
   fd_log_collector_t log_collector;
 
@@ -233,15 +236,34 @@ publish_txn_finalized_msg( fd_execrp_tile_t *  ctx,
     *msg->txn_exec->vote.vote_acct    = (fd_pubkey_t){ 0 };
   }
 
+  /* Append the writable lookup table accounts if replay asked for them.
+     txn_out.accounts.cnt only passes acct_addr_cnt once the lookup
+     tables expanded successfully, and the expanded keys list the
+     writable accounts before the read-only ones. */
+  ulong alt_writable_cnt = 0UL;
+  fd_txn_t const * txn = TXN( ctx->txn_in.txn );
+  if( FD_UNLIKELY( ctx->want_alts && txn->transaction_version==FD_TXN_V0 ) ) {
+    ulong acct_addr_cnt = txn->acct_addr_cnt;
+    ulong wcnt          = txn->addr_table_adtl_writable_cnt;
+    if( FD_LIKELY( ctx->txn_out.accounts.cnt>=acct_addr_cnt+wcnt ) ) {
+      FD_TEST( fd_execrp_txn_exec_done_sz( wcnt )<=ctx->execrp_replay_out->mtu );
+      fd_memcpy( msg+1, &ctx->txn_out.accounts.keys[ acct_addr_cnt ], wcnt*sizeof(fd_pubkey_t) );
+      alt_writable_cnt = wcnt;
+    }
+  }
+  msg->txn_exec->alt_writable_cnt = (uchar)alt_writable_cnt;
+  ctx->want_alts = 0;
+
   if( FD_UNLIKELY( !msg->txn_exec->is_committable ) ) {
     uchar * signature = (uchar *)ctx->txn_in.txn->payload + TXN( ctx->txn_in.txn )->signature_off;
     FD_BASE58_ENCODE_64_BYTES( signature, signature_b58 );
     FD_LOG_WARNING(( "block marked dead (slot=%lu) because of invalid transaction (signature=%s) (txn_err=%d)", ctx->slot, signature_b58, ctx->txn_out.err.txn_err ));
   }
 
-  fd_stem_publish( stem, ctx->execrp_replay_out->idx, (FD_EXECRP_TT_TXN_EXEC<<32)|ctx->tile_idx, ctx->execrp_replay_out->chunk, sizeof(*msg), 0UL, ctx->dispatch_time_comp, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ulong sz = fd_execrp_txn_exec_done_sz( alt_writable_cnt );
+  fd_stem_publish( stem, ctx->execrp_replay_out->idx, (FD_EXECRP_TT_TXN_EXEC<<32)|ctx->tile_idx, ctx->execrp_replay_out->chunk, sz, 0UL, ctx->dispatch_time_comp, fd_frag_meta_ts_comp( fd_tickcount() ) );
 
-  ctx->execrp_replay_out->chunk = fd_dcache_compact_next( ctx->execrp_replay_out->chunk, sizeof(*msg), ctx->execrp_replay_out->chunk0, ctx->execrp_replay_out->wmark );
+  ctx->execrp_replay_out->chunk = fd_dcache_compact_next( ctx->execrp_replay_out->chunk, sz, ctx->execrp_replay_out->chunk0, ctx->execrp_replay_out->wmark );
 }
 
 static inline void
@@ -281,6 +303,7 @@ returnable_frag( fd_execrp_tile_t *  ctx,
         ctx->bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );
         FD_TEST( ctx->bank );
         ctx->txn_in.txn = msg->txn;
+        ctx->want_alts  = msg->want_alts;
         memcpy( ctx->txn_in.fec_merkle_root, msg->fec_merkle_root, 32UL );
         ctx->txn_in.index_in_slot = msg->index_in_slot;
 
@@ -343,6 +366,27 @@ returnable_frag( fd_execrp_tile_t *  ctx,
         ctx->metrics.poh_hash_cnt += msg->hashcnt*msg->cnt;
         fd_sha256_hash_32_repeated_batch( msg->hash, out_msg->poh_hash->hash, msg->hashcnt, msg->cnt );
         fd_stem_publish( stem, ctx->execrp_replay_out->idx, (FD_EXECRP_TT_POH_HASH<<32)|ctx->tile_idx, ctx->execrp_replay_out->chunk, sizeof(*out_msg), 0UL, 0UL, 0UL );
+        ctx->execrp_replay_out->chunk = fd_dcache_compact_next( ctx->execrp_replay_out->chunk, sizeof(*out_msg), ctx->execrp_replay_out->chunk0, ctx->execrp_replay_out->wmark );
+        break;
+      }
+      case FD_EXECRP_TT_LTHASH_SUB:
+      case FD_EXECRP_TT_LTHASH_ADD: {
+        /* Only hash.  Folding the value into the bank is replay's job. */
+        ulong kind = sig>>32;
+        fd_execrp_lthash_msg_t * msg = fd_chunk_to_laddr( ctx->replay_in->mem, chunk );
+        fd_bank_t * bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );
+        FD_TEST( bank );
+        fd_accdb_fork_id_t fork_id = kind==FD_EXECRP_TT_LTHASH_SUB ? bank->parent_accdb_fork_id : bank->accdb_fork_id;
+        FD_TEST( fork_id.val!=USHORT_MAX );
+        FD_TEST( sizeof(fd_execrp_lthash_done_msg_t)<=ctx->execrp_replay_out->mtu );
+        fd_execrp_lthash_done_msg_t * out_msg = fd_chunk_to_laddr( ctx->execrp_replay_out->mem, ctx->execrp_replay_out->chunk );
+        out_msg->bank_idx = msg->bank_idx;
+        out_msg->ptxn_idx = msg->ptxn_idx;
+        out_msg->acct     = msg->acct;
+        fd_acc_t acc = fd_accdb_read_one( ctx->accdb, fork_id, msg->acct.b );
+        fd_hashes_account_lthash_simple( acc.pubkey, acc.owner, acc.lamports, acc.executable, acc.data, acc.data_len, &out_msg->value );
+        fd_accdb_unread_one( ctx->accdb, &acc );
+        fd_stem_publish( stem, ctx->execrp_replay_out->idx, (kind<<32)|ctx->tile_idx, ctx->execrp_replay_out->chunk, sizeof(*out_msg), 0UL, 0UL, 0UL );
         ctx->execrp_replay_out->chunk = fd_dcache_compact_next( ctx->execrp_replay_out->chunk, sizeof(*out_msg), ctx->execrp_replay_out->chunk0, ctx->execrp_replay_out->wmark );
         break;
       }
@@ -443,6 +487,7 @@ unprivileged_init( fd_topo_t const *      topo,
     ctx->execrp_replay_out->chunk0 = fd_dcache_compact_chunk0( ctx->execrp_replay_out->mem, execrp_replay_link->dcache );
     ctx->execrp_replay_out->wmark  = fd_dcache_compact_wmark( ctx->execrp_replay_out->mem, execrp_replay_link->dcache, execrp_replay_link->mtu );
     ctx->execrp_replay_out->chunk  = ctx->execrp_replay_out->chunk0;
+    ctx->execrp_replay_out->mtu    = execrp_replay_link->mtu;
   }
 
   ctx->capture_ctx = NULL;

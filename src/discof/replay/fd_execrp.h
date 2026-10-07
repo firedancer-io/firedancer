@@ -2,13 +2,17 @@
 #define HEADER_fd_src_discof_replay_fd_exec_h
 
 #include "../../disco/fd_txn_p.h"
+#include "../../tango/fd_tango_base.h"
 #include "../../flamenco/fd_flamenco_base.h"
 #include "../../choreo/tower/fd_tower_serdes.h"
+#include "../../ballet/lthash/fd_lthash.h"
 
 /* Exec tile task types. */
 #define FD_EXECRP_TT_TXN_EXEC      (1UL) /* Transaction execution. */
 #define FD_EXECRP_TT_TXN_SIGVERIFY (2UL) /* Transaction sigverify. */
 #define FD_EXECRP_TT_POH_HASH      (3UL) /* PoH hashing. */
+#define FD_EXECRP_TT_LTHASH_SUB    (4UL) /* Hash an account as it is in the parent bank's fork. */
+#define FD_EXECRP_TT_LTHASH_ADD    (5UL) /* Hash an account as it is in this bank's fork. */
 
 /* Sent from the replay tile to the exec tiles.  These describe one of
    several types of tasks for an exec tile.  An idx to the bank in the
@@ -29,6 +33,10 @@ struct fd_execrp_txn_exec_msg {
 
   /* 0-indexed position of this transaction within its block. */
   ulong      index_in_slot;
+
+  /* Non-zero asks the exec tile to return the transaction's expanded
+     writable address lookup table accounts in the done message. */
+  int        want_alts;
 };
 typedef struct fd_execrp_txn_exec_msg fd_execrp_txn_exec_msg_t;
 
@@ -48,10 +56,22 @@ struct fd_execrp_poh_hash_msg {
 };
 typedef struct fd_execrp_poh_hash_msg fd_execrp_poh_hash_msg_t;
 
+/* An LtHash task hashes acct as fd_hashes_account_lthash_simple does,
+   reading it on the parent bank's accdb fork for SUB and on this bank's
+   fork for ADD.  A missing or zero-lamport account hashes to zero. */
+
+struct fd_execrp_lthash_msg {
+  ulong          bank_idx;
+  ulong          ptxn_idx;   /* rdisp pseudo-txn index for ADD, 0 for SUB */
+  fd_acct_addr_t acct;
+};
+typedef struct fd_execrp_lthash_msg fd_execrp_lthash_msg_t;
+
 union fd_execrp_task_msg {
   fd_execrp_txn_exec_msg_t      txn_exec;
   fd_execrp_txn_sigverify_msg_t txn_sigverify;
   fd_execrp_poh_hash_msg_t      poh_hash;
+  fd_execrp_lthash_msg_t        lthash;
 };
 
 typedef union fd_execrp_task_msg fd_execrp_task_msg_t;
@@ -59,7 +79,13 @@ typedef union fd_execrp_task_msg fd_execrp_task_msg_t;
 /* Sent from exec tiles to the replay tile, notifying the replay tile
    that a task has been completed.  That is, if the task has any
    observable side effects, such as updates to accounts, then those side
-   effects are fully visible on any other exec tile. */
+   effects are fully visible on any other exec tile.
+
+   A TXN_EXEC, TXN_SIGVERIFY or POH_HASH frag is a
+   fd_execrp_task_done_msg_t, and a TXN_EXEC frag is followed by
+   txn_exec->alt_writable_cnt pubkeys (fd_execrp_txn_exec_done_alt_writable).
+   An LTHASH_SUB or LTHASH_ADD frag is a fd_execrp_lthash_done_msg_t.
+   Both message types start with bank_idx. */
 
 struct fd_execrp_txn_exec_done_msg {
   ulong txn_idx;
@@ -90,6 +116,11 @@ struct fd_execrp_txn_exec_done_msg {
   int is_noop;
   int txn_err;
   int is_simple_vote;
+
+  /* Number of pubkeys trailing the frag: the transaction's expanded
+     writable address lookup table accounts, in transaction order.  0
+     unless the request had want_alts set and the expansion succeeded. */
+  uchar alt_writable_cnt;
 
   /* LONG_MAX if stage was not reached */
   long tick_load_start;
@@ -141,5 +172,62 @@ struct fd_execrp_task_done_msg {
   };
 };
 typedef struct fd_execrp_task_done_msg fd_execrp_task_done_msg_t;
+
+/* The in-band execrp_replay MTU is this size; the topology sizes the
+   link from it. */
+FD_STATIC_ASSERT( sizeof(fd_execrp_task_done_msg_t)==528UL, execrp_task_done_sz );
+
+/* The done message of an LtHash task.  It is its own type rather than
+   a member of the done union so that the 2 KiB value does not grow
+   every done frag, and with it every execrp_replay dcache, when the
+   feature is off.  bank_idx comes first, at the same offset as in
+   fd_execrp_task_done_msg_t, so a consumer can read it before switching
+   on the task type.  ptxn_idx and acct are copied from the request. */
+
+struct __attribute__((aligned(64))) fd_execrp_lthash_done_msg {
+  ulong             bank_idx;
+  ulong             ptxn_idx;
+  fd_acct_addr_t    acct;
+  fd_lthash_value_t value;   /* 2 KiB */
+};
+typedef struct fd_execrp_lthash_done_msg fd_execrp_lthash_done_msg_t;
+
+/* dcache chunks are FD_CHUNK_ALIGN aligned. */
+FD_STATIC_ASSERT( alignof(fd_execrp_lthash_done_msg_t)<=FD_CHUNK_ALIGN, execrp_lthash_done_align );
+FD_STATIC_ASSERT( offsetof(fd_execrp_lthash_done_msg_t, bank_idx)==offsetof(fd_execrp_task_done_msg_t, bank_idx), execrp_lthash_done_bank_idx );
+
+/* execrp_replay link MTUs.  FD_EXECRP_TASK_DONE_MTU_INBAND fits every
+   done frag when LtHash is computed in band, where TXN_EXEC frags carry
+   no lookup table accounts and there are no LtHash tasks.
+   FD_EXECRP_TASK_DONE_MTU_OOB also fits an LtHash done message and a
+   TXN_EXEC frag carrying the most writable lookup table accounts a v0
+   transaction can have, FD_TXN_ACCT_ADDR_MAX-1 (fd_txn.h).  It equals
+   max( sizeof(fd_execrp_lthash_done_msg_t),
+        fd_execrp_txn_exec_done_sz( FD_TXN_ACCT_ADDR_MAX-1UL ) ),
+   spelled out so it stays a compile-time constant. */
+
+#define FD_EXECRP_TASK_DONE_MTU_INBAND (sizeof(fd_execrp_task_done_msg_t))
+#define FD_EXECRP_TXN_EXEC_DONE_MAX_SZ (FD_EXECRP_TASK_DONE_MTU_INBAND+(FD_TXN_ACCT_ADDR_MAX-1UL)*sizeof(fd_pubkey_t))
+#define FD_EXECRP_TASK_DONE_MTU_OOB    (sizeof(fd_execrp_lthash_done_msg_t)>FD_EXECRP_TXN_EXEC_DONE_MAX_SZ ? \
+                                        sizeof(fd_execrp_lthash_done_msg_t) : FD_EXECRP_TXN_EXEC_DONE_MAX_SZ)
+
+FD_PROTOTYPES_BEGIN
+
+/* fd_execrp_txn_exec_done_alt_writable returns the
+   msg->txn_exec->alt_writable_cnt writable lookup table accounts that
+   trail a TXN_EXEC done frag.  fd_execrp_txn_exec_done_sz returns the
+   size of a TXN_EXEC done frag carrying alt_writable_cnt of them. */
+
+FD_FN_CONST static inline fd_pubkey_t const *
+fd_execrp_txn_exec_done_alt_writable( fd_execrp_task_done_msg_t const * msg ) {
+  return (fd_pubkey_t const *)(msg+1);
+}
+
+FD_FN_CONST static inline ulong
+fd_execrp_txn_exec_done_sz( ulong alt_writable_cnt ) {
+  return sizeof(fd_execrp_task_done_msg_t) + alt_writable_cnt*sizeof(fd_pubkey_t);
+}
+
+FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_discof_replay_fd_execrp_h */

@@ -1,7 +1,9 @@
 #ifndef HEADER_fd_src_flamenco_runtime_fd_accdb_svm_h
 #define HEADER_fd_src_flamenco_runtime_fd_accdb_svm_h
 
-/* fd_accdb_svm.h provides APIs for slot boundary account changes. */
+/* fd_accdb_svm.h provides APIs for slot boundary account changes.  The
+   bank LtHash updates below follow bank->lthash_mode, see
+   FD_BANK_LTHASH_MODE_* in fd_bank.h. */
 
 #include "../accdb/fd_accdb.h"
 #include "../fd_flamenco_base.h"

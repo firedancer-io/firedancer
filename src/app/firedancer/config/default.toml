@@ -2049,6 +2049,13 @@ telemetry = true
     # value of true unless attempting to replay old ledgers.
     fixed_fec_sets = true
 
+    # Whether replay computes the accounts LtHash out of band.  When
+    # true, the LtHash subtraction and addition for each account a
+    # block writes run as exec tile tasks that the replay scheduler
+    # dispatches onto otherwise idle tiles, instead of inside
+    # transaction execution on every account write.
+    lthash_out_of_band = false
+
     [development.votor]
         # The votor tile makes outgoing QUIC connections from this port
         # to broadcast the votes it produces.  Peers see it as the
