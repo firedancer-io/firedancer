@@ -24,4 +24,5 @@ $(call run-unit-test,test_ag_slot_state)
 $(call run-unit-test,test_ag_finality_tracker)
 $(call run-unit-test,test_ag_parent_ready_tracker)
 $(call run-unit-test,test_ag_votor)
+$(call make-fuzz-test,fuzz_ag_vote_history_file,fuzz_ag_vote_history_file,fd_choreo fd_ballet fd_util)
 endif
