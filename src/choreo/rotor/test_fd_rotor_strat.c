@@ -9,8 +9,8 @@ key( uchar b ) {
 }
 
 /* Slots follow stake with unstaked peers last; the fastest bucket wins;
-   one timeout does not demote a peer but repeated ones do; banned and
-   failed peers are skipped. */
+   slow or jittery replies demote a peer until fast ones bring it back;
+   banned and failed peers are skipped. */
 
 static void
 test_order( void ) {
@@ -41,15 +41,26 @@ test_order( void ) {
   FD_TEST( fd_rotor_strat_pick( strat, 0L, 0 )==fd_rotor_strat_query( strat, &u ) );
   fd_rotor_strat_request_done( strat, &u, 10L*1000000L );
 
-  /* One slow reply leaves it in its bucket, repeated ones demote it. */
+  /* One slow reply demotes it, its jitter counting against it as in
+     its hedge, repeated ones more.  Fast replies bring it back. */
 
   fd_rotor_strat_request_done( strat, &u, 1000L*1000000L );
+  FD_TEST( fd_rotor_strat_query( strat, &u )->bucket==FD_ROTOR_STRAT_BUCKET_200MS );
+  for( ulong i=0UL; i<2UL; i++ ) fd_rotor_strat_request_done( strat, &u, 1000L*1000000L );
+  FD_TEST( fd_rotor_strat_query( strat, &u )->bucket==FD_ROTOR_STRAT_BUCKET_SLOW );
+  for( ulong i=0UL; i<32UL; i++ ) fd_rotor_strat_request_done( strat, &u, 10L*1000000L );
   FD_TEST( fd_rotor_strat_query( strat, &u )->bucket==FD_ROTOR_STRAT_BUCKET_25MS );
+
+  /* A jittery peer ranks slower than its mean. */
+
+  for( ulong i=0UL; i<32UL; i++ ) fd_rotor_strat_request_done( strat, &u, fd_long_if( i&1UL, 190L, 10L )*1000000L );
+  FD_TEST( fd_rotor_strat_query( strat, &u )->bucket==FD_ROTOR_STRAT_BUCKET_200MS );
   for( ulong i=0UL; i<32UL; i++ ) fd_rotor_strat_request_done( strat, &u, 1000L*1000000L );
   FD_TEST( fd_rotor_strat_query( strat, &u )->bucket==FD_ROTOR_STRAT_BUCKET_SLOW );
 
   /* Of two peers in a bucket, the one with fewer requests in flight. */
 
+  FD_TEST( fd_rotor_strat_query( strat, &a )->bucket==fd_rotor_strat_query( strat, &b )->bucket );
   fd_rotor_strat_query( strat, &b )->inflight = 5U;
   for( ulong i=0UL; i<4UL; i++ ) {
     FD_TEST( fd_rotor_strat_pick( strat, 0L, 1 )==fd_rotor_strat_query( strat, &a ) );
