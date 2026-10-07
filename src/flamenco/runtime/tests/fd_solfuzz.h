@@ -247,6 +247,13 @@ fd_solfuzz_pb_gossip_fixture( fd_solfuzz_runner_t * runner,
                               uchar const *         in,
                               ulong                 in_sz );
 
+/* Alpenglow Vote Deserialization */
+
+int
+fd_solfuzz_pb_votor_vote_deserialize_fixture( fd_solfuzz_runner_t * runner,
+                                              uchar const *         in,
+                                              ulong                 in_sz );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_tests_fd_solfuzz_h */

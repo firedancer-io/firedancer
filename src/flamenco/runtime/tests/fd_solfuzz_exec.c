@@ -2,6 +2,7 @@
 
 #include "fd_solfuzz_private.h"
 #include "fd_gossip_harness.h"
+#include "fd_votor_harness.h"
 #include "generated/block.pb.h"
 #include "generated/instr.pb.h"
 #include "generated/txn.pb.h"
@@ -12,6 +13,7 @@
 #include "generated/elf.pb.h"
 #include "generated/shred.pb.h"
 #include "generated/gossip.pb.h"
+#include "generated/votor.pb.h"
 
 #include "../fd_executor_err.h"
 
@@ -460,5 +462,46 @@ fd_solfuzz_pb_gossip_fixture( fd_solfuzz_runner_t * runner,
 
   // Cleanup
   pb_release( &fd_exec_test_gossip_fixture_t_msg, fixture );
+  return ok;
+}
+
+int
+fd_solfuzz_pb_votor_vote_deserialize_fixture( fd_solfuzz_runner_t * runner,
+                                              uchar const *         in,
+                                              ulong                 in_sz ) {
+  fd_exec_test_votor_vote_deserialize_fixture_t fixture[1] = {0};
+  if( !sol_compat_decode_lenient( &fixture, in, in_sz, &fd_exec_test_votor_vote_deserialize_fixture_t_msg ) ) {
+    FD_LOG_WARNING(( "Invalid votor vote deserialize fixture." ));
+    return 0;
+  }
+
+  int ok = 0;
+  fd_spad_push( runner->spad );
+
+  /* The harness takes an encoded context, so re-encode the input */
+
+  ulong   in_ctx_sz = 4096UL;
+  uchar * in_ctx    = fd_spad_alloc( runner->spad, 1UL, in_ctx_sz );
+  ulong   out_sz    = 4096UL;
+  uchar * out       = fd_spad_alloc( runner->spad, 1UL, out_sz );
+  ulong   exp_sz    = 4096UL;
+  uchar * exp       = fd_spad_alloc( runner->spad, 1UL, exp_sz );
+  if( !sol_compat_encode( in_ctx, &in_ctx_sz, &fixture->input, &fd_exec_test_votor_vote_deserialize_context_t_msg ) ) {
+    FD_LOG_WARNING(( "Error encoding input" ));
+  } else if( !fd_solfuzz_votor_vote_deserialize( runner, out, &out_sz, in_ctx, in_ctx_sz ) ) {
+    FD_LOG_WARNING(( "No output effects" ));
+  } else if( !sol_compat_encode( exp, &exp_sz, &fixture->output, &fd_exec_test_votor_vote_deserialize_effects_t_msg ) ) {
+    FD_LOG_WARNING(( "Error encoding expected" ));
+  } else if( out_sz!=exp_sz ) {
+    FD_LOG_WARNING(( "Binary cmp failed: different size. out_sz=%lu exp_sz=%lu", out_sz, exp_sz ));
+  } else if( !fd_memeq( out, exp, out_sz ) ) {
+    FD_LOG_WARNING(( "Binary cmp failed: different values." ));
+  } else {
+    ok = 1;
+  }
+
+  fd_spad_pop( runner->spad );
+
+  pb_release( &fd_exec_test_votor_vote_deserialize_fixture_t_msg, fixture );
   return ok;
 }
