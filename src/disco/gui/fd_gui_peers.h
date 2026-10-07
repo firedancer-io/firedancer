@@ -23,7 +23,6 @@
 #include "../../flamenco/leaders/fd_leaders_base.h"
 
 #include "../../waltz/http/fd_http_server.h"
-#include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../topo/fd_topo.h"
 #include "../../util/fd_hash32.h"
 
@@ -409,11 +408,7 @@ struct fd_gui_peers_ctx {
       ulong idxs   [ FD_CONTACT_INFO_TABLE_SIZE ];
     };
     struct {
-      ulong wfs_peers[ FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ];
-    };
-    struct {
-      fd_stake_weight_t      manifest_id_weights  [ FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ];
-      fd_vote_stake_weight_t manifest_vote_weights[ FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ];
+      ulong wfs_peers[ MAX_STAKE_WEIGHTS ];
     };
     fd_gui_peers_voter_t voters_scratch[ MAX_STAKE_WEIGHTS ];
     struct {
@@ -427,7 +422,7 @@ struct fd_gui_peers_ctx {
   fd_gui_ip_db_t dbip;
 
   int               wfs_enabled;
-  fd_gui_wfs_peer_t wfs_peers[ FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ];
+  fd_gui_wfs_peer_t wfs_peers[ MAX_STAKE_WEIGHTS ];
   ulong             wfs_peers_cnt;
   int               wfs_peers_valid;
   int               wfs_stakes_sent;
@@ -435,11 +430,6 @@ struct fd_gui_peers_ctx {
 };
 
 typedef struct fd_gui_peers_ctx fd_gui_peers_ctx_t;
-
-/* FIXME: see src/discof/restore/utils/fd_ssmsg.h */
-FD_STATIC_ASSERT( sizeof(((fd_gui_peers_ctx_t *)NULL)->wfs_peers)/sizeof(((fd_gui_peers_ctx_t *)NULL)->wfs_peers[0])==
-                  sizeof(((struct fd_snapshot_manifest *)NULL)->vote_accounts)/sizeof(((struct fd_snapshot_manifest *)NULL)->vote_accounts[0]),
-                  wfs_peers_vote_accounts );
 
 FD_PROTOTYPES_BEGIN
 
@@ -512,12 +502,9 @@ fd_gui_peers_handle_config_account( fd_gui_peers_ctx_t *  peers,
                                     ulong                 sz );
 
 void
-fd_gui_peers_stage_snapshot_manifest( fd_gui_peers_ctx_t *           peers,
-                                      fd_snapshot_manifest_t const * manifest,
-                                      long                           now );
-
-void
-fd_gui_peers_commit_snapshot_manifest( fd_gui_peers_ctx_t * peers );
+fd_gui_peers_start_wfs( fd_gui_peers_ctx_t *        peers,
+                        fd_epoch_info_msg_t const * epoch_info,
+                        long                        now );
 
 /* fd_gui_peers_ws_message handles incoming websocket request payloads
    requesting peer-related responses.  ws_conn_id is the connection id

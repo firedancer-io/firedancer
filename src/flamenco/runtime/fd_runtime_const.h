@@ -48,12 +48,6 @@ FD_PROTOTYPES_BEGIN
 
 #define FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS (2000UL)
 
-/* Bound on the snapshot manifest's vote account map, which holds
-   every staked voter rather than only the VAT-admitted set.  Wait
-   for supermajority is the sole consumer. */
-
-#define FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS (40200UL)
-
 /* The maximum number of epoch stakes that are needed to be parsed out
    from the manifest.  Agave produced snapshots include 5 epoch stakes
    (MAX_LEADER_SCHEDULE_STAKES), E-3..E+1 for a snapshot in epoch E, and

@@ -13,7 +13,6 @@
 #include "../../disco/topo/fd_dns_resolve.h"
 #include "../../disco/fd_txn_m.h"
 #include "../tower/fd_tower_tile.h"
-#include "../restore/utils/fd_ssmsg.h"
 
 #define IN_KIND_GOSSVF        (0)
 #define IN_KIND_SHRED_VERSION (1)
@@ -21,7 +20,6 @@
 #define IN_KIND_TXSEND        (3)
 #define IN_KIND_EPOCH         (4)
 #define IN_KIND_TOWER         (5)
-#define IN_KIND_SNAPIN_MANIF  (6)
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
@@ -362,6 +360,29 @@ handle_epoch( fd_gossip_tile_ctx_t *      ctx,
 
   fd_stake_weight_t const * weights = fd_epoch_info_msg_id_weights( msg );
   fd_gossip_stakes_update( ctx->gossip, weights, msg->staked_id_cnt );
+
+  if( FD_LIKELY( ctx->wfs_state==FD_GOSSIP_WFS_STATE_DONE ) ) return;
+
+  /* Wait for supermajority uses the next epoch's stakes, which is
+     the last epoch message replay sends at boot. */
+  ctx->wfs_stake.online = 0UL;
+  ctx->wfs_stake.total  = 0UL;
+  ctx->wfs_peers.online = 0UL;
+  memset( ctx->wfs_active, 0, sizeof(ctx->wfs_active) );
+
+  fd_memcpy( ctx->wfs_stakes, weights, msg->staked_id_cnt*sizeof(fd_stake_weight_t) );
+  ctx->wfs_stakes_cnt = msg->staked_id_cnt;
+  for( ulong i=0UL; i<ctx->wfs_stakes_cnt; i++ ) {
+    ctx->wfs_stake.total += ctx->wfs_stakes[ i ].stake;
+  }
+
+  /* sort for quick lookup */
+  fd_stake_weight_key_sort_inplace( ctx->wfs_stakes, ctx->wfs_stakes_cnt );
+
+  ctx->wfs_peers.total = ctx->wfs_stakes_cnt;
+  ctx->wfs_state       = FD_GOSSIP_WFS_STATE_WAIT;
+  FD_MGAUGE_SET( GOSSIP, WAIT_FOR_SUPERMAJORITY_STAKED_PEER_TOTAL, ctx->wfs_peers.total );
+  FD_MGAUGE_SET( GOSSIP, WAIT_FOR_SUPERMAJORITY_STAKE_TOTAL,       ctx->wfs_stake.total );
 }
 
 static void
@@ -497,46 +518,6 @@ returnable_frag( fd_gossip_tile_ctx_t * ctx,
     case IN_KIND_TXSEND:        handle_local_vote( ctx, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ) ); break;
     case IN_KIND_EPOCH:         handle_epoch( ctx, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ) ); break;
     case IN_KIND_TOWER:         handle_local_duplicate_shred( ctx, sig, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ) ); break;
-    case IN_KIND_SNAPIN_MANIF: {
-      if( FD_LIKELY( ctx->wfs_state==FD_GOSSIP_WFS_STATE_DONE ) ) break;
-
-      if( FD_UNLIKELY( fd_ssmsg_sig_message( sig )==FD_SSMSG_DONE ) ) {
-        ctx->wfs_state = FD_GOSSIP_WFS_STATE_WAIT;
-        break;
-      }
-
-      /* FIXME: Replace handling for this when manifest supports larger
-         vote and stake account bounds. */
-      fd_snapshot_manifest_t const * manifest = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
-
-      ulong wfs_stakes_unconverted_cnt = 0UL;
-      ctx->wfs_stake.online = 0UL;
-      ctx->wfs_stake.total  = 0UL;
-      ctx->wfs_peers.online = 0UL;
-      ctx->wfs_peers.total  = 0UL;
-      memset( ctx->wfs_active, 0, sizeof(ctx->wfs_active) );
-
-      FD_TEST( manifest->vote_accounts_len<=FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS );
-      for( ulong i=0UL; i<manifest->vote_accounts_len; i++ ) {
-          if( FD_UNLIKELY( manifest->vote_accounts[ i ].stake==0UL ) ) continue;
-          ctx->wfs_stake.total += manifest->vote_accounts[ i ].stake;
-
-          fd_memcpy( ctx->wfs_stakes_scratch[ wfs_stakes_unconverted_cnt ].id_key.uc, manifest->vote_accounts[ i ].node_account_pubkey, sizeof(fd_pubkey_t) );
-          fd_memcpy( ctx->wfs_stakes_scratch[ wfs_stakes_unconverted_cnt ].vote_key.uc, manifest->vote_accounts[ i ].vote_account_pubkey, sizeof(fd_pubkey_t) );
-          ctx->wfs_stakes_scratch[ wfs_stakes_unconverted_cnt ].stake = manifest->vote_accounts[ i ].stake;
-          wfs_stakes_unconverted_cnt++;
-      }
-      ctx->wfs_stakes_cnt = compute_id_weights_from_vote_weights( ctx->wfs_stakes, ctx->wfs_stakes_scratch, wfs_stakes_unconverted_cnt );
-
-      /* sort for quick lookup */
-      fd_stake_weight_key_sort_inplace( ctx->wfs_stakes, ctx->wfs_stakes_cnt );
-
-      ctx->wfs_peers.total = ctx->wfs_stakes_cnt;
-      FD_MGAUGE_SET( GOSSIP, WAIT_FOR_SUPERMAJORITY_STAKED_PEER_TOTAL, ctx->wfs_peers.total );
-      FD_MGAUGE_SET( GOSSIP, WAIT_FOR_SUPERMAJORITY_STAKE_TOTAL,       ctx->wfs_stake.total );
-
-      break;
-    }
     default: FD_LOG_ERR(( "unreachable" ));
   }
 
@@ -639,8 +620,6 @@ unprivileged_init( fd_topo_t const *      topo,
       ctx->in[ i ].kind = IN_KIND_EPOCH;
     } else if( FD_UNLIKELY( !strcmp( link->name, "tower_out" ) ) ) {
       ctx->in[ i ].kind = IN_KIND_TOWER;
-    } else if( FD_UNLIKELY( !strcmp( link->name, "snapin_manif" ) ) ) {
-      ctx->in[ i ].kind = IN_KIND_SNAPIN_MANIF;
     } else {
       FD_LOG_ERR(( "unexpected input link name %s", link->name ));
     }
