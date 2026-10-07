@@ -34,5 +34,17 @@ fd_event_register( fd_topo_t const *      topo,
     r->wake_cnt = fd_sleep_wake_table( r->wake, topo, link->id );
   }
 
+  r->cons_fseq = NULL;
+  ulong event_tile_idx = fd_topo_find_tile( topo, "event", 0UL );
+  if( FD_LIKELY( event_tile_idx!=ULONG_MAX ) ) {
+    fd_topo_tile_t const * event_tile = &topo->tiles[ event_tile_idx ];
+    for( ulong j=0UL; j<event_tile->in_cnt; j++ ) {
+      if( event_tile->in_link_id[ j ]!=link->id ) continue;
+      void * fseq = fd_topo_obj_laddr( topo, event_tile->in_link_fseq_obj_id[ j ] );
+      if( FD_LIKELY( fseq ) ) r->cons_fseq = fd_fseq_join( fseq );
+      break;
+    }
+  }
+
   fd_event_tl = r;
 }

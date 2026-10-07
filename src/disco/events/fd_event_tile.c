@@ -267,7 +267,7 @@ after_frag( fd_event_tile_t *   ctx,
             ulong               tsorig,
             ulong               tspub,
             fd_stem_context_t * stem ) {
-  (void)sz; (void)tsorig; (void)stem;
+  (void)sz; (void)tsorig;
 
   switch( ctx->in_kind[ in_idx ] ) {
     case IN_KIND_SHRED: {
@@ -383,6 +383,7 @@ after_frag( fd_event_tile_t *   ctx,
     case IN_KIND_EVENT: {
       long timestamp_nanos = fd_clock_tile_tickcomp_to_wallclock( ctx->clock, tspub );
       fd_event_serialize_by_type( ctx->event_type, ctx->circq, ctx->client, timestamp_nanos, seq, ctx->event_buf, ctx->event_sz );
+      fd_stem_credit_return( stem, in_idx, seq+1UL );
       break;
     }
     default:
