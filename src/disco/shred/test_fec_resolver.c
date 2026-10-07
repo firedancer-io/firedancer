@@ -35,6 +35,7 @@ fd_shredder_t _shredder[ 1 ];
 #define SHRED_VER   (ushort)6051 /* An arbitrary value */
 #define MAX         (32UL*1024UL)
 #define SEED        10388431120836828144UL
+#define SLOT_MAX    (4096UL)
 
 struct signer_ctx {
   fd_sha512_t sha512[ 1 ];
@@ -139,9 +140,9 @@ test_one_batch( void ) {
 
   ulong foot = fd_fec_resolver_footprint( 4UL, 1UL, 1UL, 1UL );
   fd_fec_resolver_t *r1, *r2, *r3;
-  r1 = fd_fec_resolver_join( fd_fec_resolver_new( res_mem+0UL*foot, 2UL, 1UL, 1UL, 1UL, out_sets,     SEED ) );
-  r2 = fd_fec_resolver_join( fd_fec_resolver_new( res_mem+1UL*foot, 2UL, 1UL, 1UL, 1UL, out_sets+4UL, SEED ) );
-  r3 = fd_fec_resolver_join( fd_fec_resolver_new( res_mem+2UL*foot, 2UL, 1UL, 1UL, 1UL, out_sets+8UL, SEED ) );
+  r1 = fd_fec_resolver_join( fd_fec_resolver_new( res_mem+0UL*foot, 2UL, 1UL, 1UL, 1UL, SLOT_MAX, out_sets,     SEED ) );
+  r2 = fd_fec_resolver_join( fd_fec_resolver_new( res_mem+1UL*foot, 2UL, 1UL, 1UL, 1UL, SLOT_MAX, out_sets+4UL, SEED ) );
+  r3 = fd_fec_resolver_join( fd_fec_resolver_new( res_mem+2UL*foot, 2UL, 1UL, 1UL, 1UL, SLOT_MAX, out_sets+8UL, SEED ) );
 
   fd_fec_resolver_set_shred_version( r1, SHRED_VER );
   fd_fec_resolver_set_shred_version( r2, SHRED_VER );
@@ -224,7 +225,7 @@ test_interleaved( void ) {
   fd_shred_t const   * out_shred[1];
   fd_bmtree_node_t     out_merkle_root[1];
 
-  fd_fec_resolver_t * resolver = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, 2UL, 1UL, 1UL, 1UL, out_sets, SEED ) );
+  fd_fec_resolver_t * resolver = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, 2UL, 1UL, 1UL, 1UL, SLOT_MAX, out_sets, SEED ) );
   fd_fec_resolver_set_shred_version( resolver, SHRED_VER );
   for( ulong j=0UL; j<FD_FEC_SHRED_CNT-1UL; j++ ) {
     ADD_SHRED( resolver, set0->data_shreds[ j ], OKAY );
@@ -265,7 +266,7 @@ test_rolloff( void ) {
   FD_TEST( fd_shredder_fini_batch( shredder ) );
 
   fd_fec_resolver_t * resolver;
-  resolver = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, 2UL, 1UL, 1UL, 8UL, out_sets, SEED ) );
+  resolver = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, 2UL, 1UL, 1UL, 8UL, SLOT_MAX, out_sets, SEED ) );
   fd_fec_resolver_set_shred_version( resolver, SHRED_VER );
   for( ulong j=0UL; j<FD_FEC_SHRED_CNT-1UL; j++ ) { ADD_SHRED( resolver, set0->data_shreds[ j ], OKAY ); }
 
@@ -329,8 +330,9 @@ perf_test( void ) {
 static void
 test_new_formats( void ) {
   fd_fec_resolver_t * resolver;
-  resolver = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, 5UL, 1UL, 5UL, 4UL, out_sets, SEED ) );
+  resolver = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, 5UL, 1UL, 5UL, 4UL, SLOT_MAX, out_sets, SEED ) );
   fd_fec_resolver_set_shred_version( resolver, 27350 );
+  fd_fec_resolver_advance_slot_old( resolver, 385970983UL ); /* the fixture's parent slot, so its slot is inside the slot_max window */
 
   uchar leader[32];
   fd_base58_decode_32( "FT9QgTVo375TgDAQusTgpsfXqTosCJLfrBpoVdcbnhtS", leader );
@@ -417,7 +419,7 @@ test_shred_version( void ) {
 
   FD_TEST( fd_shredder_init_batch( shredder, test_bin, test_bin_sz, 0UL, meta ) );
 
-  fd_fec_resolver_t * r = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, 2UL, 1UL, 1UL, 1UL, out_sets, SEED ) );
+  fd_fec_resolver_t * r = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, 2UL, 1UL, 1UL, 1UL, SLOT_MAX, out_sets, SEED ) );
   fd_fec_resolver_set_shred_version( r, SHRED_VER );
 
   fd_fec_set_t const * out_fec[1];
@@ -482,7 +484,7 @@ test_shred_reject( void ) {
 
   FD_TEST( fd_shredder_init_batch( shredder, test_bin, test_bin_sz, 2UL, meta ) );
 
-  fd_fec_resolver_t * r = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, 2UL, 1UL, 1UL, 1UL, out_sets, SEED ) );
+  fd_fec_resolver_t * r = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, 2UL, 1UL, 1UL, 1UL, SLOT_MAX, out_sets, SEED ) );
   fd_fec_resolver_set_shred_version( r, SHRED_VER );
 
   fd_fec_set_t const * out_fec[1];
@@ -605,7 +607,7 @@ test_merkle_root( void ) {
 
   FD_TEST( fd_shredder_init_batch( shredder, test_bin, test_bin_sz, 2UL, meta ) );
 
-  fd_fec_resolver_t * r = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, 2UL, 1UL, 1UL, 1UL, out_sets, SEED ) );
+  fd_fec_resolver_t * r = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, 2UL, 1UL, 1UL, 1UL, SLOT_MAX, out_sets, SEED ) );
   fd_fec_resolver_set_shred_version( r, SHRED_VER );
 
   fd_fec_set_t const * out_fec[1];
@@ -694,7 +696,7 @@ test_chained_merkle_shreds( void ) {
   fd_shred_t const   * out_shred[1];
   fd_bmtree_node_t     out_merkle_root[1];
 
-  resolver = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, 2UL, 1UL, 1UL, 8UL, out_sets, SEED ) );
+  resolver = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, 2UL, 1UL, 1UL, 8UL, SLOT_MAX, out_sets, SEED ) );
   fd_fec_resolver_set_shred_version( resolver, SHRED_VER );
 
 #define MAX_SLOTS (4UL)
@@ -759,7 +761,7 @@ test_slot_old( void ) {
   fd_bmtree_node_t     out_merkle_root[1];
   uchar                chained_merkle_root[32] = { 0 };
 
-  resolver = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, 2UL, 1UL, 1UL, 8UL, out_sets, SEED ) );
+  resolver = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, 2UL, 1UL, 1UL, 8UL, SLOT_MAX, out_sets, SEED ) );
   fd_fec_resolver_set_shred_version( resolver, SHRED_VER );
 
   fd_shredder_init_batch( shredder, perf_test_entry_batch, PERF_TEST_SZ, 0UL, meta );

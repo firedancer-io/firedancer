@@ -180,6 +180,9 @@ struct __attribute__((aligned(FD_FEC_RESOLVER_ALIGN))) fd_fec_resolver {
   ulong complete_depth;
   ulong done_depth;
 
+  /* upper bound on the slot range above the root slot */
+  ulong slot_max;
+
   /* expected_shred_version: discard all shreds with a shred version
      other than the specified value */
   ushort expected_shred_version;
@@ -325,6 +328,7 @@ fd_fec_resolver_new( void                    * shmem,
                      ulong                     partial_depth,
                      ulong                     complete_depth,
                      ulong                     done_depth,
+                     ulong                     slot_max,
                      fd_fec_set_t            * sets,
                      ulong                     seed ) {
   if( FD_UNLIKELY( (depth==0UL) | (partial_depth==0UL) | (complete_depth==0UL) | (done_depth==0UL) ) ) return NULL;
@@ -390,6 +394,7 @@ fd_fec_resolver_new( void                    * shmem,
   resolver->partial_depth          = partial_depth;
   resolver->complete_depth         = complete_depth;
   resolver->done_depth             = done_depth;
+  resolver->slot_max               = slot_max;
   resolver->expected_shred_version = 0;
   resolver->bypass_verify          = 0;
   resolver->free_list_cnt          = depth+partial_depth;
@@ -537,6 +542,7 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
   /* Is this shred for a slot we've already rooted or otherwise don't
      care about? */
   if( FD_UNLIKELY( shred->slot<resolver->slot_old ) ) return FD_FEC_RESOLVER_SHRED_IGNORED;
+  if( FD_UNLIKELY( resolver->slot_max && shred->slot>=resolver->slot_old+resolver->slot_max ) ) return FD_FEC_RESOLVER_SHRED_IGNORED;
 
   /* Do a bunch of quick validity checks */
   if( FD_UNLIKELY( shred->version!=resolver->expected_shred_version  ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
