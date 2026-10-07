@@ -1247,9 +1247,9 @@ fd_topo_initialize( config_t * config ) {
 
   /* store_fec_max is the maximum number of FEC sets Store retains.
 
-      With Alpenglow, Store is sized to rotor's window of N = slot_max
-      slots, each of which can hold up to fec_sets_per_slot FEC sets
-      per version of its block.  The number of versions in the window
+      With Alpenglow, Store is sized to rotor's window of
+      N = max_live_slots slots, each of which can hold up to
+      fec_sets_per_slot FEC sets per version of its block.  The number of versions in the window
       is bounded as follows.
 
       Assume 20% of stake is malicious, every malicious leader
@@ -1304,7 +1304,7 @@ fd_topo_initialize( config_t * config ) {
   ulong fec_sets_per_slot = fd_ulong_if( config->firedancer.development.fixed_fec_sets,
                                          config->limits.max_shreds_per_block/FD_FEC_SHRED_CNT, config->limits.max_shreds_per_block );
   ulong store_fec_max = alpenglow_enabled
-                         ? fd_rotor_blk_max( config->tiles.rotor.slot_max ) * fec_sets_per_slot /* every FEC set of every blk rotor holds */
+                         ? fd_rotor_blk_max( config->firedancer.runtime.max_live_slots ) * fec_sets_per_slot /* every FEC set of every blk rotor holds */
                          : config->firedancer.runtime.max_live_slots * fec_sets_per_slot + (shred_depth * shred_tile_cnt) + repair_out_link->depth + 1;
 
   /* 32 shreds * 995 payload bytes = 31840 bytes with fixed_fec_sets = true
@@ -1685,7 +1685,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     fd_cstr_ncpy( tile->repair.identity_key_path, config->paths.identity_key, sizeof(tile->repair.identity_key_path) );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "rotor" ) ) ) {
-    tile->rotor.slot_max = config->tiles.rotor.slot_max;
+    tile->rotor.slot_max = config->firedancer.runtime.max_live_slots;
     tile->rotor.fec_max  = fd_pod_queryf_ulong( config->topo.props, ULONG_MAX, "obj.%lu.fec_max", fd_pod_query_ulong( config->topo.props, "store", ULONG_MAX ) ); /* as many FEC sets as Store */
     tile->rotor.repair_client_listen_port = config->tiles.repair.repair_client_listen_port;
     tile->rotor.allow_private_address = config->development.gossip.allow_private_address;
@@ -1920,7 +1920,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
     tile->shred.fec_exposure                  = FD_SHRED_FIREDANCER_FEC_EXPOSURE;
     tile->shred.fec_resolver_depth            = config->tiles.shred.max_pending_shred_sets;
-    tile->shred.slot_max                      = config->tiles.rotor.slot_max;
+    tile->shred.slot_max                      = config->firedancer.runtime.max_live_slots;
     tile->shred.expected_shred_version        = config->consensus.expected_shred_version;
     tile->shred.shred_listen_port             = config->tiles.shred.shred_listen_port;
     tile->shred.max_shreds_per_block          = config->limits.max_shreds_per_block;

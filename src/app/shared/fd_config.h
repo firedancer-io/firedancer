@@ -548,10 +548,6 @@ struct fd_config {
     } repair;
 
     struct {
-      ulong  slot_max;
-    } rotor;
-
-    struct {
       int    enabled;
       ushort repair_serve_listen_port;
       ulong  shred_storage_limit_gib;
