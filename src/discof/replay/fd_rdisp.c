@@ -1535,7 +1535,7 @@ add_unstaged_edges( fd_rdisp_t * disp,
    miss takes, is warmed by the caller.  Hints only: the queries below
    are unchanged. */
 
-static inline void
+static inline __attribute__((always_inline)) void
 prefetch_accts( fd_rdisp_t const *     disp,
                 fd_acct_addr_t const * addrs,
                 ulong                  cnt ) {
