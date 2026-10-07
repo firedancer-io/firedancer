@@ -11,4 +11,5 @@ $(call run-unit-test,test_tower_lockos)
 $(call make-unit-test,test_tower_serdes,test_tower_serdes,fd_choreo fd_flamenco fd_tango fd_ballet fd_util)
 $(call run-unit-test,test_tower_serdes)
 $(call make-fuzz-test,fuzz_tower_serdes,fuzz_tower_serdes,fd_choreo fd_flamenco fd_tango fd_ballet fd_util)
+$(call make-fuzz-test,fuzz_tower_file,fuzz_tower_file,fd_choreo fd_flamenco fd_tango fd_ballet fd_util)
 endif
