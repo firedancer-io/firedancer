@@ -69,6 +69,13 @@ main( int     argc,
                                  "%s/epochcredits.db",
                                  config->paths.base ) );
   FD_TEST( !strcmp( config->paths.epoch_credits, expected_epoch_credits ) );
+  char expected_cost_tracker[ PATH_MAX ];
+  FD_TEST( fd_cstr_printf_check( expected_cost_tracker,
+                                 sizeof(expected_cost_tracker),
+                                 NULL,
+                                 "%s/costtracker.db",
+                                 config->paths.base ) );
+  FD_TEST( !strcmp( config->paths.cost_tracker, expected_cost_tracker ) );
 
   strcpy( config->tiles.bundle.url, "https://user:hunter2@mainnet.example.com:443/v1/txns?api-key=SECRET#frag" );
   strcpy( config->tiles.event.url,  "https://events.example.com/submit" );

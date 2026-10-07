@@ -76,6 +76,13 @@ fd_svm_test_boot( int *    pargc,
     FD_TEST( !close( epoch_credits_fd ) );
   }
 
+  int cost_tracker_fd = memfd_create( "svm_mini_cost_tracker_spill", 0 );
+  FD_TEST( cost_tracker_fd>=0 );
+  if( cost_tracker_fd!=FD_COST_TRACKER_FD ) {
+    FD_TEST( dup2( cost_tracker_fd, FD_COST_TRACKER_FD )==FD_COST_TRACKER_FD );
+    FD_TEST( !close( cost_tracker_fd ) );
+  }
+
   char const * page_sz_cstr = fd_env_strip_cmdline_cstr ( pargc, pargv, "--page-sz",  NULL, NULL            );
   ulong        page_cnt     = fd_env_strip_cmdline_ulong( pargc, pargv, "--page-cnt", NULL, 0UL             );
   char const * wksp_name    = fd_env_strip_cmdline_cstr ( pargc, pargv, "--wksp",     NULL, NULL            );

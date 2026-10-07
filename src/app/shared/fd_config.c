@@ -138,6 +138,13 @@ fd_config_fillf( fd_config_t * config ) {
     FD_TEST( fd_cstr_printf_check( config->paths.epoch_credits, sizeof(config->paths.epoch_credits), NULL, "%s/epochcredits.db", config->paths.base ) );
   }
 
+  if( FD_UNLIKELY( strcmp( config->paths.cost_tracker, "" ) ) ) {
+    replace( config->paths.cost_tracker, "{user}", config->user );
+    replace( config->paths.cost_tracker, "{name}", config->name );
+  } else {
+    FD_TEST( fd_cstr_printf_check( config->paths.cost_tracker, sizeof(config->paths.cost_tracker), NULL, "%s/costtracker.db", config->paths.base ) );
+  }
+
   if( FD_UNLIKELY( strcmp( config->paths.shredb, "" ) ) ) {
     replace( config->paths.shredb, "{user}", config->user );
     replace( config->paths.shredb, "{name}", config->name );
