@@ -1533,7 +1533,12 @@ add_unstaged_edges( fd_rdisp_t * disp,
    front).  The map is large enough that these are otherwise serial
    cache misses, one account at a time.  The free list head, which a
    miss takes, is warmed by the caller.  Hints only: the queries below
-   are unchanged. */
+   are unchanged.
+
+   always_inline is load bearing: this only loads and prefetches, and
+   gcc treats __builtin_prefetch as side effect free, so it finds the
+   function to be (looping) pure and deletes the call, prefetches and
+   all.  Clang keeps the prefetches but only inlines by heuristic. */
 
 static inline __attribute__((always_inline)) void
 prefetch_accts( fd_rdisp_t const *     disp,
