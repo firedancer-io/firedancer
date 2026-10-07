@@ -4,8 +4,16 @@ The table below lists feature gates that the Firedancer `main` branch supports a
 
 Note that for many of these we only support the activated path, to reduce code bloat. We do not support feature activations in an order that is different to the expected mainnet schedule.
 
+Note that for `alpenglow` the "Alpenswitch" - the Tower->Alpenglow migration itself - is not in scope.
+
 | Key | Feature |
 |-----|---------|
+| `EhisBfVtGvEA8bVCVN5VMaYEaX6iTfoUrmcDi8LY7Kxy` | `loader_v3_set_program_data_to_elf_length` |
+| `Crbnc267wkJvFhYakqwWWX57sx5bkrftJLekzy6yWKLT` | `block_revenue_sharing` |
+| `turbzzBJLGMJJikLvgCCJu9e1hTmfxwarrbLndYAsK5` | `enforce_correct_proof_size` |
+| `FEEXbxUuKobtrt1qNK5pjtzbPQhsppBTrNNG74xu4mai` | `relax_fee_payer_constraint` |
+| `A1pengvuM6JEcyNuTnMqepBKhwHE3N6PmUrdATGawhJS` | `alpenglow` |
+| `RMsTKfD6hZnBhhNvgGBeKNrqCNkeoP3DYYxNtcuWtRg` | `remove_inactive_stakes` |
 | `3HcSrCTGXTUnrTueHi4DAwNuMxZSsm5xui2Ax3mgxHqf` | `custom_commission_collector` |
 | `txv1aq4pp281K9um3tnPgkfX8UqtFT6wcVW3hNezGLL` | `enable_tx_v1` |
 | `s51VGwCAgebo2745DSUris72RavoLkXGUmVJosESCXr` | `upgrade_bpf_stake_program_to_v5_1` |
@@ -23,6 +31,7 @@ Note that for many of these we only support the activated path, to reduce code b
 | `LTDSzjZKFJMKHYpNycG1FrWwGGTaFFwqEFjB5GGLNVD` | `define_ltds_fee_only_semantics` |
 | `YbbRLkvenrocjGPGyoQE4wjnvYzTgfsk38NFmcYK7a5` | `loader_v3_minimum_extend_program_size` |
 | `Eg7tXEwMZzS98xaZ1YHUbdRHsaYZiCsSaR6sKgxreoaj` | `commission_rate_in_basis_points` |
+| `B8JJXCy5amZyWG9r7EnUYLwzXSXTxG7GZ1qZ1qggo83g` | `disable_sbpf_v0_v1_v2_deployment` |
 | `s512oDwgx8hjMnaQjXfqqrZroVj4HvC6TkN3iSSWXCh` | `enable_sha512_syscall` |
 | `STk5Xj8hdAx3sTzmtJ3QysKkq6X2A3yj73JtxttiRyk` | `upgrade_bpf_stake_program_to_v5` |
 | `76dHtohc2s5dR3ahJyBxs7eJJVipFkaPdih9CLgTTb4B` | `delay_commission_updates` |
