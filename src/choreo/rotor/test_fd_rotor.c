@@ -86,7 +86,7 @@ expect( fd_rotor_t *           rotor,
         uint                   fec_idx ) {
   FD_TEST( !fd_rotor_deque_empty( rotor->reasm_deque ) );
   fd_rotor_deque_t out = fd_rotor_deque_pop_head( rotor->reasm_deque );
-  FD_TEST( out.blk_idx==blk_pool_idx( rotor->blk_pool, blk ) && out.fec_idx==fec_idx );
+  FD_TEST( out.blk_idx==fd_rotor_blk_pool_idx( rotor->blk_pool, blk ) && out.fec_idx==fec_idx );
 }
 
 /* shred0 inserts the first data shred of slot, whose payload is the
@@ -120,7 +120,7 @@ shred0( fd_rotor_t *      rotor,
 static int
 is_eager( fd_rotor_t const *     rotor,
           fd_rotor_blk_t const * blk ) {
-  return rotor->slot_meta[ blk->slot % rotor->slot_max ].eager==blk_pool_idx( rotor->blk_pool, blk );
+  return rotor->slot_meta[ blk->slot % rotor->slot_max ].eager==fd_rotor_blk_pool_idx( rotor->blk_pool, blk );
 }
 
 static fd_rotor_t *
@@ -144,10 +144,10 @@ static void
 check_connected( fd_rotor_t * rotor ) {
   fd_rotor_blk_t const * pool = rotor->blk_pool;
   for( ulong s=rotor->root; s<rotor->root+rotor->slot_max; s++ ) {
-    for( fd_rotor_blk_t const * blk = blk_map_ele_query_const( rotor->blk_map, &s, NULL, pool ); blk; blk = blk_map_ele_next_const( blk, NULL, pool ) ) {
+    for( fd_rotor_blk_t const * blk = fd_rotor_blk_map_ele_query_const( rotor->blk_map, &s, NULL, pool ); blk; blk = fd_rotor_blk_map_ele_next_const( blk, NULL, pool ) ) {
       int want = 0;
-      for( fd_rotor_blk_t const * b = blk; b; b = blk_pool_ele_const( pool, b->parent ) ) {
-        if( b->slot==rotor->root && rotor->slot_meta[ b->slot%rotor->slot_max ].final==blk_pool_idx( pool, b ) ) { want = 1; break; }
+      for( fd_rotor_blk_t const * b = blk; b; b = fd_rotor_blk_pool_ele_const( pool, b->parent ) ) {
+        if( b->slot==rotor->root && rotor->slot_meta[ b->slot%rotor->slot_max ].final==fd_rotor_blk_pool_idx( pool, b ) ) { want = 1; break; }
       }
       FD_TEST( blk->connected==want );
     }
@@ -213,11 +213,11 @@ test_finalize_unlinks( void ) {
   parented( rotor, 1UL, 0x10, 0UL, 0xEE, 1U );
   parented( rotor, 1UL, 0x40, 0UL, 0xEE, 1U );
   parented( rotor, 2UL, 0x50, 1UL, 0x40, 1U );
-  FD_TEST( c->parent==blk_pool_idx( rotor->blk_pool, b ) );
+  FD_TEST( c->parent==fd_rotor_blk_pool_idx( rotor->blk_pool, b ) );
 
   fd_mr32_t id = hash( 0x10 );
   FD_TEST( fd_rotor_blk_finalized( rotor, 1UL, &id )==a );
-  FD_TEST( c->parent==blk_pool_idx_null( rotor->blk_pool ) );
+  FD_TEST( c->parent==fd_rotor_blk_pool_idx_null( rotor->blk_pool ) );
 
   fecs( rotor, 2UL, 0x50, 1U );
   fd_mr32_t mr = hash( 0x51 ); complete( rotor, 2UL, 1UL, 0U, 1, &mr );
@@ -236,7 +236,7 @@ slot1_dmr( fd_mr32_t const * m10,
   complete( pre, 1UL, 0UL, 0U, 0, m10 );
   complete( pre, 1UL, 0UL, 1U, 1, m11 );
   ulong     one = 1UL;
-  fd_mr32_t d1  = blk_map_ele_query( pre->blk_map, &one, NULL, pre->blk_pool )->dmr;
+  fd_mr32_t d1  = fd_rotor_blk_map_ele_query( pre->blk_map, &one, NULL, pre->blk_pool )->dmr;
   FD_TEST( memcmp( &d1, &hash_null, sizeof(fd_mr32_t) ) );
   return d1;
 }
@@ -258,17 +258,17 @@ test_eager_chain( void ) {
   shred0  ( rotor, 2UL, 1UL, &d1, &m20 );
   complete( rotor, 2UL, 1UL, 0U, 1, &m20 );
   ulong            one = 1UL, two = 2UL;
-  fd_rotor_blk_t * e1  = blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool );
-  fd_rotor_blk_t * e2  = blk_map_ele_query( rotor->blk_map, &two, NULL, rotor->blk_pool );
-  FD_TEST( is_eager( rotor, e1 ) && !blk_map_ele_next_const( e1, NULL, rotor->blk_pool ) ); /* no notar blk from a turbine header */
-  FD_TEST( e2->parent==blk_pool_idx( rotor->blk_pool, e1 ) );
+  fd_rotor_blk_t * e1  = fd_rotor_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool );
+  fd_rotor_blk_t * e2  = fd_rotor_blk_map_ele_query( rotor->blk_map, &two, NULL, rotor->blk_pool );
+  FD_TEST( is_eager( rotor, e1 ) && !fd_rotor_blk_map_ele_next_const( e1, NULL, rotor->blk_pool ) ); /* no notar blk from a turbine header */
+  FD_TEST( e2->parent==fd_rotor_blk_pool_idx( rotor->blk_pool, e1 ) );
   FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) );
 
   shred0  ( rotor, 1UL, 0UL, &root, &m10 );
   complete( rotor, 1UL, 0UL, 1U, 1, &m11 );
   FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) );
   complete( rotor, 1UL, 0UL, 0U, 0, &m10 );
-  FD_TEST( !memcmp( &e1->dmr, &d1, sizeof(fd_mr32_t) ) && e2->parent==blk_pool_idx( rotor->blk_pool, e1 ) );
+  FD_TEST( !memcmp( &e1->dmr, &d1, sizeof(fd_mr32_t) ) && e2->parent==fd_rotor_blk_pool_idx( rotor->blk_pool, e1 ) );
   expect( rotor, e1, 0U ); expect( rotor, e1, 1U );
   expect( rotor, e2, 0U );
   FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) );
@@ -276,8 +276,8 @@ test_eager_chain( void ) {
   shred0  ( rotor, 3UL, 2UL, &e2->dmr, &m30 );
   complete( rotor, 3UL, 2UL, 0U, 1, &m30 );
   ulong            three = 3UL;
-  fd_rotor_blk_t * e3    = blk_map_ele_query( rotor->blk_map, &three, NULL, rotor->blk_pool );
-  FD_TEST( e3->parent==blk_pool_idx( rotor->blk_pool, e2 ) );
+  fd_rotor_blk_t * e3    = fd_rotor_blk_map_ele_query( rotor->blk_map, &three, NULL, rotor->blk_pool );
+  FD_TEST( e3->parent==fd_rotor_blk_pool_idx( rotor->blk_pool, e2 ) );
   expect( rotor, e3, 0U );
   FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) );
 }
@@ -298,10 +298,10 @@ test_eager_wrong_parent( void ) {
   complete( rotor, 1UL, 0UL, 0U, 1, &m10 );
 
   ulong            one = 1UL, two = 2UL;
-  fd_rotor_blk_t * e1  = blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool );
-  fd_rotor_blk_t * e2  = blk_map_ele_query( rotor->blk_map, &two, NULL, rotor->blk_pool );
-  FD_TEST( is_eager( rotor, e1 ) && !blk_map_ele_next_const( e1, NULL, rotor->blk_pool ) );
-  FD_TEST( e2->parent==blk_pool_idx_null( rotor->blk_pool ) && e1->child==blk_pool_idx_null( rotor->blk_pool ) );
+  fd_rotor_blk_t * e1  = fd_rotor_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool );
+  fd_rotor_blk_t * e2  = fd_rotor_blk_map_ele_query( rotor->blk_map, &two, NULL, rotor->blk_pool );
+  FD_TEST( is_eager( rotor, e1 ) && !fd_rotor_blk_map_ele_next_const( e1, NULL, rotor->blk_pool ) );
+  FD_TEST( e2->parent==fd_rotor_blk_pool_idx_null( rotor->blk_pool ) && e1->child==fd_rotor_blk_pool_idx_null( rotor->blk_pool ) );
   expect( rotor, e1, 0U );
   FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) );
 }
@@ -322,7 +322,7 @@ test_twin_merge( void ) {
   fd_rotor_blk_t * c     = notar( rotor, 2UL, 0x50 );
   fd_mr32_t        c_id  = hash( 0x50 );
   fd_rotor_blk_parented( rotor, 2UL, &c_id, 1UL, &d1, 1U );
-  FD_TEST( c->parent==blk_pool_idx( rotor->blk_pool, n1 ) );
+  FD_TEST( c->parent==fd_rotor_blk_pool_idx( rotor->blk_pool, n1 ) );
   fecs( rotor, 2UL, 0x50, 1U );
   fd_mr32_t m51 = hash( 0x51 ); complete( rotor, 2UL, 1UL, 0U, 1, &m51 );
   FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) );
@@ -331,9 +331,9 @@ test_twin_merge( void ) {
   complete( rotor, 1UL, 0UL, 0U, 0, &m10 );
   complete( rotor, 1UL, 0UL, 1U, 1, &m11 );
   ulong            one = 1UL;
-  fd_rotor_blk_t * e1  = blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool );
-  FD_TEST( is_eager( rotor, e1 ) && !blk_map_ele_next_const( e1, NULL, rotor->blk_pool ) ); /* the notar blk was merged */
-  FD_TEST( c->parent==blk_pool_idx( rotor->blk_pool, e1 ) );
+  fd_rotor_blk_t * e1  = fd_rotor_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool );
+  FD_TEST( is_eager( rotor, e1 ) && !fd_rotor_blk_map_ele_next_const( e1, NULL, rotor->blk_pool ) ); /* the notar blk was merged */
+  FD_TEST( c->parent==fd_rotor_blk_pool_idx( rotor->blk_pool, e1 ) );
   expect( rotor, e1, 0U ); expect( rotor, e1, 1U );
   expect( rotor, c,  0U );
   FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) );
@@ -354,12 +354,12 @@ test_notarized_shreds_build_eager( void ) {
   shred0  ( rotor, 2UL, 1UL, &d1, &m20 );
   complete( rotor, 2UL, 1UL, 0U, 1, &m20 );
   ulong            one = 1UL, two = 2UL;
-  fd_rotor_blk_t * e1  = blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool );
-  fd_rotor_blk_t * e2  = blk_map_ele_query( rotor->blk_map, &two, NULL, rotor->blk_pool );
-  FD_TEST( is_eager( rotor, e1 ) && e2->parent==blk_pool_idx( rotor->blk_pool, e1 ) );
+  fd_rotor_blk_t * e1  = fd_rotor_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool );
+  fd_rotor_blk_t * e2  = fd_rotor_blk_map_ele_query( rotor->blk_map, &two, NULL, rotor->blk_pool );
+  FD_TEST( is_eager( rotor, e1 ) && e2->parent==fd_rotor_blk_pool_idx( rotor->blk_pool, e1 ) );
 
   fd_rotor_blk_t *  n1     = fd_rotor_blk_notarized( rotor, 1UL, &d1 );
-  ulong             n1_idx = blk_pool_idx( rotor->blk_pool, n1 );
+  ulong             n1_idx = fd_rotor_blk_pool_idx( rotor->blk_pool, n1 );
   fd_mr20_t k10; memcpy( k10.uc, m10.uc, sizeof(fd_mr20_t) );
   fd_mr20_t k11; memcpy( k11.uc, m11.uc, sizeof(fd_mr20_t) );
   fd_rotor_blk_parented ( rotor, 1UL, &d1, 0UL, &root, 2U );
@@ -371,10 +371,10 @@ test_notarized_shreds_build_eager( void ) {
   complete( rotor, 1UL, 0UL, 0U, 0, &m10 );
   complete( rotor, 1UL, 0UL, 1U, 1, &m11 );
   FD_TEST( !memcmp( &e1->dmr, &d1, sizeof(fd_mr32_t) ) );
-  FD_TEST( blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool )==e1 && !blk_map_ele_next_const( e1, NULL, rotor->blk_pool ) ); /* the notar blk was merged */
-  FD_TEST( e2->parent==blk_pool_idx( rotor->blk_pool, e1 ) );
+  FD_TEST( fd_rotor_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool )==e1 && !fd_rotor_blk_map_ele_next_const( e1, NULL, rotor->blk_pool ) ); /* the notar blk was merged */
+  FD_TEST( e2->parent==fd_rotor_blk_pool_idx( rotor->blk_pool, e1 ) );
   fd_rotor_deque_t a0 = fd_rotor_deque_pop_head( rotor->reasm_deque ), b0 = fd_rotor_deque_pop_head( rotor->reasm_deque ); /* both versions consumed FEC set 0 */
-  FD_TEST( a0.fec_idx==0U && b0.fec_idx==0U && a0.blk_idx+b0.blk_idx==n1_idx+blk_pool_idx( rotor->blk_pool, e1 ) && a0.blk_idx!=b0.blk_idx );
+  FD_TEST( a0.fec_idx==0U && b0.fec_idx==0U && a0.blk_idx+b0.blk_idx==n1_idx+fd_rotor_blk_pool_idx( rotor->blk_pool, e1 ) && a0.blk_idx!=b0.blk_idx );
   expect( rotor, e1, 1U );
   expect( rotor, e2, 0U );
   FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) );
@@ -392,14 +392,14 @@ test_eager_finished_wrong_parent( void ) {
   shred0  ( rotor, 1UL, 0UL, &root, &m10 );
   complete( rotor, 1UL, 0UL, 0U, 1, &m10 );
   ulong            one = 1UL, two = 2UL;
-  fd_rotor_blk_t * e1  = blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool );
+  fd_rotor_blk_t * e1  = fd_rotor_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool );
   FD_TEST( memcmp( &e1->dmr, &hash_null, sizeof(fd_mr32_t) ) );
   expect( rotor, e1, 0U );
 
   shred0  ( rotor, 2UL, 1UL, &y, &m20 );
   complete( rotor, 2UL, 1UL, 0U, 1, &m20 );
-  fd_rotor_blk_t * e2 = blk_map_ele_query( rotor->blk_map, &two, NULL, rotor->blk_pool );
-  FD_TEST( e2->parent==blk_pool_idx_null( rotor->blk_pool ) && e1->child==blk_pool_idx_null( rotor->blk_pool ) );
+  fd_rotor_blk_t * e2 = fd_rotor_blk_map_ele_query( rotor->blk_map, &two, NULL, rotor->blk_pool );
+  FD_TEST( e2->parent==fd_rotor_blk_pool_idx_null( rotor->blk_pool ) && e1->child==fd_rotor_blk_pool_idx_null( rotor->blk_pool ) );
   FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) );
 }
 
@@ -413,10 +413,10 @@ test_root_wrong_parent( void ) {
   shred0  ( rotor, 1UL, 0UL, &y, &m10 );
   complete( rotor, 1UL, 0UL, 0U, 1, &m10 );
   ulong            zero = 0UL, one = 1UL;
-  fd_rotor_blk_t * r    = blk_map_ele_query( rotor->blk_map, &zero, NULL, rotor->blk_pool );
-  fd_rotor_blk_t * e1   = blk_map_ele_query( rotor->blk_map, &one,  NULL, rotor->blk_pool );
-  FD_TEST( !blk_map_ele_next_const( r, NULL, rotor->blk_pool ) && r->child==blk_pool_idx_null( rotor->blk_pool ) );
-  FD_TEST( e1->parent==blk_pool_idx_null( rotor->blk_pool ) );
+  fd_rotor_blk_t * r    = fd_rotor_blk_map_ele_query( rotor->blk_map, &zero, NULL, rotor->blk_pool );
+  fd_rotor_blk_t * e1   = fd_rotor_blk_map_ele_query( rotor->blk_map, &one,  NULL, rotor->blk_pool );
+  FD_TEST( !fd_rotor_blk_map_ele_next_const( r, NULL, rotor->blk_pool ) && r->child==fd_rotor_blk_pool_idx_null( rotor->blk_pool ) );
+  FD_TEST( e1->parent==fd_rotor_blk_pool_idx_null( rotor->blk_pool ) );
   FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) );
 }
 
@@ -434,16 +434,16 @@ test_orphan_adopted( void ) {
   shred0  ( pre, 2UL, 1UL, &y, &m20 );
   complete( pre, 2UL, 1UL, 0U, 1, &m20 );
   ulong     one = 1UL, two = 2UL;
-  fd_mr32_t d2  = blk_pool_ele( pre->blk_pool, pre->slot_meta[ two % pre->slot_max ].eager )->dmr;
+  fd_mr32_t d2  = fd_rotor_blk_pool_ele( pre->blk_pool, pre->slot_meta[ two % pre->slot_max ].eager )->dmr;
   FD_TEST( memcmp( &d2, &hash_null, sizeof(fd_mr32_t) ) );
 
   fd_rotor_t * rotor = setup();
   shred0  ( rotor, 2UL, 1UL, &y, &m20 );
   shred0  ( rotor, 1UL, 0UL, &root, &m10 );
   complete( rotor, 1UL, 0UL, 0U, 1, &m10 );
-  fd_rotor_blk_t * e1 = blk_pool_ele( rotor->blk_pool, rotor->slot_meta[ one % rotor->slot_max ].eager );
-  fd_rotor_blk_t * e2 = blk_pool_ele( rotor->blk_pool, rotor->slot_meta[ two % rotor->slot_max ].eager );
-  FD_TEST( e2->parent==blk_pool_idx_null( rotor->blk_pool ) );
+  fd_rotor_blk_t * e1 = fd_rotor_blk_pool_ele( rotor->blk_pool, rotor->slot_meta[ one % rotor->slot_max ].eager );
+  fd_rotor_blk_t * e2 = fd_rotor_blk_pool_ele( rotor->blk_pool, rotor->slot_meta[ two % rotor->slot_max ].eager );
+  FD_TEST( e2->parent==fd_rotor_blk_pool_idx_null( rotor->blk_pool ) );
   expect( rotor, e1, 0U );
 
   fd_rotor_blk_notarized( rotor, 2UL, &d2 );
@@ -452,13 +452,14 @@ test_orphan_adopted( void ) {
 
   complete( rotor, 2UL, 1UL, 0U, 1, &m20 );
   FD_TEST( !memcmp( &e2->dmr, &d2, sizeof(fd_mr32_t) ) );
-  FD_TEST( blk_map_ele_query( rotor->blk_map, &two, NULL, rotor->blk_pool )==e2 && !blk_map_ele_next_const( e2, NULL, rotor->blk_pool ) );
-  FD_TEST( e2->parent==blk_pool_idx( rotor->blk_pool, n1 ) );
+  FD_TEST( fd_rotor_blk_map_ele_query( rotor->blk_map, &two, NULL, rotor->blk_pool )==e2 && !fd_rotor_blk_map_ele_next_const( e2, NULL, rotor->blk_pool ) );
+  FD_TEST( e2->parent==fd_rotor_blk_pool_idx( rotor->blk_pool, n1 ) );
   FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) );
 }
 
-/* Replay lost a bank: everything under the root is delivered again,
-   parents first. */
+/* Replay lost a bank: the next FEC pushed goes with its ancestry from
+   the root, whatever replay was missing, and a sibling fork is not
+   delivered again. */
 
 static void
 test_fec_reconsume( void ) {
@@ -467,15 +468,57 @@ test_fec_reconsume( void ) {
   shred0  ( rotor, 1UL, 0UL, &root, &m10 );
   complete( rotor, 1UL, 0UL, 0U, 1, &m10 );
   ulong            one = 1UL, two = 2UL;
-  fd_rotor_blk_t * e1  = blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool );
+  fd_rotor_blk_t * e1  = fd_rotor_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool );
   shred0  ( rotor, 2UL, 1UL, &e1->dmr, &m20 );
   complete( rotor, 2UL, 1UL, 0U, 1, &m20 );
-  fd_rotor_blk_t * e2  = blk_map_ele_query( rotor->blk_map, &two, NULL, rotor->blk_pool );
+  fd_rotor_blk_t * e2  = fd_rotor_blk_map_ele_query( rotor->blk_map, &two, NULL, rotor->blk_pool );
   expect( rotor, e1, 0U ); expect( rotor, e2, 0U );
   FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) );
 
-  fd_rotor_fec_reconsume( rotor );
-  expect( rotor, e1, 0U ); expect( rotor, e2, 0U );
+  fd_mr32_t m30 = hash( 0x31 ); /* a sibling fork off the root, not on e2's chain */
+  shred0  ( rotor, 3UL, 0UL, &root, &m30 );
+  complete( rotor, 3UL, 0UL, 0U, 1, &m30 );
+  ulong            three = 3UL;
+  fd_rotor_blk_t * e3    = fd_rotor_blk_map_ele_query( rotor->blk_map, &three, NULL, rotor->blk_pool );
+  expect( rotor, e3, 0U );
+
+  rotor->reconsume = 1;
+  FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) ); /* nothing until the next push */
+
+  fd_mr32_t m40 = hash( 0x41 );
+  shred0  ( rotor, 4UL, 2UL, &e2->dmr, &m40 );
+  complete( rotor, 4UL, 2UL, 0U, 1, &m40 );
+  ulong            four = 4UL;
+  fd_rotor_blk_t * e4   = fd_rotor_blk_map_ele_query( rotor->blk_map, &four, NULL, rotor->blk_pool );
+  expect( rotor, e1, 0U ); expect( rotor, e2, 0U ); expect( rotor, e4, 0U );
+  FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) );
+
+  fd_mr32_t m50 = hash( 0x51 ); /* the next push is a plain one */
+  shred0  ( rotor, 5UL, 4UL, &e4->dmr, &m50 );
+  complete( rotor, 5UL, 4UL, 0U, 1, &m50 );
+  ulong five = 5UL;
+  expect( rotor, fd_rotor_blk_map_ele_query( rotor->blk_map, &five, NULL, rotor->blk_pool ), 0U );
+  FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) );
+}
+
+/* Slot 1 has delivered FEC set 0 and replay loses a bank.  The next
+   push is slot 1's FEC set 1, which goes with the blk's own earlier FEC
+   set 0 first. */
+
+static void
+test_fec_reconsume_incomplete( void ) {
+  fd_mr32_t    root  = hash( 0xEE ), m10 = hash( 0x11 ), m11 = hash( 0x12 );
+  fd_rotor_t * rotor = setup();
+  shred0  ( rotor, 1UL, 0UL, &root, &m10 );
+  complete( rotor, 1UL, 0UL, 0U, 0, &m10 );
+  ulong            one = 1UL;
+  fd_rotor_blk_t * e1  = fd_rotor_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool );
+  expect( rotor, e1, 0U );
+  FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) );
+
+  rotor->reconsume = 1;
+  complete( rotor, 1UL, 0UL, 1U, 1, &m11 );
+  expect( rotor, e1, 0U ); expect( rotor, e1, 1U );
   FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) );
 }
 
@@ -490,22 +533,22 @@ test_blk_dead( void ) {
   shred0  ( rotor, 1UL, 0UL, &root, &m10 );
   complete( rotor, 1UL, 0UL, 0U, 1, &m10 );
   ulong            one = 1UL, two = 2UL;
-  fd_rotor_blk_t * e1  = blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool );
+  fd_rotor_blk_t * e1  = fd_rotor_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool );
   fd_mr32_t        d1  = e1->dmr;
   shred0  ( rotor, 2UL, 1UL, &d1, &m20 );
   complete( rotor, 2UL, 1UL, 0U, 1, &m20 );
-  fd_rotor_blk_t * e2  = blk_map_ele_query( rotor->blk_map, &two, NULL, rotor->blk_pool );
+  fd_rotor_blk_t * e2  = fd_rotor_blk_map_ele_query( rotor->blk_map, &two, NULL, rotor->blk_pool );
   expect( rotor, e1, 0U ); expect( rotor, e2, 0U );
 
   fd_rotor_blk_dead( rotor, 1UL, &d1 );
-  FD_TEST( !blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool ) );
-  FD_TEST( e2->parent==blk_pool_idx_null( rotor->blk_pool ) );
+  FD_TEST( !fd_rotor_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool ) );
+  FD_TEST( e2->parent==fd_rotor_blk_pool_idx_null( rotor->blk_pool ) );
   fd_mr20_t k10; memcpy( k10.uc, m10.uc, sizeof(fd_mr20_t) );
-  FD_TEST( !fec_map_ele_query( rotor->fec_map, &k10, NULL, rotor->fec_pool ) );
+  FD_TEST( !fd_rotor_fec_map_ele_query( rotor->fec_map, &k10, NULL, rotor->fec_pool ) );
 
   shred0( rotor, 1UL, 0UL, &root, &m10 );
-  FD_TEST( !blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool ) );
-  fd_rotor_fec_reconsume( rotor );
+  FD_TEST( !fd_rotor_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool ) );
+  rotor->reconsume = 1;
   FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) );
   check_connected( rotor );
 }
@@ -522,14 +565,14 @@ test_orphan_stops( void ) {
   shred0  ( rotor, 1UL, 0UL, &root, &m10 );
   complete( rotor, 1UL, 0UL, 0U, 1, &m10 );
   ulong            one = 1UL, two = 2UL;
-  fd_rotor_blk_t * e1  = blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool );
+  fd_rotor_blk_t * e1  = fd_rotor_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool );
   shred0  ( rotor, 2UL, 1UL, &e1->dmr, &m20 );
   complete( rotor, 2UL, 1UL, 0U, 0, &m20 );
-  fd_rotor_blk_t * e2  = blk_map_ele_query( rotor->blk_map, &two, NULL, rotor->blk_pool );
+  fd_rotor_blk_t * e2  = fd_rotor_blk_map_ele_query( rotor->blk_map, &two, NULL, rotor->blk_pool );
   expect( rotor, e1, 0U ); expect( rotor, e2, 0U );
 
   FD_TEST( fd_rotor_blk_finalized( rotor, 1UL, &y ) );
-  FD_TEST( e2->parent==blk_pool_idx_null( rotor->blk_pool ) && e2->cons_fec_cnt==1U );
+  FD_TEST( e2->parent==fd_rotor_blk_pool_idx_null( rotor->blk_pool ) && e2->cons_fec_cnt==1U );
   complete( rotor, 2UL, 1UL, 1U, 1, &m21 );
   FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) );
 }
@@ -546,7 +589,7 @@ test_eqvoc_invalidates( void ) {
   fd_rotor_t * rotor = setup();
   shred0( rotor, 1UL, 0UL, &root, &m10 );
   shred0( rotor, 1UL, 0UL, &y,    &m19 );
-  fd_rotor_blk_t * e1 = blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool );
+  fd_rotor_blk_t * e1 = fd_rotor_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool );
   FD_TEST( rotor->slot_meta[ one % rotor->slot_max ].invalidated );
   FD_TEST( !memcmp( &e1->parent_blk_mr, &root, sizeof(fd_mr32_t) ) );
 
@@ -572,13 +615,13 @@ test_fec_alias_refused( void ) {
   parented( rotor, 2UL, 0x50, 0UL, 0xEE, 2U );
   fd_mr32_t        t_id = hash( 0x50 );
   FD_TEST( !fd_rotor_fec_notarized( rotor, 2UL, &t_id, 0U, &k10 ) );               /* another slot */
-  FD_TEST( t->fecs[ 0 ]==fec_pool_idx_null( rotor->fec_pool ) );
+  FD_TEST( t->fecs[ 0 ]==fd_rotor_fec_pool_idx_null( rotor->fec_pool ) );
 
   fd_rotor_blk_t * s = notar( rotor, 1UL, 0x30 );
   parented( rotor, 1UL, 0x30, 0UL, 0xEE, 2U );
   fd_mr32_t        s_id = hash( 0x30 );
   FD_TEST( !fd_rotor_fec_notarized( rotor, 1UL, &s_id, FD_FEC_SHRED_CNT, &k10 ) ); /* another index */
-  FD_TEST( s->fecs[ 1 ]==fec_pool_idx_null( rotor->fec_pool ) );
+  FD_TEST( s->fecs[ 1 ]==fd_rotor_fec_pool_idx_null( rotor->fec_pool ) );
 }
 
 /* role is a blk's role in its slot_meta: the slot's final blk, its
@@ -592,7 +635,7 @@ static ulong
 role( fd_rotor_t const *     rotor,
       fd_rotor_blk_t const * blk ) {
   fd_rotor_slot_meta_t const * meta = &rotor->slot_meta[ blk->slot % rotor->slot_max ];
-  ulong                        idx  = blk_pool_idx( rotor->blk_pool, blk );
+  ulong                        idx  = fd_rotor_blk_pool_idx( rotor->blk_pool, blk );
   return meta->final==idx ? ROLE_FINAL : meta->notar==idx ? ROLE_NOTAR : ROLE_EAGER;
 }
 
@@ -661,7 +704,7 @@ test_repair_blk_treap( void ) {
   fd_mr32_t m30 = hash( 0x31 ), m32 = hash( 0x33 );
   shred0( rotor, 3UL, 0UL, &root, &m30 );
   ulong            three = 3UL;
-  fd_rotor_blk_t * e3    = blk_map_ele_query( rotor->blk_map, &three, NULL, rotor->blk_pool );
+  fd_rotor_blk_t * e3    = fd_rotor_blk_map_ele_query( rotor->blk_map, &three, NULL, rotor->blk_pool );
   FD_TEST( role( rotor, e3 )==ROLE_EAGER && pop( rotor, ROLE_EAGER )==e3 );
   fd_shred_t shred[1]; memset( shred, 0, sizeof(fd_shred_t) );
   shred->slot = 3UL; shred->idx = 2U*FD_FEC_SHRED_CNT; shred->data.parent_off = 3;
@@ -673,7 +716,7 @@ test_repair_blk_treap( void ) {
 
   fd_mr20_t k32; memcpy( k32.uc, m32.uc, sizeof(fd_mr20_t) );
   fd_rotor_fec_evicted( rotor, 3UL, 2U*FD_FEC_SHRED_CNT, &k32 );
-  FD_TEST( !fec_pool_ele( rotor->fec_pool, e3->fecs[ 2 ] )->rcvd );
+  FD_TEST( !fd_rotor_fec_pool_ele( rotor->fec_pool, e3->fecs[ 2 ] )->rcvd );
 
   /* Finalized blks are ROLE_FINAL. */
 
@@ -723,7 +766,7 @@ test_blk_treap_promote( void ) {
   fd_rotor_blk_t * m     = notar( rotor, 3UL, 0x30 );
   shred0  ( rotor, 4UL, 0UL, &root, &m40 );
   complete( rotor, 4UL, 0UL, 0U, 1, &m40 );
-  fd_rotor_blk_t * e     = blk_map_ele_query( rotor->blk_map, &four, NULL, rotor->blk_pool );
+  fd_rotor_blk_t * e     = fd_rotor_blk_map_ele_query( rotor->blk_map, &four, NULL, rotor->blk_pool );
   FD_TEST( role( rotor, e )==ROLE_EAGER && e->eager && e->in_blk_treap && memcmp( &e->dmr, &hash_null, sizeof(fd_mr32_t) ) );
 
   FD_TEST( fd_rotor_blk_finalized( rotor, 3UL, &h30 )==m );
@@ -782,8 +825,8 @@ static int
 was_eager( fd_rotor_t const *     rotor,
            fd_rotor_blk_t const * blk ) {
   fd_rotor_slot_meta_t const * meta = &rotor->slot_meta[ blk->slot % rotor->slot_max ];
-  return meta->slot==blk->slot && !meta->invalidated && meta->final==blk_pool_idx_null( rotor->blk_pool ) && !meta->leader &&
-         meta->eager==blk_pool_idx( rotor->blk_pool, blk ) && role( rotor, blk )==ROLE_EAGER;
+  return meta->slot==blk->slot && !meta->invalidated && meta->final==fd_rotor_blk_pool_idx_null( rotor->blk_pool ) && !meta->leader &&
+         meta->eager==fd_rotor_blk_pool_idx( rotor->blk_pool, blk ) && role( rotor, blk )==ROLE_EAGER;
 }
 
 /* check_eager checks the eager bit matches the predicate, and that a
@@ -807,9 +850,9 @@ test_eager_bit( void ) {
   ulong     zero = 0UL, one = 1UL;
 
   fd_rotor_t * rotor = setup();
-  check_eager( rotor, blk_map_ele_query( rotor->blk_map, &zero, NULL, rotor->blk_pool ) );
+  check_eager( rotor, fd_rotor_blk_map_ele_query( rotor->blk_map, &zero, NULL, rotor->blk_pool ) );
   shred0( rotor, 1UL, 0UL, &root, &m10 );
-  fd_rotor_blk_t * e1 = blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool );
+  fd_rotor_blk_t * e1 = fd_rotor_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool );
   FD_TEST( e1->eager && e1->in_blk_treap ); check_eager( rotor, e1 );
   fd_rotor_slot_invalidated( rotor, 1UL, 0 );
   FD_TEST( !e1->eager && !e1->in_blk_treap ); check_eager( rotor, e1 );
@@ -818,14 +861,14 @@ test_eager_bit( void ) {
   shred0  ( rotor, 1UL, 0UL, &root, &m10 );
   complete( rotor, 1UL, 0UL, 0U, 0, &m10 );
   complete( rotor, 1UL, 0UL, 1U, 1, &m11 );
-  e1 = blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool );
+  e1 = fd_rotor_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool );
   FD_TEST( e1->eager ); check_eager( rotor, e1 );
   FD_TEST( fd_rotor_blk_finalized( rotor, 1UL, &d1 )==e1 );
   FD_TEST( !e1->eager && role( rotor, e1 )==ROLE_FINAL ); check_eager( rotor, e1 );
 
   rotor = setup();
   shred0( rotor, 1UL, 0UL, &root, &m10 );
-  e1 = blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool );
+  e1 = fd_rotor_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool );
   fd_rotor_blk_t * fin = fd_rotor_blk_finalized( rotor, 1UL, &h77 );
   FD_TEST( fin && fin!=e1 && !e1->eager && !e1->in_blk_treap ); check_eager( rotor, e1 ); check_eager( rotor, fin );
   fd_shred_t shred[1]; memset( shred, 0, sizeof(fd_shred_t) );
@@ -836,28 +879,28 @@ test_eager_bit( void ) {
   rotor = setup();
   fd_rotor_blk_t * n1 = fd_rotor_blk_notarized( rotor, 1UL, &d1 );
   shred0  ( rotor, 1UL, 0UL, &root, &m10 );
-  e1 = blk_pool_ele( rotor->blk_pool, rotor->slot_meta[ one % rotor->slot_max ].eager );
+  e1 = fd_rotor_blk_pool_ele( rotor->blk_pool, rotor->slot_meta[ one % rotor->slot_max ].eager );
   FD_TEST( e1!=n1 && e1->eager ); check_eager( rotor, e1 ); check_eager( rotor, n1 );
   complete( rotor, 1UL, 0UL, 0U, 0, &m10 );
   complete( rotor, 1UL, 0UL, 1U, 1, &m11 );
-  FD_TEST( blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool )==e1 && !blk_map_ele_next_const( e1, NULL, rotor->blk_pool ) );
+  FD_TEST( fd_rotor_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool )==e1 && !fd_rotor_blk_map_ele_next_const( e1, NULL, rotor->blk_pool ) );
   FD_TEST( !e1->eager && role( rotor, e1 )==ROLE_NOTAR ); check_eager( rotor, e1 );
 
   rotor = setup();
   shred0( rotor, 1UL, 0UL, &root, &m10 );
-  e1 = blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool );
+  e1 = fd_rotor_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool );
   FD_TEST( e1->eager );
   complete_as( rotor, 1UL, 0UL, 0U, 1, &m10, 1 );
   FD_TEST( !e1->eager && !e1->in_blk_treap ); check_eager( rotor, e1 );
 
   rotor = setup();
   complete_as( rotor, 1UL, 0UL, 0U, 0, &m10, 1 );
-  e1 = blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool );
+  e1 = fd_rotor_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool );
   FD_TEST( !e1->eager && !e1->in_blk_treap ); check_eager( rotor, e1 );
 
   rotor = fd_rotor_join( fd_rotor_new( mem, SLOT_MAX, FEC_MAX, 42UL ) );
   fd_rotor_init( rotor, 0UL, &hash_null, NULL, NULL );
-  fd_rotor_blk_t * r = blk_map_ele_query( rotor->blk_map, &zero, NULL, rotor->blk_pool );
+  fd_rotor_blk_t * r = fd_rotor_blk_map_ele_query( rotor->blk_map, &zero, NULL, rotor->blk_pool );
   FD_TEST( role( rotor, r )==ROLE_FINAL && !r->in_blk_treap ); check_eager( rotor, r );
 }
 
@@ -874,20 +917,20 @@ test_genesis( void ) {
   shred0  ( rotor, 1UL, 0UL, &hash_null, &m10 );
   complete( rotor, 1UL, 0UL, 0U, 1, &m10 );
   ulong            one = 1UL, two = 2UL;
-  fd_rotor_blk_t * e1  = blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool );
+  fd_rotor_blk_t * e1  = fd_rotor_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool );
   FD_TEST( memcmp( &e1->dmr, &hash_null, sizeof(fd_mr32_t) ) );
   expect( rotor, e1, 0U );
 
   shred0  ( rotor, 2UL, 1UL, &e1->dmr, &m20 );
   complete( rotor, 2UL, 1UL, 0U, 1, &m20 );
-  expect( rotor, blk_map_ele_query( rotor->blk_map, &two, NULL, rotor->blk_pool ), 0U );
+  expect( rotor, fd_rotor_blk_map_ele_query( rotor->blk_map, &two, NULL, rotor->blk_pool ), 0U );
   FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) );
 
   fd_rotor_blk_t * n3    = notar( rotor, 3UL, 0x30 );
   fd_mr32_t        n3_id = hash( 0x30 ), m30 = hash( 0x31 );
   ulong            zero  = 0UL;
   FD_TEST( !fd_rotor_blk_parented( rotor, 3UL, &n3_id, 0UL, &hash_null, 1U ) );
-  FD_TEST( n3->parent==blk_pool_idx( rotor->blk_pool, blk_map_ele_query( rotor->blk_map, &zero, NULL, rotor->blk_pool ) ) );
+  FD_TEST( n3->parent==fd_rotor_blk_pool_idx( rotor->blk_pool, fd_rotor_blk_map_ele_query( rotor->blk_map, &zero, NULL, rotor->blk_pool ) ) );
   fecs    ( rotor, 3UL, 0x30, 1U );
   complete( rotor, 3UL, 0UL, 0U, 1, &m30 );
   expect( rotor, n3, 0U );
@@ -917,7 +960,7 @@ test_complete_below_rcvd( void ) {
   complete( rotor, 1UL, 0UL, 2U, 0, &m12 );
   FD_TEST( !complete( rotor, 1UL, 0UL, 1U, 1, &m11 ) );
   ulong            one = 1UL;
-  fd_rotor_blk_t * e1  = blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool );
+  fd_rotor_blk_t * e1  = fd_rotor_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool );
   FD_TEST( rotor->slot_meta[ e1->slot % rotor->slot_max ].invalidated );
   complete( rotor, 1UL, 0UL, 0U, 0, &m10 );
   FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) );
@@ -937,8 +980,8 @@ test_invalidated_after_whole( void ) {
   shred0  ( rotor, 2UL, 1UL, &a_id, &m20 );
   complete( rotor, 2UL, 1UL, 0U, 1, &m20 );
   ulong            two = 2UL;
-  fd_rotor_blk_t * e2  = blk_map_ele_query( rotor->blk_map, &two, NULL, rotor->blk_pool );
-  FD_TEST( e2->parent==blk_pool_idx( rotor->blk_pool, a ) && memcmp( &e2->dmr, &hash_null, sizeof(fd_mr32_t) ) );
+  fd_rotor_blk_t * e2  = fd_rotor_blk_map_ele_query( rotor->blk_map, &two, NULL, rotor->blk_pool );
+  FD_TEST( e2->parent==fd_rotor_blk_pool_idx( rotor->blk_pool, a ) && memcmp( &e2->dmr, &hash_null, sizeof(fd_mr32_t) ) );
   fd_rotor_slot_invalidated( rotor, 2UL, 0 );
   FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) );
 
@@ -961,7 +1004,7 @@ test_eager_out_of_order( void ) {
   fd_rotor_t * rotor = setup();
   shred0  ( rotor, 1UL, 0UL, &root, &m10 );
   complete( rotor, 1UL, 0UL, 2U, 1, &m12 );
-  fd_rotor_blk_t * e1 = blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool );
+  fd_rotor_blk_t * e1 = fd_rotor_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool );
   FD_TEST( e1->cmpl_fec_cnt==3U && !e1->buff_fec_cnt );
   FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) );
   complete( rotor, 1UL, 0UL, 0U, 0, &m10 );
@@ -975,7 +1018,7 @@ test_eager_out_of_order( void ) {
   rotor = setup();
   shred0  ( rotor, 1UL, 0UL, &root, &m10 );
   complete( rotor, 1UL, 0UL, 0U, 0, &m10 );
-  e1 = blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool );
+  e1 = fd_rotor_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool );
   expect( rotor, e1, 0U );
   complete( rotor, 1UL, 0UL, 1U, 0, &m11 );
   expect( rotor, e1, 1U );
@@ -1001,7 +1044,7 @@ test_complete_again( void ) {
   FD_TEST( fd_rotor_fec_complete( rotor, shred, &m10, 1, 0L )->is_leader );
   FD_TEST( complete( rotor, 1UL, 0UL, 0U, 1, &m10 )->is_leader );
   ulong one = 1UL;
-  expect( rotor, blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool ), 0U );
+  expect( rotor, fd_rotor_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool ), 0U );
   FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) );
 }
 
@@ -1062,7 +1105,7 @@ test_shared_fec( void ) {
   fecs    ( rotor, 1UL, 0x10, 1U );
   complete( rotor, 1UL, 0UL, 0U, 0, &m10 );
   ulong            one   = 1UL;
-  fd_rotor_blk_t * e1    = blk_pool_ele( rotor->blk_pool, rotor->slot_meta[ one % rotor->slot_max ].eager );
+  fd_rotor_blk_t * e1    = fd_rotor_blk_pool_ele( rotor->blk_pool, rotor->slot_meta[ one % rotor->slot_max ].eager );
   FD_TEST( e1!=n1 && !rotor->slot_meta[ one % rotor->slot_max ].invalidated );
   expect( rotor, n1, 0U ); expect( rotor, e1, 0U );
   FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) );
@@ -1078,7 +1121,7 @@ test_notarized_complete_fec( void ) {
   shred0  ( rotor, 1UL, 0UL, &root, &m10 );
   complete( rotor, 1UL, 0UL, 0U, 0, &m10 );
   ulong            one = 1UL;
-  fd_rotor_blk_t * e1  = blk_pool_ele( rotor->blk_pool, rotor->slot_meta[ one % rotor->slot_max ].eager );
+  fd_rotor_blk_t * e1  = fd_rotor_blk_pool_ele( rotor->blk_pool, rotor->slot_meta[ one % rotor->slot_max ].eager );
   expect( rotor, e1, 0U );
   FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) );
 
@@ -1113,7 +1156,7 @@ test_eager_invalidated( void ) {
   complete( rotor, 1UL, 0UL, 0U, 0, &m10 );
   complete( rotor, 1UL, 0UL, 1U, 0, &m11 );
   complete( rotor, 1UL, 0UL, 2U, 0, &m12 );
-  fd_rotor_blk_t * e1 = blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool );
+  fd_rotor_blk_t * e1 = fd_rotor_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool );
   expect( rotor, e1, 0U ); expect( rotor, e1, 1U ); expect( rotor, e1, 2U );
   fd_shred_t shred[1]; memset( shred, 0, sizeof(fd_shred_t) );
   shred->slot            = 1UL;
@@ -1129,7 +1172,7 @@ test_eager_invalidated( void ) {
   shred0( rotor, 1UL, 0UL, &root, &m10 );
   fd_rotor_slot_invalidated( rotor, 1UL, 0 );
   FD_TEST( complete( rotor, 1UL, 0UL, 0U, 1, &m10 ) );
-  e1 = blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool );
+  e1 = fd_rotor_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool );
   FD_TEST( !memcmp( &e1->dmr, &hash_null, sizeof(fd_mr32_t) ) );
   FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) );
 }
@@ -1146,18 +1189,18 @@ test_finalize_other( void ) {
   fd_rotor_blk_t * fin = fd_rotor_blk_finalized( rotor, 1UL, &h77 );
   ulong            one = 1UL, two = 2UL;
   FD_TEST( fin && !is_eager( rotor, fin ) );
-  fd_rotor_blk_t * e1  = blk_pool_ele( rotor->blk_pool, rotor->slot_meta[ one % rotor->slot_max ].eager );
+  fd_rotor_blk_t * e1  = fd_rotor_blk_pool_ele( rotor->blk_pool, rotor->slot_meta[ one % rotor->slot_max ].eager );
   FD_TEST( e1 && e1!=fin ); /* the unfinished turbine version stays */
   complete( rotor, 1UL, 0UL, 0U, 1, &m10 ); /* it completes as another blk and is pruned */
-  FD_TEST( blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool )==fin && !blk_map_ele_next_const( fin, NULL, rotor->blk_pool ) );
+  FD_TEST( fd_rotor_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool )==fin && !fd_rotor_blk_map_ele_next_const( fin, NULL, rotor->blk_pool ) );
   FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) );
 
   FD_TEST( !fd_rotor_blk_finalized( rotor, 1UL, &h40 ) );
-  FD_TEST( blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool )==fin && !blk_map_ele_next_const( fin, NULL, rotor->blk_pool ) );
+  FD_TEST( fd_rotor_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool )==fin && !fd_rotor_blk_map_ele_next_const( fin, NULL, rotor->blk_pool ) );
 
   fd_rotor_slot_skipped( rotor, 2UL );
   FD_TEST( !fd_rotor_blk_finalized( rotor, 2UL, &h20 ) );
-  FD_TEST( !blk_map_ele_query( rotor->blk_map, &two, NULL, rotor->blk_pool ) );
+  FD_TEST( !fd_rotor_blk_map_ele_query( rotor->blk_map, &two, NULL, rotor->blk_pool ) );
 }
 
 /* A child that named a block before rotor had it links under the parent
@@ -1177,9 +1220,9 @@ test_finalize_moves_child( void ) {
   shred0  ( rotor, 1UL, 0UL, &root, &m10 );
   shred0  ( rotor, 2UL, 1UL, &d1,   &m20 );
   complete( rotor, 2UL, 1UL, 0U, 1, &m20 );
-  fd_rotor_blk_t * e2 = blk_map_ele_query( rotor->blk_map, &two, NULL, rotor->blk_pool );
+  fd_rotor_blk_t * e2 = fd_rotor_blk_map_ele_query( rotor->blk_map, &two, NULL, rotor->blk_pool );
   fd_rotor_blk_t * n1 = fd_rotor_blk_finalized( rotor, 1UL, &d1 );
-  FD_TEST( n1 && !is_eager( rotor, n1 ) && e2->parent==blk_pool_idx( rotor->blk_pool, n1 ) );
+  FD_TEST( n1 && !is_eager( rotor, n1 ) && e2->parent==fd_rotor_blk_pool_idx( rotor->blk_pool, n1 ) );
   fd_rotor_blk_parented( rotor, 1UL, &d1, 0UL, &root, 2U );
   fd_mr20_t k0; memcpy( k0.uc, m10.uc, sizeof(fd_mr20_t) );
   fd_mr20_t k1; memcpy( k1.uc, m11.uc, sizeof(fd_mr20_t) );
@@ -1187,15 +1230,15 @@ test_finalize_moves_child( void ) {
   FD_TEST( fd_rotor_fec_notarized( rotor, 1UL, &d1, FD_FEC_SHRED_CNT, &k1 ) );
   FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) );
   ulong            one    = 1UL;
-  ulong            n1_idx = blk_pool_idx( rotor->blk_pool, n1 );
-  fd_rotor_blk_t * e1     = blk_pool_ele( rotor->blk_pool, rotor->slot_meta[ one % rotor->slot_max ].eager );
+  ulong            n1_idx = fd_rotor_blk_pool_idx( rotor->blk_pool, n1 );
+  fd_rotor_blk_t * e1     = fd_rotor_blk_pool_ele( rotor->blk_pool, rotor->slot_meta[ one % rotor->slot_max ].eager );
   FD_TEST( e1 && e1!=n1 );
   complete( rotor, 1UL, 0UL, 0U, 0, &m10 );
   complete( rotor, 1UL, 0UL, 1U, 1, &m11 );
-  FD_TEST( rotor->slot_meta[ one % rotor->slot_max ].final==blk_pool_idx( rotor->blk_pool, e1 ) );
-  FD_TEST( e2->parent==blk_pool_idx( rotor->blk_pool, e1 ) );
+  FD_TEST( rotor->slot_meta[ one % rotor->slot_max ].final==fd_rotor_blk_pool_idx( rotor->blk_pool, e1 ) );
+  FD_TEST( e2->parent==fd_rotor_blk_pool_idx( rotor->blk_pool, e1 ) );
   fd_rotor_deque_t a0 = fd_rotor_deque_pop_head( rotor->reasm_deque ), b0 = fd_rotor_deque_pop_head( rotor->reasm_deque ); /* both versions consumed FEC set 0 */
-  FD_TEST( a0.fec_idx==0U && b0.fec_idx==0U && a0.blk_idx+b0.blk_idx==n1_idx+blk_pool_idx( rotor->blk_pool, e1 ) && a0.blk_idx!=b0.blk_idx );
+  FD_TEST( a0.fec_idx==0U && b0.fec_idx==0U && a0.blk_idx+b0.blk_idx==n1_idx+fd_rotor_blk_pool_idx( rotor->blk_pool, e1 ) && a0.blk_idx!=b0.blk_idx );
   expect( rotor, e1, 1U );
   expect( rotor, e2, 0U );
   FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) );
@@ -1205,7 +1248,7 @@ test_finalize_moves_child( void ) {
   shred0  ( rotor, 1UL, 0UL, &root, &m61 );
   shred0  ( rotor, 2UL, 1UL, &a_id, &m20 );
   complete( rotor, 2UL, 1UL, 0U, 1, &m20 );
-  e2 = blk_map_ele_query( rotor->blk_map, &two, NULL, rotor->blk_pool );
+  e2 = fd_rotor_blk_map_ele_query( rotor->blk_map, &two, NULL, rotor->blk_pool );
   fd_rotor_blk_t * a = notar( rotor, 1UL, 0x10 );
   parented( rotor, 1UL, 0x10, 0UL, 0xEE, 1U );
   fecs    ( rotor, 1UL, 0x10, 1U );
@@ -1213,7 +1256,7 @@ test_finalize_moves_child( void ) {
   expect( rotor, a, 0U );
   FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) );
   FD_TEST( fd_rotor_blk_finalized( rotor, 1UL, &a_id )==a );
-  FD_TEST( e2->parent==blk_pool_idx( rotor->blk_pool, a ) );
+  FD_TEST( e2->parent==fd_rotor_blk_pool_idx( rotor->blk_pool, a ) );
   expect( rotor, e2, 0U );
   FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) );
   check_connected( rotor );
@@ -1235,12 +1278,12 @@ test_parented( void ) {
   fd_rotor_t *     rotor = setup();
   fd_rotor_blk_t * c     = notar( rotor, 3UL, 0x30 );
   fd_rotor_blk_t * n2    = fd_rotor_blk_parented( rotor, 3UL, &h30, 2UL, &h20, 1U );
-  FD_TEST( n2 && n2->slot==2UL && n2->child==blk_pool_idx( rotor->blk_pool, c ) && c->parent==blk_pool_idx( rotor->blk_pool, n2 ) );
+  FD_TEST( n2 && n2->slot==2UL && n2->child==fd_rotor_blk_pool_idx( rotor->blk_pool, c ) && c->parent==fd_rotor_blk_pool_idx( rotor->blk_pool, n2 ) );
   FD_TEST( !fd_rotor_blk_notarized( rotor, 2UL, &h20 ) );
   fd_rotor_blk_t * n1    = fd_rotor_blk_parented( rotor, 2UL, &h20, 1UL, &h10, 1U );
-  FD_TEST( n1 && n2->parent==blk_pool_idx( rotor->blk_pool, n1 ) );
+  FD_TEST( n1 && n2->parent==fd_rotor_blk_pool_idx( rotor->blk_pool, n1 ) );
   FD_TEST( !fd_rotor_blk_parented( rotor, 1UL, &h10, 0UL, &hEE, 1U ) );
-  FD_TEST( n1->parent==blk_pool_idx( rotor->blk_pool, blk_map_ele_query( rotor->blk_map, &zero, NULL, rotor->blk_pool ) ) );
+  FD_TEST( n1->parent==fd_rotor_blk_pool_idx( rotor->blk_pool, fd_rotor_blk_map_ele_query( rotor->blk_map, &zero, NULL, rotor->blk_pool ) ) );
   fecs( rotor, 3UL, 0x30, 1U );
   fecs( rotor, 2UL, 0x20, 1U );
   fecs( rotor, 1UL, 0x10, 1U );
@@ -1255,17 +1298,17 @@ test_parented( void ) {
   fd_rotor_blk_t * b = notar( rotor, 2UL, 0x20 );
   FD_TEST( !fd_rotor_blk_parented( rotor, 2UL, &h20, 2UL, &h10, 1U ) && b->parent_slot==ULONG_MAX );
   n1 = fd_rotor_blk_parented( rotor, 2UL, &h20, 1UL, &h10, 1U );
-  FD_TEST( n1 && b->parent==blk_pool_idx( rotor->blk_pool, n1 ) );
+  FD_TEST( n1 && b->parent==fd_rotor_blk_pool_idx( rotor->blk_pool, n1 ) );
   FD_TEST( !fd_rotor_blk_parented( rotor, 2UL, &h20, 1UL, &h40, 1U ) );
   FD_TEST( !fd_rotor_blk_parented( rotor, 2UL, &h20, 1UL, &h10, 1U ) );
-  FD_TEST( b->parent==blk_pool_idx( rotor->blk_pool, n1 ) && n1->child==blk_pool_idx( rotor->blk_pool, b ) );
-  FD_TEST( b->sibling==blk_pool_idx_null( rotor->blk_pool ) && !memcmp( &b->parent_blk_mr, &h10, sizeof(fd_mr32_t) ) );
-  FD_TEST( blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool )==n1 && !blk_map_ele_next_const( n1, NULL, rotor->blk_pool ) );
+  FD_TEST( b->parent==fd_rotor_blk_pool_idx( rotor->blk_pool, n1 ) && n1->child==fd_rotor_blk_pool_idx( rotor->blk_pool, b ) );
+  FD_TEST( b->sibling==fd_rotor_blk_pool_idx_null( rotor->blk_pool ) && !memcmp( &b->parent_blk_mr, &h10, sizeof(fd_mr32_t) ) );
+  FD_TEST( fd_rotor_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool )==n1 && !fd_rotor_blk_map_ele_next_const( n1, NULL, rotor->blk_pool ) );
 
   rotor = setup();
   b     = notar( rotor, 2UL, 0x20 );
   FD_TEST( !fd_rotor_blk_parented( rotor, 2UL, &h20, 0UL, &h77, 1U ) );
-  FD_TEST( b->parent==blk_pool_idx_null( rotor->blk_pool ) && !blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool ) );
+  FD_TEST( b->parent==fd_rotor_blk_pool_idx_null( rotor->blk_pool ) && !fd_rotor_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool ) );
   fecs( rotor, 2UL, 0x20, 1U );
   mr = hash( 0x21 ); complete( rotor, 2UL, 0UL, 0U, 1, &mr );
   FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) );
@@ -1274,15 +1317,15 @@ test_parented( void ) {
   b     = notar( rotor, 2UL, 0x20 );
   c     = notar( rotor, 3UL, 0x30 );
   n1    = fd_rotor_blk_finalized( rotor, 1UL, &h10 );
-  FD_TEST( !fd_rotor_blk_parented( rotor, 2UL, &h20, 1UL, &h40, 1U ) && b->parent==blk_pool_idx_null( rotor->blk_pool ) );
-  FD_TEST( blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool )==n1 && !blk_map_ele_next_const( n1, NULL, rotor->blk_pool ) );
-  FD_TEST( !fd_rotor_blk_parented( rotor, 3UL, &h30, 1UL, &h10, 1U ) && c->parent==blk_pool_idx( rotor->blk_pool, n1 ) );
+  FD_TEST( !fd_rotor_blk_parented( rotor, 2UL, &h20, 1UL, &h40, 1U ) && b->parent==fd_rotor_blk_pool_idx_null( rotor->blk_pool ) );
+  FD_TEST( fd_rotor_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool )==n1 && !fd_rotor_blk_map_ele_next_const( n1, NULL, rotor->blk_pool ) );
+  FD_TEST( !fd_rotor_blk_parented( rotor, 3UL, &h30, 1UL, &h10, 1U ) && c->parent==fd_rotor_blk_pool_idx( rotor->blk_pool, n1 ) );
 
   rotor = setup();
   fd_rotor_slot_skipped( rotor, 1UL );
   b     = notar( rotor, 2UL, 0x20 );
-  FD_TEST( !fd_rotor_blk_parented( rotor, 2UL, &h20, 1UL, &h10, 1U ) && b->parent==blk_pool_idx_null( rotor->blk_pool ) );
-  FD_TEST( !blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool ) );
+  FD_TEST( !fd_rotor_blk_parented( rotor, 2UL, &h20, 1UL, &h10, 1U ) && b->parent==fd_rotor_blk_pool_idx_null( rotor->blk_pool ) );
+  FD_TEST( !fd_rotor_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool ) );
   check_connected( rotor );
 }
 
@@ -1332,9 +1375,9 @@ test_skip_unlinks( void ) {
   parented( rotor, 2UL, 0x20, 1UL, 0x10, 1U );
   parented( rotor, 3UL, 0x30, 2UL, 0x20, 1U );
   fd_rotor_slot_skipped( rotor, 2UL );
-  FD_TEST( !blk_map_ele_query( rotor->blk_map, &two, NULL, rotor->blk_pool ) );
-  FD_TEST( a->child==blk_pool_idx_null( rotor->blk_pool ) );
-  FD_TEST( c->parent==blk_pool_idx_null( rotor->blk_pool ) && c->sibling==blk_pool_idx_null( rotor->blk_pool ) );
+  FD_TEST( !fd_rotor_blk_map_ele_query( rotor->blk_map, &two, NULL, rotor->blk_pool ) );
+  FD_TEST( a->child==fd_rotor_blk_pool_idx_null( rotor->blk_pool ) );
+  FD_TEST( c->parent==fd_rotor_blk_pool_idx_null( rotor->blk_pool ) && c->sibling==fd_rotor_blk_pool_idx_null( rotor->blk_pool ) );
   fecs( rotor, 1UL, 0x10, 1U );
   fecs( rotor, 3UL, 0x30, 1U );
   fd_mr32_t mr;
@@ -1348,14 +1391,14 @@ test_skip_unlinks( void ) {
   rotor = setup();
   shred0  ( rotor, 1UL, 0UL, &root, &m10 );
   complete( rotor, 1UL, 0UL, 0U, 1, &m10 );
-  fd_rotor_blk_t * e1 = blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool );
+  fd_rotor_blk_t * e1 = fd_rotor_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool );
   expect( rotor, e1, 0U );
   fd_mr32_t d1 = e1->dmr;
   shred0( rotor, 2UL, 1UL, &d1, &m20 );
-  fd_rotor_blk_t * e2 = blk_map_ele_query( rotor->blk_map, &two, NULL, rotor->blk_pool );
-  FD_TEST( e2->parent==blk_pool_idx( rotor->blk_pool, e1 ) );
+  fd_rotor_blk_t * e2 = fd_rotor_blk_map_ele_query( rotor->blk_map, &two, NULL, rotor->blk_pool );
+  FD_TEST( e2->parent==fd_rotor_blk_pool_idx( rotor->blk_pool, e1 ) );
   fd_rotor_slot_skipped( rotor, 1UL );
-  FD_TEST( e2->parent==blk_pool_idx_null( rotor->blk_pool ) );
+  FD_TEST( e2->parent==fd_rotor_blk_pool_idx_null( rotor->blk_pool ) );
   complete( rotor, 2UL, 1UL, 0U, 1, &m20 );
   FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) );
   check_connected( rotor );
@@ -1385,19 +1428,19 @@ test_twin_merge_children( void ) {
   complete( rotor, 3UL, 1UL, 0U, 1, &m30 );
   shred0  ( rotor, 4UL, 1UL, &other, &m40 );
   complete( rotor, 4UL, 1UL, 0U, 1, &m40 );
-  fd_rotor_blk_t * e3 = blk_map_ele_query( rotor->blk_map, &three, NULL, rotor->blk_pool );
-  fd_rotor_blk_t * e4 = blk_map_ele_query( rotor->blk_map, &four,  NULL, rotor->blk_pool );
-  fd_rotor_blk_t * e1 = blk_pool_ele( rotor->blk_pool, rotor->slot_meta[ one % rotor->slot_max ].eager );
-  FD_TEST( e3->parent==blk_pool_idx( rotor->blk_pool, n1 ) && e4->parent==blk_pool_idx( rotor->blk_pool, e1 ) );
+  fd_rotor_blk_t * e3 = fd_rotor_blk_map_ele_query( rotor->blk_map, &three, NULL, rotor->blk_pool );
+  fd_rotor_blk_t * e4 = fd_rotor_blk_map_ele_query( rotor->blk_map, &four,  NULL, rotor->blk_pool );
+  fd_rotor_blk_t * e1 = fd_rotor_blk_pool_ele( rotor->blk_pool, rotor->slot_meta[ one % rotor->slot_max ].eager );
+  FD_TEST( e3->parent==fd_rotor_blk_pool_idx( rotor->blk_pool, n1 ) && e4->parent==fd_rotor_blk_pool_idx( rotor->blk_pool, e1 ) );
   FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) );
 
   shred0  ( rotor, 1UL, 0UL, &root, &m10 );
   complete( rotor, 1UL, 0UL, 0U, 0, &m10 );
   expect( rotor, e1, 0U );
   complete( rotor, 1UL, 0UL, 1U, 1, &m11 );
-  FD_TEST( blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool )==e1 && !blk_map_ele_next_const( e1, NULL, rotor->blk_pool ) );
-  FD_TEST( c->parent==blk_pool_idx( rotor->blk_pool, e1 ) && e3->parent==blk_pool_idx( rotor->blk_pool, e1 ) );
-  FD_TEST( e4->parent==blk_pool_idx_null( rotor->blk_pool ) );
+  FD_TEST( fd_rotor_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool )==e1 && !fd_rotor_blk_map_ele_next_const( e1, NULL, rotor->blk_pool ) );
+  FD_TEST( c->parent==fd_rotor_blk_pool_idx( rotor->blk_pool, e1 ) && e3->parent==fd_rotor_blk_pool_idx( rotor->blk_pool, e1 ) );
+  FD_TEST( e4->parent==fd_rotor_blk_pool_idx_null( rotor->blk_pool ) );
   expect( rotor, e1, 1U );
   expect( rotor, c,  0U ); expect( rotor, e3, 0U );
   FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) );
@@ -1406,14 +1449,14 @@ test_twin_merge_children( void ) {
   n1    = fd_rotor_blk_notarized( rotor, 1UL, &d1 );
   shred0  ( rotor, 2UL, 1UL, &d1, &m20 );
   complete( rotor, 2UL, 1UL, 0U, 1, &m20 );
-  fd_rotor_blk_t * e2 = blk_map_ele_query( rotor->blk_map, &two, NULL, rotor->blk_pool );
-  FD_TEST( e2->parent==blk_pool_idx( rotor->blk_pool, n1 ) );
+  fd_rotor_blk_t * e2 = fd_rotor_blk_map_ele_query( rotor->blk_map, &two, NULL, rotor->blk_pool );
+  FD_TEST( e2->parent==fd_rotor_blk_pool_idx( rotor->blk_pool, n1 ) );
   shred0  ( rotor, 1UL, 0UL, &root, &m10 );
   complete( rotor, 1UL, 0UL, 0U, 0, &m10 );
   complete( rotor, 1UL, 0UL, 1U, 1, &m11 );
-  e1 = blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool );
-  FD_TEST( is_eager( rotor, e1 ) && !blk_map_ele_next_const( e1, NULL, rotor->blk_pool ) );
-  FD_TEST( e2->parent==blk_pool_idx( rotor->blk_pool, e1 ) );
+  e1 = fd_rotor_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool );
+  FD_TEST( is_eager( rotor, e1 ) && !fd_rotor_blk_map_ele_next_const( e1, NULL, rotor->blk_pool ) );
+  FD_TEST( e2->parent==fd_rotor_blk_pool_idx( rotor->blk_pool, e1 ) );
   expect( rotor, e1, 0U ); expect( rotor, e1, 1U );
   expect( rotor, e2, 0U );
   FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) );
@@ -1452,9 +1495,9 @@ test_root_advanced( void ) {
   ulong     zero = 0UL, one = 1UL;
   fd_rotor_root_advanced( rotor, 2UL, &b_id );
   FD_TEST( rotor->root==2UL );
-  FD_TEST( !blk_map_ele_query( rotor->blk_map, &zero, NULL, rotor->blk_pool ) && !blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool ) );
-  FD_TEST( b->parent==blk_pool_idx_null( rotor->blk_pool ) && c->parent==blk_pool_idx( rotor->blk_pool, b ) );
-  FD_TEST( b->fecs[ 0 ]==fec_pool_idx_null( rotor->fec_pool ) && b->fecs[ 1 ]==fec_pool_idx_null( rotor->fec_pool ) );
+  FD_TEST( !fd_rotor_blk_map_ele_query( rotor->blk_map, &zero, NULL, rotor->blk_pool ) && !fd_rotor_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool ) );
+  FD_TEST( b->parent==fd_rotor_blk_pool_idx_null( rotor->blk_pool ) && c->parent==fd_rotor_blk_pool_idx( rotor->blk_pool, b ) );
+  FD_TEST( b->fecs[ 0 ]==fd_rotor_fec_pool_idx_null( rotor->fec_pool ) && b->fecs[ 1 ]==fd_rotor_fec_pool_idx_null( rotor->fec_pool ) );
   mr = hash( 0x32 ); complete( rotor, 3UL, 2UL, 1U, 1, &mr );
   expect( rotor, c, 1U );
   FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) );
@@ -1492,7 +1535,7 @@ check_delivery( fd_rotor_t *            rotor,
   while( !fd_rotor_deque_empty( rotor->reasm_deque ) ) {
     fd_rotor_deque_t out = fd_rotor_deque_pop_head( rotor->reasm_deque );
     ulong   k   = 0UL;
-    while( k<blk_cnt && out.blk_idx!=blk_pool_idx( rotor->blk_pool, blks[ k ] ) ) k++;
+    while( k<blk_cnt && out.blk_idx!=fd_rotor_blk_pool_idx( rotor->blk_pool, blks[ k ] ) ) k++;
     FD_TEST( k<blk_cnt && out.fec_idx==done[ k ] );
     FD_TEST( out.fec_idx || par[ k ]<0 || done[ par[ k ] ]==cnt[ par[ k ] ] );
     done[ k ]++;
@@ -1573,10 +1616,10 @@ test_perm_eager_chain( void ) {
       }
     }
     fd_rotor_blk_t * blks[ 2 ];
-    blks[ 0 ] = blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool );
-    blks[ 1 ] = blk_map_ele_query( rotor->blk_map, &two, NULL, rotor->blk_pool );
-    FD_TEST( is_eager( rotor, blks[ 0 ] ) && !blk_map_ele_next_const( blks[ 0 ], NULL, rotor->blk_pool ) );
-    FD_TEST( !memcmp( &blks[ 0 ]->dmr, &d1, sizeof(fd_mr32_t) ) && blks[ 1 ]->parent==blk_pool_idx( rotor->blk_pool, blks[ 0 ] ) );
+    blks[ 0 ] = fd_rotor_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool );
+    blks[ 1 ] = fd_rotor_blk_map_ele_query( rotor->blk_map, &two, NULL, rotor->blk_pool );
+    FD_TEST( is_eager( rotor, blks[ 0 ] ) && !fd_rotor_blk_map_ele_next_const( blks[ 0 ], NULL, rotor->blk_pool ) );
+    FD_TEST( !memcmp( &blks[ 0 ]->dmr, &d1, sizeof(fd_mr32_t) ) && blks[ 1 ]->parent==fd_rotor_blk_pool_idx( rotor->blk_pool, blks[ 0 ] ) );
     check_delivery( rotor, blks, cnt, par, 2UL );
     perm_cnt++;
   } while( next_perm( p, 5U ) );
@@ -1584,7 +1627,7 @@ test_perm_eager_chain( void ) {
 }
 
 /* Our leader FEC sets are delivered before FEC sets already queued,
-   including a redelivery of the whole window, and in FEC order when
+   including the chain a reconsume delivers again, and in FEC order when
    several become deliverable at once. */
 
 static void
@@ -1596,17 +1639,17 @@ test_leader_first( void ) {
   fd_mr32_t mr;
   mr = hash( 0x11 ); complete( rotor, 1UL, 0UL, 0U, 0, &mr );
   mr = hash( 0x12 ); complete( rotor, 1UL, 0UL, 1U, 1, &mr );
-  fd_rotor_fec_reconsume( rotor );
-  FD_TEST( fd_rotor_deque_cnt( rotor->reasm_deque )==4UL );
+  rotor->reconsume = 1;
+  FD_TEST( fd_rotor_deque_cnt( rotor->reasm_deque )==2UL );
 
   fd_mr32_t a_id = hash( 0x10 ), m20 = hash( 0x21 ), m21 = hash( 0x22 ), m22 = hash( 0x23 );
   shred0     ( rotor, 2UL, 1UL, &a_id, &m20 );
   complete_as( rotor, 2UL, 1UL, 1U, 0, &m21, 1 );
-  FD_TEST( fd_rotor_deque_cnt( rotor->reasm_deque )==4UL );
+  FD_TEST( fd_rotor_deque_cnt( rotor->reasm_deque )==2UL );
   complete_as( rotor, 2UL, 1UL, 0U, 0, &m20, 1 );
   ulong            two = 2UL;
-  fd_rotor_blk_t * e2  = blk_map_ele_query( rotor->blk_map, &two, NULL, rotor->blk_pool );
-  FD_TEST( e2->parent==blk_pool_idx( rotor->blk_pool, a ) );
+  fd_rotor_blk_t * e2  = fd_rotor_blk_map_ele_query( rotor->blk_map, &two, NULL, rotor->blk_pool );
+  FD_TEST( e2->parent==fd_rotor_blk_pool_idx( rotor->blk_pool, a ) );
   expect( rotor, e2, 0U ); expect( rotor, e2, 1U );
   complete_as( rotor, 2UL, 1UL, 2U, 1, &m22, 1 );
   expect( rotor, e2, 2U );
@@ -1626,11 +1669,11 @@ test_skipped_refused( void ) {
   fd_rotor_t * rotor = setup();
   shred0( rotor, 1UL, 0UL, &root, &m10 );
   fd_rotor_slot_skipped( rotor, 1UL );
-  FD_TEST( !blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool ) );
+  FD_TEST( !fd_rotor_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool ) );
   shred0( rotor, 1UL, 0UL, &root, &m10 );
   FD_TEST( !complete( rotor, 1UL, 0UL, 0U, 0, &m10 ) );
   FD_TEST( !complete( rotor, 1UL, 0UL, 1U, 1, &m11 ) );
-  FD_TEST( !blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool ) );
+  FD_TEST( !fd_rotor_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool ) );
   FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) );
 }
 
@@ -1646,46 +1689,46 @@ test_catchup( void ) {
   fd_rotor_t * rotor = setup();
   shred0( rotor, 2UL, 0UL, &root, &m20 );
   ulong            zero = 0UL, two = 2UL, four = 4UL;
-  fd_rotor_blk_t * e2   = blk_map_ele_query( rotor->blk_map, &two, NULL, rotor->blk_pool );
+  fd_rotor_blk_t * e2   = fd_rotor_blk_map_ele_query( rotor->blk_map, &two, NULL, rotor->blk_pool );
   fd_rotor_slot_skipped( rotor, 4UL );
-  ulong used      = blk_pool_used( rotor->blk_pool );
+  ulong used      = fd_rotor_blk_pool_used( rotor->blk_pool );
   ulong treap_cnt = fd_rotor_treap_ele_cnt( rotor->eager_treap );
 
   fd_rotor_slot_catchup( rotor, 6UL );
-  FD_TEST( blk_pool_used( rotor->blk_pool )==used+3UL );
+  FD_TEST( fd_rotor_blk_pool_used( rotor->blk_pool )==used+3UL );
   FD_TEST( fd_rotor_treap_ele_cnt( rotor->eager_treap )==treap_cnt+3UL );
   for( ulong s=1UL; s<6UL; s+=2UL ) {
-    fd_rotor_blk_t * blk = blk_map_ele_query( rotor->blk_map, &s, NULL, rotor->blk_pool );
-    FD_TEST( blk && !blk_map_ele_next_const( blk, NULL, rotor->blk_pool ) && is_eager( rotor, blk ) );
+    fd_rotor_blk_t * blk = fd_rotor_blk_map_ele_query( rotor->blk_map, &s, NULL, rotor->blk_pool );
+    FD_TEST( blk && !fd_rotor_blk_map_ele_next_const( blk, NULL, rotor->blk_pool ) && is_eager( rotor, blk ) );
     FD_TEST( role( rotor, blk )==ROLE_EAGER && blk->eager && blk->in_blk_treap );
     FD_TEST( !memcmp( &blk->dmr, &hash_null, sizeof(fd_mr32_t) ) );
-    FD_TEST( blk->parent==blk_pool_idx_null( rotor->blk_pool ) && blk->parent_slot==ULONG_MAX && !blk->rcvd_fec_cnt );
+    FD_TEST( blk->parent==fd_rotor_blk_pool_idx_null( rotor->blk_pool ) && blk->parent_slot==ULONG_MAX && !blk->rcvd_fec_cnt );
   }
-  FD_TEST( blk_map_ele_query( rotor->blk_map, &two, NULL, rotor->blk_pool )==e2 && !blk_map_ele_next_const( e2, NULL, rotor->blk_pool ) );
-  FD_TEST( e2->rcvd_fec_cnt==1U && e2->parent==blk_pool_idx( rotor->blk_pool, blk_map_ele_query( rotor->blk_map, &zero, NULL, rotor->blk_pool ) ) );
-  FD_TEST( !blk_map_ele_query( rotor->blk_map, &four, NULL, rotor->blk_pool ) );
-  for( ulong s=6UL; s<SLOT_MAX; s++ ) FD_TEST( !blk_map_ele_query( rotor->blk_map, &s, NULL, rotor->blk_pool ) );
+  FD_TEST( fd_rotor_blk_map_ele_query( rotor->blk_map, &two, NULL, rotor->blk_pool )==e2 && !fd_rotor_blk_map_ele_next_const( e2, NULL, rotor->blk_pool ) );
+  FD_TEST( e2->rcvd_fec_cnt==1U && e2->parent==fd_rotor_blk_pool_idx( rotor->blk_pool, fd_rotor_blk_map_ele_query( rotor->blk_map, &zero, NULL, rotor->blk_pool ) ) );
+  FD_TEST( !fd_rotor_blk_map_ele_query( rotor->blk_map, &four, NULL, rotor->blk_pool ) );
+  for( ulong s=6UL; s<SLOT_MAX; s++ ) FD_TEST( !fd_rotor_blk_map_ele_query( rotor->blk_map, &s, NULL, rotor->blk_pool ) );
 
   fd_rotor_slot_catchup( rotor, 3UL );
-  FD_TEST( blk_pool_used( rotor->blk_pool )==used+3UL && rotor->catchup_slot==6UL );
+  FD_TEST( fd_rotor_blk_pool_used( rotor->blk_pool )==used+3UL && rotor->catchup_slot==6UL );
 
   ulong three = 3UL;
   fd_rotor_slot_skipped( rotor, 3UL );
-  FD_TEST( !blk_map_ele_query( rotor->blk_map, &three, NULL, rotor->blk_pool ) );
-  FD_TEST( blk_pool_used( rotor->blk_pool )==used+2UL );
+  FD_TEST( !fd_rotor_blk_map_ele_query( rotor->blk_map, &three, NULL, rotor->blk_pool ) );
+  FD_TEST( fd_rotor_blk_pool_used( rotor->blk_pool )==used+2UL );
   FD_TEST( fd_rotor_treap_ele_cnt( rotor->eager_treap )==treap_cnt+2UL );
   FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) );
 
   fd_mr32_t h8 = hash( 0x80 );
   fd_rotor_slot_invalidated( rotor, 7UL, 0 );
   FD_TEST( fd_rotor_blk_finalized( rotor, 8UL, &h8 ) );
-  used = blk_pool_used( rotor->blk_pool );
+  used = fd_rotor_blk_pool_used( rotor->blk_pool );
   fd_rotor_slot_catchup( rotor, 10UL );
-  FD_TEST( blk_pool_used( rotor->blk_pool )==used+2UL );
-  FD_TEST( fd_rotor_slot_meta( rotor, 7UL )->eager==blk_pool_idx_null( rotor->blk_pool ) );
-  FD_TEST( fd_rotor_slot_meta( rotor, 8UL )->eager==blk_pool_idx_null( rotor->blk_pool ) );
+  FD_TEST( fd_rotor_blk_pool_used( rotor->blk_pool )==used+2UL );
+  FD_TEST( fd_rotor_slot_meta( rotor, 7UL )->eager==fd_rotor_blk_pool_idx_null( rotor->blk_pool ) );
+  FD_TEST( fd_rotor_slot_meta( rotor, 8UL )->eager==fd_rotor_blk_pool_idx_null( rotor->blk_pool ) );
   ulong seven = 7UL;
-  FD_TEST( !blk_map_ele_query( rotor->blk_map, &seven, NULL, rotor->blk_pool ) );
+  FD_TEST( !fd_rotor_blk_map_ele_query( rotor->blk_map, &seven, NULL, rotor->blk_pool ) );
 }
 
 /* Shred 0 of slot 2 links under slot 1's pre-created eager blk, and
@@ -1700,15 +1743,15 @@ test_catchup_link( void ) {
   fd_rotor_t * rotor = setup();
   fd_rotor_slot_catchup( rotor, 3UL );
   ulong            one = 1UL, two = 2UL;
-  fd_rotor_blk_t * e1  = blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool );
-  fd_rotor_blk_t * e2  = blk_map_ele_query( rotor->blk_map, &two, NULL, rotor->blk_pool );
+  fd_rotor_blk_t * e1  = fd_rotor_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool );
+  fd_rotor_blk_t * e2  = fd_rotor_blk_map_ele_query( rotor->blk_map, &two, NULL, rotor->blk_pool );
   FD_TEST( e1 && e2 && is_eager( rotor, e1 ) && is_eager( rotor, e2 ) );
 
   shred0  ( rotor, 2UL, 1UL, &d1, &m20 );
   complete( rotor, 2UL, 1UL, 0U, 1, &m20 );
-  FD_TEST( blk_map_ele_query( rotor->blk_map, &two, NULL, rotor->blk_pool )==e2 && !blk_map_ele_next_const( e2, NULL, rotor->blk_pool ) );
-  FD_TEST( e2->parent==blk_pool_idx( rotor->blk_pool, e1 ) && e2->parent_slot==1UL );
-  FD_TEST( !blk_map_ele_next_const( e1, NULL, rotor->blk_pool ) );
+  FD_TEST( fd_rotor_blk_map_ele_query( rotor->blk_map, &two, NULL, rotor->blk_pool )==e2 && !fd_rotor_blk_map_ele_next_const( e2, NULL, rotor->blk_pool ) );
+  FD_TEST( e2->parent==fd_rotor_blk_pool_idx( rotor->blk_pool, e1 ) && e2->parent_slot==1UL );
+  FD_TEST( !fd_rotor_blk_map_ele_next_const( e1, NULL, rotor->blk_pool ) );
   FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) );
 
   shred0  ( rotor, 1UL, 0UL, &root, &m10 );
@@ -1733,35 +1776,35 @@ test_catchup_root_advanced( void ) {
   fd_rotor_blk_t * c    = notar( rotor, 3UL, 0x30 );
   fd_mr32_t        c_id = hash( 0x30 );
   fd_rotor_root_advanced( rotor, 3UL, &c_id );
-  for( ulong s=0UL; s<3UL; s++ ) FD_TEST( !blk_map_ele_query( rotor->blk_map, &s, NULL, rotor->blk_pool ) );
+  for( ulong s=0UL; s<3UL; s++ ) FD_TEST( !fd_rotor_blk_map_ele_query( rotor->blk_map, &s, NULL, rotor->blk_pool ) );
   ulong three = 3UL;
-  FD_TEST( blk_map_ele_query( rotor->blk_map, &three, NULL, rotor->blk_pool )==c && !blk_map_ele_next_const( c, NULL, rotor->blk_pool ) );
+  FD_TEST( fd_rotor_blk_map_ele_query( rotor->blk_map, &three, NULL, rotor->blk_pool )==c && !fd_rotor_blk_map_ele_next_const( c, NULL, rotor->blk_pool ) );
   for( ulong s=4UL; s<6UL; s++ ) {
-    fd_rotor_blk_t * blk = blk_map_ele_query( rotor->blk_map, &s, NULL, rotor->blk_pool );
+    fd_rotor_blk_t * blk = fd_rotor_blk_map_ele_query( rotor->blk_map, &s, NULL, rotor->blk_pool );
     FD_TEST( blk && is_eager( rotor, blk ) && blk->in_blk_treap );
   }
-  FD_TEST( blk_pool_used( rotor->blk_pool )==3UL );
+  FD_TEST( fd_rotor_blk_pool_used( rotor->blk_pool )==3UL );
 
   fd_rotor_slot_catchup( rotor, 8UL );
-  FD_TEST( blk_pool_used( rotor->blk_pool )==5UL );
+  FD_TEST( fd_rotor_blk_pool_used( rotor->blk_pool )==5UL );
   for( ulong s=6UL; s<8UL; s++ ) {
-    fd_rotor_blk_t * blk = blk_map_ele_query( rotor->blk_map, &s, NULL, rotor->blk_pool );
+    fd_rotor_blk_t * blk = fd_rotor_blk_map_ele_query( rotor->blk_map, &s, NULL, rotor->blk_pool );
     FD_TEST( blk && is_eager( rotor, blk ) && blk->in_blk_treap );
   }
 
   fd_rotor_blk_t * f    = notar( rotor, 9UL, 0x90 );
   fd_mr32_t        f_id = hash( 0x90 );
   fd_rotor_root_advanced( rotor, 9UL, &f_id );
-  FD_TEST( blk_pool_used( rotor->blk_pool )==1UL );
+  FD_TEST( fd_rotor_blk_pool_used( rotor->blk_pool )==1UL );
   fd_rotor_slot_catchup( rotor, 12UL );
-  for( ulong s=4UL; s<9UL; s++ ) FD_TEST( !blk_map_ele_query( rotor->blk_map, &s, NULL, rotor->blk_pool ) );
+  for( ulong s=4UL; s<9UL; s++ ) FD_TEST( !fd_rotor_blk_map_ele_query( rotor->blk_map, &s, NULL, rotor->blk_pool ) );
   ulong nine = 9UL;
-  FD_TEST( blk_map_ele_query( rotor->blk_map, &nine, NULL, rotor->blk_pool )==f );
+  FD_TEST( fd_rotor_blk_map_ele_query( rotor->blk_map, &nine, NULL, rotor->blk_pool )==f );
   for( ulong s=10UL; s<12UL; s++ ) {
-    fd_rotor_blk_t * blk = blk_map_ele_query( rotor->blk_map, &s, NULL, rotor->blk_pool );
+    fd_rotor_blk_t * blk = fd_rotor_blk_map_ele_query( rotor->blk_map, &s, NULL, rotor->blk_pool );
     FD_TEST( blk && is_eager( rotor, blk ) && blk->in_blk_treap );
   }
-  FD_TEST( blk_pool_used( rotor->blk_pool )==3UL );
+  FD_TEST( fd_rotor_blk_pool_used( rotor->blk_pool )==3UL );
   check_connected( rotor );
 }
 
@@ -1780,17 +1823,17 @@ test_ancestry_held_orphan( void ) {
   complete( rotor, 1UL, 0UL, 0U, 1, &mA );
   shred0  ( rotor, 2UL, 1UL, &B, &mC );
   complete( rotor, 2UL, 1UL, 0U, 1, &mC );
-  fd_rotor_blk_t * a = blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool );
-  fd_rotor_blk_t * c = blk_map_ele_query( rotor->blk_map, &two, NULL, rotor->blk_pool );
-  FD_TEST( a->connected==1 && c->parent==blk_pool_idx_null( rotor->blk_pool ) && c->connected==0 );
+  fd_rotor_blk_t * a = fd_rotor_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool );
+  fd_rotor_blk_t * c = fd_rotor_blk_map_ele_query( rotor->blk_map, &two, NULL, rotor->blk_pool );
+  FD_TEST( a->connected==1 && c->parent==fd_rotor_blk_pool_idx_null( rotor->blk_pool ) && c->connected==0 );
   check_connected( rotor );
 
   fd_mr32_t cid = c->dmr;
   FD_TEST( !fd_rotor_blk_notarized( rotor, 2UL, &cid ) );
-  fd_rotor_blk_t * b = blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool );
-  while( b && memcmp( &b->dmr, &B, sizeof(fd_mr32_t) ) ) b = (fd_rotor_blk_t *)blk_map_ele_next_const( b, NULL, rotor->blk_pool );
+  fd_rotor_blk_t * b = fd_rotor_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool );
+  while( b && memcmp( &b->dmr, &B, sizeof(fd_mr32_t) ) ) b = (fd_rotor_blk_t *)fd_rotor_blk_map_ele_next_const( b, NULL, rotor->blk_pool );
   FD_TEST( b && role( rotor, b )==ROLE_NOTAR && b->parent_slot==ULONG_MAX );
-  FD_TEST( c->parent==blk_pool_idx( rotor->blk_pool, b ) && c->connected==0 && c->in_blk_treap );
+  FD_TEST( c->parent==fd_rotor_blk_pool_idx( rotor->blk_pool, b ) && c->connected==0 && c->in_blk_treap );
   check_connected( rotor );
 
   FD_TEST( fd_rotor_blk_finalized( rotor, 2UL, &cid )==c );
@@ -1814,19 +1857,19 @@ test_ancestry_held_parent( void ) {
   complete( rotor, 1UL, 0UL, 0U, 1, &mA );
   shred0  ( rotor, 2UL, 1UL, &X, &mP );
   complete( rotor, 2UL, 1UL, 0U, 1, &mP );
-  fd_rotor_blk_t * p = blk_map_ele_query( rotor->blk_map, &two, NULL, rotor->blk_pool );
+  fd_rotor_blk_t * p = fd_rotor_blk_map_ele_query( rotor->blk_map, &two, NULL, rotor->blk_pool );
   fd_mr32_t        pid = p->dmr;
   shred0  ( rotor, 3UL, 2UL, &pid, &mC );
   complete( rotor, 3UL, 2UL, 0U, 1, &mC );
-  fd_rotor_blk_t * c = blk_map_ele_query( rotor->blk_map, &three, NULL, rotor->blk_pool );
-  FD_TEST( c->parent==blk_pool_idx( rotor->blk_pool, p ) && p->parent==blk_pool_idx_null( rotor->blk_pool ) && !c->connected && !p->connected );
+  fd_rotor_blk_t * c = fd_rotor_blk_map_ele_query( rotor->blk_map, &three, NULL, rotor->blk_pool );
+  FD_TEST( c->parent==fd_rotor_blk_pool_idx( rotor->blk_pool, p ) && p->parent==fd_rotor_blk_pool_idx_null( rotor->blk_pool ) && !c->connected && !p->connected );
   check_connected( rotor );
 
   fd_mr32_t cid = c->dmr;
   fd_rotor_blk_notarized( rotor, 3UL, &cid );
-  fd_rotor_blk_t * x = blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool );
-  while( x && memcmp( &x->dmr, &X, sizeof(fd_mr32_t) ) ) x = (fd_rotor_blk_t *)blk_map_ele_next_const( x, NULL, rotor->blk_pool );
-  FD_TEST( x && p->parent==blk_pool_idx( rotor->blk_pool, x ) && c->parent==blk_pool_idx( rotor->blk_pool, p ) );
+  fd_rotor_blk_t * x = fd_rotor_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool );
+  while( x && memcmp( &x->dmr, &X, sizeof(fd_mr32_t) ) ) x = (fd_rotor_blk_t *)fd_rotor_blk_map_ele_next_const( x, NULL, rotor->blk_pool );
+  FD_TEST( x && p->parent==fd_rotor_blk_pool_idx( rotor->blk_pool, x ) && c->parent==fd_rotor_blk_pool_idx( rotor->blk_pool, p ) );
   check_connected( rotor );
 
   fd_rotor_blk_parented( rotor, 1UL, &X, 0UL, &root, 1U );
@@ -1847,27 +1890,27 @@ test_ancestry_eager_merge( void ) {
   shred0  ( ref, 1UL, 0UL, &root, &m1 );
   complete( ref, 1UL, 0UL, 0U, 1, &m1 );
   ulong     one = 1UL, two = 2UL;
-  fd_mr32_t B   = blk_map_ele_query( ref->blk_map, &one, NULL, ref->blk_pool )->dmr;
+  fd_mr32_t B   = fd_rotor_blk_map_ele_query( ref->blk_map, &one, NULL, ref->blk_pool )->dmr;
 
   fd_rotor_t * rotor = setup();
   shred0  ( rotor, 2UL, 1UL, &B, &mC );
   complete( rotor, 2UL, 1UL, 0U, 1, &mC );
-  fd_rotor_blk_t * c  = blk_map_ele_query( rotor->blk_map, &two, NULL, rotor->blk_pool );
-  fd_rotor_blk_t * e1 = blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool );
-  FD_TEST( e1 && c->parent==blk_pool_idx( rotor->blk_pool, e1 ) && !memcmp( &e1->dmr, &hash_null, sizeof(fd_mr32_t) ) && !c->connected );
+  fd_rotor_blk_t * c  = fd_rotor_blk_map_ele_query( rotor->blk_map, &two, NULL, rotor->blk_pool );
+  fd_rotor_blk_t * e1 = fd_rotor_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool );
+  FD_TEST( e1 && c->parent==fd_rotor_blk_pool_idx( rotor->blk_pool, e1 ) && !memcmp( &e1->dmr, &hash_null, sizeof(fd_mr32_t) ) && !c->connected );
   check_connected( rotor );
 
   fd_mr32_t cid = c->dmr;
   fd_rotor_blk_notarized( rotor, 2UL, &cid );
-  fd_rotor_blk_t const * b = blk_pool_ele_const( rotor->blk_pool, c->parent );
-  FD_TEST( b && b!=e1 && !memcmp( &b->dmr, &B, sizeof(fd_mr32_t) ) && e1->child==blk_pool_idx_null( rotor->blk_pool ) );
+  fd_rotor_blk_t const * b = fd_rotor_blk_pool_ele_const( rotor->blk_pool, c->parent );
+  FD_TEST( b && b!=e1 && !memcmp( &b->dmr, &B, sizeof(fd_mr32_t) ) && e1->child==fd_rotor_blk_pool_idx_null( rotor->blk_pool ) );
   check_connected( rotor );
 
   shred0  ( rotor, 1UL, 0UL, &root, &m1 );
   complete( rotor, 1UL, 0UL, 0U, 1, &m1 );
-  FD_TEST( blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool )==e1 && !blk_map_ele_next_const( e1, NULL, rotor->blk_pool ) );
+  FD_TEST( fd_rotor_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool )==e1 && !fd_rotor_blk_map_ele_next_const( e1, NULL, rotor->blk_pool ) );
   FD_TEST( !memcmp( &e1->dmr, &B, sizeof(fd_mr32_t) ) && role( rotor, e1 )==ROLE_NOTAR );
-  FD_TEST( c->parent==blk_pool_idx( rotor->blk_pool, e1 ) && e1->connected==1 && c->connected==1 );
+  FD_TEST( c->parent==fd_rotor_blk_pool_idx( rotor->blk_pool, e1 ) && e1->connected==1 && c->connected==1 );
   check_connected( rotor );
 }
 
@@ -1887,19 +1930,19 @@ test_ancestry_two_relinks( void ) {
   complete( rotor, 1UL, 0UL, 0U, 1, &mA );
   shred0  ( rotor, 2UL, 1UL, &X, &mT );
   complete( rotor, 2UL, 1UL, 0U, 1, &mT );
-  fd_rotor_blk_t * t   = blk_map_ele_query( rotor->blk_map, &two, NULL, rotor->blk_pool );
+  fd_rotor_blk_t * t   = fd_rotor_blk_map_ele_query( rotor->blk_map, &two, NULL, rotor->blk_pool );
   fd_mr32_t        tid = t->dmr;
 
   shred0( rotor, 3UL, 0UL, &root, &mE ); /* E3, connected and unfinished */
   shred0( rotor, 4UL, 3UL, &N, &mL );    /* L links to E3 */
   complete( rotor, 4UL, 3UL, 0U, 1, &mL );
-  fd_rotor_blk_t * l = blk_map_ele_query( rotor->blk_map, &four, NULL, rotor->blk_pool );
+  fd_rotor_blk_t * l = fd_rotor_blk_map_ele_query( rotor->blk_map, &four, NULL, rotor->blk_pool );
   FD_TEST( l->connected==1 );
 
   fd_rotor_blk_notarized( rotor, 3UL, &N );
   fd_rotor_blk_parented ( rotor, 3UL, &N, 2UL, &tid, 1U ); /* N under T, creating X under which T goes */
   fd_rotor_blk_dead     ( rotor, 1UL, &X );                /* X dies, T is an orphan again */
-  FD_TEST( t->parent==blk_pool_idx_null( rotor->blk_pool ) && !t->connected );
+  FD_TEST( t->parent==fd_rotor_blk_pool_idx_null( rotor->blk_pool ) && !t->connected );
   check_connected( rotor );
 
   fd_mr32_t lid = l->dmr;
@@ -1921,6 +1964,7 @@ main( int     argc,
   test_root_wrong_parent();
   test_orphan_adopted();
   test_fec_reconsume();
+  test_fec_reconsume_incomplete();
   test_blk_dead();
   test_orphan_stops();
   test_eqvoc_invalidates();

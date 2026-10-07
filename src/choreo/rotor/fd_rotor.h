@@ -51,11 +51,11 @@ struct fd_rotor_fec {
 typedef struct fd_rotor_fec fd_rotor_fec_t;
 FD_STATIC_ASSERT( sizeof(fd_rotor_fec_t)==112UL, fd_rotor_fec );
 
-#define POOL_NAME fec_pool
+#define POOL_NAME fd_rotor_fec_pool
 #define POOL_T    fd_rotor_fec_t
 #include "../../util/tmpl/fd_pool.c"
 
-#define MAP_NAME               fec_map
+#define MAP_NAME               fd_rotor_fec_map
 #define MAP_ELE_T              fd_rotor_fec_t
 #define MAP_KEY_T              fd_mr20_t
 #define MAP_KEY                key
@@ -113,11 +113,11 @@ typedef struct fd_rotor_blk fd_rotor_blk_t;
 
 /* blk_map is keyed by slot and holds every blk of a slot. */
 
-#define POOL_NAME blk_pool
+#define POOL_NAME fd_rotor_blk_pool
 #define POOL_T    fd_rotor_blk_t
 #include "../../util/tmpl/fd_pool.c"
 
-#define MAP_NAME  blk_map
+#define MAP_NAME  fd_rotor_blk_map
 #define MAP_ELE_T fd_rotor_blk_t
 #define MAP_KEY   slot
 #define MAP_MULTI 1
@@ -158,20 +158,21 @@ typedef struct fd_rotor_deque fd_rotor_deque_t;
 #define DEQUE_T    fd_rotor_deque_t
 #include "../../util/tmpl/fd_deque_dynamic.c"
 
-
 typedef void (* fd_rotor_report_fn_t)( void * ctx, struct fd_rotor_blk const * blk );
 
-struct fd_rotor_private {
+struct fd_rotor {
   ulong            root;
+  fd_rotor_blk_t * root_blk;     /* the root's blk, NULL if not held */
   ulong            catchup_slot;
+  int              reconsume;    /* replay sent a MISSING_FEC: the next FEC pushed onto reasm_deque goes with its ancestry from the root */
   ulong            slot_max;
 
-  fd_rotor_slot_meta_t * slot_meta; /* indexed by slot % slot_max */
+  fd_rotor_slot_meta_t * slot_meta;   /* indexed by slot % slot_max */
   fd_rotor_blk_t *       blk_pool;
-  blk_map_t *            blk_map;
+  fd_rotor_blk_map_t *   blk_map;
   fd_rotor_fec_t *       fec_pool;
-  fec_map_t *            fec_map;
-  fd_rotor_deque_t * reasm_deque;
+  fd_rotor_fec_map_t *   fec_map;
+  fd_rotor_deque_t *     reasm_deque;
   fd_rotor_treap_t *     eager_treap; /* a blk is in its role's treap iff in_blk_treap */
   fd_rotor_treap_t *     notar_treap;
   fd_rotor_treap_t *     final_treap;
@@ -181,7 +182,7 @@ struct fd_rotor_private {
     void *               ctx;
   } telemetry;
 };
-typedef struct fd_rotor_private fd_rotor_t;
+typedef struct fd_rotor fd_rotor_t;
 
 FD_PROTOTYPES_BEGIN
 
@@ -310,14 +311,6 @@ fd_rotor_fec_notarized( fd_rotor_t *      rotor,
                         fd_mr32_t const * blk_mr,
                         uint              fec_set_idx,
                         fd_mr20_t const * fec_mr );
-
-/* replay_rotor  REPLAY_SIG_MISSING_FEC
-
-   replay told us they aren't able to process this FEC, so send out the
-   full lineage of that fec from the root */
-
-void
-fd_rotor_fec_reconsume( fd_rotor_t * rotor );
 
 /* replay_slot   REPLAY_SIG_ROOT_ADVANCED
 

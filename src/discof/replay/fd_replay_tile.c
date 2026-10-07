@@ -5097,17 +5097,7 @@ returnable_frag( fd_replay_tile_t *  ctx,
       if( FD_UNLIKELY( sig==REPAIR_SIG_FEC || sig==REPAIR_SIG_FEC_LEADER || sig==REPAIR_SIG_FEC_INVALID ) ) {
         process_fec_complete( ctx, sig, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
       }
-      /* drain_rotor_fecs: a bank eviction broke the replayable chain of
-         FECs delivered from rotor (we lost a parent we needed to
-         replay off of) and a MISSING_FEC was sent.  Every FEC until
-         rotor's ROTOR_SIG_RECONSUME predates it and comes again after
-         it, so drop them all.  At most one MISSING_FEC is in flight. */
-      if( FD_UNLIKELY( sig==ROTOR_SIG_RECONSUME ) ) {
-        ctx->drain_rotor_fecs = 0;
-        break;
-      }
       if( FD_UNLIKELY( sig!=ROTOR_SIG_FEC_REPLAY ) ) break;
-      if( FD_UNLIKELY( ctx->drain_rotor_fecs ) ) return 0;
 
       /* process rotor incoming FECs. 1 to keep frag for retry, returning 0 consumes it. */
 
@@ -5116,6 +5106,23 @@ returnable_frag( fd_replay_tile_t *  ctx,
 
       int evict_banks = 0;
       int res = can_process_rotor_fec( ctx, fec, &evict_banks );
+
+      /* drain_rotor_fecs: a bank eviction broke the replayable chain of
+         FECs delivered from rotor (we lost a parent we needed to
+         replay off of).  While draining, ignore DROP/SKIP FECs until
+         one is replayable again (PROCESS_FEC_OK, i.e. its parent
+         context is present), then resume normal processing.  WAIT must
+         fall through to the retry/eviction logic below: WAIT's contract
+         is keep-and-retry, and the redelivered FEC that rebuilds the
+         evicted block can itself return WAIT+evict_banks (banks full) --
+         swallowing it would consume the frag, never queue the eviction,
+         and wedge recovery. */
+      if( FD_UNLIKELY( ctx->drain_rotor_fecs ) ) {
+        if( FD_LIKELY( res==PROCESS_FEC_OK ) ) {
+          ctx->drain_rotor_fecs = 0; /* chain re-established, resume */
+        }
+        else if( res!=PROCESS_FEC_WAIT ) return 0; /* swallow DROPs/SKIPs, do evict_banks if needed */
+      }
 
       switch( res ) {
         case PROCESS_FEC_OK: {

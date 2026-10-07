@@ -220,7 +220,6 @@ struct fd_rotor_tile {
   ulong       replay_out_chunk0;
   ulong       replay_out_wmark;
   ulong       replay_out_chunk;
-  int         reconsume;        /* a ROTOR_SIG_RECONSUME is owed to replay, ahead of the reconsumed FECs */
 
   ulong       rserve_out_idx;  /* ULONG_MAX if rserve is disabled */
   fd_wksp_t * rserve_out_mem;
@@ -275,7 +274,7 @@ push_timeout( fd_rotor_tile_t * ctx,
               fd_rotor_blk_t *  blk,
               timeout_t const * req ) {
   fd_rotor_slot_meta_t const * meta = fd_rotor_slot_meta( ctx->rotor, blk->slot );
-  ulong                        idx  = blk_pool_idx( ctx->rotor->blk_pool, blk );
+  ulong                        idx  = fd_rotor_blk_pool_idx( ctx->rotor->blk_pool, blk );
   timeout_t *                  prq  = meta->final==idx ? ctx->final_prq : meta->notar==idx ? ctx->notar_prq : ctx->eager_prq;
   if( FD_LIKELY( timeout_prq_cnt( prq )<timeout_prq_max( prq ) ) ) {
     timeout_prq_insert( prq, req );
@@ -303,17 +302,17 @@ poll_timeout( fd_rotor_tile_t * ctx,
       timeout_t req = prq[ 0 ];
       timeout_prq_remove_min( prq );
 
-      fd_rotor_blk_t * blk = blk_map_ele_query( ctx->rotor->blk_map, &req.slot, NULL, ctx->rotor->blk_pool );
-      while( blk && blk_pool_idx( ctx->rotor->blk_pool, blk )!=req.blk ) blk = (fd_rotor_blk_t *)blk_map_ele_next_const( blk, NULL, ctx->rotor->blk_pool ); /* the req outlived its blk */
+      fd_rotor_blk_t * blk = fd_rotor_blk_map_ele_query( ctx->rotor->blk_map, &req.slot, NULL, ctx->rotor->blk_pool );
+      while( blk && fd_rotor_blk_pool_idx( ctx->rotor->blk_pool, blk )!=req.blk ) blk = (fd_rotor_blk_t *)fd_rotor_blk_map_ele_next_const( blk, NULL, ctx->rotor->blk_pool ); /* the req outlived its blk */
       if( FD_UNLIKELY( !blk ) ) { ctx->metrics->req_cancelled++; continue; }
       fd_rotor_slot_meta_t const * meta = fd_rotor_slot_meta( ctx->rotor, blk->slot );
       if( FD_UNLIKELY( meta->final!=req.blk && meta->notar!=req.blk && meta->eager==req.blk && !blk->eager ) ) { ctx->metrics->req_cancelled++; continue; } /* the slot's eager blk, never repaired */
-      fd_rotor_fec_t const * fec = fec_pool_ele_const( ctx->rotor->fec_pool, fd_ulong_if( req.tag==FD_ROTOR_SERDE_TAG_WINDOW_INDEX, blk->fecs[ req.fec_idx ], fec_pool_idx_null( ctx->rotor->fec_pool ) ) );
+      fd_rotor_fec_t const * fec = fd_rotor_fec_pool_ele_const( ctx->rotor->fec_pool, fd_ulong_if( req.tag==FD_ROTOR_SERDE_TAG_WINDOW_INDEX, blk->fecs[ req.fec_idx ], fd_rotor_fec_pool_idx_null( ctx->rotor->fec_pool ) ) );
       if( FD_UNLIKELY( req.tag==FD_ROTOR_SERDE_TAG_PARENT_AND_FEC_SET_COUNT && blk->parent_slot!=ULONG_MAX                                      ) ) { ctx->metrics->req_cancelled++; continue; }
       if( FD_UNLIKELY( req.tag==FD_ROTOR_SERDE_TAG_WINDOW_INDEX             && fec && fec->complete                                             ) ) { ctx->metrics->req_cancelled++; continue; }
       if( FD_UNLIKELY( req.tag==FD_ROTOR_SERDE_TAG_WINDOW_INDEX             && !blk->eager && req.fec_idx>=blk->cmpl_fec_cnt                     ) ) { ctx->metrics->req_cancelled++; continue; } /* of a freed blk whose pool idx was reused */
       if( FD_UNLIKELY( req.tag==FD_ROTOR_SERDE_TAG_HIGHEST_WINDOW_INDEX     && blk->cmpl_fec_cnt                                                ) ) { ctx->metrics->req_cancelled++; continue; }
-      fd_rotor_blk_t const * parent = blk_pool_ele_const( ctx->rotor->blk_pool, blk->parent );
+      fd_rotor_blk_t const * parent = fd_rotor_blk_pool_ele_const( ctx->rotor->blk_pool, blk->parent );
       if( FD_UNLIKELY( req.tag==FD_ROTOR_SERDE_TAG_ORPHAN && ( blk->connected==1 || blk->parent_slot<=ctx->rotor->root || ( parent && parent->parent_slot!=ULONG_MAX ) ) ) ) { blk->orphan_req = 0; ctx->metrics->req_cancelled++; continue; } /* its ancestry showed up, died with the root, or a lower blk asks */
       long t_eager = fd_rotor_strat_eager_ns( ctx->strat, fd_multi_epoch_leaders_get_leader_for_slot( ctx->mleaders, blk->slot ) );
       if( FD_UNLIKELY( req.tag==FD_ROTOR_SERDE_TAG_HIGHEST_WINDOW_INDEX     && blk->rcvd_fec_ts+t_eager>now                                     ) ) { /* turbine is not quiet yet */
@@ -335,13 +334,13 @@ discover( fd_rotor_tile_t * ctx,
           fd_rotor_blk_t *  blk,
           long              now ) {
   fd_rotor_slot_meta_t const * meta = fd_rotor_slot_meta( ctx->rotor, blk->slot );
-  ulong                        idx  = blk_pool_idx( ctx->rotor->blk_pool, blk );
+  ulong                        idx  = fd_rotor_blk_pool_idx( ctx->rotor->blk_pool, blk );
   if( FD_UNLIKELY( blk->slot<=ctx->rotor->root ) ) return;
   if( FD_UNLIKELY( meta->final!=idx && meta->notar!=idx && meta->eager==idx && !blk->eager ) ) return; /* the slot's eager blk, never repaired */
 
   int       eager   = blk->eager;
   long      t_eager = fd_rotor_strat_eager_ns( ctx->strat, fd_multi_epoch_leaders_get_leader_for_slot( ctx->mleaders, blk->slot ) );
-  timeout_t req     = { .slot = blk->slot, .blk = blk_pool_idx( ctx->rotor->blk_pool, blk ) };
+  timeout_t req     = { .slot = blk->slot, .blk = fd_rotor_blk_pool_idx( ctx->rotor->blk_pool, blk ) };
 
   if( FD_UNLIKELY( !eager && blk->parent_slot==ULONG_MAX && blk->meta_req ) ) return;
   if( FD_UNLIKELY( !eager && blk->parent_slot==ULONG_MAX ) ) {
@@ -352,7 +351,7 @@ discover( fd_rotor_tile_t * ctx,
     return;
   }
 
-  fd_rotor_blk_t const * parent      = blk_pool_ele_const( ctx->rotor->blk_pool, blk->parent );
+  fd_rotor_blk_t const * parent      = fd_rotor_blk_pool_ele_const( ctx->rotor->blk_pool, blk->parent );
   int                    orphan_root = !parent || parent->parent_slot==ULONG_MAX; /* the root of its disconnected subtree, the blks under it wait on it */
   int                    orphaned    = blk->connected!=1 && orphan_root && !blk->orphan_req && blk->parent_slot!=ULONG_MAX && blk->parent_slot>ctx->rotor->root && memcmp( &blk->parent_blk_mr, &hash_null, sizeof(fd_mr32_t) ) && !( eager && meta->invalidated );
   if( FD_UNLIKELY( orphaned ) ) {
@@ -373,7 +372,7 @@ discover( fd_rotor_tile_t * ctx,
   uint        cmpl_fec_cnt = fd_uint_if( !!blk->cmpl_fec_cnt, blk->cmpl_fec_cnt, fd_uint_if( eager, blk->rcvd_fec_cnt, 0U ) );
   uint        fec_idx      = blk->wait_fec_cnt;
   for( ; fec_idx<cmpl_fec_cnt && timeout_prq_cnt( prq )<timeout_prq_max( prq ); fec_idx++ ) {
-    fd_rotor_fec_t const * fec = fec_pool_ele_const( ctx->rotor->fec_pool, blk->fecs[ fec_idx ] );
+    fd_rotor_fec_t const * fec = fd_rotor_fec_pool_ele_const( ctx->rotor->fec_pool, blk->fecs[ fec_idx ] );
     if( FD_LIKELY( fec && fec->complete ) ) continue;
     req.tag     = FD_ROTOR_SERDE_TAG_WINDOW_INDEX;
     req.fec_idx = fec_idx;
@@ -395,9 +394,9 @@ report_block_received( void *                 ctx_,
   if( FD_LIKELY( !fd_event_tl ) ) return;
   fd_rotor_tile_t *      ctx       = (fd_rotor_tile_t *)ctx_;
   uint                   fec_cnt   = fd_uint_if( !!blk->cmpl_fec_cnt, blk->cmpl_fec_cnt, blk->rcvd_fec_cnt ); /* an incomplete blk reports what it received */
-  fd_rotor_fec_t const * last      = fec_pool_ele_const( ctx->rotor->fec_pool, fec_cnt ? blk->fecs[ fec_cnt-1U ] : fec_pool_idx_null( ctx->rotor->fec_pool ) );
+  fd_rotor_fec_t const * last      = fd_rotor_fec_pool_ele_const( ctx->rotor->fec_pool, fec_cnt ? blk->fecs[ fec_cnt-1U ] : fd_rotor_fec_pool_idx_null( ctx->rotor->fec_pool ) );
   int                    is_leader = last && last->is_leader;
-  int                    known_id  = fd_rotor_slot_meta( ctx->rotor, blk->slot )->eager!=blk_pool_idx( ctx->rotor->blk_pool, blk );
+  int                    known_id  = fd_rotor_slot_meta( ctx->rotor, blk->slot )->eager!=fd_rotor_blk_pool_idx( ctx->rotor->blk_pool, blk );
   fd_event_block_received_t * ev = ctx->event;
   fd_memset( ev, 0, FD_EVENT_BLOCK_RECEIVED_PREFIX_SZ );
   ev->slot             = blk->slot;
@@ -413,7 +412,7 @@ report_block_received( void *                 ctx_,
   memcpy( ev->parent_block_id, blk->parent_blk_mr.uc, sizeof(fd_mr32_t) );
   ev->fec_sets_cnt = fd_ulong_min( fec_cnt, FD_EVENT_BLOCK_RECEIVED_FEC_SETS_MAX );
   for( ulong k=0UL; k<ev->fec_sets_cnt; k++ ) {
-    fd_rotor_fec_t const *               fec = fec_pool_ele_const( ctx->rotor->fec_pool, blk->fecs[ k ] );
+    fd_rotor_fec_t const *               fec = fd_rotor_fec_pool_ele_const( ctx->rotor->fec_pool, blk->fecs[ k ] );
     fd_event_block_received_fec_sets_t * f   = &ev->fec_sets[ k ];
     fd_memset( f, 0, sizeof(fd_event_block_received_fec_sets_t) );
     if( FD_UNLIKELY( !fec ) ) continue; /* an incomplete blk can miss FEC sets */
@@ -601,8 +600,7 @@ handle_replay( fd_rotor_tile_t * ctx,
   }
   case REPLAY_SIG_MISSING_FEC:
     ctx->metrics->replay_missing_fec++;
-    fd_rotor_fec_reconsume( ctx->rotor );
-    ctx->reconsume = 1;
+    ctx->rotor->reconsume = 1;
     break;
   default: FD_LOG_ERR(( "unhandled replay sig %lu", sig ));
   }
@@ -904,18 +902,6 @@ after_credit( fd_rotor_tile_t *   ctx,
               int *               opt_poll_in,
               int *               charge_busy ) {
 
-  /* Tell replay its MISSING_FEC was seen, every FEC after this marker
-     is reconsumed from the root.  The deque was empty when the
-     MISSING_FEC was handled, so the marker leads the reconsumed FECs. */
-
-  if( FD_UNLIKELY( ctx->reconsume ) ) {
-    *opt_poll_in = 0;
-    fd_stem_publish( stem, ctx->replay_out_idx, ROTOR_SIG_RECONSUME, ctx->replay_out_chunk, 0UL, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-    ctx->reconsume = 0;
-    *charge_busy   = 1;
-    return;
-  }
-
   /* Send one reassembled FEC to replay, then repair, which publishes
      only on unreliable links. */
 
@@ -923,8 +909,8 @@ after_credit( fd_rotor_tile_t *   ctx,
     *opt_poll_in = 0;
 
     fd_rotor_deque_t        out = fd_rotor_deque_pop_head( ctx->rotor->reasm_deque );
-    fd_rotor_blk_t const *  blk = blk_pool_ele_const( ctx->rotor->blk_pool, out.blk_idx );
-    fd_rotor_fec_t const *  fec = fec_pool_ele_const( ctx->rotor->fec_pool, blk->fecs[ out.fec_idx ] );
+    fd_rotor_blk_t const *  blk = fd_rotor_blk_pool_ele_const( ctx->rotor->blk_pool, out.blk_idx );
+    fd_rotor_fec_t const *  fec = fd_rotor_fec_pool_ele_const( ctx->rotor->fec_pool, blk->fecs[ out.fec_idx ] );
     fd_rotor_replay_fec_t * msg = fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk );
     fd_memset( msg, 0, sizeof(fd_rotor_replay_fec_t) );
     msg->slot            = blk->slot;
@@ -949,7 +935,7 @@ after_credit( fd_rotor_tile_t *   ctx,
       block->parent_slot     = blk->parent_slot;
       block->parent_block_id = blk->parent_blk_mr;
       block->fec_set_cnt     = blk->cmpl_fec_cnt;
-      for( uint k=0U; k<blk->cmpl_fec_cnt; k++ ) memcpy( block->merkle_roots[ k ], fec_pool_ele_const( ctx->rotor->fec_pool, blk->fecs[ k ] )->key.uc, FD_SHRED_MERKLE_NODE_SZ );
+      for( uint k=0U; k<blk->cmpl_fec_cnt; k++ ) memcpy( block->merkle_roots[ k ], fd_rotor_fec_pool_ele_const( ctx->rotor->fec_pool, blk->fecs[ k ] )->key.uc, FD_SHRED_MERKLE_NODE_SZ );
       ulong sz = FD_ROTOR_BLOCK_SZ( blk->cmpl_fec_cnt );
       fd_stem_publish( stem, ctx->rserve_out_idx, ROTOR_SIG_BLOCK, ctx->rserve_out_chunk, sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
       ctx->rserve_out_chunk = fd_dcache_compact_next( ctx->rserve_out_chunk, sz, ctx->rserve_out_chunk0, ctx->rserve_out_wmark );
@@ -1021,7 +1007,7 @@ after_credit( fd_rotor_tile_t *   ctx,
     fd_rotor_blk_t * blk = poll_timeout( ctx, now, &req );
     if( FD_UNLIKELY( !blk ) ) break;
 
-    fd_rotor_fec_t const * fec   = fec_pool_ele_const( ctx->rotor->fec_pool, fd_ulong_if( req.tag==FD_ROTOR_SERDE_TAG_WINDOW_INDEX, blk->fecs[ req.fec_idx ], fec_pool_idx_null( ctx->rotor->fec_pool ) ) );
+    fd_rotor_fec_t const * fec   = fd_rotor_fec_pool_ele_const( ctx->rotor->fec_pool, fd_ulong_if( req.tag==FD_ROTOR_SERDE_TAG_WINDOW_INDEX, blk->fecs[ req.fec_idx ], fd_rotor_fec_pool_idx_null( ctx->rotor->fec_pool ) ) );
     int                    eager = blk->eager;
     uint                   tag   = req.tag!=FD_ROTOR_SERDE_TAG_WINDOW_INDEX ? req.tag                                      : /* a FEC set req becomes what its blk still lacks */
                                    eager                                    ? FD_ROTOR_SERDE_TAG_WINDOW_INDEX              :
