@@ -585,12 +585,16 @@ fd_rotor_blk_parented( fd_rotor_t *      rotor,
                        fd_mr32_t const * blk_mr,
                        ulong             parent_slot,
                        fd_mr32_t const * parent_blk_mr,
-                       uint              fec_set_cnt ) {
+                       uint              fec_set_cnt,
+                       long              ts ) {
   fd_rotor_blk_t * blk = fd_rotor_blk_map_ele_query( rotor->blk_map, &slot, NULL, rotor->blk_pool );
   while( FD_LIKELY( blk && memcmp( &blk->dmr, blk_mr, sizeof(fd_mr32_t) ) ) ) blk = (fd_rotor_blk_t *)fd_rotor_blk_map_ele_next_const( blk, NULL, rotor->blk_pool );
   if( FD_UNLIKELY( !blk                         ) ) return NULL; /* blk was pruned while the response was in flight */
+  blk->telemetry.parent_res_cnt++;
+  blk->telemetry.first_meta_res_ts = first_ts( blk->telemetry.first_meta_res_ts, ts );
+
   if( FD_UNLIKELY( blk->parent_slot!=ULONG_MAX ) ) return NULL; /* duplicate response, eg. a retried request */
-  if( FD_UNLIKELY( parent_slot>=slot            ) ) return NULL; /* a blk's parent precedes it */
+  if( FD_UNLIKELY( parent_slot>=slot           ) ) return NULL; /* a blk's parent precedes it */
 
   blk->parent_slot   = parent_slot;
   blk->parent_blk_mr = *parent_blk_mr;
@@ -734,6 +738,9 @@ fd_rotor_fec_notarized( fd_rotor_t *      rotor,
   fd_rotor_blk_t * blk = fd_rotor_blk_map_ele_query( rotor->blk_map, &slot, NULL, rotor->blk_pool );
   while( blk && memcmp( &blk->dmr, blk_mr, sizeof(fd_mr32_t) ) ) blk = (fd_rotor_blk_t *)fd_rotor_blk_map_ele_next_const( blk, NULL, rotor->blk_pool );
   if( FD_UNLIKELY( !blk ) ) return NULL; /* blk was pruned while the response was in flight */
+  blk->telemetry.fec_root_res_cnt++;
+  blk->telemetry.first_meta_res_ts = first_ts( blk->telemetry.first_meta_res_ts, ts );
+
   if( FD_UNLIKELY( blk->fecs[ fec_idx ]!=fd_rotor_fec_pool_idx_null( rotor->fec_pool ) ) ) return NULL; /* duplicate response, eg. a retried request */
 
   fd_rotor_slot_meta_t * meta  = fd_rotor_slot_meta( rotor, slot );

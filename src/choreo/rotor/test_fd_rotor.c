@@ -78,7 +78,7 @@ parented( fd_rotor_t * rotor,
           uchar        parent_dmr,
           uint         fec_set_cnt ) {
   fd_mr32_t id = hash( dmr ), pid = hash( parent_dmr );
-  fd_rotor_blk_parented( rotor, slot, &id, parent_slot, &pid, fec_set_cnt );
+  fd_rotor_blk_parented( rotor, slot, &id, parent_slot, &pid, fec_set_cnt, 0L );
 }
 
 static void
@@ -322,7 +322,7 @@ test_twin_merge( void ) {
   fd_rotor_blk_t * n1    = fd_rotor_blk_notarized( rotor, 1UL, &d1 );
   fd_rotor_blk_t * c     = notar( rotor, 2UL, 0x50 );
   fd_mr32_t        c_id  = hash( 0x50 );
-  fd_rotor_blk_parented( rotor, 2UL, &c_id, 1UL, &d1, 1U );
+  fd_rotor_blk_parented( rotor, 2UL, &c_id, 1UL, &d1, 1U, 0L );
   FD_TEST( c->parent==fd_rotor_blk_pool_idx( rotor->blk_pool, n1 ) );
   fecs( rotor, 2UL, 0x50, 1U );
   fd_mr32_t m51 = hash( 0x51 ); complete( rotor, 2UL, 1UL, 0U, 1, &m51 );
@@ -424,6 +424,37 @@ test_telemetry_cancelled( void ) {
   (void)m19;
 }
 
+/* A verified metadata response is counted on the blk it names, a
+   duplicate and a bad parent included, a pruned blk's not at all.  The
+   first one stamps first_meta_res_ts. */
+
+static void
+test_telemetry_meta( void ) {
+  fd_mr32_t root = hash( 0xEE ), m10 = hash( 0x11 ), m11 = hash( 0x12 ), gone = hash( 0x99 );
+  fd_mr32_t d1   = slot1_dmr( &m10, &m11 );
+  fd_mr20_t k10; memcpy( k10.uc, m10.uc, sizeof(fd_mr20_t) );
+
+  fd_rotor_t *     rotor = setup();
+  fd_rotor_blk_t * n1    = fd_rotor_blk_notarized( rotor, 1UL, &d1 );
+  FD_TEST( !fd_rotor_blk_parented( rotor, 1UL, &d1, 1UL, &root, 2U, 30L ) && n1->parent_slot==ULONG_MAX ); /* a bad parent, still counted */
+  FD_TEST( n1->telemetry.parent_res_cnt==1U && n1->telemetry.first_meta_res_ts==30L );
+  fd_rotor_blk_parented( rotor, 1UL, &d1, 0UL, &root, 2U, 40L );
+  fd_rotor_blk_parented( rotor, 1UL, &d1, 0UL, &root, 2U, 45L );                                            /* duplicate, still counted */
+  FD_TEST( n1->parent_slot==0UL && n1->telemetry.parent_res_cnt==3U && n1->telemetry.first_meta_res_ts==30L );
+
+  FD_TEST(  fd_rotor_fec_notarized( rotor, 1UL, &d1, 0U, &k10, 50L ) );
+  FD_TEST( !fd_rotor_fec_notarized( rotor, 1UL, &d1, 0U, &k10, 55L ) );                                     /* duplicate, still counted */
+  FD_TEST( n1->telemetry.fec_root_res_cnt==2U && n1->telemetry.first_meta_res_ts==30L );
+
+  FD_TEST( !fd_rotor_fec_notarized( rotor, 1UL, &gone, 0U, &k10, 60L ) );                                   /* names no blk we hold */
+  FD_TEST( !fd_rotor_blk_parented ( rotor, 1UL, &gone, 0UL, &root, 2U, 60L ) );
+  FD_TEST( n1->telemetry.fec_root_res_cnt==2U && n1->telemetry.parent_res_cnt==3U );
+
+  fd_rotor_blk_t * n2 = fd_rotor_blk_notarized( rotor, 2UL, &gone );
+  FD_TEST( !fd_rotor_fec_notarized( rotor, 2UL, &gone, FD_FEC_SHRED_CNT, &k10, 70L ) );                     /* a root for another index, still counted */
+  FD_TEST( n2->telemetry.fec_root_res_cnt==1U && n2->telemetry.first_meta_res_ts==70L );
+}
+
 /* Slot 2 links under slot 1's eager blk before slot 1's FEC sets are
    notarized.  Slot 1's shreds then arrive for notarized FEC sets.  They
    still build the eager blk, which completes as the notar blk, merges,
@@ -447,7 +478,7 @@ test_notarized_shreds_build_eager( void ) {
   ulong             n1_idx = fd_rotor_blk_pool_idx( rotor->blk_pool, n1 );
   fd_mr20_t k10; memcpy( k10.uc, m10.uc, sizeof(fd_mr20_t) );
   fd_mr20_t k11; memcpy( k11.uc, m11.uc, sizeof(fd_mr20_t) );
-  fd_rotor_blk_parented ( rotor, 1UL, &d1, 0UL, &root, 2U );
+  fd_rotor_blk_parented ( rotor, 1UL, &d1, 0UL, &root, 2U, 0L );
   fd_rotor_fec_notarized( rotor, 1UL, &d1, 0U,               &k10, 0L );
   fd_rotor_fec_notarized( rotor, 1UL, &d1, FD_FEC_SHRED_CNT, &k11, 0L );
   FD_TEST( fd_rotor_deque_empty( rotor->reasm_deque ) );
@@ -532,7 +563,7 @@ test_orphan_adopted( void ) {
   expect( rotor, e1, 0U );
 
   fd_rotor_blk_notarized( rotor, 2UL, &d2 );
-  fd_rotor_blk_t * n1 = fd_rotor_blk_parented( rotor, 2UL, &d2, 1UL, &y, 1U );
+  fd_rotor_blk_t * n1 = fd_rotor_blk_parented( rotor, 2UL, &d2, 1UL, &y, 1U, 0L );
   FD_TEST( n1 );
 
   complete( rotor, 2UL, 1UL, 0U, 1, &m20 );
@@ -1014,7 +1045,7 @@ test_genesis( void ) {
   fd_rotor_blk_t * n3    = notar( rotor, 3UL, 0x30 );
   fd_mr32_t        n3_id = hash( 0x30 ), m30 = hash( 0x31 );
   ulong            zero  = 0UL;
-  FD_TEST( !fd_rotor_blk_parented( rotor, 3UL, &n3_id, 0UL, &hash_null, 1U ) );
+  FD_TEST( !fd_rotor_blk_parented( rotor, 3UL, &n3_id, 0UL, &hash_null, 1U, 0L ) );
   FD_TEST( n3->parent==fd_rotor_blk_pool_idx( rotor->blk_pool, fd_rotor_blk_map_ele_query( rotor->blk_map, &zero, NULL, rotor->blk_pool ) ) );
   fecs    ( rotor, 3UL, 0x30, 1U );
   complete( rotor, 3UL, 0UL, 0U, 1, &m30 );
@@ -1308,7 +1339,7 @@ test_finalize_moves_child( void ) {
   fd_rotor_blk_t * e2 = fd_rotor_blk_map_ele_query( rotor->blk_map, &two, NULL, rotor->blk_pool );
   fd_rotor_blk_t * n1 = fd_rotor_blk_finalized( rotor, 1UL, &d1, 0L );
   FD_TEST( n1 && !is_eager( rotor, n1 ) && e2->parent==fd_rotor_blk_pool_idx( rotor->blk_pool, n1 ) );
-  fd_rotor_blk_parented( rotor, 1UL, &d1, 0UL, &root, 2U );
+  fd_rotor_blk_parented( rotor, 1UL, &d1, 0UL, &root, 2U, 0L );
   fd_mr20_t k0; memcpy( k0.uc, m10.uc, sizeof(fd_mr20_t) );
   fd_mr20_t k1; memcpy( k1.uc, m11.uc, sizeof(fd_mr20_t) );
   FD_TEST( fd_rotor_fec_notarized( rotor, 1UL, &d1, 0U,               &k0, 0L ) );
@@ -1362,12 +1393,12 @@ test_parented( void ) {
 
   fd_rotor_t *     rotor = setup();
   fd_rotor_blk_t * c     = notar( rotor, 3UL, 0x30 );
-  fd_rotor_blk_t * n2    = fd_rotor_blk_parented( rotor, 3UL, &h30, 2UL, &h20, 1U );
+  fd_rotor_blk_t * n2    = fd_rotor_blk_parented( rotor, 3UL, &h30, 2UL, &h20, 1U, 0L );
   FD_TEST( n2 && n2->slot==2UL && n2->child==fd_rotor_blk_pool_idx( rotor->blk_pool, c ) && c->parent==fd_rotor_blk_pool_idx( rotor->blk_pool, n2 ) );
   FD_TEST( !fd_rotor_blk_notarized( rotor, 2UL, &h20 ) );
-  fd_rotor_blk_t * n1    = fd_rotor_blk_parented( rotor, 2UL, &h20, 1UL, &h10, 1U );
+  fd_rotor_blk_t * n1    = fd_rotor_blk_parented( rotor, 2UL, &h20, 1UL, &h10, 1U, 0L );
   FD_TEST( n1 && n2->parent==fd_rotor_blk_pool_idx( rotor->blk_pool, n1 ) );
-  FD_TEST( !fd_rotor_blk_parented( rotor, 1UL, &h10, 0UL, &hEE, 1U ) );
+  FD_TEST( !fd_rotor_blk_parented( rotor, 1UL, &h10, 0UL, &hEE, 1U, 0L ) );
   FD_TEST( n1->parent==fd_rotor_blk_pool_idx( rotor->blk_pool, fd_rotor_blk_map_ele_query( rotor->blk_map, &zero, NULL, rotor->blk_pool ) ) );
   fecs( rotor, 3UL, 0x30, 1U );
   fecs( rotor, 2UL, 0x20, 1U );
@@ -1381,18 +1412,18 @@ test_parented( void ) {
 
   rotor = setup();
   fd_rotor_blk_t * b = notar( rotor, 2UL, 0x20 );
-  FD_TEST( !fd_rotor_blk_parented( rotor, 2UL, &h20, 2UL, &h10, 1U ) && b->parent_slot==ULONG_MAX );
-  n1 = fd_rotor_blk_parented( rotor, 2UL, &h20, 1UL, &h10, 1U );
+  FD_TEST( !fd_rotor_blk_parented( rotor, 2UL, &h20, 2UL, &h10, 1U, 0L ) && b->parent_slot==ULONG_MAX );
+  n1 = fd_rotor_blk_parented( rotor, 2UL, &h20, 1UL, &h10, 1U, 0L );
   FD_TEST( n1 && b->parent==fd_rotor_blk_pool_idx( rotor->blk_pool, n1 ) );
-  FD_TEST( !fd_rotor_blk_parented( rotor, 2UL, &h20, 1UL, &h40, 1U ) );
-  FD_TEST( !fd_rotor_blk_parented( rotor, 2UL, &h20, 1UL, &h10, 1U ) );
+  FD_TEST( !fd_rotor_blk_parented( rotor, 2UL, &h20, 1UL, &h40, 1U, 0L ) );
+  FD_TEST( !fd_rotor_blk_parented( rotor, 2UL, &h20, 1UL, &h10, 1U, 0L ) );
   FD_TEST( b->parent==fd_rotor_blk_pool_idx( rotor->blk_pool, n1 ) && n1->child==fd_rotor_blk_pool_idx( rotor->blk_pool, b ) );
   FD_TEST( b->sibling==fd_rotor_blk_pool_idx_null( rotor->blk_pool ) && !memcmp( &b->parent_blk_mr, &h10, sizeof(fd_mr32_t) ) );
   FD_TEST( fd_rotor_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool )==n1 && !fd_rotor_blk_map_ele_next_const( n1, NULL, rotor->blk_pool ) );
 
   rotor = setup();
   b     = notar( rotor, 2UL, 0x20 );
-  FD_TEST( !fd_rotor_blk_parented( rotor, 2UL, &h20, 0UL, &h77, 1U ) );
+  FD_TEST( !fd_rotor_blk_parented( rotor, 2UL, &h20, 0UL, &h77, 1U, 0L ) );
   FD_TEST( b->parent==fd_rotor_blk_pool_idx_null( rotor->blk_pool ) && !fd_rotor_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool ) );
   fecs( rotor, 2UL, 0x20, 1U );
   mr = hash( 0x21 ); complete( rotor, 2UL, 0UL, 0U, 1, &mr );
@@ -1402,14 +1433,14 @@ test_parented( void ) {
   b     = notar( rotor, 2UL, 0x20 );
   c     = notar( rotor, 3UL, 0x30 );
   n1    = fd_rotor_blk_finalized( rotor, 1UL, &h10, 0L );
-  FD_TEST( !fd_rotor_blk_parented( rotor, 2UL, &h20, 1UL, &h40, 1U ) && b->parent==fd_rotor_blk_pool_idx_null( rotor->blk_pool ) );
+  FD_TEST( !fd_rotor_blk_parented( rotor, 2UL, &h20, 1UL, &h40, 1U, 0L ) && b->parent==fd_rotor_blk_pool_idx_null( rotor->blk_pool ) );
   FD_TEST( fd_rotor_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool )==n1 && !fd_rotor_blk_map_ele_next_const( n1, NULL, rotor->blk_pool ) );
-  FD_TEST( !fd_rotor_blk_parented( rotor, 3UL, &h30, 1UL, &h10, 1U ) && c->parent==fd_rotor_blk_pool_idx( rotor->blk_pool, n1 ) );
+  FD_TEST( !fd_rotor_blk_parented( rotor, 3UL, &h30, 1UL, &h10, 1U, 0L ) && c->parent==fd_rotor_blk_pool_idx( rotor->blk_pool, n1 ) );
 
   rotor = setup();
   fd_rotor_slot_skipped( rotor, 1UL );
   b     = notar( rotor, 2UL, 0x20 );
-  FD_TEST( !fd_rotor_blk_parented( rotor, 2UL, &h20, 1UL, &h10, 1U ) && b->parent==fd_rotor_blk_pool_idx_null( rotor->blk_pool ) );
+  FD_TEST( !fd_rotor_blk_parented( rotor, 2UL, &h20, 1UL, &h10, 1U, 0L ) && b->parent==fd_rotor_blk_pool_idx_null( rotor->blk_pool ) );
   FD_TEST( !fd_rotor_blk_map_ele_query( rotor->blk_map, &one, NULL, rotor->blk_pool ) );
   check_connected( rotor );
 }
@@ -1506,7 +1537,7 @@ test_twin_merge_children( void ) {
   fd_rotor_blk_t * n1    = fd_rotor_blk_notarized( rotor, 1UL, &d1 );
   fd_rotor_blk_t * c     = notar( rotor, 2UL, 0x50 );
   fd_mr32_t        c_id  = hash( 0x50 );
-  fd_rotor_blk_parented( rotor, 2UL, &c_id, 1UL, &d1, 1U );
+  fd_rotor_blk_parented( rotor, 2UL, &c_id, 1UL, &d1, 1U, 0L );
   fecs    ( rotor, 2UL, 0x50, 1U );
   complete( rotor, 2UL, 1UL, 0U, 1, &m51 );
   shred0  ( rotor, 3UL, 1UL, &d1, &m30 );
@@ -1925,7 +1956,7 @@ test_ancestry_held_orphan( void ) {
   FD_TEST( role( rotor, c )==ROLE_FINAL && role( rotor, b )==ROLE_FINAL );
   check_connected( rotor );
 
-  fd_rotor_blk_parented( rotor, 1UL, &B, 0UL, &root, 1U );
+  fd_rotor_blk_parented( rotor, 1UL, &B, 0UL, &root, 1U, 0L );
   FD_TEST( b->connected==1 && c->connected==1 );
   check_connected( rotor );
 }
@@ -1957,7 +1988,7 @@ test_ancestry_held_parent( void ) {
   FD_TEST( x && p->parent==fd_rotor_blk_pool_idx( rotor->blk_pool, x ) && c->parent==fd_rotor_blk_pool_idx( rotor->blk_pool, p ) );
   check_connected( rotor );
 
-  fd_rotor_blk_parented( rotor, 1UL, &X, 0UL, &root, 1U );
+  fd_rotor_blk_parented( rotor, 1UL, &X, 0UL, &root, 1U, 0L );
   FD_TEST( x->connected==1 && p->connected==1 && c->connected==1 );
   check_connected( rotor );
 }
@@ -2025,7 +2056,7 @@ test_ancestry_two_relinks( void ) {
   FD_TEST( l->connected==1 );
 
   fd_rotor_blk_notarized( rotor, 3UL, &N );
-  fd_rotor_blk_parented ( rotor, 3UL, &N, 2UL, &tid, 1U ); /* N under T, creating X under which T goes */
+  fd_rotor_blk_parented ( rotor, 3UL, &N, 2UL, &tid, 1U, 0L ); /* N under T, creating X under which T goes */
   fd_rotor_blk_dead     ( rotor, 1UL, &X );                /* X dies, T is an orphan again */
   FD_TEST( t->parent==fd_rotor_blk_pool_idx_null( rotor->blk_pool ) && !t->connected );
   check_connected( rotor );
@@ -2062,6 +2093,7 @@ main( int     argc,
   test_twin_merge();
   test_telemetry();
   test_telemetry_cancelled();
+  test_telemetry_meta();
   test_notarized_shreds_build_eager();
   test_genesis();
   test_skipped_not_consumed();

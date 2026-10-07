@@ -279,7 +279,8 @@ fd_rotor_blk_notarized( fd_rotor_t *      rotor,
 /* net_repair    ParentAndFecSetCount response
 
    after its proof verifies against the blk id.  the FEC set count is now
-   trusted, creates the parent blk if we don't have it. */
+   trusted, creates the parent blk if we don't have it.  counts the
+   response, arriving at ts, in the blk's telemetry. */
 
 fd_rotor_blk_t *
 fd_rotor_blk_parented( fd_rotor_t *      rotor,
@@ -287,7 +288,8 @@ fd_rotor_blk_parented( fd_rotor_t *      rotor,
                        fd_mr32_t const * blk_mr,
                        ulong             parent_slot,
                        fd_mr32_t const * parent_blk_mr,
-                       uint              fec_set_cnt );
+                       uint              fec_set_cnt,
+                       long              ts );
 
 /* votor_out     FD_VOTOR_SIG_CERTED
    votor_out     FD_VOTOR_SIG_REPAIR
@@ -334,7 +336,8 @@ fd_rotor_fec_evicted( fd_rotor_t *      rotor,
 /* net_repair    FecSetRoot response
 
    after its proof verifies against the blk id.  fec_mr is the proven
-   20-byte prefix, the FEC set's shreds can be asked for by blk id now. */
+   20-byte prefix, the FEC set's shreds can be asked for by blk id now.
+   counts the response, arriving at ts, in the blk's telemetry. */
 
 fd_rotor_fec_t *
 fd_rotor_fec_notarized( fd_rotor_t *      rotor,

@@ -2332,6 +2332,7 @@
 | <span class="metrics-name">rotor_&#8203;ping_&#8203;unknown_&#8203;peer</span> | counter | Pings received from an unknown peer |
 | <span class="metrics-name">rotor_&#8203;ping_&#8203;signature_&#8203;failed</span> | counter | Pings whose signature we failed to verify |
 | <span class="metrics-name">rotor_&#8203;response_&#8203;latency_&#8203;nanos</span> | histogram | Time from sending a repair request to receiving its response, in nanoseconds |
+| <span class="metrics-name">rotor_&#8203;retry_&#8203;delay_&#8203;nanos</span> | histogram | Delay scheduled before a request's next attempt, its peer's hedge time with the per-attempt backoff, in nanoseconds |
 | <span class="metrics-name">rotor_&#8203;timeout_&#8203;cnt</span> | gauge | Timeouts in the eager, notar and final timeout_prqs |
 | <span class="metrics-name">rotor_&#8203;timeout_&#8203;cancelled</span> | counter | Timeouts dropped because their blk is gone or their work is done |
 | <span class="metrics-name">rotor_&#8203;timeout_&#8203;no_&#8203;peer</span> | counter | Timeouts deferred because no peer could be picked |

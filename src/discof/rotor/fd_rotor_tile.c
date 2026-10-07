@@ -262,6 +262,7 @@ struct fd_rotor_tile {
     ulong      req_hedged;
     ulong      req_expired;
     fd_histf_t response_latency[ 1 ];
+    fd_histf_t retry_delay[ 1 ];
   } metrics[ 1 ];
 };
 typedef struct fd_rotor_tile fd_rotor_tile_t;
@@ -757,16 +758,11 @@ handle_parent_and_fec_set_count_res( fd_rotor_tile_t *    ctx,
   fd_histf_sample( ctx->metrics->response_latency, (ulong)( now-sent.ts ) );
   ctx->metrics->parent_fec_count_ok++;
 
-  fd_rotor_blk_t * blk = pending_blk( ctx, &sent );
-  if( FD_LIKELY( blk ) ) {
-    blk->telemetry.parent_res_cnt++;
-    blk->telemetry.first_meta_res_ts = fd_long_if( !blk->telemetry.first_meta_res_ts, now, blk->telemetry.first_meta_res_ts );
-  }
-
   if( FD_UNLIKELY( sent.slot<=ctx->rotor->root  ) ) return; /* rooted while in flight */
   if( FD_UNLIKELY( parent_slot<ctx->rotor->root ) ) return; /* on a fork below the root */
   if( FD_UNLIKELY( parent_slot>=sent.slot       ) ) return; /* the leader signed a bad parent */
-  fd_rotor_blk_parented( ctx->rotor, sent.slot, &sent.dmr, parent_slot, &parent_blk_mr, fec_set_cnt );
+
+  fd_rotor_blk_parented( ctx->rotor, sent.slot, &sent.dmr, parent_slot, &parent_blk_mr, fec_set_cnt, now ); /* drops a parent below the root or not preceding the blk */
 }
 
 static void
@@ -803,12 +799,6 @@ handle_fec_set_root_res( fd_rotor_tile_t *    ctx,
   fd_rotor_strat_request_done( ctx->strat, &sent.peer, now-sent.ts );
   fd_histf_sample( ctx->metrics->response_latency, (ulong)( now-sent.ts ) );
   ctx->metrics->fec_root_ok++;
-
-  fd_rotor_blk_t * blk = pending_blk( ctx, &sent );
-  if( FD_LIKELY( blk ) ) {
-    blk->telemetry.fec_root_res_cnt++;
-    blk->telemetry.first_meta_res_ts = fd_long_if( !blk->telemetry.first_meta_res_ts, now, blk->telemetry.first_meta_res_ts );
-  }
 
   if( FD_UNLIKELY( sent.slot<=ctx->rotor->root ) ) return; /* rooted while in flight */
   fd_rotor_fec_notarized( ctx->rotor, sent.slot, &sent.dmr, sent.fec_idx*FD_FEC_SHRED_CNT, &fec_mr, now );
@@ -871,7 +861,7 @@ handle_sign( fd_rotor_tile_t *   ctx,
 static inline void
 metrics_write( fd_rotor_tile_t * ctx ) {
   ulong queued  = fd_rotor_treap_ele_cnt( ctx->rotor->eager_treap ) + fd_rotor_treap_ele_cnt( ctx->rotor->notar_treap ) + fd_rotor_treap_ele_cnt( ctx->rotor->final_treap );
-  ulong waiting = timeout_prq_cnt  ( ctx->eager_prq          ) + timeout_prq_cnt  ( ctx->notar_prq          ) + timeout_prq_cnt  ( ctx->final_prq          );
+  ulong waiting = timeout_prq_cnt( ctx->eager_prq ) + timeout_prq_cnt  ( ctx->notar_prq ) + timeout_prq_cnt( ctx->final_prq );
 
   FD_MCNT_SET( ROTOR, PKT_TX,                               ctx->metrics->pkt_tx                                                     );
   FD_MCNT_SET( ROTOR, REQUEST_TX_WINDOW_INDEX,              ctx->metrics->request_tx[ FD_ROTOR_SERDE_TAG_WINDOW_INDEX ]              );
@@ -884,13 +874,13 @@ metrics_write( fd_rotor_tile_t * ctx ) {
   FD_MCNT_SET( ROTOR, PING_TX,                              ctx->metrics->ping_tx                                                    );
 
   FD_MGAUGE_SET( ROTOR, SLOT_HIGHEST_DELIVERED, ctx->metrics->slot_highest_repaired                );
-  FD_MGAUGE_SET( ROTOR, SLOT_HIGHEST_RECEIVED,          ctx->metrics->slot_current                         );
-  FD_MGAUGE_SET( ROTOR, SLOT_TURBINE_FIRST,    ctx->turbine_slot0                                 );
-  FD_MGAUGE_SET( ROTOR, BLK_TREAP_CNT,    queued                                             );
-  FD_MGAUGE_SET( ROTOR, PENDING_CNT,      pending_pool_used( ctx->pending_pool )             );
-  FD_MGAUGE_SET( ROTOR, TIMEOUT_CNT,       waiting                                            );
-  FD_MGAUGE_SET( ROTOR, EAGER_DELAY_NANOS,    (ulong)fd_rotor_strat_eager_ns( ctx->strat, NULL ) );
-  FD_MGAUGE_SET( ROTOR, SIGN_CNT,         sign_pool_used( ctx->sign_pool )                   );
+  FD_MGAUGE_SET( ROTOR, SLOT_HIGHEST_RECEIVED,  ctx->metrics->slot_current                         );
+  FD_MGAUGE_SET( ROTOR, SLOT_TURBINE_FIRST,     ctx->turbine_slot0                                 );
+  FD_MGAUGE_SET( ROTOR, BLK_TREAP_CNT,          queued                                             );
+  FD_MGAUGE_SET( ROTOR, PENDING_CNT,            pending_pool_used( ctx->pending_pool )             );
+  FD_MGAUGE_SET( ROTOR, TIMEOUT_CNT,            waiting                                            );
+  FD_MGAUGE_SET( ROTOR, EAGER_DELAY_NANOS,      (ulong)fd_rotor_strat_eager_ns( ctx->strat, NULL ) );
+  FD_MGAUGE_SET( ROTOR, SIGN_CNT,               sign_pool_used( ctx->sign_pool )                   );
 
   FD_MCNT_SET( ROTOR, FEC_DELIVERED,     ctx->metrics->fec_delivered );
   FD_MCNT_SET( ROTOR, TIMEOUT_CANCELLED, ctx->metrics->req_cancelled );
@@ -920,6 +910,7 @@ metrics_write( fd_rotor_tile_t * ctx ) {
   FD_MCNT_SET( ROTOR, PING_SIGNATURE_FAILED, ctx->metrics->ping_signature_failed );
 
   FD_MHIST_COPY( ROTOR, RESPONSE_LATENCY_NANOS, ctx->metrics->response_latency );
+  FD_MHIST_COPY( ROTOR, RETRY_DELAY_NANOS,      ctx->metrics->retry_delay      );
 }
 
 FD_FN_CONST static inline ulong
@@ -1091,8 +1082,6 @@ after_credit( fd_rotor_tile_t *   ctx,
 
     if( FD_UNLIKELY( !pending_pool_free( ctx->pending_pool ) ) ) { /* evict the oldest, a reply to it no longer matches */
       pending_t * oldest = pending_dlist_ele_pop_head( ctx->pending_dlist, ctx->pending_pool );
-      ctx->metrics->req_expired++;
-      //fd_rotor_strat_request_done( ctx->strat, &oldest->peer, PENDING_TTL ); /* ends the pick, as a timeout */
       fd_rotor_strat_request_failed( ctx->strat, &oldest->peer, 0 ); /* no rtt sample, a silent peer is skipped instead */
       pending_map_ele_remove_fast( ctx->pending_map, oldest, ctx->pending_pool );
       pending_pool_ele_release   ( ctx->pending_pool, oldest );
@@ -1148,6 +1137,7 @@ after_credit( fd_rotor_tile_t *   ctx,
 
     req.timeout = now+( fd_long_max( fd_rotor_strat_hedge_ns( peer ), 1L<<24 )<<fd_uint_min( req.attempt, 3U ) ); /* a re-pick gets a new shred nonce */
     req.attempt = (uchar)fd_uint_min( req.attempt+1U, UCHAR_MAX );
+    fd_histf_sample( ctx->metrics->retry_delay, (ulong)( req.timeout-now ) );
     push_timeout( ctx, blk, &req );
     *charge_busy = 1;
   }
@@ -1381,6 +1371,7 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( fd_rng_join( fd_rng_new( ctx->rng, (uint)ctx->seed, ctx->seed>>32 ) ) );
   fd_clock_tile_init( ctx->clock );
   FD_TEST( fd_histf_join( fd_histf_new( ctx->metrics->response_latency, FD_MHIST_MIN( ROTOR, RESPONSE_LATENCY_NANOS ), FD_MHIST_MAX( ROTOR, RESPONSE_LATENCY_NANOS ) ) ) );
+  FD_TEST( fd_histf_join( fd_histf_new( ctx->metrics->retry_delay,      FD_MHIST_MIN( ROTOR, RETRY_DELAY_NANOS      ), FD_MHIST_MAX( ROTOR, RETRY_DELAY_NANOS      ) ) ) );
 
   FD_TEST( tile->in_cnt<=sizeof(ctx->in_kind)/sizeof(ctx->in_kind[0]) );
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {

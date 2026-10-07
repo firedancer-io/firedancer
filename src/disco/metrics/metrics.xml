@@ -1483,6 +1483,9 @@ EXAMPLES
     <histogram name="ResponseLatencyNanos" min="10000000" max="1000000000">
       <summary>Time from sending a repair request to receiving its response, in nanoseconds</summary>
     </histogram>
+    <histogram name="RetryDelayNanos" min="10000000" max="60000000000">
+      <summary>Delay scheduled before a request's next attempt, its peer's hedge time with the per-attempt backoff, in nanoseconds</summary>
+    </histogram>
     <gauge name="TimeoutCnt" summary="Timeouts in the eager, notar and final timeout_prqs" />
     <counter name="TimeoutCancelled" summary="Timeouts dropped because their blk is gone or their work is done" />
     <counter name="TimeoutNoPeer" summary="Timeouts deferred because no peer could be picked" />
