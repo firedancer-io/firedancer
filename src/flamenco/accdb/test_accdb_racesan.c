@@ -3164,6 +3164,100 @@ test_evict_vs_drain_pool_next( void ) {
   test_teardown( accdb, fd );
 }
 
+/* test_unlink_stray_pin_old_version: acc_unlink of an old
+   (non-tombstone) version must wait out a stray cache_try_pin pin on
+   its line rather than treat it as a reader.
+     1. X and P (lamports=100) committed on root0.  F attached; P
+        rewritten on F (lamports=200).  Both P versions flushed.
+     2. R read-acquires X on F, captures X's line L, suspends before
+        pinning.
+     3. L is evicted.  A read-only acquire of P on frozen root0
+        cold-loads P's root0 version into L.
+     4. R stray-pins L.
+     5. advance_root(F) unlinks P's root0 version under the stray pin:
+        the unlink drains R's epoch, R unpins, the unlink proceeds. */
+static void
+test_unlink_stray_pin_old_version( void ) {
+  int fd;
+  fd_accdb_t * accdb   = test_setup( &fd, 256UL, 16UL, 1024UL, 1024UL, 1UL<<30UL );
+  fd_accdb_t * accdb_r = test_join_extra();
+
+  uchar key_P  [ 32 ] = { 'P', 0 };
+  uchar key_X  [ 32 ] = { 'X', 0 };
+  uchar owner_P[ 32 ] = { 0xAA, 0 };
+
+  fd_accdb_fork_id_t root0 = fd_accdb_attach_child( accdb, SENTINEL );
+
+  seq_write( accdb, root0, key_X, 500UL, owner_P );
+  seq_write( accdb, root0, key_P, 100UL, owner_P );
+
+  fd_accdb_fork_id_t F = fd_accdb_attach_child( accdb, root0 );
+  seq_write( accdb, F, key_P, 200UL, owner_P );
+
+  ulong cls, idx;
+  while( fd_accdb_debug_find_line( accdb, key_P, &cls, &idx ) ) {
+    FD_TEST( fd_accdb_debug_clock_evict_line( accdb, cls, idx )!=UINT_MAX );
+  }
+
+  FD_TEST( fd_accdb_debug_find_line( accdb, key_X, &cls, &idx ) );
+  FD_TEST( cls==0UL );
+  fd_accdb_cache_line_t * L = fd_accdb_debug_line_addr( accdb, 0UL, idx );
+
+  fd_racesan_async_t * ar = fiber_acquire_expect( &g_fiber[0], accdb_r, F, key_X, 500UL );
+  FD_TEST( fd_racesan_async_step_until( ar, "accdb_acquire:pre_try_pin", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+
+  FD_TEST( fd_accdb_debug_clock_evict_line( accdb, 0UL, idx )!=UINT_MAX );
+  {
+    uchar const * pks[1] = { key_P };
+    int rd[1] = { 0 };
+    fd_acc_t a[1];
+    memset( a, 0, sizeof(a) );
+    fd_accdb_acquire( accdb, root0, 1UL, pks, rd, a );
+    FD_TEST( a[0].lamports==100UL );
+    fd_accdb_release( accdb, 1UL, a );
+
+    FD_TEST( !memcmp( L->key.pubkey, key_P, 32UL ) );
+    FD_TEST( FD_VOLATILE_CONST( L->refcnt )==0U );
+  }
+
+  FD_TEST( fd_racesan_async_step_until( ar, "accdb_try_pin:post_cas", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+  FD_TEST( FD_VOLATILE_CONST( L->refcnt )==1U );
+
+  /* The unlink pins L itself, then blocks in the drain while R still
+     holds the stray pin. */
+  fd_accdb_advance_root( accdb, F );
+  fd_racesan_async_t * ab = fiber_background( &g_fiber[1], accdb );
+  FD_TEST( fd_racesan_async_step_until( ab, "accdb_epoch_drain:wait", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+  FD_TEST( FD_VOLATILE_CONST( L->refcnt )==2U );
+
+  async_finish( ar );
+  FD_TEST( FD_VOLATILE_CONST( L->refcnt )==1U );
+
+  async_finish( ab );
+  fiber_done( &g_fiber[0] );
+  fiber_done( &g_fiber[1] );
+  drain_background_n( accdb, 3UL );
+
+  {
+    uchar const * pks[1] = { key_P };
+    int rd[1] = { 0 };
+    fd_acc_t a[1];
+    memset( a, 0, sizeof(a) );
+    fd_accdb_acquire( accdb, F, 1UL, pks, rd, a );
+    FD_TEST( a[0].lamports==200UL );
+    fd_accdb_release( accdb, 1UL, a );
+
+    pks[0] = key_X;
+    memset( a, 0, sizeof(a) );
+    fd_accdb_acquire( accdb, F, 1UL, pks, rd, a );
+    FD_TEST( a[0].lamports==500UL );
+    fd_accdb_release( accdb, 1UL, a );
+  }
+
+  free( accdb_r );
+  test_teardown( accdb, fd );
+}
+
 /* test_overwrite_discard_vs_evictor proves the discard claim leaves no
    window for a concurrent evictor to steal the line.  Release converts
    its own pin into the claim (CAS refcnt 1->EVICT_SENTINEL); refcnt
@@ -3763,6 +3857,7 @@ main( int     argc,
     TEST( test_overwrite_discard_stray_pin_cls7 ),
     TEST( test_overwrite_discard_stray_pin_xclass ),
     TEST( test_orphan_evict_vs_real_evict ),
+    TEST( test_unlink_stray_pin_old_version ),
     TEST( test_overwrite_discard_vs_evictor ),
     TEST( test_clock_claim_vs_freed ),
     TEST( test_preevict_release_store_order ),

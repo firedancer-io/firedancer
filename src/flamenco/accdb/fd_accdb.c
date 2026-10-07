@@ -1036,6 +1036,17 @@ wait_for_epoch_drain( fd_accdb_t * accdb,
   }
 }
 
+/* stray_pin_drained waits out every in-flight acquire and returns 1 if
+   only the caller's pin remains. */
+
+static int
+stray_pin_drained( fd_accdb_t *            accdb,
+                   fd_accdb_cache_line_t * line ) {
+  ulong tag = FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->epoch, 1UL );
+  wait_for_epoch_drain( accdb, tag );
+  return FD_VOLATILE_CONST( line->refcnt )==1U;
+}
+
 /* drain_deferred_frees releases back to their respective pools any acc
    batch and/or fork slots that were unlinked in a prior advance_root /
    purge call.  The resources cannot be released immediately because
@@ -1284,11 +1295,14 @@ acc_unlink( fd_accdb_t * accdb,
            persisted so the writeback gate never fires. */
         FD_VOLATILE( mine->persisted ) = 1;
 
-        /* Only the tombstone self-unlink may be pinned here old-version
-           and purge unlinks are never pinned, because a reader on a
-           live fork resolves to the newest version, not the one these
-           unlink. */
-        FD_TEST( accmeta->lamports==0UL );
+        /* Only the tombstone self-unlink may be pinned by a reader.
+           We (want to) assert lamports==0UL to catch potential bugs/changes
+           in high level logic.
+           Unfortunately a stray pin could also occur (even though in very
+           edge cases), so if lamport!=0 we detect that a stray pin was there.
+           In practice, stray_pin_drained() should never hit, and a bug in
+           high level logic would still cause the FD_TEST to fail. */
+        FD_TEST( accmeta->lamports==0UL || stray_pin_drained( accdb, mine ) );
 
         FD_ATOMIC_FETCH_AND_SUB( &mine->refcnt, 1U );
       }
