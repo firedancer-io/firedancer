@@ -52,7 +52,6 @@ ag_vote_de( ag_vote_t *   self,
 
   fd_bls_sig_t   sig[1];
   blst_p2_affine sig_aff[1];
-  FAIL( vote.signature[0]&0xA0U,                                      INVAL );
   FAIL( blst_p2_deserialize( sig_aff, vote.signature )!=BLST_SUCCESS, INVAL );
   FAIL( !blst_p2_affine_in_g2( sig_aff ),                             INVAL );
   blst_p2_from_affine( sig, sig_aff );
