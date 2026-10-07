@@ -1008,8 +1008,8 @@ after_credit( fd_rotor_tile_t *   ctx,
   while( !pending_dlist_is_empty( ctx->pending_dlist, ctx->pending_pool ) ) {
     pending_t * pending = pending_dlist_ele_peek_head( ctx->pending_dlist, ctx->pending_pool );
     if( FD_LIKELY( now-pending->ts<PENDING_TTL ) ) break;
-    fd_rotor_strat_request_done( ctx->strat, &pending->peer, PENDING_TTL );
-    //fd_rotor_strat_request_failed( ctx->strat, &pending->peer, now+PENDING_TTL ); /* no rtt sample, a silent peer is skipped instead */
+    //fd_rotor_strat_request_done( ctx->strat, &pending->peer, PENDING_TTL );
+    fd_rotor_strat_request_failed( ctx->strat, &pending->peer, now+PENDING_TTL ); /* no rtt sample, a silent peer is skipped instead */
     ctx->metrics->req_expired++;
     pending_dlist_ele_pop_head ( ctx->pending_dlist, ctx->pending_pool );
     pending_map_ele_remove_fast( ctx->pending_map,   pending, ctx->pending_pool );
@@ -1092,8 +1092,8 @@ after_credit( fd_rotor_tile_t *   ctx,
     if( FD_UNLIKELY( !pending_pool_free( ctx->pending_pool ) ) ) { /* evict the oldest, a reply to it no longer matches */
       pending_t * oldest = pending_dlist_ele_pop_head( ctx->pending_dlist, ctx->pending_pool );
       ctx->metrics->req_expired++;
-      fd_rotor_strat_request_done( ctx->strat, &oldest->peer, PENDING_TTL ); /* ends the pick, as a timeout */
-      //fd_rotor_strat_request_failed( ctx->strat, &oldest->peer, now+PENDING_TTL ); /* no rtt sample, a silent peer is skipped instead */
+      //fd_rotor_strat_request_done( ctx->strat, &oldest->peer, PENDING_TTL ); /* ends the pick, as a timeout */
+      fd_rotor_strat_request_failed( ctx->strat, &oldest->peer, 0 ); /* no rtt sample, a silent peer is skipped instead */
       pending_map_ele_remove_fast( ctx->pending_map, oldest, ctx->pending_pool );
       pending_pool_ele_release   ( ctx->pending_pool, oldest );
     }

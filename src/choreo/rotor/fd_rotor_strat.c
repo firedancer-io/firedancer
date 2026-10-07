@@ -60,7 +60,7 @@ fd_rotor_strat_join( void * shstrat ) {
 
 static ulong
 bucket( fd_rotor_strat_peer_t const * peer ) {
-  long rtt = fd_long_max( peer->srtt-peer->rttvar, 1L ); /* the lower confidence bound, so one bad sample does not demote */
+  long rtt = peer->srtt+(peer->rttvar>>2); /* a quarter weight on jitter: a jittery peer ranks slower, as its hedge does, but a first sample's rttvar of rtt/2 does not demote a new peer */
   if( FD_UNLIKELY( !peer->srtt        ) ) return FD_ROTOR_STRAT_BUCKET_UNMEASURED;
   if( FD_LIKELY  ( rtt< 25L*1000000L  ) ) return FD_ROTOR_STRAT_BUCKET_25MS;
   if( FD_LIKELY  ( rtt< 50L*1000000L  ) ) return FD_ROTOR_STRAT_BUCKET_50MS;
