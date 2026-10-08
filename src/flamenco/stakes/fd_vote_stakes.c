@@ -815,22 +815,14 @@ fd_vote_stakes_purge_fork( fd_vote_stakes_t * vote_stakes,
   if( !--fork->ref_cnt ) t_1_release( vote_stakes, t_1_idx );
 }
 
-void
-fd_vote_stakes_pin_t_1( fd_vote_stakes_t * vote_stakes,
-                        ulong              fork_id ) {
-  t_1_cache_ent_t * ent = t_1_cache( vote_stakes ) + t_1_slot( vote_stakes, fork_id_t_1_idx( fork_id ) );
+/* t_1_pin loads t-1 set set_idx if needed and pins it.  Writer only. */
+
+static void
+t_1_pin( fd_vote_stakes_t * vote_stakes,
+         ulong              set_idx ) {
+  t_1_cache_ent_t * ent = t_1_cache( vote_stakes ) + t_1_slot( vote_stakes, set_idx );
   FD_ATOMIC_FETCH_AND_ADD( &ent->pin_cnt, 1UL );
   ent->lru = ++vote_stakes->lru;
-}
-
-void
-fd_vote_stakes_unpin_t_1( fd_vote_stakes_t * vote_stakes,
-                          ulong              fork_id ) {
-  vacc_fork_t const * fork = vacc_fork_pool_ele_const( vacc_fork_pool( vote_stakes ), fork_id_t_1_idx( fork_id ) );
-  FD_CHECK_CRIT( fork->cache_idx!=UINT_MAX, "invariant violation: unpinning an uncached vote stakes t-1 set" );
-  t_1_cache_ent_t * ent = t_1_cache( vote_stakes ) + fork->cache_idx;
-  ulong             old = FD_ATOMIC_FETCH_AND_SUB( &ent->pin_cnt, 1UL );
-  FD_CHECK_CRIT( old && old<T_1_EVICTING, "invariant violation: unpinning an unpinned vote stakes t-1 set" );
 }
 
 int
@@ -862,14 +854,23 @@ fd_vote_stakes_view_try( fd_vote_stakes_t * vote_stakes,
 
 void
 fd_vote_stakes_view_init( fd_vote_stakes_t * vote_stakes,
-                          ulong              fork_id ) {
+                          ulong              fork_id,
+                          int                is_writer ) {
+  if( is_writer ) {
+    t_1_pin( vote_stakes, (ulong)fork_id_t_1_idx( fork_id ) );
+    return;
+  }
   while( !fd_vote_stakes_view_try( vote_stakes, fork_id ) ) FD_SPIN_PAUSE();
 }
 
 void
 fd_vote_stakes_view_fini( fd_vote_stakes_t * vote_stakes,
                           ulong              fork_id ) {
-  fd_vote_stakes_unpin_t_1( vote_stakes, fork_id );
+  vacc_fork_t const * fork = vacc_fork_pool_ele_const( vacc_fork_pool( vote_stakes ), fork_id_t_1_idx( fork_id ) );
+  FD_CHECK_CRIT( fork->cache_idx!=UINT_MAX, "invariant violation: releasing an uncached vote stakes t-1 view" );
+  t_1_cache_ent_t * ent = t_1_cache( vote_stakes ) + fork->cache_idx;
+  ulong             old = FD_ATOMIC_FETCH_AND_SUB( &ent->pin_cnt, 1UL );
+  FD_CHECK_CRIT( old && old<T_1_EVICTING, "invariant violation: releasing an unheld vote stakes t-1 view" );
 }
 
 void
@@ -877,9 +878,7 @@ fd_vote_stakes_view_serve( fd_vote_stakes_t * vote_stakes ) {
   ulong req = FD_VOLATILE_CONST( vote_stakes->view_req );
   if( FD_LIKELY( !req || (req & VIEW_REQ_READY) ) ) return;
 
-  t_1_cache_ent_t * ent = t_1_cache( vote_stakes ) + t_1_slot( vote_stakes, req-1UL );
-  FD_ATOMIC_FETCH_AND_ADD( &ent->pin_cnt, 1UL );
-  ent->lru = ++vote_stakes->lru;
+  t_1_pin( vote_stakes, req-1UL );
   FD_COMPILER_MFENCE();
   FD_VOLATILE( vote_stakes->view_req ) = req|VIEW_REQ_READY;
 }

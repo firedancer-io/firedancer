@@ -59,7 +59,7 @@ test_t_1_spill( int disk_fd ) {
   struct stat st;
   FD_TEST( !fstat( disk_fd, &st ) && st.st_size>0L );
 
-  fd_vote_stakes_pin_t_1( vote_stakes, forks[ 0 ] );
+  fd_vote_stakes_view_init( vote_stakes, forks[ 0 ], 1 );
   for( ulong round=0UL; round<2UL; round++ ) {
     ulong stake;
     FD_TEST( fd_vote_stakes_query_t_1( vote_stakes, root, &root_vote, NULL, &stake, NULL ) && stake==1000UL );
@@ -69,7 +69,7 @@ test_t_1_spill( int disk_fd ) {
       FD_TEST( fd_vote_stakes_cnt_t_1( vote_stakes, forks[ i ] )==1UL );
     }
   }
-  fd_vote_stakes_unpin_t_1( vote_stakes, forks[ 0 ] );
+  fd_vote_stakes_view_fini( vote_stakes, forks[ 0 ] );
 
   /* A view on a cached set is held at once and keeps it resident. */
   ulong       stake;
@@ -93,7 +93,7 @@ test_t_1_spill( int disk_fd ) {
   FD_TEST( fd_vote_stakes_query_t_1( vote_stakes, root, &root_vote, NULL, &stake, NULL ) && stake==1000UL );
   FD_TEST( fd_vote_stakes_query_t_1( vote_stakes, forks[ 2 ], &vote_2, NULL, &stake, NULL ) && stake==2002UL );
   fd_vote_stakes_view_fini( vote_stakes, forks[ 2 ] );
-  fd_vote_stakes_view_init( vote_stakes, forks[ 2 ] );
+  fd_vote_stakes_view_init( vote_stakes, forks[ 2 ], 0 );
   fd_vote_stakes_view_fini( vote_stakes, forks[ 2 ] );
 
   for( ulong i=0UL; i<3UL; i++ ) fd_vote_stakes_purge_fork( vote_stakes, forks[ i ] );
@@ -117,7 +117,7 @@ view_reader( int     argc,
     ulong       f    = i%3UL;
     fd_pubkey_t vote = key( 300UL+f );
     ulong       stake;
-    fd_vote_stakes_view_init( view_vs, view_forks[ f ] );
+    fd_vote_stakes_view_init( view_vs, view_forks[ f ], 0 );
     FD_TEST( fd_vote_stakes_query_t_1( view_vs, view_forks[ f ], &vote, NULL, &stake, NULL ) && stake==2000UL+f );
     FD_TEST( fd_vote_stakes_cnt_t_1( view_vs, view_forks[ f ] )==1UL );
     fd_vote_stakes_view_fini( view_vs, view_forks[ f ] );

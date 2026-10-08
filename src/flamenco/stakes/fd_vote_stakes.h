@@ -23,8 +23,8 @@
      caches are ref-cnt'd and fork specific.  Up to max_live_slots of
      them exist; cache_cnt are held in memory and the rest are spilled
      to disk.  Only one writer may load or evict t-1 sets; any other
-     thread must only read t-1 sets pinned by the writer or held in a
-     view (fd_vote_stakes_view_init).
+     thread must only read t-1 sets held in a view
+     (fd_vote_stakes_view_init).
      After the epoch boundary slot is rooted, then there will only be 1
      active t-1 cache.  Once filled, a t-1 cache is ranked
      and never changes again, so a fork in epoch t verifies epoch t+1
@@ -189,26 +189,18 @@ void
 fd_vote_stakes_purge_fork( fd_vote_stakes_t * vote_stakes,
                            ulong              fork_id );
 
-/* fd_vote_stakes_{pin,unpin}_t_1 pin and unpin the fork's t-1 set in
-   memory, reading it from disk if needed.  Only the writer may pin;
-   unpin may be called from any thread.  Pins nest and must be paired.
-   A pinned t-1 set can be read from any thread. */
+/* fd_vote_stakes_view_{init,fini} hold the fork's t-1 set in memory.
+   A held set can be read from any thread until view_fini, which may be
+   called from any thread.  Views nest and must be paired.  The caller
+   must keep the fork alive (e.g. hold a bank reference) while a view is
+   held.
 
-void
-fd_vote_stakes_pin_t_1( fd_vote_stakes_t * vote_stakes,
-                        ulong              fork_id );
-
-void
-fd_vote_stakes_unpin_t_1( fd_vote_stakes_t * vote_stakes,
-                          ulong              fork_id );
-
-/* fd_vote_stakes_view_{init,fini} let a thread other than the writer
-   hold the fork's t-1 set in memory while it reads it.  The caller must
-   keep the fork alive (e.g. hold a bank reference) for the duration.
-   If the set is not cached, view_init asks the writer to load it and
-   spins until fd_vote_stakes_view_serve does.  view_try is the
-   non-blocking form: it returns 1 once the view is held, else 0.  Only
-   one load request is outstanding at a time.
+   The single writer passes is_writer=1 and reads the set from disk
+   itself if needed.  Any other thread passes is_writer=0: if the set is
+   not cached, view_init asks the writer to load it and spins until
+   fd_vote_stakes_view_serve does.  view_try is the non-blocking reader
+   form: it returns 1 once the view is held, else 0.  Only one load
+   request is outstanding at a time.
 
    fd_vote_stakes_view_serve must be called regularly by the writer.  It
    loads a requested set and pins it on behalf of the requester. */
@@ -219,7 +211,8 @@ fd_vote_stakes_view_try( fd_vote_stakes_t * vote_stakes,
 
 void
 fd_vote_stakes_view_init( fd_vote_stakes_t * vote_stakes,
-                          ulong              fork_id );
+                          ulong              fork_id,
+                          int                is_writer );
 
 void
 fd_vote_stakes_view_fini( fd_vote_stakes_t * vote_stakes,
