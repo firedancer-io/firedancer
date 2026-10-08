@@ -33,46 +33,50 @@
 #define FD_SECCOMP_ARG_LO(x) ((uint)(((ulong)(uint)(int)(x)      ) & 0xffffffffUL))
 #define FD_SECCOMP_ARG_HI(x) ((uint)(((ulong)(x) >> 32) & 0xffffffffUL))
 
-static const uint sock_filter_policy_fd_snapmk_tile_instr_cnt = 110;
+static const uint sock_filter_policy_fd_snapmk_tile_instr_cnt = 120;
 
-static void populate_sock_filter_policy_fd_snapmk_tile( ulong out_cnt, struct sock_filter out[ static 110 ], uint logfile_fd, uint dir_fd, uint pool_min_fd, uint pool_max_fd, uint accdb_ro_fd ) {
-  FD_TEST( out_cnt >= 110 );
-  struct sock_filter filter[110] = {
+static void populate_sock_filter_policy_fd_snapmk_tile( ulong out_cnt, struct sock_filter out[ static 120 ], uint logfile_fd, uint dir_fd, uint pool_min_fd, uint pool_max_fd, uint accdb_ro_fd, uint txncache_fd ) {
+  FD_TEST( out_cnt >= 120 );
+  struct sock_filter filter[120] = {
     /* validate architecture */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, ( offsetof( struct seccomp_data, arch ) )),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ARCH_NR, 0, /* RET_KILL_PROCESS */ 16 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ARCH_NR, 0, /* RET_KILL_PROCESS */ 18 ),
     /* load syscall number */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, ( offsetof( struct seccomp_data, nr ) )),
     /* check write */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_write, /* check_write */ 16, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_write, /* check_write */ 18, 0 ),
     /* check fsync */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_fsync, /* check_fsync */ 25, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_fsync, /* check_fsync */ 27, 0 ),
     /* check lseek */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_lseek, /* check_lseek */ 28, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_lseek, /* check_lseek */ 30, 0 ),
     /* check fstat */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_fstat, /* check_fstat */ 41, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_fstat, /* check_fstat */ 43, 0 ),
     /* check getdents64 */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_getdents64, /* check_getdents64 */ 46, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_getdents64, /* check_getdents64 */ 48, 0 ),
     /* check newfstatat */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_newfstatat, /* check_newfstatat */ 49, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_newfstatat, /* check_newfstatat */ 51, 0 ),
     /* check ftruncate */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_ftruncate, /* check_ftruncate */ 54, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_ftruncate, /* check_ftruncate */ 56, 0 ),
     /* check fcntl */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_fcntl, /* check_fcntl */ 59, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_fcntl, /* check_fcntl */ 61, 0 ),
     /* check renameat2 */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_renameat2, /* check_renameat2 */ 68, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_renameat2, /* check_renameat2 */ 70, 0 ),
     /* check preadv2 */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_preadv2, /* check_preadv2 */ 75, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_preadv2, /* check_preadv2 */ 77, 0 ),
     /* allow sched_yield */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_sched_yield, /* RET_ALLOW */ 5, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_sched_yield, /* RET_ALLOW */ 7, 0 ),
     /* check clock_nanosleep */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_clock_nanosleep, /* check_clock_nanosleep */ 77, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_clock_nanosleep, /* check_clock_nanosleep */ 79, 0 ),
     /* check exit */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_exit, /* check_exit */ 80, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_exit, /* check_exit */ 82, 0 ),
     /* check futex */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_futex, /* check_futex */ 83, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_futex, /* check_futex */ 85, 0 ),
     /* allow restart_syscall */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_restart_syscall, /* RET_ALLOW */ 1, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_restart_syscall, /* RET_ALLOW */ 3, 0 ),
+    /* check pread64 */
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_pread64, /* check_pread64 */ 93, 0 ),
+    /* check pwrite64 */
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_pwrite64, /* check_pwrite64 */ 96, 0 ),
 //  RET_KILL_PROCESS:
     /* default deny */
     BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS ),
@@ -258,6 +262,22 @@ static void populate_sock_filter_policy_fd_snapmk_tile( ulong out_cnt, struct so
 //  futex_KILL:
     BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS ),
 //  futex_ALLOW:
+    BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_ALLOW ),
+//  check_pread64:
+    /* arg 0 low 32 bits */
+    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(txncache_fd)), /* pread64_ALLOW */ 1, /* pread64_KILL */ 0 ),
+//  pread64_KILL:
+    BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS ),
+//  pread64_ALLOW:
+    BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_ALLOW ),
+//  check_pwrite64:
+    /* arg 0 low 32 bits */
+    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(txncache_fd)), /* pwrite64_ALLOW */ 1, /* pwrite64_KILL */ 0 ),
+//  pwrite64_KILL:
+    BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS ),
+//  pwrite64_ALLOW:
     BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_ALLOW ),
   };
   fd_memcpy( out, filter, sizeof( filter ) );

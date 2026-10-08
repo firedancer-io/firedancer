@@ -11,7 +11,7 @@
 #
 # cost_tracker_fd: Disk backing for cost trackers beyond the in-memory
 #                  cache.
-uint logfile_fd, uint accounts_fd, uint store_fd, uint stake_spill_fd, uint epoch_credits_fd, uint cost_tracker_fd
+uint logfile_fd, uint accounts_fd, uint store_fd, uint stake_spill_fd, uint epoch_credits_fd, uint cost_tracker_fd, uint txncache_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -76,12 +76,16 @@ restart_syscall
 #
 # stake delegations, epoch credits and cost trackers: records spilled
 # beyond their in-memory caches.
+# transaction cache: read spilled pages
 pread64: (or (eq (arg 0) store_fd)
              (eq (arg 0) stake_spill_fd)
              (eq (arg 0) epoch_credits_fd)
-             (eq (arg 0) cost_tracker_fd))
+             (eq (arg 0) cost_tracker_fd)
+             (eq (arg 0) txncache_fd))
 
 # stake delegations, epoch credits and cost trackers: disk spill
+# transaction cache: spill pages to disk
 pwrite64: (or (eq (arg 0) stake_spill_fd)
               (eq (arg 0) epoch_credits_fd)
-              (eq (arg 0) cost_tracker_fd))
+              (eq (arg 0) cost_tracker_fd)
+              (eq (arg 0) txncache_fd))

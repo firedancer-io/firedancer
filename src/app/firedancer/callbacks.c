@@ -181,7 +181,7 @@ fd_topo_obj_callbacks_t fd_obj_cb_accdb = {
 static ulong
 txncache_footprint( fd_topo_t const *     topo,
                     fd_topo_obj_t const * obj ) {
-  return fd_txncache_shmem_footprint( VAL("max_live_slots"), VAL("max_txn_per_slot") );
+  return fd_txncache_shmem_footprint( VAL("max_live_slots"), VAL("max_txn_per_slot"), VAL("cache_footprint") );
 }
 
 static ulong
@@ -193,7 +193,7 @@ txncache_align( fd_topo_t const *     topo FD_FN_UNUSED,
 static void
 txncache_new( fd_topo_t const *     topo,
               fd_topo_obj_t const * obj ) {
-  FD_TEST( fd_txncache_shmem_new( fd_topo_obj_laddr( topo, obj->id ), VAL("max_live_slots"), VAL("max_txn_per_slot"), VAL("seed") ) );
+  FD_TEST( fd_txncache_shmem_new( fd_topo_obj_laddr( topo, obj->id ), VAL("max_live_slots"), VAL("max_txn_per_slot"), VAL("cache_footprint"), VAL("seed") ) );
 }
 
 fd_topo_obj_callbacks_t fd_obj_cb_txncache = {

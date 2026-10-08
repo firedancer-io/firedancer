@@ -126,6 +126,7 @@ run_firedancer_threaded( config_t * config,
   initialize_epoch_credits_fd( config );
   initialize_cost_tracker_fd( config );
   initialize_stake_delegations_fd( config );
+  initialize_txncache_fd( config );
   initialize_store_fds( config );
   if( FD_LIKELY( config->is_firedancer ) ) {
     initialize_snapshot_fds( config );

@@ -789,7 +789,7 @@ txncache_staging_scratch( fd_snapin_tile_t * ctx ) {
   void * scratch    = fd_txncache_snapin_scratch( ctx->lead.txncache, &scratch_sz );
   ulong  groups_max = FD_TXNCACHE_MAX_SLOT_DELTAS*ctx->lead.txncache_max_groups_per_slot;
   blockhash_group_t * groups = txncache_staging_groups_join( scratch, scratch_sz, groups_max );
-  if( FD_UNLIKELY( !groups ) ) FD_LOG_ERR(( "txncache scratch (%lu bytes) too small to stage %lu blockhash groups (%lu bytes)", scratch_sz, groups_max, groups_max*sizeof(blockhash_group_t) ));
+  if( FD_UNLIKELY( !groups ) ) FD_LOG_ERR(( "txncache scratch (%lu bytes) too small to stage %lu blockhash groups (%lu bytes); increase runtime.transaction_cache_size_mib", scratch_sz, groups_max, groups_max*sizeof(blockhash_group_t) ));
   return groups;
 }
 
@@ -2226,7 +2226,7 @@ populate_allowed_fds( fd_topo_t      const * topo,
                       fd_topo_tile_t const * tile,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
-  if( FD_UNLIKELY( out_fds_cnt<5UL ) ) FD_LOG_ERR(( "invalid out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<6UL ) ) FD_LOG_ERR(( "invalid out_fds_cnt %lu", out_fds_cnt ));
   fd_snapin_tile_t const * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   ulong out_cnt = 0;
@@ -2237,6 +2237,7 @@ populate_allowed_fds( fd_topo_t      const * topo,
   out_fds[ out_cnt++ ] = FD_ACCDB_FD_RW; /* accounts db */
   out_fds[ out_cnt++ ] = FD_STAKE_DELEGATIONS_FD; /* stake delegation disk spill */
   out_fds[ out_cnt++ ] = ctx->writer.accdb_direct_fd; /* accounts db, O_DIRECT */
+  out_fds[ out_cnt++ ] = FD_TXNCACHE_FD; /* transaction cache spill */
 
   return out_cnt;
 }
@@ -2247,7 +2248,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
   fd_snapin_tile_t const * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-  populate_sock_filter_policy_fd_snapin_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), FD_ACCDB_FD_RW, (uint)ctx->writer.accdb_direct_fd, FD_STAKE_DELEGATIONS_FD );
+  populate_sock_filter_policy_fd_snapin_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), FD_ACCDB_FD_RW, (uint)ctx->writer.accdb_direct_fd, FD_STAKE_DELEGATIONS_FD, (uint)FD_TXNCACHE_FD );
   return sock_filter_policy_fd_snapin_tile_instr_cnt;
 }
 
@@ -2351,7 +2352,7 @@ unprivileged_init( fd_topo_t const *      topo,
   void * _txncache_shmem = fd_topo_obj_laddr( topo, tile->snapin.txncache_obj_id );
   fd_txncache_shmem_t * txncache_shmem = fd_txncache_shmem_join( _txncache_shmem );
   FD_TEST( txncache_shmem );
-  ctx->lead.txncache = fd_txncache_join( fd_txncache_new( _txncache, txncache_shmem ) );
+  ctx->lead.txncache = fd_txncache_join( fd_txncache_new( _txncache, txncache_shmem, FD_TXNCACHE_FD ) );
   FD_TEST( ctx->lead.txncache );
 
   ctx->lead.blockhash_groups = NULL;

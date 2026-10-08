@@ -109,6 +109,7 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( ulong,  runtime.max_fork_width                              );
 
   CFG_POP      ( ulong,  runtime.program_cache_size_mib                      );
+  CFG_POP      ( ulong,  runtime.transaction_cache_size_mib                  );
 
   CFG_POP      ( cstr,   consensus.wait_for_supermajority_with_bank_hash     );
   CFG_POP      ( bool,   consensus.alpenglow                                 );
@@ -183,6 +184,7 @@ fd_config_extract_pod( uchar *       pod,
     CFG_POP    ( cstr,   paths.stake_delegations                          );
     CFG_POP    ( cstr,   paths.epoch_credits                              );
     CFG_POP    ( cstr,   paths.cost_tracker                               );
+    CFG_POP    ( cstr,   paths.txncache                                   );
     CFG_POP    ( cstr,   paths.shredb                                     );
     CFG_POP    ( cstr,   paths.guidb                                      );
     CFG_POP    ( cstr,   paths.vote_history                               );

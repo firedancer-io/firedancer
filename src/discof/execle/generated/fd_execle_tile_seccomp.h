@@ -33,11 +33,11 @@
 #define FD_SECCOMP_ARG_LO(x) ((uint)(((ulong)(uint)(int)(x)      ) & 0xffffffffUL))
 #define FD_SECCOMP_ARG_HI(x) ((uint)(((ulong)(x) >> 32) & 0xffffffffUL))
 
-static const uint sock_filter_policy_fd_execle_tile_instr_cnt = 57;
+static const uint sock_filter_policy_fd_execle_tile_instr_cnt = 61;
 
-static void populate_sock_filter_policy_fd_execle_tile( ulong out_cnt, struct sock_filter out[ static 57 ], uint logfile_fd, uint accounts_fd, uint stake_spill_fd ) {
-  FD_TEST( out_cnt >= 57 );
-  struct sock_filter filter[57] = {
+static void populate_sock_filter_policy_fd_execle_tile( ulong out_cnt, struct sock_filter out[ static 61 ], uint logfile_fd, uint accounts_fd, uint stake_spill_fd, uint txncache_fd ) {
+  FD_TEST( out_cnt >= 61 );
+  struct sock_filter filter[61] = {
     /* validate architecture */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, ( offsetof( struct seccomp_data, arch ) )),
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ARCH_NR, 0, /* RET_KILL_PROCESS */ 11 ),
@@ -58,9 +58,9 @@ static void populate_sock_filter_policy_fd_execle_tile( ulong out_cnt, struct so
     /* check pread64 */
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_pread64, /* check_pread64 */ 33, 0 ),
     /* check pwrite64 */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_pwrite64, /* check_pwrite64 */ 36, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_pwrite64, /* check_pwrite64 */ 38, 0 ),
     /* check futex */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_futex, /* check_futex */ 39, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_futex, /* check_futex */ 43, 0 ),
     /* allow restart_syscall */
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_restart_syscall, /* RET_ALLOW */ 1, 0 ),
 //  RET_KILL_PROCESS:
@@ -128,7 +128,11 @@ static void populate_sock_filter_policy_fd_execle_tile( ulong out_cnt, struct so
 //  check_pread64:
     /* arg 0 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(stake_spill_fd)), /* pread64_ALLOW */ 1, /* pread64_KILL */ 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(stake_spill_fd)), /* pread64_ALLOW */ 3, /* or_3 */ 0 ),
+//  or_3:
+    /* arg 0 low 32 bits */
+    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(txncache_fd)), /* pread64_ALLOW */ 1, /* pread64_KILL */ 0 ),
 //  pread64_KILL:
     BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS ),
 //  pread64_ALLOW:
@@ -136,7 +140,11 @@ static void populate_sock_filter_policy_fd_execle_tile( ulong out_cnt, struct so
 //  check_pwrite64:
     /* arg 0 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(stake_spill_fd)), /* pwrite64_ALLOW */ 1, /* pwrite64_KILL */ 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(stake_spill_fd)), /* pwrite64_ALLOW */ 3, /* or_4 */ 0 ),
+//  or_4:
+    /* arg 0 low 32 bits */
+    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(0)),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ((uint)(txncache_fd)), /* pwrite64_ALLOW */ 1, /* pwrite64_KILL */ 0 ),
 //  pwrite64_KILL:
     BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS ),
 //  pwrite64_ALLOW:
@@ -144,8 +152,8 @@ static void populate_sock_filter_policy_fd_execle_tile( ulong out_cnt, struct so
 //  check_futex:
     /* arg 1 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(1)),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, FD_SECCOMP_ARG_LO(FUTEX_WAIT_BITSET), /* and_3 */ 0, /* futex_KILL */ 2 ),
-//  and_3:
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, FD_SECCOMP_ARG_LO(FUTEX_WAIT_BITSET), /* and_5 */ 0, /* futex_KILL */ 2 ),
+//  and_5:
     /* arg 2 low 32 bits */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, FD_SECCOMP_ARG_LO_OFFSET(2)),
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, 0x00000000U, /* futex_ALLOW */ 1, /* futex_KILL */ 0 ),

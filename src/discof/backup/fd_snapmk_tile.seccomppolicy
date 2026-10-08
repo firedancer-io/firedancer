@@ -13,7 +13,7 @@
 #
 # accdb_ro_fd: The read-only accounts database file descriptor, used
 #         to read vote accounts for the snapshot manifest.
-uint logfile_fd, uint dir_fd, uint pool_min_fd, uint pool_max_fd, uint accdb_ro_fd
+uint logfile_fd, uint dir_fd, uint pool_min_fd, uint pool_max_fd, uint accdb_ro_fd, uint txncache_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -118,3 +118,9 @@ futex: (or (eq (arg 1) FUTEX_WAIT)
 # kernel resumes the wait with the remaining timeout via restart_syscall
 # when the tile next runs.
 restart_syscall
+
+# transaction cache: read spilled pages
+pread64: (eq (arg 0) txncache_fd)
+
+# transaction cache: write back cache pages
+pwrite64: (eq (arg 0) txncache_fd)
