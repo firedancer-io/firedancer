@@ -195,15 +195,19 @@ fd_vote_stakes_purge_fork( fd_vote_stakes_t * vote_stakes,
    must keep the fork alive (e.g. hold a bank reference) while a view is
    held.
 
-   The single writer passes is_writer=1 and reads the set from disk
-   itself if needed.  Any other thread passes is_writer=0: if the set is
+   The writer thread registered with fd_vote_stakes_set_writer reads the
+   set from disk itself if needed.  On any other thread, if the set is
    not cached, view_init asks the writer to load it and spins until
-   fd_vote_stakes_view_serve does.  view_try is the non-blocking reader
-   form: it returns 1 once the view is held, else 0.  Only one load
-   request is outstanding at a time.
+   fd_vote_stakes_view_serve does.  With no writer registered, every
+   caller is treated as the writer, which is only safe single-threaded.
+   view_try is the non-blocking reader form: it returns 1 once the view
+   is held, else 0.  Only one load request is outstanding at a time.
 
    fd_vote_stakes_view_serve must be called regularly by the writer.  It
    loads a requested set and pins it on behalf of the requester. */
+
+void
+fd_vote_stakes_set_writer( fd_vote_stakes_t * vote_stakes );
 
 int
 fd_vote_stakes_view_try( fd_vote_stakes_t * vote_stakes,
@@ -211,8 +215,7 @@ fd_vote_stakes_view_try( fd_vote_stakes_t * vote_stakes,
 
 void
 fd_vote_stakes_view_init( fd_vote_stakes_t * vote_stakes,
-                          ulong              fork_id,
-                          int                is_writer );
+                          ulong              fork_id );
 
 void
 fd_vote_stakes_view_fini( fd_vote_stakes_t * vote_stakes,

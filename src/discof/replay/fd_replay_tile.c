@@ -1445,7 +1445,6 @@ prepare_leader_bank( fd_replay_tile_t * ctx,
 
   /* pin the cost tracker for the duration of the leader slot */
   fd_cost_tracker_store_pin( fd_bank_cost_tracker( ctx->leader_bank ), ctx->leader_bank->cost_tracker_fork_id );
-  fd_vote_stakes_view_init( fd_bank_vote_stakes( ctx->leader_bank ), ctx->leader_bank->vote_stakes_fork_id, 1 );
 
   ctx->leader_bank->preparation_begin_nanos = now;
 
@@ -2378,7 +2377,6 @@ process_poh_message( fd_replay_tile_t *                 ctx,
 
   /* unpin when we know leader bank done executing txns */
   fd_cost_tracker_store_unpin( fd_bank_cost_tracker( ctx->leader_bank ), ctx->leader_bank->cost_tracker_fork_id );
-  fd_vote_stakes_view_fini( fd_bank_vote_stakes( ctx->leader_bank ), ctx->leader_bank->vote_stakes_fork_id );
 
   if( FD_UNLIKELY( !slot_ended->completed ) ) {
     /* The leader slot was aborted by a reset mid-production.  The
@@ -2461,6 +2459,7 @@ boot_genesis( fd_replay_tile_t *        ctx,
 
   fd_bank_t * bank = fd_banks_init_bank( ctx->banks );
   FD_TEST( bank );
+  fd_vote_stakes_set_writer( fd_bank_vote_stakes( bank ) );
   bank->f.slot = 0UL;
   FD_TEST( bank->idx==FD_REPLAY_BOOT_BANK_SEQ );
 
@@ -2624,6 +2623,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     if( FD_UNLIKELY( !bank ) ) {
       FD_LOG_CRIT(( "invariant violation: bank is NULL for bank index %lu", FD_REPLAY_BOOT_BANK_SEQ ));
     }
+    fd_vote_stakes_set_writer( fd_bank_vote_stakes( bank ) );
 
     ulong snapshot_slot = bank->f.slot;
 
@@ -2828,7 +2828,6 @@ dispatch_task( fd_replay_tile_t *  ctx,
       bank->refcnt++;
 
       fd_cost_tracker_store_pin( fd_bank_cost_tracker( bank ), bank->cost_tracker_fork_id );
-      fd_vote_stakes_view_init( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id, 1 );
 
       if( FD_UNLIKELY( !bank->first_transaction_scheduled_nanos ) ) bank->first_transaction_scheduled_nanos = fd_clock_tile_now( ctx->clock );
 
@@ -4078,7 +4077,6 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
       ulong txn_idx           = msg->txn_exec->txn_idx;
       ulong max_compute_units = fd_cost_tracker_store_peek( fd_bank_cost_tracker( bank ), bank->cost_tracker_fork_id )->block_cost_limit;
       fd_cost_tracker_store_unpin( fd_bank_cost_tracker( bank ), bank->cost_tracker_fork_id );
-      fd_vote_stakes_view_fini( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id );
 
       if( FD_UNLIKELY( !ctx->identity_vote_rooted ) ) {
         /* Query the txn signature against our recently generated vote
@@ -4798,7 +4796,7 @@ snapmk_start( fd_replay_tile_t *  ctx,
   /* Snapmk reads the bank's epoch credits in place, so they stay
      pinned in memory until snapmk_done. */
   FD_TEST( fd_epoch_credits_view_init( ctx->snapmk.epoch_credits_view, fd_bank_epoch_credits( bank ), bank->epoch_credits_fork_id ) );
-  fd_vote_stakes_view_init( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id, 1 );
+  fd_vote_stakes_view_init( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id );
 
   /* Send SNAP_START message to snapmk. */
   fd_pubkey_t const * leader = fd_epoch_leaders_get( fd_bank_epoch_leaders_query( bank, bank->f.epoch ), bank->f.slot );
@@ -5759,11 +5757,20 @@ populate_allowed_fds( fd_topo_t const *      topo,
   return out_cnt;
 }
 
+/* Serve vote stakes view loads every iteration: exec tiles block on
+   them mid-transaction, even while replay is backpressured. */
+
+static inline void
+before_credit( fd_replay_tile_t *  ctx,
+               fd_stem_context_t * stem        FD_PARAM_UNUSED,
+               int *               charge_busy FD_PARAM_UNUSED ) {
+  if( FD_LIKELY( ctx->banks->root_idx!=ULONG_MAX ) ) fd_vote_stakes_view_serve( fd_bank_vote_stakes( fd_banks_root( ctx->banks ) ) );
+}
+
 static inline void
 during_housekeeping( fd_replay_tile_t * ctx ) {
   wait_info_publish( ctx );
 
-  if( FD_LIKELY( ctx->banks->root_idx!=ULONG_MAX ) ) fd_vote_stakes_view_serve( fd_bank_vote_stakes( fd_banks_root( ctx->banks ) ) );
 
   if( FD_UNLIKELY( fd_clock_tile_recal_due( ctx->clock ) ) ) fd_clock_tile_recal( ctx->clock );
 
@@ -5799,6 +5806,7 @@ during_housekeeping( fd_replay_tile_t * ctx ) {
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_replay_tile_t)
 
 #define STEM_CALLBACK_METRICS_WRITE       metrics_write
+#define STEM_CALLBACK_BEFORE_CREDIT       before_credit
 #define STEM_CALLBACK_AFTER_CREDIT        after_credit
 #define STEM_CALLBACK_PREVENT_PARK        prevent_park
 #define STEM_CALLBACK_BEFORE_FRAG         before_frag

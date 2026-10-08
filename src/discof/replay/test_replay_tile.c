@@ -638,7 +638,6 @@ test_txn_completion_publish( fd_wksp_t * wksp ) {
   fd_cost_tracker_store_t * cost_tracker_store = fd_bank_cost_tracker( bank );
   bank->cost_tracker_fork_id = fd_cost_tracker_store_new_fork( cost_tracker_store, USHORT_MAX );
   fd_cost_tracker_store_pin( cost_tracker_store, bank->cost_tracker_fork_id )->block_cost_limit = 48000000UL;
-  fd_vote_stakes_view_init( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id, 1 );
 
   mock_sched_txn_idx = 37UL;
   fd_memset( &mock_sched_txn, 0x5a, sizeof(mock_sched_txn) );
@@ -1292,7 +1291,7 @@ test_wait_info_produced_incr_cnt( fd_wksp_t * wksp ) {
 
   root->refcnt++;
   FD_TEST( fd_epoch_credits_view_init( ctx->snapmk.epoch_credits_view, fd_bank_epoch_credits( root ), root->epoch_credits_fork_id ) );
-  fd_vote_stakes_view_init( fd_bank_vote_stakes( root ), root->vote_stakes_fork_id, 1 );
+  fd_vote_stakes_view_init( fd_bank_vote_stakes( root ), root->vote_stakes_fork_id );
   ctx->snapmk.active      = 1;
   ctx->snapmk.incremental = 1;
   snapmk_done( ctx, NULL, 1 );
@@ -1304,7 +1303,7 @@ test_wait_info_produced_incr_cnt( fd_wksp_t * wksp ) {
 
   root->refcnt++;
   FD_TEST( fd_epoch_credits_view_init( ctx->snapmk.epoch_credits_view, fd_bank_epoch_credits( root ), root->epoch_credits_fork_id ) );
-  fd_vote_stakes_view_init( fd_bank_vote_stakes( root ), root->vote_stakes_fork_id, 1 );
+  fd_vote_stakes_view_init( fd_bank_vote_stakes( root ), root->vote_stakes_fork_id );
   ctx->snapmk.active      = 1;
   ctx->snapmk.incremental = 0;
   snapmk_done( ctx, NULL, 1 );
@@ -1316,7 +1315,7 @@ test_wait_info_produced_incr_cnt( fd_wksp_t * wksp ) {
 
   root->refcnt++;
   FD_TEST( fd_epoch_credits_view_init( ctx->snapmk.epoch_credits_view, fd_bank_epoch_credits( root ), root->epoch_credits_fork_id ) );
-  fd_vote_stakes_view_init( fd_bank_vote_stakes( root ), root->vote_stakes_fork_id, 1 );
+  fd_vote_stakes_view_init( fd_bank_vote_stakes( root ), root->vote_stakes_fork_id );
   ctx->snapmk.active      = 1;
   ctx->snapmk.incremental = 1;
   snapmk_done( ctx, NULL, 0 );

@@ -132,6 +132,8 @@ struct fd_vote_stakes {
   int   disk_fd;
   ulong lru;
   ulong view_req;
+  ulong writer_gid; /* 0 if no writer is registered */
+  ulong writer_tid;
 
   /* (pubkey, stake) pairs for the t-2 epoch.  These are shared across
      forks/banks. */
@@ -524,6 +526,8 @@ fd_vote_stakes_new( void * mem,
   vote_stakes->disk_fd              = disk_fd;
   vote_stakes->lru                  = 0UL;
   vote_stakes->view_req             = 0UL;
+  vote_stakes->writer_gid           = 0UL;
+  vote_stakes->writer_tid           = 0UL;
   vote_stakes->min_stake_wmark      = 0UL;
   vote_stakes->vacc_heap_off        = (uint)((ulong)heap - (ulong)mem);
   vote_stakes->vacc_states_pool_off = (uint)((ulong)vacc_states_pool - (ulong)mem);
@@ -853,10 +857,17 @@ fd_vote_stakes_view_try( fd_vote_stakes_t * vote_stakes,
 }
 
 void
+fd_vote_stakes_set_writer( fd_vote_stakes_t * vote_stakes ) {
+  FD_VOLATILE( vote_stakes->writer_tid ) = fd_log_tid();
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( vote_stakes->writer_gid ) = fd_log_group_id();
+}
+
+void
 fd_vote_stakes_view_init( fd_vote_stakes_t * vote_stakes,
-                          ulong              fork_id,
-                          int                is_writer ) {
-  if( is_writer ) {
+                          ulong              fork_id ) {
+  ulong writer_gid = FD_VOLATILE_CONST( vote_stakes->writer_gid );
+  if( !writer_gid || ( writer_gid==fd_log_group_id() && FD_VOLATILE_CONST( vote_stakes->writer_tid )==fd_log_tid() ) ) {
     t_1_pin( vote_stakes, (ulong)fork_id_t_1_idx( fork_id ) );
     return;
   }
