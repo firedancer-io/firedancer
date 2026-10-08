@@ -59,6 +59,20 @@ fd_sysvar_epoch_rewards_read( fd_accdb_t *                accdb,
   return out;
 }
 
+/* Agave get_epoch_rewards_sysvar reads a missing or undecodable account
+   as EpochRewards::default()
+   https://github.com/anza-xyz/agave/blob/v4.0.0/runtime/src/bank/partitioned_epoch_rewards/sysvar.rs */
+
+static fd_sysvar_epoch_rewards_t *
+read_epoch_rewards_or_default( fd_bank_t const *           bank,
+                               fd_accdb_t *                accdb,
+                               fd_sysvar_epoch_rewards_t * out ) {
+  if( FD_UNLIKELY( !fd_sysvar_epoch_rewards_read( accdb, bank->accdb_fork_id, out ) ) ) {
+    memset( out, 0, sizeof(fd_sysvar_epoch_rewards_t) );
+  }
+  return out;
+}
+
 /* Since there are multiple sysvar epoch rewards updates within a single slot,
    we need to ensure that the cache stays updated after each change (versus with other
    sysvars which only get updated once per slot and then synced up after) */
@@ -69,7 +83,7 @@ fd_sysvar_epoch_rewards_distribute( fd_bank_t *        bank,
                                     ulong              distributed,
                                     ulong              debit_block_reward_lamports ) {
   fd_sysvar_epoch_rewards_t epoch_rewards[1];
-  FD_TEST( fd_sysvar_epoch_rewards_read( accdb, bank->accdb_fork_id, epoch_rewards ) );
+  read_epoch_rewards_or_default( bank, accdb, epoch_rewards );
   FD_TEST( epoch_rewards->active );
 
   ulong new_distributed = fd_ulong_sat_add( epoch_rewards->distributed_rewards, distributed );
@@ -95,7 +109,7 @@ fd_sysvar_epoch_rewards_set_inactive( fd_bank_t *        bank,
                                       fd_accdb_t *       accdb,
                                       fd_capture_ctx_t * capture_ctx ) {
   fd_sysvar_epoch_rewards_t epoch_rewards[1];
-  FD_TEST( fd_sysvar_epoch_rewards_read( accdb, bank->accdb_fork_id, epoch_rewards ) );
+  read_epoch_rewards_or_default( bank, accdb, epoch_rewards );
   FD_TEST( epoch_rewards->total_rewards>=epoch_rewards->distributed_rewards );
 
   epoch_rewards->active = 0;
