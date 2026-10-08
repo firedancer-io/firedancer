@@ -139,8 +139,8 @@ main( int     argc,
   FD_TEST( !strstr( json, "hunter2" ) );
   FD_TEST( !strstr( json, "example.com" ) );
 
-  /* without failover nothing about it is reported */
-  FD_TEST( !strstr( json, "\"failover\"" ) );
+  /* failover settings are reported even when disabled */
+  FD_TEST( strstr( json, "\"failover\":{\"enabled\":false,\"listen_address\":\"[redacted]\",\"listen_port\":8010}" ) );
 
   /* the listen address is redacted, the rest is reported */
   config->firedancer.failover.enabled = 1;

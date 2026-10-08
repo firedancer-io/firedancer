@@ -245,10 +245,14 @@ struct fd_tower_tile {
      failover_init). */
 
   int         adoption_enabled;      /* the adopt links are in the topology */
+  int         normal_startup;        /* client keeps ordinary history restore until its first adoption */
   int         shadow;                /* shadow mode, a standby on its boot key votes in its own tower but signs and sends no vote transactions */
   int         tower_adopted;         /* an adoption succeeded since the last switch, it authorizes the next one */
   int         no_vote_authority;     /* a failover switch installed a voting key without an adoption, so we do not vote */
   int         epoch_refresh_pending; /* an adoption advanced the root, refresh the epoch voter caches on the next completed slot */
+  int         root_publish_pending;  /* report the adopted root to Replay and Repair in the next SLOT_DONE */
+  ulong       adopted_root_slot;
+  fd_hash_t   adopted_root_block_id;
   fd_pubkey_t boot_identity;         /* identity we booted with, the junk key under failover */
   ulong       vote_acct_slot;        /* slot of the bank our_vote_acct was last read from */
 

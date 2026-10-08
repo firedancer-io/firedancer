@@ -12,7 +12,8 @@
    or knowingly skipped) before the constant is bumped.  String keys of
    the user's own file are separately forced through the classification
    lists below. */
-FD_STATIC_ASSERT( sizeof(fd_config_t)==26576112UL, update_fd_config_to_json_for_the_layout_change );
+/* tower.failover_standby is derived topology state, not a config field. */
+FD_STATIC_ASSERT( sizeof(fd_config_t)==26578160UL, update_fd_config_to_json_for_the_layout_change );
 
 #define REDACTED "[redacted]"
 
@@ -429,13 +430,11 @@ fd_config_to_json( fd_config_t const * config,
     jw_obj_close( &w );
   jw_obj_close( &w );
 
-  if( FD_UNLIKELY( f->failover.enabled ) ) {
-    jw_obj_open( &w, "failover" );
-      jw_bool ( &w, "enabled",        f->failover.enabled );
-      jw_path ( &w, "listen_address", f->failover.listen_address );
-      jw_ulong( &w, "listen_port",    f->failover.listen_port );
-    jw_obj_close( &w );
-  }
+  jw_obj_open( &w, "failover" );
+    jw_bool ( &w, "enabled",        f->failover.enabled );
+    jw_path ( &w, "listen_address", f->failover.listen_address );
+    jw_ulong( &w, "listen_port",    f->failover.listen_port );
+  jw_obj_close( &w );
 
   jw_obj_open( &w, "hugetlbfs" );
     jw_path ( &w, "gigantic_page_mount_path",    config->hugetlbfs.gigantic_page_mount_path );

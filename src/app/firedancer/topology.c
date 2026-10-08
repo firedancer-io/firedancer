@@ -292,9 +292,9 @@ fd_topo_initialize( config_t * config ) {
   int tower_file_enabled  = !alpenglow_enabled && config->tiles.tower.write_vote_history_file;
   int efficient_mode      = !strcmp( config->firedancer.layout.mode, "efficient" );
   int gossip_vote_enabled = leader_enabled || ( rpc_enabled && !alpenglow_enabled );
-  int failover_enabled    = config->firedancer.failover.enabled;
+  int failover_enabled    = !alpenglow_enabled && (config->firedancer.failover.enabled || config->paths.vote_account[ 0 ]);
 
-  if( FD_UNLIKELY( failover_enabled && alpenglow_enabled ) ) {
+  if( FD_UNLIKELY( config->firedancer.failover.enabled && alpenglow_enabled ) ) {
     FD_LOG_ERR(( "failover in this build supports Tower only, run without --alpenglow or set [failover.enabled] to false" ));
   }
 
@@ -864,14 +864,14 @@ fd_topo_initialize( config_t * config ) {
     if( !config->tiles.gui.enabled ) {
                        fd_topob_tile_out(   topo, "gossip",  0UL,                       "gossip_ciseen", 0UL                                                );
     }
-    /**/               fd_topob_tile_in (   topo, "failov",  0UL,          "metric_in", "gossip_ciseen", 0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* contact infos for the peer's address, an overrun only delays it */
+    /**/               fd_topob_tile_in (   topo, "failov",  0UL,          "metric_in", "gossip_ciseen", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED ); /* contact infos for the peer's address */
     /**/               fd_topob_tile_out(   topo, "admin",   0UL,                       "admin_failov",  0UL                                                );
     /**/               fd_topob_tile_in (   topo, "failov",  0UL,          "metric_in", "admin_failov",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     /**/               fd_topob_tile_out(   topo, "failov",  0UL,                       "failov_admin",  0UL                                                );
     /**/               fd_topob_tile_in (   topo, "admin",   0UL,          "metric_in", "failov_admin",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   }
   if( !alpenglow_enabled && failover_enabled ) {
-    /**/               fd_topob_tile_in (   topo, "failov",  0UL,          "metric_in", "tower_out",     0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+    /**/               fd_topob_tile_in (   topo, "failov",  0UL,          "metric_in", "tower_out",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     /**/               fd_topob_tile_out(   topo, "failov",  0UL,                       "adopt_tower",   0UL                                                );
     /**/               fd_topob_tile_in (   topo, "failov",  0UL,          "metric_in", "tower_adopt",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   }
@@ -1068,10 +1068,10 @@ fd_topo_initialize( config_t * config ) {
   }
 
   if( FD_UNLIKELY( failover_enabled ) ) {
-    /**/               fd_topob_tile_in (   topo, "sign",    0UL,          "metric_in", "failov_sign",   0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
-    /**/               fd_topob_tile_out(   topo, "failov",  0UL,                       "failov_sign",   0UL                                                  );
-    /**/               fd_topob_tile_in (   topo, "failov",  0UL,          "metric_in", "sign_failov",   0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
-    /**/               fd_topob_tile_out(   topo, "sign",    0UL,                       "sign_failov",   0UL                                                  );
+    /**/               fd_topob_tile_in (   topo, "sign",    0UL,          "metric_in", "failov_sign",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
+    /**/               fd_topob_tile_out(   topo, "failov",  0UL,                       "failov_sign",  0UL                                                  );
+    /**/               fd_topob_tile_in (   topo, "failov",  0UL,          "metric_in", "sign_failov",  0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
+    /**/               fd_topob_tile_out(   topo, "sign",    0UL,                       "sign_failov",  0UL                                                  );
   }
 
   if( FD_UNLIKELY( rpc_enabled ) ) {
@@ -1597,8 +1597,8 @@ wfs_decode_bank_hash( fd_config_t const * config,
 void
 fd_topo_configure_tile( fd_topo_tile_t * tile,
                         fd_config_t *    config ) {
-  /* Failover machines boot under the junk identity, only promotion
-     installs the staked key.  A demoted machine rebooting under the
+  /* Failover machines boot under the junk identity, only a promotion or
+     set-identity installs a voting key.  A demoted machine rebooting under the
      staked key would make the doppelganger rule shut down the promoted
      peer instead. */
   char const * identity_key_path = config->firedancer.failover.enabled
@@ -1679,10 +1679,10 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "failov" ) ) ) {
 
-    fd_cstr_ncpy( tile->failov.identity_key_path, identity_key_path,          sizeof(tile->failov.identity_key_path) );
-    fd_cstr_ncpy( tile->failov.staked_key_path,   config->paths.identity_key, sizeof(tile->failov.staked_key_path)   );
-    fd_cstr_ncpy( tile->failov.vote_account_path, config->paths.vote_account, sizeof(tile->failov.vote_account_path) );
-    if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->firedancer.failover.listen_address, &tile->failov.listen_addr ) ) )
+    fd_cstr_ncpy( tile->failov.identity_key_path, identity_key_path,                                                     sizeof(tile->failov.identity_key_path) );
+    fd_cstr_ncpy( tile->failov.staked_key_path,   config->firedancer.failover.enabled ? config->paths.identity_key : "", sizeof(tile->failov.staked_key_path)   );
+    fd_cstr_ncpy( tile->failov.vote_account_path, config->paths.vote_account,                                            sizeof(tile->failov.vote_account_path) );
+    if( FD_UNLIKELY( config->firedancer.failover.enabled && !fd_cstr_to_ip4_addr( config->firedancer.failover.listen_address, &tile->failov.listen_addr ) ) )
       FD_LOG_ERR(( "[failover.listen_address] `%s` must be an IPv4 address, host names are not accepted", config->firedancer.failover.listen_address ));
     tile->failov.port = config->firedancer.failover.listen_port;
     fd_cstr_ncpy( tile->failov.gossip_host, config->firedancer.gossip.host, sizeof(tile->failov.gossip_host) );
@@ -1923,8 +1923,9 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->votor.expected_shred_version              = config->consensus.expected_shred_version;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "tower" ) ) ) {
+    tile->tower.failover_standby           = config->firedancer.failover.enabled;
     tile->tower.authorized_voter_paths_cnt = config->firedancer.paths.authorized_voter_paths_cnt;
-    tile->tower.max_shreds_per_block = config->limits.max_shreds_per_block;
+    tile->tower.max_shreds_per_block       = config->limits.max_shreds_per_block;
     for( ulong i=0UL; i<tile->tower.authorized_voter_paths_cnt; i++ ) {
       fd_cstr_ncpy( tile->tower.authorized_voter_paths[ i ], config->firedancer.paths.authorized_voter_paths[ i ], sizeof(tile->tower.authorized_voter_paths[ i ]) );
     }
@@ -2071,8 +2072,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
   } else if( FD_UNLIKELY( !strcmp( tile->name, "sign" ) ) ) {
 
     fd_cstr_ncpy( tile->sign.identity_key_path, identity_key_path, sizeof(tile->sign.identity_key_path) );
-    tile->sign.failover_enabled = config->firedancer.failover.enabled;
-    fd_cstr_ncpy( tile->sign.failover_staked_key_path, config->paths.identity_key, sizeof(tile->sign.failover_staked_key_path) );
+    tile->sign.failover_enabled = fd_topo_find_tile( &config->topo, "failov", 0UL )!=ULONG_MAX;
+    fd_cstr_ncpy( tile->sign.failover_staked_key_path, config->firedancer.failover.enabled ? config->paths.identity_key : "", sizeof(tile->sign.failover_staked_key_path) );
 
     tile->sign.authorized_voter_paths_cnt = config->firedancer.paths.authorized_voter_paths_cnt;
     for( ulong i=0UL; i<tile->sign.authorized_voter_paths_cnt; i++ ) {

@@ -1998,9 +1998,10 @@ telemetry = true
         # loading.
         delay_startup = true
 
-# Firedancer validators support a special failover protocol between one
-# another, which guarantees fast, safe, at-most-once handover with no
-# equivocation or voting violations.
+# Firedancer validators support a coordinated failover protocol.  A
+# handoff transfers the final vote history after the active stops signing.
+# `failover promote --force` bypasses peer checks and can discard earlier
+# lockouts or allow both validators to vote.
 #
 # The protocol works by hosting a TCP listener on your validator.  Any
 # peer in possession of the currently active identity private key can
@@ -2014,9 +2015,14 @@ telemetry = true
 # history files are only for handing off an identity from a validator that
 # does not run failover, such as Agave.
 [failover]
-    # Whether to enable the failover protocol on this validator, which
-    # exposes the TCP listener and allows peers to securely demote it to
-    # the junk identity.
+    # Whether to accept incoming handoff requests.  When true, the
+    # validator boots as standby under its junk identity.
+    # When false, it boots normally under [paths.identity_key].  For a
+    # nonvoting requester, use an unstaked junk key as [paths.identity_key]
+    # and the active's vote account as [paths.vote_account].  Request an
+    # outgoing handoff using `failover promote <keypair>`.  The target
+    # keypair is prepared without installing it and must differ from the
+    # boot identity.
     enabled = false
 
     # The address to listen on.  If enabled, by default the listener is

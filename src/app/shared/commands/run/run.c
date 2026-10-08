@@ -1106,7 +1106,10 @@ failover_junk_write( char const * tmp ) {
   uchar keypair[ 64 ];
   for( long got=0L; got<32L; ) {
     long n = getrandom( keypair+got, (ulong)(32L-got), GRND_RANDOM );
-    if( FD_UNLIKELY( -1==n ) ) FD_LOG_ERR(( "could not create the failover junk identity, getrandom() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==n ) ) {
+      if( FD_LIKELY( errno==EINTR ) ) continue;
+      FD_LOG_ERR(( "could not create the failover junk identity, getrandom() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
     got += n;
   }
   fd_sha512_t sha[ 1 ];
@@ -1125,9 +1128,17 @@ failover_junk_write( char const * tmp ) {
 
   int fd = open( tmp, O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC, S_IRUSR|S_IWUSR );
   if( FD_UNLIKELY( -1==fd ) ) FD_LOG_ERR(( "could not create `%s` (%i-%s)", tmp, errno, fd_io_strerror( errno ) ));
-  long written = write( fd, json, len );
+  for( ulong written=0UL; written<len; ) {
+    long n = write( fd, json+written, len-written );
+    if( FD_UNLIKELY( n<=0L ) ) {
+      if( FD_LIKELY( n==-1L && errno==EINTR ) ) continue;
+      int err = n ? errno : EIO;
+      fd_memzero_explicit( json, sizeof(json) );
+      FD_LOG_ERR(( "could not write `%s` (%i-%s)", tmp, err, fd_io_strerror( err ) ));
+    }
+    written += (ulong)n;
+  }
   fd_memzero_explicit( json, sizeof(json) );
-  if( FD_UNLIKELY( written!=(long)len ) ) FD_LOG_ERR(( "could not write `%s` (%i-%s)", tmp, errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( fsync( fd ) ) )        FD_LOG_ERR(( "could not sync `%s` (%i-%s)", tmp, errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( close( fd ) ) )        FD_LOG_ERR(( "could not close `%s` (%i-%s)", tmp, errno, fd_io_strerror( errno ) ));
 }
