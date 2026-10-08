@@ -11,10 +11,10 @@
 #include "../../util/fd_hash32.h"
 
 FD_STATIC_ASSERT( FD_WRITE_LOCK_UNITS*FD_RUNTIME_MAX_TXN_ACC_WRITES_PER_SLOT +
-                  FD_PACK_COST_PER_SIGNATURE*((FD_RUNTIME_MAX_TXN_ACC_WRITES_PER_SLOT+63UL)/64UL)<=87500000UL,
+                  FD_PACK_COST_PER_SIGNATURE*((FD_RUNTIME_MAX_TXN_ACC_WRITES_PER_SLOT+63UL)/64UL)<=FD_SLOT_PARAMS_200MS_MAX_BLOCK_UNITS*100UL/60UL,
                   max_writable_accounts_per_slot_fits );
 FD_STATIC_ASSERT( FD_WRITE_LOCK_UNITS*(FD_RUNTIME_MAX_TXN_ACC_WRITES_PER_SLOT+1UL) +
-                  FD_PACK_COST_PER_SIGNATURE*((FD_RUNTIME_MAX_TXN_ACC_WRITES_PER_SLOT+64UL)/64UL)>87500000UL,
+                  FD_PACK_COST_PER_SIGNATURE*((FD_RUNTIME_MAX_TXN_ACC_WRITES_PER_SLOT+64UL)/64UL)>FD_SLOT_PARAMS_200MS_MAX_BLOCK_UNITS*100UL/60UL,
                   max_writable_accounts_per_slot_is_tight );
 
 struct account_cost {
@@ -388,7 +388,10 @@ add_transaction_execution_cost( fd_cost_tracker_t * _cost_tracker,
 
     account_cost_t * account_cost = account_cost_map_ele_query( map, writable_acc, NULL, pool );
     if( FD_UNLIKELY( !account_cost ) ) {
-      FD_TEST( cost_tracker->accounts_used<FD_RUNTIME_MAX_TXN_ACC_WRITES_PER_SLOT );
+      if( FD_UNLIKELY( cost_tracker->accounts_used>=FD_RUNTIME_MAX_TXN_ACC_WRITES_PER_SLOT ) ) {
+        FD_LOG_CRIT(( "block writes more than %lu distinct accounts (block_cost_limit %lu); only block cost limits up to the 200ms slot params are supported",
+                      FD_RUNTIME_MAX_TXN_ACC_WRITES_PER_SLOT, _cost_tracker->block_cost_limit ));
+      }
 
       account_cost = pool+cost_tracker->accounts_used;
       cost_tracker->accounts_used++;
