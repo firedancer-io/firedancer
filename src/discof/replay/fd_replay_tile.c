@@ -782,6 +782,7 @@ block_completed_event_fill_reception( fd_replay_tile_t *           ctx,
     fd_reception_stats_t const * s = &ctx->reception_stats[ bank_idx ];
     if( FD_UNLIKELY( s->bank_seq!=bank->bank_seq ) ) return;
     rm = &s->metrics.rotor;
+    ev->votor_repaired = !!rm->votor_repaired;
 
     if( FD_UNLIKELY( !rm->stats_valid ) ) return;
 
@@ -791,7 +792,6 @@ block_completed_event_fill_reception( fd_replay_tile_t *           ctx,
     ev->data_shred_count      = rm->blk_data_cnt;
     ev->parity_shred_count    = rm->blk_parity_cnt;
     ev->slot_complete_flag    = !!rm->blk_slot_complete;
-    ev->votor_repaired        = !!rm->votor_repaired;
 
     ev->last_completed_fec_set_index        = rm->blk_last_completed_fec_idx;
     ev->repair_request_window_count         = rm->blk_req_window_cnt;
@@ -4456,13 +4456,11 @@ process_rotor_fec( fd_replay_tile_t      * ctx,
   }
   block_id_ele->fec_cnt++;
 
-  if( FD_LIKELY( fec->metrics.stats_valid ) ) {
-    fd_reception_stats_t * stats = &ctx->reception_stats[ bank->idx ];
-    stats->bank_seq    = bank->bank_seq;
-    stats->slot        = fec->slot;
-    stats->fec_set_idx = fec->fec_set_idx;
-    stats->metrics.rotor = fec->metrics;
-  }
+  fd_reception_stats_t * stats = &ctx->reception_stats[ bank->idx ];
+  stats->bank_seq      = bank->bank_seq;
+  stats->slot          = fec->slot;
+  stats->fec_set_idx   = fec->fec_set_idx;
+  stats->metrics.rotor = fec->metrics; /* votor_repaired always, the counters only if stats_valid */
 
   if( FD_UNLIKELY( fec->slot_complete ) ) {
     FD_BASE58_ENCODE_32_BYTES( fec->block_id.uc, block_id_b58 );
