@@ -234,7 +234,6 @@ done_packing( fd_motor_tile_t *         ctx,
 
   dst->microblock_count = msg->microblocks_in_slot;
   dst->pack_block_cost  = msg->limits_usage->block_cost;
-  dst->pack_vote_cost   = msg->limits_usage->vote_cost;
   dst->pack_data_bytes  = msg->limits_usage->block_data_bytes;
   dst->bundle_txn_count = msg->bundle_txn_count;
   dst->pack_end_reason  = msg->end_slot_reason;

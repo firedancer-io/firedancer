@@ -413,7 +413,6 @@ struct fd_poh_leader_slot_ended {
 
   ulong microblock_count;
   ulong pack_block_cost;
-  ulong pack_vote_cost;
   ulong pack_data_bytes;
   ulong bundle_txn_count;
   int   pack_end_reason;
@@ -518,7 +517,6 @@ struct __attribute__((aligned(FD_POH_ALIGN))) fd_poh_private {
      message. */
   ulong pack_microblock_count;
   ulong pack_block_cost;
-  ulong pack_vote_cost;
   ulong pack_data_bytes;
   ulong pack_bundle_txn_count;
   int   pack_end_reason;

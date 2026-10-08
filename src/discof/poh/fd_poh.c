@@ -140,7 +140,6 @@ transition_to_follower( fd_poh_t *          poh,
 
     dst->microblock_count = poh->pack_microblock_count;
     dst->pack_block_cost  = poh->pack_block_cost;
-    dst->pack_vote_cost   = poh->pack_vote_cost;
     dst->pack_data_bytes  = poh->pack_data_bytes;
     dst->bundle_txn_count = poh->pack_bundle_txn_count;
     dst->pack_end_reason  = poh->pack_end_reason;
@@ -362,7 +361,6 @@ fd_poh_done_packing( fd_poh_t *                poh,
 
   poh->pack_microblock_count = microblocks_in_slot;
   poh->pack_block_cost       = done_packing->limits_usage->block_cost;
-  poh->pack_vote_cost        = done_packing->limits_usage->vote_cost;
   poh->pack_data_bytes       = done_packing->limits_usage->block_data_bytes;
   poh->pack_bundle_txn_count = done_packing->bundle_txn_count;
   poh->pack_end_reason       = done_packing->end_slot_reason;
