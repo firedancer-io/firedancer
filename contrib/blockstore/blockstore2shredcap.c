@@ -277,7 +277,7 @@ shred_parse( uint8_t const * buf,
     uint64_t slot       = shred->slot;
     if( (shred->data.flags & 0xc0U)==0x80U ) return NULL;
     if( parent_off > slot ) return NULL;
-    if( ((slot!=0UL) && (parent_off==0UL)) || ((slot>1UL) && (parent_off==slot)) ) return NULL;
+    if( (slot!=0UL) && (parent_off==0UL) ) return NULL;
     if( shred->idx < shred->fec_set_idx ) return NULL;
     if( shred->idx >= SHRED_BLK_MAX ) return NULL;
   } else {
