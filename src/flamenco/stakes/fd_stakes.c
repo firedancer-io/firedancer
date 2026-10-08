@@ -636,12 +636,6 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
   /* Iterate over the valid delegated vote accounts and insert them into
      the top votes set for the t-1 epoch. */
 
-  /* Rotate the SIMD-0232 collector override fork for the new epoch. */
-  fd_collector_overrides_t * overrides = fd_bank_collector_overrides( bank );
-  ushort co_child = fd_collector_overrides_new_child( overrides );
-  fd_collector_overrides_inherit( overrides, bank->collector_overrides_fork_id, co_child, fd_ulong_sat_sub( bank->f.epoch, 1UL ) );
-  bank->collector_overrides_fork_id = co_child;
-
   ulong top_votes_eligible = 0UL;
   for( fd_stake_accum_map_iter_t iter = fd_stake_accum_map_iter_init( stake_accum_map, stake_accum_pool );
        !fd_stake_accum_map_iter_done( iter, stake_accum_map, stake_accum_pool );
@@ -691,6 +685,12 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
       FD_TEST( !fd_vote_account_pending_delegator_rewards( acc.data, acc.data_len, &pending_delegator_rewards ) );
       fd_vote_stakes_set_block_revenue_t_1( vote_stakes, fork_id, &stake_accum->pubkey,
                                             block_revenue_commission_bps, pending_delegator_rewards );
+
+      /* SIMD-0232 collectors from the same account image. */
+      fd_pubkey_t inflation_collector;
+      fd_pubkey_t block_collector;
+      FD_TEST( !fd_vote_account_collectors( acc.data, acc.data_len, &stake_accum->pubkey, &node_account_t_1, &inflation_collector, &block_collector ) );
+      fd_vote_stakes_set_collectors_t_1( vote_stakes, fork_id, &stake_accum->pubkey, &inflation_collector, &block_collector );
     }
     top_votes_eligible++;
     fd_accdb_unread_one( accdb, &acc );
@@ -698,36 +698,6 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
 
   /* The t-1 set is fixed from here on: rank it for Alpenglow. */
   fd_vote_stakes_finalize( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1 );
-
-  /* Capture SIMD-0232 collector overrides for the admitted t-1 set.
-     Only admitted vote accounts can be scheduled as leaders or earn
-     inflation rewards, so collectors of accounts outside the set are
-     never consulted.  Capturing after selection bounds the override
-     store by the admitted set size. */
-  {
-    uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) co_iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
-    for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, co_iter_mem );
-         !fd_vote_stakes_iter_done( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter );
-         fd_vote_stakes_iter_next( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter ) ) {
-      fd_pubkey_t vote_pubkey;
-      fd_pubkey_t node_pubkey;
-      fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter,
-                               &vote_pubkey, &node_pubkey, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL );
-
-      fd_acc_t acc = fd_accdb_read_one( accdb, bank->accdb_fork_id, vote_pubkey.uc );
-      fd_pubkey_t inflation_collector;
-      fd_pubkey_t block_collector;
-      FD_TEST( !fd_vote_account_collectors( acc.data, acc.data_len, &vote_pubkey, &node_pubkey, &inflation_collector, &block_collector ) );
-      int has_inflation = !fd_pubkey_eq( &inflation_collector, &vote_pubkey );
-      int has_block     = !fd_pubkey_eq( &block_collector, &node_pubkey );
-      if( FD_UNLIKELY( has_inflation | has_block ) ) {
-        fd_collector_overrides_upsert( overrides, co_child, bank->f.epoch, &vote_pubkey,
-                                       has_inflation, &inflation_collector,
-                                       has_block, &block_collector );
-      }
-      fd_accdb_unread_one( accdb, &acc );
-    }
-  }
 
   /* Seed status for the t-2 top votes set for clock calculation. */
   fd_vote_stakes_refresh( vote_stakes, fork_id, accdb, bank->accdb_fork_id );

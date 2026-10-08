@@ -353,6 +353,52 @@ fd_vote_stakes_iter_block_revenue( fd_vote_stakes_t const * vote_stakes,
                                    ushort *                 block_revenue_commission_bps_out_opt,
                                    ulong *                  pending_delegator_rewards_out_opt );
 
+/* fd_vote_stakes_set_collectors_t_{1,2} set the SIMD-0232 commission
+   collectors of a vote account in the t-1 / t-2 set.  A NULL collector
+   is left unchanged.  Collectors default to the vote account
+   (inflation) and its node account (block revenue).  No-op if the
+   account is not in the set. */
+void
+fd_vote_stakes_set_collectors_t_1( fd_vote_stakes_t *  vote_stakes,
+                                   ulong               fork_id,
+                                   fd_pubkey_t const * pubkey,
+                                   fd_pubkey_t const * inflation_collector_opt,
+                                   fd_pubkey_t const * block_collector_opt );
+
+void
+fd_vote_stakes_set_collectors_t_2( fd_vote_stakes_t *  vote_stakes,
+                                   ulong               fork_id,
+                                   fd_pubkey_t const * pubkey,
+                                   fd_pubkey_t const * inflation_collector_opt,
+                                   fd_pubkey_t const * block_collector_opt );
+
+/* fd_vote_stakes_query_collectors_t_{1,2} read the SIMD-0232
+   commission collectors of a vote account in the t-1 / t-2 set.
+   Returns 1 if the account is in the set, 0 otherwise. */
+int
+fd_vote_stakes_query_collectors_t_1( fd_vote_stakes_t const * vote_stakes,
+                                     ulong                    fork_id,
+                                     fd_pubkey_t const *      pubkey,
+                                     fd_pubkey_t *            inflation_collector_out_opt,
+                                     fd_pubkey_t *            block_collector_out_opt );
+
+int
+fd_vote_stakes_query_collectors_t_2( fd_vote_stakes_t const * vote_stakes,
+                                     ulong                    fork_id,
+                                     fd_pubkey_t const *      pubkey,
+                                     fd_pubkey_t *            inflation_collector_out_opt,
+                                     fd_pubkey_t *            block_collector_out_opt );
+
+/* fd_vote_stakes_iter_collectors reads the SIMD-0232 commission
+   collectors of the element the iterator is positioned on. */
+void
+fd_vote_stakes_iter_collectors( fd_vote_stakes_t const * vote_stakes,
+                                ulong                    fork_id,
+                                int                      iter_kind,
+                                fd_vote_stakes_iter_t *  iter,
+                                fd_pubkey_t *            inflation_collector_out_opt,
+                                fd_pubkey_t *            block_collector_out_opt );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_stakes_fd_vote_stakes_h */

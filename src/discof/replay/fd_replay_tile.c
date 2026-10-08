@@ -906,7 +906,6 @@ block_completed_event_fill_bank( fd_replay_tile_t *           ctx,
     ev->progcache_fork_id           = bank->progcache_fork_id;
     ev->accdb_fork_id               = bank->accdb_fork_id.val;
     ev->vote_stakes_fork_id         = bank->vote_stakes_fork_id;
-    ev->collector_overrides_fork_id = bank->collector_overrides_fork_id;
     ev->stake_rewards_fork_id       = bank->stake_rewards_fork_id;
     ev->epoch_credits_fork_id       = bank->epoch_credits_fork_id;
     ev->stake_delegations_fork_id   = bank->stake_delegations_fork_id;

@@ -38,7 +38,7 @@
 #include "../../flamenco/capture/fd_solcap_writer.h"
 #include "../../flamenco/progcache/fd_progcache.h"
 #include "../../flamenco/runtime/fd_cost_tracker.h"
-#include "../../flamenco/stakes/fd_collector_overrides.h"
+#include "../../flamenco/runtime/fd_bank.h"
 
 #include <sys/random.h>
 #include <sys/types.h>
@@ -1110,8 +1110,8 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ], wait_info_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, wait_info_obj->id, "wait_info" ) );
 
-  if( FD_UNLIKELY( config->firedancer.runtime.max_fork_width>FD_COLLECTOR_OVERRIDES_MAX_FORK_WIDTH ) ) {
-    FD_LOG_ERR(( "max_fork_width must not exceed %lu", FD_COLLECTOR_OVERRIDES_MAX_FORK_WIDTH ));
+  if( FD_UNLIKELY( config->firedancer.runtime.max_fork_width>FD_BANKS_MAX_BANKS ) ) {
+    FD_LOG_ERR(( "max_fork_width must not exceed %lu", FD_BANKS_MAX_BANKS ));
   }
 
   if( leader_enabled ) {

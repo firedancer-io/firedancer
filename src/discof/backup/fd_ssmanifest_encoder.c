@@ -197,9 +197,6 @@ ENCODE_FN {
     ulong ag_marker_idx           = ULONG_MAX;
     uchar bls_key[ FD_BLS_PUB_COMPRESSED_SZ ] = {0};
 
-    fd_collector_overrides_t * overrides = fd_bank_collector_overrides( bank );
-    ushort co_root = fd_collector_overrides_get_root_idx( overrides );
-    ulong  co_epoch = ULONG_MAX; /* no collector lookup */
     fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
     ulong              fork_id     = bank->vote_stakes_fork_id;
 
@@ -224,19 +221,14 @@ ENCODE_FN {
         ag_marker_idx            = fd_epoch_credits_ag_marker_idx( ec, ag_migration_epoch );
         ec_cnt++;
       }
-      co_epoch = bank->f.epoch;
-    } else if( iter_kind==FD_VOTE_STAKES_ITER_T_2 ) {
-      co_epoch = fd_ulong_sat_sub( bank->f.epoch, 1UL );
     }
-    /* t-3..t-5 collectors are never consulted on reload; encoded as zero */
 
-    /* SIMD-0232 collectors: defaults unless overridden. */
+    /* SIMD-0232 collectors.  t-3..t-5 collectors are never consulted on
+       reload; encoded as zero. */
     fd_pubkey_t inflation_collector = {0};
     fd_pubkey_t block_collector     = {0};
-    if( FD_LIKELY( co_epoch!=ULONG_MAX ) ) {
-      inflation_collector = pubkey;
-      block_collector     = node_account;
-      fd_collector_overrides_query( overrides, co_root, co_epoch, &pubkey, &inflation_collector, &block_collector );
+    if( FD_LIKELY( iter_kind==FD_VOTE_STAKES_ITER_T_1 || iter_kind==FD_VOTE_STAKES_ITER_T_2 ) ) {
+      fd_vote_stakes_iter_collectors( vote_stakes, fork_id, iter_kind, iter, &inflation_collector, &block_collector );
     }
 
     /* A zeroed key means no BLS key is registered (serialized as None) */

@@ -593,20 +593,16 @@ fd_rewards_validate_commission_collector( fd_bank_t const *   bank,
 }
 
 /* Resolves the SIMD-0232 inflation commission collector from the vote
-   account state at the start of the distribution epoch (tag
-   bank->f.epoch); defaults to the vote account.
+   account state at the start of the distribution epoch (the t-1 vote
+   stakes set); defaults to the vote account.
    https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L667-L672 */
 static void
 fd_rewards_inflation_collector( fd_bank_t *         bank,
                                 fd_pubkey_t const * vote_pubkey,
                                 fd_pubkey_t *       collector_out ) {
   *collector_out = *vote_pubkey;
-  fd_collector_overrides_query( fd_bank_collector_overrides( bank ),
-                                bank->collector_overrides_fork_id,
-                                bank->f.epoch,
-                                vote_pubkey,
-                                collector_out,
-                                NULL );
+  fd_vote_stakes_query_collectors_t_1( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id,
+                                       vote_pubkey, collector_out, NULL );
 }
 
 /* rewarded_epoch_is_alpenglow checks if the rewarded

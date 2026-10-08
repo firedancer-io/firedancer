@@ -19,6 +19,8 @@ struct vacc {
   ushort      commission;                   /* inflation rewards, basis points */
   ushort      block_revenue_commission_bps; /* SIMD-0123 */
   ulong       pending_delegator_rewards;    /* SIMD-0123, as of the set's epoch boundary */
+  fd_pubkey_t inflation_collector;          /* SIMD-0232, defaults to pubkey */
+  fd_pubkey_t block_collector;              /* SIMD-0232, defaults to node_account */
   ushort      alpenglow_rank;
   uchar       bls_key[ FD_BLS_PUBKEY_COMPRESSED_SZ ]; /* zero if unregistered */
   uchar       bls_key_uncompressed[ FD_BLS_PUBKEY_UNCOMPRESSED_SZ ]; /* decompressed by finalize, valid iff alpenglow_rank!=NULL */
@@ -440,6 +442,8 @@ fd_vote_stakes_snap_insert_t_1( fd_vote_stakes_t *  vote_stakes,
   vacc->commission     = commission;
   vacc->block_revenue_commission_bps = FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS;
   vacc->pending_delegator_rewards    = 0UL;
+  vacc->inflation_collector          = *pubkey;
+  vacc->block_collector              = *node_account;
   vacc->alpenglow_rank = FD_VOTE_STAKES_ALPENGLOW_RANK_NULL;
   memcpy( vacc->bls_key, bls_key, FD_BLS_PUBKEY_COMPRESSED_SZ );
   FD_TEST( vacc_map_ele_insert( map, vacc, pool ) );
@@ -466,6 +470,8 @@ fd_vote_stakes_snap_insert_t_2( fd_vote_stakes_t *  vote_stakes,
   vacc->commission     = commission;
   vacc->block_revenue_commission_bps = FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS;
   vacc->pending_delegator_rewards    = 0UL;
+  vacc->inflation_collector          = *pubkey;
+  vacc->block_collector              = *node_account;
   vacc->alpenglow_rank = FD_VOTE_STAKES_ALPENGLOW_RANK_NULL;
   memcpy( vacc->bls_key, bls_key, FD_BLS_PUBKEY_COMPRESSED_SZ );
   FD_TEST( vacc_map_ele_insert( map, vacc, pool ) );
@@ -496,6 +502,8 @@ fd_vote_stakes_snap_insert_t_n( fd_vote_stakes_t *  vote_stakes,
   vacc->commission     = commission;
   vacc->block_revenue_commission_bps = FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS;
   vacc->pending_delegator_rewards    = 0UL;
+  vacc->inflation_collector          = *pubkey;
+  vacc->block_collector              = *node_account;
   vacc->alpenglow_rank = FD_VOTE_STAKES_ALPENGLOW_RANK_NULL;
   memcpy( vacc->bls_key, bls_key, FD_BLS_PUBKEY_COMPRESSED_SZ );
   FD_TEST( vacc_map_ele_insert( map, vacc, pool ) );
@@ -538,6 +546,8 @@ fd_vote_stakes_insert( fd_vote_stakes_t *  vote_stakes,
   vacc->commission     = commission;
   vacc->block_revenue_commission_bps = FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS;
   vacc->pending_delegator_rewards    = 0UL;
+  vacc->inflation_collector          = *pubkey;
+  vacc->block_collector              = *node_account;
   vacc->alpenglow_rank = FD_VOTE_STAKES_ALPENGLOW_RANK_NULL;
   memcpy( vacc->bls_key, bls_key, FD_BLS_PUBKEY_COMPRESSED_SZ );
   vacc_heap_ele_insert( heap, vacc, pool );
@@ -671,6 +681,8 @@ fd_vote_stakes_new_fork( fd_vote_stakes_t * vote_stakes,
         dst->commission     = src->commission;
         dst->block_revenue_commission_bps = src->block_revenue_commission_bps;
         dst->pending_delegator_rewards    = src->pending_delegator_rewards;
+        dst->inflation_collector          = src->inflation_collector;
+        dst->block_collector              = src->block_collector;
         dst->alpenglow_rank = src->alpenglow_rank;
         memcpy( dst->bls_key, src->bls_key, FD_BLS_PUBKEY_COMPRESSED_SZ );
         memcpy( dst->bls_key_uncompressed, src->bls_key_uncompressed, FD_BLS_PUBKEY_UNCOMPRESSED_SZ );
@@ -894,6 +906,56 @@ fd_vote_stakes_set_block_revenue_t_n( fd_vote_stakes_t *  vote_stakes,
   vacc->pending_delegator_rewards    = pending_delegator_rewards;
 }
 
+void
+fd_vote_stakes_set_collectors_t_1( fd_vote_stakes_t *  vote_stakes,
+                                   ulong               fork_id,
+                                   fd_pubkey_t const * pubkey,
+                                   fd_pubkey_t const * inflation_collector_opt,
+                                   fd_pubkey_t const * block_collector_opt ) {
+  vacc_t * vacc = t_1_vacc_query( vote_stakes, fork_id, pubkey );
+  if( FD_UNLIKELY( !vacc ) ) return;
+  if( inflation_collector_opt ) vacc->inflation_collector = *inflation_collector_opt;
+  if( block_collector_opt     ) vacc->block_collector     = *block_collector_opt;
+}
+
+void
+fd_vote_stakes_set_collectors_t_2( fd_vote_stakes_t *  vote_stakes,
+                                   ulong               fork_id,
+                                   fd_pubkey_t const * pubkey,
+                                   fd_pubkey_t const * inflation_collector_opt,
+                                   fd_pubkey_t const * block_collector_opt ) {
+  vacc_t * vacc = t_2_vacc_query( vote_stakes, fork_id, pubkey );
+  if( FD_UNLIKELY( !vacc ) ) return;
+  if( inflation_collector_opt ) vacc->inflation_collector = *inflation_collector_opt;
+  if( block_collector_opt     ) vacc->block_collector     = *block_collector_opt;
+}
+
+int
+fd_vote_stakes_query_collectors_t_1( fd_vote_stakes_t const * vote_stakes,
+                                     ulong                    fork_id,
+                                     fd_pubkey_t const *      pubkey,
+                                     fd_pubkey_t *            inflation_collector_out_opt,
+                                     fd_pubkey_t *            block_collector_out_opt ) {
+  vacc_t const * vacc = t_1_vacc_query( vote_stakes, fork_id, pubkey );
+  if( FD_UNLIKELY( !vacc ) ) return 0;
+  if( inflation_collector_out_opt ) *inflation_collector_out_opt = vacc->inflation_collector;
+  if( block_collector_out_opt     ) *block_collector_out_opt     = vacc->block_collector;
+  return 1;
+}
+
+int
+fd_vote_stakes_query_collectors_t_2( fd_vote_stakes_t const * vote_stakes,
+                                     ulong                    fork_id,
+                                     fd_pubkey_t const *      pubkey,
+                                     fd_pubkey_t *            inflation_collector_out_opt,
+                                     fd_pubkey_t *            block_collector_out_opt ) {
+  vacc_t const * vacc = t_2_vacc_query( vote_stakes, fork_id, pubkey );
+  if( FD_UNLIKELY( !vacc ) ) return 0;
+  if( inflation_collector_out_opt ) *inflation_collector_out_opt = vacc->inflation_collector;
+  if( block_collector_out_opt     ) *block_collector_out_opt     = vacc->block_collector;
+  return 1;
+}
+
 int
 fd_vote_stakes_query_block_revenue_t_1( fd_vote_stakes_t const * vote_stakes,
                                         ulong                    fork_id,
@@ -1051,6 +1113,30 @@ fd_vote_stakes_iter_block_revenue( fd_vote_stakes_t const * vote_stakes,
   vacc_t const * vacc = vacc_map_iter_ele_const( *(vacc_map_iter_t *)iter, map, pool );
   if( block_revenue_commission_bps_out_opt ) *block_revenue_commission_bps_out_opt = vacc->block_revenue_commission_bps;
   if( pending_delegator_rewards_out_opt    ) *pending_delegator_rewards_out_opt    = vacc->pending_delegator_rewards;
+}
+
+void
+fd_vote_stakes_iter_collectors( fd_vote_stakes_t const * vote_stakes,
+                                ulong                    fork_id,
+                                int                      iter_kind,
+                                fd_vote_stakes_iter_t *  iter,
+                                fd_pubkey_t *            inflation_collector_out_opt,
+                                fd_pubkey_t *            block_collector_out_opt ) {
+  vacc_t *     pool;
+  vacc_map_t * map;
+  if( FD_LIKELY( iter_kind==FD_VOTE_STAKES_ITER_T_1 ) ) {
+    ulong width_idx = (ulong)fork_id_width_id( fork_id );
+    pool = t_1_vacc_pool( vote_stakes, width_idx );
+    map  = t_1_vacc_map ( vote_stakes, width_idx );
+  } else {
+    FD_TEST( iter_kind>=FD_VOTE_STAKES_ITER_T_2 && iter_kind<=FD_VOTE_STAKES_ITER_T_5 );
+    ulong epoch_idx = ((ulong)fork_id_epoch( fork_id )-(ulong)(iter_kind-FD_VOTE_STAKES_ITER_T_2)) % FD_VOTE_STAKES_EPOCH_CACHE_CNT;
+    pool = t_2_vacc_pool( vote_stakes, epoch_idx );
+    map  = t_2_vacc_map ( vote_stakes, epoch_idx );
+  }
+  vacc_t const * vacc = vacc_map_iter_ele_const( *(vacc_map_iter_t *)iter, map, pool );
+  if( inflation_collector_out_opt ) *inflation_collector_out_opt = vacc->inflation_collector;
+  if( block_collector_out_opt     ) *block_collector_out_opt     = vacc->block_collector;
 }
 
 void
