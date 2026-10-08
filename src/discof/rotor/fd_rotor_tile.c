@@ -159,6 +159,7 @@ struct fd_rotor_tile {
 
   ulong     cert_slot0;      /* staked: first cert slot, 0 if none yet */
   ulong     turbine_slot0;   /* unstaked: first turbine slot, 0 if none yet */
+  ulong     highest_fec_complete_slot; /* highest slot a FEC set completed for off the network, our leader sets excluded: the cluster tip, 0 if none yet */
 
   /* Snapshot */
 
@@ -481,6 +482,8 @@ handle_shred( fd_rotor_tile_t * ctx,
   case SHRED_SIG_FEC_COMPLETE_AGAIN: {
     fd_fec_complete_t const * complete = (fd_fec_complete_t const *)fd_type_pun_const( chunk );
     fd_shred_t const *        shred    = &complete->last_shred_hdr;
+
+    ctx->highest_fec_complete_slot = fd_ulong_max( ctx->highest_fec_complete_slot, shred->slot );
     if( FD_UNLIKELY( shred->idx>=FD_SHRED_BLK_MAX                                                   ) ) return;
     if( FD_UNLIKELY( !shred->data.parent_off || shred->data.parent_off>shred->slot-ctx->rotor->root ) ) return; /* parent is the slot itself, or below the root */
 
@@ -963,6 +966,9 @@ after_credit( fd_rotor_tile_t *   ctx,
     msg->is_leader       = fec->is_leader;
     msg->known_id        = fd_rotor_slot_meta( ctx->rotor, blk->slot )->eager!=out.blk_idx;
     msg->block_id        = blk->dmr;
+    msg->metrics.highest_fec_complete_slot = ctx->highest_fec_complete_slot;
+    msg->metrics.fec_completed_ts_nanos    = fec->cmpl_ts;       /* shred tile rx of the shred that completed it, 0 for our own */
+    msg->metrics.votor_repaired            = (uchar)msg->known_id;
     fd_stem_publish( stem, ctx->replay_out_idx, ROTOR_SIG_FEC_REPLAY, ctx->replay_out_chunk, sizeof(fd_rotor_replay_fec_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
     ctx->replay_out_chunk = fd_dcache_compact_next( ctx->replay_out_chunk, sizeof(fd_rotor_replay_fec_t), ctx->replay_out_chunk0, ctx->replay_out_wmark );
     ctx->metrics->fec_delivered++;
