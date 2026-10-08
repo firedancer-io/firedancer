@@ -361,10 +361,17 @@ handle_epoch( fd_gossip_tile_ctx_t *      ctx,
   fd_stake_weight_t const * weights = fd_epoch_info_msg_id_weights( msg );
   fd_gossip_stakes_update( ctx->gossip, weights, msg->staked_id_cnt );
 
-  if( FD_LIKELY( ctx->wfs_state==FD_GOSSIP_WFS_STATE_DONE ) ) return;
+  /* Wait for supermajority uses the next epoch's stakes, the second
+     of the two epoch messages replay sends at boot.  Replay does not
+     execute slots until WFS_DONE, so no later epoch arrives before
+     the list is used. */
+  if( FD_LIKELY( ctx->wfs_state!=FD_GOSSIP_WFS_STATE_INIT ) ) return;
+  if( FD_UNLIKELY( ctx->wfs_boot_epoch==ULONG_MAX ) ) {
+    ctx->wfs_boot_epoch = msg->epoch;
+    return;
+  }
+  if( FD_UNLIKELY( msg->epoch<=ctx->wfs_boot_epoch ) ) return;
 
-  /* Wait for supermajority uses the next epoch's stakes, which is
-     the last epoch message replay sends at boot. */
   ctx->wfs_stake.online = 0UL;
   ctx->wfs_stake.total  = 0UL;
   ctx->wfs_peers.online = 0UL;
@@ -383,6 +390,9 @@ handle_epoch( fd_gossip_tile_ctx_t *      ctx,
   ctx->wfs_state       = FD_GOSSIP_WFS_STATE_WAIT;
   FD_MGAUGE_SET( GOSSIP, WAIT_FOR_SUPERMAJORITY_STAKED_PEER_TOTAL, ctx->wfs_peers.total );
   FD_MGAUGE_SET( GOSSIP, WAIT_FOR_SUPERMAJORITY_STAKE_TOTAL,       ctx->wfs_stake.total );
+
+  FD_LOG_NOTICE(( "wait for supermajority: waiting on epoch %lu, %lu staked peers, %lu total stake",
+                  msg->epoch, ctx->wfs_peers.total, ctx->wfs_stake.total ));
 }
 
 static void
@@ -592,6 +602,7 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( fd_rng_join( fd_rng_new( ctx->rng, ctx->rng_seed, ctx->rng_idx ) ) );
 
   ctx->wfs_state = fd_int_if( memcmp( tile->gossip.wait_for_supermajority_with_bank_hash.uc, ((fd_pubkey_t){ 0 }).uc, sizeof(fd_pubkey_t) ), FD_GOSSIP_WFS_STATE_INIT, FD_GOSSIP_WFS_STATE_DONE );
+  ctx->wfs_boot_epoch = ULONG_MAX;
 
   FD_TEST( tile->in_cnt<=sizeof(ctx->in)/sizeof(ctx->in[0]) );
   ulong sign_in_tile_idx = ULONG_MAX;

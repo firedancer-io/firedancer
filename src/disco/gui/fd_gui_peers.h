@@ -426,6 +426,9 @@ struct fd_gui_peers_ctx {
   ulong             wfs_peers_cnt;
   int               wfs_peers_valid;
   int               wfs_stakes_sent;
+
+  /* Epoch of the first replay_epoch message seen at boot. */
+  ulong             wfs_boot_epoch;
   wfs_fresh_dlist_t wfs_fresh_dlist[ 1 ];
 };
 

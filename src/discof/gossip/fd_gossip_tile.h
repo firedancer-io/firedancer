@@ -74,8 +74,8 @@ struct fd_gossip_tile_ctx {
      gossip. "joining gossip" is based on contact info CRDS values
      with a wallclock timestamp in the last 15 seconds.
 
-     We keep a copy of the identity stake weights from the latest
-     replay_epoch message in an array here for quick look up. */
+     We keep a copy of the next epoch's identity stake weights from
+     the replay_epoch message in an array here for quick look up. */
   fd_stake_weight_t wfs_stakes[ MAX_STAKE_WEIGHTS ];
   ulong             wfs_stakes_cnt;
 
@@ -83,6 +83,9 @@ struct fd_gossip_tile_ctx {
      being active on gossip, so we don't double count their stake. */
   uchar wfs_active[ MAX_STAKE_WEIGHTS ];
   int   wfs_state;
+
+  /* Epoch of the first replay_epoch message seen at boot. */
+  ulong wfs_boot_epoch;
 
   struct {
     ulong online;

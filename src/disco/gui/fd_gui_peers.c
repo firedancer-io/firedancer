@@ -204,6 +204,7 @@ fd_gui_peers_new( void *             shmem,
     ctx->wfs_peers_cnt = 0UL;
     ctx->wfs_peers_valid = 0;
     ctx->wfs_stakes_sent = 0;
+    ctx->wfs_boot_epoch = ULONG_MAX;
     wfs_fresh_dlist_join( wfs_fresh_dlist_new( ctx->wfs_fresh_dlist ) );
 
     return shmem;
@@ -1025,8 +1026,11 @@ fd_gui_peers_start_wfs( fd_gui_peers_ctx_t *        peers,
   /* Replay sends two epoch messages at boot, the current epoch's
      stakes and then the next epoch's.  Wait for supermajority starts
      from the second one, the same list the gossip tile uses. */
-  ulong epoch_idx = epoch_info->epoch % 2UL;
-  if( FD_UNLIKELY( peers->epochs[ (epoch_idx+1UL)%2UL ].epoch==ULONG_MAX ) ) return;
+  if( FD_UNLIKELY( peers->wfs_boot_epoch==ULONG_MAX ) ) {
+    peers->wfs_boot_epoch = epoch_info->epoch;
+    return;
+  }
+  if( FD_UNLIKELY( epoch_info->epoch<=peers->wfs_boot_epoch ) ) return;
 
   fd_stake_weight_t const * id_weights = fd_epoch_info_msg_id_weights( epoch_info );
   ulong id_cnt = epoch_info->staked_id_cnt;
