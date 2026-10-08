@@ -1723,20 +1723,10 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *         banks,
     for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter_mem );
          !fd_vote_stakes_iter_done( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter );
          fd_vote_stakes_iter_next( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter ) ) {
-      fd_pubkey_t pubkey;
-      fd_pubkey_t node_account;
-      ulong       stake;
-      ushort      commission;
-      uchar       bls_key[ FD_BLS_PUBKEY_COMPRESSED_SZ ];
-
-      fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter, &pubkey, &node_account, &stake,
-                               NULL, NULL, &commission, NULL, NULL, bls_key, NULL );
-      ushort block_revenue_commission_bps;
-      ulong  pending_delegator_rewards;
-      fd_vote_stakes_iter_block_revenue( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter,
-                                         &block_revenue_commission_bps, &pending_delegator_rewards );
-      fd_vote_stakes_snap_insert_t_2( vote_stakes, fork_id, &pubkey, &node_account, stake, commission, bls_key );
-      fd_vote_stakes_set_block_revenue_t_2( vote_stakes, fork_id, &pubkey, block_revenue_commission_bps, pending_delegator_rewards );
+      fd_vote_stakes_ele_t ele[1];
+      fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter, ele );
+      fd_vote_stakes_snap_insert_t_2( vote_stakes, fork_id, &ele->pubkey, &ele->node_account, ele->stake, ele->commission, ele->bls_key );
+      fd_vote_stakes_set_block_revenue_t_2( vote_stakes, fork_id, &ele->pubkey, ele->block_revenue_commission_bps, ele->pending_delegator_rewards );
     }
     fd_vote_stakes_finalize( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2 );
     fd_vote_stakes_refresh( vote_stakes, fork_id, accdb, bank->accdb_fork_id );

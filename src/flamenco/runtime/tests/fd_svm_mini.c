@@ -83,6 +83,13 @@ fd_svm_test_boot( int *    pargc,
     FD_TEST( !close( cost_tracker_fd ) );
   }
 
+  int vote_stakes_fd = memfd_create( "svm_mini_vote_stakes_spill", 0 );
+  FD_TEST( vote_stakes_fd>=0 );
+  if( vote_stakes_fd!=FD_VOTE_STAKES_FD ) {
+    FD_TEST( dup2( vote_stakes_fd, FD_VOTE_STAKES_FD )==FD_VOTE_STAKES_FD );
+    FD_TEST( !close( vote_stakes_fd ) );
+  }
+
   char const * page_sz_cstr = fd_env_strip_cmdline_cstr ( pargc, pargv, "--page-sz",  NULL, NULL            );
   ulong        page_cnt     = fd_env_strip_cmdline_ulong( pargc, pargv, "--page-cnt", NULL, 0UL             );
   char const * wksp_name    = fd_env_strip_cmdline_cstr ( pargc, pargv, "--wksp",     NULL, NULL            );

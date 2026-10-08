@@ -1816,14 +1816,13 @@ sweep_pending_delegator_rewards( fd_bank_t *          bank,
   for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_3, iter_mem );
        !fd_vote_stakes_iter_done( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_3, iter );
        fd_vote_stakes_iter_next( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_3, iter ) ) {
-    fd_pubkey_t vote_address;
-    fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_3, iter,
-                             &vote_address, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL );
+    fd_vote_stakes_ele_t ele[1];
+    fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_3, iter, ele );
     /* https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.5/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L1276-L1278 */
     ulong         stake;
-    ulong const * maybe_stake = reward_epoch_delegated_stake( bank, runtime_stack, &vote_address, alpenglow_enabled, &stake );
+    ulong const * maybe_stake = reward_epoch_delegated_stake( bank, runtime_stack, &ele->pubkey, alpenglow_enabled, &stake );
     /* https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.5/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L1279-L1285 */
-    sweep_vote_account( bank, accdb, capture_ctx, &vote_address, maybe_stake, &total_block_reward_lamports );
+    sweep_vote_account( bank, accdb, capture_ctx, &ele->pubkey, maybe_stake, &total_block_reward_lamports );
   }
 
   return total_block_reward_lamports;

@@ -188,30 +188,20 @@ ENCODE_FN {
   case STATE_EPOCH_STAKES_STAKES: {
     int iter_kind = epoch_stakes_iter_kind( bank, enc->epoch_idx );
 
-    fd_pubkey_t pubkey            = {0};
-    ulong       stake             = 0UL;
-    fd_pubkey_t node_account      = {0};
-    ushort      commission        = 0;
     ulong       ec_cnt            = 0UL;
     fd_epoch_credits_t const * ec = NULL;
     ulong ag_marker_idx           = ULONG_MAX;
-    uchar bls_key[ FD_BLS_PUB_COMPRESSED_SZ ] = {0};
 
     fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
     ulong              fork_id     = bank->vote_stakes_fork_id;
 
     fd_vote_stakes_iter_t * iter = fd_type_pun( enc->vote_stakes_iter_mem );
     FD_TEST( !fd_vote_stakes_iter_done( vote_stakes, fork_id, iter_kind, iter ) );
-    fd_vote_stakes_iter_ele( vote_stakes, fork_id, iter_kind, iter, &pubkey, &node_account, &stake,
-                             NULL, NULL, &commission, NULL, NULL, bls_key, NULL );
-
-    ushort block_revenue_commission_bps = FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS;
-    ulong  pending_delegator_rewards    = 0UL;
-    fd_vote_stakes_iter_block_revenue( vote_stakes, fork_id, iter_kind, iter,
-                                       &block_revenue_commission_bps, &pending_delegator_rewards );
+    fd_vote_stakes_ele_t ele[1];
+    fd_vote_stakes_iter_ele( vote_stakes, fork_id, iter_kind, iter, ele );
 
     if( iter_kind==FD_VOTE_STAKES_ITER_T_1 ) {
-      ec = find_epoch_credits( enc->bank, &pubkey );
+      ec = find_epoch_credits( enc->bank, &ele->pubkey );
       FD_TEST( ec );
       ec_cnt = ec->cnt;
       if( FD_UNLIKELY( ec->has_ag_migration_marker ) ) {
@@ -228,22 +218,23 @@ ENCODE_FN {
     fd_pubkey_t inflation_collector = {0};
     fd_pubkey_t block_collector     = {0};
     if( FD_LIKELY( iter_kind==FD_VOTE_STAKES_ITER_T_1 || iter_kind==FD_VOTE_STAKES_ITER_T_2 ) ) {
-      fd_vote_stakes_iter_collectors( vote_stakes, fork_id, iter_kind, iter, &inflation_collector, &block_collector );
+      inflation_collector = ele->inflation_collector;
+      block_collector     = ele->block_collector;
     }
 
     /* A zeroed key means no BLS key is registered (serialized as None) */
     static uchar const no_bls_key[ FD_BLS_PUB_COMPRESSED_SZ ] = {0};
-    int has_bls = !fd_memeq( bls_key, no_bls_key, FD_BLS_PUB_COMPRESSED_SZ );
+    int has_bls = !fd_memeq( ele->bls_key, no_bls_key, FD_BLS_PUB_COMPRESSED_SZ );
 
-    enc->total_stake += stake;
+    enc->total_stake += ele->stake;
 
     FD_TEST( ec_cnt<=FD_EPOCH_CREDITS_MAX );
 
     ulong data_length = 186UL + fd_ulong_if( !!has_bls, FD_BLS_PUB_COMPRESSED_SZ, 0UL ) + 24UL * ec_cnt;
 
     /* Vote account key + stake */
-    PUSH_VAL( fd_pubkey_t, pubkey );
-    PUSH_VAL( ulong,       stake  );
+    PUSH_VAL( fd_pubkey_t, ele->pubkey );
+    PUSH_VAL( ulong,       ele->stake  );
 
     /* AccountSharedData: lamports, data_length */
     PUSH_VAL( ulong, 0UL         );
@@ -251,17 +242,17 @@ ENCODE_FN {
 
     /* VoteStateV4 */
     PUSH_VAL( uint,       3U           ); /* variant = V4 */
-    PUSH_VAL( fd_pubkey_t, node_account ); /* node_pubkey */
+    PUSH_VAL( fd_pubkey_t, ele->node_account ); /* node_pubkey */
     PUSH_VAL( fd_pubkey_t, (fd_pubkey_t){0} ); /* authorized_withdrawer */
     PUSH_VAL( fd_pubkey_t, inflation_collector ); /* inflation_rewards_collector */
     PUSH_VAL( fd_pubkey_t, block_collector     ); /* block_revenue_collector */
-    PUSH_VAL( ushort, commission ); /* inflation_rewards_commission_bps */
-    PUSH_VAL( ushort, block_revenue_commission_bps ); /* block_revenue_commission_bps */
-    PUSH_VAL( ulong,  pending_delegator_rewards    ); /* pending_delegator_rewards */
+    PUSH_VAL( ushort, ele->commission ); /* inflation_rewards_commission_bps */
+    PUSH_VAL( ushort, ele->block_revenue_commission_bps ); /* block_revenue_commission_bps */
+    PUSH_VAL( ulong,  ele->pending_delegator_rewards    ); /* pending_delegator_rewards */
     if( has_bls ) {
       typedef struct { uchar b[ FD_BLS_PUB_COMPRESSED_SZ ]; } bls_key_compressed_t;
       PUSH_VAL( uchar, 1        ); /* bls_pubkey_compressed = Some */
-      PUSH_VAL( bls_key_compressed_t, *(bls_key_compressed_t const *)bls_key );
+      PUSH_VAL( bls_key_compressed_t, *(bls_key_compressed_t const *)ele->bls_key );
     } else {
       PUSH_VAL( uchar, 0        ); /* bls_pubkey_compressed = None */
     }

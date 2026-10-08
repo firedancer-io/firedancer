@@ -145,6 +145,13 @@ fd_config_fillf( fd_config_t * config ) {
     FD_TEST( fd_cstr_printf_check( config->paths.cost_tracker, sizeof(config->paths.cost_tracker), NULL, "%s/costtracker.db", config->paths.base ) );
   }
 
+  if( FD_UNLIKELY( strcmp( config->paths.vote_stakes, "" ) ) ) {
+    replace( config->paths.vote_stakes, "{user}", config->user );
+    replace( config->paths.vote_stakes, "{name}", config->name );
+  } else {
+    FD_TEST( fd_cstr_printf_check( config->paths.vote_stakes, sizeof(config->paths.vote_stakes), NULL, "%s/votestakes.db", config->paths.base ) );
+  }
+
   if( FD_UNLIKELY( strcmp( config->paths.shredb, "" ) ) ) {
     replace( config->paths.shredb, "{user}", config->user );
     replace( config->paths.shredb, "{name}", config->name );

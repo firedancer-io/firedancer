@@ -654,6 +654,7 @@ test_txn_completion_publish( fd_wksp_t * wksp ) {
   fd_cost_tracker_store_t * cost_tracker_store = fd_bank_cost_tracker( bank );
   bank->cost_tracker_fork_id = fd_cost_tracker_store_new_fork( cost_tracker_store, USHORT_MAX );
   fd_cost_tracker_store_pin( cost_tracker_store, bank->cost_tracker_fork_id )->block_cost_limit = 48000000UL;
+  fd_vote_stakes_pin_t_1( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id );
 
   mock_sched_txn_idx = 37UL;
   fd_memset( &mock_sched_txn, 0x5a, sizeof(mock_sched_txn) );
@@ -1307,6 +1308,7 @@ test_wait_info_produced_incr_cnt( fd_wksp_t * wksp ) {
 
   root->refcnt++;
   FD_TEST( fd_epoch_credits_view_init( ctx->snapmk.epoch_credits_view, fd_bank_epoch_credits( root ), root->epoch_credits_fork_id ) );
+  fd_vote_stakes_pin_t_1( fd_bank_vote_stakes( root ), root->vote_stakes_fork_id );
   ctx->snapmk.active      = 1;
   ctx->snapmk.incremental = 1;
   snapmk_done( ctx, NULL, 1 );
@@ -1318,6 +1320,7 @@ test_wait_info_produced_incr_cnt( fd_wksp_t * wksp ) {
 
   root->refcnt++;
   FD_TEST( fd_epoch_credits_view_init( ctx->snapmk.epoch_credits_view, fd_bank_epoch_credits( root ), root->epoch_credits_fork_id ) );
+  fd_vote_stakes_pin_t_1( fd_bank_vote_stakes( root ), root->vote_stakes_fork_id );
   ctx->snapmk.active      = 1;
   ctx->snapmk.incremental = 0;
   snapmk_done( ctx, NULL, 1 );
@@ -1329,6 +1332,7 @@ test_wait_info_produced_incr_cnt( fd_wksp_t * wksp ) {
 
   root->refcnt++;
   FD_TEST( fd_epoch_credits_view_init( ctx->snapmk.epoch_credits_view, fd_bank_epoch_credits( root ), root->epoch_credits_fork_id ) );
+  fd_vote_stakes_pin_t_1( fd_bank_vote_stakes( root ), root->vote_stakes_fork_id );
   ctx->snapmk.active      = 1;
   ctx->snapmk.incremental = 1;
   snapmk_done( ctx, NULL, 0 );
@@ -1889,11 +1893,9 @@ test_vote_rank( fd_vote_stakes_t const * vote_stakes,
   for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter_mem );
        !fd_vote_stakes_iter_done( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter );
        fd_vote_stakes_iter_next( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter ) ) {
-    fd_pubkey_t pubkey;
-    ushort      rank;
-    fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter,
-                             &pubkey, NULL, NULL, NULL, NULL, NULL, NULL, &rank, NULL, NULL );
-    if( fd_pubkey_eq( &pubkey, vote_key ) ) return rank;
+    fd_vote_stakes_ele_t ele[1];
+    fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter, ele );
+    if( fd_pubkey_eq( &ele->pubkey, vote_key ) ) return ele->alpenglow_rank;
   }
   FD_LOG_ERR(( "vote account not found" ));
 }
@@ -3026,6 +3028,7 @@ test_tower_reset_waits_for_rereplayed_bank( fd_wksp_t * wksp ) {
   ulong seq0    = test_stem_seqs[ out_idx ];
 
   root->refcnt++;
+  fd_vote_stakes_pin_t_1( fd_bank_vote_stakes( root ), root->vote_stakes_fork_id );
   process_tower_slot_done( ctx, test_stem, &msg, 0UL );
   FD_TEST( fd_hash_eq( &ctx->reset_cmr, &mr_root ) );
   FD_TEST( ctx->reset_slot==0UL );
@@ -3033,6 +3036,7 @@ test_tower_reset_waits_for_rereplayed_bank( fd_wksp_t * wksp ) {
 
   fd_banks_mark_bank_frozen( replacement );
   root->refcnt++;
+  fd_vote_stakes_pin_t_1( fd_bank_vote_stakes( root ), root->vote_stakes_fork_id );
   process_tower_slot_done( ctx, test_stem, &msg, 1UL );
   fd_metrics_tl = saved_metrics_tl;
   FD_TEST( fd_hash_eq( &ctx->reset_cmr, &mr1_32 ) );

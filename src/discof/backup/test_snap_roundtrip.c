@@ -305,8 +305,10 @@ test_manifest_roundtrip( fd_svm_mini_t * mini,
        !fd_vote_stakes_iter_done( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter );
        fd_vote_stakes_iter_next( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter ) ) {
     FD_TEST( vote_cnt<VALIDATOR_CNT );
-    fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter, &votes[ vote_cnt ], &identities[ vote_cnt ], NULL,
-                             NULL, NULL, NULL, NULL, NULL, NULL, NULL );
+    fd_vote_stakes_ele_t ele[1];
+    fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter, ele );
+    votes     [ vote_cnt ] = ele->pubkey;
+    identities[ vote_cnt ] = ele->node_account;
     vote_cnt++;
   }
   FD_TEST( vote_cnt==VALIDATOR_CNT );

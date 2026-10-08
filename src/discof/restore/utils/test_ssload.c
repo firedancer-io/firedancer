@@ -960,24 +960,18 @@ test_recover_preserves_snapin_stake_delegations( fd_wksp_t * wksp, fd_snapshot_m
   FD_TEST( fd_vote_stakes_total_stake( vote_stakes, 1UL )==3000UL );
   FD_TEST( fd_vote_stakes_total_stake( vote_stakes, 0UL )==0UL );
 
-  ushort rank_out = FD_VOTE_STAKES_ALPENGLOW_RANK_NULL;
   uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
+  fd_vote_stakes_ele_t ele[1];
   fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, bank->vote_stakes_fork_id, FD_VOTE_STAKES_ITER_T_2, iter_mem );
   FD_TEST( !fd_vote_stakes_iter_done( vote_stakes, bank->vote_stakes_fork_id, FD_VOTE_STAKES_ITER_T_2, iter ) );
-  fd_pubkey_t iter_pubkey;
-  fd_vote_stakes_iter_ele( vote_stakes, bank->vote_stakes_fork_id, FD_VOTE_STAKES_ITER_T_2, iter,
-                           &iter_pubkey, NULL, NULL, NULL, NULL, NULL, NULL, &rank_out, NULL, NULL );
-  FD_TEST( fd_pubkey_eq( &iter_pubkey, (fd_pubkey_t *)pubkey_w ) && rank_out==0U );
+  fd_vote_stakes_iter_ele( vote_stakes, bank->vote_stakes_fork_id, FD_VOTE_STAKES_ITER_T_2, iter, ele );
+  FD_TEST( fd_pubkey_eq( &ele->pubkey, (fd_pubkey_t *)pubkey_w ) && ele->alpenglow_rank==0U );
 
-  rank_out = FD_VOTE_STAKES_ALPENGLOW_RANK_NULL;
   iter = fd_vote_stakes_iter_init( vote_stakes, bank->vote_stakes_fork_id, FD_VOTE_STAKES_ITER_T_3, iter_mem );
   FD_TEST( !fd_vote_stakes_iter_done( vote_stakes, bank->vote_stakes_fork_id, FD_VOTE_STAKES_ITER_T_3, iter ) );
-  fd_vote_stakes_iter_ele( vote_stakes, bank->vote_stakes_fork_id, FD_VOTE_STAKES_ITER_T_3, iter,
-                           &iter_pubkey, NULL, NULL, NULL, NULL, NULL, NULL, &rank_out, NULL, NULL );
-  FD_TEST( fd_pubkey_eq( &iter_pubkey, (fd_pubkey_t *)pubkey_z ) && rank_out==0U );
-  ushort block_bps_out; ulong pending_out;
-  fd_vote_stakes_iter_block_revenue( vote_stakes, bank->vote_stakes_fork_id, FD_VOTE_STAKES_ITER_T_3, iter, &block_bps_out, &pending_out );
-  FD_TEST( block_bps_out==4321U && pending_out==99UL );
+  fd_vote_stakes_iter_ele( vote_stakes, bank->vote_stakes_fork_id, FD_VOTE_STAKES_ITER_T_3, iter, ele );
+  FD_TEST( fd_pubkey_eq( &ele->pubkey, (fd_pubkey_t *)pubkey_z ) && ele->alpenglow_rank==0U );
+  FD_TEST( ele->block_revenue_commission_bps==4321U && ele->pending_delegator_rewards==99UL );
 
   iter = fd_vote_stakes_iter_init( vote_stakes, bank->vote_stakes_fork_id, FD_VOTE_STAKES_ITER_T_4, iter_mem );
   FD_TEST( fd_vote_stakes_iter_done( vote_stakes, bank->vote_stakes_fork_id, FD_VOTE_STAKES_ITER_T_4, iter ) );
@@ -1046,21 +1040,17 @@ test_recover_preserves_snapin_stake_delegations( fd_wksp_t * wksp, fd_snapshot_m
   FD_TEST( fd_vote_stakes_total_stake( vote_stakes, 1UL )==1000UL );
   FD_TEST( fd_vote_stakes_total_stake( vote_stakes, 0UL )==0UL );
 
-  rank_out = FD_VOTE_STAKES_ALPENGLOW_RANK_NULL;
   iter = fd_vote_stakes_iter_init( vote_stakes, bank->vote_stakes_fork_id, FD_VOTE_STAKES_ITER_T_4, iter_mem );
   FD_TEST( !fd_vote_stakes_iter_done( vote_stakes, bank->vote_stakes_fork_id, FD_VOTE_STAKES_ITER_T_4, iter ) );
-  fd_vote_stakes_iter_ele( vote_stakes, bank->vote_stakes_fork_id, FD_VOTE_STAKES_ITER_T_4, iter,
-                           &iter_pubkey, &node_out, &stake_out, NULL, NULL, &commission_out, NULL, &rank_out, NULL, NULL );
-  FD_TEST( fd_pubkey_eq( &iter_pubkey, (fd_pubkey_t *)pubkey_v ) && rank_out==0U );
-  FD_TEST( fd_pubkey_eq( &node_out, (fd_pubkey_t *)ident_v ) && stake_out==2000UL && commission_out==13U );
+  fd_vote_stakes_iter_ele( vote_stakes, bank->vote_stakes_fork_id, FD_VOTE_STAKES_ITER_T_4, iter, ele );
+  FD_TEST( fd_pubkey_eq( &ele->pubkey, (fd_pubkey_t *)pubkey_v ) && ele->alpenglow_rank==0U );
+  FD_TEST( fd_pubkey_eq( &ele->node_account, (fd_pubkey_t *)ident_v ) && ele->stake==2000UL && ele->commission==13U );
 
-  rank_out = FD_VOTE_STAKES_ALPENGLOW_RANK_NULL;
   iter = fd_vote_stakes_iter_init( vote_stakes, bank->vote_stakes_fork_id, FD_VOTE_STAKES_ITER_T_5, iter_mem );
   FD_TEST( !fd_vote_stakes_iter_done( vote_stakes, bank->vote_stakes_fork_id, FD_VOTE_STAKES_ITER_T_5, iter ) );
-  fd_vote_stakes_iter_ele( vote_stakes, bank->vote_stakes_fork_id, FD_VOTE_STAKES_ITER_T_5, iter,
-                           &iter_pubkey, &node_out, &stake_out, NULL, NULL, &commission_out, NULL, &rank_out, NULL, NULL );
-  FD_TEST( fd_pubkey_eq( &iter_pubkey, (fd_pubkey_t *)pubkey_u ) && rank_out==0U );
-  FD_TEST( fd_pubkey_eq( &node_out, (fd_pubkey_t *)ident_u ) && stake_out==1000UL && commission_out==19U );
+  fd_vote_stakes_iter_ele( vote_stakes, bank->vote_stakes_fork_id, FD_VOTE_STAKES_ITER_T_5, iter, ele );
+  FD_TEST( fd_pubkey_eq( &ele->pubkey, (fd_pubkey_t *)pubkey_u ) && ele->alpenglow_rank==0U );
+  FD_TEST( fd_pubkey_eq( &ele->node_account, (fd_pubkey_t *)ident_u ) && ele->stake==1000UL && ele->commission==19U );
 
   /* Manifest E: an epoch-1 snapshot whose leader_schedule_slot_offset
      spans two epochs, so leader_schedule_epoch=3 and the manifest

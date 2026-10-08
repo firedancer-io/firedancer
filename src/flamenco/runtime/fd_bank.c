@@ -207,7 +207,7 @@ fd_banks_footprint( ulong max_total_banks,
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, fd_banks_align(),               sizeof(fd_banks_t) );
   l = FD_LAYOUT_APPEND( l, fd_stake_delegations_align(),   fd_stake_delegations_footprint( max_stake_accounts, max_total_banks ) );
-  l = FD_LAYOUT_APPEND( l, fd_vote_stakes_align(),         fd_vote_stakes_footprint( max_total_banks, max_fork_width ) );
+  l = FD_LAYOUT_APPEND( l, fd_vote_stakes_align(),         fd_vote_stakes_footprint( max_total_banks, max_fork_width+1UL ) );
   l = FD_LAYOUT_APPEND( l, FD_EPOCH_LEADERS_ALIGN,         2UL * epoch_leaders_footprint );
   l = FD_LAYOUT_APPEND( l, fd_banks_pool_align(),          fd_banks_pool_footprint( max_total_banks ) );
   l = FD_LAYOUT_APPEND( l, fd_banks_dead_align(),          fd_banks_dead_footprint() );
@@ -250,7 +250,7 @@ fd_banks_new( void * shmem,
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   fd_banks_t * banks_data              = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_align(),               sizeof(fd_banks_t) );
   void *       stake_delegations_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_delegations_align(),   fd_stake_delegations_footprint( max_stake_accounts, max_total_banks ) );
-  void *       vote_stakes_mem         = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_stakes_align(),         fd_vote_stakes_footprint( max_total_banks, max_fork_width ) );
+  void *       vote_stakes_mem         = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_stakes_align(),         fd_vote_stakes_footprint( max_total_banks, max_fork_width+1UL ) );
   void *       epoch_leaders_mem       = FD_SCRATCH_ALLOC_APPEND( l, FD_EPOCH_LEADERS_ALIGN,         2UL * epoch_leaders_footprint );
   void *       pool_mem                = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_pool_align(),          fd_banks_pool_footprint( max_total_banks ) );
   void *       dead_banks_mem          = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_dead_align(),          fd_banks_dead_footprint() );
@@ -299,7 +299,7 @@ fd_banks_new( void * shmem,
   }
   banks_data->stake_delegations_offset = (ulong)stake_delegations - (ulong)banks_data;
 
-  fd_vote_stakes_t * vote_stakes = fd_vote_stakes_join( fd_vote_stakes_new( vote_stakes_mem, max_total_banks, max_fork_width, seed ) );
+  fd_vote_stakes_t * vote_stakes = fd_vote_stakes_join( fd_vote_stakes_new( vote_stakes_mem, FD_VOTE_STAKES_FD, max_total_banks, max_fork_width+1UL, seed ), FD_VOTE_STAKES_FD );
   if( FD_UNLIKELY( !vote_stakes ) ) {
     FD_LOG_WARNING(( "Unable to create vote stakes" ));
     return NULL;
@@ -384,7 +384,7 @@ fd_banks_join( void * banks_data_mem ) {
   FD_SCRATCH_ALLOC_INIT( l, banks_data );
   banks_data                     = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_align(),               sizeof(fd_banks_t) );
   void * stake_delegations_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_delegations_align(),   fd_stake_delegations_footprint( banks_data->max_stake_accounts, banks_data->max_total_banks ) );
-  void * vote_stakes_mem         = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_stakes_align(),         fd_vote_stakes_footprint( banks_data->max_total_banks, banks_data->max_fork_width ) );
+  void * vote_stakes_mem         = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_stakes_align(),         fd_vote_stakes_footprint( banks_data->max_total_banks, banks_data->max_fork_width+1UL ) );
   void * epoch_leaders_mem       = FD_SCRATCH_ALLOC_APPEND( l, FD_EPOCH_LEADERS_ALIGN,         2UL * banks_data->epoch_leaders_footprint );
   void * pool_mem                = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_pool_align(),          fd_banks_pool_footprint( banks_data->max_total_banks ) );
   void * dead_banks_mem          = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_dead_align(),          fd_banks_dead_footprint() );
@@ -423,7 +423,7 @@ fd_banks_join( void * banks_data_mem ) {
     FD_LOG_WARNING(( "Failed to join vote stakes" ));
     return NULL;
   }
-  if( FD_UNLIKELY( !fd_vote_stakes_join( vote_stakes_mem ) ) ) {
+  if( FD_UNLIKELY( !fd_vote_stakes_join( vote_stakes_mem, FD_VOTE_STAKES_FD ) ) ) {
     FD_LOG_WARNING(( "Failed to join vote stakes" ));
     return NULL;
   }
