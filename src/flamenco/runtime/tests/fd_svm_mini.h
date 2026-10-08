@@ -108,6 +108,13 @@ struct fd_svm_mini_params {
      creates identity, vote, and stake accounts in the accounts DB. */
   ulong mock_validator_cnt;
 
+  /* Vote stakes fields for every mock validator.  A NULL
+     mock_block_collector keeps the node account default, and
+     mock_block_collector_self uses the validator's own vote account. */
+  ushort              mock_block_revenue_commission_bps;
+  fd_pubkey_t const * mock_block_collector;
+  int                 mock_block_collector_self;
+
   /* Sysvar overrides */
   fd_sol_sysvar_clock_t const * clock;
   fd_epoch_schedule_t const *   epoch_schedule;
@@ -204,6 +211,9 @@ fd_svm_mini_params_default( fd_svm_mini_params_t * params ) {
     .init_feature_accounts  = 0,
     .init_builtins          = 1,
     .mock_validator_cnt     = 1UL,
+    .mock_block_revenue_commission_bps = FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS,
+    .mock_block_collector              = NULL,
+    .mock_block_collector_self         = 0,
     .clock                  = NULL,
     .epoch_schedule         = NULL,
     .rent                   = NULL,

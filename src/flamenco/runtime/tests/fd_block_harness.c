@@ -67,24 +67,24 @@ fd_solfuzz_block_update_prev_epoch_stakes( fd_vote_stakes_t *                 vo
       commission = (ushort)( (uchar)( vote_accounts[i].commission_bps / 100U ) * 100U );
     }
 
-    uchar const no_bls[ FD_BLS_PUBKEY_COMPRESSED_SZ ] = {0};
-    if( use_t_1 ) fd_vote_stakes_snap_insert_t_1( vote_stakes, vote_stakes_fork_id, &vote_pubkey, &node_pubkey, stake, commission, no_bls );
-    else          fd_vote_stakes_snap_insert_t_2( vote_stakes, vote_stakes_fork_id, &vote_pubkey, &node_pubkey, stake, commission, no_bls );
-
     /* SIMD-0123 fields exist in v4 state only; older versions keep the
        100% default and no pending rewards. */
+    ushort block_revenue_commission_bps = FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS;
+    ulong  pending_delegator_rewards    = 0UL;
     if( vote_accounts[i].version == FD_EXEC_TEST_VOTE_ACCOUNT_VERSION_V4 ) {
-      ushort block_revenue_commission_bps = (ushort)vote_accounts[i].block_revenue_commission_bps;
-      ulong  pending_delegator_rewards    = vote_accounts[i].pending_delegator_rewards;
-      if( use_t_1 ) fd_vote_stakes_set_block_revenue_t_1( vote_stakes, vote_stakes_fork_id, &vote_pubkey, block_revenue_commission_bps, pending_delegator_rewards );
-      else          fd_vote_stakes_set_block_revenue_t_2( vote_stakes, vote_stakes_fork_id, &vote_pubkey, block_revenue_commission_bps, pending_delegator_rewards );
+      block_revenue_commission_bps = (ushort)vote_accounts[i].block_revenue_commission_bps;
+      pending_delegator_rewards    = vote_accounts[i].pending_delegator_rewards;
     }
 
     /* SIMD-0232 collectors; empty fields keep the vote/node defaults. */
     fd_pubkey_t const * inflation_collector = vote_accounts[i].inflation_rewards_collector.size==32U ? (fd_pubkey_t const *)vote_accounts[i].inflation_rewards_collector.bytes : NULL;
     fd_pubkey_t const * block_collector     = vote_accounts[i].block_revenue_collector.size    ==32U ? (fd_pubkey_t const *)vote_accounts[i].block_revenue_collector.bytes     : NULL;
-    if( use_t_1 ) fd_vote_stakes_set_collectors_t_1( vote_stakes, vote_stakes_fork_id, &vote_pubkey, inflation_collector, block_collector );
-    else          fd_vote_stakes_set_collectors_t_2( vote_stakes, vote_stakes_fork_id, &vote_pubkey, inflation_collector, block_collector );
+
+    uchar const no_bls[ FD_BLS_PUBKEY_COMPRESSED_SZ ] = {0};
+    if( use_t_1 ) fd_vote_stakes_snap_insert_t_1( vote_stakes, vote_stakes_fork_id, &vote_pubkey, &node_pubkey, stake, commission, no_bls,
+                                                  block_revenue_commission_bps, pending_delegator_rewards, inflation_collector, block_collector );
+    else          fd_vote_stakes_snap_insert_t_2( vote_stakes, vote_stakes_fork_id, &vote_pubkey, &node_pubkey, stake, commission, no_bls,
+                                                  block_revenue_commission_bps, pending_delegator_rewards, inflation_collector, block_collector );
   }
 }
 
@@ -314,8 +314,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   for( uint i=0U; i<block_bank->vote_accounts_t_1_count; i++ ) {
     fd_exec_test_prev_vote_account_t const * prev_vote_accs = &block_bank->vote_accounts_t_1[i];
 
-    if( FD_UNLIKELY( !fd_vote_stakes_query_t_1( vote_stakes, bank->vote_stakes_fork_id, (fd_pubkey_t const *)prev_vote_accs->address,
-                                                NULL, NULL, NULL ) ) ) continue;
+    if( FD_UNLIKELY( !fd_vote_stakes_query_t_1( vote_stakes, bank->vote_stakes_fork_id, (fd_pubkey_t const *)prev_vote_accs->address, NULL ) ) ) continue;
 
     FD_TEST( prev_vote_accs->epoch_credits_count<=FD_EPOCH_CREDITS_MAX );
     fd_epoch_credits_t * ec = &epoch_credits_view->credits[epoch_credits_len++];

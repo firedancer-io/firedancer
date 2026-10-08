@@ -75,7 +75,7 @@ validator_set_for_slot( validator_set_t * set,
   if( FD_LIKELY( iter_kind!=FD_VOTE_STAKES_ITER_T_1 && set->validator_cnt && set->epoch==epoch ) ) return 1;
 
   set->validator_cnt = 0UL;
-  fd_vote_stakes_t const * vote_stakes = fd_bank_vote_stakes( bank );
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
   ulong cnt      = 0UL;
   ulong max_rank = 0UL;
   ulong total    = 0UL;
@@ -83,21 +83,18 @@ validator_set_for_slot( validator_set_t * set,
   for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, fork_id, iter_kind, iter_mem );
        !fd_vote_stakes_iter_done( vote_stakes, fork_id, iter_kind, iter );
        fd_vote_stakes_iter_next( vote_stakes, fork_id, iter_kind, iter ) ) {
-    fd_pubkey_t vote_key;
-    ulong       stake;
-    ushort      rank;
-    uchar       bls_key[ FD_BLS_PUBKEY_UNCOMPRESSED_SZ ];
-    fd_vote_stakes_iter_ele( vote_stakes, fork_id, iter_kind, iter, &vote_key, NULL, &stake, NULL, NULL, NULL, NULL, &rank, NULL, bls_key );
-    if( FD_UNLIKELY( rank==FD_VOTE_STAKES_ALPENGLOW_RANK_NULL ) ) continue;
-    FD_TEST( rank<AG_VAT_MAX );
+    fd_vote_stakes_ele_t ele[1];
+    fd_vote_stakes_iter_ele( vote_stakes, fork_id, iter_kind, iter, ele );
+    if( FD_UNLIKELY( ele->rank==FD_VOTE_STAKES_ALPENGLOW_RANK_NULL ) ) continue;
+    FD_TEST( ele->rank<AG_VAT_MAX );
 
-    if( FD_UNLIKELY( blst_p1_deserialize( set->bls_keys+rank, bls_key )!=BLST_SUCCESS ) ) {
-      FD_LOG_WARNING(( "slot %lu: rank %u of epoch %lu has a malformed BLS key", bank->f.slot, rank, epoch ));
+    if( FD_UNLIKELY( blst_p1_deserialize( set->bls_keys+ele->rank, ele->bls_key_uncompressed )!=BLST_SUCCESS ) ) {
+      FD_LOG_WARNING(( "slot %lu: rank %u of epoch %lu has a malformed BLS key", bank->f.slot, ele->rank, epoch ));
       return 0;
     }
-    set->stakes[ rank ] = stake;
-    max_rank = fd_ulong_max( max_rank, (ulong)rank );
-    total   += stake;
+    set->stakes[ ele->rank ] = ele->stake;
+    max_rank = fd_ulong_max( max_rank, (ulong)ele->rank );
+    total   += ele->stake;
     cnt++;
   }
   if( FD_UNLIKELY( !cnt || cnt!=max_rank+1UL ) ) {
@@ -559,21 +556,18 @@ fd_alpenglow_rewards_apply( fd_bank_t *               bank,
     int iter_kind = rwd ? reward_kind : final_kind;
 
     int have_ranked_vote = 0;
-    fd_vote_stakes_t const * vote_stakes = fd_bank_vote_stakes( bank );
+    fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
     uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
     for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, bank->vote_stakes_fork_id, iter_kind, iter_mem );
          !fd_vote_stakes_iter_done( vote_stakes, bank->vote_stakes_fork_id, iter_kind, iter );
          fd_vote_stakes_iter_next( vote_stakes, bank->vote_stakes_fork_id, iter_kind, iter ) ) {
-      fd_pubkey_t vote_key;
-      ulong       stake;
-      ushort      rank;
-      fd_vote_stakes_iter_ele( vote_stakes, bank->vote_stakes_fork_id, iter_kind, iter,
-                               &vote_key, NULL, &stake, NULL, NULL, NULL, NULL, &rank, NULL, NULL );
-      if( FD_UNLIKELY( rank==FD_VOTE_STAKES_ALPENGLOW_RANK_NULL ) ) continue;
-      FD_TEST( rank<AG_VAT_MAX );
+      fd_vote_stakes_ele_t ele[1];
+      fd_vote_stakes_iter_ele( vote_stakes, bank->vote_stakes_fork_id, iter_kind, iter, ele );
+      if( FD_UNLIKELY( ele->rank==FD_VOTE_STAKES_ALPENGLOW_RANK_NULL ) ) continue;
+      FD_TEST( ele->rank<AG_VAT_MAX );
       have_ranked_vote = 1;
-      ulong r      = (ulong)rank;
-      if( fd_pubkey_eq( &vote_key, leader_vote_pubkey ) ) leader_rank = r;
+      ulong r      = (ulong)ele->rank;
+      if( fd_pubkey_eq( &ele->pubkey, leader_vote_pubkey ) ) leader_rank = r;
       int   in_rwd = rwd && fd_bls_set_test( reward_set, r );
       int   in_fin = fin && fd_bls_set_test( final_set,  r );
       if( !in_rwd && !in_fin ) continue;
@@ -583,12 +577,12 @@ fd_alpenglow_rewards_apply( fd_bank_t *               bank,
 
       /* Skip this node if the vote account cannot be deserialized
          https://github.com/anza-xyz/agave/blob/v4.3.0-beta.3/runtime/src/block_component_processor/vote_reward.rs#L378-L380 */
-      if( FD_UNLIKELY( !vote_account_open( bank, accdb, &vote_key, vs, &acc ) ) ) continue;
+      if( FD_UNLIKELY( !vote_account_open( bank, accdb, &ele->pubkey, vs, &acc ) ) ) continue;
 
       if( in_rwd ) {
         /* per-slot, stake-fractional reward; split half validator, half
            (rounded up) leader */
-        uint128 numerator   = (uint128)max_reward*(uint128)stake;
+        uint128 numerator   = (uint128)max_reward*(uint128)ele->stake;
         uint128 denominator = (uint128)slots_per_epoch*(uint128)total_stake;
         ulong   reward      = denominator ? (ulong)( numerator/denominator ) : 0UL;
         ulong   validator_reward = reward/2UL;

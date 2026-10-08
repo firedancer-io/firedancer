@@ -600,9 +600,12 @@ static void
 fd_rewards_inflation_collector( fd_bank_t *         bank,
                                 fd_pubkey_t const * vote_pubkey,
                                 fd_pubkey_t *       collector_out ) {
-  *collector_out = *vote_pubkey;
-  fd_vote_stakes_query_collectors_t_1( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id,
-                                       vote_pubkey, collector_out, NULL );
+  fd_vote_stakes_ele_t ele[1];
+  if( fd_vote_stakes_query_t_1( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id, vote_pubkey, ele ) ) {
+    *collector_out = ele->inflation_collector;
+  } else {
+    *collector_out = *vote_pubkey;
+  }
 }
 
 /* rewarded_epoch_is_alpenglow checks if the rewarded
@@ -1213,10 +1216,11 @@ calculate_block_reward( fd_bank_t *                   bank,
                         fd_stake_delegation_t const * stake_delegation,
                         ulong                         rewarded_epoch ) {
   fd_pubkey_t const * vote_pubkey = &stake_delegation->vote_account;
-  ulong pending_delegator_rewards;
-  if( !fd_vote_stakes_query_block_revenue_t_1( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id, vote_pubkey, NULL, &pending_delegator_rewards ) ) {
+  fd_vote_stakes_ele_t ele[1];
+  if( !fd_vote_stakes_query_t_1( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id, vote_pubkey, ele ) ) {
     return 0UL;
   }
+  ulong pending_delegator_rewards = ele->pending_delegator_rewards;
   fd_stake_accum_t const * accumulated = fd_stake_accum_map_ele_query_const(
       runtime_stack->stakes.stake_accum_map, vote_pubkey, NULL, runtime_stack->stakes.stake_accum );
   ulong total_active_stake = accumulated ? accumulated->reward_stake : 0UL;
@@ -1788,7 +1792,7 @@ reward_epoch_delegated_stake( fd_bank_t *          bank,
   fd_stake_accum_t const * accumulated = fd_stake_accum_map_ele_query_const(
       runtime_stack->stakes.stake_accum_map, vote_address, NULL, runtime_stack->stakes.stake_accum );
   int known = alpenglow_enabled
-            ? fd_vote_stakes_query_block_revenue_t_1( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id, vote_address, NULL, NULL )
+            ? fd_vote_stakes_query_t_1( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id, vote_address, NULL )
             : !!accumulated;
   *stake_out = accumulated ? accumulated->reward_stake : 0UL;
   return known ? stake_out : NULL;
@@ -1810,20 +1814,19 @@ sweep_pending_delegator_rewards( fd_bank_t *          bank,
                                  int                  alpenglow_enabled ) {
   ulong total_block_reward_lamports = 0UL;
 
-  fd_vote_stakes_t const * vote_stakes = fd_bank_vote_stakes( bank );
-  ulong                    fork_id     = bank->vote_stakes_fork_id;
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
+  ulong              fork_id     = bank->vote_stakes_fork_id;
   uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
   for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_3, iter_mem );
        !fd_vote_stakes_iter_done( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_3, iter );
        fd_vote_stakes_iter_next( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_3, iter ) ) {
-    fd_pubkey_t vote_address;
-    fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_3, iter,
-                             &vote_address, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL );
+    fd_vote_stakes_ele_t ele[1];
+    fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_3, iter, ele );
     /* https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.5/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L1276-L1278 */
     ulong         stake;
-    ulong const * maybe_stake = reward_epoch_delegated_stake( bank, runtime_stack, &vote_address, alpenglow_enabled, &stake );
+    ulong const * maybe_stake = reward_epoch_delegated_stake( bank, runtime_stack, &ele->pubkey, alpenglow_enabled, &stake );
     /* https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.5/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L1279-L1285 */
-    sweep_vote_account( bank, accdb, capture_ctx, &vote_address, maybe_stake, &total_block_reward_lamports );
+    sweep_vote_account( bank, accdb, capture_ctx, &ele->pubkey, maybe_stake, &total_block_reward_lamports );
   }
 
   return total_block_reward_lamports;
@@ -2439,28 +2442,27 @@ recalculate_partitioned_rewards( fd_bank_t *          bank,
       /* Get the t-1 stake account information.  This is guaranteed to be
          valid since the epoch credits are populated from the t-1 stakes
          in the snapshot manifest. */
-      ushort commission_t_1 = 0;
-      FD_TEST( fd_vote_stakes_query_t_1( vote_stakes, fork_id, pubkey, NULL, NULL, &commission_t_1 ) );
+      fd_vote_stakes_ele_t ele_t_1[1];
+      FD_TEST( fd_vote_stakes_query_t_1( vote_stakes, fork_id, pubkey, ele_t_1 ) );
 
       /* Get the t-3 information before the t-2 fallback.  Either may be
          absent if the vote account was created in a later epoch. */
-      ushort commission_t_3 = 0;
-      int    exists_t_3     = fd_vote_stakes_query_t_3( vote_stakes, fork_id, pubkey, NULL, NULL, &commission_t_3 );
+      fd_vote_stakes_ele_t ele_t_3[1];
+      int exists_t_3 = fd_vote_stakes_query_t_3( vote_stakes, fork_id, pubkey, ele_t_3 );
 
       /* Now get the t-2 information (if it exists).  This is not
          guaranteed to be valid since it's possible for a vote account to
          have been created in the last epoch. */
-      int    exists_t_2     = 0;
-      ushort commission_t_2 = 0;
-      exists_t_2 = fd_vote_stakes_query_t_2( vote_stakes, fork_id, pubkey, NULL, NULL, NULL, NULL, &commission_t_2, NULL );
+      fd_vote_stakes_ele_t ele_t_2[1];
+      int exists_t_2 = fd_vote_stakes_query_t_2( vote_stakes, fork_id, pubkey, ele_t_2 );
 
       fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[i];
       vote_ele->pubkey       = *(fd_pubkey_t *)epoch_credits->pubkey;
       vote_ele->vote_rewards = 0UL;
       if( FD_FEATURE_ACTIVE_BANK( bank, delay_commission_updates ) ) {
-        vote_ele->commission = exists_t_3 ? commission_t_3 : (exists_t_2 ? commission_t_2 : commission_t_1);
+        vote_ele->commission = exists_t_3 ? ele_t_3->commission : (exists_t_2 ? ele_t_2->commission : ele_t_1->commission);
       } else {
-        vote_ele->commission = commission_t_1;
+        vote_ele->commission = ele_t_1->commission;
       }
       fd_vote_rewards_map_idx_insert( vote_ele_map, i, runtime_stack->stakes.vote_ele );
     }

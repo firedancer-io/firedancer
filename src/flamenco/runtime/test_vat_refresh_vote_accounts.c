@@ -401,8 +401,8 @@ test_env_create( test_env_t * env, fd_wksp_t * wksp ) {
          account data. */
       uchar bls[ FD_BLS_PUBKEY_COMPRESSED_SZ ];
       fd_memset( bls, 0xBB, sizeof(bls) );
-      fd_vote_stakes_snap_insert_t_1( vote_stakes, fork_id, &v, &v, stake, commission, bls );
-      fd_vote_stakes_snap_insert_t_2( vote_stakes, fork_id, &v, &v, stake, commission, bls );
+      fd_vote_stakes_snap_insert_t_1( vote_stakes, fork_id, &v, &v, stake, commission, bls, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL );
+      fd_vote_stakes_snap_insert_t_2( vote_stakes, fork_id, &v, &v, stake, commission, bls, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL );
       fd_vote_stakes_update_state( vote_stakes, fork_id, &v, 0UL, voter_vote_ts( i ), 1 );
     }
     add_delegated_stake_account     ( env, &s, &v, stake );
@@ -557,15 +557,15 @@ test_vat_path_unconditional( fd_wksp_t * wksp ) {
   FD_TEST( vote_stakes_t1_cnt( env->bank )==NUM_VAT_ELIGIBLE );
   for( ulong i=0UL; i<NUM_VOTERS; i++ ) {
     fd_pubkey_t v = vote_key( i );
-    ulong stake = 0UL;
-    int found = fd_vote_stakes_query_t_1( fd_bank_vote_stakes( env->bank ), env->bank->vote_stakes_fork_id, &v, NULL, &stake, NULL );
+    fd_vote_stakes_ele_t q[1];
+    int found = fd_vote_stakes_query_t_1( fd_bank_vote_stakes( env->bank ), env->bank->vote_stakes_fork_id, &v, q );
     FD_TEST( found==voter_has_bls( i ) );
-    if( found ) FD_TEST( stake==stake_for_epoch( i, epoch ) );
+    if( found ) FD_TEST( q->stake==stake_for_epoch( i, epoch ) );
     if( found ) {
       /* The boundary refresh carries the SIMD-0123 fields of the
          account image into the t-1 entry. */
-      ushort block_bps; ulong pending;
-      FD_TEST( fd_vote_stakes_query_block_revenue_t_1( fd_bank_vote_stakes( env->bank ), env->bank->vote_stakes_fork_id, &v, &block_bps, &pending ) );
+      ushort block_bps = q->block_revenue_commission_bps;
+      ulong  pending   = q->pending_delegator_rewards;
       fd_acc_t ro = fd_accdb_read_one( env->accdb, env->bank->accdb_fork_id, v.uc );
       ushort acc_bps; ulong acc_pending;
       FD_TEST( !fd_vote_account_block_revenue_commission_bps( ro.data, ro.data_len, &acc_bps ) );

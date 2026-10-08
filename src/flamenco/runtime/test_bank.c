@@ -816,7 +816,7 @@ test_bank_stake_delegations_dynamic_sizing( void * mem ) {
   ulong const max_disk_records      = 32768UL;
   ulong const stake_footprint_small = fd_stake_delegations_footprint( max_stake_small, max_total_banks );
   ulong const stake_footprint_large = fd_stake_delegations_footprint( max_stake_large, max_total_banks );
-  ulong const vote_footprint        = fd_vote_stakes_footprint( max_total_banks, max_fork_width );
+  ulong const vote_footprint        = fd_vote_stakes_footprint( max_total_banks, max_fork_width+1UL );
 
   fd_banks_t * banks_small = fd_banks_join( fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, max_total_banks, max_fork_width, max_stake_small, max_disk_records, max_vote_accounts, 0, 9991UL ) );
   FD_TEST( banks_small );
@@ -1368,6 +1368,13 @@ main( int argc, char ** argv ) {
     FD_TEST( !close( cost_tracker_fd ) );
   }
 
+  int vote_stakes_fd = memfd_create( "bank_vote_stakes_spill", 0 );
+  FD_TEST( vote_stakes_fd>=0 );
+  if( vote_stakes_fd!=FD_VOTE_STAKES_FD ) {
+    FD_TEST( dup2( vote_stakes_fd, FD_VOTE_STAKES_FD )==FD_VOTE_STAKES_FD );
+    FD_TEST( !close( vote_stakes_fd ) );
+  }
+
   fd_pubkey_t key_0 = { .ul[0] = 1 };
   fd_pubkey_t key_1 = { .ul[0] = 2 };
   fd_pubkey_t key_2 = { .ul[0] = 3 };
@@ -1745,8 +1752,8 @@ main( int argc, char ** argv ) {
   test_bank_epoch_credits_disk_cache( mem );
   test_bank_epoch_credits_fork_id_width();
 
-  FD_TEST( fd_vote_stakes_footprint( 1UL, FD_BANKS_MAX_BANKS )>0UL );
-  FD_TEST( fd_vote_stakes_footprint( 1UL, FD_BANKS_MAX_BANKS+1UL )==0UL );
+  FD_TEST( fd_vote_stakes_footprint( 1UL, FD_BANKS_MAX_BANKS )==fd_vote_stakes_footprint( 1UL, 1UL ) );
+  FD_TEST( fd_vote_stakes_footprint( 1UL, 0UL )==0UL );
 
   FD_LOG_NOTICE(( "pass" ));
 

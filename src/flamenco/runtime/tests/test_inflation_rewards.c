@@ -470,16 +470,16 @@ test_footer_uses_vote_stakes_rank( fd_svm_mini_t * mini,
   bank->vote_stakes_fork_id = fd_vote_stakes_init( vote_stakes, bank->f.epoch );
 
   if( use_t_3 ) {
-    fd_vote_stakes_snap_insert_t_2( vote_stakes, bank->vote_stakes_fork_id, &vote_b, &identity_b, 200UL, 0U, valid_bls[1] );
-    fd_vote_stakes_snap_insert_t_2( vote_stakes, bank->vote_stakes_fork_id, &vote_a, &identity_a, 100UL, 0U, valid_bls[0] );
+    fd_vote_stakes_snap_insert_t_2( vote_stakes, bank->vote_stakes_fork_id, &vote_b, &identity_b, 200UL, 0U, valid_bls[1], FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL );
+    fd_vote_stakes_snap_insert_t_2( vote_stakes, bank->vote_stakes_fork_id, &vote_a, &identity_a, 100UL, 0U, valid_bls[0], FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL );
     fd_vote_stakes_finalize( vote_stakes, bank->vote_stakes_fork_id, FD_VOTE_STAKES_ITER_T_2 );
 
-    fd_vote_stakes_snap_insert_t_n( vote_stakes, bank->vote_stakes_fork_id, 3UL, &vote_a, &identity_a, 200UL, 0U, valid_bls[0] );
-    fd_vote_stakes_snap_insert_t_n( vote_stakes, bank->vote_stakes_fork_id, 3UL, &vote_b, &identity_b, 100UL, 0U, valid_bls[1] );
+    fd_vote_stakes_snap_insert_t_n( vote_stakes, bank->vote_stakes_fork_id, 3UL, &vote_a, &identity_a, 200UL, 0U, valid_bls[0], FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL );
+    fd_vote_stakes_snap_insert_t_n( vote_stakes, bank->vote_stakes_fork_id, 3UL, &vote_b, &identity_b, 100UL, 0U, valid_bls[1], FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL );
     fd_vote_stakes_finalize( vote_stakes, bank->vote_stakes_fork_id, FD_VOTE_STAKES_ITER_T_3 );
   } else {
-    fd_vote_stakes_snap_insert_t_2( vote_stakes, bank->vote_stakes_fork_id, &vote_a, &identity_a, 200UL, 0U, valid_bls[0] );
-    fd_vote_stakes_snap_insert_t_2( vote_stakes, bank->vote_stakes_fork_id, &vote_b, &identity_b, 100UL, 0U, valid_bls[1] );
+    fd_vote_stakes_snap_insert_t_2( vote_stakes, bank->vote_stakes_fork_id, &vote_a, &identity_a, 200UL, 0U, valid_bls[0], FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL );
+    fd_vote_stakes_snap_insert_t_2( vote_stakes, bank->vote_stakes_fork_id, &vote_b, &identity_b, 100UL, 0U, valid_bls[1], FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL );
     fd_vote_stakes_finalize( vote_stakes, bank->vote_stakes_fork_id, FD_VOTE_STAKES_ITER_T_2 );
   }
 
@@ -645,10 +645,10 @@ test_footer_fused_matches_sequential( fd_svm_mini_t * mini ) {
     ulong vs_fork = fd_vote_stakes_init( vote_stakes, 1UL );
     for( ulong i=0UL; i<FUSED_KEY_CNT; i++ ) {
       double u = fd_rng_double_o( rng );
-      fd_vote_stakes_snap_insert_t_2( vote_stakes, vs_fork, vote+i, identity+i, 1000UL+(ulong)( 1e9*u*u*u ), 0U, bls[i] );
+      fd_vote_stakes_snap_insert_t_2( vote_stakes, vs_fork, vote+i, identity+i, 1000UL+(ulong)( 1e9*u*u*u ), 0U, bls[i], FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL );
       if( !fd_rng_uint_roll( rng, 8U ) ) continue;
       u = fd_rng_double_o( rng );
-      fd_vote_stakes_snap_insert_t_n( vote_stakes, vs_fork, 3UL, vote+i, identity+i, 1000UL+(ulong)( 1e9*u*u*u ), 0U, bls[i] );
+      fd_vote_stakes_snap_insert_t_n( vote_stakes, vs_fork, 3UL, vote+i, identity+i, 1000UL+(ulong)( 1e9*u*u*u ), 0U, bls[i], FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL );
     }
     fd_vote_stakes_finalize( vote_stakes, vs_fork, FD_VOTE_STAKES_ITER_T_2 );
     fd_vote_stakes_finalize( vote_stakes, vs_fork, FD_VOTE_STAKES_ITER_T_3 );
@@ -819,7 +819,7 @@ test_footer_vote_account_acquire( fd_svm_mini_t * mini ) {
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
   fd_vote_stakes_reset( vote_stakes );
   ulong vs_fork = fd_vote_stakes_init( vote_stakes, 1UL );
-  for( ulong i=0UL; i<ACQ_KEY_CNT; i++ ) fd_vote_stakes_snap_insert_t_2( vote_stakes, vs_fork, vote+i, identity+i, 1000UL*(i+1UL), 0U, bls[i] );
+  for( ulong i=0UL; i<ACQ_KEY_CNT; i++ ) fd_vote_stakes_snap_insert_t_2( vote_stakes, vs_fork, vote+i, identity+i, 1000UL*(i+1UL), 0U, bls[i], FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL );
   fd_vote_stakes_finalize( vote_stakes, vs_fork, FD_VOTE_STAKES_ITER_T_2 );
   FD_FEATURE_SET_ACTIVE( &bank->f.features, alpenglow, 0UL );
   bank->vote_stakes_fork_id = vs_fork;
@@ -982,9 +982,9 @@ test_alpenglow_reward_uses_vote_credits( fd_svm_mini_t * mini ) {
   fd_vote_stakes_reset( vote_stakes );
   epoch_bank->vote_stakes_fork_id = fd_vote_stakes_init( vote_stakes, epoch_bank->f.epoch );
   uchar no_bls[ FD_BLS_PUBKEY_COMPRESSED_SZ ] = {0};
-  fd_vote_stakes_snap_insert_t_1( vote_stakes, epoch_bank->vote_stakes_fork_id, &vote_key, &identity_key, 1000000000UL,    0U, no_bls );
-  fd_vote_stakes_snap_insert_t_2( vote_stakes, epoch_bank->vote_stakes_fork_id, &vote_key, &identity_key, 1000000000UL,    0U, no_bls );
-  fd_vote_stakes_snap_insert_t_n( vote_stakes, epoch_bank->vote_stakes_fork_id, 3UL, &vote_key, &identity_key, 1000000000UL, 1234U, no_bls );
+  fd_vote_stakes_snap_insert_t_1( vote_stakes, epoch_bank->vote_stakes_fork_id, &vote_key, &identity_key, 1000000000UL,    0U, no_bls, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL );
+  fd_vote_stakes_snap_insert_t_2( vote_stakes, epoch_bank->vote_stakes_fork_id, &vote_key, &identity_key, 1000000000UL,    0U, no_bls, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL );
+  fd_vote_stakes_snap_insert_t_n( vote_stakes, epoch_bank->vote_stakes_fork_id, 3UL, &vote_key, &identity_key, 1000000000UL, 1234U, no_bls, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL );
 
   FD_FEATURE_SET_ACTIVE( &epoch_bank->f.features, delay_commission_updates, 0UL );
   fd_stake_rewards_clear( fd_bank_stake_rewards_modify( epoch_bank ) );
@@ -3975,9 +3975,9 @@ test_simd0123_sweep_and_distribute( fd_svm_mini_t * mini ) {
   FD_TEST( read_lamports( mini, epoch_fk, &fd_sysvar_epoch_rewards_id )==epoch_rewards_min_balance( epoch_bank )+pending );
 
   /* t-1 keeps the swept amount for the per-stake calculation. */
-  ulong t_1_pending = 0UL;
-  FD_TEST( fd_vote_stakes_query_block_revenue_t_1( fd_bank_vote_stakes( epoch_bank ), epoch_bank->vote_stakes_fork_id, &vote_key, NULL, &t_1_pending ) );
-  FD_TEST( t_1_pending==pending );
+  fd_vote_stakes_ele_t t_1_ele[1];
+  FD_TEST( fd_vote_stakes_query_t_1( fd_bank_vote_stakes( epoch_bank ), epoch_bank->vote_stakes_fork_id, &vote_key, t_1_ele ) );
+  FD_TEST( t_1_ele->pending_delegator_rewards==pending );
 
   fd_stake_rewards_t * stake_rewards   = fd_bank_stake_rewards_modify( epoch_bank );
   ulong                inflation_total = fd_stake_rewards_total_rewards( stake_rewards, epoch_bank->stake_rewards_fork_id );
@@ -4099,8 +4099,8 @@ test_simd0123_unadmitted_vote_account_burns( fd_svm_mini_t * mini ) {
   fd_accdb_fork_id_t epoch_fk   = fd_svm_mini_fork_id( mini, epoch_idx );
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( epoch_bank );
-  FD_TEST(  fd_vote_stakes_query_t_1( vote_stakes, epoch_bank->vote_stakes_fork_id, &vote_0, NULL, NULL, NULL ) );
-  FD_TEST( !fd_vote_stakes_query_t_1( vote_stakes, epoch_bank->vote_stakes_fork_id, &vote_1, NULL, NULL, NULL ) );
+  FD_TEST(  fd_vote_stakes_query_t_1( vote_stakes, epoch_bank->vote_stakes_fork_id, &vote_0, NULL ) );
+  FD_TEST( !fd_vote_stakes_query_t_1( vote_stakes, epoch_bank->vote_stakes_fork_id, &vote_1, NULL ) );
 
   FD_TEST( read_lamports( mini, epoch_fk, &vote_1 )==vote_1_before-pending );
   FD_TEST( read_vote_pending( mini, epoch_fk, &vote_1 )==0UL );
@@ -4150,9 +4150,9 @@ test_simd0123_zero_reward_stake_keeps_lamports( fd_svm_mini_t * mini ) {
   fd_bank_t *        epoch_bank = fd_svm_mini_bank( mini, epoch_idx );
   fd_accdb_fork_id_t epoch_fk   = fd_svm_mini_fork_id( mini, epoch_idx );
 
-  ulong stake_t_1 = 0UL;
-  FD_TEST( fd_vote_stakes_query_t_1( fd_bank_vote_stakes( epoch_bank ), epoch_bank->vote_stakes_fork_id, &vote_0, NULL, &stake_t_1, NULL ) );
-  FD_TEST( stake_t_1>0UL );
+  fd_vote_stakes_ele_t t_1_ele[1];
+  FD_TEST( fd_vote_stakes_query_t_1( fd_bank_vote_stakes( epoch_bank ), epoch_bank->vote_stakes_fork_id, &vote_0, t_1_ele ) );
+  FD_TEST( t_1_ele->stake>0UL );
 
   FD_TEST( read_lamports( mini, epoch_fk, &vote_0 )==vote_0_before-vat );
   FD_TEST( read_vote_pending( mini, epoch_fk, &vote_0 )==0UL );
@@ -4160,7 +4160,7 @@ test_simd0123_zero_reward_stake_keeps_lamports( fd_svm_mini_t * mini ) {
   fd_stake_rewards_t * stake_rewards = fd_bank_stake_rewards_modify( epoch_bank );
   FD_TEST( fd_stake_rewards_total_block_rewards( stake_rewards, epoch_bank->stake_rewards_fork_id )==0UL );
 
-  FD_LOG_NOTICE(( "test_simd0123_zero_reward_stake_keeps_lamports: PASSED (stake_t_1=%lu)", stake_t_1 ));
+  FD_LOG_NOTICE(( "test_simd0123_zero_reward_stake_keeps_lamports: PASSED (stake_t_1=%lu)", t_1_ele->stake ));
 }
 
 /* Without the feature the pending field and the balance are untouched
