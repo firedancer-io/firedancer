@@ -15,7 +15,6 @@
 FD_IMPORT_BINARY( sample_vote, "src/disco/pack/sample_vote.bin" );
 
 #define FD_PACK_TEST_MAX_COST_PER_BLOCK 48000000
-#define FD_PACK_TEST_MAX_VOTE_COST_PER_BLOCK 36000000
 #define FD_PACK_TEST_MAX_WRITE_COST_PER_ACCT 12000000
 
 #define MAX_TEST_TXNS (1024UL)
@@ -64,7 +63,6 @@ init_all( ulong pack_depth,
           pack_outcome_t * outcome     ) {
   fd_pack_limits_t limits[1] = { {
     .max_cost_per_block        = FD_PACK_TEST_MAX_COST_PER_BLOCK,
-    .max_vote_cost_per_block   = FD_PACK_TEST_MAX_VOTE_COST_PER_BLOCK,
     .max_write_cost_per_acct   = FD_PACK_TEST_MAX_WRITE_COST_PER_ACCT,
     .max_data_bytes_per_block  = MAX_DATA_PER_BLOCK,
     .max_txn_per_microblock    = max_txn_per_microblock,
@@ -693,7 +691,6 @@ performance_test2( void ) {
 
   fd_pack_limits_t limits[ 1 ] = { {
       .max_cost_per_block        = 1000000000,
-      .max_vote_cost_per_block   = 0UL,
       .max_write_cost_per_acct   = FD_PACK_TEST_MAX_WRITE_COST_PER_ACCT,
       .max_data_bytes_per_block  = ULONG_MAX/2UL,
       .max_txn_per_microblock    = MAX_TXN_PER_MICROBLOCK,
@@ -801,7 +798,6 @@ void performance_test( int extra_bench ) {
   for( ulong heap_sz=16UL; heap_sz<=max_heap_sz; heap_sz = fd_ulong_min( heap_sz*2UL, heap_sz+linear_inc ) ) {
     fd_pack_limits_t limits[ 1 ] = { {
         .max_cost_per_block        = FD_PACK_TEST_MAX_COST_PER_BLOCK,
-        .max_vote_cost_per_block   = 0UL,
         .max_write_cost_per_acct   = FD_PACK_TEST_MAX_WRITE_COST_PER_ACCT,
         .max_data_bytes_per_block  = ULONG_MAX/2UL,
         .max_txn_per_microblock    = 3UL,
@@ -968,7 +964,6 @@ void performance_end_block( void ) {
 
   fd_pack_limits_t limits[ 1 ] = { {
     .max_cost_per_block          = 13UL*FD_PACK_TEST_MAX_COST_PER_BLOCK,
-      .max_vote_cost_per_block   = 0UL,
       .max_write_cost_per_acct   = FD_PACK_TEST_MAX_WRITE_COST_PER_ACCT,
       .max_data_bytes_per_block  = ULONG_MAX/2UL,
       .max_txn_per_microblock    = MAX_TXN_PER_MICROBLOCK,
@@ -1107,7 +1102,7 @@ test_limits( void ) {
 
   /* All votes have the same cost estimate, which is determined by the
      cost model (i.e. fd_pack_compute_cost) */
-  uint  _flags;
+  uint  _flags = 0U;;
   make_vote_transaction( 0UL );
   ulong const vote_cost = fd_pack_compute_cost( TXN( &txnp_scratch[ 0 ] ), txnp_scratch[ 0 ].payload, &_flags, NULL, NULL, NULL, NULL, NULL );
   FD_TEST( vote_cost && vote_cost<=FD_PACK_MAX_SIMPLE_VOTE_COST );
@@ -1122,34 +1117,12 @@ test_limits( void ) {
       insert( i, pack );
     }
 
-    /* Test that as we gradually increase the CU limit, the correct number of votes get scheduled.
-       After 33 iterations we start hitting FD_PACK_TEST_MAX_VOTE_COST_PER_BLOCK. */
+    /* Test that as we gradually increase the CU limit, the correct number of votes get scheduled. */
     for( ulong cu_limit=0UL; cu_limit<33UL*vote_cost; cu_limit += vote_cost ) {
       schedule_validate_microblock( pack, cu_limit, cu_limit/vote_cost, 0UL, 0UL, &outcome );
     }
     /* sum_{x=0}^32 x = 528, so there should be 496 transactions left */
     FD_TEST( fd_pack_avail_txn_cnt( pack )==496UL );
-  }
-
-
-  /* Test the block vote limit */
-  if( 1 ) {
-    fd_pack_t * pack = init_all( 1024UL, 1UL, 1024UL, &outcome );
-
-    for( ulong j=0UL; j<FD_PACK_TEST_MAX_VOTE_COST_PER_BLOCK/(1024UL*vote_cost); j++ ) {
-      for( ulong i=0UL; i<1024UL; i++ ) { make_vote_transaction( i ); insert( i, pack ); }
-      schedule_validate_microblock( pack, FD_PACK_TEST_MAX_COST_PER_BLOCK, 1024UL, 0UL, 0UL, &outcome );
-    }
-
-    for( ulong i=0UL; i<1024UL; i++ ) { make_vote_transaction( i ); insert( i, pack ); }
-    ulong consumed_cost = (1024UL*vote_cost)*(FD_PACK_TEST_MAX_VOTE_COST_PER_BLOCK/(1024UL*vote_cost));
-    ulong expected_votes = (FD_PACK_TEST_MAX_VOTE_COST_PER_BLOCK-consumed_cost)/vote_cost;
-
-    schedule_validate_microblock( pack, FD_PACK_TEST_MAX_COST_PER_BLOCK, expected_votes, 0UL, 0UL, &outcome );
-    FD_TEST( fd_pack_avail_txn_cnt( pack )==1024UL-expected_votes );
-
-    fd_pack_end_block( pack );
-    schedule_validate_microblock( pack, FD_PACK_TEST_MAX_COST_PER_BLOCK, 1024UL-expected_votes, 0UL, 0UL, &outcome );
   }
 
 
@@ -1496,7 +1469,6 @@ test_reject_blocklist( void ) {
 
   fd_pack_limits_t limits[1] = { {
     .max_cost_per_block        = FD_PACK_TEST_MAX_COST_PER_BLOCK,
-    .max_vote_cost_per_block   = FD_PACK_TEST_MAX_VOTE_COST_PER_BLOCK,
     .max_write_cost_per_acct   = FD_PACK_TEST_MAX_WRITE_COST_PER_ACCT,
     .max_data_bytes_per_block  = MAX_DATA_PER_BLOCK,
     .max_txn_per_microblock    = 128UL,
