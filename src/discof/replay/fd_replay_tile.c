@@ -4794,7 +4794,6 @@ snapmk_start( fd_replay_tile_t *  ctx,
   /* Snapmk reads the bank's epoch credits in place, so they stay
      pinned in memory until snapmk_done. */
   FD_TEST( fd_epoch_credits_view_init( ctx->snapmk.epoch_credits_view, fd_bank_epoch_credits( bank ), bank->epoch_credits_fork_id ) );
-  fd_vote_stakes_view_init( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id );
 
   /* Send SNAP_START message to snapmk. */
   fd_pubkey_t const * leader = fd_epoch_leaders_get( fd_bank_epoch_leaders_query( bank, bank->f.epoch ), bank->f.slot );
@@ -4857,7 +4856,6 @@ snapmk_done( fd_replay_tile_t *  ctx,
   }
 
   fd_epoch_credits_view_fini( ctx->snapmk.epoch_credits_view );
-  fd_vote_stakes_view_fini( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id );
   bank->refcnt--;
   ctx->snapmk.active = 0;
 }
