@@ -107,6 +107,7 @@ FD_STATIC_ASSERT( sizeof(fork_pool_ele_t)==12UL, fork_pool_ele_size );
 
 /* A live parent is a fork index or USHORT_MAX for the rooted state. */
 #define FORK_PARENT_FREE ((ushort)FD_STAKE_DELEGATIONS_FORK_MAX)
+FD_STATIC_ASSERT( FD_STAKE_DELEGATIONS_FORK_MAX<USHORT_MAX, fork_idx_width );
 
 #define POOL_NAME  fork_pool
 #define POOL_T     fork_pool_ele_t

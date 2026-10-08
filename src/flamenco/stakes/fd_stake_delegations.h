@@ -67,7 +67,7 @@
    max_disk_records. */
 
 #define FD_STAKE_DELEGATIONS_ALIGN              (128UL)
-#define FD_STAKE_DELEGATIONS_FORK_MAX           (4096UL)
+#define FD_STAKE_DELEGATIONS_FORK_MAX           (65534UL)
 #define FD_STAKE_DELEGATIONS_DELTA_POOL_DIVISOR (2UL)
 
 /* 123454 is vote stakes, 123455 is cost tracker, 123456 is epoch
