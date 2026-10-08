@@ -1539,7 +1539,6 @@ after_credit( fd_snapmk_t *       ctx,
       ev->duration_compress_nanos   = fd_metrics_convert_ticks_to_nanoseconds( compress_ticks   );
       ev->duration_io_blocked_nanos = fd_metrics_convert_ticks_to_nanoseconds( io_blocked_ticks );
 
-      fd_vote_stakes_view_fini( fd_bank_vote_stakes( ctx->bank ), ctx->bank->vote_stakes_fork_id );
       snapmk_msg_publish( ctx, stem, FD_SNAPMK_MSG_CREATED );
       fd_event_report_snapshot_created( ev );
 
@@ -1801,7 +1800,6 @@ snap_start( fd_snapmk_t *                  ctx,
   /* misc */
 
   ctx->leader = msg->leader;
-  fd_vote_stakes_view_init( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id );
   fd_ssmanifest_writer_init( ctx->manifest_writer, bank, &ctx->leader, ctx->accdb, root_fork_id, ctx->raw );
 
   /* accdb cache/disk parsers */

@@ -99,6 +99,7 @@ fd_ssmanifest_writer_init( fd_ssmanifest_writer_t * enc,
     map->node_cnt = 0UL;
     if( iter_kind>FD_VOTE_STAKES_ITER_T_3 ) continue;
 
+    if( iter_kind==FD_VOTE_STAKES_ITER_T_1 ) fd_vote_stakes_view_init( vote_stakes, fork_id );
     for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, fork_id, iter_kind, enc->vote_stakes_iter_mem );
          !fd_vote_stakes_iter_done( vote_stakes, fork_id, iter_kind, iter );
          fd_vote_stakes_iter_next( vote_stakes, fork_id, iter_kind, iter ) ) {
@@ -121,6 +122,7 @@ fd_ssmanifest_writer_init( fd_ssmanifest_writer_t * enc,
       }
       map->vote_cnt++;
     }
+    if( iter_kind==FD_VOTE_STAKES_ITER_T_1 ) fd_vote_stakes_view_fini( vote_stakes, fork_id );
 
     sort_epoch_vote_by_node_inplace( map->vote, map->vote_cnt );
     for( ulong i=0UL; i<map->vote_cnt; i++ ) {

@@ -168,6 +168,7 @@ ENCODE_FN {
     int   iter_kind = epoch_stakes_iter_kind( bank, enc->epoch_idx );
     fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
     ulong              fork_id     = bank->vote_stakes_fork_id;
+    if( iter_kind==FD_VOTE_STAKES_ITER_T_1 ) fd_vote_stakes_view_init( vote_stakes, fork_id );
 
     uint vote_cnt = 0U;
     for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, fork_id, iter_kind, enc->vote_stakes_iter_mem );
@@ -290,6 +291,9 @@ ENCODE_FN {
   }
   case STATE_EPOCH_STAKES_EPOCH: {
     ulong epoch_key = epoch_stakes_key( bank, enc->epoch_idx );
+    if( epoch_stakes_iter_kind( bank, enc->epoch_idx )==FD_VOTE_STAKES_ITER_T_1 ) {
+      fd_vote_stakes_view_fini( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id );
+    }
 
     PUSH_VAL( ulong, 0UL       ); /* stake_delegations_length = 0 */
     PUSH_VAL( ulong, 0UL       ); /* unused */
