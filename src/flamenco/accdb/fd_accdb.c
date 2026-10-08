@@ -4000,6 +4000,94 @@ fd_accdb_lamports( fd_accdb_t *       accdb,
   return result;
 }
 
+/* Dirty lines are staged in the bounce buffer and written with one
+   pwritev2 per batch, so the kernel's inode lock is taken once per
+   batch instead of once per account.  Evictions are performed
+   per-class in batches of up to PREEVICT_TICK_BUDGET records.  While
+   a line sits in a batch its account can be read neither from the
+   cache nor from disk, so a reader waits for the batch write to
+   finish. */
+
+#define PREEVICT_TICK_BUDGET (256UL)
+
+/* cache_line_free invalidates a claimed line and returns it to its
+   class free list. */
+
+static inline void
+cache_line_free( fd_accdb_t *            accdb,
+                 ulong                   size_class,
+                 fd_accdb_cache_line_t * line ) {
+  line->persisted      = 1;
+  line->acc_idx        = UINT_MAX;
+  line->key.generation = UINT_MAX;
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( line->refcnt ) = 0;
+  cache_free_push( accdb, size_class, line );
+}
+
+static void
+preevict_flush( fd_accdb_t *             accdb,
+                ulong                    size_class,
+                fd_accdb_cache_line_t ** pend_line,
+                ulong const *            pend_sz,
+                ulong                    pend_cnt,
+                ulong                    stage_sz ) {
+  fd_accdb_shmem_t * shmem = accdb->shmem;
+
+  /* advertise to external observers that writes are in progress */
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( *accdb->my_epoch_slot ) = FD_VOLATILE_CONST( shmem->epoch );
+  FD_HW_MFENCE();
+
+  fd_racesan_hook( "preevict:pre_synth" );
+
+  /* Swap every old offset to FD_ACCDB_OFF_INVAL before the write so
+     that a concurrent compaction CAS (old_offset -> dest_offset)
+     cannot succeed between our read and our later store of the new
+     offset.  Otherwise compaction could relocate a record and our
+     plain store would overwrite the relocated offset, leaving the
+     compaction destination as unreachable dead space. */
+  ulong freed = 0UL;
+  for( ulong i=0UL; i<pend_cnt; i++ ) {
+    fd_accdb_accmeta_t * accmeta = &accdb->acc_pool[ pend_line[ i ]->acc_idx ];
+    ulong old_offset = fd_accdb_acc_xchg_offset( accmeta, FD_ACCDB_OFF_INVAL );
+    if( FD_UNLIKELY( old_offset!=FD_ACCDB_OFF_INVAL ) ) {
+      fd_accdb_shmem_bytes_freed( shmem, old_offset, pend_sz[ i ] );
+      freed += pend_sz[ i ];
+    }
+  }
+  FD_ATOMIC_FETCH_AND_SUB( &shmem->shmetrics->disk_used_bytes, freed );
+
+  ulong file_off = allocate_next_write( accdb, stage_sz );
+  ulong written  = 0UL;
+  while( written<stage_sz ) {
+    struct iovec iov = { .iov_base = accdb->bounce+written, .iov_len = stage_sz-written };
+    long result = pwritev2( accdb->fd, &iov, 1, (long)(file_off+written), 0 );
+    if( FD_UNLIKELY( result==-1 && errno==EINTR ) ) continue;
+    else if( FD_UNLIKELY( result<=0 ) ) FD_LOG_ERR(( "pwritev2() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+    written += (ulong)result;
+    accdb->metrics->bytes_written += (ulong)result;
+    accdb->metrics->write_ops++;
+  }
+  FD_ATOMIC_FETCH_AND_ADD( &shmem->shmetrics->disk_used_bytes, stage_sz );
+
+  FD_COMPILER_MFENCE();
+  ulong off = file_off;
+  for( ulong i=0UL; i<pend_cnt; i++ ) {
+    fd_accdb_cache_line_t * line    = pend_line[ i ];
+    fd_accdb_accmeta_t *    accmeta = &accdb->acc_pool[ line->acc_idx ];
+    accmeta->offset_fork = fd_accdb_acc_pack_offset_fork( off, fd_accdb_acc_fork_id( accmeta ) );
+    off += pend_sz[ i ];
+    FD_COMPILER_MFENCE();
+    cache_line_free( accdb, size_class, line );
+  }
+  accdb->metrics->accounts_preevicted                         += pend_cnt;
+  accdb->metrics->accounts_preevicted_per_class[ size_class ] += pend_cnt;
+
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
+}
+
 /* cache_bg_evict pre-evicts cache lines in the background to keep the
    per-class CAS free lists populated ahead of demand.  For each class
   whose immediately available capacity has dropped below low_water,
@@ -4028,18 +4116,27 @@ background_preevict( fd_accdb_t * accdb,
                      int          force ) {
   fd_accdb_shmem_t * shmem = accdb->shmem;
 
-  for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
-    ulong target = shmem->cache_free_target[ c ];
-    ulong max_c  = shmem->cache_class_max[ c ];
-    ulong init   = fd_ulong_min( FD_VOLATILE_CONST( shmem->cache_class_init[ c ].val ), max_c );
-    ulong freec  = FD_VOLATILE_CONST( shmem->cache_free_cnt[ c ].val );
+  /* A batch has to fit the bounce buffer and one disk partition. */
+  FD_TEST( accdb->bounce );
+  ulong batch_max = fd_ulong_min( FD_ACCDB_BOUNCE_SZ, shmem->partition_sz );
+
+  fd_accdb_cache_line_t * pend_line[ PREEVICT_TICK_BUDGET ];
+  ulong                   pend_sz  [ PREEVICT_TICK_BUDGET ];
+  ulong                   pend_cnt = 0UL;
+  ulong                   stage_sz = 0UL;
+
+  for( ulong size_class=0UL; size_class<FD_ACCDB_CACHE_CLASS_CNT; size_class++ ) {
+    ulong target = shmem->cache_free_target[ size_class ];
+    ulong max_c  = shmem->cache_class_max[ size_class ];
+    ulong init   = fd_ulong_min( FD_VOLATILE_CONST( shmem->cache_class_init[ size_class ].val ), max_c );
+    ulong freec  = FD_VOLATILE_CONST( shmem->cache_free_cnt[ size_class ].val );
     ulong live   = init>freec ? init-freec : 0UL;
     ulong avail  = max_c-live;
-    if( FD_LIKELY( !force && avail>=shmem->cache_free_low_water[ c ] ) ) continue;
+    if( FD_LIKELY( !force && avail>=shmem->cache_free_low_water[ size_class ] ) ) continue;
 
     *charge_busy = 1;
 
-    ulong budget  = force ? init : 256UL;
+    ulong budget  = force ? init : PREEVICT_TICK_BUDGET;
     ulong evicted = 0UL;
     if( FD_UNLIKELY( force ) ) target = max_c; /* sweep everything */
 
@@ -4048,12 +4145,12 @@ background_preevict( fd_accdb_t * accdb,
          may transiently exceed max_c during the acquire_cache_line
          overflow/undo path, so clamp it before using it as the wrap
          bound. */
-      init = fd_ulong_min( FD_VOLATILE_CONST( shmem->cache_class_init[ c ].val ), max_c );
+      init = fd_ulong_min( FD_VOLATILE_CONST( shmem->cache_class_init[ size_class ].val ), max_c );
       if( FD_UNLIKELY( !init ) ) break;
 
-      ulong hand = FD_ATOMIC_FETCH_AND_ADD( &shmem->clock_hand[ c ].val, 1UL ) % init;
+      ulong hand = FD_ATOMIC_FETCH_AND_ADD( &shmem->clock_hand[ size_class ].val, 1UL ) % init;
 
-      fd_accdb_cache_line_t * line = cache_line( accdb, c, hand );
+      fd_accdb_cache_line_t * line = cache_line( accdb, size_class, hand );
 
       if( FD_UNLIKELY( line->key.generation==UINT_MAX && line->acc_idx==UINT_MAX ) ) continue;
 
@@ -4077,88 +4174,47 @@ background_preevict( fd_accdb_t * accdb,
       uint line_gen FD_FN_UNUSED = line->key.generation;
 #endif
       if( FD_LIKELY( acc_idx!=UINT_MAX ) ) {
-        evict_clear_acc_cache_ref( &accdb->acc_pool[ acc_idx ], c, hand );
+        evict_clear_acc_cache_ref( &accdb->acc_pool[ acc_idx ], size_class, hand );
       }
       line->key.generation = UINT_MAX;
-      if( FD_UNLIKELY( !line->persisted && acc_idx!=UINT_MAX ) ) {
-        fd_accdb_accmeta_t * accmeta = &accdb->acc_pool[ acc_idx ];
+      if( FD_UNLIKELY( line->persisted || acc_idx==UINT_MAX ) ) {
+        cache_line_free( accdb, size_class, line );
+        evicted++;
+        continue;
+      }
 
-        /* advertise to external observers that write is in progress */
-        FD_COMPILER_MFENCE();
-        FD_VOLATILE( *accdb->my_epoch_slot ) = FD_VOLATILE_CONST( accdb->shmem->epoch );
-        FD_HW_MFENCE();
-
-        fd_racesan_hook( "preevict:pre_synth" );
+      fd_accdb_accmeta_t * accmeta = &accdb->acc_pool[ acc_idx ];
 #if FD_TMPL_USE_HANDHOLDING
-        FD_TEST( line_gen==accmeta->key.generation &&
-                 !memcmp( line->key.pubkey, accmeta->key.pubkey, 32UL ) );
+      FD_TEST( line_gen==accmeta->key.generation &&
+               !memcmp( line->key.pubkey, accmeta->key.pubkey, 32UL ) );
 #endif
-        ulong entry_sz = sizeof(fd_accdb_disk_meta_t)+(ulong)FD_ACCDB_SIZE_DATA( accmeta->executable_size );
+      uint  data_sz  = FD_ACCDB_SIZE_DATA( accmeta->executable_size );
+      ulong entry_sz = sizeof(fd_accdb_disk_meta_t)+data_sz;
 
-        /* Atomically swap the old offset to FD_ACCDB_OFF_INVAL so that
-           a concurrent compaction CAS (old_offset -> dest_offset)
-           cannot succeed between our read and our later store of
-           the new file_off.  Without the exchange, compaction could
-           relocate the record, then our plain store would overwrite
-           the relocated offset, leaving the compaction destination
-           as unreachable dead space whose bytes are never freed. */
-        ulong old_offset = fd_accdb_acc_xchg_offset( accmeta, FD_ACCDB_OFF_INVAL );
-        if( FD_LIKELY( old_offset!=FD_ACCDB_OFF_INVAL ) ) {
-          fd_accdb_shmem_bytes_freed( shmem, old_offset, entry_sz );
-          FD_ATOMIC_FETCH_AND_SUB( &shmem->shmetrics->disk_used_bytes, entry_sz );
-        }
-
-        fd_accdb_disk_meta_t meta;
-        fd_memcpy( meta.pubkey, accmeta->key.pubkey, 32UL );
-        meta.size       = FD_ACCDB_SIZE_DATA( accmeta->executable_size );
-        meta.generation = accmeta->key.generation;
-        fd_memcpy( meta.owner, line->owner, 32UL );
-
-        struct iovec iovs[ 2UL ] = {
-          { .iov_base = &meta,              .iov_len = sizeof(fd_accdb_disk_meta_t) },
-          { .iov_base = (void *)(line+1UL), .iov_len = FD_ACCDB_SIZE_DATA( accmeta->executable_size ) }
-        };
-
-        ulong file_off = allocate_next_write( accdb, entry_sz );
-        ulong written = 0UL;
-        while( written<entry_sz ) {
-          long result = pwritev2( accdb->fd, iovs, 2, (long)(file_off+written), 0 );
-          if( FD_UNLIKELY( result==-1 && errno==EINTR ) ) continue;
-          else if( FD_UNLIKELY( result<=0 ) ) FD_LOG_ERR(( "pwritev2() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
-          written += (ulong)result;
-          accdb->metrics->bytes_written += (ulong)result;
-          accdb->metrics->write_ops++;
-
-          for( int v=0; v<2; v++ ) {
-            if( (ulong)result>=iovs[ v ].iov_len ) {
-              result -= (long)iovs[ v ].iov_len;
-              iovs[ v ].iov_len = 0UL;
-            } else {
-              iovs[ v ].iov_base = (uchar *)iovs[ v ].iov_base + result;
-              iovs[ v ].iov_len -= (ulong)result;
-              break;
-            }
-          }
-        }
-
-        FD_COMPILER_MFENCE();
-        accmeta->offset_fork = fd_accdb_acc_pack_offset_fork( file_off, fd_accdb_acc_fork_id(accmeta) );
-        FD_ATOMIC_FETCH_AND_ADD( &shmem->shmetrics->disk_used_bytes, entry_sz );
-
-        accdb->metrics->accounts_preevicted++;
-        accdb->metrics->accounts_preevicted_per_class[ c ]++;
-
-        FD_COMPILER_MFENCE();
-        FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
+      if( FD_UNLIKELY( stage_sz+entry_sz>batch_max || pend_cnt==PREEVICT_TICK_BUDGET ) ) {
+        preevict_flush( accdb, size_class, pend_line, pend_sz, pend_cnt, stage_sz );
+        pend_cnt = 0UL;
+        stage_sz = 0UL;
       }
 
-      line->persisted      = 1;
-      line->acc_idx        = UINT_MAX;
-      line->key.generation = UINT_MAX;
-      FD_COMPILER_MFENCE();
-      FD_VOLATILE( line->refcnt ) = 0;
-      cache_free_push( accdb, c, line );
+      fd_accdb_disk_meta_t * meta = (fd_accdb_disk_meta_t *)( accdb->bounce+stage_sz );
+      fd_memcpy( meta->pubkey, accmeta->key.pubkey, 32UL );
+      meta->size       = data_sz;
+      meta->generation = accmeta->key.generation;
+      fd_memcpy( meta->owner, line->owner, 32UL );
+      fd_memcpy( meta+1, line+1UL, data_sz );
+
+      pend_line[ pend_cnt ] = line;
+      pend_sz  [ pend_cnt ] = entry_sz;
+      pend_cnt++;
+      stage_sz += entry_sz;
       evicted++;
+    }
+
+    if( pend_cnt ) {
+      preevict_flush( accdb, size_class, pend_line, pend_sz, pend_cnt, stage_sz );
+      pend_cnt = 0UL;
+      stage_sz = 0UL;
     }
   }
 }
