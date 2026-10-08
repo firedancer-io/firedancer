@@ -278,6 +278,29 @@
             }
         },
         "store_fec_sync_spilled":       { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "FEC payloads the shred tile spilled to the store synchronously because the store RAM cache was full" },
-        "store_fec_sync_spilled_bytes": { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "FEC payload bytes the shred tile spilled to the store synchronously" }
+        "store_fec_sync_spilled_bytes": { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "FEC payload bytes the shred tile spilled to the store synchronously" },
+        "batch_age_nanos": {
+            "type": "Tuple",
+            "description": "Time from the first microblock entering a batch of our own block until the batch was shredded",
+            "fields": {
+                "b0":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[0, 10000) nanos" },
+                "b1":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[10000, 20613) nanos" },
+                "b2":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[20613, 42489) nanos" },
+                "b3":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[42489, 87582) nanos" },
+                "b4":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[87582, 180532) nanos" },
+                "b5":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[180532, 372128) nanos" },
+                "b6":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[372128, 767063) nanos" },
+                "b7":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[767063, 1581138) nanos" },
+                "b8":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1581138, 3259180) nanos" },
+                "b9":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[3259180, 6718108) nanos" },
+                "b10": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[6718108, 13847953) nanos" },
+                "b11": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[13847953, 28544615) nanos" },
+                "b12": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[28544615, 58838663) nanos" },
+                "b13": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[58838663, 121283411) nanos" },
+                "b14": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[121283411, 250000000) nanos" },
+                "b15": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[250000000, inf) nanos" },
+                "sum": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Sum of samples (nanos)" }
+            }
+        }
     }
 }

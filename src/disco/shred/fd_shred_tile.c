@@ -252,6 +252,7 @@ typedef struct {
   struct {
     fd_histf_t batch_sz[ 1 ];
     fd_histf_t batch_microblock_cnt[ 1 ];
+    fd_histf_t batch_age[ 1 ];
     fd_histf_t shredding_timing[ 1 ];
     fd_histf_t add_shred_timing[ 1 ];
     fd_histf_t fec_fallback_write_timing[ 1 ];
@@ -270,6 +271,7 @@ typedef struct {
   struct {
     ulong pos; /* in payload, range [0, FD_SHRED_BATCH_RAW_BUF_SZ-8UL) */
     ulong slot; /* set to 0 when pos==0 */
+    long  first_tick; /* when the first microblock entered the batch */
     union {
       struct {
         ulong microblock_cnt;
@@ -394,6 +396,7 @@ metrics_write( fd_shred_ctx_t * ctx ) {
   FD_MCNT_SET  ( SHRED, REPAIR_NONCE_FAILED,                 ctx->metrics->bad_nonce                              );
   FD_MCNT_SET  ( SHRED, STORE_FEC_SYNC_SPILLED,              ctx->metrics->fec_fallback_write_cnt                 );
   FD_MCNT_SET  ( SHRED, STORE_FEC_SYNC_SPILLED_BYTES,        ctx->metrics->fec_fallback_write_bytes               );
+  FD_MHIST_COPY( SHRED, BATCH_AGE_NANOS,                     ctx->metrics->batch_age                              );
 
   FD_MCNT_SET  ( SHRED, PARENT_BLOCK_ID_ZEROED, ctx->metrics->invalid_block_id_cnt         );
   FD_MCNT_SET  ( SHRED, UNCHAINED_REJECTED,     ctx->metrics->shred_rejected_unchained_cnt );
@@ -673,6 +676,7 @@ during_frag( fd_shred_ctx_t * ctx,
         /* Ugh, yet another memcpy */
         fd_memcpy_tn( ctx->pending_batch.payload + ctx->pending_batch.pos, entry, entry_sz );
       }
+      if( !ctx->pending_batch.pos ) ctx->pending_batch.first_tick = fd_tickcount();
       ctx->pending_batch.pos            += entry_sz;
       ctx->pending_batch.microblock_cnt += 1UL;
     }
@@ -727,6 +731,9 @@ alpenglow_marker:
         fd_histf_sample( ctx->metrics->batch_sz,             batch_sz /* without padding */    );
         fd_histf_sample( ctx->metrics->batch_microblock_cnt, ctx->pending_batch.microblock_cnt );
         fd_histf_sample( ctx->metrics->shredding_timing,     (ulong)shredding_timing           );
+        if( FD_LIKELY( ctx->pending_batch.microblock_cnt ) ) {
+          fd_histf_sample( ctx->metrics->batch_age, (ulong)fd_long_max( fd_tickcount()-ctx->pending_batch.first_tick, 0L ) );
+        }
       } else {
         if( FD_UNLIKELY( !writing_marker ) ) ctx->send_fec_set_cnt = 0UL; /* verbose */
 
@@ -748,6 +755,7 @@ alpenglow_marker:
         fd_memcpy_tn( is_marker ? ctx->pending_batch.raw : ctx->pending_batch.payload + 0UL /* verbose */, entry, entry_sz );
       }
       ctx->pending_batch.slot           = target_slot;
+      ctx->pending_batch.first_tick     = fd_tickcount();
       ctx->pending_batch.pos            = fd_ulong_if( is_marker, entry_sz-sizeof(ulong), entry_sz );
       ctx->pending_batch.microblock_cnt = fd_ulong_if( is_marker, 0UL, 1UL                 );
     }
@@ -1521,6 +1529,7 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_histf_join( fd_metrics_histf_new_ns( ctx->metrics->shredding_timing,     FD_MHIST_EDGES_NS( SHRED, BATCH_SHRED_DURATION_NANOS ) ) );
   fd_histf_join( fd_metrics_histf_new_ns( ctx->metrics->add_shred_timing,     FD_MHIST_EDGES_NS( SHRED, ADD_SHRED_DURATION_NANOS ) ) );
   fd_histf_join( fd_metrics_histf_new_ns( ctx->metrics->fec_fallback_write_timing, FD_MHIST_EDGES_NS( SHRED, STORE_FEC_SYNC_SPILL_DURATION_NANOS ) ) );
+  fd_histf_join( fd_metrics_histf_new_ns( ctx->metrics->batch_age,            FD_MHIST_EDGES_NS( SHRED, BATCH_AGE_NANOS ) ) );
   memset( ctx->metrics->shred_processing_result, '\0', sizeof(ctx->metrics->shred_processing_result) );
   ctx->metrics->invalid_block_id_cnt         = 0UL;
   ctx->metrics->shred_rejected_unchained_cnt = 0UL;

@@ -2236,6 +2236,526 @@ message MetricsResolvRegimeDurationNanos {
   uint64 backpressure_sleeping = 10;
 }
 
+// Time from the start of a leader slot until the first bundle arrived during it
+message MetricsPackBundleFirstArrivalOffsetNanos {
+  // [0, 100000) nanos
+  uint64 b0 = 1;
+  // [100000, 183744) nanos
+  uint64 b1 = 2;
+  // [183744, 337618) nanos
+  uint64 b2 = 3;
+  // [337618, 620351) nanos
+  uint64 b3 = 4;
+  // [620351, 1139855) nanos
+  uint64 b4 = 5;
+  // [1139855, 2094410) nanos
+  uint64 b5 = 6;
+  // [2094410, 3848343) nanos
+  uint64 b6 = 7;
+  // [3848343, 7071081) nanos
+  uint64 b7 = 8;
+  // [7071081, 12992653) nanos
+  uint64 b8 = 9;
+  // [12992653, 23873158) nanos
+  uint64 b9 = 10;
+  // [23873158, 43865380) nanos
+  uint64 b10 = 11;
+  // [43865380, 80599792) nanos
+  uint64 b11 = 12;
+  // [80599792, 148096894) nanos
+  uint64 b12 = 13;
+  // [148096894, 272118443) nanos
+  uint64 b13 = 14;
+  // [272118443, 500000000) nanos
+  uint64 b14 = 15;
+  // [500000000, inf) nanos
+  uint64 b15 = 16;
+  // Sum of samples (nanos)
+  uint64 sum = 17;
+}
+
+// Bundles that failed with an instruction error with no write to their accounts after they arrived (ExecStateOther), by the kind of transaction that last wrote one of their accounts earlier in the block, before they arrived
+message MetricsPackBundleExecStateOtherPriorWriter {
+  // Nothing in this block wrote an account the bundle uses before it arrived
+  uint64 none = 1;
+  // A normal transaction wrote it last
+  uint64 tpu = 2;
+  // Another bundle wrote it last
+  uint64 bundle = 3;
+  // A vote wrote it last
+  uint64 vote = 4;
+}
+
+// Eligible normal transactions not yet scheduled when an auction was ended by the next auction starting
+message MetricsPackAuctionRestartPendingTxn {
+  // [0, 1)
+  uint64 b0 = 1;
+  // [1, 2)
+  uint64 b1 = 2;
+  // [2, 4)
+  uint64 b2 = 3;
+  // [4, 8)
+  uint64 b3 = 4;
+  // [8, 15)
+  uint64 b4 = 5;
+  // [15, 29)
+  uint64 b5 = 6;
+  // [29, 56)
+  uint64 b6 = 7;
+  // [56, 107)
+  uint64 b7 = 8;
+  // [107, 205)
+  uint64 b8 = 9;
+  // [205, 392)
+  uint64 b9 = 10;
+  // [392, 749)
+  uint64 b10 = 11;
+  // [749, 1432)
+  uint64 b11 = 12;
+  // [1432, 2737)
+  uint64 b12 = 13;
+  // [2737, 5232)
+  uint64 b13 = 14;
+  // [5232, 10000)
+  uint64 b14 = 15;
+  // [10000, inf)
+  uint64 b15 = 16;
+  // Sum of samples
+  uint64 sum = 17;
+}
+
+// CUs scheduled to exec tiles but not yet rebated, as a percentage of the auction's CU limit, when an auction ended on its CU limit
+message MetricsPackAuctionLimitInflightPct {
+  // [0, 1) pct
+  uint64 b0 = 1;
+  // [1, 2) pct
+  uint64 b1 = 2;
+  // [2, 3) pct
+  uint64 b2 = 3;
+  // [3, 5) pct
+  uint64 b3 = 4;
+  // [5, 8) pct
+  uint64 b4 = 5;
+  // [8, 13) pct
+  uint64 b5 = 6;
+  // [13, 21) pct
+  uint64 b6 = 7;
+  // [21, 34) pct
+  uint64 b7 = 8;
+  // [34, 55) pct
+  uint64 b8 = 9;
+  // [55, 89) pct
+  uint64 b9 = 10;
+  // [89, 144) pct
+  uint64 b10 = 11;
+  // [144, 234) pct
+  uint64 b11 = 12;
+  // [234, 380) pct
+  uint64 b12 = 13;
+  // [380, 616) pct
+  uint64 b13 = 14;
+  // [616, 1000) pct
+  uint64 b14 = 15;
+  // [1000, inf) pct
+  uint64 b15 = 16;
+  // Sum of samples (pct)
+  uint64 sum = 17;
+}
+
+// Time while leader with the auction strategy that normal transactions were eligible and an exec tile was idle, but normal transactions were not scheduled, by reason
+message MetricsPackAuctionTxnBlockedDurationNanos {
+  // No auction has started yet in this slot
+  uint64 before_first = 1;
+  // The last auction ended on its CU limit, or the next was skipped because of it, and another auction can still start this slot
+  uint64 after_limit = 2;
+  // No auction is running and none can start before the slot ends
+  uint64 slot_tail = 3;
+  // An auction is running but the pacer has not enabled normal transactions on the idle exec tile
+  uint64 pacer = 4;
+}
+
+// Time from the TPU transaction's arrival to the bundle's arrival, for dual-lane pairs the TPU transaction won because the bundle arrived after the TPU transaction was scheduled
+message MetricsPackDualLaneTpuWonBundleLagNanos {
+  // [0, 1000) nanos
+  uint64 b0 = 1;
+  // [1000, 2683) nanos
+  uint64 b1 = 2;
+  // [2683, 7198) nanos
+  uint64 b2 = 3;
+  // [7198, 19310) nanos
+  uint64 b3 = 4;
+  // [19310, 51802) nanos
+  uint64 b4 = 5;
+  // [51802, 138967) nanos
+  uint64 b5 = 6;
+  // [138967, 372801) nanos
+  uint64 b6 = 7;
+  // [372801, 1000098) nanos
+  uint64 b7 = 8;
+  // [1000098, 2682921) nanos
+  uint64 b8 = 9;
+  // [2682921, 7197360) nanos
+  uint64 b9 = 10;
+  // [7197360, 19308057) nanos
+  uint64 b10 = 11;
+  // [19308057, 51796919) nanos
+  uint64 b11 = 12;
+  // [51796919, 138953434) nanos
+  uint64 b12 = 13;
+  // [138953434, 372764583) nanos
+  uint64 b13 = 14;
+  // [372764583, 1000000000) nanos
+  uint64 b14 = 15;
+  // [1000000000, inf) nanos
+  uint64 b15 = 16;
+  // Sum of samples (nanos)
+  uint64 sum = 17;
+}
+
+// Dual-lane pairs the TPU transaction won, by what had happened to the bundle when the TPU transaction was scheduled
+message MetricsPackDualLaneTpuWon {
+  // The bundle arrived after the TPU transaction was scheduled
+  uint64 bundle_late = 1;
+  // The bundle was in pack, unscheduled, when the TPU transaction was scheduled
+  uint64 bundle_waiting = 2;
+  // The bundle was scheduled first but did not land
+  uint64 bundle_failed = 3;
+}
+
+// Bundle lane offer as a percentage of the TPU lane offer, for dual-lane pairs the TPU transaction won
+message MetricsPackDualLaneTpuWonPricePct {
+  // [0, 1) pct
+  uint64 b0 = 1;
+  // [1, 2) pct
+  uint64 b1 = 2;
+  // [2, 5) pct
+  uint64 b2 = 3;
+  // [5, 11) pct
+  uint64 b3 = 4;
+  // [11, 25) pct
+  uint64 b4 = 5;
+  // [25, 57) pct
+  uint64 b5 = 6;
+  // [57, 131) pct
+  uint64 b6 = 7;
+  // [131, 300) pct
+  uint64 b7 = 8;
+  // [300, 688) pct
+  uint64 b8 = 9;
+  // [688, 1578) pct
+  uint64 b9 = 10;
+  // [1578, 3618) pct
+  uint64 b10 = 11;
+  // [3618, 8296) pct
+  uint64 b11 = 12;
+  // [8296, 19022) pct
+  uint64 b12 = 13;
+  // [19022, 43614) pct
+  uint64 b13 = 14;
+  // [43614, 100000) pct
+  uint64 b14 = 15;
+  // [100000, inf) pct
+  uint64 b15 = 16;
+  // Sum of samples (pct)
+  uint64 sum = 17;
+}
+
+// Bundle lane offer as a percentage of the TPU lane offer, for dual-lane pairs the bundle won
+message MetricsPackDualLaneBundleWonPricePct {
+  // [0, 1) pct
+  uint64 b0 = 1;
+  // [1, 2) pct
+  uint64 b1 = 2;
+  // [2, 5) pct
+  uint64 b2 = 3;
+  // [5, 11) pct
+  uint64 b3 = 4;
+  // [11, 25) pct
+  uint64 b4 = 5;
+  // [25, 57) pct
+  uint64 b5 = 6;
+  // [57, 131) pct
+  uint64 b6 = 7;
+  // [131, 300) pct
+  uint64 b7 = 8;
+  // [300, 688) pct
+  uint64 b8 = 9;
+  // [688, 1578) pct
+  uint64 b9 = 10;
+  // [1578, 3618) pct
+  uint64 b10 = 11;
+  // [3618, 8296) pct
+  uint64 b11 = 12;
+  // [8296, 19022) pct
+  uint64 b12 = 13;
+  // [19022, 43614) pct
+  uint64 b13 = 14;
+  // [43614, 100000) pct
+  uint64 b14 = 15;
+  // [100000, inf) pct
+  uint64 b15 = 16;
+  // Sum of samples (pct)
+  uint64 sum = 17;
+}
+
+// Lamports offered by each lane of dual-lane pairs, by winner: priority fees plus statically estimated tips. The TPU lane counts the transaction itself, the bundle lane its whole bundle. The winner's offer approximates the revenue earned
+message MetricsPackDualLaneOfferLamports {
+  // Bundle lane offer, pairs the bundle won
+  uint64 bundle_won_bundle = 1;
+  // TPU lane offer, pairs the bundle won
+  uint64 bundle_won_tpu = 2;
+  // Bundle lane offer, pairs the TPU transaction won
+  uint64 tpu_won_bundle = 3;
+  // TPU lane offer, pairs the TPU transaction won
+  uint64 tpu_won_tpu = 4;
+}
+
+// Transactions received both in a bundle and over TPU, by which copy won and the position of the slot in our leader rotation
+message MetricsPackDualLanePair {
+  // Bundle won, first slot of the leader rotation
+  uint64 bundle_won_slot0 = 1;
+  // Bundle won, second slot of the leader rotation
+  uint64 bundle_won_slot1 = 2;
+  // Bundle won, third slot of the leader rotation
+  uint64 bundle_won_slot2 = 3;
+  // Bundle won, fourth slot of the leader rotation
+  uint64 bundle_won_slot3 = 4;
+  // TPU transaction won, first slot of the leader rotation
+  uint64 tpu_won_slot0 = 5;
+  // TPU transaction won, second slot of the leader rotation
+  uint64 tpu_won_slot1 = 6;
+  // TPU transaction won, third slot of the leader rotation
+  uint64 tpu_won_slot2 = 7;
+  // TPU transaction won, fourth slot of the leader rotation
+  uint64 tpu_won_slot3 = 8;
+  // Neither landed, first slot of the leader rotation (or not leader)
+  uint64 neither_slot0 = 9;
+  // Neither landed, second slot of the leader rotation
+  uint64 neither_slot1 = 10;
+  // Neither landed, third slot of the leader rotation
+  uint64 neither_slot2 = 11;
+  // Neither landed, fourth slot of the leader rotation
+  uint64 neither_slot3 = 12;
+}
+
+// Time from the start of the current leader slot until a bundle arrived, for bundles that arrived while we were leader
+message MetricsPackBundleArrivalOffsetNanos {
+  // [0, 100000) nanos
+  uint64 b0 = 1;
+  // [100000, 183744) nanos
+  uint64 b1 = 2;
+  // [183744, 337618) nanos
+  uint64 b2 = 3;
+  // [337618, 620351) nanos
+  uint64 b3 = 4;
+  // [620351, 1139855) nanos
+  uint64 b4 = 5;
+  // [1139855, 2094410) nanos
+  uint64 b5 = 6;
+  // [2094410, 3848343) nanos
+  uint64 b6 = 7;
+  // [3848343, 7071081) nanos
+  uint64 b7 = 8;
+  // [7071081, 12992653) nanos
+  uint64 b8 = 9;
+  // [12992653, 23873158) nanos
+  uint64 b9 = 10;
+  // [23873158, 43865380) nanos
+  uint64 b10 = 11;
+  // [43865380, 80599792) nanos
+  uint64 b11 = 12;
+  // [80599792, 148096894) nanos
+  uint64 b12 = 13;
+  // [148096894, 272118443) nanos
+  uint64 b13 = 14;
+  // [272118443, 500000000) nanos
+  uint64 b14 = 15;
+  // [500000000, inf) nanos
+  uint64 b15 = 16;
+  // Sum of samples (nanos)
+  uint64 sum = 17;
+}
+
+// Time from a bundle's arrival (or the start of our next leader slot, if later) until it was scheduled
+message MetricsPackBundleQueueWaitNanos {
+  // [0, 1000) nanos
+  uint64 b0 = 1;
+  // [1000, 2683) nanos
+  uint64 b1 = 2;
+  // [2683, 7198) nanos
+  uint64 b2 = 3;
+  // [7198, 19310) nanos
+  uint64 b3 = 4;
+  // [19310, 51802) nanos
+  uint64 b4 = 5;
+  // [51802, 138967) nanos
+  uint64 b5 = 6;
+  // [138967, 372801) nanos
+  uint64 b6 = 7;
+  // [372801, 1000098) nanos
+  uint64 b7 = 8;
+  // [1000098, 2682921) nanos
+  uint64 b8 = 9;
+  // [2682921, 7197360) nanos
+  uint64 b9 = 10;
+  // [7197360, 19308057) nanos
+  uint64 b10 = 11;
+  // [19308057, 51796919) nanos
+  uint64 b11 = 12;
+  // [51796919, 138953434) nanos
+  uint64 b12 = 13;
+  // [138953434, 372764583) nanos
+  uint64 b13 = 14;
+  // [372764583, 1000000000) nanos
+  uint64 b14 = 15;
+  // [1000000000, inf) nanos
+  uint64 b15 = 16;
+  // Sum of samples (nanos)
+  uint64 sum = 17;
+}
+
+// Time the bundle at the head of the queue could not be scheduled while we were leader, by reason
+message MetricsPackBundleBlockedDurationNanos {
+  // The bundle lane was busy with votes
+  uint64 lane_vote = 1;
+  // The bundle lane was busy with normal transactions
+  uint64 lane_txn = 2;
+  // The bundle lane was busy with another bundle
+  uint64 lane_bundle = 3;
+  // The bundle lane was idle, but votes took its microblock
+  uint64 vote_preempt = 4;
+  // Waiting for the initializer bundle
+  uint64 ib_not_ready = 5;
+  // The head bundle conflicted with in-flight normal transactions
+  uint64 conflict_tpu = 6;
+  // The head bundle conflicted with an in-flight bundle
+  uint64 conflict_bundle = 7;
+  // The head bundle conflicted with in-flight votes
+  uint64 conflict_vote = 8;
+  // The head bundle did not fit in the block limits
+  uint64 does_not_fit = 9;
+}
+
+// Bundles by when they arrived relative to our leader slots, and whether they landed
+message MetricsPackBundleArrival {
+  // Arrived while not leader, before our next slot; landed
+  uint64 before_window_landed = 1;
+  // Arrived while not leader, before our next slot; did not land
+  uint64 before_window_missed = 2;
+  // Arrived in the first third of a leader slot; landed
+  uint64 early_landed = 3;
+  // Arrived in the first third of a leader slot; did not land
+  uint64 early_missed = 4;
+  // Arrived in the middle third of a leader slot; landed
+  uint64 mid_landed = 5;
+  // Arrived in the middle third of a leader slot; did not land
+  uint64 mid_missed = 6;
+  // Arrived in the last third of a leader slot; landed
+  uint64 late_landed = 7;
+  // Arrived in the last third of a leader slot; did not land
+  uint64 late_missed = 8;
+  // Arrived just after our leader rotation ended; landed
+  uint64 after_window_landed = 9;
+  // Arrived just after our leader rotation ended; did not land
+  uint64 after_window_missed = 10;
+}
+
+// Statically estimated tip lamports of bundles, by the cause they ended with. Missed tips are all causes except Landed, ExecStateBundle and DupDeleted
+message MetricsPackBundleOutcomeTipLamports {
+  // Bundle landed
+  uint64 landed = 1;
+  // Pack rejected the bundle on insertion (see TxnInserted)
+  uint64 rejected = 2;
+  // Bundle cancelled because one of its transactions never reached pack
+  uint64 partial = 3;
+  // Bundle failed with an instruction error after a normal transaction in this block wrote an account it uses, after it arrived
+  uint64 exec_state_tpu = 4;
+  // Bundle failed with an instruction error after another bundle in this block wrote an account it uses, after it arrived (lost to a competing bundle)
+  uint64 exec_state_bundle = 5;
+  // Bundle failed with an instruction error, with no such write seen in this block
+  uint64 exec_state_other = 6;
+  // Bundle failed because a transaction was already processed or its nonce already advanced
+  uint64 exec_duplicate = 7;
+  // Bundle failed in execution for another reason
+  uint64 exec_other = 8;
+  // Bundle was scheduled but its outcome was not reported
+  uint64 exec_unknown = 9;
+  // Bundle deleted because a transaction with the same signature was executed elsewhere
+  uint64 dup_deleted = 10;
+  // Never scheduled; mostly waited while the bundle lane executed votes
+  uint64 blocked_lane_vote = 11;
+  // Never scheduled; mostly waited while the bundle lane executed normal transactions
+  uint64 blocked_lane_txn = 12;
+  // Never scheduled; mostly waited while the bundle lane executed other bundles
+  uint64 blocked_lane_bundle = 13;
+  // Never scheduled; mostly waited while votes took the idle bundle lane
+  uint64 blocked_vote_preempt = 14;
+  // Never scheduled; mostly waited for the initializer bundle
+  uint64 blocked_ib_not_ready = 15;
+  // Never scheduled; mostly waited on account conflicts with in-flight normal transactions
+  uint64 blocked_conflict_tpu = 16;
+  // Never scheduled; mostly waited on account conflicts with an in-flight bundle
+  uint64 blocked_conflict_bundle = 17;
+  // Never scheduled; mostly waited on account conflicts with in-flight votes
+  uint64 blocked_conflict_vote = 18;
+  // Never scheduled; mostly waited because it did not fit in the block limits
+  uint64 blocked_does_not_fit = 19;
+  // Never scheduled; arrived after the last slot of our leader rotation ended
+  uint64 late = 20;
+  // Never scheduled; expired without waiting in a leader slot
+  uint64 expired = 21;
+  // Never scheduled; evicted to make room without waiting in a leader slot
+  uint64 evicted = 22;
+}
+
+// Bundles by the single cause they ended with: landed, or why they did not land
+message MetricsPackBundleOutcome {
+  // Bundle landed
+  uint64 landed = 1;
+  // Pack rejected the bundle on insertion (see TxnInserted)
+  uint64 rejected = 2;
+  // Bundle cancelled because one of its transactions never reached pack
+  uint64 partial = 3;
+  // Bundle failed with an instruction error after a normal transaction in this block wrote an account it uses, after it arrived
+  uint64 exec_state_tpu = 4;
+  // Bundle failed with an instruction error after another bundle in this block wrote an account it uses, after it arrived (lost to a competing bundle)
+  uint64 exec_state_bundle = 5;
+  // Bundle failed with an instruction error, with no such write seen in this block
+  uint64 exec_state_other = 6;
+  // Bundle failed because a transaction was already processed or its nonce already advanced
+  uint64 exec_duplicate = 7;
+  // Bundle failed in execution for another reason
+  uint64 exec_other = 8;
+  // Bundle was scheduled but its outcome was not reported
+  uint64 exec_unknown = 9;
+  // Bundle deleted because a transaction with the same signature was executed elsewhere
+  uint64 dup_deleted = 10;
+  // Never scheduled; mostly waited while the bundle lane executed votes
+  uint64 blocked_lane_vote = 11;
+  // Never scheduled; mostly waited while the bundle lane executed normal transactions
+  uint64 blocked_lane_txn = 12;
+  // Never scheduled; mostly waited while the bundle lane executed other bundles
+  uint64 blocked_lane_bundle = 13;
+  // Never scheduled; mostly waited while votes took the idle bundle lane
+  uint64 blocked_vote_preempt = 14;
+  // Never scheduled; mostly waited for the initializer bundle
+  uint64 blocked_ib_not_ready = 15;
+  // Never scheduled; mostly waited on account conflicts with in-flight normal transactions
+  uint64 blocked_conflict_tpu = 16;
+  // Never scheduled; mostly waited on account conflicts with an in-flight bundle
+  uint64 blocked_conflict_bundle = 17;
+  // Never scheduled; mostly waited on account conflicts with in-flight votes
+  uint64 blocked_conflict_vote = 18;
+  // Never scheduled; mostly waited because it did not fit in the block limits
+  uint64 blocked_does_not_fit = 19;
+  // Never scheduled; arrived after the last slot of our leader rotation ended
+  uint64 late = 20;
+  // Never scheduled; expired without waiting in a leader slot
+  uint64 expired = 21;
+  // Never scheduled; evicted to make room without waiting in a leader slot
+  uint64 evicted = 22;
+}
+
 // Duration that batch auctions ran for
 message MetricsPackAuctionDurationNanos {
   // [0, 10000) nanos
@@ -2856,6 +3376,16 @@ message MetricsPackRegimeDurationNanos {
   uint64 backpressure_sleeping = 10;
 }
 
+// Fees and tips of transactions committed to blocks we produced, by source
+message MetricsExecleRevenueLamports {
+  // Priority fees
+  uint64 priority_fee = 1;
+  // Execution (signature) fees, before the 50% burn
+  uint64 execution_fee = 2;
+  // Tips credited to tip accounts
+  uint64 tip = 3;
+}
+
 // Accounts not found in the account database cache and read from disk, by cache size class
 message MetricsExecleAccdbAccountCacheMissed {
   // 0-128 B
@@ -3192,6 +3722,44 @@ message MetricsExecleRegimeDurationNanos {
   uint64 caught_up_sleeping = 9;
   // Backpressure + Sleeping
   uint64 backpressure_sleeping = 10;
+}
+
+// Time from the first microblock entering a batch of our own block until the batch was shredded
+message MetricsShredBatchAgeNanos {
+  // [0, 10000) nanos
+  uint64 b0 = 1;
+  // [10000, 20613) nanos
+  uint64 b1 = 2;
+  // [20613, 42489) nanos
+  uint64 b2 = 3;
+  // [42489, 87582) nanos
+  uint64 b3 = 4;
+  // [87582, 180532) nanos
+  uint64 b4 = 5;
+  // [180532, 372128) nanos
+  uint64 b5 = 6;
+  // [372128, 767063) nanos
+  uint64 b6 = 7;
+  // [767063, 1581138) nanos
+  uint64 b7 = 8;
+  // [1581138, 3259180) nanos
+  uint64 b8 = 9;
+  // [3259180, 6718108) nanos
+  uint64 b9 = 10;
+  // [6718108, 13847953) nanos
+  uint64 b10 = 11;
+  // [13847953, 28544615) nanos
+  uint64 b11 = 12;
+  // [28544615, 58838663) nanos
+  uint64 b12 = 13;
+  // [58838663, 121283411) nanos
+  uint64 b13 = 14;
+  // [121283411, 250000000) nanos
+  uint64 b14 = 15;
+  // [250000000, inf) nanos
+  uint64 b15 = 16;
+  // Sum of samples (nanos)
+  uint64 sum = 17;
 }
 
 // Estimated time repair advanced FEC set completion: the delay from a repair-assisted completion until turbine had delivered as many shreds for that set as repair contributed. Counts arrivals rather than distinct indices, so turbine duplicates bias this low
@@ -9468,6 +10036,44 @@ message MetricsPack {
   MetricsPackAuctionEnded auction_ended = 50;
   // Duration that batch auctions ran for
   MetricsPackAuctionDurationNanos auction_duration_nanos = 51;
+  // Bundles by the single cause they ended with: landed, or why they did not land
+  MetricsPackBundleOutcome bundle_outcome = 52;
+  // Statically estimated tip lamports of bundles, by the cause they ended with. Missed tips are all causes except Landed, ExecStateBundle and DupDeleted
+  MetricsPackBundleOutcomeTipLamports bundle_outcome_tip_lamports = 53;
+  // Bundles by when they arrived relative to our leader slots, and whether they landed
+  MetricsPackBundleArrival bundle_arrival = 54;
+  // Time the bundle at the head of the queue could not be scheduled while we were leader, by reason
+  MetricsPackBundleBlockedDurationNanos bundle_blocked_duration_nanos = 55;
+  // Time from a bundle's arrival (or the start of our next leader slot, if later) until it was scheduled
+  MetricsPackBundleQueueWaitNanos bundle_queue_wait_nanos = 56;
+  // Time from the start of the current leader slot until a bundle arrived, for bundles that arrived while we were leader
+  MetricsPackBundleArrivalOffsetNanos bundle_arrival_offset_nanos = 57;
+  // Bundles excluded from bundle and dual-lane metrics because the observation table was full
+  uint64 bundle_obs_dropped = 58;
+  // Transactions received both in a bundle and over TPU, by which copy won and the position of the slot in our leader rotation
+  MetricsPackDualLanePair dual_lane_pair = 59;
+  // Lamports offered by each lane of dual-lane pairs, by winner: priority fees plus statically estimated tips. The TPU lane counts the transaction itself, the bundle lane its whole bundle. The winner's offer approximates the revenue earned
+  MetricsPackDualLaneOfferLamports dual_lane_offer_lamports = 60;
+  // Bundle lane offer as a percentage of the TPU lane offer, for dual-lane pairs the bundle won
+  MetricsPackDualLaneBundleWonPricePct dual_lane_bundle_won_price_pct = 61;
+  // Bundle lane offer as a percentage of the TPU lane offer, for dual-lane pairs the TPU transaction won
+  MetricsPackDualLaneTpuWonPricePct dual_lane_tpu_won_price_pct = 62;
+  // Dual-lane pairs the TPU transaction won, by what had happened to the bundle when the TPU transaction was scheduled
+  MetricsPackDualLaneTpuWon dual_lane_tpu_won = 63;
+  // Time from the TPU transaction's arrival to the bundle's arrival, for dual-lane pairs the TPU transaction won because the bundle arrived after the TPU transaction was scheduled
+  MetricsPackDualLaneTpuWonBundleLagNanos dual_lane_tpu_won_bundle_lag_nanos = 64;
+  // Time while leader with the auction strategy that normal transactions were eligible and an exec tile was idle, but normal transactions were not scheduled, by reason
+  MetricsPackAuctionTxnBlockedDurationNanos auction_txn_blocked_duration_nanos = 65;
+  // CUs scheduled to exec tiles but not yet rebated, as a percentage of the auction's CU limit, when an auction ended on its CU limit
+  MetricsPackAuctionLimitInflightPct auction_limit_inflight_pct = 66;
+  // Eligible normal transactions not yet scheduled when an auction was ended by the next auction starting
+  MetricsPackAuctionRestartPendingTxn auction_restart_pending_txn = 67;
+  // Bundles that failed with an instruction error with no write to their accounts after they arrived (ExecStateOther), by the kind of transaction that last wrote one of their accounts earlier in the block, before they arrived
+  MetricsPackBundleExecStateOtherPriorWriter bundle_exec_state_other_prior_writer = 68;
+  // Time from the start of a leader slot until the first bundle arrived during it
+  MetricsPackBundleFirstArrivalOffsetNanos bundle_first_arrival_offset_nanos = 69;
+  // Dual-lane table entries evicted less than a second after insertion; non-zero means some pairs can be missed
+  uint64 dual_lane_entry_evicted = 70;
 }
 
 // Metrics of one execle tile instance, one row per sweep
@@ -9594,6 +10200,8 @@ message MetricsExecle {
   uint64 accdb_disk_written = 60;
   // Account data bytes copied in memory between cache lines, staging buffers and callers; disk reads excluded
   uint64 accdb_copied_bytes = 61;
+  // Fees and tips of transactions committed to blocks we produced, by source
+  MetricsExecleRevenueLamports revenue_lamports = 62;
 }
 
 // Metrics of one shred tile instance, one row per sweep
@@ -9690,6 +10298,8 @@ message MetricsShred {
   uint64 store_fec_sync_spilled = 45;
   // FEC payload bytes the shred tile spilled to the store synchronously
   uint64 store_fec_sync_spilled_bytes = 46;
+  // Time from the first microblock entering a batch of our own block until the batch was shredded
+  MetricsShredBatchAgeNanos batch_age_nanos = 47;
 }
 
 // Metrics of one accdb tile instance, one row per sweep

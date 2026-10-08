@@ -474,6 +474,363 @@
                 "b15": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[100000000, inf) nanos" },
                 "sum": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Sum of samples (nanos)" }
             }
-        }
+        },
+        "bundle_outcome": {
+            "type": "Tuple",
+            "description": "Bundles by the single cause they ended with: landed, or why they did not land",
+            "aliases": {
+                "all": ["landed", "rejected", "partial", "exec_state_tpu", "exec_state_bundle", "exec_state_other", "exec_duplicate", "exec_other", "exec_unknown", "dup_deleted", "blocked_lane_vote", "blocked_lane_txn", "blocked_lane_bundle", "blocked_vote_preempt", "blocked_ib_not_ready", "blocked_conflict_tpu", "blocked_conflict_bundle", "blocked_conflict_vote", "blocked_does_not_fit", "late", "expired", "evicted"]
+            },
+            "fields": {
+                "landed":                  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Bundle landed" },
+                "rejected":                { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Pack rejected the bundle on insertion (see TxnInserted)" },
+                "partial":                 { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Bundle cancelled because one of its transactions never reached pack" },
+                "exec_state_tpu":          { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Bundle failed with an instruction error after a normal transaction in this block wrote an account it uses, after it arrived" },
+                "exec_state_bundle":       { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Bundle failed with an instruction error after another bundle in this block wrote an account it uses, after it arrived (lost to a competing bundle)" },
+                "exec_state_other":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Bundle failed with an instruction error, with no such write seen in this block" },
+                "exec_duplicate":          { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Bundle failed because a transaction was already processed or its nonce already advanced" },
+                "exec_other":              { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Bundle failed in execution for another reason" },
+                "exec_unknown":            { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Bundle was scheduled but its outcome was not reported" },
+                "dup_deleted":             { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Bundle deleted because a transaction with the same signature was executed elsewhere" },
+                "blocked_lane_vote":       { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Never scheduled; mostly waited while the bundle lane executed votes" },
+                "blocked_lane_txn":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Never scheduled; mostly waited while the bundle lane executed normal transactions" },
+                "blocked_lane_bundle":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Never scheduled; mostly waited while the bundle lane executed other bundles" },
+                "blocked_vote_preempt":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Never scheduled; mostly waited while votes took the idle bundle lane" },
+                "blocked_ib_not_ready":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Never scheduled; mostly waited for the initializer bundle" },
+                "blocked_conflict_tpu":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Never scheduled; mostly waited on account conflicts with in-flight normal transactions" },
+                "blocked_conflict_bundle": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Never scheduled; mostly waited on account conflicts with an in-flight bundle" },
+                "blocked_conflict_vote":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Never scheduled; mostly waited on account conflicts with in-flight votes" },
+                "blocked_does_not_fit":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Never scheduled; mostly waited because it did not fit in the block limits" },
+                "late":                    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Never scheduled; arrived after the last slot of our leader rotation ended" },
+                "expired":                 { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Never scheduled; expired without waiting in a leader slot" },
+                "evicted":                 { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Never scheduled; evicted to make room without waiting in a leader slot" }
+            }
+        },
+        "bundle_outcome_tip_lamports": {
+            "type": "Tuple",
+            "description": "Statically estimated tip lamports of bundles, by the cause they ended with. Missed tips are all causes except Landed, ExecStateBundle and DupDeleted",
+            "aliases": {
+                "all": ["landed", "rejected", "partial", "exec_state_tpu", "exec_state_bundle", "exec_state_other", "exec_duplicate", "exec_other", "exec_unknown", "dup_deleted", "blocked_lane_vote", "blocked_lane_txn", "blocked_lane_bundle", "blocked_vote_preempt", "blocked_ib_not_ready", "blocked_conflict_tpu", "blocked_conflict_bundle", "blocked_conflict_vote", "blocked_does_not_fit", "late", "expired", "evicted"]
+            },
+            "fields": {
+                "landed":                  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Bundle landed" },
+                "rejected":                { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Pack rejected the bundle on insertion (see TxnInserted)" },
+                "partial":                 { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Bundle cancelled because one of its transactions never reached pack" },
+                "exec_state_tpu":          { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Bundle failed with an instruction error after a normal transaction in this block wrote an account it uses, after it arrived" },
+                "exec_state_bundle":       { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Bundle failed with an instruction error after another bundle in this block wrote an account it uses, after it arrived (lost to a competing bundle)" },
+                "exec_state_other":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Bundle failed with an instruction error, with no such write seen in this block" },
+                "exec_duplicate":          { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Bundle failed because a transaction was already processed or its nonce already advanced" },
+                "exec_other":              { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Bundle failed in execution for another reason" },
+                "exec_unknown":            { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Bundle was scheduled but its outcome was not reported" },
+                "dup_deleted":             { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Bundle deleted because a transaction with the same signature was executed elsewhere" },
+                "blocked_lane_vote":       { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Never scheduled; mostly waited while the bundle lane executed votes" },
+                "blocked_lane_txn":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Never scheduled; mostly waited while the bundle lane executed normal transactions" },
+                "blocked_lane_bundle":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Never scheduled; mostly waited while the bundle lane executed other bundles" },
+                "blocked_vote_preempt":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Never scheduled; mostly waited while votes took the idle bundle lane" },
+                "blocked_ib_not_ready":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Never scheduled; mostly waited for the initializer bundle" },
+                "blocked_conflict_tpu":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Never scheduled; mostly waited on account conflicts with in-flight normal transactions" },
+                "blocked_conflict_bundle": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Never scheduled; mostly waited on account conflicts with an in-flight bundle" },
+                "blocked_conflict_vote":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Never scheduled; mostly waited on account conflicts with in-flight votes" },
+                "blocked_does_not_fit":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Never scheduled; mostly waited because it did not fit in the block limits" },
+                "late":                    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Never scheduled; arrived after the last slot of our leader rotation ended" },
+                "expired":                 { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Never scheduled; expired without waiting in a leader slot" },
+                "evicted":                 { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Never scheduled; evicted to make room without waiting in a leader slot" }
+            }
+        },
+        "bundle_arrival": {
+            "type": "Tuple",
+            "description": "Bundles by when they arrived relative to our leader slots, and whether they landed",
+            "aliases": {
+                "all": ["before_window_landed", "before_window_missed", "early_landed", "early_missed", "mid_landed", "mid_missed", "late_landed", "late_missed", "after_window_landed", "after_window_missed"]
+            },
+            "fields": {
+                "before_window_landed": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Arrived while not leader, before our next slot; landed" },
+                "before_window_missed": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Arrived while not leader, before our next slot; did not land" },
+                "early_landed":         { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Arrived in the first third of a leader slot; landed" },
+                "early_missed":         { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Arrived in the first third of a leader slot; did not land" },
+                "mid_landed":           { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Arrived in the middle third of a leader slot; landed" },
+                "mid_missed":           { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Arrived in the middle third of a leader slot; did not land" },
+                "late_landed":          { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Arrived in the last third of a leader slot; landed" },
+                "late_missed":          { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Arrived in the last third of a leader slot; did not land" },
+                "after_window_landed":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Arrived just after our leader rotation ended; landed" },
+                "after_window_missed":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Arrived just after our leader rotation ended; did not land" }
+            }
+        },
+        "bundle_blocked_duration_nanos": {
+            "type": "Tuple",
+            "description": "Time the bundle at the head of the queue could not be scheduled while we were leader, by reason",
+            "aliases": {
+                "all": ["lane_vote", "lane_txn", "lane_bundle", "vote_preempt", "ib_not_ready", "conflict_tpu", "conflict_bundle", "conflict_vote", "does_not_fit"]
+            },
+            "fields": {
+                "lane_vote":       { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "The bundle lane was busy with votes" },
+                "lane_txn":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "The bundle lane was busy with normal transactions" },
+                "lane_bundle":     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "The bundle lane was busy with another bundle" },
+                "vote_preempt":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "The bundle lane was idle, but votes took its microblock" },
+                "ib_not_ready":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Waiting for the initializer bundle" },
+                "conflict_tpu":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "The head bundle conflicted with in-flight normal transactions" },
+                "conflict_bundle": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "The head bundle conflicted with an in-flight bundle" },
+                "conflict_vote":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "The head bundle conflicted with in-flight votes" },
+                "does_not_fit":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "The head bundle did not fit in the block limits" }
+            }
+        },
+        "bundle_queue_wait_nanos": {
+            "type": "Tuple",
+            "description": "Time from a bundle's arrival (or the start of our next leader slot, if later) until it was scheduled",
+            "fields": {
+                "b0":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[0, 1000) nanos" },
+                "b1":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1000, 2683) nanos" },
+                "b2":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[2683, 7198) nanos" },
+                "b3":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[7198, 19310) nanos" },
+                "b4":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[19310, 51802) nanos" },
+                "b5":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[51802, 138967) nanos" },
+                "b6":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[138967, 372801) nanos" },
+                "b7":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[372801, 1000098) nanos" },
+                "b8":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1000098, 2682921) nanos" },
+                "b9":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[2682921, 7197360) nanos" },
+                "b10": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[7197360, 19308057) nanos" },
+                "b11": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[19308057, 51796919) nanos" },
+                "b12": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[51796919, 138953434) nanos" },
+                "b13": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[138953434, 372764583) nanos" },
+                "b14": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[372764583, 1000000000) nanos" },
+                "b15": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1000000000, inf) nanos" },
+                "sum": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Sum of samples (nanos)" }
+            }
+        },
+        "bundle_arrival_offset_nanos": {
+            "type": "Tuple",
+            "description": "Time from the start of the current leader slot until a bundle arrived, for bundles that arrived while we were leader",
+            "fields": {
+                "b0":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[0, 100000) nanos" },
+                "b1":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[100000, 183744) nanos" },
+                "b2":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[183744, 337618) nanos" },
+                "b3":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[337618, 620351) nanos" },
+                "b4":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[620351, 1139855) nanos" },
+                "b5":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1139855, 2094410) nanos" },
+                "b6":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[2094410, 3848343) nanos" },
+                "b7":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[3848343, 7071081) nanos" },
+                "b8":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[7071081, 12992653) nanos" },
+                "b9":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[12992653, 23873158) nanos" },
+                "b10": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[23873158, 43865380) nanos" },
+                "b11": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[43865380, 80599792) nanos" },
+                "b12": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[80599792, 148096894) nanos" },
+                "b13": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[148096894, 272118443) nanos" },
+                "b14": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[272118443, 500000000) nanos" },
+                "b15": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[500000000, inf) nanos" },
+                "sum": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Sum of samples (nanos)" }
+            }
+        },
+        "bundle_obs_dropped":             { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Bundles excluded from bundle and dual-lane metrics because the observation table was full" },
+        "dual_lane_pair": {
+            "type": "Tuple",
+            "description": "Transactions received both in a bundle and over TPU, by which copy won and the position of the slot in our leader rotation",
+            "aliases": {
+                "all": ["bundle_won_slot0", "bundle_won_slot1", "bundle_won_slot2", "bundle_won_slot3", "tpu_won_slot0", "tpu_won_slot1", "tpu_won_slot2", "tpu_won_slot3", "neither_slot0", "neither_slot1", "neither_slot2", "neither_slot3"]
+            },
+            "fields": {
+                "bundle_won_slot0": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Bundle won, first slot of the leader rotation" },
+                "bundle_won_slot1": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Bundle won, second slot of the leader rotation" },
+                "bundle_won_slot2": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Bundle won, third slot of the leader rotation" },
+                "bundle_won_slot3": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Bundle won, fourth slot of the leader rotation" },
+                "tpu_won_slot0":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "TPU transaction won, first slot of the leader rotation" },
+                "tpu_won_slot1":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "TPU transaction won, second slot of the leader rotation" },
+                "tpu_won_slot2":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "TPU transaction won, third slot of the leader rotation" },
+                "tpu_won_slot3":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "TPU transaction won, fourth slot of the leader rotation" },
+                "neither_slot0":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Neither landed, first slot of the leader rotation (or not leader)" },
+                "neither_slot1":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Neither landed, second slot of the leader rotation" },
+                "neither_slot2":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Neither landed, third slot of the leader rotation" },
+                "neither_slot3":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Neither landed, fourth slot of the leader rotation" }
+            }
+        },
+        "dual_lane_offer_lamports": {
+            "type": "Tuple",
+            "description": "Lamports offered by each lane of dual-lane pairs, by winner: priority fees plus statically estimated tips. The TPU lane counts the transaction itself, the bundle lane its whole bundle. The winner's offer approximates the revenue earned",
+            "aliases": {
+                "all": ["bundle_won_bundle", "bundle_won_tpu", "tpu_won_bundle", "tpu_won_tpu"]
+            },
+            "fields": {
+                "bundle_won_bundle": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Bundle lane offer, pairs the bundle won" },
+                "bundle_won_tpu":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "TPU lane offer, pairs the bundle won" },
+                "tpu_won_bundle":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Bundle lane offer, pairs the TPU transaction won" },
+                "tpu_won_tpu":       { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "TPU lane offer, pairs the TPU transaction won" }
+            }
+        },
+        "dual_lane_bundle_won_price_pct": {
+            "type": "Tuple",
+            "description": "Bundle lane offer as a percentage of the TPU lane offer, for dual-lane pairs the bundle won",
+            "fields": {
+                "b0":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[0, 1) pct" },
+                "b1":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1, 2) pct" },
+                "b2":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[2, 5) pct" },
+                "b3":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[5, 11) pct" },
+                "b4":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[11, 25) pct" },
+                "b5":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[25, 57) pct" },
+                "b6":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[57, 131) pct" },
+                "b7":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[131, 300) pct" },
+                "b8":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[300, 688) pct" },
+                "b9":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[688, 1578) pct" },
+                "b10": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1578, 3618) pct" },
+                "b11": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[3618, 8296) pct" },
+                "b12": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[8296, 19022) pct" },
+                "b13": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[19022, 43614) pct" },
+                "b14": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[43614, 100000) pct" },
+                "b15": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[100000, inf) pct" },
+                "sum": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Sum of samples (pct)" }
+            }
+        },
+        "dual_lane_tpu_won_price_pct": {
+            "type": "Tuple",
+            "description": "Bundle lane offer as a percentage of the TPU lane offer, for dual-lane pairs the TPU transaction won",
+            "fields": {
+                "b0":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[0, 1) pct" },
+                "b1":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1, 2) pct" },
+                "b2":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[2, 5) pct" },
+                "b3":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[5, 11) pct" },
+                "b4":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[11, 25) pct" },
+                "b5":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[25, 57) pct" },
+                "b6":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[57, 131) pct" },
+                "b7":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[131, 300) pct" },
+                "b8":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[300, 688) pct" },
+                "b9":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[688, 1578) pct" },
+                "b10": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1578, 3618) pct" },
+                "b11": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[3618, 8296) pct" },
+                "b12": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[8296, 19022) pct" },
+                "b13": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[19022, 43614) pct" },
+                "b14": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[43614, 100000) pct" },
+                "b15": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[100000, inf) pct" },
+                "sum": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Sum of samples (pct)" }
+            }
+        },
+        "dual_lane_tpu_won": {
+            "type": "Tuple",
+            "description": "Dual-lane pairs the TPU transaction won, by what had happened to the bundle when the TPU transaction was scheduled",
+            "aliases": {
+                "all": ["bundle_late", "bundle_waiting", "bundle_failed"]
+            },
+            "fields": {
+                "bundle_late":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "The bundle arrived after the TPU transaction was scheduled" },
+                "bundle_waiting": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "The bundle was in pack, unscheduled, when the TPU transaction was scheduled" },
+                "bundle_failed":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "The bundle was scheduled first but did not land" }
+            }
+        },
+        "dual_lane_tpu_won_bundle_lag_nanos": {
+            "type": "Tuple",
+            "description": "Time from the TPU transaction's arrival to the bundle's arrival, for dual-lane pairs the TPU transaction won because the bundle arrived after the TPU transaction was scheduled",
+            "fields": {
+                "b0":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[0, 1000) nanos" },
+                "b1":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1000, 2683) nanos" },
+                "b2":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[2683, 7198) nanos" },
+                "b3":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[7198, 19310) nanos" },
+                "b4":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[19310, 51802) nanos" },
+                "b5":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[51802, 138967) nanos" },
+                "b6":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[138967, 372801) nanos" },
+                "b7":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[372801, 1000098) nanos" },
+                "b8":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1000098, 2682921) nanos" },
+                "b9":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[2682921, 7197360) nanos" },
+                "b10": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[7197360, 19308057) nanos" },
+                "b11": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[19308057, 51796919) nanos" },
+                "b12": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[51796919, 138953434) nanos" },
+                "b13": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[138953434, 372764583) nanos" },
+                "b14": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[372764583, 1000000000) nanos" },
+                "b15": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1000000000, inf) nanos" },
+                "sum": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Sum of samples (nanos)" }
+            }
+        },
+        "auction_txn_blocked_duration_nanos": {
+            "type": "Tuple",
+            "description": "Time while leader with the auction strategy that normal transactions were eligible and an exec tile was idle, but normal transactions were not scheduled, by reason",
+            "aliases": {
+                "all": ["before_first", "after_limit", "slot_tail", "pacer"]
+            },
+            "fields": {
+                "before_first": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "No auction has started yet in this slot" },
+                "after_limit":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "The last auction ended on its CU limit, or the next was skipped because of it, and another auction can still start this slot" },
+                "slot_tail":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "No auction is running and none can start before the slot ends" },
+                "pacer":        { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "An auction is running but the pacer has not enabled normal transactions on the idle exec tile" }
+            }
+        },
+        "auction_limit_inflight_pct": {
+            "type": "Tuple",
+            "description": "CUs scheduled to exec tiles but not yet rebated, as a percentage of the auction's CU limit, when an auction ended on its CU limit",
+            "fields": {
+                "b0":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[0, 1) pct" },
+                "b1":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1, 2) pct" },
+                "b2":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[2, 3) pct" },
+                "b3":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[3, 5) pct" },
+                "b4":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[5, 8) pct" },
+                "b5":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[8, 13) pct" },
+                "b6":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[13, 21) pct" },
+                "b7":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[21, 34) pct" },
+                "b8":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[34, 55) pct" },
+                "b9":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[55, 89) pct" },
+                "b10": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[89, 144) pct" },
+                "b11": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[144, 234) pct" },
+                "b12": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[234, 380) pct" },
+                "b13": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[380, 616) pct" },
+                "b14": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[616, 1000) pct" },
+                "b15": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1000, inf) pct" },
+                "sum": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Sum of samples (pct)" }
+            }
+        },
+        "auction_restart_pending_txn": {
+            "type": "Tuple",
+            "description": "Eligible normal transactions not yet scheduled when an auction was ended by the next auction starting",
+            "fields": {
+                "b0":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[0, 1)" },
+                "b1":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1, 2)" },
+                "b2":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[2, 4)" },
+                "b3":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[4, 8)" },
+                "b4":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[8, 15)" },
+                "b5":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[15, 29)" },
+                "b6":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[29, 56)" },
+                "b7":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[56, 107)" },
+                "b8":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[107, 205)" },
+                "b9":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[205, 392)" },
+                "b10": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[392, 749)" },
+                "b11": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[749, 1432)" },
+                "b12": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1432, 2737)" },
+                "b13": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[2737, 5232)" },
+                "b14": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[5232, 10000)" },
+                "b15": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[10000, inf)" },
+                "sum": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Sum of samples" }
+            }
+        },
+        "bundle_exec_state_other_prior_writer": {
+            "type": "Tuple",
+            "description": "Bundles that failed with an instruction error with no write to their accounts after they arrived (ExecStateOther), by the kind of transaction that last wrote one of their accounts earlier in the block, before they arrived",
+            "aliases": {
+                "all": ["none", "tpu", "bundle", "vote"]
+            },
+            "fields": {
+                "none":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Nothing in this block wrote an account the bundle uses before it arrived" },
+                "tpu":    { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "A normal transaction wrote it last" },
+                "bundle": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Another bundle wrote it last" },
+                "vote":   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "A vote wrote it last" }
+            }
+        },
+        "bundle_first_arrival_offset_nanos": {
+            "type": "Tuple",
+            "description": "Time from the start of a leader slot until the first bundle arrived during it",
+            "fields": {
+                "b0":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[0, 100000) nanos" },
+                "b1":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[100000, 183744) nanos" },
+                "b2":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[183744, 337618) nanos" },
+                "b3":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[337618, 620351) nanos" },
+                "b4":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[620351, 1139855) nanos" },
+                "b5":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[1139855, 2094410) nanos" },
+                "b6":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[2094410, 3848343) nanos" },
+                "b7":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[3848343, 7071081) nanos" },
+                "b8":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[7071081, 12992653) nanos" },
+                "b9":  { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[12992653, 23873158) nanos" },
+                "b10": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[23873158, 43865380) nanos" },
+                "b11": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[43865380, 80599792) nanos" },
+                "b12": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[80599792, 148096894) nanos" },
+                "b13": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[148096894, 272118443) nanos" },
+                "b14": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[272118443, 500000000) nanos" },
+                "b15": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[500000000, inf) nanos" },
+                "sum": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Sum of samples (nanos)" }
+            }
+        },
+        "dual_lane_entry_evicted":        { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Dual-lane table entries evicted less than a second after insertion; non-zero means some pairs can be missed" }
     }
 }
