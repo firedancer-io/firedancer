@@ -60,7 +60,6 @@ typedef struct fd_svm_mini fd_svm_mini_t;
 struct fd_svm_mini_limits {
   /* fork management */
   ulong max_live_slots;
-  ulong max_fork_width;
 
   /* consensus */
   ulong max_vote_accounts;
@@ -159,7 +158,6 @@ FD_FN_UNUSED static fd_svm_mini_limits_t *
 fd_svm_mini_limits_default( fd_svm_mini_limits_t * limits ) {
   *limits = (fd_svm_mini_limits_t) {
     .max_live_slots           = 16UL,
-    .max_fork_width           = 4UL,
     .max_vote_accounts        = 256UL,
     .max_stake_accounts       = 256UL,
     .max_disk_records            = 4096UL,

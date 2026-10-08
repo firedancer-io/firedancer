@@ -88,7 +88,6 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
   ulong const spad_max = 1750000000UL; /* 1.75GB: 128 accounts * ~10MB + 100MB execute_wrapper
                                           out buf + 64MB cmp_binary_strict scratch + headroom */
   ulong const bank_max = 2UL;
-  ulong const fork_max = 2UL;
 
   ulong const max_accounts         = 1024UL;
   ulong const max_live_slots       = txn_max;
@@ -109,14 +108,14 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
   void *                pcache_mem   = fd_wksp_alloc_laddr( wksp, fd_progcache_shmem_align(),   fd_progcache_shmem_footprint( txn_max, progcache_sz ),       wksp_tag );
   uchar *               scratch      = fd_wksp_alloc_laddr( wksp, FD_PROGCACHE_SCRATCH_ALIGN,   FD_PROGCACHE_SCRATCH_FOOTPRINT,                              wksp_tag );
   void *                spad_mem     = fd_wksp_alloc_laddr( wksp, fd_spad_align(),              fd_spad_footprint( spad_max ),                               wksp_tag );
-  void *                banks_mem    = fd_wksp_alloc_laddr( wksp, fd_banks_align(),             fd_banks_footprint( bank_max, fork_max, 2048UL, 2048UL ), wksp_tag );
+  void *                banks_mem    = fd_wksp_alloc_laddr( wksp, fd_banks_align(),             fd_banks_footprint( bank_max, 2048UL, 2048UL ), wksp_tag );
   if( FD_UNLIKELY( !runner       ) ) { FD_LOG_WARNING(( "fd_wksp_alloc(solfuzz_runner) failed"                                            )); goto bail1; }
   if( FD_UNLIKELY( !accdb_shmem  ) ) { FD_LOG_WARNING(( "fd_wksp_alloc(accdb_shmem) failed"                                               )); goto bail1; }
   if( FD_UNLIKELY( !accdb_join   ) ) { FD_LOG_WARNING(( "fd_wksp_alloc(accdb_join) failed"                                                )); goto bail1; }
   if( FD_UNLIKELY( !pcache_mem   ) ) { FD_LOG_WARNING(( "fd_wksp_alloc(pcache) failed"                                                    )); goto bail1; }
   if( FD_UNLIKELY( !scratch      ) ) { FD_LOG_WARNING(( "fd_wksp_alloc(scratch) failed"                                                   )); goto bail1; }
   if( FD_UNLIKELY( !spad_mem     ) ) { FD_LOG_WARNING(( "fd_wksp_alloc(spad) failed (spad_max=%g)", (double)spad_max                      )); goto bail1; }
-  if( FD_UNLIKELY( !banks_mem    ) ) { FD_LOG_WARNING(( "fd_wksp_alloc(banks) failed (bank_max=%lu fork_max=%lu)", bank_max, fork_max     )); goto bail1; }
+  if( FD_UNLIKELY( !banks_mem    ) ) { FD_LOG_WARNING(( "fd_wksp_alloc(banks) failed (bank_max=%lu)", bank_max                            )); goto bail1; }
 
   /* Create objects */
   fd_memset( runner, 0, sizeof(fd_solfuzz_runner_t) );
@@ -157,7 +156,7 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
   runner->spad = fd_spad_join( fd_spad_new( spad_mem, spad_max ) );
   if( FD_UNLIKELY( !runner->spad ) ) goto bail2;
   /* Use 2048 for max_vote_accounts to match fd_banks_footprint above (avoids buffer overrun) */
-  runner->banks = fd_banks_join( fd_banks_new( banks_mem, stake_delegations_fd, bank_max, fork_max, 2048UL, 32768UL, 2048UL, 0, 8888UL ) );
+  runner->banks = fd_banks_join( fd_banks_new( banks_mem, stake_delegations_fd, bank_max, 2048UL, 32768UL, 2048UL, 0, 8888UL ) );
   if( FD_UNLIKELY( !runner->banks ) ) goto bail2;
   FD_TEST( fd_stake_delegations_join( fd_banks_stake_delegations_root_query( runner->banks ), stake_delegations_fd ) );
 
