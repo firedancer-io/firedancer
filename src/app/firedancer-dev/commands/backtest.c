@@ -24,6 +24,7 @@
 #include "../../../disco/diag/fd_diag_tile.h"
 #include "../../../discof/genesis/fd_genesi_tile.h"
 #include "../../../discof/replay/fd_replay_tile.h"
+#include "../../../discof/replay/fd_sched.h"
 #include "../../../discof/restore/fd_snapct_tile.h"
 #include "../../../discof/restore/utils/fd_ssctrl.h"
 #include "../../../discof/restore/utils/fd_ssmsg.h"
@@ -406,7 +407,13 @@ backtest_topo( config_t * config ) {
   FD_TEST( fd_pod_insertf_ulong( topo->props, store_obj->id, "store" ) );
 
   fd_topob_wksp( topo, "banks" );
-  fd_topo_obj_t * banks_obj = setup_topo_banks( topo, "banks", config->firedancer.runtime.max_live_slots, config->firedancer.runtime.max_fork_width, config->firedancer.runtime.max_stake_delegations, config->development.bench.max_cost_per_block );
+  ulong min_bank_cache_cnt = fd_ulong_min( execrp_tile_cnt, FD_SCHED_MAX_STAGING_LANES )+2UL;
+  if( FD_UNLIKELY( config->firedancer.runtime.bank_cache_cnt<min_bank_cache_cnt ) ) {
+    FD_LOG_ERR(( "Invalid [runtime]: bank_cache_cnt is %lu, but it must be at least %lu (2 more than the smaller of [layout] execrp_tile_count %lu "
+                 "and %lu replay staging lanes).  Increase [runtime] bank_cache_cnt.",
+                 config->firedancer.runtime.bank_cache_cnt, min_bank_cache_cnt, execrp_tile_cnt, FD_SCHED_MAX_STAGING_LANES ));
+  }
+  fd_topo_obj_t * banks_obj = setup_topo_banks( topo, "banks", config->firedancer.runtime.max_live_slots, config->firedancer.runtime.bank_cache_cnt, config->firedancer.runtime.max_stake_delegations, config->development.bench.max_cost_per_block );
   fd_topob_tile_uses( topo, replay_tile, banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(execrp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   if( config->firedancer.consensus.alpenglow ) setup_topo_footer_cache( topo, "banks" );

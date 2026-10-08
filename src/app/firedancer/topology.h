@@ -17,7 +17,7 @@ fd_topo_obj_t *
 setup_topo_banks( fd_topo_t *  topo,
                   char const * wksp_name,
                   ulong        max_live_slots,
-                  ulong        max_fork_width,
+                  ulong        cache_cnt,
                   ulong        max_stake_delegations,
                   ulong        bench_max_cost_per_block );
 

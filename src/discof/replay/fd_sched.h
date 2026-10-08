@@ -16,6 +16,11 @@
 /* Most exec tiles a scheduler can dispatch to. */
 #define FD_SCHED_MAX_EXEC_TILE_CNT (64UL)
 
+/* Most banks with transactions in flight at once, one per staging
+   lane. */
+#define FD_SCHED_MAX_STAGING_LANES_LOG (2)
+#define FD_SCHED_MAX_STAGING_LANES     (1UL<<FD_SCHED_MAX_STAGING_LANES_LOG)
+
 /* fd_sched wraps all the smarts and mechanical chores around scheduling
    transactions for replay execution.  It is built on top of the
    dispatcher fd_rdisp.  The dispatcher is responsible for high

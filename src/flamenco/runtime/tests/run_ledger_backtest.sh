@@ -225,7 +225,6 @@ ${SNAPDC_TILE_COUNT:+    snapdc_tile_count = $SNAPDC_TILE_COUNT}
         enabled = false
 [runtime]
     max_live_slots = $MAX_LIVE_SLOTS
-    max_fork_width = 4
 [log]
     level_stderr = "$LOG_LEVEL_STDERR"
     path = "$LOG"
