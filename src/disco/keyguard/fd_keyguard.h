@@ -40,7 +40,8 @@ FD_STATIC_ASSERT( FD_KEYGUARD_AUTH_VOTERS_MAX<=16UL, auth_voters_max_fits_sign_r
 #define FD_KEYGUARD_ROLE_CNT          (12) /* number of known roles */
 
 /* The failov tile gets its member certificate signed, a plain Ed25519
-   signature by the staked key over a 16 byte domain prefix followed by
+   signature by the failover identity over a 16 byte domain prefix
+   followed by
    the sign tile's own junk pubkey.  The prefix keeps that signature out
    of every other raw message domain, in particular the 32 byte shred
    roots the leader role signs.  The junk key signs its TLS

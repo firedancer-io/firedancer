@@ -1,0 +1,5 @@
+$ firedancer failover promote --name standby --yes
+failover promote       accepted
+role:                  standby
+action:                handoff, requesting the active's final vote state
+handoff:               123456789, done when `failover status` here shows role: active and last handoff: 123456789, taken
