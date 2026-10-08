@@ -1016,7 +1016,6 @@ query_epoch_voters( fd_tower_tile_t *      ctx,
   epoch_vtr_pool_reset( pool );
   epoch_vtr_map_reset( map );
   ulong total_stake = 0UL;
-  if( iter_kind==FD_VOTE_STAKES_ITER_T_1 ) fd_vote_stakes_view_init( vote_stakes, vote_stakes_fork_id );
   fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, vote_stakes_fork_id, iter_kind, ctx->iter_mem );
   while( !fd_vote_stakes_iter_done( vote_stakes, vote_stakes_fork_id, iter_kind, iter ) ) {
     fd_vote_stakes_ele_t ele[1];
@@ -1047,7 +1046,6 @@ query_epoch_voters( fd_tower_tile_t *      ctx,
 
     epoch_vtr_map_ele_insert( map, vtr, pool );
   }
-  if( iter_kind==FD_VOTE_STAKES_ITER_T_1 ) fd_vote_stakes_view_fini( vote_stakes, vote_stakes_fork_id );
   return total_stake;
 }
 

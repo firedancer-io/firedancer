@@ -858,20 +858,6 @@ fd_vote_stakes_purge_fork( fd_vote_stakes_t * vote_stakes,
   if( !--fork->ref_cnt ) t_1_release( vote_stakes, t_1_idx );
 }
 
-void
-fd_vote_stakes_view_init( fd_vote_stakes_t * vote_stakes,
-                          ulong              fork_id ) {
-  t_1_hold( vote_stakes, (ulong)fork_id_t_1_idx( fork_id ) );
-}
-
-void
-fd_vote_stakes_view_fini( fd_vote_stakes_t * vote_stakes,
-                          ulong              fork_id ) {
-  vacc_fork_t const * fork = vacc_fork_pool_ele_const( vacc_fork_pool( vote_stakes ), fork_id_t_1_idx( fork_id ) );
-  FD_CHECK_CRIT( fork->cache_idx!=UINT_MAX, "invariant violation: releasing an uncached vote stakes t-1 view" );
-  t_1_drop( vote_stakes, fork->cache_idx );
-}
-
 ulong
 fd_vote_stakes_new_fork( fd_vote_stakes_t * vote_stakes,
                          ulong              parent_fork_id,

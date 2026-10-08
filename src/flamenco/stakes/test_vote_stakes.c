@@ -59,7 +59,6 @@ test_t_1_spill( int disk_fd ) {
   struct stat st;
   FD_TEST( !fstat( disk_fd, &st ) && st.st_size>0L );
 
-  fd_vote_stakes_view_init( vote_stakes, forks[ 0 ] );
   for( ulong round=0UL; round<2UL; round++ ) {
     ulong stake;
     FD_TEST( fd_vote_stakes_query_t_1( vote_stakes, root, &root_vote, NULL, &stake, NULL ) && stake==1000UL );
@@ -69,96 +68,92 @@ test_t_1_spill( int disk_fd ) {
       FD_TEST( fd_vote_stakes_cnt_t_1( vote_stakes, forks[ i ] )==1UL );
     }
   }
-  fd_vote_stakes_view_fini( vote_stakes, forks[ 0 ] );
 
-  /* A view keeps a set resident while other sets load through the
-     remaining cache entry, and a view on an evicted set loads it. */
-  ulong       stake;
-  fd_pubkey_t vote_0 = key( 300UL );
-  fd_pubkey_t vote_1 = key( 301UL );
-  fd_pubkey_t vote_2 = key( 302UL );
-  fd_vote_stakes_view_init( vote_stakes, forks[ 1 ] );
-  FD_TEST( fd_vote_stakes_query_t_1( vote_stakes, forks[ 2 ], &vote_2, NULL, &stake, NULL ) && stake==2002UL );
-  FD_TEST( fd_vote_stakes_query_t_1( vote_stakes, root, &root_vote, NULL, &stake, NULL ) && stake==1000UL );
-  FD_TEST( fd_vote_stakes_query_t_1( vote_stakes, forks[ 0 ], &vote_0, NULL, &stake, NULL ) && stake==2000UL );
-  fd_vote_stakes_view_init( vote_stakes, forks[ 2 ] );
-  FD_TEST( fd_vote_stakes_query_t_1( vote_stakes, forks[ 1 ], &vote_1, NULL, &stake, NULL ) && stake==2001UL );
-  FD_TEST( fd_vote_stakes_query_t_1( vote_stakes, forks[ 2 ], &vote_2, NULL, &stake, NULL ) && stake==2002UL );
-  fd_vote_stakes_view_fini( vote_stakes, forks[ 1 ] );
-  FD_TEST( fd_vote_stakes_query_t_1( vote_stakes, root, &root_vote, NULL, &stake, NULL ) && stake==1000UL );
-  FD_TEST( fd_vote_stakes_query_t_1( vote_stakes, forks[ 2 ], &vote_2, NULL, &stake, NULL ) && stake==2002UL );
-  fd_vote_stakes_view_fini( vote_stakes, forks[ 2 ] );
+  /* An iteration whose set is evicted between calls resumes intact
+     after the reload. */
+  uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
+  ulong seen = 0UL;
+  for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, forks[ 1 ], FD_VOTE_STAKES_ITER_T_1, iter_mem );
+       !fd_vote_stakes_iter_done( vote_stakes, forks[ 1 ], FD_VOTE_STAKES_ITER_T_1, iter );
+       fd_vote_stakes_iter_next( vote_stakes, forks[ 1 ], FD_VOTE_STAKES_ITER_T_1, iter ) ) {
+    ulong stake;
+    FD_TEST( fd_vote_stakes_query_t_1( vote_stakes, root, &root_vote, NULL, &stake, NULL ) && stake==1000UL );
+    fd_pubkey_t vote_2 = key( 302UL );
+    FD_TEST( fd_vote_stakes_query_t_1( vote_stakes, forks[ 2 ], &vote_2, NULL, &stake, NULL ) && stake==2002UL );
+    fd_vote_stakes_ele_t ele[1];
+    fd_vote_stakes_iter_ele( vote_stakes, forks[ 1 ], FD_VOTE_STAKES_ITER_T_1, iter, ele );
+    FD_TEST( ele->pubkey.ul[0]==301UL && ele->stake==2001UL );
+    seen++;
+  }
+  FD_TEST( seen==1UL );
 
   for( ulong i=0UL; i<3UL; i++ ) fd_vote_stakes_purge_fork( vote_stakes, forks[ i ] );
   fd_vote_stakes_purge_fork( vote_stakes, root );
   free( mem );
 }
 
-/* Two threads hold views and query sets concurrently, each loading
-   and evicting through a two entry cache, and must always see the
-   right set. */
+/* Two threads query sets concurrently, each loading and evicting
+   through a two entry cache, and must always see the right set. */
 
-static fd_vote_stakes_t * view_vs;
-static ulong              view_forks[ 3 ];
-static int                view_stop;
+static fd_vote_stakes_t * conc_vs;
+static ulong              conc_forks[ 3 ];
+static int                conc_stop;
 
 static int
-view_reader( int     argc,
+conc_reader( int     argc,
              char ** argv ) {
   (void)argc; (void)argv;
-  ulong views = 0UL;
-  for( ulong i=0UL; !FD_VOLATILE_CONST( view_stop ); i++ ) {
+  ulong reads = 0UL;
+  for( ulong i=0UL; !FD_VOLATILE_CONST( conc_stop ); i++ ) {
     ulong       f    = i%3UL;
     fd_pubkey_t vote = key( 300UL+f );
     ulong       stake;
-    fd_vote_stakes_view_init( view_vs, view_forks[ f ] );
-    FD_TEST( fd_vote_stakes_query_t_1( view_vs, view_forks[ f ], &vote, NULL, &stake, NULL ) && stake==2000UL+f );
-    FD_TEST( fd_vote_stakes_cnt_t_1( view_vs, view_forks[ f ] )==1UL );
-    fd_vote_stakes_view_fini( view_vs, view_forks[ f ] );
-    views++;
+    FD_TEST( fd_vote_stakes_query_t_1( conc_vs, conc_forks[ f ], &vote, NULL, &stake, NULL ) && stake==2000UL+f );
+    FD_TEST( fd_vote_stakes_cnt_t_1( conc_vs, conc_forks[ f ] )==1UL );
+    reads++;
   }
-  FD_TEST( views );
+  FD_TEST( reads );
   return 0;
 }
 
 static void
-test_view_concurrent( int disk_fd ) {
+test_t_1_concurrent( int disk_fd ) {
   if( FD_UNLIKELY( fd_tile_cnt()<2UL ) ) {
-    FD_LOG_NOTICE(( "skip: test_view_concurrent needs --tile-cpus with at least 2 tiles" ));
+    FD_LOG_NOTICE(( "skip: test_t_1_concurrent needs --tile-cpus with at least 2 tiles" ));
     return;
   }
   FD_TEST( !ftruncate( disk_fd, 0L ) );
   ulong  footprint = fd_vote_stakes_footprint( 16UL, 2UL );
   void * mem       = aligned_alloc( fd_vote_stakes_align(), footprint );
   FD_TEST( mem );
-  view_vs = fd_vote_stakes_join( fd_vote_stakes_new( mem, disk_fd, 16UL, 2UL, 1234UL ), disk_fd );
-  FD_TEST( view_vs );
+  conc_vs = fd_vote_stakes_join( fd_vote_stakes_new( mem, disk_fd, 16UL, 2UL, 1234UL ), disk_fd );
+  FD_TEST( conc_vs );
 
   uchar       bls[ FD_BLS_PUBKEY_COMPRESSED_SZ ] = { 1 };
   fd_pubkey_t node      = key( 100UL );
   fd_pubkey_t root_vote = key( 200UL );
-  ulong       root      = fd_vote_stakes_init( view_vs, 0UL );
-  fd_vote_stakes_snap_insert_t_1( view_vs, root, &root_vote, &node, 1000UL, 1U, bls );
+  ulong       root      = fd_vote_stakes_init( conc_vs, 0UL );
+  fd_vote_stakes_snap_insert_t_1( conc_vs, root, &root_vote, &node, 1000UL, 1U, bls );
   for( ulong i=0UL; i<3UL; i++ ) {
-    view_forks[ i ] = fd_vote_stakes_new_fork( view_vs, root, 1UL );
+    conc_forks[ i ] = fd_vote_stakes_new_fork( conc_vs, root, 1UL );
     fd_pubkey_t vote = key( 300UL+i );
-    fd_vote_stakes_insert( view_vs, view_forks[ i ], &vote, &node, 2000UL+i, 2U, bls );
+    fd_vote_stakes_insert( conc_vs, conc_forks[ i ], &vote, &node, 2000UL+i, 2U, bls );
   }
 
-  FD_VOLATILE( view_stop ) = 0;
-  fd_tile_exec_t * exec = fd_tile_exec_new( 1UL, view_reader, 0, NULL );
+  FD_VOLATILE( conc_stop ) = 0;
+  fd_tile_exec_t * exec = fd_tile_exec_new( 1UL, conc_reader, 0, NULL );
   FD_TEST( exec );
 
-  ulong forks[ 4 ] = { root, view_forks[ 0 ], view_forks[ 1 ], view_forks[ 2 ] };
+  ulong forks[ 4 ] = { root, conc_forks[ 0 ], conc_forks[ 1 ], conc_forks[ 2 ] };
   for( ulong i=0UL; i<20000UL; i++ ) {
     ulong stake;
-    FD_TEST( fd_vote_stakes_query_t_1( view_vs, forks[ (i*7UL)%4UL ], &root_vote, NULL, &stake, NULL )==(i*7UL%4UL==0UL) );
+    FD_TEST( fd_vote_stakes_query_t_1( conc_vs, forks[ (i*7UL)%4UL ], &root_vote, NULL, &stake, NULL )==(i*7UL%4UL==0UL) );
   }
-  FD_VOLATILE( view_stop ) = 1;
+  FD_VOLATILE( conc_stop ) = 1;
   FD_TEST( !fd_tile_exec_delete( exec, NULL ) );
 
-  for( ulong i=0UL; i<3UL; i++ ) fd_vote_stakes_purge_fork( view_vs, view_forks[ i ] );
-  fd_vote_stakes_purge_fork( view_vs, root );
+  for( ulong i=0UL; i<3UL; i++ ) fd_vote_stakes_purge_fork( conc_vs, conc_forks[ i ] );
+  fd_vote_stakes_purge_fork( conc_vs, root );
   free( mem );
 }
 
@@ -170,7 +165,7 @@ main( int argc, char ** argv ) {
   FD_TEST( disk_fd>=0 );
 
   test_t_1_spill( disk_fd );
-  test_view_concurrent( disk_fd );
+  test_t_1_concurrent( disk_fd );
 
   ulong footprint = fd_vote_stakes_footprint( 16UL, 5UL );
   void * mem = aligned_alloc( fd_vote_stakes_align(), footprint );

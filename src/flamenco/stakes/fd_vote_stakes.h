@@ -188,22 +188,6 @@ void
 fd_vote_stakes_purge_fork( fd_vote_stakes_t * vote_stakes,
                            ulong              fork_id );
 
-/* fd_vote_stakes_view_{init,fini} hold the fork's t-1 set in memory,
-   reading it from disk if needed, so a sequence of calls on it does not
-   reload it.  Any thread may hold a view.  Views nest and must be
-   paired.  The caller must keep the fork alive (e.g. hold a bank
-   reference) while a view is held.  Every function that reads or
-   writes a t-1 set holds it for its own duration, so views are only
-   needed to keep a set resident across calls. */
-
-void
-fd_vote_stakes_view_init( fd_vote_stakes_t * vote_stakes,
-                          ulong              fork_id );
-
-void
-fd_vote_stakes_view_fini( fd_vote_stakes_t * vote_stakes,
-                          ulong              fork_id );
-
 /* fd_vote_stakes_new_fork creates a child of the given parent fork.
    Within an epoch, the child shares the parent's t-1 set and receives a
    copy of its t-2 state.  At an epoch boundary, it rotates t-1 into
