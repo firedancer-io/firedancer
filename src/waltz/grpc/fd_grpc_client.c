@@ -837,6 +837,15 @@ fd_grpc_client_stream_close(
   return 1;
 }
 
+int
+fd_grpc_client_stream_cancel( fd_grpc_client_t *    client,
+                              fd_grpc_h2_stream_t * stream ) {
+  if( FD_UNLIKELY( fd_h2_rbuf_free_sz( client->frame_tx )<sizeof(fd_h2_rst_stream_t) ) ) return 0;
+  fd_h2_stream_error( &stream->s, client->conn, client->frame_tx, FD_H2_ERR_CANCEL );
+  fd_grpc_client_stream_release( client, stream );
+  return 1;
+}
+
 void
 fd_grpc_client_deadline_set( fd_grpc_h2_stream_t * stream,
                              int                   deadline_kind,

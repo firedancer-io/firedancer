@@ -36,7 +36,7 @@ impl EventService for MyEventService {
         println!("Received authenticate request from identity: {:?}",
             hex::encode(&request.get_ref().identity_pubkey));
         let challenge = vec![0u8; 217];
-        Ok(Response::new(AuthenticateResponse { challenge }))
+        Ok(Response::new(AuthenticateResponse { challenge, max_stream_body: 0 }))
     }
 
     async fn stream_events(
