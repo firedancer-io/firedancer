@@ -18,7 +18,7 @@
 FD_PROTOTYPES_BEGIN
 
 #define FD_BANKS_MAGIC     (0XF17EDA2C7EBA2451) /* FIREDANCER BANKS V1 */
-#define FD_BANKS_MAX_BANKS (4096UL)
+#define FD_BANKS_MAX_BANKS (65534UL)
 #define FD_BANKS_ALIGN     (128UL)
 
 /* A fd_bank_t struct is the representation of the bank state on Solana
