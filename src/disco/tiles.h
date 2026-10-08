@@ -70,7 +70,6 @@ struct fd_became_leader {
      activation. */
   struct {
     ulong slot_max_cost;
-    ulong slot_max_vote_cost;
     ulong slot_max_write_cost_per_acct;
     ulong slot_max_allocated_data_per_block;
     ulong slot_max_data_shreds;
@@ -169,7 +168,6 @@ struct fd_done_packing {
   ulong end_block_results[ FD_METRICS_COUNTER_PACK_TXN_SCHEDULED_CNT ];
 
   fd_pack_smallest_t pending_smallest[ 1 ];
-  fd_pack_smallest_t pending_votes_smallest[ 1 ];
 
   int end_slot_reason;
 

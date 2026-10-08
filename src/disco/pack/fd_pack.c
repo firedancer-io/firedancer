@@ -585,7 +585,6 @@ struct fd_pack_private {
   fd_rng_t * rng;
 
   ulong      cumulative_block_cost;
-  ulong      cumulative_vote_cost;
 
   /* expire_before: Any transactions with expires_at strictly less than
      the current expire_before are removed from the available pending
@@ -633,12 +632,11 @@ struct fd_pack_private {
      to 0 as frequently as possible. */
   ulong relative_bundle_idx;
 
-  /* pending{_votes}_smallest: keep a conservative estimate of the
+  /* pending_smallest: keep a conservative estimate of the
      smallest transaction (by cost units and by bytes) in each heap.
      Both CUs and bytes should be set to ULONG_MAX is the treap is
      empty. */
   fd_pack_smallest_t pending_smallest[1];
-  fd_pack_smallest_t pending_votes_smallest[1];
 
   /* expiration_q: At the same time that a transaction is in exactly one
      of the above treaps, it is also in the expiration queue, sorted by
@@ -879,7 +877,6 @@ fd_pack_new( void                   * mem,
   memset( pack->sched_results, 0, sizeof(pack->sched_results) );
   pack->rng                         = rng;
   pack->cumulative_block_cost       = 0UL;
-  pack->cumulative_vote_cost        = 0UL;
   pack->expire_before               = 0UL;
   pack->outstanding_microblock_mask = 0UL;
   pack->cumulative_rebated_cus      = 0UL;
@@ -913,8 +910,6 @@ fd_pack_new( void                   * mem,
 
   pack->pending_smallest->cus         = ULONG_MAX;
   pack->pending_smallest->bytes       = ULONG_MAX;
-  pack->pending_votes_smallest->cus   = ULONG_MAX;
-  pack->pending_votes_smallest->bytes = ULONG_MAX;
 
   expq_new( _expq, pack_depth );
 
@@ -1967,7 +1962,6 @@ release_bit_reference( fd_pack_t            * pack,
 
 typedef struct {
   ulong cus_scheduled;
-  ulong vote_cus_scheduled;
   ulong txns_scheduled;
   ulong votes_scheduled;
   ulong bytes_scheduled;
@@ -1978,7 +1972,6 @@ static inline sched_return_t
 fd_pack_schedule_impl( fd_pack_t          * pack,
                        treap_t            * sched_from,
                        ulong                cu_limit,
-                       ulong                vote_cu_limit,
                        ulong                txn_limit,
                        ulong                byte_limit,
                        ulong                alloc_limit,
@@ -2012,7 +2005,6 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
   ulong txns_scheduled     = 0UL;
   ulong votes_scheduled    = 0UL;
   ulong cus_scheduled      = 0UL;
-  ulong vote_cus_scheduled = 0UL;
   ulong bytes_scheduled    = 0UL;
   ulong alloc_scheduled    = 0UL;
 
@@ -2044,9 +2036,8 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
     min_bytes = fd_ulong_min( min_bytes, cur->txn->payload_sz );
 
     ulong conflicts = 0UL;
-    int   is_vote   = !!(cur->txn->flags & FD_TXN_P_FLAGS_IS_SIMPLE_VOTE);
 
-    if( FD_UNLIKELY( cur->compute_est>fd_ulong_if( is_vote, fd_ulong_min( cu_limit, vote_cu_limit ), cu_limit ) ) ) {
+    if( FD_UNLIKELY( cur->compute_est>cu_limit ) ) {
       /* Too big to be scheduled at the moment, but might be okay for
          the next microblock, so we don't want to delay it. */
       cu_limit_c++;
@@ -2222,11 +2213,10 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
       FD_PACK_BITSET_CLEARN( bitset_w_in_use,  ret.clear_w_bit  );
     }
 
-    ulong vote_cus = fd_ulong_if( is_vote, cur->compute_est, 0UL );
+    int is_vote        = !!(cur->txn->flags & FD_TXN_P_FLAGS_IS_SIMPLE_VOTE);
     txns_scheduled     += 1UL;                      txn_limit       -= 1UL;
     votes_scheduled    += (ulong)is_vote;
     cus_scheduled      += cur->compute_est;         cu_limit        -= cur->compute_est;
-    vote_cus_scheduled += vote_cus;                 vote_cu_limit   -= vote_cus;
     bytes_scheduled    += cur->txn->payload_sz;     byte_limit      -= cur->txn->payload_sz;
     alloc_scheduled    += cur->txn->pack_alloc;     alloc_limit     -= cur->txn->pack_alloc;
 
@@ -2264,7 +2254,7 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
   FD_PACK_BITSET_COPY( pack->bitset_rw_in_use, bitset_rw_in_use );
   FD_PACK_BITSET_COPY( pack->bitset_w_in_use,  bitset_w_in_use  );
 
-  sched_return_t to_return = { .cus_scheduled=cus_scheduled,     .vote_cus_scheduled=vote_cus_scheduled,
+  sched_return_t to_return = { .cus_scheduled=cus_scheduled,
                                .txns_scheduled=txns_scheduled,   .votes_scheduled=votes_scheduled,
                                .bytes_scheduled=bytes_scheduled, .alloc_scheduled=alloc_scheduled };
   return to_return;
@@ -2703,7 +2693,6 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
 
   /* TODO: Decide if these are exactly how we want to handle limits */
   total_cus = fd_ulong_min( total_cus, pack->lim->max_cost_per_block - pack->cumulative_block_cost );
-  ulong vote_cus = pack->lim->max_vote_cost_per_block - pack->cumulative_vote_cost;
 
   if( FD_UNLIKELY( (pack->microblock_cnt>=pack->lim->max_microblocks_per_block) ) ) {
     FD_MCNT_INC( PACK, MICROBLOCK_PER_BLOCK_LIMIT_REACHED, 1UL );
@@ -2747,11 +2736,10 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
 
   /* Fill the microblock with transactions, votes included */
   if( FD_LIKELY( schedule_flags & FD_PACK_SCHEDULE_TXN ) ) {
-    status = fd_pack_schedule_impl( pack, pack->pending, cu_limit, vote_cus, txn_limit, byte_limit, alloc_limit, bank_tile,
+    status = fd_pack_schedule_impl( pack, pack->pending, cu_limit, txn_limit, byte_limit, alloc_limit, bank_tile,
         pack->pending_smallest, use_by_bank_txn, out+scheduled );
 
     scheduled                   += status.txns_scheduled;
-    pack->cumulative_vote_cost  += status.vote_cus_scheduled;
     pack->cumulative_block_cost += status.cus_scheduled;
     pack->data_bytes_consumed   += status.bytes_scheduled;
     pack->alloc_consumed        += status.alloc_scheduled;
@@ -2776,13 +2764,11 @@ ulong fd_pack_current_block_cost( fd_pack_t const * pack ) { return pack->cumula
 void
 fd_pack_set_block_limits( fd_pack_t * pack, fd_pack_limits_t const * limits ) {
   FD_TEST( limits->max_cost_per_block      >= FD_PACK_MAX_COST_PER_BLOCK_LOWER_BOUND      );
-  FD_TEST( limits->max_vote_cost_per_block >= FD_PACK_MAX_VOTE_COST_PER_BLOCK_LOWER_BOUND );
   FD_TEST( limits->max_write_cost_per_acct >= FD_PACK_MAX_WRITE_COST_PER_ACCT_LOWER_BOUND );
 
   pack->lim->max_microblocks_per_block    = limits->max_microblocks_per_block;
   pack->lim->max_data_bytes_per_block     = limits->max_data_bytes_per_block;
   pack->lim->max_cost_per_block           = limits->max_cost_per_block;
-  pack->lim->max_vote_cost_per_block      = limits->max_vote_cost_per_block;
   pack->lim->max_write_cost_per_acct      = limits->max_write_cost_per_acct;
   pack->lim->max_allocated_data_per_block = limits->max_allocated_data_per_block;
 }
@@ -2791,7 +2777,6 @@ void
 fd_pack_get_block_limits( fd_pack_t * pack, fd_pack_limits_usage_t * opt_limits_usage, fd_pack_limits_t * opt_limits ) {
   if( FD_LIKELY( opt_limits_usage ) ) {
     opt_limits_usage->block_cost          = pack->cumulative_block_cost;
-    opt_limits_usage->vote_cost           = pack->cumulative_vote_cost;
     opt_limits_usage->block_data_bytes    = pack->data_bytes_consumed;
     opt_limits_usage->microblocks         = pack->microblock_cnt;
     opt_limits_usage->alloc               = pack->alloc_consumed;
@@ -2805,9 +2790,8 @@ fd_pack_get_top_writers( fd_pack_t const * pack, fd_pack_addr_use_t top_writers[
 }
 
 void
-fd_pack_get_pending_smallest( fd_pack_t * pack, fd_pack_smallest_t * opt_pending_smallest, fd_pack_smallest_t * opt_votes_smallest ) {
-  if( FD_LIKELY( opt_pending_smallest ) ) fd_memcpy( opt_pending_smallest, pack->pending_smallest,       sizeof(fd_pack_smallest_t) );
-  if( FD_LIKELY( opt_votes_smallest ) )   fd_memcpy( opt_votes_smallest,   pack->pending_votes_smallest, sizeof(fd_pack_smallest_t) );
+fd_pack_get_pending_smallest( fd_pack_t * pack, fd_pack_smallest_t * opt_pending_smallest ) {
+  if( FD_LIKELY( opt_pending_smallest ) ) fd_memcpy( opt_pending_smallest, pack->pending_smallest, sizeof(fd_pack_smallest_t) );
 }
 
 void
@@ -2818,7 +2802,6 @@ fd_pack_rebate_cus( fd_pack_t              * pack,
   }
 
   pack->cumulative_block_cost  -= rebate->total_cost_rebate;
-  pack->cumulative_vote_cost   -= rebate->vote_cost_rebate;
   pack->data_bytes_consumed    -= rebate->data_bytes_rebate;
   pack->alloc_consumed         -= rebate->alloc_rebate;
   pack->cumulative_rebated_cus += rebate->total_cost_rebate;
@@ -2884,7 +2867,6 @@ fd_pack_end_block( fd_pack_t * pack ) {
   pack->microblock_cnt              = 0UL;
   pack->data_bytes_consumed         = 0UL;
   pack->cumulative_block_cost       = 0UL;
-  pack->cumulative_vote_cost        = 0UL;
   pack->cumulative_rebated_cus      = 0UL;
   pack->outstanding_microblock_mask = 0UL;
   pack->alloc_consumed              = 0UL;
@@ -2958,15 +2940,12 @@ fd_pack_clear_all( fd_pack_t * pack ) {
   pack->pending_txn_cnt        = 0UL;
   pack->microblock_cnt         = 0UL;
   pack->cumulative_block_cost  = 0UL;
-  pack->cumulative_vote_cost   = 0UL;
   pack->cumulative_rebated_cus = 0UL;
   pack->data_bytes_consumed    = 0UL;
   pack->alloc_consumed         = 0UL;
 
   pack->pending_smallest->cus         = ULONG_MAX;
   pack->pending_smallest->bytes       = ULONG_MAX;
-  pack->pending_votes_smallest->cus   = ULONG_MAX;
-  pack->pending_votes_smallest->bytes = ULONG_MAX;
 
   release_tree( pack->pending,         pack->signature_map, pack->noncemap, pack->pool );
   release_tree( pack->pending_bundles, pack->signature_map, pack->noncemap, pack->pool );

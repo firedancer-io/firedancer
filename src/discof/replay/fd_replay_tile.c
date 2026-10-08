@@ -938,7 +938,7 @@ block_completed_event_fill_leader( fd_replay_tile_t *           ctx,
 
   ev->microblock_count = ctx->leader_stats.microblock_count;
   ev->pack_block_cost  = ctx->leader_stats.pack_block_cost;
-  ev->pack_vote_cost   = ctx->leader_stats.pack_vote_cost;
+  ev->pack_vote_cost   = 0UL;
   ev->pack_data_bytes  = ctx->leader_stats.pack_data_bytes;
   ev->bundle_txn_count = ctx->leader_stats.bundle_txn_count;
   ev->pack_start_time  = (ulong)ctx->leader_stats.pack_start_nanos;
@@ -1748,7 +1748,6 @@ try_become_leader_ag( fd_replay_tile_t *  ctx,
   fd_cost_tracker_t const * cost_tracker = fd_bank_cost_tracker_query( bank );
 
   msg->limits.slot_max_cost                     = cost_tracker->block_cost_limit;
-  msg->limits.slot_max_vote_cost                = FD_PACK_MAX_VOTE_COST_PER_BLOCK_UPPER_BOUND;
   msg->limits.slot_max_write_cost_per_acct      = cost_tracker->account_cost_limit;
   msg->limits.slot_max_allocated_data_per_block = cost_tracker->data_size_limit;
   msg->limits.slot_max_data_shreds              = bank->f.slot_params.max_shred_idx;
@@ -2310,7 +2309,6 @@ try_become_leader( fd_replay_tile_t *  ctx,
   fd_cost_tracker_t const * cost_tracker = fd_bank_cost_tracker_query( bank );
 
   msg->limits.slot_max_cost                     = cost_tracker->block_cost_limit;
-  msg->limits.slot_max_vote_cost                = FD_PACK_MAX_VOTE_COST_PER_BLOCK_UPPER_BOUND;
   msg->limits.slot_max_write_cost_per_acct      = cost_tracker->account_cost_limit;
   msg->limits.slot_max_allocated_data_per_block = cost_tracker->data_size_limit;
   msg->limits.slot_max_data_shreds              = bank->f.slot_params.max_shred_idx;
@@ -2366,7 +2364,6 @@ process_poh_message( fd_replay_tile_t *                 ctx,
   if( FD_LIKELY( ctx->leader_stats.slot==slot_ended->slot ) ) {
     ctx->leader_stats.microblock_count = slot_ended->microblock_count;
     ctx->leader_stats.pack_block_cost  = slot_ended->pack_block_cost;
-    ctx->leader_stats.pack_vote_cost   = slot_ended->pack_vote_cost;
     ctx->leader_stats.pack_data_bytes  = slot_ended->pack_data_bytes;
     ctx->leader_stats.bundle_txn_count = slot_ended->bundle_txn_count;
     ctx->leader_stats.pack_end_reason  = slot_ended->pack_end_reason;

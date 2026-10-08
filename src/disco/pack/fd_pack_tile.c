@@ -171,7 +171,6 @@ typedef struct {
   /* Consensus critical slot cost limits. */
   struct {
     ulong slot_max_cost;
-    ulong slot_max_vote_cost;
     ulong slot_max_write_cost_per_acct;
     ulong slot_max_allocated_data_per_block;
     ulong slot_max_data_shreds;
@@ -355,7 +354,6 @@ FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   fd_pack_limits_t limits[1] = {{
     .max_cost_per_block           = tile->pack.max_cost_per_block,
-    .max_vote_cost_per_block      = FD_PACK_MAX_VOTE_COST_PER_BLOCK_UPPER_BOUND,
     .max_write_cost_per_acct      = FD_PACK_MAX_WRITE_COST_PER_ACCT_UPPER_BOUND,
     .max_data_bytes_per_block     = FD_PACK_MAX_DATA_PER_BLOCK*(tile->pack.max_shreds_per_block/FD_SHRED_BLK_MAX),
     .max_txn_per_microblock       = EFFECTIVE_TXN_PER_MICROBLOCK,
@@ -423,7 +421,7 @@ get_done_packing( fd_pack_ctx_t * ctx, fd_done_packing_t * done_packing, int rea
     done_packing->end_block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_DEFER_SKIP_IDX  ] = DELTA( last_sched_metrics, DEFER_SKIP  );
 #undef DELTA
 
-  fd_pack_get_pending_smallest( ctx->pack, done_packing->pending_smallest, done_packing->pending_votes_smallest );
+  fd_pack_get_pending_smallest( ctx->pack, done_packing->pending_smallest );
 
   done_packing->bundle_txn_count = ctx->slot_bundle_txn_cnt;
   done_packing->pack_start_ns    = ctx->slot_pack_start_ns;
@@ -515,7 +513,6 @@ during_housekeeping( fd_pack_ctx_t * ctx ) {
       limits->max_cost_per_block           = ctx->limits.slot_max_cost;
       limits->max_data_bytes_per_block     = ctx->slot_max_data;
       limits->max_microblocks_per_block    = ctx->slot_dynamic_max_microblocks;
-      limits->max_vote_cost_per_block      = ctx->limits.slot_max_vote_cost;
       limits->max_write_cost_per_acct      = ctx->limits.slot_max_write_cost_per_acct;
       limits->max_txn_per_microblock       = ULONG_MAX; /* unused */
       limits->max_allocated_data_per_block = ctx->limits.slot_max_allocated_data_per_block;
@@ -1219,7 +1216,6 @@ after_frag( fd_pack_ctx_t *     ctx,
                                       - 48UL*(ctx->_became_leader->ticks_per_slot+ctx->_became_leader->total_skipped_ticks);
 
     ctx->limits.slot_max_cost                     = ctx->_became_leader->limits.slot_max_cost;
-    ctx->limits.slot_max_vote_cost                = ctx->_became_leader->limits.slot_max_vote_cost;
     ctx->limits.slot_max_write_cost_per_acct      = ctx->_became_leader->limits.slot_max_write_cost_per_acct;
     ctx->limits.slot_max_allocated_data_per_block = ctx->_became_leader->limits.slot_max_allocated_data_per_block;
     ctx->limits.slot_max_data_shreds              = shreds;
@@ -1252,7 +1248,6 @@ after_frag( fd_pack_ctx_t *     ctx,
     limits->max_cost_per_block = ctx->limits.slot_max_cost;
     limits->max_data_bytes_per_block = ctx->slot_max_data;
     limits->max_microblocks_per_block = ctx->slot_max_microblocks;
-    limits->max_vote_cost_per_block = ctx->limits.slot_max_vote_cost;
     limits->max_write_cost_per_acct = ctx->limits.slot_max_write_cost_per_acct;
     limits->max_txn_per_microblock = ULONG_MAX; /* unused */
     limits->max_allocated_data_per_block = ctx->limits.slot_max_allocated_data_per_block;
@@ -1357,7 +1352,6 @@ unprivileged_init( fd_topo_t const *      topo,
 
   fd_pack_limits_t limits_upper[1] = {{
     .max_cost_per_block           = tile->pack.max_cost_per_block,
-    .max_vote_cost_per_block      = FD_PACK_MAX_VOTE_COST_PER_BLOCK_UPPER_BOUND,
     .max_write_cost_per_acct      = FD_PACK_MAX_WRITE_COST_PER_ACCT_UPPER_BOUND,
     .max_data_bytes_per_block     = FD_PACK_MAX_DATA_PER_BLOCK*(tile->pack.max_shreds_per_block/FD_SHRED_BLK_MAX),
     .max_txn_per_microblock       = EFFECTIVE_TXN_PER_MICROBLOCK,
@@ -1374,7 +1368,6 @@ unprivileged_init( fd_topo_t const *      topo,
 
   fd_pack_limits_t limits_lower[1] = {{
     .max_cost_per_block           = FD_PACK_MAX_COST_PER_BLOCK_LOWER_BOUND, /* replaced by the chain's at become-leader */
-    .max_vote_cost_per_block      = FD_PACK_MAX_VOTE_COST_PER_BLOCK_LOWER_BOUND,
     .max_write_cost_per_acct      = FD_PACK_MAX_WRITE_COST_PER_ACCT_LOWER_BOUND,
     .max_data_bytes_per_block     = FD_PACK_MAX_DATA_PER_BLOCK*(tile->pack.max_shreds_per_block/FD_SHRED_BLK_MAX),
     .max_txn_per_microblock       = EFFECTIVE_TXN_PER_MICROBLOCK,
@@ -1503,7 +1496,6 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->crank->enabled                = tile->pack.bundle.enabled;
 
   ctx->limits.slot_max_cost                = limits_lower->max_cost_per_block;
-  ctx->limits.slot_max_vote_cost           = limits_lower->max_vote_cost_per_block;
   ctx->limits.slot_max_write_cost_per_acct = limits_lower->max_write_cost_per_acct;
 
   ctx->execle_cnt       = tile->pack.execle_tile_count;

@@ -175,11 +175,9 @@ FD_STATIC_ASSERT( FD_PACK_MAX_TXN_COST < (ulong)UINT_MAX, fd_pack_max_cost );
    limit. For Frankendancer, the actual value used for consensus will be
    retrieved from Agave at runtime. */
 #define FD_PACK_MAX_COST_PER_BLOCK_LOWER_BOUND      (30000000UL)
-#define FD_PACK_MAX_VOTE_COST_PER_BLOCK_LOWER_BOUND (36000000UL)
 #define FD_PACK_MAX_WRITE_COST_PER_ACCT_LOWER_BOUND (12000000UL)
 
 #define FD_PACK_MAX_COST_PER_BLOCK_UPPER_BOUND      (100000000UL) /* simd 0286 */
-#define FD_PACK_MAX_VOTE_COST_PER_BLOCK_UPPER_BOUND ( 36000000UL)
 #define FD_PACK_MAX_WRITE_COST_PER_ACCT_UPPER_BOUND ( FD_PACK_MAX_COST_PER_BLOCK_UPPER_BOUND * 4UL / 10UL ) /* simd 0306 */
 
 /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.1/cost-model/src/block_cost_limits.rs#L39-L41 */
