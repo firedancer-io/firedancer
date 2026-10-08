@@ -175,7 +175,7 @@ FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_req_t         )==32UL, failover_re
 FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_control_resp_t)==24UL, failover_control_resp_v1_layout );
 
 /* What the failover controller is doing right now. */
-#define FD_FAILOVER_ACTION_IDLE                (0UL)
+#define FD_FAILOVER_ACTION_IDLE                (0UL) /* no local transition is running */
 #define FD_FAILOVER_ACTION_DEMOTE_SWITCH       (1UL) /* waiting for the junk key to be installed */
 #define FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK     (2UL) /* DEMOTED sent, waiting for the peer */
 #define FD_FAILOVER_ACTION_PROMOTE_WAIT_REPLAY (3UL) /* waiting for replay to reach the tower tip */
@@ -192,8 +192,8 @@ FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_control_resp_t)==24UL, failover_co
 #define FD_FAILOVER_SOURCE_CNT          (2UL)
 
 /* The outcome of the last handoff this machine requested or gave. */
-#define FD_FAILOVER_HANDOFF_NONE       (0UL)
-#define FD_FAILOVER_HANDOFF_PENDING    (1UL)
+#define FD_FAILOVER_HANDOFF_NONE       (0UL) /* nothing requested or sent */
+#define FD_FAILOVER_HANDOFF_PENDING    (1UL) /* requested or sent, no answer yet */
 #define FD_FAILOVER_HANDOFF_TAKEN      (2UL) /* the standby took the identity */
 #define FD_FAILOVER_HANDOFF_DECLINED   (3UL) /* the standby did not take the identity, or the old active did not record that it did */
 #define FD_FAILOVER_HANDOFF_RESTARTED  (4UL) /* the peer came back with a new boot_id */
@@ -204,7 +204,7 @@ FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_control_resp_t)==24UL, failover_co
 /* `failover status`, provided by the failover tile. */
 struct fd_adminctl_failover_status_resp_v1 {
   ulong  version;         /* ==FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION */
-  uchar  enabled;         /* 0 when failover is off, the other fields keep their init values then */
+  uchar  enabled;         /* 1 from the failover tile */
   uchar  role;            /* FD_FAILOVER_ROLE_* */
   uchar  action;          /* FD_FAILOVER_ACTION_* */
   uchar  stuck;           /* a transition failed or is overdue */
