@@ -549,6 +549,26 @@ fiber_background( fiber_t *    fiber,
   return fiber->async;
 }
 
+/* forced pre-eviction fiber: the test-only full sweep, so a test can
+   park the sweeper at preevict:pre_synth with lines claimed and staged
+   but not yet on disk. */
+
+void fd_accdb_debug_force_preevict( fd_accdb_t * accdb );
+
+static void
+fiber_force_preevict_exec( void * _ctx ) {
+  fiber_t * f = _ctx;
+  fd_accdb_debug_force_preevict( f->accdb );
+}
+
+static fd_racesan_async_t *
+fiber_force_preevict( fiber_t *    fiber,
+                      fd_accdb_t * accdb ) {
+  fiber->accdb = accdb;
+  fd_racesan_async_new( fiber->async, fiber->stack, FIBER_STACK_MAX, fiber_force_preevict_exec, fiber );
+  return fiber->async;
+}
+
 /* nocache reader fiber: drives fd_accdb_read_one_nocache, the RO disk
    path with the epoch lifecycle (publish epoch -> snapshot offset_fork ->
    preadv2 -> reset epoch).  This is the reader the epoch-reclamation
@@ -3501,6 +3521,117 @@ test_preevict_release_store_order( void ) {
   test_teardown( accdb, fd );
 }
 
+/* test_preevict_batch_cap: a forced sweep over more dirty class-0 lines
+   than one batch holds must write exactly two batches (256 + 44), and
+   every account must read back intact afterwards.  Checks the
+   mid-sweep flush, the running offsets of the second batch and the
+   free-list pushes across batches. */
+static void
+test_preevict_batch_cap( void ) {
+  int fd;
+  fd_accdb_t * accdb = test_setup( &fd, 1024UL, 16UL, 1024UL, 1024UL, 1UL<<30UL );
+
+  uchar owner[ 32 ] = { 0xAA, 0 };
+  fd_accdb_fork_id_t root0 = fd_accdb_attach_child( accdb, SENTINEL );
+
+  ulong cnt = 300UL;
+  for( ulong i=0UL; i<cnt; i++ ) {
+    uchar key[ 32 ] = { 'B', (uchar)(i>>8), (uchar)i, 0 };
+    seq_write_data( accdb, root0, key, 1000UL+i, owner, 64UL, (uchar)(0x10+(i&0x7FUL)) );
+  }
+  for( ulong i=0UL; i<cnt; i++ ) {
+    uchar key[ 32 ] = { 'B', (uchar)(i>>8), (uchar)i, 0 };
+    ulong cls, idx;
+    FD_TEST( fd_accdb_debug_find_line( accdb, key, &cls, &idx ) );
+    FD_TEST( cls==0UL );
+  }
+
+  /* Every stop at preevict:pre_synth is one batch write. */
+  fd_racesan_async_t * s = fiber_force_preevict( &g_fiber[0], accdb );
+  ulong flushes = 0UL;
+  for(;;) {
+    int rc = fd_racesan_async_step_until( s, "preevict:pre_synth", STEP_MAX );
+    if( rc==FD_RACESAN_ASYNC_RET_EXIT ) break;
+    FD_TEST( rc==FD_RACESAN_ASYNC_RET_HOOK );
+    flushes++;
+  }
+  FD_TEST( flushes==2UL );
+
+  for( ulong i=0UL; i<cnt; i++ ) {
+    uchar key[ 32 ] = { 'B', (uchar)(i>>8), (uchar)i, 0 };
+    uchar const * pks[1] = { key };
+    int rd[1] = { 0 };
+    fd_acc_t a[1];
+    memset( a, 0, sizeof(a) );
+    fd_accdb_acquire( accdb, root0, 1UL, pks, rd, a );
+    FD_TEST( a[0].lamports==1000UL+i );
+    FD_TEST( a[0].data_len==64UL );
+    FD_TEST( a[0].data[ 0 ]==(uchar)(0x10+(i&0x7FUL)) && a[0].data[ 63 ]==(uchar)(0x10+(i&0x7FUL)) );
+    fd_accdb_release( accdb, 1UL, a );
+  }
+
+  test_teardown( accdb, fd );
+}
+
+/* test_preevict_batch_reader_wait: while the sweeper holds a staged
+   batch that is not yet on disk, a reader of a staged account must
+   wait on the invalid offset, then read the staged bytes once the
+   batch is published.  Once for the nocache path, once for the acquire
+   path (the test shmem allows one extra join, so one reader at a
+   time). */
+static void
+test_preevict_batch_reader_wait( void ) {
+  int fd;
+  fd_accdb_t * accdb   = test_setup( &fd, 256UL, 16UL, 1024UL, 1024UL, 1UL<<30UL );
+  fd_accdb_t * accdb_r = test_join_extra();
+
+  uchar owner[ 32 ] = { 0xAA, 0 };
+  uchar key_P[ 32 ] = { 'P', 0 };
+  uchar key_Q[ 32 ] = { 'Q', 0 };
+  fd_accdb_fork_id_t root0 = fd_accdb_attach_child( accdb, SENTINEL );
+  ulong cls, idx;
+
+  /* P dirty; the sweep parks at the batch write with P claimed; a
+     nocache reader of P waits on the invalid offset. */
+  seq_write_data( accdb, root0, key_P, 100UL, owner, 100UL, 0xA1 );
+  fd_racesan_async_t * sweep = fiber_force_preevict( &g_fiber[0], accdb );
+  FD_TEST( fd_racesan_async_step_until( sweep, "preevict:pre_synth", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+  FD_TEST( !fd_accdb_debug_find_line( accdb, key_P, &cls, &idx ) );
+  fd_racesan_async_t * reader = fiber_nocache( &g_fiber[1], accdb_r, root0, key_P, 100UL, 0xAA, 100UL, 0xA1 );
+  FD_TEST( fd_racesan_async_step_until( reader, "accdb_nocache:offset_wait", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+  for(;;) {
+    int rc = fd_racesan_async_step( sweep );
+    if( rc==FD_RACESAN_ASYNC_RET_EXIT ) break;
+    FD_TEST( rc==FD_RACESAN_ASYNC_RET_HOOK );
+  }
+  for(;;) {
+    int rc = fd_racesan_async_step( reader );
+    if( rc==FD_RACESAN_ASYNC_RET_EXIT ) break;
+    FD_TEST( rc==FD_RACESAN_ASYNC_RET_HOOK );
+  }
+
+  /* Same with Q and a reader on the acquire path. */
+  seq_write_data( accdb, root0, key_Q, 200UL, owner, 100UL, 0xB2 );
+  sweep = fiber_force_preevict( &g_fiber[0], accdb );
+  FD_TEST( fd_racesan_async_step_until( sweep, "preevict:pre_synth", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+  FD_TEST( !fd_accdb_debug_find_line( accdb, key_Q, &cls, &idx ) );
+  reader = fiber_acquire_expect( &g_fiber[1], accdb_r, root0, key_Q, 200UL );
+  FD_TEST( fd_racesan_async_step_until( reader, "accdb_acquire:offset_wait", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+  for(;;) {
+    int rc = fd_racesan_async_step( sweep );
+    if( rc==FD_RACESAN_ASYNC_RET_EXIT ) break;
+    FD_TEST( rc==FD_RACESAN_ASYNC_RET_HOOK );
+  }
+  for(;;) {
+    int rc = fd_racesan_async_step( reader );
+    if( rc==FD_RACESAN_ASYNC_RET_EXIT ) break;
+    FD_TEST( rc==FD_RACESAN_ASYNC_RET_HOOK );
+  }
+
+  free( accdb_r );
+  test_teardown( accdb, fd );
+}
+
 /* test_probe_vs_pd_commit the pd_write probe walk raced
    against a same-fork overwrite commit that sets pd_write=1.  The probe
    is designed to be called concurrently with writers on its fork; it
@@ -3766,6 +3897,8 @@ main( int     argc,
     TEST( test_overwrite_discard_vs_evictor ),
     TEST( test_clock_claim_vs_freed ),
     TEST( test_preevict_release_store_order ),
+    TEST( test_preevict_batch_cap ),
+    TEST( test_preevict_batch_reader_wait ),
     TEST( test_probe_vs_pd_commit ),
     TEST( test_pd_same_fork_read_vs_write ),
     TEST( test_pd_parent_read_vs_child_write ),
