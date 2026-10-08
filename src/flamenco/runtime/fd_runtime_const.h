@@ -70,17 +70,19 @@ FD_PROTOTYPES_BEGIN
 #define FD_RUNTIME_ACC_SZ_MAX (10UL<<20) /* 10MiB */
 
 /* Bound the number of distinct writable accounts that can enter the
-   cost tracker in an 87.5M CU block.  A transaction with w writable
-   accounts costs at least 720+300*w CUs and carries at most 64 writable
-   accounts.  Thus W writables need at least ceil(W/64) transactions:
+   cost tracker in a 200ms block with raise_block_limits_to_100m, a 50M
+   CU block (FD_SLOT_PARAMS_200MS_MAX_BLOCK_UNITS*100/60).  Clusters
+   with a larger block cost limit (slower slots or [development.bench])
+   are not supported.  A transaction with w writable accounts costs at
+   least 720+300*w CUs and carries at most 64 writable accounts.  Thus W
+   writables need at least ceil(W/64) transactions:
 
-     300*W + 720*ceil(W/64) <= 87500000
+     300*W + 720*ceil(W/64) <= 50000000
 
-   The largest solution is 281123: 4392 full 64-account transactions
-   plus one 35-account transaction cost 87499860 CUs.  A 281124th
-   writable would cost 87500160 CUs. */
+   The largest solution is 160640: 2510 full 64-account transactions
+   cost 49999200 CUs.  A 160641st writable would cost 50000220 CUs. */
 
-#define FD_RUNTIME_MAX_TXN_ACC_WRITES_PER_SLOT (281123UL)
+#define FD_RUNTIME_MAX_TXN_ACC_WRITES_PER_SLOT (160640UL)
 
 /* With 100M stake accounts, ceil(100M/4096)=24415 partitions.
    Assuming uniform hashing, one partition has
@@ -93,7 +95,7 @@ FD_PROTOTYPES_BEGIN
    on the number of unique accounts that can be written to in a single
    slot.  The worst case can be defined by:
    1. Worst case number of writable accounts in a slot from worst-case
-      transactions.  This bound comes from the cost tracker: 281123.
+      transactions.  This bound comes from the cost tracker: 160640.
    2. During partitioned epoch rewards.  A reasonable upper bound is
       8192 accounts per stake partition since the odds of this happening
       are very very low.

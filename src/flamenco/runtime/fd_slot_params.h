@@ -112,13 +112,15 @@ typedef struct fd_slot_params fd_slot_params_t;
   .vat_to_burn_per_epoch              = 1000000000UL,                             \
 })
 
+#define FD_SLOT_PARAMS_200MS_MAX_BLOCK_UNITS (30000000UL)
+
 /* https://github.com/anza-xyz/agave/blob/v4.2/runtime/src/slot_params.rs#L171-L181 */
 #define FD_SLOT_PARAMS_200MS ((fd_slot_params_t){                                 \
   .ns_per_slot                        = 200000000UL,                              \
   .ns_per_slot_adjusted               = 200000000UL-FD_TARGET_SLOT_ADJUSTMENT_NS, \
   .slots_per_year                     = 157784629.968,                            \
   .hashes_per_tick                    = 31250UL,                                  \
-  .max_block_units                    = 30000000UL,                               \
+  .max_block_units                    = FD_SLOT_PARAMS_200MS_MAX_BLOCK_UNITS,     \
   .max_writable_account_units         = 12000000UL,                               \
   .max_block_accounts_data_size_delta = 50000000UL,                               \
   .max_shred_idx                      = 16384UL,                                  \
