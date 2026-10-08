@@ -369,6 +369,9 @@ handle_epoch( fd_gossip_tile_ctx_t *      ctx,
   ctx->wfs_peers.total = ctx->wfs_stakes_cnt;
   FD_MGAUGE_SET( GOSSIP, WAIT_FOR_SUPERMAJORITY_STAKED_PEER_COUNT,      ctx->wfs_peers.total );
   FD_MGAUGE_SET( GOSSIP, WAIT_FOR_SUPERMAJORITY_STAKE_TRACKED_LAMPORTS, ctx->wfs_stake.total );
+
+  FD_LOG_NOTICE(( "wait for supermajority: tracking epoch %lu, %lu staked peers, %lu total stake",
+                  msg->epoch, ctx->wfs_peers.total, ctx->wfs_stake.total ));
 }
 
 static void
