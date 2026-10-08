@@ -104,6 +104,44 @@ main( int argc, char ** argv ) {
   FD_TEST( fd_vote_stakes_query_t_1( vote_stakes, child, &vote_c, NULL, &stake, &commission ) );
   FD_TEST( stake==300UL && commission==30U );
 
+  /* SIMD-0232 collectors: default to the vote/node accounts, a NULL
+     collector is left unchanged, and a miss on an absent key is a
+     no-op. */
+  {
+    fd_pubkey_t inflation;
+    fd_pubkey_t block;
+    FD_TEST( fd_vote_stakes_query_collectors_t_1( vote_stakes, child, &vote_c, &inflation, &block ) );
+    FD_TEST( fd_pubkey_eq( &inflation, &vote_c ) && fd_pubkey_eq( &block, &node_c ) );
+
+    fd_pubkey_t infl_c = key( 50UL );
+    fd_pubkey_t blk_c  = key( 51UL );
+    fd_vote_stakes_set_collectors_t_1( vote_stakes, child, &vote_c, &infl_c, NULL );
+    FD_TEST( fd_vote_stakes_query_collectors_t_1( vote_stakes, child, &vote_c, &inflation, &block ) );
+    FD_TEST( fd_pubkey_eq( &inflation, &infl_c ) && fd_pubkey_eq( &block, &node_c ) );
+    fd_vote_stakes_set_collectors_t_1( vote_stakes, child, &vote_c, NULL, &blk_c );
+    FD_TEST( fd_vote_stakes_query_collectors_t_1( vote_stakes, child, &vote_c, &inflation, &block ) );
+    FD_TEST( fd_pubkey_eq( &inflation, &infl_c ) && fd_pubkey_eq( &block, &blk_c ) );
+
+    fd_pubkey_t absent = key( 99UL );
+    fd_vote_stakes_set_collectors_t_1( vote_stakes, child, &absent, &infl_c, &blk_c );
+    FD_TEST( !fd_vote_stakes_query_collectors_t_1( vote_stakes, child, &absent, NULL, NULL ) );
+
+    /* t-2 setter on the rotated root set (vote_a) */
+    FD_TEST( fd_vote_stakes_query_collectors_t_2( vote_stakes, child, &vote_a, &inflation, &block ) );
+    FD_TEST( fd_pubkey_eq( &inflation, &vote_a ) && fd_pubkey_eq( &block, &node_a ) );
+    fd_pubkey_t blk_a = key( 52UL );
+    fd_vote_stakes_set_collectors_t_2( vote_stakes, child, &vote_a, NULL, &blk_a );
+    FD_TEST( fd_vote_stakes_query_collectors_t_2( vote_stakes, child, &vote_a, &inflation, &block ) );
+    FD_TEST( fd_pubkey_eq( &inflation, &vote_a ) && fd_pubkey_eq( &block, &blk_a ) );
+
+    /* The iterator reads the same fields. */
+    uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) co_iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
+    fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, child, FD_VOTE_STAKES_ITER_T_1, co_iter_mem );
+    FD_TEST( !fd_vote_stakes_iter_done( vote_stakes, child, FD_VOTE_STAKES_ITER_T_1, iter ) );
+    fd_vote_stakes_iter_collectors( vote_stakes, child, FD_VOTE_STAKES_ITER_T_1, iter, &inflation, &block );
+    FD_TEST( fd_pubkey_eq( &inflation, &infl_c ) && fd_pubkey_eq( &block, &blk_c ) );
+  }
+
   /* SIMD-0123 fields: defaults on insert, set/query on t-1, and a
      miss on an absent key is a no-op. */
   {
@@ -142,10 +180,17 @@ main( int argc, char ** argv ) {
     }
     FD_TEST( seen==1UL );
 
-    /* Crossing a boundary rotates t-1 into t-2 with the fields intact. */
+    /* Crossing a boundary rotates t-1 into t-2 with the fields and
+       collectors intact. */
     ulong grandchild = fd_vote_stakes_new_fork( vote_stakes, child, 2UL );
     FD_TEST( fd_vote_stakes_query_block_revenue_t_2( vote_stakes, grandchild, &vote_c, &block_bps, &pending ) );
     FD_TEST( block_bps==2500U && pending==777UL );
+    fd_pubkey_t inflation;
+    fd_pubkey_t block;
+    fd_pubkey_t infl_c = key( 50UL );
+    fd_pubkey_t blk_c  = key( 51UL );
+    FD_TEST( fd_vote_stakes_query_collectors_t_2( vote_stakes, grandchild, &vote_c, &inflation, &block ) );
+    FD_TEST( fd_pubkey_eq( &inflation, &infl_c ) && fd_pubkey_eq( &block, &blk_c ) );
     fd_vote_stakes_purge_fork( vote_stakes, grandchild );
   }
 

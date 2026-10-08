@@ -671,12 +671,8 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
   pb_size_t va_t1_cnt = 0U;
   pb_size_t va_t2_cnt = 0U;
 
-  /* SIMD-0232 collector overrides are tagged with the source epoch.
-     Empty protobuf fields represent the vote/node defaults. */
-  fd_collector_overrides_t * collector_overrides = fd_bank_collector_overrides( parent_bank );
-  ushort co_fork_idx  = parent_bank->collector_overrides_fork_id;
-  ulong  co_epoch_t_1 = parent_bank->f.epoch;
-  ulong  co_epoch_t_2 = fd_ulong_sat_sub( parent_bank->f.epoch, 1UL );
+  /* SIMD-0232 collectors: empty protobuf fields represent the vote/node
+     defaults. */
 
   for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, vote_stakes_iter_mem );
        !fd_vote_stakes_iter_done( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter );
@@ -708,13 +704,12 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
 
     fd_pubkey_t inflation_collector;
     fd_pubkey_t block_collector;
-    int co_flags = fd_collector_overrides_query( collector_overrides, co_fork_idx, co_epoch_t_1, &pubkey,
-                                                 &inflation_collector, &block_collector );
-    if( co_flags & FD_COLLECTOR_OVERRIDE_INFLATION ) {
+    fd_vote_stakes_iter_collectors( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter, &inflation_collector, &block_collector );
+    if( !fd_pubkey_eq( &inflation_collector, &pubkey ) ) {
       acc->inflation_rewards_collector.size = 32U;
       fd_memcpy( acc->inflation_rewards_collector.bytes, &inflation_collector, sizeof(fd_pubkey_t) );
     }
-    if( co_flags & FD_COLLECTOR_OVERRIDE_BLOCK ) {
+    if( !fd_pubkey_eq( &block_collector, &node ) ) {
       acc->block_revenue_collector.size = 32U;
       fd_memcpy( acc->block_revenue_collector.bytes, &block_collector, sizeof(fd_pubkey_t) );
     }
@@ -750,13 +745,12 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
 
     fd_pubkey_t inflation_collector;
     fd_pubkey_t block_collector;
-    int co_flags = fd_collector_overrides_query( collector_overrides, co_fork_idx, co_epoch_t_2, &pubkey,
-                                                 &inflation_collector, &block_collector );
-    if( co_flags & FD_COLLECTOR_OVERRIDE_INFLATION ) {
+    fd_vote_stakes_iter_collectors( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter, &inflation_collector, &block_collector );
+    if( !fd_pubkey_eq( &inflation_collector, &pubkey ) ) {
       acc->inflation_rewards_collector.size = 32U;
       fd_memcpy( acc->inflation_rewards_collector.bytes, &inflation_collector, sizeof(fd_pubkey_t) );
     }
-    if( co_flags & FD_COLLECTOR_OVERRIDE_BLOCK ) {
+    if( !fd_pubkey_eq( &block_collector, &node ) ) {
       acc->block_revenue_collector.size = 32U;
       fd_memcpy( acc->block_revenue_collector.bytes, &block_collector, sizeof(fd_pubkey_t) );
     }
