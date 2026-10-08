@@ -11,6 +11,7 @@ Constructed using a full topology which is pruned down. */
 #include "../../../../discof/genesis/fd_genesi_tile.h"
 #include "../../../../discof/tower/fd_tower_tile.h"
 #include "../../../../discof/replay/fd_replay_tile.h"
+#include "../../../../discof/replay/fd_sched.h"
 #include "../../../../disco/shred/fd_shred_tile.h"
 #include "../../../../disco/net/fd_net_tile.h"
 #include "../../../../disco/pack/fd_pack_cost.h"
@@ -377,7 +378,13 @@ forktest_topo( config_t * config ) {
   /**/                 fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "accdb", 0UL ) ], progcache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(execrp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i   ) ], progcache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
-  fd_topo_obj_t * banks_obj = setup_topo_banks( topo, "banks", config->firedancer.runtime.max_live_slots, config->firedancer.runtime.max_fork_width, config->firedancer.runtime.max_stake_delegations, config->development.bench.max_cost_per_block );
+  ulong min_bank_cache_cnt = fd_ulong_min( execrp_tile_cnt, FD_SCHED_MAX_STAGING_LANES )+2UL;
+  if( FD_UNLIKELY( config->firedancer.runtime.bank_cache_cnt<min_bank_cache_cnt ) ) {
+    FD_LOG_ERR(( "Invalid [runtime]: bank_cache_cnt is %lu, but it must be at least %lu (2 more than the smaller of [layout] execrp_tile_count %lu "
+                 "and %lu replay staging lanes).  Increase [runtime] bank_cache_cnt.",
+                 config->firedancer.runtime.bank_cache_cnt, min_bank_cache_cnt, execrp_tile_cnt, FD_SCHED_MAX_STAGING_LANES ));
+  }
+  fd_topo_obj_t * banks_obj = setup_topo_banks( topo, "banks", config->firedancer.runtime.max_live_slots, config->firedancer.runtime.bank_cache_cnt, config->firedancer.runtime.max_stake_delegations, config->development.bench.max_cost_per_block );
   /**/                 fd_topob_tile_uses( topo, replay_tile, banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   /**/                 fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "tower",  0UL ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(execrp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i   ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );

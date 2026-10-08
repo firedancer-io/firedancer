@@ -14,8 +14,6 @@
 #include "../../flamenco/runtime/fd_system_ids.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_slot_hashes.h" /* for ALUTs */
 
-#define FD_SCHED_MAX_STAGING_LANES_LOG     (2)
-#define FD_SCHED_MAX_STAGING_LANES         (1UL<<FD_SCHED_MAX_STAGING_LANES_LOG)
 #define FD_SCHED_MAX_PRINT_BUF_SZ          (2UL<<20)
 #define FD_SCHED_POISON_MAX_ACCT_PER_SLOT  (64UL)
 
