@@ -1570,8 +1570,8 @@ parse_listen_addr( char const *    cstr,
 void
 fd_topo_configure_tile( fd_topo_tile_t * tile,
                         fd_config_t *    config ) {
-  /* Failover machines boot under the junk identity, only promotion
-     installs the staked key.  A demoted machine rebooting under the
+  /* Failover machines boot under the junk identity, only a promotion or
+     set-identity installs a voting key.  A demoted machine rebooting under the
      staked key would make the doppelganger rule shut down the promoted
      peer instead. */
   char const * identity_key_path = config->firedancer.failover.enabled

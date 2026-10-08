@@ -48,6 +48,16 @@ Between two Firedancer validators running failover, only use
 directly. Do not use `--vote-history-file` for this, it is only for a
 tower file from a validator that does not run failover, such as Agave.
 
+With failover on, `set-identity` also makes the new key the identity
+`failover promote` moves, unless it is the machine's junk identity.
+Only a machine running the same key can take it over, so set that
+key as `[paths.identity_key]` on the other machine and restart it.
+After a restart, a machine goes back to its `[paths.identity_key]`.
+The new key cannot also be one of the authorized voters. With
+`--vote-history-file`, a failover machine does not vote until the
+file's root has been replayed, and ignores a file whose root is not on
+the fork of its own root, waiting out the lockouts of its votes.
+
 If `[tiles.tower.write_vote_history_file]` is enabled, votes are saved
 to `tower-1_9-<identity>.bin` in the `[paths.vote_history]` directory
 (by default the base directory). With Alpenglow,
