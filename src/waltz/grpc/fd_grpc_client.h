@@ -395,6 +395,15 @@ fd_grpc_client_stream_close(
     fd_grpc_h2_stream_t * stream
 );
 
+/* fd_grpc_client_stream_cancel aborts a request with RST_STREAM CANCEL
+   and frees the stream without calling back.  Must not be called from
+   a callback for the same stream.  Returns 1 on success, 0 if there is
+   no TX space (retry later). */
+
+int
+fd_grpc_client_stream_cancel( fd_grpc_client_t *    client,
+                              fd_grpc_h2_stream_t * stream );
+
 /* fd_grpc_client_deadline_set sets a request deadline (used to
    configure timeouts).  deadline_kind is FD_GRPC_DEADLINE_*.  Logs
    error and aborts app if deadline_kind is unsupported.
