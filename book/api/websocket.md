@@ -3732,12 +3732,12 @@ explicitly mentioned, skipped slots are not included.
 | Field                        | Type              | Description |
 |------------------------------|-------------------|-------------|
 | used_total_block_cost        | `number`          | The total block cost in compute units |
-| used_total_vote_cost         | `number`          | Under Tower, the compute units from vote transactions consumed for this block. This fixed-shape field is deprecated and always `0` under Alpenglow |
+| used_total_vote_cost         | `number`          | This fixed-shape field is deprecated and always `0` |
 | used_account_write_costs     | `WriteAcctCost[]` | The top 5 writeable account costs for this block |
 | used_total_bytes             | `number`          | The number of bytes from transaction payloads and microblock headers consumed in total for this block |
 | used_total_microblocks       | `number`          | The total number of microblocks included in this block |
 | max_total_block_cost         | `number`          | The maximum possible value for `used_total_block_cost` |
-| max_total_vote_cost          | `number`          | Under Tower, the maximum possible value for `used_total_vote_cost`. This fixed-shape field is deprecated and always `0` under Alpenglow |
+| max_total_vote_cost          | `number`          | This fixed-shape field is deprecated and always `0` |
 | max_account_write_cost       | `number`          | The maximum possible value for `used_account_write_cost` |
 | max_total_bytes              | `number`          | The maximum possible value for `used_total_bytes` |
 | max_total_microblocks        | `number`          | The maximum possible value for `used_total_microblocks` |

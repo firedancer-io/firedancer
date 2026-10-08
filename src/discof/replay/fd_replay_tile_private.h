@@ -507,7 +507,6 @@ struct fd_replay_tile {
     long  first_fec_returned_nanos;
     ulong microblock_count;
     ulong pack_block_cost;
-    ulong pack_vote_cost;
     ulong pack_data_bytes;
     ulong bundle_txn_count;
     int   pack_end_reason;
