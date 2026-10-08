@@ -120,7 +120,7 @@ typedef struct fd_failover_request fd_failover_request_t;
 /* Our demotion. */
 struct fd_failover_handoff {
   ulong              id;            /* id of our latest demotion */
-  fd_failover_peer_t target;        /* peer boot it is for, boot_id 0 for a demote */
+  fd_failover_peer_t target;        /* peer boot it is for */
   ulong              result;        /* FD_FAILOVER_HANDOFF_* of the latest DEMOTED */
   ulong              delivery;      /* FD_FAILOVER_DELIVERY_* */
   long               until;         /* also bound the drain when replay stops */
@@ -191,6 +191,8 @@ struct fd_failover_id_switch {
   ulong                     response_nonce; /* nonce of the frame being consumed */
   int                       fresh;
   int                       overdue;        /* the switch in flight passed its deadline, we still wait for it */
+  int                       discard;        /* set-identity ran while it was in flight, its answer is dropped */
+  ulong                     epoch;          /* operator epoch we last saw, sent with every request */
 };
 
 typedef struct fd_failover_id_switch fd_failover_id_switch_t;
@@ -258,8 +260,9 @@ struct fd_failover_tile_ctx {
   ulong                 admin_out_chunk0;
   ulong                 admin_out_wmark;
   ulong                 admin_out_chunk;
-  fd_failover_bus_msg_t bus_req;
-  int                   bus_req_fresh;
+  fd_failover_bus_msg_t  bus_req;
+  int                    bus_req_fresh;
+  fd_failover_operator_t bus_operator; /* copied in during_frag */
 
   fd_failover_id_switch_t id_switch;
 
@@ -500,20 +503,30 @@ unprivileged_init( fd_topo_t const *      topo,
   }
 }
 
+/* A set-identity that moves the failover identity reaches the sign tile
+   before its OPERATOR reaches us.  A certificate signed with the new key
+   then waits for that OPERATOR, which restarts us and asks again. */
+static void
+member_cert_signed( fd_failover_tile_ctx_t * ctx,
+                    uchar const              cert[ 64 ] ) {
+  ctx->member_cert_set = 1;
+  if( FD_UNLIKELY( fd_failover_channel_set_member_cert( ctx->channel, cert ) ) ) {
+    FD_LOG_WARNING(( "the sign tile signed our member certificate with another key, set-identity moved the failover identity, we ask again once failover restarts for it" ));
+    return;
+  }
+  FD_LOG_NOTICE(( "the sign tile signed our member certificate with the failover identity, this machine can pair with the other failover machine now" ));
+}
+
 /* Before we pair, the sign tile signs our member certificate with the
-   staked key.  It checks the message is the cert prefix and its own
-   junk pubkey. */
+   failover identity.  It checks the message is the cert prefix and its
+   own junk pubkey. */
 static void
 request_member_cert( fd_failover_tile_ctx_t * ctx ) {
   uchar msg [ FD_KEYGUARD_MEMBER_CERT_MSG_SZ ];
   uchar cert[ 64 ];
   fd_failover_member_cert_msg( msg, ctx->hello.junk_pubkey );
   fd_keyguard_client_sign( ctx->keyguard_client, cert, msg, sizeof(msg), FD_KEYGUARD_SIGN_TYPE_ED25519 );
-  if( FD_UNLIKELY( fd_failover_channel_set_member_cert( ctx->channel, cert ) ) ) {
-    FD_LOG_ERR(( "the sign tile signed our member certificate with a key other than the staked [paths.identity_key]" ));
-  }
-  ctx->member_cert_set = 1;
-  FD_LOG_NOTICE(( "the sign tile signed our member certificate with the staked identity, this machine can pair with the other failover machine now" ));
+  member_cert_signed( ctx, cert );
 }
 
 /* A new connection repeats the request for the same handoff. */
@@ -626,13 +639,6 @@ promote_expired( fd_failover_tile_ctx_t const * ctx,
   return 1;
 }
 
-/* What the operator knows our demotion as, a handoff when a peer asked
-   for it, else a demotion. */
-static inline char const *
-demotion_kind( fd_failover_tile_ctx_t const * ctx ) {
-  return ctx->handoff.delivery!=FD_FAILOVER_DELIVERY_NONE ? "handoff" : "demotion";
-}
-
 /* A switch in flight is never abandoned, its outcome is unknown until the
    admin tile responds.  We warn once and flag stuck. */
 static void
@@ -641,7 +647,7 @@ switch_overdue( fd_failover_tile_ctx_t * ctx ) {
   if( FD_LIKELY( ctx->id_switch.overdue ) ) return;
   ctx->id_switch.overdue = 1;
   char demotion[ 48 ];
-  fd_cstr_printf( demotion, sizeof(demotion), NULL, "%s %lu", demotion_kind( ctx ), ctx->handoff.id );
+  fd_cstr_printf( demotion, sizeof(demotion), NULL, "handoff %lu", ctx->handoff.id );
   FD_LOG_WARNING(( "%s: identity switch %lu to %s is overdue, its outcome is unknown, we keep waiting and refuse another switch, check the admin and sign tile logs",
                    ctx->id_switch.pending_key==FD_FAILOVER_SWITCH_KEY_STAKED ? ctx->promotion.label : demotion,
                    ctx->id_switch.request_id, ctx->id_switch.pending_key==FD_FAILOVER_SWITCH_KEY_STAKED ? "staked" : "junk" ));
@@ -852,13 +858,10 @@ consume_slot_done( fd_failover_tile_ctx_t *     ctx,
   if( FD_LIKELY( done->root_slot!=FD_FAILOVER_SLOT_NULL ) ) ctx->root_slot = done->root_slot;
   if( FD_LIKELY( done->has_vote_txn && done->vote_slot!=FD_FAILOVER_SLOT_NULL ) ) {
     ctx->last_vote_slot = done->vote_slot;
-    /* Admin can unhalt the new signer before its switch response reaches
-       this tile.  Those first votes already belong to the new tenure. */
-    if( FD_LIKELY( ctx->role==FD_FAILOVER_ROLE_ACTIVE || ctx->action==FD_FAILOVER_ACTION_PROMOTE_SWITCH ) ) {
-      /* Any later promotion has to cover the votes we signed. */
-      if( FD_LIKELY( ctx->own_floor==FD_FAILOVER_SLOT_NULL || done->vote_slot>ctx->own_floor ) ) ctx->own_floor = done->vote_slot;
-      prepare_consensus( ctx, done );
-    }
+    /* Only the voting identity publishes votes, so every vote here is one
+       we signed, also before our role catches up with a switch. */
+    if( FD_LIKELY( ctx->own_floor==FD_FAILOVER_SLOT_NULL || done->vote_slot>ctx->own_floor ) ) ctx->own_floor = done->vote_slot;
+    prepare_consensus( ctx, done );
   }
 }
 
@@ -897,6 +900,7 @@ request_switch( fd_failover_tile_ctx_t * ctx,
   out->nonce = ctx->id_switch.request_id;
   fd_failover_switch_req_t req;
   fd_memcpy( req.identity, key==FD_FAILOVER_SWITCH_KEY_STAKED ? ctx->hello.staked_pubkey : ctx->hello.junk_pubkey, 32UL );
+  req.epoch = ctx->id_switch.epoch;
   fd_memcpy( out->payload, &req, sizeof(req) );
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
   fd_stem_publish( stem, ctx->admin_out_idx, FD_FAILOVER_BUS_SWITCH_REQ, ctx->admin_out_chunk, sizeof(*out), 0UL, tspub, tspub );
@@ -920,8 +924,76 @@ switch_answer( fd_failover_tile_ctx_t * ctx,
   }
   /* A matching response ends the pending switch. */
   ctx->id_switch.pending_key = FD_FAILOVER_SWITCH_KEY_CNT;
-  ctx->id_switch.fresh       = 1;
+  if( FD_UNLIKELY( ctx->id_switch.discard ) ) {
+    ctx->id_switch.discard = 0;
+    return 0;
+  }
+  ctx->id_switch.fresh = 1;
   return 1;
+}
+
+/* set-identity installed a key while failover is on.  We start over as
+   if this machine had rebooted with that key: a new boot, so the other
+   machine treats anything bound to the old one as from a restarted peer,
+   nothing in flight, the failover identity set-identity left, and the
+   role the installed key gives.  A peer with another failover identity
+   fails HELLO.  Floors stay, they cover votes already signed.  A switch
+   still in flight keeps one outstanding, its answer is dropped. */
+static void
+operator_switched( fd_failover_tile_ctx_t *       ctx,
+                   fd_failover_operator_t const * operator ) {
+  if( FD_UNLIKELY( operator->epoch<=ctx->id_switch.epoch ) ) return;
+  ctx->id_switch.epoch   = operator->epoch;
+  ctx->id_switch.discard = ctx->id_switch.pending_key!=FD_FAILOVER_SWITCH_KEY_CNT;
+  ctx->id_switch.fresh   = 0;
+  ctx->id_switch.overdue = 0;
+
+  long now = fd_failover_clock();
+  fd_failover_channel_init_dialer( ctx->channel, 0U, 0 );
+  fd_failover_channel_hangup( ctx->channel, now );
+
+  fd_memset( &ctx->request,   0, sizeof(ctx->request)   );
+  fd_memset( &ctx->handoff,   0, sizeof(ctx->handoff)   );
+  fd_memset( &ctx->promotion, 0, sizeof(ctx->promotion) );
+  fd_memset( &ctx->reply,     0, sizeof(ctx->reply)     );
+  fd_memset( &ctx->tx,        0, sizeof(ctx->tx)        );
+  ctx->peer_tower.valid         = 0;
+  ctx->current_tower.valid      = 0;
+  ctx->last_vote_slot           = FD_FAILOVER_SLOT_NULL;
+  ctx->tower_gap                = 0;
+  ctx->taken                    = 0;
+  ctx->last_requested           = 0;
+  ctx->cmd_addr                 = 0U;
+  ctx->cmd_port                 = (ushort)0;
+  ctx->session.close_after_send = 0;
+  ctx->adopt_result_fresh       = 0;
+  ctx->action                   = FD_FAILOVER_ACTION_IDLE;
+  ctx->stuck                    = 0;
+  ctx->deadline_slot            = FD_FAILOVER_SLOT_NULL;
+  /* What gossip told us is about the old failover identity. */
+  if( FD_UNLIKELY( !fd_memeq( operator->failover_identity, ctx->hello.staked_pubkey, 32UL ) ) ) {
+    ctx->staked_addr    = 0U;
+    ctx->staked_seen_at = 0L;
+  }
+
+  ulong boot_id = ctx->hello.boot_id;
+  do FD_TEST( fd_rng_secure( &ctx->hello.boot_id, sizeof(ulong) ) ); while( FD_UNLIKELY( !ctx->hello.boot_id || ctx->hello.boot_id==boot_id ) );
+  fd_memcpy( ctx->hello.staked_pubkey, operator->failover_identity, 32UL );
+  int staked = !fd_memeq( operator->identity, ctx->hello.junk_pubkey, 32UL );
+  ctx->role       = staked ? FD_FAILOVER_ROLE_ACTIVE : FD_FAILOVER_ROLE_STANDBY;
+  ctx->hello.role = (uchar)ctx->role;
+  fd_tls_sign_t signer = { .ctx=ctx, .sign_fn=sign_ed25519 };
+  if( FD_UNLIKELY( fd_failover_channel_set_identity( ctx->channel, ctx->hello.junk_pubkey, signer, &ctx->hello ) ) ) {
+    FD_LOG_ERR(( "failover TLS setup failed after set-identity" ));
+  }
+  ctx->member_cert_set = 0;
+  sync_session( ctx );
+
+  FD_BASE58_ENCODE_32_BYTES( operator->identity,          identity );
+  FD_BASE58_ENCODE_32_BYTES( operator->failover_identity, failover_identity );
+  FD_LOG_WARNING(( "set-identity installed `%s`, failover restarted on this machine as a %s for identity `%s` with a new boot %016lx, "
+                   "anything in progress was dropped and the other machine sees a restart",
+                   identity, staked ? "active" : "standby", failover_identity, ctx->hello.boot_id ));
 }
 
 /* Our DEMOTED got its response or cannot get one any more. */
@@ -957,24 +1029,20 @@ demotion_deadline_start( fd_failover_tile_ctx_t * ctx ) {
   ctx->handoff.until = fd_long_sat_add( fd_failover_clock(), FD_FAILOVER_CHANNEL_IDLE_NANOS );
 }
 
-/* Give up the staked identity.  The switch itself is asked for from
-   step_controller, after the command's response went out.  A handoff
-   sends DEMOTED to the peer boot we see now, a demote sends nothing. */
+/* Give up the staked identity for the peer that asked, on the session
+   it asked on.  The switch itself is asked for from step_controller,
+   DEMOTED goes to the peer boot we see now. */
 static void
 start_demotion( fd_failover_tile_ctx_t * ctx,
-                int                      handoff ) {
-  int send = handoff && fd_failover_channel_state( ctx->channel )==FD_FAILOVER_SESSION_PAIRED;
+                ulong                    handoff_id ) {
   fd_memset( &ctx->handoff, 0, sizeof(ctx->handoff) );
-  ctx->handoff.id       = ctx->handoff_base+(++ctx->handoff_cnt);
-  ctx->handoff.result   = FD_FAILOVER_HANDOFF_NONE; /* until its DEMOTED goes out */
-  ctx->handoff.delivery = send ? FD_FAILOVER_DELIVERY_OWED : FD_FAILOVER_DELIVERY_NONE;
-  if( send ) {
-    ctx->handoff.target.boot_id = ctx->session.peer_boot_id;
-    fd_memcpy( ctx->handoff.target.junk, fd_failover_channel_peer_hello( ctx->channel )->junk_pubkey, 32UL );
-  }
+  ctx->handoff.id             = handoff_id;
+  ctx->handoff.result         = FD_FAILOVER_HANDOFF_NONE; /* until its DEMOTED goes out */
+  ctx->handoff.delivery       = FD_FAILOVER_DELIVERY_OWED;
+  ctx->handoff.target.boot_id = ctx->session.peer_boot_id;
+  fd_memcpy( ctx->handoff.target.junk, fd_failover_channel_peer_hello( ctx->channel )->junk_pubkey, 32UL );
   ctx->last_requested = 0;
   ctx->stuck          = 0;
-  if( FD_UNLIKELY( !send ) ) FD_LOG_NOTICE(( "demotion %lu started without a handoff, giving up the staked identity, no DEMOTED will be sent", ctx->handoff.id ));
   demotion_deadline_start( ctx );
   /* Start the junk key switch before sending any final state. */
   ctx->action = FD_FAILOVER_ACTION_DEMOTE_SWITCH;
@@ -990,32 +1058,14 @@ final_tower_ok( fd_failover_tile_ctx_t const * ctx ) {
 }
 
 /* Called once the junk key is installed everywhere. Our latest tower is
-   the final one. A bound handoff hands it to the peer. A standalone
-   demote requires shared-source recovery. */
+   the final one, we hand it to the peer. */
 static void
 demotion_switched( fd_failover_tile_ctx_t * ctx ) {
   /* The junk key is installed and the Tower has drained. */
   set_role( ctx, FD_FAILOVER_ROLE_STANDBY );
-  FD_LOG_NOTICE(( "%s %lu: the tower drained, we are a standby now", demotion_kind( ctx ), ctx->handoff.id ));
+  FD_LOG_NOTICE(( "handoff %lu: the tower drained, we are a standby now", ctx->handoff.id ));
 
   int final_ok = final_tower_ok( ctx );
-
-  if( FD_UNLIKELY( ctx->handoff.delivery==FD_FAILOVER_DELIVERY_NONE ) ) {
-    /* Either member may recover after a standalone demote. There is no
-       bound exchange to tell us whether the peer has since voted. */
-    ctx->peer_tower.valid = 0;
-    if( FD_UNLIKELY( !final_ok ) ) {
-      /* Without final state, recovery needs the vote account. */
-      FD_LOG_WARNING(( "demotion %lu has no final tower for its last vote %lu, nobody votes until `failover promote --force` runs on one machine", ctx->handoff.id, ctx->last_vote_slot ));
-      /* End demotion without sending final state. */
-      demotion_abort( ctx );
-      return;
-    }
-    FD_LOG_NOTICE(( "demotion %lu is done, neither machine holds the staked identity now, nothing votes until `failover promote --force` runs on one of them", ctx->handoff.id ));
-    /* A standalone demotion finishes here. */
-    ctx->action = FD_FAILOVER_ACTION_IDLE;
-    return;
-  }
 
   ctx->handoff.payload_sz = final_ok
                   ? fd_failover_demoted_encode( ctx->handoff.payload, ctx->handoff.id, ctx->handoff.target.boot_id, ctx->last_vote_slot,
@@ -1084,7 +1134,7 @@ control_refusal( ulong         result,
                  char const ** hint ) {
   switch( result ) {
   case FD_FAILOVER_CONTROL_RESULT_BAD_ROLE:
-    *hint = "`promote` runs on a standby, `demote` on the active, see `failover status`";
+    *hint = "`promote` runs on a standby, see `failover status`";
     return "BAD_ROLE";
   case FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS:
     *hint = "a transition or key switch is running, wait for it, `failover status` shows it";
@@ -1294,7 +1344,7 @@ step_demote_drain( fd_failover_tile_ctx_t * ctx ) {
     if( FD_UNLIKELY( expired ) ) {
       /* The identity is gone from here, so we stand by and send
          nothing, nobody can promote on it. */
-      FD_LOG_WARNING(( "%s %lu: the tower did not report its last votes in time, up to seq %lu, sending nothing, nobody votes until `failover promote --force` runs on one machine", demotion_kind( ctx ), ctx->handoff.id, ctx->id_switch.result.tower_watermark ));
+      FD_LOG_WARNING(( "handoff %lu: the tower did not report its last votes in time, up to seq %lu, sending nothing, nobody votes until `failover promote --force` runs on one machine", ctx->handoff.id, ctx->id_switch.result.tower_watermark ));
       ctx->id_switch.fresh   = 0;
       ctx->id_switch.overdue = 0;
       /* The junk switch succeeded, a drain timeout still leaves us standby. */
@@ -1324,7 +1374,7 @@ step_demote_switch( fd_failover_tile_ctx_t * ctx,
       demotion_abort( ctx );
       return;
     }
-    FD_LOG_NOTICE(( "%s %lu: asked the admin tile to install the junk identity", demotion_kind( ctx ), ctx->handoff.id ));
+    FD_LOG_NOTICE(( "handoff %lu: asked the admin tile to install the junk identity", ctx->handoff.id ));
     return;
   }
   if( FD_LIKELY( !ctx->id_switch.fresh ) ) {
@@ -1339,7 +1389,7 @@ step_demote_switch( fd_failover_tile_ctx_t * ctx,
        nothing. */
     ctx->id_switch.fresh   = 0;
     ctx->id_switch.overdue = 0;
-    FD_LOG_WARNING(( "the identity switch for %s %lu failed (%s), we keep the staked identity and stay the active", demotion_kind( ctx ), ctx->handoff.id,
+    FD_LOG_WARNING(( "the identity switch for handoff %lu failed (%s), we keep the staked identity and stay the active", ctx->handoff.id,
                      ctx->id_switch.result.result==FD_FAILOVER_SWITCH_ERR_DISABLED ? "failover disabled" : "unknown" ));
     /* End demotion without sending final state. */
     demotion_abort( ctx );
@@ -1347,7 +1397,7 @@ step_demote_switch( fd_failover_tile_ctx_t * ctx,
   }
   /* The junk key is installed everywhere, the answer holds the watermark
      the drain waits for. */
-  FD_LOG_NOTICE(( "%s %lu: the junk identity is installed, waiting for the tower to drain up to seq %lu", demotion_kind( ctx ), ctx->handoff.id, ctx->id_switch.result.tower_watermark ));
+  FD_LOG_NOTICE(( "handoff %lu: the junk identity is installed, waiting for the tower to drain up to seq %lu", ctx->handoff.id, ctx->id_switch.result.tower_watermark ));
   ctx->action = FD_FAILOVER_ACTION_DEMOTE_DRAIN;
   demotion_deadline_start( ctx );
   step_demote_drain( ctx );
@@ -1791,8 +1841,7 @@ handle_control( fd_failover_tile_ctx_t * ctx,
       return;
     }
     /* An accepted request starts demotion on the active. */
-    start_demotion( ctx, 1 );
-    ctx->handoff.id = request.handoff_id;
+    start_demotion( ctx, request.handoff_id );
     char member[ FD_BASE58_ENCODED_32_SZ ];
     fd_base58_encode_32( peer->junk_pubkey, NULL, member );
     FD_LOG_NOTICE(( "handoff %lu: accepted request from member %s boot %016lx, preparing to give up the staked identity", ctx->handoff.id, member, ctx->handoff.target.boot_id ));
@@ -2102,22 +2151,6 @@ apply_control( fd_failover_tile_ctx_t *           ctx,
                long                               now ) {
   switch( req->cmd ) {
 
-  case FD_ADMINCTL_FAILOVER_CMD_DEMOTE: {
-    if( ctx->role==FD_FAILOVER_ROLE_ACTIVE && ctx->request.id &&
-        ctx->action==FD_FAILOVER_ACTION_HANDOFF_WAIT_RESULT && ctx->id_switch.pending_key==FD_FAILOVER_SWITCH_KEY_CNT ) {
-      FD_LOG_NOTICE(( "handoff %lu: operator demote ends the wait for confirmation, giving up the staked identity locally", ctx->request.id ));
-      /* Operator demotion ends the confirmation wait before starting a local switch. */
-      request_end( ctx, now, FD_FAILOVER_HANDOFF_DECLINED );
-    }
-    /* Drop the identity without handing it over.  The peer is not asked
-       or told anything, the other machine then needs fenced recovery. */
-    if( FD_UNLIKELY( ctx->action!=FD_FAILOVER_ACTION_IDLE ) ) return FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS;
-    if( FD_UNLIKELY( ctx->role!=FD_FAILOVER_ROLE_ACTIVE ) )   return FD_FAILOVER_CONTROL_RESULT_BAD_ROLE;
-    /* An idle active starts a standalone demotion. */
-    start_demotion( ctx, 0 );
-    return FD_ADMINCTL_RESULT_SUCCESS;
-  }
-
   case FD_ADMINCTL_FAILOVER_CMD_HANDOFF: {
     int paused = request_paused( ctx ) && ctx->id_switch.pending_key==FD_FAILOVER_SWITCH_KEY_CNT;
     if( FD_UNLIKELY( paused && ctx->request.peer_restarted ) ) {
@@ -2284,11 +2317,10 @@ serve_bus_request( fd_failover_tile_ctx_t * ctx,
       char const * name = control_refusal( result, &hint );
       FD_LOG_WARNING(( "`failover %s` refused with %s, %s", cmd_name, name, hint ));
     }
-    /* An accepted promote or demote says which handoff to follow. */
+    /* An accepted promote says which handoff to follow. */
     ulong handoff_id = 0UL;
     if( FD_LIKELY( result==FD_ADMINCTL_RESULT_SUCCESS ) ) {
-      if(      req.cmd==FD_ADMINCTL_FAILOVER_CMD_HANDOFF ) handoff_id = ctx->request.id;
-      else if( req.cmd==FD_ADMINCTL_FAILOVER_CMD_DEMOTE  ) handoff_id = ctx->handoff.id;
+      if( req.cmd==FD_ADMINCTL_FAILOVER_CMD_HANDOFF ) handoff_id = ctx->request.id;
     }
     fd_adminctl_failover_control_resp_t response = {
       .version    = FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION,
@@ -2359,9 +2391,9 @@ before_frag( fd_failover_tile_ctx_t * ctx,
     return 0;
   }
   if( FD_UNLIKELY( in_idx==ctx->admin_in_idx ) ) {
-    /* Commands and switch responses.  Dropping a switch response here would
-       leave the switch hanging forever. */
-    return sig!=FD_FAILOVER_BUS_REQUEST && sig!=FD_FAILOVER_BUS_SWITCH_RESP;
+    /* Commands, switch responses and set-identity.  Dropping a switch
+       response here would leave the switch hanging forever. */
+    return sig!=FD_FAILOVER_BUS_REQUEST && sig!=FD_FAILOVER_BUS_SWITCH_RESP && sig!=FD_FAILOVER_BUS_OPERATOR;
   }
   return 0;
 }
@@ -2389,6 +2421,10 @@ during_frag( fd_failover_tile_ctx_t * ctx,
     if( FD_UNLIKELY( sig==FD_FAILOVER_BUS_SWITCH_RESP ) ) {
       fd_memcpy( &ctx->id_switch.response, msg->payload, sizeof(ctx->id_switch.response) );
       ctx->id_switch.response_nonce = msg->nonce;
+      return;
+    }
+    if( FD_UNLIKELY( sig==FD_FAILOVER_BUS_OPERATOR ) ) {
+      fd_memcpy( &ctx->bus_operator, msg->payload, sizeof(ctx->bus_operator) );
       return;
     }
     fd_memcpy( &ctx->bus_req, msg, sizeof(fd_failover_bus_msg_t) );
@@ -2438,6 +2474,12 @@ after_frag( fd_failover_tile_ctx_t * ctx,
       /* The accepted result can remain live while the tower drains.
          Commit the payload only after the stem and nonce checks pass. */
       if( FD_LIKELY( switch_answer( ctx, ctx->id_switch.response_nonce ) ) ) ctx->id_switch.result = ctx->id_switch.response;
+      /* A refusal from before we saw set-identity says what it did. */
+      if( FD_UNLIKELY( ctx->id_switch.response.result==FD_FAILOVER_SWITCH_ERR_STALE ) ) operator_switched( ctx, &ctx->id_switch.response.operator );
+      return;
+    }
+    if( FD_UNLIKELY( sig==FD_FAILOVER_BUS_OPERATOR ) ) {
+      operator_switched( ctx, &ctx->bus_operator );
       return;
     }
     /* Send the response from after_credit, where a publish credit is available. */

@@ -450,6 +450,89 @@ test_identity_switch_adopts_vote_history( void ) {
   FD_LOG_NOTICE(( "pass: test_identity_switch_adopts_vote_history" ));
 }
 
+/* test_failover_vote_history_root: set-identity (the operator mark on the
+   keyswitch) with a vote history on a failover machine.  Without failover the history is taken as
+   upstream takes it.  With failover, once the history's root is
+   installed, fork choice follows it.  A root on another fork than ours
+   is dropped and the lockouts of its votes are waited out.  A root we
+   have not replayed holds votes until it replays.  No vote is cast in
+   the call that moved fork choice. */
+static void
+test_failover_vote_history_root( void ) {
+  fd_tower_tile_t * ctx;
+  fd_tower_file_t   ahead = { .votes = {{ 104UL, 2UL }, { 105UL, 1UL }}, .votes_cnt = 2UL, .root = 102UL, .bank_hash = { .ul = { 1105UL } } };
+
+  /* Without failover, root 102 replayed on our fork is installed and
+     fork choice stays until a vote roots it, as upstream. */
+
+  ctx = adopt_setup(); adopt_switch( ctx, 0x22UL, &ahead ); check_vote_history( ctx, &(fd_replay_slot_completed_t){ .slot = 105UL } );
+  FD_TEST( !ctx->vote_history_pending && ctx->tower->root==102UL );
+  FD_TEST( fd_ghost_root( ctx->ghost )->slot==100UL && fd_tower_blocks_query( ctx->tower, 100UL ) );
+
+  /* With failover, fork choice moves to it, the blocks below it leave the
+     tower, and no vote is cast in this call. */
+
+  ctx = adopt_setup(); ctx->adoption_required = 1; ctx->identity_keyswitch->operator = 1UL; adopt_switch( ctx, 0x22UL, &ahead );
+  FD_TEST( !failover_check_vote_history( ctx, &(fd_replay_slot_completed_t){ .slot = 105UL }, 1 ) );
+  FD_TEST( !ctx->vote_history_pending && ctx->tower->root==102UL );
+  FD_TEST( fd_ghost_root( ctx->ghost )->slot==102UL );
+  FD_TEST( !fd_tower_blocks_query( ctx->tower, 100UL ) && !fd_tower_blocks_query( ctx->tower, 101UL ) );
+
+  /* The replayed slot's parent may be below the new root.  Building a
+     vote for that slot reads its parent's block, so no vote is built.
+     With the vote built anyway, the parent lookup fails. */
+
+  ctx = adopt_setup(); ctx->adoption_required = 1; ctx->identity_keyswitch->operator = 1UL; adopt_switch( ctx, 0x22UL, &ahead );
+  ctx->our_vote_acct_sz = mock_vote_account( ctx->identity_key, ctx->identity_key, ctx->our_vote_acct );
+  int found = failover_check_vote_history( ctx, &(fd_replay_slot_completed_t){ .slot = 103UL, .parent_slot = 101UL }, 1 );
+  FD_TEST( !found && !fd_tower_blocks_query( ctx->tower, 101UL ) );
+  fd_tower_out_t out = { .vote_slot = 104UL, .reset_slot = ULONG_MAX, .root_slot = ULONG_MAX };
+  while( !publishes_empty( ctx->publishes ) ) publishes_pop_head_nocopy( ctx->publishes );
+  publish_slot_done( ctx, &(fd_replay_slot_completed_t){ .slot = 103UL, .parent_slot = 101UL }, &out, found, 0UL, 0U, 0UL, NULL );
+  FD_TEST( !publishes_peek_head( ctx->publishes )->msg.slot_done.has_vote_txn );
+
+  /* Root 103 on a fork off 101, replayed, but our tower root already moved
+     to 102 on the other fork.  With failover it is dropped and its vote's
+     lockout is waited out.  Without failover it stays pending until that
+     lockout expires, as upstream. */
+
+  fd_tower_file_t other = { .votes = {{ 106UL, 1UL }}, .votes_cnt = 1UL, .root = 103UL, .bank_hash = { .ul = { 1106UL } } };
+  for( int failover=0; failover<2; failover++ ) {
+    ctx = adopt_setup(); ctx->adoption_required = failover; ctx->identity_keyswitch->operator = 1UL;
+    fd_tower_blk_t * fork = fd_tower_blocks_insert( ctx->tower, 103UL, 101UL );
+    fork->replayed          = 1;
+    fork->replayed_block_id = (fd_hash_t){ .ul = { 103UL } };
+    fork->bank_hash         = (fd_hash_t){ .ul = { 1103UL } };
+    fd_ghost_insert( ctx->ghost, 103UL, 103UL, &fork->replayed_block_id, &(fd_hash_t){ .ul = { 101UL } } );
+    ctx->tower->root = 102UL;
+    adopt_switch( ctx, 0x22UL, &other );
+    if( failover ) {
+      FD_TEST( failover_check_vote_history( ctx, &(fd_replay_slot_completed_t){ .slot = 105UL }, 1 ) );
+      FD_TEST( !ctx->vote_history_pending && ctx->tower->root==102UL && ctx->tower->wait_to_vote_slot==106UL+2UL+1UL );
+    } else {
+      check_vote_history( ctx, &(fd_replay_slot_completed_t){ .slot = 105UL } );
+      FD_TEST( ctx->vote_history_pending && ctx->tower->root==102UL && ctx->tower->wait_to_vote_slot==106UL+2UL+1UL );
+    }
+  }
+
+  /* Root 107 we have not replayed: with failover nothing is voted below
+     any slot until it replays, however far replay gets.  Without
+     failover we vote again once its vote's lockout expires. */
+
+  fd_tower_file_t unreplayed = { .votes = {{ 108UL, 1UL }}, .votes_cnt = 1UL, .root = 107UL, .bank_hash = { .ul = { 1108UL } } };
+  ctx = adopt_setup(); ctx->adoption_required = 1; ctx->identity_keyswitch->operator = 1UL; adopt_switch( ctx, 0x22UL, &unreplayed );
+  failover_check_vote_history( ctx, &(fd_replay_slot_completed_t){ .slot = 105UL }, 1 );
+  FD_TEST( ctx->vote_history_pending && ctx->tower->wait_to_vote_slot==ULONG_MAX );
+  failover_check_vote_history( ctx, &(fd_replay_slot_completed_t){ .slot = 200UL }, 1 );
+  FD_TEST( ctx->vote_history_pending && ctx->tower->wait_to_vote_slot==ULONG_MAX && ctx->tower->root==100UL );
+
+  ctx = adopt_setup(); adopt_switch( ctx, 0x22UL, &unreplayed );
+  check_vote_history( ctx, &(fd_replay_slot_completed_t){ .slot = 200UL } );
+  FD_TEST( !ctx->vote_history_pending && ctx->tower->wait_to_vote_slot==108UL+2UL+1UL );
+
+  FD_LOG_NOTICE(( "pass: test_failover_vote_history_root" ));
+}
+
 static void
 test_vote_history_floor( void ) {
   fd_tower_tile_t * ctx = adopt_setup(); /* root 100 */
@@ -1496,6 +1579,129 @@ test_adopt_votes_strict( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_adopt_votes_strict" ));
 }
 
+/* test_operator_switch: set-identity's switch drains queued votes, then
+   the staked key votes without an adoption and the failover rules stay
+   on.  An adoption off the boot key changes nothing, one after a
+   failover switch back to junk is served. */
+static void
+test_operator_switch( fd_wksp_t * wksp ) {
+  static fd_tower_tile_t ctx[ 1 ];
+  static fd_keyswitch_t  identity[ 1 ];
+  fd_memset( ctx, 0, sizeof(*ctx) );
+  void * publishes_mem = fd_wksp_alloc_laddr( wksp, publishes_align(), publishes_footprint( 16UL ), 1UL );
+  ctx->publishes       = publishes_join( publishes_new( publishes_mem, 16UL ) );
+  void * tower_mem     = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint( 64UL, 2UL ), 1UL );
+  ctx->tower           = fd_tower_join( fd_tower_new( tower_mem, 64UL, 2UL, 0UL ) );
+  FD_TEST( ctx->publishes && ctx->tower );
+  static fd_keyswitch_t voter[ 1 ];
+  ctx->identity_keyswitch = fd_keyswitch_join( fd_keyswitch_new( identity, FD_KEYSWITCH_STATE_UNLOCKED ) );
+  ctx->auth_vtr_keyswitch = fd_keyswitch_join( fd_keyswitch_new( voter,    FD_KEYSWITCH_STATE_UNLOCKED ) );
+
+  fd_pubkey_t staked, junk;
+  fd_memset( &staked, 0x5A, sizeof(staked) );
+  fd_memset( &junk,   0x11, sizeof(junk)   );
+  ctx->adoption_required = 1;
+  ctx->boot_identity     = junk;
+  *ctx->identity_key     = junk;
+  ctx->shadow            = 1;
+  ctx->out_seq           = 7UL;
+
+  /* A queued vote holds the switch until it drains. */
+  publishes_push_head( ctx->publishes, (publish_t){ .sig = FD_TOWER_SIG_SLOT_DONE } );
+  fd_memcpy( identity->bytes, staked.uc, 32UL );
+  identity->operator = 1UL;
+  fd_keyswitch_state( identity, FD_KEYSWITCH_STATE_SWITCH_PENDING );
+  during_housekeeping( ctx );
+  FD_TEST( fd_keyswitch_state_query( identity )==FD_KEYSWITCH_STATE_SWITCH_PENDING );
+  publishes_pop_head_nocopy( ctx->publishes );
+  during_housekeeping( ctx );
+  FD_TEST( fd_keyswitch_state_query( identity )==FD_KEYSWITCH_STATE_COMPLETED && identity->result==7UL );
+  FD_TEST( ctx->adoption_required && !ctx->shadow && !ctx->no_vote_authority );
+  fd_keyswitch_state( identity, FD_KEYSWITCH_STATE_UNLOCKED );
+
+  /* An adoption request now is refused with INVALID.  An empty adoption
+     would otherwise wipe the votes we vote with. */
+  static uchar          scratch_mem[ FD_TOWER_VOTE_FOOTPRINT ] __attribute__((aligned(FD_TOWER_VOTE_ALIGN)));
+  static uchar          adopt_mem[ 4096 ] __attribute__((aligned(128)));
+  static fd_frag_meta_t mcache[ 8 ];
+  fd_frag_meta_t *  mcaches[]    = { mcache };
+  ulong             seqs[]       = { 0UL };
+  ulong             depths[]     = { 8UL };
+  ulong             cr_avail     = 64UL;
+  ulong             min_cr_avail = 64UL;
+  int               reliable     = 0;
+  fd_stem_context_t stem = { .mcaches=mcaches, .seqs=seqs, .depths=depths, .cr_avail=&cr_avail,
+                             .min_cr_avail=&min_cr_avail, .cr_decrement_amount=1UL, .out_reliable=&reliable };
+  ctx->scratch_tower  = fd_tower_vote_join( fd_tower_vote_new( scratch_mem ) );
+  ctx->adopt_out_idx  = 0UL;
+  ctx->adopt_out_mem  = (fd_wksp_t *)adopt_mem;
+  ctx->tower->root    = 100UL;
+  fd_tower_blocks_insert( ctx->tower, 200UL, 100UL )->replayed = 1;
+  fd_tower_vote_push_tail( ctx->tower->votes, (fd_tower_vote_t){ .slot=200UL, .conf=1UL } );
+  void * ghost_mem = fd_wksp_alloc_laddr( wksp, fd_ghost_align(), fd_ghost_footprint( 64UL, 2UL ), 1UL );
+  ctx->ghost       = fd_ghost_join( fd_ghost_new( ghost_mem, 64UL, 2UL, 0UL ) );
+  FD_TEST( ctx->ghost );
+  fd_ghost_init( ctx->ghost, 0UL, 100UL, &(fd_hash_t){ .ul={ 100UL } } );
+  ctx->in_kind[ 0 ]   = IN_KIND_ADOPT;
+  ctx->in[ 0 ].chunk0 = 0UL;
+  ctx->in[ 0 ].wmark  = ULONG_MAX;
+  ctx->in[ 0 ].mtu    = 512UL;
+  FD_TEST( !returnable_frag( ctx, 0UL, 0UL, 77UL, 0UL, 0UL, FD_TOWER_ADOPT_CTL_EMPTY, 0UL, 0UL, &stem ) );
+  fd_tower_adopt_result_t refused = FD_LOAD( fd_tower_adopt_result_t, adopt_mem );
+  FD_TEST( seqs[ 0 ]==1UL && mcache[ 0 ].sig==77UL && refused.result==FD_TOWER_ADOPT_ERR_INVALID );
+  FD_TEST( fd_tower_vote_cnt( ctx->tower->votes )==1UL && fd_tower_vote_peek_tail_const( ctx->tower->votes )->slot==200UL );
+
+  /* A failover switch back to junk keeps the failover rules and our
+     votes, forgets the vote history of an earlier set-identity, and an
+     adoption then is served. */
+  ctx->vote_history_last = 150UL;
+  fd_memcpy( identity->bytes, junk.uc, 32UL );
+  identity->operator = 0UL;
+  fd_keyswitch_state( identity, FD_KEYSWITCH_STATE_SWITCH_PENDING );
+  during_housekeeping( ctx );
+  FD_TEST( fd_keyswitch_state_query( identity )==FD_KEYSWITCH_STATE_COMPLETED && ctx->shadow && !ctx->vote_history_last );
+  FD_TEST( fd_tower_vote_cnt( ctx->tower->votes )==1UL );
+  fd_keyswitch_state( identity, FD_KEYSWITCH_STATE_UNLOCKED );
+  FD_TEST( !returnable_frag( ctx, 0UL, 0UL, 78UL, 0UL, 0UL, FD_TOWER_ADOPT_CTL_EMPTY, 0UL, 0UL, &stem ) );
+  FD_TEST( seqs[ 0 ]==2UL && !fd_tower_vote_cnt( ctx->tower->votes ) );
+
+  /* The failover switch to the staked key keeps the adopted tower. */
+  fd_tower_vote_push_tail( ctx->tower->votes, (fd_tower_vote_t){ .slot=200UL, .conf=1UL } );
+  ctx->tower_adopted = 1;
+  fd_memcpy( identity->bytes, staked.uc, 32UL );
+  fd_keyswitch_state( identity, FD_KEYSWITCH_STATE_SWITCH_PENDING );
+  during_housekeeping( ctx );
+  FD_TEST( fd_keyswitch_state_query( identity )==FD_KEYSWITCH_STATE_COMPLETED );
+  FD_TEST( !ctx->shadow && !ctx->no_vote_authority && fd_tower_vote_cnt( ctx->tower->votes )==1UL );
+  fd_keyswitch_state( identity, FD_KEYSWITCH_STATE_UNLOCKED );
+
+  /* set-identity to another key clears our votes the upstream way. */
+  fd_memcpy( identity->bytes, junk.uc, 32UL );
+  identity->operator = 1UL;
+  fd_keyswitch_state( identity, FD_KEYSWITCH_STATE_SWITCH_PENDING );
+  during_housekeeping( ctx );
+  FD_TEST( fd_keyswitch_state_query( identity )==FD_KEYSWITCH_STATE_COMPLETED );
+  FD_TEST( !fd_tower_vote_cnt( ctx->tower->votes ) && !ctx->vote_history_pending );
+  fd_keyswitch_state( identity, FD_KEYSWITCH_STATE_UNLOCKED );
+
+  /* After set-identity to a third key we may vote, so we don't adopt. */
+  fd_pubkey_t other;
+  fd_memset( &other, 0x77, sizeof(other) );
+  fd_memcpy( identity->bytes, other.uc, 32UL );
+  fd_keyswitch_state( identity, FD_KEYSWITCH_STATE_SWITCH_PENDING );
+  during_housekeeping( ctx );
+  FD_TEST( fd_keyswitch_state_query( identity )==FD_KEYSWITCH_STATE_COMPLETED && !ctx->shadow );
+  fd_tower_vote_push_tail( ctx->tower->votes, (fd_tower_vote_t){ .slot=200UL, .conf=1UL } );
+  FD_TEST( !returnable_frag( ctx, 0UL, 0UL, 79UL, 0UL, 0UL, FD_TOWER_ADOPT_CTL_EMPTY, 0UL, 0UL, &stem ) );
+  refused = FD_LOAD( fd_tower_adopt_result_t, adopt_mem );
+  FD_TEST( seqs[ 0 ]==3UL && refused.result==FD_TOWER_ADOPT_ERR_INVALID && fd_tower_vote_cnt( ctx->tower->votes )==1UL );
+
+  fd_wksp_free_laddr( fd_ghost_delete( fd_ghost_leave( ctx->ghost ) ) );
+  fd_wksp_free_laddr( fd_tower_delete( fd_tower_leave( ctx->tower ) ) );
+  fd_wksp_free_laddr( publishes_delete( publishes_leave( ctx->publishes ) ) );
+  FD_LOG_NOTICE(( "pass: test_operator_switch" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -1507,6 +1713,7 @@ main( int     argc,
   test_identity_switch_waits_for_publishes();
   test_identity_switch_adopts_vote_history();
   test_vote_history_floor();
+  test_failover_vote_history_root();
   test_count_vote_txn();
   test_parent_vote_txn_recent_blockhash();
   char const * _page_sz = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",  NULL, "gigantic"              );
@@ -1518,6 +1725,7 @@ main( int     argc,
   test_adopt_tower( wksp );
   fd_wksp_reset( wksp, 1UL ); test_adopt_after_reconcile( wksp );
   fd_wksp_reset( wksp, 1UL ); test_adopt_votes_strict( wksp );
+  fd_wksp_reset( wksp, 1UL ); test_operator_switch( wksp );
   fd_wksp_reset( wksp, 1UL ); test_fixture_replay( wksp );
 
   fd_wksp_reset( wksp, 1UL ); test_eqvoc_rce_same( wksp );

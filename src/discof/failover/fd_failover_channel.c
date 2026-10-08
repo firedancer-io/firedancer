@@ -531,15 +531,15 @@ hello_err_name( int err ) {
   switch( err ) {
   case HELLO_ERR_TLS_KEY:                return "its junk key is not the key TLS authenticated, check who can reach the failover port";
   case FD_FAILOVER_HELLO_ERR_VERSION:    return "the protocol version differs, run the same Firedancer version on both machines";
-  case FD_FAILOVER_HELLO_ERR_STAKED:     return "the staked identity differs, check that [paths.identity_key] is the same keypair on both machines";
+  case FD_FAILOVER_HELLO_ERR_STAKED:     return "the failover identity differs, check that both machines run [paths.identity_key] with the same keypair, or the same key from their last `set-identity`";
   case FD_FAILOVER_HELLO_ERR_VOTE_ACCT:  return "the vote account differs, check that [paths.vote_account] is the same on both machines";
   case FD_FAILOVER_HELLO_ERR_JUNK_EQ:    return "its junk key is ours, check that the address is the other machine, and if both machines share one [paths.base]/junk-identity.json delete it on one of them and restart that machine, never copy that file";
   case FD_FAILOVER_HELLO_ERR_JUNK_STAKE: return "a junk key is the staked key, [paths.base]/junk-identity.json must not be the staked [paths.identity_key]";
-  case FD_FAILOVER_HELLO_ERR_BOTH_ACT:   return "both members are active, only one machine may run the staked identity, stop signing now on the machine that should not vote with `failover demote` there";
+  case FD_FAILOVER_HELLO_ERR_BOTH_ACT:   return "both members are active, only one machine may run the staked identity, stop signing now on the machine that should not vote with `set-identity` and its junk identity there";
   case FD_FAILOVER_HELLO_ERR_ROLE:       return "the role is unknown, run the same Firedancer version on both machines";
   case FD_FAILOVER_HELLO_ERR_BOOT_ID:    return "the boot id is zero, run the same Firedancer version on both machines";
   case FD_FAILOVER_HELLO_ERR_MODE:       return "the consensus mode differs, run both machines in the same consensus mode";
-  case FD_FAILOVER_HELLO_ERR_CERT:       return "its member certificate is not signed by our staked key, check that [paths.identity_key] is the same keypair on both machines";
+  case FD_FAILOVER_HELLO_ERR_CERT:       return "its member certificate is not signed by the failover identity, check that both machines hold the same keypair for it";
   default:                               return "unknown";
   }
 }

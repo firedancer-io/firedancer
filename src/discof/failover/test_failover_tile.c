@@ -1,5 +1,6 @@
 #include "fd_failover_channel.c"
 #include "fd_failover_tile.c"
+#include "../../ballet/ed25519/fd_ed25519.h"
 
 #include <fcntl.h>
 
@@ -227,6 +228,172 @@ test_demote_drain( void ) {
   controller_fini( ctx );
 }
 
+/* Deliver an OPERATOR frame from the admin tile. */
+static uchar admin_in_mem[ 1024 ] __attribute__((aligned(128)));
+
+static void
+operator_frame( fd_failover_tile_ctx_t * ctx,
+                ulong                    epoch,
+                uchar                    key,
+                uchar                    failover_key ) {
+  ctx->admin_in_idx    = 1UL;
+  ctx->admin_in_mem    = (fd_wksp_t *)admin_in_mem;
+  ctx->admin_in_chunk0 = 0UL;
+  ctx->admin_in_wmark  = 0UL;
+  fd_failover_bus_msg_t * msg = (fd_failover_bus_msg_t *)admin_in_mem;
+  fd_memset( msg, 0, sizeof(*msg) );
+  fd_failover_operator_t operator = { .epoch=epoch };
+  fd_memset( operator.identity,          key,          32UL );
+  fd_memset( operator.failover_identity, failover_key, 32UL );
+  fd_memcpy( msg->payload, &operator, sizeof(operator) );
+  FD_TEST( !before_frag( ctx, 1UL, 0UL, FD_FAILOVER_BUS_OPERATOR ) );
+  during_frag( ctx, 1UL, 0UL, FD_FAILOVER_BUS_OPERATOR, 0UL, sizeof(*msg), 0UL );
+  after_frag( ctx, 1UL, 0UL, FD_FAILOVER_BUS_OPERATOR, sizeof(*msg), 0UL, 0UL, stem );
+}
+
+/* test_operator_switch: set-identity during a demotion.  We restart on
+   the new key with a new boot and nothing in flight, the answer to the
+   switch we asked for before is dropped, the next request carries the
+   new epoch, and a request bound to our old boot cannot demote us. */
+static void
+test_operator_switch( void ) {
+  fd_failover_tile_ctx_t * ctx = controller_init( FD_FAILOVER_ROLE_ACTIVE );
+  pair( ctx, 77UL, FD_FAILOVER_ROLE_STANDBY, 1000L );
+  make_tower( &ctx->current_tower, 99UL );
+  ctx->own_floor = 99UL;
+  fd_failover_handoff_request_t req = { .handoff_id=47UL, .target_boot_id=OUR_BOOT_ID, .replay_slot=99UL };
+  deliver( ctx, FD_FAILOVER_MSG_HANDOFF_REQUEST, &req, sizeof(req) );
+  step_controller( ctx, stem );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_DEMOTE_SWITCH && ctx->id_switch.pending_key==FD_FAILOVER_SWITCH_KEY_JUNK );
+  ulong nonce = ctx->id_switch.request_id;
+
+  /* set-identity installs the junk key. */
+  operator_frame( ctx, 1UL, 0x11, 0x5A );
+  FD_TEST( ctx->role==FD_FAILOVER_ROLE_STANDBY && ctx->hello.role==FD_FAILOVER_ROLE_STANDBY );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_IDLE && !ctx->stuck && !ctx->tx.valid && !ctx->handoff.id && !ctx->request.id );
+  FD_TEST( ctx->hello.boot_id!=OUR_BOOT_ID && ctx->channel->self_hello.boot_id==ctx->hello.boot_id );
+  FD_TEST( !ctx->member_cert_set && !ctx->current_tower.valid && ctx->own_floor==99UL );
+  FD_TEST( ctx->id_switch.epoch==1UL && ctx->id_switch.discard && ctx->id_switch.pending_key==FD_FAILOVER_SWITCH_KEY_JUNK );
+  FD_TEST( fd_failover_channel_state( ctx->channel )!=FD_FAILOVER_SESSION_PAIRED );
+
+  /* The late answer ends the old switch and is dropped. */
+  ctx->id_switch.result.result = FD_FAILOVER_SWITCH_OK;
+  FD_TEST( !switch_answer( ctx, nonce ) );
+  FD_TEST( ctx->id_switch.pending_key==FD_FAILOVER_SWITCH_KEY_CNT && !ctx->id_switch.fresh && !ctx->id_switch.discard );
+
+  /* The same or an older frame changes nothing. */
+  ulong boot_id = ctx->hello.boot_id;
+  operator_frame( ctx, 1UL, 0x5A, 0x5A );
+  FD_TEST( ctx->hello.boot_id==boot_id && ctx->role==FD_FAILOVER_ROLE_STANDBY );
+
+  /* The next switch request carries the epoch. */
+  FD_TEST( request_switch( ctx, stem, FD_FAILOVER_SWITCH_KEY_STAKED )!=ULONG_MAX );
+  fd_failover_switch_req_t sent;
+  fd_memcpy( &sent, ((fd_failover_bus_msg_t const *)bus_mem)->payload, sizeof(sent) );
+  FD_TEST( sent.epoch==1UL );
+
+  /* It crossed a second set-identity, with the staked key, whose frame
+     never came.  The refusal catches us up. */
+  ctx->admin_in_idx = 1UL;
+  ctx->id_switch.response.result = FD_FAILOVER_SWITCH_ERR_STALE;
+  ctx->id_switch.response.operator.epoch = 2UL;
+  fd_memset( ctx->id_switch.response.operator.identity,          0x5A, 32UL );
+  fd_memset( ctx->id_switch.response.operator.failover_identity, 0x5A, 32UL );
+  ctx->id_switch.response_nonce = ctx->id_switch.request_id;
+  after_frag( ctx, 1UL, 0UL, FD_FAILOVER_BUS_SWITCH_RESP, sizeof(fd_failover_bus_msg_t), 0UL, 0UL, stem );
+  FD_TEST( ctx->role==FD_FAILOVER_ROLE_ACTIVE && ctx->id_switch.epoch==2UL && ctx->hello.boot_id!=boot_id );
+  FD_TEST( ctx->id_switch.pending_key==FD_FAILOVER_SWITCH_KEY_CNT && !ctx->id_switch.fresh && ctx->action==FD_FAILOVER_ACTION_IDLE );
+
+  /* A request bound to our first boot is refused, one to this boot is
+     served once we have a final tower. */
+  pair( ctx, 78UL, FD_FAILOVER_ROLE_STANDBY, 1000L );
+  deliver( ctx, FD_FAILOVER_MSG_HANDOFF_REQUEST, &req, sizeof(req) );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_IDLE );
+  ctx->tx.valid = 0;
+  ctx->session.close_after_send = 0;
+  ctx->last_vote_slot = 120UL;
+  make_tower( &ctx->current_tower, 120UL );
+  fd_failover_handoff_request_t fresh = { .handoff_id=48UL, .target_boot_id=ctx->hello.boot_id, .replay_slot=120UL };
+  deliver( ctx, FD_FAILOVER_MSG_HANDOFF_REQUEST, &fresh, sizeof(fresh) );
+  FD_TEST( ctx->action==FD_FAILOVER_ACTION_DEMOTE_SWITCH && ctx->handoff.id==48UL );
+  controller_fini( ctx );
+}
+
+/* test_operator_failover_identity: HELLO has the failover identity
+   OPERATOR gives, the role follows the installed key, and a member cert
+   signed with another key waits for the next OPERATOR. */
+static void
+test_operator_failover_identity( void ) {
+  fd_failover_tile_ctx_t * ctx = controller_init( FD_FAILOVER_ROLE_STANDBY );
+  ctx->staked_addr    = FD_IP4_ADDR(10,0,0,2);
+  ctx->staked_seen_at = 900L;
+  operator_frame( ctx, 1UL, 0x77, 0x77 );
+  uchar third[ 32 ]; fd_memset( third, 0x77, 32UL );
+  FD_TEST( ctx->role==FD_FAILOVER_ROLE_ACTIVE && ctx->hello.role==FD_FAILOVER_ROLE_ACTIVE );
+  FD_TEST( fd_memeq( ctx->hello.staked_pubkey, third, 32UL ) && fd_memeq( ctx->channel->self_hello.staked_pubkey, third, 32UL ) );
+  FD_TEST( !ctx->staked_addr && !ctx->staked_seen_at && !ctx->member_cert_set );
+
+  /* The configured key never comes back with a junk set-identity. */
+  operator_frame( ctx, 2UL, 0x11, 0x77 );
+  FD_TEST( ctx->role==FD_FAILOVER_ROLE_STANDBY && fd_memeq( ctx->hello.staked_pubkey, third, 32UL ) );
+
+  /* Any key but junk makes us the active, also one that is not the
+     failover identity in the frame. */
+  operator_frame( ctx, 3UL, 0x5A, 0x77 );
+  FD_TEST( ctx->role==FD_FAILOVER_ROLE_ACTIVE && fd_memeq( ctx->hello.staked_pubkey, third, 32UL ) );
+
+  /* A cert over our junk key signed with the configured key, as the sign
+     tile would before this OPERATOR, does not stop us. */
+  uchar secret[ 32 ]; fd_memset( secret, 0x5A, 32UL );
+  uchar public[ 32 ];
+  fd_sha512_t sha[ 1 ];
+  FD_TEST( fd_sha512_join( fd_sha512_new( sha ) ) );
+  fd_ed25519_public_from_private( public, secret, sha );
+  uchar msg[ FD_KEYGUARD_MEMBER_CERT_MSG_SZ ], cert[ 64 ];
+  fd_failover_member_cert_msg( msg, ctx->hello.junk_pubkey );
+  fd_ed25519_sign( cert, msg, sizeof(msg), public, secret, sha );
+  member_cert_signed( ctx, cert );
+  FD_TEST( ctx->member_cert_set && !ctx->channel->member_cert_set );
+
+  /* With a real third key in the next OPERATOR, a cert it signed is ours,
+     and HELLO passes against a peer with the same key and fails against
+     one still on the configured key. */
+  uchar third_secret[ 32 ]; fd_memset( third_secret, 0x66, 32UL );
+  uchar third_public[ 32 ];
+  fd_ed25519_public_from_private( third_public, third_secret, sha );
+  operator_frame( ctx, 4UL, 0x11, 0x77 );
+  fd_memcpy( ctx->hello.staked_pubkey,               third_public, 32UL );
+  fd_memcpy( ctx->channel->self_hello.staked_pubkey, third_public, 32UL );
+  fd_ed25519_sign( cert, msg, sizeof(msg), third_public, third_secret, sha );
+  member_cert_signed( ctx, cert );
+  FD_TEST( ctx->channel->member_cert_set );
+  fd_failover_hello_t peer = ctx->channel->self_hello;
+  peer.role    = FD_FAILOVER_ROLE_ACTIVE;
+  peer.boot_id = 77UL;
+  fd_memset( peer.junk_pubkey, 0x22, 32UL );
+  FD_TEST( fd_failover_hello_check( &ctx->channel->self_hello, &peer )==FD_FAILOVER_HELLO_OK );
+  fd_memcpy( peer.staked_pubkey, public, 32UL );
+  FD_TEST( fd_failover_hello_check( &ctx->channel->self_hello, &peer )==FD_FAILOVER_HELLO_ERR_STAKED );
+  controller_fini( ctx );
+}
+
+/* test_standby_vote_counts: a vote our tower published counts toward
+   the floor whatever our role, set-identity can install the staked key
+   before we hear of it. */
+static void
+test_standby_vote_counts( void ) {
+  fd_failover_tile_ctx_t * ctx = controller_init( FD_FAILOVER_ROLE_STANDBY );
+  fd_tower_slot_done_t done;
+  fd_memset( &done, 0, sizeof(done) );
+  done.replay_slot  = 130UL;
+  done.root_slot    = FD_FAILOVER_SLOT_NULL;
+  done.has_vote_txn = 1;
+  done.vote_slot    = 129UL;
+  consume_slot_done( ctx, &done );
+  FD_TEST( ctx->own_floor==129UL && ctx->last_vote_slot==129UL );
+  controller_fini( ctx );
+}
+
 /* A request of ours bound to boot 77 of the member whose junk key is
    0x22, as the tests' pair() makes it. */
 static void
@@ -402,9 +569,9 @@ test_wait_result_redials( void ) {
 static void
 test_refused_command_keeps_stuck( void ) {
   fd_failover_tile_ctx_t * ctx = controller_init( FD_FAILOVER_ROLE_STANDBY );
-  ctx->stuck       = 1;
+  ctx->stuck = 1;
+  FD_TEST( operator_cmd( ctx, FD_ADMINCTL_FAILOVER_CMD_HANDOFF, 0U, 0 )==FD_FAILOVER_CONTROL_RESULT_NO_ACTIVE_ADDRESS && ctx->stuck );
   ctx->staked_addr = FD_IP4_ADDR(10,0,0,2);
-  FD_TEST( operator_cmd( ctx, FD_ADMINCTL_FAILOVER_CMD_DEMOTE, 0U, 0 )==FD_FAILOVER_CONTROL_RESULT_BAD_ROLE && ctx->stuck );
   FD_TEST( operator_cmd( ctx, FD_ADMINCTL_FAILOVER_CMD_HANDOFF, 0U, 0 )==FD_ADMINCTL_RESULT_SUCCESS && !ctx->stuck );
   controller_fini( ctx );
 }
@@ -512,6 +679,9 @@ main( int argc, char ** argv ) {
   test_no_final_state();
   test_request_replay_behind();
   test_demote_drain();
+  test_operator_switch();
+  test_operator_failover_identity();
+  test_standby_vote_counts();
   test_result_wait_peer_restart();
   test_session_change_drops_result();
   test_request_address();

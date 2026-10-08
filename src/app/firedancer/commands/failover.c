@@ -12,10 +12,10 @@
 #include <unistd.h>
 
 static char const * const ACTION_NAMES[] = {
-  "idle", "demote, switching to the junk key", "demote, waiting for the peer's answer",
+  "idle", "handing off, switching to the junk key", "handing off, waiting for the peer's answer",
   "promote, waiting for replay", "promote, waiting for vote history adoption", "promote, switching to the staked key",
   "handoff, requesting the active's final vote state", "handoff, waiting for completion",
-  "demote, waiting for the tower to drain"
+  "handing off, waiting for the tower to drain"
 };
 static char const * const SESSION_NAMES[] = {
   "listening", "dialing", "hello", "paired", "backoff"
@@ -65,20 +65,19 @@ failover_cmd_args( int *    pargc,
   args->failover.force = fd_env_strip_cmdline_contains( pargc, pargv, "--force" );
 
   if( FD_UNLIKELY( !( *pargc ) ) ) {
-    FD_LOG_ERR(( "missing subcommand, supported: status, promote, demote" ));
+    FD_LOG_ERR(( "missing subcommand, supported: status, promote" ));
   }
   /* `promote` asks the active to hand over, `promote --force` takes the
      identity without it. */
   char const * cmd = **pargv;
   if(      !strcmp( cmd, "status"  ) ) args->failover.cmd = (int)FD_ADMINCTL_FAILOVER_CMD_STATUS;
-  else if( !strcmp( cmd, "demote"  ) ) args->failover.cmd = (int)FD_ADMINCTL_FAILOVER_CMD_DEMOTE;
   else if( !strcmp( cmd, "promote" ) ) args->failover.cmd = (int)( args->failover.force ? FD_ADMINCTL_FAILOVER_CMD_PROMOTE : FD_ADMINCTL_FAILOVER_CMD_HANDOFF );
-  else FD_LOG_ERR(( "unknown subcommand `%s`, supported: status, promote, demote", cmd ));
+  else FD_LOG_ERR(( "unknown subcommand `%s`, supported: status, promote", cmd ));
   ( *pargc )--;
   ( *pargv )++;
 
   if( FD_UNLIKELY( args->failover.yes && args->failover.cmd==(int)FD_ADMINCTL_FAILOVER_CMD_STATUS ) ) {
-    FD_LOG_ERR(( "--yes is only meaningful for `failover promote` and `failover demote`" ));
+    FD_LOG_ERR(( "--yes is only meaningful for `failover promote`" ));
   }
   if( FD_UNLIKELY( args->failover.force && args->failover.cmd!=(int)FD_ADMINCTL_FAILOVER_CMD_PROMOTE ) ) {
     FD_LOG_ERR(( "--force is only meaningful for `failover promote`" ));
@@ -125,7 +124,7 @@ action_name( uchar action ) {
 static char const *
 control_result_name( ulong result ) {
   switch( result ) {
-    case FD_FAILOVER_CONTROL_RESULT_BAD_ROLE:          return "this machine is not in the role that command needs, `promote` runs on a standby, `demote` on the active";
+    case FD_FAILOVER_CONTROL_RESULT_BAD_ROLE:          return "this machine is not in the role that command needs, `promote` runs on a standby";
     case FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS:       return "a transition or key switch is running, check `failover status`";
     case FD_FAILOVER_CONTROL_RESULT_NO_ACTIVE_ADDRESS: return "gossip has no address for the active, wait or give it with --address, and if both machines show "
                                                               "`role: standby` no machine holds the identity and `failover promote --force` on one of them takes it";
@@ -167,11 +166,6 @@ failover_confirm( args_t const * args ) {
                       "it gives up the identity first, so if replay here stalls before it catches up\n"
                       "the handoff fails and neither machine votes until `failover promote --force`.\n"
                       "Check that this machine is caught up.  Type yes to continue: " ));
-    } else if( args->failover.cmd==(int)FD_ADMINCTL_FAILOVER_CMD_DEMOTE ) {
-      FD_LOG_STDOUT(( "This gives up the staked identity and tells the other machine nothing.  Nothing\n"
-                      "votes until `failover promote --force` runs on one machine.  To move the\n"
-                      "identity to the other machine, run `failover promote` there instead.  Type yes\n"
-                      "to continue: " ));
     } else {
       FD_LOG_STDOUT(( "Type yes to continue: " ));
     }
@@ -308,8 +302,7 @@ failover_precheck( fd_adminctl_t * adminctl,
   if( FD_UNLIKELY( result!=FD_ADMINCTL_RESULT_SUCCESS || status_sz!=sizeof(status) ||
                    status.version!=FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION ) ) return;
   if( FD_UNLIKELY( status.enabled!=1 ) ) fail_disabled( 0 );
-  int want_active = args->failover.cmd==(int)FD_ADMINCTL_FAILOVER_CMD_DEMOTE;
-  if( FD_UNLIKELY( (status.role==FD_FAILOVER_ROLE_ACTIVE)!=want_active ) ) {
+  if( FD_UNLIKELY( status.role==FD_FAILOVER_ROLE_ACTIVE ) ) {
     FD_LOG_ERR(( "`failover %s` refused, %s", fd_adminctl_failover_cmd_typed( (ulong)args->failover.cmd ),
                  control_result_name( FD_FAILOVER_CONTROL_RESULT_BAD_ROLE ) ));
   }
@@ -360,8 +353,6 @@ failover_cmd_fn( args_t *   args,
         FD_LOG_STDOUT(( "%-22s %s\n", "action:", action_name( resp.control.action ) ));
         if( args->failover.cmd==(int)FD_ADMINCTL_FAILOVER_CMD_HANDOFF ) {
           FD_LOG_STDOUT(( "%-22s %lu, done when `failover status` here shows role: active and last handoff: %lu, taken\n", "handoff:", id, id ));
-        } else if( args->failover.cmd==(int)FD_ADMINCTL_FAILOVER_CMD_DEMOTE ) {
-          FD_LOG_STDOUT(( "%-22s %lu, done when `failover status` here shows role: standby and action: idle\n", "demotion:", id ));
         } else {
           FD_LOG_STDOUT(( "%-22s done when `failover status` here shows role: active and action: idle\n", "promotion:" ));
         }
@@ -426,6 +417,6 @@ action_t fd_action_failover = {
                     "This command does not start a validator; it attaches to one that is already\n"
                     "running.  With no arguments it discovers the running validator automatically.\n"
                     "If multiple validators are running, pass --name to select one.\n",
-  .usage          = "failover status|promote|demote [--name <name>] [--yes] [--force] [--address <address>] [--port <port>]",
+  .usage          = "failover status|promote [--name <name>] [--yes] [--force] [--address <address>] [--port <port>]",
   .args_help      = failover_args_help,
 };

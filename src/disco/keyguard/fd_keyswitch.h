@@ -35,6 +35,7 @@ struct __attribute__((aligned(FD_KEYSWITCH_ALIGN))) fd_keyswitch_private {
   ulong result;
   ulong param;
   uchar bytes[ 32768UL ];
+  ulong operator; /* set-identity under failover, the tower or votor votes with the new key the upstream way */
   /* Padding to FD_KEYSWITCH_ALIGN here */
 };
 

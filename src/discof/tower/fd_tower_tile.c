@@ -1092,6 +1092,7 @@ clear_votes( fd_tower_t * tower ) {
    are in the topology. */
 
 static int  failover_slot_completed ( fd_tower_tile_t * ctx, fd_replay_slot_completed_t * slot_completed, int found );
+static int  failover_check_vote_history( fd_tower_tile_t * ctx, fd_replay_slot_completed_t const * slot_completed, int found );
 static int  failover_identity_switch( fd_tower_tile_t * ctx );
 static void failover_adopt_frag     ( fd_tower_tile_t * ctx, ulong in_idx, ulong sig, ulong chunk, ulong sz, ulong ctl, fd_stem_context_t * stem );
 static void failover_init           ( fd_tower_tile_t * ctx, fd_topo_t const * topo, fd_topo_tile_t const * tile );
@@ -1431,7 +1432,10 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
   int hfork_flag = fd_hfork_record_our_bank_hash( ctx->hfork, &slot_completed->block_id, &slot_completed->bank_hash, fd_ulong_if( lsched->epoch==ctx->root_epoch, ctx->root_epoch_total_stake, ctx->next_epoch_total_stake ) );
   update_metrics_hfork( ctx, hfork_flag, slot_completed->slot, &slot_completed->block_id );
 
-  if( FD_UNLIKELY( ctx->vote_history_pending ) ) check_vote_history( ctx, slot_completed );
+  if( FD_UNLIKELY( ctx->vote_history_pending ) ) {
+    if( FD_UNLIKELY( ctx->adoption_required ) ) found = failover_check_vote_history( ctx, slot_completed, found );
+    else                                        check_vote_history( ctx, slot_completed );
+  }
 
   /* Determine reset, vote, and root slots.  There may not be a vote or
      root slot but there is always a reset slot. */
@@ -2378,13 +2382,94 @@ failover_slot_completed( fd_tower_tile_t *            ctx,
   return found && !ctx->shadow && !ctx->no_vote_authority;
 }
 
+/* failover_check_vote_history is check_vote_history for a failover
+   machine, after set-identity with a vote history.  It takes the
+   history the same way, with three rules for the identity's root.
+   While the history's root is ahead of ours and not replayed we do not
+   vote.  A history whose root is replayed but not on the fork of our
+   root is dropped, and the lockouts of its votes are waited out.  Once
+   the history's root is installed, fork choice moves to it, so vote
+   candidates descend from it.  Moving fork choice prunes the blocks
+   below the root, the replayed slot's parent among them, so no vote is
+   cast in the call that moved it: found is returned as 0 then. */
+static int
+failover_check_vote_history( fd_tower_tile_t *                  ctx,
+                             fd_replay_slot_completed_t const * slot_completed,
+                             int                                found ) {
+  fd_tower_t *            tower = ctx->tower;
+  fd_tower_file_t const * file  = &ctx->vote_history;
+  ulong                   last  = file->votes[ file->votes_cnt-1UL ].slot;
+
+  ulong floor = 0UL;
+  fd_bank_t * bank = fd_banks_bank_query( ctx->banks, slot_completed->bank_idx );
+  FD_TEST( bank );
+  ulong                  sz;
+  uchar const *          data = fd_sysvar_cache_data_query( &bank->f.sysvar_cache, &fd_sysvar_slot_history_id, &sz );
+  fd_slot_history_view_t slot_history[1];
+  if( FD_LIKELY( data && fd_sysvar_slot_history_view( slot_history, data, sz ) ) ) floor = vote_history_floor( fd_ghost_root( ctx->ghost )->slot, file, slot_history );
+
+  fd_tower_blk_t const * root_blk      = fd_tower_blocks_query( tower, file->root );
+  int                    root_replayed = root_blk && fd_ghost_query( ctx->ghost, &root_blk->replayed_block_id );
+
+  /* A replayed root above ours on another fork conflicts with our
+     rooted history.  Its votes may still lock the identity out of our
+     fork, so we wait out every one of them. */
+  if( FD_UNLIKELY( file->root>tower->root && root_replayed && !fd_tower_blocks_is_slot_ancestor( tower, file->root, tower->root ) ) ) {
+    ulong lockout = floor;
+    for( ulong i=0UL; i<file->votes_cnt; i++ ) lockout = fd_ulong_max( lockout, file->votes[ i ].slot+(1UL<<file->votes[ i ].conf)+1UL );
+    FD_LOG_WARNING(( "set-identity: vote history root %lu is not on the fork of our root %lu, ignoring the vote history and not voting below slot %lu", file->root, tower->root, lockout ));
+    ctx->vote_history_pending = 0;
+    tower->wait_to_vote_slot  = lockout;
+    return found;
+  }
+
+  /* A root never expires, so we don't vote until it is replayed. */
+  ulong wait = file->root>tower->root && !root_replayed ? ULONG_MAX : vote_history_ahead( tower, ctx->ghost, file );
+  if( FD_LIKELY( last>tower->root ) ) adopt_vote_history( ctx );
+
+  /* Vote candidates come from fork choice, so it has to hold the root
+     the history installed. */
+  ulong ghost_root = fd_ghost_root( ctx->ghost )->slot;
+  if( FD_UNLIKELY( advance_ghost_root( ctx ) ) ) {
+    tower->wait_to_vote_slot = ULONG_MAX;
+    return 0;
+  }
+  if( FD_UNLIKELY( fd_ghost_root( ctx->ghost )->slot!=ghost_root ) ) found = 0;
+
+  if( FD_UNLIKELY( wait && slot_completed->slot<wait ) ) {
+    ulong wait_to_vote_slot = fd_ulong_max( wait, floor );
+    if( FD_UNLIKELY( tower->wait_to_vote_slot!=wait_to_vote_slot ) ) FD_LOG_INFO(( "set-identity: vote history is ahead of replay, not voting below slot %lu", wait_to_vote_slot ));
+    tower->wait_to_vote_slot = wait_to_vote_slot;
+    return found;
+  }
+
+  if     ( FD_UNLIKELY( last<=tower->root ) ) { FD_LOG_NOTICE(( "set-identity: vote history is behind root %lu (last vote %lu)", tower->root, last )); ctx->vote_history_last = 0UL; }
+  else if( FD_UNLIKELY( wait              ) )   FD_LOG_WARNING(( "set-identity: vote history blocks were never replayed, dropping the votes on them" ));
+  else                                          FD_LOG_NOTICE(( "set-identity: restored vote history, last vote %lu, root %lu", last, tower->root ));
+  ctx->vote_history_pending = 0;
+  tower->wait_to_vote_slot  = fd_ulong_max( wait, floor );
+  return found;
+}
+
 /* failover_identity_switch runs when the identity keyswitch is ready to
-   switch.  A failover switch keeps the adopted tower: it installs the
-   key, completes the keyswitch and returns 1.  We vote only once we
-   leave the key we booted with, and only after an adoption authorized
-   the switch. */
+   switch.  set-identity (operator) switches the upstream way: the
+   failover rules stand down and it returns 0.  A failover switch keeps
+   the adopted tower and drops a vote history an earlier set-identity
+   left pending: it installs the key, completes the keyswitch and
+   returns 1.  We vote only once we leave the key we booted with, and
+   only after an adoption authorized the switch. */
 static int
 failover_identity_switch( fd_tower_tile_t * ctx ) {
+  if( FD_UNLIKELY( FD_VOLATILE_CONST( ctx->identity_keyswitch->operator ) ) ) {
+    ctx->shadow            = 0;
+    ctx->no_vote_authority = 0;
+    ctx->tower_adopted     = 0;
+    FD_LOG_NOTICE(( "tower: identity switch by set-identity, voting follows the vote account" ));
+    return 0;
+  }
+  ctx->vote_history_pending     = 0;
+  ctx->vote_history_last        = 0UL;
+  ctx->tower->wait_to_vote_slot = 0UL;
   memcpy( ctx->identity_key, ctx->identity_keyswitch->bytes, 32UL );
   FD_BASE58_ENCODE_32_BYTES( ctx->identity_key->uc, pubkey_str );
   FD_LOG_INFO(( "my identity key: %s (key switched)", pubkey_str ));
@@ -2412,7 +2497,13 @@ failover_adopt_frag( fd_tower_tile_t *   ctx,
                      ulong               ctl,
                      fd_stem_context_t * stem ) {
   fd_tower_adopt_result_t result;
-  if( FD_UNLIKELY( ctl==FD_TOWER_ADOPT_CTL_EMPTY && !sz ) ) result = adopt_empty( ctx );
+  /* Off the boot key we may vote, so nothing replaces our tower, only a
+     request that crossed set-identity can arrive then. */
+  if( FD_UNLIKELY( !fd_pubkey_eq( ctx->identity_key, &ctx->boot_identity ) ) ) {
+    FD_LOG_WARNING(( "tower: refusing an adoption request, this machine is not on the identity it booted with" ));
+    result = (fd_tower_adopt_result_t){ .result=FD_TOWER_ADOPT_ERR_INVALID, .root=ctx->tower->root,
+                                        .vote_slot=ULONG_MAX, .acct_vote_slot=ULONG_MAX };
+  } else if( FD_UNLIKELY( ctl==FD_TOWER_ADOPT_CTL_EMPTY && !sz ) ) result = adopt_empty( ctx );
   else if( FD_LIKELY( !ctl ) ) result = adopt_tower( ctx, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ), sz );
   else {
     ctx->tower_adopted = 0;

@@ -9,7 +9,10 @@
    fd_failover_bus_msg_t.  Each side has at most one request outstanding,
    even past the deadline, so neither link has more than two frames in
    flight and neither tile can backpressure the other, even behind an
-   identity switch that never finishes. */
+   identity switch that never finishes.  set-identity tells the failover
+   tile with OPERATOR once every tile switched, but never on
+   admin_failov's last credit, so a wedged failover tile cannot stall the
+   admin tile. */
 
 #include "../admin/fd_adminctl.h"
 
@@ -17,22 +20,41 @@
 #define FD_FAILOVER_BUS_SWITCH_RESP (2UL) /* admin to failov, fd_failover_switch_resp_t */
 #define FD_FAILOVER_BUS_REQUEST     (3UL) /* admin to failov, fd_adminctl_failover_req_t */
 #define FD_FAILOVER_BUS_RESPONSE    (4UL) /* failov to admin, the requested command's response */
+#define FD_FAILOVER_BUS_OPERATOR    (5UL) /* admin to failov, fd_failover_operator_t, set-identity ran */
 
-/* Only the public key goes over the bus.  The sign tile only accepts
-   a keypair it loaded at boot. */
+/* Only the public key goes over the bus.  The sign tile selects one of
+   the keypairs it loaded at boot.  epoch is the operator epoch the
+   failover tile last saw, the admin refuses a request from before a
+   set-identity. */
 struct fd_failover_switch_req {
   uchar identity[ 32 ]; /* public key of the identity to install */
+  ulong epoch;
 };
 
 typedef struct fd_failover_switch_req fd_failover_switch_req_t;
 
 #define FD_FAILOVER_SWITCH_OK           (0UL)
 #define FD_FAILOVER_SWITCH_ERR_DISABLED (1UL) /* failover is off here */
+#define FD_FAILOVER_SWITCH_ERR_STALE    (2UL) /* set-identity ran since the request, nothing switched */
 
-/* Sent once every tile has switched. */
+/* set-identity ran.  Every set-identity bumps epoch, identity is the
+   public key it installed, failover_identity the key a handoff moves,
+   identity unless that is the junk key. */
+struct fd_failover_operator {
+  ulong epoch;
+  uchar identity[ 32 ];
+  uchar failover_identity[ 32 ];
+};
+
+typedef struct fd_failover_operator fd_failover_operator_t;
+
+/* Sent once every tile has switched, or right away when refused.  A
+   STALE refusal also says what set-identity did, in case the failover
+   tile missed the OPERATOR frame. */
 struct fd_failover_switch_resp {
-  ulong result;          /* FD_FAILOVER_SWITCH_* */
-  ulong tower_watermark; /* the tower keyswitch result, its output sequence at the halt */
+  ulong                  result;          /* FD_FAILOVER_SWITCH_* */
+  ulong                  tower_watermark; /* the tower keyswitch result, its output sequence at the halt */
+  fd_failover_operator_t operator;        /* with STALE */
 };
 
 typedef struct fd_failover_switch_resp fd_failover_switch_resp_t;
@@ -43,6 +65,7 @@ typedef struct fd_failover_switch_resp fd_failover_switch_resp_t;
 
 FD_STATIC_ASSERT( sizeof(fd_failover_switch_req_t )<=FD_FAILOVER_BUS_PAYLOAD_MAX, switch_req_fits  );
 FD_STATIC_ASSERT( sizeof(fd_failover_switch_resp_t)<=FD_FAILOVER_BUS_PAYLOAD_MAX, switch_resp_fits );
+FD_STATIC_ASSERT( sizeof(fd_failover_operator_t   )<=FD_FAILOVER_BUS_PAYLOAD_MAX, operator_fits    );
 FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_req_t         )<=FD_FAILOVER_BUS_PAYLOAD_MAX, command_fits         );
 FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_control_resp_t)<=FD_FAILOVER_BUS_PAYLOAD_MAX, control_resp_fits    );
 FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_status_resp_t )<=FD_FAILOVER_BUS_PAYLOAD_MAX, status_resp_fits     );
