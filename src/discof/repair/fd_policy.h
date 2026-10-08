@@ -101,10 +101,13 @@ typedef struct fd_policy_peers fd_policy_peers_t;
    Memos are direct-mapped by slot: the requests list may flip between
    throttled slots so we need to track >=2 (turbine head and its parent). */
 struct fd_policy_skip {
-  ulong slot;
-  uint  idx;
-  int   throttled;
-  long  until;
+  ulong  slot;
+  uint   idx;
+  int    throttled;
+  long   until;
+  long   anchor; /* throttled: first_shred_ts the deadline ran from */
+  ushort ms;     /* throttled: recv stamp the deadline ran from */
+  int    head;   /* dedup: slot at or above the head (asks for the tail, never probes) */
 };
 typedef struct fd_policy_skip fd_policy_skip_t;
 
@@ -114,6 +117,10 @@ struct fd_policy {
   long              tsref; /* reference timestamp for resetting DFS */
 
   fd_policy_skip_t  skip[ FD_POLICY_SKIP_CNT ];
+
+  long  next_due;
+  ulong hit_run; /* consecutive memo hits since any other outcome */
+  long  hit_due; /* earliest until among those hits */
 
   fd_rnonce_ss_t    rnonce_ss[1];
 
@@ -202,7 +209,8 @@ fd_policy_delete( void * policy );
    making orphan requests and highest shred requests.  For non-normal
    repair requests, policy uses the dedup cache to deduplicate requests.
    For all normal requests, the caller must check the dedup cache before
-   making a request. */
+   making a request.  Returns NULL when no request can be made this
+   turn and sets policy->next_due to when one might be. */
 
 fd_repair_msg_t const *
 fd_policy_next( fd_policy_t * policy, fd_reqlim_t * dedup, fd_forest_t * forest, fd_repair_t * repair, long now, ulong highest_known_slot, int * charge_busy );
