@@ -121,10 +121,10 @@ gossip_activity_update_fn( void *                           _ctx,
                            int                              change_type ) {
   fd_gossip_tile_ctx_t * ctx = (fd_gossip_tile_ctx_t *)_ctx;
 
-  /* We won't start tracking updates until after the manifest is loaded.
-     This is okay since this callback is triggered by all contact info
-     updates, including refreshes, so any updates we missed at boot will
-     show up shortly after. */
+  /* We won't start tracking updates until replay has sent the epoch
+     stakes.  This is okay since this callback is triggered by all
+     contact info updates, including refreshes, so any updates we
+     missed at boot will show up shortly after. */
   if( FD_LIKELY( !ctx->my_contact_info->shred_version || ctx->wfs_state!=FD_GOSSIP_WFS_STATE_WAIT ) ) return;
 
   /* gossvf should filter out messages with mismatching shred version */
