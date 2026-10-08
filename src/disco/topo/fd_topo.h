@@ -645,6 +645,7 @@ struct fd_topo_tile {
     struct {
       ulong accdb_obj_id;
 
+      int    failover_standby;
       ulong  authorized_voter_paths_cnt;
       char   authorized_voter_paths[ FD_KEYGUARD_AUTH_VOTERS_MAX ][ PATH_MAX ];
       int    hard_fork_fatal;

@@ -38,7 +38,8 @@
 #define FD_ADMINCTL_CMD_GET_IDENTITY           (3UL)
 #define FD_ADMINCTL_CMD_REMOVE_ALL_AUTH_VOTERS (4UL)
 #define FD_ADMINCTL_CMD_SNAP_CREATE            (5UL)
-#define FD_ADMINCTL_CMD_FAILOVER               (6UL)
+#define FD_ADMINCTL_CMD_FAILOVER_PROMOTE       (6UL)
+#define FD_ADMINCTL_CMD_FAILOVER_STATUS        (7UL)
 
 #define FD_ADMINCTL_ALIGN       (8UL)
 #define FD_ADMINCTL_PAYLOAD_MAX (32768UL)
@@ -65,20 +66,24 @@
 #define FD_SET_IDENTITY_RESULT_KEYPAIR_MISMATCH             (0x3001UL)
 #define FD_SET_IDENTITY_RESULT_INVALID_VOTE_HISTORY         (0x3002UL)
 #define FD_SET_IDENTITY_RESULT_SAME_IDENTITY                (0x3003UL)
+#define FD_SET_IDENTITY_RESULT_AUTHORIZED_VOTER             (0x3004UL)
 
 #define FD_FAILOVER_CONTROL_RESULT_BUSY              (0x4001UL) /* another failover command is waiting on the failover tile */
 #define FD_FAILOVER_CONTROL_RESULT_UNRESPONSIVE      (0x4002UL) /* the failover tile did not respond in time */
-#define FD_FAILOVER_CONTROL_RESULT_BAD_ROLE          (0x4003UL) /* promote on the active, demote on a standby */
+#define FD_FAILOVER_CONTROL_RESULT_BAD_ROLE          (0x4003UL) /* promote on the active */
 #define FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS       (0x4004UL) /* a transition or key switch is running */
 #define FD_FAILOVER_CONTROL_RESULT_PEER_UNREADY      (0x4006UL) /* the bound peer cannot complete this handoff */
 #define FD_FAILOVER_CONTROL_RESULT_PEER_ACTIVE       (0x4007UL) /* the authenticated peer holds the identity */
 #define FD_FAILOVER_CONTROL_RESULT_HANDOFF_PENDING   (0x4008UL) /* the peer has not responded to our handoff */
-#define FD_FAILOVER_CONTROL_RESULT_TAKEN             (0x4009UL) /* the peer took our handoff, only a new local tenure clears this */
+#define FD_FAILOVER_CONTROL_RESULT_TAKEN             (0x4009UL) /* the peer took our handoff, cleared once we hold the identity again or set-identity restarts failover */
 #define FD_FAILOVER_CONTROL_RESULT_STAKED_SEEN       (0x400AUL) /* gossip has a fresh contact info for the staked identity from another host */
 #define FD_FAILOVER_CONTROL_RESULT_NO_FINAL_TOWER    (0x400CUL) /* active has no eligible final vote state, see its local voting diagnostics */
 #define FD_FAILOVER_CONTROL_RESULT_NO_ACTIVE_ADDRESS (0x400EUL) /* gossip has no address for the active */
 #define FD_FAILOVER_CONTROL_RESULT_PEER_UNVERIFIED   (0x400FUL) /* no check found another holder, which does not prove the peer cannot sign */
 #define FD_FAILOVER_CONTROL_RESULT_REPLAY_BEHIND     (0x4010UL) /* this standby's replay is too far behind the active's last vote */
+#define FD_FAILOVER_CONTROL_RESULT_KEY_REQUIRED      (0x4011UL) /* client has no target identity */
+#define FD_FAILOVER_CONTROL_RESULT_KEY_CONFLICT      (0x4012UL) /* target differs from the prepared identity or is the boot identity */
+#define FD_FAILOVER_CONTROL_RESULT_NOT_BOOT_IDENTITY (0x4013UL) /* client must prepare while still on its boot identity */
 
 struct fd_adminctl_add_auth_voter_v1 {
   ulong version; /* ==FD_ADMINCTL_ADD_AUTH_VOTER_PAYLOAD_VERSION */
@@ -127,26 +132,19 @@ typedef struct fd_adminctl_remove_all_auth_voters_v1 fd_adminctl_remove_all_auth
 
 /* Failover commands, forwarded to the failover tile. */
 #define FD_ADMINCTL_FAILOVER_CMD_HANDOFF (0UL)
-#define FD_ADMINCTL_FAILOVER_CMD_DEMOTE  (1UL)
-#define FD_ADMINCTL_FAILOVER_CMD_PROMOTE (2UL)
-#define FD_ADMINCTL_FAILOVER_CMD_STATUS  (3UL)
-#define FD_ADMINCTL_FAILOVER_CMD_CNT     (4UL)
-
-static inline char const *
-fd_adminctl_failover_cmd_name( ulong cmd ) {
-  switch( cmd ) {
-    case FD_ADMINCTL_FAILOVER_CMD_HANDOFF: return "handoff";
-    case FD_ADMINCTL_FAILOVER_CMD_DEMOTE:  return "demote";
-    case FD_ADMINCTL_FAILOVER_CMD_PROMOTE: return "promote";
-    case FD_ADMINCTL_FAILOVER_CMD_STATUS:  return "status";
-    default:                               return "unknown";
-  }
-}
+#define FD_ADMINCTL_FAILOVER_CMD_PROMOTE (1UL)
+#define FD_ADMINCTL_FAILOVER_CMD_STATUS  (2UL)
+#define FD_ADMINCTL_FAILOVER_CMD_CNT     (3UL)
 
 /* The command as the operator typed it. */
 static inline char const *
 fd_adminctl_failover_cmd_typed( ulong cmd ) {
-  return cmd==FD_ADMINCTL_FAILOVER_CMD_HANDOFF ? "promote" : fd_adminctl_failover_cmd_name( cmd );
+  switch( cmd ) {
+    case FD_ADMINCTL_FAILOVER_CMD_HANDOFF:
+    case FD_ADMINCTL_FAILOVER_CMD_PROMOTE: return "failover promote";
+    case FD_ADMINCTL_FAILOVER_CMD_STATUS:  return "failover status";
+    default:                              return "unknown";
+  }
 }
 
 #define FD_ADMINCTL_FAILOVER_FLAG_YES   (1UL) /* confirmation only, does not authorize peer or history overrides */
@@ -162,12 +160,20 @@ struct fd_adminctl_failover_req_v1 {
 };
 typedef struct fd_adminctl_failover_req_v1 fd_adminctl_failover_req_t;
 
+/* Optional promote payload.  Admin consumes and wipes the keypair.
+   Only req may be forwarded to the failover tile. */
+struct fd_adminctl_failover_prepare_v1 {
+  fd_adminctl_failover_req_t req;
+  uchar                      keypair[ 64 ];
+};
+typedef struct fd_adminctl_failover_prepare_v1 fd_adminctl_failover_prepare_t;
+
 struct fd_adminctl_failover_control_resp_v1 {
   ulong version;    /* ==FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION */
   uchar role;       /* FD_FAILOVER_ROLE_* after the command */
   uchar action;     /* controller action after the command */
   uchar reserved[ 6 ];
-  ulong handoff_id; /* the handoff an accepted promote or demote opened or resumed, 0 none */
+  ulong handoff_id; /* the handoff an accepted promote opened or resumed, 0 none */
 };
 typedef struct fd_adminctl_failover_control_resp_v1 fd_adminctl_failover_control_resp_t;
 #define FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION (1UL)
@@ -205,7 +211,7 @@ FD_STATIC_ASSERT( sizeof(fd_adminctl_failover_control_resp_t)==24UL, failover_co
 /* `failover status`, provided by the failover tile. */
 struct fd_adminctl_failover_status_resp_v1 {
   ulong  version;         /* ==FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION */
-  uchar  enabled;         /* 1 from the failover tile */
+  uchar  enabled;         /* 1 accepts handoffs, 2 is an outgoing client only */
   uchar  role;            /* FD_FAILOVER_ROLE_* */
   uchar  action;          /* FD_FAILOVER_ACTION_* */
   uchar  stuck;           /* a transition failed or is overdue */

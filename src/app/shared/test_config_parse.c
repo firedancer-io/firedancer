@@ -78,6 +78,7 @@ vote_history_path_is_valid( char const * path ) {
   return WIFEXITED( status ) && !WEXITSTATUS( status );
 }
 
+
 /* Runs fd_config_validate_consensus on the given combination and
    reports whether it was accepted.  It exits the process on rejection,
    so run it in a child. */

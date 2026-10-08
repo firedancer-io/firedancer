@@ -28,7 +28,13 @@ struct fd_admin_tile_ctx {
   long poll_ticks;
   long idle_poll_ticks;
   long deadline_ticks; /* next adminctl poll */
-  int failover_enabled; /* failover moves the identity, set-identity is refused */
+
+  int   failover_enabled;      /* failover hands off the identity */
+  int   failover_switch;       /* a failover identity switch is in progress */
+  ulong operator_epoch;        /* failover epoch, bumped by every set-identity under failover */
+  int   operator_pending;      /* the failover tile has not been told about the last set-identity yet */
+  uchar junk_pubkey[ 32 ];     /* the identity we booted with, the junk key under failover */
+  uchar failover_pubkey[ 32 ]; /* the key failover hands off, [paths.identity_key] until set-identity installs another */
 
   /* Failover commands go to the failover tile over the bus, one at a
      time like snapshot creation. */
@@ -116,6 +122,15 @@ privileged_init( fd_topo_t const *      topo,
     FD_LOG_ERR(( "identity_key_path not set" ));
 
   fd_memcpy( ctx->identity_pubkey, fd_keyload_load( tile->admin.identity_key_path, /* pubkey only: */ 1 ), 32UL );
+
+  /* Under failover we boot on the junk key, and the key failover hands off
+     starts as [paths.identity_key]. */
+  ulong failov_idx = fd_topo_find_tile( topo, "failov", 0UL );
+  if( FD_UNLIKELY( failov_idx!=ULONG_MAX ) ) {
+    fd_memcpy( ctx->junk_pubkey,     ctx->identity_pubkey, 32UL );
+    char const * path = topo->tiles[ failov_idx ].failov.staked_key_path;
+    if( path[ 0 ] ) fd_memcpy( ctx->failover_pubkey, fd_keyload_load( path, /* pubkey only: */ 1 ), 32UL );
+  }
 }
 
 static void
@@ -128,9 +143,10 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->poll_ticks           = (long)(1e6*fd_tempo_tick_per_ns( NULL )); /* 1ms */
   ctx->idle_poll_ticks      = (long)((double)FD_SLEEP_PARK_CAP_NS*fd_tempo_tick_per_ns( NULL ));
   ctx->deadline_ticks       = 0L;
-  ctx->failover_enabled     = fd_topo_find_tile( topo, "failov", 0UL )!=ULONG_MAX;
+  ulong failov_idx = fd_topo_find_tile( topo, "failov", 0UL );
+  ctx->failover_enabled     = failov_idx!=ULONG_MAX && topo->tiles[ failov_idx ].failov.staked_key_path[ 0 ];
   ctx->failover_slot_idx    = ULONG_MAX;
-  ctx->topo = topo;
+  ctx->topo                 = topo;
 
   fd_topo_obj_t const * adminctl_obj = fd_topo_find_tile_obj( topo, tile, "adminctl" );
   FD_TEST( adminctl_obj );
@@ -371,8 +387,8 @@ unprivileged_init( fd_topo_t const *      topo,
 static fd_keyswitch_t *
 find_identity_keyswitch( fd_admin_tile_ctx_t * ctx,
                          char const *          tile_name ) {
-  fd_topo_t const * topo = ctx->topo;
-  ulong tile_idx = fd_topo_find_tile( topo, tile_name, 0UL );
+  fd_topo_t const * topo     = ctx->topo;
+  ulong             tile_idx = fd_topo_find_tile( topo, tile_name, 0UL );
   FD_TEST( tile_idx!=ULONG_MAX );
   FD_TEST( topo->tiles[ tile_idx ].id_keyswitch_obj_id!=ULONG_MAX );
 
@@ -551,9 +567,9 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
         if( strcmp( tile->name, "sign" ) ) continue;
         fd_keyswitch_t * sign = fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id );
         memcpy( sign->bytes, keypair, 64UL );
-        if( FD_UNLIKELY( ctx->failover_enabled ) ) {
-          /* Under failover the sign tile selects a keypair it loaded at
-             boot by its public key. */
+        if( FD_UNLIKELY( ctx->failover_switch ) ) {
+          /* Under failover the sign tile selects the junk key or the
+             failover identity by its public key. */
           sign->param = FD_KEYSWITCH_PARAM_IDENTITY_PUBKEY;
           fd_memcpy( sign->bytes,      keypair+32UL, 32UL );
           fd_memset( sign->bytes+32UL, 0,            32UL );
@@ -715,8 +731,91 @@ poll_set_identity( fd_admin_tile_ctx_t * ctx,
   return *state==FD_SET_IDENTITY_STATE_UNLOCKED;
 }
 
+/* Check every sign tile before changing the failover identity or halting
+   any tiles.  Admin serializes commands, so authorized voters cannot
+   change between this check and the identity switch. */
+
+static void
+failover_identity_check_begin( fd_admin_tile_ctx_t * ctx,
+                               uchar const *         identity ) {
+  fd_topo_t const * topo = ctx->topo;
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    fd_topo_tile_t const * tile = &topo->tiles[ i ];
+    if( strcmp( tile->name, "sign" ) ) continue;
+    fd_keyswitch_t * sign = fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id );
+    fd_memcpy( sign->bytes, identity, 32UL );
+    sign->param = FD_KEYSWITCH_PARAM_IDENTITY_CHECK;
+    fd_keyswitch_state( sign, FD_KEYSWITCH_STATE_SWITCH_PENDING );
+  }
+}
+
+/* Returns ULONG_MAX until every sign tile has answered. */
+static ulong
+failover_identity_check_poll( fd_admin_tile_ctx_t * ctx ) {
+  fd_topo_t const * topo   = ctx->topo;
+  ulong             result = FD_ADMINCTL_RESULT_SUCCESS;
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    fd_topo_tile_t const * tile = &topo->tiles[ i ];
+    if( strcmp( tile->name, "sign" ) ) continue;
+    fd_keyswitch_t * sign  = fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id );
+    ulong            state = fd_keyswitch_state_query( sign );
+    if( state==FD_KEYSWITCH_STATE_SWITCH_PENDING ) return ULONG_MAX;
+    FD_TEST( state==FD_KEYSWITCH_STATE_COMPLETED || state==FD_KEYSWITCH_STATE_FAILED );
+    if( state==FD_KEYSWITCH_STATE_FAILED ) result = sign->result;
+  }
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    fd_topo_tile_t const * tile = &topo->tiles[ i ];
+    if( strcmp( tile->name, "sign" ) ) continue;
+    fd_keyswitch_t * sign = fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id );
+    sign->param = FD_KEYSWITCH_PARAM_IDENTITY_KEYPAIR;
+    fd_keyswitch_state( sign, FD_KEYSWITCH_STATE_UNLOCKED );
+  }
+  return result;
+}
+
+/* Under failover set-identity still switches the same way. */
+
+static void
+failover_operator_begin( fd_admin_tile_ctx_t * ctx,
+                         uchar const *         identity ) {
+  ctx->operator_epoch++;
+  if( !fd_memeq( identity, ctx->junk_pubkey, 32UL ) ) fd_memcpy( ctx->failover_pubkey, identity, 32UL );
+  FD_BASE58_ENCODE_32_BYTES( identity,              new_identity );
+  FD_BASE58_ENCODE_32_BYTES( ctx->failover_pubkey, failover_identity );
+  FD_LOG_WARNING(( "set-identity switches to `%s` while failover is on, failover restarts on this machine for identity `%s`", new_identity, failover_identity ));
+
+  fd_topo_t const * topo = ctx->topo;
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    if( strcmp( topo->tiles[ i ].name, "sign" ) ) continue;
+    fd_keyswitch_t * sign = fd_topo_obj_laddr( topo, topo->tiles[ i ].id_keyswitch_obj_id );
+    sign->param = FD_KEYSWITCH_PARAM_IDENTITY_KEYPAIR;
+  }
+  find_identity_keyswitch( ctx, "tower" )->operator = 1UL;
+  ctx->operator_pending = 1;
+}
+
+/* Sends a pending OPERATOR once the failover link has room to spare. */
+
+static void
+failover_operator_notify( fd_admin_tile_ctx_t * ctx,
+                          fd_stem_context_t *   stem ) {
+  if( FD_LIKELY( !ctx->operator_pending ) ) return;
+  if( FD_UNLIKELY( ctx->failov_out_idx==ULONG_MAX || stem->cr_avail[ ctx->failov_out_idx ]<4UL ) ) return;
+  fd_failover_bus_msg_t * msg = fd_chunk_to_laddr( ctx->failov_out_mem, ctx->failov_out_chunk );
+  fd_memset( msg, 0, sizeof(*msg) );
+  fd_failover_operator_t operator = { .epoch=ctx->operator_epoch };
+  fd_memcpy( operator.identity,          ctx->identity_pubkey, 32UL );
+  fd_memcpy( operator.failover_identity, ctx->failover_pubkey, 32UL );
+  fd_memcpy( msg->payload, &operator, sizeof(operator) );
+  ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+  fd_stem_publish( stem, ctx->failov_out_idx, FD_FAILOVER_BUS_OPERATOR, ctx->failov_out_chunk, sizeof(*msg), 0UL, tspub, tspub );
+  ctx->failov_out_chunk = fd_dcache_compact_next( ctx->failov_out_chunk, sizeof(*msg), ctx->failov_out_chunk0, ctx->failov_out_wmark );
+  ctx->operator_pending = 0;
+}
+
 static void FD_FN_SENSITIVE
 set_identity( fd_admin_tile_ctx_t * ctx,
+              fd_stem_context_t *   stem,
               ulong                 slot_idx,
               void *                data,
               ulong                 data_sz ) {
@@ -725,14 +824,6 @@ set_identity( fd_admin_tile_ctx_t * ctx,
   fd_event_admin_command_t event = prepare_admin_command( FD_EVENT_ADMIN_COMMAND_TYPE_SET_IDENTITY, data, data_sz );
   FD_BASE58_ENCODE_32_BYTES( ctx->identity_pubkey, old_identity );
   FD_TEST( fd_cstr_printf_check( (char *)event.args_json, sizeof(event.args_json), &event.args_json_len, "{\"old_identity\":\"%s\"}", old_identity ) );
-
-  /* Under failover the failover tile moves the identity. */
-  if( FD_UNLIKELY( ctx->failover_enabled ) ) {
-    FD_LOG_WARNING(( "set-identity is not supported while [failover.enabled] is true" ));
-    report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_UNSUPPORTED );
-    fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_UNSUPPORTED );
-    return;
-  }
 
   if( FD_UNLIKELY( data_sz<sizeof(ulong) ) ) {
     FD_LOG_WARNING(( "adminctl set-identity payload too small: %lu", data_sz ));
@@ -795,6 +886,30 @@ set_identity( fd_admin_tile_ctx_t * ctx,
     return;
   }
 
+  /* Under failover a set-identity to the key already installed does
+     nothing, so failover is not restarted. */
+  if( FD_UNLIKELY( ctx->failover_enabled && fd_memeq( req->keypair+32UL, ctx->identity_pubkey, 32UL ) ) ) {
+    FD_LOG_NOTICE(( "set-identity: `%s` is already the identity, nothing to do", old_identity ));
+    report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_SUCCESS );
+    fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_SUCCESS );
+    return;
+  }
+
+  if( FD_UNLIKELY( ctx->failover_enabled ) ) {
+    failover_identity_check_begin( ctx, req->keypair+32UL );
+    ulong result;
+    while( (result = failover_identity_check_poll( ctx ))==ULONG_MAX ) FD_SPIN_PAUSE();
+    if( FD_UNLIKELY( result!=FD_ADMINCTL_RESULT_SUCCESS ) ) {
+      FD_LOG_WARNING(( "set-identity failed: the new failover identity is already an authorized voter" ));
+      report_admin_command_custom_result( &event, "authorized_voter" );
+      fd_adminctl_complete( adminctl, slot_idx, result );
+      return;
+    }
+    failover_operator_begin( ctx, req->keypair+32UL );
+  }
+
+  if( ctx->failov_out_idx!=ULONG_MAX ) find_identity_keyswitch( ctx, "tower" )->operator = 1UL;
+
   ulong state           = FD_SET_IDENTITY_STATE_UNLOCKED;
   ulong identity_outset = (ulong)fd_log_wallclock();
   for(;;) {
@@ -802,6 +917,7 @@ set_identity( fd_admin_tile_ctx_t * ctx,
   }
 
   memcpy( ctx->identity_pubkey, req->keypair+32UL, 32UL );
+  if( FD_UNLIKELY( ctx->failover_enabled ) ) failover_operator_notify( ctx, stem );
 
   report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_SUCCESS );
   fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_SUCCESS );
@@ -1434,7 +1550,7 @@ failover_complete( fd_admin_tile_ctx_t * ctx,
                    void const *          resp,
                    ulong                 resp_sz ) {
   fd_event_admin_command_t event = {
-    .type                = FD_EVENT_ADMIN_COMMAND_TYPE_FAILOVER,
+    .type                = ctx->failover_slot_cmd==FD_ADMINCTL_FAILOVER_CMD_STATUS ? FD_EVENT_ADMIN_COMMAND_TYPE_FAILOVER_STATUS : FD_EVENT_ADMIN_COMMAND_TYPE_FAILOVER_PROMOTE,
     .args_json           = { '{', '}' },
     .args_json_len       = 2UL,
     .start_time          = ctx->failover_start_time,
@@ -1453,9 +1569,9 @@ failover_complete( fd_admin_tile_ctx_t * ctx,
   fd_adminctl_complete_response( ctx->adminctl, ctx->failover_slot_idx, result, resp, resp_sz );
   if( FD_LIKELY( ctx->failover_cmd_cstr[ 0 ] ) ) {
     if( FD_LIKELY( result==FD_ADMINCTL_RESULT_SUCCESS ) ) {
-      FD_LOG_NOTICE(( "`failover %s` accepted by the failover tile, follow it with `failover status`", ctx->failover_cmd_cstr ));
+      FD_LOG_NOTICE(( "`%s` accepted by the failover tile, follow it with `failover status`", ctx->failover_cmd_cstr ));
     } else if( FD_UNLIKELY( result!=FD_FAILOVER_CONTROL_RESULT_UNRESPONSIVE ) ) {
-      FD_LOG_WARNING(( "`failover %s` refused by the failover tile (%s), nothing was done", ctx->failover_cmd_cstr, failover_result_name( result ) ));
+      FD_LOG_WARNING(( "`%s` refused by the failover tile (%s), nothing was done", ctx->failover_cmd_cstr, failover_result_name( result ) ));
     }
   }
   ctx->failover_slot_idx      = ULONG_MAX;
@@ -1465,15 +1581,55 @@ failover_complete( fd_admin_tile_ctx_t * ctx,
   ctx->failover_cmd_cstr[ 0 ] = '\0';
 }
 
-static void
+/* Load a client's first target without changing its installed identity.
+   Repeating the same target leaves the controller and its history intact.
+   Admin serializes this with set-identity and authorized-voter changes. */
+static ulong FD_FN_SENSITIVE
+failover_prepare( fd_admin_tile_ctx_t * ctx,
+                  uchar const *         keypair ) {
+  uchar pubkey[ 32 ];
+  fd_ed25519_public_from_private( pubkey, keypair, ctx->sha512 );
+  if( FD_UNLIKELY( !fd_memeq( pubkey, keypair+32UL, 32UL ) ) ) return FD_SET_IDENTITY_RESULT_KEYPAIR_MISMATCH;
+  if( FD_UNLIKELY( fd_memeq( pubkey, ctx->junk_pubkey, 32UL ) ) ) return FD_FAILOVER_CONTROL_RESULT_KEY_CONFLICT;
+  if( ctx->failover_enabled ) return fd_memeq( pubkey, ctx->failover_pubkey, 32UL )
+                                   ? FD_ADMINCTL_RESULT_SUCCESS : FD_FAILOVER_CONTROL_RESULT_KEY_CONFLICT;
+  if( FD_UNLIKELY( !fd_memeq( ctx->identity_pubkey, ctx->junk_pubkey, 32UL ) ) ) return FD_FAILOVER_CONTROL_RESULT_NOT_BOOT_IDENTITY;
+
+  failover_identity_check_begin( ctx, pubkey );
+  ulong result;
+  while( (result = failover_identity_check_poll( ctx ))==ULONG_MAX ) FD_SPIN_PAUSE();
+  if( FD_UNLIKELY( result!=FD_ADMINCTL_RESULT_SUCCESS ) ) return result;
+
+  for( ulong i=0UL; i<ctx->topo->tile_cnt; i++ ) {
+    fd_topo_tile_t const * tile = &ctx->topo->tiles[ i ];
+    if( strcmp( tile->name, "sign" ) ) continue;
+    fd_keyswitch_t * sign = fd_topo_obj_laddr( ctx->topo, tile->id_keyswitch_obj_id );
+    fd_memcpy( sign->bytes, keypair, 64UL );
+    sign->param = FD_KEYSWITCH_PARAM_IDENTITY_PREPARE;
+    fd_keyswitch_state( sign, FD_KEYSWITCH_STATE_SWITCH_PENDING );
+  }
+  while( (result = failover_identity_check_poll( ctx ))==ULONG_MAX ) FD_SPIN_PAUSE();
+  /* Preflight checked every sign tile before any target was loaded. */
+  FD_TEST( result==FD_ADMINCTL_RESULT_SUCCESS );
+  fd_memcpy( ctx->failover_pubkey, pubkey, 32UL );
+  ctx->failover_enabled = 1;
+  ctx->operator_epoch++;
+  ctx->operator_pending = 1;
+  return FD_ADMINCTL_RESULT_SUCCESS;
+}
+
+static void FD_FN_SENSITIVE
 failover_request( fd_admin_tile_ctx_t * ctx,
                   fd_stem_context_t *   stem,
                   ulong                 slot_idx,
-                  void const *          data,
+                  ulong                 cmd_id,
+                  void *                data,
                   ulong                 data_sz ) {
 
-  fd_adminctl_t *          adminctl = ctx->adminctl;
-  fd_event_admin_command_t event    = prepare_admin_command( FD_EVENT_ADMIN_COMMAND_TYPE_FAILOVER, data, data_sz );
+  int                      status     = cmd_id==FD_ADMINCTL_CMD_FAILOVER_STATUS;
+  int                      event_type = status ? FD_EVENT_ADMIN_COMMAND_TYPE_FAILOVER_STATUS : FD_EVENT_ADMIN_COMMAND_TYPE_FAILOVER_PROMOTE;
+  fd_adminctl_t *          adminctl   = ctx->adminctl;
+  fd_event_admin_command_t event      = prepare_admin_command( event_type, data, data_sz );
 
   if( FD_UNLIKELY( data_sz<sizeof(ulong) ) ) {
     FD_LOG_WARNING(( "adminctl failover payload too small: %lu", data_sz ));
@@ -1490,7 +1646,8 @@ failover_request( fd_admin_tile_ctx_t * ctx,
     return;
   }
 
-  if( FD_UNLIKELY( data_sz!=sizeof(fd_adminctl_failover_req_t) ) ) {
+  int prepare = !status && data_sz==sizeof(fd_adminctl_failover_prepare_t);
+  if( FD_UNLIKELY( data_sz!=sizeof(fd_adminctl_failover_req_t) && !prepare ) ) {
     FD_LOG_WARNING(( "unexpected adminctl failover payload_sz %lu", data_sz ));
     report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_ABI_SIZE_MISMATCH );
     fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_ABI_SIZE_MISMATCH );
@@ -1501,25 +1658,22 @@ failover_request( fd_admin_tile_ctx_t * ctx,
   fd_memcpy( &req, data, sizeof(req) );
   int force = !!(req.flags & FD_ADMINCTL_FAILOVER_FLAG_FORCE);
   char const * invalid = NULL;
-  if(      req.cmd>=FD_ADMINCTL_FAILOVER_CMD_CNT )                                      invalid = "unknown command";
-  else if( req.flags & ~(FD_ADMINCTL_FAILOVER_FLAG_YES|FD_ADMINCTL_FAILOVER_FLAG_FORCE) ) invalid = "unknown flags";
-  else if( (req.cmd==FD_ADMINCTL_FAILOVER_CMD_PROMOTE)!=force )                         invalid = "--force goes with promote, and a promote without it is sent as a handoff";
-  else if( req.cmd==FD_ADMINCTL_FAILOVER_CMD_STATUS && req.flags )                      invalid = "status takes no flags";
-  else if( req.cmd!=FD_ADMINCTL_FAILOVER_CMD_HANDOFF && (req.addr || req.port) )        invalid = "an address or port goes only with a handoff";
-  else if( req.reserved[ 0 ] || req.reserved[ 1 ] )                                     invalid = "reserved bytes are set";
+  if(      req.cmd>=FD_ADMINCTL_FAILOVER_CMD_CNT )                                           invalid = "unknown command";
+  else if( (req.cmd==FD_ADMINCTL_FAILOVER_CMD_STATUS)!=status )                              invalid = "payload command does not match the admin command";
+  else if( req.flags & ~(FD_ADMINCTL_FAILOVER_FLAG_YES|FD_ADMINCTL_FAILOVER_FLAG_FORCE) )    invalid = "unknown flags";
+  else if( (req.cmd==FD_ADMINCTL_FAILOVER_CMD_PROMOTE)!=force )                              invalid = "--force goes with promote, and a promote without it is sent as a handoff";
+  else if( req.cmd==FD_ADMINCTL_FAILOVER_CMD_STATUS && req.flags )                           invalid = "failover status takes no flags";
+  else if( req.cmd!=FD_ADMINCTL_FAILOVER_CMD_HANDOFF && (req.addr || req.port) )             invalid = "an address or port goes only with a handoff";
+  else if( req.reserved[ 0 ] || req.reserved[ 1 ] )                                          invalid = "reserved bytes are set";
   if( FD_UNLIKELY( invalid ) ) {
     FD_LOG_WARNING(( "refusing adminctl failover cmd %lu flags %lu, %s", req.cmd, req.flags, invalid ));
     report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_UNKNOWN_COMMAND );
     fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_UNKNOWN_COMMAND );
     return;
   }
-  int status = req.cmd==FD_ADMINCTL_FAILOVER_CMD_STATUS;
-  if( status ) {
+  if( !status ) {
     FD_TEST( fd_cstr_printf_check( (char *)event.args_json, sizeof(event.args_json), &event.args_json_len,
-                                   "{\"command\":\"status\"}" ) );
-  } else {
-    FD_TEST( fd_cstr_printf_check( (char *)event.args_json, sizeof(event.args_json), &event.args_json_len,
-                                   "{\"command\":\"%s\",\"yes\":%s,\"force\":%s}", fd_adminctl_failover_cmd_name( req.cmd ),
+                                   "{\"yes\":%s,\"force\":%s}",
                                    (req.flags & FD_ADMINCTL_FAILOVER_FLAG_YES) ? "true" : "false",
                                    force                                       ? "true" : "false" ) );
   }
@@ -1529,27 +1683,46 @@ failover_request( fd_admin_tile_ctx_t * ctx,
                                  force                                       ? " --force" : "" ) );
 
   if( FD_UNLIKELY( ctx->failov_out_idx==ULONG_MAX ) ) {
-    FD_LOG_WARNING(( "`failover %s` refused, the admin tile has no failover bus link", cmd_cstr ));
+    FD_LOG_WARNING(( "`%s` refused, the admin tile has no failover bus link", cmd_cstr ));
     report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_UNSUPPORTED );
     fd_adminctl_complete( adminctl, slot_idx, FD_ADMINCTL_RESULT_UNSUPPORTED );
     return;
   }
 
-  /* One command at a time.  A command stays outstanding until the
-     failover tile responds, even after its deadline, so commands cannot
-     pile up behind a stalled failover tile.  Status then reports the
-     failover tile unresponsive rather than busy. */
-  if( FD_UNLIKELY( ctx->failover_answered!=ctx->failover_nonce ) ) {
-    if( FD_UNLIKELY( status && ctx->failover_slot_idx==ULONG_MAX ) ) {
+  /* Keep one command outstanding until the failover tile responds, even
+     after timeout.  Status reports a stalled tile as unresponsive.  Publish
+     the last set-identity OPERATOR first so the command uses its identity. */
+  if( FD_UNLIKELY( ctx->failover_answered!=ctx->failover_nonce || ctx->operator_pending ) ) {
+    if( FD_UNLIKELY( status && ( ctx->failover_slot_idx==ULONG_MAX || ctx->operator_pending ) ) ) {
       FD_LOG_WARNING(( "`failover status` refused, the failover tile has not responded to an earlier command, check the log" ));
       report_admin_command_custom_result( &event, "unresponsive" );
       fd_adminctl_complete( adminctl, slot_idx, FD_FAILOVER_CONTROL_RESULT_UNRESPONSIVE );
       return;
     }
-    FD_LOG_WARNING(( "`failover %s` refused, another failover command is still waiting on the failover tile, try again", cmd_cstr ));
+    FD_LOG_WARNING(( "`%s` refused, another failover command is still waiting on the failover tile, try again", cmd_cstr ));
     report_admin_command_custom_result( &event, "busy" );
     fd_adminctl_complete( adminctl, slot_idx, FD_FAILOVER_CONTROL_RESULT_BUSY );
     return;
+  }
+
+  if( prepare ) {
+    if( FD_UNLIKELY( stem->cr_avail[ ctx->failov_out_idx ]<4UL ) ) {
+      report_admin_command_custom_result( &event, "busy" );
+      fd_adminctl_complete( adminctl, slot_idx, FD_FAILOVER_CONTROL_RESULT_BUSY );
+      return;
+    }
+    fd_adminctl_failover_prepare_t * payload = data;
+    ulong                            result  = failover_prepare( ctx, payload->keypair );
+    fd_memzero_explicit( payload->keypair, sizeof(payload->keypair) );
+    if( FD_UNLIKELY( result!=FD_ADMINCTL_RESULT_SUCCESS ) ) {
+      report_admin_command_custom_result( &event, "target_refused" );
+      fd_adminctl_complete( adminctl, slot_idx, result );
+      return;
+    }
+    /* The public target and epoch must reach the controller before the
+       command.  after_credit reserves enough credits for both frames. */
+    failover_operator_notify( ctx, stem );
+    FD_TEST( !ctx->operator_pending );
   }
 
   /* Kept for the event and the log of the response. */
@@ -1559,7 +1732,7 @@ failover_request( fd_admin_tile_ctx_t * ctx,
   if( status ) ctx->failover_cmd_cstr[ 0 ] = '\0';
   else {
     fd_cstr_ncpy( ctx->failover_cmd_cstr, cmd_cstr, sizeof(ctx->failover_cmd_cstr) );
-    FD_LOG_NOTICE(( "forwarding `failover %s` to the failover tile", cmd_cstr ));
+    FD_LOG_NOTICE(( "forwarding `%s` to the failover tile", cmd_cstr ));
   }
 
   fd_failover_bus_msg_t * msg = fd_chunk_to_laddr( ctx->failov_out_mem, ctx->failov_out_chunk );
@@ -1594,7 +1767,8 @@ failover_response( fd_admin_tile_ctx_t * ctx ) {
 }
 
 /* The failover tile asked for an identity switch.  We only pass the
-   public key on, the sign tile selects the keypair it loaded at boot.
+   public key on, the sign tile selects the junk key or the failover
+   identity.
    Like set-identity this blocks until every tile has switched.  We poll
    no adminctl command meanwhile, so `failover status` and every failover
    command wait for it. */
@@ -1609,7 +1783,13 @@ failover_switch_request( fd_admin_tile_ctx_t * ctx,
   fd_failover_switch_resp_t response;
   fd_memset( &response, 0, sizeof(response) );
   response.result = FD_FAILOVER_SWITCH_ERR_DISABLED;
-  if( FD_LIKELY( ctx->failover_enabled ) ) {
+  if( FD_UNLIKELY( ctx->failover_enabled && req.epoch!=ctx->operator_epoch ) ) {
+    FD_LOG_WARNING(( "refusing the failover tile's identity switch, set-identity ran since it asked" ));
+    response.result         = FD_FAILOVER_SWITCH_ERR_STALE;
+    response.operator.epoch = ctx->operator_epoch;
+    fd_memcpy( response.operator.identity,          ctx->identity_pubkey, 32UL );
+    fd_memcpy( response.operator.failover_identity, ctx->failover_pubkey, 32UL );
+  } else if( FD_LIKELY( ctx->failover_enabled ) ) {
     fd_event_admin_command_t event = prepare_admin_command( FD_EVENT_ADMIN_COMMAND_TYPE_SET_IDENTITY, NULL, 0UL );
     FD_BASE58_ENCODE_32_BYTES( ctx->identity_pubkey, old_identity );
     FD_BASE58_ENCODE_32_BYTES( req.identity,         new_identity );
@@ -1622,11 +1802,14 @@ failover_switch_request( fd_admin_tile_ctx_t * ctx,
     fd_memset( keypair,      0,            32UL );
     fd_memcpy( keypair+32UL, req.identity, 32UL );
 
+    find_identity_keyswitch( ctx, "tower" )->operator = 0UL; /* the tower keeps the failover rules */
+    ctx->failover_switch = 1;
     ulong state           = FD_SET_IDENTITY_STATE_UNLOCKED;
     ulong identity_outset = (ulong)fd_log_wallclock();
     for(;;) {
       if( FD_UNLIKELY( poll_set_identity( ctx, &state, identity_outset, keypair, NULL, 0UL ) ) ) break;
     }
+    ctx->failover_switch = 0;
     fd_memcpy( ctx->identity_pubkey, req.identity, 32UL );
 
     /* The watermark is the tower's output sequence at its halt, which
@@ -1671,9 +1854,11 @@ after_credit( fd_admin_tile_ctx_t * ctx,
   void *          payload    = NULL;
   ulong           payload_sz = 0UL;
 
+  failover_operator_notify( ctx, stem );
+
   if( FD_UNLIKELY( ctx->failover_slot_idx!=ULONG_MAX && fd_tickcount()>ctx->failover_deadline &&
                    !failov_frag_waiting( ctx, stem ) ) ) {
-    if( FD_LIKELY( ctx->failover_cmd_cstr[ 0 ] ) ) FD_LOG_WARNING(( "the failover tile did not answer `failover %s` in time, it may still run, check `failover status` and the log", ctx->failover_cmd_cstr ));
+    if( FD_LIKELY( ctx->failover_cmd_cstr[ 0 ] ) ) FD_LOG_WARNING(( "the failover tile did not answer `%s` in time, it may still run, check `failover status` and the log", ctx->failover_cmd_cstr ));
     else                                           FD_LOG_WARNING(( "the failover tile did not answer `failover status` in time, check the log" ));
     failover_complete( ctx, FD_FAILOVER_CONTROL_RESULT_UNRESPONSIVE, NULL, 0UL );
     *charge_busy = 1;
@@ -1692,8 +1877,9 @@ after_credit( fd_admin_tile_ctx_t * ctx,
       *charge_busy = 1;
       break;
     case FD_ADMINCTL_CMD_SET_IDENTITY:
-      set_identity( ctx, slot_idx, payload, payload_sz );
+      set_identity( ctx, stem, slot_idx, payload, payload_sz );
       *charge_busy = 1;
+      if( FD_UNLIKELY( ctx->failover_enabled ) ) *opt_poll_in = 0; /* it may have published OPERATOR */
       break;
     case FD_ADMINCTL_CMD_REMOVE_ALL_AUTH_VOTERS:
       remove_all_authorized_voters( ctx, slot_idx, payload, payload_sz );
@@ -1709,9 +1895,10 @@ after_credit( fd_admin_tile_ctx_t * ctx,
       *charge_busy = 1;
       *opt_poll_in = 0;
       break;
-    case FD_ADMINCTL_CMD_FAILOVER:
-      if( FD_UNLIKELY( ctx->failover_enabled ) ) {
-        failover_request( ctx, stem, slot_idx, payload, payload_sz );
+    case FD_ADMINCTL_CMD_FAILOVER_PROMOTE:
+    case FD_ADMINCTL_CMD_FAILOVER_STATUS:
+      if( FD_UNLIKELY( ctx->failov_out_idx!=ULONG_MAX ) ) {
+        failover_request( ctx, stem, slot_idx, cmd_id, payload, payload_sz );
         *charge_busy = 1;
         *opt_poll_in = 0;
         break;
@@ -1794,7 +1981,7 @@ populate_allowed_fds( fd_topo_t const *      topo FD_PARAM_UNUSED,
   return out_cnt;
 }
 
-#define STEM_BURST (1UL)
+#define STEM_BURST (2UL)
 #define STEM_LAZY  ((long)1e6) /* 1ms */
 #define STEM_ALWAYS_PARK 1
 
