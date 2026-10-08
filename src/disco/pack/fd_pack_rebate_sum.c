@@ -38,6 +38,7 @@ fd_pack_rebate_sum_new( void * mem,
   s->alloc_rebate             = 0UL;
   s->ib_result                = 0;
   s->writer_cnt               = 0U;
+  s->bundle_outcome_cnt       = 0UL;
 
   s->map = rmap_join( rmap_new( s->map_mem, MAP_LG_SLOT_CNT, seed ) );
   FD_TEST( s->map );
@@ -137,15 +138,27 @@ fd_pack_rebate_sum_add_txn( fd_pack_rebate_sum_t         * s,
 }
 
 
+int
+fd_pack_rebate_sum_add_bundle_outcome( fd_pack_rebate_sum_t           * s,
+                                       fd_pack_bundle_outcome_t const * outcome ) {
+  if( FD_UNLIKELY( s->bundle_outcome_cnt>=FD_PACK_REBATE_MAX_BUNDLE_OUTCOMES ) ) return 0;
+  s->bundle_outcomes[ s->bundle_outcome_cnt++ ] = *outcome;
+  return 1;
+}
+
 ulong
 fd_pack_rebate_sum_report( fd_pack_rebate_sum_t * s,
                            fd_pack_rebate_t     * out ) {
-  if( FD_UNLIKELY( (s->ib_result==0) & (s->total_cost_rebate==0UL) & (s->writer_cnt==0U) ) ) return 0UL;
+  if( FD_UNLIKELY( (s->ib_result==0) & (s->total_cost_rebate==0UL) & (s->writer_cnt==0U) & (s->bundle_outcome_cnt==0UL) ) ) return 0UL;
   out->total_cost_rebate       = s->total_cost_rebate;          s->total_cost_rebate       = 0UL;
   out->data_bytes_rebate       = s->data_bytes_rebate;          s->data_bytes_rebate       = 0UL;
   out->microblock_cnt_rebate   = s->microblock_cnt_rebate;      s->microblock_cnt_rebate   = 0UL;
   out->alloc_rebate            = s->alloc_rebate;               s->alloc_rebate            = 0UL;
   out->ib_result               = s->ib_result;                  s->ib_result               = 0;
+
+  out->bundle_outcome_cnt = s->bundle_outcome_cnt;
+  for( ulong i=0UL; i<s->bundle_outcome_cnt; i++ ) out->bundle_outcomes[ i ] = s->bundle_outcomes[ i ];
+  s->bundle_outcome_cnt = 0UL;
 
   out->writer_cnt = 0U;
   ulong writer_cnt = fd_ulong_min( s->writer_cnt, FD_PACK_REBATE_MAX_ENTRIES );

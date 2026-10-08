@@ -211,6 +211,11 @@ struct fd_microblock_execle_trailer {
      conflicting transactions that should be executed in order, and
      all either commit or fail atomically. */
   int is_bundle;
+
+  /* For a bundle, pack's observation id, which the execle echoes back
+     with the bundle's outcome (see fd_pack_bundle_outcome_t).  0 if
+     pack is not tracking the bundle. */
+  ulong bundle_obs_id;
 };
 typedef struct fd_microblock_execle_trailer fd_microblock_execle_trailer_t;
 
