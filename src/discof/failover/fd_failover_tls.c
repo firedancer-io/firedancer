@@ -42,12 +42,14 @@ fd_failover_tls_ctx_init( fd_failover_tls_ctx_t * ctx,
   /* Both members present a certificate, the listener checks the dialer's. */
   tls->req_client_cert = 1;
 
+  /* The TLS configuration is ready for new connections. */
   ctx->ready = 1;
   return 0;
 }
 
 void
 fd_failover_tls_ctx_fini( fd_failover_tls_ctx_t * ctx ) {
+  /* Wiping the context prevents new connections until reinitialization. */
   fd_memzero_explicit( ctx, sizeof(*ctx) );
 }
 
@@ -57,6 +59,7 @@ fd_failover_tls_new( fd_failover_tls_t *     tls,
                      int                     fd,
                      int                     dial_peer ) {
   if( FD_UNLIKELY( !ctx->ready ) ) return -1;
+  /* Start an unverified, unpaired connection. */
   fd_memset( tls, 0, sizeof(*tls) );
   tls->fd = fd;
   fd_tlsrec_conn_init( &tls->conn, &ctx->tls, !dial_peer );
@@ -83,6 +86,7 @@ fd_failover_tls_fini( fd_failover_tls_t * tls ) {
   }
   fd_memzero_explicit( &tls->conn, sizeof(tls->conn) );
   fd_memzero_explicit( &tls->sock, sizeof(tls->sock) );
+  /* Closing clears both TLS verification and HELLO pairing. */
   tls->fd       = -1;
   tls->verified = 0;
   tls->paired   = 0;
@@ -118,7 +122,8 @@ pull( fd_failover_tls_t * tls ) {
 
 int
 fd_failover_tls_handshake( fd_failover_tls_t * tls ) {
-  if( FD_LIKELY( tls->verified ) ) return 1;
+  if( FD_LIKELY( tls->verified ) ) return 1; /* Verification is final for this connection. */
+  /* A failed handshake stays failed until the channel closes it. */
   if( FD_UNLIKELY( fd_tlsrec_conn_is_failed( &tls->conn ) ) ) {
     FD_LOG_DEBUG(( "failover TLS handshake failed: %s", fd_tls_reason_cstr( tls->conn.hs.base.reason ) ));
     return -1;
@@ -130,7 +135,7 @@ fd_failover_tls_handshake( fd_failover_tls_t * tls ) {
       FD_LOG_DEBUG(( "failover TLS handshake failed: %s", fd_tls_reason_cstr( tls->conn.hs.base.reason ) ));
       return -1;
     }
-    if( FD_LIKELY( !fd_tlsrec_conn_is_ready( &tls->conn ) ) ) return 0;
+    if( FD_LIKELY( !fd_tlsrec_conn_is_ready( &tls->conn ) ) ) return 0; /* Continue on a later poll. */
   }
 
   /* Handshake done, the peer signed with some key and agreed on our ALPN.
@@ -147,6 +152,7 @@ fd_failover_tls_handshake( fd_failover_tls_t * tls ) {
     fd_tls_estate_srv_t const * srv = &tls->conn.hs.srv;
     fd_memcpy( tls->peer_pubkey, srv->client_pubkey, 32UL );
   }
+  /* TLS verified the peer key, HELLO must still authorize the member. */
   tls->verified = 1;
   return 1;
 }

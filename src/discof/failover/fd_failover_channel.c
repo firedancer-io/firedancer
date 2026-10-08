@@ -12,16 +12,16 @@
 #include <netinet/in.h>
 
 #define SOURCE_CNT    (256UL)
-#define PHASE_CONNECT (0)
-#define PHASE_TLS     (1)
-#define PHASE_HELLO   (2)
-#define PHASE_READY   (3)
+#define PHASE_CONNECT (0) /* Wait for outbound TCP to connect. */
+#define PHASE_TLS     (1) /* Complete the TLS handshake. */
+#define PHASE_HELLO   (2) /* Read and validate the peer HELLO. */
+#define PHASE_READY   (3) /* Drain our HELLO before pairing. */
 
 /* A HELLO whose junk key is not the key TLS authenticated */
 #define HELLO_ERR_TLS_KEY (-1)
 
 struct candidate {
-  int                        fd;
+  int                        fd;     /* -1 marks an unused candidate. */
   int                        phase;
   int                        dialed; /* we dialed it, else it came in on the listener */
   uint                       address;
@@ -85,6 +85,7 @@ void *
 fd_failover_channel_new( void * shmem ) {
   if( !shmem || !fd_ulong_is_aligned( (ulong)shmem, fd_failover_channel_align() ) ) return NULL;
   fd_failover_channel_t * ch = shmem;
+  /* Initialize the listening state with no sockets open. */
   fd_memset( ch, 0, sizeof(*ch) );
   ch->listen_fd  = -1;
   ch->paired_idx = -1;
@@ -111,6 +112,7 @@ static void
 close_candidate( struct candidate * c ) {
   fd_failover_tls_fini( &c->tls );
   if( c->fd!=-1 ) close( c->fd );
+  /* Closing a candidate frees its slot in any phase. */
   c->fd      = -1;
   c->dialed  = 0;
   c->rx_used = c->tx_used = c->tx_sent = 0UL;
@@ -120,6 +122,7 @@ close_candidate( struct candidate * c ) {
 static void
 reset( fd_failover_channel_t * ch ) {
   for( ulong i=0; i<FD_FAILOVER_CHANNEL_CANDIDATE_MAX; i++ ) close_candidate( &ch->candidates[i] );
+  /* Discard the paired session. */
   ch->paired_idx = -1;
   ch->last_rx    = 0L;
   fd_memset( &ch->peer_hello, 0, sizeof(ch->peer_hello) );
@@ -137,9 +140,10 @@ want_dial( fd_failover_channel_t const * ch ) {
    session is left alone, it outlives role and address changes. */
 static void
 rest( fd_failover_channel_t * ch ) {
-  if( ch->paired_idx>=0 ) return;
+  if( ch->paired_idx>=0 ) return; /* Keep a paired session through role and address changes. */
   for( ulong i=0; i<FD_FAILOVER_CHANNEL_CANDIDATE_MAX; i++ ) if( ch->candidates[i].dialed ) close_candidate( &ch->candidates[i] );
   ch->dial_peer = want_dial( ch );
+  /* An unpaired channel listens or becomes ready to dial. */
   ch->state     = fd_failover_session_init( ch->dial_peer );
   ch->retry_at  = 0L;
 }
@@ -184,6 +188,7 @@ fd_failover_channel_set_identity( fd_failover_channel_t *     ch,
   if( !fd_memeq( junk_pubkey, hello->junk_pubkey, 32UL ) ||
       fd_memeq( hello->junk_pubkey, hello->staked_pubkey, 32UL ) ) return -1;
   reset( ch );
+  /* An identity change requires a fresh session. */
   ch->state = fd_failover_session_init( ch->dial_peer );
   fd_failover_tls_ctx_fini( &ch->tls_ctx );
   ch->self_hello      = *hello;
@@ -284,7 +289,9 @@ drop( fd_failover_channel_t * ch,
   /* A candidate from the listener does not move the session until it
      pairs. */
   if( !paired && accepted ) return;
+  /* Loss returns the session to listening or backoff. */
   ch->state = fd_failover_session_step( ch->state, ch->dial_peer, event );
+  /* After loss, use the current handoff address to choose listener or dialer. */
   if( paired && want_dial( ch )!=ch->dial_peer ) rest( ch );
   if( ch->dial_peer ) {
     /* Only a session that outlived the handshake window counts as
@@ -440,6 +447,7 @@ start( fd_failover_channel_t * ch,
        long                    now,
        int                     phase ) {
   struct candidate * c = &ch->candidates[idx];
+  /* Outbound sockets start at CONNECT, accepted sockets start at TLS. */
   c->fd = fd; c->address = address; c->phase = phase; c->dialed = phase==PHASE_CONNECT;
   c->deadline = fd_long_sat_add( now, ch->hello_timeout );
   fd_failover_wire_session_init( &c->wire );
@@ -469,6 +477,7 @@ accept_candidates( fd_failover_channel_t * ch,
       close( fd );
       continue;
     }
+    /* An accepted candidate leaves the session unpaired until authentication. */
     if( !start( ch, idx, fd, addr.sin_addr.s_addr, now, PHASE_TLS ) )
       ch->state = fd_failover_session_step( ch->state, ch->dial_peer, FD_FAILOVER_EV_PEER_CONNECTED );
   }
@@ -583,15 +592,17 @@ connect_candidate( fd_failover_channel_t * ch,
   struct candidate * c = &ch->candidates[idx];
   struct sockaddr_in addr = { .sin_family=AF_INET, .sin_port=fd_ushort_bswap( ch->peer_port ), .sin_addr.s_addr=ch->peer_addr };
   if( connect( c->fd, fd_type_pun( &addr ), sizeof(addr) ) && errno!=EISCONN ) {
-    if( errno==EINPROGRESS || errno==EALREADY || errno==EINTR ) return 0;
+    if( errno==EINPROGRESS || errno==EALREADY || errno==EINTR ) return 0; /* TCP is still connecting. */
     if( now>=ch->dial_log_at[0] ) {
       ch->dial_log_at[0] = fd_long_sat_add( now, 60000000000L );
       FD_LOG_WARNING(( "could not connect to the failover peer at `" FD_IP4_ADDR_FMT ":%hu` (%i-%s), check that it runs and that the machines can reach each other on [failover.listen_port]",
                        FD_IP4_ADDR_FMT_ARGS( ch->peer_addr ), ch->peer_port, errno, fd_io_strerror( errno ) ));
     }
+    /* A failed connect returns the dialer to backoff. */
     drop( ch, idx, now, FD_FAILOVER_EV_LINK_LOST );
     return 0;
   }
+  /* TCP connected, begin TLS and enter the session HELLO state. */
   c->phase = PHASE_TLS;
   ch->state = fd_failover_session_step( ch->state, ch->dial_peer, FD_FAILOVER_EV_CONNECTED );
   return 1;
@@ -612,11 +623,13 @@ handshake_candidate( fd_failover_channel_t * ch,
       FD_LOG_WARNING(( "TLS handshake with `" FD_IP4_ADDR_FMT "` failed (%s), not necessarily the other failover machine, check peer reachability, junk keys and matching connection modes on both machines",
                        FD_IP4_ADDR_FMT_ARGS( c->address ), reason ? fd_tls_reason_cstr( reason ) : "connection closed or socket error" ));
     }
+    /* TLS failure closes the candidate and returns an outbound dial to backoff. */
     drop( ch, idx, now, FD_FAILOVER_EV_LINK_LOST );
     return 0;
   }
-  if( !rc ) return 0;
+  if( !rc ) return 0; /* Keep waiting for TLS. */
   *busy = 1;
+  /* TLS authenticated a key, now check the peer HELLO. */
   c->phase = PHASE_HELLO;
   /* The dialer sends first.  On the listener we respond only to a HELLO
      that passed the checks below. */
@@ -634,12 +647,13 @@ read_candidate_hello( fd_failover_channel_t * ch,
   struct candidate * c = &ch->candidates[idx];
   ushort type;
   ulong  sz;
-  if( read_frame( ch, idx, now, busy, &type, payload, &sz )<=0 ) return 0;
+  if( read_frame( ch, idx, now, busy, &type, payload, &sz )<=0 ) return 0; /* Wait for HELLO, or stop after a read failure. */
   if( type!=FD_FAILOVER_MSG_HELLO || sz!=sizeof(c->hello) ) {
     if( now>=ch->hello_log_at[0] ) {
       ch->hello_log_at[0] = fd_long_sat_add( now, 60000000000L );
       FD_LOG_WARNING(( "rejected the failover HELLO from `" FD_IP4_ADDR_FMT "`, its first frame is not a HELLO, check who can reach the failover port", FD_IP4_ADDR_FMT_ARGS( c->address ) ));
     }
+    /* A malformed HELLO closes this candidate without pairing. */
     drop( ch, idx, now, FD_FAILOVER_EV_HELLO_FATAL );
     return 0;
   }
@@ -654,14 +668,16 @@ read_candidate_hello( fd_failover_channel_t * ch,
       ch->hello_log_at[bucket] = fd_long_sat_add( now, 60000000000L );
       FD_LOG_WARNING(( "rejected the failover HELLO from `" FD_IP4_ADDR_FMT "`, %s", FD_IP4_ADDR_FMT_ARGS( c->address ), hello_err_name( err ) ));
     }
+    /* A refused HELLO closes this candidate without pairing. */
     drop( ch, idx, now, FD_FAILOVER_EV_HELLO_FATAL );
     return 0;
   }
+  /* The peer is authenticated, finish any HELLO output before pairing. */
   c->phase = PHASE_READY;
   if( !c->dialed ) {
     c->tx_used = fd_failover_wire_encode( &c->wire, c->tx, FD_FAILOVER_MSG_HELLO,
                                           (uchar const *)&ch->self_hello, sizeof(ch->self_hello) );
-    if( flush( ch, idx, now, busy )!=0 ) return 0;
+    if( flush( ch, idx, now, busy )!=0 ) return 0; /* Remain READY until output drains, unless the write fails. */
   }
   return 1;
 }
@@ -676,12 +692,14 @@ pair_candidate( fd_failover_channel_t * ch,
      listener while we were dialing pairs as the listener. */
   for( ulong i=0; i<FD_FAILOVER_CHANNEL_CANDIDATE_MAX; i++ ) if( i!=idx ) close_candidate( &ch->candidates[i] );
   if( !c->dialed && ch->dial_peer ) {
+    /* An inbound candidate won, pair as the listener. */
     ch->dial_peer = 0;
     ch->state     = fd_failover_session_init( ch->dial_peer );
   }
   ch->paired_idx = (int)idx;
   c->tls.paired = 1;
   ch->peer_hello = c->hello;
+  /* HELLO is complete, this candidate becomes the paired session. */
   ch->state      = fd_failover_session_step( ch->state, ch->dial_peer, FD_FAILOVER_EV_HELLO_OK );
   ch->generation++;
   ch->last_rx        = now;
@@ -712,7 +730,7 @@ service_candidate( fd_failover_channel_t * ch,
   if( c->phase==PHASE_TLS ) {
     if( !handshake_candidate( ch, idx, now, busy ) ) return;
   }
-  if( flush( ch, idx, now, busy )!=0 ) return;
+  if( flush( ch, idx, now, busy )!=0 ) return; /* Wait for output, or stop after a write failure. */
   if( c->phase==PHASE_HELLO ) {
     if( !read_candidate_hello( ch, idx, now, busy, payload ) ) return;
   }
@@ -756,6 +774,7 @@ fd_failover_channel_poll( fd_failover_channel_t * ch,
         FD_LOG_WARNING(( "the failover peer at `" FD_IP4_ADDR_FMT "` did not finish the handshake in time, check that it runs and that the machines can reach each other on [failover.listen_port]",
                          FD_IP4_ADDR_FMT_ARGS( c->address ) ));
       }
+      /* An expired candidate closes, an outbound dial returns to backoff. */
       drop( ch, i, now, FD_FAILOVER_EV_TIMEOUT ); *busy = 1;
     }
   }
@@ -770,6 +789,7 @@ fd_failover_channel_poll( fd_failover_channel_t * ch,
     int fd = socket( AF_INET, SOCK_STREAM|SOCK_NONBLOCK|SOCK_CLOEXEC, 0 );
     *busy = 1;
     if( fd==-1 ) { drop( ch, idx, now, FD_FAILOVER_EV_LINK_LOST ); return delivered; }
+    /* Backoff expired and an address is available, start dialing. */
     ch->state = fd_failover_session_step( ch->state, ch->dial_peer, FD_FAILOVER_EV_RETRY );
     start( ch, idx, fd, ch->peer_addr, now, PHASE_CONNECT );
   }
