@@ -2459,7 +2459,6 @@ boot_genesis( fd_replay_tile_t *        ctx,
 
   fd_bank_t * bank = fd_banks_init_bank( ctx->banks );
   FD_TEST( bank );
-  fd_vote_stakes_set_writer( fd_bank_vote_stakes( bank ) );
   bank->f.slot = 0UL;
   FD_TEST( bank->idx==FD_REPLAY_BOOT_BANK_SEQ );
 
@@ -2623,7 +2622,6 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     if( FD_UNLIKELY( !bank ) ) {
       FD_LOG_CRIT(( "invariant violation: bank is NULL for bank index %lu", FD_REPLAY_BOOT_BANK_SEQ ));
     }
-    fd_vote_stakes_set_writer( fd_bank_vote_stakes( bank ) );
 
     ulong snapshot_slot = bank->f.slot;
 
@@ -5757,16 +5755,6 @@ populate_allowed_fds( fd_topo_t const *      topo,
   return out_cnt;
 }
 
-/* Serve vote stakes view loads every iteration: exec tiles block on
-   them mid-transaction, even while replay is backpressured. */
-
-static inline void
-before_credit( fd_replay_tile_t *  ctx,
-               fd_stem_context_t * stem        FD_PARAM_UNUSED,
-               int *               charge_busy FD_PARAM_UNUSED ) {
-  if( FD_LIKELY( ctx->banks->root_idx!=ULONG_MAX ) ) fd_vote_stakes_view_serve( fd_bank_vote_stakes( fd_banks_root( ctx->banks ) ) );
-}
-
 static inline void
 during_housekeeping( fd_replay_tile_t * ctx ) {
   wait_info_publish( ctx );
@@ -5806,7 +5794,6 @@ during_housekeeping( fd_replay_tile_t * ctx ) {
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_replay_tile_t)
 
 #define STEM_CALLBACK_METRICS_WRITE       metrics_write
-#define STEM_CALLBACK_BEFORE_CREDIT       before_credit
 #define STEM_CALLBACK_AFTER_CREDIT        after_credit
 #define STEM_CALLBACK_PREVENT_PARK        prevent_park
 #define STEM_CALLBACK_BEFORE_FRAG         before_frag

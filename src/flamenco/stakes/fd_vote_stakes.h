@@ -22,9 +22,8 @@
    - t-1: these are computed at the most recent epoch boundary.  These
      caches are ref-cnt'd and fork specific.  Up to max_live_slots of
      them exist; cache_cnt are held in memory and the rest are spilled
-     to disk.  Only one writer may load or evict t-1 sets; any other
-     thread must only read t-1 sets held in a view
-     (fd_vote_stakes_view_init).
+     to disk.  Any thread may read t-1 sets; a cache miss loads the
+     set under a lock.
      After the epoch boundary slot is rooted, then there will only be 1
      active t-1 cache.  Once filled, a t-1 cache is ranked
      and never changes again, so a fork in epoch t verifies epoch t+1
@@ -189,29 +188,13 @@ void
 fd_vote_stakes_purge_fork( fd_vote_stakes_t * vote_stakes,
                            ulong              fork_id );
 
-/* fd_vote_stakes_view_{init,fini} hold the fork's t-1 set in memory.
-   A held set can be read from any thread until view_fini, which may be
-   called from any thread.  Views nest and must be paired.  The caller
-   must keep the fork alive (e.g. hold a bank reference) while a view is
-   held.
-
-   The writer thread registered with fd_vote_stakes_set_writer reads the
-   set from disk itself if needed.  On any other thread, if the set is
-   not cached, view_init asks the writer to load it and spins until
-   fd_vote_stakes_view_serve does.  With no writer registered, every
-   caller is treated as the writer, which is only safe single-threaded.
-   view_try is the non-blocking reader form: it returns 1 once the view
-   is held, else 0.  Only one load request is outstanding at a time.
-
-   fd_vote_stakes_view_serve must be called regularly by the writer.  It
-   loads a requested set and pins it on behalf of the requester. */
-
-void
-fd_vote_stakes_set_writer( fd_vote_stakes_t * vote_stakes );
-
-int
-fd_vote_stakes_view_try( fd_vote_stakes_t * vote_stakes,
-                         ulong              fork_id );
+/* fd_vote_stakes_view_{init,fini} hold the fork's t-1 set in memory,
+   reading it from disk if needed, so a sequence of calls on it does not
+   reload it.  Any thread may hold a view.  Views nest and must be
+   paired.  The caller must keep the fork alive (e.g. hold a bank
+   reference) while a view is held.  Every function that reads or
+   writes a t-1 set holds it for its own duration, so views are only
+   needed to keep a set resident across calls. */
 
 void
 fd_vote_stakes_view_init( fd_vote_stakes_t * vote_stakes,
@@ -220,9 +203,6 @@ fd_vote_stakes_view_init( fd_vote_stakes_t * vote_stakes,
 void
 fd_vote_stakes_view_fini( fd_vote_stakes_t * vote_stakes,
                           ulong              fork_id );
-
-void
-fd_vote_stakes_view_serve( fd_vote_stakes_t * vote_stakes );
 
 /* fd_vote_stakes_new_fork creates a child of the given parent fork.
    Within an epoch, the child shares the parent's t-1 set and receives a

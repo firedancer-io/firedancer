@@ -30,7 +30,7 @@ epoch_rank( fd_vote_stakes_t const * vote_stakes,
 }
 
 /* More t-1 sets than cache slots spill to disk and reload intact, and
-   a pinned set is never evicted. */
+   a held set is never evicted. */
 
 static void
 test_t_1_spill( int disk_fd ) {
@@ -71,29 +71,22 @@ test_t_1_spill( int disk_fd ) {
   }
   fd_vote_stakes_view_fini( vote_stakes, forks[ 0 ] );
 
-  /* A view on a cached set is held at once and keeps it resident. */
+  /* A view keeps a set resident while other sets load through the
+     remaining cache entry, and a view on an evicted set loads it. */
   ulong       stake;
+  fd_pubkey_t vote_0 = key( 300UL );
   fd_pubkey_t vote_1 = key( 301UL );
   fd_pubkey_t vote_2 = key( 302UL );
-  FD_TEST( fd_vote_stakes_query_t_1( vote_stakes, forks[ 1 ], &vote_1, NULL, &stake, NULL ) );
-  FD_TEST( fd_vote_stakes_view_try( vote_stakes, forks[ 1 ] ) );
-  FD_TEST( fd_vote_stakes_query_t_1( vote_stakes, forks[ 2 ], &vote_2, NULL, &stake, NULL ) );
-  FD_TEST( fd_vote_stakes_query_t_1( vote_stakes, root, &root_vote, NULL, &stake, NULL ) );
-
-  /* forks[ 2 ] was evicted: the view waits for the writer to load it. */
-  FD_TEST( !fd_vote_stakes_view_try( vote_stakes, forks[ 2 ] ) );
-  FD_TEST( !fd_vote_stakes_view_try( vote_stakes, forks[ 2 ] ) );
-  fd_vote_stakes_view_serve( vote_stakes );
-  FD_TEST( fd_vote_stakes_view_try( vote_stakes, forks[ 2 ] ) );
-  fd_vote_stakes_view_serve( vote_stakes );
-
-  /* Both cache entries are held by views; releasing one lets the writer
-     evict it while the other stays readable. */
+  fd_vote_stakes_view_init( vote_stakes, forks[ 1 ] );
+  FD_TEST( fd_vote_stakes_query_t_1( vote_stakes, forks[ 2 ], &vote_2, NULL, &stake, NULL ) && stake==2002UL );
+  FD_TEST( fd_vote_stakes_query_t_1( vote_stakes, root, &root_vote, NULL, &stake, NULL ) && stake==1000UL );
+  FD_TEST( fd_vote_stakes_query_t_1( vote_stakes, forks[ 0 ], &vote_0, NULL, &stake, NULL ) && stake==2000UL );
+  fd_vote_stakes_view_init( vote_stakes, forks[ 2 ] );
+  FD_TEST( fd_vote_stakes_query_t_1( vote_stakes, forks[ 1 ], &vote_1, NULL, &stake, NULL ) && stake==2001UL );
+  FD_TEST( fd_vote_stakes_query_t_1( vote_stakes, forks[ 2 ], &vote_2, NULL, &stake, NULL ) && stake==2002UL );
   fd_vote_stakes_view_fini( vote_stakes, forks[ 1 ] );
   FD_TEST( fd_vote_stakes_query_t_1( vote_stakes, root, &root_vote, NULL, &stake, NULL ) && stake==1000UL );
   FD_TEST( fd_vote_stakes_query_t_1( vote_stakes, forks[ 2 ], &vote_2, NULL, &stake, NULL ) && stake==2002UL );
-  fd_vote_stakes_view_fini( vote_stakes, forks[ 2 ] );
-  fd_vote_stakes_view_init( vote_stakes, forks[ 2 ] );
   fd_vote_stakes_view_fini( vote_stakes, forks[ 2 ] );
 
   for( ulong i=0UL; i<3UL; i++ ) fd_vote_stakes_purge_fork( vote_stakes, forks[ i ] );
@@ -101,8 +94,9 @@ test_t_1_spill( int disk_fd ) {
   free( mem );
 }
 
-/* A reader thread holds views while the writer keeps evicting and
-   reloading sets, and must always see the right set. */
+/* Two threads hold views and query sets concurrently, each loading
+   and evicting through a two entry cache, and must always see the
+   right set. */
 
 static fd_vote_stakes_t * view_vs;
 static ulong              view_forks[ 3 ];
@@ -151,7 +145,6 @@ test_view_concurrent( int disk_fd ) {
     fd_vote_stakes_insert( view_vs, view_forks[ i ], &vote, &node, 2000UL+i, 2U, bls );
   }
 
-  fd_vote_stakes_set_writer( view_vs );
   FD_VOLATILE( view_stop ) = 0;
   fd_tile_exec_t * exec = fd_tile_exec_new( 1UL, view_reader, 0, NULL );
   FD_TEST( exec );
@@ -160,10 +153,8 @@ test_view_concurrent( int disk_fd ) {
   for( ulong i=0UL; i<20000UL; i++ ) {
     ulong stake;
     FD_TEST( fd_vote_stakes_query_t_1( view_vs, forks[ (i*7UL)%4UL ], &root_vote, NULL, &stake, NULL )==(i*7UL%4UL==0UL) );
-    fd_vote_stakes_view_serve( view_vs );
   }
   FD_VOLATILE( view_stop ) = 1;
-  while( !fd_tile_exec_done( exec ) ) fd_vote_stakes_view_serve( view_vs );
   FD_TEST( !fd_tile_exec_delete( exec, NULL ) );
 
   for( ulong i=0UL; i<3UL; i++ ) fd_vote_stakes_purge_fork( view_vs, view_forks[ i ] );
