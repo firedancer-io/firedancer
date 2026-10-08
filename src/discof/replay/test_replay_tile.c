@@ -1884,18 +1884,16 @@ test_bls_pubkey( uchar out[ static FD_BLS_PUBKEY_COMPRESSED_SZ ],
 }
 
 static ushort
-test_vote_rank( fd_vote_stakes_t const * vote_stakes,
-                ulong                    fork_id,
-                fd_pubkey_t const *      vote_key ) {
+test_vote_rank( fd_vote_stakes_t *  vote_stakes,
+                ulong               fork_id,
+                fd_pubkey_t const * vote_key ) {
   uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
   for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter_mem );
        !fd_vote_stakes_iter_done( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter );
        fd_vote_stakes_iter_next( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter ) ) {
-    fd_pubkey_t pubkey;
-    ushort      rank;
-    fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter,
-                             &pubkey, NULL, NULL, NULL, NULL, NULL, NULL, &rank, NULL, NULL );
-    if( fd_pubkey_eq( &pubkey, vote_key ) ) return rank;
+    fd_vote_stakes_ele_t ele[1];
+    fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter, ele );
+    if( fd_pubkey_eq( &ele->pubkey, vote_key ) ) return ele->rank;
   }
   FD_LOG_ERR(( "vote account not found" ));
 }
@@ -1924,7 +1922,7 @@ test_ag_update_delinquent( fd_wksp_t * wksp ) {
     fd_pubkey_t node = (fd_pubkey_t){ .ul = { 2000UL+i } };
     uchar bls[ FD_BLS_PUBKEY_COMPRESSED_SZ ];
     test_bls_pubkey( bls, i );
-    fd_vote_stakes_snap_insert_t_2( vote_stakes, fork_id, &vote[ i ], &node, stake[ i ], 0U, bls );
+    fd_vote_stakes_snap_insert_t_2( vote_stakes, fork_id, &vote[ i ], &node, stake[ i ], 0U, bls, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL );
     fd_vote_stakes_update_state( vote_stakes, fork_id, &vote[ i ], 0UL, 0L, 1 );
   }
   fd_vote_stakes_finalize( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2 );
@@ -2054,7 +2052,7 @@ test_update_delinquent_stake( fd_wksp_t * wksp ) {
     fd_pubkey_t node = (fd_pubkey_t){ .ul = { 2000UL+i } };
     uchar bls[ FD_BLS_PUBKEY_COMPRESSED_SZ ];
     test_bls_pubkey( bls, i );
-    fd_vote_stakes_snap_insert_t_2( vote_stakes, fork_id, &vote[ i ], &node, stake[ i ], 0U, bls );
+    fd_vote_stakes_snap_insert_t_2( vote_stakes, fork_id, &vote[ i ], &node, stake[ i ], 0U, bls, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL );
   }
   fd_vote_stakes_finalize( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2 );
 

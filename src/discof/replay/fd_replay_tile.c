@@ -378,17 +378,14 @@ replay_voter_rank( fd_replay_tile_t * ctx,
     iter_kind = FD_VOTE_STAKES_ITER_T_3;
   }
 
-  fd_vote_stakes_t const * vote_stakes = fd_bank_vote_stakes( bank );
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
   uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
   for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, fork_id, iter_kind, iter_mem );
        !fd_vote_stakes_iter_done( vote_stakes, fork_id, iter_kind, iter );
        fd_vote_stakes_iter_next( vote_stakes, fork_id, iter_kind, iter ) ) {
-    fd_pubkey_t vote_key;
-    fd_pubkey_t identity;
-    ushort     rank;
-    fd_vote_stakes_iter_ele( vote_stakes, fork_id, iter_kind, iter, &vote_key, &identity,
-                             NULL, NULL, NULL, NULL, NULL, &rank, NULL, NULL );
-    if( FD_UNLIKELY( fd_pubkey_eq( &identity, ctx->identity_pubkey ) ) ) return rank;
+    fd_vote_stakes_ele_t ele[1];
+    fd_vote_stakes_iter_ele( vote_stakes, fork_id, iter_kind, iter, ele );
+    if( FD_UNLIKELY( fd_pubkey_eq( &ele->node_account, ctx->identity_pubkey ) ) ) return ele->rank;
   }
   return USHORT_MAX;
 }
@@ -476,21 +473,19 @@ ag_update_delinquent( fd_replay_tile_t *   ctx,
   /* Slots arrive out of order across forks, so hold the watermark. */
   ctx->delinquent_sample_slot = fd_ulong_max( ctx->delinquent_sample_slot, reward_slot );
 
-  fd_vote_stakes_t const * vote_stakes = fd_bank_vote_stakes( bank );
-  ulong                    delinquent  = 0UL;
-  ulong                    total       = 0UL;
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
+  ulong              delinquent  = 0UL;
+  ulong              total       = 0UL;
 
   uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
   for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter_mem );
        !fd_vote_stakes_iter_done( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter );
        fd_vote_stakes_iter_next( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter ) ) {
-    fd_pubkey_t pubkey;
-    ulong       stake    = 0UL;
-    uchar       is_valid = 0;
-    ushort      rank     = FD_VOTE_STAKES_ALPENGLOW_RANK_NULL;
-    fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter,
-                             &pubkey, NULL, &stake, NULL, NULL, NULL, &is_valid, &rank, NULL, NULL );
-    if( FD_UNLIKELY( !is_valid || rank==FD_VOTE_STAKES_ALPENGLOW_RANK_NULL ) ) continue;
+    fd_vote_stakes_ele_t ele[1];
+    fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter, ele );
+    ulong  stake = ele->stake;
+    ushort rank  = ele->rank;
+    if( FD_UNLIKELY( !ele->is_valid || rank==FD_VOTE_STAKES_ALPENGLOW_RANK_NULL ) ) continue;
     FD_TEST( rank<AG_VAT_MAX );
 
     total += stake;
@@ -2046,7 +2041,7 @@ refresh_vote_account_staked( fd_replay_tile_t * ctx,
   fd_node_info_t node_info[1]; fd_node_info_read( node_info, ctx->node_info );
   fd_pubkey_t const * vote_key = &node_info->vote_account;
   int has_vote_key = !fd_pubkey_check_zero( vote_key );
-  int admitted     = has_vote_key && fd_vote_stakes_query_t_1( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id, vote_key, NULL, NULL, NULL );
+  int admitted     = has_vote_key && fd_vote_stakes_query_t_1( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id, vote_key, NULL );
   ctx->vote_account_staked = admitted;
   if( FD_LIKELY( admitted || !has_vote_key ) ) return;
 
@@ -4626,7 +4621,7 @@ update_metric_vote_account( fd_replay_tile_t *  ctx,
   fd_acc_t ro = fd_accdb_read_one( ctx->accdb, fork_id, vote_key->uc );
   /* Unstaked voters are never admitted; don't flag them.  Once set,
      sticky until an epoch boundary actually admits the account. */
-  int admitted = fd_vote_stakes_query_t_1( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id, vote_key, NULL, NULL, NULL );
+  int admitted = fd_vote_stakes_query_t_1( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id, vote_key, NULL );
   /* SIMD-0123: delegator rewards do not count towards the balance
      https://github.com/anza-xyz/agave/blob/v4.4/vote/src/vote_account.rs#L225-L234 */
   ulong available_balance = ro.lamports;
@@ -4666,9 +4661,8 @@ update_metric_active_stake( fd_bank_t const *   bank,
   ulong my_active_stake  = 0UL;
   ulong tot_active_stake = bank->f.total_epoch_stake;
 
-  ulong stake = 0UL;
-  fd_vote_stakes_query_t_1( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id, vote_key, NULL, &stake, NULL );
-  my_active_stake = stake;
+  fd_vote_stakes_ele_t ele[1];
+  if( fd_vote_stakes_query_t_1( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id, vote_key, ele ) ) my_active_stake = ele->stake;
 
   FD_MGAUGE_SET( REPLAY, ACTIVE_STAKE_LAMPORTS,         my_active_stake  );
   FD_MGAUGE_SET( REPLAY, CLUSTER_ACTIVE_STAKE_LAMPORTS, tot_active_stake );
@@ -4709,17 +4703,12 @@ update_delinquent_stake( fd_replay_tile_t * ctx,
   for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter_mem );
        !fd_vote_stakes_iter_done( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter );
        fd_vote_stakes_iter_next( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter ) ) {
-    fd_pubkey_t pubkey;
-    ulong       stake          = 0UL;
-    ulong       last_vote_slot = 0UL;
-    uchar       is_valid       = 0;
-    fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter,
-                             &pubkey, NULL, &stake, &last_vote_slot,
-                             NULL, NULL, &is_valid, NULL, NULL, NULL );
-    if( FD_UNLIKELY( !is_valid ) ) continue;
-    total += stake;
-    if( FD_UNLIKELY( !vote_account_is_current( cur_slot, last_vote_slot ) ) ) {
-      delinquent += stake;
+    fd_vote_stakes_ele_t ele[1];
+    fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter, ele );
+    if( FD_UNLIKELY( !ele->is_valid ) ) continue;
+    total += ele->stake;
+    if( FD_UNLIKELY( !vote_account_is_current( cur_slot, ele->last_vote_slot ) ) ) {
+      delinquent += ele->stake;
     }
   }
 
@@ -5744,7 +5733,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_replay_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_replay_tile_t), sizeof(fd_replay_tile_t) );
-  populate_sock_filter_policy_fd_replay_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), FD_ACCDB_FD_RW, (uint)ctx->store_disk_fd, FD_STAKE_DELEGATIONS_FD, FD_EPOCH_CREDITS_FD, FD_COST_TRACKER_FD );
+  populate_sock_filter_policy_fd_replay_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), FD_ACCDB_FD_RW, (uint)ctx->store_disk_fd, FD_STAKE_DELEGATIONS_FD, FD_EPOCH_CREDITS_FD, FD_COST_TRACKER_FD, FD_VOTE_STAKES_FD );
   return sock_filter_policy_fd_replay_tile_instr_cnt;
 }
 
@@ -5756,7 +5745,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_replay_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_replay_tile_t), sizeof(fd_replay_tile_t) );
-  if( FD_UNLIKELY( out_fds_cnt<7UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<8UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
@@ -5766,6 +5755,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
   out_fds[ out_cnt++ ] = FD_STAKE_DELEGATIONS_FD; /* stake delegation disk spill */
   out_fds[ out_cnt++ ] = FD_EPOCH_CREDITS_FD; /* epoch credits disk spill */
   out_fds[ out_cnt++ ] = FD_COST_TRACKER_FD; /* cost tracker disk spill */
+  out_fds[ out_cnt++ ] = FD_VOTE_STAKES_FD; /* vote stakes disk spill */
   if( FD_LIKELY( ctx->store_disk_fd>=0 ) )
     out_fds[ out_cnt++ ] = ctx->store_disk_fd;
 

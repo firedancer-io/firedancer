@@ -305,8 +305,10 @@ test_manifest_roundtrip( fd_svm_mini_t * mini,
        !fd_vote_stakes_iter_done( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter );
        fd_vote_stakes_iter_next( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter ) ) {
     FD_TEST( vote_cnt<VALIDATOR_CNT );
-    fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter, &votes[ vote_cnt ], &identities[ vote_cnt ], NULL,
-                             NULL, NULL, NULL, NULL, NULL, NULL, NULL );
+    fd_vote_stakes_ele_t ele[1];
+    fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter, ele );
+    votes     [ vote_cnt ] = ele->pubkey;
+    identities[ vote_cnt ] = ele->node_account;
     vote_cnt++;
   }
   FD_TEST( vote_cnt==VALIDATOR_CNT );
@@ -315,11 +317,29 @@ test_manifest_roundtrip( fd_svm_mini_t * mini,
   bank->vote_stakes_fork_id = fd_vote_stakes_init( vote_stakes, bank->f.epoch );
   fork_id = bank->vote_stakes_fork_id;
   uchar const no_bls[ FD_BLS_PUBKEY_COMPRESSED_SZ ] = {0};
+
+  /* Non-default SIMD-0123 fields and SIMD-0232 collectors: distinct
+     inflation and block collectors for vote0 in the t_1 set, a
+     block-only collector for vote1 in the t_2 set, and SIMD-0123 fields
+     for vote0 in the t_3 set. */
+  fd_pubkey_t vote0 = votes[0];
+  fd_pubkey_t vote1 = votes[1];
+  fd_pubkey_t infl0 = { .ul = { 0xAA, 1 } };
+  fd_pubkey_t blk0  = { .ul = { 0xBB, 2 } };
+  fd_pubkey_t blk1  = { .ul = { 0xCC, 3 } };
   for( ulong i=0UL; i<VALIDATOR_CNT; i++ ) {
-    fd_vote_stakes_snap_insert_t_1( vote_stakes, fork_id, &votes[i], &identities[i], 1000000000UL, 1234U, no_bls );
-    fd_vote_stakes_snap_insert_t_2( vote_stakes, fork_id, &votes[i], &identities[i], 1000000000UL, 1234U, no_bls );
+    int is0 = i==0UL;
+    int is1 = i==1UL;
+    fd_vote_stakes_snap_insert_t_1( vote_stakes, fork_id, &votes[i], &identities[i], 1000000000UL, 1234U, no_bls,
+                                    is0 ? 2500U : FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, is0 ? 777UL : 0UL,
+                                    is0 ? &infl0 : NULL, is0 ? &blk0 : NULL );
+    fd_vote_stakes_snap_insert_t_2( vote_stakes, fork_id, &votes[i], &identities[i], 1000000000UL, 1234U, no_bls,
+                                    is1 ? 1234U : FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, is1 ? 55UL : 0UL,
+                                    NULL, is1 ? &blk1 : NULL );
     for( ulong n=3UL; n<=5UL; n++ ) {
-      fd_vote_stakes_snap_insert_t_n( vote_stakes, fork_id, n, &votes[i], &identities[i], 1000000UL*n, (ushort)(100UL*n), no_bls );
+      int t3_0 = is0 && n==3UL;
+      fd_vote_stakes_snap_insert_t_n( vote_stakes, fork_id, n, &votes[i], &identities[i], 1000000UL*n, (ushort)(100UL*n), no_bls,
+                                      t3_0 ? 4321U : FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, t3_0 ? 99UL : 0UL, NULL, NULL );
     }
   }
 
@@ -348,26 +368,9 @@ test_manifest_roundtrip( fd_svm_mini_t * mini,
   ulong const late_epoch = bank->f.epoch+1UL;
   put_vote_account( mini, &extra_vote, &identities[0], 1UL, voter_epochs, &extra_voter );
   put_vote_account( mini, &late_vote,  &late_node,     1UL, &late_epoch,  &late_voter  );
-  fd_vote_stakes_snap_insert_t_n( vote_stakes, fork_id, 3UL, &extra_vote,   &identities[0], 3000000UL, 300U, no_bls );
-  fd_vote_stakes_snap_insert_t_n( vote_stakes, fork_id, 3UL, &phantom_vote, &phantom_node,  3000000UL, 300U, no_bls );
-  fd_vote_stakes_snap_insert_t_n( vote_stakes, fork_id, 3UL, &late_vote,    &late_node,     3000000UL, 300U, no_bls );
-
-  /* Set non-default SIMD-0232 collectors: distinct inflation and block
-     collectors for vote0 in the t_1 set, and a block-only collector for
-     vote1 in the t_2 set. */
-  fd_pubkey_t vote0 = votes[0];
-  fd_pubkey_t vote1 = votes[1];
-
-  fd_pubkey_t infl0 = { .ul = { 0xAA, 1 } };
-  fd_pubkey_t blk0  = { .ul = { 0xBB, 2 } };
-  fd_pubkey_t blk1  = { .ul = { 0xCC, 3 } };
-  fd_vote_stakes_set_collectors_t_1( vote_stakes, fork_id, &vote0, &infl0, &blk0 );
-  fd_vote_stakes_set_collectors_t_2( vote_stakes, fork_id, &vote1, NULL,   &blk1 );
-
-  /* SIMD-0123 fields: vote0 on the t_1 set, vote1 on the t_2 set. */
-  fd_vote_stakes_set_block_revenue_t_1( vote_stakes, fork_id, &vote0, 2500U, 777UL );
-  fd_vote_stakes_set_block_revenue_t_2( vote_stakes, fork_id, &vote1, 1234U, 55UL );
-  fd_vote_stakes_set_block_revenue_t_n( vote_stakes, fork_id, 3UL, &vote0, 4321U, 99UL );
+  fd_vote_stakes_snap_insert_t_n( vote_stakes, fork_id, 3UL, &extra_vote,   &identities[0], 3000000UL, 300U, no_bls, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL );
+  fd_vote_stakes_snap_insert_t_n( vote_stakes, fork_id, 3UL, &phantom_vote, &phantom_node,  3000000UL, 300U, no_bls, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL );
+  fd_vote_stakes_snap_insert_t_n( vote_stakes, fork_id, 3UL, &late_vote,    &late_node,     3000000UL, 300U, no_bls, FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS, 0UL, NULL, NULL );
 
   seed_epoch_credits( bank );
 

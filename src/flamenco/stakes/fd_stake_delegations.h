@@ -70,8 +70,9 @@
 #define FD_STAKE_DELEGATIONS_FORK_MAX           (4096UL)
 #define FD_STAKE_DELEGATIONS_DELTA_POOL_DIVISOR (2UL)
 
-/* 123458/123459 are store, 123460/123461 are accdb, and 123462+ are
-   reserved by XDP. */
+/* 123454 is vote stakes, 123455 is cost tracker, 123456 is epoch
+   credits, 123458/123459 are store, 123460/123461 are accdb, and
+   123462+ are reserved by XDP. */
 
 #define FD_STAKE_DELEGATIONS_FD (123457)
 

@@ -76,6 +76,13 @@ main( int     argc,
                                  "%s/costtracker.db",
                                  config->paths.base ) );
   FD_TEST( !strcmp( config->paths.cost_tracker, expected_cost_tracker ) );
+  char expected_vote_stakes[ PATH_MAX ];
+  FD_TEST( fd_cstr_printf_check( expected_vote_stakes,
+                                 sizeof(expected_vote_stakes),
+                                 NULL,
+                                 "%s/votestakes.db",
+                                 config->paths.base ) );
+  FD_TEST( !strcmp( config->paths.vote_stakes, expected_vote_stakes ) );
 
   strcpy( config->tiles.bundle.url, "https://user:hunter2@mainnet.example.com:443/v1/txns?api-key=SECRET#frag" );
   strcpy( config->tiles.event.url,  "https://events.example.com/submit" );

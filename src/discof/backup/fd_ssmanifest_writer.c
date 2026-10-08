@@ -103,8 +103,11 @@ fd_ssmanifest_writer_init( fd_ssmanifest_writer_t * enc,
          !fd_vote_stakes_iter_done( vote_stakes, fork_id, iter_kind, iter );
          fd_vote_stakes_iter_next( vote_stakes, fork_id, iter_kind, iter ) ) {
       fd_ssmanifest_epoch_vote_t * ele = &map->vote[ map->vote_cnt ];
-      fd_vote_stakes_iter_ele( vote_stakes, fork_id, iter_kind, iter, &ele->vote, &ele->node, &ele->stake,
-                               NULL, NULL, NULL, NULL, NULL, NULL, NULL );
+      fd_vote_stakes_ele_t vs_ele[1];
+      fd_vote_stakes_iter_ele( vote_stakes, fork_id, iter_kind, iter, vs_ele );
+      ele->vote  = vs_ele->pubkey;
+      ele->node  = vs_ele->node_account;
+      ele->stake = vs_ele->stake;
 
       ulong lamports;
       int   executable;

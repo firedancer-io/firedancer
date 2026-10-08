@@ -294,6 +294,7 @@ setup_simd0232_fee_block( fd_svm_mini_t *     mini,
                           ulong *             root_idx_out ) {
   fd_svm_mini_params_t params[1];
   fd_svm_mini_params_default( params );
+  params->mock_block_collector = block_collector_opt;
   ulong root_idx = fd_svm_mini_reset( mini, params );
   *root_idx_out  = root_idx;
 
@@ -302,13 +303,6 @@ setup_simd0232_fee_block( fd_svm_mini_t *     mini,
 
   ulong child_idx = fd_svm_mini_attach_child( mini, root_idx, 2UL );
   fd_bank_t * bank = fd_svm_mini_bank( mini, child_idx );
-
-  if( block_collector_opt ) {
-    fd_epoch_leaders_t const * leaders     = fd_bank_epoch_leaders_query( bank, bank->f.epoch );
-    fd_pubkey_t const *        leader_vote = fd_epoch_leaders_get_vote( leaders, bank->f.slot );
-    FD_TEST( leader_vote );
-    fd_vote_stakes_set_collectors_t_2( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id, leader_vote, NULL, block_collector_opt );
-  }
 
   bank->f.execution_fees = execution_fees;
   bank->f.priority_fees  = priority_fees;
@@ -405,6 +399,7 @@ static void
 test_simd0232_fee_vote_account_collector( fd_svm_mini_t * mini ) {
   fd_svm_mini_params_t params[1];
   fd_svm_mini_params_default( params );
+  params->mock_block_collector_self = 1;
   ulong root_idx = fd_svm_mini_reset( mini, params );
   fd_bank_t * root_bank = fd_svm_mini_bank( mini, root_idx );
   FD_FEATURE_SET_ACTIVE( &root_bank->f.features, custom_commission_collector, 0UL );
@@ -417,8 +412,6 @@ test_simd0232_fee_vote_account_collector( fd_svm_mini_t * mini ) {
   fd_pubkey_t const *        leader_vote = fd_epoch_leaders_get_vote( leaders, bank->f.slot );
   FD_TEST( leader_vote );
   fd_pubkey_t vote_key = *leader_vote;
-
-  fd_vote_stakes_set_collectors_t_2( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id, &vote_key, NULL, &vote_key );
 
   bank->f.execution_fees = SIMD0232_FEE_EXECUTION;
   bank->f.priority_fees  = SIMD0232_FEE_PRIORITY;
@@ -444,6 +437,7 @@ static void
 test_simd0232_fee_stake_account_collector_cache( fd_svm_mini_t * mini ) {
   fd_svm_mini_params_t params[1];
   fd_svm_mini_params_default( params );
+  params->mock_block_collector_self = 1;
   ulong root_idx = fd_svm_mini_reset( mini, params );
   fd_bank_t * root_bank = fd_svm_mini_bank( mini, root_idx );
   FD_FEATURE_SET_ACTIVE( &root_bank->f.features, custom_commission_collector, 0UL );
@@ -457,8 +451,6 @@ test_simd0232_fee_stake_account_collector_cache( fd_svm_mini_t * mini ) {
   FD_TEST( leader_vote );
   fd_pubkey_t stake_key = *leader_vote;
   fd_pubkey_t vote_key  = { .ul[0] = 0x53544B564F544531UL };
-
-  fd_vote_stakes_set_collectors_t_2( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id, &stake_key, NULL, &stake_key );
 
   ulong stake_lamports = 2000000000UL;
   ulong delegated_stake = 1000000000UL;
@@ -847,8 +839,11 @@ test_simd0232_fee_relax_deposit( fd_svm_mini_t * mini ) {
   ulong fee = 100UL; /* below the rent-exempt minimum */
 
   for( int relax=0; relax<2; relax++ ) {
+    fd_pubkey_t collector = { .ul[0] = 0xAC00UL + (ulong)relax };
+
     fd_svm_mini_params_t params[1];
     fd_svm_mini_params_default( params );
+    params->mock_block_collector = &collector;
     ulong root_idx = fd_svm_mini_reset( mini, params );
 
     fd_bank_t * root_bank = fd_svm_mini_bank( mini, root_idx );
@@ -859,11 +854,6 @@ test_simd0232_fee_relax_deposit( fd_svm_mini_t * mini ) {
     fd_bank_t *        bank    = fd_svm_mini_bank   ( mini, child_idx );
     fd_accdb_fork_id_t fork_id = fd_svm_mini_fork_id( mini, child_idx );
 
-    fd_pubkey_t collector = { .ul[0] = 0xAC00UL + (ulong)relax };
-    fd_epoch_leaders_t const * leaders     = fd_bank_epoch_leaders_query( bank, bank->f.epoch );
-    fd_pubkey_t const *        leader_vote = fd_epoch_leaders_get_vote( leaders, bank->f.slot );
-    FD_TEST( leader_vote );
-    fd_vote_stakes_set_collectors_t_2( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id, leader_vote, NULL, &collector );
     fd_svm_mini_add_lamports( mini, fork_id, &collector, 1UL );
 
     bank->f.execution_fees = 0UL;
@@ -1007,6 +997,8 @@ setup_simd0123_fee_block( fd_svm_mini_t *     mini,
                           fd_pubkey_t *       leader_vote_out ) {
   fd_svm_mini_params_t params[1];
   fd_svm_mini_params_default( params );
+  params->mock_block_revenue_commission_bps = block_revenue_commission_bps;
+  params->mock_block_collector              = block_collector_opt;
   ulong root_idx = fd_svm_mini_reset( mini, params );
   *root_idx_out  = root_idx;
 
@@ -1021,13 +1013,6 @@ setup_simd0123_fee_block( fd_svm_mini_t *     mini,
   fd_pubkey_t const *        leader_vote = fd_epoch_leaders_get_vote( leaders, bank->f.slot );
   FD_TEST( leader_vote );
   *leader_vote_out = *leader_vote;
-
-  fd_vote_stakes_set_block_revenue_t_2( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id, leader_vote,
-                                        block_revenue_commission_bps, 0UL );
-
-  if( block_collector_opt ) {
-    fd_vote_stakes_set_collectors_t_2( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id, leader_vote, NULL, block_collector_opt );
-  }
 
   bank->f.execution_fees = execution_fees;
   bank->f.priority_fees  = priority_fees;
@@ -1265,6 +1250,8 @@ static void
 test_simd0123_fee_vote_account_collector( fd_svm_mini_t * mini ) {
   fd_svm_mini_params_t params[1];
   fd_svm_mini_params_default( params );
+  params->mock_block_revenue_commission_bps = 2500U;
+  params->mock_block_collector_self         = 1;
   ulong root_idx = fd_svm_mini_reset( mini, params );
   fd_bank_t * root_bank = fd_svm_mini_bank( mini, root_idx );
   FD_FEATURE_SET_ACTIVE( &root_bank->f.features, custom_commission_collector, 0UL );
@@ -1276,8 +1263,6 @@ test_simd0123_fee_vote_account_collector( fd_svm_mini_t * mini ) {
 
   fd_epoch_leaders_t const * leaders = fd_bank_epoch_leaders_query( bank, bank->f.epoch );
   fd_pubkey_t vote = *fd_epoch_leaders_get_vote( leaders, bank->f.slot );
-  fd_vote_stakes_set_block_revenue_t_2( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id, &vote, 2500U, 0UL );
-  fd_vote_stakes_set_collectors_t_2( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id, &vote, NULL, &vote );
   bank->f.execution_fees = SIMD0232_FEE_EXECUTION;
   bank->f.priority_fees  = SIMD0232_FEE_PRIORITY;
   ulong vote_before = read_lamports( mini, fork_id, &vote );

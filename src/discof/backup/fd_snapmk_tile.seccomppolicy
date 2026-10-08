@@ -13,7 +13,11 @@
 #
 # accdb_ro_fd: The read-only accounts database file descriptor, used
 #         to read vote accounts for the snapshot manifest.
-uint logfile_fd, uint dir_fd, uint pool_min_fd, uint pool_max_fd, uint accdb_ro_fd
+#
+# vote_stakes_fd: Disk backing for t-1 vote stakes sets beyond the
+#                 in-memory cache.  Any tile reading a set that is not
+#                 cached loads it, writing back the evicted set.
+uint logfile_fd, uint dir_fd, uint pool_min_fd, uint pool_max_fd, uint accdb_ro_fd, uint vote_stakes_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -87,6 +91,11 @@ renameat2: (and (eq (arg 0) dir_fd)
 
 # snapshot manifest: vote account reads on accdb cache miss
 preadv2: (eq (arg 0) accdb_ro_fd)
+
+# vote stakes: load a spilled t-1 set into the cache and write back the
+# evicted set.
+pread64: (eq (arg 0) vote_stakes_fd)
+pwrite64: (eq (arg 0) vote_stakes_fd)
 
 # snapshot: before reading accounts, the tile parks the accdb
 # compaction epoch and yields while waiting for the accdb tile to

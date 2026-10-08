@@ -677,82 +677,58 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
   for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, vote_stakes_iter_mem );
        !fd_vote_stakes_iter_done( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter );
        fd_vote_stakes_iter_next( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter ) ) {
-    fd_pubkey_t pubkey;
-    ulong       stake;
-    fd_pubkey_t node;
-    ushort      commission;
-    fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter, &pubkey, &node, &stake,
-                             NULL, NULL, &commission, NULL, NULL, NULL, NULL );
-    add_account_to_dumped_accounts( dumped_accounts, &pubkey );
-
-    ushort block_revenue_commission_bps;
-    ulong  pending_delegator_rewards;
-    fd_vote_stakes_iter_block_revenue( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter,
-                                       &block_revenue_commission_bps, &pending_delegator_rewards );
+    fd_vote_stakes_ele_t ele[1];
+    fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter, ele );
+    add_account_to_dumped_accounts( dumped_accounts, &ele->pubkey );
 
     fd_exec_test_prev_vote_account_t * acc = &va_t1[ va_t1_cnt++ ];
-    fd_memcpy( acc->address,     &pubkey, sizeof(fd_pubkey_t) );
-    fd_memcpy( acc->node_pubkey, &node,   sizeof(fd_pubkey_t) );
-    acc->stake                        = stake;
-    acc->commission_bps               = commission;
-    acc->block_revenue_commission_bps = block_revenue_commission_bps;
-    acc->pending_delegator_rewards    = pending_delegator_rewards;
+    fd_memcpy( acc->address,     &ele->pubkey,       sizeof(fd_pubkey_t) );
+    fd_memcpy( acc->node_pubkey, &ele->node_account, sizeof(fd_pubkey_t) );
+    acc->stake                        = ele->stake;
+    acc->commission_bps               = ele->commission;
+    acc->block_revenue_commission_bps = ele->block_revenue_commission_bps;
+    acc->pending_delegator_rewards    = ele->pending_delegator_rewards;
     acc->version                      = FD_EXEC_TEST_VOTE_ACCOUNT_VERSION_V4;
     acc->epoch_credits_count          = 0U;
     acc->inflation_rewards_collector.size = 0U;
     acc->block_revenue_collector.size     = 0U;
 
-    fd_pubkey_t inflation_collector;
-    fd_pubkey_t block_collector;
-    fd_vote_stakes_iter_collectors( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter, &inflation_collector, &block_collector );
-    if( !fd_pubkey_eq( &inflation_collector, &pubkey ) ) {
+    if( !fd_pubkey_eq( &ele->inflation_collector, &ele->pubkey ) ) {
       acc->inflation_rewards_collector.size = 32U;
-      fd_memcpy( acc->inflation_rewards_collector.bytes, &inflation_collector, sizeof(fd_pubkey_t) );
+      fd_memcpy( acc->inflation_rewards_collector.bytes, &ele->inflation_collector, sizeof(fd_pubkey_t) );
     }
-    if( !fd_pubkey_eq( &block_collector, &node ) ) {
+    if( !fd_pubkey_eq( &ele->block_collector, &ele->node_account ) ) {
       acc->block_revenue_collector.size = 32U;
-      fd_memcpy( acc->block_revenue_collector.bytes, &block_collector, sizeof(fd_pubkey_t) );
+      fd_memcpy( acc->block_revenue_collector.bytes, &ele->block_collector, sizeof(fd_pubkey_t) );
     }
   }
 
   for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, vote_stakes_iter_mem );
        !fd_vote_stakes_iter_done( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter );
        fd_vote_stakes_iter_next( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter ) ) {
-    fd_pubkey_t pubkey;
-    ulong       stake;
-    fd_pubkey_t node;
-    ushort      commission;
-    fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter, &pubkey, &node, &stake,
-                             NULL, NULL, &commission, NULL, NULL, NULL, NULL );
-    add_account_to_dumped_accounts( dumped_accounts, &pubkey );
-
-    ushort block_revenue_commission_bps;
-    ulong  pending_delegator_rewards;
-    fd_vote_stakes_iter_block_revenue( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter,
-                                       &block_revenue_commission_bps, &pending_delegator_rewards );
+    fd_vote_stakes_ele_t ele[1];
+    fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter, ele );
+    add_account_to_dumped_accounts( dumped_accounts, &ele->pubkey );
 
     fd_exec_test_prev_vote_account_t * acc = &va_t2[ va_t2_cnt++ ];
-    fd_memcpy( acc->address,     &pubkey, sizeof(fd_pubkey_t) );
-    fd_memcpy( acc->node_pubkey, &node,   sizeof(fd_pubkey_t) );
-    acc->stake                        = stake;
-    acc->commission_bps               = commission;
-    acc->block_revenue_commission_bps = block_revenue_commission_bps;
-    acc->pending_delegator_rewards    = pending_delegator_rewards;
+    fd_memcpy( acc->address,     &ele->pubkey,       sizeof(fd_pubkey_t) );
+    fd_memcpy( acc->node_pubkey, &ele->node_account, sizeof(fd_pubkey_t) );
+    acc->stake                        = ele->stake;
+    acc->commission_bps               = ele->commission;
+    acc->block_revenue_commission_bps = ele->block_revenue_commission_bps;
+    acc->pending_delegator_rewards    = ele->pending_delegator_rewards;
     acc->version                      = FD_EXEC_TEST_VOTE_ACCOUNT_VERSION_V4;
     acc->epoch_credits_count          = 0U;
     acc->inflation_rewards_collector.size = 0U;
     acc->block_revenue_collector.size     = 0U;
 
-    fd_pubkey_t inflation_collector;
-    fd_pubkey_t block_collector;
-    fd_vote_stakes_iter_collectors( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter, &inflation_collector, &block_collector );
-    if( !fd_pubkey_eq( &inflation_collector, &pubkey ) ) {
+    if( !fd_pubkey_eq( &ele->inflation_collector, &ele->pubkey ) ) {
       acc->inflation_rewards_collector.size = 32U;
-      fd_memcpy( acc->inflation_rewards_collector.bytes, &inflation_collector, sizeof(fd_pubkey_t) );
+      fd_memcpy( acc->inflation_rewards_collector.bytes, &ele->inflation_collector, sizeof(fd_pubkey_t) );
     }
-    if( !fd_pubkey_eq( &block_collector, &node ) ) {
+    if( !fd_pubkey_eq( &ele->block_collector, &ele->node_account ) ) {
       acc->block_revenue_collector.size = 32U;
-      fd_memcpy( acc->block_revenue_collector.bytes, &block_collector, sizeof(fd_pubkey_t) );
+      fd_memcpy( acc->block_revenue_collector.bytes, &ele->block_collector, sizeof(fd_pubkey_t) );
     }
   }
 

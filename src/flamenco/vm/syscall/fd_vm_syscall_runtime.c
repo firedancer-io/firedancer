@@ -396,8 +396,9 @@ fd_vm_syscall_sol_get_epoch_stake( /**/            void *  _vm,
   ulong stake = 0UL;
   /* It's okay to ignore if an account is invalid since these stakes
      are calculated from an older snapshot of vote account stakes. */
-  fd_bank_t * bank = vm->instr_ctx->bank;
-  fd_vote_stakes_query_t_1( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id, vote_address, NULL, &stake, NULL );
+  fd_bank_t *          bank = vm->instr_ctx->bank;
+  fd_vote_stakes_ele_t ele[1];
+  if( fd_vote_stakes_query_t_1( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id, vote_address, ele ) ) stake = ele->stake;
 
   vm->reg[0] = stake;
 

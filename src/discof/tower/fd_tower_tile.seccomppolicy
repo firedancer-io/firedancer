@@ -10,7 +10,11 @@
 #              tiles may need to pull accounts into the cache from disk,
 #              or purge out of cache to the disk to make forward
 #              progress.
-uint logfile_fd, uint dir_fd, uint tower_fd_0, uint tower_fd_1, uint accounts_fd
+#
+# vote_stakes_fd: Disk backing for t-1 vote stakes sets beyond the
+#                 in-memory cache.  Any tile reading a set that is not
+#                 cached loads it, writing back the evicted set.
+uint logfile_fd, uint dir_fd, uint tower_fd_0, uint tower_fd_1, uint accounts_fd, uint vote_stakes_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -74,6 +78,11 @@ preadv2: (eq (arg 0) accounts_fd)
 # device in chunks, as it runs out.
 fallocate: (and (eq (arg 0) accounts_fd)
                 (eq (arg 1) 0))
+
+# vote stakes: load a spilled t-1 set into the cache and write back the
+# evicted set.
+pread64: (eq (arg 0) vote_stakes_fd)
+pwrite64: (eq (arg 0) vote_stakes_fd)
 
 # power saving: sleep when there is no work to do
 #
