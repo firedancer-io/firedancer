@@ -210,7 +210,7 @@ enum {
 
 #define FD_METRICS_GAUGE_PACK_TXN_PENDING_SMALLEST_CU_NAME "pack_txn_pending_smallest_cu"
 #define FD_METRICS_GAUGE_PACK_TXN_PENDING_SMALLEST_CU_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_PACK_TXN_PENDING_SMALLEST_CU_DESC "Lower bound on the smallest non-vote transaction (in cost units) that is immediately available for scheduling"
+#define FD_METRICS_GAUGE_PACK_TXN_PENDING_SMALLEST_CU_DESC "Lower bound on the smallest transaction (in cost units) that is immediately available for scheduling"
 #define FD_METRICS_GAUGE_PACK_TXN_PENDING_SMALLEST_CU_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_COUNTER_PACK_MICROBLOCK_PER_BLOCK_LIMIT_REACHED_NAME "pack_microblock_per_block_limit_reached"
