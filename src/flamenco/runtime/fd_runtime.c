@@ -1727,6 +1727,7 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *         banks,
       fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter, ele );
       fd_vote_stakes_snap_insert_t_2( vote_stakes, fork_id, &ele->pubkey, &ele->node_account, ele->stake, ele->commission, ele->bls_key );
       fd_vote_stakes_set_block_revenue_t_2( vote_stakes, fork_id, &ele->pubkey, ele->block_revenue_commission_bps, ele->pending_delegator_rewards );
+      fd_vote_stakes_set_collectors_t_2( vote_stakes, fork_id, &ele->pubkey, &ele->inflation_collector, &ele->block_collector );
     }
     fd_vote_stakes_finalize( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2 );
     fd_vote_stakes_refresh( vote_stakes, fork_id, accdb, bank->accdb_fork_id );
