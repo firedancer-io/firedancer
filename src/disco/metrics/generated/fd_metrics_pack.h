@@ -179,7 +179,7 @@ enum {
 
 #define FD_METRICS_GAUGE_PACK_TXN_PENDING_SMALLEST_COST_NAME "pack_txn_pending_smallest_cost"
 #define FD_METRICS_GAUGE_PACK_TXN_PENDING_SMALLEST_COST_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_PACK_TXN_PENDING_SMALLEST_COST_DESC "Lower bound on the cost of the cheapest pending non-vote transaction, 0 if none pending"
+#define FD_METRICS_GAUGE_PACK_TXN_PENDING_SMALLEST_COST_DESC "Lower bound on the cost of the cheapest pending transaction, 0 if none pending"
 #define FD_METRICS_GAUGE_PACK_TXN_PENDING_SMALLEST_COST_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_COUNTER_PACK_BLOCK_MICROBLOCK_LIMIT_REACHED_NAME "pack_block_microblock_limit_reached"

@@ -660,9 +660,9 @@ deliberate exception with lint-allow="<rule id>")
 </enum>
 
 <enum name="PendingTxnType">
-    <int value="1" name="Regular" label="Non-votes in the main treap" />
-    <int value="2" name="Vote" label="Simple votes" />
-    <int value="3" name="Conflicting" label="Non-votes that write to a hotly-contended account" />
+    <int value="1" name="Regular" label="Transactions in the main treap, including simple votes" />
+    <int value="2" name="Vote" label="Deprecated: simple votes are no longer kept in a separate treap, so this is always 0" />
+    <int value="3" name="Conflicting" label="Transactions that write to a hotly-contended account, including simple votes" />
     <int value="4" name="Bundle" label="Transactions that are part of a bundle" />
 </enum>
 
@@ -702,7 +702,7 @@ deliberate exception with lint-allow="<rule id>")
     <gauge name="TxnPendingUsed" enum="PendingTxnType" summary="Pending transactions in pack's pool, by type" />
     <gauge name="TxnPendingCapacity" summary="Maximum pending transactions pack can hold" />
 
-    <gauge name="TxnPendingSmallestCost" summary="Lower bound on the cost of the cheapest pending non-vote transaction, 0 if none pending" />
+    <gauge name="TxnPendingSmallestCost" summary="Lower bound on the cost of the cheapest pending transaction, 0 if none pending" />
 
     <counter name="BlockMicroblockLimitReached" summary="Times pack did not schedule a microblock because the block microblock limit was reached" />
     <counter name="BlockByteLimitReached" summary="Times pack did not schedule a microblock because the block byte limit was reached" />
