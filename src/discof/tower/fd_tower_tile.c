@@ -144,6 +144,7 @@
 #define IN_KIND_IPECHO (4)
 #define IN_KIND_SHRED  (5)
 #define IN_KIND_SIGN   (6)
+#define IN_KIND_ADOPT  (7)
 
 #define OUT_IDX 0 /* only a single out link tower_out */
 
@@ -808,6 +809,11 @@ count_vote_txn( fd_tower_tile_t * ctx,
                 fd_txn_t const *  txn,
                 uchar const *     payload ) {
 
+  /* An adoption advanced the root but the epoch voter caches have not been
+     refreshed yet, so skip until the next completed slot does it, rather
+     than judge a vote against a stale root epoch. */
+  if( FD_UNLIKELY( ctx->adoption_required && ctx->epoch_refresh_pending ) ) return;
+
   /* We are a little stricter than Agave here because Agave only does
      the is_simple_vote check on replay vote txns, whereas we are doing
      the check on both replay and gossip / TPU vote txns.
@@ -1080,6 +1086,15 @@ clear_votes( fd_tower_t * tower ) {
   for( ulong i=0UL; i<tower->blk_max; i++ ) tower->blk_pool[ i ].voted = 0; /* blocks stay voted after their votes expire */
   fd_tower_vote_remove_all( tower->votes );
 }
+
+/* Failover, defined in the failover section below.  Every call is
+   reached only when ctx->adoption_required, set when the adopt links
+   are in the topology. */
+
+static int  failover_slot_completed ( fd_tower_tile_t * ctx, fd_replay_slot_completed_t * slot_completed, int found );
+static int  failover_identity_switch( fd_tower_tile_t * ctx );
+static void failover_adopt_frag     ( fd_tower_tile_t * ctx, ulong in_idx, ulong sig, ulong chunk, ulong sz, ulong ctl, fd_stem_context_t * stem );
+static void failover_init           ( fd_tower_tile_t * ctx, fd_topo_t const * topo, fd_topo_tile_t const * tile );
 
 static ulong
 vote_history_ahead( fd_tower_t *            tower,
@@ -1407,6 +1422,8 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
     ctx->init = 1;
     QUERY_VOTERS( ctx, slot_completed, slot_completed->epoch );
   }
+
+  if( FD_UNLIKELY( ctx->adoption_required ) ) found = failover_slot_completed( ctx, slot_completed, found );
 
   /* Insert into hard fork detector. */
 
@@ -1776,6 +1793,7 @@ during_housekeeping( fd_tower_tile_t * ctx ) {
     if( FD_LIKELY( !ctx->halt_signing ) ) FD_LOG_DEBUG(( "keyswitch: halting signing" ));
     ctx->halt_signing = 1;
     if( FD_UNLIKELY( !publishes_empty( ctx->publishes ) ) ) return;
+    if( FD_UNLIKELY( ctx->adoption_required && failover_identity_switch( ctx ) ) ) return;
 
     int identity_changed = !!memcmp( ctx->identity_key, ctx->identity_keyswitch->bytes, 32UL );
     memcpy( ctx->identity_key, ctx->identity_keyswitch->bytes, 32UL );
@@ -1938,6 +1956,10 @@ returnable_frag( fd_tower_tile_t *   ctx,
     case REPLAY_SIG_SLOT_DEAD:;
       fd_replay_slot_dead_t * slot_dead = (fd_replay_slot_dead_t *)fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
       if( FD_UNLIKELY( slot_dead->slot < ctx->tower->root ) ) break; /* ignore dead slots before root */
+      /* An adoption advanced the root but the epoch voter caches are not
+         refreshed until the next completed slot, and the epoch check below
+         keys off them, so skip this dead slot until then. */
+      if( FD_UNLIKELY( ctx->adoption_required && ctx->epoch_refresh_pending ) ) break;
       fd_epoch_leaders_t const * lsched = fd_multi_epoch_leaders_get_lsched_for_slot( ctx->mleaders, slot_dead->slot );
       FD_TEST( lsched );
       FD_TEST( lsched->epoch==ctx->root_epoch || lsched->epoch==ctx->root_epoch + 1 );
@@ -1965,6 +1987,10 @@ returnable_frag( fd_tower_tile_t *   ctx,
       update_metrics_eqvoc( ctx, eqvoc_err );
       if( FD_UNLIKELY( eqvoc_err==FD_EQVOC_SUCCESS ) ) publish_slot_duplicate( ctx, ctx->duplicate_chunks, shred->slot );
     }
+    return 0;
+  }
+  case IN_KIND_ADOPT: {
+    failover_adopt_frag( ctx, in_idx, sig, chunk, sz, ctl, stem );
     return 0;
   }
   default: FD_LOG_ERR(( "unexpected input kind %d", ctx->in_kind[ in_idx ] ));
@@ -2064,6 +2090,7 @@ unprivileged_init( fd_topo_t const *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "replay_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
     else if( FD_LIKELY( !strcmp( link->name, "shred_out"     ) ) ) ctx->in_kind[ i ] = IN_KIND_SHRED;
     else if( FD_LIKELY( !strcmp( link->name, "sign_tower"    ) ) ) ctx->in_kind[ i ] = IN_KIND_SIGN;
+    else if( FD_LIKELY( !strcmp( link->name, "adopt_tower"   ) ) ) ctx->in_kind[ i ] = IN_KIND_ADOPT;
     else FD_LOG_ERR(( "tower tile has unexpected input link %lu %s", i, link->name ));
 
     ctx->in[ i ].mcache_only = !link->mtu;
@@ -2093,6 +2120,8 @@ unprivileged_init( fd_topo_t const *      topo,
   } else {
     ctx->tower_dir_fd = -1; /* no signer (forktest), the tower file is not written */
   }
+
+  failover_init( ctx, topo, tile );
 
   FD_BASE58_ENCODE_32_BYTES( ctx->vote_account->uc, vote_account_b58 );
   FD_BASE58_ENCODE_32_BYTES( ctx->identity_key->uc, identity_key_b58 );
@@ -2136,6 +2165,318 @@ populate_allowed_fds( fd_topo_t const *      topo,
   out_fds[ out_cnt++ ] = FD_ACCDB_FD_RW; /* accounts database */
 
   return out_cnt;
+}
+
+/* Failover ************************************************************
+
+   Everything below runs only when ctx->adoption_required, which
+   failover_init sets when the topology has the adopt links.  Upstream
+   paths reach it through one gated call each, and without failover
+   they behave exactly as they would without this section. */
+
+/* advance_ghost_root moves the fork choice root up to the tower root
+   when an adoption moved the tower root past it, the way the normal root
+   publish does, reporting every slot rooted on the way.  Otherwise a
+   later replay walks ghost ancestry the tower no longer has, and vote
+   candidates could come from a fork that does not hold the tower root.
+   Returns -1 and changes nothing if the tower root's block is not in
+   fork choice yet. */
+static int
+advance_ghost_root( fd_tower_tile_t * ctx ) {
+  fd_ghost_blk_t * ghost_root = fd_ghost_root( ctx->ghost );
+  if( FD_LIKELY( ctx->tower->root<=ghost_root->slot ) ) return 0;
+  fd_tower_blk_t const * root_blk = fd_tower_blocks_query( ctx->tower, ctx->tower->root );
+  fd_ghost_blk_t *       newr     = ( root_blk && root_blk->replayed )
+                                    ? fd_ghost_query( ctx->ghost, &root_blk->replayed_block_id )
+                                    : NULL;
+  if( FD_UNLIKELY( !newr ) ) return -1;
+  /* Reconcile leaves the blocks below its root for the root publish,
+     so prune from the ghost root as the root publish does. */
+  for( ulong slot = ghost_root->slot; slot < ctx->tower->root; slot++ ) {
+    fd_tower_blocks_remove( ctx->tower, slot );
+    fd_tower_lockos_remove( ctx->tower, slot );
+    fd_tower_stakes_remove( ctx->tower, slot );
+  }
+  for( fd_ghost_blk_t * intr = newr; intr!=ghost_root; intr = fd_ghost_parent( ctx->ghost, intr ) ) {
+    publish_slot_rooted( ctx, intr->slot, &intr->id );
+    report_slot_confirmed( intr->bank_seq, intr->slot, &intr->id, intr->stake, intr->total_stake, intr->valid, FD_EVENT_SLOT_CONFIRMED_LEVEL_ROOTED, 0 /* not forward */ );
+  }
+  fd_ghost_publish( ctx->ghost, newr );
+  /* The epoch voter caches key off the root epoch, refresh them on the
+     next completed slot since there is no bank here to do it now.  A
+     root in the same epoch leaves them right as they are. */
+  if( FD_UNLIKELY( root_blk->epoch!=ctx->root_epoch ) ) ctx->epoch_refresh_pending = 1;
+  return 0;
+}
+
+/* adopt_votes_strict installs a tower this machine is about to sign
+   for, with fd_tower_reconcile.  Unlike a set-identity vote history
+   (adopt_vote_history), a tower we cannot take whole changes nothing:
+   its last vote has to be for the block we replayed, every vote has to
+   be replayed and on one chain from a replayed root.  Our own votes are
+   replaced, a standby's were never sent. */
+static ulong
+adopt_votes_strict( fd_tower_tile_t *       ctx,
+                    fd_tower_vote_t const * votes,
+                    ulong                   vote_cnt,
+                    ulong                   root,
+                    fd_hash_t const *       bank_hash,
+                    fd_hash_t const *       block_id ) {
+  fd_tower_t * tower = ctx->tower;
+  if( FD_LIKELY( bank_hash && vote_cnt ) ) {
+    ulong                  last     = votes[ vote_cnt-1UL ].slot;
+    fd_tower_blk_t const * last_blk = fd_tower_blocks_query( tower, last );
+    if( FD_UNLIKELY( last>tower->root && last_blk && last_blk->replayed &&
+                     ( !fd_hash_eq( &last_blk->bank_hash, bank_hash ) ||
+                       ( block_id && !fd_hash_eq( &last_blk->replayed_block_id, block_id ) ) ) ) ) return FD_TOWER_ADOPT_ERR_BLOCK_MISMATCH;
+  }
+
+  ulong floor = ( root==ULONG_MAX || tower->root>root ) ? tower->root : root;
+  fd_tower_vote_remove_all( ctx->scratch_tower );
+  for( ulong i=0UL; i<vote_cnt; i++ ) {
+    if( FD_UNLIKELY( votes[ i ].slot<=floor ) ) continue;
+    fd_tower_vote_push_tail( ctx->scratch_tower, votes[ i ] );
+  }
+
+  int err = fd_tower_adopt_check( tower, ctx->scratch_tower, root );
+  if( FD_UNLIKELY( err ) ) return err==-3 ? FD_TOWER_ADOPT_ERR_UNREPLAYED :
+                                  err==-2 ? FD_TOWER_ADOPT_ERR_BLOCK_MISMATCH :
+                                            FD_TOWER_ADOPT_ERR_UNREPLAYED_ROOT;
+  clear_votes( tower );
+  fd_tower_reconcile( tower, ctx->scratch_tower, root );
+  return FD_TOWER_ADOPT_SUCCESS;
+}
+
+/* adopt_votes installs the votes and root of a tower this
+   machine is about to sign for.  hash and block_id, when given, are the
+   tip's and must match the block replayed for that slot.  The result
+   reports the root and last vote held afterwards. */
+static fd_tower_adopt_result_t
+adopt_votes( fd_tower_tile_t *       ctx,
+             fd_tower_vote_t const * votes,
+             ulong                   vote_cnt,
+             ulong                   root,
+             fd_hash_t const *       hash,
+             fd_hash_t const *       block_id ) {
+  fd_tower_adopt_result_t result = { .acct_vote_slot=ULONG_MAX };
+  result.result = adopt_votes_strict( ctx, votes, vote_cnt, root, hash, block_id );
+  /* The adopted root was required to be replayed, so fork choice holds
+     it, and moving fork choice there prunes the blocks below it. */
+  if( FD_LIKELY( result.result==FD_TOWER_ADOPT_SUCCESS ) ) FD_TEST( !advance_ghost_root( ctx ) );
+  result.root      = ctx->tower->root;
+  result.vote_slot = fd_tower_vote_empty( ctx->tower->votes )
+                  ? ULONG_MAX : fd_tower_vote_peek_tail_const( ctx->tower->votes )->slot;
+  /* An empty prefix must not report the old shadow vote as adopted.  Only
+     the complete tower can authorize the identity switch, an empty one is
+     complete for an identity that never voted. */
+  ctx->tower_adopted = result.result==FD_TOWER_ADOPT_SUCCESS && ( !vote_cnt || result.vote_slot==votes[ vote_cnt-1UL ].slot );
+  return result;
+}
+
+/* Read the vote account, the caller checks whether its history is sufficient. */
+static fd_tower_adopt_result_t
+adopt_vote_account( fd_tower_tile_t * ctx ) {
+  ulong acct_root = ULONG_MAX;
+  ulong acct_tip  = ULONG_MAX;
+  fd_tower_vote_remove_all( ctx->scratch_tower );
+  if( FD_LIKELY( ctx->our_vote_acct_sz ) ) {
+    /* The account comes from the last completed bank.  When that block is
+       gone or off our root's fork its votes say nothing about our fork, so
+       wait for the next completed slot like an unreplayed vote. */
+    ulong acct_slot = ctx->vote_acct_slot;
+    if( FD_UNLIKELY( acct_slot!=ctx->tower->root && !fd_tower_blocks_is_slot_ancestor( ctx->tower, acct_slot, ctx->tower->root ) ) ) {
+      return (fd_tower_adopt_result_t){ .result         = FD_TOWER_ADOPT_ERR_UNREPLAYED,
+                                        .root           = ctx->tower->root,
+                                        .vote_slot      = fd_tower_vote_empty( ctx->tower->votes ) ? ULONG_MAX : fd_tower_vote_peek_tail_const( ctx->tower->votes )->slot,
+                                        .acct_vote_slot = ULONG_MAX };
+    }
+    fd_tower_from_vote_acc( ctx->scratch_tower, &acct_root, ctx->our_vote_acct, ctx->our_vote_acct_sz );
+    if( !fd_tower_vote_empty( ctx->scratch_tower ) ) acct_tip = fd_tower_vote_peek_tail_const( ctx->scratch_tower )->slot;
+  }
+  fd_tower_vote_t votes[ FD_TOWER_VOTE_MAX ];
+  ulong           vote_cnt = 0UL;
+  for( fd_tower_vote_iter_t iter = fd_tower_vote_iter_init( ctx->scratch_tower );
+                                  !fd_tower_vote_iter_done( ctx->scratch_tower, iter );
+                            iter = fd_tower_vote_iter_next( ctx->scratch_tower, iter ) ) {
+    votes[ vote_cnt++ ] = *fd_tower_vote_iter_ele_const( ctx->scratch_tower, iter );
+  }
+  fd_tower_adopt_result_t result = adopt_votes( ctx, votes, vote_cnt, acct_root, NULL, NULL );
+  if( FD_LIKELY( result.result==FD_TOWER_ADOPT_SUCCESS ) ) {
+    FD_LOG_NOTICE(( "tower adoption: the vote account has %lu votes, we keep %lu above our root %lu", vote_cnt, fd_tower_vote_cnt( ctx->tower->votes ), result.root ));
+  }
+  /* Votes at or under our root are dropped. The caller checks the
+     account's last vote even when adoption leaves the tower empty. */
+  ctx->tower_adopted = result.result==FD_TOWER_ADOPT_SUCCESS;
+  result.acct_vote_slot = acct_tip;
+  return result;
+}
+
+/* Explicit empty adoption clears shadow votes through the normal path
+   so voted flags and the fork choice root stay consistent. */
+static fd_tower_adopt_result_t
+adopt_empty( fd_tower_tile_t * ctx ) {
+  ctx->tower_adopted = 0;
+  fd_tower_adopt_result_t result = adopt_votes( ctx, NULL, 0UL, ULONG_MAX, NULL, NULL );
+  if( FD_LIKELY( result.result==FD_TOWER_ADOPT_SUCCESS ) )
+    FD_LOG_WARNING(( "tower adoption: empty history installed at root %lu, earlier unrecorded votes and lockouts are not protected", result.root ));
+  return result;
+}
+
+/* adopt_tower installs serialized vote history.
+   Its tip must be the block this validator replayed for that slot.
+   An empty payload selects the vote account, see adopt_vote_account. */
+static fd_tower_adopt_result_t
+adopt_tower( fd_tower_tile_t * ctx,
+             uchar const *     data,
+             ulong             data_sz ) {
+  ctx->tower_adopted = 0;
+  if( FD_UNLIKELY( !data_sz ) ) return adopt_vote_account( ctx );
+  fd_tower_adopt_result_t result = { .result         = FD_TOWER_ADOPT_ERR_DECODE,
+                                     .root           = ctx->tower->root,
+                                     .vote_slot      = fd_tower_vote_empty( ctx->tower->votes )
+                                                       ? ULONG_MAX
+                                                       : fd_tower_vote_peek_tail_const( ctx->tower->votes )->slot,
+                                     .acct_vote_slot = ULONG_MAX };
+  fd_compact_tower_sync_serde_t serde;
+  if( FD_UNLIKELY( fd_compact_tower_sync_de_exact( &serde, data, data_sz ) ) ) return result;
+
+  fd_tower_vote_t votes[ FD_TOWER_VOTE_MAX ];
+  ulong           vote_cnt;
+  ulong           root;
+  result.result = FD_TOWER_ADOPT_ERR_INVALID;
+  if( FD_UNLIKELY( fd_compact_tower_sync_to_votes( &serde, votes, &vote_cnt, &root ) ) ) return result;
+
+  return adopt_votes( ctx, votes, vote_cnt, root, &serde.hash, &serde.block_id );
+}
+
+/* failover_slot_completed runs on every completed slot.  It remembers
+   the slot our vote account was read from, refreshes the epoch voter
+   caches an adoption left stale, and returns found, cleared while we
+   may not vote, so publish_slot_done builds no vote. */
+static int
+failover_slot_completed( fd_tower_tile_t *            ctx,
+                         fd_replay_slot_completed_t * slot_completed,
+                         int                          found ) {
+  if( FD_LIKELY( found ) ) ctx->vote_acct_slot = slot_completed->slot;
+
+  /* An adoption advanced the root with no bank at hand to refresh the
+     epoch voter caches, so do it here on the next completed slot, before
+     any vote or dead slot in the new epoch is judged against them.  Key
+     off the root block's epoch, not this slot's, since the adopted root
+     may sit an epoch behind where replay has reached. */
+  if( FD_UNLIKELY( ctx->epoch_refresh_pending ) ) {
+    ctx->epoch_refresh_pending = 0;
+    fd_tower_blk_t const * root_blk   = fd_tower_blocks_query( ctx->tower, ctx->tower->root );
+    ulong                  root_epoch = root_blk ? root_blk->epoch : slot_completed->epoch;
+    /* The caches always hold this bank's epoch and the next.  They are
+       right as they are when the root epoch did not move, and cannot be
+       built for a root an epoch behind the bank, so only a root in the
+       bank's epoch relabels them, as the normal root advance does. */
+    if( FD_UNLIKELY( root_epoch!=ctx->root_epoch && root_epoch==slot_completed->epoch ) ) QUERY_VOTERS( ctx, slot_completed, root_epoch );
+  }
+
+  return found && !ctx->shadow && !ctx->no_vote_authority;
+}
+
+/* failover_identity_switch runs when the identity keyswitch is ready to
+   switch.  A failover switch keeps the adopted tower: it installs the
+   key, completes the keyswitch and returns 1.  We vote only once we
+   leave the key we booted with, and only after an adoption authorized
+   the switch. */
+static int
+failover_identity_switch( fd_tower_tile_t * ctx ) {
+  memcpy( ctx->identity_key, ctx->identity_keyswitch->bytes, 32UL );
+  FD_BASE58_ENCODE_32_BYTES( ctx->identity_key->uc, pubkey_str );
+  FD_LOG_INFO(( "my identity key: %s (key switched)", pubkey_str ));
+  ctx->shadow = fd_pubkey_eq( ctx->identity_key, &ctx->boot_identity );
+  FD_LOG_NOTICE(( "tower: identity switch completed, %s", ctx->shadow ? "shadow voting only" : "voting identity installed" ));
+  ctx->no_vote_authority = 0;
+  if( FD_UNLIKELY( !ctx->shadow && !ctx->tower_adopted ) ) {
+    ctx->no_vote_authority = 1;
+    FD_LOG_WARNING(( "voting identity installed without an adopted tower, refusing to vote until adoption precedes an identity switch" ));
+  }
+  ctx->tower_adopted = 0;
+  ctx->identity_keyswitch->result = ctx->out_seq;
+  fd_keyswitch_state( ctx->identity_keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
+  return 1;
+}
+
+/* failover_adopt_frag answers an adoption request from the failover
+   tile.  The response echoes the request sequence number. */
+static void
+failover_adopt_frag( fd_tower_tile_t *   ctx,
+                     ulong               in_idx,
+                     ulong               sig,
+                     ulong               chunk,
+                     ulong               sz,
+                     ulong               ctl,
+                     fd_stem_context_t * stem ) {
+  fd_tower_adopt_result_t result;
+  if( FD_UNLIKELY( ctl==FD_TOWER_ADOPT_CTL_EMPTY && !sz ) ) result = adopt_empty( ctx );
+  else if( FD_LIKELY( !ctl ) ) result = adopt_tower( ctx, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ), sz );
+  else {
+    ctx->tower_adopted = 0;
+    result = (fd_tower_adopt_result_t){ .result=FD_TOWER_ADOPT_ERR_INVALID, .root=ctx->tower->root,
+                                        .vote_slot=ULONG_MAX, .acct_vote_slot=ULONG_MAX };
+  }
+  /* Unreplayed votes may be retried, log only other adoption refusals. */
+  switch( result.result ) {
+  case FD_TOWER_ADOPT_ERR_DECODE:
+    FD_LOG_WARNING(( "tower adoption refused, the history does not decode, the local tower is unchanged" ));
+    break;
+  case FD_TOWER_ADOPT_ERR_INVALID:
+    FD_LOG_WARNING(( "tower adoption refused, the lockouts are invalid, the local tower is unchanged" ));
+    break;
+  case FD_TOWER_ADOPT_ERR_UNREPLAYED_ROOT:
+    FD_LOG_WARNING(( "tower adoption refused, the root is not a replayed block above local root %lu, the local tower is unchanged", ctx->tower->root ));
+    break;
+  case FD_TOWER_ADOPT_ERR_BLOCK_MISMATCH:
+    FD_LOG_WARNING(( "tower adoption refused, the votes do not match replayed blocks, the local tower is unchanged" ));
+    break;
+  default:
+    break;
+  }
+
+  FD_TEST( ctx->adopt_out_idx!=ULONG_MAX );
+  fd_memcpy( fd_chunk_to_laddr( ctx->adopt_out_mem, ctx->adopt_out_chunk ), &result, sizeof(result) );
+  ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+  fd_stem_publish( stem, ctx->adopt_out_idx, sig, ctx->adopt_out_chunk, sizeof(result), 0UL, tspub, tspub );
+  ctx->adopt_out_chunk = fd_dcache_compact_next( ctx->adopt_out_chunk, sizeof(result),
+                                                 ctx->adopt_out_chunk0, ctx->adopt_out_wmark );
+}
+
+/* failover_init sets the failover state, all of it off unless the
+   topology has the adopt links.  Tile memory is not zeroed on a reused
+   workspace, so every field is set here.  tower_out must stay out link
+   0, tower_adopt is added after it.  Under failover we boot as a
+   standby on the junk key and vote once a promotion installs another
+   key. */
+static void
+failover_init( fd_tower_tile_t *      ctx,
+               fd_topo_t const *      topo,
+               fd_topo_tile_t const * tile ) {
+  ctx->tower_adopted         = 0;
+  ctx->no_vote_authority     = 0;
+  ctx->shadow                = 0;
+  ctx->vote_acct_slot        = ULONG_MAX;
+  ctx->adoption_required     = 0;
+  ctx->epoch_refresh_pending = 0;
+  ctx->boot_identity         = *ctx->identity_key;
+
+  ctx->adopt_out_idx = fd_topo_find_tile_out_link( topo, tile, "tower_adopt", 0UL );
+  if( FD_UNLIKELY( (ctx->adopt_out_idx==ULONG_MAX)!=(fd_topo_find_tile_in_link( topo, tile, "adopt_tower", 0UL )==ULONG_MAX) ) ) {
+    FD_LOG_ERR(( "tower tile needs both the adopt_tower and tower_adopt links or neither" ));
+  }
+  if( FD_LIKELY( ctx->adopt_out_idx==ULONG_MAX ) ) return;
+
+  ctx->adoption_required = 1;
+  ctx->shadow            = 1;
+  FD_LOG_NOTICE(( "tower: standby, tracking votes without voting until a promotion installs another identity" ));
+  fd_topo_link_t const * link = &topo->links[ tile->out_link_id[ ctx->adopt_out_idx ] ];
+  ctx->adopt_out_mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
+  ctx->adopt_out_chunk0 = fd_dcache_compact_chunk0( ctx->adopt_out_mem, link->dcache );
+  ctx->adopt_out_wmark  = fd_dcache_compact_wmark ( ctx->adopt_out_mem, link->dcache, link->mtu );
+  ctx->adopt_out_chunk  = ctx->adopt_out_chunk0;
 }
 
 #define STEM_BURST (2UL)        /* MAX( slot_confirmed, slot_rooted AND (slot_done OR slot_ignored) ) */
