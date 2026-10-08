@@ -241,7 +241,8 @@ struct fd_votor_tile {
 
   /* Initialization */
 
-  int init;
+  int           init;
+  ag_block_id_t boot_block_id;
 
   /* Cluster metadata */
 
@@ -259,8 +260,7 @@ struct fd_votor_tile {
   fd_multi_epoch_leaders_t * mleaders;
   ulong                      next_leader_slot;
   ulong                      highest_parent_ready_slot;
-  ag_block_id_t              boot_block_id; /* the root ag_pool_init started at */
-  ulong                      highest_unotar_final_slot; /* highest slot for which we have a final cert that we have not paired with a notar  */
+  ulong                      highest_certed_final_slot; /* highest slot whose final cert was published paired with its notar cert */
 
   /* Alpenglow data structures */
 
@@ -1700,12 +1700,11 @@ after_credit( fd_votor_tile_t *   ctx,
       fd_votor_certed_t *     certed = &chunk->certed;
       switch( cert->kind ) {
       case AG_CERT_KIND_FINAL:
-        if( FD_LIKELY( state && state->certs.notar.slot != ULONG_MAX ) ) {
+        if( FD_LIKELY( state && state->certs.notar.slot != ULONG_MAX && slot>ctx->highest_certed_final_slot ) ) {
           *certed = (fd_votor_certed_t){ .kind = cert->kind, .slot = slot, .block_id = FD_LOAD( fd_hash_t, state->certs.notar.block_hash ), .agg = state->certs.finalize.agg, .agg2 = state->certs.notar.agg };
           fd_stem_publish( stem, OUT_IDX_VOTOR, FD_VOTOR_SIG_CERTED, ctx->votor_out_chunk, sizeof(fd_votor_msg_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
           ctx->votor_out_chunk = fd_dcache_compact_next( ctx->votor_out_chunk, sizeof(fd_votor_msg_t), ctx->votor_out_chunk0, ctx->votor_out_wmark );
-        } else {
-          ctx->highest_unotar_final_slot = slot;
+          ctx->highest_certed_final_slot = slot;
         }
         break;
       case AG_CERT_KIND_FAST_FINAL:
@@ -1719,12 +1718,13 @@ after_credit( fd_votor_tile_t *   ctx,
         ctx->votor_out_chunk = fd_dcache_compact_next( ctx->votor_out_chunk, sizeof(fd_votor_msg_t), ctx->votor_out_chunk0, ctx->votor_out_wmark );
 
 
-        if( FD_UNLIKELY( ctx->highest_unotar_final_slot==slot && state && state->certs.finalize.slot != ULONG_MAX ) ) {
+        if( FD_UNLIKELY( state && state->certs.finalize.slot != ULONG_MAX && slot>ctx->highest_certed_final_slot ) ) {
           chunk   = fd_chunk_to_laddr( ctx->votor_out_mem, ctx->votor_out_chunk );
           certed  = &chunk->certed;
           *certed = (fd_votor_certed_t){ .kind = AG_CERT_KIND_FINAL, .slot = slot, .block_id = FD_LOAD( fd_hash_t, cert->notar.block_hash ), .agg = state->certs.finalize.agg, .agg2 = cert->notar.agg };
           fd_stem_publish( stem, OUT_IDX_VOTOR, FD_VOTOR_SIG_CERTED, ctx->votor_out_chunk, sizeof(fd_votor_msg_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
           ctx->votor_out_chunk = fd_dcache_compact_next( ctx->votor_out_chunk, sizeof(fd_votor_msg_t), ctx->votor_out_chunk0, ctx->votor_out_wmark );
+          ctx->highest_certed_final_slot = slot;
         }
         break;
       case AG_CERT_KIND_NOTAR_FALLBACK:
@@ -2116,7 +2116,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->next_leader_slot          = ULONG_MAX;
   ctx->ns_per_slot               = 400000000L; /* until epoch info */
   ctx->highest_parent_ready_slot = 0UL;
-  ctx->highest_unotar_final_slot = ULONG_MAX;
+  ctx->highest_certed_final_slot = 0UL;
 
   FD_TEST( tile->in_cnt<=sizeof(ctx->in_kind)/sizeof(ctx->in_kind[0]) );
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
