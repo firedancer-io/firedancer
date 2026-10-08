@@ -95,7 +95,7 @@ fd_failover_channel_new( void * shmem ) {
   ch->backoff_min     = FD_FAILOVER_CHANNEL_BACKOFF_MIN_NANOS;
   ch->backoff_max     = FD_FAILOVER_CHANNEL_BACKOFF_MAX_NANOS;
   ch->backoff         = ch->backoff_min;
-  ch->rate_credit     = 16UL*1000000000UL;
+  ch->rate_credit     = 16UL*FD_FAILOVER_NANOS_PER_SECOND;
   FD_TEST( fd_sha512_join( fd_sha512_new( ch->sha ) ) );
   ch->magic           = FD_FAILOVER_CHANNEL_MAGIC;
   return shmem;
@@ -319,7 +319,7 @@ lose( fd_failover_channel_t * ch,
       ulong                   cause,
       char const *            why ) {
   if( ch->paired_idx==(int)idx && now>=ch->loss_log_at[cause] ) {
-    ch->loss_log_at[cause] = fd_long_sat_add( now, 60000000000L );
+    ch->loss_log_at[cause] = fd_long_sat_add( now, FD_FAILOVER_LOG_INTERVAL_NANOS );
     FD_LOG_WARNING(( "lost the failover session with `" FD_IP4_ADDR_FMT "`, %s, repeated failures limited to one line per minute",
                      FD_IP4_ADDR_FMT_ARGS( ch->candidates[idx].address ), why ));
   }
@@ -350,8 +350,8 @@ refill( ulong  credit,
         ulong  burst ) {
   if( now>*updated ) {
     /* Bound elapsed time before multiplying the scaled token count. */
-    ulong elapsed = fd_ulong_min( (ulong)now-(ulong)*updated, 1000000000UL );
-    credit   = fd_ulong_min( credit+elapsed*rate, burst*1000000000UL );
+    ulong elapsed = fd_ulong_min( (ulong)now-(ulong)*updated, FD_FAILOVER_NANOS_PER_SECOND );
+    credit   = fd_ulong_min( credit+elapsed*rate, burst*FD_FAILOVER_NANOS_PER_SECOND );
     *updated = now;
   }
   return credit;
@@ -362,7 +362,7 @@ admit( fd_failover_channel_t * ch,
        uint                    address,
        long                    now ) {
   ch->rate_credit = refill( ch->rate_credit, &ch->rate_updated, now, 32UL, 16UL );
-  if( ch->rate_credit<1000000000UL ) return 0;
+  if( ch->rate_credit<FD_FAILOVER_NANOS_PER_SECOND ) return 0;
   ulong same = 0UL;
   for( ulong i=0; i<FD_FAILOVER_CHANNEL_CANDIDATE_MAX; i++ )
     same += ch->candidates[i].fd!=-1 && ch->candidates[i].address==address;
@@ -373,16 +373,16 @@ admit( fd_failover_channel_t * ch,
     struct source * s = &ch->sources[i];
     if( s->used ) s->credit = refill( s->credit, &s->updated, now, 4UL, 2UL );
     if( s->used && s->address==address ) { source = s; break; }
-    if( !s->used || s->credit==2000000000UL ) reusable = s;
+    if( !s->used || s->credit==2UL*FD_FAILOVER_NANOS_PER_SECOND ) reusable = s;
   }
   if( !source ) {
     if( !reusable ) return 0;
     source  = reusable;
-    *source = (struct source){ .address=address, .used=1, .updated=now, .credit=2000000000UL };
+    *source = (struct source){ .address=address, .used=1, .updated=now, .credit=2UL*FD_FAILOVER_NANOS_PER_SECOND };
   }
-  if( source->credit<1000000000UL ) return 0;
-  source->credit -= 1000000000UL;
-  ch->rate_credit -= 1000000000UL;
+  if( source->credit<FD_FAILOVER_NANOS_PER_SECOND ) return 0;
+  source->credit -= FD_FAILOVER_NANOS_PER_SECOND;
+  ch->rate_credit -= FD_FAILOVER_NANOS_PER_SECOND;
   return 1;
 }
 
@@ -526,15 +526,15 @@ hello_err_name( int err ) {
   switch( err ) {
   case HELLO_ERR_TLS_KEY:                return "its junk key is not the key TLS authenticated, check who can reach the failover port";
   case FD_FAILOVER_HELLO_ERR_VERSION:    return "the protocol version differs, run the same Firedancer version on both machines";
-  case FD_FAILOVER_HELLO_ERR_STAKED:     return "the staked identity differs, check that [paths.identity_key] is the same keypair on both machines";
+  case FD_FAILOVER_HELLO_ERR_STAKED:     return "the failover identity differs, check that both machines run [paths.identity_key] with the same keypair, or the same key from their last `set-identity`";
   case FD_FAILOVER_HELLO_ERR_VOTE_ACCT:  return "the vote account differs, check that [paths.vote_account] is the same on both machines";
   case FD_FAILOVER_HELLO_ERR_JUNK_EQ:    return "its junk key is ours, check that the address is the other machine, and if both machines share one [paths.base]/junk-identity.json delete it on one of them and restart that machine, never copy that file";
   case FD_FAILOVER_HELLO_ERR_JUNK_STAKE: return "a junk key is the staked key, [paths.base]/junk-identity.json must not be the staked [paths.identity_key]";
-  case FD_FAILOVER_HELLO_ERR_BOTH_ACT:   return "both members are active, only one machine may run the staked identity, stop signing now on the machine that should not vote with `failover demote` there";
+  case FD_FAILOVER_HELLO_ERR_BOTH_ACT:   return "both members are active, only one machine may run the staked identity, stop signing now on the machine that should not vote with `set-identity` and its junk identity there";
   case FD_FAILOVER_HELLO_ERR_ROLE:       return "the role is unknown, run the same Firedancer version on both machines";
   case FD_FAILOVER_HELLO_ERR_BOOT_ID:    return "the boot id is zero, run the same Firedancer version on both machines";
   case FD_FAILOVER_HELLO_ERR_MODE:       return "the consensus mode differs, run both machines in the same consensus mode";
-  case FD_FAILOVER_HELLO_ERR_CERT:       return "its member certificate is not signed by our staked key, check that [paths.identity_key] is the same keypair on both machines";
+  case FD_FAILOVER_HELLO_ERR_CERT:       return "its member certificate is not signed by the failover identity, check that both machines hold the same keypair for it";
   default:                               return "unknown";
   }
 }
@@ -557,7 +557,7 @@ read_frame( fd_failover_channel_t * ch,
     /* The listener responds only to a HELLO it accepts, so a close here
        usually means it refused ours. */
     if( FD_UNLIKELY( c->dialed && c->phase==PHASE_HELLO && now>=ch->dial_log_at[1] ) ) {
-      ch->dial_log_at[1] = fd_long_sat_add( now, 60000000000L );
+      ch->dial_log_at[1] = fd_long_sat_add( now, FD_FAILOVER_LOG_INTERVAL_NANOS );
       FD_LOG_WARNING(( "the failover peer at `" FD_IP4_ADDR_FMT "` closed the connection before answering our HELLO, its log says why it refused us",
                        FD_IP4_ADDR_FMT_ARGS( c->address ) ));
     }
@@ -589,7 +589,7 @@ connect_candidate( fd_failover_channel_t * ch,
   if( connect( c->fd, fd_type_pun( &addr ), sizeof(addr) ) && errno!=EISCONN ) {
     if( errno==EINPROGRESS || errno==EALREADY || errno==EINTR ) return 0; /* TCP is still connecting. */
     if( now>=ch->dial_log_at[0] ) {
-      ch->dial_log_at[0] = fd_long_sat_add( now, 60000000000L );
+      ch->dial_log_at[0] = fd_long_sat_add( now, FD_FAILOVER_LOG_INTERVAL_NANOS );
       FD_LOG_WARNING(( "could not connect to the failover peer at `" FD_IP4_ADDR_FMT ":%hu` (%i-%s), check that it runs and that the machines can reach each other on [failover.listen_port]",
                        FD_IP4_ADDR_FMT_ARGS( ch->peer_addr ), ch->peer_port, errno, fd_io_strerror( errno ) ));
     }
@@ -614,7 +614,7 @@ handshake_candidate( fd_failover_channel_t * ch,
     uint  reason = c->tls.conn.hs.base.reason;
     ulong kind   = tls_log_kind( reason );
     if( now>=ch->tls_log_at[kind] ) {
-      ch->tls_log_at[kind] = fd_long_sat_add( now, 60000000000L );
+      ch->tls_log_at[kind] = fd_long_sat_add( now, FD_FAILOVER_LOG_INTERVAL_NANOS );
       FD_LOG_WARNING(( "TLS handshake with `" FD_IP4_ADDR_FMT "` failed (%s), not necessarily the other failover machine, check peer reachability and junk keys on both machines",
                        FD_IP4_ADDR_FMT_ARGS( c->address ), reason ? fd_tls_reason_cstr( reason ) : "connection closed or socket error" ));
     }
@@ -645,7 +645,7 @@ read_candidate_hello( fd_failover_channel_t * ch,
   if( read_frame( ch, idx, now, busy, &type, payload, &sz )<=0 ) return 0; /* Wait for HELLO, or stop after a read failure. */
   if( type!=FD_FAILOVER_MSG_HELLO || sz!=sizeof(c->hello) ) {
     if( now>=ch->hello_log_at[0] ) {
-      ch->hello_log_at[0] = fd_long_sat_add( now, 60000000000L );
+      ch->hello_log_at[0] = fd_long_sat_add( now, FD_FAILOVER_LOG_INTERVAL_NANOS );
       FD_LOG_WARNING(( "rejected the failover HELLO from `" FD_IP4_ADDR_FMT "`, its first frame is not a HELLO, check who can reach the failover port", FD_IP4_ADDR_FMT_ARGS( c->address ) ));
     }
     /* A malformed HELLO closes this candidate without pairing. */
@@ -660,7 +660,7 @@ read_candidate_hello( fd_failover_channel_t * ch,
   if( err!=FD_FAILOVER_HELLO_OK ) {
     ulong bucket = err==HELLO_ERR_TLS_KEY ? 12UL : ( err>0 && err<=FD_FAILOVER_HELLO_ERR_CERT ? (ulong)err : 13UL );
     if( now>=ch->hello_log_at[bucket] ) {
-      ch->hello_log_at[bucket] = fd_long_sat_add( now, 60000000000L );
+      ch->hello_log_at[bucket] = fd_long_sat_add( now, FD_FAILOVER_LOG_INTERVAL_NANOS );
       FD_LOG_WARNING(( "rejected the failover HELLO from `" FD_IP4_ADDR_FMT "`, %s", FD_IP4_ADDR_FMT_ARGS( c->address ), hello_err_name( err ) ));
     }
     /* A refused HELLO closes this candidate without pairing. */
@@ -702,7 +702,7 @@ pair_candidate( fd_failover_channel_t * ch,
   ch->expected_close = 0;
   *busy = 1;
   if( now>=ch->pair_log_at ) {
-    ch->pair_log_at = fd_long_sat_add( now, 60000000000L );
+    ch->pair_log_at = fd_long_sat_add( now, FD_FAILOVER_LOG_INTERVAL_NANOS );
     char member[ FD_BASE58_ENCODED_32_SZ ];
     fd_base58_encode_32( c->hello.junk_pubkey, NULL, member );
     FD_LOG_NOTICE(( "paired with the failover peer at `" FD_IP4_ADDR_FMT "` via %s, authenticated member %s, role %s, boot id %016lx",
@@ -765,7 +765,7 @@ fd_failover_channel_poll( fd_failover_channel_t * ch,
     struct candidate * c = &ch->candidates[i];
     if( c->fd!=-1 && (int)i!=ch->paired_idx && now>=c->deadline ) {
       if( c->dialed && now>=ch->dial_log_at[2] ) {
-        ch->dial_log_at[2] = fd_long_sat_add( now, 60000000000L );
+        ch->dial_log_at[2] = fd_long_sat_add( now, FD_FAILOVER_LOG_INTERVAL_NANOS );
         FD_LOG_WARNING(( "the failover peer at `" FD_IP4_ADDR_FMT "` did not finish the handshake in time, check that it runs and that the machines can reach each other on [failover.listen_port]",
                          FD_IP4_ADDR_FMT_ARGS( c->address ) ));
       }

@@ -11,13 +11,16 @@
 #define FD_FAILOVER_CHANNEL_MAGIC         (0xF17EDA2CE5FA170AUL)
 #define FD_FAILOVER_CHANNEL_CANDIDATE_MAX (16UL)
 
+#define FD_FAILOVER_NANOS_PER_SECOND   (1000000000UL)
+#define FD_FAILOVER_LOG_INTERVAL_NANOS (60L*(long)FD_FAILOVER_NANOS_PER_SECOND)
+
 /* fd_failover_clock returns monotonic nanoseconds for every channel
    deadline. */
 static inline long
 fd_failover_clock( void ) {
   struct timespec ts;
   clock_gettime( CLOCK_MONOTONIC, &ts );
-  return (long)ts.tv_sec*1000000000L + (long)ts.tv_nsec;
+  return (long)ts.tv_sec*(long)FD_FAILOVER_NANOS_PER_SECOND + (long)ts.tv_nsec;
 }
 
 /* Handshake, operation and retry limits in nanoseconds. */
