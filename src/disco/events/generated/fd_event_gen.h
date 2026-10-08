@@ -360,7 +360,7 @@ struct fd_event_block_completed {
   ulong                                 progcache_fork_id;                         /* Program cache fork handle held by the bank. See bank_idx for scope. */
   ushort                                accdb_fork_id;                             /* Account database fork handle held by the bank. See bank_idx for scope. */
   ulong                                 vote_stakes_fork_id;                       /* Vote stakes fork handle held by the bank. See bank_idx for scope. */
-  ushort                                collector_overrides_fork_id;               /* Collector overrides fork handle held by the bank. See bank_idx for scope. */
+  ushort                                collector_overrides_fork_id;               /* Deprecated collector overrides fork handle. Always 0. */
   ushort                                stake_rewards_fork_id;                     /* Stake rewards fork handle held by the bank. See bank_idx for scope. */
   ushort                                epoch_credits_fork_id;                     /* Epoch credits fork handle held by the bank. See bank_idx for scope. */
   ushort                                stake_delegations_fork_id;                 /* Stake delegations fork handle held by the bank. See bank_idx for scope. */

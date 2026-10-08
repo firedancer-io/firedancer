@@ -1107,7 +1107,7 @@ message BlockCompleted {
   uint32 accdb_fork_id = 5;
   // Vote stakes fork handle held by the bank. See bank_idx for scope.
   uint64 vote_stakes_fork_id = 6;
-  // Collector overrides fork handle held by the bank. See bank_idx for scope.
+  // Deprecated collector overrides fork handle. Always 0.
   uint32 collector_overrides_fork_id = 7;
   // Stake rewards fork handle held by the bank. See bank_idx for scope.
   uint32 stake_rewards_fork_id = 8;

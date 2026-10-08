@@ -470,11 +470,6 @@ fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
      epoch stake by querying for epoch+1.  This logic is encapsulated
      in fd_ssmanifest_parser.c. */
 
-  fd_collector_overrides_t * overrides = fd_bank_collector_overrides( bank );
-  fd_collector_overrides_reset( overrides );
-  bank->collector_overrides_fork_id = fd_collector_overrides_get_root_idx( overrides );
-  ushort co_root = bank->collector_overrides_fork_id;
-
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
   fd_vote_stakes_reset( vote_stakes );
   bank->vote_stakes_fork_id = fd_vote_stakes_init( vote_stakes, bank->f.epoch );
@@ -500,18 +495,8 @@ fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
     fd_vote_stakes_snap_insert_t_1( vote_stakes, vote_stakes_fork_id, (fd_pubkey_t *)elem->vote, (fd_pubkey_t *)elem->identity, elem->stake, elem->commission, elem->identity_bls );
     fd_vote_stakes_set_block_revenue_t_1( vote_stakes, vote_stakes_fork_id, (fd_pubkey_t const *)elem->vote,
                                           elem->commission_block_bps, elem->pending_delegator_rewards );
-
-    /* Record SIMD-0232 collector overrides for the t_1 set (tag
-       bank->f.epoch). */
-    {
-      int has_inflation = !!memcmp( elem->commission_inflation, elem->vote,     32UL );
-      int has_block     = !!memcmp( elem->commission_block,     elem->identity, 32UL );
-      if( FD_UNLIKELY( has_inflation | has_block ) ) {
-        fd_collector_overrides_upsert( overrides, co_root, bank->f.epoch, (fd_pubkey_t const *)elem->vote,
-                                       has_inflation, (fd_pubkey_t const *)elem->commission_inflation,
-                                       has_block, (fd_pubkey_t const *)elem->commission_block );
-      }
-    }
+    fd_vote_stakes_set_collectors_t_1( vote_stakes, vote_stakes_fork_id, (fd_pubkey_t const *)elem->vote,
+                                       (fd_pubkey_t const *)elem->commission_inflation, (fd_pubkey_t const *)elem->commission_block );
 
     /* Reward recalculation resolves every epoch credits entry against
        the t_1 set, so only admitted accounts may get one. */
@@ -558,18 +543,8 @@ fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
     fd_vote_stakes_snap_insert_t_2( vote_stakes, vote_stakes_fork_id, (fd_pubkey_t *)elem->vote, (fd_pubkey_t *)elem->identity, elem->stake, elem->commission, elem->identity_bls );
     fd_vote_stakes_set_block_revenue_t_2( vote_stakes, vote_stakes_fork_id, (fd_pubkey_t const *)elem->vote,
                                           elem->commission_block_bps, elem->pending_delegator_rewards );
-
-    /* Record SIMD-0232 collector overrides for the t_2 set (tag
-       bank->f.epoch-1, the leader schedule source state). */
-    {
-      int has_inflation = !!memcmp( elem->commission_inflation, elem->vote,     32UL );
-      int has_block     = !!memcmp( elem->commission_block,     elem->identity, 32UL );
-      if( FD_UNLIKELY( has_inflation | has_block ) ) {
-        fd_collector_overrides_upsert( overrides, co_root, fd_ulong_sat_sub( bank->f.epoch, 1UL ), (fd_pubkey_t const *)elem->vote,
-                                       has_inflation, (fd_pubkey_t const *)elem->commission_inflation,
-                                       has_block, (fd_pubkey_t const *)elem->commission_block );
-      }
-    }
+    fd_vote_stakes_set_collectors_t_2( vote_stakes, vote_stakes_fork_id, (fd_pubkey_t const *)elem->vote,
+                                       (fd_pubkey_t const *)elem->commission_inflation, (fd_pubkey_t const *)elem->commission_block );
   }
   fd_vote_stakes_finalize( vote_stakes, vote_stakes_fork_id, FD_VOTE_STAKES_ITER_T_2 );
 

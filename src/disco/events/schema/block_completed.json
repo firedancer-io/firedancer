@@ -9,7 +9,7 @@
         "progcache_fork_id":                         { "type": "UInt64",        "compression": "T64, ZSTD",         "description": "Program cache fork handle held by the bank. See bank_idx for scope." },
         "accdb_fork_id":                             { "type": "UInt16",        "compression": "T64, ZSTD",         "description": "Account database fork handle held by the bank. See bank_idx for scope." },
         "vote_stakes_fork_id":                       { "type": "UInt64",        "compression": "T64, ZSTD",         "description": "Vote stakes fork handle held by the bank. See bank_idx for scope." },
-        "collector_overrides_fork_id":               { "type": "UInt16",        "compression": "T64, ZSTD",         "description": "Collector overrides fork handle held by the bank. See bank_idx for scope." },
+        "collector_overrides_fork_id":               { "type": "UInt16",        "compression": "T64, ZSTD",         "description": "Deprecated collector overrides fork handle. Always 0." },
         "stake_rewards_fork_id":                     { "type": "UInt16",        "compression": "T64, ZSTD",         "description": "Stake rewards fork handle held by the bank. See bank_idx for scope." },
         "epoch_credits_fork_id":                     { "type": "UInt16",        "compression": "T64, ZSTD",         "description": "Epoch credits fork handle held by the bank. See bank_idx for scope." },
         "stake_delegations_fork_id":                 { "type": "UInt16",        "compression": "T64, ZSTD",         "description": "Stake delegations fork handle held by the bank. See bank_idx for scope." },

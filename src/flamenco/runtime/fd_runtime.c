@@ -289,31 +289,27 @@ fd_runtime_deposit_or_burn_fee( fd_bank_t *        bank,
 
   /* Per SIMD-0232, the fee reward goes to the leader's block revenue
      collector from the vote account state the leader schedule was
-     derived from (captured entering the previous epoch, tag
-     epoch-1); default is the leader identity.
+     derived from (the t-2 vote stakes set); default is the leader
+     identity.
      https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.5/runtime/src/bank/fee_distribution.rs#L151-L181 */
   int custom_commission_collector = FD_FEATURE_ACTIVE_BANK( bank, custom_commission_collector );
 
   fd_pubkey_t const * collector_id   = leader;
   fd_pubkey_t const * leader_vote    = NULL;
   ushort              commission_bps = FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS;
-  fd_pubkey_t         override_collector;
+  fd_pubkey_t         block_collector;
   if( custom_commission_collector ) {
     leader_vote = fd_epoch_leaders_get_vote( leaders, bank->f.slot );
     if( FD_UNLIKELY( !leader_vote ) ) FD_LOG_CRIT(( "fd_epoch_leaders_get_vote(%lu) returned NULL", bank->f.slot ));
-    int flags = fd_collector_overrides_query( fd_bank_collector_overrides( bank ),
-                                              bank->collector_overrides_fork_id,
-                                              fd_ulong_sat_sub( bank->f.epoch, 1UL ),
-                                              leader_vote,
-                                              NULL,
-                                              &override_collector );
-    if( FD_UNLIKELY( flags & FD_COLLECTOR_OVERRIDE_BLOCK ) ) collector_id = &override_collector;
     if( FD_UNLIKELY( !fd_vote_stakes_query_block_revenue_t_2( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id,
                                                               leader_vote, &commission_bps, NULL ) ) ) {
       FD_BASE58_ENCODE_32_BYTES( leader_vote->uc, leader_vote_b58 );
       /* https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.5/runtime/src/bank/fee_distribution.rs#L167 */
       FD_LOG_CRIT(( "leader vote account %s is not in the epoch stakes at slot %lu", leader_vote_b58, bank->f.slot ));
     }
+    FD_TEST( fd_vote_stakes_query_collectors_t_2( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id,
+                                                  leader_vote, NULL, &block_collector ) );
+    collector_id = &block_collector;
   }
 
   /* https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.5/runtime/src/bank/fee_distribution.rs#L183-L199 */
