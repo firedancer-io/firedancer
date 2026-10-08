@@ -3536,17 +3536,48 @@ test_leader_fec_eqvoc_guard( fd_wksp_t * wksp ) {
 }
 
 static void
-expect_leader_fec_invariant_failure( fd_replay_tile_t * ctx ) {
+expect_leader_fec_invariant_failure_at( fd_replay_tile_t * ctx,
+                                        int                line ) {
   pid_t pid = fork();
   FD_TEST( pid>=0 );
   if( !pid ) {
+    fd_bank_t *         lb = ctx->leader_bank;
+    fd_block_id_ele_t * li = lb ? &ctx->block_id_arr[ lb->idx ] : NULL;
+    int                 first      = li ? fd_hash_check_zero( &li->latest_mr ) : -1;
+    ulong               parent_idx = lb ? ( first ? lb->parent_idx : lb->idx ) : ULONG_MAX;
+    fd_block_id_ele_t * pi = parent_idx<ctx->block_id_len ? &ctx->block_id_arr[ parent_idx ] : NULL;
+    fd_reasm_fec_t *    rp = pi ? fd_reasm_query( ctx->reasm, &pi->latest_mr ) : NULL;
+    FD_LOG_WARNING(( "leader fec probe (line %i): is_leader=%d leader_idx=%lu leader_seq=%lu leader_slot=%lu "
+                     "id_seq=%lu id_seen=%d first=%d parent_idx=%lu parent_id_seq=%lu "
+                     "reasm_parent=%d reasm_bank_idx=%u reasm_bank_seq=%lu",
+                     line, ctx->is_leader,
+                     lb ? lb->idx      : ULONG_MAX,
+                     lb ? lb->bank_seq : ULONG_MAX,
+                     lb ? lb->f.slot   : ULONG_MAX,
+                     li ? li->bank_seq : ULONG_MAX,
+                     li ? li->block_id_seen : -1,
+                     first, parent_idx,
+                     pi ? pi->bank_seq : ULONG_MAX,
+                     !!rp,
+                     rp ? rp->bank_idx : UINT_MAX,
+                     rp ? rp->bank_seq : ULONG_MAX ));
     try_process_leader_fec( ctx, test_stem );
     _exit( 0 );
   }
   int status;
   FD_TEST( waitpid( pid, &status, 0 )==pid );
-  FD_TEST( WIFEXITED( status ) && WEXITSTATUS( status )==1 );
+  if( FD_UNLIKELY( !WIFEXITED( status ) ) ) {
+    int sig = WIFSIGNALED( status ) ? WTERMSIG( status ) : 0;
+    FD_LOG_ERR(( "leader fec probe (line %i): child died from signal %i (%s) instead of exiting 1",
+                 line, sig, fd_io_strsignal_name( sig ) ));
+  }
+  if( FD_UNLIKELY( WEXITSTATUS( status )!=1 ) ) {
+    FD_LOG_ERR(( "leader fec probe (line %i): child exited %i, expected 1; the invariant did not fire",
+                 line, WEXITSTATUS( status ) ));
+  }
 }
+
+#define expect_leader_fec_invariant_failure( ctx ) expect_leader_fec_invariant_failure_at( (ctx), __LINE__ )
 
 /* An active leader pins its ancestry.  Recycled parent metadata is an
    invariant violation, not a reason to silently defer leader progress. */
