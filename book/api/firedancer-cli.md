@@ -43,6 +43,10 @@ be changed. When Alpenglow is enabled, pass a vote history file
 produced by Agave or Firedancer (e.g. `vote_history-<pubkey>.bin`, at
 most 32,688 bytes) instead, and the validator will not vote until the
 leader window after the highest slot the previous validator voted in.
+Between two Firedancer validators running failover, only use
+`firedancer failover promote`, which hands over the vote history
+directly. Do not use `--vote-history-file` for this, it is only for a
+tower file from a validator that does not run failover, such as Agave.
 
 If `[tiles.tower.write_vote_history_file]` is enabled, votes are saved
 to `tower-1_9-<identity>.bin` in the `[paths.vote_history]` directory
