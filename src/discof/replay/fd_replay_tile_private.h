@@ -406,6 +406,7 @@ struct fd_replay_tile {
   ulong               block_id_len;
   ulong               max_live_slots;
   fd_block_id_ele_t * block_id_arr;
+  ulong *             dead_idxs; /* max_live_slots scratch for mark_bank_dead */
 
   fd_hash_t *         fec_chain;
   ulong               block_id_map_seed;

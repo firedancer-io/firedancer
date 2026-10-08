@@ -972,7 +972,7 @@ test_stake_rewards_dynamic_metadata_footprint( void ) {
       2150000UL, FD_BANKS_MAX_BANKS, 2UL );
   FD_TEST( wide>=narrow );
   FD_TEST( wide<(1UL<<30) );
-  FD_TEST( wide-narrow<(1UL<<20) );
+  FD_TEST( wide-narrow<FD_BANKS_MAX_BANKS*64UL );
 }
 
 static void
