@@ -459,6 +459,7 @@ setup_ctx_with_fork_width( fd_replay_tile_t * ctx,
   root_bank->f.slot_params                 = FD_SLOT_PARAMS_400MS;
   root_bank->f.slot_params.hashes_per_tick = 4UL;
   root_bank->f.slot_params_default         = FD_SLOT_PARAMS_400MS;
+  root_bank->f.features.alpenglow          = FD_FEATURE_DISABLED;
   fd_epoch_schedule_derive( &root_bank->f.epoch_schedule, 128UL, 128UL, 0 );
   fd_hash_t genesis_hash = { .ul = { 1UL } };
   fd_blockhashes_init( &root_bank->f.block_hash_queue, 42UL );
@@ -1469,6 +1470,7 @@ test_consensus_root_notification_handoff( fd_wksp_t * wksp ) {
   root->f.slot_params                 = FD_SLOT_PARAMS_400MS;
   root->f.slot_params.hashes_per_tick = 4UL;
   root->f.slot_params_default         = FD_SLOT_PARAMS_400MS;
+  root->f.features.alpenglow          = FD_FEATURE_DISABLED;
   fd_epoch_schedule_derive( &root->f.epoch_schedule, 128UL, 128UL, 0 );
 
   fd_hash_t root_id  = { .ul = { 100UL } };

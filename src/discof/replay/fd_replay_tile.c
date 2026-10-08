@@ -669,6 +669,7 @@ replay_block_start( fd_replay_tile_t * ctx,
 
   int is_epoch_boundary = 0;
   fd_runtime_block_execute_prepare( ctx->banks, bank, ctx->accdb, ctx->runtime_stack, ctx->capture_ctx, &is_epoch_boundary );
+  FD_CHECK_CRIT( !is_epoch_boundary || FD_FEATURE_ACTIVE_BANK( bank, alpenglow )==!!ctx->alpenglow, "alpenglow feature activation does not match [consensus.alpenglow]" );
 
   ulong max_tick_height;
   if( FD_UNLIKELY( FD_RUNTIME_EXECUTE_SUCCESS!=fd_runtime_compute_max_tick_height( parent_bank->f.ticks_per_slot, slot, &max_tick_height ) ) ) {
@@ -1473,6 +1474,7 @@ prepare_leader_bank( fd_replay_tile_t * ctx,
 
   int is_epoch_boundary = 0;
   fd_runtime_block_execute_prepare( ctx->banks, ctx->leader_bank, ctx->accdb, ctx->runtime_stack, ctx->capture_ctx, &is_epoch_boundary );
+  FD_CHECK_CRIT( !is_epoch_boundary || FD_FEATURE_ACTIVE_BANK( ctx->leader_bank, alpenglow )==!!ctx->alpenglow, "alpenglow feature activation does not match [consensus.alpenglow]" );
 
   ulong max_tick_height;
   if( FD_UNLIKELY( FD_RUNTIME_EXECUTE_SUCCESS!=fd_runtime_compute_max_tick_height( parent_bank->f.ticks_per_slot, slot, &max_tick_height ) ) ) {
@@ -2068,6 +2070,7 @@ init_after_snapshot( fd_replay_tile_t *  ctx,
   char const * one_offs[ 16UL ];
   for( ulong i=0UL; i<ctx->enable_features_cnt; i++ ) one_offs[ i ] = ctx->enable_features[ i ];
   fd_features_enable_one_offs( &bank->f.features, one_offs, (uint)ctx->enable_features_cnt, 0UL );
+  FD_CHECK_CRIT( FD_FEATURE_ACTIVE_BANK( bank, alpenglow )==!!ctx->alpenglow, "alpenglow feature activation does not match [consensus.alpenglow]" );
 
   /* Set slot params based on the feature gates in the snapshot,
      and assert that these are consistent with the values from the
