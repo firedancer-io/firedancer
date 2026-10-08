@@ -3009,7 +3009,6 @@ test_tower_reset_waits_for_rereplayed_bank( fd_wksp_t * wksp ) {
   ulong seq0    = test_stem_seqs[ out_idx ];
 
   root->refcnt++;
-  fd_vote_stakes_pin_t_1( fd_bank_vote_stakes( root ), root->vote_stakes_fork_id );
   process_tower_slot_done( ctx, test_stem, &msg, 0UL );
   FD_TEST( fd_hash_eq( &ctx->reset_cmr, &mr_root ) );
   FD_TEST( ctx->reset_slot==0UL );
@@ -3017,7 +3016,6 @@ test_tower_reset_waits_for_rereplayed_bank( fd_wksp_t * wksp ) {
 
   fd_banks_mark_bank_frozen( replacement );
   root->refcnt++;
-  fd_vote_stakes_pin_t_1( fd_bank_vote_stakes( root ), root->vote_stakes_fork_id );
   process_tower_slot_done( ctx, test_stem, &msg, 1UL );
   fd_metrics_tl = saved_metrics_tl;
   FD_TEST( fd_hash_eq( &ctx->reset_cmr, &mr1_32 ) );

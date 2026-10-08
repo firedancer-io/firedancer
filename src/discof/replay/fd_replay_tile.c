@@ -1187,10 +1187,7 @@ publish_slot_completed( fd_replay_tile_t *        ctx,
   /* refcnt should be incremented by 1 for each consumer that uses
      `bank_idx`.  Each consumer should decrement the bank's refcnt once
      they are done using the bank. */
-  if( FD_LIKELY( !ctx->alpenglow ) ) { /* tower_tile */
-    bank->refcnt++;
-    fd_vote_stakes_pin_t_1( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id );
-  }
+  if( FD_LIKELY( !ctx->alpenglow ) ) bank->refcnt++; /* tower_tile */
   if( FD_LIKELY( ctx->rpc_enabled ) ) bank->refcnt++; /* rpc tile */
   slot_info->bank_idx = bank->idx;
   slot_info->bank_seq = bank->bank_seq;
@@ -4213,7 +4210,6 @@ process_tower_slot_done( fd_replay_tile_t *           ctx,
   fd_bank_t * replay_bank = fd_banks_bank_query( ctx->banks, msg->replay_bank_idx );
   if( FD_UNLIKELY( !replay_bank ) ) FD_LOG_CRIT(( "invariant violation: bank not found for bank index %lu", msg->replay_bank_idx ));
   replay_bank->refcnt--;
-  fd_vote_stakes_unpin_t_1( fd_bank_vote_stakes( replay_bank ), replay_bank->vote_stakes_fork_id );
   FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt decremented to %lu for tower", replay_bank->idx, msg->replay_slot, replay_bank->refcnt ));
 
   if( FD_LIKELY( msg->root_slot!=ULONG_MAX ) ) {
@@ -5766,6 +5762,8 @@ populate_allowed_fds( fd_topo_t const *      topo,
 static inline void
 during_housekeeping( fd_replay_tile_t * ctx ) {
   wait_info_publish( ctx );
+
+  if( FD_LIKELY( ctx->banks->root_idx!=ULONG_MAX ) ) fd_vote_stakes_view_serve( fd_bank_vote_stakes( fd_banks_root( ctx->banks ) ) );
 
   if( FD_UNLIKELY( fd_clock_tile_recal_due( ctx->clock ) ) ) fd_clock_tile_recal( ctx->clock );
 

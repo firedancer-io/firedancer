@@ -111,10 +111,18 @@ typedef struct vacc_states vacc_states_t;
    t-1 set. */
 struct t_1_cache_ent {
   ulong set_idx; /* ULONG_MAX if the entry is empty */
-  ulong pin_cnt;
+  ulong pin_cnt; /* atomic; T_1_EVICTING is added while the writer
+                    reassigns the entry */
   ulong lru;
 };
 typedef struct t_1_cache_ent t_1_cache_ent_t;
+
+#define T_1_EVICTING (1UL<<62)
+
+/* view_req encodes the single outstanding view load request: 0 if
+   idle, set_idx+1 if pending, and (set_idx+1)|VIEW_REQ_READY once the
+   writer loaded the set and pinned it for the requester. */
+#define VIEW_REQ_READY (1UL<<63)
 
 struct fd_vote_stakes {
   ulong magic;
@@ -123,6 +131,7 @@ struct fd_vote_stakes {
   ulong min_stake_wmark;
   int   disk_fd;
   ulong lru;
+  ulong view_req;
 
   /* (pubkey, stake) pairs for the t-2 epoch.  These are shared across
      forks/banks. */
@@ -215,18 +224,25 @@ t_1_disk_io( fd_vote_stakes_t * vote_stakes,
   }
 }
 
-/* t_1_cache_evict frees the least recently used unpinned cache slot
-   for set_idx, writing its previous set back to disk. */
+/* t_1_cache_claim assigns the least recently used unpinned cache entry
+   to set_idx, writing its previous set back to disk.  The entry is
+   returned marked T_1_EVICTING so views on other threads cannot pin it
+   until the caller fills it and calls t_1_cache_unmark.  Views bump
+   pin_cnt speculatively, so retry before declaring the cache full. */
 
 static ulong
-t_1_cache_evict( fd_vote_stakes_t * vote_stakes,
+t_1_cache_claim( fd_vote_stakes_t * vote_stakes,
                  ulong              set_idx ) {
-  t_1_cache_ent_t * ent = t_1_cache( vote_stakes );
+  t_1_cache_ent_t * ent    = t_1_cache( vote_stakes );
   t_1_cache_ent_t * victim = NULL;
-  for( ulong i=0UL; i<vote_stakes->cache_cnt; i++ ) {
-    if( !ent[i].pin_cnt && (!victim || ent[i].lru<victim->lru) ) victim = ent+i;
+  for( ulong attempt=0UL; !victim; attempt++ ) {
+    for( ulong i=0UL; i<vote_stakes->cache_cnt; i++ ) {
+      if( !FD_VOLATILE_CONST( ent[i].pin_cnt ) && (!victim || ent[i].lru<victim->lru) ) victim = ent+i;
+    }
+    if( FD_UNLIKELY( victim && FD_ATOMIC_CAS( &victim->pin_cnt, 0UL, T_1_EVICTING )!=0UL ) ) victim = NULL;
+    FD_CHECK_CRIT( victim || attempt<(1UL<<20), "every vote stakes t-1 cache entry is pinned" );
+    if( !victim ) FD_SPIN_PAUSE();
   }
-  FD_CHECK_CRIT( victim, "every vote stakes t-1 cache entry is pinned" );
 
   ulong cache_idx = (ulong)(victim-ent);
   vacc_fork_t * fork_pool = vacc_fork_pool( vote_stakes );
@@ -240,9 +256,15 @@ t_1_cache_evict( fd_vote_stakes_t * vote_stakes,
   return cache_idx;
 }
 
+static void
+t_1_cache_unmark( fd_vote_stakes_t * vote_stakes,
+                  ulong              cache_idx ) {
+  FD_ATOMIC_FETCH_AND_SUB( &t_1_cache( vote_stakes )[ cache_idx ].pin_cnt, T_1_EVICTING );
+}
+
 /* t_1_slot returns the cache slot of t-1 set set_idx, reading it from
    disk if it is not cached.  Only the single writer may cause a read;
-   other threads must only access pinned sets. */
+   other threads must only access sets they hold a pin or view on. */
 
 static ulong
 t_1_slot( fd_vote_stakes_t const * vote_stakes,
@@ -251,8 +273,9 @@ t_1_slot( fd_vote_stakes_t const * vote_stakes,
   if( FD_LIKELY( fork->cache_idx!=UINT_MAX ) ) return (ulong)fork->cache_idx;
 
   fd_vote_stakes_t * vs        = (fd_vote_stakes_t *)vote_stakes;
-  ulong              cache_idx = t_1_cache_evict( vs, set_idx );
+  ulong              cache_idx = t_1_cache_claim( vs, set_idx );
   t_1_disk_io( vs, cache_idx, set_idx, 0 );
+  t_1_cache_unmark( vs, cache_idx );
   return cache_idx;
 }
 
@@ -277,9 +300,10 @@ t_1_acquire( fd_vote_stakes_t * vote_stakes ) {
   FD_CHECK_CRIT( vacc_fork_pool_free( fork_pool ), "vote stakes t-1 set pool exhausted" );
   ulong set_idx = vacc_fork_pool_idx_acquire( fork_pool );
   vacc_fork_pool_ele( fork_pool, set_idx )->ref_cnt = 1U;
-  ulong cache_idx = t_1_cache_evict( vote_stakes, set_idx );
+  ulong cache_idx = t_1_cache_claim( vote_stakes, set_idx );
   vacc_map_reset ( t_1_slot_map ( vote_stakes, cache_idx ) );
   vacc_pool_reset( t_1_slot_pool( vote_stakes, cache_idx ) );
+  t_1_cache_unmark( vote_stakes, cache_idx );
   return (ushort)set_idx;
 }
 
@@ -290,10 +314,14 @@ t_1_release( fd_vote_stakes_t * vote_stakes,
   vacc_fork_t * fork      = vacc_fork_pool_ele( fork_pool, set_idx );
   if( fork->cache_idx!=UINT_MAX ) {
     t_1_cache_ent_t * ent = t_1_cache( vote_stakes ) + fork->cache_idx;
-    FD_CHECK_CRIT( !ent->pin_cnt, "invariant violation: releasing a pinned vote stakes t-1 set" );
+    for( ulong attempt=0UL; FD_ATOMIC_CAS( &ent->pin_cnt, 0UL, T_1_EVICTING )!=0UL; attempt++ ) {
+      FD_CHECK_CRIT( attempt<(1UL<<20), "invariant violation: releasing a pinned vote stakes t-1 set" );
+      FD_SPIN_PAUSE();
+    }
     ent->set_idx    = ULONG_MAX;
     ent->lru        = 0UL;
     fork->cache_idx = UINT_MAX;
+    FD_ATOMIC_FETCH_AND_SUB( &ent->pin_cnt, T_1_EVICTING );
   }
   vacc_fork_pool_idx_release( fork_pool, set_idx );
 }
@@ -495,6 +523,7 @@ fd_vote_stakes_new( void * mem,
   vote_stakes->cache_cnt            = cache_cnt;
   vote_stakes->disk_fd              = disk_fd;
   vote_stakes->lru                  = 0UL;
+  vote_stakes->view_req             = 0UL;
   vote_stakes->min_stake_wmark      = 0UL;
   vote_stakes->vacc_heap_off        = (uint)((ulong)heap - (ulong)mem);
   vote_stakes->vacc_states_pool_off = (uint)((ulong)vacc_states_pool - (ulong)mem);
@@ -572,7 +601,8 @@ fd_vote_stakes_reset( fd_vote_stakes_t * vote_stakes ) {
     vacc_map_reset ( t_1_slot_map ( vote_stakes, i ) );
     vacc_pool_reset( t_1_slot_pool( vote_stakes, i ) );
   }
-  vote_stakes->lru = 0UL;
+  vote_stakes->lru      = 0UL;
+  vote_stakes->view_req = 0UL;
 
   vacc_fork_pool_reset( vacc_fork_pool( vote_stakes ) );
   vacc_state_pool_reset( vacc_states_pool( vote_stakes ) );
@@ -789,7 +819,7 @@ void
 fd_vote_stakes_pin_t_1( fd_vote_stakes_t * vote_stakes,
                         ulong              fork_id ) {
   t_1_cache_ent_t * ent = t_1_cache( vote_stakes ) + t_1_slot( vote_stakes, fork_id_t_1_idx( fork_id ) );
-  ent->pin_cnt++;
+  FD_ATOMIC_FETCH_AND_ADD( &ent->pin_cnt, 1UL );
   ent->lru = ++vote_stakes->lru;
 }
 
@@ -799,8 +829,59 @@ fd_vote_stakes_unpin_t_1( fd_vote_stakes_t * vote_stakes,
   vacc_fork_t const * fork = vacc_fork_pool_ele_const( vacc_fork_pool( vote_stakes ), fork_id_t_1_idx( fork_id ) );
   FD_CHECK_CRIT( fork->cache_idx!=UINT_MAX, "invariant violation: unpinning an uncached vote stakes t-1 set" );
   t_1_cache_ent_t * ent = t_1_cache( vote_stakes ) + fork->cache_idx;
-  FD_CHECK_CRIT( ent->pin_cnt, "invariant violation: unpinning an unpinned vote stakes t-1 set" );
-  ent->pin_cnt--;
+  ulong             old = FD_ATOMIC_FETCH_AND_SUB( &ent->pin_cnt, 1UL );
+  FD_CHECK_CRIT( old && old<T_1_EVICTING, "invariant violation: unpinning an unpinned vote stakes t-1 set" );
+}
+
+int
+fd_vote_stakes_view_try( fd_vote_stakes_t * vote_stakes,
+                         ulong              fork_id ) {
+  ulong set_idx = (ulong)fork_id_t_1_idx( fork_id );
+  ulong req     = FD_VOLATILE_CONST( vote_stakes->view_req );
+
+  /* Once a request is posted, it completes only through the writer so
+     the pin taken on our behalf is never leaked. */
+  if( req==((set_idx+1UL)|VIEW_REQ_READY) ) {
+    FD_VOLATILE( vote_stakes->view_req ) = 0UL;
+    return 1;
+  }
+  if( req==set_idx+1UL ) return 0;
+
+  vacc_fork_t const * fork      = vacc_fork_pool_ele_const( vacc_fork_pool( vote_stakes ), set_idx );
+  uint                cache_idx = FD_VOLATILE_CONST( fork->cache_idx );
+  if( FD_LIKELY( cache_idx!=UINT_MAX ) ) {
+    t_1_cache_ent_t * ent = t_1_cache( vote_stakes ) + cache_idx;
+    ulong             old = FD_ATOMIC_FETCH_AND_ADD( &ent->pin_cnt, 1UL );
+    if( FD_LIKELY( old<T_1_EVICTING && FD_VOLATILE_CONST( ent->set_idx )==set_idx ) ) return 1;
+    FD_ATOMIC_FETCH_AND_SUB( &ent->pin_cnt, 1UL );
+  }
+
+  if( !req ) FD_ATOMIC_CAS( &vote_stakes->view_req, 0UL, set_idx+1UL );
+  return 0;
+}
+
+void
+fd_vote_stakes_view_init( fd_vote_stakes_t * vote_stakes,
+                          ulong              fork_id ) {
+  while( !fd_vote_stakes_view_try( vote_stakes, fork_id ) ) FD_SPIN_PAUSE();
+}
+
+void
+fd_vote_stakes_view_fini( fd_vote_stakes_t * vote_stakes,
+                          ulong              fork_id ) {
+  fd_vote_stakes_unpin_t_1( vote_stakes, fork_id );
+}
+
+void
+fd_vote_stakes_view_serve( fd_vote_stakes_t * vote_stakes ) {
+  ulong req = FD_VOLATILE_CONST( vote_stakes->view_req );
+  if( FD_LIKELY( !req || (req & VIEW_REQ_READY) ) ) return;
+
+  t_1_cache_ent_t * ent = t_1_cache( vote_stakes ) + t_1_slot( vote_stakes, req-1UL );
+  FD_ATOMIC_FETCH_AND_ADD( &ent->pin_cnt, 1UL );
+  ent->lru = ++vote_stakes->lru;
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( vote_stakes->view_req ) = req|VIEW_REQ_READY;
 }
 
 ulong
