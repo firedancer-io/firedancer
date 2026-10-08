@@ -2424,11 +2424,11 @@ message MetricsPackTxnScheduleAttempted {
 
 // Pending transactions in pack's pool, by type
 message MetricsPackTxnPendingUsed {
-  // Non-votes in the main treap
+  // Transactions in the main treap, including simple votes
   uint64 regular = 1;
-  // Simple votes
+  // Deprecated: simple votes are no longer kept in a separate treap, so this is always 0
   uint64 vote = 2;
-  // Non-votes that write to a hotly-contended account
+  // Transactions that write to a hotly-contended account, including simple votes
   uint64 conflicting = 3;
   // Transactions that are part of a bundle
   uint64 bundle = 4;
@@ -9434,7 +9434,7 @@ message MetricsPack {
   MetricsPackTxnPendingUsed txn_pending_used = 36;
   // Maximum pending transactions pack can hold
   uint64 txn_pending_capacity = 37;
-  // Lower bound on the cost of the cheapest pending non-vote transaction, 0 if none pending
+  // Lower bound on the cost of the cheapest pending transaction, 0 if none pending
   uint64 txn_pending_smallest_cost = 38;
   // Times pack did not schedule a microblock because the block microblock limit was reached
   uint64 block_microblock_limit_reached = 39;

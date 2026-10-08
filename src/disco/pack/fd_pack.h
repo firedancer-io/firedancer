@@ -315,12 +315,10 @@ void fd_pack_get_block_limits( fd_pack_t * pack, fd_pack_limits_usage_t * opt_li
    after fd_pack_end_block, otherwise the copied data will be stale. */
 void fd_pack_get_top_writers( fd_pack_t const * pack, fd_pack_addr_use_t top_writers[static FD_PACK_TOP_WRITERS_CNT] );
 
-/* Copies the currently smallest pending,
-   non-conflicting, non-vote transaction into opt_pending_smallest iff
-   it is not NULL and the smallest pending vote into opt_vote_smallest
-   iff it is not NULL.  These values are updates any time a new
-   transaction is inserted into the pending treap, or moved from another
-   treap into the pending treap. */
+/* Copies the currently smallest pending, non-conflicting, transaction
+   into opt_pending_smallest iff it is not NULL.  This values is
+   updated any time a new transaction is inserted into the pending
+   treap, or moved from another treap into the pending treap. */
 void fd_pack_get_pending_smallest( fd_pack_t * pack, fd_pack_smallest_t * opt_pending_smallest, fd_pack_smallest_t * opt_votes_smallest );
 
 /* Return values for fd_pack_insert_txn_fini:  Non-negative values
@@ -653,10 +651,9 @@ void const * fd_pack_peek_bundle_meta( fd_pack_t const * pack );
 void fd_pack_set_initializer_bundles_ready( fd_pack_t * pack );
 
 
-/* FD_PACK_SCHEDULE_{VOTE,BUNDLE,TXN} form a set of bitflags used in
+/* FD_PACK_SCHEDULE_{BUNDLE,TXN} form a set of bitflags used in
    fd_pack_schedule_next_microblock below.  They control what types of
    scheduling are allowed.  The names should be self-explanatory. */
-#define FD_PACK_SCHEDULE_VOTE   1
 #define FD_PACK_SCHEDULE_BUNDLE 2
 #define FD_PACK_SCHEDULE_TXN    4
 
@@ -672,36 +669,29 @@ void fd_pack_set_initializer_bundles_ready( fd_pack_t * pack );
    corresponding to a transaction type, this function will consider
    scheduling transactions of that type.  Passing 0 for schedule_flags
    is a no-op.  The full policy is as follows:
-    1. If the VOTE bit is set, attempt to schedule votes.  This is the
-       microblock case.
-    2. If the BUNDLE bit is set, and step 1 did not schedule any votes,
-       attempt to schedule bundles.  This is the bundle case.
-    3. If the TXN bit is set, and step 2 did not schedule any bundles
+    1. If the BUNDLE bit is set, attempt to schedule bundles.  This is
+       the bundle case.
+    2. If the TXN bit is set, and step 1 did not schedule any bundles
        for a reason other than account conflicts, attempt to schedule
        normal transactions.  This is the microblock case.
-   Note that it is possible to schedule a microblock containing both
-   votes and normal transactions, but bundles cannot be combined with
-   either other type.  Additionally, if the BUNDLE bit is not set, step
-   2 will not schedule any bundles for that reason, which is a reason
-   other than account conflicts, so that clause will always be
-   satisfied.
+   Note that bundles cannot be combined with normal transactions.
+   Additionally, if the BUNDLE bit is not set, step 1 will not schedule
+   any bundles for that reason, which is a reason other than account
+   conflicts, so that clause will always be satisfied.
 
    Microblock case:
    Transactions part of the scheduled microblock are copied to out in no
    particular order.  The cumulative cost of these transactions will not
    exceed total_cus, and the number of transactions will not exceed the
-   value of max_txn_per_microblock given in fd_pack_new.
-
-   The block will not contain more than
-   vote_fraction*max_txn_per_microblock votes, and votes in total will
-   not consume more than vote_fraction*total_cus of the microblock.
+   value of max_txn_per_microblock given in fd_pack_new.  Votes are
+   additionally subject to max_vote_cost_per_block.
 
    Bundle case:
    Transactions part of the scheduled bundled are copied in execution
    order (i.e. out[0] must be executed first).  The number of
    transactions will not exceed FD_PACK_MAX_TXN_PER_BUNDLE.
-   max_txn_per_microblock, total_cus, and vote_fraction are ignored,
-   though the block-level limits are respected.
+   max_txn_per_microblock and total_cus are ignored, though the
+   block-level limits are respected.
 
    Both cases:
    The non_execution_cus and requested_exec_plus_acct_data_cus fields of
@@ -721,7 +711,6 @@ void fd_pack_set_initializer_bundles_ready( fd_pack_t * pack );
 ulong
 fd_pack_schedule_next_microblock( fd_pack_t  * pack,
                                   ulong        total_cus,
-                                  float        vote_fraction,
                                   ulong        bank_tile,
                                   int          schedule_flags,
                                   fd_txn_e_t * out );

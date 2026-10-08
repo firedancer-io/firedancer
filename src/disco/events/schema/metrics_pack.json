@@ -303,14 +303,14 @@
             "type": "Tuple",
             "description": "Pending transactions in pack's pool, by type",
             "fields": {
-                "regular":     { "type": "UInt64", "compression": "T64, ZSTD", "description": "Non-votes in the main treap" },
-                "vote":        { "type": "UInt64", "compression": "T64, ZSTD", "description": "Simple votes" },
-                "conflicting": { "type": "UInt64", "compression": "T64, ZSTD", "description": "Non-votes that write to a hotly-contended account" },
+                "regular":     { "type": "UInt64", "compression": "T64, ZSTD", "description": "Transactions in the main treap, including simple votes" },
+                "vote":        { "type": "UInt64", "compression": "T64, ZSTD", "description": "Deprecated: simple votes are no longer kept in a separate treap, so this is always 0" },
+                "conflicting": { "type": "UInt64", "compression": "T64, ZSTD", "description": "Transactions that write to a hotly-contended account, including simple votes" },
                 "bundle":      { "type": "UInt64", "compression": "T64, ZSTD", "description": "Transactions that are part of a bundle" }
             }
         },
         "txn_pending_capacity":           { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Maximum pending transactions pack can hold" },
-        "txn_pending_smallest_cost":      { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Lower bound on the cost of the cheapest pending non-vote transaction, 0 if none pending" },
+        "txn_pending_smallest_cost":      { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Lower bound on the cost of the cheapest pending transaction, 0 if none pending" },
         "block_microblock_limit_reached": { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Times pack did not schedule a microblock because the block microblock limit was reached" },
         "block_byte_limit_reached":       { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Times pack did not schedule a microblock because the block byte limit was reached" },
         "txn_schedule_attempted": {
