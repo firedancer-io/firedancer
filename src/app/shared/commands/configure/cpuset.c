@@ -115,7 +115,6 @@ read_cstr( char const * path,
 
 static int
 enabled( config_t const * config ) {
-  (void)config;
   /* cgroup v2 unified hierarchy with the cpuset controller.  On v1 or
      hybrid systems the unified root has no cgroup.controllers file (or
      no cpuset in it) and this stage cannot work.  Only genuine absence
@@ -123,7 +122,8 @@ enabled( config_t const * config ) {
      (in read_cstr). */
   char controllers[ 256 ];
   if( FD_UNLIKELY( !read_cstr( CGROUP_ROOT "/cgroup.controllers", controllers, sizeof(controllers) ) ) ) return 0;
-  return NULL!=strstr( controllers, "cpuset" );
+  if( FD_UNLIKELY( !strstr( controllers, "cpuset" ) ) ) return 0;
+  return fd_cpu_isolation_enabled( config );
 }
 
 static void

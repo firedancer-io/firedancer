@@ -634,6 +634,12 @@ fd_config_validate( fd_config_t const * config ) {
   if( FD_UNLIKELY( !config->is_firedancer && bench_shreds && bench_shreds!=32UL*FD_SHRED_BLK_MAX ) )
     FD_LOG_ERR(( "invalid [development.bench.max_shreds_per_block]: Frankendancer supports 0 or %lu", 32UL*FD_SHRED_BLK_MAX ));
 
+  if( FD_UNLIKELY( 0!=strcmp( config->development.cpu_isolation.enabled, "auto"  ) &&
+                   0!=strcmp( config->development.cpu_isolation.enabled, "true"  ) &&
+                   0!=strcmp( config->development.cpu_isolation.enabled, "false" ) ) )
+    FD_LOG_ERR(( "invalid [development.cpu_isolation.enabled]: \"%s\"; must be \"auto\", \"true\" or \"false\"",
+                 config->development.cpu_isolation.enabled ));
+
   if( 0==strcmp( config->net.provider, "xdp" ) ) {
     if( 0!=strcmp( config->net.xdp.xdp_mode, "skb"     ) &&
         0!=strcmp( config->net.xdp.xdp_mode, "drv"     ) &&
