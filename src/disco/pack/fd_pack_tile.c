@@ -152,7 +152,7 @@ static char const * const schedule_strategy_strings[3] = { "PRF", "BAL", "AUC" }
    last slot of the leader rotation that we do not hold incoming
    transactions. This is so that all incoming transactions have a
    chance of being scheduled. */
-#define FD_PACK_AUCTION_FINAL_NS          (20000000L)
+#define FD_PACK_AUCTION_FINAL_NS          (10000000L)
 
 
 typedef struct {
