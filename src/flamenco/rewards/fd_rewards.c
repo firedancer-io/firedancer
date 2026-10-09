@@ -1188,6 +1188,8 @@ delegation_may_need_adjustment( fd_bank_t *                   bank,
                                 ulong                         new_delegation_with_rewards,
                                 ulong                         lamports_with_rewards,
                                 ulong                         minimum_lamports ) {
+  if( !FD_FEATURE_ACTIVE_BANK( bank, relax_post_exec_min_balance_check ) ) return 0;
+
   ulong new_delegation = fd_ulong_min(
     new_delegation_with_rewards,
     fd_ulong_sat_sub( lamports_with_rewards, minimum_lamports )

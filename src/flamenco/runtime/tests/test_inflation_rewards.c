@@ -1092,6 +1092,88 @@ redelegate_stake( fd_svm_mini_t *     mini,
 }
 
 static void
+test_rent_adjustment_reward_gate( fd_svm_mini_t * mini ) {
+  ulong max_stake_accounts = mini->runtime_stack->max_stake_accounts;
+  for( int uncached=0; uncached<2; uncached++ ) {
+    for( int relax=0; relax<2; relax++ ) {
+      fd_svm_mini_params_t params[1];
+      fd_svm_mini_params_default( params );
+      params->slots_per_epoch    = TEST_SLOTS_PER_EPOCH;
+      params->root_slot          = TEST_ROOT_SLOT;
+      params->mock_validator_cnt = 3UL;
+      ulong root_idx = fd_svm_mini_reset( mini, params );
+      mini->runtime_stack->max_stake_accounts = uncached ? 0UL : max_stake_accounts;
+
+      fd_bank_t * root_bank = fd_svm_mini_bank( mini, root_idx );
+      root_bank->f.inflation = (fd_inflation_t){
+        .initial         = 0.08,
+        .terminal        = 0.015,
+        .taper           = 0.15,
+        .foundation      = 0.05,
+        .foundation_term = 7.0,
+      };
+      if( relax ) {
+        FD_FEATURE_SET_ACTIVE( &root_bank->f.features, relax_post_exec_min_balance_check, 0UL );
+        fd_pubkey_t feature_id[1];
+        FD_TEST( fd_base58_decode_32( "BY4JhHLahVzS9ynfDz4exzGPbVXhFmJvEyMWsXbDBqME", feature_id->uc ) );
+        activate_feature_account_( mini, feature_id );
+      }
+
+      fd_pubkey_t identity[3], vote[3], stake[3];
+      for( ulong i=0UL; i<3UL; i++ ) mock_validator_keys_idx( params->hash_seed, i, &identity[i], &vote[i], &stake[i] );
+
+      /* Keep total points nonzero.  The other two delegations cannot
+         redeem rewards: one has no credits, the other has no voter. */
+      patch_vote_account( mini, root_idx, &vote[0], 0, 0UL, 2UL, 0UL );
+      fd_pubkey_t missing_vote = {{ 0 }};
+      redelegate_stake( mini, root_idx, &stake[2], &missing_vote );
+
+      fd_accdb_fork_id_t root_fk = fd_svm_mini_fork_id( mini, root_idx );
+      ulong min_balance = fd_rent_exempt_minimum_balance( &root_bank->f.rent, FD_STAKE_STATE_SZ );
+      ulong lamports_before[3];
+      fd_stake_t stake_before[3];
+      for( ulong i=0UL; i<3UL; i++ ) {
+        lamports_before[i] = read_lamports( mini, root_fk, &stake[i] );
+        stake_before[i]    = read_stake( mini, root_fk, &stake[i] );
+        FD_TEST( lamports_before[i]>=min_balance );
+        FD_TEST( stake_before[i].delegation.stake>lamports_before[i]-min_balance );
+      }
+
+      ulong epoch_idx = fd_svm_mini_attach_child( mini, root_idx, TEST_EPOCH_BOUNDARY );
+      fd_bank_t * epoch_bank = fd_svm_mini_bank( mini, epoch_idx );
+      FD_TEST( (!!FD_FEATURE_ACTIVE_BANK( epoch_bank, relax_post_exec_min_balance_check ))==relax );
+      fd_stake_rewards_t * stake_rewards = fd_bank_stake_rewards_modify( epoch_bank );
+      for( int recalc=0; recalc<2; recalc++ ) {
+        if( recalc ) {
+          fd_stake_rewards_clear( stake_rewards );
+          epoch_bank->stake_rewards_fork_id = USHORT_MAX;
+          fd_rewards_recalculate_partitioned_rewards( epoch_bank, mini->runtime->accdb, mini->runtime_stack, NULL );
+        }
+        FD_TEST( mini->runtime_stack->stakes.stake_rewards_cnt==(relax ? 3UL : 1UL) );
+        uint partition_cnt = fd_stake_rewards_num_partitions( stake_rewards, epoch_bank->stake_rewards_fork_id );
+        for( ulong i=0UL; i<3UL; i++ ) {
+          int found = find_reward_partition( stake_rewards, epoch_bank->stake_rewards_fork_id, &stake[i], partition_cnt )!=UINT_MAX;
+          FD_TEST( found==(i==0UL || relax) );
+        }
+      }
+
+      fd_svm_mini_freeze( mini, epoch_idx );
+      ulong distrib_idx = fd_svm_mini_attach_child( mini, epoch_idx, TEST_DISTRIB_SLOT );
+      fd_accdb_fork_id_t distrib_fk = fd_svm_mini_fork_id( mini, distrib_idx );
+      FD_TEST( read_lamports( mini, distrib_fk, &stake[0] )>lamports_before[0] );
+      for( ulong i=1UL; i<3UL; i++ ) {
+        fd_stake_t after = read_stake( mini, distrib_fk, &stake[i] );
+        FD_TEST( read_lamports( mini, distrib_fk, &stake[i] )==lamports_before[i] );
+        FD_TEST( after.credits_observed==stake_before[i].credits_observed );
+        FD_TEST( after.delegation.stake==(relax ? lamports_before[i]-min_balance : stake_before[i].delegation.stake) );
+      }
+      mini->runtime_stack->max_stake_accounts = max_stake_accounts;
+    }
+  }
+  FD_LOG_NOTICE(( "test_rent_adjustment_reward_gate: PASSED" ));
+}
+
+static void
 test_activation_epoch_skips_reward( fd_svm_mini_t * mini ) {
   fd_svm_mini_params_t params[1];
   fd_svm_mini_params_default( params );
@@ -3913,6 +3995,7 @@ main( int     argc,
   test_no_credits_no_reward( mini );
   test_credits_staker_reward( mini );
   test_evicted_reward_window_recalculated( mini );
+  test_rent_adjustment_reward_gate( mini );
   test_activation_epoch_skips_reward( mini );
   test_inert_delegation_not_partitioned( mini );
   test_snapshot_refresh_prunes_inactive_stakes( mini );
