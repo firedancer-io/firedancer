@@ -1891,3 +1891,19 @@ dynamic_port_range = "8900-9000"
         # as the reserved pages could then be reclaimed by another
         # process and Firedancer would fail to boot.
         min_size = true
+
+    [development.cpu_isolation]
+        # Controls the `kworkers` and `cpuset` configure stages, which
+        # isolate Firedancer tile CPUs from kernel workqueues and other
+        # processes.
+        #
+        # Possible values:
+        #
+        #  "auto"      The stages run only if the kernel release is
+        #              known to be unaffected by a bug which is
+        #              triggered by this feature.
+        #  "true"      The stages always run.
+        #  "false"     The stages never run.
+        #
+        # The value is a string, so it must be quoted.
+        enabled = "auto"

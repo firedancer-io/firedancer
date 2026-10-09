@@ -5,6 +5,7 @@
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/utsname.h>
 #include <unistd.h>
@@ -190,7 +191,6 @@ fd_cpu_isolation_format_mask( char *              buf,
   return buf;
 }
 
-
 int
 fd_cpu_isolation_read_list( char const * path,
                             fd_cpuset_t  cpuset[ static fd_cpuset_word_cnt ] ) {
@@ -239,4 +239,95 @@ fd_cpu_isolation_warn_wq_change( char const *        path,
   char const * release = uname( &uts ) ? "unknown" : uts.release;
 
   FD_LOG_NOTICE(( "kernel workqueue cpumask changed while writing `%s`: %s -> %s (kernel %s). ", path, old_mask, new_mask, release ));
+}
+
+/* parse_ulong parses a decimal number at p into *out.  Returns a
+   pointer past the digits, or NULL if there are none or it overflows. */
+
+static char const *
+parse_ulong( char const * p,
+             ulong *      out ) {
+  if( FD_UNLIKELY( !isdigit( (uchar)*p ) ) ) return NULL;
+  char * end;
+  errno = 0;
+  *out = strtoul( p, &end, 10 );
+  return FD_UNLIKELY( errno ) ? NULL : end;
+}
+
+static int
+wq_safe_rhel( ulong el,
+              ulong build ) {
+  if( el==8UL ) return 1;
+  if( el==9UL ) return build<464UL;
+  return 0;
+}
+
+static int
+wq_safe_ubuntu( ulong major,
+                ulong minor,
+                ulong abi ) {
+  if( major<6UL || ( major==6UL && minor<9UL ) ) return 1;
+  if( major==7UL && minor==0UL ) return abi>=14UL;
+  return major>=7UL;
+}
+
+static int
+wq_safe_default( ulong        major,
+                 ulong        minor,
+                 ulong        patch,
+                 char const * release ) {
+  if( major<6UL || ( major==6UL && minor<9UL ) ) return 1;
+  /* 7.0 release candidates, e.g. "7.0.0-rc7", Fedora's
+     "7.0.0-0.rc7.fc45" or Ubuntu mainline's "7.0.0-070000rc7-generic",
+     lack the fix.  A bare "rc" would also match e.g. "-arch1". */
+  if( major==7UL && minor==0UL ) return !strstr( release, "-rc" ) && !strstr( release, ".rc" ) && !strstr( release, "0rc" );
+  if( major>=7UL ) return 1;
+  if( minor==12UL ) return patch>=82UL;
+  if( minor==18UL ) return patch>=23UL;
+  if( minor==19UL ) return patch>=13UL;
+  return 0;
+}
+
+int
+fd_cpu_isolation_wq_safe( char const * release ) {
+  ulong major, minor, patch = 0UL;
+  char const * p = release;
+  if( FD_UNLIKELY( !(p = parse_ulong( p,   &major )) || *p!='.' ) ) return 0;
+  if( FD_UNLIKELY( !(p = parse_ulong( p+1, &minor ))            ) ) return 0;
+  if( *p=='.' && FD_UNLIKELY( !(p = parse_ulong( p+1, &patch )) ) ) return 0;
+
+  /* RHEL: "5.14.0-BUILD...el9...". */
+  char const * el_tag = strstr( release, ".el" );
+  ulong        el, build;
+  if( el_tag && parse_ulong( el_tag+3UL, &el ) && *p=='-' && parse_ulong( p+1, &build ) &&
+      ( ( el==8UL  && major==4UL && minor==18UL ) ||
+        ( el==9UL  && major==5UL && minor==14UL ) ||
+        ( el==10UL && major==6UL && minor==12UL ) ) )
+    return wq_safe_rhel( el, build );
+
+  /* Debian/Ubuntu: "X.Y.0-ABI-flavor" */
+  ulong        abi;
+  char const * q = p;
+  if( patch==0UL && *q=='-' && (q = parse_ulong( q+1, &abi )) && q[0]=='-' && isalpha( (uchar)q[1] ) )
+    return wq_safe_ubuntu( major, minor, abi );
+
+  return wq_safe_default( major, minor, patch, release );
+}
+
+int
+fd_cpu_isolation_enabled( fd_config_t const * config ) {
+  /* Validated by fd_config_validate to be auto, true or false */
+  char const * mode = config->development.cpu_isolation.enabled;
+  if( !strcmp( mode, "true"  ) ) return 1;
+  if( !strcmp( mode, "false" ) ) return 0;
+
+  static int cached = -1;
+  if( FD_UNLIKELY( cached<0 ) ) {
+    struct utsname uts;
+    char const * release = uname( &uts ) ? "unknown" : uts.release;
+    cached = fd_cpu_isolation_wq_safe( release );
+    if( FD_UNLIKELY( !cached ) )
+      FD_LOG_NOTICE(( "kworkers and cpuset stages disabled: kernel %s may have a workqueue stall bug (Linux fix 703ccb63ae9f)", release ));
+  }
+  return cached;
 }

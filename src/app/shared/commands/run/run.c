@@ -41,6 +41,7 @@
 #include <sys/resource.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include <sys/utsname.h>
 #include <linux/capability.h>
 
 #include "../../../../util/tile/fd_tile_private.h"
@@ -1067,16 +1068,22 @@ fdctl_check_configure( config_t const * config ) {
     }
   }
 
-  if( FD_LIKELY( fd_cfg_stage_cpuset.enabled( config ) ) ) {
-    check = fd_cfg_stage_cpuset.check( config, FD_CONFIGURE_CHECK_TYPE_RUN );
-    if( FD_UNLIKELY( check.result==CONFIGURE_PARTIALLY_CONFIGURED ) )
-      FD_LOG_ERR(( "The CPU isolation cgroup exists but does not match the topology: %s. Tiles would fail to pin "
-                   "to their CPUs. Run `%s configure init cpuset` to fix it, or `%s configure fini cpuset` to "
-                   "remove it.", check.message, FD_BINARY_NAME, FD_BINARY_NAME ));
-    else if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
-      FD_LOG_WARNING(( "Firedancer tile CPUs are not isolated from other processes: %s. For lower jitter, run "
-                       "`%s configure init cpuset`.", check.message, FD_BINARY_NAME ));
-  }
+  int cpuset_enabled = fd_cfg_stage_cpuset.enabled( config );
+  struct utsname uts;
+  int wq_unsafe = !cpuset_enabled && ( uname( &uts ) || !fd_cpu_isolation_wq_safe( uts.release ) );
+  check = fd_cfg_stage_cpuset.check( config, FD_CONFIGURE_CHECK_TYPE_RUN );
+  if( FD_UNLIKELY( wq_unsafe && check.result==CONFIGURE_PARTIALLY_CONFIGURED ) )
+    FD_LOG_ERR(( "CPU isolation is disabled due to a bug on your kernel version, but a CPU isolation cgroup from a "
+                 "previous configuration exists and does not match the topology: %s. Tiles would fail to pin to their"
+                 " CPUs. Reboot to remove it.", check.message ));
+  else if( FD_UNLIKELY( check.result==CONFIGURE_PARTIALLY_CONFIGURED ) )
+    FD_LOG_ERR(( "The CPU isolation cgroup exists but does not match the topology: %s. Tiles would fail to pin "
+                 "to their CPUs. Run `%s configure init cpuset` to fix it, or `%s configure fini cpuset` to "
+                 "remove it%s.", check.message, FD_BINARY_NAME, FD_BINARY_NAME,
+                 cpuset_enabled ? "" : ", with [development.cpu_isolation] enabled = \"auto\"" ));
+  else if( FD_UNLIKELY( check.result!=CONFIGURE_OK && cpuset_enabled ) )
+    FD_LOG_WARNING(( "Firedancer tile CPUs are not isolated from other processes: %s. For lower jitter, run "
+                     "`%s configure init cpuset`.", check.message, FD_BINARY_NAME ));
 }
 
 void

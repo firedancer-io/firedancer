@@ -439,6 +439,10 @@ struct fd_config {
     struct {
       int min_size;
     } hugetlbfs;
+
+    struct {
+      char enabled[ 16 ];
+    } cpu_isolation;
   } development;
 
   struct {
