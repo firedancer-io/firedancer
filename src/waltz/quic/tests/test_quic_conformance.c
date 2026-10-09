@@ -511,6 +511,90 @@ FD_UNIT_TEST( quic_pktnum_skip ) {
 
 }
 
+/* send_ping_pkt_next_phase sends a 1-RTT PING packet with a flipped
+   key phase bit, protected with the next generation of packet keys. */
+
+static void
+send_ping_pkt_next_phase( fd_quic_sandbox_t * sandbox,
+                          fd_quic_conn_t *    conn,
+                          ulong               pktnum ) {
+  uchar pkt_buf[ 256 ];
+  pkt_buf[0] = fd_quic_one_rtt_h0( 0, !conn->key_phase, 3 );
+  memcpy( pkt_buf+1, &conn->our_conn_id, FD_QUIC_CONN_ID_SZ );
+  uint pktnum_comp = fd_uint_bswap( (uint)( pktnum & UINT_MAX ) );
+  memcpy( pkt_buf+9, &pktnum_comp, 4 );
+  pkt_buf[13] = 0x01;  /* PING frame */
+  memset( pkt_buf+14, 0, 18UL );
+
+  fd_quic_crypto_keys_t * hp_keys  = &conn->keys[fd_quic_enc_level_appdata_id][0];
+  fd_quic_crypto_keys_t * pkt_keys = &conn->new_keys[0];
+  ulong out_sz = 48UL;
+  FD_TEST( fd_quic_crypto_encrypt( pkt_buf, &out_sz, pkt_buf, 13UL, pkt_buf+13, 19UL, pkt_keys, hp_keys, pktnum )==FD_QUIC_SUCCESS );
+
+  fd_quic_pkt_t pkt = {
+    .ip4 = {{
+      .verihl       = FD_IP4_VERIHL(4,5),
+      .net_tot_len  = 28,
+      .net_frag_off = 0x4000u, /* don't fragment */
+      .ttl          = 64,
+      .protocol     = FD_IP4_HDR_PROTOCOL_UDP,
+      .saddr        = FD_QUIC_SANDBOX_PEER_IP4,
+      .daddr        = FD_QUIC_SANDBOX_SELF_IP4,
+    }},
+    .udp = {{
+      .net_sport = FD_QUIC_SANDBOX_PEER_PORT,
+      .net_dport = FD_QUIC_SANDBOX_SELF_PORT,
+      .net_len   = 8,
+    }},
+    .pkt_number = pktnum,
+    .rcv_time   = sandbox->wallclock,
+    .enc_level  = fd_quic_enc_level_appdata_id,
+  };
+  fd_quic_process_quic_packet_v1( sandbox->quic, &pkt, pkt_buf, out_sz );
+}
+
+/* RFC 9001 Section 6.2. Responding to a Key Update
+
+   > If an endpoint detects a second update before it has sent any
+   > packets with updated keys containing an acknowledgment for the
+   > packet that initiated the key update, it indicates that its peer
+   > has updated keys twice without awaiting confirmation.  An endpoint
+   > MAY treat such consecutive key updates as a connection error of
+   > type KEY_UPDATE_ERROR. */
+
+FD_UNIT_TEST( quic_key_update_consecutive ) {
+
+  /* Key update before any ACK was sent is rejected */
+  fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_SERVER );
+  fd_quic_conn_t * conn = fd_quic_sandbox_new_conn_established( sandbox, rng );
+  fd_quic_key_update_derive( &conn->secrets, conn->new_keys );
+  send_ping_pkt_next_phase( sandbox, conn, 0UL );
+  FD_TEST( conn->key_phase==0 );
+  FD_TEST( conn->state  == FD_QUIC_CONN_STATE_ABORT );
+  FD_TEST( conn->reason == FD_QUIC_CONN_REASON_KEY_UPDATE_ERROR );
+
+  /* Key update after an ACK was sent is accepted */
+  fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_SERVER );
+  conn = fd_quic_sandbox_new_conn_established( sandbox, rng );
+  fd_quic_key_update_derive( &conn->secrets, conn->new_keys );
+  fd_quic_sandbox_send_ping_pkt( sandbox, conn, 0UL );
+  FD_TEST( !conn->key_phase_ack_sent );
+  fd_quic_conn_service( sandbox->quic, conn, sandbox->wallclock );
+  FD_TEST( fd_quic_sandbox_next_packet( sandbox ) );
+  FD_TEST( conn->key_phase_ack_sent );
+  send_ping_pkt_next_phase( sandbox, conn, 1UL );
+  FD_TEST( conn->key_phase==1 );
+  FD_TEST( !conn->key_phase_ack_sent );
+  FD_TEST( conn->state == FD_QUIC_CONN_STATE_ACTIVE );
+
+  /* Consecutive key update without an ACK in between is rejected */
+  send_ping_pkt_next_phase( sandbox, conn, 2UL );
+  FD_TEST( conn->key_phase==1 );
+  FD_TEST( conn->state  == FD_QUIC_CONN_STATE_ABORT );
+  FD_TEST( conn->reason == FD_QUIC_CONN_REASON_KEY_UPDATE_ERROR );
+
+}
+
 FD_UNIT_TEST( quic_conn_initial_limits ) {
   (void)rng;
 
