@@ -207,8 +207,6 @@ struct fd_topo_tile {
       ulong route_peer_max;
       ulong route_peer_seed;
       ulong neigh4_obj_id;         /* neigh4 hash map */
-
-      int xsk_core_dump;
     } xdp;
 
     struct {

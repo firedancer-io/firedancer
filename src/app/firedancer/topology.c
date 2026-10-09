@@ -605,8 +605,7 @@ fd_topo_initialize( config_t * config ) {
 
   if( FD_UNLIKELY( efficient_mode ) ) fd_topob_sleep( topo, "metric_in", tile_to_cpu[ topo->tile_cnt ] );
 
-  int xsk_core_dump = config->development.core_dump_level >= FD_TOPO_CORE_DUMP_LEVEL_REGULAR ? 1 : 0;
-  fd_topos_net_tiles( topo, net_tile_cnt, &config->net, config->tiles.netlink.max_routes, config->tiles.netlink.max_peer_routes, config->tiles.netlink.max_neighbors, xsk_core_dump, tile_to_cpu );
+  fd_topos_net_tiles( topo, net_tile_cnt, &config->net, config->tiles.netlink.max_routes, config->tiles.netlink.max_peer_routes, config->tiles.netlink.max_neighbors, tile_to_cpu );
 
   FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_gossvf", i, config->net.ingress_buffer_size );
   FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_shred",  i, config->net.ingress_buffer_size );
