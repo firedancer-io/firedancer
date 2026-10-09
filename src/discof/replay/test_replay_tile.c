@@ -5136,7 +5136,6 @@ setup_snapshot_test_ctx( fd_replay_tile_t *   ctx,
   root->accdb_fork_id                 = (fd_accdb_fork_id_t){ .val=37U };
   root->parent_accdb_fork_id          = root->accdb_fork_id;
   mock_accdb_fork_id_next             = 0U;
-  ctx->wfs_boot_slot                  = ULONG_MAX;
   return root;
 }
 
@@ -5369,17 +5368,18 @@ test_wfs_done_idempotency( fd_wksp_t * wksp ) {
 }
 
 static void
-test_wfs_defer_boot_publish( fd_wksp_t * wksp ) {
+test_wfs_boot_publish_order( fd_wksp_t * wksp,
+                             int         alpenglow ) {
   static fd_replay_tile_t   ctx[1];
   static fd_runtime_stack_t stack[1];
 
-  /* Under Alpenglow, WFS MATCH holds the boot slot's completed and root
-   announcements until the supermajority is reached, so that votor arms
-   its skip timers at the restart instant rather than at boot. */
+  /* The boot slot is announced unconditionally, completed before root
+     before reset.  Votor owns the WFS gate, so replay does not hold
+     these back. */
 
   memset( ctx, 0, sizeof(*ctx) );
   fd_bank_t * root = setup_snapshot_test_ctx( ctx, wksp, stack, 100UL );
-  ctx->alpenglow                      = 1;
+  ctx->alpenglow                      = alpenglow;
   ctx->wfs_enabled                    = 1;
   ctx->wfs_hash_is_zero               = 0;
   ctx->expected_bank_hash             = root->f.bank_hash;
@@ -5390,84 +5390,12 @@ test_wfs_defer_boot_publish( fd_wksp_t * wksp ) {
   ulong out_idx = ctx->replay_out->idx;
   ulong seq0    = test_stem_seqs[ out_idx ];
 
-  /* Held across the boot too, so that losing the deferral fails the
-     assertions below rather than faulting in the boot publish. */
   mock_footer_finalize = 1;
   memset( mock_footer, 0, sizeof(fd_block_footer_t) );
   snapshot_done( ctx );
   mock_footer_finalize = 0;
+
   FD_TEST( !ctx->wfs_complete );
-  FD_TEST( ctx->wfs_defer_boot_publish==1 );
-
-  /* Only the poh reset goes out at boot, completed and root are held. */
-  FD_TEST( test_stem_seqs[ out_idx ]==seq0+1UL );
-  fd_frag_meta_t const * reset_frag = test_stem_mcaches[ out_idx ] + fd_mcache_line_idx( seq0, test_stem_depths[ out_idx ] );
-  FD_TEST( reset_frag->sig==REPLAY_SIG_RESET );
-
-  ulong seq1 = test_stem_seqs[ out_idx ];
-
-  /* mock_snapshot_boot stubs the accdb reads, as it does at boot: the
-     deferred publish is the boot publish, just moved later.  Under
-     alpenglow it also reaches replay_reward_cert_voted, which queries
-     the sched this harness does not build. */
-  ctx->in_kind[ 1UL ] = IN_KIND_GOSSIP_OUT;
-  mock_snapshot_boot   = 1;
-  mock_footer_finalize = 1;
-  memset( mock_footer, 0, sizeof(fd_block_footer_t) );
-  returnable_frag( ctx, 1UL, 0UL, FD_GOSSIP_UPDATE_TAG_WFS_DONE,
-                   0UL, 0UL, 0UL, 0UL,
-                   fd_frag_meta_ts_comp( fd_tickcount() ), test_stem );
-  mock_footer_finalize = 0;
-  mock_snapshot_boot   = 0;
-  FD_TEST( ctx->wfs_complete==1 );
-  FD_TEST( ctx->wfs_defer_boot_publish==0 );
-
-  /* The held frags are released in order, immediately ahead of
-     WFS_DONE. */
-  FD_TEST( test_stem_seqs[ out_idx ]==seq1+3UL );
-  ulong const expected[ 3 ] = { REPLAY_SIG_SLOT_COMPLETED, REPLAY_SIG_ROOT_ADVANCED, REPLAY_SIG_WFS_DONE };
-  for( ulong i=0UL; i<3UL; i++ ) {
-    fd_frag_meta_t const * f = test_stem_mcaches[ out_idx ] + fd_mcache_line_idx( seq1+i, test_stem_depths[ out_idx ] );
-    FD_TEST( f->sig==expected[ i ] );
-  }
-
-  /* The staged fields have to be filled by publish_boot_slot itself:
-     staging them at the boot call site would write them to the chunk
-     the poh reset then publishes from, leaving this frag with
-     whatever the released chunk happens to hold. */
-  fd_frag_meta_t const * completed_frag = test_stem_mcaches[ out_idx ] + fd_mcache_line_idx( seq1, test_stem_depths[ out_idx ] );
-  fd_replay_slot_completed_t const * completed = fd_chunk_to_laddr_const( ctx->replay_out->mem, completed_frag->chunk );
-  FD_TEST( completed->cost_tracker.block_cost_limit==ULONG_MAX );
-
-  /* A repeat WFS_DONE must not republish them. */
-  returnable_frag( ctx, 1UL, 0UL, FD_GOSSIP_UPDATE_TAG_WFS_DONE,
-                   0UL, 0UL, 0UL, 0UL,
-                   fd_frag_meta_ts_comp( fd_tickcount() ), test_stem );
-  FD_TEST( test_stem_seqs[ out_idx ]==seq1+3UL );
-
-  FD_LOG_NOTICE(( "pass: test_wfs_defer_boot_publish" ));
-}
-
-static void
-test_wfs_no_defer_without_alpenglow( fd_wksp_t * wksp ) {
-  static fd_replay_tile_t   ctx[1];
-  static fd_runtime_stack_t stack[1];
-
-  memset( ctx, 0, sizeof(*ctx) );
-  fd_bank_t * root = setup_snapshot_test_ctx( ctx, wksp, stack, 100UL );
-  ctx->alpenglow                      = 0;
-  ctx->wfs_enabled                    = 1;
-  ctx->wfs_hash_is_zero               = 0;
-  ctx->expected_bank_hash             = root->f.bank_hash;
-  ctx->wait_for_supermajority_at_slot = 100UL;
-  ctx->expected_shred_version         = 1234;
-  ctx->wait_for_vote_to_start_leader  = FD_BOOLAU_AUTO;
-
-  ulong out_idx = ctx->replay_out->idx;
-  ulong seq0    = test_stem_seqs[ out_idx ];
-
-  snapshot_done( ctx );
-  FD_TEST( ctx->wfs_defer_boot_publish==0 );
   FD_TEST( test_stem_seqs[ out_idx ]==seq0+3UL );
   ulong const expected[ 3 ] = { REPLAY_SIG_SLOT_COMPLETED, REPLAY_SIG_ROOT_ADVANCED, REPLAY_SIG_RESET };
   for( ulong i=0UL; i<3UL; i++ ) {
@@ -5475,7 +5403,22 @@ test_wfs_no_defer_without_alpenglow( fd_wksp_t * wksp ) {
     FD_TEST( f->sig==expected[ i ] );
   }
 
-  FD_LOG_NOTICE(( "pass: test_wfs_no_defer_without_alpenglow" ));
+  /* publish_boot_slot stages the completed frag's payload itself. */
+  fd_frag_meta_t const * completed_frag = test_stem_mcaches[ out_idx ] + fd_mcache_line_idx( seq0, test_stem_depths[ out_idx ] );
+  fd_replay_slot_completed_t const * completed = fd_chunk_to_laddr_const( ctx->replay_out->mem, completed_frag->chunk );
+  FD_TEST( completed->cost_tracker.block_cost_limit==ULONG_MAX );
+
+  ulong seq1 = test_stem_seqs[ out_idx ];
+  ctx->in_kind[ 1UL ] = IN_KIND_GOSSIP_OUT;
+  returnable_frag( ctx, 1UL, 0UL, FD_GOSSIP_UPDATE_TAG_WFS_DONE,
+                   0UL, 0UL, 0UL, 0UL,
+                   fd_frag_meta_ts_comp( fd_tickcount() ), test_stem );
+  FD_TEST( ctx->wfs_complete==1 );
+  FD_TEST( test_stem_seqs[ out_idx ]==seq1+1UL );
+  fd_frag_meta_t const * done = test_stem_mcaches[ out_idx ] + fd_mcache_line_idx( seq1, test_stem_depths[ out_idx ] );
+  FD_TEST( done->sig==REPLAY_SIG_WFS_DONE );
+
+  FD_LOG_NOTICE(( "pass: test_wfs_boot_publish_order (alpenglow=%d)", alpenglow ));
 }
 
 static void
@@ -5576,8 +5519,8 @@ main( int     argc,
   test_wfs_error_aborts( wksp );                    fd_wksp_reset( wksp, 42U );
   test_wfs_bank_hash_mismatch( wksp );              fd_wksp_reset( wksp, 42U );
   test_wfs_done_idempotency( wksp );                fd_wksp_reset( wksp, 42U );
-  test_wfs_defer_boot_publish( wksp );              fd_wksp_reset( wksp, 42U );
-  test_wfs_no_defer_without_alpenglow( wksp );      fd_wksp_reset( wksp, 42U );
+  test_wfs_boot_publish_order( wksp, 0 );           fd_wksp_reset( wksp, 42U );
+  test_wfs_boot_publish_order( wksp, 1 );           fd_wksp_reset( wksp, 42U );
   test_wfs_leader_gate( wksp );                     fd_wksp_reset( wksp, 42U );
   test_wfs_shred_version_deferral();
   test_consensus_root_notification_handoff( wksp ); fd_wksp_reset( wksp, 42U );

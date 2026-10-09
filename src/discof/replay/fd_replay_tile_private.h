@@ -191,8 +191,6 @@ struct fd_replay_tile {
   ulong     wait_for_supermajority_at_slot;
   fd_hash_t expected_bank_hash;
   int       wfs_hash_is_zero;
-  ulong     wfs_boot_slot;
-  int       wfs_defer_boot_publish; /* Alpenglow + WFS MATCH. */
 
   ulong            blockhash_seed;
   ulong            reasm_seed;

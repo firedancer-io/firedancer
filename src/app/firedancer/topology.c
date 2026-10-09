@@ -1810,6 +1810,9 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     fd_cstr_ncpy( tile->votor.identity_key_path, config->paths.identity_key, sizeof(tile->votor.identity_key_path) );
     fd_cstr_ncpy( tile->votor.vote_history_path, config->tiles.votor.write_vote_history_file ? config->paths.vote_history : "", sizeof(tile->votor.vote_history_path) );
     tile->votor.authorized_voter_paths_cnt = config->firedancer.paths.authorized_voter_paths_cnt;
+    tile->votor.wait_for_supermajority_at_slot      = config->firedancer.consensus.wait_for_supermajority_at_slot;
+    tile->votor.wait_for_supermajority_hash_is_zero = wfs_hash_is_zero( config );
+    tile->votor.expected_shred_version              = config->consensus.expected_shred_version;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "tower" ) ) ) {
     tile->tower.authorized_voter_paths_cnt = config->firedancer.paths.authorized_voter_paths_cnt;

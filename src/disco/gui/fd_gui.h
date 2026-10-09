@@ -1274,9 +1274,7 @@ fd_gui_tile_timers_diff( fd_gui_tile_timers_hist_t *  out,
 
 /* fd_gui_boot_snapshot_slot returns the boot slot: the incremental's
    if one loaded, else the full's, ULONG_MAX before any load.  Parsed
-   from archive filenames, so best-effort.  Do not switch to
-   catching_up_first_replay_slot: under alpenglow replay defers the
-   boot publish until the wait ends, leaving it unset during WFS. */
+   from archive filenames, so best-effort. */
 
 FD_FN_PURE static inline ulong
 fd_gui_boot_snapshot_slot( fd_gui_t const * gui ) {

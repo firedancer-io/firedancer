@@ -370,8 +370,9 @@ test_auth_vtr_keyswitch_refreshes_epochs( void ) {
   FD_TEST( ag_votor_footprint( 64UL )<=sizeof(votor_scratch) );
   ctx.votor = ag_votor_join( ag_votor_new( votor_scratch, 64UL, 42UL ) );
   FD_TEST( ctx.votor );
-  ag_votor_init         ( ctx.votor, &(ag_block_id_t){ .slot = 0UL }, 0L, 400000000L, (ushort)1, capture_sign_bls, NULL );
-  ag_votor_advance_epoch( ctx.votor, 400000000L, 1UL, 0UL, NULL );
+  ag_votor_init             ( ctx.votor, &(ag_block_id_t){ .slot = 0UL }, 0L, 400000000L, (ushort)1, capture_sign_bls, NULL );
+  ag_votor_arm_skip_timeouts( ctx.votor, 0L );
+  ag_votor_advance_epoch    ( ctx.votor, 400000000L, 1UL, 0UL, NULL );
   ctx.pool = test_pool( epoch_info, 1UL );
 
   keyswitch->param = FD_KEYSWITCH_PARAM_AV_ADD;
@@ -428,8 +429,9 @@ test_auth_vtr_keyswitch_clear( void ) {
 
   ctx.votor = ag_votor_join( ag_votor_new( votor_scratch, 64UL, 42UL ) );
   FD_TEST( ctx.votor );
-  ag_votor_init         ( ctx.votor, &(ag_block_id_t){ .slot = 0UL }, 0L, 400000000L, (ushort)1, capture_sign_bls, NULL );
-  ag_votor_advance_epoch( ctx.votor, 400000000L, 0UL, 0UL, bls_keys[2] );
+  ag_votor_init             ( ctx.votor, &(ag_block_id_t){ .slot = 0UL }, 0L, 400000000L, (ushort)1, capture_sign_bls, NULL );
+  ag_votor_arm_skip_timeouts( ctx.votor, 0L );
+  ag_votor_advance_epoch    ( ctx.votor, 400000000L, 0UL, 0UL, bls_keys[2] );
   ctx.pool = test_pool( epoch_info, 0UL );
 
   keyswitch->param = FD_KEYSWITCH_PARAM_AV_CLEAR;
@@ -523,6 +525,343 @@ test_replay_before_epoch( void ) {
   FD_TEST( ctx.replay_in_seq==6UL );
 }
 
+/* Votor classifies wait-for-supermajority itself and holds the skip
+   timeouts until the wait ends, so none is armed before the restart
+   instant.  The three inputs (the boot slot, the shred version, and
+   WFS_DONE) arrive on separate links, so the gate is a recomputed
+   conjunction and every order below must release. */
+
+#define VOTOR_WFS_TEST_BOOT_SLOT     (4UL)
+#define VOTOR_WFS_TEST_SHRED_VERSION ((ushort)1234)
+
+static void
+votor_wfs_test_ctx_new( fd_votor_tile_t * ctx,
+                        ulong             wfs_slot ) {
+  memset( ctx, 0, sizeof(fd_votor_tile_t) );
+
+  fd_vote_stake_weight_t stakes[ TEST_VOTER_MAX ];
+  build_stakes( stakes, 3UL, 10UL );
+  ag_epoch_info_t * epoch_info = rank_voters( &epoch_info_mem, stakes, 3UL );
+
+  ctx->in_kind[ 0 ]    = IN_KIND_REPLAY;
+  ctx->in_kind[ 1 ]    = IN_KIND_IPECHO;
+  memcpy( ctx->id_key.uc, epoch_info->validators[0].id_key, sizeof(fd_pubkey_t) );
+  ctx->curr_epoch_info = epoch_info;
+  ctx->curr_epoch_slot = 0UL;
+  ctx->ns_per_slot     = 400000000L;
+  for( ulong i=0UL; i<REWARD_VOTE_MAX; i++ ) ctx->reward_votes[ i ].slot = ULONG_MAX;
+
+  /* The sentinels unprivileged_init sets, which memset does not. */
+  ctx->boot_block_id        = (ag_block_id_t){ .slot = ULONG_MAX };
+  ctx->conn_ahead_slot      = ULONG_MAX;
+  ctx->vote_history_dir_fd  = -1;
+  ctx->vote_history_fd[ 0 ] = -1;
+  ctx->vote_history_fd[ 1 ] = -1;
+
+  ctx->wfs_slot                   = wfs_slot;
+  ctx->wfs_hash_is_zero           = 0;
+  ctx->wfs_shred_version = VOTOR_WFS_TEST_SHRED_VERSION;
+
+  fd_clock_tile_init( ctx->clock );
+  FD_TEST( ag_votor_footprint( 64UL )<=sizeof(votor_scratch) );
+  ctx->votor = ag_votor_join( ag_votor_new( votor_scratch, 64UL, 42UL ) );
+  FD_TEST( ctx->votor );
+
+  /* Not ag_pool_init: the boot SLOT_COMPLETED is what calls that. */
+  FD_TEST( ag_pool_footprint( TEST_POOL_SLOT_MAX )<=sizeof(pool_scratch) );
+  ctx->pool = ag_pool_join( ag_pool_new( pool_scratch, TEST_POOL_SLOT_MAX, 42UL ) );
+  FD_TEST( ctx->pool );
+
+  /* The epoch always lands before the boot slot, so both advance_epoch
+     calls run uninitialized here as they do in the tile. */
+  ag_pool_advance_epoch ( ctx->pool,  epoch_info,       0UL, 0UL );
+  ag_votor_advance_epoch( ctx->votor, ctx->ns_per_slot, 0UL, 0UL, epoch_info->validators[0].bls_key );
+}
+
+static void
+votor_wfs_test_ctx_delete( fd_votor_tile_t * ctx ) {
+  ag_pool_delete ( ag_pool_leave ( ctx->pool  ) );
+  ag_votor_delete( ag_votor_leave( ctx->votor ) );
+}
+
+/* Delivers a SLOT_COMPLETED the way replay does, hashes derived from
+   the slot so a chain can be built.  The first one is the boot slot. */
+
+static void
+votor_wfs_test_slot_completed( fd_votor_tile_t * ctx,
+                               ulong             slot ) {
+  static fd_replay_message_t msg;
+  memset( &msg, 0, sizeof(msg) );
+  msg.slot_completed.slot        = slot;
+  msg.slot_completed.parent_slot = slot ? slot-1UL : 0UL;
+  memset( msg.slot_completed.block_id.uc,        (int)( slot     &0xffUL), sizeof(fd_hash_t) );
+  memset( msg.slot_completed.parent_block_id.uc, (int)((slot-1UL)&0xffUL), sizeof(fd_hash_t) );
+  handle_replay( ctx, REPLAY_SIG_SLOT_COMPLETED, &msg );
+}
+
+static void
+votor_wfs_test_ipecho( fd_votor_tile_t * ctx ) {
+  after_frag( ctx, 1UL, 0UL, (ulong)VOTOR_WFS_TEST_SHRED_VERSION, 0UL, 0UL, 0UL, NULL );
+}
+
+/* WFS_DONE is filtered, not accepted, so it is never gated on the
+   epoch and never backpressures replay_slot. */
+
+static void
+votor_wfs_test_done( fd_votor_tile_t * ctx,
+                     ulong             seq ) {
+  FD_TEST( before_frag( ctx, 0UL, seq, REPLAY_SIG_WFS_DONE )==1 );
+  FD_TEST( ctx->replay_in_seq==seq+1UL );
+}
+
+static void
+test_votor_wfs_disabled( void ) {
+  static fd_votor_tile_t ctx;
+  votor_wfs_test_ctx_new( &ctx, 0UL ); /* no WFS slot configured */
+
+  votor_wfs_test_slot_completed( &ctx, VOTOR_WFS_TEST_BOOT_SLOT );
+  FD_TEST( !ctx.init ); /* no shred version yet */
+  votor_wfs_test_ipecho( &ctx );
+  FD_TEST( ctx.init );
+  FD_TEST( ag_votor_next_skip_timeout( ctx.votor )!=LONG_MAX );
+
+  votor_wfs_test_ctx_delete( &ctx );
+}
+
+static void
+test_votor_wfs_shred_version_is_config( void ) {
+  static fd_votor_tile_t ctx;
+  votor_wfs_test_ctx_new( &ctx, VOTOR_WFS_TEST_BOOT_SLOT );
+  ctx.wfs_shred_version = (ushort)0;
+
+  votor_wfs_test_slot_completed( &ctx, VOTOR_WFS_TEST_BOOT_SLOT );
+  votor_wfs_test_ipecho( &ctx );
+  FD_TEST( ctx.shred_version==VOTOR_WFS_TEST_SHRED_VERSION );
+  FD_TEST( !ctx.wfs_signalled && votor_wfs_is_green( &ctx ) && ctx.init );
+
+  votor_wfs_test_ctx_delete( &ctx );
+}
+
+static void
+test_votor_wfs_match_signal_last( void ) {
+  static fd_votor_tile_t ctx;
+  votor_wfs_test_ctx_new( &ctx, VOTOR_WFS_TEST_BOOT_SLOT );
+
+  votor_wfs_test_slot_completed( &ctx, VOTOR_WFS_TEST_BOOT_SLOT );
+  votor_wfs_test_ipecho( &ctx );
+  FD_TEST( !votor_wfs_is_green( &ctx ) && !ctx.init );
+  FD_TEST( ag_votor_next_skip_timeout( ctx.votor )==LONG_MAX ); /* nothing armed */
+
+  /* A held votor is initialized, so the gate above ag_votor_process_replay
+     is the only thing stopping it voting on a block that arrives now. */
+  votor_wfs_test_slot_completed( &ctx, VOTOR_WFS_TEST_BOOT_SLOT+1UL );
+  FD_TEST( !ag_votor_metrics( ctx.votor ).vote_events_cnt );
+  FD_TEST( ag_votor_next_skip_timeout( ctx.votor )==LONG_MAX );
+
+  long before = fd_clock_tile_now( ctx.clock );
+  votor_wfs_test_done( &ctx, 7UL );
+  FD_TEST( ctx.wfs_signalled && votor_wfs_is_green( &ctx ) && ctx.init );
+  long armed = ag_votor_next_skip_timeout( ctx.votor );
+  FD_TEST( armed>=before+AG_DELTA_TIMEOUT_NS+ctx.ns_per_slot );
+
+  /* A repeat WFS_DONE must not re-arm. */
+  votor_wfs_test_done( &ctx, 8UL );
+  FD_TEST( ag_votor_next_skip_timeout( ctx.votor )==armed );
+
+  votor_wfs_test_ctx_delete( &ctx );
+}
+
+/* Every arrival order of the three gate inputs releases, and none of
+   them releases early. */
+
+static void
+test_votor_wfs_match_all_orders( void ) {
+  enum { BOOT, IPECHO, DONE };
+  int const orders[ 6 ][ 3 ] = {
+    { BOOT,   IPECHO, DONE   }, { BOOT,   DONE,   IPECHO },
+    { IPECHO, BOOT,   DONE   }, { IPECHO, DONE,   BOOT   },
+    { DONE,   BOOT,   IPECHO }, { DONE,   IPECHO, BOOT   }
+  };
+
+  static fd_votor_tile_t ctx;
+  for( ulong o=0UL; o<6UL; o++ ) {
+    votor_wfs_test_ctx_new( &ctx, VOTOR_WFS_TEST_BOOT_SLOT );
+    for( ulong i=0UL; i<3UL; i++ ) {
+      FD_TEST( !ctx.init );
+      switch( orders[ o ][ i ] ) {
+        case BOOT:   votor_wfs_test_slot_completed( &ctx, VOTOR_WFS_TEST_BOOT_SLOT ); break;
+        case IPECHO: votor_wfs_test_ipecho( &ctx );                                   break;
+        case DONE:   votor_wfs_test_done( &ctx, i );                                  break;
+        default:     FD_LOG_CRIT(( "unreachable" ));
+      }
+    }
+    FD_TEST( votor_wfs_is_green( &ctx ) && ctx.init );
+    FD_TEST( ag_votor_next_skip_timeout( ctx.votor )!=LONG_MAX );
+    votor_wfs_test_ctx_delete( &ctx );
+  }
+}
+
+/* NOOP: the boot slot is past the restart slot, so there is nothing to
+   wait for and no WFS_DONE will ever arrive. */
+
+static void
+test_votor_wfs_noop( void ) {
+  static fd_votor_tile_t ctx;
+  votor_wfs_test_ctx_new( &ctx, VOTOR_WFS_TEST_BOOT_SLOT-1UL );
+
+  votor_wfs_test_slot_completed( &ctx, VOTOR_WFS_TEST_BOOT_SLOT );
+  votor_wfs_test_ipecho( &ctx );
+  FD_TEST( !ctx.wfs_signalled && votor_wfs_is_green( &ctx ) && ctx.init );
+
+  votor_wfs_test_ctx_delete( &ctx );
+}
+
+/* ERROR: the boot slot is behind the restart slot.  Replay owns that
+   fatal, so votor just holds. */
+
+static void
+test_votor_wfs_error_holds( void ) {
+  static fd_votor_tile_t ctx;
+  votor_wfs_test_ctx_new( &ctx, VOTOR_WFS_TEST_BOOT_SLOT+1UL );
+
+  votor_wfs_test_slot_completed( &ctx, VOTOR_WFS_TEST_BOOT_SLOT );
+  votor_wfs_test_ipecho( &ctx );
+  FD_TEST( !votor_wfs_is_green( &ctx ) && !ctx.init );
+  FD_TEST( ag_votor_next_skip_timeout( ctx.votor )==LONG_MAX );
+
+  votor_wfs_test_ctx_delete( &ctx );
+}
+
+/* WFS_DONE arriving before any epoch must still be consumed, not
+   retried: returning -1 here would backpressure replay_slot on
+   replay_epoch. */
+
+static void
+test_votor_wfs_done_before_epoch( void ) {
+  static fd_votor_tile_t ctx;
+  votor_wfs_test_ctx_new( &ctx, VOTOR_WFS_TEST_BOOT_SLOT );
+  ctx.curr_epoch_info = NULL;
+
+  votor_wfs_test_done( &ctx, 2UL );
+  FD_TEST( ctx.wfs_signalled && !ctx.init );
+
+  votor_wfs_test_ctx_delete( &ctx );
+}
+
+static void
+test_votor_wfs_keyswitch_during_wait( void ) {
+  static fd_votor_tile_t ctx;
+  static peer_t          peers_mem        [ 1UL<<PEERS_LG_SLOT_CNT         ];
+  static contact_info_t  contact_infos_mem[ 1UL<<CONTACT_INFOS_LG_SLOT_CNT ];
+  static uchar           mleaders_mem[ FD_MULTI_EPOCH_LEADERS_FOOTPRINT ] __attribute__((aligned(FD_MULTI_EPOCH_LEADERS_ALIGN)));
+  static fd_keyswitch_t  av_keyswitch_mem[1];
+  static fd_aio_t        aio_mem[1];
+  static auth_vtr_t      auth_vtr_mem[ 1UL<<AUTH_VTR_LG_SLOT_CNT ];
+
+  /* A boot slot that is the last of its window, which is what makes
+     ag_pool_init queue a ParentReady. */
+  ulong boot_slot = AG_SLOTS_PER_WINDOW-1UL;
+  votor_wfs_test_ctx_new( &ctx, boot_slot );
+
+  ag_bls_key_t bls_keys[1];
+  memcpy( bls_keys[0], ctx.curr_epoch_info->validators[0].bls_key, sizeof(ag_bls_key_t) );
+  init_keys( &ctx, auth_vtr_mem, bls_keys, 1UL );
+  ctx.auth_vtr_path_cnt = 0UL;
+  bls_pubkey_client_init( ctx.keyguard_client, bls_keys, 1UL );
+
+  ctx.mleaders      = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( mleaders_mem      ) );
+  ctx.peers         = peers_join        ( peers_new        ( peers_mem         ) );
+  ctx.contact_infos = contact_infos_join( contact_infos_new( contact_infos_mem ) );
+  FD_TEST( ctx.mleaders && ctx.peers && ctx.contact_infos );
+
+  fd_aio_t * aio = fd_aio_join( fd_aio_new( aio_mem, NULL, drop_aio_send ) );
+  FD_TEST( aio );
+  ctx.quic_client = test_quic( quic_client_scratch, sizeof(quic_client_scratch), FD_QUIC_ROLE_CLIENT, &ctx, aio );
+  ctx.quic_server = test_quic( quic_server_scratch, sizeof(quic_server_scratch), FD_QUIC_ROLE_SERVER, &ctx, aio );
+
+  ctx.auth_vtr_keyswitch = fd_keyswitch_join( fd_keyswitch_new( av_keyswitch_mem, FD_KEYSWITCH_STATE_UNLOCKED ) );
+  ctx.id_keyswitch       = fd_keyswitch_join( fd_keyswitch_new( id_keyswitch_mem, FD_KEYSWITCH_STATE_LOCKED   ) );
+  FD_TEST( ctx.auth_vtr_keyswitch && ctx.id_keyswitch );
+
+  votor_wfs_test_slot_completed( &ctx, boot_slot );
+  votor_wfs_test_ipecho( &ctx );
+  FD_TEST( !ctx.init );
+  FD_TEST( ag_pool_metrics( ctx.pool ).pool_events_cnt==1UL ); /* undrainable while held */
+
+  fd_pubkey_t new_id; memset( new_id.uc, 7, sizeof(fd_pubkey_t) );
+  memcpy( ctx.id_keyswitch->bytes, new_id.uc, sizeof(fd_pubkey_t) );
+  FD_STORE( ulong, ctx.id_keyswitch->bytes+32UL, 0UL );
+  ctx.id_keyswitch->param = ctx.replay_in_seq;
+  fd_keyswitch_state( ctx.id_keyswitch, FD_KEYSWITCH_STATE_SWITCH_PENDING );
+
+  during_housekeeping( &ctx );
+  FD_TEST( ctx.id_keyswitch->state==FD_KEYSWITCH_STATE_COMPLETED );
+  FD_TEST( fd_pubkey_eq( &ctx.id_key, &new_id ) );
+
+  /* Signing resumes without waiting for the supermajority. */
+  FD_TEST( ctx.halt_signing );
+  fd_keyswitch_state( ctx.id_keyswitch, FD_KEYSWITCH_STATE_UNHALT_PENDING );
+  during_housekeeping( &ctx );
+  FD_TEST( ctx.id_keyswitch->state==FD_KEYSWITCH_STATE_COMPLETED );
+  FD_TEST( !ctx.halt_signing );
+
+  /* The queued event is still there, and drains once the wait ends. */
+  FD_TEST( ag_pool_metrics( ctx.pool ).pool_events_cnt==1UL );
+  votor_wfs_test_done( &ctx, 1UL );
+  FD_TEST( ctx.init );
+
+  votor_wfs_test_ctx_delete( &ctx );
+}
+
+static void
+test_votor_wfs_parent_ready_survives_wait( void ) {
+  static fd_votor_tile_t ctx;
+  static peer_t          peers_mem        [ 1UL<<PEERS_LG_SLOT_CNT         ];
+  static contact_info_t  contact_infos_mem[ 1UL<<CONTACT_INFOS_LG_SLOT_CNT ];
+  static fd_aio_t        aio_mem[1];
+  static uchar           reconn_mem[ 1UL<<19 ] __attribute__((aligned(128)));
+  static uchar           mleaders_mem2[ FD_MULTI_EPOCH_LEADERS_FOOTPRINT ] __attribute__((aligned(FD_MULTI_EPOCH_LEADERS_ALIGN)));
+
+  ulong boot_slot = AG_SLOTS_PER_WINDOW-1UL; /* ends its window */
+  votor_wfs_test_ctx_new( &ctx, boot_slot );
+
+  ctx.peers         = peers_join        ( peers_new        ( peers_mem         ) );
+  ctx.contact_infos = contact_infos_join( contact_infos_new( contact_infos_mem ) );
+  ctx.mleaders      = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( mleaders_mem2 ) );
+  FD_TEST( ctx.mleaders );
+  FD_TEST( reconn_prq_footprint( RECONN_MAX )<=sizeof(reconn_mem) );
+  ctx.reconn_prq    = reconn_prq_join   ( reconn_prq_new   ( reconn_mem, RECONN_MAX ) );
+  FD_TEST( ctx.peers && ctx.contact_infos && ctx.reconn_prq );
+
+  fd_aio_t * aio = fd_aio_join( fd_aio_new( aio_mem, NULL, drop_aio_send ) );
+  FD_TEST( aio );
+  ctx.quic_client = test_quic( quic_client_scratch, sizeof(quic_client_scratch), FD_QUIC_ROLE_CLIENT, &ctx, aio );
+  ctx.quic_server = test_quic( quic_server_scratch, sizeof(quic_server_scratch), FD_QUIC_ROLE_SERVER, &ctx, aio );
+
+  votor_wfs_test_slot_completed( &ctx, boot_slot );
+  votor_wfs_test_ipecho( &ctx );
+  FD_TEST( !ctx.init );
+  FD_TEST( ag_pool_metrics( ctx.pool ).pool_events_cnt==1UL );
+
+  /* The drain is below the !ctx->init return, so it does not run. */
+  int charge_busy = 0;
+  after_credit( &ctx, NULL, NULL, &charge_busy );
+  FD_TEST( ag_pool_metrics( ctx.pool ).pool_events_cnt==1UL );
+  FD_TEST( ctx.highest_parent_ready_slot==0UL );
+
+  votor_wfs_test_done( &ctx, 1UL );
+  FD_TEST( ctx.init );
+
+  after_credit( &ctx, NULL, NULL, &charge_busy );
+  FD_TEST( !ag_pool_metrics( ctx.pool ).pool_events_cnt );
+  FD_TEST( ctx.highest_parent_ready_slot==boot_slot+1UL );
+
+  votor_wfs_test_ctx_delete( &ctx );
+}
+
+#undef VOTOR_WFS_TEST_BOOT_SLOT
+#undef VOTOR_WFS_TEST_SHRED_VERSION
+
 /* During set-identity votor halts right after replay.  It keeps voting
    until it has consumed replay_slot through the seq replay switched at,
    then stops voting, lets the votes it already signed go out under the
@@ -566,8 +905,10 @@ test_id_keyswitch( void ) {
 
   ctx.votor = ag_votor_join( ag_votor_new( votor_scratch, 64UL, 42UL ) );
   FD_TEST( ctx.votor );
-  ag_votor_init         ( ctx.votor, &(ag_block_id_t){ .slot = 0UL }, 0L, 400000000L, (ushort)1, capture_sign_bls, NULL );
-  ag_votor_advance_epoch( ctx.votor, 400000000L, 0UL, 0UL, bls_keys[0] );
+  ag_votor_init             ( ctx.votor, &(ag_block_id_t){ .slot = 0UL }, 0L, 400000000L, (ushort)1, capture_sign_bls, NULL );
+  ag_votor_arm_skip_timeouts( ctx.votor, 0L );
+  ag_votor_advance_epoch    ( ctx.votor, 400000000L, 0UL, 0UL, bls_keys[0] );
+  ctx.init = 1; /* hand-inited above, so the pool event queue drains */
   ctx.pool = test_pool( epoch_info, 0UL );
   ag_block_id_t root = { .slot = 0UL };
   ag_block_id_t b1   = { .slot = 1UL }; memset( b1.hash, 1, sizeof(ag_block_hash_t) );
@@ -1366,6 +1707,7 @@ test_park( void ) {
   uchar bls_pubkey[ FD_BLS_PUB_COMPRESSED_SZ ] = { 1 };
   ag_pool_init ( ctx->pool, &(ag_block_id_t){ .slot = 0UL } );
   ag_votor_init( ctx->votor, &(ag_block_id_t){ .slot = 0UL }, now, ctx->ns_per_slot, 1, park_sign, ctx );
+  ag_votor_arm_skip_timeouts( ctx->votor, now );
   ag_votor_advance_epoch( ctx->votor, ctx->ns_per_slot, 0UL, 0UL, bls_pubkey );
   ctx->shred_version = 1;
 
@@ -1515,8 +1857,9 @@ test_vote_history_write( void ) {
   fd_bls_pub_t pub[1];
   build_bls_keys( bls_key, sec, pub, 1UL );
   ctx.votor = ag_votor_join( ag_votor_new( votor_scratch, 64UL, 42UL ) );
-  ag_votor_init         ( ctx.votor, &(ag_block_id_t){ .slot = 0UL }, 0L, 400000000L, (ushort)1, capture_sign_bls, NULL );
-  ag_votor_advance_epoch( ctx.votor, 400000000L, 0UL, 0UL, bls_key[0] );
+  ag_votor_init             ( ctx.votor, &(ag_block_id_t){ .slot = 0UL }, 0L, 400000000L, (ushort)1, capture_sign_bls, NULL );
+  ag_votor_arm_skip_timeouts( ctx.votor, 0L );
+  ag_votor_advance_epoch    ( ctx.votor, 400000000L, 0UL, 0UL, bls_key[0] );
 
   ag_block_info_t block = {0};
   memset( block.hash, 1, sizeof(ag_block_hash_t) );
@@ -1595,7 +1938,7 @@ test_vote_history_write( void ) {
 
   ctx.votor = ag_votor_join( ag_votor_new( votor_scratch, 64UL, 42UL ) );
   ag_votor_init( ctx.votor, &(ag_block_id_t){ .slot = 0UL }, 0L, 400000000L, (ushort)1, capture_sign_bls, NULL );
-  ag_votor_advance_epoch( ctx.votor, 400000000L, 0UL, 0UL, bls_key[0] );
+  ag_votor_advance_epoch    ( ctx.votor, 400000000L, 0UL, 0UL, bls_key[0] );
   ag_votor_handle_skip_timeout( ctx.votor, 3UL );
   ag_pool_event_t late = { .kind = AG_POOL_EVENT_SAFE_TO_NOTAR, .safe_to_notar = { .slot = 2UL } };
   ag_votor_handle_pool_event( ctx.votor, &late, 0L );
@@ -1631,6 +1974,15 @@ main( int     argc,
   test_auth_vtr_keyswitch_clear();
   test_id_keyswitch();
   test_replay_before_epoch();
+  test_votor_wfs_disabled();
+  test_votor_wfs_shred_version_is_config();
+  test_votor_wfs_match_signal_last();
+  test_votor_wfs_match_all_orders();
+  test_votor_wfs_noop();
+  test_votor_wfs_error_holds();
+  test_votor_wfs_done_before_epoch();
+  test_votor_wfs_keyswitch_during_wait();
+  test_votor_wfs_parent_ready_survives_wait();
   test_sign_bls_request();
   test_connect_peer();
   test_conn_final_backoff();

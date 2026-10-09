@@ -2026,10 +2026,7 @@ publish_root_advanced( fd_replay_tile_t *  ctx,
 }
 
 /* publish_boot_slot announces the snapshot slot, which the validator
-   did not replay, as completed and rooted.  Under WFS it runs after
-   the wait (see wfs_defer_boot_publish), so the staged fields are
-   computed here, not at the call site: the poh reset published at
-   boot advances the dcache chunk past anything staged earlier. */
+   did not replay, as completed and rooted. */
 
 static void
 publish_boot_slot( fd_replay_tile_t *  ctx,
@@ -2674,7 +2671,6 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     }
 
     ulong snapshot_slot = bank->f.slot;
-    ctx->wfs_boot_slot  = snapshot_slot;
 
     fd_hash_t bank_hash = bank->f.bank_hash;
     if( FD_UNLIKELY( ctx->wfs_enabled ) ) {
@@ -2702,10 +2698,6 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
           }
           if( FD_LIKELY( !ctx->wfs_complete ) ) {
             FD_LOG_NOTICE(( "waiting for supermajority at snapshot slot %lu", snapshot_slot ));
-            /* The boot slot's completion initializes votor and anchors
-               its clock, so a long wait would read as elapsed slots.
-               Votor is alpenglow-only; tower publishes at once. */
-            ctx->wfs_defer_boot_publish = ctx->alpenglow;
           }
           break;
         }
@@ -2820,7 +2812,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     FD_LOG_INFO(( "replay ready at slot %lu (%.3f s after snapshot done, %.3f s since boot)",
                   snapshot_slot, (double)(now-snapshot_done_nanos)/1e9, (double)(now-ctx->boot_timestamp_nanos)/1e9 ));
 
-    if( FD_LIKELY( !ctx->wfs_defer_boot_publish ) ) publish_boot_slot( ctx, stem, bank );
+    publish_boot_slot( ctx, stem, bank );
 
     if( FD_LIKELY( ctx->replay_out->idx!=ULONG_MAX ) ) {
       fd_poh_reset_t * reset = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
@@ -5300,16 +5292,6 @@ returnable_frag( fd_replay_tile_t *  ctx,
 
       FD_LOG_NOTICE(( "Done waiting for supermajority. More than 80 percent of cluster stake has joined." ));
 
-      /* Announce the boot slot now, if it was held back above. */
-      if( FD_UNLIKELY( ctx->wfs_defer_boot_publish ) ) {
-        ctx->wfs_defer_boot_publish = 0;
-        fd_bank_t * boot_bank = fd_banks_bank_query( ctx->banks, FD_REPLAY_BOOT_BANK_IDX );
-        if( FD_UNLIKELY( !boot_bank || boot_bank->f.slot!=ctx->wfs_boot_slot ) ) {
-          FD_LOG_CRIT(( "boot bank changed during the supermajority wait" ));
-        }
-        publish_boot_slot( ctx, stem, boot_bank );
-      }
-
       if( FD_LIKELY( ctx->replay_out->idx!=ULONG_MAX ) ) {
         publish_replay_out( ctx, stem, REPLAY_SIG_WFS_DONE, 0UL );
       }
@@ -5643,8 +5625,6 @@ unprivileged_init( fd_topo_t const *      topo,
                                         (ulong)tile->replay.expected_shred_version );
   ctx->wait_for_supermajority_at_slot = tile->replay.wait_for_supermajority_at_slot;
   ctx->expected_bank_hash = tile->replay.wait_for_supermajority_with_bank_hash;
-  ctx->wfs_boot_slot = ULONG_MAX; /* set once the boot snapshot is loaded */
-  ctx->wfs_defer_boot_publish = 0;
   ctx->wfs_complete = !ctx->wfs_enabled;
 
   /* With WFS, auto is resolved at boot instead (on_snapshot_message). */
