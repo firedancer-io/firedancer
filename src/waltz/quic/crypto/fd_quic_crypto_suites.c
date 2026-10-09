@@ -67,9 +67,7 @@ void
 fd_quic_key_update_derive( fd_quic_crypto_secrets_t * secrets,
                            fd_quic_crypto_keys_t      new_keys[2] ) {
   /* Defined in RFC 9001 Section 6.1 as:
-     secret_<n+1> = HKDF-Expand-Label(secret_<n>, "quic ku", "", Hash.length)
-
-     Note that QUIC does not use the TLS 1.3 "traffic upd" label. */
+     secret_<n+1> = HKDF-Expand-Label(secret_<n>, "quic ku", "", Hash.length) */
   uint enc_level = fd_quic_enc_level_appdata_id;
 
   for( ulong j=0UL; j<2UL; j++ ) {
