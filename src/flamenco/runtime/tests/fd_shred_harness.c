@@ -294,19 +294,56 @@ fd_solfuzz_pb_shred_run( fd_solfuzz_runner_t * runner,
      before any successor inserts. */
   sort_completed_fec_inplace( completed, completed_cnt );
 
+  /* One result per completed FEC set, as both validators complete sets
+     whether or not the slot is connected: per slot, the contiguous run
+     from index 0 in which every set chains to the previous one's
+     Merkle root.  Delivery and ingest below only drive the block
+     verdict. */
   for( ulong k=0UL; k<completed_cnt; k++ ) {
     fd_shred_completed_fec_t * rec = &completed[ k ];
-
-    /* Lazily init reasm off the first (lowest slot/fec_set_idx) FEC to set the root block id. */
-    if( FD_UNLIKELY( !reasm_initialized ) ) {
-      fd_reasm_fec_t * root = fd_reasm_init( reasm, &rec->cmr, input->root_slot );
-      if( FD_UNLIKELY( !root ) ) {
-        effects->block_parse_result = FD_EXEC_TEST_BLOCK_PARSE_RESULT_REJECTED_INVALID_HEADER;
+    int first_in_slot = ( k==0UL ) || ( completed[ k-1UL ].slot!=rec->slot );
+    if( first_in_slot ) {
+      if( rec->fec_set_idx!=0U ) { while( k+1UL<completed_cnt && completed[ k+1UL ].slot==rec->slot ) k++; continue; }
+    } else {
+      fd_shred_completed_fec_t * prev = &completed[ k-1UL ];
+      if( rec->fec_set_idx!=prev->fec_set_idx+FD_FEC_SHRED_CNT || memcmp( rec->cmr.hash, prev->mr.hash, sizeof(fd_hash_t) ) ) {
+        while( k+1UL<completed_cnt && completed[ k+1UL ].slot==rec->slot ) k++;
         continue;
       }
-      root->bank_idx    = 0UL;
-      reasm_initialized = 1;
     }
+    FD_TEST( effects->fec_set_results_count<max_fec_results );
+    fd_exec_test_fec_set_parse_result_t * out_fec = &effects->fec_set_results[ effects->fec_set_results_count++ ];
+    fd_memset( out_fec, 0, sizeof(*out_fec) );
+    out_fec->completed         = true;
+    out_fec->slot              = rec->slot;
+    out_fec->fec_set_index     = rec->fec_set_idx;
+    out_fec->parent_offset     = rec->parent_off;
+    out_fec->shred_version     = input->shred_version;
+    out_fec->num_data_shreds   = rec->num_data_shreds;
+    out_fec->num_coding_shreds = rec->num_coding_shreds;
+    memcpy( out_fec->merkle_root, rec->mr.hash, FD_SHRED_MERKLE_ROOT_SZ );
+    memcpy( out_fec->chained_merkle_root, rec->cmr.hash, FD_SHRED_MERKLE_ROOT_SZ );
+    out_fec->payload_hash = fd_solfuzz_hash( rec->payload, rec->payload_sz );
+  }
+
+  /* The root block id is the chained Merkle root of the first completed
+     FEC set that chains to the root slot.  Without one, every completed
+     set is an orphan: the reassembler would hold it and deliver nothing,
+     so there is nothing to insert. */
+  for( ulong k=0UL; k<completed_cnt && !reasm_initialized; k++ ) {
+    fd_shred_completed_fec_t * rec = &completed[ k ];
+    if( rec->fec_set_idx!=0U || rec->slot<rec->parent_off || rec->slot-rec->parent_off!=input->root_slot ) continue;
+    fd_reasm_fec_t * root = fd_reasm_init( reasm, &rec->cmr, input->root_slot );
+    if( FD_UNLIKELY( !root ) ) {
+      effects->block_parse_result = FD_EXEC_TEST_BLOCK_PARSE_RESULT_REJECTED_INVALID_HEADER;
+      break;
+    }
+    root->bank_idx    = 0UL;
+    reasm_initialized = 1;
+  }
+
+  for( ulong k=0UL; k<completed_cnt && reasm_initialized; k++ ) {
+    fd_shred_completed_fec_t * rec = &completed[ k ];
 
     /* Step 3: fd_reasm_insert()
        Insert completed FEC into reasm and release elements from evicted
@@ -345,21 +382,6 @@ fd_solfuzz_pb_shred_run( fd_solfuzz_runner_t * runner,
         }
       }
       FD_TEST( popped_rec );
-      FD_TEST( effects->fec_set_results_count<max_fec_results );
-
-      /* Capture completed FEC set results */
-      fd_exec_test_fec_set_parse_result_t * out_fec = &effects->fec_set_results[ effects->fec_set_results_count++ ];
-      fd_memset( out_fec, 0, sizeof(*out_fec) );
-      out_fec->completed         = true;
-      out_fec->slot              = popped_rec->slot;
-      out_fec->fec_set_index     = popped_rec->fec_set_idx;
-      out_fec->parent_offset     = popped_rec->parent_off;
-      out_fec->shred_version     = input->shred_version;
-      out_fec->num_data_shreds   = popped_rec->num_data_shreds;
-      out_fec->num_coding_shreds = popped_rec->num_coding_shreds;
-      memcpy( out_fec->merkle_root, popped_rec->mr.hash, FD_SHRED_MERKLE_ROOT_SZ );
-      memcpy( out_fec->chained_merkle_root, popped_rec->cmr.hash, FD_SHRED_MERKLE_ROOT_SZ );
-      out_fec->payload_hash = fd_solfuzz_hash( popped_rec->payload, popped_rec->payload_sz );
 
       /* Match Agave's model of only parsing deshreddable batches.
          Otherwise, Firedancer's eager per-FEC parsing might reject a
@@ -367,10 +389,8 @@ fd_solfuzz_pb_shred_run( fd_solfuzz_runner_t * runner,
          A FEC set is deshreddable iff some FEC set at or after it in
          the same slot carries DATA_COMPLETE.  Complete batches are
          still fed one FEC set at a time.  Only the final, potentially
-         incomplete batch is held back.  fec_set_results were already
-         captured above, independent of the scheduler, so withholding
-         does not change them.  Agave likewise emits a fec_set_result
-         for every complete FEC set, deshreddable or not. */
+         incomplete batch is held back.  fec_set_results are captured
+         from the completed sets above, independent of the scheduler. */
       int deshreddable = 0;
       for( ulong j=0UL; j<completed_cnt; j++ ) {
         if( completed[ j ].slot==popped_rec->slot && completed[ j ].fec_set_idx>=popped_rec->fec_set_idx && completed[ j ].data_complete ) {
