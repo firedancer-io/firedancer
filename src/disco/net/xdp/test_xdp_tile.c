@@ -474,7 +474,7 @@ main( int     argc,
   fd_net_gre_tunnels_refresh( &ctx->net, &ctx->netdev_tbl );
   for( ulong i=0UL; i<FD_NET_GRE_MAX; i++ ) FD_TEST( ctx->net.gre_tunnel_ip[i]==0U );
   uint is_gre_inf = 0U;
-  FD_TEST( net_tx_route( ctx, FD_IP4_ADDR( 1,1,1,1 ), &is_gre_inf, 0 )==0 );
+  FD_TEST( net_tx_route( ctx, FD_IP4_ADDR( 1,1,1,1 ), &is_gre_inf )==0 );
 
   /* Neighbor table */
   add_neighbor( neigh4_hmap, gre0_outer_dst_ip, eth0_dst_mac_addr[0], eth0_dst_mac_addr[1], eth0_dst_mac_addr[2], eth0_dst_mac_addr[3], eth0_dst_mac_addr[4], eth0_dst_mac_addr[5] );
@@ -496,13 +496,13 @@ main( int     argc,
     ulong   before   = fail_cnt[ FD_METRICS_ENUM_ROUTE_FAIL_V_UNSUPPORTED_INTERFACE_IDX ];
 
     ctx->if_virt = IF_IDX_ETH0;
-    FD_TEST( net_tx_route( ctx, random_ip, &is_gre_inf, 0 )==0 );
+    FD_TEST( net_tx_route( ctx, random_ip, &is_gre_inf )==0 );
     FD_TEST( fail_cnt[ FD_METRICS_ENUM_ROUTE_FAIL_V_UNSUPPORTED_INTERFACE_IDX ]==before+1UL );
 
     ctx->if_virt = IF_IDX_ETH1;
     fd_netdev_t * eth1 = fd_netdev_tbl_query( &ctx->netdev_tbl, IF_IDX_ETH1 );
     eth1->dev_type = ARPHRD_NONE;
-    FD_TEST( net_tx_route( ctx, random_ip, &is_gre_inf, 0 )==0 );
+    FD_TEST( net_tx_route( ctx, random_ip, &is_gre_inf )==0 );
     FD_TEST( fail_cnt[ FD_METRICS_ENUM_ROUTE_FAIL_V_UNSUPPORTED_INTERFACE_IDX ]==before+2UL );
     eth1->dev_type = ARPHRD_ETHER;
 
