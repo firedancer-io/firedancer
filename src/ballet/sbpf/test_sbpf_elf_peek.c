@@ -8,7 +8,11 @@
 LOAD_ELF( hello_solana_program )
 LOAD_ELF( hello_solana_program_sbpf_v2 )
 LOAD_ELF( hello_solana_program_old_sbpf_v2 )
-LOAD_ELF( ptoken_program_v3 )
+/* spl_p_token_sbpf_v3: solana-program/token p-token@v1.0.0 built with
+   platform-tools v1.57 (cargo build --release --target
+   sbpfv3-solana-solana -p pinocchio-token-program), then
+   llvm-objcopy --strip-all. */
+LOAD_ELF( spl_p_token_sbpf_v3 )
 
 void test_sbpf_version_default( void ) {
   fd_sbpf_elf_info_t info;
@@ -29,8 +33,8 @@ void test_sbpf_version_default( void ) {
   res = fd_sbpf_elf_peek( &info, hello_solana_program_old_sbpf_v2_elf, hello_solana_program_old_sbpf_v2_elf_sz, &config );
   FD_CHECK_ERR( res<0, "hello_solana_program (old) v2 unsupported" );
 
-  res = fd_sbpf_elf_peek( &info, ptoken_program_v3_elf, ptoken_program_v3_elf_sz, &config );
-  FD_CHECK_ERR( res==FD_SBPF_ELF_ERR_UNSUPPORTED_SBPF_VERSION, "ptoken_program v3 rejected when max is v0" );
+  res = fd_sbpf_elf_peek( &info, spl_p_token_sbpf_v3_elf, spl_p_token_sbpf_v3_elf_sz, &config );
+  FD_CHECK_ERR( res==FD_SBPF_ELF_ERR_UNSUPPORTED_SBPF_VERSION, "spl_p_token v3 rejected when max is v0" );
 }
 
 void test_sbpf_version_from_elf_header( void ) {
@@ -54,12 +58,10 @@ void test_sbpf_version_from_elf_header( void ) {
   res = fd_sbpf_elf_peek( &info, hello_solana_program_old_sbpf_v2_elf, hello_solana_program_old_sbpf_v2_elf_sz, &config );
   FD_CHECK_ERR( res<0, "hello_solana_program (old) v2 unsupported" );
 
-  /* ptoken_program_v3 passes the SBPF version check, but uses a legacy
-     SBPFv3 layout (e_machine=EM_SBPF, text at vaddr 0) that the strict
-     parser rejects.  Successful strict parsing is covered by
-     test_sbpf_elf_peek_strict_hex. */
-  res = fd_sbpf_elf_peek( &info, ptoken_program_v3_elf, ptoken_program_v3_elf_sz, &config );
-  FD_CHECK_ERR( res==FD_SBPF_ELF_ERR_FAILED_TO_PARSE, "ptoken_program_v3" );
+  memset( &info, 0xff, sizeof(info) );
+  res = fd_sbpf_elf_peek( &info, spl_p_token_sbpf_v3_elf, spl_p_token_sbpf_v3_elf_sz, &config );
+  FD_CHECK_ERR( res==FD_SBPF_ELF_SUCCESS, "spl_p_token v3" );
+  FD_CHECK_ERR( info.sbpf_version==FD_SBPF_V3, "spl_p_token v3" );
 }
 
 void test_sbpf_version_from_elf_header_with_min( void ) {
@@ -81,12 +83,10 @@ void test_sbpf_version_from_elf_header_with_min( void ) {
   res = fd_sbpf_elf_peek( &info, hello_solana_program_old_sbpf_v2_elf, hello_solana_program_old_sbpf_v2_elf_sz, &config );
   FD_CHECK_ERR( res<0, "hello_solana_program (old) v2 unsupported" );
 
-  /* ptoken_program_v3 passes the SBPF version check, but uses a legacy
-     SBPFv3 layout (e_machine=EM_SBPF, text at vaddr 0) that the strict
-     parser rejects.  Successful strict parsing is covered by
-     test_sbpf_elf_peek_strict_hex. */
-  res = fd_sbpf_elf_peek( &info, ptoken_program_v3_elf, ptoken_program_v3_elf_sz, &config );
-  FD_CHECK_ERR( res==FD_SBPF_ELF_ERR_FAILED_TO_PARSE, "ptoken_program_v3" );
+  memset( &info, 0xff, sizeof(info) );
+  res = fd_sbpf_elf_peek( &info, spl_p_token_sbpf_v3_elf, spl_p_token_sbpf_v3_elf_sz, &config );
+  FD_CHECK_ERR( res==FD_SBPF_ELF_SUCCESS, "spl_p_token v3" );
+  FD_CHECK_ERR( info.sbpf_version==FD_SBPF_V3, "spl_p_token v3" );
 }
 
 /* Strict parser hex-based test merged from test_sbpf_elf_peek_strict.c */
