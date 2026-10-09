@@ -88,10 +88,6 @@ typedef struct fd_vm_haddr_query fd_vm_haddr_query_t;
    FD_VM_MEM_HADDR_ST returns a read-write pointer but is otherwise
    identical to FD_VM_MEM_HADDR_LD.
 
-   FD_VM_MEM_HADDR_LD_FAST and FD_VM_HADDR_ST_FAST are for use when the
-   corresponding vaddr region it known to correctly resolve (e.g.  a
-   syscall has already done preflight checks on them).
-
    These macros intentionally don't support multi region loads/stores.
    The load/store macros are used by vm syscalls and mirror the use
    of translate_slice{_mut}. However, this check does not allow for
