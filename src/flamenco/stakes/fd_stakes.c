@@ -608,8 +608,12 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
     total_stake        += new_acc.effective;
     total_activating   += new_acc.activating;
     total_deactivating += new_acc.deactivating;
-    if( FD_UNLIKELY( !new_acc.effective && !reward_stake ) ) continue;
 
+    /* Agave records every voter that has a delegation, even when all
+       of its delegations are inactive.  The epoch boundary sweep uses
+       the record to tell a known validator with no stake, whose
+       pending delegator rewards stay in the vote account, from an
+       unknown one, whose rewards are burned.  So keep the entry. */
     fd_stake_accum_t * stake_accum = fd_stake_accum_map_ele_query( stake_accum_map, &stake_delegation->vote_account, NULL, stake_accum_pool );
     if( FD_UNLIKELY( !stake_accum ) ) {
       if( FD_UNLIKELY( staked_accounts>=runtime_stack->max_staked_vote_accounts ) ) {
