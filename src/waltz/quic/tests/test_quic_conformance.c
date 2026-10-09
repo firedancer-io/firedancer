@@ -511,6 +511,58 @@ FD_UNIT_TEST( quic_pktnum_skip ) {
 
 }
 
+/* Ensure that replayed 1-RTT packets (duplicate packet numbers) are
+   dropped (RFC 9000 Section 12.3), while reordered packets within the
+   replay window are still accepted. */
+
+FD_UNIT_TEST( quic_pktnum_dup ) {
+
+  fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_SERVER );
+  fd_quic_conn_t *    conn    = fd_quic_sandbox_new_conn_established( sandbox, rng );
+  fd_quic_metrics_t * metrics = &conn->quic->metrics;
+  ulong *             ping_cnt = &metrics->frame_rx_cnt[ FD_METRICS_ENUM_QUIC_FRAME_TYPE_V_PING_IDX ];
+
+# define EXPECT_PING( pktnum, accept ) do {                             \
+    ulong before = *ping_cnt;                                           \
+    fd_quic_sandbox_send_ping_pkt( sandbox, conn, (pktnum) );           \
+    FD_TEST( *ping_cnt == before + (ulong)(accept) );                   \
+  } while(0)
+
+  ulong base = conn->exp_pkt_number[2] + 100UL;
+
+  EXPECT_PING( base,     1 );
+  EXPECT_PING( base,     0 );  /* replay */
+  FD_TEST( conn->exp_pkt_number[2] == base+1UL );
+  EXPECT_PING( base-2UL, 1 );  /* reordered */
+  EXPECT_PING( base-2UL, 0 );  /* replay of reordered */
+  EXPECT_PING( base-1UL, 1 );
+  EXPECT_PING( base-1UL, 0 );
+  FD_TEST( conn->exp_pkt_number[2] == base+1UL );
+
+  /* Slide window by 64 */
+  EXPECT_PING( base+64UL, 1 );
+  FD_TEST( conn->exp_pkt_number[2] == base+65UL );
+  EXPECT_PING( base,      0 );  /* outside of window, already seen */
+  EXPECT_PING( base-3UL,  0 );  /* outside of window, never seen */
+  EXPECT_PING( base+1UL,  1 );  /* oldest in window, never seen */
+  EXPECT_PING( base+1UL,  0 );
+  EXPECT_PING( base+63UL, 1 );
+  EXPECT_PING( base+64UL, 0 );
+
+  /* Jump far ahead */
+  EXPECT_PING( base+1000UL, 1 );
+  EXPECT_PING( base+64UL,   0 );
+  EXPECT_PING( base+999UL,  1 );
+  EXPECT_PING( base+999UL,  0 );
+  EXPECT_PING( base+1000UL, 0 );
+  FD_TEST( conn->exp_pkt_number[2] == base+1001UL );
+
+  FD_TEST( metrics->pkt_decrypt_fail_cnt[ fd_quic_enc_level_appdata_id ]==0 );
+  FD_TEST( conn->state == FD_QUIC_CONN_STATE_ACTIVE );
+
+# undef EXPECT_PING
+}
+
 FD_UNIT_TEST( quic_conn_initial_limits ) {
   (void)rng;
 
