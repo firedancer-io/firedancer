@@ -2138,7 +2138,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
   return out_cnt;
 }
 
-#define STEM_BURST (2UL)        /* MAX( slot_confirmed, slot_rooted AND (slot_done OR slot_ignored) ) */
+#define STEM_BURST (1UL)        /* all tower_out frags are queued in ctx->publishes; after_credit publishes at most one per iteration */
 #define STEM_LAZY  (128L*3000L) /* see explanation in fd_pack */
 
 #define STEM_CALLBACK_CONTEXT_TYPE        fd_tower_tile_t
