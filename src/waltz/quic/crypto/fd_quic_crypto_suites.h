@@ -114,9 +114,9 @@ fd_quic_gen_initial_secrets(
 
      secret
       |
-      +---> header protection key = HKDF-Expand-Label(.,"quic-hp")
-      +---> packet protection IV  = HKDF-Expand-Label(.,"quic-iv")
-      +---> packet protection key = HKDF-Expand-Label(.,"quic-key") */
+      +---> header protection key = HKDF-Expand-Label(.,"quic hp")
+      +---> packet protection IV  = HKDF-Expand-Label(.,"quic iv")
+      +---> packet protection key = HKDF-Expand-Label(.,"quic key") */
 
 void
 fd_quic_gen_keys(
@@ -134,10 +134,10 @@ fd_quic_gen_keys(
      client/server secret n
       |
       v
-     client/server secret n+1 = HKDF-Expand-Label(.,"quic-ku")
+     client/server secret n+1 = HKDF-Expand-Label(.,"quic ku")
       |
-      +---> server packet protection IV  = HKDF-Expand-Label(.,"quic-iv")
-      +---> server packet protection key = HKDF-Expand-Label(.,"quic-key") */
+      +---> server packet protection IV  = HKDF-Expand-Label(.,"quic iv")
+      +---> server packet protection key = HKDF-Expand-Label(.,"quic key") */
 
 void
 fd_quic_key_update_derive( fd_quic_crypto_secrets_t * secrets,
