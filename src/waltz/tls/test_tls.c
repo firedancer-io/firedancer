@@ -599,6 +599,13 @@ test_tls_truncated_cert_extract( void ) {
   fd_x509_mock_cert( cert, pubkey );
   long encoded = fd_tls_encode_cert_x509( cert, sizeof(cert), original, sizeof(original) );
   FD_TEST( encoded>4L );
+
+  /* Insufficient output buffer space is a local failure */
+  for( ulong len=0UL; len<(ulong)encoded; len++ )
+    FD_TEST( fd_tls_encode_cert_x509( cert, sizeof(cert), wire, len )==-(long)FD_TLS_ALERT_INTERNAL_ERROR );
+  fd_tls_ext_hdr_t ext_hdr = { .type=FD_TLS_EXT_ALPN, .sz=0 };
+  FD_TEST( fd_tls_encode_ext_hdr( &ext_hdr, wire, sizeof(fd_tls_ext_hdr_t)-1UL )==-(long)FD_TLS_ALERT_INTERNAL_ERROR );
+
   ulong sz = (ulong)encoded-4UL;
   fd_memcpy( wire, original+4UL, sz );
   FD_TEST( fd_tls_extract_cert_pubkey( wire, sz ).pubkey );
