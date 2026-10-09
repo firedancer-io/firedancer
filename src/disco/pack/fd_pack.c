@@ -749,6 +749,11 @@ struct fd_pack_private {
   fd_histf_t pct_cus_per_block      [ 1 ];
   ulong      cumulative_rebated_cus;
 
+  /* CUs consumed by the transactions that landed in the current block,
+     as reported by rebates.  Lags cumulative_block_cost by the rebate
+     latency and excludes in-flight microblocks. */
+  ulong      cumulative_consumed_cus;
+
 
   /* compressed_slot_number: a number in (FD_PACK_SKIP_CNT, USHORT_MAX]
      that advances each time we start packing for a new slot. */
@@ -912,6 +917,7 @@ fd_pack_new( void                   * mem,
   pack->expire_before               = 0UL;
   pack->outstanding_microblock_mask = 0UL;
   pack->cumulative_rebated_cus      = 0UL;
+  pack->cumulative_consumed_cus     = 0UL;
   pack->bundle_leave_fn             = NULL;
   pack->bundle_leave_ctx            = NULL;
   pack->now                         = 0L;
@@ -2949,6 +2955,7 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
 
 ulong fd_pack_bank_tile_cnt     ( fd_pack_t const * pack ) { return pack->bank_tile_cnt;         }
 ulong fd_pack_current_block_cost( fd_pack_t const * pack ) { return pack->cumulative_block_cost; }
+ulong fd_pack_current_consumed_cost( fd_pack_t const * pack ) { return pack->cumulative_consumed_cus; }
 ulong fd_pack_next_auction_txn_cnt( fd_pack_t const * pack ) { return treap_ele_cnt( pack->next_auction ); }
 ulong fd_pack_regular_txn_cnt     ( fd_pack_t const * pack ) { return treap_ele_cnt( pack->pending      ); }
 int   fd_pack_auction_running     ( fd_pack_t const * pack ) { return pack->auction_running;               }
@@ -3027,6 +3034,7 @@ fd_pack_rebate_cus( fd_pack_t              * pack,
   pack->data_bytes_consumed    -= rebate->data_bytes_rebate;
   pack->alloc_consumed         -= rebate->alloc_rebate;
   pack->cumulative_rebated_cus += rebate->total_cost_rebate;
+  pack->cumulative_consumed_cus+= rebate->total_consumed;
   /* For now, we want to ignore the microblock count rebate.  There are
      3 places the microblock count is kept (here, in the pack tile, and
      in the PoH tile), and they all need to count microblocks that end
@@ -3090,6 +3098,7 @@ fd_pack_end_block( fd_pack_t * pack ) {
   pack->data_bytes_consumed         = 0UL;
   pack->cumulative_block_cost       = 0UL;
   pack->cumulative_rebated_cus      = 0UL;
+  pack->cumulative_consumed_cus     = 0UL;
   pack->outstanding_microblock_mask = 0UL;
   pack->inflight_gen++;
   pack->alloc_consumed              = 0UL;
@@ -3164,6 +3173,7 @@ fd_pack_clear_all( fd_pack_t * pack ) {
   pack->microblock_cnt         = 0UL;
   pack->cumulative_block_cost  = 0UL;
   pack->cumulative_rebated_cus = 0UL;
+  pack->cumulative_consumed_cus= 0UL;
   pack->data_bytes_consumed    = 0UL;
   pack->alloc_consumed         = 0UL;
 

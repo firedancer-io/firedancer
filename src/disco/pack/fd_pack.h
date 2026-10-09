@@ -262,6 +262,15 @@ fd_pack_avail_txn_cnt( fd_pack_t const * pack ) {
    be a valid local join. */
 FD_FN_PURE ulong fd_pack_current_block_cost( fd_pack_t const * pack );
 
+/* fd_pack_current_consumed_cost returns the number of CUs consumed by
+   the transactions that landed in the current block, as reported by
+   rebates (fd_pack_rebate_cus).  Unlike fd_pack_current_block_cost it
+   does not include scheduled transactions whose rebate has not arrived
+   yet, so it lags execution slightly and never counts failed
+   transactions.  It is a progress estimate for pacing, not a bound:
+   block limits are enforced on fd_pack_current_block_cost.  Reset by
+   fd_pack_end_block.  pack must be a valid local join. */
+FD_FN_PURE ulong fd_pack_current_consumed_cost( fd_pack_t const * pack );
 void             fd_pack_auction_begin       ( fd_pack_t *       pack );
 void             fd_pack_auction_end         ( fd_pack_t *       pack );
 FD_FN_PURE int   fd_pack_auction_running     ( fd_pack_t const * pack );
