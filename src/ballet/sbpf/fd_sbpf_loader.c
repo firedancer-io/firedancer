@@ -398,8 +398,6 @@ fd_sbpf_register_function_hashed_legacy( fd_sbpf_loader_t *  loader,
 
    Obviously invalid relocations (e.g. out-of-bounds of ELF file or
    unsupported reloc type) raise an error.
-   Relocations that would corrupt ELF data structures are silently
-   ignored (using the fd_sbpf_reloc_mask mechanism).
 
    ### History
 
