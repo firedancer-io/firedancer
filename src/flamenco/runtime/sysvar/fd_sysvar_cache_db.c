@@ -29,7 +29,7 @@ sysvar_data_fill( fd_sysvar_cache_t *       cache,
   desc->data_sz = (uint)data_sz;
   fd_accdb_unread_one( accdb, &acc );
 
-  /* Recover object cache acc from data cache acc */
+  /* Validate data cache entry */
   return fd_sysvar_obj_restore( cache, desc, pos );
 }
 
@@ -84,6 +84,6 @@ fd_sysvar_cache_restore_one( fd_sysvar_cache_t * cache,
   fd_memcpy( data, acc_data, data_sz );
   desc->data_sz = (uint)data_sz;
 
-  /* Recover object cache acc from data cache acc */
+  /* Validate data cache entry */
   fd_sysvar_obj_restore( cache, desc, pos );
 }
