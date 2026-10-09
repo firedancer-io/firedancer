@@ -108,7 +108,7 @@ fd_stake_delegation_is_inactive( fd_stake_delegation_t const * delegation,
    Returns the number of items in weights (which is <= no of vote accs). */
 
 ulong
-fd_stake_weights_by_node( fd_vote_stakes_t const * vote_stakes,
+fd_stake_weights_by_node( fd_vote_stakes_t *       vote_stakes,
                           ulong                    fork_id,
                           int                      iter_kind,
                           fd_vote_stake_weight_t * weights );

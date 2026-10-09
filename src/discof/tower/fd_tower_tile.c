@@ -708,13 +708,13 @@ query_towers( fd_tower_tile_t *            ctx,
   while( !fd_vote_stakes_iter_done( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter ) ) {
     ulong batch_n = 0UL;
     while( !fd_vote_stakes_iter_done( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter ) && batch_n<BATCH ) {
-      uchar is_valid;
-      fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter,
-                               &vote_accs[ batch_n ], NULL, &stakes[ batch_n ],
-                               NULL, NULL, NULL, &is_valid, NULL, NULL, NULL );
+      fd_vote_stakes_ele_t ele[1];
+      fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter, ele );
+      vote_accs[ batch_n ] = ele->pubkey;
+      stakes   [ batch_n ] = ele->stake;
       fd_vote_stakes_iter_next( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter );
       total_stake += stakes[ batch_n ];
-      if( FD_UNLIKELY( !is_valid ) ) continue;
+      if( FD_UNLIKELY( !ele->is_valid ) ) continue;
       pubkeys[ batch_n ]  = vote_accs[ batch_n ].uc;
       writable[ batch_n ] = 0;
       batch_n++;
@@ -1018,29 +1018,27 @@ query_epoch_voters( fd_tower_tile_t *      ctx,
   ulong total_stake = 0UL;
   fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, vote_stakes_fork_id, iter_kind, ctx->iter_mem );
   while( !fd_vote_stakes_iter_done( vote_stakes, vote_stakes_fork_id, iter_kind, iter ) ) {
-    fd_pubkey_t pubkey;
-    ulong       stake;
-    fd_vote_stakes_iter_ele( vote_stakes, vote_stakes_fork_id, iter_kind, iter, &pubkey, NULL, &stake,
-                             NULL, NULL, NULL, NULL, NULL, NULL, NULL );
+    fd_vote_stakes_ele_t ele[1];
+    fd_vote_stakes_iter_ele( vote_stakes, vote_stakes_fork_id, iter_kind, iter, ele );
     fd_vote_stakes_iter_next( vote_stakes, vote_stakes_fork_id, iter_kind, iter );
-    total_stake += stake;
+    total_stake += ele->stake;
     epoch_vtr_t * vtr = epoch_vtr_pool_ele_acquire( pool );
-    vtr->vote_acc = pubkey;
-    vtr->stake    = stake;
+    vtr->vote_acc = ele->pubkey;
+    vtr->stake    = ele->stake;
     memset( &vtr->auth_vtr, 0, sizeof(fd_pubkey_t) );
 
     /* Cache the authorized voter for target_epoch.  Leaves
        auth_vtr all-zero if the vote account is unreadable —
        count_vote_txn will reject txns whose signer can't match. */
 
-    fd_acc_t ro = fd_accdb_read_one( ctx->accdb, accdb_fork_id, pubkey.uc );
+    fd_acc_t ro = fd_accdb_read_one( ctx->accdb, accdb_fork_id, ele->pubkey.uc );
     if( FD_LIKELY( ro.lamports && fd_vsv_is_correct_size_owner_and_init( ro.owner, ro.data, ro.data_len ) ) ) {
       fd_pubkey_t identity[1];
       ulong dummy_idx;
       vote_account_config( ctx, ro.data, ro.data_len, epoch, &vtr->auth_vtr, &dummy_idx, identity );
       if( update_id_keys_vote_accs ) {
         FD_TEST( 0==fd_vote_account_node_pubkey( ro.data, ro.data_len, &ctx->id_keys[ctx->vtr_cnt] ) ); /* check vote account is not corrupt */
-        ctx->vote_accs[ctx->vtr_cnt] = pubkey;
+        ctx->vote_accs[ctx->vtr_cnt] = ele->pubkey;
         ctx->vtr_cnt++;
       }
     }
@@ -2109,7 +2107,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_tower_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_tower_tile_t), sizeof(fd_tower_tile_t) );
 
-  populate_sock_filter_policy_fd_tower_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->tower_dir_fd, (uint)ctx->tower_fd[ 0 ], (uint)ctx->tower_fd[ 1 ], FD_ACCDB_FD_RW );
+  populate_sock_filter_policy_fd_tower_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->tower_dir_fd, (uint)ctx->tower_fd[ 0 ], (uint)ctx->tower_fd[ 1 ], FD_ACCDB_FD_RW, FD_VOTE_STAKES_FD );
   return sock_filter_policy_fd_tower_tile_instr_cnt;
 }
 
@@ -2122,7 +2120,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_tower_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_tower_tile_t), sizeof(fd_tower_tile_t) );
 
-  if( FD_UNLIKELY( out_fds_cnt<6UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<7UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
@@ -2134,6 +2132,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
     out_fds[ out_cnt++ ] = ctx->tower_fd[ 1 ];
   }
   out_fds[ out_cnt++ ] = FD_ACCDB_FD_RW; /* accounts database */
+  out_fds[ out_cnt++ ] = FD_VOTE_STAKES_FD; /* vote stakes disk spill */
 
   return out_cnt;
 }

@@ -69,7 +69,7 @@ fd_runtime_update_next_leaders( fd_bank_t *          bank,
     FD_LOG_ERR(( "epoch %lu has %lu slots, but the maximum supported is %lu", epoch, slot_cnt, FD_RUNTIME_SLOTS_PER_EPOCH ));
   }
 
-  fd_vote_stakes_t const * vote_stakes      = fd_bank_vote_stakes( bank );
+  fd_vote_stakes_t *       vote_stakes      = fd_bank_vote_stakes( bank );
   fd_vote_stake_weight_t * epoch_weights    = runtime_stack->stakes.stake_weights;
   ulong                    stake_weight_cnt = fd_stake_weights_by_node( vote_stakes, bank->vote_stakes_fork_id, FD_VOTE_STAKES_ITER_T_1, epoch_weights );
   FD_TEST( stake_weight_cnt<=MAX_STAKE_WEIGHTS );
@@ -108,7 +108,7 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
     FD_LOG_ERR(( "epoch %lu has %lu slots, but the maximum supported is %lu", epoch, slot_cnt, FD_RUNTIME_SLOTS_PER_EPOCH ));
   }
 
-  fd_vote_stakes_t const * vote_stakes      = fd_bank_vote_stakes( bank );
+  fd_vote_stakes_t *       vote_stakes      = fd_bank_vote_stakes( bank );
   fd_vote_stake_weight_t * epoch_weights    = runtime_stack->stakes.stake_weights;
   ulong                    stake_weight_cnt = fd_stake_weights_by_node( vote_stakes, bank->vote_stakes_fork_id, FD_VOTE_STAKES_ITER_T_2, epoch_weights );
   FD_TEST( stake_weight_cnt<=MAX_STAKE_WEIGHTS );
@@ -289,31 +289,27 @@ fd_runtime_deposit_or_burn_fee( fd_bank_t *        bank,
 
   /* Per SIMD-0232, the fee reward goes to the leader's block revenue
      collector from the vote account state the leader schedule was
-     derived from (captured entering the previous epoch, tag
-     epoch-1); default is the leader identity.
+     derived from (the t-2 vote stakes set); default is the leader
+     identity.
      https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.5/runtime/src/bank/fee_distribution.rs#L151-L181 */
   int custom_commission_collector = FD_FEATURE_ACTIVE_BANK( bank, custom_commission_collector );
 
   fd_pubkey_t const * collector_id   = leader;
   fd_pubkey_t const * leader_vote    = NULL;
   ushort              commission_bps = FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS;
-  fd_pubkey_t         override_collector;
+  fd_pubkey_t         block_collector;
   if( custom_commission_collector ) {
     leader_vote = fd_epoch_leaders_get_vote( leaders, bank->f.slot );
     if( FD_UNLIKELY( !leader_vote ) ) FD_LOG_CRIT(( "fd_epoch_leaders_get_vote(%lu) returned NULL", bank->f.slot ));
-    int flags = fd_collector_overrides_query( fd_bank_collector_overrides( bank ),
-                                              bank->collector_overrides_fork_id,
-                                              fd_ulong_sat_sub( bank->f.epoch, 1UL ),
-                                              leader_vote,
-                                              NULL,
-                                              &override_collector );
-    if( FD_UNLIKELY( flags & FD_COLLECTOR_OVERRIDE_BLOCK ) ) collector_id = &override_collector;
     if( FD_UNLIKELY( !fd_vote_stakes_query_block_revenue_t_2( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id,
                                                               leader_vote, &commission_bps, NULL ) ) ) {
       FD_BASE58_ENCODE_32_BYTES( leader_vote->uc, leader_vote_b58 );
       /* https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.5/runtime/src/bank/fee_distribution.rs#L167 */
       FD_LOG_CRIT(( "leader vote account %s is not in the epoch stakes at slot %lu", leader_vote_b58, bank->f.slot ));
     }
+    FD_TEST( fd_vote_stakes_query_collectors_t_2( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id,
+                                                  leader_vote, NULL, &block_collector ) );
+    collector_id = &block_collector;
   }
 
   /* https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.5/runtime/src/bank/fee_distribution.rs#L183-L199 */
@@ -1727,20 +1723,11 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *         banks,
     for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter_mem );
          !fd_vote_stakes_iter_done( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter );
          fd_vote_stakes_iter_next( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter ) ) {
-      fd_pubkey_t pubkey;
-      fd_pubkey_t node_account;
-      ulong       stake;
-      ushort      commission;
-      uchar       bls_key[ FD_BLS_PUBKEY_COMPRESSED_SZ ];
-
-      fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter, &pubkey, &node_account, &stake,
-                               NULL, NULL, &commission, NULL, NULL, bls_key, NULL );
-      ushort block_revenue_commission_bps;
-      ulong  pending_delegator_rewards;
-      fd_vote_stakes_iter_block_revenue( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter,
-                                         &block_revenue_commission_bps, &pending_delegator_rewards );
-      fd_vote_stakes_snap_insert_t_2( vote_stakes, fork_id, &pubkey, &node_account, stake, commission, bls_key );
-      fd_vote_stakes_set_block_revenue_t_2( vote_stakes, fork_id, &pubkey, block_revenue_commission_bps, pending_delegator_rewards );
+      fd_vote_stakes_ele_t ele[1];
+      fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter, ele );
+      fd_vote_stakes_snap_insert_t_2( vote_stakes, fork_id, &ele->pubkey, &ele->node_account, ele->stake, ele->commission, ele->bls_key );
+      fd_vote_stakes_set_block_revenue_t_2( vote_stakes, fork_id, &ele->pubkey, ele->block_revenue_commission_bps, ele->pending_delegator_rewards );
+      fd_vote_stakes_set_collectors_t_2( vote_stakes, fork_id, &ele->pubkey, &ele->inflation_collector, &ele->block_collector );
     }
     fd_vote_stakes_finalize( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2 );
     fd_vote_stakes_refresh( vote_stakes, fork_id, accdb, bank->accdb_fork_id );

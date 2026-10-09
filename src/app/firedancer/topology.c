@@ -38,7 +38,7 @@
 #include "../../flamenco/capture/fd_solcap_writer.h"
 #include "../../flamenco/progcache/fd_progcache.h"
 #include "../../flamenco/runtime/fd_cost_tracker.h"
-#include "../../flamenco/stakes/fd_collector_overrides.h"
+#include "../../flamenco/runtime/fd_bank.h"
 
 #include <sys/random.h>
 #include <sys/types.h>
@@ -95,11 +95,11 @@ fd_topo_obj_t *
 setup_topo_banks( fd_topo_t *  topo,
                   char const * wksp_name,
                   ulong        max_live_slots,
-                  ulong        max_fork_width,
+                  ulong        cache_cnt,
                   ulong        bench_max_cost_per_block ) {
   fd_topo_obj_t * obj = fd_topob_obj( topo, "banks", wksp_name );
   FD_TEST( fd_pod_insertf_ulong( topo->props, max_live_slots, "obj.%lu.max_live_slots", obj->id ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, max_fork_width, "obj.%lu.max_fork_width", obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, cache_cnt,      "obj.%lu.cache_cnt",      obj->id ) );
   FD_TEST( fd_pod_insertf_ulong( topo->props, bench_max_cost_per_block, "obj.%lu.bench_max_cost_per_block", obj->id ) );
   ulong seed;
   FD_TEST( fd_rng_secure( &seed, sizeof( ulong ) ) );
@@ -1110,10 +1110,6 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ], wait_info_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, wait_info_obj->id, "wait_info" ) );
 
-  if( FD_UNLIKELY( config->firedancer.runtime.max_fork_width>FD_COLLECTOR_OVERRIDES_MAX_FORK_WIDTH ) ) {
-    FD_LOG_ERR(( "max_fork_width must not exceed %lu", FD_COLLECTOR_OVERRIDES_MAX_FORK_WIDTH ));
-  }
-
   if( leader_enabled ) {
     fd_topo_obj_t * ldr_tt_obj = fd_topob_obj( topo, "ldr_tt", poh );
     FD_TEST( fd_pod_insertf_ulong( topo->props, config->limits.max_txn_per_slot, "obj.%lu.max_txn_per_slot", ldr_tt_obj->id ) );
@@ -1122,10 +1118,15 @@ fd_topo_initialize( config_t * config ) {
     FD_TEST( fd_pod_insertf_ulong( topo->props, ldr_tt_obj->id, "ldr_tt" ) );
   }
 
-  fd_topo_obj_t * banks_obj = setup_topo_banks( topo, "banks", config->firedancer.runtime.max_live_slots, config->firedancer.runtime.max_fork_width, config->development.bench.max_cost_per_block );
+  if( FD_UNLIKELY( config->firedancer.runtime.bank_cache_cnt<execrp_tile_cnt+2UL ) ) {
+    FD_LOG_ERR(( "Invalid [runtime]: bank_cache_cnt is %lu, but with [layout] execrp_tile_count %lu it must be at least %lu. "
+                 "Increase [runtime] bank_cache_cnt or decrease [layout] execrp_tile_count.",
+                 config->firedancer.runtime.bank_cache_cnt, execrp_tile_cnt, execrp_tile_cnt+2UL ));
+  }
+  fd_topo_obj_t * banks_obj = setup_topo_banks( topo, "banks", config->firedancer.runtime.max_live_slots, config->firedancer.runtime.bank_cache_cnt, config->development.bench.max_cost_per_block );
   /**/                 fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   if( !alpenglow_enabled ) {
-    /**/               fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "tower",  0UL ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_ONLY  );
+    /**/               fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "tower",  0UL ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   }
   FOR(execrp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i   ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(execle_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execle", i   ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );

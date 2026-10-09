@@ -593,20 +593,16 @@ fd_rewards_validate_commission_collector( fd_bank_t const *   bank,
 }
 
 /* Resolves the SIMD-0232 inflation commission collector from the vote
-   account state at the start of the distribution epoch (tag
-   bank->f.epoch); defaults to the vote account.
+   account state at the start of the distribution epoch (the t-1 vote
+   stakes set); defaults to the vote account.
    https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L667-L672 */
 static void
 fd_rewards_inflation_collector( fd_bank_t *         bank,
                                 fd_pubkey_t const * vote_pubkey,
                                 fd_pubkey_t *       collector_out ) {
   *collector_out = *vote_pubkey;
-  fd_collector_overrides_query( fd_bank_collector_overrides( bank ),
-                                bank->collector_overrides_fork_id,
-                                bank->f.epoch,
-                                vote_pubkey,
-                                collector_out,
-                                NULL );
+  fd_vote_stakes_query_collectors_t_1( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id,
+                                       vote_pubkey, collector_out, NULL );
 }
 
 /* rewarded_epoch_is_alpenglow checks if the rewarded
@@ -1814,20 +1810,19 @@ sweep_pending_delegator_rewards( fd_bank_t *          bank,
                                  int                  alpenglow_enabled ) {
   ulong total_block_reward_lamports = 0UL;
 
-  fd_vote_stakes_t const * vote_stakes = fd_bank_vote_stakes( bank );
-  ulong                    fork_id     = bank->vote_stakes_fork_id;
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
+  ulong              fork_id     = bank->vote_stakes_fork_id;
   uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
   for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_3, iter_mem );
        !fd_vote_stakes_iter_done( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_3, iter );
        fd_vote_stakes_iter_next( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_3, iter ) ) {
-    fd_pubkey_t vote_address;
-    fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_3, iter,
-                             &vote_address, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL );
+    fd_vote_stakes_ele_t ele[1];
+    fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_3, iter, ele );
     /* https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.5/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L1276-L1278 */
     ulong         stake;
-    ulong const * maybe_stake = reward_epoch_delegated_stake( bank, runtime_stack, &vote_address, alpenglow_enabled, &stake );
+    ulong const * maybe_stake = reward_epoch_delegated_stake( bank, runtime_stack, &ele->pubkey, alpenglow_enabled, &stake );
     /* https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.5/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L1279-L1285 */
-    sweep_vote_account( bank, accdb, capture_ctx, &vote_address, maybe_stake, &total_block_reward_lamports );
+    sweep_vote_account( bank, accdb, capture_ctx, &ele->pubkey, maybe_stake, &total_block_reward_lamports );
   }
 
   return total_block_reward_lamports;

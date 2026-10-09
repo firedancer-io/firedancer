@@ -305,8 +305,10 @@ test_manifest_roundtrip( fd_svm_mini_t * mini,
        !fd_vote_stakes_iter_done( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter );
        fd_vote_stakes_iter_next( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter ) ) {
     FD_TEST( vote_cnt<VALIDATOR_CNT );
-    fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter, &votes[ vote_cnt ], &identities[ vote_cnt ], NULL,
-                             NULL, NULL, NULL, NULL, NULL, NULL, NULL );
+    fd_vote_stakes_ele_t ele[1];
+    fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_1, iter, ele );
+    votes     [ vote_cnt ] = ele->pubkey;
+    identities[ vote_cnt ] = ele->node_account;
     vote_cnt++;
   }
   FD_TEST( vote_cnt==VALIDATOR_CNT );
@@ -353,18 +355,16 @@ test_manifest_roundtrip( fd_svm_mini_t * mini,
   fd_vote_stakes_snap_insert_t_n( vote_stakes, fork_id, 3UL, &late_vote,    &late_node,     3000000UL, 300U, no_bls );
 
   /* Set non-default SIMD-0232 collectors: distinct inflation and block
-     collectors for vote0 on the t_1 tag (epoch), and a block-only
-     override for vote1 on the t_2 tag (epoch-1). */
+     collectors for vote0 in the t_1 set, and a block-only collector for
+     vote1 in the t_2 set. */
   fd_pubkey_t vote0 = votes[0];
   fd_pubkey_t vote1 = votes[1];
 
   fd_pubkey_t infl0 = { .ul = { 0xAA, 1 } };
   fd_pubkey_t blk0  = { .ul = { 0xBB, 2 } };
   fd_pubkey_t blk1  = { .ul = { 0xCC, 3 } };
-  fd_collector_overrides_t * co = fd_bank_collector_overrides( bank );
-  ushort co_root = fd_collector_overrides_get_root_idx( co );
-  fd_collector_overrides_upsert( co, co_root, bank->f.epoch,     &vote0, 1, &infl0, 1, &blk0 );
-  fd_collector_overrides_upsert( co, co_root, bank->f.epoch-1UL, &vote1, 0, NULL,   1, &blk1 );
+  fd_vote_stakes_set_collectors_t_1( vote_stakes, fork_id, &vote0, &infl0, &blk0 );
+  fd_vote_stakes_set_collectors_t_2( vote_stakes, fork_id, &vote1, NULL,   &blk1 );
 
   /* SIMD-0123 fields: vote0 on the t_1 set, vote1 on the t_2 set. */
   fd_vote_stakes_set_block_revenue_t_1( vote_stakes, fork_id, &vote0, 2500U, 777UL );
@@ -533,10 +533,9 @@ test_manifest_roundtrip( fd_svm_mini_t * mini,
   }
   FD_TEST( !found_stake_delegation );
 
-  /* Collector round-trip: the encoder tags t_1 entries (epoch_stakes
-     key epoch+1) with the epoch override tag and t_2 entries (key
-     epoch) with the epoch-1 tag; t_3..t_5 entries (keys epoch-1..
-     epoch-3) are encoded with zero collectors. */
+  /* Collector round-trip: the encoder writes the collectors of the t_1
+     set (epoch_stakes key epoch+1) and the t_2 set (key epoch); t_3..t_5
+     entries (keys epoch-1..epoch-3) are encoded with zero collectors. */
   {
     fd_snapshot_manifest_epoch_stakes_t const * t1 = NULL;
     fd_snapshot_manifest_epoch_stakes_t const * t2 = NULL;
@@ -1979,8 +1978,7 @@ main( int     argc,
   params->root_slot          = ROOT_SLOT;
   params->slots_per_epoch    = 432UL;
   /* Place the bank in epoch 4 so the manifest carries every key
-     E-3..E+1 and the t_1 (epoch) and t_2 (epoch-1) collector override
-     tags are distinct. */
+     E-3..E+1 and the t_1 and t_2 sets are distinct. */
   fd_sol_sysvar_clock_t clock = { .slot = ROOT_SLOT, .epoch = 4UL, .leader_schedule_epoch = 5UL };
   params->clock              = &clock;
   ulong bank_idx = fd_svm_mini_reset( mini, params );

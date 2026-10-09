@@ -2226,7 +2226,7 @@ populate_allowed_fds( fd_topo_t      const * topo,
                       fd_topo_tile_t const * tile,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
-  if( FD_UNLIKELY( out_fds_cnt<5UL ) ) FD_LOG_ERR(( "invalid out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<6UL ) ) FD_LOG_ERR(( "invalid out_fds_cnt %lu", out_fds_cnt ));
   fd_snapin_tile_t const * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   ulong out_cnt = 0;
@@ -2237,6 +2237,7 @@ populate_allowed_fds( fd_topo_t      const * topo,
   out_fds[ out_cnt++ ] = FD_ACCDB_FD_RW; /* accounts db */
   out_fds[ out_cnt++ ] = FD_STAKE_DELEGATIONS_FD; /* stake delegation disk spill */
   out_fds[ out_cnt++ ] = ctx->writer.accdb_direct_fd; /* accounts db, O_DIRECT */
+  out_fds[ out_cnt++ ] = FD_VOTE_STAKES_FD; /* vote stakes disk spill */
 
   return out_cnt;
 }
@@ -2247,7 +2248,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
   fd_snapin_tile_t const * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-  populate_sock_filter_policy_fd_snapin_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), FD_ACCDB_FD_RW, (uint)ctx->writer.accdb_direct_fd, FD_STAKE_DELEGATIONS_FD );
+  populate_sock_filter_policy_fd_snapin_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), FD_ACCDB_FD_RW, (uint)ctx->writer.accdb_direct_fd, FD_STAKE_DELEGATIONS_FD, FD_VOTE_STAKES_FD );
   return sock_filter_policy_fd_snapin_tile_instr_cnt;
 }
 

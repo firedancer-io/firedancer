@@ -5,7 +5,11 @@
 #              tiles may need to pull accounts into the cache from disk,
 #              or purge out of cache to the disk to make forward
 #              progress.
-uint logfile_fd, uint accounts_fd, uint accounts_direct_fd, uint stake_spill_fd
+#
+# vote_stakes_fd: Disk backing for t-1 vote stakes sets beyond the
+#                 in-memory cache.  Any tile reading a set that is not
+#                 cached loads it, writing back the evicted set.
+uint logfile_fd, uint accounts_fd, uint accounts_direct_fd, uint stake_spill_fd, uint vote_stakes_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -41,7 +45,8 @@ fallocate: (and (eq (arg 0) accounts_fd)
 
 # stake delegations: full root and fork-delta records spilled beyond
 # the in-memory delegation pools.
-pread64: (eq (arg 0) stake_spill_fd)
+pread64: (or (eq (arg 0) stake_spill_fd)
+             (eq (arg 0) vote_stakes_fd))
 
 # accounts database: write account records at explicit offsets
 #
@@ -52,7 +57,8 @@ pread64: (eq (arg 0) stake_spill_fd)
 #
 # arg 0 is the file descriptor to write to.
 pwrite64: (or (eq (arg 0) accounts_direct_fd)
-              (eq (arg 0) stake_spill_fd))
+              (eq (arg 0) stake_spill_fd)
+              (eq (arg 0) vote_stakes_fd))
 
 # power saving: sleep when there is no work to do
 #

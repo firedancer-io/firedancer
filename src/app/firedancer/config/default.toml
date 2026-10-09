@@ -235,6 +235,16 @@ telemetry = true
     # Firedancer instance.
     cost_tracker = ""
 
+    # File path used to create the temporary vote-stakes spill file.
+    # If no path is provided, it defaults to the `votestakes.db` path
+    # within the base directory above.
+    #
+    # Two substitutions will be performed on this string.  If "{user}"
+    # is present it will be replaced with the user running Firedancer,
+    # as above, and "{name}" will be replaced with the name of the
+    # Firedancer instance.
+    vote_stakes = ""
+
     # File path to the shreds database file.
     #
     # The shreds database stores recorded and reconstructed shreds
@@ -778,26 +788,26 @@ telemetry = true
     # or test environments to decrease memory usage or test edge cases.
     max_live_slots = 2048
 
-    # Similar to max live slots, max fork width bounds the maximum
-    # number of live slots which can be simultaneously crossing an epoch
-    # boundary (a child of a slot in the prior epoch).  This bound
-    # exists separately because crossing an epoch boundary is expensive
-    # and requires large dedicated memory.
-    #
-    # On hitting this limit, the validator will begin evicting less
-    # important epoch-crossing slots from memory, meaning their state
-    # will be lost and may need to be re-requested and re-replayed again
-    # in future as needed.
-    #
-    # It is not recommended to change this value, except in development
-    # or test environments to decrease memory usage or test edge cases.
-    max_fork_width = 32
-
     # Total size of the program cache workspace in MiB.
     #
     # The program cache pre-loads frequently executed programs for
     # faster transaction execution.
     program_cache_size_mib = 2048
+
+    # Each executing slot has a large amount of state that the validator
+    # tracks per slot.  During standard operation, only a few slots use
+    # this state at one time, so rather than keeping all of the entries
+    # in-memory for every live slot, the validator will keep a portion
+    # of the state in-memory and will spill the rest to disk.
+    #
+    # This is the number of entries that is kept in-memory.  This cache
+    # must be sized to be 2 greater than layout.execrp_tile_count to
+    # support worst-case valdiator behavior where every user of slot
+    # state is referencing a different slot simultaneously.
+    #
+    # It is not recommended to change this value, except in development
+    # or test environments to decrease memory usage or test edge cases.
+    bank_cache_cnt = 16
 
 # CPU cores in Firedancer are carefully managed.  Where a typical
 # program lets the operating system scheduler determine which threads to

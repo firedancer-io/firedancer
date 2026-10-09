@@ -123,8 +123,8 @@ struct fd_configf {
 
   struct {
     ulong max_live_slots;
-    ulong max_fork_width;
     ulong program_cache_size_mib;
+    ulong bank_cache_cnt;
   } runtime;
 
   struct {
@@ -311,6 +311,7 @@ struct fd_config {
     char stake_delegations[ PATH_MAX ];
     char epoch_credits[ PATH_MAX ];
     char cost_tracker[ PATH_MAX ];
+    char vote_stakes[ PATH_MAX ];
     char shredb[ PATH_MAX ];
     char guidb[ PATH_MAX ];
     char vote_history[ PATH_MAX ];

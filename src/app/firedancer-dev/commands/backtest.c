@@ -406,7 +406,12 @@ backtest_topo( config_t * config ) {
   FD_TEST( fd_pod_insertf_ulong( topo->props, store_obj->id, "store" ) );
 
   fd_topob_wksp( topo, "banks" );
-  fd_topo_obj_t * banks_obj = setup_topo_banks( topo, "banks", config->firedancer.runtime.max_live_slots, config->firedancer.runtime.max_fork_width, config->development.bench.max_cost_per_block );
+  if( FD_UNLIKELY( config->firedancer.runtime.bank_cache_cnt<execrp_tile_cnt+2UL ) ) {
+    FD_LOG_ERR(( "Invalid [runtime]: bank_cache_cnt is %lu, but with [layout] execrp_tile_count %lu it must be at least %lu. "
+                 "Increase [runtime] bank_cache_cnt or decrease [layout] execrp_tile_count.",
+                 config->firedancer.runtime.bank_cache_cnt, execrp_tile_cnt, execrp_tile_cnt+2UL ));
+  }
+  fd_topo_obj_t * banks_obj = setup_topo_banks( topo, "banks", config->firedancer.runtime.max_live_slots, config->firedancer.runtime.bank_cache_cnt, config->development.bench.max_cost_per_block );
   fd_topob_tile_uses( topo, replay_tile, banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(execrp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   if( FD_LIKELY( !disable_snap_loader ) ) {
@@ -538,6 +543,7 @@ backtest_cmd_fn( args_t *   args,
   initialize_accdb_fd( config );
   initialize_epoch_credits_fd( config );
   initialize_cost_tracker_fd( config );
+  initialize_vote_stakes_fd( config );
   initialize_stake_delegations_fd( config );
   initialize_store_fds( config );
   initialize_snapshot_fds( config );

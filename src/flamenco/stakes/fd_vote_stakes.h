@@ -6,6 +6,7 @@
 #include "../accdb/fd_accdb_base.h"
 #include "../runtime/program/vote/fd_vote_codec.h"
 
+#define FD_VOTE_STAKES_FD                   (123454)
 #define FD_VOTE_STAKES_ALIGN                (128UL)
 #define FD_VOTE_STAKES_ALPENGLOW_RANK_NULL  USHORT_MAX
 
@@ -18,12 +19,14 @@
    - t-2..t-5: these are caches used for the vote account states at
      the end of the t-2 through t-5 epochs assuming you are currently
      in the t epoch.  These caches are shared across all forks.
-   - t-1: these are sized to max_fork_width and are computed at the
-     most recent epoch boundary.  These caches are ref-cnt'd and fork
-     specific.  After the epoch boundary slot is rooted, then there will
-     only be 1 active t-1 cache.  Once filled, a t-1 cache is ranked
-     and never changes again, so a fork in epoch t verifies epoch t+1
-     certs against it (Agave's epoch_stakes[t+1]); the next boundary
+   - t-1: these are computed at the most recent epoch boundary.  These
+     caches are ref-cnt'd and fork specific.  Up to max_live_slots of
+     them exist; cache_cnt are held in memory and the rest are spilled
+     to disk.  Any thread may read t-1 sets; a cache miss loads the
+     set under a lock.  After the epoch boundary slot is rooted, then
+     there will only be 1 active t-1 cache.  Once filled, a t-1 cache is
+     ranked and never changes again, so a fork in epoch t verifies epoch
+     t+1 certs against it (Agave's epoch_stakes[t+1]); the next boundary
      rotates it, ranks included, into t-2.
    - state: each bank has its own view of the t-2 state of vote
      accounts.  This is what is actually used for clock calculations
@@ -49,6 +52,30 @@
 struct fd_vote_stakes;
 typedef struct fd_vote_stakes fd_vote_stakes_t;
 
+/* fd_vote_stakes_ele_t is a copy of one vote account in a vote stakes
+   set. */
+
+struct fd_vote_stakes_ele {
+  fd_pubkey_t pubkey;
+  fd_pubkey_t node_account;
+  ulong       stake;
+  ushort      commission;                   /* inflation rewards, basis points */
+  ushort      block_revenue_commission_bps; /* SIMD-0123 */
+  ulong       pending_delegator_rewards;    /* SIMD-0123 */
+  fd_pubkey_t inflation_collector;          /* SIMD-0232 */
+  fd_pubkey_t block_collector;              /* SIMD-0232 */
+  ushort      alpenglow_rank;
+  uchar       bls_key[ FD_BLS_PUBKEY_COMPRESSED_SZ ];
+  uchar       bls_key_uncompressed[ FD_BLS_PUBKEY_UNCOMPRESSED_SZ ];
+
+  /* The fork's vote state, only set by FD_VOTE_STAKES_ITER_T_2
+     iterators (zero otherwise). */
+  ulong       last_vote_slot;
+  long        last_vote_ts;
+  uchar       is_valid;
+};
+typedef struct fd_vote_stakes_ele fd_vote_stakes_ele_t;
+
 FD_PROTOTYPES_BEGIN
 
 ulong
@@ -56,16 +83,18 @@ fd_vote_stakes_align( void );
 
 ulong
 fd_vote_stakes_footprint( ulong max_live_slots,
-                          ulong max_fork_width );
+                          ulong cache_cnt );
 
 void *
 fd_vote_stakes_new( void * mem,
+                    int    disk_fd,
                     ulong  max_live_slots,
-                    ulong  max_fork_width,
+                    ulong  cache_cnt,
                     ulong  seed );
 
 fd_vote_stakes_t *
-fd_vote_stakes_join( void * mem );
+fd_vote_stakes_join( void * mem,
+                     int    disk_fd );
 
 /* fd_vote_stakes_fork_epoch returns the epoch of the fork. */
 
@@ -191,12 +220,12 @@ fd_vote_stakes_refresh( fd_vote_stakes_t * vote_stakes,
    Returns 1 if the account exists in t-1 and 0 otherwise. */
 
 int
-fd_vote_stakes_query_t_1( fd_vote_stakes_t const * vote_stakes,
-                          ulong                    fork_id,
-                          fd_pubkey_t const *      pubkey,
-                          fd_pubkey_t *            node_account_out_opt,
-                          ulong *                  stake_out_opt,
-                          ushort *                 commission_out_opt );
+fd_vote_stakes_query_t_1( fd_vote_stakes_t *  vote_stakes,
+                          ulong               fork_id,
+                          fd_pubkey_t const * pubkey,
+                          fd_pubkey_t *       node_account_out_opt,
+                          ulong *             stake_out_opt,
+                          ushort *            commission_out_opt );
 
 /* fd_vote_stakes_query_t_2 queries the t-2 vote account and fork-local
    vote state.  Returns 1 if the account exists in t-2 and 0 otherwise. */
@@ -227,8 +256,8 @@ fd_vote_stakes_query_t_3( fd_vote_stakes_t const * vote_stakes,
    t-1 and t-2 sets respectively. */
 
 ulong
-fd_vote_stakes_cnt_t_1( fd_vote_stakes_t const * vote_stakes,
-                        ulong                    fork_id );
+fd_vote_stakes_cnt_t_1( fd_vote_stakes_t * vote_stakes,
+                        ulong              fork_id );
 
 ulong
 fd_vote_stakes_cnt_t_2( fd_vote_stakes_t const * vote_stakes,
@@ -264,38 +293,29 @@ typedef struct vacc_map_iter fd_vote_stakes_iter_t;
    requested for FD_VOTE_STAKES_ITER_T_2. */
 
 fd_vote_stakes_iter_t *
-fd_vote_stakes_iter_init( fd_vote_stakes_t const * vote_stakes,
-                          ulong                    fork_id,
-                          int                      iter_kind,
-                          uchar                    iter_mem[ static FD_VOTE_STAKES_ITER_FOOTPRINT ] );
+fd_vote_stakes_iter_init( fd_vote_stakes_t * vote_stakes,
+                          ulong              fork_id,
+                          int                iter_kind,
+                          uchar              iter_mem[ static FD_VOTE_STAKES_ITER_FOOTPRINT ] );
 
 int
-fd_vote_stakes_iter_done( fd_vote_stakes_t const * vote_stakes,
-                          ulong                    fork_id,
-                          int                      iter_kind,
-                          fd_vote_stakes_iter_t *  iter );
+fd_vote_stakes_iter_done( fd_vote_stakes_t *      vote_stakes,
+                          ulong                   fork_id,
+                          int                     iter_kind,
+                          fd_vote_stakes_iter_t * iter );
 
 void
-fd_vote_stakes_iter_next( fd_vote_stakes_t const * vote_stakes,
-                          ulong                    fork_id,
-                          int                      iter_kind,
-                          fd_vote_stakes_iter_t *  iter );
+fd_vote_stakes_iter_next( fd_vote_stakes_t *      vote_stakes,
+                          ulong                   fork_id,
+                          int                     iter_kind,
+                          fd_vote_stakes_iter_t * iter );
 
 void
-fd_vote_stakes_iter_ele( fd_vote_stakes_t const * vote_stakes,
-                         ulong                    fork_id,
-                         int                      iter_kind,
-                         fd_vote_stakes_iter_t *  iter,
-                         fd_pubkey_t *            pubkey_out,
-                         fd_pubkey_t *            node_account_out_opt,
-                         ulong *                  stake_out_opt,
-                         ulong *                  last_vote_slot_out_opt,
-                         long *                   last_vote_ts_out_opt,
-                         ushort *                 commission_out_opt,
-                         uchar *                  is_valid_out_opt,
-                         ushort *                 alpenglow_rank_out_opt,
-                         uchar                    bls_key_out_opt[ FD_BLS_PUBKEY_COMPRESSED_SZ ],
-                         uchar                    bls_key_uncompressed_out_opt[ FD_BLS_PUBKEY_UNCOMPRESSED_SZ ] );
+fd_vote_stakes_iter_ele( fd_vote_stakes_t *      vote_stakes,
+                         ulong                   fork_id,
+                         int                     iter_kind,
+                         fd_vote_stakes_iter_t * iter,
+                         fd_vote_stakes_ele_t *  ele_out );
 
 /* fd_vote_stakes_set_block_revenue_t_{1,2} set a vote account's
    SIMD-0123 block revenue commission (basis points) and pending
@@ -330,11 +350,11 @@ fd_vote_stakes_set_block_revenue_t_n( fd_vote_stakes_t *  vote_stakes,
    of a vote account in the t-1 / t-2 set.
    Returns 1 if the account is in the set, 0 otherwise. */
 int
-fd_vote_stakes_query_block_revenue_t_1( fd_vote_stakes_t const * vote_stakes,
-                                        ulong                    fork_id,
-                                        fd_pubkey_t const *      pubkey,
-                                        ushort *                 block_revenue_commission_bps_out_opt,
-                                        ulong *                  pending_delegator_rewards_out_opt );
+fd_vote_stakes_query_block_revenue_t_1( fd_vote_stakes_t *  vote_stakes,
+                                        ulong               fork_id,
+                                        fd_pubkey_t const * pubkey,
+                                        ushort *            block_revenue_commission_bps_out_opt,
+                                        ulong *             pending_delegator_rewards_out_opt );
 
 int
 fd_vote_stakes_query_block_revenue_t_2( fd_vote_stakes_t const * vote_stakes,
@@ -343,15 +363,41 @@ fd_vote_stakes_query_block_revenue_t_2( fd_vote_stakes_t const * vote_stakes,
                                         ushort *                 block_revenue_commission_bps_out_opt,
                                         ulong *                  pending_delegator_rewards_out_opt );
 
-/* fd_vote_stakes_iter_block_revenue reads the SIMD-0123 fields of the
-   element the iterator is positioned on. */
+/* fd_vote_stakes_set_collectors_t_{1,2} set the SIMD-0232 commission
+   collectors of a vote account in the t-1 / t-2 set.  A NULL collector
+   is left unchanged.  Collectors default to the vote account
+   (inflation) and its node account (block revenue).  No-op if the
+   account is not in the set. */
 void
-fd_vote_stakes_iter_block_revenue( fd_vote_stakes_t const * vote_stakes,
-                                   ulong                    fork_id,
-                                   int                      iter_kind,
-                                   fd_vote_stakes_iter_t *  iter,
-                                   ushort *                 block_revenue_commission_bps_out_opt,
-                                   ulong *                  pending_delegator_rewards_out_opt );
+fd_vote_stakes_set_collectors_t_1( fd_vote_stakes_t *  vote_stakes,
+                                   ulong               fork_id,
+                                   fd_pubkey_t const * pubkey,
+                                   fd_pubkey_t const * inflation_collector_opt,
+                                   fd_pubkey_t const * block_collector_opt );
+
+void
+fd_vote_stakes_set_collectors_t_2( fd_vote_stakes_t *  vote_stakes,
+                                   ulong               fork_id,
+                                   fd_pubkey_t const * pubkey,
+                                   fd_pubkey_t const * inflation_collector_opt,
+                                   fd_pubkey_t const * block_collector_opt );
+
+/* fd_vote_stakes_query_collectors_t_{1,2} read the SIMD-0232
+   commission collectors of a vote account in the t-1 / t-2 set.
+   Returns 1 if the account is in the set, 0 otherwise. */
+int
+fd_vote_stakes_query_collectors_t_1( fd_vote_stakes_t *  vote_stakes,
+                                     ulong               fork_id,
+                                     fd_pubkey_t const * pubkey,
+                                     fd_pubkey_t *       inflation_collector_out_opt,
+                                     fd_pubkey_t *       block_collector_out_opt );
+
+int
+fd_vote_stakes_query_collectors_t_2( fd_vote_stakes_t const * vote_stakes,
+                                     ulong                    fork_id,
+                                     fd_pubkey_t const *      pubkey,
+                                     fd_pubkey_t *            inflation_collector_out_opt,
+                                     fd_pubkey_t *            block_collector_out_opt );
 
 FD_PROTOTYPES_END
 

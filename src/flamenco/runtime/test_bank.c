@@ -14,6 +14,8 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#define TEST_BANK_CACHE_CNT (8UL)
+
 #define TEST_BANK_STAKE_LAMPORTS (123456789UL)
 #define TEST_BANK_STAKE_ACC_DLEN (197U)
 
@@ -51,7 +53,7 @@ test_bank_assert_stake_metadata( fd_stake_delegation_t const * stake_delegation 
 
 static void
 test_bank_advancing( void * mem ) {
-  fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, 16UL, 4UL, 2048UL, 32768UL, 2048UL, 0, 8888UL ) );
+  fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, 16UL, TEST_BANK_CACHE_CNT, 2048UL, 32768UL, 2048UL, 0, 8888UL ) );
   /* Create the following fork tree with refcnts:
 
          P(0)
@@ -335,7 +337,7 @@ test_bank_advancing( void * mem ) {
 
 static void
 test_bank_dead_eviction( void * mem ) {
-  fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, 16UL, 4UL, 2048UL, 32768UL, 2048UL, 0, 8888UL ) );
+  fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, 16UL, TEST_BANK_CACHE_CNT, 2048UL, 32768UL, 2048UL, 0, 8888UL ) );
   fd_bank_t * bank_data_pool = fd_type_pun( (uchar *)banks + banks->pool_offset );
 
   fd_bank_t * bank_P = fd_banks_init_bank( banks );
@@ -536,7 +538,7 @@ test_bank_dead_eviction( void * mem ) {
 
 static void
 test_bank_dead_child_before_parent( void * mem ) {
-  fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, 16UL, 4UL, 2048UL, 32768UL, 2048UL, 0, 8888UL ) );
+  fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, 16UL, TEST_BANK_CACHE_CNT, 2048UL, 32768UL, 2048UL, 0, 8888UL ) );
   fd_bank_t * bank_data_pool = fd_type_pun( (uchar *)banks + banks->pool_offset );
 
   fd_bank_t * bank_R = fd_banks_init_bank( banks );
@@ -580,7 +582,7 @@ test_bank_dead_child_before_parent( void * mem ) {
 
 static void
 test_bank_dead_advance_root( void * mem ) {
-  fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, 16UL, 4UL, 2048UL, 32768UL, 2048UL, 0, 8888UL ) );
+  fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, 16UL, TEST_BANK_CACHE_CNT, 2048UL, 32768UL, 2048UL, 0, 8888UL ) );
   fd_bank_t * bank_data_pool = fd_type_pun( (uchar *)banks + banks->pool_offset );
 
   fd_bank_t * bank_R = fd_banks_init_bank( banks );
@@ -614,7 +616,7 @@ test_bank_dead_advance_root( void * mem ) {
 
 static void
 test_bank_dead_remark( void * mem ) {
-  fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, 16UL, 4UL, 2048UL, 32768UL, 2048UL, 0, 8888UL ) );
+  fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, 16UL, TEST_BANK_CACHE_CNT, 2048UL, 32768UL, 2048UL, 0, 8888UL ) );
   fd_bank_t * bank_data_pool = fd_type_pun( (uchar *)banks + banks->pool_offset );
 
   fd_bank_t * bank_R = fd_banks_init_bank( banks );
@@ -645,7 +647,7 @@ test_bank_dead_remark( void * mem ) {
 
 static void
 test_bank_evictable( void * mem ) {
-  fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, 16UL, 8UL, 2048UL, 32768UL, 2048UL, 0, 8888UL ) );
+  fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, 16UL, TEST_BANK_CACHE_CNT, 2048UL, 32768UL, 2048UL, 0, 8888UL ) );
   banks->evict_rr_idx = 0UL; /* This test verifies a specific RR order. */
 
   /*     A
@@ -769,7 +771,7 @@ test_bank_evictable( void * mem ) {
 
 static void
 test_bank_evictable_protected( void * mem ) {
-  fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, 4UL, 4UL, 8UL, 128UL, 8UL, 0, 8889UL ) );
+  fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, 4UL, TEST_BANK_CACHE_CNT, 8UL, 128UL, 8UL, 0, 8889UL ) );
   FD_TEST( banks );
 
   fd_bank_t * root = fd_banks_init_bank( banks );
@@ -809,16 +811,15 @@ test_bank_evictable_protected( void * mem ) {
 static void
 test_bank_stake_delegations_dynamic_sizing( void * mem ) {
   ulong const max_total_banks       = 16UL;
-  ulong const max_fork_width        = 4UL;
   ulong const max_vote_accounts     = 2048UL;
   ulong const max_stake_small       = 32UL;
   ulong const max_stake_large       = 2048UL;
   ulong const max_disk_records      = 32768UL;
   ulong const stake_footprint_small = fd_stake_delegations_footprint( max_stake_small, max_total_banks );
   ulong const stake_footprint_large = fd_stake_delegations_footprint( max_stake_large, max_total_banks );
-  ulong const vote_footprint        = fd_vote_stakes_footprint( max_total_banks, max_fork_width );
+  ulong const vote_footprint        = fd_vote_stakes_footprint( max_total_banks, TEST_BANK_CACHE_CNT );
 
-  fd_banks_t * banks_small = fd_banks_join( fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, max_total_banks, max_fork_width, max_stake_small, max_disk_records, max_vote_accounts, 0, 9991UL ) );
+  fd_banks_t * banks_small = fd_banks_join( fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, max_total_banks, TEST_BANK_CACHE_CNT, max_stake_small, max_disk_records, max_vote_accounts, 0, 9991UL ) );
   FD_TEST( banks_small );
 
   uchar * root_mem_small      = fd_type_pun( (uchar *)banks_small + banks_small->stake_delegations_offset );
@@ -893,7 +894,7 @@ test_bank_stake_delegations_dynamic_sizing( void * mem ) {
   FD_TEST( stake_delegation->stake==22UL );
   test_bank_assert_stake_metadata( stake_delegation );
 
-  fd_banks_t * banks_large = fd_banks_join( fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, max_total_banks, max_fork_width, max_stake_large, max_disk_records, max_vote_accounts, 0, 9992UL ) );
+  fd_banks_t * banks_large = fd_banks_join( fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, max_total_banks, TEST_BANK_CACHE_CNT, max_stake_large, max_disk_records, max_vote_accounts, 0, 9992UL ) );
   FD_TEST( banks_large );
 
   uchar * root_mem_large      = fd_type_pun( (uchar *)banks_large + banks_large->stake_delegations_offset );
@@ -910,7 +911,7 @@ test_bank_stake_delegations_dynamic_sizing( void * mem ) {
 
 static void
 test_bank_advance_root_preserves_inherited_stake_rewards( void * mem ) {
-  fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, 16UL, 4UL, 2048UL, 32768UL, 2048UL, 0, 6666UL ) );
+  fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, 16UL, TEST_BANK_CACHE_CNT, 2048UL, 32768UL, 2048UL, 0, 6666UL ) );
   FD_TEST( banks );
 
   fd_bank_t * bank_A = fd_banks_init_bank( banks );
@@ -970,14 +971,14 @@ test_stake_rewards_dynamic_metadata_footprint( void ) {
       2150000UL, FD_BANKS_MAX_BANKS, 2UL );
   FD_TEST( wide>=narrow );
   FD_TEST( wide<(1UL<<30) );
-  FD_TEST( wide-narrow<(1UL<<20) );
+  FD_TEST( wide-narrow<FD_BANKS_MAX_BANKS*64UL );
 }
 
 static void
 test_stake_rewards_metadata_survives_three_fork_thrash( void * mem ) {
   ulong const max_total_banks = 16UL;
   fd_banks_t * banks = fd_banks_join( fd_banks_new(
-      mem, FD_STAKE_DELEGATIONS_FD, max_total_banks, 3UL, 2048UL, 32768UL, 2048UL, 0, 9993UL ) );
+      mem, FD_STAKE_DELEGATIONS_FD, max_total_banks, TEST_BANK_CACHE_CNT, 2048UL, 32768UL, 2048UL, 0, 9993UL ) );
   FD_TEST( banks );
   fd_bank_t * bank = fd_banks_init_bank( banks );
   FD_TEST( bank );
@@ -1050,7 +1051,7 @@ test_stake_rewards_wide_fork_ids( void ) {
 
 static void
 test_bank_clear( void * mem ) {
-  fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, 16UL, 4UL, 2048UL, 32768UL, 2048UL, 0, 7777UL ) );
+  fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, 16UL, TEST_BANK_CACHE_CNT, 2048UL, 32768UL, 2048UL, 0, 7777UL ) );
   FD_TEST( banks );
 
   fd_bank_t * root = fd_banks_init_bank( banks );
@@ -1104,7 +1105,7 @@ test_bank_clear( void * mem ) {
 
 static void
 test_bank_epoch_credits_singleton( void * mem ) {
-  fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, 4UL, 2UL, 16UL, 256UL, 4UL, 0, 7777UL ) );
+  fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, 4UL, TEST_BANK_CACHE_CNT, 16UL, 256UL, 4UL, 0, 7777UL ) );
   FD_TEST( banks );
 
   fd_bank_t * root = fd_banks_init_bank( banks );
@@ -1141,7 +1142,7 @@ test_bank_epoch_credits_singleton( void * mem ) {
 
 static void
 test_bank_epoch_credits_init_bank_set( void * mem ) {
-  fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, 4UL, 2UL, 16UL, 256UL, 4UL, 0, 7777UL ) );
+  fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, 4UL, TEST_BANK_CACHE_CNT, 16UL, 256UL, 4UL, 0, 7777UL ) );
   FD_TEST( banks );
 
   fd_bank_t * root = fd_banks_init_bank( banks );
@@ -1153,20 +1154,18 @@ test_bank_epoch_credits_init_bank_set( void * mem ) {
 }
 
 /* Logical epoch-credit capacity follows max_total_banks, and
-   max_fork_width sets stay in memory.  More live sets spill and reload
-   without evicting a pinned reader. */
-
-#define TEST_MAX_FORK_WIDTH (2UL)
+   TEST_BANK_CACHE_CNT sets stay in memory.  More live sets spill and
+   reload without evicting a pinned reader. */
 
 static void
 test_bank_epoch_credits_disk_cache( void * mem ) {
-  ulong const max_total_banks = TEST_MAX_FORK_WIDTH+1UL;
+  ulong const max_total_banks = TEST_BANK_CACHE_CNT+1UL;
   FD_TEST( !ftruncate( FD_EPOCH_CREDITS_FD, 0L ) );
   fd_banks_t * banks = fd_banks_join(
-      fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, max_total_banks, TEST_MAX_FORK_WIDTH, 16UL, 256UL, 4UL, 0, 7778UL ) );
+      fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, max_total_banks, TEST_BANK_CACHE_CNT, 16UL, 256UL, 4UL, 0, 7778UL ) );
   FD_TEST( banks );
 
-  fd_bank_t * chain[ TEST_MAX_FORK_WIDTH+1UL ];
+  fd_bank_t * chain[ TEST_BANK_CACHE_CNT+1UL ];
   chain[0] = fd_banks_init_bank( banks );
   FD_TEST( chain[0] );
 
@@ -1188,7 +1187,7 @@ test_bank_epoch_credits_disk_cache( void * mem ) {
 
     struct stat spill_stat;
     FD_TEST( !fstat( FD_EPOCH_CREDITS_FD, &spill_stat ) );
-    if( i<TEST_MAX_FORK_WIDTH ) FD_TEST( spill_stat.st_size==0L );
+    if( i<TEST_BANK_CACHE_CNT ) FD_TEST( spill_stat.st_size==0L );
     else                        FD_TEST( spill_stat.st_size>0L  );
   }
 
@@ -1233,18 +1232,10 @@ test_bank_epoch_credits_fork_id_width( void ) {
   FD_TEST( bank->epoch_credits_fork_id==fork_id );
 }
 
-/* fd_banks_new must reject fork widths above the bank limit. */
-
-static void
-test_bank_max_fork_width_limit( void ) {
-  uchar mem[ FD_BANKS_ALIGN ] __attribute__((aligned(FD_BANKS_ALIGN)));
-  FD_TEST( !fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, 16UL, FD_BANKS_MAX_BANKS+1UL, 2048UL, 32768UL, 2048UL, 0, 8888UL ) );
-}
-
 static void
 test_bank_stake_delegations_ancestry( void * mem ) {
   fd_banks_t * banks = fd_banks_join(
-      fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, 4UL, 2UL, 8UL, 128UL, 8UL, 0, 10000UL ) );
+      fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, 4UL, TEST_BANK_CACHE_CNT, 8UL, 128UL, 8UL, 0, 10000UL ) );
   FD_TEST( banks );
 
   fd_bank_t * root = fd_banks_init_bank( banks );
@@ -1274,7 +1265,7 @@ static void
 test_bank_advance_root_prunes_inactive_stakes( void * mem ) {
   for( int feature_active=0; feature_active<=1; feature_active++ ) {
     fd_banks_t * banks = fd_banks_join(
-        fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, 4UL, 2UL, 8UL, 128UL, 8UL, 0, 10001UL+(ulong)feature_active ) );
+        fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, 4UL, TEST_BANK_CACHE_CNT, 8UL, 128UL, 8UL, 0, 10001UL+(ulong)feature_active ) );
     FD_TEST( banks );
 
     fd_bank_t * root = fd_banks_init_bank( banks );
@@ -1368,6 +1359,13 @@ main( int argc, char ** argv ) {
     FD_TEST( !close( cost_tracker_fd ) );
   }
 
+  int vote_stakes_fd = memfd_create( "bank_vote_stakes_spill", 0 );
+  FD_TEST( vote_stakes_fd>=0 );
+  if( vote_stakes_fd!=FD_VOTE_STAKES_FD ) {
+    FD_TEST( dup2( vote_stakes_fd, FD_VOTE_STAKES_FD )==FD_VOTE_STAKES_FD );
+    FD_TEST( !close( vote_stakes_fd ) );
+  }
+
   fd_pubkey_t key_0 = { .ul[0] = 1 };
   fd_pubkey_t key_1 = { .ul[0] = 2 };
   fd_pubkey_t key_2 = { .ul[0] = 3 };
@@ -1386,9 +1384,8 @@ main( int argc, char ** argv ) {
   fd_wksp_t * wksp          = fd_wksp_new( wksp_mem, "snapin", 1U, wksp_part_max, wksp_data_max ); FD_TEST( wksp );
   fd_shmem_join_anonymous( "snapin", FD_SHMEM_JOIN_MODE_READ_WRITE, wksp, wksp_mem, FD_SHMEM_NORMAL_PAGE_SZ, mem_req>>FD_SHMEM_NORMAL_LG_PAGE_SZ );
 
-  test_bank_max_fork_width_limit();
 
-  ulong const fp = fd_banks_footprint( 16UL, 8UL, 2048UL, 2048UL );
+  ulong const fp = fd_banks_footprint( 16UL, TEST_BANK_CACHE_CNT, 2048UL, 2048UL );
   uchar * mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fp, 1UL );
   FD_TEST( mem );
 # if !FD_HAS_MSAN
@@ -1397,7 +1394,7 @@ main( int argc, char ** argv ) {
 
   test_bank_stake_delegations_ancestry( mem );
 
-  mem = fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, 16UL, 4UL, 2048UL, 32768UL, 2048UL, 0, 8888UL );
+  mem = fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, 16UL, TEST_BANK_CACHE_CNT, 2048UL, 32768UL, 2048UL, 0, 8888UL );
   FD_TEST( mem );
 
   /* Init banks */
@@ -1745,8 +1742,8 @@ main( int argc, char ** argv ) {
   test_bank_epoch_credits_disk_cache( mem );
   test_bank_epoch_credits_fork_id_width();
 
-  FD_TEST( fd_vote_stakes_footprint( 1UL, FD_BANKS_MAX_BANKS )>0UL );
-  FD_TEST( fd_vote_stakes_footprint( 1UL, FD_BANKS_MAX_BANKS+1UL )==0UL );
+  FD_TEST( fd_vote_stakes_footprint( 1UL, FD_BANKS_MAX_BANKS )==fd_vote_stakes_footprint( 1UL, 1UL ) );
+  FD_TEST( fd_vote_stakes_footprint( 1UL, 0UL )==0UL );
 
   FD_LOG_NOTICE(( "pass" ));
 
