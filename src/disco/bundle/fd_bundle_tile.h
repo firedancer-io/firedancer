@@ -3,11 +3,9 @@
 
 /* fd_bundle_tile.h provides a bundle client tile.
 
-   - Requires HTTP/2 over TLS connections
    - Uses TCP sockets
    - Uses fd_tls for handshake and record layers.
-   - Uses Firedancer's fd_h2 and fd_grpc for HTTP/2 and gRPC logic.
-   - Does busy polling (no power saving features) */
+   - Uses Firedancer's fd_h2 and fd_grpc for HTTP/2 and gRPC logic. */
 
 #include "../topo/fd_topo.h"
 #include "../../waltz/http/fd_url.h"
