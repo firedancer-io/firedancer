@@ -2133,6 +2133,13 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *      quic,
     return FD_QUIC_PARSE_FAIL;
   }
 
+  /* RFC 9001 Section 5.7: A server MUST NOT process incoming 1-RTT
+     protected packets before the TLS handshake is complete. */
+  if( FD_UNLIKELY( !conn->handshake_complete ) ) {
+    quic->metrics.pkt_no_key_cnt[ fd_quic_enc_level_appdata_id ]++;
+    return FD_QUIC_PARSE_FAIL;
+  }
+
   if( FD_UNLIKELY( tot_sz < (1+FD_QUIC_CONN_ID_SZ+1) ) ) {
     /* One-RTT header: 1 byte
        DCID:           FD_QUIC_CONN_ID_SZ
