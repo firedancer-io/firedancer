@@ -540,6 +540,65 @@ main( int     argc,
     ctx->net.tile_cnt = 1UL;
   }
 
+  /* Tile 0 routes packets owned by other tiles only to detect loopback
+     traffic.  TX route and neighbor failures for such packets must only
+     be accounted for (and solicited) by the owning tile. */
+  {
+    uint const unresolved_ip = FD_IP4_ADDR( 192,168,1,77 );
+    fd_fib4_hop_t hop = { .if_idx = IF_IDX_ETH1, .rtype = FD_FIB4_RTYPE_UNICAST, .ip4_src = default_src_ip };
+    FD_TEST( fd_fib4_insert( ctx->fib_main, unresolved_ip, 32, 0U, &hop ) );
+
+    struct { uint dst_ip; uint if_virt; } const cases[3] = {
+      { banned_ip,     IF_IDX_ETH1 }, /* route_type */
+      { random_ip,     IF_IDX_ETH0 }, /* unsupported_interface */
+      { unresolved_ip, IF_IDX_ETH1 }  /* neighbor not found */
+    };
+
+    ctx->net.tile_cnt = 2UL;
+    for( ulong i=0UL; i<3UL; i++ ) {
+      ctx->if_virt = cases[i].if_virt;
+      ulong sig = 0UL;
+      for( ushort port=1; ; port++ ) {
+        sig = fd_disco_netmux_sig( 0, port, cases[i].dst_ip, DST_PROTO_OUTGOING, 42UL );
+        if( fd_disco_netmux_sig_hash( sig )%2UL==1UL ) break;
+      }
+
+      ulong route_fail_before[ FD_METRICS_ENUM_ROUTE_FAIL_CNT ];
+      fd_memcpy( route_fail_before, ctx->net.metrics.tx_route_fail_cnt, sizeof(route_fail_before) );
+      ulong neigh_fail_before = ctx->metrics.tx_neigh_fail_cnt;
+      ulong gre_fail_before   = ctx->net.metrics.tx_gre_route_fail_cnt;
+      ctx->solicit_ip = 0U;
+
+      /* Non-owning tile 0 drops silently */
+      ctx->net.kind_id = 0UL;
+      FD_TEST( before_frag( ctx, 0UL, 0UL, sig )==1 );
+      FD_TEST( fd_memeq( route_fail_before, ctx->net.metrics.tx_route_fail_cnt, sizeof(route_fail_before) ) );
+      FD_TEST( ctx->metrics.tx_neigh_fail_cnt==neigh_fail_before );
+      FD_TEST( ctx->net.metrics.tx_gre_route_fail_cnt==gre_fail_before );
+      FD_TEST( ctx->solicit_ip==0U );
+
+      /* Owning tile accounts the failure exactly once */
+      ctx->net.kind_id = 1UL;
+      FD_TEST( before_frag( ctx, 0UL, 0UL, sig )==1 );
+      ulong route_fail_delta = 0UL;
+      for( ulong j=0UL; j<FD_METRICS_ENUM_ROUTE_FAIL_CNT; j++ ) {
+        route_fail_delta += ctx->net.metrics.tx_route_fail_cnt[ j ] - route_fail_before[ j ];
+      }
+      ulong neigh_fail_delta = ctx->metrics.tx_neigh_fail_cnt - neigh_fail_before;
+      FD_TEST( route_fail_delta + neigh_fail_delta==1UL );
+      if( cases[i].dst_ip==unresolved_ip ) {
+        FD_TEST( neigh_fail_delta==1UL );
+        FD_TEST( ctx->solicit_ip==unresolved_ip );
+        FD_TEST( ctx->solicit_if_idx==IF_IDX_ETH1 );
+      } else {
+        FD_TEST( ctx->solicit_ip==0U );
+      }
+      ctx->solicit_ip = 0U;
+    }
+    ctx->net.kind_id  = 0UL;
+    ctx->net.tile_cnt = 1UL;
+  }
+
   /* ctx->net.in_dcache_ctx */
   ctx->net.in_dcache_ctx[ 0 ].wksp_base = fd_wksp_containing( app_tx_dcache_mem );
   ctx->net.in_dcache_ctx[ 0 ].chunk0    = tx_chunk0;

@@ -607,6 +607,30 @@ net_tx_route( fd_net_ctx_t * ctx,
   return 1;
 }
 
+/* net_tx_is_loopback returns 1 if dst_ip routes to a loopback
+   interface, 0 otherwise.  Has no side effects (does not touch metrics
+   or request neighbor solicitation). */
+
+static int
+net_tx_is_loopback( fd_net_ctx_t * ctx,
+                    uint           dst_ip ) {
+  fd_fib4_hop_t hop[2] = {0};
+  hop[0] = fd_fib4_lookup( ctx->fib_local, dst_ip, 0UL );
+  hop[1] = fd_fib4_lookup( ctx->fib_main,  dst_ip, 0UL );
+  fd_fib4_hop_t const * next_hop = fd_fib4_hop_or( hop+0, hop+1 );
+
+  uint rtype  = next_hop->rtype;
+  uint if_idx = next_hop->if_idx;
+  if( rtype==FD_FIB4_RTYPE_LOCAL ) {
+    rtype  = FD_FIB4_RTYPE_UNICAST;
+    if_idx = 1;
+  }
+  if( rtype!=FD_FIB4_RTYPE_UNICAST ) return 0;
+
+  fd_netdev_t const * netdev = fd_netdev_tbl_query( &ctx->netdev_tbl, if_idx );
+  return netdev && netdev->dev_type==ARPHRD_LOOPBACK;
+}
+
 /* before_frag is called when a new metadata descriptor for a TX job is
    found.  This callback determines whether this net tile is responsible
    for the TX job.  If so, it prepares the TX op for the during_frag and
@@ -637,6 +661,11 @@ before_frag( fd_net_ctx_t * ctx,
 
   if( kind_id!=0UL && kind_id!=target_idx ) return 1; /* ignore */
 
+  /* Net tile 0 also sends loopback packets owned by other tiles.  Peek
+     at the route without side effects so that route failures are only
+     accounted for by the owning tile. */
+
+  if( kind_id!=target_idx && !net_tx_is_loopback( ctx, dst_ip ) ) return 1; /* ignore */
 
   fd_net_tx_route_t * route = &ctx->net.tx_route;
   *route = (fd_net_tx_route_t){0};
