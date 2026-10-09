@@ -1233,7 +1233,7 @@ message BlockCompleted {
   uint64 microblock_count = 68;
   // Compute units pack reserved while building the block, votes included. Reservations are refunded as transactions finish, so this can exceed cost_tracker_block_cost (the charged amount) by refunds unsettled at slot end. 0 for blocks this validator did not produce.
   uint64 pack_block_cost = 69;
-  // Deprecated - always 0.
+  // Deprecated (0) since Firedancer v26.11.
   uint64 pack_vote_cost = 70;
   // Bytes pack's cost model reserved for block content: transaction payloads plus a 48-byte header per microblock, net of rebates settled by slot end. Excludes tick entries; can exceed the block's actual content by rebates unsettled at slot end. A size, not a compute measure. 0 for blocks this validator did not produce.
   uint64 pack_data_bytes = 71;
