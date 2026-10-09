@@ -665,6 +665,7 @@ struct fd_topo_tile {
       ushort quic_server_listen_port;
       uint   ip_addr;
       ulong  max_live_slots;
+      int    wait_for_supermajority;
     } votor;
 
     struct {

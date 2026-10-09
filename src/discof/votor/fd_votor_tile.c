@@ -242,6 +242,8 @@ struct fd_votor_tile {
   /* Initialization */
 
   int           init;
+  int           votor_init;   /* ag_votor_init was called */
+  int           wfs_complete; /* 1 if wait_for_supermajority is disabled or completed */
   ag_block_id_t boot_block_id;
 
   /* Cluster metadata */
@@ -1033,6 +1035,22 @@ rank_voters( ag_epoch_info_t *              epoch_info,
   return epoch_info;
 }
 
+/* maybe_init starts votor at the boot block once the boot block and
+   shred version are known and wait_for_supermajority (if enabled) has
+   completed, and marks the tile initialized once epoch info is also
+   known.  Starting votor arms skip timeouts, which must not run while
+   the cluster is still waiting for supermajority. */
+
+static void
+maybe_init( fd_votor_tile_t * ctx ) {
+  int ready = ag_pool_finalized_slot( ctx->pool )!=ULONG_MAX && !!ctx->shred_version && ctx->wfs_complete;
+  if( FD_UNLIKELY( ready && !ctx->votor_init ) ) {
+    ag_votor_init( ctx->votor, &ctx->boot_block_id, fd_clock_tile_now( ctx->clock ), ctx->ns_per_slot, ctx->shred_version, sign_bls, ctx );
+    ctx->votor_init = 1;
+  }
+  ctx->init = ready && !!ctx->curr_epoch_info;
+}
+
 static void
 handle_epoch( fd_votor_tile_t *           ctx,
               fd_epoch_info_msg_t const * msg ) {
@@ -1206,7 +1224,7 @@ handle_epoch( fd_votor_tile_t *           ctx,
   fd_multi_epoch_leaders_epoch_msg_fini( ctx->mleaders );
   if( FD_UNLIKELY( ctx->next_leader_slot==ULONG_MAX ) ) ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, fd_ulong_max( msg->start_slot, ctx->wait_to_vote_slot ), &ctx->id_key );
 
-  ctx->init = ag_pool_finalized_slot( ctx->pool )!=ULONG_MAX && !!ctx->shred_version;
+  maybe_init( ctx );
 }
 
 static void
@@ -1275,8 +1293,7 @@ handle_replay( fd_votor_tile_t *           ctx,
     if( FD_UNLIKELY( ag_pool_finalized_slot( ctx->pool )==ULONG_MAX ) ) {
       ctx->boot_block_id = block_id;
       ag_pool_init( ctx->pool, &block_id );
-      if( FD_LIKELY( ctx->shred_version ) ) ag_votor_init( ctx->votor, &block_id, fd_clock_tile_now( ctx->clock ), ctx->ns_per_slot, ctx->shred_version, sign_bls, ctx );
-      ctx->init = !!ctx->curr_epoch_info && !!ctx->shred_version;
+      maybe_init( ctx );
     } else if( FD_UNLIKELY( block_id.slot!=0 ) ) {
       ag_pool_add_block( ctx->pool, &block_id, &parent_block_id, ctx->scratch.bad );
       if( FD_UNLIKELY( !fd_bls_set_is_null( ctx->scratch.bad ) ) ) ban_bad_ranks( ctx, ctx->scratch.bad, block_id.slot );
@@ -1295,6 +1312,10 @@ handle_replay( fd_votor_tile_t *           ctx,
   case REPLAY_SIG_SLOT_DEAD:
     footer = &replay->slot_dead.footer;
     break;
+  case REPLAY_SIG_WFS_DONE:
+    ctx->wfs_complete = 1;
+    maybe_init( ctx );
+    return;
   default:
     FD_LOG_ERR(( "unexpected replay sig %lu", sig ));
   }
@@ -1905,7 +1926,7 @@ before_frag( fd_votor_tile_t * ctx,
     if( FD_UNLIKELY( !ctx->curr_epoch_info || ctx->halt_signing ) ) return 1; /* halted, no TLS handshake may sign */
     return fd_disco_netmux_sig_proto( sig )!=DST_PROTO_VOTOR;
   case IN_KIND_REPLAY:
-    if( FD_UNLIKELY( sig!=REPLAY_SIG_SLOT_COMPLETED && sig!=REPLAY_SIG_SLOT_DEAD ) ) {
+    if( FD_UNLIKELY( sig!=REPLAY_SIG_SLOT_COMPLETED && sig!=REPLAY_SIG_SLOT_DEAD && sig!=REPLAY_SIG_WFS_DONE ) ) {
       ctx->replay_in_seq = seq+1UL;
       return 1;
     }
@@ -1975,9 +1996,8 @@ after_frag( fd_votor_tile_t *   ctx,
     break;
   case IN_KIND_IPECHO:
     FD_TEST( sig && sig<=USHORT_MAX );
-    if( FD_UNLIKELY( !ctx->shred_version && ag_pool_finalized_slot( ctx->pool )!=ULONG_MAX ) ) ag_votor_init( ctx->votor, &ctx->boot_block_id, fd_clock_tile_now( ctx->clock ), ctx->ns_per_slot, (ushort)sig, sign_bls, ctx );
     ctx->shred_version = (ushort)sig;
-    ctx->init = !!ctx->curr_epoch_info && ag_pool_finalized_slot( ctx->pool )!=ULONG_MAX;
+    maybe_init( ctx );
     break;
   case IN_KIND_NET: {
     if( FD_UNLIKELY( sz<sizeof(fd_eth_hdr_t)+sizeof(fd_ip4_hdr_t)+sizeof(fd_udp_hdr_t) ) ) break;
@@ -2112,6 +2132,8 @@ unprivileged_init( fd_topo_t const *      topo,
   for( ulong i=0UL; i<REWARD_VOTE_MAX; i++ ) ctx->reward_votes[ i ].slot = ULONG_MAX;
 
   ctx->init                      = 0;
+  ctx->votor_init                = 0;
+  ctx->wfs_complete              = !tile->votor.wait_for_supermajority;
   ctx->net_tx_cnt                = 0UL;
   ctx->next_leader_slot          = ULONG_MAX;
   ctx->ns_per_slot               = 400000000L; /* until epoch info */

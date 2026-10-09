@@ -1789,6 +1789,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->votor.quic_server_listen_port = config->firedancer.development.votor.quic_server_listen_port;
     tile->votor.ip_addr                 = config->net.ip_addr;
     tile->votor.max_live_slots          = config->firedancer.runtime.max_live_slots;
+    tile->votor.wait_for_supermajority  = !!strcmp( config->firedancer.consensus.wait_for_supermajority_with_bank_hash, "" );
     fd_cstr_ncpy( tile->votor.identity_key_path, config->paths.identity_key, sizeof(tile->votor.identity_key_path) );
     fd_cstr_ncpy( tile->votor.vote_history_path, config->tiles.votor.write_vote_history_file ? config->paths.vote_history : "", sizeof(tile->votor.vote_history_path) );
     tile->votor.authorized_voter_paths_cnt = config->firedancer.paths.authorized_voter_paths_cnt;
