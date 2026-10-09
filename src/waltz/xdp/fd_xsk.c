@@ -60,7 +60,8 @@ fd_xsk_mmap_ring( fd_xdp_ring_t * ring,
                   long            map_off,
                   ulong           elem_sz,
                   ulong           depth,
-                  struct xdp_ring_offset const * ring_offset ) {
+                  struct xdp_ring_offset const * ring_offset,
+                  int             core_dump ) {
   /* TODO what is ring_offset->desc ? */
 
   /* sanity check */
@@ -77,19 +78,21 @@ fd_xsk_mmap_ring( fd_xdp_ring_t * ring,
     return -1;
   }
 
-  /* Lock descriptor rings to prevent swapping. Also advise the
-     kernel to exclude this region from core dumps for consistency
-     with fd_shmem. Reimplements syscall logic of fd_numa_mlock()
-     from fd_shmem_private.h to circumvent the ASan interceptor
-     and avoid private header dependencies. */
+  /* Lock descriptor rings to prevent swapping. Also, unless core_dump
+     is set, advise the kernel to exclude this region from core dumps
+     for consistency with fd_shmem. Reimplements syscall logic of
+     fd_numa_mlock() from fd_shmem_private.h to circumvent the ASan
+     interceptor and avoid private header dependencies. */
 
   if( FD_UNLIKELY( (int)syscall( SYS_mlock, res, map_sz ) ) )
     FD_LOG_WARNING(( "syscall(SYS_mlock, %p, %lu KiB) on %s ring failed (%i-%s); attempting to continue",
                      res, map_sz>>10, fd_xsk_mmap_offset_cstr( map_off ), errno, fd_io_strerror( errno ) ));
 
-  if( FD_UNLIKELY( madvise( res, map_sz, MADV_DONTDUMP ) ) )
-    FD_LOG_WARNING(( "madvise(%p, %lu KiB) on %s ring failed (%i-%s); attempting to continue",
-                     res, map_sz>>10, fd_xsk_mmap_offset_cstr( map_off ), errno, fd_io_strerror( errno ) ));
+  if( FD_LIKELY( !core_dump ) ) {
+    if( FD_UNLIKELY( madvise( res, map_sz, MADV_DONTDUMP ) ) )
+      FD_LOG_WARNING(( "madvise(%p, %lu KiB) on %s ring failed (%i-%s); attempting to continue",
+                       res, map_sz>>10, fd_xsk_mmap_offset_cstr( map_off ), errno, fd_io_strerror( errno ) ));
+  }
 
   /* TODO add unit test asserting that cached prod/cons seq gets
           cleared on join */
@@ -300,10 +303,10 @@ fd_xsk_init( fd_xsk_t *              xsk,
 
   /* Map XSK rings into local address space */
 
-  if( FD_UNLIKELY( 0!=fd_xsk_mmap_ring( &xsk->ring_rx, xsk->xsk_fd, XDP_PGOFF_RX_RING,              sizeof(struct xdp_desc), params->rx_depth, &xsk->offsets.rx ) ) ) goto fail;
-  if( FD_UNLIKELY( 0!=fd_xsk_mmap_ring( &xsk->ring_tx, xsk->xsk_fd, XDP_PGOFF_TX_RING,              sizeof(struct xdp_desc), params->tx_depth, &xsk->offsets.tx ) ) ) goto fail;
-  if( FD_UNLIKELY( 0!=fd_xsk_mmap_ring( &xsk->ring_fr, xsk->xsk_fd, XDP_UMEM_PGOFF_FILL_RING,       sizeof(ulong),           params->fr_depth, &xsk->offsets.fr ) ) ) goto fail;
-  if( FD_UNLIKELY( 0!=fd_xsk_mmap_ring( &xsk->ring_cr, xsk->xsk_fd, XDP_UMEM_PGOFF_COMPLETION_RING, sizeof(ulong),           params->cr_depth, &xsk->offsets.cr ) ) ) goto fail;
+  if( FD_UNLIKELY( 0!=fd_xsk_mmap_ring( &xsk->ring_rx, xsk->xsk_fd, XDP_PGOFF_RX_RING,              sizeof(struct xdp_desc), params->rx_depth, &xsk->offsets.rx, params->core_dump ) ) ) goto fail;
+  if( FD_UNLIKELY( 0!=fd_xsk_mmap_ring( &xsk->ring_tx, xsk->xsk_fd, XDP_PGOFF_TX_RING,              sizeof(struct xdp_desc), params->tx_depth, &xsk->offsets.tx, params->core_dump ) ) ) goto fail;
+  if( FD_UNLIKELY( 0!=fd_xsk_mmap_ring( &xsk->ring_fr, xsk->xsk_fd, XDP_UMEM_PGOFF_FILL_RING,       sizeof(ulong),           params->fr_depth, &xsk->offsets.fr, params->core_dump ) ) ) goto fail;
+  if( FD_UNLIKELY( 0!=fd_xsk_mmap_ring( &xsk->ring_cr, xsk->xsk_fd, XDP_UMEM_PGOFF_COMPLETION_RING, sizeof(ulong),           params->cr_depth, &xsk->offsets.cr, params->core_dump ) ) ) goto fail;
 
   /* Bind XSK to queue on network interface */
 

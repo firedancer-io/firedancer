@@ -228,7 +228,10 @@ struct fd_xsk_params {
      Referred to as 'busy_poll_budget' within Linux. */
   int prefbusy_rx_budget;
 
-  /* whether the xsk memory should be included in core dumps */
+  /* whether the xsk memory should be included in core dumps.  If
+     zero, the XSK rings are madvise(MADV_DONTDUMP)'ed.  If non-zero,
+     no such advice is given (note that the kernel may still exclude
+     socket ring mappings from core dumps). */
   int core_dump;
 };
 
