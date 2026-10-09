@@ -30,7 +30,11 @@ sysvar_data_fill( fd_sysvar_cache_t *       cache,
   fd_accdb_unread_one( accdb, &acc );
 
   /* Recover object cache acc from data cache acc */
-  return fd_sysvar_obj_restore( cache, desc, pos );
+  int err = fd_sysvar_obj_restore( cache, desc, pos );
+  if( FD_UNLIKELY( err && log_fails ) ) {
+    FD_LOG_WARNING(( "Failed to restore sysvar %s (data_sz=%u)", pos->name, desc->data_sz ));
+  }
+  return err;
 }
 
 static int
