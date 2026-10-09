@@ -285,8 +285,9 @@ typedef struct fd_sbpf_loader_config fd_sbpf_loader_config_t;
 FD_PROTOTYPES_BEGIN
 
 /* fd_sbpf_elf_peek partially parses the given ELF file in memory region
-   [bin,bin+bin_sz)  Populates `info`.  Returns `info` on success.  On
-   failure, returns NULL.
+   [bin,bin+bin_sz)  Populates `info`.  Returns FD_SBPF_ELF_SUCCESS (0)
+   on success.  On failure, returns a negative FD_SBPF_ELF_ERR_* error
+   code, and the contents of `info` are unspecified.
 
    elf_deploy_checks: The Agave ELF loader introduced additional checks
    that would fail on (certain) existing mainnet programs. Since it is
