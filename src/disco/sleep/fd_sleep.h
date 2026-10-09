@@ -10,9 +10,8 @@
                only if a deadline is due before the park cap (the sweep
                enforces the cap).
 
-     producer  on publish: full fence (StoreLoad, pairs with the
-               sleeper's RMW), load parked_bits[w] & a mask precomputed
-               at boot; if nonzero, locked OR into doorbell[w].
+     producer  on publish: load parked_bits[w] & a mask precomputed at
+               boot; if nonzero, locked OR into doorbell[w].
 
      mwaitx    naps in hardware on the doorbell line (umwait/mwaitx),
                turns rung bits into FUTEX_WAKEs, and runs the verifying
@@ -135,14 +134,7 @@ fd_sleep_ring( fd_sleep_t * sleep,
 /* fd_sleep_wake_check rings the parked consumers of one out link,
    except those parked on backpressure (credit_bits): a frag cannot
    help them, only a credit return can.  One load per pair; the
-   second load and the locked OR only on a hit.
-
-   The caller's publish stores (mcache line, seq_mirror) must be
-   globally visible before parked_bits is loaded.  x86-TSO allows a
-   store to be reordered after a later load (StoreLoad), so without a
-   full fence the producer can miss the parked bit while the sleeper's
-   re-check (after its locked RMW on parked_bits) misses the frag,
-   leaving the frag to the mwaitx sweep or the park cap. */
+   second load and the locked OR only on a hit. */
 
 static inline void
 fd_sleep_wake_check( fd_sleep_t *            sleep,
