@@ -268,7 +268,9 @@ struct fd_tls {
   uchar cert_x509[ FD_TLS_SERVER_CERT_MSG_SZ_MAX ];
   ulong cert_x509_sz;
 
-  /* ALPN protocol identifier.  Written by fd_tls_server_set_alpn.
+  /* ALPN protocol identifier.  Set directly by the user before
+     starting a handshake.  alpn_sz is the total number of bytes in
+     alpn, including the length prefix.
      Format: <1 byte length prefix> <ASCII chars>.
      Is not NUL delimited. */
   uchar alpn[ 32 ];
