@@ -1,11 +1,10 @@
 #include "fd_vote_stakes.h"
+#include "../fd_rwlock.h"
 #include "../accdb/fd_accdb.h"
 #include "../fd_flamenco_base.h"
-#include "../runtime/fd_bank.h"
 #include "../runtime/fd_runtime_const.h"
 #include "../runtime/program/vote/fd_vote_state_versioned.h"
 #include "../../util/bits/fd_bits.h"
-#include "../../util/fd_hash32.h"
 #include "../../util/log/fd_log.h"
 #include "../../ballet/bls/fd_bls12_381.h"
 
@@ -121,8 +120,8 @@ struct fd_vote_stakes {
   ulong max_live_slots;
   ulong min_stake_wmark;
   int   disk_fd;
-  ulong lru;
-  ulong lock;
+  ulong       lru;
+  fd_rwlock_t lock;
 
   /* (pubkey, stake) pairs for the t-2 epoch.  These are shared across
      forks/banks. */
@@ -148,24 +147,24 @@ struct fd_vote_stakes {
 };
 typedef struct fd_vote_stakes fd_vote_stakes_t;
 
-FD_FN_UNUSED static inline vacc_t *
+static inline vacc_t *
 t_2_vacc_pool( fd_vote_stakes_t const * vote_stakes,
                ulong                    idx ) {
   return fd_type_pun( (uchar *)vote_stakes + vote_stakes->t_2_vacc_pool_off[ idx ] );
 }
 
-FD_FN_UNUSED static inline vacc_map_t *
+static inline vacc_map_t *
 t_2_vacc_map( fd_vote_stakes_t const * vote_stakes,
               ulong                    idx ) {
   return fd_type_pun( (uchar *)vote_stakes + vote_stakes->t_2_vacc_map_off[ idx ] );
 }
 
-FD_FN_UNUSED static inline vacc_fork_t *
+static inline vacc_fork_t *
 vacc_fork_pool( fd_vote_stakes_t const * vote_stakes ) {
   return fd_type_pun( (uchar *)vote_stakes + vote_stakes->vacc_fork_pool_off );
 }
 
-FD_FN_UNUSED static inline t_1_cache_ent_t *
+static inline t_1_cache_ent_t *
 t_1_cache( fd_vote_stakes_t const * vote_stakes ) {
   return fd_type_pun( (uchar *)vote_stakes + vote_stakes->t_1_cache_off );
 }
@@ -215,19 +214,8 @@ t_1_disk_io( fd_vote_stakes_t * vote_stakes,
   }
 }
 
-/* All access to t-1 sets is serialized by one lock, held for the whole
-   call, so any cache entry may be evicted while the lock is free. */
-
-static void
-t_1_lock( fd_vote_stakes_t * vote_stakes ) {
-  while( FD_UNLIKELY( FD_ATOMIC_CAS( &vote_stakes->lock, 0UL, 1UL ) ) ) FD_SPIN_PAUSE();
-}
-
-static void
-t_1_unlock( fd_vote_stakes_t * vote_stakes ) {
-  FD_COMPILER_MFENCE();
-  FD_VOLATILE( vote_stakes->lock ) = 0UL;
-}
+/* All access to t-1 sets is serialized by vote_stakes->lock, held for
+   the whole call, so any cache entry may be evicted while it is free. */
 
 /* t_1_cache_claim assigns the least recently used cache entry to
    set_idx, writing its previous set back to disk.  Requires the lock. */
@@ -255,23 +243,22 @@ t_1_cache_claim( fd_vote_stakes_t * vote_stakes,
    reading it from disk if needed.  t_1_drop releases the lock. */
 
 static ulong
-t_1_hold( fd_vote_stakes_t const * vote_stakes,
-          ulong                    set_idx ) {
-  fd_vote_stakes_t * vs = (fd_vote_stakes_t *)vote_stakes;
-  t_1_lock( vs );
-  ulong cache_idx = vacc_fork_pool_ele_const( vacc_fork_pool( vs ), set_idx )->cache_idx;
+t_1_hold( fd_vote_stakes_t * vote_stakes,
+          ulong              set_idx ) FD_NO_THREAD_SAFETY_ANALYSIS {
+  fd_rwlock_write( &vote_stakes->lock );
+  ulong cache_idx = vacc_fork_pool_ele_const( vacc_fork_pool( vote_stakes ), set_idx )->cache_idx;
   if( FD_UNLIKELY( cache_idx==UINT_MAX ) ) {
-    cache_idx = t_1_cache_claim( vs, set_idx );
-    t_1_disk_io( vs, cache_idx, set_idx, 0 );
+    cache_idx = t_1_cache_claim( vote_stakes, set_idx );
+    t_1_disk_io( vote_stakes, cache_idx, set_idx, 0 );
   } else {
-    t_1_cache( vs )[ cache_idx ].lru = ++vs->lru;
+    t_1_cache( vote_stakes )[ cache_idx ].lru = ++vote_stakes->lru;
   }
   return cache_idx;
 }
 
 static void
-t_1_drop( fd_vote_stakes_t const * vote_stakes ) {
-  t_1_unlock( (fd_vote_stakes_t *)vote_stakes );
+t_1_drop( fd_vote_stakes_t * vote_stakes ) FD_NO_THREAD_SAFETY_ANALYSIS {
+  fd_rwlock_unwrite( &vote_stakes->lock );
 }
 
 /* t_1_acquire creates a new, empty t-1 set held by one reference and
@@ -283,11 +270,11 @@ t_1_acquire( fd_vote_stakes_t * vote_stakes ) {
   FD_CHECK_CRIT( vacc_fork_pool_free( fork_pool ), "vote stakes t-1 set pool exhausted" );
   ulong set_idx = vacc_fork_pool_idx_acquire( fork_pool );
   vacc_fork_pool_ele( fork_pool, set_idx )->ref_cnt = 1U;
-  t_1_lock( vote_stakes );
+  fd_rwlock_write( &vote_stakes->lock );
   ulong cache_idx = t_1_cache_claim( vote_stakes, set_idx );
   vacc_map_reset ( t_1_slot_map ( vote_stakes, cache_idx ) );
   vacc_pool_reset( t_1_slot_pool( vote_stakes, cache_idx ) );
-  t_1_unlock( vote_stakes );
+  fd_rwlock_unwrite( &vote_stakes->lock );
   return (ushort)set_idx;
 }
 
@@ -296,57 +283,57 @@ t_1_release( fd_vote_stakes_t * vote_stakes,
              ulong              set_idx ) {
   vacc_fork_t * fork_pool = vacc_fork_pool( vote_stakes );
   vacc_fork_t * fork      = vacc_fork_pool_ele( fork_pool, set_idx );
-  t_1_lock( vote_stakes );
+  fd_rwlock_write( &vote_stakes->lock );
   if( fork->cache_idx!=UINT_MAX ) {
     t_1_cache_ent_t * ent = t_1_cache( vote_stakes ) + fork->cache_idx;
     ent->set_idx    = ULONG_MAX;
     ent->lru        = 0UL;
     fork->cache_idx = UINT_MAX;
   }
-  t_1_unlock( vote_stakes );
+  fd_rwlock_unwrite( &vote_stakes->lock );
   vacc_fork_pool_idx_release( fork_pool, set_idx );
 }
 
-FD_FN_UNUSED static inline vacc_heap_t *
+static inline vacc_heap_t *
 vacc_heap( fd_vote_stakes_t const * vote_stakes ) {
   return fd_type_pun( (uchar *)vote_stakes + vote_stakes->vacc_heap_off );
 }
 
-FD_FN_UNUSED static inline vacc_states_t *
+static inline vacc_states_t *
 vacc_states_pool( fd_vote_stakes_t const * vote_stakes ) {
   return fd_type_pun( (uchar *)vote_stakes + vote_stakes->vacc_states_pool_off );
 }
 
 /* The fork id is a compound of the epoch, t-1 set idx, and bank idx. */
 
-FD_FN_UNUSED static inline ushort
+static inline ushort
 fork_id_bank_id( ulong fork_id ) {
   return (ushort)(fork_id & (ulong)USHORT_MAX);
 }
 
-FD_FN_UNUSED static inline ushort
+static inline ushort
 fork_id_t_1_idx( ulong fork_id ) {
   return (ushort)((fork_id>>16UL) & (ulong)USHORT_MAX);
 }
 
-FD_FN_UNUSED static inline ushort
+static inline ushort
 fork_id_epoch( ulong fork_id ) {
   return (ushort)((fork_id>>32UL) & (ulong)USHORT_MAX);
 }
 
-FD_FN_UNUSED static inline void
+static inline void
 fork_id_set_bank_id( ulong * fork_id,
                      ushort  bank_id ) {
   *fork_id = (*fork_id & ~(ulong)USHORT_MAX) | (ulong)bank_id;
 }
 
-FD_FN_UNUSED static inline void
+static inline void
 fork_id_set_t_1_idx( ulong * fork_id,
                      ushort  t_1_idx ) {
   *fork_id = (*fork_id & ~((ulong)USHORT_MAX<<16UL)) | ((ulong)t_1_idx<<16UL);
 }
 
-FD_FN_UNUSED static inline void
+static inline void
 fork_id_set_epoch( ulong * fork_id,
                    ushort  epoch ) {
   *fork_id = (*fork_id & ~((ulong)USHORT_MAX<<32UL)) | ((ulong)epoch<<32UL);
@@ -504,7 +491,7 @@ fd_vote_stakes_new( void * mem,
   vote_stakes->cache_cnt            = cache_cnt;
   vote_stakes->disk_fd              = disk_fd;
   vote_stakes->lru                  = 0UL;
-  vote_stakes->lock                 = 0UL;
+  fd_rwlock_new( &vote_stakes->lock );
   vote_stakes->min_stake_wmark      = 0UL;
   vote_stakes->vacc_heap_off        = (uint)((ulong)heap - (ulong)mem);
   vote_stakes->vacc_states_pool_off = (uint)((ulong)vacc_states_pool - (ulong)mem);
@@ -938,7 +925,7 @@ fd_vote_stakes_refresh( fd_vote_stakes_t * vote_stakes,
 }
 
 int
-fd_vote_stakes_query_t_1( fd_vote_stakes_t const * vote_stakes,
+fd_vote_stakes_query_t_1( fd_vote_stakes_t *       vote_stakes,
                           ulong                    fork_id,
                           fd_pubkey_t const *      pubkey,
                           fd_pubkey_t *            node_account_out_opt,
@@ -1012,7 +999,7 @@ fd_vote_stakes_query_t_3( fd_vote_stakes_t const * vote_stakes,
 /* t_1_vacc_query holds the fork's t-1 set in *slot until t_1_drop. */
 
 static vacc_t *
-t_1_vacc_query( fd_vote_stakes_t const * vote_stakes,
+t_1_vacc_query( fd_vote_stakes_t *       vote_stakes,
                 ulong                    fork_id,
                 fd_pubkey_t const *      pubkey,
                 ulong *                  slot ) {
@@ -1110,7 +1097,7 @@ fd_vote_stakes_set_collectors_t_2( fd_vote_stakes_t *  vote_stakes,
 }
 
 int
-fd_vote_stakes_query_collectors_t_1( fd_vote_stakes_t const * vote_stakes,
+fd_vote_stakes_query_collectors_t_1( fd_vote_stakes_t *       vote_stakes,
                                      ulong                    fork_id,
                                      fd_pubkey_t const *      pubkey,
                                      fd_pubkey_t *            inflation_collector_out_opt,
@@ -1139,7 +1126,7 @@ fd_vote_stakes_query_collectors_t_2( fd_vote_stakes_t const * vote_stakes,
 }
 
 int
-fd_vote_stakes_query_block_revenue_t_1( fd_vote_stakes_t const * vote_stakes,
+fd_vote_stakes_query_block_revenue_t_1( fd_vote_stakes_t *       vote_stakes,
                                         ulong                    fork_id,
                                         fd_pubkey_t const *      pubkey,
                                         ushort *                 block_revenue_commission_bps_out_opt,
@@ -1168,7 +1155,7 @@ fd_vote_stakes_query_block_revenue_t_2( fd_vote_stakes_t const * vote_stakes,
 }
 
 ulong
-fd_vote_stakes_cnt_t_1( fd_vote_stakes_t const * vote_stakes,
+fd_vote_stakes_cnt_t_1( fd_vote_stakes_t *       vote_stakes,
                         ulong                    fork_id ) {
   ulong slot = t_1_hold( vote_stakes, fork_id_t_1_idx( fork_id ) );
   ulong cnt  = vacc_pool_used( t_1_slot_pool( vote_stakes, slot ) );
@@ -1204,7 +1191,7 @@ FD_STATIC_ASSERT( FD_VOTE_STAKES_ITER_FOOTPRINT == sizeof(vacc_map_iter_t), iter
 FD_STATIC_ASSERT( FD_VOTE_STAKES_ITER_ALIGN == alignof(vacc_map_iter_t), iter_align );
 
 fd_vote_stakes_iter_t *
-fd_vote_stakes_iter_init( fd_vote_stakes_t const * vote_stakes,
+fd_vote_stakes_iter_init( fd_vote_stakes_t *       vote_stakes,
                           ulong                    fork_id,
                           int                      iter_kind,
                           uchar                    iter_mem[ static FD_VOTE_STAKES_ITER_FOOTPRINT ] ) {
@@ -1232,7 +1219,7 @@ fd_vote_stakes_iter_init( fd_vote_stakes_t const * vote_stakes,
 }
 
 int
-fd_vote_stakes_iter_done( fd_vote_stakes_t const * vote_stakes,
+fd_vote_stakes_iter_done( fd_vote_stakes_t *       vote_stakes,
                           ulong                    fork_id,
                           int                      iter_kind,
                           fd_vote_stakes_iter_t *  iter ) {
@@ -1262,7 +1249,7 @@ fd_vote_stakes_iter_done( fd_vote_stakes_t const * vote_stakes,
    which the caller must t_1_drop; otherwise it returns ULONG_MAX. */
 
 static ulong
-iter_set( fd_vote_stakes_t const * vote_stakes,
+iter_set( fd_vote_stakes_t *       vote_stakes,
           ulong                    fork_id,
           int                      iter_kind,
           vacc_t **                pool,
@@ -1281,7 +1268,7 @@ iter_set( fd_vote_stakes_t const * vote_stakes,
 }
 
 void
-fd_vote_stakes_iter_next( fd_vote_stakes_t const * vote_stakes,
+fd_vote_stakes_iter_next( fd_vote_stakes_t *       vote_stakes,
                           ulong                    fork_id,
                           int                      iter_kind,
                           fd_vote_stakes_iter_t *  iter ) {
@@ -1294,7 +1281,7 @@ fd_vote_stakes_iter_next( fd_vote_stakes_t const * vote_stakes,
 }
 
 void
-fd_vote_stakes_iter_ele( fd_vote_stakes_t const * vote_stakes,
+fd_vote_stakes_iter_ele( fd_vote_stakes_t *       vote_stakes,
                          ulong                    fork_id,
                          int                      iter_kind,
                          fd_vote_stakes_iter_t *  iter,

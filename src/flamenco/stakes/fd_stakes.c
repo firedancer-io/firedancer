@@ -456,7 +456,7 @@ fd_stake_delegation_is_inactive( fd_stake_delegation_t const * delegation,
 }
 
 ulong
-fd_stake_weights_by_node( fd_vote_stakes_t const * vote_stakes,
+fd_stake_weights_by_node( fd_vote_stakes_t *       vote_stakes,
                           ulong                    fork_id,
                           int                      iter_kind,
                           fd_vote_stake_weight_t * weights ) {

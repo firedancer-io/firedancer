@@ -14,7 +14,7 @@ key( ulong x ) {
 }
 
 static ushort
-epoch_rank( fd_vote_stakes_t const * vote_stakes,
+epoch_rank( fd_vote_stakes_t *       vote_stakes,
             ulong                    fork_id,
             int                      iter_kind,
             fd_pubkey_t const *      vote_key ) {

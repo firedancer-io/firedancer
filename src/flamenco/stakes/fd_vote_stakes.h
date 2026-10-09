@@ -220,7 +220,7 @@ fd_vote_stakes_refresh( fd_vote_stakes_t * vote_stakes,
    Returns 1 if the account exists in t-1 and 0 otherwise. */
 
 int
-fd_vote_stakes_query_t_1( fd_vote_stakes_t const * vote_stakes,
+fd_vote_stakes_query_t_1( fd_vote_stakes_t *       vote_stakes,
                           ulong                    fork_id,
                           fd_pubkey_t const *      pubkey,
                           fd_pubkey_t *            node_account_out_opt,
@@ -256,7 +256,7 @@ fd_vote_stakes_query_t_3( fd_vote_stakes_t const * vote_stakes,
    t-1 and t-2 sets respectively. */
 
 ulong
-fd_vote_stakes_cnt_t_1( fd_vote_stakes_t const * vote_stakes,
+fd_vote_stakes_cnt_t_1( fd_vote_stakes_t *       vote_stakes,
                         ulong                    fork_id );
 
 ulong
@@ -293,25 +293,25 @@ typedef struct vacc_map_iter fd_vote_stakes_iter_t;
    requested for FD_VOTE_STAKES_ITER_T_2. */
 
 fd_vote_stakes_iter_t *
-fd_vote_stakes_iter_init( fd_vote_stakes_t const * vote_stakes,
+fd_vote_stakes_iter_init( fd_vote_stakes_t *       vote_stakes,
                           ulong                    fork_id,
                           int                      iter_kind,
                           uchar                    iter_mem[ static FD_VOTE_STAKES_ITER_FOOTPRINT ] );
 
 int
-fd_vote_stakes_iter_done( fd_vote_stakes_t const * vote_stakes,
+fd_vote_stakes_iter_done( fd_vote_stakes_t *       vote_stakes,
                           ulong                    fork_id,
                           int                      iter_kind,
                           fd_vote_stakes_iter_t *  iter );
 
 void
-fd_vote_stakes_iter_next( fd_vote_stakes_t const * vote_stakes,
+fd_vote_stakes_iter_next( fd_vote_stakes_t *       vote_stakes,
                           ulong                    fork_id,
                           int                      iter_kind,
                           fd_vote_stakes_iter_t *  iter );
 
 void
-fd_vote_stakes_iter_ele( fd_vote_stakes_t const * vote_stakes,
+fd_vote_stakes_iter_ele( fd_vote_stakes_t *       vote_stakes,
                          ulong                    fork_id,
                          int                      iter_kind,
                          fd_vote_stakes_iter_t *  iter,
@@ -350,7 +350,7 @@ fd_vote_stakes_set_block_revenue_t_n( fd_vote_stakes_t *  vote_stakes,
    of a vote account in the t-1 / t-2 set.
    Returns 1 if the account is in the set, 0 otherwise. */
 int
-fd_vote_stakes_query_block_revenue_t_1( fd_vote_stakes_t const * vote_stakes,
+fd_vote_stakes_query_block_revenue_t_1( fd_vote_stakes_t *       vote_stakes,
                                         ulong                    fork_id,
                                         fd_pubkey_t const *      pubkey,
                                         ushort *                 block_revenue_commission_bps_out_opt,
@@ -386,7 +386,7 @@ fd_vote_stakes_set_collectors_t_2( fd_vote_stakes_t *  vote_stakes,
    commission collectors of a vote account in the t-1 / t-2 set.
    Returns 1 if the account is in the set, 0 otherwise. */
 int
-fd_vote_stakes_query_collectors_t_1( fd_vote_stakes_t const * vote_stakes,
+fd_vote_stakes_query_collectors_t_1( fd_vote_stakes_t *       vote_stakes,
                                      ulong                    fork_id,
                                      fd_pubkey_t const *      pubkey,
                                      fd_pubkey_t *            inflation_collector_out_opt,

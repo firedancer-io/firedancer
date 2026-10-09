@@ -1863,7 +1863,7 @@ test_bls_pubkey( uchar out[ static FD_BLS_PUBKEY_COMPRESSED_SZ ],
 }
 
 static ushort
-test_vote_rank( fd_vote_stakes_t const * vote_stakes,
+test_vote_rank( fd_vote_stakes_t *       vote_stakes,
                 ulong                    fork_id,
                 fd_pubkey_t const *      vote_key ) {
   uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
