@@ -2165,6 +2165,14 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *      quic,
   /* NOTE from rfc9002 s3
     It is permitted for some packet numbers to never be used, leaving intentional gaps. */
 
+  /* RFC 9000 Section 12.3: Drop duplicate (replayed) packets.  Checked
+     before payload decryption to avoid wasting work.  The packet number
+     is not yet authenticated, but dropping does not modify state. */
+  if( FD_UNLIKELY( fd_quic_conn_rx_pkt_num_dup( conn, pkt_number ) ) ) {
+    FD_DEBUG( FD_LOG_DEBUG(( "dropping duplicate 1-RTT packet (pkt_num=%lu)", pkt_number )) );
+    return FD_QUIC_PARSE_FAIL;
+  }
+
   /* is current packet in the current key phase? */
   int current_key_phase = conn->key_phase == key_phase;
 
@@ -2196,6 +2204,11 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *      quic,
     fd_quic_key_update_complete( conn );
   }
 
+  /* Packet is authenticated.  Record its packet number before handling
+     frames, so that a replay is never processed again, even if frame
+     handling below fails part-way. */
+  fd_quic_conn_rx_pkt_num_commit( conn, pkt_number );
+
   /* handle frames */
   ulong         payload_off = pn_offset + pkt_number_sz;
   uchar const * frame_ptr   = cur_ptr + payload_off;
@@ -2225,9 +2238,6 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *      quic,
 
   /* update last activity */
   conn->last_activity = state->now;
-
-  /* update expected packet number */
-  conn->exp_pkt_number[2] = fd_ulong_max( conn->exp_pkt_number[2], pkt_number+1UL );
 
   return tot_sz;
 }

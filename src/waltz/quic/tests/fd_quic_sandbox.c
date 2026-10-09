@@ -362,7 +362,8 @@ fd_quic_sandbox_send_lone_frame( fd_quic_sandbox_t * sandbox,
 
   FD_TEST( frame_sz <= sandbox->pkt_mtu );
 
-  ulong pkt_num = conn->exp_pkt_number[2]++;
+  ulong pkt_num = conn->exp_pkt_number[2];
+  fd_quic_conn_rx_pkt_num_commit( conn, pkt_num );
 
   ulong quic_pkt_sz = frame_sz;  /* TODO mock some QUIC packetization overhead */
 
