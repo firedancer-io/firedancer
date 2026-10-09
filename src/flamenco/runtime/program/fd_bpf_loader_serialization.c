@@ -443,7 +443,7 @@ static int
 fd_bpf_loader_input_deserialize_for_abiv1( fd_exec_instr_ctx_t * ctx,
                                            ulong const *         pre_lens,
                                            uchar *               buffer,
-                                           ulong FD_FN_UNUSED    buffer_sz,
+                                           ulong                 buffer_sz,
                                            int                   virtual_address_space_adjustments,
                                            int                   direct_mapping ) {
   /* TODO: An optimization would be to skip ahead through non-writable accounts */
