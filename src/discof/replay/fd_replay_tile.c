@@ -381,7 +381,7 @@ replay_voter_rank( fd_replay_tile_t * ctx,
     iter_kind = FD_VOTE_STAKES_ITER_T_3;
   }
 
-  fd_vote_stakes_t *       vote_stakes = fd_bank_vote_stakes( bank );
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
   uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
   for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, fork_id, iter_kind, iter_mem );
        !fd_vote_stakes_iter_done( vote_stakes, fork_id, iter_kind, iter );
@@ -476,9 +476,9 @@ ag_update_delinquent( fd_replay_tile_t *   ctx,
   /* Slots arrive out of order across forks, so hold the watermark. */
   ctx->delinquent_sample_slot = fd_ulong_max( ctx->delinquent_sample_slot, reward_slot );
 
-  fd_vote_stakes_t *       vote_stakes = fd_bank_vote_stakes( bank );
-  ulong                    delinquent  = 0UL;
-  ulong                    total       = 0UL;
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
+  ulong              delinquent  = 0UL;
+  ulong              total       = 0UL;
 
   uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
   for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter_mem );

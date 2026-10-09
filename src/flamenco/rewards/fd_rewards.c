@@ -1810,8 +1810,8 @@ sweep_pending_delegator_rewards( fd_bank_t *          bank,
                                  int                  alpenglow_enabled ) {
   ulong total_block_reward_lamports = 0UL;
 
-  fd_vote_stakes_t *       vote_stakes = fd_bank_vote_stakes( bank );
-  ulong                    fork_id     = bank->vote_stakes_fork_id;
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
+  ulong              fork_id     = bank->vote_stakes_fork_id;
   uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
   for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_3, iter_mem );
        !fd_vote_stakes_iter_done( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_3, iter );

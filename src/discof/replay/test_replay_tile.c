@@ -1863,9 +1863,9 @@ test_bls_pubkey( uchar out[ static FD_BLS_PUBKEY_COMPRESSED_SZ ],
 }
 
 static ushort
-test_vote_rank( fd_vote_stakes_t *       vote_stakes,
-                ulong                    fork_id,
-                fd_pubkey_t const *      vote_key ) {
+test_vote_rank( fd_vote_stakes_t *  vote_stakes,
+                ulong               fork_id,
+                fd_pubkey_t const * vote_key ) {
   uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
   for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_iter_init( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter_mem );
        !fd_vote_stakes_iter_done( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter );

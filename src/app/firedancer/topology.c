@@ -1118,8 +1118,10 @@ fd_topo_initialize( config_t * config ) {
     FD_TEST( fd_pod_insertf_ulong( topo->props, ldr_tt_obj->id, "ldr_tt" ) );
   }
 
-  if( FD_UNLIKELY( config->firedancer.runtime.bank_cache_cnt<=execrp_tile_cnt+3UL ) ) {
-    FD_LOG_ERR(( "[runtime.bank_cache_cnt] must be greater than [layout.execrp_tile_count] plus 3" ));
+  if( FD_UNLIKELY( config->firedancer.runtime.bank_cache_cnt<execrp_tile_cnt+2UL ) ) {
+    FD_LOG_ERR(( "Invalid [runtime]: bank_cache_cnt is %lu, but with [layout] execrp_tile_count %lu it must be at least %lu. "
+                 "Increase [runtime] bank_cache_cnt or decrease [layout] execrp_tile_count.",
+                 config->firedancer.runtime.bank_cache_cnt, execrp_tile_cnt, execrp_tile_cnt+2UL ));
   }
   fd_topo_obj_t * banks_obj = setup_topo_banks( topo, "banks", config->firedancer.runtime.max_live_slots, config->firedancer.runtime.bank_cache_cnt, config->development.bench.max_cost_per_block );
   /**/                 fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
