@@ -546,6 +546,11 @@ test_manifest_roundtrip( fd_svm_mini_t * mini,
     }
     FD_TEST( t1 && t2 );
 
+    /* The producer leaves the bank Stakes field empty; wait for
+       supermajority must resolve to the populated t_1 entry instead. */
+    FD_TEST( fd_snapshot_manifest_wfs_epoch_stakes( manifest )==t1 );
+    FD_TEST( t1->vote_stakes_len>0UL );
+
     static uchar const zero32[ 32UL ] = {0};
     int seen_t1_vote0 = 0; int seen_t1_vote1 = 0;
     for( ulong i=0UL; i<t1->vote_stakes_len; i++ ) {

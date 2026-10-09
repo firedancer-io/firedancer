@@ -3,6 +3,7 @@
 
 #include "../../../flamenco/runtime/fd_runtime_const.h"
 #include "../../../flamenco/runtime/fd_blockhashes.h"
+#include "../../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 
 #define FD_SSMSG_MANIFEST_FULL        (0) /* A snapshot manifest message from the full snapshot */
 #define FD_SSMSG_MANIFEST_INCREMENTAL (1) /* A snapshot manifest message from the incremental snapshot */
@@ -420,10 +421,11 @@ struct fd_snapshot_manifest {
   /* TODO: Why is this needed? */
   ulong signature_count;
 
-  /* Every staked vote account and its stake, taken from the stakes
-     cache rather than a single epoch's admitted set.  This field is only
-     used for wait for supermajority cluster restarts, which measures
-     what fraction of activated stake is visible in gossip. */
+  /* Every staked vote account and its stake, taken from the bank's
+     Stakes field rather than a single epoch's admitted set.  Snapshot
+     producers (including Firedancer's) may leave this field empty, so
+     it must not be relied upon.  Wait for supermajority uses
+     fd_snapshot_manifest_wfs_epoch_stakes instead. */
   ulong                               vote_accounts_len;
   fd_snapshot_manifest_vote_account_t vote_accounts[ FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS ];
 
@@ -469,5 +471,37 @@ struct fd_snapshot_manifest {
 };
 
 typedef struct fd_snapshot_manifest fd_snapshot_manifest_t;
+
+FD_PROTOTYPES_BEGIN
+
+/* fd_snapshot_manifest_wfs_epoch_stakes returns the epoch stakes entry
+   that wait_for_supermajority measures gossip visibility against.  This
+   is the entry for the leader schedule epoch of the snapshot slot
+   (normally E+1), which holds the stake activated in the snapshot's
+   epoch E.  It is the same set loaded as the T-1 vote stakes on boot
+   and is always populated, unlike the bank's Stakes field which
+   snapshot producers may leave empty.  Returns NULL if the manifest
+   does not carry that entry.  Assumes the manifest passed
+   fd_ssload_manifest_validate. */
+
+static inline fd_snapshot_manifest_epoch_stakes_t const *
+fd_snapshot_manifest_wfs_epoch_stakes( fd_snapshot_manifest_t const * manifest ) {
+  fd_epoch_schedule_t const epoch_schedule = {
+    .slots_per_epoch             = manifest->epoch_schedule_params.slots_per_epoch,
+    .leader_schedule_slot_offset = manifest->epoch_schedule_params.leader_schedule_slot_offset,
+    .warmup                      = manifest->epoch_schedule_params.warmup,
+    .first_normal_epoch          = manifest->epoch_schedule_params.first_normal_epoch,
+    .first_normal_slot           = manifest->epoch_schedule_params.first_normal_slot,
+  };
+  ulong epoch             = fd_slot_to_epoch( &epoch_schedule, manifest->slot, NULL );
+  ulong ls_epoch          = fd_slot_to_leader_schedule_epoch( &epoch_schedule, manifest->slot );
+  ulong epoch_stakes_base = epoch>3UL ? epoch-3UL : 0UL;
+  if( FD_UNLIKELY( ls_epoch<epoch_stakes_base || ls_epoch-epoch_stakes_base>=FD_RUNTIME_MANIFEST_EPOCH_STAKES_LEN ) ) return NULL;
+  fd_snapshot_manifest_epoch_stakes_t const * epoch_stakes = &manifest->epoch_stakes[ ls_epoch-epoch_stakes_base ];
+  if( FD_UNLIKELY( epoch_stakes->epoch!=ls_epoch ) ) return NULL;
+  return epoch_stakes;
+}
+
+FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_discof_restore_utils_fd_ssmsg_h */

@@ -505,8 +505,6 @@ returnable_frag( fd_gossip_tile_ctx_t * ctx,
         break;
       }
 
-      /* FIXME: Replace handling for this when manifest supports larger
-         vote and stake account bounds. */
       fd_snapshot_manifest_t const * manifest = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
 
       ulong wfs_stakes_unconverted_cnt = 0UL;
@@ -516,15 +514,25 @@ returnable_frag( fd_gossip_tile_ctx_t * ctx,
       ctx->wfs_peers.total  = 0UL;
       memset( ctx->wfs_active, 0, sizeof(ctx->wfs_active) );
 
-      FD_TEST( manifest->vote_accounts_len<=FD_RUNTIME_MAX_SNAPSHOT_VOTE_ACCOUNTS );
-      for( ulong i=0UL; i<manifest->vote_accounts_len; i++ ) {
-          if( FD_UNLIKELY( manifest->vote_accounts[ i ].stake==0UL ) ) continue;
-          ctx->wfs_stake.total += manifest->vote_accounts[ i ].stake;
+      /* Measure against the stake active in the snapshot's epoch, as
+         recorded in the epoch stakes the node boots its T-1 vote
+         stakes from.  The bank Stakes field (manifest->vote_accounts)
+         is not used because snapshot producers may leave it empty. */
+      fd_snapshot_manifest_epoch_stakes_t const * epoch_stakes = fd_snapshot_manifest_wfs_epoch_stakes( manifest );
+      if( FD_UNLIKELY( !epoch_stakes ) ) {
+        FD_LOG_WARNING(( "snapshot manifest at slot %lu is missing leader schedule epoch stakes, wait_for_supermajority cannot make progress", manifest->slot ));
+      } else {
+        FD_TEST( epoch_stakes->vote_stakes_len<=FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS );
+        for( ulong i=0UL; i<epoch_stakes->vote_stakes_len; i++ ) {
+          fd_snapshot_manifest_vote_stakes_t const * vs = &epoch_stakes->vote_stakes[ i ];
+          if( FD_UNLIKELY( vs->stake==0UL ) ) continue;
+          ctx->wfs_stake.total += vs->stake;
 
-          fd_memcpy( ctx->wfs_stakes_scratch[ wfs_stakes_unconverted_cnt ].id_key.uc, manifest->vote_accounts[ i ].node_account_pubkey, sizeof(fd_pubkey_t) );
-          fd_memcpy( ctx->wfs_stakes_scratch[ wfs_stakes_unconverted_cnt ].vote_key.uc, manifest->vote_accounts[ i ].vote_account_pubkey, sizeof(fd_pubkey_t) );
-          ctx->wfs_stakes_scratch[ wfs_stakes_unconverted_cnt ].stake = manifest->vote_accounts[ i ].stake;
+          fd_memcpy( ctx->wfs_stakes_scratch[ wfs_stakes_unconverted_cnt ].id_key.uc,   vs->identity, sizeof(fd_pubkey_t) );
+          fd_memcpy( ctx->wfs_stakes_scratch[ wfs_stakes_unconverted_cnt ].vote_key.uc, vs->vote,     sizeof(fd_pubkey_t) );
+          ctx->wfs_stakes_scratch[ wfs_stakes_unconverted_cnt ].stake = vs->stake;
           wfs_stakes_unconverted_cnt++;
+        }
       }
       ctx->wfs_stakes_cnt = compute_id_weights_from_vote_weights( ctx->wfs_stakes, ctx->wfs_stakes_scratch, wfs_stakes_unconverted_cnt );
 
