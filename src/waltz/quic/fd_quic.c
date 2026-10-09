@@ -2415,6 +2415,38 @@ is_version_invalid( fd_quic_t * quic, uint version ) {
   return 0;
 }
 
+/* fd_quic_long_pkt_sz returns the size of the QUIC v1 long header
+   packet at [pkt,pkt+sz) as indicated by its Length field.  The fields
+   read here are not covered by header protection (RFC 9001 Section
+   5.4.1), so the size is known even if the packet cannot be decrypted.
+   Returns FD_QUIC_PARSE_FAIL if the packet has no Length field (Retry)
+   or if the header is malformed or exceeds sz. */
+
+static ulong
+fd_quic_long_pkt_sz( uchar const * pkt,
+                     ulong         sz ) {
+  ulong pkt_sz;
+  switch( fd_quic_h0_long_packet_type( pkt[0] ) ) {
+  case FD_QUIC_PKT_TYPE_INITIAL: {
+    fd_quic_initial_t initial[1];
+    if( FD_UNLIKELY( fd_quic_decode_initial( initial, pkt, sz )==FD_QUIC_PARSE_FAIL ) ) return FD_QUIC_PARSE_FAIL;
+    pkt_sz = initial->pkt_num_pnoff + initial->len;
+    break;
+  }
+  case FD_QUIC_PKT_TYPE_ZERO_RTT:   /* same header layout as Handshake */
+  case FD_QUIC_PKT_TYPE_HANDSHAKE: {
+    fd_quic_handshake_t handshake[1];
+    if( FD_UNLIKELY( fd_quic_decode_handshake( handshake, pkt, sz )==FD_QUIC_PARSE_FAIL ) ) return FD_QUIC_PARSE_FAIL;
+    pkt_sz = handshake->pkt_num_pnoff + handshake->len;
+    break;
+  }
+  default:
+    return FD_QUIC_PARSE_FAIL;
+  }
+  if( FD_UNLIKELY( pkt_sz>sz ) ) return FD_QUIC_PARSE_FAIL;
+  return pkt_sz;
+}
+
 static inline void
 fd_quic_process_packet_impl( fd_quic_t * quic,
                              uchar *     data,
@@ -2555,8 +2587,18 @@ fd_quic_process_packet_impl( fd_quic_t * quic,
         return;
       }
 
+      /* Determine the packet size before processing, as processing may
+         remove header protection in-place. */
+      ulong pkt_sz = fd_quic_long_pkt_sz( cur_ptr, cur_sz );
+
       rc = fd_quic_process_quic_packet_v1( quic, &pkt, cur_ptr, cur_sz );
       svc_cnt_eq_alloc_conn( state->svc_timers, quic );
+
+      /* RFC 9000 Section 12.2: If a coalesced packet cannot be processed
+         (e.g. keys are unavailable or decryption fails), the receiver
+         MUST attempt to process the remaining packets.  Skip over it
+         using its Length field, if any. */
+      if( FD_UNLIKELY( rc==FD_QUIC_PARSE_FAIL ) ) rc = pkt_sz;
 
       /* 0UL means no progress, so fail */
       if( FD_UNLIKELY( ( rc == FD_QUIC_PARSE_FAIL ) |
