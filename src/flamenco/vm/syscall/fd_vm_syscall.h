@@ -690,7 +690,7 @@ FD_VM_SYSCALL_DECL( sol_get_processed_sibling_instruction );
 
 /* syscall(9377323c) "sol_create_program_address"
 
-   Compute SHA-256 hash of <program ID> .. &[&[u8]] .. <PDA Marker>
+   Compute SHA-256 hash of &[&[u8]] .. <program ID> .. <PDA Marker>
    and check whether result is an Ed25519 curve point.
 
    Inputs:
