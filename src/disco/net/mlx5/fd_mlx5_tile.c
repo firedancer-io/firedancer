@@ -590,7 +590,7 @@ fd_mlx5_tile_poll_rx( fd_mlx5_tile_t *    ctx,
       ctx->net.metrics.rx_malformed_cnt++;
       freed_chunk = comp[ i ].chunk;
     } else {
-      fd_net_rx_pkt( &ctx->net, stem, comp[ i ].chunk, comp[ i ].byte_len, tspub, &freed_chunk );
+      fd_net_rx_pkt( &ctx->net, stem, comp[ i ].chunk, 0UL, comp[ i ].byte_len, tspub, &freed_chunk );
     }
     if( FD_UNLIKELY( !freed_chunk ) ) FD_LOG_CRIT(( "invalid chunk in mcache" ));
     fd_mlx5_tile_rx_recycle( ctx, freed_chunk );
@@ -965,7 +965,7 @@ after_frag( fd_mlx5_tile_t *    ctx,
     }
 
     ulong freed_chunk;
-    if( fd_net_rx_pkt( &ctx->net, stem, chunk, frame_sz, (ulong)fd_frag_meta_ts_comp( fd_tickcount() ), &freed_chunk ) ) {
+    if( fd_net_rx_pkt( &ctx->net, stem, chunk, 0UL, frame_sz, (ulong)fd_frag_meta_ts_comp( fd_tickcount() ), &freed_chunk ) ) {
       ctx->sq_wqe_buf_chunk[ ctx->tx_qp.sq_prod & (ctx->tx_qp.tx_depth-1U) ] = (uint)freed_chunk;
     }
     ctx->net.metrics.tx_pkt_cnt++;
