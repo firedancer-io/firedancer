@@ -648,7 +648,9 @@ fd_vm_syscall_sol_get_processed_sibling_instruction(
       fd_memcpy( program_id, instr_ctx_program_id, sizeof(fd_pubkey_t) );
 
       /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1563 */
-      fd_memcpy( data, found_instruction_context->data, found_instruction_context->data_sz );
+      if( FD_LIKELY( found_instruction_context->data_sz ) ) {
+        fd_memcpy( data, found_instruction_context->data, found_instruction_context->data_sz );
+      }
 
       /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1564-L1581 */
       for( ushort i=0; i<found_instruction_context->acct_cnt; i++ ) {
