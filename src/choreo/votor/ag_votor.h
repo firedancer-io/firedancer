@@ -46,7 +46,8 @@ void *
 ag_votor_delete( void * mem );
 
 /* ag_votor_init starts votor at root, a finalized block that is
-   treated as notarized (Section 2.9). */
+   treated as notarized (Section 2.9).  It does not arm the root
+   window's skip timeouts; call ag_votor_arm_skip_timeouts for that. */
 
 void
 ag_votor_init( ag_votor_t *          self,
@@ -56,6 +57,16 @@ ag_votor_init( ag_votor_t *          self,
                ushort                shred_version,
                fd_bls_sign_fn        sign_fn,
                void *                sign_ctx );
+
+/* ag_votor_arm_skip_timeouts arms the root window's skip timeouts at
+   now.  Split from init so a wait-for-supermajority can arm them at
+   the restart instant: set_timeout only lowers a live deadline, so
+   timeouts armed at boot cannot be moved out afterwards.  Call once;
+   a repeat is a no-op. */
+
+void
+ag_votor_arm_skip_timeouts( ag_votor_t * self,
+                            long         now );
 
 void
 ag_votor_fini( ag_votor_t * self );

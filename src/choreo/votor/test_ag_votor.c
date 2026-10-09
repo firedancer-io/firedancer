@@ -12,6 +12,11 @@
 #define TEST_NS_PER_SLOT       (400000000L)
 #define TEST_WINDOW_ELAPSED_NS (AG_DELTA_TIMEOUT_NS + (long)(AG_SLOTS_PER_WINDOW+1UL)*TEST_NS_PER_SLOT)
 
+/* Far past every deadline a boot window arms, as a wait-for-
+   supermajority is. */
+
+#define TEST_LONG_WAIT_NS (3600L*1000L*1000L*1000L)
+
 #define FD_TEST_NO_MSG( votor ) do {           \
     ag_vote_t unused_;                         \
     FD_TEST( !try_recv( (votor), &unused_ ) ); \
@@ -145,8 +150,9 @@ setup_votor( long now ) {
   FD_TEST( votor );
   memset( g_last_bls_selector, 0, sizeof(g_last_bls_selector) );
   ag_block_id_t root = genesis_block_id();
-  ag_votor_init         ( votor, &root, now, TEST_NS_PER_SLOT, TEST_SHRED_VERSION, capture_sign_fn, &g_sk[0] );
-  ag_votor_advance_epoch( votor, TEST_NS_PER_SLOT, 0UL, 0UL, g_bls_selector[0] );
+  ag_votor_init             ( votor, &root, now, TEST_NS_PER_SLOT, TEST_SHRED_VERSION, capture_sign_fn, &g_sk[0] );
+  ag_votor_arm_skip_timeouts( votor, now );
+  ag_votor_advance_epoch    ( votor, TEST_NS_PER_SLOT, 0UL, 0UL, g_bls_selector[0] );
 
   g_epoch_info = &epoch_info_mem;
   epoch_info_build( g_epoch_info, g_info, NV );
@@ -275,8 +281,9 @@ test_boot_mid_window( void ) {
   ag_votor_t * votor = ag_votor_join( ag_votor_new( scratch, TEST_SLOT_MAX, 42UL ) );
   FD_TEST( votor );
   ag_block_id_t root = random_block_id( 2UL );
-  ag_votor_init         ( votor, &root, 0L, TEST_NS_PER_SLOT, TEST_SHRED_VERSION, sec_sign_fn, &g_sk[0] );
-  ag_votor_advance_epoch( votor, TEST_NS_PER_SLOT, 0UL, 0UL, g_bls_selector[0] );
+  ag_votor_init             ( votor, &root, 0L, TEST_NS_PER_SLOT, TEST_SHRED_VERSION, sec_sign_fn, &g_sk[0] );
+  ag_votor_arm_skip_timeouts( votor, 0L );
+  ag_votor_advance_epoch    ( votor, TEST_NS_PER_SLOT, 0UL, 0UL, g_bls_selector[0] );
 
   handle_timeouts( votor, TEST_WINDOW_ELAPSED_NS );
 
@@ -297,8 +304,9 @@ test_boot_mid_window_notar_child( void ) {
   ag_votor_t * votor = ag_votor_join( ag_votor_new( scratch, TEST_SLOT_MAX, 42UL ) );
   FD_TEST( votor );
   ag_block_id_t root = random_block_id( 2UL );
-  ag_votor_init         ( votor, &root, 0L, TEST_NS_PER_SLOT, TEST_SHRED_VERSION, sec_sign_fn, &g_sk[0] );
-  ag_votor_advance_epoch( votor, TEST_NS_PER_SLOT, 0UL, 0UL, g_bls_selector[0] );
+  ag_votor_init             ( votor, &root, 0L, TEST_NS_PER_SLOT, TEST_SHRED_VERSION, sec_sign_fn, &g_sk[0] );
+  ag_votor_arm_skip_timeouts( votor, 0L );
+  ag_votor_advance_epoch    ( votor, TEST_NS_PER_SLOT, 0UL, 0UL, g_bls_selector[0] );
   g_epoch_info = &epoch_info_mem;
   epoch_info_build( g_epoch_info, g_info, NV );
 
@@ -775,8 +783,9 @@ test_timeout_below_final( void ) {
   ag_votor_t * votor = ag_votor_join( ag_votor_new( scratch, TEST_SLOT_MAX, 42UL ) );
   FD_TEST( votor );
   ag_block_id_t root = random_block_id( 10UL );
-  ag_votor_init         ( votor, &root, 0L, TEST_NS_PER_SLOT, TEST_SHRED_VERSION, sec_sign_fn, &g_sk[0] );
-  ag_votor_advance_epoch( votor, TEST_NS_PER_SLOT, 0UL, 0UL, g_bls_selector[0] );
+  ag_votor_init             ( votor, &root, 0L, TEST_NS_PER_SLOT, TEST_SHRED_VERSION, sec_sign_fn, &g_sk[0] );
+  ag_votor_arm_skip_timeouts( votor, 0L );
+  ag_votor_advance_epoch    ( votor, TEST_NS_PER_SLOT, 0UL, 0UL, g_bls_selector[0] );
   g_epoch_info = &epoch_info_mem;
   epoch_info_build( g_epoch_info, g_info, NV );
 
@@ -794,6 +803,89 @@ test_timeout_below_final( void ) {
   FD_TEST_NO_MSG( votor );
 
   ag_votor_handle_skip_timeout( votor, w+2UL );
+  FD_TEST_NO_MSG( votor );
+
+  teardown_votor( votor );
+}
+
+/* Arming is deferred, never repeated: set_timeout only lowers a live
+   deadline, so a second arm an hour later leaves the window where the
+   first one put it. */
+
+static void
+test_arm_cannot_reanchor_timeouts( void ) {
+  ag_votor_t * votor = setup_votor( 0L );
+
+  long armed = ag_votor_next_skip_timeout( votor );
+  FD_TEST( armed==AG_DELTA_TIMEOUT_NS+TEST_NS_PER_SLOT );
+
+  ag_votor_arm_skip_timeouts( votor, TEST_LONG_WAIT_NS );
+  FD_TEST( ag_votor_next_skip_timeout( votor )==armed );
+
+  /* Nor backwards: an older clock must not pull the window in. */
+  ag_votor_arm_skip_timeouts( votor, -TEST_LONG_WAIT_NS );
+  FD_TEST( ag_votor_next_skip_timeout( votor )==armed );
+
+  teardown_votor( votor );
+}
+
+/* ag_votor_init leaves the window unarmed, so a votor held by WFS has
+   no deadline at all until it is released. */
+
+static void
+test_init_does_not_arm( void ) {
+  create_validators();
+  ag_votor_t * votor = ag_votor_join( ag_votor_new( scratch, TEST_SLOT_MAX, 42UL ) );
+  FD_TEST( votor );
+
+  ag_block_id_t root = genesis_block_id();
+  ag_votor_init( votor, &root, 0L, TEST_NS_PER_SLOT, TEST_SHRED_VERSION, capture_sign_fn, &g_sk[0] );
+  FD_TEST( ag_votor_next_skip_timeout( votor )==LONG_MAX );
+
+  ag_votor_arm_skip_timeouts( votor, TEST_LONG_WAIT_NS );
+  FD_TEST( ag_votor_next_skip_timeout( votor )==TEST_LONG_WAIT_NS+AG_DELTA_TIMEOUT_NS+TEST_NS_PER_SLOT );
+
+  ag_votor_delete( ag_votor_leave( votor ) );
+}
+
+/* ag_votor_wait_to_vote raises the floor past the windows votor
+   already voted in, which it reads from the slot states ag_votor_init
+   creates.  Called before init it finds none, so a set-identity only
+   gets the bump once init has run. */
+
+static void
+test_wait_to_vote_needs_init( void ) {
+  create_validators();
+  ag_votor_t * votor = ag_votor_join( ag_votor_new( scratch, TEST_SLOT_MAX, 42UL ) );
+  FD_TEST( votor );
+
+  ag_votor_wait_to_vote( votor, 0UL );
+  FD_TEST( votor->wait_to_vote_slot==0UL );
+
+  ag_block_id_t root = genesis_block_id();
+  ag_votor_init( votor, &root, 0L, TEST_NS_PER_SLOT, TEST_SHRED_VERSION, capture_sign_fn, &g_sk[0] );
+  ag_votor_wait_to_vote( votor, 0UL );
+  FD_TEST( votor->wait_to_vote_slot==AG_SLOTS_PER_WINDOW );
+
+  ag_votor_delete( ag_votor_leave( votor ) );
+}
+
+/* The failure deferring the arm avoids: a window armed at boot and
+   merely gated pops in full on the first poll after a long wait. */
+
+static void
+test_stale_window_fires_on_late_clock( void ) {
+  ag_votor_t * votor = setup_votor( 0L );
+
+  handle_timeouts( votor, TEST_LONG_WAIT_NS );
+  FD_TEST( ag_votor_next_skip_timeout( votor )==LONG_MAX );
+
+  for( ulong s=1UL; s<AG_SLOTS_PER_WINDOW; s++ ) {
+    ag_vote_t msg = recv( votor );
+    FD_TEST( msg.kind==AG_VOTE_KIND_SKIP );
+    FD_TEST( ag_vote_slot( &msg )==s );
+    FD_TEST( state_mut( votor, s )->bad_window );
+  }
   FD_TEST_NO_MSG( votor );
 
   teardown_votor( votor );
@@ -907,6 +999,10 @@ main( int     argc,
   test_missing_bls_selector_still_skips_other_epoch();
   test_prunes_to_finalized_window();
   test_timeout_below_final();
+  test_arm_cannot_reanchor_timeouts();
+  test_init_does_not_arm();
+  test_wait_to_vote_needs_init();
+  test_stale_window_fires_on_late_clock();
   test_vote_history_ser();
 
   FD_LOG_NOTICE(( "pass" ));

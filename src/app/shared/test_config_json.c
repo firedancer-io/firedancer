@@ -1,4 +1,5 @@
 #include "fd_config_json.h"
+#include "../../util/fd_boolau.h"
 
 #include <string.h>
 
@@ -107,6 +108,24 @@ main( int     argc,
   FD_TEST(  strstr( json, "\"tick_per_ns_mu\"" ) );
   FD_TEST(  strstr( json, "\"max_live_slots\"" ) );
   FD_TEST(  strstr( json, "\"shred_listen_port\"" ) );
+
+  /* Only "auto" is a string.  true and false stay JSON booleans, so a
+     config not using "auto" serializes exactly as it did before the
+     tri-state. */
+  static struct { int val; char const * expected; } const boolau_cases[] = {
+    { FD_BOOLAU_FALSE, "\"wait_for_vote_to_start_leader\":false"  },
+    { FD_BOOLAU_TRUE,  "\"wait_for_vote_to_start_leader\":true"   },
+    { FD_BOOLAU_AUTO,  "\"wait_for_vote_to_start_leader\":\"auto\"" }
+  };
+  for( ulong i=0UL; i<sizeof(boolau_cases)/sizeof(boolau_cases[0]); i++ ) {
+    static char boolau_json[ 262144 ];
+    config->consensus.wait_for_vote_to_start_leader = boolau_cases[ i ].val;
+    FD_TEST( fd_config_to_json( config, boolau_json, sizeof(boolau_json) ) );
+    FD_TEST( strstr( boolau_json, boolau_cases[ i ].expected ) );
+    for( ulong j=0UL; j<sizeof(boolau_cases)/sizeof(boolau_cases[0]); j++ ) {
+      if( j!=i ) FD_TEST( !strstr( boolau_json, boolau_cases[ j ].expected ) );
+    }
+  }
 
   /* external service urls are fully redacted */
   FD_TEST( !strstr( json, "SECRET" ) );
