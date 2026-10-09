@@ -161,6 +161,7 @@ ag_parent_ready_tracker_mark_notar_fallback( ag_parent_ready_tracker_t * self,
   memcpy( state->notar_fallbacks[ state->notar_fallbacks_cnt++ ], hash, sizeof(ag_block_hash_t) );
 
   for( ulong s=slot+1UL; ; s++ ) {
+    self->highest_parent_ready = fd_ulong_max( self->highest_parent_ready, s );
     if( FD_UNLIKELY( ag_is_start_of_window( s ) ) ) add_to_ready( self, s, block_id, newly_certified, newly_certified_cnt );
     ag_parent_ready_state_t const * next = ag_parent_ready_state_map_ele_query_const( self->states.map, &s, NULL, self->states.pool );
     if( FD_LIKELY( !next || !next->skip ) ) break;
@@ -204,6 +205,7 @@ ag_parent_ready_tracker_mark_skipped( ag_parent_ready_tracker_t * self,
   }
 
   for( ulong s=skipped_slot+1UL; ; s++ ) {
+    if( FD_LIKELY( parent.slot!=ULONG_MAX ) ) self->highest_parent_ready = fd_ulong_max( self->highest_parent_ready, s );
     if( FD_UNLIKELY( ag_is_start_of_window( s ) ) ) {
       slot_state( self, s )->b_lo = b_lo;
       if( FD_LIKELY( parent.slot!=ULONG_MAX ) ) add_to_ready( self, s, &parent, newly_certified, newly_certified_cnt );

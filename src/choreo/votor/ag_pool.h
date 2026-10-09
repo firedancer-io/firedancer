@@ -172,6 +172,13 @@ ag_block_id_t
 ag_pool_wait_for_parent_ready( ag_pool_t * self,
                                ulong       slot );
 
+/* ag_pool_highest_parent_ready returns the highest slot with a ready
+   parent.  A leader window starting below it was missed: the cluster
+   moved past it (Agave BlockProductionParent::MissedWindow). */
+
+FD_FN_PURE ulong
+ag_pool_highest_parent_ready( ag_pool_t const * self );
+
 int
 ag_pool_poll_pool_event( ag_pool_t *       self,
                          ag_pool_event_t * event );
