@@ -23,11 +23,10 @@
      caches are ref-cnt'd and fork specific.  Up to max_live_slots of
      them exist; cache_cnt are held in memory and the rest are spilled
      to disk.  Any thread may read t-1 sets; a cache miss loads the
-     set under a lock.
-     After the epoch boundary slot is rooted, then there will only be 1
-     active t-1 cache.  Once filled, a t-1 cache is ranked
-     and never changes again, so a fork in epoch t verifies epoch t+1
-     certs against it (Agave's epoch_stakes[t+1]); the next boundary
+     set under a lock.  After the epoch boundary slot is rooted, then
+     there will only be 1 active t-1 cache.  Once filled, a t-1 cache is
+     ranked and never changes again, so a fork in epoch t verifies epoch
+     t+1 certs against it (Agave's epoch_stakes[t+1]); the next boundary
      rotates it, ranks included, into t-2.
    - state: each bank has its own view of the t-2 state of vote
      accounts.  This is what is actually used for clock calculations
@@ -310,9 +309,6 @@ fd_vote_stakes_iter_next( fd_vote_stakes_t const * vote_stakes,
                           ulong                    fork_id,
                           int                      iter_kind,
                           fd_vote_stakes_iter_t *  iter );
-
-/* fd_vote_stakes_iter_ele copies the element the iterator is
-   positioned on into ele_out. */
 
 void
 fd_vote_stakes_iter_ele( fd_vote_stakes_t const * vote_stakes,
