@@ -106,8 +106,6 @@ typedef struct vacc_states vacc_states_t;
 #define POOL_LAZY  1
 #include "../../util/tmpl/fd_pool.c"
 
-/* t_1_cache_ent_t is the bookkeeping for an in-memory slot holding one
-   t-1 set. */
 struct t_1_cache_ent {
   ulong set_idx; /* ULONG_MAX if the entry is empty */
   ulong lru;
