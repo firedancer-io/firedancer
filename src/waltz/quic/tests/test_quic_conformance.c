@@ -187,9 +187,7 @@ FD_UNIT_TEST( quic_sticky_peer_ip4_client ) {
   test_quic_sticky_peer_ip4_( FD_QUIC_ROLE_CLIENT );
 }
 
-/* test_quic_send_protected_pkt crafts a protected QUIC packet at the
-   given encryption level (Initial, Handshake, or 1-RTT) containing the
-   given plaintext payload and injects it into the sandbox. */
+/* Inject a protected packet at the given encryption level. */
 
 static ulong
 test_quic_send_protected_pkt( fd_quic_conn_t * conn,
@@ -260,11 +258,6 @@ test_quic_frameless_conn( uint enc_level ) {
   return conn;
 }
 
-/* RFC 9000 Section 12.4. Frames and Frame Types
-
-   > An endpoint MUST treat receipt of a packet containing no frames as
-   > a connection error of type PROTOCOL_VIOLATION. */
-
 static ulong
 test_quic_ack_tx_cnt( void ) {
   ulong cnt = 0UL;
@@ -283,7 +276,7 @@ test_quic_frameless_pkt_( uint enc_level ) {
   FD_TEST( conn->state==FD_QUIC_CONN_STATE_ACTIVE );
   FD_TEST( test_quic_ack_tx_cnt()==before_ack+1UL );
 
-  /* A packet without frames is a protocol violation */
+  /* No frames: PROTOCOL_VIOLATION (RFC 9000 §12.4). */
   conn = test_quic_frameless_conn( enc_level );
   before_ack = test_quic_ack_tx_cnt();
   sandbox->wallclock += (long)1e6;

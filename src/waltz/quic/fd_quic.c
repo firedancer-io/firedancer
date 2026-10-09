@@ -1615,10 +1615,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
     return FD_QUIC_PARSE_FAIL;
   }
 
-  /* RFC 9000 Section 12.4: An endpoint MUST treat receipt of a packet
-     containing no frames as a connection error of type
-     PROTOCOL_VIOLATION.  Checked before conn creation to avoid
-     allocating state for such packets. */
+  /* Reject frame-less packets before allocating state (RFC 9000 §12.4). */
   if( FD_UNLIKELY( body_sz == pkt_number_sz + FD_QUIC_CRYPTO_TAG_SZ ) ) {
     if( conn ) fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
     return FD_QUIC_PARSE_FAIL;
@@ -1937,9 +1934,7 @@ fd_quic_handle_v1_handshake(
   uchar const * frame_ptr   = cur_ptr + payload_off;
   ulong         frame_sz    = body_sz - pkt_number_sz - FD_QUIC_CRYPTO_TAG_SZ; /* total size of all frames in packet */
 
-  /* RFC 9000 Section 12.4: An endpoint MUST treat receipt of a packet
-     containing no frames as a connection error of type
-     PROTOCOL_VIOLATION. */
+  /* Reject frame-less packets (RFC 9000 §12.4). */
   if( FD_UNLIKELY( frame_sz==0UL ) ) {
     fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
     return FD_QUIC_PARSE_FAIL;
@@ -2221,9 +2216,7 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *      quic,
   if( FD_UNLIKELY( payload_sz<FD_QUIC_CRYPTO_TAG_SZ ) ) return FD_QUIC_PARSE_FAIL;
   ulong         frame_sz    = payload_sz - FD_QUIC_CRYPTO_TAG_SZ; /* total size of all frames in packet */
 
-  /* RFC 9000 Section 12.4: An endpoint MUST treat receipt of a packet
-     containing no frames as a connection error of type
-     PROTOCOL_VIOLATION. */
+  /* Reject frame-less packets (RFC 9000 §12.4). */
   if( FD_UNLIKELY( frame_sz==0UL ) ) {
     fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
     return FD_QUIC_PARSE_FAIL;
