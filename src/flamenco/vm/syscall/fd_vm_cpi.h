@@ -13,9 +13,6 @@
    alignments are provided as const macros.  Alignment is not checked
    for deprecated loader programs, so host addresses may be unaligned.
    Thus, all structs support unaligned access (i.e. alignof(type)==1UL).
-   Likewise, scalars referenced by these structs (e.g. lamports and data
-   length fields) may be unaligned in host address space and must be
-   accessed with FD_LOAD / FD_STORE.
 
    Unfortunately, the Solana protocol provides this API twice:
    In a C-style ABI and in Rust ABI. */

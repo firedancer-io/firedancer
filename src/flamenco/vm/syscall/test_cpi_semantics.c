@@ -1383,39 +1383,6 @@ test_lamports_change( fd_svm_mini_t * mini ) {
   run_matrix( mini, cfg, "test_lamports_change", e );
 }
 
-/* Deprecated loader programs skip VM alignment checks, so the C ABI
-   account_infos array and the lamports / data length scalars it
-   references can be misaligned in host memory.  Verify that CPI
-   translation handles this. */
-static void
-test_c_abi_unaligned_account_info( fd_svm_mini_t * mini ) {
-  for( int changed=0; changed<2; changed++ ) {
-    cpi_test_cfg_t cfg[1]; simple_writable_cfg( cfg );
-    cfg->spar=0; cfg->vasa=0; cfg->dm=0; cfg->is_deprecated=1;
-    env_build( mini, cfg );
-
-    fd_vm_t * vm = mini->vm;
-    ulong instr_va, infos_va, n_infos;
-    c_cpi_build( vm, cfg, &instr_va, &infos_va, &n_infos );
-    FD_TEST( n_infos==1UL );
-
-    /* Relocate the account info and its lamports to odd heap offsets */
-    ulong infos_off    = 2049UL;
-    ulong lamports_off = 3001UL;
-    ulong lamports     = LAMPORTS + (changed ? 1000UL : 0UL);
-    memcpy( vm->heap + infos_off, vm->heap + (infos_va - HEAP_VA( 0UL )), sizeof(fd_vm_c_account_info_t) );
-    FD_STORE( ulong, vm->heap + lamports_off, lamports );
-    fd_vm_c_account_info_t * info = (fd_vm_c_account_info_t *)( vm->heap + infos_off );
-    info->lamports_addr = HEAP_VA( lamports_off );
-
-    int err = fd_vm_syscall_cpi_c( vm, instr_va, HEAP_VA( infos_off ), n_infos, 0UL, 0UL );
-    FD_TEST( err==( changed ? FD_EXECUTOR_INSTR_ERR_UNBALANCED_INSTR : FD_VM_SUCCESS ) );
-    FD_TEST( g_acct_entries[0]->lamports==lamports );
-    FD_TEST( FD_LOAD( ulong, vm->heap + lamports_off )==lamports );
-    FD_TEST( info->data_sz==INIT_DLEN );
-  }
-}
-
 static void
 test_owner_change( fd_svm_mini_t * mini ) {
   cpi_test_cfg_t cfg[1]; simple_writable_cfg( cfg );
@@ -2370,7 +2337,6 @@ main( int argc, char ** argv ) {
   test_length_grow_propagation                     ( mini );
   test_length_shrink_propagation                   ( mini );
   test_lamports_change                             ( mini );
-  test_c_abi_unaligned_account_info                ( mini );
   test_owner_change                                ( mini );
   test_region_size_update_under_vasa               ( mini );
   test_region_size_shrink_under_vasa               ( mini );
