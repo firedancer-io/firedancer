@@ -34,6 +34,9 @@
 #define FD_TLS_SERDE_CHECK \
   if( FD_UNLIKELY( !valid ) ) return -(long)FD_TLS_ALERT_DECODE_ERROR;
 
+#define FD_TLS_SERDE_ENCODE_CHECK \
+  if( FD_UNLIKELY( !valid ) ) return -(long)FD_TLS_ALERT_INTERNAL_ERROR;
+
 /* FD_TLS_SERDE_DECODE generates a non-overlapping memory copy for the
    given field.  Field should be bounds checked at this point.
 
@@ -78,7 +81,7 @@
 #define FD_TLS_ENCODE_FIELD( FIELD, FIELD_TYPE )  \
   FD_TLS_SERDE_BEGIN                              \
   FD_TLS_SERDE_LOCATE( _, FIELD, FIELD_TYPE, 1 )  \
-  FD_TLS_SERDE_CHECK                              \
+  FD_TLS_SERDE_ENCODE_CHECK                       \
   FD_TLS_SERDE_ENCODE(  _, FIELD, FIELD_TYPE, 1 ) \
   FD_TLS_SERDE_END
 
@@ -95,7 +98,7 @@
 #define FD_TLS_ENCODE_STATIC_BATCH( fields ) \
   FD_TLS_SERDE_BEGIN                         \
   fields( FD_TLS_SERDE_LOCATE )              \
-  FD_TLS_SERDE_CHECK                         \
+  FD_TLS_SERDE_ENCODE_CHECK                  \
   fields( FD_TLS_SERDE_ENCODE )              \
   FD_TLS_SERDE_END
 
