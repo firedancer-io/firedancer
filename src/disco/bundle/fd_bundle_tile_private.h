@@ -247,9 +247,9 @@ fd_bundle_client_step_reconnect( fd_bundle_tile_t * ctx,
 /* fd_bundle_client_next_deadline returns when
    fd_bundle_client_step next needs to run absent any fd event: the
    earliest pending timeout (keepalive, gRPC deadlines, builder info
-   expiry, reconnect backoff).  Returns now if TLS bytes are buffered
-   inside OpenSSL (no fd event will announce them), LONG_MAX while
-   connecting (completion is an EPOLLOUT event). */
+   expiry, auth token refresh, reconnect backoff).  Returns now if TLS
+   bytes are buffered inside OpenSSL (no fd event will announce them),
+   LONG_MAX while connecting (completion is an EPOLLOUT event). */
 
 long
 fd_bundle_client_next_deadline( fd_bundle_tile_t const * ctx,
