@@ -398,8 +398,12 @@ fd_sbpf_register_function_hashed_legacy( fd_sbpf_loader_t *  loader,
 
    Obviously invalid relocations (e.g. out-of-bounds of ELF file or
    unsupported reloc type) raise an error.
-   Relocations that would corrupt ELF data structures are silently
-   ignored (using the fd_sbpf_reloc_mask mechanism).
+   Relocations are applied to a copy of the ELF image (the program
+   rodata buffer), while ELF data structures (section headers, symbol,
+   string, and relocation tables) are always read from the original,
+   unmodified ELF image.  Relocations that overwrite ELF data
+   structures therefore only modify the copy, and do not affect
+   loading.
 
    ### History
 
