@@ -316,10 +316,6 @@ fd_sbpf_lenient_get_string_in_section( uchar const *         elf_bytes,
    property, since the key-value pairs are deterministically derived
    from one another.
 
-   TODO: this function will have to be adapted to hash the target PC
-   depending on the SBPF version (>= V3). That has not been implemented
-   yet.
-
    https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/program.rs#L142-L178 */
 static int
 fd_sbpf_register_function_hashed_legacy( fd_sbpf_loader_t *  loader,
@@ -2021,8 +2017,6 @@ fd_sbpf_program_load_lenient( fd_sbpf_program_t *             prog,
      symbol collisions and report errors accordingly. We unregister it
      first by setting it to ULONG_MAX.
 
-     TODO: Add special casing for static syscalls enabled. For now, it
-     is not implemented.
      https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L654-L667 */
   prog->entry_pc = ULONG_MAX;
   ulong entry_pc = offset/8UL;
