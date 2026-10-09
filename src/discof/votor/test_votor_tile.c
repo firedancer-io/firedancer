@@ -523,6 +523,63 @@ test_replay_before_epoch( void ) {
   FD_TEST( ctx.replay_in_seq==6UL );
 }
 
+/* With wait_for_supermajority, the snapshot slot's slot_completed only
+   sets up the pool: votor does not start (no skip timeouts) until
+   replay reports WFS_DONE, and then starts its timeouts from then.
+   Without it, the snapshot slot starts votor right away. */
+
+static void
+test_wfs_gates_init( void ) {
+  static fd_votor_tile_t     ctx;
+  static fd_replay_message_t msg;
+  FD_TEST( ag_pool_footprint( TEST_POOL_SLOT_MAX )<=sizeof(pool_scratch) );
+  FD_TEST( ag_votor_footprint( 64UL )<=sizeof(votor_scratch) );
+
+  for( int wfs=1; wfs>=0; wfs-- ) {
+    memset( &ctx, 0, sizeof(ctx) );
+    ctx.pool  = ag_pool_join ( ag_pool_new ( pool_scratch,  TEST_POOL_SLOT_MAX, 42UL ) );
+    ctx.votor = ag_votor_join( ag_votor_new( votor_scratch, 64UL,               42UL ) );
+    FD_TEST( ctx.pool && ctx.votor );
+    fd_clock_tile_init( ctx.clock );
+    for( ulong i=0UL; i<REWARD_VOTE_MAX; i++ ) ctx.reward_votes[ i ].slot = ULONG_MAX;
+    ctx.in_kind[ 0 ]    = IN_KIND_REPLAY;
+    ctx.curr_epoch_info = &epoch_info_mem;
+    ctx.shred_version   = 1;
+    ctx.ns_per_slot     = 400000000L;
+    ctx.wfs_complete    = !wfs;
+
+    long boot = fd_clock_tile_now( ctx.clock );
+    memset( &msg, 0, sizeof(msg) );
+    FD_TEST( !before_frag( &ctx, 0UL, 0UL, REPLAY_SIG_SLOT_COMPLETED ) );
+    handle_replay( &ctx, REPLAY_SIG_SLOT_COMPLETED, &msg );
+    FD_TEST( ag_pool_finalized_slot( ctx.pool )==0UL );
+    if( !wfs ) {
+      FD_TEST( ctx.init && ctx.votor_init );
+      FD_TEST( ag_votor_next_skip_timeout( ctx.votor )>=boot+AG_DELTA_TIMEOUT_NS+ctx.ns_per_slot );
+    } else {
+      FD_TEST( !ctx.init && !ctx.votor_init );
+      FD_TEST( ag_votor_next_skip_timeout( ctx.votor )==LONG_MAX );
+
+      /* Epoch info and shred version arriving again do not start it. */
+      maybe_init( &ctx );
+      FD_TEST( !ctx.init && !ctx.votor_init );
+
+      long done = boot+3600L*1000L*1000L*1000L;
+      fd_clock_tile_set( ctx.clock, done );
+      FD_TEST( !before_frag( &ctx, 0UL, 1UL, REPLAY_SIG_WFS_DONE ) );
+      FD_TEST( ctx.replay_in_seq==2UL );
+      handle_replay( &ctx, REPLAY_SIG_WFS_DONE, &msg );
+      FD_TEST( ctx.wfs_complete && ctx.init && ctx.votor_init );
+      FD_TEST( ag_votor_next_skip_timeout( ctx.votor )>=done+AG_DELTA_TIMEOUT_NS+ctx.ns_per_slot );
+    }
+
+    ag_votor_delete( ag_votor_leave( ctx.votor ) );
+    ag_pool_delete ( ag_pool_leave ( ctx.pool  ) );
+  }
+
+  FD_LOG_NOTICE(( "pass: test_wfs_gates_init" ));
+}
+
 /* During set-identity votor halts right after replay.  It keeps voting
    until it has consumed replay_slot through the seq replay switched at,
    then stops voting, lets the votes it already signed go out under the
@@ -1631,6 +1688,7 @@ main( int     argc,
   test_auth_vtr_keyswitch_clear();
   test_id_keyswitch();
   test_replay_before_epoch();
+  test_wfs_gates_init();
   test_sign_bls_request();
   test_connect_peer();
   test_conn_final_backoff();
