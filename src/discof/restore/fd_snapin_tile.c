@@ -1286,7 +1286,8 @@ process_manifest( fd_snapin_tile_t *  ctx,
 
   ulong sig = ctx->full ? fd_ssmsg_sig( FD_SSMSG_MANIFEST_FULL ) :
                           fd_ssmsg_sig( FD_SSMSG_MANIFEST_INCREMENTAL );
-  fd_stem_publish( stem, ctx->lead.manifest_out.idx, sig, ctx->lead.manifest_out.chunk, sizeof(fd_snapshot_manifest_t), 0UL, 0UL, 0UL );
+  /* sizeof(fd_snapshot_manifest_t) exceeds USHORT_MAX, so sz is 0 */
+  fd_stem_publish( stem, ctx->lead.manifest_out.idx, sig, ctx->lead.manifest_out.chunk, 0UL, 0UL, 0UL, 0UL );
   ctx->lead.manifest_out.chunk = fd_dcache_compact_next( ctx->lead.manifest_out.chunk, sizeof(fd_snapshot_manifest_t), ctx->lead.manifest_out.chunk0, ctx->lead.manifest_out.wmark );
 }
 
