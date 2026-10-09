@@ -187,6 +187,57 @@ FD_UNIT_TEST( quic_sticky_peer_ip4_client ) {
   test_quic_sticky_peer_ip4_( FD_QUIC_ROLE_CLIENT );
 }
 
+/* RFC 9001 Section 5.7. Receiving Out-of-Order Protected Packets
+
+   > [...] a server MUST NOT process incoming 1-RTT protected packets
+   > before the TLS handshake is complete. */
+
+FD_UNIT_TEST( quic_one_rtt_before_handshake_complete ) {
+  fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_SERVER );
+  fd_quic_conn_t * conn = fd_quic_sandbox_new_conn_established( sandbox, rng );
+
+  /* Server has 1-RTT keys, but has not yet received client Finished */
+  conn->state              = FD_QUIC_CONN_STATE_HANDSHAKE;
+  conn->established        = 0;
+  conn->handshake_complete = 0;
+
+  uchar pkt_buf[ FD_QUIC_SHORTEST_PKT ];
+  memset( pkt_buf, 0, sizeof(pkt_buf) );
+  pkt_buf[0] = 0x40; /* short header */
+  FD_STORE( ulong, pkt_buf+1, conn->our_conn_id );
+
+  fd_quic_pkt_t pkt = {
+    .ip4 = {{
+      .saddr = FD_QUIC_SANDBOX_PEER_IP4,
+      .daddr = FD_QUIC_SANDBOX_SELF_IP4,
+    }},
+    .udp = {{
+      .net_sport = FD_QUIC_SANDBOX_PEER_PORT,
+      .net_dport = FD_QUIC_SANDBOX_SELF_PORT,
+    }},
+  };
+
+  fd_quic_metrics_t * metrics = &sandbox->quic->metrics;
+  ulong before_no_key      = metrics->pkt_no_key_cnt      [ fd_quic_enc_level_appdata_id ];
+  ulong before_decrypt     = metrics->pkt_decrypt_fail_cnt[ fd_quic_enc_level_appdata_id ];
+  ulong before_ack         = metrics->ack_tx[ FD_QUIC_ACK_TX_NEW ];
+  ulong rc                 = fd_quic_process_quic_packet_v1( sandbox->quic, &pkt, pkt_buf, sizeof(pkt_buf) );
+
+  FD_TEST( rc==FD_QUIC_PARSE_FAIL );
+  FD_TEST( metrics->pkt_no_key_cnt      [ fd_quic_enc_level_appdata_id ]==before_no_key+1UL );
+  FD_TEST( metrics->pkt_decrypt_fail_cnt[ fd_quic_enc_level_appdata_id ]==before_decrypt   );
+  FD_TEST( metrics->ack_tx[ FD_QUIC_ACK_TX_NEW ]==before_ack );
+  FD_TEST( conn->state==FD_QUIC_CONN_STATE_HANDSHAKE );
+
+  /* Once the handshake is complete, the packet reaches decryption */
+
+  conn->handshake_complete = 1;
+  rc = fd_quic_process_quic_packet_v1( sandbox->quic, &pkt, pkt_buf, sizeof(pkt_buf) );
+  FD_TEST( rc==FD_QUIC_PARSE_FAIL );
+  FD_TEST( metrics->pkt_no_key_cnt      [ fd_quic_enc_level_appdata_id ]==before_no_key+1UL  );
+  FD_TEST( metrics->pkt_decrypt_fail_cnt[ fd_quic_enc_level_appdata_id ]==before_decrypt+1UL );
+}
+
 /* Test an ALPN failure when acting as a server */
 
 FD_UNIT_TEST( quic_server_alpn_fail ) {
