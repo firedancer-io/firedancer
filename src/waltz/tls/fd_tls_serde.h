@@ -34,11 +34,6 @@
 #define FD_TLS_SERDE_CHECK \
   if( FD_UNLIKELY( !valid ) ) return -(long)FD_TLS_ALERT_DECODE_ERROR;
 
-/* FD_TLS_SERDE_ENCODE_CHECK is the encoder variant of
-   FD_TLS_SERDE_CHECK.  An out-of-bounds encode is a local failure
-   (insufficient output buffer space), so it is reported as an
-   INTERNAL_ERROR alert instead of a DECODE_ERROR. */
-
 #define FD_TLS_SERDE_ENCODE_CHECK \
   if( FD_UNLIKELY( !valid ) ) return -(long)FD_TLS_ALERT_INTERNAL_ERROR;
 
