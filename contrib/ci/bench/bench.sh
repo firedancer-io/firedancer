@@ -1,8 +1,8 @@
 #!/bin/bash
-# PR perf rows.  bench.sh build|replay|snapshot|bench base|new
+# PR perf rows.  bench.sh build|replay|snapshot|epoch|bench base|new
 # Raw results land in $BENCH_DIR/<side>.<what>.*; benchmark_comment.py turns them into the comment.
 set -euo pipefail
-what=${1:?usage: bench.sh build|replay|snapshot|bench base|new} side=${2:?side}
+what=${1:?usage: bench.sh build|replay|snapshot|epoch|bench base|new} side=${2:?side}
 BENCH_DIR=${BENCH_DIR:-$(realpath ..)/bench}
 DUMP_DIR=${DUMP_DIR:-$(realpath ..)/dump}
 SHREDB=/dev/shm/fd-bench-shreds.db  # tmpfs: on disk, writeback holds its inode lock and stalls shred/rserve pwrite() for whole slots
@@ -53,6 +53,8 @@ case $what in
   replay)   backtest "${BENCH_LEDGER:-mainnet-424669000-perf-ledger-v4.2.0-beta.1-vat}" \
                      -e "${BENCH_END_SLOT:-424669200}" -m 4000000 ;;
   snapshot) backtest "${BENCH_SNAP_LEDGER:?}" -m 100000000 ;;  # load-only ledger: no shreds
+  epoch)    backtest "${BENCH_EPOCH_LEDGER:-mainnet-epoch-450144000-minimized}" \
+                     -e "${BENCH_EPOCH_END_SLOT:-450144010}" -m 2000000 ;;  # crosses one epoch boundary
   bench)
     { cat "$BENCH_DIR/$side/bench.toml"; printf '[paths]\n    accounts = "%s"\n    shredb = "%s"\n' "$DUMP_DIR/accounts.db" "$SHREDB"; } > "$out.toml"
     quiesce
