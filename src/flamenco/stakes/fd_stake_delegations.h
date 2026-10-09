@@ -56,11 +56,14 @@
       reward distribution.
    The stake accounts are read-only during the epoch boundary.
 
-   The concurrency model is: every mutating operation takes the struct's
-   write lock for its whole duration, so mutators are safe to call
-   concurrently from any tile.  fd_stake_delegations_{mark,unmark}_delta
-   and the iterator are the exception: the caller holds the write lock
-   across the whole mark/iterate/unmark bracket.
+   Two locks.  delta_lock guards the fork descriptors and the delta
+   records.  root_lock guards the root records and the stake totals.
+   Hold a lock exclusive to change what it guards, shared to read it,
+   and take root_lock first when an operation touches both.  Reading
+   the root therefore never blocks work on forks.
+   fd_stake_delegations_{mark,unmark}_delta and the iterator are the
+   exception: the caller holds the locks across the whole
+   mark/iterate/unmark bracket.
 
    max_disk_records bounds the number of delta records that can spill
    to disk.  The disk root capacity is max_stake_accounts plus twice
@@ -480,7 +483,9 @@ fd_stake_delegations_advance_root( ulong                                epoch,
    delta elements from the target fork's ancestry onto the base/root
    stake delegation stores.  This allows the caller to iterate over the
    delegations for a bank using the root and its deltas without creating
-   a copy.
+   a copy.  If fork_idx is USHORT_MAX, nothing is overlaid and the
+   caller reads the root as is.  Only root_lock is taken, shared, and
+   held until view_end.
 
    Under the hood, each in-memory or disk root record points to the
    corresponding in-memory or disk delta.  If an element is inserted by
