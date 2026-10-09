@@ -794,6 +794,12 @@ telemetry = true
     # faster transaction execution.
     program_cache_size_mib = 2048
 
+    # Number of cost trackers, epoch credits sets and vote stakes sets
+    # kept in memory.  The rest are spilled to disk.  Every bank with
+    # transactions in flight keeps its cost tracker in memory, so this
+    # must be greater than layout.execrp_tile_count plus 3.
+    bank_cache_cnt = 16
+
 # CPU cores in Firedancer are carefully managed.  Where a typical
 # program lets the operating system scheduler determine which threads to
 # run on which cores and for how long, Firedancer overrides most of this

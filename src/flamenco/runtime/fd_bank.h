@@ -113,8 +113,8 @@ FD_PROTOTYPES_BEGIN
   The memory for the banks is bounded by the max number of unrooted
   blocks at any given time.  Large per-fork state (vote stakes t-1
   sets, epoch credits, cost trackers) is backed by a file with an
-  in-memory cache of FD_BANK_CACHE_CNT entries.  See
-  fd_banks_footprint() for more details.
+  in-memory cache of cache_cnt entries.  See fd_banks_footprint() for
+  more details.
 
   There are also some important states that a bank can be in:
   - Initialized: This bank has been created and linked to a parent bank
@@ -365,6 +365,7 @@ struct fd_banks {
   ulong magic;                       /* ==FD_BANKS_MAGIC */
   int   report_runtime_diffs;        /* telemetry: emit the runtime events; report_runtime_diffs flag */
   ulong max_total_banks;             /* Maximum number of banks */
+  ulong cache_cnt;                   /* In-memory entries of each disk backed per-fork store */
   ulong max_stake_accounts;          /* Maximum number of stake accounts */
   ulong max_vote_accounts;           /* Maximum number of vote accounts */
   ulong root_idx;                    /* root idx */
@@ -493,11 +494,11 @@ fd_banks_align( void );
    of banks that the bank manages.  This is an analog for the max number
    of unrooted blocks the bank can manage at any given time.  Large
    per-fork structs (cost trackers, epoch credits and t-1 vote stakes)
-   keep a fixed number of entries in memory and spill the rest to
-   disk. */
+   keep cache_cnt entries in memory and spill the rest to disk. */
 
 ulong
 fd_banks_footprint( ulong max_total_banks,
+                    ulong cache_cnt,
                     ulong max_stake_accounts,
                     ulong max_vote_accounts );
 
@@ -510,6 +511,7 @@ void *
 fd_banks_new( void * mem,
               int    stake_delegations_fd,
               ulong  max_total_banks,
+              ulong  cache_cnt,
               ulong  max_stake_accounts,
               ulong  max_disk_records,
               ulong  max_vote_accounts,

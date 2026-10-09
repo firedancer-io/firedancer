@@ -386,6 +386,7 @@ fd_config_to_json( fd_config_t const * config,
   jw_obj_open( &w, "runtime" );
     jw_ulong( &w, "max_live_slots", f->runtime.max_live_slots );
     jw_ulong( &w, "program_cache_size_mib", f->runtime.program_cache_size_mib );
+    jw_ulong( &w, "bank_cache_cnt", f->runtime.bank_cache_cnt );
   jw_obj_close( &w );
 
   jw_obj_open( &w, "snapshots" );

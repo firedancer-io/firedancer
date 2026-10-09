@@ -17,6 +17,7 @@ fd_topo_obj_t *
 setup_topo_banks( fd_topo_t *  topo,
                   char const * wksp_name,
                   ulong        max_live_slots,
+                  ulong        cache_cnt,
                   ulong        bench_max_cost_per_block );
 
 /* Smallest program_cache_size that setup_topo_progcache accepts: a huge-page

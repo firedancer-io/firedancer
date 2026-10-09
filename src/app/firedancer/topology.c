@@ -95,9 +95,11 @@ fd_topo_obj_t *
 setup_topo_banks( fd_topo_t *  topo,
                   char const * wksp_name,
                   ulong        max_live_slots,
+                  ulong        cache_cnt,
                   ulong        bench_max_cost_per_block ) {
   fd_topo_obj_t * obj = fd_topob_obj( topo, "banks", wksp_name );
   FD_TEST( fd_pod_insertf_ulong( topo->props, max_live_slots, "obj.%lu.max_live_slots", obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, cache_cnt,      "obj.%lu.cache_cnt",      obj->id ) );
   FD_TEST( fd_pod_insertf_ulong( topo->props, bench_max_cost_per_block, "obj.%lu.bench_max_cost_per_block", obj->id ) );
   ulong seed;
   FD_TEST( fd_rng_secure( &seed, sizeof( ulong ) ) );
@@ -1116,7 +1118,10 @@ fd_topo_initialize( config_t * config ) {
     FD_TEST( fd_pod_insertf_ulong( topo->props, ldr_tt_obj->id, "ldr_tt" ) );
   }
 
-  fd_topo_obj_t * banks_obj = setup_topo_banks( topo, "banks", config->firedancer.runtime.max_live_slots, config->development.bench.max_cost_per_block );
+  if( FD_UNLIKELY( config->firedancer.runtime.bank_cache_cnt<=execrp_tile_cnt+3UL ) ) {
+    FD_LOG_ERR(( "[runtime.bank_cache_cnt] must be greater than [layout.execrp_tile_count] plus 3" ));
+  }
+  fd_topo_obj_t * banks_obj = setup_topo_banks( topo, "banks", config->firedancer.runtime.max_live_slots, config->firedancer.runtime.bank_cache_cnt, config->development.bench.max_cost_per_block );
   /**/                 fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   if( !alpenglow_enabled ) {
     /**/               fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "tower",  0UL ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );

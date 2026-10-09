@@ -281,8 +281,8 @@ test_banks( void ) {
   static uchar        mem[ 1UL<<25 ] __attribute__((aligned(FD_BANKS_ALIGN)));
   static fd_banks_t * banks;
   if( FD_LIKELY( banks ) ) return banks;
-  FD_TEST( fd_banks_footprint( 1UL, 8UL, 8UL )<=sizeof(mem) );
-  banks = fd_banks_join( fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, 1UL, 8UL, 128UL, 8UL, 0UL, 42UL ) );
+  FD_TEST( fd_banks_footprint( 1UL, 8UL, 8UL, 8UL )<=sizeof(mem) );
+  banks = fd_banks_join( fd_banks_new( mem, FD_STAKE_DELEGATIONS_FD, 1UL, 8UL, 8UL, 128UL, 8UL, 0UL, 42UL ) );
   FD_TEST( banks );
   FD_TEST( fd_banks_init_bank( banks )->idx==0UL );
   return banks;

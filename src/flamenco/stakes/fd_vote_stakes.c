@@ -405,8 +405,8 @@ fd_vote_stakes_new( void * mem,
   void * t_1_cache_mem        = FD_SCRATCH_ALLOC_APPEND( l, alignof(t_1_cache_ent_t), cache_cnt*sizeof(t_1_cache_ent_t) );
   void * t_1_vacc_pools_mem   = FD_SCRATCH_ALLOC_APPEND( l, vacc_pool_align(),        cache_cnt*pool_footprint );
   void * t_1_vacc_maps_mem    = FD_SCRATCH_ALLOC_APPEND( l, vacc_map_align(),         cache_cnt*map_footprint );
-  void * vacc_heap_mem        = FD_SCRATCH_ALLOC_APPEND( l, vacc_heap_align(),       vacc_heap_footprint( FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS ) );
-  void * vacc_states_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, vacc_state_pool_align(), vacc_state_pool_footprint( max_live_slots ) );
+  void * vacc_heap_mem        = FD_SCRATCH_ALLOC_APPEND( l, vacc_heap_align(),        vacc_heap_footprint( FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS ) );
+  void * vacc_states_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, vacc_state_pool_align(),  vacc_state_pool_footprint( max_live_slots ) );
 
   if( FD_UNLIKELY( FD_SCRATCH_ALLOC_FINI( l, fd_vote_stakes_align() )!=(ulong)mem+footprint ) ) {
     FD_LOG_WARNING(( "fd_vote_stakes_new: bad layout" ));

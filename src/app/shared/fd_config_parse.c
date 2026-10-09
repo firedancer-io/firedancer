@@ -109,6 +109,8 @@ fd_config_extract_podf( uchar *        pod,
 
   CFG_POP      ( ulong,  runtime.program_cache_size_mib                      );
 
+  CFG_POP      ( ulong,  runtime.bank_cache_cnt                              );
+
   CFG_POP      ( cstr,   consensus.wait_for_supermajority_with_bank_hash     );
   CFG_POP      ( bool,   consensus.alpenglow                                 );
 
