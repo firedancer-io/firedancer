@@ -77,9 +77,6 @@ fd_sysvar_slot_history_update( fd_bank_t *        bank,
     FD_LOG_ERR(( "invalid slot history sysvar: data_sz too small (%lu, required %lu)", acc.data_len, min_sz ));
   }
 
-  /* Agave re-serializes the sysvar into a fresh zeroed buffer of size
-     max(size_of, serialized_size), discarding any extra account data.
-     https://github.com/anza-xyz/solana-sdk/blob/account%40v4.3.0/account/src/lib.rs#L618 */
   ulong canonical_sz = fd_ulong_max( FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ, min_sz );
   fd_memset( acc.data+min_sz, 0, canonical_sz-min_sz );
   acc.data_len = canonical_sz;
