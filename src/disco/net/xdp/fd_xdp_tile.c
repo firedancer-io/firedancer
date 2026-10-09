@@ -559,7 +559,7 @@ net_tx_route( fd_net_ctx_t * ctx,
   if( netdev->dev_type==ARPHRD_LOOPBACK ) {
     /* Set Ethernet src and dst address to 00:00:00:00:00:00 */
     memset( route->mac_addrs, 0, 12UL );
-    ctx->tx_op.xsk_idx = XSK_IDX_LO;
+    ctx->tx_op.xsk_idx = if_idx==ctx->if_virt ? XSK_IDX_MAIN : XSK_IDX_LO;
     /* Set preferred src address to 127.0.0.1 if no bind address is set */
     if( !route->src_ip ) route->src_ip = FD_IP4_ADDR( 127,0,0,1 );
     return 1;
