@@ -794,15 +794,16 @@ telemetry = true
     # faster transaction execution.
     program_cache_size_mib = 2048
 
-    # Slots require certain data structures like the cost tracker,
-    # epoch credits, and the vote stakes which are used by slots during
-    # execution.  This value determines the number of these data
-    # structures that can remain in the validator's memory before
-    # spilling over to the disk.
+    # Each executing slot has a large amount of state that the validator
+    # tracks per slot.  During standard operation, only a few slots use
+    # this state at one time, so rather than keeping all of the entries
+    # in-memory for every live slot, the validator will keep a porition
+    # of the state in-memory and will spill the rest to disk.
     #
-    # This value must be at least 2 larger than layout.execrp_tile_count
-    # to support worst-case execution behavior or the validator will
-    # refuse to start.
+    # This is the number of entries that is kept in-memory.  This cache
+    # must be sized to be 2 greater than layout.execrp_tile_count to
+    # support worst-case valdiator behavior where every user of slot
+    # state is referencing slot state simultaneously.
     #
     # It is not recommended to change this value, except in development
     # or test environments to decrease memory usage or test edge cases.
