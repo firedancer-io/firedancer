@@ -42,6 +42,12 @@ message AuthenticateResponse {
   uint64 max_stream_body = 2;
 }
 
+message StreamEventsZstdRequest {}
+
+message StreamEventsZstdResponse {
+  uint64 nonce = 1;
+}
+
 // An event server for receiving application reported events.
 //
 // Auth is via bearer token. Client must ed25519 sign the challenge token returned by Authenticate
@@ -53,4 +59,9 @@ service EventService {
   // Stream of events from client to server, and acknowledgements from server to client. The
   // client authenticates by presenting the signed challenge token in the authorization header.
   rpc StreamEvents (stream StreamEventsRequest) returns (stream StreamEventsResponse);
+
+  // StreamEvents compressed as one zstd stream per call. Each message is the
+  // compressor output at one flush, ending on an event boundary, decompressed, the stream is
+  // varint(len) | StreamEventsRequest, repeated. An empty message is a heartbeat.
+  rpc StreamEventsZstd (stream StreamEventsZstdRequest) returns (stream StreamEventsZstdResponse);
 }

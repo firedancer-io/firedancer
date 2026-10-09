@@ -33,12 +33,10 @@
 
 #define GRPC_BUF_MAX (12UL<<20UL) /* 12 MiB */
 
-/* An encoded event larger than the send buffer is rejected at transmit
-   and skipped for good, so the worst case of the largest event has to fit
-   with room for the gRPC framing: the 5-byte gRPC length prefix plus a
-   9-byte HTTP/2 DATA frame header per 16 KiB frame. */
-FD_STATIC_ASSERT( FD_EVENT_BLOCK_COMPLETED_BUF_MAX+5UL+9UL*( (FD_EVENT_BLOCK_COMPLETED_BUF_MAX+5UL+16383UL)/16384UL )<=GRPC_BUF_MAX, event_fits_grpc_tx_buf );
-FD_STATIC_ASSERT( FD_EVENT_BOOT_BUF_MAX+5UL+9UL*( (FD_EVENT_BOOT_BUF_MAX+5UL+16383UL)/16384UL )<=GRPC_BUF_MAX, boot_event_fits_grpc_tx_buf );
+/* The largest event, compressed in the worst case, has to fit the
+   gRPC send buffer. */
+FD_STATIC_ASSERT( FD_EVENT_CLIENT_FITS( FD_EVENT_BLOCK_COMPLETED_BUF_MAX, GRPC_BUF_MAX ), event_fits_grpc_tx_buf );
+FD_STATIC_ASSERT( FD_EVENT_CLIENT_FITS( FD_EVENT_BOOT_BUF_MAX, GRPC_BUF_MAX ), boot_event_fits_grpc_tx_buf );
 
 /* Sized so the event workspace (circq + ~144 MiB client/ctx) fits in one
    gigantic page. */
