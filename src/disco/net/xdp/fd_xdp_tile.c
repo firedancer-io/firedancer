@@ -882,7 +882,7 @@ net_rx_event( fd_net_ctx_t *      ctx,
   ulong const chunk = ctx->net.pkt_buf_chunk0 + (frame.addr >> FD_CHUNK_LG_SZ);
   ulong const tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
   ulong       freed_chunk;
-  fd_net_rx_pkt( &ctx->net, stem, chunk, frame.len, tspub, &freed_chunk );
+  fd_net_rx_pkt( &ctx->net, stem, chunk, frame.addr & (FD_CHUNK_SZ-1UL), frame.len, tspub, &freed_chunk );
 
   FD_COMPILER_MFENCE();
   rx_ring->cached_cons = rx_seq+1U;
