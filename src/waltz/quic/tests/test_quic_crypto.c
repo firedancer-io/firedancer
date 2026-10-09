@@ -140,6 +140,44 @@ test_quic_nonce( void ) {
   FD_TEST( 0==memcmp( nonce, expected_nonce, sizeof( expected_nonce ) ) );
 }
 
+/* tests key update derivation against rfc9001 a.5:
+
+   secret
+       = 9ac312a7f877468ebe69422748ad00a15443f18203a07d6060f688f30f21632b
+
+   ku  = HKDF-Expand-Label(secret, "quic ku", "", 32)
+       = 1223504755036d556342ee9361d253421a826c9ecdf3c7148684b36b714881f9
+
+   The AES-128-GCM key and IV derived from ku were cross-checked
+   against aioquic. */
+static void
+test_quic_key_update( void ) {
+  static uchar const secret[32] =
+    { 0x9a, 0xc3, 0x12, 0xa7, 0xf8, 0x77, 0x46, 0x8e, 0xbe, 0x69, 0x42, 0x27, 0x48, 0xad, 0x00, 0xa1,
+      0x54, 0x43, 0xf1, 0x82, 0x03, 0xa0, 0x7d, 0x60, 0x60, 0xf6, 0x88, 0xf3, 0x0f, 0x21, 0x63, 0x2b };
+  static uchar const expected_ku[32] =
+    { 0x12, 0x23, 0x50, 0x47, 0x55, 0x03, 0x6d, 0x55, 0x63, 0x42, 0xee, 0x93, 0x61, 0xd2, 0x53, 0x42,
+      0x1a, 0x82, 0x6c, 0x9e, 0xcd, 0xf3, 0xc7, 0x14, 0x86, 0x84, 0xb3, 0x6b, 0x71, 0x48, 0x81, 0xf9 };
+  static uchar const expected_key[16] =
+    { 0x2d, 0xf9, 0xd0, 0xa3, 0x59, 0x21, 0x0f, 0x56, 0x3d, 0xad, 0x80, 0x9f, 0xb6, 0x1a, 0x79, 0xbf };
+  static uchar const expected_iv[12] =
+    { 0x41, 0x59, 0xd1, 0x8a, 0xfd, 0x01, 0x56, 0xa1, 0xe5, 0x64, 0xd1, 0x6c };
+
+  fd_quic_crypto_secrets_t secrets = {0};
+  for( ulong j=0UL; j<2UL; j++ ) {
+    memcpy( secrets.secret[ fd_quic_enc_level_appdata_id ][ j ], secret, 32UL );
+  }
+
+  fd_quic_crypto_keys_t new_keys[2];
+  fd_quic_key_update_derive( &secrets, new_keys );
+
+  for( ulong j=0UL; j<2UL; j++ ) {
+    FD_TEST( 0==memcmp( secrets.new_secret[j], expected_ku,  32UL ) );
+    FD_TEST( 0==memcmp( new_keys[j].pkt_key,   expected_key, 16UL ) );
+    FD_TEST( 0==memcmp( new_keys[j].iv,        expected_iv,  12UL ) );
+  }
+}
+
 #if FD_HAS_AESNI || FD_HAS_GFNI
 #define BENCH_ITER 1000000UL
 #else
@@ -395,6 +433,7 @@ main( int     argc,
 
   test_quic_short_pn();
   test_quic_nonce();
+  test_quic_key_update();
   fd_rng_delete( fd_rng_leave( rng ) );
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
