@@ -511,12 +511,16 @@ during_housekeeping( fd_net_ctx_t * ctx ) {
    On success, tx_op.xsk_idx and net.tx_route.src_ip are set, and if the dst_ip
    belongs to a GRE interface, is_gre_inf will set to 1 and net.tx_route.gre_outer_src_ip
    and net.tx_route.gre_outer_dst_ip will be loaded from the netdev
-   table. is_gre_inf is set to 0 if dst_ip doesn't belong to a GRE interface. */
+   table. is_gre_inf is set to 0 if dst_ip doesn't belong to a GRE interface.
+   If quiet is non-zero, failures do not increment metrics or request
+   neighbor solicitation (used when this tile does not own the packet,
+   such that failures are accounted only once by the owning tile). */
 
 static int
 net_tx_route( fd_net_ctx_t * ctx,
               uint           dst_ip,
-              uint *         is_gre_inf ) {
+              uint *         is_gre_inf,
+              int            quiet ) {
   fd_net_tx_route_t * route = &ctx->net.tx_route;
 
   /* Route lookup */
@@ -539,13 +543,13 @@ net_tx_route( fd_net_ctx_t * ctx,
     uint reason = fd_uint_if( rtype==FD_FIB4_RTYPE_THROW,
         FD_METRICS_ENUM_ROUTE_FAIL_V_NO_ROUTE_IDX,
         FD_METRICS_ENUM_ROUTE_FAIL_V_ROUTE_TYPE_IDX );
-    ctx->net.metrics.tx_route_fail_cnt[ reason ]++;
+    if( !quiet ) ctx->net.metrics.tx_route_fail_cnt[ reason ]++;
     return 0;
   }
 
   fd_netdev_t * netdev = fd_netdev_tbl_query( &ctx->netdev_tbl, if_idx );
   if( !netdev ) {
-    ctx->net.metrics.tx_route_fail_cnt[ FD_METRICS_ENUM_ROUTE_FAIL_V_INTERFACE_IDX ]++;
+    if( !quiet ) ctx->net.metrics.tx_route_fail_cnt[ FD_METRICS_ENUM_ROUTE_FAIL_V_INTERFACE_IDX ]++;
     return 0;
   }
 
@@ -572,12 +576,12 @@ net_tx_route( fd_net_ctx_t * ctx,
   }
 
   if( FD_UNLIKELY( netdev->dev_type!=ARPHRD_ETHER ) ) {
-    ctx->net.metrics.tx_route_fail_cnt[ FD_METRICS_ENUM_ROUTE_FAIL_V_UNSUPPORTED_INTERFACE_IDX ]++;
+    if( !quiet ) ctx->net.metrics.tx_route_fail_cnt[ FD_METRICS_ENUM_ROUTE_FAIL_V_UNSUPPORTED_INTERFACE_IDX ]++;
     return 0;
   }
 
   if( FD_UNLIKELY( if_idx!=ctx->if_virt ) ) {
-    ctx->net.metrics.tx_route_fail_cnt[ FD_METRICS_ENUM_ROUTE_FAIL_V_UNSUPPORTED_INTERFACE_IDX ]++;
+    if( !quiet ) ctx->net.metrics.tx_route_fail_cnt[ FD_METRICS_ENUM_ROUTE_FAIL_V_UNSUPPORTED_INTERFACE_IDX ]++;
     return 0;
   }
   ctx->tx_op.xsk_idx = XSK_IDX_MAIN;
@@ -590,13 +594,15 @@ net_tx_route( fd_net_ctx_t * ctx,
   int neigh_res = fd_neigh4_hmap_query_entry( ctx->neigh4, neigh_ip, neigh );
   if( FD_UNLIKELY( neigh_res!=FD_MAP_SUCCESS ) ) {
     /* Neighbor not found */
-    ctx->solicit_ip     = neigh_ip;
-    ctx->solicit_if_idx = if_idx;
-    ctx->metrics.tx_neigh_fail_cnt++;
+    if( !quiet ) {
+      ctx->solicit_ip     = neigh_ip;
+      ctx->solicit_if_idx = if_idx;
+      ctx->metrics.tx_neigh_fail_cnt++;
+    }
     return 0;
   }
   if( FD_UNLIKELY( neigh->state != FD_NEIGH4_STATE_ACTIVE ) ) {
-    ctx->metrics.tx_neigh_fail_cnt++;
+    if( !quiet ) ctx->metrics.tx_neigh_fail_cnt++;
     return 0;
   }
   ip4_src = fd_uint_if( !ip4_src, ctx->default_address, ip4_src );
@@ -637,16 +643,25 @@ before_frag( fd_net_ctx_t * ctx,
 
   if( kind_id!=0UL && kind_id!=target_idx ) return 1; /* ignore */
 
+  /* Net tile 0 routes packets owned by other net tiles only to detect
+     loopback traffic (which always targets tile 0).  Route failures for
+     such packets are accounted for by the owning tile. */
+
+  int is_owner = kind_id==target_idx;
 
   fd_net_tx_route_t * route = &ctx->net.tx_route;
   *route = (fd_net_tx_route_t){0};
   uint is_gre_inf = 0;
 
-  if( FD_UNLIKELY( !net_tx_route( ctx, dst_ip, &is_gre_inf ) ) ) {
+  if( FD_UNLIKELY( !net_tx_route( ctx, dst_ip, &is_gre_inf, !is_owner ) ) ) {
     return 1; /* metrics incremented by net_tx_route */
   }
 
   uint xsk_idx     = ctx->tx_op.xsk_idx;
+
+  /* Skip if another net tile is responsible for this non-loopback packet */
+
+  if( !is_owner && xsk_idx!=XSK_IDX_LO ) return 1; /* ignore */
 
   if( is_gre_inf ) {
     uint inner_src_ip = route->src_ip;
@@ -657,7 +672,7 @@ before_frag( fd_net_ctx_t * ctx,
     /* Find the MAC addrs for the eth hdr, and src ip for outer ip4 hdr if not found in netdev tbl */
     route->src_ip = 0;
     is_gre_inf    = 0;
-    if( FD_UNLIKELY( !net_tx_route( ctx, route->gre_outer_dst_ip, &is_gre_inf ) ) ) {
+    if( FD_UNLIKELY( !net_tx_route( ctx, route->gre_outer_dst_ip, &is_gre_inf, 0 ) ) ) {
       ctx->net.metrics.tx_gre_route_fail_cnt++;
       return 1;
     }
