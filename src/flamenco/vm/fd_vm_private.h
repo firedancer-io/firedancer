@@ -286,16 +286,7 @@ fd_vm_generate_access_violation( ulong vaddr, ulong sbpf_version ) {
    With ~O(2) extra fast branchless instructions, the below could be
    tweaked in the sz==0 case to return NULL or return a non-NULL
    sentinel value.  What is most optimal practically depends on how
-   empty ranges and NULL vaddr handling is defined in the application.
-
-   Requires ~O(10) fast branchless assembly instructions with 2 L1 cache
-   hit loads and pretty good ILP.
-
-   fd_vm_mem_haddr_fast is when the vaddr is for use when it is already
-   known that the vaddr region has a valid mapping.
-
-   These assumptions don't hold if direct mapping is enabled since input
-   region lookups become O(log(n)). */
+   empty ranges and NULL vaddr handling is defined in the application. */
 
 
 /* fd_vm_get_input_mem_region_idx returns the index into the input memory
