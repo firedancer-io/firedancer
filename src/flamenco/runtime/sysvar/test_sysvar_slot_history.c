@@ -4,6 +4,7 @@
 #include "fd_sysvar_base.h"
 #include "../fd_bank.h"
 #include "../fd_system_ids.h"
+#include "../fd_accdb_svm.h"
 #include <stdlib.h>
 
 FD_IMPORT_BINARY( example_slot_history, "src/flamenco/runtime/sysvar/test_sysvar_slot_history.bin" );
@@ -275,6 +276,46 @@ test_sysvar_slot_history_update_zero_blocks( fd_wksp_t * wksp ) {
 }
 
 static void
+test_sysvar_slot_history_update_truncates_large_account( fd_wksp_t * wksp ) {
+  test_sysvar_cache_env_t env[1];
+  FD_TEST( test_sysvar_cache_env_create( env, wksp ) );
+
+  fd_rent_t const rent = {
+    .lamports_per_uint8_year = 3480UL,
+    .exemption_threshold     = 2.0,
+    .burn_percent            = 100
+  };
+  env->bank->f.rent = rent;
+
+  /* Oversized account with garbage past the serialized region */
+  ulong const large_sz = FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ + 1024UL;
+  uchar * data = malloc( large_sz );
+  FD_TEST( data );
+  fd_memset( data, 0xAB, large_sz );
+  make_slot_history( data, 100UL, 101UL );
+  ulong const large_min_bal = fd_rent_exempt_minimum_balance( &rent, large_sz );
+  fd_accdb_svm_write( env->bank, env->accdb, NULL,
+                      &fd_sysvar_slot_history_id, &fd_sysvar_owner_id,
+                      data, large_sz, large_min_bal, 0, 0 );
+  free( data );
+
+  env->bank->f.slot = 101UL;
+  fd_sysvar_slot_history_update( env->bank, env->accdb, NULL );
+
+  fd_acc_t acc = fd_accdb_read_one( env->accdb, env->bank->accdb_fork_id, fd_sysvar_slot_history_id.uc );
+  FD_TEST( acc.lamports==large_min_bal );
+  FD_TEST( acc.data_len==FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ );
+  fd_slot_history_view_t view[1];
+  FD_TEST( fd_sysvar_slot_history_view( view, acc.data, acc.data_len ) );
+  FD_TEST( view->next_slot==102UL );
+  FD_TEST( fd_sysvar_slot_history_find_slot( view, 100UL )==FD_SLOT_HISTORY_SLOT_FOUND );
+  FD_TEST( fd_sysvar_slot_history_find_slot( view, 101UL )==FD_SLOT_HISTORY_SLOT_FOUND );
+  fd_accdb_unread_one( env->accdb, &acc );
+
+  test_sysvar_cache_env_destroy( env );
+}
+
+static void
 test_sysvar_slot_history( fd_wksp_t * wksp ) {
   test_sysvar_slot_history_validate           ();
   test_sysvar_slot_history_view               ();
@@ -284,4 +325,5 @@ test_sysvar_slot_history( fd_wksp_t * wksp ) {
   test_sysvar_slot_history_update             ( wksp );
   test_sysvar_slot_history_update_large_gap   ( wksp );
   test_sysvar_slot_history_update_zero_blocks ( wksp );
+  test_sysvar_slot_history_update_truncates_large_account( wksp );
 }
