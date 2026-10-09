@@ -795,7 +795,7 @@ fd_grpc_client_stream_send_msg1(
 
   /* Copy protobuf to buffer after gRPC header */
   uchar * proto_buf = client->nanopb_tx + sizeof(fd_grpc_hdr_t);
-  memcpy( proto_buf, protobuf, protobuf_sz );
+  if( protobuf!=proto_buf ) memcpy( proto_buf, protobuf, protobuf_sz );
 
   /* Create gRPC length prefix */
   fd_grpc_hdr_t hdr = {
