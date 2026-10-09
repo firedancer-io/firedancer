@@ -266,6 +266,22 @@ FD_VM_MEM_HADDR_ST_( fd_vm_t *vm, ulong vaddr, ulong align, ulong sz, int *err )
   }                                                                                                             \
 } while(0)
 
+/* https://github.com/anza-xyz/agave/blob/v4.4.0-beta.0/syscalls/src/lib.rs#L630-L656 */
+static inline int
+fd_vm_mem_touch_st( fd_vm_t * vm,
+                    ulong     vaddr,
+                    ulong     sz ) {
+  ulong haddr = fd_vm_mem_haddr( vm, vaddr, sz, vm->region_haddr, vm->region_st_sz, 1, 0UL );
+  if( FD_UNLIKELY( !haddr ) ) {
+    vm->segv_vaddr       = vaddr;
+    vm->segv_access_len  = sz;
+    vm->segv_access_type = FD_VM_ACCESS_TYPE_ST;
+    FD_VM_ERR_FOR_LOG_EBPF( vm, fd_vm_generate_access_violation( vaddr, vm->sbpf_version ) );
+    return FD_VM_SYSCALL_ERR_SEGFAULT;
+  }
+  return FD_VM_SUCCESS;
+}
+
 /* Mimics Agave's `translate_mut!` macro by taking in a variable number
    of (vaddr, align, sz) entries and translates each of them, failing
    if any one of the translations fail, or if any of the vaddrs have
@@ -276,9 +292,17 @@ FD_VM_MEM_HADDR_ST_( fd_vm_t *vm, ulong vaddr, ulong align, ulong sz, int *err )
    query. The translated haddr is written into the `haddr` field
    of each of the `fd_vm_haddr_query_t` objects on success.
 
-   https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L701-L738 */
+   https://github.com/anza-xyz/agave/blob/v4.4.0-beta.0/syscalls/src/lib.rs#L662-L713 */
 #define FD_VM_TRANSLATE_MUT( _vm, _queries ) do { \
   ulong _n = sizeof(_queries)/sizeof(fd_vm_haddr_query_t *); \
+  /* https://github.com/anza-xyz/agave/blob/v4.4.0-beta.0/syscalls/src/lib.rs#L699 */ \
+  for( ulong i=0UL; i<(_n); i++ ) { \
+    fd_vm_haddr_query_t * query = _queries[i]; \
+    if( query->is_slice && !query->sz ) continue; \
+    int touch_err = fd_vm_mem_touch_st( _vm, query->vaddr, query->sz ); \
+    if( FD_UNLIKELY( touch_err ) ) return touch_err; \
+  } \
+  /* https://github.com/anza-xyz/agave/blob/v4.4.0-beta.0/syscalls/src/lib.rs#L700 */ \
   for( ulong i=0UL; i<(_n); i++ ) { \
     fd_vm_haddr_query_t * query = _queries[i]; \
     if( query->is_slice ) { \
@@ -286,6 +310,10 @@ FD_VM_MEM_HADDR_ST_( fd_vm_t *vm, ulong vaddr, ulong align, ulong sz, int *err )
     } else { \
       query->haddr = FD_VM_MEM_HADDR_ST( _vm, query->vaddr, query->align, query->sz ); \
     } \
+  } \
+  /* https://github.com/anza-xyz/agave/blob/v4.4.0-beta.0/syscalls/src/lib.rs#L701-L710 */ \
+  for( ulong i=0UL; i<(_n); i++ ) { \
+    fd_vm_haddr_query_t * query = _queries[i]; \
     for( ulong j=0UL; j<i; j++ ) { \
       fd_vm_haddr_query_t * other_query = _queries[j]; \
       FD_VM_MEM_CHECK_NON_OVERLAPPING( _vm, (ulong)query->haddr, query->sz, (ulong)other_query->haddr, other_query->sz ); \
