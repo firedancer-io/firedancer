@@ -322,6 +322,38 @@ test_register_slot0( void ) {
   fd_sbpf_syscalls_delete( fd_sbpf_syscalls_leave( syscalls ) );
 }
 
+#define TEST_VM_U8_SLICE( _vaddr, _sz ) ((fd_vm_haddr_query_t){ .vaddr = (_vaddr), .align = FD_VM_ALIGN_RUST_U8,  .sz = (_sz), .is_slice = 1 })
+#define TEST_VM_U64( _vaddr )           ((fd_vm_haddr_query_t){ .vaddr = (_vaddr), .align = FD_VM_ALIGN_RUST_U64, .sz = 8UL,   .is_slice = 0 })
+
+static int
+test_vm_translate_mut_helper( fd_vm_t *             vm,
+                              fd_vm_haddr_query_t * query0,
+                              fd_vm_haddr_query_t * query1,
+                              fd_vm_haddr_query_t * query2 ) {
+  fd_vm_haddr_query_t * queries[] = { query0, query1, query2 };
+  FD_VM_TRANSLATE_MUT( vm, queries );
+  return FD_VM_SUCCESS;
+}
+
+static void
+test_vm_translate_mut( char const *        test_case_name,
+                       fd_vm_t *           vm,
+                       fd_vm_haddr_query_t query0,
+                       fd_vm_haddr_query_t query1,
+                       fd_vm_haddr_query_t query2,
+                       int                 expected_err,
+                       int                 expected_exec_err,
+                       ulong               expected_segv_vaddr ) {
+  vm->segv_vaddr = ULONG_MAX;
+  int err = test_vm_translate_mut_helper( vm, &query0, &query1, &query2 );
+  FD_TEST( err==expected_err );
+  FD_TEST( vm->instr_ctx->txn_out->err.exec_err==expected_exec_err );
+  FD_TEST( vm->segv_vaddr==expected_segv_vaddr );
+
+  test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_out );
+  FD_LOG_NOTICE(( "Passed test program (%s)", test_case_name ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -769,6 +801,62 @@ main( int     argc,
                                 vm->input_mem_regions[0].haddr + 450UL,
                                 500UL,
                                 0UL, FD_VM_SYSCALL_ERR_SEGFAULT );
+
+  test_vm_translate_mut( "test_vm_translate_mut: non-overlapping writable queries",
+                         vm,
+                         TEST_VM_U8_SLICE( FD_VM_MEM_MAP_HEAP_REGION_START,         32UL  ),
+                         TEST_VM_U8_SLICE( FD_VM_MEM_MAP_HEAP_REGION_START + 64UL,  29UL  ),
+                         TEST_VM_U8_SLICE( FD_VM_MEM_MAP_HEAP_REGION_START + 128UL, 170UL ),
+                         FD_VM_SUCCESS, FD_VM_SUCCESS, ULONG_MAX );
+
+  test_vm_translate_mut( "test_vm_translate_mut: overlapping queries",
+                         vm,
+                         TEST_VM_U8_SLICE( FD_VM_MEM_MAP_HEAP_REGION_START,         32UL  ),
+                         TEST_VM_U8_SLICE( FD_VM_MEM_MAP_HEAP_REGION_START + 16UL,  29UL  ),
+                         TEST_VM_U8_SLICE( FD_VM_MEM_MAP_HEAP_REGION_START + 128UL, 170UL ),
+                         FD_VM_SYSCALL_ERR_COPY_OVERLAPPING, FD_VM_SYSCALL_ERR_COPY_OVERLAPPING, ULONG_MAX );
+
+  test_vm_translate_mut( "test_vm_translate_mut: access violation on a later query",
+                         vm,
+                         TEST_VM_U8_SLICE( FD_VM_MEM_MAP_HEAP_REGION_START,         32UL  ),
+                         TEST_VM_U8_SLICE( FD_VM_MEM_MAP_HEAP_REGION_START + 16UL,  29UL  ),
+                         TEST_VM_U8_SLICE( FD_VM_MEM_MAP_PROGRAM_REGION_START,      170UL ),
+                         FD_VM_SYSCALL_ERR_SEGFAULT, FD_VM_ERR_EBPF_ACCESS_VIOLATION, FD_VM_MEM_MAP_PROGRAM_REGION_START );
+
+  test_vm_translate_mut( "test_vm_translate_mut: access violation on an earlier query",
+                         vm,
+                         TEST_VM_U8_SLICE( FD_VM_MEM_MAP_PROGRAM_REGION_START,      32UL  ),
+                         TEST_VM_U8_SLICE( FD_VM_MEM_MAP_HEAP_REGION_START,         29UL  ),
+                         TEST_VM_U8_SLICE( FD_VM_MEM_MAP_HEAP_REGION_START + 64UL,  170UL ),
+                         FD_VM_SYSCALL_ERR_SEGFAULT, FD_VM_ERR_EBPF_ACCESS_VIOLATION, FD_VM_MEM_MAP_PROGRAM_REGION_START );
+
+  test_vm_translate_mut( "test_vm_translate_mut: unaligned query",
+                         vm,
+                         TEST_VM_U64(      FD_VM_MEM_MAP_HEAP_REGION_START + 1UL          ),
+                         TEST_VM_U8_SLICE( FD_VM_MEM_MAP_HEAP_REGION_START + 64UL,  29UL  ),
+                         TEST_VM_U8_SLICE( FD_VM_MEM_MAP_HEAP_REGION_START + 128UL, 170UL ),
+                         FD_VM_SYSCALL_ERR_SEGFAULT, FD_VM_SYSCALL_ERR_UNALIGNED_POINTER, ULONG_MAX );
+
+  test_vm_translate_mut( "test_vm_translate_mut: access violation on a later query",
+                         vm,
+                         TEST_VM_U64(      FD_VM_MEM_MAP_HEAP_REGION_START + 1UL          ),
+                         TEST_VM_U8_SLICE( FD_VM_MEM_MAP_HEAP_REGION_START + 64UL,  29UL  ),
+                         TEST_VM_U8_SLICE( FD_VM_MEM_MAP_PROGRAM_REGION_START,      170UL ),
+                         FD_VM_SYSCALL_ERR_SEGFAULT, FD_VM_ERR_EBPF_ACCESS_VIOLATION, FD_VM_MEM_MAP_PROGRAM_REGION_START );
+
+  test_vm_translate_mut( "test_vm_translate_mut: unaligned query beats an overlap",
+                         vm,
+                         TEST_VM_U8_SLICE( FD_VM_MEM_MAP_HEAP_REGION_START,         32UL  ),
+                         TEST_VM_U8_SLICE( FD_VM_MEM_MAP_HEAP_REGION_START + 16UL,  29UL  ),
+                         TEST_VM_U64(      FD_VM_MEM_MAP_HEAP_REGION_START + 129UL        ),
+                         FD_VM_SYSCALL_ERR_SEGFAULT, FD_VM_SYSCALL_ERR_UNALIGNED_POINTER, ULONG_MAX );
+
+  test_vm_translate_mut( "test_vm_translate_mut: empty slices are not touched",
+                         vm,
+                         TEST_VM_U8_SLICE( FD_VM_MEM_MAP_HEAP_REGION_START,         32UL  ),
+                         TEST_VM_U8_SLICE( (ulong)FD_VM_HIGH_REGION<<FD_VM_MEM_MAP_REGION_VIRT_ADDR_BITS, 0UL ),
+                         TEST_VM_U8_SLICE( FD_VM_MEM_MAP_HEAP_REGION_START + 64UL,  170UL ),
+                         FD_VM_SUCCESS, FD_VM_SUCCESS, ULONG_MAX );
 
   test_vm_syscall_sol_memcmp_search( vm );
   test_vm_syscall_sol_memcmp_alias( vm );
