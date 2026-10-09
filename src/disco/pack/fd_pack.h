@@ -261,6 +261,7 @@ fd_pack_avail_txn_cnt( fd_pack_t const * pack ) {
    be a valid local join. */
 FD_FN_PURE ulong fd_pack_current_block_cost( fd_pack_t const * pack );
 
+FD_FN_PURE ulong fd_pack_current_consumed_cost( fd_pack_t const * pack );
 void             fd_pack_auction_begin       ( fd_pack_t *       pack );
 void             fd_pack_auction_end         ( fd_pack_t *       pack );
 FD_FN_PURE int   fd_pack_auction_running     ( fd_pack_t const * pack );

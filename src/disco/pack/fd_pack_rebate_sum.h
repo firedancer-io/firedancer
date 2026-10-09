@@ -29,6 +29,7 @@ typedef struct {
 
 struct fd_pack_rebate_sum_private {
   ulong total_cost_rebate;
+  ulong total_consumed;
   ulong data_bytes_rebate;
   ulong microblock_cnt_rebate;
   ulong alloc_rebate;
@@ -44,6 +45,7 @@ typedef struct fd_pack_rebate_sum_private fd_pack_rebate_sum_t;
 
 struct fd_pack_rebate {
   ulong total_cost_rebate;
+  ulong total_consumed;
   ulong data_bytes_rebate;
   ulong microblock_cnt_rebate;
   ulong alloc_rebate;
