@@ -121,6 +121,9 @@ main( int     argc,
   fake_transaction( microblock+0, alt[0],   10000UL, SANITIZE | EXECUTE, "ABCD", "EF" );
   fake_transaction( microblock+1, alt[1], 1400000UL, SANITIZE,           "GH",   ""   );
   fake_transaction( microblock+2, alt[2], 1400000UL, 0,                  "JKL",  "MN" );
+  microblock[0].execle_cu.actual_consumed_cus = 5000U;
+  microblock[1].execle_cu.actual_consumed_cus = 7000U;
+  microblock[2].execle_cu.actual_consumed_cus = 9000U;
 
 #define SZ(accts) (sizeof(fd_pack_rebate_t)-sizeof(fd_pack_rebate_entry_t) + (accts)*sizeof(fd_pack_rebate_entry_t))
 
@@ -129,6 +132,7 @@ main( int     argc,
   FD_TEST(      0UL==fd_pack_rebate_sum_add_txn( sum, microblock, _alt, 3UL ) );
   FD_TEST( SZ(13UL)==fd_pack_rebate_sum_report ( sum, report.rebate ) );
   FD_TEST( report.rebate->total_cost_rebate    ==2810000UL );
+  FD_TEST( report.rebate->total_consumed       ==5000UL    );
   FD_TEST( report.rebate->data_bytes_rebate    ==222UL     );
   FD_TEST( report.rebate->microblock_cnt_rebate==0UL       );
   FD_TEST( report.rebate->ib_result            ==0         );
@@ -144,6 +148,7 @@ main( int     argc,
   FD_TEST(      0UL==fd_pack_rebate_sum_add_txn( sum, microblock, _alt, 3UL ) );
   FD_TEST( SZ(13UL)==fd_pack_rebate_sum_report ( sum, report.rebate ) );
   FD_TEST( report.rebate->total_cost_rebate    ==5620000UL );
+  FD_TEST( report.rebate->total_consumed       ==10000UL   );
   FD_TEST( report.rebate->data_bytes_rebate    ==444UL     );
   FD_TEST( report.rebate->microblock_cnt_rebate==0UL       );
   FD_TEST( report.rebate->ib_result            ==0         );

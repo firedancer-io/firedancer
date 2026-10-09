@@ -1151,9 +1151,13 @@ test_limits( void ) {
     FD_TEST( fd_pack_avail_txn_cnt( pack )==1UL );
 
     outcome.results->txnp->execle_cu.rebated_cus = (uint)((total_cus + (total_cus*FD_PACK_TEST_MAX_COST_PER_BLOCK/(4*total_cus))) - FD_PACK_TEST_MAX_WRITE_COST_PER_ACCT);
+    outcome.results->txnp->execle_cu.actual_consumed_cus = 1234U;
+    outcome.results->txnp->flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
     fd_pack_rebate_sum_add_txn( rebater, outcome.results->txnp, rebate_alt, 1UL );
     fd_pack_rebate_sum_report( rebater, report->rebate );
+    FD_TEST( fd_pack_current_consumed_cost( pack )==0UL );
     fd_pack_rebate_cus( pack, report->rebate );
+    FD_TEST( fd_pack_current_consumed_cost( pack )==1234UL );
     /* Now consumed CUs is 12M - total_cus, so it just fits. */
     schedule_validate_microblock( pack, FD_PACK_TEST_MAX_COST_PER_BLOCK, 1UL, 0UL, 0UL, &outcome );
 
@@ -1163,6 +1167,7 @@ test_limits( void ) {
     FD_TEST( fd_pack_avail_txn_cnt( pack )==1UL );
 
     fd_pack_end_block( pack );
+    FD_TEST( fd_pack_current_consumed_cost( pack )==0UL );
     schedule_validate_microblock( pack, FD_PACK_TEST_MAX_COST_PER_BLOCK, 1UL, 0UL, 0UL, &outcome );
   }
 

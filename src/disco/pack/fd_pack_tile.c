@@ -331,6 +331,10 @@ typedef struct {
      least execle_ready_at[x]. */
   long     execle_ready_at[ FD_PACK_MAX_EXECLE_TILES  ];
 
+  /* Requested cost of the microblock currently executing on each exec
+     tile, 0 if it is idle.  See progress_cost. */
+  ulong    execle_inflight_cus[ FD_PACK_MAX_EXECLE_TILES ];
+
   fd_pack_out_ctx_t execle_out[ FD_PACK_MAX_EXECLE_TILES ];
   fd_pack_out_ctx_t poh_out;
 
@@ -1114,6 +1118,22 @@ prevent_park( fd_pack_ctx_t * ctx ) {
   return ctx->skip_cnt>0L;
 }
 
+/* progress_cost returns how full the block actually is: the CUs
+   consumed by landed transactions (from rebates) plus the requested
+   cost of the microblocks still executing.  fd_pack_current_block_cost
+   also counts the requested cost of everything whose rebate has not
+   arrived yet, which overstates progress by the request/consumption
+   gap (votes are costed at ~53k and consume ~3.5k, bundles request up
+   to 1.4M) for as long as rebates lag.  The auction limit and the pacer
+   decide when to admit transactions from this value; whether a
+   transaction fits the block is still decided on the full cost. */
+static inline ulong
+progress_cost( fd_pack_ctx_t const * ctx ) {
+  ulong inflight = 0UL;
+  for( ulong i=0UL; i<ctx->execle_cnt; i++ ) inflight += ctx->execle_inflight_cus[ i ];
+  return fd_pack_current_consumed_cost( ctx->pack ) + inflight;
+}
+
 static inline void
 auction_end( fd_pack_ctx_t * ctx,
              long            now_tick,
@@ -1133,7 +1153,7 @@ auction_begin( fd_pack_ctx_t * ctx,
   long  span    = fd_long_max( ctx->leader_slot_end_tick-ctx->leader_slot_start_tick, 1L );
   long  elapsed = fd_long_min( fd_long_max( now_tick+ctx->auction_interval_tick-ctx->leader_slot_start_tick, 0L ), span );
   ulong limit   = (ulong)( (double)ctx->limits.slot_max_cost*(double)elapsed/(double)span );
-  if( FD_UNLIKELY( fd_pack_current_block_cost( ctx->pack )>=limit ) ) {
+  if( FD_UNLIKELY( progress_cost( ctx )>=limit ) ) {
     ctx->auction_cancelled++;
     return;
   }
@@ -1206,6 +1226,7 @@ after_credit( fd_pack_ctx_t *     ctx,
         (fd_fseq_query( ctx->execle_current[poll_cursor] )==ctx->execle_expect[poll_cursor]) ) ) {
       *charge_busy = 1;
       ctx->execle_idle_bitset |= 1UL<<poll_cursor;
+      ctx->execle_inflight_cus[ poll_cursor ] = 0UL;
 
       long complete_duration = -fd_tickcount();
       int completed = fd_pack_microblock_complete( ctx->pack, (ulong)poll_cursor );
@@ -1428,6 +1449,7 @@ after_credit( fd_pack_ctx_t *     ctx,
     fd_histf_sample( (schedule_cnt>0UL) ? ctx->schedule_duration : ctx->no_sched_duration, (ulong)schedule_duration );
     if( schedule_cnt ) {
       ulong sched_cus = fd_pack_current_block_cost( ctx->pack ) - cost_before;
+      ctx->execle_inflight_cus[ i ]  = sched_cus;
       ctx->obs->inflight_cus  [ i ] += sched_cus;
       ctx->obs->last_sched_cus[ i ]  = sched_cus;
     }
@@ -1440,7 +1462,7 @@ after_credit( fd_pack_ctx_t *     ctx,
 
     if( fd_pack_auction_running( ctx->pack ) ) {
       /* End the auction early if we have reached the CU limit. */
-      if( fd_pack_current_block_cost( ctx->pack )>=ctx->auction_cu_limit ) {
+      if( progress_cost( ctx )>=ctx->auction_cu_limit ) {
         obs_limit_inflight( ctx );
         auction_end( ctx, now, FD_METRICS_ENUM_PACK_AUCTION_END_V_LIMIT_IDX );
       }
@@ -1501,7 +1523,7 @@ after_credit( fd_pack_ctx_t *     ctx,
 
       ctx->execle_idle_bitset = fd_ulong_pop_lsb( ctx->execle_idle_bitset );
       ctx->skip_cnt           = (long)schedule_cnt * fd_long_if( ctx->use_consumed_cus, (long)execle_cnt/2L, 1L );
-      fd_pack_pacing_update_consumed_cus( ctx->pacer, fd_pack_current_block_cost( ctx->pack ), now2 );
+      fd_pack_pacing_update_consumed_cus( ctx->pacer, progress_cost( ctx ), now2 );
 
       ctx->last_sched_metrics->time = now2;
       fd_pack_get_sched_metrics( ctx->pack, ctx->last_sched_metrics->sched_results );
@@ -1896,6 +1918,8 @@ after_frag( fd_pack_ctx_t *     ctx,
     ctx->obs->txn_blocked_reason       = -1;
     memset( ctx->obs->inflight_cus,   0, sizeof(ctx->obs->inflight_cus)   );
     memset( ctx->obs->last_sched_cus, 0, sizeof(ctx->obs->last_sched_cus) );
+    /* Microblocks still executing belong to the previous block */
+    memset( ctx->execle_inflight_cus, 0, sizeof(ctx->execle_inflight_cus) );
     ctx->slot_dynamic_max_microblocks  = ctx->slot_max_microblocks;
     ctx->slot_mixin_per_tick           = fd_ulong_if( ctx->_became_leader->hashcnt_per_tick>1UL, ctx->_became_leader->hashcnt_per_tick-1UL, 0UL ); /* 0: low power / alpenglow, no hash budget */
     ctx->slot_tick_duration_ns         = ctx->_became_leader->tick_duration_ns;
@@ -1908,7 +1932,7 @@ after_frag( fd_pack_ctx_t *     ctx,
     limits->max_txn_per_microblock = ULONG_MAX; /* unused */
     limits->max_allocated_data_per_block = ctx->limits.slot_max_allocated_data_per_block;
     fd_pack_set_block_limits( ctx->pack, limits );
-    fd_pack_pacing_update_consumed_cus( ctx->pacer, fd_pack_current_block_cost( ctx->pack ), now );
+    fd_pack_pacing_update_consumed_cus( ctx->pacer, progress_cost( ctx ), now );
 
     break;
   }
@@ -1928,7 +1952,7 @@ after_frag( fd_pack_ctx_t *     ctx,
 
     fd_pack_rebate_cus( ctx->pack, ctx->rebate->rebate );
     ctx->pending_rebate_sz = 0UL;
-    fd_pack_pacing_update_consumed_cus( ctx->pacer, fd_pack_current_block_cost( ctx->pack ), now );
+    fd_pack_pacing_update_consumed_cus( ctx->pacer, progress_cost( ctx ), now );
     break;
   }
   case IN_KIND_RESOLV: {
@@ -2215,6 +2239,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->poll_cursor      = 0;
   ctx->skip_cnt         = 0L;
   ctx->execle_idle_bitset = fd_ulong_mask_lsb( (int)tile->pack.execle_tile_count );
+  memset( ctx->execle_inflight_cus, 0, sizeof(ctx->execle_inflight_cus) );
   for( ulong i=0UL; i<tile->pack.execle_tile_count; i++ ) {
     ulong busy_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "execle_busy.%lu", i );
     FD_TEST( busy_obj_id!=ULONG_MAX );
