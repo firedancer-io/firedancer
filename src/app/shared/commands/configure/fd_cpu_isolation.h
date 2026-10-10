@@ -113,6 +113,28 @@ void
 fd_cpu_isolation_warn_wq_change( char const *        path,
                                  fd_cpuset_t const * before );
 
+/* The kworkers and cpuset configure stages both change the kernel's
+   unbound workqueue cpumask.  As a result, some Linux kernels with
+   ordered workqueue "plugging" can leave queued work on an ordered
+   workqueue inactive forever.  mlx5 dispatches firmware commands
+   through such a workqueue, so the result is stalled mlx5 commands and
+   timeouts. */
+
+/* fd_cpu_isolation_wq_safe returns 1 if the kernel with uname(2)
+   release string release is known not to be affected by the workqueue
+   stall bug, 0 otherwise. */
+
+int
+fd_cpu_isolation_wq_safe( char const * release );
+
+/* fd_cpu_isolation_enabled returns 1 if the kworkers and cpuset
+   stages may run under config, 0 otherwise.  In "auto" mode the
+   running kernel is checked once per process and the decision is
+   logged once. */
+
+int
+fd_cpu_isolation_enabled( fd_config_t const * config );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_app_shared_commands_configure_fd_cpu_isolation_h */

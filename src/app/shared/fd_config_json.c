@@ -11,7 +11,7 @@
    or knowingly skipped) before the constant is bumped.  String keys of
    the user's own file are separately forced through the classification
    lists below. */
-FD_STATIC_ASSERT( sizeof(fd_config_t)==26565872UL, update_fd_config_to_json_for_the_layout_change );
+FD_STATIC_ASSERT( sizeof(fd_config_t)==26565888UL, update_fd_config_to_json_for_the_layout_change );
 
 #define REDACTED "[redacted]"
 
@@ -181,6 +181,7 @@ static char const * const jw_reported_keys[] = {
   "development.ledger_input.format",
   "development.backtest.affinity",
   "development.forktest.affinity",
+  "development.cpu_isolation.enabled",
   "capture.dump_instr_program_id_filter",
 };
 
@@ -529,6 +530,9 @@ fd_config_to_json( fd_config_t const * config,
     jw_obj_close( &w );
     jw_obj_open( &w, "hugetlbfs" );
       jw_bool( &w, "min_size", config->development.hugetlbfs.min_size );
+    jw_obj_close( &w );
+    jw_obj_open( &w, "cpu_isolation" );
+      jw_str( &w, "enabled", config->development.cpu_isolation.enabled );
     jw_obj_close( &w );
   jw_obj_close( &w );
 

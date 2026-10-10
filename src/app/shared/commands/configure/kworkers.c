@@ -68,10 +68,10 @@ write_wq_cpumask( fd_cpuset_t const * cpuset ) {
 
 static int
 enabled( config_t const * config ) {
-  (void)config;
   /* Not all kernels expose the unbound workqueue mask (CONFIG_SYSFS,
      ancient kernels).  If absent there is nothing to configure. */
-  return 0==access( WQ_CPUMASK_PATH, F_OK );
+  if( FD_UNLIKELY( 0!=access( WQ_CPUMASK_PATH, F_OK ) ) ) return 0;
+  return fd_cpu_isolation_enabled( config );
 }
 
 static void
