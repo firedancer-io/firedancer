@@ -342,6 +342,8 @@ sample_unstaked( fd_shred_dest_t * sdest ) {
 
 /* fd_chacha8_rng_refill_avx512 split into steps (fini transposes) */
 
+#define chacha8_v_t wwu_t
+
 static inline __attribute__((always_inline)) void
 chacha8_init( wwu_t *                 c,
               fd_chacha_rng_t const * rng ) {
@@ -389,6 +391,72 @@ chacha8_fini( wwu_t *           c,
                        c[ 0 ], c[ 1 ], c[  2 ], c[  3 ], c[  4 ], c[  5 ], c[  6 ], c[  7 ],
                        c[ 8 ], c[ 9 ], c[ 10 ], c[ 11 ], c[ 12 ], c[ 13 ], c[ 14 ], c[ 15 ] );
 }
+
+#define chacha8_store( c, rng ) do {                                                       \
+    for( ulong _b=0UL; _b<16UL; _b++ ) wwu_st( (uint *)(rng)->buf + 16UL*_b, (c)[ _b ] );   \
+  } while(0)
+
+#else
+
+/* fd_chacha8_rng_refill_avx split into steps (fini transposes) */
+
+#define chacha8_v_t wu_t
+
+static inline __attribute__((always_inline)) void
+chacha8_init( wu_t *                  c,
+              fd_chacha_rng_t const * rng ) {
+  uint const * key = (uint const *)rng->key;
+  ulong        idx = rng->buf_fill / FD_CHACHA_BLOCK_SZ;
+  wu_t         ofs = wu( 0, 1, 2, 3, 4, 5, 6, 7 );
+  c[ 0 ] = wu_bcast( 0x61707865U ); c[ 1 ] = wu_bcast( 0x3320646eU );
+  c[ 2 ] = wu_bcast( 0x79622d32U ); c[ 3 ] = wu_bcast( 0x6b206574U );
+  for( ulong i=0UL; i<8UL; i++ ) c[ 4UL+i ] = wu_bcast( key[ i ] );
+  c[ 12 ] = wu_add( wu_bcast( (uint)idx ), ofs );
+  c[ 13 ] = wu_add( wu_bcast( (uint)(idx>>32) ), wu_and( wu_lt( c[ 12 ], ofs ), wu_one() ) );
+  c[ 14 ] = wu_zero(); c[ 15 ] = wu_zero();
+}
+
+#define CHACHA8_QR( a, b, c, d ) do {                                                         \
+    wb_t const _rol8  = wb_bcast_hex( 3,0,1,2, 7,4,5,6, 11,8,9,10, 15,12,13,14 );             \
+    a = wu_add( a, b ); d = wu_xor( d, a ); d = wb_exch_adj_pair( d );                        \
+    c = wu_add( c, d ); b = wu_xor( b, c ); b = wu_rol( b, 12 );                               \
+    a = wu_add( a, b ); d = wu_xor( d, a ); d = _mm256_shuffle_epi8( d, _rol8 );               \
+    c = wu_add( c, d ); b = wu_xor( b, c ); b = wu_rol( b,  7 );                               \
+  } while(0)
+
+static inline __attribute__((always_inline)) void
+chacha8_dround( wu_t * c ) {
+  CHACHA8_QR( c[ 0 ], c[ 4 ], c[  8 ], c[ 12 ] );
+  CHACHA8_QR( c[ 1 ], c[ 5 ], c[  9 ], c[ 13 ] );
+  CHACHA8_QR( c[ 2 ], c[ 6 ], c[ 10 ], c[ 14 ] );
+  CHACHA8_QR( c[ 3 ], c[ 7 ], c[ 11 ], c[ 15 ] );
+  CHACHA8_QR( c[ 0 ], c[ 5 ], c[ 10 ], c[ 15 ] );
+  CHACHA8_QR( c[ 1 ], c[ 6 ], c[ 11 ], c[ 12 ] );
+  CHACHA8_QR( c[ 2 ], c[ 7 ], c[  8 ], c[ 13 ] );
+  CHACHA8_QR( c[ 3 ], c[ 4 ], c[  9 ], c[ 14 ] );
+}
+
+#undef CHACHA8_QR
+
+static inline __attribute__((always_inline)) void
+chacha8_fini( wu_t *            c,
+              fd_chacha_rng_t * rng ) {
+  wu_t i[ 16 ];
+  chacha8_init( i, rng );
+  for( ulong j=0UL; j<14UL; j++ ) c[ j ] = wu_add( c[ j ], i[ j ] );
+  wu_transpose_8x8( c[ 0 ], c[ 1 ], c[  2 ], c[  3 ], c[  4 ], c[  5 ], c[  6 ], c[  7 ],
+                    c[ 0 ], c[ 1 ], c[  2 ], c[  3 ], c[  4 ], c[  5 ], c[  6 ], c[  7 ] );
+  wu_transpose_8x8( c[ 8 ], c[ 9 ], c[ 10 ], c[ 11 ], c[ 12 ], c[ 13 ], c[ 14 ], c[ 15 ],
+                    c[ 8 ], c[ 9 ], c[ 10 ], c[ 11 ], c[ 12 ], c[ 13 ], c[ 14 ], c[ 15 ] );
+}
+
+/* block b is c[ b ] (words 0-7) then c[ 8+b ] (words 8-15) */
+#define chacha8_store( c, rng ) do {                               \
+    for( ulong _b=0UL; _b<8UL; _b++ ) {                            \
+      wu_st( (uint *)(rng)->buf + 16UL*_b,       (c)[ _b     ] );   \
+      wu_st( (uint *)(rng)->buf + 16UL*_b + 8UL, (c)[ 8UL+_b ] );   \
+    }                                                              \
+  } while(0)
 
 #endif
 
@@ -453,9 +521,8 @@ flat_remove_idx( fd_shred_dest_t * sdest,
   sdest->flat_W               -= wt;
 }
 
-#if FD_HAS_AVX512
 /* FLAT_PRE_STEP builds the next ring one step per sample, swapped in once drained */
-#define FLAT_PRE_DECL wwu_t pc[ 16 ]; ulong pst = 0UL; ulong pfill = 0UL
+#define FLAT_PRE_DECL chacha8_v_t pc[ 16 ]; ulong pst = 0UL; ulong pfill = 0UL
 #define FLAT_PRE_STEP do {                                                                         \
     if( FD_UNLIKELY( pst && pfill!=fill ) ) pst = 0UL;                                             \
     if( pst==0UL ) {                                                                               \
@@ -470,15 +537,11 @@ flat_remove_idx( fd_shred_dest_t * sdest,
         if( lo<=zone ) break;                                                                      \
       }                                                                                            \
       if( off==fill ) {                                                                            \
-        for( ulong b=0UL; b<16UL; b++ ) wwu_st( (uint *)rng->buf + 16UL*b, pc[ b ] );              \
+        chacha8_store( pc, rng );                                                                  \
         fill += FD_CHACHA_RNG_BUFSZ; rng->buf_fill = fill; pst = 0UL;                              \
       }                                                                                            \
     }                                                                                              \
   } while(0)
-#else
-#define FLAT_PRE_DECL
-#define FLAT_PRE_STEP
-#endif
 
 /* flat_sample2 is fd_wsample_sample_and_remove_many for the two level
    classes, rows of gsz leaves. */
@@ -556,11 +619,15 @@ flat_sample3( fd_shred_dest_t * sdest,
   ulong off  = rng->buf_off;
   ulong fill = rng->buf_fill;
 
+# if FD_HAS_AVX512 /* AVX2: the 16 ymm ring state spills in class 3 */
   FLAT_PRE_DECL;
+# endif
 
   for( ulong i=0UL; i<cnt; i++ ) {
     if( FD_UNLIKELY( !W ) ) { out[ i ] = FD_WSAMPLE_EMPTY; continue; }
+#   if FD_HAS_AVX512
     FLAT_PRE_STEP;
+#   endif
 
     ulong    r  = flat_roll( rng, W, &off, &fill );
     flat_v_t vr = flat_v_bcast( r );
@@ -960,24 +1027,25 @@ fd_shred_dest_compute_children( fd_shred_dest_t          * sdest,
         UNSTAKED_MUL( w );                                                   \
         h[ q ] = (uint)hi;                                                   \
       } while(0)
-#     if FD_HAS_AVX512
+#     if FD_HAS_AVX
       if( FD_LIKELY( (need>wcnt) & (rng->algo==FD_CHACHA_RNG_ALGO_CHACHA8) ) ) {
         /* All wcnt words get consumed: run the certain next refill
-           between 16 word groups */
-        wwu_t c[ 16 ];
+           between word groups (8 groups per ring) */
+        ulong const gw = FD_CHACHA_RNG_BUFSZ/64UL;
+        chacha8_v_t c[ 16 ];
         ulong r = 5UL; /* 4 double rounds + fini */
         chacha8_init( c, rng );
-        for( ; k<wcnt%16UL; k++ ) UNSTAKED_WORD( k );
-        for( ; k<wcnt; k+=16UL ) {
+        for( ; k<wcnt%gw; k++ ) UNSTAKED_WORD( k );
+        for( ; k<wcnt; k+=gw ) {
 #         pragma GCC unroll 16
-          for( ulong e=0UL; e<16UL; e++ ) UNSTAKED_WORD( k+e );
+          for( ulong e=0UL; e<gw; e++ ) UNSTAKED_WORD( k+e );
           if     ( r>1UL ) chacha8_dround( c );
           else if( r     ) chacha8_fini( c, rng );
           r -= !!r;
         }
         for( ; r>1UL; r-- ) chacha8_dround( c );
         if( r ) chacha8_fini( c, rng );
-        for( ulong b=0UL; b<16UL; b++ ) wwu_st( (uint *)rng->buf + 16UL*b, c[ b ] );
+        chacha8_store( c, rng );
         rng->buf_off   = off + 8UL*k;
         rng->buf_fill += FD_CHACHA_RNG_BUFSZ;
       } else
